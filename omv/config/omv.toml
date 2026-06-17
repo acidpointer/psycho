@@ -152,34 +152,39 @@ occlusion_softness = 0.42
 # OMV installs native hooks from xNVSE DeferredInit after dependency detection.
 # New Vegas Reloaded coexistence is not supported.
 #
-# When enabled below, OMV replaces eligible PPLighting material pixel
-# shaders with embedded Native PBR shader variants. The proven draw-time
+# When enabled below, OMV replaces eligible PPLighting material shaders
+# with embedded Native PBR shader variants. The draw-time ownership
 # contract:
+#   - BSShader::CreateVertexShader/CreatePixelShader ownership side table
 #   - PPLighting selector setup +0xF0/+0xF4 material-array side table
 #   - BSShader::SetShaders current NiD3DPass context
 #   - current pass shader-interface apply context
 #   - NiDX9RenderState::SetTexture final 16-stage texture cache
 #   - PPLighting shader-family membership from proven vanilla global arrays
-#   - ObjectTemplate ADTS non-SI/non-HAIR object ABIs:
+#   - ObjectTemplate ADTS object ABIs:
 #     base/OPT/LOD, projected shadow, LIGHTS=2, LIGHTS=2 projected shadow,
 #     specular, specular projected shadow, specular LIGHTS=2, and specular
-#     LIGHTS=2 projected shadow
+#     LIGHTS=2 projected shadow, plus SI and hair helper variants
 #   - ObjectTemplate ADTS10 object ABIs:
 #     LIGHTS=9, LIGHTS=4, LIGHTS=4 OPT, SPECULAR LIGHTS=4, and
 #     SPECULAR LIGHTS=4 OPT
-#   - VPT-backed land LOD ABI:
-#     vertex group C index 2 and pixel group B index 3 are replaced together;
-#     c31 remains vanilla LODTexParams, c38 is VPT LandLODSpec, and
-#     terrain tuning uses c89/c90 instead of object c32/c33
+#   - optional experimental VPT/FSL/LODFF LandLOD and close terrain rows when
+#     the terrain stack is detected and terrain_enabled is true
+#   - contract-gated replacement:
+#     visible replacement starts only after all active shader contracts are
+#     compiled, created, and ready together
 #
-# SI hair, parallax/POM, skin, terrain fade, and helper passes remain on
-# vanilla shaders until their texture and pass contracts are implemented
-# separately. VPT close-terrain base rows are covered when the VPT terrain
-# contract is present; point-light terrain rows remain vanilla until that
-# separate lighting contract is proven.
+# EnvMap/reflection rows, skin rows, terrain fade, projected terrain, and
+# unproven helper terrain rows remain on vanilla shaders until their texture,
+# pass, fade, and lighting contracts are implemented separately. Terrain PBR is
+# still experimental because terrain fade and row coverage are not complete.
 #
 # This is a runtime shader toggle. It does not control hook installation.
 enabled = true
+
+# Experimental. Defaults off because the terrain/fade contract is incomplete
+# and enabling it can cause distance blinking and large FPS drops.
+terrain_enabled = false
 
 # Object PBR registers:
 #   c32.x metallicness, c32.y roughness scale, c32.z light scale,

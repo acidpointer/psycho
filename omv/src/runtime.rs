@@ -1838,6 +1838,16 @@ fn draw_native_pbr_config(
 
     let (status_color, status_text) = if let Some(reason) = status.block_reason {
         (MENU_WARN_TEXT, format!("PBR blocked: {reason}"))
+    } else if status.installed && status.shader_enabled && status.active_contracts_failed {
+        (
+            MENU_WARN_TEXT,
+            "PBR blocked: active shader contract failed".to_owned(),
+        )
+    } else if status.installed && status.shader_enabled && !status.active_contracts_ready {
+        (
+            MENU_WARN_TEXT,
+            "PBR shader: warming active contracts".to_owned(),
+        )
     } else if status.installed && status.shader_enabled {
         (MENU_GOOD_TEXT, "PBR shader: active".to_owned())
     } else if status.installed {
@@ -1850,10 +1860,14 @@ fn draw_native_pbr_config(
     };
     let status_text = cstring(status_text);
     ui.text_colored(status_color, &status_text);
-    let terrain_text = if status.terrain_contract_available {
-        "Terrain contract: VPT/FSL/LODFF available"
+    let terrain_text = if status.terrain_enabled && status.terrain_contract_available {
+        "Terrain PBR: experimental, VPT/FSL/LODFF stack detected"
+    } else if status.terrain_enabled {
+        "Terrain PBR: enabled in config, but VPT/FSL/LODFF contract is missing"
+    } else if status.terrain_contract_available {
+        "Terrain PBR: disabled by config; VPT/FSL/LODFF stack detected"
     } else {
-        "Terrain contract: missing, LandLOD/terrain PBR disabled"
+        "Terrain PBR: disabled; VPT/FSL/LODFF contract missing"
     };
     let terrain_text = cstring(terrain_text);
     ui.text_colored(MENU_MUTED_TEXT, &terrain_text);
@@ -1875,10 +1889,21 @@ fn draw_native_pbr_config(
         "native_pbr.debug_log_draws",
         &mut config.debug_log_draws,
     );
+    changed |= draw_config_checkbox(
+        ui,
+        "Experimental terrain PBR",
+        "native_pbr.terrain_enabled",
+        &mut config.terrain_enabled,
+    );
     if config.enabled {
-        let text = cstring("Visible scope: non-skin ADTS/ADTS10 objects; VPT-gated LandLOD");
+        let text = if config.terrain_enabled {
+            "Visible scope: contract-ready objects and experimental terrain rows"
+        } else {
+            "Visible scope: contract-ready objects"
+        };
+        let text = cstring(text);
         ui.text_colored(MENU_WARN_TEXT, &text);
-        let text = cstring("Object PBR uses c32/c33; terrain PBR uses c38/c89/c90");
+        let text = cstring("Object PBR uses c32/c33; terrain PBR uses c89/c90");
         ui.text_colored(MENU_MUTED_TEXT, &text);
         ui.separator();
         changed |= draw_float_slider(
@@ -2222,7 +2247,11 @@ fn shader_list_label(source: &ScreenShaderSource, index: usize) -> String {
 }
 
 fn native_pbr_list_label(configured_enabled: bool, status: pbr::NativePbrRuntimeStatus) -> String {
-    let status = if status.installed && configured_enabled {
+    let status = if status.installed && configured_enabled && status.active_contracts_failed {
+        "BLK"
+    } else if status.installed && configured_enabled && !status.active_contracts_ready {
+        "WUP"
+    } else if status.installed && configured_enabled {
         "ON "
     } else if status.block_reason.is_some() {
         "BLK"

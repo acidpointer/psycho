@@ -9,16 +9,22 @@ crate all use `omv`.
 
 ## Requirements
 
-OMV requires these NVSE graphics dependencies:
+OMV requires:
 
 - **xNVSE**: required. OMV is an xNVSE plugin.
-- **Fallout Shader Loader**: required for the shader-loader contract used by
-  the modern terrain stack. Vanilla Plus Terrain expects plugin version `131` or
-  newer.
-- **Vanilla Plus Terrain**: required for the close-terrain and terrain-fade
-  shader contract OMV is designed to build on.
-- **LOD Flicker Fix**: required by the modern VPT terrain stack and detected by
-  OMV.
+- One D3DCompiler DLL visible to the game process:
+  `d3dcompiler_47.dll`, `46`, `43`, `42`, or `41`.
+
+OMV detects these terrain-stack plugins:
+
+- **Fallout Shader Loader**: required by the modern terrain stack. Vanilla Plus
+  Terrain expects plugin version `131` or newer.
+- **Vanilla Plus Terrain**: required for experimental LandLOD and close-terrain
+  PBR.
+- **LOD Flicker Fix**: required by the modern VPT terrain stack.
+
+Terrain PBR is experimental and disabled by default. LandLOD and close-terrain
+PBR also stay disabled when this terrain stack is missing.
 
 **New Vegas Reloaded is not a dependency or a supported compatibility target.**
 NVR remains useful source/reference material for shader contracts, but OMV does
@@ -28,15 +34,13 @@ Runtime requirements:
 
 - Fallout: New Vegas or TTW on Direct3D 9.
 - Shader Model 3.0 support.
-- One D3DCompiler DLL visible to the game process:
-  `d3dcompiler_47.dll`, `46`, `43`, `42`, or `41`.
 
 ## Features
 
 - In-game OMV graphics menu, toggled with `Insert` by default.
 - Loose screen-space shader loading from `Data/NVSE/plugins/omv/shaders`.
 - Embedded ambient occlusion, contact AO, bloom/HDR, and sunshafts.
-- Native PBR work for renderer paths whose shader contract is known.
+- Native PBR work for object renderer paths whose shader contract is known.
 - Dependency logging for VPT, Fallout Shader Loader, and LOD Flicker Fix.
 
 OMV expects to own its installed graphics hooks. Do not install it beside another
@@ -87,11 +91,12 @@ omv/src/shaders.rs       Loose shader loading and HLSL compilation
 Native PBR is contract-gated.
 
 - Object PBR is limited to proven PPLighting object shader families.
-- LandLOD uses the VPT terrain register contract and is disabled when that
-  contract is unavailable.
-- Close terrain PBR must use the VPT/FSL/LODFF contract.
-- SI hair, parallax/POM, skin, and terrain point-light passes are separate
-  shader contracts and stay vanilla until proven.
+- Replacement becomes visible only after all active shader
+  contracts are compiled, created, and ready together.
+- LandLOD and close terrain PBR are experimental, disabled by default, and
+  require the VPT/FSL/LODFF terrain stack when explicitly enabled.
+- EnvMap/reflection, skin, terrain fade, projected terrain, parallax/POM, and
+  unproven helper terrain rows stay vanilla until proven.
 - New Vegas Reloaded coexistence is not supported.
 
 The log should always explain whether a feature installed, was disabled by

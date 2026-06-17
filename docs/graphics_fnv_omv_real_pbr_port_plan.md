@@ -1,56 +1,34 @@
-# OMV Real PBR Port Plan
+# OMV Native PBR Recovery Plan
 
-This is the implementation plan for porting the useful New Vegas Reloaded PBR contracts into Oh My Vegas / OMV.
+This document replaces the previous delivery-first PBR plan.
 
-NVR is reference material only. OMV will not patch NVR, depend on NVR, or spend implementation budget on NVR coexistence. Terrain PBR is allowed to require Vanilla Plus Terrain, Fallout Shader Loader, and LOD Flicker Fix because those mods own the correct terrain substrate.
+The current PBR bugs are not isolated shader math bugs. They are contract bugs: OMV is replacing native shaders before it fully owns the draw identity, shader ABI, constant maps, sampler state, material resources, terrain pass identity, and compile lifecycle that New Vegas Reloaded uses as one system.
 
-## Decision
+The goal is not to patch around the current screenshots. The goal is to build an OMV PBR architecture where the same classes of bugs cannot reappear:
 
-The port is viable as a delivery-first contract port:
+- shadowed terrain rectangles and chunk boundaries
+- terrain fade and far terrain lines before LOD
+- object metallicness flicker on distance, angle, and camera movement
+- exterior and interior point-light regressions
+- missing Pip-Boy light influence
+- terrain material parameters ignored by close terrain and LandLOD
+- shader compilation freezes during play
+- persistent FPS loss from broad terrain/object replacement
 
-1. Ship ordinary object PBR against the NVR object shader contract.
-2. Ship base LandLOD PBR against the NVR/VPT terrain register contract.
-3. Add VPT-backed close terrain PBR as a narrow exterior sun-only slice using VPT pass rows and constant maps.
-4. Leave terrain parallax, skin, only-light/specular-only rows, water, sky, and NVR shadows out of the first shippable PBR target.
+NVR remains the reference implementation. OMV does not edit NVR. The port must use NVR source and Ghidra output to define the engine-side contract first, then implement shader replacements against that contract.
 
-Do not try another broad close-terrain shader swap. That already failed, cost about `-40 FPS`, and caused terrain/interior/light corruption because the engine-side contract was incomplete.
-
-## 2026-06-15 Delivery Plan Change
-
-Telemetry is not the product. It stays as bounded diagnostics that make each
-feature slice debuggable without turning terrain into a logging benchmark.
-
-The current delivery target is:
-
-1. Ship ordinary object PBR as the first visible feature.
-2. Ship base LandLOD PBR as the first terrain/LOD feature.
-3. Deliver close terrain only as a VPT-backed exterior sun-only slice behind an
-   experimental flag.
-4. Expand to terrain fade and terrain point lights after base terrain is
-   visually correct and performance-stable.
-5. Keep parallax, skin, water, sky, NVR shadows, and broad shader-family
-   replacement out of this delivery cycle.
-
-Quality and performance rules:
-
-- Unsupported variants must stay vanilla; do not block the whole feature on
-  skin, PAR/POM, point-light terrain, or projected-shadow terrain.
-- A feature cannot ship if it corrupts interiors, uses wrong row identity,
-  aliases object and terrain registers, or causes a broad FPS regression.
-- Do not add unbounded terrain logs, per-draw broad selector scans,
-  active-layer fallback to layer 0, or seven-layer sampling when `TEX_COUNT` is
-  smaller.
-
-## Sources Used
+## References
 
 - `docs/graphics_fnv_pbr_errata.md`
-- `docs/graphics_fnv_pbr_contract_map.md`
+- `docs/omv_pbr_nvr_contract_gap_report.md`
 - `docs/graphics_fnv_nvr_shader_contract_research.md`
-- `docs/graphics_fnv_nvr_shader_portability_matrix.md`
-- `omv/src/effects/pbr.rs`
-- `omv/shaders/embedded/native_pbr_pplighting_object.hlsl`
-- `omv/shaders/embedded/native_pbr_pplighting_landlod.hlsl`
-- `omv/shaders/embedded/native_pbr_pplighting_landlod.vs.hlsl`
+- `docs/graphics_fnv_pbr_contract_map.md`
+- `analysis/ghidra/output/perf/graphics_fnv_pbr_vpt_nvr_contract_gap_audit.txt`
+- `analysis/ghidra/output/perf/graphics_fnv_pbr_pplighting_shader_abi_closure_audit.txt`
+- `analysis/ghidra/output/perf/graphics_fnv_pbr_pplighting_unknown_object_rows_57_59_audit.txt`
+- `analysis/ghidra/output/perf/graphics_fnv_pbr_close_terrain_true_land_discriminator_audit.txt`
+- `analysis/ghidra/output/perf/graphics_fnv_pbr_close_terrain_vertex_abi_contract.txt`
+- `analysis/ghidra/output/perf/graphics_fnv_pbr_close_terrain_vertex_declaration_contract.txt`
 - `.research/TESReloaded10-master/src/effects/PBR.cpp`
 - `.research/TESReloaded10-master/src/effects/Terrain.cpp`
 - `.research/TESReloaded10-master/src/effects/Terrain.h`
@@ -66,481 +44,643 @@ Quality and performance rules:
 - `.research/fnv-vanilla-plus-terrain-main/shaders/TerrainTemplate.hlsl`
 - `.research/fnv-vanilla-plus-terrain-main/shaders/TerrainLODTemplate.hlsl`
 - `.research/fnv-vanilla-plus-terrain-main/shaders/TerrainFadeTemplate.hlsl`
-- `analysis/ghidra/output/perf/graphics_fnv_pbr_vpt_nvr_contract_gap_audit.txt`
-- `analysis/ghidra/output/perf/graphics_fnv_pbr_landlod_abi_audit.txt`
-- `analysis/ghidra/output/perf/graphics_fnv_pbr_pplighting_shader_abi_closure_audit.txt`
-- `analysis/ghidra/output/perf/graphics_fnv_pbr_close_terrain_true_land_discriminator_audit.txt`
-- `analysis/ghidra/output/perf/graphics_fnv_pbr_close_terrain_vertex_abi_contract.txt`
-- `analysis/ghidra/output/perf/graphics_fnv_pbr_close_terrain_vertex_declaration_contract.txt`
 
-## Current Problems Mapped To Contracts
+## Current Failure Model
 
-### 1. Close Terrain PBR Is Not Implemented
+### 1. Shadowed Terrain Rectangles
 
-Current OMV has no VPT row-aware close terrain replacement. It only replaces selected PPLighting object/LandLOD shader pairs through `BSShader::SetShaders`.
+The visible rectangle/chunk boundary means terrain is being replaced on only part of the terrain pass, or with the wrong pass identity. The current architecture can still classify draws from shader pair and partial selector state. That is insufficient for close terrain.
 
-NVR close terrain requires:
+NVR/VPT terrain is not just "the PPLighting shader with a different BRDF." It is a pass-table contract:
 
-- VPT terrain pass rows `503..558`.
-- VPT fade row `560`.
-- Active `TEX_COUNT` specialization.
-- `BaseMap[7]` at `s0..s6`.
-- `NormalMap[7]` at `s7..s13`.
-- `LandSpec` at `c32/c33`.
-- `LandHeight` at `c34/c35`.
-- Fog at `c36/c37`.
-- Point lights at `c39`, `c63`, and `c88`.
-- OMV/NVR terrain controls at `c89/c90`.
-- Parallax controls at `c91/c92` only after base terrain works.
+- VPT/NVR pass rows identify active terrain material passes.
+- The terrain selector and pass entry decide which texture layers exist for that draw.
+- Terrain constants and samplers are mapped per pass.
+- The active `TEX_COUNT` changes shader behavior.
+- LandLOD and terrain fade are separate contracts and must stay visually coherent with close terrain.
 
-The old close-terrain attempts failed because they treated land-looking shader pairs as terrain identity. That is not enough. Ghidra proves land-like slots can belong to helper rows, projected-shadow rows, point-light rows, SI, LandO, landlo-fog, fade, and interior/static paths.
+If OMV applies close terrain PBR from a shader-pair match without proving the pass row, layer count, material slot binding, and fade/LOD relation, it can light one terrain block with PBR and adjacent terrain with vanilla. That produces the rectangular shadow/light chunk in screenshots.
 
-### 2. LandLOD Register Ownership Is Corrected, But Not Finished
+### 2. Far Terrain Line Before LOD
 
-Previous OMV LandLOD used object-style `c32/c33`, which conflicted with terrain
-`LandSpec`. Current OMV base LandLOD has been moved to the NVR/VPT terrain-style
-contract:
+The line before visible LOD is a close terrain, terrain fade, and LandLOD coherence failure. NVR has separate terrain templates for close terrain, terrain fade, and LandLOD. OMV cannot make close terrain PBR correct if fade and LOD remain unrelated.
 
-- `LODTexParams c31`
-- `LandLODSpec c38`
-- `TESR_TerrainData c89`
-- `TESR_TerrainExtraData c90`
-- samplers `s0`, `s1`, `s4`, `s6`, `s7`
+The fix is not "tune fade math." The fix is to define one terrain family contract:
 
-Remaining LandLOD work:
+- close terrain pass rows
+- terrain fade row
+- LandLOD row
+- shared fog, sun, ambient, wetness, noise, and material parameter policy
+- explicit transition ownership between those stages
 
-- validate base LandLOD quality/performance in exterior playtests;
-- keep projected-shadow LandLOD disabled until its ABI is proven;
-- keep terrain fade row `560` as a separate feature, not as base LandLOD.
+Until this exists, any close terrain change can expose a seam where vanilla and PBR lighting meet.
 
-### 3. Object PBR Is Close But Still Needs Variant Accounting
+### 3. Object PBR Flicker With Distance And Angle
 
-Current OMV object replacement already targets PPLighting family C/B variants and uploads object PBR registers:
+Object metallicness disappearing with distance means the object row family is incomplete or unstable. Distance changes the engine path:
 
-- `TESR_PBRData c32`
-- `TESR_PBRExtraData c33`
+- ordinary object rows
+- LOD object rows
+- EnvMap/reflection rows
+- skin rows
+- projected shadow or only-light helper rows
+- point-light rows
+- fallback or no-material rows
 
-This matches NVR object PBR. Current OMV rejects skin vertex indices before
-ordinary object matching; keep that invariant. TESReloaded10 leaves the skin
-collection route disabled because those shaders are half broken, so skin remains
-out of the first shippable target.
+If only the close ordinary row has PBR, then a building, prop, weapon, or reflective object can switch between PBR and vanilla when the engine changes row. That creates visible blinking even if each individual shader compiles and draws correctly.
 
-Object projected-shadow and high-light variants also need a stricter survival gate. They can remain candidates, but the logs must prove which variant is active before blaming broader shadow bugs on terrain or lighting.
+The recent EnvMap row audit showed object pixel rows 57, 58, and 59 are not ordinary object BRDF rows. They are reflection/EnvMap contracts. Treating them as object PBR candidates is wrong; treating them as unknown vanilla fallback without a stable row policy is also a flicker source.
 
-### 4. Interior PBR Bugs Are Contract Bugs
+### 4. Point Lights And Pip-Boy Light
 
-NVR terrain updates return early outside exteriors. Close terrain PBR is not an interior wall/floor path.
+The earlier interior lighting failure and the current Pip-Boy-light gap mean OMV still does not fully preserve the native point-light contract. PBR must not replace a point-lit shader unless it consumes the same light constants, attenuation, shadow/projection state, and helper textures as the original row.
 
-Interior corruption from prior attempts means OMV replaced a draw that did not own the terrain material ABI. Interior support belongs to ordinary object PBR first. Interior terrain-like rows must remain vanilla unless a separate interior-land contract is proven.
+For Pip-Boy light specifically, the problem must be treated as native light-row coverage or constant binding coverage, not a post-effect issue. If the Pip-Boy light is represented through the same PPLighting row family, the PBR shader must consume that data. If it uses a separate helper row or state update path, OMV must classify and support that row explicitly.
 
-### 5. Light And Shadow Blinking Is Most Likely Wrong Row Coverage
+### 5. FPS Loss And Stutter
 
-The previous symptoms match replacing projected-shadow, point-light, SI, LandO, landlo-fog, or helper rows with shaders that assume base terrain texture arrays.
+The latest logs showed asynchronous shader compilation lasting minutes after gameplay:
 
-Do not fix this by changing BRDF math. The first fix is row identity and variant exclusion.
+- `Native PBR async compile queued 124 shader(s) on 2 worker(s)`
+- slow close-terrain compiles reached about 21 seconds per shader
+- terrain shader compilation dominated the compile time
+- visible gameplay happened while shader availability was still changing
 
-## Contract To Port
+This is two separate performance failures:
 
-### Object Constants
+- compile lifecycle: heavy D3D compilation is still happening during play
+- shader/runtime cost: terrain variants are too broad and expensive for the enabled draw coverage
 
-Port directly:
+The fix is not just "prewarm more." OMV needs a strict shader bytecode lifecycle: enabled PBR records must be compiled or loaded before visible replacement is allowed.
 
-```text
-c32 TESR_PBRData
-  x metallicness
-  y roughness scale
-  z light scale
-  w ambient scale
+## Non-Negotiable Rules
 
-c33 TESR_PBRExtraData
-  x albedo saturation
-```
+1. No shader-pair-only PBR replacement.
 
-NVR blends those settings across default, rain, night, night-rain, and interiors. OMV can start with the current static config values, then add state blending after the shader ABI is stable.
+   A vertex/pixel shader handle pair is not a draw contract. It is only one input into draw classification.
 
-### Terrain Constants
+2. No visible replacement while shader bytecode is pending.
 
-Add as a separate terrain register block:
+   If a replacement shader is not ready, the draw must remain vanilla. Runtime compilation may not cause a surface to switch between PBR and vanilla during normal play.
 
-```text
-c89 TESR_TerrainData
-  x metallicness
-  y roughness scale
-  z light scale
-  w ambient scale
+3. No terrain PBR without pass-row identity.
 
-c90 TESR_TerrainExtraData
-  x use PBR
-  y saturation
-  z LOD noise scale
-  w LOD noise tile
+   Close terrain requires selector, pass entry, active layer count, material texture slots, and terrain constants. Shader row alone is not enough.
 
-c91 TESR_TerrainParallaxData
-  x enabled
-  y shadows
-  z height blend
-  w high quality
+4. No object PBR row without a full replacement record.
 
-c92 TESR_TerrainParallaxExtraData
-  x max distance
-  y height
-  z shadow intensity
-```
+   A row must define shader bytecode, vertex ABI, pixel ABI, constants, samplers, state preservation, material source, and fallback policy.
 
-`c91/c92` stay uploaded but disabled until base terrain PBR is stable.
+5. No "near objects only" object PBR.
 
-### VPT Constants
+   If a visible object family can switch to LOD, EnvMap, projected, only-light, or point-light rows, those rows need either implemented PBR or a stable explicit fallback that does not visually blink across distance.
 
-Rely on VPT for:
+6. No stale sampler reliance unless declared and validated.
 
-```text
-c32/c33 LandSpec
-c34/c35 LandHeight
-c36     StandardFogParams
-c37     StandardFogColor
-c38     LandLODSpec
-c39     PointlightColors[24]
-c63     PointlightPositions[24]
-c88     PointlightCount
-```
+   PBR code must not silently depend on whatever texture is currently bound in D3D state. Every sampler used by OMV must be either explicitly bound by the replacement record or explicitly marked as preserve-vanilla with a validation rule.
 
-OMV should not duplicate VPT terrain hooks. If VPT is missing, close terrain/fade/terrain point-light PBR must fail closed.
+7. No global feature disable presented as a fix.
 
-## Shader Families To Implement
+   Temporary diagnostic gates are allowed. A real fix must preserve intended PBR coverage by correcting classification, binding, shader ABI, or performance architecture.
 
-### Phase 1: Object PBR Delivery
+8. Fail closed.
 
-Port NVR `ObjectTemplate.hlsl` and `Includes/PBR.hlsl` into OMV's embedded shader layout.
+   Unknown rows, unproven vertex layouts, missing material sources, missing shader bytecode, and incomplete sampler contracts must render vanilla and log bounded diagnostics.
 
-Keep:
+9. Performance is part of the contract.
 
-- ADTS base.
-- ADTS OPT.
-- ADTS LOD.
-- ADTS projected shadow.
-- ADTS `LIGHTS=2`.
-- ADTS `LIGHTS=2 + projected shadow`.
-- ADTS specular.
-- ADTS specular projected shadow.
-- ADTS specular `LIGHTS=2`.
-- ADTS specular `LIGHTS=2 + projected shadow`.
-- ADTS10 `LIGHTS=9`.
-- ADTS10 `LIGHTS=4`.
-- ADTS10 `LIGHTS=4 + OPT`.
-- ADTS10 specular `LIGHTS=4`.
-- ADTS10 specular `LIGHTS=4 + OPT`.
+   A correct-looking PBR shader that costs large constant FPS loss or one-time gameplay freezes is not shippable.
 
-Exclude for now:
+10. Logs must explain classification, not replace implementation.
 
-- Skin.
-- SI.
-- Hair.
-- Only-light.
-- Only-specular.
-- Diffuse-point special rows.
-- PAR/POM.
+   Diagnostics must show which contract was used or why vanilla fallback happened. They must not become per-draw spam or hide incomplete architecture.
 
-Required code changes:
+## Target Architecture
 
-- Keep all `*_SKIN_INDEX` routes rejected from ordinary object matcher helpers.
-- Split object variant metadata from the current single `ReplacementShaderKind`
-  table into a table that records shader family, vertex group/index, pixel
-  group/index, defines, and risk tier.
-- Keep object PBR constants at `c32/c33`.
-- Add NVR-style state-blended PBR settings for default, rain, night,
-  night-rain, and interior states. Static config values can remain the first
-  implementation, but the config layout should not block the NVR blend.
-- Add cheap replacement counters per object variant.
-- Add skip counters for skin, SI/hair, light-only/specular-only, unknown object, and unsupported family.
+### 1. Shader Contract Registry
+
+Build a first-class registry that is the only source of truth for native PBR replacement.
+
+Each contract entry must include:
+
+- stable contract id
+- feature family: object, close terrain, terrain fade, LandLOD, EnvMap, skin, helper, projected shadow
+- native vertex shader row or group
+- native pixel shader row or group
+- NVR/VPT source reference
+- Ghidra output reference
+- supported scene scope: interior, exterior, menu, first person, world object, terrain
+- required vertex ABI
+- required pixel constants
+- required vertex constants
+- required samplers
+- required render states and sampler states
+- material source: mesh material, terrain layer, LandLOD material, EnvMap source, or none
+- shader bytecode key
+- fallback policy
+- implementation status: implemented, stable vanilla fallback, diagnostic-only, unknown
+
+The runtime must not decide PBR eligibility from ad hoc code branches spread across hooks. It must ask this registry.
+
+### 2. Draw Identity Classifier
+
+Create a classifier that maps each draw to a contract id or a precise fallback reason.
+
+Required inputs:
+
+- native vertex shader handle
+- native pixel shader handle
+- shader group and row if known
+- current pass pointer
+- VPT/NVR terrain selector when present
+- terrain pass entry pointer and pass row
+- active terrain layer count
+- current land texture state
+- current vertex declaration
+- render target/depth context when needed
+- scene state: interior/exterior, menu, load screen, first person, world
+- current light mode and point-light row hints
+- material flags relevant to alpha, EnvMap, skin, and projected rows
+
+Expected classifier outputs:
+
+- `ObjectPbr(contract_id)`
+- `ObjectVanillaFallback(reason)`
+- `ObjectEnvMap(contract_id_or_fallback)`
+- `ObjectSkin(contract_id_or_fallback)`
+- `CloseTerrainPbr(contract_id)`
+- `CloseTerrainVanillaFallback(reason)`
+- `TerrainFadePbr(contract_id_or_fallback)`
+- `LandLodPbr(contract_id)`
+- `HelperVanillaFallback(reason)`
+- `UnknownVanillaFallback(reason)`
+
+This classifier is the architectural fix for distance/angle flicker. Row transitions become visible in diagnostics and deterministic in rendering.
+
+### 3. Replacement Record
+
+Implement an NVR `ShaderRecord` / `SetCT` equivalent.
+
+A replacement record must own the whole draw setup:
+
+- vertex shader bytecode
+- pixel shader bytecode
+- constant update plan
+- sampler binding plan
+- sampler state plan
+- state preservation plan
+- required engine resources
+- material parameter source
+- fallback decision before mutating D3D state
+
+Handle substitution must become an implementation detail of applying a complete replacement record. It must not be the contract itself.
+
+### 4. Material Resource Binder
+
+Add a binder that resolves all PBR resources before draw replacement.
+
+Object binder responsibilities:
+
+- albedo/current diffuse source
+- normal map source
+- optional specular/env/shine source when row requires it
+- material defaults when a texture is absent
+- alpha-test and alpha-blend compatibility
+- first-person weapon compatibility
+
+Terrain binder responsibilities:
+
+- active close terrain layer textures
+- active normal/material maps
+- active layer count and `TEX_COUNT`
+- LandLOD texture set
+- terrain fade texture set
+- VPT material arrays
+- safe fallback when VPT material data is absent
+
+The binder must cache by stable material/pass identity. It must not scan broad material arrays or do expensive string/path work in the draw hot path.
+
+### 5. Shader Bytecode Cache And Startup Enable Boundary
+
+Separate shader compilation from visible replacement.
+
+Required behavior:
+
+- Build a list of enabled contract records before PBR is allowed to render.
+- Load cached bytecode by shader source hash, compile options, profile, and contract id.
+- Compile missing bytecode at a controlled startup boundary or via an explicit prebuild step.
+- Create D3D shader objects from bytecode before setting feature status to active.
+- Never swap a visible draw to PBR while its shader is compiling.
+- Never let a background compiler change visible coverage during free gameplay.
+
+Acceptable modes:
+
+- warm cache: no compilation during play
+- cold cache: controlled startup/pre-menu compilation, then enable
+- missing shader: feature family stays vanilla and logs a bounded error
+
+Unacceptable mode:
+
+- gameplay proceeds while terrain/object replacements appear as individual compiles finish
+
+### 6. Frame State And Constant Ownership
+
+Add a frame-level PBR state object.
+
+It owns:
+
+- camera position
+- sun direction and color
+- ambient color and scale
+- fog constants
+- wetness/rain state
+- time-of-day relevant values
+- interior/exterior state
+- Pip-Boy or player light state if exposed by the native contract
+- global material tuning from config
+
+Per-draw code should only combine frame state with material/pass state. It should not rediscover global lighting or scene state opportunistically.
+
+### 7. Diagnostics
+
+Diagnostics must be contract-centric.
+
+Per-frame summary:
+
+- total candidate draws
+- PBR draws by family
+- vanilla fallbacks by reason
+- unknown rows by shader id
+- missing shader records
+- missing resources
+- terrain pass rows seen
+- object rows seen
+- compile/cache status
+
+One-shot detail logs:
+
+- first unknown row
+- first missing sampler
+- first unsupported vertex declaration
+- first terrain pass with missing layer data
+- first shader-bytecode miss after enable boundary
+
+Debug overlay should show contract state, not just "PBR active."
+
+## Implementation Phases
+
+### Phase 0: Stop Unsafe Runtime Behavior
+
+Purpose: prevent current architectural bugs from producing misleading playtest results while the real contract layer is built.
+
+Tasks:
+
+- Add a strict "replacement allowed only if contract record is complete" gate.
+- Keep incomplete rows vanilla with explicit fallback reasons.
+- Forbid visible PBR replacement when shader bytecode is pending.
+- Make installed config comments match current code and feature gates.
+- Add a startup log section listing enabled PBR families and whether each is ready, vanilla fallback, or diagnostic-only.
+- Add bounded logs for object row transitions and terrain pass rows.
+
+This is not the final fix. It is a safety boundary so later tests measure known contract coverage instead of random partial replacement.
 
 Acceptance:
 
-- Object PBR applies in exterior and interior ordinary material draws.
-- No skin faces/body meshes are routed through ordinary object PBR.
-- Projected-shadow object variants either work with bounded counters/logs or are
-  excluded explicitly.
-- No close terrain or LandLOD path consumes object `c32/c33`.
-- No broad performance regression in ordinary object-heavy exterior or interior
-  views.
+- No draw is replaced by PBR without a complete contract id.
+- No `no_shader` replacement path is visible in gameplay.
+- Logs can explain every fallback in one line by contract/fallback reason.
 
-### Phase 2: Base LandLOD PBR Delivery
+### Phase 1: Build The Contract Registry
 
-Current OMV base LandLOD already uses the corrected terrain register contract.
-This phase delivers that path as a tuned feature instead of rewriting it again.
+Purpose: remove hard-coded scattered row assumptions.
 
-Implement:
+Tasks:
 
-- Pixel shader reads `LandLODSpec c38`.
-- Pixel shader reads `TESR_TerrainData c89`.
-- Pixel shader reads `TESR_TerrainExtraData c90`.
-- Noise tile uses `c90.w`.
-- Noise strength uses `c90.z`.
-- Roughness derives from normal alpha only when `LandLODSpec.x > 0`.
-- Base LandLOD and projected-shadow LandLOD are separate replacement kinds unless runtime evidence proves they share ABI.
-
-Required code changes:
-
-- Keep terrain constant upload separate from object constant upload.
-- Keep `native_pbr_pplighting_landlod.hlsl` on `c38/c89/c90`.
-- Rename or document LandLOD replacement kind as a terrain kind, not object
-  material PBR.
-- Stop mapping projected-shadow LandLOD to base LandLOD without proof.
-- Use VPT dependency report to mark LandLOD terrain-contract confidence. If VPT
-  is missing, either disable LandLOD PBR or run a clearly named OMV-specific
-  fallback that does not claim NVR parity.
-- Tune exposed terrain controls for far terrain lighting response without
-  changing close terrain behavior.
+- Define `ShaderContractRegistry` under the PBR/effects layer.
+- Move all known object, EnvMap, close terrain, terrain fade, and LandLOD rows into registry data.
+- Add source references for each row from NVR/VPT/Ghidra.
+- Mark every row as implemented, stable vanilla fallback, diagnostic-only, or unknown.
+- Treat object rows 57, 58, and 59 as EnvMap/reflection-family rows, not ordinary object PBR rows.
+- Add row coverage tests where possible as pure Rust table/classifier tests.
 
 Acceptance:
 
-- No LandLOD shader reads object `c32/c33`.
-- LandLOD uses `c38/c89/c90`.
-- Far terrain does not blink between object-style and terrain-style lighting.
-- Projected-shadow LandLOD and fade remain separate vanilla paths until proven.
-- Missing VPT/FSL/LODFF is logged with the exact disabled feature.
+- Runtime PBR eligibility has one registry-backed path.
+- Unknown row handling is deterministic and logged once.
+- EnvMap rows cannot be accidentally classified as ordinary object PBR.
 
-### Phase 3: VPT-Backed Close Terrain Base PBR
+### Phase 2: Replace Ad Hoc Matching With Draw Identity Classification
 
-Start after object PBR and base LandLOD are build-clean and playtest-ok. Do not
-wait on broad telemetry work, but keep the first close-terrain slice narrow and
-experimental.
+Purpose: fix object distance flicker and terrain misclassification at the source.
 
-Use VPT pass formula:
+Tasks:
 
-```text
-land_pass_count = min(usLandPassCount, 7)
-
-sun-only row:
-  pass = 8 * land_pass_count + 503
-  + 1 if canopy shadows
-
-point-light row:
-  pass = 8 * land_pass_count + 505
-  + 1 if canopy shadows
-  + 2 if point lights > 6
-  + 2 if point lights > 12
-
-fade row:
-  pass = 560
-  cCurrLandTexture = 9
-```
-
-Shader variants:
-
-- `TEX_COUNT=1..7`
-- no point lights in the first slice
-- point-light buckets `6`, `12`, `24` only in the point-light phase
-- canopy/projected-shadow rows only after base rows are proven
-
-Initial close terrain target:
-
-- exterior only
-- sun-only base rows first
-- VPT/FSL/LODFF present
-- `TEX_COUNT=1..7` specialization
-- no parallax
-- no fade
-- no point lights
-- no projected-shadow rows
-- hard experimental config flag until playtest passes
-
-Required code changes:
-
-- Add a terrain replacement classifier that uses VPT pass row identity, not just shader pair identity.
-- Keep bounded pass-entry diagnostics for selector `+0x3C` as guard rails, not
-  as a separate pre-feature milestone.
-- Derive active layer count from the VPT row formula or proven selector state.
-- Bind only active diffuse/normal layers, or leave dependency-owned stages
-  untouched if runtime evidence proves they are already correct at the OMV hook.
-- Do not fallback active missing layers to layer 0.
-- Cache resolved terrain resources by a proven selector/material/pass key.
-- Compile terrain shaders per `TEX_COUNT`; do not sample all seven layers for every draw.
-- Upload terrain `c89/c90` before draw.
+- Implement `DrawIdentity` collection around the existing shader hook path.
+- Add object classifier for ordinary, LOD, point-light, helper, projected, skin, and EnvMap rows.
+- Add terrain classifier using VPT/NVR pass identity, not only shader handles.
+- Record active terrain layer count and pass row before replacement.
+- Add fallback reasons for unsupported vertex ABI, unsupported row, missing material data, and missing shader bytecode.
+- Update overlay/debug logs to report classified family and contract id.
 
 Acceptance:
 
-- Close terrain replacement is off when VPT/FSL/LODFF are missing.
-- Close terrain replacement is off inside interiors.
-- Base exterior terrain color matches vanilla material identity and only changes lighting response.
-- No `-40 FPS` class regression in the known exterior repro.
-- No active-layer fallback to wrong textures.
-- If this phase fails, object PBR and base LandLOD remain shippable.
+- A playtest can show exactly which contract an object or terrain draw used.
+- Moving camera distance cannot silently switch from implemented PBR to accidental vanilla without a logged contract transition.
+- Close terrain is never classified from shader pair alone.
 
-### Phase 4: Terrain Fade
+### Phase 3: Implement Replacement Records
 
-Implement VPT row `560` separately with `TerrainFadeTemplate.hlsl`.
+Purpose: make each PBR replacement a complete engine-side draw contract.
 
-Requirements:
+Tasks:
 
-- `LandLODSpec c38`.
-- `TESR_TerrainData c89`.
-- `TESR_TerrainExtraData c90`.
-- `LODLandNoise` sampler.
-- `cCurrLandTexture = 9` evidence.
+- Introduce `ReplacementRecord`.
+- Move shader handle, constants, samplers, sampler states, and fallback policy into each record.
+- Apply replacement only after the record validates all required resources.
+- Preserve vanilla state explicitly when a record says to preserve it.
+- Restore or avoid mutating state outside the record's owned scope.
+- Add record-specific validation for point-light rows and Pip-Boy light rows once identified.
 
 Acceptance:
 
-- Close-to-LOD blend remains stable while moving.
-- No fade-row replacement occurs on ordinary LandLOD or close terrain base rows.
+- No PBR shader depends on accidental prior D3D sampler state.
+- Point-lit rows keep their native light inputs or stay vanilla.
+- Interior lamps and Pip-Boy light cannot disappear because a generic object shader replaced a point-light contract.
 
-### Phase 5: Terrain Point Lights
+### Phase 4: Fix Compile Lifecycle And Shader Cache
 
-Implement only after sun-only terrain is stable.
+Purpose: remove one-time freezes and random visual enable timing.
 
-Requirements:
+Tasks:
 
-- VPT `UpdateLightsAlt` must be present.
-- Use `PointlightColors c39`, `PointlightPositions c63`, `PointlightCount c88`.
-- Compile bucketed variants for `NUM_PT_LIGHTS=6`, `12`, and `24`.
-- Keep row discrimination strict.
-
-Acceptance:
-
-- Street lights and player light do not blink as rectangular patches.
-- Point-light rows do not corrupt sun-only terrain rows.
-- Missing point-light constants disable only point-light terrain PBR, not object PBR.
-
-### Phase 6: Terrain Parallax
-
-Implement last.
-
-Requirements:
-
-- Base close terrain stable.
-- `LandHeight c34/c35` proven per active layer.
-- `TESR_TerrainParallaxData c91`.
-- `TESR_TerrainParallaxExtraData c92`.
-- Reflection-stage behavior decided. NVR disables terrain parallax during water reflections.
+- Build an enabled-record list at startup.
+- Add bytecode cache keyed by source hash, defines, shader profile, and contract id.
+- Precompile or load all enabled record bytecode before enabling visible PBR.
+- Create D3D shader objects before setting PBR family status to active.
+- Reject runtime compilation after the enable boundary except for explicit developer diagnostic mode.
+- Split heavy terrain variants by actual enabled `TEX_COUNT` and pass family.
+- Add logs for cold cache, warm cache, compile time, and active shader count.
 
 Acceptance:
 
-- Disabled by default until performance and reflection behavior are proven.
-- No parallax code runs on LandLOD, fade, interiors, or helper rows.
+- Warm cache playtest has zero shader compile events after gameplay starts.
+- Cold cache compile happens before PBR becomes visible.
+- No surface changes from vanilla to PBR because a background compile finished.
+- Startup logs show all enabled records ready before replacement begins.
 
-## Runtime Architecture
+### Phase 5: Complete Object PBR Row Coverage
 
-Refactor `omv/src/effects/pbr.rs` before adding terrain breadth:
+Purpose: eliminate object PBR distance and angle blinking.
 
-```text
-effects::pbr
-  object
-    constants c32/c33
-    object variant table
-    object shader compile/cache
-    object replacement classifier
+Tasks:
 
-  terrain
-    constants c89/c90/c91/c92
-    dependency gate
-    landlod classifier
-    close terrain row classifier
-    terrain shader compile/cache
+- Map all NVR object row families used by FNV PPLighting.
+- Implement or explicitly stable-fallback each row:
+  - ordinary object
+  - object LOD
+  - static instanced rows
+  - point-light rows
+  - projected rows
+  - only-light rows
+  - diffuse-only rows
+  - only-specular rows
+  - first-person rows
+  - alpha-tested rows
+  - EnvMap rows
+  - skin rows
+- Ensure unsupported skin and special rows do not steal ordinary object material state.
+- Decide EnvMap support from NVR contract. Until implemented, make it stable fallback or a separate reflection PBR record.
+- Match vertex output ABI per row. Do not use neutral-normal or neutral-material hacks for rows marked implemented.
+- Validate object material constants and samplers against NVR PBR includes.
 
-  native
-    common draw context
-    shader membership cache
-    pass-entry capture
-    D3D constant upload helpers
-```
+Acceptance:
 
-This split is needed because object and terrain both use PPLighting infrastructure, but their register meanings conflict.
+- Metallicness does not disappear when walking toward or away from objects.
+- Objects do not switch between PBR and vanilla due to LOD/EnvMap/helper rows unless the fallback is intentional and visually stable.
+- Debug summary reports zero unknown object candidates in tested scenes.
 
-## Dependency Gates
+### Phase 6: Rebuild Close Terrain PBR Around VPT/NVR Contract
 
-OMV should detect and log:
+Purpose: fix close terrain rectangles, wrong material params, and wrong lighting.
 
-- `Fallout Shader Loader.dll`
-- `VanillaPlusTerrain.dll`
-- `LODFlickerFix.dll`
+Tasks:
 
-Feature decisions:
+- Classify close terrain only through VPT/NVR terrain pass identity.
+- Require selector, pass entry, pass row, active layer count, and material array availability.
+- Port NVR/VPT terrain constants:
+  - terrain UV transforms
+  - layer weights
+  - noise parameters
+  - ambient/sun/fog
+  - terrain material params
+  - LandHeight/height blend inputs where supported
+- Bind only active terrain layers.
+- Compile variants by actual layer count instead of unconditional seven-layer work.
+- Keep projected shadow/helper terrain rows vanilla until their own records exist.
+- Remove any terrain path that guesses material layer 0 when active layer data is missing.
 
-- Object PBR: can run without VPT if hooks are available.
-- LandLOD NVR parity: requires VPT for `LandLODSpec c38`; otherwise disable or mark as OMV-specific fallback.
-- Close terrain: requires all three dependencies.
-- Terrain fade: requires all three dependencies.
-- Terrain point lights: requires all three dependencies.
-- Terrain parallax: requires all three dependencies and stable base terrain.
+Acceptance:
 
-Fallout Shader Loader version `>= 131` is required by VPT source. If OMV can query FSL version safely, log it. If not, document that OMV relies on VPT's own version check.
+- Close terrain PBR appears only on true close terrain material rows.
+- Terrain respects metallicness, roughness, light scale, ambient scale, and albedo saturation.
+- No rectangular terrain shadow/light chunks appear when rotating camera.
+- FPS cost is measured by terrain family and blocked if over budget.
 
-## Bounded Diagnostics Required During Delivery
+### Phase 7: Implement Terrain Fade And LandLOD As One Family
 
-Diagnostics are guard rails, not a blocking milestone. Add bounded logs with
-stable counters:
+Purpose: remove far terrain line and distance-dependent terrain PBR.
 
-- object variant apply counts;
-- terrain dependency status;
-- LandLOD base/projected-shadow apply counts;
-- close terrain candidate rows by pass id;
-- close terrain skipped reason:
-  - missing dependency;
-  - interior;
-  - unsupported row;
-  - helper row;
-  - projected-shadow row;
-  - point-light row before point-light phase;
-  - missing active diffuse;
-  - missing active normal;
-  - unproven vertex ABI;
-  - constant upload unavailable;
-- terrain shader compile errors by `TEX_COUNT` and light bucket;
-- one-time debug dump of pass-entry fields for terrain candidates when an
-  explicit debug config is enabled.
+Tasks:
 
-Do not log every terrain draw unbounded. Terrain is too hot.
+- Implement LandLOD record from NVR/VPT `TerrainLODTemplate`.
+- Implement terrain fade record from NVR/VPT `TerrainFadeTemplate`.
+- Share frame constants and material tuning policy across close terrain, terrain fade, and LandLOD.
+- Match fog and sun/ambient handling across all terrain stages.
+- Add explicit transition diagnostics:
+  - close terrain draw count
+  - fade draw count
+  - LandLOD draw count
+  - unsupported terrain helper rows
+- Validate with fixed camera positions that cross the close/fade/LOD transition.
 
-## Ghidra And Runtime Research Still Needed
+Acceptance:
 
-No new Ghidra script is needed before the delivery slices above. TESReloaded10,
-VPT, and existing Ghidra output are enough to start object PBR, base LandLOD,
-and the narrow VPT-backed sun-only close-terrain slice.
+- No visible line before LOD terrain.
+- Terrain PBR does not appear only near the player.
+- Close terrain, fade, and LandLOD have coherent brightness and material response.
 
-Use runtime logs during phase 3 to validate what static Ghidra did not:
+### Phase 8: Restore Full Light Compatibility
 
-- exact current pass-entry row for VPT close terrain draws;
-- exact active-layer count at draw time;
-- exact terrain vertex declaration or FVF for the selected rows;
-- whether projected-shadow LandLOD has a different ABI from base LandLOD.
+Purpose: ensure PBR does not break native dynamic lighting.
 
-If runtime logs contradict VPT source, prepare a focused Ghidra script for that one gap. Do not guess.
+Tasks:
 
-## Delivery Order
+- Identify all point-light and Pip-Boy-light shader rows from NVR/Ghidra/logs.
+- Add contract records for those rows or stable fallback.
+- Verify light constant rows and sampler usage against native shader ABI.
+- Preserve shadow/projection texture bindings unless the replacement record owns them.
+- Add a focused light test mode:
+  - interior lamp
+  - Pip-Boy light
+  - exterior local light
+  - player weapon light if applicable
+- Log light-row classification separately from ordinary object classification.
 
-1. Object PBR delivery:
-   - keep skin rejected from ordinary object matcher;
-   - keep supported ADTS/ADTS10 material variants only;
-   - port the useful NVR object BRDF/template subset;
-   - add NVR-style state-blended settings/config;
-   - add cheap variant counters and skip counters;
-   - playtest exterior and interior ordinary materials.
-2. Base LandLOD delivery:
-   - keep base LandLOD on `c38/c89/c90`;
-   - keep projected-shadow LandLOD and fade vanilla;
-   - tune/validate far terrain quality and performance;
-   - log dependency gates clearly.
-3. Close terrain first slice:
-   - require VPT/FSL/LODFF;
-   - support exterior sun-only rows;
-   - compile active `TEX_COUNT=1..7` variants;
-   - exclude point lights, fade, parallax, canopy, and projected-shadow rows;
-   - keep an experimental flag until visuals and FPS pass.
-4. Terrain fade row `560`.
-5. Terrain point-light buckets.
-6. Terrain parallax only after stable base/fade/light terrain.
-7. Separate later projects: PAR2, skin, water, sky, and shadows.
+Acceptance:
 
-## Release Gate
+- Pip-Boy light affects PBR surfaces or those surfaces intentionally remain vanilla under that light row.
+- Interior lamps do not disappear under PBR.
+- Exterior reflection/highlight placement does not jump or form rectangular stale-light regions.
 
-Native PBR can ship as object PBR plus base LandLOD while close terrain remains
-experimental or disabled. The release gate is:
+### Phase 9: Performance Hardening
 
-- object PBR keeps rejecting skin;
-- LandLOD keeps using terrain registers, not object PBR registers;
-- close terrain is disabled unless VPT/FSL/LODFF are present;
-- interior draws do not receive close terrain PBR;
-- any enabled close-terrain replacement uses row identity and active-layer specialization;
-- known shadow/light blinking is attributed to an enabled variant and either fixed or excluded;
-- logs explain every disabled or skipped PBR feature.
+Purpose: make PBR viable on real gameplay, not just screenshots.
 
-If phases 1 and 2 cannot be stabilized, drop native PBR as a user-facing feature and keep only the diagnostics/research path. If phases 1 and 2 stabilize but phase 3 does not, ship object PBR plus corrected LandLOD and keep close terrain off.
+Tasks:
+
+- Remove heap allocation from draw hot paths.
+- Cache material lookups by stable object/terrain identity.
+- Cache terrain pass binding plans.
+- Diff sampler and render-state changes before applying them.
+- Avoid broad scans of shader tables during draws.
+- Avoid unconditional terrain layer sampling.
+- Avoid point-light loops in rows that do not have point lights.
+- Add family-level cost counters:
+  - object PBR draw count
+  - close terrain PBR draw count
+  - fade PBR draw count
+  - LandLOD PBR draw count
+  - shader switches
+  - sampler binds
+  - fallback counts
+- Add config presets:
+  - object only
+  - object plus LandLOD
+  - full terrain experimental
+  - diagnostics
+
+Acceptance:
+
+- No gameplay shader compilation freezes.
+- Warm cache gameplay has stable frame pacing.
+- Any persistent FPS loss is attributable by family and can be reduced without disabling unrelated PBR.
+- Full terrain does not ship as default until its cost is acceptable.
+
+## Playtest Matrix
+
+Every phase that changes rendering must be tested in these scenarios.
+
+### Interior Lighting
+
+- small room with wall lamps
+- same view with PBR on and off
+- Pip-Boy light on and off
+- close wall/floor/ceiling camera movement
+- reflective/metal object near local light
+
+Pass criteria:
+
+- no light disappearance
+- no rectangular light/shadow update
+- no distance flicker
+- no material pop when looking straight at a surface
+
+### Exterior Objects
+
+- nearby building wall
+- far building wall
+- metal prop or weapon
+- object crossing LOD distance
+- EnvMap/reflection object if present
+
+Pass criteria:
+
+- metallicness and roughness response stays stable with distance
+- row changes are either fully PBR or intentionally stable fallback
+- no angle-dependent PBR disappearance
+
+### Close Terrain
+
+- hill with multiple terrain layers
+- road/ground transition
+- rock/soil/sand blend
+- camera rotate in place
+- walk forward/back across several cells
+
+Pass criteria:
+
+- no shadowed rectangles
+- no layer chunk flicker
+- material params affect visible output
+- performance remains within budget
+
+### Terrain Fade And LOD
+
+- elevated view over valley
+- slow walk toward far terrain
+- rotate camera across close/fade/LOD boundary
+- compare at morning/noon/evening lighting
+
+Pass criteria:
+
+- no pre-LOD line
+- coherent brightness from close terrain to fade to LandLOD
+- PBR does not exist only near the camera
+
+### Performance
+
+- cold cache launch
+- warm cache launch
+- cell transition
+- menu open/close
+- fast travel or interior/exterior transition
+
+Pass criteria:
+
+- no shader compilation during gameplay in warm cache
+- no multi-second frame stalls
+- no broad FPS regression from disabled families
+- terrain FPS cost is isolated to terrain family
+
+## Required Research Before More Feature Work
+
+Do not implement another visual PBR expansion until these are proven by source/Ghidra/logs:
+
+1. Complete object row table, including LOD, point-light, helper, EnvMap, skin, and projected rows.
+2. Exact Pip-Boy light row or state path.
+3. Close terrain pass-row discriminator and active layer source.
+4. Terrain fade row and constant/sampler contract.
+5. LandLOD constant/sampler contract and fade relation.
+6. Shader compile/cache lifecycle constraints under D3D9/Wine/Proton.
+
+If existing NVR source answers a point, document the source reference in the registry. If not, prepare a Ghidra script and wait for output. Do not guess.
+
+## Deliverables
+
+1. Contract registry and draw classifier.
+2. Replacement record system.
+3. Bytecode cache and startup enable boundary.
+4. Object PBR complete row coverage or stable row fallback.
+5. Close terrain PBR rebuilt around VPT/NVR pass rows.
+6. Terrain fade and LandLOD as one coherent terrain family.
+7. Light compatibility records for point lights and Pip-Boy light.
+8. Performance counters and hot-path cleanup.
+9. Updated user documentation for dependencies, config paths, feature presets, and known experimental limits.
+
+## Definition Of Done
+
+Native PBR is not done when one surface looks metallic.
+
+Native PBR is done when:
+
+- every replaced draw has a registry contract id
+- every unknown or unsupported draw falls back to vanilla deterministically
+- object PBR does not blink with distance or angle
+- close terrain has no rectangular chunk artifacts
+- terrain fade and LandLOD are coherent with close terrain
+- interior lights, exterior lights, and Pip-Boy light are preserved
+- warm cache gameplay has no shader compilation stalls
+- performance cost is measured, bounded, and attributable
+- logs explain coverage without overwhelming gameplay
+
+Until then, the correct status is "partial PBR contract implementation," not "fixed."

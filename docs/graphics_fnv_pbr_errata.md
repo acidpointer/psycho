@@ -299,6 +299,40 @@ Correct fix path:
 - Replace vertex and pixel shaders as a pair when required.
 - Keep a vanilla fallback for every unproven vertex ABI.
 
+### 9. Shader Creation Hook Collision Disabled All Native PBR
+
+Symptom:
+
+- PBR does not work at all.
+- OMV logs `CreateVertexShader` / `CreatePixelShader` prologue mismatches.
+- OMV logs `Native PBR hooks skipped because a target prologue is not vanilla`.
+- The runtime menu can still show native PBR settings, but no object, LandLOD, or close-terrain replacement applies.
+
+Cause:
+
+The broken install contract treated `BSShader::CreateVertexShader @ 0x00BE0FE0` and `BSShader::CreatePixelShader @ 0x00BE1750` as mandatory OMV-owned hooks. In a modern graphics stack, VPT, FSL, LODFF, NVR-like components, or another shader plugin may patch those creation functions before OMV deferred init. That does not prove PBR is unsafe. It only means OMV cannot use those hooks for eager shader-wrapper ownership.
+
+The actual mandatory native PBR contract is draw-time ownership:
+
+- selector setup hooks;
+- `SetTexture` capture;
+- `SetShaders` replacement/restore;
+- pass shader-interface apply;
+- lazy ownership seeding for active vertex/pixel shader wrappers.
+
+Do not repeat:
+
+- Do not put `CreateVertexShader` or `CreatePixelShader` into the global mandatory prologue verifier.
+- Do not disable all native PBR because shader creation prologues are already patched.
+- Do not assume shader creation ownership is the only safe way to identify shader wrappers.
+
+Correct fix path:
+
+- Treat shader creation hooks as optional eager ownership probes.
+- If creation hooks are unavailable, log the collision and continue with lazy shader ownership from active draw-time shader wrappers.
+- Keep `SetShaders`, `SetTexture`, selector setup, and pass shader-interface hooks as the mandatory install contract.
+- If the mandatory draw-time hooks collide, block native PBR and report the exact failed hook.
+
 ## Required Proof Before Broadening Close Terrain PBR
 
 A future close terrain fix must prove all of this first:

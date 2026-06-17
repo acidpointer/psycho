@@ -146,8 +146,10 @@ Current OMV:
   `omv/src/effects/pbr.rs:3426`.
 - Skinned vertex rows are explicitly rejected in
   `omv/src/effects/pbr.rs:3382`.
-- Hair rows are not mapped to replacement kinds in
-  `pplighting_sls2_object_replacement_kind`.
+- Non-skinned NVR hair rows are now mapped to explicit replacement kinds, and
+  `ONLY_SPECULAR` hair helpers alias to the matching non-hair only-specular
+  rows because NVR does not execute the hair albedo branch under
+  `ONLY_SPECULAR`.
 - STBB is mapped as the NVR constant-shadow object row.
 - Replacement object vertex shaders are provided for mapped object rows, but
   source-equivalence to every NVR vertex variant is still incomplete.
@@ -155,8 +157,11 @@ Current OMV:
 Gap:
 
 - Skinned object PBR is missing.
-- Hair object PBR is missing.
-- Hair variants of `ONLY_SPECULAR` helper rows are missing.
+- Ghidra now identifies runtime `pidx=57/59` as EnvMap pixel rows paired with
+  EnvMap vertex rows `50..52`. They are outside NVR's published object PBR
+  coverage and must not be routed through the object BRDF path.
+- EnvMap/reflection PBR compatibility is a separate contract, not an object-row
+  completion item.
 - Object vertex replacement is not source-equivalent to NVR; OMV relies on
   vanilla-equivalent outputs for the mapped object replacement pixels.
 
@@ -170,8 +175,10 @@ Impact:
 Fix direction:
 
 - Build an explicit row-completion table from NVR `PBR.h`.
-- Treat missing hair/skin/helper variants as blockers for "complete object
-  PBR".
+- Treat missing skin and proven helper/special variants as blockers for
+  "complete object PBR".
+- Keep EnvMap rows out of object PBR until a separate EnvMap shader contract is
+  researched and implemented.
 - For every object pixel row, either prove the vanilla vertex ABI is compatible
   or add the matching NVR-derived vertex replacement.
 
@@ -196,8 +203,9 @@ Reference:
 
 Current OMV:
 
-- OMV close terrain shader declares `LandSpec`, fog, and terrain tuning, but not
-  `LandHeight`, `TESR_TerrainParallaxData`, or `TESR_TerrainParallaxExtraData` in
+- OMV close terrain shader declares `LandSpec`, `LandHeight`, fog, and terrain
+  tuning, but not `TESR_TerrainParallaxData` or
+  `TESR_TerrainParallaxExtraData` in
   `omv/shaders/embedded/native_pbr_pplighting_close_terrain.hlsl:9`.
 - OMV blends diffuse/normal maps using original vertex blend channels only in
   `omv/shaders/embedded/native_pbr_pplighting_close_terrain.hlsl:278`.
@@ -206,7 +214,8 @@ Current OMV:
 
 Gap:
 
-- `LandHeight c34/c35` is missing.
+- `LandHeight c34/c35` is declared but not consumed; height-weight blending is
+  still missing.
 - Terrain parallax constants `c91/c92` are missing.
 - NVR `getParallaxCoords` / height-blend weights are missing.
 - NVR parallax shadow multiplier is missing.
@@ -266,33 +275,38 @@ Fix direction:
   gate.
 - Do not use shader pair alone for terrain replacement.
 
-### 6. Terrain Point-Light Variants Are Incorrectly Downshifted
+### 6. Terrain Point-Light Variants Must Stay Exact
 
 VPT/NVR point-light close terrain rows are separate shader contracts. They have
 additional point-light constants at `c39`, `c63`, and `c88`.
 
 Current OMV:
 
-- If a point-light close-terrain tier is not fully created but the zero-light tier
-  is available, OMV silently returns the zero-light variant in
-  `omv/src/effects/pbr.rs:3407`.
+- The VPT close-terrain selector now preserves the exact point-light tier
+  (`0/6/12/24`) instead of dropping nonzero tiers.
+- Prewarm now compiles those exact terrain point-light shader variants when the
+  VPT terrain contract is available.
+- Runtime replacement now gates on the exact shader variant being created,
+  rather than requiring every texture-count shader in the whole point-light tier.
 
-Gap:
+Remaining gap:
 
-- A point-light row must not be rendered with a no-point-light shader.
-- This is a deterministic contract violation.
+- This only fixes the exact shader-row selection. It does not prove broad terrain
+  pass identity, terrain fade, or the missing `LandHeight` contract.
 
 Impact:
 
-- Terrain lighting can disappear or change as the engine switches point-light
-  tiers.
-- This is one of the most likely contributors to distance-based terrain blink.
+- Terrain lighting now has the required shader variants available for VPT close
+  terrain point-light rows.
+- If distance blink remains, the next suspects are pass identity, terrain fade,
+  EnvMap/reflection passes, LandLOD/projection variants, or missing skin/LOD row
+  coverage.
 
 Fix direction:
 
-- Remove the point-light-to-zero-light downshift.
-- If the exact point-light variant is unavailable, fall back to vanilla for that
-  draw.
+- Keep exact point-light tiers mandatory.
+- If an exact point-light variant is unavailable, fall back to vanilla for that
+  draw rather than substituting a zero-light shader.
 
 ### 7. Terrain LOD Is Partial And Terrain Fade Is Missing
 
@@ -450,7 +464,7 @@ Gap:
 Fix direction:
 
 - Update config comments after the row-completion table is formalized.
-- Keep comments explicit about incomplete rows: skin, hair, terrain fade,
+- Keep comments explicit about incomplete rows: skin, unidentified post-NVR rows, terrain fade,
   projected LandLOD, WetWorld, terrain parallax.
 
 ## Symptom Mapping
@@ -463,7 +477,7 @@ Most likely contract causes:
 - row-specific sampler binding is not owned;
 - `SetCT` equivalent is incomplete;
 - projected shadow/helper sampler slots can be stale;
-- skinned/hair/object special rows can switch to vanilla.
+- skinned or unidentified object special rows can switch to vanilla.
 
 The first suspect should not be the BRDF formula. The NVR contract document says
 the first suspect is missing helper/point-light row coverage or stale
@@ -474,7 +488,7 @@ constants/samplers.
 Most likely contract causes:
 
 - object row switches between replaced and vanilla variants;
-- LOD/hair/skin/special pass rows are incomplete;
+- skin/unidentified special pass rows are incomplete;
 - vanilla vertex ABI is assumed rather than proven for every replaced pixel row;
 - sampler state from the prior pass leaks into the replacement pass.
 
@@ -484,7 +498,8 @@ Most likely contract causes:
 
 - shader-pair terrain detection is still used;
 - pass-entry identity is not a required gate;
-- point-light terrain rows can be downshifted to no-point-light shaders;
+- terrain point-light rows now use exact variants, but their broader pass
+  identity is still not fully proven;
 - terrain fade is missing;
 - LandLOD projected shadow is missing;
 - `LandHeight`/height-blend/parallax contract is absent.
@@ -531,9 +546,8 @@ resource scans.
 
 Current OMV PBR is a partial native shader replacement implementation. It is not
 yet an NVR-equivalent PBR port. The biggest wrong implemented parts are terrain
-identity, terrain point-light fallback, missing `LandHeight`/parallax terrain
-contract, incomplete object row coverage, and lack of NVR's `SetCT`-style
-resource/constant binding layer.
+identity, missing `LandHeight`/parallax terrain contract, incomplete object row
+coverage, and lack of NVR's `SetCT`-style resource/constant binding layer.
 
 Do not continue by tweaking shader math. The next implementation work must close
 the row/pass/resource/constant contract.

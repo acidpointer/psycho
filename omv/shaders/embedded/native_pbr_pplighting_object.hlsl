@@ -30,6 +30,10 @@
 #define PBR_OBJECT_SI 0
 #endif
 
+#ifndef PBR_OBJECT_HAIR
+#define PBR_OBJECT_HAIR 0
+#endif
+
 #ifndef PBR_OBJECT_ONLY_LIGHT
 #define PBR_OBJECT_ONLY_LIGHT 0
 #endif
@@ -58,11 +62,11 @@ sampler2D BaseMap : register(s0);
 sampler2D NormalMap : register(s1);
 #endif
 
-#if PBR_OBJECT_SI || (PBR_OBJECT_HIGH && !PBR_OBJECT_OPT)
+#if PBR_OBJECT_SI || PBR_OBJECT_HAIR || (PBR_OBJECT_HIGH && !PBR_OBJECT_OPT)
 float4 EmittanceColor : register(c2);
 #endif
 
-#if PBR_OBJECT_SI
+#if PBR_OBJECT_SI || PBR_OBJECT_HAIR
 #if PBR_OBJECT_ONLY_LIGHT
 sampler2D GlowMap : register(s3);
 #else
@@ -328,7 +332,9 @@ float3 PointLightAtt(float3 light_vector, float att, float3 light_color, float3 
 
 float3 ObjectAlbedo(float4 base_color, float3 vertex_color)
 {
-#if PBR_OBJECT_OPT
+#if PBR_OBJECT_HAIR
+    float3 albedo = base_color.rgb;
+#elif PBR_OBJECT_OPT
     float3 albedo = base_color.rgb * saturate(vertex_color.rgb);
 #else
     float3 albedo = (Toggles.x <= 0.0f)
@@ -366,6 +372,11 @@ float4 Main(PixelInput input) : COLOR0
     if (AmbientColor.a < 1.0f) {
         clip(base_color.a - Toggles.w);
     }
+#endif
+
+#if PBR_OBJECT_HAIR
+    float4 glow = tex2D(GlowMap, input.uv.xy);
+    base_color.rgb = (2.0f * ((input.vertex_color.g * (EmittanceColor.rgb - 0.5f)) + 0.5f)) * lerp(base_color.rgb, glow.rgb, glow.a);
 #endif
 
 #if PBR_OBJECT_ONLY_LIGHT

@@ -1,0 +1,1451 @@
+FNV PBR PPLIGHTING UNKNOWN OBJECT ROWS 57/59 AUDIT
+
+Goal: identify runtime pidx=57/59 and vidx=50/51/52 rows before mapping them into OMV PBR.
+
+======================================================================
+PPLighting vertex constructor @ 0x00b71bf0
+======================================================================
+  Function: FUN_00b71bf0 @ 0x00b71bf0, Size: 9756 bytes
+
+/* WARNING: Function: __alloca_probe replaced with injection: alloca_probe */
+
+void FUN_00b71bf0(void)
+
+{
+  char **ppcVar1;
+  int *piVar2;
+  LONG LVar3;
+  int *piVar4;
+  char **ppcVar5;
+  int iVar6;
+  char **local_3064 [2];
+  char *local_305c;
+  undefined4 local_3058;
+  undefined1 local_3054 [68];
+  char *local_3010;
+  undefined *local_300c;
+  undefined *local_3008;
+  undefined4 local_3004;
+  undefined1 local_3000 [60];
+  char *local_2fc4;
+  char *local_2fc0;
+  undefined *local_2fbc;
+  char *local_2fb8;
+  undefined *local_2fb4;
+  char *local_2fb0;
+  undefined *local_2fac;
+  undefined4 local_2fa8;
+  undefined1 local_2fa4 [44];
+  char *local_2f78;
+  undefined *local_2f74;
+  undefined *local_2f70;
+  undefined4 local_2f6c;
+  undefined1 local_2f68 [60];
+  char *local_2f2c;
+  char *local_2f28;
+  undefined *local_2f24;
+  undefined4 local_2f20;
+  undefined1 local_2f1c [60];
+  char *local_2ee0;
+  char *local_2edc;
+  undefined *local_2ed8;
+  char *local_2ed4;
+  undefined *local_2ed0;
+  char *local_2ecc;
+  undefined *local_2ec8;
+  char *local_2ec4;
+  undefined *local_2ec0;
+  undefined4 local_2ebc;
+  undefined4 local_2eb8;
+  undefined4 local_2eb4;
+  undefined4 local_2eb0;
+  undefined4 local_2eac;
+  undefined4 local_2ea8;
+  undefined4 local_2ea4;
+  undefined4 local_2ea0;
+  undefined4 local_2e9c;
+  undefined4 local_2e98;
+  char *local_2e94;
+  undefined *local_2e90;
+  undefined *local_2e8c;
+  char *local_2e88;
+  undefined *local_2e84;
+  undefined4 local_2e80;
+  undefined1 local_2e7c [52];
+  char *local_2e48;
+  undefined *local_2e44;
+  undefined *local_2e40;
+  undefined4 local_2e3c;
+  undefined1 local_2e38 [60];
+  char *local_2dfc;
+  char *local_2df8;
+  undefined *local_2df4;
+  undefined4 local_2df0;
+  undefined1 local_2dec [60];
+  char *local_2db0;
+  char *local_2dac;
+  undefined *local_2da8;
+  undefined *local_2da4;
+  undefined *local_2da0;
+  undefined4 local_2d9c;
+  undefined1 local_2d98 [52];
+  char *local_2d64;
+  char *local_2d60;
+  undefined *local_2d5c;
+  char *local_2d58;
+  undefined *local_2d54;
+  undefined4 local_2d50;
+  undefined1 local_2d4c [52];
+  char *local_2d18;
+  char *local_2d14;
+  undefined *local_2d10;
+  undefined *local_2d0c;
+  undefined *local_2d08;
+  char *local_2d04;
+  undefined *local_2d00;
+  undefined4 local_2cfc;
+  undefined1 local_2cf8 [44];
+  char *local_2ccc;
+  char *local_2cc8;
+  undefined *local_2cc4;
+  undefined4 local_2cc0;
+  undefined1 local_2cbc [60];
+  char *local_2c80;
+  char *local_2c7c;
+  undefined *local_2c78;
+  undefined *local_2c74;
+  undefined *local_2c70;
+  undefined4 local_2c6c;
+  undefined1 local_2c68 [52];
+  char *local_2c34;
+  char *local_2c30;
+  undefined *local_2c2c;
+  char *local_2c28;
+  undefined *local_2c24;
+  undefined4 local_2c20;
+  undefined1 local_2c1c [52];
+  char *local_2be8;
+  char *local_2be4;
+  undefined *local_2be0;
+  undefined *local_2bdc;
+  undefined *local_2bd8;
+  char *local_2bd4;
+  undefined *local_2bd0;
+  undefined4 local_2bcc;
+  undefined1 local_2bc8 [44];
+  char *local_2b9c;
+  char *local_2b98;
+  undefined *local_2b94;
+  char *local_2b90;
+  undefined *local_2b8c;
+  undefined4 local_2b88;
+  undefined1 local_2b84 [52];
+  char *local_2b50;
+  char *local_2b4c;
+  undefined *local_2b48;
+  char *local_2b44;
+  undefined *local_2b40;
+  undefined *local_2b3c;
+  undefined *local_2b38;
+  undefined4 local_2b34;
+  undefined1 local_2b30 [44];
+  char *local_2b04;
+  char *local_2b00;
+  undefined *local_2afc;
+  char *local_2af8;
+  undefined *local_2af4;
+  char *local_2af0;
+  undefined *local_2aec;
+  undefined4 local_2ae8;
+  undefined1 local_2ae4 [44];
+  char *local_2ab8;
+  char *local_2ab4;
+  undefined *local_2ab0;
+  char *local_2aac;
+  undefined *local_2aa8;
+  undefined *local_2aa4;
+  undefined *local_2aa0;
+  char *local_2a9c;
+  undefined *local_2a98;
+  undefined4 local_2a94;
+  undefined4 local_2a90;
+  undefined4 local_2a8c;
+  undefined4 local_2a88;
+  undefined4 local_2a84;
+  undefined4 local_2a80;
+  undefined4 local_2a7c;
+  undefined4 local_2a78;
+  undefined4 local_2a74;
+  undefined4 local_2a70;
+  char *local_2a6c;
+  char *local_2a68;
+  undefined *local_2a64;
+  undefined4 local_2a60;
+  undefined1 local_2a5c [60];
+  char *local_2a20;
+  char *local_2a1c;
+  undefined *local_2a18;
+  undefined *local_2a14;
+  undefined *local_2a10;
+  undefined4 local_2a0c;
+  undefined1 local_2a08 [52];
+  char *local_29d4;
+  char *local_29d0;
+  undefined *local_29cc;
+  undefined4 local_29c8;
+  undefined1 local_29c4 [60];
+  char *local_2988;
+  undefined *local_2984;
+  undefined *local_2980;
+  char *lo
+
+======================================================================
+PPLighting pixel constructor @ 0x00b74210
+======================================================================
+  [function not found]
+
+======================================================================
+Descriptor field dump for PPLighting vertex group C rows 48..59
+======================================================================
+  Base LEA @ 0x00b74117: LEA EBX,[ESP + 0x18], esp_delta=-64, normalized_base=0x-28
+
+  Index 48
+    field=0x00 write=0x00b7330d rhs=EDI        value=0                                        :: MOV dword ptr [ESP + 0xe4c],EDI
+    field=0x30 write=0x00b73324 rhs=0x10aeb14  value=0x010aeb14 "lighting\2x\v\Specular.v.hlsl" :: MOV dword ptr [ESP + 0xe88],0x10aeb14
+    field=0x34 write=0x00b7332f rhs=0x10aeafc  value=0x010aeafc "NUM_PT_LIGHTS"               :: MOV dword ptr [ESP + 0xe8c],0x10aeafc
+    field=0x38 write=0x00b7333a rhs=0x1063f30  value=0x01063f30 "3"                           :: MOV dword ptr [ESP + 0xe90],0x1063f30
+    field=0x3C write=0x00b73345 rhs=0x10aeb0c  value=0x010aeb0c "POINT"                       :: MOV dword ptr [ESP + 0xe94],0x10aeb0c
+    field=0x40 write=0x00b73350 rhs=ESI        value=0x01011584                               :: MOV dword ptr [ESP + 0xe98],ESI
+    field=0x44 write=0x00b73357 rhs=EDI        value=0                                        :: MOV dword ptr [ESP + 0xe9c],EDI
+
+  Index 49
+    field=0x30 write=0x00b73363 rhs=0x10aeb14  value=0x010aeb14 "lighting\2x\v\Specular.v.hlsl" :: MOV dword ptr [ESP + 0xed4],0x10aeb14
+    field=0x34 write=0x00b7336e rhs=0x10aeafc  value=0x010aeafc "NUM_PT_LIGHTS"               :: MOV dword ptr [ESP + 0xed8],0x10aeafc
+    field=0x38 write=0x00b73384 rhs=0x1063f30  value=0x01063f30 "3"                           :: MOV dword ptr [ESP + 0xee8],0x1063f30
+    field=0x3C write=0x00b7338f rhs=EBX        value=0x010aec10 "SKIN"                        :: MOV dword ptr [ESP + 0xeec],EBX
+    field=0x40 write=0x00b73396 rhs=ESI        value=0x01011584                               :: MOV dword ptr [ESP + 0xef0],ESI
+    field=0x44 write=0x00b7339d rhs=0x10aeb0c  value=0x010aeb0c "POINT"                       :: MOV dword ptr [ESP + 0xef4],0x10aeb0c
+    field=0x48 write=0x00b733a8 rhs=ESI        value=0x01011584                               :: MOV dword ptr [ESP + 0xef8],ESI
+
+  Index 50
+    field=0x00 write=0x00b733af rhs=EDI        value=0                                        :: MOV dword ptr [ESP + 0xefc],EDI
+    field=0x30 write=0x00b733c6 rhs=0x10aeae0  value=0x010aeae0 "lighting\2x\v\EnvMap.v.hlsl" :: MOV dword ptr [ESP + 0xf38],0x10aeae0
+    field=0x34 write=0x00b733d1 rhs=0x10aead8  value=0x010aead8 "ENVMAP"                      :: MOV dword ptr [ESP + 0xf3c],0x10aead8
+    field=0x38 write=0x00b733dc rhs=ESI        value=0x01011584                               :: MOV dword ptr [ESP + 0xf40],ESI
+    field=0x3C write=0x00b733e3 rhs=EDI        value=0                                        :: MOV dword ptr [ESP + 0xf44],EDI
+
+  Index 51
+    field=0x30 write=0x00b733fd rhs=0x10aeae0  value=0x010aeae0 "lighting\2x\v\EnvMap.v.hlsl" :: MOV dword ptr [ESP + 0xf48],0x10aeae0
+    field=0x34 write=0x00b73408 rhs=EBX        value=0x010aec10 "SKIN"                        :: MOV dword ptr [ESP + 0xf4c],EBX
+    field=0x38 write=0x00b7340f rhs=ESI        value=0x01011584                               :: MOV dword ptr [ESP + 0xf50],ESI
+    field=0x3C write=0x00b73416 rhs=0x10aead8  value=0x010aead8 "ENVMAP"                      :: MOV dword ptr [ESP + 0xf54],0x10aead8
+    field=0x40 write=0x00b73421 rhs=ESI        value=0x01011584                               :: MOV dword ptr [ESP + 0xf58],ESI
+    field=0x44 write=0x00b73428 rhs=EDI        value=0                                        :: MOV dword ptr [ESP + 0xf5c],EDI
+
+  Index 52
+    field=0x30 write=0x00b7343f rhs=0x10aeae0  value=0x010aeae0 "lighting\2x\v\EnvMap.v.hlsl" :: MOV dword ptr [ESP + 0xfa0],0x10aeae0
+    field=0x34 write=0x00b7344a rhs=0x10aead8  value=0x010aead8 "ENVMAP"                      :: MOV dword ptr [ESP + 0xfa4],0x10aead8
+    field=0x38 write=0x00b73455 rhs=ESI        value=0x01011584                               :: MOV dword ptr [ESP + 0xfa8],ESI
+    field=0x3C write=0x00b7345c rhs=0x10aead4  value=0x010aead4 "EYE"                         :: MOV dword ptr [ESP + 0xfac],0x10aead4
+    field=0x40 write=0x00b73467 rhs=EDI        value=0                                        :: MOV dword ptr [ESP + 0xfb0],EDI
+    field=0x44 write=0x00b7346e rhs=EDI        value=0                                        :: MOV dword ptr [ESP + 0xfb4],EDI
+
+  Index 53
+    field=0x30 write=0x00b73485 rhs=0x10aeab8  value=0x010aeab8 "lighting\2x\v\land.v.hlsl"   :: MOV dword ptr [ESP + 0xff8],0x10aeab8
+    field=0x34 write=0x00b73490 rhs=0x10aeba0  value=0x010aeba0 "PROJ_SHADOW"                 :: MOV dword ptr [ESP + 0xffc],0x10aeba0
+    field=0x38 write=0x00b7349b rhs=ESI        value=0x01011584                               :: MOV dword ptr [ESP + 0x1000],ESI
+    field=0x3C write=0x00b734a2 rhs=EDI        value=0                                        :: MOV dword ptr [ESP + 0x1004],EDI
+
+  Index 54
+    field=0x30 write=0x00b734b9 rhs=0x10aeab8  value=0x010aeab8 "lighting\2x\v\land.v.hlsl"   :: MOV dword ptr [ESP + 0x1050],0x10aeab8
+    field=0x34 write=0x00b734c4 rhs=0x10aec20  value=0x010aec20 "LANDALPHA"                   :: MOV dword ptr [ESP + 0x1054],0x10aec20
+    field=0x38 write=0x00b734cf rhs=ESI        value=0x01011584                               :: MOV dword ptr [ESP + 0x1058],ESI
+    field=0x3C write=0x00b734d6 rhs=0x10aeba0  value=0x010aeba0 "PROJ_SHADOW"                 :: MOV dword ptr [ESP + 0x105c],0x10aeba0
+    field=0x40 write=0x00b734e1 rhs=ESI        value=0x01011584                               :: MOV dword ptr [ESP + 0x1060],ESI
+    field=0x44 write=0x00b734e8 rhs=EDI        value=0                                        :: MOV dword ptr [ESP + 0x1064],EDI
+
+  Index 55
+    field=0x30 write=0x00b734ff rhs=0x10aea94  value=0x010aea94 "lighting\2x\v\landlighting.v.hlsl" :: MOV dword ptr [ESP + 0x10a8],0x10aea94
+    field=0x34 write=0x00b7350a rhs=0x1098a04  value=0x01098a04 "DIFF"                        :: MOV dword ptr [ESP + 0x10ac],0x1098a04
+    field=0x38 write=0x00b73515 rhs=ESI        value=0x01011584                               :: MOV dword ptr [ESP + 0x10b0],ESI
+    field=0x3C write=0x00b7351c rhs=0x10aec18  value=0x010aec18 "PTLIGHT"                     :: MOV dword ptr [ESP + 0x10b4],0x10aec18
+    field=0x40 write=0x00b73527 rhs=ESI        value=0x01011584                               :: MOV dword ptr [ESP + 0x10b8],ESI
+    field=0x44 write=0x00b7352e rhs=EDI        value=0                                        :: MOV dword ptr [ESP + 0x10bc],EDI
+
+  Index 56
+    field=0x30 write=0x00b7353c rhs=0x10aea94  value=0x010aea94 "lighting\2x\v\landlighting.v.hlsl" :: MOV dword ptr [ESP + 0x10f8],0x10aea94
+    field=0x34 write=0x00b73547 rhs=0x10aeb8c  value=0x010aeb8c "SPECULAR"                    :: MOV dword ptr [ESP + 0x10fc],0x10aeb8c
+    field=0x38 write=0x00b73552 rhs=ESI        value=0x01011584                               :: MOV dword ptr [ESP + 0x1100],ESI
+    field=0x3C write=0x00b73559 rhs=EDI        value=0                                        :: MOV dword ptr [ESP + 0x1104],EDI
+
+  Index 57
+    field=0x30 write=0x00b7357c rhs=EDI        value=0                                        :: MOV dword ptr [ESP + 0x1110],EDI
+
+  Index 58
+    field=0x30 write=0x00b73593 rhs=0x10aea94  value=0x010aea94 "lighting\2x\v\landlighting.v.hlsl" :: MOV dword ptr [ESP + 0x1168],0x10aea94
+    field=0x34 write=0x00b7359e rhs=0x10aec20  value=0x010aec20 "LANDALPHA"                   :: MOV dword ptr [ESP + 0x116c],0x10aec20
+    field=0x38 write=0x00b735a9 rhs=ESI        value=0x01011584                               :: MOV dword ptr [ESP + 0x1170],ESI
+    field=0x3C write=0x00b735b0 rhs=0x1098a04  value=0x01098a04 "DIFF"                        :: MOV dword ptr [ESP + 0x1174],0x1098a04
+    field=0x40 write=0x00b735bb rhs=ESI        value=0x01011584                               :: MOV dword ptr [ESP + 0x1178],ESI
+    field=0x44 write=0x00b735c2 rhs=0x10aec18  value=0x010aec18 "PTLIGHT"                     :: MOV dword ptr [ESP + 0x117c],0x10aec18
+    field=0x48 write=0x00b735cd rhs=ESI        value=0x01011584                               :: MOV dword ptr [ESP + 0x1180],ESI
+
+  Index 59
+    field=0x00 write=0x00b735d4 rhs=EDI        value=0                                        :: MOV dword ptr [ESP + 0x1184],EDI
+    field=0x30 write=0x00b735eb rhs=0x10aea94  value=0x010aea94 "lighting\2x\v\landlighting.v.hlsl" :: MOV dword ptr [ESP + 0x11c0],0x10aea94
+    field=0x34 write=0x00b735f6 rhs=0x10aec20  value=0x010aec20 "LANDALPHA"                   :: MOV dword ptr [ESP + 0x11c4],0x10aec20
+    field=0x38 write=0x00b73601 rhs=ESI        value=0x01011584                               :: MOV dword ptr [ESP + 0x11c8],ESI
+    field=0x3C write=0x00b73608 rhs=0x10aeb8c  value=0x010aeb8c "SPECULAR"                    :: MOV dword ptr [ESP + 0x11cc],0x10aeb8c
+    field=0x40 write=0x00b73613 rhs=ESI        value=0x01011584                               :: MOV dword ptr [ESP + 0x11d0],ESI
+    field=0x44 write=0x00b7361a rhs=EDI        value=0                                        :: MOV dword ptr [ESP + 0x11d4],EDI
+
+  Target descriptor writes: 66
+
+======================================================================
+Descriptor field dump for PPLighting pixel group B rows 47..59
+======================================================================
+  Base LEA @ 0x00b78804: LEA EBX,[ESP + 0x2c], esp_delta=-52, normalized_base=0x-8
+
+  Index 47
+    field=0x18 write=0x00b759a1 rhs=EBP        value=0x010af070 "lighting\2x\p\Specular.p.hlsl" :: MOV dword ptr [ESP + 0xe5c],EBP
+    field=0x1C write=0x00b759a8 rhs=EDI        value=0                                        :: MOV dword ptr [ESP + 0xe60],EDI
+
+  Index 48
+    field=0x18 write=0x00b759c2 rhs=EBP        value=0x010af070 "lighting\2x\p\Specular.p.hlsl" :: MOV dword ptr [ESP + 0xe6c],EBP
+    field=0x1C write=0x00b759c9 rhs=0x101c61c  value=0x0101c61c "HAIR"                        :: MOV dword ptr [ESP + 0xe70],0x101c61c
+    field=0x20 write=0x00b759d4 rhs=ESI        value=0x01011584                               :: MOV dword ptr [ESP + 0xe74],ESI
+    field=0x24 write=0x00b759db rhs=EDI        value=0                                        :: MOV dword ptr [ESP + 0xe78],EDI
+
+  Index 49
+    field=0x18 write=0x00b759e9 rhs=EBP        value=0x010af070 "lighting\2x\p\Specular.p.hlsl" :: MOV dword ptr [ESP + 0xebc],EBP
+    field=0x1C write=0x00b759f0 rhs=0x10aeba0  value=0x010aeba0 "PROJ_SHADOW"                 :: MOV dword ptr [ESP + 0xec0],0x10aeba0
+    field=0x20 write=0x00b759fb rhs=ESI        value=0x01011584                               :: MOV dword ptr [ESP + 0xec4],ESI
+    field=0x24 write=0x00b75a02 rhs=EDI        value=0                                        :: MOV dword ptr [ESP + 0xec8],EDI
+
+  Index 50
+    field=0x18 write=0x00b75a22 rhs=EBP        value=0x010af070 "lighting\2x\p\Specular.p.hlsl" :: MOV dword ptr [ESP + 0xf1c],EBP
+    field=0x1C write=0x00b75a29 rhs=0x10aeba0  value=0x010aeba0 "PROJ_SHADOW"                 :: MOV dword ptr [ESP + 0xf20],0x10aeba0
+    field=0x20 write=0x00b75a34 rhs=ESI        value=0x01011584                               :: MOV dword ptr [ESP + 0xf24],ESI
+    field=0x24 write=0x00b75a3b rhs=0x101c61c  value=0x0101c61c "HAIR"                        :: MOV dword ptr [ESP + 0xf28],0x101c61c
+    field=0x28 write=0x00b75a46 rhs=ESI        value=0x01011584                               :: MOV dword ptr [ESP + 0xf2c],ESI
+    field=0x2C write=0x00b75a4d rhs=EDI        value=0                                        :: MOV dword ptr [ESP + 0xf30],EDI
+
+  Index 51
+    field=0x18 write=0x00b75a64 rhs=EBP        value=0x010af070 "lighting\2x\p\Specular.p.hlsl" :: MOV dword ptr [ESP + 0xf74],EBP
+    field=0x1C write=0x00b75a6b rhs=0x10aeb0c  value=0x010aeb0c "POINT"                       :: MOV dword ptr [ESP + 0xf78],0x10aeb0c
+    field=0x20 write=0x00b75a76 rhs=ESI        value=0x01011584                               :: MOV dword ptr [ESP + 0xf7c],ESI
+    field=0x24 write=0x00b75a7d rhs=EDI        value=0                                        :: MOV dword ptr [ESP + 0xf80],EDI
+
+  Index 52
+    field=0x18 write=0x00b75a94 rhs=EBP        value=0x010af070 "lighting\2x\p\Specular.p.hlsl" :: MOV dword ptr [ESP + 0xfcc],EBP
+    field=0x1C write=0x00b75a9b rhs=0x10aeb0c  value=0x010aeb0c "POINT"                       :: MOV dword ptr [ESP + 0xfd0],0x10aeb0c
+    field=0x20 write=0x00b75aa6 rhs=ESI        value=0x01011584                               :: MOV dword ptr [ESP + 0xfd4],ESI
+    field=0x24 write=0x00b75aad rhs=0x101c61c  value=0x0101c61c "HAIR"                        :: MOV dword ptr [ESP + 0xfd8],0x101c61c
+    field=0x28 write=0x00b75ab8 rhs=ESI        value=0x01011584                               :: MOV dword ptr [ESP + 0xfdc],ESI
+    field=0x2C write=0x00b75abf rhs=EDI        value=0                                        :: MOV dword ptr [ESP + 0xfe0],EDI
+
+  Index 53
+    field=0x18 write=0x00b75ad6 rhs=EBP        value=0x010af070 "lighting\2x\p\Specular.p.hlsl" :: MOV dword ptr [ESP + 0x1024],EBP
+    field=0x1C write=0x00b75add rhs=0x10aeafc  value=0x010aeafc "NUM_PT_LIGHTS"               :: MOV dword ptr [ESP + 0x1028],0x10aeafc
+    field=0x20 write=0x00b75ae8 rhs=0x1063f3c  value=0x01063f3c "2"                           :: MOV dword ptr [ESP + 0x102c],0x1063f3c
+    field=0x24 write=0x00b75af3 rhs=0x10aeb0c  value=0x010aeb0c "POINT"                       :: MOV dword ptr [ESP + 0x1030],0x10aeb0c
+    field=0x28 write=0x00b75afe rhs=ESI        value=0x01011584                               :: MOV dword ptr [ESP + 0x1034],ESI
+    field=0x2C write=0x00b75b05 rhs=EDI        value=0                                        :: MOV dword ptr [ESP + 0x1038],EDI
+
+  Index 54
+    field=0x18 write=0x00b75b1f rhs=EBP        value=0x010af070 "lighting\2x\p\Specular.p.hlsl" :: MOV dword ptr [ESP + 0x1034],EBP
+    field=0x1C write=0x00b75b26 rhs=0x10aeafc  value=0x010aeafc "NUM_PT_LIGHTS"               :: MOV dword ptr [ESP + 0x1038],0x10aeafc
+    field=0x20 write=0x00b75b31 rhs=0x1063f3c  value=0x01063f3c "2"                           :: MOV dword ptr [ESP + 0x103c],0x1063f3c
+    field=0x24 write=0x00b75b3c rhs=0x10aeb0c  value=0x010aeb0c "POINT"                       :: MOV dword ptr [ESP + 0x1040],0x10aeb0c
+    field=0x28 write=0x00b75b47 rhs=ESI        value=0x01011584                               :: MOV dword ptr [ESP + 0x1044],ESI
+    field=0x2C write=0x00b75b4e rhs=0x101c61c  value=0x0101c61c "HAIR"                        :: MOV dword ptr [ESP + 0x1048],0x101c61c
+    field=0x30 write=0x00b75b59 rhs=ESI        value=0x01011584                               :: MOV dword ptr [ESP + 0x104c],ESI
+    field=0x34 write=0x00b75b60 rhs=EDI        value=0                                        :: MOV dword ptr [ESP + 0x1050],EDI
+
+  Index 55
+    field=0x18 write=0x00b75b77 rhs=EBP        value=0x010af070 "lighting\2x\p\Specular.p.hlsl" :: MOV dword ptr [ESP + 0x108c],EBP
+    field=0x1C write=0x00b75b7e rhs=0x10aeafc  value=0x010aeafc "NUM_PT_LIGHTS"               :: MOV dword ptr [ESP + 0x1090],0x10aeafc
+    field=0x20 write=0x00b75b89 rhs=0x1063f30  value=0x01063f30 "3"                           :: MOV dword ptr [ESP + 0x1094],0x1063f30
+    field=0x24 write=0x00b75b94 rhs=0x10aeb0c  value=0x010aeb0c "POINT"                       :: MOV dword ptr [ESP + 0x1098],0x10aeb0c
+    field=0x28 write=0x00b75b9f rhs=ESI        value=0x01011584                               :: MOV dword ptr [ESP + 0x109c],ESI
+    field=0x2C write=0x00b75ba6 rhs=EDI        value=0                                        :: MOV dword ptr [ESP + 0x10a0],EDI
+
+  Index 56
+    field=0x18 write=0x00b75bb4 rhs=EBP        value=0x010af070 "lighting\2x\p\Specular.p.hlsl" :: MOV dword ptr [ESP + 0x10dc],EBP
+    field=0x1C write=0x00b75bbb rhs=0x10aeafc  value=0x010aeafc "NUM_PT_LIGHTS"               :: MOV dword ptr [ESP + 0x10e0],0x10aeafc
+    field=0x20 write=0x00b75bc6 rhs=0x1063f30  value=0x01063f30 "3"                           :: MOV dword ptr [ESP + 0x10e4],0x1063f30
+    field=0x24 write=0x00b75bd1 rhs=0x10aeb0c  value=0x010aeb0c "POINT"                       :: MOV dword ptr [ESP + 0x10e8],0x10aeb0c
+    field=0x28 write=0x00b75bdc rhs=ESI        value=0x01011584                               :: MOV dword ptr [ESP + 0x10ec],ESI
+    field=0x2C write=0x00b75be3 rhs=0x101c61c  value=0x0101c61c "HAIR"                        :: MOV dword ptr [ESP + 0x10f0],0x101c61c
+    field=0x30 write=0x00b75bee rhs=ESI        value=0x01011584                               :: MOV dword ptr [ESP + 0x10f4],ESI
+    field=0x34 write=0x00b75bf5 rhs=EDI        value=0                                        :: MOV dword ptr [ESP + 0x10f8],EDI
+
+  Index 57
+    field=0x18 write=0x00b75c1a rhs=EBP        value=0x010af054 "lighting\2x\p\EnvMap.p.hlsl" :: MOV dword ptr [ESP + 0x113c],EBP
+    field=0x1C write=0x00b75c21 rhs=EDI        value=0                                        :: MOV dword ptr [ESP + 0x1140],EDI
+
+  Index 58
+    field=0x18 write=0x00b75c38 rhs=EBP        value=0x010af054 "lighting\2x\p\EnvMap.p.hlsl" :: MOV dword ptr [ESP + 0x1194],EBP
+    field=0x1C write=0x00b75c3f rhs=0x10af04c  value=0x010af04c "WINDOW"                      :: MOV dword ptr [ESP + 0x1198],0x10af04c
+    field=0x20 write=0x00b75c4a rhs=ESI        value=0x01011584                               :: MOV dword ptr [ESP + 0x119c],ESI
+    field=0x24 write=0x00b75c51 rhs=EDI        value=0                                        :: MOV dword ptr [ESP + 0x11a0],EDI
+
+  Index 59
+    field=0x18 write=0x00b75c68 rhs=EBP        value=0x010af054 "lighting\2x\p\EnvMap.p.hlsl" :: MOV dword ptr [ESP + 0x11ec],EBP
+    field=0x1C write=0x00b75c6f rhs=0x10aead4  value=0x010aead4 "EYE"                         :: MOV dword ptr [ESP + 0x11f0],0x10aead4
+    field=0x20 write=0x00b75c7a rhs=ESI        value=0x01011584                               :: MOV dword ptr [ESP + 0x11f4],ESI
+    field=0x24 write=0x00b75c81 rhs=EDI        value=0                                        :: MOV dword ptr [ESP + 0x11f8],EDI
+
+  Target descriptor writes: 64
+
+======================================================================
+DISASM: vertex group C rows after NVR object table around 0x00b73b00
+======================================================================
+   0x00b73a6e: PUSH EDX
+   0x00b73a6f: MOV dword ptr [ESP + 0x1820],0x10aeab8
+      ref DATA               -> 0x010aeab8 lighting\2x\v\land.v.hlsl
+      ref WRITE              -> 0x-000189c 
+   0x00b73a7a: MOV dword ptr [ESP + 0x1824],0x10ae9cc
+      ref DATA               -> 0x010ae9cc LANDLO
+      ref WRITE              -> 0x-0001898 
+   0x00b73a85: MOV dword ptr [ESP + 0x1828],ESI
+      ref DATA               -> 0x01011584 
+      ref WRITE              -> 0x-0001894 
+   0x00b73a8c: MOV dword ptr [ESP + 0x182c],0x10aece0
+      ref DATA               -> 0x010aece0 FOG
+      ref WRITE              -> 0x-0001890 
+   0x00b73a97: MOV dword ptr [ESP + 0x1830],ESI
+      ref DATA               -> 0x01011584 
+      ref WRITE              -> 0x-000188c 
+   0x00b73a9e: MOV dword ptr [ESP + 0x1834],EDI
+      ref WRITE              -> 0x-0001888 
+   0x00b73aa5: CALL 0x00ec61c0
+      ref UNCONDITIONAL_CALL -> 0x00ec61c0 
+   0x00b73aaa: ADD ESP,0x48
+   0x00b73aad: PUSH 0x34
+   0x00b73aaf: MOV dword ptr [ESP + 0x1828],0x10aeab8
+      ref DATA               -> 0x010aeab8 lighting\2x\v\land.v.hlsl
+      ref WRITE              -> 0x-0001850 
+   0x00b73aba: MOV dword ptr [ESP + 0x182c],0x10aec20
+      ref DATA               -> 0x010aec20 LANDALPHA
+      ref WRITE              -> 0x-000184c 
+   0x00b73ac5: MOV dword ptr [ESP + 0x1830],ESI
+      ref DATA               -> 0x01011584 
+      ref WRITE              -> 0x-0001848 
+   0x00b73acc: MOV dword ptr [ESP + 0x1834],0x10aec48
+      ref DATA               -> 0x010aec48 SI
+      ref WRITE              -> 0x-0001844 
+   0x00b73ad7: MOV dword ptr [ESP + 0x1838],ESI
+      ref DATA               -> 0x01011584 
+      ref WRITE              -> 0x-0001840 
+   0x00b73ade: MOV dword ptr [ESP + 0x183c],EDI
+      ref WRITE              -> 0x-000183c 
+   0x00b73ae5: PUSH EDI
+   0x00b73ae6: LEA EAX,[ESP + 0x1844]
+      ref DATA               -> 0x-0001838 
+   0x00b73aed: PUSH EAX
+   0x00b73aee: CALL 0x00ec61c0
+      ref UNCONDITIONAL_CALL -> 0x00ec61c0 
+   0x00b73af3: PUSH 0x3c
+   0x00b73af5: LEA ECX,[ESP + 0x1890]
+      ref DATA               -> 0x-00017f4 
+   0x00b73afc: PUSH EDI
+   0x00b73afd: PUSH ECX
+=> 0x00b73afe: MOV dword ptr [ESP + 0x1888],0x10aeab8
+      ref DATA               -> 0x010aeab8 lighting\2x\v\land.v.hlsl
+      ref WRITE              -> 0x-0001804 
+   0x00b73b09: MOV dword ptr [ESP + 0x188c],0x10aec18
+      ref DATA               -> 0x010aec18 PTLIGHT
+      ref WRITE              -> 0x-0001800 
+   0x00b73b14: MOV dword ptr [ESP + 0x1890],ESI
+      ref DATA               -> 0x01011584 
+      ref WRITE              -> 0x-00017fc 
+   0x00b73b1b: MOV dword ptr [ESP + 0x1894],EDI
+      ref WRITE              -> 0x-00017f8 
+   0x00b73b22: CALL 0x00ec61c0
+      ref UNCONDITIONAL_CALL -> 0x00ec61c0 
+   0x00b73b27: PUSH 0x34
+   0x00b73b29: LEA EDX,[ESP + 0x18f0]
+      ref DATA               -> 0x-00017a0 
+   0x00b73b30: PUSH EDI
+   0x00b73b31: PUSH EDX
+   0x00b73b32: MOV dword ptr [ESP + 0x18e0],0x10aeab8
+      ref DATA               -> 0x010aeab8 lighting\2x\v\land.v.hlsl
+      ref WRITE              -> 0x-00017b8 
+   0x00b73b3d: MOV dword ptr [ESP + 0x18e4],0x10aec20
+      ref DATA               -> 0x010aec20 LANDALPHA
+      ref WRITE              -> 0x-00017b4 
+   0x00b73b48: MOV dword ptr [ESP + 0x18e8],ESI
+      ref DATA               -> 0x01011584 
+      ref WRITE              -> 0x-00017b0 
+   0x00b73b4f: MOV dword ptr [ESP + 0x18ec],0x10aec18
+      ref DATA               -> 0x010aec18 PTLIGHT
+      ref WRITE              -> 0x-00017ac 
+   0x00b73b5a: MOV dword ptr [ESP + 0x18f0],ESI
+      ref DATA               -> 0x01011584 
+      ref WRITE              -> 0x-00017a8 
+   0x00b73b61: MOV dword ptr [ESP + 0x18f4],EDI
+      ref WRITE              -> 0x-00017a4 
+   0x00b73b68: CALL 0x00ec61c0
+      ref UNCONDITIONAL_CALL -> 0x00ec61c0 
+   0x00b73b6d: PUSH 0x44
+   0x00b73b6f: LEA EAX,[ESP + 0x1938]
+      ref DATA               -> 0x-0001764 
+   0x00b73b76: PUSH EDI
+   0x00b73b77: PUSH EAX
+   0x00b73b78: MOV dword ptr [ESP + 0x1938],0x10ae9ac
+      ref DATA               -> 0x010ae9ac lighting\2x\v\localMap.v.hlsl
+      ref WRITE              -> 0x-000176c 
+   0x00b73b83: MOV dword ptr [ESP + 0x193c],EDI
+      ref WRITE              -> 0x-0001768 
+   0x00b73b8a: CALL 0x00ec61c0
+      ref UNCONDITIONAL_CALL -> 0x00ec61c0 
+   0x00b73b8f: PUSH 0x3c
+   0x00b73b91: LEA ECX,[ESP + 0x1998]
+      ref DATA               -> 0x-0001710 
+   0x00b73b98: PUSH EDI
+   0x00b73b99: PUSH ECX
+   0x00b73b9a: MOV dword ptr [ESP + 0x1990],0x10ae9ac
+      ref DATA               -> 0x010ae9ac lighting\2x\v\localMap.v.hlsl
+      ref WRITE              -> 0x-0001720 
+   0x00b73ba5: MOV dword ptr [ESP + 0x1994],EBX
+      ref DATA               -> 0x010aec10 SKIN
+      ref WRITE              -> 0x-000171c 
+   0x00b73bac: MOV dword ptr [ESP + 0x1998],ESI
+      ref DATA               -> 0x01011584 
+      ref WRITE              -> 0x-0001718 
+   0x00b73bb3: MOV dword ptr [ESP + 0x199c],EDI
+      ref WRITE              -> 0x-0001714 
+   0x00b73bba: CALL 0x00ec61c0
+      ref UNCONDITIONAL_CALL -> 0x00ec61c0 
+   0x00b73bbf: PUSH 0x3c
+   0x00b73bc1: LEA EDX,[ESP + 0x19f0]
+      ref DATA               -> 0x-00016c4 
+   0x00b73bc8: PUSH EDI
+   0x00b73bc9: PUSH EDX
+   0x00b73bca: MOV dword ptr [ESP + 0x19e8],0x10ae9ac
+      ref DATA               -> 0x010ae9ac lighting\2x\v\localMap.v.hlsl
+      ref WRITE              -> 0x-00016d4 
+   0x00b73bd5: MOV dword ptr [ESP + 0x19ec],0x10aea1c
+      ref DATA               -> 0x010aea1c CLEAR
+      ref WRITE              -> 0x-00016d0 
+   0x00b73be0: MOV dword ptr [ESP + 0x19f0],ESI
+      ref DATA               -> 0x01011584 
+      ref WRITE              -> 0x-00016cc 
+   0x00b73be7: MOV dword ptr [ESP + 0x19f4],EDI
+      ref WRITE              -> 0x-00016c8 
+   0x00b73bee: CALL 0x00ec61c0
+      ref UNCONDITIONAL_CALL -> 0x00ec61c0 
+   0x00b73bf3: ADD ESP,0x48
+   0x00b73bf6: PUSH 0x44
+
+======================================================================
+DISASM: pixel group B rows after NVR object table around 0x00b76300
+======================================================================
+   0x00b76269: MOV dword ptr [ESP + 0x1958],0x10af030
+      ref DATA               -> 0x010af030 lighting\2x\p\land.p.hlsl
+   0x00b76274: MOV dword ptr [ESP + 0x195c],EBP
+      ref DATA               -> 0x010aec20 LANDALPHA
+   0x00b7627b: MOV dword ptr [ESP + 0x1960],ESI
+      ref DATA               -> 0x01011584 
+   0x00b76282: MOV dword ptr [ESP + 0x1964],0x10aec48
+      ref DATA               -> 0x010aec48 SI
+   0x00b7628d: MOV dword ptr [ESP + 0x1968],ESI
+      ref DATA               -> 0x01011584 
+   0x00b76294: MOV dword ptr [ESP + 0x196c],EDI
+   0x00b7629b: CALL 0x00ec61c0
+      ref UNCONDITIONAL_CALL -> 0x00ec61c0 
+   0x00b762a0: ADD ESP,0x48
+   0x00b762a3: PUSH 0x3c
+   0x00b762a5: LEA ECX,[ESP + 0x1970]
+   0x00b762ac: PUSH EDI
+   0x00b762ad: PUSH ECX
+   0x00b762ae: MOV dword ptr [ESP + 0x1968],0x10af030
+      ref DATA               -> 0x010af030 lighting\2x\p\land.p.hlsl
+   0x00b762b9: MOV dword ptr [ESP + 0x196c],0x10aec18
+      ref DATA               -> 0x010aec18 PTLIGHT
+   0x00b762c4: MOV dword ptr [ESP + 0x1970],ESI
+      ref DATA               -> 0x01011584 
+   0x00b762cb: MOV dword ptr [ESP + 0x1974],EDI
+   0x00b762d2: CALL 0x00ec61c0
+      ref UNCONDITIONAL_CALL -> 0x00ec61c0 
+   0x00b762d7: PUSH 0x34
+   0x00b762d9: LEA EDX,[ESP + 0x19d0]
+   0x00b762e0: PUSH EDI
+   0x00b762e1: PUSH EDX
+   0x00b762e2: MOV dword ptr [ESP + 0x19c0],0x10af030
+      ref DATA               -> 0x010af030 lighting\2x\p\land.p.hlsl
+   0x00b762ed: MOV dword ptr [ESP + 0x19c4],EBP
+      ref DATA               -> 0x010aec20 LANDALPHA
+   0x00b762f4: MOV dword ptr [ESP + 0x19c8],ESI
+      ref DATA               -> 0x01011584 
+=> 0x00b762fb: MOV dword ptr [ESP + 0x19cc],0x10aec18
+      ref DATA               -> 0x010aec18 PTLIGHT
+   0x00b76306: MOV dword ptr [ESP + 0x19d0],ESI
+      ref DATA               -> 0x01011584 
+   0x00b7630d: MOV dword ptr [ESP + 0x19d4],EDI
+   0x00b76314: CALL 0x00ec61c0
+      ref UNCONDITIONAL_CALL -> 0x00ec61c0 
+   0x00b76319: PUSH 0x44
+   0x00b7631b: LEA EAX,[ESP + 0x1a18]
+   0x00b76322: PUSH EDI
+   0x00b76323: MOV EBP,0x10aef54
+      ref DATA               -> 0x010aef54 lighting\2x\p\localMap.p.hlsl
+   0x00b76328: PUSH EAX
+   0x00b76329: MOV dword ptr [ESP + 0x1a18],EBP
+      ref DATA               -> 0x010aef54 lighting\2x\p\localMap.p.hlsl
+   0x00b76330: MOV dword ptr [ESP + 0x1a1c],EDI
+   0x00b76337: CALL 0x00ec61c0
+      ref UNCONDITIONAL_CALL -> 0x00ec61c0 
+   0x00b7633c: PUSH 0x3c
+   0x00b7633e: MOV dword ptr [ESP + 0x1a68],EBP
+      ref DATA               -> 0x010aef54 lighting\2x\p\localMap.p.hlsl
+   0x00b76345: MOV dword ptr [ESP + 0x1a6c],0x10aea1c
+      ref DATA               -> 0x010aea1c CLEAR
+   0x00b76350: MOV dword ptr [ESP + 0x1a70],ESI
+      ref DATA               -> 0x01011584 
+   0x00b76357: MOV dword ptr [ESP + 0x1a74],EDI
+   0x00b7635e: PUSH EDI
+   0x00b7635f: LEA ECX,[ESP + 0x1a7c]
+   0x00b76366: PUSH ECX
+   0x00b76367: CALL 0x00ec61c0
+      ref UNCONDITIONAL_CALL -> 0x00ec61c0 
+   0x00b7636c: PUSH 0x3c
+   0x00b7636e: LEA EDX,[ESP + 0x1ad0]
+   0x00b76375: PUSH EDI
+   0x00b76376: PUSH EDX
+   0x00b76377: MOV dword ptr [ESP + 0x1ac8],0x10aef34
+      ref DATA               -> 0x010aef34 lighting\1x\p\texEffect.p.hlsl
+   0x00b76382: MOV dword ptr [ESP + 0x1acc],0x10aef30
+      ref DATA               -> 0x010aef30 HQ
+   0x00b7638d: MOV dword ptr [ESP + 0x1ad0],ESI
+      ref DATA               -> 0x01011584 
+   0x00b76394: MOV dword ptr [ESP + 0x1ad4],EDI
+   0x00b7639b: CALL 0x00ec61c0
+      ref UNCONDITIONAL_CALL -> 0x00ec61c0 
+   0x00b763a0: PUSH 0x44
+   0x00b763a2: LEA EAX,[ESP + 0x1b20]
+   0x00b763a9: PUSH EDI
+   0x00b763aa: MOV EBP,0x10aef10
+      ref DATA               -> 0x010aef10 lighting\2x\p\WaterFog.p.hlsl
+   0x00b763af: PUSH EAX
+   0x00b763b0: MOV dword ptr [ESP + 0x1b20],EBP
+      ref DATA               -> 0x010aef10 lighting\2x\p\WaterFog.p.hlsl
+   0x00b763b7: MOV dword ptr [ESP + 0x1b24],EDI
+   0x00b763be: CALL 0x00ec61c0
+      ref UNCONDITIONAL_CALL -> 0x00ec61c0 
+   0x00b763c3: ADD ESP,0x48
+   0x00b763c6: PUSH 0x3c
+   0x00b763c8: LEA ECX,[ESP + 0x1b38]
+   0x00b763cf: PUSH EDI
+   0x00b763d0: PUSH ECX
+
+======================================================================
+DISASM: pixel group B unknown 57/59 neighborhood around 0x00b76480
+======================================================================
+   0x00b763e3: MOV dword ptr [ESP + 0x1b38],ESI
+      ref DATA               -> 0x01011584 
+   0x00b763ea: MOV dword ptr [ESP + 0x1b3c],EDI
+   0x00b763f1: CALL 0x00ec61c0
+      ref UNCONDITIONAL_CALL -> 0x00ec61c0 
+   0x00b763f6: PUSH 0x2c
+   0x00b763f8: LEA EDX,[ESP + 0x1ba0]
+   0x00b763ff: PUSH EDI
+   0x00b76400: MOV EBP,0x10aeef4
+      ref DATA               -> 0x010aeef4 HIGHQUAL
+   0x00b76405: PUSH EDX
+   0x00b76406: MOV dword ptr [ESP + 0x1b88],0x10aeed8
+      ref DATA               -> 0x010aeed8 lighting\2x\p\LandO.p.hlsl
+   0x00b76411: MOV dword ptr [ESP + 0x1b8c],0x10aeecc
+      ref DATA               -> 0x010aeecc TEXCOUNT
+   0x00b7641c: MOV dword ptr [ESP + 0x1b90],0x1063f48
+      ref DATA               -> 0x01063f48 1
+   0x00b76427: MOV dword ptr [ESP + 0x1b94],EBX
+      ref DATA               -> 0x010aece0 FOG
+   0x00b7642e: MOV dword ptr [ESP + 0x1b98],ESI
+      ref DATA               -> 0x01011584 
+   0x00b76435: MOV dword ptr [ESP + 0x1b9c],EBP
+      ref DATA               -> 0x010aeef4 HIGHQUAL
+   0x00b7643c: MOV dword ptr [ESP + 0x1ba0],ESI
+      ref DATA               -> 0x01011584 
+   0x00b76443: MOV dword ptr [ESP + 0x1ba4],EDI
+   0x00b7644a: CALL 0x00ec61c0
+      ref UNCONDITIONAL_CALL -> 0x00ec61c0 
+   0x00b7644f: MOV ECX,0x10aeed8
+      ref DATA               -> 0x010aeed8 lighting\2x\p\LandO.p.hlsl
+   0x00b76454: MOV EAX,0x10aeecc
+      ref DATA               -> 0x010aeecc TEXCOUNT
+   0x00b76459: MOV EDX,0x1063f48
+      ref DATA               -> 0x01063f48 1
+   0x00b7645e: MOV dword ptr [ESP + 0x1bd4],ECX
+      ref DATA               -> 0x010aeed8 lighting\2x\p\LandO.p.hlsl
+   0x00b76465: MOV dword ptr [ESP + 0x1bd8],EAX
+      ref DATA               -> 0x010aeecc TEXCOUNT
+   0x00b7646c: MOV dword ptr [ESP + 0x1bdc],EDX
+      ref DATA               -> 0x01063f48 1
+   0x00b76473: MOV dword ptr [ESP + 0x1be0],EBX
+      ref DATA               -> 0x010aece0 FOG
+=> 0x00b7647a: MOV dword ptr [ESP + 0x1be4],ESI
+      ref DATA               -> 0x01011584 
+   0x00b76481: MOV dword ptr [ESP + 0x1be8],EBP
+      ref DATA               -> 0x010aeef4 HIGHQUAL
+   0x00b76488: MOV dword ptr [ESP + 0x1bec],ESI
+      ref DATA               -> 0x01011584 
+   0x00b7648f: MOV dword ptr [ESP + 0x1bf0],0x10aeba0
+      ref DATA               -> 0x010aeba0 PROJ_SHADOW
+   0x00b7649a: MOV dword ptr [ESP + 0x1bf4],ESI
+      ref DATA               -> 0x01011584 
+   0x00b764a1: MOV dword ptr [ESP + 0x1bf8],EDI
+   0x00b764a8: MOV dword ptr [ESP + 0x1bfc],EDI
+   0x00b764af: MOV dword ptr [ESP + 0x1c00],EDI
+   0x00b764b6: MOV dword ptr [ESP + 0x1c04],EDI
+   0x00b764bd: MOV dword ptr [ESP + 0x1c08],EDI
+   0x00b764c4: MOV dword ptr [ESP + 0x1c0c],EDI
+   0x00b764cb: MOV dword ptr [ESP + 0x1c10],EDI
+   0x00b764d2: MOV dword ptr [ESP + 0x1c14],EDI
+   0x00b764d9: MOV dword ptr [ESP + 0x1c18],EDI
+   0x00b764e0: MOV dword ptr [ESP + 0x1c1c],EDI
+   0x00b764e7: MOV dword ptr [ESP + 0x1c20],ECX
+      ref DATA               -> 0x010aeed8 lighting\2x\p\LandO.p.hlsl
+   0x00b764ee: MOV dword ptr [ESP + 0x1c24],EAX
+      ref DATA               -> 0x010aeecc TEXCOUNT
+   0x00b764f5: MOV dword ptr [ESP + 0x1c28],EDX
+      ref DATA               -> 0x01063f48 1
+   0x00b764fc: MOV dword ptr [ESP + 0x1c2c],EBX
+      ref DATA               -> 0x010aece0 FOG
+   0x00b76503: MOV dword ptr [ESP + 0x1c30],ESI
+      ref DATA               -> 0x01011584 
+   0x00b7650a: MOV dword ptr [ESP + 0x1c34],EBP
+      ref DATA               -> 0x010aeef4 HIGHQUAL
+   0x00b76511: MOV dword ptr [ESP + 0x1c38],ESI
+      ref DATA               -> 0x01011584 
+   0x00b76518: MOV dword ptr [ESP + 0x1c3c],0x10aeebc
+      ref DATA               -> 0x010aeebc IGNORE_NORMALS
+   0x00b76523: MOV dword ptr [ESP + 0x1c40],ESI
+      ref DATA               -> 0x01011584 
+   0x00b7652a: MOV dword ptr [ESP + 0x1c44],EDI
+   0x00b76531: MOV dword ptr [ESP + 0x1c48],EDI
+   0x00b76538: MOV dword ptr [ESP + 0x1c4c],EDI
+   0x00b7653f: MOV dword ptr [ESP + 0x1c50],EDI
+   0x00b76546: MOV dword ptr [ESP + 0x1c54],EDI
+   0x00b7654d: MOV dword ptr [ESP + 0x1c58],EDI
+   0x00b76554: MOV dword ptr [ESP + 0x1c5c],EDI
+   0x00b7655b: MOV dword ptr [ESP + 0x1c60],EDI
+   0x00b76562: MOV dword ptr [ESP + 0x1c64],EDI
+   0x00b76569: MOV dword ptr [ESP + 0x1c68],EDI
+   0x00b76570: MOV dword ptr [ESP + 0x1c6c],ECX
+      ref DATA               -> 0x010aeed8 lighting\2x\p\LandO.p.hlsl
+   0x00b76577: MOV dword ptr [ESP + 0x1c70],EAX
+      ref DATA               -> 0x010aeecc TEXCOUNT
+   0x00b7657e: MOV dword ptr [ESP + 0x1c74],EDX
+      ref DATA               -> 0x01063f48 1
+   0x00b76585: MOV dword ptr [ESP + 0x1c78],EBX
+      ref DATA               -> 0x010aece0 FOG
+   0x00b7658c: MOV dword ptr [ESP + 0x1c7c],ESI
+      ref DATA               -> 0x01011584 
+   0x00b76593: MOV dword ptr [ESP + 0x1c80],EBP
+      ref DATA               -> 0x010aeef4 HIGHQUAL
+   0x00b7659a: MOV dword ptr [ESP + 0x1c84],ESI
+      ref DATA               -> 0x01011584 
+   0x00b765a1: MOV dword ptr [ESP + 0x1c88],0x10aeebc
+      ref DATA               -> 0x010aeebc IGNORE_NORMALS
+   0x00b765ac: MOV dword ptr [ESP + 0x1c8c],ESI
+      ref DATA               -> 0x01011584 
+
+----------------------------------------------------------------------
+References TO 0x010ae9b8 (lighting\2x\v\base.v.hlsl candidate)
+----------------------------------------------------------------------
+  Total: 0 refs
+
+----------------------------------------------------------------------
+References TO 0x010aea34 (lighting\2x\p\base.p.hlsl candidate)
+----------------------------------------------------------------------
+  Total: 0 refs
+
+----------------------------------------------------------------------
+References TO 0x010aeb8c (SPECULAR)
+----------------------------------------------------------------------
+  DATA @ 0x00bba642 (in FUN_00bba5d0)
+  DATA @ 0x00bba6dc (in FUN_00bba5d0)
+  DATA @ 0x00bba7bc (in FUN_00bba5d0)
+  DATA @ 0x00bba814 (in FUN_00bba5d0)
+  DATA @ 0x00bba8aa (in FUN_00bba5d0)
+  DATA @ 0x00bba940 (in FUN_00bba5d0)
+  DATA @ 0x00bba9c7 (in FUN_00bba5d0)
+  DATA @ 0x00bbaa9c (in FUN_00bba5d0)
+  DATA @ 0x00bbabc2 (in FUN_00bba5d0)
+  DATA @ 0x00bbabd0 (in FUN_00bba5d0)
+  DATA @ 0x00bbad48 (in FUN_00bba5d0)
+  DATA @ 0x00bbae1e (in FUN_00bba5d0)
+  DATA @ 0x00b72976 (in FUN_00b71bf0)
+  DATA @ 0x00b729aa (in FUN_00b71bf0)
+  DATA @ 0x00b729ef (in FUN_00b71bf0)
+  DATA @ 0x00b72a35 (in FUN_00b71bf0)
+  DATA @ 0x00b72a89 (in FUN_00b71bf0)
+  DATA @ 0x00b72acf (in FUN_00b71bf0)
+  DATA @ 0x00b72b23 (in FUN_00b71bf0)
+  DATA @ 0x00b72b70 (in FUN_00b71bf0)
+  DATA @ 0x00b72d45 (in FUN_00b71bf0)
+  DATA @ 0x00b72d92 (in FUN_00b71bf0)
+  DATA @ 0x00b72de6 (in FUN_00b71bf0)
+  DATA @ 0x00b73547 (in FUN_00b71bf0)
+  DATA @ 0x00b73608 (in FUN_00b71bf0)
+  DATA @ 0x00b73653 (in FUN_00b71bf0)
+  DATA @ 0x00b736ab (in FUN_00b71bf0)
+  DATA @ 0x00bbab96 (in FUN_00bba5d0)
+  DATA @ 0x00bd370c (in ???)
+  DATA @ 0x00bd374e (in ???)
+  DATA @ 0x00bd37a2 (in ???)
+  DATA @ 0x00bd37eb (in ???)
+  DATA @ 0x00bcf68f (in ???)
+  DATA @ 0x00bcdaac (in ???)
+  DATA @ 0x00bcdaee (in ???)
+  DATA @ 0x00bcdb42 (in ???)
+  DATA @ 0x00bcdb98 (in ???)
+  DATA @ 0x00bce14d (in ???)
+  DATA @ 0x00bce19e (in ???)
+  DATA @ 0x00bce279 (in ???)
+  DATA @ 0x00bce2c7 (in ???)
+  DATA @ 0x00bcf155 (in ???)
+  DATA @ 0x00bcf1a8 (in ???)
+  DATA @ 0x00b75160 (in ???)
+  DATA @ 0x00b75194 (in ???)
+  DATA @ 0x00b751da (in ???)
+  DATA @ 0x00b75215 (in ???)
+  DATA @ 0x00b75266 (in ???)
+  DATA @ 0x00b752be (in ???)
+  DATA @ 0x00b75319 (in ???)
+  DATA @ 0x00b7535f (in ???)
+  DATA @ 0x00b753ce (in ???)
+  DATA @ 0x00b7541b (in ???)
+  DATA @ 0x00b75608 (in ???)
+  DATA @ 0x00b7566b (in ???)
+  DATA @ 0x00b756b4 (in ???)
+  DATA @ 0x00b75d64 (in ???)
+  DATA @ 0x00b75e14 (in ???)
+  DATA @ 0x00b75e5f (in ???)
+  DATA @ 0x00b75eb3 (in ???)
+  DATA @ 0x00bcc885 (in ???)
+  DATA @ 0x00bcc8c7 (in ???)
+  DATA @ 0x00bcc913 (in ???)
+  DATA @ 0x00bcc987 (in ???)
+  DATA @ 0x00bce18b (in ???)
+  Total: 65 refs
+
+----------------------------------------------------------------------
+References TO 0x010aeb98 (LIGHTS)
+----------------------------------------------------------------------
+  DATA @ 0x00b72866 (in FUN_00b71bf0)
+  DATA @ 0x00b7289a (in FUN_00b71bf0)
+  DATA @ 0x00b728dc (in FUN_00b71bf0)
+  DATA @ 0x00b72922 (in FUN_00b71bf0)
+  DATA @ 0x00b72a9b (in FUN_00b71bf0)
+  DATA @ 0x00b72ae1 (in FUN_00b71bf0)
+  DATA @ 0x00b72b35 (in FUN_00b71bf0)
+  DATA @ 0x00b72b82 (in FUN_00b71bf0)
+  DATA @ 0x00b72c10 (in FUN_00b71bf0)
+  DATA @ 0x00b72c47 (in FUN_00b71bf0)
+  DATA @ 0x00b72c89 (in FUN_00b71bf0)
+  DATA @ 0x00b72ccf (in FUN_00b71bf0)
+  DATA @ 0x00b72d03 (in FUN_00b71bf0)
+  DATA @ 0x00b72d57 (in FUN_00b71bf0)
+  DATA @ 0x00b72da4 (in FUN_00b71bf0)
+  DATA @ 0x00b72df8 (in FUN_00b71bf0)
+  DATA @ 0x00b72e3a (in FUN_00b71bf0)
+  DATA @ 0x00b72e6e (in FUN_00b71bf0)
+  DATA @ 0x00b72eb0 (in FUN_00b71bf0)
+  DATA @ 0x00b72ef6 (in FUN_00b71bf0)
+  DATA @ 0x00b72f4a (in FUN_00b71bf0)
+  DATA @ 0x00b72f78 (in FUN_00b71bf0)
+  DATA @ 0x00b72fc3 (in FUN_00b71bf0)
+  DATA @ 0x00b73009 (in FUN_00b71bf0)
+  DATA @ 0x00b7305d (in FUN_00b71bf0)
+  DATA @ 0x00b73091 (in FUN_00b71bf0)
+  DATA @ 0x00b730d3 (in FUN_00b71bf0)
+  DATA @ 0x00b7310a (in FUN_00b71bf0)
+  DATA @ 0x00b73f81 (in FUN_00b71bf0)
+  DATA @ 0x00b72860 (in FUN_00b71bf0)
+  DATA @ 0x00bd34e1 (in ???)
+  DATA @ 0x00bd3514 (in ???)
+  DATA @ 0x00bd356b (in ???)
+  DATA @ 0x00bd35ad (in ???)
+  DATA @ 0x00bd3673 (in ???)
+  DATA @ 0x00bd36b5 (in ???)
+  DATA @ 0x00bd37b4 (in ???)
+  DATA @ 0x00bd384e (in ???)
+  DATA @ 0x00bd388e (in ???)
+  DATA @ 0x00bd38cc (in ???)
+  DATA @ 0x00bcf3bf (in ???)
+  DATA @ 0x00bcf401 (in ???)
+  DATA @ 0x00bcf455 (in ???)
+  DATA @ 0x00bcf497 (in ???)
+  DATA @ 0x00bcf4e3 (in ???)
+  DATA @ 0x00bcf530 (in ???)
+  DATA @ 0x00bcf584 (in ???)
+  DATA @ 0x00bcf5c6 (in ???)
+  DATA @ 0x00bcf608 (in ???)
+  DATA @ 0x00bcf64a (in ???)
+  DATA @ 0x00bcf6a1 (in ???)
+  DATA @ 0x00bcd92b (in ???)
+  DATA @ 0x00bcd965 (in ???)
+  DATA @ 0x00bcd9c4 (in ???)
+  DATA @ 0x00bcda1b (in ???)
+  DATA @ 0x00bcdc2d (in ???)
+  DATA @ 0x00bcdc72 (in ???)
+  DATA @ 0x00bcdcc6 (in ???)
+  DATA @ 0x00bcdd12 (in ???)
+  DATA @ 0x00bcdda3 (in ???)
+  DATA @ 0x00bcddf0 (in ???)
+  DATA @ 0x00bcde44 (in ???)
+  DATA @ 0x00bcde9a (in ???)
+  DATA @ 0x00bcdf2f (in ???)
+  DATA @ 0x00bcdf74 (in ???)
+  DATA @ 0x00bce15f (in ???)
+  DATA @ 0x00bce239 (in ???)
+  DATA @ 0x00bce287 (in ???)
+  DATA @ 0x00bce2d5 (in ???)
+  DATA @ 0x00bcea7d (in ???)
+  DATA @ 0x00bcead1 (in ???)
+  DATA @ 0x00bceb0b (in ???)
+  DATA @ 0x00bceb81 (in ???)
+  DATA @ 0x00bcec00 (in ???)
+  DATA @ 0x00bcec50 (in ???)
+  DATA @ 0x00bcec92 (in ???)
+  DATA @ 0x00bcecee (in ???)
+  DATA @ 0x00bced78 (in ???)
+  DATA @ 0x00bcedcc (in ???)
+  DATA @ 0x00bcee11 (in ???)
+  DATA @ 0x00bcee77 (in ???)
+  DATA @ 0x00bceefa (in ???)
+  DATA @ 0x00bcef31 (in ???)
+  DATA @ 0x00bcef90 (in ???)
+  DATA @ 0x00bcefd2 (in ???)
+  DATA @ 0x00bcf026 (in ???)
+  DATA @ 0x00bcf06b (in ???)
+  DATA @ 0x00bcf0bf (in ???)
+  DATA @ 0x00bcf101 (in ???)
+  DATA @ 0x00bcf167 (in ???)
+  DATA @ 0x00bcf1ba (in ???)
+  DATA @ 0x00b74fa7 (in ???)
+  DATA @ 0x00b74fdb (in ???)
+  DATA @ 0x00b75016 (in ???)
+  DATA @ 0x00b75067 (in ???)
+  DATA @ 0x00b750ad (in ???)
+  DATA @ 0x00b75105 (in ???)
+  DATA @ 0x00b7532b (in ???)
+  DATA @ 0x00b75371 (in ???)
+  DATA @ 0x00b753e0 (in ???)
+  DATA @ 0x00b75438 (in ???)
+  DATA @ 0x00b754d6 (in ???)
+  DATA @ 0x00b7550d (in ???)
+  DATA @ 0x00b75553 (in ???)
+  DATA @ 0x00b75599 (in ???)
+  DATA @ 0x00b755cd (in ???)
+  DATA @ 0x00b7561a (in ???)
+  DATA @ 0x00b7567d (in ???)
+  DATA @ 0x00b756c6 (in ???)
+  DATA @ 0x00b7570c (in ???)
+  DATA @ 0x00b75740 (in ???)
+  DATA @ 0x00b75786 (in ???)
+  DATA @ 0x00b757cc (in ???)
+  DATA @ 0x00b7581b (in ???)
+  DATA @ 0x00b7585b (in ???)
+  DATA @ 0x00b758a1 (in ???)
+  DATA @ 0x00b758e7 (in ???)
+  DATA @ 0x00b7593f (in ???)
+  DATA @ 0x00b75973 (in ???)
+  DATA @ 0x00b78271 (in ???)
+  DATA @ 0x00bcc7ef (in ???)
+  ... (truncated)
+  Total: 121 refs
+
+----------------------------------------------------------------------
+References TO 0x010aeba0 (PROJ_SHADOW)
+----------------------------------------------------------------------
+  DATA @ 0x00b7272a (in FUN_00b71bf0)
+  DATA @ 0x00b7276a (in FUN_00b71bf0)
+  DATA @ 0x00b72802 (in FUN_00b71bf0)
+  DATA @ 0x00b728ee (in FUN_00b71bf0)
+  DATA @ 0x00b72942 (in FUN_00b71bf0)
+  DATA @ 0x00b72a01 (in FUN_00b71bf0)
+  DATA @ 0x00b72a55 (in FUN_00b71bf0)
+  DATA @ 0x00b72b47 (in FUN_00b71bf0)
+  DATA @ 0x00b72ba2 (in FUN_00b71bf0)
+  DATA @ 0x00b72ec2 (in FUN_00b71bf0)
+  DATA @ 0x00b72f16 (in FUN_00b71bf0)
+  DATA @ 0x00b72fd5 (in FUN_00b71bf0)
+  DATA @ 0x00b73029 (in FUN_00b71bf0)
+  DATA @ 0x00b7319e (in FUN_00b71bf0)
+  DATA @ 0x00b731e0 (in FUN_00b71bf0)
+  DATA @ 0x00b73490 (in FUN_00b71bf0)
+  DATA @ 0x00b734d6 (in FUN_00b71bf0)
+  DATA @ 0x00b73665 (in FUN_00b71bf0)
+  DATA @ 0x00b736bd (in FUN_00b71bf0)
+  DATA @ 0x00b73f4d (in FUN_00b71bf0)
+  DATA @ 0x00bab2c8 (in FUN_00baafc0)
+  DATA @ 0x00bab318 (in FUN_00baafc0)
+  DATA @ 0x00bab368 (in FUN_00baafc0)
+  DATA @ 0x00bab3c4 (in FUN_00baafc0)
+  DATA @ 0x00bab44a (in FUN_00baafc0)
+  DATA @ 0x00bab4a8 (in FUN_00baafc0)
+  DATA @ 0x00bab52d (in FUN_00baafc0)
+  DATA @ 0x00bab5c4 (in FUN_00baafc0)
+  DATA @ 0x00bab971 (in FUN_00baafc0)
+  DATA @ 0x00bab9b3 (in FUN_00baafc0)
+  DATA @ 0x00b72748 (in FUN_00b71bf0)
+  DATA @ 0x00bab386 (in FUN_00baafc0)
+  DATA @ 0x00bab469 (in FUN_00baafc0)
+  DATA @ 0x00bd3526 (in ???)
+  DATA @ 0x00bd35bf (in ???)
+  DATA @ 0x00bd3631 (in ???)
+  DATA @ 0x00bd36c7 (in ???)
+  DATA @ 0x00bd3760 (in ???)
+  DATA @ 0x00bd385c (in ???)
+  DATA @ 0x00bd393e (in ???)
+  DATA @ 0x00bcf38a (in ???)
+  DATA @ 0x00bcf421 (in ???)
+  DATA @ 0x00bcf4b7 (in ???)
+  DATA @ 0x00bcf550 (in ???)
+  DATA @ 0x00bcd8a6 (in ???)
+  DATA @ 0x00bcd8f6 (in ???)
+  DATA @ 0x00bcd9e4 (in ???)
+  DATA @ 0x00bcda4d (in ???)
+  DATA @ 0x00bcdb62 (in ???)
+  DATA @ 0x00bcdbca (in ???)
+  DATA @ 0x00bcdce6 (in ???)
+  DATA @ 0x00bcdd44 (in ???)
+  DATA @ 0x00bcde64 (in ???)
+  DATA @ 0x00bcdecc (in ???)
+  DATA @ 0x00bce024 (in ???)
+  DATA @ 0x00bce2a3 (in ???)
+  DATA @ 0x00bce303 (in ???)
+  DATA @ 0x00bce9f8 (in ???)
+  DATA @ 0x00bcea48 (in ???)
+  DATA @ 0x00bceb36 (in ???)
+  DATA @ 0x00bceb9d (in ???)
+  DATA @ 0x00bcecb2 (in ???)
+  DATA @ 0x00bced0e (in ???)
+  DATA @ 0x00bcee31 (in ???)
+  DATA @ 0x00bcee97 (in ???)
+  DATA @ 0x00b74e28 (in ???)
+  DATA @ 0x00b74e79 (in ???)
+  DATA @ 0x00b74ecd (in ???)
+  DATA @ 0x00b74f6f (in ???)
+  DATA @ 0x00b75079 (in ???)
+  DATA @ 0x00b750d1 (in ???)
+  DATA @ 0x00b75129 (in ???)
+  DATA @ 0x00b75232 (in ???)
+  DATA @ 0x00b7528a (in ???)
+  DATA @ 0x00b752e2 (in ???)
+  DATA @ 0x00b753f2 (in ???)
+  DATA @ 0x00b7545c (in ???)
+  DATA @ 0x00b75798 (in ???)
+  DATA @ 0x00b757f0 (in ???)
+  DATA @ 0x00b758b3 (in ???)
+  DATA @ 0x00b7590b (in ???)
+  DATA @ 0x00b759f0 (in ???)
+  DATA @ 0x00b75a29 (in ???)
+  DATA @ 0x00b75ca7 (in ???)
+  DATA @ 0x00b75cdc (in ???)
+  DATA @ 0x00b75e71 (in ???)
+  DATA @ 0x00b75ec5 (in ???)
+  DATA @ 0x00b7648f (in ???)
+  DATA @ 0x00b765b3 (in ???)
+  DATA @ 0x00b766c9 (in ???)
+  DATA @ 0x00b76807 (in ???)
+  DATA @ 0x00b768bd (in ???)
+  DATA @ 0x00b769e1 (in ???)
+  DATA @ 0x00b76af7 (in ???)
+  DATA @ 0x00b76c23 (in ???)
+  DATA @ 0x00b76ceb (in ???)
+  DATA @ 0x00b76e0f (in ???)
+  DATA @ 0x00b76f25 (in ???)
+  DATA @ 0x00b77051 (in ???)
+  DATA @ 0x00b77119 (in ???)
+  DATA @ 0x00b7723d (in ???)
+  DATA @ 0x00b77373 (in ???)
+  DATA @ 0x00b77491 (in ???)
+  DATA @ 0x00b7754a (in ???)
+  DATA @ 0x00b7766e (in ???)
+  DATA @ 0x00b777a4 (in ???)
+  DATA @ 0x00b778c2 (in ???)
+  DATA @ 0x00b77978 (in ???)
+  DATA @ 0x00b77a9c (in ???)
+  DATA @ 0x00b77bb2 (in ???)
+  DATA @ 0x00b77ce9 (in ???)
+  DATA @ 0x00b77da6 (in ???)
+  DATA @ 0x00b77eca (in ???)
+  DATA @ 0x00b77fe0 (in ???)
+  DATA @ 0x00b7811c (in ???)
+  DATA @ 0x00bcc7ba (in ???)
+  DATA @ 0x00bcc851 (in ???)
+  DATA @ 0x00bcc8e7 (in ???)
+  DATA @ 0x00bcc9ae (in ???)
+  DATA @ 0x00bcca68 (in ???)
+  DATA @ 0x00bccafe (in ???)
+  ... (truncated)
+  Total: 121 refs
+
+----------------------------------------------------------------------
+References TO 0x010aeb0c (POINT)
+----------------------------------------------------------------------
+  DATA @ 0x00b73214 (in FUN_00b71bf0)
+  DATA @ 0x00b73259 (in FUN_00b71bf0)
+  DATA @ 0x00b732a3 (in FUN_00b71bf0)
+  DATA @ 0x00b732fb (in FUN_00b71bf0)
+  DATA @ 0x00b73345 (in FUN_00b71bf0)
+  DATA @ 0x00b7339d (in FUN_00b71bf0)
+  DATA @ 0x00bd397c (in ???)
+  DATA @ 0x00bd39c5 (in ???)
+  DATA @ 0x00bd3a24 (in ???)
+  DATA @ 0x00bce058 (in ???)
+  DATA @ 0x00bce0b0 (in ???)
+  DATA @ 0x00bce10b (in ???)
+  DATA @ 0x00b75a6b (in ???)
+  DATA @ 0x00b75a9b (in ???)
+  DATA @ 0x00b75af3 (in ???)
+  DATA @ 0x00b75b3c (in ???)
+  DATA @ 0x00b75b94 (in ???)
+  DATA @ 0x00b75bd1 (in ???)
+  DATA @ 0x00bccc54 (in ???)
+  DATA @ 0x00bccca8 (in ???)
+  DATA @ 0x00bcccf4 (in ???)
+  Total: 21 refs
+
+----------------------------------------------------------------------
+References TO 0x010aeaf0 (NUM_PT_LIGHTS candidate)
+----------------------------------------------------------------------
+  Total: 0 refs
+
+----------------------------------------------------------------------
+References TO 0x010aeb24 (ONLY_SPECULAR candidate)
+----------------------------------------------------------------------
+  Total: 0 refs
+
+----------------------------------------------------------------------
+References TO 0x010aeb70 (HAIR candidate)
+----------------------------------------------------------------------
+  DATA @ 0x00b72c05 (in FUN_00b71bf0)
+  DATA @ 0x00b72c3c (in FUN_00b71bf0)
+  DATA @ 0x00b72c7e (in FUN_00b71bf0)
+  DATA @ 0x00b72cb2 (in FUN_00b71bf0)
+  DATA @ 0x00b72cf8 (in FUN_00b71bf0)
+  DATA @ 0x00b72d3a (in FUN_00b71bf0)
+  DATA @ 0x00b72d75 (in FUN_00b71bf0)
+  DATA @ 0x00b72ddb (in FUN_00b71bf0)
+  DATA @ 0x00bcf01b (in ???)
+  DATA @ 0x00bcf060 (in ???)
+  DATA @ 0x00bcf0b4 (in ???)
+  DATA @ 0x00bcf0f6 (in ???)
+  DATA @ 0x00bcf13f (in ???)
+  DATA @ 0x00bcf19d (in ???)
+  Total: 14 refs
+
+----------------------------------------------------------------------
+References TO 0x01011584 (empty string/common null define)
+----------------------------------------------------------------------
+  READ @ 0x00851139 (in FUN_00851120)
+  READ @ 0x0085115a (in FUN_00851120)
+  READ @ 0x00853f61 (in FUN_00853e10)
+  READ @ 0x0071c010 (in FUN_0071b210)
+  READ @ 0x0071c06f (in FUN_0071b210)
+  READ @ 0x0071c091 (in FUN_0071b210)
+  READ @ 0x0071c4ff (in FUN_0071b210)
+  READ @ 0x009cf72d (in FUN_009cf700)
+  DATA @ 0x0061bcdf (in FUN_0061bcd0)
+  DATA @ 0x0071c4d7 (in FUN_0071b210)
+  DATA @ 0x0071cc3d (in FUN_0071b210)
+  DATA @ 0x0071cc4d (in FUN_0071b210)
+  DATA @ 0x0071cc0b (in FUN_0071b210)
+  DATA @ 0x00c3b4f5 (in FUN_00c3b3f0)
+  DATA @ 0x0075b547 (in FUN_0075b310)
+  DATA @ 0x0085b33a (in FUN_0085b320)
+  DATA @ 0x0079b51c (in FUN_0079b460)
+  DATA @ 0x0085a383 (in FUN_0085a2e0)
+  DATA @ 0x0043a301 (in FUN_0043a2e0)
+  DATA @ 0x00bba72a (in FUN_00bba5d0)
+  DATA @ 0x00bba7b5 (in FUN_00bba5d0)
+  DATA @ 0x00bba861 (in FUN_00bba5d0)
+  DATA @ 0x00bba8a3 (in FUN_00bba5d0)
+  DATA @ 0x00bba8f7 (in FUN_00bba5d0)
+  DATA @ 0x00bba939 (in FUN_00bba5d0)
+  DATA @ 0x00bba98f (in FUN_00bba5d0)
+  DATA @ 0x00bba9e4 (in FUN_00bba5d0)
+  DATA @ 0x00bbaa3c (in FUN_00bba5d0)
+  DATA @ 0x00bbaaae (in FUN_00bba5d0)
+  DATA @ 0x00bbab1f (in FUN_00bba5d0)
+  DATA @ 0x00bbab26 (in FUN_00bba5d0)
+  DATA @ 0x00bbab7e (in FUN_00bba5d0)
+  DATA @ 0x00bbabbb (in FUN_00bba5d0)
+  DATA @ 0x00bbabee (in FUN_00bba5d0)
+  DATA @ 0x00bbac74 (in FUN_00bba5d0)
+  DATA @ 0x00bbace1 (in FUN_00bba5d0)
+  DATA @ 0x00bbacef (in FUN_00bba5d0)
+  DATA @ 0x00bbad41 (in FUN_00bba5d0)
+  DATA @ 0x00bbad61 (in FUN_00bba5d0)
+  DATA @ 0x00bbadc7 (in FUN_00bba5d0)
+  DATA @ 0x00bbadd5 (in FUN_00bba5d0)
+  DATA @ 0x00bbae17 (in FUN_00bba5d0)
+  DATA @ 0x00bbae3b (in FUN_00bba5d0)
+  DATA @ 0x00bbae9e (in FUN_00bba5d0)
+  DATA @ 0x00bbaed2 (in FUN_00bba5d0)
+  DATA @ 0x00bbaf18 (in FUN_00bba5d0)
+  DATA @ 0x00bbaf5e (in FUN_00bba5d0)
+  DATA @ 0x00bbaf92 (in FUN_00bba5d0)
+  DATA @ 0x00bbafa4 (in FUN_00bba5d0)
+  DATA @ 0x00bbb129 (in FUN_00bba5d0)
+  DATA @ 0x00bbb172 (in FUN_00bba5d0)
+  DATA @ 0x00bbb1b8 (in FUN_00bba5d0)
+  DATA @ 0x00bbb1f1 (in FUN_00bba5d0)
+  DATA @ 0x00bbb307 (in FUN_00bba5d0)
+  DATA @ 0x00bbb333 (in FUN_00bba5d0)
+  DATA @ 0x00bbb3e4 (in FUN_00bba5d0)
+  DATA @ 0x00bbb410 (in FUN_00bba5d0)
+  DATA @ 0x0089ad69 (in FUN_0089a760)
+  DATA @ 0x0079a0e1 (in FUN_00799dc0)
+  DATA @ 0x008b94b7 (in FUN_008b9240)
+  DATA @ 0x00759374 (in FUN_00759330)
+  DATA @ 0x00479566 (in FUN_00479540)
+  DATA @ 0x00bb976d (in FUN_00bb96f0)
+  DATA @ 0x00bb979d (in FUN_00bb96f0)
+  DATA @ 0x00bb97cd (in FUN_00bb96f0)
+  DATA @ 0x00bb97f9 (in FUN_00bb96f0)
+  DATA @ 0x00bb980b (in FUN_00bb96f0)
+  DATA @ 0x00bb983e (in FUN_00bb96f0)
+  DATA @ 0x00bb986e (in FUN_00bb96f0)
+  DATA @ 0x00bb989a (in FUN_00bb96f0)
+  DATA @ 0x00bb98ac (in FUN_00bb96f0)
+  DATA @ 0x00bb98dc (in FUN_00bb96f0)
+  DATA @ 0x00bb98ee (in FUN_00bb96f0)
+  DATA @ 0x00bb991e (in FUN_00bb96f0)
+  DATA @ 0x00bb9930 (in FUN_00bb96f0)
+  DATA @ 0x00bb995c (in FUN_00bb96f0)
+  DATA @ 0x00bb996e (in FUN_00bb96f0)
+  DATA @ 0x00bb9980 (in FUN_00bb96f0)
+  DATA @ 0x00bb99b8 (in FUN_00bb96f0)
+  DATA @ 0x00bb99fa (in FUN_00bb96f0)
+  DATA @ 0x00bb9a1e (in FUN_00bb96f0)
+  DATA @ 0x00bb9a45 (in FUN_00bb96f0)
+  DATA @ 0x00bb9a65 (in FUN_00bb96f0)
+  DATA @ 0x00bb9aab (in FUN_00bb96f0)
+  DATA @ 0x00bb9ac7 (in FUN_00bb96f0)
+  DATA @ 0x00bb9ad9 (in FUN_00bb96f0)
+  DATA @ 0x00bb9b2d (in FUN_00bb96f0)
+  DATA @ 0x00bb9b7d (in FUN_00bb96f0)
+  DATA @ 0x00bb9bad (in FUN_00bb96f0)
+  DATA @ 0x00bb9bbb (in FUN_00bb96f0)
+  DATA @ 0x00bb9bee (in FUN_00bb96f0)
+  DATA @ 0x00bb9c00 (in FUN_00bb96f0)
+  DATA @ 0x00bb9c2f (in FUN_00bb96f0)
+  DATA @ 0x00bb9c3d (in FUN_00bb96f0)
+  DATA @ 0x00bb9c4f (in FUN_00bb96f0)
+  DATA @ 0x00bb9c80 (in FUN_00bb96f0)
+  DATA @ 0x00bb9c92 (in FUN_00bb96f0)
+  DATA @ 0x00bb9cc2 (in FUN_00bb96f0)
+  DATA @ 0x00bb9cd0 (in FUN_00bb96f0)
+  DATA @ 0x00bb9ce2 (in FUN_00bb96f0)
+  DATA @ 0x00bb9d12 (in FUN_00bb96f0)
+  DATA @ 0x00bb9d24 (in FUN_00bb96f0)
+  DATA @ 0x00bb9d36 (in FUN_00bb96f0)
+  DATA @ 0x00bb9d66 (in FUN_00bb96f0)
+  DATA @ 0x00bb9d74 (in FUN_00bb96f0)
+  DATA @ 0x00bb9d86 (in FUN_00bb96f0)
+  DATA @ 0x00bb9d98 (in FUN_00bb96f0)
+  DATA @ 0x00bb9e47 (in FUN_00bb96f0)
+  DATA @ 0x00bb9e80 (in FUN_00bb96f0)
+  DATA @ 0x00bb9ee8 (in FUN_00bb96f0)
+  DATA @ 0x00bb9f18 (in FUN_00bb96f0)
+  DATA @ 0x00bb9f4f (in FUN_00bb96f0)
+  DATA @ 0x00bb9f5d (in FUN_00bb96f0)
+  DATA @ 0x00bb9fcb (in FUN_00bb96f0)
+  DATA @ 0x00bba00d (in FUN_00bb96f0)
+  DATA @ 0x00bba04f (in FUN_00bb96f0)
+  DATA @ 0x00bba091 (in FUN_00bb96f0)
+  DATA @ 0x00bba09f (in FUN_00bb96f0)
+  DATA @ 0x00bba152 (in FUN_00bb96f0)
+  DATA @ 0x00bba190 (in FUN_00bb96f0)
+  DATA @ 0x00bba210 (in FUN_00bb96f0)
+  ... (truncated)
+  Total: 121 refs
+
+----------------------------------------------------------------------
+Calls FROM 0x00b71bf0 (PPLighting vertex constructor)
+----------------------------------------------------------------------
+  0x00b71bf5 -> 0x00ec8660
+  0x00b71c30 -> 0x00ec61c0
+  0x00b71c4e -> 0x00ec61c0
+  0x00b71c6c -> 0x00ec61c0
+  0x00b71c8e -> 0x00ec61c0
+  0x00b71cb0 -> 0x00ec61c0
+  0x00b71cce -> 0x00ec61c0
+  0x00b71d06 -> 0x00ec61c0
+  0x00b71d36 -> 0x00ec61c0
+  0x00b71d58 -> 0x00ec61c0
+  0x00b71d7a -> 0x00ec61c0
+  0x00b71d9d -> 0x00ec61c0
+  0x00b71dcd -> 0x00ec61c0
+  0x00b71e00 -> 0x00ec61c0
+  0x00b71e42 -> 0x00ec61c0
+  0x00b71e72 -> 0x00ec61c0
+  0x00b71eb5 -> 0x00ec61c0
+  0x00b71ed7 -> 0x00ec61c0
+  0x00b71f15 -> 0x00ec61c0
+  0x00b71f56 -> 0x00ec61c0
+  0x00b71f78 -> 0x00ec61c0
+  0x00b71f9b -> 0x00ec61c0
+  0x00b71fcb -> 0x00ec61c0
+  0x00b71fee -> 0x00ec61c0
+  0x00b7201e -> 0x00ec61c0
+  0x00b72051 -> 0x00ec61c0
+  0x00b72074 -> 0x00ec61c0
+  0x00b720a4 -> 0x00ec61c0
+  0x00b720e6 -> 0x00ec61c0
+  0x00b72116 -> 0x00ec61c0
+  0x00b72158 -> 0x00ec61c0
+  0x00b72179 -> 0x00ec61c0
+  0x00b721aa -> 0x00ec61c0
+  0x00b721fa -> 0x00ec61c0
+  0x00b7224a -> 0x00ec61c0
+  0x00b7227a -> 0x00ec61c0
+  0x00b722aa -> 0x00ec61c0
+  0x00b722d9 -> 0x00ec61c0
+  0x00b72317 -> 0x00ec61c0
+  0x00b72355 -> 0x00ec61c0
+  0x00b72385 -> 0x00ec61c0
+  0x00b723b5 -> 0x00ec61c0
+  0x00b723e5 -> 0x00ec61c0
+  0x00b7242a -> 0x00ec61c0
+  0x00b7246c -> 0x00ec61c0
+  0x00b724c0 -> 0x00ec61c0
+  0x00b72502 -> 0x00ec61c0
+  0x00b72556 -> 0x00ec61c0
+  0x00b72586 -> 0x00ec61c0
+  0x00b725b9 -> 0x00ec61c0
+  0x00b725d7 -> 0x00ec61c0
+  0x00b725f5 -> 0x00ec61c0
+  0x00b72633 -> 0x00ec61c0
+  0x00b72651 -> 0x00ec61c0
+  0x00b7266b -> 0x00ec61c0
+  0x00b7268f -> 0x00ec61c0
+  0x00b726e7 -> 0x00ec61c0
+  0x00b72713 -> 0x00ec61c0
+  0x00b72743 -> 0x00ec61c0
+  0x00b72817 -> 0x00ec61c0
+  0x00b72847 -> 0x00ec61c0
+  0x00b7287f -> 0x00ec61c0
+  0x00b728c1 -> 0x00ec61c0
+  0x00b72907 -> 0x00ec61c0
+  0x00b7295b -> 0x00ec61c0
+  0x00b7298f -> 0x00ec61c0
+  0x00b729d1 -> 0x00ec61c0
+  0x00b72a1a -> 0x00ec61c0
+  0x00b72a6e -> 0x00ec61c0
+  0x00b72ab4 -> 0x00ec61c0
+  0x00b72b08 -> 0x00ec61c0
+  0x00b72b60 -> 0x00ec61c0
+  0x00b72c29 -> 0x00ec61c0
+  0x00b72c6e -> 0x00ec61c0
+  0x00b72ca2 -> 0x00ec61c0
+  0x00b72ce8 -> 0x00ec61c0
+  0x00b72d2a -> 0x00ec61c0
+  0x00b72d70 -> 0x00ec61c0
+  0x00b72dc8 -> 0x00ec61c0
+  0x00b72e1f -> 0x00ec61c0
+  0x00b72e53 -> 0x00ec61c0
+  0x00b72e95 -> 0x00ec61c0
+  0x00b72edb -> 0x00ec61c0
+  0x00b72f2f -> 0x00ec61c0
+  0x00b72f63 -> 0x00ec61c0
+  0x00b72fa8 -> 0x00ec61c0
+  0x00b72fee -> 0x00ec61c0
+  0x00b73042 -> 0x00ec61c0
+  0x00b73076 -> 0x00ec61c0
+  0x00b730b8 -> 0x00ec61c0
+  0x00b730ec -> 0x00ec61c0
+  0x00b73131 -> 0x00ec61c0
+  0x00b73153 -> 0x00ec61c0
+  0x00b73183 -> 0x00ec61c0
+  0x00b731b7 -> 0x00ec61c0
+  0x00b731f9 -> 0x00ec61c0
+  0x00b7322d -> 0x00ec61c0
+  0x00b73272 -> 0x00ec61c0
+  0x00b732bc -> 0x00ec61c0
+  0x00b73314 -> 0x00ec61c0
+  0x00b7335e -> 0x00ec61c0
+  0x00b733b6 -> 0x00ec61c0
+  0x00b733ea -> 0x00ec61c0
+  0x00b7342f -> 0x00ec61c0
+  0x00b73475 -> 0x00ec61c0
+  0x00b734a9 -> 0x00ec61c0
+  0x00b734ef -> 0x00ec61c0
+  0x00b73535 -> 0x00ec61c0
+  0x00b73569 -> 0x00ec61c0
+  0x00b73583 -> 0x00ec61c0
+  0x00b735db -> 0x00ec61c0
+  0x00b73621 -> 0x00ec61c0
+  0x00b73638 -> 0x00ec61c0
+  0x00b7367e -> 0x00ec61c0
+  0x00b736d6 -> 0x00ec61c0
+  0x00b7370d -> 0x00ec61c0
+  0x00b73753 -> 0x00ec61c0
+  0x00b73795 -> 0x00ec61c0
+  0x00b737e9 -> 0x00ec61c0
+  0x00b7382f -> 0x00ec61c0
+  0x00b73851 -> 0x00ec61c0
+  0x00b73884 -> 0x00ec61c0
+  0x00b738b8 -> 0x00ec61c0
+  0x00b738ec -> 0x00ec61c0
+  0x00b7392e -> 0x00ec61c0
+  0x00b73950 -> 0x00ec61c0
+  0x00b73980 -> 0x00ec61c0
+  0x00b739b7 -> 0x00ec61c0
+  0x00b739d9 -> 0x00ec61c0
+  0x00b73a09 -> 0x00ec61c0
+  0x00b73a2b -> 0x00ec61c0
+  0x00b73a5f -> 0x00ec61c0
+  0x00b73aa5 -> 0x00ec61c0
+  0x00b73aee -> 0x00ec61c0
+  0x00b73b22 -> 0x00ec61c0
+  0x00b73b68 -> 0x00ec61c0
+  0x00b73b8a -> 0x00ec61c0
+  0x00b73bba -> 0x00ec61c0
+  0x00b73bee -> 0x00ec61c0
+  0x00b73c13 -> 0x00ec61c0
+  0x00b73c43 -> 0x00ec61c0
+  0x00b73c77 -> 0x00ec61c0
+  0x00b73cb9 -> 0x00ec61c0
+  0x00b73d11 -> 0x00ec61c0
+  0x00b73d33 -> 0x00ec61c0
+  0x00b73d66 -> 0x00ec61c0
+  0x00b73d9a -> 0x00ec61c0
+  0x00b73ddc -> 0x00ec61c0
+  0x00b73e10 -> 0x00ec61c0
+  0x00b73e52 -> 0x00ec61c0
+  0x00b73e98 -> 0x00ec61c0
+  0x00b73eef -> 0x00ec61c0
+  0x00b73f24 -> 0x00ec61c0
+  0x00b73f66 -> 0x00ec61c0
+  0x00b73f9a -> 0x00ec61c0
+  0x00b73fc3 -> 0x00be0c00
+  0x00b73fdb -> 0x00406d00
+  0x00b74000 -> 0x00be0fe0
+  0x00b7401c -> 0x00000067
+  0x00b74043 -> 0x00000066
+  0x00b74076 -> 0x00be0c00
+  0x00b7408e -> 0x00406d00
+  0x00b740b3 -> 0x00be0fe0
+  0x00b740cd -> 0x00000067
+  0x00b740ef -> 0x00000066
+  0x00b7413a -> 0x00000067
+  0x00b74162 -> 0x00be0c00
+  0x00b7417a -> 0x00406d00
+  0x00b7419f -> 0x00be0fe0
+  0x00b741b9 -> 0x00000067
+  0x00b741db -> 0x00000066
+  0x00b74203 -> 0x00ec408c
+  Total calls: 172
+
+----------------------------------------------------------------------
+Calls FROM 0x00b74210 (PPLighting pixel constructor)
+----------------------------------------------------------------------
+  [function not found]
