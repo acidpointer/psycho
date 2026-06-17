@@ -1828,11 +1828,13 @@ fn draw_native_pbr_config(
     config: &mut crate::config::NativePbrConfig,
     status: pbr::NativePbrRuntimeStatus,
 ) -> bool {
-    let heading = cstring("Native PBR");
+    let heading = cstring("Native PBR (WIP)");
     ui.text_colored(MENU_ACCENT_TEXT, &heading);
 
     let kind = cstring("Type: engine material hook");
     ui.text_colored(MENU_MUTED_TEXT, &kind);
+    let wip = cstring("Work in progress: opt-in only; not ready for early release");
+    ui.text_colored(MENU_WARN_TEXT, &wip);
     let path = cstring(format!("Config: {}", crate::config::CONFIG_PATH));
     ui.text_wrapped(&path);
 
@@ -1841,12 +1843,12 @@ fn draw_native_pbr_config(
     } else if status.installed && status.shader_enabled && status.active_contracts_failed {
         (
             MENU_WARN_TEXT,
-            "PBR blocked: active shader contract failed".to_owned(),
+            "PBR blocked: object shader contract failed".to_owned(),
         )
     } else if status.installed && status.shader_enabled && !status.active_contracts_ready {
         (
             MENU_WARN_TEXT,
-            "PBR shader: warming active contracts".to_owned(),
+            "PBR shader: warming object contracts".to_owned(),
         )
     } else if status.installed && status.shader_enabled {
         (MENU_GOOD_TEXT, "PBR shader: active".to_owned())
@@ -1878,7 +1880,7 @@ fn draw_native_pbr_config(
     let mut changed = false;
     changed |= draw_config_checkbox(
         ui,
-        "PBR material shader",
+        "WIP object PBR material shader",
         "native_pbr.enabled",
         &mut config.enabled,
     );
@@ -1891,7 +1893,7 @@ fn draw_native_pbr_config(
     );
     changed |= draw_config_checkbox(
         ui,
-        "Experimental terrain PBR",
+        "WIP terrain PBR",
         "native_pbr.terrain_enabled",
         &mut config.terrain_enabled,
     );
@@ -2262,7 +2264,7 @@ fn native_pbr_list_label(configured_enabled: bool, status: pbr::NativePbrRuntime
     } else {
         "OFF"
     };
-    format!("{status}  Native PBR##native_pbr_select")
+    format!("{status}  Native PBR (WIP)##native_pbr_select")
 }
 
 fn shader_has_error(source: &ScreenShaderSource) -> bool {

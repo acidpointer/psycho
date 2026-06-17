@@ -40,7 +40,8 @@ Runtime requirements:
 - In-game OMV graphics menu, toggled with `Insert` by default.
 - Loose screen-space shader loading from `Data/NVSE/plugins/omv/shaders`.
 - Embedded ambient occlusion, contact AO, bloom/HDR, and sunshafts.
-- Native PBR work for object renderer paths whose shader contract is known.
+- WIP Native PBR diagnostics for object renderer paths whose shader contract is
+  known. This is opt-in and not ready for early release.
 - Dependency logging for VPT, Fallout Shader Loader, and LOD Flicker Fix.
 
 OMV expects to own its installed graphics hooks. Do not install it beside another
@@ -88,11 +89,12 @@ omv/src/shaders.rs       Loose shader loading and HLSL compilation
 
 ## Native PBR Status
 
-Native PBR is contract-gated.
+Native PBR is WIP / work in progress, disabled by default, and contract-gated.
+It is preserved as an opt-in diagnostic feature, not an early release feature.
 
 - Object PBR is limited to proven PPLighting object shader families.
-- Replacement becomes visible only after all active shader
-  contracts are compiled, created, and ready together.
+- Object replacement becomes visible only after active object shader contracts
+  are compiled, created, and ready. Terrain readiness does not block objects.
 - LandLOD and close terrain PBR are experimental, disabled by default, and
   require the VPT/FSL/LODFF terrain stack when explicitly enabled.
 - EnvMap/reflection, skin, terrain fade, projected terrain, parallax/POM, and

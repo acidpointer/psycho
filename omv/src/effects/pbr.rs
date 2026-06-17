@@ -15,7 +15,7 @@ use std::{
     collections::VecDeque,
     ffi::{CStr, c_char, c_void},
     fs,
-    mem::{size_of, transmute},
+    mem::size_of,
     path::{Path, PathBuf},
     ptr::null_mut,
     slice,
@@ -29,11 +29,7 @@ use std::{
 
 use anyhow::Result;
 use libpsycho::os::windows::{
-    directx9::{
-        D3DFMT_A8R8G8B8, D3DPOOL_MANAGED, D3DSAMP_ADDRESSU, D3DSAMP_ADDRESSV, D3DSAMP_MAGFILTER,
-        D3DSAMP_MINFILTER, D3DSAMP_MIPFILTER, D3DTEXF_LINEAR, D3DTEXF_NONE, Device9Ref,
-        PixelShader9, Texture9, VertexShader9,
-    },
+    directx9::{Device9Ref, PixelShader9, VertexShader9},
     hook::inline::inlinehook::InlineHookContainer,
     memory::validate_memory_range,
     winapi::virtual_query,
@@ -52,7 +48,6 @@ const PPLIGHTING_SELECTOR_SETUP_VARIANT_ADDR: usize = 0x00BDB4A0;
 const PPLIGHTING_SELECTOR_SETUP_MAIN_ADDR: usize = 0x00BDF790;
 const CURRENT_GEOMETRY_SLOT_ADDR: usize = 0x011F91E0;
 const CURRENT_PASS_GLOBAL_ADDR: usize = 0x0126F74C;
-const RENDERER_GLOBAL_ADDR: usize = 0x0126F6C4;
 const SHADER_INTERFACE_SELECTOR_ARRAY_ADDR: usize = 0x011F9548;
 const PPLIGHTING_SHADER_SELECTOR_INDEX: usize = 1;
 const PASS_PIXEL_SHADER_OFFSET: usize = 0x44;
@@ -210,10 +205,6 @@ const SHADER_INTERFACE_VERTEX_ACTIVE_COPY_OFFSET: usize = 0x88;
 const SHADER_INTERFACE_APPLY_SLOT_OFFSET: usize = 0x78;
 const SHADER_INTERFACE_FIELD_VTABLE_ADDR: usize = 0x010EF544;
 const SHADER_INTERFACE_FIELD_APPLY_ADDR: usize = 0x00E826D0;
-const TEXTURE_RESOLVER_OFFSET: usize = 0x8C4;
-const TEXTURE_RESOLVER_VTABLE_ADDR: usize = 0x010F086C;
-const TEXTURE_RESOLVER_RESOLVE_SLOT_OFFSET: usize = 0x0C;
-const TEXTURE_RESOLVER_RESOLVE_ADDR: usize = 0x00E90B10;
 const CURRENT_DRAW_SELECTOR_OFFSET: usize = 0xC0;
 const SELECTOR_FLAGS_OFFSET: usize = 0x20;
 const SELECTOR_PASS_ENTRY_LIST_OFFSET: usize = 0x3C;
@@ -221,7 +212,6 @@ const SELECTOR_MATERIAL_ARRAY_OFFSETS: [usize; SELECTOR_MATERIAL_ARRAY_COUNT] =
     [0xAC, 0xB0, 0xB4, 0xB8, 0xBC, 0xC0];
 const SELECTOR_MATERIAL_ARRAY_COUNT: usize = 6;
 const SELECTOR_CAPTURE_SLOTS: usize = 4096;
-const TEXTURE_RESOLVE_CACHE_SLOTS: usize = 128;
 const SELECTOR_SETUP_VARIANT_KIND: u32 = 1;
 const SELECTOR_SETUP_MAIN_KIND: u32 = 2;
 const GEOMETRY_FLAGS_OFFSET: usize = 0x20;
@@ -239,25 +229,41 @@ const TERRAIN_DATA_REGISTER: u32 = 89;
 const TERRAIN_EXTRA_DATA_REGISTER: u32 = 90;
 const TERRAIN_PARALLAX_DATA_REGISTER: u32 = 91;
 const TERRAIN_PARALLAX_EXTRA_DATA_REGISTER: u32 = 92;
-const PBR_MATERIAL_SLOT_NORMAL: usize = 1;
-const PBR_MATERIAL_SLOT_GLOW: usize = 2;
-const PBR_MATERIAL_SLOT_HEIGHT: usize = 3;
-const PBR_MATERIAL_SLOT_ENVIRONMENT: usize = 4;
-const PBR_MATERIAL_SLOT_ENVIRONMENT_MASK: usize = 5;
-const PBR_NORMAL_STAGE: u32 = 1;
-const PBR_TERRAIN_NORMAL_STAGE: u32 = 7;
-const PBR_ONLY_LIGHT_SI_GLOW_STAGE: u32 = 3;
-const PBR_SI_GLOW_STAGE: u32 = 4;
-const PBR_GLOW_STAGE: u32 = 2;
-const PBR_HEIGHT_STAGE: u32 = 3;
-const PBR_ENVIRONMENT_STAGE: u32 = 4;
-const PBR_ENVIRONMENT_MASK_STAGE: u32 = 5;
 const REPLACEMENT_SHADER_KIND_COUNT: usize = 76;
 const OWNED_SHADER_RECORDS: usize = 4096;
 const OWNED_SHADER_PROBE_COUNT: usize = 4;
 const OWNED_SHADER_TYPE_VERTEX: u32 = 1;
 const OWNED_SHADER_TYPE_PIXEL: u32 = 2;
 const OWNED_SHADER_KIND_NONE: u32 = u32::MAX;
+const OBJECT_TRANSITION_RECORDS: usize = 2048;
+const OBJECT_TRANSITION_PROBE_COUNT: usize = 4;
+const OBJECT_TRANSITION_MAX_LOGS: u32 = 64;
+const OBJECT_COHERENCE_RECORDS: usize = 2048;
+const OBJECT_COHERENCE_PROBE_COUNT: usize = 4;
+const OBJECT_COHERENCE_MAX_LOGS: u32 = 32;
+const OBJECT_CONTRACT_FAMILY_NONE: u32 = 0;
+const OBJECT_CONTRACT_FAMILY_STANDARD: u32 = 1;
+const OBJECT_CONTRACT_FAMILY_SKIN: u32 = 2;
+const OBJECT_CONTRACT_FAMILY_ENVMAP: u32 = 3;
+const OBJECT_CONTRACT_STATE_NONE: u32 = 0;
+const OBJECT_CONTRACT_STATE_APPLIED: u32 = 1;
+const OBJECT_CONTRACT_STATE_FALLBACK: u32 = 2;
+const OBJECT_CONTRACT_REASON_NONE: u32 = 0;
+const OBJECT_CONTRACT_REASON_MISSING_ROW: u32 = 1;
+const OBJECT_CONTRACT_REASON_SKIN_ABI: u32 = 2;
+const OBJECT_CONTRACT_REASON_ENVMAP_ABI: u32 = 3;
+const OBJECT_CONTRACT_REASON_NO_NORMAL: u32 = 4;
+const OBJECT_CONTRACT_REASON_NO_GLOW: u32 = 5;
+const OBJECT_CONTRACT_REASON_NO_SHADOW: u32 = 6;
+const OBJECT_CONTRACT_REASON_NO_SHADER: u32 = 7;
+const OBJECT_CONTRACT_REASON_BIND_FAILED: u32 = 8;
+const OBJECT_CONTRACT_REASON_NO_VANILLA: u32 = 9;
+const OBJECT_CONTRACT_REASON_HANDLE_WRITE: u32 = 10;
+const OBJECT_CONTRACT_REASON_UNSUPPORTED_VERTEX: u32 = 11;
+const OBJECT_CONTRACT_REASON_NO_DIFFUSE: u32 = 12;
+const OBJECT_CONTRACT_REASON_NO_SELECTOR: u32 = 13;
+const OBJECT_CONTRACT_REASON_OBJECT_STACK: u32 = 14;
+const OBJECT_CONTRACT_REASON_OTHER: u32 = 15;
 
 const SET_SHADERS_PROLOGUE: &[u8] = &[
     0x8B, 0x0D, 0x4C, 0xF7, 0x26, 0x01, 0x56, 0x57, 0xE8, 0x23, 0xD8, 0x29, 0x00, 0x8B, 0xF0, 0xA1,
@@ -331,8 +337,6 @@ type SetTextureFn = unsafe extern "thiscall" fn(*mut c_void, u32, *mut c_void);
 type PassShaderApplyFn = unsafe extern "thiscall" fn(*mut c_void, *mut c_void);
 type SelectorSetupFn =
     unsafe extern "thiscall" fn(*mut c_void, usize, usize, usize, usize, usize, usize);
-type TextureResolverResolveFn =
-    unsafe extern "thiscall" fn(*mut c_void, *mut c_void, *mut u8, *mut u8, *mut u8) -> *mut c_void;
 
 static SET_SHADERS_HOOK: LazyLock<InlineHookContainer<SetShadersFn>> =
     LazyLock::new(InlineHookContainer::new);
@@ -376,6 +380,7 @@ static REPLACEMENT_SKIP_MISSING_OBJECT_ROW_CONTRACT: AtomicU32 = AtomicU32::new(
 static REPLACEMENT_SKIP_SKIN_VERTEX_ABI: AtomicU32 = AtomicU32::new(0);
 static REPLACEMENT_SKIP_MISSING_TERRAIN_CONTRACT: AtomicU32 = AtomicU32::new(0);
 static REPLACEMENT_SKIP_TERRAIN_PBR_DISABLED: AtomicU32 = AtomicU32::new(0);
+static REPLACEMENT_SKIP_CLOSE_TERRAIN_CONTRACT_UNPROVEN: AtomicU32 = AtomicU32::new(0);
 static REPLACEMENT_SKIP_INTERIOR_TERRAIN_DISABLED: AtomicU32 = AtomicU32::new(0);
 static REPLACEMENT_SKIP_INTERIOR_OBJECT_LIGHT_PASS_DISABLED: AtomicU32 = AtomicU32::new(0);
 static REPLACEMENT_SKIP_UNPROVEN_LANDLOD_SHADOW: AtomicU32 = AtomicU32::new(0);
@@ -385,10 +390,14 @@ static REPLACEMENT_SKIP_NO_SELECTOR_RECORD: AtomicU32 = AtomicU32::new(0);
 static REPLACEMENT_SKIP_NO_NORMAL_SOURCE: AtomicU32 = AtomicU32::new(0);
 static REPLACEMENT_SKIP_NO_GLOW_SOURCE: AtomicU32 = AtomicU32::new(0);
 static REPLACEMENT_SKIP_NO_SHADOW_SOURCE: AtomicU32 = AtomicU32::new(0);
+static REPLACEMENT_SKIP_OBJECT_STACK_INCOMPLETE: AtomicU32 = AtomicU32::new(0);
 static REPLACEMENT_SKIP_NO_REPLACEMENT_SHADER: AtomicU32 = AtomicU32::new(0);
 static REPLACEMENT_SKIP_BIND_FAILED: AtomicU32 = AtomicU32::new(0);
 static REPLACEMENT_SKIP_NO_VANILLA_HANDLE: AtomicU32 = AtomicU32::new(0);
 static REPLACEMENT_SKIP_HANDLE_WRITE_FAILED: AtomicU32 = AtomicU32::new(0);
+static OBJECT_TRANSITION_LOGS: AtomicU32 = AtomicU32::new(0);
+static OBJECT_COHERENCE_BLOCK_LOGS: AtomicU32 = AtomicU32::new(0);
+static OBJECT_COHERENCE_SUPPRESS_LOGS: AtomicU32 = AtomicU32::new(0);
 static REPLACEMENT_LAST_FAMILY: AtomicU32 = AtomicU32::new(PPLIGHTING_FAMILY_NONE);
 static REPLACEMENT_LAST_VERTEX_GROUP: AtomicU32 = AtomicU32::new(PPLIGHTING_GROUP_NONE);
 static REPLACEMENT_LAST_VERTEX_INDEX: AtomicU32 = AtomicU32::new(0);
@@ -428,9 +437,11 @@ static DRAW_CAPTURE: LazyLock<DrawCapture> = LazyLock::new(DrawCapture::new);
 static INTERFACE_CAPTURE: LazyLock<ShaderInterfaceCapture> =
     LazyLock::new(ShaderInterfaceCapture::new);
 static SELECTOR_CAPTURE: LazyLock<SelectorCaptureTable> = LazyLock::new(SelectorCaptureTable::new);
-static TEXTURE_RESOLVE_CACHE: LazyLock<TextureResolveCache> =
-    LazyLock::new(TextureResolveCache::new);
 static OWNED_SHADERS: LazyLock<OwnedShaderTable> = LazyLock::new(OwnedShaderTable::new);
+static OBJECT_TRANSITIONS: LazyLock<ObjectTransitionTable> =
+    LazyLock::new(ObjectTransitionTable::new);
+static OBJECT_COHERENCE_BLOCKS: LazyLock<ObjectCoherenceTable> =
+    LazyLock::new(ObjectCoherenceTable::new);
 static VERTEX_SHADER_MEMBERSHIP_CACHE: LazyLock<ShaderMembershipCache> =
     LazyLock::new(ShaderMembershipCache::new);
 static PIXEL_SHADER_MEMBERSHIP_CACHE: LazyLock<ShaderMembershipCache> =
@@ -481,7 +492,6 @@ const REPLACEMENT_BYTECODE_MISSING: u32 = 0;
 const REPLACEMENT_BYTECODE_QUEUED: u32 = 1;
 const REPLACEMENT_BYTECODE_READY: u32 = 2;
 const REPLACEMENT_BYTECODE_FAILED: u32 = 3;
-const NEUTRAL_NORMAL_ARGB: u32 = 0x0080_80FF;
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct NativePbrSettings {
@@ -634,6 +644,9 @@ impl OwnedShaderTable {
                 .last_selected_kind
                 .store(OWNED_SHADER_KIND_NONE, Ordering::Release);
             record
+                .replacement_kind
+                .store(OWNED_SHADER_KIND_NONE, Ordering::Release);
+            record
                 .pplighting_group
                 .store(PPLIGHTING_GROUP_NONE, Ordering::Release);
             record.pplighting_index.store(0, Ordering::Release);
@@ -680,6 +693,9 @@ impl OwnedShaderTable {
             .last_selected_kind
             .store(OWNED_SHADER_KIND_NONE, Ordering::Release);
         record
+            .replacement_kind
+            .store(OWNED_SHADER_KIND_NONE, Ordering::Release);
+        record
             .pplighting_group
             .store(PPLIGHTING_GROUP_NONE, Ordering::Release);
         record.pplighting_index.store(0, Ordering::Release);
@@ -705,6 +721,28 @@ impl OwnedShaderTable {
         record
             .pplighting_index
             .store(membership.index, Ordering::Release);
+        if let Some(kind) = replacement_kind_for_shader_membership(
+            record.shader_type.load(Ordering::Acquire),
+            membership,
+        ) {
+            record
+                .replacement_kind
+                .store(kind.index() as u32, Ordering::Release);
+        }
+    }
+
+    fn set_replacement_kind(&self, shader: *mut c_void, kind: ReplacementShaderKind) {
+        let key = shader as usize;
+        if key == 0 {
+            return;
+        }
+        let Some(index) = self.find_index(key) else {
+            return;
+        };
+
+        self.records[index]
+            .replacement_kind
+            .store(kind.index() as u32, Ordering::Release);
     }
 
     fn set_current(
@@ -765,6 +803,7 @@ struct OwnedShaderRecord {
     original_handle: AtomicUsize,
     current_owned_handle: AtomicUsize,
     last_selected_kind: AtomicU32,
+    replacement_kind: AtomicU32,
     pplighting_group: AtomicU32,
     pplighting_index: AtomicU32,
     creation_count: AtomicU32,
@@ -779,6 +818,7 @@ impl OwnedShaderRecord {
             original_handle: AtomicUsize::new(0),
             current_owned_handle: AtomicUsize::new(0),
             last_selected_kind: AtomicU32::new(OWNED_SHADER_KIND_NONE),
+            replacement_kind: AtomicU32::new(OWNED_SHADER_KIND_NONE),
             pplighting_group: AtomicU32::new(PPLIGHTING_GROUP_NONE),
             pplighting_index: AtomicU32::new(0),
             creation_count: AtomicU32::new(0),
@@ -792,6 +832,9 @@ impl OwnedShaderRecord {
             shader_type: self.shader_type.load(Ordering::Acquire),
             original_handle: self.original_handle.load(Ordering::Acquire) as *mut c_void,
             current_owned_handle: self.current_owned_handle.load(Ordering::Acquire) as *mut c_void,
+            replacement_kind: replacement_kind_from_index(
+                self.replacement_kind.load(Ordering::Acquire),
+            ),
             pplighting_group: self.pplighting_group.load(Ordering::Acquire),
             pplighting_index: self.pplighting_index.load(Ordering::Acquire),
         }
@@ -804,6 +847,7 @@ struct OwnedShaderSnapshot {
     shader_type: u32,
     original_handle: *mut c_void,
     current_owned_handle: *mut c_void,
+    replacement_kind: Option<ReplacementShaderKind>,
     pplighting_group: u32,
     pplighting_index: u32,
 }
@@ -1306,91 +1350,403 @@ struct SelectorCaptureSnapshot {
     material_arrays: [usize; SELECTOR_MATERIAL_ARRAY_COUNT],
 }
 
-struct TextureResolveCache {
-    resolver: AtomicUsize,
-    records: [TextureResolveCacheRecord; TEXTURE_RESOLVE_CACHE_SLOTS],
+fn selector_material_key(snapshot: SelectorCaptureSnapshot) -> u32 {
+    let mut hash = snapshot.flags
+        ^ ((snapshot.setup_kind & 0xFF) << 24)
+        ^ ((snapshot.pass_entry_list as u32).rotate_left(5));
+    for value in snapshot.material_arrays {
+        let low = value as u32;
+        let high = (value >> 16) as u32;
+        hash = hash.rotate_left(7) ^ low ^ high.rotate_left(3);
+    }
+    hash
 }
 
-impl TextureResolveCache {
+#[derive(Clone, Copy)]
+struct ObjectTransitionEvent {
+    key: usize,
+    geometry: usize,
+    selector: usize,
+    material_key: u32,
+    selector_generation: u32,
+    family: u32,
+    state: u32,
+    reason: u32,
+    kind_index: u32,
+    vertex_group: u32,
+    vertex_index: u32,
+    pixel_group: u32,
+    pixel_index: u32,
+}
+
+#[derive(Clone, Copy)]
+struct ObjectTransitionSnapshot {
+    family: u32,
+    state: u32,
+    reason: u32,
+    kind_index: u32,
+    vertex_group: u32,
+    vertex_index: u32,
+    pixel_group: u32,
+    pixel_index: u32,
+}
+
+#[derive(Clone, Copy)]
+struct ObjectTransitionChange {
+    old: ObjectTransitionSnapshot,
+    new: ObjectTransitionEvent,
+    transitions: u32,
+}
+
+struct ObjectTransitionTable {
+    records: [ObjectTransitionRecord; OBJECT_TRANSITION_RECORDS],
+}
+
+impl ObjectTransitionTable {
     fn new() -> Self {
         Self {
-            resolver: AtomicUsize::new(0),
-            records: array::from_fn(|_| TextureResolveCacheRecord::new()),
+            records: array::from_fn(|_| ObjectTransitionRecord::new()),
         }
     }
 
     fn clear(&self) {
-        self.resolver.store(0, Ordering::Release);
         for record in &self.records {
             record.clear();
         }
     }
 
-    fn get(&self, resolver: *mut c_void, resource: *mut c_void) -> Option<*mut c_void> {
-        let resolver_key = resolver as usize;
-        let resource_key = resource as usize;
-        if resolver_key == 0 || resource_key == 0 {
+    fn store(&self, event: ObjectTransitionEvent) -> Option<ObjectTransitionChange> {
+        if event.key == 0 {
             return None;
         }
 
-        if self.resolver.load(Ordering::Acquire) != resolver_key {
-            return None;
+        let start = object_transition_slot(event.key);
+        for probe in 0..OBJECT_TRANSITION_PROBE_COUNT {
+            let index = (start + probe) % OBJECT_TRANSITION_RECORDS;
+            let record = &self.records[index];
+            let key = record.key.load(Ordering::Acquire);
+            if key == event.key {
+                return record.update(event);
+            }
+            if key == 0
+                && record
+                    .key
+                    .compare_exchange(0, event.key, Ordering::AcqRel, Ordering::Acquire)
+                    .is_ok()
+            {
+                record.write_payload(event);
+                return None;
+            }
         }
 
-        let record = &self.records[texture_resolve_cache_slot(resource_key)];
-        if record.resource.load(Ordering::Acquire) != resource_key {
-            return None;
-        }
-
-        let resolved = record.resolved.load(Ordering::Acquire);
-        if resolved == 0 {
-            return None;
-        }
-
-        Some(resolved as *mut c_void)
-    }
-
-    fn store(&self, resolver: *mut c_void, resource: *mut c_void, resolved: *mut c_void) {
-        let resolver_key = resolver as usize;
-        let resource_key = resource as usize;
-        let resolved_key = resolved as usize;
-        if resolver_key == 0 || resource_key == 0 || resolved_key == 0 {
-            return;
-        }
-
-        if self.resolver.load(Ordering::Acquire) != resolver_key {
-            self.clear();
-            self.resolver.store(resolver_key, Ordering::Release);
-        }
-
-        let record = &self.records[texture_resolve_cache_slot(resource_key)];
-        record.resource.store(0, Ordering::Release);
-        record.resolved.store(resolved_key, Ordering::Release);
-        record.resource.store(resource_key, Ordering::Release);
+        let record = &self.records[start];
+        record.key.store(0, Ordering::Release);
+        record.write_payload(event);
+        record.key.store(event.key, Ordering::Release);
+        None
     }
 }
 
-struct TextureResolveCacheRecord {
-    resource: AtomicUsize,
-    resolved: AtomicUsize,
+struct ObjectTransitionRecord {
+    key: AtomicUsize,
+    geometry: AtomicUsize,
+    selector: AtomicUsize,
+    material_key: AtomicU32,
+    selector_generation: AtomicU32,
+    family: AtomicU32,
+    state: AtomicU32,
+    reason: AtomicU32,
+    kind_index: AtomicU32,
+    vertex_group: AtomicU32,
+    vertex_index: AtomicU32,
+    pixel_group: AtomicU32,
+    pixel_index: AtomicU32,
+    transitions: AtomicU32,
 }
 
-impl TextureResolveCacheRecord {
+impl ObjectTransitionRecord {
     fn new() -> Self {
         Self {
-            resource: AtomicUsize::new(0),
-            resolved: AtomicUsize::new(0),
+            key: AtomicUsize::new(0),
+            geometry: AtomicUsize::new(0),
+            selector: AtomicUsize::new(0),
+            material_key: AtomicU32::new(0),
+            selector_generation: AtomicU32::new(0),
+            family: AtomicU32::new(OBJECT_CONTRACT_FAMILY_NONE),
+            state: AtomicU32::new(OBJECT_CONTRACT_STATE_NONE),
+            reason: AtomicU32::new(OBJECT_CONTRACT_REASON_NONE),
+            kind_index: AtomicU32::new(OWNED_SHADER_KIND_NONE),
+            vertex_group: AtomicU32::new(PPLIGHTING_GROUP_NONE),
+            vertex_index: AtomicU32::new(0),
+            pixel_group: AtomicU32::new(PPLIGHTING_GROUP_NONE),
+            pixel_index: AtomicU32::new(0),
+            transitions: AtomicU32::new(0),
         }
     }
 
     fn clear(&self) {
-        self.resource.store(0, Ordering::Release);
-        self.resolved.store(0, Ordering::Release);
+        self.key.store(0, Ordering::Release);
+        self.geometry.store(0, Ordering::Release);
+        self.selector.store(0, Ordering::Release);
+        self.material_key.store(0, Ordering::Release);
+        self.selector_generation.store(0, Ordering::Release);
+        self.family
+            .store(OBJECT_CONTRACT_FAMILY_NONE, Ordering::Release);
+        self.state
+            .store(OBJECT_CONTRACT_STATE_NONE, Ordering::Release);
+        self.reason
+            .store(OBJECT_CONTRACT_REASON_NONE, Ordering::Release);
+        self.kind_index
+            .store(OWNED_SHADER_KIND_NONE, Ordering::Release);
+        self.vertex_group
+            .store(PPLIGHTING_GROUP_NONE, Ordering::Release);
+        self.vertex_index.store(0, Ordering::Release);
+        self.pixel_group
+            .store(PPLIGHTING_GROUP_NONE, Ordering::Release);
+        self.pixel_index.store(0, Ordering::Release);
+        self.transitions.store(0, Ordering::Release);
+    }
+
+    fn update(&self, event: ObjectTransitionEvent) -> Option<ObjectTransitionChange> {
+        let old = self.snapshot();
+        let changed = old.family != event.family
+            || old.state != event.state
+            || old.reason != event.reason
+            || old.kind_index != event.kind_index
+            || old.vertex_group != event.vertex_group
+            || old.vertex_index != event.vertex_index
+            || old.pixel_group != event.pixel_group
+            || old.pixel_index != event.pixel_index;
+
+        self.write_payload(event);
+
+        if !changed || old.state == OBJECT_CONTRACT_STATE_NONE {
+            return None;
+        }
+
+        let transitions = self.transitions.fetch_add(1, Ordering::Relaxed) + 1;
+        Some(ObjectTransitionChange {
+            old,
+            new: event,
+            transitions,
+        })
+    }
+
+    fn snapshot(&self) -> ObjectTransitionSnapshot {
+        ObjectTransitionSnapshot {
+            family: self.family.load(Ordering::Acquire),
+            state: self.state.load(Ordering::Acquire),
+            reason: self.reason.load(Ordering::Acquire),
+            kind_index: self.kind_index.load(Ordering::Acquire),
+            vertex_group: self.vertex_group.load(Ordering::Acquire),
+            vertex_index: self.vertex_index.load(Ordering::Acquire),
+            pixel_group: self.pixel_group.load(Ordering::Acquire),
+            pixel_index: self.pixel_index.load(Ordering::Acquire),
+        }
+    }
+
+    fn write_payload(&self, event: ObjectTransitionEvent) {
+        self.geometry.store(event.geometry, Ordering::Release);
+        self.selector.store(event.selector, Ordering::Release);
+        self.material_key
+            .store(event.material_key, Ordering::Release);
+        self.selector_generation
+            .store(event.selector_generation, Ordering::Release);
+        self.family.store(event.family, Ordering::Release);
+        self.state.store(event.state, Ordering::Release);
+        self.reason.store(event.reason, Ordering::Release);
+        self.kind_index.store(event.kind_index, Ordering::Release);
+        self.vertex_group
+            .store(event.vertex_group, Ordering::Release);
+        self.vertex_index
+            .store(event.vertex_index, Ordering::Release);
+        self.pixel_group.store(event.pixel_group, Ordering::Release);
+        self.pixel_index.store(event.pixel_index, Ordering::Release);
     }
 }
 
-fn texture_resolve_cache_slot(resource: usize) -> usize {
-    (resource >> 4) % TEXTURE_RESOLVE_CACHE_SLOTS
+fn object_transition_slot(key: usize) -> usize {
+    (key.rotate_right(4) ^ key.rotate_left(7)) % OBJECT_TRANSITION_RECORDS
+}
+
+#[derive(Clone, Copy)]
+struct ObjectCoherenceEvent {
+    key: usize,
+    geometry: usize,
+    selector: usize,
+    material_key: u32,
+    reason: u32,
+    family: u32,
+    vertex_group: u32,
+    vertex_index: u32,
+    pixel_group: u32,
+    pixel_index: u32,
+}
+
+#[derive(Clone, Copy)]
+struct ObjectCoherenceSnapshot {
+    reason: u32,
+    family: u32,
+    vertex_group: u32,
+    vertex_index: u32,
+    pixel_group: u32,
+    pixel_index: u32,
+}
+
+struct ObjectCoherenceTable {
+    records: [ObjectCoherenceRecord; OBJECT_COHERENCE_RECORDS],
+}
+
+impl ObjectCoherenceTable {
+    fn new() -> Self {
+        Self {
+            records: array::from_fn(|_| ObjectCoherenceRecord::new()),
+        }
+    }
+
+    fn clear(&self) {
+        for record in &self.records {
+            record.clear();
+        }
+    }
+
+    fn find(&self, key: usize) -> Option<ObjectCoherenceSnapshot> {
+        if key == 0 {
+            return None;
+        }
+
+        let start = object_coherence_slot(key);
+        for probe in 0..OBJECT_COHERENCE_PROBE_COUNT {
+            let index = (start + probe) % OBJECT_COHERENCE_RECORDS;
+            let record = &self.records[index];
+            if record.key.load(Ordering::Acquire) == key {
+                return Some(record.snapshot());
+            }
+        }
+
+        None
+    }
+
+    fn store(&self, event: ObjectCoherenceEvent) -> bool {
+        if event.key == 0 {
+            return false;
+        }
+
+        let start = object_coherence_slot(event.key);
+        for probe in 0..OBJECT_COHERENCE_PROBE_COUNT {
+            let index = (start + probe) % OBJECT_COHERENCE_RECORDS;
+            let record = &self.records[index];
+            let key = record.key.load(Ordering::Acquire);
+            if key == event.key {
+                return record.update(event);
+            }
+            if key == 0
+                && record
+                    .key
+                    .compare_exchange(0, event.key, Ordering::AcqRel, Ordering::Acquire)
+                    .is_ok()
+            {
+                record.write_payload(event);
+                return true;
+            }
+        }
+
+        let record = &self.records[start];
+        record.key.store(0, Ordering::Release);
+        record.write_payload(event);
+        record.key.store(event.key, Ordering::Release);
+        true
+    }
+}
+
+struct ObjectCoherenceRecord {
+    key: AtomicUsize,
+    geometry: AtomicUsize,
+    selector: AtomicUsize,
+    material_key: AtomicU32,
+    reason: AtomicU32,
+    family: AtomicU32,
+    vertex_group: AtomicU32,
+    vertex_index: AtomicU32,
+    pixel_group: AtomicU32,
+    pixel_index: AtomicU32,
+}
+
+impl ObjectCoherenceRecord {
+    fn new() -> Self {
+        Self {
+            key: AtomicUsize::new(0),
+            geometry: AtomicUsize::new(0),
+            selector: AtomicUsize::new(0),
+            material_key: AtomicU32::new(0),
+            reason: AtomicU32::new(OBJECT_CONTRACT_REASON_NONE),
+            family: AtomicU32::new(OBJECT_CONTRACT_FAMILY_NONE),
+            vertex_group: AtomicU32::new(PPLIGHTING_GROUP_NONE),
+            vertex_index: AtomicU32::new(0),
+            pixel_group: AtomicU32::new(PPLIGHTING_GROUP_NONE),
+            pixel_index: AtomicU32::new(0),
+        }
+    }
+
+    fn clear(&self) {
+        self.key.store(0, Ordering::Release);
+        self.geometry.store(0, Ordering::Release);
+        self.selector.store(0, Ordering::Release);
+        self.material_key.store(0, Ordering::Release);
+        self.reason
+            .store(OBJECT_CONTRACT_REASON_NONE, Ordering::Release);
+        self.family
+            .store(OBJECT_CONTRACT_FAMILY_NONE, Ordering::Release);
+        self.vertex_group
+            .store(PPLIGHTING_GROUP_NONE, Ordering::Release);
+        self.vertex_index.store(0, Ordering::Release);
+        self.pixel_group
+            .store(PPLIGHTING_GROUP_NONE, Ordering::Release);
+        self.pixel_index.store(0, Ordering::Release);
+    }
+
+    fn update(&self, event: ObjectCoherenceEvent) -> bool {
+        let old_reason = self.reason.load(Ordering::Acquire);
+        let old_family = self.family.load(Ordering::Acquire);
+        let old_vertex_index = self.vertex_index.load(Ordering::Acquire);
+        let old_pixel_index = self.pixel_index.load(Ordering::Acquire);
+        self.write_payload(event);
+
+        old_reason != event.reason
+            || old_family != event.family
+            || old_vertex_index != event.vertex_index
+            || old_pixel_index != event.pixel_index
+    }
+
+    fn snapshot(&self) -> ObjectCoherenceSnapshot {
+        ObjectCoherenceSnapshot {
+            reason: self.reason.load(Ordering::Acquire),
+            family: self.family.load(Ordering::Acquire),
+            vertex_group: self.vertex_group.load(Ordering::Acquire),
+            vertex_index: self.vertex_index.load(Ordering::Acquire),
+            pixel_group: self.pixel_group.load(Ordering::Acquire),
+            pixel_index: self.pixel_index.load(Ordering::Acquire),
+        }
+    }
+
+    fn write_payload(&self, event: ObjectCoherenceEvent) {
+        self.geometry.store(event.geometry, Ordering::Release);
+        self.selector.store(event.selector, Ordering::Release);
+        self.material_key
+            .store(event.material_key, Ordering::Release);
+        self.reason.store(event.reason, Ordering::Release);
+        self.family.store(event.family, Ordering::Release);
+        self.vertex_group
+            .store(event.vertex_group, Ordering::Release);
+        self.vertex_index
+            .store(event.vertex_index, Ordering::Release);
+        self.pixel_group.store(event.pixel_group, Ordering::Release);
+        self.pixel_index.store(event.pixel_index, Ordering::Release);
+    }
+}
+
+fn object_coherence_slot(key: usize) -> usize {
+    (key.rotate_right(5) ^ key.rotate_left(9)) % OBJECT_COHERENCE_RECORDS
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -1634,9 +1990,10 @@ const fn object_row(
     }
 }
 
-// Source-derived from NVR PBRShaders::Templates(). This is still an implemented
-// subset: skin rows and game rows beyond NVR's published PBR table remain
-// deliberate vanilla fallbacks until their vertex/resource contracts are closed.
+// Source-derived from NVR PBRShaders::Templates(). This is the implemented
+// standard-object subset. Skin and EnvMap rows are tracked as explicit pending
+// contracts so distance/view transitions are visible instead of hidden behind
+// generic vanilla fallback.
 const OBJECT_ROW_CONTRACTS: &[ObjectRowContract] = &[
     // ADTS base/object rows.
     object_row(
@@ -1917,6 +2274,41 @@ fn object_replacement_contract(
     })
 }
 
+enum ObjectShaderContractDecision {
+    Implemented(&'static ObjectRowContract),
+    PendingSkin,
+    PendingEnvMap,
+    MissingStandardRow,
+    NotObject,
+}
+
+fn object_shader_contract(
+    vertex: ShaderArrayMembership,
+    pixel: ShaderArrayMembership,
+) -> ObjectShaderContractDecision {
+    if !is_sls2_shader_pair(vertex, pixel) {
+        return ObjectShaderContractDecision::NotObject;
+    }
+
+    if is_sls2_envmap_contract_pair(vertex, pixel) {
+        return ObjectShaderContractDecision::PendingEnvMap;
+    }
+
+    if is_sls2_skin_vertex_index(vertex.index) {
+        return ObjectShaderContractDecision::PendingSkin;
+    }
+
+    if let Some(contract) = object_replacement_contract(vertex.index, pixel.index) {
+        return ObjectShaderContractDecision::Implemented(contract);
+    }
+
+    if is_sls2_object_candidate_pixel_index(pixel.index) {
+        return ObjectShaderContractDecision::MissingStandardRow;
+    }
+
+    ObjectShaderContractDecision::NotObject
+}
+
 impl ReplacementShaderKind {
     fn index(self) -> usize {
         match self {
@@ -2068,7 +2460,7 @@ impl ReplacementShaderKind {
     }
 
     fn source(self) -> Cow<'static, [u8]> {
-        if let Some(defines) = self.object_shader_defines() {
+        if let Some(defines) = self.object_pixel_shader_defines() {
             return Cow::Owned(
                 format!("{defines}\n{PBR_REPLACEMENT_OBJECT_PIXEL_SHADER}").into_bytes(),
             );
@@ -2094,7 +2486,7 @@ impl ReplacementShaderKind {
         !matches!(self, Self::LandLod | Self::CloseTerrain { .. })
     }
 
-    fn object_shader_defines(self) -> Option<&'static str> {
+    fn object_pixel_shader_defines(self) -> Option<&'static str> {
         match self {
             Self::ObjectLowOpt => Some(
                 "#define PBR_OBJECT_LOW 1\n#define PBR_OBJECT_OPT 1\n#define PBR_OBJECT_LIGHTS 1",
@@ -2233,6 +2625,92 @@ impl ReplacementShaderKind {
         }
     }
 
+    fn object_vertex_shader_defines(self) -> Option<&'static str> {
+        match self {
+            Self::ObjectLow
+            | Self::ObjectLowOpt
+            | Self::ObjectLowSi
+            | Self::ObjectLowHair
+            | Self::ObjectLowStbb => Some("#define PBR_OBJECT_LOW 1\n#define PBR_OBJECT_LIGHTS 1"),
+            Self::ObjectLowShadow | Self::ObjectLowSiShadow | Self::ObjectLowHairShadow => Some(
+                "#define PBR_OBJECT_LOW 1\n#define PBR_OBJECT_LIGHTS 1\n#define PBR_OBJECT_SHADOW 1",
+            ),
+            Self::ObjectLowLights2 | Self::ObjectLowLights2Si | Self::ObjectLowLights2Hair => {
+                Some("#define PBR_OBJECT_LOW 1\n#define PBR_OBJECT_LIGHTS 2")
+            }
+            Self::ObjectLowLights2Shadow
+            | Self::ObjectLowLights2SiShadow
+            | Self::ObjectLowLights2HairShadow => Some(
+                "#define PBR_OBJECT_LOW 1\n#define PBR_OBJECT_LIGHTS 2\n#define PBR_OBJECT_SHADOW 1",
+            ),
+            Self::ObjectLowSpecular | Self::ObjectLowSpecularSi | Self::ObjectLowSpecularHair => {
+                Some(
+                    "#define PBR_OBJECT_LOW 1\n#define PBR_OBJECT_LIGHTS 1\n#define PBR_OBJECT_SPECULAR 1",
+                )
+            }
+            Self::ObjectLowSpecularShadow
+            | Self::ObjectLowSpecularSiShadow
+            | Self::ObjectLowSpecularHairShadow => Some(
+                "#define PBR_OBJECT_LOW 1\n#define PBR_OBJECT_LIGHTS 1\n#define PBR_OBJECT_SPECULAR 1\n#define PBR_OBJECT_SHADOW 1",
+            ),
+            Self::ObjectLowSpecularLights2 | Self::ObjectLowSpecularLights2Si => Some(
+                "#define PBR_OBJECT_LOW 1\n#define PBR_OBJECT_LIGHTS 2\n#define PBR_OBJECT_SPECULAR 1",
+            ),
+            Self::ObjectLowSpecularLights2Shadow | Self::ObjectLowSpecularLights2SiShadow => Some(
+                "#define PBR_OBJECT_LOW 1\n#define PBR_OBJECT_LIGHTS 2\n#define PBR_OBJECT_SPECULAR 1\n#define PBR_OBJECT_SHADOW 1",
+            ),
+            Self::ObjectHigh6 | Self::ObjectHigh6Si => {
+                Some("#define PBR_OBJECT_HIGH 1\n#define PBR_OBJECT_LIGHTS 6")
+            }
+            Self::ObjectHigh4 | Self::ObjectHigh4Si => {
+                Some("#define PBR_OBJECT_HIGH 1\n#define PBR_OBJECT_LIGHTS 4")
+            }
+            Self::ObjectHigh4Opt => Some(
+                "#define PBR_OBJECT_HIGH 1\n#define PBR_OBJECT_OPT 1\n#define PBR_OBJECT_LIGHTS 4",
+            ),
+            Self::ObjectHigh3Specular | Self::ObjectHigh3SpecularSi => Some(
+                "#define PBR_OBJECT_HIGH 1\n#define PBR_OBJECT_LIGHTS 3\n#define PBR_OBJECT_SPECULAR 1",
+            ),
+            Self::ObjectHigh3SpecularOpt => Some(
+                "#define PBR_OBJECT_HIGH 1\n#define PBR_OBJECT_OPT 1\n#define PBR_OBJECT_LIGHTS 3\n#define PBR_OBJECT_SPECULAR 1",
+            ),
+            Self::ObjectOnlyLightLights2 | Self::ObjectOnlyLightLights2Si => Some(
+                "#define PBR_OBJECT_LOW 1\n#define PBR_OBJECT_ONLY_LIGHT 1\n#define PBR_OBJECT_LIGHTS 2",
+            ),
+            Self::ObjectOnlyLightLights2Shadow | Self::ObjectOnlyLightLights2SiShadow => Some(
+                "#define PBR_OBJECT_LOW 1\n#define PBR_OBJECT_ONLY_LIGHT 1\n#define PBR_OBJECT_LIGHTS 2\n#define PBR_OBJECT_SHADOW 1",
+            ),
+            Self::ObjectOnlyLightLights3 | Self::ObjectOnlyLightLights3Si => Some(
+                "#define PBR_OBJECT_LOW 1\n#define PBR_OBJECT_ONLY_LIGHT 1\n#define PBR_OBJECT_LIGHTS 3",
+            ),
+            Self::ObjectOnlyLightLights3Shadow | Self::ObjectOnlyLightLights3SiShadow => Some(
+                "#define PBR_OBJECT_LOW 1\n#define PBR_OBJECT_ONLY_LIGHT 1\n#define PBR_OBJECT_LIGHTS 3\n#define PBR_OBJECT_SHADOW 1",
+            ),
+            Self::ObjectDiffuseLights2 => Some(
+                "#define PBR_OBJECT_LOW 1\n#define PBR_OBJECT_ONLY_LIGHT 1\n#define PBR_OBJECT_DIFFUSE 1\n#define PBR_OBJECT_POINT 1\n#define PBR_OBJECT_LIGHTS 2",
+            ),
+            Self::ObjectDiffuseLights3 => Some(
+                "#define PBR_OBJECT_LOW 1\n#define PBR_OBJECT_ONLY_LIGHT 1\n#define PBR_OBJECT_DIFFUSE 1\n#define PBR_OBJECT_POINT 1\n#define PBR_OBJECT_LIGHTS 3",
+            ),
+            Self::ObjectOnlySpecular => Some(
+                "#define PBR_OBJECT_LOW 1\n#define PBR_OBJECT_ONLY_LIGHT 1\n#define PBR_OBJECT_ONLY_SPECULAR 1\n#define PBR_OBJECT_SPECULAR 1\n#define PBR_OBJECT_LIGHTS 1",
+            ),
+            Self::ObjectOnlySpecularShadow => Some(
+                "#define PBR_OBJECT_LOW 1\n#define PBR_OBJECT_ONLY_LIGHT 1\n#define PBR_OBJECT_ONLY_SPECULAR 1\n#define PBR_OBJECT_SPECULAR 1\n#define PBR_OBJECT_LIGHTS 1\n#define PBR_OBJECT_SHADOW 1",
+            ),
+            Self::ObjectOnlySpecularPoint => Some(
+                "#define PBR_OBJECT_LOW 1\n#define PBR_OBJECT_ONLY_LIGHT 1\n#define PBR_OBJECT_ONLY_SPECULAR 1\n#define PBR_OBJECT_SPECULAR 1\n#define PBR_OBJECT_POINT 1\n#define PBR_OBJECT_LIGHTS 1",
+            ),
+            Self::ObjectOnlySpecularPointLights2 => Some(
+                "#define PBR_OBJECT_LOW 1\n#define PBR_OBJECT_ONLY_LIGHT 1\n#define PBR_OBJECT_ONLY_SPECULAR 1\n#define PBR_OBJECT_SPECULAR 1\n#define PBR_OBJECT_POINT 1\n#define PBR_OBJECT_LIGHTS 2",
+            ),
+            Self::ObjectOnlySpecularPointLights3 => Some(
+                "#define PBR_OBJECT_LOW 1\n#define PBR_OBJECT_ONLY_LIGHT 1\n#define PBR_OBJECT_ONLY_SPECULAR 1\n#define PBR_OBJECT_SPECULAR 1\n#define PBR_OBJECT_POINT 1\n#define PBR_OBJECT_LIGHTS 3",
+            ),
+            Self::LandLod | Self::CloseTerrain { .. } => None,
+        }
+    }
+
     fn vertex_source_name(self) -> Option<&'static str> {
         match self {
             Self::LandLod => Some("native_pbr_pplighting_landlod.vs.hlsl"),
@@ -2242,7 +2720,7 @@ impl ReplacementShaderKind {
     }
 
     fn vertex_source(self) -> Option<Cow<'static, [u8]>> {
-        if let Some(defines) = self.object_shader_defines() {
+        if let Some(defines) = self.object_vertex_shader_defines() {
             return Some(Cow::Owned(
                 format!("{defines}\n{PBR_REPLACEMENT_OBJECT_VERTEX_SHADER}").into_bytes(),
             ));
@@ -2462,98 +2940,8 @@ impl ReplacementShaderKind {
         }
     }
 
-    fn uses_extra_material_stages(self) -> bool {
-        false
-    }
-
-    fn uses_selector_material_resources(self) -> bool {
-        false
-    }
-
     fn writes_material_flags(self) -> bool {
         false
-    }
-
-    fn normal_stage(self) -> Option<u32> {
-        match self {
-            Self::CloseTerrain { .. } => Some(PBR_TERRAIN_NORMAL_STAGE),
-            Self::ObjectDiffuseLights2
-            | Self::ObjectDiffuseLights3
-            | Self::ObjectOnlySpecular
-            | Self::ObjectOnlySpecularShadow
-            | Self::ObjectOnlySpecularPoint
-            | Self::ObjectOnlySpecularPointLights2
-            | Self::ObjectOnlySpecularPointLights3 => Some(0),
-            _ => Some(PBR_NORMAL_STAGE),
-        }
-    }
-
-    fn allows_neutral_normal_fallback(self) -> bool {
-        self.is_object_kind()
-    }
-
-    fn glow_stage(self) -> Option<u32> {
-        match self {
-            Self::ObjectOnlyLightLights2Si
-            | Self::ObjectOnlyLightLights2SiShadow
-            | Self::ObjectOnlyLightLights3Si
-            | Self::ObjectOnlyLightLights3SiShadow => Some(PBR_ONLY_LIGHT_SI_GLOW_STAGE),
-            Self::ObjectLowSi
-            | Self::ObjectLowSiShadow
-            | Self::ObjectLowLights2Si
-            | Self::ObjectLowLights2SiShadow
-            | Self::ObjectLowSpecularSi
-            | Self::ObjectLowSpecularSiShadow
-            | Self::ObjectLowSpecularLights2Si
-            | Self::ObjectLowSpecularLights2SiShadow
-            | Self::ObjectHigh6Si
-            | Self::ObjectHigh4Si
-            | Self::ObjectHigh3SpecularSi
-            | Self::ObjectLowHair
-            | Self::ObjectLowHairShadow
-            | Self::ObjectLowLights2Hair
-            | Self::ObjectLowLights2HairShadow
-            | Self::ObjectLowSpecularHair
-            | Self::ObjectLowSpecularHairShadow => Some(PBR_SI_GLOW_STAGE),
-            _ => None,
-        }
-    }
-
-    fn samples_object_diffuse(self) -> bool {
-        !matches!(
-            self,
-            Self::LandLod
-                | Self::CloseTerrain { .. }
-                | Self::ObjectDiffuseLights2
-                | Self::ObjectDiffuseLights3
-                | Self::ObjectOnlySpecular
-                | Self::ObjectOnlySpecularShadow
-                | Self::ObjectOnlySpecularPoint
-                | Self::ObjectOnlySpecularPointLights2
-                | Self::ObjectOnlySpecularPointLights3
-        )
-    }
-
-    fn shadow_stages(self) -> Option<(u32, u32)> {
-        match self {
-            Self::ObjectOnlySpecularShadow => Some((4, 5)),
-            Self::ObjectOnlyLightLights2Shadow
-            | Self::ObjectOnlyLightLights2SiShadow
-            | Self::ObjectOnlyLightLights3Shadow
-            | Self::ObjectOnlyLightLights3SiShadow => Some((5, 6)),
-            Self::ObjectLowShadow
-            | Self::ObjectLowSiShadow
-            | Self::ObjectLowHairShadow
-            | Self::ObjectLowLights2Shadow
-            | Self::ObjectLowLights2SiShadow
-            | Self::ObjectLowLights2HairShadow
-            | Self::ObjectLowSpecularShadow
-            | Self::ObjectLowSpecularSiShadow
-            | Self::ObjectLowSpecularHairShadow
-            | Self::ObjectLowSpecularLights2Shadow
-            | Self::ObjectLowSpecularLights2SiShadow => Some((6, 7)),
-            _ => None,
-        }
     }
 }
 
@@ -2599,11 +2987,45 @@ fn vpt_close_terrain_kind_from_pixel_index(pixel_index: u32) -> Option<Replaceme
 }
 
 fn replacement_kind_has_complete_contract(kind: ReplacementShaderKind) -> bool {
-    if kind.uses_terrain_constants() {
+    if kind.close_terrain_variant().is_some() {
+        return TERRAIN_SHADER_ENABLED.load(Ordering::Acquire);
+    }
+
+    if kind == ReplacementShaderKind::LandLod {
         return TERRAIN_SHADER_ENABLED.load(Ordering::Acquire);
     }
 
     kind.is_object_kind()
+}
+
+fn incomplete_replacement_contract_reason(kind: ReplacementShaderKind) -> ReplacementSkipReason {
+    if kind.close_terrain_variant().is_some() {
+        return ReplacementSkipReason::CloseTerrainContractUnproven;
+    }
+
+    if kind.uses_terrain_constants() {
+        return ReplacementSkipReason::TerrainPbrDisabled;
+    }
+
+    ReplacementSkipReason::MissingObjectRowContract
+}
+
+fn close_terrain_sampler_contract_failure(
+    kind: ReplacementShaderKind,
+) -> Option<ReplacementSkipReason> {
+    let (tex_count, _) = kind.close_terrain_variant()?;
+    let tex_count = tex_count.clamp(1, 7) as usize;
+
+    for layer in 0..tex_count {
+        if TEXTURE_CAPTURE.stages[layer].load(Ordering::Acquire) == 0 {
+            return Some(ReplacementSkipReason::NoDiffuse);
+        }
+        if TEXTURE_CAPTURE.stages[7 + layer].load(Ordering::Acquire) == 0 {
+            return Some(ReplacementSkipReason::NoNormalSource);
+        }
+    }
+
+    None
 }
 
 struct PbrReplacementState {
@@ -2612,7 +3034,6 @@ struct PbrReplacementState {
     vertex_slots: [PbrVertexShaderSlot; REPLACEMENT_SHADER_KIND_COUNT],
     landlod: PbrShaderSlot,
     landlod_vertex: PbrVertexShaderSlot,
-    neutral_normal: Option<Texture9>,
 }
 
 impl PbrReplacementState {
@@ -2623,7 +3044,6 @@ impl PbrReplacementState {
             vertex_slots: array::from_fn(|_| PbrVertexShaderSlot::new()),
             landlod: PbrShaderSlot::new(),
             landlod_vertex: PbrVertexShaderSlot::new(),
-            neutral_normal: None,
         }
     }
 
@@ -2637,7 +3057,6 @@ impl PbrReplacementState {
         }
         self.landlod.release();
         self.landlod_vertex.release();
-        self.neutral_normal = None;
         for device in REPLACEMENT_PIXEL_SHADER_DEVICES.iter() {
             device.store(0, Ordering::Release);
         }
@@ -2689,48 +3108,6 @@ impl PbrReplacementState {
             }
             _ => None,
         }
-    }
-
-    fn neutral_normal_handle(
-        &mut self,
-        device: &Device9Ref<'_>,
-        device_ptr: usize,
-    ) -> Option<*mut c_void> {
-        if self.device != device_ptr {
-            self.release();
-            self.device = device_ptr;
-        }
-
-        if self.neutral_normal.is_none() {
-            let texture = match device.create_texture(1, 1, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED)
-            {
-                Ok(texture) => texture,
-                Err(err) => {
-                    log_limited(
-                        &REPLACEMENT_RESOURCE_LOGS,
-                        &format!(
-                            "[PBR] Native PBR neutral normal texture creation failed: {err:?}"
-                        ),
-                    );
-                    return None;
-                }
-            };
-
-            if let Err(err) = texture.write_level0_argb_pixel(NEUTRAL_NORMAL_ARGB) {
-                log_limited(
-                    &REPLACEMENT_RESOURCE_LOGS,
-                    &format!("[PBR] Native PBR neutral normal texture upload failed: {err:?}"),
-                );
-                return None;
-            }
-
-            log::info!("[PBR] Native PBR neutral normal texture created");
-            self.neutral_normal = Some(texture);
-        }
-
-        self.neutral_normal
-            .as_ref()
-            .map(Texture9::as_raw_base_texture)
     }
 
     fn slot_mut(&mut self, kind: ReplacementShaderKind) -> &mut PbrShaderSlot {
@@ -3239,7 +3616,10 @@ impl PbrVertexShaderSlot {
 
 #[derive(Clone, Copy)]
 struct ReplacementDrawContext {
+    geometry: usize,
     selector: usize,
+    selector_generation: u32,
+    material_key: u32,
     pass: *mut c_void,
     vertex_shader: *mut c_void,
     pixel_shader: *mut c_void,
@@ -3249,17 +3629,6 @@ struct ReplacementDrawContext {
     vertex_membership: ShaderArrayMembership,
     pixel_membership: ShaderArrayMembership,
     family: u32,
-}
-
-#[derive(Clone, Copy)]
-struct ReplacementMaterialResources {
-    selector: usize,
-    generation: u32,
-    normal: *mut c_void,
-    glow: *mut c_void,
-    height: *mut c_void,
-    environment: *mut c_void,
-    environment_mask: *mut c_void,
 }
 
 #[derive(Clone, Copy)]
@@ -3273,12 +3642,24 @@ struct ReplacementMaterialBindings {
     has_environment_mask: bool,
 }
 
+impl ReplacementMaterialBindings {
+    fn pass_owned() -> Self {
+        Self {
+            selector: 0,
+            generation: 0,
+            has_normal: false,
+            has_glow: false,
+            has_height: false,
+            has_environment: false,
+            has_environment_mask: false,
+        }
+    }
+}
+
 #[derive(Clone, Copy)]
 struct ReplacementRecord {
     kind: ReplacementShaderKind,
     constants: ReplacementConstantContract,
-    samplers: ReplacementSamplerContract,
-    material_source: ReplacementMaterialSource,
     sampler_clear: ReplacementSamplerClearPolicy,
 }
 
@@ -3287,38 +3668,7 @@ impl ReplacementRecord {
         Self {
             kind,
             constants: ReplacementConstantContract::for_kind(kind),
-            samplers: ReplacementSamplerContract::for_kind(kind),
-            material_source: ReplacementMaterialSource::for_kind(kind),
             sampler_clear: ReplacementSamplerClearPolicy::for_kind(kind),
-        }
-    }
-
-    fn validate_textures(self) -> std::result::Result<(), ReplacementSkipReason> {
-        self.samplers.validate(self.kind)
-    }
-
-    unsafe fn material_bindings(
-        self,
-    ) -> std::result::Result<ReplacementMaterialBindings, ReplacementSkipReason> {
-        match self.material_source {
-            ReplacementMaterialSource::VanillaBound => unsafe {
-                bind_vanilla_or_neutral_material_textures(self.kind)
-            },
-            ReplacementMaterialSource::SelectorMaterialArrays => {
-                let material_resources = match unsafe { replacement_material_resources(self.kind) }
-                {
-                    Ok(material_resources) => material_resources,
-                    Err(ReplacementMaterialResourceError::NoSelectorRecord) => {
-                        return Err(ReplacementSkipReason::NoSelectorRecord);
-                    }
-                    Err(ReplacementMaterialResourceError::NoNormalSource) => {
-                        return Err(ReplacementSkipReason::NoNormalSource);
-                    }
-                };
-
-                unsafe { bind_replacement_material_textures(material_resources, self.kind) }
-                    .ok_or(ReplacementSkipReason::BindFailed)
-            }
         }
     }
 
@@ -3326,12 +3676,11 @@ impl ReplacementRecord {
         upload_replacement_record_constants(self.constants, self.kind, bindings);
     }
 
-    fn apply_sampler_policy(self) {
+    unsafe fn apply_sampler_policy(self) -> std::result::Result<(), ReplacementSkipReason> {
         match self.sampler_clear {
-            ReplacementSamplerClearPolicy::PreserveVanilla => {}
-            ReplacementSamplerClearPolicy::ClearExtraMaterialStages => {
-                configure_pbr_sampler_states()
-            }
+            ReplacementSamplerClearPolicy::ClearPixelSamplers => unsafe {
+                clear_replacement_pixel_samplers()
+            },
         }
     }
 }
@@ -3353,200 +3702,37 @@ impl ReplacementConstantContract {
 }
 
 #[derive(Clone, Copy)]
-struct ReplacementSamplerContract {
-    diffuse: RequiredSamplerSet,
-    normal: RequiredSamplerSet,
-    glow_stage: Option<u32>,
-    shadow_stages: Option<(u32, u32)>,
-    extra: ReplacementExtraSamplerContract,
-}
-
-impl ReplacementSamplerContract {
-    fn for_kind(kind: ReplacementShaderKind) -> Self {
-        if let Some((tex_count, _)) = kind.close_terrain_variant() {
-            return Self {
-                diffuse: RequiredSamplerSet::Range {
-                    first_stage: 0,
-                    count: tex_count.clamp(1, 7),
-                    reason: ReplacementSkipReason::NoDiffuse,
-                },
-                normal: RequiredSamplerSet::Range {
-                    first_stage: PBR_TERRAIN_NORMAL_STAGE,
-                    count: tex_count.clamp(1, 7),
-                    reason: ReplacementSkipReason::NoNormalSource,
-                },
-                glow_stage: None,
-                shadow_stages: None,
-                extra: ReplacementExtraSamplerContract::None,
-            };
-        }
-
-        if kind == ReplacementShaderKind::LandLod {
-            return Self {
-                diffuse: RequiredSamplerSet::Single {
-                    stage: 0,
-                    reason: ReplacementSkipReason::NoDiffuse,
-                },
-                normal: RequiredSamplerSet::Single {
-                    stage: 1,
-                    reason: ReplacementSkipReason::NoNormalSource,
-                },
-                glow_stage: None,
-                shadow_stages: None,
-                extra: ReplacementExtraSamplerContract::LandLod,
-            };
-        }
-
-        Self {
-            diffuse: if kind.samples_object_diffuse() {
-                RequiredSamplerSet::Single {
-                    stage: 0,
-                    reason: ReplacementSkipReason::NoDiffuse,
-                }
-            } else {
-                RequiredSamplerSet::None
-            },
-            normal: match kind.normal_stage() {
-                Some(stage) => RequiredSamplerSet::Single {
-                    stage,
-                    reason: ReplacementSkipReason::NoNormalSource,
-                },
-                None => RequiredSamplerSet::None,
-            },
-            glow_stage: kind.glow_stage(),
-            shadow_stages: kind.shadow_stages(),
-            extra: ReplacementExtraSamplerContract::None,
-        }
-    }
-
-    fn validate(
-        self,
-        kind: ReplacementShaderKind,
-    ) -> std::result::Result<(), ReplacementSkipReason> {
-        self.diffuse.validate(kind)?;
-        self.normal.validate(kind)?;
-
-        if let Some(stage) = self.glow_stage {
-            validate_sampler_stage(stage, ReplacementSkipReason::NoGlowSource)?;
-        }
-
-        if let Some((shadow_map_stage, shadow_mask_stage)) = self.shadow_stages {
-            validate_sampler_stage(shadow_map_stage, ReplacementSkipReason::NoShadowSource)?;
-            validate_sampler_stage(shadow_mask_stage, ReplacementSkipReason::NoShadowSource)?;
-        }
-
-        self.extra.validate(kind)
-    }
-}
-
-#[derive(Clone, Copy)]
-enum RequiredSamplerSet {
-    None,
-    Single {
-        stage: u32,
-        reason: ReplacementSkipReason,
-    },
-    Range {
-        first_stage: u32,
-        count: u8,
-        reason: ReplacementSkipReason,
-    },
-}
-
-impl RequiredSamplerSet {
-    fn validate(
-        self,
-        kind: ReplacementShaderKind,
-    ) -> std::result::Result<(), ReplacementSkipReason> {
-        match self {
-            Self::None => Ok(()),
-            Self::Single { stage, reason } => match validate_sampler_stage(stage, reason) {
-                Ok(()) => Ok(()),
-                Err(ReplacementSkipReason::NoNormalSource)
-                    if kind.allows_neutral_normal_fallback() =>
-                {
-                    Ok(())
-                }
-                Err(reason) => Err(reason),
-            },
-            Self::Range {
-                first_stage,
-                count,
-                reason,
-            } => {
-                for offset in 0..count {
-                    validate_sampler_stage(first_stage + offset as u32, reason)?;
-                }
-                Ok(())
-            }
-        }
-    }
-}
-
-#[derive(Clone, Copy)]
-enum ReplacementExtraSamplerContract {
-    None,
-    LandLod,
-}
-
-impl ReplacementExtraSamplerContract {
-    fn validate(
-        self,
-        _kind: ReplacementShaderKind,
-    ) -> std::result::Result<(), ReplacementSkipReason> {
-        match self {
-            Self::None => Ok(()),
-            Self::LandLod => {
-                validate_sampler_stage(4, ReplacementSkipReason::NoDiffuse)?;
-                validate_sampler_stage(6, ReplacementSkipReason::NoNormalSource)?;
-                validate_sampler_stage(7, ReplacementSkipReason::NoDiffuse)
-            }
-        }
-    }
-}
-
-#[derive(Clone, Copy)]
-enum ReplacementMaterialSource {
-    VanillaBound,
-    SelectorMaterialArrays,
-}
-
-impl ReplacementMaterialSource {
-    fn for_kind(kind: ReplacementShaderKind) -> Self {
-        if kind.uses_selector_material_resources() {
-            Self::SelectorMaterialArrays
-        } else {
-            Self::VanillaBound
-        }
-    }
-}
-
-#[derive(Clone, Copy)]
 enum ReplacementSamplerClearPolicy {
-    PreserveVanilla,
-    ClearExtraMaterialStages,
+    ClearPixelSamplers,
 }
 
 impl ReplacementSamplerClearPolicy {
-    fn for_kind(kind: ReplacementShaderKind) -> Self {
-        if kind.uses_extra_material_stages() {
-            Self::ClearExtraMaterialStages
-        } else {
-            Self::PreserveVanilla
-        }
+    fn for_kind(_kind: ReplacementShaderKind) -> Self {
+        Self::ClearPixelSamplers
     }
 }
 
-fn validate_sampler_stage(
-    stage: u32,
-    reason: ReplacementSkipReason,
-) -> std::result::Result<(), ReplacementSkipReason> {
-    if stage as usize >= MAX_TEXTURE_STAGES {
-        return Err(reason);
+unsafe fn clear_replacement_pixel_samplers() -> std::result::Result<(), ReplacementSkipReason> {
+    let render_state = TEXTURE_CAPTURE.render_state.load(Ordering::Acquire) as *mut c_void;
+    if render_state.is_null() {
+        return Err(ReplacementSkipReason::BindFailed);
     }
-    if TEXTURE_CAPTURE.stages[stage as usize].load(Ordering::Acquire) == 0 {
-        return Err(reason);
+
+    let Ok(set_texture) = SET_TEXTURE_HOOK.original() else {
+        log_limited(
+            &MATERIAL_BIND_LOGS,
+            "[PBR] Native PBR sampler clear skipped because original SetTexture is unavailable",
+        );
+        return Err(ReplacementSkipReason::BindFailed);
+    };
+
+    for stage in 0..MAX_TEXTURE_STAGES {
+        unsafe {
+            set_texture(render_state, stage as u32, null_mut());
+        }
+        TEXTURE_CAPTURE.stages[stage].store(0, Ordering::Release);
     }
+
     Ok(())
 }
 
@@ -3560,6 +3746,7 @@ enum ReplacementSkipReason {
     SkinVertexAbi,
     MissingTerrainContract,
     TerrainPbrDisabled,
+    CloseTerrainContractUnproven,
     InteriorTerrainDisabled,
     UnprovenLandLodProjectedShadow,
     UnsupportedEnvMapContract,
@@ -3568,6 +3755,7 @@ enum ReplacementSkipReason {
     NoNormalSource,
     NoGlowSource,
     NoShadowSource,
+    ObjectStackIncomplete,
     NoReplacementShader,
     BindFailed,
     NoVanillaHandle,
@@ -3585,6 +3773,7 @@ impl ReplacementSkipReason {
             Self::SkinVertexAbi => "skin_vertex_abi",
             Self::MissingTerrainContract => "missing_terrain_contract",
             Self::TerrainPbrDisabled => "terrain_pbr_disabled",
+            Self::CloseTerrainContractUnproven => "close_terrain_contract_unproven",
             Self::InteriorTerrainDisabled => "interior_terrain_disabled",
             Self::UnprovenLandLodProjectedShadow => "unproven_landlod_projected_shadow",
             Self::UnsupportedEnvMapContract => "unsupported_envmap_contract",
@@ -3593,17 +3782,13 @@ impl ReplacementSkipReason {
             Self::NoNormalSource => "no_normal_source",
             Self::NoGlowSource => "no_glow_source",
             Self::NoShadowSource => "no_shadow_source",
+            Self::ObjectStackIncomplete => "object_stack_incomplete",
             Self::NoReplacementShader => "no_replacement_shader",
             Self::BindFailed => "bind_failed",
             Self::NoVanillaHandle => "no_vanilla_handle",
             Self::HandleWriteFailed => "handle_write_failed",
         }
     }
-}
-
-enum ReplacementMaterialResourceError {
-    NoSelectorRecord,
-    NoNormalSource,
 }
 
 fn selector_hash_slot(selector: usize) -> usize {
@@ -3737,11 +3922,9 @@ pub(crate) fn configure_runtime_options(settings: NativePbrSettings) {
         if installed {
             start_replacement_shader_compiler();
         }
-    }
-    if settings.enabled && settings.terrain_enabled != terrain_was_enabled {
+    } else if settings.enabled && settings.terrain_enabled != terrain_was_enabled {
         reset_replacement_skip_budget();
-        reset_replacement_prewarm();
-        if installed {
+        if installed && settings.terrain_enabled {
             REPLACEMENT_COMPILE_WORKERS_STARTED.store(false, Ordering::Release);
             start_replacement_shader_compiler();
         }
@@ -3817,7 +4000,6 @@ pub(crate) fn reset_runtime_state() {
     DRAW_CAPTURE.clear();
     INTERFACE_CAPTURE.clear();
     SELECTOR_CAPTURE.clear();
-    TEXTURE_RESOLVE_CACHE.clear();
     OWNED_SHADERS.clear();
     reset_replacement_skip_budget();
     PBR_REPLACEMENT.lock().release();
@@ -4158,6 +4340,12 @@ unsafe extern "thiscall" fn hook_create_vertex_shader(
     if let Some(snapshot) =
         OWNED_SHADERS.store_created(shader, OWNED_SHADER_TYPE_VERTEX, original_handle)
     {
+        if let Some(kind) =
+            replacement_kind_for_created_shader(OWNED_SHADER_TYPE_VERTEX, shader_name)
+        {
+            OWNED_SHADERS.set_replacement_kind(shader, kind);
+        }
+        let snapshot = OWNED_SHADERS.find(shader).unwrap_or(snapshot);
         log_owned_shader_created("vertex", snapshot, shader_name);
     }
 
@@ -4194,6 +4382,12 @@ unsafe extern "thiscall" fn hook_create_pixel_shader(
     if let Some(snapshot) =
         OWNED_SHADERS.store_created(shader, OWNED_SHADER_TYPE_PIXEL, original_handle)
     {
+        if let Some(kind) =
+            replacement_kind_for_created_shader(OWNED_SHADER_TYPE_PIXEL, shader_name)
+        {
+            OWNED_SHADERS.set_replacement_kind(shader, kind);
+        }
+        let snapshot = OWNED_SHADERS.find(shader).unwrap_or(snapshot);
         log_owned_shader_created("pixel", snapshot, shader_name);
     }
 
@@ -4353,22 +4547,6 @@ unsafe fn call_set_shaders_with_replacement(
         return false;
     };
 
-    if REPLACEMENT_ACTIVE_CONTRACTS_FAILED.load(Ordering::Acquire) {
-        record_replacement_skip(
-            ReplacementSkipReason::NoReplacementShader,
-            Some(draw_context),
-        );
-        return false;
-    }
-
-    if !REPLACEMENT_ACTIVE_CONTRACTS_READY.load(Ordering::Acquire) {
-        record_replacement_skip(
-            ReplacementSkipReason::ShaderEnableBoundaryPending,
-            Some(draw_context),
-        );
-        return false;
-    }
-
     let shader_kind = match replacement_shader_kind(draw_context) {
         Ok(shader_kind) => shader_kind,
         Err(reason) => {
@@ -4376,21 +4554,43 @@ unsafe fn call_set_shaders_with_replacement(
             return false;
         }
     };
+    if shader_kind.is_object_kind() {
+        if REPLACEMENT_ACTIVE_CONTRACTS_FAILED.load(Ordering::Acquire) {
+            record_replacement_skip(
+                ReplacementSkipReason::NoReplacementShader,
+                Some(draw_context),
+            );
+            return false;
+        }
+
+        if !REPLACEMENT_ACTIVE_CONTRACTS_READY.load(Ordering::Acquire) {
+            record_replacement_skip(
+                ReplacementSkipReason::ShaderEnableBoundaryPending,
+                Some(draw_context),
+            );
+            return false;
+        }
+    }
     if !replacement_kind_has_complete_contract(shader_kind) {
-        let reason = if shader_kind.uses_terrain_constants() {
-            ReplacementSkipReason::TerrainPbrDisabled
-        } else {
-            ReplacementSkipReason::MissingObjectRowContract
-        };
+        let reason = incomplete_replacement_contract_reason(shader_kind);
         record_replacement_skip(reason, Some(draw_context));
         return false;
+    }
+    if let Some(reason) = close_terrain_sampler_contract_failure(shader_kind) {
+        record_replacement_skip(reason, Some(draw_context));
+        return false;
+    }
+    if shader_kind.is_object_kind() {
+        if let Some(block) = object_stack_block(draw_context) {
+            maybe_log_object_coherence_suppression(draw_context, block, shader_kind);
+            record_replacement_skip(
+                ReplacementSkipReason::ObjectStackIncomplete,
+                Some(draw_context),
+            );
+            return false;
+        }
     }
     let replacement_record = ReplacementRecord::for_kind(shader_kind);
-
-    if let Err(reason) = replacement_record.validate_textures() {
-        record_replacement_skip(reason, Some(draw_context));
-        return false;
-    }
 
     let Some(replacement_pixel_handle) = replacement_pixel_shader_handle(shader_kind) else {
         record_replacement_skip(
@@ -4407,8 +4607,25 @@ unsafe fn call_set_shaders_with_replacement(
         return false;
     }
 
+    let vertex_shader_kind = if shader_kind.replaces_vertex_shader() {
+        replacement_vertex_shader_kind(draw_context, shader_kind)
+    } else {
+        None
+    };
     let replacement_vertex_handle = if shader_kind.replaces_vertex_shader() {
-        let Some(handle) = replacement_vertex_shader_handle(shader_kind) else {
+        let Some(vertex_kind) = vertex_shader_kind else {
+            record_replacement_skip(
+                ReplacementSkipReason::MissingObjectRowContract,
+                Some(draw_context),
+            );
+            return false;
+        };
+        if !replacement_kind_has_complete_contract(vertex_kind) {
+            let reason = incomplete_replacement_contract_reason(vertex_kind);
+            record_replacement_skip(reason, Some(draw_context));
+            return false;
+        }
+        let Some(handle) = replacement_vertex_shader_handle(vertex_kind) else {
             record_replacement_skip(
                 ReplacementSkipReason::NoReplacementShader,
                 Some(draw_context),
@@ -4425,14 +4642,6 @@ unsafe fn call_set_shaders_with_replacement(
         handle
     } else {
         null_mut()
-    };
-
-    let material_bindings = match unsafe { replacement_record.material_bindings() } {
-        Ok(material_bindings) => material_bindings,
-        Err(reason) => {
-            record_replacement_skip(reason, Some(draw_context));
-            return false;
-        }
     };
 
     let Some(pixel_owner) = (unsafe {
@@ -4492,6 +4701,12 @@ unsafe fn call_set_shaders_with_replacement(
         null_mut()
     };
 
+    let pixel_ct_required = current_device_pixel_shader_handle()
+        .map_or(current_pixel_handle != replacement_pixel_handle, |handle| {
+            handle != replacement_pixel_handle
+        });
+    let material_bindings = ReplacementMaterialBindings::pass_owned();
+
     if current_pixel_handle != replacement_pixel_handle
         && !unsafe {
             write_shader_native_handle(
@@ -4540,12 +4755,26 @@ unsafe fn call_set_shaders_with_replacement(
         OWNED_SHADERS.set_current(
             draw_context.vertex_shader,
             replacement_vertex_handle,
-            Some(shader_kind),
+            vertex_shader_kind,
         );
     }
 
-    replacement_record.apply_sampler_policy();
-    replacement_record.apply_constants(material_bindings);
+    if pixel_ct_required {
+        if let Err(reason) = unsafe { replacement_record.apply_sampler_policy() } {
+            unsafe {
+                restore_owned_shader_to_vanilla(draw_context.pixel_shader, OWNED_SHADER_TYPE_PIXEL);
+                if vertex_owner.is_some() {
+                    restore_owned_shader_to_vanilla(
+                        draw_context.vertex_shader,
+                        OWNED_SHADER_TYPE_VERTEX,
+                    );
+                }
+            }
+            record_replacement_skip(reason, Some(draw_context));
+            return false;
+        }
+        replacement_record.apply_constants(material_bindings);
+    }
 
     log_replacement_apply(
         shader_kind,
@@ -4562,13 +4791,10 @@ unsafe fn call_set_shaders_with_replacement(
 
     unsafe {
         original(shader, pass_index);
-        // Replacement handles are scoped to this SetShaders call. Leaving the
-        // wrapper mutated lets later vanilla/fallback draws inherit PBR state,
-        // which appears in-game as distance/angle-dependent blinking.
-        restore_owned_shader_to_vanilla(draw_context.pixel_shader, OWNED_SHADER_TYPE_PIXEL);
-        if vertex_owner.is_some() {
-            restore_owned_shader_to_vanilla(draw_context.vertex_shader, OWNED_SHADER_TYPE_VERTEX);
-        }
+        // NVR keeps the selected shader handle on the wrapper after SetShaders.
+        // Later fallback draws restore the active pass wrapper before calling
+        // vanilla SetShaders, which keeps ownership coherent without racing
+        // downstream render code that still reads the wrapper for this pass.
     }
 
     true
@@ -4605,10 +4831,20 @@ unsafe fn replacement_draw_context() -> Option<ReplacementDrawContext> {
     let render_pass_num_lights = unsafe { read_u8_offset(pass, RENDER_PASS_NUM_LIGHTS_OFFSET) };
     let render_pass_current_land_texture =
         unsafe { read_u8_offset(pass, RENDER_PASS_CURRENT_LAND_TEXTURE_OFFSET) };
-    let selector = unsafe { current_draw_selector() } as usize;
+    let geometry = unsafe { current_draw_geometry() } as usize;
+    let selector =
+        unsafe { read_ptr_offset(geometry as *mut c_void, CURRENT_DRAW_SELECTOR_OFFSET) } as usize;
+    let selector_snapshot = SELECTOR_CAPTURE
+        .find(selector)
+        .or_else(|| unsafe { selector_material_snapshot(selector as *mut c_void, 0, 0) });
+    let selector_generation = selector_snapshot.map_or(0, |snapshot| snapshot.generation);
+    let material_key = selector_snapshot.map_or(0, selector_material_key);
 
     Some(ReplacementDrawContext {
+        geometry,
         selector,
+        selector_generation,
+        material_key,
         pass,
         vertex_shader,
         pixel_shader,
@@ -4660,44 +4896,337 @@ fn replacement_shader_kind(
         return Ok(shader_kind);
     }
 
-    if is_sls2_envmap_contract_pair(
+    if is_sls2_shader_pair(
         draw_context.vertex_membership,
         draw_context.pixel_membership,
     ) {
-        return Err(ReplacementSkipReason::UnsupportedEnvMapContract);
-    }
-
-    if is_sls2_skin_vertex_index(draw_context.vertex_membership.index) {
-        return Err(ReplacementSkipReason::SkinVertexAbi);
-    }
-
-    if let Some(shader_kind) = pplighting_sls2_object_replacement_kind(
-        draw_context.vertex_membership,
-        draw_context.pixel_membership,
-    ) {
-        return Ok(shader_kind);
-    }
-
-    if draw_context.family == PPLIGHTING_FAMILY_VERTEX_C_PIXEL_B
-        && draw_context.vertex_membership.group == PPLIGHTING_VERTEX_GROUP_C
-        && draw_context.pixel_membership.group == PPLIGHTING_PIXEL_GROUP_B
-        && is_sls2_object_candidate_pixel_index(draw_context.pixel_membership.index)
-    {
-        return Err(ReplacementSkipReason::MissingObjectRowContract);
+        match object_shader_contract(
+            draw_context.vertex_membership,
+            draw_context.pixel_membership,
+        ) {
+            ObjectShaderContractDecision::Implemented(contract) => return Ok(contract.kind),
+            ObjectShaderContractDecision::PendingEnvMap => {
+                return Err(ReplacementSkipReason::UnsupportedEnvMapContract);
+            }
+            ObjectShaderContractDecision::PendingSkin => {
+                return Err(ReplacementSkipReason::SkinVertexAbi);
+            }
+            ObjectShaderContractDecision::MissingStandardRow => {
+                return Err(ReplacementSkipReason::MissingObjectRowContract);
+            }
+            ObjectShaderContractDecision::NotObject => {}
+        }
     }
 
     Err(ReplacementSkipReason::UnsupportedVertexAbi)
 }
 
-fn pplighting_sls2_object_replacement_kind(
-    vertex: ShaderArrayMembership,
-    pixel: ShaderArrayMembership,
+fn replacement_vertex_shader_kind(
+    draw_context: ReplacementDrawContext,
+    pixel_kind: ReplacementShaderKind,
 ) -> Option<ReplacementShaderKind> {
-    if vertex.group != PPLIGHTING_VERTEX_GROUP_C || pixel.group != PPLIGHTING_PIXEL_GROUP_B {
+    if !pixel_kind.replaces_vertex_shader() {
         return None;
     }
 
-    object_replacement_contract(vertex.index, pixel.index).map(|contract| contract.kind)
+    owned_shader_replacement_kind(draw_context.vertex_shader)
+        .or_else(|| {
+            replacement_kind_for_shader_membership(
+                OWNED_SHADER_TYPE_VERTEX,
+                draw_context.vertex_membership,
+            )
+        })
+        .or(Some(pixel_kind))
+}
+
+fn object_pixel_replacement_kind(pixel_index: u32) -> Option<ReplacementShaderKind> {
+    match pixel_index {
+        PPLIGHTING_PIXEL_SLS2_ADTS_DEFAULT_INDEX => Some(ReplacementShaderKind::ObjectLow),
+        PPLIGHTING_PIXEL_SLS2_ADTS_OPT_INDEX | PPLIGHTING_PIXEL_SLS2_ADTS_OPT_LOD_INDEX => {
+            Some(ReplacementShaderKind::ObjectLowOpt)
+        }
+        PPLIGHTING_PIXEL_SLS2_ADTS_SI_INDEX => Some(ReplacementShaderKind::ObjectLowSi),
+        PPLIGHTING_PIXEL_SLS2_ADTS_PROJECTED_SHADOW_INDEX => {
+            Some(ReplacementShaderKind::ObjectLowShadow)
+        }
+        PPLIGHTING_PIXEL_SLS2_ADTS_SI_PROJECTED_SHADOW_INDEX => {
+            Some(ReplacementShaderKind::ObjectLowSiShadow)
+        }
+        PPLIGHTING_PIXEL_SLS2_ADTS_STBB_INDEX => Some(ReplacementShaderKind::ObjectLowStbb),
+        PPLIGHTING_PIXEL_SLS2_ADTS_HAIR_INDEX => Some(ReplacementShaderKind::ObjectLowHair),
+        PPLIGHTING_PIXEL_SLS2_ADTS_HAIR_PROJECTED_SHADOW_INDEX => {
+            Some(ReplacementShaderKind::ObjectLowHairShadow)
+        }
+        PPLIGHTING_PIXEL_SLS2_ADTS_LIGHTS2_INDEX => Some(ReplacementShaderKind::ObjectLowLights2),
+        PPLIGHTING_PIXEL_SLS2_ADTS_LIGHTS2_SI_INDEX => {
+            Some(ReplacementShaderKind::ObjectLowLights2Si)
+        }
+        PPLIGHTING_PIXEL_SLS2_ADTS_LIGHTS2_HAIR_INDEX => {
+            Some(ReplacementShaderKind::ObjectLowLights2Hair)
+        }
+        PPLIGHTING_PIXEL_SLS2_ADTS_LIGHTS2_PROJECTED_SHADOW_INDEX => {
+            Some(ReplacementShaderKind::ObjectLowLights2Shadow)
+        }
+        PPLIGHTING_PIXEL_SLS2_ADTS_LIGHTS2_SI_PROJECTED_SHADOW_INDEX => {
+            Some(ReplacementShaderKind::ObjectLowLights2SiShadow)
+        }
+        PPLIGHTING_PIXEL_SLS2_ADTS_LIGHTS2_HAIR_PROJECTED_SHADOW_INDEX => {
+            Some(ReplacementShaderKind::ObjectLowLights2HairShadow)
+        }
+        PPLIGHTING_PIXEL_SLS2_ADTS_SPECULAR_INDEX => Some(ReplacementShaderKind::ObjectLowSpecular),
+        PPLIGHTING_PIXEL_SLS2_ADTS_SPECULAR_SI_INDEX => {
+            Some(ReplacementShaderKind::ObjectLowSpecularSi)
+        }
+        PPLIGHTING_PIXEL_SLS2_ADTS_SPECULAR_HAIR_INDEX => {
+            Some(ReplacementShaderKind::ObjectLowSpecularHair)
+        }
+        PPLIGHTING_PIXEL_SLS2_ADTS_SPECULAR_PROJECTED_SHADOW_INDEX => {
+            Some(ReplacementShaderKind::ObjectLowSpecularShadow)
+        }
+        PPLIGHTING_PIXEL_SLS2_ADTS_SPECULAR_SI_PROJECTED_SHADOW_INDEX => {
+            Some(ReplacementShaderKind::ObjectLowSpecularSiShadow)
+        }
+        PPLIGHTING_PIXEL_SLS2_ADTS_SPECULAR_HAIR_PROJECTED_SHADOW_INDEX => {
+            Some(ReplacementShaderKind::ObjectLowSpecularHairShadow)
+        }
+        PPLIGHTING_PIXEL_SLS2_ADTS_SPECULAR_LIGHTS2_INDEX => {
+            Some(ReplacementShaderKind::ObjectLowSpecularLights2)
+        }
+        PPLIGHTING_PIXEL_SLS2_ADTS_SPECULAR_LIGHTS2_SI_INDEX => {
+            Some(ReplacementShaderKind::ObjectLowSpecularLights2Si)
+        }
+        PPLIGHTING_PIXEL_SLS2_ADTS_SPECULAR_LIGHTS2_PROJECTED_SHADOW_INDEX => {
+            Some(ReplacementShaderKind::ObjectLowSpecularLights2Shadow)
+        }
+        PPLIGHTING_PIXEL_SLS2_ADTS_SPECULAR_LIGHTS2_SI_PROJECTED_SHADOW_INDEX => {
+            Some(ReplacementShaderKind::ObjectLowSpecularLights2SiShadow)
+        }
+        PPLIGHTING_PIXEL_SLS2_ADTS10_LIGHTS9_INDEX => Some(ReplacementShaderKind::ObjectHigh6),
+        PPLIGHTING_PIXEL_SLS2_ADTS10_LIGHTS9_SI_INDEX => Some(ReplacementShaderKind::ObjectHigh6Si),
+        PPLIGHTING_PIXEL_SLS2_ADTS10_LIGHTS4_INDEX => Some(ReplacementShaderKind::ObjectHigh4),
+        PPLIGHTING_PIXEL_SLS2_ADTS10_LIGHTS4_OPT_INDEX => {
+            Some(ReplacementShaderKind::ObjectHigh4Opt)
+        }
+        PPLIGHTING_PIXEL_SLS2_ADTS10_LIGHTS4_SI_INDEX => Some(ReplacementShaderKind::ObjectHigh4Si),
+        PPLIGHTING_PIXEL_SLS2_ADTS10_SPECULAR_LIGHTS4_INDEX => {
+            Some(ReplacementShaderKind::ObjectHigh3Specular)
+        }
+        PPLIGHTING_PIXEL_SLS2_ADTS10_SPECULAR_LIGHTS4_OPT_INDEX => {
+            Some(ReplacementShaderKind::ObjectHigh3SpecularOpt)
+        }
+        PPLIGHTING_PIXEL_SLS2_ADTS10_SPECULAR_LIGHTS4_SI_INDEX => {
+            Some(ReplacementShaderKind::ObjectHigh3SpecularSi)
+        }
+        PPLIGHTING_PIXEL_SLS2_ONLY_LIGHT_LIGHTS2_INDEX => {
+            Some(ReplacementShaderKind::ObjectOnlyLightLights2)
+        }
+        PPLIGHTING_PIXEL_SLS2_ONLY_LIGHT_LIGHTS2_SI_INDEX => {
+            Some(ReplacementShaderKind::ObjectOnlyLightLights2Si)
+        }
+        PPLIGHTING_PIXEL_SLS2_ONLY_LIGHT_LIGHTS2_PROJECTED_SHADOW_INDEX => {
+            Some(ReplacementShaderKind::ObjectOnlyLightLights2Shadow)
+        }
+        PPLIGHTING_PIXEL_SLS2_ONLY_LIGHT_LIGHTS2_SI_PROJECTED_SHADOW_INDEX => {
+            Some(ReplacementShaderKind::ObjectOnlyLightLights2SiShadow)
+        }
+        PPLIGHTING_PIXEL_SLS2_ONLY_LIGHT_LIGHTS3_INDEX => {
+            Some(ReplacementShaderKind::ObjectOnlyLightLights3)
+        }
+        PPLIGHTING_PIXEL_SLS2_ONLY_LIGHT_LIGHTS3_SI_INDEX => {
+            Some(ReplacementShaderKind::ObjectOnlyLightLights3Si)
+        }
+        PPLIGHTING_PIXEL_SLS2_ONLY_LIGHT_LIGHTS3_PROJECTED_SHADOW_INDEX => {
+            Some(ReplacementShaderKind::ObjectOnlyLightLights3Shadow)
+        }
+        PPLIGHTING_PIXEL_SLS2_ONLY_LIGHT_LIGHTS3_SI_PROJECTED_SHADOW_INDEX => {
+            Some(ReplacementShaderKind::ObjectOnlyLightLights3SiShadow)
+        }
+        PPLIGHTING_PIXEL_SLS2_DIFFUSE_LIGHTS2_INDEX => {
+            Some(ReplacementShaderKind::ObjectDiffuseLights2)
+        }
+        PPLIGHTING_PIXEL_SLS2_DIFFUSE_LIGHTS3_INDEX => {
+            Some(ReplacementShaderKind::ObjectDiffuseLights3)
+        }
+        PPLIGHTING_PIXEL_SLS2_ONLY_SPECULAR_INDEX
+        | PPLIGHTING_PIXEL_SLS2_ONLY_SPECULAR_HAIR_INDEX => {
+            Some(ReplacementShaderKind::ObjectOnlySpecular)
+        }
+        PPLIGHTING_PIXEL_SLS2_ONLY_SPECULAR_PROJECTED_SHADOW_INDEX
+        | PPLIGHTING_PIXEL_SLS2_ONLY_SPECULAR_HAIR_PROJECTED_SHADOW_INDEX => {
+            Some(ReplacementShaderKind::ObjectOnlySpecularShadow)
+        }
+        PPLIGHTING_PIXEL_SLS2_ONLY_SPECULAR_POINT_INDEX
+        | PPLIGHTING_PIXEL_SLS2_ONLY_SPECULAR_POINT_HAIR_INDEX => {
+            Some(ReplacementShaderKind::ObjectOnlySpecularPoint)
+        }
+        PPLIGHTING_PIXEL_SLS2_ONLY_SPECULAR_POINT_LIGHTS2_INDEX
+        | PPLIGHTING_PIXEL_SLS2_ONLY_SPECULAR_POINT_LIGHTS2_HAIR_INDEX => {
+            Some(ReplacementShaderKind::ObjectOnlySpecularPointLights2)
+        }
+        PPLIGHTING_PIXEL_SLS2_ONLY_SPECULAR_POINT_LIGHTS3_INDEX
+        | PPLIGHTING_PIXEL_SLS2_ONLY_SPECULAR_POINT_LIGHTS3_HAIR_INDEX => {
+            Some(ReplacementShaderKind::ObjectOnlySpecularPointLights3)
+        }
+        _ => None,
+    }
+}
+
+fn object_vertex_replacement_kind(vertex_index: u32) -> Option<ReplacementShaderKind> {
+    match vertex_index {
+        PPLIGHTING_VERTEX_SLS2_ADTS_BASE_INDEX
+        | PPLIGHTING_VERTEX_SLS2_ADTS_LOD_INDEX
+        | PPLIGHTING_VERTEX_SLS2_ADTS_STBB_INDEX => Some(ReplacementShaderKind::ObjectLow),
+        PPLIGHTING_VERTEX_SLS2_ADTS_PROJECTED_SHADOW_INDEX => {
+            Some(ReplacementShaderKind::ObjectLowShadow)
+        }
+        PPLIGHTING_VERTEX_SLS2_ADTS_LIGHTS2_INDEX => Some(ReplacementShaderKind::ObjectLowLights2),
+        PPLIGHTING_VERTEX_SLS2_ADTS_LIGHTS2_PROJECTED_SHADOW_INDEX => {
+            Some(ReplacementShaderKind::ObjectLowLights2Shadow)
+        }
+        PPLIGHTING_VERTEX_SLS2_ADTS_SPECULAR_INDEX => {
+            Some(ReplacementShaderKind::ObjectLowSpecular)
+        }
+        PPLIGHTING_VERTEX_SLS2_ADTS_SPECULAR_PROJECTED_SHADOW_INDEX => {
+            Some(ReplacementShaderKind::ObjectLowSpecularShadow)
+        }
+        PPLIGHTING_VERTEX_SLS2_ADTS_SPECULAR_LIGHTS2_INDEX => {
+            Some(ReplacementShaderKind::ObjectLowSpecularLights2)
+        }
+        PPLIGHTING_VERTEX_SLS2_ADTS_SPECULAR_LIGHTS2_PROJECTED_SHADOW_INDEX => {
+            Some(ReplacementShaderKind::ObjectLowSpecularLights2Shadow)
+        }
+        PPLIGHTING_VERTEX_SLS2_ADTS10_LIGHTS9_INDEX => Some(ReplacementShaderKind::ObjectHigh6),
+        PPLIGHTING_VERTEX_SLS2_ADTS10_LIGHTS4_INDEX => Some(ReplacementShaderKind::ObjectHigh4),
+        PPLIGHTING_VERTEX_SLS2_ADTS10_LIGHTS4_OPT_INDEX => {
+            Some(ReplacementShaderKind::ObjectHigh4Opt)
+        }
+        PPLIGHTING_VERTEX_SLS2_ADTS10_SPECULAR_LIGHTS4_INDEX => {
+            Some(ReplacementShaderKind::ObjectHigh3Specular)
+        }
+        PPLIGHTING_VERTEX_SLS2_ADTS10_SPECULAR_LIGHTS4_OPT_INDEX => {
+            Some(ReplacementShaderKind::ObjectHigh3SpecularOpt)
+        }
+        PPLIGHTING_VERTEX_SLS2_ONLY_LIGHT_LIGHTS2_INDEX => {
+            Some(ReplacementShaderKind::ObjectOnlyLightLights2)
+        }
+        PPLIGHTING_VERTEX_SLS2_ONLY_LIGHT_LIGHTS2_PROJECTED_SHADOW_INDEX => {
+            Some(ReplacementShaderKind::ObjectOnlyLightLights2Shadow)
+        }
+        PPLIGHTING_VERTEX_SLS2_ONLY_LIGHT_LIGHTS3_INDEX => {
+            Some(ReplacementShaderKind::ObjectOnlyLightLights3)
+        }
+        PPLIGHTING_VERTEX_SLS2_ONLY_LIGHT_LIGHTS3_PROJECTED_SHADOW_INDEX => {
+            Some(ReplacementShaderKind::ObjectOnlyLightLights3Shadow)
+        }
+        PPLIGHTING_VERTEX_SLS2_DIFFUSE_LIGHTS2_INDEX => {
+            Some(ReplacementShaderKind::ObjectDiffuseLights2)
+        }
+        PPLIGHTING_VERTEX_SLS2_DIFFUSE_LIGHTS3_INDEX => {
+            Some(ReplacementShaderKind::ObjectDiffuseLights3)
+        }
+        PPLIGHTING_VERTEX_SLS2_ONLY_SPECULAR_INDEX => {
+            Some(ReplacementShaderKind::ObjectOnlySpecular)
+        }
+        PPLIGHTING_VERTEX_SLS2_ONLY_SPECULAR_PROJECTED_SHADOW_INDEX => {
+            Some(ReplacementShaderKind::ObjectOnlySpecularShadow)
+        }
+        PPLIGHTING_VERTEX_SLS2_ONLY_SPECULAR_POINT_INDEX => {
+            Some(ReplacementShaderKind::ObjectOnlySpecularPoint)
+        }
+        PPLIGHTING_VERTEX_SLS2_ONLY_SPECULAR_POINT_LIGHTS2_INDEX => {
+            Some(ReplacementShaderKind::ObjectOnlySpecularPointLights2)
+        }
+        PPLIGHTING_VERTEX_SLS2_ONLY_SPECULAR_POINT_LIGHTS3_INDEX => {
+            Some(ReplacementShaderKind::ObjectOnlySpecularPointLights3)
+        }
+        _ => None,
+    }
+}
+
+fn replacement_kind_from_index(index: u32) -> Option<ReplacementShaderKind> {
+    if index == OWNED_SHADER_KIND_NONE {
+        return None;
+    }
+
+    REPLACEMENT_SHADER_KINDS.get(index as usize).copied()
+}
+
+fn owned_shader_replacement_kind(shader: *mut c_void) -> Option<ReplacementShaderKind> {
+    OWNED_SHADERS
+        .find(shader)
+        .and_then(|snapshot| snapshot.replacement_kind)
+}
+
+fn replacement_kind_for_shader_membership(
+    shader_type: u32,
+    membership: ShaderArrayMembership,
+) -> Option<ReplacementShaderKind> {
+    match shader_type {
+        OWNED_SHADER_TYPE_VERTEX if membership.group == PPLIGHTING_VERTEX_GROUP_C => {
+            if membership.index == PPLIGHTING_VERTEX_SLS2_LANDLOD_INDEX {
+                return Some(ReplacementShaderKind::LandLod);
+            }
+            object_vertex_replacement_kind(membership.index)
+        }
+        OWNED_SHADER_TYPE_PIXEL if membership.group == PPLIGHTING_PIXEL_GROUP_B => {
+            if membership.index == PPLIGHTING_PIXEL_SLS2_LANDLOD_INDEX {
+                return Some(ReplacementShaderKind::LandLod);
+            }
+            vpt_close_terrain_kind_from_pixel_index(membership.index)
+                .or_else(|| object_pixel_replacement_kind(membership.index))
+        }
+        _ => None,
+    }
+}
+
+fn replacement_kind_for_created_shader(
+    shader_type: u32,
+    shader_name: *const c_char,
+) -> Option<ReplacementShaderKind> {
+    let vertex_index = sls2_shader_name_index(shader_name, ".vso");
+    let pixel_index = sls2_shader_name_index(shader_name, ".pso");
+
+    match shader_type {
+        OWNED_SHADER_TYPE_VERTEX => {
+            let index = vertex_index?;
+            if index == PPLIGHTING_VERTEX_SLS2_LANDLOD_INDEX {
+                return Some(ReplacementShaderKind::LandLod);
+            }
+            object_vertex_replacement_kind(index)
+        }
+        OWNED_SHADER_TYPE_PIXEL => {
+            let index = pixel_index?;
+            if index == PPLIGHTING_PIXEL_SLS2_LANDLOD_INDEX {
+                return Some(ReplacementShaderKind::LandLod);
+            }
+            vpt_close_terrain_kind_from_pixel_index(index)
+                .or_else(|| object_pixel_replacement_kind(index))
+        }
+        _ => None,
+    }
+}
+
+fn sls2_shader_name_index(shader_name: *const c_char, extension: &str) -> Option<u32> {
+    if shader_name.is_null() {
+        return None;
+    }
+
+    let name = unsafe { CStr::from_ptr(shader_name) }.to_str().ok()?;
+    let leaf = name
+        .rsplit(|ch| ch == '\\' || ch == '/')
+        .next()
+        .unwrap_or(name);
+    if leaf.len() != 11 {
+        return None;
+    }
+    if !leaf.get(0..4)?.eq_ignore_ascii_case("SLS2") {
+        return None;
+    }
+    if !leaf.get(7..)?.eq_ignore_ascii_case(extension) {
+        return None;
+    }
+
+    leaf.get(4..7)?.parse::<u32>().ok()
 }
 
 fn pplighting_pair_uses_sls2_landlod(
@@ -4742,11 +5271,15 @@ fn pplighting_pair_uses_vpt_close_terrain(
     vpt_close_terrain_kind_from_pixel_index(pixel.index)
 }
 
+fn is_sls2_shader_pair(vertex: ShaderArrayMembership, pixel: ShaderArrayMembership) -> bool {
+    vertex.group == PPLIGHTING_VERTEX_GROUP_C && pixel.group == PPLIGHTING_PIXEL_GROUP_B
+}
+
 fn is_sls2_envmap_contract_pair(
     vertex: ShaderArrayMembership,
     pixel: ShaderArrayMembership,
 ) -> bool {
-    if vertex.group != PPLIGHTING_VERTEX_GROUP_C || pixel.group != PPLIGHTING_PIXEL_GROUP_B {
+    if !is_sls2_shader_pair(vertex, pixel) {
         return false;
     }
 
@@ -4835,6 +5368,24 @@ fn replacement_vertex_shader_handle(kind: ReplacementShaderKind) -> Option<*mut 
         .vertex_shader_handle(kind, &device, device_key)
 }
 
+fn current_device_pixel_shader_handle() -> Option<*mut c_void> {
+    let device_ptr = crate::backend::d3d_device_ptr()?;
+    let Some(device) = (unsafe { Device9Ref::from_raw_void(device_ptr) }) else {
+        return None;
+    };
+
+    match device.current_pixel_shader_raw() {
+        Ok(handle) => Some(handle),
+        Err(_) => {
+            log_limited(
+                &REPLACEMENT_LOGS,
+                "[PBR] Native PBR device pixel shader query failed; using wrapper transition state",
+            );
+            None
+        }
+    }
+}
+
 fn reset_replacement_prewarm() {
     REPLACEMENT_PREWARM_INDEX.store(0, Ordering::Release);
     REPLACEMENT_PREWARM_TICK.store(0, Ordering::Release);
@@ -4857,20 +5408,20 @@ fn maybe_prewarm_replacement_shader() {
         return;
     }
 
-    if let Some(failed_kind) = failed_active_replacement_contract() {
+    if let Some(failed_kind) = failed_object_replacement_contract() {
         if !REPLACEMENT_ACTIVE_CONTRACTS_FAILED.swap(true, Ordering::AcqRel) {
             log::warn!(
-                "[PBR] Native PBR visible replacement blocked because active shader contract {} failed to compile or create",
+                "[PBR] Native PBR visible replacement blocked because object shader contract {} failed to compile or create",
                 failed_kind.label()
             );
         }
         return;
     }
 
-    if all_replacement_prewarms_complete() {
+    if all_object_replacement_prewarms_complete() {
         REPLACEMENT_PREWARM_DONE.store(true, Ordering::Release);
         REPLACEMENT_ACTIVE_CONTRACTS_READY.store(true, Ordering::Release);
-        log::info!("[PBR] Native PBR shader prewarm finished; active contracts are ready");
+        log::info!("[PBR] Native PBR object shader prewarm finished; object contracts are ready");
         return;
     }
 
@@ -4956,13 +5507,13 @@ fn replacement_shader_preload_failed(kind: ReplacementShaderKind) -> bool {
         && replacement_shader_bytecode_failed(kind, ReplacementShaderTarget::Vertex)
 }
 
-fn all_replacement_prewarms_complete() -> bool {
+fn all_object_replacement_prewarms_complete() -> bool {
     let mut active_count = 0usize;
     let all_ready = PREWARM_SHADER_KINDS.iter().all(|kind| {
-        if !replacement_kind_has_complete_contract(*kind) {
+        if !kind.is_object_kind() {
             return true;
         }
-        if kind.uses_terrain_constants() && !TERRAIN_CONTRACT_AVAILABLE.load(Ordering::Acquire) {
+        if !replacement_kind_has_complete_contract(*kind) {
             return true;
         }
         active_count += 1;
@@ -4972,11 +5523,10 @@ fn all_replacement_prewarms_complete() -> bool {
     all_ready && active_count != 0
 }
 
-fn failed_active_replacement_contract() -> Option<ReplacementShaderKind> {
-    let terrain_contract_available = TERRAIN_CONTRACT_AVAILABLE.load(Ordering::Acquire);
+fn failed_object_replacement_contract() -> Option<ReplacementShaderKind> {
     PREWARM_SHADER_KINDS.iter().copied().find(|kind| {
-        replacement_kind_has_complete_contract(*kind)
-            && (!kind.uses_terrain_constants() || terrain_contract_available)
+        kind.is_object_kind()
+            && replacement_kind_has_complete_contract(*kind)
             && replacement_shader_preload_failed(*kind)
     })
 }
@@ -5048,6 +5598,9 @@ fn reset_debug_capture_budget() {
     INTERFACE_LOGS.store(0, Ordering::Release);
     SELECTOR_LOGS.store(0, Ordering::Release);
     REPLACEMENT_UNSUPPORTED_PAIR_LOGS.store(0, Ordering::Release);
+    OBJECT_TRANSITION_LOGS.store(0, Ordering::Release);
+    OBJECT_COHERENCE_BLOCK_LOGS.store(0, Ordering::Release);
+    OBJECT_COHERENCE_SUPPRESS_LOGS.store(0, Ordering::Release);
     TEXTURE_CAPTURE.set_calls.store(0, Ordering::Release);
 }
 
@@ -5068,6 +5621,7 @@ fn reset_replacement_skip_budget() {
     REPLACEMENT_SKIP_SKIN_VERTEX_ABI.store(0, Ordering::Release);
     REPLACEMENT_SKIP_MISSING_TERRAIN_CONTRACT.store(0, Ordering::Release);
     REPLACEMENT_SKIP_TERRAIN_PBR_DISABLED.store(0, Ordering::Release);
+    REPLACEMENT_SKIP_CLOSE_TERRAIN_CONTRACT_UNPROVEN.store(0, Ordering::Release);
     REPLACEMENT_SKIP_INTERIOR_TERRAIN_DISABLED.store(0, Ordering::Release);
     REPLACEMENT_SKIP_INTERIOR_OBJECT_LIGHT_PASS_DISABLED.store(0, Ordering::Release);
     REPLACEMENT_SKIP_UNPROVEN_LANDLOD_SHADOW.store(0, Ordering::Release);
@@ -5077,6 +5631,7 @@ fn reset_replacement_skip_budget() {
     REPLACEMENT_SKIP_NO_NORMAL_SOURCE.store(0, Ordering::Release);
     REPLACEMENT_SKIP_NO_GLOW_SOURCE.store(0, Ordering::Release);
     REPLACEMENT_SKIP_NO_SHADOW_SOURCE.store(0, Ordering::Release);
+    REPLACEMENT_SKIP_OBJECT_STACK_INCOMPLETE.store(0, Ordering::Release);
     REPLACEMENT_SKIP_NO_REPLACEMENT_SHADER.store(0, Ordering::Release);
     REPLACEMENT_SKIP_BIND_FAILED.store(0, Ordering::Release);
     REPLACEMENT_SKIP_NO_VANILLA_HANDLE.store(0, Ordering::Release);
@@ -5086,6 +5641,11 @@ fn reset_replacement_skip_budget() {
     REPLACEMENT_LAST_VERTEX_INDEX.store(0, Ordering::Release);
     REPLACEMENT_LAST_PIXEL_GROUP.store(PPLIGHTING_GROUP_NONE, Ordering::Release);
     REPLACEMENT_LAST_PIXEL_INDEX.store(0, Ordering::Release);
+    OBJECT_TRANSITION_LOGS.store(0, Ordering::Release);
+    OBJECT_TRANSITIONS.clear();
+    OBJECT_COHERENCE_BLOCK_LOGS.store(0, Ordering::Release);
+    OBJECT_COHERENCE_SUPPRESS_LOGS.store(0, Ordering::Release);
+    OBJECT_COHERENCE_BLOCKS.clear();
 }
 
 unsafe fn record_selector_material_context(selector: *mut c_void, setup_kind: u32) {
@@ -5134,369 +5694,6 @@ unsafe fn selector_material_snapshot(
         pass_entry_list,
         material_arrays,
     })
-}
-
-unsafe fn bind_vanilla_or_neutral_material_textures(
-    shader_kind: ReplacementShaderKind,
-) -> std::result::Result<ReplacementMaterialBindings, ReplacementSkipReason> {
-    let normal_stage = shader_kind.normal_stage().unwrap_or(PBR_NORMAL_STAGE);
-    let mut has_normal = TEXTURE_CAPTURE.stages[normal_stage as usize].load(Ordering::Acquire) != 0;
-
-    if !has_normal && shader_kind.allows_neutral_normal_fallback() {
-        has_normal = unsafe { bind_neutral_normal_texture(normal_stage) };
-    }
-
-    if !has_normal && shader_kind.normal_stage().is_some() {
-        return Err(ReplacementSkipReason::NoNormalSource);
-    }
-
-    Ok(ReplacementMaterialBindings {
-        selector: 0,
-        generation: 0,
-        has_normal,
-        has_glow: shader_kind.glow_stage().is_some_and(|stage| {
-            TEXTURE_CAPTURE.stages[stage as usize].load(Ordering::Acquire) != 0
-        }),
-        has_height: false,
-        has_environment: false,
-        has_environment_mask: false,
-    })
-}
-
-unsafe fn bind_neutral_normal_texture(stage: u32) -> bool {
-    if stage as usize >= MAX_TEXTURE_STAGES {
-        return false;
-    }
-
-    let render_state = TEXTURE_CAPTURE.render_state.load(Ordering::Acquire) as *mut c_void;
-    if render_state.is_null() {
-        return false;
-    }
-
-    let Ok(set_texture) = SET_TEXTURE_HOOK.original() else {
-        log_limited(
-            &MATERIAL_BIND_LOGS,
-            "[PBR] Native PBR neutral normal binding skipped because original SetTexture is unavailable",
-        );
-        return false;
-    };
-
-    let Some(texture) = neutral_normal_texture_handle() else {
-        return false;
-    };
-
-    unsafe {
-        set_texture(render_state, stage, texture);
-    }
-    TEXTURE_CAPTURE.stages[stage as usize].store(texture as usize, Ordering::Release);
-    true
-}
-
-fn neutral_normal_texture_handle() -> Option<*mut c_void> {
-    let device_ptr = crate::backend::d3d_device_ptr()?;
-    let device_key = device_ptr as usize;
-    let device = unsafe { Device9Ref::from_raw_void(device_ptr) }?;
-    PBR_REPLACEMENT
-        .lock()
-        .neutral_normal_handle(&device, device_key)
-}
-
-unsafe fn replacement_material_resources(
-    shader_kind: ReplacementShaderKind,
-) -> Result<ReplacementMaterialResources, ReplacementMaterialResourceError> {
-    let selector = unsafe { current_draw_selector() } as usize;
-    let vanilla_normal = TEXTURE_CAPTURE.stages[PBR_NORMAL_STAGE as usize].load(Ordering::Acquire);
-    let snapshot = match SELECTOR_CAPTURE.find(selector) {
-        Some(snapshot) => Some(snapshot),
-        None if selector != 0 => unsafe {
-            selector_material_snapshot(selector as *mut c_void, 0, 0)
-        },
-        None => None,
-    };
-
-    let Some(snapshot) = snapshot else {
-        if !shader_kind.uses_extra_material_stages() && vanilla_normal != 0 {
-            log_limited(
-                &REPLACEMENT_RESOURCE_LOGS,
-                "[PBR] Native PBR using vanilla bound normal because selector material record is missing",
-            );
-            return Ok(ReplacementMaterialResources {
-                selector,
-                generation: 0,
-                normal: null_mut(),
-                glow: null_mut(),
-                height: null_mut(),
-                environment: null_mut(),
-                environment_mask: null_mut(),
-            });
-        }
-
-        return Err(ReplacementMaterialResourceError::NoSelectorRecord);
-    };
-
-    let normal = unsafe {
-        read_material_array_resource(snapshot.material_arrays[PBR_MATERIAL_SLOT_NORMAL], 0)
-    };
-    let glow = unsafe {
-        read_material_array_resource(snapshot.material_arrays[PBR_MATERIAL_SLOT_GLOW], 0)
-    };
-    let height = unsafe {
-        read_material_array_resource(snapshot.material_arrays[PBR_MATERIAL_SLOT_HEIGHT], 0)
-    };
-    let environment = unsafe {
-        read_material_array_resource(snapshot.material_arrays[PBR_MATERIAL_SLOT_ENVIRONMENT], 0)
-    };
-    let environment_mask = unsafe {
-        read_material_array_resource(
-            snapshot.material_arrays[PBR_MATERIAL_SLOT_ENVIRONMENT_MASK],
-            0,
-        )
-    };
-
-    if normal.is_null() && vanilla_normal == 0 {
-        return Err(ReplacementMaterialResourceError::NoNormalSource);
-    }
-
-    Ok(ReplacementMaterialResources {
-        selector,
-        generation: snapshot.generation,
-        normal,
-        glow,
-        height,
-        environment,
-        environment_mask,
-    })
-}
-
-unsafe fn read_material_array_resource(array_ptr: usize, index: usize) -> *mut c_void {
-    if array_ptr == 0 {
-        return null_mut();
-    }
-
-    let byte_offset = match index.checked_mul(size_of::<*mut c_void>()) {
-        Some(value) => value,
-        None => return null_mut(),
-    };
-    let slot = (array_ptr + byte_offset) as *const c_void;
-    if !silent_readable_range(slot, size_of::<*mut c_void>()) {
-        return null_mut();
-    }
-
-    unsafe { (slot as *const *mut c_void).read() }
-}
-
-unsafe fn bind_replacement_material_textures(
-    resources: ReplacementMaterialResources,
-    shader_kind: ReplacementShaderKind,
-) -> Option<ReplacementMaterialBindings> {
-    let render_state = TEXTURE_CAPTURE.render_state.load(Ordering::Acquire) as *mut c_void;
-    if render_state.is_null() {
-        return Some(ReplacementMaterialBindings {
-            selector: resources.selector,
-            generation: resources.generation,
-            has_normal: TEXTURE_CAPTURE.stages[PBR_NORMAL_STAGE as usize].load(Ordering::Acquire)
-                != 0,
-            has_glow: false,
-            has_height: false,
-            has_environment: false,
-            has_environment_mask: false,
-        });
-    }
-
-    let Ok(set_texture) = SET_TEXTURE_HOOK.original() else {
-        log_limited(
-            &MATERIAL_BIND_LOGS,
-            "[PBR] Native PBR material binding skipped because original SetTexture is unavailable",
-        );
-        return None;
-    };
-
-    let mut has_normal =
-        TEXTURE_CAPTURE.stages[PBR_NORMAL_STAGE as usize].load(Ordering::Acquire) != 0;
-    if unsafe {
-        bind_material_texture_resource(
-            set_texture,
-            render_state,
-            PBR_NORMAL_STAGE,
-            resources.normal,
-        )
-    } {
-        has_normal = true;
-    }
-
-    if !has_normal {
-        return None;
-    }
-
-    if !shader_kind.uses_extra_material_stages() {
-        return Some(ReplacementMaterialBindings {
-            selector: resources.selector,
-            generation: resources.generation,
-            has_normal,
-            has_glow: false,
-            has_height: false,
-            has_environment: false,
-            has_environment_mask: false,
-        });
-    }
-
-    configure_pbr_sampler_states();
-
-    let has_glow = unsafe {
-        bind_material_texture_or_clear(set_texture, render_state, PBR_GLOW_STAGE, resources.glow)
-    };
-    let has_height = unsafe {
-        bind_material_texture_or_clear(
-            set_texture,
-            render_state,
-            PBR_HEIGHT_STAGE,
-            resources.height,
-        )
-    };
-    let has_environment = unsafe {
-        bind_material_texture_or_clear(
-            set_texture,
-            render_state,
-            PBR_ENVIRONMENT_STAGE,
-            resources.environment,
-        )
-    };
-    let has_environment_mask = unsafe {
-        bind_material_texture_or_clear(
-            set_texture,
-            render_state,
-            PBR_ENVIRONMENT_MASK_STAGE,
-            resources.environment_mask,
-        )
-    };
-
-    Some(ReplacementMaterialBindings {
-        selector: resources.selector,
-        generation: resources.generation,
-        has_normal,
-        has_glow,
-        has_height,
-        has_environment,
-        has_environment_mask,
-    })
-}
-
-fn configure_pbr_sampler_states() {
-    let Some(device_ptr) = crate::backend::d3d_device_ptr() else {
-        return;
-    };
-    let Some(device) = (unsafe { Device9Ref::from_raw_void(device_ptr) }) else {
-        return;
-    };
-
-    for sampler in [
-        PBR_GLOW_STAGE,
-        PBR_HEIGHT_STAGE,
-        PBR_ENVIRONMENT_STAGE,
-        PBR_ENVIRONMENT_MASK_STAGE,
-    ] {
-        let _ = device.set_sampler_state(sampler, D3DSAMP_ADDRESSU, 1);
-        let _ = device.set_sampler_state(sampler, D3DSAMP_ADDRESSV, 1);
-        let _ = device.set_sampler_state(sampler, D3DSAMP_MINFILTER, D3DTEXF_LINEAR.0 as u32);
-        let _ = device.set_sampler_state(sampler, D3DSAMP_MAGFILTER, D3DTEXF_LINEAR.0 as u32);
-        let _ = device.set_sampler_state(sampler, D3DSAMP_MIPFILTER, D3DTEXF_NONE.0 as u32);
-    }
-}
-
-unsafe fn bind_material_texture_or_clear(
-    set_texture: SetTextureFn,
-    render_state: *mut c_void,
-    stage: u32,
-    resource: *mut c_void,
-) -> bool {
-    if unsafe { bind_material_texture_resource(set_texture, render_state, stage, resource) } {
-        return true;
-    }
-
-    unsafe {
-        set_texture(render_state, stage, null_mut());
-    }
-    TEXTURE_CAPTURE.stages[stage as usize].store(0, Ordering::Release);
-    false
-}
-
-unsafe fn bind_material_texture_resource(
-    set_texture: SetTextureFn,
-    render_state: *mut c_void,
-    stage: u32,
-    resource: *mut c_void,
-) -> bool {
-    if resource.is_null() {
-        return false;
-    }
-
-    let resolved = unsafe { resolve_material_texture(resource) };
-    if resolved.is_null() {
-        return false;
-    }
-
-    if TEXTURE_CAPTURE.stages[stage as usize].load(Ordering::Acquire) == resolved as usize {
-        return true;
-    }
-
-    unsafe {
-        set_texture(render_state, stage, resolved);
-    }
-    TEXTURE_CAPTURE.stages[stage as usize].store(resolved as usize, Ordering::Release);
-    true
-}
-
-unsafe fn resolve_material_texture(resource: *mut c_void) -> *mut c_void {
-    if resource.is_null() {
-        return null_mut();
-    }
-
-    let renderer = unsafe { read_ptr(RENDERER_GLOBAL_ADDR) };
-    let resolver = unsafe { read_ptr_offset(renderer, TEXTURE_RESOLVER_OFFSET) };
-    if resolver.is_null() {
-        return null_mut();
-    }
-
-    if let Some(resolved) = TEXTURE_RESOLVE_CACHE.get(resolver, resource) {
-        return resolved;
-    }
-
-    let resolver_vtable = unsafe { read_ptr_from(resolver) };
-    if resolver_vtable as usize != TEXTURE_RESOLVER_VTABLE_ADDR {
-        log_limited(
-            &MATERIAL_BIND_LOGS,
-            "[PBR] Native PBR material binding skipped because texture resolver vtable is not vanilla",
-        );
-        return null_mut();
-    }
-
-    let resolve_slot =
-        unsafe { read_ptr_offset(resolver_vtable, TEXTURE_RESOLVER_RESOLVE_SLOT_OFFSET) };
-    if resolve_slot as usize != TEXTURE_RESOLVER_RESOLVE_ADDR {
-        log_limited(
-            &MATERIAL_BIND_LOGS,
-            "[PBR] Native PBR material binding skipped because texture resolver slot is not vanilla",
-        );
-        return null_mut();
-    }
-
-    let resolve: TextureResolverResolveFn = unsafe { transmute(resolve_slot) };
-    let mut created = 0u8;
-    let mut multi_texture = 0u8;
-    let mut non_power_of_two = 0u8;
-    let resolved = unsafe {
-        resolve(
-            resolver,
-            resource,
-            &mut created,
-            &mut multi_texture,
-            &mut non_power_of_two,
-        )
-    };
-    if !resolved.is_null() {
-        TEXTURE_RESOLVE_CACHE.store(resolver, resource, resolved);
-    }
-    resolved
 }
 
 fn upload_replacement_record_constants(
@@ -6035,9 +6232,13 @@ unsafe fn record_shader_interface_context(apply_this: *mut c_void, apply_param: 
 }
 
 unsafe fn current_draw_selector() -> *mut c_void {
-    let current_draw = unsafe { read_ptr(CURRENT_GEOMETRY_SLOT_ADDR) };
-    let geometry = unsafe { read_ptr_from(current_draw) };
+    let geometry = unsafe { current_draw_geometry() };
     unsafe { read_ptr_offset(geometry, CURRENT_DRAW_SELECTOR_OFFSET) }
+}
+
+unsafe fn current_draw_geometry() -> *mut c_void {
+    let current_draw = unsafe { read_ptr(CURRENT_GEOMETRY_SLOT_ADDR) };
+    unsafe { read_ptr_from(current_draw) }
 }
 
 unsafe fn read_ptr(address: usize) -> *mut c_void {
@@ -6606,6 +6807,8 @@ fn log_replacement_apply(
     replacement_vertex_handle: *mut c_void,
     material_bindings: ReplacementMaterialBindings,
 ) {
+    record_object_contract_apply(draw_context, shader_kind);
+
     let applied = REPLACEMENT_APPLIED_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
     REPLACEMENT_APPLY_KIND_COUNTS[shader_kind.index()].fetch_add(1, Ordering::Relaxed);
     maybe_log_replacement_apply_summary(applied);
@@ -6622,7 +6825,7 @@ fn log_replacement_apply(
         shader_kind.close_terrain_variant().unwrap_or((0, 0));
     let stages = &TEXTURE_CAPTURE.stages;
     log::info!(
-        "[PBR] Native PBR replacement kind={} pass_index={} pass={:p} pass_enum={} pass_lights={} pass_land_tex={} terrain_tex={} terrain_points={} vs={:p} ps={:p} family={} vgrp={} vidx={} pgrp={} pidx={} vanilla_vs={:p} replacement_vs={:p} vanilla_ps={:p} replacement_ps={:p} selector=0x{:08X} material_selector=0x{:08X} sel_gen={} maps=n{} g{} h{} e{} m{} s0=0x{:08X} s1=0x{:08X} s2=0x{:08X} s3=0x{:08X} s4=0x{:08X} s5=0x{:08X} s6=0x{:08X} s7=0x{:08X} s8=0x{:08X} s9=0x{:08X} s10=0x{:08X} s11=0x{:08X} s12=0x{:08X} s13=0x{:08X}",
+        "[PBR] Native PBR replacement kind={} pass_index={} pass={:p} pass_enum={} pass_lights={} pass_land_tex={} terrain_tex={} terrain_points={} vs={:p} ps={:p} family={} vgrp={} vidx={} pgrp={} pidx={} vanilla_vs={:p} replacement_vs={:p} vanilla_ps={:p} replacement_ps={:p} geometry=0x{:08X} selector=0x{:08X} draw_sel_gen={} material_key=0x{:08X} material_selector=0x{:08X} material_sel_gen={} maps=n{} g{} h{} e{} m{} s0=0x{:08X} s1=0x{:08X} s2=0x{:08X} s3=0x{:08X} s4=0x{:08X} s5=0x{:08X} s6=0x{:08X} s7=0x{:08X} s8=0x{:08X} s9=0x{:08X} s10=0x{:08X} s11=0x{:08X} s12=0x{:08X} s13=0x{:08X}",
         shader_kind.label(),
         pass_index,
         draw_context.pass,
@@ -6642,7 +6845,10 @@ fn log_replacement_apply(
         replacement_vertex_handle,
         original_pixel_handle,
         replacement_pixel_handle,
+        draw_context.geometry,
         draw_context.selector,
+        draw_context.selector_generation,
+        draw_context.material_key,
         material_bindings.selector,
         material_bindings.generation,
         material_bindings.has_normal as u8,
@@ -6678,7 +6884,7 @@ fn maybe_log_replacement_apply_summary(applied: u32) {
     }
 
     log::info!(
-        "[PBR] Native PBR apply summary: applied={} object_low_opt={} object_low={} object_low_shadow={} object_low_lights2={} object_low_lights2_shadow={} object_low_specular={} object_low_specular_shadow={} object_low_specular_lights2={} object_low_specular_lights2_shadow={} object_low_stbb={} object_high6={} object_high4={} object_high4_opt={} object_high3_specular={} object_high3_specular_opt={} object_si={} object_hair={} landlod={} close_terrain={} close_terrain_lights0={} close_terrain_lights6={} close_terrain_lights12={} close_terrain_lights24={} close_terrain_tex1={} close_terrain_tex2={} close_terrain_tex3={} close_terrain_tex4={} close_terrain_tex5={} close_terrain_tex6={} close_terrain_tex7={} skips={} no_diffuse={} no_context={} unsupported_family={} unsupported_vertex_abi={} missing_object_row_contract={} skin_vertex_abi={} missing_terrain_contract={} terrain_disabled={} interior_terrain_disabled={} interior_object_light_pass_disabled={} unproven_landlod_shadow={} unsupported_envmap={} enable_boundary_pending={} no_selector={} no_normal={} no_glow={} no_shadow={} no_shader={} bind_failed={} no_vanilla_handle={} handle_write_failed={}",
+        "[PBR] Native PBR apply summary: applied={} object_low_opt={} object_low={} object_low_shadow={} object_low_lights2={} object_low_lights2_shadow={} object_low_specular={} object_low_specular_shadow={} object_low_specular_lights2={} object_low_specular_lights2_shadow={} object_low_stbb={} object_high6={} object_high4={} object_high4_opt={} object_high3_specular={} object_high3_specular_opt={} object_si={} object_hair={} landlod={} close_terrain={} close_terrain_lights0={} close_terrain_lights6={} close_terrain_lights12={} close_terrain_lights24={} close_terrain_tex1={} close_terrain_tex2={} close_terrain_tex3={} close_terrain_tex4={} close_terrain_tex5={} close_terrain_tex6={} close_terrain_tex7={} skips={} no_diffuse={} no_context={} unsupported_family={} unsupported_vertex_abi={} missing_object_row_contract={} skin_vertex_abi={} missing_terrain_contract={} terrain_disabled={} close_terrain_unproven={} interior_terrain_disabled={} interior_object_light_pass_disabled={} unproven_landlod_shadow={} unsupported_envmap={} enable_boundary_pending={} no_selector={} no_normal={} no_glow={} no_shadow={} object_stack_incomplete={} no_shader={} bind_failed={} no_vanilla_handle={} handle_write_failed={}",
         applied,
         apply_kind_count(ReplacementShaderKind::ObjectLowOpt),
         apply_kind_count(ReplacementShaderKind::ObjectLow),
@@ -6719,6 +6925,7 @@ fn maybe_log_replacement_apply_summary(applied: u32) {
         REPLACEMENT_SKIP_SKIN_VERTEX_ABI.load(Ordering::Acquire),
         REPLACEMENT_SKIP_MISSING_TERRAIN_CONTRACT.load(Ordering::Acquire),
         REPLACEMENT_SKIP_TERRAIN_PBR_DISABLED.load(Ordering::Acquire),
+        REPLACEMENT_SKIP_CLOSE_TERRAIN_CONTRACT_UNPROVEN.load(Ordering::Acquire),
         REPLACEMENT_SKIP_INTERIOR_TERRAIN_DISABLED.load(Ordering::Acquire),
         REPLACEMENT_SKIP_INTERIOR_OBJECT_LIGHT_PASS_DISABLED.load(Ordering::Acquire),
         REPLACEMENT_SKIP_UNPROVEN_LANDLOD_SHADOW.load(Ordering::Acquire),
@@ -6728,6 +6935,7 @@ fn maybe_log_replacement_apply_summary(applied: u32) {
         REPLACEMENT_SKIP_NO_NORMAL_SOURCE.load(Ordering::Acquire),
         REPLACEMENT_SKIP_NO_GLOW_SOURCE.load(Ordering::Acquire),
         REPLACEMENT_SKIP_NO_SHADOW_SOURCE.load(Ordering::Acquire),
+        REPLACEMENT_SKIP_OBJECT_STACK_INCOMPLETE.load(Ordering::Acquire),
         REPLACEMENT_SKIP_NO_REPLACEMENT_SHADER.load(Ordering::Acquire),
         REPLACEMENT_SKIP_BIND_FAILED.load(Ordering::Acquire),
         REPLACEMENT_SKIP_NO_VANILLA_HANDLE.load(Ordering::Acquire),
@@ -6816,6 +7024,354 @@ fn close_terrain_apply_count_for_tex(tex_count: u8) -> u32 {
         .sum()
 }
 
+fn record_object_contract_apply(
+    draw_context: ReplacementDrawContext,
+    shader_kind: ReplacementShaderKind,
+) {
+    if !shader_kind.is_object_kind() {
+        return;
+    }
+
+    let family = object_contract_family_for_pair(
+        draw_context.vertex_membership,
+        draw_context.pixel_membership,
+    );
+    record_object_contract_transition(
+        draw_context,
+        family,
+        OBJECT_CONTRACT_STATE_APPLIED,
+        OBJECT_CONTRACT_REASON_NONE,
+        shader_kind.index() as u32,
+    );
+}
+
+fn record_object_contract_skip(
+    reason: ReplacementSkipReason,
+    draw_context: ReplacementDrawContext,
+) {
+    let family = object_contract_family_for_pair(
+        draw_context.vertex_membership,
+        draw_context.pixel_membership,
+    );
+    record_object_contract_transition(
+        draw_context,
+        family,
+        OBJECT_CONTRACT_STATE_FALLBACK,
+        object_contract_reason_for_skip(reason),
+        OWNED_SHADER_KIND_NONE,
+    );
+}
+
+fn record_object_contract_transition(
+    draw_context: ReplacementDrawContext,
+    family: u32,
+    state: u32,
+    reason: u32,
+    kind_index: u32,
+) {
+    if family == OBJECT_CONTRACT_FAMILY_NONE {
+        return;
+    }
+
+    let key = object_transition_key(draw_context);
+    if key == 0 {
+        return;
+    }
+
+    let event = ObjectTransitionEvent {
+        key,
+        geometry: draw_context.geometry,
+        selector: draw_context.selector,
+        material_key: draw_context.material_key,
+        selector_generation: draw_context.selector_generation,
+        family,
+        state,
+        reason,
+        kind_index,
+        vertex_group: draw_context.vertex_membership.group,
+        vertex_index: draw_context.vertex_membership.index,
+        pixel_group: draw_context.pixel_membership.group,
+        pixel_index: draw_context.pixel_membership.index,
+    };
+
+    if let Some(change) = OBJECT_TRANSITIONS.store(event) {
+        maybe_log_object_contract_transition(change);
+    }
+}
+
+fn maybe_log_object_contract_transition(change: ObjectTransitionChange) {
+    let count = OBJECT_TRANSITION_LOGS.fetch_add(1, Ordering::Relaxed);
+    if count >= OBJECT_TRANSITION_MAX_LOGS {
+        return;
+    }
+
+    log::info!(
+        "[PBR_CONTRACT] Object contract transition: key=0x{:08X} transitions={} geom=0x{:08X} selector=0x{:08X} sel_gen={} material_key=0x{:08X} old_family={} old_state={} old_reason={} old_kind={} old_v={}:{} old_p={}:{} new_family={} new_state={} new_reason={} new_kind={} new_v={}:{} new_p={}:{} candidate={}",
+        change.new.key,
+        change.transitions,
+        change.new.geometry,
+        change.new.selector,
+        change.new.selector_generation,
+        change.new.material_key,
+        object_contract_family_label(change.old.family),
+        object_contract_state_label(change.old.state),
+        object_contract_reason_label(change.old.reason),
+        replacement_kind_label_by_index(change.old.kind_index),
+        change.old.vertex_group,
+        change.old.vertex_index,
+        change.old.pixel_group,
+        change.old.pixel_index,
+        object_contract_family_label(change.new.family),
+        object_contract_state_label(change.new.state),
+        object_contract_reason_label(change.new.reason),
+        replacement_kind_label_by_index(change.new.kind_index),
+        change.new.vertex_group,
+        change.new.vertex_index,
+        change.new.pixel_group,
+        change.new.pixel_index,
+        sls2_object_candidate_label(
+            ShaderArrayMembership {
+                group: change.new.vertex_group,
+                index: change.new.vertex_index,
+            },
+            ShaderArrayMembership {
+                group: change.new.pixel_group,
+                index: change.new.pixel_index,
+            },
+        ),
+    );
+}
+
+fn object_transition_key(draw_context: ReplacementDrawContext) -> usize {
+    let mut key = draw_context.geometry
+        ^ draw_context.selector.rotate_left(5)
+        ^ (draw_context.material_key as usize).rotate_left(11);
+    if key == 0 {
+        key = (draw_context.pass as usize).rotate_left(3)
+            ^ draw_context.selector
+            ^ draw_context.geometry;
+    }
+    key
+}
+
+fn object_contract_family_for_pair(
+    vertex: ShaderArrayMembership,
+    pixel: ShaderArrayMembership,
+) -> u32 {
+    if pplighting_pair_uses_sls2_landlod(vertex, pixel)
+        || pplighting_pair_uses_sls2_landlod_projected_shadow(vertex, pixel)
+        || pplighting_pair_uses_vpt_close_terrain(vertex, pixel).is_some()
+        || is_sls2_terrain_vertex_index(vertex.index)
+        || is_sls2_terrain_pixel_index(pixel.index)
+    {
+        return OBJECT_CONTRACT_FAMILY_NONE;
+    }
+
+    match object_shader_contract(vertex, pixel) {
+        ObjectShaderContractDecision::Implemented(_)
+        | ObjectShaderContractDecision::MissingStandardRow => OBJECT_CONTRACT_FAMILY_STANDARD,
+        ObjectShaderContractDecision::PendingSkin => OBJECT_CONTRACT_FAMILY_SKIN,
+        ObjectShaderContractDecision::PendingEnvMap => OBJECT_CONTRACT_FAMILY_ENVMAP,
+        ObjectShaderContractDecision::NotObject => OBJECT_CONTRACT_FAMILY_NONE,
+    }
+}
+
+fn object_contract_reason_for_skip(reason: ReplacementSkipReason) -> u32 {
+    match reason {
+        ReplacementSkipReason::MissingObjectRowContract => OBJECT_CONTRACT_REASON_MISSING_ROW,
+        ReplacementSkipReason::SkinVertexAbi => OBJECT_CONTRACT_REASON_SKIN_ABI,
+        ReplacementSkipReason::UnsupportedEnvMapContract => OBJECT_CONTRACT_REASON_ENVMAP_ABI,
+        ReplacementSkipReason::NoNormalSource => OBJECT_CONTRACT_REASON_NO_NORMAL,
+        ReplacementSkipReason::NoGlowSource => OBJECT_CONTRACT_REASON_NO_GLOW,
+        ReplacementSkipReason::NoShadowSource => OBJECT_CONTRACT_REASON_NO_SHADOW,
+        ReplacementSkipReason::NoReplacementShader => OBJECT_CONTRACT_REASON_NO_SHADER,
+        ReplacementSkipReason::BindFailed => OBJECT_CONTRACT_REASON_BIND_FAILED,
+        ReplacementSkipReason::NoVanillaHandle => OBJECT_CONTRACT_REASON_NO_VANILLA,
+        ReplacementSkipReason::HandleWriteFailed => OBJECT_CONTRACT_REASON_HANDLE_WRITE,
+        ReplacementSkipReason::UnsupportedVertexAbi => OBJECT_CONTRACT_REASON_UNSUPPORTED_VERTEX,
+        ReplacementSkipReason::NoDiffuse => OBJECT_CONTRACT_REASON_NO_DIFFUSE,
+        ReplacementSkipReason::NoSelectorRecord => OBJECT_CONTRACT_REASON_NO_SELECTOR,
+        ReplacementSkipReason::ObjectStackIncomplete => OBJECT_CONTRACT_REASON_OBJECT_STACK,
+        _ => OBJECT_CONTRACT_REASON_OTHER,
+    }
+}
+
+fn object_stack_block_reason(reason: ReplacementSkipReason) -> Option<u32> {
+    match reason {
+        ReplacementSkipReason::MissingObjectRowContract
+        | ReplacementSkipReason::SkinVertexAbi
+        | ReplacementSkipReason::UnsupportedEnvMapContract
+        | ReplacementSkipReason::NoGlowSource
+        | ReplacementSkipReason::NoShadowSource => Some(object_contract_reason_for_skip(reason)),
+        _ => None,
+    }
+}
+
+fn maybe_block_incomplete_object_stack(
+    reason: ReplacementSkipReason,
+    draw_context: ReplacementDrawContext,
+) {
+    let Some(block_reason) = object_stack_block_reason(reason) else {
+        return;
+    };
+
+    let family = object_contract_family_for_pair(
+        draw_context.vertex_membership,
+        draw_context.pixel_membership,
+    );
+    if family == OBJECT_CONTRACT_FAMILY_NONE {
+        return;
+    }
+
+    let key = object_transition_key(draw_context);
+    if key == 0 {
+        return;
+    }
+
+    let event = ObjectCoherenceEvent {
+        key,
+        geometry: draw_context.geometry,
+        selector: draw_context.selector,
+        material_key: draw_context.material_key,
+        reason: block_reason,
+        family,
+        vertex_group: draw_context.vertex_membership.group,
+        vertex_index: draw_context.vertex_membership.index,
+        pixel_group: draw_context.pixel_membership.group,
+        pixel_index: draw_context.pixel_membership.index,
+    };
+
+    if OBJECT_COHERENCE_BLOCKS.store(event) {
+        maybe_log_object_coherence_block(event);
+    }
+}
+
+fn object_stack_block(draw_context: ReplacementDrawContext) -> Option<ObjectCoherenceSnapshot> {
+    OBJECT_COHERENCE_BLOCKS.find(object_transition_key(draw_context))
+}
+
+fn maybe_log_object_coherence_block(event: ObjectCoherenceEvent) {
+    let count = OBJECT_COHERENCE_BLOCK_LOGS.fetch_add(1, Ordering::Relaxed);
+    if count >= OBJECT_COHERENCE_MAX_LOGS {
+        return;
+    }
+
+    log::info!(
+        "[PBR_CONTRACT] Object PBR coherent fallback armed: key=0x{:08X} geom=0x{:08X} selector=0x{:08X} material_key=0x{:08X} family={} reason={} blocker_v={}:{} blocker_p={}:{} candidate={}",
+        event.key,
+        event.geometry,
+        event.selector,
+        event.material_key,
+        object_contract_family_label(event.family),
+        object_contract_reason_label(event.reason),
+        event.vertex_group,
+        event.vertex_index,
+        event.pixel_group,
+        event.pixel_index,
+        sls2_object_candidate_label(
+            ShaderArrayMembership {
+                group: event.vertex_group,
+                index: event.vertex_index,
+            },
+            ShaderArrayMembership {
+                group: event.pixel_group,
+                index: event.pixel_index,
+            },
+        ),
+    );
+}
+
+fn maybe_log_object_coherence_suppression(
+    draw_context: ReplacementDrawContext,
+    block: ObjectCoherenceSnapshot,
+    shader_kind: ReplacementShaderKind,
+) {
+    let count = OBJECT_COHERENCE_SUPPRESS_LOGS.fetch_add(1, Ordering::Relaxed);
+    if count >= OBJECT_COHERENCE_MAX_LOGS {
+        return;
+    }
+
+    log::info!(
+        "[PBR_CONTRACT] Object PBR coherent fallback used: key=0x{:08X} geom=0x{:08X} selector=0x{:08X} material_key=0x{:08X} blocked_kind={} blocker_family={} blocker_reason={} blocker_v={}:{} blocker_p={}:{} blocker_candidate={} current_v={}:{} current_p={}:{} current_candidate={}",
+        object_transition_key(draw_context),
+        draw_context.geometry,
+        draw_context.selector,
+        draw_context.material_key,
+        shader_kind.label(),
+        object_contract_family_label(block.family),
+        object_contract_reason_label(block.reason),
+        block.vertex_group,
+        block.vertex_index,
+        block.pixel_group,
+        block.pixel_index,
+        sls2_object_candidate_label(
+            ShaderArrayMembership {
+                group: block.vertex_group,
+                index: block.vertex_index,
+            },
+            ShaderArrayMembership {
+                group: block.pixel_group,
+                index: block.pixel_index,
+            },
+        ),
+        draw_context.vertex_membership.group,
+        draw_context.vertex_membership.index,
+        draw_context.pixel_membership.group,
+        draw_context.pixel_membership.index,
+        sls2_object_candidate_label(
+            draw_context.vertex_membership,
+            draw_context.pixel_membership
+        ),
+    );
+}
+
+fn object_contract_family_label(family: u32) -> &'static str {
+    match family {
+        OBJECT_CONTRACT_FAMILY_STANDARD => "standard",
+        OBJECT_CONTRACT_FAMILY_SKIN => "skin",
+        OBJECT_CONTRACT_FAMILY_ENVMAP => "envmap",
+        _ => "none",
+    }
+}
+
+fn object_contract_state_label(state: u32) -> &'static str {
+    match state {
+        OBJECT_CONTRACT_STATE_APPLIED => "applied",
+        OBJECT_CONTRACT_STATE_FALLBACK => "fallback",
+        _ => "none",
+    }
+}
+
+fn object_contract_reason_label(reason: u32) -> &'static str {
+    match reason {
+        OBJECT_CONTRACT_REASON_MISSING_ROW => "missing_row",
+        OBJECT_CONTRACT_REASON_SKIN_ABI => "skin_abi",
+        OBJECT_CONTRACT_REASON_ENVMAP_ABI => "envmap_abi",
+        OBJECT_CONTRACT_REASON_NO_NORMAL => "no_normal",
+        OBJECT_CONTRACT_REASON_NO_GLOW => "no_glow",
+        OBJECT_CONTRACT_REASON_NO_SHADOW => "no_shadow",
+        OBJECT_CONTRACT_REASON_NO_SHADER => "no_shader",
+        OBJECT_CONTRACT_REASON_BIND_FAILED => "bind_failed",
+        OBJECT_CONTRACT_REASON_NO_VANILLA => "no_vanilla",
+        OBJECT_CONTRACT_REASON_HANDLE_WRITE => "handle_write",
+        OBJECT_CONTRACT_REASON_UNSUPPORTED_VERTEX => "unsupported_vertex",
+        OBJECT_CONTRACT_REASON_NO_DIFFUSE => "no_diffuse",
+        OBJECT_CONTRACT_REASON_NO_SELECTOR => "no_selector",
+        OBJECT_CONTRACT_REASON_OBJECT_STACK => "object_stack",
+        OBJECT_CONTRACT_REASON_OTHER => "other",
+        _ => "none",
+    }
+}
+
+fn replacement_kind_label_by_index(index: u32) -> &'static str {
+    if index == OWNED_SHADER_KIND_NONE {
+        return "none";
+    }
+    REPLACEMENT_SHADER_KINDS
+        .get(index as usize)
+        .map_or("invalid", |kind| kind.label())
+}
+
 fn record_replacement_skip(
     reason: ReplacementSkipReason,
     draw_context: Option<ReplacementDrawContext>,
@@ -6847,6 +7403,9 @@ fn record_replacement_skip(
         ReplacementSkipReason::TerrainPbrDisabled => {
             REPLACEMENT_SKIP_TERRAIN_PBR_DISABLED.fetch_add(1, Ordering::Relaxed);
         }
+        ReplacementSkipReason::CloseTerrainContractUnproven => {
+            REPLACEMENT_SKIP_CLOSE_TERRAIN_CONTRACT_UNPROVEN.fetch_add(1, Ordering::Relaxed);
+        }
         ReplacementSkipReason::InteriorTerrainDisabled => {
             REPLACEMENT_SKIP_INTERIOR_TERRAIN_DISABLED.fetch_add(1, Ordering::Relaxed);
         }
@@ -6871,6 +7430,9 @@ fn record_replacement_skip(
         ReplacementSkipReason::NoShadowSource => {
             REPLACEMENT_SKIP_NO_SHADOW_SOURCE.fetch_add(1, Ordering::Relaxed);
         }
+        ReplacementSkipReason::ObjectStackIncomplete => {
+            REPLACEMENT_SKIP_OBJECT_STACK_INCOMPLETE.fetch_add(1, Ordering::Relaxed);
+        }
         ReplacementSkipReason::NoReplacementShader => {
             REPLACEMENT_SKIP_NO_REPLACEMENT_SHADER.fetch_add(1, Ordering::Relaxed);
         }
@@ -6893,6 +7455,8 @@ fn record_replacement_skip(
             .store(draw_context.vertex_membership.index, Ordering::Release);
         REPLACEMENT_LAST_PIXEL_GROUP.store(draw_context.pixel_membership.group, Ordering::Release);
         REPLACEMENT_LAST_PIXEL_INDEX.store(draw_context.pixel_membership.index, Ordering::Release);
+        record_object_contract_skip(reason, draw_context);
+        maybe_block_incomplete_object_stack(reason, draw_context);
         maybe_log_unsupported_replacement_pair(reason, draw_context);
     }
 
@@ -6913,8 +7477,14 @@ fn maybe_log_unsupported_replacement_pair(
     }
 
     let sls2_pair = draw_context.family == PPLIGHTING_FAMILY_VERTEX_C_PIXEL_B
-        && draw_context.vertex_membership.group == PPLIGHTING_VERTEX_GROUP_C
-        && draw_context.pixel_membership.group == PPLIGHTING_PIXEL_GROUP_B;
+        && is_sls2_shader_pair(
+            draw_context.vertex_membership,
+            draw_context.pixel_membership,
+        );
+    let object_contract_candidate = object_contract_family_for_pair(
+        draw_context.vertex_membership,
+        draw_context.pixel_membership,
+    ) != OBJECT_CONTRACT_FAMILY_NONE;
     let terrain_candidate = sls2_pair
         && (is_sls2_terrain_vertex_index(draw_context.vertex_membership.index)
             || is_sls2_terrain_pixel_index(draw_context.pixel_membership.index));
@@ -6926,6 +7496,7 @@ fn maybe_log_unsupported_replacement_pair(
             | ReplacementSkipReason::SkinVertexAbi
             | ReplacementSkipReason::MissingTerrainContract
             | ReplacementSkipReason::TerrainPbrDisabled
+            | ReplacementSkipReason::CloseTerrainContractUnproven
             | ReplacementSkipReason::InteriorTerrainDisabled
             | ReplacementSkipReason::UnprovenLandLodProjectedShadow
             | ReplacementSkipReason::UnsupportedEnvMapContract
@@ -6939,9 +7510,7 @@ fn maybe_log_unsupported_replacement_pair(
 
     maybe_log_terrain_candidate_pair(reason, draw_context);
 
-    if !is_sls2_object_candidate_pixel_index(draw_context.pixel_membership.index)
-        && !terrain_candidate
-    {
+    if !object_contract_candidate && !terrain_candidate {
         return;
     }
 
@@ -6952,13 +7521,16 @@ fn maybe_log_unsupported_replacement_pair(
 
     let stages = &TEXTURE_CAPTURE.stages;
     log::info!(
-        "[PBR] Unsupported replacement pair: reason={} candidate={} selector=0x{:08X} family={} vgrp={} vidx={} pgrp={} pidx={} pass={:p} pass_enum={} pass_lights={} pass_land_tex={} vs={:p} ps={:p} s0=0x{:08X} s1=0x{:08X} s2=0x{:08X} s3=0x{:08X} s4=0x{:08X} s5=0x{:08X} s6=0x{:08X} s7=0x{:08X} s8=0x{:08X} s9=0x{:08X} s10=0x{:08X} s11=0x{:08X} s12=0x{:08X} s13=0x{:08X}",
+        "[PBR] Unsupported replacement pair: reason={} candidate={} geometry=0x{:08X} selector=0x{:08X} sel_gen={} material_key=0x{:08X} family={} vgrp={} vidx={} pgrp={} pidx={} pass={:p} pass_enum={} pass_lights={} pass_land_tex={} vs={:p} ps={:p} s0=0x{:08X} s1=0x{:08X} s2=0x{:08X} s3=0x{:08X} s4=0x{:08X} s5=0x{:08X} s6=0x{:08X} s7=0x{:08X} s8=0x{:08X} s9=0x{:08X} s10=0x{:08X} s11=0x{:08X} s12=0x{:08X} s13=0x{:08X}",
         reason.label(),
         sls2_object_candidate_label(
             draw_context.vertex_membership,
             draw_context.pixel_membership
         ),
+        draw_context.geometry,
         draw_context.selector,
+        draw_context.selector_generation,
+        draw_context.material_key,
         draw_context.family,
         draw_context.vertex_membership.group,
         draw_context.vertex_membership.index,
@@ -7169,7 +7741,7 @@ fn maybe_log_replacement_skip_summary(checks: u32) {
     }
 
     log::info!(
-        "[PBR] Native PBR replacement has not applied yet: checks={} no_diffuse={} no_context={} unsupported_family={} unsupported_vertex_abi={} missing_object_row_contract={} skin_vertex_abi={} missing_terrain_contract={} terrain_disabled={} interior_terrain_disabled={} interior_object_light_pass_disabled={} unproven_landlod_shadow={} unsupported_envmap={} enable_boundary_pending={} no_selector={} no_normal={} no_glow={} no_shader={} bind_failed={} no_vanilla_handle={} handle_write_failed={} last_family={} last_vgrp={} last_vidx={} last_pgrp={} last_pidx={}",
+        "[PBR] Native PBR replacement has not applied yet: checks={} no_diffuse={} no_context={} unsupported_family={} unsupported_vertex_abi={} missing_object_row_contract={} skin_vertex_abi={} missing_terrain_contract={} terrain_disabled={} close_terrain_unproven={} interior_terrain_disabled={} interior_object_light_pass_disabled={} unproven_landlod_shadow={} unsupported_envmap={} enable_boundary_pending={} no_selector={} no_normal={} no_glow={} object_stack_incomplete={} no_shader={} bind_failed={} no_vanilla_handle={} handle_write_failed={} last_family={} last_vgrp={} last_vidx={} last_pgrp={} last_pidx={}",
         checks,
         REPLACEMENT_SKIP_NO_DIFFUSE.load(Ordering::Acquire),
         REPLACEMENT_SKIP_NO_DRAW_CONTEXT.load(Ordering::Acquire),
@@ -7179,6 +7751,7 @@ fn maybe_log_replacement_skip_summary(checks: u32) {
         REPLACEMENT_SKIP_SKIN_VERTEX_ABI.load(Ordering::Acquire),
         REPLACEMENT_SKIP_MISSING_TERRAIN_CONTRACT.load(Ordering::Acquire),
         REPLACEMENT_SKIP_TERRAIN_PBR_DISABLED.load(Ordering::Acquire),
+        REPLACEMENT_SKIP_CLOSE_TERRAIN_CONTRACT_UNPROVEN.load(Ordering::Acquire),
         REPLACEMENT_SKIP_INTERIOR_TERRAIN_DISABLED.load(Ordering::Acquire),
         REPLACEMENT_SKIP_INTERIOR_OBJECT_LIGHT_PASS_DISABLED.load(Ordering::Acquire),
         REPLACEMENT_SKIP_UNPROVEN_LANDLOD_SHADOW.load(Ordering::Acquire),
@@ -7187,6 +7760,7 @@ fn maybe_log_replacement_skip_summary(checks: u32) {
         REPLACEMENT_SKIP_NO_SELECTOR_RECORD.load(Ordering::Acquire),
         REPLACEMENT_SKIP_NO_NORMAL_SOURCE.load(Ordering::Acquire),
         REPLACEMENT_SKIP_NO_GLOW_SOURCE.load(Ordering::Acquire),
+        REPLACEMENT_SKIP_OBJECT_STACK_INCOMPLETE.load(Ordering::Acquire),
         REPLACEMENT_SKIP_NO_REPLACEMENT_SHADER.load(Ordering::Acquire),
         REPLACEMENT_SKIP_BIND_FAILED.load(Ordering::Acquire),
         REPLACEMENT_SKIP_NO_VANILLA_HANDLE.load(Ordering::Acquire),
@@ -7210,10 +7784,13 @@ fn log_owned_shader_created(
     }
 
     log::debug!(
-        "[PBR] Owned {} shader wrapper={:p} original_handle={:p} name={}",
+        "[PBR] Owned {} shader wrapper={:p} original_handle={:p} replacement_kind={} name={}",
         shader_stage,
         snapshot.shader,
         snapshot.original_handle,
+        snapshot
+            .replacement_kind
+            .map_or("none", ReplacementShaderKind::label),
         shader_name_for_log(shader_name),
     );
 }
@@ -7225,10 +7802,13 @@ fn log_owned_shader_seeded(shader_stage: &str, snapshot: OwnedShaderSnapshot) {
     }
 
     log::debug!(
-        "[PBR] Lazily owned {} shader wrapper={:p} original_handle={:p} group={} index={}",
+        "[PBR] Lazily owned {} shader wrapper={:p} original_handle={:p} replacement_kind={} group={} index={}",
         shader_stage,
         snapshot.shader,
         snapshot.original_handle,
+        snapshot
+            .replacement_kind
+            .map_or("none", ReplacementShaderKind::label),
         snapshot.pplighting_group,
         snapshot.pplighting_index,
     );

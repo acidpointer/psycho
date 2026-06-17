@@ -149,6 +149,9 @@ occlusion_softness = 0.42
 [graphics.native_pbr]
 # Native material/PBR engine path.
 #
+# WIP / work in progress: this feature is preserved as an opt-in diagnostic
+# path, but it is not ready and must not be treated as an early release feature.
+#
 # OMV installs native hooks from xNVSE DeferredInit after dependency detection.
 # New Vegas Reloaded coexistence is not supported.
 #
@@ -171,8 +174,8 @@ occlusion_softness = 0.42
 #   - optional experimental VPT/FSL/LODFF LandLOD and close terrain rows when
 #     the terrain stack is detected and terrain_enabled is true
 #   - contract-gated replacement:
-#     visible replacement starts only after all active shader contracts are
-#     compiled, created, and ready together
+#     object replacement starts only after active object shader contracts are
+#     compiled, created, and ready; terrain readiness does not block objects
 #
 # EnvMap/reflection rows, skin rows, terrain fade, projected terrain, and
 # unproven helper terrain rows remain on vanilla shaders until their texture,
@@ -180,7 +183,8 @@ occlusion_softness = 0.42
 # still experimental because terrain fade and row coverage are not complete.
 #
 # This is a runtime shader toggle. It does not control hook installation.
-enabled = true
+# Disabled by default because the current PBR contracts are still WIP.
+enabled = false
 
 # Experimental. Defaults off because the terrain/fade contract is incomplete
 # and enabling it can cause distance blinking and large FPS drops.

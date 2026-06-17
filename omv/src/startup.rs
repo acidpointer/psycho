@@ -29,6 +29,12 @@ pub(crate) fn initialize_for_nvse() -> Result<()> {
     initialize_logging(&cfg.diagnostics)?;
     log::info!("[INIT] Oh My Vegas graphics initialized through xNVSE");
     log::info!(
+        "[INIT] OMV build unix={} target={} profile={}",
+        option_env!("OMV_BUILD_UNIX").unwrap_or("unknown"),
+        option_env!("OMV_BUILD_TARGET").unwrap_or("unknown"),
+        option_env!("OMV_BUILD_PROFILE").unwrap_or("unknown")
+    );
+    log::info!(
         "[CONFIG] Loaded '{}' (read-only)",
         crate::config::CONFIG_PATH
     );

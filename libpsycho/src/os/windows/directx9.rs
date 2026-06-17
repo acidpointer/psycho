@@ -560,6 +560,12 @@ impl<'a> Device9Ref<'a> {
         }
     }
 
+    /// Return the current programmable pixel shader pointer, if one is bound.
+    pub fn current_pixel_shader_raw(&self) -> Direct3DResult<*mut c_void> {
+        let shader = unsafe { self.inner.GetPixelShader()? };
+        Ok(shader.as_raw())
+    }
+
     /// Set pixel shader float constants.
     pub fn set_pixel_shader_constant_f(
         &self,
@@ -608,6 +614,12 @@ impl<'a> Device9Ref<'a> {
             self.inner
                 .SetVertexShader(Option::<&IDirect3DVertexShader9>::None)
         }
+    }
+
+    /// Return the current programmable vertex shader pointer, if one is bound.
+    pub fn current_vertex_shader_raw(&self) -> Direct3DResult<*mut c_void> {
+        let shader = unsafe { self.inner.GetVertexShader()? };
+        Ok(shader.as_raw())
     }
 }
 
