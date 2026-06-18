@@ -1876,6 +1876,8 @@ fn draw_native_pbr_config(
     let reload_note = cstring("Hooks install automatically at startup; shader toggle is runtime");
     ui.text_colored(MENU_MUTED_TEXT, &reload_note);
     ui.separator();
+    draw_native_pbr_dashboard(ui, status);
+    ui.separator();
 
     let mut changed = false;
     changed |= draw_config_checkbox(
@@ -1967,6 +1969,63 @@ fn draw_native_pbr_config(
     }
 
     changed
+}
+
+fn draw_native_pbr_dashboard(ui: &mut psycho_imgui::Ui<'_>, status: pbr::NativePbrRuntimeStatus) {
+    let heading = cstring("Runtime contract");
+    ui.text_colored(MENU_ACCENT_TEXT, &heading);
+
+    draw_status_value(
+        ui,
+        "Creation identity",
+        status.shader_creation_identity_ready,
+        "shader filename capture",
+    );
+    ui.same_line();
+    draw_status_value(
+        ui,
+        "EyePosition",
+        status.eye_position_contract_ready,
+        "c16 for SLS rows",
+    );
+
+    draw_status_value(
+        ui,
+        "Object records",
+        status.active_contracts_ready,
+        "prewarmed",
+    );
+    ui.same_line();
+    draw_status_value(
+        ui,
+        "Terrain stack",
+        status.terrain_contract_available,
+        "VPT/FSL/LODFF",
+    );
+    let adopted = cstring(format!(
+        "PPLighting wrappers adopted: {}",
+        status.adopted_shader_records
+    ));
+    ui.text_colored(MENU_MUTED_TEXT, &adopted);
+
+    let active_steps = [
+        status.shader_creation_identity_ready,
+        status.eye_position_contract_ready,
+        status.active_contracts_ready,
+        !status.active_contracts_failed,
+    ]
+    .into_iter()
+    .filter(|ready| *ready)
+    .count();
+    let overlay = cstring(format!("{active_steps}/4 core checks"));
+    ui.progress_bar(active_steps as f32 / 4.0, 240.0, 0.0, &overlay);
+}
+
+fn draw_status_value(ui: &mut psycho_imgui::Ui<'_>, label: &str, ok: bool, detail: &str) {
+    let color = if ok { MENU_GOOD_TEXT } else { MENU_WARN_TEXT };
+    let state = if ok { "ready" } else { "blocked" };
+    let text = cstring(format!("{label}: {state} ({detail})"));
+    ui.text_colored(color, &text);
 }
 
 fn draw_feature_list(
@@ -2249,7 +2308,9 @@ fn shader_list_label(source: &ScreenShaderSource, index: usize) -> String {
 }
 
 fn native_pbr_list_label(configured_enabled: bool, status: pbr::NativePbrRuntimeStatus) -> String {
-    let status = if status.installed && configured_enabled && status.active_contracts_failed {
+    let status = if configured_enabled && status.block_reason.is_some() {
+        "BLK"
+    } else if status.installed && configured_enabled && status.active_contracts_failed {
         "BLK"
     } else if status.installed && configured_enabled && !status.active_contracts_ready {
         "WUP"

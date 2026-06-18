@@ -171,23 +171,23 @@ occlusion_softness = 0.42
 #   - ObjectTemplate ADTS10 object ABIs:
 #     LIGHTS=9, LIGHTS=4, LIGHTS=4 OPT, SPECULAR LIGHTS=4, and
 #     SPECULAR LIGHTS=4 OPT
-#   - optional experimental VPT/FSL/LODFF LandLOD and close terrain rows when
-#     the terrain stack is detected and terrain_enabled is true
+#   - optional experimental VPT/FSL/LODFF LandLOD, terrain fade, and close
+#     terrain rows when the terrain stack is detected and terrain_enabled is true
 #   - contract-gated replacement:
 #     object replacement starts only after active object shader contracts are
 #     compiled, created, and ready; terrain readiness does not block objects
 #
-# EnvMap/reflection rows, skin rows, terrain fade, projected terrain, and
-# unproven helper terrain rows remain on vanilla shaders until their texture,
-# pass, fade, and lighting contracts are implemented separately. Terrain PBR is
-# still experimental because terrain fade and row coverage are not complete.
+# EnvMap/reflection rows, skin rows, projected terrain, and unproven helper
+# terrain rows remain on vanilla shaders until their texture, pass, fade, and
+# lighting contracts are implemented separately. Terrain PBR is still
+# experimental because close-terrain row coverage is not complete.
 #
 # This is a runtime shader toggle. It does not control hook installation.
 # Disabled by default because the current PBR contracts are still WIP.
 enabled = false
 
-# Experimental. Defaults off because the terrain/fade contract is incomplete
-# and enabling it can cause distance blinking and large FPS drops.
+# Experimental. Defaults off because close-terrain row coverage is incomplete
+# and enabling it can still expose distance blinking or large FPS drops.
 terrain_enabled = false
 
 # Object PBR registers:
