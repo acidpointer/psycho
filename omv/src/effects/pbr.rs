@@ -4593,6 +4593,12 @@ unsafe fn call_set_shaders_with_replacement(
         Ok(shader_kind) => shader_kind,
         Err(reason) => {
             record_replacement_skip(reason, Some(draw_context));
+            if unsafe { try_apply_vertex_replacement(draw_context) } {
+                unsafe {
+                    original(shader, pass_index);
+                }
+                return true;
+            }
             return false;
         }
     };
@@ -4924,7 +4930,7 @@ fn replacement_vertex_shader_kind(
             draw_context.vertex_membership,
             draw_context.pixel_membership,
         ) {
-            ObjectShaderContractDecision::Implemented => Some(pixel_kind),
+            ObjectShaderContractDecision::Implemented => Some(vertex_kind),
             _ => None,
         };
     }
@@ -5138,6 +5144,81 @@ fn object_vertex_replacement_kind(vertex_index: u32) -> Option<ReplacementShader
         }
         _ => None,
     }
+}
+
+unsafe fn try_apply_vertex_replacement(draw_context: ReplacementDrawContext) -> bool {
+    let Some(vertex_kind) = owned_shader_replacement_kind(draw_context.vertex_shader) else {
+        return false;
+    };
+    if !vertex_kind.replaces_vertex_shader() {
+        return false;
+    }
+    if vertex_kind.is_object_kind()
+        && (REPLACEMENT_ACTIVE_CONTRACTS_FAILED.load(Ordering::Acquire)
+            || !REPLACEMENT_ACTIVE_CONTRACTS_READY.load(Ordering::Acquire))
+    {
+        return false;
+    }
+    if !replacement_kind_has_complete_contract(vertex_kind) {
+        return false;
+    }
+    if vertex_kind.uses_terrain_constants()
+        && (!TERRAIN_CONTRACT_AVAILABLE.load(Ordering::Acquire)
+            || !current_material_state_is_known_exterior())
+    {
+        return false;
+    }
+
+    let Some(replacement_vertex_handle) = replacement_vertex_shader_handle(vertex_kind) else {
+        return false;
+    };
+    if replacement_vertex_handle.is_null() {
+        return false;
+    }
+
+    let Some(vertex_owner) = (unsafe {
+        ensure_owned_shader_record(
+            draw_context.vertex_shader,
+            OWNED_SHADER_TYPE_VERTEX,
+            draw_context.vertex_membership,
+        )
+    }) else {
+        return false;
+    };
+
+    let current_vertex_handle = unsafe {
+        read_shader_native_handle(
+            draw_context.vertex_shader,
+            NID3D_VERTEX_SHADER_VTABLE_ADDR,
+            VERTEX_SHADER_SET_SHADERS_HANDLE_OFFSET,
+        )
+    };
+    if !owned_shader_handle_is_expected(
+        current_vertex_handle,
+        vertex_owner,
+        replacement_vertex_handle,
+    ) {
+        return false;
+    }
+
+    if current_vertex_handle != replacement_vertex_handle
+        && !unsafe {
+            write_shader_native_handle(
+                draw_context.vertex_shader,
+                VERTEX_SHADER_SET_SHADERS_HANDLE_OFFSET,
+                replacement_vertex_handle,
+            )
+        }
+    {
+        return false;
+    }
+
+    OWNED_SHADERS.set_current(
+        draw_context.vertex_shader,
+        replacement_vertex_handle,
+        Some(vertex_kind),
+    );
+    true
 }
 
 fn replacement_kind_from_index(index: u32) -> Option<ReplacementShaderKind> {
