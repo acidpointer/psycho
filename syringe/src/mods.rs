@@ -5,40 +5,28 @@
 //! export `Syringe_ModInit`; when present, we call it after `LoadLibrary`
 //! returns so real initialization runs outside that DLL's loader-lock callback.
 
-use core::cmp::Ordering as CmpOrdering;
 use core::ffi::c_void;
 use core::mem::transmute;
-use core::sync::atomic::{AtomicUsize, Ordering};
+use core::sync::atomic::{AtomicU8, AtomicUsize, Ordering};
 
 use syringe_api::{SyringeInfo, SyringeModInitFn};
 
-use crate::wide_path::{WidePath, compare_case_insensitive};
+use crate::wide_path::WidePath;
 use crate::win32::{self, FindHandle, HModule, Win32FindDataW};
 
-const MAX_MOD_DLLS: usize = 96;
-const MODS_LOAD_WAIT_TIMEOUT_MS: u32 = 10_000;
 const MOD_INIT_EXPORT: &[u8] = b"Syringe_ModInit\0";
 
-// State encoding is intentionally atomic and allocation-free:
-// 0 = not started, usize::MAX = loading, N + 1 = completed with N loaded mods.
-const MODS_NOT_STARTED: usize = 0;
-const MODS_LOADING: usize = usize::MAX;
+const MODS_NOT_STARTED: u8 = 0;
+const MODS_LOADING: u8 = 1;
+const MODS_READY: u8 = 2;
+const MODS_FAILED: u8 = 3;
 
-// One-shot guard for the best-effort worker thread launched from TLS.
+// One-shot guard for the worker launched from DllMain.
 static MODS_THREAD_STARTED: AtomicUsize = AtomicUsize::new(0);
-// Public lifecycle state for all callers that need early mods to be ready.
-static MODS_LOAD_STATE: AtomicUsize = AtomicUsize::new(MODS_NOT_STARTED);
-// Used only to detect same-thread reentry during `LoadLibrary` callbacks.
-static MODS_LOADER_THREAD_ID: AtomicUsize = AtomicUsize::new(0);
+// Worker lifecycle is diagnostic only. Proxy exports must not synchronize on it.
+static MODS_LOAD_STATE: AtomicU8 = AtomicU8::new(MODS_NOT_STARTED);
 // Passed to `Syringe_ModInit` so loaded mods can identify the proxy DLL.
 static LOADER_MODULE: AtomicUsize = AtomicUsize::new(0);
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub enum LoadStatus {
-    Loaded(usize),
-    Reentrant,
-    TimedOut,
-}
 
 pub fn remember_loader_module(module: HModule) {
     LOADER_MODULE.store(module as usize, Ordering::Release);
@@ -52,70 +40,45 @@ pub fn start_loader_thread() {
         return;
     }
 
-    // Creating a thread from TLS is acceptable here because we never wait for
-    // it while the loader lock is held. The exported dinput8 functions provide
-    // the synchronous fallback if the worker has not finished yet.
+    MODS_LOAD_STATE.store(MODS_LOADING, Ordering::Release);
     if !win32::spawn_thread(mod_loader_thread) {
-        MODS_THREAD_STARTED.store(0, Ordering::Release);
-    }
-}
-
-pub fn ensure_loaded() -> LoadStatus {
-    let wait_start = win32::tick_count();
-
-    loop {
-        match MODS_LOAD_STATE.load(Ordering::Acquire) {
-            MODS_NOT_STARTED => {}
-            MODS_LOADING => {
-                // A reentrant call from the loader thread cannot wait on itself.
-                // The proxy layer must not forward to real dinput8 from this
-                // path; doing so can start another LoadLibrary chain while a
-                // mod callback is already active.
-                if MODS_LOADER_THREAD_ID.load(Ordering::Acquire)
-                    == win32::current_thread_id() as usize
-                {
-                    return LoadStatus::Reentrant;
-                }
-
-                if win32::tick_count().wrapping_sub(wait_start) >= MODS_LOAD_WAIT_TIMEOUT_MS {
-                    return LoadStatus::TimedOut;
-                }
-
-                win32::sleep(1);
-                continue;
-            }
-            completed => return LoadStatus::Loaded(completed - 1),
-        }
-
-        if MODS_LOAD_STATE
-            .compare_exchange(
-                MODS_NOT_STARTED,
-                MODS_LOADING,
-                Ordering::AcqRel,
-                Ordering::Acquire,
-            )
-            .is_ok()
-        {
-            MODS_LOADER_THREAD_ID.store(win32::current_thread_id() as usize, Ordering::Release);
-            let loaded = load_mod_dlls();
-            MODS_LOADER_THREAD_ID.store(0, Ordering::Release);
-            MODS_LOAD_STATE.store(loaded.saturating_add(1), Ordering::Release);
-            return LoadStatus::Loaded(loaded);
-        }
+        MODS_LOAD_STATE.store(MODS_FAILED, Ordering::Release);
     }
 }
 
 unsafe extern "system" fn mod_loader_thread(_parameter: *mut c_void) -> u32 {
-    ensure_loaded();
+    crate::dinput8::preload();
+    load_mod_dlls();
+    MODS_LOAD_STATE.store(MODS_READY, Ordering::Release);
     0
 }
 
 fn load_mod_dlls() -> usize {
-    let dlls = mod_dll_paths();
-    let mut loaded = 0usize;
+    let mut mods = game_root();
+    if mods.is_empty() || !mods.append_component_ascii("syringe") {
+        return 0;
+    }
 
-    for dll in dlls.iter() {
-        let module = load_mod_library(dll);
+    let mut pattern = mods;
+    if !pattern.append_component_ascii("*.dll") {
+        win32::debug_message(b"[Syringe] Mod search path is too long.\n");
+        return 0;
+    }
+    let mut loaded = 0usize;
+    let mut previous = None;
+
+    loop {
+        let path = match next_mod_path(&mods, &pattern, previous.as_ref()) {
+            Ok(Some(path)) => path,
+            Ok(None) => break,
+            Err(error) => {
+                win32::debug_error(b"[Syringe] DLL enumeration failed: ", error);
+                break;
+            }
+        };
+        previous = Some(path);
+
+        let module = load_mod_library(&path);
         if !module.is_null() && call_mod_init(module) {
             loaded = loaded.saturating_add(1);
         }
@@ -133,104 +96,70 @@ fn call_mod_init(module: HModule) -> bool {
     let loader_module = LOADER_MODULE.load(Ordering::Acquire);
     let info = SyringeInfo::new(loader_module, module as usize);
     let init: SyringeModInitFn = unsafe { transmute(proc) };
-    unsafe { init(&info) != 0 }
+    let initialized = unsafe { init(&info) != 0 };
+    if !initialized {
+        win32::debug_message(b"[Syringe] Syringe_ModInit returned failure.\n");
+    }
+    initialized
 }
 
 fn load_mod_library(path: &WidePath) -> HModule {
-    // Prefer a DLL-directory-aware load so a mod can resolve its own sibling
-    // DLLs. Fall back to plain LoadLibraryW for older Wine/Windows behavior.
-    let module = win32::load_library_from_dll_dir(path);
-    if !module.is_null() {
-        return module;
-    }
-
-    win32::load_library(path)
-}
-
-struct ModDllList {
-    len: usize,
-    dlls: [WidePath; MAX_MOD_DLLS],
-}
-
-impl ModDllList {
-    fn new() -> Self {
-        Self {
-            len: 0,
-            dlls: [WidePath::new(); MAX_MOD_DLLS],
-        }
-    }
-
-    fn push(&mut self, dll: WidePath) {
-        if self.len >= self.dlls.len() {
-            return;
-        }
-
-        self.dlls[self.len] = dll;
-        self.len += 1;
-    }
-
-    fn iter(&self) -> core::slice::Iter<'_, WidePath> {
-        self.dlls[..self.len].iter()
-    }
-
-    fn sort(&mut self) {
-        for index in 1..self.len {
-            let item = self.dlls[index];
-            let mut cursor = index;
-
-            while cursor > 0
-                && compare_case_insensitive(&item, &self.dlls[cursor - 1]) == CmpOrdering::Less
-            {
-                self.dlls[cursor] = self.dlls[cursor - 1];
-                cursor -= 1;
-            }
-
-            self.dlls[cursor] = item;
+    match win32::load_library_from_dll_dir(path) {
+        Ok(module) => module,
+        Err(error) => {
+            win32::debug_error(b"[Syringe] Secure DLL load failed: ", error);
+            core::ptr::null_mut()
         }
     }
 }
 
-fn mod_dll_paths() -> ModDllList {
-    let mut dlls = ModDllList::new();
-    let mut mods = game_root();
-    if mods.is_empty() || !mods.append_component_ascii("syringe") {
-        return dlls;
-    }
-
-    // Only the root `syringe` directory is scanned. Subdirectories are ignored on
-    // purpose so a mod manager can stage support files without auto-loading.
-    let mut pattern = mods;
-    if !pattern.append_component_ascii("*.dll") {
-        return dlls;
-    }
-
-    let Some(pattern) = pattern.with_nul() else {
-        return dlls;
-    };
-
+/// Re-scan the directory to select one next filename without a heap allocation
+/// or a fixed mod-count limit. Startup enumeration is intentionally cold.
+fn next_mod_path(
+    mods: &WidePath,
+    pattern: &WidePath,
+    previous: Option<&WidePath>,
+) -> Result<Option<WidePath>, u32> {
     let mut data = Win32FindDataW::empty();
-    let Some(find) = FindHandle::first(&pattern, &mut data) else {
-        return dlls;
+    let Some(find) = FindHandle::first(pattern, &mut data)? else {
+        return Ok(None);
     };
+
+    let mut next = None;
 
     loop {
         if !data.is_directory() {
             let name = data.file_name();
             if !name.is_empty() {
-                let mut path = mods;
+                let mut path = *mods;
                 if path.append_component_wide(name) {
-                    dlls.push(path);
+                    let after_previous =
+                        previous.is_none_or(|last| compare_paths(&path, last).is_gt());
+                    let before_next = next
+                        .as_ref()
+                        .is_none_or(|candidate| compare_paths(&path, candidate).is_lt());
+                    if after_previous && before_next {
+                        next = Some(path);
+                    }
+                } else {
+                    win32::debug_message(b"[Syringe] Ignored DLL with an overlong path.\n");
                 }
             }
         }
 
-        if !find.next(&mut data) {
-            break;
+        if !find.next(&mut data)? {
+            return Ok(next);
         }
     }
+}
 
-    dlls.sort();
-    dlls
+fn compare_paths(left: &WidePath, right: &WidePath) -> core::cmp::Ordering {
+    let case_folded = win32::compare_paths(left, right, true);
+    if case_folded.is_eq() {
+        win32::compare_paths(left, right, false)
+    } else {
+        case_folded
+    }
 }
 
 fn game_root() -> WidePath {

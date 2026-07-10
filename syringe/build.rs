@@ -9,7 +9,8 @@ fn main() {
     let manifest_dir = PathBuf::from(manifest_dir);
     let def_file = manifest_dir.join("dinput8.def");
 
-    println!("cargo:rustc-cdylib-link-arg=-Wl,--exclude-all-symbols");
-    println!("cargo:rustc-cdylib-link-arg=-Wl,--exclude-symbols=_rust_eh_personality");
     println!("cargo:rustc-cdylib-link-arg={}", def_file.display());
+    println!("cargo:rustc-cdylib-link-arg=-Wl,--exclude-all-symbols");
+    println!("cargo:rustc-cdylib-link-arg=-Wl,--exclude-symbols=DllMain");
+    println!("cargo:rustc-cdylib-link-arg=-Wl,--exclude-symbols=rust_eh_personality");
 }

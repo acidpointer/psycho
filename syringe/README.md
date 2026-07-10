@@ -11,13 +11,15 @@ The proxy is deliberately `no_std` and does not depend on `libpsycho`. Keep it
 limited to tiny Kernel32-only startup code; richer modding infrastructure belongs
 in loaded mods after `Syringe_ModInit`.
 
-DLLs are loaded in case-insensitive filename order. Other developers can place
-their own early-load DLLs in the same directory without changing this loader.
+DLLs are loaded in Windows ordinal case-insensitive filename order. Other
+developers can place their own early-load DLLs in the same directory without
+changing this loader.
 
-The proxy starts a tiny loader thread from `DllMain` and from its TLS callback.
-Both callbacks use the same guarded attach path. That keeps `LoadLibraryW` out
-of the loader-lock callback itself, while still loading the mods before normal
-dinput8 forwarding in most startup paths.
+The proxy starts one loader thread from `DllMain` without waiting for it. That
+worker loads the real system `dinput8.dll`, then discovers and initializes
+Syringe DLLs. Proxy exports always forward independently of this work: they
+never wait for, or start, mod loading. This avoids loading arbitrary mods while
+another DLL may hold the Windows loader lock.
 
 Loaded DLLs should not perform real initialization from `DllMain` or TLS
 callbacks. Instead, export this optional entrypoint:
@@ -26,8 +28,11 @@ callbacks. Instead, export this optional entrypoint:
 Syringe_ModInit(const SyringeInfo* info) -> i32
 ```
 
-`syringe` calls it after `LoadLibraryW` returns, so the mod has a clear
-startup point outside the loaded DLL's loader-lock callback.
+`syringe` calls it after `LoadLibraryExW` returns, so the mod has a clear
+startup point outside the loaded DLL's loader-lock callback. The export name
+must be exactly undecorated `Syringe_ModInit`; an i686 stdcall DLL should use a
+module definition file to guarantee that spelling. `info` is borrowed only for
+the callback and must not be retained.
 
 Build:
 

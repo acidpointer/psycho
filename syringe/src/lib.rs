@@ -9,10 +9,11 @@
 //! forward the standard dinput8 exports to the real system DLL.
 //!
 //! Loader-lock rule: loader-lock callbacks must not call `LoadLibraryW` for
-//! mods. `DllMain` and the TLS callback both run the same tiny attach path:
-//! record our module handle, disable thread notifications, and start a worker
-//! thread. The exported dinput8 functions also call `ensure_loaded` as a
-//! fallback so early DirectInput callers cannot outrun the worker thread.
+//! mods. `DllMain` records our module handle and starts a worker thread. Proxy
+//! exports never wait for or start mod initialization.
+
+#[cfg(not(all(target_os = "windows", target_arch = "x86")))]
+compile_error!("syringe must be built for 32-bit Windows (i686-pc-windows-gnu)");
 
 mod dinput8;
 mod mods;
@@ -29,26 +30,29 @@ fn panic(_info: &PanicInfo) -> ! {
     loop {}
 }
 
+// Keep the MinGW DllMain entrypoint link-visible without making it a PE export.
+// `#[no_mangle]` would force DllMain into the proxy export table.
+core::arch::global_asm!(
+    ".globl _DllMain@12",
+    "_DllMain@12:",
+    "jmp {dll_main}",
+    dll_main = sym dll_main_impl,
+);
+
 // Stable `no_std` cdylib builds for MinGW still reference this personality
 // symbol in some configurations even with `panic = "abort"`.
-#[unsafe(export_name = "rust_eh_personality")]
-extern "C" fn loader_rust_eh_personality() {}
-
-#[used]
-#[unsafe(link_section = ".CRT$XLB")]
-static TLS_CALLBACK: unsafe extern "system" fn(HInstance, u32, *mut c_void) = tls_callback;
-
-unsafe extern "system" fn tls_callback(instance: HInstance, reason: u32, _reserved: *mut c_void) {
-    unsafe { process_attach(instance, reason) };
-}
+core::arch::global_asm!(
+    ".globl _rust_eh_personality",
+    "_rust_eh_personality:",
+    "ret"
+);
 
 /// Windows loader entrypoint.
 ///
 /// # Safety
 /// Called by the Windows loader with process-attach/detach arguments. The
 /// pointers and reason code must come from the loader.
-#[unsafe(no_mangle)]
-pub unsafe extern "system" fn DllMain(
+unsafe extern "system" fn dll_main_impl(
     instance: HInstance,
     reason: u32,
     _reserved: *mut c_void,
@@ -63,10 +67,6 @@ unsafe fn process_attach(instance: HInstance, reason: u32) {
     }
 
     mods::remember_loader_module(instance);
-
-    if !instance.is_null() {
-        win32::disable_thread_library_calls(instance);
-    }
 
     mods::start_loader_thread();
 }

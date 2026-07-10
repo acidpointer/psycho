@@ -38,6 +38,8 @@ for path in "$LOADER_PATH" "$CORE_PATH" "$HELPER_PATH" "$CONFIG_PATH"; do
     fi
 done
 
+bash "$SCRIPT_DIR/verify_syringe_pe.sh" "$LOADER_PATH"
+
 mkdir -p "$RELEASE_DIR"
 rm -f \
     "$RELEASE_DIR/$AIO_ARCHIVE" \

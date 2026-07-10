@@ -1,11 +1,11 @@
 //! Fixed-size UTF-16 path buffer.
 //!
 //! The loader runs before any mod infrastructure exists, so it avoids heap
-//! allocation entirely. `WidePath` is intentionally small and copyable.
+//! allocation entirely. `WidePath` is copyable so the loader can keep path
+//! ownership explicit while supporting Windows extended-length paths.
 
-use core::cmp::Ordering;
-
-const MAX_PATH_CHARS: usize = 1024;
+const MAX_PATH_CHARS: usize = 32_768;
+const MAX_LEGACY_PATH_CHARS: usize = 260;
 
 #[derive(Clone, Copy)]
 pub struct WidePath {
@@ -70,12 +70,42 @@ impl WidePath {
         if path.push(0) { Some(path) } else { None }
     }
 
+    /// Long paths need the extended namespace prefix for legacy Win32 APIs.
+    /// Short paths retain their original spelling for Wine compatibility.
+    pub fn with_extended_prefix_if_needed(&self) -> Option<Self> {
+        if self.len < MAX_LEGACY_PATH_CHARS || self.has_extended_prefix() {
+            return Some(*self);
+        }
+
+        let mut path = Self::new();
+        if self.is_unc_path() {
+            if !path.push_ascii("\\\\?\\UNC\\") || !path.push_wide(&self.buf[2..self.len]) {
+                return None;
+            }
+        } else if !path.push_ascii("\\\\?\\") || !path.push_wide(self.as_slice()) {
+            return None;
+        }
+        Some(path)
+    }
+
     fn last(&self) -> u16 {
         if self.len == 0 {
             0
         } else {
             self.buf[self.len - 1]
         }
+    }
+
+    fn has_extended_prefix(&self) -> bool {
+        self.len >= 4
+            && self.buf[0] == b'\\' as u16
+            && self.buf[1] == b'\\' as u16
+            && self.buf[2] == b'?' as u16
+            && self.buf[3] == b'\\' as u16
+    }
+
+    fn is_unc_path(&self) -> bool {
+        self.len >= 2 && self.buf[0] == b'\\' as u16 && self.buf[1] == b'\\' as u16
     }
 
     fn push(&mut self, ch: u16) -> bool {
@@ -117,19 +147,6 @@ impl WidePath {
     }
 }
 
-pub fn compare_case_insensitive(left: &WidePath, right: &WidePath) -> Ordering {
-    for index in 0..left.len.min(right.len) {
-        let a = ascii_lower(left.buf[index]);
-        let b = ascii_lower(right.buf[index]);
-        match a.cmp(&b) {
-            Ordering::Equal => {}
-            order => return order,
-        }
-    }
-
-    left.len.cmp(&right.len)
-}
-
 pub fn nul_trimmed(data: &[u16]) -> &[u16] {
     let mut len = 0usize;
     while len < data.len() && data[len] != 0 {
@@ -137,14 +154,6 @@ pub fn nul_trimmed(data: &[u16]) -> &[u16] {
     }
 
     &data[..len]
-}
-
-fn ascii_lower(ch: u16) -> u16 {
-    if (b'A' as u16..=b'Z' as u16).contains(&ch) {
-        ch + 32
-    } else {
-        ch
-    }
 }
 
 fn is_separator(ch: u16) -> bool {

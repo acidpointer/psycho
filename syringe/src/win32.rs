@@ -4,6 +4,7 @@
 //! unsafe Kernel32 calls and handle ownership rules are not scattered through
 //! the startup logic.
 
+use core::cmp::Ordering;
 use core::ffi::c_void;
 use core::ptr::{null, null_mut};
 
@@ -19,6 +20,9 @@ const FILE_ATTRIBUTE_DIRECTORY: u32 = 0x10;
 const INVALID_HANDLE_VALUE: Handle = !0usize as Handle;
 const LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR: u32 = 0x0000_0100;
 const LOAD_LIBRARY_SEARCH_DEFAULT_DIRS: u32 = 0x0000_1000;
+const ERROR_FILE_NOT_FOUND: u32 = 2;
+const ERROR_PATH_NOT_FOUND: u32 = 3;
+const ERROR_NO_MORE_FILES: u32 = 18;
 const MAX_FIND_NAME: usize = 260;
 
 #[repr(C)]
@@ -80,17 +84,32 @@ impl FindHandle {
     ///
     /// The returned handle is closed automatically. The first result is written
     /// into `data`, matching the Win32 API contract.
-    pub fn first(pattern: &WidePath, data: &mut Win32FindDataW) -> Option<Self> {
-        let handle = unsafe { FindFirstFileW(pattern.as_slice().as_ptr(), data) };
+    pub fn first(pattern: &WidePath, data: &mut Win32FindDataW) -> Result<Option<Self>, u32> {
+        let Some(path) = pattern
+            .with_extended_prefix_if_needed()
+            .and_then(|path| path.with_nul())
+        else {
+            return Err(ERROR_PATH_NOT_FOUND);
+        };
+        let handle = unsafe { FindFirstFileW(path.as_slice().as_ptr(), data) };
         if handle == INVALID_HANDLE_VALUE {
-            None
+            match last_error() {
+                ERROR_FILE_NOT_FOUND | ERROR_PATH_NOT_FOUND => Ok(None),
+                error => Err(error),
+            }
         } else {
-            Some(Self(handle))
+            Ok(Some(Self(handle)))
         }
     }
 
-    pub fn next(&self, data: &mut Win32FindDataW) -> bool {
-        unsafe { FindNextFileW(self.0, data) != 0 }
+    pub fn next(&self, data: &mut Win32FindDataW) -> Result<bool, u32> {
+        if unsafe { FindNextFileW(self.0, data) != 0 } {
+            return Ok(true);
+        }
+        match last_error() {
+            ERROR_NO_MORE_FILES => Ok(false),
+            error => Err(error),
+        }
     }
 }
 
@@ -113,18 +132,23 @@ unsafe extern "system" {
         creation_flags: u32,
         thread_id: *mut u32,
     ) -> Handle;
-    fn DisableThreadLibraryCalls(module: HModule) -> i32;
     fn FindClose(handle: Handle) -> i32;
     fn FindFirstFileW(file_name: *const u16, find_file_data: *mut Win32FindDataW) -> Handle;
     fn FindNextFileW(handle: Handle, find_file_data: *mut Win32FindDataW) -> i32;
-    fn GetCurrentThreadId() -> u32;
+    fn GetLastError() -> u32;
     fn GetModuleFileNameW(module: HModule, file_name: *mut u16, size: u32) -> u32;
     fn GetProcAddress(module: HModule, proc_name: *const u8) -> *mut c_void;
     fn GetSystemDirectoryW(buffer: *mut u16, size: u32) -> u32;
-    fn GetTickCount() -> u32;
     fn LoadLibraryExW(file_name: *const u16, file: Handle, flags: u32) -> HModule;
     fn LoadLibraryW(file_name: *const u16) -> HModule;
-    fn Sleep(milliseconds: u32);
+    fn OutputDebugStringW(output_string: *const u16);
+    fn CompareStringOrdinal(
+        string1: *const u16,
+        count1: i32,
+        string2: *const u16,
+        count2: i32,
+        ignore_case: i32,
+    ) -> i32;
 }
 
 pub fn close_handle(handle: Handle) {
@@ -135,14 +159,9 @@ pub fn close_handle(handle: Handle) {
     }
 }
 
-pub fn current_thread_id() -> u32 {
-    unsafe { GetCurrentThreadId() }
-}
-
-pub fn disable_thread_library_calls(module: HModule) {
-    unsafe {
-        DisableThreadLibraryCalls(module);
-    }
+#[inline]
+pub fn last_error() -> u32 {
+    unsafe { GetLastError() }
 }
 
 pub fn get_proc_address(module: HModule, name: &[u8]) -> *mut c_void {
@@ -151,8 +170,75 @@ pub fn get_proc_address(module: HModule, name: &[u8]) -> *mut c_void {
     unsafe { GetProcAddress(module, name.as_ptr()) }
 }
 
+pub fn compare_paths(left: &WidePath, right: &WidePath, ignore_case: bool) -> Ordering {
+    let result = unsafe {
+        CompareStringOrdinal(
+            left.as_slice().as_ptr(),
+            left.as_slice().len() as i32,
+            right.as_slice().as_ptr(),
+            right.as_slice().len() as i32,
+            i32::from(ignore_case),
+        )
+    };
+    match result {
+        1 => Ordering::Less,
+        2 => Ordering::Equal,
+        3 => Ordering::Greater,
+        _ => left.as_slice().cmp(right.as_slice()),
+    }
+}
+
+pub fn debug_message(message: &[u8]) {
+    let mut wide = [0u16; 256];
+    let mut len = 0usize;
+    for &byte in message {
+        if len + 1 >= wide.len() {
+            break;
+        }
+        wide[len] = u16::from(byte);
+        len += 1;
+    }
+    unsafe { OutputDebugStringW(wide.as_ptr()) };
+}
+
+pub fn debug_error(prefix: &[u8], error: u32) {
+    let mut wide = [0u16; 256];
+    let mut len = 0usize;
+    for &byte in prefix {
+        if len + 1 >= wide.len() {
+            break;
+        }
+        wide[len] = u16::from(byte);
+        len += 1;
+    }
+
+    let mut digits = [0u8; 10];
+    let mut count = 0usize;
+    let mut value = error;
+    loop {
+        digits[count] = (value % 10) as u8;
+        count += 1;
+        value /= 10;
+        if value == 0 {
+            break;
+        }
+    }
+    while count > 0 && len + 1 < wide.len() {
+        count -= 1;
+        wide[len] = u16::from(b'0' + digits[count]);
+        len += 1;
+    }
+    if len + 1 < wide.len() {
+        wide[len] = b'\n' as u16;
+    }
+    unsafe { OutputDebugStringW(wide.as_ptr()) };
+}
+
 pub fn load_library(path: &WidePath) -> HModule {
-    let Some(nul_path) = path.with_nul() else {
+    let Some(nul_path) = path
+        .with_extended_prefix_if_needed()
+        .and_then(|path| path.with_nul())
+    else {
         return null_mut();
     };
 
@@ -161,17 +247,25 @@ pub fn load_library(path: &WidePath) -> HModule {
     unsafe { LoadLibraryW(nul_path.as_slice().as_ptr()) }
 }
 
-pub fn load_library_from_dll_dir(path: &WidePath) -> HModule {
-    let Some(nul_path) = path.with_nul() else {
-        return null_mut();
+pub fn load_library_from_dll_dir(path: &WidePath) -> Result<HModule, u32> {
+    let Some(nul_path) = path
+        .with_extended_prefix_if_needed()
+        .and_then(|path| path.with_nul())
+    else {
+        return Err(ERROR_PATH_NOT_FOUND);
     };
 
-    unsafe {
+    let module = unsafe {
         LoadLibraryExW(
             nul_path.as_slice().as_ptr(),
             null_mut(),
             LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS,
         )
+    };
+    if module.is_null() {
+        Err(last_error())
+    } else {
+        Ok(module)
     }
 }
 
@@ -187,12 +281,6 @@ pub fn module_file_name(module: HModule) -> WidePath {
     }
 
     path
-}
-
-pub fn sleep(milliseconds: u32) {
-    unsafe {
-        Sleep(milliseconds);
-    }
 }
 
 pub fn spawn_thread(start: unsafe extern "system" fn(*mut c_void) -> u32) -> bool {
@@ -213,8 +301,4 @@ pub fn system_directory() -> WidePath {
     }
 
     path
-}
-
-pub fn tick_count() -> u32 {
-    unsafe { GetTickCount() }
 }

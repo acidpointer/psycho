@@ -1,15 +1,14 @@
 //! Forwarded `dinput8.dll` exports.
 //!
-//! Every proxy export first forces early mods to finish loading. The worker
-//! thread usually wins, but this fallback keeps the loader deterministic if the
-//! game touches DirectInput immediately after mapping our proxy.
+//! Proxy forwarding is independent of early mod initialization. A proxy export
+//! must never wait for or start mod loading because its caller could hold the
+//! Windows loader lock.
 
 use core::ffi::c_void;
 use core::mem::transmute;
 use core::ptr::null_mut;
 use core::sync::atomic::{AtomicUsize, Ordering};
 
-use crate::mods::{self, LoadStatus};
 use crate::win32::{self, HInstance, HModule};
 
 const E_FAIL: i32 = 0x8000_4005u32 as i32;
@@ -32,10 +31,6 @@ pub unsafe fn direct_input8_create(
     out: *mut *mut c_void,
     outer: *mut c_void,
 ) -> i32 {
-    if !mods_ready_for_forwarding() {
-        return E_FAIL;
-    }
-
     let proc = real_proc(b"DirectInput8Create\0");
     if proc.is_null() {
         return E_FAIL;
@@ -46,10 +41,6 @@ pub unsafe fn direct_input8_create(
 }
 
 pub unsafe fn dll_can_unload_now() -> i32 {
-    if !mods_ready_for_forwarding() {
-        return E_FAIL;
-    }
-
     let proc = real_proc(b"DllCanUnloadNow\0");
     if proc.is_null() {
         return E_FAIL;
@@ -64,10 +55,6 @@ pub unsafe fn dll_get_class_object(
     iid: *const c_void,
     out: *mut *mut c_void,
 ) -> i32 {
-    if !mods_ready_for_forwarding() {
-        return E_FAIL;
-    }
-
     let proc = real_proc(b"DllGetClassObject\0");
     if proc.is_null() {
         return E_FAIL;
@@ -78,10 +65,6 @@ pub unsafe fn dll_get_class_object(
 }
 
 pub unsafe fn dll_register_server() -> i32 {
-    if !mods_ready_for_forwarding() {
-        return E_FAIL;
-    }
-
     let proc = real_proc(b"DllRegisterServer\0");
     if proc.is_null() {
         return E_FAIL;
@@ -92,10 +75,6 @@ pub unsafe fn dll_register_server() -> i32 {
 }
 
 pub unsafe fn dll_unregister_server() -> i32 {
-    if !mods_ready_for_forwarding() {
-        return E_FAIL;
-    }
-
     let proc = real_proc(b"DllUnregisterServer\0");
     if proc.is_null() {
         return E_FAIL;
@@ -105,11 +84,10 @@ pub unsafe fn dll_unregister_server() -> i32 {
     unsafe { f() }
 }
 
-fn mods_ready_for_forwarding() -> bool {
-    match mods::ensure_loaded() {
-        LoadStatus::Loaded(_) | LoadStatus::TimedOut => true,
-        LoadStatus::Reentrant => false,
-    }
+/// Load and cache the real system DLL before invoking `Syringe_ModInit`.
+/// Proxy exports retain lazy loading as their normal compatibility fallback.
+pub fn preload() {
+    let _ = real_dinput8();
 }
 
 fn real_proc(name: &[u8]) -> *mut c_void {

@@ -1,6 +1,9 @@
 #![no_std]
 
 //! Generic ABI for DLLs loaded by `syringe`.
+//!
+//! `SyringeInfo` is borrowed for the duration of `Syringe_ModInit`. A mod must
+//! copy any values it needs after the callback returns.
 
 use core::mem::size_of;
 
@@ -29,4 +32,7 @@ impl SyringeInfo {
     }
 }
 
+/// The exported symbol must be the exact undecorated name `Syringe_ModInit`.
+/// On i686, use a module definition file when a toolchain decorates stdcall
+/// exports.
 pub type SyringeModInitFn = unsafe extern "system" fn(*const SyringeInfo) -> i32;
