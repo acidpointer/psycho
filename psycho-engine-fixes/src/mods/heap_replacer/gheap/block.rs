@@ -565,19 +565,16 @@ impl BlockHeap {
         }
     }
 
-    fn free(&mut self, ptr: *mut c_void) -> bool {
-        let block_idx = match self.find_block(ptr) {
-            Some(i) => i,
-            None => return false,
-        };
+    fn free_if_owned(&mut self, ptr: *mut c_void) -> Option<bool> {
+        let block_idx = self.find_block(ptr)?;
         let Some(block) = self.blocks[block_idx].as_mut() else {
-            return false;
+            return None;
         };
         let offset = (ptr as usize - block.base as usize) as u32;
         // Slot stays committed even when empty -- NVHR dheap semantics.
         // Decommitting on empty caused pathological retire/commit churn
         // on workloads that bounced a single cell inside one block.
-        block.free(offset)
+        Some(block.free(offset))
     }
 
     /// Release slots with no live user allocations. Fires only from
@@ -619,7 +616,7 @@ impl BlockHeap {
                     base,
                     e,
                 );
-                // Slot is already cleared by `take()`; drop `b` implicitly.
+                self.blocks[i] = Some(b);
                 continue;
             }
             slots += 1;
@@ -642,19 +639,12 @@ impl BlockHeap {
         (slots, bytes)
     }
 
-    fn usable_size(&self, ptr: *const c_void) -> usize {
-        let block_idx = match self.find_block(ptr) {
-            Some(i) => i,
-            None => return 0,
-        };
-        match &self.blocks[block_idx] {
-            Some(block) => block.usable_size(ptr).unwrap_or(0) as usize,
-            None => 0,
-        }
-    }
-
-    fn contains(&self, ptr: *const c_void) -> bool {
-        self.find_block(ptr).is_some()
+    fn size_of(&self, ptr: *const c_void) -> Option<usize> {
+        let block_idx = self.find_block(ptr)?;
+        self.blocks[block_idx]
+            .as_ref()?
+            .usable_size(ptr)
+            .map(|size| size as usize)
     }
 
     fn block_count(&self) -> usize {
@@ -694,28 +684,22 @@ pub fn alloc(size: usize) -> *mut c_void {
     with_heap(|h| h.alloc(size))
 }
 
+/// Free a pointer if it belongs to a block reservation. `Some(false)`
+/// represents an invalid or already-freed pointer in an owned reservation.
 #[inline]
-pub fn free(ptr: *mut c_void) -> bool {
+pub fn free_if_owned(ptr: *mut c_void) -> Option<bool> {
     if ptr.is_null() {
-        return false;
+        return None;
     }
-    with_heap(|h| h.free(ptr))
+    with_heap(|h| h.free_if_owned(ptr))
 }
 
 #[inline]
-pub fn usable_size(ptr: *const c_void) -> usize {
+pub fn size_of(ptr: *const c_void) -> Option<usize> {
     if ptr.is_null() {
-        return 0;
+        return None;
     }
-    with_heap(|h| h.usable_size(ptr))
-}
-
-#[inline]
-pub fn is_block_ptr(ptr: *const c_void) -> bool {
-    if ptr.is_null() {
-        return false;
-    }
-    with_heap(|h| h.contains(ptr))
+    with_heap(|h| h.size_of(ptr))
 }
 
 pub fn block_count() -> usize {

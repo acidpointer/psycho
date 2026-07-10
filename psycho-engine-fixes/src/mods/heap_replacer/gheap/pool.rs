@@ -406,6 +406,8 @@ struct Pool {
     live_cells: AtomicU32,
     /// Commit high-water mark in bytes (distance from base to cur).
     committed_bytes: AtomicU32,
+    /// Committed out-of-band `FreeLink` metadata.
+    metadata_bytes: AtomicU32,
 
     /// Pool index (for diagnostics).
     index: u8,
@@ -443,6 +445,7 @@ impl Pool {
             next_free: ptr::null_mut(),
             live_cells: AtomicU32::new(0),
             committed_bytes: AtomicU32::new(0),
+            metadata_bytes: AtomicU32::new(0),
             index: 0,
             state: AtomicU8::new(POOL_STATE_NOT_INIT),
             lock: AtomicU32::new(0),
@@ -489,41 +492,6 @@ impl Pool {
     fn cell_to_link(&self, cell: *mut u8) -> *mut FreeLink {
         let cell_idx = (cell as usize - self.base as usize) / self.item_size as usize;
         unsafe { self.free_cells.add(cell_idx) }
-    }
-
-    #[inline]
-    fn link_is_in_list(&self, mut cur: *mut FreeLink, target: *mut FreeLink) -> bool {
-        if target.is_null() || self.free_cells.is_null() {
-            return false;
-        }
-
-        let start = self.free_cells as usize;
-        let end = start + self.max_cell_count as usize * std::mem::size_of::<FreeLink>();
-        let mut steps = 0usize;
-
-        while !cur.is_null() && cur != FREE_LINK_TAIL && steps < self.max_cell_count as usize {
-            if cur == target {
-                return true;
-            }
-
-            let cur_addr = cur as usize;
-            if cur_addr < start || cur_addr >= end {
-                return false;
-            }
-            if (cur_addr - start) % std::mem::size_of::<FreeLink>() != 0 {
-                return false;
-            }
-
-            cur = unsafe { (*cur).next };
-            steps += 1;
-        }
-
-        false
-    }
-
-    #[inline]
-    fn link_is_free(&self, target: *mut FreeLink) -> bool {
-        self.link_is_in_list(self.next_free, target)
     }
 
     /// Commit one more POOL_BLOCK_SIZE chunk from the reservation and
@@ -716,7 +684,7 @@ impl Pool {
     /// hang the game faster. This path is back to immediate LIFO reuse;
     /// stale-pointer protection belongs in specific engine guards until
     /// we have a proven allocator-wide contract.
-    unsafe fn free(&mut self, cell: *mut u8) {
+    unsafe fn free(&mut self, cell: *mut u8) -> bool {
         let link = self.cell_to_link(cell);
         unsafe {
             // Double-free guard: free cells always have either a real
@@ -728,7 +696,7 @@ impl Pool {
                     self.index,
                     cell,
                 );
-                return;
+                return false;
             }
             (*link).next = if self.next_free.is_null() {
                 FREE_LINK_TAIL
@@ -738,6 +706,7 @@ impl Pool {
             self.next_free = link;
         }
         self.live_cells.fetch_sub(1, Ordering::Relaxed);
+        true
     }
 
     /// Return true if `addr` is inside this pool's reservation.
@@ -747,7 +716,8 @@ impl Pool {
         a >= self.base as usize && a < self.end as usize
     }
 
-    fn ptr_info(&self, addr: *const c_void) -> Option<PoolPtrInfo> {
+    /// Inspect one pool cell while the caller holds `self.lock`.
+    fn ptr_info_locked(&self, addr: *const c_void) -> Option<PoolPtrInfo> {
         if !self.contains(addr) {
             return None;
         }
@@ -768,7 +738,8 @@ impl Pool {
             cell_start,
             offset: addr - cell_start,
             committed: cell_start + self.item_size as usize <= self.cur as usize,
-            is_free: self.link_is_free(link),
+            // Allocated cells are the only entries whose link is NULL.
+            is_free: unsafe { !(*link).next.is_null() },
         })
     }
 
@@ -778,7 +749,7 @@ impl Pool {
         vtable: usize,
         refcount: i32,
     ) -> Option<PoolPtrInfo> {
-        let info = self.ptr_info(ptr)?;
+        let info = self.ptr_info_locked(ptr)?;
         if !info.committed || info.offset != 0 || info.item_size < 12 {
             return None;
         }
@@ -1119,6 +1090,7 @@ impl PoolHeap {
         // Freelist metadata -- out-of-band from user cells, allocated
         // from the OS directly (not from ourselves) to avoid recursion.
         let meta_bytes = max_cell_count as usize * std::mem::size_of::<FreeLink>();
+        let meta_commit_bytes = meta_bytes.div_ceil(0x1000) * 0x1000;
         let meta_ptr =
             unsafe { VirtualAlloc(None, meta_bytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE) };
         if meta_ptr.is_null() {
@@ -1138,7 +1110,8 @@ impl PoolHeap {
             }
             return false;
         }
-        unsafe { std::ptr::write_bytes(meta_ptr as *mut u8, 0, meta_bytes) };
+        // VirtualAlloc returns zero-filled pages. Each entry is initialized by
+        // grow() before it is linked into the freelist.
 
         // Commit the pool's state via raw pointer writes.
         unsafe {
@@ -1147,6 +1120,9 @@ impl PoolHeap {
             (*pool_ptr).end = reserved_base.add(max_size as usize);
             (*pool_ptr).free_cells = meta_ptr as *mut FreeLink;
             (*pool_ptr).next_free = ptr::null_mut();
+            (*pool_ptr)
+                .metadata_bytes
+                .store(meta_commit_bytes as u32, Ordering::Relaxed);
         }
 
         // Claim addr_to_pool slots. Readers on the hot path will see
@@ -1296,8 +1272,26 @@ impl PoolHeap {
         unsafe {
             let p = pool as *const Pool as *mut Pool;
             (*p).acquire();
-            (*p).free(ptr as *mut u8);
+            let freed = match (*p).ptr_info_locked(ptr) {
+                Some(info) if info.committed && info.offset == 0 => {
+                    (*p).free(info.cell_start as *mut u8)
+                }
+                Some(info) => {
+                    log::error!(
+                        "[POOL] Invalid free ignored: pool={} ptr={:p} offset={} committed={}",
+                        info.pool_index,
+                        ptr,
+                        info.offset,
+                        info.committed,
+                    );
+                    false
+                }
+                None => false,
+            };
             (*p).release();
+            if !freed {
+                return true;
+            }
         }
         self.class_hint[class_idx].store(subpool_idx, Ordering::Relaxed);
         true
@@ -1314,7 +1308,14 @@ impl PoolHeap {
     }
 
     pub fn ptr_info(&self, ptr: *const c_void) -> Option<PoolPtrInfo> {
-        self.pool_from_addr(ptr).and_then(|p| p.ptr_info(ptr))
+        let pool = self.pool_from_addr(ptr)?;
+        unsafe {
+            let p = pool as *const Pool as *mut Pool;
+            (*p).acquire();
+            let result = (*p).ptr_info_locked(ptr);
+            (*p).release();
+            result
+        }
     }
 
     pub fn tombstone_free_cell(
@@ -1345,6 +1346,13 @@ impl PoolHeap {
             .iter()
             .filter(|p| p.is_inited())
             .map(|p| p.max_size as usize)
+            .sum()
+    }
+
+    pub fn metadata_bytes(&self) -> usize {
+        self.pools
+            .iter()
+            .map(|p| p.metadata_bytes.load(Ordering::Relaxed) as usize)
             .sum()
     }
 
@@ -1425,6 +1433,10 @@ pub fn committed_bytes() -> usize {
 
 pub fn reserved_bytes() -> usize {
     HEAP.get().map(|h| h.reserved_bytes()).unwrap_or(0)
+}
+
+pub fn metadata_bytes() -> usize {
+    HEAP.get().map(|h| h.metadata_bytes()).unwrap_or(0)
 }
 
 pub fn live_cells() -> usize {

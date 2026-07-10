@@ -23,7 +23,6 @@ use std::thread::{self, JoinHandle};
 
 use libmimalloc::process_info::MiMallocProcessInfo;
 
-use super::super::mem_stats;
 use super::engine::globals;
 use super::pressure::PressureRelief;
 
@@ -194,10 +193,6 @@ fn log_diagnostics(poll_count: u32, info: &MiMallocProcessInfo) {
 
     super::hang::log_if_main_stale();
 
-    let stats = mem_stats::global();
-    let relief = stats.pressure_cycles();
-    let cells = stats.pressure_cells_unloaded();
-
     log_pressure(info.get_current_commit());
 
     log::debug!(
@@ -213,19 +208,19 @@ fn log_diagnostics(poll_count: u32, info: &MiMallocProcessInfo) {
     let rate = GROWTH_RATE.load(Ordering::Relaxed);
     let pool_reserved_mb = super::pool::reserved_bytes() / 1024 / 1024;
     let pool_mb = super::pool::committed_bytes() / 1024 / 1024;
+    let pool_metadata_mb = super::pool::metadata_bytes() / 1024 / 1024;
     let pool_live = super::pool::live_cells();
     let block_ct = super::block::block_count();
     let va_live = super::va_alloc::live_bytes() / 1024 / 1024;
     log::debug!(
-        "[MEM] Pool: {}MB committed / {}MB reserved ({} live) | Blocks: {} | VA: {}MB | Rate: {}/s | Reliefs: {} | Cells: {}",
+        "[MEM] Pool: {}MB cells + {}MB metadata / {}MB reserved ({} live) | Blocks: {} | VA: {}MB | Rate: {}/s",
         pool_mb,
+        pool_metadata_mb,
         pool_reserved_mb,
         pool_live,
         block_ct,
         va_live,
         format_rate(rate),
-        relief,
-        cells,
     );
 
     if let Some(vas) = super::vas::sample() {

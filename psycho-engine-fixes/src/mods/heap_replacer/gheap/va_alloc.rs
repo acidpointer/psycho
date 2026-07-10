@@ -79,7 +79,7 @@ struct Block {
     size: usize,
 }
 
-static BLOCKS: LazyLock<Mutex<Vec<Block>>> = LazyLock::new(|| Mutex::new(Vec::with_capacity(32)));
+static BLOCKS: LazyLock<Mutex<Vec<Block>>> = LazyLock::new(|| Mutex::new(Vec::new()));
 
 static ALLOC_COUNT: AtomicU64 = AtomicU64::new(0);
 static FREE_COUNT: AtomicU64 = AtomicU64::new(0);
@@ -89,7 +89,13 @@ static TOTAL_VAS_BYTES: AtomicU64 = AtomicU64::new(0);
 /// Allocate `size` bytes via the arena's large-alloc range (if available)
 /// or direct `VirtualAlloc`. Returns NULL on failure.
 pub fn alloc(size: usize) -> *mut c_void {
-    let rounded = (size + PAGE_SIZE - 1) & !(PAGE_SIZE - 1);
+    let Some(rounded) = size
+        .checked_add(PAGE_SIZE - 1)
+        .map(|size| size & !(PAGE_SIZE - 1))
+    else {
+        log::error!("[VA] alloc size overflow: size={}", size);
+        return null_mut();
+    };
 
     // Previous code had a "first-chance from reserved large-alloc sub-range"
     // fast path backed by the arena.rs unified reservation. That reservation
@@ -161,9 +167,32 @@ pub fn alloc(size: usize) -> *mut c_void {
         base: ptr as usize,
         size: rounded,
     };
-    match BLOCKS.lock() {
-        Ok(mut g) => g.push(block),
-        Err(p) => p.into_inner().push(block),
+    let tracked = {
+        let mut blocks = match BLOCKS.lock() {
+            Ok(g) => g,
+            Err(p) => p.into_inner(),
+        };
+        if blocks.try_reserve(1).is_ok() {
+            blocks.push(block);
+            true
+        } else {
+            false
+        }
+    };
+    if !tracked {
+        log::error!(
+            "[VA] tracking allocation failed: base=0x{:08x} size={}",
+            block.base,
+            block.size,
+        );
+        if let Err(e) = unsafe { VirtualFree(ptr, 0, MEM_RELEASE) } {
+            log::error!(
+                "[VA] tracking rollback VirtualFree failed: base=0x{:08x} err={:?}",
+                block.base,
+                e,
+            );
+        }
+        return null_mut();
     }
     ALLOC_COUNT.fetch_add(1, Ordering::Relaxed);
     TOTAL_VAS_BYTES.fetch_add(rounded as u64, Ordering::Relaxed);
@@ -182,20 +211,14 @@ pub unsafe fn free(ptr: *mut c_void) -> bool {
     }
     let target = ptr as usize;
 
-    let removed = {
-        let mut blocks = match BLOCKS.lock() {
-            Ok(g) => g,
-            Err(p) => p.into_inner(),
-        };
-        blocks
-            .iter()
-            .position(|b| b.base == target)
-            .map(|idx| blocks.swap_remove(idx))
+    let mut blocks = match BLOCKS.lock() {
+        Ok(g) => g,
+        Err(p) => p.into_inner(),
     };
-
-    let Some(b) = removed else {
+    let Some(idx) = blocks.iter().position(|b| b.base == target) else {
         return false;
     };
+    let b = blocks[idx];
 
     // Raw VirtualAlloc block: full release returns VA to OS.
     if let Err(e) = unsafe { VirtualFree(ptr, 0, MEM_RELEASE) } {
@@ -205,7 +228,10 @@ pub unsafe fn free(ptr: *mut c_void) -> bool {
             b.size,
             e,
         );
+        return true;
     }
+    blocks.swap_remove(idx);
+    drop(blocks);
     FREE_COUNT.fetch_add(1, Ordering::Relaxed);
     TOTAL_VAS_BYTES.fetch_sub(b.size as u64, Ordering::Relaxed);
     true

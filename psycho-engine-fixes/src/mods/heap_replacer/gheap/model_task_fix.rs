@@ -57,13 +57,11 @@ fn is_stale_model_task(this: *mut c_void) -> bool {
 fn log_skip(this: *mut c_void, flags: u32) {
     let n = STALE_MODEL_TASK_DTORS.fetch_add(1, Ordering::Relaxed) + 1;
     if n.is_power_of_two() {
-        let state = pool::ptr_info(this).map(|_| "free").unwrap_or("unknown");
         log::warn!(
-            "[MODEL_TASK] skipped stale LockFreeStringMap<Model*> destructor total={} this=0x{:08x} flags=0x{:x} state={}",
+            "[MODEL_TASK] skipped stale LockFreeStringMap<Model*> destructor total={} this=0x{:08x} flags=0x{:x} state=free",
             n,
             this as usize,
             flags,
-            state,
         );
     }
 }

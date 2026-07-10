@@ -4,12 +4,11 @@
 //! - active allocator mode
 //! - gheap tier ownership and VAS fragmentation
 //! - scrap_heap stats (region-level allocated bytes)
-//! - Pressure relief stats (cycle count, cells unloaded)
 //!
 //! All counters are atomic -- safe to read from any thread (monitor,
 //! console commands) and write from hot allocation paths.
 
-use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use libpsycho::common::helpers::format_bytes;
 
@@ -22,10 +21,6 @@ use super::{AllocatorMode, current_mode, scrap_heap};
 
 /// Unified memory statistics for the heap replacer.
 pub struct MemStats {
-    // -- Pressure relief counters --
-    pressure_cycles: AtomicI64,
-    pressure_cells_unloaded: AtomicI64,
-
     // -- scrap_heap counters --
     scrap_heap_allocated: AtomicU64,
 }
@@ -36,20 +31,8 @@ static INSTANCE: MemStats = MemStats::new();
 impl MemStats {
     const fn new() -> Self {
         Self {
-            pressure_cycles: AtomicI64::new(0),
-            pressure_cells_unloaded: AtomicI64::new(0),
             scrap_heap_allocated: AtomicU64::new(0),
         }
-    }
-
-    // -- Pressure relief (written by pressure.rs) --
-
-    pub fn pressure_cycles(&self) -> i64 {
-        self.pressure_cycles.load(Ordering::Relaxed)
-    }
-
-    pub fn pressure_cells_unloaded(&self) -> i64 {
-        self.pressure_cells_unloaded.load(Ordering::Relaxed)
     }
 
     // -- scrap_heap (written by region alloc/free) --
@@ -91,10 +74,10 @@ impl MemStats {
     }
 
     fn gheap_report() -> String {
-        let stats = global();
         let mut r = String::with_capacity(1024);
 
         let pool_commit = pool::committed_bytes();
+        let pool_metadata = pool::metadata_bytes();
         let pool_reserved = pool::reserved_bytes();
         let block_commit = block::committed_bytes();
         let va_live = va_alloc::live_bytes() as usize;
@@ -127,8 +110,9 @@ impl MemStats {
         push_section(&mut r, "Memory");
         r.push_str(&format!("  gheap total: {}\n", format_bytes(gheap_total),));
         r.push_str(&format!(
-            "    pool:  {} committed, {} reserved\n",
+            "    pool:  {} cells, {} metadata, {} reserved\n",
             format_bytes(pool_commit),
+            format_bytes(pool_metadata),
             format_bytes(pool_reserved),
         ));
         r.push_str(&format!(
@@ -154,17 +138,8 @@ impl MemStats {
         push_section(&mut r, "Pool cells");
         r.push_str(&format!("  live pool cells: {}\n\n", pool::live_cells(),));
 
-        let cycles = stats.pressure_cycles();
         push_section(&mut r, "Cleanup");
-        if cycles > 0 {
-            r.push_str(&format!(
-                "  pressure relief: {} runs, {} cells unloaded\n",
-                cycles,
-                stats.pressure_cells_unloaded(),
-            ));
-        } else {
-            r.push_str("  pressure relief: no runs yet\n");
-        }
+        r.push_str("  Direct-VA allocation failure can retire empty block slots once.\n");
 
         r.push('\n');
         push_section(&mut r, "Advanced");
@@ -257,6 +232,7 @@ pub fn global() -> &'static MemStats {
 
 fn gheap_owned_bytes() -> usize {
     pool::committed_bytes()
+        .saturating_add(pool::metadata_bytes())
         .saturating_add(block::committed_bytes())
         .saturating_add(va_alloc::live_bytes() as usize)
 }

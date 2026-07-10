@@ -104,6 +104,9 @@ pub fn is_main_thread() -> bool {
         ThreadRole::Main => true,
         ThreadRole::Worker => false,
         ThreadRole::Unknown => {
+            if !globals::main_thread_id_is_set() {
+                return false;
+            }
             let is_main = globals::is_main_thread_by_tid();
             r.set(if is_main {
                 ThreadRole::Main
@@ -193,13 +196,11 @@ pub unsafe fn free(ptr: *mut c_void) {
         return;
     }
 
-    if super::pool::is_pool_ptr(ptr as *const c_void) {
-        super::pool::free(ptr);
+    if super::pool::free(ptr) {
         return;
     }
 
-    if super::block::is_block_ptr(ptr as *const c_void) {
-        super::block::free(ptr);
+    if super::block::free_if_owned(ptr).is_some() {
         return;
     }
 
@@ -232,8 +233,8 @@ pub unsafe fn msize(ptr: *mut c_void) -> usize {
         return super::pool::usable_size(ptr as *const c_void);
     }
 
-    if super::block::is_block_ptr(ptr as *const c_void) {
-        return super::block::usable_size(ptr as *const c_void);
+    if let Some(size) = super::block::size_of(ptr as *const c_void) {
+        return size;
     }
 
     if let Some(sz) = super::va_alloc::size_of(ptr as *const c_void) {
@@ -270,8 +271,8 @@ pub unsafe fn realloc(ptr: *mut c_void, new_size: usize) -> *mut c_void {
 
     let old_size_opt = if super::pool::is_pool_ptr(ptr as *const c_void) {
         Some(super::pool::usable_size(ptr as *const c_void))
-    } else if super::block::is_block_ptr(ptr as *const c_void) {
-        Some(super::block::usable_size(ptr as *const c_void))
+    } else if let Some(size) = super::block::size_of(ptr as *const c_void) {
+        Some(size)
     } else {
         super::va_alloc::size_of(ptr as *const c_void)
     };

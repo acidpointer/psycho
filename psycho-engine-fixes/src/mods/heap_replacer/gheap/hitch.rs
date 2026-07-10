@@ -266,7 +266,7 @@ fn maybe_log_window() {
 
     let scrap = scrap_heap::snapshot();
     log::debug!(
-        "[HITCH] events={} max_us={} avg_us={} ema_us={} loading={} pddq={}/{}/{}/{}/{} ragdoll={}/{} extra_owner=load:{} access:{} unreadable:{} task=qt_final:{} guard:{} tombstone:{} pool={}/{}MB live={} blocks={} block_mb={} va={}MB scrap={}KB ids={} active_ids={} regions={} allocs={} spans=calls/max/total {}",
+        "[HITCH] events={} max_us={} avg_us={} ema_us={} loading={} pddq={}/{}/{}/{}/{} ragdoll={}/{} extra_owner=load:{} access:{} unreadable:{} task=qt_final:{} guard:{} tombstone:{} pool={}+{}/{}MB live={} blocks={} block_mb={} va={}MB scrap={}KB ids={} active_ids={} regions={} allocs={} spans=calls/max/total {}",
         hitches,
         max_us,
         total_us / hitches.max(1),
@@ -286,6 +286,7 @@ fn maybe_log_window() {
         task.guards,
         task.tombstones,
         pool::committed_bytes() / 1024 / 1024,
+        pool::metadata_bytes() / 1024 / 1024,
         pool::reserved_bytes() / 1024 / 1024,
         pool::live_cells(),
         block::block_count(),
