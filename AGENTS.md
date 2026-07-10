@@ -5,7 +5,7 @@
 Only supported target: `i686-pc-windows-gnu` (32-bit, FNV/xNVSE requirement).
 
 ```
-cargo build --release --target i686-pc-windows-gnu -p psycho-loader -p psycho-engine-fixes -p psycho-engine-fixes-helper
+cargo build --release --target i686-pc-windows-gnu -p syringe -p psycho-engine-fixes -p psycho-engine-fixes-helper
 ```
 
 Requires `mingw-w64` (`i686-w64-mingw32-gcc`) on `$PATH` and `rustup target add i686-pc-windows-gnu`.
@@ -29,16 +29,16 @@ git submodule update --init --recursive
 
 | Crate | Role |
 |---|---|
-| `psycho-engine-fixes` | Core DLL (`psycho_engine_fixes.dll`). Loaded early by `psycho-loader` from `<game root>/mods/psycho_engine_fixes.dll`; owns engine patches and shared state. |
+| `psycho-engine-fixes` | Core DLL (`psycho_engine_fixes.dll`). Loaded early by `syringe` from `<game root>/syringe/psycho_engine_fixes.dll`; owns engine patches and shared state. |
 | `psycho-engine-fixes-helper` | Thin xNVSE plugin (`psycho_engine_fixes_helper.dll`, plugin name `psycho-nvse-helper`). Registers console commands/messages and lazily resolves exact named exports from `psycho_engine_fixes.dll` only if it is already loaded. It must never load or initialize the core DLL. |
-| `psycho-loader` | Generic early `dinput8.dll` proxy. Loads every `<game root>/mods/*.dll` before xNVSE plugin load. Must stay mod/plugin agnostic, `no_std`, and independent of `libpsycho`. |
-| `psycho-loader-api` | Tiny generic ABI for DLLs loaded by `psycho-loader`. Loaded DLLs should export `PsychoLoader_ModInit` and do real startup there, not in DllMain/TLS callbacks. |
+| `syringe` | Generic early `dinput8.dll` proxy. Loads every `<game root>/syringe/*.dll` before xNVSE plugin load. Must stay mod/plugin agnostic, `no_std`, and independent of `libpsycho`. |
+| `syringe-api` | Tiny generic ABI for DLLs loaded by `syringe`. Loaded DLLs should export `Syringe_ModInit` and do real startup there, not in DllMain/TLS callbacks. |
 | `libpsycho` | WinAPI wrappers, IAT/inline/VMT hooking, logging. |
 | `libnvse` | Rust bindings to xNVSE via `bindgen`. |
 | `libmimalloc` | Fork of mimalloc sys crate. Builds C source via `cc`. |
 | `libf4se` | Deprecated F4SE bindings. Not maintained. |
 
-Plugin entry flow: `dinput8.dll` attach callback (`DllMain` or TLS) -> loader thread loads every `<game root>/mods/*.dll` -> loader calls each optional `PsychoLoader_ModInit` export outside the loaded DLL's loader-lock callback -> `psycho_engine_fixes.dll` completes all setup from that single entrypoint -> `psycho_engine_fixes_helper.dll` `NVSEPlugin_*` only registers helper services and forwards optional messages/commands through `PsychoEngineFixes_RunCommand` / `PsychoEngineFixes_NotifyEvent` if the core DLL is already available.
+Plugin entry flow: `dinput8.dll` attach callback (`DllMain` or TLS) -> loader thread loads every `<game root>/syringe/*.dll` -> loader calls each optional `Syringe_ModInit` export outside the loaded DLL's loader-lock callback -> `psycho_engine_fixes.dll` completes all setup from that single entrypoint -> `psycho_engine_fixes_helper.dll` `NVSEPlugin_*` only registers helper services and forwards optional messages/commands through `PsychoEngineFixes_RunCommand` / `PsychoEngineFixes_NotifyEvent` if the core DLL is already available.
 
 ## WinAPI usage
 
@@ -60,7 +60,7 @@ Before changing Fallout NV native PBR, read `docs/graphics_fnv_pbr_errata.md`. I
 
 ## Config
 
-Plugin runtime config: `psycho-engine-fixes/config/psycho_engine_fixes.toml`, deployed beside the core DLL as `<game root>/mods/psycho_engine_fixes.toml`. Important memory setting: `memory.allocator` (`0` = off, `1` = scrap_heap, `2` = gheap + scrap_heap). It also controls zlib, display tweaks, logging, and debug probes.
+Plugin runtime config: `psycho-engine-fixes/config/psycho_engine_fixes.toml`, deployed beside the core DLL as `<game root>/syringe/psycho_engine_fixes.toml`. Important memory setting: `memory.allocator` (`0` = off, `1` = scrap_heap, `2` = gheap + scrap_heap). It also controls zlib, display tweaks, logging, and debug probes.
 
 ## Key subsystem: gheap
 
@@ -91,7 +91,7 @@ If a knowledge gap exists (unknown function behavior, unclear call paths, missin
 
 No guessing rule: never implement a crash fix from an inferred model when the exact game contract is still unknown. If the current Ghidra output does not explain the failing function, caller ownership, data layout, lifetime, and safe intervention point, the next action is more research scripts -- not a patch. Partial research is not enough.
 
-Architecture rule: do not place engine-fix crash patches in `psycho-engine-fixes-helper`. The helper exists for xNVSE commands/messages and optional access to data exported by the core DLL. Engine behavior fixes belong in `psycho-engine-fixes`, loaded by `psycho-loader`, unless the user explicitly asks for a helper-side compatibility shim.
+Architecture rule: do not place engine-fix crash patches in `psycho-engine-fixes-helper`. The helper exists for xNVSE commands/messages and optional access to data exported by the core DLL. Engine behavior fixes belong in `psycho-engine-fixes`, loaded by `syringe`, unless the user explicitly asks for a helper-side compatibility shim.
 
 Operational rule: do not run Ghidra, `analyzeHeadless`, or `ghidraRun` yourself. Prepare scripts in `analysis/ghidra/scripts/`, ask the user to run them, and analyze the resulting `.txt` output after the user provides it.
 
@@ -144,7 +144,7 @@ Never tell the user what they want to hear if it is wrong. If an idea, assumptio
 
 ## Shell scripts
 
-- `build_fnv.sh` -- builds and installs the full FNV set: `FalloutNV/dinput8.dll`, `FalloutNV/mods/psycho_engine_fixes.dll`, `FalloutNV/mods/psycho_engine_fixes.toml`, and helper DLL to the legacy xNVSE mod path `mods/psycho_nvse/nvse/plugins/psycho_engine_fixes_helper.dll` (edit `TARGET_DIR` at top). It also removes exact stale Psycho configs/DLLs from old install layouts.
+- `build_fnv.sh` -- builds and installs the full FNV set: `FalloutNV/dinput8.dll`, `FalloutNV/syringe/psycho_engine_fixes.dll`, `FalloutNV/syringe/psycho_engine_fixes.toml`, and helper DLL to the legacy xNVSE mod path `mods/psycho_nvse/nvse/plugins/psycho_engine_fixes_helper.dll` (edit `TARGET_DIR` at top). It also removes exact stale Psycho configs/DLLs from old install layouts.
 - `psycho-engine-fixes/build.sh` -- compatibility wrapper that calls `../build_fnv.sh`
 - `psycho-engine-fixes/release.sh` -- builds release and packages zips in `.release/`
 - `psycho-engine-fixes/ln_logs.sh` -- symlinks game log files into repo for inspection

@@ -918,11 +918,11 @@ dependencies = [
  "libpsycho",
  "log",
  "parking_lot",
- "psycho-loader-api",
  "rand",
  "rustc-hash",
  "serde",
  "shadow-rs",
+ "syringe-api",
  "toml",
  "windows",
 ]
@@ -946,17 +946,6 @@ dependencies = [
  "cc",
  "thiserror",
 ]
-
-[[package]]
-name = "psycho-loader"
-version = "0.1.0"
-dependencies = [
- "psycho-loader-api",
-]
-
-[[package]]
-name = "psycho-loader-api"
-version = "0.1.0"
 
 [[package]]
 name = "quote"
@@ -1221,6 +1210,17 @@ dependencies = [
  "quote",
  "syn",
 ]
+
+[[package]]
+name = "syringe"
+version = "0.1.0"
+dependencies = [
+ "syringe-api",
+]
+
+[[package]]
+name = "syringe-api"
+version = "0.1.0"
 
 [[package]]
 name = "thiserror"

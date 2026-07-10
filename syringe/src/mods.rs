@@ -1,8 +1,8 @@
-//! Root `mods/*.dll` discovery and initialization.
+//! Root `syringe/*.dll` discovery and initialization.
 //!
-//! The loader is mod-agnostic: every DLL directly under `<game root>/mods` is
+//! The loader is mod-agnostic: every DLL directly under `<game root>/syringe` is
 //! loaded in deterministic case-insensitive filename order. A loaded DLL may
-//! export `PsychoLoader_ModInit`; when present, we call it after `LoadLibrary`
+//! export `Syringe_ModInit`; when present, we call it after `LoadLibrary`
 //! returns so real initialization runs outside that DLL's loader-lock callback.
 
 use core::cmp::Ordering as CmpOrdering;
@@ -10,14 +10,14 @@ use core::ffi::c_void;
 use core::mem::transmute;
 use core::sync::atomic::{AtomicUsize, Ordering};
 
-use psycho_loader_api::{PsychoLoaderInfo, PsychoLoaderModInitFn};
+use syringe_api::{SyringeInfo, SyringeModInitFn};
 
 use crate::wide_path::{WidePath, compare_case_insensitive};
 use crate::win32::{self, FindHandle, HModule, Win32FindDataW};
 
 const MAX_MOD_DLLS: usize = 96;
 const MODS_LOAD_WAIT_TIMEOUT_MS: u32 = 10_000;
-const MOD_INIT_EXPORT: &[u8] = b"PsychoLoader_ModInit\0";
+const MOD_INIT_EXPORT: &[u8] = b"Syringe_ModInit\0";
 
 // State encoding is intentionally atomic and allocation-free:
 // 0 = not started, usize::MAX = loading, N + 1 = completed with N loaded mods.
@@ -30,7 +30,7 @@ static MODS_THREAD_STARTED: AtomicUsize = AtomicUsize::new(0);
 static MODS_LOAD_STATE: AtomicUsize = AtomicUsize::new(MODS_NOT_STARTED);
 // Used only to detect same-thread reentry during `LoadLibrary` callbacks.
 static MODS_LOADER_THREAD_ID: AtomicUsize = AtomicUsize::new(0);
-// Passed to `PsychoLoader_ModInit` so loaded mods can identify the proxy DLL.
+// Passed to `Syringe_ModInit` so loaded mods can identify the proxy DLL.
 static LOADER_MODULE: AtomicUsize = AtomicUsize::new(0);
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -131,8 +131,8 @@ fn call_mod_init(module: HModule) -> bool {
     }
 
     let loader_module = LOADER_MODULE.load(Ordering::Acquire);
-    let info = PsychoLoaderInfo::new(loader_module, module as usize);
-    let init: PsychoLoaderModInitFn = unsafe { transmute(proc) };
+    let info = SyringeInfo::new(loader_module, module as usize);
+    let init: SyringeModInitFn = unsafe { transmute(proc) };
     unsafe { init(&info) != 0 }
 }
 
@@ -193,11 +193,11 @@ impl ModDllList {
 fn mod_dll_paths() -> ModDllList {
     let mut dlls = ModDllList::new();
     let mut mods = game_root();
-    if mods.is_empty() || !mods.append_component_ascii("mods") {
+    if mods.is_empty() || !mods.append_component_ascii("syringe") {
         return dlls;
     }
 
-    // Only the root `mods` directory is scanned. Subdirectories are ignored on
+    // Only the root `syringe` directory is scanned. Subdirectories are ignored on
     // purpose so a mod manager can stage support files without auto-loading.
     let mut pattern = mods;
     if !pattern.append_component_ascii("*.dll") {

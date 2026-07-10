@@ -10,7 +10,7 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 libmimalloc = { path = "../libmimalloc" }
-psycho-loader-api = { path = "../psycho-loader-api" }
+syringe-api = { path = "../syringe-api" }
 libpsycho = { path = "../libpsycho" }
 windows = { workspace = true }
 log = { workspace = true }

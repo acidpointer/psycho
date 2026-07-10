@@ -1,7 +1,7 @@
 //! Runtime version constants
 //! Ported from original F4SE project.
 
-use libpsycho::common::exe_version::make_exe_version;
+use libpsycho::common::packed_version::pack_version as make_exe_version;
 
 // Runtime version constants
 

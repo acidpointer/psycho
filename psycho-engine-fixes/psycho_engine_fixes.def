@@ -1,6 +1,6 @@
 LIBRARY psycho_engine_fixes.dll
 
 EXPORTS
-    PsychoLoader_ModInit @1
+    Syringe_ModInit @1
     PsychoEngineFixes_RunCommand @2
     PsychoEngineFixes_NotifyEvent @3

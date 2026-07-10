@@ -4,7 +4,7 @@
 //!
 //! This DLL exists only because console commands and xNVSE messages must be
 //! registered from an xNVSE plugin. Core engine patches are owned by
-//! `psycho_engine_fixes.dll`, loaded earlier by `psycho-loader`.
+//! `psycho_engine_fixes.dll`, loaded earlier by `syringe`.
 //!
 //! Keep this helper boring. A previous style refactor split the load path into
 //! extra probing helpers and changed xNVSE startup behavior enough to reproduce

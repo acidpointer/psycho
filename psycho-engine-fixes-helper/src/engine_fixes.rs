@@ -79,7 +79,7 @@ fn resolve_cached(cache: &AtomicUsize, export_name: &str) -> Option<usize> {
         return Some(cached);
     }
 
-    // Use GetModuleHandle only. If the core was not loaded by psycho-loader,
+    // Use GetModuleHandle only. If the core was not loaded by syringe,
     // the helper must stay passive instead of loading it from the xNVSE path.
     let module = get_module_handle_w(Some(CORE_DLL)).ok()?;
     let proc = get_proc_address(module, export_name).ok()? as usize;

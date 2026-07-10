@@ -956,8 +956,8 @@ pub fn get_module_file_name_w(module: Option<HModule>) -> WinapiResult<String> {
     Ok(String::from_utf16_lossy(&buffer[..length]))
 }
 
-/// Load a DLL from `<game root>/mods`.
-pub fn load_root_mod_library_w(dll: &str) -> WinapiResult<HModule> {
+/// Load a DLL relative to the main module's directory.
+pub fn load_library_relative_to_main_module_w(relative_path: &str) -> WinapiResult<HModule> {
     let mut path = get_module_file_name_w(None)?;
 
     match path.rfind(['\\', '/']) {
@@ -965,8 +965,7 @@ pub fn load_root_mod_library_w(dll: &str) -> WinapiResult<HModule> {
         None => path.clear(),
     }
 
-    path.push_str("mods\\");
-    path.push_str(dll);
+    path.push_str(relative_path);
     load_library_w(&path)
 }
 

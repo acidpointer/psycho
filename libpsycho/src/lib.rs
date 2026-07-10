@@ -1,5 +1,5 @@
 //! libpsycho
-//! Library with all necessary functionality for plugin development.
+//! Windows systems-programming building blocks for native extensions and modding.
 
 // Currently we can support only x86/x86_64 architectures
 #[cfg(not(any(target_arch = "x86_64", target_arch = "x86")))]

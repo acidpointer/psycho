@@ -70,7 +70,7 @@ use crate::{
     kInterface_Serialization, kInterface_StringVar,
 };
 
-use libpsycho::common::exe_version::ExeVersion;
+use libpsycho::common::packed_version::PackedVersion;
 use thiserror::Error;
 
 // -- Errors -----------------------------------------------------------------
@@ -225,9 +225,9 @@ fn query_messaging_interface<'a>(
 /// | `query_player_controls()` | PlayerControls | Toggle player input |
 /// | `command_builder()` | Commands | Register custom script commands |
 pub struct NVSEInterface<'a> {
-    nvse_version: ExeVersion,
-    runtime_version: ExeVersion,
-    editor_version: Option<ExeVersion>,
+    nvse_version: PackedVersion,
+    runtime_version: PackedVersion,
+    editor_version: Option<PackedVersion>,
     is_editor: bool,
     nvse_ptr: NonNull<NVSEInterfaceFFI>,
 
@@ -254,11 +254,11 @@ impl<'a> NVSEInterface<'a> {
         let nvse_ref = unsafe { nvse_ptr.as_ref() };
 
         Ok(Self {
-            nvse_version: ExeVersion::from_u32(nvse_ref.nvseVersion),
-            runtime_version: ExeVersion::from_u32(nvse_ref.runtimeVersion),
+            nvse_version: PackedVersion::from_u32(nvse_ref.nvseVersion),
+            runtime_version: PackedVersion::from_u32(nvse_ref.runtimeVersion),
             is_editor: nvse_ref.isEditor != 0,
             editor_version: if nvse_ref.isEditor != 0 {
-                Some(ExeVersion::from_u32(nvse_ref.editorVersion))
+                Some(PackedVersion::from_u32(nvse_ref.editorVersion))
             } else {
                 None
             },
@@ -271,17 +271,17 @@ impl<'a> NVSEInterface<'a> {
     // -- Version info -------------------------------------------------------
 
     /// Get the xNVSE version.
-    pub fn nvse_version(&self) -> ExeVersion {
+    pub fn nvse_version(&self) -> PackedVersion {
         self.nvse_version
     }
 
     /// Get the Fallout New Vegas runtime version.
-    pub fn runtime_version(&self) -> ExeVersion {
+    pub fn runtime_version(&self) -> PackedVersion {
         self.runtime_version
     }
 
     /// Get the GECK editor version (None if running in-game).
-    pub fn editor_version(&self) -> Option<ExeVersion> {
+    pub fn editor_version(&self) -> Option<PackedVersion> {
         self.editor_version
     }
 

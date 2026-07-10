@@ -135,7 +135,8 @@ impl Config {
     /// Write config to disk if the schema has changed.
     ///
     /// Must be called OUTSIDE DllMain (no loader lock).
-    /// Typically called from NVSEPlugin_Load after the loader lock is released.
+    /// Call from an application-defined post-load callback after the loader lock
+    /// is released.
     pub fn sync_to_disk<T>(path: impl AsRef<Path>, cfg: &T)
     where
         T: Serialize,

@@ -1,6 +1,6 @@
 # libpsycho
 
-Library which provides basic building blocks for game modding or hacking.  
+Windows-native building blocks for game modding and related systems work.
 
 ## Features
 
@@ -10,7 +10,7 @@ Library which provides basic building blocks for game modding or hacking.
 - Wrappers for common WinAPI calls (better safety and easier to use)
 - `EventEmitter` inspired by Node.Js
 - Various utilities for FFI: `FFIRef<T>`, `FnPtr<T>`, etc.
-- Bethesda like executable verioning helpers (see `common/exe_version.rs`)
+- 32-bit packed-version helpers (see `common/packed_version.rs`)
 - No unexpected panics! All abstractions propagates result.
 
 ## TODO
@@ -21,4 +21,4 @@ Library which provides basic building blocks for game modding or hacking.
 
 ## Why?
 
-World lacks of pure Rust all-in-one game hacking library. 
+World lacks of pure Rust all-in-one game hacking library.

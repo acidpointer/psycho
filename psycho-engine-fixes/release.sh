@@ -13,7 +13,7 @@ ARCHIVE_DLL="psycho-engine-fixes.zip"
 ARCHIVE_CFG="psycho-engine-fixes-config.zip"
 
 echo "Building release ($TARGET)..."
-cargo build --release --target "$TARGET" -p psycho-loader -p psycho-engine-fixes -p psycho-engine-fixes-helper -p omv
+cargo build --release --target "$TARGET" -p syringe -p psycho-engine-fixes -p psycho-engine-fixes-helper -p omv
 
 LOADER_PATH="$WORKSPACE_DIR/target/$TARGET/release/$LOADER_DLL"
 CORE_PATH="$WORKSPACE_DIR/target/$TARGET/release/$CORE_DLL"
@@ -46,10 +46,10 @@ STAGING=$(mktemp -d)
 trap 'rm -rf "$STAGING"' EXIT
 
 # -- DLL archive --
-mkdir -p "$STAGING/dll/mods" "$STAGING/dll/Data/omv/shaders" "$STAGING/dll/Data/NVSE/plugins"
+mkdir -p "$STAGING/dll/syringe" "$STAGING/dll/Data/omv/shaders" "$STAGING/dll/Data/NVSE/plugins"
 cp "$LOADER_PATH" "$STAGING/dll/$LOADER_DLL"
-cp "$CORE_PATH" "$STAGING/dll/mods/$CORE_DLL"
-cp "$CONFIG_PATH" "$STAGING/dll/mods/psycho_engine_fixes.toml"
+cp "$CORE_PATH" "$STAGING/dll/syringe/$CORE_DLL"
+cp "$CONFIG_PATH" "$STAGING/dll/syringe/psycho_engine_fixes.toml"
 cp "$OMV_CONFIG_PATH" "$STAGING/dll/Data/omv/omv.toml"
 cp "$HELPER_PATH" "$STAGING/dll/Data/NVSE/plugins/$HELPER_DLL"
 cp "$OMV_PATH" "$STAGING/dll/Data/NVSE/plugins/$OMV_DLL"
@@ -60,11 +60,11 @@ find "$OMV_SHADER_SRC_DIR" \
     -exec cp '{}' "$STAGING/dll/Data/omv/shaders/" \;
 
 rm -f "$RELEASE_DIR/$ARCHIVE_DLL"
-(cd "$STAGING/dll" && zip -r "$RELEASE_DIR/$ARCHIVE_DLL" "$LOADER_DLL" mods/ Data/)
+(cd "$STAGING/dll" && zip -r "$RELEASE_DIR/$ARCHIVE_DLL" "$LOADER_DLL" syringe/ Data/)
 
 # -- Config archive --
-mkdir -p "$STAGING/cfg/mods" "$STAGING/cfg/Data/omv/shaders"
-cp "$CONFIG_PATH" "$STAGING/cfg/mods/psycho_engine_fixes.toml"
+mkdir -p "$STAGING/cfg/syringe" "$STAGING/cfg/Data/omv/shaders"
+cp "$CONFIG_PATH" "$STAGING/cfg/syringe/psycho_engine_fixes.toml"
 cp "$OMV_CONFIG_PATH" "$STAGING/cfg/Data/omv/omv.toml"
 find "$OMV_SHADER_SRC_DIR" \
     -maxdepth 1 \
@@ -73,7 +73,7 @@ find "$OMV_SHADER_SRC_DIR" \
     -exec cp '{}' "$STAGING/cfg/Data/omv/shaders/" \;
 
 rm -f "$RELEASE_DIR/$ARCHIVE_CFG"
-(cd "$STAGING/cfg" && zip -r "$RELEASE_DIR/$ARCHIVE_CFG" mods/ Data/)
+(cd "$STAGING/cfg" && zip -r "$RELEASE_DIR/$ARCHIVE_CFG" syringe/ Data/)
 
 SIZE_DLL=$(du -h "$RELEASE_DIR/$ARCHIVE_DLL" | cut -f1)
 SIZE_CFG=$(du -h "$RELEASE_DIR/$ARCHIVE_CFG" | cut -f1)

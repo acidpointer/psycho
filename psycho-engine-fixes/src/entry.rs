@@ -1,7 +1,7 @@
 //! Loader entrypoint for `psycho_engine_fixes.dll`.
 //!
-//! The core DLL has one setup path: `PsychoLoader_ModInit`, called by
-//! `psycho-loader` after the DLL is mapped and outside the mapped DLL's loader
+//! The core DLL has one setup path: `Syringe_ModInit`, called by `syringe`
+//! after the DLL is mapped and outside the mapped DLL's loader
 //! callback. xNVSE helper callbacks must never initialize this DLL.
 
 use core::{
@@ -11,7 +11,7 @@ use core::{
 };
 
 use libpsycho::os::windows::winapi::{HModule, disable_thread_library_calls};
-use psycho_loader_api::{PSYCHO_LOADER_API_VERSION, PSYCHO_LOADER_MAGIC, PsychoLoaderInfo};
+use syringe_api::{SYRINGE_API_VERSION, SYRINGE_MAGIC, SyringeInfo};
 
 #[repr(u8)]
 #[derive(Clone, Copy, Eq, PartialEq)]
@@ -35,12 +35,12 @@ impl InitState {
 
 static INIT_STATE: AtomicU8 = AtomicU8::new(InitState::NotStarted as u8);
 
-/// `psycho-loader` mod initialization export.
+/// `syringe` mod initialization export.
 ///
 /// Returning `0` tells the loader that core setup failed. The loader still
 /// continues with other mods; this DLL just stays unavailable to the helper.
 #[unsafe(no_mangle)]
-pub unsafe extern "system" fn PsychoLoader_ModInit(info: *const PsychoLoaderInfo) -> i32 {
+pub unsafe extern "system" fn Syringe_ModInit(info: *const SyringeInfo) -> i32 {
     if initialize_from_loader(info) { 1 } else { 0 }
 }
 
@@ -48,7 +48,7 @@ pub(crate) fn is_initialized() -> bool {
     current_state() == InitState::Done
 }
 
-fn initialize_from_loader(info: *const PsychoLoaderInfo) -> bool {
+fn initialize_from_loader(info: *const SyringeInfo) -> bool {
     let Some(module) = validate_loader_info(info) else {
         return false;
     };
@@ -60,11 +60,11 @@ fn initialize_from_loader(info: *const PsychoLoaderInfo) -> bool {
     initialize_once()
 }
 
-fn validate_loader_info(info: *const PsychoLoaderInfo) -> Option<HModule> {
+fn validate_loader_info(info: *const SyringeInfo) -> Option<HModule> {
     let info = unsafe { info.as_ref() }?;
-    if info.magic != PSYCHO_LOADER_MAGIC
-        || info.version != PSYCHO_LOADER_API_VERSION
-        || info.size < size_of::<PsychoLoaderInfo>() as u32
+    if info.magic != SYRINGE_MAGIC
+        || info.version != SYRINGE_API_VERSION
+        || info.size < size_of::<SyringeInfo>() as u32
         || info.mod_module == 0
     {
         return None;

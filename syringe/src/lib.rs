@@ -1,7 +1,7 @@
 #![no_std]
 #![allow(non_snake_case)]
 
-//! Minimal `dinput8.dll` proxy and root `mods/*.dll` loader.
+//! Minimal `dinput8.dll` proxy and root `syringe/*.dll` loader.
 //!
 //! This crate deliberately stays tiny: no allocator, no logging, no
 //! `libpsycho`, and no game-specific knowledge. Its only job is to load

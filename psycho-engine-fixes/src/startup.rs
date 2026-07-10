@@ -18,7 +18,7 @@ use crate::{
     },
 };
 use libpsycho::{
-    common::exe_version::ExeVersion, logger::Logger, os::windows::winapi::alloc_console,
+    common::packed_version::PackedVersion, logger::Logger, os::windows::winapi::alloc_console,
 };
 
 shadow!(build_info);
@@ -127,7 +127,7 @@ fn install_runtime_hooks(performance: &PerformanceConfig) -> anyhow::Result<()> 
 fn log_runtime() {
     log::info!(
         "Runtime {}",
-        ExeVersion::from_u32(FNV_RUNTIME_VERSION_1_4_0_525)
+        PackedVersion::from_u32(FNV_RUNTIME_VERSION_1_4_0_525)
     );
 }
 

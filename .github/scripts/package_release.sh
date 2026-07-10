@@ -24,12 +24,12 @@ CONFIG_PATH="$WORKSPACE_DIR/psycho-engine-fixes/config/$CONFIG_FILE"
 
 AIO_ARCHIVE="psycho-engine-fixes-$VERSION-aio.zip"
 HELPER_ARCHIVE="psycho-engine-fixes-helper-$VERSION.zip"
-LOADER_ARCHIVE="psycho-loader-$VERSION.zip"
+LOADER_ARCHIVE="syringe-$VERSION.zip"
 CORE_ARCHIVE="psycho-engine-fixes-$VERSION.zip"
 CONFIG_ARCHIVE="psycho-engine-fixes-config-$VERSION.zip"
 
 echo "Building GitHub release artifacts ($TARGET, $VERSION)..."
-cargo build --release --target "$TARGET" -p psycho-loader -p psycho-engine-fixes -p psycho-engine-fixes-helper
+cargo build --release --target "$TARGET" -p syringe -p psycho-engine-fixes -p psycho-engine-fixes-helper
 
 for path in "$LOADER_PATH" "$CORE_PATH" "$HELPER_PATH" "$CONFIG_PATH"; do
     if [[ ! -f "$path" ]]; then
@@ -58,10 +58,10 @@ pack_dir() {
 
 # All-in-one core install: early loader + core DLL + config.
 # The xNVSE helper stays separate because it is optional.
-mkdir -p "$STAGING/aio/mods"
+mkdir -p "$STAGING/aio/syringe"
 cp "$LOADER_PATH" "$STAGING/aio/$LOADER_DLL"
-cp "$CORE_PATH" "$STAGING/aio/mods/$CORE_DLL"
-cp "$CONFIG_PATH" "$STAGING/aio/mods/$CONFIG_FILE"
+cp "$CORE_PATH" "$STAGING/aio/syringe/$CORE_DLL"
+cp "$CONFIG_PATH" "$STAGING/aio/syringe/$CONFIG_FILE"
 pack_dir "$STAGING/aio" "$AIO_ARCHIVE"
 
 # xNVSE helper only.
@@ -74,12 +74,12 @@ mkdir -p "$STAGING/loader"
 cp "$LOADER_PATH" "$STAGING/loader/$LOADER_DLL"
 pack_dir "$STAGING/loader" "$LOADER_ARCHIVE"
 
-mkdir -p "$STAGING/core/mods"
-cp "$CORE_PATH" "$STAGING/core/mods/$CORE_DLL"
+mkdir -p "$STAGING/core/syringe"
+cp "$CORE_PATH" "$STAGING/core/syringe/$CORE_DLL"
 pack_dir "$STAGING/core" "$CORE_ARCHIVE"
 
-mkdir -p "$STAGING/config/mods"
-cp "$CONFIG_PATH" "$STAGING/config/mods/$CONFIG_FILE"
+mkdir -p "$STAGING/config/syringe"
+cp "$CONFIG_PATH" "$STAGING/config/syringe/$CONFIG_FILE"
 pack_dir "$STAGING/config" "$CONFIG_ARCHIVE"
 
 echo "Release artifacts:"
@@ -92,4 +92,3 @@ for archive in \
     size="$(du -h "$RELEASE_DIR/$archive" | cut -f1)"
     echo "  $RELEASE_DIR/$archive ($size)"
 done
-

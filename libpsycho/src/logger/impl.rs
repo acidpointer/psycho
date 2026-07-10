@@ -714,8 +714,8 @@ impl Logger {
     /// called.
     ///
     /// **Use this inside `DllMain`** where thread creation and file I/O are
-    /// unsafe (Windows loader lock). Call [`start_deferred`] later (e.g. from
-    /// `NVSEPlugin_Load`) to open the log file and spawn the consumer thread.
+    /// unsafe (Windows loader lock). Call [`start_deferred`] later from a
+    /// post-load callback to open the log file and spawn the consumer thread.
     ///
     /// [`start_deferred`]: Logger::start_deferred
     pub fn init_deferred(self) -> Result<(), SetLoggerError> {

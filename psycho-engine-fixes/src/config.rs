@@ -8,8 +8,9 @@ use serde::{Deserialize, Deserializer, Serialize};
 
 use libpsycho::config::Config;
 
-const CONFIG_PATH: &str = "mods/psycho_engine_fixes.toml";
+const CONFIG_PATH: &str = "syringe/psycho_engine_fixes.toml";
 const LEGACY_CONFIG_PATHS: &[&str] = &[
+    "mods/psycho_engine_fixes.toml",
     "mods/psycho.toml",
     "Data/NVSE/Plugins/psycho.toml",
     "Data/NVSE/Plugins/psycho-nvse.toml",

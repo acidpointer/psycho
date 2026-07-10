@@ -1,6 +1,6 @@
 //! Core `psycho_engine_fixes.dll` engine patches.
 //!
-//! This DLL is loaded early by `psycho-loader` and owns all engine patches.
+//! This DLL is loaded early by `syringe` and owns all engine patches.
 //! The xNVSE helper is only a late command/event adapter.
 
 // use libmimalloc::MiMalloc;

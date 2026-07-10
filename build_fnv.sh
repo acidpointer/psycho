@@ -42,7 +42,8 @@ EMBEDDED_SHADER_STALE_FILES=(
 )
 
 GAME_ROOT="$TARGET_DIR/FalloutNV"
-GAME_MODS_DIR="$GAME_ROOT/mods"
+GAME_SYRINGE_DIR="$GAME_ROOT/syringe"
+LEGACY_GAME_MODS_DIR="$GAME_ROOT/mods"
 MO2_MODS_DIR="$TARGET_DIR/mods"
 
 # Keep the xNVSE plugin path compatible with the old psycho-nvse installer.
@@ -56,10 +57,10 @@ OMV_LEGACY_DATA_DIR="$OMV_MOD_DIR/omv"
 OMV_LEGACY_SHADER_DIR="$OMV_LEGACY_DATA_DIR/shaders"
 
 LOADER_PATH="$GAME_ROOT/$LOADER_DLL"
-CORE_PATH="$GAME_MODS_DIR/$CORE_DLL"
+CORE_PATH="$GAME_SYRINGE_DIR/$CORE_DLL"
 HELPER_PATH="$NVSE_PLUGIN_DIR/$HELPER_DLL"
 OMV_PATH="$OMV_PLUGIN_DIR/$OMV_DLL"
-ENGINE_CFG_PATH="$GAME_MODS_DIR/$ENGINE_CFGNAME"
+ENGINE_CFG_PATH="$GAME_SYRINGE_DIR/$ENGINE_CFGNAME"
 OMV_CFG_PATH="$OMV_DATA_DIR/$OMV_CFGNAME"
 
 function build_rust() {
@@ -73,7 +74,7 @@ function build_rust() {
     cargo build \
         --target "$TARGET" \
         "${profile_args[@]}" \
-        -p psycho-loader \
+        -p syringe \
         -p psycho-engine-fixes \
         -p psycho-engine-fixes-helper \
         -p omv
@@ -107,7 +108,7 @@ function install_files() {
     require_file "$ENGINE_CFG"
     require_file "$OMV_CFG"
 
-    mkdir -p "$GAME_MODS_DIR"
+    mkdir -p "$GAME_SYRINGE_DIR"
     mkdir -p "$NVSE_PLUGIN_DIR"
     mkdir -p "$OMV_PLUGIN_DIR"
     mkdir -p "$OMV_SHADER_DIR"
@@ -142,8 +143,10 @@ function remove_legacy_files() {
     remove_if_exists "$GAME_ROOT/Data/NVSE/Plugins/psycho_nvse_helper.dll"
     remove_if_exists "$GAME_ROOT/Data/NVSE/Plugins/psycho_engine_fixes_helper.dll"
 
-    remove_if_exists "$GAME_MODS_DIR/psycho.toml"
-    remove_if_exists "$GAME_MODS_DIR/psycho.dll"
+    remove_if_exists "$LEGACY_GAME_MODS_DIR/psycho.toml"
+    remove_if_exists "$LEGACY_GAME_MODS_DIR/psycho.dll"
+    remove_if_exists "$LEGACY_GAME_MODS_DIR/$ENGINE_CFGNAME"
+    remove_if_exists "$LEGACY_GAME_MODS_DIR/$CORE_DLL"
 
     remove_if_exists "$OMV_LEGACY_PLUGIN_DIR/$OMV_DLL"
     remove_if_exists "$OMV_LEGACY_DATA_DIR/$OMV_CFGNAME"

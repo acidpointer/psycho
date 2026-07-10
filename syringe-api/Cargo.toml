@@ -1,8 +1,8 @@
 [package]
-name = "psycho-loader-api"
+name = "syringe-api"
 version = "0.1.0"
 edition = "2024"
 
 [lib]
-name = "psycho_loader_api"
+name = "syringe_api"
 crate-type = ["rlib"]

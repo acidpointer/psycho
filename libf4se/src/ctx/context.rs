@@ -7,7 +7,7 @@ use crate::sys::f4se::{
 
 use super::message::*;
 use libpsycho::{
-    common::{emitter::EventEmitter, exe_version::ExeVersion},
+    common::{emitter::EventEmitter, packed_version::PackedVersion},
     ffi::r#ref::{FFIRef, FFIRefError},
 };
 use parking_lot::RwLock;
@@ -157,13 +157,13 @@ impl F4SEContext {
     }
 
     /// Return current F4SE version
-    pub fn f4se_version(&self) -> ExeVersion {
-        ExeVersion::from_u32(self.interface.read().f4seVersion)
+    pub fn f4se_version(&self) -> PackedVersion {
+        PackedVersion::from_u32(self.interface.read().f4seVersion)
     }
 
     /// Return current runtime(game) version
-    pub fn runtime_version(&self) -> ExeVersion {
-        ExeVersion::from_u32(self.interface.read().runtimeVersion)
+    pub fn runtime_version(&self) -> PackedVersion {
+        PackedVersion::from_u32(self.interface.read().runtimeVersion)
     }
 
     /// Return plugin handle

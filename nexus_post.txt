@@ -50,8 +50,8 @@ Optional, but very useful for bug reports.
 [*][b]psycho-engine-fixes-vX.Y.Z-aio.zip[/b]
 Required for normal users. Contains:
   - dinput8.dll
-  - mods/psycho_engine_fixes.dll
-  - mods/psycho_engine_fixes.toml
+  - syringe/psycho_engine_fixes.dll
+  - syringe/psycho_engine_fixes.toml
 
 [*][b]psycho-engine-fixes-helper-vX.Y.Z.zip[/b]
 Optional, but recommended. Adds the in-game console command:
@@ -60,7 +60,7 @@ Optional, but recommended. Adds the in-game console command:
 
 [*][b]Separate component archives[/b]
 Only for advanced/manual installs:
-  - psycho-loader-vX.Y.Z.zip
+  - syringe-vX.Y.Z.zip
   - psycho-engine-fixes-vX.Y.Z.zip
   - psycho-engine-fixes-config-vX.Y.Z.zip
 [/list]
@@ -96,7 +96,7 @@ After install, you should have:
 FalloutNV/
   FalloutNV.exe
   dinput8.dll
-  mods/
+  syringe/
     psycho_engine_fixes.dll
     psycho_engine_fixes.toml
 [/code]
@@ -138,13 +138,13 @@ Then install:
 
 [code]
 FalloutNV/dinput8.dll
-FalloutNV/mods/psycho_engine_fixes.dll
-FalloutNV/mods/psycho_engine_fixes.toml
+FalloutNV/syringe/psycho_engine_fixes.dll
+FalloutNV/syringe/psycho_engine_fixes.toml
 FalloutNV/Data/NVSE/plugins/psycho_engine_fixes_helper.dll   optional
 [/code]
 
 [b]Do not put psycho_engine_fixes.dll into Data/NVSE/plugins.[/b]
-It belongs in [b]FalloutNV/mods[/b] and is loaded by [b]dinput8.dll[/b].
+It belongs in [b]FalloutNV/syringe[/b] and is loaded by [b]dinput8.dll[/b].
 
 
 [b]WHAT TO EXPECT IN GAME[/b]
@@ -165,7 +165,7 @@ It belongs in [b]FalloutNV/mods[/b] and is loaded by [b]dinput8.dll[/b].
 Config file:
 
 [code]
-FalloutNV/mods/psycho_engine_fixes.toml
+FalloutNV/syringe/psycho_engine_fixes.toml
 [/code]
 
 The file is commented. Most users should start with defaults.
@@ -222,8 +222,8 @@ Check:
 
 [code]
 FalloutNV/dinput8.dll
-FalloutNV/mods/psycho_engine_fixes.dll
-FalloutNV/mods/psycho_engine_fixes.toml
+FalloutNV/syringe/psycho_engine_fixes.dll
+FalloutNV/syringe/psycho_engine_fixes.toml
 [/code]
 
 Also check that another mod did not replace [b]dinput8.dll[/b].
@@ -295,7 +295,7 @@ Please include:
 [list]
 [*]FalloutNV/psycho-engine-fixes-latest.log
 [*]CrashLogger.log, if installed
-[*]FalloutNV/mods/psycho_engine_fixes.toml
+[*]FalloutNV/syringe/psycho_engine_fixes.toml
 [*]your allocator mode: 0, 1, or 2
 [*]whether changing allocator mode changes the crash
 [*]what you were doing: startup, loading save, entering location, fast travel, combat, etc.
@@ -377,16 +377,16 @@ core DLL.
 
 [b]FOR DEVELOPERS[/b]
 
-The included [b]psycho-loader[/b] is generic. It loads DLLs from:
+The included [b]Syringe[/b] is generic. It loads DLLs from:
 
 [code]
-FalloutNV/mods/*.dll
+FalloutNV/syringe/*.dll
 [/code]
 
 If a loaded DLL exports:
 
 [code]
-PsychoLoader_ModInit
+Syringe_ModInit
 [/code]
 
 the loader calls it after LoadLibrary returns, outside the loaded DLL's
@@ -396,9 +396,9 @@ doing real work inside DllMain.
 Basic rules:
 
 [list]
-[*]put early DLLs in FalloutNV/mods
+[*]put early DLLs in FalloutNV/syringe
 [*]keep DllMain minimal
-[*]do real startup from PsychoLoader_ModInit
+[*]do real startup from Syringe_ModInit
 [*]use xNVSE only for features that actually need xNVSE
 [/list]
 

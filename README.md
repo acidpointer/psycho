@@ -15,7 +15,7 @@ crash paths.
 - Fixes fullscreen and borderless alt-tab/focus problems.
 - Adds small crash guards for known broken engine states.
 - Writes useful diagnostics for crash reports and memory pressure.
-- Includes an early `dinput8.dll` loader for DLLs in `FalloutNV/mods`.
+- Includes Syringe, an early `dinput8.dll` loader for DLLs in `FalloutNV/syringe`.
 
 ## Requirements
 
@@ -35,7 +35,7 @@ Expected layout:
 ```text
 FalloutNV/
   dinput8.dll
-  mods/
+  syringe/
     psycho_engine_fixes.dll
     psycho_engine_fixes.toml
   Data/
@@ -45,7 +45,7 @@ FalloutNV/
 ```
 
 Do not move `psycho_engine_fixes.dll` to `Data/NVSE/plugins`. It belongs in
-`FalloutNV/mods` and is loaded by `dinput8.dll`.
+`FalloutNV/syringe` and is loaded by `dinput8.dll`.
 
 The xNVSE helper belongs in `Data/NVSE/plugins`. It is only a helper for console
 commands and runtime messages.
@@ -54,7 +54,7 @@ commands and runtime messages.
 
 Replace the old files with the new archive.
 
-Check `mods/psycho_engine_fixes.toml` after updating. New versions can add new
+Check `syringe/psycho_engine_fixes.toml` after updating. New versions can add new
 options, and the config file has comments for them.
 
 ## Uninstalling
@@ -63,8 +63,8 @@ Remove these files:
 
 ```text
 FalloutNV/dinput8.dll
-FalloutNV/mods/psycho_engine_fixes.dll
-FalloutNV/mods/psycho_engine_fixes.toml
+FalloutNV/syringe/psycho_engine_fixes.dll
+FalloutNV/syringe/psycho_engine_fixes.toml
 FalloutNV/Data/NVSE/plugins/psycho_engine_fixes_helper.dll
 ```
 
@@ -76,7 +76,7 @@ its own `dinput8.dll`, check before deleting.
 Config file:
 
 ```text
-FalloutNV/mods/psycho_engine_fixes.toml
+FalloutNV/syringe/psycho_engine_fixes.toml
 ```
 
 The config is documented in place. Read comments in the file. Main sections:
@@ -133,20 +133,20 @@ it with logs and your mod list.
 The alt-tab fix is meant for fullscreen and borderless-window users. It was
 tested with Proton/Wine and should also help with related Windows focus issues.
 
-## Psycho Loader
+## Syringe
 
-`psycho-loader` is the `dinput8.dll` shipped with this mod.
+`syringe` is the generic `dinput8.dll` shipped with this mod.
 
 It is a generic early loader, not an xNVSE plugin. It loads DLLs from:
 
 ```text
-FalloutNV/mods/*.dll
+FalloutNV/syringe/*.dll
 ```
 
 After loading a DLL, it looks for this optional export:
 
 ```text
-PsychoLoader_ModInit
+Syringe_ModInit
 ```
 
 If present, it calls that function after `LoadLibraryW` returns. This gives mods
@@ -155,8 +155,8 @@ work from `DllMain` can deadlock on Windows loader lock.
 
 For other developers:
 
-- put your early DLL in `FalloutNV/mods`
-- export `PsychoLoader_ModInit`
+- put your early DLL in `FalloutNV/syringe`
+- export `Syringe_ModInit`
 - initialize from that function
 - keep `DllMain` minimal
 - use a separate xNVSE plugin only when you need xNVSE services
@@ -183,7 +183,7 @@ git submodule update --init --recursive
 Build:
 
 ```sh
-cargo build --release --target i686-pc-windows-gnu -p psycho-loader -p psycho-engine-fixes -p psycho-engine-fixes-helper
+cargo build --release --target i686-pc-windows-gnu -p syringe -p psycho-engine-fixes -p psycho-engine-fixes-helper
 ```
 
 Requires `mingw-w64` with `i686-w64-mingw32-gcc` on `PATH`.
@@ -214,8 +214,8 @@ features for this 32-bit target.
 
 ## Workspace
 
-- `psycho-loader` - generic early `dinput8.dll` loader
-- `psycho-loader-api` - ABI for early-loaded DLLs
+- `syringe` - generic early `dinput8.dll` loader
+- `syringe-api` - ABI for early-loaded DLLs
 - `psycho-engine-fixes` - core engine fix DLL
 - `psycho-engine-fixes-helper` - xNVSE helper plugin
 - `libpsycho` - shared modding infrastructure
@@ -228,4 +228,3 @@ features for this 32-bit target.
 ```text
 https://github.com/acidpointer/psycho
 ```
-

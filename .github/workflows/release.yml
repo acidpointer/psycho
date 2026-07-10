@@ -58,7 +58,7 @@ jobs:
         run: |
           test -f ".release/psycho-engine-fixes-$TAG-aio.zip"
           test -f ".release/psycho-engine-fixes-helper-$TAG.zip"
-          test -f ".release/psycho-loader-$TAG.zip"
+          test -f ".release/syringe-$TAG.zip"
           test -f ".release/psycho-engine-fixes-$TAG.zip"
           test -f ".release/psycho-engine-fixes-config-$TAG.zip"
 
@@ -74,7 +74,7 @@ jobs:
           assets=(
             ".release/psycho-engine-fixes-$TAG-aio.zip"
             ".release/psycho-engine-fixes-helper-$TAG.zip"
-            ".release/psycho-loader-$TAG.zip"
+            ".release/syringe-$TAG.zip"
             ".release/psycho-engine-fixes-$TAG.zip"
             ".release/psycho-engine-fixes-config-$TAG.zip"
           )
