@@ -1,0 +1,235 @@
+AUDIT: gheap direct Default-heap dispatch provenance
+======================================================================
+The previous version incorrectly treated DAT_011f6238 as a pointer.
+This version audits the actual embedded Default slot at 0x011f6348.
+
+----------------------------------------------------------------------
+References TO 0x011f6348 (GameHeap Default slot)
+----------------------------------------------------------------------
+  Total printed: 0
+
+======================================================================
+SBM Default/File heap construction @ 0x00866e00
+======================================================================
+  Function: FUN_00866e00 @ 0x00866e00, Size: 481 bytes
+
+void __fastcall FUN_00866e00(int param_1)
+
+{
+  uint uVar1;
+  undefined4 uVar2;
+  int iVar3;
+  int *unaff_FS_OFFSET;
+  undefined4 local_3c;
+  undefined4 local_38;
+  undefined4 local_34;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00f13b71;
+  local_10 = *unaff_FS_OFFSET;
+  uVar1 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  std::_Fiopen((wchar_t *)(param_1 + 0xc),0,0x108);
+  *(undefined2 *)(param_1 + 2) = 3;
+  uVar2 = FUN_00401000((uint)*(ushort *)(param_1 + 2) * 4,uVar1);
+  *(undefined4 *)(param_1 + 8) = uVar2;
+  iVar3 = FUN_00401000(0x20f4);
+  local_8 = 0;
+  if (iVar3 == 0) {
+    local_34 = 0;
+  }
+  else {
+    local_34 = FUN_00aa78a0(0xc800000,0x5500000,"Default Heap",0);
+  }
+  local_8 = 0xffffffff;
+  **(undefined4 **)(param_1 + 8) = local_34;
+  *(undefined4 *)(param_1 + 0x110) = **(undefined4 **)(param_1 + 8);
+  iVar3 = FUN_00401000(0x40,uVar1);
+  local_8 = 1;
+  if (iVar3 == 0) {
+    local_38 = 0;
+  }
+  else {
+    local_38 = FUN_00aa7400(0x183800,"Static Heap");
+  }
+  local_8 = 0xffffffff;
+  *(undefined4 *)(*(int *)(param_1 + 8) + 4) = local_38;
+  *(undefined4 *)(param_1 + 0xc) = *(undefined4 *)(*(int *)(param_1 + 8) + 4);
+  *(undefined4 *)(param_1 + 0x30) = *(undefined4 *)(*(int *)(param_1 + 8) + 4);
+  *(undefined4 *)(param_1 + 0x18) = *(undefined4 *)(*(int *)(param_1 + 8) + 4);
+  iVar3 = FUN_00401000(0x20f4);
+  local_8 = 2;
+  if (iVar3 == 0) {
+    local_3c = 0;
+  }
+  else {
+    local_3c = FUN_00aa78a0(0x4000000,0x200000,"File Heap",0);
+  }
+  *(undefined4 *)(*(int *)(param_1 + 8) + 8) = local_3c;
+  *(undefined4 *)(param_1 + 0x68) = *(undefined4 *)(*(int *)(param_1 + 8) + 8);
+  *(undefined2 *)(param_1 + 4) = 0;
+  *unaff_FS_OFFSET = local_10;
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+Calls FROM SBM Default/File heap construction (0x00866e00)
+----------------------------------------------------------------------
+  0x00866e36 -> 0x00403d30 _Fiopen @ 0x00403d30
+  0x00866e62 -> 0x00401000 FUN_00401000 @ 0x00401000
+  0x00866e7b -> 0x00401000 FUN_00401000 @ 0x00401000
+  0x00866ea7 -> 0x00aa78a0 FUN_00aa78a0 @ 0x00aa78a0
+  0x00866ee3 -> 0x00401000 FUN_00401000 @ 0x00401000
+  0x00866f08 -> 0x00aa7400 FUN_00aa7400 @ 0x00aa7400
+  0x00866f64 -> 0x00401000 FUN_00401000 @ 0x00401000
+  0x00866f90 -> 0x00aa78a0 FUN_00aa78a0 @ 0x00aa78a0
+  Total printed: 8
+
+======================================================================
+GameHeap Allocate virtual dispatch @ 0x00aa3e40
+======================================================================
+  Function: FUN_00aa3e40 @ 0x00aa3e40, Size: 486 bytes
+
+int __thiscall FUN_00aa3e40(char *param_1,uint param_2)
+
+{
+  int *piVar1;
+  int iVar2;
+  int *piVar3;
+  int unaff_FS_OFFSET;
+  int *local_40;
+  int *local_3c;
+  int local_38;
+  int local_2c;
+  undefined4 local_28;
+  char local_d;
+  uint local_c;
+  int local_8;
+  
+  if (*param_1 == '\0') {
+    local_8 = FUN_00aa4290(param_2,0);
+  }
+  else {
+    piVar1 = *(int **)(param_1 + 0x110);
+    if (piVar1 == (int *)0x0) {
+      local_8 = FUN_00aa4290(param_2,0);
+    }
+    else {
+      local_c = param_2;
+      local_8 = 0;
+      if (param_2 < 9) {
+        param_2 = 8;
+      }
+      else {
+        param_2 = param_2 + 3 & 0xfffffffc;
+      }
+      iVar2 = *(int *)(*(int *)(*(int *)(unaff_FS_OFFSET + 0x2c) + _tls_index * 4) + 0x2b4);
+      if (param_1[0x129] != '\0') {
+        if (param_2 < 0x3fd) {
+          local_38 = *(int *)(&DAT_011f67b8 + param_2);
+        }
+        else {
+          local_38 = 0;
+        }
+        local_2c = local_38;
+        if (local_38 == 0) {
+          local_2c = FUN_00aa4960(param_2);
+        }
+        if ((local_2c != 0) && (local_8 = FUN_00aa6aa0(local_c), local_8 != 0)) {
+          return local_8;
+        }
+      }
+      local_d = '\0';
+      local_28 = 0;
+      piVar3 = *(int **)(param_1 + iVar2 * 4 + 0xc);
+      do {
+        local_3c = piVar1;
+        if (piVar3 != (int *)0x0) {
+          local_3c = piVar3;
+        }
+        local_8 = (**(code **)(*local_3c + 8))(param_2,0);
+        if ((local_8 == 0) && (local_3c != piVar1)) {
+          local_8 = (**(code **)(*piVar1 + 8))(param_2,0);
+        }
+        if (local_8 == 0) {
+          local_40 = piVar1;
+          if (piVar3 != (int *)0x0) {
+            local_40 = piVar3;
+          }
+          local_28 = FUN_00866a90(local_40,local_28,&local_d);
+          if (local_d != '\0') {
+            local_8 = FUN_00aa4290(param_2,0);
+          }
+        }
+      } while (local_8 == 0);
+    }
+  }
+  return local_8;
+}
+
+
+
+======================================================================
+GameHeap Free dispatch @ 0x00aa4060
+======================================================================
+  Function: FUN_00aa4060 @ 0x00aa4060, Size: 236 bytes
+
+void __thiscall FUN_00aa4060(char *param_1,uint param_2)
+
+{
+  int iVar1;
+  bool bVar2;
+  int *piVar3;
+  
+  if (param_2 != 0) {
+    if (*param_1 == '\0') {
+      FUN_00aa42c0(param_2,0);
+    }
+    else if (*(int *)(param_1 + 0x110) == 0) {
+      FUN_00aa42c0(param_2,0);
+    }
+    else {
+      iVar1 = *(int *)(&DAT_011f63b8 + (param_2 >> 0x18) * 4);
+      if (iVar1 != 0) {
+        if ((param_2 < *(uint *)(iVar1 + 4)) ||
+           ((uint)(*(int *)(iVar1 + 4) + *(int *)(iVar1 + 0x50)) <= param_2)) {
+          bVar2 = false;
+        }
+        else {
+          bVar2 = true;
+        }
+        if (bVar2) {
+          FUN_00aa6c70(param_2);
+          return;
+        }
+      }
+      piVar3 = (int *)FUN_00aa45a0(param_2);
+      if (piVar3 == (int *)0x0) {
+        FUN_00aa42c0(param_2,0);
+      }
+      else {
+        (**(code **)(*piVar3 + 0xc))(param_2,0);
+      }
+    }
+  }
+  return;
+}
+
+
+
+======================================================================
+Direct Default-slot virtual dispatches
+======================================================================
+DAT_011f6238 is an embedded GameHeap object. Its Default slot is
+the fixed address 0x011f6348, not a pointer loaded from 0x011f6238.
+A report requires Default-slot load -> vtable load -> CALL [vtable + 0x8/+0xc].
+This linear register trace can miss branch-spanning or stack-spilled paths;
+it does not prove absence of bypasses.
+  Functions referencing Default slot: 0
+  Functions loading Default slot: 0
+  Provenance-complete virtual dispatches: 0

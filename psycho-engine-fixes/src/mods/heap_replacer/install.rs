@@ -538,10 +538,10 @@ fn apply_gheap_patches() -> anyhow::Result<()> {
         patch_ret(0x00AA6840 as *mut c_void)?; // SBM stats reset
         patch_ret(0x00866770 as *mut c_void)?; // SBM config table init
         patch_ret(0x00866E00 as *mut c_void)?; // SBM-related init
-        patch_ret(0x00866D10 as *mut c_void)?; // Get SBM singleton
+        patch_ret(0x00866D10 as *mut c_void)?; // ScrapHeapManager lazy getter
         patch_ret(0x00AA7030 as *mut c_void)?; // GlobalCleanup (shutdown only)
         patch_ret(0x00AA5C80 as *mut c_void)?; // DeallocateAllArenas (shutdown only)
-        patch_ret(0x00AA58D0 as *mut c_void)?; // Sheap SBM cleanup
+        patch_ret(0x00AA58D0 as *mut c_void)?; // ScrapHeapManager eager constructor
 
         // SBM arena management -- dead code with GlobalCleanup ret-patched.
         patch_ret(0x00AA6F90 as *mut c_void)?; // PurgeUnusedArenas
