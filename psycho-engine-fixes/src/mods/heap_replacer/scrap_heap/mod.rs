@@ -132,13 +132,8 @@ unsafe fn alloc_oom_recovery(
     size: usize,
     align: usize,
 ) -> *mut c_void {
-    use super::gheap::heap_manager::HeapManager;
-
-    // First: signal main thread to run cleanup (same as main OOM path).
-    HeapManager::get().signal_emergency_drain();
-
-    // Pool/block do not decommit. Only lever left here is mimalloc's
-    // CRT arena collect; harmless off the main thread.
+    // Scrap heap allocations are backed by mimalloc regions. The only safe
+    // off-thread recovery lever here is collecting mimalloc's CRT arena.
     unsafe { libmimalloc::mi_collect(false) };
 
     for attempt in 1..=SHEAP_OOM_RETRIES {
@@ -150,8 +145,6 @@ unsafe fn alloc_oom_recovery(
             SHEAP_OOM_RETRIES
         );
 
-        // Signal main thread cleanup + mi_collect to reclaim empty pages
-        HeapManager::get().signal_emergency_drain();
         unsafe { libmimalloc::mi_collect(false) };
 
         let ptr = rt.alloc(sheap_ptr, size, align);
@@ -160,7 +153,7 @@ unsafe fn alloc_oom_recovery(
             return ptr;
         }
 
-        // If pool was drained and still failing, wait briefly for main thread cleanup
+        // Avoid a tight retry loop while other threads may be freeing regions.
         if attempt > 1 {
             libpsycho::os::windows::winapi::sleep(1);
         }

@@ -13,7 +13,7 @@ use crate::{
             AllocatorMode, decide_mode, initialize_mimalloc, install_gheap_hooks,
             install_gheap_initialize, install_sheap_hooks, install_sheap_initialize,
         },
-        perf::{install_radio_signal_scan_cache, install_rng_hook, mark_init_start},
+        perf::{install_radio_signal_scan_cache, install_rng_hook},
         zlib::install_zlib_hooks,
     },
 };
@@ -30,7 +30,6 @@ pub(crate) fn initialize() -> anyhow::Result<()> {
     let cfg = load_config();
 
     initialize_logging(&cfg.diagnostics)?;
-    mark_init_start();
 
     log::info!("[INIT] Engine fixes startup");
 

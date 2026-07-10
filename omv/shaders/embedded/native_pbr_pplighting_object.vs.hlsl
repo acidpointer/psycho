@@ -34,6 +34,10 @@
 #define PBR_OBJECT_POINT 0
 #endif
 
+#ifndef PBR_OBJECT_SKIN
+#define PBR_OBJECT_SKIN 0
+#endif
+
 struct VertexInput
 {
     float4 position : POSITION;
@@ -44,9 +48,18 @@ struct VertexInput
 #if !PBR_OBJECT_ONLY_LIGHT
     float4 vertex_color : COLOR0;
 #endif
+#if PBR_OBJECT_SKIN
+    float3 blend_weight : BLENDWEIGHT;
+    float4 blend_indices : BLENDINDICES;
+#endif
 };
 
+#if PBR_OBJECT_SKIN
+row_major float4x4 SkinModelViewProj : register(c1);
+float4 Bones[54] : register(c44);
+#else
 row_major float4x4 ModelViewProj : register(c0);
+#endif
 float4 LightData[10] : register(c25);
 float4 EyePosition : register(c16);
 
@@ -68,6 +81,95 @@ float4 fvars0 : register(c17);
 float3x3 TangentBasis(VertexInput input)
 {
     return float3x3(input.tangent.xyz, input.binormal.xyz, input.normal.xyz);
+}
+
+#if PBR_OBJECT_SKIN
+float SkinWeight(float3 value)
+{
+    return value.x + value.y + value.z;
+}
+
+float3 SkinPosition(float4 offset, float4 blend, float4 position)
+{
+    float3 result = 0.0f;
+    float3 helper = 0.0f;
+
+    helper.x = dot(Bones[offset.x], position);
+    helper.y = dot(Bones[offset.x + 1], position);
+    helper.z = dot(Bones[offset.x + 2], position);
+    result += helper * blend.x;
+
+    helper.x = dot(Bones[offset.y], position);
+    helper.y = dot(Bones[offset.y + 1], position);
+    helper.z = dot(Bones[offset.y + 2], position);
+    result += helper * blend.y;
+
+    helper.x = dot(Bones[offset.z], position);
+    helper.y = dot(Bones[offset.z + 1], position);
+    helper.z = dot(Bones[offset.z + 2], position);
+    result += helper * blend.z;
+
+    helper.x = dot(Bones[offset.w], position);
+    helper.y = dot(Bones[offset.w + 1], position);
+    helper.z = dot(Bones[offset.w + 2], position);
+    result += helper * blend.w;
+
+    return result;
+}
+
+float3 SkinVector(float4 offset, float4 blend, float3 value)
+{
+    float3 result = 0.0f;
+    float3 helper = 0.0f;
+
+    helper.x = dot(Bones[offset.x].xyz, value);
+    helper.y = dot(Bones[offset.x + 1].xyz, value);
+    helper.z = dot(Bones[offset.x + 2].xyz, value);
+    result += helper * blend.x;
+
+    helper.x = dot(Bones[offset.y].xyz, value);
+    helper.y = dot(Bones[offset.y + 1].xyz, value);
+    helper.z = dot(Bones[offset.y + 2].xyz, value);
+    result += helper * blend.y;
+
+    helper.x = dot(Bones[offset.z].xyz, value);
+    helper.y = dot(Bones[offset.z + 1].xyz, value);
+    helper.z = dot(Bones[offset.z + 2].xyz, value);
+    result += helper * blend.z;
+
+    helper.x = dot(Bones[offset.w].xyz, value);
+    helper.y = dot(Bones[offset.w + 1].xyz, value);
+    helper.z = dot(Bones[offset.w + 2].xyz, value);
+    result += helper * blend.w;
+
+    return result;
+}
+
+float3x3 SkinTangentBasis(float4 offset, float4 blend, VertexInput input)
+{
+    return float3x3(
+        normalize(SkinVector(offset, blend, input.tangent)),
+        normalize(SkinVector(offset, blend, input.binormal)),
+        normalize(SkinVector(offset, blend, input.normal))
+    );
+}
+#endif
+
+void ResolveObjectVertex(VertexInput input, out float4 position, out float3x3 tbn, out float4 clip_position)
+{
+    position = input.position;
+#if PBR_OBJECT_SKIN
+    float4 offset = input.blend_indices.zyxw * 765.01001f;
+    float4 blend = input.blend_weight.xyzz;
+    blend.w = 1.0f - SkinWeight(input.blend_weight);
+    tbn = SkinTangentBasis(offset, blend, input);
+    position.w = 1.0f;
+    position.xyz = SkinPosition(offset, blend, position);
+    clip_position = mul(SkinModelViewProj, position);
+#else
+    tbn = TangentBasis(input);
+    clip_position = mul(ModelViewProj, position);
+#endif
 }
 
 #if !PBR_OBJECT_ONLY_LIGHT
@@ -107,10 +209,12 @@ struct VertexOutput
 VertexOutput Main(VertexInput input)
 {
     VertexOutput output;
-    float4 position = input.position;
-    float3x3 tbn = TangentBasis(input);
+    float4 position;
+    float3x3 tbn;
+    float4 clip_position;
+    ResolveObjectVertex(input, position, tbn, clip_position);
 
-    output.position = mul(ModelViewProj, position);
+    output.position = clip_position;
     output.uv = input.uv.xy;
 
 #if PBR_OBJECT_DIFFUSE || PBR_OBJECT_POINT
@@ -201,13 +305,15 @@ float LightUsed(float light_index, float light_count)
 VertexOutput Main(VertexInput input)
 {
     VertexOutput output;
-    float4 position = input.position;
-    float3x3 tbn = TangentBasis(input);
+    float4 position;
+    float3x3 tbn;
+    float4 clip_position;
+    ResolveObjectVertex(input, position, tbn, clip_position);
     float3 view_dir = mul(tbn, EyePosition.xyz - position.xyz);
     float lights = PbrHighLightCount();
     float used = 0.0f;
 
-    output.position = mul(ModelViewProj, position);
+    output.position = clip_position;
     output.uv = input.uv.xy;
     output.local_position.xyz = position.xyz;
     output.local_position.w = LightData[0].w;

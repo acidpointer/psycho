@@ -103,7 +103,7 @@ impl F4SEContext {
                 .RegisterListener
                 .ok_or(F4SEContextError::MsgInterfaceRegisterListenerIsNull())?;
 
-            let is_registered = unsafe {
+            let _ = unsafe {
                 register_listener(
                     instance.plugin_handle()?,
                     c"F4SE".as_ptr(),

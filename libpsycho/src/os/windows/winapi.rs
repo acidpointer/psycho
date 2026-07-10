@@ -188,21 +188,25 @@ pub unsafe fn call_window_proc_a(
 }
 
 /// Return a window long value.
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub fn get_window_long_a(hwnd: *mut c_void, index: i32) -> i32 {
     unsafe { sys::GetWindowLongA(hwnd, index) }
 }
 
 /// Set a window long value and return the previous value.
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub fn set_window_long_a(hwnd: *mut c_void, index: i32, value: i32) -> i32 {
     unsafe { sys::SetWindowLongA(hwnd, index, value) }
 }
 
 /// True if HWND names a live window.
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub fn is_window(hwnd: *mut c_void) -> bool {
     !hwnd.is_null() && unsafe { sys::IsWindow(hwnd) != 0 }
 }
 
 /// Set position/size/z-order for a window.
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub fn set_window_pos(
     hwnd: *mut c_void,
     after: *mut c_void,
@@ -216,6 +220,7 @@ pub fn set_window_pos(
 }
 
 /// Change window show state.
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub fn show_window(hwnd: *mut c_void, cmd: i32) -> bool {
     unsafe { sys::ShowWindow(hwnd, cmd) != 0 }
 }

@@ -34,12 +34,19 @@ const OPCODE_BASE: u32 = 0x7F00;
 ///
 /// The helper has no preload work. Returning true lets xNVSE continue loading
 /// the plugin and keeps core setup owned by `psycho_engine_fixes.dll`.
+///
+/// # Safety
+/// Called by xNVSE with its plugin callback ABI.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn NVSEPlugin_Preload() -> BOOL {
     true.into()
 }
 
 /// xNVSE metadata query callback.
+///
+/// # Safety
+/// `nvse` and `info` must be the pointers supplied by xNVSE during plugin
+/// query. `info` must be writable for the duration of the call.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn NVSEPlugin_Query(
     nvse: *const NVSEInterfaceFFI,
@@ -63,6 +70,9 @@ pub unsafe extern "C" fn NVSEPlugin_Query(
 ///
 /// This registers helper services only. It must never call `LoadLibrary` or run
 /// any core engine-fix initialization.
+///
+/// # Safety
+/// `nvse` must be the xNVSE interface pointer supplied during plugin load.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn NVSEPlugin_Load(nvse: *const NVSEInterfaceFFI) -> BOOL {
     match helper_load(nvse) {

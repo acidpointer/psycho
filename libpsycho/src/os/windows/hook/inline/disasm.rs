@@ -594,7 +594,7 @@ impl Disasm {
 
         // Log the relocated bytes for debugging
         log::trace!("Original bytes: {:02X?}", self.stolen_bytes);
-        log::trace!("Relocated bytes: {:02X?}", &relocated_bytes);
+        log::trace!("Relocated bytes: {:02X?}", relocated_bytes);
 
         Ok(relocated_bytes)
     }

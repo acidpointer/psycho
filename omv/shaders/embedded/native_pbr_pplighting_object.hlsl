@@ -62,11 +62,11 @@ sampler2D BaseMap : register(s0);
 sampler2D NormalMap : register(s1);
 #endif
 
-#if PBR_OBJECT_SI || PBR_OBJECT_HAIR || (PBR_OBJECT_HIGH && !PBR_OBJECT_OPT)
+#if ((PBR_OBJECT_SI || PBR_OBJECT_HAIR) && !PBR_OBJECT_ONLY_SPECULAR) || (PBR_OBJECT_HIGH && !PBR_OBJECT_OPT)
 float4 EmittanceColor : register(c2);
 #endif
 
-#if PBR_OBJECT_SI || PBR_OBJECT_HAIR
+#if (PBR_OBJECT_SI || PBR_OBJECT_HAIR) && !PBR_OBJECT_ONLY_SPECULAR
 #if PBR_OBJECT_ONLY_LIGHT
 sampler2D GlowMap : register(s3);
 #else
@@ -374,7 +374,7 @@ float4 Main(PixelInput input) : COLOR0
     }
 #endif
 
-#if PBR_OBJECT_HAIR
+#if PBR_OBJECT_HAIR && !PBR_OBJECT_ONLY_SPECULAR
     float4 glow = tex2D(GlowMap, input.uv.xy);
     base_color.rgb = (2.0f * ((input.vertex_color.g * (EmittanceColor.rgb - 0.5f)) + 0.5f)) * lerp(base_color.rgb, glow.rgb, glow.a);
 #endif

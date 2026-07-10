@@ -14,10 +14,6 @@ const NOTIFY_EVENT_EXPORT: &str = "PsychoEngineFixes_NotifyEvent";
 
 // These ids mirror `psycho-engine-fixes/src/events.rs`.
 pub(crate) const EVENT_DEFERRED_INIT: u32 = 1;
-pub(crate) const EVENT_PRE_LOAD_GAME: u32 = 2;
-pub(crate) const EVENT_LOAD_GAME: u32 = 3;
-pub(crate) const EVENT_POST_LOAD_GAME: u32 = 4;
-pub(crate) const EVENT_MAIN_GAME_LOOP: u32 = 5;
 pub(crate) const EVENT_ON_FRAME_PRESENT: u32 = 6;
 
 // These ids mirror `psycho-engine-fixes/src/command_api.rs`.

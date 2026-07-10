@@ -119,19 +119,6 @@ pub(crate) fn should_tick(last_tick: &AtomicU32, interval_ms: u32) -> bool {
         .is_ok()
 }
 
-/// Returns milliseconds since process creation, ignoring transient WinAPI errors.
-pub(crate) fn process_elapsed_ms_now() -> Option<u64> {
-    libpsycho::os::windows::winapi::process_elapsed_ms().ok()
-}
-
-/// Formats an optional millisecond duration as seconds with millisecond precision.
-pub(crate) fn format_duration_ms(ms: Option<u64>) -> String {
-    match ms {
-        Some(ms) => format!("{}.{:03}s", ms / 1000, ms % 1000),
-        None => "n/a".to_string(),
-    }
-}
-
 /// Returns cached QPC frequency, or zero if the counter is unavailable.
 fn perf_frequency() -> u64 {
     let current = PERF_FREQUENCY.load(Ordering::Acquire);

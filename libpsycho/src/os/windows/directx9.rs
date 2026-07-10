@@ -429,6 +429,14 @@ impl<'a> Device9Ref<'a> {
         unsafe { self.inner.SetTexture(stage, texture.as_base_texture()) }
     }
 
+    /// Return whether a texture is currently bound to a sampler stage.
+    ///
+    /// `GetTexture` returns an owned COM reference when a texture exists; the
+    /// wrapper drops it immediately. The result is only a presence check.
+    pub fn texture_bound(&self, stage: u32) -> bool {
+        unsafe { self.inner.GetTexture(stage) }.is_ok()
+    }
+
     /// Set a borrowed raw `IDirect3DBaseTexture9` pointer.
     ///
     /// # Safety

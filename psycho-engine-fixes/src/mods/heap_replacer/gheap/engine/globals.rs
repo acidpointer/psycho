@@ -76,8 +76,8 @@ pub fn heap_compact_trigger_value() -> u32 {
 }
 
 /// Signal HeapCompact to run stages 0..=stage on the next frame.
-/// Raw write -- prefer HeapManager::signal_heap_compact() which uses
-/// MAX semantics (never downgrades an existing trigger).
+/// This is a raw trigger write; callers must avoid downgrading a stronger
+/// pending trigger when that distinction matters.
 pub fn signal_heap_compact(stage: HeapCompactStage) {
     unsafe {
         let trigger = addr::HEAP_COMPACT_TRIGGER as *mut u32;
@@ -340,8 +340,7 @@ pub unsafe fn release_bstask_sems_if_owned() -> bool {
 
 /// Raw FFI call to the game's OOM stage executor (FUN_00866a90).
 ///
-/// Returns `(next_stage, give_up)`. Does NOT call mi_collect --
-/// use HeapManager::run_oom_stage() which encapsulates collect + logging.
+/// Returns `(next_stage, give_up)`. Does not call `mi_collect`.
 ///
 /// # Safety
 /// Calls game code.

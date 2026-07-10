@@ -149,7 +149,6 @@ pub unsafe extern "thiscall" fn hook_main_loop_maintenance(this: *mut c_void) {
     hitch::measure_span(Span::Phase10Pressure, || {
         if let Some(pr) = PressureRelief::instance() {
             pr.calibrate_baseline();
-            pr.flush_pending_counter_decrement();
         }
     });
     hang::mark_main(Site::Phase10AfterPressure);

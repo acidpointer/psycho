@@ -55,7 +55,7 @@ impl<F: Copy + 'static> InlineHook<F> {
 
         log::debug!(
             "Creating inline hook '{}': target={:p}, detour={:p}",
-            &name,
+            name,
             target_ptr.as_ptr(),
             detour_ptr
         );
@@ -146,7 +146,7 @@ impl<F: Copy + 'static> InlineHook<F> {
         let written_bytes = unsafe {
             std::slice::from_raw_parts(self.target_ptr.as_ptr() as *const u8, jump_bytes.len())
         };
-        log::trace!("Expected jump bytes: {:02X?}", &jump_bytes);
+        log::trace!("Expected jump bytes: {:02X?}", jump_bytes);
         log::trace!("Actually written bytes: {:02X?}", written_bytes);
 
         if written_bytes != jump_bytes.as_slice() {

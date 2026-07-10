@@ -10,7 +10,6 @@ pub mod block;
 pub mod engine;
 pub mod game_guard;
 pub mod hang;
-pub mod heap_manager;
 pub mod hitch;
 pub mod hooks;
 pub mod model_task_fix;

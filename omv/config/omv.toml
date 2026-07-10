@@ -152,42 +152,23 @@ occlusion_softness = 0.42
 # WIP / work in progress: this feature is preserved as an opt-in diagnostic
 # path, but it is not ready and must not be treated as an early release feature.
 #
-# OMV installs native hooks from xNVSE DeferredInit after dependency detection.
-# New Vegas Reloaded coexistence is not supported.
+# The previous draw-time replacement implementation was removed because it did
+# not satisfy the NVR shader lifecycle contract and caused flicker/FPS loss.
+# The current code keeps the user-facing option and settings, but visible PBR
+# replacement is intentionally blocked until the NVR-style rewrite is ported:
+#   - shader wrapper side-table identity;
+#   - SetShaderPackage and shader package lifetime contracts;
+#   - SetShaders ownership point;
+#   - precompiled shader cache and D3D resource creation outside the draw path;
+#   - reflected/static constant and sampler contracts;
+#   - separate object, LandLOD, terrain fade, and close-terrain collections.
 #
-# When enabled below, OMV replaces eligible PPLighting material shaders
-# with embedded Native PBR shader variants. The draw-time ownership
-# contract:
-#   - BSShader::CreateVertexShader/CreatePixelShader ownership side table
-#   - PPLighting selector setup +0xF0/+0xF4 material-array side table
-#   - BSShader::SetShaders current NiD3DPass context
-#   - current pass shader-interface apply context
-#   - NiDX9RenderState::SetTexture final 16-stage texture cache
-#   - PPLighting shader-family membership from proven vanilla global arrays
-#   - ObjectTemplate ADTS object ABIs:
-#     base/OPT/LOD, projected shadow, LIGHTS=2, LIGHTS=2 projected shadow,
-#     specular, specular projected shadow, specular LIGHTS=2, and specular
-#     LIGHTS=2 projected shadow, plus SI and hair helper variants
-#   - ObjectTemplate ADTS10 object ABIs:
-#     LIGHTS=9, LIGHTS=4, LIGHTS=4 OPT, SPECULAR LIGHTS=4, and
-#     SPECULAR LIGHTS=4 OPT
-#   - optional experimental VPT/FSL/LODFF LandLOD, terrain fade, and close
-#     terrain rows when the terrain stack is detected and terrain_enabled is true
-#   - contract-gated replacement:
-#     object replacement starts only after active object shader contracts are
-#     compiled, created, and ready; terrain readiness does not block objects
-#
-# EnvMap/reflection rows, skin rows, projected terrain, and unproven helper
-# terrain rows remain on vanilla shaders until their texture, pass, fade, and
-# lighting contracts are implemented separately. Terrain PBR is still
-# experimental because close-terrain row coverage is not complete.
-#
-# This is a runtime shader toggle. It does not control hook installation.
-# Disabled by default because the current PBR contracts are still WIP.
+# Disabled by default. Enabling it today only marks the requested state in the
+# ImGui dashboard; it must not install the old broken replacement path.
 enabled = false
 
-# Experimental. Defaults off because close-terrain row coverage is incomplete
-# and enabling it can still expose distance blinking or large FPS drops.
+# Experimental. Defaults off. Terrain replacement stays blocked until LandLOD,
+# terrain fade, and close-terrain contracts are ported separately.
 terrain_enabled = false
 
 # Object PBR registers:

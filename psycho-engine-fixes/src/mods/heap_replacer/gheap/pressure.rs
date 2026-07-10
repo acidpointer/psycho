@@ -3,7 +3,6 @@
 //! Pressure detection is handled by the watchdog thread (watchdog.rs).
 //! This module provides:
 //!   - Baseline commit calibration
-//!   - Loading state counter cleanup after reclaim paths
 //!
 //! # Hook positions
 //!
@@ -11,23 +10,17 @@
 //!   Phase 10 (hook_main_loop_maintenance): baseline calibration
 
 use std::sync::LazyLock;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-
-use super::engine::globals;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 // ---------------------------------------------------------------------------
 // PressureRelief
 // ---------------------------------------------------------------------------
 
-/// Tracks baseline commit and delayed loading-state counter cleanup.
+/// Tracks baseline commit.
 ///
 /// Pressure detection is handled by the watchdog thread. This struct keeps the
-/// baseline commit used for threshold computation and owns the delayed cleanup
-/// flag for reclaim paths that temporarily elevate the loading-state counter.
+/// baseline commit used for threshold computation.
 pub struct PressureRelief {
-    /// Set by reclaim paths that need one-frame-delayed loading-state cleanup.
-    pending_counter_decrement: AtomicBool,
-
     /// Commit at first tick. Used by watchdog for threshold computation.
     baseline_commit: AtomicUsize,
 }
@@ -37,7 +30,6 @@ impl PressureRelief {
         log::info!("[PRESSURE] Initialized");
 
         Self {
-            pending_counter_decrement: AtomicBool::new(false),
             baseline_commit: AtomicUsize::new(0),
         }
     }
@@ -67,13 +59,5 @@ impl PressureRelief {
         static INSTANCE: LazyLock<Option<PressureRelief>> =
             LazyLock::new(|| Some(PressureRelief::new()));
         INSTANCE.as_ref()
-    }
-
-    /// Decrement the loading state counter if a previous destruction_protocol
-    /// left it elevated. Called once per frame from Phase 10.
-    pub fn flush_pending_counter_decrement(&self) {
-        if self.pending_counter_decrement.swap(false, Ordering::AcqRel) {
-            globals::loading_state_counter().fetch_sub(1, std::sync::atomic::Ordering::AcqRel);
-        }
     }
 }

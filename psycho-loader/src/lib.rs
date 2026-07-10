@@ -42,6 +42,11 @@ unsafe extern "system" fn tls_callback(instance: HInstance, reason: u32, _reserv
     unsafe { process_attach(instance, reason) };
 }
 
+/// Windows loader entrypoint.
+///
+/// # Safety
+/// Called by the Windows loader with process-attach/detach arguments. The
+/// pointers and reason code must come from the loader.
 #[unsafe(no_mangle)]
 pub unsafe extern "system" fn DllMain(
     instance: HInstance,
@@ -68,6 +73,10 @@ unsafe fn process_attach(instance: HInstance, reason: u32) {
 
 // The .def file exports the normal dinput8 surface. Each exported function
 // delegates to `dinput8.rs`, which keeps real-system-DLL loading in one place.
+/// Forward `DirectInput8Create` to the real system `dinput8.dll`.
+///
+/// # Safety
+/// Arguments must satisfy the Win32 `DirectInput8Create` contract.
 #[unsafe(no_mangle)]
 pub unsafe extern "system" fn DirectInput8Create(
     instance: HInstance,
@@ -79,11 +88,19 @@ pub unsafe extern "system" fn DirectInput8Create(
     unsafe { dinput8::direct_input8_create(instance, version, riidltf, out, outer) }
 }
 
+/// Forward `DllCanUnloadNow` to the real system `dinput8.dll`.
+///
+/// # Safety
+/// Called by COM using the standard DLL export contract.
 #[unsafe(no_mangle)]
 pub unsafe extern "system" fn DllCanUnloadNow() -> i32 {
     unsafe { dinput8::dll_can_unload_now() }
 }
 
+/// Forward `DllGetClassObject` to the real system `dinput8.dll`.
+///
+/// # Safety
+/// Arguments must satisfy the Win32 `DllGetClassObject` contract.
 #[unsafe(no_mangle)]
 pub unsafe extern "system" fn DllGetClassObject(
     clsid: *const c_void,
@@ -93,11 +110,19 @@ pub unsafe extern "system" fn DllGetClassObject(
     unsafe { dinput8::dll_get_class_object(clsid, iid, out) }
 }
 
+/// Forward `DllRegisterServer` to the real system `dinput8.dll`.
+///
+/// # Safety
+/// Called by COM registration tooling using the standard DLL export contract.
 #[unsafe(no_mangle)]
 pub unsafe extern "system" fn DllRegisterServer() -> i32 {
     unsafe { dinput8::dll_register_server() }
 }
 
+/// Forward `DllUnregisterServer` to the real system `dinput8.dll`.
+///
+/// # Safety
+/// Called by COM registration tooling using the standard DLL export contract.
 #[unsafe(no_mangle)]
 pub unsafe extern "system" fn DllUnregisterServer() -> i32 {
     unsafe { dinput8::dll_unregister_server() }

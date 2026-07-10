@@ -256,7 +256,12 @@ impl Drop for ItemWidth {
     }
 }
 
-pub fn wndproc(hwnd: *mut c_void, msg: u32, wparam: usize, lparam: isize) -> isize {
+/// Forward a Win32 window message to Dear ImGui.
+///
+/// # Safety
+/// `hwnd`, `msg`, `wparam`, and `lparam` must be the live message packet passed
+/// to the game's window procedure.
+pub unsafe fn wndproc(hwnd: *mut c_void, msg: u32, wparam: usize, lparam: isize) -> isize {
     unsafe { ffi::psycho_imgui_wndproc(hwnd, msg, wparam, lparam) }
 }
 
