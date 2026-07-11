@@ -15,6 +15,10 @@ registers, resource lifetime, effect ordering, feature dependencies, and failure
 modes. A port that does not reproduce these contracts is not an NVR port; it is a
 guess.
 
+The July 2026 runtime performance measurements, shadow-atlas attribution, effect
+copy analysis, DXVK state-cache findings, and rejected opaque optimizations are in
+`docs/nvr_d3d9_performance_research.md`.
+
 ## Status And Rules
 
 ### Source tiers
