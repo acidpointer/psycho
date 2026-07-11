@@ -721,6 +721,10 @@ pub fn committed_bytes() -> usize {
     with_heap(|h| h.live_count() * BLOCK_SIZE)
 }
 
+pub fn fail_count() -> u64 {
+    FAIL_COUNT.load(Ordering::Relaxed)
+}
+
 #[inline]
 fn round_up(v: u32, align: u32) -> u32 {
     (v + align - 1) & !(align - 1)

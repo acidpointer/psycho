@@ -1442,3 +1442,7 @@ pub fn metadata_bytes() -> usize {
 pub fn live_cells() -> usize {
     HEAP.get().map(|h| h.live_cells()).unwrap_or(0)
 }
+
+pub fn exhaust_count() -> u64 {
+    POOL_EXHAUST_COUNT.load(Ordering::Relaxed)
+}

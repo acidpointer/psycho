@@ -186,7 +186,7 @@ impl SpanSnapshot {
 }
 
 pub fn measure_span<R>(span: Span, f: impl FnOnce() -> R) -> R {
-    if !diagnostics::debug_enabled() {
+    if !diagnostics::hitch_profiling_enabled() {
         return f();
     }
 
@@ -197,7 +197,7 @@ pub fn measure_span<R>(span: Span, f: impl FnOnce() -> R) -> R {
 }
 
 pub fn on_phase10_enter() {
-    if !diagnostics::debug_enabled() {
+    if !diagnostics::hitch_profiling_enabled() {
         return;
     }
 

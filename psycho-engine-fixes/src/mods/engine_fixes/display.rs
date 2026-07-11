@@ -64,6 +64,34 @@ static REPAIR_ATTEMPTS: AtomicU32 = AtomicU32::new(0);
 static REPAIR_IN_PROGRESS: AtomicBool = AtomicBool::new(false);
 static FORCED_INACTIVE_CORRECTIONS: AtomicU32 = AtomicU32::new(0);
 static SKIPPED_VANILLA_WINDOW_REPAIRS: AtomicU32 = AtomicU32::new(0);
+static FOCUS_STATE_OBSERVED: AtomicBool = AtomicBool::new(false);
+static LAST_FOCUS_ACTIVE: AtomicBool = AtomicBool::new(false);
+static LAST_FOCUS_TRANSITION_MS: AtomicU32 = AtomicU32::new(0);
+static LAST_REPAIR_MS: AtomicU32 = AtomicU32::new(0);
+static LAST_REPAIR_SUCCEEDED: AtomicBool = AtomicBool::new(false);
+
+#[derive(Clone, Copy)]
+pub(crate) struct DiagnosticSnapshot {
+    pub focus_observed: bool,
+    pub focus_active: bool,
+    pub focus_transition_ms: u32,
+    pub pending_repair: bool,
+    pub repair_attempts: u32,
+    pub last_repair_ms: u32,
+    pub last_repair_succeeded: bool,
+}
+
+pub(crate) fn diagnostic_snapshot() -> DiagnosticSnapshot {
+    DiagnosticSnapshot {
+        focus_observed: FOCUS_STATE_OBSERVED.load(Ordering::Acquire),
+        focus_active: LAST_FOCUS_ACTIVE.load(Ordering::Acquire),
+        focus_transition_ms: LAST_FOCUS_TRANSITION_MS.load(Ordering::Acquire),
+        pending_repair: PENDING_FULLSCREEN_REPAIR.load(Ordering::Acquire),
+        repair_attempts: REPAIR_ATTEMPTS.load(Ordering::Acquire),
+        last_repair_ms: LAST_REPAIR_MS.load(Ordering::Acquire),
+        last_repair_succeeded: LAST_REPAIR_SUCCEEDED.load(Ordering::Acquire),
+    }
+}
 
 struct WindowSize {
     width: i32,
@@ -274,6 +302,11 @@ fn repair_fullscreen_window(reason: &str, require_active_window: bool) {
         height,
         WINDOW_REPAIR_FLAGS,
     );
+    LAST_REPAIR_MS.store(
+        libpsycho::os::windows::winapi::get_tick_count(),
+        Ordering::Release,
+    );
+    LAST_REPAIR_SUCCEEDED.store(ok, Ordering::Release);
 
     if !ok {
         log::warn!(
@@ -305,13 +338,22 @@ unsafe extern "thiscall" fn hook_focus_state(this: *mut c_void, active: u8) {
         return;
     };
 
-    unsafe { original(this, active) };
+    let active = active != 0;
+    let previous = LAST_FOCUS_ACTIVE.swap(active, Ordering::AcqRel);
+    if !FOCUS_STATE_OBSERVED.swap(true, Ordering::AcqRel) || previous != active {
+        LAST_FOCUS_TRANSITION_MS.store(
+            libpsycho::os::windows::winapi::get_tick_count(),
+            Ordering::Release,
+        );
+    }
+
+    unsafe { original(this, active as u8) };
 
     if !this.is_null() {
         LAST_OS_GLOBALS.store(this as usize, Ordering::Release);
     }
 
-    if active != 0 {
+    if active {
         PENDING_FULLSCREEN_REPAIR.store(true, Ordering::Release);
     } else {
         correct_forced_fullscreen_inactive(this);

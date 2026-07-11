@@ -18,7 +18,7 @@
 //! path is needed here.
 
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicI32, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU64, AtomicUsize, Ordering};
 use std::thread::{self, JoinHandle};
 
 use libmimalloc::process_info::MiMallocProcessInfo;
@@ -89,6 +89,10 @@ static LAST_COMMIT: AtomicUsize = AtomicUsize::new(0);
 static COMMIT_STATE: AtomicUsize = AtomicUsize::new(PressureState::Normal as usize);
 static FREE_VAS_STATE: AtomicUsize = AtomicUsize::new(PressureState::Normal as usize);
 static HOLE_STATE: AtomicUsize = AtomicUsize::new(PressureState::Normal as usize);
+static LAST_POOL_EXHAUST: AtomicU64 = AtomicU64::new(0);
+static LAST_BLOCK_OVERFLOW: AtomicU64 = AtomicU64::new(0);
+static LAST_BLOCK_FAILURE: AtomicU64 = AtomicU64::new(0);
+static LAST_VA_FAILURE: AtomicU64 = AtomicU64::new(0);
 
 // ---------------------------------------------------------------------------
 // Public API (called from main thread)
@@ -140,6 +144,36 @@ impl Watchdog {
 
         Self { run, handle }
     }
+}
+
+fn log_allocator_events() {
+    let pool_exhaust = super::pool::exhaust_count();
+    let block_overflow = super::allocator::block_overflow_count();
+    let block_fail = super::block::fail_count();
+    let va_fail = super::va_alloc::fail_count();
+    let new_pool_exhaust =
+        pool_exhaust.saturating_sub(LAST_POOL_EXHAUST.swap(pool_exhaust, Ordering::AcqRel));
+    let new_block_overflow =
+        block_overflow.saturating_sub(LAST_BLOCK_OVERFLOW.swap(block_overflow, Ordering::AcqRel));
+    let new_block_fail =
+        block_fail.saturating_sub(LAST_BLOCK_FAILURE.swap(block_fail, Ordering::AcqRel));
+    let new_va_fail = va_fail.saturating_sub(LAST_VA_FAILURE.swap(va_fail, Ordering::AcqRel));
+
+    if new_pool_exhaust == 0 && new_block_overflow == 0 && new_block_fail == 0 && new_va_fail == 0 {
+        return;
+    }
+
+    log::warn!(
+        "[MEM] allocator fallback events: pool_exhaust+{} total={} block_overflow+{} total={} block_fail+{} total={} va_fail+{} total={}",
+        new_pool_exhaust,
+        pool_exhaust,
+        new_block_overflow,
+        block_overflow,
+        new_block_fail,
+        block_fail,
+        new_va_fail,
+        va_fail,
+    );
 }
 
 impl Drop for Watchdog {
@@ -222,6 +256,7 @@ fn log_diagnostics(poll_count: u32, info: &MiMallocProcessInfo) {
         va_live,
         format_rate(rate),
     );
+    log_allocator_events();
 
     if let Some(vas) = super::vas::sample() {
         log::debug!(

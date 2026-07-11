@@ -27,6 +27,10 @@ pub(crate) struct DiagnosticCounters {
     pub(crate) extra_owner_unreadable: u64,
 }
 
+pub(crate) fn display_diagnostic_snapshot() -> display::DiagnosticSnapshot {
+    display::diagnostic_snapshot()
+}
+
 pub fn install(config: &EngineFixesConfig) -> anyhow::Result<()> {
     install_display_alt_tab(config)?;
     install_navmesh_low_pointer(config)?;

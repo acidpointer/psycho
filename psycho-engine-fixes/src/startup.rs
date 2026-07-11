@@ -63,6 +63,13 @@ fn initialize_logging(diagnostics: &DiagnosticsConfig) -> anyhow::Result<()> {
 }
 
 fn initialize_diagnostics(diagnostics: &DiagnosticsConfig) -> anyhow::Result<()> {
+    crate::mods::diagnostics::configure_hitch_profiling(diagnostics.hitch_profiling);
+    if diagnostics.hitch_profiling && !diagnostics.debug_log {
+        log::warn!(
+            "[DIAGNOSTICS] hitch_profiling is enabled but debug_log is disabled; timing summaries will not be written"
+        );
+    }
+
     if diagnostics.console {
         alloc_console()?;
     }

@@ -207,3 +207,15 @@ console = false
 #         Use this only if you do not need support logs and want the quietest
 #         setup possible.
 debug_log = true
+
+# Enable high-resolution per-frame and per-engine-span timing.
+#
+# This is intentionally separate from debug_log. It adds QPC reads around many
+# hot engine hooks, which is useful for a short hitch investigation but is not
+# needed for normal play or ordinary stability logs.
+#
+# true  = emit [HITCH] reports with per-span timings. Use only while reproducing
+#         a specific hitch.
+# false = keep low-overhead hang, memory, and guard diagnostics without per-frame
+#         timing work. Recommended for normal play.
+hitch_profiling = false

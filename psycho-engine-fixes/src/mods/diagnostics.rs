@@ -1,8 +1,20 @@
 //! Shared diagnostics helpers for hot-path instrumentation.
 
-use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 
 static PERF_FREQUENCY: AtomicU64 = AtomicU64::new(0);
+static HITCH_PROFILING: AtomicBool = AtomicBool::new(false);
+
+/// Configures opt-in QPC timing for frame hitch investigations.
+pub(crate) fn configure_hitch_profiling(enabled: bool) {
+    HITCH_PROFILING.store(enabled, Ordering::Release);
+}
+
+/// Returns true when focused hitch profiling may perform QPC reads.
+#[inline]
+pub(crate) fn hitch_profiling_enabled() -> bool {
+    HITCH_PROFILING.load(Ordering::Acquire)
+}
 
 /// Lightweight QPC stopwatch used by optional diagnostics.
 ///
@@ -24,13 +36,13 @@ impl Stopwatch {
         }
     }
 
-    /// Starts a stopwatch only when debug diagnostics can be emitted.
+    /// Starts a stopwatch only when hitch profiling is enabled.
     ///
-    /// This is the default for frame and guard telemetry; when debug logging is
-    /// off, it avoids QPC calls in game hot paths.
+    /// This is the default for frame and guard telemetry; when profiling is
+    /// disabled, it avoids QPC calls in game hot paths.
     #[inline]
-    pub(crate) fn start_if_debug() -> Self {
-        if debug_enabled() {
+    pub(crate) fn start_if_hitch_profiling() -> Self {
+        if hitch_profiling_enabled() {
             Self::start()
         } else {
             Self { start_ticks: 0 }
@@ -52,12 +64,6 @@ impl Stopwatch {
         let elapsed = ticks_to_us(end_ticks - self.start_ticks);
         (elapsed != 0).then_some(elapsed)
     }
-}
-
-/// Returns true when debug-level diagnostics are enabled globally.
-#[inline]
-pub(crate) fn debug_enabled() -> bool {
-    log::log_enabled!(log::Level::Debug)
 }
 
 /// Reads the high-resolution performance counter.

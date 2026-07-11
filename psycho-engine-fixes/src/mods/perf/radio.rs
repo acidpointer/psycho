@@ -12,6 +12,8 @@ use parking_lot::Mutex;
 
 use libpsycho::os::windows::winapi::{get_tick_count, replace_call};
 
+use crate::mods::diagnostics;
+
 const PERIODIC_RADIO_SCAN_CALL_ADDR: usize = 0x00833D86;
 const RADIO_SIGNAL_SCAN_ADDR: usize = 0x004FF1A0;
 const STATION_LIST_APPEND_ADDR: usize = 0x005AE3D0;
@@ -146,6 +148,10 @@ static CAPTURE_FAILS: AtomicUsize = AtomicUsize::new(0);
 static LAST_ENTRY_COUNT: AtomicUsize = AtomicUsize::new(0);
 static LAST_SUMMARY_MS: AtomicU32 = AtomicU32::new(0);
 static CACHE_TTL_MS: AtomicU32 = AtomicU32::new(DEFAULT_CACHE_TTL_MS);
+static VANILLA_SCAN_TOTAL_US: AtomicUsize = AtomicUsize::new(0);
+static VANILLA_SCAN_MAX_US: AtomicUsize = AtomicUsize::new(0);
+static REPLAY_TOTAL_US: AtomicUsize = AtomicUsize::new(0);
+static REPLAY_MAX_US: AtomicUsize = AtomicUsize::new(0);
 
 pub fn install_radio_signal_scan_cache(ttl_ms: u32) -> anyhow::Result<()> {
     let opcode = read_u8(PERIODIC_RADIO_SCAN_CALL_ADDR);
@@ -196,7 +202,7 @@ pub unsafe extern "C" fn hook_periodic_radio_signal_scan(
     if current_ref.is_null() || out_stations.is_null() || out_meta.is_null() {
         BYPASSES.fetch_add(1, Ordering::Relaxed);
         invalidate_cache();
-        unsafe { call_vanilla_radio_scan(current_ref, out_stations, out_meta) };
+        unsafe { call_vanilla_radio_scan_timed(current_ref, out_stations, out_meta) };
         return;
     }
 
@@ -204,7 +210,7 @@ pub unsafe extern "C" fn hook_periodic_radio_signal_scan(
     if key.loading != 0 || key.disabled_gate != 0 || key.transition_gate != 0 {
         BYPASSES.fetch_add(1, Ordering::Relaxed);
         invalidate_cache();
-        unsafe { call_vanilla_radio_scan(current_ref, out_stations, out_meta) };
+        unsafe { call_vanilla_radio_scan_timed(current_ref, out_stations, out_meta) };
         return;
     }
 
@@ -214,12 +220,14 @@ pub unsafe extern "C" fn hook_periodic_radio_signal_scan(
     if let Some(snapshot) = cached {
         HITS.fetch_add(1, Ordering::Relaxed);
         LAST_ENTRY_COUNT.store(snapshot.count, Ordering::Relaxed);
+        let timer = diagnostics::Stopwatch::start_if_hitch_profiling();
         unsafe { replay_snapshot(snapshot, out_stations.cast(), out_meta.cast()) };
+        record_timing(timer, &REPLAY_TOTAL_US, &REPLAY_MAX_US);
         return;
     }
 
     MISSES.fetch_add(1, Ordering::Relaxed);
-    unsafe { call_vanilla_radio_scan(current_ref, out_stations, out_meta) };
+    unsafe { call_vanilla_radio_scan_timed(current_ref, out_stations, out_meta) };
 
     match unsafe { capture_snapshot(out_stations.cast(), out_meta.cast()) } {
         Some(snapshot) => {
@@ -260,6 +268,32 @@ unsafe fn call_vanilla_radio_scan(
 ) {
     let f: RadioSignalScanFn = unsafe { core::mem::transmute(RADIO_SIGNAL_SCAN_ADDR) };
     unsafe { f(current_ref, out_stations, out_meta) };
+}
+
+unsafe fn call_vanilla_radio_scan_timed(
+    current_ref: *mut c_void,
+    out_stations: *mut c_void,
+    out_meta: *mut c_void,
+) {
+    let timer = diagnostics::Stopwatch::start_if_hitch_profiling();
+    unsafe { call_vanilla_radio_scan(current_ref, out_stations, out_meta) };
+    record_timing(timer, &VANILLA_SCAN_TOTAL_US, &VANILLA_SCAN_MAX_US);
+}
+
+fn record_timing(timer: diagnostics::Stopwatch, total: &AtomicUsize, max: &AtomicUsize) {
+    let Some(elapsed_us) = timer.elapsed_us() else {
+        return;
+    };
+    let elapsed_us = elapsed_us.min(usize::MAX as u64) as usize;
+    total.fetch_add(elapsed_us, Ordering::Relaxed);
+    let mut previous = max.load(Ordering::Relaxed);
+    while elapsed_us > previous {
+        match max.compare_exchange_weak(previous, elapsed_us, Ordering::Relaxed, Ordering::Relaxed)
+        {
+            Ok(_) => break,
+            Err(next) => previous = next,
+        }
+    }
 }
 
 unsafe fn replay_snapshot(
@@ -350,13 +384,17 @@ fn maybe_log_summary(now_ms: u32) {
     }
 
     log::debug!(
-        "[RADIO] scan_cache hits={} misses={} bypasses={} capture_fails={} last_entries={} ttl_ms={}",
+        "[RADIO] scan_cache hits={} misses={} bypasses={} capture_fails={} last_entries={} ttl_ms={} vanilla_us={}/{} replay_us={}/{}",
         HITS.load(Ordering::Relaxed),
         MISSES.load(Ordering::Relaxed),
         BYPASSES.load(Ordering::Relaxed),
         CAPTURE_FAILS.load(Ordering::Relaxed),
         LAST_ENTRY_COUNT.load(Ordering::Relaxed),
-        CACHE_TTL_MS.load(Ordering::Relaxed)
+        CACHE_TTL_MS.load(Ordering::Relaxed),
+        VANILLA_SCAN_TOTAL_US.load(Ordering::Relaxed),
+        VANILLA_SCAN_MAX_US.load(Ordering::Relaxed),
+        REPLAY_TOTAL_US.load(Ordering::Relaxed),
+        REPLAY_MAX_US.load(Ordering::Relaxed),
     );
 }
 

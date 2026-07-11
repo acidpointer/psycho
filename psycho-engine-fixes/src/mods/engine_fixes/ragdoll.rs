@@ -79,7 +79,7 @@ pub unsafe extern "thiscall" fn hook_ragdoll_bone_transform_update(ragdoll: *mut
         }
     };
 
-    let timer = diagnostics::Stopwatch::start_if_debug();
+    let timer = diagnostics::Stopwatch::start_if_hitch_profiling();
     if let Err(reason) = ragdoll_ready_for_bone_update(ragdoll) {
         record_guard_sample(timer, true);
         log_skip("bone-transform", reason, ragdoll);
@@ -102,7 +102,7 @@ pub unsafe extern "thiscall" fn hook_ragdoll_alternate_update(ragdoll: *mut c_vo
         }
     };
 
-    let timer = diagnostics::Stopwatch::start_if_debug();
+    let timer = diagnostics::Stopwatch::start_if_hitch_profiling();
     if let Err(reason) = ragdoll_ready_for_bone_update(ragdoll) {
         record_guard_sample(timer, true);
         log_skip("alternate", reason, ragdoll);
@@ -125,7 +125,7 @@ pub unsafe extern "fastcall" fn hook_ragdoll_save_load_writeback(ragdoll: *mut c
         }
     };
 
-    let timer = diagnostics::Stopwatch::start_if_debug();
+    let timer = diagnostics::Stopwatch::start_if_hitch_profiling();
     if let Err(reason) = ragdoll_ready_for_bone_update(ragdoll) {
         record_guard_sample(timer, true);
         log_skip("save-load-writeback", reason, ragdoll);
@@ -282,7 +282,9 @@ fn is_readable(addr: usize, len: usize) -> bool {
 }
 
 fn query_readable_region(addr: usize) -> Option<(usize, usize)> {
-    GUARD_VIRTUAL_QUERIES.fetch_add(1, Ordering::Relaxed);
+    if diagnostics::hitch_profiling_enabled() {
+        GUARD_VIRTUAL_QUERIES.fetch_add(1, Ordering::Relaxed);
+    }
 
     let Ok(info) = virtual_query(addr as *mut c_void) else {
         return None;
@@ -336,7 +338,7 @@ fn format_ragdoll_state(ragdoll: *mut c_void) -> String {
 }
 
 fn record_guard_sample(timer: diagnostics::Stopwatch, skipped: bool) {
-    if !diagnostics::debug_enabled() {
+    if !diagnostics::hitch_profiling_enabled() {
         return;
     }
 

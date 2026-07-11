@@ -139,6 +139,10 @@ fn log_block_overflow(size: usize) {
     }
 }
 
+pub fn block_overflow_count() -> u64 {
+    BLOCK_OVERFLOW_COUNT.load(Ordering::Relaxed)
+}
+
 // ---------------------------------------------------------------------------
 // Alloc / Free / Msize / Realloc
 // ---------------------------------------------------------------------------

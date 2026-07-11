@@ -270,6 +270,8 @@ pub struct DiagnosticsConfig {
     pub console: bool,
     /// Use verbose log output.
     pub debug_log: bool,
+    /// Time per-frame engine spans with QPC. Keep disabled outside focused profiling.
+    pub hitch_profiling: bool,
 }
 
 impl DiagnosticsConfig {
@@ -285,6 +287,7 @@ impl DiagnosticsConfig {
         Self {
             console: raw.console.or(legacy_general.console).unwrap_or_default(),
             debug_log: raw.debug_log.or(legacy_logger.debug).unwrap_or_default(),
+            hitch_profiling: raw.hitch_profiling.unwrap_or_default(),
         }
     }
 }
@@ -355,6 +358,7 @@ struct RawEngineFixesConfig {
 struct RawDiagnosticsConfig {
     console: Option<bool>,
     debug_log: Option<bool>,
+    hitch_profiling: Option<bool>,
 }
 
 #[derive(Default, Deserialize)]

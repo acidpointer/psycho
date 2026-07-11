@@ -37,6 +37,7 @@ const FNV_TEXT_START: usize = 0x0040_0000;
 const FNV_TEXT_END: usize = 0x00E0_0000;
 const FNV_RDATA_START: usize = 0x0100_0000;
 const FNV_RDATA_END: usize = 0x0110_0000;
+const DETAILED_LOG_LIMIT: u64 = 16;
 
 const LOADED_FORM_RESOLVER_ADDR: usize = 0x004839C0;
 
@@ -99,7 +100,7 @@ pub unsafe extern "thiscall" fn hook_base_extra_list_get_by_type(
         return extra;
     }
 
-    scrub_extraownership(extra)
+    scrub_extraownership(list, extra)
 }
 
 unsafe extern "C" fn resolve_loaded_owner_checked(saved_ref: u32) -> *mut c_void {
@@ -110,11 +111,18 @@ unsafe extern "C" fn resolve_loaded_owner_checked(saved_ref: u32) -> *mut c_void
     }
 
     DIAGNOSTIC_LOAD_SCRUB_COUNT.fetch_add(1, Ordering::Relaxed);
-    log_invalid_owner(&LOAD_SCRUB_COUNT, "load", ptr::null_mut(), owner);
+    log_invalid_owner(
+        &LOAD_SCRUB_COUNT,
+        "load",
+        ptr::null_mut(),
+        ptr::null_mut(),
+        saved_ref,
+        owner,
+    );
     ptr::null_mut()
 }
 
-fn scrub_extraownership(extra: *mut c_void) -> *mut c_void {
+fn scrub_extraownership(list: *mut c_void, extra: *mut c_void) -> *mut c_void {
     if !is_readable(extra as usize, EXTRAOWNERSHIP_SIZE) {
         log_unreadable_extra(extra);
         return ptr::null_mut();
@@ -127,7 +135,7 @@ fn scrub_extraownership(extra: *mut c_void) -> *mut c_void {
     }
 
     DIAGNOSTIC_ACCESS_SCRUB_COUNT.fetch_add(1, Ordering::Relaxed);
-    log_invalid_owner(&ACCESS_SCRUB_COUNT, "access", extra, owner);
+    log_invalid_owner(&ACCESS_SCRUB_COUNT, "access", list, extra, 0, owner);
 
     if is_writable(owner_slot as usize, 4) {
         unsafe { ptr::write_unaligned(owner_slot, 0) };
@@ -207,11 +215,13 @@ fn log_unreadable_extra(extra: *mut c_void) {
 fn log_invalid_owner(
     counter: &AtomicU64,
     site: &'static str,
+    list: *mut c_void,
     extra: *mut c_void,
+    saved_ref: u32,
     owner: *mut c_void,
 ) {
     let n = counter.fetch_add(1, Ordering::Relaxed) + 1;
-    if !diagnostics::should_log_power_of_two(n) {
+    if n > DETAILED_LOG_LIMIT && !diagnostics::should_log_power_of_two(n) {
         return;
     }
 
@@ -223,11 +233,18 @@ fn log_invalid_owner(
     };
 
     log::warn!(
-        "[EXTRAOWNERSHIP] invalid owner scrubbed: site={} total={} extra=0x{:08X} owner=0x{:08X} vt=0x{:08X}",
+        "[EXTRAOWNERSHIP] invalid owner scrubbed: site={} total={} list=0x{:08X} extra=0x{:08X} saved_ref=0x{:08X} owner=0x{:08X} vt=0x{:08X} writable={}",
         site,
         n,
+        list as usize,
         extra as usize,
+        saved_ref,
         owner_addr,
         vtable,
+        !extra.is_null()
+            && is_writable(
+                (extra as usize).saturating_add(EXTRAOWNERSHIP_OWNER_OFFSET),
+                4
+            ),
     );
 }

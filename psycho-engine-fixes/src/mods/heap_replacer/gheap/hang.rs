@@ -5,6 +5,8 @@
 
 use std::sync::atomic::{AtomicU32, AtomicU64, AtomicUsize, Ordering};
 
+use crate::mods::engine_fixes;
+
 use super::engine::globals::{self, PddQueue};
 use super::game_guard;
 
@@ -142,9 +144,20 @@ pub fn log_if_main_stale() {
     } else {
         now.wrapping_sub(event_tick)
     };
+    let display = engine_fixes::display_diagnostic_snapshot();
+    let focus_age = if display.focus_observed {
+        now.wrapping_sub(display.focus_transition_ms)
+    } else {
+        0
+    };
+    let repair_age = if display.last_repair_ms != 0 {
+        now.wrapping_sub(display.last_repair_ms)
+    } else {
+        0
+    };
 
     log::warn!(
-        "[HANG] main-loop heartbeat stale: age={}ms main_site={} main_seq={} main_tid={} event_site={} event_age={}ms event_tid={} phase7={} phase10={} ai_start={} ai_join={} hk_lock={} hk_unlock={} ai_active={} havok_active={} loading={} heap_trigger={} pddq={}/{}/{}/{}/{}",
+        "[HANG] main-loop heartbeat stale: age={}ms main_site={} main_seq={} main_tid={} event_site={} event_age={}ms event_tid={} phase7={} phase10={} ai_start={} ai_join={} hk_lock={} hk_unlock={} ai_active={} havok_active={} loading={} heap_trigger={} pddq={}/{}/{}/{}/{} display=observed:{} active:{} focus_age={}ms pending_repair:{} repairs={} last_repair_age={}ms last_repair_ok={}",
         main_age,
         site_name(LAST_MAIN_SITE.load(Ordering::Acquire)),
         MAIN_HEARTBEATS.load(Ordering::Relaxed),
@@ -167,6 +180,13 @@ pub fn log_if_main_stale() {
         globals::pdd_queue_count(PddQueue::Generic),
         globals::pdd_queue_count(PddQueue::Anim),
         globals::pdd_queue_count(PddQueue::Texture),
+        display.focus_observed,
+        display.focus_active,
+        focus_age,
+        display.pending_repair,
+        display.repair_attempts,
+        repair_age,
+        display.last_repair_succeeded,
     );
 }
 
