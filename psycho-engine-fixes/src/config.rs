@@ -157,8 +157,7 @@ impl PerformanceConfig {
 
 #[derive(Debug, Serialize)]
 pub struct EngineFixesConfig {
-    /// Prevent the game from losing or blacking out the fullscreen window
-    /// after alt-tab/focus changes.
+    /// Repair audited exclusive-fullscreen startup, reset, and Alt-Tab placement.
     pub display_alt_tab: bool,
     /// Treat invalid NavMeshInfo low pointers as "no path identity".
     pub navmesh_low_pointer_guard: bool,

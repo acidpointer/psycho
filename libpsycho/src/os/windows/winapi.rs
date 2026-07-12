@@ -5,6 +5,7 @@
 use std::ffi::{CString, NulError, OsStr};
 use std::os::windows::ffi::OsStrExt;
 use std::ptr::NonNull;
+use std::sync::atomic::{AtomicPtr, Ordering};
 
 use libc::c_void;
 use thiserror::Error;
@@ -79,9 +80,21 @@ pub enum WinapiError {
         target_addr: usize,
         distance: isize,
     },
+
+    #[error("Pointer address 0x{0:x} is not naturally aligned")]
+    MisalignedPointer(usize),
 }
 
 pub type WinapiResult<T> = std::result::Result<T, WinapiError>;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+/// Outcome of an atomic pointer comparison that completed without a WinAPI error.
+pub enum PointerExchange {
+    /// `expected` was present and was replaced.
+    Exchanged,
+    /// The pointer had already changed; contains the value that was observed.
+    Mismatch(*mut c_void),
+}
 
 /// Wrapped WinAPI type MEMORY_BASIC_INFORMATION
 pub struct MemoryBasicInformation {
@@ -96,12 +109,29 @@ pub struct MemoryBasicInformation {
 }
 
 /// Win32 RECT with plain Rust field names.
+#[derive(Clone, Copy, Debug)]
 #[repr(C)]
 pub struct Rect {
     pub left: i32,
     pub top: i32,
     pub right: i32,
     pub bottom: i32,
+}
+
+/// Win32 POINT with plain Rust field names.
+#[derive(Clone, Copy, Debug)]
+#[repr(C)]
+pub struct Point {
+    pub x: i32,
+    pub y: i32,
+}
+
+#[repr(C)]
+struct MonitorInfo {
+    size: u32,
+    monitor: Rect,
+    work: Rect,
+    flags: u32,
 }
 
 mod sys {
@@ -131,6 +161,12 @@ mod sys {
         pub fn GetActiveWindow() -> *mut c_void;
         pub fn GetWindowLongA(hwnd: *mut c_void, index: i32) -> i32;
         pub fn IsWindow(hwnd: *mut c_void) -> i32;
+        pub fn IsIconic(hwnd: *mut c_void) -> i32;
+        pub fn GetWindowRect(hwnd: *mut c_void, rect: *mut super::Rect) -> i32;
+        pub fn ClientToScreen(hwnd: *mut c_void, point: *mut super::Point) -> i32;
+        pub fn MonitorFromWindow(hwnd: *mut c_void, flags: u32) -> *mut c_void;
+        pub fn MonitorFromPoint(point: super::Point, flags: u32) -> *mut c_void;
+        pub fn GetMonitorInfoW(monitor: *mut c_void, info: *mut super::MonitorInfo) -> i32;
         pub fn SetWindowLongA(hwnd: *mut c_void, index: i32, value: i32) -> i32;
         pub fn SetWindowPos(
             hwnd: *mut c_void,
@@ -203,6 +239,92 @@ pub fn set_window_long_a(hwnd: *mut c_void, index: i32, value: i32) -> i32 {
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub fn is_window(hwnd: *mut c_void) -> bool {
     !hwnd.is_null() && unsafe { sys::IsWindow(hwnd) != 0 }
+}
+
+/// True if the window is minimized.
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+pub fn is_iconic(hwnd: *mut c_void) -> bool {
+    !hwnd.is_null() && unsafe { sys::IsIconic(hwnd) != 0 }
+}
+
+/// Return the current outer window rectangle.
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+pub fn window_rect(hwnd: *mut c_void) -> Option<Rect> {
+    if hwnd.is_null() {
+        return None;
+    }
+    let mut rect = Rect {
+        left: 0,
+        top: 0,
+        right: 0,
+        bottom: 0,
+    };
+    if unsafe { sys::GetWindowRect(hwnd, &mut rect) } == 0 {
+        return None;
+    }
+    Some(rect)
+}
+
+/// Return the client-area origin in screen coordinates.
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+pub fn client_origin(hwnd: *mut c_void) -> Option<Point> {
+    if hwnd.is_null() {
+        return None;
+    }
+    let mut point = Point { x: 0, y: 0 };
+    if unsafe { sys::ClientToScreen(hwnd, &mut point) } == 0 {
+        return None;
+    }
+    Some(point)
+}
+
+/// Return the full rectangle of the monitor nearest to a window.
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+pub fn nearest_monitor_rect(hwnd: *mut c_void) -> Option<Rect> {
+    const MONITOR_DEFAULTTONEAREST: u32 = 2;
+
+    if hwnd.is_null() {
+        return None;
+    }
+    let monitor = unsafe { sys::MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST) };
+    if monitor.is_null() {
+        return None;
+    }
+    monitor_rect(monitor)
+}
+
+/// Return the full rectangle of the monitor nearest to a screen point.
+pub fn nearest_monitor_rect_from_point(x: i32, y: i32) -> Option<Rect> {
+    const MONITOR_DEFAULTTONEAREST: u32 = 2;
+
+    let monitor = unsafe { sys::MonitorFromPoint(Point { x, y }, MONITOR_DEFAULTTONEAREST) };
+    if monitor.is_null() {
+        return None;
+    }
+    monitor_rect(monitor)
+}
+
+fn monitor_rect(monitor: *mut c_void) -> Option<Rect> {
+    let mut info = MonitorInfo {
+        size: std::mem::size_of::<MonitorInfo>() as u32,
+        monitor: Rect {
+            left: 0,
+            top: 0,
+            right: 0,
+            bottom: 0,
+        },
+        work: Rect {
+            left: 0,
+            top: 0,
+            right: 0,
+            bottom: 0,
+        },
+        flags: 0,
+    };
+    if unsafe { sys::GetMonitorInfoW(monitor, &mut info) } == 0 {
+        return None;
+    }
+    Some(info.monitor)
 }
 
 /// Set position/size/z-order for a window.
@@ -1209,6 +1331,59 @@ pub fn safe_write<T: Copy>(ptr: *mut c_void, data: T) -> WinapiResult<()> {
 /// may not be properly aligned (e.g., at address + 1).
 pub fn safe_write_32(ptr: *mut c_void, data: u32) -> WinapiResult<()> {
     safe_write(ptr, data)
+}
+
+/// Atomically replace an aligned pointer while preserving page protection.
+///
+/// A protection-restoration failure is reported as an error. If the pointer was
+/// already exchanged, the function attempts to restore `expected` before
+/// returning that error and never overwrites a value installed concurrently.
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+pub fn compare_exchange_pointer(
+    ptr: *mut *mut c_void,
+    expected: *mut c_void,
+    replacement: *mut c_void,
+) -> WinapiResult<PointerExchange> {
+    if ptr.is_null() {
+        return Err(WinapiError::InputNullPtr());
+    }
+    if !(ptr as usize).is_multiple_of(std::mem::align_of::<AtomicPtr<c_void>>()) {
+        return Err(WinapiError::MisalignedPointer(ptr as usize));
+    }
+
+    let address = ptr.cast();
+    let size = std::mem::size_of::<*mut c_void>();
+    let old_protection = virtual_protect(address, PAGE_READWRITE, size)?;
+    let outcome = unsafe {
+        let atomic = &*(ptr as *const AtomicPtr<c_void>);
+        match atomic.compare_exchange(expected, replacement, Ordering::AcqRel, Ordering::Acquire) {
+            Ok(_) => PointerExchange::Exchanged,
+            Err(observed) => PointerExchange::Mismatch(observed),
+        }
+    };
+    if let Err(error) = virtual_protect(address, old_protection, size) {
+        if outcome == PointerExchange::Exchanged {
+            let atomic = unsafe { &*(ptr as *const AtomicPtr<c_void>) };
+            let _ =
+                atomic.compare_exchange(replacement, expected, Ordering::AcqRel, Ordering::Acquire);
+            let _ = virtual_protect(address, old_protection, size);
+        }
+        return Err(error);
+    }
+    Ok(outcome)
+}
+
+/// Atomically read an aligned pointer.
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+pub fn load_pointer(ptr: *mut *mut c_void) -> WinapiResult<*mut c_void> {
+    if ptr.is_null() {
+        return Err(WinapiError::InputNullPtr());
+    }
+    if !(ptr as usize).is_multiple_of(std::mem::align_of::<AtomicPtr<c_void>>()) {
+        return Err(WinapiError::MisalignedPointer(ptr as usize));
+    }
+    let atomic = unsafe { &*(ptr as *const AtomicPtr<c_void>) };
+    Ok(atomic.load(Ordering::Acquire))
 }
 
 /// Write a 16-bit value to an address

@@ -12,7 +12,7 @@ crash paths.
 - Replaces hot heap paths with `gheap` and `scrap_heap`.
 - Speeds up zlib decompression for compressed resources.
 - Replaces the old RNG path with a faster compatible one.
-- Fixes fullscreen and borderless alt-tab/focus problems.
+- Fixes exclusive-fullscreen startup, reset, and Alt-Tab window placement.
 - Adds small crash guards for known broken engine states.
 - Writes useful diagnostics for crash reports and memory pressure.
 - Includes Syringe, an early `dinput8.dll` loader for DLLs in `FalloutNV/syringe`.
@@ -130,8 +130,12 @@ It is also designed to be compatible with common engine/plugin stacks, but any
 mod that patches the same engine code can conflict. If something breaks, report
 it with logs and your mod list.
 
-The alt-tab fix is meant for fullscreen and borderless-window users. It was
-tested with Proton/Wine and should also help with related Windows focus issues.
+The display fix recognizes six audited exclusive-fullscreen window paths:
+startup placement, device reset, child resize, focus regain/loss, and renderer
+lifecycle. Each receives its own narrow policy; borderless, windowed, and all
+unrecognized calls pass through unchanged. Existing `SetWindowPos` IAT hooks
+are chained, while directly modified callsites are reported and left under
+their current owner's control.
 
 ## Syringe
 

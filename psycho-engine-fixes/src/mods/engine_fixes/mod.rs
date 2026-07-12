@@ -41,7 +41,6 @@ pub(crate) fn display_diagnostic_snapshot() -> display::DiagnosticSnapshot {
 }
 
 pub fn install(config: &EngineFixesConfig, diagnostics: &DiagnosticsConfig) -> anyhow::Result<()> {
-    install_display_alt_tab(config)?;
     install_navmesh_low_pointer(config)?;
     install_entrydata_invalid_form(config)?;
     install_extraownership_invalid_owner(config)?;
@@ -56,8 +55,23 @@ pub fn install(config: &EngineFixesConfig, diagnostics: &DiagnosticsConfig) -> a
     Ok(())
 }
 
+/// Install the display IAT shim before allocator and other engine hooks.
+pub fn install_display(config: &EngineFixesConfig) -> anyhow::Result<()> {
+    if !config.display_alt_tab {
+        log::info!("[DISPLAY] Exclusive-fullscreen window fix disabled by config");
+        return Ok(());
+    }
+
+    if let Err(err) = display::install_display_hooks() {
+        log::warn!(
+            "[DISPLAY] Exclusive-fullscreen window fix disabled: {}",
+            err
+        );
+    }
+    Ok(())
+}
+
 pub fn observe_event(kind: u32) {
-    display::observe_event(kind);
     lowprocess::observe_event(kind);
 }
 
@@ -82,9 +96,42 @@ pub(crate) fn take_diagnostic_counters() -> DiagnosticCounters {
 }
 
 pub(crate) fn append_diagnostic_report(out: &mut String) {
+    let display = display::diagnostic_snapshot();
     let low = lowprocess::diagnostic_snapshot();
     let task = queued_tasks::diagnostic_snapshot();
     out.push_str("\n==== Engine fixes ====\n");
+    out.push_str(&format!(
+        "  Display: installed={} predecessor=0x{:08X} vanilla={} sites={}/{}/{}/{}/{}/{} create={}/{} reset={}/{} child={} loss={} regain={} lifecycle={} catchup={}/{}/{} mismatches={} failures={} monitors={}/{}/{} restores={} last_tick={} result={} error={}\n",
+        display.installed,
+        display.predecessor,
+        display.predecessor_vanilla,
+        display::site_state_name(display.site_states[0]),
+        display::site_state_name(display.site_states[1]),
+        display::site_state_name(display.site_states[2]),
+        display::site_state_name(display.site_states[3]),
+        display::site_state_name(display.site_states[4]),
+        display::site_state_name(display.site_states[5]),
+        display.renderer_creation_observations,
+        display.renderer_creation_corrections,
+        display.device_reset_observations,
+        display.device_reset_corrections,
+        display.child_resize_passthroughs,
+        display.loss_suppressions,
+        display.regain_normalizations,
+        display.lifecycle_normalizations,
+        display.catch_up_attempts,
+        display.catch_up_successes,
+        display.catch_up_failures,
+        display.contract_mismatches,
+        display.predecessor_failures,
+        display.monitor_point_selections,
+        display.monitor_window_selections,
+        display.monitor_fallbacks,
+        display.restore_attempts,
+        display.last_transition_ms,
+        display.last_result,
+        display.last_error,
+    ));
     out.push_str(&format!(
         "  LowProcess: enabled={} observations={} slots={}/{}/{}/{} predecessors={:08X?} wraps={} rewraps={} unsupported={} sanitized={} save_nulls={} patch_failures={}\n",
         low.enabled,
@@ -145,19 +192,6 @@ fn install_queued_task_guard(
     if let Err(err) = queued_tasks::install(diagnostics.task_lifetime_trace) {
         log::warn!("[QUEUED_TASK] Lifetime guard disabled: {:#}", err);
     }
-    Ok(())
-}
-
-fn install_display_alt_tab(config: &EngineFixesConfig) -> anyhow::Result<()> {
-    if !config.display_alt_tab {
-        log::info!("[DISPLAY] Alt-tab fix disabled by config");
-        return Ok(());
-    }
-
-    if let Err(err) = display::install_display_hooks() {
-        log::warn!("[DISPLAY] Alt-tab fix disabled: {}", err);
-    }
-
     Ok(())
 }
 

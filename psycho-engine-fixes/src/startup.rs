@@ -8,7 +8,7 @@ use shadow_rs::shadow;
 use crate::{
     config::{DiagnosticsConfig, EngineFixesConfig, MemoryConfig, PerformanceConfig, load_config},
     mods::{
-        engine_fixes::install as install_engine_fixes,
+        engine_fixes::{install as install_engine_fixes, install_display},
         heap_replacer::{
             AllocatorMode, decide_mode, initialize_mimalloc, install_gheap_hooks,
             install_gheap_initialize, install_sheap_hooks, install_sheap_initialize,
@@ -33,6 +33,7 @@ pub(crate) fn initialize() -> anyhow::Result<()> {
 
     log::info!("[INIT] Engine fixes startup");
 
+    install_display(&cfg.engine_fixes)?;
     initialize_diagnostics(&cfg.diagnostics)?;
     initialize_memory(&cfg.memory)?;
     install_engine_fix_hooks(&cfg.engine_fixes, &cfg.diagnostics)?;

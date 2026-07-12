@@ -1,0 +1,2351 @@
+DISPLAY STARTUP POSITION FOLLOW-UP
+Goal: identify the exact call that establishes the initial corner position and whether the audited lifecycle call can run before Psycho installs.
+
+======================================================================
+WinMain and initial window/renderer sequencing @ 0x0086a850
+======================================================================
+  Function: FUN_0086a850 @ 0x0086a850, Size: 4532 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+void FUN_0086a850(HINSTANCE param_1)
+
+{
+  char cVar1;
+  DWORD DVar2;
+  int iVar3;
+  undefined1 *puVar4;
+  DWORD *pDVar5;
+  int *piVar6;
+  undefined4 *puVar7;
+  LPWSTR lpCmdLine;
+  undefined4 uVar8;
+  BOOL BVar9;
+  HWND pHVar10;
+  DWORD DVar11;
+  undefined4 uVar12;
+  undefined4 uVar13;
+  code *pcVar14;
+  undefined4 uVar15;
+  char *pcVar16;
+  undefined4 uVar17;
+  undefined4 uVar18;
+  int local_360;
+  char *local_35c;
+  tagRECT local_318;
+  DWORD local_308;
+  tagRECT local_304;
+  DWORD local_2f4;
+  int local_2f0;
+  CHAR local_2ec [264];
+  HINSTANCE local_1e4;
+  wchar_t *local_1e0;
+  int local_1dc;
+  int local_1d8;
+  LPWSTR *local_1d4;
+  undefined1 local_1cd;
+  undefined4 local_1cc;
+  undefined4 local_1c8;
+  undefined4 local_1c4;
+  _SYSTEM_INFO local_1c0;
+  undefined4 local_19c;
+  WNDCLASSA local_198;
+  tagMSG local_170;
+  undefined1 local_150 [24];
+  HWND local_138;
+  undefined1 local_134 [264];
+  uint local_2c;
+  HWND local_28;
+  HANDLE local_24;
+  tagRECT local_20;
+  char local_d;
+  undefined4 local_c;
+  HWND local_8;
+  
+  local_2c = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  local_24 = CreateMutexA((LPSECURITY_ATTRIBUTES)0x0,0,"FalloutNVGameMutex");
+  DVar2 = GetLastError();
+  if (DVar2 == 0xb7) {
+    MessageBoxA((HWND)0x0,"There is already an instance of Fallout: New Vegas running","Error",0);
+  }
+  else {
+    iVar3 = GetSystemMetrics(0x1000);
+    if (iVar3 == 0) {
+      local_1cd = 1;
+      puVar4 = (undefined1 *)FUN_00408d60(FUN_0086a580);
+      puVar4 = (undefined1 *)FUN_00408d60(*puVar4);
+      puVar4 = (undefined1 *)FUN_00408d60(*puVar4);
+      FUN_00c3bd30(local_1cd,*puVar4);
+      FUN_00c3bb90("Warnings.txt");
+      FUN_00c3bbe0("ProgramFlow.txt");
+      FUN_00c3bc30("ProgrammerOutput.txt");
+      FUN_00c3bc80("StackTrace.txt");
+      GetSystemInfo(&local_1c0);
+      pDVar5 = (DWORD *)FUN_0043d4d0();
+      *pDVar5 = local_1c0.dwNumberOfProcessors;
+      FUN_00876ad0(local_134);
+      piVar6 = (int *)FUN_0043d4d0();
+      if (*piVar6 == 1) {
+        puVar7 = (undefined4 *)FUN_0043d4d0();
+        *puVar7 = 2;
+      }
+      local_8 = FindWindowA(PTR_s_Fallout__New_Vegas_011a2fe8,(LPCSTR)0x0);
+      if (local_8 == (HWND)0x0) {
+        FUN_004b4a30(PTR_s_Fallout__New_Vegas_011a2fe8);
+        pcVar14 = FUN_00869f30;
+        FID_conflict__Immortalize<std::_Generic_error_category>(FUN_00869f30);
+        FUN_004fb090(pcVar14);
+        pcVar14 = FUN_0086a020;
+        FID_conflict__Immortalize<std::_Generic_error_category>(FUN_0086a020);
+        FUN_008526c0();
+        FUN_006ecd40(pcVar14);
+        FUN_00aa20b0(0);
+        FUN_00c5d4e0();
+        FUN_004b7920();
+        FUN_00a1c6f0();
+        FUN_00bc2940();
+        FUN_0045b020();
+        FUN_00404f30(0x3b);
+        FUN_0086bde0(FUN_0086a050);
+        FUN_0086bcd0(&LAB_00b4dfb0);
+        FUN_0086bcc0(1);
+        FUN_00c3a6d0();
+        FUN_0086bd70();
+        FUN_00404eb0(0x10,1,"D:\\_Fallout3\\Platforms\\Common\\Code\\Fallout\\Misc\\Main.cpp",0x8e0)
+        ;
+        FUN_00453720();
+        FUN_00404f70();
+        FUN_00404f00(0xf,1,"D:\\_Fallout3\\Platforms\\Common\\Code\\Fallout\\Misc\\Main.cpp",0x8e6);
+        FUN_00a61ad0();
+        FUN_00404f70();
+        FUN_006ff610();
+        local_1d8 = 0;
+        piVar6 = &local_1d8;
+        lpCmdLine = GetCommandLineW();
+        local_1d4 = CommandLineToArgvW(lpCmdLine,piVar6);
+        if (local_1d4 != (LPWSTR *)0x0) {
+          for (local_1dc = 0; local_1dc < local_1d8; local_1dc = local_1dc + 1) {
+            if ((local_1d4[local_1dc] != (LPWSTR)0x0) && (*local_1d4[local_1dc] == L'-')) {
+              local_1e0 = local_1d4[local_1dc] + 1;
+              iVar3 = __wcsicmp(local_1e0,L"nocloud");
+              if (iVar3 == 0) {
+                uVar15 = 0;
+                FUN_006ff580(0);
+                FUN_006ff880(uVar15);
+              }
+            }
+          }
+          LocalFree(local_1d4);
+        }
+        pcVar16 = "Software\\Bethesda Softworks\\Fallout";
+        FUN_00877950("Software\\Bethesda Softworks\\Fallout");
+        FUN_005e0200(pcVar16);
+        puVar4 = local_134;
+        FUN_0044f560(puVar4);
+        FUN_005e0200(puVar4);
+        uVar15 = FUN_004dc110();
+        FUN_00406d30(local_134,0x104,uVar15);
+        FUN_00406d50(local_134,0x104,PTR_s_FALLOUT_INI_011a2ff0);
+        puVar4 = local_134;
+        FUN_004de490(puVar4);
+        FUN_005e0200(puVar4);
+        uVar15 = FUN_004dc110();
+        FUN_00406d30(local_134,0x104,uVar15);
+        FUN_00406d50(local_134,0x104,PTR_s_FalloutPrefs_ini_011a2ff8);
+        puVar4 = local_134;
+        FUN_0045d180(puVar4);
+        FUN_005e0200(puVar4);
+        puVar4 = local_134;
+        FUN_004de490(puVar4);
+        FUN_005e0200(puVar4);
+        piVar6 = (int *)FUN_0043d4d0();
+        if (*piVar6 == 1) {
+          puVar7 = (undefined4 *)FUN_0043d4d0();
+          *puVar7 = 2;
+        }
+        cVar1 = FUN_004da570();
+        if (cVar1 != '\0') {
+          FUN_004da4d0(1);
+          piVar6 = (int *)FUN_00b00a00();
+          (**(code **)(*piVar6 + 8))();
+          FUN_00876a70(local_2ec,0x104);
+          FUN_00406d50(local_2ec,0x104,"FalloutNVLauncher.exe");
+          local_1e4 = ShellExecuteA((HWND)0x0,(LPCSTR)0x0,local_2ec,(LPCSTR)0x0,(LPCSTR)0x0,1);
+          if (local_1e4 != (HINSTANCE)0x0) {
+            FUN_00404ee0();
+            goto LAB_0086b9f3;
+          }
+        }
+        uVar15 = FUN_00403df0();
+        uVar8 = FUN_00403df0(uVar15);
+        FID_conflict__Immortalize<std::_Generic_error_category>(uVar8);
+        FUN_00b012f0(uVar8,uVar15);
+        iVar3 = FUN_00401000(0x10);
+        if (iVar3 != 0) {
+          uVar17 = 0;
+          puVar7 = (undefined4 *)FUN_0043d4d0(0);
+          uVar15 = *puVar7;
+          uVar8 = FUN_00403df0(uVar15);
+          FUN_00afdc60(uVar8,uVar15,uVar17);
+        }
+        FUN_0086bce0(&DAT_0105bb14);
+        puVar4 = (undefined1 *)FUN_00408d60(FUN_0086a580);
+        puVar4 = (undefined1 *)FUN_00408d60(*puVar4);
+        puVar4 = (undefined1 *)FUN_00408d60(*puVar4);
+        FUN_00c3bd30(local_1cd,*puVar4);
+        FUN_00c3bb90("Warnings.txt");
+        FUN_00c3bbe0("ProgramFlow.txt");
+        FUN_00c3bc30("ProgrammerOutput.txt");
+        FUN_00c3bc80("StackTrace.txt");
+        FUN_00404f00(0x18,1,"D:\\_Fallout3\\Platforms\\Common\\Code\\Fallout\\Misc\\Main.cpp",0x992)
+        ;
+        FUN_0040fbe0();
+        FID_conflict__Immortalize<std::_Generic_error_category>();
+        FUN_0086bda0();
+        FUN_00404f70();
+        FUN_00404f00(0x13,1,"D:\\_Fallout3\\Platforms\\Common\\Code\\Fallout\\Misc\\Main.cpp",0x99c)
+        ;
+        FUN_00876d20();
+        FUN_00404f70();
+        local_198.style = 3;
+        local_198.lpfnWndProc = FUN_0086a0a0;
+        local_198.cbClsExtra = 0;
+        local_198.cbWndExtra = 0;
+        local_198.hInstance = param_1;
+        local_198.hIcon = LoadIconA(param_1,(LPCSTR)0x65);
+        local_198.hCursor = (HCURSOR)0x0;
+        local_198.hbrBackground = GetStockObject(4);
+        local_198.lpszClassName = PTR_s_Fallout__New_Vegas_011a2fe8;
+        local_198.lpszMenuName = (LPCSTR)0x0;
+        RegisterClassA(&local_198);
+        local_20.left = 0;
+        local_20.top = 0;
+        local_20.right = 0x140;
+        local_20.bottom = 0xf0;
+        AdjustWindowRect(&local_20,0x10000000,0);
+        local_28 = CreateWindowExA(0,PTR_s_Fallout__New_Vegas_011a2fe8,
+                                   PTR_s_Fallout__New_Vegas_011a2fe8,0x10000000,0,0,
+                                   local_20.right - local_20.left,local_20.bottom - local_20.top,
+                                   (HWND)0x0,(HMENU)0x0,param_1,(LPVOID)0x0);
+        iVar3 = FUN_00401000(0xa4);
+        if (iVar3 == 0) {
+          local_35c = (char *)0x0;
+        }
+        else {
+          local_35c = (char *)FUN_0086c160(local_28,param_1);
+        }
+        DAT_011dea0c = local_35c;
+        FUN_00404f00(0xd,1,"D:\\_Fallout3\\Platforms\\Common\\Code\\Fallout\\Misc\\Main.cpp",0x9f8);
+        iVar3 = FUN_00401000(8);
+        if (iVar3 == 0) {
+          local_360 = 0;
+        }
+        else {
+          local_360 = FUN_007005d0();
+        }
+        DAT_011d8804 = local_360;
+        FUN_00404f70();
+        FUN_0040fbe0("Initializing Renderer...");
+        FUN_0086d500();
+        DAT_011f4509 = 1;
+        FUN_0043c4b0();
+        FUN_004a0370();
+        uVar15 = 0;
+        pcVar14 = FUN_005d4a40;
+        FUN_0043c4b0(FUN_005d4a40,0);
+        FUN_0086bbd0(pcVar14,uVar15);
+        uVar15 = 0;
+        pcVar14 = FUN_00872570;
+        FUN_0043c4b0(FUN_00872570,0);
+        FUN_0086bae0(pcVar14,uVar15);
+        FUN_0086bf70();
+        FUN_0086d590();
+        FUN_00702250(1);
+        FUN_006519f0();
+        FUN_00871c90(1);
+        FUN_006a2920();
+        FUN_0086c010();
+        FUN_0043c4b0();
+        FUN_004a03c0();
+        FUN_00866ff0();
+        uVar18 = 0;
+        uVar13 = 1;
+        uVar12 = 1;
+        uVar17 = 0xffffffff;
+        uVar8 = 0;
+        uVar15 = FUN_00403df0(0,0xffffffff,1,1,0);
+        FUN_00ec16d0(uVar15,uVar8,uVar17,uVar12,uVar13,uVar18);
+        FUN_00404f70();
+        uVar15 = FUN_0045c670();
+        FUN_0086cf20(uVar15);
+        FUN_0045c670();
+        uVar15 = FUN_006629f0();
+        FUN_0086be90(uVar15);
+        FUN_0045c670();
+        uVar15 = FUN_006629f0();
+        FUN_0086be80(uVar15);
+        piVar6 = (int *)FUN_0043d4d0();
+        if (1 < *piVar6) {
+          FUN_00713d80();
+          FUN_008c7290();
+        }
+        FUN_006d0870();
+        FID_conflict__Immortalize<std::_Generic_error_category>();
+        FUN_006eb8c0();
+        pcVar16 = (char *)FUN_00408d60();
+        if (*pcVar16 != '\0') {
+          FUN_006c0720();
+          FUN_006c07d0();
+        }
+        FUN_004e0540();
+        FUN_004deb30();
+        local_19c = 0;
+        local_c = 0;
+        FUN_00416870(_DAT_01018bfc,_DAT_01018bfc,_DAT_0101e704);
+        FUN_00460140();
+        puVar7 = (undefined4 *)FUN_006815c0();
+        FUN_00458200(*puVar7);
+        FUN_0095ee80();
+        FUN_008a8150(1);
+        FUN_0040fbe0("Initializing Actor Locations...");
+        FUN_00970d50();
+        FUN_004614e0();
+        FUN_007d6bd0(1);
+        FUN_0040fbe0("Loading initial area...");
+        FUN_00876dd0(local_c,&local_1cc);
+        FUN_0040fbe0("Placing player...");
+        FUN_00877260(local_1cc,local_1c8,local_1c4);
+        FUN_007022c0();
+        FUN_00483710();
+        FUN_004f15a0(1);
+        FUN_00af4540();
+        iVar3 = FUN_008d6f30();
+        if (iVar3 == 0) {
+          FUN_004650a0(0xffffffff);
+          FUN_0040fbe0();
+          FUN_007053f0();
+          FUN_00ec1800();
+          FUN_0040fbe0();
+        }
+        else {
+          FUN_00ec1800();
+        }
+        FUN_00456520();
+        FUN_0040fbe0("Begin Idle loop...");
+        std::_Fiopen((wchar_t *)&local_170,0,0x1c);
+        local_138 = (HWND)FUN_0044ddc0();
+        local_d = '\0';
+        while( true ) {
+          while (BVar9 = PeekMessageA(&local_170,(HWND)0x0,0,0,1), BVar9 != 0) {
+            TranslateMessage(&local_170);
+            DispatchMessageA(&local_170);
+          }
+          pHVar10 = GetActiveWindow();
+          if ((((pHVar10 == local_138) || (cVar1 = FUN_00451530(), cVar1 != '\0')) ||
+              (iVar3 = FUN_00559450(), iVar3 != 0)) ||
+             (pcVar16 = (char *)FUN_00408d60(), *pcVar16 != '\0')) {
+            FUN_0043c4b0();
+            piVar6 = (int *)FUN_004dc020();
+            local_2f0 = (**(code **)(*piVar6 + 0xc))(piVar6);
+            if (local_2f0 < 0) {
+              FUN_0043c4b0();
+              FUN_0086ba10();
+              FUN_0043c4b0();
+              FUN_0086ba90();
+              Sleep(0x32);
+            }
+            else {
+              FUN_0086e650();
+            }
+            if (local_d != '\0') {
+              local_d = '\0';
+              FUN_00453a70();
+              FUN_00ad8740();
+              FUN_00830660();
+              FUN_00832ad0(0);
+              uVar15 = 1;
+              FUN_00453a70(1);
+              FUN_00ad7740(uVar15);
+              cVar1 = FUN_00446e10();
+              if (cVar1 != '\0') {
+                local_304.left = 0;
+                local_304.top = 0;
+                local_304.right = FUN_004dc1f0();
+                local_304.bottom = FUN_004dc200();
+                local_2f4 = 0;
+                local_2f4 = GetWindowLongA(local_28,-0x10);
+                AdjustWindowRectEx(&local_304,local_2f4,0,0);
+                SetWindowPos(local_28,(HWND)0x0,local_304.left,local_304.bottom,
+                             local_304.right - local_304.left,local_304.top - local_304.bottom,0);
+              }
+            }
+            if (((local_d == '\0') && (*DAT_011dea0c != '\0')) && (-1 < local_2f0)) {
+              FUN_0078d020();
+              *DAT_011dea0c = '\0';
+            }
+          }
+          else {
+            if (local_d == '\0') {
+              local_d = '\x01';
+              cVar1 = FUN_0086bdf0();
+              if (cVar1 == '\0') {
+                DVar2 = GetCurrentThreadId();
+                DVar11 = FUN_0044edb0();
+                if (DVar2 == DVar11) {
+                  FUN_0078cfc0();
+                  *DAT_011dea0c = '\x01';
+                }
+              }
+              FUN_00453a70();
+              FUN_00ad8700();
+              FUN_00830640();
+              FUN_00832ad0(0);
+              uVar15 = 1;
+              FUN_00453a70(1);
+              FUN_00ad7740(uVar15);
+              FUN_004e2190();
+              FUN_00b63620();
+              FUN_0049fef0();
+              FUN_004a4340();
+              FUN_00705910();
+              FUN_008026b0();
+              cVar1 = FUN_00446e10();
+              if (cVar1 != '\0') {
+                local_318.left = 0;
+                local_318.top = 0;
+                local_318.right = FUN_004dc1f0();
+                local_318.bottom = FUN_004dc200();
+                local_308 = 0;
+                local_308 = GetWindowLongA(local_28,-0x10);
+                AdjustWindowRectEx(&local_318,local_308,0,0);
+                SetWindowPos(local_28,(HWND)0x0,local_318.left,local_318.bottom,
+                             local_318.right - local_318.left,local_318.top - local_318.bottom,0);
+              }
+            }
+            Sleep(0x32);
+          }
+          cVar1 = FUN_005dc960();
+          if (cVar1 != '\0') break;
+          cVar1 = FUN_00678ce0();
+          if (cVar1 != '\0') {
+            FUN_008774a0(1);
+          }
+        }
+        FUN_004f15a0(0);
+        FUN_006ff620();
+        FUN_00703610();
+        FUN_00706320(0);
+        iVar3 = FUN_00559450();
+        if (iVar3 != 0) {
+          uVar15 = FUN_00559450();
+          FUN_004a0ea0(uVar15);
+          FUN_00b6da10(uVar15);
+          FUN_0066b0d0(0);
+        }
+        iVar3 = FUN_00559450();
+        if (iVar3 != 0) {
+          uVar15 = FUN_00559450();
+          FUN_004a0ea0(uVar15);
+          FUN_00b6da10(uVar15);
+          FUN_0066b0d0(0);
+        }
+        iVar3 = FUN_00559450();
+        if (iVar3 != 0) {
+          uVar15 = FUN_00559450();
+          FUN_004a0ea0(uVar15);
+          FUN_00b6da10(uVar15);
+          FUN_0066b0d0(0);
+        }
+        FUN_0086bea0(0);
+        iVar3 = FUN_00683a60();
+        if (iVar3 != 0) {
+          FUN_00a819e0();
+        }
+        FUN_00448420();
+        piVar6 = (int *)FUN_0043d4d0();
+        if (1 < *piVar6) {
+          FUN_00713d80();
+          FUN_008c73a0();
+        }
+        FUN_00867090();
+        FUN_004dc560();
+        FUN_004dc590();
+        FUN_00702330();
+        iVar3 = FUN_008d8520();
+        if (iVar3 != 0) {
+          FUN_008d8520();
+          FUN_0086be30();
+        }
+        FUN_004e0800();
+        FUN_004def20();
+        FUN_007ffe00();
+        FUN_00832010();
+        FUN_008304a0();
+        FUN_0082f9c0();
+        piVar6 = (int *)FUN_00453a70();
+        (**(code **)(*piVar6 + 8))();
+        FUN_0040fbe0();
+        FUN_0049ff80();
+        FUN_00622bc0();
+        FUN_00626f10();
+        pcVar16 = (char *)FUN_00408d60();
+        if (*pcVar16 != '\0') {
+          FUN_006c0720();
+          FUN_006c0900();
+        }
+        if (DAT_011dea10 != 0) {
+          FUN_0086bee0(1);
+        }
+        FUN_0086beb0();
+        FID_conflict__Immortalize<std::_Generic_error_category>();
+        FUN_006eb980();
+        FUN_00651ab0();
+        FUN_00990ff0();
+        piVar6 = (int *)FUN_00b00a00();
+        (**(code **)(*piVar6 + 8))();
+        FUN_00664940();
+        FUN_00526eb0();
+        FUN_00408de0();
+        FUN_0086bdd0();
+        if (DAT_011d8804 != 0) {
+          FUN_0086bf10(1);
+        }
+        if (DAT_011dea0c != (char *)0x0) {
+          FUN_0086bf40(1);
+        }
+        DAT_011dea0c = (char *)0x0;
+        piVar6 = (int *)FID_conflict__Immortalize<std::_Generic_error_category>();
+        (**(code **)(*piVar6 + 8))();
+        FUN_004de490();
+        uVar15 = FUN_00717e50();
+        FUN_004de490(uVar15);
+        FUN_005e01b0(uVar15);
+        pcVar14 = FUN_00872570;
+        FUN_0043c4b0(FUN_00872570);
+        FUN_0086bb20(pcVar14);
+        pcVar14 = FUN_005d4a40;
+        FUN_0043c4b0(FUN_005d4a40);
+        FUN_0086bc10(pcVar14);
+        FUN_006a29a0();
+        FUN_00a62090();
+        FUN_00bc2960();
+        FUN_004da4d0(1);
+        FUN_0086bd00();
+        FUN_0045b050();
+        FUN_00c5d520();
+        FUN_004b8cf0();
+        FUN_00a1c790();
+        FUN_00aa2170();
+        FUN_008783c0("ExitData.mhd");
+        uVar15 = 0;
+        puVar4 = local_150;
+        FUN_00401020(puVar4,0);
+        FUN_00aa47c0(puVar4,uVar15);
+        FID_conflict__CXMLParser();
+        FUN_00404ee0();
+      }
+      else {
+        SetForegroundWindow(local_8);
+      }
+    }
+    else {
+      MessageBoxA((HWND)0x0,"This application cannot be run from remote desktop.","Error",0);
+    }
+  }
+LAB_0086b9f3:
+  __security_check_cookie(local_2c ^ (uint)&stack0xfffffffc);
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+WinMain initial CreateWindowExA region 0x0086aec0-0x0086af70
+----------------------------------------------------------------------
+  0x0086aec2: MOV EDX,dword ptr [0x011a2fe8]
+  0x0086aec8: MOV dword ptr [EBP + 0xfffffe90],EDX
+  0x0086aece: MOV dword ptr [EBP + 0xfffffe8c],0x0
+  0x0086aed8: LEA EAX,[EBP + 0xfffffe6c]
+  0x0086aede: PUSH EAX
+  0x0086aedf: CALL dword ptr [0x00fdf2b4]
+  0x0086aee5: MOV dword ptr [EBP + -0x1c],0x0
+  0x0086aeec: MOV dword ptr [EBP + -0x18],0x0
+  0x0086aef3: MOV dword ptr [EBP + -0x14],0x140
+  0x0086aefa: MOV dword ptr [EBP + -0x10],0xf0
+  0x0086af01: PUSH 0x0
+  0x0086af03: PUSH 0x10000000
+  0x0086af08: LEA ECX,[EBP + -0x1c]
+  0x0086af0b: PUSH ECX
+  0x0086af0c: CALL dword ptr [0x00fdf310]
+  0x0086af12: PUSH 0x0
+  0x0086af14: MOV EDX,dword ptr [EBP + 0x8]
+  0x0086af17: PUSH EDX
+  0x0086af18: PUSH 0x0
+  0x0086af1a: PUSH 0x0
+  0x0086af1c: MOV EAX,dword ptr [EBP + -0x10]
+  0x0086af1f: SUB EAX,dword ptr [EBP + -0x18]
+  0x0086af22: PUSH EAX
+  0x0086af23: MOV ECX,dword ptr [EBP + -0x14]
+  0x0086af26: SUB ECX,dword ptr [EBP + -0x1c]
+  0x0086af29: PUSH ECX
+  0x0086af2a: PUSH 0x0
+  0x0086af2c: PUSH 0x0
+  0x0086af2e: PUSH 0x10000000
+  0x0086af33: MOV EDX,dword ptr [0x011a2fe8]
+  0x0086af39: PUSH EDX
+  0x0086af3a: MOV EAX,[0x011a2fe8]
+  0x0086af3f: PUSH EAX
+  0x0086af40: PUSH 0x0
+  0x0086af42: CALL dword ptr [0x00fdf2b8]
+  0x0086af48: MOV dword ptr [EBP + -0x24],EAX
+  0x0086af4b: PUSH 0xa4
+  0x0086af50: CALL 0x00401000
+  0x0086af55: ADD ESP,0x4
+  0x0086af58: MOV dword ptr [EBP + 0xfffffcd8],EAX
+  0x0086af5e: CMP dword ptr [EBP + 0xfffffcd8],0x0
+  0x0086af65: JZ 0x0086af82
+  0x0086af67: MOV ECX,dword ptr [EBP + 0x8]
+  0x0086af6a: PUSH ECX
+  0x0086af6b: MOV EDX,dword ptr [EBP + -0x24]
+  0x0086af6e: PUSH EDX
+  0x0086af6f: MOV ECX,dword ptr [EBP + 0xfffffcd8]
+
+--- Calls FROM WinMain and initial window/renderer sequencing (0x0086a850) ---
+  0x0086a86d -> 0x00000035 ???
+  0x0086a876 -> 0x0000001b ???
+  0x0086a891 -> 0x000000ae ???
+  0x0086a8a3 -> 0x0000009d ???
+  0x0086a8bb -> 0x000000ae ???
+  0x0086a8e0 -> 0x00408d60 FUN_00408d60
+  0x0086a8ee -> 0x00408d60 FUN_00408d60
+  0x0086a8fc -> 0x00408d60 FUN_00408d60
+  0x0086a90d -> 0x00c3bd30 FUN_00c3bd30
+  0x0086a91a -> 0x00c3bb90 FUN_00c3bb90
+  0x0086a927 -> 0x00c3bbe0 FUN_00c3bbe0
+  0x0086a934 -> 0x00c3bc30 FUN_00c3bc30
+  0x0086a941 -> 0x00c3bc80 FUN_00c3bc80
+  0x0086a950 -> 0x00000034 ???
+  0x0086a95b -> 0x0043d4d0 FUN_0043d4d0
+  0x0086a96f -> 0x00876ad0 FUN_00876ad0
+  0x0086a97c -> 0x0043d4d0 FUN_0043d4d0
+  0x0086a98b -> 0x0043d4d0 FUN_0043d4d0
+  0x0086a99f -> 0x000000b2 ???
+  0x0086a9b2 -> 0x000000b1 ???
+  0x0086a9c5 -> 0x004b4a30 FUN_004b4a30
+  0x0086a9d2 -> 0x00af2640 FID_conflict:_Immortalize<std::_Generic_error_category>
+  0x0086a9d9 -> 0x004fb090 FUN_004fb090
+  0x0086a9e3 -> 0x00af2640 FID_conflict:_Immortalize<std::_Generic_error_category>
+  0x0086a9ea -> 0x008526c0 FUN_008526c0
+  0x0086a9f1 -> 0x006ecd40 FUN_006ecd40
+  0x0086a9f8 -> 0x00aa20b0 FUN_00aa20b0
+  0x0086aa00 -> 0x00c5d4e0 FUN_00c5d4e0
+  0x0086aa05 -> 0x004b7920 FUN_004b7920
+  0x0086aa0a -> 0x00a1c6f0 FUN_00a1c6f0
+  0x0086aa0f -> 0x00bc2940 FUN_00bc2940
+  0x0086aa14 -> 0x0045b020 FUN_0045b020
+  0x0086aa1b -> 0x00404f30 FUN_00404f30
+  0x0086aa28 -> 0x0086bde0 FUN_0086bde0
+  0x0086aa35 -> 0x0086bcd0 FUN_0086bcd0
+  0x0086aa3f -> 0x0086bcc0 FUN_0086bcc0
+  0x0086aa47 -> 0x00c3a6d0 FUN_00c3a6d0
+  0x0086aa4c -> 0x0086bd70 FUN_0086bd70
+  0x0086aa65 -> 0x00404eb0 FUN_00404eb0
+  0x0086aa6a -> 0x00453720 FUN_00453720
+  0x0086aa75 -> 0x00404f70 FUN_00404f70
+  0x0086aa8e -> 0x00404f00 FUN_00404f00
+  0x0086aa93 -> 0x00a61ad0 FUN_00a61ad0
+  0x0086aa9e -> 0x00404f70 FUN_00404f70
+  0x0086aaa3 -> 0x006ff610 FUN_006ff610
+  0x0086aab9 -> 0x00000033 ???
+  0x0086aac0 -> 0x000000bd ???
+  0x0086ab4f -> 0x00ecc071 __wcsicmp
+  0x0086ab5d -> 0x006ff580 FUN_006ff580
+  0x0086ab64 -> 0x006ff880 FUN_006ff880
+  0x0086ab75 -> 0x00000019 ???
+  0x0086ab80 -> 0x00877950 FUN_00877950
+  0x0086ab87 -> 0x005e0200 FUN_005e0200
+  0x0086ab93 -> 0x0044f560 FUN_0044f560
+  0x0086ab9a -> 0x005e0200 FUN_005e0200
+  0x0086ab9f -> 0x004dc110 FUN_004dc110
+  0x0086abb1 -> 0x00406d30 FUN_00406d30
+  0x0086abcc -> 0x00406d50 FUN_00406d50
+  0x0086abdb -> 0x004de490 FUN_004de490
+  0x0086abe2 -> 0x005e0200 FUN_005e0200
+  0x0086abe7 -> 0x004dc110 FUN_004dc110
+  0x0086abf9 -> 0x00406d30 FUN_00406d30
+  0x0086ac13 -> 0x00406d50 FUN_00406d50
+  0x0086ac22 -> 0x0045d180 FUN_0045d180
+  0x0086ac29 -> 0x005e0200 FUN_005e0200
+  0x0086ac35 -> 0x004de490 FUN_004de490
+  0x0086ac3c -> 0x005e0200 FUN_005e0200
+  0x0086ac46 -> 0x0043d4d0 FUN_0043d4d0
+  0x0086ac55 -> 0x0043d4d0 FUN_0043d4d0
+  0x0086ac60 -> 0x004da570 FUN_004da570
+  0x0086ac72 -> 0x004da4d0 FUN_004da4d0
+  0x0086ac7a -> 0x00b00a00 FUN_00b00a00
+  0x0086aca4 -> 0x00876a70 FUN_00876a70
+  0x0086acbd -> 0x00406d50 FUN_00406d50
+  0x0086acd6 -> 0x000000bf ???
+  0x0086acfb -> 0x00404ee0 FUN_00404ee0
+  0x0086ad10 -> 0x00403df0 FUN_00403df0
+  0x0086ad1b -> 0x00403df0 FUN_00403df0
+  0x0086ad21 -> 0x00aff100 FID_conflict:_Immortalize<std::_Generic_error_category>
+  0x0086ad28 -> 0x00b012f0 FUN_00b012f0
+  0x0086ad2f -> 0x00401000 FUN_00401000
+  0x0086ad4d -> 0x0043d4d0 FUN_0043d4d0
+  0x0086ad5a -> 0x00403df0 FUN_00403df0
+  0x0086ad66 -> 0x00afdc60 FUN_00afdc60
+  0x0086ad8e -> 0x0086bce0 FUN_0086bce0
+  0x0086ada0 -> 0x00408d60 FUN_00408d60
+  0x0086adae -> 0x00408d60 FUN_00408d60
+  0x0086adbc -> 0x00408d60 FUN_00408d60
+  0x0086adcd -> 0x00c3bd30 FUN_00c3bd30
+  0x0086adda -> 0x00c3bb90 FUN_00c3bb90
+  0x0086ade7 -> 0x00c3bbe0 FUN_00c3bbe0
+  0x0086adf4 -> 0x00c3bc30 FUN_00c3bc30
+  0x0086ae01 -> 0x00c3bc80 FUN_00c3bc80
+  0x0086ae1d -> 0x00404f00 FUN_00404f00
+  0x0086ae22 -> 0x0040fbe0 FUN_0040fbe0
+  0x0086ae27 -> 0x00aff100 FID_conflict:_Immortalize<std::_Generic_error_category>
+  0x0086ae2e -> 0x0086bda0 FUN_0086bda0
+  0x0086ae39 -> 0x00404f70 FUN_00404f70
+  0x0086ae52 -> 0x00404f00 FUN_00404f00
+  0x0086ae57 -> 0x00876d20 FUN_00876d20
+  0x0086ae62 -> 0x00404f70 FUN_00404f70
+  0x0086aeb6 -> 0x000000b6 ???
+  0x0086aedf -> 0x0000009e ???
+  0x0086af0c -> 0x000000b5 ???
+  0x0086af42 -> 0x0000009f ???
+  0x0086af50 -> 0x00401000 FUN_00401000
+  0x0086af75 -> 0x0086c160 FUN_0086c160
+  0x0086afb8 -> 0x00404f00 FUN_00404f00
+  0x0086afbf -> 0x00401000 FUN_00401000
+  0x0086afdc -> 0x007005d0 FUN_007005d0
+  0x0086b010 -> 0x00404f70 FUN_00404f70
+  0x0086b01a -> 0x0040fbe0 FUN_0040fbe0
+  0x0086b028 -> 0x0086d500 FUN_0086d500
+  0x0086b034 -> 0x0043c4b0 FUN_0043c4b0
+  0x0086b03b -> 0x004a0370 FUN_004a0370
+  0x0086b047 -> 0x0043c4b0 FUN_0043c4b0
+  0x0086b04e -> 0x0086bbd0 FUN_0086bbd0
+  0x0086b05a -> 0x0043c4b0 FUN_0043c4b0
+  0x0086b061 -> 0x0086bae0 FUN_0086bae0
+  0x0086b066 -> 0x0086bf70 FUN_0086bf70
+  0x0086b071 -> 0x0086d590 FUN_0086d590
+  0x0086b078 -> 0x00702250 FUN_00702250
+  0x0086b080 -> 0x006519f0 FUN_006519f0
+  0x0086b08d -> 0x00871c90 FUN_00871c90
+  0x0086b092 -> 0x006a2920 FUN_006a2920
+  0x0086b097 -> 0x0086c010 FUN_0086c010
+  0x0086b09c -> 0x0043c4b0 FUN_0043c4b0
+  0x0086b0a3 -> 0x004a03c0 FUN_004a03c0
+  0x0086b0a8 -> 0x00866ff0 FUN_00866ff0
+  0x0086b0c0 -> 0x00403df0 FUN_00403df0
+  0x0086b0cc -> 0x00ec16d0 FUN_00ec16d0
+  0x0086b0d7 -> 0x00404f70 FUN_00404f70
+  0x0086b0dc -> 0x0045c670 FUN_0045c670
+  0x0086b0e8 -> 0x0086cf20 FUN_0086cf20
+  0x0086b0ed -> 0x0045c670 FUN_0045c670
+  0x0086b0f4 -> 0x006629f0 FUN_006629f0
+  0x0086b0fa -> 0x0086be90 FUN_0086be90
+  0x0086b102 -> 0x0045c670 FUN_0045c670
+  0x0086b109 -> 0x006629f0 FUN_006629f0
+  0x0086b10f -> 0x0086be80 FUN_0086be80
+  0x0086b11c -> 0x0043d4d0 FUN_0043d4d0
+  0x0086b126 -> 0x00713d80 FUN_00713d80
+  0x0086b12d -> 0x008c7290 FUN_008c7290
+  0x0086b132 -> 0x006d0870 FUN_006d0870
+  0x0086b137 -> 0x0047d0b0 FID_conflict:_Immortalize<std::_Generic_error_category>
+  0x0086b13e -> 0x006eb8c0 FUN_006eb8c0
+  0x0086b148 -> 0x00408d60 FUN_00408d60
+  0x0086b154 -> 0x006c0720 FUN_006c0720
+  0x0086b15b -> 0x006c07d0 FUN_006c07d0
+  0x0086b160 -> 0x004e0540 FUN_004e0540
+  0x0086b165 -> 0x004deb30 FUN_004deb30
+  0x0086b19f -> 0x00416870 FUN_00416870
+  0x0086b1aa -> 0x00460140 FUN_00460140
+  0x0086b1b1 -> 0x006815c0 FUN_006815c0
+  0x0086b1bf -> 0x00458200 FUN_00458200
+  0x0086b1ca -> 0x0095ee80 FUN_0095ee80
+  0x0086b1d7 -> 0x008a8150 FUN_008a8150
+  0x0086b1e1 -> 0x0040fbe0 FUN_0040fbe0
+  0x0086b1ee -> 0x00970d50 FUN_00970d50
+  0x0086b1f9 -> 0x004614e0 FUN_004614e0
+  0x0086b206 -> 0x007d6bd0 FUN_007d6bd0
+  0x0086b210 -> 0x0040fbe0 FUN_0040fbe0
+  0x0086b223 -> 0x00876dd0 FUN_00876dd0
+  0x0086b230 -> 0x0040fbe0 FUN_0040fbe0
+  0x0086b254 -> 0x00877260 FUN_00877260
+  0x0086b25c -> 0x007022c0 FUN_007022c0
+  0x0086b267 -> 0x00483710 FUN_00483710
+  0x0086b274 -> 0x004f15a0 FUN_004f15a0
+  0x0086b279 -> 0x00af4540 FUN_00af4540
+  0x0086b284 -> 0x008d6f30 FUN_008d6f30
+  0x0086b295 -> 0x004650a0 FUN_004650a0
+  0x0086b29a -> 0x0040fbe0 FUN_0040fbe0
+  0x0086b29f -> 0x007053f0 FUN_007053f0
+  0x0086b2aa -> 0x00ec1800 FUN_00ec1800
+  0x0086b2af -> 0x0040fbe0 FUN_0040fbe0
+  0x0086b2bc -> 0x00ec1800 FUN_00ec1800
+  0x0086b2c7 -> 0x00456520 FUN_00456520
+  0x0086b2d1 -> 0x0040fbe0 FUN_0040fbe0
+  0x0086b2e4 -> 0x00403d30 _Fiopen
+  0x0086b2f2 -> 0x0044ddc0 FUN_0044ddc0
+  0x0086b31d -> 0x00000098 ???
+  0x0086b32e -> 0x00000097 ???
+  0x0086b33b -> 0x00000096 ???
+  0x0086b343 -> 0x000000b0 ???
+  0x0086b357 -> 0x00451530 FUN_00451530
+  0x0086b368 -> 0x00559450 FUN_00559450
+  0x0086b376 -> 0x00408d60 FUN_00408d60
+  0x0086b386 -> 0x0043c4b0 FUN_0043c4b0
+  0x0086b38d -> 0x004dc020 FUN_004dc020
+  0x0086b3bb -> 0x0043c4b0 FUN_0043c4b0
+  0x0086b3c2 -> 0x0086ba10 FUN_0086ba10
+  0x0086b3c7 -> 0x0043c4b0 FUN_0043c4b0
+  0x0086b3ce -> 0x0086ba90 FUN_0086ba90
+  0x0086b3d5 -> 0x00000037 ???
+  0x0086b3e3 -> 0x0086e650 FUN_0086e650
+  0x0086b3f8 -> 0x00453a70 FUN_00453a70
+  0x0086b3ff -> 0x00ad8740 FUN_00ad8740
+  0x0086b404 -> 0x00830660 FUN_00830660
+  0x0086b40b -> 0x00832ad0 FUN_00832ad0
+  0x0086b415 -> 0x00453a70 FUN_00453a70
+  0x0086b41c -> 0x00ad7740 FUN_00ad7740
+  0x0086b421 -> 0x00446e10 FUN_00446e10
+  0x0086b445 -> 0x004dc1f0 FUN_004dc1f0
+  0x0086b450 -> 0x004dc200 FUN_004dc200
+  0x0086b46b -> 0x000000ab ???
+  0x0086b489 -> 0x000000af ???
+  0x0086b4bf -> 0x0000009a ???
+  0x0086b4e3 -> 0x0078d020 FUN_0078d020
+  0x0086b506 -> 0x0086bdf0 FUN_0086bdf0
+  0x0086b512 -> 0x0000006a ???
+  0x0086b520 -> 0x0044edb0 FUN_0044edb0
+  0x0086b529 -> 0x0078cfc0 FUN_0078cfc0
+  0x0086b537 -> 0x00453a70 FUN_00453a70
+  0x0086b53e -> 0x00ad8700 FUN_00ad8700
+  0x0086b543 -> 0x00830640 FUN_00830640
+  0x0086b54a -> 0x00832ad0 FUN_00832ad0
+  0x0086b554 -> 0x00453a70 FUN_00453a70
+  0x0086b55b -> 0x00ad7740 FUN_00ad7740
+  0x0086b566 -> 0x004e2190 FUN_004e2190
+  0x0086b56d -> 0x00b63620 FUN_00b63620
+  0x0086b572 -> 0x0049fef0 FUN_0049fef0
+  0x0086b579 -> 0x004a4340 FUN_004a4340
+  0x0086b57e -> 0x00705910 FUN_00705910
+  0x0086b585 -> 0x008026b0 FUN_008026b0
+  0x0086b58a -> 0x00446e10 FUN_00446e10
+  0x0086b5ae -> 0x004dc1f0 FUN_004dc1f0
+  0x0086b5b9 -> 0x004dc200 FUN_004dc200
+  0x0086b5d4 -> 0x000000ab ???
+  0x0086b5f2 -> 0x000000af ???
+  0x0086b628 -> 0x0000009a ???
+  0x0086b630 -> 0x00000037 ???
+  0x0086b63c -> 0x005dc960 FUN_005dc960
+  0x0086b650 -> 0x00678ce0 FUN_00678ce0
+  0x0086b664 -> 0x008774a0 FUN_008774a0
+  0x0086b676 -> 0x004f15a0 FUN_004f15a0
+  0x0086b67b -> 0x006ff620 FUN_006ff620
+  0x0086b680 -> 0x00703610 FUN_00703610
+  0x0086b687 -> 0x00706320 FUN_00706320
+  0x0086b694 -> 0x00559450 FUN_00559450
+  0x0086b6a2 -> 0x00559450 FUN_00559450
+  0x0086b6a8 -> 0x004a0ea0 FUN_004a0ea0
+  0x0086b6af -> 0x00b6da10 FUN_00b6da10
+  0x0086b6bb -> 0x0066b0d0 FUN_0066b0d0
+  0x0086b6c5 -> 0x00559450 FUN_00559450
+  0x0086b6d3 -> 0x00559450 FUN_00559450
+  0x0086b6d9 -> 0x004a0ea0 FUN_004a0ea0
+  0x0086b6e0 -> 0x00b6da10 FUN_00b6da10
+  0x0086b6ec -> 0x0066b0d0 FUN_0066b0d0
+  0x0086b6f6 -> 0x00559450 FUN_00559450
+  0x0086b704 -> 0x00559450 FUN_00559450
+  0x0086b70a -> 0x004a0ea0 FUN_004a0ea0
+  0x0086b711 -> 0x00b6da10 FUN_00b6da10
+  0x0086b71d -> 0x0066b0d0 FUN_0066b0d0
+  0x0086b724 -> 0x0086bea0 FUN_0086bea0
+  0x0086b72c -> 0x00683a60 FUN_00683a60
+  0x0086b735 -> 0x00a819e0 FUN_00a819e0
+  0x0086b740 -> 0x00448420 FUN_00448420
+  0x0086b74a -> 0x0043d4d0 FUN_0043d4d0
+  0x0086b754 -> 0x00713d80 FUN_00713d80
+  0x0086b75b -> 0x008c73a0 FUN_008c73a0
+  0x0086b760 -> 0x00867090 FUN_00867090
+  0x0086b765 -> 0x004dc560 FUN_004dc560
+  0x0086b76a -> 0x004dc590 FUN_004dc590
+  0x0086b76f -> 0x00702330 FUN_00702330
+  0x0086b77a -> 0x008d8520 FUN_008d8520
+  0x0086b789 -> 0x008d8520 FUN_008d8520
+  0x0086b790 -> 0x0086be30 FUN_0086be30
+  0x0086b795 -> 0x004e0800 FUN_004e0800
+  0x0086b79a -> 0x004def20 FUN_004def20
+  0x0086b79f -> 0x007ffe00 FUN_007ffe00
+  0x0086b7a4 -> 0x00832010 FUN_00832010
+  0x0086b7a9 -> 0x008304a0 FUN_008304a0
+  0x0086b7ae -> 0x0082f9c0 FUN_0082f9c0
+  0x0086b7b3 -> 0x00453a70 FUN_00453a70
+  0x0086b7d1 -> 0x0040fbe0 FUN_0040fbe0
+  0x0086b7d6 -> 0x0049ff80 FUN_0049ff80
+  0x0086b7db -> 0x00622bc0 FUN_00622bc0
+  0x0086b7e0 -> 0x00626f10 FUN_00626f10
+  0x0086b7ea -> 0x00408d60 FUN_00408d60
+  0x0086b7f6 -> 0x006c0720 FUN_006c0720
+  0x0086b7fd -> 0x006c0900 FUN_006c0900
+  0x0086b82b -> 0x0086bee0 FUN_0086bee0
+  0x0086b842 -> 0x0086beb0 FUN_0086beb0
+  0x0086b847 -> 0x0047d0b0 FID_conflict:_Immortalize<std::_Generic_error_category>
+  0x0086b84e -> 0x006eb980 FUN_006eb980
+  0x0086b853 -> 0x00651ab0 FUN_00651ab0
+  0x0086b858 -> 0x00990ff0 FUN_00990ff0
+  0x0086b85d -> 0x00b00a00 FUN_00b00a00
+  0x0086b87b -> 0x00664940 FUN_00664940
+  0x0086b880 -> 0x00526eb0 FUN_00526eb0
+  0x0086b885 -> 0x00408de0 FUN_00408de0
+  0x0086b88a -> 0x0086bdd0 FUN_0086bdd0
+  0x0086b8b8 -> 0x0086bf10 FUN_0086bf10
+  0x0086b8f7 -> 0x0086bf40 FUN_0086bf40
+  0x0086b918 -> 0x00aff100 FID_conflict:_Immortalize<std::_Generic_error_category>
+  0x0086b936 -> 0x004de490 FUN_004de490
+  0x0086b93d -> 0x00717e50 FUN_00717e50
+  0x0086b943 -> 0x004de490 FUN_004de490
+  0x0086b94a -> 0x005e01b0 FUN_005e01b0
+  0x0086b954 -> 0x0043c4b0 FUN_0043c4b0
+  0x0086b95b -> 0x0086bb20 FUN_0086bb20
+  0x0086b965 -> 0x0043c4b0 FUN_0043c4b0
+  0x0086b96c -> 0x0086bc10 FUN_0086bc10
+  0x0086b971 -> 0x006a29a0 FUN_006a29a0
+  0x0086b976 -> 0x00a62090 FUN_00a62090
+  0x0086b97b -> 0x00bc2960 FUN_00bc2960
+  0x0086b982 -> 0x004da4d0 FUN_004da4d0
+  0x0086b98a -> 0x0086bd00 FUN_0086bd00
+  0x0086b98f -> 0x0045b050 FUN_0045b050
+  0x0086b994 -> 0x00c5d520 FUN_00c5d520
+  0x0086b999 -> 0x004b8cf0 FUN_004b8cf0
+  0x0086b99e -> 0x00a1c790 FUN_00a1c790
+  0x0086b9a3 -> 0x00aa2170 FUN_00aa2170
+  0x0086b9b3 -> 0x008783c0 FUN_008783c0
+  0x0086b9c1 -> 0x00401020 FUN_00401020
+  0x0086b9c8 -> 0x00aa47c0 FUN_00aa47c0
+  0x0086b9dd -> 0x008784d0 FID_conflict:~CXMLParser
+  0x0086b9e8 -> 0x00404ee0 FUN_00404ee0
+  0x0086b9f9 -> 0x00ec408c __security_check_cookie
+  Total: 319 calls
+
+======================================================================
+renderer window creation and parent placement owner @ 0x004da670
+======================================================================
+  Function: FUN_004da670 @ 0x004da670, Size: 6467 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+void FUN_004da670(HWND param_1,HINSTANCE param_2)
+
+{
+  ulonglong uVar1;
+  char cVar2;
+  uint uVar3;
+  undefined4 uVar4;
+  undefined4 *puVar5;
+  int *piVar6;
+  DWORD bMenu;
+  DWORD dwStyle;
+  char *pcVar7;
+  int iVar8;
+  undefined1 *puVar9;
+  undefined2 *puVar10;
+  int iVar11;
+  float *pfVar12;
+  float *pfVar13;
+  int cx;
+  int cy;
+  int *unaff_FS_OFFSET;
+  float10 fVar14;
+  HWND hWndParent;
+  HMENU hMenu;
+  undefined4 uVar15;
+  HINSTANCE hInstance;
+  LPVOID lpParam;
+  UINT uFlags;
+  undefined4 uVar16;
+  undefined4 local_770;
+  undefined4 local_76c;
+  undefined *local_768;
+  undefined *local_764;
+  undefined *local_760;
+  undefined *local_75c;
+  undefined *local_758;
+  undefined *local_754;
+  undefined *local_750;
+  undefined *local_74c;
+  undefined *local_748;
+  undefined *local_744;
+  undefined *local_740;
+  undefined *local_73c;
+  undefined *local_738;
+  undefined *local_734;
+  undefined *local_730;
+  char local_718;
+  char local_710;
+  char local_70c;
+  undefined1 local_6ec;
+  char local_6e8;
+  undefined4 local_6dc;
+  undefined4 local_6cc;
+  uint local_6c8;
+  undefined4 local_6b8;
+  int local_65c;
+  undefined4 local_658 [7];
+  int local_63c;
+  uint local_638;
+  uint local_634;
+  undefined1 local_630 [260];
+  int local_52c;
+  undefined4 local_528;
+  undefined1 local_524 [144];
+  int local_494;
+  undefined1 local_490 [256];
+  undefined1 auStack_390 [516];
+  int local_18c;
+  FARPROC local_188;
+  HMODULE local_184;
+  float local_180;
+  int *local_17c;
+  undefined4 local_178;
+  int local_174;
+  int local_170;
+  int local_16c;
+  tagRECT local_168;
+  int local_158;
+  undefined1 local_151;
+  int local_150;
+  undefined4 local_14c;
+  undefined4 local_148;
+  undefined4 local_144;
+  char local_13d;
+  undefined4 local_138;
+  int local_134;
+  FILE *local_130;
+  ushort local_12c;
+  char local_128 [268];
+  uint local_1c;
+  int local_18;
+  char local_11;
+  int local_10;
+  undefined1 *puStack_c;
+  int local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00ef20a0;
+  local_10 = *unaff_FS_OFFSET;
+  uVar3 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  local_1c = uVar3;
+  FUN_00404eb0(4,1,"D:\\_Fallout3\\Platforms\\Common\\Code\\Fallout Shared\\Renderer.cpp",0x179);
+  local_8 = 0;
+  DAT_011c6fc0 = param_1;
+  DAT_011c6fc4 = param_2;
+  uVar4 = FUN_004dc110(uVar3);
+  FUN_00406d00(local_128,0x104,"%sRendererInfo.txt",uVar4);
+  local_130 = _fopen(local_128,"w");
+  if (local_130 != (FILE *)0x0) {
+    _fclose(local_130);
+  }
+  puVar5 = (undefined4 *)FUN_0043d4d0();
+  DAT_011c6fb0 = *puVar5;
+  DAT_0118947c = FUN_004503f0();
+  DAT_01189480 = FUN_004503f0();
+  cVar2 = FUN_00454af0();
+  if (cVar2 != '\0') {
+    FUN_004de100();
+  }
+  cVar2 = FUN_004de070();
+  if (cVar2 != '\0') {
+    fVar14 = (float10)FUN_004de0c0();
+    local_6b8 = (undefined4)(longlong)ROUND(fVar14);
+    DAT_0118947c = local_6b8;
+    fVar14 = (float10)FUN_004de0d0();
+    local_6c8 = (uint)(longlong)ROUND(fVar14);
+    DAT_01189480 = local_6c8;
+    piVar6 = (int *)FUN_0043d4d0();
+    if (*piVar6 < 2) {
+      puVar5 = (undefined4 *)FUN_0043d4d0();
+      local_6cc = *puVar5;
+    }
+    else {
+      local_6cc = 2;
+    }
+    FUN_0045ce80(local_6cc);
+  }
+  cVar2 = FUN_004dc710(1);
+  if (cVar2 == '\0') {
+    local_8 = 0xffffffff;
+    FUN_00404ee0();
+  }
+  else {
+    cVar2 = FUN_00454af0();
+    if (cVar2 == '\0') {
+      lpParam = (LPVOID)0x0;
+      hMenu = (HMENU)0x0;
+      hWndParent = DAT_011c6fc0;
+      hInstance = DAT_011c6fc4;
+      iVar8 = FUN_004dc200();
+      iVar11 = FUN_004dc1f0();
+      DAT_011c6fbc = CreateWindowExA(0,PTR_s_Fallout__New_Vegas_011a2fe8,(LPCSTR)0x0,0x50000000,0,0,
+                                     iVar11,iVar8,hWndParent,hMenu,hInstance,lpParam);
+      local_168.left = 0;
+      local_168.top = 0;
+      local_168.right = FUN_004dc1f0();
+      local_168.bottom = FUN_004dc200();
+      bMenu = GetClassLongA(DAT_011c6fbc,-8);
+      dwStyle = GetWindowLongA(DAT_011c6fc0,-0x10);
+      AdjustWindowRect(&local_168,dwStyle,bMenu);
+      cx = local_168.right - local_168.left;
+      cy = local_168.bottom - local_168.top;
+      uFlags = 0x40;
+      local_16c = cy;
+      local_158 = cx;
+      iVar8 = FUN_004503f0();
+      iVar11 = FUN_004503f0();
+      SetWindowPos(DAT_011c6fc0,(HWND)0x0,iVar11,iVar8,cx,cy,uFlags);
+    }
+    else {
+      DAT_01189478 = DAT_01189478 | 4;
+      DAT_011c6fbc = DAT_011c6fc0;
+    }
+    DAT_011c70cc = 0;
+    pcVar7 = (char *)FUN_00408d60();
+    if ((*pcVar7 != '\0') && (DAT_011c70cc == 0)) {
+      DAT_011c70cc = 1;
+    }
+    local_151 = 0;
+    cVar2 = FUN_00454af0();
+    if ((cVar2 != '\0') && (iVar8 = GetSystemMetrics(0x50), 1 < iVar8)) {
+      local_170 = GetSystemMetrics(1);
+      local_174 = GetSystemMetrics(0);
+      iVar8 = FUN_004dc200();
+      if (local_170 == iVar8) {
+        iVar8 = FUN_004dc1f0();
+        if (local_174 != iVar8) {
+          local_151 = 1;
+        }
+      }
+      else {
+        local_151 = 1;
+      }
+    }
+    uVar4 = FUN_004dc260(local_151);
+    uVar4 = FUN_004dc250(uVar4);
+    uVar4 = FUN_004dc290(uVar4);
+    uVar4 = FUN_004dc240(uVar4);
+    uVar4 = FUN_004dc2a0(uVar4);
+    uVar4 = FUN_004dc280(uVar4);
+    uVar4 = FUN_004dc270(uVar4);
+    uVar4 = FUN_004dc230(uVar4);
+    uVar4 = FUN_004dc210(uVar4);
+    uVar4 = FUN_004dc1e0(uVar4);
+    uVar4 = FUN_004dc1e0(uVar4);
+    uVar4 = FUN_004dc220(uVar4);
+    uVar4 = FUN_004dc200(uVar4);
+    uVar4 = FUN_004dc1f0(uVar4);
+    uVar4 = FUN_00e76210(uVar4);
+    FUN_0066b0d0(uVar4);
+    piVar6 = (int *)FUN_0043d4d0();
+    if (0 < *piVar6) {
+      puVar5 = (undefined4 *)FUN_0043d4d0(0x71);
+      cVar2 = FUN_004dd180(*puVar5);
+      if ((cVar2 == '\0') && (pcVar7 = (char *)FUN_00408d60(), *pcVar7 != '\0')) {
+        local_178 = FUN_00b4f4a0();
+        uVar4 = FUN_004dc110();
+        FUN_00406d00(local_128,0x104,"%sRendererInfo.txt",uVar4);
+        local_130 = _fopen(local_128,"a");
+        if (local_130 != (FILE *)0x0) {
+          puVar5 = (undefined4 *)FUN_0043d4d0();
+          _fprintf(local_130,
+                   "Multisample setting [%i] is not supported with the current device settings.\n",
+                   *puVar5);
+        }
+        FUN_004de2d0(0);
+        DAT_011f9421 = '\0';
+      }
+      else {
+        uVar4 = FUN_004503f0();
+        switch(uVar4) {
+        case 2:
+        case 3:
+          DAT_011c70cc = 2;
+          break;
+        case 4:
+          DAT_011c70cc = 4;
+          break;
+        default:
+          DAT_011c70cc = 0;
+          break;
+        case 8:
+          DAT_011c70cc = 8;
+        }
+      }
+    }
+    iVar8 = FUN_00559450();
+    if (iVar8 == 0) {
+      FUN_004dc330("Unknown error creating the Gamebryo Renderer.");
+      local_8 = 0xffffffff;
+      FUN_00404ee0();
+    }
+    else {
+      piVar6 = (int *)FUN_00559450();
+      uVar4 = FUN_004dc2c0();
+      (**(code **)(*piVar6 + 0xb0))(uVar4);
+      if (DAT_011c6fba != '\0') {
+        FUN_00559450();
+        local_17c = (int *)FUN_004dc020();
+        if (local_17c != (int *)0x0) {
+          iVar8 = FUN_004dc2b0();
+          (**(code **)(*local_17c + 0x13c))(local_17c,(float)iVar8);
+        }
+      }
+      iVar8 = FUN_00aa13e0(0xa00);
+      local_8._0_1_ = 1;
+      if (iVar8 == 0) {
+        local_6dc = 0;
+      }
+      else {
+        local_6dc = FUN_00a7b110();
+      }
+      local_8 = (uint)local_8._1_3_ << 8;
+      FUN_00a76b60(local_6dc);
+      FUN_004dc050(1);
+      FUN_004dc010(0);
+      uVar4 = FUN_004dc210();
+      local_150 = FUN_004dcdb0(uVar4);
+      local_138 = FUN_004da650();
+      local_14c = FUN_00717e50();
+      if (local_150 == 0) {
+        FUN_004dc330("GetAdapterDesc() failed.");
+        local_8 = 0xffffffff;
+        FUN_00404ee0();
+      }
+      else {
+        D3DPERF_SetOptions(1);
+        local_134 = FUN_004dc120(1);
+        if (local_134 == 0) {
+          FUN_004dc330("NiXAdapaterDesc::GetDeviceCaps() failed.");
+          local_8 = 0xffffffff;
+          FUN_00404ee0();
+        }
+        else {
+          cVar2 = FUN_00454af0();
+          if (cVar2 == '\0') {
+            DAT_011c6fb9 = false;
+          }
+          else {
+            DAT_011c6fb9 = (*(uint *)(local_134 + 0xc) & 0x20000) != 0;
+          }
+          local_12c = *(ushort *)(local_134 + 0x118);
+          if ((0x60 < local_12c) && (*(int *)(local_134 + 0x110) < 0x20)) {
+            local_12c = 0x60;
+          }
+          FUN_00559450();
+          piVar6 = (int *)FUN_004dc040();
+          local_18 = (**(code **)(*piVar6 + 0x28))(piVar6,0,1,0x16,0x80000,3,0x71);
+          DAT_011c70ea = -1 < local_18;
+          FUN_00559450();
+          piVar6 = (int *)FUN_004dc040();
+          local_18 = (**(code **)(*piVar6 + 0x28))(piVar6,0,1,0x16,0x20000,3,0x71);
+          DAT_011f941f = -1 < local_18;
+          puVar5 = (undefined4 *)FUN_0043d4d0();
+          DAT_011ad810 = *puVar5;
+          puVar5 = (undefined4 *)FUN_0043d4d0();
+          DAT_011ad814 = *puVar5;
+          puVar5 = (undefined4 *)FUN_0043d4d0();
+          DAT_011ad818 = *puVar5;
+          DAT_011f9420 = (*(uint *)(local_134 + 0x40) & 0x400) != 0;
+          if (((*(uint *)(local_134 + 0x3c) & 2) == 0) ||
+             ((*(uint *)(local_134 + 0x3c) & 0x100) != 0)) {
+            local_6e8 = '\x01';
+          }
+          else {
+            local_6e8 = '\0';
+          }
+          local_13d = local_6e8;
+          if ((local_6e8 == '\0') || (pcVar7 = (char *)FUN_00408d60(), *pcVar7 != '\0')) {
+            local_6ec = 0;
+          }
+          else {
+            local_6ec = 1;
+          }
+          DAT_011f9183 = local_6ec;
+          puVar5 = (undefined4 *)FUN_0043d4d0();
+          DAT_0126efc4 = *puVar5;
+          puVar5 = (undefined4 *)FUN_0043d4d0();
+          DAT_0126efc8 = *puVar5;
+          DAT_011f9426 = DAT_011c70ec;
+          if (DAT_011c70ec != '\0') {
+            uVar1 = (ulonglong)DAT_01189480;
+            piVar6 = (int *)FUN_0043d4d0();
+            local_180 = (((float)uVar1 - (float)*piVar6) / (float)DAT_01189480) /
+                        (float)_DAT_01011590;
+            puVar5 = (undefined4 *)FUN_00414430(0,0x3f800000,1.0 - local_180,local_180);
+            DAT_011ad840 = *puVar5;
+            DAT_011ad844 = puVar5[1];
+            DAT_011ad848 = puVar5[2];
+            DAT_011ad84c = puVar5[3];
+            puVar5 = (undefined4 *)FUN_0043d4d0();
+            DAT_011f9430 = *puVar5;
+            puVar5 = (undefined4 *)FUN_0043d4d0();
+            DAT_011f9434 = *puVar5;
+          }
+          pcVar7 = (char *)FUN_00408d60();
+          if ((*pcVar7 == '\0') || (DAT_011c70ea == '\0')) {
+            local_70c = '\0';
+          }
+          else {
+            local_70c = '\x01';
+          }
+          DAT_011f941e = local_70c;
+          puVar9 = (undefined1 *)FUN_00408d60();
+          DAT_011f94a8 = *puVar9;
+          puVar9 = (undefined1 *)FUN_00408d60();
+          DAT_011f94a9 = *puVar9;
+          if ((DAT_011f941e == '\0') && (pcVar7 = (char *)FUN_00408d60(), *pcVar7 != '\0')) {
+            local_710 = '\x01';
+          }
+          else {
+            local_710 = '\0';
+          }
+          DAT_011f9422 = local_710;
+          pcVar7 = (char *)FUN_00408d60();
+          DAT_011f91a3 = *pcVar7;
+          puVar9 = (undefined1 *)FUN_00408d60(local_138,local_14c,local_12c);
+          FUN_00b4f710(DAT_01189468,DAT_0118946c,*puVar9);
+          iVar8 = FUN_004dc060(0);
+          if (iVar8 < 5) {
+            FUN_004de2d0(0);
+          }
+          puVar10 = (undefined2 *)FUN_0043d4d0();
+          DAT_011ad830 = *puVar10;
+          iVar8 = FUN_004dc0b0();
+          if (iVar8 == 1) {
+            FUN_00559450();
+            piVar6 = (int *)FUN_004dc040();
+            local_18 = (**(code **)(*piVar6 + 0x28))(piVar6,0,1,0x16,0,1,0x434f5441);
+          }
+          else {
+            iVar8 = FUN_004dc0b0();
+            if (iVar8 == 2) {
+              local_18 = 0;
+            }
+            else {
+              iVar8 = FUN_004dc0b0();
+              if (iVar8 == 3) {
+                local_18 = -0x7789f79a;
+              }
+              else {
+                local_18 = -0x7789f79a;
+              }
+            }
+          }
+          if (((local_18 < 0) || (pcVar7 = (char *)FUN_00408d60(), *pcVar7 == '\0')) ||
+             (piVar6 = (int *)FUN_0043d4d0(), *piVar6 < 2)) {
+            local_718 = '\0';
+          }
+          else {
+            local_718 = '\x01';
+          }
+          DAT_011f9421 = local_718;
+          puVar5 = (undefined4 *)FUN_0043d4d0();
+          puVar5 = (undefined4 *)FUN_0043d4d0(*puVar5);
+          uVar4 = FUN_00647b70(*puVar5);
+          FUN_004dc100(uVar4);
+          local_11 = '\x01';
+          iVar8 = FUN_004dc0b0();
+          if (iVar8 == 2) {
+            local_184 = LoadLibraryA("ATIMGPUD.dll");
+            if (local_184 != (HMODULE)0x0) {
+              local_188 = GetProcAddress(local_184,"AtiQueryMgpuCount");
+              if ((local_188 != (FARPROC)0x0) && (local_18c = (*local_188)(), 1 < local_18c)) {
+                DAT_011f9440 = '\x01';
+                DAT_011f9181 = 0;
+              }
+              FreeLibrary(local_184);
+            }
+          }
+          else {
+            iVar8 = FUN_004dc0b0();
+            if (iVar8 == 1) {
+              local_52c = FUN_009fea2a();
+              local_528 = 0;
+              _memset(local_524,0,0x88);
+              local_528 = 0x1008c;
+              local_52c = thunk_FUN_009fea24(0,&local_528);
+              if (local_52c == 0) {
+                local_494 = 0;
+                local_52c = 0;
+                for (local_63c = 0; (local_52c == 0 && (local_63c < 0x80));
+                    local_63c = local_63c + 1) {
+                  local_52c = thunk_FUN_009fea24(local_63c,auStack_390 + local_63c * 4);
+                  if (local_52c == 0) {
+                    local_494 = local_494 + 1;
+                  }
+                }
+                local_52c = thunk_FUN_009fea24(local_630,&local_638);
+                if ((local_52c == 0) &&
+                   (local_52c = thunk_FUN_009fea24(local_490,&local_634), local_52c == 0)) {
+                  local_658[0] = 0x1001c;
+                  FUN_0043c4b0();
+                  uVar4 = FUN_004dc040(local_658);
+                  local_52c = thunk_FUN_009fea24(uVar4);
+                  if (local_52c == 0) {
+                    if (local_634 != 0) {
+                      DAT_011f9440 = '\x01';
+                      DAT_011f9181 = 0;
+                    }
+                  }
+                  else if (local_638 < local_634) {
+                    DAT_011f9440 = '\x01';
+                    DAT_011f9181 = 0;
+                  }
+                }
+              }
+            }
+            else {
+              iVar8 = FUN_004dc0b0();
+              if (iVar8 == 3) {
+                FUN_004dc310();
+              }
+              else {
+                FUN_004dc310();
+              }
+            }
+          }
+          if ((local_11 == '\0') || (pcVar7 = (char *)FUN_00408d60(), *pcVar7 == '\0')) {
+            FUN_004dc090(0);
+          }
+          else {
+            FUN_004dc090(1);
+          }
+          iVar8 = FUN_004dc200();
+          iVar11 = FUN_004dc1f0();
+          DAT_011c70eb = (double)iVar8 / (double)iVar11 != _DAT_0101de30;
+          for (local_65c = 0; local_65c < 0xf; local_65c = local_65c + 1) {
+            switch(local_65c) {
+            case 0:
+              local_148 = 0x17;
+              break;
+            case 1:
+              local_148 = 0x18;
+              break;
+            case 2:
+              local_148 = 0x19;
+              break;
+            case 3:
+              local_148 = 0x1a;
+              break;
+            case 4:
+              local_148 = 0x51;
+              break;
+            case 5:
+              local_148 = 0x14;
+              break;
+            case 6:
+              local_148 = 0x15;
+              break;
+            case 7:
+              local_148 = 0x16;
+              break;
+            case 8:
+              local_148 = 0x72;
+              break;
+            case 9:
+              local_148 = 0x71;
+              break;
+            case 10:
+              local_148 = 0x24;
+              break;
+            case 0xb:
+              local_148 = 0x74;
+              break;
+            case 0xc:
+              local_148 = 0x32;
+              break;
+            case 0xd:
+              local_148 = 0x22;
+              break;
+            case 0xe:
+              local_148 = 0x70;
+              break;
+            default:
+              local_148 = 0;
+            }
+            FUN_00559450();
+            piVar6 = (int *)FUN_004dc040();
+            iVar8 = (**(code **)(*piVar6 + 0x28))(piVar6,0,1,0x16,0,3,local_148);
+            if (iVar8 < 0) {
+              (&DAT_011f9194)[local_65c] = 0;
+            }
+            else {
+              (&DAT_011f9194)[local_65c] = 1;
+            }
+          }
+          FUN_00559450();
+          piVar6 = (int *)FUN_004dc040();
+          iVar8 = (**(code **)(*piVar6 + 0x28))(piVar6,0,1,0x16,0x80000,3,0x24);
+          DAT_011ad832 = -1 < iVar8;
+          puVar5 = (undefined4 *)FUN_00403e20();
+          FUN_004dc2d0(*puVar5);
+          local_144 = FUN_00b4f4a0();
+          uVar4 = FUN_004dc110();
+          FUN_00406d00(local_128,0x104,"%sRendererInfo.txt",uVar4);
+          local_130 = _fopen(local_128,"a");
+          if (local_130 != (FILE *)0x0) {
+            _fprintf(local_130,"Renderer Device Information:\n\t%s\n\t%s\n",local_138,local_14c);
+            _fprintf(local_130,"\tRenderPath         \t\t: %s\n",local_144);
+            _fprintf(local_130,"\tPSversion          \t\t: %X\n",
+                     *(uint *)(local_134 + 0xcc) & 0xffff);
+            _fprintf(local_130,"\tVSversion          \t\t: %X\n",
+                     *(uint *)(local_134 + 0xc4) & 0xffff);
+            uVar4 = FUN_00b4f3e0();
+            _fprintf(local_130,"\tVStarget           \t\t: %s\n",uVar4);
+            uVar4 = FUN_00b4f380(0);
+            _fprintf(local_130,"\tPStarget           \t\t: %s\n",uVar4);
+            uVar4 = FUN_00b4f380(1);
+            _fprintf(local_130,"\tPS2xtarget         \t\t: %s\n",uVar4);
+            _fprintf(local_130,"\tmaxPS20inst        \t\t: %i\n",(uint)local_12c);
+            if (DAT_011f94a4 == '\0') {
+              local_730 = &DAT_01021384;
+            }
+            else {
+              local_730 = &DAT_01021388;
+            }
+            _fprintf(local_130,"\t3.0 Support        \t\t: %s\n",local_730);
+            if (DAT_011f94a6 == '\0') {
+              local_734 = &DAT_01021384;
+            }
+            else {
+              local_734 = &DAT_01021388;
+            }
+            _fprintf(local_130,"\t3.0 Lighting       \t\t: %s\n",local_734);
+            if (local_13d == '\0') {
+              local_738 = &DAT_01021384;
+            }
+            else {
+              local_738 = &DAT_01021388;
+            }
+            _fprintf(local_130,"\tNonpowerof2textures\t\t: %s\n",local_738);
+            if (DAT_011c70ea == '\0') {
+              local_73c = &DAT_01021384;
+            }
+            else {
+              local_73c = &DAT_01021388;
+            }
+            _fprintf(local_130,"\tFP16ARGB blending  \t\t: %s\n",local_73c);
+            if (DAT_011f941f == '\0') {
+              local_740 = &DAT_01021384;
+            }
+            else {
+              local_740 = &DAT_01021388;
+            }
+            _fprintf(local_130,"\tFP16ARGB filtering \t\t: %s\n",local_740);
+            if (DAT_011f941e == '\0') {
+              local_744 = &DAT_01021384;
+            }
+            else {
+              local_744 = &DAT_01021388;
+            }
+            _fprintf(local_130,"\tHigh dynamic range \t\t: %s\n",local_744);
+            if (DAT_011f9422 == '\0') {
+              local_748 = &DAT_01021384;
+            }
+            else {
+              local_748 = &DAT_01021388;
+            }
+            _fprintf(local_130,"\tBloom lighting     \t\t: %s\n",local_748);
+            cVar2 = FUN_004dc0a0();
+            if (cVar2 == '\0') {
+              local_74c = &DAT_01021384;
+            }
+            else {
+              local_74c = &DAT_01021388;
+            }
+            _fprintf(local_130,"\tRefraction         \t\t: %s\n",local_74c);
+            if (DAT_011f91a3 == '\0') {
+              local_750 = &DAT_01021384;
+            }
+            else {
+              local_750 = &DAT_01021388;
+            }
+            _fprintf(local_130,"\t2.0 hairw           \t\t: %s\n",local_750);
+            if (DAT_011f9440 == '\0') {
+              local_754 = &DAT_01021384;
+            }
+            else {
+              local_754 = &DAT_01021388;
+            }
+            _fprintf(local_130,"\tSLI mode           \t\t: %s\n",local_754);
+            cVar2 = FUN_00454af0();
+            if (cVar2 == '\0') {
+              local_758 = &DAT_01021384;
+            }
+            else {
+              local_758 = &DAT_01021388;
+            }
+            _fprintf(local_130,"\tWater shader       \t\t: %s\n",local_758);
+            cVar2 = FUN_00454af0();
+            if (cVar2 == '\0') {
+              local_75c = &DAT_01021384;
+            }
+            else {
+              local_75c = &DAT_01021388;
+            }
+            _fprintf(local_130,"\tWater reflections  \t\t: %s\n",local_75c);
+            cVar2 = FUN_00454af0();
+            if (cVar2 == '\0') {
+              local_760 = &DAT_01021384;
+            }
+            else {
+              local_760 = &DAT_01021388;
+            }
+            _fprintf(local_130,"\tWater displacement \t\t: %s\n",local_760);
+            cVar2 = FUN_00454af0();
+            if (cVar2 == '\0') {
+              local_764 = &DAT_01021384;
+            }
+            else {
+              local_764 = &DAT_01021388;
+            }
+            _fprintf(local_130,"\tWater high res     \t\t: %s\n",local_764);
+            _fprintf(local_130,"\tMultisample Type   \t\t: %i\n",DAT_011c70cc);
+            if (DAT_011f9421 == '\0') {
+              local_768 = &DAT_01021384;
+            }
+            else {
+              local_768 = &DAT_01021388;
+            }
+            _fprintf(local_130,"\tTransparency MS    \t\t: %s\n",local_768);
+            uVar4 = FUN_00b7faf0();
+            _fprintf(local_130,"\tShader Package     \t\t: %d\n",uVar4);
+            puVar5 = (undefined4 *)FUN_0043d4d0();
+            _fprintf(local_130,"\tHW Thread Count    \t\t: %d\n",*puVar5);
+            _fclose(local_130);
+          }
+          pcVar7 = (char *)FUN_00408d60();
+          if (*pcVar7 == '\0') {
+            puVar5 = (undefined4 *)FUN_00403e20();
+            local_76c = *puVar5;
+          }
+          else {
+            puVar5 = (undefined4 *)FUN_00403e20();
+            local_76c = *puVar5;
+          }
+          _DAT_011f9190 = local_76c;
+          puVar5 = (undefined4 *)FUN_00403e20();
+          _DAT_011f918c = *puVar5;
+          puVar5 = (undefined4 *)FUN_00403e20();
+          _DAT_011f9188 = *puVar5;
+          puVar5 = (undefined4 *)FUN_00403e20();
+          _DAT_011f9444 = *puVar5;
+          pfVar12 = (float *)FUN_00403e20();
+          pfVar13 = (float *)FUN_00403e20();
+          _DAT_011f9448 = *pfVar12 + *pfVar13;
+          puVar5 = (undefined4 *)FUN_00403e20();
+          _DAT_011f944c = *puVar5;
+          pfVar12 = (float *)FUN_00403e20();
+          pfVar13 = (float *)FUN_00403e20();
+          _DAT_011f9450 = *pfVar12 + *pfVar13;
+          puVar5 = (undefined4 *)FUN_00403e20();
+          _DAT_011f9454 = *puVar5;
+          pfVar12 = (float *)FUN_00403e20();
+          pfVar13 = (float *)FUN_00403e20();
+          _DAT_011f9458 = *pfVar12 + *pfVar13;
+          puVar5 = (undefined4 *)FUN_00403e20();
+          _DAT_011f945c = *puVar5;
+          puVar5 = (undefined4 *)FUN_00403e20();
+          _DAT_011f9460 = *puVar5;
+          puVar5 = (undefined4 *)FUN_00403e20();
+          _DAT_011f9464 = *puVar5;
+          puVar5 = (undefined4 *)FUN_00403e20();
+          _DAT_011f9468 = *puVar5;
+          puVar5 = (undefined4 *)FUN_00403e20();
+          _DAT_011f946c = *puVar5;
+          puVar5 = (undefined4 *)FUN_00403e20();
+          _DAT_011f9470 = *puVar5;
+          puVar5 = (undefined4 *)FUN_00403e20();
+          _DAT_011f9474 = *puVar5;
+          puVar5 = (undefined4 *)FUN_00403e20();
+          _DAT_011f9478 = *puVar5;
+          puVar9 = (undefined1 *)FUN_00408d60();
+          DAT_011f9488 = *puVar9;
+          puVar5 = (undefined4 *)FUN_00403e20();
+          _DAT_011ad834 = *puVar5;
+          DAT_011f9489 = 0;
+          puVar9 = (undefined1 *)FUN_00408d60();
+          DAT_011f94b4 = *puVar9;
+          puVar9 = (undefined1 *)FUN_00408d60();
+          DAT_011f9425 = *puVar9;
+          puVar5 = (undefined4 *)FUN_00403e20();
+          DAT_011f9428 = *puVar5;
+          puVar5 = (undefined4 *)FUN_00403e20();
+          _DAT_011ad838 = *puVar5;
+          piVar6 = (int *)FUN_0043d4d0();
+          if ((*piVar6 < 0) || (piVar6 = (int *)FUN_0043d4d0(), 3 < *piVar6)) {
+            local_770 = 3;
+          }
+          else {
+            puVar5 = (undefined4 *)FUN_0043d4d0();
+            local_770 = *puVar5;
+          }
+          DAT_011f91b0 = local_770;
+          DAT_011f9490 = DAT_011c70cc;
+          uVar16 = 0x3f800000;
+          puVar5 = (undefined4 *)FUN_00403e20(0x3f800000);
+          uVar4 = *puVar5;
+          puVar5 = (undefined4 *)FUN_00403e20(uVar4);
+          uVar15 = *puVar5;
+          puVar5 = (undefined4 *)FUN_00403e20(uVar15);
+          puVar5 = (undefined4 *)FUN_00414430(*puVar5,uVar15,uVar4,uVar16);
+          _DAT_011f961c = *puVar5;
+          _DAT_011f9620 = puVar5[1];
+          _DAT_011f9624 = puVar5[2];
+          _DAT_011f9628 = puVar5[3];
+          puVar5 = (undefined4 *)FUN_0043d4d0();
+          FUN_004dc0c0(*puVar5);
+          puVar9 = (undefined1 *)FUN_00408d60();
+          DAT_011f948a = *puVar9;
+          FUN_00559450();
+          local_8 = 0xffffffff;
+          FUN_00404ee0();
+        }
+      }
+    }
+  }
+  *unaff_FS_OFFSET = local_10;
+  __security_check_cookie(local_1c ^ (uint)&stack0xfffffffc);
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+renderer creation SetWindowPos construction 0x004da880-0x004da980
+----------------------------------------------------------------------
+  0x004da882: PUSH EAX
+  0x004da883: CALL 0x004dc1f0
+  0x004da888: PUSH EAX
+  0x004da889: PUSH 0x0
+  0x004da88b: PUSH 0x0
+  0x004da88d: PUSH 0x50000000
+  0x004da892: PUSH 0x0
+  0x004da894: MOV EAX,[0x011a2fe8]
+  0x004da899: PUSH EAX
+  0x004da89a: PUSH 0x0
+  0x004da89c: CALL dword ptr [0x00fdf2b8]
+  0x004da8a2: MOV [0x011c6fbc],EAX
+  0x004da8a7: MOV dword ptr [EBP + 0xfffffe9c],0x0
+  0x004da8b1: MOV dword ptr [EBP + 0xfffffea0],0x0
+  0x004da8bb: CALL 0x004dc1f0
+  0x004da8c0: MOV dword ptr [EBP + 0xfffffea4],EAX
+  0x004da8c6: CALL 0x004dc200
+  0x004da8cb: MOV dword ptr [EBP + 0xfffffea8],EAX
+  0x004da8d1: PUSH -0x8
+  0x004da8d3: MOV ECX,dword ptr [0x011c6fbc]
+  0x004da8d9: PUSH ECX
+  0x004da8da: CALL dword ptr [0x00fdf2ec]
+  0x004da8e0: PUSH EAX
+  0x004da8e1: PUSH -0x10
+  0x004da8e3: MOV EDX,dword ptr [0x011c6fc0]
+  0x004da8e9: PUSH EDX
+  0x004da8ea: CALL dword ptr [0x00fdf2e8]
+  0x004da8f0: PUSH EAX
+  0x004da8f1: LEA EAX,[EBP + 0xfffffe9c]
+  0x004da8f7: PUSH EAX
+  0x004da8f8: CALL dword ptr [0x00fdf310]
+  0x004da8fe: MOV ECX,dword ptr [EBP + 0xfffffea4]
+  0x004da904: SUB ECX,dword ptr [EBP + 0xfffffe9c]
+  0x004da90a: MOV dword ptr [EBP + 0xfffffeac],ECX
+  0x004da910: MOV EDX,dword ptr [EBP + 0xfffffea8]
+  0x004da916: SUB EDX,dword ptr [EBP + 0xfffffea0]
+  0x004da91c: MOV dword ptr [EBP + 0xfffffe98],EDX
+  0x004da922: PUSH 0x40
+  0x004da924: MOV EAX,dword ptr [EBP + 0xfffffe98]
+  0x004da92a: PUSH EAX
+  0x004da92b: MOV ECX,dword ptr [EBP + 0xfffffeac]
+  0x004da931: PUSH ECX
+  0x004da932: MOV ECX,0x11c7654
+  0x004da937: CALL 0x004503f0
+  0x004da93c: PUSH EAX
+  0x004da93d: MOV ECX,0x11c75d4
+  0x004da942: CALL 0x004503f0
+  0x004da947: PUSH EAX
+  0x004da948: PUSH 0x0
+  0x004da94a: MOV EDX,dword ptr [0x011c6fc0]
+  0x004da950: PUSH EDX
+  0x004da951: CALL dword ptr [0x00fdf2a4]
+  0x004da957: MOV dword ptr [0x011c70cc],0x0
+  0x004da961: MOV ECX,0x11c7418
+  0x004da966: CALL 0x00408d60
+  0x004da96b: MOVZX EAX,byte ptr [EAX]
+  0x004da96e: TEST EAX,EAX
+  0x004da970: JZ 0x004da985
+  0x004da972: CMP dword ptr [0x011c70cc],0x0
+  0x004da979: JNZ 0x004da985
+  0x004da97b: MOV dword ptr [0x011c70cc],0x1
+
+----------------------------------------------------------------------
+References TO 0x004da670 (renderer window creation owner)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0086d52d (in FUN_0086d500)
+  Total: 1 refs
+
+======================================================================
+window procedure and show/position owner @ 0x004d75b0
+======================================================================
+  Function: FUN_004d75b0 @ 0x004d75b0, Size: 735 bytes
+
+LRESULT FUN_004d75b0(HWND param_1,UINT param_2,uint param_3,undefined4 *param_4)
+
+{
+  int iVar1;
+  LRESULT LVar2;
+  undefined4 local_78;
+  LRESULT local_74;
+  undefined4 local_54;
+  undefined4 *local_50;
+  undefined4 local_4c;
+  undefined4 *local_48;
+  HWND local_44;
+  wchar_t local_40 [2];
+  LPARAM local_3c;
+  uint local_38;
+  undefined *local_30;
+  undefined4 local_2c;
+  undefined4 local_1c;
+  undefined4 *local_8;
+  
+  if (param_2 == 5) {
+    local_44 = GetWindow(param_1,5);
+    if (local_44 != (HWND)0x0) {
+      SetWindowPos(local_44,(HWND)0x0,0,0,(uint)param_4 & 0xffff,(uint)param_4 >> 0x10,2);
+      ShowWindow(local_44,1);
+    }
+  }
+  else if (param_2 == 6) {
+    if (((param_3 & 0xffff) == 1) || ((param_3 & 0xffff) == 2)) {
+      ShowCursor(1);
+    }
+  }
+  else if (param_2 == 0x4e) {
+    local_8 = param_4;
+    iVar1 = param_4[2];
+    if (iVar1 == -0x19c) {
+      local_50 = param_4;
+      std::_Fiopen(local_40,0,0x38);
+      local_74 = SendMessageA((HWND)*local_8,0x110a,9,0);
+      if (local_74 != 0) {
+        local_78 = 4;
+        SendMessageA((HWND)*local_8,0x110c,0,(LPARAM)&local_78);
+        iVar1 = FUN_004d7890(local_54,3,*(undefined2 *)(local_50 + 3),
+                             *(undefined4 *)((int)local_50 + 0xe));
+        if (iVar1 != 0) {
+          return 1;
+        }
+      }
+    }
+    else {
+      if (iVar1 == -0x192) {
+        if (DAT_011c6f18 != 0) {
+          local_48 = param_4;
+          local_4c = param_4[0xd];
+          FUN_004d7890(local_4c,1,0,0);
+          local_4c = local_48[0x17];
+          FUN_004d7890(local_4c,0,0,0);
+        }
+        return 1;
+      }
+      if (iVar1 == -5) {
+        std::_Fiopen(local_40,0,0x38);
+        local_40[0] = L'\x14';
+        local_40[1] = L'\0';
+        local_3c = SendMessageA((HWND)*local_8,0x110a,8,local_3c);
+        FUN_004d7890(local_1c,2,0,0);
+        if (local_3c == 0) {
+          local_3c = SendMessageA((HWND)*local_8,0x110a,9,0);
+        }
+        local_40[0] = L'\r';
+        local_40[1] = L'\0';
+        local_30 = &DAT_011c6e10;
+        local_2c = 0x104;
+        if ((local_3c != 0) &&
+           (LVar2 = SendMessageA((HWND)*local_8,0x110c,0,(LPARAM)local_40), LVar2 != 0)) {
+          SendMessageA((HWND)*local_8,0x110b,9,local_3c);
+          if ((local_38 & 0x20) == 0) {
+            FUN_004d74c0(*local_8,local_3c,2);
+            SendMessageA((HWND)*local_8,0x1102,2,local_3c);
+          }
+          else {
+            FUN_004d74c0(*local_8,local_3c,1);
+            SendMessageA((HWND)*local_8,0x1102,1,local_3c);
+          }
+          return 1;
+        }
+      }
+    }
+  }
+  LVar2 = DefWindowProcA(param_1,param_2,param_3,(LPARAM)param_4);
+  return LVar2;
+}
+
+
+
+----------------------------------------------------------------------
+window procedure SetWindowPos and ShowWindow path 0x004d77f0-0x004d78a0
+----------------------------------------------------------------------
+  0x004d77f1: MOV EAX,dword ptr [EDX]
+  0x004d77f3: PUSH EAX
+  0x004d77f4: CALL dword ptr [0x00fdf28c]
+  0x004d77fa: MOV ECX,dword ptr [EBP + -0x4c]
+  0x004d77fd: MOV EDX,dword ptr [ECX + 0xe]
+  0x004d7800: PUSH EDX
+  0x004d7801: MOV EAX,dword ptr [EBP + -0x4c]
+  0x004d7804: MOVZX ECX,word ptr [EAX + 0xc]
+  0x004d7808: PUSH ECX
+  0x004d7809: PUSH 0x3
+  0x004d780b: MOV EDX,dword ptr [EBP + -0x50]
+  0x004d780e: PUSH EDX
+  0x004d780f: CALL 0x004d7890
+  0x004d7814: ADD ESP,0x10
+  0x004d7817: TEST EAX,EAX
+  0x004d7819: JZ 0x004d7822
+  0x004d781b: MOV EAX,0x1
+  0x004d7820: JMP 0x004d7889
+  0x004d7822: JMP 0x004d7873
+  0x004d7824: PUSH 0x5
+  0x004d7826: MOV EAX,dword ptr [EBP + 0x8]
+  0x004d7829: PUSH EAX
+  0x004d782a: CALL dword ptr [0x00fdf2a8]
+  0x004d7830: MOV dword ptr [EBP + -0x40],EAX
+  0x004d7833: CMP dword ptr [EBP + -0x40],0x0
+  0x004d7837: JZ 0x004d7873
+  0x004d7839: PUSH 0x2
+  0x004d783b: MOV ECX,dword ptr [EBP + 0x14]
+  0x004d783e: SHR ECX,0x10
+  0x004d7841: AND ECX,0xffff
+  0x004d7847: MOVZX EDX,CX
+  0x004d784a: PUSH EDX
+  0x004d784b: MOV EAX,dword ptr [EBP + 0x14]
+  0x004d784e: AND EAX,0xffff
+  0x004d7853: MOVZX ECX,AX
+  0x004d7856: PUSH ECX
+  0x004d7857: PUSH 0x0
+  0x004d7859: PUSH 0x0
+  0x004d785b: PUSH 0x0
+  0x004d785d: MOV EDX,dword ptr [EBP + -0x40]
+  0x004d7860: PUSH EDX
+  0x004d7861: CALL dword ptr [0x00fdf2a4]
+  0x004d7867: PUSH 0x1
+  0x004d7869: MOV EAX,dword ptr [EBP + -0x40]
+  0x004d786c: PUSH EAX
+  0x004d786d: CALL dword ptr [0x00fdf288]
+  0x004d7873: MOV ECX,dword ptr [EBP + 0x14]
+  0x004d7876: PUSH ECX
+  0x004d7877: MOV EDX,dword ptr [EBP + 0x10]
+  0x004d787a: PUSH EDX
+  0x004d787b: MOV EAX,dword ptr [EBP + 0xc]
+  0x004d787e: PUSH EAX
+  0x004d787f: MOV ECX,dword ptr [EBP + 0x8]
+  0x004d7882: PUSH ECX
+  0x004d7883: CALL dword ptr [0x00fdf2e0]
+  0x004d7889: MOV ESP,EBP
+  0x004d788b: POP EBP
+  0x004d788c: RET 0x10
+  0x004d7890: PUSH EBP
+  0x004d7891: MOV EBP,ESP
+  0x004d7893: CMP dword ptr [0x011c6f18],0x0
+  0x004d789a: JZ 0x004d78b7
+  0x004d789c: MOV EAX,dword ptr [EBP + 0x14]
+  0x004d789f: PUSH EAX
+  0x004d78a0: MOV ECX,dword ptr [EBP + 0x10]
+
+----------------------------------------------------------------------
+References TO 0x004d75b0 (window procedure)
+----------------------------------------------------------------------
+  DATA @ 0x004d6368 (in FUN_004d6340)
+  Total: 1 refs
+
+======================================================================
+D3D lifecycle reset and window placement owner @ 0x004dc360
+======================================================================
+  Function: FUN_004dc360 @ 0x004dc360, Size: 466 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+void FUN_004dc360(void)
+
+{
+  int iVar1;
+  HWND hWnd;
+  DWORD bMenu;
+  DWORD dwStyle;
+  int iVar2;
+  int X;
+  int cx;
+  undefined4 uVar3;
+  UINT uFlags;
+  tagRECT local_1c;
+  int local_c;
+  undefined1 local_5;
+  
+  iVar1 = FUN_004bc3f0();
+  if (((iVar1 != 0) && (DAT_011c70e0 != 0)) && (DAT_011c70e4 != 0)) {
+    FUN_00b4f5c0();
+    FUN_00b631d0();
+    FUN_0045ce80(DAT_011c70e0);
+    FUN_0045ce80(DAT_011c70e4);
+    DAT_011c70eb = (double)DAT_011c70e4 / (double)DAT_011c70e0 != _DAT_0101de30;
+    FUN_00ec25e0();
+    FUN_00702330();
+    FUN_004dc560();
+    FUN_004dc590();
+    uVar3 = 0;
+    FUN_004bc3f0(0);
+    FUN_004dc540(uVar3);
+    iVar1 = DAT_011c70e0;
+    iVar2 = DAT_011c70e4;
+    FUN_004bc3f0(DAT_011c70e0,DAT_011c70e4);
+    iVar1 = FUN_00e73eb0(iVar1,iVar2);
+    local_5 = iVar1 != 0;
+    if ((bool)local_5) {
+      hWnd = (HWND)FUN_0044ddc0();
+      local_1c.left = 0;
+      local_1c.top = 0;
+      local_1c.right = FUN_004503f0();
+      local_1c.bottom = FUN_004503f0();
+      bMenu = GetClassLongA(DAT_011c6fbc,-8);
+      dwStyle = GetWindowLongA(hWnd,-0x10);
+      AdjustWindowRect(&local_1c,dwStyle,bMenu);
+      cx = local_1c.right - local_1c.left;
+      iVar1 = local_1c.bottom - local_1c.top;
+      uFlags = 0x40;
+      local_c = cx;
+      iVar2 = FUN_004503f0();
+      X = FUN_004503f0();
+      SetWindowPos(hWnd,(HWND)0x0,X,iVar2,cx,iVar1,uFlags);
+    }
+    else {
+      FUN_004dc330("Failed to Recreate Gamebryo Render in desired dimensions.");
+    }
+    FUN_00a62030();
+    FUN_00b578a0();
+    uVar3 = FUN_00b4f5c0();
+    FUN_00559450(uVar3);
+    FUN_004dc540(uVar3);
+    FUN_0045c670();
+    FUN_00c52520();
+    FUN_004dc5c0();
+    FUN_004dc650();
+    FUN_00702250(0);
+    FUN_007022c0();
+    FUN_007053f0();
+  }
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+D3D lifecycle SetWindowPos construction 0x004dc430-0x004dc500
+----------------------------------------------------------------------
+  0x004dc431: TEST ECX,ECX
+  0x004dc433: JZ 0x004dc4d6
+  0x004dc439: MOV ECX,dword ptr [0x011dea0c]
+  0x004dc43f: CALL 0x0044ddc0
+  0x004dc444: MOV dword ptr [EBP + -0x20],EAX
+  0x004dc447: MOV dword ptr [EBP + -0x18],0x0
+  0x004dc44e: MOV dword ptr [EBP + -0x14],0x0
+  0x004dc455: MOV ECX,0x11c73dc
+  0x004dc45a: CALL 0x004503f0
+  0x004dc45f: MOV dword ptr [EBP + -0x10],EAX
+  0x004dc462: MOV ECX,0x11c718c
+  0x004dc467: CALL 0x004503f0
+  0x004dc46c: MOV dword ptr [EBP + -0xc],EAX
+  0x004dc46f: PUSH -0x8
+  0x004dc471: MOV EDX,dword ptr [0x011c6fbc]
+  0x004dc477: PUSH EDX
+  0x004dc478: CALL dword ptr [0x00fdf2ec]
+  0x004dc47e: PUSH EAX
+  0x004dc47f: PUSH -0x10
+  0x004dc481: MOV EAX,dword ptr [EBP + -0x20]
+  0x004dc484: PUSH EAX
+  0x004dc485: CALL dword ptr [0x00fdf2e8]
+  0x004dc48b: PUSH EAX
+  0x004dc48c: LEA ECX,[EBP + -0x18]
+  0x004dc48f: PUSH ECX
+  0x004dc490: CALL dword ptr [0x00fdf310]
+  0x004dc496: MOV EDX,dword ptr [EBP + -0x10]
+  0x004dc499: SUB EDX,dword ptr [EBP + -0x18]
+  0x004dc49c: MOV dword ptr [EBP + -0x8],EDX
+  0x004dc49f: MOV EAX,dword ptr [EBP + -0xc]
+  0x004dc4a2: SUB EAX,dword ptr [EBP + -0x14]
+  0x004dc4a5: MOV dword ptr [EBP + -0x1c],EAX
+  0x004dc4a8: PUSH 0x40
+  0x004dc4aa: MOV ECX,dword ptr [EBP + -0x1c]
+  0x004dc4ad: PUSH ECX
+  0x004dc4ae: MOV EDX,dword ptr [EBP + -0x8]
+  0x004dc4b1: PUSH EDX
+  0x004dc4b2: MOV ECX,0x11c7654
+  0x004dc4b7: CALL 0x004503f0
+  0x004dc4bc: PUSH EAX
+  0x004dc4bd: MOV ECX,0x11c75d4
+  0x004dc4c2: CALL 0x004503f0
+  0x004dc4c7: PUSH EAX
+  0x004dc4c8: PUSH 0x0
+  0x004dc4ca: MOV EAX,dword ptr [EBP + -0x20]
+  0x004dc4cd: PUSH EAX
+  0x004dc4ce: CALL dword ptr [0x00fdf2a4]
+  0x004dc4d4: JMP 0x004dc4e3
+  0x004dc4d6: PUSH 0x10215c4
+  0x004dc4db: CALL 0x004dc330
+  0x004dc4e0: ADD ESP,0x4
+  0x004dc4e3: CALL 0x00a62030
+  0x004dc4e8: CALL 0x00b578a0
+  0x004dc4ed: CALL 0x00b4f5c0
+  0x004dc4f2: PUSH EAX
+  0x004dc4f3: MOV ECX,0x11c73b4
+  0x004dc4f8: CALL 0x00559450
+  0x004dc4fd: MOV ECX,EAX
+  0x004dc4ff: CALL 0x004dc540
+
+----------------------------------------------------------------------
+References TO 0x004dc360 (D3D lifecycle reset owner)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0086ee00 (in FUN_0086e650)
+  Total: 1 refs
+
+======================================================================
+registered renderer lifecycle callback @ 0x00872570
+======================================================================
+  Function: FUN_00872570 @ 0x00872570, Size: 518 bytes
+
+undefined4 FUN_00872570(char param_1)
+
+{
+  char cVar1;
+  int *piVar2;
+  int iVar3;
+  undefined4 uVar4;
+  undefined4 uVar5;
+  tagRECT local_34;
+  DWORD local_24;
+  int local_20;
+  int local_1c;
+  int local_18;
+  int local_14;
+  int local_10;
+  int local_c;
+  int local_8;
+  
+  if (param_1 == '\0') {
+    if (DAT_011f941e != '\0') {
+      FUN_00bad4a0();
+    }
+    iVar3 = FUN_0070ec90();
+    if ((iVar3 != 0) && (cVar1 = FUN_005d2a40(), cVar1 != '\0')) {
+      uVar5 = 0;
+      uVar4 = 1;
+      FUN_0070ec90(1,0);
+      FUN_004e6620(uVar4,uVar5);
+      FUN_0070ec90();
+      FUN_004e65d0();
+    }
+  }
+  else {
+    while (cVar1 = FUN_0086bdf0(), cVar1 == '\0') {
+      FUN_0040fca0(5);
+    }
+    cVar1 = FUN_00ec17c0();
+    if (cVar1 != '\0') {
+      FUN_00ec29b0();
+      FUN_00ec1800();
+    }
+    cVar1 = pDNameNode::getLastChar(DAT_0126fac4);
+    if (cVar1 != '\0') {
+      FUN_00ec25e0();
+    }
+    local_8 = FUN_00b4f5c0();
+    if (local_8 != 0) {
+      FUN_00b631d0();
+    }
+    FUN_0044ddc0();
+    local_c = FUN_0084e3a0();
+    for (local_10 = 0; local_10 < local_c; local_10 = local_10 + 1) {
+      for (local_14 = 0; local_14 < local_c; local_14 = local_14 + 1) {
+        piVar2 = (int *)FUN_00457050(local_10,local_14);
+        local_18 = *piVar2;
+        if ((((local_18 != 0) && (FUN_005477f0(&local_1c,&local_20), local_1c != 0)) &&
+            (local_20 != 0)) && (*(int *)(local_20 + 4) != 0)) {
+          *(undefined4 *)(local_20 + 4) = 0;
+        }
+      }
+    }
+    FUN_00877430();
+    cVar1 = FUN_00446e10();
+    if (cVar1 != '\0') {
+      local_34.left = 0;
+      local_34.top = 0;
+      local_34.right = FUN_004dc1f0();
+      local_34.bottom = FUN_004dc200();
+      local_24 = 0;
+      local_24 = GetWindowLongA(*(HWND *)(DAT_011dea0c + 8),-0x10);
+      AdjustWindowRectEx(&local_34,local_24,0,0);
+      SetWindowPos(*(HWND *)(DAT_011dea0c + 8),(HWND)0x0,local_34.left,local_34.bottom,
+                   local_34.right - local_34.left,local_34.top - local_34.bottom,0);
+    }
+  }
+  return 1;
+}
+
+
+
+----------------------------------------------------------------------
+registered renderer callback SetWindowPos construction 0x00872680-0x00872740
+----------------------------------------------------------------------
+  0x00872681: MOV EDX,dword ptr [EBP + -0x1c]
+  0x00872684: MOV dword ptr [EDX + 0x4],0x0
+  0x0087268b: JMP 0x0087262d
+  0x0087268d: JMP 0x00872613
+  0x0087268f: MOV ECX,dword ptr [0x011dea0c]
+  0x00872695: CALL 0x00877430
+  0x0087269a: CALL 0x00446e10
+  0x0087269f: MOVZX EAX,AL
+  0x008726a2: TEST EAX,EAX
+  0x008726a4: JZ 0x0087271b
+  0x008726a6: MOV dword ptr [EBP + -0x30],0x0
+  0x008726ad: MOV dword ptr [EBP + -0x2c],0x0
+  0x008726b4: CALL 0x004dc1f0
+  0x008726b9: MOV dword ptr [EBP + -0x28],EAX
+  0x008726bc: CALL 0x004dc200
+  0x008726c1: MOV dword ptr [EBP + -0x24],EAX
+  0x008726c4: MOV dword ptr [EBP + -0x20],0x0
+  0x008726cb: PUSH -0x10
+  0x008726cd: MOV ECX,dword ptr [0x011dea0c]
+  0x008726d3: MOV EDX,dword ptr [ECX + 0x8]
+  0x008726d6: PUSH EDX
+  0x008726d7: CALL dword ptr [0x00fdf2e8]
+  0x008726dd: MOV dword ptr [EBP + -0x20],EAX
+  0x008726e0: PUSH 0x0
+  0x008726e2: PUSH 0x0
+  0x008726e4: MOV EAX,dword ptr [EBP + -0x20]
+  0x008726e7: PUSH EAX
+  0x008726e8: LEA ECX,[EBP + -0x30]
+  0x008726eb: PUSH ECX
+  0x008726ec: CALL dword ptr [0x00fdf2f8]
+  0x008726f2: PUSH 0x0
+  0x008726f4: MOV EDX,dword ptr [EBP + -0x2c]
+  0x008726f7: SUB EDX,dword ptr [EBP + -0x24]
+  0x008726fa: PUSH EDX
+  0x008726fb: MOV EAX,dword ptr [EBP + -0x28]
+  0x008726fe: SUB EAX,dword ptr [EBP + -0x30]
+  0x00872701: PUSH EAX
+  0x00872702: MOV ECX,dword ptr [EBP + -0x24]
+  0x00872705: PUSH ECX
+  0x00872706: MOV EDX,dword ptr [EBP + -0x30]
+  0x00872709: PUSH EDX
+  0x0087270a: PUSH 0x0
+  0x0087270c: MOV EAX,[0x011dea0c]
+  0x00872711: MOV ECX,dword ptr [EAX + 0x8]
+  0x00872714: PUSH ECX
+  0x00872715: CALL dword ptr [0x00fdf2a4]
+  0x0087271b: JMP 0x00872770
+  0x0087271d: MOVZX EDX,byte ptr [0x011f941e]
+  0x00872724: TEST EDX,EDX
+  0x00872726: JZ 0x0087272d
+  0x00872728: CALL 0x00bad4a0
+  0x0087272d: MOV ECX,dword ptr [0x011dea10]
+  0x00872733: CALL 0x0070ec90
+  0x00872738: TEST EAX,EAX
+  0x0087273a: JZ 0x00872770
+  0x0087273c: CALL 0x005d2a40
+
+----------------------------------------------------------------------
+References TO 0x00872570 (registered renderer lifecycle callback)
+----------------------------------------------------------------------
+  DATA @ 0x0086b055 (in FUN_0086a850)
+  DATA @ 0x0086b94f (in FUN_0086a850)
+  Total: 2 refs
+
+======================================================================
+startup window coordinate helper @ 0x004503f0
+======================================================================
+  Function: FUN_004503f0 @ 0x004503f0, Size: 21 bytes
+
+undefined4 __fastcall FUN_004503f0(undefined4 param_1)
+
+{
+  undefined4 *puVar1;
+  
+  puVar1 = (undefined4 *)FUN_0043d4d0(param_1);
+  return *puVar1;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x004503f0 (startup window coordinate helper)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00454d78 (in FUN_00454d50)
+  UNCONDITIONAL_CALL @ 0x00455227 (in FUN_00455200)
+  UNCONDITIONAL_CALL @ 0x00454c54 (in FUN_00454c20)
+  UNCONDITIONAL_CALL @ 0x00454cb2 (in FUN_00454c20)
+  UNCONDITIONAL_CALL @ 0x00454bf0 (in FUN_00454bd0)
+  UNCONDITIONAL_CALL @ 0x00455150 (in FUN_00455130)
+  UNCONDITIONAL_CALL @ 0x0086d418 (in FUN_0086cf20)
+  UNCONDITIONAL_CALL @ 0x0086d426 (in FUN_0086cf20)
+  UNCONDITIONAL_CALL @ 0x0044fc2f (in FUN_0044fb20)
+  UNCONDITIONAL_CALL @ 0x00450018 (in FUN_0044fb20)
+  UNCONDITIONAL_CALL @ 0x004500a1 (in FUN_0044fb20)
+  UNCONDITIONAL_CALL @ 0x00450130 (in FUN_0044fb20)
+  UNCONDITIONAL_CALL @ 0x00450163 (in FUN_0044fb20)
+  UNCONDITIONAL_CALL @ 0x004da735 (in FUN_004da670)
+  UNCONDITIONAL_CALL @ 0x004da744 (in FUN_004da670)
+  UNCONDITIONAL_CALL @ 0x004da937 (in FUN_004da670)
+  UNCONDITIONAL_CALL @ 0x004da942 (in FUN_004da670)
+  UNCONDITIONAL_CALL @ 0x004daacf (in FUN_004da670)
+  UNCONDITIONAL_CALL @ 0x004dc218 (in FUN_004dc210)
+  UNCONDITIONAL_CALL @ 0x004dc2b8 (in FUN_004dc2b0)
+  UNCONDITIONAL_CALL @ 0x00454e40 (in FUN_00454e20)
+  UNCONDITIONAL_CALL @ 0x00454ef6 (in FUN_00454e70)
+  UNCONDITIONAL_CALL @ 0x00454f59 (in FUN_00454e70)
+  UNCONDITIONAL_CALL @ 0x004dc45a (in FUN_004dc360)
+  UNCONDITIONAL_CALL @ 0x004dc467 (in FUN_004dc360)
+  UNCONDITIONAL_CALL @ 0x004dc4b7 (in FUN_004dc360)
+  UNCONDITIONAL_CALL @ 0x004dc4c2 (in FUN_004dc360)
+  UNCONDITIONAL_CALL @ 0x00651c2c (in FUN_00651b50)
+  UNCONDITIONAL_CALL @ 0x00651c49 (in FUN_00651b50)
+  UNCONDITIONAL_CALL @ 0x00899435 (in FUN_00899200)
+  UNCONDITIONAL_CALL @ 0x007d147d (in FUN_007d1440)
+  UNCONDITIONAL_CALL @ 0x008a4d9a (in ???)
+  Total: 32 refs
+
+======================================================================
+configured render width accessor @ 0x004dc1f0
+======================================================================
+  Function: FUN_004dc1f0 @ 0x004dc1f0, Size: 10 bytes
+
+undefined4 FUN_004dc1f0(void)
+
+{
+  return DAT_0118947c;
+}
+
+
+
+======================================================================
+configured render height accessor @ 0x004dc200
+======================================================================
+  Function: FUN_004dc200 @ 0x004dc200, Size: 10 bytes
+
+undefined4 FUN_004dc200(void)
+
+{
+  return DAT_01189480;
+}
+

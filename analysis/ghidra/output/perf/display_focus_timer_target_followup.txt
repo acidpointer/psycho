@@ -1,0 +1,193 @@
+DISPLAY FOCUS TIMER TARGET FOLLOW-UP
+
+----------------------------------------------------------------------
+focus-state branch tail 0x00871cd0-0x00871d00
+----------------------------------------------------------------------
+  0x00871cd2: MOV ECX,EAX
+  0x00871cd4: CALL 0x00a253d0
+  0x00871cd9: MOVZX ECX,byte ptr [EBP + 0x8]
+  0x00871cdd: TEST ECX,ECX
+  0x00871cdf: JZ 0x00871ced
+  0x00871ce1: MOV ECX,0x11f6394
+  0x00871ce6: CALL 0x00aa5040
+  0x00871ceb: JMP 0x00871cf7
+  0x00871ced: MOV ECX,0x11f6394
+  0x00871cf2: CALL 0x00aa50a0
+  0x00871cf7: MOV EDX,dword ptr [EBP + -0x4]
+  0x00871cfa: MOV AL,byte ptr [EBP + 0x8]
+  0x00871cfd: MOV byte ptr [EDX + 0x3],AL
+  0x00871d00: MOV ESP,EBP
+
+======================================================================
+OSGlobals focus state function @ 0x00871c90
+======================================================================
+  Function: FUN_00871c90 @ 0x00871c90, Size: 118 bytes
+
+void __thiscall FUN_00871c90(int param_1,char param_2)
+
+{
+  char *pcVar1;
+  int iVar2;
+  
+  pcVar1 = (char *)FUN_00408d60();
+  if (*pcVar1 != '\0') {
+    param_2 = '\x01';
+  }
+  iVar2 = FUN_007fdf30();
+  if (iVar2 != 0) {
+    FUN_007fdf30();
+    FUN_00a237b0();
+    FUN_007fdf30();
+    FUN_00a23010();
+    FUN_007fdf30();
+    FUN_00a253d0();
+  }
+  if (param_2 == '\0') {
+    FUN_00aa50a0();
+  }
+  else {
+    FUN_00aa5040();
+  }
+  *(char *)(param_1 + 3) = param_2;
+  return;
+}
+
+
+
+--- Calls FROM OSGlobals focus state function (0x00871c90) ---
+  0x00871c9c -> 0x00408d60 FUN_00408d60
+  0x00871cac -> 0x007fdf30 FUN_007fdf30
+  0x00871cb5 -> 0x007fdf30 FUN_007fdf30
+  0x00871cbc -> 0x00a237b0 FUN_00a237b0
+  0x00871cc1 -> 0x007fdf30 FUN_007fdf30
+  0x00871cc8 -> 0x00a23010 FUN_00a23010
+  0x00871ccd -> 0x007fdf30 FUN_007fdf30
+  0x00871cd4 -> 0x00a253d0 FUN_00a253d0
+  0x00871ce6 -> 0x00aa5040 FUN_00aa5040
+  0x00871cf2 -> 0x00aa50a0 FUN_00aa50a0
+  Total: 10 calls
+
+======================================================================
+focus active timer side effect @ 0x00aa5040
+======================================================================
+  Function: FUN_00aa5040 @ 0x00aa5040, Size: 84 bytes
+
+void __fastcall FUN_00aa5040(char *param_1)
+
+{
+  DWORD DVar1;
+  
+  if ((*param_1 != '\0') && (*param_1 = *param_1 + -1, *param_1 == '\0')) {
+    DVar1 = GetTickCount();
+    *(DWORD *)(param_1 + 0x14) = DVar1 - *(int *)(param_1 + 0x14);
+    *(DWORD *)(param_1 + 0x18) = DVar1 - *(int *)(param_1 + 0x18);
+  }
+  return;
+}
+
+
+
+--- Calls FROM focus active timer side effect (0x00aa5040) ---
+  0x00aa5069 -> 0x0000000e ???
+  Total: 1 calls
+
+======================================================================
+focus inactive timer side effect @ 0x00aa50a0
+======================================================================
+  Function: FUN_00aa50a0 @ 0x00aa50a0, Size: 74 bytes
+
+void __fastcall FUN_00aa50a0(char *param_1)
+
+{
+  char cVar1;
+  DWORD DVar2;
+  
+  cVar1 = *param_1;
+  *param_1 = *param_1 + '\x01';
+  if (cVar1 == '\0') {
+    DVar2 = GetTickCount();
+    *(DWORD *)(param_1 + 0x14) = DVar2 - *(int *)(param_1 + 0x14);
+    *(DWORD *)(param_1 + 0x18) = DVar2 - *(int *)(param_1 + 0x18);
+  }
+  return;
+}
+
+
+
+--- Calls FROM focus inactive timer side effect (0x00aa50a0) ---
+  0x00aa50bf -> 0x0000000e ???
+  Total: 1 calls
+
+======================================================================
+input/focus subsystem accessor @ 0x007fdf30
+======================================================================
+  Function: FUN_007fdf30 @ 0x007fdf30, Size: 10 bytes
+
+undefined4 FUN_007fdf30(void)
+
+{
+  return DAT_011f35cc;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x011f6394 (vanilla focus timer object)
+----------------------------------------------------------------------
+  DATA @ 0x00453674 (in FUN_00453550)
+  DATA @ 0x004537d5 (in FUN_004537c0)
+  DATA @ 0x004772f6 (in FUN_004772f0)
+  DATA @ 0x00491190 (in FUN_00491180)
+  DATA @ 0x004943b1 (in FUN_00494390)
+  DATA @ 0x0049bf9f (in FUN_0049bf10)
+  DATA @ 0x0049c017 (in FUN_0049bf10)
+  DATA @ 0x004ae3e6 (in FUN_004ae250)
+  DATA @ 0x004b605e (in FUN_004b5ff0)
+  DATA @ 0x004b607e (in FUN_004b5ff0)
+  DATA @ 0x004de629 (in FUN_004de600)
+  DATA @ 0x004e0139 (in FUN_004e0110)
+  DATA @ 0x0050dec1 (in FUN_0050de60)
+  DATA @ 0x0050e2fb (in FUN_0050de60)
+  DATA @ 0x00526c24 (in FUN_00526bd0)
+  DATA @ 0x00526c6e (in FUN_00526c40)
+  DATA @ 0x00551b0c (in FUN_00551890)
+  DATA @ 0x0055a4a4 (in FUN_0055a430)
+  DATA @ 0x0055a52a (in FUN_0055a430)
+  DATA @ 0x0056725e (in FUN_00567050)
+  DATA @ 0x0056729a (in FUN_00567050)
+  DATA @ 0x0056a38d (in FUN_0056a380)
+  DATA @ 0x0059c474 (in FUN_0059c430)
+  DATA @ 0x005ac229 (in FUN_005ac1e0)
+  DATA @ 0x005ac23f (in FUN_005ac1e0)
+  DATA @ 0x005c0493 (in FUN_005c03d0)
+  DATA @ 0x005d55b2 (in FUN_005d5560)
+  DATA @ 0x0063afee (in FUN_0063ac70)
+  DATA @ 0x0063da68 (in FUN_0063d5e0)
+  DATA @ 0x0064506c (in FUN_00644ce0)
+  DATA @ 0x00663621 (in FUN_00663510)
+  DATA @ 0x0066367f (in FUN_00663510)
+  DATA @ 0x00663791 (in FUN_00663510)
+  DATA @ 0x006637d6 (in FUN_00663510)
+  DATA @ 0x006652f6 (in FUN_006652e0)
+  DATA @ 0x00665915 (in FUN_006658b0)
+  DATA @ 0x00665ae6 (in FUN_006658b0)
+  DATA @ 0x00665b0f (in FUN_006658b0)
+  DATA @ 0x0068a2d5 (in FUN_00689f80)
+  DATA @ 0x006c341a (in FUN_006c2650)
+  DATA @ 0x006c36c9 (in FUN_006c3640)
+  ... (truncated)
+  Total: 41 refs
+
+----------------------------------------------------------------------
+References TO 0x011f35cc (input/focus subsystem singleton pointer)
+----------------------------------------------------------------------
+  READ @ 0x007fdf33 (in FUN_007fdf30)
+  READ @ 0x0086c7b5 (in FUN_0086c790)
+  READ @ 0x0086c7be (in FUN_0086c790)
+  WRITE @ 0x0086c82d (in FUN_0086c790)
+  READ @ 0x0086cdf6 (in FUN_0086cdf0)
+  READ @ 0x0086cdff (in FUN_0086cdf0)
+  WRITE @ 0x0086ce29 (in FUN_0086cdf0)
+  READ @ 0x007d30b3 (in FUN_007d30b0)
+  READ @ 0x007d30bc (in FUN_007d30b0)
+  Total: 9 refs

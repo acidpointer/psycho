@@ -155,7 +155,7 @@ It belongs in [b]FalloutNV/syringe[/b] and is loaded by [b]dinput8.dll[/b].
   FalloutNV/psycho-engine-fixes-latest.log
 [*]If the helper is installed, open console and run:
   psyinfo
-[*]Fullscreen and borderless alt-tab should behave better, including during loading.
+[*]Exclusive-fullscreen startup, reset, and Alt-Tab placement are corrected.
 [*]Some loading and decompression paths should be faster, especially on modded setups.
 [/list]
 
@@ -202,7 +202,9 @@ Faster decompression path. Recommended on.
 Faster compatible RNG path. Recommended on.
 
 [*][b]engine_fixes.display_alt_tab[/b]
-Fixes fullscreen/borderless focus and alt-tab problems. Recommended on.
+Fixes exclusive-fullscreen startup, reset, and Alt-Tab placement without
+replacing the game's focus or D3D9 recovery logic. Borderless/windowed calls
+pass through.
 
 [*][b]diagnostics.debug_log[/b]
 Keeps useful logs for crash reports. Recommended on.
@@ -276,16 +278,18 @@ Try:
 [/list]
 
 
-[b]Black screen or focus problem after alt-tab[/b]
+[b]Exclusive-fullscreen problem after alt-tab[/b]
 
-Keep this enabled:
+Normally keep the fix enabled:
 
 [code]
 [engine_fixes]
 display_alt_tab = true
 [/code]
 
-If you use another fullscreen/window/display plugin, mention it in your report.
+If the problem remains, include your log and name any other fullscreen/window
+plugin. Psycho reports callsites owned directly by another mod and leaves them
+untouched. This setting does not target borderless/windowed mode.
 
 
 [b]HOW TO REPORT A BUG[/b]

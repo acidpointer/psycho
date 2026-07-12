@@ -35,21 +35,24 @@
 allocator = 2
 
 [engine_fixes]
-# Fixes the fullscreen alt-tab/focus bug.
+# Fixes exclusive-fullscreen placement during startup, renderer reset, and
+# Alt-Tab transitions.
 #
-# New Vegas has fragile fullscreen window handling. During startup or loading
-# screens, alt-tab/focus changes can leave the window black, invisible, stuck
-# behind other windows, or impossible to select again. This is especially
-# visible on Proton/Wine, but Windows users can hit related focus and
-# device-reset problems too.
+# New Vegas can initially place the fullscreen client area partly off-monitor.
+# Three later engine paths also construct a negative-height window move. Psycho
+# aligns startup/reset placement to the requested monitor, repairs the valid
+# regain and renderer-lifecycle moves, and suppresses the focus-loss move that
+# would raise the game window again. The game remains responsible for focus
+# state and D3D9 device recovery.
 #
-# true  = Psycho manages the game window/focus repair path.
-#         Recommended for fullscreen and borderless-window users. The goal is
-#         to let you alt-tab at any time, including during loading.
+# The fix recognizes exact engine instruction and argument patterns. It chains
+# an existing SetWindowPos IAT hook, while callsites changed directly by another
+# mod are reported and left untouched.
 #
-# false = leave window/focus handling to the game.
-#         Use this only for troubleshooting if another display/window mod
-#         conflicts with Psycho.
+# true  = apply the exclusive-fullscreen placement fix.
+# false = preserve the game's original window behavior.
+#
+# Borderless and windowed modes are outside this fix and pass through unchanged.
 display_alt_tab = true
 
 # Fixes a navmesh/pathfinding crash where the game passes a tiny invalid

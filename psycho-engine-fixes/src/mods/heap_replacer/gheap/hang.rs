@@ -145,19 +145,14 @@ pub fn log_if_main_stale() {
         now.wrapping_sub(event_tick)
     };
     let display = engine_fixes::display_diagnostic_snapshot();
-    let focus_age = if display.focus_observed {
-        now.wrapping_sub(display.focus_transition_ms)
-    } else {
-        0
-    };
-    let repair_age = if display.last_repair_ms != 0 {
-        now.wrapping_sub(display.last_repair_ms)
+    let display_age = if display.last_transition_ms != 0 {
+        now.wrapping_sub(display.last_transition_ms)
     } else {
         0
     };
 
     log::warn!(
-        "[HANG] main-loop heartbeat stale: age={}ms main_site={} main_seq={} main_tid={} event_site={} event_age={}ms event_tid={} phase7={} phase10={} ai_start={} ai_join={} hk_lock={} hk_unlock={} ai_active={} havok_active={} loading={} heap_trigger={} pddq={}/{}/{}/{}/{} display=observed:{} active:{} focus_age={}ms pending_repair:{} repairs={} last_repair_age={}ms last_repair_ok={}",
+        "[HANG] main-loop heartbeat stale: age={}ms main_site={} main_seq={} main_tid={} event_site={} event_age={}ms event_tid={} phase7={} phase10={} ai_start={} ai_join={} hk_lock={} hk_unlock={} ai_active={} havok_active={} loading={} heap_trigger={} pddq={}/{}/{}/{}/{} display=installed:{} sites:{}/{}/{}/{}/{}/{} create:{}/{} reset:{}/{} catchup:{}/{}/{} loss:{} regain:{} lifecycle:{} mismatches:{} failures:{} last_age:{}ms last_ok:{} last_error:{}",
         main_age,
         site_name(LAST_MAIN_SITE.load(Ordering::Acquire)),
         MAIN_HEARTBEATS.load(Ordering::Relaxed),
@@ -180,13 +175,28 @@ pub fn log_if_main_stale() {
         globals::pdd_queue_count(PddQueue::Generic),
         globals::pdd_queue_count(PddQueue::Anim),
         globals::pdd_queue_count(PddQueue::Texture),
-        display.focus_observed,
-        display.focus_active,
-        focus_age,
-        display.pending_repair,
-        display.repair_attempts,
-        repair_age,
-        display.last_repair_succeeded,
+        display.installed,
+        display.site_states[0].name(),
+        display.site_states[1].name(),
+        display.site_states[2].name(),
+        display.site_states[3].name(),
+        display.site_states[4].name(),
+        display.site_states[5].name(),
+        display.renderer_creation_observations,
+        display.renderer_creation_corrections,
+        display.device_reset_observations,
+        display.device_reset_corrections,
+        display.catch_up_attempts,
+        display.catch_up_successes,
+        display.catch_up_failures,
+        display.loss_suppressions,
+        display.regain_normalizations,
+        display.lifecycle_normalizations,
+        display.contract_mismatches,
+        display.predecessor_failures,
+        display_age,
+        display.last_result,
+        display.last_error,
     );
 }
 
