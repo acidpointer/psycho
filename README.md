@@ -12,7 +12,7 @@ crash paths.
 - Replaces hot heap paths with `gheap` and `scrap_heap`.
 - Speeds up zlib decompression for compressed resources.
 - Replaces the old RNG path with a faster compatible one.
-- Fixes exclusive-fullscreen startup, reset, and Alt-Tab window placement.
+- Fixes native-fullscreen startup and safe fullscreen Alt-Tab placement.
 - Adds small crash guards for known broken engine states.
 - Writes useful diagnostics for crash reports and memory pressure.
 - Includes Syringe, an early `dinput8.dll` loader for DLLs in `FalloutNV/syringe`.
@@ -131,10 +131,11 @@ mod that patches the same engine code can conflict. If something breaks, report
 it with logs and your mod list.
 
 The display fix recognizes the visible bootstrap creation plus six audited
-window-placement paths. Each receives its own narrow policy; borderless,
-windowed, and all unrecognized calls pass through unchanged. Existing
-`CreateWindowExA` and `SetWindowPos` IAT hooks are chained, while directly
-modified callsites are reported and left under their current owner's control.
+window-placement paths. Native fullscreen and live borderless windows receive
+narrow transition policies; ordinary windowed and unrecognized calls pass
+through unchanged. Existing `CreateWindowExA` and `SetWindowPos` IAT hooks are
+chained, while directly modified callsites remain under their current owner's
+control.
 
 ## Syringe
 

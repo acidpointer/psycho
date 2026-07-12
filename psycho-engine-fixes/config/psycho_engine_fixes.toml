@@ -35,11 +35,11 @@
 allocator = 2
 
 [engine_fixes]
-# Fixes exclusive-fullscreen placement during startup, renderer reset, and
-# Alt-Tab transitions.
+# Fixes fullscreen placement during startup, renderer reset, and Alt-Tab
+# transitions.
 #
 # New Vegas creates a visible 320x240 bootstrap window and never resizes it on
-# the exclusive-fullscreen branch. Three later engine paths also construct a
+# the native-fullscreen branch. Three later engine paths also construct a
 # negative-height window move. Psycho creates the bootstrap at the configured
 # render size with an explicit popup style, repairs reset/regain/renderer-
 # lifecycle placement, and suppresses the focus-loss move that would raise the
@@ -50,10 +50,12 @@ allocator = 2
 # existing CreateWindowExA and SetWindowPos IAT hooks, while callsites changed
 # directly by another mod are reported and left untouched.
 #
-# true  = apply the exclusive-fullscreen placement fix.
+# true  = apply the fullscreen placement fix.
 # false = preserve the game's original window behavior.
 #
-# Borderless and windowed modes are outside this fix and pass through unchanged.
+# Ordinary windowed calls pass through unchanged. Existing borderless owners
+# keep control of style and size; Psycho recognizes a live undecorated window
+# covering its monitor and applies only the safe transition protections.
 display_alt_tab = true
 
 # Fixes a navmesh/pathfinding crash where the game passes a tiny invalid

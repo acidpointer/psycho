@@ -1,4 +1,4 @@
-//! Repairs FalloutNV.exe's exclusive-fullscreen window placement calls.
+//! Repairs FalloutNV.exe's fullscreen window placement calls.
 //!
 //! The exclusive startup path creates a visible 320x240 bootstrap window and
 //! never applies the windowed renderer's later placement call. Psycho corrects
@@ -14,6 +14,12 @@
 //! - focus regain: restore an iconic window, normalize the rectangle, and call;
 //! - focus loss: suppress the activating window move;
 //! - renderer lifecycle: normalize the rectangle and call.
+//!
+//! Native fullscreen is identified from the game's audited setting accessor.
+//! A live, undecorated window that exactly covers its monitor is treated as
+//! borderless fullscreen for transition correction. Borderless style and size
+//! remain owned by the mod that established them. Ordinary windowed calls pass
+//! through unchanged.
 //!
 //! The game's focus managers and D3D9 reset path remain untouched. Installation
 //! replaces FalloutNV.exe's `CreateWindowExA` and `SetWindowPos` IAT pointers.
@@ -33,9 +39,9 @@ use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU32, AtomicUsize, Ordering};
 use anyhow::{Context, ensure};
 use libpsycho::os::windows::winapi::{
     PointerExchange, client_origin, compare_exchange_pointer, get_last_error_code,
-    get_module_handle_a, get_proc_address, get_tick_count, is_iconic, is_window, load_pointer,
-    nearest_monitor_rect, nearest_monitor_rect_from_point, set_last_error, show_window,
-    virtual_query, window_rect,
+    get_module_handle_a, get_proc_address, get_tick_count, get_window_long_a, is_iconic, is_window,
+    load_pointer, nearest_monitor_rect, nearest_monitor_rect_from_point, set_last_error,
+    show_window, virtual_query, window_rect,
 };
 use windows::Win32::System::Memory::{
     MEM_COMMIT, PAGE_EXECUTE, PAGE_EXECUTE_READ, PAGE_EXECUTE_READWRITE, PAGE_EXECUTE_WRITECOPY,
@@ -61,6 +67,10 @@ const CATCH_UP_FLAGS: u32 = SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_ASY
 const WS_VISIBLE: u32 = 0x1000_0000;
 const WS_POPUP: u32 = 0x8000_0000;
 const FULLSCREEN_BOOTSTRAP_STYLE: u32 = WS_POPUP | WS_VISIBLE;
+const WS_CHILD: u32 = 0x4000_0000;
+const WS_CAPTION: u32 = 0x00C0_0000;
+const WS_THICKFRAME: u32 = 0x0004_0000;
+const GWL_STYLE: i32 = -16;
 
 /// Reject corrupt runtime arguments before applying an audited correction.
 const MAX_WINDOW_EXTENT: i32 = 32768;
@@ -576,7 +586,7 @@ unsafe extern "fastcall" fn checked_create_window_ex_a(
     }
 
     BOOTSTRAP_CREATE_OBSERVATIONS.fetch_add(1, Ordering::Relaxed);
-    if !is_exclusive_fullscreen() {
+    if !engine_requests_fullscreen() {
         return unsafe { call_create_window_predecessor(request) };
     }
     if !valid_bootstrap_create_request(request) {
@@ -667,6 +677,9 @@ unsafe extern "fastcall" fn checked_set_window_pos(
             unsafe { call_predecessor(request) }
         }
         TransitionSite::FocusLoss => {
+            if !uses_fullscreen_window_policy(request.hwnd) {
+                return unsafe { call_predecessor(request) };
+            }
             if decode_malformed_geometry(request).is_none() {
                 record_contract_mismatch(site, caller, request);
                 return unsafe { call_predecessor(request) };
@@ -674,6 +687,9 @@ unsafe extern "fastcall" fn checked_set_window_pos(
             suppress_focus_loss()
         }
         TransitionSite::FocusRegain => {
+            if !uses_fullscreen_window_policy(request.hwnd) {
+                return unsafe { call_predecessor(request) };
+            }
             let Some(geometry) = decode_malformed_geometry(request) else {
                 record_contract_mismatch(site, caller, request);
                 return unsafe { call_predecessor(request) };
@@ -683,6 +699,9 @@ unsafe extern "fastcall" fn checked_set_window_pos(
             unsafe { execute_corrected_request(site, count, request.corrected_malformed(geometry)) }
         }
         TransitionSite::RendererLifecycle => {
+            if !uses_fullscreen_window_policy(request.hwnd) {
+                return unsafe { call_predecessor(request) };
+            }
             let Some(geometry) = decode_malformed_geometry(request) else {
                 record_contract_mismatch(site, caller, request);
                 return unsafe { call_predecessor(request) };
@@ -771,7 +790,7 @@ fn record_bootstrap_create_result(count: u32, hwnd: *mut c_void, request: Create
         set_last_error(error);
     } else {
         log::info!(
-            "[DISPLAY] corrected exclusive bootstrap window #{}: rect=({},{} {}x{}) style={:#x}",
+            "[DISPLAY] corrected native-fullscreen bootstrap window #{}: rect=({},{} {}x{}) style={:#x}",
             count,
             request.x,
             request.y,
@@ -788,7 +807,7 @@ unsafe fn handle_valid_fullscreen_position(
     observations: &AtomicU32,
 ) -> i32 {
     observations.fetch_add(1, Ordering::Relaxed);
-    if !is_exclusive_fullscreen() {
+    if !uses_fullscreen_window_policy(request.hwnd) {
         return unsafe { call_predecessor(request) };
     }
     if !valid_position_request(request) {
@@ -840,12 +859,38 @@ fn decode_malformed_geometry(request: WindowRequest) -> Option<MalformedGeometry
     Some(MalformedGeometry { top, height })
 }
 
-fn is_exclusive_fullscreen() -> bool {
+fn engine_requests_fullscreen() -> bool {
     if !FULLSCREEN_PREDICATE_VALID.load(Ordering::Acquire) {
         return false;
     }
     let predicate: IsFullscreenFn = unsafe { std::mem::transmute(FULLSCREEN_PREDICATE) };
     unsafe { predicate() != 0 }
+}
+
+fn uses_fullscreen_window_policy(hwnd: *mut c_void) -> bool {
+    engine_requests_fullscreen() || is_borderless_fullscreen(hwnd)
+}
+
+fn is_borderless_fullscreen(hwnd: *mut c_void) -> bool {
+    if !is_window(hwnd) {
+        return false;
+    }
+
+    let style = get_window_long_a(hwnd, GWL_STYLE) as u32;
+    if style & WS_CHILD != 0 || style & (WS_CAPTION | WS_THICKFRAME) != 0 {
+        return false;
+    }
+
+    let Some(window) = window_rect(hwnd) else {
+        return false;
+    };
+    let Some(monitor) = nearest_monitor_rect(hwnd) else {
+        return false;
+    };
+    window.left == monitor.left
+        && window.top == monitor.top
+        && window.right == monitor.right
+        && window.bottom == monitor.bottom
 }
 
 fn align_client_to_requested_monitor(request: WindowRequest) -> Option<WindowRequest> {
@@ -1000,10 +1045,6 @@ fn should_log(count: u32) -> bool {
 }
 
 fn catch_up_existing_window() {
-    if !is_exclusive_fullscreen() {
-        return;
-    }
-
     let parent_slot = TOP_LEVEL_HWND_GLOBAL as *mut *mut c_void;
     let child_slot = RENDERER_CHILD_HWND_GLOBAL as *mut *mut c_void;
     let Some(hwnd) = load_pointer(parent_slot)
@@ -1012,6 +1053,9 @@ fn catch_up_existing_window() {
     else {
         return;
     };
+    if !uses_fullscreen_window_policy(hwnd) {
+        return;
+    }
     if load_pointer(child_slot)
         .ok()
         .is_none_or(|child| child.is_null())
@@ -1176,7 +1220,7 @@ pub fn install_display_hooks() -> anyhow::Result<()> {
     }
 
     log::info!(
-        "[DISPLAY] Exclusive-fullscreen window fix installed: create={} setpos={} bootstrap={} sites={}/{}/{}/{}/{}/{}",
+        "[DISPLAY] Fullscreen window fix installed: create={} setpos={} bootstrap={} sites={}/{}/{}/{}/{}/{}",
         iat_owner_name(create_owner),
         iat_owner_name(set_window_owner),
         bootstrap_coverage.name(),

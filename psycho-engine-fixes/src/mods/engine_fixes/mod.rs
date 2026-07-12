@@ -58,15 +58,12 @@ pub fn install(config: &EngineFixesConfig, diagnostics: &DiagnosticsConfig) -> a
 /// Install the display IAT shim before allocator and other engine hooks.
 pub fn install_display(config: &EngineFixesConfig) -> anyhow::Result<()> {
     if !config.display_alt_tab {
-        log::info!("[DISPLAY] Exclusive-fullscreen window fix disabled by config");
+        log::info!("[DISPLAY] Fullscreen window fix disabled by config");
         return Ok(());
     }
 
     if let Err(err) = display::install_display_hooks() {
-        log::warn!(
-            "[DISPLAY] Exclusive-fullscreen window fix disabled: {}",
-            err
-        );
+        log::warn!("[DISPLAY] Fullscreen window fix disabled: {}", err);
     }
     Ok(())
 }

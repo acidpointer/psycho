@@ -12,6 +12,17 @@ Psycho does not replace focus management, poll windows, write engine focus
 state, or perform D3D9 reset/resource work. The helper plugin and xNVSE events
 are not required for display behavior.
 
+Runtime policy is based on the effective window contract:
+
+- an engine-requested fullscreen window receives bootstrap and transition
+  correction;
+- an undecorated live window whose outer rectangle exactly covers its monitor
+  is treated as borderless fullscreen for transition correction only;
+- an ordinary decorated, child, or monitor-sized-mismatched window passes
+  through unchanged.
+
+Borderless detection never changes the owning mod's style or requested size.
+
 ## Proven engine callers
 
 | Role | Call | Return | Policy |
@@ -111,7 +122,9 @@ occurrences.
 - Confirm all seven fingerprint lengths end exactly after their six-byte
   indirect call.
 - Confirm no display behavior depends on helper events.
-- Confirm windowed/borderless and unrecognized calls are exact pass-through.
+- Confirm ordinary windowed and unrecognized calls are exact pass-through.
+- Confirm borderless owners retain style/size control while recognized engine
+  transitions receive only geometry/activation protection.
 - Confirm the engine remains the sole focus and D3D9 recovery owner.
 
 Runtime coverage should include primary/secondary monitors (including negative
