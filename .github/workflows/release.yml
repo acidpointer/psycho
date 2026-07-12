@@ -44,7 +44,7 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang gcc-mingw-w64-i686 libclang-dev zip
+          sudo apt-get install -y clang gcc-mingw-w64-i686 libclang-dev unzip zip
 
       - name: Install Rust target
         run: rustup target add i686-pc-windows-gnu
@@ -56,11 +56,24 @@ jobs:
         env:
           TAG: ${{ steps.tag.outputs.tag }}
         run: |
-          test -f ".release/psycho-engine-fixes-$TAG-aio.zip"
-          test -f ".release/psycho-engine-fixes-helper-$TAG.zip"
-          test -f ".release/syringe-$TAG.zip"
-          test -f ".release/psycho-engine-fixes-$TAG.zip"
-          test -f ".release/psycho-engine-fixes-config-$TAG.zip"
+          set -euo pipefail
+
+          core_archive=".release/psycho-engine-fixes-$TAG.zip"
+          helper_archive=".release/psycho-engine-fixes-nvse-helper-$TAG.zip"
+          test -f "$core_archive"
+          test -f "$helper_archive"
+
+          diff -u \
+            <(printf '%s\n' \
+              "dinput8.dll" \
+              "syringe/psycho_engine_fixes.dll" \
+              "syringe/psycho_engine_fixes.toml") \
+            <(zipinfo -1 "$core_archive" | grep -v '/$' | sort)
+
+          diff -u \
+            <(printf '%s\n' \
+              "Data/NVSE/plugins/psycho_engine_fixes_helper.dll") \
+            <(zipinfo -1 "$helper_archive" | grep -v '/$' | sort)
 
       - name: Publish GitHub release
         env:
@@ -72,14 +85,25 @@ jobs:
           set -euo pipefail
 
           assets=(
-            ".release/psycho-engine-fixes-$TAG-aio.zip"
-            ".release/psycho-engine-fixes-helper-$TAG.zip"
-            ".release/syringe-$TAG.zip"
             ".release/psycho-engine-fixes-$TAG.zip"
-            ".release/psycho-engine-fixes-config-$TAG.zip"
+            ".release/psycho-engine-fixes-nvse-helper-$TAG.zip"
           )
 
           if gh release view "$TAG" >/dev/null 2>&1; then
+            existing_assets="$(gh release view "$TAG" --json assets --jq '.assets[].name')"
+            legacy_assets=(
+              "psycho-engine-fixes-$TAG-aio.zip"
+              "psycho-engine-fixes-helper-$TAG.zip"
+              "syringe-$TAG.zip"
+              "psycho-engine-fixes-config-$TAG.zip"
+            )
+
+            for asset in "${legacy_assets[@]}"; do
+              if grep -Fxq "$asset" <<< "$existing_assets"; then
+                gh release delete-asset "$TAG" "$asset" --yes
+              fi
+            done
+
             gh release upload "$TAG" "${assets[@]}" --clobber
             exit 0
           fi

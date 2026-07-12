@@ -47,22 +47,14 @@ Optional, but very useful for bug reports.
 [b]WHAT TO DOWNLOAD[/b]
 
 [list]
-[*][b]psycho-engine-fixes-vX.Y.Z-aio.zip[/b]
-Required for normal users. Contains:
-  - dinput8.dll
-  - syringe/psycho_engine_fixes.dll
-  - syringe/psycho_engine_fixes.toml
+[*][b]psycho-engine-fixes-vX.Y.Z.zip[/b]
+The main mod. Extract it directly into the folder containing
+[b]FalloutNV.exe[/b]. It includes the early loader, engine-fixes DLL, and config.
 
-[*][b]psycho-engine-fixes-helper-vX.Y.Z.zip[/b]
-Optional, but recommended. Adds the in-game console command:
-  - PsychoInfo
-  - psyinfo
-
-[*][b]Separate component archives[/b]
-Only for advanced/manual installs:
-  - syringe-vX.Y.Z.zip
-  - psycho-engine-fixes-vX.Y.Z.zip
-  - psycho-engine-fixes-config-vX.Y.Z.zip
+[*][b]psycho-engine-fixes-nvse-helper-vX.Y.Z.zip[/b]
+Optional xNVSE helper. Install it as a normal mod or merge its [b]Data[/b]
+directory into the game. It adds the [b]PsychoInfo[/b] / [b]psyinfo[/b] console
+command.
 [/list]
 
 
@@ -88,7 +80,7 @@ first.
 
 [b]Manual install is the clearest way.[/b]
 
-Extract [b]psycho-engine-fixes-vX.Y.Z-aio.zip[/b] into the folder where [b]FalloutNV.exe[/b] is located.
+Extract [b]psycho-engine-fixes-vX.Y.Z.zip[/b] into the folder where [b]FalloutNV.exe[/b] is located.
 
 After install, you should have:
 
