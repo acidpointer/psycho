@@ -43,3 +43,15 @@ pub type HavokNarrowphaseAddAgentsFn =
 
 /// FUN_00C674D0: flushes the hkpWorld pending-add queue.
 pub type HavokPendingAddFlushFn = unsafe extern "thiscall" fn(*mut c_void, *mut *mut c_void, u32);
+
+/// FUN_00865DF0: serializes one optional TESForm reference.
+pub type AppendRefIdFn = unsafe extern "thiscall" fn(*mut c_void, *mut c_void, u32);
+
+/// FUN_00446B50: drains the main-thread queued-task stack.
+pub type MainTaskDrainFn = unsafe extern "thiscall" fn(*mut c_void, u32);
+
+/// ABI of the current intrusive queued-task release target.
+pub type TaskReleaseFn = unsafe extern "fastcall" fn(*mut c_void);
+
+/// Queued-task vtable slot +0x1C.
+pub type TaskCallbackFn = unsafe extern "thiscall" fn(*mut c_void, usize);

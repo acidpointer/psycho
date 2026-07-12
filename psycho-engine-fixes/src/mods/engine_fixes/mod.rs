@@ -6,15 +6,18 @@
 
 use libc::c_void;
 
-use crate::config::EngineFixesConfig;
+use crate::config::{DiagnosticsConfig, EngineFixesConfig};
 
 mod display;
 mod entrydata;
 mod extraownership;
 mod havok;
 mod linkedrefs;
+mod lowprocess;
 mod memset;
 mod navmesh;
+mod patching;
+mod queued_tasks;
 mod ragdoll;
 mod statics;
 mod types;
@@ -25,13 +28,19 @@ pub(crate) struct DiagnosticCounters {
     pub(crate) extra_owner_load_scrubs: u64,
     pub(crate) extra_owner_access_scrubs: u64,
     pub(crate) extra_owner_unreadable: u64,
+    pub(crate) task_dispatch_attempts: u64,
+    pub(crate) task_dispatch_calls: u64,
+    pub(crate) task_pin_failures: u64,
+    pub(crate) task_invalid_dispatches: u64,
+    pub(crate) task_release_guards: u64,
+    pub(crate) task_tombstones: u64,
 }
 
 pub(crate) fn display_diagnostic_snapshot() -> display::DiagnosticSnapshot {
     display::diagnostic_snapshot()
 }
 
-pub fn install(config: &EngineFixesConfig) -> anyhow::Result<()> {
+pub fn install(config: &EngineFixesConfig, diagnostics: &DiagnosticsConfig) -> anyhow::Result<()> {
     install_display_alt_tab(config)?;
     install_navmesh_low_pointer(config)?;
     install_entrydata_invalid_form(config)?;
@@ -41,17 +50,21 @@ pub fn install(config: &EngineFixesConfig) -> anyhow::Result<()> {
     install_ragdoll_null_bone(config)?;
     install_havok_guards(config)?;
     install_memset_null_dst(config)?;
+    install_lowprocess_fix(config)?;
+    install_queued_task_guard(config, diagnostics)?;
 
     Ok(())
 }
 
 pub fn observe_event(kind: u32) {
     display::observe_event(kind);
+    lowprocess::observe_event(kind);
 }
 
 pub(crate) fn take_diagnostic_counters() -> DiagnosticCounters {
     let ragdoll = ragdoll::take_diagnostic_counters();
     let extra_owner = extraownership::take_diagnostic_counters();
+    let task = queued_tasks::diagnostic_snapshot();
 
     DiagnosticCounters {
         ragdoll_calls: ragdoll.calls,
@@ -59,7 +72,80 @@ pub(crate) fn take_diagnostic_counters() -> DiagnosticCounters {
         extra_owner_load_scrubs: extra_owner.load_scrubs,
         extra_owner_access_scrubs: extra_owner.access_scrubs,
         extra_owner_unreadable: extra_owner.unreadable,
+        task_dispatch_attempts: task.dispatch_attempts,
+        task_dispatch_calls: task.dispatch_calls,
+        task_pin_failures: task.pin_failures,
+        task_invalid_dispatches: task.invalid_dispatches,
+        task_release_guards: task.release_guards,
+        task_tombstones: task.tombstones,
     }
+}
+
+pub(crate) fn append_diagnostic_report(out: &mut String) {
+    let low = lowprocess::diagnostic_snapshot();
+    let task = queued_tasks::diagnostic_snapshot();
+    out.push_str("\n==== Engine fixes ====\n");
+    out.push_str(&format!(
+        "  LowProcess: enabled={} observations={} slots={}/{}/{}/{} predecessors={:08X?} wraps={} rewraps={} unsupported={} sanitized={} save_nulls={} patch_failures={}\n",
+        low.enabled,
+        low.observations,
+        lowprocess::slot_state_name(low.slot_states[0]),
+        lowprocess::slot_state_name(low.slot_states[1]),
+        lowprocess::slot_state_name(low.slot_states[2]),
+        lowprocess::slot_state_name(low.slot_states[3]),
+        low.predecessors,
+        low.wraps,
+        low.rewraps,
+        low.unsupported,
+        low.sanitized_entries,
+        low.invalid_save_forms,
+        low.patch_failures,
+    ));
+    out.push_str(&format!(
+        "  queued tasks: release={} dispatch_guard={} predecessor=0x{:08X} dispatch={}/{} pin_fail={} invalid={} base_vt={} releases_guarded={} qt_finals={} tombstones={} trace_dumps={}\n",
+        task.release_enabled,
+        task.dispatch_enabled,
+        task.release_predecessor,
+        task.dispatch_calls,
+        task.dispatch_attempts,
+        task.pin_failures,
+        task.invalid_dispatches,
+        task.base_vtable_rejections,
+        task.release_guards,
+        task.queued_texture_finals,
+        task.tombstones,
+        task.trace_dumps,
+    ));
+}
+
+fn install_lowprocess_fix(config: &EngineFixesConfig) -> anyhow::Result<()> {
+    if !config.lowprocess_generic_locations_fix {
+        lowprocess::disable();
+        log::info!("[LOWPROCESS] Generic-location fix disabled by config");
+        return Ok(());
+    }
+    if let Err(err) = lowprocess::install_save_containment() {
+        log::warn!("[LOWPROCESS] Save containment disabled: {:#}", err);
+    }
+    if let Err(err) = lowprocess::install_late_boundary() {
+        lowprocess::disable();
+        log::warn!("[LOWPROCESS] Root repair disabled: {:#}", err);
+    }
+    Ok(())
+}
+
+fn install_queued_task_guard(
+    config: &EngineFixesConfig,
+    diagnostics: &DiagnosticsConfig,
+) -> anyhow::Result<()> {
+    if !config.queued_task_lifetime_guard {
+        log::info!("[QUEUED_TASK] Lifetime guard disabled by config");
+        return Ok(());
+    }
+    if let Err(err) = queued_tasks::install(diagnostics.task_lifetime_trace) {
+        log::warn!("[QUEUED_TASK] Lifetime guard disabled: {:#}", err);
+    }
+    Ok(())
 }
 
 fn install_display_alt_tab(config: &EngineFixesConfig) -> anyhow::Result<()> {

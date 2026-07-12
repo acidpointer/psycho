@@ -1,0 +1,679 @@
+======================================================================
+2026-07-12 TASK BASE-VTABLE RACE AUDIT
+======================================================================
+Crash: EIP=0x64492067 from CALL [task->vtable+0x1C] at 0x00446C53.
+Task=0xBB7CF740, vtable=0x0101DCE4 (NiRefObject), refcount=0.
+The bad target is ASCII at base-vtable+0x1C, not executable code.
+Questions: which queue owns the reference, where is its increment paired, and can pop race final release?
+
+----------------------------------------------------------------------
+Disassembly around main-thread indirect task dispatch 0x00446c53
+----------------------------------------------------------------------
+   0x00446be4: LEA ECX,[EBP + -0x20]
+   0x00446be7: CALL 0x00559450
+   0x00446bec: MOV ECX,EAX
+   0x00446bee: CALL 0x0043cc60
+   0x00446bf3: MOV dword ptr [EBP + -0x30],EAX
+   0x00446bf6: MOV dword ptr [EBP + -0x2c],0x5
+   0x00446bfd: MOV EAX,dword ptr [EBP + -0x28]
+   0x00446c00: CMP EAX,dword ptr [EBP + 0x8]
+   0x00446c03: JNZ 0x00446c1d
+   0x00446c05: MOV ECX,dword ptr [EBP + -0x24]
+   0x00446c08: CALL 0x00572350
+   0x00446c0d: MOVZX ECX,AL
+   0x00446c10: TEST ECX,ECX
+   0x00446c12: JZ 0x00446c1d
+   0x00446c14: MOV dword ptr [EBP + -0x2c],0x0
+   0x00446c1b: JMP 0x00446c31
+   0x00446c1d: PUSH 0x0
+   0x00446c1f: MOV EDX,dword ptr [EBP + -0x28]
+   0x00446c22: PUSH EDX
+   0x00446c23: MOV ECX,dword ptr [0x011dea10]
+   0x00446c29: CALL 0x00458be0
+   0x00446c2e: MOV dword ptr [EBP + -0x2c],EAX
+   0x00446c31: MOV EAX,dword ptr [EBP + -0x30]
+   0x00446c34: CMP EAX,dword ptr [EBP + -0x2c]
+   0x00446c37: JZ 0x00446c55
+   0x00446c39: LEA ECX,[EBP + -0x20]
+   0x00446c3c: CALL 0x00559450
+   0x00446c41: MOV dword ptr [EBP + -0x38],EAX
+   0x00446c44: MOV ECX,dword ptr [EBP + -0x2c]
+   0x00446c47: PUSH ECX
+   0x00446c48: MOV EDX,dword ptr [EBP + -0x38]
+   0x00446c4b: MOV EAX,dword ptr [EDX]
+   0x00446c4d: MOV ECX,dword ptr [EBP + -0x38]
+   0x00446c50: MOV EDX,dword ptr [EAX + 0x1c]
+=> 0x00446c53: CALL EDX
+   0x00446c55: MOV byte ptr [EBP + -0x4],0x0
+   0x00446c59: LEA ECX,[EBP + -0x20]
+   0x00446c5c: CALL 0x0044cbf0
+   0x00446c61: JMP 0x00446b87
+   0x00446c66: MOV dword ptr [EBP + -0x4],0xffffffff
+   0x00446c6d: LEA ECX,[EBP + -0x1c]
+   0x00446c70: CALL 0x004499c0
+   0x00446c75: MOV ECX,dword ptr [EBP + -0xc]
+   0x00446c78: MOV dword ptr FS:[0x0],ECX
+   0x00446c7f: POP ECX
+   0x00446c80: MOV ESP,EBP
+   0x00446c82: POP EBP
+   0x00446c83: RET 0x4
+   0x00446c90: PUSH EBP
+   0x00446c91: MOV EBP,ESP
+   0x00446c93: PUSH ECX
+   0x00446c94: MOV dword ptr [EBP + -0x4],ECX
+   0x00446c97: MOV EAX,dword ptr [EBP + -0x4]
+   0x00446c9a: MOV ECX,dword ptr [EAX + 0x8]
+   0x00446c9d: MOV EDX,dword ptr [EBP + -0x4]
+   0x00446ca0: MOV EAX,dword ptr [EDX + 0x8]
+   0x00446ca3: MOV EDX,dword ptr [ECX]
+   0x00446ca5: MOV ECX,EAX
+   0x00446ca7: MOV EAX,dword ptr [EDX + 0x44]
+   0x00446caa: CALL EAX
+   0x00446cac: MOV ESP,EBP
+   0x00446cae: POP EBP
+   0x00446caf: RET
+   0x00446cb0: PUSH EBP
+   0x00446cb1: MOV EBP,ESP
+   0x00446cb3: SUB ESP,0x124
+   0x00446cb9: MOV EAX,[0x011c16bc]
+   0x00446cbe: XOR EAX,EBP
+   0x00446cc0: MOV dword ptr [EBP + -0x14],EAX
+   0x00446cc3: MOV dword ptr [EBP + 0xfffffedc],ECX
+   0x00446cc9: CALL 0x00446e10
+   0x00446cce: MOVZX EAX,AL
+   0x00446cd1: TEST EAX,EAX
+   0x00446cd3: JNZ 0x00446d86
+   0x00446cd9: MOV ECX,dword ptr [EBP + 0xfffffedc]
+   0x00446cdf: CALL 0x00446c90
+   0x00446ce4: MOV dword ptr [EBP + -0x4],EAX
+
+----------------------------------------------------------------------
+Disassembly around main-loop caller 0x0094cfd6
+----------------------------------------------------------------------
+   0x0094cf43: MOV ECX,dword ptr [EBP + -0x18]
+   0x0094cf46: MOV EDX,dword ptr [EAX + 0x230]
+   0x0094cf4c: CALL EDX
+   0x0094cf4e: MOVZX EAX,AL
+   0x0094cf51: TEST EAX,EAX
+   0x0094cf53: JNZ 0x0094cf61
+   0x0094cf55: MOV dword ptr [EBP + 0xfffffe9c],0x0
+   0x0094cf5f: JMP 0x0094cf6b
+   0x0094cf61: MOV dword ptr [EBP + 0xfffffe9c],0x1
+   0x0094cf6b: MOV CL,byte ptr [EBP + 0xfffffe9c]
+   0x0094cf71: MOV byte ptr [EBP + 0xfffffe9b],CL
+   0x0094cf77: MOVZX EDX,byte ptr [EBP + 0xfffffe9b]
+   0x0094cf7e: TEST EDX,EDX
+   0x0094cf80: JNZ 0x0094cf9d
+   0x0094cf82: MOV ECX,dword ptr [EBP + -0x18]
+   0x0094cf85: CALL 0x005a1e50
+   0x0094cf8a: MOVZX EAX,AL
+   0x0094cf8d: TEST EAX,EAX
+   0x0094cf8f: JNZ 0x0094cf9d
+   0x0094cf91: MOV dword ptr [EBP + 0xfffffe94],0x1
+   0x0094cf9b: JMP 0x0094cfa7
+   0x0094cf9d: MOV dword ptr [EBP + 0xfffffe94],0x0
+   0x0094cfa7: MOV CL,byte ptr [EBP + 0xfffffe94]
+   0x0094cfad: MOV byte ptr [EBP + 0xfffffe93],CL
+   0x0094cfb3: MOVZX EDX,byte ptr [EBP + 0xfffffe93]
+   0x0094cfba: TEST EDX,EDX
+   0x0094cfbc: JZ 0x0094cfce
+   0x0094cfbe: MOV EAX,dword ptr [EBP + -0x18]
+   0x0094cfc1: MOV EDX,dword ptr [EAX]
+   0x0094cfc3: MOV ECX,dword ptr [EBP + -0x18]
+   0x0094cfc6: MOV EAX,dword ptr [EDX + 0x494]
+   0x0094cfcc: CALL EAX
+   0x0094cfce: PUSH 0x0
+   0x0094cfd0: MOV ECX,dword ptr [0x011c3b3c]
+=> 0x0094cfd6: CALL 0x00446b50
+   0x0094cfdb: PUSH 0x0
+   0x0094cfdd: MOV ECX,dword ptr [EBX + 0x8]
+   0x0094cfe0: CALL 0x005475b0
+   0x0094cfe5: PUSH EAX
+   0x0094cfe6: CALL 0x0046dd00
+   0x0094cfeb: MOV ECX,EAX
+   0x0094cfed: CALL 0x0063c8f0
+   0x0094cff2: MOV ECX,dword ptr [EBX + 0x8]
+   0x0094cff5: CALL 0x00547680
+   0x0094cffa: MOV ECX,EAX
+   0x0094cffc: CALL 0x00500940
+   0x0094d001: PUSH EAX
+   0x0094d002: CALL 0x00b4f430
+   0x0094d007: ADD ESP,0x4
+   0x0094d00a: MOV ECX,dword ptr [EBX + 0x8]
+   0x0094d00d: CALL 0x0054ddd0
+   0x0094d012: MOV dword ptr [EBP + 0xfffffe8c],EAX
+   0x0094d018: MOV byte ptr [EBP + 0xfffffe8b],0x0
+   0x0094d01f: MOV ECX,dword ptr [EBP + -0x18]
+   0x0094d022: MOV byte ptr [ECX + 0x79c],0x0
+   0x0094d029: MOV EDX,dword ptr [EBP + -0x18]
+   0x0094d02c: CMP dword ptr [EDX + 0x7b0],0x0
+   0x0094d033: JZ 0x0094d09a
+   0x0094d035: MOV EAX,dword ptr [EBP + -0x18]
+   0x0094d038: MOV ECX,dword ptr [EAX + 0x7b0]
+   0x0094d03e: CALL 0x005e03d0
+   0x0094d043: MOV ECX,dword ptr [EBP + -0x18]
+   0x0094d046: MOV EDX,dword ptr [ECX + 0x7b0]
+   0x0094d04c: MOV dword ptr [EBP + 0xfffffe84],EDX
+   0x0094d052: MOV EAX,dword ptr [EBP + 0xfffffe84]
+   0x0094d058: MOV dword ptr [EBP + 0xfffffe80],EAX
+   0x0094d05e: CMP dword ptr [EBP + 0xfffffe80],0x0
+   0x0094d065: JZ 0x0094d083
+   0x0094d067: PUSH 0x1
+   0x0094d069: MOV ECX,dword ptr [EBP + 0xfffffe80]
+   0x0094d06f: MOV EDX,dword ptr [ECX]
+   0x0094d071: MOV ECX,dword ptr [EBP + 0xfffffe80]
+   0x0094d077: MOV EAX,dword ptr [EDX]
+   0x0094d079: CALL EAX
+   0x0094d07b: MOV dword ptr [EBP + 0xfffffe7c],EAX
+   0x0094d081: JMP 0x0094d08d
+   0x0094d083: MOV dword ptr [EBP + 0xfffffe7c],0x0
+
+======================================================================
+queue consumer and virtual dispatcher @ 0x00446b50
+======================================================================
+  Function: FUN_00446b50 @ 0x00446b50, Size: 310 bytes
+
+void FUN_00446b50(int param_1)
+
+{
+  char cVar1;
+  uint uVar2;
+  int iVar3;
+  int iVar4;
+  int *piVar5;
+  int *unaff_FS_OFFSET;
+  int local_30;
+  undefined4 local_28;
+  undefined1 local_24 [4];
+  TaskStack local_20 [16];
+  int local_10;
+  undefined1 *puStack_c;
+  uint local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00eeca60;
+  local_10 = *unaff_FS_OFFSET;
+  uVar2 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  Concurrency::details::TaskStack::TaskStack(local_20);
+  local_8 = 0;
+  do {
+    cVar1 = FUN_006ebde0(uVar2);
+    if (cVar1 != '\0') {
+      local_8 = 0xffffffff;
+      FUN_004499c0();
+      *unaff_FS_OFFSET = local_10;
+      return;
+    }
+    local_28 = 0;
+    FUN_00528cb0(0);
+    local_8 = CONCAT31(local_8._1_3_,1);
+    cVar1 = FUN_00906570(local_20,&local_28,local_24,1);
+    if (cVar1 != '\0') {
+      iVar3 = FUN_008d6f30();
+      if (iVar3 != 0) {
+        FUN_00559450();
+        iVar4 = FUN_0043cc60();
+        if (iVar3 == param_1) {
+          cVar1 = FUN_00572350();
+          if (cVar1 == '\0') goto LAB_00446c1d;
+          local_30 = 0;
+        }
+        else {
+LAB_00446c1d:
+          local_30 = FUN_00458be0(iVar3,0);
+        }
+        if (iVar4 != local_30) {
+          piVar5 = (int *)FUN_00559450();
+          (**(code **)(*piVar5 + 0x1c))(local_30);
+        }
+      }
+    }
+    local_8 = local_8 & 0xffffff00;
+    FUN_0044cbf0();
+  } while( true );
+}
+
+
+
+--- Calls FROM queue consumer and virtual dispatcher (0x00446b50) ---
+  0x00446b7b -> 0x0044cc10 TaskStack
+  0x00446b8a -> 0x006ebde0 FUN_006ebde0
+  0x00446ba6 -> 0x00528cb0 FUN_00528cb0
+  0x00446bc3 -> 0x00906570 FUN_00906570
+  0x00446bd6 -> 0x008d6f30 FUN_008d6f30
+  0x00446be7 -> 0x00559450 FUN_00559450
+  0x00446bee -> 0x0043cc60 FUN_0043cc60
+  0x00446c08 -> 0x00572350 FUN_00572350
+  0x00446c29 -> 0x00458be0 FUN_00458be0
+  0x00446c3c -> 0x00559450 FUN_00559450
+  0x00446c5c -> 0x0044cbf0 FUN_0044cbf0
+  0x00446c70 -> 0x004499c0 FUN_004499c0
+  Total: 12 calls
+
+======================================================================
+TaskStack queue pop helper @ 0x00906570
+======================================================================
+  Function: FUN_00906570 @ 0x00906570, Size: 271 bytes
+
+char FUN_00906570(int param_1,undefined4 *param_2,undefined4 param_3,char param_4)
+
+{
+  char cVar1;
+  uint uVar2;
+  int iVar3;
+  undefined4 uVar4;
+  undefined4 uVar5;
+  undefined4 extraout_var;
+  char local_5;
+  
+  FUN_0040fbf0(0);
+  cVar1 = FUN_006ebde0(extraout_var);
+  if (cVar1 == '\0') {
+    while( true ) {
+      cVar1 = FUN_0044de20();
+      if (cVar1 == '\0') {
+        iVar3 = param_1 + 8;
+        uVar4 = *(undefined4 *)(param_1 + 4);
+        uVar5 = param_3;
+        FUN_00449f80(uVar4,iVar3,param_3);
+        local_5 = FUN_00906af0(uVar4,iVar3,uVar5);
+        FUN_0044de40(1);
+      }
+      else {
+        iVar3 = param_1 + 8;
+        uVar4 = *(undefined4 *)(param_1 + 4);
+        uVar5 = param_3;
+        FUN_00449f80(uVar4,iVar3,param_3);
+        local_5 = FUN_00906c10(uVar4,iVar3,uVar5);
+      }
+      if (local_5 != '\0') break;
+      *(int *)(param_1 + 4) = *(int *)(param_1 + 4) + 1;
+      uVar2 = FUN_0044ddc0();
+      if (uVar2 <= *(uint *)(param_1 + 4)) {
+        FUN_0044de80(1);
+        goto LAB_00906670;
+      }
+      if (param_4 == '\0') goto LAB_00906670;
+      FUN_0044de40(0);
+    }
+    *param_2 = *(undefined4 *)(param_1 + 8);
+  }
+  else {
+    local_5 = '\0';
+  }
+LAB_00906670:
+  FUN_0040fba0();
+  return local_5;
+}
+
+
+
+--- Calls FROM TaskStack queue pop helper (0x00906570) ---
+  0x00906581 -> 0x0040fbf0 FUN_0040fbf0
+  0x0090658d -> 0x006ebde0 FUN_006ebde0
+  0x009065b2 -> 0x0044de20 FUN_0044de20
+  0x009065d3 -> 0x00449f80 FUN_00449f80
+  0x009065da -> 0x00906af0 FUN_00906af0
+  0x009065e7 -> 0x0044de40 FUN_0044de40
+  0x00906603 -> 0x00449f80 FUN_00449f80
+  0x0090660a -> 0x00906c10 FUN_00906c10
+  0x0090662c -> 0x0044ddc0 FUN_0044ddc0
+  0x0090663e -> 0x0044de80 FUN_0044de80
+  0x00906652 -> 0x0044de40 FUN_0044de40
+  0x00906676 -> 0x0040fba0 FUN_0040fba0
+  Total: 12 calls
+
+======================================================================
+TaskStack constructor @ 0x0044cc10
+======================================================================
+  Function: TaskStack @ 0x0044cc10, Size: 50 bytes
+
+/* Library Function - Single Match
+    public: __thiscall Concurrency::details::TaskStack::TaskStack(void)
+   
+   Library: Visual Studio */
+
+TaskStack * __thiscall Concurrency::details::TaskStack::TaskStack(TaskStack *this)
+
+{
+  *(undefined ***)this = &PTR_FUN_010172b8;
+  *(undefined4 *)(this + 4) = 0;
+  *(undefined4 *)(this + 8) = 0;
+  this[0xc] = (TaskStack)0x0;
+  return this;
+}
+
+
+
+--- Calls FROM TaskStack constructor (0x0044cc10) ---
+  Total: 0 calls
+
+======================================================================
+local holder release wrapper @ 0x0044cbf0
+======================================================================
+  Function: FUN_0044cbf0 @ 0x0044cbf0, Size: 29 bytes
+
+void __fastcall FUN_0044cbf0(int *param_1)
+
+{
+  if (*param_1 != 0) {
+    FUN_0044dd60();
+  }
+  return;
+}
+
+
+
+--- Calls FROM local holder release wrapper (0x0044cbf0) ---
+  0x0044cc04 -> 0x0044dd60 FUN_0044dd60
+  Total: 1 calls
+
+======================================================================
+task refcount release @ 0x0044dd60
+======================================================================
+  Function: FUN_0044dd60 @ 0x0044dd60, Size: 81 bytes
+
+void __fastcall FUN_0044dd60(undefined4 *param_1)
+
+{
+  int iVar1;
+  
+  iVar1 = FUN_004019a0(param_1 + 2);
+  if ((iVar1 == 0) && (param_1 != (undefined4 *)0x0)) {
+    (**(code **)*param_1)(1);
+  }
+  return;
+}
+
+
+
+--- Calls FROM task refcount release (0x0044dd60) ---
+  0x0044dd70 -> 0x004019a0 FUN_004019a0
+  Total: 1 calls
+
+======================================================================
+task refcount increment helper @ 0x0092c820
+======================================================================
+  Function: FUN_0092c820 @ 0x0092c820, Size: 74 bytes
+
+int * __thiscall FUN_0092c820(int *param_1,int *param_2)
+
+{
+  if (*param_1 != *param_2) {
+    if (*param_1 != 0) {
+      FUN_0044dd60();
+    }
+    *param_1 = *param_2;
+    if (*param_1 != 0) {
+      FUN_0092c870();
+    }
+  }
+  return param_1;
+}
+
+
+
+--- Calls FROM task refcount increment helper (0x0092c820) ---
+  0x0092c840 -> 0x0044dd60 FUN_0044dd60
+  0x0092c85c -> 0x0092c870 FUN_0092c870
+  Total: 2 calls
+
+======================================================================
+local holder initialization @ 0x00528cb0
+======================================================================
+  Function: FUN_00528cb0 @ 0x00528cb0, Size: 42 bytes
+
+int * __thiscall FUN_00528cb0(int *param_1,int param_2)
+
+{
+  *param_1 = param_2;
+  if (*param_1 != 0) {
+    FUN_0092c870();
+  }
+  return param_1;
+}
+
+
+
+--- Calls FROM local holder initialization (0x00528cb0) ---
+  0x00528ccc -> 0x0092c870 FUN_0092c870
+  Total: 1 calls
+
+======================================================================
+holder assignment and retain @ 0x006f74f0
+======================================================================
+  Function: FUN_006f74f0 @ 0x006f74f0, Size: 70 bytes
+
+int * __thiscall FUN_006f74f0(int *param_1,int param_2)
+
+{
+  if (*param_1 != param_2) {
+    if (*param_1 != 0) {
+      FUN_0044dd60();
+    }
+    *param_1 = param_2;
+    if (*param_1 != 0) {
+      FUN_0092c870();
+    }
+  }
+  return param_1;
+}
+
+
+
+--- Calls FROM holder assignment and retain (0x006f74f0) ---
+  0x006f750e -> 0x0044dd60 FUN_0044dd60
+  0x006f7528 -> 0x0092c870 FUN_0092c870
+  Total: 2 calls
+
+======================================================================
+derived task constructor @ 0x00449090
+======================================================================
+  Function: FUN_00449090 @ 0x00449090, Size: 73 bytes
+
+undefined4 * __fastcall FUN_00449090(undefined4 *param_1)
+
+{
+  *param_1 = &PTR_FUN_01017138;
+  param_1[2] = 0;
+  param_1[3] = 0;
+  param_1[4] = 0;
+  param_1[5] = 0;
+  FUN_0040b460(&DAT_011c3b38);
+  return param_1;
+}
+
+
+
+--- Calls FROM derived task constructor (0x00449090) ---
+  0x004490ca -> 0x0040b460 FUN_0040b460
+  Total: 1 calls
+
+======================================================================
+derived task constructor variant @ 0x004490e0
+======================================================================
+  Function: FUN_004490e0 @ 0x004490e0, Size: 33 bytes
+
+void __fastcall FUN_004490e0(undefined4 *param_1)
+
+{
+  *param_1 = &PTR_FUN_01017138;
+  FUN_004019a0(&DAT_011c3b38);
+  return;
+}
+
+
+
+--- Calls FROM derived task constructor variant (0x004490e0) ---
+  0x004490f5 -> 0x004019a0 FUN_004019a0
+  Total: 1 calls
+
+======================================================================
+IO task base/derived lifecycle helper @ 0x00c3c620
+======================================================================
+  Function: FUN_00c3c620 @ 0x00c3c620, Size: 223 bytes
+
+void __fastcall FUN_00c3c620(undefined4 *param_1)
+
+{
+  uint uVar1;
+  undefined4 uVar2;
+  undefined4 uVar3;
+  int *unaff_FS_OFFSET;
+  int local_10;
+  undefined1 *puStack_c;
+  uint local_8;
+  
+  puStack_c = &LAB_00f2dcb3;
+  local_10 = *unaff_FS_OFFSET;
+  uVar1 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  *param_1 = &PTR_FUN_010c1524;
+  local_8 = 1;
+  if ((undefined4 *)param_1[8] == (undefined4 *)0x0) {
+    uVar2 = 0;
+  }
+  else {
+    uVar2 = (*(code *)**(undefined4 **)param_1[8])(1,uVar1);
+  }
+  if ((undefined4 *)param_1[9] == (undefined4 *)0x0) {
+    uVar3 = 0;
+  }
+  else {
+    uVar3 = (*(code *)**(undefined4 **)param_1[9])(1);
+  }
+  local_8 = local_8 & 0xffffff00;
+  if (param_1[7] != 0) {
+    FUN_0044dd60(uVar1,uVar3,uVar2);
+  }
+  local_8 = 0xffffffff;
+  *param_1 = &PTR_FUN_01017138;
+  InterlockedDecrement((LONG *)&lpAddend_01202d94);
+  *unaff_FS_OFFSET = local_10;
+  return;
+}
+
+
+
+--- Calls FROM IO task base/derived lifecycle helper (0x00c3c620) ---
+  0x00c3c6d0 -> 0x0044dd60 FUN_0044dd60
+  0x00c3c6ea -> 0x00000067 ???
+  Total: 2 calls
+
+----------------------------------------------------------------------
+References TO 0x00906570 (TaskStack pop helper)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0044849a (in FUN_00448420)
+  UNCONDITIONAL_CALL @ 0x0044851b (in FUN_00448420)
+  UNCONDITIONAL_CALL @ 0x0044858f (in FUN_00448420)
+  UNCONDITIONAL_CALL @ 0x004456f6 (in FUN_00445670)
+  UNCONDITIONAL_CALL @ 0x0052802c (in FUN_00527fc0)
+  UNCONDITIONAL_CALL @ 0x0052817c (in FUN_00528110)
+  UNCONDITIONAL_CALL @ 0x00528263 (in FUN_005281f0)
+  UNCONDITIONAL_CALL @ 0x00528340 (in FUN_005282d0)
+  UNCONDITIONAL_CALL @ 0x00446bc3 (in FUN_00446b50)
+  UNCONDITIONAL_CALL @ 0x00905ec0 (in FUN_00905e50)
+  Total: 10 refs
+
+----------------------------------------------------------------------
+References TO 0x0101dce4 (base NiRefObject vtable)
+----------------------------------------------------------------------
+  DATA @ 0x00a9beb8 (in FUN_00a9beb0)
+  DATA @ 0x00a9be88 (in FUN_00a9be80)
+  DATA @ 0x00c5a9fb (in FUN_00c5a9d0)
+  DATA @ 0x00c5ae4a (in FUN_00c5ac00)
+  DATA @ 0x00e98a59 (in FUN_00e989c0)
+  DATA @ 0x00e9891b (in FUN_00e98910)
+  DATA @ 0x00af8ed8 (in FUN_00af8e60)
+  DATA @ 0x00b58293 (in FUN_00b581c0)
+  DATA @ 0x00b592d3 (in FUN_00b587c0)
+  DATA @ 0x00b9fdd2 (in FUN_00b9fda0)
+  DATA @ 0x00b9f45d (in FUN_00b9f0c0)
+  DATA @ 0x00e7d86d (in FUN_00e7d850)
+  DATA @ 0x00e7d94b (in FUN_00e7d940)
+  DATA @ 0x00e7dc29 (in FUN_00e7dbc0)
+  DATA @ 0x00e7d205 (in FUN_00e7d1b0)
+  DATA @ 0x00e7d26e (in FUN_00e7d250)
+  DATA @ 0x00a5d3a8 (in FUN_00a5d3a0)
+  DATA @ 0x00e7d3ad (in FUN_00e7d390)
+  DATA @ 0x00a5d3d5 (in FUN_00a5d3d0)
+  DATA @ 0x00e7d535 (in FUN_00e7d4e0)
+  DATA @ 0x00a5d4e8 (in FUN_00a5d4e0)
+  DATA @ 0x00e7d6ce (in FUN_00e7d6b0)
+  DATA @ 0x00e7d659 (in FUN_00e7d620)
+  DATA @ 0x00c1cf28 (in FUN_00c1cf20)
+  DATA @ 0x00bb397d (in FUN_00bb3950)
+  DATA @ 0x00e93adc (in FUN_00e93ad0)
+  DATA @ 0x00bb3b65 (in FUN_00bb3b10)
+  DATA @ 0x00e93e53 (in FUN_00e93e00)
+  DATA @ 0x00bb33c8 (in FUN_00bb33c0)
+  DATA @ 0x00bb34cc (in FUN_00bb3470)
+  DATA @ 0x00e90ae0 (in FUN_00e90ac0)
+  DATA @ 0x00e90a88 (in FUN_00e90a80)
+  DATA @ 0x00af7f40 (in FUN_00af7eb0)
+  DATA @ 0x004968ba (in FUN_004968b0)
+  DATA @ 0x0049691a (in FUN_00496910)
+  DATA @ 0x00a76be5 (in FUN_00a76bb0)
+  DATA @ 0x00a766b5 (in FUN_00a76680)
+  DATA @ 0x00a76658 (in FUN_00a76650)
+  DATA @ 0x00eea644 (in FUN_00eea5e0)
+  DATA @ 0x00eea58b (in FUN_00eea580)
+  DATA @ 0x00e89890 (in FUN_00e89840)
+  ... (truncated)
+  Total: 41 refs
+
+----------------------------------------------------------------------
+References TO 0x01017138 (expected queued model task vtable)
+----------------------------------------------------------------------
+  DATA @ 0x00c3c6df (in FUN_00c3c620)
+  DATA @ 0x004490ea (in FUN_004490e0)
+  DATA @ 0x0044909a (in FUN_00449090)
+  Total: 3 refs
+
+----------------------------------------------------------------------
+References TO 0x0044dd60 (task release)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0044cc04 (in FUN_0044cbf0)
+  UNCONDITIONAL_CALL @ 0x006f750e (in FUN_006f74f0)
+  UNCONDITIONAL_CALL @ 0x0092c840 (in FUN_0092c820)
+  UNCONDITIONAL_CALL @ 0x00c3c7bc (in FUN_00c3c700)
+  UNCONDITIONAL_CALL @ 0x00c3c907 (in FUN_00c3c7e0)
+  UNCONDITIONAL_CALL @ 0x00c3c6d0 (in FUN_00c3c620)
+  UNCONDITIONAL_CALL @ 0x00c3d5a2 (in FUN_00c3d4f0)
+  UNCONDITIONAL_CALL @ 0x00c3de18 (in FUN_00c3dbf0)
+  UNCONDITIONAL_CALL @ 0x00c3de5f (in FUN_00c3dbf0)
+  UNCONDITIONAL_CALL @ 0x00c3e2b4 (in FUN_00c3e1b0)
+  UNCONDITIONAL_CALL @ 0x00c3e2df (in FUN_00c3e1b0)
+  UNCONDITIONAL_CALL @ 0x00c3eaf6 (in FUN_00c3ea60)
+  UNCONDITIONAL_CALL @ 0x00c3eb85 (in FUN_00c3ea60)
+  UNCONDITIONAL_CALL @ 0x00c3ec1c (in FUN_00c3ea60)
+  UNCONDITIONAL_CALL @ 0x00c3f0b7 (in FUN_00c3f090)
+  UNCONDITIONAL_CALL @ 0x00c424bc (in FUN_00c42380)
+  UNCONDITIONAL_CALL @ 0x00c4268c (in FUN_00c42560)
+  UNCONDITIONAL_CALL @ 0x00c4271e (in FUN_00c42560)
+  UNCONDITIONAL_CALL @ 0x00c4284d (in FUN_00c42560)
+  UNCONDITIONAL_CALL @ 0x00c428df (in FUN_00c42560)
+  UNCONDITIONAL_CALL @ 0x00c41f67 (in FUN_00c41f40)
+  UNCONDITIONAL_CALL @ 0x00c42028 (in FUN_00c41fe0)
+  UNCONDITIONAL_CALL @ 0x00c42d11 (in FUN_00c42b80)
+  UNCONDITIONAL_CALL @ 0x0044acf8 (in FUN_0044ac40)
+  UNCONDITIONAL_CALL @ 0x00528920 (in FUN_00528870)
+  UNCONDITIONAL_CALL @ 0x00c3cbce (in FUN_00c3cb70)
+  UNCONDITIONAL_CALL @ 0x00c3ccf4 (in FUN_00c3cb70)
+  UNCONDITIONAL_CALL @ 0x00c3ce4a (in FUN_00c3cb70)
+  UNCONDITIONAL_CALL @ 0x00c3d656 (in FUN_00c3d5e0)
+  UNCONDITIONAL_CALL @ 0x00c3ca04 (in FUN_00c3c930)
+  UNCONDITIONAL_CALL @ 0x00c3cacb (in FUN_00c3c930)
+  UNCONDITIONAL_CALL @ 0x00c3d9db (in FUN_00c3d980)
+  UNCONDITIONAL_CALL @ 0x00c40d48 (in FUN_00c40b70)
+  UNCONDITIONAL_CALL @ 0x00c3fc20 (in FUN_00c3fb50)
+  UNCONDITIONAL_CALL @ 0x00c3fdd2 (in FUN_00c3fce0)
+  UNCONDITIONAL_CALL @ 0x00c41445 (in FUN_00c41330)
+  UNCONDITIONAL_CALL @ 0x00c4149b (in FUN_00c41330)
+  UNCONDITIONAL_CALL @ 0x00c3fef4 (in FUN_00c3fe80)
+  UNCONDITIONAL_CALL @ 0x00c40087 (in FUN_00c3ffb0)
+  UNCONDITIONAL_CALL @ 0x00c4010a (in FUN_00c3ffb0)
+  UNCONDITIONAL_CALL @ 0x00c41072 (in FUN_00c41050)
+  ... (truncated)
+  Total: 41 refs

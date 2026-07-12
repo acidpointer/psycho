@@ -198,16 +198,9 @@ pub fn install_gheap_initialize() -> anyhow::Result<()> {
         )?;
     }
 
-    // IO task release guard
+    // gheap-only model task destructor guard
     {
         use gheap::statics::*;
-
-        TASK_RELEASE_HOOK.init(
-            "task_release_guard",
-            TASK_RELEASE_ADDR as *mut c_void,
-            gheap::task_release::hook_task_release,
-        )?;
-
         MODEL_TASK_DTOR_HOOK.init(
             "model_task_dtor_guard",
             MODEL_TASK_DTOR_ADDR as *mut c_void,
@@ -337,13 +330,11 @@ pub fn install_gheap_hooks() -> anyhow::Result<()> {
         log::info!("[TEXTURE] Dead set hooks active");
     }
 
-    // IO task release
+    // gheap-only model task destructor
     {
         use super::gheap::statics::*;
-
-        TASK_RELEASE_HOOK.enable()?;
         MODEL_TASK_DTOR_HOOK.enable()?;
-        log::info!("[TASK_RELEASE] Guard hooks active");
+        log::info!("[MODEL_TASK] Free-cell destructor guard active");
     }
 
     // CRT IAT

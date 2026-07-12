@@ -1,0 +1,267 @@
+======================================================================
+2026-07-12 ENGINE-FIX PATCH MANIFEST AUDIT
+======================================================================
+Program: FalloutNV.exe
+Language: x86:LE:32:default
+Compiler: windows
+
+LowProcess genericLocationsList AppendRefID call
+  range: 0x009105BF..0x009105C4 (5 bytes)
+  bytes: E8 2C 58 F5 FF
+
+LowProcess save-call context instructions
+  0x009105B6: 6A 00                            ; PUSH 0x0
+  0x009105B8: 8B 4D F0                         ; MOV ECX,dword ptr [EBP + -0x10]
+  0x009105BB: 51                               ; PUSH ECX
+  0x009105BC: 8B 4D 08                         ; MOV ECX,dword ptr [EBP + 0x8]
+  0x009105BF: E8 2C 58 F5 FF                   ; CALL 0x00865df0
+  0x009105C4: 8B 55 FC                         ; MOV EDX,dword ptr [EBP + -0x4]
+  0x009105C7: 83 C2 01                         ; ADD EDX,0x1
+  0x009105CA: 89 55 FC                         ; MOV dword ptr [EBP + -0x4],EDX
+
+Main-loop task-drain call
+  range: 0x0094CFD6..0x0094CFDB (5 bytes)
+  bytes: E8 75 9B AF FF
+
+Main-loop late-boundary context instructions
+  0x0094CFCE: 6A 00                            ; PUSH 0x0
+  0x0094CFD0: 8B 0D 3C 3B 1C 01                ; MOV ECX,dword ptr [0x011c3b3c]
+  0x0094CFD6: E8 75 9B AF FF                   ; CALL 0x00446b50
+  0x0094CFDB: 6A 00                            ; PUSH 0x0
+  0x0094CFDD: 8B 4B 08                         ; MOV ECX,dword ptr [EBX + 0x8]
+  0x0094CFE0: E8 CB A5 BF FF                   ; CALL 0x005475b0
+
+Queued-task virtual dispatch replacement block
+  range: 0x00446C48..0x00446C55 (13 bytes)
+  bytes: 8B 55 C8 8B 02 8B 4D C8 8B 50 1C FF D2
+
+Queued-task dispatch context instructions
+  0x00446C41: 89 45 C8                         ; MOV dword ptr [EBP + -0x38],EAX
+  0x00446C44: 8B 4D D4                         ; MOV ECX,dword ptr [EBP + -0x2c]
+  0x00446C47: 51                               ; PUSH ECX
+  0x00446C48: 8B 55 C8                         ; MOV EDX,dword ptr [EBP + -0x38]
+  0x00446C4B: 8B 02                            ; MOV EAX,dword ptr [EDX]
+  0x00446C4D: 8B 4D C8                         ; MOV ECX,dword ptr [EBP + -0x38]
+  0x00446C50: 8B 50 1C                         ; MOV EDX,dword ptr [EAX + 0x1c]
+  0x00446C53: FF D2                            ; CALL EDX
+  0x00446C55: C6 45 FC 00                      ; MOV byte ptr [EBP + -0x4],0x0
+  0x00446C59: 8D 4D E0                         ; LEA ECX,[EBP + -0x20]
+  0x00446C5C: E8 8F 5F 00 00                   ; CALL 0x0044cbf0
+
+General task-release prologue
+  range: 0x0044DD60..0x0044DD78 (24 bytes)
+  bytes: 55 8B EC 83 EC 14 89 4D F0 8B 45 F0 83 C0 08 50 E8 2B 3C FB FF 83 C4 04
+
+Vanilla LowProcess Func011F signature prefix
+  range: 0x0090CC10..0x0090CC50 (64 bytes)
+  bytes: 55 8B EC 83 EC 3C 89 4D D0 8B 45 D0 83 78 64 00 74 42 8B 4D D0 8B 51 64 8B 02 3B 45 08 75 35 8B 4D D0 8B 51 64 89 55 E4 8B 45 E4 89 45 E8 83 7D E8 00 74 0F 6A 01 8B 4D E8 E8 52 73 EA FF 89 45
+
+LowProcess vanilla vtable pointers
+  0x01087CE0 LowProcess                             -> 0x0090CC10
+  0x01088B60 MiddleLowProcess                       -> 0x0090CC10
+  0x010894C8 MiddleHighProcess                      -> 0x0090CC10
+  0x0108A048 HighProcess                            -> 0x0090CC10
+
+======================================================================
+LowProcess serializer @ 0x00910450
+======================================================================
+  Function: FUN_00910450 @ 0x00910450, Size: 465 bytes
+
+void __thiscall FUN_00910450(int param_1,undefined4 param_2)
+
+{
+  char cVar1;
+  int *piVar2;
+  undefined4 uVar3;
+  undefined4 local_20;
+  undefined1 local_18 [4];
+  int local_14;
+  int local_10;
+  undefined4 local_c;
+  int local_8;
+  
+  FUN_008d0f30(param_2);
+  FUN_00865e50(param_1 + 0x30,1,0);
+  FUN_00865e50(param_1 + 0xa4,4,0);
+  FUN_00865df0(*(undefined4 *)(param_1 + 0x34),0);
+  FUN_00865e50(param_1 + 0x58,4,0);
+  FUN_00865e50(param_1 + 0xa8,4,0);
+  FUN_00865e50(param_1 + 0xac,4,0);
+  FUN_00865e50(param_1 + 0xb0,1,0);
+  FUN_00865e50(param_1 + 0x50,2,0);
+  FUN_009a5eb0(param_2);
+  if (*(int *)(param_1 + 100) == 0) {
+    local_20 = *(undefined4 *)(param_1 + 0x40);
+  }
+  else {
+    local_20 = 0;
+  }
+  FUN_00865df0(local_20,0);
+  FUN_00865df0(*(undefined4 *)(param_1 + 0x44),0);
+  FUN_00865df0(*(undefined4 *)(param_1 + 0x48),0);
+  FUN_00865df0(*(undefined4 *)(param_1 + 0x4c),0);
+  FUN_00865df0(*(undefined4 *)(param_1 + 0x54),0);
+  local_8 = 0;
+  local_c = FUN_00865f20();
+  local_10 = param_1 + 0x6c;
+  while (local_10 != 0) {
+    piVar2 = (int *)FUN_006815c0();
+    local_14 = *piVar2;
+    if (local_14 != 0) {
+      FUN_00865df0(local_14,0);
+      local_8 = local_8 + 1;
+    }
+    local_10 = FUN_00726070();
+  }
+  FUN_00865ff0(local_8,local_c);
+  uVar3 = 0x200000;
+  FUN_00428110(local_18);
+  cVar1 = FUN_004280f0(uVar3);
+  if (cVar1 != '\0') {
+    FUN_00937b50(param_2);
+  }
+  return;
+}
+
+
+
+--- Calls FROM LowProcess serializer (0x00910450) ---
+  0x00910460 -> 0x008d0f30 FUN_008d0f30
+  0x00910473 -> 0x00865e50 FUN_00865e50
+  0x00910489 -> 0x00865e50 FUN_00865e50
+  0x0091049a -> 0x00865df0 FUN_00865df0
+  0x009104ad -> 0x00865e50 FUN_00865e50
+  0x009104c2 -> 0x00865e50 FUN_00865e50
+  0x009104d8 -> 0x00865e50 FUN_00865e50
+  0x009104ee -> 0x00865e50 FUN_00865e50
+  0x00910501 -> 0x00865e50 FUN_00865e50
+  0x00910510 -> 0x009a5eb0 FUN_009a5eb0
+  0x00910539 -> 0x00865df0 FUN_00865df0
+  0x0091054a -> 0x00865df0 FUN_00865df0
+  0x0091055b -> 0x00865df0 FUN_00865df0
+  0x0091056c -> 0x00865df0 FUN_00865df0
+  0x0091057d -> 0x00865df0 FUN_00865df0
+  0x0091058c -> 0x00865f20 FUN_00865f20
+  0x009105a6 -> 0x006815c0 FUN_006815c0
+  0x009105bf -> 0x00865df0 FUN_00865df0
+  0x009105d0 -> 0x00726070 FUN_00726070
+  0x009105e5 -> 0x00865ff0 FUN_00865ff0
+  0x009105f6 -> 0x00428110 FUN_00428110
+  0x009105fd -> 0x004280f0 FUN_004280f0
+  0x00910616 -> 0x00937b50 FUN_00937b50
+  Total: 23 calls
+
+======================================================================
+Main-thread task consumer @ 0x00446b50
+======================================================================
+  Function: FUN_00446b50 @ 0x00446b50, Size: 310 bytes
+
+void FUN_00446b50(int param_1)
+
+{
+  char cVar1;
+  uint uVar2;
+  int iVar3;
+  int iVar4;
+  int *piVar5;
+  int *unaff_FS_OFFSET;
+  int local_30;
+  undefined4 local_28;
+  undefined1 local_24 [4];
+  TaskStack local_20 [16];
+  int local_10;
+  undefined1 *puStack_c;
+  uint local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00eeca60;
+  local_10 = *unaff_FS_OFFSET;
+  uVar2 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  Concurrency::details::TaskStack::TaskStack(local_20);
+  local_8 = 0;
+  do {
+    cVar1 = FUN_006ebde0(uVar2);
+    if (cVar1 != '\0') {
+      local_8 = 0xffffffff;
+      FUN_004499c0();
+      *unaff_FS_OFFSET = local_10;
+      return;
+    }
+    local_28 = 0;
+    FUN_00528cb0(0);
+    local_8 = CONCAT31(local_8._1_3_,1);
+    cVar1 = FUN_00906570(local_20,&local_28,local_24,1);
+    if (cVar1 != '\0') {
+      iVar3 = FUN_008d6f30();
+      if (iVar3 != 0) {
+        FUN_00559450();
+        iVar4 = FUN_0043cc60();
+        if (iVar3 == param_1) {
+          cVar1 = FUN_00572350();
+          if (cVar1 == '\0') goto LAB_00446c1d;
+          local_30 = 0;
+        }
+        else {
+LAB_00446c1d:
+          local_30 = FUN_00458be0(iVar3,0);
+        }
+        if (iVar4 != local_30) {
+          piVar5 = (int *)FUN_00559450();
+          (**(code **)(*piVar5 + 0x1c))(local_30);
+        }
+      }
+    }
+    local_8 = local_8 & 0xffffff00;
+    FUN_0044cbf0();
+  } while( true );
+}
+
+
+
+--- Calls FROM Main-thread task consumer (0x00446b50) ---
+  0x00446b7b -> 0x0044cc10 TaskStack
+  0x00446b8a -> 0x006ebde0 FUN_006ebde0
+  0x00446ba6 -> 0x00528cb0 FUN_00528cb0
+  0x00446bc3 -> 0x00906570 FUN_00906570
+  0x00446bd6 -> 0x008d6f30 FUN_008d6f30
+  0x00446be7 -> 0x00559450 FUN_00559450
+  0x00446bee -> 0x0043cc60 FUN_0043cc60
+  0x00446c08 -> 0x00572350 FUN_00572350
+  0x00446c29 -> 0x00458be0 FUN_00458be0
+  0x00446c3c -> 0x00559450 FUN_00559450
+  0x00446c5c -> 0x0044cbf0 FUN_0044cbf0
+  0x00446c70 -> 0x004499c0 FUN_004499c0
+  Total: 12 calls
+
+======================================================================
+General task release @ 0x0044dd60
+======================================================================
+  Function: FUN_0044dd60 @ 0x0044dd60, Size: 81 bytes
+
+void __fastcall FUN_0044dd60(undefined4 *param_1)
+
+{
+  int iVar1;
+  
+  iVar1 = FUN_004019a0(param_1 + 2);
+  if ((iVar1 == 0) && (param_1 != (undefined4 *)0x0)) {
+    (**(code **)*param_1)(1);
+  }
+  return;
+}
+
+
+
+--- Calls FROM General task release (0x0044dd60) ---
+  0x0044dd70 -> 0x004019a0 FUN_004019a0
+  Total: 1 calls
+
+----------------------------------------------------------------------
+References TO 0x0090cc10 (vanilla LowProcess Func011F)
+----------------------------------------------------------------------
+  DATA @ 0x01087ce0 (in ???)
+  DATA @ 0x01088b60 (in ???)
+  DATA @ 0x010894c8 (in ???)
+  DATA @ 0x0108a048 (in ???)
+  Total: 4 refs

@@ -80,3 +80,21 @@ pub const MEMSET_ADDR: usize = 0x00EC61C0;
 
 pub static MEMSET_HOOK: LazyLock<InlineHookContainer<libpsycho::os::windows::types::MemsetFn>> =
     LazyLock::new(InlineHookContainer::new);
+
+// ---- LowProcess generic-location ownership ----
+
+pub const APPEND_REF_ID_ADDR: usize = 0x00865DF0;
+pub const LOWPROCESS_SAVE_CALL_ADDR: usize = 0x009105BF;
+pub const MAIN_TASK_DRAIN_ADDR: usize = 0x00446B50;
+pub const MAIN_TASK_DRAIN_CALL_ADDR: usize = 0x0094CFD6;
+pub const VANILLA_LOWPROCESS_FUNC011F: usize = 0x0090CC10;
+pub const LOWPROCESS_VTABLE_BASES: [usize; 4] = [0x01087864, 0x010886E4, 0x0108904C, 0x01089BCC];
+pub const LOWPROCESS_FUNC011F_SLOTS: [usize; 4] = [0x01087CE0, 0x01088B60, 0x010894C8, 0x0108A048];
+
+// ---- Queued-task lifetime ----
+
+pub const TASK_HOLDER_RELEASE_CALL_ADDR: usize = 0x0044CC04;
+pub const TASK_DISPATCH_ADDR: usize = 0x00446C48;
+pub const TASK_DISPATCH_BYTES: [u8; 13] = [
+    0x8B, 0x55, 0xC8, 0x8B, 0x02, 0x8B, 0x4D, 0xC8, 0x8B, 0x50, 0x1C, 0xFF, 0xD2,
+];

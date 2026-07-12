@@ -11,7 +11,7 @@ use std::{
 use crate::mods::{diagnostics, engine_fixes, heap_replacer::scrap_heap};
 
 use super::engine::globals::{self, PddQueue};
-use super::{block, pool, task_release, va_alloc};
+use super::{block, pool, va_alloc};
 
 const REPORT_MS: u32 = 1_000;
 const ABSOLUTE_HITCH_US: u64 = 20_000;
@@ -255,7 +255,6 @@ fn maybe_log_window() {
     }
 
     let engine = engine_fixes::take_diagnostic_counters();
-    let task = task_release::take_diagnostic_counters();
     let spans = take_span_snapshot();
     let hitches = WINDOW_HITCHES.swap(0, Ordering::AcqRel);
     let total_us = WINDOW_TOTAL_US.swap(0, Ordering::AcqRel);
@@ -266,7 +265,7 @@ fn maybe_log_window() {
 
     let scrap = scrap_heap::snapshot();
     log::debug!(
-        "[HITCH] events={} max_us={} avg_us={} ema_us={} loading={} pddq={}/{}/{}/{}/{} ragdoll={}/{} extra_owner=load:{} access:{} unreadable:{} task=qt_final:{} guard:{} tombstone:{} pool={}+{}/{}MB live={} blocks={} block_mb={} va={}MB scrap={}KB ids={} active_ids={} regions={} allocs={} spans=calls/max/total {}",
+        "[HITCH] events={} max_us={} avg_us={} ema_us={} loading={} pddq={}/{}/{}/{}/{} ragdoll={}/{} extra_owner=load:{} access:{} unreadable:{} task=dispatch:{}/{} pin_fail:{} invalid:{} guard:{} tombstone:{} pool={}+{}/{}MB live={} blocks={} block_mb={} va={}MB scrap={}KB ids={} active_ids={} regions={} allocs={} spans=calls/max/total {}",
         hitches,
         max_us,
         total_us / hitches.max(1),
@@ -282,9 +281,12 @@ fn maybe_log_window() {
         engine.extra_owner_load_scrubs,
         engine.extra_owner_access_scrubs,
         engine.extra_owner_unreadable,
-        task.queued_texture_finals,
-        task.guards,
-        task.tombstones,
+        engine.task_dispatch_calls,
+        engine.task_dispatch_attempts,
+        engine.task_pin_failures,
+        engine.task_invalid_dispatches,
+        engine.task_release_guards,
+        engine.task_tombstones,
         pool::committed_bytes() / 1024 / 1024,
         pool::metadata_bytes() / 1024 / 1024,
         pool::reserved_bytes() / 1024 / 1024,
@@ -303,7 +305,6 @@ fn maybe_log_window() {
 
 fn drain_external_counters() {
     let _ = engine_fixes::take_diagnostic_counters();
-    let _ = task_release::take_diagnostic_counters();
     let _ = take_span_snapshot();
 }
 

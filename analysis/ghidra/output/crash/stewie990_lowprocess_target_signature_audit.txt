@@ -1,0 +1,18 @@
+======================================================================
+STEWIE TWEAKS 9.90 LOWPROCESS TARGET SIGNATURE AUDIT
+======================================================================
+Program: FalloutNV.exe
+Language: x86:LE:32:default
+Compiler: windows
+Executable MD5: 3e00e9397d71fae83af39129471024a7
+Image range: 0x00400000..0x014089FF
+  block Headers      0x00400000..0x004003FF read=True write=False execute=False
+  block .text        0x00401000..0x00FDE5FF read=True write=False execute=True
+  block .rdata       0x00FDF000..0x011821FF read=True write=False execute=False
+  block .data        0x01183000..0x01271A9B read=True write=True execute=False
+  block .tls         0x01272000..0x012723FF read=True write=True execute=False
+  block CONST        0x01273000..0x012731FF read=True write=True execute=False
+  block .rsrc        0x01274000..0x0133FBFF read=True write=False execute=False
+  block .reloc       0x01340000..0x014089FF read=True write=False execute=False
+
+Vtable-address instruction hits: 0

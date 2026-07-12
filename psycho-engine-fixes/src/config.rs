@@ -44,12 +44,17 @@ impl<'de> Deserialize<'de> for PsychoConfig {
     {
         let raw = RawPsychoConfig::deserialize(deserializer)?;
         let legacy_display_tweaks = raw.performance.as_ref().and_then(|p| p.display_tweaks);
+        let legacy_task_safety = raw
+            .memory
+            .gheap_task_safety
+            .or(raw.memory.legacy_gheap_task_release_guard);
         Ok(Self {
             memory: MemoryConfig::from_raw(raw.memory),
             engine_fixes: EngineFixesConfig::from_raw(
                 raw.engine_fixes,
                 legacy_display_tweaks,
                 raw.display,
+                legacy_task_safety,
             ),
             performance: PerformanceConfig::from_raw(raw.performance, raw.perf, raw.zlib),
             diagnostics: DiagnosticsConfig::from_raw(raw.diagnostics, raw.general, raw.logger),
@@ -61,8 +66,6 @@ impl<'de> Deserialize<'de> for PsychoConfig {
 pub struct MemoryConfig {
     /// 0 = vanilla heap, 1 = scrap_heap, 2 = gheap + scrap_heap.
     pub allocator: u8,
-    /// Guard known stale gheap task cleanup paths.
-    pub gheap_task_safety: bool,
     /// Optional legacy full PDD purge. Keep off unless testing.
     pub gheap_periodic_pdd_purge: bool,
 }
@@ -71,7 +74,6 @@ impl Default for MemoryConfig {
     fn default() -> Self {
         Self {
             allocator: 2,
-            gheap_task_safety: true,
             gheap_periodic_pdd_purge: false,
         }
     }
@@ -98,10 +100,6 @@ impl MemoryConfig {
 
         Self {
             allocator,
-            gheap_task_safety: raw
-                .gheap_task_safety
-                .or(raw.legacy_gheap_task_release_guard)
-                .unwrap_or(default.gheap_task_safety),
             gheap_periodic_pdd_purge: raw
                 .gheap_periodic_pdd_purge
                 .or(raw.legacy_gheap_periodic_full_pdd)
@@ -186,6 +184,10 @@ pub struct EngineFixesConfig {
     pub havok_remove_agent_null_reread_guard: bool,
     /// Make the game's inlined memset a no-op for NULL destinations.
     pub memset_null_dst_guard: bool,
+    /// Enforce LowProcess generic-location ownership and contain corrupt saves.
+    pub lowprocess_generic_locations_fix: bool,
+    /// Guard queued-task dispatch and release lifetime contracts.
+    pub queued_task_lifetime_guard: bool,
 }
 
 impl Default for EngineFixesConfig {
@@ -204,6 +206,8 @@ impl Default for EngineFixesConfig {
             havok_post_add_null_entity_guard: true,
             havok_remove_agent_null_reread_guard: true,
             memset_null_dst_guard: true,
+            lowprocess_generic_locations_fix: true,
+            queued_task_lifetime_guard: true,
         }
     }
 }
@@ -213,6 +217,7 @@ impl EngineFixesConfig {
         raw: Option<RawEngineFixesConfig>,
         legacy_display_tweaks: Option<bool>,
         legacy_display: Option<RawDisplayConfig>,
+        legacy_task_safety: Option<bool>,
     ) -> Self {
         let raw = raw.unwrap_or_default();
         let legacy_display = legacy_display.unwrap_or_default();
@@ -260,6 +265,13 @@ impl EngineFixesConfig {
             memset_null_dst_guard: raw
                 .memset_null_dst_guard
                 .unwrap_or(default.memset_null_dst_guard),
+            lowprocess_generic_locations_fix: raw
+                .lowprocess_generic_locations_fix
+                .unwrap_or(default.lowprocess_generic_locations_fix),
+            queued_task_lifetime_guard: raw
+                .queued_task_lifetime_guard
+                .or(legacy_task_safety)
+                .unwrap_or(default.queued_task_lifetime_guard),
         }
     }
 }
@@ -272,6 +284,8 @@ pub struct DiagnosticsConfig {
     pub debug_log: bool,
     /// Time per-frame engine spans with QPC. Keep disabled outside focused profiling.
     pub hitch_profiling: bool,
+    /// Record fixed-ring queued-task lifetime provenance.
+    pub task_lifetime_trace: bool,
 }
 
 impl DiagnosticsConfig {
@@ -288,6 +302,7 @@ impl DiagnosticsConfig {
             console: raw.console.or(legacy_general.console).unwrap_or_default(),
             debug_log: raw.debug_log.or(legacy_logger.debug).unwrap_or_default(),
             hitch_profiling: raw.hitch_profiling.unwrap_or_default(),
+            task_lifetime_trace: raw.task_lifetime_trace.unwrap_or_default(),
         }
     }
 }
@@ -351,6 +366,8 @@ struct RawEngineFixesConfig {
     havok_post_add_null_entity_guard: Option<bool>,
     havok_remove_agent_null_reread_guard: Option<bool>,
     memset_null_dst_guard: Option<bool>,
+    lowprocess_generic_locations_fix: Option<bool>,
+    queued_task_lifetime_guard: Option<bool>,
 }
 
 #[derive(Default, Deserialize)]
@@ -359,6 +376,7 @@ struct RawDiagnosticsConfig {
     console: Option<bool>,
     debug_log: Option<bool>,
     hitch_profiling: Option<bool>,
+    task_lifetime_trace: Option<bool>,
 }
 
 #[derive(Default, Deserialize)]

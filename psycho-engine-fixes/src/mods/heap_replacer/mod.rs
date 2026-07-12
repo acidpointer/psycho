@@ -19,3 +19,52 @@ pub use install::{
 };
 pub use mimalloc::initialize_mimalloc;
 pub use mode::{AllocatorMode, current_mode, decide_mode};
+
+use libc::c_void;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum TaskPoolState {
+    Unknown,
+    Live,
+    Free,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct TaskCellInfo {
+    pub pool_index: u8,
+    pub item_size: u32,
+    pub cell_index: usize,
+}
+
+pub(crate) fn task_pool_state(task: *const c_void) -> TaskPoolState {
+    if current_mode() != Some(AllocatorMode::GheapAndScrapHeap) {
+        return TaskPoolState::Unknown;
+    }
+    let Some(info) = gheap::pool::ptr_info(task) else {
+        return TaskPoolState::Unknown;
+    };
+    if !info.committed || info.offset != 0 {
+        return TaskPoolState::Unknown;
+    }
+    if info.is_free {
+        TaskPoolState::Free
+    } else {
+        TaskPoolState::Live
+    }
+}
+
+pub(crate) fn tombstone_free_task(
+    task: *mut c_void,
+    vtable: usize,
+    refcount: i32,
+) -> Option<TaskCellInfo> {
+    if current_mode() != Some(AllocatorMode::GheapAndScrapHeap) {
+        return None;
+    }
+    let info = gheap::pool::tombstone_free_cell(task, vtable, refcount)?;
+    Some(TaskCellInfo {
+        pool_index: info.pool_index,
+        item_size: info.item_size,
+        cell_index: info.cell_index,
+    })
+}

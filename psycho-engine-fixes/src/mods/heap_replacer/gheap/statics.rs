@@ -137,13 +137,6 @@ pub static TEXTURE_CACHE_FIND_HOOK: LazyLock<InlineHookContainer<TextureCacheFin
 pub static NISOURCETEXTURE_DTOR_HOOK: LazyLock<InlineHookContainer<NiSourceTextureDtorFn>> =
     LazyLock::new(InlineHookContainer::new);
 
-// ---- IO task ----
-
-pub const TASK_RELEASE_ADDR: usize = 0x0044DD60;
-
-pub static TASK_RELEASE_HOOK: LazyLock<InlineHookContainer<TaskReleaseFn>> =
-    LazyLock::new(InlineHookContainer::new);
-
 /// FUN_00449A50: model-loader task scalar destructor. Under gheap stress,
 /// FUN_00446B50 can dispatch this on an already-freed 80-byte pool cell.
 pub const MODEL_TASK_DTOR_ADDR: usize = 0x00449A50;

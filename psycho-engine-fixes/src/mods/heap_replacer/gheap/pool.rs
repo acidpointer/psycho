@@ -667,13 +667,13 @@ impl Pool {
     /// increasing the reuse-rate for those classes. Ragdoll bone data
     /// lives in this size range.
     ///
-    /// # Known latent crash 3: Stewie Tweaks Process::LowProcess dead-actor
+    /// # Known latent crash 3: Process::LowProcess dead-actor
     ///
     /// Third instance. 2026-04-18 17:47, 2:22 play, Giant Soldier Ant
-    /// with HAVOK_DEATH + NEED_TO_CHANGE_PROCESS. Crash inside Stewie
-    /// Tweaks' LowProcess hook walking a process-migration pointer
-    /// chain; same pattern (parent still referencing freed-and-reused
-    /// child). CrashLogger.2026-04-18-17-47-55.log.
+    /// with HAVOK_DEATH + NEED_TO_CHANGE_PROCESS. Crash inside a replaced
+    /// LowProcess virtual while walking a process-migration pointer chain;
+    /// same pattern (parent still referencing freed-and-reused child).
+    /// CrashLogger.2026-04-18-17-47-55.log.
     ///
     /// # Current status
     ///

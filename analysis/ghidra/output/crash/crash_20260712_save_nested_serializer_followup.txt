@@ -1,0 +1,381 @@
+2026-07-12 SAVE NESTED SERIALIZER FOLLOW-UP
+FUN_0092EA30 calls FUN_00910450; its return address is 0x0092EA45 in the crash.
+Identify each source offset passed to AppendRefID and its load/save writer contract.
+
+----------------------------------------------------------------------
+Full disassembly: nested serializer FUN_00910450
+----------------------------------------------------------------------
+  0x00910450: PUSH EBP
+  0x00910451: MOV EBP,ESP
+  0x00910453: SUB ESP,0x1c
+  0x00910456: MOV dword ptr [EBP + -0x18],ECX
+  0x00910459: MOV EAX,dword ptr [EBP + 0x8]
+  0x0091045c: PUSH EAX
+  0x0091045d: MOV ECX,dword ptr [EBP + -0x18]
+  0x00910460: CALL 0x008d0f30
+  0x00910465: PUSH 0x0
+  0x00910467: PUSH 0x1
+  0x00910469: MOV ECX,dword ptr [EBP + -0x18]
+  0x0091046c: ADD ECX,0x30
+  0x0091046f: PUSH ECX
+  0x00910470: MOV ECX,dword ptr [EBP + 0x8]
+  0x00910473: CALL 0x00865e50
+  0x00910478: PUSH 0x0
+  0x0091047a: PUSH 0x4
+  0x0091047c: MOV EDX,dword ptr [EBP + -0x18]
+  0x0091047f: ADD EDX,0xa4
+  0x00910485: PUSH EDX
+  0x00910486: MOV ECX,dword ptr [EBP + 0x8]
+  0x00910489: CALL 0x00865e50
+  0x0091048e: PUSH 0x0
+  0x00910490: MOV EAX,dword ptr [EBP + -0x18]
+  0x00910493: MOV ECX,dword ptr [EAX + 0x34]
+  0x00910496: PUSH ECX
+  0x00910497: MOV ECX,dword ptr [EBP + 0x8]
+  0x0091049a: CALL 0x00865df0
+  0x0091049f: PUSH 0x0
+  0x009104a1: PUSH 0x4
+  0x009104a3: MOV EDX,dword ptr [EBP + -0x18]
+  0x009104a6: ADD EDX,0x58
+  0x009104a9: PUSH EDX
+  0x009104aa: MOV ECX,dword ptr [EBP + 0x8]
+  0x009104ad: CALL 0x00865e50
+  0x009104b2: PUSH 0x0
+  0x009104b4: PUSH 0x4
+  0x009104b6: MOV EAX,dword ptr [EBP + -0x18]
+  0x009104b9: ADD EAX,0xa8
+  0x009104be: PUSH EAX
+  0x009104bf: MOV ECX,dword ptr [EBP + 0x8]
+  0x009104c2: CALL 0x00865e50
+  0x009104c7: PUSH 0x0
+  0x009104c9: PUSH 0x4
+  0x009104cb: MOV ECX,dword ptr [EBP + -0x18]
+  0x009104ce: ADD ECX,0xac
+  0x009104d4: PUSH ECX
+  0x009104d5: MOV ECX,dword ptr [EBP + 0x8]
+  0x009104d8: CALL 0x00865e50
+  0x009104dd: PUSH 0x0
+  0x009104df: PUSH 0x1
+  0x009104e1: MOV EDX,dword ptr [EBP + -0x18]
+  0x009104e4: ADD EDX,0xb0
+  0x009104ea: PUSH EDX
+  0x009104eb: MOV ECX,dword ptr [EBP + 0x8]
+  0x009104ee: CALL 0x00865e50
+  0x009104f3: PUSH 0x0
+  0x009104f5: PUSH 0x2
+  0x009104f7: MOV EAX,dword ptr [EBP + -0x18]
+  0x009104fa: ADD EAX,0x50
+  0x009104fd: PUSH EAX
+  0x009104fe: MOV ECX,dword ptr [EBP + 0x8]
+  0x00910501: CALL 0x00865e50
+  0x00910506: MOV ECX,dword ptr [EBP + 0x8]
+  0x00910509: PUSH ECX
+  0x0091050a: MOV ECX,dword ptr [EBP + -0x18]
+  0x0091050d: ADD ECX,0x38
+  0x00910510: CALL 0x009a5eb0
+  0x00910515: MOV EDX,dword ptr [EBP + -0x18]
+  0x00910518: CMP dword ptr [EDX + 0x64],0x0
+  0x0091051c: JNZ 0x00910529
+  0x0091051e: MOV EAX,dword ptr [EBP + -0x18]
+  0x00910521: MOV ECX,dword ptr [EAX + 0x40]
+  0x00910524: MOV dword ptr [EBP + -0x1c],ECX
+  0x00910527: JMP 0x00910530
+  0x00910529: MOV dword ptr [EBP + -0x1c],0x0
+  0x00910530: PUSH 0x0
+  0x00910532: MOV EDX,dword ptr [EBP + -0x1c]
+  0x00910535: PUSH EDX
+  0x00910536: MOV ECX,dword ptr [EBP + 0x8]
+  0x00910539: CALL 0x00865df0
+  0x0091053e: PUSH 0x0
+  0x00910540: MOV EAX,dword ptr [EBP + -0x18]
+  0x00910543: MOV ECX,dword ptr [EAX + 0x44]
+  0x00910546: PUSH ECX
+  0x00910547: MOV ECX,dword ptr [EBP + 0x8]
+  0x0091054a: CALL 0x00865df0
+  0x0091054f: PUSH 0x0
+  0x00910551: MOV EDX,dword ptr [EBP + -0x18]
+  0x00910554: MOV EAX,dword ptr [EDX + 0x48]
+  0x00910557: PUSH EAX
+  0x00910558: MOV ECX,dword ptr [EBP + 0x8]
+  0x0091055b: CALL 0x00865df0
+  0x00910560: PUSH 0x0
+  0x00910562: MOV ECX,dword ptr [EBP + -0x18]
+  0x00910565: MOV EDX,dword ptr [ECX + 0x4c]
+  0x00910568: PUSH EDX
+  0x00910569: MOV ECX,dword ptr [EBP + 0x8]
+  0x0091056c: CALL 0x00865df0
+  0x00910571: PUSH 0x0
+  0x00910573: MOV EAX,dword ptr [EBP + -0x18]
+  0x00910576: MOV ECX,dword ptr [EAX + 0x54]
+  0x00910579: PUSH ECX
+  0x0091057a: MOV ECX,dword ptr [EBP + 0x8]
+  0x0091057d: CALL 0x00865df0
+  0x00910582: MOV dword ptr [EBP + -0x4],0x0
+  0x00910589: MOV ECX,dword ptr [EBP + 0x8]
+  0x0091058c: CALL 0x00865f20
+  0x00910591: MOV dword ptr [EBP + -0x8],EAX
+  0x00910594: MOV EDX,dword ptr [EBP + -0x18]
+  0x00910597: ADD EDX,0x6c
+  0x0091059a: MOV dword ptr [EBP + -0xc],EDX
+  0x0091059d: CMP dword ptr [EBP + -0xc],0x0
+  0x009105a1: JZ 0x009105da
+  0x009105a3: MOV ECX,dword ptr [EBP + -0xc]
+  0x009105a6: CALL 0x006815c0
+  0x009105ab: MOV EAX,dword ptr [EAX]
+  0x009105ad: MOV dword ptr [EBP + -0x10],EAX
+  0x009105b0: CMP dword ptr [EBP + -0x10],0x0
+  0x009105b4: JZ 0x009105cd
+  0x009105b6: PUSH 0x0
+  0x009105b8: MOV ECX,dword ptr [EBP + -0x10]
+  0x009105bb: PUSH ECX
+  0x009105bc: MOV ECX,dword ptr [EBP + 0x8]
+  0x009105bf: CALL 0x00865df0
+  0x009105c4: MOV EDX,dword ptr [EBP + -0x4]
+  0x009105c7: ADD EDX,0x1
+  0x009105ca: MOV dword ptr [EBP + -0x4],EDX
+  0x009105cd: MOV ECX,dword ptr [EBP + -0xc]
+  0x009105d0: CALL 0x00726070
+  0x009105d5: MOV dword ptr [EBP + -0xc],EAX
+  0x009105d8: JMP 0x0091059d
+  0x009105da: MOV EAX,dword ptr [EBP + -0x8]
+  0x009105dd: PUSH EAX
+  0x009105de: MOV ECX,dword ptr [EBP + -0x4]
+  0x009105e1: PUSH ECX
+  0x009105e2: MOV ECX,dword ptr [EBP + 0x8]
+  0x009105e5: CALL 0x00865ff0
+  0x009105ea: PUSH 0x200000
+  0x009105ef: LEA EDX,[EBP + -0x14]
+  0x009105f2: PUSH EDX
+  0x009105f3: MOV ECX,dword ptr [EBP + 0x8]
+  0x009105f6: CALL 0x00428110
+  0x009105fb: MOV ECX,EAX
+  0x009105fd: CALL 0x004280f0
+  0x00910602: MOVZX EAX,AL
+  0x00910605: TEST EAX,EAX
+  0x00910607: JZ 0x0091061b
+  0x00910609: MOV ECX,dword ptr [EBP + 0x8]
+  0x0091060c: PUSH ECX
+  0x0091060d: MOV ECX,dword ptr [EBP + -0x18]
+  0x00910610: ADD ECX,0x94
+  0x00910616: CALL 0x00937b50
+  0x0091061b: MOV ESP,EBP
+  0x0091061d: POP EBP
+  0x0091061e: RET 0x4
+
+======================================================================
+nested serializer FUN_00910450 @ 0x00910450
+======================================================================
+  Function: FUN_00910450 @ 0x00910450, Size: 465 bytes
+
+void __thiscall FUN_00910450(int param_1,undefined4 param_2)
+
+{
+  char cVar1;
+  int *piVar2;
+  undefined4 uVar3;
+  undefined4 local_20;
+  undefined1 local_18 [4];
+  int local_14;
+  int local_10;
+  undefined4 local_c;
+  int local_8;
+  
+  FUN_008d0f30(param_2);
+  FUN_00865e50(param_1 + 0x30,1,0);
+  FUN_00865e50(param_1 + 0xa4,4,0);
+  FUN_00865df0(*(undefined4 *)(param_1 + 0x34),0);
+  FUN_00865e50(param_1 + 0x58,4,0);
+  FUN_00865e50(param_1 + 0xa8,4,0);
+  FUN_00865e50(param_1 + 0xac,4,0);
+  FUN_00865e50(param_1 + 0xb0,1,0);
+  FUN_00865e50(param_1 + 0x50,2,0);
+  FUN_009a5eb0(param_2);
+  if (*(int *)(param_1 + 100) == 0) {
+    local_20 = *(undefined4 *)(param_1 + 0x40);
+  }
+  else {
+    local_20 = 0;
+  }
+  FUN_00865df0(local_20,0);
+  FUN_00865df0(*(undefined4 *)(param_1 + 0x44),0);
+  FUN_00865df0(*(undefined4 *)(param_1 + 0x48),0);
+  FUN_00865df0(*(undefined4 *)(param_1 + 0x4c),0);
+  FUN_00865df0(*(undefined4 *)(param_1 + 0x54),0);
+  local_8 = 0;
+  local_c = FUN_00865f20();
+  local_10 = param_1 + 0x6c;
+  while (local_10 != 0) {
+    piVar2 = (int *)FUN_006815c0();
+    local_14 = *piVar2;
+    if (local_14 != 0) {
+      FUN_00865df0(local_14,0);
+      local_8 = local_8 + 1;
+    }
+    local_10 = FUN_00726070();
+  }
+  FUN_00865ff0(local_8,local_c);
+  uVar3 = 0x200000;
+  FUN_00428110(local_18);
+  cVar1 = FUN_004280f0(uVar3);
+  if (cVar1 != '\0') {
+    FUN_00937b50(param_2);
+  }
+  return;
+}
+
+
+
+--- Calls FROM nested serializer (0x00910450) ---
+  0x00910460 -> 0x008d0f30 FUN_008d0f30
+  0x00910473 -> 0x00865e50 FUN_00865e50
+  0x00910489 -> 0x00865e50 FUN_00865e50
+  0x0091049a -> 0x00865df0 FUN_00865df0
+  0x009104ad -> 0x00865e50 FUN_00865e50
+  0x009104c2 -> 0x00865e50 FUN_00865e50
+  0x009104d8 -> 0x00865e50 FUN_00865e50
+  0x009104ee -> 0x00865e50 FUN_00865e50
+  0x00910501 -> 0x00865e50 FUN_00865e50
+  0x00910510 -> 0x009a5eb0 FUN_009a5eb0
+  0x00910539 -> 0x00865df0 FUN_00865df0
+  0x0091054a -> 0x00865df0 FUN_00865df0
+  0x0091055b -> 0x00865df0 FUN_00865df0
+  0x0091056c -> 0x00865df0 FUN_00865df0
+  0x0091057d -> 0x00865df0 FUN_00865df0
+  0x0091058c -> 0x00865f20 FUN_00865f20
+  0x009105a6 -> 0x006815c0 FUN_006815c0
+  0x009105bf -> 0x00865df0 FUN_00865df0
+  0x009105d0 -> 0x00726070 FUN_00726070
+  0x009105e5 -> 0x00865ff0 FUN_00865ff0
+  0x009105f6 -> 0x00428110 FUN_00428110
+  0x009105fd -> 0x004280f0 FUN_004280f0
+  0x00910616 -> 0x00937b50 FUN_00937b50
+  Total: 23 calls
+
+======================================================================
+sibling load serializer @ 0x00910310
+======================================================================
+  Function: FUN_00910310 @ 0x00910310, Size: 313 bytes
+
+void __thiscall FUN_00910310(int *param_1,uint param_2,undefined4 param_3)
+
+{
+  char cVar1;
+  int *piVar2;
+  int local_8;
+  
+  FUN_008d0f10(param_2,param_3);
+  cVar1 = FUN_0055f5b0();
+  if (cVar1 != '\0') {
+    param_1[0x16] = 0;
+    while (cVar1 = FUN_008256d0(), cVar1 == '\0') {
+      piVar2 = (int *)FUN_006815c0();
+      local_8 = *piVar2;
+      FUN_00905330(&local_8);
+      if (local_8 != 0) {
+        FUN_007b3fa0(1);
+      }
+    }
+    FUN_00470470();
+    param_1[0x19] = 0;
+    param_1[0x1a] = 0;
+    (**(code **)(*param_1 + 300))(0);
+    param_1[0x11] = 0;
+    param_1[0x29] = 0;
+    param_1[0xd] = 0;
+    param_1[0x2a] = 0;
+    *(undefined1 *)(param_1 + 0xc) = 0;
+    param_1[0x2b] = 0;
+  }
+  cVar1 = FUN_00440d80();
+  if (cVar1 == '\0') {
+    FUN_0055f5b0();
+  }
+  if ((param_2 & 0x200000) != 0) {
+    FUN_00937b30();
+  }
+  return;
+}
+
+
+
+======================================================================
+sibling serializer variant @ 0x00910630
+======================================================================
+  Function: FUN_00910630 @ 0x00910630, Size: 494 bytes
+
+void __thiscall FUN_00910630(int param_1,undefined4 *param_2)
+
+{
+  byte bVar1;
+  char cVar2;
+  undefined4 uVar3;
+  undefined1 local_1c [4];
+  undefined4 local_18;
+  uint local_14;
+  uint local_10;
+  undefined1 local_c [4];
+  undefined1 local_8 [4];
+  
+  FUN_008d0f90(param_2);
+  bVar1 = (**(code **)*param_2)();
+  if (bVar1 < 6) {
+    FUN_00864980(local_8,4);
+    FUN_00864980(local_c,4);
+  }
+  FUN_00864980(param_1 + 0x30,1);
+  FUN_00864980(param_1 + 0xa4,4);
+  uVar3 = FUN_008648a0(&PTR_PTR_01183028,&PTR_PTR_01183108,0);
+  uVar3 = FUN_004839c0(uVar3);
+  uVar3 = FUN_00ec43fb(uVar3,0);
+  *(undefined4 *)(param_1 + 0x34) = uVar3;
+  FUN_00864980(param_1 + 0x58,4);
+  FUN_00864980(param_1 + 0xa8,4);
+  FUN_00864980(param_1 + 0xac,4);
+  FUN_00864980(param_1 + 0xb0,1);
+  FUN_00864980(param_1 + 0x50,2);
+  FUN_009a5f20(param_2);
+  FUN_008648e0(param_1 + 0x40);
+  FUN_008648e0(param_1 + 0x44);
+  FUN_008648e0(param_1 + 0x48);
+  uVar3 = FUN_008648a0(&PTR_PTR_01183028,&PTR_PTR_011863d4,0);
+  uVar3 = FUN_004839c0(uVar3);
+  uVar3 = FUN_00ec43fb(uVar3,0);
+  *(undefined4 *)(param_1 + 0x4c) = uVar3;
+  FUN_008648e0(param_1 + 0x54);
+  local_10 = FUN_00864a60();
+  for (local_14 = 0; local_14 < local_10; local_14 = local_14 + 1) {
+    local_18 = 0;
+    FUN_008648e0(&local_18);
+    FUN_005ae3d0(&local_18);
+  }
+  uVar3 = 0x200000;
+  FUN_00428110(local_1c);
+  cVar2 = FUN_004280f0(uVar3);
+  if (cVar2 != '\0') {
+    FUN_00937c60(param_2);
+  }
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00910450 (nested serializer)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0092ea40 (in FUN_0092ea30)
+  DATA @ 0x01088c30 (in ???)
+  Total: 2 refs
+
+----------------------------------------------------------------------
+References TO 0x00910310 (sibling load serializer)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0092ea02 (in FUN_0092e9f0)
+  DATA @ 0x01088c50 (in ???)
+  Total: 2 refs
+
+----------------------------------------------------------------------
+References TO 0x00910630 (sibling serializer variant)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0092eab0 (in FUN_0092eaa0)
+  DATA @ 0x01088c38 (in ???)
+  Total: 2 refs

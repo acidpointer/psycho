@@ -110,6 +110,18 @@ havok_remove_agent_null_reread_guard = true
 # calls memset(NULL, ...). This turns that memset into a no-op.
 memset_null_dst_guard = true
 
+# Enforces the engine ownership contract for
+# LowProcess::genericLocationsList regardless of which mod, if any, replaces
+# the cleanup vtable slots. Matching list nodes are removed without freeing
+# their non-owned TESObjectREFR payloads. Already-corrupt save entries are
+# converted to NULL at the precise serializer callsite.
+lowprocess_generic_locations_fix = true
+
+# Prevents queued tasks from reaching virtual callbacks or final-release paths
+# after their intrusive reference count has already reached zero. This is an
+# engine fix and remains active in every allocator mode.
+queued_task_lifetime_guard = true
+
 [performance]
 # Replace the game's Mersenne Twister RNG with a faster compatible path.
 #
@@ -219,3 +231,7 @@ debug_log = true
 # false = keep low-overhead hang, memory, and guard diagnostics without per-frame
 #         timing work. Recommended for normal play.
 hitch_profiling = false
+
+# Record queued-task retain/release/dispatch provenance in a fixed ring.
+# Keep disabled outside focused crash research; production guards do not need it.
+task_lifetime_trace = false

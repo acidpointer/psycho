@@ -12,6 +12,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use libpsycho::common::helpers::format_bytes;
 
+use crate::mods::engine_fixes;
+
 use super::gheap::{block, pool, va_alloc, vas};
 use super::{AllocatorMode, current_mode, scrap_heap};
 
@@ -53,11 +55,13 @@ impl MemStats {
 
     /// Detailed multi-line report for console.
     pub fn detailed_report() -> String {
-        match current_mode() {
+        let mut report = match current_mode() {
             Some(AllocatorMode::GheapAndScrapHeap) => Self::gheap_report(),
             Some(AllocatorMode::ScrapHeap) => Self::scrap_heap_report(),
             Some(AllocatorMode::Disabled) | None => Self::vanilla_report(),
-        }
+        };
+        engine_fixes::append_diagnostic_report(&mut report);
+        report
     }
 
     fn vanilla_report() -> String {
