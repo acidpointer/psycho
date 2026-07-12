@@ -130,12 +130,11 @@ It is also designed to be compatible with common engine/plugin stacks, but any
 mod that patches the same engine code can conflict. If something breaks, report
 it with logs and your mod list.
 
-The display fix recognizes six audited exclusive-fullscreen window paths:
-startup placement, device reset, child resize, focus regain/loss, and renderer
-lifecycle. Each receives its own narrow policy; borderless, windowed, and all
-unrecognized calls pass through unchanged. Existing `SetWindowPos` IAT hooks
-are chained, while directly modified callsites are reported and left under
-their current owner's control.
+The display fix recognizes the visible bootstrap creation plus six audited
+window-placement paths. Each receives its own narrow policy; borderless,
+windowed, and all unrecognized calls pass through unchanged. Existing
+`CreateWindowExA` and `SetWindowPos` IAT hooks are chained, while directly
+modified callsites are reported and left under their current owner's control.
 
 ## Syringe
 

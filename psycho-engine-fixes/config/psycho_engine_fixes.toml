@@ -38,16 +38,16 @@ allocator = 2
 # Fixes exclusive-fullscreen placement during startup, renderer reset, and
 # Alt-Tab transitions.
 #
-# New Vegas can initially place the fullscreen client area partly off-monitor.
-# Three later engine paths also construct a negative-height window move. Psycho
-# aligns startup/reset placement to the requested monitor, repairs the valid
-# regain and renderer-lifecycle moves, and suppresses the focus-loss move that
-# would raise the game window again. The game remains responsible for focus
-# state and D3D9 device recovery.
+# New Vegas creates a visible 320x240 bootstrap window and never resizes it on
+# the exclusive-fullscreen branch. Three later engine paths also construct a
+# negative-height window move. Psycho creates the bootstrap at the configured
+# render size, repairs reset/regain/renderer-lifecycle placement, and suppresses
+# the focus-loss move that would raise the game window again. The game remains
+# responsible for focus state and D3D9 device recovery.
 #
 # The fix recognizes exact engine instruction and argument patterns. It chains
-# an existing SetWindowPos IAT hook, while callsites changed directly by another
-# mod are reported and left untouched.
+# existing CreateWindowExA and SetWindowPos IAT hooks, while callsites changed
+# directly by another mod are reported and left untouched.
 #
 # true  = apply the exclusive-fullscreen placement fix.
 # false = preserve the game's original window behavior.

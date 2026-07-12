@@ -101,7 +101,14 @@ pub(crate) fn append_diagnostic_report(out: &mut String) {
     let task = queued_tasks::diagnostic_snapshot();
     out.push_str("\n==== Engine fixes ====\n");
     out.push_str(&format!(
-        "  Display: installed={} predecessor=0x{:08X} vanilla={} sites={}/{}/{}/{}/{}/{} create={}/{} reset={}/{} child={} loss={} regain={} lifecycle={} catchup={}/{}/{} mismatches={} failures={} monitors={}/{}/{} restores={} last_tick={} result={} error={}\n",
+        "  Display: create=installed:{} predecessor:0x{:08X} vanilla:{} site:{} calls:{}/{}/{} setpos=installed:{} predecessor:0x{:08X} vanilla:{} sites:{}/{}/{}/{}/{}/{} windowed:{} reset:{}/{} child:{} loss:{} regain:{} lifecycle:{} catchup:{}/{}/{} mismatches:{} failures:{} monitors:{}/{}/{} restores:{} last_tick:{} result:{} error:{}\n",
+        display.create_window_installed,
+        display.create_window_predecessor,
+        display.create_window_predecessor_vanilla,
+        display::site_state_name(display.bootstrap_create_state),
+        display.bootstrap_create_observations,
+        display.bootstrap_create_corrections,
+        display.bootstrap_create_failures,
         display.installed,
         display.predecessor,
         display.predecessor_vanilla,
@@ -111,8 +118,7 @@ pub(crate) fn append_diagnostic_report(out: &mut String) {
         display::site_state_name(display.site_states[3]),
         display::site_state_name(display.site_states[4]),
         display::site_state_name(display.site_states[5]),
-        display.renderer_creation_observations,
-        display.renderer_creation_corrections,
+        display.windowed_parent_passthroughs,
         display.device_reset_observations,
         display.device_reset_corrections,
         display.child_resize_passthroughs,

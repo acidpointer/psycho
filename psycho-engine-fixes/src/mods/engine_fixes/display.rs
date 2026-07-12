@@ -1,28 +1,32 @@
 //! Repairs FalloutNV.exe's exclusive-fullscreen window placement calls.
 //!
-//! The startup/reset paths use valid geometry but place the outer window at the
-//! configured location, leaving the fullscreen client area offset from its
-//! monitor. Three later paths also pass the adjusted bottom edge as `y` and
-//! `top - bottom` as the height, producing malformed focus/lifecycle moves.
+//! The exclusive startup path creates a visible 320x240 bootstrap window and
+//! never applies the windowed renderer's later placement call. Psycho corrects
+//! that one audited `CreateWindowExA` request to the loaded render size before
+//! the window becomes visible.
+//! Three later paths also pass the adjusted bottom edge as `y` and `top - bottom`
+//! as the height, producing malformed focus/lifecycle moves.
 //!
 //! Psycho owns only narrow, callsite-specific correction boundaries:
-//! - renderer creation/reset: preserve size and align the client to its monitor;
+//! - exclusive bootstrap creation: preserve the engine origin and use render size;
+//! - windowed renderer placement and child resize: pass through unchanged;
+//! - device reset: preserve size and align the client to its monitor;
 //! - focus regain: restore an iconic window, normalize the rectangle, and call;
 //! - focus loss: suppress the activating window move;
 //! - renderer lifecycle: normalize the rectangle and call.
-//! - renderer child resize: pass through unchanged.
 //!
 //! The game's focus managers and D3D9 reset path remain untouched. Installation
-//! replaces only FalloutNV.exe's `SetWindowPos` IAT pointer. An earlier IAT hook
-//! is captured and chained, while directly modified or unknown callsites are
-//! reported and left alone.
+//! replaces FalloutNV.exe's `CreateWindowExA` and `SetWindowPos` IAT pointers.
+//! Earlier IAT hooks are captured and chained, while directly modified or
+//! unknown callsites are reported and left alone.
 //!
 //! Engine addresses and instruction contracts are proven by:
 //! - `analysis/ghidra/output/perf/display_current_fix_contract_audit.txt`
 //! - `analysis/ghidra/output/perf/display_focus_timer_target_followup.txt`
 //! - `analysis/ghidra/output/perf/display_startup_position_followup.txt`
+//! - `analysis/ghidra/output/perf/display_exclusive_startup_owner_followup.txt`
 
-use std::ffi::c_void;
+use std::ffi::{c_char, c_void};
 use std::slice;
 use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU32, AtomicUsize, Ordering};
 
@@ -40,9 +44,13 @@ use windows::Win32::System::Memory::{
 
 /// FalloutNV.exe's imported `user32!SetWindowPos` pointer.
 const SET_WINDOW_POS_IAT: usize = 0x00FDF2A4;
+const CREATE_WINDOW_EX_A_IAT: usize = 0x00FDF2B8;
 const FULLSCREEN_PREDICATE: usize = 0x00446E10;
+const INT_SETTING_ACCESSOR: usize = 0x004503F0;
 const TOP_LEVEL_HWND_GLOBAL: usize = 0x011C6FC0;
 const RENDERER_CHILD_HWND_GLOBAL: usize = 0x011C6FBC;
+const SIZE_WIDTH_SETTING: usize = 0x011C73DC;
+const SIZE_HEIGHT_SETTING: usize = 0x011C718C;
 const SW_RESTORE: i32 = 9;
 const SWP_NOSIZE: u32 = 0x0001;
 const SWP_NOZORDER: u32 = 0x0004;
@@ -50,18 +58,34 @@ const SWP_NOACTIVATE: u32 = 0x0010;
 const SWP_SHOWWINDOW: u32 = 0x0040;
 const SWP_ASYNCWINDOWPOS: u32 = 0x4000;
 const CATCH_UP_FLAGS: u32 = SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_ASYNCWINDOWPOS;
+const WS_VISIBLE: u32 = 0x1000_0000;
 
 /// Reject corrupt runtime arguments before applying an audited correction.
 const MAX_WINDOW_EXTENT: i32 = 32768;
 
 type SetWindowPosFn =
     unsafe extern "system" fn(*mut c_void, *mut c_void, i32, i32, i32, i32, u32) -> i32;
+type CreateWindowExAFn = unsafe extern "system" fn(
+    u32,
+    *const c_char,
+    *const c_char,
+    u32,
+    i32,
+    i32,
+    i32,
+    i32,
+    *mut c_void,
+    *mut c_void,
+    *mut c_void,
+    *mut c_void,
+) -> *mut c_void;
 type IsFullscreenFn = unsafe extern "C" fn() -> u8;
+type IntSettingFn = unsafe extern "fastcall" fn(usize) -> i32;
 
 #[derive(Clone, Copy, Debug)]
 #[repr(u8)]
 enum TransitionSite {
-    RendererCreation = 0,
+    WindowedParentPlacement = 0,
     DeviceReset = 1,
     ChildResize = 2,
     FocusRegain = 3,
@@ -71,7 +95,7 @@ enum TransitionSite {
 
 impl TransitionSite {
     const ALL: [Self; 6] = [
-        Self::RendererCreation,
+        Self::WindowedParentPlacement,
         Self::DeviceReset,
         Self::ChildResize,
         Self::FocusRegain,
@@ -85,7 +109,7 @@ impl TransitionSite {
 
     const fn name(self) -> &'static str {
         match self {
-            Self::RendererCreation => "renderer-create",
+            Self::WindowedParentPlacement => "windowed-parent",
             Self::DeviceReset => "device-reset",
             Self::ChildResize => "child-resize",
             Self::FocusRegain => "focus-regain",
@@ -96,7 +120,7 @@ impl TransitionSite {
 
     const fn from_return_address(address: usize) -> Option<Self> {
         match address {
-            0x004DA957 => Some(Self::RendererCreation),
+            0x004DA957 => Some(Self::WindowedParentPlacement),
             0x004DC4D4 => Some(Self::DeviceReset),
             0x004D7867 => Some(Self::ChildResize),
             0x0086B4C5 => Some(Self::FocusRegain),
@@ -147,8 +171,34 @@ struct CallsiteContract {
     expected: &'static [u8],
 }
 
-// 0x004DA8FE..0x004DA957: renderer size, configured location, HWND, and show.
-const RENDERER_CREATION_BYTES: &[u8] = &[
+struct ByteContract {
+    start: usize,
+    call_offset: usize,
+    expected: &'static [u8],
+}
+
+// 0x0086AF12..0x0086AF48: visible 320x240 bootstrap window construction.
+const BOOTSTRAP_CREATE_BYTES: &[u8] = &[
+    0x6A, 0x00, 0x8B, 0x55, 0x08, 0x52, 0x6A, 0x00, 0x6A,
+    0x00, // param, instance, menu, parent
+    0x8B, 0x45, 0xF0, 0x2B, 0x45, 0xE8, 0x50, // height
+    0x8B, 0x4D, 0xEC, 0x2B, 0x4D, 0xE4, 0x51, // width
+    0x6A, 0x00, 0x6A, 0x00, // y, x
+    0x68, 0x00, 0x00, 0x00, 0x10, // WS_VISIBLE
+    0x8B, 0x15, 0xE8, 0x2F, 0x1A, 0x01, 0x52, // title
+    0xA1, 0xE8, 0x2F, 0x1A, 0x01, 0x50, // class
+    0x6A, 0x00, // extended style
+    0xFF, 0x15, 0xB8, 0xF2, 0xFD, 0x00, // call [CreateWindowExA IAT]
+];
+
+const BOOTSTRAP_CREATE_CONTRACT: ByteContract = ByteContract {
+    start: 0x0086AF12,
+    call_offset: 0x30,
+    expected: BOOTSTRAP_CREATE_BYTES,
+};
+
+// 0x004DA8FE..0x004DA957: windowed parent placement only.
+const WINDOWED_PARENT_PLACEMENT_BYTES: &[u8] = &[
     0x8B, 0x8D, 0xA4, 0xFE, 0xFF, 0xFF, 0x2B, 0x8D, 0x9C, 0xFE, 0xFF, 0xFF, 0x89, 0x8D, 0xAC, 0xFE,
     0xFF, 0xFF, // adjusted width
     0x8B, 0x95, 0xA8, 0xFE, 0xFF, 0xFF, 0x2B, 0x95, 0xA0, 0xFE, 0xFF, 0xFF, 0x89, 0x95, 0x98, 0xFE,
@@ -218,10 +268,10 @@ const RENDERER_LIFECYCLE_BYTES: &[u8] = &[
 
 const CALLSITE_CONTRACTS: [CallsiteContract; 6] = [
     CallsiteContract {
-        site: TransitionSite::RendererCreation,
+        site: TransitionSite::WindowedParentPlacement,
         start: 0x004DA8FE,
         call_offset: 0x53,
-        expected: RENDERER_CREATION_BYTES,
+        expected: WINDOWED_PARENT_PLACEMENT_BYTES,
     },
     CallsiteContract {
         site: TransitionSite::DeviceReset,
@@ -260,16 +310,24 @@ const FULLSCREEN_PREDICATE_BYTES: &[u8] = &[
     0xC3,
 ];
 
+const INT_SETTING_ACCESSOR_BYTES: &[u8] = &[
+    0x55, 0x8B, 0xEC, 0x51, 0x89, 0x4D, 0xFC, 0x8B, 0x4D, 0xFC, 0xE8, 0xD1, 0xD0, 0xFE, 0xFF, 0x8B,
+    0x00, 0x8B, 0xE5, 0x5D, 0xC3,
+];
+
 const _: () = {
-    assert!(RENDERER_CREATION_BYTES.len() == 0x59);
+    assert!(BOOTSTRAP_CREATE_BYTES.len() == 0x36);
+    assert!(WINDOWED_PARENT_PLACEMENT_BYTES.len() == 0x59);
     assert!(DEVICE_RESET_BYTES.len() == 0x3E);
     assert!(CHILD_RESIZE_BYTES.len() == 0x2E);
     assert!(FOCUS_REGAIN_BYTES.len() == 0x36);
     assert!(FOCUS_LOSS_BYTES.len() == 0x36);
     assert!(RENDERER_LIFECYCLE_BYTES.len() == 0x29);
     assert!(FULLSCREEN_PREDICATE_BYTES.len() == 0x11);
+    assert!(INT_SETTING_ACCESSOR_BYTES.len() == 0x15);
 
-    assert!(CALLSITE_CONTRACTS[0].call_offset + 6 == RENDERER_CREATION_BYTES.len());
+    assert!(BOOTSTRAP_CREATE_CONTRACT.call_offset + 6 == BOOTSTRAP_CREATE_BYTES.len());
+    assert!(CALLSITE_CONTRACTS[0].call_offset + 6 == WINDOWED_PARENT_PLACEMENT_BYTES.len());
     assert!(CALLSITE_CONTRACTS[1].call_offset + 6 == DEVICE_RESET_BYTES.len());
     assert!(CALLSITE_CONTRACTS[2].call_offset + 6 == CHILD_RESIZE_BYTES.len());
     assert!(CALLSITE_CONTRACTS[3].call_offset + 6 == FOCUS_REGAIN_BYTES.len());
@@ -280,12 +338,19 @@ const _: () = {
 static INSTALLED: AtomicBool = AtomicBool::new(false);
 static PREDECESSOR: AtomicUsize = AtomicUsize::new(0);
 static PREDECESSOR_VANILLA: AtomicBool = AtomicBool::new(false);
+static CREATE_WINDOW_INSTALLED: AtomicBool = AtomicBool::new(false);
+static CREATE_WINDOW_PREDECESSOR: AtomicUsize = AtomicUsize::new(0);
+static CREATE_WINDOW_PREDECESSOR_VANILLA: AtomicBool = AtomicBool::new(false);
+static BOOTSTRAP_CREATE_COVERAGE: AtomicU8 = AtomicU8::new(CallsiteCoverage::Unknown as u8);
 static CALLSITE_COVERAGE: [AtomicU8; 6] =
     [const { AtomicU8::new(CallsiteCoverage::Unknown as u8) }; 6];
 static FULLSCREEN_PREDICATE_VALID: AtomicBool = AtomicBool::new(false);
+static INT_SETTING_ACCESSOR_VALID: AtomicBool = AtomicBool::new(false);
 
-static RENDERER_CREATION_OBSERVATIONS: AtomicU32 = AtomicU32::new(0);
-static RENDERER_CREATION_CORRECTIONS: AtomicU32 = AtomicU32::new(0);
+static BOOTSTRAP_CREATE_OBSERVATIONS: AtomicU32 = AtomicU32::new(0);
+static BOOTSTRAP_CREATE_CORRECTIONS: AtomicU32 = AtomicU32::new(0);
+static BOOTSTRAP_CREATE_FAILURES: AtomicU32 = AtomicU32::new(0);
+static WINDOWED_PARENT_PASSTHROUGHS: AtomicU32 = AtomicU32::new(0);
 static DEVICE_RESET_OBSERVATIONS: AtomicU32 = AtomicU32::new(0);
 static DEVICE_RESET_CORRECTIONS: AtomicU32 = AtomicU32::new(0);
 static CHILD_RESIZE_PASSTHROUGHS: AtomicU32 = AtomicU32::new(0);
@@ -310,9 +375,15 @@ pub(crate) struct DiagnosticSnapshot {
     pub installed: bool,
     pub predecessor: usize,
     pub predecessor_vanilla: bool,
+    pub create_window_installed: bool,
+    pub create_window_predecessor: usize,
+    pub create_window_predecessor_vanilla: bool,
+    pub bootstrap_create_state: CallsiteCoverage,
     pub site_states: [CallsiteCoverage; 6],
-    pub renderer_creation_observations: u32,
-    pub renderer_creation_corrections: u32,
+    pub bootstrap_create_observations: u32,
+    pub bootstrap_create_corrections: u32,
+    pub bootstrap_create_failures: u32,
+    pub windowed_parent_passthroughs: u32,
     pub device_reset_observations: u32,
     pub device_reset_corrections: u32,
     pub child_resize_passthroughs: u32,
@@ -338,9 +409,18 @@ pub(crate) fn diagnostic_snapshot() -> DiagnosticSnapshot {
         installed: INSTALLED.load(Ordering::Acquire),
         predecessor: PREDECESSOR.load(Ordering::Acquire),
         predecessor_vanilla: PREDECESSOR_VANILLA.load(Ordering::Acquire),
+        create_window_installed: CREATE_WINDOW_INSTALLED.load(Ordering::Acquire),
+        create_window_predecessor: CREATE_WINDOW_PREDECESSOR.load(Ordering::Acquire),
+        create_window_predecessor_vanilla: CREATE_WINDOW_PREDECESSOR_VANILLA
+            .load(Ordering::Acquire),
+        bootstrap_create_state: CallsiteCoverage::from_raw(
+            BOOTSTRAP_CREATE_COVERAGE.load(Ordering::Acquire),
+        ),
         site_states: TransitionSite::ALL.map(callsite_coverage),
-        renderer_creation_observations: RENDERER_CREATION_OBSERVATIONS.load(Ordering::Relaxed),
-        renderer_creation_corrections: RENDERER_CREATION_CORRECTIONS.load(Ordering::Relaxed),
+        bootstrap_create_observations: BOOTSTRAP_CREATE_OBSERVATIONS.load(Ordering::Relaxed),
+        bootstrap_create_corrections: BOOTSTRAP_CREATE_CORRECTIONS.load(Ordering::Relaxed),
+        bootstrap_create_failures: BOOTSTRAP_CREATE_FAILURES.load(Ordering::Relaxed),
+        windowed_parent_passthroughs: WINDOWED_PARENT_PASSTHROUGHS.load(Ordering::Relaxed),
         device_reset_observations: DEVICE_RESET_OBSERVATIONS.load(Ordering::Relaxed),
         device_reset_corrections: DEVICE_RESET_CORRECTIONS.load(Ordering::Relaxed),
         child_resize_passthroughs: CHILD_RESIZE_PASSTHROUGHS.load(Ordering::Relaxed),
@@ -397,6 +477,121 @@ impl WindowRequest {
 struct MalformedGeometry {
     top: i32,
     height: i32,
+}
+
+#[derive(Clone, Copy)]
+struct CreateWindowRequest {
+    extended_style: u32,
+    class_name: *const c_char,
+    window_name: *const c_char,
+    style: u32,
+    x: i32,
+    y: i32,
+    width: i32,
+    height: i32,
+    parent: *mut c_void,
+    menu: *mut c_void,
+    instance: *mut c_void,
+    param: *mut c_void,
+}
+
+impl CreateWindowRequest {
+    fn with_geometry(self, x: i32, y: i32, width: i32, height: i32) -> Self {
+        Self {
+            x,
+            y,
+            width,
+            height,
+            ..self
+        }
+    }
+}
+
+/// ABI bridge for FalloutNV.exe's imported `CreateWindowExA`.
+///
+/// The twelve stdcall arguments remain on the original stack. The bridge puts
+/// the caller return address in fastcall `ecx` and the Rust body retains the
+/// required 48-byte stdcall cleanup.
+#[unsafe(naked)]
+unsafe extern "system" fn create_window_ex_a_entry(
+    _extended_style: u32,
+    _class_name: *const c_char,
+    _window_name: *const c_char,
+    _style: u32,
+    _x: i32,
+    _y: i32,
+    _width: i32,
+    _height: i32,
+    _parent: *mut c_void,
+    _menu: *mut c_void,
+    _instance: *mut c_void,
+    _param: *mut c_void,
+) -> *mut c_void {
+    core::arch::naked_asm!(
+        "mov ecx, [esp]",
+        "xor edx, edx",
+        "jmp {}",
+        sym checked_create_window_ex_a,
+    );
+}
+
+unsafe extern "fastcall" fn checked_create_window_ex_a(
+    caller: usize,
+    _reserved: usize,
+    extended_style: u32,
+    class_name: *const c_char,
+    window_name: *const c_char,
+    style: u32,
+    x: i32,
+    y: i32,
+    width: i32,
+    height: i32,
+    parent: *mut c_void,
+    menu: *mut c_void,
+    instance: *mut c_void,
+    param: *mut c_void,
+) -> *mut c_void {
+    let request = CreateWindowRequest {
+        extended_style,
+        class_name,
+        window_name,
+        style,
+        x,
+        y,
+        width,
+        height,
+        parent,
+        menu,
+        instance,
+        param,
+    };
+
+    if !CREATE_WINDOW_INSTALLED.load(Ordering::Acquire)
+        || caller != 0x0086AF48
+        || CallsiteCoverage::from_raw(BOOTSTRAP_CREATE_COVERAGE.load(Ordering::Acquire))
+            != CallsiteCoverage::Covered
+    {
+        return unsafe { call_create_window_predecessor(request) };
+    }
+
+    BOOTSTRAP_CREATE_OBSERVATIONS.fetch_add(1, Ordering::Relaxed);
+    if !is_exclusive_fullscreen() {
+        return unsafe { call_create_window_predecessor(request) };
+    }
+    if !valid_bootstrap_create_request(request) {
+        record_bootstrap_contract_mismatch(caller, request);
+        return unsafe { call_create_window_predecessor(request) };
+    }
+    let Some((target_width, target_height)) = bootstrap_size() else {
+        record_bootstrap_contract_mismatch(caller, request);
+        return unsafe { call_create_window_predecessor(request) };
+    };
+
+    let corrected = request.with_geometry(request.x, request.y, target_width, target_height);
+    let count = BOOTSTRAP_CREATE_CORRECTIONS.fetch_add(1, Ordering::Relaxed) + 1;
+    let hwnd = unsafe { call_create_window_predecessor(corrected) };
+    record_bootstrap_create_result(count, hwnd, corrected);
+    hwnd
 }
 
 /// ABI bridge for an imported stdcall function.
@@ -459,9 +654,10 @@ unsafe extern "fastcall" fn checked_set_window_pos(
     }
 
     match site {
-        TransitionSite::RendererCreation => unsafe {
-            handle_valid_fullscreen_position(site, request, &RENDERER_CREATION_OBSERVATIONS)
-        },
+        TransitionSite::WindowedParentPlacement => {
+            WINDOWED_PARENT_PASSTHROUGHS.fetch_add(1, Ordering::Relaxed);
+            unsafe { call_predecessor(request) }
+        }
         TransitionSite::DeviceReset => unsafe {
             handle_valid_fullscreen_position(site, request, &DEVICE_RESET_OBSERVATIONS)
         },
@@ -496,6 +692,94 @@ unsafe extern "fastcall" fn checked_set_window_pos(
     }
 }
 
+fn valid_bootstrap_create_request(request: CreateWindowRequest) -> bool {
+    request.extended_style == 0
+        && request.style == WS_VISIBLE
+        && request.x == 0
+        && request.y == 0
+        && request.width == 320
+        && request.height == 240
+        && request.class_name == request.window_name
+        && !request.class_name.is_null()
+        && request.parent.is_null()
+        && request.menu.is_null()
+        && !request.instance.is_null()
+        && request.param.is_null()
+}
+
+fn bootstrap_size() -> Option<(i32, i32)> {
+    if !INT_SETTING_ACCESSOR_VALID.load(Ordering::Acquire) {
+        return None;
+    }
+
+    let width = read_int_setting(SIZE_WIDTH_SETTING)?;
+    let height = read_int_setting(SIZE_HEIGHT_SETTING)?;
+    if width <= 0 || width > MAX_WINDOW_EXTENT || height <= 0 || height > MAX_WINDOW_EXTENT {
+        return None;
+    }
+
+    Some((width, height))
+}
+
+fn read_int_setting(setting: usize) -> Option<i32> {
+    if !is_readable(setting, std::mem::size_of::<usize>()) {
+        return None;
+    }
+    let accessor: IntSettingFn = unsafe { std::mem::transmute(INT_SETTING_ACCESSOR) };
+    Some(unsafe { accessor(setting) })
+}
+
+fn record_bootstrap_contract_mismatch(caller: usize, request: CreateWindowRequest) {
+    let count = CONTRACT_MISMATCHES.fetch_add(1, Ordering::Relaxed) + 1;
+    if should_log(count) {
+        log::warn!(
+            "[DISPLAY] bootstrap-create contract mismatch #{} at 0x{:08X}: ({},{} {}x{}) style={:#x} ex={:#x}; chained unchanged",
+            count,
+            caller,
+            request.x,
+            request.y,
+            request.width,
+            request.height,
+            request.style,
+            request.extended_style,
+        );
+    }
+}
+
+fn record_bootstrap_create_result(count: u32, hwnd: *mut c_void, request: CreateWindowRequest) {
+    let error = if hwnd.is_null() {
+        BOOTSTRAP_CREATE_FAILURES.fetch_add(1, Ordering::Relaxed);
+        get_last_error_code()
+    } else {
+        0
+    };
+    LAST_TRANSITION_MS.store(get_tick_count(), Ordering::Release);
+    LAST_RESULT.store(!hwnd.is_null(), Ordering::Release);
+    LAST_ERROR.store(error, Ordering::Release);
+
+    if hwnd.is_null() {
+        log::warn!(
+            "[DISPLAY] corrected bootstrap CreateWindowExA #{} failed: error={} rect=({},{} {}x{})",
+            count,
+            error,
+            request.x,
+            request.y,
+            request.width,
+            request.height,
+        );
+        set_last_error(error);
+    } else {
+        log::info!(
+            "[DISPLAY] corrected exclusive bootstrap window #{}: rect=({},{} {}x{})",
+            count,
+            request.x,
+            request.y,
+            request.width,
+            request.height,
+        );
+    }
+}
+
 unsafe fn handle_valid_fullscreen_position(
     site: TransitionSite,
     request: WindowRequest,
@@ -515,9 +799,6 @@ unsafe fn handle_valid_fullscreen_position(
         return unsafe { call_predecessor(request) };
     };
     let count = match site {
-        TransitionSite::RendererCreation => {
-            RENDERER_CREATION_CORRECTIONS.fetch_add(1, Ordering::Relaxed) + 1
-        }
         TransitionSite::DeviceReset => DEVICE_RESET_CORRECTIONS.fetch_add(1, Ordering::Relaxed) + 1,
         _ => return unsafe { call_predecessor(request) },
     };
@@ -534,7 +815,7 @@ fn valid_position_request(request: WindowRequest) -> bool {
 
 const fn site_return_address(site: TransitionSite) -> usize {
     match site {
-        TransitionSite::RendererCreation => 0x004DA957,
+        TransitionSite::WindowedParentPlacement => 0x004DA957,
         TransitionSite::DeviceReset => 0x004DC4D4,
         TransitionSite::ChildResize => 0x004D7867,
         TransitionSite::FocusRegain => 0x0086B4C5,
@@ -787,6 +1068,33 @@ fn catch_up_existing_window() {
     }
 }
 
+unsafe fn call_create_window_predecessor(request: CreateWindowRequest) -> *mut c_void {
+    let target = CREATE_WINDOW_PREDECESSOR.load(Ordering::Acquire);
+    if target == 0 || target == create_window_ex_a_entry as *const () as usize {
+        PREDECESSOR_FAILURES.fetch_add(1, Ordering::Relaxed);
+        LAST_ERROR.store(0, Ordering::Release);
+        return std::ptr::null_mut();
+    }
+
+    let predecessor: CreateWindowExAFn = unsafe { std::mem::transmute(target) };
+    unsafe {
+        predecessor(
+            request.extended_style,
+            request.class_name,
+            request.window_name,
+            request.style,
+            request.x,
+            request.y,
+            request.width,
+            request.height,
+            request.parent,
+            request.menu,
+            request.instance,
+            request.param,
+        )
+    }
+}
+
 unsafe fn call_predecessor(request: WindowRequest) -> i32 {
     let target = PREDECESSOR.load(Ordering::Acquire);
     if target == 0 || target == set_window_pos_entry as *const () as usize {
@@ -813,26 +1121,63 @@ unsafe fn call_predecessor(request: WindowRequest) -> i32 {
 
 pub fn install_display_hooks() -> anyhow::Result<()> {
     let coverage = audit_callsites();
-    ensure!(
-        [0, 1, 3, 4, 5]
-            .into_iter()
-            .any(|index| coverage[index] == CallsiteCoverage::Covered),
-        "all corrective SetWindowPos callsites are externally owned or conflicted"
-    );
+    let bootstrap_coverage = audit_bootstrap_create_callsite();
     audit_fullscreen_predicate();
+    audit_int_setting_accessor();
 
-    let owner = claim_set_window_pos_iat()?;
-    INSTALLED.store(true, Ordering::Release);
-    catch_up_existing_window();
+    let mut installed_any = false;
+    let create_owner = if bootstrap_coverage == CallsiteCoverage::Covered
+        && FULLSCREEN_PREDICATE_VALID.load(Ordering::Acquire)
+        && INT_SETTING_ACCESSOR_VALID.load(Ordering::Acquire)
+    {
+        match claim_create_window_iat() {
+            Ok(owner) => {
+                CREATE_WINDOW_INSTALLED.store(true, Ordering::Release);
+                installed_any = true;
+                Some(owner)
+            }
+            Err(error) => {
+                log::warn!("[DISPLAY] bootstrap window correction unavailable: {error}");
+                None
+            }
+        }
+    } else {
+        None
+    };
+
+    let corrective_set_window_site = [1, 3, 4, 5]
+        .into_iter()
+        .any(|index| coverage[index] == CallsiteCoverage::Covered);
+    let set_window_owner = if corrective_set_window_site {
+        match claim_set_window_pos_iat() {
+            Ok(owner) => {
+                INSTALLED.store(true, Ordering::Release);
+                installed_any = true;
+                Some(owner)
+            }
+            Err(error) => {
+                log::warn!("[DISPLAY] transition correction unavailable: {error}");
+                None
+            }
+        }
+    } else {
+        None
+    };
+
+    ensure!(
+        installed_any,
+        "no audited display IAT boundary is available"
+    );
+
+    if set_window_owner.is_some() {
+        catch_up_existing_window();
+    }
 
     log::info!(
-        "[DISPLAY] Exclusive-fullscreen window fix installed: predecessor=0x{:08X} ({}) sites={}/{}/{}/{}/{}/{}",
-        owner.address,
-        if owner.is_vanilla {
-            "vanilla"
-        } else {
-            "external"
-        },
+        "[DISPLAY] Exclusive-fullscreen window fix installed: create={} setpos={} bootstrap={} sites={}/{}/{}/{}/{}/{}",
+        iat_owner_name(create_owner),
+        iat_owner_name(set_window_owner),
+        bootstrap_coverage.name(),
         coverage[0].name(),
         coverage[1].name(),
         coverage[2].name(),
@@ -849,64 +1194,107 @@ struct IatOwner {
     is_vanilla: bool,
 }
 
+fn iat_owner_name(owner: Option<IatOwner>) -> String {
+    match owner {
+        Some(owner) => format!(
+            "0x{:08X}:{}",
+            owner.address,
+            if owner.is_vanilla {
+                "vanilla"
+            } else {
+                "external"
+            }
+        ),
+        None => "off".to_owned(),
+    }
+}
+
+fn claim_create_window_iat() -> anyhow::Result<IatOwner> {
+    claim_iat_pointer(
+        "CreateWindowExA",
+        CREATE_WINDOW_EX_A_IAT,
+        create_window_ex_a_entry as *const () as *mut c_void,
+        &CREATE_WINDOW_PREDECESSOR,
+        &CREATE_WINDOW_PREDECESSOR_VANILLA,
+        vanilla_user32_proc("CreateWindowExA"),
+    )
+}
+
 fn claim_set_window_pos_iat() -> anyhow::Result<IatOwner> {
+    claim_iat_pointer(
+        "SetWindowPos",
+        SET_WINDOW_POS_IAT,
+        set_window_pos_entry as *const () as *mut c_void,
+        &PREDECESSOR,
+        &PREDECESSOR_VANILLA,
+        vanilla_user32_proc("SetWindowPos"),
+    )
+}
+
+fn claim_iat_pointer(
+    name: &str,
+    slot_address: usize,
+    shim: *mut c_void,
+    predecessor: &AtomicUsize,
+    predecessor_vanilla: &AtomicBool,
+    vanilla_target: Option<*mut c_void>,
+) -> anyhow::Result<IatOwner> {
     ensure!(
-        is_readable(SET_WINDOW_POS_IAT, std::mem::size_of::<*mut c_void>()),
-        "SetWindowPos IAT slot 0x{SET_WINDOW_POS_IAT:08X} is unreadable"
+        is_readable(slot_address, std::mem::size_of::<*mut c_void>()),
+        "{name} IAT slot 0x{slot_address:08X} is unreadable"
     );
     ensure!(
-        SET_WINDOW_POS_IAT.is_multiple_of(std::mem::align_of::<*mut c_void>()),
-        "SetWindowPos IAT slot is misaligned"
+        slot_address.is_multiple_of(std::mem::align_of::<*mut c_void>()),
+        "{name} IAT slot is misaligned"
     );
 
-    let slot = SET_WINDOW_POS_IAT as *mut *mut c_void;
-    let shim = set_window_pos_entry as *const () as *mut c_void;
-    let current = load_pointer(slot).context("read SetWindowPos IAT slot")?;
+    let slot = slot_address as *mut *mut c_void;
+    let current = load_pointer(slot).with_context(|| format!("read {name} IAT slot"))?;
 
     if current == shim {
-        let predecessor = PREDECESSOR.load(Ordering::Acquire);
+        let address = predecessor.load(Ordering::Acquire);
         ensure!(
-            predecessor != 0,
-            "Psycho owns the IAT slot without a predecessor"
+            address != 0,
+            "Psycho owns the {name} IAT slot without a predecessor"
         );
         return Ok(IatOwner {
-            address: predecessor,
-            is_vanilla: PREDECESSOR_VANILLA.load(Ordering::Acquire),
+            address,
+            is_vanilla: predecessor_vanilla.load(Ordering::Acquire),
         });
     }
 
     ensure!(
         is_executable(current as usize),
-        "SetWindowPos predecessor 0x{:08X} is not executable",
+        "{name} predecessor 0x{:08X} is not executable",
         current as usize
     );
 
     let owner = IatOwner {
         address: current as usize,
-        is_vanilla: vanilla_set_window_pos() == Some(current),
+        is_vanilla: vanilla_target == Some(current),
     };
 
     // Publish before the pointer swap. The shim may run as soon as the atomic
     // exchange succeeds, including through a later hook that captures it.
-    PREDECESSOR.store(owner.address, Ordering::Release);
-    PREDECESSOR_VANILLA.store(owner.is_vanilla, Ordering::Release);
+    predecessor.store(owner.address, Ordering::Release);
+    predecessor_vanilla.store(owner.is_vanilla, Ordering::Release);
 
-    let exchange =
-        compare_exchange_pointer(slot, current, shim).context("replace SetWindowPos IAT slot")?;
+    let exchange = compare_exchange_pointer(slot, current, shim)
+        .with_context(|| format!("replace {name} IAT slot"))?;
     if let PointerExchange::Mismatch(observed) = exchange {
-        PREDECESSOR.store(0, Ordering::Release);
-        PREDECESSOR_VANILLA.store(false, Ordering::Release);
+        predecessor.store(0, Ordering::Release);
+        predecessor_vanilla.store(false, Ordering::Release);
         anyhow::bail!(
-            "SetWindowPos IAT ownership changed during install: expected 0x{:08X}, found 0x{:08X}",
+            "{name} IAT ownership changed during install: expected 0x{:08X}, found 0x{:08X}",
             current as usize,
             observed as usize,
         );
     }
 
-    let observed = match load_pointer(slot).context("read back SetWindowPos IAT slot") {
+    let observed = match load_pointer(slot).with_context(|| format!("read back {name} IAT slot")) {
         Ok(observed) => observed,
         Err(error) => {
-            restore_predecessor_if_owned(slot, shim, current);
+            restore_predecessor_if_owned(name, slot, shim, current);
             return Err(error);
         }
     };
@@ -914,9 +1302,9 @@ fn claim_set_window_pos_iat() -> anyhow::Result<IatOwner> {
         // A later hook may legitimately own the slot and chain Psycho. Do not
         // overwrite it and do not clear PREDECESSOR: our shim must remain a
         // valid pass-through target in that external chain.
-        restore_predecessor_if_owned(slot, shim, current);
+        restore_predecessor_if_owned(name, slot, shim, current);
         anyhow::bail!(
-            "SetWindowPos IAT readback failed: expected 0x{:08X}, found 0x{:08X}",
+            "{name} IAT readback failed: expected 0x{:08X}, found 0x{:08X}",
             shim as usize,
             observed as usize,
         );
@@ -949,6 +1337,23 @@ fn audit_callsites() -> [CallsiteCoverage; 6] {
     coverage
 }
 
+fn audit_bootstrap_create_callsite() -> CallsiteCoverage {
+    let state = classify_bytes(
+        BOOTSTRAP_CREATE_CONTRACT.start,
+        BOOTSTRAP_CREATE_CONTRACT.call_offset,
+        BOOTSTRAP_CREATE_CONTRACT.expected,
+    );
+    BOOTSTRAP_CREATE_COVERAGE.store(state as u8, Ordering::Release);
+    match state {
+        CallsiteCoverage::Covered => log::info!("[DISPLAY] bootstrap-create callsite covered"),
+        CallsiteCoverage::ExternalOwner => log::warn!(
+            "[DISPLAY] bootstrap-create callsite has a direct external owner; left untouched"
+        ),
+        _ => log::warn!("[DISPLAY] bootstrap-create callsite fingerprint conflict; left untouched"),
+    }
+    state
+}
+
 fn audit_fullscreen_predicate() {
     let valid = is_readable(FULLSCREEN_PREDICATE, FULLSCREEN_PREDICATE_BYTES.len())
         && unsafe {
@@ -960,22 +1365,41 @@ fn audit_fullscreen_predicate() {
     FULLSCREEN_PREDICATE_VALID.store(valid, Ordering::Release);
     if !valid {
         log::warn!(
-            "[DISPLAY] fullscreen predicate fingerprint conflict; renderer creation/reset policies will pass through"
+            "[DISPLAY] fullscreen predicate fingerprint conflict; bootstrap/reset policies will pass through"
+        );
+    }
+}
+
+fn audit_int_setting_accessor() {
+    let valid = is_readable(INT_SETTING_ACCESSOR, INT_SETTING_ACCESSOR_BYTES.len())
+        && unsafe {
+            slice::from_raw_parts(
+                INT_SETTING_ACCESSOR as *const u8,
+                INT_SETTING_ACCESSOR_BYTES.len(),
+            )
+        } == INT_SETTING_ACCESSOR_BYTES;
+    INT_SETTING_ACCESSOR_VALID.store(valid, Ordering::Release);
+    if !valid {
+        log::warn!(
+            "[DISPLAY] integer setting accessor fingerprint conflict; bootstrap correction will pass through"
         );
     }
 }
 
 fn classify_callsite(contract: &CallsiteContract) -> CallsiteCoverage {
-    if !is_readable(contract.start, contract.expected.len()) {
+    classify_bytes(contract.start, contract.call_offset, contract.expected)
+}
+
+fn classify_bytes(start: usize, call_offset: usize, expected: &[u8]) -> CallsiteCoverage {
+    if !is_readable(start, expected.len()) {
         return CallsiteCoverage::Conflict;
     }
 
     // The fixed executable address and full range were validated above.
-    let actual =
-        unsafe { slice::from_raw_parts(contract.start as *const u8, contract.expected.len()) };
-    if actual == contract.expected {
+    let actual = unsafe { slice::from_raw_parts(start as *const u8, expected.len()) };
+    if actual == expected {
         CallsiteCoverage::Covered
-    } else if actual.get(contract.call_offset) == Some(&0xE8) {
+    } else if actual.get(call_offset) == Some(&0xE8) {
         CallsiteCoverage::ExternalOwner
     } else {
         CallsiteCoverage::Conflict
@@ -987,6 +1411,7 @@ fn callsite_coverage(site: TransitionSite) -> CallsiteCoverage {
 }
 
 fn restore_predecessor_if_owned(
+    name: &str,
     slot: *mut *mut c_void,
     shim: *mut c_void,
     predecessor: *mut c_void,
@@ -998,13 +1423,13 @@ fn restore_predecessor_if_owned(
         compare_exchange_pointer(slot, shim, predecessor),
         Ok(PointerExchange::Exchanged)
     ) {
-        log::error!("[DISPLAY] failed to restore SetWindowPos IAT predecessor");
+        log::error!("[DISPLAY] failed to restore {name} IAT predecessor");
     }
 }
 
-fn vanilla_set_window_pos() -> Option<*mut c_void> {
+fn vanilla_user32_proc(name: &str) -> Option<*mut c_void> {
     let user32 = get_module_handle_a(Some("user32.dll")).ok()?;
-    get_proc_address(user32, "SetWindowPos").ok()
+    get_proc_address(user32, name).ok()
 }
 
 fn is_readable(address: usize, len: usize) -> bool {
