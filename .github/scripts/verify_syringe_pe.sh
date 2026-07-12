@@ -24,8 +24,12 @@ fi
 mapfile -t exports < <(
     awk '
         /\[Ordinal\/Name Pointer\] Table/ { in_exports = 1; next }
-        /^PE File/ { exit }
-        in_exports && /\+base\[/ { print $NF }
+        in_exports && /^PE File/ { exit }
+        in_exports && seen_export && /^[[:space:]]*$/ { exit }
+        in_exports && /^[[:space:]]*\[[[:space:]]*[0-9]+\]/ {
+            print $NF
+            seen_export = 1
+        }
     ' <<<"$DETAILS"
 )
 expected_exports=(
