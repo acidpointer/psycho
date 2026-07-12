@@ -2,13 +2,13 @@
 //!
 //! The exclusive startup path creates a visible 320x240 bootstrap window and
 //! never applies the windowed renderer's later placement call. Psycho corrects
-//! that one audited `CreateWindowExA` request to the loaded render size before
-//! the window becomes visible.
+//! that one audited `CreateWindowExA` request to a visible popup at the loaded
+//! render size before the window becomes visible.
 //! Three later paths also pass the adjusted bottom edge as `y` and `top - bottom`
 //! as the height, producing malformed focus/lifecycle moves.
 //!
 //! Psycho owns only narrow, callsite-specific correction boundaries:
-//! - exclusive bootstrap creation: preserve the engine origin and use render size;
+//! - exclusive bootstrap creation: use popup style and the loaded render size;
 //! - windowed renderer placement and child resize: pass through unchanged;
 //! - device reset: preserve size and align the client to its monitor;
 //! - focus regain: restore an iconic window, normalize the rectangle, and call;
@@ -59,6 +59,8 @@ const SWP_SHOWWINDOW: u32 = 0x0040;
 const SWP_ASYNCWINDOWPOS: u32 = 0x4000;
 const CATCH_UP_FLAGS: u32 = SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_ASYNCWINDOWPOS;
 const WS_VISIBLE: u32 = 0x1000_0000;
+const WS_POPUP: u32 = 0x8000_0000;
+const FULLSCREEN_BOOTSTRAP_STYLE: u32 = WS_POPUP | WS_VISIBLE;
 
 /// Reject corrupt runtime arguments before applying an audited correction.
 const MAX_WINDOW_EXTENT: i32 = 32768;
@@ -496,10 +498,9 @@ struct CreateWindowRequest {
 }
 
 impl CreateWindowRequest {
-    fn with_geometry(self, x: i32, y: i32, width: i32, height: i32) -> Self {
+    fn as_fullscreen_bootstrap(self, width: i32, height: i32) -> Self {
         Self {
-            x,
-            y,
+            style: FULLSCREEN_BOOTSTRAP_STYLE,
             width,
             height,
             ..self
@@ -587,7 +588,7 @@ unsafe extern "fastcall" fn checked_create_window_ex_a(
         return unsafe { call_create_window_predecessor(request) };
     };
 
-    let corrected = request.with_geometry(request.x, request.y, target_width, target_height);
+    let corrected = request.as_fullscreen_bootstrap(target_width, target_height);
     let count = BOOTSTRAP_CREATE_CORRECTIONS.fetch_add(1, Ordering::Relaxed) + 1;
     let hwnd = unsafe { call_create_window_predecessor(corrected) };
     record_bootstrap_create_result(count, hwnd, corrected);
@@ -770,12 +771,13 @@ fn record_bootstrap_create_result(count: u32, hwnd: *mut c_void, request: Create
         set_last_error(error);
     } else {
         log::info!(
-            "[DISPLAY] corrected exclusive bootstrap window #{}: rect=({},{} {}x{})",
+            "[DISPLAY] corrected exclusive bootstrap window #{}: rect=({},{} {}x{}) style={:#x}",
             count,
             request.x,
             request.y,
             request.width,
             request.height,
+            request.style,
         );
     }
 }

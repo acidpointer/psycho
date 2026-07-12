@@ -41,9 +41,10 @@ allocator = 2
 # New Vegas creates a visible 320x240 bootstrap window and never resizes it on
 # the exclusive-fullscreen branch. Three later engine paths also construct a
 # negative-height window move. Psycho creates the bootstrap at the configured
-# render size, repairs reset/regain/renderer-lifecycle placement, and suppresses
-# the focus-loss move that would raise the game window again. The game remains
-# responsible for focus state and D3D9 device recovery.
+# render size with an explicit popup style, repairs reset/regain/renderer-
+# lifecycle placement, and suppresses the focus-loss move that would raise the
+# game window again. The game remains responsible for focus state and D3D9
+# device recovery.
 #
 # The fix recognizes exact engine instruction and argument patterns. It chains
 # existing CreateWindowExA and SetWindowPos IAT hooks, while callsites changed
