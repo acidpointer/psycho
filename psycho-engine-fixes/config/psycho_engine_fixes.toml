@@ -58,6 +58,20 @@ allocator = 2
 # covering its monitor and applies only the safe transition protections.
 display_alt_tab = true
 
+# Prevents the game from reporting a successful save when the temporary file
+# was only partly written, failed to flush or close, or could not replace the
+# previous save. Psycho closes and flushes the completed temporary file first,
+# rotates the configured .bak files, then replaces the final .fos atomically.
+# If a step fails, Psycho reports Save Failed and retains or restores the old
+# file whenever Windows completed any part of the replacement operation.
+#
+# Loading also bounds-checks changed-record reads before the engine copies
+# them. A malformed record is rejected through the engine's own second-pass
+# skip path instead of reading beyond its buffer. Records belonging to missing
+# plugins are skipped before first-pass reconstruction, preventing unavailable
+# content from publishing partial live state. Existing data is not rewritten.
+save_integrity_fix = true
+
 # Fixes a navmesh/pathfinding crash where the game passes a tiny invalid
 # pointer instead of a NavMeshInfo object.
 navmesh_low_pointer_guard = true

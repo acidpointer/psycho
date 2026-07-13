@@ -1,0 +1,1290 @@
+======================================================================
+SAVE PHYSICAL FILE I/O FOLLOW-UP
+======================================================================
+Questions: can short writes, flush/close errors, and OS failures reach the save transaction owner, and which concrete BSFile methods own that state?
+
+======================================================================
+underlying physical write primitive @ 0x0044e120
+======================================================================
+  Function: FUN_0044e120 @ 0x0044e120, Size: 67 bytes
+
+int __thiscall
+FUN_0044e120(int param_1,undefined4 param_2,undefined4 param_3,undefined4 param_4,undefined4 param_5
+            )
+
+{
+  int iVar1;
+  
+  iVar1 = (**(code **)(param_1 + 0xc))(param_1,param_2,param_3,param_4,param_5);
+  *(int *)(param_1 + 4) = *(int *)(param_1 + 4) + iVar1;
+  return iVar1;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x0044e120 (underlying physical write primitive)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x004731a1 (in FUN_00473180)
+  UNCONDITIONAL_CALL @ 0x0044e110 (in FUN_0044e0f0)
+  Total: 2 refs
+
+--- Calls FROM underlying physical write primitive (0x0044e120) ---
+  Total: 0 calls
+
+======================================================================
+underlying physical read primitive @ 0x00462dc0
+======================================================================
+  Function: FUN_00462dc0 @ 0x00462dc0, Size: 67 bytes
+
+int __thiscall
+FUN_00462dc0(int param_1,undefined4 param_2,undefined4 param_3,undefined4 param_4,undefined4 param_5
+            )
+
+{
+  int iVar1;
+  
+  iVar1 = (**(code **)(param_1 + 8))(param_1,param_2,param_3,param_4,param_5);
+  *(int *)(param_1 + 4) = *(int *)(param_1 + 4) + iVar1;
+  return iVar1;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00462dc0 (underlying physical read primitive)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00462da1 (in FUN_00462d80)
+  Total: 1 refs
+
+--- Calls FROM underlying physical read primitive (0x00462dc0) ---
+  Total: 0 calls
+
+======================================================================
+BSFile constructor and OS handle open @ 0x00b00260
+======================================================================
+  Function: FUN_00b00260 @ 0x00b00260, Size: 349 bytes
+
+undefined4 * __thiscall
+FUN_00b00260(undefined4 *param_1,char *param_2,int param_3,undefined4 param_4,undefined1 param_5)
+
+{
+  undefined1 uVar1;
+  uint uVar2;
+  size_t sVar3;
+  int *unaff_FS_OFFSET;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00f23868;
+  local_10 = *unaff_FS_OFFSET;
+  uVar2 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  FUN_00aa14b0(uVar2);
+  local_8 = 0;
+  *param_1 = &PTR_FUN_010a4764;
+  FUN_00aff990(0);
+  param_1[10] = param_3;
+  param_1[4] = param_4;
+  param_1[5] = 0;
+  param_1[6] = 0;
+  param_1[8] = 0;
+  param_1[9] = 0;
+  param_1[0x54] = 0;
+  param_1[0x53] = 0;
+  param_1[0x52] = 0;
+  param_1[0x55] = 0;
+  *(undefined1 *)(param_1 + 0xc) = 0;
+  param_1[0xd] = 0;
+  param_1[0xe] = 0xffffffff;
+  param_1[0xf] = 0;
+  param_1[0x10] = 0;
+  sVar3 = _strlen(param_2);
+  if (sVar3 < 0x104) {
+    _strcpy_s((char *)(param_1 + 0x11),0x104,param_2);
+    if (param_3 == 1) {
+      FUN_00aff300(0,param_5);
+    }
+  }
+  else {
+    *(undefined1 *)(param_1 + 0x11) = 0;
+  }
+  if (param_3 == 0) {
+    uVar1 = FUN_00affc60();
+    *(undefined1 *)(param_1 + 0xb) = uVar1;
+  }
+  *unaff_FS_OFFSET = local_10;
+  return param_1;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00b00260 (BSFile constructor and OS handle open)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00470f49 (in FUN_00470ca0)
+  UNCONDITIONAL_CALL @ 0x0083019a (in FUN_008300c0)
+  UNCONDITIONAL_CALL @ 0x0071de2b (in FUN_0071dd90)
+  UNCONDITIONAL_CALL @ 0x00462766 (in FUN_004624b0)
+  UNCONDITIONAL_CALL @ 0x0084627c (in FUN_008461e0)
+  UNCONDITIONAL_CALL @ 0x00853af4 (in FUN_00853a30)
+  UNCONDITIONAL_CALL @ 0x0085fb58 (in FUN_0085fb40)
+  UNCONDITIONAL_CALL @ 0x0071c103 (in FUN_0071b210)
+  UNCONDITIONAL_CALL @ 0x0071c255 (in FUN_0071b210)
+  UNCONDITIONAL_CALL @ 0x0071c5b2 (in FUN_0071b210)
+  UNCONDITIONAL_CALL @ 0x0071d9f9 (in FUN_0071d800)
+  UNCONDITIONAL_CALL @ 0x0073b55d (in FUN_0073b500)
+  UNCONDITIONAL_CALL @ 0x008794f3 (in FUN_00878f60)
+  UNCONDITIONAL_CALL @ 0x0094edce (in FUN_0094ed40)
+  UNCONDITIONAL_CALL @ 0x00af7f1c (in FUN_00af7eb0)
+  UNCONDITIONAL_CALL @ 0x00afdf9e (in FUN_00afdf20)
+  UNCONDITIONAL_CALL @ 0x00afe070 (in FUN_00afdf20)
+  UNCONDITIONAL_CALL @ 0x0085779b (in FUN_00857370)
+  UNCONDITIONAL_CALL @ 0x0085780c (in FUN_00857370)
+  UNCONDITIONAL_CALL @ 0x004aa948 (in FUN_004aa900)
+  UNCONDITIONAL_CALL @ 0x005588b8 (in FUN_005586e0)
+  UNCONDITIONAL_CALL @ 0x005589ad (in FUN_005586e0)
+  UNCONDITIONAL_CALL @ 0x005b5f98 (in FUN_005b5e60)
+  UNCONDITIONAL_CALL @ 0x005b602a (in FUN_005b5e60)
+  UNCONDITIONAL_CALL @ 0x005c5c1e (in FUN_005c5a70)
+  UNCONDITIONAL_CALL @ 0x005c64ee (in FUN_005c6430)
+  UNCONDITIONAL_CALL @ 0x00626211 (in FUN_006261a0)
+  UNCONDITIONAL_CALL @ 0x0075fd55 (in FUN_0075fb90)
+  UNCONDITIONAL_CALL @ 0x0075fd98 (in FUN_0075fb90)
+  UNCONDITIONAL_CALL @ 0x0075fe49 (in FUN_0075fb90)
+  UNCONDITIONAL_CALL @ 0x0075fe89 (in FUN_0075fb90)
+  UNCONDITIONAL_CALL @ 0x00a1d5d5 (in FUN_00a1d410)
+  Total: 32 refs
+
+--- Calls FROM BSFile constructor and OS handle open (0x00b00260) ---
+  0x00b00289 -> 0x00aa14b0 FUN_00aa14b0
+  0x00b002a3 -> 0x00aff990 FUN_00aff990
+  0x00b00349 -> 0x00ec6130 _strlen
+  0x00b00371 -> 0x00ec65a6 _strcpy_s
+  0x00b00389 -> 0x00aff300 FUN_00aff300
+  0x00b00397 -> 0x00affc60 FUN_00affc60
+  Total: 6 calls
+
+======================================================================
+BGSSaveLoadFile write wrapper @ 0x00846330
+======================================================================
+  Function: FUN_00846330 @ 0x00846330, Size: 134 bytes
+
+uint __thiscall FUN_00846330(int param_1,undefined4 param_2,uint param_3)
+
+{
+  char cVar1;
+  uint uVar2;
+  
+  cVar1 = FUN_00424940();
+  if (cVar1 == '\0') {
+    param_3 = FUN_00473180(param_2,param_3);
+  }
+  else {
+    uVar2 = *(int *)(param_1 + 0x108) - *(int *)(param_1 + 0x10c);
+    if (uVar2 < param_3) {
+      *(uint *)(param_1 + 0x108) = (param_3 - uVar2) + *(int *)(param_1 + 0x108);
+    }
+    *(uint *)(param_1 + 0x10c) = *(int *)(param_1 + 0x10c) + param_3;
+  }
+  return param_3;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00846330 (BGSSaveLoadFile write wrapper)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0084793f (in FUN_00847850)
+  UNCONDITIONAL_CALL @ 0x00847c89 (in FUN_00847850)
+  UNCONDITIONAL_CALL @ 0x00845d0e (in FUN_00845d00)
+  UNCONDITIONAL_CALL @ 0x0084d4f4 (in FUN_0084d4b0)
+  UNCONDITIONAL_CALL @ 0x0084d82c (in FUN_0084d4b0)
+  UNCONDITIONAL_CALL @ 0x0084d846 (in FUN_0084d4b0)
+  UNCONDITIONAL_CALL @ 0x00865a6e (in FUN_00865a30)
+  UNCONDITIONAL_CALL @ 0x00845daf (in FUN_00845d80)
+  UNCONDITIONAL_CALL @ 0x00845dc7 (in FUN_00845d80)
+  UNCONDITIONAL_CALL @ 0x00845dd7 (in FUN_00845d80)
+  UNCONDITIONAL_CALL @ 0x00865ca8 (in FUN_00865c80)
+  UNCONDITIONAL_CALL @ 0x00865ccc (in FUN_00865c80)
+  UNCONDITIONAL_CALL @ 0x00866250 (in FUN_00866200)
+  UNCONDITIONAL_CALL @ 0x008662a6 (in FUN_00866200)
+  Total: 14 refs
+
+--- Calls FROM BGSSaveLoadFile write wrapper (0x00846330) ---
+  0x0084633f -> 0x00424940 FUN_00424940
+  0x008463ab -> 0x00473180 FUN_00473180
+  Total: 2 calls
+
+======================================================================
+BGSSaveLoadFile read wrapper @ 0x00846300
+======================================================================
+  Function: ShowToolBar @ 0x00846300, Size: 35 bytes
+
+/* Library Function - Single Match
+    protected: void __thiscall CMFCToolBarsCustomizeDialog::ShowToolBar(class CMFCToolBar *,int)
+   
+   Library: Visual Studio 2010 Debug */
+
+void __thiscall
+CMFCToolBarsCustomizeDialog::ShowToolBar
+          (CMFCToolBarsCustomizeDialog *this,CMFCToolBar *param_1,int param_2)
+
+{
+  FUN_00462d80(param_1,param_2);
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00846300 (BGSSaveLoadFile read wrapper)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0084db1c (in FUN_0084dab0)
+  UNCONDITIONAL_CALL @ 0x0084de4e (in FUN_0084dda0)
+  UNCONDITIONAL_CALL @ 0x00845d2e (in FUN_00845d20)
+  UNCONDITIONAL_CALL @ 0x008647ce (in FUN_00864790)
+  UNCONDITIONAL_CALL @ 0x00848023 (in FUN_00847df0)
+  UNCONDITIONAL_CALL @ 0x0084e88a (in FUN_0084e850)
+  UNCONDITIONAL_CALL @ 0x0084d922 (in FUN_0084d8c0)
+  UNCONDITIONAL_CALL @ 0x008644c5 (in FUN_008644b0)
+  UNCONDITIONAL_CALL @ 0x00845e7d (in FUN_00845e50)
+  UNCONDITIONAL_CALL @ 0x00845ea1 (in FUN_00845e50)
+  UNCONDITIONAL_CALL @ 0x00845ebf (in FUN_00845e50)
+  UNCONDITIONAL_CALL @ 0x008662da (in FUN_008662c0)
+  UNCONDITIONAL_CALL @ 0x00866382 (in FUN_008662c0)
+  Total: 13 refs
+
+--- Calls FROM BGSSaveLoadFile read wrapper (0x00846300) ---
+  0x00846318 -> 0x00462d80 FUN_00462d80
+  Total: 1 calls
+
+======================================================================
+BGSSaveLoadFile destruction and close dispatch @ 0x008462c0
+======================================================================
+  Function: FUN_008462c0 @ 0x008462c0, Size: 63 bytes
+
+void __fastcall FUN_008462c0(int param_1)
+
+{
+  if (*(undefined4 **)(param_1 + 0x104) != (undefined4 *)0x0) {
+    (**(code **)**(undefined4 **)(param_1 + 0x104))(1);
+  }
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x008462c0 (BGSSaveLoadFile destruction and close dispatch)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0085033a (in FUN_00850330)
+  Total: 1 refs
+
+--- Calls FROM BGSSaveLoadFile destruction and close dispatch (0x008462c0) ---
+  Total: 0 calls
+
+======================================================================
+BGSSaveLoadFile open-status dispatch @ 0x008463c0
+======================================================================
+  Function: FUN_008463c0 @ 0x008463c0, Size: 62 bytes
+
+undefined4 __fastcall FUN_008463c0(int param_1)
+
+{
+  char cVar1;
+  undefined4 uVar2;
+  
+  cVar1 = FUN_00424940();
+  if (cVar1 == '\0') {
+    uVar2 = (**(code **)(**(int **)(param_1 + 0x104) + 0x20))(0,0);
+  }
+  else {
+    uVar2 = 1;
+  }
+  return uVar2;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x008463c0 (BGSSaveLoadFile open-status dispatch)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x008500de (in FUN_00850030)
+  UNCONDITIONAL_CALL @ 0x00850803 (in FUN_00850760)
+  Total: 2 refs
+
+--- Calls FROM BGSSaveLoadFile open-status dispatch (0x008463c0) ---
+  0x008463cd -> 0x00424940 FUN_00424940
+  Total: 1 calls
+
+======================================================================
+changed-record payload physical read and count @ 0x00845e50
+======================================================================
+  Function: FUN_00845e50 @ 0x00845e50, Size: 129 bytes
+
+undefined4 FUN_00845e50(CMFCToolBarsCustomizeDialog *param_1,CMFCToolBar *param_2,int param_3)
+
+{
+  undefined4 uVar1;
+  ushort local_c [3];
+  CMFCToolBar local_5;
+  
+  if (param_3 == 0) {
+    local_5 = (CMFCToolBar)0x0;
+    CMFCToolBarsCustomizeDialog::ShowToolBar(param_1,&local_5,1);
+    *(uint *)param_2 = (uint)(byte)local_5;
+    uVar1 = 1;
+  }
+  else if (param_3 == 1) {
+    local_c[0] = 0;
+    CMFCToolBarsCustomizeDialog::ShowToolBar(param_1,(CMFCToolBar *)local_c,2);
+    *(uint *)param_2 = (uint)local_c[0];
+    uVar1 = 2;
+  }
+  else if (param_3 == 2) {
+    CMFCToolBarsCustomizeDialog::ShowToolBar(param_1,param_2,4);
+    uVar1 = 4;
+  }
+  else {
+    uVar1 = 0;
+  }
+  return uVar1;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00845e50 (changed-record payload physical read and count)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x008644f8 (in FUN_008644b0)
+  UNCONDITIONAL_CALL @ 0x008662fd (in FUN_008662c0)
+  Total: 2 refs
+
+--- Calls FROM changed-record payload physical read and count (0x00845e50) ---
+  0x00845e7d -> 0x00846300 ShowToolBar
+  0x00845ea1 -> 0x00846300 ShowToolBar
+  0x00845ebf -> 0x00846300 ShowToolBar
+  Total: 3 calls
+
+======================================================================
+save staging-buffer append to physical writer @ 0x00473180
+======================================================================
+  Function: FUN_00473180 @ 0x00473180, Size: 50 bytes
+
+undefined4 FUN_00473180(undefined4 param_1,undefined4 param_2)
+
+{
+  undefined4 uVar1;
+  undefined4 local_8;
+  
+  local_8 = 1;
+  uVar1 = FUN_0044e120(param_1,param_2,&local_8,1);
+  return uVar1;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00473180 (save staging-buffer append to physical writer)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0047312d (in FUN_00473110)
+  UNCONDITIONAL_CALL @ 0x008463ab (in FUN_00846330)
+  UNCONDITIONAL_CALL @ 0x00854ba7 (in FUN_00854b80)
+  UNCONDITIONAL_CALL @ 0x00857b8d (in FUN_00857b50)
+  UNCONDITIONAL_CALL @ 0x0071c698 (in FUN_0071b210)
+  UNCONDITIONAL_CALL @ 0x0071db6f (in FUN_0071d800)
+  UNCONDITIONAL_CALL @ 0x0071dc15 (in FUN_0071d800)
+  UNCONDITIONAL_CALL @ 0x0071dc5c (in FUN_0071d800)
+  UNCONDITIONAL_CALL @ 0x00879783 (in FUN_00878f60)
+  UNCONDITIONAL_CALL @ 0x008797aa (in FUN_00878f60)
+  UNCONDITIONAL_CALL @ 0x00626335 (in FUN_00626320)
+  Total: 11 refs
+
+--- Calls FROM save staging-buffer append to physical writer (0x00473180) ---
+  0x004731a1 -> 0x0044e120 FUN_0044e120
+  Total: 1 calls
+
+======================================================================
+save close and promotion owner @ 0x00850100
+======================================================================
+  Function: FUN_00850100 @ 0x00850100, Size: 560 bytes
+
+void FUN_00850100(int param_1,char param_2)
+
+{
+  undefined4 uVar1;
+  int iVar2;
+  int *piVar3;
+  undefined4 extraout_var;
+  undefined4 uVar4;
+  int local_540;
+  wchar_t local_53c [132];
+  wchar_t local_434 [134];
+  int local_328;
+  undefined1 local_324 [260];
+  undefined1 auStack_220 [4];
+  undefined1 local_21c [264];
+  undefined1 local_114 [264];
+  uint local_c;
+  undefined4 local_8;
+  
+  local_c = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  local_8 = FUN_006815c0();
+  uVar4 = extraout_var;
+  FUN_00406d30(local_114,0x104,local_8);
+  if (param_1 == 0) {
+    uVar1 = 0;
+  }
+  else {
+    uVar1 = FUN_00850330(1);
+  }
+  if (param_2 != '\0') {
+    FUN_0084ff90(local_114,local_324,param_2);
+    FUN_00406d30(local_21c,0x104,local_324,uVar1,uVar4);
+    iVar2 = length(local_21c);
+    auStack_220[iVar2] = 0;
+    piVar3 = (int *)FUN_0043d4d0();
+    local_328 = *piVar3;
+    while (local_328 = local_328 + -1, -1 < local_328) {
+      FUN_00406d30(local_53c,0x104,local_21c);
+      for (local_540 = 0; local_540 < local_328; local_540 = local_540 + 1) {
+        FUN_00406d50(local_53c,0x104,&DAT_0107facc);
+      }
+      FUN_00406d30(local_434,0x104,local_53c);
+      FUN_00406d50(local_434,0x104,&DAT_0107facc);
+      iVar2 = FID_conflict___access(local_53c,0);
+      if (iVar2 != -1) {
+        iVar2 = FID_conflict___access(local_434,0);
+        if (iVar2 != -1) {
+          DeleteFileA((LPCSTR)local_434);
+        }
+        FUN_00ec862c(local_53c,local_434);
+      }
+    }
+    FUN_00ec862c(local_324,local_21c);
+    FUN_00406d30(local_324,0x104,local_21c);
+  }
+  __security_check_cookie(local_c ^ (uint)&stack0xfffffffc);
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00850100 (save close and promotion owner)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0085063e (in FUN_008503b0)
+  UNCONDITIONAL_CALL @ 0x00846a0c (in FUN_00846900)
+  UNCONDITIONAL_CALL @ 0x008468e9 (in FUN_00846820)
+  UNCONDITIONAL_CALL @ 0x008508f8 (in FUN_00850760)
+  Total: 4 refs
+
+--- Calls FROM save close and promotion owner (0x00850100) ---
+  0x0085011c -> 0x006815c0 FUN_006815c0
+  0x00850134 -> 0x00406d30 FUN_00406d30
+  0x00850162 -> 0x00850330 FUN_00850330
+  0x0085019e -> 0x0084ff90 FUN_0084ff90
+  0x008501b6 -> 0x00406d30 FUN_00406d30
+  0x008501c5 -> 0x0044a670 length
+  0x008501da -> 0x0043d4d0 FUN_0043d4d0
+  0x0085021b -> 0x00406d30 FUN_00406d30
+  0x0085025d -> 0x00406d50 FUN_00406d50
+  0x0085027a -> 0x00406d30 FUN_00406d30
+  0x00850293 -> 0x00406d50 FUN_00406d50
+  0x008502a4 -> 0x00ecbf05 FID_conflict:__access
+  0x008502ba -> 0x00ecbf05 FID_conflict:__access
+  0x008502ce -> 0x0000002b ???
+  0x008502e2 -> 0x00ec862c FUN_00ec862c
+  0x008502fd -> 0x00ec862c FUN_00ec862c
+  0x00850318 -> 0x00406d30 FUN_00406d30
+  0x00850325 -> 0x00ec408c __security_check_cookie
+  Total: 18 calls
+
+----------------------------------------------------------------------
+Disassembly: physical write count and failure branches (0x0044e120 - 0x0044e2a0)
+----------------------------------------------------------------------
+  0x0044e120: PUSH EBP
+  0x0044e121: MOV EBP,ESP
+  0x0044e123: SUB ESP,0x8
+  0x0044e126: MOV dword ptr [EBP + -0x8],ECX
+  0x0044e129: MOV EAX,dword ptr [EBP + 0x14]
+  0x0044e12c: PUSH EAX
+  0x0044e12d: MOV ECX,dword ptr [EBP + 0x10]
+  0x0044e130: PUSH ECX
+  0x0044e131: MOV EDX,dword ptr [EBP + 0xc]
+  0x0044e134: PUSH EDX
+  0x0044e135: MOV EAX,dword ptr [EBP + 0x8]
+  0x0044e138: PUSH EAX
+  0x0044e139: MOV ECX,dword ptr [EBP + -0x8]
+  0x0044e13c: PUSH ECX
+  0x0044e13d: MOV EDX,dword ptr [EBP + -0x8]
+  0x0044e140: MOV EAX,dword ptr [EDX + 0xc]
+  0x0044e143: CALL EAX
+  0x0044e145: ADD ESP,0x14
+  0x0044e148: MOV dword ptr [EBP + -0x4],EAX
+  0x0044e14b: MOV ECX,dword ptr [EBP + -0x8]
+  0x0044e14e: MOV EDX,dword ptr [ECX + 0x4]
+  0x0044e151: ADD EDX,dword ptr [EBP + -0x4]
+  0x0044e154: MOV EAX,dword ptr [EBP + -0x8]
+  0x0044e157: MOV dword ptr [EAX + 0x4],EDX
+  0x0044e15a: MOV EAX,dword ptr [EBP + -0x4]
+  0x0044e15d: MOV ESP,EBP
+  0x0044e15f: POP EBP
+  0x0044e160: RET 0x10
+  0x0044e170: PUSH EBP
+  0x0044e171: MOV EBP,ESP
+  0x0044e173: PUSH -0x1
+  0x0044e175: PUSH 0xeed0ae
+  0x0044e17a: MOV EAX,FS:[0x0]
+  0x0044e180: PUSH EAX
+  0x0044e181: SUB ESP,0x40
+  0x0044e184: MOV EAX,[0x011c16bc]
+  0x0044e189: XOR EAX,EBP
+  0x0044e18b: PUSH EAX
+  0x0044e18c: LEA EAX,[EBP + -0xc]
+  0x0044e18f: MOV FS:[0x0],EAX
+  0x0044e195: MOV dword ptr [EBP + -0x3c],ECX
+  0x0044e198: PUSH 0x0
+  0x0044e19a: MOV ECX,dword ptr [EBP + -0x3c]
+  0x0044e19d: ADD ECX,0x20
+  0x0044e1a0: CALL 0x0040fbf0
+  0x0044e1a5: PUSH 0x115
+  0x0044e1aa: PUSH 0x10173f8
+  0x0044e1af: PUSH 0x1
+  0x0044e1b1: PUSH 0x6
+  0x0044e1b3: LEA ECX,[EBP + -0x14]
+  0x0044e1b6: CALL 0x00404eb0
+  0x0044e1bb: MOV dword ptr [EBP + -0x4],0x0
+  0x0044e1c2: MOV EAX,dword ptr [EBP + -0x3c]
+  0x0044e1c5: MOV ECX,dword ptr [EAX + 0x14]
+  0x0044e1c8: CALL 0x00559450
+  0x0044e1cd: MOV dword ptr [EBP + -0x10],EAX
+  0x0044e1d0: MOV ECX,dword ptr [EBP + -0x3c]
+  0x0044e1d3: MOV EDX,dword ptr [ECX + 0x14]
+  0x0044e1d6: MOV dword ptr [EBP + -0x20],EDX
+  0x0044e1d9: MOV EAX,dword ptr [EBP + -0x20]
+  0x0044e1dc: MOV dword ptr [EBP + -0x1c],EAX
+  0x0044e1df: CMP dword ptr [EBP + -0x1c],0x0
+  0x0044e1e3: JZ 0x0044e1f4
+  0x0044e1e5: PUSH 0x1
+  0x0044e1e7: MOV ECX,dword ptr [EBP + -0x1c]
+  0x0044e1ea: CALL 0x0044ed20
+  0x0044e1ef: MOV dword ptr [EBP + -0x40],EAX
+  0x0044e1f2: JMP 0x0044e1fb
+  0x0044e1f4: MOV dword ptr [EBP + -0x40],0x0
+  0x0044e1fb: MOV ECX,dword ptr [EBP + -0x3c]
+  0x0044e1fe: MOV dword ptr [ECX + 0x14],0x0
+  0x0044e205: MOV EDX,dword ptr [EBP + -0x3c]
+  0x0044e208: MOV dword ptr [EDX + 0x18],0x0
+  0x0044e20f: MOV EAX,dword ptr [EBP + -0x3c]
+  0x0044e212: CMP dword ptr [EAX + 0x4],0x0
+  0x0044e216: JZ 0x0044e269
+  0x0044e218: MOV ECX,dword ptr [EBP + -0x3c]
+  0x0044e21b: MOV EDX,dword ptr [ECX + 0x4]
+  0x0044e21e: MOV EAX,dword ptr [EDX]
+  0x0044e220: MOV dword ptr [EBP + -0x18],EAX
+  0x0044e223: PUSH 0x0
+  0x0044e225: MOV ECX,dword ptr [EBP + -0x3c]
+  0x0044e228: MOV ECX,dword ptr [ECX + 0x4]
+  0x0044e22b: ADD ECX,0x4
+  0x0044e22e: CALL 0x006f74f0
+  0x0044e233: MOV EDX,dword ptr [EBP + -0x3c]
+  0x0044e236: MOV EAX,dword ptr [EDX + 0x4]
+  0x0044e239: MOV dword ptr [EBP + -0x28],EAX
+  0x0044e23c: MOV ECX,dword ptr [EBP + -0x28]
+  0x0044e23f: MOV dword ptr [EBP + -0x24],ECX
+  0x0044e242: CMP dword ptr [EBP + -0x24],0x0
+  0x0044e246: JZ 0x0044e257
+  0x0044e248: PUSH 0x1
+  0x0044e24a: MOV ECX,dword ptr [EBP + -0x24]
+  0x0044e24d: CALL 0x0044ed50
+  0x0044e252: MOV dword ptr [EBP + -0x44],EAX
+  0x0044e255: JMP 0x0044e25e
+  0x0044e257: MOV dword ptr [EBP + -0x44],0x0
+  0x0044e25e: MOV EDX,dword ptr [EBP + -0x3c]
+  0x0044e261: MOV EAX,dword ptr [EBP + -0x18]
+  0x0044e264: MOV dword ptr [EDX + 0x4],EAX
+  0x0044e267: JMP 0x0044e20f
+  0x0044e269: MOVZX ECX,byte ptr [EBP + 0x8]
+  0x0044e26d: TEST ECX,ECX
+  0x0044e26f: JNZ 0x0044e301
+  0x0044e275: PUSH 0x8
+  0x0044e277: CALL 0x00401000
+  0x0044e27c: ADD ESP,0x4
+  0x0044e27f: MOV dword ptr [EBP + -0x30],EAX
+  0x0044e282: MOV byte ptr [EBP + -0x4],0x1
+  0x0044e286: CMP dword ptr [EBP + -0x30],0x0
+  0x0044e28a: JZ 0x0044e299
+  0x0044e28c: MOV ECX,dword ptr [EBP + -0x30]
+  0x0044e28f: CALL 0x0044dfc0
+  0x0044e294: MOV dword ptr [EBP + -0x48],EAX
+  0x0044e297: JMP 0x0044e2a0
+  0x0044e299: MOV dword ptr [EBP + -0x48],0x0
+  0x0044e2a0: MOV EDX,dword ptr [EBP + -0x48]
+
+----------------------------------------------------------------------
+Disassembly: physical read count and failure branches (0x00462dc0 - 0x00462e90)
+----------------------------------------------------------------------
+  0x00462dc0: PUSH EBP
+  0x00462dc1: MOV EBP,ESP
+  0x00462dc3: SUB ESP,0x8
+  0x00462dc6: MOV dword ptr [EBP + -0x8],ECX
+  0x00462dc9: MOV EAX,dword ptr [EBP + 0x14]
+  0x00462dcc: PUSH EAX
+  0x00462dcd: MOV ECX,dword ptr [EBP + 0x10]
+  0x00462dd0: PUSH ECX
+  0x00462dd1: MOV EDX,dword ptr [EBP + 0xc]
+  0x00462dd4: PUSH EDX
+  0x00462dd5: MOV EAX,dword ptr [EBP + 0x8]
+  0x00462dd8: PUSH EAX
+  0x00462dd9: MOV ECX,dword ptr [EBP + -0x8]
+  0x00462ddc: PUSH ECX
+  0x00462ddd: MOV EDX,dword ptr [EBP + -0x8]
+  0x00462de0: MOV EAX,dword ptr [EDX + 0x8]
+  0x00462de3: CALL EAX
+  0x00462de5: ADD ESP,0x14
+  0x00462de8: MOV dword ptr [EBP + -0x4],EAX
+  0x00462deb: MOV ECX,dword ptr [EBP + -0x8]
+  0x00462dee: MOV EDX,dword ptr [ECX + 0x4]
+  0x00462df1: ADD EDX,dword ptr [EBP + -0x4]
+  0x00462df4: MOV EAX,dword ptr [EBP + -0x8]
+  0x00462df7: MOV dword ptr [EAX + 0x4],EDX
+  0x00462dfa: MOV EAX,dword ptr [EBP + -0x4]
+  0x00462dfd: MOV ESP,EBP
+  0x00462dff: POP EBP
+  0x00462e00: RET 0x10
+  0x00462e10: PUSH EBP
+  0x00462e11: MOV EBP,ESP
+  0x00462e13: SUB ESP,0x8
+  0x00462e16: MOV dword ptr [EBP + -0x4],ECX
+  0x00462e19: MOVZX EAX,byte ptr [EBP + 0xc]
+  0x00462e1d: TEST EAX,EAX
+  0x00462e1f: JZ 0x00462e3c
+  0x00462e21: MOVSX ECX,byte ptr [EBP + 0x8]
+  0x00462e25: MOV EDX,dword ptr [EBP + -0x4]
+  0x00462e28: MOVSX EAX,byte ptr [EDX]
+  0x00462e2b: OR EAX,ECX
+  0x00462e2d: MOV ECX,dword ptr [EBP + -0x4]
+  0x00462e30: MOV byte ptr [ECX],AL
+  0x00462e32: MOV EDX,dword ptr [EBP + -0x4]
+  0x00462e35: MOV AL,byte ptr [EDX]
+  0x00462e37: MOV byte ptr [EBP + -0x5],AL
+  0x00462e3a: JMP 0x00462e57
+  0x00462e3c: MOVSX ECX,byte ptr [EBP + 0x8]
+  0x00462e40: NOT ECX
+  0x00462e42: MOV EDX,dword ptr [EBP + -0x4]
+  0x00462e45: MOVSX EAX,byte ptr [EDX]
+  0x00462e48: AND EAX,ECX
+  0x00462e4a: MOV ECX,dword ptr [EBP + -0x4]
+  0x00462e4d: MOV byte ptr [ECX],AL
+  0x00462e4f: MOV EDX,dword ptr [EBP + -0x4]
+  0x00462e52: MOV AL,byte ptr [EDX]
+  0x00462e54: MOV byte ptr [EBP + -0x5],AL
+  0x00462e57: MOV ESP,EBP
+  0x00462e59: POP EBP
+  0x00462e5a: RET 0x8
+  0x00462e60: PUSH EBP
+  0x00462e61: MOV EBP,ESP
+  0x00462e63: PUSH ECX
+  0x00462e64: MOV dword ptr [EBP + -0x4],ECX
+  0x00462e67: MOV EAX,dword ptr [EBP + -0x4]
+  0x00462e6a: MOV CL,byte ptr [EBP + 0x8]
+  0x00462e6d: MOV byte ptr [EAX + 0x428],CL
+  0x00462e73: MOV ESP,EBP
+  0x00462e75: POP EBP
+  0x00462e76: RET 0x4
+  0x00462e80: PUSH EBP
+  0x00462e81: MOV EBP,ESP
+  0x00462e83: PUSH ECX
+  0x00462e84: MOV dword ptr [EBP + -0x4],ECX
+  0x00462e87: MOV EAX,dword ptr [EBP + -0x4]
+  0x00462e8a: ADD EAX,0x124
+  0x00462e8f: MOV ESP,EBP
+
+----------------------------------------------------------------------
+Disassembly: BSFile construction, vtable, and handle state (0x00b00260 - 0x00b00580)
+----------------------------------------------------------------------
+  0x00b00260: PUSH EBP
+  0x00b00261: MOV EBP,ESP
+  0x00b00263: PUSH -0x1
+  0x00b00265: PUSH 0xf23868
+  0x00b0026a: MOV EAX,FS:[0x0]
+  0x00b00270: PUSH EAX
+  0x00b00271: PUSH ECX
+  0x00b00272: MOV EAX,[0x011c16bc]
+  0x00b00277: XOR EAX,EBP
+  0x00b00279: PUSH EAX
+  0x00b0027a: LEA EAX,[EBP + -0xc]
+  0x00b0027d: MOV FS:[0x0],EAX
+  0x00b00283: MOV dword ptr [EBP + -0x10],ECX
+  0x00b00286: MOV ECX,dword ptr [EBP + -0x10]
+  0x00b00289: CALL 0x00aa14b0
+  0x00b0028e: MOV dword ptr [EBP + -0x4],0x0
+  0x00b00295: MOV EAX,dword ptr [EBP + -0x10]
+  0x00b00298: MOV dword ptr [EAX],0x10a4764
+  0x00b0029e: PUSH 0x0
+  0x00b002a0: MOV ECX,dword ptr [EBP + -0x10]
+  0x00b002a3: CALL 0x00aff990
+  0x00b002a8: MOV ECX,dword ptr [EBP + -0x10]
+  0x00b002ab: MOV EDX,dword ptr [EBP + 0xc]
+  0x00b002ae: MOV dword ptr [ECX + 0x28],EDX
+  0x00b002b1: MOV EAX,dword ptr [EBP + -0x10]
+  0x00b002b4: MOV ECX,dword ptr [EBP + 0x10]
+  0x00b002b7: MOV dword ptr [EAX + 0x10],ECX
+  0x00b002ba: MOV EDX,dword ptr [EBP + -0x10]
+  0x00b002bd: MOV dword ptr [EDX + 0x14],0x0
+  0x00b002c4: MOV EAX,dword ptr [EBP + -0x10]
+  0x00b002c7: MOV dword ptr [EAX + 0x18],0x0
+  0x00b002ce: MOV ECX,dword ptr [EBP + -0x10]
+  0x00b002d1: MOV dword ptr [ECX + 0x20],0x0
+  0x00b002d8: MOV EDX,dword ptr [EBP + -0x10]
+  0x00b002db: MOV dword ptr [EDX + 0x24],0x0
+  0x00b002e2: MOV EAX,dword ptr [EBP + -0x10]
+  0x00b002e5: MOV dword ptr [EAX + 0x150],0x0
+  0x00b002ef: MOV ECX,dword ptr [EBP + -0x10]
+  0x00b002f2: MOV dword ptr [ECX + 0x14c],0x0
+  0x00b002fc: MOV EDX,dword ptr [EBP + -0x10]
+  0x00b002ff: MOV dword ptr [EDX + 0x148],0x0
+  0x00b00309: MOV EAX,dword ptr [EBP + -0x10]
+  0x00b0030c: MOV dword ptr [EAX + 0x154],0x0
+  0x00b00316: MOV ECX,dword ptr [EBP + -0x10]
+  0x00b00319: MOV byte ptr [ECX + 0x30],0x0
+  0x00b0031d: MOV EDX,dword ptr [EBP + -0x10]
+  0x00b00320: MOV dword ptr [EDX + 0x34],0x0
+  0x00b00327: MOV EAX,dword ptr [EBP + -0x10]
+  0x00b0032a: MOV dword ptr [EAX + 0x38],0xffffffff
+  0x00b00331: MOV ECX,dword ptr [EBP + -0x10]
+  0x00b00334: MOV dword ptr [ECX + 0x3c],0x0
+  0x00b0033b: MOV EDX,dword ptr [EBP + -0x10]
+  0x00b0033e: MOV dword ptr [EDX + 0x40],0x0
+  0x00b00345: MOV EAX,dword ptr [EBP + 0x8]
+  0x00b00348: PUSH EAX
+  0x00b00349: CALL 0x00ec6130
+  0x00b0034e: ADD ESP,0x4
+  0x00b00351: CMP EAX,0x104
+  0x00b00356: JC 0x00b00361
+  0x00b00358: MOV ECX,dword ptr [EBP + -0x10]
+  0x00b0035b: MOV byte ptr [ECX + 0x44],0x0
+  0x00b0035f: JMP 0x00b0038e
+  0x00b00361: MOV EDX,dword ptr [EBP + 0x8]
+  0x00b00364: PUSH EDX
+  0x00b00365: PUSH 0x104
+  0x00b0036a: MOV EAX,dword ptr [EBP + -0x10]
+  0x00b0036d: ADD EAX,0x44
+  0x00b00370: PUSH EAX
+  0x00b00371: CALL 0x00ec65a6
+  0x00b00376: ADD ESP,0xc
+  0x00b00379: CMP dword ptr [EBP + 0xc],0x1
+  0x00b0037d: JNZ 0x00b0038e
+  0x00b0037f: MOVZX ECX,byte ptr [EBP + 0x14]
+  0x00b00383: PUSH ECX
+  0x00b00384: PUSH 0x0
+  0x00b00386: MOV ECX,dword ptr [EBP + -0x10]
+  0x00b00389: CALL 0x00aff300
+  0x00b0038e: CMP dword ptr [EBP + 0xc],0x0
+  0x00b00392: JNZ 0x00b003a2
+  0x00b00394: MOV ECX,dword ptr [EBP + -0x10]
+  0x00b00397: CALL 0x00affc60
+  0x00b0039c: MOV EDX,dword ptr [EBP + -0x10]
+  0x00b0039f: MOV byte ptr [EDX + 0x2c],AL
+  0x00b003a2: MOV dword ptr [EBP + -0x4],0xffffffff
+  0x00b003a9: MOV EAX,dword ptr [EBP + -0x10]
+  0x00b003ac: MOV ECX,dword ptr [EBP + -0xc]
+  0x00b003af: MOV dword ptr FS:[0x0],ECX
+  0x00b003b6: POP ECX
+  0x00b003b7: MOV ESP,EBP
+  0x00b003b9: POP EBP
+  0x00b003ba: RET 0x10
+  0x00b003c0: PUSH EBP
+  0x00b003c1: MOV EBP,ESP
+  0x00b003c3: SUB ESP,0x174
+  0x00b003c9: MOV EAX,[0x011c16bc]
+  0x00b003ce: XOR EAX,EBP
+  0x00b003d0: MOV dword ptr [EBP + -0x30],EAX
+  0x00b003d3: MOV dword ptr [EBP + 0xfffffe8c],ECX
+  0x00b003d9: MOV EAX,dword ptr [EBP + 0xfffffe8c]
+  0x00b003df: XOR ECX,ECX
+  0x00b003e1: CMP dword ptr [EAX + 0x24],0x0
+  0x00b003e5: SETNZ CL
+  0x00b003e8: MOVZX EDX,CL
+  0x00b003eb: TEST EDX,EDX
+  0x00b003ed: JNZ 0x00b00421
+  0x00b003ef: PUSH 0x10
+  0x00b003f1: PUSH 0x0
+  0x00b003f3: LEA EAX,[EBP + -0x2c]
+  0x00b003f6: PUSH EAX
+  0x00b003f7: CALL 0x00ec61c0
+  0x00b003fc: ADD ESP,0xc
+  0x00b003ff: MOV ECX,dword ptr [EBP + 0x8]
+  0x00b00402: MOV EDX,dword ptr [EBP + -0x2c]
+  0x00b00405: MOV dword ptr [ECX],EDX
+  0x00b00407: MOV EAX,dword ptr [EBP + -0x28]
+  0x00b0040a: MOV dword ptr [ECX + 0x4],EAX
+  0x00b0040d: MOV EDX,dword ptr [EBP + -0x24]
+  0x00b00410: MOV dword ptr [ECX + 0x8],EDX
+  0x00b00413: MOV EAX,dword ptr [EBP + -0x20]
+  0x00b00416: MOV dword ptr [ECX + 0xc],EAX
+  0x00b00419: MOV EAX,dword ptr [EBP + 0x8]
+  0x00b0041c: JMP 0x00b004a2
+  0x00b00421: LEA ECX,[EBP + 0xfffffe90]
+  0x00b00427: PUSH ECX
+  0x00b00428: MOV EDX,dword ptr [EBP + 0xfffffe8c]
+  0x00b0042e: MOV EAX,dword ptr [EDX]
+  0x00b00430: MOV ECX,dword ptr [EBP + 0xfffffe8c]
+  0x00b00436: MOV EDX,dword ptr [EAX + 0x18]
+  0x00b00439: CALL EDX
+  0x00b0043b: PUSH EAX
+  0x00b0043c: CALL dword ptr [0x00fdf070]
+  0x00b00442: MOV dword ptr [EBP + -0xc],EAX
+  0x00b00445: CMP dword ptr [EBP + -0xc],-0x1
+  0x00b00449: JZ 0x00b0045d
+  0x00b0044b: MOV EAX,dword ptr [EBP + 0xfffffea4]
+  0x00b00451: MOV dword ptr [EBP + -0x8],EAX
+  0x00b00454: MOV ECX,dword ptr [EBP + 0xfffffea8]
+  0x00b0045a: MOV dword ptr [EBP + -0x4],ECX
+  0x00b0045d: MOV EDX,dword ptr [EBP + -0xc]
+  0x00b00460: PUSH EDX
+  0x00b00461: CALL dword ptr [0x00fdf064]
+  0x00b00467: LEA EAX,[EBP + -0x1c]
+  0x00b0046a: PUSH EAX
+  0x00b0046b: LEA ECX,[EBP + -0x8]
+  0x00b0046e: PUSH ECX
+  0x00b0046f: CALL dword ptr [0x00fdf098]
+  0x00b00475: LEA EDX,[EBP + -0x2c]
+  0x00b00478: PUSH EDX
+  0x00b00479: LEA EAX,[EBP + -0x1c]
+  0x00b0047c: PUSH EAX
+  0x00b0047d: PUSH 0x0
+  0x00b0047f: CALL dword ptr [0x00fdf134]
+  0x00b00485: MOV ECX,dword ptr [EBP + 0x8]
+  0x00b00488: MOV EDX,dword ptr [EBP + -0x2c]
+  0x00b0048b: MOV dword ptr [ECX],EDX
+  0x00b0048d: MOV EAX,dword ptr [EBP + -0x28]
+  0x00b00490: MOV dword ptr [ECX + 0x4],EAX
+  0x00b00493: MOV EDX,dword ptr [EBP + -0x24]
+  0x00b00496: MOV dword ptr [ECX + 0x8],EDX
+  0x00b00499: MOV EAX,dword ptr [EBP + -0x20]
+  0x00b0049c: MOV dword ptr [ECX + 0xc],EAX
+  0x00b0049f: MOV EAX,dword ptr [EBP + 0x8]
+  0x00b004a2: MOV ECX,dword ptr [EBP + -0x30]
+  0x00b004a5: XOR ECX,EBP
+  0x00b004a7: CALL 0x00ec408c
+  0x00b004ac: MOV ESP,EBP
+  0x00b004ae: POP EBP
+  0x00b004af: RET 0x4
+  0x00b004c0: PUSH EBP
+  0x00b004c1: MOV EBP,ESP
+  0x00b004c3: PUSH ECX
+  0x00b004c4: MOV dword ptr [EBP + -0x4],ECX
+  0x00b004c7: MOV AL,0x1
+  0x00b004c9: MOV ESP,EBP
+  0x00b004cb: POP EBP
+  0x00b004cc: RET 0x8
+  0x00b004d0: PUSH EBP
+  0x00b004d1: MOV EBP,ESP
+  0x00b004d3: PUSH ECX
+  0x00b004d4: MOV dword ptr [EBP + -0x4],ECX
+  0x00b004d7: MOV ESP,EBP
+  0x00b004d9: POP EBP
+  0x00b004da: RET
+  0x00b004e0: PUSH EBP
+  0x00b004e1: MOV EBP,ESP
+  0x00b004e3: SUB ESP,0x8
+  0x00b004e6: MOV dword ptr [EBP + -0x8],ECX
+  0x00b004e9: MOV EAX,dword ptr [EBP + -0x8]
+  0x00b004ec: MOV dword ptr [EAX + 0x154],0x0
+  0x00b004f6: MOV ECX,dword ptr [EBP + -0x8]
+  0x00b004f9: CMP dword ptr [ECX + 0x28],0x1
+  0x00b004fd: JNZ 0x00b00507
+  0x00b004ff: MOV ECX,dword ptr [EBP + -0x8]
+  0x00b00502: CALL 0x00aa15a0
+  0x00b00507: PUSH 0x0
+  0x00b00509: PUSH 0x0
+  0x00b0050b: MOV EDX,dword ptr [EBP + -0x8]
+  0x00b0050e: MOV EAX,dword ptr [EDX]
+  0x00b00510: MOV ECX,dword ptr [EBP + -0x8]
+  0x00b00513: MOV EDX,dword ptr [EAX + 0x20]
+  0x00b00516: CALL EDX
+  0x00b00518: MOV EAX,dword ptr [EBP + -0x8]
+  0x00b0051b: XOR ECX,ECX
+  0x00b0051d: CMP dword ptr [EAX + 0x24],0x0
+  0x00b00521: SETNZ CL
+  0x00b00524: MOVZX EDX,CL
+  0x00b00527: TEST EDX,EDX
+  0x00b00529: JZ 0x00b0057d
+  0x00b0052b: MOV EAX,dword ptr [EBP + -0x8]
+  0x00b0052e: MOV ECX,dword ptr [EAX + 0x24]
+  0x00b00531: PUSH ECX
+  0x00b00532: CALL 0x00ecb562
+  0x00b00537: ADD ESP,0x4
+  0x00b0053a: MOV dword ptr [EBP + -0x4],EAX
+  0x00b0053d: PUSH 0x2
+  0x00b0053f: PUSH 0x0
+  0x00b00541: MOV EDX,dword ptr [EBP + -0x8]
+  0x00b00544: MOV EAX,dword ptr [EDX + 0x24]
+  0x00b00547: PUSH EAX
+  0x00b00548: CALL 0x00ecb65a
+  0x00b0054d: ADD ESP,0xc
+  0x00b00550: MOV ECX,dword ptr [EBP + -0x8]
+  0x00b00553: MOV EDX,dword ptr [ECX + 0x24]
+  0x00b00556: PUSH EDX
+  0x00b00557: CALL 0x00ecb562
+  0x00b0055c: ADD ESP,0x4
+  0x00b0055f: MOV ECX,dword ptr [EBP + -0x8]
+  0x00b00562: MOV dword ptr [ECX + 0x154],EAX
+  0x00b00568: PUSH 0x0
+  0x00b0056a: MOV EDX,dword ptr [EBP + -0x4]
+  0x00b0056d: PUSH EDX
+  0x00b0056e: MOV EAX,dword ptr [EBP + -0x8]
+  0x00b00571: MOV ECX,dword ptr [EAX + 0x24]
+  0x00b00574: PUSH ECX
+  0x00b00575: CALL 0x00ecb65a
+  0x00b0057a: ADD ESP,0xc
+  0x00b0057d: MOV EDX,dword ptr [EBP + -0x8]
+  0x00b00580: MOV EAX,dword ptr [EDX + 0x154]
+
+----------------------------------------------------------------------
+Disassembly: BGSSaveLoadFile close, read, write, and status wrappers (0x008462c0 - 0x008463f0)
+----------------------------------------------------------------------
+  0x008462c0: PUSH EBP
+  0x008462c1: MOV EBP,ESP
+  0x008462c3: SUB ESP,0x10
+  0x008462c6: MOV dword ptr [EBP + -0xc],ECX
+  0x008462c9: MOV EAX,dword ptr [EBP + -0xc]
+  0x008462cc: MOV ECX,dword ptr [EAX + 0x104]
+  0x008462d2: MOV dword ptr [EBP + -0x8],ECX
+  0x008462d5: MOV EDX,dword ptr [EBP + -0x8]
+  0x008462d8: MOV dword ptr [EBP + -0x4],EDX
+  0x008462db: CMP dword ptr [EBP + -0x4],0x0
+  0x008462df: JZ 0x008462f4
+  0x008462e1: PUSH 0x1
+  0x008462e3: MOV EAX,dword ptr [EBP + -0x4]
+  0x008462e6: MOV EDX,dword ptr [EAX]
+  0x008462e8: MOV ECX,dword ptr [EBP + -0x4]
+  0x008462eb: MOV EAX,dword ptr [EDX]
+  0x008462ed: CALL EAX
+  0x008462ef: MOV dword ptr [EBP + -0x10],EAX
+  0x008462f2: JMP 0x008462fb
+  0x008462f4: MOV dword ptr [EBP + -0x10],0x0
+  0x008462fb: MOV ESP,EBP
+  0x008462fd: POP EBP
+  0x008462fe: RET
+  0x00846300: PUSH EBP
+  0x00846301: MOV EBP,ESP
+  0x00846303: PUSH ECX
+  0x00846304: MOV dword ptr [EBP + -0x4],ECX
+  0x00846307: MOV EAX,dword ptr [EBP + 0xc]
+  0x0084630a: PUSH EAX
+  0x0084630b: MOV ECX,dword ptr [EBP + 0x8]
+  0x0084630e: PUSH ECX
+  0x0084630f: MOV EDX,dword ptr [EBP + -0x4]
+  0x00846312: MOV ECX,dword ptr [EDX + 0x104]
+  0x00846318: CALL 0x00462d80
+  0x0084631d: MOV ESP,EBP
+  0x0084631f: POP EBP
+  0x00846320: RET 0x8
+  0x00846330: PUSH EBP
+  0x00846331: MOV EBP,ESP
+  0x00846333: SUB ESP,0x8
+  0x00846336: MOV dword ptr [EBP + -0x8],ECX
+  0x00846339: MOV ECX,dword ptr [0x011de134]
+  0x0084633f: CALL 0x00424940
+  0x00846344: MOVZX EAX,AL
+  0x00846347: TEST EAX,EAX
+  0x00846349: JZ 0x0084639a
+  0x0084634b: MOV ECX,dword ptr [EBP + -0x8]
+  0x0084634e: MOV EDX,dword ptr [EBP + -0x8]
+  0x00846351: MOV EAX,dword ptr [ECX + 0x108]
+  0x00846357: SUB EAX,dword ptr [EDX + 0x10c]
+  0x0084635d: MOV dword ptr [EBP + -0x4],EAX
+  0x00846360: MOV ECX,dword ptr [EBP + 0xc]
+  0x00846363: CMP ECX,dword ptr [EBP + -0x4]
+  0x00846366: JBE 0x00846380
+  0x00846368: MOV EDX,dword ptr [EBP + 0xc]
+  0x0084636b: SUB EDX,dword ptr [EBP + -0x4]
+  0x0084636e: MOV EAX,dword ptr [EBP + -0x8]
+  0x00846371: ADD EDX,dword ptr [EAX + 0x108]
+  0x00846377: MOV ECX,dword ptr [EBP + -0x8]
+  0x0084637a: MOV dword ptr [ECX + 0x108],EDX
+  0x00846380: MOV EDX,dword ptr [EBP + -0x8]
+  0x00846383: MOV EAX,dword ptr [EDX + 0x10c]
+  0x00846389: ADD EAX,dword ptr [EBP + 0xc]
+  0x0084638c: MOV ECX,dword ptr [EBP + -0x8]
+  0x0084638f: MOV dword ptr [ECX + 0x10c],EAX
+  0x00846395: MOV EAX,dword ptr [EBP + 0xc]
+  0x00846398: JMP 0x008463b0
+  0x0084639a: MOV EDX,dword ptr [EBP + 0xc]
+  0x0084639d: PUSH EDX
+  0x0084639e: MOV EAX,dword ptr [EBP + 0x8]
+  0x008463a1: PUSH EAX
+  0x008463a2: MOV ECX,dword ptr [EBP + -0x8]
+  0x008463a5: MOV ECX,dword ptr [ECX + 0x104]
+  0x008463ab: CALL 0x00473180
+  0x008463b0: MOV ESP,EBP
+  0x008463b2: POP EBP
+  0x008463b3: RET 0x8
+  0x008463c0: PUSH EBP
+  0x008463c1: MOV EBP,ESP
+  0x008463c3: PUSH ECX
+  0x008463c4: MOV dword ptr [EBP + -0x4],ECX
+  0x008463c7: MOV ECX,dword ptr [0x011de134]
+  0x008463cd: CALL 0x00424940
+  0x008463d2: MOVZX EAX,AL
+  0x008463d5: TEST EAX,EAX
+  0x008463d7: JZ 0x008463dd
+  0x008463d9: MOV AL,0x1
+  0x008463db: JMP 0x008463fa
+  0x008463dd: PUSH 0x0
+  0x008463df: PUSH 0x0
+  0x008463e1: MOV ECX,dword ptr [EBP + -0x4]
+  0x008463e4: MOV EDX,dword ptr [ECX + 0x104]
+  0x008463ea: MOV EAX,dword ptr [EBP + -0x4]
+  0x008463ed: MOV ECX,dword ptr [EAX + 0x104]
+
+----------------------------------------------------------------------
+Data references FROM BSFile constructor (0x00b00260)
+----------------------------------------------------------------------
+  0x00b00265 -> 0x00f23868 DATA
+  0x00b00272 -> 0x011c16bc READ
+  0x00b0027a -> 0x-0000010 DATA
+  0x00b00283 -> 0x-0000014 WRITE
+  0x00b00286 -> 0x-0000014 READ
+  0x00b0028e -> 0x-0000008 WRITE
+  0x00b00295 -> 0x-0000014 READ
+  0x00b00298 -> 0x010a4764 DATA
+  0x00b002a0 -> 0x-0000014 READ
+  0x00b002a8 -> 0x-0000014 READ
+  0x00b002ab -> 0x00000008 READ
+  0x00b002b1 -> 0x-0000014 READ
+  0x00b002b4 -> 0x0000000c READ
+  0x00b002ba -> 0x-0000014 READ
+  0x00b002c4 -> 0x-0000014 READ
+  0x00b002ce -> 0x-0000014 READ
+  0x00b002d8 -> 0x-0000014 READ
+  0x00b002e2 -> 0x-0000014 READ
+  0x00b002ef -> 0x-0000014 READ
+  0x00b002fc -> 0x-0000014 READ
+  0x00b00309 -> 0x-0000014 READ
+  0x00b00316 -> 0x-0000014 READ
+  0x00b0031d -> 0x-0000014 READ
+  0x00b00327 -> 0x-0000014 READ
+  0x00b00331 -> 0x-0000014 READ
+  0x00b0033b -> 0x-0000014 READ
+  0x00b00345 -> 0x00000004 READ
+  0x00b00358 -> 0x-0000014 READ
+  0x00b00361 -> 0x00000004 READ
+  0x00b0036a -> 0x-0000014 READ
+  0x00b00379 -> 0x00000008 READ
+  0x00b0037f -> 0x00000010 READ
+  0x00b00386 -> 0x-0000014 READ
+  0x00b0038e -> 0x00000008 READ
+  0x00b00394 -> 0x-0000014 READ
+  0x00b0039c -> 0x-0000014 READ
+  0x00b003a2 -> 0x-0000008 WRITE
+  0x00b003a9 -> 0x-0000014 READ
+  0x00b003ac -> 0x-0000010 READ
+  Total: 39 data refs
+
+----------------------------------------------------------------------
+Data references FROM physical write primitive (0x0044e120)
+----------------------------------------------------------------------
+  0x0044e126 -> 0x-000000c WRITE
+  0x0044e129 -> 0x00000010 READ
+  0x0044e12d -> 0x0000000c READ
+  0x0044e131 -> 0x00000008 READ
+  0x0044e135 -> 0x00000004 READ
+  0x0044e139 -> 0x-000000c READ
+  0x0044e13d -> 0x-000000c READ
+  0x0044e148 -> 0x-0000008 WRITE
+  0x0044e14b -> 0x-000000c READ
+  0x0044e151 -> 0x-0000008 READ
+  0x0044e154 -> 0x-000000c READ
+  0x0044e15a -> 0x-0000008 READ
+  Total: 12 data refs
+
+----------------------------------------------------------------------
+Symbols and references for CreateFileA
+----------------------------------------------------------------------
+  Symbol KERNEL32.DLL::CreateFileA @ EXTERNAL:00000018
+    DATA @ 0x00fdf088 (in ???)
+    COMPUTED_CALL @ 0x00afebe0 (in FUN_00afeac0)
+    COMPUTED_CALL @ 0x00afeba3 (in FUN_00afeac0)
+    COMPUTED_CALL @ 0x0046f0df (in FUN_0046f0c0)
+    COMPUTED_CALL @ 0x00ee334c (in __tsopen_nolock)
+    COMPUTED_CALL @ 0x00ee3385 (in __tsopen_nolock)
+    COMPUTED_CALL @ 0x00ee6282 (in ___initconout)
+    COMPUTED_CALL @ 0x00ee37df (in __tsopen_nolock)
+    COMPUTED_CALL @ 0x00e982a5 (in ???)
+  Total references: 9
+
+----------------------------------------------------------------------
+Symbols and references for ReadFile
+----------------------------------------------------------------------
+  Symbol KERNEL32.DLL::ReadFile @ EXTERNAL:00000016
+    DATA @ 0x00fdf080 (in ???)
+    COMPUTED_CALL @ 0x00afed27 (in FUN_00afecd0)
+    COMPUTED_CALL @ 0x00edee8d (in __ftelli64_nolock)
+    COMPUTED_CALL @ 0x00edcbff (in __read_nolock)
+    COMPUTED_CALL @ 0x00edce28 (in __read_nolock)
+    COMPUTED_CALL @ 0x00edcb47 (in __read_nolock)
+    COMPUTED_CALL @ 0x0046f132 (in FUN_0046f0c0)
+    COMPUTED_CALL @ 0x00e98306 (in ???)
+  Total references: 8
+
+----------------------------------------------------------------------
+Symbols and references for WriteFile
+----------------------------------------------------------------------
+  Symbol KERNEL32.DLL::WriteFile @ EXTERNAL:0000002d
+    DATA @ 0x00fdf0dc (in ???)
+    COMPUTED_CALL @ 0x00afee37 (in FUN_00afede0)
+    COMPUTED_CALL @ 0x00edc270 (in __write_nolock)
+    COMPUTED_CALL @ 0x00edc2c9 (in __write_nolock)
+    COMPUTED_CALL @ 0x00edc457 (in __write_nolock)
+    COMPUTED_CALL @ 0x00edc537 (in __write_nolock)
+    COMPUTED_CALL @ 0x00edc631 (in __write_nolock)
+    COMPUTED_CALL @ 0x00edc688 (in __write_nolock)
+    COMPUTED_CALL @ 0x00ed2aac (in __NMSG_WRITE)
+  Total references: 9
+
+----------------------------------------------------------------------
+Symbols and references for FlushFileBuffers
+----------------------------------------------------------------------
+  Symbol KERNEL32.DLL::FlushFileBuffers @ EXTERNAL:00000044
+    DATA @ 0x00fdf138 (in ???)
+    COMPUTED_CALL @ 0x00aff06e (in FUN_00aff060)
+    COMPUTED_CALL @ 0x00edf24d (in __commit)
+  Total references: 3
+
+----------------------------------------------------------------------
+Symbols and references for SetEndOfFile
+----------------------------------------------------------------------
+  Symbol KERNEL32.DLL::SetEndOfFile @ EXTERNAL:0000007a
+    DATA @ 0x00fdf210 (in ???)
+    COMPUTED_CALL @ 0x00ee6112 (in __chsize_nolock)
+  Total references: 2
+
+----------------------------------------------------------------------
+Symbols and references for CloseHandle
+----------------------------------------------------------------------
+  Symbol KERNEL32.DLL::CloseHandle @ EXTERNAL:00000015
+    DATA @ 0x00fdf07c (in ???)
+    COMPUTED_CALL @ 0x009fabea (in FUN_009fabb0)
+    COMPUTED_CALL @ 0x0055a2de (in FUN_0055a2d0)
+    COMPUTED_CALL @ 0x0065954e (in FUN_00659540)
+    COMPUTED_CALL @ 0x00ed80f0 (in __close_nolock)
+    COMPUTED_CALL @ 0x00aff09e (in FUN_00aff090)
+    COMPUTED_CALL @ 0x009fe0e7 (in FUN_009fe0c0)
+    COMPUTED_CALL @ 0x009fcfe7 (in FUN_009fcfe0)
+    COMPUTED_CALL @ 0x00aa889e (in FUN_00aa8850)
+    COMPUTED_CALL @ 0x00aa83cd (in FUN_00aa81d0)
+    COMPUTED_CALL @ 0x00aa837a (in FUN_00aa81d0)
+    COMPUTED_CALL @ 0x0046f274 (in FUN_0046f0c0)
+    COMPUTED_CALL @ 0x0082f732 (in FUN_0082f6c0)
+    COMPUTED_CALL @ 0x00b028f6 (in FUN_00b02860)
+    COMPUTED_CALL @ 0x00ba2ffe (in FUN_00ba2ff0)
+    COMPUTED_CALL @ 0x00ba3004 (in FUN_00ba2ff0)
+    COMPUTED_CALL @ 0x00c42f24 (in FUN_00c42f00)
+    COMPUTED_CALL @ 0x00c42f31 (in FUN_00c42f00)
+    COMPUTED_CALL @ 0x00c42f3e (in FUN_00c42f00)
+    COMPUTED_CALL @ 0x00b02797 (in FUN_00b02780)
+    COMPUTED_CALL @ 0x00b01f1a (in FUN_00b01f00)
+    COMPUTED_CALL @ 0x00b01f3d (in FUN_00b01f00)
+    COMPUTED_CALL @ 0x00b01ff0 (in FUN_00b01f50)
+    COMPUTED_CALL @ 0x00b01fff (in FUN_00b01f50)
+    COMPUTED_CALL @ 0x00ec165f (in FUN_00ec15e0)
+    COMPUTED_CALL @ 0x00ae78b7 (in FUN_00ae78a0)
+    COMPUTED_CALL @ 0x00ae78c4 (in FUN_00ae78a0)
+    COMPUTED_CALL @ 0x00d8792a (in FUN_00d87920)
+    COMPUTED_CALL @ 0x008c744d (in FUN_008c73a0)
+    COMPUTED_CALL @ 0x008c7478 (in FUN_008c73a0)
+    COMPUTED_CALL @ 0x00aa651b (in FUN_00aa64f0)
+    COMPUTED_CALL @ 0x00d04373 (in FUN_00d04370)
+    COMPUTED_CALL @ 0x00ba2d74 (in ???)
+    COMPUTED_CALL @ 0x00ee53cf (in __tsopen_nolock)
+    COMPUTED_CALL @ 0x00ee5795 (in __tsopen_nolock)
+    COMPUTED_CALL @ 0x00ee33fd (in __tsopen_nolock)
+    COMPUTED_CALL @ 0x00ee37c2 (in __tsopen_nolock)
+    COMPUTED_CALL @ 0x00fdaf66 (in FUN_00fdaf60)
+    COMPUTED_CALL @ 0x00e9830d (in ???)
+  Total references: 39
+
+----------------------------------------------------------------------
+Symbols and references for GetLastError
+----------------------------------------------------------------------
+  Symbol KERNEL32.DLL::GetLastError @ EXTERNAL:0000001b
+    DATA @ 0x00fdf094 (in ???)
+    COMPUTED_CALL @ 0x00ed80fa (in __close_nolock)
+    COMPUTED_CALL @ 0x00edf257 (in __commit)
+    COMPUTED_CALL @ 0x00afebf5 (in FUN_00afeac0)
+    COMPUTED_CALL @ 0x00afed36 (in FUN_00afecd0)
+    COMPUTED_CALL @ 0x00afee46 (in FUN_00afede0)
+    COMPUTED_CALL @ 0x00afef5d (in FUN_00afeef0)
+    COMPUTED_CALL @ 0x009fe7b8 (in FUN_009fe780)
+    COMPUTED_CALL @ 0x00edda19 (in ___crtGetEnvironmentStringsA)
+    COMPUTED_CALL @ 0x00edd045 (in __lseek_nolock)
+    COMPUTED_CALL @ 0x00edcd50 (in __read_nolock)
+    COMPUTED_CALL @ 0x00edcc09 (in __read_nolock)
+    COMPUTED_CALL @ 0x00edce32 (in __read_nolock)
+    COMPUTED_CALL @ 0x00edced0 (in __read_nolock)
+    COMPUTED_CALL @ 0x00edc647 (in __write_nolock)
+    COMPUTED_CALL @ 0x00edc6a7 (in __write_nolock)
+    COMPUTED_CALL @ 0x0047298d (in FUN_00472890)
+    COMPUTED_CALL @ 0x00472b30 (in FUN_00472890)
+    COMPUTED_CALL @ 0x004722dd (in FUN_004721d0)
+    COMPUTED_CALL @ 0x00472445 (in FUN_004723a0)
+    COMPUTED_CALL @ 0x004725b9 (in FUN_004724f0)
+    COMPUTED_CALL @ 0x00ed1169 (in __getptd_noexit)
+    COMPUTED_CALL @ 0x00ed0522 (in __crtLCMapStringA_stat)
+    COMPUTED_CALL @ 0x00ed70af (in __fullpath)
+    COMPUTED_CALL @ 0x00ecbec4 (in FID_conflict:__waccess_s)
+    COMPUTED_CALL @ 0x0086a876 (in FUN_0086a850)
+    COMPUTED_CALL @ 0x00ecabcc (in __wcstombs_l_helper)
+    COMPUTED_CALL @ 0x00ec95e5 (in __stat64i32)
+    COMPUTED_CALL @ 0x00ec8641 (in FUN_00ec862c)
+    COMPUTED_CALL @ 0x00ecf131 (in __mbstowcs_l_helper)
+    COMPUTED_CALL @ 0x00ecd30a (in _free)
+    COMPUTED_CALL @ 0x00eccbc8 (in __getdcwd_nolock)
+    COMPUTED_CALL @ 0x00ecd0d8 (in _realloc)
+    COMPUTED_CALL @ 0x00ecd165 (in _realloc)
+    COMPUTED_CALL @ 0x00ee22e6 (in __wctomb_s_l)
+    COMPUTED_CALL @ 0x00ee1e65 (in __crtGetLocaleInfoA_stat)
+    COMPUTED_CALL @ 0x00ee1ff6 (in __lseeki64_nolock)
+    COMPUTED_CALL @ 0x00ee122a (in __crtGetStringTypeA_stat)
+    COMPUTED_CALL @ 0x00ee64c7 (in __crtCompareStringA_stat)
+    COMPUTED_CALL @ 0x00ee613f (in __chsize_nolock)
+    COMPUTED_CALL @ 0x00ee470a (in __putwch_nolock)
+    COMPUTED_CALL @ 0x00ed2b50 (in ___getlocaleinfo)
+    COMPUTED_CALL @ 0x00ee53bd (in __tsopen_nolock)
+    COMPUTED_CALL @ 0x00ee57bd (in __tsopen_nolock)
+    COMPUTED_CALL @ 0x00ee537c (in __tsopen_nolock)
+    COMPUTED_CALL @ 0x00ee33eb (in __tsopen_nolock)
+    COMPUTED_CALL @ 0x00ee37ea (in __tsopen_nolock)
+    COMPUTED_CALL @ 0x00ee33aa (in __tsopen_nolock)
+  Total references: 48
+
+----------------------------------------------------------------------
+Symbols and references for MoveFileA
+----------------------------------------------------------------------
+  Symbol KERNEL32.DLL::MoveFileA @ EXTERNAL:00000058
+    DATA @ 0x00fdf188 (in ???)
+    COMPUTED_CALL @ 0x00ec8637 (in FUN_00ec862c)
+  Total references: 2
+
+----------------------------------------------------------------------
+Symbols and references for DeleteFileA
+----------------------------------------------------------------------
+  Symbol KERNEL32.DLL::DeleteFileA @ EXTERNAL:0000002b
+    DATA @ 0x00fdf0d4 (in ???)
+    COMPUTED_CALL @ 0x00aff0b7 (in FUN_00aff0b0)
+    COMPUTED_CALL @ 0x00853ab8 (in FUN_00853a30)
+    COMPUTED_CALL @ 0x008500ae (in FUN_00850030)
+    COMPUTED_CALL @ 0x008502ce (in FUN_00850100)
+    COMPUTED_CALL @ 0x00850398 (in FUN_00850360)
+    COMPUTED_CALL @ 0x00857617 (in FUN_00857370)
+    COMPUTED_CALL @ 0x00876cb2 (in FUN_00876ad0)
+    COMPUTED_CALL @ 0x00876cbe (in FUN_00876ad0)
+    COMPUTED_CALL @ 0x00876cca (in FUN_00876ad0)
+  Total references: 10

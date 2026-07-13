@@ -19,6 +19,7 @@ mod navmesh;
 mod patching;
 mod queued_tasks;
 mod ragdoll;
+mod save_integrity;
 mod statics;
 mod types;
 
@@ -41,6 +42,7 @@ pub(crate) fn display_diagnostic_snapshot() -> display::DiagnosticSnapshot {
 }
 
 pub fn install(config: &EngineFixesConfig, diagnostics: &DiagnosticsConfig) -> anyhow::Result<()> {
+    install_save_integrity(config)?;
     install_navmesh_low_pointer(config)?;
     install_entrydata_invalid_form(config)?;
     install_extraownership_invalid_owner(config)?;
@@ -96,6 +98,7 @@ pub(crate) fn append_diagnostic_report(out: &mut String) {
     let display = display::diagnostic_snapshot();
     let low = lowprocess::diagnostic_snapshot();
     let task = queued_tasks::diagnostic_snapshot();
+    let save = save_integrity::diagnostic_snapshot();
     out.push_str("\n==== Engine fixes ====\n");
     out.push_str(&format!(
         "  Display: create=installed:{} predecessor:0x{:08X} vanilla:{} site:{} calls:{}/{}/{} setpos=installed:{} predecessor:0x{:08X} vanilla:{} sites:{}/{}/{}/{}/{}/{} windowed:{} reset:{}/{} child:{} loss:{} regain:{} lifecycle:{} catchup:{}/{}/{} mismatches:{} failures:{} monitors:{}/{}/{} restores:{} last_tick:{} result:{} error:{}\n",
@@ -152,6 +155,22 @@ pub(crate) fn append_diagnostic_report(out: &mut String) {
         low.patch_failures,
     ));
     out.push_str(&format!(
+        "  Save integrity: attempts={} commits={} aborts={} short_writes={} close_failures={} malformed_loads={} unavailable_records={} hooks=factory:{} owner:{} activation:{} fclose:{} load_owner:{} result_predecessor:0x{:08X}\n",
+        save.save_attempts,
+        save.save_commits,
+        save.save_aborts,
+        save.short_writes,
+        save.close_failures,
+        save.load_rejections,
+        save.unresolved_records,
+        save.factory_hook,
+        save.owner_hook,
+        save.activation_hook,
+        save.fclose_hook,
+        save.load_owner_hook,
+        save.result_predecessor,
+    ));
+    out.push_str(&format!(
         "  queued tasks: release={} dispatch_guard={} predecessor=0x{:08X} dispatch={}/{} pin_fail={} invalid={} base_vt={} releases_guarded={} qt_finals={} tombstones={} trace_dumps={}\n",
         task.release_enabled,
         task.dispatch_enabled,
@@ -166,6 +185,17 @@ pub(crate) fn append_diagnostic_report(out: &mut String) {
         task.tombstones,
         task.trace_dumps,
     ));
+}
+
+fn install_save_integrity(config: &EngineFixesConfig) -> anyhow::Result<()> {
+    if !config.save_integrity_fix {
+        log::info!("[SAVE] Save integrity fix disabled by config");
+        return Ok(());
+    }
+    if let Err(error) = save_integrity::install() {
+        log::warn!("[SAVE] Save integrity hooks unavailable: {error:#}");
+    }
+    Ok(())
 }
 
 fn install_lowprocess_fix(config: &EngineFixesConfig) -> anyhow::Result<()> {

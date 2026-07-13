@@ -148,6 +148,8 @@ impl PerformanceConfig {
 pub struct EngineFixesConfig {
     /// Repair audited fullscreen startup, reset, and Alt-Tab placement.
     pub display_alt_tab: bool,
+    /// Commit saves durably and reject unsafe or unresolved changed records.
+    pub save_integrity_fix: bool,
     /// Treat invalid NavMeshInfo low pointers as "no path identity".
     pub navmesh_low_pointer_guard: bool,
     /// Drop invalid ExtraContainerChanges::EntryData forms during load/save.
@@ -182,6 +184,7 @@ impl Default for EngineFixesConfig {
     fn default() -> Self {
         Self {
             display_alt_tab: true,
+            save_integrity_fix: true,
             navmesh_low_pointer_guard: true,
             entrydata_invalid_form_guard: true,
             extraownership_invalid_owner_guard: true,
@@ -217,6 +220,7 @@ impl EngineFixesConfig {
                 .or(legacy_display_tweaks)
                 .or(legacy_display.tweaks)
                 .unwrap_or(default.display_alt_tab),
+            save_integrity_fix: raw.save_integrity_fix.unwrap_or(default.save_integrity_fix),
             navmesh_low_pointer_guard: raw
                 .navmesh_low_pointer_guard
                 .unwrap_or(default.navmesh_low_pointer_guard),
@@ -342,6 +346,7 @@ struct RawPerformanceConfig {
 #[serde(default)]
 struct RawEngineFixesConfig {
     display_alt_tab: Option<bool>,
+    save_integrity_fix: Option<bool>,
     navmesh_low_pointer_guard: Option<bool>,
     entrydata_invalid_form_guard: Option<bool>,
     extraownership_invalid_owner_guard: Option<bool>,

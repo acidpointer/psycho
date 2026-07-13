@@ -2,7 +2,7 @@
 //!
 //! This module contains various wrapper winapi functions and types.
 
-use std::ffi::{CString, NulError, OsStr};
+use std::ffi::{CStr, CString, NulError, OsStr};
 use std::os::windows::ffi::OsStrExt;
 use std::ptr::NonNull;
 use std::sync::atomic::{AtomicPtr, Ordering};
@@ -10,8 +10,14 @@ use std::sync::atomic::{AtomicPtr, Ordering};
 use libc::c_void;
 use thiserror::Error;
 use windows::Win32::Foundation::{
-    CloseHandle, FILETIME, GetLastError, HANDLE, HMODULE, HWND, INVALID_HANDLE_VALUE, STILL_ACTIVE,
-    SetLastError, WIN32_ERROR,
+    CloseHandle, ERROR_FILE_NOT_FOUND, ERROR_PATH_NOT_FOUND, FILETIME, GetLastError, HANDLE,
+    HMODULE, HWND, INVALID_HANDLE_VALUE, STILL_ACTIVE, SetLastError, WIN32_ERROR,
+};
+use windows::Win32::Storage::FileSystem::{
+    CreateFileA, DeleteFileA, FILE_ATTRIBUTE_NORMAL, FILE_GENERIC_READ, FILE_GENERIC_WRITE,
+    FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE, FlushFileBuffers, GetFileAttributesA,
+    GetFileSizeEx, INVALID_FILE_ATTRIBUTES, MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH,
+    MoveFileExA, OPEN_EXISTING, REPLACE_FILE_FLAGS, ReplaceFileA,
 };
 use windows::Win32::System::Console::{
     AllocConsole, CONSOLE_MODE, ENABLE_VIRTUAL_TERMINAL_PROCESSING, GetConsoleMode, GetStdHandle,
@@ -83,6 +89,9 @@ pub enum WinapiError {
 
     #[error("Pointer address 0x{0:x} is not naturally aligned")]
     MisalignedPointer(usize),
+
+    #[error("Windows reported a negative file size: {0}")]
+    NegativeFileSize(i64),
 }
 
 pub type WinapiResult<T> = std::result::Result<T, WinapiError>;
@@ -623,6 +632,136 @@ pub fn create_thread(
 pub fn close_handle(handle: Handle) -> WinapiResult<()> {
     unsafe { CloseHandle(handle.into())? };
 
+    Ok(())
+}
+
+/// An owned handle to an existing disk file opened for validation and durable
+/// flushing. The handle is always closed when this value is dropped.
+#[derive(Debug)]
+pub struct DurableFile {
+    handle: Option<Handle>,
+}
+
+impl DurableFile {
+    fn raw_handle(&self) -> WinapiResult<HANDLE> {
+        let Some(handle) = self.handle.as_ref() else {
+            return Err(WinapiError::InputNullPtr());
+        };
+        Ok(HANDLE(handle.as_ptr()))
+    }
+
+    /// Return the current physical file length.
+    pub fn len(&self) -> WinapiResult<u64> {
+        let mut size = 0i64;
+        unsafe { GetFileSizeEx(self.raw_handle()?, &mut size)? };
+        if size < 0 {
+            return Err(WinapiError::NegativeFileSize(size));
+        }
+        Ok(size as u64)
+    }
+
+    /// Return whether the file contains no bytes.
+    pub fn is_empty(&self) -> WinapiResult<bool> {
+        Ok(self.len()? == 0)
+    }
+
+    /// Force cached file contents and metadata associated with this handle to
+    /// stable storage before the temporary file is promoted.
+    pub fn flush(&self) -> WinapiResult<()> {
+        unsafe { FlushFileBuffers(self.raw_handle()?)? };
+        Ok(())
+    }
+}
+
+impl Drop for DurableFile {
+    fn drop(&mut self) {
+        if let Some(handle) = self.handle.take()
+            && let Err(error) = close_handle(handle)
+        {
+            log::error!("Failed to close durable file handle: {error}");
+        }
+    }
+}
+
+/// Open an existing file without truncation so its final length can be checked
+/// and its cached contents can be flushed before replacement.
+pub fn open_existing_file_for_flush(path: &CStr) -> WinapiResult<DurableFile> {
+    let handle = unsafe {
+        CreateFileA(
+            PCSTR(path.as_ptr().cast()),
+            FILE_GENERIC_READ.0 | FILE_GENERIC_WRITE.0,
+            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+            None,
+            OPEN_EXISTING,
+            FILE_ATTRIBUTE_NORMAL,
+            None,
+        )?
+    };
+
+    Ok(DurableFile {
+        handle: Some(handle.try_into()?),
+    })
+}
+
+/// Return whether a filesystem path currently exists.
+pub fn file_exists(path: &CStr) -> WinapiResult<bool> {
+    let attributes = unsafe { GetFileAttributesA(PCSTR(path.as_ptr().cast())) };
+    if attributes != INVALID_FILE_ATTRIBUTES {
+        return Ok(true);
+    }
+
+    let error = unsafe { GetLastError() };
+    if error == ERROR_FILE_NOT_FOUND || error == ERROR_PATH_NOT_FOUND {
+        return Ok(false);
+    }
+    Err(windows::core::Error::from_win32().into())
+}
+
+/// Delete an existing file. Missing paths are accepted so cleanup and backup
+/// rotation remain idempotent after an interrupted save.
+pub fn delete_file_if_exists(path: &CStr) -> WinapiResult<()> {
+    match file_exists(path)? {
+        true => unsafe { DeleteFileA(PCSTR(path.as_ptr().cast()))? },
+        false => return Ok(()),
+    }
+    Ok(())
+}
+
+/// Move a file and replace an existing destination only after the source is
+/// ready. `MOVEFILE_WRITE_THROUGH` keeps the rename in the durable commit path.
+pub fn move_file_replace_write_through(source: &CStr, destination: &CStr) -> WinapiResult<()> {
+    unsafe {
+        MoveFileExA(
+            PCSTR(source.as_ptr().cast()),
+            PCSTR(destination.as_ptr().cast()),
+            MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
+        )?
+    };
+    Ok(())
+}
+
+/// Atomically replace an existing file and retain its previous contents at
+/// `backup`.
+///
+/// `REPLACEFILE_WRITE_THROUGH` is deliberately not used because Microsoft
+/// documents that flag as unsupported. Callers that need durable contents
+/// must flush the replacement file before this operation.
+pub fn replace_file_atomic(
+    replaced: &CStr,
+    replacement: &CStr,
+    backup: Option<&CStr>,
+) -> WinapiResult<()> {
+    let backup = backup.map_or(PCSTR::null(), |path| PCSTR(path.as_ptr().cast()));
+    unsafe {
+        ReplaceFileA(
+            PCSTR(replaced.as_ptr().cast()),
+            PCSTR(replacement.as_ptr().cast()),
+            backup,
+            REPLACE_FILE_FLAGS(0),
+            None,
+            None,
+        )?
+    };
     Ok(())
 }
 

@@ -1,0 +1,2943 @@
+======================================================================
+SAVE LOAD ACCEPTANCE FOLLOW-UP
+======================================================================
+Questions: whether the format has a complete-body invariant, which malformed lengths are fatal, and whether load errors abort before state is committed.
+
+======================================================================
+save header and physical body writer @ 0x0084d4b0
+======================================================================
+  Function: FUN_0084d4b0 @ 0x0084d4b0, Size: 1034 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+void FUN_0084d4b0(undefined4 param_1)
+
+{
+  char cVar1;
+  uint uVar2;
+  size_t sVar3;
+  undefined4 uVar4;
+  int iVar5;
+  int iVar6;
+  char *pcVar7;
+  int *unaff_FS_OFFSET;
+  undefined4 uVar8;
+  undefined4 *local_3a4;
+  undefined4 local_3a0;
+  uint local_39c;
+  undefined1 local_398 [267];
+  undefined1 local_28d;
+  undefined4 local_28c;
+  undefined1 local_288;
+  undefined1 local_287 [267];
+  int local_17c;
+  wchar_t local_178 [32];
+  undefined1 local_138 [264];
+  uint local_30;
+  undefined1 local_2c [20];
+  undefined1 *local_18;
+  int local_14;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00f12e88;
+  local_10 = *unaff_FS_OFFSET;
+  uVar2 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  local_30 = uVar2;
+  sVar3 = _strlen(PTR_s_FO3SAVEGAME_011a2224);
+  FUN_00846330(PTR_s_FO3SAVEGAME_011a2224,sVar3);
+  FUN_00865bd0(uVar2);
+  local_8 = 0;
+  local_18 = local_2c;
+  local_28c = FUN_0066d730();
+  FUN_00865e50(&local_28c,4,0);
+  std::_Fiopen(local_178,0,0x40);
+  uVar4 = FUN_00403df0();
+  FUN_00406d50(local_178,0x40,uVar4);
+  FUN_00865e50(local_178,0x40,0);
+  iVar5 = FUN_004dc200();
+  iVar6 = FUN_004dc1f0();
+  local_28d = (double)iVar5 / (double)iVar6 < _DAT_0101de30;
+  local_17c = (-(uint)(byte)local_28d & 0x50) + 0x1b0;
+  local_14 = (-(uint)(byte)local_28d & 0x50) + 0x1b0;
+  local_288 = 0;
+  _memset(local_287,0,0x103);
+  pcVar7 = (char *)FUN_00408d60();
+  if (*pcVar7 != '\0') {
+    uVar4 = FUN_00403df0();
+    FUN_00406d30(&local_288,0x104,uVar4);
+    uVar4 = FUN_006815c0();
+    FUN_00406d50(&local_288,0x104,uVar4);
+    FUN_00406d50(&local_288,0x104,&DAT_0107f794);
+  }
+  local_3a4 = (undefined4 *)0x0;
+  cVar1 = FUN_00424940();
+  if (cVar1 == '\0') {
+    local_3a4 = (undefined4 *)FUN_00878f60(&local_17c,&local_14,&local_288);
+  }
+  else {
+    FUN_004dc200();
+    FUN_004dc1f0();
+    local_14 = FUN_00ec62c0();
+  }
+  FUN_00865e50(&local_17c,4,0);
+  FUN_00865e50(&local_14,4,0);
+  local_3a0 = FUN_0044ddc0();
+  FUN_00865e50(&local_3a0,4,0);
+  uVar8 = 0;
+  uVar4 = FUN_0055d520(0);
+  FUN_00865e70(uVar4,uVar8);
+  uVar8 = 0;
+  uVar4 = FUN_0047e0e0(DAT_011dea3c,0);
+  FUN_00865e70(uVar4,uVar8);
+  local_39c = FUN_0087f9f0();
+  local_39c = local_39c & 0xffff;
+  FUN_00865e50(&local_39c,4,0);
+  FUN_00851b40(local_398);
+  FUN_00865e70(local_398,0);
+  FUN_00851bf0(local_138,1);
+  FUN_00865e70(local_138,0);
+  FUN_00865c40(param_1);
+  cVar1 = FUN_00424940();
+  if (cVar1 == '\0') {
+    iVar5 = local_17c * local_14 * 3;
+    uVar4 = FUN_0064dac0(0,0);
+    FUN_00846330(uVar4,iVar5);
+  }
+  else {
+    FUN_00846330(0,local_17c * local_14 * 3);
+  }
+  if (local_3a4 == (undefined4 *)0x0) {
+    uVar4 = 0;
+  }
+  else {
+    uVar4 = (**(code **)*local_3a4)(1);
+  }
+  local_8 = 0xffffffff;
+  FUN_00865c10(uVar2,uVar4);
+  *unaff_FS_OFFSET = local_10;
+  __security_check_cookie(local_30 ^ (uint)&stack0xfffffffc);
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x0084d4b0 (save header and physical body writer)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00850eb8 (in FUN_00850ea0)
+  Total: 1 refs
+
+--- Calls FROM save header and physical body writer (0x0084d4b0) ---
+  0x0084d4e1 -> 0x00ec6130 _strlen
+  0x0084d4f4 -> 0x00846330 FUN_00846330
+  0x0084d4fc -> 0x00865bd0 FUN_00865bd0
+  0x0084d514 -> 0x0066d730 FUN_0066d730
+  0x0084d52d -> 0x00865e50 FUN_00865e50
+  0x0084d53d -> 0x00403d30 _Fiopen
+  0x0084d54a -> 0x00403df0 FUN_00403df0
+  0x0084d559 -> 0x00406d50 FUN_00406d50
+  0x0084d56f -> 0x00865e50 FUN_00865e50
+  0x0084d574 -> 0x004dc200 FUN_004dc200
+  0x0084d58b -> 0x004dc1f0 FUN_004dc1f0
+  0x0084d616 -> 0x00ec61c0 _memset
+  0x0084d623 -> 0x00408d60 FUN_00408d60
+  0x0084d634 -> 0x00403df0 FUN_00403df0
+  0x0084d646 -> 0x00406d30 FUN_00406d30
+  0x0084d651 -> 0x006815c0 FUN_006815c0
+  0x0084d663 -> 0x00406d50 FUN_00406d50
+  0x0084d67c -> 0x00406d50 FUN_00406d50
+  0x0084d694 -> 0x00424940 FUN_00424940
+  0x0084d6b2 -> 0x00878f60 FUN_00878f60
+  0x0084d6c2 -> 0x004dc200 FUN_004dc200
+  0x0084d6d9 -> 0x004dc1f0 FUN_004dc1f0
+  0x0084d6ff -> 0x00ec62c0 FUN_00ec62c0
+  0x0084d715 -> 0x00865e50 FUN_00865e50
+  0x0084d725 -> 0x00865e50 FUN_00865e50
+  0x0084d730 -> 0x0044ddc0 FUN_0044ddc0
+  0x0084d749 -> 0x00865e50 FUN_00865e50
+  0x0084d756 -> 0x0055d520 FUN_0055d520
+  0x0084d75f -> 0x00865e70 FUN_00865e70
+  0x0084d76d -> 0x0047e0e0 FUN_0047e0e0
+  0x0084d779 -> 0x00865e70 FUN_00865e70
+  0x0084d784 -> 0x0087f9f0 FUN_0087f9f0
+  0x0084d7a0 -> 0x00865e50 FUN_00865e50
+  0x0084d7b2 -> 0x00851b40 FUN_00851b40
+  0x0084d7c3 -> 0x00865e70 FUN_00865e70
+  0x0084d7d7 -> 0x00851bf0 FUN_00851bf0
+  0x0084d7e8 -> 0x00865e70 FUN_00865e70
+  0x0084d7f4 -> 0x00865c40 FUN_00865c40
+  0x0084d7ff -> 0x00424940 FUN_00424940
+  0x0084d823 -> 0x0064dac0 FUN_0064dac0
+  0x0084d82c -> 0x00846330 FUN_00846330
+  0x0084d846 -> 0x00846330 FUN_00846330
+  0x0084d89c -> 0x00865c10 FUN_00865c10
+  0x0084d8b1 -> 0x00ec408c __security_check_cookie
+  Total: 44 calls
+
+======================================================================
+save header validator A @ 0x0084d8c0
+======================================================================
+  Function: FUN_0084d8c0 @ 0x0084d8c0, Size: 455 bytes
+
+void FUN_0084d8c0(CMFCToolBarsCustomizeDialog *param_1)
+
+{
+  uint uVar1;
+  size_t sVar2;
+  int extraout_EAX;
+  int iVar3;
+  int *unaff_FS_OFFSET;
+  undefined1 local_1c8 [64];
+  undefined1 local_188 [68];
+  int local_144;
+  undefined1 *local_140;
+  int local_13c [2];
+  int local_134;
+  undefined1 local_130 [16];
+  CMFCToolBar local_120;
+  undefined1 local_11f [263];
+  uint local_18;
+  int local_14;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00f12ebb;
+  local_10 = *unaff_FS_OFFSET;
+  uVar1 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  local_120 = (CMFCToolBar)0x0;
+  local_18 = uVar1;
+  _memset(local_11f,0,0x103);
+  sVar2 = _strlen(PTR_s_FO3SAVEGAME_011a2224);
+  CMFCToolBarsCustomizeDialog::ShowToolBar(param_1,&local_120,sVar2);
+  if ((extraout_EAX != 0) &&
+     (iVar3 = FUN_00408b20(&local_120,PTR_s_FO3SAVEGAME_011a2224,uVar1), iVar3 == 0)) {
+    FUN_008646b0();
+    local_8 = 0;
+    FUN_00864740(param_1);
+    local_140 = local_130;
+    local_13c[0] = 0;
+    FUN_00864980(local_13c,4);
+    if (local_13c[0] == 0x30) {
+      local_144 = FUN_0084da90();
+      if (*(char *)(local_144 + 4) != '|') {
+        FUN_00864980(local_188,0x40);
+      }
+    }
+    else {
+      FUN_00864980(local_1c8,0x40);
+    }
+    local_134 = 0;
+    local_14 = 0;
+    FUN_00864980(&local_134,4);
+    FUN_00864980(&local_14,4);
+    FUN_00846490(local_134 * local_14 * 3);
+    local_8 = 0xffffffff;
+    FUN_008646f0(uVar1,local_13c[0]);
+  }
+  *unaff_FS_OFFSET = local_10;
+  __security_check_cookie(local_18 ^ (uint)&stack0xfffffffc);
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x0084d8c0 (save header validator A)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00850eed (in FUN_00850ed0)
+  Total: 1 refs
+
+--- Calls FROM save header validator A (0x0084d8c0) ---
+  0x0084d900 -> 0x00ec61c0 _memset
+  0x0084d90f -> 0x00ec6130 _strlen
+  0x0084d922 -> 0x00846300 ShowToolBar
+  0x0084d94a -> 0x00408b20 FUN_00408b20
+  0x0084d964 -> 0x008646b0 FUN_008646b0
+  0x0084d97a -> 0x00864740 FUN_00864740
+  0x0084d9a4 -> 0x00864980 FUN_00864980
+  0x0084d9b8 -> 0x0084da90 FUN_0084da90
+  0x0084d9e3 -> 0x00864980 FUN_00864980
+  0x0084d9f9 -> 0x00864980 FUN_00864980
+  0x0084da1e -> 0x00864980 FUN_00864980
+  0x0084da2f -> 0x00864980 FUN_00864980
+  0x0084da45 -> 0x00846490 FUN_00846490
+  0x0084da63 -> 0x008646f0 FUN_008646f0
+  0x0084da7e -> 0x00ec408c __security_check_cookie
+  Total: 15 calls
+
+======================================================================
+save header validator B @ 0x0084dab0
+======================================================================
+  Function: FUN_0084dab0 @ 0x0084dab0, Size: 689 bytes
+
+void FUN_0084dab0(CMFCToolBarsCustomizeDialog *param_1)
+
+{
+  uint uVar1;
+  size_t sVar2;
+  int iVar3;
+  undefined4 uVar4;
+  int *unaff_FS_OFFSET;
+  undefined4 local_1cc;
+  undefined1 local_1c8 [64];
+  undefined1 local_188 [68];
+  int local_144;
+  undefined4 local_140;
+  undefined1 *local_13c;
+  int local_138;
+  undefined4 local_134;
+  undefined1 local_130 [16];
+  CMFCToolBar local_120;
+  undefined1 local_11f [263];
+  uint local_18;
+  undefined4 local_14;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00f12ebb;
+  local_10 = *unaff_FS_OFFSET;
+  uVar1 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  local_18 = uVar1;
+  FUN_00846440(0);
+  local_120 = (CMFCToolBar)0x0;
+  _memset(local_11f,0,0x103);
+  sVar2 = _strlen(PTR_s_FO3SAVEGAME_011a2224);
+  CMFCToolBarsCustomizeDialog::ShowToolBar(param_1,&local_120,sVar2);
+  iVar3 = FUN_00408b20(&local_120,PTR_s_FO3SAVEGAME_011a2224,uVar1);
+  if (iVar3 == 0) {
+    FUN_008646b0();
+    local_8 = 0;
+    FUN_00864740(param_1);
+    local_13c = local_130;
+    local_138 = 0;
+    FUN_00864980(&local_138,4);
+    FUN_0040e500(local_138);
+    if (local_138 == 0x30) {
+      local_144 = FUN_0084da90();
+      if (*(char *)(local_144 + 4) == '|') {
+        FUN_0084dd70("ENGLISH");
+      }
+      else {
+        FUN_00864980(local_188,0x40);
+        FUN_0084dd70(local_188);
+      }
+    }
+    else {
+      FUN_00864980(local_1c8,0x40);
+      FUN_0084dd70(local_1c8);
+    }
+    local_134 = 0;
+    local_14 = 0;
+    FUN_00864980(&local_134,4);
+    FUN_00864980(&local_14,4);
+    local_140 = 0;
+    FUN_00864980(&local_140,4);
+    FUN_00403550(local_140);
+    uVar4 = FUN_008649a0(0);
+    FUN_0041fd00(uVar4);
+    uVar4 = FUN_008649a0(0);
+    FUN_00437730(uVar4);
+    if (0x2f < local_138) {
+      local_1cc = 0;
+      FUN_00864980(&local_1cc,4);
+      FUN_0050f9a0(local_1cc);
+    }
+    uVar4 = FUN_008649a0(0);
+    FUN_00600ab0(uVar4);
+    uVar4 = FUN_008649a0(0);
+    FUN_00984f60(uVar4);
+    FUN_0050f9c0(local_134);
+    FUN_007037c0(local_14);
+    uVar4 = FUN_00846400();
+    FUN_0061cc40(uVar4);
+    local_8 = 0xffffffff;
+    FUN_008646f0();
+  }
+  *unaff_FS_OFFSET = local_10;
+  __security_check_cookie(local_18 ^ (uint)&stack0xfffffffc);
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x0084dab0 (save header validator B)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0084695d (in FUN_00846900)
+  UNCONDITIONAL_CALL @ 0x0084686f (in FUN_00846820)
+  UNCONDITIONAL_CALL @ 0x008523bf (in FUN_00852080)
+  Total: 3 refs
+
+--- Calls FROM save header validator B (0x0084dab0) ---
+  0x0084dae0 -> 0x00846440 FUN_00846440
+  0x0084dafa -> 0x00ec61c0 _memset
+  0x0084db09 -> 0x00ec6130 _strlen
+  0x0084db1c -> 0x00846300 ShowToolBar
+  0x0084db2e -> 0x00408b20 FUN_00408b20
+  0x0084db45 -> 0x008646b0 FUN_008646b0
+  0x0084db5b -> 0x00864740 FUN_00864740
+  0x0084db85 -> 0x00864980 FUN_00864980
+  0x0084db94 -> 0x0040e500 FUN_0040e500
+  0x0084dba8 -> 0x0084da90 FUN_0084da90
+  0x0084dbca -> 0x0084dd70 FUN_0084dd70
+  0x0084dbe0 -> 0x00864980 FUN_00864980
+  0x0084dbef -> 0x0084dd70 FUN_0084dd70
+  0x0084dc05 -> 0x00864980 FUN_00864980
+  0x0084dc14 -> 0x0084dd70 FUN_0084dd70
+  0x0084dc39 -> 0x00864980 FUN_00864980
+  0x0084dc4a -> 0x00864980 FUN_00864980
+  0x0084dc68 -> 0x00864980 FUN_00864980
+  0x0084dc77 -> 0x00403550 FUN_00403550
+  0x0084dc84 -> 0x008649a0 FUN_008649a0
+  0x0084dc8d -> 0x0041fd00 FUN_0041fd00
+  0x0084dc9a -> 0x008649a0 FUN_008649a0
+  0x0084dca3 -> 0x00437730 FUN_00437730
+  0x0084dcca -> 0x00864980 FUN_00864980
+  0x0084dcd9 -> 0x0050f9a0 FUN_0050f9a0
+  0x0084dce6 -> 0x008649a0 FUN_008649a0
+  0x0084dcef -> 0x00600ab0 FUN_00600ab0
+  0x0084dcfc -> 0x008649a0 FUN_008649a0
+  0x0084dd05 -> 0x00984f60 FUN_00984f60
+  0x0084dd14 -> 0x0050f9c0 FUN_0050f9c0
+  0x0084dd20 -> 0x007037c0 FUN_007037c0
+  0x0084dd28 -> 0x00846400 FUN_00846400
+  0x0084dd31 -> 0x0061cc40 FUN_0061cc40
+  0x0084dd43 -> 0x008646f0 FUN_008646f0
+  0x0084dd58 -> 0x00ec408c __security_check_cookie
+  Total: 35 calls
+
+======================================================================
+master-file and initial save acceptance @ 0x00847660
+======================================================================
+  Function: FUN_00847660 @ 0x00847660, Size: 486 bytes
+
+void __thiscall FUN_00847660(int param_1,undefined4 param_2)
+
+{
+  bool bVar1;
+  undefined4 uVar2;
+  int iVar3;
+  int *unaff_FS_OFFSET;
+  uint local_140;
+  undefined1 local_138 [264];
+  uint local_30;
+  uint local_2c;
+  undefined1 *local_28;
+  undefined1 local_24 [17];
+  undefined1 local_13;
+  byte local_12;
+  byte local_11;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00f12b88;
+  local_10 = *unaff_FS_OFFSET;
+  local_30 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  local_11 = FUN_0051f550(local_30);
+  FUN_008646b0();
+  local_8 = 0;
+  FUN_00864740(param_2);
+  local_28 = local_24;
+  local_13 = 1;
+  std::_Fiopen((wchar_t *)(param_1 + 0x44),0xff,0xff);
+  std::_Fiopen((wchar_t *)(param_1 + 0x143),0xff,0xff);
+  local_12 = 0;
+  FUN_00864980(&local_12,1);
+  local_2c = 0;
+  do {
+    if (local_12 <= local_2c) {
+      local_8 = 0xffffffff;
+      FUN_008646f0();
+      *unaff_FS_OFFSET = local_10;
+      __security_check_cookie(local_30 ^ (uint)&stack0xfffffffc);
+      return;
+    }
+    FUN_008649a0(local_138);
+    bVar1 = false;
+    for (local_140 = 0; local_140 < local_11; local_140 = local_140 + 1) {
+      FUN_00465010(local_140);
+      uVar2 = FUN_00891170();
+      iVar3 = FUN_00404dc0(local_138,uVar2);
+      if (iVar3 == 0) {
+        *(undefined1 *)(param_1 + local_2c + 0x44) = (undefined1)local_140;
+        *(undefined1 *)(param_1 + local_140 + 0x143) = (undefined1)local_2c;
+        bVar1 = true;
+        break;
+      }
+    }
+    if (!bVar1) {
+      local_13 = 0;
+      *(undefined1 *)(param_1 + local_2c + 0x44) = 0xff;
+      FUN_00845cc0("SAVELOAD: Cannot find file %s referenced in the save game.  Errors may result.",
+                   local_138);
+    }
+    local_2c = local_2c + 1;
+  } while( true );
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00847660 (master-file and initial save acceptance)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00847f08 (in FUN_00847df0)
+  Total: 1 refs
+
+--- Calls FROM master-file and initial save acceptance (0x00847660) ---
+  0x00847697 -> 0x0051f550 FUN_0051f550
+  0x008476a2 -> 0x008646b0 FUN_008646b0
+  0x008476b5 -> 0x00864740 FUN_00864740
+  0x008476d8 -> 0x00403d30 _Fiopen
+  0x008476f6 -> 0x00403d30 _Fiopen
+  0x0084770b -> 0x00864980 FUN_00864980
+  0x00847739 -> 0x008649a0 FUN_008649a0
+  0x00847779 -> 0x00465010 FUN_00465010
+  0x0084778a -> 0x00891170 FUN_00891170
+  0x00847797 -> 0x00404dc0 FUN_00404dc0
+  0x00847800 -> 0x00845cc0 FUN_00845cc0
+  0x00847820 -> 0x008646f0 FUN_008646f0
+  0x0084783b -> 0x00ec408c __security_check_cookie
+  Total: 13 calls
+
+======================================================================
+save metadata header reader @ 0x00860e20
+======================================================================
+  Function: FUN_00860e20 @ 0x00860e20, Size: 779 bytes
+
+void __thiscall FUN_00860e20(int param_1,int *param_2,char param_3)
+
+{
+  byte bVar1;
+  undefined4 uVar2;
+  int iVar3;
+  size_t _MaxCount;
+  char local_324 [523];
+  char local_119;
+  undefined4 local_118;
+  char local_114 [268];
+  uint local_8;
+  
+  local_8 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *(undefined4 *)(param_1 + 0x90) = 0;
+  uVar2 = length(PTR_s_FO3SAVEGAME_011a2224);
+  iVar3 = FUN_00857ba0(param_2,local_114,uVar2);
+  if (iVar3 != 0) {
+    if (local_114[0] == '\0') {
+      (**(code **)(*param_2 + 0x14))(0,DAT_010a2480);
+    }
+    else {
+      iVar3 = _strncmp(local_114,"CON ",4);
+      if (iVar3 == 0) {
+        (**(code **)(*param_2 + 0x14))(0xd000,DAT_010a2480);
+        *(undefined4 *)(param_1 + 0x90) = 0xd000;
+        uVar2 = length(PTR_s_FO3SAVEGAME_011a2224);
+        FUN_00857ba0(param_2,local_114,uVar2);
+      }
+      _MaxCount = length(PTR_s_FO3SAVEGAME_011a2224);
+      iVar3 = _strncmp(local_114,PTR_s_FO3SAVEGAME_011a2224,_MaxCount);
+      if (iVar3 != 0) goto LAB_0086111b;
+    }
+    FUN_00857ba0(param_2,param_1 + 0x74,1);
+    FUN_00857ba0(param_2,param_1 + 0x75,1);
+    FUN_00856850();
+    bVar1 = FUN_008df040();
+    if (0x51 < bVar1) {
+      if (param_3 == '\0') {
+        (**(code **)(*param_2 + 0x14))(0x14,DAT_010a2484);
+      }
+      else {
+        FUN_00857ba0(param_2,param_1 + 0x98,0x10);
+        FUN_00857ba0(param_2,param_1 + 0xa8,4);
+      }
+    }
+    bVar1 = FUN_008df040();
+    if ((bVar1 < 0x52) && (param_3 != '\0')) {
+      std::_Fiopen((wchar_t *)(param_1 + 0x98),0xff,0x10);
+      *(undefined4 *)(param_1 + 0xa8) = 0xffffffff;
+    }
+    FUN_00857ba0(param_2,&local_118,4);
+    if ((*(char *)(param_1 + 0x74) != '\0') ||
+       (((param_3 != '\0' && (*(char *)(param_1 + 0x75) != '}')) &&
+        (*(byte *)(param_1 + 0x75) < 0x13)))) {
+      _sprintf(local_324,
+               "Save game version is %i.%02i and current version is %i.%02i, so errors may occur.  Continue trying to load?"
+               ,(uint)*(byte *)(param_1 + 0x74),(uint)*(byte *)(param_1 + 0x75),0,0x7d);
+      FUN_004534f0(1);
+      uVar2 = FUN_00403df0(0);
+      uVar2 = FUN_00403df0(uVar2);
+      local_119 = FUN_00704010(local_324,1,5,uVar2);
+      FUN_004534f0(0);
+      if (local_119 == '\x02') {
+        local_118 = 0xffffffff;
+      }
+    }
+  }
+LAB_0086111b:
+  __security_check_cookie(local_8 ^ (uint)&stack0xfffffffc);
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00860e20 (save metadata header reader)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00860108 (in FUN_008600b0)
+  Total: 1 refs
+
+--- Calls FROM save metadata header reader (0x00860e20) ---
+  0x00860e50 -> 0x0044a670 length
+  0x00860e6a -> 0x00857ba0 FUN_00857ba0
+  0x00860e97 -> 0x00ec8a19 _strncmp
+  0x00860ed2 -> 0x0044a670 length
+  0x00860eec -> 0x00857ba0 FUN_00857ba0
+  0x00860ef8 -> 0x0044a670 length
+  0x00860f0e -> 0x00ec8a19 _strncmp
+  0x00860f4f -> 0x00857ba0 FUN_00857ba0
+  0x00860f6a -> 0x00857ba0 FUN_00857ba0
+  0x00860f75 -> 0x00856850 FUN_00856850
+  0x00860f80 -> 0x008df040 FUN_008df040
+  0x00860fae -> 0x00857ba0 FUN_00857ba0
+  0x00860fcb -> 0x00857ba0 FUN_00857ba0
+  0x00860fee -> 0x008df040 FUN_008df040
+  0x00861016 -> 0x00403d30 _Fiopen
+  0x00861041 -> 0x00857ba0 FUN_00857ba0
+  0x008610ac -> 0x00ec623a _sprintf
+  0x008610bc -> 0x004534f0 FUN_004534f0
+  0x008610c8 -> 0x00403df0 FUN_00403df0
+  0x008610d3 -> 0x00403df0 FUN_00403df0
+  0x008610e4 -> 0x00704010 FUN_00704010
+  0x008610fa -> 0x004534f0 FUN_004534f0
+  0x00861120 -> 0x00ec408c __security_check_cookie
+  Total: 23 calls
+
+======================================================================
+save metadata header writer @ 0x00861130
+======================================================================
+  Function: FUN_00861130 @ 0x00861130, Size: 1234 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+void __thiscall FUN_00861130(int param_1,undefined4 param_2,char *param_3)
+
+{
+  char cVar1;
+  uint uVar2;
+  undefined4 uVar3;
+  int *piVar4;
+  int iVar5;
+  int iVar6;
+  char *pcVar7;
+  int *unaff_FS_OFFSET;
+  float10 fVar8;
+  undefined4 local_68;
+  undefined4 local_64;
+  int local_60;
+  float local_5c;
+  _SYSTEMTIME local_58;
+  undefined4 local_48;
+  int local_44;
+  int local_40;
+  int local_3c;
+  int local_38;
+  float local_34;
+  undefined4 local_30;
+  undefined4 *local_2c;
+  CArray<CMFCRibbonInfo::XQAT::XQATItem,CMFCRibbonInfo::XQAT::XQATItem> local_28 [8];
+  int local_20;
+  int local_1c;
+  byte local_16;
+  byte local_15;
+  undefined2 local_14 [2];
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00f13898;
+  local_10 = *unaff_FS_OFFSET;
+  uVar2 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  FUN_008620f0(uVar2);
+  FUN_00856850();
+  uVar3 = length(PTR_s_FO3SAVEGAME_011a2224);
+  FUN_00857b50(param_2,PTR_s_FO3SAVEGAME_011a2224,uVar3);
+  FUN_00857b50(param_2,param_1 + 0x74,1);
+  FUN_00857b50(param_2,param_1 + 0x75,1);
+  if (*(int *)(param_1 + 0xa8) == 0) {
+    GetSystemTime((LPSYSTEMTIME)(param_1 + 0x98));
+    *(uint *)(param_1 + 0xa8) = (uint)*(byte *)(param_1 + 0x75);
+  }
+  FUN_00857b50(param_2,param_1 + 0x98,0x10);
+  FUN_00857b50(param_2,param_1 + 0xa8,4);
+  local_30 = FUN_0055d520();
+  cVar1 = length(local_30);
+  local_15 = cVar1 + 1;
+  local_14[0] = FUN_0087f9f0();
+  FUN_004037b0();
+  local_8 = 0;
+  FUN_00578870(local_28);
+  local_1c = FUN_00559450();
+  if (local_1c == 0) {
+    piVar4 = (int *)FUN_008d6f30();
+    local_1c = (**(code **)(*piVar4 + 0x130))();
+  }
+  local_16 = 0;
+  if (local_1c != 0) {
+    cVar1 = length(local_1c);
+    local_16 = cVar1 + 1;
+  }
+  uVar2 = FUN_00867de0();
+  fVar8 = (float10)FUN_00867da0();
+  local_34 = (float)(fVar8 / (float10)_DAT_010356d8 + (float10)uVar2);
+  GetLocalTime(&local_58);
+  local_44 = 0;
+  local_40 = 0x100;
+  local_20 = 0x100;
+  local_2c = (undefined4 *)0x0;
+  local_3c = 0;
+  cVar1 = FUN_0047c850();
+  if (cVar1 == '\0') {
+    FUN_00c3e340();
+    local_2c = (undefined4 *)FUN_00878f60(&local_40,&local_20,0);
+    FUN_00c3e310();
+    if (local_2c != (undefined4 *)0x0) {
+      local_3c = FUN_00861610(0,0);
+      local_44 = local_3c + 8;
+    }
+  }
+  else {
+    iVar5 = FUN_004dc200();
+    iVar6 = FUN_004dc1f0();
+    local_5c = (float)iVar5 / (float)iVar6;
+    local_60 = FUN_00ec62c0();
+    local_60 = local_60 * local_20;
+    local_44 = local_40 * local_60 * 3 + 8;
+  }
+  local_48 = FUN_00851cb0();
+  local_38 = local_16 + 0x24 + (uint)local_15 + local_44;
+  FUN_00857b50(param_2,&local_38,4);
+  cVar1 = FUN_0047c850();
+  if ((cVar1 == '\0') &&
+     ((param_3 == (char *)0x0 ||
+      ((pcVar7 = _strstr(param_3,"quicksave"), pcVar7 == (char *)0x0 &&
+       (pcVar7 = _strstr(param_3,"autosave"), pcVar7 == (char *)0x0)))))) {
+    local_64 = FUN_00862370();
+    FUN_00857b50(param_2,&local_64,4);
+    *(int *)(param_1 + 0x8c) = *(int *)(param_1 + 0x8c) + 1;
+  }
+  else {
+    local_68 = 0;
+    FUN_00857b50(param_2,&local_68,4);
+  }
+  FUN_00857b50(param_2,&local_15,1);
+  FUN_00857b50(param_2,local_30,local_15);
+  FUN_00857b50(param_2,local_14,2);
+  FUN_00857b50(param_2,&local_16,1);
+  if (local_1c != 0) {
+    FUN_00857b50(param_2,local_1c,local_16);
+  }
+  FUN_00857b50(param_2,&local_34,4);
+  FUN_00857b50(param_2,&local_48,4);
+  FUN_00857b50(param_2,&local_58,0x10);
+  FUN_00857b50(param_2,&local_44,4);
+  cVar1 = FUN_0047c850();
+  if (cVar1 == '\0') {
+    if (local_2c != (undefined4 *)0x0) {
+      FUN_00857b50(param_2,&local_40,4);
+      FUN_00857b50(param_2,&local_20,4);
+      iVar5 = local_3c;
+      uVar3 = FUN_0064dac0(0,0);
+      FUN_00857b50(param_2,uVar3,iVar5);
+      if (local_2c != (undefined4 *)0x0) {
+        (**(code **)*local_2c)(1);
+      }
+    }
+  }
+  else {
+    *(int *)(param_1 + 0x94) = *(int *)(param_1 + 0x94) + local_44;
+  }
+  if (*(int *)(param_1 + 0x44) != 0) {
+    FUN_008558a0(local_38,"Save Game Header");
+  }
+  local_8 = 0xffffffff;
+  CArray<CMFCRibbonInfo::XQAT::XQATItem,CMFCRibbonInfo::XQAT::XQATItem>::RemoveAll(local_28);
+  *unaff_FS_OFFSET = local_10;
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00861130 (save metadata header writer)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00856e00 (in FUN_00856ca0)
+  Total: 1 refs
+
+--- Calls FROM save metadata header writer (0x00861130) ---
+  0x0086115e -> 0x008620f0 FUN_008620f0
+  0x00861166 -> 0x00856850 FUN_00856850
+  0x00861171 -> 0x0044a670 length
+  0x00861188 -> 0x00857b50 FUN_00857b50
+  0x0086119d -> 0x00857b50 FUN_00857b50
+  0x008611b2 -> 0x00857b50 FUN_00857b50
+  0x008611cd -> 0x0000002e ???
+  0x008611f5 -> 0x00857b50 FUN_00857b50
+  0x0086120d -> 0x00857b50 FUN_00857b50
+  0x00861218 -> 0x0055d520 FUN_0055d520
+  0x00861224 -> 0x0044a670 length
+  0x00861238 -> 0x0087f9f0 FUN_0087f9f0
+  0x00861244 -> 0x004037b0 FUN_004037b0
+  0x0086125a -> 0x00578870 FUN_00578870
+  0x00861262 -> 0x00559450 FUN_00559450
+  0x00861276 -> 0x008d6f30 FUN_008d6f30
+  0x0086129f -> 0x0044a670 length
+  0x008612b2 -> 0x00867de0 FUN_00867de0
+  0x008612cf -> 0x00867da0 FUN_00867da0
+  0x008612e7 -> 0x0000002c ???
+  0x00861313 -> 0x0047c850 FUN_0047c850
+  0x00861325 -> 0x00c3e340 FUN_00c3e340
+  0x00861334 -> 0x00878f60 FUN_00878f60
+  0x00861345 -> 0x00c3e310 FUN_00c3e310
+  0x00861357 -> 0x00861610 FUN_00861610
+  0x0086136a -> 0x004dc200 FUN_004dc200
+  0x00861381 -> 0x004dc1f0 FUN_004dc1f0
+  0x0086139e -> 0x00ec62c0 FUN_00ec62c0
+  0x008613c0 -> 0x00851cb0 FUN_00851cb0
+  0x008613e7 -> 0x00857b50 FUN_00857b50
+  0x008613ef -> 0x0047c850 FUN_0047c850
+  0x0086140a -> 0x00ec7750 _strstr
+  0x0086141f -> 0x00ec7750 _strstr
+  0x0086142e -> 0x00862370 FUN_00862370
+  0x00861443 -> 0x00857b50 FUN_00857b50
+  0x00861473 -> 0x00857b50 FUN_00857b50
+  0x00861485 -> 0x00857b50 FUN_00857b50
+  0x0086149a -> 0x00857b50 FUN_00857b50
+  0x008614ac -> 0x00857b50 FUN_00857b50
+  0x008614be -> 0x00857b50 FUN_00857b50
+  0x008614d9 -> 0x00857b50 FUN_00857b50
+  0x008614eb -> 0x00857b50 FUN_00857b50
+  0x008614fd -> 0x00857b50 FUN_00857b50
+  0x0086150f -> 0x00857b50 FUN_00857b50
+  0x00861521 -> 0x00857b50 FUN_00857b50
+  0x00861529 -> 0x0047c850 FUN_0047c850
+  0x00861548 -> 0x00857b50 FUN_00857b50
+  0x0086155a -> 0x00857b50 FUN_00857b50
+  0x0086156a -> 0x0064dac0 FUN_0064dac0
+  0x00861577 -> 0x00857b50 FUN_00857b50
+  0x008615dd -> 0x008558a0 FUN_008558a0
+  0x008615ec -> 0x004037d0 RemoveAll
+  Total: 52 calls
+
+======================================================================
+load stream initialization @ 0x00845d20
+======================================================================
+  Function: FUN_00845d20 @ 0x00845d20, Size: 21 bytes
+
+void FUN_00845d20(CMFCToolBarsCustomizeDialog *param_1,CMFCToolBar *param_2,int param_3)
+
+{
+  CMFCToolBarsCustomizeDialog::ShowToolBar(param_1,param_2,param_3);
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00845d20 (load stream initialization)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00864756 (in FUN_00864740)
+  UNCONDITIONAL_CALL @ 0x00847ef6 (in FUN_00847df0)
+  UNCONDITIONAL_CALL @ 0x00846e92 (in FUN_00846e70)
+  UNCONDITIONAL_CALL @ 0x00846ec5 (in FUN_00846e70)
+  UNCONDITIONAL_CALL @ 0x0084bc7f (in FUN_0084bc20)
+  Total: 5 refs
+
+--- Calls FROM load stream initialization (0x00845d20) ---
+  0x00845d2e -> 0x00846300 ShowToolBar
+  Total: 1 calls
+
+======================================================================
+load chapter table constructor @ 0x00846b60
+======================================================================
+  Function: FUN_00846b60 @ 0x00846b60, Size: 123 bytes
+
+int __thiscall FUN_00846b60(int param_1,undefined4 param_2)
+
+{
+  int *unaff_FS_OFFSET;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00f12a63;
+  local_10 = *unaff_FS_OFFSET;
+  *unaff_FS_OFFSET = (int)&local_10;
+  FUN_006e2080(param_2);
+  local_8 = 0;
+  FUN_006e2080(param_2);
+  local_8 = CONCAT31(local_8._1_3_,1);
+  *(undefined4 *)(param_1 + 0x20) = 0;
+  FUN_00846c90(0);
+  *unaff_FS_OFFSET = local_10;
+  return param_1;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00846b60 (load chapter table constructor)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00847002 (in FUN_00846f30)
+  UNCONDITIONAL_CALL @ 0x00847042 (in FUN_00846f30)
+  UNCONDITIONAL_CALL @ 0x0084807c (in FUN_00847df0)
+  Total: 3 refs
+
+--- Calls FROM load chapter table constructor (0x00846b60) ---
+  0x00846b8d -> 0x006e2080 FUN_006e2080
+  0x00846ba3 -> 0x006e2080 FUN_006e2080
+  0x00846bbb -> 0x00846c90 FUN_00846c90
+  Total: 3 calls
+
+======================================================================
+load chapter table reader @ 0x00846e70
+======================================================================
+  Function: FUN_00846e70 @ 0x00846e70, Size: 178 bytes
+
+void __thiscall FUN_00846e70(int param_1,undefined4 param_2)
+
+{
+  int iVar1;
+  undefined4 local_10;
+  uint local_c;
+  uint local_8;
+  
+  FUN_00846c50();
+  local_8 = 0;
+  FUN_00845d20(param_2,&local_8,4);
+  for (local_c = 0; local_c < local_8; local_c = local_c + 1) {
+    local_10 = 0;
+    FUN_00845d20(param_2,&local_10,4);
+    iVar1 = FUN_00846d80(local_10);
+    if (iVar1 != 0) {
+      FUN_00844700(iVar1,*(undefined4 *)(param_1 + 0x20));
+    }
+    FUN_00844700(*(undefined4 *)(param_1 + 0x20),iVar1);
+    *(int *)(param_1 + 0x20) = *(int *)(param_1 + 0x20) + 1;
+  }
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00846e70 (load chapter table reader)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x008480c2 (in FUN_00847df0)
+  UNCONDITIONAL_CALL @ 0x008480d4 (in FUN_00847df0)
+  Total: 2 refs
+
+--- Calls FROM load chapter table reader (0x00846e70) ---
+  0x00846e7c -> 0x00846c50 FUN_00846c50
+  0x00846e92 -> 0x00845d20 FUN_00845d20
+  0x00846ec5 -> 0x00845d20 FUN_00845d20
+  0x00846ed4 -> 0x00846d80 FUN_00846d80
+  0x00846ef0 -> 0x00844700 FUN_00844700
+  0x00846f06 -> 0x00844700 FUN_00844700
+  Total: 6 calls
+
+======================================================================
+changed-form record constructor @ 0x008643b0
+======================================================================
+  Function: FUN_008643b0 @ 0x008643b0, Size: 149 bytes
+
+undefined4 * __fastcall FUN_008643b0(undefined4 *param_1)
+
+{
+  uint uVar1;
+  int *unaff_FS_OFFSET;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00f13a28;
+  local_10 = *unaff_FS_OFFSET;
+  uVar1 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  FUN_008646b0(uVar1);
+  local_8 = 0;
+  *param_1 = &PTR_FUN_01082028;
+  param_1[4] = 0;
+  FUN_00864450();
+  param_1[8] = 0;
+  param_1[9] = 0;
+  param_1[10] = 0;
+  FUN_0044dee0();
+  *unaff_FS_OFFSET = local_10;
+  return param_1;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x008643b0 (changed-form record constructor)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00864e65 (in FUN_00864e20)
+  UNCONDITIONAL_CALL @ 0x008664c5 (in FUN_00866480)
+  UNCONDITIONAL_CALL @ 0x00848f8d (in FUN_00848e70)
+  UNCONDITIONAL_CALL @ 0x0084830f (in FUN_00847df0)
+  Total: 4 refs
+
+--- Calls FROM changed-form record constructor (0x008643b0) ---
+  0x008643d9 -> 0x008646b0 FUN_008646b0
+  0x008643fe -> 0x00864450 FUN_00864450
+  0x00864427 -> 0x0044dee0 FUN_0044dee0
+  Total: 3 calls
+
+======================================================================
+changed-form record header reader @ 0x008644b0
+======================================================================
+  Function: FUN_008644b0 @ 0x008644b0, Size: 108 bytes
+
+int __thiscall FUN_008644b0(int param_1,CMFCToolBarsCustomizeDialog *param_2)
+
+{
+  undefined4 uVar1;
+  int iVar2;
+  
+  CMFCToolBarsCustomizeDialog::ShowToolBar(param_2,(CMFCToolBar *)(param_1 + 0x14),9);
+  uVar1 = FUN_00853500();
+  *(undefined4 *)(param_1 + 0x10) = uVar1;
+  uVar1 = FUN_00864520();
+  iVar2 = FUN_00845e50(param_2,param_1 + 0x20,uVar1);
+  if (iVar2 != *(int *)(param_1 + 0x20)) {
+    iVar2 = -1;
+  }
+  return iVar2;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x008644b0 (changed-form record header reader)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0084834f (in FUN_00847df0)
+  UNCONDITIONAL_CALL @ 0x008487e3 (in FUN_00847df0)
+  UNCONDITIONAL_CALL @ 0x008488a5 (in FUN_00847df0)
+  Total: 3 refs
+
+--- Calls FROM changed-form record header reader (0x008644b0) ---
+  0x008644c5 -> 0x00846300 ShowToolBar
+  0x008644d0 -> 0x00853500 FUN_00853500
+  0x008644e1 -> 0x00864520 FUN_00864520
+  0x008644f8 -> 0x00845e50 FUN_00845e50
+  Total: 4 calls
+
+======================================================================
+changed-form saved type or version reader @ 0x008665b0
+======================================================================
+  Function: FUN_008665b0 @ 0x008665b0, Size: 22 bytes
+
+void __fastcall FUN_008665b0(undefined4 param_1)
+
+{
+  FUN_00853640(param_1);
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x008665b0 (changed-form saved type or version reader)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00866586 (in FUN_00866570)
+  UNCONDITIONAL_CALL @ 0x0084835a (in FUN_00847df0)
+  UNCONDITIONAL_CALL @ 0x008488b0 (in FUN_00847df0)
+  UNCONDITIONAL_CALL @ 0x00849d19 (in FUN_00849d00)
+  Total: 4 refs
+
+--- Calls FROM changed-form saved type or version reader (0x008665b0) ---
+  0x008665bd -> 0x00853640 FUN_00853640
+  Total: 1 calls
+
+======================================================================
+changed-form payload load and decompression owner @ 0x00849d00
+======================================================================
+  Function: FUN_00849d00 @ 0x00849d00, Size: 1630 bytes
+
+/* WARNING: Removing unreachable block (ram,0x00849fb8) */
+/* WARNING: Removing unreachable block (ram,0x00849fc7) */
+/* WARNING: Removing unreachable block (ram,0x00849fe3) */
+/* WARNING: Removing unreachable block (ram,0x00849ff5) */
+/* WARNING: Removing unreachable block (ram,0x00849f37) */
+/* WARNING: Removing unreachable block (ram,0x00849e5b) */
+/* WARNING: Removing unreachable block (ram,0x00849ffd) */
+/* WARNING: Removing unreachable block (ram,0x0084a01d) */
+/* WARNING: Removing unreachable block (ram,0x0084a02f) */
+/* WARNING: Removing unreachable block (ram,0x0084a178) */
+/* WARNING: Removing unreachable block (ram,0x0084a193) */
+
+undefined4 __thiscall
+FUN_00849d00(SchedulingRing *param_1,undefined4 param_2,int *param_3,undefined4 param_4)
+
+{
+  undefined4 uVar1;
+  char cVar2;
+  int iVar3;
+  int iVar4;
+  bool bVar5;
+  int local_d0;
+  int local_54;
+  byte local_2c;
+  ScheduleGroupBase *local_28;
+  undefined4 local_20;
+  ScheduleGroupBase *local_c;
+  
+  local_20 = 0;
+  FUN_008665b0();
+  FUN_00428110();
+  FUN_0042ce30();
+  FUN_0044edb0();
+  local_c = (ScheduleGroupBase *)(**(code **)(*param_3 + 4))();
+  iVar3 = FUN_0084e730();
+  if ((iVar3 == 5) || (iVar3 == 6)) {
+    FUN_00849280();
+    local_20 = FUN_0084e850();
+    local_28 = (ScheduleGroupBase *)0x0;
+    if (local_c != (ScheduleGroupBase *)0x0) {
+      bVar5 = false;
+      cVar2 = (**(code **)(*(int *)local_c + 0xf0))();
+      if (cVar2 == '\0') {
+        bVar5 = iVar3 == 5;
+      }
+      else {
+        local_28 = local_c;
+        if (iVar3 == 5) {
+          FUN_007af430();
+          iVar4 = FUN_0084e3a0();
+          if (iVar4 != local_54) {
+            bVar5 = true;
+          }
+        }
+      }
+      if (bVar5) {
+        FUN_0084a880();
+        FUN_007037c0();
+        std::locale::id::id((id *)&stack0xffffff14,0);
+        FUN_0086cf00();
+        local_c = (ScheduleGroupBase *)0x0;
+        local_28 = (ScheduleGroupBase *)0x0;
+      }
+    }
+    FUN_0084e610();
+    if ((local_2c & 2) == 0) {
+      if ((local_28 == (ScheduleGroupBase *)0x0) ||
+         ((cVar2 = FUN_005653d0(), cVar2 == '\0' && (local_28 != DAT_011dea3c)))) {
+        FUN_00845cc0();
+        FUN_00848d90();
+        if (local_28 != (ScheduleGroupBase *)0x0) {
+          iVar3 = FUN_008d6f30();
+          if (iVar3 != 0) {
+            FUN_008d6f30();
+            FUN_0054ca90();
+          }
+          Concurrency::details::SchedulingRing::FreeScheduleGroup(param_1,local_c);
+          FUN_007037c0();
+        }
+      }
+    }
+    else if (iVar3 == 5) {
+      if (local_c != (ScheduleGroupBase *)0x0) {
+        FUN_00841120();
+        iVar3 = FUN_00559450();
+        if (iVar3 != 0) {
+          Concurrency::details::SchedulingRing::FreeScheduleGroup(param_1,local_c);
+          std::locale::id::id((id *)&stack0xffffff14,0);
+          FUN_0086cf00();
+        }
+      }
+      iVar3 = FUN_0084f8e0();
+      if (iVar3 == 0) {
+        FUN_00848d90();
+      }
+      else {
+        FUN_007037c0();
+      }
+    }
+    else if ((iVar3 == 6) && (local_c == (ScheduleGroupBase *)0x0)) {
+      FUN_0084e6a0();
+      FUN_008438b0();
+      FUN_0042ce50();
+      FUN_0084a360();
+    }
+  }
+  else {
+    iVar3 = FUN_0084e730();
+    if (iVar3 == 6) {
+      if (local_c == (ScheduleGroupBase *)0x0) {
+        FUN_00845760();
+        iVar3 = FUN_00559450();
+        if (iVar3 != 0) {
+          uVar1 = *(undefined4 *)(param_1 + 8);
+          *(undefined4 *)(param_1 + 8) = param_4;
+          FUN_00849280();
+          FUN_00866390();
+          FUN_0084e930();
+          FUN_0084e6a0();
+          *(undefined4 *)(param_1 + 8) = uVar1;
+        }
+      }
+      else {
+        cVar2 = (**(code **)(*(int *)local_c + 0xf0))();
+        if ((cVar2 != '\0') && (cVar2 = FUN_005653d0(), cVar2 == '\0')) {
+          bVar5 = false;
+          cVar2 = (**(code **)(*(int *)local_c + 0x138))();
+          if (cVar2 == '\0') {
+            bVar5 = true;
+          }
+          else {
+            iVar3 = FUN_00401170();
+            if (iVar3 == 0x41) {
+              local_d0 = FUN_00587550();
+            }
+            else {
+              local_d0 = 0;
+            }
+            if ((local_d0 == 0) || (cVar2 = FUN_004511e0(local_d0), cVar2 == '\0')) {
+              bVar5 = true;
+            }
+          }
+          if (bVar5) {
+            Concurrency::details::SchedulingRing::FreeScheduleGroup(param_1,local_c);
+            FUN_007037c0();
+            std::locale::id::id((id *)&stack0xffffff04,0);
+            FUN_0086cf00();
+          }
+        }
+      }
+    }
+  }
+  return local_20;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00849d00 (changed-form payload load and decompression owner)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0084845e (in FUN_00847df0)
+  Total: 1 refs
+
+--- Calls FROM changed-form payload load and decompression owner (0x00849d00) ---
+  0x00849d19 -> 0x008665b0 FUN_008665b0
+  0x00849d28 -> 0x00428110 FUN_00428110
+  0x00849d34 -> 0x0042ce30 FUN_0042ce30
+  0x00849d3c -> 0x0044edb0 FUN_0044edb0
+  0x00849d60 -> 0x0084e730 FUN_0084e730
+  0x00849d7e -> 0x00849280 FUN_00849280
+  0x00849d8f -> 0x0084e850 FUN_0084e850
+  0x00849de1 -> 0x007af430 FUN_007af430
+  0x00849de8 -> 0x0084e3a0 FUN_0084e3a0
+  0x00849e08 -> 0x0084a880 FUN_0084a880
+  0x00849e12 -> 0x007037c0 FUN_007037c0
+  0x00849e1c -> 0x008c71b0 id
+  0x00849e24 -> 0x0086cf00 FUN_0086cf00
+  0x00849e50 -> 0x0084e610 FUN_0084e610
+  0x00849e67 -> 0x004511e0 FUN_004511e0
+  0x00849ea2 -> 0x00841120 FUN_00841120
+  0x00849ead -> 0x00559450 FUN_00559450
+  0x00849ec0 -> 0x0084a9f0 FreeScheduleGroup
+  0x00849ed1 -> 0x008c71b0 id
+  0x00849ed9 -> 0x0086cf00 FUN_0086cf00
+  0x00849eea -> 0x0084f8e0 FUN_0084f8e0
+  0x00849f02 -> 0x007037c0 FUN_007037c0
+  0x00849f0e -> 0x00848d90 FUN_00848d90
+  0x00849f2c -> 0x0084e6a0 FUN_0084e6a0
+  0x00849f4a -> 0x00843750 FUN_00843750
+  0x00849f6c -> 0x008438b0 FUN_008438b0
+  0x00849f76 -> 0x0042ce50 FUN_0042ce50
+  0x00849f80 -> 0x0084a360 FUN_0084a360
+  0x00849f93 -> 0x005653d0 FUN_005653d0
+  0x00849fbb -> 0x00425fd0 FUN_00425fd0
+  0x00849fd8 -> 0x00849a70 FUN_00849a70
+  0x00849ff0 -> 0x00849a50 FUN_00849a50
+  0x0084a012 -> 0x00852c00 FUN_00852c00
+  0x0084a02a -> 0x00849a50 FUN_00849a50
+  0x0084a05d -> 0x00845cc0 FUN_00845cc0
+  0x0084a06a -> 0x00848d90 FUN_00848d90
+  0x0084a078 -> 0x008d6f30 FUN_008d6f30
+  0x0084a088 -> 0x008d6f30 FUN_008d6f30
+  0x0084a08f -> 0x0054ca90 FUN_0054ca90
+  0x0084a09e -> 0x0084a9f0 FreeScheduleGroup
+  0x0084a0af -> 0x007037c0 FUN_007037c0
+  0x0084a0c5 -> 0x0084e730 FUN_0084e730
+  0x0084a0f4 -> 0x00845760 FUN_00845760
+  0x0084a0fc -> 0x00559450 FUN_00559450
+  0x0084a127 -> 0x00849280 FUN_00849280
+  0x0084a13a -> 0x00866390 FUN_00866390
+  0x0084a140 -> 0x0084e930 FUN_0084e930
+  0x0084a16a -> 0x0084e6a0 FUN_0084e6a0
+  0x0084a187 -> 0x004511e0 FUN_004511e0
+  0x0084a1a9 -> 0x00843750 FUN_00843750
+  0x0084a1b3 -> 0x0042ce50 FUN_0042ce50
+  0x0084a1bd -> 0x0084a360 FUN_0084a360
+  0x0084a1fd -> 0x005653d0 FUN_005653d0
+  0x0084a2b1 -> 0x00401170 FUN_00401170
+  0x0084a2d4 -> 0x00587550 FUN_00587550
+  0x0084a305 -> 0x004511e0 FUN_004511e0
+  0x0084a32d -> 0x0084a9f0 FreeScheduleGroup
+  0x0084a337 -> 0x007037c0 FUN_007037c0
+  0x0084a341 -> 0x008c71b0 id
+  0x0084a349 -> 0x0086cf00 FUN_0086cf00
+  Total: 60 calls
+
+======================================================================
+changed-form record release or skip @ 0x00864580
+======================================================================
+  Function: FUN_00864580 @ 0x00864580, Size: 47 bytes
+
+void __thiscall FUN_00864580(int param_1,undefined4 param_2,int param_3)
+
+{
+  if (*(int *)(param_1 + 0x20) != param_3) {
+    FUN_00846490(*(int *)(param_1 + 0x20) - param_3);
+  }
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00864580 (changed-form record release or skip)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0084847a (in FUN_00847df0)
+  UNCONDITIONAL_CALL @ 0x008487f4 (in FUN_00847df0)
+  UNCONDITIONAL_CALL @ 0x00848999 (in FUN_00847df0)
+  UNCONDITIONAL_CALL @ 0x00848a3e (in FUN_00847df0)
+  Total: 4 refs
+
+--- Calls FROM changed-form record release or skip (0x00864580) ---
+  0x008645a4 -> 0x00846490 FUN_00846490
+  Total: 1 calls
+
+======================================================================
+global load-error predicate @ 0x00848cf0
+======================================================================
+  Function: FUN_00848cf0 @ 0x00848cf0, Size: 29 bytes
+
+bool __fastcall FUN_00848cf0(int param_1)
+
+{
+  return (*(uint *)(param_1 + 0x244) & 0x80) != 0;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00848cf0 (global load-error predicate)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00848a22 (in FUN_00847df0)
+  UNCONDITIONAL_CALL @ 0x00848b3a (in FUN_00847df0)
+  Total: 2 refs
+
+--- Calls FROM global load-error predicate (0x00848cf0) ---
+  Total: 0 calls
+
+======================================================================
+changed-form rejection predicate @ 0x00848dd0
+======================================================================
+  Function: FUN_00848dd0 @ 0x00848dd0, Size: 23 bytes
+
+bool __fastcall FUN_00848dd0(int param_1)
+
+{
+  return (*(uint *)(param_1 + 0x28) & 1) != 0;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00848dd0 (changed-form rejection predicate)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x008487b0 (in FUN_00847df0)
+  Total: 1 refs
+
+--- Calls FROM changed-form rejection predicate (0x00848dd0) ---
+  Total: 0 calls
+
+======================================================================
+changed-form load finalization @ 0x00848d50
+======================================================================
+  Function: FUN_00848d50 @ 0x00848d50, Size: 64 bytes
+
+void __fastcall FUN_00848d50(int param_1)
+
+{
+  FUN_00401030(*(undefined4 *)(param_1 + 4));
+  *(undefined4 *)(param_1 + 4) = 0;
+  *(undefined4 *)(param_1 + 8) = 0;
+  *(undefined4 *)(param_1 + 0xc) = 0;
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00848d50 (changed-form load finalization)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00849701 (in FUN_008495d0)
+  UNCONDITIONAL_CALL @ 0x00848bbf (in FUN_00847df0)
+  Total: 2 refs
+
+--- Calls FROM changed-form load finalization (0x00848d50) ---
+  0x00848d66 -> 0x00401030 FUN_00401030
+  Total: 1 calls
+
+======================================================================
+changed-form buffer checked read @ 0x00864820
+======================================================================
+  Function: FUN_00864820 @ 0x00864820, Size: 117 bytes
+
+void __thiscall FUN_00864820(int param_1,undefined4 param_2,int param_3)
+
+{
+  if (*(int *)(param_1 + 8) != 0) {
+    FUN_00401460(param_2,*(int *)(param_1 + 4) + *(int *)(param_1 + 0xc),param_3);
+    *(int *)(param_1 + 0xc) = *(int *)(param_1 + 0xc) + param_3;
+    if (*(char *)(*(int *)(param_1 + 4) + *(int *)(param_1 + 0xc)) != '|') {
+      FUN_00845cc0("SAVELOAD: Invalid spacer hit while loading data from the buffer");
+    }
+    *(int *)(param_1 + 0xc) = *(int *)(param_1 + 0xc) + 1;
+  }
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00864820 (changed-form buffer checked read)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00864992 (in FUN_00864980)
+  UNCONDITIONAL_CALL @ 0x008648ba (in FUN_008648a0)
+  UNCONDITIONAL_CALL @ 0x008648fa (in FUN_008648e0)
+  UNCONDITIONAL_CALL @ 0x008649b8 (in FUN_008649a0)
+  UNCONDITIONAL_CALL @ 0x008649f0 (in FUN_008649a0)
+  UNCONDITIONAL_CALL @ 0x00864aac (in FUN_00864a60)
+  UNCONDITIONAL_CALL @ 0x00864ac9 (in FUN_00864a60)
+  UNCONDITIONAL_CALL @ 0x00864ae9 (in FUN_00864a60)
+  Total: 8 refs
+
+--- Calls FROM changed-form buffer checked read (0x00864820) ---
+  0x00864847 -> 0x00401460 FUN_00401460
+  0x00864878 -> 0x00845cc0 FUN_00845cc0
+  Total: 2 calls
+
+======================================================================
+variable-sized value reader @ 0x00846080
+======================================================================
+  Function: FUN_00846080 @ 0x00846080, Size: 261 bytes
+
+int FUN_00846080(byte *param_1,uint *param_2)
+
+{
+  uint uVar1;
+  uint local_18;
+  ushort local_14 [3];
+  byte local_e;
+  byte local_d;
+  uint local_c;
+  int local_8;
+  
+  local_8 = 0;
+  local_d = *param_1;
+  local_c = local_d & 3;
+  if ((local_d & 3) == 0) {
+    local_e = 0;
+    local_8 = 1;
+    FUN_00401460(&local_e,param_1,1);
+    uVar1 = (uint)local_e;
+    local_e = (byte)((int)uVar1 >> 2);
+    *param_2 = (int)uVar1 >> 2;
+  }
+  else if (local_c == 1) {
+    local_14[0] = 0;
+    local_8 = 2;
+    FUN_00401460(local_14,param_1,2);
+    uVar1 = (uint)local_14[0];
+    local_14[0] = (ushort)((int)uVar1 >> 2);
+    *param_2 = (int)uVar1 >> 2;
+  }
+  else if (local_c == 2) {
+    local_18 = 0;
+    local_8 = 4;
+    FUN_00401460(&local_18,param_1,4);
+    local_18 = local_18 >> 2;
+    *param_2 = local_18;
+  }
+  if (param_1[local_8] != 0x7c) {
+    FUN_00845cc0("SAVELOAD: Invalid spacer hit while loading data from the buffer");
+  }
+  return local_8 + 1;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00846080 (variable-sized value reader)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00864ecd (in FUN_00864e20)
+  UNCONDITIONAL_CALL @ 0x00865533 (in FUN_00865510)
+  UNCONDITIONAL_CALL @ 0x0084b2ea (in FUN_0084ab20)
+  Total: 3 refs
+
+--- Calls FROM variable-sized value reader (0x00846080) ---
+  0x008460d3 -> 0x00401460 FUN_00401460
+  0x00846109 -> 0x00401460 FUN_00401460
+  0x00846141 -> 0x00401460 FUN_00401460
+  0x0084616d -> 0x00845cc0 FUN_00845cc0
+  Total: 4 calls
+
+======================================================================
+variable-sized value writer @ 0x00845fc0
+======================================================================
+  Function: FUN_00845fc0 @ 0x00845fc0, Size: 188 bytes
+
+void FUN_00845fc0(int param_1,uint param_2)
+
+{
+  uint local_14;
+  ushort local_10 [3];
+  undefined1 local_9;
+  int local_8;
+  
+  local_8 = 0;
+  if (param_2 < 0x40) {
+    local_9 = (undefined1)(param_2 << 2);
+    local_8 = 1;
+    FUN_00401460(param_1,&local_9,1);
+  }
+  else if (param_2 < 0x4000) {
+    local_10[0] = (ushort)(param_2 << 2) | 1;
+    local_8 = 2;
+    FUN_00401460(param_1,local_10,2);
+  }
+  else if (param_2 < 0x40000000) {
+    local_14 = param_2 << 2 | 2;
+    local_8 = 4;
+    FUN_00401460(param_1,&local_14,4);
+  }
+  else {
+    FUN_00845cc0("SAVELOAD: Variable-sized value %08X is too large to be stored.",param_2);
+  }
+  *(undefined1 *)(param_1 + local_8) = 0x7c;
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00845fc0 (variable-sized value writer)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00865624 (in FUN_008655a0)
+  UNCONDITIONAL_CALL @ 0x0086519e (in FUN_00865120)
+  Total: 2 refs
+
+--- Calls FROM variable-sized value writer (0x00845fc0) ---
+  0x00845fef -> 0x00401460 FUN_00401460
+  0x00846022 -> 0x00401460 FUN_00401460
+  0x00846054 -> 0x00401460 FUN_00401460
+  0x00846067 -> 0x00845cc0 FUN_00845cc0
+  Total: 4 calls
+
+======================================================================
+variable-sized value writer alternate path @ 0x00865f60
+======================================================================
+  Function: FUN_00865f60 @ 0x00865f60, Size: 144 bytes
+
+void __thiscall FUN_00865f60(undefined4 param_1,uint param_2)
+
+{
+  uint local_10;
+  ushort local_c [3];
+  undefined1 local_5;
+  
+  if (param_2 < 0x40) {
+    local_5 = (undefined1)(param_2 << 2);
+    FUN_00865570(&local_5,1,0);
+  }
+  else if (param_2 < 0x4000) {
+    local_c[0] = (ushort)(param_2 << 2) | 1;
+    FUN_00865570(local_c,2,0);
+  }
+  else if (param_2 < 0x40000000) {
+    local_10 = param_2 << 2 | 2;
+    FUN_00865570(&local_10,4,0);
+  }
+  else {
+    FUN_00845cc0("SAVELOAD: Variable-sized value %08X is too large to be stored.",param_2,param_1);
+  }
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00865f60 (variable-sized value writer alternate path)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00562e34 (in FUN_00562de0)
+  UNCONDITIONAL_CALL @ 0x00865548 (in FUN_00865510)
+  UNCONDITIONAL_CALL @ 0x0098deca (in FUN_0098de90)
+  UNCONDITIONAL_CALL @ 0x0098df3e (in FUN_0098de90)
+  UNCONDITIONAL_CALL @ 0x0098dfad (in FUN_0098de90)
+  UNCONDITIONAL_CALL @ 0x0098e1b7 (in FUN_0098de90)
+  UNCONDITIONAL_CALL @ 0x0098e25e (in FUN_0098de90)
+  UNCONDITIONAL_CALL @ 0x006e001e (in FUN_006dffc0)
+  UNCONDITIONAL_CALL @ 0x006dfa22 (in FUN_006df9c0)
+  UNCONDITIONAL_CALL @ 0x006e50da (in FUN_006e4fd0)
+  UNCONDITIONAL_CALL @ 0x006e5152 (in FUN_006e4fd0)
+  UNCONDITIONAL_CALL @ 0x006e3499 (in FUN_006e3230)
+  UNCONDITIONAL_CALL @ 0x006e5b67 (in FUN_006e5b20)
+  UNCONDITIONAL_CALL @ 0x006e8b9d (in FUN_006e8b10)
+  UNCONDITIONAL_CALL @ 0x006e8c08 (in FUN_006e8b10)
+  UNCONDITIONAL_CALL @ 0x006e8c7e (in FUN_006e8b10)
+  UNCONDITIONAL_CALL @ 0x006e8ce6 (in FUN_006e8b10)
+  UNCONDITIONAL_CALL @ 0x008068b8 (in FUN_00806840)
+  UNCONDITIONAL_CALL @ 0x00959ac2 (in FUN_009590f0)
+  UNCONDITIONAL_CALL @ 0x00981abd (in FUN_009819f0)
+  UNCONDITIONAL_CALL @ 0x009a1827 (in FUN_009a17a0)
+  UNCONDITIONAL_CALL @ 0x009a1d42 (in FUN_009a17a0)
+  UNCONDITIONAL_CALL @ 0x009a1db6 (in FUN_009a17a0)
+  UNCONDITIONAL_CALL @ 0x009a3003 (in FUN_009a2f50)
+  UNCONDITIONAL_CALL @ 0x009f3488 (in FUN_009f33d0)
+  UNCONDITIONAL_CALL @ 0x009f5c54 (in FUN_009f5a60)
+  UNCONDITIONAL_CALL @ 0x009f88a9 (in FUN_009f87d0)
+  UNCONDITIONAL_CALL @ 0x004271a5 (in FUN_00426a30)
+  UNCONDITIONAL_CALL @ 0x004273e5 (in FUN_00426a30)
+  UNCONDITIONAL_CALL @ 0x0042790e (in FUN_00426a30)
+  UNCONDITIONAL_CALL @ 0x004279fd (in FUN_00426a30)
+  Total: 31 refs
+
+--- Calls FROM variable-sized value writer alternate path (0x00865f60) ---
+  0x00865f83 -> 0x00865570 FUN_00865570
+  0x00865fab -> 0x00865570 FUN_00865570
+  0x00865fd2 -> 0x00865570 FUN_00865570
+  0x00865fe2 -> 0x00845cc0 FUN_00845cc0
+  Total: 4 calls
+
+======================================================================
+save buffer backpatch or shift @ 0x00866140
+======================================================================
+  Function: FUN_00866140 @ 0x00866140, Size: 157 bytes
+
+void __thiscall FUN_00866140(int param_1,int param_2,int param_3)
+
+{
+  char cVar1;
+  int iVar2;
+  
+  iVar2 = *(int *)(param_1 + 0xc) + param_3;
+  if (0 < iVar2) {
+    while (*(int *)(param_1 + 8) < iVar2) {
+      FUN_008660b0();
+    }
+    cVar1 = FUN_00424940();
+    if (cVar1 == '\0') {
+      FUN_008661e0(*(int *)(param_1 + 4) + param_2 + param_3,
+                   *(int *)(param_1 + 8) - (param_2 + param_3),*(int *)(param_1 + 4) + param_2,
+                   *(int *)(param_1 + 0xc) - param_2);
+    }
+    *(int *)(param_1 + 0xc) = iVar2;
+  }
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00866140 (save buffer backpatch or shift)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00866033 (in FUN_00865ff0)
+  UNCONDITIONAL_CALL @ 0x0086606d (in FUN_00865ff0)
+  Total: 2 refs
+
+--- Calls FROM save buffer backpatch or shift (0x00866140) ---
+  0x0086616b -> 0x008660b0 FUN_008660b0
+  0x00866178 -> 0x00424940 FUN_00424940
+  0x008661c6 -> 0x008661e0 FUN_008661e0
+  Total: 3 calls
+
+======================================================================
+changed-record deflate error handling @ 0x00483d70
+======================================================================
+  Function: FUN_00483d70 @ 0x00483d70, Size: 590 bytes
+
+void FUN_00483d70(void)
+
+{
+  int iVar1;
+  char cVar2;
+  int iVar3;
+  undefined4 uVar4;
+  int iVar5;
+  int local_4c;
+  int local_48;
+  int local_44;
+  int local_40;
+  undefined4 local_38;
+  int local_34;
+  undefined4 local_28;
+  undefined4 local_24;
+  undefined4 local_20;
+  undefined4 local_1c;
+  int local_c;
+  int local_8;
+  
+  iVar1 = DAT_011c54cc;
+  if ((DAT_011c54cc != 0) && (0x18 < DAT_011c54d0)) {
+    cVar2 = FUN_00401500();
+    if (cVar2 != '\0') {
+      FUN_00470650();
+    }
+    if ((*(uint *)(iVar1 + 8) & 0x40000) == 0) {
+      local_48 = DAT_011c54d0 - 0x18;
+      iVar5 = DAT_011c54cc + 0x18;
+      local_24 = 0;
+      local_20 = 0;
+      local_1c = 0;
+      local_28 = 0;
+      iVar3 = FUN_00b46360(&local_44,0xffffffff,"1.2.1",0x38);
+      if (iVar3 == 0) {
+        local_c = local_48 << 1;
+        uVar4 = FUN_00401000(local_c);
+        local_40 = local_48;
+        local_34 = local_c;
+        local_44 = iVar5;
+        local_38 = uVar4;
+        iVar3 = FUN_00b46b70(&local_44,4);
+        if (iVar3 == -2) {
+          FUN_005b5e40("SAVELOAD: Error deflating ZLib stream.");
+          FUN_00401030(uVar4);
+        }
+        else {
+          iVar5 = local_c - local_34;
+          local_8 = iVar5;
+          iVar3 = FUN_00401000(iVar5 + 0x1cU);
+          *(uint *)(iVar1 + 8) = *(uint *)(iVar1 + 8) | 0x40000;
+          *(int *)(iVar1 + 4) = iVar5 + 4;
+          cVar2 = FUN_00401500();
+          if (cVar2 != '\0') {
+            FUN_00470650();
+          }
+          FUN_00401460(iVar3,iVar1,0x18);
+          local_4c = local_48;
+          cVar2 = FUN_00401500();
+          if (cVar2 != '\0') {
+            FUN_00401080(&local_4c,0);
+          }
+          FUN_00401460(iVar3 + 0x18,&local_4c,4);
+          FUN_00401460(iVar3 + 0x1c,uVar4,local_8);
+          FUN_00401030(DAT_011c54cc);
+          DAT_011c54cc = iVar3;
+          DAT_011c54d0 = iVar5 + 0x1cU;
+          FUN_00b47370(&local_44);
+          FUN_00401030(uVar4);
+        }
+      }
+      else {
+        FUN_005b5e40("SAVELOAD: Error initializing ZLib stream for deflate.");
+      }
+    }
+    else {
+      cVar2 = FUN_00401500();
+      if (cVar2 != '\0') {
+        FUN_00470650();
+      }
+    }
+  }
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00483d70 (changed-record deflate error handling)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00538bdd (in FUN_00538110)
+  Total: 1 refs
+
+--- Calls FROM changed-record deflate error handling (0x00483d70) ---
+  0x00483d98 -> 0x00401500 FUN_00401500
+  0x00483da7 -> 0x00470650 FUN_00470650
+  0x00483db9 -> 0x00401500 FUN_00401500
+  0x00483dc8 -> 0x00470650 FUN_00470650
+  0x00483e18 -> 0x00b46360 FUN_00b46360
+  0x00483e2e -> 0x005b5e40 FUN_005b5e40
+  0x00483e47 -> 0x00401000 FUN_00401000
+  0x00483e76 -> 0x00b46b70 FUN_00b46b70
+  0x00483e8c -> 0x005b5e40 FUN_005b5e40
+  0x00483e9e -> 0x00401030 FUN_00401030
+  0x00483ec1 -> 0x00401000 FUN_00401000
+  0x00483ef6 -> 0x00401500 FUN_00401500
+  0x00483f05 -> 0x00470650 FUN_00470650
+  0x00483f14 -> 0x00401460 FUN_00401460
+  0x00483f2b -> 0x00401500 FUN_00401500
+  0x00483f45 -> 0x00401080 FUN_00401080
+  0x00483f57 -> 0x00401460 FUN_00401460
+  0x00483f74 -> 0x00401460 FUN_00401460
+  0x00483f83 -> 0x00401030 FUN_00401030
+  0x00483fa0 -> 0x00b47370 FUN_00b47370
+  0x00483fb2 -> 0x00401030 FUN_00401030
+  Total: 21 calls
+
+----------------------------------------------------------------------
+Disassembly: save header fields, body sizes, and final markers (0x0084d4b0 - 0x0084d860)
+----------------------------------------------------------------------
+  0x0084d4b0: PUSH EBP
+  0x0084d4b1: MOV EBP,ESP
+  0x0084d4b3: PUSH -0x1
+  0x0084d4b5: PUSH 0xf12e88
+  0x0084d4ba: MOV EAX,FS:[0x0]
+  0x0084d4c0: PUSH EAX
+  0x0084d4c1: SUB ESP,0x3c8
+  0x0084d4c7: MOV EAX,[0x011c16bc]
+  0x0084d4cc: XOR EAX,EBP
+  0x0084d4ce: MOV dword ptr [EBP + -0x2c],EAX
+  0x0084d4d1: PUSH EAX
+  0x0084d4d2: LEA EAX,[EBP + -0xc]
+  0x0084d4d5: MOV FS:[0x0],EAX
+  0x0084d4db: MOV EAX,[0x011a2224]
+  0x0084d4e0: PUSH EAX
+  0x0084d4e1: CALL 0x00ec6130
+  0x0084d4e6: ADD ESP,0x4
+  0x0084d4e9: PUSH EAX
+  0x0084d4ea: MOV ECX,dword ptr [0x011a2224]
+  0x0084d4f0: PUSH ECX
+  0x0084d4f1: MOV ECX,dword ptr [EBP + 0x8]
+  0x0084d4f4: CALL 0x00846330
+  0x0084d4f9: LEA ECX,[EBP + -0x28]
+  0x0084d4fc: CALL 0x00865bd0
+  0x0084d501: MOV dword ptr [EBP + -0x4],0x0
+  0x0084d508: LEA EDX,[EBP + -0x28]
+  0x0084d50b: MOV dword ptr [EBP + -0x14],EDX
+  0x0084d50e: MOV ECX,dword ptr [0x011de134]
+  0x0084d514: CALL 0x0066d730
+  0x0084d519: MOV dword ptr [EBP + 0xfffffd78],EAX
+  0x0084d51f: PUSH 0x0
+  0x0084d521: PUSH 0x4
+  0x0084d523: LEA EAX,[EBP + 0xfffffd78]
+  0x0084d529: PUSH EAX
+  0x0084d52a: MOV ECX,dword ptr [EBP + -0x14]
+  0x0084d52d: CALL 0x00865e50
+  0x0084d532: PUSH 0x40
+  0x0084d534: PUSH 0x0
+  0x0084d536: LEA ECX,[EBP + 0xfffffe8c]
+  0x0084d53c: PUSH ECX
+  0x0084d53d: CALL 0x00403d30
+  0x0084d542: ADD ESP,0xc
+  0x0084d545: MOV ECX,0x11c3cb4
+  0x0084d54a: CALL 0x00403df0
+  0x0084d54f: PUSH EAX
+  0x0084d550: PUSH 0x40
+  0x0084d552: LEA EDX,[EBP + 0xfffffe8c]
+  0x0084d558: PUSH EDX
+  0x0084d559: CALL 0x00406d50
+  0x0084d55e: ADD ESP,0xc
+  0x0084d561: PUSH 0x0
+  0x0084d563: PUSH 0x40
+  0x0084d565: LEA EAX,[EBP + 0xfffffe8c]
+  0x0084d56b: PUSH EAX
+  0x0084d56c: MOV ECX,dword ptr [EBP + -0x14]
+  0x0084d56f: CALL 0x00865e50
+  0x0084d574: CALL 0x004dc200
+  0x0084d579: MOV dword ptr [EBP + 0xfffffc50],EAX
+  0x0084d57f: FILD dword ptr [EBP + 0xfffffc50]
+  0x0084d585: FSTP double ptr [EBP + 0xfffffc48]
+  0x0084d58b: CALL 0x004dc1f0
+  0x0084d590: MOV dword ptr [EBP + 0xfffffc44],EAX
+  0x0084d596: FILD dword ptr [EBP + 0xfffffc44]
+  0x0084d59c: FDIVR double ptr [EBP + 0xfffffc48]
+  0x0084d5a2: FCOMP double ptr [0x0101de30]
+  0x0084d5a8: FNSTSW AX
+  0x0084d5aa: TEST AH,0x5
+  0x0084d5ad: JP 0x0084d5bb
+  0x0084d5af: MOV dword ptr [EBP + 0xfffffc40],0x1
+  0x0084d5b9: JMP 0x0084d5c5
+  0x0084d5bb: MOV dword ptr [EBP + 0xfffffc40],0x0
+  0x0084d5c5: MOV CL,byte ptr [EBP + 0xfffffc40]
+  0x0084d5cb: MOV byte ptr [EBP + 0xfffffd77],CL
+  0x0084d5d1: MOVZX EDX,byte ptr [EBP + 0xfffffd77]
+  0x0084d5d8: NEG EDX
+  0x0084d5da: SBB EDX,EDX
+  0x0084d5dc: AND EDX,0x50
+  0x0084d5df: ADD EDX,0x1b0
+  0x0084d5e5: MOV dword ptr [EBP + 0xfffffe88],EDX
+  0x0084d5eb: MOVZX EAX,byte ptr [EBP + 0xfffffd77]
+  0x0084d5f2: NEG EAX
+  0x0084d5f4: SBB EAX,EAX
+  0x0084d5f6: AND EAX,0x50
+  0x0084d5f9: ADD EAX,0x1b0
+  0x0084d5fe: MOV dword ptr [EBP + -0x10],EAX
+  0x0084d601: MOV byte ptr [EBP + 0xfffffd7c],0x0
+  0x0084d608: PUSH 0x103
+  0x0084d60d: PUSH 0x0
+  0x0084d60f: LEA ECX,[EBP + 0xfffffd7d]
+  0x0084d615: PUSH ECX
+  0x0084d616: CALL 0x00ec61c0
+  0x0084d61b: ADD ESP,0xc
+  0x0084d61e: MOV ECX,0x11de2fc
+  0x0084d623: CALL 0x00408d60
+  0x0084d628: MOVZX EDX,byte ptr [EAX]
+  0x0084d62b: TEST EDX,EDX
+  0x0084d62d: JZ 0x0084d684
+  0x0084d62f: MOV ECX,0x11c3f74
+  0x0084d634: CALL 0x00403df0
+  0x0084d639: PUSH EAX
+  0x0084d63a: PUSH 0x104
+  0x0084d63f: LEA EAX,[EBP + 0xfffffd7c]
+  0x0084d645: PUSH EAX
+  0x0084d646: CALL 0x00406d30
+  0x0084d64b: ADD ESP,0xc
+  0x0084d64e: MOV ECX,dword ptr [EBP + 0x8]
+  0x0084d651: CALL 0x006815c0
+  0x0084d656: PUSH EAX
+  0x0084d657: PUSH 0x104
+  0x0084d65c: LEA ECX,[EBP + 0xfffffd7c]
+  0x0084d662: PUSH ECX
+  0x0084d663: CALL 0x00406d50
+  0x0084d668: ADD ESP,0xc
+  0x0084d66b: PUSH 0x107f794
+  0x0084d670: PUSH 0x104
+  0x0084d675: LEA EDX,[EBP + 0xfffffd7c]
+  0x0084d67b: PUSH EDX
+  0x0084d67c: CALL 0x00406d50
+  0x0084d681: ADD ESP,0xc
+  0x0084d684: MOV dword ptr [EBP + 0xfffffc60],0x0
+  0x0084d68e: MOV ECX,dword ptr [0x011de134]
+  0x0084d694: CALL 0x00424940
+  0x0084d699: MOVZX EAX,AL
+  0x0084d69c: TEST EAX,EAX
+  0x0084d69e: JNZ 0x0084d6c2
+  0x0084d6a0: LEA ECX,[EBP + 0xfffffd7c]
+  0x0084d6a6: PUSH ECX
+  0x0084d6a7: LEA EDX,[EBP + -0x10]
+  0x0084d6aa: PUSH EDX
+  0x0084d6ab: LEA EAX,[EBP + 0xfffffe88]
+  0x0084d6b1: PUSH EAX
+  0x0084d6b2: CALL 0x00878f60
+  0x0084d6b7: ADD ESP,0xc
+  0x0084d6ba: MOV dword ptr [EBP + 0xfffffc60],EAX
+  0x0084d6c0: JMP 0x0084d707
+  0x0084d6c2: CALL 0x004dc200
+  0x0084d6c7: MOV dword ptr [EBP + 0xfffffc3c],EAX
+  0x0084d6cd: FILD dword ptr [EBP + 0xfffffc3c]
+  0x0084d6d3: FSTP double ptr [EBP + 0xfffffc34]
+  0x0084d6d9: CALL 0x004dc1f0
+  0x0084d6de: MOV dword ptr [EBP + 0xfffffc30],EAX
+  0x0084d6e4: FILD dword ptr [EBP + 0xfffffc30]
+  0x0084d6ea: FDIVR double ptr [EBP + 0xfffffc34]
+  0x0084d6f0: FSTP float ptr [EBP + 0xfffffc5c]
+  0x0084d6f6: FILD dword ptr [EBP + -0x10]
+  0x0084d6f9: FMUL float ptr [EBP + 0xfffffc5c]
+  0x0084d6ff: CALL 0x00ec62c0
+  0x0084d704: MOV dword ptr [EBP + -0x10],EAX
+  0x0084d707: PUSH 0x0
+  0x0084d709: PUSH 0x4
+  0x0084d70b: LEA ECX,[EBP + 0xfffffe88]
+  0x0084d711: PUSH ECX
+  0x0084d712: MOV ECX,dword ptr [EBP + -0x14]
+  0x0084d715: CALL 0x00865e50
+  0x0084d71a: PUSH 0x0
+  0x0084d71c: PUSH 0x4
+  0x0084d71e: LEA EDX,[EBP + -0x10]
+  0x0084d721: PUSH EDX
+  0x0084d722: MOV ECX,dword ptr [EBP + -0x14]
+  0x0084d725: CALL 0x00865e50
+  0x0084d72a: MOV ECX,dword ptr [0x011de134]
+  0x0084d730: CALL 0x0044ddc0
+  0x0084d735: MOV dword ptr [EBP + 0xfffffc64],EAX
+  0x0084d73b: PUSH 0x0
+  0x0084d73d: PUSH 0x4
+  0x0084d73f: LEA EAX,[EBP + 0xfffffc64]
+  0x0084d745: PUSH EAX
+  0x0084d746: MOV ECX,dword ptr [EBP + -0x14]
+  0x0084d749: CALL 0x00865e50
+  0x0084d74e: PUSH 0x0
+  0x0084d750: MOV ECX,dword ptr [0x011dea3c]
+  0x0084d756: CALL 0x0055d520
+  0x0084d75b: PUSH EAX
+  0x0084d75c: MOV ECX,dword ptr [EBP + -0x14]
+  0x0084d75f: CALL 0x00865e70
+  0x0084d764: PUSH 0x0
+  0x0084d766: MOV ECX,dword ptr [0x011dea3c]
+  0x0084d76c: PUSH ECX
+  0x0084d76d: CALL 0x0047e0e0
+  0x0084d772: ADD ESP,0x4
+  0x0084d775: PUSH EAX
+  0x0084d776: MOV ECX,dword ptr [EBP + -0x14]
+  0x0084d779: CALL 0x00865e70
+  0x0084d77e: MOV ECX,dword ptr [0x011dea3c]
+  0x0084d784: CALL 0x0087f9f0
+  0x0084d789: MOVZX EDX,AX
+  0x0084d78c: MOV dword ptr [EBP + 0xfffffc68],EDX
+  0x0084d792: PUSH 0x0
+  0x0084d794: PUSH 0x4
+  0x0084d796: LEA EAX,[EBP + 0xfffffc68]
+  0x0084d79c: PUSH EAX
+  0x0084d79d: MOV ECX,dword ptr [EBP + -0x14]
+  0x0084d7a0: CALL 0x00865e50
+  0x0084d7a5: LEA ECX,[EBP + 0xfffffc6c]
+  0x0084d7ab: PUSH ECX
+  0x0084d7ac: MOV ECX,dword ptr [0x011de134]
+  0x0084d7b2: CALL 0x00851b40
+  0x0084d7b7: PUSH 0x0
+  0x0084d7b9: LEA EDX,[EBP + 0xfffffc6c]
+  0x0084d7bf: PUSH EDX
+  0x0084d7c0: MOV ECX,dword ptr [EBP + -0x14]
+  0x0084d7c3: CALL 0x00865e70
+  0x0084d7c8: PUSH 0x1
+  0x0084d7ca: LEA EAX,[EBP + 0xfffffecc]
+  0x0084d7d0: PUSH EAX
+  0x0084d7d1: MOV ECX,dword ptr [0x011de134]
+  0x0084d7d7: CALL 0x00851bf0
+  0x0084d7dc: PUSH 0x0
+  0x0084d7de: LEA ECX,[EBP + 0xfffffecc]
+  0x0084d7e4: PUSH ECX
+  0x0084d7e5: MOV ECX,dword ptr [EBP + -0x14]
+  0x0084d7e8: CALL 0x00865e70
+  0x0084d7ed: MOV EDX,dword ptr [EBP + 0x8]
+  0x0084d7f0: PUSH EDX
+  0x0084d7f1: LEA ECX,[EBP + -0x28]
+  0x0084d7f4: CALL 0x00865c40
+  0x0084d7f9: MOV ECX,dword ptr [0x011de134]
+  0x0084d7ff: CALL 0x00424940
+  0x0084d804: MOVZX EAX,AL
+  0x0084d807: TEST EAX,EAX
+  0x0084d809: JNZ 0x0084d833
+  0x0084d80b: MOV ECX,dword ptr [EBP + 0xfffffe88]
+  0x0084d811: IMUL ECX,dword ptr [EBP + -0x10]
+  0x0084d815: IMUL ECX,ECX,0x3
+  0x0084d818: PUSH ECX
+  0x0084d819: PUSH 0x0
+  0x0084d81b: PUSH 0x0
+  0x0084d81d: MOV ECX,dword ptr [EBP + 0xfffffc60]
+  0x0084d823: CALL 0x0064dac0
+  0x0084d828: PUSH EAX
+  0x0084d829: MOV ECX,dword ptr [EBP + 0x8]
+  0x0084d82c: CALL 0x00846330
+  0x0084d831: JMP 0x0084d84b
+  0x0084d833: MOV EDX,dword ptr [EBP + 0xfffffe88]
+  0x0084d839: IMUL EDX,dword ptr [EBP + -0x10]
+  0x0084d83d: IMUL EDX,EDX,0x3
+  0x0084d840: PUSH EDX
+  0x0084d841: PUSH 0x0
+  0x0084d843: MOV ECX,dword ptr [EBP + 0x8]
+  0x0084d846: CALL 0x00846330
+  0x0084d84b: MOV EAX,dword ptr [EBP + 0xfffffc60]
+  0x0084d851: MOV dword ptr [EBP + 0xfffffc54],EAX
+  0x0084d857: MOV ECX,dword ptr [EBP + 0xfffffc54]
+  0x0084d85d: MOV dword ptr [EBP + 0xfffffc58],ECX
+
+----------------------------------------------------------------------
+Disassembly: header validation and truncated-file handling (0x0084d8c0 - 0x0084dc00)
+----------------------------------------------------------------------
+  0x0084d8c0: PUSH EBP
+  0x0084d8c1: MOV EBP,ESP
+  0x0084d8c3: PUSH -0x1
+  0x0084d8c5: PUSH 0xf12ebb
+  0x0084d8ca: MOV EAX,FS:[0x0]
+  0x0084d8d0: PUSH EAX
+  0x0084d8d1: SUB ESP,0x1bc
+  0x0084d8d7: MOV EAX,[0x011c16bc]
+  0x0084d8dc: XOR EAX,EBP
+  0x0084d8de: MOV dword ptr [EBP + -0x14],EAX
+  0x0084d8e1: PUSH EAX
+  0x0084d8e2: LEA EAX,[EBP + -0xc]
+  0x0084d8e5: MOV FS:[0x0],EAX
+  0x0084d8eb: MOV byte ptr [EBP + 0xfffffee4],0x0
+  0x0084d8f2: PUSH 0x103
+  0x0084d8f7: PUSH 0x0
+  0x0084d8f9: LEA EAX,[EBP + 0xfffffee5]
+  0x0084d8ff: PUSH EAX
+  0x0084d900: CALL 0x00ec61c0
+  0x0084d905: ADD ESP,0xc
+  0x0084d908: MOV ECX,dword ptr [0x011a2224]
+  0x0084d90e: PUSH ECX
+  0x0084d90f: CALL 0x00ec6130
+  0x0084d914: ADD ESP,0x4
+  0x0084d917: PUSH EAX
+  0x0084d918: LEA EDX,[EBP + 0xfffffee4]
+  0x0084d91e: PUSH EDX
+  0x0084d91f: MOV ECX,dword ptr [EBP + 0x8]
+  0x0084d922: CALL 0x00846300
+  0x0084d927: MOV dword ptr [EBP + 0xfffffecc],EAX
+  0x0084d92d: CMP dword ptr [EBP + 0xfffffecc],0x0
+  0x0084d934: JNZ 0x0084d93d
+  0x0084d936: XOR EAX,EAX
+  0x0084d938: JMP 0x0084da6e
+  0x0084d93d: MOV EAX,[0x011a2224]
+  0x0084d942: PUSH EAX
+  0x0084d943: LEA ECX,[EBP + 0xfffffee4]
+  0x0084d949: PUSH ECX
+  0x0084d94a: CALL 0x00408b20
+  0x0084d94f: ADD ESP,0x8
+  0x0084d952: TEST EAX,EAX
+  0x0084d954: JZ 0x0084d95e
+  0x0084d956: OR EAX,0xffffffff
+  0x0084d959: JMP 0x0084da6e
+  0x0084d95e: LEA ECX,[EBP + 0xfffffed4]
+  0x0084d964: CALL 0x008646b0
+  0x0084d969: MOV dword ptr [EBP + -0x4],0x0
+  0x0084d970: MOV EDX,dword ptr [EBP + 0x8]
+  0x0084d973: PUSH EDX
+  0x0084d974: LEA ECX,[EBP + 0xfffffed4]
+  0x0084d97a: CALL 0x00864740
+  0x0084d97f: LEA EAX,[EBP + 0xfffffed4]
+  0x0084d985: MOV dword ptr [EBP + 0xfffffec4],EAX
+  0x0084d98b: MOV dword ptr [EBP + 0xfffffec8],0x0
+  0x0084d995: PUSH 0x4
+  0x0084d997: LEA ECX,[EBP + 0xfffffec8]
+  0x0084d99d: PUSH ECX
+  0x0084d99e: MOV ECX,dword ptr [EBP + 0xfffffec4]
+  0x0084d9a4: CALL 0x00864980
+  0x0084d9a9: CMP dword ptr [EBP + 0xfffffec8],0x30
+  0x0084d9b0: JNZ 0x0084d9ea
+  0x0084d9b2: MOV ECX,dword ptr [EBP + 0xfffffec4]
+  0x0084d9b8: CALL 0x0084da90
+  0x0084d9bd: MOV dword ptr [EBP + 0xfffffec0],EAX
+  0x0084d9c3: MOV EDX,dword ptr [EBP + 0xfffffec0]
+  0x0084d9c9: MOVSX EAX,byte ptr [EDX + 0x4]
+  0x0084d9cd: CMP EAX,0x7c
+  0x0084d9d0: JNZ 0x0084d9d4
+  0x0084d9d2: JMP 0x0084d9e8
+  0x0084d9d4: PUSH 0x40
+  0x0084d9d6: LEA ECX,[EBP + 0xfffffe7c]
+  0x0084d9dc: PUSH ECX
+  0x0084d9dd: MOV ECX,dword ptr [EBP + 0xfffffec4]
+  0x0084d9e3: CALL 0x00864980
+  0x0084d9e8: JMP 0x0084d9fe
+  0x0084d9ea: PUSH 0x40
+  0x0084d9ec: LEA EDX,[EBP + 0xfffffe3c]
+  0x0084d9f2: PUSH EDX
+  0x0084d9f3: MOV ECX,dword ptr [EBP + 0xfffffec4]
+  0x0084d9f9: CALL 0x00864980
+  0x0084d9fe: MOV dword ptr [EBP + 0xfffffed0],0x0
+  0x0084da08: MOV dword ptr [EBP + -0x10],0x0
+  0x0084da0f: PUSH 0x4
+  0x0084da11: LEA EAX,[EBP + 0xfffffed0]
+  0x0084da17: PUSH EAX
+  0x0084da18: MOV ECX,dword ptr [EBP + 0xfffffec4]
+  0x0084da1e: CALL 0x00864980
+  0x0084da23: PUSH 0x4
+  0x0084da25: LEA ECX,[EBP + -0x10]
+  0x0084da28: PUSH ECX
+  0x0084da29: MOV ECX,dword ptr [EBP + 0xfffffec4]
+  0x0084da2f: CALL 0x00864980
+  0x0084da34: MOV EDX,dword ptr [EBP + 0xfffffed0]
+  0x0084da3a: IMUL EDX,dword ptr [EBP + -0x10]
+  0x0084da3e: IMUL EDX,EDX,0x3
+  0x0084da41: PUSH EDX
+  0x0084da42: MOV ECX,dword ptr [EBP + 0x8]
+  0x0084da45: CALL 0x00846490
+  0x0084da4a: MOV EAX,dword ptr [EBP + 0xfffffec8]
+  0x0084da50: MOV dword ptr [EBP + 0xfffffe38],EAX
+  0x0084da56: MOV dword ptr [EBP + -0x4],0xffffffff
+  0x0084da5d: LEA ECX,[EBP + 0xfffffed4]
+  0x0084da63: CALL 0x008646f0
+  0x0084da68: MOV EAX,dword ptr [EBP + 0xfffffe38]
+  0x0084da6e: MOV ECX,dword ptr [EBP + -0xc]
+  0x0084da71: MOV dword ptr FS:[0x0],ECX
+  0x0084da78: POP ECX
+  0x0084da79: MOV ECX,dword ptr [EBP + -0x14]
+  0x0084da7c: XOR ECX,EBP
+  0x0084da7e: CALL 0x00ec408c
+  0x0084da83: MOV ESP,EBP
+  0x0084da85: POP EBP
+  0x0084da86: RET
+  0x0084da90: PUSH EBP
+  0x0084da91: MOV EBP,ESP
+  0x0084da93: PUSH ECX
+  0x0084da94: MOV dword ptr [EBP + -0x4],ECX
+  0x0084da97: MOV EAX,dword ptr [EBP + -0x4]
+  0x0084da9a: MOV EAX,dword ptr [EAX + 0x4]
+  0x0084da9d: MOV ECX,dword ptr [EBP + -0x4]
+  0x0084daa0: ADD EAX,dword ptr [ECX + 0xc]
+  0x0084daa3: MOV ESP,EBP
+  0x0084daa5: POP EBP
+  0x0084daa6: RET
+  0x0084dab0: PUSH EBP
+  0x0084dab1: MOV EBP,ESP
+  0x0084dab3: PUSH -0x1
+  0x0084dab5: PUSH 0xf12ebb
+  0x0084daba: MOV EAX,FS:[0x0]
+  0x0084dac0: PUSH EAX
+  0x0084dac1: SUB ESP,0x1bc
+  0x0084dac7: MOV EAX,[0x011c16bc]
+  0x0084dacc: XOR EAX,EBP
+  0x0084dace: MOV dword ptr [EBP + -0x14],EAX
+  0x0084dad1: PUSH EAX
+  0x0084dad2: LEA EAX,[EBP + -0xc]
+  0x0084dad5: MOV FS:[0x0],EAX
+  0x0084dadb: PUSH 0x0
+  0x0084dadd: MOV ECX,dword ptr [EBP + 0x8]
+  0x0084dae0: CALL 0x00846440
+  0x0084dae5: MOV byte ptr [EBP + 0xfffffee4],0x0
+  0x0084daec: PUSH 0x103
+  0x0084daf1: PUSH 0x0
+  0x0084daf3: LEA EAX,[EBP + 0xfffffee5]
+  0x0084daf9: PUSH EAX
+  0x0084dafa: CALL 0x00ec61c0
+  0x0084daff: ADD ESP,0xc
+  0x0084db02: MOV ECX,dword ptr [0x011a2224]
+  0x0084db08: PUSH ECX
+  0x0084db09: CALL 0x00ec6130
+  0x0084db0e: ADD ESP,0x4
+  0x0084db11: PUSH EAX
+  0x0084db12: LEA EDX,[EBP + 0xfffffee4]
+  0x0084db18: PUSH EDX
+  0x0084db19: MOV ECX,dword ptr [EBP + 0x8]
+  0x0084db1c: CALL 0x00846300
+  0x0084db21: MOV EAX,[0x011a2224]
+  0x0084db26: PUSH EAX
+  0x0084db27: LEA ECX,[EBP + 0xfffffee4]
+  0x0084db2d: PUSH ECX
+  0x0084db2e: CALL 0x00408b20
+  0x0084db33: ADD ESP,0x8
+  0x0084db36: TEST EAX,EAX
+  0x0084db38: JZ 0x0084db3f
+  0x0084db3a: JMP 0x0084dd48
+  0x0084db3f: LEA ECX,[EBP + 0xfffffed4]
+  0x0084db45: CALL 0x008646b0
+  0x0084db4a: MOV dword ptr [EBP + -0x4],0x0
+  0x0084db51: MOV EDX,dword ptr [EBP + 0x8]
+  0x0084db54: PUSH EDX
+  0x0084db55: LEA ECX,[EBP + 0xfffffed4]
+  0x0084db5b: CALL 0x00864740
+  0x0084db60: LEA EAX,[EBP + 0xfffffed4]
+  0x0084db66: MOV dword ptr [EBP + 0xfffffec8],EAX
+  0x0084db6c: MOV dword ptr [EBP + 0xfffffecc],0x0
+  0x0084db76: PUSH 0x4
+  0x0084db78: LEA ECX,[EBP + 0xfffffecc]
+  0x0084db7e: PUSH ECX
+  0x0084db7f: MOV ECX,dword ptr [EBP + 0xfffffec8]
+  0x0084db85: CALL 0x00864980
+  0x0084db8a: MOV EDX,dword ptr [EBP + 0xfffffecc]
+  0x0084db90: PUSH EDX
+  0x0084db91: MOV ECX,dword ptr [EBP + 0xc]
+  0x0084db94: CALL 0x0040e500
+  0x0084db99: CMP dword ptr [EBP + 0xfffffecc],0x30
+  0x0084dba0: JNZ 0x0084dbf6
+  0x0084dba2: MOV ECX,dword ptr [EBP + 0xfffffec8]
+  0x0084dba8: CALL 0x0084da90
+  0x0084dbad: MOV dword ptr [EBP + 0xfffffec0],EAX
+  0x0084dbb3: MOV EAX,dword ptr [EBP + 0xfffffec0]
+  0x0084dbb9: MOVSX ECX,byte ptr [EAX + 0x4]
+  0x0084dbbd: CMP ECX,0x7c
+  0x0084dbc0: JNZ 0x0084dbd1
+  0x0084dbc2: PUSH 0x1018348
+  0x0084dbc7: MOV ECX,dword ptr [EBP + 0xc]
+  0x0084dbca: CALL 0x0084dd70
+  0x0084dbcf: JMP 0x0084dbf4
+  0x0084dbd1: PUSH 0x40
+  0x0084dbd3: LEA EDX,[EBP + 0xfffffe7c]
+  0x0084dbd9: PUSH EDX
+  0x0084dbda: MOV ECX,dword ptr [EBP + 0xfffffec8]
+  0x0084dbe0: CALL 0x00864980
+  0x0084dbe5: LEA EAX,[EBP + 0xfffffe7c]
+  0x0084dbeb: PUSH EAX
+  0x0084dbec: MOV ECX,dword ptr [EBP + 0xc]
+  0x0084dbef: CALL 0x0084dd70
+  0x0084dbf4: JMP 0x0084dc19
+  0x0084dbf6: PUSH 0x40
+  0x0084dbf8: LEA ECX,[EBP + 0xfffffe3c]
+  0x0084dbfe: PUSH ECX
+  0x0084dbff: MOV ECX,dword ptr [EBP + 0xfffffec8]
+
+----------------------------------------------------------------------
+Disassembly: LoadGame acceptance gate (0x00847ee0 - 0x00848040)
+----------------------------------------------------------------------
+  0x00847ee0: ADD ESP,0x10
+  0x00847ee3: PUSH 0x1
+  0x00847ee5: MOV EDX,dword ptr [EBP + 0xfffffb74]
+  0x00847eeb: ADD EDX,0x248
+  0x00847ef1: PUSH EDX
+  0x00847ef2: MOV EAX,dword ptr [EBP + 0x8]
+  0x00847ef5: PUSH EAX
+  0x00847ef6: CALL 0x00845d20
+  0x00847efb: ADD ESP,0xc
+  0x00847efe: MOV ECX,dword ptr [EBP + 0x8]
+  0x00847f01: PUSH ECX
+  0x00847f02: MOV ECX,dword ptr [EBP + 0xfffffb74]
+  0x00847f08: CALL 0x00847660
+  0x00847f0d: MOV byte ptr [EBP + 0xfffffdcf],AL
+  0x00847f13: MOVZX EDX,byte ptr [EBP + 0xfffffdcf]
+  0x00847f1a: TEST EDX,EDX
+  0x00847f1c: JNZ 0x00847f93
+  0x00847f1e: MOVZX EAX,byte ptr [EBP + 0xc]
+  0x00847f22: TEST EAX,EAX
+  0x00847f24: JNZ 0x00847f93
+  0x00847f26: MOV ECX,dword ptr [EBP + 0xfffffb74]
+  0x00847f2c: MOV EDX,dword ptr [ECX + 0x1c]
+  0x00847f2f: MOV dword ptr [EBP + 0xfffffbe4],EDX
+  0x00847f35: MOV EAX,dword ptr [EBP + 0xfffffbe4]
+  0x00847f3b: MOV dword ptr [EBP + 0xfffffbe8],EAX
+  0x00847f41: CMP dword ptr [EBP + 0xfffffbe8],0x0
+  0x00847f48: JZ 0x00847f5f
+  0x00847f4a: PUSH 0x1
+  0x00847f4c: MOV ECX,dword ptr [EBP + 0xfffffbe8]
+  0x00847f52: CALL 0x00847450
+  0x00847f57: MOV dword ptr [EBP + 0xfffffb6c],EAX
+  0x00847f5d: JMP 0x00847f69
+  0x00847f5f: MOV dword ptr [EBP + 0xfffffb6c],0x0
+  0x00847f69: MOV ECX,dword ptr [EBP + 0xfffffb74]
+  0x00847f6f: MOV EDX,dword ptr [EBP + -0x14]
+  0x00847f72: MOV dword ptr [ECX + 0x1c],EDX
+  0x00847f75: MOV EAX,dword ptr [EBP + 0xfffffb74]
+  0x00847f7b: MOV byte ptr [EAX + 0x248],0xff
+  0x00847f82: PUSH 0x1
+  0x00847f84: CALL 0x00848e40
+  0x00847f89: ADD ESP,0x4
+  0x00847f8c: XOR AL,AL
+  0x00847f8e: JMP 0x00848c79
+  0x00847f93: MOV ECX,dword ptr [EBP + -0x14]
+  0x00847f96: MOV dword ptr [EBP + 0xfffffbdc],ECX
+  0x00847f9c: MOV EDX,dword ptr [EBP + 0xfffffbdc]
+  0x00847fa2: MOV dword ptr [EBP + 0xfffffbe0],EDX
+  0x00847fa8: CMP dword ptr [EBP + 0xfffffbe0],0x0
+  0x00847faf: JZ 0x00847fc6
+  0x00847fb1: PUSH 0x1
+  0x00847fb3: MOV ECX,dword ptr [EBP + 0xfffffbe0]
+  0x00847fb9: CALL 0x00847450
+  0x00847fbe: MOV dword ptr [EBP + 0xfffffb68],EAX
+  0x00847fc4: JMP 0x00847fd0
+  0x00847fc6: MOV dword ptr [EBP + 0xfffffb68],0x0
+  0x00847fd0: MOV EAX,dword ptr [EBP + 0xfffffb74]
+  0x00847fd6: MOV ECX,dword ptr [EAX + 0x10]
+  0x00847fd9: CALL 0x00852b60
+  0x00847fde: MOV ECX,dword ptr [0x011de134]
+  0x00847fe4: CALL 0x00850c20
+  0x00847fe9: MOV ECX,dword ptr [0x01202d98]
+  0x00847fef: CALL 0x00c3e310
+  0x00847ff4: PUSH 0x1
+  0x00847ff6: MOV ECX,dword ptr [EBP + 0xfffffb74]
+  0x00847ffc: CALL 0x00848ca0
+  0x00848001: MOV ECX,dword ptr [0x011dea3c]
+  0x00848007: CALL 0x00848e10
+  0x0084800c: LEA ECX,[EBP + 0xfffffd54]
+  0x00848012: CALL 0x00847d50
+  0x00848017: PUSH 0x6e
+  0x00848019: LEA ECX,[EBP + 0xfffffd54]
+  0x0084801f: PUSH ECX
+  0x00848020: MOV ECX,dword ptr [EBP + 0x8]
+  0x00848023: CALL 0x00846300
+  0x00848028: MOV ECX,dword ptr [EBP + 0x8]
+  0x0084802b: CALL 0x00846400
+  0x00848030: MOV dword ptr [EBP + -0x18],EAX
+  0x00848033: MOV EDX,dword ptr [EBP + 0xfffffd54]
+  0x00848039: PUSH EDX
+  0x0084803a: MOV ECX,dword ptr [EBP + 0x8]
+  0x0084803d: CALL 0x00846440
+
+----------------------------------------------------------------------
+Disassembly: changed-form loop error and skip decisions (0x008482d0 - 0x00848980)
+----------------------------------------------------------------------
+  0x008482d1: MOV dword ptr [EBP + 0xfffffc44],EAX
+  0x008482d7: MOV ECX,dword ptr [EBP + 0xfffffc44]
+  0x008482dd: CMP ECX,dword ptr [EBP + 0xfffffd70]
+  0x008482e3: JNC 0x008486de
+  0x008482e9: PUSH 0x30
+  0x008482eb: CALL 0x00401000
+  0x008482f0: ADD ESP,0x4
+  0x008482f3: MOV dword ptr [EBP + 0xfffffbb4],EAX
+  0x008482f9: MOV dword ptr [EBP + -0x4],0x4
+  0x00848300: CMP dword ptr [EBP + 0xfffffbb4],0x0
+  0x00848307: JZ 0x0084831c
+  0x00848309: MOV ECX,dword ptr [EBP + 0xfffffbb4]
+  0x0084830f: CALL 0x008643b0
+  0x00848314: MOV dword ptr [EBP + 0xfffffb54],EAX
+  0x0084831a: JMP 0x00848326
+  0x0084831c: MOV dword ptr [EBP + 0xfffffb54],0x0
+  0x00848326: MOV EDX,dword ptr [EBP + 0xfffffb54]
+  0x0084832c: MOV dword ptr [EBP + 0xfffffbb8],EDX
+  0x00848332: MOV dword ptr [EBP + -0x4],0xffffffff
+  0x00848339: MOV EAX,dword ptr [EBP + 0xfffffbb8]
+  0x0084833f: MOV dword ptr [EBP + 0xfffffc3c],EAX
+  0x00848345: MOV ECX,dword ptr [EBP + 0x8]
+  0x00848348: PUSH ECX
+  0x00848349: MOV ECX,dword ptr [EBP + 0xfffffc3c]
+  0x0084834f: CALL 0x008644b0
+  0x00848354: MOV ECX,dword ptr [EBP + 0xfffffc3c]
+  0x0084835a: CALL 0x008665b0
+  0x0084835f: MOV dword ptr [EBP + 0xfffffc20],EAX
+  0x00848365: MOV ECX,dword ptr [EBP + 0xfffffc3c]
+  0x0084836b: CALL 0x0044edb0
+  0x00848370: MOV dword ptr [EBP + 0xfffffc30],EAX
+  0x00848376: LEA EDX,[EBP + 0xfffffc34]
+  0x0084837c: PUSH EDX
+  0x0084837d: MOV ECX,dword ptr [EBP + 0xfffffc3c]
+  0x00848383: CALL 0x00428110
+  0x00848388: MOV EAX,dword ptr [EBP + 0xfffffc30]
+  0x0084838e: PUSH EAX
+  0x0084838f: LEA ECX,[EBP + 0xfffffc28]
+  0x00848395: PUSH ECX
+  0x00848396: MOV EDX,dword ptr [EBP + 0xfffffb74]
+  0x0084839c: MOV ECX,dword ptr [EDX]
+  0x0084839e: CALL 0x008456e0
+  0x008483a3: MOV EAX,dword ptr [EBP + 0xfffffc30]
+  0x008483a9: PUSH EAX
+  0x008483aa: LEA ECX,[EBP + 0xfffffc2c]
+  0x008483b0: PUSH ECX
+  0x008483b1: MOV ECX,dword ptr [EBP + 0xfffffc48]
+  0x008483b7: CALL 0x008456e0
+  0x008483bc: LEA ECX,[EBP + 0xfffffc2c]
+  0x008483c2: CALL 0x00559450
+  0x008483c7: TEST EAX,EAX
+  0x008483c9: JZ 0x008483f4
+  0x008483cb: LEA ECX,[EBP + 0xfffffc2c]
+  0x008483d1: CALL 0x00559450
+  0x008483d6: PUSH EAX
+  0x008483d7: LEA ECX,[EBP + 0xfffffc28]
+  0x008483dd: CALL 0x00841100
+  0x008483e2: MOV EDX,dword ptr [EBP + 0xfffffc30]
+  0x008483e8: PUSH EDX
+  0x008483e9: MOV ECX,dword ptr [EBP + 0xfffffc48]
+  0x008483ef: CALL 0x00845a20
+  0x008483f4: MOV EAX,dword ptr [EBP + 0xfffffc34]
+  0x008483fa: PUSH EAX
+  0x008483fb: MOV ECX,dword ptr [EBP + 0xfffffc30]
+  0x00848401: PUSH ECX
+  0x00848402: MOV ECX,dword ptr [EBP + 0xfffffc48]
+  0x00848408: CALL 0x008458b0
+  0x0084840d: MOV EDX,dword ptr [EBP + 0xfffffc28]
+  0x00848413: PUSH EDX
+  0x00848414: MOV ECX,dword ptr [EBP + 0xfffffc3c]
+  0x0084841a: CALL 0x0086cf00
+  0x0084841f: MOV EAX,dword ptr [EBP + 0xfffffc30]
+  0x00848425: PUSH EAX
+  0x00848426: CALL 0x004839c0
+  0x0084842b: ADD ESP,0x4
+  0x0084842e: MOV dword ptr [EBP + 0xfffffc40],EAX
+  0x00848434: MOV ECX,dword ptr [EBP + 0xfffffc40]
+  0x0084843a: PUSH ECX
+  0x0084843b: MOV ECX,dword ptr [EBP + 0xfffffc3c]
+  0x00848441: CALL 0x007037c0
+  0x00848446: MOV EDX,dword ptr [EBP + 0xfffffdd0]
+  0x0084844c: PUSH EDX
+  0x0084844d: MOV EAX,dword ptr [EBP + 0xfffffc3c]
+  0x00848453: PUSH EAX
+  0x00848454: MOV ECX,dword ptr [EBP + 0x8]
+  0x00848457: PUSH ECX
+  0x00848458: MOV ECX,dword ptr [EBP + 0xfffffb74]
+  0x0084845e: CALL 0x00849d00
+  0x00848463: MOV dword ptr [EBP + 0xfffffc24],EAX
+  0x00848469: MOV EDX,dword ptr [EBP + 0xfffffc24]
+  0x0084846f: PUSH EDX
+  0x00848470: MOV EAX,dword ptr [EBP + 0x8]
+  0x00848473: PUSH EAX
+  0x00848474: MOV ECX,dword ptr [EBP + 0xfffffc3c]
+  0x0084847a: CALL 0x00864580
+  0x0084847f: MOV ECX,dword ptr [EBP + 0xfffffc3c]
+  0x00848485: MOV EDX,dword ptr [ECX]
+  0x00848487: MOV ECX,dword ptr [EBP + 0xfffffc3c]
+  0x0084848d: MOV EAX,dword ptr [EDX + 0x4]
+  0x00848490: CALL EAX
+  0x00848492: MOV dword ptr [EBP + 0xfffffc40],EAX
+  0x00848498: LEA ECX,[EBP + 0xfffffbb0]
+  0x0084849e: PUSH ECX
+  0x0084849f: MOV ECX,dword ptr [EBP + 0xfffffc3c]
+  0x008484a5: CALL 0x0042ce30
+  0x008484aa: MOV EDX,dword ptr [EAX]
+  0x008484ac: MOV dword ptr [EBP + 0xfffffc28],EDX
+  0x008484b2: MOV byte ptr [EBP + 0xfffffc3b],0x0
+  0x008484b9: CMP dword ptr [EBP + 0xfffffc40],0x0
+  0x008484c0: JZ 0x0084869e
+  0x008484c6: MOV byte ptr [EBP + 0xfffffc1f],0x0
+  0x008484cd: MOV ECX,dword ptr [EBP + 0xfffffc40]
+  0x008484d3: CALL 0x00401170
+  0x008484d8: CMP EAX,dword ptr [EBP + 0xfffffc20]
+  0x008484de: JZ 0x008484e9
+  0x008484e0: MOV byte ptr [EBP + 0xfffffc1f],0x1
+  0x008484e7: JMP 0x00848528
+  0x008484e9: MOV EAX,dword ptr [EBP + 0xfffffc40]
+  0x008484ef: MOV EDX,dword ptr [EAX]
+  0x008484f1: MOV ECX,dword ptr [EBP + 0xfffffc40]
+  0x008484f7: MOV EAX,dword ptr [EDX + 0xf0]
+  0x008484fd: CALL EAX
+  0x008484ff: MOVZX ECX,AL
+  0x00848502: TEST ECX,ECX
+  0x00848504: JZ 0x00848528
+  0x00848506: MOV EDX,dword ptr [EBP + 0xfffffc40]
+  0x0084850c: MOV dword ptr [EBP + 0xfffffc18],EDX
+  0x00848512: MOV ECX,dword ptr [EBP + 0xfffffc18]
+  0x00848518: CALL 0x007af430
+  0x0084851d: TEST EAX,EAX
+  0x0084851f: JNZ 0x00848528
+  0x00848521: MOV byte ptr [EBP + 0xfffffc1f],0x1
+  0x00848528: MOVZX EAX,byte ptr [EBP + 0xfffffc1f]
+  0x0084852f: TEST EAX,EAX
+  0x00848531: JZ 0x00848600
+  0x00848537: MOV ECX,dword ptr [EBP + 0xfffffc30]
+  0x0084853d: PUSH ECX
+  0x0084853e: MOV ECX,dword ptr [0x011c3f2c]
+  0x00848544: CALL 0x00469860
+  0x00848549: MOVZX EDX,AL
+  0x0084854c: TEST EDX,EDX
+  0x0084854e: JZ 0x00848593
+  0x00848550: MOV EAX,dword ptr [EBP + 0xfffffc40]
+  0x00848556: PUSH EAX
+  0x00848557: MOV ECX,dword ptr [EBP + 0xfffffb74]
+  0x0084855d: CALL 0x0084a880
+  0x00848562: PUSH 0x0
+  0x00848564: MOV ECX,dword ptr [EBP + 0xfffffc3c]
+  0x0084856a: CALL 0x007037c0
+  0x0084856f: PUSH ECX
+  0x00848570: MOV ECX,ESP
+  0x00848572: MOV dword ptr [EBP + 0xfffffbac],ESP
+  0x00848578: PUSH 0x0
+  0x0084857a: CALL 0x008c71b0
+  0x0084857f: MOV ECX,dword ptr [EBP + 0xfffffc3c]
+  0x00848585: CALL 0x0086cf00
+  0x0084858a: MOV byte ptr [EBP + 0xfffffc3b],0x1
+  0x00848591: JMP 0x008485fb
+  0x00848593: MOV ECX,dword ptr [EBP + 0xfffffc40]
+  0x00848599: CALL 0x00401170
+  0x0084859e: CMP EAX,dword ptr [EBP + 0xfffffc20]
+  0x008485a4: JZ 0x008485ee
+  0x008485a6: MOV ECX,dword ptr [EBP + 0xfffffc40]
+  0x008485ac: CALL 0x00440e30
+  0x008485b1: PUSH EAX
+  0x008485b2: MOVZX ECX,byte ptr [EBP + 0xfffffc20]
+  0x008485b9: PUSH ECX
+  0x008485ba: CALL 0x004612b0
+  0x008485bf: ADD ESP,0x4
+  0x008485c2: PUSH EAX
+  0x008485c3: MOV EDX,dword ptr [EBP + 0xfffffc30]
+  0x008485c9: PUSH EDX
+  0x008485ca: MOV EAX,dword ptr [EBP + 0xfffffc40]
+  0x008485d0: MOV EDX,dword ptr [EAX]
+  0x008485d2: MOV ECX,dword ptr [EBP + 0xfffffc40]
+  0x008485d8: MOV EAX,dword ptr [EDX + 0x130]
+  0x008485de: CALL EAX
+  0x008485e0: PUSH EAX
+  0x008485e1: PUSH 0x107efd0
+  0x008485e6: CALL 0x00845cc0
+  0x008485eb: ADD ESP,0x14
+  0x008485ee: PUSH 0x1
+  0x008485f0: MOV ECX,dword ptr [EBP + 0xfffffc3c]
+  0x008485f6: CALL 0x00848d90
+  0x008485fb: JMP 0x0084869c
+  0x00848600: MOV ECX,dword ptr [EBP + 0xfffffc3c]
+  0x00848606: PUSH ECX
+  0x00848607: MOV EDX,dword ptr [EBP + 0xfffffc40]
+  0x0084860d: MOV EAX,dword ptr [EDX]
+  0x0084860f: MOV ECX,dword ptr [EBP + 0xfffffc40]
+  0x00848615: MOV EDX,dword ptr [EAX + 0x70]
+  0x00848618: CALL EDX
+  0x0084861a: PUSH 0x1
+  0x0084861c: MOV EAX,dword ptr [EBP + 0xfffffc20]
+  0x00848622: PUSH EAX
+  0x00848623: MOV ECX,dword ptr [EBP + 0xfffffc34]
+  0x00848629: PUSH ECX
+  0x0084862a: MOV EDX,dword ptr [EBP + 0xfffffc28]
+  0x00848630: PUSH EDX
+  0x00848631: LEA EAX,[EBP + 0xfffffc14]
+  0x00848637: PUSH EAX
+  0x00848638: CALL 0x00841120
+  0x0084863d: ADD ESP,0x14
+  0x00848640: LEA ECX,[EBP + 0xfffffc14]
+  0x00848646: CALL 0x00559450
+  0x0084864b: TEST EAX,EAX
+  0x0084864d: JZ 0x00848695
+  0x0084864f: PUSH 0x0
+  0x00848651: MOV ECX,dword ptr [EBP + 0xfffffc14]
+  0x00848657: PUSH ECX
+  0x00848658: LEA EDX,[EBP + 0xfffffc40]
+  0x0084865e: PUSH EDX
+  0x0084865f: MOV ECX,dword ptr [EBP + 0xfffffb74]
+  0x00848665: CALL 0x0084a3a0
+  0x0084866a: MOVZX EAX,AL
+  0x0084866d: TEST EAX,EAX
+  0x0084866f: JNZ 0x00848695
+  0x00848671: PUSH 0x0
+  0x00848673: MOV ECX,dword ptr [EBP + 0xfffffc40]
+  0x00848679: PUSH ECX
+  0x0084867a: MOV EDX,dword ptr [EBP + 0xfffffb74]
+  0x00848680: MOV ECX,dword ptr [EDX + 0x20]
+  0x00848683: CALL 0x00843630
+  0x00848688: PUSH 0x1
+  0x0084868a: MOV ECX,dword ptr [EBP + 0xfffffc3c]
+  0x00848690: CALL 0x0042ce50
+  0x00848695: MOV byte ptr [EBP + 0xfffffc3b],0x1
+  0x0084869c: JMP 0x008486a5
+  0x0084869e: MOV byte ptr [EBP + 0xfffffc3b],0x1
+  0x008486a5: MOVZX EAX,byte ptr [EBP + 0xfffffc3b]
+  0x008486ac: TEST EAX,EAX
+  0x008486ae: JZ 0x008486c4
+  0x008486b0: MOV ECX,dword ptr [EBP + 0xfffffc30]
+  0x008486b6: PUSH ECX
+  0x008486b7: MOV EDX,dword ptr [EBP + 0xfffffb74]
+  0x008486bd: MOV ECX,dword ptr [EDX]
+  0x008486bf: CALL 0x00845a20
+  0x008486c4: LEA EAX,[EBP + 0xfffffc3c]
+  0x008486ca: PUSH EAX
+  0x008486cb: MOV ECX,dword ptr [EBP + 0xfffffb74]
+  0x008486d1: ADD ECX,0x24
+  0x008486d4: CALL 0x007cb2e0
+  0x008486d9: JMP 0x008482c8
+  0x008486de: MOV ECX,dword ptr [EBP + 0xfffffdd0]
+  0x008486e4: PUSH ECX
+  0x008486e5: MOV EDX,dword ptr [EBP + 0xfffffc48]
+  0x008486eb: PUSH EDX
+  0x008486ec: MOV ECX,dword ptr [EBP + 0xfffffb74]
+  0x008486f2: CALL 0x00848e70
+  0x008486f7: CALL 0x00b60040
+  0x008486fc: MOV EAX,dword ptr [EBP + 0xfffffdd0]
+  0x00848702: MOV dword ptr [EBP + 0xfffffba4],EAX
+  0x00848708: MOV ECX,dword ptr [EBP + 0xfffffba4]
+  0x0084870e: MOV dword ptr [EBP + 0xfffffba8],ECX
+  0x00848714: CMP dword ptr [EBP + 0xfffffba8],0x0
+  0x0084871b: JZ 0x00848732
+  0x0084871d: PUSH 0x1
+  0x0084871f: MOV ECX,dword ptr [EBP + 0xfffffba8]
+  0x00848725: CALL 0x008473c0
+  0x0084872a: MOV dword ptr [EBP + 0xfffffb50],EAX
+  0x00848730: JMP 0x0084873c
+  0x00848732: MOV dword ptr [EBP + 0xfffffb50],0x0
+  0x0084873c: PUSH 0x0
+  0x0084873e: MOV ECX,dword ptr [0x011c3f2c]
+  0x00848744: CALL 0x00848df0
+  0x00848749: MOV ECX,dword ptr [EBP + 0xfffffb74]
+  0x0084874f: CALL 0x0084a5b0
+  0x00848754: MOV EDX,dword ptr [EBP + -0x10]
+  0x00848757: PUSH EDX
+  0x00848758: MOV ECX,dword ptr [EBP + 0x8]
+  0x0084875b: CALL 0x00846440
+  0x00848760: MOV dword ptr [EBP + 0xfffffc10],0x0
+  0x0084876a: JMP 0x0084877b
+  0x0084876c: MOV EAX,dword ptr [EBP + 0xfffffc10]
+  0x00848772: ADD EAX,0x1
+  0x00848775: MOV dword ptr [EBP + 0xfffffc10],EAX
+  0x0084877b: MOV ECX,dword ptr [EBP + 0xfffffc10]
+  0x00848781: CMP ECX,dword ptr [EBP + 0xfffffd70]
+  0x00848787: JNC 0x00848bc9
+  0x0084878d: MOV EDX,dword ptr [EBP + 0xfffffc10]
+  0x00848793: PUSH EDX
+  0x00848794: MOV ECX,dword ptr [EBP + 0xfffffb74]
+  0x0084879a: ADD ECX,0x24
+  0x0084879d: CALL 0x006a7ad0
+  0x008487a2: MOV EAX,dword ptr [EAX]
+  0x008487a4: MOV dword ptr [EBP + 0xfffffc08],EAX
+  0x008487aa: MOV ECX,dword ptr [EBP + 0xfffffc08]
+  0x008487b0: CALL 0x00848dd0
+  0x008487b5: MOVZX ECX,AL
+  0x008487b8: TEST ECX,ECX
+  0x008487ba: JZ 0x00848864
+  0x008487c0: MOV ECX,dword ptr [EBP + 0xfffffc08]
+  0x008487c6: CALL 0x0044edb0
+  0x008487cb: PUSH EAX
+  0x008487cc: MOV EDX,dword ptr [EBP + 0xfffffb74]
+  0x008487d2: MOV ECX,dword ptr [EDX]
+  0x008487d4: CALL 0x00845a20
+  0x008487d9: MOV EAX,dword ptr [EBP + 0x8]
+  0x008487dc: PUSH EAX
+  0x008487dd: MOV ECX,dword ptr [EBP + 0xfffffc08]
+  0x008487e3: CALL 0x008644b0
+  0x008487e8: PUSH 0x0
+  0x008487ea: MOV ECX,dword ptr [EBP + 0x8]
+  0x008487ed: PUSH ECX
+  0x008487ee: MOV ECX,dword ptr [EBP + 0xfffffc08]
+  0x008487f4: CALL 0x00864580
+  0x008487f9: MOV EDX,dword ptr [EBP + 0xfffffc08]
+  0x008487ff: MOV dword ptr [EBP + 0xfffffb9c],EDX
+  0x00848805: MOV EAX,dword ptr [EBP + 0xfffffb9c]
+  0x0084880b: MOV dword ptr [EBP + 0xfffffba0],EAX
+  0x00848811: CMP dword ptr [EBP + 0xfffffba0],0x0
+  0x00848818: JZ 0x0084882f
+  0x0084881a: PUSH 0x1
+  0x0084881c: MOV ECX,dword ptr [EBP + 0xfffffba0]
+  0x00848822: CALL 0x0081db60
+  0x00848827: MOV dword ptr [EBP + 0xfffffb4c],EAX
+  0x0084882d: JMP 0x00848839
+  0x0084882f: MOV dword ptr [EBP + 0xfffffb4c],0x0
+  0x00848839: MOV dword ptr [EBP + 0xfffffb98],0x0
+  0x00848843: LEA ECX,[EBP + 0xfffffb98]
+  0x00848849: PUSH ECX
+  0x0084884a: MOV EDX,dword ptr [EBP + 0xfffffc10]
+  0x00848850: PUSH EDX
+  0x00848851: MOV ECX,dword ptr [EBP + 0xfffffb74]
+  0x00848857: ADD ECX,0x24
+  0x0084885a: CALL 0x0047a110
+  0x0084885f: JMP 0x0084876c
+  0x00848864: MOV ECX,dword ptr [EBP + 0xfffffc08]
+  0x0084886a: CALL 0x0044edb0
+  0x0084886f: MOV dword ptr [EBP + 0xfffffc04],EAX
+  0x00848875: MOV EAX,dword ptr [EBP + 0xfffffc08]
+  0x0084887b: MOV EDX,dword ptr [EAX]
+  0x0084887d: MOV ECX,dword ptr [EBP + 0xfffffc08]
+  0x00848883: MOV EAX,dword ptr [EDX + 0x4]
+  0x00848886: CALL EAX
+  0x00848888: MOV dword ptr [EBP + 0xfffffc0c],EAX
+  0x0084888e: CMP dword ptr [EBP + 0xfffffc0c],0x0
+  0x00848895: JZ 0x00848b6f
+  0x0084889b: MOV ECX,dword ptr [EBP + 0x8]
+  0x0084889e: PUSH ECX
+  0x0084889f: MOV ECX,dword ptr [EBP + 0xfffffc08]
+  0x008488a5: CALL 0x008644b0
+  0x008488aa: MOV ECX,dword ptr [EBP + 0xfffffc08]
+  0x008488b0: CALL 0x008665b0
+  0x008488b5: MOV dword ptr [EBP + 0xfffffbfc],EAX
+  0x008488bb: MOV byte ptr [EBP + 0xfffffc03],0x0
+  0x008488c2: MOV ECX,dword ptr [EBP + 0xfffffc0c]
+  0x008488c8: CALL 0x00401170
+  0x008488cd: CMP EAX,dword ptr [EBP + 0xfffffbfc]
+  0x008488d3: JZ 0x00848926
+  0x008488d5: MOV ECX,dword ptr [EBP + 0xfffffc0c]
+  0x008488db: CALL 0x00440e30
+  0x008488e0: PUSH EAX
+  0x008488e1: MOVZX EDX,byte ptr [EBP + 0xfffffbfc]
+  0x008488e8: PUSH EDX
+  0x008488e9: CALL 0x004612b0
+  0x008488ee: ADD ESP,0x4
+  0x008488f1: PUSH EAX
+  0x008488f2: MOV EAX,dword ptr [EBP + 0xfffffc04]
+  0x008488f8: PUSH EAX
+  0x008488f9: MOV ECX,dword ptr [EBP + 0xfffffc0c]
+  0x008488ff: MOV EDX,dword ptr [ECX]
+  0x00848901: MOV ECX,dword ptr [EBP + 0xfffffc0c]
+  0x00848907: MOV EAX,dword ptr [EDX + 0x130]
+  0x0084890d: CALL EAX
+  0x0084890f: PUSH EAX
+  0x00848910: PUSH 0x107efd0
+  0x00848915: CALL 0x00845cc0
+  0x0084891a: ADD ESP,0x14
+  0x0084891d: MOV byte ptr [EBP + 0xfffffc03],0x1
+  0x00848924: JMP 0x00848965
+  0x00848926: MOV ECX,dword ptr [EBP + 0xfffffc0c]
+  0x0084892c: MOV EDX,dword ptr [ECX]
+  0x0084892e: MOV ECX,dword ptr [EBP + 0xfffffc0c]
+  0x00848934: MOV EAX,dword ptr [EDX + 0xf0]
+  0x0084893a: CALL EAX
+  0x0084893c: MOVZX ECX,AL
+  0x0084893f: TEST ECX,ECX
+  0x00848941: JZ 0x00848965
+  0x00848943: MOV EDX,dword ptr [EBP + 0xfffffc0c]
+  0x00848949: MOV dword ptr [EBP + 0xfffffbf8],EDX
+  0x0084894f: MOV ECX,dword ptr [EBP + 0xfffffbf8]
+  0x00848955: CALL 0x007af430
+  0x0084895a: TEST EAX,EAX
+  0x0084895c: JNZ 0x00848965
+  0x0084895e: MOV byte ptr [EBP + 0xfffffc03],0x1
+  0x00848965: MOVZX EAX,byte ptr [EBP + 0xfffffc03]
+  0x0084896c: TEST EAX,EAX
+  0x0084896e: JZ 0x00848a09
+  0x00848974: MOV ECX,dword ptr [EBP + 0xfffffc08]
+  0x0084897a: CALL 0x0044edb0
+  0x0084897f: PUSH EAX
+  0x00848980: MOV ECX,dword ptr [EBP + 0xfffffb74]
+
+----------------------------------------------------------------------
+Disassembly: changed-record buffer read bounds (0x00864820 - 0x008648a0)
+----------------------------------------------------------------------
+  0x00864820: PUSH EBP
+  0x00864821: MOV EBP,ESP
+  0x00864823: PUSH ECX
+  0x00864824: MOV dword ptr [EBP + -0x4],ECX
+  0x00864827: MOV EAX,dword ptr [EBP + -0x4]
+  0x0086482a: CMP dword ptr [EAX + 0x8],0x0
+  0x0086482e: JNZ 0x00864832
+  0x00864830: JMP 0x0086488f
+  0x00864832: MOV ECX,dword ptr [EBP + 0xc]
+  0x00864835: PUSH ECX
+  0x00864836: MOV EDX,dword ptr [EBP + -0x4]
+  0x00864839: MOV EAX,dword ptr [EDX + 0x4]
+  0x0086483c: MOV ECX,dword ptr [EBP + -0x4]
+  0x0086483f: ADD EAX,dword ptr [ECX + 0xc]
+  0x00864842: PUSH EAX
+  0x00864843: MOV EDX,dword ptr [EBP + 0x8]
+  0x00864846: PUSH EDX
+  0x00864847: CALL 0x00401460
+  0x0086484c: ADD ESP,0xc
+  0x0086484f: MOV EAX,dword ptr [EBP + -0x4]
+  0x00864852: MOV ECX,dword ptr [EAX + 0xc]
+  0x00864855: ADD ECX,dword ptr [EBP + 0xc]
+  0x00864858: MOV EDX,dword ptr [EBP + -0x4]
+  0x0086485b: MOV dword ptr [EDX + 0xc],ECX
+  0x0086485e: MOV EAX,dword ptr [EBP + -0x4]
+  0x00864861: MOV ECX,dword ptr [EAX + 0x4]
+  0x00864864: MOV EDX,dword ptr [EBP + -0x4]
+  0x00864867: MOV EAX,dword ptr [EDX + 0xc]
+  0x0086486a: MOVSX ECX,byte ptr [ECX + EAX*0x1]
+  0x0086486e: CMP ECX,0x7c
+  0x00864871: JZ 0x00864880
+  0x00864873: PUSH 0x107ee40
+  0x00864878: CALL 0x00845cc0
+  0x0086487d: ADD ESP,0x4
+  0x00864880: MOV EDX,dword ptr [EBP + -0x4]
+  0x00864883: MOV EAX,dword ptr [EDX + 0xc]
+  0x00864886: ADD EAX,0x1
+  0x00864889: MOV ECX,dword ptr [EBP + -0x4]
+  0x0086488c: MOV dword ptr [ECX + 0xc],EAX
+  0x0086488f: MOV ESP,EBP
+  0x00864891: POP EBP
+  0x00864892: RET 0x8
+  0x008648a0: PUSH EBP
+
+----------------------------------------------------------------------
+Disassembly: deflate allocation and return-code handling (0x00483e10 - 0x00483fc0)
+----------------------------------------------------------------------
+  0x00483e12: PUSH -0x1
+  0x00483e14: LEA EDX,[EBP + -0x40]
+  0x00483e17: PUSH EDX
+  0x00483e18: CALL 0x00b46360
+  0x00483e1d: ADD ESP,0x10
+  0x00483e20: MOV dword ptr [EBP + -0x54],EAX
+  0x00483e23: CMP dword ptr [EBP + -0x54],0x0
+  0x00483e27: JZ 0x00483e3b
+  0x00483e29: PUSH 0x101c8f4
+  0x00483e2e: CALL 0x005b5e40
+  0x00483e33: ADD ESP,0x4
+  0x00483e36: JMP 0x00483fba
+  0x00483e3b: MOV EAX,dword ptr [EBP + -0x44]
+  0x00483e3e: SHL EAX,0x1
+  0x00483e40: MOV dword ptr [EBP + -0x8],EAX
+  0x00483e43: MOV ECX,dword ptr [EBP + -0x8]
+  0x00483e46: PUSH ECX
+  0x00483e47: CALL 0x00401000
+  0x00483e4c: ADD ESP,0x4
+  0x00483e4f: MOV dword ptr [EBP + -0x64],EAX
+  0x00483e52: MOV EDX,dword ptr [EBP + -0x64]
+  0x00483e55: MOV dword ptr [EBP + -0x4c],EDX
+  0x00483e58: MOV EAX,dword ptr [EBP + -0x44]
+  0x00483e5b: MOV dword ptr [EBP + -0x3c],EAX
+  0x00483e5e: MOV ECX,dword ptr [EBP + -0x60]
+  0x00483e61: MOV dword ptr [EBP + -0x40],ECX
+  0x00483e64: MOV EDX,dword ptr [EBP + -0x8]
+  0x00483e67: MOV dword ptr [EBP + -0x30],EDX
+  0x00483e6a: MOV EAX,dword ptr [EBP + -0x4c]
+  0x00483e6d: MOV dword ptr [EBP + -0x34],EAX
+  0x00483e70: PUSH 0x4
+  0x00483e72: LEA ECX,[EBP + -0x40]
+  0x00483e75: PUSH ECX
+  0x00483e76: CALL 0x00b46b70
+  0x00483e7b: ADD ESP,0x8
+  0x00483e7e: MOV dword ptr [EBP + -0x54],EAX
+  0x00483e81: CMP dword ptr [EBP + -0x54],-0x2
+  0x00483e85: JNZ 0x00483eab
+  0x00483e87: PUSH 0x101c8cc
+  0x00483e8c: CALL 0x005b5e40
+  0x00483e91: ADD ESP,0x4
+  0x00483e94: MOV EDX,dword ptr [EBP + -0x4c]
+  0x00483e97: MOV dword ptr [EBP + -0x68],EDX
+  0x00483e9a: MOV EAX,dword ptr [EBP + -0x68]
+  0x00483e9d: PUSH EAX
+  0x00483e9e: CALL 0x00401030
+  0x00483ea3: ADD ESP,0x4
+  0x00483ea6: JMP 0x00483fba
+  0x00483eab: MOV ECX,dword ptr [EBP + -0x8]
+  0x00483eae: SUB ECX,dword ptr [EBP + -0x30]
+  0x00483eb1: MOV dword ptr [EBP + -0x4],ECX
+  0x00483eb4: MOV EDX,dword ptr [EBP + -0x4]
+  0x00483eb7: ADD EDX,0x1c
+  0x00483eba: MOV dword ptr [EBP + -0x50],EDX
+  0x00483ebd: MOV EAX,dword ptr [EBP + -0x50]
+  0x00483ec0: PUSH EAX
+  0x00483ec1: CALL 0x00401000
+  0x00483ec6: ADD ESP,0x4
+  0x00483ec9: MOV dword ptr [EBP + -0x6c],EAX
+  0x00483ecc: MOV ECX,dword ptr [EBP + -0x6c]
+  0x00483ecf: MOV dword ptr [EBP + -0x5c],ECX
+  0x00483ed2: MOV EDX,dword ptr [EBP + -0x5c]
+  0x00483ed5: MOV dword ptr [EBP + -0x60],EDX
+  0x00483ed8: MOV EAX,dword ptr [EBP + -0x58]
+  0x00483edb: MOV ECX,dword ptr [EAX + 0x8]
+  0x00483ede: OR ECX,0x40000
+  0x00483ee4: MOV EDX,dword ptr [EBP + -0x58]
+  0x00483ee7: MOV dword ptr [EDX + 0x8],ECX
+  0x00483eea: MOV EAX,dword ptr [EBP + -0x50]
+  0x00483eed: SUB EAX,0x18
+  0x00483ef0: MOV ECX,dword ptr [EBP + -0x58]
+  0x00483ef3: MOV dword ptr [ECX + 0x4],EAX
+  0x00483ef6: CALL 0x00401500
+  0x00483efb: MOVZX EDX,AL
+  0x00483efe: TEST EDX,EDX
+  0x00483f00: JZ 0x00483f0a
+  0x00483f02: MOV ECX,dword ptr [EBP + -0x58]
+  0x00483f05: CALL 0x00470650
+  0x00483f0a: PUSH 0x18
+  0x00483f0c: MOV EAX,dword ptr [EBP + -0x58]
+  0x00483f0f: PUSH EAX
+  0x00483f10: MOV ECX,dword ptr [EBP + -0x60]
+  0x00483f13: PUSH ECX
+  0x00483f14: CALL 0x00401460
+  0x00483f19: ADD ESP,0xc
+  0x00483f1c: MOV EDX,dword ptr [EBP + -0x60]
+  0x00483f1f: ADD EDX,0x18
+  0x00483f22: MOV dword ptr [EBP + -0x60],EDX
+  0x00483f25: MOV EAX,dword ptr [EBP + -0x44]
+  0x00483f28: MOV dword ptr [EBP + -0x48],EAX
+  0x00483f2b: CALL 0x00401500
+  0x00483f30: MOVZX ECX,AL
+  0x00483f33: TEST ECX,ECX
+  0x00483f35: JZ 0x00483f4d
+  0x00483f37: XOR EDX,EDX
+  0x00483f39: MOV byte ptr [EBP + -0x6d],DL
+  0x00483f3c: MOVZX EAX,byte ptr [EBP + -0x6d]
+  0x00483f40: PUSH EAX
+  0x00483f41: LEA ECX,[EBP + -0x48]
+  0x00483f44: PUSH ECX
+  0x00483f45: CALL 0x00401080
+  0x00483f4a: ADD ESP,0x8
+  0x00483f4d: PUSH 0x4
+  0x00483f4f: LEA EDX,[EBP + -0x48]
+  0x00483f52: PUSH EDX
+  0x00483f53: MOV EAX,dword ptr [EBP + -0x60]
+  0x00483f56: PUSH EAX
+  0x00483f57: CALL 0x00401460
+  0x00483f5c: ADD ESP,0xc
+  0x00483f5f: MOV ECX,dword ptr [EBP + -0x60]
+  0x00483f62: ADD ECX,0x4
+  0x00483f65: MOV dword ptr [EBP + -0x60],ECX
+  0x00483f68: MOV EDX,dword ptr [EBP + -0x4]
+  0x00483f6b: PUSH EDX
+  0x00483f6c: MOV EAX,dword ptr [EBP + -0x4c]
+  0x00483f6f: PUSH EAX
+  0x00483f70: MOV ECX,dword ptr [EBP + -0x60]
+  0x00483f73: PUSH ECX
+  0x00483f74: CALL 0x00401460
+  0x00483f79: ADD ESP,0xc
+  0x00483f7c: MOV EDX,dword ptr [0x011c54cc]
+  0x00483f82: PUSH EDX
+  0x00483f83: CALL 0x00401030
+  0x00483f88: ADD ESP,0x4
+  0x00483f8b: MOV EAX,dword ptr [EBP + -0x5c]
+  0x00483f8e: MOV [0x011c54cc],EAX
+  0x00483f93: MOV ECX,dword ptr [EBP + -0x50]
+  0x00483f96: MOV dword ptr [0x011c54d0],ECX
+  0x00483f9c: LEA EDX,[EBP + -0x40]
+  0x00483f9f: PUSH EDX
+  0x00483fa0: CALL 0x00b47370
+  0x00483fa5: ADD ESP,0x4
+  0x00483fa8: MOV EAX,dword ptr [EBP + -0x4c]
+  0x00483fab: MOV dword ptr [EBP + -0x74],EAX
+  0x00483fae: MOV ECX,dword ptr [EBP + -0x74]
+  0x00483fb1: PUSH ECX
+  0x00483fb2: CALL 0x00401030
+  0x00483fb7: ADD ESP,0x4
+  0x00483fba: MOV ESP,EBP
+  0x00483fbc: POP EBP
+  0x00483fbd: RET
+  0x00483fc0: PUSH EBP

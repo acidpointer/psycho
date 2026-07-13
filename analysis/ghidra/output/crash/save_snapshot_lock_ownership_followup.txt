@@ -1,0 +1,1994 @@
+======================================================================
+SAVE SNAPSHOT LOCK OWNERSHIP FOLLOW-UP
+======================================================================
+Questions: whether workers are quiesced before traversal, whether the change map is locked, and which subsystems honor the saving flag.
+
+======================================================================
+pre-save phase transition @ 0x00850ba0
+======================================================================
+  Function: FUN_00850ba0 @ 0x00850ba0, Size: 67 bytes
+
+void __fastcall FUN_00850ba0(undefined4 param_1)
+
+{
+  char cVar1;
+  
+  FID_conflict__Immortalize<std::_Generic_error_category>(param_1);
+  FUN_006ebc70();
+  FUN_00c3e310();
+  while( true ) {
+    FID_conflict__Immortalize<std::_Generic_error_category>(param_1);
+    cVar1 = FUN_006ebc90();
+    if (cVar1 != '\0') break;
+    FID_conflict__Immortalize<std::_Generic_error_category>();
+    FUN_006ebc50();
+  }
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00850ba0 (pre-save phase transition)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0085050d (in FUN_008503b0)
+  Total: 1 refs
+
+--- Calls FROM pre-save phase transition (0x00850ba0) ---
+  0x00850ba7 -> 0x0047d0b0 FID_conflict:_Immortalize<std::_Generic_error_category>
+  0x00850bae -> 0x006ebc70 FUN_006ebc70
+  0x00850bb9 -> 0x00c3e310 FUN_00c3e310
+  0x00850bbe -> 0x0047d0b0 FID_conflict:_Immortalize<std::_Generic_error_category>
+  0x00850bc5 -> 0x006ebc90 FUN_006ebc90
+  0x00850bd1 -> 0x0047d0b0 FID_conflict:_Immortalize<std::_Generic_error_category>
+  0x00850bd8 -> 0x006ebc50 FUN_006ebc50
+  Total: 7 calls
+
+----------------------------------------------------------------------
+Synchronization instructions in pre-save phase transition
+----------------------------------------------------------------------
+  Total synchronization-looking instructions: 0
+
+======================================================================
+post-save phase transition @ 0x00850bf0
+======================================================================
+  Function: FUN_00850bf0 @ 0x00850bf0, Size: 34 bytes
+
+void __fastcall FUN_00850bf0(undefined4 param_1)
+
+{
+  FUN_00c3e340(param_1);
+  FID_conflict__Immortalize<std::_Generic_error_category>();
+  FUN_006ebcd0();
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00850bf0 (post-save phase transition)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00850559 (in FUN_008503b0)
+  UNCONDITIONAL_CALL @ 0x0085060d (in FUN_008503b0)
+  UNCONDITIONAL_CALL @ 0x0085061f (in FUN_008503b0)
+  Total: 3 refs
+
+--- Calls FROM post-save phase transition (0x00850bf0) ---
+  0x00850bfd -> 0x00c3e340 FUN_00c3e340
+  0x00850c02 -> 0x0047d0b0 FID_conflict:_Immortalize<std::_Generic_error_category>
+  0x00850c09 -> 0x006ebcd0 FUN_006ebcd0
+  Total: 3 calls
+
+----------------------------------------------------------------------
+Synchronization instructions in post-save phase transition
+----------------------------------------------------------------------
+  Total synchronization-looking instructions: 0
+
+======================================================================
+post-save task call A @ 0x00c3e340
+======================================================================
+  Function: FUN_00c3e340 @ 0x00c3e340, Size: 49 bytes
+
+void __fastcall FUN_00c3e340(int param_1)
+
+{
+  char cVar1;
+  
+  cVar1 = FUN_00c3e7d0();
+  if ((cVar1 != '\0') && (*(int *)(param_1 + 0x80) != 0)) {
+    (**(code **)(param_1 + 0x80))();
+  }
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00c3e340 (post-save task call A)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x004485d8 (in FUN_00448420)
+  UNCONDITIONAL_CALL @ 0x00849354 (in FUN_008492b0)
+  UNCONDITIONAL_CALL @ 0x00850bfd (in FUN_00850bf0)
+  UNCONDITIONAL_CALL @ 0x008571e0 (in FUN_00856ca0)
+  UNCONDITIONAL_CALL @ 0x00861325 (in FUN_00861130)
+  UNCONDITIONAL_CALL @ 0x00878249 (in FUN_00878200)
+  UNCONDITIONAL_CALL @ 0x00c3e2ec (in FUN_00c3e1b0)
+  UNCONDITIONAL_CALL @ 0x005d16df (in FUN_005d15d0)
+  UNCONDITIONAL_CALL @ 0x00869f9b (in FUN_00869f30)
+  Total: 9 refs
+
+--- Calls FROM post-save task call A (0x00c3e340) ---
+  0x00c3e34a -> 0x00c3e7d0 FUN_00c3e7d0
+  Total: 1 calls
+
+----------------------------------------------------------------------
+Synchronization instructions in post-save task call A
+----------------------------------------------------------------------
+  Total synchronization-looking instructions: 0
+
+======================================================================
+post-save task call B @ 0x0047d0b0
+======================================================================
+  Function: FID_conflict:_Immortalize<std::_Generic_error_category> @ 0x0047d0b0, Size: 116 bytes
+
+/* Library Function - Multiple Matches With Different Base Names
+    class std::_Generic_error_category & __cdecl std::_Immortalize<class
+   std::_Generic_error_category>(void)
+    class std::_Iostream_error_category & __cdecl std::_Immortalize<class
+   std::_Iostream_error_category>(void)
+    class std::_System_error_category & __cdecl std::_Immortalize<class
+   std::_System_error_category>(void)
+    struct _AFX_AYGSHELL_STATE & __cdecl _AfxAygshellState(void)
+   
+   Libraries: Visual Studio 2005 Debug, Visual Studio 2008 Debug, Visual Studio 2015 Debug, Visual
+   Studio 2015 Release */
+
+undefined * FID_conflict__Immortalize<std::_Generic_error_category>(void)
+
+{
+  uint uVar1;
+  int *unaff_FS_OFFSET;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  puStack_c = &LAB_00eeee3e;
+  local_10 = *unaff_FS_OFFSET;
+  uVar1 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  if ((DAT_011c5298 & 1) == 0) {
+    DAT_011c5298 = DAT_011c5298 | 1;
+    local_8 = 0;
+    FUN_006eb820(uVar1);
+    _atexit(FUN_00fc8480);
+  }
+  *unaff_FS_OFFSET = local_10;
+  return &DAT_011c5290;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x0047d0b0 (post-save task call B)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0086b137 (in FUN_0086a850)
+  UNCONDITIONAL_CALL @ 0x0086b847 (in FUN_0086a850)
+  UNCONDITIONAL_CALL @ 0x0047cf8c (in FUN_0047ce10)
+  UNCONDITIONAL_CALL @ 0x0047cfac (in FUN_0047ce10)
+  UNCONDITIONAL_CALL @ 0x0086ecdb (in FUN_0086e650)
+  UNCONDITIONAL_CALL @ 0x006c381b (in FUN_006c3640)
+  UNCONDITIONAL_CALL @ 0x006c3839 (in FUN_006c3640)
+  UNCONDITIONAL_CALL @ 0x006c388f (in FUN_006c3640)
+  UNCONDITIONAL_CALL @ 0x006c3a16 (in FUN_006c39c0)
+  UNCONDITIONAL_CALL @ 0x006c3a22 (in FUN_006c39c0)
+  UNCONDITIONAL_CALL @ 0x006c3a35 (in FUN_006c39c0)
+  UNCONDITIONAL_CALL @ 0x006c3b86 (in FUN_006c39c0)
+  UNCONDITIONAL_CALL @ 0x006cb130 (in FUN_006cb050)
+  UNCONDITIONAL_CALL @ 0x006cb543 (in FUN_006cb4c0)
+  UNCONDITIONAL_CALL @ 0x0069f085 (in FUN_0069f010)
+  UNCONDITIONAL_CALL @ 0x0069f850 (in FUN_0069f010)
+  UNCONDITIONAL_CALL @ 0x00850ba7 (in FUN_00850ba0)
+  UNCONDITIONAL_CALL @ 0x00850bbe (in FUN_00850ba0)
+  UNCONDITIONAL_CALL @ 0x00850bd1 (in FUN_00850ba0)
+  UNCONDITIONAL_CALL @ 0x00850c02 (in FUN_00850bf0)
+  UNCONDITIONAL_CALL @ 0x00850d1c (in FUN_00850c20)
+  UNCONDITIONAL_CALL @ 0x00850d2f (in FUN_00850c20)
+  UNCONDITIONAL_CALL @ 0x00850d49 (in FUN_00850c20)
+  UNCONDITIONAL_CALL @ 0x00850e8a (in FUN_00850d60)
+  UNCONDITIONAL_CALL @ 0x006ea008 (in FUN_006e9fc0)
+  UNCONDITIONAL_CALL @ 0x006ea01b (in FUN_006e9fc0)
+  UNCONDITIONAL_CALL @ 0x006ea15d (in FUN_006e9fc0)
+  UNCONDITIONAL_CALL @ 0x006ea1e9 (in FUN_006e9fc0)
+  UNCONDITIONAL_CALL @ 0x006ea208 (in FUN_006e9fc0)
+  UNCONDITIONAL_CALL @ 0x006ea220 (in FUN_006e9fc0)
+  UNCONDITIONAL_CALL @ 0x006ea2c7 (in FUN_006e9fc0)
+  UNCONDITIONAL_CALL @ 0x006ea2f0 (in FUN_006e9fc0)
+  UNCONDITIONAL_CALL @ 0x008b31a5 (in FUN_008b3180)
+  UNCONDITIONAL_CALL @ 0x009a164c (in FUN_009a1400)
+  UNCONDITIONAL_CALL @ 0x009a1760 (in FUN_009a1400)
+  UNCONDITIONAL_CALL @ 0x0089fc0b (in FUN_0089fb80)
+  UNCONDITIONAL_CALL @ 0x009db890 (in FUN_009db090)
+  UNCONDITIONAL_CALL @ 0x008df71c (in FUN_008df1e0)
+  UNCONDITIONAL_CALL @ 0x008df893 (in FUN_008df1e0)
+  UNCONDITIONAL_CALL @ 0x009dfb37 (in FUN_009dfa00)
+  Total: 40 refs
+
+--- Calls FROM post-save task call B (0x0047d0b0) ---
+  0x0047d0f7 -> 0x006eb820 FUN_006eb820
+  0x0047d101 -> 0x00ec658f _atexit
+  Total: 2 calls
+
+----------------------------------------------------------------------
+Synchronization instructions in post-save task call B
+----------------------------------------------------------------------
+  Total synchronization-looking instructions: 0
+
+======================================================================
+post-save task call C @ 0x006ebcd0
+======================================================================
+  Function: FUN_006ebcd0 @ 0x006ebcd0, Size: 21 bytes
+
+void __fastcall FUN_006ebcd0(undefined4 param_1)
+
+{
+  FUN_006eb3b0(param_1);
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x006ebcd0 (post-save task call C)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x006c3896 (in FUN_006c3640)
+  UNCONDITIONAL_CALL @ 0x006c3b8d (in FUN_006c39c0)
+  UNCONDITIONAL_CALL @ 0x00850c09 (in FUN_00850bf0)
+  UNCONDITIONAL_CALL @ 0x00850e91 (in FUN_00850d60)
+  Total: 4 refs
+
+--- Calls FROM post-save task call C (0x006ebcd0) ---
+  0x006ebcdc -> 0x006eb3b0 FUN_006eb3b0
+  Total: 1 calls
+
+----------------------------------------------------------------------
+Synchronization instructions in post-save task call C
+----------------------------------------------------------------------
+  Total synchronization-looking instructions: 0
+
+======================================================================
+CleanupExpiredData save-scope state toggle @ 0x004623f0
+======================================================================
+  Function: FUN_004623f0 @ 0x004623f0, Size: 131 bytes
+
+undefined4 __thiscall FUN_004623f0(undefined4 param_1,char param_2)
+
+{
+  undefined1 uVar1;
+  uint uVar2;
+  int unaff_FS_OFFSET;
+  
+  uVar1 = FUN_00462480(param_1);
+  if (param_2 == '\0') {
+    uVar2 = *(uint *)(unaff_FS_OFFSET + 0x2c);
+    *(uint *)(*(int *)(uVar2 + _tls_index * 4) + 0x294) =
+         *(uint *)(*(int *)(*(int *)(unaff_FS_OFFSET + 0x2c) + _tls_index * 4) + 0x294) | 1;
+  }
+  else {
+    uVar2 = *(uint *)(*(int *)(*(int *)(unaff_FS_OFFSET + 0x2c) + _tls_index * 4) + 0x294) &
+            0xfffffffe;
+    *(uint *)(*(int *)(*(int *)(unaff_FS_OFFSET + 0x2c) + _tls_index * 4) + 0x294) = uVar2;
+  }
+  return CONCAT31((int3)(uVar2 >> 8),uVar1);
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x004623f0 (CleanupExpiredData save-scope state toggle)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x004622db (in FUN_00462290)
+  UNCONDITIONAL_CALL @ 0x004623d0 (in FUN_00462290)
+  UNCONDITIONAL_CALL @ 0x00550900 (in FUN_005508b0)
+  UNCONDITIONAL_CALL @ 0x00550ae8 (in FUN_005508b0)
+  UNCONDITIONAL_CALL @ 0x00546629 (in FUN_00545cf0)
+  UNCONDITIONAL_CALL @ 0x0054666d (in FUN_00545cf0)
+  UNCONDITIONAL_CALL @ 0x005506c3 (in FUN_00550500)
+  UNCONDITIONAL_CALL @ 0x0055085d (in FUN_00550500)
+  UNCONDITIONAL_CALL @ 0x005f9e1d (in FUN_005f9e00)
+  UNCONDITIONAL_CALL @ 0x005fa075 (in FUN_005f9e00)
+  UNCONDITIONAL_CALL @ 0x006047de (in FUN_006047c0)
+  UNCONDITIONAL_CALL @ 0x00604b70 (in FUN_006047c0)
+  UNCONDITIONAL_CALL @ 0x00849692 (in FUN_008495d0)
+  UNCONDITIONAL_CALL @ 0x0084971d (in FUN_008495d0)
+  UNCONDITIONAL_CALL @ 0x0047d13e (in FUN_0047d130)
+  UNCONDITIONAL_CALL @ 0x0047d18e (in FUN_0047d130)
+  UNCONDITIONAL_CALL @ 0x0084ab57 (in FUN_0084ab20)
+  UNCONDITIONAL_CALL @ 0x0084b42b (in FUN_0084ab20)
+  UNCONDITIONAL_CALL @ 0x00476060 (in FUN_00475b20)
+  UNCONDITIONAL_CALL @ 0x00476099 (in FUN_00475b20)
+  UNCONDITIONAL_CALL @ 0x00477dd3 (in FUN_00477d10)
+  UNCONDITIONAL_CALL @ 0x00477dfa (in FUN_00477d10)
+  UNCONDITIONAL_CALL @ 0x00542fcd (in FUN_00542d40)
+  UNCONDITIONAL_CALL @ 0x00543188 (in FUN_00542d40)
+  UNCONDITIONAL_CALL @ 0x0055dd4b (in FUN_0055d760)
+  UNCONDITIONAL_CALL @ 0x0055de5a (in FUN_0055d760)
+  UNCONDITIONAL_CALL @ 0x0057784d (in FUN_00577450)
+  UNCONDITIONAL_CALL @ 0x00577871 (in FUN_00577450)
+  UNCONDITIONAL_CALL @ 0x005779c3 (in FUN_00577450)
+  UNCONDITIONAL_CALL @ 0x005779e8 (in FUN_00577450)
+  UNCONDITIONAL_CALL @ 0x00577ade (in FUN_00577450)
+  UNCONDITIONAL_CALL @ 0x00577b1e (in FUN_00577450)
+  Total: 32 refs
+
+--- Calls FROM CleanupExpiredData save-scope state toggle (0x004623f0) ---
+  0x004623fc -> 0x00462480 FUN_00462480
+  Total: 1 calls
+
+----------------------------------------------------------------------
+Synchronization instructions in CleanupExpiredData save-scope state toggle
+----------------------------------------------------------------------
+  Total synchronization-looking instructions: 0
+
+======================================================================
+CleanupExpiredData final queue or lock action @ 0x00438af0
+======================================================================
+  Function: FUN_00438af0 @ 0x00438af0, Size: 146 bytes
+
+void __fastcall FUN_00438af0(int *param_1)
+
+{
+  undefined4 uVar1;
+  uint local_8;
+  
+  for (local_8 = 0; local_8 < (uint)param_1[1]; local_8 = local_8 + 1) {
+    while (*(int *)(param_1[2] + local_8 * 4) != 0) {
+      uVar1 = *(undefined4 *)(param_1[2] + local_8 * 4);
+      *(undefined4 *)(param_1[2] + local_8 * 4) = **(undefined4 **)(param_1[2] + local_8 * 4);
+      (**(code **)(*param_1 + 0x10))(uVar1);
+      (**(code **)(*param_1 + 0x18))(uVar1);
+    }
+  }
+  param_1[3] = 0;
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00438af0 (CleanupExpiredData final queue or lock action)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00526ba9 (in FID_conflict:~CSplitButton)
+  UNCONDITIONAL_CALL @ 0x00527879 (in FID_conflict:~CListBox)
+  UNCONDITIONAL_CALL @ 0x005278b3 (in FUN_005278a0)
+  UNCONDITIONAL_CALL @ 0x00537031 (in FUN_00536d80)
+  UNCONDITIONAL_CALL @ 0x00558f59 (in FID_conflict:~ctype<char>)
+  UNCONDITIONAL_CALL @ 0x00558f93 (in FUN_00558f80)
+  UNCONDITIONAL_CALL @ 0x00559059 (in FID_conflict:~ctype<char>)
+  UNCONDITIONAL_CALL @ 0x00559093 (in FUN_00559080)
+  UNCONDITIONAL_CALL @ 0x00559209 (in FID_conflict:~ctype<char>)
+  UNCONDITIONAL_CALL @ 0x00559243 (in FUN_00559230)
+  UNCONDITIONAL_CALL @ 0x004d4ee9 (in FID_conflict:~ctype<char>)
+  UNCONDITIONAL_CALL @ 0x004d4f23 (in FUN_004d4f10)
+  UNCONDITIONAL_CALL @ 0x0042feb9 (in FID_conflict:~ctype<char>)
+  UNCONDITIONAL_CALL @ 0x0042fef3 (in FUN_0042fee0)
+  UNCONDITIONAL_CALL @ 0x0061f92d (in FUN_0061f8e0)
+  UNCONDITIONAL_CALL @ 0x00664e30 (in FUN_00664cd0)
+  UNCONDITIONAL_CALL @ 0x00664eec (in FUN_00664cd0)
+  UNCONDITIONAL_CALL @ 0x006a6489 (in FID_conflict:~ctype<char>)
+  UNCONDITIONAL_CALL @ 0x006a64c3 (in FUN_006a64b0)
+  UNCONDITIONAL_CALL @ 0x006a6589 (in FID_conflict:~ctype<char>)
+  UNCONDITIONAL_CALL @ 0x006a65c3 (in FUN_006a65b0)
+  UNCONDITIONAL_CALL @ 0x006c0b6f (in FUN_006c09f0)
+  UNCONDITIONAL_CALL @ 0x006c0b7d (in FUN_006c09f0)
+  UNCONDITIONAL_CALL @ 0x006c0b8b (in FUN_006c09f0)
+  UNCONDITIONAL_CALL @ 0x006c0b99 (in FUN_006c09f0)
+  UNCONDITIONAL_CALL @ 0x006f9979 (in FID_conflict:~ctype<char>)
+  UNCONDITIONAL_CALL @ 0x006f9bb9 (in FID_conflict:~ctype<char>)
+  UNCONDITIONAL_CALL @ 0x00483b95 (in FUN_00483b80)
+  UNCONDITIONAL_CALL @ 0x00483be1 (in FUN_00483b80)
+  UNCONDITIONAL_CALL @ 0x0084951d (in FUN_008492b0)
+  UNCONDITIONAL_CALL @ 0x0084360d (in FUN_008435a0)
+  UNCONDITIONAL_CALL @ 0x00844e59 (in FID_conflict:~ctype<char>)
+  UNCONDITIONAL_CALL @ 0x00844e93 (in FUN_00844e80)
+  UNCONDITIONAL_CALL @ 0x00865505 (in FUN_00865390)
+  UNCONDITIONAL_CALL @ 0x0048b499 (in FID_conflict:~ctype<char>)
+  UNCONDITIONAL_CALL @ 0x0086bdd8 (in FUN_0086bdd0)
+  UNCONDITIONAL_CALL @ 0x0045dac2 (in FUN_0045d970)
+  UNCONDITIONAL_CALL @ 0x00473a97 (in FUN_00473a10)
+  UNCONDITIONAL_CALL @ 0x00473dec (in FUN_00473d90)
+  UNCONDITIONAL_CALL @ 0x004eda09 (in FID_conflict:~ctype<char>)
+  UNCONDITIONAL_CALL @ 0x004eda43 (in FUN_004eda30)
+  UNCONDITIONAL_CALL @ 0x004edb09 (in FID_conflict:~ctype<char>)
+  UNCONDITIONAL_CALL @ 0x004edb43 (in FUN_004edb30)
+  UNCONDITIONAL_CALL @ 0x004edc09 (in FID_conflict:~ctype<char>)
+  UNCONDITIONAL_CALL @ 0x004edc43 (in FUN_004edc30)
+  UNCONDITIONAL_CALL @ 0x005fff86 (in FUN_005ffd20)
+  UNCONDITIONAL_CALL @ 0x00600e89 (in FID_conflict:~ctype<char>)
+  UNCONDITIONAL_CALL @ 0x00600ec3 (in FUN_00600eb0)
+  UNCONDITIONAL_CALL @ 0x00846c10 (in FUN_00846be0)
+  UNCONDITIONAL_CALL @ 0x00846c1b (in FUN_00846be0)
+  UNCONDITIONAL_CALL @ 0x006e2189 (in FID_conflict:~ctype<char>)
+  UNCONDITIONAL_CALL @ 0x006e21c3 (in FUN_006e21b0)
+  UNCONDITIONAL_CALL @ 0x0084b6f9 (in FID_conflict:~ctype<char>)
+  UNCONDITIONAL_CALL @ 0x0084b733 (in FUN_0084b720)
+  UNCONDITIONAL_CALL @ 0x0085293d (in FUN_008528d0)
+  UNCONDITIONAL_CALL @ 0x00852b6c (in FUN_00852b60)
+  UNCONDITIONAL_CALL @ 0x00852be9 (in FUN_00852b60)
+  UNCONDITIONAL_CALL @ 0x008531e9 (in FID_conflict:~CListBox)
+  UNCONDITIONAL_CALL @ 0x00853223 (in FUN_00853210)
+  UNCONDITIONAL_CALL @ 0x00853319 (in FID_conflict:~ctype<char>)
+  UNCONDITIONAL_CALL @ 0x00853353 (in FUN_00853340)
+  UNCONDITIONAL_CALL @ 0x00853419 (in FID_conflict:~ctype<char>)
+  UNCONDITIONAL_CALL @ 0x00853453 (in FUN_00853440)
+  UNCONDITIONAL_CALL @ 0x008652ba (in FUN_00865220)
+  UNCONDITIONAL_CALL @ 0x0048fda5 (in FUN_0048fb50)
+  UNCONDITIONAL_CALL @ 0x004a8ee7 (in FUN_004a8bb0)
+  UNCONDITIONAL_CALL @ 0x004a7ec1 (in FUN_004a7d20)
+  UNCONDITIONAL_CALL @ 0x004a7ff4 (in FUN_004a7d20)
+  UNCONDITIONAL_CALL @ 0x004a823c (in FUN_004a8230)
+  UNCONDITIONAL_CALL @ 0x004a8246 (in FUN_004a8230)
+  UNCONDITIONAL_CALL @ 0x004a82b2 (in FUN_004a8230)
+  UNCONDITIONAL_CALL @ 0x004a99a9 (in FID_conflict:~ctype<char>)
+  UNCONDITIONAL_CALL @ 0x004a99e3 (in FUN_004a99d0)
+  UNCONDITIONAL_CALL @ 0x004a9889 (in FID_conflict:~ctype<char>)
+  UNCONDITIONAL_CALL @ 0x004a98c3 (in FUN_004a98b0)
+  UNCONDITIONAL_CALL @ 0x004aa642 (in FUN_004aa5d0)
+  UNCONDITIONAL_CALL @ 0x0057acaa (in FUN_0057ab70)
+  UNCONDITIONAL_CALL @ 0x00628de4 (in FUN_00628da0)
+  UNCONDITIONAL_CALL @ 0x00629e89 (in FID_conflict:~ctype<char>)
+  UNCONDITIONAL_CALL @ 0x00629ec3 (in FUN_00629eb0)
+  UNCONDITIONAL_CALL @ 0x006a377d (in FUN_006a36e0)
+  UNCONDITIONAL_CALL @ 0x006c4f61 (in FUN_006c4ec0)
+  UNCONDITIONAL_CALL @ 0x00699b9a (in FUN_00699b60)
+  UNCONDITIONAL_CALL @ 0x0069b709 (in FID_conflict:~ctype<char>)
+  UNCONDITIONAL_CALL @ 0x0069b743 (in FUN_0069b730)
+  UNCONDITIONAL_CALL @ 0x0084b41b (in FUN_0084ab20)
+  UNCONDITIONAL_CALL @ 0x0084b9f9 (in FID_conflict:~ctype<char>)
+  UNCONDITIONAL_CALL @ 0x0084ba33 (in FUN_0084ba20)
+  UNCONDITIONAL_CALL @ 0x00854d89 (in FID_conflict:~ctype<char>)
+  UNCONDITIONAL_CALL @ 0x00854dc3 (in FUN_00854db0)
+  UNCONDITIONAL_CALL @ 0x0086325f (in FUN_008627b0)
+  UNCONDITIONAL_CALL @ 0x00863ed9 (in FID_conflict:~ctype<char>)
+  UNCONDITIONAL_CALL @ 0x00863f13 (in FUN_00863f00)
+  UNCONDITIONAL_CALL @ 0x0054af1d (in FUN_0054ae30)
+  UNCONDITIONAL_CALL @ 0x004e29ad (in FUN_004e21b0)
+  UNCONDITIONAL_CALL @ 0x004e29bb (in FUN_004e21b0)
+  UNCONDITIONAL_CALL @ 0x004e308f (in FUN_004e21b0)
+  UNCONDITIONAL_CALL @ 0x004d64cf (in FUN_004d64c0)
+  UNCONDITIONAL_CALL @ 0x0084a610 (in FUN_0084a5b0)
+  UNCONDITIONAL_CALL @ 0x00846c5a (in FUN_00846c50)
+  UNCONDITIONAL_CALL @ 0x00846c65 (in FUN_00846c50)
+  UNCONDITIONAL_CALL @ 0x00837c7c (in FUN_00837550)
+  UNCONDITIONAL_CALL @ 0x00991424 (in FUN_00991310)
+  UNCONDITIONAL_CALL @ 0x006e045d (in FUN_006e03e0)
+  UNCONDITIONAL_CALL @ 0x009916b9 (in FUN_00991600)
+  UNCONDITIONAL_CALL @ 0x0084d429 (in FID_conflict:~ctype<char>)
+  UNCONDITIONAL_CALL @ 0x0084d463 (in FUN_0084d450)
+  UNCONDITIONAL_CALL @ 0x009936f9 (in FUN_00993600)
+  UNCONDITIONAL_CALL @ 0x004b9d09 (in FID_conflict:~ctype<char>)
+  UNCONDITIONAL_CALL @ 0x004b9d43 (in FUN_004b9d30)
+  UNCONDITIONAL_CALL @ 0x00404c3f (in FID_conflict:~CSmartDockingGroupGuide)
+  UNCONDITIONAL_CALL @ 0x00405349 (in FID_conflict:~ctype<char>)
+  UNCONDITIONAL_CALL @ 0x00405383 (in FUN_00405370)
+  UNCONDITIONAL_CALL @ 0x004388d9 (in FID_conflict:~ctype<char>)
+  UNCONDITIONAL_CALL @ 0x00438759 (in ~CMenu)
+  UNCONDITIONAL_CALL @ 0x00438793 (in FUN_00438780)
+  UNCONDITIONAL_CALL @ 0x00474609 (in FID_conflict:~ctype<char>)
+  UNCONDITIONAL_CALL @ 0x00474643 (in FUN_00474630)
+  UNCONDITIONAL_CALL @ 0x00474709 (in FID_conflict:~ctype<char>)
+  UNCONDITIONAL_CALL @ 0x00474743 (in FUN_00474730)
+  UNCONDITIONAL_CALL @ 0x00479299 (in FID_conflict:~ctype<char>)
+  UNCONDITIONAL_CALL @ 0x004792d3 (in FUN_004792c0)
+  UNCONDITIONAL_CALL @ 0x00486a39 (in FID_conflict:~ctype<char>)
+  UNCONDITIONAL_CALL @ 0x00486a73 (in FUN_00486a60)
+  UNCONDITIONAL_CALL @ 0x00486d99 (in FID_conflict:~ctype<char>)
+  UNCONDITIONAL_CALL @ 0x00486dd3 (in FUN_00486dc0)
+  UNCONDITIONAL_CALL @ 0x0049c549 (in FID_conflict:~ctype<char>)
+  UNCONDITIONAL_CALL @ 0x0049c583 (in FUN_0049c570)
+  UNCONDITIONAL_CALL @ 0x004a9cf9 (in FID_conflict:~ctype<char>)
+  UNCONDITIONAL_CALL @ 0x004a9d33 (in FUN_004a9d20)
+  UNCONDITIONAL_CALL @ 0x004a9f99 (in FID_conflict:~ctype<char>)
+  UNCONDITIONAL_CALL @ 0x004a9fd3 (in FUN_004a9fc0)
+  UNCONDITIONAL_CALL @ 0x004aa129 (in FID_conflict:~ctype<char>)
+  UNCONDITIONAL_CALL @ 0x004aa163 (in FUN_004aa150)
+  UNCONDITIONAL_CALL @ 0x004aa2b9 (in FID_conflict:~ctype<char>)
+  UNCONDITIONAL_CALL @ 0x004aa2f3 (in FUN_004aa2e0)
+  UNCONDITIONAL_CALL @ 0x004affd9 (in FID_conflict:~ctype<char>)
+  UNCONDITIONAL_CALL @ 0x004b0013 (in FUN_004b0000)
+  UNCONDITIONAL_CALL @ 0x004b00d9 (in FID_conflict:~ctype<char>)
+  UNCONDITIONAL_CALL @ 0x004b0113 (in FUN_004b0100)
+  UNCONDITIONAL_CALL @ 0x004d90a9 (in FID_conflict:~ctype<char>)
+  UNCONDITIONAL_CALL @ 0x004d90e3 (in FUN_004d90d0)
+  UNCONDITIONAL_CALL @ 0x00519c29 (in FID_conflict:~ctype<char>)
+  UNCONDITIONAL_CALL @ 0x00519c63 (in FUN_00519c50)
+  UNCONDITIONAL_CALL @ 0x005409e9 (in FID_conflict:~ctype<char>)
+  UNCONDITIONAL_CALL @ 0x00540a23 (in FUN_00540a10)
+  UNCONDITIONAL_CALL @ 0x00559dc9 (in FID_conflict:~ctype<char>)
+  UNCONDITIONAL_CALL @ 0x00559e03 (in FUN_00559df0)
+  UNCONDITIONAL_CALL @ 0x00559fc9 (in FID_conflict:~ctype<char>)
+  UNCONDITIONAL_CALL @ 0x0055a003 (in FUN_00559ff0)
+  UNCONDITIONAL_CALL @ 0x00569dc5 (in FUN_00569cb0)
+  UNCONDITIONAL_CALL @ 0x0057c7b9 (in FID_conflict:~ctype<char>)
+  UNCONDITIONAL_CALL @ 0x0057c909 (in FID_conflict:~ctype<char>)
+  UNCONDITIONAL_CALL @ 0x0057c943 (in FUN_0057c930)
+  UNCONDITIONAL_CALL @ 0x0057ca09 (in FID_conflict:~ctype<char>)
+  UNCONDITIONAL_CALL @ 0x0057ca43 (in FUN_0057ca30)
+  UNCONDITIONAL_CALL @ 0x0058785f (in FUN_005877e0)
+  UNCONDITIONAL_CALL @ 0x00587c3d (in FUN_00587bb0)
+  UNCONDITIONAL_CALL @ 0x00587fd7 (in FUN_00587f40)
+  UNCONDITIONAL_CALL @ 0x00588cf9 (in FUN_00588c80)
+  UNCONDITIONAL_CALL @ 0x00589169 (in FID_conflict:~ctype<char>)
+  ... (truncated)
+  Total: 161 refs
+
+--- Calls FROM CleanupExpiredData final queue or lock action (0x00438af0) ---
+  Total: 0 calls
+
+----------------------------------------------------------------------
+Synchronization instructions in CleanupExpiredData final queue or lock action
+----------------------------------------------------------------------
+  Total synchronization-looking instructions: 0
+
+======================================================================
+CleanupExpiredData setup @ 0x0084b4e0
+======================================================================
+  Function: FUN_0084b4e0 @ 0x0084b4e0, Size: 37 bytes
+
+undefined4 * __thiscall FUN_0084b4e0(undefined4 *param_1,undefined4 param_2)
+
+{
+  FUN_0084b750(param_2);
+  *param_1 = &PTR_FUN_0107f494;
+  return param_1;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x0084b4e0 (CleanupExpiredData setup)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0084ab64 (in FUN_0084ab20)
+  Total: 1 refs
+
+--- Calls FROM CleanupExpiredData setup (0x0084b4e0) ---
+  0x0084b4ee -> 0x0084b750 FUN_0084b750
+  Total: 1 calls
+
+----------------------------------------------------------------------
+Synchronization instructions in CleanupExpiredData setup
+----------------------------------------------------------------------
+  Total synchronization-looking instructions: 0
+
+======================================================================
+SafeRWList constructor used by change map @ 0x00845880
+======================================================================
+  Function: SafeRWList<> @ 0x00845880, Size: 33 bytes
+
+/* Library Function - Multiple Matches With Same Base Name
+    public: __thiscall Concurrency::details::SafeRWList<struct
+   Concurrency::details::BoostedObject,class Concurrency::details::CollectionTypes::NoCount,class
+   Concurrency::details::_ReaderWriterLock>::SafeRWList<struct
+   Concurrency::details::BoostedObject,class Concurrency::details::CollectionTypes::NoCount,class
+   Concurrency::details::_ReaderWriterLock>(void)
+    public: __thiscall Concurrency::details::SafeRWList<struct Concurrency::details::ListEntry,class
+   Concurrency::details::CollectionTypes::NoCount,class
+   Concurrency::details::_ReaderWriterLock>::SafeRWList<struct Concurrency::details::ListEntry,class
+   Concurrency::details::CollectionTypes::NoCount,class
+   Concurrency::details::_ReaderWriterLock>(void)
+    public: __thiscall Concurrency::details::SafeRWList<class
+   Concurrency::details::VirtualProcessor,class Concurrency::details::CollectionTypes::NoCount,class
+   Concurrency::details::_ReaderWriterLock>::SafeRWList<class
+   Concurrency::details::VirtualProcessor,class Concurrency::details::CollectionTypes::NoCount,class
+   Concurrency::details::_ReaderWriterLock>(void)
+    public: __thiscall Concurrency::details::SafeRWList<class
+   Concurrency::details::SchedulerBase::WaitNode,class
+   Concurrency::details::CollectionTypes::NoCount,class
+   Concurrency::details::_ReaderWriterLock>::SafeRWList<class
+   Concurrency::details::SchedulerBase::WaitNode,class
+   Concurrency::details::CollectionTypes::NoCount,class
+   Concurrency::details::_ReaderWriterLock>(void)
+   
+   Libraries: Visual Studio 2010, Visual Studio 2015, Visual Studio 2017, Visual Studio 2019 */
+
+undefined4 __fastcall SafeRWList<>(undefined4 param_1)
+
+{
+  FUN_0044dee0();
+  FUN_0044dee0();
+  return param_1;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00845880 (SafeRWList constructor used by change map)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0084580a (in FUN_008457b0)
+  UNCONDITIONAL_CALL @ 0x0084590a (in FUN_008458b0)
+  UNCONDITIONAL_CALL @ 0x008459ba (in FUN_00845960)
+  Total: 3 refs
+
+--- Calls FROM SafeRWList constructor used by change map (0x00845880) ---
+  0x0084588a -> 0x0044dee0 FUN_0044dee0
+  0x00845895 -> 0x0044dee0 FUN_0044dee0
+  Total: 2 calls
+
+----------------------------------------------------------------------
+Synchronization instructions in SafeRWList constructor used by change map
+----------------------------------------------------------------------
+  Total synchronization-looking instructions: 0
+
+======================================================================
+change-map list insertion @ 0x00844700
+======================================================================
+  Function: FUN_00844700 @ 0x00844700, Size: 212 bytes
+
+void __thiscall FUN_00844700(int *param_1,undefined4 param_2,undefined4 param_3)
+
+{
+  char cVar1;
+  int iVar2;
+  undefined4 *puVar3;
+  undefined4 *local_10;
+  
+  iVar2 = (**(code **)(*param_1 + 4))(param_2);
+  local_10 = *(undefined4 **)(param_1[2] + iVar2 * 4);
+  while( true ) {
+    if (local_10 == (undefined4 *)0x0) {
+      puVar3 = (undefined4 *)(**(code **)(*param_1 + 0x14))();
+      (**(code **)(*param_1 + 0xc))(puVar3,param_2,param_3);
+      *puVar3 = *(undefined4 *)(param_1[2] + iVar2 * 4);
+      *(undefined4 **)(param_1[2] + iVar2 * 4) = puVar3;
+      param_1[3] = param_1[3] + 1;
+      return;
+    }
+    cVar1 = (**(code **)(*param_1 + 8))(param_2,local_10[1]);
+    if (cVar1 != '\0') break;
+    local_10 = (undefined4 *)*local_10;
+  }
+  local_10[2] = param_3;
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00844700 (change-map list insertion)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x004835be (in FUN_00483370)
+  UNCONDITIONAL_CALL @ 0x00485d24 (in FUN_00485c10)
+  UNCONDITIONAL_CALL @ 0x00473c40 (in FUN_00473ae0)
+  UNCONDITIONAL_CALL @ 0x00526c10 (in FUN_00526bd0)
+  UNCONDITIONAL_CALL @ 0x00545322 (in FUN_005452c0)
+  UNCONDITIONAL_CALL @ 0x00545429 (in FUN_005453b0)
+  UNCONDITIONAL_CALL @ 0x005454b6 (in FUN_005453b0)
+  UNCONDITIONAL_CALL @ 0x0054a545 (in FUN_0054a070)
+  UNCONDITIONAL_CALL @ 0x00587e13 (in FUN_00587d10)
+  UNCONDITIONAL_CALL @ 0x00849a62 (in FUN_00849a50)
+  UNCONDITIONAL_CALL @ 0x0084a568 (in FUN_0084a520)
+  UNCONDITIONAL_CALL @ 0x00845839 (in FUN_008457b0)
+  UNCONDITIONAL_CALL @ 0x008529e2 (in FUN_00852950)
+  UNCONDITIONAL_CALL @ 0x00852c98 (in FUN_00852c00)
+  UNCONDITIONAL_CALL @ 0x0084386e (in FUN_00843750)
+  UNCONDITIONAL_CALL @ 0x00841c6b (in FUN_00841b20)
+  UNCONDITIONAL_CALL @ 0x0084187d (in FUN_008417e0)
+  UNCONDITIONAL_CALL @ 0x00841532 (in FUN_00841460)
+  UNCONDITIONAL_CALL @ 0x0084206a (in FUN_00841fc0)
+  UNCONDITIONAL_CALL @ 0x00843997 (in FUN_008438b0)
+  UNCONDITIONAL_CALL @ 0x0084213f (in FUN_008420a0)
+  UNCONDITIONAL_CALL @ 0x00841de4 (in FUN_00841ca0)
+  UNCONDITIONAL_CALL @ 0x00841955 (in FUN_008418b0)
+  UNCONDITIONAL_CALL @ 0x00841627 (in FUN_00841580)
+  UNCONDITIONAL_CALL @ 0x00865350 (in FUN_008652f0)
+  UNCONDITIONAL_CALL @ 0x00846cfa (in FUN_00846c90)
+  UNCONDITIONAL_CALL @ 0x00846d0d (in FUN_00846c90)
+  UNCONDITIONAL_CALL @ 0x00437890 (in FUN_00437850)
+  UNCONDITIONAL_CALL @ 0x0043795a (in FUN_00437850)
+  UNCONDITIONAL_CALL @ 0x00587744 (in FUN_00587670)
+  UNCONDITIONAL_CALL @ 0x0045fe4b (in FUN_0045dfe0)
+  UNCONDITIONAL_CALL @ 0x004a8857 (in FUN_004a82d0)
+  UNCONDITIONAL_CALL @ 0x0053c9f6 (in FUN_0053bc10)
+  UNCONDITIONAL_CALL @ 0x006c5f9c (in FUN_006c5ef0)
+  UNCONDITIONAL_CALL @ 0x00854ac1 (in FUN_008549b0)
+  UNCONDITIONAL_CALL @ 0x008550c1 (in FUN_00855010)
+  UNCONDITIONAL_CALL @ 0x00862aac (in FUN_008627b0)
+  UNCONDITIONAL_CALL @ 0x00862ac8 (in FUN_008627b0)
+  UNCONDITIONAL_CALL @ 0x0082e3dd (in FUN_0082d7c0)
+  UNCONDITIONAL_CALL @ 0x004e8c96 (in FUN_004e8a00)
+  UNCONDITIONAL_CALL @ 0x004ea57b (in FUN_004e9d40)
+  UNCONDITIONAL_CALL @ 0x004ea6ae (in FUN_004e9d40)
+  UNCONDITIONAL_CALL @ 0x004ea7bc (in FUN_004e9d40)
+  UNCONDITIONAL_CALL @ 0x004ec49b (in FUN_004ebef0)
+  UNCONDITIONAL_CALL @ 0x004ec565 (in FUN_004ebef0)
+  UNCONDITIONAL_CALL @ 0x004ec636 (in FUN_004ebef0)
+  UNCONDITIONAL_CALL @ 0x004ec705 (in FUN_004ebef0)
+  UNCONDITIONAL_CALL @ 0x004d68e5 (in FUN_004d66d0)
+  UNCONDITIONAL_CALL @ 0x00843715 (in FUN_00843630)
+  UNCONDITIONAL_CALL @ 0x008425ba (in FUN_00842310)
+  UNCONDITIONAL_CALL @ 0x00845939 (in FUN_008458b0)
+  UNCONDITIONAL_CALL @ 0x008459e9 (in FUN_00845960)
+  UNCONDITIONAL_CALL @ 0x00846ef0 (in FUN_00846e70)
+  UNCONDITIONAL_CALL @ 0x00846f06 (in FUN_00846e70)
+  UNCONDITIONAL_CALL @ 0x0083793c (in FUN_00837550)
+  UNCONDITIONAL_CALL @ 0x006e155a (in FUN_006e1500)
+  UNCONDITIONAL_CALL @ 0x006e06e8 (in FUN_006e05f0)
+  UNCONDITIONAL_CALL @ 0x006e0a32 (in FUN_006e0920)
+  UNCONDITIONAL_CALL @ 0x009a562d (in FUN_009a5530)
+  UNCONDITIONAL_CALL @ 0x006e0dee (in FUN_006e0d20)
+  UNCONDITIONAL_CALL @ 0x009a5b47 (in FUN_009a5a70)
+  UNCONDITIONAL_CALL @ 0x00473fa5 (in FUN_00473f20)
+  UNCONDITIONAL_CALL @ 0x00477d06 (in FUN_00477ce0)
+  UNCONDITIONAL_CALL @ 0x00664b16 (in FUN_006649c0)
+  UNCONDITIONAL_CALL @ 0x0047638b (in FUN_00475b20)
+  UNCONDITIONAL_CALL @ 0x0048686e (in FUN_004867a0)
+  UNCONDITIONAL_CALL @ 0x0085effe (in FUN_0085efc0)
+  UNCONDITIONAL_CALL @ 0x004aa7d2 (in FUN_004aa720)
+  UNCONDITIONAL_CALL @ 0x009a4086 (in FUN_009a3fe0)
+  UNCONDITIONAL_CALL @ 0x00587b78 (in FUN_005878d0)
+  UNCONDITIONAL_CALL @ 0x0057ab47 (in FUN_0057aa90)
+  UNCONDITIONAL_CALL @ 0x00588c34 (in FUN_00588b00)
+  UNCONDITIONAL_CALL @ 0x005851ec (in FUN_00584fa0)
+  UNCONDITIONAL_CALL @ 0x0061f883 (in FUN_0061f870)
+  UNCONDITIONAL_CALL @ 0x0061f98b (in FUN_0061f940)
+  UNCONDITIONAL_CALL @ 0x006b695a (in FUN_006b6940)
+  UNCONDITIONAL_CALL @ 0x006b7a87 (in FUN_006b7980)
+  UNCONDITIONAL_CALL @ 0x006b7aef (in FUN_006b7980)
+  UNCONDITIONAL_CALL @ 0x006b620a (in FUN_006b5d80)
+  UNCONDITIONAL_CALL @ 0x0084aa81 (in FUN_0084aa30)
+  UNCONDITIONAL_CALL @ 0x00983337 (in FUN_00983280)
+  UNCONDITIONAL_CALL @ 0x009834d7 (in FUN_00983420)
+  UNCONDITIONAL_CALL @ 0x00b8a8d3 (in FUN_00b8a8d0)
+  UNCONDITIONAL_CALL @ 0x00b99d9b (in ???)
+  Total: 84 refs
+
+--- Calls FROM change-map list insertion (0x00844700) ---
+  Total: 0 calls
+
+----------------------------------------------------------------------
+Synchronization instructions in change-map list insertion
+----------------------------------------------------------------------
+  Total synchronization-looking instructions: 0
+
+======================================================================
+change-map state mutation @ 0x00841100
+======================================================================
+  Function: FUN_00841100 @ 0x00841100, Size: 26 bytes
+
+void __thiscall FUN_00841100(uint *param_1,uint param_2)
+
+{
+  *param_1 = *param_1 | param_2;
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00841100 (change-map state mutation)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0084585d (in FUN_008457b0)
+  UNCONDITIONAL_CALL @ 0x008483dd (in FUN_00847df0)
+  UNCONDITIONAL_CALL @ 0x0084100a (in FUN_00840f70)
+  UNCONDITIONAL_CALL @ 0x0084102b (in FUN_00840f70)
+  UNCONDITIONAL_CALL @ 0x00841060 (in FUN_00840f70)
+  UNCONDITIONAL_CALL @ 0x00841083 (in FUN_00840f70)
+  Total: 6 refs
+
+--- Calls FROM change-map state mutation (0x00841100) ---
+  Total: 0 calls
+
+----------------------------------------------------------------------
+Synchronization instructions in change-map state mutation
+----------------------------------------------------------------------
+  Total synchronization-looking instructions: 0
+
+======================================================================
+change-map lookup @ 0x009a4250
+======================================================================
+  Function: FUN_009a4250 @ 0x009a4250, Size: 52 bytes
+
+undefined4 FUN_009a4250(undefined4 param_1)
+
+{
+  char cVar1;
+  undefined4 local_8;
+  
+  local_8 = 0;
+  cVar1 = FUN_00853130(param_1,&local_8);
+  if (cVar1 == '\0') {
+    local_8 = 0;
+  }
+  return local_8;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x009a4250 (change-map lookup)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00849801 (in FUN_00849730)
+  UNCONDITIONAL_CALL @ 0x00845a90 (in FUN_00845a80)
+  UNCONDITIONAL_CALL @ 0x00849601 (in FUN_008495d0)
+  UNCONDITIONAL_CALL @ 0x00845a30 (in FUN_00845a20)
+  UNCONDITIONAL_CALL @ 0x008457df (in FUN_008457b0)
+  UNCONDITIONAL_CALL @ 0x00845730 (in FUN_00845720)
+  UNCONDITIONAL_CALL @ 0x0084a7dd (in FUN_0084a7c0)
+  UNCONDITIONAL_CALL @ 0x0084aae0 (in FUN_0084aad0)
+  UNCONDITIONAL_CALL @ 0x00852e5a (in FUN_00852e40)
+  UNCONDITIONAL_CALL @ 0x00845770 (in FUN_00845760)
+  UNCONDITIONAL_CALL @ 0x008456f0 (in FUN_008456e0)
+  UNCONDITIONAL_CALL @ 0x008458df (in FUN_008458b0)
+  UNCONDITIONAL_CALL @ 0x0084598f (in FUN_00845960)
+  UNCONDITIONAL_CALL @ 0x009a9a4c (in FUN_009a9a20)
+  Total: 14 refs
+
+--- Calls FROM change-map lookup (0x009a4250) ---
+  0x009a426b -> 0x00853130 FUN_00853130
+  Total: 1 calls
+
+----------------------------------------------------------------------
+Synchronization instructions in change-map lookup
+----------------------------------------------------------------------
+  Total synchronization-looking instructions: 0
+
+======================================================================
+change-map traversal state accessor @ 0x00559450
+======================================================================
+  Function: FUN_00559450 @ 0x00559450, Size: 16 bytes
+
+undefined4 __fastcall FUN_00559450(undefined4 *param_1)
+
+{
+  return *param_1;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00559450 (change-map traversal state accessor)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0086b368 (in FUN_0086a850)
+  UNCONDITIONAL_CALL @ 0x0086b694 (in FUN_0086a850)
+  UNCONDITIONAL_CALL @ 0x0086b6a2 (in FUN_0086a850)
+  UNCONDITIONAL_CALL @ 0x0086b6c5 (in FUN_0086a850)
+  UNCONDITIONAL_CALL @ 0x0086b6d3 (in FUN_0086a850)
+  UNCONDITIONAL_CALL @ 0x0086b6f6 (in FUN_0086a850)
+  UNCONDITIONAL_CALL @ 0x0086b704 (in FUN_0086a850)
+  UNCONDITIONAL_CALL @ 0x004484ab (in FUN_00448420)
+  UNCONDITIONAL_CALL @ 0x0044852c (in FUN_00448420)
+  UNCONDITIONAL_CALL @ 0x004485a0 (in FUN_00448420)
+  UNCONDITIONAL_CALL @ 0x00458372 (in FUN_00458200)
+  UNCONDITIONAL_CALL @ 0x00408daf (in FUN_00408da0)
+  UNCONDITIONAL_CALL @ 0x00408dbe (in FUN_00408da0)
+  UNCONDITIONAL_CALL @ 0x00456913 (in FUN_004568c0)
+  UNCONDITIONAL_CALL @ 0x004569c4 (in FUN_004568c0)
+  UNCONDITIONAL_CALL @ 0x004569d2 (in FUN_004568c0)
+  UNCONDITIONAL_CALL @ 0x0045c678 (in FUN_0045c670)
+  UNCONDITIONAL_CALL @ 0x004a436e (in FUN_004a4340)
+  UNCONDITIONAL_CALL @ 0x004a4397 (in FUN_004a4340)
+  UNCONDITIONAL_CALL @ 0x004da4ed (in FUN_004da4d0)
+  UNCONDITIONAL_CALL @ 0x004da4fb (in FUN_004da4d0)
+  UNCONDITIONAL_CALL @ 0x004da516 (in FUN_004da4d0)
+  UNCONDITIONAL_CALL @ 0x004da53b (in FUN_004da4d0)
+  UNCONDITIONAL_CALL @ 0x004dc568 (in FUN_004dc560)
+  UNCONDITIONAL_CALL @ 0x004dc598 (in FUN_004dc590)
+  UNCONDITIONAL_CALL @ 0x004dcdc3 (in FUN_004dcdb0)
+  UNCONDITIONAL_CALL @ 0x004dec40 (in FUN_004deb30)
+  UNCONDITIONAL_CALL @ 0x004dec67 (in FUN_004deb30)
+  UNCONDITIONAL_CALL @ 0x004dec82 (in FUN_004deb30)
+  UNCONDITIONAL_CALL @ 0x004decdd (in FUN_004deb30)
+  UNCONDITIONAL_CALL @ 0x004ded04 (in FUN_004deb30)
+  UNCONDITIONAL_CALL @ 0x004def34 (in FUN_004def20)
+  UNCONDITIONAL_CALL @ 0x004e0650 (in FUN_004e0540)
+  UNCONDITIONAL_CALL @ 0x004e0677 (in FUN_004e0540)
+  UNCONDITIONAL_CALL @ 0x004e0692 (in FUN_004e0540)
+  UNCONDITIONAL_CALL @ 0x004e06ed (in FUN_004e0540)
+  UNCONDITIONAL_CALL @ 0x004e0714 (in FUN_004e0540)
+  UNCONDITIONAL_CALL @ 0x004e0814 (in FUN_004e0800)
+  UNCONDITIONAL_CALL @ 0x004e21a0 (in FUN_004e2190)
+  UNCONDITIONAL_CALL @ 0x00528eb5 (in FUN_00528e40)
+  UNCONDITIONAL_CALL @ 0x0052934e (in FUN_00529330)
+  UNCONDITIONAL_CALL @ 0x0044f3ed (in FUN_0044f3e0)
+  UNCONDITIONAL_CALL @ 0x00537f35 (in FUN_00537eb0)
+  UNCONDITIONAL_CALL @ 0x00538069 (in FUN_00537eb0)
+  UNCONDITIONAL_CALL @ 0x0053807b (in FUN_00537eb0)
+  UNCONDITIONAL_CALL @ 0x00538099 (in FUN_00537eb0)
+  UNCONDITIONAL_CALL @ 0x0041ba1f (in FUN_0041b9a0)
+  UNCONDITIONAL_CALL @ 0x00451018 (in FUN_00451010)
+  UNCONDITIONAL_CALL @ 0x005450e6 (in FUN_00545030)
+  UNCONDITIONAL_CALL @ 0x005450f2 (in FUN_00545030)
+  UNCONDITIONAL_CALL @ 0x00545133 (in FUN_00545030)
+  UNCONDITIONAL_CALL @ 0x0054514d (in FUN_00545030)
+  UNCONDITIONAL_CALL @ 0x0054516b (in FUN_00545030)
+  UNCONDITIONAL_CALL @ 0x00545c21 (in FUN_00545c10)
+  UNCONDITIONAL_CALL @ 0x00545c55 (in FUN_00545c10)
+  UNCONDITIONAL_CALL @ 0x00485cb5 (in FUN_00485c10)
+  UNCONDITIONAL_CALL @ 0x0053360a (in FUN_00533420)
+  UNCONDITIONAL_CALL @ 0x005336ab (in FUN_00533420)
+  UNCONDITIONAL_CALL @ 0x005336c3 (in FUN_00533420)
+  UNCONDITIONAL_CALL @ 0x0043fd20 (in FUN_0043fcd0)
+  UNCONDITIONAL_CALL @ 0x00550bb0 (in FUN_005508b0)
+  UNCONDITIONAL_CALL @ 0x00458b5a (in FUN_00458b50)
+  UNCONDITIONAL_CALL @ 0x004455d0 (in FUN_00445570)
+  UNCONDITIONAL_CALL @ 0x00445631 (in FUN_00445570)
+  UNCONDITIONAL_CALL @ 0x0043b4bb (in FUN_0043b4a0)
+  UNCONDITIONAL_CALL @ 0x00545cd5 (in FUN_00545cb0)
+  UNCONDITIONAL_CALL @ 0x00420ef2 (in FUN_00420ed0)
+  UNCONDITIONAL_CALL @ 0x0043b23d (in FUN_0043b230)
+  UNCONDITIONAL_CALL @ 0x005459e1 (in FUN_00545960)
+  UNCONDITIONAL_CALL @ 0x00545a02 (in FUN_00545960)
+  UNCONDITIONAL_CALL @ 0x00545ad5 (in FUN_00545a30)
+  UNCONDITIONAL_CALL @ 0x00545ae1 (in FUN_00545a30)
+  UNCONDITIONAL_CALL @ 0x00545af6 (in FUN_00545a30)
+  UNCONDITIONAL_CALL @ 0x00545b61 (in FUN_00545b30)
+  UNCONDITIONAL_CALL @ 0x00545bef (in FUN_00545b30)
+  UNCONDITIONAL_CALL @ 0x0054693d (in FUN_00546930)
+  UNCONDITIONAL_CALL @ 0x0041bb8f (in FUN_0041bb10)
+  UNCONDITIONAL_CALL @ 0x0054d211 (in FUN_0054d090)
+  UNCONDITIONAL_CALL @ 0x0054d21d (in FUN_0054d090)
+  UNCONDITIONAL_CALL @ 0x0049ec70 (in FUN_0049ec60)
+  UNCONDITIONAL_CALL @ 0x00422042 (in FUN_00422020)
+  UNCONDITIONAL_CALL @ 0x0057292d (in FUN_005728c0)
+  UNCONDITIONAL_CALL @ 0x005729bb (in FUN_005728c0)
+  UNCONDITIONAL_CALL @ 0x00572a26 (in FUN_005729e0)
+  UNCONDITIONAL_CALL @ 0x00572a32 (in FUN_005729e0)
+  UNCONDITIONAL_CALL @ 0x00444924 (in FUN_00444850)
+  UNCONDITIONAL_CALL @ 0x0044493e (in FUN_00444850)
+  UNCONDITIONAL_CALL @ 0x00444c2d (in FUN_00444850)
+  UNCONDITIONAL_CALL @ 0x00420df2 (in FUN_00420dd0)
+  UNCONDITIONAL_CALL @ 0x00422142 (in FUN_00422120)
+  UNCONDITIONAL_CALL @ 0x004e483a (in FUN_004e4730)
+  UNCONDITIONAL_CALL @ 0x004e3b30 (in FUN_004e3590)
+  UNCONDITIONAL_CALL @ 0x004e3b41 (in FUN_004e3590)
+  UNCONDITIONAL_CALL @ 0x004e5656 (in FUN_004e5640)
+  UNCONDITIONAL_CALL @ 0x004e637f (in FUN_004e6370)
+  UNCONDITIONAL_CALL @ 0x004e63ce (in FUN_004e6370)
+  UNCONDITIONAL_CALL @ 0x005495e0 (in FUN_005495d0)
+  UNCONDITIONAL_CALL @ 0x00549600 (in FUN_005495f0)
+  UNCONDITIONAL_CALL @ 0x0054a239 (in FUN_0054a070)
+  UNCONDITIONAL_CALL @ 0x0054a2c8 (in FUN_0054a070)
+  UNCONDITIONAL_CALL @ 0x0054a312 (in FUN_0054a070)
+  UNCONDITIONAL_CALL @ 0x0054a3b7 (in FUN_0054a070)
+  UNCONDITIONAL_CALL @ 0x0054a3f2 (in FUN_0054a070)
+  UNCONDITIONAL_CALL @ 0x0054a42b (in FUN_0054a070)
+  UNCONDITIONAL_CALL @ 0x0054a4b6 (in FUN_0054a070)
+  UNCONDITIONAL_CALL @ 0x0054a4eb (in FUN_0054a070)
+  UNCONDITIONAL_CALL @ 0x0054a656 (in FUN_0054a070)
+  UNCONDITIONAL_CALL @ 0x0045c4d0 (in FUN_0045c4c0)
+  UNCONDITIONAL_CALL @ 0x00549882 (in FUN_005497c0)
+  UNCONDITIONAL_CALL @ 0x0054988e (in FUN_005497c0)
+  UNCONDITIONAL_CALL @ 0x00549a04 (in FUN_005497c0)
+  UNCONDITIONAL_CALL @ 0x00549a14 (in FUN_005497c0)
+  UNCONDITIONAL_CALL @ 0x00549a4f (in FUN_005497c0)
+  UNCONDITIONAL_CALL @ 0x00549ba1 (in FUN_005497c0)
+  UNCONDITIONAL_CALL @ 0x00549c52 (in FUN_005497c0)
+  UNCONDITIONAL_CALL @ 0x00549f25 (in FUN_005497c0)
+  UNCONDITIONAL_CALL @ 0x00549f72 (in FUN_005497c0)
+  UNCONDITIONAL_CALL @ 0x00549f9e (in FUN_005497c0)
+  UNCONDITIONAL_CALL @ 0x005655b6 (in FUN_00565580)
+  UNCONDITIONAL_CALL @ 0x005655e1 (in FUN_00565580)
+  UNCONDITIONAL_CALL @ 0x00575aee (in FUN_00575830)
+  UNCONDITIONAL_CALL @ 0x00575b05 (in FUN_00575830)
+  UNCONDITIONAL_CALL @ 0x00575b30 (in FUN_00575830)
+  UNCONDITIONAL_CALL @ 0x0045a198 (in FUN_0045a190)
+  UNCONDITIONAL_CALL @ 0x0041a1fb (in FUN_0041a1f0)
+  UNCONDITIONAL_CALL @ 0x0041a205 (in FUN_0041a1f0)
+  UNCONDITIONAL_CALL @ 0x0041a22b (in FUN_0041a220)
+  UNCONDITIONAL_CALL @ 0x0041a235 (in FUN_0041a220)
+  UNCONDITIONAL_CALL @ 0x0057a4d8 (in FUN_0057a410)
+  UNCONDITIONAL_CALL @ 0x0057a4f2 (in FUN_0057a410)
+  UNCONDITIONAL_CALL @ 0x0057a504 (in FUN_0057a410)
+  UNCONDITIONAL_CALL @ 0x0057a51b (in FUN_0057a410)
+  UNCONDITIONAL_CALL @ 0x0057a61c (in FUN_0057a410)
+  UNCONDITIONAL_CALL @ 0x0057a641 (in FUN_0057a410)
+  UNCONDITIONAL_CALL @ 0x0057a681 (in FUN_0057a410)
+  UNCONDITIONAL_CALL @ 0x0057a695 (in FUN_0057a410)
+  UNCONDITIONAL_CALL @ 0x0057a6a7 (in FUN_0057a410)
+  UNCONDITIONAL_CALL @ 0x005831fe (in FUN_005831d0)
+  UNCONDITIONAL_CALL @ 0x00583257 (in FUN_005831d0)
+  UNCONDITIONAL_CALL @ 0x0058327e (in FUN_00583270)
+  UNCONDITIONAL_CALL @ 0x0058328d (in FUN_00583270)
+  UNCONDITIONAL_CALL @ 0x005832b7 (in FUN_00583270)
+  UNCONDITIONAL_CALL @ 0x0048e34d (in FUN_0048e340)
+  UNCONDITIONAL_CALL @ 0x00621ecd (in FUN_00621e80)
+  UNCONDITIONAL_CALL @ 0x00621f17 (in FUN_00621ef0)
+  UNCONDITIONAL_CALL @ 0x00621f2f (in FUN_00621ef0)
+  UNCONDITIONAL_CALL @ 0x006511bf (in FUN_00650ea0)
+  UNCONDITIONAL_CALL @ 0x006511d9 (in FUN_00650ea0)
+  UNCONDITIONAL_CALL @ 0x006511f3 (in FUN_00650ea0)
+  UNCONDITIONAL_CALL @ 0x0060b996 (in FUN_0060b980)
+  UNCONDITIONAL_CALL @ 0x00650acf (in FUN_00650a30)
+  UNCONDITIONAL_CALL @ 0x00650ad9 (in FUN_00650a30)
+  UNCONDITIONAL_CALL @ 0x00650afe (in FUN_00650a30)
+  UNCONDITIONAL_CALL @ 0x00650b0a (in FUN_00650a30)
+  UNCONDITIONAL_CALL @ 0x00650b14 (in FUN_00650a30)
+  UNCONDITIONAL_CALL @ 0x00650b20 (in FUN_00650a30)
+  UNCONDITIONAL_CALL @ 0x00650b2a (in FUN_00650a30)
+  UNCONDITIONAL_CALL @ 0x00650b44 (in FUN_00650a30)
+  UNCONDITIONAL_CALL @ 0x00650b4e (in FUN_00650a30)
+  UNCONDITIONAL_CALL @ 0x0065041c (in FUN_006503b0)
+  UNCONDITIONAL_CALL @ 0x00650426 (in FUN_006503b0)
+  ... (truncated)
+  Total: 161 refs
+
+--- Calls FROM change-map traversal state accessor (0x00559450) ---
+  Total: 0 calls
+
+----------------------------------------------------------------------
+Synchronization instructions in change-map traversal state accessor
+----------------------------------------------------------------------
+  Total synchronization-looking instructions: 0
+
+======================================================================
+change-map traversal state mutation @ 0x00562210
+======================================================================
+  Function: FUN_00562210 @ 0x00562210, Size: 28 bytes
+
+void __thiscall FUN_00562210(uint *param_1,uint param_2)
+
+{
+  *param_1 = ~param_2 & *param_1;
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00562210 (change-map traversal state mutation)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00845ab9 (in FUN_00845a80)
+  UNCONDITIONAL_CALL @ 0x0084b3cf (in FUN_0084ab20)
+  UNCONDITIONAL_CALL @ 0x00841132 (in FUN_00841120)
+  UNCONDITIONAL_CALL @ 0x0084113f (in FUN_00841120)
+  UNCONDITIONAL_CALL @ 0x0084116e (in FUN_00841120)
+  UNCONDITIONAL_CALL @ 0x0084a42c (in FUN_0084a3a0)
+  UNCONDITIONAL_CALL @ 0x00562201 (in FUN_005621f0)
+  Total: 7 refs
+
+--- Calls FROM change-map traversal state mutation (0x00562210) ---
+  Total: 0 calls
+
+----------------------------------------------------------------------
+Synchronization instructions in change-map traversal state mutation
+----------------------------------------------------------------------
+  Total synchronization-looking instructions: 0
+
+======================================================================
+change-map removal or flag mutation @ 0x00845690
+======================================================================
+  Function: FUN_00845690 @ 0x00845690, Size: 44 bytes
+
+undefined4 __thiscall FUN_00845690(undefined4 param_1,uint param_2)
+
+{
+  FUN_008456c0();
+  if ((param_2 & 1) != 0) {
+    FUN_00401030(param_1);
+  }
+  return param_1;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00845690 (change-map removal or flag mutation)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00845aff (in FUN_00845a80)
+  UNCONDITIONAL_CALL @ 0x00845a55 (in FUN_00845a20)
+  UNCONDITIONAL_CALL @ 0x00845663 (in FUN_00845610)
+  Total: 3 refs
+
+--- Calls FROM change-map removal or flag mutation (0x00845690) ---
+  0x0084569a -> 0x008456c0 FUN_008456c0
+  0x008456ab -> 0x00401030 FUN_00401030
+  Total: 2 calls
+
+----------------------------------------------------------------------
+Synchronization instructions in change-map removal or flag mutation
+----------------------------------------------------------------------
+  Total synchronization-looking instructions: 0
+
+======================================================================
+change-map element cleanup @ 0x00405430
+======================================================================
+  Function: FUN_00405430 @ 0x00405430, Size: 302 bytes
+
+undefined4 __thiscall FUN_00405430(int *param_1,undefined4 param_2)
+
+{
+  char cVar1;
+  int iVar2;
+  undefined4 *local_14;
+  undefined4 *local_10;
+  
+  iVar2 = (**(code **)(*param_1 + 4))(param_2);
+  local_14 = *(undefined4 **)(param_1[2] + iVar2 * 4);
+  if (local_14 != (undefined4 *)0x0) {
+    cVar1 = (**(code **)(*param_1 + 8))(param_2,local_14[1]);
+    if (cVar1 != '\0') {
+      *(undefined4 *)(param_1[2] + iVar2 * 4) = *local_14;
+      (**(code **)(*param_1 + 0x10))(local_14);
+      (**(code **)(*param_1 + 0x18))(local_14);
+      param_1[3] = param_1[3] + -1;
+      return 1;
+    }
+    local_10 = (undefined4 *)*local_14;
+    while ((local_10 != (undefined4 *)0x0 &&
+           (cVar1 = (**(code **)(*param_1 + 8))(param_2,local_10[1]), cVar1 == '\0'))) {
+      local_14 = local_10;
+      local_10 = (undefined4 *)*local_10;
+    }
+    if (local_10 != (undefined4 *)0x0) {
+      *local_14 = *local_10;
+      (**(code **)(*param_1 + 0x10))(local_10);
+      (**(code **)(*param_1 + 0x18))(local_10);
+      param_1[3] = param_1[3] + -1;
+      return 1;
+    }
+  }
+  return 0;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00405430 (change-map element cleanup)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00485c78 (in FUN_00485c10)
+  UNCONDITIONAL_CALL @ 0x00526c53 (in FUN_00526c40)
+  UNCONDITIONAL_CALL @ 0x00483ca3 (in FUN_00483c70)
+  UNCONDITIONAL_CALL @ 0x005485fd (in FUN_00548230)
+  UNCONDITIONAL_CALL @ 0x0054ac77 (in FUN_0054abd0)
+  UNCONDITIONAL_CALL @ 0x00545383 (in FUN_00545360)
+  UNCONDITIONAL_CALL @ 0x00545529 (in FUN_005454f0)
+  UNCONDITIONAL_CALL @ 0x00545551 (in FUN_005454f0)
+  UNCONDITIONAL_CALL @ 0x005877c9 (in FUN_00587760)
+  UNCONDITIONAL_CALL @ 0x00587f22 (in FUN_00587e40)
+  UNCONDITIONAL_CALL @ 0x00650af4 (in FUN_00650a30)
+  UNCONDITIONAL_CALL @ 0x00650441 (in FUN_006503b0)
+  UNCONDITIONAL_CALL @ 0x00664dee (in FUN_00664cd0)
+  UNCONDITIONAL_CALL @ 0x006a5c71 (in FUN_006a5bb0)
+  UNCONDITIONAL_CALL @ 0x00845b17 (in FUN_00845a80)
+  UNCONDITIONAL_CALL @ 0x00845a6d (in FUN_00845a20)
+  UNCONDITIONAL_CALL @ 0x0084a596 (in FUN_0084a580)
+  UNCONDITIONAL_CALL @ 0x00852e03 (in FUN_00852d20)
+  UNCONDITIONAL_CALL @ 0x0085526c (in FUN_00855220)
+  UNCONDITIONAL_CALL @ 0x0048b2ba (in FUN_0048b130)
+  UNCONDITIONAL_CALL @ 0x0056567c (in FUN_00565670)
+  UNCONDITIONAL_CALL @ 0x004e5fbd (in FUN_004e5e50)
+  UNCONDITIONAL_CALL @ 0x004e62b2 (in FUN_004e5fe0)
+  UNCONDITIONAL_CALL @ 0x0061f8a3 (in FUN_0061f890)
+  UNCONDITIONAL_CALL @ 0x004378e8 (in FUN_00437850)
+  UNCONDITIONAL_CALL @ 0x00473eda (in FUN_00473d90)
+  UNCONDITIONAL_CALL @ 0x006278d9 (in FUN_006271b0)
+  UNCONDITIONAL_CALL @ 0x006c1aa5 (in FUN_006c1920)
+  UNCONDITIONAL_CALL @ 0x006c1601 (in FUN_006c1590)
+  UNCONDITIONAL_CALL @ 0x006c1672 (in FUN_006c1590)
+  UNCONDITIONAL_CALL @ 0x006c512c (in FUN_006c4fb0)
+  UNCONDITIONAL_CALL @ 0x006c53cc (in FUN_006c5190)
+  UNCONDITIONAL_CALL @ 0x0084b47e (in FUN_0084b470)
+  UNCONDITIONAL_CALL @ 0x0085f106 (in FUN_0085f070)
+  UNCONDITIONAL_CALL @ 0x0085f13a (in FUN_0085f070)
+  UNCONDITIONAL_CALL @ 0x0085f386 (in FUN_0085f2e0)
+  UNCONDITIONAL_CALL @ 0x0085f3b6 (in FUN_0085f2e0)
+  UNCONDITIONAL_CALL @ 0x0085f58d (in FUN_0085f450)
+  UNCONDITIONAL_CALL @ 0x0085f676 (in FUN_0085f5d0)
+  UNCONDITIONAL_CALL @ 0x0085f6a6 (in FUN_0085f5d0)
+  UNCONDITIONAL_CALL @ 0x008551a8 (in FUN_00855150)
+  UNCONDITIONAL_CALL @ 0x0082e4c5 (in FUN_0082d7c0)
+  UNCONDITIONAL_CALL @ 0x0082e8b3 (in FUN_0082d7c0)
+  UNCONDITIONAL_CALL @ 0x0082e9f5 (in FUN_0082d7c0)
+  UNCONDITIONAL_CALL @ 0x004e8e0c (in FUN_004e8a00)
+  UNCONDITIONAL_CALL @ 0x0065001f (in FUN_0064ffd0)
+  UNCONDITIONAL_CALL @ 0x00837c5c (in FUN_00837550)
+  UNCONDITIONAL_CALL @ 0x009835ac (in FUN_00983520)
+  UNCONDITIONAL_CALL @ 0x009a5154 (in FUN_009a50b0)
+  UNCONDITIONAL_CALL @ 0x0084ce54 (in FUN_0084cd40)
+  UNCONDITIONAL_CALL @ 0x009a5cc2 (in FUN_009a5c40)
+  UNCONDITIONAL_CALL @ 0x00404fbb (in FUN_00404f90)
+  UNCONDITIONAL_CALL @ 0x00477cf2 (in FUN_00477ce0)
+  UNCONDITIONAL_CALL @ 0x004763a1 (in FUN_00475b20)
+  UNCONDITIONAL_CALL @ 0x009a524b (in FUN_009a51e0)
+  UNCONDITIONAL_CALL @ 0x0047741c (in FUN_00477410)
+  UNCONDITIONAL_CALL @ 0x00477ef5 (in FUN_00477d10)
+  UNCONDITIONAL_CALL @ 0x0085974c (in FUN_00859690)
+  UNCONDITIONAL_CALL @ 0x00859896 (in FUN_00859690)
+  UNCONDITIONAL_CALL @ 0x0057accc (in FUN_0057acc0)
+  UNCONDITIONAL_CALL @ 0x00992a41 (in FUN_00992a30)
+  UNCONDITIONAL_CALL @ 0x009a41b9 (in FUN_009a4120)
+  UNCONDITIONAL_CALL @ 0x009a420e (in FUN_009a41e0)
+  UNCONDITIONAL_CALL @ 0x0061f9dd (in FUN_0061f940)
+  UNCONDITIONAL_CALL @ 0x006b6ad7 (in FUN_006b6a00)
+  UNCONDITIONAL_CALL @ 0x006b7c2a (in FUN_006b7b70)
+  UNCONDITIONAL_CALL @ 0x006b7c74 (in FUN_006b7b70)
+  UNCONDITIONAL_CALL @ 0x006b69bd (in FUN_006b6990)
+  UNCONDITIONAL_CALL @ 0x006b650e (in FUN_006b63c0)
+  UNCONDITIONAL_CALL @ 0x00c3aa3b (in FUN_00c3a9c0)
+  Total: 70 refs
+
+--- Calls FROM change-map element cleanup (0x00405430) ---
+  Total: 0 calls
+
+----------------------------------------------------------------------
+Synchronization instructions in change-map element cleanup
+----------------------------------------------------------------------
+  Total synchronization-looking instructions: 0
+
+======================================================================
+saving-state query consumer A @ 0x00562140
+======================================================================
+  Function: FUN_00562140 @ 0x00562140, Size: 139 bytes
+
+void __thiscall FUN_00562140(int *param_1,undefined4 param_2)
+
+{
+  char cVar1;
+  int iVar2;
+  undefined4 uVar3;
+  undefined1 local_8 [4];
+  
+  FUN_004534f0(param_2);
+  uVar3 = 0x10000000;
+  FUN_00428110(local_8);
+  cVar1 = FUN_004280f0(uVar3);
+  if (cVar1 != '\0') {
+    cVar1 = (**(code **)(*param_1 + 0x100))();
+    if (cVar1 == '\0') {
+      iVar2 = FUN_0043fcd0();
+      if (iVar2 != 0) {
+        cVar1 = FUN_005621d0();
+        if (cVar1 == '\0') {
+          cVar1 = FUN_00563530();
+          if (cVar1 == '\0') {
+            FUN_005621f0(0x10000000);
+          }
+        }
+      }
+    }
+  }
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00562140 (saving-state query consumer A)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x008aaef0 (in FUN_008aaee0)
+  DATA @ 0x0102f5dc (in ???)
+  DATA @ 0x0107a5d4 (in ???)
+  DATA @ 0x0107a974 (in ???)
+  DATA @ 0x0107ae04 (in ???)
+  DATA @ 0x0107b414 (in ???)
+  DATA @ 0x0107b944 (in ???)
+  DATA @ 0x010859d4 (in ???)
+  DATA @ 0x0108a51c (in ???)
+  DATA @ 0x0108c444 (in ???)
+  DATA @ 0x0108eae4 (in ???)
+  DATA @ 0x0108ee84 (in ???)
+  DATA @ 0x0108f374 (in ???)
+  DATA @ 0x0108f6f4 (in ???)
+  DATA @ 0x0108fac4 (in ???)
+  DATA @ 0x0109015c (in ???)
+  Total: 16 refs
+
+--- Calls FROM saving-state query consumer A (0x00562140) ---
+  0x00562150 -> 0x004534f0 FUN_004534f0
+  0x00562161 -> 0x00428110 FUN_00428110
+  0x00562168 -> 0x004280f0 FUN_004280f0
+  0x0056218e -> 0x0043fcd0 FUN_0043fcd0
+  0x0056219d -> 0x005621d0 FUN_005621d0
+  0x005621ac -> 0x00563530 FUN_00563530
+  0x005621c0 -> 0x005621f0 FUN_005621f0
+  Total: 7 calls
+
+----------------------------------------------------------------------
+Synchronization instructions in saving-state query consumer A
+----------------------------------------------------------------------
+  Total synchronization-looking instructions: 0
+
+======================================================================
+saving-state query consumer B @ 0x00875fd0
+======================================================================
+  Function: FUN_00875fd0 @ 0x00875fd0, Size: 527 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+void __thiscall
+FUN_00875fd0(int param_1,undefined4 param_2,undefined4 param_3,undefined4 param_4,undefined4 param_5
+            )
+
+{
+  bool bVar1;
+  char cVar2;
+  uint uVar3;
+  int iVar4;
+  undefined4 uVar5;
+  int *piVar6;
+  undefined4 uVar7;
+  int *unaff_FS_OFFSET;
+  float10 fVar8;
+  undefined4 uVar9;
+  undefined4 uVar10;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00f07e88;
+  local_10 = *unaff_FS_OFFSET;
+  uVar3 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  FUN_00404eb0(0x27,1,"D:\\_Fallout3\\Platforms\\Common\\Code\\Fallout\\Misc\\Main.cpp",0x2362);
+  local_8 = 0;
+  cVar2 = FUN_004e9510(uVar3);
+  if (cVar2 == '\0') {
+    FUN_00b6b790();
+  }
+  cVar2 = FUN_00705a00();
+  if (cVar2 == '\0') {
+    cVar2 = FUN_00702360();
+    if (cVar2 == '\0') {
+      cVar2 = FUN_00705e80();
+      if (cVar2 == '\0') {
+        cVar2 = FUN_0042ce10();
+        if (cVar2 == '\0') {
+          cVar2 = FUN_005621d0();
+          if ((cVar2 == '\0') && (*(char *)(param_1 + 0x9c) == '\0')) {
+            FUN_00702870();
+          }
+        }
+      }
+    }
+  }
+  iVar4 = FUN_00559450();
+  if (iVar4 != 0) {
+    uVar10 = 0;
+    uVar9 = 0;
+    uVar5 = FUN_00559450(0,0);
+    uVar7 = param_3;
+    FUN_00705910(param_3,uVar5);
+    FUN_00801a60(uVar7,uVar5,uVar9,uVar10);
+  }
+  cVar2 = FUN_007079b0();
+  if (((cVar2 == '\0') || (*(char *)(param_1 + 0x9c) != '\0')) || (DAT_011dea29 == '\0')) {
+    bVar1 = false;
+  }
+  else {
+    bVar1 = true;
+  }
+  if (bVar1) {
+    DAT_012005a2 = 1;
+    piVar6 = (int *)FUN_00707ad0();
+    fVar8 = (float10)(**(code **)(*piVar6 + 0x2c))();
+    _DAT_011add08 = (float)fVar8;
+  }
+  FUN_0045c670();
+  DAT_011f917c = FUN_006629f0();
+  FUN_00b55ac0(param_4,param_3,param_5);
+  iVar4 = FUN_00559450();
+  if (iVar4 != 0) {
+    FUN_00705910();
+    FUN_008019d0();
+    uVar7 = FUN_00559450();
+    FUN_004a0ea0(uVar7);
+    FUN_00b6da10(uVar7);
+    FUN_0066b0d0(0);
+  }
+  if (bVar1) {
+    DAT_012005a2 = 0;
+    _DAT_011add08 = 1.0;
+  }
+  uVar7 = FUN_00414430(0,0x3f800000,0x3f800000,0);
+  FUN_00524c90(uVar7);
+  FUN_00712e60(uVar7);
+  local_8 = 0xffffffff;
+  FUN_00404ee0();
+  *unaff_FS_OFFSET = local_10;
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00875fd0 (saving-state query consumer B)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00870994 (in FUN_008707c0)
+  UNCONDITIONAL_CALL @ 0x00870b89 (in FUN_00870a00)
+  UNCONDITIONAL_CALL @ 0x008710e4 (in FUN_00870bd0)
+  UNCONDITIONAL_CALL @ 0x00872a79 (in FUN_00872940)
+  Total: 4 refs
+
+--- Calls FROM saving-state query consumer B (0x00875fd0) ---
+  0x00876009 -> 0x00404eb0 FUN_00404eb0
+  0x00876015 -> 0x004e9510 FUN_004e9510
+  0x00876021 -> 0x00b6b790 FUN_00b6b790
+  0x00876026 -> 0x00705a00 FUN_00705a00
+  0x00876032 -> 0x00702360 FUN_00702360
+  0x0087603e -> 0x00705e80 FUN_00705e80
+  0x00876050 -> 0x0042ce10 FUN_0042ce10
+  0x00876062 -> 0x005621d0 FUN_005621d0
+  0x0087607c -> 0x00702870 FUN_00702870
+  0x00876086 -> 0x00559450 FUN_00559450
+  0x00876098 -> 0x00559450 FUN_00559450
+  0x008760a2 -> 0x00705910 FUN_00705910
+  0x008760a9 -> 0x00801a60 FUN_00801a60
+  0x008760ae -> 0x007079b0 FUN_007079b0
+  0x008760f8 -> 0x00707ad0 FUN_00707ad0
+  0x00876119 -> 0x0045c670 FUN_0045c670
+  0x00876120 -> 0x006629f0 FUN_006629f0
+  0x00876136 -> 0x00b55ac0 FUN_00b55ac0
+  0x00876143 -> 0x00559450 FUN_00559450
+  0x0087614c -> 0x00705910 FUN_00705910
+  0x00876153 -> 0x008019d0 FUN_008019d0
+  0x0087615d -> 0x00559450 FUN_00559450
+  0x00876163 -> 0x004a0ea0 FUN_004a0ea0
+  0x0087616a -> 0x00b6da10 FUN_00b6da10
+  0x00876176 -> 0x0066b0d0 FUN_0066b0d0
+  0x008761ad -> 0x00414430 FUN_00414430
+  0x008761b3 -> 0x00524c90 FUN_00524c90
+  0x008761ba -> 0x00712e60 FUN_00712e60
+  0x008761c9 -> 0x00404ee0 FUN_00404ee0
+  Total: 29 calls
+
+----------------------------------------------------------------------
+Synchronization instructions in saving-state query consumer B
+----------------------------------------------------------------------
+  Total synchronization-looking instructions: 0
+
+----------------------------------------------------------------------
+Disassembly: pre-save cleanup through serializer entry (0x008504d0 - 0x008505c8)
+----------------------------------------------------------------------
+  0x008504d2: PUSH ECX
+  0x008504d3: PUSH 0x104
+  0x008504d8: LEA EDX,[EBP + 0xfffffee0]
+  0x008504de: PUSH EDX
+  0x008504df: CALL 0x00406d30
+  0x008504e4: ADD ESP,0xc
+  0x008504e7: MOV ECX,dword ptr [0x011ddf38]
+  0x008504ed: CALL 0x0084ab20
+  0x008504f2: MOV ECX,dword ptr [0x011ddf38]
+  0x008504f8: CALL 0x00441110
+  0x008504fd: MOV ECX,EAX
+  0x008504ff: CALL 0x00620b80
+  0x00850504: MOV dword ptr [EBP + -0x8],EAX
+  0x00850507: MOV ECX,dword ptr [EBP + 0xfffffcbc]
+  0x0085050d: CALL 0x00850ba0
+  0x00850512: MOV dword ptr [EBP + -0x10],0x0
+  0x00850519: MOV EAX,dword ptr [EBP + 0xfffffcbc]
+  0x0085051f: CMP dword ptr [EAX + 0x20],0x0
+  0x00850523: JZ 0x00850533
+  0x00850525: MOV ECX,dword ptr [EBP + 0xfffffcbc]
+  0x0085052b: MOV EDX,dword ptr [ECX + 0x20]
+  0x0085052e: MOV dword ptr [EBP + -0x10],EDX
+  0x00850531: JMP 0x0085054d
+  0x00850533: MOV EAX,dword ptr [EBP + 0xc]
+  0x00850536: PUSH EAX
+  0x00850537: PUSH 0x2
+  0x00850539: PUSH 0x1
+  0x0085053b: MOV ECX,dword ptr [EBP + 0x8]
+  0x0085053e: PUSH ECX
+  0x0085053f: MOV ECX,dword ptr [EBP + 0xfffffcbc]
+  0x00850545: CALL 0x00850030
+  0x0085054a: MOV dword ptr [EBP + -0x10],EAX
+  0x0085054d: CMP dword ptr [EBP + -0x10],0x0
+  0x00850551: JNZ 0x00850565
+  0x00850553: MOV ECX,dword ptr [EBP + 0xfffffcbc]
+  0x00850559: CALL 0x00850bf0
+  0x0085055e: XOR AL,AL
+  0x00850560: JMP 0x00850709
+  0x00850565: MOVZX EDX,byte ptr [EBP + 0xfffffedf]
+  0x0085056c: TEST EDX,EDX
+  0x0085056e: JZ 0x008505a2
+  0x00850570: MOV EAX,dword ptr [EBP + 0xfffffcbc]
+  0x00850576: MOV byte ptr [EAX + 0xd],0x0
+  0x0085057a: PUSH 0x1
+  0x0085057c: PUSH ECX
+  0x0085057d: FLD float ptr [0x010162c0]
+  0x00850583: FSTP float ptr [ESP]
+  0x00850586: PUSH 0x0
+  0x00850588: PUSH 0x10208e0
+  0x0085058d: PUSH 0x0
+  0x0085058f: MOV ECX,0x11d4930
+  0x00850594: CALL 0x004c69f0
+  0x00850599: PUSH EAX
+  0x0085059a: CALL 0x007052f0
+  0x0085059f: ADD ESP,0x18
+  0x008505a2: MOV ECX,dword ptr [EBP + -0x10]
+  0x008505a5: PUSH ECX
+  0x008505a6: MOV ECX,dword ptr [EBP + 0xfffffcbc]
+  0x008505ac: CALL 0x00850ea0
+  0x008505b1: MOV EDX,dword ptr [EBP + -0x10]
+  0x008505b4: PUSH EDX
+  0x008505b5: MOV ECX,dword ptr [0x011ddf38]
+  0x008505bb: CALL 0x00847850
+  0x008505c0: MOV ECX,dword ptr [0x011ddf38]
+  0x008505c6: CALL 0x005621d0
+
+----------------------------------------------------------------------
+Disassembly: save traversal map ownership and virtual dispatch (0x00847870 - 0x00847bb0)
+----------------------------------------------------------------------
+  0x00847871: PUSH EAX
+  0x00847872: LEA EAX,[EBP + -0xc]
+  0x00847875: MOV FS:[0x0],EAX
+  0x0084787b: MOV dword ptr [EBP + 0xfffffd1c],ECX
+  0x00847881: PUSH 0x1
+  0x00847883: MOV ECX,dword ptr [EBP + 0xfffffd1c]
+  0x00847889: CALL 0x00847d00
+  0x0084788e: LEA EAX,[EBP + 0xfffffddc]
+  0x00847894: PUSH EAX
+  0x00847895: MOV ECX,dword ptr [EBP + 0x8]
+  0x00847898: CALL 0x006815c0
+  0x0084789d: PUSH EAX
+  0x0084789e: MOV ECX,dword ptr [0x011de134]
+  0x008478a4: CALL 0x0084fec0
+  0x008478a9: PUSH 0x104
+  0x008478ae: LEA ECX,[EBP + 0xfffffee4]
+  0x008478b4: PUSH ECX
+  0x008478b5: MOV ECX,dword ptr [0x011de134]
+  0x008478bb: CALL 0x00851120
+  0x008478c0: LEA EDX,[EBP + 0xfffffee4]
+  0x008478c6: PUSH EDX
+  0x008478c7: LEA EAX,[EBP + 0xfffffddc]
+  0x008478cd: PUSH EAX
+  0x008478ce: PUSH 0x107ef98
+  0x008478d3: MOV ECX,dword ptr [EBP + 0xfffffd1c]
+  0x008478d9: MOV EDX,dword ptr [ECX + 0x1c]
+  0x008478dc: PUSH EDX
+  0x008478dd: CALL 0x0084dff0
+  0x008478e2: ADD ESP,0x10
+  0x008478e5: MOV ECX,dword ptr [0x011de134]
+  0x008478eb: CALL 0x00851110
+  0x008478f0: MOV byte ptr [EBP + 0xfffffd3f],AL
+  0x008478f6: PUSH 0x1
+  0x008478f8: LEA EAX,[EBP + 0xfffffd3f]
+  0x008478fe: PUSH EAX
+  0x008478ff: MOV ECX,dword ptr [EBP + 0x8]
+  0x00847902: PUSH ECX
+  0x00847903: CALL 0x00845d00
+  0x00847908: ADD ESP,0xc
+  0x0084790b: MOV EDX,dword ptr [EBP + 0x8]
+  0x0084790e: PUSH EDX
+  0x0084790f: MOV ECX,dword ptr [EBP + 0xfffffd1c]
+  0x00847915: CALL 0x00847590
+  0x0084791a: MOV ECX,dword ptr [EBP + 0x8]
+  0x0084791d: CALL 0x00846400
+  0x00847922: MOV dword ptr [EBP + 0xfffffd40],EAX
+  0x00847928: LEA ECX,[EBP + 0xfffffd44]
+  0x0084792e: CALL 0x00847d50
+  0x00847933: PUSH 0x6e
+  0x00847935: LEA EAX,[EBP + 0xfffffd44]
+  0x0084793b: PUSH EAX
+  0x0084793c: MOV ECX,dword ptr [EBP + 0x8]
+  0x0084793f: CALL 0x00846330
+  0x00847944: MOV ECX,dword ptr [EBP + 0x8]
+  0x00847947: CALL 0x00846400
+  0x0084794c: MOV dword ptr [EBP + 0xfffffd4c],EAX
+  0x00847952: MOV ECX,dword ptr [EBP + 0x8]
+  0x00847955: PUSH ECX
+  0x00847956: CALL 0x00847d70
+  0x0084795b: ADD ESP,0x4
+  0x0084795e: MOV dword ptr [EBP + 0xfffffd58],EAX
+  0x00847964: MOV ECX,dword ptr [EBP + 0x8]
+  0x00847967: CALL 0x00846400
+  0x0084796c: MOV dword ptr [EBP + 0xfffffd50],EAX
+  0x00847972: LEA ECX,[EBP + 0xfffffdb8]
+  0x00847978: CALL 0x008659c0
+  0x0084797d: MOV dword ptr [EBP + -0x4],0x0
+  0x00847984: MOV EDX,dword ptr [EBP + 0xfffffd1c]
+  0x0084798a: MOV ECX,dword ptr [EDX]
+  0x0084798c: CALL 0x004b9ba0
+  0x00847991: MOV dword ptr [EBP + -0x10],EAX
+  0x00847994: CMP dword ptr [EBP + -0x10],0x0
+  0x00847998: JZ 0x00847bde
+  0x0084799e: MOV dword ptr [EBP + 0xfffffd34],0x0
+  0x008479a8: MOV dword ptr [EBP + 0xfffffd38],0x0
+  0x008479b2: LEA EAX,[EBP + 0xfffffd38]
+  0x008479b8: PUSH EAX
+  0x008479b9: LEA ECX,[EBP + 0xfffffd34]
+  0x008479bf: PUSH ECX
+  0x008479c0: LEA EDX,[EBP + -0x10]
+  0x008479c3: PUSH EDX
+  0x008479c4: MOV EAX,dword ptr [EBP + 0xfffffd1c]
+  0x008479ca: MOV ECX,dword ptr [EAX]
+  0x008479cc: CALL 0x006b7f20
+  0x008479d1: MOV ECX,dword ptr [EBP + 0xfffffd38]
+  0x008479d7: ADD ECX,0x4
+  0x008479da: CALL 0x00559450
+  0x008479df: TEST EAX,EAX
+  0x008479e1: JZ 0x00847a19
+  0x008479e3: MOV ECX,dword ptr [EBP + 0xfffffd38]
+  0x008479e9: MOV EDX,dword ptr [ECX]
+  0x008479eb: PUSH EDX
+  0x008479ec: MOV EAX,dword ptr [EBP + 0xfffffd34]
+  0x008479f2: PUSH EAX
+  0x008479f3: MOV ECX,dword ptr [EBP + 0x8]
+  0x008479f6: PUSH ECX
+  0x008479f7: MOV ECX,dword ptr [EBP + 0xfffffd38]
+  0x008479fd: ADD ECX,0x4
+  0x00847a00: CALL 0x00866200
+  0x00847a05: MOV EDX,dword ptr [EBP + 0xfffffd60]
+  0x00847a0b: ADD EDX,0x1
+  0x00847a0e: MOV dword ptr [EBP + 0xfffffd60],EDX
+  0x00847a14: JMP 0x00847bd9
+  0x00847a19: MOV EAX,dword ptr [EBP + 0xfffffd34]
+  0x00847a1f: PUSH EAX
+  0x00847a20: CALL 0x004839c0
+  0x00847a25: ADD ESP,0x4
+  0x00847a28: MOV dword ptr [EBP + 0xfffffd30],EAX
+  0x00847a2e: CMP dword ptr [EBP + 0xfffffd30],0x0
+  0x00847a35: JZ 0x00847bb9
+  0x00847a3b: LEA ECX,[EBP + 0xfffffdb8]
+  0x00847a41: CALL 0x00847db0
+  0x00847a46: MOV ECX,dword ptr [0x011de134]
+  0x00847a4c: CALL 0x00851110
+  0x00847a51: PUSH EAX
+  0x00847a52: MOV ECX,dword ptr [EBP + 0xfffffd30]
+  0x00847a58: CALL 0x00401170
+  0x00847a5d: PUSH EAX
+  0x00847a5e: MOV ECX,dword ptr [EBP + 0xfffffd38]
+  0x00847a64: MOV EDX,dword ptr [ECX]
+  0x00847a66: PUSH EDX
+  0x00847a67: MOV EAX,dword ptr [EBP + 0xfffffd34]
+  0x00847a6d: PUSH EAX
+  0x00847a6e: LEA ECX,[EBP + 0xfffffdb8]
+  0x00847a74: CALL 0x00865ad0
+  0x00847a79: MOV ECX,dword ptr [EBP + 0xfffffd30]
+  0x00847a7f: PUSH ECX
+  0x00847a80: LEA ECX,[EBP + 0xfffffdb8]
+  0x00847a86: CALL 0x0050f9c0
+  0x00847a8b: LEA EDX,[EBP + 0xfffffdb8]
+  0x00847a91: PUSH EDX
+  0x00847a92: MOV EAX,dword ptr [EBP + 0xfffffd30]
+  0x00847a98: MOV EDX,dword ptr [EAX]
+  0x00847a9a: MOV ECX,dword ptr [EBP + 0xfffffd30]
+  0x00847aa0: MOV EAX,dword ptr [EDX + 0x80]
+  0x00847aa6: CALL EAX
+  0x00847aa8: MOV ECX,dword ptr [EBP + 0xfffffd38]
+  0x00847aae: CALL 0x00559450
+  0x00847ab3: PUSH EAX
+  0x00847ab4: LEA ECX,[EBP + 0xfffffd28]
+  0x00847aba: PUSH ECX
+  0x00847abb: LEA EDX,[EBP + 0xfffffd24]
+  0x00847ac1: PUSH EDX
+  0x00847ac2: LEA ECX,[EBP + 0xfffffdb8]
+  0x00847ac8: CALL 0x00428110
+  0x00847acd: MOV ECX,EAX
+  0x00847acf: CALL 0x00847cd0
+  0x00847ad4: LEA ECX,[EBP + 0xfffffd28]
+  0x00847ada: CALL 0x00559450
+  0x00847adf: TEST EAX,EAX
+  0x00847ae1: JZ 0x00847afe
+  0x00847ae3: MOV EAX,dword ptr [EBP + 0xfffffd28]
+  0x00847ae9: PUSH EAX
+  0x00847aea: MOV ECX,dword ptr [EBP + 0xfffffd34]
+  0x00847af0: PUSH ECX
+  0x00847af1: MOV EDX,dword ptr [EBP + 0xfffffd1c]
+  0x00847af7: MOV ECX,dword ptr [EDX]
+  0x00847af9: CALL 0x008457b0
+  0x00847afe: LEA EAX,[EBP + 0xfffffd20]
+  0x00847b04: PUSH EAX
+  0x00847b05: LEA ECX,[EBP + 0xfffffdb8]
+  0x00847b0b: CALL 0x00428110
+  0x00847b10: MOV ECX,EAX
+  0x00847b12: CALL 0x00559450
+  0x00847b17: PUSH EAX
+  0x00847b18: LEA ECX,[EBP + 0xfffffd2c]
+  0x00847b1e: PUSH ECX
+  0x00847b1f: MOV ECX,dword ptr [EBP + 0xfffffd38]
+  0x00847b25: CALL 0x00847cd0
+  0x00847b2a: LEA ECX,[EBP + 0xfffffd2c]
+  0x00847b30: CALL 0x00559450
+  0x00847b35: TEST EAX,EAX
+  0x00847b37: JZ 0x00847b60
+  0x00847b39: MOV EDX,dword ptr [EBP + 0xfffffd2c]
+  0x00847b3f: PUSH EDX
+  0x00847b40: MOV EAX,dword ptr [EBP + 0xfffffd34]
+  0x00847b46: PUSH EAX
+  0x00847b47: MOV ECX,dword ptr [EBP + 0xfffffd1c]
+  0x00847b4d: MOV ECX,dword ptr [ECX]
+  0x00847b4f: CALL 0x00845a80
+  0x00847b54: MOVZX EDX,AL
+  0x00847b57: TEST EDX,EDX
+  0x00847b59: JZ 0x00847b60
+  0x00847b5b: JMP 0x00847994
+  0x00847b60: MOV EAX,dword ptr [EBP + 0xfffffd38]
+  0x00847b66: MOV ECX,dword ptr [EAX]
+  0x00847b68: PUSH ECX
+  0x00847b69: MOV EDX,dword ptr [EBP + 0xfffffd30]
+  0x00847b6f: PUSH EDX
+  0x00847b70: LEA EAX,[EBP + 0xfffffdb8]
+  0x00847b76: PUSH EAX
+  0x00847b77: CALL 0x0084eb80
+  0x00847b7c: ADD ESP,0xc
+  0x00847b7f: LEA ECX,[EBP + 0xfffffdb8]
+  0x00847b85: PUSH ECX
+  0x00847b86: MOV EDX,dword ptr [EBP + 0xfffffd30]
+  0x00847b8c: MOV EAX,dword ptr [EDX]
+  0x00847b8e: MOV ECX,dword ptr [EBP + 0xfffffd30]
+  0x00847b94: MOV EDX,dword ptr [EAX + 0x54]
+  0x00847b97: CALL EDX
+  0x00847b99: MOV EAX,dword ptr [EBP + 0x8]
+  0x00847b9c: PUSH EAX
+  0x00847b9d: LEA ECX,[EBP + 0xfffffdb8]
+  0x00847ba3: CALL 0x00865a30
+  0x00847ba8: MOV ECX,dword ptr [EBP + 0xfffffd60]
+  0x00847bae: ADD ECX,0x1
+
+----------------------------------------------------------------------
+Disassembly: change-map mutation and SafeRWList allocation (0x008457b0 - 0x00845880)
+----------------------------------------------------------------------
+  0x008457b0: PUSH EBP
+  0x008457b1: MOV EBP,ESP
+  0x008457b3: PUSH -0x1
+  0x008457b5: PUSH 0xeeb0fb
+  0x008457ba: MOV EAX,FS:[0x0]
+  0x008457c0: PUSH EAX
+  0x008457c1: SUB ESP,0x14
+  0x008457c4: MOV EAX,[0x011c16bc]
+  0x008457c9: XOR EAX,EBP
+  0x008457cb: PUSH EAX
+  0x008457cc: LEA EAX,[EBP + -0xc]
+  0x008457cf: MOV FS:[0x0],EAX
+  0x008457d5: MOV dword ptr [EBP + -0x1c],ECX
+  0x008457d8: MOV EAX,dword ptr [EBP + 0x8]
+  0x008457db: PUSH EAX
+  0x008457dc: MOV ECX,dword ptr [EBP + -0x1c]
+  0x008457df: CALL 0x009a4250
+  0x008457e4: MOV dword ptr [EBP + -0x10],EAX
+  0x008457e7: CMP dword ptr [EBP + -0x10],0x0
+  0x008457eb: JNZ 0x00845840
+  0x008457ed: PUSH 0x8
+  0x008457ef: CALL 0x00401000
+  0x008457f4: ADD ESP,0x4
+  0x008457f7: MOV dword ptr [EBP + -0x18],EAX
+  0x008457fa: MOV dword ptr [EBP + -0x4],0x0
+  0x00845801: CMP dword ptr [EBP + -0x18],0x0
+  0x00845805: JZ 0x00845814
+  0x00845807: MOV ECX,dword ptr [EBP + -0x18]
+  0x0084580a: CALL 0x00845880
+  0x0084580f: MOV dword ptr [EBP + -0x20],EAX
+  0x00845812: JMP 0x0084581b
+  0x00845814: MOV dword ptr [EBP + -0x20],0x0
+  0x0084581b: MOV ECX,dword ptr [EBP + -0x20]
+  0x0084581e: MOV dword ptr [EBP + -0x14],ECX
+  0x00845821: MOV dword ptr [EBP + -0x4],0xffffffff
+  0x00845828: MOV EDX,dword ptr [EBP + -0x14]
+  0x0084582b: MOV dword ptr [EBP + -0x10],EDX
+  0x0084582e: MOV EAX,dword ptr [EBP + -0x10]
+  0x00845831: PUSH EAX
+  0x00845832: MOV ECX,dword ptr [EBP + 0x8]
+  0x00845835: PUSH ECX
+  0x00845836: MOV ECX,dword ptr [EBP + -0x1c]
+  0x00845839: CALL 0x00844700
+  0x0084583e: JMP 0x00845851
+  0x00845840: MOV ECX,dword ptr [EBP + -0x10]
+  0x00845843: ADD ECX,0x4
+  0x00845846: CALL 0x00559450
+  0x0084584b: TEST EAX,EAX
+  0x0084584d: JZ 0x00845851
+  0x0084584f: JMP 0x00845862
+  0x00845851: LEA ECX,[EBP + 0xc]
+  0x00845854: CALL 0x00559450
+  0x00845859: PUSH EAX
+  0x0084585a: MOV ECX,dword ptr [EBP + -0x10]
+  0x0084585d: CALL 0x00841100
+  0x00845862: MOV ECX,dword ptr [EBP + -0xc]
+  0x00845865: MOV dword ptr FS:[0x0],ECX
+  0x0084586c: POP ECX
+  0x0084586d: MOV ESP,EBP
+  0x0084586f: POP EBP
+  0x00845870: RET 0x8
+  0x00845880: PUSH EBP
+
+----------------------------------------------------------------------
+Disassembly: pre-save and post-save phase helpers (0x00850b80 - 0x00850c20)
+----------------------------------------------------------------------
+  0x00850b82: MOV EAX,dword ptr [EBP + 0x8]
+  0x00850b85: PUSH EAX
+  0x00850b86: MOV ECX,dword ptr [0x011de134]
+  0x00850b8c: CALL 0x008518d0
+  0x00850b91: POP EBP
+  0x00850b92: RET
+  0x00850ba0: PUSH EBP
+  0x00850ba1: MOV EBP,ESP
+  0x00850ba3: PUSH ECX
+  0x00850ba4: MOV dword ptr [EBP + -0x4],ECX
+  0x00850ba7: CALL 0x0047d0b0
+  0x00850bac: MOV ECX,EAX
+  0x00850bae: CALL 0x006ebc70
+  0x00850bb3: MOV ECX,dword ptr [0x01202d98]
+  0x00850bb9: CALL 0x00c3e310
+  0x00850bbe: CALL 0x0047d0b0
+  0x00850bc3: MOV ECX,EAX
+  0x00850bc5: CALL 0x006ebc90
+  0x00850bca: MOVZX EAX,AL
+  0x00850bcd: TEST EAX,EAX
+  0x00850bcf: JNZ 0x00850bdf
+  0x00850bd1: CALL 0x0047d0b0
+  0x00850bd6: MOV ECX,EAX
+  0x00850bd8: CALL 0x006ebc50
+  0x00850bdd: JMP 0x00850bbe
+  0x00850bdf: MOV ESP,EBP
+  0x00850be1: POP EBP
+  0x00850be2: RET
+  0x00850bf0: PUSH EBP
+  0x00850bf1: MOV EBP,ESP
+  0x00850bf3: PUSH ECX
+  0x00850bf4: MOV dword ptr [EBP + -0x4],ECX
+  0x00850bf7: MOV ECX,dword ptr [0x01202d98]
+  0x00850bfd: CALL 0x00c3e340
+  0x00850c02: CALL 0x0047d0b0
+  0x00850c07: MOV ECX,EAX
+  0x00850c09: CALL 0x006ebcd0
+  0x00850c0e: MOV ESP,EBP
+  0x00850c10: POP EBP
+  0x00850c11: RET
+  0x00850c20: PUSH EBP
+
+----------------------------------------------------------------------
+References TO 0x011ddf38 (BGSSaveLoadGame singleton)
+----------------------------------------------------------------------
+  READ @ 0x0086b200 (in FUN_0086a850)
+  READ @ 0x004622c1 (in FUN_00462290)
+  READ @ 0x004622d5 (in FUN_00462290)
+  READ @ 0x004623b3 (in FUN_00462290)
+  READ @ 0x004623ca (in FUN_00462290)
+  READ @ 0x0046977f (in FUN_00469760)
+  READ @ 0x005508fa (in FUN_005508b0)
+  READ @ 0x00550a05 (in FUN_005508b0)
+  READ @ 0x00550a14 (in FUN_005508b0)
+  READ @ 0x00550a37 (in FUN_005508b0)
+  READ @ 0x00550ae2 (in FUN_005508b0)
+  READ @ 0x00550bff (in FUN_005508b0)
+  READ @ 0x00552d29 (in FUN_00552bd0)
+  READ @ 0x0054660f (in FUN_00545cf0)
+  READ @ 0x00546623 (in FUN_00545cf0)
+  READ @ 0x00546638 (in FUN_00545cf0)
+  READ @ 0x00546643 (in FUN_00545cf0)
+  READ @ 0x00546657 (in FUN_00545cf0)
+  READ @ 0x00546667 (in FUN_00545cf0)
+  READ @ 0x00544dc1 (in FUN_00544ce0)
+  READ @ 0x00546b19 (in FUN_00546b10)
+  READ @ 0x0054b96f (in FUN_0054b950)
+  READ @ 0x005506bd (in FUN_00550500)
+  READ @ 0x00550734 (in FUN_00550500)
+  READ @ 0x0055074a (in FUN_00550500)
+  READ @ 0x00550857 (in FUN_00550500)
+  READ @ 0x004844b9 (in FUN_00484490)
+  READ @ 0x004844c6 (in FUN_00484490)
+  READ @ 0x0055acea (in FUN_0055ac90)
+  READ @ 0x0055acf3 (in FUN_0055ac90)
+  READ @ 0x00573cfb (in FUN_00573800)
+  READ @ 0x00444879 (in FUN_00444850)
+  READ @ 0x0044488b (in FUN_00444850)
+  READ @ 0x0054949e (in FUN_00548880)
+  READ @ 0x0054cb76 (in FUN_0054ca90)
+  READ @ 0x00575871 (in FUN_00575830)
+  READ @ 0x0057587e (in FUN_00575830)
+  READ @ 0x0057a20d (in FUN_00579ac0)
+  READ @ 0x00585e7e (in FUN_00585e00)
+  READ @ 0x00788af1 (in FUN_00788ab0)
+  READ @ 0x007892ae (in FUN_007890e0)
+  READ @ 0x0078aec9 (in FUN_0078aec0)
+  READ @ 0x0078aed2 (in FUN_0078aec0)
+  READ @ 0x007cc587 (in FUN_007cbaf0)
+  READ @ 0x007cc592 (in FUN_007cbaf0)
+  READ @ 0x00448939 (in FUN_00448920)
+  READ @ 0x00448942 (in FUN_00448920)
+  READ @ 0x004836c0 (in FUN_00483630)
+  READ @ 0x004836cd (in FUN_00483630)
+  READ @ 0x00845cca (in FUN_00845cc0)
+  READ @ 0x00845cdb (in FUN_00845cc0)
+  READ @ 0x008439eb (in FUN_008439e0)
+  READ @ 0x00843ba0 (in FUN_008439e0)
+  READ @ 0x00843eb5 (in FUN_00843c90)
+  READ @ 0x005f9e17 (in FUN_005f9e00)
+  READ @ 0x005fa06f (in FUN_005f9e00)
+  READ @ 0x006047d8 (in FUN_006047c0)
+  READ @ 0x00604b6a (in FUN_006047c0)
+  READ @ 0x0084f513 (in FUN_0084f330)
+  READ @ 0x0084f553 (in FUN_0084f330)
+  READ @ 0x0084f56e (in FUN_0084f330)
+  READ @ 0x0084f7ad (in FUN_0084f330)
+  READ @ 0x0084f809 (in FUN_0084f330)
+  READ @ 0x0047cf24 (in FUN_0047ce10)
+  READ @ 0x0047cf2d (in FUN_0047ce10)
+  READ @ 0x0047d138 (in FUN_0047d130)
+  READ @ 0x0047d188 (in FUN_0047d130)
+  READ @ 0x004828bc (in FUN_00482770)
+  READ @ 0x004828ce (in FUN_00482770)
+  READ @ 0x00484bab (in FUN_00484b90)
+  READ @ 0x00852e4d (in FUN_00852e40)
+  READ @ 0x00852f13 (in FUN_00852e40)
+  READ @ 0x0084fa10 (in FUN_0084f8e0)
+  READ @ 0x00493c3e (in FUN_00493bd0)
+  READ @ 0x00853555 (in FUN_00853500)
+  READ @ 0x0085357d (in FUN_00853570)
+  READ @ 0x0086811c (in FUN_00867f90)
+  READ @ 0x00868125 (in FUN_00867f90)
+  READ @ 0x00847506 (in FUN_00847500)
+  WRITE @ 0x00847530 (in FUN_00847500)
+  READ @ 0x00561daa (in FUN_00561d90)
+  READ @ 0x0047ddae (in FUN_0047dd50)
+  WRITE @ 0x008474e6 (in FUN_00847480)
+  READ @ 0x004525d1 (in FUN_00452580)
+  READ @ 0x00452782 (in FUN_00452580)
+  READ @ 0x00452991 (in FUN_00452580)
+  READ @ 0x004529c6 (in FUN_00452580)
+  READ @ 0x004529d8 (in FUN_00452580)
+  READ @ 0x00452cb6 (in FUN_00452580)
+  READ @ 0x0045309a (in FUN_00452ff0)
+  READ @ 0x004532c7 (in FUN_00452ff0)
+  READ @ 0x004532d2 (in FUN_00452ff0)
+  READ @ 0x004532e6 (in FUN_00452ff0)
+  READ @ 0x00453eae (in FUN_00453dc0)
+  READ @ 0x00454071 (in FUN_00453dc0)
+  READ @ 0x00454350 (in FUN_00453dc0)
+  READ @ 0x00454580 (in FUN_00454450)
+  READ @ 0x004546d6 (in FUN_00454450)
+  READ @ 0x00454aa8 (in FUN_00454450)
+  READ @ 0x0054be6b (in FUN_0054bcf0)
+  READ @ 0x0054df3a (in FUN_0054df30)
+  READ @ 0x0056f812 (in FUN_0056f700)
+  READ @ 0x0063e34f (in FUN_0063e2f0)
+  READ @ 0x008504e7 (in FUN_008503b0)
+  READ @ 0x008504f2 (in FUN_008503b0)
+  READ @ 0x008505b5 (in FUN_008503b0)
+  READ @ 0x008505c0 (in FUN_008503b0)
+  READ @ 0x008505d4 (in FUN_008503b0)
+  READ @ 0x00850676 (in FUN_008503b0)
+  READ @ 0x0063ad68 (in FUN_0063ac70)
+  READ @ 0x0063ada5 (in FUN_0063ac70)
+  READ @ 0x0063aebb (in FUN_0063ac70)
+  READ @ 0x0063aefd (in FUN_0063ac70)
+  READ @ 0x0063af3a (in FUN_0063ac70)
+  READ @ 0x0063d343 (in FUN_0063d1d0)
+  READ @ 0x0063d436 (in FUN_0063d1d0)
+  READ @ 0x00850ea9 (in FUN_00850ea0)
+  READ @ 0x00853bc7 (in FUN_00853b90)
+  READ @ 0x00854638 (in FUN_00853e10)
+  READ @ 0x0066dfcf (in FUN_0066df40)
+  READ @ 0x0062d517 (in FUN_0062d510)
+  READ @ 0x0087604a (in FUN_00875fd0)
+  READ @ 0x0087605c (in FUN_00875fd0)
+  READ @ 0x008774cb (in FUN_008774a0)
+  READ @ 0x0087764d (in FUN_008774a0)
+  READ @ 0x008776a5 (in FUN_008774a0)
+  READ @ 0x00448659 (in FUN_00448620)
+  READ @ 0x00448662 (in FUN_00448620)
+  READ @ 0x0088d6ac (in FUN_0088d640)
+  READ @ 0x004453ae (in FUN_00445370)
+  READ @ 0x004453b7 (in FUN_00445370)
+  READ @ 0x00490f1a (in FUN_00490e60)
+  READ @ 0x008a6a73 (in FUN_008a6a40)
+  READ @ 0x004ab9a5 (in FUN_004ab750)
+  READ @ 0x005717d2 (in FUN_00571760)
+  READ @ 0x00571a55 (in FUN_00571760)
+  READ @ 0x009334f5 (in FUN_009334b0)
+  READ @ 0x0093c1a8 (in FUN_0093bea0)
+  READ @ 0x0093c55d (in FUN_0093c200)
+  READ @ 0x0093c83c (in FUN_0093c200)
+  READ @ 0x0093cb5e (in FUN_0093c200)
+  READ @ 0x00850840 (in FUN_00850760)
+  READ @ 0x00846da8 (in FUN_00846d80)
+  READ @ 0x00850e73 (in FUN_00850d60)
+  READ @ 0x0095fbbb (in FUN_0095f930)
+  READ @ 0x0095fde5 (in FUN_0095f930)
+  READ @ 0x0095fef1 (in FUN_0095f930)
+  READ @ 0x00992dd7 (in FUN_00992d90)
+  READ @ 0x0049807b (in FUN_00498030)
+  READ @ 0x0084c859 (in FUN_0084c5a0)
+  READ @ 0x0084c8ad (in FUN_0084c5a0)
+  READ @ 0x0084c8d8 (in FUN_0084c5a0)
+  READ @ 0x00459716 (in FUN_004595e0)
+  READ @ 0x0084cd65 (in FUN_0084cd40)
+  READ @ 0x0063ecb9 (in FUN_0063ecb0)
+  READ @ 0x00484b7b (in FUN_00484b60)
+  READ @ 0x00565cbe (in FUN_005659f0)
+  READ @ 0x00565cf8 (in FUN_005659f0)
+  READ @ 0x00566400 (in FUN_005659f0)
+  READ @ 0x005666c8 (in FUN_005659f0)
+  READ @ 0x00566800 (in FUN_005659f0)
+  ... (truncated)
+  Total: 161 refs

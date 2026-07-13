@@ -6,7 +6,10 @@ use core::fmt;
 use libc::c_void;
 use parking_lot::RwLock;
 use std::ptr::NonNull;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{
+    OnceLock,
+    atomic::{AtomicBool, Ordering},
+};
 use windows::Win32::System::Memory::PAGE_EXECUTE_READWRITE;
 
 use super::InlineHookResult;
@@ -471,18 +474,21 @@ impl<F: Function> Drop for ScopedInlineHook<F> {
 #[derive(Default)]
 pub struct InlineHookContainer<T: Function> {
     hook: RwLock<Option<InlineHook<T>>>,
+    original: OnceLock<FnPtr<T>>,
 }
 
-// Safety: synchronized with inner RwLock
+// Safety: hook mutation is synchronized by the RwLock and the trampoline is
+// published once through OnceLock before the container can be enabled.
 unsafe impl<T: Function> Send for InlineHookContainer<T> {}
 
-// Safety: synchronized with inner RwLock
+// Safety: see the Send implementation above.
 unsafe impl<T: Function> Sync for InlineHookContainer<T> {}
 
 impl<T: Function> InlineHookContainer<T> {
     pub fn new() -> Self {
         Self {
             hook: RwLock::new(None),
+            original: OnceLock::new(),
         }
     }
 
@@ -503,6 +509,10 @@ impl<T: Function> InlineHookContainer<T> {
 
             None => {
                 let inline_hook = unsafe { InlineHook::new(name, target_ptr, detour_fn_ptr) }?;
+                let original = FnPtr::new(inline_hook.original());
+                if self.original.set(original).is_err() {
+                    return Err(InlineHookError::HookContainerInitialized);
+                }
 
                 let _ = hook_lock.insert(inline_hook);
 
@@ -555,13 +565,16 @@ impl<T: Function> InlineHookContainer<T> {
         hook_lock.as_ref().is_some_and(InlineHook::is_enabled)
     }
 
+    /// Return the prepared trampoline without taking the hook mutation lock.
+    ///
+    /// Initialization publishes this pointer before the target can be enabled,
+    /// so detours can use it safely in hot paths. The error still distinguishes
+    /// a real initialization-order bug from a valid callable trampoline.
+    #[inline]
     pub fn original(&self) -> InlineHookResult<T> {
-        let hook_lock = self.hook.read();
-
-        match hook_lock.as_ref() {
-            Some(hook) => Ok(hook.original()),
-
-            None => Err(InlineHookError::HookContainerNotInitialized),
-        }
+        self.original
+            .get()
+            .map(FnPtr::as_fn)
+            .ok_or(InlineHookError::HookContainerNotInitialized)
     }
 }

@@ -1,0 +1,943 @@
+======================================================================
+BGSPrimitiveSphere CHILD IDENTITY MICRO FOLLOW-UP
+======================================================================
+Prove whether CigarettePack:0 can satisfy the child virtual contract used by the Sphere builder, what class the builder creates locally, and whether stale object lifetime or concurrent cache publication can replace fields +0x24 and +0x2C.
+
+======================================================================
+BGSPrimitiveSphere constructor and field initialization @ 0x004a7150
+======================================================================
+  Function: AFX_MODULE_THREAD_STATE @ 0x004a7150, Size: 123 bytes
+
+/* Library Function - Single Match
+    public: __thiscall AFX_MODULE_THREAD_STATE::AFX_MODULE_THREAD_STATE(void)
+   
+   Libraries: Visual Studio 2005 Debug, Visual Studio 2008 Debug */
+
+AFX_MODULE_THREAD_STATE * __thiscall
+AFX_MODULE_THREAD_STATE::AFX_MODULE_THREAD_STATE(AFX_MODULE_THREAD_STATE *this)
+
+{
+  uint uVar1;
+  int *unaff_FS_OFFSET;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00eeffd8;
+  local_10 = *unaff_FS_OFFSET;
+  uVar1 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  FUN_004a4ac0(uVar1);
+  local_8 = 0;
+  *(undefined ***)this = &PTR_FUN_0101ea64;
+  FUN_0066b0d0(0);
+  FUN_0066b0d0(0);
+  *(undefined4 *)(this + 4) = 2;
+  *unaff_FS_OFFSET = local_10;
+  return this;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x004a7150 (BGSPrimitiveSphere constructor and field initialization)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x004a5142 (in FUN_004a5100)
+  Total: 1 refs
+
+--- Calls FROM BGSPrimitiveSphere constructor and field initialization (0x004a7150) ---
+  0x004a7179 -> 0x004a4ac0 FUN_004a4ac0
+  0x004a7196 -> 0x0066b0d0 FUN_0066b0d0
+  0x004a71a3 -> 0x0066b0d0 FUN_0066b0d0
+  Total: 3 calls
+
+======================================================================
+BGSPrimitiveSphere destructor @ 0x004a71f0
+======================================================================
+  Function: FUN_004a71f0 @ 0x004a71f0, Size: 44 bytes
+
+undefined4 __thiscall FUN_004a71f0(undefined4 param_1,uint param_2)
+
+{
+  FUN_004a7220();
+  if ((param_2 & 1) != 0) {
+    FUN_00401030(param_1);
+  }
+  return param_1;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x004a71f0 (BGSPrimitiveSphere destructor)
+----------------------------------------------------------------------
+  DATA @ 0x0101e75c (in ???)
+  DATA @ 0x0101e8c4 (in ???)
+  DATA @ 0x0101ea64 (in ???)
+  Total: 3 refs
+
+--- Calls FROM BGSPrimitiveSphere destructor (0x004a71f0) ---
+  0x004a71fa -> 0x004a7220 FUN_004a7220
+  0x004a720b -> 0x00401030 FUN_00401030
+  Total: 2 calls
+
+======================================================================
+BGSPrimitiveSphere cached-node getter @ 0x004a7830
+======================================================================
+  Function: FUN_004a7830 @ 0x004a7830, Size: 166 bytes
+
+void __thiscall FUN_004a7830(int param_1,undefined4 *param_2)
+
+{
+  int iVar1;
+  undefined4 *puVar2;
+  int local_10;
+  
+  *(undefined4 *)(param_1 + 8) = *param_2;
+  *(undefined4 *)(param_1 + 0xc) = param_2[1];
+  *(undefined4 *)(param_1 + 0x10) = param_2[2];
+  *(undefined4 *)(param_1 + 0x14) = param_2[3];
+  iVar1 = FUN_00559450();
+  if (iVar1 != 0) {
+    FUN_00559450();
+    FUN_005495f0();
+    iVar1 = FUN_0045cd60();
+    for (local_10 = 0; local_10 < 0x70; local_10 = local_10 + 1) {
+      puVar2 = (undefined4 *)(local_10 * 0x10 + iVar1);
+      *puVar2 = *(undefined4 *)(param_1 + 8);
+      puVar2[1] = *(undefined4 *)(param_1 + 0xc);
+      puVar2[2] = *(undefined4 *)(param_1 + 0x10);
+      puVar2[3] = *(undefined4 *)(param_1 + 0x14);
+    }
+    FUN_00a67090(4);
+  }
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x004a7830 (BGSPrimitiveSphere cached-node getter)
+----------------------------------------------------------------------
+  DATA @ 0x0101ea6c (in ???)
+  Total: 1 refs
+
+--- Calls FROM BGSPrimitiveSphere cached-node getter (0x004a7830) ---
+  0x004a785e -> 0x00559450 FUN_00559450
+  0x004a786d -> 0x00559450 FUN_00559450
+  0x004a7874 -> 0x005495f0 FUN_005495f0
+  0x004a787f -> 0x0045cd60 FUN_0045cd60
+  0x004a78cb -> 0x00a67090 FUN_00a67090
+  Total: 5 calls
+
+======================================================================
+BGSPrimitiveSphere vtable method before builder @ 0x004a7240
+======================================================================
+  Function: FUN_004a7240 @ 0x004a7240, Size: 67 bytes
+
+undefined4 __fastcall FUN_004a7240(int param_1)
+
+{
+  float fVar1;
+  float fVar2;
+  float10 fVar3;
+  undefined2 extraout_var;
+  float10 fVar4;
+  
+  fVar1 = *(float *)(param_1 + 0x18);
+  fVar2 = *(float *)(param_1 + 0x18);
+  fVar4 = (float10)FUN_004a7290();
+  fVar3 = (float10)(fVar1 * fVar2);
+  return CONCAT31((int3)(CONCAT22(extraout_var,
+                                  (ushort)(fVar4 < fVar3) << 8 |
+                                  (ushort)(NAN(fVar4) || NAN(fVar3)) << 10 |
+                                  (ushort)(fVar4 == fVar3) << 0xe) >> 8),fVar4 < fVar3);
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x004a7240 (BGSPrimitiveSphere vtable method before builder)
+----------------------------------------------------------------------
+  DATA @ 0x0101ea74 (in ???)
+  Total: 1 refs
+
+--- Calls FROM BGSPrimitiveSphere vtable method before builder (0x004a7240) ---
+  0x004a725b -> 0x004a7290 FUN_004a7290
+  Total: 1 calls
+
+======================================================================
+BGSPrimitiveSphere vtable method after builder @ 0x004a7aa0
+======================================================================
+  Function: FUN_004a7aa0 @ 0x004a7aa0, Size: 156 bytes
+
+undefined4 __fastcall FUN_004a7aa0(int param_1)
+
+{
+  uint uVar1;
+  int iVar2;
+  undefined4 uVar3;
+  int *unaff_FS_OFFSET;
+  undefined4 uVar4;
+  undefined4 local_2c;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00ef00ef;
+  local_10 = *unaff_FS_OFFSET;
+  uVar1 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  iVar2 = FUN_00aa13e0(0x1c,uVar1);
+  local_8 = 0;
+  if (iVar2 == 0) {
+    local_2c = 0;
+  }
+  else {
+    uVar4 = *(undefined4 *)(param_1 + 0x18);
+    uVar3 = FUN_00416870(0,0,0);
+    local_2c = FUN_004a7b40(uVar3,uVar4);
+  }
+  *unaff_FS_OFFSET = local_10;
+  return local_2c;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x004a7aa0 (BGSPrimitiveSphere vtable method after builder)
+----------------------------------------------------------------------
+  DATA @ 0x0101ea78 (in ???)
+  Total: 1 refs
+
+--- Calls FROM BGSPrimitiveSphere vtable method after builder (0x004a7aa0) ---
+  0x004a7aca -> 0x00aa13e0 FUN_00aa13e0
+  0x004a7b01 -> 0x00416870 FUN_00416870
+  0x004a7b0a -> 0x004a7b40 FUN_004a7b40
+  Total: 3 calls
+
+======================================================================
+reference caller primitive result getter @ 0x0056c7f0
+======================================================================
+  Function: FUN_0056c7f0 @ 0x0056c7f0, Size: 22 bytes
+
+void __fastcall FUN_0056c7f0(undefined4 param_1)
+
+{
+  FUN_00559450(param_1);
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x0056c7f0 (reference caller primitive result getter)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0070b3c3 (in FUN_0070b240)
+  UNCONDITIONAL_CALL @ 0x0070b400 (in FUN_0070b240)
+  UNCONDITIONAL_CALL @ 0x0070b40f (in FUN_0070b240)
+  UNCONDITIONAL_CALL @ 0x0070b434 (in FUN_0070b240)
+  UNCONDITIONAL_CALL @ 0x0070b459 (in FUN_0070b240)
+  UNCONDITIONAL_CALL @ 0x0070b57a (in FUN_0070b240)
+  UNCONDITIONAL_CALL @ 0x0071198e (in FUN_007118d0)
+  UNCONDITIONAL_CALL @ 0x00711b06 (in FUN_007118d0)
+  UNCONDITIONAL_CALL @ 0x00711c32 (in FUN_007118d0)
+  UNCONDITIONAL_CALL @ 0x00711d31 (in FUN_007118d0)
+  UNCONDITIONAL_CALL @ 0x0076fe73 (in FUN_0076bfe0)
+  UNCONDITIONAL_CALL @ 0x0071775e (in FUN_00717740)
+  UNCONDITIONAL_CALL @ 0x007893c0 (in FUN_007890e0)
+  UNCONDITIONAL_CALL @ 0x007893dd (in FUN_007890e0)
+  UNCONDITIONAL_CALL @ 0x0078942d (in FUN_007890e0)
+  UNCONDITIONAL_CALL @ 0x00789465 (in FUN_007890e0)
+  UNCONDITIONAL_CALL @ 0x007894f0 (in FUN_007890e0)
+  UNCONDITIONAL_CALL @ 0x0078957a (in FUN_007890e0)
+  UNCONDITIONAL_CALL @ 0x00789623 (in FUN_007890e0)
+  UNCONDITIONAL_CALL @ 0x00789651 (in FUN_007890e0)
+  UNCONDITIONAL_CALL @ 0x007896b8 (in FUN_007890e0)
+  UNCONDITIONAL_CALL @ 0x007897ba (in FUN_007890e0)
+  UNCONDITIONAL_CALL @ 0x0078ce85 (in FUN_0078ce10)
+  UNCONDITIONAL_CALL @ 0x007135c4 (in FUN_007134d0)
+  UNCONDITIONAL_CALL @ 0x007135d0 (in FUN_007134d0)
+  UNCONDITIONAL_CALL @ 0x007135e8 (in FUN_007134d0)
+  UNCONDITIONAL_CALL @ 0x00713606 (in FUN_007134d0)
+  UNCONDITIONAL_CALL @ 0x00713612 (in FUN_007134d0)
+  UNCONDITIONAL_CALL @ 0x0071362a (in FUN_007134d0)
+  UNCONDITIONAL_CALL @ 0x00713648 (in FUN_007134d0)
+  UNCONDITIONAL_CALL @ 0x00713654 (in FUN_007134d0)
+  UNCONDITIONAL_CALL @ 0x0071366c (in FUN_007134d0)
+  UNCONDITIONAL_CALL @ 0x0071375e (in FUN_007134d0)
+  UNCONDITIONAL_CALL @ 0x0071376a (in FUN_007134d0)
+  UNCONDITIONAL_CALL @ 0x00713782 (in FUN_007134d0)
+  UNCONDITIONAL_CALL @ 0x00713797 (in FUN_007134d0)
+  UNCONDITIONAL_CALL @ 0x007137a3 (in FUN_007134d0)
+  UNCONDITIONAL_CALL @ 0x007137bb (in FUN_007134d0)
+  UNCONDITIONAL_CALL @ 0x007137d0 (in FUN_007134d0)
+  UNCONDITIONAL_CALL @ 0x007137dc (in FUN_007134d0)
+  UNCONDITIONAL_CALL @ 0x007137f4 (in FUN_007134d0)
+  UNCONDITIONAL_CALL @ 0x00702b51 (in FUN_00702990)
+  UNCONDITIONAL_CALL @ 0x00702ba0 (in FUN_00702990)
+  UNCONDITIONAL_CALL @ 0x00702bb5 (in FUN_00702990)
+  UNCONDITIONAL_CALL @ 0x00702c0c (in FUN_00702990)
+  UNCONDITIONAL_CALL @ 0x00702c20 (in FUN_00702990)
+  UNCONDITIONAL_CALL @ 0x00702c6f (in FUN_00702990)
+  UNCONDITIONAL_CALL @ 0x00702e8b (in FUN_00702dd0)
+  UNCONDITIONAL_CALL @ 0x00702eda (in FUN_00702dd0)
+  UNCONDITIONAL_CALL @ 0x00702eef (in FUN_00702dd0)
+  UNCONDITIONAL_CALL @ 0x00702f3e (in FUN_00702dd0)
+  UNCONDITIONAL_CALL @ 0x00702f53 (in FUN_00702dd0)
+  UNCONDITIONAL_CALL @ 0x00702fa2 (in FUN_00702dd0)
+  UNCONDITIONAL_CALL @ 0x00713e67 (in FUN_00713e20)
+  UNCONDITIONAL_CALL @ 0x00717a01 (in FUN_00717990)
+  UNCONDITIONAL_CALL @ 0x007cc29d (in FUN_007cbaf0)
+  UNCONDITIONAL_CALL @ 0x007cc2b9 (in FUN_007cbaf0)
+  UNCONDITIONAL_CALL @ 0x0045b83a (in FUN_0045b070)
+  UNCONDITIONAL_CALL @ 0x0049e509 (in FUN_0049e410)
+  UNCONDITIONAL_CALL @ 0x0049e556 (in FUN_0049e410)
+  UNCONDITIONAL_CALL @ 0x0049e682 (in FUN_0049e410)
+  UNCONDITIONAL_CALL @ 0x0049eb64 (in FUN_0049e410)
+  UNCONDITIONAL_CALL @ 0x006fde1f (in FUN_006fdaa0)
+  UNCONDITIONAL_CALL @ 0x006faaab (in FUN_006faa90)
+  UNCONDITIONAL_CALL @ 0x006ff2f5 (in FUN_006ff2c0)
+  UNCONDITIONAL_CALL @ 0x006ff421 (in FUN_006ff3f0)
+  UNCONDITIONAL_CALL @ 0x006ff4a3 (in FUN_006ff3f0)
+  UNCONDITIONAL_CALL @ 0x006ff396 (in FUN_006ff380)
+  UNCONDITIONAL_CALL @ 0x0070b998 (in FUN_0070b8f0)
+  UNCONDITIONAL_CALL @ 0x0070c68f (in FUN_0070c4a0)
+  UNCONDITIONAL_CALL @ 0x0070c6c7 (in FUN_0070c4a0)
+  UNCONDITIONAL_CALL @ 0x0070c70b (in FUN_0070c4a0)
+  UNCONDITIONAL_CALL @ 0x0070ccdc (in FUN_0070c4a0)
+  UNCONDITIONAL_CALL @ 0x0070cd0a (in FUN_0070c4a0)
+  UNCONDITIONAL_CALL @ 0x007120e6 (in FUN_00711ea0)
+  UNCONDITIONAL_CALL @ 0x0071215c (in FUN_00711ea0)
+  UNCONDITIONAL_CALL @ 0x00712216 (in FUN_00711ea0)
+  UNCONDITIONAL_CALL @ 0x0071228c (in FUN_00711ea0)
+  UNCONDITIONAL_CALL @ 0x00712315 (in FUN_00711ea0)
+  UNCONDITIONAL_CALL @ 0x00712784 (in FUN_007126c0)
+  UNCONDITIONAL_CALL @ 0x00712aa2 (in FUN_007126c0)
+  UNCONDITIONAL_CALL @ 0x00712af9 (in FUN_007126c0)
+  UNCONDITIONAL_CALL @ 0x00712b0a (in FUN_007126c0)
+  UNCONDITIONAL_CALL @ 0x00712b29 (in FUN_007126c0)
+  UNCONDITIONAL_CALL @ 0x00715cf9 (in FUN_00715ca0)
+  UNCONDITIONAL_CALL @ 0x00715fad (in FUN_00715ec0)
+  UNCONDITIONAL_CALL @ 0x00796e27 (in FUN_00796b90)
+  UNCONDITIONAL_CALL @ 0x00796e3b (in FUN_00796b90)
+  UNCONDITIONAL_CALL @ 0x007a14ab (in FUN_007a1490)
+  UNCONDITIONAL_CALL @ 0x007a15cf (in FUN_007a1490)
+  UNCONDITIONAL_CALL @ 0x007a15e3 (in FUN_007a1490)
+  UNCONDITIONAL_CALL @ 0x00871c04 (in FUN_00871a50)
+  UNCONDITIONAL_CALL @ 0x007a16b4 (in FUN_007a1670)
+  UNCONDITIONAL_CALL @ 0x007a16c7 (in FUN_007a1670)
+  UNCONDITIONAL_CALL @ 0x0079caaa (in FUN_0079c5a0)
+  UNCONDITIONAL_CALL @ 0x0079fff0 (in FUN_0079ffb0)
+  UNCONDITIONAL_CALL @ 0x007a11b7 (in FUN_0079ffb0)
+  UNCONDITIONAL_CALL @ 0x007a1377 (in FUN_0079ffb0)
+  UNCONDITIONAL_CALL @ 0x00705f86 (in FUN_00705ec0)
+  UNCONDITIONAL_CALL @ 0x00766b0a (in FUN_00766aa0)
+  UNCONDITIONAL_CALL @ 0x007061f6 (in FUN_00706130)
+  UNCONDITIONAL_CALL @ 0x007ac969 (in FUN_007ac730)
+  UNCONDITIONAL_CALL @ 0x005773b8 (in FUN_00577390)
+  UNCONDITIONAL_CALL @ 0x0057ae66 (in FUN_0057ada0)
+  UNCONDITIONAL_CALL @ 0x0057ae7e (in FUN_0057ada0)
+  UNCONDITIONAL_CALL @ 0x0057af4b (in FUN_0057ada0)
+  UNCONDITIONAL_CALL @ 0x0057b055 (in FUN_0057ada0)
+  UNCONDITIONAL_CALL @ 0x0056b470 (in FUN_0056b2d0)
+  UNCONDITIONAL_CALL @ 0x0070384a (in FUN_00703810)
+  UNCONDITIONAL_CALL @ 0x00700408 (in FUN_00700350)
+  UNCONDITIONAL_CALL @ 0x00700423 (in FUN_00700350)
+  UNCONDITIONAL_CALL @ 0x00757f0c (in FUN_00757ea0)
+  UNCONDITIONAL_CALL @ 0x0071520f (in FUN_007151b0)
+  UNCONDITIONAL_CALL @ 0x00715280 (in FUN_007151b0)
+  UNCONDITIONAL_CALL @ 0x007152a8 (in FUN_007151b0)
+  UNCONDITIONAL_CALL @ 0x007153c4 (in FUN_007151b0)
+  UNCONDITIONAL_CALL @ 0x0075f544 (in FUN_0075f2a0)
+  UNCONDITIONAL_CALL @ 0x0076012b (in FUN_0075fb90)
+  UNCONDITIONAL_CALL @ 0x0076a645 (in FUN_0076a540)
+  UNCONDITIONAL_CALL @ 0x0077e72b (in FUN_0077e4f0)
+  UNCONDITIONAL_CALL @ 0x0077e9fb (in FUN_0077e750)
+  UNCONDITIONAL_CALL @ 0x0077ea20 (in FUN_0077e750)
+  UNCONDITIONAL_CALL @ 0x00789c49 (in FUN_00789820)
+  UNCONDITIONAL_CALL @ 0x0078a12c (in FUN_00789820)
+  UNCONDITIONAL_CALL @ 0x0079c101 (in FUN_0079c0c0)
+  UNCONDITIONAL_CALL @ 0x0079c115 (in FUN_0079c0c0)
+  UNCONDITIONAL_CALL @ 0x007d0c08 (in FUN_007d0bf0)
+  UNCONDITIONAL_CALL @ 0x007d0c20 (in FUN_007d0bf0)
+  UNCONDITIONAL_CALL @ 0x007fbc31 (in FUN_007fba00)
+  UNCONDITIONAL_CALL @ 0x007fbc45 (in FUN_007fba00)
+  UNCONDITIONAL_CALL @ 0x007fbca7 (in FUN_007fba00)
+  UNCONDITIONAL_CALL @ 0x007fbcc2 (in FUN_007fba00)
+  UNCONDITIONAL_CALL @ 0x007fbda0 (in FUN_007fba00)
+  UNCONDITIONAL_CALL @ 0x007fbdba (in FUN_007fba00)
+  UNCONDITIONAL_CALL @ 0x007fc7d2 (in FUN_007fc790)
+  UNCONDITIONAL_CALL @ 0x007fc809 (in FUN_007fc790)
+  UNCONDITIONAL_CALL @ 0x007fc840 (in FUN_007fc790)
+  UNCONDITIONAL_CALL @ 0x007fc881 (in FUN_007fc790)
+  UNCONDITIONAL_CALL @ 0x007fc8a0 (in FUN_007fc790)
+  UNCONDITIONAL_CALL @ 0x007fc8bf (in FUN_007fc790)
+  UNCONDITIONAL_CALL @ 0x007fc91c (in FUN_007fc8d0)
+  UNCONDITIONAL_CALL @ 0x007fc93b (in FUN_007fc8d0)
+  UNCONDITIONAL_CALL @ 0x007fc95a (in FUN_007fc8d0)
+  Total: 143 refs
+
+--- Calls FROM reference caller primitive result getter (0x0056c7f0) ---
+  0x0056c7fd -> 0x00559450 FUN_00559450
+  Total: 1 calls
+
+======================================================================
+generated primitive geometry constructor @ 0x00b6fc90
+======================================================================
+  Function: FUN_00b6fc90 @ 0x00b6fc90, Size: 105 bytes
+
+undefined4 * __fastcall FUN_00b6fc90(undefined4 *param_1)
+
+{
+  FUN_00ba8e50();
+  *param_1 = &PTR_FUN_010ae670;
+  param_1[0x18] = 0;
+  param_1[0x19] = 0;
+  *(undefined2 *)(param_1 + 0x1a) = 0;
+  *(undefined2 *)((int)param_1 + 0x6a) = 0;
+  param_1[0x1b] = 3;
+  param_1[0x1c] = 0;
+  param_1[0x1d] = 0;
+  param_1[0x1e] = 0;
+  param_1[0x1f] = 0;
+  param_1[0x16] = 0x21;
+  param_1[7] = 0x15;
+  if ((param_1[8] & 0x80000000) == 0) {
+    param_1[0xe] = 0;
+  }
+  param_1[8] = param_1[8] | 0x80000000;
+  if ((*(byte *)(param_1 + 9) & 1) == 0) {
+    param_1[0xe] = 0;
+  }
+  param_1[9] = param_1[9] | 1;
+  return param_1;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00b6fc90 (generated primitive geometry constructor)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x006a3416 (in FUN_006a2a20)
+  UNCONDITIONAL_CALL @ 0x004b2e48 (in FUN_004b29b0)
+  UNCONDITIONAL_CALL @ 0x004b351b (in FUN_004b2eb0)
+  UNCONDITIONAL_CALL @ 0x004b3a5b (in FUN_004b3890)
+  UNCONDITIONAL_CALL @ 0x0053ffee (in FUN_0053fa40)
+  UNCONDITIONAL_CALL @ 0x0068c262 (in FUN_0068be90)
+  UNCONDITIONAL_CALL @ 0x0068e555 (in FUN_0068dea0)
+  UNCONDITIONAL_CALL @ 0x006a4fd7 (in FUN_006a37a0)
+  UNCONDITIONAL_CALL @ 0x006a5310 (in FUN_006a37a0)
+  UNCONDITIONAL_CALL @ 0x006a562d (in FUN_006a37a0)
+  UNCONDITIONAL_CALL @ 0x004b6ef4 (in FUN_004b6e90)
+  UNCONDITIONAL_CALL @ 0x004bb7fb (in FUN_004baf10)
+  UNCONDITIONAL_CALL @ 0x004b379f (in FUN_004b3570)
+  UNCONDITIONAL_CALL @ 0x004b6ff8 (in FUN_004b6f90)
+  UNCONDITIONAL_CALL @ 0x004a754c (in FUN_004a72d0)
+  UNCONDITIONAL_CALL @ 0x004b3dff (in FUN_004b3b90)
+  UNCONDITIONAL_CALL @ 0x00577ceb (in FUN_00577ca0)
+  UNCONDITIONAL_CALL @ 0x00b6fe42 (in FUN_00b6fe00)
+  UNCONDITIONAL_CALL @ 0x00b6fec0 (in CreateObject)
+  UNCONDITIONAL_CALL @ 0x00baf258 (in FUN_00baf120)
+  Total: 20 refs
+
+--- Calls FROM generated primitive geometry constructor (0x00b6fc90) ---
+  0x00b6fc93 -> 0x00ba8e50 FUN_00ba8e50
+  Total: 1 calls
+
+======================================================================
+generated primitive geometry-data constructor @ 0x00a71c40
+======================================================================
+  Function: FUN_00a71c40 @ 0x00a71c40, Size: 121 bytes
+
+undefined4 * __thiscall
+FUN_00a71c40(undefined4 *param_1,undefined4 param_2,undefined4 param_3,undefined4 param_4,
+            undefined4 param_5,undefined4 param_6,undefined4 param_7,undefined4 param_8,
+            undefined4 param_9,undefined4 param_10,undefined4 param_11,undefined4 param_12)
+
+{
+  int iVar1;
+  undefined4 uVar2;
+  
+  iVar1 = FUN_00aa13e0(0x50);
+  if (iVar1 != 0) {
+    uVar2 = FUN_00a75dc0(param_2,param_3,param_4,param_5,param_6,param_7,param_8,param_9,param_10,
+                         param_11,param_12);
+    FUN_00a89720(uVar2);
+    *param_1 = &PTR_FUN_0109cd44;
+    return param_1;
+  }
+  FUN_00a89720(0);
+  *param_1 = &PTR_FUN_0109cd44;
+  return param_1;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00a71c40 (generated primitive geometry-data constructor)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x005373f1 (in FUN_005371b0)
+  UNCONDITIONAL_CALL @ 0x00c57cfb (in FUN_00c56680)
+  UNCONDITIONAL_CALL @ 0x00c58c5a (in FUN_00c584a0)
+  UNCONDITIONAL_CALL @ 0x004a74ff (in FUN_004a72d0)
+  UNCONDITIONAL_CALL @ 0x00c583c7 (in FUN_00c57d70)
+  Total: 5 refs
+
+--- Calls FROM generated primitive geometry-data constructor (0x00a71c40) ---
+  0x00a71c45 -> 0x00aa13e0 FUN_00aa13e0
+  0x00a71c8a -> 0x00a75dc0 FUN_00a75dc0
+  0x00a71c92 -> 0x00a89720 FUN_00a89720
+  0x00a71ca8 -> 0x00a89720 FUN_00a89720
+  Total: 4 calls
+
+======================================================================
+BSFadeNode child virtual plus B0 dispatcher @ 0x00a5db60
+======================================================================
+  Function: FUN_00a5db60 @ 0x00a5db60, Size: 127 bytes
+
+void __thiscall FUN_00a5db60(int param_1,int param_2)
+
+{
+  int *piVar1;
+  int iVar2;
+  int iVar3;
+  uint uVar4;
+  
+  iVar2 = param_2;
+  FUN_00a5a140(param_2);
+  param_2 = 0;
+  FUN_00a5a170(iVar2,1,&param_2);
+  uVar4 = 0;
+  if (*(short *)(param_1 + 0xa6) != 0) {
+    do {
+      piVar1 = *(int **)(*(int *)(param_1 + 0xa0) + uVar4 * 4);
+      if (piVar1 != (int *)0x0) {
+        (**(code **)(*piVar1 + 0xb0))(param_2);
+      }
+      uVar4 = uVar4 + 1;
+    } while (uVar4 < *(ushort *)(param_1 + 0xa6));
+  }
+  iVar3 = param_2;
+  if ((iVar2 != param_2) && (param_2 != 0)) {
+    FUN_00a89890();
+    FUN_00aa4060(iVar3);
+  }
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00a5db60 (BSFadeNode child virtual plus B0 dispatcher)
+----------------------------------------------------------------------
+  DATA @ 0x0101796c (in ???)
+  DATA @ 0x01017dd4 (in ???)
+  DATA @ 0x010237e4 (in ???)
+  DATA @ 0x0102bff4 (in ???)
+  DATA @ 0x0106618c (in ???)
+  DATA @ 0x01066994 (in ???)
+  DATA @ 0x01083c0c (in ???)
+  DATA @ 0x0109b65c (in ???)
+  DATA @ 0x010a0434 (in ???)
+  DATA @ 0x010a0c14 (in ???)
+  DATA @ 0x010a9040 (in ???)
+  DATA @ 0x010adda8 (in ???)
+  DATA @ 0x010ba6b8 (in ???)
+  DATA @ 0x010ba7e0 (in ???)
+  DATA @ 0x010c1114 (in ???)
+  DATA @ 0x010c1a0c (in ???)
+  DATA @ 0x010c1bdc (in ???)
+  DATA @ 0x010c1dc4 (in ???)
+  DATA @ 0x010c1f64 (in ???)
+  DATA @ 0x010c2074 (in ???)
+  DATA @ 0x010c2184 (in ???)
+  DATA @ 0x010c22ac (in ???)
+  DATA @ 0x010c24ac (in ???)
+  DATA @ 0x010c27c4 (in ???)
+  DATA @ 0x010c3064 (in ???)
+  DATA @ 0x010c3254 (in ???)
+  DATA @ 0x010a00cc (in ???)
+  DATA @ 0x010a10d4 (in ???)
+  Total: 28 refs
+
+--- Calls FROM BSFadeNode child virtual plus B0 dispatcher (0x00a5db60) ---
+  0x00a5db6a -> 0x00a5a140 FUN_00a5a140
+  0x00a5db81 -> 0x00a5a170 FUN_00a5a170
+  0x00a5dbc9 -> 0x00a89890 FUN_00a89890
+  0x00a5dbd4 -> 0x00aa4060 FUN_00aa4060
+  Total: 4 calls
+
+----------------------------------------------------------------------
+References TO 0x0109cd44 (NiTriStrips vtable observed in crash)
+----------------------------------------------------------------------
+  DATA @ 0x00a71ccd (in FUN_00a71cc0)
+  DATA @ 0x00a71c97 (in FUN_00a71c40)
+  DATA @ 0x00a71cad (in FUN_00a71c40)
+  DATA @ 0x00a71dd6 (in FUN_00a71db0)
+  DATA @ 0x00a71cfb (in ???)
+  Total: 5 refs
+
+----------------------------------------------------------------------
+Pointer table: NiTriStrips runtime vtable and following data @ 0x0109cd44
+----------------------------------------------------------------------
+  +0x00 0x0109cd44 -> 0x00a74530 FUN_00a74530             '0E..'
+  +0x04 0x0109cd48 -> 0x00cfcc20 FUN_00cfcc20             ' ...'
+  +0x08 0x0109cd4c -> 0x00a71d20 ???                      ' ...'
+  +0x0c 0x0109cd50 -> 0x00acbb70 FUN_00acbb70             'p...'
+  +0x10 0x0109cd54 -> 0x00acbb70 FUN_00acbb70             'p...'
+  +0x14 0x0109cd58 -> 0x00acbb70 FUN_00acbb70             'p...'
+  +0x18 0x0109cd5c -> 0x00e68810 FUN_00e68810             '....'
+  +0x1c 0x0109cd60 -> 0x00e68810 FUN_00e68810             '....'
+  +0x20 0x0109cd64 -> 0x00e68810 FUN_00e68810             '....'
+  +0x24 0x0109cd68 -> 0x00acbb70 FUN_00acbb70             'p...'
+  +0x28 0x0109cd6c -> 0x00acbb70 FUN_00acbb70             'p...'
+  +0x2c 0x0109cd70 -> 0x00acbb70 FUN_00acbb70             'p...'
+  +0x30 0x0109cd74 -> 0x00acbb70 FUN_00acbb70             'p...'
+  +0x34 0x0109cd78 -> 0x00acbb70 FUN_00acbb70             'p...'
+  +0x38 0x0109cd7c -> 0x00acbb70 FUN_00acbb70             'p...'
+  +0x3c 0x0109cd80 -> 0x00acbb70 FUN_00acbb70             'p...'
+  +0x40 0x0109cd84 -> 0x00acbb70 FUN_00acbb70             'p...'
+  +0x44 0x0109cd88 -> 0x00acbb70 FUN_00acbb70             'p...'
+  +0x48 0x0109cd8c -> 0x00a71db0 FUN_00a71db0             '....'
+  +0x4c 0x0109cd90 -> 0x00a98ea0 thunk_FUN_00a80bf0       '....'
+  +0x50 0x0109cd94 -> 0x00a98eb0 thunk_FUN_00a80b50       '....'
+  +0x54 0x0109cd98 -> 0x00a74500 ???                      '.E..'
+  +0x58 0x0109cd9c -> 0x00a71d10 thunk_FUN_00a80db0       '....'
+  +0x5c 0x0109cda0 -> 0x00a74510 ???                      '.E..'
+  +0x60 0x0109cda4 -> 0x00a71e70 FUN_00a71e70             'p...'
+  +0x64 0x0109cda8 -> 0x004534f0 FUN_004534f0             '.4E.'
+  +0x68 0x0109cdac -> 0x00a80a10 FUN_00a80a10             '....'
+  +0x6c 0x0109cdb0 -> 0x00a7fdc0 ???                      '....'
+  +0x70 0x0109cdb4 -> 0x00ee8990 FUN_00ee8990             '....'
+  +0x74 0x0109cdb8 -> 0x00a5d310 ???                      '....'
+  +0x78 0x0109cdbc -> 0x00a7fdb0 thunk_FUN_00a59dc0       '....'
+  +0x7c 0x0109cdc0 -> 0x00e7cd40 FUN_00e7cd40             '@...'
+  +0x80 0x0109cdc4 -> 0x00e7cd40 FUN_00e7cd40             '@...'
+  +0x84 0x0109cdc8 -> 0x00a89af0 FUN_00a89af0             '....'
+  +0x88 0x0109cdcc -> 0x00acbb70 FUN_00acbb70             'p...'
+  +0x8c 0x0109cdd0 -> 0x00a5a030 ???                      '0...'
+  +0x90 0x0109cdd4 -> 0x00a7ff70 ???                      'p...'
+  +0x94 0x0109cdd8 -> 0x00a89af0 FUN_00a89af0             '....'
+  +0x98 0x0109cddc -> 0x00a89af0 FUN_00a89af0             '....'
+  +0x9c 0x0109cde0 -> 0x00a59e20 FUN_00a59e20             ' ...'
+  +0xa0 0x0109cde4 -> 0x00a808f0 FUN_00a808f0             '....'
+  +0xa4 0x0109cde8 -> 0x00a59f90 FUN_00a59f90             '....'
+  +0xa8 0x0109cdec -> 0x00a59fd0 FUN_00a59fd0             '....'
+  +0xac 0x0109cdf0 -> 0x00a59fd0 FUN_00a59fd0             '....'
+  +0xb0 0x0109cdf4 -> 0x00a80820 FUN_00a80820             ' ...'
+  +0xb4 0x0109cdf8 -> 0x00a89af0 FUN_00a89af0             '....'
+  +0xb8 0x0109cdfc -> 0x00a68c60 FUN_00a68c60             '`...'
+  +0xbc 0x0109ce00 -> 0x00a80710 FUN_00a80710             '....'
+  +0xc0 0x0109ce04 -> 0x00a59d80 FUN_00a59d80             '....'
+  +0xc4 0x0109ce08 -> 0x00a59cc0 ???                      '....'
+  +0xc8 0x0109ce0c -> 0x00a5a430 ???                      '0...'
+  +0xcc 0x0109ce10 -> 0x00a59db0 ???                      '....'
+  +0xd0 0x0109ce14 -> 0x00a59cf0 ???                      '....'
+  +0xd4 0x0109ce18 -> 0x00a7fd90 FUN_00a7fd90             '....'
+  +0xd8 0x0109ce1c -> 0x00a809b0 FUN_00a809b0             '....'
+  +0xdc 0x0109ce20 -> 0x00a71d30 ???                      '0...'
+
+----------------------------------------------------------------------
+Pointer table: BSFadeNode vtable through child-dispatch slot @ 0x010a8f90
+----------------------------------------------------------------------
+  +0x00 0x010a8f90 -> 0x00b4ed40 FUN_00b4ed40             '@...'
+  +0x04 0x010a8f94 -> 0x00cfcc20 FUN_00cfcc20             ' ...'
+  +0x08 0x010a8f98 -> 0x00b4e1d0 ???                      '....'
+  +0x0c 0x010a8f9c -> 0x006815c0 FUN_006815c0             '..h.'
+  +0x10 0x010a8fa0 -> 0x006815c0 FUN_006815c0             '..h.'
+  +0x14 0x010a8fa4 -> 0x00acbb70 FUN_00acbb70             'p...'
+  +0x18 0x010a8fa8 -> 0x00acbb70 FUN_00acbb70             'p...'
+  +0x1c 0x010a8fac -> 0x00acbb70 FUN_00acbb70             'p...'
+  +0x20 0x010a8fb0 -> 0x00acbb70 FUN_00acbb70             'p...'
+  +0x24 0x010a8fb4 -> 0x00acbb70 FUN_00acbb70             'p...'
+  +0x28 0x010a8fb8 -> 0x00acbb70 FUN_00acbb70             'p...'
+  +0x2c 0x010a8fbc -> 0x00acbb70 FUN_00acbb70             'p...'
+  +0x30 0x010a8fc0 -> 0x00acbb70 FUN_00acbb70             'p...'
+  +0x34 0x010a8fc4 -> 0x00acbb70 FUN_00acbb70             'p...'
+  +0x38 0x010a8fc8 -> 0x00acbb70 FUN_00acbb70             'p...'
+  +0x3c 0x010a8fcc -> 0x00acbb70 FUN_00acbb70             'p...'
+  +0x40 0x010a8fd0 -> 0x00acbb70 FUN_00acbb70             'p...'
+  +0x44 0x010a8fd4 -> 0x00acbb70 FUN_00acbb70             'p...'
+  +0x48 0x010a8fd8 -> 0x00b4e3f0 FUN_00b4e3f0             '....'
+  +0x4c 0x010a8fdc -> 0x00b4dee0 ???                      '....'
+  +0x50 0x010a8fe0 -> 0x00a9a730 thunk_FUN_00a5e9d0       '0...'
+  +0x54 0x010a8fe4 -> 0x00b4def0 ???                      '....'
+  +0x58 0x010a8fe8 -> 0x00b4df10 ???                      '....'
+  +0x5c 0x010a8fec -> 0x00b4df20 ???                      ' ...'
+  +0x60 0x010a8ff0 -> 0x00b4ed70 FUN_00b4ed70             'p...'
+  +0x64 0x010a8ff4 -> 0x004534f0 FUN_004534f0             '.4E.'
+  +0x68 0x010a8ff8 -> 0x00a5dce0 FUN_00a5dce0             '....'
+  +0x6c 0x010a8ffc -> 0x00a5c6a0 FUN_00a5c6a0             '....'
+  +0x70 0x010a9000 -> 0x00ee8990 FUN_00ee8990             '....'
+  +0x74 0x010a9004 -> 0x00a5d310 ???                      '....'
+  +0x78 0x010a9008 -> 0x00a7fdb0 thunk_FUN_00a59dc0       '....'
+  +0x7c 0x010a900c -> 0x00e7cd40 FUN_00e7cd40             '@...'
+  +0x80 0x010a9010 -> 0x00e7cd40 FUN_00e7cd40             '@...'
+  +0x84 0x010a9014 -> 0x00a89af0 FUN_00a89af0             '....'
+  +0x88 0x010a9018 -> 0x00acbb70 FUN_00acbb70             'p...'
+  +0x8c 0x010a901c -> 0x00a5e280 FUN_00a5e280             '....'
+  +0x90 0x010a9020 -> 0x00a5d940 FUN_00a5d940             '@...'
+  +0x94 0x010a9024 -> 0x00a89af0 FUN_00a89af0             '....'
+  +0x98 0x010a9028 -> 0x00a89af0 FUN_00a89af0             '....'
+  +0x9c 0x010a902c -> 0x00a5e560 FUN_00a5e560             '`...'
+  +0xa0 0x010a9030 -> 0x00a5e440 ???                      '@...'
+  +0xa4 0x010a9034 -> 0x00b4ded0 ???                      '....'
+  +0xa8 0x010a9038 -> 0x00b4ea20 ???                      ' ...'
+  +0xac 0x010a903c -> 0x00a5e1f0 FUN_00a5e1f0             '....'
+  +0xb0 0x010a9040 -> 0x00a5db60 FUN_00a5db60             '`...'
+  +0xb4 0x010a9044 -> 0x00a89af0 FUN_00a89af0             '....'
+  +0xb8 0x010a9048 -> 0x00a68c60 FUN_00a68c60             '`...'
+  +0xbc 0x010a904c -> 0x00a5e2d0 FUN_00a5e2d0             '....'
+
+----------------------------------------------------------------------
+Disassembly: Sphere constructor, destructor, and adjacent virtual methods (0x004a7150 - 0x004a72d0)
+----------------------------------------------------------------------
+  0x004a7150: PUSH EBP
+  0x004a7151: MOV EBP,ESP
+  0x004a7153: PUSH -0x1
+  0x004a7155: PUSH 0xeeffd8
+  0x004a715a: MOV EAX,FS:[0x0]
+  0x004a7160: PUSH EAX
+  0x004a7161: PUSH ECX
+  0x004a7162: MOV EAX,[0x011c16bc]
+  0x004a7167: XOR EAX,EBP
+  0x004a7169: PUSH EAX
+  0x004a716a: LEA EAX,[EBP + -0xc]
+  0x004a716d: MOV FS:[0x0],EAX
+  0x004a7173: MOV dword ptr [EBP + -0x10],ECX
+  0x004a7176: MOV ECX,dword ptr [EBP + -0x10]
+  0x004a7179: CALL 0x004a4ac0
+  0x004a717e: MOV dword ptr [EBP + -0x4],0x0
+  0x004a7185: MOV EAX,dword ptr [EBP + -0x10]
+  0x004a7188: MOV dword ptr [EAX],0x101ea64
+  0x004a718e: PUSH 0x0
+  0x004a7190: MOV ECX,dword ptr [EBP + -0x10]
+  0x004a7193: ADD ECX,0x24
+  0x004a7196: CALL 0x0066b0d0
+  0x004a719b: PUSH 0x0
+  0x004a719d: MOV ECX,dword ptr [EBP + -0x10]
+  0x004a71a0: ADD ECX,0x2c
+  0x004a71a3: CALL 0x0066b0d0
+  0x004a71a8: MOV ECX,dword ptr [EBP + -0x10]
+  0x004a71ab: MOV dword ptr [ECX + 0x4],0x2
+  0x004a71b2: MOV dword ptr [EBP + -0x4],0xffffffff
+  0x004a71b9: MOV EAX,dword ptr [EBP + -0x10]
+  0x004a71bc: MOV ECX,dword ptr [EBP + -0xc]
+  0x004a71bf: MOV dword ptr FS:[0x0],ECX
+  0x004a71c6: POP ECX
+  0x004a71c7: MOV ESP,EBP
+  0x004a71c9: POP EBP
+  0x004a71ca: RET
+  0x004a71d0: PUSH EBP
+  0x004a71d1: MOV EBP,ESP
+  0x004a71d3: PUSH ECX
+  0x004a71d4: MOV dword ptr [EBP + -0x4],ECX
+  0x004a71d7: MOV EAX,dword ptr [EBP + 0x8]
+  0x004a71da: PUSH ECX
+  0x004a71db: FLD float ptr [EAX]
+  0x004a71dd: FSTP float ptr [ESP]
+  0x004a71e0: MOV ECX,dword ptr [EBP + -0x4]
+  0x004a71e3: CALL 0x004a78e0
+  0x004a71e8: MOV ESP,EBP
+  0x004a71ea: POP EBP
+  0x004a71eb: RET 0x4
+  0x004a71f0: PUSH EBP
+  0x004a71f1: MOV EBP,ESP
+  0x004a71f3: PUSH ECX
+  0x004a71f4: MOV dword ptr [EBP + -0x4],ECX
+  0x004a71f7: MOV ECX,dword ptr [EBP + -0x4]
+  0x004a71fa: CALL 0x004a7220
+  0x004a71ff: MOV EAX,dword ptr [EBP + 0x8]
+  0x004a7202: AND EAX,0x1
+  0x004a7205: JZ 0x004a7213
+  0x004a7207: MOV ECX,dword ptr [EBP + -0x4]
+  0x004a720a: PUSH ECX
+  0x004a720b: CALL 0x00401030
+  0x004a7210: ADD ESP,0x4
+  0x004a7213: MOV EAX,dword ptr [EBP + -0x4]
+  0x004a7216: MOV ESP,EBP
+  0x004a7218: POP EBP
+  0x004a7219: RET 0x4
+  0x004a7220: PUSH EBP
+  0x004a7221: MOV EBP,ESP
+  0x004a7223: PUSH ECX
+  0x004a7224: MOV dword ptr [EBP + -0x4],ECX
+  0x004a7227: MOV ECX,dword ptr [EBP + -0x4]
+  0x004a722a: CALL 0x004a4bd0
+  0x004a722f: MOV ESP,EBP
+  0x004a7231: POP EBP
+  0x004a7232: RET
+  0x004a7240: PUSH EBP
+  0x004a7241: MOV EBP,ESP
+  0x004a7243: SUB ESP,0x10
+  0x004a7246: MOV dword ptr [EBP + -0x4],ECX
+  0x004a7249: MOV EAX,dword ptr [EBP + -0x4]
+  0x004a724c: FLD float ptr [EAX + 0x18]
+  0x004a724f: MOV ECX,dword ptr [EBP + -0x4]
+  0x004a7252: FMUL float ptr [ECX + 0x18]
+  0x004a7255: MOV ECX,dword ptr [EBP + 0x8]
+  0x004a7258: FSTP double ptr [EBP + -0xc]
+  0x004a725b: CALL 0x004a7290
+  0x004a7260: FCOMP double ptr [EBP + -0xc]
+  0x004a7263: FNSTSW AX
+  0x004a7265: TEST AH,0x5
+  0x004a7268: JP 0x004a7273
+  0x004a726a: MOV dword ptr [EBP + -0x10],0x1
+  0x004a7271: JMP 0x004a727a
+  0x004a7273: MOV dword ptr [EBP + -0x10],0x0
+  0x004a727a: MOV AL,byte ptr [EBP + -0x10]
+  0x004a727d: MOV ESP,EBP
+  0x004a727f: POP EBP
+  0x004a7280: RET 0x4
+  0x004a7290: PUSH EBP
+  0x004a7291: MOV EBP,ESP
+  0x004a7293: SUB ESP,0x8
+  0x004a7296: MOV dword ptr [EBP + -0x4],ECX
+  0x004a7299: MOV EAX,dword ptr [EBP + -0x4]
+  0x004a729c: FLD float ptr [EAX]
+  0x004a729e: MOV ECX,dword ptr [EBP + -0x4]
+  0x004a72a1: FMUL float ptr [ECX]
+  0x004a72a3: MOV EDX,dword ptr [EBP + -0x4]
+  0x004a72a6: FLD float ptr [EDX + 0x4]
+  0x004a72a9: MOV EAX,dword ptr [EBP + -0x4]
+  0x004a72ac: FMUL float ptr [EAX + 0x4]
+  0x004a72af: FADDP
+  0x004a72b1: MOV ECX,dword ptr [EBP + -0x4]
+  0x004a72b4: FLD float ptr [ECX + 0x8]
+  0x004a72b7: MOV EDX,dword ptr [EBP + -0x4]
+  0x004a72ba: FMUL float ptr [EDX + 0x8]
+  0x004a72bd: FADDP
+  0x004a72bf: FSTP float ptr [EBP + -0x8]
+  0x004a72c2: FLD float ptr [EBP + -0x8]
+  0x004a72c5: MOV ESP,EBP
+  0x004a72c7: POP EBP
+  0x004a72c8: RET
+  0x004a72d0: PUSH EBP
+
+----------------------------------------------------------------------
+Disassembly: generated primitive geometry vtable initialization (0x00b6fc90 - 0x00b6fd90)
+----------------------------------------------------------------------
+  0x00b6fc90: PUSH ESI
+  0x00b6fc91: MOV ESI,ECX
+  0x00b6fc93: CALL 0x00ba8e50
+  0x00b6fc98: FLDZ
+  0x00b6fc9a: MOV dword ptr [ESI],0x10ae670
+  0x00b6fca0: XOR ECX,ECX
+  0x00b6fca2: MOV dword ptr [ESI + 0x60],ECX
+  0x00b6fca5: MOV dword ptr [ESI + 0x64],ECX
+  0x00b6fca8: XOR EAX,EAX
+  0x00b6fcaa: MOV word ptr [ESI + 0x68],AX
+  0x00b6fcae: XOR EDX,EDX
+  0x00b6fcb0: MOV word ptr [ESI + 0x6a],DX
+  0x00b6fcb4: MOV dword ptr [ESI + 0x6c],0x3
+  0x00b6fcbb: FST float ptr [ESI + 0x70]
+  0x00b6fcbe: FST float ptr [ESI + 0x74]
+  0x00b6fcc1: MOV EAX,0x80000000
+  0x00b6fcc6: FST float ptr [ESI + 0x78]
+  0x00b6fcc9: FSTP float ptr [ESI + 0x7c]
+  0x00b6fccc: MOV dword ptr [ESI + 0x58],0x21
+  0x00b6fcd3: MOV dword ptr [ESI + 0x1c],0x15
+  0x00b6fcda: TEST dword ptr [ESI + 0x20],EAX
+  0x00b6fcdd: JNZ 0x00b6fce2
+  0x00b6fcdf: MOV dword ptr [ESI + 0x38],ECX
+  0x00b6fce2: OR dword ptr [ESI + 0x20],EAX
+  0x00b6fce5: MOV EAX,0x1
+  0x00b6fcea: TEST byte ptr [ESI + 0x24],AL
+  0x00b6fced: JNZ 0x00b6fcf2
+  0x00b6fcef: MOV dword ptr [ESI + 0x38],ECX
+  0x00b6fcf2: OR dword ptr [ESI + 0x24],EAX
+  0x00b6fcf5: MOV EAX,ESI
+  0x00b6fcf7: POP ESI
+  0x00b6fcf8: RET
+  0x00b6fd00: MOV EAX,0x11fa05c
+  0x00b6fd05: RET
+  0x00b6fd10: MOV EAX,dword ptr [ESP + 0x4]
+  0x00b6fd14: MOV dword ptr [ECX + 0x6c],EAX
+  0x00b6fd17: RET 0x4
+  0x00b6fd20: MOV EAX,dword ptr [ECX + 0x60]
+  0x00b6fd23: RET
+  0x00b6fd30: PUSH -0x1
+  0x00b6fd32: PUSH 0xf28b5e
+  0x00b6fd37: MOV EAX,FS:[0x0]
+  0x00b6fd3d: PUSH EAX
+  0x00b6fd3e: PUSH ECX
+  0x00b6fd3f: PUSH EBP
+  0x00b6fd40: PUSH ESI
+  0x00b6fd41: PUSH EDI
+  0x00b6fd42: MOV EAX,[0x011c16bc]
+  0x00b6fd47: XOR EAX,ESP
+  0x00b6fd49: PUSH EAX
+  0x00b6fd4a: LEA EAX,[ESP + 0x14]
+  0x00b6fd4e: MOV FS:[0x0],EAX
+  0x00b6fd54: MOV ESI,ECX
+  0x00b6fd56: MOV dword ptr [ESP + 0x10],ESI
+  0x00b6fd5a: MOV dword ptr [ESI],0x10ae670
+  0x00b6fd60: MOV EDI,dword ptr [ESI + 0x60]
+  0x00b6fd63: MOV EBP,dword ptr [0x00fdf1c4]
+  0x00b6fd69: MOV dword ptr [ESP + 0x1c],0x2
+  0x00b6fd71: TEST EDI,EDI
+  0x00b6fd73: JZ 0x00b6fd8f
+  0x00b6fd75: LEA EAX,[EDI + 0x4]
+  0x00b6fd78: PUSH EAX
+  0x00b6fd79: CALL EBP
+  0x00b6fd7b: TEST EAX,EAX
+  0x00b6fd7d: JNZ 0x00b6fd88
+  0x00b6fd7f: MOV EDX,dword ptr [EDI]
+  0x00b6fd81: MOV EAX,dword ptr [EDX + 0x4]
+  0x00b6fd84: MOV ECX,EDI
+  0x00b6fd86: CALL EAX
+  0x00b6fd88: MOV dword ptr [ESI + 0x60],0x0
+  0x00b6fd8f: MOV EAX,dword ptr [ESI + 0x64]
+
+----------------------------------------------------------------------
+Disassembly: child plus-B0 virtual dispatch (0x00a5db60 - 0x00a5dbe0)
+----------------------------------------------------------------------
+  0x00a5db60: PUSH EBX
+  0x00a5db61: MOV EBX,dword ptr [ESP + 0x8]
+  0x00a5db65: PUSH ESI
+  0x00a5db66: PUSH EDI
+  0x00a5db67: PUSH EBX
+  0x00a5db68: MOV ESI,ECX
+  0x00a5db6a: CALL 0x00a5a140
+  0x00a5db6f: LEA EAX,[ESP + 0x10]
+  0x00a5db73: PUSH EAX
+  0x00a5db74: PUSH 0x1
+  0x00a5db76: PUSH EBX
+  0x00a5db77: MOV ECX,ESI
+  0x00a5db79: MOV dword ptr [ESP + 0x1c],0x0
+  0x00a5db81: CALL 0x00a5a170
+  0x00a5db86: XOR ECX,ECX
+  0x00a5db88: XOR EDI,EDI
+  0x00a5db8a: CMP CX,word ptr [ESI + 0xa6]
+  0x00a5db91: JNC 0x00a5dbbb
+  0x00a5db93: MOV EDX,dword ptr [ESI + 0xa0]
+  0x00a5db99: MOV ECX,dword ptr [EDX + EDI*0x4]
+  0x00a5db9c: TEST ECX,ECX
+  0x00a5db9e: JZ 0x00a5dbaf
+  0x00a5dba0: MOV EAX,dword ptr [ECX]
+  0x00a5dba2: MOV EDX,dword ptr [ESP + 0x10]
+  0x00a5dba6: MOV EAX,dword ptr [EAX + 0xb0]
+  0x00a5dbac: PUSH EDX
+  0x00a5dbad: CALL EAX
+  0x00a5dbaf: MOVZX ECX,word ptr [ESI + 0xa6]
+  0x00a5dbb6: INC EDI
+  0x00a5dbb7: CMP EDI,ECX
+  0x00a5dbb9: JC 0x00a5db93
+  0x00a5dbbb: MOV ECX,dword ptr [ESP + 0x10]
+  0x00a5dbbf: CMP EBX,ECX
+  0x00a5dbc1: JZ 0x00a5dbd9
+  0x00a5dbc3: MOV ESI,ECX
+  0x00a5dbc5: TEST ECX,ECX
+  0x00a5dbc7: JZ 0x00a5dbd9
+  0x00a5dbc9: CALL 0x00a89890
+  0x00a5dbce: PUSH ESI
+  0x00a5dbcf: MOV ECX,0x11f6238
+  0x00a5dbd4: CALL 0x00aa4060
+  0x00a5dbd9: POP EDI
+  0x00a5dbda: POP ESI
+  0x00a5dbdb: POP EBX
+  0x00a5dbdc: RET 0x4
+  0x00a5dbe0: PUSH EDI
