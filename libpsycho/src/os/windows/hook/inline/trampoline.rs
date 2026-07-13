@@ -62,7 +62,7 @@ impl Trampoline {
             return Err(InlineHookError::FunctionTooSmall { size: region_size });
         }
 
-        log::debug!(
+        log::trace!(
             "Creating trampoline for {} stolen bytes",
             disasm.get_stolen_bytes_len(),
         );
@@ -135,7 +135,7 @@ impl Trampoline {
 
         flush_instructions_cache(trampoline_ptr, trampoline_size)?;
 
-        log::debug!("Trampoline created successfully at {:p}", trampoline_ptr);
+        log::trace!("Trampoline created successfully at {:p}", trampoline_ptr);
 
         // Release guard and return trampoline
         let final_ptr = alloc_guard.release();

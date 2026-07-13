@@ -129,7 +129,7 @@ pub struct Runtime {
     gc_queue: Arc<SeqQueue<usize>>,
     gc_run: Arc<AtomicBool>,
     gc_handle: Option<JoinHandle<()>>,
-    emergency_regions: Mutex<Vec<Box<Region>>>,
+    emergency_regions: Mutex<Vec<Region>>,
     emergency_regions_used: AtomicUsize,
 }
 
@@ -153,13 +153,13 @@ impl Runtime {
         instance
     }
 
-    fn reserve_emergency_regions() -> Vec<Box<Region>> {
+    fn reserve_emergency_regions() -> Vec<Region> {
         let mut regions = Vec::with_capacity(EMERGENCY_REGION_COUNT);
         for _ in 0..EMERGENCY_REGION_COUNT {
             let Some(region) = Region::new_emergency(REGION_SIZE) else {
                 break;
             };
-            regions.push(Box::new(region));
+            regions.push(region);
         }
 
         if regions.is_empty() {
@@ -181,7 +181,9 @@ impl Runtime {
         }
 
         let mut regions = self.emergency_regions.lock();
-        let region = regions.pop();
+        // HeapState publishes Region addresses, so establish the final stable
+        // address before handing this reserve to a heap.
+        let region = regions.pop().map(Box::new);
         let remaining = regions.len();
         drop(regions);
 

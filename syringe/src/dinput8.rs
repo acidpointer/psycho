@@ -1,8 +1,8 @@
 //! Forwarded `dinput8.dll` exports.
 //!
-//! Proxy forwarding is independent of early mod initialization. A proxy export
-//! must never wait for or start mod loading because its caller could hold the
-//! Windows loader lock.
+//! Mod initialization is independent of forwarding. Proxy exports never start
+//! or wait for the loader, so a caller holding loader lock cannot deadlock with
+//! Syringe's mod-loading path.
 
 use core::ffi::c_void;
 use core::mem::transmute;
@@ -84,7 +84,7 @@ pub unsafe fn dll_unregister_server() -> i32 {
     unsafe { f() }
 }
 
-/// Load and cache the real system DLL before invoking `Syringe_ModInit`.
+/// Load and cache the real system DLL before invoking mod callbacks.
 /// Proxy exports retain lazy loading as their normal compatibility fallback.
 pub fn preload() {
     let _ = real_dinput8();

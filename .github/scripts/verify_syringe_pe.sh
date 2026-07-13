@@ -54,8 +54,9 @@ for index in "${!expected_exports[@]}"; do
 done
 
 mapfile -t imports < <(awk '/DLL Name:/ { print $3 }' <<<"$DETAILS")
-expected_imports=(KERNEL32.dll msvcrt.dll)
-if [[ "${imports[*]}" != "${expected_imports[*]}" ]]; then
+msvcrt_imports="KERNEL32.dll msvcrt.dll"
+ucrt_imports="KERNEL32.dll api-ms-win-crt-convert-l1-1-0.dll api-ms-win-crt-heap-l1-1-0.dll api-ms-win-crt-private-l1-1-0.dll api-ms-win-crt-runtime-l1-1-0.dll api-ms-win-crt-stdio-l1-1-0.dll api-ms-win-crt-string-l1-1-0.dll"
+if [[ "${imports[*]}" != "$msvcrt_imports" && "${imports[*]}" != "$ucrt_imports" ]]; then
     echo "Unexpected Syringe imports: ${imports[*]}" >&2
     exit 1
 fi

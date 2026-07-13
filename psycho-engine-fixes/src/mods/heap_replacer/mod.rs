@@ -4,20 +4,23 @@
 //! `memory.allocator` config controls whether this module is disabled,
 //! runs scrap_heap only, or runs gheap plus scrap_heap.
 
-mod crt_iat;
 mod crt_inline;
 pub mod gheap;
 pub mod heap_validate;
 mod install;
+mod manifest;
 pub mod mem_stats;
 mod mimalloc;
 mod mode;
 pub mod scrap_heap;
 
 pub use install::{
-    install_gheap_hooks, install_gheap_initialize, install_sheap_hooks, install_sheap_initialize,
+    initialize_gheap_runtime, initialize_sheap_runtime, install_gheap_and_sheap_hooks,
+    install_sheap_hooks, prepare_gheap_hooks, prepare_sheap_hooks,
 };
+pub use manifest::{AllocatorPatchPlan, preflight};
 pub use mimalloc::initialize_mimalloc;
+pub(crate) use mode::set_active_mode;
 pub use mode::{AllocatorMode, current_mode, decide_mode};
 
 use libc::c_void;

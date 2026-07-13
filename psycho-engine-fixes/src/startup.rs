@@ -10,8 +10,10 @@ use crate::{
     mods::{
         engine_fixes::{install as install_engine_fixes, install_display},
         heap_replacer::{
-            AllocatorMode, decide_mode, initialize_mimalloc, install_gheap_hooks,
-            install_gheap_initialize, install_sheap_hooks, install_sheap_initialize,
+            AllocatorMode, AllocatorPatchPlan, decide_mode, initialize_gheap_runtime,
+            initialize_mimalloc, initialize_sheap_runtime, install_gheap_and_sheap_hooks,
+            install_sheap_hooks, preflight, prepare_gheap_hooks, prepare_sheap_hooks,
+            set_active_mode,
         },
         perf::{install_radio_signal_scan_cache, install_rng_hook},
         zlib::install_zlib_hooks,
@@ -79,32 +81,77 @@ fn initialize_diagnostics(diagnostics: &DiagnosticsConfig) -> anyhow::Result<()>
 }
 
 fn initialize_memory(memory: &MemoryConfig) -> anyhow::Result<()> {
-    match decide_mode(memory) {
-        AllocatorMode::GheapAndScrapHeap => initialize_gheap_and_scrap_heap(),
+    let requested = decide_mode(memory);
+    if requested != AllocatorMode::Disabled && !crate::entry::has_pre_crt_startup_boundary() {
+        log::error!(
+            "[MEMORY] Allocator mode '{}' rejected: deterministic pre-CRT startup boundary was not reached",
+            requested.name(),
+        );
+        log::error!("[MEMORY] Vanilla allocator retained; other engine fixes will continue");
+        set_active_mode(AllocatorMode::Disabled);
+        return Ok(());
+    }
+    let patch_plan = match preflight(requested) {
+        Ok(plan) => plan,
+        Err(error) => {
+            log::error!(
+                "[MEMORY] Allocator mode '{}' rejected before activation: {:#}",
+                requested.name(),
+                error,
+            );
+            log::error!("[MEMORY] Vanilla allocator retained; other engine fixes will continue");
+            set_active_mode(AllocatorMode::Disabled);
+            return Ok(());
+        }
+    };
+
+    let result = match requested {
+        AllocatorMode::GheapAndScrapHeap => initialize_gheap_and_scrap_heap(patch_plan),
         AllocatorMode::ScrapHeap => initialize_scrap_heap(),
         AllocatorMode::Disabled => {
             log::info!("[MEMORY] Heap allocator replacement disabled");
             Ok(())
         }
+    };
+    match result {
+        Ok(()) => {
+            set_active_mode(requested);
+            Ok(())
+        }
+        Err(error) => {
+            log::error!(
+                "[MEMORY] Allocator mode '{}' failed during preparation or activation: {:#}",
+                requested.name(),
+                error,
+            );
+            log::error!("[MEMORY] Vanilla allocator retained; other engine fixes will continue");
+            set_active_mode(AllocatorMode::Disabled);
+            Ok(())
+        }
     }
 }
 
-fn initialize_gheap_and_scrap_heap() -> anyhow::Result<()> {
-    // Mimalloc handles CRT allocations. Game objects stay in gheap/scrap_heap.
-    initialize_mimalloc();
+fn initialize_gheap_and_scrap_heap(patch_plan: AllocatorPatchPlan) -> anyhow::Result<()> {
+    // Prove every instruction boundary before reserving allocator VAS or
+    // starting the scrap-heap collector thread.
+    let realloc_1_ready = prepare_gheap_hooks(patch_plan.hook_gheap_realloc_1)?;
+    prepare_sheap_hooks()?;
 
-    install_gheap_initialize()?;
-    install_sheap_initialize()?;
-    install_gheap_hooks()?;
-    install_sheap_hooks()?;
+    // Finish the only fallible allocator-state setup before mimalloc reserves
+    // its arena. Mimalloc backs scrap-heap regions; game objects stay in gheap.
+    initialize_gheap_runtime()?;
+    initialize_mimalloc();
+    initialize_sheap_runtime();
+    install_gheap_and_sheap_hooks(realloc_1_ready)?;
 
     Ok(())
 }
 
 fn initialize_scrap_heap() -> anyhow::Result<()> {
-    initialize_mimalloc();
+    prepare_sheap_hooks()?;
 
-    install_sheap_initialize()?;
+    initialize_mimalloc();
+    initialize_sheap_runtime();
     install_sheap_hooks()?;
 
     Ok(())

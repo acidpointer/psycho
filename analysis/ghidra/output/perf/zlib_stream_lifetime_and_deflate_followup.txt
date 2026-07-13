@@ -1,0 +1,1102 @@
+ZLIB STREAM LIFETIME AND SAVE DEFLATE FOLLOW-UP
+======================================================================
+
+======================================================================
+save serialization zlib deflate owner @ 0x00483d70
+======================================================================
+  Function: FUN_00483d70 @ 0x00483d70, Size: 590 bytes
+
+void FUN_00483d70(void)
+
+{
+  int iVar1;
+  char cVar2;
+  int iVar3;
+  undefined4 uVar4;
+  int iVar5;
+  int local_4c;
+  int local_48;
+  int local_44;
+  int local_40;
+  undefined4 local_38;
+  int local_34;
+  undefined4 local_28;
+  undefined4 local_24;
+  undefined4 local_20;
+  undefined4 local_1c;
+  int local_c;
+  int local_8;
+  
+  iVar1 = DAT_011c54cc;
+  if ((DAT_011c54cc != 0) && (0x18 < DAT_011c54d0)) {
+    cVar2 = FUN_00401500();
+    if (cVar2 != '\0') {
+      FUN_00470650();
+    }
+    if ((*(uint *)(iVar1 + 8) & 0x40000) == 0) {
+      local_48 = DAT_011c54d0 - 0x18;
+      iVar5 = DAT_011c54cc + 0x18;
+      local_24 = 0;
+      local_20 = 0;
+      local_1c = 0;
+      local_28 = 0;
+      iVar3 = FUN_00b46360(&local_44,0xffffffff,"1.2.1",0x38);
+      if (iVar3 == 0) {
+        local_c = local_48 << 1;
+        uVar4 = FUN_00401000(local_c);
+        local_40 = local_48;
+        local_34 = local_c;
+        local_44 = iVar5;
+        local_38 = uVar4;
+        iVar3 = FUN_00b46b70(&local_44,4);
+        if (iVar3 == -2) {
+          FUN_005b5e40("SAVELOAD: Error deflating ZLib stream.");
+          FUN_00401030(uVar4);
+        }
+        else {
+          iVar5 = local_c - local_34;
+          local_8 = iVar5;
+          iVar3 = FUN_00401000(iVar5 + 0x1cU);
+          *(uint *)(iVar1 + 8) = *(uint *)(iVar1 + 8) | 0x40000;
+          *(int *)(iVar1 + 4) = iVar5 + 4;
+          cVar2 = FUN_00401500();
+          if (cVar2 != '\0') {
+            FUN_00470650();
+          }
+          FUN_00401460(iVar3,iVar1,0x18);
+          local_4c = local_48;
+          cVar2 = FUN_00401500();
+          if (cVar2 != '\0') {
+            FUN_00401080(&local_4c,0);
+          }
+          FUN_00401460(iVar3 + 0x18,&local_4c,4);
+          FUN_00401460(iVar3 + 0x1c,uVar4,local_8);
+          FUN_00401030(DAT_011c54cc);
+          DAT_011c54cc = iVar3;
+          DAT_011c54d0 = iVar5 + 0x1cU;
+          FUN_00b47370(&local_44);
+          FUN_00401030(uVar4);
+        }
+      }
+      else {
+        FUN_005b5e40("SAVELOAD: Error initializing ZLib stream for deflate.");
+      }
+    }
+    else {
+      cVar2 = FUN_00401500();
+      if (cVar2 != '\0') {
+        FUN_00470650();
+      }
+    }
+  }
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+Disassembly save deflate construction and calls: 0x00483d70 - 0x00483f20
+----------------------------------------------------------------------
+  0x00483d70: PUSH EBP
+  0x00483d71: MOV EBP,ESP
+  0x00483d73: SUB ESP,0x74
+  0x00483d76: CMP dword ptr [0x011c54cc],0x0
+  0x00483d7d: JZ 0x00483fba
+  0x00483d83: CMP dword ptr [0x011c54d0],0x18
+  0x00483d8a: JBE 0x00483fba
+  0x00483d90: MOV EAX,[0x011c54cc]
+  0x00483d95: MOV dword ptr [EBP + -0x58],EAX
+  0x00483d98: CALL 0x00401500 -> 0x00401500 FUN_00401500
+  0x00483d9d: MOVZX ECX,AL
+  0x00483da0: TEST ECX,ECX
+  0x00483da2: JZ 0x00483dac
+  0x00483da4: MOV ECX,dword ptr [EBP + -0x58]
+  0x00483da7: CALL 0x00470650 -> 0x00470650 FUN_00470650
+  0x00483dac: MOV EDX,dword ptr [EBP + -0x58]
+  0x00483daf: MOV EAX,dword ptr [EDX + 0x8]
+  0x00483db2: AND EAX,0x40000
+  0x00483db7: JZ 0x00483dd2
+  0x00483db9: CALL 0x00401500 -> 0x00401500 FUN_00401500
+  0x00483dbe: MOVZX ECX,AL
+  0x00483dc1: TEST ECX,ECX
+  0x00483dc3: JZ 0x00483dcd
+  0x00483dc5: MOV ECX,dword ptr [EBP + -0x58]
+  0x00483dc8: CALL 0x00470650 -> 0x00470650 FUN_00470650
+  0x00483dcd: JMP 0x00483fba
+  0x00483dd2: MOV EDX,dword ptr [0x011c54d0]
+  0x00483dd8: SUB EDX,0x18
+  0x00483ddb: MOV dword ptr [EBP + -0x44],EDX
+  0x00483dde: MOV EAX,[0x011c54cc]
+  0x00483de3: MOV dword ptr [EBP + -0x60],EAX
+  0x00483de6: MOV ECX,dword ptr [EBP + -0x60]
+  0x00483de9: ADD ECX,0x18
+  0x00483dec: MOV dword ptr [EBP + -0x60],ECX
+  0x00483def: MOV dword ptr [EBP + -0x20],0x0
+  0x00483df6: MOV dword ptr [EBP + -0x1c],0x0
+  0x00483dfd: MOV dword ptr [EBP + -0x18],0x0
+  0x00483e04: MOV dword ptr [EBP + -0x24],0x0
+  0x00483e0b: PUSH 0x38
+  0x00483e0d: PUSH 0x101a29c
+  0x00483e12: PUSH -0x1
+  0x00483e14: LEA EDX,[EBP + -0x40]
+  0x00483e17: PUSH EDX
+  0x00483e18: CALL 0x00b46360 -> 0x00b46360 FUN_00b46360
+  0x00483e1d: ADD ESP,0x10
+  0x00483e20: MOV dword ptr [EBP + -0x54],EAX
+  0x00483e23: CMP dword ptr [EBP + -0x54],0x0
+  0x00483e27: JZ 0x00483e3b
+  0x00483e29: PUSH 0x101c8f4
+  0x00483e2e: CALL 0x005b5e40 -> 0x005b5e40 FUN_005b5e40
+  0x00483e33: ADD ESP,0x4
+  0x00483e36: JMP 0x00483fba
+  0x00483e3b: MOV EAX,dword ptr [EBP + -0x44]
+  0x00483e3e: SHL EAX,0x1
+  0x00483e40: MOV dword ptr [EBP + -0x8],EAX
+  0x00483e43: MOV ECX,dword ptr [EBP + -0x8]
+  0x00483e46: PUSH ECX
+  0x00483e47: CALL 0x00401000 -> 0x00401000 FUN_00401000
+  0x00483e4c: ADD ESP,0x4
+  0x00483e4f: MOV dword ptr [EBP + -0x64],EAX
+  0x00483e52: MOV EDX,dword ptr [EBP + -0x64]
+  0x00483e55: MOV dword ptr [EBP + -0x4c],EDX
+  0x00483e58: MOV EAX,dword ptr [EBP + -0x44]
+  0x00483e5b: MOV dword ptr [EBP + -0x3c],EAX
+  0x00483e5e: MOV ECX,dword ptr [EBP + -0x60]
+  0x00483e61: MOV dword ptr [EBP + -0x40],ECX
+  0x00483e64: MOV EDX,dword ptr [EBP + -0x8]
+  0x00483e67: MOV dword ptr [EBP + -0x30],EDX
+  0x00483e6a: MOV EAX,dword ptr [EBP + -0x4c]
+  0x00483e6d: MOV dword ptr [EBP + -0x34],EAX
+  0x00483e70: PUSH 0x4
+  0x00483e72: LEA ECX,[EBP + -0x40]
+  0x00483e75: PUSH ECX
+  0x00483e76: CALL 0x00b46b70 -> 0x00b46b70 FUN_00b46b70
+  0x00483e7b: ADD ESP,0x8
+  0x00483e7e: MOV dword ptr [EBP + -0x54],EAX
+  0x00483e81: CMP dword ptr [EBP + -0x54],-0x2
+  0x00483e85: JNZ 0x00483eab
+  0x00483e87: PUSH 0x101c8cc
+  0x00483e8c: CALL 0x005b5e40 -> 0x005b5e40 FUN_005b5e40
+  0x00483e91: ADD ESP,0x4
+  0x00483e94: MOV EDX,dword ptr [EBP + -0x4c]
+  0x00483e97: MOV dword ptr [EBP + -0x68],EDX
+  0x00483e9a: MOV EAX,dword ptr [EBP + -0x68]
+  0x00483e9d: PUSH EAX
+  0x00483e9e: CALL 0x00401030 -> 0x00401030 FUN_00401030
+  0x00483ea3: ADD ESP,0x4
+  0x00483ea6: JMP 0x00483fba
+  0x00483eab: MOV ECX,dword ptr [EBP + -0x8]
+  0x00483eae: SUB ECX,dword ptr [EBP + -0x30]
+  0x00483eb1: MOV dword ptr [EBP + -0x4],ECX
+  0x00483eb4: MOV EDX,dword ptr [EBP + -0x4]
+  0x00483eb7: ADD EDX,0x1c
+  0x00483eba: MOV dword ptr [EBP + -0x50],EDX
+  0x00483ebd: MOV EAX,dword ptr [EBP + -0x50]
+  0x00483ec0: PUSH EAX
+  0x00483ec1: CALL 0x00401000 -> 0x00401000 FUN_00401000
+  0x00483ec6: ADD ESP,0x4
+  0x00483ec9: MOV dword ptr [EBP + -0x6c],EAX
+  0x00483ecc: MOV ECX,dword ptr [EBP + -0x6c]
+  0x00483ecf: MOV dword ptr [EBP + -0x5c],ECX
+  0x00483ed2: MOV EDX,dword ptr [EBP + -0x5c]
+  0x00483ed5: MOV dword ptr [EBP + -0x60],EDX
+  0x00483ed8: MOV EAX,dword ptr [EBP + -0x58]
+  0x00483edb: MOV ECX,dword ptr [EAX + 0x8]
+  0x00483ede: OR ECX,0x40000
+  0x00483ee4: MOV EDX,dword ptr [EBP + -0x58]
+  0x00483ee7: MOV dword ptr [EDX + 0x8],ECX
+  0x00483eea: MOV EAX,dword ptr [EBP + -0x50]
+  0x00483eed: SUB EAX,0x18
+  0x00483ef0: MOV ECX,dword ptr [EBP + -0x58]
+  0x00483ef3: MOV dword ptr [ECX + 0x4],EAX
+  0x00483ef6: CALL 0x00401500 -> 0x00401500 FUN_00401500
+  0x00483efb: MOVZX EDX,AL
+  0x00483efe: TEST EDX,EDX
+  0x00483f00: JZ 0x00483f0a
+  0x00483f02: MOV ECX,dword ptr [EBP + -0x58]
+  0x00483f05: CALL 0x00470650 -> 0x00470650 FUN_00470650
+  0x00483f0a: PUSH 0x18
+  0x00483f0c: MOV EAX,dword ptr [EBP + -0x58]
+  0x00483f0f: PUSH EAX
+  0x00483f10: MOV ECX,dword ptr [EBP + -0x60]
+  0x00483f13: PUSH ECX
+  0x00483f14: CALL 0x00401460 -> 0x00401460 FUN_00401460
+  0x00483f19: ADD ESP,0xc
+  0x00483f1c: MOV EDX,dword ptr [EBP + -0x60]
+  0x00483f1f: ADD EDX,0x18
+
+----------------------------------------------------------------------
+References TO 0x00483d70 (save serialization zlib deflate owner)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00538bdd (in FUN_00538110)
+  Total: 1 refs
+
+--- Calls FROM save serialization zlib deflate owner (0x00483d70) ---
+  0x00483d98 -> 0x00401500 FUN_00401500
+  0x00483da7 -> 0x00470650 FUN_00470650
+  0x00483db9 -> 0x00401500 FUN_00401500
+  0x00483dc8 -> 0x00470650 FUN_00470650
+  0x00483e18 -> 0x00b46360 FUN_00b46360
+  0x00483e2e -> 0x005b5e40 FUN_005b5e40
+  0x00483e47 -> 0x00401000 FUN_00401000
+  0x00483e76 -> 0x00b46b70 FUN_00b46b70
+  0x00483e8c -> 0x005b5e40 FUN_005b5e40
+  0x00483e9e -> 0x00401030 FUN_00401030
+  0x00483ec1 -> 0x00401000 FUN_00401000
+  0x00483ef6 -> 0x00401500 FUN_00401500
+  0x00483f05 -> 0x00470650 FUN_00470650
+  0x00483f14 -> 0x00401460 FUN_00401460
+  0x00483f2b -> 0x00401500 FUN_00401500
+  0x00483f45 -> 0x00401080 FUN_00401080
+  0x00483f57 -> 0x00401460 FUN_00401460
+  0x00483f74 -> 0x00401460 FUN_00401460
+  0x00483f83 -> 0x00401030 FUN_00401030
+  0x00483fa0 -> 0x00b47370 FUN_00b47370
+  0x00483fb2 -> 0x00401030 FUN_00401030
+  Total: 21 calls
+
+======================================================================
+ZLIB TARGETS FROM save serialization
+======================================================================
+  0x00b46360 FUN_00b46360
+
+----------------------------------------------------------------------
+References TO 0x00b46360 (FUN_00b46360)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00483e18 (in FUN_00483d70)
+  UNCONDITIONAL_CALL @ 0x00b4de08 (in FUN_00b4ddb0)
+  Total: 2 refs
+
+======================================================================
+zlib target FUN_00b46360 @ 0x00b46360
+======================================================================
+  Function: FUN_00b46360 @ 0x00b46360, Size: 37 bytes
+
+void FUN_00b46360(undefined4 param_1,undefined4 param_2,undefined4 param_3,undefined4 param_4)
+
+{
+  FUN_00b46390(param_1,param_2,8,0xf,8,0,param_3,param_4);
+  return;
+}
+
+
+  0x00b46b70 FUN_00b46b70
+
+----------------------------------------------------------------------
+References TO 0x00b46b70 (FUN_00b46b70)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00483e76 (in FUN_00483d70)
+  UNCONDITIONAL_CALL @ 0x00b46a70 (in FUN_00b469e0)
+  UNCONDITIONAL_CALL @ 0x00b4de24 (in FUN_00b4ddb0)
+  Total: 3 refs
+
+======================================================================
+zlib target FUN_00b46b70 @ 0x00b46b70
+======================================================================
+  Function: FUN_00b46b70 @ 0x00b46b70, Size: 1760 bytes
+
+uint FUN_00b46b70(int *param_1,int param_2)
+
+{
+  undefined4 *puVar1;
+  uint uVar2;
+  int iVar3;
+  int iVar4;
+  undefined1 local_1c;
+  uint local_14;
+  int local_10;
+  
+  if ((((param_1 == (int *)0x0) || (param_1[7] == 0)) || (4 < param_2)) || (param_2 < 0)) {
+    uVar2 = 0xfffffffe;
+  }
+  else {
+    puVar1 = (undefined4 *)param_1[7];
+    if (((param_1[3] == 0) || ((*param_1 == 0 && (param_1[1] != 0)))) ||
+       ((puVar1[1] == 0x29a && (param_2 != 4)))) {
+      param_1[6] = (int)PTR_s_stream_error_010a6408;
+      uVar2 = 0xfffffffe;
+    }
+    else if (param_1[4] == 0) {
+      param_1[6] = (int)PTR_s_buffer_error_010a6414;
+      uVar2 = 0xfffffffb;
+    }
+    else {
+      *puVar1 = param_1;
+      iVar4 = puVar1[8];
+      puVar1[8] = param_2;
+      if (puVar1[1] == 0x2a) {
+        if (puVar1[6] == 2) {
+          *(undefined1 *)(puVar1[2] + puVar1[5]) = 0x1f;
+          puVar1[5] = puVar1[5] + 1;
+          *(undefined1 *)(puVar1[2] + puVar1[5]) = 0x8b;
+          puVar1[5] = puVar1[5] + 1;
+          *(undefined1 *)(puVar1[2] + puVar1[5]) = 8;
+          puVar1[5] = puVar1[5] + 1;
+          *(undefined1 *)(puVar1[2] + puVar1[5]) = 0;
+          puVar1[5] = puVar1[5] + 1;
+          *(undefined1 *)(puVar1[2] + puVar1[5]) = 0;
+          puVar1[5] = puVar1[5] + 1;
+          *(undefined1 *)(puVar1[2] + puVar1[5]) = 0;
+          puVar1[5] = puVar1[5] + 1;
+          *(undefined1 *)(puVar1[2] + puVar1[5]) = 0;
+          puVar1[5] = puVar1[5] + 1;
+          *(undefined1 *)(puVar1[2] + puVar1[5]) = 0;
+          puVar1[5] = puVar1[5] + 1;
+          if (puVar1[0x1f] == 9) {
+            local_1c = 2;
+          }
+          else if (((int)puVar1[0x20] < 2) && (1 < (int)puVar1[0x1f])) {
+            local_1c = 0;
+          }
+          else {
+            local_1c = 4;
+          }
+          *(undefined1 *)(puVar1[2] + puVar1[5]) = local_1c;
+          puVar1[5] = puVar1[5] + 1;
+          *(undefined1 *)(puVar1[2] + puVar1[5]) = 0xff;
+          puVar1[5] = puVar1[5] + 1;
+          puVar1[1] = 0x71;
+          iVar3 = FUN_00b4a070(0,0,0);
+          param_1[0xc] = iVar3;
+        }
+        else {
+          if (((int)puVar1[0x20] < 2) && (1 < (int)puVar1[0x1f])) {
+            if ((int)puVar1[0x1f] < 6) {
+              local_10 = 1;
+            }
+            else if (puVar1[0x1f] == 6) {
+              local_10 = 2;
+            }
+            else {
+              local_10 = 3;
+            }
+          }
+          else {
+            local_10 = 0;
+          }
+          local_14 = local_10 << 6 | ((puVar1[10] + -8) * 0x10 + 8) * 0x100;
+          if (puVar1[0x19] != 0) {
+            local_14 = local_14 | 0x20;
+          }
+          puVar1[1] = 0x71;
+          FUN_00b47250(puVar1,(0x1f - local_14 % 0x1f) + local_14);
+          if (puVar1[0x19] != 0) {
+            FUN_00b47250(puVar1,(uint)param_1[0xc] >> 0x10);
+            FUN_00b47250(puVar1,param_1[0xc] & 0xffff);
+          }
+          iVar3 = FUN_00b49e20(0,0,0);
+          param_1[0xc] = iVar3;
+        }
+      }
+      if (puVar1[5] == 0) {
+        if (((param_1[1] == 0) && (param_2 <= iVar4)) && (param_2 != 4)) {
+          param_1[6] = (int)PTR_s_buffer_error_010a6414;
+          return 0xfffffffb;
+        }
+      }
+      else {
+        FUN_00b472a0(param_1);
+        if (param_1[4] == 0) {
+          puVar1[8] = 0xffffffff;
+          return 0;
+        }
+      }
+      if ((puVar1[1] == 0x29a) && (param_1[1] != 0)) {
+        param_1[6] = (int)PTR_s_buffer_error_010a6414;
+        uVar2 = 0xfffffffb;
+      }
+      else {
+        if (((param_1[1] != 0) || (puVar1[0x1b] != 0)) || ((param_2 != 0 && (puVar1[1] != 0x29a))))
+        {
+          iVar4 = (*(code *)(&PTR_FUN_010a6380)[puVar1[0x1f] * 3])(puVar1,param_2);
+          if ((iVar4 == 2) || (iVar4 == 3)) {
+            puVar1[1] = 0x29a;
+          }
+          if ((iVar4 == 0) || (iVar4 == 2)) {
+            if (param_1[4] == 0) {
+              puVar1[8] = 0xffffffff;
+            }
+            return 0;
+          }
+          if (iVar4 == 1) {
+            if (param_2 == 1) {
+              FUN_00b4ad90(puVar1);
+            }
+            else {
+              FUN_00b4ac50(puVar1,0,0,0);
+              if (param_2 == 3) {
+                *(undefined2 *)(puVar1[0xf] + -2 + puVar1[0x11] * 2) = 0;
+                _memset((void *)puVar1[0xf],0,puVar1[0x11] * 2 - 2);
+              }
+            }
+            FUN_00b472a0(param_1);
+            if (param_1[4] == 0) {
+              puVar1[8] = 0xffffffff;
+              return 0;
+            }
+          }
+        }
+        if (param_2 == 4) {
+          if ((int)puVar1[6] < 1) {
+            uVar2 = 1;
+          }
+          else {
+            if (puVar1[6] == 2) {
+              *(char *)(puVar1[2] + puVar1[5]) = (char)param_1[0xc];
+              puVar1[5] = puVar1[5] + 1;
+              *(char *)(puVar1[2] + puVar1[5]) = (char)((uint)param_1[0xc] >> 8);
+              puVar1[5] = puVar1[5] + 1;
+              *(char *)(puVar1[2] + puVar1[5]) = (char)((uint)param_1[0xc] >> 0x10);
+              puVar1[5] = puVar1[5] + 1;
+              *(char *)(puVar1[2] + puVar1[5]) = (char)((uint)param_1[0xc] >> 0x18);
+              puVar1[5] = puVar1[5] + 1;
+              *(char *)(puVar1[2] + puVar1[5]) = (char)param_1[2];
+              puVar1[5] = puVar1[5] + 1;
+              *(char *)(puVar1[2] + puVar1[5]) = (char)((uint)param_1[2] >> 8);
+              puVar1[5] = puVar1[5] + 1;
+              *(char *)(puVar1[2] + puVar1[5]) = (char)((uint)param_1[2] >> 0x10);
+              puVar1[5] = puVar1[5] + 1;
+              *(char *)(puVar1[2] + puVar1[5]) = (char)((uint)param_1[2] >> 0x18);
+              puVar1[5] = puVar1[5] + 1;
+            }
+            else {
+              FUN_00b47250(puVar1,(uint)param_1[0xc] >> 0x10);
+              FUN_00b47250(puVar1,param_1[0xc] & 0xffff);
+            }
+            FUN_00b472a0(param_1);
+            if (0 < (int)puVar1[6]) {
+              puVar1[6] = -puVar1[6];
+            }
+            uVar2 = (uint)(puVar1[5] == 0);
+          }
+        }
+        else {
+          uVar2 = 0;
+        }
+      }
+    }
+  }
+  return uVar2;
+}
+
+
+  0x00b47370 FUN_00b47370
+
+----------------------------------------------------------------------
+References TO 0x00b47370 (FUN_00b47370)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00483fa0 (in FUN_00483d70)
+  UNCONDITIONAL_CALL @ 0x00b4663e (in FUN_00b46390)
+  UNCONDITIONAL_CALL @ 0x00b475d4 (in FUN_00b47490)
+  UNCONDITIONAL_CALL @ 0x00b4de39 (in FUN_00b4ddb0)
+  UNCONDITIONAL_CALL @ 0x00b4de67 (in FUN_00b4ddb0)
+  Total: 5 refs
+
+======================================================================
+zlib target FUN_00b47370 @ 0x00b47370
+======================================================================
+  Function: FUN_00b47370 @ 0x00b47370, Size: 286 bytes
+
+uint FUN_00b47370(int param_1)
+
+{
+  int iVar1;
+  uint uVar2;
+  
+  if ((param_1 == 0) || (*(int *)(param_1 + 0x1c) == 0)) {
+    uVar2 = 0xfffffffe;
+  }
+  else {
+    iVar1 = *(int *)(*(int *)(param_1 + 0x1c) + 4);
+    if ((iVar1 == 0x2a) || ((iVar1 == 0x71 || (iVar1 == 0x29a)))) {
+      if (*(int *)(*(int *)(param_1 + 0x1c) + 8) != 0) {
+        (**(code **)(param_1 + 0x24))
+                  (*(undefined4 *)(param_1 + 0x28),*(undefined4 *)(*(int *)(param_1 + 0x1c) + 8));
+      }
+      if (*(int *)(*(int *)(param_1 + 0x1c) + 0x3c) != 0) {
+        (**(code **)(param_1 + 0x24))
+                  (*(undefined4 *)(param_1 + 0x28),*(undefined4 *)(*(int *)(param_1 + 0x1c) + 0x3c))
+        ;
+      }
+      if (*(int *)(*(int *)(param_1 + 0x1c) + 0x38) != 0) {
+        (**(code **)(param_1 + 0x24))
+                  (*(undefined4 *)(param_1 + 0x28),*(undefined4 *)(*(int *)(param_1 + 0x1c) + 0x38))
+        ;
+      }
+      if (*(int *)(*(int *)(param_1 + 0x1c) + 0x30) != 0) {
+        (**(code **)(param_1 + 0x24))
+                  (*(undefined4 *)(param_1 + 0x28),*(undefined4 *)(*(int *)(param_1 + 0x1c) + 0x30))
+        ;
+      }
+      (**(code **)(param_1 + 0x24))(*(undefined4 *)(param_1 + 0x28),*(undefined4 *)(param_1 + 0x1c))
+      ;
+      *(undefined4 *)(param_1 + 0x1c) = 0;
+      uVar2 = (iVar1 != 0x71) - 1 & 0xfffffffd;
+    }
+    else {
+      uVar2 = 0xfffffffe;
+    }
+  }
+  return uVar2;
+}
+
+
+
+======================================================================
+compressed archive constructor caller A @ 0x00afa550
+======================================================================
+  Function: FUN_00afa550 @ 0x00afa550, Size: 398 bytes
+
+undefined4 __thiscall
+FUN_00afa550(int param_1,int param_2,int param_3,undefined4 param_4,undefined4 param_5)
+
+{
+  char cVar1;
+  int iVar2;
+  int iVar3;
+  uint uVar4;
+  int *unaff_FS_OFFSET;
+  undefined4 local_44;
+  undefined4 local_40;
+  undefined4 local_18;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00f235ad;
+  local_10 = *unaff_FS_OFFSET;
+  *unaff_FS_OFFSET = (int)&local_10;
+  local_18 = 0;
+  iVar3 = param_3 * 0x10 + *(int *)(*(int *)(param_1 + 0x184) + 0xc + param_2 * 0x10);
+  if (iVar3 != 0) {
+    cVar1 = FUN_00afb2a0(iVar3,0);
+    if (cVar1 != '\0') {
+      uVar4 = *(uint *)(iVar3 + 0xc) & 0x7fffffff;
+      if (((*(uint *)(param_1 + 0x16c) & 4) != 0) == ((*(uint *)(iVar3 + 8) & 0x40000000) != 0)) {
+        iVar2 = FUN_00aa3e40(0x160);
+        local_8 = 0;
+        if (iVar2 == 0) {
+          local_40 = 0;
+        }
+        else {
+          local_40 = FUN_00afb300(param_5,param_1,uVar4,*(uint *)(iVar3 + 8) & 0x3fffffff,param_4);
+        }
+        local_18 = local_40;
+      }
+      else {
+        iVar2 = FUN_00aa3e40(0x178);
+        local_8 = 1;
+        if (iVar2 == 0) {
+          local_44 = 0;
+        }
+        else {
+          local_44 = FUN_00afc430(param_5,param_1,uVar4,*(uint *)(iVar3 + 8) & 0x3fffffff,param_4);
+        }
+        local_18 = local_44;
+      }
+    }
+  }
+  *unaff_FS_OFFSET = local_10;
+  return local_18;
+}
+
+
+
+======================================================================
+compressed archive constructor caller B @ 0x00afa750
+======================================================================
+  Function: FUN_00afa750 @ 0x00afa750, Size: 389 bytes
+
+undefined4 __thiscall FUN_00afa750(int param_1,int param_2,undefined4 param_3,undefined4 param_4)
+
+{
+  char cVar1;
+  int iVar2;
+  int *unaff_FS_OFFSET;
+  undefined4 local_44;
+  undefined4 local_40;
+  undefined4 local_14;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00f235de;
+  local_10 = *unaff_FS_OFFSET;
+  *unaff_FS_OFFSET = (int)&local_10;
+  local_14 = 0;
+  if (param_2 != 0) {
+    cVar1 = FUN_00afb2a0(param_2,0);
+    if (cVar1 != '\0') {
+      if (((*(uint *)(param_1 + 0x16c) & 4) != 0) == ((*(uint *)(param_2 + 8) & 0x40000000) != 0)) {
+        iVar2 = FUN_00aa3e40(0x160);
+        local_8 = 0;
+        if (iVar2 == 0) {
+          local_40 = 0;
+        }
+        else {
+          local_40 = FUN_00afb300(param_4,param_1,*(uint *)(param_2 + 0xc) & 0x7fffffff,
+                                  *(uint *)(param_2 + 8) & 0x3fffffff,param_3);
+        }
+        local_14 = local_40;
+      }
+      else {
+        iVar2 = FUN_00aa3e40(0x178);
+        local_8 = 1;
+        if (iVar2 == 0) {
+          local_44 = 0;
+        }
+        else {
+          local_44 = FUN_00afc430(param_4,param_1,*(uint *)(param_2 + 0xc) & 0x7fffffff,
+                                  *(uint *)(param_2 + 8) & 0x3fffffff,param_3);
+        }
+        local_14 = local_44;
+      }
+    }
+  }
+  *unaff_FS_OFFSET = local_10;
+  return local_14;
+}
+
+
+
+======================================================================
+compressed archive virtual read adapter @ 0x00afc660
+======================================================================
+  Function: FUN_00afc660 @ 0x00afc660, Size: 21 bytes
+
+void FUN_00afc660(undefined4 param_1,undefined4 param_2,undefined4 param_3)
+
+{
+  FUN_00afc0e0(param_2,param_3);
+  return;
+}
+
+
+
+======================================================================
+compressed archive deleting destructor adapter @ 0x00afc6f0
+======================================================================
+  Function: FUN_00afc6f0 @ 0x00afc6f0, Size: 46 bytes
+
+undefined4 __thiscall FUN_00afc6f0(undefined4 param_1,uint param_2)
+
+{
+  FUN_00afbfe0();
+  if ((param_2 & 1) != 0) {
+    FUN_00aa4060(param_1);
+  }
+  return param_1;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00afa550 (compressed archive constructor caller A)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00af60b9 (in FUN_00af5fa0)
+  Total: 1 refs
+
+----------------------------------------------------------------------
+References TO 0x00afa750 (compressed archive constructor caller B)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00af63d9 (in FUN_00af6340)
+  Total: 1 refs
+
+----------------------------------------------------------------------
+References TO 0x00afc660 (compressed archive virtual read adapter)
+----------------------------------------------------------------------
+  DATA @ 0x00afc641 (in FUN_00afc620)
+  Total: 1 refs
+
+======================================================================
+UNIQUE CALLERS OF compressed archive constructor caller A (0x00afa550)
+======================================================================
+  Unique caller functions: 1
+
+======================================================================
+compressed archive constructor caller A caller @ 0x00af5fa0
+======================================================================
+  Function: FUN_00af5fa0 @ 0x00af5fa0, Size: 434 bytes
+
+undefined4 FUN_00af5fa0(undefined4 param_1,undefined4 param_2,uint param_3)
+
+{
+  int iVar1;
+  char cVar2;
+  uint uVar3;
+  undefined4 uVar4;
+  LONG LVar5;
+  int *unaff_FS_OFFSET;
+  int *local_2c;
+  undefined4 local_28;
+  undefined1 local_24 [8];
+  undefined4 local_1c;
+  undefined1 local_18 [8];
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00f23305;
+  local_10 = *unaff_FS_OFFSET;
+  uVar3 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  local_1c = 0;
+  local_28 = 0;
+  uVar4 = FUN_00b014b0(param_1,uVar3);
+  if (param_3 == 0xffff) {
+    param_3 = FUN_00af7d80(uVar4);
+  }
+  FUN_00afd270(uVar4,local_24,local_18);
+  local_2c = DAT_011f8160;
+  do {
+    if (local_2c == (int *)0x0) {
+      uVar4 = 0;
+LAB_00af6143:
+      *unaff_FS_OFFSET = local_10;
+      return uVar4;
+    }
+    iVar1 = *local_2c;
+    if (iVar1 != 0) {
+      InterlockedIncrement((LONG *)(iVar1 + 0x15c));
+    }
+    local_8 = 0;
+    if (((iVar1 != 0) && ((*(ushort *)(iVar1 + 0x180) & param_3) != 0)) &&
+       (cVar2 = FUN_00af9bf0(local_24,local_18,&local_1c,&local_28,uVar4), cVar2 != '\0')) {
+      uVar4 = FUN_00afa550(local_1c,local_28,param_2,uVar4);
+      local_8 = 0xffffffff;
+      if (iVar1 != 0) {
+        LVar5 = InterlockedDecrement((LONG *)(iVar1 + 0x15c));
+        if (LVar5 == 0) {
+          (**(code **)(*(int *)(iVar1 + 0x158) + 4))();
+        }
+      }
+      goto LAB_00af6143;
+    }
+    local_2c = (int *)local_2c[1];
+    local_8 = 0xffffffff;
+    if (iVar1 != 0) {
+      LVar5 = InterlockedDecrement((LONG *)(iVar1 + 0x15c));
+      if (LVar5 == 0) {
+        (**(code **)(*(int *)(iVar1 + 0x158) + 4))();
+      }
+    }
+  } while( true );
+}
+
+
+
+======================================================================
+UNIQUE CALLERS OF compressed archive constructor caller B (0x00afa750)
+======================================================================
+  Unique caller functions: 1
+
+======================================================================
+compressed archive constructor caller B caller @ 0x00af6340
+======================================================================
+  Function: FUN_00af6340 @ 0x00af6340, Size: 239 bytes
+
+undefined4 FUN_00af6340(undefined4 param_1,undefined4 param_2,undefined4 param_3,undefined4 param_4)
+
+{
+  uint uVar1;
+  int iVar2;
+  LONG LVar3;
+  int *unaff_FS_OFFSET;
+  undefined4 local_1c;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00f2334b;
+  local_10 = *unaff_FS_OFFSET;
+  uVar1 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  local_1c = 0;
+  iVar2 = FUN_00af6910(param_2,0xffff,uVar1);
+  if (iVar2 != 0) {
+    InterlockedIncrement((LONG *)(iVar2 + 0x15c));
+  }
+  local_8 = 0;
+  if (iVar2 != 0) {
+    local_1c = FUN_00afa750(param_2,param_3,param_4);
+  }
+  local_8 = 0xffffffff;
+  if (iVar2 != 0) {
+    LVar3 = InterlockedDecrement((LONG *)(iVar2 + 0x15c));
+    if (LVar3 == 0) {
+      (**(code **)(*(int *)(iVar2 + 0x158) + 4))();
+    }
+  }
+  *unaff_FS_OFFSET = local_10;
+  return local_1c;
+}
+
+
+
+======================================================================
+UNIQUE CALLERS OF compressed archive virtual read adapter (0x00afc660)
+======================================================================
+  Unique caller functions: 0
+
+======================================================================
+ArchiveFile base constructor and input buffer policy @ 0x00afb300
+======================================================================
+  Function: FUN_00afb300 @ 0x00afb300, Size: 536 bytes
+
+undefined4 * __thiscall
+FUN_00afb300(undefined4 *param_1,char *param_2,undefined4 param_3,undefined4 param_4,uint param_5,
+            int param_6)
+
+{
+  byte bVar1;
+  uint uVar2;
+  undefined4 uVar3;
+  int *piVar4;
+  int *unaff_FS_OFFSET;
+  uint local_3c;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00f2360f;
+  local_10 = *unaff_FS_OFFSET;
+  uVar2 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  FUN_00aff180(uVar2);
+  local_8 = 0;
+  *param_1 = &PTR_FUN_010a45fc;
+  piVar4 = param_1 + 0x56;
+  *piVar4 = 0;
+  if (*piVar4 != 0) {
+    InterlockedIncrement((LONG *)(*piVar4 + 0x15c));
+  }
+  local_8 = CONCAT31(local_8._1_3_,1);
+  if (param_2 != (char *)0x0) {
+    _strcpy_s((char *)(param_1 + 0x11),0x104,param_2);
+  }
+  param_1[8] = 0;
+  FUN_00afd1b0(param_3);
+  param_1[0x57] = param_4;
+  param_1[0x55] = param_5;
+  FUN_00afbfa0(0);
+  if ((DAT_011f8164 < param_5) && (param_6 != -1)) {
+    local_3c = DAT_011f8164;
+  }
+  else {
+    local_3c = param_5;
+  }
+  param_1[4] = local_3c;
+  FUN_00afb5f0(0,0);
+  if ((param_6 == -1) || ((*(uint *)(param_1[0x56] + 0x16c) & 0x100) != 0)) {
+    uVar3 = FUN_00afb7a0(param_1[8],param_1[4],0);
+    param_1[5] = uVar3;
+    if ((*(uint *)(param_1[0x56] + 0x16c) & 0x100) != 0) {
+      bVar1 = *(byte *)(param_1[8] + param_1[6]);
+      _memcpy(param_1 + 0x11,(void *)(param_1[8] + 1 + param_1[6]),(uint)bVar1);
+      *(undefined1 *)((int)param_1 + bVar1 + 0x44) = 0;
+      param_1[6] = bVar1 + 1 + param_1[6];
+      param_1[0x54] = bVar1 + 1;
+    }
+  }
+  *unaff_FS_OFFSET = local_10;
+  return param_1;
+}
+
+
+
+======================================================================
+ArchiveFile compressed-input refill @ 0x00afb7a0
+======================================================================
+  Function: FUN_00afb7a0 @ 0x00afb7a0, Size: 1104 bytes
+
+uint __thiscall FUN_00afb7a0(int param_1,void *param_2,uint param_3,int param_4)
+
+{
+  int iVar1;
+  int iVar2;
+  int iVar3;
+  undefined4 uVar4;
+  void *_Src;
+  uint uVar5;
+  uint local_b4;
+  uint local_24;
+  uint local_20;
+  uint local_1c;
+  size_t local_14;
+  uint local_10;
+  
+  local_14 = 0;
+  local_10 = *(int *)(param_1 + 0x15c) + *(int *)(param_1 + 0x150) + param_4;
+  (**(code **)(**(int **)(param_1 + 0x158) + 0x18))();
+  if (*(int *)(param_1 + 0x158) != 0) {
+    EnterCriticalSection((LPCRITICAL_SECTION)(*(int *)(param_1 + 0x158) + 0x19c));
+  }
+  iVar1 = *(int *)(*(int *)(param_1 + 0x158) + 0x1c);
+  iVar2 = iVar1 - *(int *)(*(int *)(param_1 + 0x158) + 0x14);
+  if ((iVar2 <= (int)local_10) && ((int)local_10 < iVar1)) {
+    iVar2 = local_10 - iVar2;
+    local_24 = *(int *)(*(int *)(param_1 + 0x158) + 0x14) - iVar2;
+    if ((int)param_3 < (int)local_24) {
+      local_24 = param_3;
+    }
+    iVar3 = FUN_00aa1ac0();
+    _memcpy(param_2,(void *)(iVar3 + iVar2),local_24);
+    param_2 = (void *)((int)param_2 + local_24);
+    if (param_3 == local_24) {
+      if (*(int *)(param_1 + 0x158) == 0) {
+        return param_3;
+      }
+      LeaveCriticalSection((LPCRITICAL_SECTION)(*(int *)(param_1 + 0x158) + 0x19c));
+      return param_3;
+    }
+    param_3 = param_3 - local_24;
+    local_10 = local_10 + local_24;
+    local_14 = local_24;
+  }
+  *(undefined4 *)(*(int *)(param_1 + 0x158) + 0x18) = 0;
+  *(undefined4 *)(*(int *)(param_1 + 0x158) + 0x14) = 0;
+  if (local_10 - iVar1 != 0) {
+    FUN_00aa16d0(local_10 - iVar1,DAT_010a2484);
+    *(uint *)(*(int *)(param_1 + 0x158) + 0x150) = local_10;
+  }
+  if (*(uint *)(param_1 + 0x154) < *(int *)(param_1 + 0x150) + param_3 + param_4) {
+    param_3 = *(int *)(param_1 + 0x154) - (*(int *)(param_1 + 0x150) + param_4);
+  }
+  local_20 = 0;
+  if (local_10 < *(uint *)(*(int *)(param_1 + 0x158) + 0x154)) {
+    if (param_3 < *(uint *)(*(int *)(param_1 + 0x158) + 0x10)) {
+      uVar5 = param_3;
+      uVar4 = FUN_00aa1ac0(param_3);
+      local_1c = FUN_00aa1570(uVar4,uVar5);
+      *(uint *)(*(int *)(param_1 + 0x158) + 0x18) = local_1c;
+      *(uint *)(*(int *)(param_1 + 0x158) + 0x14) = local_1c;
+      local_b4 = local_1c;
+      if (param_3 <= local_1c) {
+        local_b4 = param_3;
+      }
+      local_20 = local_b4;
+      _Src = (void *)FUN_00aa1ac0();
+      _memcpy(param_2,_Src,local_b4);
+    }
+    else {
+      local_20 = FUN_00aa1570(param_2,param_3);
+      local_1c = local_20;
+    }
+  }
+  else {
+    local_1c = 0;
+  }
+  *(uint *)(*(int *)(param_1 + 0x158) + 0x150) = local_10 + local_1c;
+  if (*(int *)(param_1 + 0x158) != 0) {
+    LeaveCriticalSection((LPCRITICAL_SECTION)(*(int *)(param_1 + 0x158) + 0x19c));
+  }
+  return local_20 + local_14;
+}
+
+
+
+======================================================================
+BSA buffer-cap writer A @ 0x00af43a0
+======================================================================
+  Function: FUN_00af43a0 @ 0x00af43a0, Size: 192 bytes
+
+void FUN_00af43a0(undefined1 param_1,char *param_2,char *param_3,undefined4 param_4)
+
+{
+  size_t sVar1;
+  
+  DAT_011acdf8 = param_1;
+  if (param_3 == (char *)0x0) {
+    DAT_011f815c = (char *)FUN_00aa3e40(0);
+    *DAT_011f815c = '\0';
+  }
+  else {
+    sVar1 = _strlen(param_3);
+    DAT_011f815c = (char *)FUN_00aa3e40(sVar1 + 1);
+    _strcpy_s(DAT_011f815c,sVar1 + 1,param_3);
+  }
+  if (param_2 == (char *)0x0) {
+    _strcpy_s(&DAT_011f8050,0x104,"");
+  }
+  else {
+    _strcpy_s(&DAT_011f8050,0x104,param_2);
+  }
+  DAT_011f8164 = param_4;
+  return;
+}
+
+
+
+======================================================================
+BSA buffer-cap writer B @ 0x00af4540
+======================================================================
+  Function: FUN_00af4540 @ 0x00af4540, Size: 15 bytes
+
+void FUN_00af4540(void)
+
+{
+  DAT_011f8164 = 0x20000;
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00afb7a0 (ArchiveFile compressed-input refill)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00afb45d (in FUN_00afb300)
+  UNCONDITIONAL_CALL @ 0x00b018a1 (in FUN_00b01800)
+  UNCONDITIONAL_CALL @ 0x00b018c2 (in FUN_00b01800)
+  UNCONDITIONAL_CALL @ 0x00afc288 (in FUN_00afc0e0)
+  Total: 4 refs
+
+----------------------------------------------------------------------
+References TO 0x00af43a0 (BSA buffer-cap writer A)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00876d4c (in FUN_00876d20)
+  Total: 1 refs
+
+----------------------------------------------------------------------
+References TO 0x00af4540 (BSA buffer-cap writer B)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0086b279 (in FUN_0086a850)
+  Total: 1 refs
+
+--- Calls FROM compressed archive constructor caller A (0x00afa550) ---
+  0x00afa5aa -> 0x00afb2a0 FUN_00afb2a0
+  0x00afa602 -> 0x00aa3e40 FUN_00aa3e40
+  0x00afa63c -> 0x00afb300 FUN_00afb300
+  0x00afa66c -> 0x00aa3e40 FUN_00aa3e40
+  0x00afa6a6 -> 0x00afc430 FUN_00afc430
+  Total: 5 calls
+
+--- Calls FROM compressed archive constructor caller B (0x00afa750) ---
+  0x00afa792 -> 0x00afb2a0 FUN_00afb2a0
+  0x00afa7da -> 0x00aa3e40 FUN_00aa3e40
+  0x00afa824 -> 0x00afb300 FUN_00afb300
+  0x00afa854 -> 0x00aa3e40 FUN_00aa3e40
+  0x00afa89d -> 0x00afc430 FUN_00afc430
+  Total: 5 calls
+
+--- Calls FROM compressed archive virtual read adapter (0x00afc660) ---
+  0x00afc66e -> 0x00afc0e0 FUN_00afc0e0
+  Total: 1 calls
+
+--- Calls FROM ArchiveFile compressed-input refill (0x00afb7a0) ---
+  0x00afb833 -> 0x0000000d ???
+  0x00afb8da -> 0x00aa1ac0 FUN_00aa1ac0
+  0x00afb8f1 -> 0x00ec44d0 _memcpy
+  0x00afb938 -> 0x00000036 ???
+  0x00afb9b8 -> 0x00aa16d0 FUN_00aa16d0
+  0x00afba99 -> 0x00aa1ac0 FUN_00aa1ac0
+  0x00afbaa5 -> 0x00aa1570 FUN_00aa1570
+  0x00afbb26 -> 0x00aa1ac0 FUN_00aa1ac0
+  0x00afbb40 -> 0x00ec44d0 _memcpy
+  0x00afbb6a -> 0x00aa1570 FUN_00aa1570
+  0x00afbbde -> 0x00000036 ???
+  Total: 11 calls

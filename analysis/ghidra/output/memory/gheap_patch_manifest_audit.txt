@@ -1,0 +1,1430 @@
+GHEAP COMPLETE PATCH MANIFEST AUDIT
+======================================================================
+This output defines the exact vanilla preflight contract for one atomic
+gheap + CRT + scrap-heap transaction. A mismatch at a required site
+must reject the whole requested allocator mode before runtime allocation
+state or trampolines are created.
+
+# REQUIRED GAME HEAP REDIRECTS
+
+----------------------------------------------------------------------
+PATCH CONTRACT: GameHeap allocate @ 0x00aa3e40
+----------------------------------------------------------------------
+  Function: FUN_00aa3e40 @ 0x00aa3e40, size 486
+  Context bytes [site-8, site+31]: 00 59 8B E5 5D C2 0C 00 55 8B EC 83 EC 3C 89 4D D0 8B 45 D0 0F B6 08 85 C9 75 13 6A 00 8B 55 08 52 8B 4D D0 E8 2F 04 00
+  +0x00 len=1 bytes=[55] PUSH EBP
+  +0x01 len=2 bytes=[8B EC] MOV EBP,ESP
+  +0x03 len=3 bytes=[83 EC 3C] SUB ESP,0x3c
+  +0x06 len=3 bytes=[89 4D D0] MOV dword ptr [EBP + -0x30],ECX
+  +0x09 len=3 bytes=[8B 45 D0] MOV EAX,dword ptr [EBP + -0x30]
+  +0x0c len=3 bytes=[0F B6 08] MOVZX ECX,byte ptr [EAX]
+  +0x0f len=2 bytes=[85 C9] TEST ECX,ECX
+  Contract span: 7 instructions, 17 bytes
+
+----------------------------------------------------------------------
+PATCH CONTRACT: GameHeap free @ 0x00aa4060
+----------------------------------------------------------------------
+  Function: FUN_00aa4060 @ 0x00aa4060, size 236
+  Context bytes [site-8, site+31]: CC CC CC CC CC CC CC CC 55 8B EC 83 EC 14 89 4D F0 83 7D 08 00 75 05 E9 D2 00 00 00 8B 45 F0 0F B6 08 85 C9 75 13 6A 00
+  +0x00 len=1 bytes=[55] PUSH EBP
+  +0x01 len=2 bytes=[8B EC] MOV EBP,ESP
+  +0x03 len=3 bytes=[83 EC 14] SUB ESP,0x14
+  +0x06 len=3 bytes=[89 4D F0] MOV dword ptr [EBP + -0x10],ECX
+  +0x09 len=4 bytes=[83 7D 08 00] CMP dword ptr [EBP + 0x8],0x0
+  +0x0d len=2 bytes=[75 05] JNZ 0x00aa4074
+  +0x0f len=5 bytes=[E9 D2 00 00 00] JMP 0x00aa4146
+  Contract span: 7 instructions, 20 bytes
+
+----------------------------------------------------------------------
+PATCH CONTRACT: GameHeap msize @ 0x00aa44c0
+----------------------------------------------------------------------
+  Function: FUN_00aa44c0 @ 0x00aa44c0, size 221
+  Context bytes [site-8, site+31]: 5D C3 CC CC CC CC CC CC 55 8B EC 83 EC 18 89 4D EC 8B 45 08 C1 E8 18 8B 0C 85 B8 63 1F 01 89 4D F8 83 7D F8 00 74 3F 8B
+  +0x00 len=1 bytes=[55] PUSH EBP
+  +0x01 len=2 bytes=[8B EC] MOV EBP,ESP
+  +0x03 len=3 bytes=[83 EC 18] SUB ESP,0x18
+  +0x06 len=3 bytes=[89 4D EC] MOV dword ptr [EBP + -0x14],ECX
+  +0x09 len=3 bytes=[8B 45 08] MOV EAX,dword ptr [EBP + 0x8]
+  +0x0c len=3 bytes=[C1 E8 18] SHR EAX,0x18
+  +0x0f len=7 bytes=[8B 0C 85 B8 63 1F 01] MOV ECX,dword ptr [EAX*0x4 + 0x11f63b8]
+  Contract span: 7 instructions, 22 bytes
+
+----------------------------------------------------------------------
+PATCH CONTRACT: GameHeap realloc path 1 @ 0x00aa4150
+----------------------------------------------------------------------
+  Function: FUN_00aa4150 @ 0x00aa4150, size 140
+  Context bytes [site-8, site+31]: 5D C2 04 00 CC CC CC CC 55 8B EC 83 EC 10 89 4D F0 C7 45 FC 00 00 00 00 8B 45 08 50 8B 4D F0 E8 54 03 00 00 89 45 F8 83
+  +0x00 len=1 bytes=[55] PUSH EBP
+  +0x01 len=2 bytes=[8B EC] MOV EBP,ESP
+  +0x03 len=3 bytes=[83 EC 10] SUB ESP,0x10
+  +0x06 len=3 bytes=[89 4D F0] MOV dword ptr [EBP + -0x10],ECX
+  +0x09 len=7 bytes=[C7 45 FC 00 00 00 00] MOV dword ptr [EBP + -0x4],0x0
+  Contract span: 5 instructions, 16 bytes
+
+----------------------------------------------------------------------
+PATCH CONTRACT: GameHeap realloc path 2 @ 0x00aa4200
+----------------------------------------------------------------------
+  Function: FUN_00aa4200 @ 0x00aa4200, size 140
+  Context bytes [site-8, site+31]: E5 5D C2 0C 00 CC CC CC 55 8B EC 83 EC 10 89 4D F0 C7 45 FC 00 00 00 00 8B 45 08 50 8B 4D F0 E8 A4 02 00 00 89 45 F8 83
+  +0x00 len=1 bytes=[55] PUSH EBP
+  +0x01 len=2 bytes=[8B EC] MOV EBP,ESP
+  +0x03 len=3 bytes=[83 EC 10] SUB ESP,0x10
+  +0x06 len=3 bytes=[89 4D F0] MOV dword ptr [EBP + -0x10],ECX
+  +0x09 len=7 bytes=[C7 45 FC 00 00 00 00] MOV dword ptr [EBP + -0x4],0x0
+  Contract span: 5 instructions, 16 bytes
+
+# REQUIRED STATIC CRT REDIRECTS
+
+----------------------------------------------------------------------
+PATCH CONTRACT: CRT malloc entry 1 @ 0x00ecd1c7
+----------------------------------------------------------------------
+  Function: _malloc @ 0x00ecd1c7, size 202
+  Context bytes [site-8, site+31]: 04 E8 9A 0C 01 00 59 C3 8B FF 55 8B EC 56 8B 75 08 83 FE E0 0F 87 A1 00 00 00 53 57 8B 3D A0 F1 FD 00 83 3D BC 05 27 01
+  +0x00 len=2 bytes=[8B FF] MOV EDI,EDI
+  +0x02 len=1 bytes=[55] PUSH EBP
+  +0x03 len=2 bytes=[8B EC] MOV EBP,ESP
+  +0x05 len=1 bytes=[56] PUSH ESI
+  +0x06 len=3 bytes=[8B 75 08] MOV ESI,dword ptr [EBP + 0x8]
+  +0x09 len=3 bytes=[83 FE E0] CMP ESI,-0x20
+  +0x0c len=6 bytes=[0F 87 A1 00 00 00] JA 0x00ecd27a
+  Contract span: 7 instructions, 18 bytes
+
+----------------------------------------------------------------------
+PATCH CONTRACT: CRT malloc entry 2 @ 0x00ed0cdf
+----------------------------------------------------------------------
+  Function: __malloc_crt @ 0x00ed0cdf, size 69
+  Context bytes [site-8, site+31]: 67 EA FF FF 83 C0 0C C3 8B FF 55 8B EC 56 57 33 F6 FF 75 08 E8 D7 C4 FF FF 8B F8 59 85 FF 75 27 39 05 FC FD 26 01 76 1F
+  +0x00 len=2 bytes=[8B FF] MOV EDI,EDI
+  +0x02 len=1 bytes=[55] PUSH EBP
+  +0x03 len=2 bytes=[8B EC] MOV EBP,ESP
+  +0x05 len=1 bytes=[56] PUSH ESI
+  +0x06 len=1 bytes=[57] PUSH EDI
+  +0x07 len=2 bytes=[33 F6] XOR ESI,ESI
+  +0x09 len=3 bytes=[FF 75 08] PUSH dword ptr [EBP + 0x8]
+  +0x0c len=5 bytes=[E8 D7 C4 FF FF] CALL 0x00ecd1c7
+  Contract span: 8 instructions, 17 bytes
+
+----------------------------------------------------------------------
+PATCH CONTRACT: CRT calloc entry 1 @ 0x00eddd7d
+----------------------------------------------------------------------
+  Function: _calloc @ 0x00eddd7d, size 64
+  Context bytes [site-8, site+31]: 59 5F 5E 5B 8B E5 5D C3 8B FF 55 8B EC 51 83 65 FC 00 56 8D 45 FC 50 FF 75 0C FF 75 08 E8 4B 38 00 00 8B F0 83 C4 0C 85
+  +0x00 len=2 bytes=[8B FF] MOV EDI,EDI
+  +0x02 len=1 bytes=[55] PUSH EBP
+  +0x03 len=2 bytes=[8B EC] MOV EBP,ESP
+  +0x05 len=1 bytes=[51] PUSH ECX
+  +0x06 len=4 bytes=[83 65 FC 00] AND dword ptr [EBP + -0x4],0x0
+  +0x0a len=1 bytes=[56] PUSH ESI
+  +0x0b len=3 bytes=[8D 45 FC] LEA EAX,[EBP + -0x4]
+  +0x0e len=1 bytes=[50] PUSH EAX
+  +0x0f len=3 bytes=[FF 75 0C] PUSH dword ptr [EBP + 0xc]
+  Contract span: 9 instructions, 18 bytes
+
+----------------------------------------------------------------------
+PATCH CONTRACT: CRT calloc entry 2 @ 0x00ed0d24
+----------------------------------------------------------------------
+  Function: __calloc_crt @ 0x00ed0d24, size 76
+  Context bytes [site-8, site+31]: 75 CA 8B C7 5F 5E 5D C3 8B FF 55 8B EC 56 57 33 F6 6A 00 FF 75 0C FF 75 08 E8 A8 08 01 00 8B F8 83 C4 0C 85 FF 75 27 39
+  +0x00 len=2 bytes=[8B FF] MOV EDI,EDI
+  +0x02 len=1 bytes=[55] PUSH EBP
+  +0x03 len=2 bytes=[8B EC] MOV EBP,ESP
+  +0x05 len=1 bytes=[56] PUSH ESI
+  +0x06 len=1 bytes=[57] PUSH EDI
+  +0x07 len=2 bytes=[33 F6] XOR ESI,ESI
+  +0x09 len=2 bytes=[6A 00] PUSH 0x0
+  +0x0b len=3 bytes=[FF 75 0C] PUSH dword ptr [EBP + 0xc]
+  +0x0e len=3 bytes=[FF 75 08] PUSH dword ptr [EBP + 0x8]
+  Contract span: 9 instructions, 17 bytes
+
+----------------------------------------------------------------------
+PATCH CONTRACT: CRT realloc entry 1 @ 0x00eccf5d
+----------------------------------------------------------------------
+  Function: _realloc @ 0x00eccf5d, size 524
+  Context bytes [site-8, site+31]: 24 A3 C0 19 1C 01 5E C3 6A 10 68 D0 FE 17 01 E8 AB 47 00 00 8B 5D 08 85 DB 75 0E FF 75 0C E8 4F 02 00 00 59 E9 CC 01 00
+  +0x00 len=2 bytes=[6A 10] PUSH 0x10
+  +0x02 len=5 bytes=[68 D0 FE 17 01] PUSH 0x117fed0
+  +0x07 len=5 bytes=[E8 AB 47 00 00] CALL 0x00ed1714
+  +0x0c len=3 bytes=[8B 5D 08] MOV EBX,dword ptr [EBP + 0x8]
+  +0x0f len=2 bytes=[85 DB] TEST EBX,EBX
+  Contract span: 5 instructions, 17 bytes
+
+----------------------------------------------------------------------
+PATCH CONTRACT: CRT realloc entry 2 @ 0x00ed0d70
+----------------------------------------------------------------------
+  Function: __realloc_crt @ 0x00ed0d70, size 78
+  Context bytes [site-8, site+31]: 75 C3 8B C7 5F 5E 5D C3 8B FF 55 8B EC 56 57 33 F6 FF 75 0C FF 75 08 E8 D9 C1 FF FF 8B F8 59 59 85 FF 75 2C 39 45 0C 74
+  +0x00 len=2 bytes=[8B FF] MOV EDI,EDI
+  +0x02 len=1 bytes=[55] PUSH EBP
+  +0x03 len=2 bytes=[8B EC] MOV EBP,ESP
+  +0x05 len=1 bytes=[56] PUSH ESI
+  +0x06 len=1 bytes=[57] PUSH EDI
+  +0x07 len=2 bytes=[33 F6] XOR ESI,ESI
+  +0x09 len=3 bytes=[FF 75 0C] PUSH dword ptr [EBP + 0xc]
+  +0x0c len=3 bytes=[FF 75 08] PUSH dword ptr [EBP + 0x8]
+  +0x0f len=5 bytes=[E8 D9 C1 FF FF] CALL 0x00eccf5d
+  Contract span: 9 instructions, 20 bytes
+
+----------------------------------------------------------------------
+PATCH CONTRACT: CRT recalloc entry 1 @ 0x00ee1700
+----------------------------------------------------------------------
+  Function: __recalloc @ 0x00ee1700, size 123
+  Context bytes [site-8, site+31]: 8B C3 E8 5A 00 FF FF C3 8B FF 55 8B EC 8B 4D 0C 53 33 DB 3B CB 76 28 6A E0 33 D2 58 F7 F1 3B 45 10 73 1C E8 C3 6E FE FF
+  +0x00 len=2 bytes=[8B FF] MOV EDI,EDI
+  +0x02 len=1 bytes=[55] PUSH EBP
+  +0x03 len=2 bytes=[8B EC] MOV EBP,ESP
+  +0x05 len=3 bytes=[8B 4D 0C] MOV ECX,dword ptr [EBP + 0xc]
+  +0x08 len=1 bytes=[53] PUSH EBX
+  +0x09 len=2 bytes=[33 DB] XOR EBX,EBX
+  +0x0b len=2 bytes=[3B CB] CMP ECX,EBX
+  +0x0d len=2 bytes=[76 28] JBE 0x00ee1737
+  +0x0f len=2 bytes=[6A E0] PUSH -0x20
+  Contract span: 9 instructions, 17 bytes
+
+----------------------------------------------------------------------
+PATCH CONTRACT: CRT recalloc entry 2 @ 0x00ed0dbe
+----------------------------------------------------------------------
+  Function: __recalloc_crt @ 0x00ed0dbe, size 82
+  Context bytes [site-8, site+31]: 75 C1 8B C7 5F 5E 5D C3 8B FF 55 8B EC 56 57 33 F6 FF 75 10 FF 75 0C FF 75 08 E8 2B 09 01 00 8B F8 83 C4 0C 85 FF 75 2C
+  +0x00 len=2 bytes=[8B FF] MOV EDI,EDI
+  +0x02 len=1 bytes=[55] PUSH EBP
+  +0x03 len=2 bytes=[8B EC] MOV EBP,ESP
+  +0x05 len=1 bytes=[56] PUSH ESI
+  +0x06 len=1 bytes=[57] PUSH EDI
+  +0x07 len=2 bytes=[33 F6] XOR ESI,ESI
+  +0x09 len=3 bytes=[FF 75 10] PUSH dword ptr [EBP + 0x10]
+  +0x0c len=3 bytes=[FF 75 0C] PUSH dword ptr [EBP + 0xc]
+  +0x0f len=3 bytes=[FF 75 08] PUSH dword ptr [EBP + 0x8]
+  Contract span: 9 instructions, 18 bytes
+
+----------------------------------------------------------------------
+PATCH CONTRACT: CRT msize @ 0x00ecd31f
+----------------------------------------------------------------------
+  Function: __msize @ 0x00ecd31f, size 146
+  Context bytes [site-8, site+31]: 06 59 E8 3B 44 00 00 C3 6A 10 68 30 FF 17 01 E8 E9 43 00 00 33 C0 8B 5D 08 33 FF 3B DF 0F 95 C0 3B C7 75 1D E8 A3 B2 FF
+  +0x00 len=2 bytes=[6A 10] PUSH 0x10
+  +0x02 len=5 bytes=[68 30 FF 17 01] PUSH 0x117ff30
+  +0x07 len=5 bytes=[E8 E9 43 00 00] CALL 0x00ed1714
+  +0x0c len=2 bytes=[33 C0] XOR EAX,EAX
+  +0x0e len=3 bytes=[8B 5D 08] MOV EBX,dword ptr [EBP + 0x8]
+  Contract span: 5 instructions, 17 bytes
+
+----------------------------------------------------------------------
+PATCH CONTRACT: CRT free @ 0x00ecd291
+----------------------------------------------------------------------
+  Function: _free @ 0x00ecd291, size 133
+  Context bytes [site-8, site+31]: 00 00 00 33 C0 5E 5D C3 6A 0C 68 10 FF 17 01 E8 77 44 00 00 8B 75 08 85 F6 74 75 83 3D 48 09 27 01 03 75 43 6A 04 E8 85
+  +0x00 len=2 bytes=[6A 0C] PUSH 0xc
+  +0x02 len=5 bytes=[68 10 FF 17 01] PUSH 0x117ff10
+  +0x07 len=5 bytes=[E8 77 44 00 00] CALL 0x00ed1714
+  +0x0c len=3 bytes=[8B 75 08] MOV ESI,dword ptr [EBP + 0x8]
+  +0x0f len=2 bytes=[85 F6] TEST ESI,ESI
+  Contract span: 5 instructions, 17 bytes
+
+# REQUIRED SCRAP HEAP REDIRECTS
+
+----------------------------------------------------------------------
+PATCH CONTRACT: scrap heap init fix @ 0x00aa53f0
+----------------------------------------------------------------------
+  Function: FUN_00aa53f0 @ 0x00aa53f0, size 27
+  Context bytes [site-8, site+31]: CC CC CC CC CC CC CC CC 55 8B EC 51 89 4D FC 68 00 00 01 00 8B 4D FC E8 AC 03 00 00 8B 45 FC 8B E5 5D C3 CC CC CC CC CC
+  +0x00 len=1 bytes=[55] PUSH EBP
+  +0x01 len=2 bytes=[8B EC] MOV EBP,ESP
+  +0x03 len=1 bytes=[51] PUSH ECX
+  +0x04 len=3 bytes=[89 4D FC] MOV dword ptr [EBP + -0x4],ECX
+  +0x07 len=5 bytes=[68 00 00 01 00] PUSH 0x10000
+  +0x0c len=3 bytes=[8B 4D FC] MOV ECX,dword ptr [EBP + -0x4]
+  +0x0f len=5 bytes=[E8 AC 03 00 00] CALL 0x00aa57b0
+  Contract span: 7 instructions, 20 bytes
+
+----------------------------------------------------------------------
+PATCH CONTRACT: scrap heap init variable @ 0x00aa5410
+----------------------------------------------------------------------
+  Function: FUN_00aa5410 @ 0x00aa5410, size 72
+  Context bytes [site-8, site+31]: E5 5D C3 CC CC CC CC CC 55 8B EC 83 EC 08 89 4D FC 8B 45 08 25 FF FF 00 00 74 14 8B 4D 08 81 C1 00 00 01 00 81 E1 00 00
+  +0x00 len=1 bytes=[55] PUSH EBP
+  +0x01 len=2 bytes=[8B EC] MOV EBP,ESP
+  +0x03 len=3 bytes=[83 EC 08] SUB ESP,0x8
+  +0x06 len=3 bytes=[89 4D FC] MOV dword ptr [EBP + -0x4],ECX
+  +0x09 len=3 bytes=[8B 45 08] MOV EAX,dword ptr [EBP + 0x8]
+  +0x0c len=5 bytes=[25 FF FF 00 00] AND EAX,0xffff
+  Contract span: 6 instructions, 17 bytes
+
+----------------------------------------------------------------------
+PATCH CONTRACT: scrap heap allocate @ 0x00aa54a0
+----------------------------------------------------------------------
+  Function: FUN_00aa54a0 @ 0x00aa54a0, size 309
+  Context bytes [site-8, site+31]: 00 00 8B E5 5D C3 CC CC 55 8B EC 83 EC 34 89 4D D0 C7 45 FC 00 00 00 00 8B 45 D0 8B 48 04 83 C1 08 89 4D F0 83 7D 0C 00
+  +0x00 len=1 bytes=[55] PUSH EBP
+  +0x01 len=2 bytes=[8B EC] MOV EBP,ESP
+  +0x03 len=3 bytes=[83 EC 34] SUB ESP,0x34
+  +0x06 len=3 bytes=[89 4D D0] MOV dword ptr [EBP + -0x30],ECX
+  +0x09 len=7 bytes=[C7 45 FC 00 00 00 00] MOV dword ptr [EBP + -0x4],0x0
+  Contract span: 5 instructions, 16 bytes
+
+----------------------------------------------------------------------
+PATCH CONTRACT: scrap heap free @ 0x00aa5610
+----------------------------------------------------------------------
+  Function: FUN_00aa5610 @ 0x00aa5610, size 251
+  Context bytes [site-8, site+31]: CC CC CC CC CC CC CC CC 55 8B EC 83 EC 1C 89 4D E4 83 7D 08 00 75 05 E9 E5 00 00 00 8B 45 08 83 E8 08 89 45 FC 8B 4D FC
+  +0x00 len=1 bytes=[55] PUSH EBP
+  +0x01 len=2 bytes=[8B EC] MOV EBP,ESP
+  +0x03 len=3 bytes=[83 EC 1C] SUB ESP,0x1c
+  +0x06 len=3 bytes=[89 4D E4] MOV dword ptr [EBP + -0x1c],ECX
+  +0x09 len=4 bytes=[83 7D 08 00] CMP dword ptr [EBP + 0x8],0x0
+  +0x0d len=2 bytes=[75 05] JNZ 0x00aa5624
+  +0x0f len=5 bytes=[E9 E5 00 00 00] JMP 0x00aa5709
+  Contract span: 7 instructions, 20 bytes
+
+----------------------------------------------------------------------
+PATCH CONTRACT: scrap heap purge @ 0x00aa5460
+----------------------------------------------------------------------
+  Function: FUN_00aa5460 @ 0x00aa5460, size 62
+  Context bytes [site-8, site+31]: CC CC CC CC CC CC CC CC 55 8B EC 83 EC 0C 89 4D F4 8B 45 F4 8B 4D F4 8B 50 08 2B 11 52 8B 45 F4 8B 08 51 E8 90 18 DC FF
+  +0x00 len=1 bytes=[55] PUSH EBP
+  +0x01 len=2 bytes=[8B EC] MOV EBP,ESP
+  +0x03 len=3 bytes=[83 EC 0C] SUB ESP,0xc
+  +0x06 len=3 bytes=[89 4D F4] MOV dword ptr [EBP + -0xc],ECX
+  +0x09 len=3 bytes=[8B 45 F4] MOV EAX,dword ptr [EBP + -0xc]
+  +0x0c len=3 bytes=[8B 4D F4] MOV ECX,dword ptr [EBP + -0xc]
+  +0x0f len=3 bytes=[8B 50 08] MOV EDX,dword ptr [EAX + 0x8]
+  Contract span: 7 instructions, 18 bytes
+
+----------------------------------------------------------------------
+PATCH CONTRACT: scrap heap TLS accessor @ 0x00aa42e0
+----------------------------------------------------------------------
+  Function: FUN_00aa42e0 @ 0x00aa42e0, size 191
+  Context bytes [site-8, site+31]: 00 CC CC CC CC CC CC CC 55 8B EC 6A FF 68 9B EC F1 00 64 A1 00 00 00 00 50 83 EC 2C A1 BC 16 1C 01 33 C5 50 8D 45 F4 64
+  +0x00 len=1 bytes=[55] PUSH EBP
+  +0x01 len=2 bytes=[8B EC] MOV EBP,ESP
+  +0x03 len=2 bytes=[6A FF] PUSH -0x1
+  +0x05 len=5 bytes=[68 9B EC F1 00] PUSH 0xf1ec9b
+  +0x0a len=6 bytes=[64 A1 00 00 00 00] MOV EAX,FS:[0x0]
+  Contract span: 5 instructions, 16 bytes
+
+# REQUIRED GHEAP SUPPORTING REDIRECTS
+
+----------------------------------------------------------------------
+PATCH CONTRACT: main-loop maintenance @ 0x008705d0
+----------------------------------------------------------------------
+  Function: FUN_008705d0 @ 0x008705d0, size 55
+  Context bytes [site-8, site+31]: 5D C3 CC CC CC CC CC CC 55 8B EC 51 89 4D FC 8B 4D FC E8 61 F0 FF FF 8B 4D FC E8 A9 F2 FF FF B9 A4 3E 1C 01 E8 DF CE BC
+  +0x00 len=1 bytes=[55] PUSH EBP
+  +0x01 len=2 bytes=[8B EC] MOV EBP,ESP
+  +0x03 len=1 bytes=[51] PUSH ECX
+  +0x04 len=3 bytes=[89 4D FC] MOV dword ptr [EBP + -0x4],ECX
+  +0x07 len=3 bytes=[8B 4D FC] MOV ECX,dword ptr [EBP + -0x4]
+  +0x0a len=5 bytes=[E8 61 F0 FF FF] CALL 0x0086f640
+  +0x0f len=3 bytes=[8B 4D FC] MOV ECX,dword ptr [EBP + -0x4]
+  Contract span: 7 instructions, 18 bytes
+
+----------------------------------------------------------------------
+PATCH CONTRACT: phase 10 pre @ 0x0086f640
+----------------------------------------------------------------------
+  Function: FUN_0086f640 @ 0x0086f640, size 45
+  Context bytes [site-8, site+31]: CC CC CC CC CC CC CC CC 55 8B EC 51 89 4D FC 6A 01 E8 22 44 BE FF 8B C8 E8 EB 80 26 00 6A 00 E8 74 34 FC FF 83 C4 04 E8
+  +0x00 len=1 bytes=[55] PUSH EBP
+  +0x01 len=2 bytes=[8B EC] MOV EBP,ESP
+  +0x03 len=1 bytes=[51] PUSH ECX
+  +0x04 len=3 bytes=[89 4D FC] MOV dword ptr [EBP + -0x4],ECX
+  +0x07 len=2 bytes=[6A 01] PUSH 0x1
+  +0x09 len=5 bytes=[E8 22 44 BE FF] CALL 0x00453a70
+  +0x0e len=2 bytes=[8B C8] MOV ECX,EAX
+  Contract span: 7 instructions, 16 bytes
+
+----------------------------------------------------------------------
+PATCH CONTRACT: phase 10 audio update @ 0x00832ad0
+----------------------------------------------------------------------
+  Function: FUN_00832ad0 @ 0x00832ad0, size 355
+  Context bytes [site-8, site+31]: FF 8B E5 5D C3 CC CC CC 55 8B EC 51 56 C6 45 FF 00 83 3D 24 D4 1D 01 00 75 0F B9 94 63 1F 01 E8 14 31 FF FF A3 24 D4 1D
+  +0x00 len=1 bytes=[55] PUSH EBP
+  +0x01 len=2 bytes=[8B EC] MOV EBP,ESP
+  +0x03 len=1 bytes=[51] PUSH ECX
+  +0x04 len=1 bytes=[56] PUSH ESI
+  +0x05 len=4 bytes=[C6 45 FF 00] MOV byte ptr [EBP + -0x1],0x0
+  +0x09 len=7 bytes=[83 3D 24 D4 1D 01 00] CMP dword ptr [0x011dd424],0x0
+  Contract span: 6 instructions, 16 bytes
+
+----------------------------------------------------------------------
+PATCH CONTRACT: phase 10 audio worker @ 0x00833d00
+----------------------------------------------------------------------
+  Function: FUN_00833d00 @ 0x00833d00, size 1286
+  Context bytes [site-8, site+31]: 5D C3 CC CC CC CC CC CC 55 8B EC 6A FF 68 A0 1F F1 00 64 A1 00 00 00 00 50 83 EC 70 A1 BC 16 1C 01 33 C5 50 8D 45 F4 64
+  +0x00 len=1 bytes=[55] PUSH EBP
+  +0x01 len=2 bytes=[8B EC] MOV EBP,ESP
+  +0x03 len=2 bytes=[6A FF] PUSH -0x1
+  +0x05 len=5 bytes=[68 A0 1F F1 00] PUSH 0xf11fa0
+  +0x0a len=6 bytes=[64 A1 00 00 00 00] MOV EAX,FS:[0x0]
+  Contract span: 5 instructions, 16 bytes
+
+----------------------------------------------------------------------
+PATCH CONTRACT: radio signal scan @ 0x004ff1a0
+----------------------------------------------------------------------
+  Function: FUN_004ff1a0 @ 0x004ff1a0, size 1573
+  Context bytes [site-8, site+31]: E8 D3 12 F7 FF 5D C3 CC 55 8B EC 6A FF 68 63 36 EF 00 64 A1 00 00 00 00 50 81 EC DC 01 00 00 56 A1 BC 16 1C 01 33 C5 50
+  +0x00 len=1 bytes=[55] PUSH EBP
+  +0x01 len=2 bytes=[8B EC] MOV EBP,ESP
+  +0x03 len=2 bytes=[6A FF] PUSH -0x1
+  +0x05 len=5 bytes=[68 63 36 EF 00] PUSH 0xef3663
+  +0x0a len=6 bytes=[64 A1 00 00 00 00] MOV EAX,FS:[0x0]
+  Contract span: 5 instructions, 16 bytes
+
+----------------------------------------------------------------------
+PATCH CONTRACT: radio station update @ 0x00834260
+----------------------------------------------------------------------
+  Function: FUN_00834260 @ 0x00834260, size 5097
+  Context bytes [site-8, site+31]: 00 CC CC CC CC CC CC CC 55 8B EC 6A FF 68 E1 1F F1 00 64 A1 00 00 00 00 50 81 EC FC 01 00 00 A1 BC 16 1C 01 33 C5 89 45
+  +0x00 len=1 bytes=[55] PUSH EBP
+  +0x01 len=2 bytes=[8B EC] MOV EBP,ESP
+  +0x03 len=2 bytes=[6A FF] PUSH -0x1
+  +0x05 len=5 bytes=[68 E1 1F F1 00] PUSH 0xf11fe1
+  +0x0a len=6 bytes=[64 A1 00 00 00 00] MOV EAX,FS:[0x0]
+  Contract span: 5 instructions, 16 bytes
+
+----------------------------------------------------------------------
+PATCH CONTRACT: phase 10 pre tail @ 0x0082fb70
+----------------------------------------------------------------------
+  Function: FUN_0082fb70 @ 0x0082fb70, size 847
+  Context bytes [site-8, site+31]: 01 00 00 00 00 5D C3 CC 55 8B EC 83 EC 1C A1 B0 D3 1D 01 50 FF 15 D0 F0 FD 00 0F B6 0D 13 D3 1D 01 85 C9 74 05 E9 29 03
+  +0x00 len=1 bytes=[55] PUSH EBP
+  +0x01 len=2 bytes=[8B EC] MOV EBP,ESP
+  +0x03 len=3 bytes=[83 EC 1C] SUB ESP,0x1c
+  +0x06 len=5 bytes=[A1 B0 D3 1D 01] MOV EAX,[0x011dd3b0]
+  +0x0b len=1 bytes=[50] PUSH EAX
+  +0x0c len=6 bytes=[FF 15 D0 F0 FD 00] CALL dword ptr [0x00fdf0d0]
+  Contract span: 6 instructions, 18 bytes
+
+----------------------------------------------------------------------
+PATCH CONTRACT: phase 10 world update @ 0x0082d7c0
+----------------------------------------------------------------------
+  Function: FUN_0082d7c0 @ 0x0082d7c0, size 4783
+  Context bytes [site-8, site+31]: CC CC CC CC CC CC CC CC 55 8B EC 6A FF 68 4B 1C F1 00 64 A1 00 00 00 00 50 81 EC 40 02 00 00 A1 BC 16 1C 01 33 C5 50 8D
+  +0x00 len=1 bytes=[55] PUSH EBP
+  +0x01 len=2 bytes=[8B EC] MOV EBP,ESP
+  +0x03 len=2 bytes=[6A FF] PUSH -0x1
+  +0x05 len=5 bytes=[68 4B 1C F1 00] PUSH 0xf11c4b
+  +0x0a len=6 bytes=[64 A1 00 00 00 00] MOV EAX,FS:[0x0]
+  Contract span: 5 instructions, 16 bytes
+
+----------------------------------------------------------------------
+PATCH CONTRACT: phase 10 mid @ 0x0086f890
+----------------------------------------------------------------------
+  Function: FUN_0086f890 @ 0x0086f890, size 161
+  Context bytes [site-8, site+31]: CC CC CC CC CC CC CC CC 55 8B EC 51 89 4D FC B9 A4 3E 1C 01 E8 2F DC BC FF 83 38 01 75 0A B9 80 0E 1E 01 E8 90 F2 0F 00
+  +0x00 len=1 bytes=[55] PUSH EBP
+  +0x01 len=2 bytes=[8B EC] MOV EBP,ESP
+  +0x03 len=1 bytes=[51] PUSH ECX
+  +0x04 len=3 bytes=[89 4D FC] MOV dword ptr [EBP + -0x4],ECX
+  +0x07 len=5 bytes=[B9 A4 3E 1C 01] MOV ECX,0x11c3ea4
+  +0x0c len=5 bytes=[E8 2F DC BC FF] CALL 0x0043d4d0
+  Contract span: 6 instructions, 17 bytes
+
+----------------------------------------------------------------------
+PATCH CONTRACT: phase 10 queue drain @ 0x00552570
+----------------------------------------------------------------------
+  Function: FUN_00552570 @ 0x00552570, size 312
+  Context bytes [site-8, site+31]: CC CC CC CC CC CC CC CC 55 8B EC 6A FF 68 08 38 F0 00 64 A1 00 00 00 00 50 83 EC 0C A1 BC 16 1C 01 33 C5 50 8D 45 F4 64
+  +0x00 len=1 bytes=[55] PUSH EBP
+  +0x01 len=2 bytes=[8B EC] MOV EBP,ESP
+  +0x03 len=2 bytes=[6A FF] PUSH -0x1
+  +0x05 len=5 bytes=[68 08 38 F0 00] PUSH 0xf03808
+  +0x0a len=6 bytes=[64 A1 00 00 00 00] MOV EAX,FS:[0x0]
+  Contract span: 5 instructions, 16 bytes
+
+----------------------------------------------------------------------
+PATCH CONTRACT: phase 10 post @ 0x0086f670
+----------------------------------------------------------------------
+  Function: FUN_0086f670 @ 0x0086f670, size 48
+  Context bytes [site-8, site+31]: FF 8B E5 5D C3 CC CC CC 55 8B EC 51 89 4D FC C6 05 F8 82 26 01 00 C6 05 78 F6 1D 01 00 C6 05 2A EA 1D 01 00 E8 4F 42 D3
+  +0x00 len=1 bytes=[55] PUSH EBP
+  +0x01 len=2 bytes=[8B EC] MOV EBP,ESP
+  +0x03 len=1 bytes=[51] PUSH ECX
+  +0x04 len=3 bytes=[89 4D FC] MOV dword ptr [EBP + -0x4],ECX
+  +0x07 len=7 bytes=[C6 05 F8 82 26 01 00] MOV byte ptr [0x012682f8],0x0
+  +0x0e len=7 bytes=[C6 05 78 F6 1D 01 00] MOV byte ptr [0x011df678],0x0
+  Contract span: 6 instructions, 21 bytes
+
+----------------------------------------------------------------------
+PATCH CONTRACT: per-frame queue drain @ 0x00868850
+----------------------------------------------------------------------
+  Function: FUN_00868850 @ 0x00868850, size 1166
+  Context bytes [site-8, site+31]: C3 CC CC CC CC CC CC CC 55 8B EC 6A FF 68 08 3D F1 00 64 A1 00 00 00 00 50 83 EC 44 A1 BC 16 1C 01 33 C5 50 8D 45 F4 64
+  +0x00 len=1 bytes=[55] PUSH EBP
+  +0x01 len=2 bytes=[8B EC] MOV EBP,ESP
+  +0x03 len=2 bytes=[6A FF] PUSH -0x1
+  +0x05 len=5 bytes=[68 08 3D F1 00] PUSH 0xf13d08
+  +0x0a len=6 bytes=[64 A1 00 00 00 00] MOV EAX,FS:[0x0]
+  Contract span: 5 instructions, 16 bytes
+
+----------------------------------------------------------------------
+PATCH CONTRACT: AI thread start @ 0x008c78c0
+----------------------------------------------------------------------
+  Function: FUN_008c78c0 @ 0x008c78c0, size 198
+  Context bytes [site-8, site+31]: CC CC CC CC CC CC CC CC 55 8B EC 83 EC 14 89 4D EC C7 45 FC 00 00 00 00 EB 09 8B 45 FC 83 C0 01 89 45 FC 83 7D FC 0B 7F
+  +0x00 len=1 bytes=[55] PUSH EBP
+  +0x01 len=2 bytes=[8B EC] MOV EBP,ESP
+  +0x03 len=3 bytes=[83 EC 14] SUB ESP,0x14
+  +0x06 len=3 bytes=[89 4D EC] MOV dword ptr [EBP + -0x14],ECX
+  +0x09 len=7 bytes=[C7 45 FC 00 00 00 00] MOV dword ptr [EBP + -0x4],0x0
+  Contract span: 5 instructions, 16 bytes
+
+----------------------------------------------------------------------
+PATCH CONTRACT: AI thread join @ 0x008c7990
+----------------------------------------------------------------------
+  Function: FUN_008c7990 @ 0x008c7990, size 72
+  Context bytes [site-8, site+31]: CC CC CC CC CC CC CC CC 55 8B EC 83 EC 08 89 4D F8 C7 45 FC 00 00 00 00 EB 09 8B 45 FC 83 C0 01 89 45 FC 83 7D FC 02 73
+  +0x00 len=1 bytes=[55] PUSH EBP
+  +0x01 len=2 bytes=[8B EC] MOV EBP,ESP
+  +0x03 len=3 bytes=[83 EC 08] SUB ESP,0x8
+  +0x06 len=3 bytes=[89 4D F8] MOV dword ptr [EBP + -0x8],ECX
+  +0x09 len=7 bytes=[C7 45 FC 00 00 00 00] MOV dword ptr [EBP + -0x4],0x0
+  Contract span: 5 instructions, 16 bytes
+
+----------------------------------------------------------------------
+PATCH CONTRACT: Havok stop/start @ 0x008324e0
+----------------------------------------------------------------------
+  Function: FUN_008324e0 @ 0x008324e0, size 184
+  Context bytes [site-8, site+31]: F8 8B E5 5D C2 04 00 CC 55 8B EC 0F B6 05 36 D4 1D 01 85 C0 74 07 32 C0 E9 A1 00 00 00 0F B6 4D 08 85 C9 74 3E 0F B6 15
+  +0x00 len=1 bytes=[55] PUSH EBP
+  +0x01 len=2 bytes=[8B EC] MOV EBP,ESP
+  +0x03 len=7 bytes=[0F B6 05 36 D4 1D 01] MOVZX EAX,byte ptr [0x011dd436]
+  +0x0a len=2 bytes=[85 C0] TEST EAX,EAX
+  +0x0c len=2 bytes=[74 07] JZ 0x008324f5
+  +0x0e len=2 bytes=[32 C0] XOR AL,AL
+  Contract span: 6 instructions, 16 bytes
+
+----------------------------------------------------------------------
+PATCH CONTRACT: OOM stage executor @ 0x00866a90
+----------------------------------------------------------------------
+  Function: FUN_00866a90 @ 0x00866a90, size 602
+  Context bytes [site-8, site+31]: 8B E5 5D C3 CC CC CC CC 55 8B EC 83 EC 0C 56 89 4D F8 8B 45 10 C6 00 01 E8 EB 91 BA FF 8B F0 8B 0D 0C EA 1D 01 E8 FE 82
+  +0x00 len=1 bytes=[55] PUSH EBP
+  +0x01 len=2 bytes=[8B EC] MOV EBP,ESP
+  +0x03 len=3 bytes=[83 EC 0C] SUB ESP,0xc
+  +0x06 len=1 bytes=[56] PUSH ESI
+  +0x07 len=3 bytes=[89 4D F8] MOV dword ptr [EBP + -0x8],ECX
+  +0x0a len=3 bytes=[8B 45 10] MOV EAX,dword ptr [EBP + 0x10]
+  +0x0d len=3 bytes=[C6 00 01] MOV byte ptr [EAX],0x1
+  Contract span: 7 instructions, 16 bytes
+
+----------------------------------------------------------------------
+PATCH CONTRACT: texture cache find @ 0x00a61a60
+----------------------------------------------------------------------
+  Function: FUN_00a61a60 @ 0x00a61a60, size 103
+  Context bytes [site-8, site+31]: 00 CC CC CC CC CC CC CC 8B 44 24 04 8B 0C 81 32 C0 85 C9 74 57 8B 54 24 08 56 8B 31 3B 56 04 74 0B 8B 49 04 85 C9 75 F2
+  +0x00 len=4 bytes=[8B 44 24 04] MOV EAX,dword ptr [ESP + 0x4]
+  +0x04 len=3 bytes=[8B 0C 81] MOV ECX,dword ptr [ECX + EAX*0x4]
+  +0x07 len=2 bytes=[32 C0] XOR AL,AL
+  +0x09 len=2 bytes=[85 C9] TEST ECX,ECX
+  +0x0b len=2 bytes=[74 57] JZ 0x00a61ac4
+  +0x0d len=4 bytes=[8B 54 24 08] MOV EDX,dword ptr [ESP + 0x8]
+  Contract span: 6 instructions, 17 bytes
+
+----------------------------------------------------------------------
+PATCH CONTRACT: NiSourceTexture destructor @ 0x00a5fca0
+----------------------------------------------------------------------
+  Function: FUN_00a5fca0 @ 0x00a5fca0, size 207
+  Context bytes [site-8, site+31]: CC CC CC CC CC CC CC CC 53 8B 1D C4 F1 FD 00 56 8B F1 57 C7 06 EC B9 09 01 8B 7E 3C 85 FF 74 1A 8D 47 04 50 FF D3 85 C0
+  +0x00 len=1 bytes=[53] PUSH EBX
+  +0x01 len=6 bytes=[8B 1D C4 F1 FD 00] MOV EBX,dword ptr [0x00fdf1c4]
+  +0x07 len=1 bytes=[56] PUSH ESI
+  +0x08 len=2 bytes=[8B F1] MOV ESI,ECX
+  +0x0a len=1 bytes=[57] PUSH EDI
+  +0x0b len=6 bytes=[C7 06 EC B9 09 01] MOV dword ptr [ESI],0x109b9ec
+  Contract span: 6 instructions, 17 bytes
+
+----------------------------------------------------------------------
+PATCH CONTRACT: model task destructor @ 0x00449a50
+----------------------------------------------------------------------
+  Function: FUN_00449a50 @ 0x00449a50, size 44
+  Context bytes [site-8, site+31]: 5D C2 04 00 CC CC CC CC 55 8B EC 51 89 4D FC 8B 4D FC E8 D1 01 00 00 8B 45 08 83 E0 01 74 0C 8B 4D FC 51 E8 C0 75 FB FF
+  +0x00 len=1 bytes=[55] PUSH EBP
+  +0x01 len=2 bytes=[8B EC] MOV EBP,ESP
+  +0x03 len=1 bytes=[51] PUSH ECX
+  +0x04 len=3 bytes=[89 4D FC] MOV dword ptr [EBP + -0x4],ECX
+  +0x07 len=3 bytes=[8B 4D FC] MOV ECX,dword ptr [EBP + -0x4]
+  +0x0a len=5 bytes=[E8 D1 01 00 00] CALL 0x00449c30
+  +0x0f len=3 bytes=[8B 45 08] MOV EAX,dword ptr [EBP + 0x8]
+  Contract span: 7 instructions, 18 bytes
+
+----------------------------------------------------------------------
+PATCH CONTRACT: Havok world lock @ 0x00c3e310
+----------------------------------------------------------------------
+  Function: FUN_00c3e310 @ 0x00c3e310, size 43
+  Context bytes [site-8, site+31]: 00 59 8B E5 5D C2 08 00 55 8B EC 51 89 4D FC 8B 4D FC E8 31 04 00 00 0F B6 C0 85 C0 74 11 8B 4D FC 83 79 7C 00 74 08 8B
+  +0x00 len=1 bytes=[55] PUSH EBP
+  +0x01 len=2 bytes=[8B EC] MOV EBP,ESP
+  +0x03 len=1 bytes=[51] PUSH ECX
+  +0x04 len=3 bytes=[89 4D FC] MOV dword ptr [EBP + -0x4],ECX
+  +0x07 len=3 bytes=[8B 4D FC] MOV ECX,dword ptr [EBP + -0x4]
+  +0x0a len=5 bytes=[E8 31 04 00 00] CALL 0x00c3e750
+  +0x0f len=3 bytes=[0F B6 C0] MOVZX EAX,AL
+  Contract span: 7 instructions, 18 bytes
+
+----------------------------------------------------------------------
+PATCH CONTRACT: Havok world unlock @ 0x00c3e340
+----------------------------------------------------------------------
+  Function: FUN_00c3e340 @ 0x00c3e340, size 49
+  Context bytes [site-8, site+31]: E5 5D C3 CC CC CC CC CC 55 8B EC 51 89 4D FC 8B 4D FC E8 81 04 00 00 0F B6 C0 85 C0 74 17 8B 4D FC 83 B9 80 00 00 00 00
+  +0x00 len=1 bytes=[55] PUSH EBP
+  +0x01 len=2 bytes=[8B EC] MOV EBP,ESP
+  +0x03 len=1 bytes=[51] PUSH ECX
+  +0x04 len=3 bytes=[89 4D FC] MOV dword ptr [EBP + -0x4],ECX
+  +0x07 len=3 bytes=[8B 4D FC] MOV ECX,dword ptr [EBP + -0x4]
+  +0x0a len=5 bytes=[E8 81 04 00 00] CALL 0x00c3e7d0
+  +0x0f len=3 bytes=[0F B6 C0] MOVZX EAX,AL
+  Contract span: 7 instructions, 18 bytes
+
+# DESTRUCTIVE RAW PATCHES
+
+----------------------------------------------------------------------
+RAW PATCH CONTRACT: RET: SBM stats reset @ 0x00aa6840
+----------------------------------------------------------------------
+  Function: FUN_00aa6840 @ 0x00aa6840, size 96
+  Original span (1 bytes): 55
+  Replacement: C3
+  Context bytes [site-8, site+16]: FF 8B E5 5D C3 CC CC CC 55 8B EC 83 EC 08 C7 45 FC 00 00 00 00 EB 09 8B 45
+  +0x00 len=1 bytes=[55] PUSH EBP
+  Patch ends on an instruction boundary
+
+----------------------------------------------------------------------
+RAW PATCH CONTRACT: RET: SBM config table init @ 0x00866770
+----------------------------------------------------------------------
+  Function: FUN_00866770 @ 0x00866770, size 796
+  Original span (1 bytes): 55
+  Replacement: C3
+  Context bytes [site-8, site+16]: CC CC CC CC CC CC CC CC 55 8B EC 51 89 4D FC 68 DC 24 08 01 68 00 00 60 00
+  +0x00 len=1 bytes=[55] PUSH EBP
+  Patch ends on an instruction boundary
+
+----------------------------------------------------------------------
+RAW PATCH CONTRACT: RET: SBM related init @ 0x00866e00
+----------------------------------------------------------------------
+  Function: FUN_00866e00 @ 0x00866e00, size 481
+  Original span (1 bytes): 55
+  Replacement: C3
+  Context bytes [site-8, site+16]: 8B E5 5D C2 04 00 CC CC 55 8B EC 6A FF 68 71 3B F1 00 64 A1 00 00 00 00 50
+  +0x00 len=1 bytes=[55] PUSH EBP
+  Patch ends on an instruction boundary
+
+----------------------------------------------------------------------
+RAW PATCH CONTRACT: RET: ScrapHeapManager lazy getter @ 0x00866d10
+----------------------------------------------------------------------
+  Function: FUN_00866d10 @ 0x00866d10, size 137
+  Original span (1 bytes): 55
+  Replacement: C3
+  Context bytes [site-8, site+16]: 01 6C 86 00 1E 6C 86 00 55 8B EC 6A FF 68 CB 09 F1 00 64 A1 00 00 00 00 50
+  +0x00 len=1 bytes=[55] PUSH EBP
+  Patch ends on an instruction boundary
+
+----------------------------------------------------------------------
+RAW PATCH CONTRACT: RET: global cleanup @ 0x00aa7030
+----------------------------------------------------------------------
+  Function: FUN_00aa7030 @ 0x00aa7030, size 136
+  Original span (1 bytes): 55
+  Replacement: C3
+  Context bytes [site-8, site+16]: 00 8B E5 5D C3 CC CC CC 55 8B EC 51 A1 D0 6B 1F 01 83 E0 01 75 27 8B 0D D0
+  +0x00 len=1 bytes=[55] PUSH EBP
+  Patch ends on an instruction boundary
+
+----------------------------------------------------------------------
+RAW PATCH CONTRACT: RET: deallocate all arenas @ 0x00aa5c80
+----------------------------------------------------------------------
+  Function: FUN_00aa5c80 @ 0x00aa5c80, size 182
+  Original span (1 bytes): 55
+  Replacement: C3
+  Context bytes [site-8, site+16]: CC CC CC CC CC CC CC CC 55 8B EC 83 EC 14 89 4D EC 8B 45 EC 83 B8 00 02 00
+  +0x00 len=1 bytes=[55] PUSH EBP
+  Patch ends on an instruction boundary
+
+----------------------------------------------------------------------
+RAW PATCH CONTRACT: RET: eager ScrapHeapManager constructor @ 0x00aa58d0
+----------------------------------------------------------------------
+  Function: FUN_00aa58d0 @ 0x00aa58d0, size 125
+  Original span (1 bytes): 55
+  Replacement: C3
+  Context bytes [site-8, site+16]: CC CC CC CC CC CC CC CC 55 8B EC 6A FF 68 FB EC F1 00 64 A1 00 00 00 00 50
+  +0x00 len=1 bytes=[55] PUSH EBP
+  Patch ends on an instruction boundary
+
+----------------------------------------------------------------------
+RAW PATCH CONTRACT: RET: purge unused arenas @ 0x00aa6f90
+----------------------------------------------------------------------
+  Function: FUN_00aa6f90 @ 0x00aa6f90, size 157
+  Original span (1 bytes): 55
+  Replacement: C3
+  Context bytes [site-8, site+16]: CC CC CC CC CC CC CC CC 55 8B EC 83 EC 18 89 4D E8 68 08 28 0A 01 8B 4D E8
+  +0x00 len=1 bytes=[55] PUSH EBP
+  Patch ends on an instruction boundary
+
+----------------------------------------------------------------------
+RAW PATCH CONTRACT: RET: decrement arena reference @ 0x00aa7290
+----------------------------------------------------------------------
+  Function: FUN_00aa7290 @ 0x00aa7290, size 110
+  Original span (1 bytes): 55
+  Replacement: C3
+  Context bytes [site-8, site+16]: C3 CC CC CC CC CC CC CC 55 8B EC 83 EC 0C 8B 45 08 83 3C 85 B8 67 1F 01 00
+  +0x00 len=1 bytes=[55] PUSH EBP
+  Patch ends on an instruction boundary
+
+----------------------------------------------------------------------
+RAW PATCH CONTRACT: RET: release arena by pointer @ 0x00aa7300
+----------------------------------------------------------------------
+  Function: FUN_00aa7300 @ 0x00aa7300, size 106
+  Original span (1 bytes): 55
+  Replacement: C3
+  Context bytes [site-8, site+16]: 00 00 8B E5 5D C3 CC CC 55 8B EC 83 EC 14 89 4D EC 68 60 28 0A 01 8B 4D EC
+  +0x00 len=1 bytes=[55] PUSH EBP
+  Patch ends on an instruction boundary
+
+----------------------------------------------------------------------
+RAW PATCH CONTRACT: NOP call: redundant heap init A @ 0x0086c56f
+----------------------------------------------------------------------
+  Function: FUN_0086c160 @ 0x0086c160, size 1182
+  Original span (5 bytes): E8 CC 61 23 00
+  Replacement: 90 90 90 90 90
+  Context bytes [site-8, site+20]: 01 8B 4D BC 8B 51 10 52 E8 CC 61 23 00 83 C4 08 68 C6 0D 00 00 68 C4 29 08 01 6A 01 6A
+  +0x00 len=5 bytes=[E8 CC 61 23 00] CALL 0x00aa2740
+  Patch ends on an instruction boundary
+
+----------------------------------------------------------------------
+RAW PATCH CONTRACT: NOP call: redundant heap init B @ 0x00c42eb1
+----------------------------------------------------------------------
+  Function: FUN_00c42dd0 @ 0x00c42dd0, size 292
+  Original span (5 bytes): E8 8A F8 E5 FF
+  Replacement: 90 90 90 90 90
+  Context bytes [site-8, site+20]: 52 8B 45 E8 8B 48 08 51 E8 8A F8 E5 FF 83 C4 08 8B 55 E8 C7 42 24 00 00 00 00 8B 45 E8
+  +0x00 len=5 bytes=[E8 8A F8 E5 FF] CALL 0x00aa2740
+  Patch ends on an instruction boundary
+
+----------------------------------------------------------------------
+RAW PATCH CONTRACT: NOP call: redundant heap init C @ 0x00ec1701
+----------------------------------------------------------------------
+  Function: FUN_00ec16d0 @ 0x00ec16d0, size 228
+  Original span (5 bytes): E8 3A 10 BE FF
+  Replacement: 90 90 90 90 90
+  Context bytes [site-8, site+20]: 88 1C 0F 01 8B 45 FC 50 E8 3A 10 BE FF 83 C4 08 8B 4D F0 8A 55 0C 88 51 22 8B 45 F0 8A
+  +0x00 len=5 bytes=[E8 3A 10 BE FF] CALL 0x00aa2740
+  Patch ends on an instruction boundary
+
+----------------------------------------------------------------------
+RAW PATCH CONTRACT: NOP call: late singleton allocation @ 0x00aa3060
+----------------------------------------------------------------------
+  Function: FUN_00aa3050 @ 0x00aa3050, size 32
+  Original span (5 bytes): E8 BB EF FF FF
+  Replacement: 90 90 90 90 90
+  Context bytes [site-8, site+20]: 16 C6 05 29 62 1F 01 01 E8 BB EF FF FF E8 B6 E8 FF FF E9 41 4E 00 00 C3 80 3D 29 62 1F
+  +0x00 len=5 bytes=[E8 BB EF FF FF] CALL 0x00aa2020
+  Patch ends on an instruction boundary
+
+----------------------------------------------------------------------
+RAW PATCH CONTRACT: jump over per-frame SBM arena management @ 0x0086eed4
+----------------------------------------------------------------------
+  Function: FUN_0086e650 @ 0x0086e650, size 2272
+  Original span (2 bytes): 75 13
+  Replacement: EB 55
+  Context bytes [site-8, site+17]: 11 0E 00 0F B6 D0 85 D2 75 13 D9 05 F8 EE 1D 01 DC 1D E8 57 03 01 DF E0 F6 C4
+  +0x00 len=2 bytes=[75 13] JNZ 0x0086eee9
+  Patch ends on an instruction boundary
+
+----------------------------------------------------------------------
+RAW PATCH CONTRACT: NOP embedded scrap-heap constructor @ 0x00aa38ca
+----------------------------------------------------------------------
+  Function: FUN_00aa3880 @ 0x00aa3880, size 316
+  Original span (30 bytes): 8B 45 A4 05 14 01 00 00 89 45 A8 6A 25 8B 4D A8 E8 01 0F 00 00 8B 4D A8 C7 01 F8 25 0A 01
+  Replacement: 30 x 90
+  Context bytes [site-8, site+45]: A4 C7 42 08 00 00 00 00 8B 45 A4 05 14 01 00 00 89 45 A8 6A 25 8B 4D A8 E8 01 0F 00 00 8B 4D A8 C7 01 F8 25 0A 01 C7 45 FC 00 00 00 00 8B 55 A4 C7 82 24 01 00 00
+  +0x00 len=3 bytes=[8B 45 A4] MOV EAX,dword ptr [EBP + -0x5c]
+  +0x03 len=5 bytes=[05 14 01 00 00] ADD EAX,0x114
+  +0x08 len=3 bytes=[89 45 A8] MOV dword ptr [EBP + -0x58],EAX
+  +0x0b len=2 bytes=[6A 25] PUSH 0x25
+  +0x0d len=3 bytes=[8B 4D A8] MOV ECX,dword ptr [EBP + -0x58]
+  +0x10 len=5 bytes=[E8 01 0F 00 00] CALL 0x00aa47e0
+  +0x15 len=3 bytes=[8B 4D A8] MOV ECX,dword ptr [EBP + -0x58]
+  +0x18 len=6 bytes=[C7 01 F8 25 0A 01] MOV dword ptr [ECX],0x10a25f8
+  Patch ends on an instruction boundary
+
+# MUTABLE DATA PATCH
+HeapSingleton fast-path flag image byte @ 0x011F6361: 00
+The constructor writes the runtime value; the image byte is identity evidence only.
+
+----------------------------------------------------------------------
+References TO 0x011f6361 (HeapSingleton + 0x129 fast-path flag)
+----------------------------------------------------------------------
+  Total: 0 refs
+
+# CRITICAL OWNERSHIP AND FALLBACK FUNCTIONS
+
+======================================================================
+GameHeap allocate @ 0x00aa3e40
+======================================================================
+  Function: FUN_00aa3e40 @ 0x00aa3e40, Size: 486 bytes
+
+int __thiscall FUN_00aa3e40(char *param_1,uint param_2)
+
+{
+  int *piVar1;
+  int iVar2;
+  int *piVar3;
+  int unaff_FS_OFFSET;
+  int *local_40;
+  int *local_3c;
+  int local_38;
+  int local_2c;
+  undefined4 local_28;
+  char local_d;
+  uint local_c;
+  int local_8;
+  
+  if (*param_1 == '\0') {
+    local_8 = FUN_00aa4290(param_2,0);
+  }
+  else {
+    piVar1 = *(int **)(param_1 + 0x110);
+    if (piVar1 == (int *)0x0) {
+      local_8 = FUN_00aa4290(param_2,0);
+    }
+    else {
+      local_c = param_2;
+      local_8 = 0;
+      if (param_2 < 9) {
+        param_2 = 8;
+      }
+      else {
+        param_2 = param_2 + 3 & 0xfffffffc;
+      }
+      iVar2 = *(int *)(*(int *)(*(int *)(unaff_FS_OFFSET + 0x2c) + _tls_index * 4) + 0x2b4);
+      if (param_1[0x129] != '\0') {
+        if (param_2 < 0x3fd) {
+          local_38 = *(int *)(&DAT_011f67b8 + param_2);
+        }
+        else {
+          local_38 = 0;
+        }
+        local_2c = local_38;
+        if (local_38 == 0) {
+          local_2c = FUN_00aa4960(param_2);
+        }
+        if ((local_2c != 0) && (local_8 = FUN_00aa6aa0(local_c), local_8 != 0)) {
+          return local_8;
+        }
+      }
+      local_d = '\0';
+      local_28 = 0;
+      piVar3 = *(int **)(param_1 + iVar2 * 4 + 0xc);
+      do {
+        local_3c = piVar1;
+        if (piVar3 != (int *)0x0) {
+          local_3c = piVar3;
+        }
+        local_8 = (**(code **)(*local_3c + 8))(param_2,0);
+        if ((local_8 == 0) && (local_3c != piVar1)) {
+          local_8 = (**(code **)(*piVar1 + 8))(param_2,0);
+        }
+        if (local_8 == 0) {
+          local_40 = piVar1;
+          if (piVar3 != (int *)0x0) {
+            local_40 = piVar3;
+          }
+          local_28 = FUN_00866a90(local_40,local_28,&local_d);
+          if (local_d != '\0') {
+            local_8 = FUN_00aa4290(param_2,0);
+          }
+        }
+      } while (local_8 == 0);
+    }
+  }
+  return local_8;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00aa3e40 (GameHeap allocate)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0040100e (in FUN_00401000)
+  UNCONDITIONAL_CALL @ 0x00553335 (in FUN_00553320)
+  UNCONDITIONAL_CALL @ 0x005aaef9 (in FUN_005aaee0)
+  UNCONDITIONAL_CALL @ 0x00a010c0 (in FUN_00a01000)
+  UNCONDITIONAL_CALL @ 0x00a01e60 (in FUN_00a01e20)
+  UNCONDITIONAL_CALL @ 0x00a02e08 (in FUN_00a02d40)
+  UNCONDITIONAL_CALL @ 0x00a030a7 (in FUN_00a02d40)
+  UNCONDITIONAL_CALL @ 0x00a070f6 (in FUN_00a06dd0)
+  UNCONDITIONAL_CALL @ 0x00a07ca3 (in FUN_00a07c60)
+  UNCONDITIONAL_CALL @ 0x00a09099 (in FUN_00a09080)
+  UNCONDITIONAL_CALL @ 0x00a09149 (in FUN_00a09130)
+  UNCONDITIONAL_CALL @ 0x00a09f0a (in FUN_00a09410)
+  UNCONDITIONAL_CALL @ 0x00a0a13d (in FUN_00a0a130)
+  UNCONDITIONAL_CALL @ 0x00a0a3b4 (in FUN_00a0a300)
+  UNCONDITIONAL_CALL @ 0x00a0acd2 (in FUN_00a0ac80)
+  UNCONDITIONAL_CALL @ 0x00a0ae9f (in FUN_00a0ae70)
+  UNCONDITIONAL_CALL @ 0x00a0b9de (in FUN_00a0b950)
+  UNCONDITIONAL_CALL @ 0x00a0c7e2 (in FUN_00a0c7c0)
+  UNCONDITIONAL_CALL @ 0x00a0da67 (in FUN_00a0d9e0)
+  UNCONDITIONAL_CALL @ 0x00a0fbb4 (in FUN_00a0f8b0)
+  UNCONDITIONAL_CALL @ 0x00a0fdbd (in FUN_00a0f8b0)
+  UNCONDITIONAL_CALL @ 0x00a11389 (in FUN_00a10c00)
+  UNCONDITIONAL_CALL @ 0x00a11c10 (in FUN_00a11c00)
+  UNCONDITIONAL_CALL @ 0x00a14a7c (in FUN_00a14a20)
+  UNCONDITIONAL_CALL @ 0x00a14af5 (in FUN_00a14a20)
+  UNCONDITIONAL_CALL @ 0x00a167f5 (in FUN_00a167c0)
+  UNCONDITIONAL_CALL @ 0x00a16923 (in FUN_00a168b0)
+  UNCONDITIONAL_CALL @ 0x00a16990 (in FUN_00a168b0)
+  UNCONDITIONAL_CALL @ 0x00a169fe (in FUN_00a168b0)
+  UNCONDITIONAL_CALL @ 0x00a16a6c (in FUN_00a168b0)
+  UNCONDITIONAL_CALL @ 0x00a16ada (in FUN_00a168b0)
+  UNCONDITIONAL_CALL @ 0x00a16b48 (in FUN_00a168b0)
+  UNCONDITIONAL_CALL @ 0x00a16bb6 (in FUN_00a168b0)
+  UNCONDITIONAL_CALL @ 0x00a16c24 (in FUN_00a168b0)
+  UNCONDITIONAL_CALL @ 0x00a12158 (in FUN_00a12020)
+  UNCONDITIONAL_CALL @ 0x00a154b6 (in FUN_00a15320)
+  UNCONDITIONAL_CALL @ 0x00a1c71c (in FUN_00a1c6f0)
+  UNCONDITIONAL_CALL @ 0x00a1cf17 (in FUN_00a1ce70)
+  UNCONDITIONAL_CALL @ 0x00a1cfb1 (in FUN_00a1ce70)
+  UNCONDITIONAL_CALL @ 0x00a1d238 (in FUN_00a1ce70)
+  UNCONDITIONAL_CALL @ 0x00a1dea8 (in FUN_00a1ddb0)
+  ... (truncated)
+  Total: 41 refs
+
+--- Calls FROM GameHeap allocate (0x00aa3e40) ---
+  0x00aa3e5c -> 0x00aa4290 FUN_00aa4290
+  0x00aa3e81 -> 0x00aa4290 FUN_00aa4290
+  0x00aa3f0b -> 0x00aa4960 FUN_00aa4960
+  0x00aa3f23 -> 0x00aa6aa0 FUN_00aa6aa0
+  0x00aa3fe6 -> 0x00866a90 FUN_00866a90
+  0x00aa3fff -> 0x00aa4290 FUN_00aa4290
+  Total: 6 calls
+
+======================================================================
+GameHeap free @ 0x00aa4060
+======================================================================
+  Function: FUN_00aa4060 @ 0x00aa4060, Size: 236 bytes
+
+void __thiscall FUN_00aa4060(char *param_1,uint param_2)
+
+{
+  int iVar1;
+  bool bVar2;
+  int *piVar3;
+  
+  if (param_2 != 0) {
+    if (*param_1 == '\0') {
+      FUN_00aa42c0(param_2,0);
+    }
+    else if (*(int *)(param_1 + 0x110) == 0) {
+      FUN_00aa42c0(param_2,0);
+    }
+    else {
+      iVar1 = *(int *)(&DAT_011f63b8 + (param_2 >> 0x18) * 4);
+      if (iVar1 != 0) {
+        if ((param_2 < *(uint *)(iVar1 + 4)) ||
+           ((uint)(*(int *)(iVar1 + 4) + *(int *)(iVar1 + 0x50)) <= param_2)) {
+          bVar2 = false;
+        }
+        else {
+          bVar2 = true;
+        }
+        if (bVar2) {
+          FUN_00aa6c70(param_2);
+          return;
+        }
+      }
+      piVar3 = (int *)FUN_00aa45a0(param_2);
+      if (piVar3 == (int *)0x0) {
+        FUN_00aa42c0(param_2,0);
+      }
+      else {
+        (**(code **)(*piVar3 + 0xc))(param_2,0);
+      }
+    }
+  }
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00aa4060 (GameHeap free)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0040103e (in FUN_00401030)
+  UNCONDITIONAL_CALL @ 0x005533aa (in FUN_00553380)
+  UNCONDITIONAL_CALL @ 0x00a00ac4 (in FUN_00a00a30)
+  UNCONDITIONAL_CALL @ 0x00a00b15 (in FUN_00a00a30)
+  UNCONDITIONAL_CALL @ 0x00a01d79 (in FUN_00a01b00)
+  UNCONDITIONAL_CALL @ 0x00a02f8b (in FUN_00a02d40)
+  UNCONDITIONAL_CALL @ 0x00a0305d (in FUN_00a02d40)
+  UNCONDITIONAL_CALL @ 0x00a03171 (in FUN_00a02d40)
+  UNCONDITIONAL_CALL @ 0x00a07e92 (in FUN_00a07dc0)
+  UNCONDITIONAL_CALL @ 0x00a086d7 (in FUN_00a080d0)
+  UNCONDITIONAL_CALL @ 0x00a092b2 (in FUN_00a09200)
+  UNCONDITIONAL_CALL @ 0x00a09317 (in FUN_00a09200)
+  UNCONDITIONAL_CALL @ 0x00a09ef9 (in FUN_00a09410)
+  UNCONDITIONAL_CALL @ 0x00a0a1f7 (in FUN_00a0a130)
+  UNCONDITIONAL_CALL @ 0x00a0a2ce (in FUN_00a0a270)
+  UNCONDITIONAL_CALL @ 0x00a0a384 (in FUN_00a0a300)
+  UNCONDITIONAL_CALL @ 0x00a0ada6 (in FUN_00a0ad40)
+  UNCONDITIONAL_CALL @ 0x00a0ae19 (in FUN_00a0ad40)
+  UNCONDITIONAL_CALL @ 0x00a0b933 (in FUN_00a0b8d0)
+  UNCONDITIONAL_CALL @ 0x00a0be34 (in FUN_00a0be10)
+  UNCONDITIONAL_CALL @ 0x00a0be54 (in FUN_00a0be10)
+  UNCONDITIONAL_CALL @ 0x00a0be94 (in FUN_00a0be70)
+  UNCONDITIONAL_CALL @ 0x00a0abc4 (in FUN_00a0ab70)
+  UNCONDITIONAL_CALL @ 0x00a0ccc3 (in FUN_00a0cbe0)
+  UNCONDITIONAL_CALL @ 0x00a0cd27 (in FUN_00a0cbe0)
+  UNCONDITIONAL_CALL @ 0x00a0db1e (in FUN_00a0dae0)
+  UNCONDITIONAL_CALL @ 0x00a0ddee (in FUN_00a0dcc0)
+  UNCONDITIONAL_CALL @ 0x00a0e181 (in FUN_00a0df80)
+  UNCONDITIONAL_CALL @ 0x00a0e27a (in FUN_00a0df80)
+  UNCONDITIONAL_CALL @ 0x00a0f6c0 (in FUN_00a0e770)
+  UNCONDITIONAL_CALL @ 0x00a0f6f8 (in FUN_00a0e770)
+  UNCONDITIONAL_CALL @ 0x00a11eb8 (in FUN_00a11e10)
+  UNCONDITIONAL_CALL @ 0x00a12003 (in FUN_00a11fa0)
+  UNCONDITIONAL_CALL @ 0x00a1688e (in FUN_00a16850)
+  UNCONDITIONAL_CALL @ 0x00a16d74 (in FUN_00a16d20)
+  UNCONDITIONAL_CALL @ 0x00a12220 (in FUN_00a121e0)
+  UNCONDITIONAL_CALL @ 0x00a12253 (in FUN_00a121e0)
+  UNCONDITIONAL_CALL @ 0x00a12357 (in FUN_00a12300)
+  UNCONDITIONAL_CALL @ 0x00a1c0df (in FUN_00a1c080)
+  UNCONDITIONAL_CALL @ 0x00a1c30e (in FUN_00a1c2d0)
+  UNCONDITIONAL_CALL @ 0x00a1c7e1 (in FUN_00a1c790)
+  ... (truncated)
+  Total: 41 refs
+
+--- Calls FROM GameHeap free (0x00aa4060) ---
+  0x00aa4087 -> 0x00aa42c0 FUN_00aa42c0
+  0x00aa40ac -> 0x00aa42c0 FUN_00aa42c0
+  0x00aa4107 -> 0x00aa6c70 FUN_00aa6c70
+  0x00aa4115 -> 0x00aa45a0 FUN_00aa45a0
+  0x00aa4141 -> 0x00aa42c0 FUN_00aa42c0
+  Total: 5 calls
+
+======================================================================
+GameHeap msize @ 0x00aa44c0
+======================================================================
+  Function: FUN_00aa44c0 @ 0x00aa44c0, Size: 221 bytes
+
+size_t FUN_00aa44c0(void *param_1)
+
+{
+  int iVar1;
+  bool bVar2;
+  int *piVar3;
+  size_t local_8;
+  
+  iVar1 = *(int *)(&DAT_011f63b8 + ((uint)param_1 >> 0x18) * 4);
+  if (iVar1 != 0) {
+    if ((param_1 < *(void **)(iVar1 + 4)) ||
+       ((void *)(*(int *)(iVar1 + 4) + *(int *)(iVar1 + 0x50)) <= param_1)) {
+      bVar2 = false;
+    }
+    else {
+      bVar2 = true;
+    }
+    if (bVar2) {
+      return *(size_t *)(iVar1 + 0x40);
+    }
+  }
+  piVar3 = (int *)FUN_00aa45a0(param_1);
+  if (piVar3 == (int *)0x0) {
+    piVar3 = (int *)FUN_00aa4610(param_1);
+    if (piVar3 == (int *)0x0) {
+      local_8 = __msize(param_1);
+    }
+    else {
+      local_8 = (**(code **)(*piVar3 + 0x24))(param_1,0);
+    }
+  }
+  else {
+    local_8 = (**(code **)(*piVar3 + 0x24))(param_1,0);
+  }
+  return local_8;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00aa44c0 (GameHeap msize)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00aa4167 (in FUN_00aa4150)
+  UNCONDITIONAL_CALL @ 0x00aa4217 (in FUN_00aa4200)
+  Total: 2 refs
+
+--- Calls FROM GameHeap msize (0x00aa44c0) ---
+  0x00aa4525 -> 0x00aa45a0 FUN_00aa45a0
+  0x00aa4552 -> 0x00aa4610 FUN_00aa4610
+  0x00aa4583 -> 0x00ecd31f __msize
+  Total: 3 calls
+
+======================================================================
+GameHeap realloc path 1 @ 0x00aa4150
+======================================================================
+  Function: FUN_00aa4150 @ 0x00aa4150, Size: 140 bytes
+
+void * FUN_00aa4150(void *param_1,uint param_2)
+
+{
+  undefined4 local_c;
+  undefined4 local_8;
+  
+  local_c = FUN_00aa44c0(param_1);
+  if (local_c == 0) {
+    local_8 = _realloc(param_1,param_2);
+  }
+  else {
+    local_8 = (void *)FUN_00aa3e40(param_2);
+    if (param_2 < local_c) {
+      local_c = param_2;
+    }
+    _memcpy(local_8,param_1,local_c);
+    FUN_00aa4060(param_1);
+  }
+  return local_8;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00aa4150 (GameHeap realloc path 1)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0042f5e2 (in FUN_0042f5d0)
+  UNCONDITIONAL_CALL @ 0x00a13549 (in FUN_00a12fb0)
+  UNCONDITIONAL_CALL @ 0x00a1365b (in FUN_00a12fb0)
+  UNCONDITIONAL_CALL @ 0x00a13745 (in FUN_00a12fb0)
+  UNCONDITIONAL_CALL @ 0x00a13a00 (in FUN_00a12fb0)
+  UNCONDITIONAL_CALL @ 0x00a13c96 (in FUN_00a12fb0)
+  UNCONDITIONAL_CALL @ 0x00a13eb1 (in FUN_00a12fb0)
+  UNCONDITIONAL_CALL @ 0x00a1c067 (in FUN_00a1c050)
+  UNCONDITIONAL_CALL @ 0x00afcd77 (in FUN_00afcd60)
+  UNCONDITIONAL_CALL @ 0x00c3a687 (in FUN_00c3a670)
+  UNCONDITIONAL_CALL @ 0x00c4a8c7 (in FUN_00c4a8b0)
+  UNCONDITIONAL_CALL @ 0x00c4a947 (in FUN_00c4a930)
+  UNCONDITIONAL_CALL @ 0x00aa231e (in ???)
+  UNCONDITIONAL_CALL @ 0x00aa244e (in ???)
+  UNCONDITIONAL_CALL @ 0x00aa33b9 (in ???)
+  UNCONDITIONAL_CALL @ 0x00aa33f3 (in ???)
+  Total: 16 refs
+
+--- Calls FROM GameHeap realloc path 1 (0x00aa4150) ---
+  0x00aa4167 -> 0x00aa44c0 FUN_00aa44c0
+  0x00aa417c -> 0x00aa3e40 FUN_00aa3e40
+  0x00aa419e -> 0x00ec44d0 _memcpy
+  0x00aa41ad -> 0x00aa4060 FUN_00aa4060
+  0x00aa41c2 -> 0x00eccf5d _realloc
+  Total: 5 calls
+
+======================================================================
+GameHeap realloc path 2 @ 0x00aa4200
+======================================================================
+  Function: FUN_00aa4200 @ 0x00aa4200, Size: 140 bytes
+
+void * FUN_00aa4200(void *param_1,uint param_2)
+
+{
+  undefined4 local_c;
+  undefined4 local_8;
+  
+  local_c = FUN_00aa44c0(param_1);
+  if (local_c == 0) {
+    local_8 = _realloc(param_1,param_2);
+  }
+  else {
+    local_8 = (void *)FUN_00aa3e40(param_2);
+    if (param_2 < local_c) {
+      local_c = param_2;
+    }
+    _memcpy(local_8,param_1,local_c);
+    FUN_00aa4060(param_1);
+  }
+  return local_8;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00aa4200 (GameHeap realloc path 2)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00aa235d (in ???)
+  UNCONDITIONAL_CALL @ 0x00aa248d (in ???)
+  Total: 2 refs
+
+--- Calls FROM GameHeap realloc path 2 (0x00aa4200) ---
+  0x00aa4217 -> 0x00aa44c0 FUN_00aa44c0
+  0x00aa422c -> 0x00aa3e40 FUN_00aa3e40
+  0x00aa424e -> 0x00ec44d0 _memcpy
+  0x00aa425d -> 0x00aa4060 FUN_00aa4060
+  0x00aa4272 -> 0x00eccf5d _realloc
+  Total: 5 calls
+
+======================================================================
+HeapSingleton constructor and embedded scrap heap @ 0x00aa3880
+======================================================================
+  Function: FUN_00aa3880 @ 0x00aa3880, Size: 316 bytes
+
+undefined1 * __fastcall FUN_00aa3880(undefined1 *param_1)
+
+{
+  uint uVar1;
+  BOOL BVar2;
+  int *unaff_FS_OFFSET;
+  _MEMORYSTATUSEX local_50;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00f1ec1e;
+  local_10 = *unaff_FS_OFFSET;
+  uVar1 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  *param_1 = 0;
+  *(undefined2 *)(param_1 + 2) = 0;
+  *(undefined2 *)(param_1 + 4) = 0;
+  *(undefined4 *)(param_1 + 8) = 0;
+  FUN_00aa47e0(0x25);
+  *(undefined ***)(param_1 + 0x114) = &PTR_FUN_010a25f8;
+  local_8 = 0;
+  *(undefined4 *)(param_1 + 0x124) = 0;
+  param_1[0x128] = 1;
+  param_1[0x129] = 1;
+  *(undefined4 *)(param_1 + 300) = 0;
+  *(undefined4 *)(param_1 + 0x130) = 0;
+  *(undefined4 *)(param_1 + 0x134) = 0;
+  _memset(param_1 + 0xc,0,0x108);
+  local_50.dwLength = 0x40;
+  BVar2 = GlobalMemoryStatusEx(&local_50);
+  if (((BVar2 != 0) && (local_50.ullAvailPageFile._4_4_ == 0)) &&
+     (local_50.ullAvailPageFile._0_4_ < 0x20000000)) {
+    MessageBoxA((HWND)0x0,"Not enough memory to run application.","Memory Error",0x10);
+                    /* WARNING: Subroutine does not return */
+    _exit(0);
+  }
+  FUN_00aa39c0(uVar1);
+  FUN_00866690();
+  FUN_00aa58d0();
+  *unaff_FS_OFFSET = local_10;
+  return param_1;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00aa3880 (HeapSingleton constructor and embedded scrap heap)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00fb66a8 (in FUN_00fb66a0)
+  Total: 1 refs
+
+--- Calls FROM HeapSingleton constructor and embedded scrap heap (0x00aa3880) ---
+  0x00aa38da -> 0x00aa47e0 FUN_00aa47e0
+  0x00aa3945 -> 0x00ec61c0 _memset
+  0x00aa3958 -> 0x00000049 ???
+  0x00aa3981 -> 0x000000ae ???
+  0x00aa3989 -> 0x00eccec5 _exit
+  0x00aa3991 -> 0x00aa39c0 FUN_00aa39c0
+  0x00aa3999 -> 0x00866690 FUN_00866690
+  0x00aa399e -> 0x00aa58d0 FUN_00aa58d0
+  Total: 8 calls
+
+======================================================================
+Default File and Static heap construction @ 0x00866e00
+======================================================================
+  Function: FUN_00866e00 @ 0x00866e00, Size: 481 bytes
+
+void __fastcall FUN_00866e00(int param_1)
+
+{
+  uint uVar1;
+  undefined4 uVar2;
+  int iVar3;
+  int *unaff_FS_OFFSET;
+  undefined4 local_3c;
+  undefined4 local_38;
+  undefined4 local_34;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00f13b71;
+  local_10 = *unaff_FS_OFFSET;
+  uVar1 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  std::_Fiopen((wchar_t *)(param_1 + 0xc),0,0x108);
+  *(undefined2 *)(param_1 + 2) = 3;
+  uVar2 = FUN_00401000((uint)*(ushort *)(param_1 + 2) * 4,uVar1);
+  *(undefined4 *)(param_1 + 8) = uVar2;
+  iVar3 = FUN_00401000(0x20f4);
+  local_8 = 0;
+  if (iVar3 == 0) {
+    local_34 = 0;
+  }
+  else {
+    local_34 = FUN_00aa78a0(0xc800000,0x5500000,"Default Heap",0);
+  }
+  local_8 = 0xffffffff;
+  **(undefined4 **)(param_1 + 8) = local_34;
+  *(undefined4 *)(param_1 + 0x110) = **(undefined4 **)(param_1 + 8);
+  iVar3 = FUN_00401000(0x40,uVar1);
+  local_8 = 1;
+  if (iVar3 == 0) {
+    local_38 = 0;
+  }
+  else {
+    local_38 = FUN_00aa7400(0x183800,"Static Heap");
+  }
+  local_8 = 0xffffffff;
+  *(undefined4 *)(*(int *)(param_1 + 8) + 4) = local_38;
+  *(undefined4 *)(param_1 + 0xc) = *(undefined4 *)(*(int *)(param_1 + 8) + 4);
+  *(undefined4 *)(param_1 + 0x30) = *(undefined4 *)(*(int *)(param_1 + 8) + 4);
+  *(undefined4 *)(param_1 + 0x18) = *(undefined4 *)(*(int *)(param_1 + 8) + 4);
+  iVar3 = FUN_00401000(0x20f4);
+  local_8 = 2;
+  if (iVar3 == 0) {
+    local_3c = 0;
+  }
+  else {
+    local_3c = FUN_00aa78a0(0x4000000,0x200000,"File Heap",0);
+  }
+  *(undefined4 *)(*(int *)(param_1 + 8) + 8) = local_3c;
+  *(undefined4 *)(param_1 + 0x68) = *(undefined4 *)(*(int *)(param_1 + 8) + 8);
+  *(undefined2 *)(param_1 + 4) = 0;
+  *unaff_FS_OFFSET = local_10;
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00866e00 (Default File and Static heap construction)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00aa39cf (in FUN_00aa39c0)
+  Total: 1 refs
+
+--- Calls FROM Default File and Static heap construction (0x00866e00) ---
+  0x00866e36 -> 0x00403d30 _Fiopen
+  0x00866e62 -> 0x00401000 FUN_00401000
+  0x00866e7b -> 0x00401000 FUN_00401000
+  0x00866ea7 -> 0x00aa78a0 FUN_00aa78a0
+  0x00866ee3 -> 0x00401000 FUN_00401000
+  0x00866f08 -> 0x00aa7400 FUN_00aa7400
+  0x00866f64 -> 0x00401000 FUN_00401000
+  0x00866f90 -> 0x00aa78a0 FUN_00aa78a0
+  Total: 8 calls
+
+======================================================================
+late singleton initialization gate @ 0x00aa3050
+======================================================================
+  Function: FUN_00aa3050 @ 0x00aa3050, Size: 32 bytes
+
+void FUN_00aa3050(void)
+
+{
+  if (DAT_011f6229 == '\0') {
+    DAT_011f6229 = 1;
+    FUN_00aa2020();
+    FUN_00aa1920();
+    FUN_00aa7eb0();
+    return;
+  }
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00aa3050 (late singleton initialization gate)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00aa2121 (in FUN_00aa20b0)
+  Total: 1 refs
+
+--- Calls FROM late singleton initialization gate (0x00aa3050) ---
+  0x00aa3060 -> 0x00aa2020 FUN_00aa2020
+  0x00aa3065 -> 0x00aa1920 FUN_00aa1920
+  0x00aa306a -> 0x00aa7eb0 FUN_00aa7eb0
+  Total: 3 calls
+
+# MAIN EXECUTABLE IMPORT REFERENCES
+
+----------------------------------------------------------------------
+References TO 0x00ecd1c7 (static CRT malloc entry)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00aa429d (in FUN_00aa4290)
+  UNCONDITIONAL_CALL @ 0x00ec7914 (in exception)
+  UNCONDITIONAL_CALL @ 0x00ec8f29 (in _strlwr_s_l_stat)
+  UNCONDITIONAL_CALL @ 0x00ecbb99 (in _strupr_s_l_stat)
+  UNCONDITIONAL_CALL @ 0x00eccf73 (in _realloc)
+  UNCONDITIONAL_CALL @ 0x00ed05e7 (in __crtLCMapStringA_stat)
+  UNCONDITIONAL_CALL @ 0x00ed06a9 (in __crtLCMapStringA_stat)
+  UNCONDITIONAL_CALL @ 0x00ed07bf (in __crtLCMapStringA_stat)
+  UNCONDITIONAL_CALL @ 0x00ed0ceb (in __malloc_crt)
+  UNCONDITIONAL_CALL @ 0x00ee12c4 (in __crtGetStringTypeA_stat)
+  UNCONDITIONAL_CALL @ 0x00ee1500 (in ___convertcp)
+  UNCONDITIONAL_CALL @ 0x00ee663f (in __crtCompareStringA_stat)
+  UNCONDITIONAL_CALL @ 0x00ee66c2 (in __crtCompareStringA_stat)
+  UNCONDITIONAL_CALL @ 0x00ee6c3a (in __strdup)
+  UNCONDITIONAL_CALL @ 0x00ec7972 (in exception)
+  UNCONDITIONAL_CALL @ 0x00b4903d (in FUN_00b49020)
+  UNCONDITIONAL_CALL @ 0x00ee1eee (in __crtGetLocaleInfoA_stat)
+  Total: 17 refs
+
+----------------------------------------------------------------------
+References TO 0x00ecd291 (static CRT free entry)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00aa42cb (in FUN_00aa42c0)
+  UNCONDITIONAL_CALL @ 0x00ec8e2c (in __freea)
+  UNCONDITIONAL_CALL @ 0x00ec9369 (in __stat64i32)
+  UNCONDITIONAL_CALL @ 0x00ec93d2 (in __stat64i32)
+  UNCONDITIONAL_CALL @ 0x00ec98f4 (in __fclose_nolock)
+  UNCONDITIONAL_CALL @ 0x00eccf86 (in _realloc)
+  UNCONDITIONAL_CALL @ 0x00ecf4a8 (in ___freetlocinfo)
+  UNCONDITIONAL_CALL @ 0x00ecf4c9 (in ___freetlocinfo)
+  UNCONDITIONAL_CALL @ 0x00ecf4e1 (in ___freetlocinfo)
+  UNCONDITIONAL_CALL @ 0x00ecf4ec (in ___freetlocinfo)
+  UNCONDITIONAL_CALL @ 0x00ecf50d (in ___freetlocinfo)
+  UNCONDITIONAL_CALL @ 0x00ecf520 (in ___freetlocinfo)
+  UNCONDITIONAL_CALL @ 0x00ecf52e (in ___freetlocinfo)
+  UNCONDITIONAL_CALL @ 0x00ecf539 (in ___freetlocinfo)
+  UNCONDITIONAL_CALL @ 0x00ecf560 (in ___freetlocinfo)
+  UNCONDITIONAL_CALL @ 0x00ecf585 (in ___freetlocinfo)
+  UNCONDITIONAL_CALL @ 0x00ecf59c (in ___freetlocinfo)
+  UNCONDITIONAL_CALL @ 0x00ecf5ab (in ___freetlocinfo)
+  UNCONDITIONAL_CALL @ 0x00ed0856 (in __crtLCMapStringA_stat)
+  UNCONDITIONAL_CALL @ 0x00ed0869 (in __crtLCMapStringA_stat)
+  UNCONDITIONAL_CALL @ 0x00ed11ca (in __getptd_noexit)
+  UNCONDITIONAL_CALL @ 0x00edde28 (in __mtdeletelocks)
+  UNCONDITIONAL_CALL @ 0x00ed3d4b (in ___updatetmbcinfo)
+  UNCONDITIONAL_CALL @ 0x00ed7140 (in __fullpath)
+  UNCONDITIONAL_CALL @ 0x00ed7163 (in __fullpath)
+  UNCONDITIONAL_CALL @ 0x00ed755f (in __getdrive)
+  UNCONDITIONAL_CALL @ 0x00ed821e (in __freebuf)
+  UNCONDITIONAL_CALL @ 0x00ed85d4 (in __getstream)
+  UNCONDITIONAL_CALL @ 0x00edcd6a (in __read_nolock)
+  UNCONDITIONAL_CALL @ 0x00ed406f (in __setmbcp)
+  UNCONDITIONAL_CALL @ 0x00ed4128 (in __setmbcp)
+  UNCONDITIONAL_CALL @ 0x00ed415e (in __setmbcp)
+  UNCONDITIONAL_CALL @ 0x00edd75b (in __setenvp)
+  UNCONDITIONAL_CALL @ 0x00edd781 (in __setenvp)
+  UNCONDITIONAL_CALL @ 0x00eddaa6 (in ___crtGetEnvironmentStringsA)
+  UNCONDITIONAL_CALL @ 0x00eddefa (in __mtinitlocknum)
+  UNCONDITIONAL_CALL @ 0x00eddf15 (in __mtinitlocknum)
+  UNCONDITIONAL_CALL @ 0x00ee02dd (in ___free_lc_time)
+  UNCONDITIONAL_CALL @ 0x00ee02e5 (in ___free_lc_time)
+  UNCONDITIONAL_CALL @ 0x00ee02ed (in ___free_lc_time)
+  UNCONDITIONAL_CALL @ 0x00ee02f5 (in ___free_lc_time)
+  ... (truncated)
+  Total: 41 refs
+
+----------------------------------------------------------------------
+References TO 0x00eccf5d (static CRT realloc entry)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00aa41c2 (in FUN_00aa4150)
+  UNCONDITIONAL_CALL @ 0x00ed0d7f (in __realloc_crt)
+  UNCONDITIONAL_CALL @ 0x00ee1753 (in __recalloc)
+  UNCONDITIONAL_CALL @ 0x00aa4272 (in FUN_00aa4200)
+  Total: 4 refs
+
+----------------------------------------------------------------------
+References TO 0x00ecd31f (static CRT msize entry)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00aa4583 (in FUN_00aa44c0)
+  UNCONDITIONAL_CALL @ 0x00ec64a5 (in __onexit_nolock)
+  UNCONDITIONAL_CALL @ 0x00ee1747 (in __recalloc)
+  Total: 3 refs

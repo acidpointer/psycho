@@ -1,20 +1,20 @@
+use super::errors::IatHookError;
+use crate::{
+    ffi::fnptr::FnPtr,
+    hook::traits::Hook,
+    os::windows::{
+        hook::iat::IatHookResult,
+        memory::validate_memory_access,
+        pe::find_iat_entry,
+        winapi::{PointerExchange, compare_exchange_pointer, load_pointer},
+    },
+};
 use libc::c_void;
 use parking_lot::RwLock;
 use std::{
     fmt,
     ptr::NonNull,
     sync::atomic::{AtomicBool, Ordering},
-};
-use windows::Win32::System::Memory::PAGE_READWRITE;
-
-use super::errors::IatHookError;
-use crate::{
-    ffi::fnptr::FnPtr,
-    hook::traits::Hook,
-    os::windows::{
-        hook::iat::IatHookResult, memory::validate_memory_access, pe::find_iat_entry,
-        winapi::with_virtual_protect,
-    },
 };
 
 /// Hook by IAT (Import Address Table)
@@ -39,6 +39,10 @@ unsafe impl<F: Copy + 'static> Send for IatHook<F> {}
 unsafe impl<F: Copy + 'static> Sync for IatHook<F> {}
 
 impl<F: Copy + 'static> IatHook<F> {
+    /// Prepare a hook for one parsed IAT entry without changing the entry.
+    ///
+    /// The entry's current function is captured as the predecessor. Activation
+    /// later succeeds only if that exact pointer is still present.
     #[allow(clippy::not_unsafe_ptr_arg_deref)]
     pub fn from_iat_entry(
         name: impl Into<String>,
@@ -65,8 +69,9 @@ impl<F: Copy + 'static> IatHook<F> {
             current_fn_ptr
         );
 
-        // Validate function pointer is in executable memory
+        // Both sides of the IAT exchange must remain callable.
         validate_memory_access(current_fn_ptr)?;
+        validate_memory_access(detour_fn.as_raw_ptr())?;
 
         let original_fn = unsafe { FnPtr::from_raw(current_fn_ptr) }?;
 
@@ -95,7 +100,7 @@ impl<F: Copy + 'static> IatHook<F> {
         }
 
         let detour_ptr = self.detour_fn.as_raw_ptr();
-        let original_ptr = unsafe { *self.iat_entry };
+        let original_ptr = self.original_fn.as_raw_ptr();
 
         log::debug!(
             "Enabling hook '{}': IAT={:p}, before={:p}, after={:p}",
@@ -105,18 +110,17 @@ impl<F: Copy + 'static> IatHook<F> {
             detour_ptr
         );
 
-        unsafe {
-            with_virtual_protect(
-                self.iat_entry as *mut c_void,
-                PAGE_READWRITE,
-                std::mem::size_of::<*mut c_void>(),
-                || {
-                    *self.iat_entry = detour_ptr;
-                },
-            )?;
+        match compare_exchange_pointer(self.iat_entry, original_ptr, detour_ptr)? {
+            PointerExchange::Exchanged => {}
+            PointerExchange::Mismatch(observed) => {
+                return Err(IatHookError::OwnershipConflict {
+                    expected: original_ptr as usize,
+                    observed: observed as usize,
+                });
+            }
         }
 
-        let actual_value = unsafe { *self.iat_entry };
+        let actual_value = load_pointer(self.iat_entry)?;
         log::debug!(
             "Hook '{}' enabled: IAT now contains {:p} (expected {:p})",
             self.name,
@@ -138,15 +142,15 @@ impl<F: Copy + 'static> IatHook<F> {
 
         let original_ptr = self.original_fn.as_raw_ptr();
 
-        unsafe {
-            with_virtual_protect(
-                self.iat_entry as *mut c_void,
-                PAGE_READWRITE,
-                std::mem::size_of::<*mut c_void>(),
-                || {
-                    *self.iat_entry = original_ptr;
-                },
-            )?;
+        let detour_ptr = self.detour_fn.as_raw_ptr();
+        match compare_exchange_pointer(self.iat_entry, detour_ptr, original_ptr)? {
+            PointerExchange::Exchanged => {}
+            PointerExchange::Mismatch(observed) => {
+                return Err(IatHookError::OwnershipLost {
+                    expected: detour_ptr as usize,
+                    observed: observed as usize,
+                });
+            }
         }
 
         self.enabled.store(false, Ordering::Release);
@@ -201,14 +205,19 @@ pub struct IatHookContainer<T: Copy + 'static> {
 }
 
 impl<T: Copy + 'static> IatHookContainer<T> {
+    /// Create an empty multi-entry IAT hook container.
     pub fn new() -> Self {
         Self {
             hooks: RwLock::new(Vec::new()),
         }
     }
 
+    /// Discover and prepare every matching import in one module.
+    ///
     /// # Safety
-    /// Unsafe, caller must ensure that all pointers are valid
+    ///
+    /// `module_base` must identify a valid loaded PE image for the duration of
+    /// this container. `detour` must match the imported function's ABI.
     pub unsafe fn init(
         &self,
         name: impl Into<String>,
@@ -221,6 +230,9 @@ impl<T: Copy + 'static> IatHookContainer<T> {
 
         let mut hooks = self.hooks.write();
         log::debug!("Write lock acquired");
+        if !hooks.is_empty() {
+            return Err(IatHookError::HookContainerInitialized);
+        }
 
         let name_str: String = name.into();
         let library_name_opt = library_name.map(|s| s.to_string());
@@ -233,42 +245,89 @@ impl<T: Copy + 'static> IatHookContainer<T> {
             function_name
         );
 
+        if iat_entries.is_empty() {
+            return Err(crate::os::windows::pe::PeError::ImportNotFound(
+                library_name.unwrap_or("*").to_string(),
+                function_name.to_string(),
+            )
+            .into());
+        }
+
+        // Build the complete set first. A bad entry must not leave this
+        // container half initialized.
+        let mut prepared = Vec::with_capacity(iat_entries.len());
         for (idx, entry) in iat_entries.into_iter().enumerate() {
             log::debug!("Processing IAT entry {} for '{}'", idx, function_name);
             let hook_name = format!("{}_{}", name_str, idx);
             let hook = IatHook::from_iat_entry(hook_name, entry, detour)?;
-            hooks.push(hook);
+            prepared.push(hook);
             log::debug!("Hook {} created and added", idx);
         }
+        hooks.extend(prepared);
 
         log::debug!("All hooks created for '{}'", function_name);
         Ok(())
     }
 
+    /// Return whether at least one import entry has been prepared.
     pub fn is_initialized(&self) -> bool {
         !self.hooks.read().is_empty()
     }
 
+    /// Enable every prepared entry as one best-effort unit.
+    ///
+    /// If one entry changed, entries enabled earlier in this call are restored
+    /// in reverse order before the error is returned.
     pub fn enable(&self) -> IatHookResult<()> {
         let hooks = self.hooks.read();
+        if hooks.is_empty() {
+            return Err(IatHookError::HookContainerNotInitialized);
+        }
 
-        for hook in hooks.iter() {
-            hook.enable()?;
+        for (index, hook) in hooks.iter().enumerate() {
+            if let Err(error) = hook.enable() {
+                for enabled in hooks[..index].iter().rev() {
+                    if let Err(rollback_error) = enabled.disable() {
+                        log::error!(
+                            "IAT hook activation failed and rollback also failed: {}",
+                            rollback_error
+                        );
+                    }
+                }
+                return Err(error);
+            }
         }
 
         Ok(())
     }
 
+    /// Disable every prepared entry.
+    ///
+    /// Restoration is ownership-aware. Every entry is attempted even if
+    /// another component has replaced one of them; the first error is returned
+    /// after the remaining entries have had a chance to restore themselves.
     pub fn disable(&self) -> IatHookResult<()> {
         let hooks = self.hooks.read();
+        if hooks.is_empty() {
+            return Err(IatHookError::HookContainerNotInitialized);
+        }
 
-        for hook in hooks.iter() {
-            hook.disable()?;
+        let mut first_error = None;
+        for hook in hooks.iter().rev() {
+            if let Err(error) = hook.disable()
+                && first_error.is_none()
+            {
+                first_error = Some(error);
+            }
+        }
+        if let Some(error) = first_error {
+            return Err(error);
         }
 
         Ok(())
     }
 
+    /// Return the predecessor captured from the first matching import.
     pub fn original(&self) -> IatHookResult<T> {
         let hooks = self.hooks.read();
 

@@ -1,11 +1,10 @@
-//! Inline CRT allocator hooks for the game binary itself
-//! (FalloutNV.exe's linked msvcrt entry points).
+//! Inline hooks for the CRT allocator implementations linked into FalloutNV.exe.
 //!
 //! Dispatch on each hook:
 //!   1. Our tiers (pool / block / va_alloc) -- new allocations created
 //!      after hooks activated land here, so most frees hit this path.
-//!   2. Mimalloc -- pointers from the IAT hooks (third-party DLLs) may
-//!      reach these inline hooks too; route them to mi_free.
+//!   2. Mimalloc -- a defensive cross-domain route for pointers created by
+//!      Psycho's mimalloc-backed subsystems.
 //!   3. Original CRT trampoline (FREE_HOOK.original, etc.) -- pre-hook
 //!      allocations that the game made before we installed hooks still
 //!      live in the game's original msvcrt heap. They must be freed
@@ -114,7 +113,7 @@ pub unsafe extern "C" fn hook_realloc(ptr: *mut c_void, size: usize) -> *mut c_v
         return unsafe { allocator::realloc(ptr, size) };
     }
 
-    // Mimalloc (pointer originated from crt_iat IAT hooks).
+    // Defensive cross-domain mimalloc pointer.
     if is_mimalloc_ptr(ptr as *const c_void) {
         return unsafe { mi_realloc(ptr, size) };
     }
@@ -239,7 +238,7 @@ pub unsafe extern "C" fn hook_free(ptr: *mut c_void) {
         return;
     }
 
-    // Mimalloc-owned (from crt_iat or similar).
+    // Defensive cross-domain mimalloc pointer.
     if is_mimalloc_ptr(ptr as *const c_void) {
         unsafe { mi_free(ptr) };
         return;

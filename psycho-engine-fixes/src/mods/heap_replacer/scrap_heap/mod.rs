@@ -14,6 +14,7 @@ use std::sync::LazyLock;
 
 use libc::c_void;
 use libpsycho::os::windows::hook::inline::inlinehook::InlineHookContainer;
+use libpsycho::os::windows::hook::replacement::ReplacementHookContainer;
 
 use runtime::Runtime;
 pub use runtime::ScrapSnapshot;
@@ -49,8 +50,8 @@ pub static FREE_HOOK: LazyLock<InlineHookContainer<SheapFreeFn>> =
     LazyLock::new(InlineHookContainer::new);
 pub static PURGE_HOOK: LazyLock<InlineHookContainer<SheapPurgeFn>> =
     LazyLock::new(InlineHookContainer::new);
-pub static GET_THREAD_LOCAL_HOOK: LazyLock<InlineHookContainer<SheapGetThreadLocalFn>> =
-    LazyLock::new(InlineHookContainer::new);
+pub static GET_THREAD_LOCAL_HOOK: LazyLock<ReplacementHookContainer<SheapGetThreadLocalFn>> =
+    LazyLock::new(ReplacementHookContainer::new);
 
 // ---- Hook implementations ----
 

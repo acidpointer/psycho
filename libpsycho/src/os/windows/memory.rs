@@ -52,7 +52,7 @@ pub fn validate_memory_range(address: *const c_void, size: usize) -> MemoryResul
     log::trace!("Validating memory range: {:p}, size: {}", address, size);
 
     let info = virtual_query(address as *mut c_void)?;
-    log::debug!(
+    log::trace!(
         "Memory info: base={:p}, size={}, state=0x{:X}, protect={}",
         info.base_address,
         info.region_size,
@@ -102,7 +102,7 @@ pub fn validate_memory_range(address: *const c_void, size: usize) -> MemoryResul
 ///
 /// Memory range validated with `validate_memory_range`
 pub fn read_bytes(address: *const c_void, size: usize) -> MemoryResult<Vec<u8>> {
-    log::debug!("Reading {} bytes from {:p}", size, address);
+    log::trace!("Reading {} bytes from {:p}", size, address);
 
     if size == 0 {
         return Ok(Vec::new());
@@ -124,7 +124,7 @@ pub fn read_bytes(address: *const c_void, size: usize) -> MemoryResult<Vec<u8>> 
         }
     );
 
-    log::debug!("Successfully read {} bytes", size);
+    log::trace!("Successfully read {} bytes", size);
     Ok(buffer)
 }
 
@@ -140,7 +140,7 @@ pub fn read_bytes(address: *const c_void, size: usize) -> MemoryResult<Vec<u8>> 
 ///
 /// Calls of `VirtualProtect` additionally protected by `with_virtual_protect`
 pub unsafe fn write_bytes(address: *mut c_void, data: &[u8]) -> MemoryResult<()> {
-    log::debug!("Writing {} bytes to {:p}", data.len(), address);
+    log::trace!("Writing {} bytes to {:p}", data.len(), address);
 
     if data.is_empty() {
         return Ok(());
@@ -161,7 +161,7 @@ pub unsafe fn write_bytes(address: *mut c_void, data: &[u8]) -> MemoryResult<()>
 
     flush_instructions_cache(address, data.len())?;
 
-    log::debug!("Successfully wrote {} bytes to memory", data.len());
+    log::trace!("Successfully wrote {} bytes to memory", data.len());
 
     Ok(())
 }

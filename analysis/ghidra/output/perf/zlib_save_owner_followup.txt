@@ -1,0 +1,471 @@
+ZLIB SAVE OWNER FOLLOW-UP
+======================================================================
+
+======================================================================
+direct owner of record deflate @ 0x00538110
+======================================================================
+  Function: FUN_00538110 @ 0x00538110, Size: 2785 bytes
+
+/* WARNING: Function: __alloca_probe replaced with injection: alloca_probe */
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+void __fastcall FUN_00538110(int param_1)
+
+{
+  char cVar1;
+  undefined1 uVar2;
+  int iVar3;
+  undefined4 uVar4;
+  int iVar5;
+  uint uVar6;
+  float10 fVar7;
+  undefined4 local_3884;
+  undefined1 local_3880;
+  undefined1 local_3874;
+  undefined1 local_3868;
+  uint local_3858;
+  uint local_3854;
+  uint local_384c;
+  uint local_3848;
+  undefined2 local_3844 [2];
+  float afStack_3840 [578];
+  undefined4 local_2f38;
+  undefined1 local_2f34;
+  undefined2 local_2f32;
+  int local_2f30;
+  uint local_2f2c;
+  int local_2f28;
+  undefined4 local_2f24;
+  undefined1 local_2f20;
+  undefined2 local_2f1e;
+  uint local_2f1c;
+  int local_2f18;
+  int local_2f14;
+  int local_2f10;
+  undefined1 local_2f0c [3160];
+  int aiStack_22b4 [28];
+  int local_2244;
+  int local_2240;
+  int local_223c;
+  int local_2238;
+  int local_2234 [1090];
+  undefined1 local_112c [3276];
+  int local_460;
+  float local_45c;
+  char acStack_458 [1092];
+  uint local_14;
+  char local_d;
+  int local_c;
+  uint local_8;
+  
+  local_8 = 0x53811d;
+  local_14 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  cVar1 = FUN_00539460();
+  if ((cVar1 != '\0') &&
+     (((*(uint *)(param_1 + 0x1c) & 8) != 0 ||
+      ((((*(int *)(param_1 + 0x28) != 0 && (*(int *)(*(int *)(param_1 + 0x28) + 4) != 0)) &&
+        (*(int *)(*(int *)(param_1 + 0x28) + 8) != 0)) &&
+       (*(int *)(*(int *)(param_1 + 0x28) + 0xc) != 0)))))) {
+    cVar1 = FUN_005341e0();
+    if (cVar1 == '\0') {
+      FUN_0053db20();
+    }
+    FUN_004855a0();
+    cVar1 = FUN_00401500();
+    if (cVar1 != '\0') {
+      FUN_00503210();
+    }
+    FUN_00485990(0x41544144,param_1 + 0x1c,4);
+    cVar1 = FUN_00401500();
+    if (cVar1 != '\0') {
+      FUN_00503210();
+    }
+    if ((*(uint *)(param_1 + 0x1c) & 1) != 0) {
+      for (local_8 = 0; (int)local_8 < 4; local_8 = local_8 + 1) {
+        uVar6 = local_8 & 0x80000001;
+        if ((int)uVar6 < 0) {
+          uVar6 = (uVar6 - 1 | 0xfffffffe) + 1;
+        }
+        local_2238 = ((int)local_8 / 2) * 0x210 + uVar6 * 0x10;
+        for (local_223c = 0; local_223c < 0x121; local_223c = local_223c + 1) {
+          local_2244 = (local_223c / 0x11) * 0x21 + local_2238 + local_223c % 0x11;
+          local_2240 = 0;
+          if ((local_223c / 0x11 == 0x10) && (local_2240 = 1, (int)local_8 / 2 == 1)) {
+            local_2240 = 0;
+          }
+          if (local_223c % 0x11 == 0x10) {
+            local_2240 = 1;
+            uVar6 = local_8 & 0x80000001;
+            if ((int)uVar6 < 0) {
+              uVar6 = (uVar6 - 1 | 0xfffffffe) + 1;
+            }
+            if (uVar6 == 1) {
+              local_2240 = 0;
+            }
+          }
+          if (local_2240 == 0) {
+            iVar3 = FUN_00406d90(*(undefined4 *)
+                                  (*(int *)(*(int *)(*(int *)(param_1 + 0x28) + 4) + local_8 * 4) +
+                                   8 + local_223c * 0xc));
+            local_2234[local_2244] = iVar3 >> 3;
+            FUN_004a0c10();
+            uVar2 = FUN_00ec62c0();
+            local_112c[local_2244 * 3] = uVar2;
+            uVar2 = FUN_00ec62c0();
+            local_112c[local_2244 * 3 + 1] = uVar2;
+            uVar2 = FUN_00ec62c0();
+            local_112c[local_2244 * 3 + 2] = uVar2;
+          }
+        }
+      }
+      FUN_004856f0(0x4c4d4e56,local_112c,0xcc3);
+      local_45c = (float)local_2234[0];
+      local_460 = local_2234[0];
+      local_d = '\0';
+      for (local_8 = 0; (int)local_8 < 0x441; local_8 = local_8 + 1) {
+        iVar3 = FUN_00ec7d40(local_2234[local_8] - local_460);
+        if (iVar3 < 0x80) {
+          acStack_458[local_8] = (char)local_2234[local_8] - (char)local_460;
+        }
+        else {
+          local_d = '\x01';
+          if (local_460 < local_2234[local_8]) {
+            acStack_458[local_8] = '\x7f';
+          }
+          else {
+            acStack_458[local_8] = -0x7f;
+          }
+        }
+        if ((int)(local_8 + 1) % 0x21 == 0) {
+          local_460 = aiStack_22b4[local_8];
+        }
+        else if (local_d == '\0') {
+          local_460 = local_2234[local_8];
+        }
+        else {
+          local_460 = acStack_458[local_8] + local_460;
+        }
+      }
+      cVar1 = FUN_00401500();
+      if (cVar1 != '\0') {
+        FUN_00503210();
+      }
+      FUN_00485990(0x54474856,&local_45c,0x448);
+      cVar1 = FUN_00401500();
+      if (cVar1 != '\0') {
+        FUN_00503210();
+      }
+      if (local_d != '\0') {
+        uVar4 = FUN_00534010();
+        uVar4 = FUN_00533fd0(uVar4);
+        FUN_005b5e40("MASTERFILE: Error saving land height Data for cell (%i, %i). Error correction attempted.\r\n"
+                     ,uVar4);
+      }
+    }
+    if ((*(uint *)(param_1 + 0x1c) & 2) != 0) {
+      for (local_8 = 0; (int)local_8 < 4; local_8 = local_8 + 1) {
+        uVar6 = local_8 & 0x80000001;
+        if ((int)uVar6 < 0) {
+          uVar6 = (uVar6 - 1 | 0xfffffffe) + 1;
+        }
+        local_2f10 = ((int)local_8 / 2) * 0x210 + uVar6 * 0x10;
+        for (local_c = 0; local_c < 0x121; local_c = local_c + 1) {
+          local_2f18 = (local_c / 0x11) * 0x21 + local_2f10 + local_c % 0x11;
+          local_2f14 = 0;
+          if ((local_c / 0x11 == 0x10) && (local_2f14 = 1, (int)local_8 / 2 == 1)) {
+            local_2f14 = 0;
+          }
+          if (local_c % 0x11 == 0x10) {
+            local_2f14 = 1;
+            uVar6 = local_8 & 0x80000001;
+            if ((int)uVar6 < 0) {
+              uVar6 = (uVar6 - 1 | 0xfffffffe) + 1;
+            }
+            if (uVar6 == 1) {
+              local_2f14 = 0;
+            }
+          }
+          if (local_2f14 == 0) {
+            local_3868 = (undefined1)
+                         (int)ROUND(*(float *)(*(int *)(*(int *)(*(int *)(param_1 + 0x28) + 0xc) +
+                                                       local_8 * 4) + local_c * 0x10) *
+                                    (float)_DAT_0101e568);
+            local_2f0c[local_2f18 * 3] = local_3868;
+            local_3874 = (undefined1)
+                         (int)ROUND(*(float *)(*(int *)(*(int *)(*(int *)(param_1 + 0x28) + 0xc) +
+                                                       local_8 * 4) + 4 + local_c * 0x10) *
+                                    (float)_DAT_0101e568);
+            local_2f0c[local_2f18 * 3 + 1] = local_3874;
+            local_3880 = (undefined1)
+                         (int)ROUND(*(float *)(*(int *)(*(int *)(*(int *)(param_1 + 0x28) + 0xc) +
+                                                       local_8 * 4) + 8 + local_c * 0x10) *
+                                    (float)_DAT_0101e568);
+            local_2f0c[local_2f18 * 3 + 2] = local_3880;
+          }
+        }
+      }
+      FUN_004856f0(0x524c4356,local_2f0c,0xcc3);
+    }
+    if ((*(uint *)(param_1 + 0x1c) & 4) != 0) {
+      FUN_0053a940();
+      for (local_2f1c = 0; (int)local_2f1c < 4; local_2f1c = local_2f1c + 1) {
+        if ((*(int *)(*(int *)(param_1 + 0x28) + 0x20 + local_2f1c * 4) != 0) &&
+           (iVar3 = *(int *)(param_1 + 0x28), iVar5 = FUN_00535ae0(),
+           *(int *)(iVar3 + 0x20 + local_2f1c * 4) != iVar5)) {
+          local_2f20 = (undefined1)local_2f1c;
+          local_2f1e = 0xffff;
+          local_2f24 = FUN_0084e3a0();
+          cVar1 = FUN_00401500();
+          if (cVar1 != '\0') {
+            FUN_00535a60();
+          }
+          FUN_00485990(0x54585442,&local_2f24,8);
+          cVar1 = FUN_00401500();
+          if (cVar1 != '\0') {
+            FUN_00535a60();
+          }
+        }
+        if (*(int *)(*(int *)(param_1 + 0x28) + 0x30 + local_2f1c * 4) != 0) {
+          local_2f28 = 6;
+          for (local_2f2c = 0; (int)local_2f2c < local_2f28; local_2f2c = local_2f2c + 1) {
+            local_2f30 = *(int *)(*(int *)(*(int *)(param_1 + 0x28) + 0x30 + local_2f1c * 4) +
+                                 local_2f2c * 4);
+            if (local_2f30 != 0) {
+              local_2f34 = (undefined1)local_2f1c;
+              local_2f32 = (undefined2)local_2f2c;
+              iVar3 = FUN_00535ae0();
+              if (local_2f30 == iVar3) {
+                local_3884 = 0;
+              }
+              else {
+                local_3884 = FUN_0084e3a0();
+              }
+              local_2f38 = local_3884;
+              cVar1 = FUN_00401500();
+              if (cVar1 != '\0') {
+                FUN_00535a60();
+              }
+              FUN_00485990(0x54585441,&local_2f38,8);
+              cVar1 = FUN_00401500();
+              if (cVar1 != '\0') {
+                FUN_00535a60();
+              }
+              local_3848 = 0;
+              for (local_384c = 0; (int)local_384c < 0x121; local_384c = local_384c + 1) {
+                if (*(int *)(*(int *)(param_1 + 0x28) + 0x40 + local_2f1c * 4) != 0) {
+                  fVar7 = (float10)FUN_0053a830(local_2f1c & 0xff,local_384c & 0xffff,
+                                                local_2f2c & 0xffff);
+                  if ((float)_DAT_01012060 < (float)fVar7) {
+                    afStack_3840[local_3848 * 2] = (float)fVar7;
+                    local_3844[local_3848 * 4] = (undefined2)local_384c;
+                    local_3848 = local_3848 + 1;
+                  }
+                }
+              }
+              if (local_3848 != 0) {
+                cVar1 = FUN_00401500();
+                if (cVar1 != '\0') {
+                  for (local_3854 = 0; local_3854 < local_3848; local_3854 = local_3854 + 1) {
+                    FUN_00535aa0();
+                  }
+                }
+                FUN_00485990(0x54585456,local_3844,local_3848 << 3);
+                cVar1 = FUN_00401500();
+                if (cVar1 != '\0') {
+                  for (local_3858 = 0; local_3858 < local_3848; local_3858 = local_3858 + 1) {
+                    FUN_00535aa0();
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+    FUN_00485680();
+    FUN_00483d70();
+  }
+  __security_check_cookie(local_14 ^ (uint)&stack0xfffffffc);
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00538110 (direct owner of record deflate)
+----------------------------------------------------------------------
+  DATA @ 0x0102dd00 (in ???)
+  Total: 1 refs
+
+--- Calls FROM direct owner of record deflate (0x00538110) ---
+  0x00538118 -> 0x00ec8660 __alloca_probe
+  0x00538134 -> 0x00539460 FUN_00539460
+  0x00538192 -> 0x005341e0 FUN_005341e0
+  0x005381a4 -> 0x0053db20 FUN_0053db20
+  0x005381af -> 0x004855a0 FUN_004855a0
+  0x005381b4 -> 0x00401500 FUN_00401500
+  0x005381c9 -> 0x00503210 FUN_00503210
+  0x005381df -> 0x00485990 FUN_00485990
+  0x005381e7 -> 0x00401500 FUN_00401500
+  0x005381fc -> 0x00503210 FUN_00503210
+  0x0053835c -> 0x00406d90 FUN_00406d90
+  0x00538391 -> 0x004a0c10 FUN_004a0c10
+  0x005383ba -> 0x00ec62c0 FUN_00ec62c0
+  0x005383f4 -> 0x00ec62c0 FUN_00ec62c0
+  0x0053842e -> 0x00ec62c0 FUN_00ec62c0
+  0x0053845e -> 0x004856f0 FUN_004856f0
+  0x005384b2 -> 0x00ec7d40 FUN_00ec7d40
+  0x00538565 -> 0x00401500 FUN_00401500
+  0x00538577 -> 0x00503210 FUN_00503210
+  0x0053858d -> 0x00485990 FUN_00485990
+  0x00538595 -> 0x00401500 FUN_00401500
+  0x005385a7 -> 0x00503210 FUN_00503210
+  0x005385ba -> 0x00534010 FUN_00534010
+  0x005385c6 -> 0x00533fd0 FUN_00533fd0
+  0x005385d1 -> 0x005b5e40 FUN_005b5e40
+  0x00538839 -> 0x004856f0 FUN_004856f0
+  0x00538859 -> 0x0053a940 FUN_0053a940
+  0x005388a9 -> 0x00535ae0 FUN_00535ae0
+  0x005388e5 -> 0x0084e3a0 FUN_0084e3a0
+  0x005388f0 -> 0x00401500 FUN_00401500
+  0x00538902 -> 0x00535a60 FUN_00535a60
+  0x00538915 -> 0x00485990 FUN_00485990
+  0x0053891d -> 0x00401500 FUN_00401500
+  0x0053892f -> 0x00535a60 FUN_00535a60
+  0x005389ce -> 0x00535ae0 FUN_00535ae0
+  0x005389e1 -> 0x0084e3a0 FUN_0084e3a0
+  0x00538a04 -> 0x00401500 FUN_00401500
+  0x00538a16 -> 0x00535a60 FUN_00535a60
+  0x00538a29 -> 0x00485990 FUN_00485990
+  0x00538a31 -> 0x00401500 FUN_00401500
+  0x00538a43 -> 0x00535a60 FUN_00535a60
+  0x00538ab1 -> 0x0053a830 FUN_0053a830
+  0x00538b18 -> 0x00401500 FUN_00401500
+  0x00538b5a -> 0x00535aa0 FUN_00535aa0
+  0x00538b77 -> 0x00485990 FUN_00485990
+  0x00538b7f -> 0x00401500 FUN_00401500
+  0x00538bc1 -> 0x00535aa0 FUN_00535aa0
+  0x00538bd8 -> 0x00485680 FUN_00485680
+  0x00538bdd -> 0x00483d70 FUN_00483d70
+  0x00538be8 -> 0x00ec408c __security_check_cookie
+  Total: 50 calls
+
+======================================================================
+UNIQUE CALLERS OF direct owner of record deflate (0x00538110)
+======================================================================
+  Unique caller functions: 0
+
+----------------------------------------------------------------------
+References TO 0x011c54cc (record output buffer global)
+----------------------------------------------------------------------
+  READ @ 0x00473077 (in FUN_00473070)
+  READ @ 0x00485b37 (in FUN_00485b30)
+  WRITE @ 0x00485b45 (in FUN_00485b30)
+  READ @ 0x004859df (in FUN_00485990)
+  WRITE @ 0x004859ee (in FUN_00485990)
+  READ @ 0x004859f3 (in FUN_00485990)
+  READ @ 0x004859fe (in FUN_00485990)
+  READ @ 0x00485a46 (in FUN_00485990)
+  READ @ 0x00485b0c (in FUN_00485a70)
+  WRITE @ 0x00485b1a (in FUN_00485a70)
+  WRITE @ 0x004855d6 (in FUN_004855a0)
+  READ @ 0x004855db (in FUN_004855a0)
+  READ @ 0x0048569a (in FUN_00485680)
+  READ @ 0x00483d76 (in FUN_00483d70)
+  READ @ 0x00483d90 (in FUN_00483d70)
+  READ @ 0x00483dde (in FUN_00483d70)
+  READ @ 0x00483f7c (in FUN_00483d70)
+  WRITE @ 0x00483f8e (in FUN_00483d70)
+  Total: 18 refs
+
+----------------------------------------------------------------------
+References TO 0x011c54d0 (record output size global)
+----------------------------------------------------------------------
+  READ @ 0x00473087 (in FUN_00473080)
+  READ @ 0x004859be (in FUN_00485990)
+  READ @ 0x004859c9 (in FUN_00485990)
+  WRITE @ 0x004859d3 (in FUN_00485990)
+  READ @ 0x004859d8 (in FUN_00485990)
+  READ @ 0x00485af9 (in FUN_00485a70)
+  WRITE @ 0x00485aff (in FUN_00485a70)
+  READ @ 0x00485b05 (in FUN_00485a70)
+  WRITE @ 0x004855bd (in FUN_004855a0)
+  READ @ 0x004855c7 (in FUN_004855a0)
+  READ @ 0x004856a3 (in FUN_00485680)
+  READ @ 0x00483d83 (in FUN_00483d70)
+  READ @ 0x00483dd2 (in FUN_00483d70)
+  WRITE @ 0x00483f96 (in FUN_00483d70)
+  Total: 14 refs
+
+----------------------------------------------------------------------
+References TO 0x00483d70 (record deflate function)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00538bdd (in FUN_00538110)
+  Total: 1 refs
+
+======================================================================
+record buffer setup neighborhood @ 0x00483cf0
+======================================================================
+  Function: FUN_00483c70 @ 0x00483c70, Size: 171 bytes
+  NOTE: Requested 0x00483cf0 is inside FUN_00483c70 (entry at 0x00483c70)
+
+void __fastcall FUN_00483c70(int param_1)
+
+{
+  char cVar1;
+  uint uVar2;
+  int *piVar3;
+  uint local_8;
+  
+  cVar1 = FUN_004077c0();
+  if (cVar1 == '\0') {
+    if (DAT_011c54c0 != 0) {
+      FUN_00405430(*(undefined4 *)(param_1 + 0xc));
+    }
+    local_8 = 0;
+    while( true ) {
+      if ((DAT_011c54c4 == 0) || (uVar2 = FUN_0084e3a0(), uVar2 <= local_8)) goto LAB_00483cfc;
+      piVar3 = (int *)FUN_00877a30(local_8);
+      if (*piVar3 == param_1) break;
+      local_8 = local_8 + 1;
+    }
+    FUN_00486b80(local_8);
+LAB_00483cfc:
+    if (DAT_011c3f2c != 0) {
+      FUN_004696f0(*(undefined4 *)(param_1 + 0xc));
+    }
+  }
+  return;
+}
+
+
+
+======================================================================
+record deflate continuation neighborhood @ 0x00483fc0
+======================================================================
+  Function: FUN_00483fc0 @ 0x00483fc0, Size: 88 bytes
+
+undefined4 __thiscall FUN_00483fc0(int *param_1,undefined4 param_2)
+
+{
+  char cVar1;
+  undefined4 uVar2;
+  
+  cVar1 = FUN_004077c0();
+  if (cVar1 == '\0') {
+    cVar1 = FUN_00440d80();
+    if (cVar1 == '\0') {
+      uVar2 = (**(code **)(*param_1 + 0x28))(param_2);
+    }
+    else {
+      FUN_00472e60(param_1);
+      FUN_00473090();
+      uVar2 = 1;
+    }
+  }
+  else {
+    uVar2 = 0;
+  }
+  return uVar2;
+}
+

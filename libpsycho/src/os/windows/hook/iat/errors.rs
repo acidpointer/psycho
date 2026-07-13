@@ -19,6 +19,14 @@ pub enum IatHookError {
     #[error("IAT Hook already enabled")]
     AlreadyEnabled,
 
+    #[error("IAT entry changed before activation: expected 0x{expected:x}, found 0x{observed:x}")]
+    OwnershipConflict { expected: usize, observed: usize },
+
+    #[error(
+        "IAT entry is no longer owned by this hook: expected 0x{expected:x}, found 0x{observed:x}"
+    )]
+    OwnershipLost { expected: usize, observed: usize },
+
     #[error("IAT entry is NULL")]
     IatEntryNull,
 
@@ -33,4 +41,7 @@ pub enum IatHookError {
 
     #[error("Iat hook container not initialized")]
     HookContainerNotInitialized,
+
+    #[error("Iat hook container already initialized")]
+    HookContainerInitialized,
 }

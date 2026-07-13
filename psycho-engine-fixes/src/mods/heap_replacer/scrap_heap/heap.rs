@@ -1,5 +1,3 @@
-#![allow(clippy::vec_box)]
-
 use super::region::{ALLOCATION_HEADER_SIZE, AllocationHeader, Region};
 use super::runtime::SeqQueue;
 
@@ -20,6 +18,9 @@ const REGION_ALIGN: usize = 16;
 const CACHE_LINE: usize = 64;
 
 struct HeapState {
+    // hot_region publishes Region addresses without taking the state lock.
+    // Boxing keeps those addresses stable when the Vec grows or compacts.
+    #[allow(clippy::vec_box)]
     pool: Vec<Box<Region>>,
     top: *mut AllocationHeader,
 }
@@ -324,7 +325,7 @@ impl Heap {
         state
             .pool
             .iter()
-            .position(|region| (&**region as *const Region as *mut Region) == ptr)
+            .position(|region| std::ptr::eq(&**region, ptr))
     }
 
     fn region_index_for_header(

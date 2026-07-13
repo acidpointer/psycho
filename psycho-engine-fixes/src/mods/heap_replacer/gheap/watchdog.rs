@@ -144,6 +144,11 @@ impl Watchdog {
 
         Self { run, handle }
     }
+
+    /// Return whether the watchdog thread was created successfully.
+    pub fn is_running(&self) -> bool {
+        self.handle.is_some()
+    }
 }
 
 fn log_allocator_events() {
@@ -434,9 +439,9 @@ fn classify_commit_growth(growth: usize, normal: usize, high: usize) -> Pressure
 fn classify_largest_hole(largest: usize, old: PressureState) -> PressureState {
     if largest <= 96 * super::vas::MB {
         PressureState::High
-    } else if largest <= super::vas::CRITICAL_LARGEST_HOLE {
-        PressureState::Watch
-    } else if old != PressureState::Normal && largest <= 160 * super::vas::MB {
+    } else if largest <= super::vas::CRITICAL_LARGEST_HOLE
+        || (old != PressureState::Normal && largest <= 160 * super::vas::MB)
+    {
         PressureState::Watch
     } else {
         PressureState::Normal

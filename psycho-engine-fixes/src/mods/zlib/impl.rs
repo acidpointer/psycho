@@ -7,8 +7,8 @@
 //! Buffer cap removal at 0xAFC58C lets BSA entries decompress in one shot.
 //! Thread-local decompressors avoid per-call allocation.
 //!
-//! Based on ideas from:  https://github.com/WallSoGB/Fallout-zlibUpdate
-//! and FastDecompressNV: https://github.com/1001Bits/FastDecompress/tree/main/FalloutNewVegas
+//! Based on ideas from: <https://github.com/WallSoGB/Fallout-zlibUpdate>
+//! and FastDecompressNV: <https://github.com/1001Bits/FastDecompress/tree/main/FalloutNewVegas>
 
 // TODO: Research and fix:
 // BSA decompress failed: deflate decompression error: invalid code -- missing end-of-block

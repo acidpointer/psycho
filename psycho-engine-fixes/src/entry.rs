@@ -1,17 +1,17 @@
 //! Loader entrypoint for `psycho_engine_fixes.dll`.
 //!
-//! The core DLL has one setup path: `Syringe_ModInit`, called by `syringe`
-//! after the DLL is mapped and outside the mapped DLL's loader
-//! callback. xNVSE helper callbacks must never initialize this DLL.
+//! `Syringe_ModInit` validates and prepares the DLL. `Syringe_ModActivate`
+//! performs setup after every Syringe mod has initialized. xNVSE helper
+//! callbacks must never initialize this DLL.
 
 use core::{
     ffi::c_void,
     mem::size_of,
-    sync::atomic::{AtomicU8, Ordering},
+    sync::atomic::{AtomicU8, AtomicUsize, Ordering},
 };
 
 use libpsycho::os::windows::winapi::{HModule, disable_thread_library_calls};
-use syringe_api::{SYRINGE_API_VERSION, SYRINGE_MAGIC, SyringeInfo};
+use syringe_api::{SYRINGE_API_VERSION, SYRINGE_INFO_PRE_CRT_BARRIER, SYRINGE_MAGIC, SyringeInfo};
 
 #[repr(u8)]
 #[derive(Clone, Copy, Eq, PartialEq)]
@@ -34,22 +34,47 @@ impl InitState {
 }
 
 static INIT_STATE: AtomicU8 = AtomicU8::new(InitState::NotStarted as u8);
+static CORE_MODULE: AtomicUsize = AtomicUsize::new(0);
+static LOADER_FLAGS: AtomicUsize = AtomicUsize::new(0);
 
 /// `syringe` mod initialization export.
 ///
-/// Returning `0` tells the loader that core setup failed. The loader still
-/// continues with other mods; this DLL just stays unavailable to the helper.
+/// Returning `0` tells the loader that validation failed. Engine setup is
+/// deliberately deferred until every Syringe mod has initialized.
+///
+/// # Safety
+///
+/// `info` must point to a readable [`SyringeInfo`] for the duration of this
+/// callback, as required by the Syringe ABI.
 #[unsafe(no_mangle)]
 pub unsafe extern "system" fn Syringe_ModInit(info: *const SyringeInfo) -> i32 {
-    if initialize_from_loader(info) { 1 } else { 0 }
+    if prepare_from_loader(info) { 1 } else { 0 }
+}
+
+/// Final activation callback after every Syringe mod has initialized.
+///
+/// The core activates only when this callback comes from the proven pre-CRT
+/// barrier. The generic worker fallback cannot safely rewrite live game code.
+///
+/// # Safety
+///
+/// `info` must point to a readable [`SyringeInfo`] for the duration of this
+/// callback, as required by the Syringe ABI.
+#[unsafe(no_mangle)]
+pub unsafe extern "system" fn Syringe_ModActivate(info: *const SyringeInfo) -> i32 {
+    if activate_from_loader(info) { 1 } else { 0 }
 }
 
 pub(crate) fn is_initialized() -> bool {
     current_state() == InitState::Done
 }
 
-fn initialize_from_loader(info: *const SyringeInfo) -> bool {
-    let Some(module) = validate_loader_info(info) else {
+pub(crate) fn has_pre_crt_startup_boundary() -> bool {
+    LOADER_FLAGS.load(Ordering::Acquire) & SYRINGE_INFO_PRE_CRT_BARRIER as usize != 0
+}
+
+fn prepare_from_loader(info: *const SyringeInfo) -> bool {
+    let Some((module, flags)) = validate_loader_info(info) else {
         return false;
     };
 
@@ -57,10 +82,40 @@ fn initialize_from_loader(info: *const SyringeInfo) -> bool {
     // soon as the loader gives us the actual module handle.
     let _ = disable_thread_library_calls(module);
 
+    let address = module.as_ptr() as usize;
+    match CORE_MODULE.compare_exchange(0, address, Ordering::AcqRel, Ordering::Acquire) {
+        Ok(_) => {
+            LOADER_FLAGS.store(flags as usize, Ordering::Release);
+            true
+        }
+        Err(existing) if existing == address => {
+            LOADER_FLAGS.load(Ordering::Acquire) == flags as usize
+        }
+        Err(_) => false,
+    }
+}
+
+fn activate_from_loader(info: *const SyringeInfo) -> bool {
+    let Some((module, flags)) = validate_loader_info(info) else {
+        return false;
+    };
+    if CORE_MODULE.load(Ordering::Acquire) != module.as_ptr() as usize {
+        return false;
+    }
+    if LOADER_FLAGS.load(Ordering::Acquire) != flags as usize {
+        return false;
+    }
+    // Every core feature patches executable game memory. The worker fallback
+    // is useful to generic Syringe mods, but it cannot prove that Fallout's
+    // main thread is still quiescent. Refuse the whole core rather than making
+    // any code write against a potentially live process.
+    if flags & SYRINGE_INFO_PRE_CRT_BARRIER == 0 {
+        return false;
+    }
     initialize_once()
 }
 
-fn validate_loader_info(info: *const SyringeInfo) -> Option<HModule> {
+fn validate_loader_info(info: *const SyringeInfo) -> Option<(HModule, u32)> {
     let info = unsafe { info.as_ref() }?;
     if info.magic != SYRINGE_MAGIC
         || info.version != SYRINGE_API_VERSION
@@ -70,7 +125,8 @@ fn validate_loader_info(info: *const SyringeInfo) -> Option<HModule> {
         return None;
     }
 
-    unsafe { HModule::new(info.mod_module as *mut c_void) }.ok()
+    let module = unsafe { HModule::new(info.mod_module as *mut c_void) }.ok()?;
+    Some((module, info.flags))
 }
 
 fn initialize_once() -> bool {

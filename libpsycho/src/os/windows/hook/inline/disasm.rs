@@ -376,7 +376,7 @@ impl Disasm {
 
         // Fallback to any address
         // Default on x86 target
-        log::debug!("Falling back to any address allocation");
+        log::trace!("Falling back to any address allocation");
         let ptr = unsafe {
             virtual_alloc(
                 None,
@@ -411,7 +411,7 @@ impl Disasm {
 
         let instr_len = self.stolen_instructions.len();
 
-        log::debug!(
+        log::trace!(
             "Relocating {} instructions from {:p} to {:p}",
             instr_len,
             self.target_ptr,
@@ -585,7 +585,7 @@ impl Disasm {
             original_offset += instr_len;
         }
 
-        log::debug!(
+        log::trace!(
             "Successfully relocated {} instructions: {} bytes -> {} bytes",
             instr_len,
             self.stolen_bytes_len,
@@ -646,8 +646,8 @@ impl Disasm {
 }
 
 /// Generate bytes
-pub(super) fn create_jump_bytes(from: *mut c_void, to: *mut c_void) -> DisasmResult<Vec<u8>> {
-    log::debug!("Creating jump from {:p} to {:p}", from, to);
+pub(crate) fn create_jump_bytes(from: *mut c_void, to: *mut c_void) -> DisasmResult<Vec<u8>> {
+    log::trace!("Creating jump from {:p} to {:p}", from, to);
 
     let from_addr = from as u64;
     let to_addr = to as u64;

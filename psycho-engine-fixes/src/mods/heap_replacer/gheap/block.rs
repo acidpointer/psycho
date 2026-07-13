@@ -412,17 +412,17 @@ impl BlockHeap {
         // to land adjacent to the highest live slot before giving the
         // OS full control. Silent on failure -- hint collisions are
         // expected and the fallback path below handles them cleanly.
-        if ptr.is_null() {
-            if let Some(hint) = self.preferred_next_address() {
-                ptr = unsafe {
-                    VirtualAlloc(
-                        Some(hint as *const c_void),
-                        BLOCK_SIZE,
-                        MEM_RESERVE | MEM_COMMIT,
-                        PAGE_READWRITE,
-                    )
-                };
-            }
+        if ptr.is_null()
+            && let Some(hint) = self.preferred_next_address()
+        {
+            ptr = unsafe {
+                VirtualAlloc(
+                    Some(hint as *const c_void),
+                    BLOCK_SIZE,
+                    MEM_RESERVE | MEM_COMMIT,
+                    PAGE_READWRITE,
+                )
+            };
         }
 
         // Fallback: OS picks placement anywhere.
@@ -567,9 +567,7 @@ impl BlockHeap {
 
     fn free_if_owned(&mut self, ptr: *mut c_void) -> Option<bool> {
         let block_idx = self.find_block(ptr)?;
-        let Some(block) = self.blocks[block_idx].as_mut() else {
-            return None;
-        };
+        let block = self.blocks[block_idx].as_mut()?;
         let offset = (ptr as usize - block.base as usize) as u32;
         // Slot stays committed even when empty -- NVHR dheap semantics.
         // Decommitting on empty caused pathological retire/commit churn

@@ -21,7 +21,7 @@
 //!
 //! Zombie safety:
 //!   pool - out-of-band freelist; freed cell bytes are untouched.
-//!   block - cell metadata sits in a separate Vec<Cell>, user data is
+//!   block - cell metadata sits in a separate `Vec<Cell>`, user data is
 //!           not overwritten on free.
 //!   va_alloc - MEM_DECOMMIT / MEM_RELEASE on free; no zombie, but huge
 //!              allocations have fewer stale-reader patterns anyway.

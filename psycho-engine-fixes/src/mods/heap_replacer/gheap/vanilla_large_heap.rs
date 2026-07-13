@@ -437,7 +437,7 @@ pub fn try_alloc_default_tail(
                 align / super::vas::MB,
                 new_next,
             );
-            return ptr as *mut c_void;
+            return ptr;
         }
 
         disable_default_tail_adoption("VirtualAlloc(MEM_COMMIT) failed for Default tail");

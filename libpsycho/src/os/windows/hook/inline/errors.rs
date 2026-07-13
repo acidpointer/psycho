@@ -43,6 +43,12 @@ pub enum InlineHookError {
     #[error("Hook is in failed state and cannot be used")]
     HookFailed,
 
+    #[error("Hook target changed before activation at 0x{target:x}")]
+    OwnershipConflict { target: usize },
+
+    #[error("Hook target is no longer owned by this hook at 0x{target:x}")]
+    OwnershipLost { target: usize },
+
     #[error("Unsafe memory region: can only read {safe} bytes, need {requested}")]
     UnsafeMemoryRegion { safe: usize, requested: usize },
 

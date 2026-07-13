@@ -87,8 +87,8 @@ pub enum WinapiError {
 
 pub type WinapiResult<T> = std::result::Result<T, WinapiError>;
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 /// Outcome of an atomic pointer comparison that completed without a WinAPI error.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum PointerExchange {
     /// `expected` was present and was replaced.
     Exchanged,
@@ -856,7 +856,7 @@ pub fn get_module_base_name(module_handle: HModule) -> WinapiResult<String> {
 ///
 /// Imagine, you need to call some windows function which require string as argument. And from
 /// this point, pain begins. What you need is go through this steps:
-/// 1. Create intermediate string representation with CString/CStr/Vec<u16> or whatever
+/// 1. Create intermediate string representation with CString/CStr/`Vec<u16>` or whatever
 /// 2. Get pointer to just created intermediate string representation
 /// 3. Pass pointer to PCSTR or PCWSTR to finally create WinAPI string
 /// 4. Pass string to WinAPI function
@@ -1540,7 +1540,7 @@ pub unsafe fn patch_ret(ptr: *mut c_void) -> WinapiResult<()> {
 ///
 /// # Source
 /// Based on C++ Heap-Replacer implementation:
-/// https://github.com/iranrmrf/Heap-Replacer/blob/master/heap_replacer/main/util.h#L112-L118
+/// <https://github.com/iranrmrf/Heap-Replacer/blob/master/heap_replacer/main/util.h#L112-L118>
 pub unsafe fn patch_jmp(ptr: *mut c_void, target: *mut c_void) -> WinapiResult<()> {
     let jump_src_addr = ptr as usize;
     let jump_tgt_addr = target as usize;

@@ -14,6 +14,12 @@ use super::disasm::{create_jump_bytes, verify_jump_bytes};
 use super::errors::InlineHookError;
 use super::trampoline::Trampoline;
 
+/// Entry hook that preserves displaced instructions in a trampoline.
+///
+/// Creating the hook only prepares the trampoline. Enabling or disabling it
+/// rewrites executable bytes and is not atomic on x86. The caller must use a
+/// startup boundary or otherwise ensure no thread can execute the target while
+/// those operations run.
 pub struct InlineHook<F: Copy + 'static> {
     name: String,
     target_ptr: NonNull<c_void>,
@@ -53,7 +59,7 @@ impl<F: Copy + 'static> InlineHook<F> {
 
         let detour_ptr = detour_fn.as_raw_ptr();
 
-        log::debug!(
+        log::trace!(
             "Creating inline hook '{}': target={:p}, detour={:p}",
             name,
             target_ptr.as_ptr(),
@@ -82,7 +88,10 @@ impl<F: Copy + 'static> InlineHook<F> {
         Ok(hook)
     }
 
-    /// Enables the hook, redirecting the target to the detour
+    /// Redirects the target to the detour.
+    ///
+    /// Activation fails if the target changed after this hook captured its
+    /// trampoline. The caller must keep the target quiescent during the write.
     pub fn enable(&self) -> InlineHookResult<()> {
         let _guard = self.guard.write();
 
@@ -95,7 +104,7 @@ impl<F: Copy + 'static> InlineHook<F> {
             return Err(InlineHookError::AlreadyEnabled);
         }
 
-        log::debug!("Enabling hook at {:p}", self.target_ptr);
+        log::trace!("Enabling hook at {:p}", self.target_ptr);
 
         // Re-validate memory is still accessible
         validate_memory_access(self.target_ptr.as_ptr()).inspect_err(|_err| {
@@ -115,32 +124,46 @@ impl<F: Copy + 'static> InlineHook<F> {
             self.detour_fn.as_raw_ptr(),
         )?;
 
-        (unsafe {
+        let stolen_bytes = self.trampoline.get_stolen_bytes_ref();
+        let current_bytes = unsafe {
+            std::slice::from_raw_parts(self.target_ptr.as_ptr() as *const u8, stolen_bytes.len())
+        };
+        if current_bytes != stolen_bytes.as_slice() {
+            return Err(InlineHookError::OwnershipConflict {
+                target: self.target_ptr.as_ptr() as usize,
+            });
+        }
+
+        let write_result = unsafe {
             with_virtual_protect(
                 self.target_ptr.as_ptr(),
                 PAGE_EXECUTE_READWRITE,
                 jump_bytes.len(),
                 || {
-                    // Write with memory barrier for visibility
-                    std::ptr::write_volatile(self.target_ptr.as_ptr() as *mut u8, jump_bytes[0]);
-
-                    if jump_bytes.len() > 1 {
-                        std::ptr::copy_nonoverlapping(
-                            jump_bytes[1..].as_ptr(),
-                            (self.target_ptr.as_ptr() as *mut u8).add(1),
-                            jump_bytes.len() - 1,
-                        );
-                    }
+                    // A rel32 JMP is five bytes and cannot be published atomically
+                    // on x86. Writing its displacement before its opcode is not
+                    // safer: a thread can still decode a mixed instruction. The
+                    // quiescent-target contract above is the actual protection.
+                    std::ptr::copy_nonoverlapping(
+                        jump_bytes.as_ptr(),
+                        self.target_ptr.as_ptr().cast::<u8>(),
+                        jump_bytes.len(),
+                    );
                 },
             )
-            .inspect_err(|_err| {
-                // Save failed flag
-                self.failed.store(true, Ordering::Release);
-            })
-        })?;
-
-        // Ensure writes are complete
-        std::sync::atomic::fence(Ordering::Release);
+        };
+        if let Err(error) = write_result {
+            // `with_virtual_protect` can fail while restoring page protection
+            // after the closure already wrote the JMP. Publish the real state so
+            // a transaction can restore it instead of abandoning a live hook.
+            let current = unsafe {
+                std::slice::from_raw_parts(self.target_ptr.as_ptr().cast::<u8>(), jump_bytes.len())
+            };
+            if current == jump_bytes.as_slice() {
+                self.enabled.store(true, Ordering::Release);
+            }
+            return Err(error.into());
+        }
 
         // Verify the write by reading back the bytes
         let written_bytes = unsafe {
@@ -156,18 +179,16 @@ impl<F: Copy + 'static> InlineHook<F> {
             ));
         }
 
-        flush_instructions_cache(self.target_ptr.as_ptr(), jump_bytes.len())?;
-
-        // Ensure cache flush is visible to all CPUs
-        std::sync::atomic::fence(Ordering::SeqCst);
-
-        // Set enabled flag while still holding lock
         self.enabled.store(true, Ordering::Release);
+        flush_instructions_cache(self.target_ptr.as_ptr(), jump_bytes.len())?;
 
         Ok(())
     }
 
-    /// Disables the hook, restoring original function
+    /// Restores the exact instructions captured when the hook was created.
+    ///
+    /// Restoration fails rather than overwriting a target no longer owned by
+    /// this hook. The caller must keep the target quiescent during the write.
     pub fn disable(&self) -> InlineHookResult<()> {
         let _guard = self.guard.write();
 
@@ -184,52 +205,80 @@ impl<F: Copy + 'static> InlineHook<F> {
         // Re-validate memory is still accessible
         validate_memory_access(self.target_ptr.as_ptr())?;
 
-        let trampoline_stolen_size = self.trampoline.get_stolen_bytes_ref().len();
+        let stolen_bytes = self.trampoline.get_stolen_bytes_ref();
+        let trampoline_stolen_size = stolen_bytes.len();
+        let jump_bytes = create_jump_bytes(self.target_ptr.as_ptr(), self.detour_fn.as_raw_ptr())?;
+        let current_bytes = unsafe {
+            std::slice::from_raw_parts(
+                self.target_ptr.as_ptr() as *const u8,
+                trampoline_stolen_size,
+            )
+        };
+        // We changed only the entry JMP. The remaining displaced-instruction
+        // bytes must still equal the captured predecessor before we restore the
+        // whole region; otherwise restoration could overwrite another patch.
+        if current_bytes.get(..jump_bytes.len()) != Some(jump_bytes.as_slice())
+            || current_bytes.get(jump_bytes.len()..) != stolen_bytes.get(jump_bytes.len()..)
+        {
+            return Err(InlineHookError::OwnershipLost {
+                target: self.target_ptr.as_ptr() as usize,
+            });
+        }
 
-        unsafe {
+        let write_result = unsafe {
             with_virtual_protect(
                 self.target_ptr.as_ptr(),
                 PAGE_EXECUTE_READWRITE,
                 trampoline_stolen_size,
                 || {
-                    std::ptr::write_volatile(
-                        self.target_ptr.as_ptr() as *mut u8,
-                        self.trampoline.get_stolen_bytes_ref()[0],
+                    std::ptr::copy_nonoverlapping(
+                        stolen_bytes.as_ptr(),
+                        self.target_ptr.as_ptr().cast::<u8>(),
+                        trampoline_stolen_size,
                     );
-
-                    if trampoline_stolen_size > 1 {
-                        std::ptr::copy_nonoverlapping(
-                            self.trampoline.get_stolen_bytes_ref()[1..].as_ptr(),
-                            (self.target_ptr.as_ptr() as *mut u8).add(1),
-                            trampoline_stolen_size - 1,
-                        );
-                    }
                 },
-            )?;
+            )
+        };
+        if let Err(error) = write_result {
+            let current = unsafe {
+                std::slice::from_raw_parts(
+                    self.target_ptr.as_ptr().cast::<u8>(),
+                    trampoline_stolen_size,
+                )
+            };
+            if current == stolen_bytes.as_slice() {
+                self.enabled.store(false, Ordering::Release);
+            }
+            return Err(error.into());
         }
 
-        // Ensure writes are complete
-        std::sync::atomic::fence(Ordering::Release);
+        let restored = unsafe {
+            std::slice::from_raw_parts(
+                self.target_ptr.as_ptr().cast::<u8>(),
+                trampoline_stolen_size,
+            )
+        };
+        if restored != stolen_bytes.as_slice() {
+            return Err(InlineHookError::EncodingError(
+                "restored bytes do not match the captured instructions".to_string(),
+            ));
+        }
 
-        flush_instructions_cache(self.target_ptr.as_ptr(), trampoline_stolen_size)?;
-
-        // Ensure cache flush is visible to all CPUs
-        std::sync::atomic::fence(Ordering::SeqCst);
-
-        // Set disabled flag while still holding lock
         self.enabled.store(false, Ordering::Release);
+        flush_instructions_cache(self.target_ptr.as_ptr(), trampoline_stolen_size)?;
 
         Ok(())
     }
 
-    /// Calls the original function, with recursion protection
+    /// Return the trampoline function that executes displaced instructions and
+    /// then continues in the predecessor.
     pub fn original(&self) -> InlineHookResult<F> {
         let _guard = self.guard.read();
 
         unsafe { Ok(self.original_fn.as_fn()?) }
     }
 
-    /// Returns whether the hook is currently enabled
+    /// Return whether the hook currently owns an installed entry jump.
     pub fn is_enabled(&self) -> bool {
         self.enabled.load(Ordering::Acquire)
     }
@@ -239,7 +288,7 @@ impl<F: Copy + 'static> InlineHook<F> {
         self.failed.load(Ordering::Acquire)
     }
 
-    /// Attempts to recover from a failed state
+    /// Clear a preparation failure after the caller has corrected its cause.
     pub fn reset(&self) -> InlineHookResult<()> {
         let _guard = self.guard.write();
 
@@ -320,10 +369,10 @@ impl<F: Copy + 'static> Hook<F> for InlineHook<F> {
     }
 }
 
-/// RAII wrapper that automatically enables/disables hook
+/// RAII wrapper that automatically enables and disables one hook.
 ///
 /// The hook is enabled on creation and automatically disabled when dropped.
-/// This ensures the hook is always cleaned up, even in case of panics.
+/// The target must remain quiescent during both writes.
 pub struct ScopedInlineHook<F: Copy + 'static> {
     inner: InlineHook<F>,
 }
@@ -341,10 +390,11 @@ impl<F: Copy + 'static> ScopedInlineHook<F> {
         self.inner.original()
     }
 
-    /// Temporarily disables the hook and executes the provided closure
+    /// Temporarily disable the hook while executing a closure.
     ///
-    /// The hook is automatically re-enabled after the closure returns,
-    /// even if it panics.
+    /// The hook is automatically re-enabled after the closure returns, even if
+    /// it panics. This is safe only when the caller has stopped every other
+    /// thread that could execute the target.
     pub fn with_disabled<R, G>(&self, f: G) -> InlineHookResult<R>
     where
         G: FnOnce() -> R,
@@ -384,7 +434,7 @@ impl<F: Copy + 'static> ScopedInlineHook<F> {
         Ok(result)
     }
 
-    /// Returns whether the hook is enabled
+    /// Return whether the contained hook currently owns its target entry.
     pub fn is_enabled(&self) -> bool {
         self.inner.is_enabled()
     }
@@ -401,9 +451,9 @@ impl<F: Copy + 'static> Drop for ScopedInlineHook<F> {
     }
 }
 
-/// Container for InlineHook<T>
+/// Static-friendly storage for one lazily prepared [`InlineHook`].
 ///
-/// Common use-case: static variables with deffered initialization.
+/// The container itself does not make executable-byte writes atomic.
 #[derive(Default)]
 pub struct InlineHookContainer<T: Copy + 'static> {
     hook: RwLock<Option<InlineHook<T>>>,
@@ -450,7 +500,7 @@ impl<T: Copy + 'static> InlineHookContainer<T> {
 
         match hook_lock.as_ref() {
             Some(hook) => {
-                log::debug!("Enabling inline hook '{}'...", hook.name);
+                log::trace!("Enabling inline hook '{}'...", hook.name);
 
                 hook.enable()?;
 
@@ -479,6 +529,12 @@ impl<T: Copy + 'static> InlineHookContainer<T> {
 
             None => Err(InlineHookError::HookContainerNotInitialized),
         }
+    }
+
+    /// Return whether the initialized hook currently owns its target entry.
+    pub fn is_enabled(&self) -> bool {
+        let hook_lock = self.hook.read();
+        hook_lock.as_ref().is_some_and(InlineHook::is_enabled)
     }
 
     pub fn original(&self) -> InlineHookResult<T> {

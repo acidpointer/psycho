@@ -24,6 +24,7 @@ const ERROR_FILE_NOT_FOUND: u32 = 2;
 const ERROR_PATH_NOT_FOUND: u32 = 3;
 const ERROR_NO_MORE_FILES: u32 = 18;
 const MAX_FIND_NAME: usize = 260;
+const PAGE_READWRITE: u32 = 0x04;
 
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -137,10 +138,17 @@ unsafe extern "system" {
     fn FindNextFileW(handle: Handle, find_file_data: *mut Win32FindDataW) -> i32;
     fn GetLastError() -> u32;
     fn GetModuleFileNameW(module: HModule, file_name: *mut u16, size: u32) -> u32;
+    fn GetModuleHandleW(module_name: *const u16) -> HModule;
     fn GetProcAddress(module: HModule, proc_name: *const u8) -> *mut c_void;
     fn GetSystemDirectoryW(buffer: *mut u16, size: u32) -> u32;
     fn LoadLibraryExW(file_name: *const u16, file: Handle, flags: u32) -> HModule;
     fn LoadLibraryW(file_name: *const u16) -> HModule;
+    fn VirtualProtect(
+        address: *mut c_void,
+        size: usize,
+        new_protect: u32,
+        old_protect: *mut u32,
+    ) -> i32;
     fn OutputDebugStringW(output_string: *const u16);
     fn CompareStringOrdinal(
         string1: *const u16,
@@ -190,27 +198,13 @@ pub fn compare_paths(left: &WidePath, right: &WidePath, ignore_case: bool) -> Or
 
 pub fn debug_message(message: &[u8]) {
     let mut wide = [0u16; 256];
-    let mut len = 0usize;
-    for &byte in message {
-        if len + 1 >= wide.len() {
-            break;
-        }
-        wide[len] = u16::from(byte);
-        len += 1;
-    }
+    copy_ascii_to_wide(&mut wide, message);
     unsafe { OutputDebugStringW(wide.as_ptr()) };
 }
 
 pub fn debug_error(prefix: &[u8], error: u32) {
     let mut wide = [0u16; 256];
-    let mut len = 0usize;
-    for &byte in prefix {
-        if len + 1 >= wide.len() {
-            break;
-        }
-        wide[len] = u16::from(byte);
-        len += 1;
-    }
+    let mut len = copy_ascii_to_wide(&mut wide, prefix);
 
     let mut digits = [0u8; 10];
     let mut count = 0usize;
@@ -232,6 +226,14 @@ pub fn debug_error(prefix: &[u8], error: u32) {
         wide[len] = b'\n' as u16;
     }
     unsafe { OutputDebugStringW(wide.as_ptr()) };
+}
+
+fn copy_ascii_to_wide(output: &mut [u16], input: &[u8]) -> usize {
+    let len = input.len().min(output.len().saturating_sub(1));
+    for (slot, &byte) in output[..len].iter_mut().zip(input) {
+        *slot = u16::from(byte);
+    }
+    len
 }
 
 pub fn load_library(path: &WidePath) -> HModule {
@@ -269,8 +271,70 @@ pub fn load_library_from_dll_dir(path: &WidePath) -> Result<HModule, u32> {
     }
 }
 
+pub fn loaded_module(path: &WidePath) -> HModule {
+    let Some(nul_path) = path.with_nul() else {
+        return null_mut();
+    };
+    unsafe { GetModuleHandleW(nul_path.as_slice().as_ptr()) }
+}
+
 pub fn process_module_file_name() -> WidePath {
     module_file_name(null_mut())
+}
+
+pub fn process_module() -> HModule {
+    unsafe { GetModuleHandleW(null()) }
+}
+
+/// Replace one pointer-sized IAT slot while preserving page protection.
+///
+/// This runs during process attach, before application threads exist.
+///
+/// # Safety
+///
+/// `slot` must be a writable-width IAT entry in committed process memory.
+pub unsafe fn replace_iat_pointer(slot: *mut usize, replacement: usize) -> Option<usize> {
+    if slot.is_null() {
+        return None;
+    }
+    let mut old_protect = 0u32;
+    if unsafe {
+        VirtualProtect(
+            slot.cast(),
+            core::mem::size_of::<usize>(),
+            PAGE_READWRITE,
+            &mut old_protect,
+        )
+    } == 0
+    {
+        return None;
+    }
+    let original = unsafe { core::ptr::read_volatile(slot) };
+    unsafe { core::ptr::write_volatile(slot, replacement) };
+    let mut ignored = 0u32;
+    if unsafe {
+        VirtualProtect(
+            slot.cast(),
+            core::mem::size_of::<usize>(),
+            old_protect,
+            &mut ignored,
+        )
+    } == 0
+    {
+        unsafe { core::ptr::write_volatile(slot, original) };
+        // The first restoration failure left the page writable. Make one final
+        // best-effort attempt after restoring the pointer value.
+        let _ = unsafe {
+            VirtualProtect(
+                slot.cast(),
+                core::mem::size_of::<usize>(),
+                old_protect,
+                &mut ignored,
+            )
+        };
+        return None;
+    }
+    Some(original)
 }
 
 pub fn module_file_name(module: HModule) -> WidePath {

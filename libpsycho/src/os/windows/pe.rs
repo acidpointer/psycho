@@ -1,12 +1,10 @@
 //! PE (Portable Executable) parsing utilities for Windows
 
-use std::collections::HashSet;
-
 use goblin::pe::options::ParseOptions;
 use libc::c_void;
 use thiserror::Error;
 
-use crate::os::windows::winapi::{HModule, enum_process_modules, get_module_information};
+use crate::os::windows::winapi::{HModule, get_module_information};
 
 use super::winapi::WinapiError;
 
@@ -33,31 +31,36 @@ pub enum PeError {
 
 pub type PeResult<T> = std::result::Result<T, PeError>;
 
+/// One resolved import slot in a loaded module.
 #[derive(Debug, Clone)]
 pub struct IatEntry {
+    /// Base address of the module that owns the import.
     pub module_base: *mut c_void,
+    /// Address of the writable pointer slot.
     pub iat_address: *mut *mut c_void,
+    /// Function pointer stored in the slot when it was discovered.
     pub current_function: *mut c_void,
+    /// Imported DLL name recorded in the PE image.
     pub library_name: String,
+    /// Imported function name recorded in the PE image.
     pub function_name: String,
 }
 
+/// Find matching IAT entries in a loaded PE image.
+///
 /// # Safety
-/// UNSAFE!
+///
+/// `module_base` must remain a valid loaded module while its image headers and
+/// import table are read. Returned entry pointers are valid only while that
+/// module remains loaded.
 pub unsafe fn find_iat_entry(
     module_base: *mut c_void,
     library_name: Option<String>,
     function_name: String,
 ) -> PeResult<Vec<IatEntry>> {
     let mut result = vec![];
-    let mut process_modules = enum_process_modules(None)?;
-
-    process_modules.insert(0, unsafe { HModule::new(module_base) }?);
-
-    // Track unique (library_name, function_name) pairs to deduplicate by DLL
-    let mut seen_imports: HashSet<(String, String)> = HashSet::new();
-
-    for module_handle in process_modules {
+    let module_handle = unsafe { HModule::new(module_base) }?;
+    {
         let module_info = get_module_information(module_handle)?;
 
         let pe_start_addr = module_info.base_of_dll as *const u8;
@@ -73,11 +76,7 @@ pub unsafe fn find_iat_entry(
         pe_opts.parse_mode = goblin::options::ParseMode::Permissive;
         pe_opts.parse_tls_data = false;
 
-        let old_log_level = log::STATIC_MAX_LEVEL;
-
-        log::set_max_level(log::LevelFilter::Error);
         let pe_view = goblin::pe::PE::parse_with_opts(pe_bytes, &pe_opts)?;
-        log::set_max_level(old_log_level);
 
         for import in pe_view.imports {
             let dll_name = import.dll;
@@ -89,24 +88,7 @@ pub unsafe fn find_iat_entry(
 
             match &library_name {
                 Some(library_name) => {
-                    if library_name.to_lowercase() == dll_name.to_lowercase()
-                        && import_name == function_name
-                    {
-                        // Create key for deduplication using case-insensitive comparison
-                        let dll_key = dll_name.to_lowercase();
-                        let dedup_key = (dll_key.clone(), import_name.to_string());
-
-                        // Skip if we've already seen this DLL::function combination
-                        if !seen_imports.insert(dedup_key) {
-                            log::trace!(
-                                "Skipping duplicate import: '{}::{}' in module '{}' (already hooked)",
-                                dll_name,
-                                import_name,
-                                module_name
-                            );
-                            continue;
-                        }
-
+                    if library_name.eq_ignore_ascii_case(dll_name) && import_name == function_name {
                         log::debug!(
                             "Found import(requested name): '{}::{}' in module '{}' at {:p}",
                             dll_name,
@@ -127,21 +109,6 @@ pub unsafe fn find_iat_entry(
 
                 None => {
                     if import_name == function_name {
-                        // Create key for deduplication using case-insensitive comparison
-                        let dll_key = dll_name.to_lowercase();
-                        let dedup_key = (dll_key.clone(), import_name.to_string());
-
-                        // Skip if we've already seen this DLL::function combination
-                        if !seen_imports.insert(dedup_key) {
-                            log::trace!(
-                                "Skipping duplicate import: '{}::{}' in module '{}' (already hooked)",
-                                dll_name,
-                                import_name,
-                                module_name
-                            );
-                            continue;
-                        }
-
                         log::debug!(
                             "Found import: '{}::{}' in module '{}' at {:p}",
                             dll_name,

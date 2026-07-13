@@ -31,14 +31,14 @@ git submodule update --init --recursive
 |---|---|
 | `psycho-engine-fixes` | Core DLL (`psycho_engine_fixes.dll`). Loaded early by `syringe` from `<game root>/syringe/psycho_engine_fixes.dll`; owns engine patches and shared state. |
 | `psycho-engine-fixes-helper` | Thin xNVSE plugin (`psycho_engine_fixes_helper.dll`, plugin name `psycho-nvse-helper`). Registers console commands/messages and lazily resolves exact named exports from `psycho_engine_fixes.dll` only if it is already loaded. It must never load or initialize the core DLL. |
-| `syringe` | Generic early `dinput8.dll` proxy. Starts one worker that loads every `<game root>/syringe/*.dll`; exact ordering against xNVSE requires startup evidence. Must stay mod/plugin agnostic, `no_std`, and independent of `libpsycho`. |
-| `syringe-api` | Tiny generic ABI for DLLs loaded by `syringe`. Loaded DLLs should export `Syringe_ModInit` and do real startup there, not in DllMain/TLS callbacks. |
+| `syringe` | Generic early `dinput8.dll` proxy. Uses a pre-CRT startup barrier to load every `<game root>/syringe/*.dll`; a non-blocking worker is the compatibility fallback. Must stay mod/plugin agnostic, `no_std`, and independent of `libpsycho`. |
+| `syringe-api` | Tiny generic ABI for DLLs loaded by `syringe`. Loaded DLLs may export `Syringe_ModInit` and `Syringe_ModActivate`; real startup belongs in those callbacks, not DllMain/TLS callbacks. |
 | `libpsycho` | WinAPI wrappers, IAT/inline/VMT hooking, logging. |
 | `libnvse` | Rust bindings to xNVSE via `bindgen`. |
 | `libmimalloc` | Fork of mimalloc sys crate. Builds C source via `cc`. |
 | `libf4se` | Deprecated F4SE bindings. Not maintained. |
 
-Plugin entry flow: `dinput8.dll` `DllMain` starts one non-blocking loader thread -> the worker loads real system `dinput8.dll`, then every `<game root>/syringe/*.dll` -> the worker calls each optional `Syringe_ModInit` export outside the loaded DLL's loader-lock callback -> `psycho_engine_fixes.dll` completes all setup from that single entrypoint -> `psycho_engine_fixes_helper.dll` `NVSEPlugin_*` only registers helper services and forwards optional messages/commands through `PsychoEngineFixes_RunCommand` / `PsychoEngineFixes_NotifyEvent` if the core DLL is already available.
+Plugin entry flow: `dinput8.dll` `DllMain` installs a pre-CRT startup barrier -> the barrier runs outside loader lock after xNVSE preload callbacks -> Syringe loads real system `dinput8.dll` and every `<game root>/syringe/*.dll` -> all optional `Syringe_ModInit` callbacks run -> all optional `Syringe_ModActivate` callbacks run -> `psycho_engine_fixes.dll` performs final ownership checks and setup from activation -> `psycho_engine_fixes_helper.dll` `NVSEPlugin_*` only registers helper services and forwards optional messages/commands through `PsychoEngineFixes_RunCommand` / `PsychoEngineFixes_NotifyEvent` if the core DLL is already available. A non-blocking worker remains only as a generic compatibility fallback; the core engine-fixes DLL refuses activation unless the pre-CRT barrier was actually reached.
 
 ## WinAPI usage
 

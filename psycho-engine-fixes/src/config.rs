@@ -18,23 +18,12 @@ const LEGACY_CONFIG_PATHS: &[&str] = &[
 
 static CONFIG: OnceLock<PsychoConfig> = OnceLock::new();
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Default, Serialize)]
 pub struct PsychoConfig {
     pub memory: MemoryConfig,
     pub engine_fixes: EngineFixesConfig,
     pub performance: PerformanceConfig,
     pub diagnostics: DiagnosticsConfig,
-}
-
-impl Default for PsychoConfig {
-    fn default() -> Self {
-        Self {
-            memory: MemoryConfig::default(),
-            engine_fixes: EngineFixesConfig::default(),
-            performance: PerformanceConfig::default(),
-            diagnostics: DiagnosticsConfig::default(),
-        }
-    }
 }
 
 impl<'de> Deserialize<'de> for PsychoConfig {

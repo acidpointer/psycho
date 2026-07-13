@@ -8,15 +8,18 @@
 //! root-level early DLLs before later plugin loaders run and then
 //! forward the standard dinput8 exports to the real system DLL.
 //!
-//! Loader-lock rule: loader-lock callbacks must not call `LoadLibraryW` for
-//! mods. `DllMain` records our module handle and starts a worker thread. Proxy
-//! exports never wait for or start mod initialization.
+//! Loader-lock rule: loader-lock callbacks never load mods. `DllMain` installs
+//! a main-executable startup barrier; its callback initializes mods after
+//! loader lock is released. A non-blocking worker is installed from process
+//! attach only when the barrier cannot be installed. Proxy exports never start
+//! or wait for mod loading.
 
 #[cfg(not(all(target_os = "windows", target_arch = "x86")))]
 compile_error!("syringe must be built for 32-bit Windows (i686-pc-windows-gnu)");
 
 mod dinput8;
 mod mods;
+mod startup_barrier;
 mod wide_path;
 mod win32;
 
@@ -68,7 +71,9 @@ unsafe fn process_attach(instance: HInstance, reason: u32) {
 
     mods::remember_loader_module(instance);
 
-    mods::start_loader_thread();
+    if !startup_barrier::install() {
+        mods::start_loader_thread();
+    }
 }
 
 // The .def file exports the normal dinput8 surface. Each exported function

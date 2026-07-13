@@ -487,7 +487,7 @@ impl Logger {
     #[must_use = "You must call init() to begin logging"]
     #[deprecated(
         since = "1.16.0",
-        note = "Use [`with_local_timestamps`] or [`with_utc_timestamps`] instead. Will be removed in version 2.0.0."
+        note = "Use [`Self::with_local_timestamps`] or [`Self::with_utc_timestamps`] instead. Will be removed in version 2.0.0."
     )]
     pub fn with_timestamps(mut self, timestamps: bool) -> Self {
         if timestamps {

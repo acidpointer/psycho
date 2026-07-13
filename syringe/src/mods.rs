@@ -1,59 +1,113 @@
 //! Root `syringe/*.dll` discovery and initialization.
 //!
 //! The loader is mod-agnostic: every DLL directly under `<game root>/syringe` is
-//! loaded in deterministic case-insensitive filename order. A loaded DLL may
-//! export `Syringe_ModInit`; when present, we call it after `LoadLibrary`
-//! returns so real initialization runs outside that DLL's loader-lock callback.
+//! loaded in deterministic case-insensitive filename order. Initialization is
+//! two-phase: every optional `Syringe_ModInit` runs first, then every optional
+//! `Syringe_ModActivate`. Both run outside DLL loader-lock callbacks.
 
 use core::ffi::c_void;
 use core::mem::transmute;
-use core::sync::atomic::{AtomicU8, AtomicUsize, Ordering};
+use core::sync::atomic::{AtomicU8, AtomicU32, AtomicUsize, Ordering};
 
-use syringe_api::{SyringeInfo, SyringeModInitFn};
+use syringe_api::{SyringeInfo, SyringeModActivateFn, SyringeModInitFn};
 
 use crate::wide_path::WidePath;
 use crate::win32::{self, FindHandle, HModule, Win32FindDataW};
 
 const MOD_INIT_EXPORT: &[u8] = b"Syringe_ModInit\0";
+const MOD_ACTIVATE_EXPORT: &[u8] = b"Syringe_ModActivate\0";
 
 const MODS_NOT_STARTED: u8 = 0;
 const MODS_LOADING: u8 = 1;
 const MODS_READY: u8 = 2;
 const MODS_FAILED: u8 = 3;
 
-// One-shot guard for the worker launched from DllMain.
-static MODS_THREAD_STARTED: AtomicUsize = AtomicUsize::new(0);
-// Worker lifecycle is diagnostic only. Proxy exports must not synchronize on it.
+// This state owns discovery. The barrier and fallback worker must never run a
+// loader pass at the same time.
 static MODS_LOAD_STATE: AtomicU8 = AtomicU8::new(MODS_NOT_STARTED);
+static LOADER_INFO_FLAGS: AtomicU32 = AtomicU32::new(0);
 // Passed to `Syringe_ModInit` so loaded mods can identify the proxy DLL.
 static LOADER_MODULE: AtomicUsize = AtomicUsize::new(0);
 
+/// Save the proxy module handle supplied to `DllMain` for callback metadata.
 pub fn remember_loader_module(module: HModule) {
     LOADER_MODULE.store(module as usize, Ordering::Release);
 }
 
+/// Start the non-blocking compatibility path if no loader pass owns startup.
+///
+/// This is called from process attach only when the executable barrier could
+/// not be installed. The new thread may wait for loader lock, but DllMain never
+/// waits for the thread.
 pub fn start_loader_thread() {
-    if MODS_THREAD_STARTED
-        .compare_exchange(0, 1, Ordering::AcqRel, Ordering::Acquire)
+    if MODS_LOAD_STATE
+        .compare_exchange(
+            MODS_NOT_STARTED,
+            MODS_LOADING,
+            Ordering::AcqRel,
+            Ordering::Acquire,
+        )
         .is_err()
     {
         return;
     }
 
-    MODS_LOAD_STATE.store(MODS_LOADING, Ordering::Release);
+    // The worker is not a proven pre-CRT boundary. Store this before spawning
+    // so a fast worker cannot publish the wrong capability to loaded mods.
+    LOADER_INFO_FLAGS.store(0, Ordering::Release);
     if !win32::spawn_thread(mod_loader_thread) {
         MODS_LOAD_STATE.store(MODS_FAILED, Ordering::Release);
     }
 }
 
+/// Complete discovery synchronously at the executable's pre-CRT barrier.
+///
+/// Only the thread that wins the state transition may publish the pre-CRT
+/// flag. If an unusually early proxy call already started the fallback worker,
+/// allocator replacement stays disabled rather than claiming false ordering.
+pub fn load_mods_at_pre_crt_barrier() {
+    if MODS_LOAD_STATE
+        .compare_exchange(
+            MODS_NOT_STARTED,
+            MODS_LOADING,
+            Ordering::AcqRel,
+            Ordering::Acquire,
+        )
+        .is_err()
+    {
+        return;
+    }
+
+    LOADER_INFO_FLAGS.store(syringe_api::SYRINGE_INFO_PRE_CRT_BARRIER, Ordering::Release);
+    load_all_mods();
+}
+
 unsafe extern "system" fn mod_loader_thread(_parameter: *mut c_void) -> u32 {
-    crate::dinput8::preload();
-    load_mod_dlls();
-    MODS_LOAD_STATE.store(MODS_READY, Ordering::Release);
+    load_all_mods();
     0
 }
 
+fn load_all_mods() {
+    crate::dinput8::preload();
+    load_mod_dlls();
+    MODS_LOAD_STATE.store(MODS_READY, Ordering::Release);
+}
+
 fn load_mod_dlls() -> usize {
+    let loaded = visit_mod_dlls(ModPhase::Load);
+    visit_mod_dlls(ModPhase::Initialize);
+    visit_mod_dlls(ModPhase::Activate);
+    loaded
+}
+
+#[derive(Clone, Copy)]
+enum ModPhase {
+    Load,
+    Initialize,
+    Activate,
+}
+
+fn visit_mod_dlls(phase: ModPhase) -> usize {
     let mut mods = game_root();
     if mods.is_empty() || !mods.append_component_ascii("syringe") {
         return 0;
@@ -78,13 +132,51 @@ fn load_mod_dlls() -> usize {
         };
         previous = Some(path);
 
-        let module = load_mod_library(&path);
-        if !module.is_null() && call_mod_init(module) {
-            loaded = loaded.saturating_add(1);
+        let module = match phase {
+            ModPhase::Load => load_mod_library(&path),
+            ModPhase::Initialize | ModPhase::Activate => {
+                let loaded = win32::loaded_module(&path);
+                if loaded.is_null() {
+                    load_mod_library(&path)
+                } else {
+                    loaded
+                }
+            }
+        };
+        if module.is_null() {
+            if !matches!(phase, ModPhase::Load) {
+                win32::debug_message(b"[Syringe] Loaded mod disappeared before callback.\n");
+            }
+            continue;
+        }
+        match phase {
+            ModPhase::Load => loaded = loaded.saturating_add(1),
+            ModPhase::Initialize => {
+                call_mod_init(module);
+            }
+            ModPhase::Activate => {
+                call_mod_activate(module);
+            }
         }
     }
 
     loaded
+}
+
+fn call_mod_activate(module: HModule) -> bool {
+    let proc = win32::get_proc_address(module, MOD_ACTIVATE_EXPORT);
+    if proc.is_null() {
+        return true;
+    }
+
+    let loader_module = LOADER_MODULE.load(Ordering::Acquire);
+    let info = loader_info(loader_module, module);
+    let activate: SyringeModActivateFn = unsafe { transmute(proc) };
+    let activated = unsafe { activate(&info) != 0 };
+    if !activated {
+        win32::debug_message(b"[Syringe] Syringe_ModActivate returned failure.\n");
+    }
+    activated
 }
 
 fn call_mod_init(module: HModule) -> bool {
@@ -94,13 +186,18 @@ fn call_mod_init(module: HModule) -> bool {
     }
 
     let loader_module = LOADER_MODULE.load(Ordering::Acquire);
-    let info = SyringeInfo::new(loader_module, module as usize);
+    let info = loader_info(loader_module, module);
     let init: SyringeModInitFn = unsafe { transmute(proc) };
     let initialized = unsafe { init(&info) != 0 };
     if !initialized {
         win32::debug_message(b"[Syringe] Syringe_ModInit returned failure.\n");
     }
     initialized
+}
+
+fn loader_info(loader_module: usize, module: HModule) -> SyringeInfo {
+    SyringeInfo::new(loader_module, module as usize)
+        .with_flags(LOADER_INFO_FLAGS.load(Ordering::Acquire))
 }
 
 fn load_mod_library(path: &WidePath) -> HModule {

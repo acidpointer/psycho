@@ -149,7 +149,7 @@ unsafe extern "thiscall" fn checked_dispatch(task: *mut c_void, argument: usize)
     increment_main_thread(&DISPATCH_ATTEMPTS);
     let task_addr = task as usize;
     if task_addr == 0
-        || task_addr % std::mem::align_of::<AtomicI32>() != 0
+        || !task_addr.is_multiple_of(std::mem::align_of::<AtomicI32>())
         || !is_readable(task_addr, REFCOUNT_OFFSET + 4)
         || heap_replacer::task_pool_state(task) == TaskPoolState::Free
     {

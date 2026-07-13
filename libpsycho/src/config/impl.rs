@@ -108,7 +108,7 @@ impl Config {
     /// read and TOML parse. If the file is missing or unparseable, returns
     /// `T::default()`.
     ///
-    /// Call [`sync_to_disk`] later (outside DllMain) to write back schema
+    /// Call [`Self::sync_to_disk`] later (outside DllMain) to write back schema
     /// changes.
     pub fn load_readonly<T>(path: impl AsRef<Path>) -> T
     where

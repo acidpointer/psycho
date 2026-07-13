@@ -1,6 +1,6 @@
 //! Hook containers and game addresses for the game heap domain.
 //!
-//! Each static is a LazyLock<InlineHookContainer<T>> that holds the
+//! Each static is a `LazyLock<InlineHookContainer<T>>` that holds the
 //! trampoline to the original function. The install module initializes
 //! these during startup.
 

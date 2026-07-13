@@ -1,0 +1,1401 @@
+FALLOUTNV ZLIB FULL CONTRACT AUDIT
+======================================================================
+Questions: all consumers, exact patch bytes, stream lifetime, buffer ownership, and thread-visible object paths.
+
+----------------------------------------------------------------------
+References TO 0x00b43fe0 (inflateInit_)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x004742ac (in FUN_004740a0)
+  UNCONDITIONAL_CALL @ 0x00afc537 (in FUN_00afc430)
+  Total: 2 refs
+
+----------------------------------------------------------------------
+References TO 0x00b44000 (inflate)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0047434f (in FUN_004740a0)
+  UNCONDITIONAL_CALL @ 0x00afc1f4 (in FUN_00afc0e0)
+  Total: 2 refs
+
+----------------------------------------------------------------------
+References TO 0x00b45db0 (inflateEnd)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x004742ca (in FUN_004740a0)
+  UNCONDITIONAL_CALL @ 0x00474388 (in FUN_004740a0)
+  UNCONDITIONAL_CALL @ 0x004743d5 (in FUN_004740a0)
+  UNCONDITIONAL_CALL @ 0x00474419 (in FUN_004740a0)
+  UNCONDITIONAL_CALL @ 0x00afc552 (in FUN_00afc430)
+  UNCONDITIONAL_CALL @ 0x00afc00e (in FUN_00afbfe0)
+  UNCONDITIONAL_CALL @ 0x00afc21b (in FUN_00afc0e0)
+  Total: 7 refs
+
+======================================================================
+UNIQUE CALLERS OF inflateInit_ (0x00b43fe0)
+======================================================================
+  Unique caller functions: 2
+
+======================================================================
+inflateInit_ caller @ 0x004740a0
+======================================================================
+  Function: FUN_004740a0 @ 0x004740a0, Size: 949 bytes
+
+/* WARNING: Function: __alloca_probe replaced with injection: alloca_probe */
+
+void __fastcall FUN_004740a0(int param_1)
+
+{
+  char cVar1;
+  uint uVar2;
+  int iVar3;
+  undefined4 uVar4;
+  int *unaff_FS_OFFSET;
+  undefined4 local_1c0c;
+  undefined4 *local_1c08;
+  int local_1c04;
+  undefined4 local_1bfc;
+  undefined4 local_1bf8;
+  undefined1 *local_1bec;
+  code *local_1be8;
+  code *local_1be4;
+  undefined4 local_1be0;
+  undefined1 local_1bd0 [7084];
+  uint local_24;
+  undefined4 *local_20;
+  undefined4 *local_1c;
+  char local_15;
+  undefined4 local_14;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00eeeb58;
+  local_10 = *unaff_FS_OFFSET;
+  local_14 = 0x4740bb;
+  uVar2 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  local_24 = uVar2;
+  FUN_00404eb0(0x30,1,"D:\\_Fallout3\\Platforms\\Common\\Code\\Fallout Shared\\TESFile.cpp",0xf8e);
+  local_8 = 0;
+  if ((*(int *)(param_1 + 0x244) != 0) && (*(int *)(param_1 + 0x240) != DAT_01187020)) {
+    cVar1 = FUN_00472100(uVar2);
+    if (cVar1 != '\0') {
+      local_15 = FUN_00486890(*(undefined4 *)(param_1 + 0x240));
+      if (local_15 == '\0') {
+        local_8 = 0xffffffff;
+        FUN_00404ee0();
+        goto LAB_0047443c;
+      }
+      local_1c = (undefined4 *)FUN_00401000(*(int *)(param_1 + 0x244) + 1);
+      if (local_1c == (undefined4 *)0x0) {
+        local_8 = 0xffffffff;
+        FUN_00404ee0();
+        goto LAB_0047443c;
+      }
+      iVar3 = FUN_00b00650(local_1c,*(undefined4 *)(param_1 + 0x244));
+      if (iVar3 == *(int *)(param_1 + 0x244)) {
+        local_1c0c = *local_1c;
+        local_20 = local_1c + 1;
+        cVar1 = FUN_00401680();
+        if (cVar1 != '\0') {
+          FUN_00401080(&local_1c0c,0);
+        }
+        *(undefined1 *)((int)local_1c + *(int *)(param_1 + 0x244)) = 0;
+        uVar4 = FUN_00401000(local_1c0c);
+        *(undefined4 *)(param_1 + 0x420) = uVar4;
+        *(undefined4 *)(param_1 + 0x424) = local_1c0c;
+        local_1be8 = FUN_00474460;
+        local_1be4 = FUN_00474480;
+        local_1be0 = 0;
+        local_1c04 = 0;
+        local_1c08 = (undefined4 *)0x0;
+        local_1bec = local_1bd0;
+        iVar3 = FUN_00b43fe0(&local_1c08,"1.2.1",0x38);
+        if (iVar3 != 0) {
+          FUN_00b45db0(&local_1c08);
+          FUN_005b5e40("TESFile: Error initializing ZLib inflate stream.");
+          FUN_00473960();
+          FUN_00401030(local_1c);
+          local_8 = 0xffffffff;
+          FUN_00404ee0();
+          goto LAB_0047443c;
+        }
+        local_1c04 = *(int *)(param_1 + 0x244) + -4;
+        local_1c08 = local_20;
+        local_1bf8 = local_1c0c;
+        local_1bfc = *(undefined4 *)(param_1 + 0x420);
+        iVar3 = FUN_00b44000(&local_1c08,0);
+        if ((((iVar3 == -2) || (iVar3 == 2)) || (iVar3 == -3)) || (iVar3 == -4)) {
+          FUN_00b45db0(&local_1c08);
+          FUN_005b5e40("TESFile: Error inflating ZLib stream.");
+          FUN_00473960();
+          FUN_00401030(local_1c);
+          local_8 = 0xffffffff;
+          FUN_00404ee0();
+          goto LAB_0047443c;
+        }
+        if (iVar3 != 1) {
+          FUN_00b45db0(&local_1c08);
+          FUN_005b5e40("TESFile: Error: ZLib stream did not terminate.");
+          FUN_00473960();
+          FUN_00401030(local_1c);
+          local_8 = 0xffffffff;
+          FUN_00404ee0();
+          goto LAB_0047443c;
+        }
+        FUN_00b45db0(&local_1c08);
+      }
+      else {
+        FUN_005b5e40("TESFile: Failed to read in buffer data for compressed form.");
+      }
+      FUN_00401030(local_1c);
+    }
+  }
+  local_8 = 0xffffffff;
+  FUN_00404ee0();
+LAB_0047443c:
+  *unaff_FS_OFFSET = local_10;
+  __security_check_cookie(local_24 ^ (uint)&stack0xfffffffc);
+  return;
+}
+
+
+
+======================================================================
+inflateInit_ caller @ 0x00afc430
+======================================================================
+  Function: FUN_00afc430 @ 0x00afc430, Size: 485 bytes
+
+undefined4 * __thiscall
+FUN_00afc430(undefined4 *param_1,undefined4 param_2,undefined4 param_3,undefined4 param_4,
+            undefined4 param_5,undefined4 param_6)
+
+{
+  uint uVar1;
+  int iVar2;
+  undefined4 uVar3;
+  int *unaff_FS_OFFSET;
+  uint local_30;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00f23655;
+  local_10 = *unaff_FS_OFFSET;
+  uVar1 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  FUN_00afb300(param_2,param_3,param_4,param_5,param_6);
+  local_8 = 0;
+  *param_1 = &PTR_FUN_010a464c;
+  FUN_00afc620(0);
+  FUN_00afbbf0(param_1 + 0x5a,4);
+  iVar2 = FUN_00aa3e40(0x1be0);
+  param_1[0x58] = iVar2;
+  *(undefined4 *)(param_1[0x58] + 0x20) = 0;
+  *(undefined4 *)(param_1[0x58] + 0x24) = 0;
+  *(undefined4 *)(param_1[0x58] + 0x28) = 0;
+  *(undefined4 *)(param_1[0x58] + 4) = 0;
+  *(undefined4 *)param_1[0x58] = 0;
+  *(int *)(param_1[0x58] + 0x1c) = iVar2 + 0x38;
+  iVar2 = FUN_00b43fe0(param_1[0x58],"1.2.1",0x38,uVar1);
+  if (iVar2 == 0) {
+    if ((uint)param_1[0x5a] < DAT_011f8164) {
+      local_30 = param_1[0x5a];
+    }
+    else {
+      local_30 = DAT_011f8164;
+    }
+    param_1[0x5b] = local_30;
+    uVar3 = FUN_00aa3e40(param_1[0x5b]);
+    param_1[0x59] = uVar3;
+    param_1[0x5c] = 0;
+    param_1[0x5d] = 0;
+  }
+  else {
+    FUN_00b45db0(param_1[0x58]);
+    FUN_00aa4060(param_1[0x58]);
+    param_1[0x58] = 0;
+  }
+  *unaff_FS_OFFSET = local_10;
+  return param_1;
+}
+
+
+
+======================================================================
+UNIQUE CALLERS OF inflate (0x00b44000)
+======================================================================
+  Unique caller functions: 2
+
+======================================================================
+inflate caller @ 0x004740a0
+======================================================================
+  Function: FUN_004740a0 @ 0x004740a0, Size: 949 bytes
+
+/* WARNING: Function: __alloca_probe replaced with injection: alloca_probe */
+
+void __fastcall FUN_004740a0(int param_1)
+
+{
+  char cVar1;
+  uint uVar2;
+  int iVar3;
+  undefined4 uVar4;
+  int *unaff_FS_OFFSET;
+  undefined4 local_1c0c;
+  undefined4 *local_1c08;
+  int local_1c04;
+  undefined4 local_1bfc;
+  undefined4 local_1bf8;
+  undefined1 *local_1bec;
+  code *local_1be8;
+  code *local_1be4;
+  undefined4 local_1be0;
+  undefined1 local_1bd0 [7084];
+  uint local_24;
+  undefined4 *local_20;
+  undefined4 *local_1c;
+  char local_15;
+  undefined4 local_14;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00eeeb58;
+  local_10 = *unaff_FS_OFFSET;
+  local_14 = 0x4740bb;
+  uVar2 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  local_24 = uVar2;
+  FUN_00404eb0(0x30,1,"D:\\_Fallout3\\Platforms\\Common\\Code\\Fallout Shared\\TESFile.cpp",0xf8e);
+  local_8 = 0;
+  if ((*(int *)(param_1 + 0x244) != 0) && (*(int *)(param_1 + 0x240) != DAT_01187020)) {
+    cVar1 = FUN_00472100(uVar2);
+    if (cVar1 != '\0') {
+      local_15 = FUN_00486890(*(undefined4 *)(param_1 + 0x240));
+      if (local_15 == '\0') {
+        local_8 = 0xffffffff;
+        FUN_00404ee0();
+        goto LAB_0047443c;
+      }
+      local_1c = (undefined4 *)FUN_00401000(*(int *)(param_1 + 0x244) + 1);
+      if (local_1c == (undefined4 *)0x0) {
+        local_8 = 0xffffffff;
+        FUN_00404ee0();
+        goto LAB_0047443c;
+      }
+      iVar3 = FUN_00b00650(local_1c,*(undefined4 *)(param_1 + 0x244));
+      if (iVar3 == *(int *)(param_1 + 0x244)) {
+        local_1c0c = *local_1c;
+        local_20 = local_1c + 1;
+        cVar1 = FUN_00401680();
+        if (cVar1 != '\0') {
+          FUN_00401080(&local_1c0c,0);
+        }
+        *(undefined1 *)((int)local_1c + *(int *)(param_1 + 0x244)) = 0;
+        uVar4 = FUN_00401000(local_1c0c);
+        *(undefined4 *)(param_1 + 0x420) = uVar4;
+        *(undefined4 *)(param_1 + 0x424) = local_1c0c;
+        local_1be8 = FUN_00474460;
+        local_1be4 = FUN_00474480;
+        local_1be0 = 0;
+        local_1c04 = 0;
+        local_1c08 = (undefined4 *)0x0;
+        local_1bec = local_1bd0;
+        iVar3 = FUN_00b43fe0(&local_1c08,"1.2.1",0x38);
+        if (iVar3 != 0) {
+          FUN_00b45db0(&local_1c08);
+          FUN_005b5e40("TESFile: Error initializing ZLib inflate stream.");
+          FUN_00473960();
+          FUN_00401030(local_1c);
+          local_8 = 0xffffffff;
+          FUN_00404ee0();
+          goto LAB_0047443c;
+        }
+        local_1c04 = *(int *)(param_1 + 0x244) + -4;
+        local_1c08 = local_20;
+        local_1bf8 = local_1c0c;
+        local_1bfc = *(undefined4 *)(param_1 + 0x420);
+        iVar3 = FUN_00b44000(&local_1c08,0);
+        if ((((iVar3 == -2) || (iVar3 == 2)) || (iVar3 == -3)) || (iVar3 == -4)) {
+          FUN_00b45db0(&local_1c08);
+          FUN_005b5e40("TESFile: Error inflating ZLib stream.");
+          FUN_00473960();
+          FUN_00401030(local_1c);
+          local_8 = 0xffffffff;
+          FUN_00404ee0();
+          goto LAB_0047443c;
+        }
+        if (iVar3 != 1) {
+          FUN_00b45db0(&local_1c08);
+          FUN_005b5e40("TESFile: Error: ZLib stream did not terminate.");
+          FUN_00473960();
+          FUN_00401030(local_1c);
+          local_8 = 0xffffffff;
+          FUN_00404ee0();
+          goto LAB_0047443c;
+        }
+        FUN_00b45db0(&local_1c08);
+      }
+      else {
+        FUN_005b5e40("TESFile: Failed to read in buffer data for compressed form.");
+      }
+      FUN_00401030(local_1c);
+    }
+  }
+  local_8 = 0xffffffff;
+  FUN_00404ee0();
+LAB_0047443c:
+  *unaff_FS_OFFSET = local_10;
+  __security_check_cookie(local_24 ^ (uint)&stack0xfffffffc);
+  return;
+}
+
+
+
+======================================================================
+inflate caller @ 0x00afc0e0
+======================================================================
+  Function: FUN_00afc0e0 @ 0x00afc0e0, Size: 760 bytes
+
+/* WARNING: Unable to track spacebase fully for stack */
+
+uint __thiscall FUN_00afc0e0(int param_1,void *param_2,uint param_3)
+
+{
+  undefined4 *puVar1;
+  undefined4 uVar2;
+  int *piVar3;
+  undefined4 *puVar4;
+  int local_30;
+  void *local_2c;
+  undefined4 local_28;
+  undefined4 local_24;
+  undefined4 local_20;
+  void *local_1c;
+  int local_18;
+  int *local_14;
+  uint local_10;
+  uint local_c;
+  uint local_8;
+  
+  local_30 = param_1;
+  local_8 = param_3;
+  local_c = 0;
+  local_14 = *(int **)(param_1 + 0x160);
+  local_10 = *(int *)(param_1 + 0x174) - *(int *)(param_1 + 0x170);
+  if (local_10 < param_3) {
+    if (local_10 != 0) {
+      if (param_2 != (void *)0x0) {
+        local_1c = (void *)(*(int *)(param_1 + 0x164) + *(int *)(param_1 + 0x170));
+        _memcpy(param_2,local_1c,local_10);
+        param_2 = (void *)((int)param_2 + local_10);
+      }
+      local_8 = local_8 - local_10;
+      local_c = local_10;
+    }
+    piVar3 = &local_30;
+    *(undefined4 *)(local_30 + 0x170) = 0;
+    *(undefined4 *)(local_30 + 0x174) = 0;
+    while (local_8 != 0) {
+      local_14[4] = *(int *)(local_30 + 0x16c);
+      local_14[3] = *(int *)(local_30 + 0x164);
+      while (local_14[4] != 0) {
+        local_10 = *(int *)(local_30 + 0x14) - *(int *)(local_30 + 0x18);
+        local_14[1] = local_10;
+        *local_14 = *(int *)(local_30 + 0x20) + *(int *)(local_30 + 0x18);
+        puVar1 = piVar3;
+        if (local_10 != 0) {
+          *(undefined4 *)((int)piVar3 + -4) = 2;
+          *(int **)((int)piVar3 + -8) = local_14;
+          puVar4 = (undefined4 *)((int)piVar3 + -0xc);
+          *(undefined4 *)((int)piVar3 + -0xc) = 0xafc1f9;
+          local_18 = FUN_00b44000();
+          piVar3 = puVar4 + 2;
+          if ((((local_18 == -2) || (local_18 == 2)) || (local_18 == -3)) || (local_18 == -4)) {
+            puVar4[1] = local_14;
+            *puVar4 = 0xafc220;
+            FUN_00b45db0();
+            piVar3 = puVar4 + 2;
+            local_8 = 0;
+            break;
+          }
+          puVar1 = puVar4 + 2;
+          if (local_18 == 1) break;
+        }
+        piVar3 = puVar1;
+        *(uint *)(local_30 + 0x18) = (local_10 - local_14[1]) + *(int *)(local_30 + 0x18);
+        *(uint *)(local_30 + 0x150) = (local_10 - local_14[1]) + *(int *)(local_30 + 0x150);
+        if (local_14[1] == 0) {
+          *(undefined4 *)((int)piVar3 + -4) = 0xafc275;
+          FUN_00aa15a0();
+          *(undefined4 *)((int)piVar3 + -4) = 0;
+          *(undefined4 *)((int)piVar3 + -8) = *(undefined4 *)(local_30 + 0x10);
+          *(undefined4 *)((int)piVar3 + -0xc) = *(undefined4 *)(local_30 + 0x20);
+          *(undefined4 *)((int)piVar3 + -0x10) = 0xafc28d;
+          uVar2 = FUN_00afb7a0();
+          *(undefined4 *)(local_30 + 0x14) = uVar2;
+        }
+      }
+      *(int *)(local_30 + 0x174) = *(int *)(local_30 + 0x16c) - local_14[4];
+      if (*(int *)(local_30 + 0x174) == 0) {
+        return local_c;
+      }
+      if (*(uint *)(local_30 + 0x174) < local_8) {
+        local_8 = local_8 - *(int *)(local_30 + 0x174);
+        local_c = local_c + *(int *)(local_30 + 0x174);
+        if (param_2 != (void *)0x0) {
+          local_24 = *(undefined4 *)(local_30 + 0x174);
+          local_20 = *(undefined4 *)(local_30 + 0x164);
+          *(undefined4 *)((int)piVar3 + -4) = *(undefined4 *)(local_30 + 0x174);
+          *(undefined4 *)((int)piVar3 + -8) = local_20;
+          *(void **)((int)piVar3 + -0xc) = param_2;
+          *(undefined4 *)((int)piVar3 + -0x10) = 0xafc321;
+          _memcpy(*(void **)((int)piVar3 + -0xc),*(void **)((int)piVar3 + -8),
+                  *(size_t *)((int)piVar3 + -4));
+          param_2 = (void *)((int)param_2 + *(int *)(local_30 + 0x174));
+        }
+      }
+      else {
+        if (param_2 != (void *)0x0) {
+          local_28 = *(undefined4 *)(local_30 + 0x164);
+          *(uint *)((int)piVar3 + -4) = local_8;
+          *(undefined4 *)((int)piVar3 + -8) = local_28;
+          *(void **)((int)piVar3 + -0xc) = param_2;
+          *(undefined4 *)((int)piVar3 + -0x10) = 0xafc358;
+          _memcpy(*(void **)((int)piVar3 + -0xc),*(void **)((int)piVar3 + -8),
+                  *(size_t *)((int)piVar3 + -4));
+        }
+        *(uint *)(local_30 + 0x170) = *(int *)(local_30 + 0x170) + local_8;
+        local_c = local_c + local_8;
+        local_8 = 0;
+      }
+    }
+  }
+  else {
+    if (param_2 != (void *)0x0) {
+      local_2c = (void *)(*(int *)(param_1 + 0x164) + *(int *)(param_1 + 0x170));
+      _memcpy(param_2,local_2c,param_3);
+    }
+    *(uint *)(local_30 + 0x170) = *(int *)(local_30 + 0x170) + local_8;
+    local_c = local_c + local_8;
+  }
+  return local_c;
+}
+
+
+
+======================================================================
+UNIQUE CALLERS OF inflateEnd (0x00b45db0)
+======================================================================
+  Unique caller functions: 4
+
+======================================================================
+inflateEnd caller @ 0x004740a0
+======================================================================
+  Function: FUN_004740a0 @ 0x004740a0, Size: 949 bytes
+
+/* WARNING: Function: __alloca_probe replaced with injection: alloca_probe */
+
+void __fastcall FUN_004740a0(int param_1)
+
+{
+  char cVar1;
+  uint uVar2;
+  int iVar3;
+  undefined4 uVar4;
+  int *unaff_FS_OFFSET;
+  undefined4 local_1c0c;
+  undefined4 *local_1c08;
+  int local_1c04;
+  undefined4 local_1bfc;
+  undefined4 local_1bf8;
+  undefined1 *local_1bec;
+  code *local_1be8;
+  code *local_1be4;
+  undefined4 local_1be0;
+  undefined1 local_1bd0 [7084];
+  uint local_24;
+  undefined4 *local_20;
+  undefined4 *local_1c;
+  char local_15;
+  undefined4 local_14;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00eeeb58;
+  local_10 = *unaff_FS_OFFSET;
+  local_14 = 0x4740bb;
+  uVar2 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  local_24 = uVar2;
+  FUN_00404eb0(0x30,1,"D:\\_Fallout3\\Platforms\\Common\\Code\\Fallout Shared\\TESFile.cpp",0xf8e);
+  local_8 = 0;
+  if ((*(int *)(param_1 + 0x244) != 0) && (*(int *)(param_1 + 0x240) != DAT_01187020)) {
+    cVar1 = FUN_00472100(uVar2);
+    if (cVar1 != '\0') {
+      local_15 = FUN_00486890(*(undefined4 *)(param_1 + 0x240));
+      if (local_15 == '\0') {
+        local_8 = 0xffffffff;
+        FUN_00404ee0();
+        goto LAB_0047443c;
+      }
+      local_1c = (undefined4 *)FUN_00401000(*(int *)(param_1 + 0x244) + 1);
+      if (local_1c == (undefined4 *)0x0) {
+        local_8 = 0xffffffff;
+        FUN_00404ee0();
+        goto LAB_0047443c;
+      }
+      iVar3 = FUN_00b00650(local_1c,*(undefined4 *)(param_1 + 0x244));
+      if (iVar3 == *(int *)(param_1 + 0x244)) {
+        local_1c0c = *local_1c;
+        local_20 = local_1c + 1;
+        cVar1 = FUN_00401680();
+        if (cVar1 != '\0') {
+          FUN_00401080(&local_1c0c,0);
+        }
+        *(undefined1 *)((int)local_1c + *(int *)(param_1 + 0x244)) = 0;
+        uVar4 = FUN_00401000(local_1c0c);
+        *(undefined4 *)(param_1 + 0x420) = uVar4;
+        *(undefined4 *)(param_1 + 0x424) = local_1c0c;
+        local_1be8 = FUN_00474460;
+        local_1be4 = FUN_00474480;
+        local_1be0 = 0;
+        local_1c04 = 0;
+        local_1c08 = (undefined4 *)0x0;
+        local_1bec = local_1bd0;
+        iVar3 = FUN_00b43fe0(&local_1c08,"1.2.1",0x38);
+        if (iVar3 != 0) {
+          FUN_00b45db0(&local_1c08);
+          FUN_005b5e40("TESFile: Error initializing ZLib inflate stream.");
+          FUN_00473960();
+          FUN_00401030(local_1c);
+          local_8 = 0xffffffff;
+          FUN_00404ee0();
+          goto LAB_0047443c;
+        }
+        local_1c04 = *(int *)(param_1 + 0x244) + -4;
+        local_1c08 = local_20;
+        local_1bf8 = local_1c0c;
+        local_1bfc = *(undefined4 *)(param_1 + 0x420);
+        iVar3 = FUN_00b44000(&local_1c08,0);
+        if ((((iVar3 == -2) || (iVar3 == 2)) || (iVar3 == -3)) || (iVar3 == -4)) {
+          FUN_00b45db0(&local_1c08);
+          FUN_005b5e40("TESFile: Error inflating ZLib stream.");
+          FUN_00473960();
+          FUN_00401030(local_1c);
+          local_8 = 0xffffffff;
+          FUN_00404ee0();
+          goto LAB_0047443c;
+        }
+        if (iVar3 != 1) {
+          FUN_00b45db0(&local_1c08);
+          FUN_005b5e40("TESFile: Error: ZLib stream did not terminate.");
+          FUN_00473960();
+          FUN_00401030(local_1c);
+          local_8 = 0xffffffff;
+          FUN_00404ee0();
+          goto LAB_0047443c;
+        }
+        FUN_00b45db0(&local_1c08);
+      }
+      else {
+        FUN_005b5e40("TESFile: Failed to read in buffer data for compressed form.");
+      }
+      FUN_00401030(local_1c);
+    }
+  }
+  local_8 = 0xffffffff;
+  FUN_00404ee0();
+LAB_0047443c:
+  *unaff_FS_OFFSET = local_10;
+  __security_check_cookie(local_24 ^ (uint)&stack0xfffffffc);
+  return;
+}
+
+
+
+======================================================================
+inflateEnd caller @ 0x00afc430
+======================================================================
+  Function: FUN_00afc430 @ 0x00afc430, Size: 485 bytes
+
+undefined4 * __thiscall
+FUN_00afc430(undefined4 *param_1,undefined4 param_2,undefined4 param_3,undefined4 param_4,
+            undefined4 param_5,undefined4 param_6)
+
+{
+  uint uVar1;
+  int iVar2;
+  undefined4 uVar3;
+  int *unaff_FS_OFFSET;
+  uint local_30;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00f23655;
+  local_10 = *unaff_FS_OFFSET;
+  uVar1 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  FUN_00afb300(param_2,param_3,param_4,param_5,param_6);
+  local_8 = 0;
+  *param_1 = &PTR_FUN_010a464c;
+  FUN_00afc620(0);
+  FUN_00afbbf0(param_1 + 0x5a,4);
+  iVar2 = FUN_00aa3e40(0x1be0);
+  param_1[0x58] = iVar2;
+  *(undefined4 *)(param_1[0x58] + 0x20) = 0;
+  *(undefined4 *)(param_1[0x58] + 0x24) = 0;
+  *(undefined4 *)(param_1[0x58] + 0x28) = 0;
+  *(undefined4 *)(param_1[0x58] + 4) = 0;
+  *(undefined4 *)param_1[0x58] = 0;
+  *(int *)(param_1[0x58] + 0x1c) = iVar2 + 0x38;
+  iVar2 = FUN_00b43fe0(param_1[0x58],"1.2.1",0x38,uVar1);
+  if (iVar2 == 0) {
+    if ((uint)param_1[0x5a] < DAT_011f8164) {
+      local_30 = param_1[0x5a];
+    }
+    else {
+      local_30 = DAT_011f8164;
+    }
+    param_1[0x5b] = local_30;
+    uVar3 = FUN_00aa3e40(param_1[0x5b]);
+    param_1[0x59] = uVar3;
+    param_1[0x5c] = 0;
+    param_1[0x5d] = 0;
+  }
+  else {
+    FUN_00b45db0(param_1[0x58]);
+    FUN_00aa4060(param_1[0x58]);
+    param_1[0x58] = 0;
+  }
+  *unaff_FS_OFFSET = local_10;
+  return param_1;
+}
+
+
+
+======================================================================
+inflateEnd caller @ 0x00afbfe0
+======================================================================
+  Function: FUN_00afbfe0 @ 0x00afbfe0, Size: 124 bytes
+
+void __fastcall FUN_00afbfe0(undefined4 *param_1)
+
+{
+  undefined4 uVar1;
+  
+  *param_1 = &PTR_FUN_010a464c;
+  if (param_1[0x58] != 0) {
+    uVar1 = param_1[0x58];
+    FUN_00b45db0(uVar1);
+    FUN_00aa4060(uVar1);
+  }
+  if (param_1[0x59] != 0) {
+    FUN_00aa4060(param_1[0x59]);
+  }
+  FUN_00afb520();
+  return;
+}
+
+
+
+======================================================================
+inflateEnd caller @ 0x00afc0e0
+======================================================================
+  Function: FUN_00afc0e0 @ 0x00afc0e0, Size: 760 bytes
+
+/* WARNING: Unable to track spacebase fully for stack */
+
+uint __thiscall FUN_00afc0e0(int param_1,void *param_2,uint param_3)
+
+{
+  undefined4 *puVar1;
+  undefined4 uVar2;
+  int *piVar3;
+  undefined4 *puVar4;
+  int local_30;
+  void *local_2c;
+  undefined4 local_28;
+  undefined4 local_24;
+  undefined4 local_20;
+  void *local_1c;
+  int local_18;
+  int *local_14;
+  uint local_10;
+  uint local_c;
+  uint local_8;
+  
+  local_30 = param_1;
+  local_8 = param_3;
+  local_c = 0;
+  local_14 = *(int **)(param_1 + 0x160);
+  local_10 = *(int *)(param_1 + 0x174) - *(int *)(param_1 + 0x170);
+  if (local_10 < param_3) {
+    if (local_10 != 0) {
+      if (param_2 != (void *)0x0) {
+        local_1c = (void *)(*(int *)(param_1 + 0x164) + *(int *)(param_1 + 0x170));
+        _memcpy(param_2,local_1c,local_10);
+        param_2 = (void *)((int)param_2 + local_10);
+      }
+      local_8 = local_8 - local_10;
+      local_c = local_10;
+    }
+    piVar3 = &local_30;
+    *(undefined4 *)(local_30 + 0x170) = 0;
+    *(undefined4 *)(local_30 + 0x174) = 0;
+    while (local_8 != 0) {
+      local_14[4] = *(int *)(local_30 + 0x16c);
+      local_14[3] = *(int *)(local_30 + 0x164);
+      while (local_14[4] != 0) {
+        local_10 = *(int *)(local_30 + 0x14) - *(int *)(local_30 + 0x18);
+        local_14[1] = local_10;
+        *local_14 = *(int *)(local_30 + 0x20) + *(int *)(local_30 + 0x18);
+        puVar1 = piVar3;
+        if (local_10 != 0) {
+          *(undefined4 *)((int)piVar3 + -4) = 2;
+          *(int **)((int)piVar3 + -8) = local_14;
+          puVar4 = (undefined4 *)((int)piVar3 + -0xc);
+          *(undefined4 *)((int)piVar3 + -0xc) = 0xafc1f9;
+          local_18 = FUN_00b44000();
+          piVar3 = puVar4 + 2;
+          if ((((local_18 == -2) || (local_18 == 2)) || (local_18 == -3)) || (local_18 == -4)) {
+            puVar4[1] = local_14;
+            *puVar4 = 0xafc220;
+            FUN_00b45db0();
+            piVar3 = puVar4 + 2;
+            local_8 = 0;
+            break;
+          }
+          puVar1 = puVar4 + 2;
+          if (local_18 == 1) break;
+        }
+        piVar3 = puVar1;
+        *(uint *)(local_30 + 0x18) = (local_10 - local_14[1]) + *(int *)(local_30 + 0x18);
+        *(uint *)(local_30 + 0x150) = (local_10 - local_14[1]) + *(int *)(local_30 + 0x150);
+        if (local_14[1] == 0) {
+          *(undefined4 *)((int)piVar3 + -4) = 0xafc275;
+          FUN_00aa15a0();
+          *(undefined4 *)((int)piVar3 + -4) = 0;
+          *(undefined4 *)((int)piVar3 + -8) = *(undefined4 *)(local_30 + 0x10);
+          *(undefined4 *)((int)piVar3 + -0xc) = *(undefined4 *)(local_30 + 0x20);
+          *(undefined4 *)((int)piVar3 + -0x10) = 0xafc28d;
+          uVar2 = FUN_00afb7a0();
+          *(undefined4 *)(local_30 + 0x14) = uVar2;
+        }
+      }
+      *(int *)(local_30 + 0x174) = *(int *)(local_30 + 0x16c) - local_14[4];
+      if (*(int *)(local_30 + 0x174) == 0) {
+        return local_c;
+      }
+      if (*(uint *)(local_30 + 0x174) < local_8) {
+        local_8 = local_8 - *(int *)(local_30 + 0x174);
+        local_c = local_c + *(int *)(local_30 + 0x174);
+        if (param_2 != (void *)0x0) {
+          local_24 = *(undefined4 *)(local_30 + 0x174);
+          local_20 = *(undefined4 *)(local_30 + 0x164);
+          *(undefined4 *)((int)piVar3 + -4) = *(undefined4 *)(local_30 + 0x174);
+          *(undefined4 *)((int)piVar3 + -8) = local_20;
+          *(void **)((int)piVar3 + -0xc) = param_2;
+          *(undefined4 *)((int)piVar3 + -0x10) = 0xafc321;
+          _memcpy(*(void **)((int)piVar3 + -0xc),*(void **)((int)piVar3 + -8),
+                  *(size_t *)((int)piVar3 + -4));
+          param_2 = (void *)((int)param_2 + *(int *)(local_30 + 0x174));
+        }
+      }
+      else {
+        if (param_2 != (void *)0x0) {
+          local_28 = *(undefined4 *)(local_30 + 0x164);
+          *(uint *)((int)piVar3 + -4) = local_8;
+          *(undefined4 *)((int)piVar3 + -8) = local_28;
+          *(void **)((int)piVar3 + -0xc) = param_2;
+          *(undefined4 *)((int)piVar3 + -0x10) = 0xafc358;
+          _memcpy(*(void **)((int)piVar3 + -0xc),*(void **)((int)piVar3 + -8),
+                  *(size_t *)((int)piVar3 + -4));
+        }
+        *(uint *)(local_30 + 0x170) = *(int *)(local_30 + 0x170) + local_8;
+        local_c = local_c + local_8;
+        local_8 = 0;
+      }
+    }
+  }
+  else {
+    if (param_2 != (void *)0x0) {
+      local_2c = (void *)(*(int *)(param_1 + 0x164) + *(int *)(param_1 + 0x170));
+      _memcpy(param_2,local_2c,param_3);
+    }
+    *(uint *)(local_30 + 0x170) = *(int *)(local_30 + 0x170) + local_8;
+    local_c = local_c + local_8;
+  }
+  return local_c;
+}
+
+
+
+----------------------------------------------------------------------
+Disassembly TES inflateInit_: 0x004742ac - 0x004742c0
+----------------------------------------------------------------------
+  0x004742ac: CALL 0x00b43fe0 -> 0x00b43fe0 FUN_00b43fe0
+  0x004742b1: ADD ESP,0xc
+  0x004742b4: MOV dword ptr [EBP + 0xffffe3f4],EAX
+  0x004742ba: CMP dword ptr [EBP + 0xffffe3f4],0x0
+
+----------------------------------------------------------------------
+Disassembly TES inflate: 0x0047434f - 0x00474363
+----------------------------------------------------------------------
+  0x0047434f: CALL 0x00b44000 -> 0x00b44000 FUN_00b44000
+  0x00474354: ADD ESP,0x8
+  0x00474357: MOV dword ptr [EBP + 0xffffe3f4],EAX
+  0x0047435d: CMP dword ptr [EBP + 0xffffe3f4],-0x2
+
+----------------------------------------------------------------------
+Disassembly TES inflateEnd init failure: 0x004742ca - 0x004742d5
+----------------------------------------------------------------------
+  0x004742ca: CALL 0x00b45db0 -> 0x00b45db0 FUN_00b45db0
+  0x004742cf: ADD ESP,0x4
+  0x004742d2: PUSH 0x101a268
+
+----------------------------------------------------------------------
+Disassembly TES inflateEnd inflate failure: 0x00474388 - 0x00474393
+----------------------------------------------------------------------
+  0x00474388: CALL 0x00b45db0 -> 0x00b45db0 FUN_00b45db0
+  0x0047438d: ADD ESP,0x4
+  0x00474390: PUSH 0x101a240
+
+----------------------------------------------------------------------
+Disassembly TES inflateEnd no stream end: 0x004743d5 - 0x004743e0
+----------------------------------------------------------------------
+  0x004743d5: CALL 0x00b45db0 -> 0x00b45db0 FUN_00b45db0
+  0x004743da: ADD ESP,0x4
+  0x004743dd: PUSH 0x101a210
+
+----------------------------------------------------------------------
+Disassembly TES inflateEnd success: 0x00474419 - 0x00474424
+----------------------------------------------------------------------
+  0x00474419: CALL 0x00b45db0 -> 0x00b45db0 FUN_00b45db0
+  0x0047441e: ADD ESP,0x4
+  0x00474421: MOV EDX,dword ptr [EBP + -0x18]
+  0x00474424: PUSH EDX
+
+----------------------------------------------------------------------
+Disassembly BSA inflateInit_: 0x00afc537 - 0x00afc54b
+----------------------------------------------------------------------
+  0x00afc537: CALL 0x00b43fe0 -> 0x00b43fe0 FUN_00b43fe0
+  0x00afc53c: ADD ESP,0xc
+  0x00afc53f: MOV dword ptr [EBP + -0x14],EAX
+  0x00afc542: CMP dword ptr [EBP + -0x14],0x0
+  0x00afc546: JZ 0x00afc583
+  0x00afc548: MOV ECX,dword ptr [EBP + -0x28]
+  0x00afc54b: MOV EDX,dword ptr [ECX + 0x160]
+
+----------------------------------------------------------------------
+Disassembly BSA inflate: 0x00afc1f4 - 0x00afc208
+----------------------------------------------------------------------
+  0x00afc1f4: CALL 0x00b44000 -> 0x00b44000 FUN_00b44000
+  0x00afc1f9: ADD ESP,0x8
+  0x00afc1fc: MOV dword ptr [EBP + -0x14],EAX
+  0x00afc1ff: CMP dword ptr [EBP + -0x14],-0x2
+  0x00afc203: JZ 0x00afc217
+  0x00afc205: CMP dword ptr [EBP + -0x14],0x2
+
+----------------------------------------------------------------------
+Disassembly BSA inflateEnd destructor: 0x00afc00e - 0x00afc019
+----------------------------------------------------------------------
+  0x00afc00e: CALL 0x00b45db0 -> 0x00b45db0 FUN_00b45db0
+  0x00afc013: ADD ESP,0x4
+  0x00afc016: MOV EDX,dword ptr [EBP + -0x4]
+  0x00afc019: MOV dword ptr [EBP + -0x8],EDX
+
+----------------------------------------------------------------------
+Disassembly BSA inflateEnd read failure: 0x00afc21b - 0x00afc226
+----------------------------------------------------------------------
+  0x00afc21b: CALL 0x00b45db0 -> 0x00b45db0 FUN_00b45db0
+  0x00afc220: ADD ESP,0x4
+  0x00afc223: MOV dword ptr [EBP + -0x4],0x0
+
+----------------------------------------------------------------------
+Disassembly BSA inflateEnd init failure: 0x00afc552 - 0x00afc55d
+----------------------------------------------------------------------
+  0x00afc552: CALL 0x00b45db0 -> 0x00b45db0 FUN_00b45db0
+  0x00afc557: ADD ESP,0x4
+  0x00afc55a: MOV EAX,dword ptr [EBP + -0x28]
+  0x00afc55d: MOV ECX,dword ptr [EAX + 0x160]
+
+----------------------------------------------------------------------
+Disassembly BSA stream allocation immediate: 0x00afc49d - 0x00afc4a6
+----------------------------------------------------------------------
+  0x00afc4a1: PUSH 0x1be0
+  0x00afc4a6: MOV ECX,0x11f6238
+
+----------------------------------------------------------------------
+Disassembly BSA output buffer cap: 0x00afc583 - 0x00afc5b7
+----------------------------------------------------------------------
+  0x00afc583: MOV ECX,dword ptr [EBP + -0x28]
+  0x00afc586: MOV EDX,dword ptr [ECX + 0x168]
+  0x00afc58c: CMP EDX,dword ptr [0x011f8164]
+  0x00afc592: JNC 0x00afc5a2
+  0x00afc594: MOV EAX,dword ptr [EBP + -0x28]
+  0x00afc597: MOV ECX,dword ptr [EAX + 0x168]
+  0x00afc59d: MOV dword ptr [EBP + -0x2c],ECX
+  0x00afc5a0: JMP 0x00afc5ab
+  0x00afc5a2: MOV EDX,dword ptr [0x011f8164]
+  0x00afc5a8: MOV dword ptr [EBP + -0x2c],EDX
+  0x00afc5ab: MOV EAX,dword ptr [EBP + -0x28]
+  0x00afc5ae: MOV ECX,dword ptr [EBP + -0x2c]
+  0x00afc5b1: MOV dword ptr [EAX + 0x16c],ECX
+  0x00afc5b7: MOV EDX,dword ptr [EBP + -0x28]
+
+======================================================================
+CompressedArchiveFile constructor @ 0x00afc430
+======================================================================
+  Function: FUN_00afc430 @ 0x00afc430, Size: 485 bytes
+
+undefined4 * __thiscall
+FUN_00afc430(undefined4 *param_1,undefined4 param_2,undefined4 param_3,undefined4 param_4,
+            undefined4 param_5,undefined4 param_6)
+
+{
+  uint uVar1;
+  int iVar2;
+  undefined4 uVar3;
+  int *unaff_FS_OFFSET;
+  uint local_30;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00f23655;
+  local_10 = *unaff_FS_OFFSET;
+  uVar1 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  FUN_00afb300(param_2,param_3,param_4,param_5,param_6);
+  local_8 = 0;
+  *param_1 = &PTR_FUN_010a464c;
+  FUN_00afc620(0);
+  FUN_00afbbf0(param_1 + 0x5a,4);
+  iVar2 = FUN_00aa3e40(0x1be0);
+  param_1[0x58] = iVar2;
+  *(undefined4 *)(param_1[0x58] + 0x20) = 0;
+  *(undefined4 *)(param_1[0x58] + 0x24) = 0;
+  *(undefined4 *)(param_1[0x58] + 0x28) = 0;
+  *(undefined4 *)(param_1[0x58] + 4) = 0;
+  *(undefined4 *)param_1[0x58] = 0;
+  *(int *)(param_1[0x58] + 0x1c) = iVar2 + 0x38;
+  iVar2 = FUN_00b43fe0(param_1[0x58],"1.2.1",0x38,uVar1);
+  if (iVar2 == 0) {
+    if ((uint)param_1[0x5a] < DAT_011f8164) {
+      local_30 = param_1[0x5a];
+    }
+    else {
+      local_30 = DAT_011f8164;
+    }
+    param_1[0x5b] = local_30;
+    uVar3 = FUN_00aa3e40(param_1[0x5b]);
+    param_1[0x59] = uVar3;
+    param_1[0x5c] = 0;
+    param_1[0x5d] = 0;
+  }
+  else {
+    FUN_00b45db0(param_1[0x58]);
+    FUN_00aa4060(param_1[0x58]);
+    param_1[0x58] = 0;
+  }
+  *unaff_FS_OFFSET = local_10;
+  return param_1;
+}
+
+
+
+======================================================================
+CompressedArchiveFile read/decompress @ 0x00afc0e0
+======================================================================
+  Function: FUN_00afc0e0 @ 0x00afc0e0, Size: 760 bytes
+
+/* WARNING: Unable to track spacebase fully for stack */
+
+uint __thiscall FUN_00afc0e0(int param_1,void *param_2,uint param_3)
+
+{
+  undefined4 *puVar1;
+  undefined4 uVar2;
+  int *piVar3;
+  undefined4 *puVar4;
+  int local_30;
+  void *local_2c;
+  undefined4 local_28;
+  undefined4 local_24;
+  undefined4 local_20;
+  void *local_1c;
+  int local_18;
+  int *local_14;
+  uint local_10;
+  uint local_c;
+  uint local_8;
+  
+  local_30 = param_1;
+  local_8 = param_3;
+  local_c = 0;
+  local_14 = *(int **)(param_1 + 0x160);
+  local_10 = *(int *)(param_1 + 0x174) - *(int *)(param_1 + 0x170);
+  if (local_10 < param_3) {
+    if (local_10 != 0) {
+      if (param_2 != (void *)0x0) {
+        local_1c = (void *)(*(int *)(param_1 + 0x164) + *(int *)(param_1 + 0x170));
+        _memcpy(param_2,local_1c,local_10);
+        param_2 = (void *)((int)param_2 + local_10);
+      }
+      local_8 = local_8 - local_10;
+      local_c = local_10;
+    }
+    piVar3 = &local_30;
+    *(undefined4 *)(local_30 + 0x170) = 0;
+    *(undefined4 *)(local_30 + 0x174) = 0;
+    while (local_8 != 0) {
+      local_14[4] = *(int *)(local_30 + 0x16c);
+      local_14[3] = *(int *)(local_30 + 0x164);
+      while (local_14[4] != 0) {
+        local_10 = *(int *)(local_30 + 0x14) - *(int *)(local_30 + 0x18);
+        local_14[1] = local_10;
+        *local_14 = *(int *)(local_30 + 0x20) + *(int *)(local_30 + 0x18);
+        puVar1 = piVar3;
+        if (local_10 != 0) {
+          *(undefined4 *)((int)piVar3 + -4) = 2;
+          *(int **)((int)piVar3 + -8) = local_14;
+          puVar4 = (undefined4 *)((int)piVar3 + -0xc);
+          *(undefined4 *)((int)piVar3 + -0xc) = 0xafc1f9;
+          local_18 = FUN_00b44000();
+          piVar3 = puVar4 + 2;
+          if ((((local_18 == -2) || (local_18 == 2)) || (local_18 == -3)) || (local_18 == -4)) {
+            puVar4[1] = local_14;
+            *puVar4 = 0xafc220;
+            FUN_00b45db0();
+            piVar3 = puVar4 + 2;
+            local_8 = 0;
+            break;
+          }
+          puVar1 = puVar4 + 2;
+          if (local_18 == 1) break;
+        }
+        piVar3 = puVar1;
+        *(uint *)(local_30 + 0x18) = (local_10 - local_14[1]) + *(int *)(local_30 + 0x18);
+        *(uint *)(local_30 + 0x150) = (local_10 - local_14[1]) + *(int *)(local_30 + 0x150);
+        if (local_14[1] == 0) {
+          *(undefined4 *)((int)piVar3 + -4) = 0xafc275;
+          FUN_00aa15a0();
+          *(undefined4 *)((int)piVar3 + -4) = 0;
+          *(undefined4 *)((int)piVar3 + -8) = *(undefined4 *)(local_30 + 0x10);
+          *(undefined4 *)((int)piVar3 + -0xc) = *(undefined4 *)(local_30 + 0x20);
+          *(undefined4 *)((int)piVar3 + -0x10) = 0xafc28d;
+          uVar2 = FUN_00afb7a0();
+          *(undefined4 *)(local_30 + 0x14) = uVar2;
+        }
+      }
+      *(int *)(local_30 + 0x174) = *(int *)(local_30 + 0x16c) - local_14[4];
+      if (*(int *)(local_30 + 0x174) == 0) {
+        return local_c;
+      }
+      if (*(uint *)(local_30 + 0x174) < local_8) {
+        local_8 = local_8 - *(int *)(local_30 + 0x174);
+        local_c = local_c + *(int *)(local_30 + 0x174);
+        if (param_2 != (void *)0x0) {
+          local_24 = *(undefined4 *)(local_30 + 0x174);
+          local_20 = *(undefined4 *)(local_30 + 0x164);
+          *(undefined4 *)((int)piVar3 + -4) = *(undefined4 *)(local_30 + 0x174);
+          *(undefined4 *)((int)piVar3 + -8) = local_20;
+          *(void **)((int)piVar3 + -0xc) = param_2;
+          *(undefined4 *)((int)piVar3 + -0x10) = 0xafc321;
+          _memcpy(*(void **)((int)piVar3 + -0xc),*(void **)((int)piVar3 + -8),
+                  *(size_t *)((int)piVar3 + -4));
+          param_2 = (void *)((int)param_2 + *(int *)(local_30 + 0x174));
+        }
+      }
+      else {
+        if (param_2 != (void *)0x0) {
+          local_28 = *(undefined4 *)(local_30 + 0x164);
+          *(uint *)((int)piVar3 + -4) = local_8;
+          *(undefined4 *)((int)piVar3 + -8) = local_28;
+          *(void **)((int)piVar3 + -0xc) = param_2;
+          *(undefined4 *)((int)piVar3 + -0x10) = 0xafc358;
+          _memcpy(*(void **)((int)piVar3 + -0xc),*(void **)((int)piVar3 + -8),
+                  *(size_t *)((int)piVar3 + -4));
+        }
+        *(uint *)(local_30 + 0x170) = *(int *)(local_30 + 0x170) + local_8;
+        local_c = local_c + local_8;
+        local_8 = 0;
+      }
+    }
+  }
+  else {
+    if (param_2 != (void *)0x0) {
+      local_2c = (void *)(*(int *)(param_1 + 0x164) + *(int *)(param_1 + 0x170));
+      _memcpy(param_2,local_2c,param_3);
+    }
+    *(uint *)(local_30 + 0x170) = *(int *)(local_30 + 0x170) + local_8;
+    local_c = local_c + local_8;
+  }
+  return local_c;
+}
+
+
+
+======================================================================
+CompressedArchiveFile destructor area @ 0x00afbfe0
+======================================================================
+  Function: FUN_00afbfe0 @ 0x00afbfe0, Size: 124 bytes
+
+void __fastcall FUN_00afbfe0(undefined4 *param_1)
+
+{
+  undefined4 uVar1;
+  
+  *param_1 = &PTR_FUN_010a464c;
+  if (param_1[0x58] != 0) {
+    uVar1 = param_1[0x58];
+    FUN_00b45db0(uVar1);
+    FUN_00aa4060(uVar1);
+  }
+  if (param_1[0x59] != 0) {
+    FUN_00aa4060(param_1[0x59]);
+  }
+  FUN_00afb520();
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00afc430 (CompressedArchiveFile constructor)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00afa6a6 (in FUN_00afa550)
+  UNCONDITIONAL_CALL @ 0x00afa89d (in FUN_00afa750)
+  Total: 2 refs
+
+----------------------------------------------------------------------
+References TO 0x00afc0e0 (CompressedArchiveFile read/decompress)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00afc66e (in FUN_00afc660)
+  DATA @ 0x010a4690 (in ???)
+  Total: 2 refs
+
+----------------------------------------------------------------------
+References TO 0x00afbfe0 (CompressedArchiveFile destructor area)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00afc6fa (in FUN_00afc6f0)
+  Total: 1 refs
+
+----------------------------------------------------------------------
+References TO 0x011f8164 (BSA decompression buffer cap global)
+----------------------------------------------------------------------
+  WRITE @ 0x00af4456 (in FUN_00af43a0)
+  WRITE @ 0x00af4543 (in FUN_00af4540)
+  READ @ 0x00afb3db (in FUN_00afb300)
+  READ @ 0x00afb3e9 (in FUN_00afb300)
+  READ @ 0x00afc58c (in FUN_00afc430)
+  READ @ 0x00afc5a2 (in FUN_00afc430)
+  Total: 6 refs
+
+======================================================================
+CompressedArchiveFile vtable @ 0x010a464c
+======================================================================
+  [00] 0x010a464c -> 0x00afc6f0 FUN_00afc6f0
+  [01] 0x010a4650 -> 0x00be0be0 ???
+  [02] 0x010a4654 -> 0x00aa1a90 ???
+  [03] 0x010a4658 -> 0x00aa1d50 ???
+  [04] 0x010a465c -> 0x00afc620 FUN_00afc620
+  [05] 0x010a4660 -> 0x00afc080 FUN_00afc080
+  [06] 0x010a4664 -> 0x005d43c0 FUN_005d43c0
+  [07] 0x010a4668 -> 0x00afc0c0 FUN_00afc0c0
+  [08] 0x010a466c -> 0x00afc060 FUN_00afc060
+  [09] 0x010a4670 -> 0x00aff2a0 FUN_00aff2a0
+  [10] 0x010a4674 -> 0x00afc0a0 FUN_00afc0a0
+  [11] 0x010a4678 -> 0x00afc3f0 FUN_00afc3f0
+  [12] 0x010a467c -> 0x00afc3e0 FUN_00afc3e0
+  [13] 0x010a4680 -> 0x00affc90 FUN_00affc90
+  [14] 0x010a4684 -> 0x00affbb0 FUN_00affbb0
+  [15] 0x010a4688 -> 0x00affaf0 FUN_00affaf0
+  [16] 0x010a468c -> 0x00afc410 FUN_00afc410
+  [17] 0x010a4690 -> 0x00afc0e0 FUN_00afc0e0
+  [18] 0x010a4694 -> 0x00afc400 FUN_00afc400
+  [19] 0x010a4698 -> 0x01129174 ???
+
+----------------------------------------------------------------------
+References TO 0x010a464c (CompressedArchiveFile vtable)
+----------------------------------------------------------------------
+  DATA @ 0x00afbfec (in FUN_00afbfe0)
+  DATA @ 0x00afc47e (in FUN_00afc430)
+  Total: 2 refs
+
+--- Calls FROM CompressedArchiveFile constructor (0x00afc430) ---
+  0x00afc46f -> 0x00afb300 FUN_00afb300
+  0x00afc489 -> 0x00afc620 FUN_00afc620
+  0x00afc49c -> 0x00afbbf0 FUN_00afbbf0
+  0x00afc4ab -> 0x00aa3e40 FUN_00aa3e40
+  0x00afc537 -> 0x00b43fe0 FUN_00b43fe0
+  0x00afc552 -> 0x00b45db0 FUN_00b45db0
+  0x00afc56f -> 0x00aa4060 FUN_00aa4060
+  0x00afc5cc -> 0x00aa3e40 FUN_00aa3e40
+  Total: 8 calls
+
+--- Calls FROM CompressedArchiveFile read/decompress (0x00afc0e0) ---
+  0x00afc150 -> 0x00ec44d0 _memcpy
+  0x00afc1f4 -> 0x00b44000 FUN_00b44000
+  0x00afc21b -> 0x00b45db0 FUN_00b45db0
+  0x00afc270 -> 0x00aa15a0 FUN_00aa15a0
+  0x00afc288 -> 0x00afb7a0 FUN_00afb7a0
+  0x00afc31c -> 0x00ec44d0 _memcpy
+  0x00afc353 -> 0x00ec44d0 _memcpy
+  0x00afc3ae -> 0x00ec44d0 _memcpy
+  Total: 8 calls
+
+--- Calls FROM TESFile compressed record load (0x004740a0) ---
+  0x004740b6 -> 0x00ec8660 __alloca_probe
+  0x004740e6 -> 0x00404eb0 FUN_00404eb0
+  0x00474123 -> 0x00472100 FUN_00472100
+  0x00474140 -> 0x00486890 FUN_00486890
+  0x0047415d -> 0x00404ee0 FUN_00404ee0
+  0x00474177 -> 0x00401000 FUN_00401000
+  0x00474192 -> 0x00404ee0 FUN_00404ee0
+  0x004741b6 -> 0x00b00650 FUN_00b00650
+  0x004741ce -> 0x005b5e40 FUN_005b5e40
+  0x004741f5 -> 0x00401680 FUN_00401680
+  0x00474218 -> 0x00401080 FUN_00401080
+  0x0047423a -> 0x00401000 FUN_00401000
+  0x004742ac -> 0x00b43fe0 FUN_00b43fe0
+  0x004742ca -> 0x00b45db0 FUN_00b45db0
+  0x004742d7 -> 0x005b5e40 FUN_005b5e40
+  0x004742e5 -> 0x00473960 FUN_00473960
+  0x004742ee -> 0x00401030 FUN_00401030
+  0x00474300 -> 0x00404ee0 FUN_00404ee0
+  0x0047434f -> 0x00b44000 FUN_00b44000
+  0x00474388 -> 0x00b45db0 FUN_00b45db0
+  0x00474395 -> 0x005b5e40 FUN_005b5e40
+  0x004743a3 -> 0x00473960 FUN_00473960
+  0x004743ac -> 0x00401030 FUN_00401030
+  0x004743be -> 0x00404ee0 FUN_00404ee0
+  0x004743d5 -> 0x00b45db0 FUN_00b45db0
+  0x004743e2 -> 0x005b5e40 FUN_005b5e40
+  0x004743f0 -> 0x00473960 FUN_00473960
+  0x004743f9 -> 0x00401030 FUN_00401030
+  0x0047440b -> 0x00404ee0 FUN_00404ee0
+  0x00474419 -> 0x00b45db0 FUN_00b45db0
+  0x00474425 -> 0x00401030 FUN_00401030
+  0x00474437 -> 0x00404ee0 FUN_00404ee0
+  0x0047444c -> 0x00ec408c __security_check_cookie
+  Total: 33 calls
+
+======================================================================
+ZLIB STRING ANCHORS
+======================================================================
+  0x0101a040 FORMS: SetOffsetChunk failed for compressed form.
+    0x00472509 in FUN_004724f0 @ 0x004724f0
+  0x0101a20f ?TESFile: Error: ZLib stream did not terminate.
+  0x0101a240 TESFile: Error inflating ZLib stream.
+    0x00474390 in FUN_004740a0 @ 0x004740a0
+  0x0101a268 TESFile: Error initializing ZLib inflate stream.
+    0x004742d2 in FUN_004740a0 @ 0x004740a0
+  0x0101a29c 1.2.1
+    0x004742a0 in FUN_004740a0 @ 0x004740a0
+    0x00483e0d in FUN_00483d70 @ 0x00483d70
+  0x0101a2a4 TESFile: Failed to read in buffer data for compressed form.
+    0x004741c9 in FUN_004740a0 @ 0x004740a0
+  0x0101c8cc SAVELOAD: Error deflating ZLib stream.
+    0x00483e87 in FUN_00483d70 @ 0x00483d70
+  0x0101c8f4 SAVELOAD: Error initializing ZLib stream for deflate.
+    0x00483e29 in FUN_00483d70 @ 0x00483d70
+  0x0105c9ac sMouthlipsdeflated
+    0x00f71528 in FUN_00f71520 @ 0x00f71520
+  0x0105c9c0 Mouth lips deflated/inflated
+    0x00f71523 in FUN_00f71520 @ 0x00f71520
+  0x0105d988 Deflated/Inflated
+    0x00f72e73 in FUN_00f72e70 @ 0x00f72e70
+  0x010a4590 1.2.1
+    0x00afc528 in FUN_00afc430 @ 0x00afc430
+  0x010a6340  deflate 1.2.1 Copyright 1995-2003 Jean-loup Gailly 
+  0x010a63f0 1.2.1
+    0x00b463a9 in FUN_00b46390 @ 0x00b46390
+  0x010a6420  inflate 1.2.1 Copyright 1995-2003 Mark Adler 
+  0x010cf6e0 HK_SHAPE_COMPRESSED_MESH
+    0x00d46517 in FUN_00d464f0 @ 0x00d464f0
+  0x010cfc18 HEIGHTFIELD_COMPRESSED
+  0x010d3954 COLLECTION_COMPRESSED_MESH
+  0x010dbb6c HK_SPLINE_COMPRESSED_ANIMATION
+  0x010dbba4 HK_WAVELET_COMPRESSED_ANIMATION
+  0x010dbbc4 HK_DELTA_COMPRESSED_ANIMATION
+  0x010ddca0 hkaWaveletCompressedAnimationCompressionParams
+    0x011b9dc8 in ??? @ 0x00000000
+    0x00fc147b in ??? @ 0x00000000
+  0x010ddcd0 hkaWaveletCompressedAnimationQuantizationFormat
+    0x011b9de0 in ??? @ 0x00000000
+    0x00fc14ab in ??? @ 0x00000000
+  0x010ddd00 hkaWaveletCompressedAnimation
+    0x00fc14de in ??? @ 0x00000000
+    0x00fc14f5 in ??? @ 0x00000000
+  0x010ddecc UNCOMPRESSED
+  0x010de178 hkaSplineCompressedAnimationTrackCompressionParams
+    0x011b9e80 in ??? @ 0x00000000
+    0x00fc156e in ??? @ 0x00000000
+  0x010de1ac hkaSplineCompressedAnimationAnimationCompressionParams
+    0x011b9e98 in ??? @ 0x00000000
+    0x00fc159b in ??? @ 0x00000000
+  0x010de1e4 hkaSplineCompressedAnimation
+    0x00fc15d1 in ??? @ 0x00000000
+    0x00fc15f5 in ??? @ 0x00000000
+  0x010de950 hkaDeltaCompressedAnimationQuantizationFormat
+    0x011ba2fc in ??? @ 0x00000000
+    0x00fc182b in ??? @ 0x00000000
+  0x010de980 hkaDeltaCompressedAnimation
+    0x00fc185e in ??? @ 0x00000000
+    0x00fc1875 in ??? @ 0x00000000
+  0x010e2948 hkpCompressedMeshShapeChunk
+    0x011bb52c in ??? @ 0x00000000
+    0x00fc30cb in ??? @ 0x00000000
+  0x010e2964 hkpCompressedMeshShapeBigTriangle
+    0x011bb544 in ??? @ 0x00000000
+    0x00fc30fb in ??? @ 0x00000000
+  0x010e2988 hkpCompressedMeshShapeConvexPiece
+    0x011bb55c in ??? @ 0x00000000
+    0x00fc312b in ??? @ 0x00000000
+  0x010e2a20 hkpCompressedMeshShape
+    0x00fc3187 in ??? @ 0x00000000
+    0x00fc31a5 in ??? @ 0x00000000
+  0x010e54b4 hkaInterleavedUncompressedAnimation
+    0x00fc3d6e in ??? @ 0x00000000
+    0x00fc3d85 in ??? @ 0x00000000
+  0x010e9058 hkpCompressedSampledHeightFieldShape
+    0x00fc60f1 in ??? @ 0x00000000
+    0x00fc6115 in ??? @ 0x00000000
+  0x010eb428  bytes. Compressed Size: 
+    0x00e329d8 in FUN_00e31d50 @ 0x00e31d50
+  0x010eb470 .\Animation\SplineCompressed\hkaSplineCompressedAnimationCtor.cpp
+    0x00e3291c in FUN_00e31d50 @ 0x00e31d50
+    0x00e32989 in FUN_00e31d50 @ 0x00e31d50
+    0x00e32a18 in FUN_00e31d50 @ 0x00e31d50
+    0x00e32ab0 in FUN_00e31d50 @ 0x00e31d50
+  0x010eb670 .\Animation\SplineCompressed\hkaSplineCompressedAnimation.cpp
+  0x011acf70 .?AVCompressedArchiveFile@@
+  0x011ad4ac 1.2.1
+    0x00b43e80 in FUN_00b43e70 @ 0x00b43e70
+  0x011ad714 1.2.1
+    0x00b48ee3 in FUN_00b48ee0 @ 0x00b48ee0
+  0x011ad7ac 1.2.1
+    0x00b4ddfb in FUN_00b4ddb0 @ 0x00b4ddb0
+  0x011b9da4 .?AVhkaWaveletCompressedAnimation@@
+  0x011b9e00 .?AUCompressionParams@hkaWaveletCompressedAnimation@@
+  0x011b9e40 .?AUQuantizationFormat@hkaWaveletCompressedAnimation@@
+  0x011b9fd8 .?AVhkaSplineCompressedAnimation@@
+  0x011ba008 .?AUTrackCompressionParams@hkaSplineCompressedAnimation@@
+  0x011ba050 .?AUAnimationCompressionParams@hkaSplineCompressedAnimation@@
+  0x011ba2d8 .?AVhkaDeltaCompressedAnimation@@
+  0x011ba31c .?AUQuantizationFormat@hkaDeltaCompressedAnimation@@
+  0x011bb778 .?AVChunk@hkpCompressedMeshShape@@
+  0x011bb7a4 .?AUBigTriangle@hkpCompressedMeshShape@@
+  0x011bb7d8 .?AUConvexPiece@hkpCompressedMeshShape@@
+  0x011bb80c .?AVhkpCompressedMeshShape@@
+  0x011bc558 .?AVhkaInterleavedUncompressedAnimation@@
+  0x011bd4c8 .?AVhkpCompressedSampledHeightFieldShape@@

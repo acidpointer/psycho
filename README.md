@@ -147,21 +147,26 @@ It is a generic early loader, not an xNVSE plugin. It loads DLLs from:
 FalloutNV/syringe/*.dll
 ```
 
-After loading a DLL, it looks for this optional export:
+After loading every DLL, it runs two optional callback phases:
 
 ```text
 Syringe_ModInit
+Syringe_ModActivate
 ```
 
-If present, it calls that function after `LoadLibraryW` returns. This gives mods
-a clean startup point outside `DllMain`, which is important because doing real
-work from `DllMain` can deadlock on Windows loader lock.
+All `Syringe_ModInit` callbacks finish before any `Syringe_ModActivate`
+callback runs. Both execute after `LoadLibraryW` returns and outside `DllMain`,
+which avoids Windows loader-lock deadlocks. The second phase lets mods make a
+final ownership decision after every early mod has initialized. A zero return
+is reported as that mod's failure but does not stop callbacks for other mods.
 
 For other developers:
 
 - put your early DLL in `FalloutNV/syringe`
 - export `Syringe_ModInit`
 - initialize from that function
+- optionally export `Syringe_ModActivate` for work that must run after every
+  early mod has initialized
 - keep `DllMain` minimal
 - use a separate xNVSE plugin only when you need xNVSE services
 

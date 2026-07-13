@@ -15,11 +15,15 @@ DLLs are loaded in Windows ordinal case-insensitive filename order. Other
 developers can place their own early-load DLLs in the same directory without
 changing this loader.
 
-The proxy starts one loader thread from `DllMain` without waiting for it. That
-worker loads the real system `dinput8.dll`, then discovers and initializes
-Syringe DLLs. Proxy exports always forward independently of this work: they
-never wait for, or start, mod loading. This avoids loading arbitrary mods while
-another DLL may hold the Windows loader lock.
+The proxy installs a small main-executable startup barrier from `DllMain`. The
+barrier runs outside loader lock, loads the real system `dinput8.dll`, and then
+discovers and initializes Syringe DLLs. A non-blocking worker is retained only
+as a compatibility fallback when the executable has no supported startup
+import. Proxy exports never wait for an active loader pass, avoiding a loader-
+lock deadlock. They also never start mod loading themselves.
+
+The worker does not claim the pre-CRT capability flag. A mod that rewrites
+executable code must require the barrier flag and reject worker activation.
 
 Loaded DLLs should not perform real initialization from `DllMain` or TLS
 callbacks. Instead, export this optional entrypoint:
@@ -33,6 +37,17 @@ startup point outside the loaded DLL's loader-lock callback. The export name
 must be exactly undecorated `Syringe_ModInit`; an i686 stdcall DLL should use a
 module definition file to guarantee that spelling. `info` is borrowed only for
 the callback and must not be retained.
+
+Mods that need to inspect the final early-mod state may also export:
+
+```text
+Syringe_ModActivate(const SyringeInfo* info) -> i32
+```
+
+Syringe loads every DLL first, calls every `Syringe_ModInit`, and only then
+calls every `Syringe_ModActivate`, using the same deterministic filename order
+for each phase. A zero return is reported for diagnostics but does not stop the
+remaining callbacks.
 
 Build:
 

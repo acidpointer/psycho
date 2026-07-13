@@ -311,7 +311,7 @@ const POOL_DESC: &[PoolDesc] = &[
 
 const fn subpool_count_for(max_size: u32) -> usize {
     let full = max_size / POOL_SUBPOOL_SIZE;
-    let extra = if max_size % POOL_SUBPOOL_SIZE == 0 {
+    let extra = if max_size.is_multiple_of(POOL_SUBPOOL_SIZE) {
         0
     } else {
         1
@@ -360,7 +360,7 @@ struct FreeLink {
 /// a double-free of the tail cell is indistinguishable from freeing an
 /// allocated cell and can create a self-loop, eventually handing the same
 /// cell out twice.
-const FREE_LINK_TAIL: *mut FreeLink = 1usize as *mut FreeLink;
+const FREE_LINK_TAIL: *mut FreeLink = std::ptr::dangling_mut::<FreeLink>();
 
 #[derive(Copy, Clone, Debug)]
 pub struct PoolPtrInfo {
@@ -1015,7 +1015,7 @@ impl PoolHeap {
         if !adopted.is_null() {
             let adopted_addr = adopted as usize;
             let slot = adopted_addr >> POOL_ALIGN_BITS;
-            let aligned = adopted_addr % POOL_ALIGN == 0;
+            let aligned = adopted_addr.is_multiple_of(POOL_ALIGN);
             let in_range = slot + slots_needed <= ADDR_LOOKUP_LEN;
             let mut clear = aligned && in_range;
             if clear {
