@@ -25,7 +25,10 @@ use anyhow::Context;
 use libc::c_void;
 use windows::Win32::System::Memory::{MEM_COMMIT, PAGE_GUARD, PAGE_NOACCESS};
 
-use libpsycho::os::windows::winapi::{replace_call, virtual_query};
+use libpsycho::{
+    ffi::fnptr::FnPtr,
+    os::windows::winapi::{replace_call, virtual_query},
+};
 
 use super::{statics, types::BaseExtraListGetByTypeFn};
 
@@ -78,11 +81,13 @@ pub fn install_remove_guard() -> anyhow::Result<()> {
 }
 
 pub fn install_target_base_form_guard() -> anyhow::Result<()> {
-    statics::LINKED_REF_TARGET_TYPE_GATE_HOOK.init(
-        "linked_ref_target_base_form_guard",
-        statics::LINKED_REF_TARGET_TYPE_GATE_ADDR as *mut c_void,
-        hook_linked_ref_target_type_gate,
-    )?;
+    unsafe {
+        statics::LINKED_REF_TARGET_TYPE_GATE_HOOK.init(
+            "linked_ref_target_base_form_guard",
+            statics::LINKED_REF_TARGET_TYPE_GATE_ADDR as *mut c_void,
+            hook_linked_ref_target_type_gate,
+        )?;
+    }
     statics::LINKED_REF_TARGET_TYPE_GATE_HOOK.enable()?;
     Ok(())
 }
@@ -185,8 +190,12 @@ fn call_original_get_by_type(list: *mut c_void, type_id: u8) -> *mut c_void {
         return unsafe { original(list, type_id) };
     }
 
-    let original: BaseExtraListGetByTypeFn =
-        unsafe { std::mem::transmute(statics::BASE_EXTRA_LIST_GET_BY_TYPE_ADDR) };
+    let original = unsafe {
+        FnPtr::<BaseExtraListGetByTypeFn>::from_address_unchecked(
+            statics::BASE_EXTRA_LIST_GET_BY_TYPE_ADDR,
+        )
+    }
+    .as_fn();
     unsafe { original(list, type_id) }
 }
 

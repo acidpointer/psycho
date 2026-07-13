@@ -44,11 +44,13 @@ pub(crate) fn install_scene_boundary_hook() {
 }
 
 fn install_process_image_space_shaders_hook() {
-    match PROCESS_IMAGE_SPACE_SHADERS_HOOK.init(
-        "FNV ProcessImageSpaceShaders",
-        PROCESS_IMAGE_SPACE_SHADERS_ADDR as *mut c_void,
-        hook_process_image_space_shaders,
-    ) {
+    match unsafe {
+        PROCESS_IMAGE_SPACE_SHADERS_HOOK.init(
+            "FNV ProcessImageSpaceShaders",
+            PROCESS_IMAGE_SPACE_SHADERS_ADDR as *mut c_void,
+            hook_process_image_space_shaders,
+        )
+    } {
         Ok(()) => {}
         Err(err) => {
             log::warn!(
@@ -73,11 +75,13 @@ fn install_process_image_space_shaders_hook() {
 }
 
 fn install_render_world_scene_graph_hook() {
-    match RENDER_WORLD_SCENE_GRAPH_HOOK.init(
-        "FNV RenderWorldSceneGraph",
-        RENDER_WORLD_SCENE_GRAPH_ADDR as *mut c_void,
-        hook_render_world_scene_graph,
-    ) {
+    match unsafe {
+        RENDER_WORLD_SCENE_GRAPH_HOOK.init(
+            "FNV RenderWorldSceneGraph",
+            RENDER_WORLD_SCENE_GRAPH_ADDR as *mut c_void,
+            hook_render_world_scene_graph,
+        )
+    } {
         Ok(()) => {}
         Err(err) => {
             log::warn!(
@@ -102,11 +106,13 @@ fn install_render_world_scene_graph_hook() {
 }
 
 fn install_render_first_person_hook() {
-    match RENDER_FIRST_PERSON_HOOK.init(
-        "FNV RenderFirstPerson",
-        RENDER_FIRST_PERSON_ADDR as *mut c_void,
-        hook_render_first_person,
-    ) {
+    match unsafe {
+        RENDER_FIRST_PERSON_HOOK.init(
+            "FNV RenderFirstPerson",
+            RENDER_FIRST_PERSON_ADDR as *mut c_void,
+            hook_render_first_person,
+        )
+    } {
         Ok(()) => {}
         Err(err) => {
             log::warn!(

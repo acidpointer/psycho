@@ -153,10 +153,10 @@ impl CodeSignature {
         let [0xE9, displacement @ ..] = bytes else {
             return Ok(None);
         };
-        let Some(encoded) = displacement.get(..4) else {
+        let Some([byte_0, byte_1, byte_2, byte_3]) = displacement.get(..4) else {
             return Ok(None);
         };
-        let displacement = i32::from_le_bytes(encoded.try_into().expect("four-byte slice"));
+        let displacement = i32::from_le_bytes([*byte_0, *byte_1, *byte_2, *byte_3]);
         let instruction = self.address.wrapping_add(offset);
         Ok(Some(
             instruction

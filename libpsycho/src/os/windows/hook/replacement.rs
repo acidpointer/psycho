@@ -11,7 +11,7 @@ use parking_lot::RwLock;
 use windows::Win32::System::Memory::PAGE_EXECUTE_READWRITE;
 
 use crate::{
-    ffi::fnptr::FnPtr,
+    ffi::fnptr::{FnPtr, Function},
     os::windows::{
         memory::{read_bytes, validate_memory_access},
         winapi::{flush_instructions_cache, with_virtual_protect},
@@ -28,7 +28,7 @@ use super::inline::{InlineHookResult, create_jump_bytes, verify_jump_bytes};
 /// are retained and restored only while this hook still owns its jump.
 /// Enabling and disabling rewrite five executable bytes and are not atomic;
 /// the caller must keep the target quiescent during either operation.
-pub struct ReplacementHook<F: Copy + 'static> {
+pub struct ReplacementHook<F: Function> {
     name: String,
     target: NonNull<c_void>,
     detour: FnPtr<F>,
@@ -38,34 +38,47 @@ pub struct ReplacementHook<F: Copy + 'static> {
 }
 
 // Safety: mutation is serialized by `guard`; published state is atomic.
-unsafe impl<F: Copy + 'static> Send for ReplacementHook<F> {}
+unsafe impl<F: Function> Send for ReplacementHook<F> {}
 // Safety: mutation is serialized by `guard`; published state is atomic.
-unsafe impl<F: Copy + 'static> Sync for ReplacementHook<F> {}
+unsafe impl<F: Function> Sync for ReplacementHook<F> {}
 
-impl<F: Copy + 'static> ReplacementHook<F> {
+impl<F: Function> ReplacementHook<F> {
     /// Capture a provider entry for later replacement.
     ///
     /// This does not modify the target and deliberately does not create a
     /// trampoline: callers of the replacement must never reach the predecessor.
-    pub fn new(name: impl Into<String>, target: *mut c_void, detour: F) -> InlineHookResult<Self> {
+    ///
+    /// # Safety
+    ///
+    /// `target` must point to a live function with exactly `F`'s signature and
+    /// calling convention for the lifetime of this hook.
+    pub unsafe fn new(
+        name: impl Into<String>,
+        target: *mut c_void,
+        detour: F,
+    ) -> InlineHookResult<Self> {
         let name = name.into();
         let target = NonNull::new(target).ok_or(InlineHookError::TargetIsNull)?;
-        let detour = unsafe { FnPtr::from_fn(detour) }?;
+        let detour = FnPtr::new(detour);
 
         validate_memory_access(target.as_ptr())?;
-        validate_memory_access(detour.as_raw_ptr())?;
-        let jump = create_jump_bytes(target.as_ptr(), detour.as_raw_ptr())?;
+        validate_memory_access(detour.as_ptr())?;
+        let jump = create_jump_bytes(target.as_ptr(), detour.as_ptr())?;
         if jump.len() != 5 {
             return Err(InlineHookError::EncodingError(format!(
                 "replacement hook requires a five-byte jump, got {} bytes",
                 jump.len()
             )));
         }
-        verify_jump_bytes(&jump, target.as_ptr(), detour.as_raw_ptr())?;
+        verify_jump_bytes(&jump, target.as_ptr(), detour.as_ptr())?;
 
-        let displaced: [u8; 5] = read_bytes(target.as_ptr(), 5)?
-            .try_into()
-            .expect("five-byte memory read");
+        let displaced_bytes = read_bytes(target.as_ptr(), 5)?;
+        let displaced: [u8; 5] = displaced_bytes.try_into().map_err(|bytes: Vec<u8>| {
+            InlineHookError::EncodingError(format!(
+                "replacement hook expected five displaced bytes, got {}",
+                bytes.len()
+            ))
+        })?;
         Ok(Self {
             name,
             target,
@@ -83,8 +96,8 @@ impl<F: Copy + 'static> ReplacementHook<F> {
             return Err(InlineHookError::AlreadyEnabled);
         }
 
-        let jump = create_jump_bytes(self.target.as_ptr(), self.detour.as_raw_ptr())?;
-        verify_jump_bytes(&jump, self.target.as_ptr(), self.detour.as_raw_ptr())?;
+        let jump = create_jump_bytes(self.target.as_ptr(), self.detour.as_ptr())?;
+        verify_jump_bytes(&jump, self.target.as_ptr(), self.detour.as_ptr())?;
         let current = read_bytes(self.target.as_ptr(), self.displaced.len())?;
         if current != self.displaced {
             return Err(InlineHookError::OwnershipConflict {
@@ -113,7 +126,7 @@ impl<F: Copy + 'static> ReplacementHook<F> {
             return Err(InlineHookError::NotEnabled);
         }
 
-        let jump = create_jump_bytes(self.target.as_ptr(), self.detour.as_raw_ptr())?;
+        let jump = create_jump_bytes(self.target.as_ptr(), self.detour.as_ptr())?;
         let current = read_bytes(self.target.as_ptr(), jump.len())?;
         if current != jump {
             return Err(InlineHookError::OwnershipLost {
@@ -167,7 +180,7 @@ impl<F: Copy + 'static> ReplacementHook<F> {
     }
 }
 
-impl<F: Copy + 'static> Drop for ReplacementHook<F> {
+impl<F: Function> Drop for ReplacementHook<F> {
     fn drop(&mut self) {
         if self.is_enabled()
             && let Err(error) = self.disable()
@@ -183,13 +196,13 @@ impl<F: Copy + 'static> Drop for ReplacementHook<F> {
     }
 }
 
-impl<F: Copy + 'static> fmt::Debug for ReplacementHook<F> {
+impl<F: Function> fmt::Debug for ReplacementHook<F> {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
             .debug_struct("ReplacementHook")
             .field("name", &self.name)
             .field("target", &self.target)
-            .field("detour", &self.detour.as_raw_ptr())
+            .field("detour", &self.detour.as_ptr())
             .field("enabled", &self.enabled)
             .finish()
     }
@@ -197,16 +210,16 @@ impl<F: Copy + 'static> fmt::Debug for ReplacementHook<F> {
 
 /// Static-friendly storage for a replacement hook initialized during startup.
 #[derive(Default)]
-pub struct ReplacementHookContainer<F: Copy + 'static> {
+pub struct ReplacementHookContainer<F: Function> {
     hook: RwLock<Option<ReplacementHook<F>>>,
 }
 
 // Safety: access to the optional hook is serialized by its `RwLock`.
-unsafe impl<F: Copy + 'static> Send for ReplacementHookContainer<F> {}
+unsafe impl<F: Function> Send for ReplacementHookContainer<F> {}
 // Safety: access to the optional hook is serialized by its `RwLock`.
-unsafe impl<F: Copy + 'static> Sync for ReplacementHookContainer<F> {}
+unsafe impl<F: Function> Sync for ReplacementHookContainer<F> {}
 
-impl<F: Copy + 'static> ReplacementHookContainer<F> {
+impl<F: Function> ReplacementHookContainer<F> {
     /// Create an empty container suitable for static storage.
     pub fn new() -> Self {
         Self {
@@ -215,12 +228,17 @@ impl<F: Copy + 'static> ReplacementHookContainer<F> {
     }
 
     /// Construct the contained hook exactly once.
-    pub fn init(&self, name: &str, target: *mut c_void, detour: F) -> InlineHookResult<()> {
+    ///
+    /// # Safety
+    ///
+    /// `target` must point to a live function with exactly `F`'s signature and
+    /// calling convention for the lifetime of the initialized hook.
+    pub unsafe fn init(&self, name: &str, target: *mut c_void, detour: F) -> InlineHookResult<()> {
         let mut hook = self.hook.write();
         if hook.is_some() {
             return Err(InlineHookError::HookContainerInitialized);
         }
-        hook.replace(ReplacementHook::new(name, target, detour)?);
+        hook.replace(unsafe { ReplacementHook::new(name, target, detour) }?);
         Ok(())
     }
 

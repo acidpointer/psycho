@@ -22,7 +22,10 @@ use windows::Win32::System::Memory::{
     PAGE_READWRITE, PAGE_WRITECOPY,
 };
 
-use libpsycho::os::windows::winapi::{replace_call, virtual_query};
+use libpsycho::{
+    ffi::fnptr::FnPtr,
+    os::windows::winapi::{replace_call, virtual_query},
+};
 
 use crate::mods::diagnostics;
 
@@ -104,7 +107,9 @@ pub unsafe extern "thiscall" fn hook_base_extra_list_get_by_type(
 }
 
 unsafe extern "C" fn resolve_loaded_owner_checked(saved_ref: u32) -> *mut c_void {
-    let resolve: LoadedFormResolverFn = unsafe { std::mem::transmute(LOADED_FORM_RESOLVER_ADDR) };
+    let resolve =
+        unsafe { FnPtr::<LoadedFormResolverFn>::from_address_unchecked(LOADED_FORM_RESOLVER_ADDR) }
+            .as_fn();
     let owner = unsafe { resolve(saved_ref) };
     if owner.is_null() || is_valid_tes_form(owner) {
         return owner;

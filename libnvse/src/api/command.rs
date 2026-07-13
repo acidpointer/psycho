@@ -117,40 +117,25 @@ macro_rules! nvse_command {
         $crate::paste::paste! {
             #[allow(non_snake_case)]
             unsafe extern "C" fn [<__nvse_cmd_ $name>](
-                _param_info: *mut ::libc::c_void,
+                _param_info: *mut $crate::ParamInfo,
                 _script_data: *mut ::libc::c_void,
-                this_obj: *mut ::libc::c_void,
-                _containing_obj: *mut ::libc::c_void,
-                _script_obj: *mut ::libc::c_void,
-                _event_list: *mut ::libc::c_void,
+                this_obj: *mut $crate::TESObjectREFR,
+                _containing_obj: *mut $crate::TESObjectREFR,
+                _script_obj: *mut $crate::Script,
+                _event_list: *mut $crate::ScriptEventList,
                 result: *mut f64,
-                _opcode_offset: *mut u32,
+                _opcode_offset: *mut $crate::UInt32,
             ) -> bool {
                 let $ctx = $crate::api::command::CommandContext {
                     result,
-                    this_obj,
+                    this_obj: this_obj.cast(),
                 };
                 $body
             }
 
             #[allow(non_upper_case_globals)]
-            pub const [<$name:upper _EXECUTE>]: $crate::Cmd_Execute = {
-                // SAFETY: All pointer params are *mut c_void which has
-                // identical ABI to the specific NVSE pointer types on i686.
-                // The transmute converts between fn pointer types that
-                // differ only in the pointee types of their parameters.
-                unsafe {
-                    ::core::mem::transmute::<
-                        unsafe extern "C" fn(
-                            *mut ::libc::c_void, *mut ::libc::c_void,
-                            *mut ::libc::c_void, *mut ::libc::c_void,
-                            *mut ::libc::c_void, *mut ::libc::c_void,
-                            *mut f64, *mut u32,
-                        ) -> bool,
-                        $crate::Cmd_Execute,
-                    >([<__nvse_cmd_ $name>])
-                }
-            };
+            pub const [<$name:upper _EXECUTE>]: $crate::Cmd_Execute =
+                Some([<__nvse_cmd_ $name>]);
         }
     };
 }

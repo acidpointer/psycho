@@ -8,7 +8,7 @@ use core::{
 };
 use std::sync::LazyLock;
 
-use libpsycho::{hook::traits::Hook, os::windows::hook::vmt::vmthook::VmtHook};
+use libpsycho::{ffi::fnptr::FnPtr, hook::traits::Hook, os::windows::hook::vmt::vmthook::VmtHook};
 use parking_lot::Mutex;
 
 const FOCUS_SUBSYSTEM_PTR: usize = 0x011F35CC;
@@ -113,26 +113,30 @@ fn install_hooks(
     }
 
     if hooks.get_device_state.is_none() {
-        let hook = VmtHook::new(
-            "IDirectInputDevice8::GetDeviceState",
-            device,
-            GET_DEVICE_STATE_INDEX,
-            get_device_state_detour as GetDeviceStateFn,
-        )?;
-        let original = unsafe { hook.original()? };
+        let hook = unsafe {
+            VmtHook::new(
+                "IDirectInputDevice8::GetDeviceState",
+                device,
+                GET_DEVICE_STATE_INDEX,
+                get_device_state_detour as GetDeviceStateFn,
+            )
+        }?;
+        let original = hook.original();
         ORIGINAL_GET_DEVICE_STATE.store(original as usize, Ordering::Release);
         hook.enable()?;
         hooks.get_device_state = Some(hook);
     }
 
     if hooks.get_device_data.is_none() {
-        let hook = VmtHook::new(
-            "IDirectInputDevice8::GetDeviceData",
-            device,
-            GET_DEVICE_DATA_INDEX,
-            get_device_data_detour as GetDeviceDataFn,
-        )?;
-        let original = unsafe { hook.original()? };
+        let hook = unsafe {
+            VmtHook::new(
+                "IDirectInputDevice8::GetDeviceData",
+                device,
+                GET_DEVICE_DATA_INDEX,
+                get_device_data_detour as GetDeviceDataFn,
+            )
+        }?;
+        let original = hook.original();
         ORIGINAL_GET_DEVICE_DATA.store(original as usize, Ordering::Release);
         hook.enable()?;
         hooks.get_device_data = Some(hook);
@@ -254,8 +258,11 @@ unsafe fn call_original_get_device_state(
         return DI_OK;
     }
 
-    let original: GetDeviceStateFn = unsafe { std::mem::transmute(original) };
-    unsafe { original(device, data_size, data) }
+    let Ok(original) = (unsafe { FnPtr::<GetDeviceStateFn>::from_raw(original as *mut c_void) })
+    else {
+        return DI_OK;
+    };
+    unsafe { original.as_fn()(device, data_size, data) }
 }
 
 unsafe fn call_original_get_device_data(
@@ -270,8 +277,11 @@ unsafe fn call_original_get_device_data(
         return DI_OK;
     }
 
-    let original: GetDeviceDataFn = unsafe { std::mem::transmute(original) };
-    unsafe { original(device, object_data_size, object_data, inout_count, flags) }
+    let Ok(original) = (unsafe { FnPtr::<GetDeviceDataFn>::from_raw(original as *mut c_void) })
+    else {
+        return DI_OK;
+    };
+    unsafe { original.as_fn()(device, object_data_size, object_data, inout_count, flags) }
 }
 
 fn queue_mouse_wheel_from_state(data_size: u32, data: *mut c_void) {

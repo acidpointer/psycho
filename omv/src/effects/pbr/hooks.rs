@@ -140,7 +140,9 @@ fn install_set_texture_hook() -> bool {
         return false;
     };
 
-    match SET_TEXTURE_HOOK.init("FNV NiDX9RenderState::SetTexture", target, hook_set_texture) {
+    match unsafe {
+        SET_TEXTURE_HOOK.init("FNV NiDX9RenderState::SetTexture", target, hook_set_texture)
+    } {
         Ok(()) => {}
         Err(err) => {
             log::warn!("[PBR] SetTexture hook skipped: {err}");
@@ -193,11 +195,13 @@ fn install_shader_creation_hooks() -> bool {
 }
 
 fn install_create_vertex_shader_hook(target: *mut c_void) -> bool {
-    match CREATE_VERTEX_SHADER_HOOK.init(
-        "FNV BSShader::CreateVertexShader",
-        target,
-        hook_create_vertex_shader,
-    ) {
+    match unsafe {
+        CREATE_VERTEX_SHADER_HOOK.init(
+            "FNV BSShader::CreateVertexShader",
+            target,
+            hook_create_vertex_shader,
+        )
+    } {
         Ok(()) => {}
         Err(err) => {
             log::warn!("[PBR] CreateVertexShader hook skipped: {err}");
@@ -215,11 +219,13 @@ fn install_create_vertex_shader_hook(target: *mut c_void) -> bool {
 }
 
 fn install_create_pixel_shader_hook(target: *mut c_void) -> bool {
-    match CREATE_PIXEL_SHADER_HOOK.init(
-        "FNV BSShader::CreatePixelShader",
-        target,
-        hook_create_pixel_shader,
-    ) {
+    match unsafe {
+        CREATE_PIXEL_SHADER_HOOK.init(
+            "FNV BSShader::CreatePixelShader",
+            target,
+            hook_create_pixel_shader,
+        )
+    } {
         Ok(()) => {}
         Err(err) => {
             log::warn!("[PBR] CreatePixelShader hook skipped: {err}");
@@ -245,7 +251,7 @@ fn install_set_shaders_hook() -> bool {
         return false;
     };
 
-    match SET_SHADERS_HOOK.init("FNV BSShader::SetShaders", target, hook_set_shaders) {
+    match unsafe { SET_SHADERS_HOOK.init("FNV BSShader::SetShaders", target, hook_set_shaders) } {
         Ok(()) => {}
         Err(err) => {
             log::warn!("[PBR] SetShaders hook skipped: {err}");

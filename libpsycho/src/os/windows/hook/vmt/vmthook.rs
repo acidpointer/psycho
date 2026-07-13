@@ -4,7 +4,7 @@ use std::{
 };
 
 use crate::{
-    ffi::fnptr::FnPtr,
+    ffi::fnptr::{FnPtr, Function},
     hook::traits::Hook,
     os::windows::{
         hook::vmt::{VmtHookResult, errors::VmtHookError},
@@ -18,7 +18,7 @@ use windows::Win32::System::Memory::PAGE_READWRITE;
 
 /// Hook by VMT (Virtual Method Table)
 #[allow(dead_code)]
-pub struct VmtHook<F: Copy + 'static> {
+pub struct VmtHook<F: Function> {
     name: String,
     object_ptr: *mut c_void,
     vmt_ptr: *mut *mut c_void,
@@ -32,24 +32,29 @@ pub struct VmtHook<F: Copy + 'static> {
 }
 
 // Safety: Synchronized with inner RwLock guard and atomics
-unsafe impl<F: Copy + 'static> Send for VmtHook<F> {}
+unsafe impl<F: Function> Send for VmtHook<F> {}
 
 // Safety: Synchronized with inner RwLock guard and atomics
-unsafe impl<F: Copy + 'static> Sync for VmtHook<F> {}
+unsafe impl<F: Function> Sync for VmtHook<F> {}
 
-impl<F: Copy + 'static> VmtHook<F> {
+impl<F: Function> VmtHook<F> {
     const MAX_VMT_SIZE: usize = 1024;
 
-    pub fn new(
+    /// # Safety
+    ///
+    /// `object_ptr` must point to a live polymorphic object whose method at
+    /// `method_index` has exactly `F`'s signature and calling convention.
+    pub unsafe fn new(
         name: impl Into<String>,
         object_ptr: *mut c_void,
         method_index: usize,
         detour: F,
     ) -> VmtHookResult<Self> {
-        // object_ptr is on stack, validation with 'validate_memory_access'
-        // is impossible!
+        if object_ptr.is_null() {
+            return Err(VmtHookError::InvalidPointer);
+        }
 
-        let detour_fn = unsafe { FnPtr::from_fn(detour) }?;
+        let detour_fn = FnPtr::new(detour);
 
         let vmt_ptr = unsafe { *(object_ptr as *mut *mut *mut c_void) };
 
@@ -91,7 +96,7 @@ impl<F: Copy + 'static> VmtHook<F> {
             return Err(VmtHookError::AlreadyEnabled);
         }
 
-        let detour_ptr = self.detour_fn.as_raw_ptr();
+        let detour_ptr = self.detour_fn.as_ptr();
 
         unsafe {
             with_virtual_protect(
@@ -116,7 +121,7 @@ impl<F: Copy + 'static> VmtHook<F> {
             return Err(VmtHookError::NotEnabled);
         }
 
-        let original_ptr = self.original_fn.as_raw_ptr();
+        let original_ptr = self.original_fn.as_ptr();
 
         unsafe {
             with_virtual_protect(
@@ -139,7 +144,7 @@ impl<F: Copy + 'static> VmtHook<F> {
     }
 }
 
-impl<F: Copy + 'static> fmt::Debug for VmtHook<F> {
+impl<F: Function> fmt::Debug for VmtHook<F> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("VmtHook")
             .field("name", &self.name)
@@ -147,14 +152,14 @@ impl<F: Copy + 'static> fmt::Debug for VmtHook<F> {
             .field("vmt_ptr", &self.vmt_ptr)
             .field("vmt_entry_ptr", &self.vmt_entry_ptr)
             .field("method_index", &self.method_index)
-            .field("original_fn", &self.original_fn.as_raw_ptr())
-            .field("detour_fn", &self.detour_fn.as_raw_ptr())
+            .field("original_fn", &self.original_fn.as_ptr())
+            .field("detour_fn", &self.detour_fn.as_ptr())
             .field("enabled", &self.enabled)
             .finish()
     }
 }
 
-impl<F: Copy + 'static> Hook<F> for VmtHook<F> {
+impl<F: Function> Hook<F> for VmtHook<F> {
     type Error = VmtHookError;
 
     fn enable(&self) -> Result<(), Self::Error> {
@@ -173,9 +178,9 @@ impl<F: Copy + 'static> Hook<F> for VmtHook<F> {
         &self.name
     }
 
-    unsafe fn original(&self) -> Result<F, Self::Error> {
+    fn original(&self) -> F {
         let _guard = self.guard.read();
 
-        Ok(unsafe { self.original_fn.as_fn()? })
+        self.original_fn.as_fn()
     }
 }

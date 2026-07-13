@@ -181,16 +181,22 @@ fn compile_job(worker_index: usize, job: CompileJob) {
                 bytecode,
             });
             STATES[job.template_id as usize].store(BYTECODE_READY, Ordering::Release);
-            let template = shader_registry::object_template_at(job.template_id)
-                .expect("object template id is queued from registry");
-            log::info!(
-                "[PBR] Object PBR compile worker={} shader={} stage={:?} source={} ms={}",
-                worker_index,
-                template.label,
-                template.stage,
-                source,
-                started.elapsed().as_millis()
-            );
+            if let Some(template) = shader_registry::object_template_at(job.template_id) {
+                log::info!(
+                    "[PBR] Object PBR compile worker={} shader={} stage={:?} source={} ms={}",
+                    worker_index,
+                    template.label,
+                    template.stage,
+                    source,
+                    started.elapsed().as_millis()
+                );
+            } else {
+                log::error!(
+                    "[PBR] Compiled unknown object shader template {} on worker {}",
+                    job.template_id,
+                    worker_index
+                );
+            }
         }
         Err(err) => {
             STATES[job.template_id as usize].store(BYTECODE_FAILED, Ordering::Release);

@@ -47,7 +47,7 @@ unsafe extern "thiscall" fn hook_rng(_this: *mut c_void, param_1: u32) -> u32 {
 }
 
 pub fn install_rng_hook() -> anyhow::Result<()> {
-    RNG_HOOK.init("rng", RNG_ADDRESS as *mut c_void, hook_rng)?;
+    unsafe { RNG_HOOK.init("rng", RNG_ADDRESS as *mut c_void, hook_rng) }?;
     RNG_HOOK.enable()?;
     Ok(())
 }

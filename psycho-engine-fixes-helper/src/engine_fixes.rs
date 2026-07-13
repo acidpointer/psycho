@@ -4,9 +4,15 @@
 //! load or initialize the core DLL. Every call below is optional and resolves a
 //! single named export only when the helper actually needs it.
 
-use core::sync::atomic::{AtomicUsize, Ordering};
+use core::{
+    ffi::c_void,
+    sync::atomic::{AtomicUsize, Ordering},
+};
 
-use libpsycho::os::windows::winapi::{get_module_handle_w, get_proc_address};
+use libpsycho::{
+    ffi::fnptr::FnPtr,
+    os::windows::winapi::{get_module_handle_w, get_proc_address},
+};
 
 const CORE_DLL: &str = "psycho_engine_fixes.dll";
 const RUN_COMMAND_EXPORT: &str = "PsychoEngineFixes_RunCommand";
@@ -60,17 +66,19 @@ pub(crate) fn notify_event(kind: u32, data: *const u8, data_len: usize, bool_val
 fn resolve_run_command() -> Option<RunCommandFn> {
     let ptr = resolve_cached(&RUN_COMMAND, RUN_COMMAND_EXPORT)?;
 
-    // SAFETY: The export name is owned by psycho_engine_fixes.dll and the
-    // function signature is the ABI contract in psycho_engine_fixes.def.
-    Some(unsafe { core::mem::transmute::<usize, RunCommandFn>(ptr) })
+    // The export name and ABI are shared with the core DLL's definition file.
+    unsafe { FnPtr::<RunCommandFn>::from_raw(ptr as *mut c_void) }
+        .ok()
+        .map(|function| function.as_fn())
 }
 
 fn resolve_notify_event() -> Option<NotifyEventFn> {
     let ptr = resolve_cached(&NOTIFY_EVENT, NOTIFY_EVENT_EXPORT)?;
 
-    // SAFETY: The export name is owned by psycho_engine_fixes.dll and the
-    // function signature is the ABI contract in psycho_engine_fixes.def.
-    Some(unsafe { core::mem::transmute::<usize, NotifyEventFn>(ptr) })
+    // The export name and ABI are shared with the core DLL's definition file.
+    unsafe { FnPtr::<NotifyEventFn>::from_raw(ptr as *mut c_void) }
+        .ok()
+        .map(|function| function.as_fn())
 }
 
 fn resolve_cached(cache: &AtomicUsize, export_name: &str) -> Option<usize> {

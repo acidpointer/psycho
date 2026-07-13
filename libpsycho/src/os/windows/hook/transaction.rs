@@ -2,6 +2,7 @@
 
 use super::inline::{InlineHookResult, inlinehook::InlineHookContainer};
 use super::replacement::ReplacementHookContainer;
+use crate::ffi::fnptr::Function;
 use crate::os::windows::patch::{CodePatchResult, OwnedCodePatch};
 
 /// Collects successful hook and code-patch activations until commit.
@@ -26,7 +27,7 @@ impl ModificationTransaction {
     }
 
     /// Enables a prepared inline hook and records its inverse operation.
-    pub fn enable_inline<T: Copy + 'static>(
+    pub fn enable_inline<T: Function>(
         &mut self,
         hook: &'static InlineHookContainer<T>,
     ) -> InlineHookResult<()> {
@@ -59,7 +60,7 @@ impl ModificationTransaction {
     }
 
     /// Enables a prepared provider replacement and records its inverse.
-    pub fn enable_replacement<T: Copy + 'static>(
+    pub fn enable_replacement<T: Function>(
         &mut self,
         hook: &'static ReplacementHookContainer<T>,
     ) -> InlineHookResult<()> {

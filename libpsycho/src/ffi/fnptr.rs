@@ -1,143 +1,194 @@
 use libc::c_void;
-use std::{marker::PhantomData, ptr::NonNull};
+use std::fmt;
 use thiserror::Error;
+
+mod private {
+    pub trait Sealed {}
+}
+
+/// A concrete Rust function-pointer type.
+///
+/// The implementations are generated only for language function-pointer
+/// types. This is the compile-time proof that lets [`FnPtr`] centralize raw
+/// address conversion without accepting integers or data pointers as if they
+/// were functions.
+///
+/// This contract follows Retour's `Function` abstraction.
+///
+/// # Safety
+///
+/// Implementations must represent a real function-pointer type whose value can
+/// be converted to and from `*const ()` without changing its address. The trait
+/// is sealed so only the generated language function-pointer implementations
+/// can provide that guarantee.
+pub unsafe trait Function: private::Sealed + Sized + Copy + Send + Sync + 'static {
+    /// Function arguments represented as a tuple.
+    type Arguments;
+
+    /// Function return type.
+    type Output;
+
+    /// Construct this function-pointer type from an untyped code address.
+    ///
+    /// # Safety
+    ///
+    /// `ptr` must point to a live function with exactly this signature and
+    /// calling convention. A raw address contains no metadata from which Rust
+    /// could validate that contract.
+    unsafe fn from_ptr(ptr: *const ()) -> Self;
+
+    /// Return the function's untyped code address.
+    fn to_ptr(self) -> *const ();
+}
+
+macro_rules! impl_functions {
+    (@recurse () ($($name:ident : $type:ident),*)) => {
+        impl_functions!(@impl_all ($($name : $type),*));
+    };
+    (@recurse
+        ($head_name:ident : $head_type:ident $(, $tail_name:ident : $tail_type:ident)*)
+        ($($name:ident : $type:ident),*)) => {
+        impl_functions!(@impl_all ($($name : $type),*));
+        impl_functions!(@recurse
+            ($($tail_name : $tail_type),*)
+            ($($name : $type,)* $head_name : $head_type));
+    };
+
+    (@impl_all ($($name:ident : $type:ident),*)) => {
+        impl_functions!(@impl_pair ($($type),*) (extern "C" fn($($type),*) -> Ret));
+        impl_functions!(@impl_pair ($($type),*) (extern "Rust" fn($($type),*) -> Ret));
+        impl_functions!(@impl_pair ($($type),*) (extern "system" fn($($type),*) -> Ret));
+
+        #[cfg(target_arch = "x86")]
+        impl_functions!(@impl_pair ($($type),*) (extern "cdecl" fn($($type),*) -> Ret));
+        #[cfg(target_arch = "x86")]
+        impl_functions!(@impl_pair ($($type),*) (extern "fastcall" fn($($type),*) -> Ret));
+        #[cfg(target_arch = "x86")]
+        impl_functions!(@impl_pair ($($type),*) (extern "stdcall" fn($($type),*) -> Ret));
+        #[cfg(target_arch = "x86")]
+        impl_functions!(@impl_pair ($($type),*) (extern "thiscall" fn($($type),*) -> Ret));
+    };
+
+    (@impl_pair ($($type:ident),*) ($($function_type:tt)*)) => {
+        impl_functions!(@impl_one ($($type),*) ($($function_type)*));
+        impl_functions!(@impl_one ($($type),*) (unsafe $($function_type)*));
+    };
+
+    (@impl_one ($($type:ident),*) ($function_type:ty)) => {
+        impl<Ret: 'static, $($type: 'static),*> private::Sealed for $function_type {}
+
+        unsafe impl<Ret: 'static, $($type: 'static),*> Function for $function_type {
+            type Arguments = ($($type,)*);
+            type Output = Ret;
+
+            #[inline]
+            unsafe fn from_ptr(ptr: *const ()) -> Self {
+                unsafe { std::mem::transmute(ptr) }
+            }
+
+            #[inline]
+            fn to_ptr(self) -> *const () {
+                self as *const ()
+            }
+        }
+    };
+
+    ($($name:ident : $type:ident),*) => {
+        impl_functions!(@recurse ($($name : $type),*) ());
+    };
+}
+
+// ShowMessageBox is the largest signature currently crossing this boundary.
+impl_functions! {
+    arg_0: A,
+    arg_1: B,
+    arg_2: C,
+    arg_3: D,
+    arg_4: E,
+    arg_5: F,
+    arg_6: G,
+    arg_7: H,
+    arg_8: I,
+    arg_9: J,
+    arg_10: K,
+    arg_11: L,
+    arg_12: M,
+    arg_13: N,
+    arg_14: O,
+    arg_15: P,
+    arg_16: Q,
+    arg_17: R,
+    arg_18: S
+}
 
 #[derive(Debug, Error)]
 pub enum FnPtrError {
     #[error("Function pointer is NULL")]
     FunctionPtrIsNull,
-
-    #[error("Function pointer has wrong alignment")]
-    FunctionPtrAlign,
-
-    #[error("Function pointer has wrong size (does not match *mut c_void)")]
-    FunctionPtrSize,
-
-    #[error("Invalid function pointer conversion")]
-    InvalidConversion,
 }
 
-type FnPtrResult<T> = std::result::Result<T, FnPtrError>;
-
-/// A thread-safe wrapper for function pointers with type safety guarantees.
-///
-/// # Safety Requirements
-/// - T must be a function pointer type (e.g., `extern "C" fn(...)` or `unsafe extern "C" fn(...)`)
-/// - The wrapped function pointer must remain valid for the lifetime of this FnPtr
-/// - Cross-thread usage is safe, but the underlying function must be thread-safe
-#[derive(Debug)]
-pub struct FnPtr<T: Copy + 'static> {
-    ptr: NonNull<c_void>,
-    _phantom: PhantomData<T>,
+/// A non-null function pointer whose signature is carried by its type.
+#[derive(Clone, Copy)]
+pub struct FnPtr<F: Function> {
+    function: F,
 }
 
-// Safety: FnPtr is Send if T represents a function pointer
-unsafe impl<T: Copy + 'static> Send for FnPtr<T> {}
+impl<F: Function> FnPtr<F> {
+    /// Wrap an already typed function pointer.
+    #[inline]
+    pub const fn new(function: F) -> Self {
+        Self { function }
+    }
 
-// Safety: FnPtr is Sync if T represents a function pointer
-unsafe impl<T: Copy + 'static> Sync for FnPtr<T> {}
-
-impl<T: Copy + 'static> FnPtr<T> {
-    /// Creates a new FnPtr from a raw pointer.
+    /// Import an untyped code address as `F`.
     ///
     /// # Safety
-    /// - `ptr` must be a valid function pointer that matches type T
-    /// - The function must remain valid for the lifetime of this FnPtr
-    /// - T must be a function pointer type
-    pub unsafe fn from_raw(ptr: *mut c_void) -> FnPtrResult<Self> {
-        Self::validate_layout()?;
-
-        // We must check if raw pointer is NULL
+    ///
+    /// `ptr` must point to a live function with exactly `F`'s signature and
+    /// calling convention for every subsequent use of this value.
+    #[inline]
+    pub unsafe fn from_raw(ptr: *mut c_void) -> Result<Self, FnPtrError> {
         if ptr.is_null() {
             return Err(FnPtrError::FunctionPtrIsNull);
         }
 
-        Ok(Self {
-            ptr: unsafe { NonNull::new_unchecked(ptr) },
-            _phantom: PhantomData,
-        })
+        Ok(Self::new(unsafe { F::from_ptr(ptr.cast_const().cast()) }))
     }
 
-    /// Creates a new FnPtr from a raw pointer (alias for from_raw).
-    /// This method exists for compatibility with existing code.
+    /// Import a compile-time or otherwise proven non-null code address.
+    ///
+    /// This is the infallible counterpart to [`Self::from_raw`] for audited
+    /// engine addresses. It deliberately performs no runtime check, so callers
+    /// must not use it for dynamic exports, hook predecessors, or optional
+    /// pointers.
     ///
     /// # Safety
-    /// Same safety requirements as `from_raw`.
-    #[inline]
-    pub unsafe fn from_raw_ptr(raw_ptr: *mut c_void) -> FnPtrResult<Self> {
-        unsafe { Self::from_raw(raw_ptr) }
-    }
-
-    /// Creates a FnPtr from a function pointer value.
     ///
-    /// # Safety
-    /// - T must be a function pointer type
-    /// - The function must remain valid for the lifetime of this FnPtr
-    /// - The function must be safe to call from multiple threads if used across threads
-    pub unsafe fn from_fn(function: T) -> FnPtrResult<Self> {
-        Self::validate_layout()?;
-
-        // Safety: validate_size ensures that T has the same size as a usize, making this transmutation safe.
-        let ptr: *mut c_void = unsafe { std::mem::transmute_copy(&function) };
-
-        if ptr.is_null() {
-            log::error!("Function pointer converted to null");
-            return Err(FnPtrError::FunctionPtrIsNull);
-        }
-
-        log::trace!("FnPtr created for function pointer: {:p}", ptr);
-
-        Ok(Self {
-            ptr: unsafe { NonNull::new_unchecked(ptr) },
-            _phantom: PhantomData,
-        })
-    }
-
-    /// Converts the stored pointer back to the original function type.
-    ///
-    /// # Safety
-    /// - The caller must ensure T is the correct function pointer type
-    /// - The stored pointer must be valid and point to a function
-    /// - The function must be safe to call with the expected signature
-    pub unsafe fn as_fn(&self) -> FnPtrResult<T> {
-        let result: T = unsafe { std::mem::transmute_copy(&self.ptr.as_ptr()) };
-
-        Ok(result)
-    }
-
-    /// Returns the inner raw pointer.
+    /// `address` must be non-zero and point to a live function with exactly
+    /// `F`'s signature and calling convention for every use of this value.
     #[inline]
-    pub fn as_raw_ptr(&self) -> *mut c_void {
-        self.ptr.as_ptr()
+    pub unsafe fn from_address_unchecked(address: usize) -> Self {
+        Self::new(unsafe { F::from_ptr(address as *const ()) })
     }
 
-    /// Validates layout of function pointer
+    /// Return the stored typed function pointer.
     #[inline]
-    pub fn validate_layout() -> FnPtrResult<()> {
-        let type_size = std::mem::size_of::<T>();
-        let ptr_size = std::mem::size_of::<*mut c_void>();
+    pub fn as_fn(&self) -> F {
+        self.function
+    }
 
-        if type_size != ptr_size {
-            log::error!(
-                "Invalid function pointer type size: {} != {}",
-                type_size,
-                ptr_size
-            );
-            return Err(FnPtrError::FunctionPtrSize);
-        }
+    /// Return the function's untyped code address.
+    #[inline]
+    pub fn as_ptr(&self) -> *mut c_void {
+        self.function.to_ptr().cast_mut().cast()
+    }
+}
 
-        let type_align = std::mem::align_of::<T>();
-        let ptr_align = std::mem::align_of::<*mut c_void>();
-
-        if type_align != ptr_align {
-            log::error!(
-                "Invalid function pointer type alignment: {} != {}",
-                type_align,
-                ptr_align
-            );
-            return Err(FnPtrError::FunctionPtrAlign);
-        }
-
-        Ok(())
+impl<F: Function> fmt::Debug for FnPtr<F> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_tuple("FnPtr")
+            .field(&self.as_ptr())
+            .finish()
     }
 }

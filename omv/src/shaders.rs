@@ -4,7 +4,7 @@ use std::{
     collections::HashMap,
     ffi::CString,
     fs,
-    mem::{size_of, transmute},
+    mem::size_of,
     path::{Path, PathBuf},
     ptr::null_mut,
     slice,
@@ -13,7 +13,10 @@ use std::{
 };
 
 use anyhow::{Context, Result};
-use libpsycho::os::windows::winapi::{get_proc_address, load_library_a};
+use libpsycho::{
+    ffi::fnptr::FnPtr,
+    os::windows::winapi::{get_proc_address, load_library_a},
+};
 use serde::{Deserialize, Serialize};
 use windows::{
     Win32::Graphics::Direct3D::ID3DBlob,
@@ -1183,7 +1186,9 @@ fn resolve_d3d_compile_fn() -> std::result::Result<D3DCompileFn, String> {
         if let Ok(module) = load_library_a(dll)
             && let Ok(proc) = get_proc_address(module, "D3DCompile")
         {
-            return Ok(unsafe { transmute::<*mut std::ffi::c_void, D3DCompileFn>(proc) });
+            let function = unsafe { FnPtr::<D3DCompileFn>::from_raw(proc) }
+                .map_err(|error| format!("D3DCompile export is invalid: {error}"))?;
+            return Ok(function.as_fn());
         }
     }
 

@@ -37,11 +37,14 @@ use std::slice;
 use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU32, AtomicUsize, Ordering};
 
 use anyhow::{Context, ensure};
-use libpsycho::os::windows::winapi::{
-    PointerExchange, client_origin, compare_exchange_pointer, get_last_error_code,
-    get_module_handle_a, get_proc_address, get_tick_count, get_window_long_a, is_iconic, is_window,
-    load_pointer, nearest_monitor_rect, nearest_monitor_rect_from_point, set_last_error,
-    show_window, virtual_query, window_rect,
+use libpsycho::{
+    ffi::fnptr::FnPtr,
+    os::windows::winapi::{
+        PointerExchange, client_origin, compare_exchange_pointer, get_last_error_code,
+        get_module_handle_a, get_proc_address, get_tick_count, get_window_long_a, is_iconic,
+        is_window, load_pointer, nearest_monitor_rect, nearest_monitor_rect_from_point,
+        set_last_error, show_window, virtual_query, window_rect,
+    },
 };
 use windows::Win32::System::Memory::{
     MEM_COMMIT, PAGE_EXECUTE, PAGE_EXECUTE_READ, PAGE_EXECUTE_READWRITE, PAGE_EXECUTE_WRITECOPY,
@@ -745,7 +748,8 @@ fn read_int_setting(setting: usize) -> Option<i32> {
     if !is_readable(setting, std::mem::size_of::<usize>()) {
         return None;
     }
-    let accessor: IntSettingFn = unsafe { std::mem::transmute(INT_SETTING_ACCESSOR) };
+    let accessor =
+        unsafe { FnPtr::<IntSettingFn>::from_address_unchecked(INT_SETTING_ACCESSOR) }.as_fn();
     Some(unsafe { accessor(setting) })
 }
 
@@ -863,7 +867,8 @@ fn engine_requests_fullscreen() -> bool {
     if !FULLSCREEN_PREDICATE_VALID.load(Ordering::Acquire) {
         return false;
     }
-    let predicate: IsFullscreenFn = unsafe { std::mem::transmute(FULLSCREEN_PREDICATE) };
+    let predicate =
+        unsafe { FnPtr::<IsFullscreenFn>::from_address_unchecked(FULLSCREEN_PREDICATE) }.as_fn();
     unsafe { predicate() != 0 }
 }
 
@@ -1122,7 +1127,13 @@ unsafe fn call_create_window_predecessor(request: CreateWindowRequest) -> *mut c
         return std::ptr::null_mut();
     }
 
-    let predecessor: CreateWindowExAFn = unsafe { std::mem::transmute(target) };
+    let Ok(predecessor) = (unsafe { FnPtr::<CreateWindowExAFn>::from_raw(target as *mut c_void) })
+    else {
+        PREDECESSOR_FAILURES.fetch_add(1, Ordering::Relaxed);
+        LAST_ERROR.store(0, Ordering::Release);
+        return std::ptr::null_mut();
+    };
+    let predecessor = predecessor.as_fn();
     unsafe {
         predecessor(
             request.extended_style,
@@ -1151,7 +1162,13 @@ unsafe fn call_predecessor(request: WindowRequest) -> i32 {
 
     // PREDECESSOR is published only after installation verifies a committed,
     // executable target with the SetWindowPos ABI.
-    let predecessor: SetWindowPosFn = unsafe { std::mem::transmute(target) };
+    let Ok(predecessor) = (unsafe { FnPtr::<SetWindowPosFn>::from_raw(target as *mut c_void) })
+    else {
+        PREDECESSOR_FAILURES.fetch_add(1, Ordering::Relaxed);
+        LAST_ERROR.store(0, Ordering::Release);
+        return 0;
+    };
+    let predecessor = predecessor.as_fn();
     unsafe {
         predecessor(
             request.hwnd,

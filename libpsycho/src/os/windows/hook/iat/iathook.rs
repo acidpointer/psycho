@@ -1,6 +1,6 @@
 use super::errors::IatHookError;
 use crate::{
-    ffi::fnptr::FnPtr,
+    ffi::fnptr::{FnPtr, Function},
     hook::traits::Hook,
     os::windows::{
         hook::iat::IatHookResult,
@@ -18,7 +18,7 @@ use std::{
 };
 
 /// Hook by IAT (Import Address Table)
-pub struct IatHook<F: Copy + 'static> {
+pub struct IatHook<F: Function> {
     name: String,
     original_fn: FnPtr<F>,
     detour_fn: FnPtr<F>,
@@ -33,18 +33,22 @@ pub struct IatHook<F: Copy + 'static> {
 }
 
 // Safety: Synchronized with inner RwLock guard and atomics
-unsafe impl<F: Copy + 'static> Send for IatHook<F> {}
+unsafe impl<F: Function> Send for IatHook<F> {}
 
 // Safety: Synchronized with inner RwLock guard and atomics
-unsafe impl<F: Copy + 'static> Sync for IatHook<F> {}
+unsafe impl<F: Function> Sync for IatHook<F> {}
 
-impl<F: Copy + 'static> IatHook<F> {
+impl<F: Function> IatHook<F> {
     /// Prepare a hook for one parsed IAT entry without changing the entry.
     ///
     /// The entry's current function is captured as the predecessor. Activation
     /// later succeeds only if that exact pointer is still present.
     #[allow(clippy::not_unsafe_ptr_arg_deref)]
-    pub fn from_iat_entry(
+    /// # Safety
+    ///
+    /// The function stored in `iat_entry_info` must have exactly `F`'s
+    /// signature and calling convention.
+    pub unsafe fn from_iat_entry(
         name: impl Into<String>,
         iat_entry_info: crate::os::windows::pe::IatEntry,
         detour: F,
@@ -52,7 +56,7 @@ impl<F: Copy + 'static> IatHook<F> {
         let module_base =
             NonNull::new(iat_entry_info.module_base).ok_or(IatHookError::ModuleBaseNull)?;
 
-        let detour_fn = unsafe { FnPtr::from_fn(detour) }?;
+        let detour_fn = FnPtr::new(detour);
         let library_name = iat_entry_info.library_name.clone();
         let function_name = iat_entry_info.function_name.clone();
         let iat_entry = iat_entry_info.iat_address;
@@ -71,7 +75,7 @@ impl<F: Copy + 'static> IatHook<F> {
 
         // Both sides of the IAT exchange must remain callable.
         validate_memory_access(current_fn_ptr)?;
-        validate_memory_access(detour_fn.as_raw_ptr())?;
+        validate_memory_access(detour_fn.as_ptr())?;
 
         let original_fn = unsafe { FnPtr::from_raw(current_fn_ptr) }?;
 
@@ -99,8 +103,8 @@ impl<F: Copy + 'static> IatHook<F> {
             return Err(IatHookError::AlreadyEnabled);
         }
 
-        let detour_ptr = self.detour_fn.as_raw_ptr();
-        let original_ptr = self.original_fn.as_raw_ptr();
+        let detour_ptr = self.detour_fn.as_ptr();
+        let original_ptr = self.original_fn.as_ptr();
 
         log::debug!(
             "Enabling hook '{}': IAT={:p}, before={:p}, after={:p}",
@@ -140,9 +144,9 @@ impl<F: Copy + 'static> IatHook<F> {
             return Err(IatHookError::NotEnabled);
         }
 
-        let original_ptr = self.original_fn.as_raw_ptr();
+        let original_ptr = self.original_fn.as_ptr();
 
-        let detour_ptr = self.detour_fn.as_raw_ptr();
+        let detour_ptr = self.detour_fn.as_ptr();
         match compare_exchange_pointer(self.iat_entry, detour_ptr, original_ptr)? {
             PointerExchange::Exchanged => {}
             PointerExchange::Mismatch(observed) => {
@@ -159,11 +163,11 @@ impl<F: Copy + 'static> IatHook<F> {
     }
 }
 
-impl<F: Copy + 'static> fmt::Debug for IatHook<F> {
+impl<F: Function> fmt::Debug for IatHook<F> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("IatHook")
-            .field("original_fn", &self.original_fn.as_raw_ptr())
-            .field("detour_fn", &self.detour_fn.as_raw_ptr())
+            .field("original_fn", &self.original_fn.as_ptr())
+            .field("detour_fn", &self.detour_fn.as_ptr())
             .field("module_base", &self.module_base)
             .field("library_name", &self.library_name)
             .field("function_name", &self.function_name)
@@ -173,7 +177,7 @@ impl<F: Copy + 'static> fmt::Debug for IatHook<F> {
     }
 }
 
-impl<F: Copy + 'static> Hook<F> for IatHook<F> {
+impl<F: Function> Hook<F> for IatHook<F> {
     type Error = IatHookError;
 
     fn enable(&self) -> Result<(), Self::Error> {
@@ -192,19 +196,19 @@ impl<F: Copy + 'static> Hook<F> for IatHook<F> {
         self.name.as_str()
     }
 
-    unsafe fn original(&self) -> Result<F, Self::Error> {
+    fn original(&self) -> F {
         let _guard = self.guard.read();
 
-        unsafe { Ok(self.original_fn.as_fn()?) }
+        self.original_fn.as_fn()
     }
 }
 
 #[derive(Default)]
-pub struct IatHookContainer<T: Copy + 'static> {
+pub struct IatHookContainer<T: Function> {
     hooks: RwLock<Vec<IatHook<T>>>,
 }
 
-impl<T: Copy + 'static> IatHookContainer<T> {
+impl<T: Function> IatHookContainer<T> {
     /// Create an empty multi-entry IAT hook container.
     pub fn new() -> Self {
         Self {
@@ -259,7 +263,7 @@ impl<T: Copy + 'static> IatHookContainer<T> {
         for (idx, entry) in iat_entries.into_iter().enumerate() {
             log::debug!("Processing IAT entry {} for '{}'", idx, function_name);
             let hook_name = format!("{}_{}", name_str, idx);
-            let hook = IatHook::from_iat_entry(hook_name, entry, detour)?;
+            let hook = unsafe { IatHook::from_iat_entry(hook_name, entry, detour) }?;
             prepared.push(hook);
             log::debug!("Hook {} created and added", idx);
         }
@@ -286,7 +290,7 @@ impl<T: Copy + 'static> IatHookContainer<T> {
 
         for (index, hook) in hooks.iter().enumerate() {
             if let Err(error) = hook.enable() {
-                for enabled in hooks[..index].iter().rev() {
+                for enabled in hooks.iter().take(index).rev() {
                     if let Err(rollback_error) = enabled.disable() {
                         log::error!(
                             "IAT hook activation failed and rollback also failed: {}",
@@ -331,11 +335,10 @@ impl<T: Copy + 'static> IatHookContainer<T> {
     pub fn original(&self) -> IatHookResult<T> {
         let hooks = self.hooks.read();
 
-        if hooks.is_empty() {
+        let Some(first) = hooks.first() else {
             return Err(IatHookError::HookContainerNotInitialized);
-        }
+        };
 
-        // Return the original from the first hook
-        unsafe { hooks[0].original() }
+        Ok(first.original())
     }
 }

@@ -17,7 +17,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use libc::c_void;
 use windows::Win32::System::Memory::{MEM_COMMIT, PAGE_GUARD, PAGE_NOACCESS};
 
-use libpsycho::os::windows::winapi::virtual_query;
+use libpsycho::{ffi::fnptr::FnPtr, os::windows::winapi::virtual_query};
 
 use super::statics;
 
@@ -135,22 +135,29 @@ fn call_original_list_save(list: *mut c_void, save_buffer: *mut c_void) {
 fn read_save_state(save_buffer: *mut c_void) -> u32 {
     let vtable = unsafe { ptr::read_unaligned(save_buffer as *const *const usize) };
     let get_state_addr = unsafe { ptr::read_unaligned(vtable) };
-    let get_state: SaveGetStateFn = unsafe { std::mem::transmute(get_state_addr) };
-    unsafe { get_state(save_buffer) }
+    let Ok(get_state) =
+        (unsafe { FnPtr::<SaveGetStateFn>::from_raw(get_state_addr as *mut c_void) })
+    else {
+        return 0;
+    };
+    unsafe { get_state.as_fn()(save_buffer) }
 }
 
 fn save_count_begin(save_buffer: *mut c_void) -> u32 {
-    let begin: SaveCountBeginFn = unsafe { std::mem::transmute(SAVE_COUNT_BEGIN_ADDR) };
+    let begin =
+        unsafe { FnPtr::<SaveCountBeginFn>::from_address_unchecked(SAVE_COUNT_BEGIN_ADDR) }.as_fn();
     unsafe { begin(save_buffer) }
 }
 
 fn save_count_end(save_buffer: *mut c_void, count: u32, marker: u32) {
-    let end: SaveCountEndFn = unsafe { std::mem::transmute(SAVE_COUNT_END_ADDR) };
+    let end =
+        unsafe { FnPtr::<SaveCountEndFn>::from_address_unchecked(SAVE_COUNT_END_ADDR) }.as_fn();
     unsafe { end(save_buffer, count, marker) };
 }
 
 fn node_entry(node: *mut c_void) -> *mut EntryData {
-    let get_data: ListNodeDataFn = unsafe { std::mem::transmute(LIST_NODE_DATA_ADDR) };
+    let get_data =
+        unsafe { FnPtr::<ListNodeDataFn>::from_address_unchecked(LIST_NODE_DATA_ADDR) }.as_fn();
     let slot = unsafe { get_data(node) };
     if slot.is_null() {
         ptr::null_mut()
@@ -160,12 +167,15 @@ fn node_entry(node: *mut c_void) -> *mut EntryData {
 }
 
 fn list_node_next(node: *mut c_void) -> *mut c_void {
-    let next: ListNodeNextFn = unsafe { std::mem::transmute(LIST_NODE_NEXT_ADDR) };
+    let next =
+        unsafe { FnPtr::<ListNodeNextFn>::from_address_unchecked(LIST_NODE_NEXT_ADDR) }.as_fn();
     unsafe { next(node) }
 }
 
 fn entrydata_body_save(entry: *mut EntryData, save_buffer: *mut c_void) {
-    let save: EntryDataBodySaveFn = unsafe { std::mem::transmute(ENTRYDATA_BODY_SAVE_ADDR) };
+    let save =
+        unsafe { FnPtr::<EntryDataBodySaveFn>::from_address_unchecked(ENTRYDATA_BODY_SAVE_ADDR) }
+            .as_fn();
     unsafe { save(entry, save_buffer) };
 }
 

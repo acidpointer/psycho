@@ -852,8 +852,15 @@ impl PoolHeap {
             heap.class_start[class_idx] = pool_idx as u8;
             heap.class_count[class_idx] = count as u8;
             for subpool_idx in 0..count {
+                let Some(pool) = heap.pools.get_mut(pool_idx) else {
+                    log::error!(
+                        "[POOL] Descriptor expansion exceeded {} configured pools",
+                        NUM_TOTAL_POOLS
+                    );
+                    return None;
+                };
                 assign_pool_desc(
-                    &mut heap.pools[pool_idx],
+                    pool,
                     pool_idx as u8,
                     class_idx as u8,
                     desc,
@@ -864,7 +871,14 @@ impl PoolHeap {
             }
         }
 
-        debug_assert_eq!(pool_idx, NUM_TOTAL_POOLS);
+        if pool_idx != NUM_TOTAL_POOLS {
+            log::error!(
+                "[POOL] Descriptor expansion produced {} pools, expected {}",
+                pool_idx,
+                NUM_TOTAL_POOLS
+            );
+            return None;
+        }
 
         // Build size_to_class lookup.
         // Independent of reservation state; populated once at create().

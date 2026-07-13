@@ -13,6 +13,7 @@ use std::{
 use anyhow::{Context, Result};
 use core::ffi::c_void;
 use libpsycho::{
+    ffi::fnptr::FnPtr,
     hook::traits::Hook,
     os::windows::{
         directx9::{DEVICE9_VTBL_PRESENT, DEVICE9_VTBL_RESET},
@@ -104,21 +105,25 @@ fn install_device_hooks(device_ptr: *mut c_void) -> Result<()> {
         return Ok(());
     }
 
-    let present_hook = VmtHook::new(
-        "IDirect3DDevice9::Present",
-        device_ptr,
-        PRESENT_INDEX,
-        present_detour as PresentFn,
-    )?;
-    let reset_hook = VmtHook::new(
-        "IDirect3DDevice9::Reset",
-        device_ptr,
-        RESET_INDEX,
-        reset_detour as ResetFn,
-    )?;
+    let present_hook = unsafe {
+        VmtHook::new(
+            "IDirect3DDevice9::Present",
+            device_ptr,
+            PRESENT_INDEX,
+            present_detour as PresentFn,
+        )
+    }?;
+    let reset_hook = unsafe {
+        VmtHook::new(
+            "IDirect3DDevice9::Reset",
+            device_ptr,
+            RESET_INDEX,
+            reset_detour as ResetFn,
+        )
+    }?;
 
-    let original_present = unsafe { present_hook.original()? };
-    let original_reset = unsafe { reset_hook.original()? };
+    let original_present = present_hook.original();
+    let original_reset = reset_hook.original();
     ORIGINAL_PRESENT.store(original_present as usize, Ordering::Release);
     ORIGINAL_RESET.store(original_reset as usize, Ordering::Release);
 
@@ -220,7 +225,10 @@ unsafe fn call_original_present(
         return E_FAIL;
     }
 
-    let original: PresentFn = unsafe { std::mem::transmute(original) };
+    let Ok(original) = (unsafe { FnPtr::<PresentFn>::from_raw(original as *mut c_void) }) else {
+        return E_FAIL;
+    };
+    let original = original.as_fn();
     unsafe {
         original(
             device_ptr,
@@ -241,8 +249,10 @@ unsafe fn call_original_reset(
         return E_FAIL;
     }
 
-    let original: ResetFn = unsafe { std::mem::transmute(original) };
-    unsafe { original(device_ptr, params) }
+    let Ok(original) = (unsafe { FnPtr::<ResetFn>::from_raw(original as *mut c_void) }) else {
+        return E_FAIL;
+    };
+    unsafe { original.as_fn()(device_ptr, params) }
 }
 
 unsafe extern "system" fn wndproc_detour(

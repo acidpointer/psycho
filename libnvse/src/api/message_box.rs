@@ -18,7 +18,10 @@
 //! ```
 
 use closure_ffi::BareFn;
-use libpsycho::os::windows::winapi::{WinString, WinapiError};
+use libpsycho::{
+    ffi::fnptr::FnPtr,
+    os::windows::winapi::{WinString, WinapiError},
+};
 use thiserror::Error;
 
 /// ShowMessageBox function type.
@@ -53,13 +56,13 @@ pub type ShowErrorMessageBoxFn = unsafe extern "C" fn(message: *const i8);
 /// Get ShowMessageBox from game memory at 0x00703E80.
 #[inline]
 fn nvse_show_message_box() -> ShowMessageBoxFn {
-    unsafe { std::mem::transmute(0x00703E80usize) }
+    unsafe { FnPtr::<ShowMessageBoxFn>::from_address_unchecked(0x00703E80) }.as_fn()
 }
 
 /// Get ShowMessageBox_Callback from game memory at 0x005B4A70.
 #[inline]
 fn nvse_show_message_box_callback() -> ShowMessageBoxCallbackFn {
-    unsafe { std::mem::transmute(0x005B4A70usize) }
+    unsafe { FnPtr::<ShowMessageBoxCallbackFn>::from_address_unchecked(0x005B4A70) }.as_fn()
 }
 
 #[derive(Debug, Error)]

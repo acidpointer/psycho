@@ -24,206 +24,211 @@ pub fn prepare_gheap_hooks(hook_realloc_1: bool) -> anyhow::Result<bool> {
     // validates the live instruction stream and rejects targets it cannot
     // relocate safely without requiring vanilla byte-for-byte prologues.
 
-    // game heap alloc/free/msize/realloc
-    {
-        use gheap::hooks::*;
-        use gheap::statics::*;
+    // These address/signature pairs are the audited Fallout executable
+    // contract recorded by the corresponding typed statics. Preparing every
+    // hook under one unsafe boundary keeps that native ABI assumption here.
+    unsafe {
+        // game heap alloc/free/msize/realloc
+        {
+            use gheap::hooks::*;
+            use gheap::statics::*;
 
-        GHEAP_ALLOC_HOOK.init(
-            "gheap_alloc",
-            GHEAP_ALLOC_ADDR as *mut c_void,
-            hook_gheap_alloc,
-        )?;
-        GHEAP_FREE_HOOK.init(
-            "gheap_free",
-            GHEAP_FREE_ADDR as *mut c_void,
-            hook_gheap_free,
-        )?;
-        GHEAP_MSIZE_HOOK.init(
-            "gheap_msize",
-            GHEAP_MSIZE_ADDR as *mut c_void,
-            hook_gheap_msize,
-        )?;
-        realloc_1_ready = if hook_realloc_1 {
-            match GHEAP_REALLOC_HOOK_1.init(
-                "gheap_realloc1",
-                GHEAP_REALLOC_ADDR_1 as *mut c_void,
-                hook_gheap_realloc,
-            ) {
-                Ok(()) => true,
-                Err(error) => {
-                    log::warn!(
-                        "[GHEAP] Optional realloc entry 1 could not be prepared: {}. Continuing with realloc entry 2",
-                        error,
-                    );
-                    false
+            GHEAP_ALLOC_HOOK.init(
+                "gheap_alloc",
+                GHEAP_ALLOC_ADDR as *mut c_void,
+                hook_gheap_alloc,
+            )?;
+            GHEAP_FREE_HOOK.init(
+                "gheap_free",
+                GHEAP_FREE_ADDR as *mut c_void,
+                hook_gheap_free,
+            )?;
+            GHEAP_MSIZE_HOOK.init(
+                "gheap_msize",
+                GHEAP_MSIZE_ADDR as *mut c_void,
+                hook_gheap_msize,
+            )?;
+            realloc_1_ready = if hook_realloc_1 {
+                match GHEAP_REALLOC_HOOK_1.init(
+                    "gheap_realloc1",
+                    GHEAP_REALLOC_ADDR_1 as *mut c_void,
+                    hook_gheap_realloc,
+                ) {
+                    Ok(()) => true,
+                    Err(error) => {
+                        log::warn!(
+                            "[GHEAP] Optional realloc entry 1 could not be prepared: {}. Continuing with realloc entry 2",
+                            error,
+                        );
+                        false
+                    }
                 }
-            }
-        } else {
-            false
-        };
-        GHEAP_REALLOC_HOOK_2.init(
-            "gheap_realloc2",
-            GHEAP_REALLOC_ADDR_2 as *mut c_void,
-            hook_gheap_realloc,
-        )?;
-    }
+            } else {
+                false
+            };
+            GHEAP_REALLOC_HOOK_2.init(
+                "gheap_realloc2",
+                GHEAP_REALLOC_ADDR_2 as *mut c_void,
+                hook_gheap_realloc,
+            )?;
+        }
 
-    // main loop frame hooks
-    {
-        use gheap::statics::*;
+        // main loop frame hooks
+        {
+            use gheap::statics::*;
 
-        MAIN_LOOP_MAINTENANCE_HOOK.init(
-            "main_loop_maintenance",
-            MAIN_LOOP_MAINTENANCE_ADDR as *mut c_void,
-            gheap::hooks::hook_main_loop_maintenance,
-        )?;
-        PHASE10_PRE_HOOK.init(
-            "phase10_pre",
-            PHASE10_PRE_ADDR as *mut c_void,
-            gheap::hooks::hook_phase10_pre,
-        )?;
-        PHASE10_AUDIO_UPDATE_HOOK.init(
-            "phase10_audio_update",
-            PHASE10_AUDIO_UPDATE_ADDR as *mut c_void,
-            gheap::hooks::hook_phase10_audio_update,
-        )?;
-        PHASE10_AUDIO_WORKER_HOOK.init(
-            "phase10_audio_worker",
-            PHASE10_AUDIO_WORKER_ADDR as *mut c_void,
-            gheap::hooks::hook_phase10_audio_worker,
-        )?;
-        RADIO_SIGNAL_SCAN_HOOK.init(
-            "radio_signal_scan",
-            RADIO_SIGNAL_SCAN_ADDR as *mut c_void,
-            gheap::hooks::hook_radio_signal_scan,
-        )?;
-        RADIO_STATION_UPDATE_HOOK.init(
-            "radio_station_update",
-            RADIO_STATION_UPDATE_ADDR as *mut c_void,
-            gheap::hooks::hook_radio_station_update,
-        )?;
-        PHASE10_PRE_TAIL_HOOK.init(
-            "phase10_pre_tail",
-            PHASE10_PRE_TAIL_ADDR as *mut c_void,
-            gheap::hooks::hook_phase10_pre_tail,
-        )?;
-        PHASE10_WORLD_UPDATE_HOOK.init(
-            "phase10_world_update",
-            PHASE10_WORLD_UPDATE_ADDR as *mut c_void,
-            gheap::hooks::hook_phase10_world_update,
-        )?;
-        PHASE10_MID_HOOK.init(
-            "phase10_mid",
-            PHASE10_MID_ADDR as *mut c_void,
-            gheap::hooks::hook_phase10_mid,
-        )?;
-        PHASE10_QUEUE_DRAIN_HOOK.init(
-            "phase10_queue_drain",
-            PHASE10_QUEUE_DRAIN_ADDR as *mut c_void,
-            gheap::hooks::hook_phase10_queue_drain,
-        )?;
-        PHASE10_POST_HOOK.init(
-            "phase10_post",
-            PHASE10_POST_ADDR as *mut c_void,
-            gheap::hooks::hook_phase10_post,
-        )?;
-        PER_FRAME_QUEUE_DRAIN_HOOK.init(
-            "per_frame_queue_drain",
-            PER_FRAME_QUEUE_DRAIN_ADDR as *mut c_void,
-            gheap::hooks::hook_per_frame_queue_drain,
-        )?;
-    }
+            MAIN_LOOP_MAINTENANCE_HOOK.init(
+                "main_loop_maintenance",
+                MAIN_LOOP_MAINTENANCE_ADDR as *mut c_void,
+                gheap::hooks::hook_main_loop_maintenance,
+            )?;
+            PHASE10_PRE_HOOK.init(
+                "phase10_pre",
+                PHASE10_PRE_ADDR as *mut c_void,
+                gheap::hooks::hook_phase10_pre,
+            )?;
+            PHASE10_AUDIO_UPDATE_HOOK.init(
+                "phase10_audio_update",
+                PHASE10_AUDIO_UPDATE_ADDR as *mut c_void,
+                gheap::hooks::hook_phase10_audio_update,
+            )?;
+            PHASE10_AUDIO_WORKER_HOOK.init(
+                "phase10_audio_worker",
+                PHASE10_AUDIO_WORKER_ADDR as *mut c_void,
+                gheap::hooks::hook_phase10_audio_worker,
+            )?;
+            RADIO_SIGNAL_SCAN_HOOK.init(
+                "radio_signal_scan",
+                RADIO_SIGNAL_SCAN_ADDR as *mut c_void,
+                gheap::hooks::hook_radio_signal_scan,
+            )?;
+            RADIO_STATION_UPDATE_HOOK.init(
+                "radio_station_update",
+                RADIO_STATION_UPDATE_ADDR as *mut c_void,
+                gheap::hooks::hook_radio_station_update,
+            )?;
+            PHASE10_PRE_TAIL_HOOK.init(
+                "phase10_pre_tail",
+                PHASE10_PRE_TAIL_ADDR as *mut c_void,
+                gheap::hooks::hook_phase10_pre_tail,
+            )?;
+            PHASE10_WORLD_UPDATE_HOOK.init(
+                "phase10_world_update",
+                PHASE10_WORLD_UPDATE_ADDR as *mut c_void,
+                gheap::hooks::hook_phase10_world_update,
+            )?;
+            PHASE10_MID_HOOK.init(
+                "phase10_mid",
+                PHASE10_MID_ADDR as *mut c_void,
+                gheap::hooks::hook_phase10_mid,
+            )?;
+            PHASE10_QUEUE_DRAIN_HOOK.init(
+                "phase10_queue_drain",
+                PHASE10_QUEUE_DRAIN_ADDR as *mut c_void,
+                gheap::hooks::hook_phase10_queue_drain,
+            )?;
+            PHASE10_POST_HOOK.init(
+                "phase10_post",
+                PHASE10_POST_ADDR as *mut c_void,
+                gheap::hooks::hook_phase10_post,
+            )?;
+            PER_FRAME_QUEUE_DRAIN_HOOK.init(
+                "per_frame_queue_drain",
+                PER_FRAME_QUEUE_DRAIN_ADDR as *mut c_void,
+                gheap::hooks::hook_per_frame_queue_drain,
+            )?;
+        }
 
-    // ai thread sync
-    {
-        use gheap::statics::*;
+        // ai thread sync
+        {
+            use gheap::statics::*;
 
-        AI_THREAD_START_HOOK.init(
-            "ai_thread_start",
-            AI_THREAD_START_ADDR as *mut c_void,
-            gheap::hooks::hook_ai_thread_start,
-        )?;
-        AI_THREAD_JOIN_HOOK.init(
-            "ai_thread_join",
-            AI_THREAD_JOIN_ADDR as *mut c_void,
-            gheap::hooks::hook_ai_thread_join,
-        )?;
-    }
+            AI_THREAD_START_HOOK.init(
+                "ai_thread_start",
+                AI_THREAD_START_ADDR as *mut c_void,
+                gheap::hooks::hook_ai_thread_start,
+            )?;
+            AI_THREAD_JOIN_HOOK.init(
+                "ai_thread_join",
+                AI_THREAD_JOIN_ADDR as *mut c_void,
+                gheap::hooks::hook_ai_thread_join,
+            )?;
+        }
 
-    // OOM Stage 8 (HeapCompact) -- safe BSTaskManagerThread semaphore release
-    {
-        use gheap::statics::*;
+        // OOM Stage 8 (HeapCompact) -- safe BSTaskManagerThread semaphore release
+        {
+            use gheap::statics::*;
 
-        OOM_STAGE_EXEC_HOOK.init(
-            "oom_stage_exec",
-            OOM_STAGE_EXEC_HOOK_ADDR as *mut c_void,
-            gheap::hooks::hook_oom_stage_exec,
-        )?;
-    }
+            OOM_STAGE_EXEC_HOOK.init(
+                "oom_stage_exec",
+                OOM_STAGE_EXEC_HOOK_ADDR as *mut c_void,
+                gheap::hooks::hook_oom_stage_exec,
+            )?;
+        }
 
-    // texture cache dead set
-    {
-        use gheap::statics::*;
+        // texture cache dead set
+        {
+            use gheap::statics::*;
 
-        TEXTURE_CACHE_FIND_HOOK.init(
-            "texture_cache_find",
-            TEXTURE_CACHE_FIND_ADDR as *mut c_void,
-            gheap::texture_cache::hook_texture_cache_find,
-        )?;
-        NISOURCETEXTURE_DTOR_HOOK.init(
-            "nisourcetexture_dtor",
-            NISOURCETEXTURE_DTOR_ADDR as *mut c_void,
-            gheap::texture_cache::hook_nisourcetexture_dtor,
-        )?;
-    }
+            TEXTURE_CACHE_FIND_HOOK.init(
+                "texture_cache_find",
+                TEXTURE_CACHE_FIND_ADDR as *mut c_void,
+                gheap::texture_cache::hook_texture_cache_find,
+            )?;
+            NISOURCETEXTURE_DTOR_HOOK.init(
+                "nisourcetexture_dtor",
+                NISOURCETEXTURE_DTOR_ADDR as *mut c_void,
+                gheap::texture_cache::hook_nisourcetexture_dtor,
+            )?;
+        }
 
-    // gheap-only model task destructor guard
-    {
-        use gheap::statics::*;
-        MODEL_TASK_DTOR_HOOK.init(
-            "model_task_dtor_guard",
-            MODEL_TASK_DTOR_ADDR as *mut c_void,
-            gheap::model_task_fix::hook_model_task_dtor,
-        )?;
-    }
+        // gheap-only model task destructor guard
+        {
+            use gheap::statics::*;
+            MODEL_TASK_DTOR_HOOK.init(
+                "model_task_dtor_guard",
+                MODEL_TASK_DTOR_ADDR as *mut c_void,
+                gheap::model_task_fix::hook_model_task_dtor,
+            )?;
+        }
 
-    // CRT inline hooks
-    {
-        use super::crt_inline::*;
+        // CRT inline hooks
+        {
+            use super::crt_inline::*;
 
-        MALLOC_HOOK_1.init("malloc1", MALLOC_ADDR_1 as *mut c_void, hook_malloc)?;
-        MALLOC_HOOK_2.init("malloc2", MALLOC_ADDR_2 as *mut c_void, hook_malloc)?;
-        CALLOC_HOOK_1.init("calloc1", CALLOC_ADDR_1 as *mut c_void, hook_calloc)?;
-        CALLOC_HOOK_2.init("calloc2", CALLOC_ADDR_2 as *mut c_void, hook_calloc)?;
-        REALLOC_HOOK_1.init("realloc1", REALLOC_ADDR_1 as *mut c_void, hook_realloc)?;
-        REALLOC_HOOK_2.init("realloc2", REALLOC_ADDR_2 as *mut c_void, hook_realloc)?;
-        RECALLOC_HOOK_1.init("recalloc1", RECALLOC_ADDR_1 as *mut c_void, hook_recalloc)?;
-        RECALLOC_HOOK_2.init("recalloc2", RECALLOC_ADDR_2 as *mut c_void, hook_recalloc)?;
-        FREE_HOOK.init("free", FREE_ADDR as *mut c_void, hook_free)?;
-        MSIZE_HOOK.init("msize", MSIZE_ADDR as *mut c_void, hook_msize)?;
-    }
+            MALLOC_HOOK_1.init("malloc1", MALLOC_ADDR_1 as *mut c_void, hook_malloc)?;
+            MALLOC_HOOK_2.init("malloc2", MALLOC_ADDR_2 as *mut c_void, hook_malloc)?;
+            CALLOC_HOOK_1.init("calloc1", CALLOC_ADDR_1 as *mut c_void, hook_calloc)?;
+            CALLOC_HOOK_2.init("calloc2", CALLOC_ADDR_2 as *mut c_void, hook_calloc)?;
+            REALLOC_HOOK_1.init("realloc1", REALLOC_ADDR_1 as *mut c_void, hook_realloc)?;
+            REALLOC_HOOK_2.init("realloc2", REALLOC_ADDR_2 as *mut c_void, hook_realloc)?;
+            RECALLOC_HOOK_1.init("recalloc1", RECALLOC_ADDR_1 as *mut c_void, hook_recalloc)?;
+            RECALLOC_HOOK_2.init("recalloc2", RECALLOC_ADDR_2 as *mut c_void, hook_recalloc)?;
+            FREE_HOOK.init("free", FREE_ADDR as *mut c_void, hook_free)?;
+            MSIZE_HOOK.init("msize", MSIZE_ADDR as *mut c_void, hook_msize)?;
+        }
 
-    // havok world lock tracking
-    {
-        use gheap::hooks::{hook_hkworld_lock, hook_hkworld_unlock};
-        use gheap::statics::*;
+        // havok world lock tracking
+        {
+            use gheap::hooks::{hook_hkworld_lock, hook_hkworld_unlock};
+            use gheap::statics::*;
 
-        HAVOK_STOP_START_HOOK.init(
-            "havok_stop_start",
-            HAVOK_STOP_START_ADDR as *mut c_void,
-            gheap::hooks::hook_havok_stop_start,
-        )?;
-        HKWORLD_LOCK_HOOK.init(
-            "hkworld_lock",
-            HKWORLD_LOCK_ADDR as *mut c_void,
-            hook_hkworld_lock,
-        )?;
-        HKWORLD_UNLOCK_HOOK.init(
-            "hkworld_unlock",
-            HKWORLD_UNLOCK_ADDR as *mut c_void,
-            hook_hkworld_unlock,
-        )?;
+            HAVOK_STOP_START_HOOK.init(
+                "havok_stop_start",
+                HAVOK_STOP_START_ADDR as *mut c_void,
+                gheap::hooks::hook_havok_stop_start,
+            )?;
+            HKWORLD_LOCK_HOOK.init(
+                "hkworld_lock",
+                HKWORLD_LOCK_ADDR as *mut c_void,
+                hook_hkworld_lock,
+            )?;
+            HKWORLD_UNLOCK_HOOK.init(
+                "hkworld_unlock",
+                HKWORLD_UNLOCK_ADDR as *mut c_void,
+                hook_hkworld_unlock,
+            )?;
+        }
     }
 
     log::info!("[GHEAP] Hook trampolines prepared");
@@ -292,24 +297,27 @@ pub fn install_gheap_and_sheap_hooks(hook_realloc_1: bool) -> anyhow::Result<()>
 pub fn prepare_sheap_hooks() -> anyhow::Result<()> {
     use scrap_heap::*;
 
-    GET_THREAD_LOCAL_HOOK.init(
-        "sheap_get_thread_local",
-        SHEAP_GET_THREAD_LOCAL_ADDR as *mut c_void,
-        hook_get_thread_local,
-    )?;
-    INIT_FIX_HOOK.init(
-        "sheap_init_fix",
-        SHEAP_INIT_FIX_ADDR as *mut c_void,
-        hook_init_fix,
-    )?;
-    INIT_VAR_HOOK.init(
-        "sheap_init_var",
-        SHEAP_INIT_VAR_ADDR as *mut c_void,
-        hook_init_var,
-    )?;
-    ALLOC_HOOK.init("sheap_alloc", SHEAP_ALLOC_ADDR as *mut c_void, hook_alloc)?;
-    FREE_HOOK.init("sheap_free", SHEAP_FREE_ADDR as *mut c_void, hook_free)?;
-    PURGE_HOOK.init("sheap_purge", SHEAP_PURGE_ADDR as *mut c_void, hook_purge)?;
+    // Each typed hook signature is the audited ABI for its fixed game address.
+    unsafe {
+        GET_THREAD_LOCAL_HOOK.init(
+            "sheap_get_thread_local",
+            SHEAP_GET_THREAD_LOCAL_ADDR as *mut c_void,
+            hook_get_thread_local,
+        )?;
+        INIT_FIX_HOOK.init(
+            "sheap_init_fix",
+            SHEAP_INIT_FIX_ADDR as *mut c_void,
+            hook_init_fix,
+        )?;
+        INIT_VAR_HOOK.init(
+            "sheap_init_var",
+            SHEAP_INIT_VAR_ADDR as *mut c_void,
+            hook_init_var,
+        )?;
+        ALLOC_HOOK.init("sheap_alloc", SHEAP_ALLOC_ADDR as *mut c_void, hook_alloc)?;
+        FREE_HOOK.init("sheap_free", SHEAP_FREE_ADDR as *mut c_void, hook_free)?;
+        PURGE_HOOK.init("sheap_purge", SHEAP_PURGE_ADDR as *mut c_void, hook_purge)?;
+    }
 
     log::info!("[scrap_heap] Hook trampolines prepared");
     Ok(())

@@ -12,7 +12,10 @@ use windows::Win32::System::Memory::{
     PAGE_GUARD, PAGE_NOACCESS,
 };
 
-use libpsycho::os::windows::winapi::{get_current_thread_id, safe_write_32, virtual_query};
+use libpsycho::{
+    ffi::fnptr::FnPtr,
+    os::windows::winapi::{get_current_thread_id, safe_write_32, virtual_query},
+};
 
 use crate::{events, mods::diagnostics};
 
@@ -192,7 +195,10 @@ unsafe extern "thiscall" fn checked_append_ref_id(
     } else {
         statics::APPEND_REF_ID_ADDR
     };
-    let original: AppendRefIdFn = unsafe { std::mem::transmute(target) };
+    let Ok(original) = (unsafe { FnPtr::<AppendRefIdFn>::from_raw(target as *mut c_void) }) else {
+        return;
+    };
+    let original = original.as_fn();
     unsafe { original(writer, checked, flags) };
 }
 
@@ -204,7 +210,11 @@ unsafe extern "thiscall" fn main_task_drain_with_slot_wrapping(manager: *mut c_v
     } else {
         statics::MAIN_TASK_DRAIN_ADDR
     };
-    let original: MainTaskDrainFn = unsafe { std::mem::transmute(target) };
+    let Ok(original) = (unsafe { FnPtr::<MainTaskDrainFn>::from_raw(target as *mut c_void) })
+    else {
+        return;
+    };
+    let original = original.as_fn();
     unsafe { original(manager, arg) };
 }
 
@@ -221,7 +231,11 @@ unsafe extern "thiscall" fn process_cleanup_wrapper(
     } else {
         statics::VANILLA_LOWPROCESS_FUNC011F
     };
-    let original: ProcessCleanupFn = unsafe { std::mem::transmute(target) };
+    let Ok(original) = (unsafe { FnPtr::<ProcessCleanupFn>::from_raw(target as *mut c_void) })
+    else {
+        return;
+    };
+    let original = original.as_fn();
     unsafe { original(process, removed_ref) };
 }
 
@@ -322,9 +336,10 @@ fn sanitize_generic_locations(process: *mut c_void, removed_ref: *mut c_void) {
         return;
     }
 
-    let remove_head: ListHeadRemoveFn = unsafe { std::mem::transmute(LIST_HEAD_REMOVE_ADDR) };
-    let remove: ListRemoveFn = unsafe { std::mem::transmute(LIST_REMOVE_ADDR) };
-    let next: ListNextFn = unsafe { std::mem::transmute(LIST_NEXT_ADDR) };
+    let remove_head =
+        unsafe { FnPtr::<ListHeadRemoveFn>::from_address_unchecked(LIST_HEAD_REMOVE_ADDR) }.as_fn();
+    let remove = unsafe { FnPtr::<ListRemoveFn>::from_address_unchecked(LIST_REMOVE_ADDR) }.as_fn();
+    let next = unsafe { FnPtr::<ListNextFn>::from_address_unchecked(LIST_NEXT_ADDR) }.as_fn();
     let mut current =
         unsafe { (process as *mut u8).add(GENERIC_LOCATIONS_OFFSET) as *mut ListNode };
     let mut previous: *mut ListNode = ptr::null_mut();

@@ -204,11 +204,13 @@ fn install_navmesh_low_pointer(config: &EngineFixesConfig) -> anyhow::Result<()>
         return Ok(());
     }
 
-    statics::NAVMESH_NAME_HELPER_HOOK.init(
-        "navmesh_name_helper_guard",
-        statics::NAVMESH_NAME_HELPER_ADDR as *mut c_void,
-        navmesh::hook_navmesh_name_helper,
-    )?;
+    unsafe {
+        statics::NAVMESH_NAME_HELPER_HOOK.init(
+            "navmesh_name_helper_guard",
+            statics::NAVMESH_NAME_HELPER_ADDR as *mut c_void,
+            navmesh::hook_navmesh_name_helper,
+        )?;
+    }
     statics::NAVMESH_NAME_HELPER_HOOK.enable()?;
     log::info!("[NAVMESH] Low pointer guard active");
     Ok(())
@@ -220,16 +222,18 @@ fn install_entrydata_invalid_form(config: &EngineFixesConfig) -> anyhow::Result<
         return Ok(());
     }
 
-    statics::ENTRYDATA_LIST_SAVE_HOOK.init(
-        "entrydata_list_save_guard",
-        statics::ENTRYDATA_LIST_SAVE_ADDR as *mut c_void,
-        entrydata::hook_entrydata_list_save,
-    )?;
-    statics::ENTRYDATA_LOAD_HOOK.init(
-        "entrydata_load_guard",
-        statics::ENTRYDATA_LOAD_ADDR as *mut c_void,
-        entrydata::hook_entrydata_load,
-    )?;
+    unsafe {
+        statics::ENTRYDATA_LIST_SAVE_HOOK.init(
+            "entrydata_list_save_guard",
+            statics::ENTRYDATA_LIST_SAVE_ADDR as *mut c_void,
+            entrydata::hook_entrydata_list_save,
+        )?;
+        statics::ENTRYDATA_LOAD_HOOK.init(
+            "entrydata_load_guard",
+            statics::ENTRYDATA_LOAD_ADDR as *mut c_void,
+            entrydata::hook_entrydata_load,
+        )?;
+    }
     statics::ENTRYDATA_LIST_SAVE_HOOK.enable()?;
     statics::ENTRYDATA_LOAD_HOOK.enable()?;
     log::info!("[ENTRYDATA] Invalid form guard active");
@@ -242,11 +246,13 @@ fn install_extraownership_invalid_owner(config: &EngineFixesConfig) -> anyhow::R
         return Ok(());
     }
 
-    statics::BASE_EXTRA_LIST_GET_BY_TYPE_HOOK.init(
-        "base_extra_list_get_by_type_ownership_guard",
-        statics::BASE_EXTRA_LIST_GET_BY_TYPE_ADDR as *mut c_void,
-        extraownership::hook_base_extra_list_get_by_type,
-    )?;
+    unsafe {
+        statics::BASE_EXTRA_LIST_GET_BY_TYPE_HOOK.init(
+            "base_extra_list_get_by_type_ownership_guard",
+            statics::BASE_EXTRA_LIST_GET_BY_TYPE_ADDR as *mut c_void,
+            extraownership::hook_base_extra_list_get_by_type,
+        )?;
+    }
     statics::BASE_EXTRA_LIST_GET_BY_TYPE_HOOK.enable()?;
     extraownership::install_load_hook()?;
     log::info!("[EXTRAOWNERSHIP] Invalid owner guard active");
@@ -281,21 +287,23 @@ fn install_ragdoll_null_bone(config: &EngineFixesConfig) -> anyhow::Result<()> {
         return Ok(());
     }
 
-    statics::RAGDOLL_BONE_TRANSFORM_UPDATE_HOOK.init(
-        "ragdoll_bone_transform_update_guard",
-        statics::RAGDOLL_BONE_TRANSFORM_UPDATE_ADDR as *mut c_void,
-        ragdoll::hook_ragdoll_bone_transform_update,
-    )?;
-    statics::RAGDOLL_ALTERNATE_UPDATE_HOOK.init(
-        "ragdoll_alternate_update_guard",
-        statics::RAGDOLL_ALTERNATE_UPDATE_ADDR as *mut c_void,
-        ragdoll::hook_ragdoll_alternate_update,
-    )?;
-    statics::RAGDOLL_SAVE_LOAD_WRITEBACK_HOOK.init(
-        "ragdoll_save_load_writeback_guard",
-        statics::RAGDOLL_SAVE_LOAD_WRITEBACK_ADDR as *mut c_void,
-        ragdoll::hook_ragdoll_save_load_writeback,
-    )?;
+    unsafe {
+        statics::RAGDOLL_BONE_TRANSFORM_UPDATE_HOOK.init(
+            "ragdoll_bone_transform_update_guard",
+            statics::RAGDOLL_BONE_TRANSFORM_UPDATE_ADDR as *mut c_void,
+            ragdoll::hook_ragdoll_bone_transform_update,
+        )?;
+        statics::RAGDOLL_ALTERNATE_UPDATE_HOOK.init(
+            "ragdoll_alternate_update_guard",
+            statics::RAGDOLL_ALTERNATE_UPDATE_ADDR as *mut c_void,
+            ragdoll::hook_ragdoll_alternate_update,
+        )?;
+        statics::RAGDOLL_SAVE_LOAD_WRITEBACK_HOOK.init(
+            "ragdoll_save_load_writeback_guard",
+            statics::RAGDOLL_SAVE_LOAD_WRITEBACK_ADDR as *mut c_void,
+            ragdoll::hook_ragdoll_save_load_writeback,
+        )?;
+    }
     statics::RAGDOLL_BONE_TRANSFORM_UPDATE_HOOK.enable()?;
     statics::RAGDOLL_ALTERNATE_UPDATE_HOOK.enable()?;
     statics::RAGDOLL_SAVE_LOAD_WRITEBACK_HOOK.enable()?;
@@ -306,42 +314,50 @@ fn install_ragdoll_null_bone(config: &EngineFixesConfig) -> anyhow::Result<()> {
 
 fn install_havok_guards(config: &EngineFixesConfig) -> anyhow::Result<()> {
     if config.havok_add_entity_batch_null_guard {
-        statics::HAVOK_ADD_ENTITY_BATCH_HOOK.init(
-            "havok_add_entity_batch_null_guard",
-            statics::HAVOK_ADD_ENTITY_BATCH_ADDR as *mut c_void,
-            havok::hook_havok_add_entity_batch,
-        )?;
+        unsafe {
+            statics::HAVOK_ADD_ENTITY_BATCH_HOOK.init(
+                "havok_add_entity_batch_null_guard",
+                statics::HAVOK_ADD_ENTITY_BATCH_ADDR as *mut c_void,
+                havok::hook_havok_add_entity_batch,
+            )?;
+        }
         statics::HAVOK_ADD_ENTITY_BATCH_HOOK.enable()?;
         log::info!("[HAVOK] Add-entity batch NULL guard active");
     }
 
     if config.havok_pending_add_null_guard {
-        statics::HAVOK_PENDING_ADD_FLUSH_HOOK.init(
-            "havok_pending_add_null_guard",
-            statics::HAVOK_PENDING_ADD_FLUSH_ADDR as *mut c_void,
-            havok::hook_havok_pending_add_flush,
-        )?;
+        unsafe {
+            statics::HAVOK_PENDING_ADD_FLUSH_HOOK.init(
+                "havok_pending_add_null_guard",
+                statics::HAVOK_PENDING_ADD_FLUSH_ADDR as *mut c_void,
+                havok::hook_havok_pending_add_flush,
+            )?;
+        }
         statics::HAVOK_PENDING_ADD_FLUSH_HOOK.enable()?;
         havok::install_pending_add_loop_null_guard()?;
         log::info!("[HAVOK] Pending-add NULL guard active");
     }
 
     if config.havok_narrowphase_invalid_pair_guard {
-        statics::HAVOK_NARROWPHASE_ADD_AGENTS_HOOK.init(
-            "havok_narrowphase_invalid_pair_guard",
-            statics::HAVOK_NARROWPHASE_ADD_AGENTS_ADDR as *mut c_void,
-            havok::hook_havok_narrowphase_add_agents,
-        )?;
+        unsafe {
+            statics::HAVOK_NARROWPHASE_ADD_AGENTS_HOOK.init(
+                "havok_narrowphase_invalid_pair_guard",
+                statics::HAVOK_NARROWPHASE_ADD_AGENTS_ADDR as *mut c_void,
+                havok::hook_havok_narrowphase_add_agents,
+            )?;
+        }
         statics::HAVOK_NARROWPHASE_ADD_AGENTS_HOOK.enable()?;
         log::info!("[HAVOK] Narrowphase invalid-pair guard active");
     }
 
     if config.havok_post_add_null_entity_guard {
-        statics::HAVOK_ENTITY_POST_ADD_HOOK.init(
-            "havok_post_add_null_entity_guard",
-            statics::HAVOK_ENTITY_POST_ADD_ADDR as *mut c_void,
-            havok::hook_havok_entity_post_add,
-        )?;
+        unsafe {
+            statics::HAVOK_ENTITY_POST_ADD_HOOK.init(
+                "havok_post_add_null_entity_guard",
+                statics::HAVOK_ENTITY_POST_ADD_ADDR as *mut c_void,
+                havok::hook_havok_entity_post_add,
+            )?;
+        }
         statics::HAVOK_ENTITY_POST_ADD_HOOK.enable()?;
         log::info!("[HAVOK] Post-add NULL entity guard active");
     }
@@ -359,11 +375,13 @@ fn install_memset_null_dst(config: &EngineFixesConfig) -> anyhow::Result<()> {
         return Ok(());
     }
 
-    statics::MEMSET_HOOK.init(
-        "memset_null_dst_guard",
-        statics::MEMSET_ADDR as *mut c_void,
-        memset::hook_memset,
-    )?;
+    unsafe {
+        statics::MEMSET_HOOK.init(
+            "memset_null_dst_guard",
+            statics::MEMSET_ADDR as *mut c_void,
+            memset::hook_memset,
+        )?;
+    }
     statics::MEMSET_HOOK.enable()?;
     log::info!("[CRT] _memset NULL-dst guard active");
     Ok(())

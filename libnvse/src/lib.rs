@@ -93,6 +93,12 @@ pub use nvse_bindings::root::{
     Cmd_Execute, NVSEInterface as NVSEInterfaceFFI, PluginInfo as PluginInfoFFI,
 };
 
+// Public only so `nvse_command!` can name the exact bindgen ABI types when the
+// macro expands in another crate. Plugin code should continue using the safe
+// command API instead of these raw engine structures.
+#[doc(hidden)]
+pub use nvse_bindings::root::{ParamInfo, Script, ScriptEventList, TESObjectREFR, UInt32};
+
 pub mod api;
 pub mod plugin;
 

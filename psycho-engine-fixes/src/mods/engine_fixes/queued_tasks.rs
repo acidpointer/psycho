@@ -12,7 +12,10 @@ use windows::Win32::System::Memory::{
     PAGE_GUARD, PAGE_NOACCESS,
 };
 
-use libpsycho::os::windows::winapi::{get_current_thread_id, virtual_query};
+use libpsycho::{
+    ffi::fnptr::FnPtr,
+    os::windows::winapi::{get_current_thread_id, virtual_query},
+};
 
 use crate::mods::{
     diagnostics,
@@ -206,8 +209,12 @@ unsafe extern "thiscall" fn checked_dispatch(task: *mut c_void, argument: usize)
         statics::TASK_DISPATCH_ADDR,
     );
     increment_main_thread(&DISPATCH_CALLS);
-    let callback_fn: TaskCallbackFn = unsafe { std::mem::transmute(callback) };
-    unsafe { callback_fn(task, argument) };
+    let Ok(callback_fn) = (unsafe { FnPtr::<TaskCallbackFn>::from_raw(callback as *mut c_void) })
+    else {
+        release_dispatch_pin(task);
+        return;
+    };
+    unsafe { callback_fn.as_fn()(task, argument) };
     release_dispatch_pin(task);
 }
 
@@ -308,8 +315,10 @@ fn call_previous_release(task: *mut c_void) {
         );
         return;
     }
-    let previous: TaskReleaseFn = unsafe { std::mem::transmute(target) };
-    unsafe { previous(task) };
+    let Ok(previous) = (unsafe { FnPtr::<TaskReleaseFn>::from_raw(target as *mut c_void) }) else {
+        return;
+    };
+    unsafe { previous.as_fn()(task) };
 }
 
 fn tombstone(task: *mut c_void) {

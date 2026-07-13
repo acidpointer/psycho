@@ -15,7 +15,10 @@
 //! hud_message_with("Ouch!", Emotion::Pain, 3.0)?;
 //! ```
 
-use libpsycho::os::windows::winapi::{WinString, WinapiError};
+use libpsycho::{
+    ffi::fnptr::FnPtr,
+    os::windows::winapi::{WinString, WinapiError},
+};
 use thiserror::Error;
 
 /// QueueUIMessage function signature from GameAPI.h.
@@ -33,7 +36,7 @@ type QueueUIMessageFn = unsafe extern "C" fn(
 /// QueueUIMessage at 0x007052F0 (Fallout New Vegas).
 #[inline]
 fn queue_ui_message() -> QueueUIMessageFn {
-    unsafe { std::mem::transmute(0x007052F0usize) }
+    unsafe { FnPtr::<QueueUIMessageFn>::from_address_unchecked(0x007052F0) }.as_fn()
 }
 
 /// Vault Boy emotion shown in the notification icon.

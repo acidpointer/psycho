@@ -170,9 +170,8 @@ unsafe fn find_skipping_dead(mut entry: *const u32, key: i32, out: *mut *mut i32
                                         >::from_raw(
                                             dtor_addr as *mut c_void
                                         )
-                                        && let Ok(f) = dtor.as_fn()
                                     {
-                                        f(old_val as *mut c_void);
+                                        dtor.as_fn()(old_val as *mut c_void);
                                     }
                                     // If invalid, skip destructor -- memory leak is better
                                     // than jumping to arbitrary code.

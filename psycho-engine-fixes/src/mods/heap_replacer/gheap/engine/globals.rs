@@ -36,16 +36,10 @@ pub fn is_loading() -> bool {
 /// Ghidra-validated: LOADING_FLAG = FUN_00702360() || FUN_00709bc0().
 /// FUN_00709bc0 checks console/menu state -> causes false loading transitions.
 pub fn is_real_loading() -> bool {
-    let f = match unsafe {
-        FnPtr::<types::IsRealLoadingFn>::from_raw(addr::IS_REAL_LOADING as *mut c_void)
-    } {
-        Ok(f) => f,
-        Err(_) => return false,
-    };
-    match unsafe { f.as_fn() } {
-        Ok(f) => unsafe { f() },
-        Err(_) => false,
-    }
+    let is_real_loading =
+        unsafe { FnPtr::<types::IsRealLoadingFn>::from_address_unchecked(addr::IS_REAL_LOADING) }
+            .as_fn();
+    unsafe { is_real_loading() }
 }
 
 /// HeapCompact stages. The game's HeapCompact dispatcher at Phase 6
@@ -251,41 +245,17 @@ pub unsafe fn release_bstask_sems_if_owned() -> bool {
         return false;
     }
 
-    let get_owner = match unsafe {
-        FnPtr::<types::BstaskGetOwnerFn>::from_raw(addr::BSTASK_GET_OWNER as *mut c_void)
-    } {
-        Ok(f) => f,
-        Err(e) => {
-            log::error!("[BSTASK] FnPtr::from_raw(BSTASK_GET_OWNER) failed: {:?}", e);
-            return false;
-        }
-    };
-
-    let release_sem = match unsafe {
-        FnPtr::<types::BstaskReleaseSemFn>::from_raw(addr::BSTASK_RELEASE_SEM as *mut c_void)
-    } {
-        Ok(f) => f,
-        Err(e) => {
-            log::error!(
-                "[BSTASK] FnPtr::from_raw(BSTASK_RELEASE_SEM) failed: {:?}",
-                e
-            );
-            return false;
-        }
-    };
-
-    let signal_idle = match unsafe {
-        FnPtr::<types::BstaskSignalIdleFn>::from_raw(addr::BSTASK_SIGNAL_IDLE as *mut c_void)
-    } {
-        Ok(f) => f,
-        Err(e) => {
-            log::error!(
-                "[BSTASK] FnPtr::from_raw(BSTASK_SIGNAL_IDLE) failed: {:?}",
-                e
-            );
-            return false;
-        }
-    };
+    let get_owner =
+        unsafe { FnPtr::<types::BstaskGetOwnerFn>::from_address_unchecked(addr::BSTASK_GET_OWNER) }
+            .as_fn();
+    let release_sem = unsafe {
+        FnPtr::<types::BstaskReleaseSemFn>::from_address_unchecked(addr::BSTASK_RELEASE_SEM)
+    }
+    .as_fn();
+    let signal_idle = unsafe {
+        FnPtr::<types::BstaskSignalIdleFn>::from_address_unchecked(addr::BSTASK_SIGNAL_IDLE)
+    }
+    .as_fn();
 
     let current_tid = libpsycho::os::windows::winapi::get_current_thread_id();
     let mut released = false;
@@ -298,17 +268,7 @@ pub unsafe fn release_bstask_sems_if_owned() -> bool {
             continue;
         }
 
-        let owner = match unsafe { get_owner.as_fn() } {
-            Ok(f) => unsafe { f(io_manager, idx) },
-            Err(e) => {
-                log::error!(
-                    "[BSTASK] get_owner.as_fn() failed for thread {}: {:?}",
-                    idx,
-                    e
-                );
-                continue;
-            }
-        };
+        let owner = unsafe { get_owner(io_manager, idx) };
         if owner != current_tid {
             continue;
         }
@@ -317,22 +277,8 @@ pub unsafe fn release_bstask_sems_if_owned() -> bool {
             "[BSTASK] Thread {} semaphore owned by current thread, releasing...",
             idx
         );
-        match unsafe { release_sem.as_fn() } {
-            Ok(f) => unsafe { f(io_manager, idx) },
-            Err(e) => log::error!(
-                "[BSTASK] release_sem.as_fn() failed for thread {}: {:?}",
-                idx,
-                e
-            ),
-        }
-        match unsafe { signal_idle.as_fn() } {
-            Ok(f) => unsafe { f(io_manager, idx) },
-            Err(e) => log::error!(
-                "[BSTASK] signal_idle.as_fn() failed for thread {}: {:?}",
-                idx,
-                e
-            ),
-        }
+        unsafe { release_sem(io_manager, idx) };
+        unsafe { signal_idle(io_manager, idx) };
         released = true;
     }
 
@@ -356,24 +302,12 @@ pub unsafe fn run_single_oom_stage(stage: i32) -> (i32, bool) {
         *p
     };
 
-    let oom_exec = match unsafe {
-        FnPtr::<types::OomStageExecFn>::from_raw(addr::OOM_STAGE_EXEC as *mut c_void)
-    } {
-        Ok(f) => f,
-        Err(e) => {
-            log::error!("[OOM] FnPtr::from_raw(OOM_STAGE_EXEC) failed: {:?}", e);
-            return (stage + 1, true);
-        }
-    };
+    let oom_exec =
+        unsafe { FnPtr::<types::OomStageExecFn>::from_address_unchecked(addr::OOM_STAGE_EXEC) }
+            .as_fn();
 
     let mut done: u8 = 0;
-    let next = match unsafe { oom_exec.as_fn() } {
-        Ok(f) => unsafe { f(heap_singleton, primary_heap, stage, &mut done) },
-        Err(e) => {
-            log::error!("[OOM] oom_exec.as_fn() failed at stage {}: {:?}", stage, e);
-            return (stage + 1, true);
-        }
-    };
+    let next = unsafe { oom_exec(heap_singleton, primary_heap, stage, &mut done) };
 
     (next, done != 0)
 }
@@ -392,22 +326,11 @@ pub unsafe fn run_single_oom_stage(stage: i32) -> (i32, bool) {
 /// The game's HeapCompact stage 5 and CellTransitionHandler both call this.
 /// Safety: must be called on the main thread.
 pub unsafe fn set_tls_cleanup_flag(value: u8) {
-    let f = match unsafe {
-        FnPtr::<types::SetTlsCleanupFlagFn>::from_raw(addr::SET_TLS_CLEANUP_FLAG as *mut c_void)
-    } {
-        Ok(f) => f,
-        Err(e) => {
-            log::error!(
-                "[TLS_FLAG] FnPtr::from_raw(SET_TLS_CLEANUP_FLAG) failed: {:?}",
-                e
-            );
-            return;
-        }
-    };
-    match unsafe { f.as_fn() } {
-        Ok(f) => unsafe { f(value) },
-        Err(e) => log::error!("[TLS_FLAG] as_fn() failed: {:?}", e),
+    let set_flag = unsafe {
+        FnPtr::<types::SetTlsCleanupFlagFn>::from_address_unchecked(addr::SET_TLS_CLEANUP_FLAG)
     }
+    .as_fn();
+    unsafe { set_flag(value) };
 }
 
 /// Process pending cleanup queue after cell unloading.
@@ -423,21 +346,13 @@ pub unsafe fn set_tls_cleanup_flag(value: u8) {
 ///
 /// Safety: must be called on the main thread with GAME_MANAGER valid.
 pub unsafe fn process_pending_cleanup(manager: *mut c_void, flush: u8) {
-    let f = match unsafe {
-        FnPtr::<types::ProcessPendingCleanupFn>::from_raw(
-            addr::PROCESS_PENDING_CLEANUP as *mut c_void,
+    let process = unsafe {
+        FnPtr::<types::ProcessPendingCleanupFn>::from_address_unchecked(
+            addr::PROCESS_PENDING_CLEANUP,
         )
-    } {
-        Ok(f) => f,
-        Err(e) => {
-            log::error!("[PENDING_CLEANUP] FnPtr::from_raw failed: {:?}", e);
-            return;
-        }
-    };
-    match unsafe { f.as_fn() } {
-        Ok(f) => unsafe { f(manager, flush) },
-        Err(e) => log::error!("[PENDING_CLEANUP] as_fn() failed: {:?}", e),
     }
+    .as_fn();
+    unsafe { process(manager, flush) };
 }
 
 /// Try to find and unload one loaded cell. Returns true if a cell was
@@ -445,26 +360,12 @@ pub unsafe fn process_pending_cleanup(manager: *mut c_void, flush: u8) {
 ///
 /// Safety: must be called on the main thread. Modifies unsynchronized
 /// cell arrays in the game manager.
-pub unsafe fn find_cell_to_unload(manager: *mut c_void) -> Option<bool> {
-    let f = match unsafe {
-        FnPtr::<types::FindCellToUnloadFn>::from_raw(addr::FIND_CELL_TO_UNLOAD as *mut c_void)
-    } {
-        Ok(f) => f,
-        Err(e) => {
-            log::error!(
-                "[CELL_UNLOAD] FnPtr::from_raw(FIND_CELL_TO_UNLOAD) failed: {:?}",
-                e
-            );
-            return None;
-        }
-    };
-    match unsafe { f.as_fn() } {
-        Ok(f) => Some((unsafe { f(manager) } & 0xFF) != 0),
-        Err(e) => {
-            log::error!("[CELL_UNLOAD] find_cell_to_unload as_fn() failed: {:?}", e);
-            None
-        }
+pub unsafe fn find_cell_to_unload(manager: *mut c_void) -> bool {
+    let find = unsafe {
+        FnPtr::<types::FindCellToUnloadFn>::from_address_unchecked(addr::FIND_CELL_TO_UNLOAD)
     }
+    .as_fn();
+    (unsafe { find(manager) } & 0xFF) != 0
 }
 
 /// Lock the Havok world and invalidate the scene graph for safe destruction.
@@ -472,47 +373,27 @@ pub unsafe fn find_cell_to_unload(manager: *mut c_void) -> Option<bool> {
 /// post_destruction_restore.
 ///
 /// Safety: must be called on the main thread.
-pub unsafe fn pre_destruction_setup() -> Option<[u8; 12]> {
-    let f = match unsafe {
-        FnPtr::<types::PreDestructionSetupFn>::from_raw(addr::PRE_DESTRUCTION_SETUP as *mut c_void)
-    } {
-        Ok(f) => f,
-        Err(e) => {
-            log::error!("[PRE_DESTRUCTION] FnPtr::from_raw failed: {:?}", e);
-            return None;
-        }
-    };
-    let f = match unsafe { f.as_fn() } {
-        Ok(f) => f,
-        Err(e) => {
-            log::error!("[PRE_DESTRUCTION] as_fn() failed: {:?}", e);
-            return None;
-        }
-    };
+pub unsafe fn pre_destruction_setup() -> [u8; 12] {
+    let setup = unsafe {
+        FnPtr::<types::PreDestructionSetupFn>::from_address_unchecked(addr::PRE_DESTRUCTION_SETUP)
+    }
+    .as_fn();
     let mut state = [0u8; 12];
-    unsafe { f(state.as_mut_ptr() as *mut c_void, 1, 1, 1) };
-    Some(state)
+    unsafe { setup(state.as_mut_ptr() as *mut c_void, 1, 1, 1) };
+    state
 }
 
 /// Unlock the Havok world and restore state after destruction.
 ///
 /// Safety: must be called after pre_destruction_setup on the main thread.
 pub unsafe fn post_destruction_restore(state: &mut [u8; 12]) {
-    let f = match unsafe {
-        FnPtr::<types::PostDestructionRestoreFn>::from_raw(
-            addr::POST_DESTRUCTION_RESTORE as *mut c_void,
+    let restore = unsafe {
+        FnPtr::<types::PostDestructionRestoreFn>::from_address_unchecked(
+            addr::POST_DESTRUCTION_RESTORE,
         )
-    } {
-        Ok(f) => f,
-        Err(e) => {
-            log::error!("[POST_DESTRUCTION] FnPtr::from_raw failed: {:?}", e);
-            return;
-        }
-    };
-    match unsafe { f.as_fn() } {
-        Ok(f) => unsafe { f(state.as_mut_ptr() as *mut c_void) },
-        Err(e) => log::error!("[POST_DESTRUCTION] as_fn() failed: {:?}", e),
     }
+    .as_fn();
+    unsafe { restore(state.as_mut_ptr() as *mut c_void) };
 }
 
 /// Run the standard deferred cleanup sequence (PDD + async flush + cleanup).
@@ -520,21 +401,11 @@ pub unsafe fn post_destruction_restore(state: &mut [u8; 12]) {
 ///
 /// Safety: must be called between pre/post_destruction on the main thread.
 pub unsafe fn deferred_cleanup_small(param: u8) {
-    let f = match unsafe {
-        FnPtr::<types::DeferredCleanupSmallFn>::from_raw(
-            addr::DEFERRED_CLEANUP_SMALL as *mut c_void,
-        )
-    } {
-        Ok(f) => f,
-        Err(e) => {
-            log::error!("[DEFERRED_CLEANUP] FnPtr::from_raw failed: {:?}", e);
-            return;
-        }
-    };
-    match unsafe { f.as_fn() } {
-        Ok(f) => unsafe { f(param) },
-        Err(e) => log::error!("[DEFERRED_CLEANUP] as_fn() failed: {:?}", e),
+    let cleanup = unsafe {
+        FnPtr::<types::DeferredCleanupSmallFn>::from_address_unchecked(addr::DEFERRED_CLEANUP_SMALL)
     }
+    .as_fn();
+    unsafe { cleanup(param) };
 }
 
 /// Havok garbage collect (FUN_00c459d0).
@@ -543,17 +414,9 @@ pub unsafe fn deferred_cleanup_small(param: u8) {
 /// system, NOT the physics world. Safe to call without holding the
 /// Havok world lock.
 pub unsafe fn havok_gc(force: u8) {
-    let f = match unsafe { FnPtr::<types::HavokGcFn>::from_raw(addr::HAVOK_GC as *mut c_void) } {
-        Ok(f) => f,
-        Err(e) => {
-            log::error!("[HAVOK_GC] FnPtr::from_raw failed: {:?}", e);
-            return;
-        }
-    };
-    match unsafe { f.as_fn() } {
-        Ok(f) => unsafe { f(force) },
-        Err(e) => log::error!("[HAVOK_GC] as_fn() failed: {:?}", e),
-    }
+    let collect =
+        unsafe { FnPtr::<types::HavokGcFn>::from_address_unchecked(addr::HAVOK_GC) }.as_fn();
+    unsafe { collect(force) };
 }
 
 /// PDD purge (FUN_00868d70).
@@ -561,19 +424,10 @@ pub unsafe fn havok_gc(force: u8) {
 /// Purges all deferred destruction queues. try_lock=true means it will
 /// skip if the process manager lock is already held.
 pub unsafe fn pdd_purge() {
-    let f = match unsafe {
-        FnPtr::<types::PDDFn>::from_raw(super::super::statics::PDD_ADDR as *mut c_void)
-    } {
-        Ok(f) => f,
-        Err(e) => {
-            log::error!("[PDD_PURGE] FnPtr::from_raw failed: {:?}", e);
-            return;
-        }
-    };
-    match unsafe { f.as_fn() } {
-        Ok(f) => unsafe { f(0) }, // blocking purge
-        Err(e) => log::error!("[PDD_PURGE] as_fn() failed: {:?}", e),
-    }
+    let purge =
+        unsafe { FnPtr::<types::PDDFn>::from_address_unchecked(super::super::statics::PDD_ADDR) }
+            .as_fn();
+    unsafe { purge(0) }; // blocking purge
 }
 
 /// StopHavok_DRAINAI (FUN_008324e0, mode=0).
@@ -588,23 +442,13 @@ pub unsafe fn pdd_purge() {
 ///
 /// See: analysis/ghidra/output/memory/vanilla_ai_io_drain.txt
 pub unsafe fn stop_havok_drain() {
-    let f = match unsafe {
-        FnPtr::<types::HavokStopStartFn>::from_raw(
-            super::super::statics::HAVOK_STOP_START_ADDR as *mut c_void,
+    let stop = unsafe {
+        FnPtr::<types::HavokStopStartFn>::from_address_unchecked(
+            super::super::statics::HAVOK_STOP_START_ADDR,
         )
-    } {
-        Ok(f) => f,
-        Err(e) => {
-            log::error!("[HAVOK_DRAIN] FnPtr::from_raw failed: {:?}", e);
-            return;
-        }
-    };
-    match unsafe { f.as_fn() } {
-        Ok(f) => {
-            unsafe { f(0) };
-        }
-        Err(e) => log::error!("[HAVOK_DRAIN] as_fn() failed: {:?}", e),
     }
+    .as_fn();
+    unsafe { stop(0) };
 }
 
 /// StartHavok (FUN_008324e0, mode=1).
@@ -614,23 +458,13 @@ pub unsafe fn stop_havok_drain() {
 /// `post_destruction_restore()` so the world is unlocked before the
 /// simulation resumes stepping.
 pub unsafe fn start_havok() {
-    let f = match unsafe {
-        FnPtr::<types::HavokStopStartFn>::from_raw(
-            super::super::statics::HAVOK_STOP_START_ADDR as *mut c_void,
+    let start = unsafe {
+        FnPtr::<types::HavokStopStartFn>::from_address_unchecked(
+            super::super::statics::HAVOK_STOP_START_ADDR,
         )
-    } {
-        Ok(f) => f,
-        Err(e) => {
-            log::error!("[HAVOK_START] FnPtr::from_raw failed: {:?}", e);
-            return;
-        }
-    };
-    match unsafe { f.as_fn() } {
-        Ok(f) => {
-            unsafe { f(1) };
-        }
-        Err(e) => log::error!("[HAVOK_START] as_fn() failed: {:?}", e),
     }
+    .as_fn();
+    unsafe { start(1) };
 }
 
 /// Wait for all BSTaskManagerThreads to finish their current iteration.

@@ -10,7 +10,10 @@ use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 use libc::c_void;
 use parking_lot::Mutex;
 
-use libpsycho::os::windows::winapi::{get_tick_count, replace_call};
+use libpsycho::{
+    ffi::fnptr::FnPtr,
+    os::windows::winapi::{get_tick_count, replace_call},
+};
 
 use crate::mods::diagnostics;
 
@@ -266,8 +269,10 @@ unsafe fn call_vanilla_radio_scan(
     out_stations: *mut c_void,
     out_meta: *mut c_void,
 ) {
-    let f: RadioSignalScanFn = unsafe { core::mem::transmute(RADIO_SIGNAL_SCAN_ADDR) };
-    unsafe { f(current_ref, out_stations, out_meta) };
+    let scan =
+        unsafe { FnPtr::<RadioSignalScanFn>::from_address_unchecked(RADIO_SIGNAL_SCAN_ADDR) }
+            .as_fn();
+    unsafe { scan(current_ref, out_stations, out_meta) };
 }
 
 unsafe fn call_vanilla_radio_scan_timed(
@@ -301,9 +306,11 @@ unsafe fn replay_snapshot(
     out_stations: *mut PointerList,
     out_meta: *mut FloatList,
 ) {
-    let append_station: StationListAppendFn =
-        unsafe { core::mem::transmute(STATION_LIST_APPEND_ADDR) };
-    let append_meta: MetaListAppendFn = unsafe { core::mem::transmute(META_LIST_APPEND_ADDR) };
+    let append_station =
+        unsafe { FnPtr::<StationListAppendFn>::from_address_unchecked(STATION_LIST_APPEND_ADDR) }
+            .as_fn();
+    let append_meta =
+        unsafe { FnPtr::<MetaListAppendFn>::from_address_unchecked(META_LIST_APPEND_ADDR) }.as_fn();
 
     for i in (0..snapshot.count).rev() {
         let station = snapshot.stations[i] as *mut c_void;

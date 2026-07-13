@@ -20,7 +20,7 @@ use super::trampoline::Trampoline;
 /// rewrites executable bytes and is not atomic on x86. The caller must use a
 /// startup boundary or otherwise ensure no thread can execute the target while
 /// those operations run.
-pub struct InlineHook<F: Copy + 'static> {
+pub struct InlineHook<F: Function> {
     name: String,
     target_ptr: NonNull<c_void>,
 
@@ -36,18 +36,23 @@ pub struct InlineHook<F: Copy + 'static> {
 }
 
 // Safety: Synchronized with inner RwLock guard and atomics
-unsafe impl<F: Copy + 'static> Send for InlineHook<F> {}
+unsafe impl<F: Function> Send for InlineHook<F> {}
 
 // Safety: Synchronized with inner RwLock guard and atomics
-unsafe impl<F: Copy + 'static> Sync for InlineHook<F> {}
+unsafe impl<F: Function> Sync for InlineHook<F> {}
 
-impl<F: Copy + 'static> InlineHook<F> {
+impl<F: Function> InlineHook<F> {
     /// Creates a new hook for the target function
     ///
     /// # Arguments
     /// - `target` - Pointer to the function to hook
     /// - `detour` - The detour function to redirect execution to
-    pub fn new(
+    ///
+    /// # Safety
+    ///
+    /// `target_ptr` must point to a live function with exactly `F`'s signature
+    /// and calling convention for the lifetime of this hook.
+    pub unsafe fn new(
         name: impl Into<String>,
         target_ptr: *mut c_void,
         detour_fn_ptr: F,
@@ -55,9 +60,9 @@ impl<F: Copy + 'static> InlineHook<F> {
         let name = name.into();
         let target_ptr = NonNull::new(target_ptr).ok_or(InlineHookError::TargetIsNull)?;
 
-        let detour_fn = unsafe { FnPtr::from_fn(detour_fn_ptr) }?;
+        let detour_fn = FnPtr::new(detour_fn_ptr);
 
-        let detour_ptr = detour_fn.as_raw_ptr();
+        let detour_ptr = detour_fn.as_ptr();
 
         log::trace!(
             "Creating inline hook '{}': target={:p}, detour={:p}",
@@ -112,16 +117,16 @@ impl<F: Copy + 'static> InlineHook<F> {
         })?;
 
         // Generate jump bytes on demand
-        let jump_bytes = create_jump_bytes(self.target_ptr.as_ptr(), self.detour_fn.as_raw_ptr())
+        let jump_bytes = create_jump_bytes(self.target_ptr.as_ptr(), self.detour_fn.as_ptr())
             .inspect_err(|_err| {
-            self.failed.store(true, Ordering::Relaxed);
-        })?;
+                self.failed.store(true, Ordering::Relaxed);
+            })?;
 
         // Verify jump instruction correctness
         verify_jump_bytes(
             &jump_bytes,
             self.target_ptr.as_ptr(),
-            self.detour_fn.as_raw_ptr(),
+            self.detour_fn.as_ptr(),
         )?;
 
         let stolen_bytes = self.trampoline.get_stolen_bytes_ref();
@@ -207,7 +212,7 @@ impl<F: Copy + 'static> InlineHook<F> {
 
         let stolen_bytes = self.trampoline.get_stolen_bytes_ref();
         let trampoline_stolen_size = stolen_bytes.len();
-        let jump_bytes = create_jump_bytes(self.target_ptr.as_ptr(), self.detour_fn.as_raw_ptr())?;
+        let jump_bytes = create_jump_bytes(self.target_ptr.as_ptr(), self.detour_fn.as_ptr())?;
         let current_bytes = unsafe {
             std::slice::from_raw_parts(
                 self.target_ptr.as_ptr() as *const u8,
@@ -272,10 +277,10 @@ impl<F: Copy + 'static> InlineHook<F> {
 
     /// Return the trampoline function that executes displaced instructions and
     /// then continues in the predecessor.
-    pub fn original(&self) -> InlineHookResult<F> {
+    pub fn original(&self) -> F {
         let _guard = self.guard.read();
 
-        unsafe { Ok(self.original_fn.as_fn()?) }
+        self.original_fn.as_fn()
     }
 
     /// Return whether the hook currently owns an installed entry jump.
@@ -302,7 +307,7 @@ impl<F: Copy + 'static> InlineHook<F> {
     }
 }
 
-impl<F: Copy + 'static> Drop for InlineHook<F> {
+impl<F: Function> Drop for InlineHook<F> {
     fn drop(&mut self) {
         if self.is_enabled() && !self.is_failed() {
             match self.disable() {
@@ -331,13 +336,13 @@ impl<F: Copy + 'static> Drop for InlineHook<F> {
     }
 }
 
-impl<F: Copy + 'static> fmt::Debug for InlineHook<F> {
+impl<F: Function> fmt::Debug for InlineHook<F> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("InlineHook")
             .field("name", &self.name)
             .field("target_ptr", &self.target_ptr)
-            .field("detour_fn", &self.detour_fn.as_raw_ptr())
-            .field("original_fn", &self.original_fn.as_raw_ptr())
+            .field("detour_fn", &self.detour_fn.as_ptr())
+            .field("original_fn", &self.original_fn.as_ptr())
             .field("trampoline", &self.trampoline.get_ptr())
             .field("enabled", &self.enabled)
             .field("failed", &self.failed)
@@ -345,7 +350,7 @@ impl<F: Copy + 'static> fmt::Debug for InlineHook<F> {
     }
 }
 
-impl<F: Copy + 'static> Hook<F> for InlineHook<F> {
+impl<F: Function> Hook<F> for InlineHook<F> {
     type Error = InlineHookError;
 
     fn enable(&self) -> Result<(), Self::Error> {
@@ -364,7 +369,7 @@ impl<F: Copy + 'static> Hook<F> for InlineHook<F> {
         self.name.as_str()
     }
 
-    unsafe fn original(&self) -> Result<F, Self::Error> {
+    fn original(&self) -> F {
         self.original()
     }
 }
@@ -373,20 +378,29 @@ impl<F: Copy + 'static> Hook<F> for InlineHook<F> {
 ///
 /// The hook is enabled on creation and automatically disabled when dropped.
 /// The target must remain quiescent during both writes.
-pub struct ScopedInlineHook<F: Copy + 'static> {
+pub struct ScopedInlineHook<F: Function> {
     inner: InlineHook<F>,
 }
 
-impl<F: Copy + 'static> ScopedInlineHook<F> {
+impl<F: Function> ScopedInlineHook<F> {
     /// Creates and immediately enables a hook
-    pub fn new(name: impl Into<String>, target: *mut c_void, detour: F) -> InlineHookResult<Self> {
-        let hook = InlineHook::new(name, target, detour)?;
+    ///
+    /// # Safety
+    ///
+    /// `target` must point to a live function with exactly `F`'s signature and
+    /// calling convention for the lifetime of this hook.
+    pub unsafe fn new(
+        name: impl Into<String>,
+        target: *mut c_void,
+        detour: F,
+    ) -> InlineHookResult<Self> {
+        let hook = unsafe { InlineHook::new(name, target, detour) }?;
         hook.enable()?;
         Ok(Self { inner: hook })
     }
 
     /// Calls the original function with recursion protection
-    pub fn original(&self) -> InlineHookResult<F> {
+    pub fn original(&self) -> F {
         self.inner.original()
     }
 
@@ -402,12 +416,12 @@ impl<F: Copy + 'static> ScopedInlineHook<F> {
         self.inner.disable()?;
 
         // Use a guard to ensure re-enabling even on panic
-        struct EnableGuard<'a, F: Copy + 'static> {
+        struct EnableGuard<'a, F: Function> {
             hook: &'a InlineHook<F>,
             should_enable: bool,
         }
 
-        impl<'a, F: Copy + 'static> Drop for EnableGuard<'a, F> {
+        impl<'a, F: Function> Drop for EnableGuard<'a, F> {
             fn drop(&mut self) {
                 if self.should_enable
                     && let Err(err) = self.hook.enable()
@@ -445,7 +459,7 @@ impl<F: Copy + 'static> ScopedInlineHook<F> {
     }
 }
 
-impl<F: Copy + 'static> Drop for ScopedInlineHook<F> {
+impl<F: Function> Drop for ScopedInlineHook<F> {
     fn drop(&mut self) {
         let _ = self.inner.disable();
     }
@@ -455,24 +469,28 @@ impl<F: Copy + 'static> Drop for ScopedInlineHook<F> {
 ///
 /// The container itself does not make executable-byte writes atomic.
 #[derive(Default)]
-pub struct InlineHookContainer<T: Copy + 'static> {
+pub struct InlineHookContainer<T: Function> {
     hook: RwLock<Option<InlineHook<T>>>,
 }
 
 // Safety: synchronized with inner RwLock
-unsafe impl<T: Copy + 'static> Send for InlineHookContainer<T> {}
+unsafe impl<T: Function> Send for InlineHookContainer<T> {}
 
 // Safety: synchronized with inner RwLock
-unsafe impl<T: Copy + 'static> Sync for InlineHookContainer<T> {}
+unsafe impl<T: Function> Sync for InlineHookContainer<T> {}
 
-impl<T: Copy + 'static> InlineHookContainer<T> {
+impl<T: Function> InlineHookContainer<T> {
     pub fn new() -> Self {
         Self {
             hook: RwLock::new(None),
         }
     }
 
-    pub fn init(
+    /// # Safety
+    ///
+    /// `target_ptr` must point to a live function with exactly `T`'s signature
+    /// and calling convention for the lifetime of the initialized hook.
+    pub unsafe fn init(
         &self,
         name: &str,
         target_ptr: *mut c_void,
@@ -484,7 +502,7 @@ impl<T: Copy + 'static> InlineHookContainer<T> {
             Some(_hook) => Err(InlineHookError::HookContainerInitialized),
 
             None => {
-                let inline_hook = InlineHook::new(name, target_ptr, detour_fn_ptr)?;
+                let inline_hook = unsafe { InlineHook::new(name, target_ptr, detour_fn_ptr) }?;
 
                 let _ = hook_lock.insert(inline_hook);
 
@@ -541,7 +559,7 @@ impl<T: Copy + 'static> InlineHookContainer<T> {
         let hook_lock = self.hook.read();
 
         match hook_lock.as_ref() {
-            Some(hook) => Ok(hook.original()?),
+            Some(hook) => Ok(hook.original()),
 
             None => Err(InlineHookError::HookContainerNotInitialized),
         }
