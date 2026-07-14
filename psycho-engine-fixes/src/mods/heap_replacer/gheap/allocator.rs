@@ -4,7 +4,8 @@
 //!   1 <= size <= 3584            -> pool (size-class, NVHR mheap style)
 //!   3585 <= size <= 16 MB        -> block (variable-size, NVHR dheap style)
 //!   size > 16 MB                 -> va_alloc (direct VirtualAlloc)
-//!   any tier fails               -> NULL (NVHR semantics)
+//!   pool failure                 -> existing/new block as an emergency path
+//!   all remaining tiers fail     -> NULL (NVHR semantics)
 //!
 //! The allocator has no knowledge of game state -- no loading flags, no
 //! menu-mode checks, no pool-active gating, no OOM recovery stages. That
@@ -126,6 +127,19 @@ pub fn is_main_thread() -> bool {
 /// because the block tier was full. Rate-limited to power-of-two
 /// reporting so save-load bursts don't spam the log.
 static BLOCK_OVERFLOW_COUNT: AtomicU64 = AtomicU64::new(0);
+static POOL_FALLBACK_COUNT: AtomicU64 = AtomicU64::new(0);
+
+#[cold]
+fn log_pool_fallback(size: usize) {
+    let n = POOL_FALLBACK_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
+    if n.is_power_of_two() {
+        log::warn!(
+            "[ALLOC] exact pool unavailable: size={} total={} (using emergency block fallback)",
+            size,
+            n,
+        );
+    }
+}
 
 #[cold]
 fn log_block_overflow(size: usize) {
@@ -166,6 +180,13 @@ pub unsafe fn alloc(size: usize) -> *mut c_void {
         if !ptr.is_null() {
             return ptr;
         }
+
+        // Exact-size overflow is the normal growth path. Reaching here means
+        // that it could not reserve or commit more memory. A block cell costs
+        // at least 2 KB, so this is an emergency safety valve rather than a
+        // sustained strategy, but it is still safer than returning immediate
+        // NULL while an existing block has reusable space.
+        log_pool_fallback(size);
     }
 
     if size <= super::block::BLOCK_MAX_ALLOC {

@@ -24,23 +24,28 @@
 //! # Lifecycle
 //!
 //! - `PoolHeap::create()` expands size-class descriptors into 8 MB
-//!   subpools and builds the `size_to_class` lookup. It does not call
-//!   `VirtualAlloc`.
+//!   base subpools plus dormant exact-size overflow descriptors and builds
+//!   the `size_to_class` lookup. It does not call `VirtualAlloc`.
 //! - `PoolHeap::alloc(size)` dispatches to a size class, starts from a
 //!   per-class hint, and tries that class's subpools. If the selected
 //!   subpool is still `POOL_STATE_NOT_INIT`, a CAS transitions it to
 //!   `POOL_STATE_INITING`, the winning thread scans `addr_to_pool` from
-//!   high addresses downward for a free slot, reserves the VA via
-//!   `VirtualAlloc(MEM_RESERVE)`, allocates the freelist metadata, and
-//!   publishes `POOL_STATE_INIT`. Losers busy-wait.
+//!   high addresses downward for a free slot, reserves user and link VA via
+//!   `VirtualAlloc(MEM_RESERVE)`, and publishes `POOL_STATE_INIT`. Losers
+//!   busy-wait. Neither range is committed by initialization.
 //! - Subsequent allocs skip the ensure-init path (single Acquire load).
+//! - A subpool commits user memory in 1 MB chunks. Virgin cells are handed
+//!   out by a monotonically increasing index; only returned cells enter the
+//!   LIFO free list. This keeps refill constant-work instead of constructing
+//!   a link for every cell in the new chunk.
 //!
 //! # Zombie safety
 //!
-//! Unchanged from pre-lazy design: the freelist is stored out-of-band
-//! in a separate array of link records. Freed cells are NOT written
-//! to. Every byte of a freed allocation stays readable for stale
-//! readers (AI, IO, Havok) until the cell is reused by a new alloc.
+//! The free list is stored out-of-band in a separate array of link records.
+//! Freed cells are NOT written to. Every byte of a freed allocation stays
+//! readable for stale readers (AI, IO, Havok) until the cell is reused by a
+//! new allocation. Link pages are committed with the corresponding user
+//! prefix, but virgin entries are never touched or linked.
 //!
 //! # Dispatch
 //!
@@ -60,20 +65,22 @@
 
 use std::ptr::{self, null_mut};
 use std::sync::Mutex;
-use std::sync::atomic::{AtomicU8, AtomicU32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU8, AtomicU32, AtomicU64, AtomicUsize, Ordering};
 
 use libc::c_void;
 use windows::Win32::System::Memory::{MEM_COMMIT, MEM_RESERVE, PAGE_READWRITE, VirtualAlloc};
 
+use crate::mods::diagnostics;
+
 // Per-pool lifecycle states. Enables lazy VA reservation: the pool
-// transitions NotInit -> Initing -> (Init | Failed) on its first alloc
-// request, so each pool only consumes VA when something actually
-// needs that subpool. Matches vanilla SBM's behaviour of growing on
-// demand instead of reserving a bulk working set upfront.
+// transitions NotInit -> Initing -> Init on success. Resource failures are
+// retryable on the watchdog generation; structural failures are permanent.
+// This avoids poisoning a descriptor forever after transient VAS pressure.
 const POOL_STATE_NOT_INIT: u8 = 0;
 const POOL_STATE_INITING: u8 = 1;
 const POOL_STATE_INIT: u8 = 2;
-const POOL_STATE_FAILED: u8 = 3;
+const POOL_STATE_RETRYABLE: u8 = 3;
+const POOL_STATE_PERMANENT: u8 = 4;
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -87,8 +94,128 @@ pub const POOL_ALIGN: usize = 0x0080_0000; // 8 MB
 const POOL_ALIGN_BITS: u32 = 23; // log2(POOL_ALIGN)
 const POOL_SUBPOOL_SIZE: u32 = POOL_ALIGN as u32;
 
-/// Growth unit. Each time a pool runs out of committed cells, it
-/// commits one more block.
+/// Extra exact-size capacity available after a class's normal reservation is
+/// full. Descriptors are free until first use. The 8-byte class gets a larger
+/// share because real large-modlist loads exceed eight million tiny cells;
+/// every other class retains five lazy overflow slabs.
+const DEFAULT_OVERFLOW_SUBPOOLS: usize = 5;
+const TINY_CELL_OVERFLOW_SUBPOOLS: usize = 16;
+
+/// Soft diagnostic threshold for overflow reservations. It must not reject a
+/// class solely because unrelated classes happened to reserve first.
+const OVERFLOW_RESERVATION_SOFT_LIMIT: usize = 256 * 1024 * 1024;
+
+static OVERFLOW_USER_RESERVED_BYTES: AtomicUsize = AtomicUsize::new(0);
+static OVERFLOW_METADATA_RESERVED_BYTES: AtomicUsize = AtomicUsize::new(0);
+static OVERFLOW_REFUSALS: AtomicU64 = AtomicU64::new(0);
+static RESERVATION_RETRY_GENERATION: AtomicU32 = AtomicU32::new(1);
+
+const CLASS_STATE_EXHAUSTED: u32 = 1;
+const CLASS_STATE_GENERATION_STEP: u32 = 2;
+
+static TIMED_GROW_COUNT: AtomicU64 = AtomicU64::new(0);
+static TIMED_GROW_FAILURES: AtomicU64 = AtomicU64::new(0);
+static TIMED_GROW_TOTAL_US: AtomicU64 = AtomicU64::new(0);
+static TIMED_GROW_USER_BYTES: AtomicU64 = AtomicU64::new(0);
+static TIMED_GROW_METADATA_BYTES: AtomicU64 = AtomicU64::new(0);
+static SLOWEST_GROW: AtomicU64 = AtomicU64::new(0);
+static TIMED_INIT_COUNT: AtomicU64 = AtomicU64::new(0);
+static TIMED_INIT_TOTAL_US: AtomicU64 = AtomicU64::new(0);
+static SLOWEST_INIT: AtomicU64 = AtomicU64::new(0);
+
+#[derive(Clone, Copy, Default)]
+pub struct PoolTimingSnapshot {
+    pub grows: u64,
+    pub grow_failures: u64,
+    pub grow_total_us: u64,
+    pub grow_max_us: u64,
+    pub grow_user_bytes: u64,
+    pub grow_metadata_bytes: u64,
+    pub grow_slowest_pool: u8,
+    pub grow_slowest_item_size: u16,
+    pub initializations: u64,
+    pub init_total_us: u64,
+    pub init_max_us: u64,
+    pub init_slowest_pool: u8,
+    pub init_slowest_item_size: u16,
+}
+
+fn pack_timing(elapsed_us: u64, pool_index: u8, item_size: u32) -> u64 {
+    let elapsed = elapsed_us.min(u32::MAX as u64);
+    (elapsed << 32) | (u64::from(pool_index) << 16) | u64::from(item_size.min(u16::MAX as u32))
+}
+
+fn unpack_timing(value: u64) -> (u64, u8, u16) {
+    (
+        value >> 32,
+        ((value >> 16) & 0xff) as u8,
+        (value & 0xffff) as u16,
+    )
+}
+
+fn record_grow_timing(
+    timer: diagnostics::Stopwatch,
+    pool_index: u8,
+    item_size: u32,
+    success: bool,
+    user_bytes: usize,
+    metadata_bytes: usize,
+) {
+    let Some(elapsed_us) = timer.elapsed_us() else {
+        return;
+    };
+
+    TIMED_GROW_COUNT.fetch_add(1, Ordering::Relaxed);
+    if !success {
+        TIMED_GROW_FAILURES.fetch_add(1, Ordering::Relaxed);
+    }
+    TIMED_GROW_TOTAL_US.fetch_add(elapsed_us, Ordering::Relaxed);
+    TIMED_GROW_USER_BYTES.fetch_add(user_bytes as u64, Ordering::Relaxed);
+    TIMED_GROW_METADATA_BYTES.fetch_add(metadata_bytes as u64, Ordering::Relaxed);
+    SLOWEST_GROW.fetch_max(
+        pack_timing(elapsed_us, pool_index, item_size),
+        Ordering::Relaxed,
+    );
+}
+
+fn record_init_timing(timer: diagnostics::Stopwatch, pool_index: u8, item_size: u32) {
+    let Some(elapsed_us) = timer.elapsed_us() else {
+        return;
+    };
+
+    TIMED_INIT_COUNT.fetch_add(1, Ordering::Relaxed);
+    TIMED_INIT_TOTAL_US.fetch_add(elapsed_us, Ordering::Relaxed);
+    SLOWEST_INIT.fetch_max(
+        pack_timing(elapsed_us, pool_index, item_size),
+        Ordering::Relaxed,
+    );
+}
+
+pub fn take_timing_snapshot() -> PoolTimingSnapshot {
+    let grow_slowest = SLOWEST_GROW.swap(0, Ordering::AcqRel);
+    let init_slowest = SLOWEST_INIT.swap(0, Ordering::AcqRel);
+    let (grow_max_us, grow_slowest_pool, grow_slowest_item_size) = unpack_timing(grow_slowest);
+    let (init_max_us, init_slowest_pool, init_slowest_item_size) = unpack_timing(init_slowest);
+
+    PoolTimingSnapshot {
+        grows: TIMED_GROW_COUNT.swap(0, Ordering::AcqRel),
+        grow_failures: TIMED_GROW_FAILURES.swap(0, Ordering::AcqRel),
+        grow_total_us: TIMED_GROW_TOTAL_US.swap(0, Ordering::AcqRel),
+        grow_max_us,
+        grow_user_bytes: TIMED_GROW_USER_BYTES.swap(0, Ordering::AcqRel),
+        grow_metadata_bytes: TIMED_GROW_METADATA_BYTES.swap(0, Ordering::AcqRel),
+        grow_slowest_pool,
+        grow_slowest_item_size,
+        initializations: TIMED_INIT_COUNT.swap(0, Ordering::AcqRel),
+        init_total_us: TIMED_INIT_TOTAL_US.swap(0, Ordering::AcqRel),
+        init_max_us,
+        init_slowest_pool,
+        init_slowest_item_size,
+    }
+}
+
+/// Growth unit. Each time a pool runs out of committed virgin cells and has
+/// no returned cell to reuse, it commits one more block.
 const POOL_BLOCK_SIZE: usize = 0x0010_0000; // 1 MB
 
 /// Largest allocation the pool tier handles. Matches NVHR.
@@ -104,6 +231,21 @@ const ADDR_LOOKUP_LEN: usize = 512;
 /// Sentinel in the lookup tables for "no pool here".
 const NO_POOL: u8 = 0xff;
 
+#[cold]
+fn log_overflow_refusal(class_index: u8, item_size: u32, reason: &'static str, value_mb: usize) {
+    let count = OVERFLOW_REFUSALS.fetch_add(1, Ordering::Relaxed) + 1;
+    if count.is_power_of_two() {
+        log::warn!(
+            "[POOL] Exact-size overflow refused: class #{} {}B reason={} value={}MB count={}",
+            class_index,
+            item_size,
+            reason,
+            value_mb,
+            count,
+        );
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Pool descriptors (static)
 // ---------------------------------------------------------------------------
@@ -113,7 +255,38 @@ struct PoolDesc {
     max_size: u32,
 }
 
-/// Per-class MAXIMUM reservation sizes. Sum is 512 MB, but with lazy
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ReserveResult {
+    Ready,
+    Retryable,
+    Permanent,
+}
+
+enum GrowResult {
+    Grown,
+    Full,
+    CommitFailed,
+}
+
+enum PoolAllocResult {
+    Allocated(*mut u8),
+    Full,
+    CommitFailed,
+}
+
+enum InitResult {
+    Ready,
+    Unavailable,
+    ResourceFailure,
+}
+
+enum ClassAllocResult {
+    Allocated(*mut c_void),
+    Exhausted,
+    ResourceFailure,
+}
+
+/// Per-class normal reservation sizes. Sum is 552 MB, but with lazy
 /// reservation (see module docs) only classes that actually get used
 /// consume VA -- total live VA scales to the workload. A class whose
 /// `max_size` is 80 MB but which never receives an alloc reserves 0
@@ -159,11 +332,12 @@ struct PoolDesc {
 /// Accepted exhaust risks on 552 MB budget:
 ///   - 80 B heavy load (Run B pattern): 80 MB vs 96 MB ideal -> expect
 ///     some exhausts under sustained stress + coc, not crashes
-///   - 1024 B remains 16 MB, but >1024 B now has more headroom before
-///     cascading through every larger class and into block fallback.
+///   - 1024 B remains 16 MB. If any class fills, exact-size overflow grows
+///     under a shared budget instead of consuming unrelated larger classes.
 ///
 /// VAS accounting (the real constraint):
-///   pool (552) + block tier (up to ~400 on-demand) + game (~1-2 GB) +
+///   pool (552 MB normal + overflow, with a 256 MB diagnostic threshold) +
+///   block tier on-demand + game +
 ///   DirectX textures = fits under 3 GB LAA with ~80-100 MB headroom for
 ///   contiguous texture allocs at deferred-init. Eagerly reserving this
 ///   much would be unsafe; lazy subpools keep startup cost at zero.
@@ -320,7 +494,7 @@ const fn subpool_count_for(max_size: u32) -> usize {
 }
 
 /// Count the concrete subpools expanded from `POOL_DESC`.
-const fn count_total_pools() -> usize {
+const fn count_base_pools() -> usize {
     let mut n = 0usize;
     let mut i = 0;
     while i < POOL_DESC.len() {
@@ -331,21 +505,46 @@ const fn count_total_pools() -> usize {
 }
 
 const NUM_BASE_POOLS: usize = POOL_DESC.len();
-const NUM_TOTAL_POOLS: usize = count_total_pools();
-const POOL_MAX_RESERVATION_MB: usize = (NUM_TOTAL_POOLS * POOL_ALIGN) / 1024 / 1024;
+const NUM_BASE_SUBPOOLS: usize = count_base_pools();
+
+const fn overflow_subpool_count(class_index: usize) -> usize {
+    if class_index == 0 {
+        TINY_CELL_OVERFLOW_SUBPOOLS
+    } else {
+        DEFAULT_OVERFLOW_SUBPOOLS
+    }
+}
+
+const fn count_overflow_pools() -> usize {
+    let mut count = 0usize;
+    let mut class_index = 0usize;
+    while class_index < NUM_BASE_POOLS {
+        count += overflow_subpool_count(class_index);
+        class_index += 1;
+    }
+    count
+}
+
+const NUM_OVERFLOW_SUBPOOLS: usize = count_overflow_pools();
+const NUM_TOTAL_POOLS: usize = NUM_BASE_SUBPOOLS + NUM_OVERFLOW_SUBPOOLS;
+const _: () = assert!(NUM_TOTAL_POOLS < NO_POOL as usize);
 
 // ---------------------------------------------------------------------------
-// FreeLink: out-of-band freelist node
+// FreeLink: out-of-band returned-cell list node
 // ---------------------------------------------------------------------------
 
-/// One entry in the pool's freelist array. Each allocated cell position
-/// has a corresponding FreeLink. The `next` field forms an intrusive
-/// singly-linked list of free cells.
+/// One entry in the pool's freed-cell array. Each cell position has a
+/// corresponding `FreeLink`, but virgin cells are handed out by index and
+/// never linked. The `next` field only forms a list of cells that were
+/// actually returned by the game.
 ///
 /// State encoding:
-/// - `next == NULL`: allocated, not on any freelist
+/// - `next == NULL`: issued and allocated, not on the free list
 /// - `next == FREE_LINK_TAIL`: free and at the tail of the freelist
 /// - otherwise: free and linked to the next freelist node
+///
+/// Virgin entries are also zero-filled, but `next_virgin_cell` excludes them
+/// from live/free classification until the corresponding cell is issued.
 ///
 /// The link array is completely disjoint from user cell memory, so
 /// freeing a cell does not touch the cell's bytes.
@@ -370,7 +569,17 @@ pub struct PoolPtrInfo {
     pub cell_start: usize,
     pub offset: usize,
     pub committed: bool,
+    pub issued: bool,
     pub is_free: bool,
+}
+
+#[derive(Clone, Copy, Default)]
+pub struct PoolClassUsage {
+    pub class_index: u8,
+    pub item_size: u32,
+    pub live_cells: usize,
+    pub committed_bytes: usize,
+    pub reserved_bytes: usize,
 }
 
 // ---------------------------------------------------------------------------
@@ -384,27 +593,32 @@ struct Pool {
     class_index: u8,
     subpool_index: u8,
     subpool_count: u8,
+    overflow: bool,
 
     /// VA reservation base (POOL_ALIGN-aligned). NULL until `state`
     /// reaches `POOL_STATE_INIT` (lazy reservation).
     base: *mut u8,
-    /// Next uncommitted byte within the reservation. NULL until lazy
-    /// init completes.
-    cur: *mut u8,
+    /// End of the committed prefix within the reservation. NULL until lazy
+    /// initialization completes.
+    committed_end: *mut u8,
     /// End of reservation (base + max_size). NULL until lazy init.
     end: *mut u8,
 
-    /// Out-of-band freelist array (one FreeLink per max_cell_count).
-    /// NULL until lazy init.
-    free_cells: *mut FreeLink,
-    /// Head of freelist. NULL when the pool is fully allocated (no
-    /// free cells) AND there are no uncommitted blocks left. Also
-    /// NULL before lazy init.
-    next_free: *mut FreeLink,
+    /// Reserved out-of-band link array (one `FreeLink` per possible cell).
+    /// Pages are committed with the matching user-memory prefix. NULL until
+    /// lazy initialization.
+    cell_links: *mut FreeLink,
+    /// Head of the list containing only cells returned by `free`.
+    free_head: *mut FreeLink,
+    /// First cell never returned to the game. All lower indices have been
+    /// issued at least once and therefore have meaningful link state.
+    next_virgin_cell: u32,
+    /// Number of complete cells backed by committed user and metadata pages.
+    committed_cell_count: u32,
 
     /// Diagnostics: live cell count.
     live_cells: AtomicU32,
-    /// Commit high-water mark in bytes (distance from base to cur).
+    /// Commit high-water mark in bytes (distance from base to committed_end).
     committed_bytes: AtomicU32,
     /// Committed out-of-band `FreeLink` metadata.
     metadata_bytes: AtomicU32,
@@ -418,7 +632,14 @@ struct Pool {
     /// not-yet-inited pools don't match spurious pointers.
     state: AtomicU8,
 
-    /// Per-pool spinlock. Alloc/free are O(1) under this lock.
+    /// Watchdog generation in which the most recent retryable reservation
+    /// failure occurred. Prevents a failed class from rescanning VAS on every
+    /// allocation request.
+    retry_generation: AtomicU32,
+
+    /// Per-pool spinlock. Normal alloc/free and pool refill are constant-work
+    /// under this lock; refill performs bounded VirtualAlloc calls but never
+    /// walks every cell in a committed chunk.
     /// Lazy-init winner also holds the global `INIT_LOCK` to serialise
     /// addr_to_pool claim + VirtualAlloc against other pools' init.
     lock: AtomicU32,
@@ -438,16 +659,20 @@ impl Pool {
             class_index: 0,
             subpool_index: 0,
             subpool_count: 0,
+            overflow: false,
             base: ptr::null_mut(),
-            cur: ptr::null_mut(),
+            committed_end: ptr::null_mut(),
             end: ptr::null_mut(),
-            free_cells: ptr::null_mut(),
-            next_free: ptr::null_mut(),
+            cell_links: ptr::null_mut(),
+            free_head: ptr::null_mut(),
+            next_virgin_cell: 0,
+            committed_cell_count: 0,
             live_cells: AtomicU32::new(0),
             committed_bytes: AtomicU32::new(0),
             metadata_bytes: AtomicU32::new(0),
             index: 0,
             state: AtomicU8::new(POOL_STATE_NOT_INIT),
+            retry_generation: AtomicU32::new(0),
             lock: AtomicU32::new(0),
         }
     }
@@ -478,111 +703,158 @@ impl Pool {
         self.lock.store(0, Ordering::Release);
     }
 
-    /// Convert a FreeLink pointer (inside free_cells array) to the
+    /// Convert a FreeLink pointer (inside cell_links array) to the
     /// matching user cell address inside the pool's VA range.
     #[inline]
     fn link_to_cell(&self, link: *mut FreeLink) -> *mut u8 {
-        let link_idx = (link as usize - self.free_cells as usize) / std::mem::size_of::<FreeLink>();
+        let link_idx = (link as usize - self.cell_links as usize) / std::mem::size_of::<FreeLink>();
         unsafe { self.base.add(link_idx * self.item_size as usize) }
     }
 
-    /// Convert a user cell address to the matching FreeLink pointer in
-    /// the free_cells array.
+    /// Convert a user cell address to the matching `FreeLink` pointer.
     #[inline]
     fn cell_to_link(&self, cell: *mut u8) -> *mut FreeLink {
         let cell_idx = (cell as usize - self.base as usize) / self.item_size as usize;
-        unsafe { self.free_cells.add(cell_idx) }
+        unsafe { self.cell_links.add(cell_idx) }
     }
 
-    /// Commit one more POOL_BLOCK_SIZE chunk from the reservation and
-    /// splice its cells onto the freelist. Caller holds the pool lock.
+    /// Commit one more `POOL_BLOCK_SIZE` prefix from the reservation.
+    /// Caller holds the pool lock.
     ///
-    /// Returns true on success. On commit failure (OS refusal), returns
-    /// false and leaves the pool untouched -- caller falls through.
-    unsafe fn grow(&mut self) -> bool {
-        if self.cur >= self.end {
-            return false; // reservation exhausted
+    /// Metadata pages are committed before the matching user pages. State is
+    /// published only after both commits succeed, so a failed user commit can
+    /// be retried safely. Virgin cells need no initialization: committed
+    /// metadata pages are zero-filled and a zero link becomes the live-cell
+    /// state when its virgin cell is issued.
+    unsafe fn grow(&mut self) -> GrowResult {
+        if self.committed_end >= self.end {
+            return GrowResult::Full;
         }
 
-        let block_start = self.cur;
-        let commit = unsafe {
+        let timer = diagnostics::Stopwatch::start_if_hitch_profiling();
+        let mut metadata_committed_now = 0usize;
+
+        let block_start = self.committed_end;
+        let remaining = self.end as usize - block_start as usize;
+        let commit_size = remaining.min(POOL_BLOCK_SIZE);
+        let new_committed_end = unsafe { block_start.add(commit_size) };
+        let committed_user_bytes = new_committed_end as usize - self.base as usize;
+        let committed_cell_count =
+            (committed_user_bytes / self.item_size as usize).min(self.max_cell_count as usize);
+        let metadata_required =
+            (committed_cell_count * std::mem::size_of::<FreeLink>()).div_ceil(0x1000) * 0x1000;
+        let metadata_committed = self.metadata_bytes.load(Ordering::Relaxed) as usize;
+
+        if metadata_required > metadata_committed {
+            let metadata_delta = metadata_required - metadata_committed;
+            let metadata_start =
+                unsafe { (self.cell_links as *mut u8).add(metadata_committed) as *const c_void };
+            let metadata_commit = unsafe {
+                VirtualAlloc(
+                    Some(metadata_start),
+                    metadata_delta,
+                    MEM_COMMIT,
+                    PAGE_READWRITE,
+                )
+            };
+            if metadata_commit.is_null() {
+                record_grow_timing(timer, self.index, self.item_size, false, 0, 0);
+                log::error!(
+                    "[POOL] Metadata commit failed: pool={} item_size={} addr=0x{:08x} size={}",
+                    self.index,
+                    self.item_size,
+                    metadata_start as usize,
+                    metadata_delta,
+                );
+                return GrowResult::CommitFailed;
+            }
+            self.metadata_bytes
+                .store(metadata_required as u32, Ordering::Relaxed);
+            metadata_committed_now = metadata_delta;
+        }
+
+        let user_commit = unsafe {
             VirtualAlloc(
                 Some(block_start as *const c_void),
-                POOL_BLOCK_SIZE,
+                commit_size,
                 MEM_COMMIT,
                 PAGE_READWRITE,
             )
         };
-        if commit.is_null() {
+        if user_commit.is_null() {
+            record_grow_timing(
+                timer,
+                self.index,
+                self.item_size,
+                false,
+                0,
+                metadata_committed_now,
+            );
             log::error!(
                 "[POOL] Commit failed: pool={} item_size={} addr=0x{:08x} size={}",
                 self.index,
                 self.item_size,
                 block_start as usize,
-                POOL_BLOCK_SIZE,
+                commit_size,
             );
-            return false;
+            return GrowResult::CommitFailed;
         }
 
-        // Advance cursor. Block is now committed.
-        self.cur = unsafe { self.cur.add(POOL_BLOCK_SIZE) };
+        self.committed_end = new_committed_end;
+        self.committed_cell_count = committed_cell_count as u32;
         self.committed_bytes
-            .fetch_add(POOL_BLOCK_SIZE as u32, Ordering::Relaxed);
+            .fetch_add(commit_size as u32, Ordering::Relaxed);
+        record_grow_timing(
+            timer,
+            self.index,
+            self.item_size,
+            true,
+            commit_size,
+            metadata_committed_now,
+        );
 
-        // Compute which FreeLink slots correspond to this new block and
-        // chain them onto the freelist. For pool item_size N, each 1 MB
-        // block holds floor(1MB / N) cells. Partial-cell remainder is
-        // ignored (inaccessible).
-        let cells_per_block = POOL_BLOCK_SIZE / self.item_size as usize;
-        let block_offset = block_start as usize - self.base as usize;
-        let start_cell_idx = block_offset / self.item_size as usize;
-
-        // Build a LIFO chain: new_head -> new_head-1 -> ... -> start_cell,
-        // then splice on top of the existing freelist.
-        let old_head = if self.next_free.is_null() {
-            FREE_LINK_TAIL
-        } else {
-            self.next_free
-        };
-        unsafe {
-            let first_link = self.free_cells.add(start_cell_idx);
-            first_link.write(FreeLink { next: old_head });
-            for i in 1..cells_per_block {
-                let link = self.free_cells.add(start_cell_idx + i);
-                let prev = self.free_cells.add(start_cell_idx + i - 1);
-                link.write(FreeLink { next: prev });
-            }
-            self.next_free = self.free_cells.add(start_cell_idx + cells_per_block - 1);
-        }
-
-        true
+        GrowResult::Grown
     }
 
-    /// Fast path alloc: pop one cell from the freelist. If the list is
-    /// empty, commit one more block.
-    unsafe fn alloc(&mut self) -> *mut u8 {
-        if self.next_free.is_null() && unsafe { !self.grow() } {
-            return null_mut();
-        }
+    /// Fast path allocation. Reuse returned cells first to preserve the
+    /// allocator's existing LIFO and memory-pressure behavior; otherwise
+    /// advance through the committed virgin-cell prefix.
+    unsafe fn alloc(&mut self) -> PoolAllocResult {
+        let cell = if !self.free_head.is_null() {
+            let link = self.free_head;
+            unsafe {
+                let next = (*link).next;
+                self.free_head = if next == FREE_LINK_TAIL {
+                    null_mut()
+                } else {
+                    next
+                };
+                (*link).next = null_mut();
+            }
+            self.link_to_cell(link)
+        } else {
+            if self.next_virgin_cell >= self.committed_cell_count {
+                match unsafe { self.grow() } {
+                    GrowResult::Grown => {}
+                    GrowResult::Full => return PoolAllocResult::Full,
+                    GrowResult::CommitFailed => return PoolAllocResult::CommitFailed,
+                }
+            }
+            if self.next_virgin_cell >= self.committed_cell_count {
+                return PoolAllocResult::Full;
+            }
 
-        let link = self.next_free;
-        // Walk one step. A null next means end-of-chain; next alloc will
-        // see next_free == null and trigger grow().
-        unsafe {
-            let next = (*link).next;
-            self.next_free = if next == FREE_LINK_TAIL {
-                null_mut()
-            } else {
-                next
-            };
-            (*link).next = null_mut(); // mark as allocated
-        }
+            let cell_index = self.next_virgin_cell as usize;
+            self.next_virgin_cell += 1;
+            unsafe { self.base.add(cell_index * self.item_size as usize) }
+        };
 
         self.live_cells.fetch_add(1, Ordering::Relaxed);
-        self.link_to_cell(link)
+        PoolAllocResult::Allocated(cell)
     }
 
-    /// Fast path free: push a cell onto the freelist. No writes to cell data.
+    /// Fast path free: push a cell onto the returned-cell list. No writes to
+    /// cell data.
     ///
     /// # Known latent crash: BSTreeNode C0000417
     ///
@@ -698,12 +970,12 @@ impl Pool {
                 );
                 return false;
             }
-            (*link).next = if self.next_free.is_null() {
+            (*link).next = if self.free_head.is_null() {
                 FREE_LINK_TAIL
             } else {
-                self.next_free
+                self.free_head
             };
-            self.next_free = link;
+            self.free_head = link;
         }
         self.live_cells.fetch_sub(1, Ordering::Relaxed);
         true
@@ -730,16 +1002,20 @@ impl Pool {
         }
 
         let cell_start = self.base as usize + cell_index * self.item_size as usize;
-        let link = unsafe { self.free_cells.add(cell_index) };
+        let committed = cell_index < self.committed_cell_count as usize;
+        let issued = cell_index < self.next_virgin_cell as usize;
+        let link = unsafe { self.cell_links.add(cell_index) };
         Some(PoolPtrInfo {
             pool_index: self.index,
             item_size: self.item_size,
             cell_index,
             cell_start,
             offset: addr - cell_start,
-            committed: cell_start + self.item_size as usize <= self.cur as usize,
-            // Allocated cells are the only entries whose link is NULL.
-            is_free: unsafe { !(*link).next.is_null() },
+            committed,
+            issued,
+            // Never inspect metadata for an unissued cell. Its page is
+            // committed, but it has not yet become allocator-visible state.
+            is_free: issued && unsafe { !(*link).next.is_null() },
         })
     }
 
@@ -750,7 +1026,7 @@ impl Pool {
         refcount: i32,
     ) -> Option<PoolPtrInfo> {
         let info = self.ptr_info_locked(ptr)?;
-        if !info.committed || info.offset != 0 || info.item_size < 12 {
+        if !info.committed || !info.issued || info.offset != 0 || info.item_size < 12 {
             return None;
         }
         if !info.is_free {
@@ -779,6 +1055,12 @@ pub struct PoolHeap {
     /// Allocation starts here for each class. Updated on successful
     /// alloc/free so hot paths avoid walking full subpools.
     class_hint: [AtomicU8; NUM_BASE_POOLS],
+    /// Per-class bounded-capacity refusals. Updated only on failure.
+    class_exhaustions: [AtomicU64; NUM_BASE_POOLS],
+    /// Versioned per-class exhaustion cache. Bit zero is the cached failure;
+    /// upper bits change on every free or retry generation. A failure CAS can
+    /// therefore never overwrite a concurrent free notification.
+    class_state: [AtomicU32; NUM_BASE_POOLS],
     /// size_to_class[(size + 3) >> 2] = class index, or NO_POOL if size
     /// exceeds POOL_MAX_SIZE. Filled at heap create; independent of
     /// per-subpool reservation state.
@@ -811,10 +1093,16 @@ fn assign_pool_desc(
     desc: &PoolDesc,
     subpool_idx: u8,
     subpool_count: u8,
+    overflow: bool,
 ) {
-    let used_before = subpool_idx as u32 * POOL_SUBPOOL_SIZE;
-    let remaining = desc.max_size.saturating_sub(used_before);
-    let max_size = remaining.min(POOL_SUBPOOL_SIZE);
+    let max_size = if overflow {
+        POOL_SUBPOOL_SIZE
+    } else {
+        let used_before = subpool_idx as u32 * POOL_SUBPOOL_SIZE;
+        desc.max_size
+            .saturating_sub(used_before)
+            .min(POOL_SUBPOOL_SIZE)
+    };
     let max_cell_count = max_size / desc.item_size;
     pool.item_size = desc.item_size;
     pool.max_size = max_size;
@@ -822,8 +1110,9 @@ fn assign_pool_desc(
     pool.class_index = class_idx;
     pool.subpool_index = subpool_idx;
     pool.subpool_count = subpool_count;
+    pool.overflow = overflow;
     pool.index = pool_idx;
-    // base/cur/end/free_cells stay NULL until lazy init.
+    // Address fields and cell_links stay NULL until lazy initialization.
 }
 
 impl PoolHeap {
@@ -839,16 +1128,19 @@ impl PoolHeap {
             class_start: [NO_POOL; NUM_BASE_POOLS],
             class_count: [0; NUM_BASE_POOLS],
             class_hint: std::array::from_fn(|_| AtomicU8::new(0)),
+            class_exhaustions: std::array::from_fn(|_| AtomicU64::new(0)),
+            class_state: std::array::from_fn(|_| AtomicU32::new(0)),
             size_to_class: [NO_POOL; SIZE_LOOKUP_LEN],
             addr_to_pool: std::array::from_fn(|_| AtomicU8::new(NO_POOL)),
             init_lock: Mutex::new(()),
         });
 
-        // Expand each class cap into aligned subpools. The class cap is
-        // unchanged; only first-touch reservation is split.
+        // Expand normal class capacity and append dormant overflow
+        // descriptors. No descriptor reserves VA until first use.
         let mut pool_idx = 0usize;
         for (class_idx, desc) in POOL_DESC.iter().enumerate() {
-            let count = subpool_count_for(desc.max_size);
+            let base_count = subpool_count_for(desc.max_size);
+            let count = base_count + overflow_subpool_count(class_idx);
             heap.class_start[class_idx] = pool_idx as u8;
             heap.class_count[class_idx] = count as u8;
             for subpool_idx in 0..count {
@@ -866,6 +1158,7 @@ impl PoolHeap {
                     desc,
                     subpool_idx as u8,
                     count as u8,
+                    subpool_idx >= base_count,
                 );
                 pool_idx += 1;
             }
@@ -895,19 +1188,18 @@ impl PoolHeap {
         }
 
         log::info!(
-            "[POOL] Ready (subpool lazy): {} classes -> {} subpools of up to {}MB ({}MB max), 0MB reserved upfront",
+            "[POOL] Ready (subpool lazy): {} classes -> {} base + {} overflow descriptors of up to {}MB (overflow soft limit={}MB), 0MB reserved upfront",
             NUM_BASE_POOLS,
-            NUM_TOTAL_POOLS,
+            NUM_BASE_SUBPOOLS,
+            NUM_OVERFLOW_SUBPOOLS,
             POOL_ALIGN / 1024 / 1024,
-            POOL_MAX_RESERVATION_MB,
+            OVERFLOW_RESERVATION_SOFT_LIMIT / 1024 / 1024,
         );
 
         Some(heap)
     }
 
     /// First-alloc hook. Ensures pool at `idx` is in `INIT` state.
-    /// Returns true if the pool is usable; false if init failed or
-    /// is still in progress (caller can retry on the next request).
     ///
     /// Fast path: a single `Acquire` load; no lock taken if already
     /// initialised. Slow path (first alloc for this subpool) takes the
@@ -915,61 +1207,81 @@ impl PoolHeap {
     /// claims `addr_to_pool` entries. Concurrent initialisers on
     /// DIFFERENT pools spin-wait; after one pool finishes, the next
     /// proceeds.
-    fn ensure_pool_inited(&self, idx: usize) -> bool {
+    fn ensure_pool_inited(&self, idx: usize) -> InitResult {
         let state = self.pools[idx].state.load(Ordering::Acquire);
-        if state == POOL_STATE_INIT {
-            return true;
+        match state {
+            POOL_STATE_INIT => InitResult::Ready,
+            POOL_STATE_PERMANENT => InitResult::Unavailable,
+            POOL_STATE_RETRYABLE
+                if self.pools[idx].retry_generation.load(Ordering::Relaxed)
+                    == RESERVATION_RETRY_GENERATION.load(Ordering::Acquire) =>
+            {
+                InitResult::ResourceFailure
+            }
+            _ => self.lazy_init_pool(idx),
         }
-        if state == POOL_STATE_FAILED {
-            return false;
-        }
-        self.lazy_init_pool(idx)
     }
 
-    #[allow(clippy::never_loop)]
     #[cold]
-    fn lazy_init_pool(&self, idx: usize) -> bool {
-        // Transition NotInit -> Initing. If another thread beat us to
-        // it, wait for its outcome.
+    fn lazy_init_pool(&self, idx: usize) -> InitResult {
         loop {
+            let state = self.pools[idx].state.load(Ordering::Acquire);
+            let retry_generation = RESERVATION_RETRY_GENERATION.load(Ordering::Acquire);
+            match state {
+                POOL_STATE_INIT => return InitResult::Ready,
+                POOL_STATE_PERMANENT => return InitResult::Unavailable,
+                POOL_STATE_RETRYABLE
+                    if self.pools[idx].retry_generation.load(Ordering::Relaxed)
+                        == retry_generation =>
+                {
+                    return InitResult::ResourceFailure;
+                }
+                POOL_STATE_INITING => {
+                    while self.pools[idx].state.load(Ordering::Acquire) == POOL_STATE_INITING {
+                        std::hint::spin_loop();
+                    }
+                    continue;
+                }
+                POOL_STATE_NOT_INIT | POOL_STATE_RETRYABLE => {}
+                _ => return InitResult::Unavailable,
+            }
+
             match self.pools[idx].state.compare_exchange(
-                POOL_STATE_NOT_INIT,
+                state,
                 POOL_STATE_INITING,
                 Ordering::AcqRel,
                 Ordering::Acquire,
             ) {
                 Ok(_) => break,
-                Err(POOL_STATE_INIT) => return true,
-                Err(POOL_STATE_FAILED) => return false,
-                Err(_) => {
-                    // POOL_STATE_INITING on another thread; spin.
-                    while self.pools[idx].state.load(Ordering::Acquire) == POOL_STATE_INITING {
-                        std::hint::spin_loop();
-                    }
-                    let s = self.pools[idx].state.load(Ordering::Acquire);
-                    return s == POOL_STATE_INIT;
-                }
+                Err(_) => continue,
             }
         }
 
-        // We own the Initing transition. Do the actual reservation
-        // under init_lock (serialises slot scan against other pools).
-        let ok = self.do_reserve(idx);
-        self.pools[idx].state.store(
-            if ok {
-                POOL_STATE_INIT
-            } else {
-                POOL_STATE_FAILED
-            },
-            Ordering::Release,
-        );
-        ok
+        let result = self.do_reserve(idx);
+        let state = match result {
+            ReserveResult::Ready => POOL_STATE_INIT,
+            ReserveResult::Retryable => {
+                self.pools[idx].retry_generation.store(
+                    RESERVATION_RETRY_GENERATION.load(Ordering::Acquire),
+                    Ordering::Relaxed,
+                );
+                POOL_STATE_RETRYABLE
+            }
+            ReserveResult::Permanent => POOL_STATE_PERMANENT,
+        };
+        self.pools[idx].state.store(state, Ordering::Release);
+        match result {
+            ReserveResult::Ready => InitResult::Ready,
+            ReserveResult::Retryable => InitResult::ResourceFailure,
+            ReserveResult::Permanent => InitResult::Unavailable,
+        }
     }
 
-    /// Reserve VA and freelist metadata for pool `idx`. Caller must
+    /// Reserve user VA and freed-cell metadata for pool `idx`. Caller must
     /// have just transitioned the pool to `POOL_STATE_INITING`.
     /// Takes `init_lock` for addr_to_pool coordination.
-    fn do_reserve(&self, idx: usize) -> bool {
+    fn do_reserve(&self, idx: usize) -> ReserveResult {
+        let timer = diagnostics::Stopwatch::start_if_hitch_profiling();
         let _guard = match self.init_lock.lock() {
             Ok(g) => g,
             Err(p) => p.into_inner(),
@@ -977,7 +1289,7 @@ impl PoolHeap {
 
         // We hold init_lock (serialises addr_to_pool writes) and own
         // the pool's INITING state (no other thread mutates this pool's
-        // base/cur/end fields). Access via raw pointer to avoid the
+        // address or allocation state). Access via raw pointer to avoid the
         // invalid-reference-cast lint while still respecting the lock.
         let pool_ptr: *mut Pool = &self.pools[idx] as *const Pool as *mut Pool;
 
@@ -987,6 +1299,40 @@ impl PoolHeap {
         let class_index = unsafe { (*pool_ptr).class_index };
         let subpool_index = unsafe { (*pool_ptr).subpool_index };
         let subpool_count = unsafe { (*pool_ptr).subpool_count };
+        let overflow = unsafe { (*pool_ptr).overflow };
+        let metadata_reserved_bytes =
+            (max_cell_count as usize * std::mem::size_of::<FreeLink>()).div_ceil(0x1000) * 0x1000;
+
+        if overflow {
+            let overflow_user = OVERFLOW_USER_RESERVED_BYTES.load(Ordering::Relaxed);
+            let overflow_metadata = OVERFLOW_METADATA_RESERVED_BYTES.load(Ordering::Relaxed);
+            let overflow_total = overflow_user.saturating_add(overflow_metadata);
+            let reservation_bytes = (max_size as usize).saturating_add(metadata_reserved_bytes);
+            if overflow_total < OVERFLOW_RESERVATION_SOFT_LIMIT
+                && overflow_total.saturating_add(reservation_bytes)
+                    >= OVERFLOW_RESERVATION_SOFT_LIMIT
+            {
+                log::warn!(
+                    "[POOL] Exact-size overflow crossed soft reservation limit: current={}MB request={}MB limit={}MB",
+                    overflow_total / 1024 / 1024,
+                    reservation_bytes / 1024 / 1024,
+                    OVERFLOW_RESERVATION_SOFT_LIMIT / 1024 / 1024,
+                );
+            }
+
+            let free_vas = super::allocator::current_free_vas();
+            if free_vas
+                <= super::allocator::VAS_CRITICAL_REMAINING.saturating_add(reservation_bytes)
+            {
+                log_overflow_refusal(
+                    class_index,
+                    item_size,
+                    "vas_pressure",
+                    free_vas / 1024 / 1024,
+                );
+                return ReserveResult::Retryable;
+            }
+        }
 
         let slots_needed = (max_size as usize).div_ceil(POOL_ALIGN);
         if slots_needed == 0 {
@@ -996,7 +1342,7 @@ impl PoolHeap {
                 item_size,
                 max_size,
             );
-            return false;
+            return ReserveResult::Permanent;
         }
 
         let mut reserved_base: *mut u8 = ptr::null_mut();
@@ -1017,7 +1363,21 @@ impl PoolHeap {
                 item_size,
                 max_size / 1024 / 1024,
             );
-            return false;
+            return ReserveResult::Permanent;
+        }
+
+        // Reserve metadata before consuming a user range. Metadata remains
+        // uncommitted until grow() exposes the matching cells, avoiding the
+        // multi-megabyte first-touch commit previously paid here.
+        let metadata_ptr =
+            unsafe { VirtualAlloc(None, metadata_reserved_bytes, MEM_RESERVE, PAGE_READWRITE) };
+        if metadata_ptr.is_null() {
+            log::error!(
+                "[POOL] #{} link metadata reservation failed ({} KB)",
+                idx,
+                metadata_reserved_bytes / 1024,
+            );
+            return ReserveResult::Retryable;
         }
 
         let adopted = super::vanilla_large_heap::try_alloc_default_tail(
@@ -1098,45 +1458,26 @@ impl PoolHeap {
                 item_size,
                 max_size / 1024 / 1024,
             );
-            return false;
+            let _ = unsafe {
+                windows::Win32::System::Memory::VirtualFree(
+                    metadata_ptr,
+                    0,
+                    windows::Win32::System::Memory::MEM_RELEASE,
+                )
+            };
+            return ReserveResult::Retryable;
         }
-
-        // Freelist metadata -- out-of-band from user cells, allocated
-        // from the OS directly (not from ourselves) to avoid recursion.
-        let meta_bytes = max_cell_count as usize * std::mem::size_of::<FreeLink>();
-        let meta_commit_bytes = meta_bytes.div_ceil(0x1000) * 0x1000;
-        let meta_ptr =
-            unsafe { VirtualAlloc(None, meta_bytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE) };
-        if meta_ptr.is_null() {
-            log::error!(
-                "[POOL] #{} freelist metadata alloc failed ({} KB)",
-                idx,
-                meta_bytes / 1024,
-            );
-            if !default_tail_backing {
-                let _ = unsafe {
-                    windows::Win32::System::Memory::VirtualFree(
-                        reserved_base as *mut c_void,
-                        0,
-                        windows::Win32::System::Memory::MEM_RELEASE,
-                    )
-                };
-            }
-            return false;
-        }
-        // VirtualAlloc returns zero-filled pages. Each entry is initialized by
-        // grow() before it is linked into the freelist.
 
         // Commit the pool's state via raw pointer writes.
         unsafe {
             (*pool_ptr).base = reserved_base;
-            (*pool_ptr).cur = reserved_base;
+            (*pool_ptr).committed_end = reserved_base;
             (*pool_ptr).end = reserved_base.add(max_size as usize);
-            (*pool_ptr).free_cells = meta_ptr as *mut FreeLink;
-            (*pool_ptr).next_free = ptr::null_mut();
-            (*pool_ptr)
-                .metadata_bytes
-                .store(meta_commit_bytes as u32, Ordering::Relaxed);
+            (*pool_ptr).cell_links = metadata_ptr as *mut FreeLink;
+            (*pool_ptr).free_head = ptr::null_mut();
+            (*pool_ptr).next_virgin_cell = 0;
+            (*pool_ptr).committed_cell_count = 0;
+            (*pool_ptr).metadata_bytes.store(0, Ordering::Relaxed);
         }
 
         // Claim addr_to_pool slots. Readers on the hot path will see
@@ -1146,8 +1487,15 @@ impl PoolHeap {
             self.addr_to_pool[s].store(idx as u8, Ordering::Relaxed);
         }
 
+        if overflow {
+            OVERFLOW_USER_RESERVED_BYTES.fetch_add(max_size as usize, Ordering::Relaxed);
+            OVERFLOW_METADATA_RESERVED_BYTES.fetch_add(metadata_reserved_bytes, Ordering::Relaxed);
+        }
+
+        record_init_timing(timer, idx as u8, item_size);
+
         log::debug!(
-            "[POOL] class #{} {}B grew: subpool {}/{} (#{}) reserved {}MB at 0x{:08x}..0x{:08x} source={}",
+            "[POOL] class #{} {}B initialized: subpool {}/{} (#{}) user={}MB at 0x{:08x}..0x{:08x} metadata={}KB source={} overflow={}",
             class_index,
             item_size,
             subpool_index + 1,
@@ -1156,14 +1504,16 @@ impl PoolHeap {
             max_size / 1024 / 1024,
             reserved_base as usize,
             reserved_base as usize + max_size as usize,
+            metadata_reserved_bytes / 1024,
             if default_tail_backing {
                 "default-tail"
             } else {
                 "virtualalloc"
             },
+            overflow,
         );
 
-        true
+        ReserveResult::Ready
     }
 
     #[inline]
@@ -1196,9 +1546,11 @@ impl PoolHeap {
         }
     }
 
-    fn alloc_from_pool(&self, pool_idx: usize) -> *mut u8 {
-        if !self.ensure_pool_inited(pool_idx) {
-            return null_mut();
+    fn alloc_from_pool(&self, pool_idx: usize) -> PoolAllocResult {
+        match self.ensure_pool_inited(pool_idx) {
+            InitResult::Ready => {}
+            InitResult::Unavailable => return PoolAllocResult::Full,
+            InitResult::ResourceFailure => return PoolAllocResult::CommitFailed,
         }
         let pool = &self.pools[pool_idx];
         unsafe {
@@ -1210,11 +1562,11 @@ impl PoolHeap {
         }
     }
 
-    fn alloc_from_class(&self, class_idx: usize) -> *mut c_void {
+    fn alloc_from_class(&self, class_idx: usize) -> ClassAllocResult {
         let start = self.class_start[class_idx] as usize;
         let count = self.class_count[class_idx] as usize;
         if count == 0 {
-            return null_mut();
+            return ClassAllocResult::Exhausted;
         }
 
         let mut hint = self.class_hint[class_idx].load(Ordering::Relaxed) as usize;
@@ -1224,14 +1576,17 @@ impl PoolHeap {
 
         for step in 0..count {
             let subpool_idx = (hint + step) % count;
-            let ptr = self.alloc_from_pool(start + subpool_idx);
-            if !ptr.is_null() {
-                self.class_hint[class_idx].store(subpool_idx as u8, Ordering::Relaxed);
-                return ptr as *mut c_void;
+            match self.alloc_from_pool(start + subpool_idx) {
+                PoolAllocResult::Allocated(ptr) => {
+                    self.class_hint[class_idx].store(subpool_idx as u8, Ordering::Relaxed);
+                    return ClassAllocResult::Allocated(ptr as *mut c_void);
+                }
+                PoolAllocResult::Full => {}
+                PoolAllocResult::CommitFailed => return ClassAllocResult::ResourceFailure,
             }
         }
 
-        null_mut()
+        ClassAllocResult::Exhausted
     }
 
     pub fn alloc(&self, size: usize) -> *mut c_void {
@@ -1245,32 +1600,42 @@ impl PoolHeap {
         }
 
         let class_idx_u = class_idx as usize;
-        let ptr = self.alloc_from_class(class_idx_u);
-        if !ptr.is_null() {
-            return ptr;
+        let class_state = self.class_state[class_idx_u].load(Ordering::Acquire);
+        if class_state & CLASS_STATE_EXHAUSTED != 0 {
+            return self.record_class_failure(size, class_idx_u, "cached");
         }
+        let reason = match self.alloc_from_class(class_idx_u) {
+            ClassAllocResult::Allocated(ptr) => return ptr,
+            ClassAllocResult::Exhausted => "capacity",
+            ClassAllocResult::ResourceFailure => "resource",
+        };
+        let _ = self.class_state[class_idx_u].compare_exchange(
+            class_state,
+            class_state | CLASS_STATE_EXHAUSTED,
+            Ordering::AcqRel,
+            Ordering::Acquire,
+        );
+        self.record_class_failure(size, class_idx_u, reason)
+    }
 
-        // Exhausted: walk to larger classes. Each class grows one aligned
-        // subpool at a time instead of claiming the whole class cap.
-        for i in (class_idx_u + 1)..NUM_BASE_POOLS {
-            let ptr = self.alloc_from_class(i);
-            if !ptr.is_null() {
-                return ptr;
-            }
-        }
-
-        // All classes from `class_idx` up to the largest size class refused.
-        // Caller's fallthrough is block / va_alloc / NULL. Rate-limited
-        // warn so a sudden burst of exhaustion is visible without
-        // flooding the log.
-        let n = POOL_EXHAUST_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
-        if n.is_power_of_two() {
+    #[cold]
+    fn record_class_failure(
+        &self,
+        size: usize,
+        class_idx: usize,
+        reason: &'static str,
+    ) -> *mut c_void {
+        let class_failures = self.class_exhaustions[class_idx].fetch_add(1, Ordering::Relaxed) + 1;
+        if class_failures.is_power_of_two() {
+            let total_failures = self.total_exhaustions();
             log::warn!(
-                "[POOL] Exhausted for size={} (started at class #{} = {}B): total_fails={}",
+                "[POOL] Allocation refused for size={} class #{}={}B reason={}: class_fails={} total_fails={}",
                 size,
-                class_idx_u,
-                POOL_DESC[class_idx_u].item_size,
-                n,
+                class_idx,
+                POOL_DESC[class_idx].item_size,
+                reason,
+                class_failures,
+                total_failures,
             );
         }
         null_mut()
@@ -1287,16 +1652,17 @@ impl PoolHeap {
             let p = pool as *const Pool as *mut Pool;
             (*p).acquire();
             let freed = match (*p).ptr_info_locked(ptr) {
-                Some(info) if info.committed && info.offset == 0 => {
+                Some(info) if info.committed && info.issued && info.offset == 0 => {
                     (*p).free(info.cell_start as *mut u8)
                 }
                 Some(info) => {
                     log::error!(
-                        "[POOL] Invalid free ignored: pool={} ptr={:p} offset={} committed={}",
+                        "[POOL] Invalid free ignored: pool={} ptr={:p} offset={} committed={} issued={}",
                         info.pool_index,
                         ptr,
                         info.offset,
                         info.committed,
+                        info.issued,
                     );
                     false
                 }
@@ -1308,7 +1674,26 @@ impl PoolHeap {
             }
         }
         self.class_hint[class_idx].store(subpool_idx, Ordering::Relaxed);
+        Self::mark_class_available(&self.class_state[class_idx]);
         true
+    }
+
+    fn allow_reservation_retries(&self) {
+        RESERVATION_RETRY_GENERATION.fetch_add(1, Ordering::AcqRel);
+        for state in &self.class_state {
+            Self::mark_class_available(state);
+        }
+    }
+
+    fn mark_class_available(state: &AtomicU32) {
+        let mut current = state.load(Ordering::Relaxed);
+        loop {
+            let next = current.wrapping_add(CLASS_STATE_GENERATION_STEP) & !CLASS_STATE_EXHAUSTED;
+            match state.compare_exchange_weak(current, next, Ordering::Release, Ordering::Relaxed) {
+                Ok(_) => return,
+                Err(actual) => current = actual,
+            }
+        }
     }
 
     pub fn contains(&self, ptr: *const c_void) -> bool {
@@ -1370,10 +1755,46 @@ impl PoolHeap {
             .sum()
     }
 
+    pub fn metadata_reserved_bytes(&self) -> usize {
+        self.pools
+            .iter()
+            .filter(|p| p.is_inited())
+            .map(|p| {
+                (p.max_cell_count as usize * std::mem::size_of::<FreeLink>()).div_ceil(0x1000)
+                    * 0x1000
+            })
+            .sum()
+    }
+
     pub fn live_cells(&self) -> usize {
         self.pools
             .iter()
             .map(|p| p.live_cells.load(Ordering::Relaxed) as usize)
+            .sum()
+    }
+
+    pub fn class_usage(&self) -> [PoolClassUsage; NUM_BASE_POOLS] {
+        let mut usage = std::array::from_fn(|class_index| PoolClassUsage {
+            class_index: class_index as u8,
+            item_size: POOL_DESC[class_index].item_size,
+            ..PoolClassUsage::default()
+        });
+        for pool in &self.pools {
+            if !pool.is_inited() {
+                continue;
+            }
+            let class = &mut usage[pool.class_index as usize];
+            class.live_cells += pool.live_cells.load(Ordering::Relaxed) as usize;
+            class.committed_bytes += pool.committed_bytes.load(Ordering::Relaxed) as usize;
+            class.reserved_bytes += pool.max_size as usize;
+        }
+        usage
+    }
+
+    fn total_exhaustions(&self) -> u64 {
+        self.class_exhaustions
+            .iter()
+            .map(|count| count.load(Ordering::Relaxed))
             .sum()
     }
 }
@@ -1384,10 +1805,6 @@ impl PoolHeap {
 
 use std::sync::OnceLock;
 static HEAP: OnceLock<Box<PoolHeap>> = OnceLock::new();
-
-/// Total number of times `alloc` walked the full fallthrough chain
-/// and every pool refused. Power-of-two gated for log visibility.
-static POOL_EXHAUST_COUNT: AtomicU64 = AtomicU64::new(0);
 
 pub fn init() -> bool {
     match PoolHeap::create() {
@@ -1453,10 +1870,43 @@ pub fn metadata_bytes() -> usize {
     HEAP.get().map(|h| h.metadata_bytes()).unwrap_or(0)
 }
 
+pub fn metadata_reserved_bytes() -> usize {
+    HEAP.get().map(|h| h.metadata_reserved_bytes()).unwrap_or(0)
+}
+
 pub fn live_cells() -> usize {
     HEAP.get().map(|h| h.live_cells()).unwrap_or(0)
 }
 
+pub fn class_usage() -> [PoolClassUsage; NUM_BASE_POOLS] {
+    HEAP.get()
+        .map(|heap| heap.class_usage())
+        .unwrap_or_else(|| {
+            std::array::from_fn(|class_index| PoolClassUsage {
+                class_index: class_index as u8,
+                item_size: POOL_DESC[class_index].item_size,
+                ..PoolClassUsage::default()
+            })
+        })
+}
+
 pub fn exhaust_count() -> u64 {
-    POOL_EXHAUST_COUNT.load(Ordering::Relaxed)
+    HEAP.get().map(|heap| heap.total_exhaustions()).unwrap_or(0)
+}
+
+/// Permit one retry of subpool reservations that failed from transient VAS
+/// or commit pressure. Called by the low-frequency watchdog, never from the
+/// allocation hot path.
+pub fn allow_reservation_retries() {
+    if let Some(heap) = HEAP.get() {
+        heap.allow_reservation_retries();
+    }
+}
+
+pub fn overflow_user_reserved_bytes() -> usize {
+    OVERFLOW_USER_RESERVED_BYTES.load(Ordering::Relaxed)
+}
+
+pub fn overflow_metadata_reserved_bytes() -> usize {
+    OVERFLOW_METADATA_RESERVED_BYTES.load(Ordering::Relaxed)
 }

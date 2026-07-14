@@ -201,6 +201,7 @@ fn watchdog_loop(run: Arc<AtomicBool>) {
 
         libpsycho::os::windows::winapi::sleep(POLL_MS);
         poll_count = poll_count.wrapping_add(1);
+        super::pool::allow_reservation_retries();
 
         let info = MiMallocProcessInfo::get();
         let commit = info.get_current_commit();
@@ -248,18 +249,51 @@ fn log_diagnostics(poll_count: u32, info: &MiMallocProcessInfo) {
     let pool_reserved_mb = super::pool::reserved_bytes() / 1024 / 1024;
     let pool_mb = super::pool::committed_bytes() / 1024 / 1024;
     let pool_metadata_mb = super::pool::metadata_bytes() / 1024 / 1024;
+    let pool_metadata_reserved_mb = super::pool::metadata_reserved_bytes() / 1024 / 1024;
     let pool_live = super::pool::live_cells();
-    let block_ct = super::block::block_count();
+    let pool_overflow_user_mb = super::pool::overflow_user_reserved_bytes() / 1024 / 1024;
+    let pool_overflow_metadata_mb = super::pool::overflow_metadata_reserved_bytes() / 1024 / 1024;
+    let blocks = super::block::snapshot();
     let va_live = super::va_alloc::live_bytes() / 1024 / 1024;
     log::debug!(
-        "[MEM] Pool: {}MB cells + {}MB metadata / {}MB reserved ({} live) | Blocks: {} | VA: {}MB | Rate: {}/s",
+        "[MEM] Pool: {}MB cells + {}/{}MB metadata / {}MB user reserved (overflow={}/{}MB user/meta, {} live) | Blocks: {} slots, {}MB/{} live | VA: {}MB | Rate: {}/s",
         pool_mb,
         pool_metadata_mb,
+        pool_metadata_reserved_mb,
         pool_reserved_mb,
+        pool_overflow_user_mb,
+        pool_overflow_metadata_mb,
         pool_live,
-        block_ct,
+        blocks.slots,
+        blocks.live_bytes / 1024 / 1024,
+        blocks.live_allocations,
         va_live,
         format_rate(rate),
+    );
+    let mut class_usage = super::pool::class_usage();
+    class_usage.sort_unstable_by_key(|usage| std::cmp::Reverse(usage.live_cells));
+    log::debug!(
+        "[MEM] Pool top live: #{} {}B={} ({}/{}MB), #{} {}B={} ({}/{}MB), #{} {}B={} ({}/{}MB), #{} {}B={} ({}/{}MB)",
+        class_usage[0].class_index,
+        class_usage[0].item_size,
+        class_usage[0].live_cells,
+        class_usage[0].committed_bytes / 1024 / 1024,
+        class_usage[0].reserved_bytes / 1024 / 1024,
+        class_usage[1].class_index,
+        class_usage[1].item_size,
+        class_usage[1].live_cells,
+        class_usage[1].committed_bytes / 1024 / 1024,
+        class_usage[1].reserved_bytes / 1024 / 1024,
+        class_usage[2].class_index,
+        class_usage[2].item_size,
+        class_usage[2].live_cells,
+        class_usage[2].committed_bytes / 1024 / 1024,
+        class_usage[2].reserved_bytes / 1024 / 1024,
+        class_usage[3].class_index,
+        class_usage[3].item_size,
+        class_usage[3].live_cells,
+        class_usage[3].committed_bytes / 1024 / 1024,
+        class_usage[3].reserved_bytes / 1024 / 1024,
     );
     log_allocator_events();
 
@@ -285,7 +319,7 @@ fn log_diagnostics(poll_count: u32, info: &MiMallocProcessInfo) {
                 libpsycho::common::helpers::format_bytes(info.get_peak_commit()),
                 pool_mb,
                 pool_reserved_mb,
-                block_ct,
+                blocks.slots,
                 va_live,
                 vas.largest_free / super::vas::MB,
                 vas.total_free / super::vas::MB,

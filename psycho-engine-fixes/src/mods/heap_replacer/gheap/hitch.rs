@@ -256,6 +256,7 @@ fn maybe_log_window() {
 
     let engine = engine_fixes::take_diagnostic_counters();
     let spans = take_span_snapshot();
+    let pool_timing = pool::take_timing_snapshot();
     let hitches = WINDOW_HITCHES.swap(0, Ordering::AcqRel);
     let total_us = WINDOW_TOTAL_US.swap(0, Ordering::AcqRel);
     let max_us = WINDOW_MAX_US.swap(0, Ordering::AcqRel);
@@ -264,8 +265,9 @@ fn maybe_log_window() {
     }
 
     let scrap = scrap_heap::snapshot();
+    let blocks = block::snapshot();
     log::debug!(
-        "[HITCH] events={} max_us={} avg_us={} ema_us={} loading={} pddq={}/{}/{}/{}/{} ragdoll={}/{} extra_owner=load:{} access:{} unreadable:{} task=dispatch:{}/{} pin_fail:{} invalid:{} guard:{} tombstone:{} pool={}+{}/{}MB live={} blocks={} block_mb={} va={}MB scrap={}KB ids={} active_ids={} regions={} allocs={} spans=calls/max/total {}",
+        "[HITCH] events={} max_us={} avg_us={} ema_us={} loading={} pddq={}/{}/{}/{}/{} ragdoll={}/{} extra_owner=load:{} access:{} unreadable:{} task=dispatch:{}/{} pin_fail:{} invalid:{} guard:{} tombstone:{} pool={}+{}/{}/{}MB live={} pgrow={}/{} max/total={}/{}us user/meta={}/{}KB slow={}:{}B pinit={} max/total={}/{}us slow={}:{}B blocks={} block_mb={} va={}MB scrap={}KB ids={} active_ids={} regions={} allocs={} spans=calls/max/total {}",
         hitches,
         max_us,
         total_us / hitches.max(1),
@@ -289,10 +291,24 @@ fn maybe_log_window() {
         engine.task_tombstones,
         pool::committed_bytes() / 1024 / 1024,
         pool::metadata_bytes() / 1024 / 1024,
+        pool::metadata_reserved_bytes() / 1024 / 1024,
         pool::reserved_bytes() / 1024 / 1024,
         pool::live_cells(),
-        block::block_count(),
-        block::committed_bytes() / 1024 / 1024,
+        pool_timing.grows,
+        pool_timing.grow_failures,
+        pool_timing.grow_max_us,
+        pool_timing.grow_total_us,
+        pool_timing.grow_user_bytes / 1024,
+        pool_timing.grow_metadata_bytes / 1024,
+        pool_timing.grow_slowest_pool,
+        pool_timing.grow_slowest_item_size,
+        pool_timing.initializations,
+        pool_timing.init_max_us,
+        pool_timing.init_total_us,
+        pool_timing.init_slowest_pool,
+        pool_timing.init_slowest_item_size,
+        blocks.slots,
+        blocks.committed_bytes / 1024 / 1024,
         va_alloc::live_bytes() / 1024 / 1024,
         scrap.live_bytes / 1024,
         scrap.identities,
@@ -306,6 +322,7 @@ fn maybe_log_window() {
 fn drain_external_counters() {
     let _ = engine_fixes::take_diagnostic_counters();
     let _ = take_span_snapshot();
+    let _ = pool::take_timing_snapshot();
 }
 
 fn record_span(span: Span, timer: diagnostics::Stopwatch) {

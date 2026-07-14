@@ -22,8 +22,10 @@
 //! havok_gc internally at safe points, so we do not need to.
 
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::{mem::size_of, ptr};
 
 use libc::c_void;
+use libpsycho::os::windows::winapi::is_readable_ptr;
 
 use super::allocator;
 use super::engine::globals;
@@ -192,9 +194,42 @@ pub unsafe extern "C" fn hook_radio_signal_scan(
 }
 
 pub unsafe extern "C" fn hook_radio_station_update(station: *mut c_void) {
+    if !unsafe { radio_station_is_readable(station) } {
+        static STALE_STATIONS: AtomicU64 = AtomicU64::new(0);
+        let count = STALE_STATIONS.fetch_add(1, Ordering::Relaxed) + 1;
+        if crate::mods::diagnostics::should_log_power_of_two(count) {
+            log::warn!(
+                "[RADIO] Stale station entry skipped before form flag read: station=0x{:08X} total={}",
+                station as usize,
+                count,
+            );
+        }
+        return;
+    }
     if let Ok(original) = statics::RADIO_STATION_UPDATE_HOOK.original() {
         hitch::measure_span(Span::RadioStationUpdate, || unsafe { original(station) });
     }
+}
+
+/// `FUN_00834260` checks the wrapper and its first pointer for NULL, then
+/// immediately calls `FUN_00440DA0`, which reads flags at `form + 8` without
+/// validating that the form still exists. The observed post-load crash had a
+/// stale first pointer at this exact read.
+#[inline]
+unsafe fn radio_station_is_readable(station: *mut c_void) -> bool {
+    if station.is_null() {
+        return true;
+    }
+    if !unsafe { is_readable_ptr(station.cast_const(), size_of::<usize>()) } {
+        return false;
+    }
+
+    let form = unsafe { ptr::read_unaligned(station.cast::<*mut c_void>()) };
+    if form.is_null() {
+        return true;
+    }
+    (form as usize) & (size_of::<usize>() - 1) == 0
+        && unsafe { is_readable_ptr(form.cast_const(), 12) }
 }
 
 pub unsafe extern "C" fn hook_phase10_pre_tail() {

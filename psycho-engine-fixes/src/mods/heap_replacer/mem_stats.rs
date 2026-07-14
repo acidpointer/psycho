@@ -82,8 +82,9 @@ impl MemStats {
 
         let pool_commit = pool::committed_bytes();
         let pool_metadata = pool::metadata_bytes();
+        let pool_metadata_reserved = pool::metadata_reserved_bytes();
         let pool_reserved = pool::reserved_bytes();
-        let block_commit = block::committed_bytes();
+        let blocks = block::snapshot();
         let va_live = va_alloc::live_bytes() as usize;
         let gheap_total = gheap_owned_bytes();
         let scrap = scrap_heap::snapshot();
@@ -114,15 +115,16 @@ impl MemStats {
         push_section(&mut r, "Memory");
         r.push_str(&format!("  gheap total: {}\n", format_bytes(gheap_total),));
         r.push_str(&format!(
-            "    pool:  {} cells, {} metadata, {} reserved\n",
+            "    pool:  {} cells, {}/{} metadata, {} user reserved\n",
             format_bytes(pool_commit),
             format_bytes(pool_metadata),
+            format_bytes(pool_metadata_reserved),
             format_bytes(pool_reserved),
         ));
         r.push_str(&format!(
             "    block: {} committed in {} blocks\n",
-            format_bytes(block_commit),
-            block::block_count(),
+            format_bytes(blocks.committed_bytes),
+            blocks.slots,
         ));
         r.push_str(&format!(
             "    large: {} in {} direct blocks\n",
@@ -140,7 +142,17 @@ impl MemStats {
         ));
 
         push_section(&mut r, "Pool cells");
-        r.push_str(&format!("  live pool cells: {}\n\n", pool::live_cells(),));
+        r.push_str(&format!("  live pool cells: {}\n", pool::live_cells(),));
+        r.push_str(&format!(
+            "  exact-size overflow reserved: {} user + {} metadata\n",
+            format_bytes(pool::overflow_user_reserved_bytes()),
+            format_bytes(pool::overflow_metadata_reserved_bytes()),
+        ));
+        r.push_str(&format!(
+            "  block allocations: {} using {}\n\n",
+            blocks.live_allocations,
+            format_bytes(blocks.live_bytes),
+        ));
 
         push_section(&mut r, "Cleanup");
         r.push_str("  Direct-VA allocation failure can retire empty block slots once.\n");

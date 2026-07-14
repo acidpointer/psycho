@@ -46,7 +46,7 @@ pub(crate) fn task_pool_state(task: *const c_void) -> TaskPoolState {
     let Some(info) = gheap::pool::ptr_info(task) else {
         return TaskPoolState::Unknown;
     };
-    if !info.committed || info.offset != 0 {
+    if !info.committed || !info.issued || info.offset != 0 {
         return TaskPoolState::Unknown;
     }
     if info.is_free {

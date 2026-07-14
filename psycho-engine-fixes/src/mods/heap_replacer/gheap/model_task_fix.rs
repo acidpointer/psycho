@@ -43,7 +43,8 @@ fn is_stale_model_task(this: *mut c_void) -> bool {
     let Some(info) = pool::ptr_info(this) else {
         return false;
     };
-    if !info.committed || info.offset != 0 || info.item_size != MODEL_TASK_POOL_SIZE {
+    if !info.committed || !info.issued || info.offset != 0 || info.item_size != MODEL_TASK_POOL_SIZE
+    {
         return false;
     }
     if !info.is_free {

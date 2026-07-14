@@ -45,7 +45,7 @@ use windows::Win32::System::Memory::{
 // Constants
 // ---------------------------------------------------------------------------
 
-/// Slot granularity inside the unified tier reservation.
+/// Size of each independently reserved medium-allocation block.
 pub const BLOCK_SIZE: usize = 16 * 1024 * 1024;
 
 /// Minimum cell size. Leftover below this cannot be split off.
@@ -69,6 +69,14 @@ const BLOCK_COUNT: usize = 64;
 /// streaming need for contiguous VirtualAlloc requests.
 const BLOCK_HIGH_SCAN_START: usize = 0xfe00_0000;
 const BLOCK_HIGH_SCAN_MIN: usize = 0x8000_0000;
+
+/// Windows reservations are at least 64 KB aligned. A compact 64 KB-page
+/// table classifies block pointers without scanning every live block.
+const BLOCK_ADDRESS_SHIFT: usize = 16;
+const BLOCK_ADDRESS_SLOTS: usize = 1 << (32 - BLOCK_ADDRESS_SHIFT);
+const NO_BLOCK: u8 = u8::MAX;
+const AMBIGUOUS_BLOCK: u8 = u8::MAX - 1;
+const _: () = assert!(BLOCK_COUNT < AMBIGUOUS_BLOCK as usize);
 
 /// Sentinel "no cell" index inside a block's cell array.
 const NO_CELL: u32 = u32::MAX;
@@ -112,6 +120,10 @@ struct Block {
     /// is overkill for internal u32 keys and roughly 5x slower. This
     /// map is hit on every block::free so the hasher matters.
     used_by_offset: HashMap<u32, u32, FxBuildHasher>,
+
+    /// Sum of live cell sizes. Maintained under the heap lock so periodic
+    /// diagnostics never walk every allocation during gameplay.
+    live_bytes: usize,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -154,6 +166,7 @@ impl Block {
             free_slots: Vec::new(),
             free_by_size,
             used_by_offset: HashMap::with_hasher(FxBuildHasher),
+            live_bytes: 0,
         }
     }
 
@@ -253,6 +266,9 @@ impl Block {
         self.cells[picked_idx as usize].free = false;
 
         let offset = self.cells[picked_idx as usize].offset;
+        self.live_bytes = self
+            .live_bytes
+            .saturating_add(self.cells[picked_idx as usize].size as usize);
         self.used_by_offset.insert(offset, picked_idx);
         Some(picked_idx)
     }
@@ -265,6 +281,9 @@ impl Block {
             None => return false,
         };
 
+        self.live_bytes = self
+            .live_bytes
+            .saturating_sub(self.cells[idx as usize].size as usize);
         self.cells[idx as usize].free = true;
 
         // Coalesce left: if prev exists and is free, absorb it.
@@ -331,6 +350,8 @@ struct BlockHeap {
     /// so the slot index is just an internal handle, not an address
     /// (in contrast to the previous unified-tier design).
     blocks: [Option<Block>; BLOCK_COUNT],
+    address_to_block: [u8; BLOCK_ADDRESS_SLOTS],
+    alloc_hint: u8,
 }
 
 // Raw pointers inside `Block` are only touched under the global HEAP mutex.
@@ -341,11 +362,12 @@ impl BlockHeap {
     const fn empty() -> Self {
         Self {
             blocks: [const { None }; BLOCK_COUNT],
+            address_to_block: [NO_BLOCK; BLOCK_ADDRESS_SLOTS],
+            alloc_hint: 0,
         }
     }
 
-    /// No-op kept so `gheap::block::init()` callers do not need to
-    /// change. Blocks now allocate lazily on first overflow.
+    /// Announce that the lazy tier is available. No VA is reserved here.
     fn init(&mut self) -> bool {
         log::info!(
             "[BLOCK] Block tier ready: lazy on-demand mode, cap={} slots ({} MB max)",
@@ -459,6 +481,8 @@ impl BlockHeap {
         }
         let addr = ptr as *mut u8;
         self.blocks[idx] = Some(Block::new(addr, BLOCK_SIZE as u32, backing));
+        self.map_block_address(idx, addr);
+        self.alloc_hint = idx as u8;
         log::debug!(
             "[BLOCK] slot {} allocated at 0x{:08x} source={} (live={})",
             idx,
@@ -467,6 +491,49 @@ impl BlockHeap {
             self.live_count(),
         );
         Some(idx)
+    }
+
+    fn map_block_address(&mut self, block_idx: usize, base: *mut u8) {
+        let start = (base as usize) >> BLOCK_ADDRESS_SHIFT;
+        let end = (base as usize).saturating_add(BLOCK_SIZE - 1) >> BLOCK_ADDRESS_SHIFT;
+        for slot in start..=end.min(BLOCK_ADDRESS_SLOTS - 1) {
+            let mapped = self.address_to_block[slot];
+            if mapped == NO_BLOCK {
+                self.address_to_block[slot] = block_idx as u8;
+            } else if mapped != block_idx as u8 {
+                self.address_to_block[slot] = AMBIGUOUS_BLOCK;
+            }
+        }
+    }
+
+    fn rebuild_address_slot(&mut self, slot: usize) {
+        let page_start = (slot as u64) << BLOCK_ADDRESS_SHIFT;
+        let page_end = page_start + (1u64 << BLOCK_ADDRESS_SHIFT);
+        let mut mapped = NO_BLOCK;
+        for (idx, block) in self.blocks.iter().enumerate() {
+            let Some(block) = block.as_ref() else {
+                continue;
+            };
+            let block_start = block.base as usize as u64;
+            let block_end = block_start + block.size as u64;
+            if block_start >= page_end || block_end <= page_start {
+                continue;
+            }
+            if mapped != NO_BLOCK {
+                mapped = AMBIGUOUS_BLOCK;
+                break;
+            }
+            mapped = idx as u8;
+        }
+        self.address_to_block[slot] = mapped;
+    }
+
+    fn unmap_block_address(&mut self, base: *mut u8) {
+        let start = (base as usize) >> BLOCK_ADDRESS_SHIFT;
+        let end = (base as usize).saturating_add(BLOCK_SIZE - 1) >> BLOCK_ADDRESS_SHIFT;
+        for slot in start..=end.min(BLOCK_ADDRESS_SLOTS - 1) {
+            self.rebuild_address_slot(slot);
+        }
     }
 
     fn reserve_high_block() -> *mut c_void {
@@ -497,13 +564,31 @@ impl BlockHeap {
         null_mut()
     }
 
-    /// Linear scan over live blocks. Max BLOCK_COUNT (64) cmps -- NVHR
-    /// uses the same pattern with up to 128 blocks. Pointer-arithmetic
-    /// O(1) lookup is impossible here because blocks live at OS-picked
-    /// scattered addresses.
+    /// Fast ownership lookup by 64 KB address page. The range check handles
+    /// the first and last page when an adopted Default-heap tail is not
+    /// block-aligned. A linear fallback covers any overlapping boundary page.
     #[inline]
     fn find_block(&self, ptr: *const c_void) -> Option<usize> {
         let a = ptr as usize;
+        let slot = a >> BLOCK_ADDRESS_SHIFT;
+        if slot < BLOCK_ADDRESS_SLOTS {
+            let block_idx = self.address_to_block[slot];
+            if block_idx == NO_BLOCK {
+                return None;
+            }
+            if block_idx != AMBIGUOUS_BLOCK {
+                let block_idx = block_idx as usize;
+                if self
+                    .blocks
+                    .get(block_idx)
+                    .and_then(Option::as_ref)
+                    .is_some_and(|block| block.contains(ptr))
+                {
+                    return Some(block_idx);
+                }
+            }
+        }
+
         for i in 0..BLOCK_COUNT {
             if let Some(b) = self.blocks[i].as_ref() {
                 let base = b.base as usize;
@@ -518,8 +603,11 @@ impl BlockHeap {
     fn alloc(&mut self, size: usize) -> *mut c_void {
         let rounded = round_up(size as u32, CELL_ALIGN);
 
-        // First-fit across all live slots.
-        for i in 0..BLOCK_COUNT {
+        // Start with the last successful slot. Streaming bursts generally
+        // reuse its remaining space and avoid walking cold full blocks.
+        let start = self.alloc_hint as usize;
+        for step in 0..BLOCK_COUNT {
+            let i = (start + step) % BLOCK_COUNT;
             let Some(block) = self.blocks[i].as_mut() else {
                 continue;
             };
@@ -534,6 +622,7 @@ impl BlockHeap {
                 };
                 let offset = cell.offset;
                 let addr = unsafe { block.base.add(offset as usize) };
+                self.alloc_hint = i as u8;
                 return addr as *mut c_void;
             }
         }
@@ -567,7 +656,7 @@ impl BlockHeap {
 
     fn free_if_owned(&mut self, ptr: *mut c_void) -> Option<bool> {
         let block_idx = self.find_block(ptr)?;
-        let block = self.blocks[block_idx].as_mut()?;
+        let block = self.blocks.get_mut(block_idx)?.as_mut()?;
         let offset = (ptr as usize - block.base as usize) as u32;
         // Slot stays committed even when empty -- NVHR dheap semantics.
         // Decommitting on empty caused pathological retire/commit churn
@@ -617,6 +706,7 @@ impl BlockHeap {
                 self.blocks[i] = Some(b);
                 continue;
             }
+            self.unmap_block_address(b.base);
             slots += 1;
             bytes += BLOCK_SIZE;
             log::info!(
@@ -639,7 +729,8 @@ impl BlockHeap {
 
     fn size_of(&self, ptr: *const c_void) -> Option<usize> {
         let block_idx = self.find_block(ptr)?;
-        self.blocks[block_idx]
+        self.blocks
+            .get(block_idx)?
             .as_ref()?
             .usable_size(ptr)
             .map(|size| size as usize)
@@ -648,6 +739,30 @@ impl BlockHeap {
     fn block_count(&self) -> usize {
         self.live_count()
     }
+
+    fn live_allocations(&self) -> usize {
+        self.blocks
+            .iter()
+            .flatten()
+            .map(|block| block.used_by_offset.len())
+            .sum()
+    }
+
+    fn live_bytes(&self) -> usize {
+        self.blocks
+            .iter()
+            .flatten()
+            .map(|block| block.live_bytes)
+            .sum()
+    }
+}
+
+#[derive(Clone, Copy, Default)]
+pub struct BlockSnapshot {
+    pub slots: usize,
+    pub live_allocations: usize,
+    pub live_bytes: usize,
+    pub committed_bytes: usize,
 }
 
 // ---------------------------------------------------------------------------
@@ -666,10 +781,7 @@ fn with_heap<R>(f: impl FnOnce(&mut BlockHeap) -> R) -> R {
     f(&mut guard)
 }
 
-/// Reserve the block tier's contiguous VA range. Call once at startup
-/// before any allocation. Returns false if the reservation fails; in
-/// that case `alloc` will always return NULL and the caller's next
-/// tier (va_alloc) takes over.
+/// Initialize the lazy block tier. This does not reserve address space.
 pub fn init() -> bool {
     with_heap(|h| h.init())
 }
@@ -700,8 +812,16 @@ pub fn size_of(ptr: *const c_void) -> Option<usize> {
     with_heap(|h| h.size_of(ptr))
 }
 
-pub fn block_count() -> usize {
-    with_heap(|h| h.block_count())
+pub fn snapshot() -> BlockSnapshot {
+    with_heap(|h| {
+        let slots = h.block_count();
+        BlockSnapshot {
+            slots,
+            live_allocations: h.live_allocations(),
+            live_bytes: h.live_bytes(),
+            committed_bytes: slots * BLOCK_SIZE,
+        }
+    })
 }
 
 /// Release block slots with no live user allocations. Called by
