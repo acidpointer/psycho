@@ -40,9 +40,12 @@ float4 Main(PixelInput input) : COLOR0 {
     [loop]
     for (int i = 0; i < SampleCount; ++i) {
         sampleUv += delta;
+        float2 insideMin = step(0.0f, sampleUv);
+        float2 insideMax = step(sampleUv, 1.0f);
+        float inside = insideMin.x * insideMin.y * insideMax.x * insideMax.y;
         float2 mask = tex2Dlod(ShaftMask, float4(sampleUv, 0.0f, 0.0f)).rg;
-        float source = mask.r;
-        float pathOpen = mask.g;
+        float source = mask.r * inside;
+        float pathOpen = mask.g * inside;
         illumination *= lerp(blockedDecay, decay, pathOpen);
         float softenedOpen = saturate(pathOpen + occlusionSoftness * 0.10f);
         light += source * softenedOpen * illumination * weight;

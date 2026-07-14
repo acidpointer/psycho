@@ -611,7 +611,7 @@ fn sunshafts_source(config: &SunshaftsConfig) -> ScreenShaderSource {
             ),
             float_option(
                 "glare_radius",
-                "Glare radius",
+                "Sun source radius",
                 config.glare_radius,
                 0.010,
                 0.080,

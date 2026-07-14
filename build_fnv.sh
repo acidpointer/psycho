@@ -30,11 +30,13 @@ OMV_BIN="$BIN_DIR/$OMV_DLL"
 ENGINE_CFG="$DIR/psycho-engine-fixes/config/$ENGINE_CFGNAME"
 OMV_CFG="$DIR/omv/config/$OMV_CFGNAME"
 OMV_SHADER_SRC_DIR="$DIR/omv/shaders/runtime"
-EMBEDDED_SHADER_STALE_FILES=(
+STALE_OMV_SHADER_FILES=(
     "00_fast_ao.hlsl"
     "00_fast_ao.toml"
     "02_contact_ao.hlsl"
     "02_contact_ao.toml"
+    "03_first_person_wall_clip.hlsl"
+    "03_first_person_wall_clip.toml"
     "07_blooming_hdr_lite.hlsl"
     "07_blooming_hdr_lite.toml"
     "09_sunshafts_lite.hlsl"
@@ -120,7 +122,7 @@ function install_files() {
     cp "$ENGINE_CFG" "$ENGINE_CFG_PATH"
     cp "$OMV_CFG" "$OMV_CFG_PATH"
 
-    for stale_shader in "${EMBEDDED_SHADER_STALE_FILES[@]}"; do
+    for stale_shader in "${STALE_OMV_SHADER_FILES[@]}"; do
         remove_if_exists "$OMV_SHADER_DIR/$stale_shader"
     done
 
@@ -151,7 +153,7 @@ function remove_legacy_files() {
     remove_if_exists "$OMV_LEGACY_PLUGIN_DIR/$OMV_DLL"
     remove_if_exists "$OMV_LEGACY_DATA_DIR/$OMV_CFGNAME"
 
-    for stale_shader in "${EMBEDDED_SHADER_STALE_FILES[@]}"; do
+    for stale_shader in "${STALE_OMV_SHADER_FILES[@]}"; do
         remove_if_exists "$OMV_LEGACY_SHADER_DIR/$stale_shader"
     done
 

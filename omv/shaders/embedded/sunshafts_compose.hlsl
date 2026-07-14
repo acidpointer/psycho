@@ -133,19 +133,15 @@ float ReceiverMask(float2 uv) {
 }
 
 float SunScreenFade(float2 sunUv) {
-    float margin = 0.32f;
     float xEdge = min(sunUv.x, 1.0f - sunUv.x);
     float yEdge = min(sunUv.y, 1.0f - sunUv.y);
-    float fadeX = Smooth01((xEdge + margin) / margin);
-    float fadeY = Smooth01((yEdge + margin) / margin);
-    return saturate(fadeX * fadeY * max(SunData.w, 0.0f));
+    float screenEdge = min(xEdge, yEdge);
+    return Smooth01(screenEdge / 0.035f) * saturate(SunData.w);
 }
 
 float DistanceShape(float screenDistance) {
     float range = max(OptionData2.y, 0.08f);
-    float nearFade = Smooth01(screenDistance / max(OptionData3.y * 0.65f, 0.008f));
-    float farFade = 1.0f - Smooth01(screenDistance / range);
-    return nearFade * farFade;
+    return 1.0f - Smooth01(screenDistance / range);
 }
 
 float ExposureCurve(float amount) {

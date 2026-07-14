@@ -34,6 +34,7 @@ const TIME_GLOBALS_BASE: usize = 0x011DE7B8;
 const TIME_GLOBALS_GAME_HOUR_OFFSET: usize = 0x0C;
 const SKY_CLIMATE_OFFSET: usize = 0x0C;
 const SKY_SUN_OFFSET: usize = 0x28;
+const SKY_OBJECT_ROOT_NODE_OFFSET: usize = 0x04;
 const SKY_GAME_HOUR_OFFSET: usize = 0xEC;
 const CLIMATE_SUN_TIME_BYTES_OFFSET: usize = 0x50;
 const CLIMATE_SUN_TIME_BYTES_LEN: usize = 4;
@@ -45,6 +46,8 @@ const SKY_SUN_TIME_DIVISOR: usize = 0x01034208;
 const NATIVE_SUN_SCREEN_X_ADDR: usize = 0x012023F4;
 const NATIVE_SUN_SCREEN_Y_ADDR: usize = 0x012023F8;
 
+const NIAVOBJECT_LOCAL_TRANSLATION_OFFSET: usize = 0x58;
+const NIAVOBJECT_WORLD_ROTATION_OFFSET: usize = 0x68;
 const NICAMERA_FRUSTUM_LEFT_OFFSET: usize = 0xDC;
 const NICAMERA_FRUSTUM_RIGHT_OFFSET: usize = 0xE0;
 const NICAMERA_FRUSTUM_TOP_OFFSET: usize = 0xE4;
@@ -414,29 +417,34 @@ unsafe fn read_sun_frame() -> Option<SunFrame> {
         return None;
     }
 
-    if unsafe { read_ptr(sky as usize + SKY_SUN_OFFSET)? }.is_null() {
+    let sun = unsafe { read_ptr(sky as usize + SKY_SUN_OFFSET)? };
+    if sun.is_null() {
         return None;
     }
 
-    let screen_x = unsafe { read_f32(NATIVE_SUN_SCREEN_X_ADDR)? };
-    let screen_y = unsafe { read_f32(NATIVE_SUN_SCREEN_Y_ADDR)? };
-    if !screen_x.is_finite()
-        || !screen_y.is_finite()
-        || (screen_x.abs() <= f32::EPSILON && screen_y.abs() <= f32::EPSILON)
-    {
+    let sun_root = unsafe { read_ptr(sun as usize + SKY_OBJECT_ROOT_NODE_OFFSET)? };
+    let camera = unsafe { read_ptr(BSSHADERMANAGER_CAMERA_PTR)? };
+    if sun_root.is_null() || camera.is_null() {
+        return None;
+    }
+
+    let screen = unsafe { project_sun_to_screen(sun_root, camera) };
+    let Some([screen_x, screen_y, facing]) = screen else {
         if call % FRAME_CONTRACT_LOG_INTERVAL == 0
             && SUN_FRAME_LOGS.fetch_add(1, Ordering::Relaxed) < MAX_FRAME_CONTRACT_LOGS
         {
-            log::info!("[FNV] Native sun screen globals unavailable");
+            log::info!("[FNV] Sun is behind the camera or its projection is unavailable");
         }
         return None;
-    }
+    };
 
     if call % FRAME_CONTRACT_LOG_INTERVAL == 0
         && SUN_FRAME_LOGS.fetch_add(1, Ordering::Relaxed) < MAX_FRAME_CONTRACT_LOGS
     {
+        let native_x = unsafe { read_f32(NATIVE_SUN_SCREEN_X_ADDR) }.unwrap_or(f32::NAN);
+        let native_y = unsafe { read_f32(NATIVE_SUN_SCREEN_Y_ADDR) }.unwrap_or(f32::NAN);
         log::info!(
-            "[FNV] Native sun contract: screen=({screen_x:.5},{screen_y:.5}), source=engine_globals, daylight={daylight:.4}"
+            "[FNV] Sun contract: screen=({screen_x:.5},{screen_y:.5}), facing={facing:.4}, source=nvr_direction_projection, native=({native_x:.5},{native_y:.5}), daylight={daylight:.4}"
         );
     }
 
@@ -446,6 +454,89 @@ unsafe fn read_sun_frame() -> Option<SunFrame> {
         available: true,
         daylight,
     })
+}
+
+unsafe fn project_sun_to_screen(sun_root: *mut u8, camera: *mut u8) -> Option<[f32; 3]> {
+    let sun_direction =
+        normalize3(unsafe { read_vec3(sun_root as usize + NIAVOBJECT_LOCAL_TRANSLATION_OFFSET)? })?;
+    let camera_forward =
+        unsafe { read_matrix_column3(camera as usize + NIAVOBJECT_WORLD_ROTATION_OFFSET, 0)? };
+    let camera_up =
+        unsafe { read_matrix_column3(camera as usize + NIAVOBJECT_WORLD_ROTATION_OFFSET, 1)? };
+    let camera_right =
+        unsafe { read_matrix_column3(camera as usize + NIAVOBJECT_WORLD_ROTATION_OFFSET, 2)? };
+    let view_x = dot3(sun_direction, camera_right);
+    let view_y = dot3(sun_direction, camera_up);
+    let facing = dot3(sun_direction, camera_forward);
+    if !facing.is_finite() || facing <= 0.001 {
+        return None;
+    }
+
+    let frustum_left = unsafe { read_f32(camera as usize + NICAMERA_FRUSTUM_LEFT_OFFSET)? };
+    let frustum_right = unsafe { read_f32(camera as usize + NICAMERA_FRUSTUM_RIGHT_OFFSET)? };
+    let frustum_top = unsafe { read_f32(camera as usize + NICAMERA_FRUSTUM_TOP_OFFSET)? };
+    let frustum_bottom = unsafe { read_f32(camera as usize + NICAMERA_FRUSTUM_BOTTOM_OFFSET)? };
+    let frustum_width = frustum_right - frustum_left;
+    let frustum_height = frustum_top - frustum_bottom;
+    if !frustum_width.is_finite()
+        || !frustum_height.is_finite()
+        || frustum_width <= f32::EPSILON
+        || frustum_height <= f32::EPSILON
+    {
+        return None;
+    }
+
+    let ndc_x = (2.0 * view_x / facing - (frustum_right + frustum_left)) / frustum_width;
+    let ndc_y = (2.0 * view_y / facing - (frustum_top + frustum_bottom)) / frustum_height;
+    let screen_x = ndc_x.mul_add(0.5, 0.5);
+    let screen_y = ndc_y.mul_add(-0.5, 0.5);
+    if !screen_x.is_finite() || !screen_y.is_finite() {
+        return None;
+    }
+
+    Some([screen_x, screen_y, facing])
+}
+
+unsafe fn read_vec3(address: usize) -> Option<[f32; 3]> {
+    let value = [
+        unsafe { read_f32(address)? },
+        unsafe { read_f32(address + size_of::<f32>())? },
+        unsafe { read_f32(address + size_of::<f32>() * 2)? },
+    ];
+    value
+        .iter()
+        .all(|component| component.is_finite())
+        .then_some(value)
+}
+
+unsafe fn read_matrix_column3(address: usize, column: usize) -> Option<[f32; 3]> {
+    let value = [
+        unsafe { read_f32(address + column * size_of::<f32>())? },
+        unsafe { read_f32(address + (3 + column) * size_of::<f32>())? },
+        unsafe { read_f32(address + (6 + column) * size_of::<f32>())? },
+    ];
+    value
+        .iter()
+        .all(|component| component.is_finite())
+        .then_some(value)
+}
+
+fn dot3(left: [f32; 3], right: [f32; 3]) -> f32 {
+    left[0].mul_add(right[0], left[1].mul_add(right[1], left[2] * right[2]))
+}
+
+fn normalize3(value: [f32; 3]) -> Option<[f32; 3]> {
+    let length_squared = dot3(value, value);
+    if !length_squared.is_finite() || length_squared <= f32::EPSILON {
+        return None;
+    }
+
+    let inverse_length = length_squared.sqrt().recip();
+    Some([
+        value[0] * inverse_length,
+        value[1] * inverse_length,
+        value[2] * inverse_length,
+    ])
 }
 
 unsafe fn read_material_state_frame() -> Option<MaterialStateFrame> {
