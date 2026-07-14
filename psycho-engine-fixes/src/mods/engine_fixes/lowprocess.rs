@@ -28,6 +28,7 @@ const SLOT_PENDING: u8 = 0;
 const SLOT_WRAPPED: u8 = 1;
 const SLOT_UNSUPPORTED: u8 = 2;
 const SLOT_DISABLED: u8 = 3;
+const SLOT_CHAINED: u8 = 4;
 const OBSERVATION_WINDOW: u32 = 120;
 
 const LIST_HEAD_REMOVE_ADDR: usize = 0x0063_F7B0;
@@ -94,6 +95,7 @@ pub(super) fn slot_state_name(state: u8) -> &'static str {
         SLOT_WRAPPED => "wrapped",
         SLOT_UNSUPPORTED => "unsupported",
         SLOT_DISABLED => "disabled",
+        SLOT_CHAINED => "chained",
         _ => "unknown",
     }
 }
@@ -205,7 +207,7 @@ unsafe extern "thiscall" fn checked_append_ref_id(
 unsafe extern "thiscall" fn main_task_drain_with_slot_wrapping(manager: *mut c_void, arg: u32) {
     ensure_slots_wrapped();
     let predecessor = PREVIOUS_MAIN_TASK_DRAIN.load(Ordering::Acquire);
-    let target = if is_executable(predecessor) {
+    let target = if predecessor != 0 {
         predecessor
     } else {
         statics::MAIN_TASK_DRAIN_ADDR
@@ -218,15 +220,40 @@ unsafe extern "thiscall" fn main_task_drain_with_slot_wrapping(manager: *mut c_v
     unsafe { original(manager, arg) };
 }
 
-unsafe extern "thiscall" fn process_cleanup_wrapper(
+unsafe extern "thiscall" fn process_cleanup_wrapper_0(
     process: *mut c_void,
     removed_ref: *mut c_void,
 ) {
-    let predecessor = predecessor_for_process(process);
+    unsafe { process_cleanup_for_slot(0, process, removed_ref) };
+}
+
+unsafe extern "thiscall" fn process_cleanup_wrapper_1(
+    process: *mut c_void,
+    removed_ref: *mut c_void,
+) {
+    unsafe { process_cleanup_for_slot(1, process, removed_ref) };
+}
+
+unsafe extern "thiscall" fn process_cleanup_wrapper_2(
+    process: *mut c_void,
+    removed_ref: *mut c_void,
+) {
+    unsafe { process_cleanup_for_slot(2, process, removed_ref) };
+}
+
+unsafe extern "thiscall" fn process_cleanup_wrapper_3(
+    process: *mut c_void,
+    removed_ref: *mut c_void,
+) {
+    unsafe { process_cleanup_for_slot(3, process, removed_ref) };
+}
+
+unsafe fn process_cleanup_for_slot(index: usize, process: *mut c_void, removed_ref: *mut c_void) {
+    let predecessor = PREDECESSORS[index].load(Ordering::Acquire);
     sanitize_generic_locations(process, removed_ref);
 
-    let wrapper = process_cleanup_wrapper as *const () as usize;
-    let target = if predecessor != 0 && predecessor != wrapper && is_executable(predecessor) {
+    let wrapper = wrapper_for_slot(index);
+    let target = if predecessor != 0 && predecessor != wrapper {
         predecessor
     } else {
         statics::VANILLA_LOWPROCESS_FUNC011F
@@ -237,6 +264,16 @@ unsafe extern "thiscall" fn process_cleanup_wrapper(
     };
     let original = original.as_fn();
     unsafe { original(process, removed_ref) };
+}
+
+fn wrapper_for_slot(index: usize) -> usize {
+    match index {
+        0 => process_cleanup_wrapper_0 as *const () as usize,
+        1 => process_cleanup_wrapper_1 as *const () as usize,
+        2 => process_cleanup_wrapper_2 as *const () as usize,
+        3 => process_cleanup_wrapper_3 as *const () as usize,
+        _ => 0,
+    }
 }
 
 fn ensure_slots_wrapped() {
@@ -256,7 +293,7 @@ fn ensure_slots_wrapped() {
 
 fn wrap_slot(index: usize) {
     let slot = statics::LOWPROCESS_FUNC011F_SLOTS[index];
-    let wrapper = process_cleanup_wrapper as *const () as usize;
+    let wrapper = wrapper_for_slot(index);
     let current = unsafe { ptr::read_unaligned(slot as *const u32) as usize };
 
     if current == wrapper {
@@ -272,14 +309,25 @@ fn wrap_slot(index: usize) {
     }
 
     let previous_predecessor = PREDECESSORS[index].load(Ordering::Acquire);
-    PREDECESSORS[index].store(current, Ordering::Release);
+    if previous_predecessor != 0 && current != previous_predecessor {
+        mark_slot_chained(index, current);
+        return;
+    }
+
+    if previous_predecessor == 0 {
+        PREDECESSORS[index].store(current, Ordering::Release);
+    }
     if unsafe { ptr::read_unaligned(slot as *const u32) as usize } != current {
-        PREDECESSORS[index].store(previous_predecessor, Ordering::Release);
+        if previous_predecessor == 0 {
+            PREDECESSORS[index].store(0, Ordering::Release);
+        }
         return;
     }
 
     if let Err(err) = safe_write_32(slot as *mut c_void, wrapper as u32) {
-        PREDECESSORS[index].store(previous_predecessor, Ordering::Release);
+        if previous_predecessor == 0 {
+            PREDECESSORS[index].store(0, Ordering::Release);
+        }
         PATCH_FAILURES.fetch_add(1, Ordering::Relaxed);
         SLOT_STATES[index].store(SLOT_UNSUPPORTED, Ordering::Release);
         log::error!(
@@ -313,26 +361,24 @@ fn wrap_slot(index: usize) {
     );
 }
 
-fn predecessor_for_process(process: *mut c_void) -> usize {
-    if !is_readable(process as usize, 4) {
-        return 0;
+fn mark_slot_chained(index: usize, target: usize) {
+    let previous = SLOT_STATES[index].swap(SLOT_CHAINED, Ordering::AcqRel);
+    if previous == SLOT_CHAINED {
+        return;
     }
-    let vtable = unsafe { ptr::read_unaligned(process as *const usize) };
-    statics::LOWPROCESS_VTABLE_BASES
-        .iter()
-        .position(|base| *base == vtable)
-        .map(|index| PREDECESSORS[index].load(Ordering::Acquire))
-        .unwrap_or(0)
+    log::info!(
+        "[LOWPROCESS] later hook retained above wrapper index={} slot=0x{:08X} target=0x{:08X}",
+        index,
+        statics::LOWPROCESS_FUNC011F_SLOTS[index],
+        target,
+    );
 }
 
 fn sanitize_generic_locations(process: *mut c_void, removed_ref: *mut c_void) {
-    if process.is_null()
-        || removed_ref.is_null()
-        || !is_readable(
-            process as usize,
-            GENERIC_LOCATIONS_OFFSET + std::mem::size_of::<ListNode>(),
-        )
-    {
+    // This is entered through a live process object's vtable slot, so the
+    // embedded head is already covered by the virtual-call ownership
+    // contract. Heap-linked successor nodes retain the corruption probe.
+    if process.is_null() || removed_ref.is_null() {
         return;
     }
 
@@ -343,8 +389,12 @@ fn sanitize_generic_locations(process: *mut c_void, removed_ref: *mut c_void) {
     let mut current =
         unsafe { (process as *mut u8).add(GENERIC_LOCATIONS_OFFSET) as *mut ListNode };
     let mut previous: *mut ListNode = ptr::null_mut();
+    let mut embedded_head = true;
 
-    while !current.is_null() && is_readable(current as usize, std::mem::size_of::<ListNode>()) {
+    while !current.is_null()
+        && (embedded_head || is_readable(current as usize, std::mem::size_of::<ListNode>()))
+    {
+        embedded_head = false;
         let payload = unsafe { ptr::read_unaligned(ptr::addr_of!((*current).data)) };
         if payload.is_null() {
             break;

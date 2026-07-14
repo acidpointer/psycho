@@ -17,8 +17,6 @@ const STALE_REPORT_MS: u32 = 10_000;
 #[repr(usize)]
 pub enum Site {
     Phase7Enter = 1,
-    Phase7BeforeDeadSet,
-    Phase7AfterDeadSet,
     Phase7BeforePdd,
     Phase7AfterPdd,
     Phase7Exit,
@@ -56,12 +54,24 @@ static LAST_STALE_REPORT_MS: AtomicU32 = AtomicU32::new(0);
 #[inline]
 pub fn mark_main(site: Site) {
     let now = libpsycho::os::windows::winapi::get_tick_count();
-    let tid = libpsycho::os::windows::winapi::get_current_thread_id();
+    let mut tid = LAST_MAIN_THREAD_ID.load(Ordering::Relaxed);
+    if tid == 0 {
+        tid = libpsycho::os::windows::winapi::get_current_thread_id();
+        LAST_MAIN_THREAD_ID.store(tid, Ordering::Release);
+    }
     LAST_MAIN_TICK_MS.store(now, Ordering::Release);
     LAST_MAIN_SITE.store(site as usize, Ordering::Release);
-    LAST_MAIN_THREAD_ID.store(tid, Ordering::Release);
     MAIN_HEARTBEATS.fetch_add(1, Ordering::Relaxed);
-    mark_event_at(site, now, tid);
+    if crate::mods::diagnostics::hitch_profiling_enabled() {
+        mark_event_at(site, now, tid);
+    }
+}
+
+#[inline]
+pub fn mark_main_detail(site: Site) {
+    if crate::mods::diagnostics::hitch_profiling_enabled() {
+        mark_main(site);
+    }
 }
 
 #[inline]
@@ -205,6 +215,9 @@ pub fn log_if_main_stale() {
 
 #[inline]
 fn mark_event(site: Site) {
+    if !crate::mods::diagnostics::hitch_profiling_enabled() {
+        return;
+    }
     let now = libpsycho::os::windows::winapi::get_tick_count();
     let tid = libpsycho::os::windows::winapi::get_current_thread_id();
     mark_event_at(site, now, tid);
@@ -220,8 +233,6 @@ fn mark_event_at(site: Site, now: u32, tid: u32) {
 fn site_name(site: usize) -> &'static str {
     match site {
         x if x == Site::Phase7Enter as usize => "phase7-enter",
-        x if x == Site::Phase7BeforeDeadSet as usize => "phase7-before-dead-set",
-        x if x == Site::Phase7AfterDeadSet as usize => "phase7-after-dead-set",
         x if x == Site::Phase7BeforePdd as usize => "phase7-before-pdd",
         x if x == Site::Phase7AfterPdd as usize => "phase7-after-pdd",
         x if x == Site::Phase7Exit as usize => "phase7-exit",

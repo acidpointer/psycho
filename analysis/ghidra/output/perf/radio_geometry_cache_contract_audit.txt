@@ -1,0 +1,1248 @@
+RADIO SIGNAL GEOMETRY CACHE CONTRACT
+Prove which inputs make FUN_004FF1A0 expensive, which values are stable across frames, and which engine writes require invalidation before any cache is implemented.
+
+======================================================================
+radio signal candidate scan @ 0x004ff1a0
+======================================================================
+  Function: FUN_004ff1a0 @ 0x004ff1a0, Size: 1573 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+void FUN_004ff1a0(int param_1,int param_2,int param_3)
+
+{
+  bool bVar1;
+  bool bVar2;
+  bool bVar3;
+  char cVar4;
+  uint uVar5;
+  int iVar6;
+  undefined4 *puVar7;
+  undefined4 uVar8;
+  undefined4 uVar9;
+  int iVar10;
+  int *unaff_FS_OFFSET;
+  float10 fVar11;
+  CMemoryDC *pCVar12;
+  undefined4 uVar13;
+  float fVar14;
+  undefined4 uVar15;
+  undefined4 uVar16;
+  undefined4 uVar17;
+  uint local_b8;
+  CMemoryDC local_b0 [56];
+  int local_78;
+  uint local_74;
+  uint local_70;
+  CMemoryDC local_6c [56];
+  int local_34;
+  int local_30;
+  int *local_2c;
+  int *local_28;
+  undefined *local_24;
+  int local_20;
+  int local_1c;
+  float local_18;
+  char local_11;
+  int local_10;
+  undefined1 *puStack_c;
+  int local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00ef3663;
+  local_10 = *unaff_FS_OFFSET;
+  uVar5 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  bVar2 = false;
+  bVar1 = false;
+  if (((param_2 != 0) && (param_1 != 0)) && (iVar6 = FUN_008d6f30(uVar5), iVar6 != 0)) {
+    local_1c = FUN_00575d70();
+    local_20 = 0;
+    if (local_1c == 0) {
+      local_20 = FUN_008d6f30(uVar5);
+    }
+    local_18 = _DAT_01016970;
+    local_11 = '\0';
+    local_24 = &DAT_011c8264;
+    while ((local_24 != (undefined *)0x0 && (cVar4 = FUN_008256d0(), cVar4 == '\0'))) {
+      puVar7 = (undefined4 *)FUN_006815c0();
+      local_28 = (int *)*puVar7;
+      local_11 = '\0';
+      local_18 = _DAT_01016970;
+      cVar4 = FUN_00440da0();
+      if ((cVar4 == '\0') || (local_1c == 0)) {
+        uVar8 = FUN_0056b210();
+        switch(uVar8) {
+        case 0:
+          local_2c = (int *)FUN_0056b140();
+          if (local_2c == (int *)0x0) {
+            local_2c = local_28;
+          }
+          local_30 = FUN_00575d70();
+          if (local_30 == 0) {
+            uVar8 = FUN_0084e3a0();
+            uVar8 = (**(code **)(*local_2c + 0x130))(uVar8);
+            FUN_005b5e40("DEFAULT: Radio station exterior position ref \'%s\' (%08X) is not placed in an exterior."
+                         ,uVar8);
+          }
+          else {
+            if ((local_1c == 0) || (local_1c != local_30)) {
+              if (local_1c == 0) {
+                fVar11 = (float10)FUN_0056b190(0,3);
+                fVar14 = (float)fVar11;
+                uVar8 = FUN_006dcd70(param_1);
+                local_8 = 0;
+                uVar9 = FUN_006dcd70(local_28);
+                local_8._0_1_ = 1;
+                fVar11 = (float10)FUN_006d4eb0(uVar9,uVar8,fVar14);
+                local_18 = (float)fVar11;
+                local_8 = (uint)local_8._1_3_ << 8;
+                FUN_004ff7e0();
+                local_8 = 0xffffffff;
+                FUN_004ff7e0();
+              }
+            }
+            else {
+              uVar8 = (**(code **)(*local_2c + 500))();
+              fVar11 = (float10)FUN_00572380(uVar8);
+              local_18 = (float)fVar11;
+            }
+            fVar11 = (float10)FUN_0056b190();
+            if ((float10)local_18 < fVar11) {
+              local_11 = '\x01';
+            }
+          }
+          break;
+        case 1:
+          local_11 = '\x01';
+          local_18 = DAT_01012054;
+          break;
+        case 2:
+          local_34 = FUN_00575d70();
+          if (local_34 == 0) {
+            uVar8 = FUN_0084e3a0();
+            uVar8 = (**(code **)(*local_28 + 0x130))(uVar8);
+            FUN_005b5e40("DEFAULT: Radio station ref \'%s\' (%08X) is set to worldspace and connected interiors but is not placed in an exterior."
+                         ,uVar8);
+          }
+          else if (local_1c == 0) {
+            FUN_006f48b0();
+            local_8 = 2;
+            uVar17 = 1;
+            uVar16 = 0;
+            uVar15 = 0;
+            uVar13 = 1;
+            pCVar12 = local_6c;
+            uVar8 = FUN_006dcd70(param_1);
+            local_8._0_1_ = 3;
+            uVar9 = FUN_006dcd70(local_28);
+            local_8._0_1_ = 4;
+            cVar4 = FUN_006d4d20(uVar9,uVar8,pCVar12,uVar13,uVar15,uVar16,uVar17);
+            local_8._0_1_ = 3;
+            FUN_004ff7e0();
+            local_8 = CONCAT31(local_8._1_3_,2);
+            FUN_004ff7e0();
+            if (cVar4 != '\0') {
+              local_11 = '\x01';
+              local_18 = DAT_01012054;
+              local_70 = FUN_0044ddc0();
+              for (local_74 = 0; local_74 < local_70; local_74 = local_74 + 1) {
+                iVar6 = FUN_006a7af0(local_74);
+                local_78 = *(int *)(iVar6 + 4);
+                if ((local_78 != 0) && (local_78 != local_34)) {
+                  local_11 = '\0';
+                  break;
+                }
+              }
+            }
+            local_8 = 0xffffffff;
+            AfxRibbonCollector::CMemoryDC::~CMemoryDC(local_6c);
+          }
+          else if (local_1c == local_34) {
+            local_11 = '\x01';
+            local_18 = DAT_01012054;
+          }
+          break;
+        case 3:
+          if (local_20 != 0) {
+            FUN_006f48b0();
+            local_8 = 5;
+            iVar6 = FUN_008d6f30();
+            if ((iVar6 == 0) || (iVar6 = FUN_008d6f30(), iVar6 == 0)) {
+LAB_004ff5b9:
+              uVar17 = 1;
+              uVar16 = 0;
+              uVar15 = 0;
+              uVar13 = 2;
+              pCVar12 = local_b0;
+              uVar8 = FUN_006dcd70(param_1);
+              local_8 = CONCAT31(local_8._1_3_,6);
+              uVar9 = FUN_006dcd70(local_28);
+              local_8 = 7;
+              bVar2 = true;
+              bVar1 = true;
+              cVar4 = FUN_006d4d20(uVar9,uVar8,pCVar12,uVar13,uVar15,uVar16,uVar17);
+              if (cVar4 != '\0') goto LAB_004ff660;
+              bVar3 = false;
+            }
+            else {
+              iVar6 = FUN_008d6f30();
+              iVar10 = FUN_008d6f30();
+              if (iVar6 != iVar10) goto LAB_004ff5b9;
+LAB_004ff660:
+              bVar3 = true;
+            }
+            local_8 = 6;
+            if (bVar2) {
+              bVar2 = false;
+              FUN_004ff7e0();
+            }
+            local_8 = 5;
+            if (bVar1) {
+              bVar1 = false;
+              FUN_004ff7e0();
+            }
+            if (bVar3) {
+              local_11 = '\x01';
+              local_18 = DAT_01012054;
+              uVar5 = FUN_0044ddc0();
+              for (local_b8 = 0; local_b8 < uVar5; local_b8 = local_b8 + 1) {
+                iVar6 = FUN_006a7af0(local_b8);
+                if (*(int *)(iVar6 + 4) != 0) {
+                  local_11 = '\0';
+                  break;
+                }
+              }
+            }
+            local_8 = 0xffffffff;
+            AfxRibbonCollector::CMemoryDC::~CMemoryDC(local_b0);
+          }
+          break;
+        case 4:
+          iVar6 = FUN_008d6f30();
+          if ((iVar6 != 0) && (iVar6 = FUN_008d6f30(), iVar6 != 0)) {
+            iVar6 = FUN_008d6f30();
+            iVar10 = FUN_008d6f30();
+            if (iVar6 == iVar10) {
+              local_11 = '\x01';
+              local_18 = DAT_01012054;
+            }
+          }
+        }
+        if ((local_11 != '\0') && (FUN_005ae3d0(&local_28), param_3 != 0)) {
+          FUN_004ff980(&local_18);
+        }
+      }
+      local_24 = (undefined *)FUN_00726070();
+    }
+  }
+  *unaff_FS_OFFSET = local_10;
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x004ff1a0 (radio signal candidate scan)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00833d86 (in FUN_00833d00)
+  UNCONDITIONAL_CALL @ 0x008322bf (in FUN_00832240)
+  UNCONDITIONAL_CALL @ 0x0083572e (in FUN_008356e0)
+  UNCONDITIONAL_CALL @ 0x00835742 (in FUN_008356e0)
+  UNCONDITIONAL_CALL @ 0x0079bee5 (in FUN_0079bea0)
+  Total: 5 refs
+
+--- Calls FROM radio signal candidate scan (0x004ff1a0) ---
+  0x004ff1e2 -> 0x008d6f30 FUN_008d6f30
+  0x004ff1f3 -> 0x00575d70 FUN_00575d70
+  0x004ff20b -> 0x008d6f30 FUN_008d6f30
+  0x004ff234 -> 0x008256d0 FUN_008256d0
+  0x004ff247 -> 0x006815c0 FUN_006815c0
+  0x004ff261 -> 0x00440da0 FUN_00440da0
+  0x004ff27a -> 0x0056b210 FUN_0056b210
+  0x004ff2a2 -> 0x0056b140 FUN_0056b140
+  0x004ff2b9 -> 0x00575d70 FUN_00575d70
+  0x004ff2ca -> 0x0084e3a0 FUN_0084e3a0
+  0x004ff2e6 -> 0x005b5e40 FUN_005b5e40
+  0x004ff315 -> 0x00572380 FUN_00572380
+  0x004ff333 -> 0x0056b190 FUN_0056b190
+  0x004ff346 -> 0x006dcd70 FUN_006dcd70
+  0x004ff375 -> 0x006dcd70 FUN_006dcd70
+  0x004ff397 -> 0x006d4eb0 FUN_006d4eb0
+  0x004ff3ac -> 0x004ff7e0 FUN_004ff7e0
+  0x004ff3be -> 0x004ff7e0 FUN_004ff7e0
+  0x004ff3c6 -> 0x0056b190 FUN_0056b190
+  0x004ff3f5 -> 0x00575d70 FUN_00575d70
+  0x004ff406 -> 0x0084e3a0 FUN_0084e3a0
+  0x004ff422 -> 0x005b5e40 FUN_005b5e40
+  0x004ff452 -> 0x006f48b0 FUN_006f48b0
+  0x004ff478 -> 0x006dcd70 FUN_006dcd70
+  0x004ff4a4 -> 0x006dcd70 FUN_006dcd70
+  0x004ff4c6 -> 0x006d4d20 FUN_006d4d20
+  0x004ff4de -> 0x004ff7e0 FUN_004ff7e0
+  0x004ff4ed -> 0x004ff7e0 FUN_004ff7e0
+  0x004ff50d -> 0x0044ddc0 FUN_0044ddc0
+  0x004ff536 -> 0x006a7af0 FUN_006a7af0
+  0x004ff561 -> 0x006f4930 ~CMemoryDC
+  0x004ff57b -> 0x006f48b0 FUN_006f48b0
+  0x004ff58a -> 0x008d6f30 FUN_008d6f30
+  0x004ff596 -> 0x008d6f30 FUN_008d6f30
+  0x004ff5a2 -> 0x008d6f30 FUN_008d6f30
+  0x004ff5ac -> 0x008d6f30 FUN_008d6f30
+  0x004ff5d6 -> 0x006dcd70 FUN_006dcd70
+  0x004ff611 -> 0x006dcd70 FUN_006dcd70
+  0x004ff645 -> 0x006d4d20 FUN_006d4d20
+  0x004ff695 -> 0x004ff7e0 FUN_004ff7e0
+  0x004ff6b9 -> 0x004ff7e0 FUN_004ff7e0
+  0x004ff6dc -> 0x0044ddc0 FUN_0044ddc0
+  0x004ff71d -> 0x006a7af0 FUN_006a7af0
+  0x004ff73d -> 0x006f4930 ~CMemoryDC
+  0x004ff747 -> 0x008d6f30 FUN_008d6f30
+  0x004ff753 -> 0x008d6f30 FUN_008d6f30
+  0x004ff75f -> 0x008d6f30 FUN_008d6f30
+  0x004ff769 -> 0x008d6f30 FUN_008d6f30
+  0x004ff78e -> 0x005ae3d0 FUN_005ae3d0
+  0x004ff7a0 -> 0x004ff980 FUN_004ff980
+  0x004ff7a8 -> 0x00726070 FUN_00726070
+  Total: 51 calls
+
+======================================================================
+geometry or distance helper called by scan @ 0x006d4d20
+======================================================================
+  Function: FUN_006d4d20 @ 0x006d4d20, Size: 356 bytes
+
+/* WARNING: Function: __alloca_probe replaced with injection: alloca_probe */
+
+bool FUN_006d4d20(undefined4 param_1,undefined4 param_2,int param_3,undefined4 param_4,
+                 undefined4 param_5,undefined4 param_6,undefined4 param_7)
+
+{
+  char cVar1;
+  uint uVar2;
+  undefined4 *puVar3;
+  int *unaff_FS_OFFSET;
+  undefined1 local_20e4 [12];
+  undefined1 local_20d8 [16];
+  CMFCRibbonApplicationButton local_20c8 [8372];
+  undefined4 uStack_14;
+  int local_10;
+  undefined1 *puStack_c;
+  int local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00f04db6;
+  local_10 = *unaff_FS_OFFSET;
+  uStack_14 = 0x6d4d3b;
+  uVar2 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  FUN_00404eb0(0x2d,1,
+               "D:\\_Fallout3\\Platforms\\Common\\Code\\Fallout Shared\\Pathfinding\\Pathfind.cpp",
+               0x582);
+  local_8 = 0;
+  CMFCRibbonApplicationButton::CMFCRibbonApplicationButton(local_20c8);
+  local_8._0_1_ = 1;
+  FUN_006f4990(uVar2);
+  FUN_006cee30(10);
+  FUN_006ceea0(10);
+  cVar1 = FUN_006f34e0(param_1,param_2,param_3,param_4,param_5,param_6,param_7);
+  if (cVar1 == '\0') {
+    local_8 = (uint)local_8._1_3_ << 8;
+    FUN_006f3460();
+    local_8 = 0xffffffff;
+    FUN_00404ee0();
+  }
+  else {
+    puVar3 = (undefined4 *)FUN_005c3420(local_20d8);
+    *(undefined4 *)(param_3 + 0x20) = *puVar3;
+    *(undefined4 *)(param_3 + 0x24) = puVar3[1];
+    *(undefined4 *)(param_3 + 0x28) = puVar3[2];
+    puVar3 = (undefined4 *)FUN_005c3420(local_20e4);
+    *(undefined4 *)(param_3 + 0x2c) = *puVar3;
+    *(undefined4 *)(param_3 + 0x30) = puVar3[1];
+    *(undefined4 *)(param_3 + 0x34) = puVar3[2];
+    local_8 = (uint)local_8._1_3_ << 8;
+    FUN_006f3460();
+    local_8 = 0xffffffff;
+    FUN_00404ee0();
+  }
+  *unaff_FS_OFFSET = local_10;
+  return cVar1 != '\0';
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x006d4d20 (geometry or distance helper called by scan)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x006d4f01 (in FUN_006d4eb0)
+  UNCONDITIONAL_CALL @ 0x0079dd11 (in FUN_0079dbb0)
+  UNCONDITIONAL_CALL @ 0x004ff4c6 (in FUN_004ff1a0)
+  UNCONDITIONAL_CALL @ 0x004ff645 (in FUN_004ff1a0)
+  Total: 4 refs
+
+--- Calls FROM geometry or distance helper called by scan (0x006d4d20) ---
+  0x006d4d36 -> 0x00ec8660 __alloca_probe
+  0x006d4d60 -> 0x00404eb0 FUN_00404eb0
+  0x006d4d72 -> 0x006f33b0 CMFCRibbonApplicationButton
+  0x006d4d7e -> 0x006f4990 FUN_006f4990
+  0x006d4d88 -> 0x006cee30 FUN_006cee30
+  0x006d4d95 -> 0x006ceea0 FUN_006ceea0
+  0x006d4dbf -> 0x006f34e0 FUN_006f34e0
+  0x006d4dd5 -> 0x005c3420 FUN_005c3420
+  0x006d4dfa -> 0x005c3420 FUN_005c3420
+  0x006d4e26 -> 0x006f3460 FUN_006f3460
+  0x006d4e38 -> 0x00404ee0 FUN_00404ee0
+  0x006d4e58 -> 0x006f3460 FUN_006f3460
+  0x006d4e6a -> 0x00404ee0 FUN_00404ee0
+  Total: 13 calls
+
+======================================================================
+radio update worker and scan owner @ 0x00833d00
+======================================================================
+  Function: FUN_00833d00 @ 0x00833d00, Size: 1286 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+void FUN_00833d00(char param_1)
+
+{
+  char cVar1;
+  uint uVar2;
+  int *piVar3;
+  undefined4 *puVar4;
+  undefined4 uVar5;
+  float *pfVar6;
+  int iVar7;
+  int *unaff_FS_OFFSET;
+  float10 fVar8;
+  undefined1 *puVar9;
+  char *pcVar10;
+  char local_80;
+  undefined1 local_74 [12];
+  CArray<CMFCRibbonInfo::XQAT::XQATItem,CMFCRibbonInfo::XQAT::XQATItem> local_68 [8];
+  int *local_60;
+  undefined1 local_5c [12];
+  CArray<CMFCRibbonInfo::XQAT::XQATItem,CMFCRibbonInfo::XQAT::XQATItem> local_50 [8];
+  QuickBitSet *local_48;
+  char local_41;
+  undefined *local_40;
+  char local_39;
+  float local_38;
+  float local_34;
+  float local_30;
+  QuickBitSet local_2c [8];
+  float local_24;
+  QuickBitSet *local_20;
+  undefined1 *local_1c;
+  undefined1 local_18 [8];
+  int local_10;
+  undefined1 *puStack_c;
+  uint local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00f11fa0;
+  local_10 = *unaff_FS_OFFSET;
+  uVar2 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  Concurrency::details::QuickBitSet::QuickBitSet(local_2c);
+  local_8 = 0;
+  FUN_008373d0(uVar2);
+  local_8 = CONCAT31(local_8._1_3_,1);
+  if (DAT_011dd436 == '\0') {
+    if (param_1 != '\0') {
+      FUN_004ff1a0(DAT_011dea3c,local_2c,local_18);
+      local_48 = local_2c;
+      while ((local_48 != (QuickBitSet *)0x0 && (piVar3 = (int *)FUN_006815c0(), *piVar3 != 0))) {
+        FUN_006815c0();
+        cVar1 = FUN_00440da0();
+        if (cVar1 == '\0') {
+LAB_00833df0:
+          uVar5 = FUN_006815c0();
+          cVar1 = FUN_005f65d0(uVar5);
+          if (cVar1 == '\0') {
+            if (DAT_011a179c == '\0') {
+              FUN_004037b0();
+              local_8._0_1_ = 2;
+              uVar5 = 0x100121;
+              pcVar10 = "UIRadioSignalFound";
+              puVar9 = local_5c;
+              FUN_00453a70(puVar9,"UIRadioSignalFound",0x100121);
+              FUN_00ad7550(puVar9,pcVar10,uVar5);
+              local_8._0_1_ = 3;
+              FUN_00ad8830(0);
+              FUN_006815c0();
+              uVar5 = FUN_0055d520();
+              uVar5 = FUN_004c69f0(uVar5);
+              FUN_00406f60(local_50,uVar5);
+              uVar5 = FUN_00559450(0,"Interface\\Icons\\Message Icons\\glow_message_radio_tower.dds"
+                                   ,0,_DAT_010162c0,0);
+              FUN_007052f0(uVar5);
+              local_8._0_1_ = 2;
+              FUN_00483710();
+              local_8 = CONCAT31(local_8._1_3_,1);
+              CArray<CMFCRibbonInfo::XQAT::XQATItem,CMFCRibbonInfo::XQAT::XQATItem>::RemoveAll
+                        (local_50);
+            }
+            uVar5 = FUN_006815c0();
+            FUN_005ae3d0(uVar5);
+          }
+        }
+        else {
+          puVar4 = (undefined4 *)FUN_006815c0();
+          cVar1 = FUN_005aa680(*puVar4);
+          if (cVar1 != '\0') goto LAB_00833df0;
+        }
+        local_48 = (QuickBitSet *)FUN_00726070();
+      }
+      DAT_011a179c = '\0';
+    }
+    local_20 = (QuickBitSet *)0x0;
+    local_1c = (undefined1 *)0x0;
+    local_41 = '\0';
+    local_24 = _DAT_01016970;
+    local_38 = 0.0;
+    local_34 = 0.0;
+    local_39 = '\0';
+    pfVar6 = (float *)FUN_00403e20();
+    local_30 = 1.0 - *pfVar6;
+    local_40 = &DAT_011dd554;
+    while ((local_40 != (undefined *)0x0 && (cVar1 = FUN_008256d0(), cVar1 == '\0'))) {
+      local_20 = local_2c;
+      local_1c = local_18;
+      local_41 = '\0';
+      local_24 = _DAT_01016970;
+      puVar4 = (undefined4 *)FUN_006815c0();
+      local_60 = (int *)*puVar4;
+      if (local_60 != (int *)0x0) {
+        while (((param_1 != '\0' && (local_20 != (QuickBitSet *)0x0)) &&
+               (local_1c != (undefined1 *)0x0))) {
+          piVar3 = (int *)FUN_006815c0();
+          if (*piVar3 == *local_60) {
+            local_41 = '\x01';
+            local_39 = 'd';
+            FUN_00834210(0);
+            pfVar6 = (float *)FUN_006815c0();
+            local_24 = *pfVar6;
+            fVar8 = (float10)FUN_0056b190();
+            local_38 = (float)fVar8;
+            fVar8 = (float10)FUN_0056b1d0();
+            if (fVar8 != (float10)_DAT_01012060) {
+              fVar8 = (float10)FUN_0056b1d0();
+              local_30 = (float)((float10)1 - fVar8 / (float10)_DAT_01017a40);
+            }
+            iVar7 = FUN_0056b210();
+            if (((iVar7 == 0) && ((float)_DAT_01012060 < local_38)) &&
+               (((float)_DAT_01012060 < local_24 &&
+                (local_34 = local_24 / local_38, local_30 < local_34)))) {
+              local_80 = (char)(int)ROUND(((local_34 - local_30) / (1.0 - local_30)) *
+                                          (float)_DAT_01017a40);
+              local_39 = 'd' - local_80;
+            }
+            FUN_00458b30(local_39);
+            local_20 = (QuickBitSet *)0x0;
+            local_1c = (undefined1 *)0x0;
+          }
+          else {
+            local_20 = (QuickBitSet *)FUN_00726070();
+            local_1c = (undefined1 *)FUN_00726070();
+          }
+        }
+        if ((param_1 != '\0') && (local_41 == '\0')) {
+          FUN_00834210(1);
+          FUN_00458b30(0);
+        }
+        if ((local_41 != '\0') && (DAT_011dd430 == local_60)) {
+          FUN_004037b0();
+          local_8._0_1_ = 4;
+          uVar5 = 0x100121;
+          pcVar10 = "UIRadioSignalFound";
+          puVar9 = local_74;
+          FUN_00453a70(puVar9,"UIRadioSignalFound",0x100121);
+          FUN_00ad7550(puVar9,pcVar10,uVar5);
+          local_8._0_1_ = 5;
+          FUN_00ad8830(0);
+          uVar5 = FUN_0055d520();
+          uVar5 = FUN_004c69f0(uVar5);
+          FUN_00406f60(local_68,uVar5);
+          uVar5 = FUN_00559450(0,"Interface\\Icons\\Message Icons\\glow_message_radio_tower.dds",0,
+                               _DAT_010162c0,0);
+          FUN_007052f0(uVar5);
+          FUN_008324e0(1);
+          FUN_00832240(*local_60,0);
+          DAT_011dd430 = (int *)0x0;
+          local_8._0_1_ = 4;
+          FUN_00483710();
+          local_8 = CONCAT31(local_8._1_3_,1);
+          CArray<CMFCRibbonInfo::XQAT::XQATItem,CMFCRibbonInfo::XQAT::XQATItem>::RemoveAll(local_68)
+          ;
+        }
+        FUN_00834260(local_60);
+      }
+      local_40 = (undefined *)FUN_00726070();
+    }
+    FUN_00837410();
+    FUN_00470470();
+    local_8 = local_8 & 0xffffff00;
+    FUN_008373f0();
+    local_8 = 0xffffffff;
+    FUN_0046ffb0();
+  }
+  else {
+    local_8 = (uint)local_8._1_3_ << 8;
+    FUN_008373f0();
+    local_8 = 0xffffffff;
+    FUN_0046ffb0();
+  }
+  *unaff_FS_OFFSET = local_10;
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00833d00 (radio update worker and scan owner)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00832c10 (in FUN_00832ad0)
+  UNCONDITIONAL_CALL @ 0x00832325 (in FUN_00832240)
+  UNCONDITIONAL_CALL @ 0x0083237c (in FUN_00832240)
+  Total: 3 refs
+
+--- Calls FROM radio update worker and scan owner (0x00833d00) ---
+  0x00833d28 -> 0x0096a2d0 QuickBitSet
+  0x00833d37 -> 0x008373d0 FUN_008373d0
+  0x00833d52 -> 0x008373f0 FUN_008373f0
+  0x00833d61 -> 0x0046ffb0 FUN_0046ffb0
+  0x00833d86 -> 0x004ff1a0 FUN_004ff1a0
+  0x00833d99 -> 0x00726070 FUN_00726070
+  0x00833dae -> 0x006815c0 FUN_006815c0
+  0x00833dbf -> 0x006815c0 FUN_006815c0
+  0x00833dc6 -> 0x00440da0 FUN_00440da0
+  0x00833dd5 -> 0x006815c0 FUN_006815c0
+  0x00833ddd -> 0x005aa680 FUN_005aa680
+  0x00833df3 -> 0x006815c0 FUN_006815c0
+  0x00833dfe -> 0x005f65d0 FUN_005f65d0
+  0x00833e20 -> 0x004037b0 FUN_004037b0
+  0x00833e37 -> 0x00453a70 FUN_00453a70
+  0x00833e3e -> 0x00ad7550 FUN_00ad7550
+  0x00833e4c -> 0x00ad8830 FUN_00ad8830
+  0x00833e54 -> 0x006815c0 FUN_006815c0
+  0x00833e5b -> 0x0055d520 FUN_0055d520
+  0x00833e66 -> 0x004c69f0 FUN_004c69f0
+  0x00833e70 -> 0x00406f60 FUN_00406f60
+  0x00833e90 -> 0x00559450 FUN_00559450
+  0x00833e96 -> 0x007052f0 FUN_007052f0
+  0x00833ea5 -> 0x00483710 FUN_00483710
+  0x00833eb1 -> 0x004037d0 RemoveAll
+  0x00833eb9 -> 0x006815c0 FUN_006815c0
+  0x00833ec4 -> 0x005ae3d0 FUN_005ae3d0
+  0x00833f03 -> 0x00403e20 FUN_00403e20
+  0x00833f25 -> 0x008256d0 FUN_008256d0
+  0x00833f51 -> 0x006815c0 FUN_006815c0
+  0x00833f88 -> 0x006815c0 FUN_006815c0
+  0x00833faa -> 0x00834210 FUN_00834210
+  0x00833fb2 -> 0x006815c0 FUN_006815c0
+  0x00833fc1 -> 0x0056b190 FUN_0056b190
+  0x00833fce -> 0x0056b1d0 FUN_0056b1d0
+  0x00833fe5 -> 0x0056b1d0 FUN_0056b1d0
+  0x00833ffc -> 0x0056b210 FUN_0056b210
+  0x00834083 -> 0x00458b30 FUN_00458b30
+  0x0083409b -> 0x00726070 FUN_00726070
+  0x008340a6 -> 0x00726070 FUN_00726070
+  0x008340cb -> 0x00834210 FUN_00834210
+  0x008340d8 -> 0x00458b30 FUN_00458b30
+  0x008340fb -> 0x004037b0 FUN_004037b0
+  0x00834112 -> 0x00453a70 FUN_00453a70
+  0x00834119 -> 0x00ad7550 FUN_00ad7550
+  0x00834127 -> 0x00ad8830 FUN_00ad8830
+  0x00834131 -> 0x0055d520 FUN_0055d520
+  0x0083413c -> 0x004c69f0 FUN_004c69f0
+  0x00834146 -> 0x00406f60 FUN_00406f60
+  0x00834166 -> 0x00559450 FUN_00559450
+  0x0083416c -> 0x007052f0 FUN_007052f0
+  0x00834176 -> 0x008324e0 FUN_008324e0
+  0x00834186 -> 0x00832240 FUN_00832240
+  0x0083419f -> 0x00483710 FUN_00483710
+  0x008341ab -> 0x004037d0 RemoveAll
+  0x008341b4 -> 0x00834260 FUN_00834260
+  0x008341bf -> 0x00726070 FUN_00726070
+  0x008341cf -> 0x00837410 FUN_00837410
+  0x008341d7 -> 0x00470470 FUN_00470470
+  0x008341e3 -> 0x008373f0 FUN_008373f0
+  0x008341f2 -> 0x0046ffb0 FUN_0046ffb0
+  Total: 61 calls
+
+======================================================================
+radio update phase owner @ 0x00832ad0
+======================================================================
+  Function: FUN_00832ad0 @ 0x00832ad0, Size: 355 bytes
+
+undefined4 FUN_00832ad0(char param_1)
+
+{
+  char cVar1;
+  int iVar2;
+  uint *puVar3;
+  uint uVar4;
+  uint uStack_8;
+  
+  uStack_8 = 0;
+  if (DAT_011dd424 == 0) {
+    DAT_011dd424 = FUN_00825c00();
+  }
+  iVar2 = FUN_00825c00();
+  uVar4 = iVar2 - DAT_011dd424;
+  puVar3 = (uint *)FUN_0043d4d0();
+  if (*puVar3 < uVar4) {
+    cVar1 = FUN_00705e80();
+    if (cVar1 == '\0') {
+      uStack_8 = 0x1000000;
+      DAT_011dd424 = FUN_00825c00();
+    }
+  }
+  if (DAT_011dea3c != 0) {
+    iVar2 = FUN_008d6f30();
+    if (iVar2 != 0) {
+      FUN_008d6f30();
+      cVar1 = FUN_00425fd0();
+      if (cVar1 != '\0') {
+        if (DAT_011dd435 == '\0') {
+          uStack_8 = 0x1000000;
+        }
+        else {
+          uStack_8 = 0;
+        }
+        DAT_011dd435 = '\x01';
+      }
+    }
+  }
+  if (param_1 != '\0') {
+    uStack_8 = 0x1000000;
+  }
+  if ((DAT_011dd438 & 1) == 0) {
+    if ((DAT_011dd438 & 2) != 0) {
+      DAT_011dd43c = DAT_011dd43c & 0xfffffffe | 2;
+    }
+  }
+  else {
+    DAT_011dd43c = DAT_011dd43c & 0xfffffffd | 1;
+  }
+  DAT_011dd438 = 0;
+  FUN_008329a0(0);
+  if (DAT_011dd440 == 0) {
+    DAT_011dd440 = FUN_004616c0("AMLRadio");
+  }
+  FUN_00833d00(uStack_8 >> 0x18);
+  FUN_008329a0(0);
+  DAT_011dd43c = 0;
+  return 1;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00832ad0 (radio update phase owner)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0086b40b (in FUN_0086a850)
+  UNCONDITIONAL_CALL @ 0x0086b54a (in FUN_0086a850)
+  UNCONDITIONAL_CALL @ 0x0086f657 (in FUN_0086f640)
+  UNCONDITIONAL_CALL @ 0x005d8285 (in FUN_005d8280)
+  Total: 4 refs
+
+--- Calls FROM radio update phase owner (0x00832ad0) ---
+  0x00832ae7 -> 0x00825c00 FUN_00825c00
+  0x00832af6 -> 0x00825c00 FUN_00825c00
+  0x00832b08 -> 0x0043d4d0 FUN_0043d4d0
+  0x00832b11 -> 0x00705e80 FUN_00705e80
+  0x00832b26 -> 0x00825c00 FUN_00825c00
+  0x00832b3f -> 0x008d6f30 FUN_008d6f30
+  0x00832b4e -> 0x008d6f30 FUN_008d6f30
+  0x00832b55 -> 0x00425fd0 FUN_00425fd0
+  0x00832be5 -> 0x008329a0 FUN_008329a0
+  0x00832c01 -> 0x004616c0 FUN_004616c0
+  0x00832c10 -> 0x00833d00 FUN_00833d00
+  0x00832c1a -> 0x008329a0 FUN_008329a0
+  Total: 12 calls
+
+----------------------------------------------------------------------
+References TO 0x004ff1a0 (radio signal scan callers)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00833d86 (in FUN_00833d00)
+  UNCONDITIONAL_CALL @ 0x008322bf (in FUN_00832240)
+  UNCONDITIONAL_CALL @ 0x0083572e (in FUN_008356e0)
+  UNCONDITIONAL_CALL @ 0x00835742 (in FUN_008356e0)
+  UNCONDITIONAL_CALL @ 0x0079bee5 (in FUN_0079bea0)
+  Total: 5 refs
+
+----------------------------------------------------------------------
+References TO 0x006d4d20 (geometry helper callers)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x006d4f01 (in FUN_006d4eb0)
+  UNCONDITIONAL_CALL @ 0x0079dd11 (in FUN_0079dbb0)
+  UNCONDITIONAL_CALL @ 0x004ff4c6 (in FUN_004ff1a0)
+  UNCONDITIONAL_CALL @ 0x004ff645 (in FUN_004ff1a0)
+  Total: 4 refs
+
+----------------------------------------------------------------------
+Disassembly: complete radio signal scan (0x004ff180 - 0x004ff700)
+----------------------------------------------------------------------
+  0x004ff181: POP EBP
+  0x004ff182: RET
+  0x004ff190: PUSH EBP
+  0x004ff191: MOV EBP,ESP
+  0x004ff193: MOV ECX,0x11c8264
+  0x004ff198: CALL 0x00470470
+  0x004ff19d: POP EBP
+  0x004ff19e: RET
+  0x004ff1a0: PUSH EBP
+  0x004ff1a1: MOV EBP,ESP
+  0x004ff1a3: PUSH -0x1
+  0x004ff1a5: PUSH 0xef3663
+  0x004ff1aa: MOV EAX,FS:[0x0]
+  0x004ff1b0: PUSH EAX
+  0x004ff1b1: SUB ESP,0x1dc
+  0x004ff1b7: PUSH ESI
+  0x004ff1b8: MOV EAX,[0x011c16bc]
+  0x004ff1bd: XOR EAX,EBP
+  0x004ff1bf: PUSH EAX
+  0x004ff1c0: LEA EAX,[EBP + -0xc]
+  0x004ff1c3: MOV FS:[0x0],EAX
+  0x004ff1c9: MOV dword ptr [EBP + 0xfffffe50],0x0
+  0x004ff1d3: CMP dword ptr [EBP + 0xc],0x0
+  0x004ff1d7: JZ 0x004ff1eb
+  0x004ff1d9: CMP dword ptr [EBP + 0x8],0x0
+  0x004ff1dd: JZ 0x004ff1eb
+  0x004ff1df: MOV ECX,dword ptr [EBP + 0x8]
+  0x004ff1e2: CALL 0x008d6f30
+  0x004ff1e7: TEST EAX,EAX
+  0x004ff1e9: JNZ 0x004ff1f0
+  0x004ff1eb: JMP 0x004ff7b5
+  0x004ff1f0: MOV ECX,dword ptr [EBP + 0x8]
+  0x004ff1f3: CALL 0x00575d70
+  0x004ff1f8: MOV dword ptr [EBP + -0x18],EAX
+  0x004ff1fb: MOV dword ptr [EBP + -0x1c],0x0
+  0x004ff202: CMP dword ptr [EBP + -0x18],0x0
+  0x004ff206: JNZ 0x004ff213
+  0x004ff208: MOV ECX,dword ptr [EBP + 0x8]
+  0x004ff20b: CALL 0x008d6f30
+  0x004ff210: MOV dword ptr [EBP + -0x1c],EAX
+  0x004ff213: FLD float ptr [0x01016970]
+  0x004ff219: FSTP float ptr [EBP + -0x14]
+  0x004ff21c: MOV byte ptr [EBP + -0xd],0x0
+  0x004ff220: MOV dword ptr [EBP + -0x20],0x11c8264
+  0x004ff227: CMP dword ptr [EBP + -0x20],0x0
+  0x004ff22b: JZ 0x004ff7b5
+  0x004ff231: MOV ECX,dword ptr [EBP + -0x20]
+  0x004ff234: CALL 0x008256d0
+  0x004ff239: MOVZX EAX,AL
+  0x004ff23c: TEST EAX,EAX
+  0x004ff23e: JNZ 0x004ff7b5
+  0x004ff244: MOV ECX,dword ptr [EBP + -0x20]
+  0x004ff247: CALL 0x006815c0
+  0x004ff24c: MOV ECX,dword ptr [EAX]
+  0x004ff24e: MOV dword ptr [EBP + -0x24],ECX
+  0x004ff251: MOV byte ptr [EBP + -0xd],0x0
+  0x004ff255: FLD float ptr [0x01016970]
+  0x004ff25b: FSTP float ptr [EBP + -0x14]
+  0x004ff25e: MOV ECX,dword ptr [EBP + -0x24]
+  0x004ff261: CALL 0x00440da0
+  0x004ff266: MOVZX EDX,AL
+  0x004ff269: TEST EDX,EDX
+  0x004ff26b: JZ 0x004ff277
+  0x004ff26d: CMP dword ptr [EBP + -0x18],0x0
+  0x004ff271: JNZ 0x004ff7a5
+  0x004ff277: MOV ECX,dword ptr [EBP + -0x24]
+  0x004ff27a: CALL 0x0056b210
+  0x004ff27f: MOV dword ptr [EBP + 0xfffffe4c],EAX
+  0x004ff285: CMP dword ptr [EBP + 0xfffffe4c],0x4
+  0x004ff28c: JA 0x004ff77f
+  0x004ff292: MOV EAX,dword ptr [EBP + 0xfffffe4c]
+  0x004ff298: JMP dword ptr [EAX*0x4 + 0x4ff7c8]
+  0x004ff29f: MOV ECX,dword ptr [EBP + -0x24]
+  0x004ff2a2: CALL 0x0056b140
+  0x004ff2a7: MOV dword ptr [EBP + -0x28],EAX
+  0x004ff2aa: CMP dword ptr [EBP + -0x28],0x0
+  0x004ff2ae: JNZ 0x004ff2b6
+  0x004ff2b0: MOV ECX,dword ptr [EBP + -0x24]
+  0x004ff2b3: MOV dword ptr [EBP + -0x28],ECX
+  0x004ff2b6: MOV ECX,dword ptr [EBP + -0x28]
+  0x004ff2b9: CALL 0x00575d70
+  0x004ff2be: MOV dword ptr [EBP + -0x2c],EAX
+  0x004ff2c1: CMP dword ptr [EBP + -0x2c],0x0
+  0x004ff2c5: JNZ 0x004ff2f3
+  0x004ff2c7: MOV ECX,dword ptr [EBP + -0x28]
+  0x004ff2ca: CALL 0x0084e3a0
+  0x004ff2cf: PUSH EAX
+  0x004ff2d0: MOV EDX,dword ptr [EBP + -0x28]
+  0x004ff2d3: MOV EAX,dword ptr [EDX]
+  0x004ff2d5: MOV ECX,dword ptr [EBP + -0x28]
+  0x004ff2d8: MOV EDX,dword ptr [EAX + 0x130]
+  0x004ff2de: CALL EDX
+  0x004ff2e0: PUSH EAX
+  0x004ff2e1: PUSH 0x10257e0
+  0x004ff2e6: CALL 0x005b5e40
+  0x004ff2eb: ADD ESP,0xc
+  0x004ff2ee: JMP 0x004ff3db
+  0x004ff2f3: CMP dword ptr [EBP + -0x18],0x0
+  0x004ff2f7: JZ 0x004ff322
+  0x004ff2f9: MOV EAX,dword ptr [EBP + -0x18]
+  0x004ff2fc: CMP EAX,dword ptr [EBP + -0x2c]
+  0x004ff2ff: JNZ 0x004ff322
+  0x004ff301: MOV ECX,dword ptr [EBP + -0x28]
+  0x004ff304: MOV EDX,dword ptr [ECX]
+  0x004ff306: MOV ECX,dword ptr [EBP + -0x28]
+  0x004ff309: MOV EAX,dword ptr [EDX + 0x1f4]
+  0x004ff30f: CALL EAX
+  0x004ff311: PUSH EAX
+  0x004ff312: MOV ECX,dword ptr [EBP + 0x8]
+  0x004ff315: CALL 0x00572380
+  0x004ff31a: FSTP float ptr [EBP + -0x14]
+  0x004ff31d: JMP 0x004ff3c3
+  0x004ff322: CMP dword ptr [EBP + -0x18],0x0
+  0x004ff326: JNZ 0x004ff3c3
+  0x004ff32c: PUSH 0x3
+  0x004ff32e: PUSH 0x0
+  0x004ff330: MOV ECX,dword ptr [EBP + -0x24]
+  0x004ff333: CALL 0x0056b190
+  0x004ff338: PUSH ECX
+  0x004ff339: FSTP float ptr [ESP]
+  0x004ff33c: MOV ECX,dword ptr [EBP + 0x8]
+  0x004ff33f: PUSH ECX
+  0x004ff340: LEA ECX,[EBP + 0xffffff24]
+  0x004ff346: CALL 0x006dcd70
+  0x004ff34b: MOV dword ptr [EBP + 0xfffffe48],EAX
+  0x004ff351: MOV EDX,dword ptr [EBP + 0xfffffe48]
+  0x004ff357: MOV dword ptr [EBP + 0xfffffe44],EDX
+  0x004ff35d: MOV dword ptr [EBP + -0x4],0x0
+  0x004ff364: MOV EAX,dword ptr [EBP + 0xfffffe44]
+  0x004ff36a: PUSH EAX
+  0x004ff36b: MOV ECX,dword ptr [EBP + -0x24]
+  0x004ff36e: PUSH ECX
+  0x004ff36f: LEA ECX,[EBP + 0xfffffefc]
+  0x004ff375: CALL 0x006dcd70
+  0x004ff37a: MOV dword ptr [EBP + 0xfffffe40],EAX
+  0x004ff380: MOV EDX,dword ptr [EBP + 0xfffffe40]
+  0x004ff386: MOV dword ptr [EBP + 0xfffffe3c],EDX
+  0x004ff38c: MOV byte ptr [EBP + -0x4],0x1
+  0x004ff390: MOV EAX,dword ptr [EBP + 0xfffffe3c]
+  0x004ff396: PUSH EAX
+  0x004ff397: CALL 0x006d4eb0
+  0x004ff39c: ADD ESP,0x14
+  0x004ff39f: FSTP float ptr [EBP + -0x14]
+  0x004ff3a2: MOV byte ptr [EBP + -0x4],0x0
+  0x004ff3a6: LEA ECX,[EBP + 0xfffffefc]
+  0x004ff3ac: CALL 0x004ff7e0
+  0x004ff3b1: MOV dword ptr [EBP + -0x4],0xffffffff
+  0x004ff3b8: LEA ECX,[EBP + 0xffffff24]
+  0x004ff3be: CALL 0x004ff7e0
+  0x004ff3c3: MOV ECX,dword ptr [EBP + -0x24]
+  0x004ff3c6: CALL 0x0056b190
+  0x004ff3cb: FLD float ptr [EBP + -0x14]
+  0x004ff3ce: FCOMPP
+  0x004ff3d0: FNSTSW AX
+  0x004ff3d2: TEST AH,0x5
+  0x004ff3d5: JP 0x004ff3db
+  0x004ff3d7: MOV byte ptr [EBP + -0xd],0x1
+  0x004ff3db: JMP 0x004ff77f
+  0x004ff3e0: MOV byte ptr [EBP + -0xd],0x1
+  0x004ff3e4: FLD float ptr [0x01012054]
+  0x004ff3ea: FSTP float ptr [EBP + -0x14]
+  0x004ff3ed: JMP 0x004ff77f
+  0x004ff3f2: MOV ECX,dword ptr [EBP + -0x24]
+  0x004ff3f5: CALL 0x00575d70
+  0x004ff3fa: MOV dword ptr [EBP + -0x30],EAX
+  0x004ff3fd: CMP dword ptr [EBP + -0x30],0x0
+  0x004ff401: JNZ 0x004ff42f
+  0x004ff403: MOV ECX,dword ptr [EBP + -0x24]
+  0x004ff406: CALL 0x0084e3a0
+  0x004ff40b: PUSH EAX
+  0x004ff40c: MOV ECX,dword ptr [EBP + -0x24]
+  0x004ff40f: MOV EDX,dword ptr [ECX]
+  0x004ff411: MOV ECX,dword ptr [EBP + -0x24]
+  0x004ff414: MOV EAX,dword ptr [EDX + 0x130]
+  0x004ff41a: CALL EAX
+  0x004ff41c: PUSH EAX
+  0x004ff41d: PUSH 0x1025768
+  0x004ff422: CALL 0x005b5e40
+  0x004ff427: ADD ESP,0xc
+  0x004ff42a: JMP 0x004ff566
+  0x004ff42f: CMP dword ptr [EBP + -0x18],0x0
+  0x004ff433: JZ 0x004ff44f
+  0x004ff435: MOV ECX,dword ptr [EBP + -0x18]
+  0x004ff438: CMP ECX,dword ptr [EBP + -0x30]
+  0x004ff43b: JNZ 0x004ff44a
+  0x004ff43d: MOV byte ptr [EBP + -0xd],0x1
+  0x004ff441: FLD float ptr [0x01012054]
+  0x004ff447: FSTP float ptr [EBP + -0x14]
+  0x004ff44a: JMP 0x004ff566
+  0x004ff44f: LEA ECX,[EBP + -0x68]
+  0x004ff452: CALL 0x006f48b0
+  0x004ff457: MOV dword ptr [EBP + -0x4],0x2
+  0x004ff45e: PUSH 0x1
+  0x004ff460: PUSH 0x0
+  0x004ff462: PUSH ECX
+  0x004ff463: FLDZ
+  0x004ff465: FSTP float ptr [ESP]
+  0x004ff468: PUSH 0x1
+  0x004ff46a: LEA EDX,[EBP + -0x68]
+  0x004ff46d: PUSH EDX
+  0x004ff46e: MOV EAX,dword ptr [EBP + 0x8]
+  0x004ff471: PUSH EAX
+  0x004ff472: LEA ECX,[EBP + 0xfffffed0]
+  0x004ff478: CALL 0x006dcd70
+  0x004ff47d: MOV dword ptr [EBP + 0xfffffe38],EAX
+  0x004ff483: MOV ECX,dword ptr [EBP + 0xfffffe38]
+  0x004ff489: MOV dword ptr [EBP + 0xfffffe34],ECX
+  0x004ff48f: MOV byte ptr [EBP + -0x4],0x3
+  0x004ff493: MOV EDX,dword ptr [EBP + 0xfffffe34]
+  0x004ff499: PUSH EDX
+  0x004ff49a: MOV EAX,dword ptr [EBP + -0x24]
+  0x004ff49d: PUSH EAX
+  0x004ff49e: LEA ECX,[EBP + 0xfffffea8]
+  0x004ff4a4: CALL 0x006dcd70
+  0x004ff4a9: MOV dword ptr [EBP + 0xfffffe30],EAX
+  0x004ff4af: MOV ECX,dword ptr [EBP + 0xfffffe30]
+  0x004ff4b5: MOV dword ptr [EBP + 0xfffffe2c],ECX
+  0x004ff4bb: MOV byte ptr [EBP + -0x4],0x4
+  0x004ff4bf: MOV EDX,dword ptr [EBP + 0xfffffe2c]
+  0x004ff4c5: PUSH EDX
+  0x004ff4c6: CALL 0x006d4d20
+  0x004ff4cb: ADD ESP,0x1c
+  0x004ff4ce: MOV byte ptr [EBP + 0xfffffefb],AL
+  0x004ff4d4: MOV byte ptr [EBP + -0x4],0x3
+  0x004ff4d8: LEA ECX,[EBP + 0xfffffea8]
+  0x004ff4de: CALL 0x004ff7e0
+  0x004ff4e3: MOV byte ptr [EBP + -0x4],0x2
+  0x004ff4e7: LEA ECX,[EBP + 0xfffffed0]
+  0x004ff4ed: CALL 0x004ff7e0
+  0x004ff4f2: MOVZX EAX,byte ptr [EBP + 0xfffffefb]
+  0x004ff4f9: TEST EAX,EAX
+  0x004ff4fb: JZ 0x004ff557
+  0x004ff4fd: MOV byte ptr [EBP + -0xd],0x1
+  0x004ff501: FLD float ptr [0x01012054]
+  0x004ff507: FSTP float ptr [EBP + -0x14]
+  0x004ff50a: LEA ECX,[EBP + -0x68]
+  0x004ff50d: CALL 0x0044ddc0
+  0x004ff512: MOV dword ptr [EBP + -0x6c],EAX
+  0x004ff515: MOV dword ptr [EBP + -0x70],0x0
+  0x004ff51c: JMP 0x004ff527
+  0x004ff51e: MOV ECX,dword ptr [EBP + -0x70]
+  0x004ff521: ADD ECX,0x1
+  0x004ff524: MOV dword ptr [EBP + -0x70],ECX
+  0x004ff527: MOV EDX,dword ptr [EBP + -0x70]
+  0x004ff52a: CMP EDX,dword ptr [EBP + -0x6c]
+  0x004ff52d: JNC 0x004ff557
+  0x004ff52f: MOV EAX,dword ptr [EBP + -0x70]
+  0x004ff532: PUSH EAX
+  0x004ff533: LEA ECX,[EBP + -0x68]
+  0x004ff536: CALL 0x006a7af0
+  0x004ff53b: MOV ECX,dword ptr [EAX + 0x4]
+  0x004ff53e: MOV dword ptr [EBP + -0x74],ECX
+  0x004ff541: CMP dword ptr [EBP + -0x74],0x0
+  0x004ff545: JZ 0x004ff555
+  0x004ff547: MOV EDX,dword ptr [EBP + -0x74]
+  0x004ff54a: CMP EDX,dword ptr [EBP + -0x30]
+  0x004ff54d: JZ 0x004ff555
+  0x004ff54f: MOV byte ptr [EBP + -0xd],0x0
+  0x004ff553: JMP 0x004ff557
+  0x004ff555: JMP 0x004ff51e
+  0x004ff557: MOV dword ptr [EBP + -0x4],0xffffffff
+  0x004ff55e: LEA ECX,[EBP + -0x68]
+  0x004ff561: CALL 0x006f4930
+  0x004ff566: JMP 0x004ff77f
+  0x004ff56b: CMP dword ptr [EBP + -0x1c],0x0
+  0x004ff56f: JZ 0x004ff742
+  0x004ff575: LEA ECX,[EBP + 0xffffff54]
+  0x004ff57b: CALL 0x006f48b0
+  0x004ff580: MOV dword ptr [EBP + -0x4],0x5
+  0x004ff587: MOV ECX,dword ptr [EBP + 0x8]
+  0x004ff58a: CALL 0x008d6f30
+  0x004ff58f: TEST EAX,EAX
+  0x004ff591: JZ 0x004ff5b9
+  0x004ff593: MOV ECX,dword ptr [EBP + -0x24]
+  0x004ff596: CALL 0x008d6f30
+  0x004ff59b: TEST EAX,EAX
+  0x004ff59d: JZ 0x004ff5b9
+  0x004ff59f: MOV ECX,dword ptr [EBP + 0x8]
+  0x004ff5a2: CALL 0x008d6f30
+  0x004ff5a7: MOV ESI,EAX
+  0x004ff5a9: MOV ECX,dword ptr [EBP + -0x24]
+  0x004ff5ac: CALL 0x008d6f30
+  0x004ff5b1: CMP ESI,EAX
+  0x004ff5b3: JZ 0x004ff660
+  0x004ff5b9: PUSH 0x1
+  0x004ff5bb: PUSH 0x0
+  0x004ff5bd: PUSH ECX
+  0x004ff5be: FLDZ
+  0x004ff5c0: FSTP float ptr [ESP]
+  0x004ff5c3: PUSH 0x2
+  0x004ff5c5: LEA EAX,[EBP + 0xffffff54]
+  0x004ff5cb: PUSH EAX
+  0x004ff5cc: MOV ECX,dword ptr [EBP + 0x8]
+  0x004ff5cf: PUSH ECX
+  0x004ff5d0: LEA ECX,[EBP + 0xfffffe7c]
+  0x004ff5d6: CALL 0x006dcd70
+  0x004ff5db: MOV dword ptr [EBP + 0xfffffe28],EAX
+  0x004ff5e1: MOV EDX,dword ptr [EBP + 0xfffffe28]
+  0x004ff5e7: MOV dword ptr [EBP + 0xfffffe24],EDX
+  0x004ff5ed: MOV byte ptr [EBP + -0x4],0x6
+  0x004ff5f1: MOV EAX,dword ptr [EBP + 0xfffffe50]
+  0x004ff5f7: OR EAX,0x1
+  0x004ff5fa: MOV dword ptr [EBP + 0xfffffe50],EAX
+  0x004ff600: MOV ECX,dword ptr [EBP + 0xfffffe24]
+  0x004ff606: PUSH ECX
+  0x004ff607: MOV EDX,dword ptr [EBP + -0x24]
+  0x004ff60a: PUSH EDX
+  0x004ff60b: LEA ECX,[EBP + 0xfffffe54]
+  0x004ff611: CALL 0x006dcd70
+  0x004ff616: MOV dword ptr [EBP + 0xfffffe20],EAX
+  0x004ff61c: MOV EAX,dword ptr [EBP + 0xfffffe20]
+  0x004ff622: MOV dword ptr [EBP + 0xfffffe1c],EAX
+  0x004ff628: MOV dword ptr [EBP + -0x4],0x7
+  0x004ff62f: MOV ECX,dword ptr [EBP + 0xfffffe50]
+  0x004ff635: OR ECX,0x2
+  0x004ff638: MOV dword ptr [EBP + 0xfffffe50],ECX
+  0x004ff63e: MOV EDX,dword ptr [EBP + 0xfffffe1c]
+  0x004ff644: PUSH EDX
+  0x004ff645: CALL 0x006d4d20
+  0x004ff64a: ADD ESP,0x1c
+  0x004ff64d: MOVZX EAX,AL
+  0x004ff650: TEST EAX,EAX
+  0x004ff652: JNZ 0x004ff660
+  0x004ff654: MOV dword ptr [EBP + 0xfffffe18],0x0
+  0x004ff65e: JMP 0x004ff66a
+  0x004ff660: MOV dword ptr [EBP + 0xfffffe18],0x1
+  0x004ff66a: MOV CL,byte ptr [EBP + 0xfffffe18]
+  0x004ff670: MOV byte ptr [EBP + 0xfffffea7],CL
+  0x004ff676: MOV dword ptr [EBP + -0x4],0x6
+  0x004ff67d: MOV EDX,dword ptr [EBP + 0xfffffe50]
+  0x004ff683: AND EDX,0x2
+  0x004ff686: JZ 0x004ff69a
+  0x004ff688: AND dword ptr [EBP + 0xfffffe50],0xfffffffd
+  0x004ff68f: LEA ECX,[EBP + 0xfffffe54]
+  0x004ff695: CALL 0x004ff7e0
+  0x004ff69a: MOV dword ptr [EBP + -0x4],0x5
+  0x004ff6a1: MOV EAX,dword ptr [EBP + 0xfffffe50]
+  0x004ff6a7: AND EAX,0x1
+  0x004ff6aa: JZ 0x004ff6be
+  0x004ff6ac: AND dword ptr [EBP + 0xfffffe50],0xfffffffe
+  0x004ff6b3: LEA ECX,[EBP + 0xfffffe7c]
+  0x004ff6b9: CALL 0x004ff7e0
+  0x004ff6be: MOVZX ECX,byte ptr [EBP + 0xfffffea7]
+  0x004ff6c5: TEST ECX,ECX
+  0x004ff6c7: JZ 0x004ff730
+  0x004ff6c9: MOV byte ptr [EBP + -0xd],0x1
+  0x004ff6cd: FLD float ptr [0x01012054]
+  0x004ff6d3: FSTP float ptr [EBP + -0x14]
+  0x004ff6d6: LEA ECX,[EBP + 0xffffff54]
+  0x004ff6dc: CALL 0x0044ddc0
+  0x004ff6e1: MOV dword ptr [EBP + 0xffffff50],EAX
+  0x004ff6e7: MOV dword ptr [EBP + 0xffffff4c],0x0
+  0x004ff6f1: JMP 0x004ff702
+  0x004ff6f3: MOV EDX,dword ptr [EBP + 0xffffff4c]
+  0x004ff6f9: ADD EDX,0x1
+  0x004ff6fc: MOV dword ptr [EBP + 0xffffff4c],EDX
+
+----------------------------------------------------------------------
+Disassembly: geometry helper contract (0x006d4d00 - 0x006d4e80)
+----------------------------------------------------------------------
+  0x006d4d02: MOV word ptr [EDX],AX
+  0x006d4d05: MOV CL,byte ptr [ECX + 0x2]
+  0x006d4d08: MOV byte ptr [EDX + 0x2],CL
+  0x006d4d0b: MOV EAX,dword ptr [EBP + -0x4]
+  0x006d4d0e: MOV ESP,EBP
+  0x006d4d10: POP EBP
+  0x006d4d11: RET 0x4
+  0x006d4d20: PUSH EBP
+  0x006d4d21: MOV EBP,ESP
+  0x006d4d23: PUSH -0x1
+  0x006d4d25: PUSH 0xf04db6
+  0x006d4d2a: MOV EAX,FS:[0x0]
+  0x006d4d30: PUSH EAX
+  0x006d4d31: MOV EAX,0x20d8
+  0x006d4d36: CALL 0x00ec8660
+  0x006d4d3b: MOV EAX,[0x011c16bc]
+  0x006d4d40: XOR EAX,EBP
+  0x006d4d42: PUSH EAX
+  0x006d4d43: LEA EAX,[EBP + -0xc]
+  0x006d4d46: MOV FS:[0x0],EAX
+  0x006d4d4c: PUSH 0x582
+  0x006d4d51: PUSH 0x106cb70
+  0x006d4d56: PUSH 0x1
+  0x006d4d58: PUSH 0x2d
+  0x006d4d5a: LEA ECX,[EBP + 0xffffdf38]
+  0x006d4d60: CALL 0x00404eb0
+  0x006d4d65: MOV dword ptr [EBP + -0x4],0x0
+  0x006d4d6c: LEA ECX,[EBP + 0xffffdf3c]
+  0x006d4d72: CALL 0x006f33b0
+  0x006d4d77: MOV byte ptr [EBP + -0x4],0x1
+  0x006d4d7b: MOV ECX,dword ptr [EBP + 0x10]
+  0x006d4d7e: CALL 0x006f4990
+  0x006d4d83: PUSH 0xa
+  0x006d4d85: MOV ECX,dword ptr [EBP + 0x10]
+  0x006d4d88: CALL 0x006cee30
+  0x006d4d8d: PUSH 0xa
+  0x006d4d8f: MOV ECX,dword ptr [EBP + 0x10]
+  0x006d4d92: ADD ECX,0x10
+  0x006d4d95: CALL 0x006ceea0
+  0x006d4d9a: MOV EAX,dword ptr [EBP + 0x20]
+  0x006d4d9d: PUSH EAX
+  0x006d4d9e: MOV ECX,dword ptr [EBP + 0x1c]
+  0x006d4da1: PUSH ECX
+  0x006d4da2: PUSH ECX
+  0x006d4da3: FLD float ptr [EBP + 0x18]
+  0x006d4da6: FSTP float ptr [ESP]
+  0x006d4da9: MOV EDX,dword ptr [EBP + 0x14]
+  0x006d4dac: PUSH EDX
+  0x006d4dad: MOV EAX,dword ptr [EBP + 0x10]
+  0x006d4db0: PUSH EAX
+  0x006d4db1: MOV ECX,dword ptr [EBP + 0xc]
+  0x006d4db4: PUSH ECX
+  0x006d4db5: MOV EDX,dword ptr [EBP + 0x8]
+  0x006d4db8: PUSH EDX
+  0x006d4db9: LEA ECX,[EBP + 0xffffdf3c]
+  0x006d4dbf: CALL 0x006f34e0
+  0x006d4dc4: MOVZX EAX,AL
+  0x006d4dc7: TEST EAX,EAX
+  0x006d4dc9: JZ 0x006d4e47
+  0x006d4dcb: LEA ECX,[EBP + 0xffffdf2c]
+  0x006d4dd1: PUSH ECX
+  0x006d4dd2: MOV ECX,dword ptr [EBP + 0x8]
+  0x006d4dd5: CALL 0x005c3420
+  0x006d4dda: MOV EDX,dword ptr [EBP + 0x10]
+  0x006d4ddd: ADD EDX,0x20
+  0x006d4de0: MOV ECX,dword ptr [EAX]
+  0x006d4de2: MOV dword ptr [EDX],ECX
+  0x006d4de4: MOV ECX,dword ptr [EAX + 0x4]
+  0x006d4de7: MOV dword ptr [EDX + 0x4],ECX
+  0x006d4dea: MOV EAX,dword ptr [EAX + 0x8]
+  0x006d4ded: MOV dword ptr [EDX + 0x8],EAX
+  0x006d4df0: LEA ECX,[EBP + 0xffffdf20]
+  0x006d4df6: PUSH ECX
+  0x006d4df7: MOV ECX,dword ptr [EBP + 0xc]
+  0x006d4dfa: CALL 0x005c3420
+  0x006d4dff: MOV EDX,dword ptr [EBP + 0x10]
+  0x006d4e02: ADD EDX,0x2c
+  0x006d4e05: MOV ECX,dword ptr [EAX]
+  0x006d4e07: MOV dword ptr [EDX],ECX
+  0x006d4e09: MOV ECX,dword ptr [EAX + 0x4]
+  0x006d4e0c: MOV dword ptr [EDX + 0x4],ECX
+  0x006d4e0f: MOV EAX,dword ptr [EAX + 0x8]
+  0x006d4e12: MOV dword ptr [EDX + 0x8],EAX
+  0x006d4e15: MOV byte ptr [EBP + 0xffffdf1f],0x1
+  0x006d4e1c: MOV byte ptr [EBP + -0x4],0x0
+  0x006d4e20: LEA ECX,[EBP + 0xffffdf3c]
+  0x006d4e26: CALL 0x006f3460
+  0x006d4e2b: MOV dword ptr [EBP + -0x4],0xffffffff
+  0x006d4e32: LEA ECX,[EBP + 0xffffdf38]
+  0x006d4e38: CALL 0x00404ee0
+  0x006d4e3d: MOV AL,byte ptr [EBP + 0xffffdf1f]
+  0x006d4e43: JMP 0x006d4e98
+  0x006d4e47: MOV byte ptr [EBP + 0xffffdf1e],0x0
+  0x006d4e4e: MOV byte ptr [EBP + -0x4],0x0
+  0x006d4e52: LEA ECX,[EBP + 0xffffdf3c]
+  0x006d4e58: CALL 0x006f3460
+  0x006d4e5d: MOV dword ptr [EBP + -0x4],0xffffffff
+  0x006d4e64: LEA ECX,[EBP + 0xffffdf38]
+  0x006d4e6a: CALL 0x00404ee0
+  0x006d4e6f: MOV AL,byte ptr [EBP + 0xffffdf1e]
+  0x006d4e75: JMP 0x006d4e98

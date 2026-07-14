@@ -147,6 +147,7 @@ static CACHE: Mutex<RadioScanCache> = Mutex::new(RadioScanCache::new());
 static HITS: AtomicUsize = AtomicUsize::new(0);
 static MISSES: AtomicUsize = AtomicUsize::new(0);
 static BYPASSES: AtomicUsize = AtomicUsize::new(0);
+static LOADING_SUPPRESSIONS: AtomicUsize = AtomicUsize::new(0);
 static CAPTURE_FAILS: AtomicUsize = AtomicUsize::new(0);
 static LAST_ENTRY_COUNT: AtomicUsize = AtomicUsize::new(0);
 static LAST_SUMMARY_MS: AtomicU32 = AtomicU32::new(0);
@@ -210,7 +211,16 @@ pub unsafe extern "C" fn hook_periodic_radio_signal_scan(
     }
 
     let key = read_key(current_ref);
-    if key.loading != 0 || key.disabled_gate != 0 || key.transition_gate != 0 {
+    if key.loading != 0 {
+        // The caller constructs empty output lists before this call. During a
+        // load, references and navigation data are still being reconciled, so
+        // neither replaying pointer snapshots nor running pathfinding is safe.
+        // Leave the lists empty and rebuild on the first post-load scan.
+        LOADING_SUPPRESSIONS.fetch_add(1, Ordering::Relaxed);
+        invalidate_cache();
+        return;
+    }
+    if key.disabled_gate != 0 || key.transition_gate != 0 {
         BYPASSES.fetch_add(1, Ordering::Relaxed);
         invalidate_cache();
         unsafe { call_vanilla_radio_scan_timed(current_ref, out_stations, out_meta) };
@@ -391,10 +401,11 @@ fn maybe_log_summary(now_ms: u32) {
     }
 
     log::debug!(
-        "[RADIO] scan_cache hits={} misses={} bypasses={} capture_fails={} last_entries={} ttl_ms={} vanilla_us={}/{} replay_us={}/{}",
+        "[RADIO] scan_cache hits={} misses={} bypasses={} loading_suppressions={} capture_fails={} last_entries={} ttl_ms={} vanilla_us={}/{} replay_us={}/{}",
         HITS.load(Ordering::Relaxed),
         MISSES.load(Ordering::Relaxed),
         BYPASSES.load(Ordering::Relaxed),
+        LOADING_SUPPRESSIONS.load(Ordering::Relaxed),
         CAPTURE_FAILS.load(Ordering::Relaxed),
         LAST_ENTRY_COUNT.load(Ordering::Relaxed),
         CACHE_TTL_MS.load(Ordering::Relaxed),

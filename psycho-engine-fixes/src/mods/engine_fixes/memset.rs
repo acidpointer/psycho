@@ -1,72 +1,133 @@
-//! Replacement for the game's inlined `_memset` at `0x00ec61c0`.
+//! NULL-safe replacements for the game's two zero-allocation vtable slots.
 //!
-//! Two jobs in one hook:
-//!
-//! 1. **NULL-dst defense.** The game heap's aligned-calloc wrapper at
-//!    `FUN_00aa2240` (heap singleton vtable[4], called via NiPixelData
-//!    allocation and many other code paths) does `alloc + memset`
-//!    without null-checking the alloc return. When our worker OOM
-//!    recovery returns NULL, memset writes to offset 0 of a NULL
-//!    destination and crashes in `__VEC_memzero` at `0x00ed2c9e`. Our
-//!    hook returns the NULL destination unchanged and the memset
-//!    becomes a silent no-op.
-//!    See analysis/ghidra/output/crash/oom_memset_crash_analysis.txt.
-//!
-//! 2. **Full replacement of `_memset`.** We don't call the original
-//!    trampoline at all. `core::ptr::write_bytes` is LLVM-intrinsic and
-//!    compiles to SSE2 `movdqa` / `movdqu` / `rep stos` depending on
-//!    size and alignment. That matches what the game's inlined
-//!    `__VEC_memzero` fast path was already doing, minus the trampoline
-//!    + JMP + retpoline-style indirection our hook would otherwise
-//!      incur. This path is called from 121+ game call sites across the
-//!      render/scene graph subsystems; cutting a few cycles per call is
-//!      worth the replacement.
-//!
-//! Safety notes on the `core::ptr::write_bytes` choice:
-//!
-//! - No recursion into ourselves. `write_bytes` is an LLVM intrinsic.
-//!   For small sizes LLVM inlines the store sequence; for larger sizes
-//!   it emits a call to `memset` from Rust's compiler-builtins, which
-//!   lives inside `psycho_engine_fixes.dll` at a different address from the
-//!   game's `0x00ec61c0`. Our hook only patches the game's address, so
-//!   the compiler-builtins memset runs unhooked.
-//! - Matches the C memset contract: `memset(dst, val, n)` returns `dst`
-//!   unchanged. Callers that check the return value see the same
-//!   pointer they passed in, including NULL on the defensive path.
-//! - `val` is promoted to `i32` in the cdecl ABI but only the low byte
-//!   is used, matching the C standard.
+//! `0x00AA2240` and `0x00AA2370` allocate and immediately zero a buffer
+//! without checking the allocation result. Their aligned branches also write
+//! an alignment marker before the shared memset tail, so guarding only memset
+//! does not cover every OOM fault. Replacing the two consumers keeps the guard
+//! out of every unrelated game memset call.
 
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use anyhow::{Context, ensure};
 use libc::c_void;
+use libpsycho::{ffi::fnptr::FnPtr, os::windows::winapi::safe_write_32};
 
-/// Counts how many times we short-circuited a NULL memset. Non-zero
-/// here means the game called `memset(NULL, ...)`, which means our OOM
-/// path returned NULL and some caller did not check. Logged at
-/// power-of-two boundaries to keep the log readable.
-static NULL_SKIPS: AtomicU64 = AtomicU64::new(0);
+const GAME_HEAP_ADDR: usize = 0x011F6238;
+const GAME_HEAP_ALLOC_ADDR: usize = 0x00AA3E40;
 
-/// Replacement for `_memset` at `0x00ec61c0`. Does not call the
-/// original; performs the fill directly via `core::ptr::write_bytes`.
-pub unsafe extern "C" fn hook_memset(dst: *mut c_void, val: i32, size: usize) -> *mut c_void {
-    if dst.is_null() {
-        let n = NULL_SKIPS.fetch_add(1, Ordering::Relaxed) + 1;
-        if n == 1 || n.is_power_of_two() {
-            log::warn!(
-                "[MEMSET] NULL dst skipped (total={}, val={}, size={}). \
-                 Upstream allocator returned NULL and the caller did not check.",
-                n,
-                val,
-                size,
-            );
-        }
-        return dst;
+const ZERO_ALLOC_SLOT_1: usize = 0x010A252C;
+const ZERO_ALLOC_SLOT_2: usize = 0x010A2538;
+const ZERO_ALLOC_ORIGINAL_1: usize = 0x00AA2240;
+const ZERO_ALLOC_ORIGINAL_2: usize = 0x00AA2370;
+
+type GameHeapAllocFn = unsafe extern "thiscall" fn(*mut c_void, usize) -> *mut c_void;
+
+static NULL_RETURNS: AtomicU64 = AtomicU64::new(0);
+
+pub fn install_zero_alloc_guards() -> anyhow::Result<()> {
+    let replacement_1 = hook_zero_alloc_1 as *const () as usize;
+    let replacement_2 = hook_zero_alloc_2 as *const () as usize;
+    validate_slot(ZERO_ALLOC_SLOT_1, ZERO_ALLOC_ORIGINAL_1, replacement_1)?;
+    validate_slot(ZERO_ALLOC_SLOT_2, ZERO_ALLOC_ORIGINAL_2, replacement_2)?;
+    patch_slot(ZERO_ALLOC_SLOT_1, replacement_1)?;
+    patch_slot(ZERO_ALLOC_SLOT_2, replacement_2)?;
+    Ok(())
+}
+
+fn validate_slot(slot: usize, expected: usize, replacement: usize) -> anyhow::Result<()> {
+    let current = unsafe { core::ptr::read_unaligned(slot as *const u32) as usize };
+    if current == replacement {
+        return Ok(());
     }
+    ensure!(
+        current == expected,
+        "zero-allocation slot 0x{slot:08X} target mismatch: expected 0x{expected:08X}, found 0x{current:08X}"
+    );
+    Ok(())
+}
 
+fn patch_slot(slot: usize, replacement: usize) -> anyhow::Result<()> {
+    let current = unsafe { core::ptr::read_unaligned(slot as *const u32) as usize };
+    if current == replacement {
+        return Ok(());
+    }
+    safe_write_32(slot as *mut c_void, replacement as u32)
+        .with_context(|| format!("patch zero-allocation slot 0x{slot:08X}"))?;
+    Ok(())
+}
+
+unsafe extern "thiscall" fn hook_zero_alloc_1(
+    _this: *mut c_void,
+    size_ptr: *const u32,
+    alignment_ptr: *const u8,
+    mode: u32,
+    _arg4: u32,
+    _arg5: u32,
+    _arg6: u32,
+    _arg7: u32,
+) -> *mut c_void {
+    unsafe { zero_alloc(size_ptr, alignment_ptr, mode, 7) }
+}
+
+unsafe extern "thiscall" fn hook_zero_alloc_2(
+    _this: *mut c_void,
+    size_ptr: *const u32,
+    alignment_ptr: *const u8,
+    mode: u32,
+    _arg4: u32,
+    _arg5: u32,
+    _arg6: u32,
+    _arg7: u32,
+) -> *mut c_void {
+    unsafe { zero_alloc(size_ptr, alignment_ptr, mode, 13) }
+}
+
+unsafe fn zero_alloc(
+    size_ptr: *const u32,
+    alignment_ptr: *const u8,
+    mode: u32,
+    aligned_mode: u32,
+) -> *mut c_void {
+    let size = unsafe { core::ptr::read_unaligned(size_ptr) } as usize;
+    let allocation = if mode == aligned_mode {
+        let alignment = unsafe { core::ptr::read_unaligned(alignment_ptr) };
+        let base = unsafe { game_heap_alloc(size.wrapping_add(alignment as usize)) };
+        if base.is_null() {
+            base
+        } else {
+            let marker = alignment.wrapping_sub(alignment.wrapping_sub(1) & (base as usize as u8));
+            let aligned = unsafe { base.cast::<u8>().add(marker as usize) };
+            unsafe { aligned.sub(1).write(marker) };
+            aligned.cast()
+        }
+    } else {
+        unsafe { game_heap_alloc(size) }
+    };
+
+    if allocation.is_null() {
+        log_null_return(size, mode, aligned_mode);
+        return allocation;
+    }
     if size != 0 {
-        unsafe {
-            core::ptr::write_bytes(dst as *mut u8, val as u8, size);
-        }
+        unsafe { core::ptr::write_bytes(allocation.cast::<u8>(), 0, size) };
     }
-    dst
+    allocation
+}
+
+unsafe fn game_heap_alloc(size: usize) -> *mut c_void {
+    let alloc = unsafe { FnPtr::<GameHeapAllocFn>::from_address_unchecked(GAME_HEAP_ALLOC_ADDR) };
+    unsafe { alloc.as_fn()(GAME_HEAP_ADDR as *mut c_void, size) }
+}
+
+fn log_null_return(size: usize, mode: u32, aligned_mode: u32) {
+    let n = NULL_RETURNS.fetch_add(1, Ordering::Relaxed) + 1;
+    if n == 1 || n.is_power_of_two() {
+        log::warn!(
+            "[OOM] zero-allocation consumer returned NULL total={} size={} mode={} aligned_mode={}",
+            n,
+            size,
+            mode,
+            aligned_mode,
+        );
+    }
 }

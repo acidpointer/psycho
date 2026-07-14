@@ -19,7 +19,7 @@ use libpsycho::{
 
 use crate::mods::{
     diagnostics,
-    heap_replacer::{self, TaskPoolState},
+    heap_replacer::{self, TaskPoolPinResult, TaskPoolState},
 };
 
 use super::{
@@ -151,23 +151,34 @@ fn dispatch_replacement(target: *mut c_void) -> [u8; 13] {
 unsafe extern "thiscall" fn checked_dispatch(task: *mut c_void, argument: usize) {
     increment_main_thread(&DISPATCH_ATTEMPTS);
     let task_addr = task as usize;
-    if task_addr == 0
-        || !task_addr.is_multiple_of(std::mem::align_of::<AtomicI32>())
-        || !is_readable(task_addr, REFCOUNT_OFFSET + 4)
-        || heap_replacer::task_pool_state(task) == TaskPoolState::Free
-    {
-        reject_dispatch("bad-or-free-task", task, 0, 0, 0);
+    if task_addr == 0 || !task_addr.is_multiple_of(std::mem::align_of::<AtomicI32>()) {
+        reject_dispatch("bad-task-pointer", task, 0, 0, 0);
         return;
     }
 
-    let refcount = unsafe { &*((task as *mut u8).add(REFCOUNT_OFFSET) as *const AtomicI32) };
-    let before = match pin_positive(refcount) {
-        Some(value) => value,
-        None => {
+    let before = match heap_replacer::pin_task_refcount(task) {
+        TaskPoolPinResult::Pinned(value) => value,
+        TaskPoolPinResult::Rejected(observed) => {
             increment_main_thread(&PIN_FAILURES);
-            let observed = refcount.load(Ordering::Acquire);
-            reject_dispatch("non-positive-refcount", task, 0, 0, observed);
+            reject_dispatch("free-or-dead-pool-task", task, 0, 0, observed);
             return;
+        }
+        TaskPoolPinResult::NotOwned => {
+            if !is_readable(task_addr, REFCOUNT_OFFSET + 4) {
+                reject_dispatch("unreadable-task", task, 0, 0, 0);
+                return;
+            }
+            let refcount =
+                unsafe { &*((task as *mut u8).add(REFCOUNT_OFFSET) as *const AtomicI32) };
+            match pin_positive(refcount) {
+                Some(value) => value,
+                None => {
+                    increment_main_thread(&PIN_FAILURES);
+                    let observed = refcount.load(Ordering::Acquire);
+                    reject_dispatch("non-positive-refcount", task, 0, 0, observed);
+                    return;
+                }
+            }
         }
     };
     trace_record(
@@ -187,12 +198,6 @@ unsafe extern "thiscall" fn checked_dispatch(task: *mut c_void, argument: usize)
         release_dispatch_pin(task);
         return;
     }
-    if heap_replacer::task_pool_state(task) == TaskPoolState::Free {
-        reject_dispatch("became-free-after-pin", task, vtable, 0, before + 1);
-        release_dispatch_pin(task);
-        return;
-    }
-
     let Some(callback) = read_callback(vtable, TASK_CALLBACK_OFFSET) else {
         reject_dispatch("invalid-callback", task, vtable, 0, before + 1);
         release_dispatch_pin(task);
@@ -246,7 +251,11 @@ unsafe extern "fastcall" fn holder_release_entry(_task: *mut c_void) {
 }
 
 fn release_dispatch_pin(task: *mut c_void) {
-    unsafe { checked_release_body(task, statics::TASK_DISPATCH_ADDR) };
+    // The pool-locked pin made this reference positive before dispatch, and
+    // the dequeued local holder owns a separate reference until after this
+    // callback returns. Release only the pin here; the holder's later release
+    // still passes through the full corruption guard.
+    call_previous_release(task);
 }
 
 unsafe extern "fastcall" fn checked_release_body(task: *mut c_void, caller: usize) {
@@ -304,8 +313,7 @@ unsafe extern "fastcall" fn checked_release_body(task: *mut c_void, caller: usiz
 
 fn call_previous_release(task: *mut c_void) {
     let target = PREVIOUS_TASK_RELEASE.load(Ordering::Acquire);
-    if target == 0 || target == holder_release_entry as *const () as usize || !is_executable(target)
-    {
+    if target == 0 || target == holder_release_entry as *const () as usize {
         guard_release(
             "invalid-release-predecessor",
             task,

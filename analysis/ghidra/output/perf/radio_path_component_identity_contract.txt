@@ -1,0 +1,660 @@
+RADIO PATH COMPONENT IDENTITY CONTRACT
+Resolve whether the geometry identity returned through FUN_006D6F40/FUN_006D6F60 is a stable connected component, a mutable navmesh pointer, or only a coarse cell lookup. Identify equality and graph mutation state before selecting a coordinate-free radio cache key.
+
+======================================================================
+pathfinding manager or lock accessor @ 0x0045af00
+======================================================================
+  Function: FUN_0045af00 @ 0x0045af00, Size: 174 bytes
+
+undefined4 __fastcall FUN_0045af00(int param_1)
+
+{
+  undefined4 uVar1;
+  char cVar2;
+  uint uVar3;
+  int iVar4;
+  int *unaff_FS_OFFSET;
+  undefined4 local_20;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00eed64b;
+  local_10 = *unaff_FS_OFFSET;
+  uVar3 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  if ((*(int *)(param_1 + 0xbc) == 0) && (DAT_011c3f2c != 0)) {
+    cVar2 = FUN_004516b0(uVar3);
+    if (cVar2 == '\0') {
+      iVar4 = FUN_00401000(0x40);
+      local_8 = 0;
+      if (iVar4 == 0) {
+        local_20 = 0;
+      }
+      else {
+        local_20 = FUN_006b5c30();
+      }
+      *(undefined4 *)(param_1 + 0xbc) = local_20;
+    }
+  }
+  uVar1 = *(undefined4 *)(param_1 + 0xbc);
+  *unaff_FS_OFFSET = local_10;
+  return uVar1;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x0045af00 (pathfinding manager or lock accessor)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0045fa3b (in FUN_0045dfe0)
+  UNCONDITIONAL_CALL @ 0x004646c7 (in FUN_00463070)
+  UNCONDITIONAL_CALL @ 0x004646d6 (in FUN_00463070)
+  UNCONDITIONAL_CALL @ 0x0069452f (in FUN_00694500)
+  UNCONDITIONAL_CALL @ 0x006d6f4d (in FUN_006d6f40)
+  UNCONDITIONAL_CALL @ 0x006d6f71 (in FUN_006d6f60)
+  UNCONDITIONAL_CALL @ 0x009de584 (in FUN_009de490)
+  UNCONDITIONAL_CALL @ 0x006e00b5 (in FUN_006e0070)
+  UNCONDITIONAL_CALL @ 0x0069e026 (in FUN_0069dfd0)
+  UNCONDITIONAL_CALL @ 0x00690dd1 (in FUN_00690d50)
+  UNCONDITIONAL_CALL @ 0x006934a2 (in FUN_00692950)
+  UNCONDITIONAL_CALL @ 0x0069373d (in FUN_00692950)
+  UNCONDITIONAL_CALL @ 0x00693785 (in FUN_00692950)
+  UNCONDITIONAL_CALL @ 0x00698707 (in FUN_006986d0)
+  UNCONDITIONAL_CALL @ 0x00698795 (in FUN_006986d0)
+  UNCONDITIONAL_CALL @ 0x0069d21f (in FUN_0069d1d0)
+  UNCONDITIONAL_CALL @ 0x0069d25e (in FUN_0069d240)
+  UNCONDITIONAL_CALL @ 0x00693e9e (in FUN_00693e60)
+  UNCONDITIONAL_CALL @ 0x00693ebd (in FUN_00693e60)
+  UNCONDITIONAL_CALL @ 0x00694079 (in FUN_00693fe0)
+  UNCONDITIONAL_CALL @ 0x006953f9 (in FUN_006953b0)
+  UNCONDITIONAL_CALL @ 0x006b526d (in FUN_006b51a0)
+  UNCONDITIONAL_CALL @ 0x006b537e (in FUN_006b51a0)
+  UNCONDITIONAL_CALL @ 0x006b89f6 (in FUN_006b8490)
+  UNCONDITIONAL_CALL @ 0x006df047 (in FUN_006df010)
+  UNCONDITIONAL_CALL @ 0x008e1cff (in FUN_008e0f80)
+  Total: 26 refs
+
+--- Calls FROM pathfinding manager or lock accessor (0x0045af00) ---
+  0x0045af43 -> 0x004516b0 FUN_004516b0
+  0x0045af51 -> 0x00401000 FUN_00401000
+  0x0045af6c -> 0x006b5c30 FUN_006b5c30
+  Total: 3 calls
+
+======================================================================
+cell geometry identity implementation @ 0x006b77e0
+======================================================================
+  Function: FUN_006b77e0 @ 0x006b77e0, Size: 96 bytes
+
+undefined4 __thiscall FUN_006b77e0(undefined4 param_1,int param_2)
+
+{
+  char cVar1;
+  undefined4 uVar2;
+  undefined4 uVar3;
+  
+  if (param_2 == 0) {
+    uVar2 = 0;
+  }
+  else {
+    cVar1 = FUN_00425fd0(param_1);
+    if (cVar1 == '\0') {
+      uVar2 = FUN_00544c60();
+      uVar2 = FUN_00544c30(uVar2);
+      uVar2 = FUN_00587410(uVar2);
+      uVar3 = FUN_0054ddd0(uVar2);
+      uVar2 = FUN_006b7850(uVar3,uVar2);
+    }
+    else {
+      uVar2 = FUN_006b78b0(param_2);
+    }
+  }
+  return uVar2;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x006b77e0 (cell geometry identity implementation)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x006d6f54 (in FUN_006d6f40)
+  Total: 1 refs
+
+--- Calls FROM cell geometry identity implementation (0x006b77e0) ---
+  0x006b77f4 -> 0x00425fd0 FUN_00425fd0
+  0x006b7807 -> 0x006b78b0 FUN_006b78b0
+  0x006b7813 -> 0x00544c60 FUN_00544c60
+  0x006b781c -> 0x00544c30 FUN_00544c30
+  0x006b7822 -> 0x00587410 FUN_00587410
+  0x006b782e -> 0x0054ddd0 FUN_0054ddd0
+  0x006b7837 -> 0x006b7850 FUN_006b7850
+  Total: 7 calls
+
+======================================================================
+worldspace-grid geometry identity implementation @ 0x006b7850
+======================================================================
+  Function: FUN_006b7850 @ 0x006b7850, Size: 89 bytes
+
+undefined4 __thiscall FUN_006b7850(undefined4 param_1,undefined4 param_2,undefined4 param_3)
+
+{
+  char cVar1;
+  undefined4 uVar2;
+  undefined1 *puVar3;
+  undefined4 *puVar4;
+  undefined1 local_c [4];
+  undefined4 local_8;
+  
+  puVar3 = local_c;
+  uVar2 = FUN_0084e3a0(puVar3,param_1);
+  cVar1 = FUN_00853130(uVar2,puVar3);
+  if (cVar1 == '\0') {
+    local_8 = 0;
+  }
+  else {
+    puVar4 = &local_8;
+    uVar2 = FUN_00464f30(param_3,puVar4);
+    cVar1 = FUN_00853130(uVar2,puVar4);
+    if (cVar1 == '\0') {
+      local_8 = 0;
+    }
+  }
+  return local_8;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x006b7850 (worldspace-grid geometry identity implementation)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x006b7837 (in FUN_006b77e0)
+  UNCONDITIONAL_CALL @ 0x006d6f78 (in FUN_006d6f60)
+  UNCONDITIONAL_CALL @ 0x009de58b (in FUN_009de490)
+  UNCONDITIONAL_CALL @ 0x006b712d (in FUN_006b6c60)
+  Total: 4 refs
+
+--- Calls FROM worldspace-grid geometry identity implementation (0x006b7850) ---
+  0x006b7860 -> 0x0084e3a0 FUN_0084e3a0
+  0x006b786c -> 0x00853130 FUN_00853130
+  0x006b7884 -> 0x00464f30 FUN_00464f30
+  0x006b7890 -> 0x00853130 FUN_00853130
+  Total: 4 calls
+
+======================================================================
+path geometry virtual destructor @ 0x006def40
+======================================================================
+  Function: FUN_006def40 @ 0x006def40, Size: 200 bytes
+
+void __fastcall FUN_006def40(int param_1)
+
+{
+  undefined4 local_10;
+  undefined1 local_5;
+  
+  FUN_00865e50(param_1 + 4,0xc,0);
+  if (*(int *)(param_1 + 0x10) == 0) {
+    local_10 = 0;
+  }
+  else {
+    local_10 = FUN_00559450();
+  }
+  FUN_00865db0(local_10,0);
+  FUN_00865df0(*(undefined4 *)(param_1 + 0x18),0);
+  FUN_00865df0(*(undefined4 *)(param_1 + 0x1c),0);
+  FUN_00865e50(param_1 + 0x20,4,0);
+  FUN_00865e50(param_1 + 0x24,2,0);
+  FUN_00865e50(param_1 + 0x26,1,0);
+  local_5 = *(int *)(param_1 + 0x14) != 0;
+  FUN_00865e50(&local_5,1,0);
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x006def40 (path geometry virtual destructor)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x006e48ae (in FUN_006e48a0)
+  DATA @ 0x0102583c (in ???)
+  Total: 2 refs
+
+--- Calls FROM path geometry virtual destructor (0x006def40) ---
+  0x006def57 -> 0x00865e50 FUN_00865e50
+  0x006def6b -> 0x00559450 FUN_00559450
+  0x006def85 -> 0x00865db0 FUN_00865db0
+  0x006def96 -> 0x00865df0 FUN_00865df0
+  0x006defa7 -> 0x00865df0 FUN_00865df0
+  0x006defba -> 0x00865e50 FUN_00865e50
+  0x006defcd -> 0x00865e50 FUN_00865e50
+  0x006defe0 -> 0x00865e50 FUN_00865e50
+  0x006deffd -> 0x00865e50 FUN_00865e50
+  Total: 9 calls
+
+======================================================================
+path geometry virtual identity refresh @ 0x006df010
+======================================================================
+  Function: FUN_006df010 @ 0x006df010, Size: 329 bytes
+
+void __fastcall FUN_006df010(int param_1)
+
+{
+  undefined4 uVar1;
+  undefined4 local_c;
+  char local_5;
+  
+  FUN_00864980(param_1 + 4,0xc);
+  local_c = 0;
+  FUN_008648e0(&local_c);
+  uVar1 = local_c;
+  FUN_0045af00(local_c);
+  uVar1 = FUN_00693d70(uVar1);
+  *(undefined4 *)(param_1 + 0x10) = uVar1;
+  uVar1 = FUN_008648a0(&PTR_PTR_01183028,&PTR_PTR_01183fb4,0);
+  uVar1 = FUN_004839c0(uVar1);
+  uVar1 = FUN_00ec43fb(uVar1,0);
+  *(undefined4 *)(param_1 + 0x18) = uVar1;
+  uVar1 = FUN_008648a0(&PTR_PTR_01183028,&PTR_PTR_01183fd0,0);
+  uVar1 = FUN_004839c0(uVar1);
+  uVar1 = FUN_00ec43fb(uVar1,0);
+  *(undefined4 *)(param_1 + 0x1c) = uVar1;
+  FUN_00864980(param_1 + 0x20,4);
+  FUN_00864980(param_1 + 0x24,2);
+  *(undefined2 *)(param_1 + 0x24) = 0xffff;
+  FUN_00864980(param_1 + 0x26,1);
+  local_5 = '\0';
+  FUN_00864980(&local_5,1);
+  if (local_5 != '\0') {
+    if (*(int *)(param_1 + 0x1c) == 0) {
+      if (*(int *)(param_1 + 0x18) != 0) {
+        uVar1 = FUN_006d6f40(*(undefined4 *)(param_1 + 0x18));
+        *(undefined4 *)(param_1 + 0x14) = uVar1;
+      }
+    }
+    else {
+      uVar1 = FUN_006d6f60(*(undefined4 *)(param_1 + 0x1c),*(undefined4 *)(param_1 + 0x20));
+      *(undefined4 *)(param_1 + 0x14) = uVar1;
+    }
+  }
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x006df010 (path geometry virtual identity refresh)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x006e498e (in FUN_006e4980)
+  Total: 1 refs
+
+--- Calls FROM path geometry virtual identity refresh (0x006df010) ---
+  0x006df025 -> 0x00864980 FUN_00864980
+  0x006df038 -> 0x008648e0 FUN_008648e0
+  0x006df047 -> 0x0045af00 FUN_0045af00
+  0x006df04e -> 0x00693d70 FUN_00693d70
+  0x006df068 -> 0x008648a0 FUN_008648a0
+  0x006df06e -> 0x004839c0 FUN_004839c0
+  0x006df079 -> 0x00ec43fb FUN_00ec43fb
+  0x006df096 -> 0x008648a0 FUN_008648a0
+  0x006df09c -> 0x004839c0 FUN_004839c0
+  0x006df0a7 -> 0x00ec43fb FUN_00ec43fb
+  0x006df0c1 -> 0x00864980 FUN_00864980
+  0x006df0d2 -> 0x00864980 FUN_00864980
+  0x006df0ef -> 0x00864980 FUN_00864980
+  0x006df101 -> 0x00864980 FUN_00864980
+  0x006df125 -> 0x006d6f60 FUN_006d6f60
+  0x006df145 -> 0x006d6f40 FUN_006d6f40
+  Total: 16 calls
+
+======================================================================
+pathfinder query object constructor @ 0x006f33b0
+======================================================================
+  Function: CMFCRibbonApplicationButton @ 0x006f33b0, Size: 119 bytes
+
+/* Library Function - Single Match
+    public: __thiscall CMFCRibbonApplicationButton::CMFCRibbonApplicationButton(void)
+   
+   Library: Visual Studio 2010 Debug */
+
+CMFCRibbonApplicationButton * __thiscall
+CMFCRibbonApplicationButton::CMFCRibbonApplicationButton(CMFCRibbonApplicationButton *this)
+
+{
+  uint uVar1;
+  int *unaff_FS_OFFSET;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00f06b76;
+  local_10 = *unaff_FS_OFFSET;
+  uVar1 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  FUN_006f3bd0(uVar1);
+  local_8 = 0;
+  *(undefined ***)this = &PTR_FUN_0106d8fc;
+  FUN_006dcbb0();
+  local_8 = CONCAT31(local_8._1_3_,1);
+  FUN_005e04c0();
+  *unaff_FS_OFFSET = local_10;
+  return this;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x006f33b0 (pathfinder query object constructor)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x006c9b58 (in FUN_006c9b20)
+  UNCONDITIONAL_CALL @ 0x006d4d72 (in FUN_006d4d20)
+  UNCONDITIONAL_CALL @ 0x006d52b7 (in FUN_006d4f70)
+  Total: 3 refs
+
+--- Calls FROM pathfinder query object constructor (0x006f33b0) ---
+  0x006f33d9 -> 0x006f3bd0 FUN_006f3bd0
+  0x006f33f7 -> 0x006dcbb0 FUN_006dcbb0
+  0x006f3409 -> 0x005e04c0 FUN_005e04c0
+  Total: 3 calls
+
+======================================================================
+pathfinder query object destructor @ 0x006f3460
+======================================================================
+  Function: FUN_006f3460 @ 0x006f3460, Size: 116 bytes
+
+void __fastcall FUN_006f3460(undefined4 *param_1)
+
+{
+  uint uVar1;
+  int *unaff_FS_OFFSET;
+  int local_10;
+  undefined1 *puStack_c;
+  uint local_8;
+  
+  puStack_c = &LAB_00f06b76;
+  local_10 = *unaff_FS_OFFSET;
+  uVar1 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  *param_1 = &PTR_FUN_0106d8fc;
+  local_8 = 1;
+  FUN_005e04f0(uVar1);
+  local_8 = local_8 & 0xffffff00;
+  FUN_004ff7e0();
+  local_8 = 0xffffffff;
+  FUN_006f3c80();
+  *unaff_FS_OFFSET = local_10;
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x006f3460 (pathfinder query object destructor)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x006c9c9a (in FUN_006c9b20)
+  UNCONDITIONAL_CALL @ 0x006c9d53 (in FUN_006c9b20)
+  UNCONDITIONAL_CALL @ 0x006c9e7e (in FUN_006c9b20)
+  UNCONDITIONAL_CALL @ 0x006c9f51 (in FUN_006c9b20)
+  UNCONDITIONAL_CALL @ 0x006c9f86 (in FUN_006c9b20)
+  UNCONDITIONAL_CALL @ 0x006d4e26 (in FUN_006d4d20)
+  UNCONDITIONAL_CALL @ 0x006d4e58 (in FUN_006d4d20)
+  UNCONDITIONAL_CALL @ 0x006d52fd (in FUN_006d4f70)
+  UNCONDITIONAL_CALL @ 0x006f343a (in FUN_006f3430)
+  Total: 9 refs
+
+--- Calls FROM pathfinder query object destructor (0x006f3460) ---
+  0x006f349f -> 0x005e04f0 FUN_005e04f0
+  0x006f34b1 -> 0x004ff7e0 FUN_004ff7e0
+  0x006f34c0 -> 0x006f3c80 FUN_006f3c80
+  Total: 3 calls
+
+======================================================================
+path search work-list constructor @ 0x006f45c0
+======================================================================
+  Function: FUN_006f45c0 @ 0x006f45c0, Size: 117 bytes
+
+undefined4 * __fastcall FUN_006f45c0(undefined4 *param_1)
+
+{
+  uint uVar1;
+  undefined4 uVar2;
+  int *unaff_FS_OFFSET;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00f06c08;
+  local_10 = *unaff_FS_OFFSET;
+  uVar1 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  FUN_006f4880(uVar1);
+  local_8 = 0;
+  *param_1 = &PTR_FUN_0106d91c;
+  FUN_00401020();
+  uVar2 = FUN_00aa42e0();
+  param_1[4] = uVar2;
+  FUN_006b3eb0(0,0);
+  *unaff_FS_OFFSET = local_10;
+  return param_1;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x006f45c0 (path search work-list constructor)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x006f3fdb (in FUN_006f3fb0)
+  Total: 1 refs
+
+--- Calls FROM path search work-list constructor (0x006f45c0) ---
+  0x006f45e9 -> 0x006f4880 FUN_006f4880
+  0x006f45fe -> 0x00401020 FUN_00401020
+  0x006f4605 -> 0x00aa42e0 FUN_00aa42e0
+  0x006f4617 -> 0x006b3eb0 FUN_006b3eb0
+  Total: 4 calls
+
+======================================================================
+path search next-node pop @ 0x006f46f0
+======================================================================
+  Function: FUN_006f46f0 @ 0x006f46f0, Size: 149 bytes
+
+int __fastcall FUN_006f46f0(int param_1)
+
+{
+  int *piVar1;
+  int iVar2;
+  uint local_c;
+  
+  local_c = 0;
+  while( true ) {
+    if (0x13 < local_c) {
+      return 0;
+    }
+    piVar1 = (int *)(param_1 + 4 + local_c * 4);
+    if (*piVar1 != 0) break;
+    local_c = local_c + 1;
+  }
+  iVar2 = *piVar1;
+  if (*(int *)(*piVar1 + 0x2c) == 0) {
+    *piVar1 = 0;
+  }
+  else {
+    *(int **)(*(int *)(*piVar1 + 0x2c) + 0x28) = piVar1;
+    *piVar1 = *(int *)(*piVar1 + 0x2c);
+  }
+  *(undefined4 *)(iVar2 + 0x28) = 0;
+  *(undefined4 *)(iVar2 + 0x2c) = 0;
+  return iVar2;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x006f46f0 (path search next-node pop)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x006f3ffc (in FUN_006f3fb0)
+  UNCONDITIONAL_CALL @ 0x006f41e2 (in FUN_006f3fb0)
+  Total: 2 refs
+
+--- Calls FROM path search next-node pop (0x006f46f0) ---
+  Total: 0 calls
+
+======================================================================
+path search priority bucket @ 0x006f4790
+======================================================================
+  Function: FUN_006f4790 @ 0x006f4790, Size: 91 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+undefined4 __fastcall FUN_006f4790(float *param_1)
+
+{
+  float fVar1;
+  float10 fVar2;
+  undefined4 local_1c;
+  
+  fVar2 = (float10)FUN_006b9710();
+  fVar1 = (float)fVar2;
+  if (*param_1 < fVar1 == (*param_1 == fVar1)) {
+    local_1c = (undefined4)(longlong)ROUND((fVar1 * (float)_DAT_010356e8) / *param_1);
+  }
+  else {
+    local_1c = 0x13;
+  }
+  return local_1c;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x006f4790 (path search priority bucket)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x006b94b0 (in FUN_006b94a0)
+  UNCONDITIONAL_CALL @ 0x006a8400 (in FUN_006a83f0)
+  UNCONDITIONAL_CALL @ 0x006b3e20 (in FUN_006b3e10)
+  UNCONDITIONAL_CALL @ 0x006f43a0 (in FUN_006f4390)
+  Total: 4 refs
+
+--- Calls FROM path search priority bucket (0x006f4790) ---
+  0x006f479c -> 0x006b9710 FUN_006b9710
+  Total: 1 calls
+
+======================================================================
+path node cost comparison @ 0x006b9130
+======================================================================
+  Function: FUN_006b9130 @ 0x006b9130, Size: 17 bytes
+
+float10 __fastcall FUN_006b9130(int param_1)
+
+{
+  return (float10)*(float *)(param_1 + 4);
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x006b9130 (path node cost comparison)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0048edbb (in FUN_0048ebc0)
+  UNCONDITIONAL_CALL @ 0x004be39a (in FUN_004be380)
+  UNCONDITIONAL_CALL @ 0x004be3c4 (in FUN_004be380)
+  UNCONDITIONAL_CALL @ 0x00804899 (in FUN_00804560)
+  UNCONDITIONAL_CALL @ 0x008048c4 (in FUN_00804560)
+  UNCONDITIONAL_CALL @ 0x0080445e (in FUN_008043f0)
+  UNCONDITIONAL_CALL @ 0x0080447e (in FUN_008043f0)
+  UNCONDITIONAL_CALL @ 0x004f02ef (in FUN_004f02e0)
+  UNCONDITIONAL_CALL @ 0x004a40cd (in FUN_004a40c0)
+  UNCONDITIONAL_CALL @ 0x00561509 (in FUN_00561500)
+  UNCONDITIONAL_CALL @ 0x006b933e (in FUN_006b9180)
+  UNCONDITIONAL_CALL @ 0x006b934f (in FUN_006b9180)
+  UNCONDITIONAL_CALL @ 0x006a81ce (in FUN_006a8010)
+  UNCONDITIONAL_CALL @ 0x006a81df (in FUN_006a8010)
+  UNCONDITIONAL_CALL @ 0x006a1eae (in FUN_006a1cf0)
+  UNCONDITIONAL_CALL @ 0x006a1ebf (in FUN_006a1cf0)
+  UNCONDITIONAL_CALL @ 0x006b3bee (in FUN_006b3a30)
+  UNCONDITIONAL_CALL @ 0x006b3bff (in FUN_006b3a30)
+  UNCONDITIONAL_CALL @ 0x006f416e (in FUN_006f3fb0)
+  UNCONDITIONAL_CALL @ 0x006f417f (in FUN_006f3fb0)
+  UNCONDITIONAL_CALL @ 0x008aeccb (in FUN_008ae660)
+  UNCONDITIONAL_CALL @ 0x008aecf5 (in FUN_008ae660)
+  UNCONDITIONAL_CALL @ 0x004f839c (in FUN_004f8360)
+  UNCONDITIONAL_CALL @ 0x004f84cf (in FUN_004f8360)
+  UNCONDITIONAL_CALL @ 0x004f84da (in FUN_004f8360)
+  UNCONDITIONAL_CALL @ 0x004f72c4 (in FUN_004f72a0)
+  UNCONDITIONAL_CALL @ 0x004f72e6 (in FUN_004f72a0)
+  UNCONDITIONAL_CALL @ 0x004f7ff0 (in FUN_004f7fa0)
+  UNCONDITIONAL_CALL @ 0x004f800b (in FUN_004f7fa0)
+  UNCONDITIONAL_CALL @ 0x004f8080 (in FUN_004f8030)
+  UNCONDITIONAL_CALL @ 0x004f809b (in FUN_004f8030)
+  UNCONDITIONAL_CALL @ 0x004860d3 (in FUN_00485e20)
+  UNCONDITIONAL_CALL @ 0x0048eb41 (in FUN_0048eb10)
+  UNCONDITIONAL_CALL @ 0x0048eb93 (in FUN_0048eb60)
+  UNCONDITIONAL_CALL @ 0x0048eb9e (in FUN_0048eb60)
+  UNCONDITIONAL_CALL @ 0x004f7be4 (in FUN_004f79f0)
+  UNCONDITIONAL_CALL @ 0x004f7bfb (in FUN_004f79f0)
+  UNCONDITIONAL_CALL @ 0x004f7c2e (in FUN_004f79f0)
+  UNCONDITIONAL_CALL @ 0x004f7c45 (in FUN_004f79f0)
+  UNCONDITIONAL_CALL @ 0x004f7418 (in FUN_004f7310)
+  UNCONDITIONAL_CALL @ 0x004f7423 (in FUN_004f7310)
+  ... (truncated)
+  Total: 41 refs
+
+--- Calls FROM path node cost comparison (0x006b9130) ---
+  Total: 0 calls
+
+======================================================================
+path node priority comparison @ 0x006b9710
+======================================================================
+  Function: FUN_006b9710 @ 0x006b9710, Size: 30 bytes
+
+float10 __fastcall FUN_006b9710(float *param_1)
+
+{
+  return (float10)(*param_1 + param_1[1]);
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x006b9710 (path node priority comparison)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x006b94d8 (in FUN_006b94a0)
+  UNCONDITIONAL_CALL @ 0x006b94e3 (in FUN_006b94a0)
+  UNCONDITIONAL_CALL @ 0x006a8428 (in FUN_006a83f0)
+  UNCONDITIONAL_CALL @ 0x006a8433 (in FUN_006a83f0)
+  UNCONDITIONAL_CALL @ 0x006b3e48 (in FUN_006b3e10)
+  UNCONDITIONAL_CALL @ 0x006b3e53 (in FUN_006b3e10)
+  UNCONDITIONAL_CALL @ 0x006f43c8 (in FUN_006f4390)
+  UNCONDITIONAL_CALL @ 0x006f43d3 (in FUN_006f4390)
+  UNCONDITIONAL_CALL @ 0x006f479c (in FUN_006f4790)
+  Total: 9 refs
+
+--- Calls FROM path node priority comparison (0x006b9710) ---
+  Total: 0 calls
+
+======================================================================
+path endpoint or graph state accessor @ 0x006cedb0
+======================================================================
+  Function: FUN_006cedb0 @ 0x006cedb0, Size: 29 bytes
+
+void __fastcall FUN_006cedb0(int param_1)
+
+{
+  FUN_00558dd0(*(int *)(param_1 + 8) + -1);
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x006cedb0 (path endpoint or graph state accessor)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x006c9e99 (in FUN_006c9b20)
+  UNCONDITIONAL_CALL @ 0x006f4ad7 (in FUN_006f49c0)
+  UNCONDITIONAL_CALL @ 0x0079dd51 (in FUN_0079dbb0)
+  Total: 3 refs
+
+--- Calls FROM path endpoint or graph state accessor (0x006cedb0) ---
+  0x006cedc4 -> 0x00558dd0 FUN_00558dd0
+  Total: 1 calls

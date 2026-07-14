@@ -50,6 +50,9 @@ pub const RADIO_SIGNAL_SCAN_ADDR: usize = 0x004FF1A0;
 /// FUN_00834260: updates one radio station/list entry.
 pub const RADIO_STATION_UPDATE_ADDR: usize = 0x00834260;
 
+/// FUN_00836660: resolves one serialized registered-radio wrapper during load.
+pub const RADIO_STATION_RESOLVE_ADDR: usize = 0x00836660;
+
 /// FUN_0082fb70: helper called from FUN_0086f640 before world update.
 pub const PHASE10_PRE_TAIL_ADDR: usize = 0x0082FB70;
 
@@ -101,6 +104,8 @@ pub static RADIO_SIGNAL_SCAN_HOOK: LazyLock<InlineHookContainer<RadioSignalScanF
     LazyLock::new(InlineHookContainer::new);
 pub static RADIO_STATION_UPDATE_HOOK: LazyLock<InlineHookContainer<RadioStationUpdateFn>> =
     LazyLock::new(InlineHookContainer::new);
+pub static RADIO_STATION_RESOLVE_HOOK: LazyLock<InlineHookContainer<RadioStationResolveFn>> =
+    LazyLock::new(InlineHookContainer::new);
 pub static PHASE10_PRE_TAIL_HOOK: LazyLock<InlineHookContainer<Phase10PreTailFn>> =
     LazyLock::new(InlineHookContainer::new);
 pub static PHASE10_WORLD_UPDATE_HOOK: LazyLock<InlineHookContainer<Phase10WorldUpdateFn>> =
@@ -129,11 +134,8 @@ pub const PDD_ADDR: usize = 0x00868D70;
 
 // ---- Texture cache ----
 
-pub const TEXTURE_CACHE_FIND_ADDR: usize = 0x00A61A60;
 pub const NISOURCETEXTURE_DTOR_ADDR: usize = 0x00A5FCA0;
 
-pub static TEXTURE_CACHE_FIND_HOOK: LazyLock<InlineHookContainer<TextureCacheFindFn>> =
-    LazyLock::new(InlineHookContainer::new);
 pub static NISOURCETEXTURE_DTOR_HOOK: LazyLock<InlineHookContainer<NiSourceTextureDtorFn>> =
     LazyLock::new(InlineHookContainer::new);
 

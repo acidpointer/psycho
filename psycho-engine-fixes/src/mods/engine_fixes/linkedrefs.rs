@@ -25,12 +25,9 @@ use anyhow::Context;
 use libc::c_void;
 use windows::Win32::System::Memory::{MEM_COMMIT, PAGE_GUARD, PAGE_NOACCESS};
 
-use libpsycho::{
-    ffi::fnptr::FnPtr,
-    os::windows::winapi::{replace_call, virtual_query},
-};
+use libpsycho::os::windows::winapi::{replace_call, virtual_query};
 
-use super::{statics, types::BaseExtraListGetByTypeFn};
+use super::statics;
 
 const EXTRA_LINKED_REF_CHILDREN_TYPE: u8 = 0x52;
 const MAX_EXTRA_DATA_TYPE: u8 = 0x92;
@@ -101,14 +98,10 @@ unsafe extern "thiscall" fn get_linked_ref_children_for_remove_checked(
         return ptr::null_mut();
     }
 
-    if !is_linked_ref_children_lookup_safe(list) {
-        return ptr::null_mut();
-    }
-
-    call_original_get_by_type(list, type_id)
+    find_linked_ref_children_checked(list)
 }
 
-fn is_linked_ref_children_lookup_safe(list: *mut c_void) -> bool {
+fn find_linked_ref_children_checked(list: *mut c_void) -> *mut c_void {
     if !is_readable(list as usize, BASE_EXTRA_LIST_MIN_SIZE) {
         log_bad_list(
             "unreadable-list",
@@ -117,11 +110,11 @@ fn is_linked_ref_children_lookup_safe(list: *mut c_void) -> bool {
             EXTRA_LINKED_REF_CHILDREN_TYPE,
             0,
         );
-        return false;
+        return ptr::null_mut();
     }
 
     if !has_type_bit(list, EXTRA_LINKED_REF_CHILDREN_TYPE) {
-        return true;
+        return ptr::null_mut();
     }
 
     let mut node = unsafe {
@@ -140,7 +133,7 @@ fn is_linked_ref_children_lookup_safe(list: *mut c_void) -> bool {
                 EXTRA_LINKED_REF_CHILDREN_TYPE,
                 visited,
             );
-            return false;
+            return ptr::null_mut();
         }
         visited += 1;
 
@@ -152,22 +145,22 @@ fn is_linked_ref_children_lookup_safe(list: *mut c_void) -> bool {
                 EXTRA_LINKED_REF_CHILDREN_TYPE,
                 visited,
             );
-            return false;
+            return ptr::null_mut();
         }
 
         let node_type =
             unsafe { ptr::read_unaligned((node as *const u8).add(BS_EXTRA_DATA_TYPE_OFFSET)) };
         if node_type == EXTRA_LINKED_REF_CHILDREN_TYPE {
             if is_valid_extra_node(node, EXTRA_LINKED_REF_CHILDREN_SIZE) {
-                return true;
+                return node;
             }
             log_bad_list("invalid-linked-ref-extra", list, node, node_type, visited);
-            return false;
+            return ptr::null_mut();
         }
 
         if node_type > MAX_EXTRA_DATA_TYPE {
             log_bad_list("invalid-node-type", list, node, node_type, visited);
-            return false;
+            return ptr::null_mut();
         }
 
         let next = unsafe {
@@ -177,26 +170,12 @@ fn is_linked_ref_children_lookup_safe(list: *mut c_void) -> bool {
         };
         if next == node {
             log_bad_list("self-cycle", list, node, node_type, visited);
-            return false;
+            return ptr::null_mut();
         }
         node = next;
     }
 
-    true
-}
-
-fn call_original_get_by_type(list: *mut c_void, type_id: u8) -> *mut c_void {
-    if let Ok(original) = statics::BASE_EXTRA_LIST_GET_BY_TYPE_HOOK.original() {
-        return unsafe { original(list, type_id) };
-    }
-
-    let original = unsafe {
-        FnPtr::<BaseExtraListGetByTypeFn>::from_address_unchecked(
-            statics::BASE_EXTRA_LIST_GET_BY_TYPE_ADDR,
-        )
-    }
-    .as_fn();
-    unsafe { original(list, type_id) }
+    ptr::null_mut()
 }
 
 unsafe extern "thiscall" fn hook_linked_ref_target_type_gate(target: *mut c_void) -> u8 {

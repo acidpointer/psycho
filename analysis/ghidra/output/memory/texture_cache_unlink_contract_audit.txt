@@ -1,0 +1,2155 @@
+TEXTURE CACHE STALE-ROOT UNLINK CONTRACT
+Identify the exact bucket link layout, insertion/removal functions, engine lock ownership, and destructor ordering needed to unlink a dying texture once without a lookup pre-walk or per-frame dead set.
+
+======================================================================
+texture hash-table destructor @ 0x00a615c0
+======================================================================
+  Function: FUN_00a615c0 @ 0x00a615c0, Size: 71 bytes
+
+void __fastcall FUN_00a615c0(int param_1)
+
+{
+  int *piVar1;
+  int *piVar2;
+  uint uVar3;
+  
+  uVar3 = 0;
+  do {
+    piVar2 = *(int **)(param_1 + uVar3 * 4);
+    while (piVar2 != (int *)0x0) {
+      piVar1 = (int *)piVar2[1];
+      *(undefined4 *)(*piVar2 + 4) = 0;
+      FUN_00aa4060(piVar2);
+      piVar2 = piVar1;
+    }
+    *(undefined4 *)(param_1 + uVar3 * 4) = 0;
+    uVar3 = uVar3 + 1;
+  } while (uVar3 < 0x3e9);
+  *(undefined4 *)(param_1 + 0xfa4) = 0;
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00a615c0 (texture hash-table destructor)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00a6204c (in FUN_00a62030)
+  UNCONDITIONAL_CALL @ 0x00a620a2 (in FUN_00a62090)
+  Total: 2 refs
+
+--- Calls FROM texture hash-table destructor (0x00a615c0) ---
+  0x00a615e7 -> 0x00aa4060 FUN_00aa4060
+  Total: 1 calls
+
+======================================================================
+texture hash-node insertion @ 0x00a61610
+======================================================================
+  Function: FUN_00a61610 @ 0x00a61610, Size: 88 bytes
+
+void __thiscall FUN_00a61610(int param_1,uint param_2,int param_3)
+
+{
+  int iVar1;
+  int *piVar2;
+  uint uVar3;
+  
+  uVar3 = (param_2 >> 4) % 0x3e9;
+  *(uint *)(param_3 + 4) = param_2;
+  piVar2 = (int *)FUN_00aa3e40(8);
+  if (piVar2 != (int *)0x0) {
+    iVar1 = *(int *)(param_1 + uVar3 * 4);
+    *piVar2 = param_3;
+    piVar2[1] = iVar1;
+    *(int **)(param_1 + uVar3 * 4) = piVar2;
+    *(int *)(param_1 + 0xfa4) = *(int *)(param_1 + 0xfa4) + 1;
+    return;
+  }
+  *(undefined4 *)(param_1 + uVar3 * 4) = 0;
+  *(int *)(param_1 + 0xfa4) = *(int *)(param_1 + 0xfa4) + 1;
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00a61610 (texture hash-node insertion)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00a61cb4 (in FUN_00a61c50)
+  Total: 1 refs
+
+--- Calls FROM texture hash-node insertion (0x00a61610) ---
+  0x00a61637 -> 0x00aa3e40 FUN_00aa3e40
+  Total: 1 calls
+
+======================================================================
+texture hash-node payload release @ 0x00a61670
+======================================================================
+  Function: FUN_00a61670 @ 0x00a61670, Size: 106 bytes
+
+int __thiscall FUN_00a61670(int param_1,uint param_2)
+
+{
+  int *piVar1;
+  int iVar2;
+  uint uVar3;
+  int *piVar4;
+  int *piVar5;
+  
+  uVar3 = (param_2 >> 4) % 0x3e9;
+  iVar2 = 0;
+  piVar5 = (int *)0x0;
+  piVar1 = *(int **)(param_1 + uVar3 * 4);
+  if (piVar1 != (int *)0x0) {
+    while (piVar4 = piVar1, *(uint *)(*piVar4 + 4) != param_2) {
+      piVar1 = (int *)piVar4[1];
+      piVar5 = piVar4;
+      if ((int *)piVar4[1] == (int *)0x0) {
+        return iVar2;
+      }
+    }
+    if (piVar5 == (int *)0x0) {
+      *(int *)(param_1 + uVar3 * 4) = piVar4[1];
+    }
+    else {
+      piVar5[1] = piVar4[1];
+    }
+    iVar2 = *piVar4;
+    *(int *)(param_1 + 0xfa4) = *(int *)(param_1 + 0xfa4) + -1;
+    FUN_00aa4060(piVar4);
+    *(undefined4 *)(iVar2 + 4) = 0;
+  }
+  return iVar2;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00a61670 (texture hash-node payload release)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00a61dd6 (in FUN_00a61cd0)
+  UNCONDITIONAL_CALL @ 0x00a61f6a (in FUN_00a61f30)
+  Total: 2 refs
+
+--- Calls FROM texture hash-node payload release (0x00a61670) ---
+  0x00a616c5 -> 0x00aa4060 FUN_00aa4060
+  Total: 1 calls
+
+======================================================================
+texture hash iterator begin @ 0x00a616e0
+======================================================================
+  Function: FUN_00a616e0 @ 0x00a616e0, Size: 101 bytes
+
+void FUN_00a616e0(int *param_1)
+
+{
+  int iVar1;
+  uint uVar2;
+  int iVar3;
+  
+  iVar3 = 0x4e18;
+  do {
+    iVar3 = iVar3 + -0xb28;
+    iVar1 = iVar3 + DAT_011f4464;
+    param_1[1] = 0;
+    *param_1 = 0;
+    if (*(int *)(iVar1 + 0xb24) != 0) {
+      uVar2 = 0;
+      do {
+        if (*(int *)(iVar1 + uVar2 * 4) != 0) {
+          param_1[1] = uVar2;
+          iVar1 = *(int *)(iVar1 + uVar2 * 4);
+          *param_1 = iVar1;
+          param_1[2] = (uint)*(ushort *)(iVar1 + 0xc);
+          break;
+        }
+        uVar2 = uVar2 + 1;
+      } while (uVar2 < 0x2c9);
+    }
+    if ((*param_1 != 0) || (iVar3 == 0)) {
+      return;
+    }
+  } while( true );
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00a616e0 (texture hash iterator begin)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00a61cfd (in FUN_00a61cd0)
+  Total: 1 refs
+
+--- Calls FROM texture hash iterator begin (0x00a616e0) ---
+  Total: 0 calls
+
+======================================================================
+texture hash helper @ 0x00a61750
+======================================================================
+  Function: FUN_00a61750 @ 0x00a61750, Size: 107 bytes
+
+undefined1 FUN_00a61750(int *param_1)
+
+{
+  uint uVar1;
+  uint uVar2;
+  
+  uVar1 = (**(code **)(*param_1 + 0x98))();
+  uVar2 = (**(code **)(*param_1 + 0x94))();
+  if (uVar2 <= uVar1) {
+    uVar2 = uVar1;
+  }
+  if (0x3ff < uVar2) {
+    return 4;
+  }
+  if (0x1ff < uVar2) {
+    return 3;
+  }
+  if (0xff < uVar2) {
+    return 2;
+  }
+  return 0x7f < uVar2;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00a61750 (texture hash helper)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00a61c6d (in FUN_00a61c50)
+  Total: 1 refs
+
+--- Calls FROM texture hash helper (0x00a61750) ---
+  Total: 0 calls
+
+======================================================================
+texture hash-node allocator or lookup @ 0x00a617c0
+======================================================================
+  Function: FUN_00a617c0 @ 0x00a617c0, Size: 208 bytes
+
+undefined4 * __thiscall FUN_00a617c0(int param_1,int *param_2)
+
+{
+  undefined4 uVar1;
+  char cVar2;
+  int *piVar3;
+  int iVar4;
+  int iVar5;
+  undefined4 *puVar6;
+  int iVar7;
+  undefined2 uStack_4;
+  
+  piVar3 = (int *)(**(code **)(*param_2 + 0x9c))();
+  iVar7 = *piVar3;
+  iVar4 = FUN_00af4170(iVar7,1);
+  iVar7 = iVar7 + iVar4;
+  iVar5 = FUN_00a61530(iVar7);
+  puVar6 = *(undefined4 **)(param_1 + iVar5 * 4);
+  while( true ) {
+    if (puVar6 == (undefined4 *)0x0) {
+      puVar6 = (undefined4 *)FUN_00aa3e40(0x10);
+      if (puVar6 == (undefined4 *)0x0) {
+        puVar6 = (undefined4 *)0x0;
+      }
+      else {
+        uVar1 = *(undefined4 *)(param_1 + iVar5 * 4);
+        *puVar6 = param_2;
+        InterlockedIncrement(param_2 + 1);
+        puVar6[1] = 0;
+        puVar6[2] = uVar1;
+        *(undefined2 *)(puVar6 + 3) = 0;
+        *(undefined2 *)((int)puVar6 + 0xe) = 0;
+      }
+      uStack_4 = (undefined2)iVar4;
+      *(undefined2 *)((int)puVar6 + 0xe) = uStack_4;
+      *(undefined4 **)(param_1 + iVar5 * 4) = puVar6;
+      *(int *)(param_1 + 0xb24) = *(int *)(param_1 + 0xb24) + 1;
+      return puVar6;
+    }
+    piVar3 = (int *)(**(code **)(*(int *)*puVar6 + 0x9c))();
+    cVar2 = FUN_00a614d0(iVar7,(int)*(short *)((int)puVar6 + 0xe) + *piVar3);
+    if (cVar2 != '\0') break;
+    puVar6 = (undefined4 *)puVar6[2];
+  }
+  return puVar6;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00a617c0 (texture hash-node allocator or lookup)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00a61c86 (in FUN_00a61c50)
+  Total: 1 refs
+
+--- Calls FROM texture hash-node allocator or lookup (0x00a617c0) ---
+  0x00a617dd -> 0x00af4170 FUN_00af4170
+  0x00a617e9 -> 0x00a61530 FUN_00a61530
+  0x00a61814 -> 0x00a614d0 FUN_00a614d0
+  0x00a6182e -> 0x00aa3e40 FUN_00aa3e40
+  0x00a61846 -> 0x00000066 ???
+  Total: 5 calls
+
+======================================================================
+texture hash-node unlink @ 0x00a61890
+======================================================================
+  Function: FUN_00a61890 @ 0x00a61890, Size: 140 bytes
+
+void __thiscall FUN_00a61890(int param_1,int *param_2)
+
+{
+  int *piVar1;
+  int *piVar2;
+  int iVar3;
+  int iVar4;
+  LONG LVar5;
+  int *piVar6;
+  
+  piVar2 = (int *)(**(code **)(*(int *)*param_2 + 0x9c))();
+  iVar4 = *piVar2;
+  iVar3 = FUN_00af4170(iVar4,1);
+  iVar4 = FUN_00a61530(iVar3 + iVar4);
+  piVar2 = *(int **)(param_1 + iVar4 * 4);
+  if (piVar2 != (int *)0x0) {
+    piVar6 = (int *)0x0;
+    while (piVar2 != param_2) {
+      piVar1 = piVar2 + 2;
+      piVar6 = piVar2;
+      piVar2 = (int *)*piVar1;
+      if ((int *)*piVar1 == (int *)0x0) {
+        return;
+      }
+    }
+    if (piVar6 == (int *)0x0) {
+      *(int *)(param_1 + iVar4 * 4) = piVar2[2];
+    }
+    else {
+      piVar6[2] = piVar2[2];
+    }
+    piVar6 = (int *)*piVar2;
+    if (piVar6 != (int *)0x0) {
+      LVar5 = InterlockedDecrement(piVar6 + 1);
+      if (LVar5 == 0) {
+        (**(code **)(*piVar6 + 4))();
+      }
+    }
+    FUN_00aa4060(piVar2);
+    *(int *)(param_1 + 0xb24) = *(int *)(param_1 + 0xb24) + -1;
+  }
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00a61890 (texture hash-node unlink)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00a61dec (in FUN_00a61cd0)
+  UNCONDITIONAL_CALL @ 0x00a61f80 (in FUN_00a61f30)
+  Total: 2 refs
+
+--- Calls FROM texture hash-node unlink (0x00a61890) ---
+  0x00a618aa -> 0x00af4170 FUN_00af4170
+  0x00a618b2 -> 0x00a61530 FUN_00a61530
+  0x00a618f2 -> 0x00000067 ???
+  0x00a6190b -> 0x00aa4060 FUN_00aa4060
+  Total: 4 calls
+
+======================================================================
+texture hash lookup helper @ 0x00a61920
+======================================================================
+  Function: FUN_00a61920 @ 0x00a61920, Size: 137 bytes
+
+undefined4 __thiscall FUN_00a61920(int param_1,int param_2,undefined4 param_3,int *param_4)
+
+{
+  int iVar1;
+  char cVar2;
+  int *piVar3;
+  LONG LVar4;
+  int *piVar5;
+  
+  piVar5 = *(int **)(param_1 + param_2 * 4);
+  if (piVar5 == (int *)0x0) {
+    return 0;
+  }
+  do {
+    piVar3 = (int *)(**(code **)(*(int *)*piVar5 + 0x9c))();
+    cVar2 = FUN_00a614d0(param_3,(int)*(short *)((int)piVar5 + 0xe) + *piVar3);
+    if (cVar2 != '\0') {
+      piVar3 = (int *)*param_4;
+      if (piVar3 != (int *)*piVar5) {
+        if ((piVar3 != (int *)0x0) && (LVar4 = InterlockedDecrement(piVar3 + 1), LVar4 == 0)) {
+          (**(code **)(*piVar3 + 4))();
+        }
+        iVar1 = *piVar5;
+        *param_4 = iVar1;
+        if (iVar1 != 0) {
+          InterlockedIncrement((LONG *)(iVar1 + 4));
+        }
+      }
+      return 1;
+    }
+    piVar5 = (int *)piVar5[2];
+  } while (piVar5 != (int *)0x0);
+  return 0;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00a61920 (texture hash lookup helper)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00a61c1b (in FUN_00a61b90)
+  Total: 1 refs
+
+--- Calls FROM texture hash lookup helper (0x00a61920) ---
+  0x00a61948 -> 0x00a614d0 FUN_00a614d0
+  0x00a61975 -> 0x00000067 ???
+  0x00a61994 -> 0x00000066 ???
+  Total: 3 calls
+
+======================================================================
+texture cache lookup family entry @ 0x00a619b0
+======================================================================
+  Function: FUN_00a619b0 @ 0x00a619b0, Size: 169 bytes
+
+bool __thiscall FUN_00a619b0(int param_1,int *param_2,int *param_3)
+
+{
+  int *piVar1;
+  int *piVar2;
+  int iVar3;
+  LONG LVar4;
+  
+  piVar1 = (int *)*param_2;
+  if (piVar1 != (int *)0x0) {
+    piVar2 = (int *)*param_3;
+    if (piVar2 != (int *)*piVar1) {
+      if ((piVar2 != (int *)0x0) && (LVar4 = InterlockedDecrement(piVar2 + 1), LVar4 == 0)) {
+        (**(code **)(*piVar2 + 4))();
+      }
+      iVar3 = *piVar1;
+      *param_3 = iVar3;
+      if (iVar3 != 0) {
+        InterlockedIncrement((LONG *)(iVar3 + 4));
+      }
+    }
+    iVar3 = *(int *)(*param_2 + 8);
+    *param_2 = iVar3;
+    if ((iVar3 == 0) && (param_2[1] = param_2[1] + 1, (uint)param_2[1] < 0x2c9)) {
+      while (*(int *)(param_1 + param_2[1] * 4) == 0) {
+        param_2[1] = param_2[1] + 1;
+        if (0x2c8 < (uint)param_2[1]) {
+          return *param_2 != 0;
+        }
+      }
+      *param_2 = *(int *)(param_1 + param_2[1] * 4);
+    }
+  }
+  return *param_2 != 0;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00a619b0 (texture cache lookup family entry)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00a61d41 (in FUN_00a61cd0)
+  Total: 1 refs
+
+--- Calls FROM texture cache lookup family entry (0x00a619b0) ---
+  0x00a619da -> 0x00000067 ???
+  0x00a619fa -> 0x00000066 ???
+  Total: 2 calls
+
+======================================================================
+hooked texture cache find @ 0x00a61a60
+======================================================================
+  Function: FUN_00a61a60 @ 0x00a61a60, Size: 103 bytes
+
+undefined4 __thiscall FUN_00a61a60(int param_1,int param_2,int param_3,int *param_4)
+
+{
+  int *piVar1;
+  int *piVar2;
+  int iVar3;
+  undefined4 uVar4;
+  LONG LVar5;
+  undefined4 *puVar6;
+  
+  puVar6 = *(undefined4 **)(param_1 + param_2 * 4);
+  uVar4 = 0;
+  if (puVar6 != (undefined4 *)0x0) {
+    while (piVar1 = (int *)*puVar6, param_3 != piVar1[1]) {
+      puVar6 = (undefined4 *)puVar6[1];
+      if (puVar6 == (undefined4 *)0x0) {
+        return uVar4;
+      }
+    }
+    piVar2 = (int *)*param_4;
+    if (piVar2 != (int *)*piVar1) {
+      if ((piVar2 != (int *)0x0) && (LVar5 = InterlockedDecrement(piVar2 + 1), LVar5 == 0)) {
+        (**(code **)(*piVar2 + 4))();
+      }
+      iVar3 = *piVar1;
+      *param_4 = iVar3;
+      if (iVar3 != 0) {
+        InterlockedIncrement((LONG *)(iVar3 + 4));
+      }
+    }
+    uVar4 = 1;
+  }
+  return uVar4;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00a61a60 (hooked texture cache find)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0043c517 (in FUN_0043c4f0)
+  Total: 1 refs
+
+--- Calls FROM hooked texture cache find (0x00a61a60) ---
+  0x00a61a9a -> 0x00000067 ???
+  0x00a61ab9 -> 0x00000066 ???
+  Total: 2 calls
+
+======================================================================
+texture cache insertion or replacement @ 0x00a61ad0
+======================================================================
+  Function: FUN_00a61ad0 @ 0x00a61ad0, Size: 185 bytes
+
+void FUN_00a61ad0(void)
+
+{
+  int iVar1;
+  undefined4 uVar2;
+  void *_Dst;
+  undefined4 *puVar3;
+  int unaff_FS_OFFSET;
+  
+  iVar1 = *(int *)(*(int *)(unaff_FS_OFFSET + 0x2c) + _tls_index * 4);
+  uVar2 = *(undefined4 *)(iVar1 + 0x2b4);
+  *(undefined4 *)(iVar1 + 0x2b4) = 0xf;
+  _Dst = (void *)FUN_00aa3e40(0xfa8);
+  if (_Dst == (void *)0x0) {
+    DAT_011f4468 = (void *)0x0;
+  }
+  else {
+    _memset(_Dst,0,0xfa4);
+    *(undefined4 *)((int)_Dst + 0xfa4) = 0;
+    DAT_011f4468 = _Dst;
+  }
+  puVar3 = (undefined4 *)FUN_00aa3e40(0x4e1c);
+  if (puVar3 != (undefined4 *)0x0) {
+    *puVar3 = 7;
+    _vector_constructor_iterator_(puVar3 + 1,0xb28,7,(_func_void_ptr_void_ptr *)&LAB_00a61590);
+    DAT_011f4464 = puVar3 + 1;
+    *(undefined4 *)(iVar1 + 0x2b4) = uVar2;
+    DAT_011f4461 = 0;
+    return;
+  }
+  *(undefined4 *)(iVar1 + 0x2b4) = uVar2;
+  DAT_011f4464 = (undefined4 *)0x0;
+  DAT_011f4461 = 0;
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00a61ad0 (texture cache insertion or replacement)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0086aa93 (in FUN_0086a850)
+  Total: 1 refs
+
+--- Calls FROM texture cache insertion or replacement (0x00a61ad0) ---
+  0x00a61afd -> 0x00aa3e40 FUN_00aa3e40
+  0x00a61b11 -> 0x00ec61c0 _memset
+  0x00a61b37 -> 0x00aa3e40 FUN_00aa3e40
+  0x00a61b56 -> 0x00401050 `vector_constructor_iterator'
+  Total: 4 calls
+
+======================================================================
+texture cache table operation @ 0x00a61b90
+======================================================================
+  Function: FUN_00a61b90 @ 0x00a61b90, Size: 182 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+char FUN_00a61b90(int param_1,int *param_2)
+
+{
+  int *piVar1;
+  char cVar2;
+  int iVar3;
+  undefined4 uVar4;
+  LONG LVar5;
+  int iVar6;
+  
+  cVar2 = '\0';
+  if (DAT_011f4468 == 0) {
+    cVar2 = '\0';
+  }
+  else {
+    FUN_0040fbf0(0);
+    iVar3 = FUN_00af4170(param_1,1);
+    uVar4 = FUN_00a61530(iVar3 + param_1);
+    piVar1 = (int *)*param_2;
+    if (piVar1 != (int *)0x0) {
+      LVar5 = InterlockedDecrement(piVar1 + 1);
+      if (LVar5 == 0) {
+        (**(code **)(*piVar1 + 4))();
+      }
+      *param_2 = 0;
+    }
+    iVar6 = 0x4e18;
+    do {
+      if (iVar6 == 0) break;
+      cVar2 = FUN_00a61920(uVar4,iVar3 + param_1,param_2);
+      iVar6 = iVar6 + -0xb28;
+    } while (cVar2 == '\0');
+    _DAT_011f4484 = _DAT_011f4484 + -1;
+    if (_DAT_011f4484 == 0) {
+      _DAT_011f4480 = 0;
+      return cVar2;
+    }
+  }
+  return cVar2;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00a61b90 (texture cache table operation)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00456908 (in FUN_004568c0)
+  UNCONDITIONAL_CALL @ 0x00614e03 (in FUN_006149b0)
+  UNCONDITIONAL_CALL @ 0x00456841 (in FUN_00456800)
+  UNCONDITIONAL_CALL @ 0x00a1fae1 (in FUN_00a1fa20)
+  UNCONDITIONAL_CALL @ 0x00a1f8a2 (in FUN_00a1f7d0)
+  UNCONDITIONAL_CALL @ 0x00a61fdc (in FUN_00a61fb0)
+  UNCONDITIONAL_CALL @ 0x00b55891 (in FUN_00b55840)
+  UNCONDITIONAL_CALL @ 0x0043c1dc (in FUN_0043c150)
+  UNCONDITIONAL_CALL @ 0x00443710 (in FUN_004436c0)
+  UNCONDITIONAL_CALL @ 0x0051d572 (in FUN_0051d440)
+  UNCONDITIONAL_CALL @ 0x00c3b69b (in FUN_00c3b5e0)
+  UNCONDITIONAL_CALL @ 0x00a633da (in FUN_00a633d0)
+  Total: 12 refs
+
+--- Calls FROM texture cache table operation (0x00a61b90) ---
+  0x00a61bab -> 0x0040fbf0 FUN_0040fbf0
+  0x00a61bb7 -> 0x00af4170 FUN_00af4170
+  0x00a61bc0 -> 0x00a61530 FUN_00a61530
+  0x00a61bdb -> 0x00000067 ???
+  0x00a61c1b -> 0x00a61920 FUN_00a61920
+  Total: 5 calls
+
+======================================================================
+texture cache table operation @ 0x00a61c50
+======================================================================
+  Function: FUN_00a61c50 @ 0x00a61c50, Size: 128 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+void FUN_00a61c50(undefined4 param_1,int param_2)
+
+{
+  undefined2 uVar1;
+  int iVar2;
+  
+  if (DAT_011f4468 != 0) {
+    FUN_0040fbf0(0);
+    uVar1 = FUN_00a61750(param_1);
+    iVar2 = FUN_00a617c0(param_1);
+    *(undefined2 *)(iVar2 + 0xc) = uVar1;
+    if ((*(int *)(iVar2 + 4) == 0) &&
+       ((param_2 != 0 || (param_2 = FUN_00c5d560(param_1), param_2 != 0)))) {
+      FUN_00a61610(param_2,iVar2);
+    }
+    _DAT_011f4484 = _DAT_011f4484 + -1;
+    if (_DAT_011f4484 == 0) {
+      _DAT_011f4480 = 0;
+    }
+    return;
+  }
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00a61c50 (texture cache table operation)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x004569d8 (in FUN_004568c0)
+  UNCONDITIONAL_CALL @ 0x0061512a (in FUN_006149b0)
+  UNCONDITIONAL_CALL @ 0x00a1fc2e (in FUN_00a1fa20)
+  UNCONDITIONAL_CALL @ 0x00b5594a (in FUN_00b55840)
+  UNCONDITIONAL_CALL @ 0x0043c596 (in FUN_0043c550)
+  UNCONDITIONAL_CALL @ 0x0043c5ba (in FUN_0043c550)
+  UNCONDITIONAL_CALL @ 0x00c3b76f (in FUN_00c3b5e0)
+  UNCONDITIONAL_CALL @ 0x00a633b7 (in FUN_00a633b0)
+  Total: 8 refs
+
+--- Calls FROM texture cache table operation (0x00a61c50) ---
+  0x00a61c63 -> 0x0040fbf0 FUN_0040fbf0
+  0x00a61c6d -> 0x00a61750 FUN_00a61750
+  0x00a61c86 -> 0x00a617c0 FUN_00a617c0
+  0x00a61ca0 -> 0x00c5d560 FUN_00c5d560
+  0x00a61cb4 -> 0x00a61610 FUN_00a61610
+  Total: 5 calls
+
+======================================================================
+texture cache cleanup operation @ 0x00a61cd0
+======================================================================
+  Function: FUN_00a61cd0 @ 0x00a61cd0, Size: 390 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+void FUN_00a61cd0(void)
+
+{
+  int *piVar1;
+  char cVar2;
+  int iVar3;
+  LONG LVar4;
+  uint uVar5;
+  int local_1c;
+  int *local_18;
+  int local_14;
+  int local_10;
+  int local_c;
+  uint local_8;
+  uint local_4;
+  
+  if (DAT_011f4468 != 0) {
+    FUN_0040fbf0(0);
+    local_1c = 0;
+    DAT_011f4461 = 0;
+    cVar2 = FUN_00a616e0(&local_c);
+    if (cVar2 != '\0') {
+      local_18 = (int *)0x0;
+      uVar5 = local_4;
+      iVar3 = local_c;
+      do {
+        local_10 = uVar5 * 0xb28;
+        local_14 = iVar3;
+        cVar2 = FUN_00a619b0(&local_c,&local_18);
+        piVar1 = local_18;
+        if (cVar2 == '\0') {
+          do {
+            if (local_4 == 0) {
+              local_4 = 0xffffffff;
+              break;
+            }
+            local_4 = local_4 - 1;
+            iVar3 = local_4 * 0xb28 + DAT_011f4464;
+            local_8 = 0;
+            local_c = 0;
+            if (*(int *)(iVar3 + 0xb24) != 0) {
+              uVar5 = 0;
+              do {
+                if (*(int *)(iVar3 + uVar5 * 4) != 0) {
+                  local_c = *(int *)(iVar3 + uVar5 * 4);
+                  local_4 = (uint)*(ushort *)(local_c + 0xc);
+                  local_8 = uVar5;
+                  break;
+                }
+                uVar5 = uVar5 + 1;
+              } while (uVar5 < 0x2c9);
+            }
+            cVar2 = local_c != 0;
+          } while (!(bool)cVar2);
+        }
+        uVar5 = local_4;
+        iVar3 = local_c;
+        if ((local_18 != (int *)0x0) && (local_18[1] == 2)) {
+          if (*(int *)(local_14 + 4) != 0) {
+            FUN_00a61670(*(int *)(local_14 + 4));
+          }
+          FUN_00a61890(local_14);
+          local_1c = local_1c + 1;
+        }
+      } while ((cVar2 != '\0') && (local_1c < DAT_011a95fc));
+      if ((piVar1 != (int *)0x0) && (LVar4 = InterlockedDecrement(piVar1 + 1), LVar4 == 0)) {
+        (**(code **)(*piVar1 + 4))();
+      }
+    }
+    _DAT_011f4484 = _DAT_011f4484 + -1;
+    if (_DAT_011f4484 == 0) {
+      _DAT_011f4480 = 0;
+    }
+  }
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00a61cd0 (texture cache cleanup operation)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x004524cb (in FUN_00452490)
+  UNCONDITIONAL_CALL @ 0x006fa5d4 (in FUN_006fa420)
+  UNCONDITIONAL_CALL @ 0x006f5565 (in FUN_006f5370)
+  UNCONDITIONAL_CALL @ 0x0086eada (in FUN_0086e650)
+  UNCONDITIONAL_CALL @ 0x00a04488 (in FUN_00a04200)
+  Total: 5 refs
+
+--- Calls FROM texture cache cleanup operation (0x00a61cd0) ---
+  0x00a61ce8 -> 0x0040fbf0 FUN_0040fbf0
+  0x00a61cfd -> 0x00a616e0 FUN_00a616e0
+  0x00a61d41 -> 0x00a619b0 FUN_00a619b0
+  0x00a61dd6 -> 0x00a61670 FUN_00a61670
+  0x00a61dec -> 0x00a61890 FUN_00a61890
+  0x00a61e1a -> 0x00000067 ???
+  Total: 6 calls
+
+======================================================================
+texture cache table operation @ 0x00a61f30
+======================================================================
+  Function: FUN_00a61f30 @ 0x00a61f30, Size: 115 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+undefined1 FUN_00a61f30(undefined4 param_1)
+
+{
+  int iVar1;
+  undefined1 uVar2;
+  
+  uVar2 = 0;
+  if (DAT_011f4468 == 0) {
+    uVar2 = 0;
+  }
+  else {
+    FUN_0040fbf0(0);
+    iVar1 = FUN_00a61e60(param_1);
+    if (iVar1 != 0) {
+      if (*(int *)(iVar1 + 4) != 0) {
+        FUN_00a61670(*(int *)(iVar1 + 4));
+      }
+      FUN_00a61890(iVar1);
+      uVar2 = 1;
+    }
+    _DAT_011f4484 = _DAT_011f4484 + -1;
+    if (_DAT_011f4484 == 0) {
+      _DAT_011f4480 = 0;
+      return uVar2;
+    }
+  }
+  return uVar2;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00a61f30 (texture cache table operation)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0078a4e3 (in FUN_0078a3e0)
+  UNCONDITIONAL_CALL @ 0x00456877 (in FUN_00456800)
+  UNCONDITIONAL_CALL @ 0x00a61fed (in FUN_00a61fb0)
+  UNCONDITIONAL_CALL @ 0x0078881e (in FUN_007887a0)
+  Total: 4 refs
+
+--- Calls FROM texture cache table operation (0x00a61f30) ---
+  0x00a61f44 -> 0x0040fbf0 FUN_0040fbf0
+  0x00a61f4e -> 0x00a61e60 FUN_00a61e60
+  0x00a61f6a -> 0x00a61670 FUN_00a61670
+  0x00a61f80 -> 0x00a61890 FUN_00a61890
+  Total: 4 calls
+
+======================================================================
+texture cache table operation @ 0x00a61fb0
+======================================================================
+  Function: FUN_00a61fb0 @ 0x00a61fb0, Size: 128 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+undefined1 FUN_00a61fb0(undefined4 param_1)
+
+{
+  int *piVar1;
+  char cVar2;
+  undefined1 uVar3;
+  LONG LVar4;
+  int *local_4;
+  
+  uVar3 = 0;
+  if (DAT_011f4468 != 0) {
+    local_4 = (int *)0x0;
+    FUN_0040fbf0(0);
+    cVar2 = FUN_00a61b90(param_1,&local_4);
+    piVar1 = local_4;
+    if (cVar2 != '\0') {
+      uVar3 = FUN_00a61f30(local_4);
+    }
+    _DAT_011f4484 = _DAT_011f4484 + -1;
+    if (_DAT_011f4484 == 0) {
+      _DAT_011f4480 = 0;
+    }
+    if (piVar1 != (int *)0x0) {
+      LVar4 = InterlockedDecrement(piVar1 + 1);
+      if (LVar4 == 0) {
+        (**(code **)(*piVar1 + 4))();
+      }
+    }
+    return uVar3;
+  }
+  return 0;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00a61fb0 (texture cache table operation)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00615022 (in FUN_006149b0)
+  UNCONDITIONAL_CALL @ 0x00657135 (in FUN_006570e0)
+  Total: 2 refs
+
+--- Calls FROM texture cache table operation (0x00a61fb0) ---
+  0x00a61fcd -> 0x0040fbf0 FUN_0040fbf0
+  0x00a61fdc -> 0x00a61b90 FUN_00a61b90
+  0x00a61fed -> 0x00a61f30 FUN_00a61f30
+  0x00a62012 -> 0x00000067 ???
+  Total: 4 calls
+
+======================================================================
+texture cache full reset @ 0x00a62030
+======================================================================
+  Function: FUN_00a62030 @ 0x00a62030, Size: 83 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+void FUN_00a62030(void)
+
+{
+  uint uVar1;
+  
+  if (DAT_011f4468 != 0) {
+    FUN_0040fbf0(0);
+    FUN_00a615c0();
+    uVar1 = 0;
+    do {
+      FUN_00a61ec0();
+      uVar1 = uVar1 + 0xb28;
+    } while (uVar1 < 0x4e18);
+    _DAT_011f4484 = _DAT_011f4484 + -1;
+    if (_DAT_011f4484 == 0) {
+      _DAT_011f4480 = 0;
+    }
+  }
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00a62030 (texture cache full reset)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x004dc4e3 (in FUN_004dc360)
+  UNCONDITIONAL_CALL @ 0x00a62091 (in FUN_00a62090)
+  Total: 2 refs
+
+--- Calls FROM texture cache full reset (0x00a62030) ---
+  0x00a62041 -> 0x0040fbf0 FUN_0040fbf0
+  0x00a6204c -> 0x00a615c0 FUN_00a615c0
+  0x00a6205b -> 0x00a61ec0 FUN_00a61ec0
+  Total: 3 calls
+
+======================================================================
+texture cache targeted operation @ 0x00a61e60
+======================================================================
+  Function: FUN_00a61e60 @ 0x00a61e60, Size: 88 bytes
+
+void FUN_00a61e60(int *param_1)
+
+{
+  int *piVar1;
+  int iVar2;
+  int iVar3;
+  uint uVar4;
+  undefined4 *puVar5;
+  
+  piVar1 = (int *)(**(code **)(*param_1 + 0x9c))();
+  iVar3 = *piVar1;
+  iVar2 = FUN_00af4170(iVar3,1);
+  iVar3 = FUN_00a61530(iVar2 + iVar3);
+  uVar4 = 0;
+  puVar5 = (undefined4 *)(DAT_011f4464 + iVar3 * 4);
+  do {
+    for (piVar1 = (int *)*puVar5; piVar1 != (int *)0x0; piVar1 = (int *)piVar1[2]) {
+      if (param_1 == (int *)*piVar1) {
+        if (piVar1 != (int *)0x0) {
+          return;
+        }
+        break;
+      }
+    }
+    uVar4 = uVar4 + 1;
+    puVar5 = puVar5 + 0x2ca;
+    if (6 < uVar4) {
+      return;
+    }
+  } while( true );
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00a61e60 (texture cache targeted operation)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00a61f4e (in FUN_00a61f30)
+  Total: 1 refs
+
+--- Calls FROM texture cache targeted operation (0x00a61e60) ---
+  0x00a61e77 -> 0x00af4170 FUN_00af4170
+  0x00a61e7f -> 0x00a61530 FUN_00a61530
+  Total: 2 calls
+
+======================================================================
+texture cache table teardown @ 0x00a61ec0
+======================================================================
+  Function: FUN_00a61ec0 @ 0x00a61ec0, Size: 105 bytes
+
+void __fastcall FUN_00a61ec0(int param_1)
+
+{
+  int *piVar1;
+  int *piVar2;
+  int *piVar3;
+  LONG LVar4;
+  uint uVar5;
+  
+  uVar5 = 0;
+  do {
+    piVar3 = *(int **)(param_1 + uVar5 * 4);
+    while (piVar3 != (int *)0x0) {
+      piVar1 = (int *)*piVar3;
+      piVar2 = (int *)piVar3[2];
+      if ((piVar1 != (int *)0x0) && (LVar4 = InterlockedDecrement(piVar1 + 1), LVar4 == 0)) {
+        (**(code **)(*piVar1 + 4))();
+      }
+      FUN_00aa4060(piVar3);
+      piVar3 = piVar2;
+    }
+    *(undefined4 *)(param_1 + uVar5 * 4) = 0;
+    uVar5 = uVar5 + 1;
+  } while (uVar5 < 0x2c9);
+  *(undefined4 *)(param_1 + 0xb24) = 0;
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00a61ec0 (texture cache table teardown)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00a6205b (in FUN_00a62030)
+  UNCONDITIONAL_CALL @ 0x00a620e8 (in FUN_00a62090)
+  Total: 2 refs
+
+--- Calls FROM texture cache table teardown (0x00a61ec0) ---
+  0x00a61ee6 -> 0x00000067 ???
+  0x00a61eff -> 0x00aa4060 FUN_00aa4060
+  Total: 2 calls
+
+======================================================================
+NiSourceTexture destructor @ 0x00a5fca0
+======================================================================
+  Function: FUN_00a5fca0 @ 0x00a5fca0, Size: 207 bytes
+
+void __fastcall FUN_00a5fca0(undefined4 *param_1)
+
+{
+  int *piVar1;
+  LONG LVar2;
+  
+  *param_1 = &PTR_FUN_0109b9ec;
+  piVar1 = (int *)param_1[0xf];
+  if (piVar1 != (int *)0x0) {
+    LVar2 = InterlockedDecrement(piVar1 + 1);
+    if (LVar2 == 0) {
+      (**(code **)(*piVar1 + 4))();
+    }
+    param_1[0xf] = 0;
+  }
+  piVar1 = (int *)param_1[0xe];
+  if (piVar1 != (int *)0x0) {
+    LVar2 = InterlockedDecrement(piVar1 + 1);
+    if (LVar2 == 0) {
+      (**(code **)(*piVar1 + 4))();
+    }
+    param_1[0xe] = 0;
+  }
+  piVar1 = (int *)param_1[0xf];
+  if (piVar1 != (int *)0x0) {
+    LVar2 = InterlockedDecrement(piVar1 + 1);
+    if (LVar2 == 0) {
+      (**(code **)(*piVar1 + 4))();
+    }
+  }
+  piVar1 = (int *)param_1[0xe];
+  if (piVar1 != (int *)0x0) {
+    LVar2 = InterlockedDecrement(piVar1 + 1);
+    if (LVar2 == 0) {
+      (**(code **)(*piVar1 + 4))();
+    }
+  }
+  if (param_1[0xd] != DAT_0109b220) {
+    InterlockedDecrement((LONG *)(param_1[0xd] + -8));
+  }
+  if (param_1[0xc] != DAT_0109b220) {
+    InterlockedDecrement((LONG *)(param_1[0xc] + -8));
+  }
+  *param_1 = &PTR_FUN_0109b944;
+  if ((undefined4 *)param_1[9] != (undefined4 *)0x0) {
+    (*(code *)**(undefined4 **)param_1[9])(1);
+  }
+  FUN_00a5f800();
+  FUN_00a5c240();
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00a5fca0 (NiSourceTexture destructor)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00a60163 (in FUN_00a60160)
+  UNCONDITIONAL_CALL @ 0x00a61281 (in FUN_00a61250)
+  Total: 2 refs
+
+--- Calls FROM NiSourceTexture destructor (0x00a5fca0) ---
+  0x00a5fcbc -> 0x00000067 ???
+  0x00a5fcdd -> 0x00000067 ???
+  0x00a5fcfe -> 0x00000067 ???
+  0x00a5fd18 -> 0x00000067 ???
+  0x00a5fd36 -> 0x00000067 ???
+  0x00a5fd47 -> 0x00000067 ???
+  0x00a5fd60 -> 0x00a5f800 FUN_00a5f800
+  0x00a5fd6a -> 0x00a5c240 FUN_00a5c240
+  Total: 8 calls
+
+======================================================================
+NiSourceTexture scalar destructor caller @ 0x00a60160
+======================================================================
+  Function: FUN_00a60160 @ 0x00a60160, Size: 32 bytes
+
+undefined4 __thiscall FUN_00a60160(undefined4 param_1,byte param_2)
+
+{
+  FUN_00a5fca0();
+  if ((param_2 & 1) != 0) {
+    FUN_00aa1460(param_1,0x48);
+  }
+  return param_1;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00a60160 (NiSourceTexture scalar destructor caller)
+----------------------------------------------------------------------
+  DATA @ 0x0109b9ec (in ???)
+  Total: 1 refs
+
+--- Calls FROM NiSourceTexture scalar destructor caller (0x00a60160) ---
+  0x00a60163 -> 0x00a5fca0 FUN_00a5fca0
+  0x00a60172 -> 0x00aa1460 FUN_00aa1460
+  Total: 2 calls
+
+======================================================================
+NiSourceTexture release caller @ 0x00a61250
+======================================================================
+  Function: FUN_00a61250 @ 0x00a61250, Size: 79 bytes
+
+undefined4 * __thiscall FUN_00a61250(undefined4 *param_1,byte param_2)
+
+{
+  int *piVar1;
+  LONG LVar2;
+  
+  *param_1 = &PTR_FUN_0109babc;
+  piVar1 = (int *)param_1[0xf];
+  if (piVar1 != (int *)0x0) {
+    LVar2 = InterlockedDecrement(piVar1 + 1);
+    if (LVar2 == 0) {
+      (**(code **)(*piVar1 + 4))();
+    }
+    param_1[0xf] = 0;
+  }
+  FUN_00a5fca0();
+  if ((param_2 & 1) != 0) {
+    FUN_00aa1460(param_1,0x4c);
+  }
+  return param_1;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00a61250 (NiSourceTexture release caller)
+----------------------------------------------------------------------
+  COMPUTED_CALL @ 0x00a6110a (in FUN_00a61040)
+  COMPUTED_CALL @ 0x00a61212 (in FUN_00a61120)
+  COMPUTED_CALL @ 0x00a6102c (in FUN_00a60f60)
+  DATA @ 0x0109babc (in ???)
+  Total: 4 refs
+
+--- Calls FROM NiSourceTexture release caller (0x00a61250) ---
+  0x00a61265 -> 0x00000067 ???
+  0x00a61281 -> 0x00a5fca0 FUN_00a5fca0
+  0x00a61290 -> 0x00aa1460 FUN_00aa1460
+  Total: 3 calls
+
+======================================================================
+texture cache find caller and lock context @ 0x0043c4f0
+======================================================================
+  Function: FUN_0043c4f0 @ 0x0043c4f0, Size: 50 bytes
+
+void __thiscall FUN_0043c4f0(undefined4 param_1,undefined4 param_2,undefined4 param_3)
+
+{
+  undefined4 uVar1;
+  
+  uVar1 = FUN_0043c530(param_2,param_1);
+  FUN_00a61a60(uVar1,param_2,param_3);
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x0043c4f0 (texture cache find caller and lock context)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0043c4db (in FUN_0043c4c0)
+  Total: 1 refs
+
+--- Calls FROM texture cache find caller and lock context (0x0043c4f0) ---
+  0x0043c4fd -> 0x0043c530 FUN_0043c530
+  0x0043c517 -> 0x00a61a60 FUN_00a61a60
+  Total: 2 calls
+
+======================================================================
+engine lock acquisition @ 0x0040fbf0
+======================================================================
+  Function: FUN_0040fbf0 @ 0x0040fbf0, Size: 149 bytes
+
+void __fastcall FUN_0040fbf0(int *param_1)
+
+{
+  int iVar1;
+  int iVar2;
+  uint local_64;
+  
+  iVar1 = FUN_0040fc90();
+  if (*param_1 == iVar1) {
+    param_1[1] = param_1[1] + 1;
+  }
+  else {
+    local_64 = 0;
+    while (iVar2 = FUN_0043b460(param_1,0,iVar1), iVar2 != 0) {
+      local_64 = local_64 + 1;
+      if (local_64 < 0x2711) {
+        FUN_0040fca0(0);
+      }
+      else {
+        FUN_0040fca0(1);
+      }
+    }
+    FUN_0040fbe0();
+    param_1[1] = 1;
+  }
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x0040fbf0 (engine lock acquisition)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0045251a (in FUN_00452510)
+  UNCONDITIONAL_CALL @ 0x0045cef0 (in FUN_0045cee0)
+  UNCONDITIONAL_CALL @ 0x00528eaa (in FUN_00528e40)
+  UNCONDITIONAL_CALL @ 0x0041026f (in FUN_00410220)
+  UNCONDITIONAL_CALL @ 0x0040ff73 (in FUN_0040ff60)
+  UNCONDITIONAL_CALL @ 0x0041003e (in FUN_00410020)
+  UNCONDITIONAL_CALL @ 0x004102fb (in FUN_004102d0)
+  UNCONDITIONAL_CALL @ 0x00469813 (in FUN_00469800)
+  UNCONDITIONAL_CALL @ 0x00541ad5 (in FUN_00541ac0)
+  UNCONDITIONAL_CALL @ 0x00410153 (in FUN_00410140)
+  UNCONDITIONAL_CALL @ 0x0043a020 (in FUN_0043a010)
+  UNCONDITIONAL_CALL @ 0x006c6730 (in FUN_006c6700)
+  UNCONDITIONAL_CALL @ 0x0044c4ea (in FUN_0044c480)
+  UNCONDITIONAL_CALL @ 0x00412393 (in FUN_00412380)
+  UNCONDITIONAL_CALL @ 0x0040faf3 (in FUN_0040fae0)
+  UNCONDITIONAL_CALL @ 0x0041d130 (in FUN_0041d120)
+  UNCONDITIONAL_CALL @ 0x0040fe33 (in FUN_0040fe20)
+  UNCONDITIONAL_CALL @ 0x0041d040 (in FUN_0041d030)
+  UNCONDITIONAL_CALL @ 0x0070951c (in FUN_007094f0)
+  UNCONDITIONAL_CALL @ 0x004126d3 (in FUN_004126c0)
+  UNCONDITIONAL_CALL @ 0x0044c651 (in FUN_0044c640)
+  UNCONDITIONAL_CALL @ 0x00867f5c (in FUN_00867f50)
+  UNCONDITIONAL_CALL @ 0x004afb8f (in FUN_004afb80)
+  UNCONDITIONAL_CALL @ 0x004d24db (in FUN_004d2480)
+  UNCONDITIONAL_CALL @ 0x00411fe3 (in FUN_00411fd0)
+  UNCONDITIONAL_CALL @ 0x00411edd (in FUN_00411ec0)
+  UNCONDITIONAL_CALL @ 0x0086e9f0 (in FUN_0086e650)
+  UNCONDITIONAL_CALL @ 0x004554c3 (in FUN_00455490)
+  UNCONDITIONAL_CALL @ 0x006c3937 (in FUN_006c3920)
+  UNCONDITIONAL_CALL @ 0x006c3987 (in FUN_006c3970)
+  UNCONDITIONAL_CALL @ 0x006c4f24 (in FUN_006c4ec0)
+  UNCONDITIONAL_CALL @ 0x006c5d2e (in FUN_006c5ce0)
+  UNCONDITIONAL_CALL @ 0x006c5d9a (in FUN_006c5ce0)
+  UNCONDITIONAL_CALL @ 0x006c5fff (in FUN_006c5ff0)
+  UNCONDITIONAL_CALL @ 0x006c6041 (in FUN_006c6030)
+  UNCONDITIONAL_CALL @ 0x006ea7b7 (in FUN_006ea780)
+  UNCONDITIONAL_CALL @ 0x006ea547 (in FUN_006ea510)
+  UNCONDITIONAL_CALL @ 0x006ea390 (in FUN_006ea350)
+  UNCONDITIONAL_CALL @ 0x006ea4a1 (in FUN_006ea490)
+  UNCONDITIONAL_CALL @ 0x0055251a (in FUN_005524f0)
+  UNCONDITIONAL_CALL @ 0x004124c2 (in FUN_00412490)
+  ... (truncated)
+  Total: 41 refs
+
+--- Calls FROM engine lock acquisition (0x0040fbf0) ---
+  0x0040fc03 -> 0x0040fc90 FUN_0040fc90
+  0x0040fc37 -> 0x0043b460 FUN_0043b460
+  0x0040fc57 -> 0x0040fca0 FUN_0040fca0
+  0x0040fc63 -> 0x0040fca0 FUN_0040fca0
+  0x0040fc6d -> 0x0040fbe0 FUN_0040fbe0
+  Total: 5 calls
+
+======================================================================
+engine lock release @ 0x0040fba0
+======================================================================
+  Function: FUN_0040fba0 @ 0x0040fba0, Size: 49 bytes
+
+void __fastcall FUN_0040fba0(undefined4 *param_1)
+
+{
+  FUN_0040fbe0();
+  param_1[1] = param_1[1] + -1;
+  if (param_1[1] == 0) {
+    *param_1 = 0;
+  }
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x0040fba0 (engine lock release)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00452538 (in FUN_00452530)
+  UNCONDITIONAL_CALL @ 0x0045cf1d (in FUN_0045cee0)
+  UNCONDITIONAL_CALL @ 0x00528fd0 (in FUN_00528e40)
+  UNCONDITIONAL_CALL @ 0x004102c0 (in FUN_00410220)
+  UNCONDITIONAL_CALL @ 0x00410010 (in FUN_0040ff60)
+  UNCONDITIONAL_CALL @ 0x00410128 (in FUN_00410020)
+  UNCONDITIONAL_CALL @ 0x00410343 (in FUN_004102d0)
+  UNCONDITIONAL_CALL @ 0x00469854 (in FUN_00469800)
+  UNCONDITIONAL_CALL @ 0x00541af0 (in FUN_00541ae0)
+  UNCONDITIONAL_CALL @ 0x00410214 (in FUN_00410140)
+  UNCONDITIONAL_CALL @ 0x0043a06b (in FUN_0043a010)
+  UNCONDITIONAL_CALL @ 0x006c687e (in FUN_006c6700)
+  UNCONDITIONAL_CALL @ 0x0044c60d (in FUN_0044c480)
+  UNCONDITIONAL_CALL @ 0x004123f6 (in FUN_00412380)
+  UNCONDITIONAL_CALL @ 0x0040fb8f (in FUN_0040fae0)
+  UNCONDITIONAL_CALL @ 0x0041d185 (in FUN_0041d120)
+  UNCONDITIONAL_CALL @ 0x0041d1c5 (in FUN_0041d120)
+  UNCONDITIONAL_CALL @ 0x0041d1e3 (in FUN_0041d120)
+  UNCONDITIONAL_CALL @ 0x0040fe69 (in FUN_0040fe20)
+  UNCONDITIONAL_CALL @ 0x0041d0a1 (in FUN_0041d030)
+  UNCONDITIONAL_CALL @ 0x0041d0bd (in FUN_0041d030)
+  UNCONDITIONAL_CALL @ 0x007097d0 (in FUN_007094f0)
+  UNCONDITIONAL_CALL @ 0x004127c4 (in FUN_004126c0)
+  UNCONDITIONAL_CALL @ 0x0044c746 (in FUN_0044c640)
+  UNCONDITIONAL_CALL @ 0x004afbad (in FUN_004afba0)
+  UNCONDITIONAL_CALL @ 0x00867f88 (in FUN_00867f80)
+  UNCONDITIONAL_CALL @ 0x004d26ac (in FUN_004d2480)
+  UNCONDITIONAL_CALL @ 0x0041209e (in FUN_00411fd0)
+  UNCONDITIONAL_CALL @ 0x00411f15 (in FUN_00411ec0)
+  UNCONDITIONAL_CALL @ 0x0086eabb (in FUN_0086e650)
+  UNCONDITIONAL_CALL @ 0x004555ef (in FUN_00455490)
+  UNCONDITIONAL_CALL @ 0x006c3956 (in FUN_006c3920)
+  UNCONDITIONAL_CALL @ 0x006c39a6 (in FUN_006c3970)
+  UNCONDITIONAL_CALL @ 0x006c4f44 (in FUN_006c4ec0)
+  UNCONDITIONAL_CALL @ 0x006c5d4e (in FUN_006c5ce0)
+  UNCONDITIONAL_CALL @ 0x006c5dde (in FUN_006c5ce0)
+  UNCONDITIONAL_CALL @ 0x006c601d (in FUN_006c5ff0)
+  UNCONDITIONAL_CALL @ 0x006c6062 (in FUN_006c6030)
+  UNCONDITIONAL_CALL @ 0x006ea89d (in FUN_006ea780)
+  UNCONDITIONAL_CALL @ 0x006ea9a8 (in FUN_006ea780)
+  UNCONDITIONAL_CALL @ 0x006ea655 (in FUN_006ea510)
+  ... (truncated)
+  Total: 41 refs
+
+--- Calls FROM engine lock release (0x0040fba0) ---
+  0x0040fba7 -> 0x0040fbe0 FUN_0040fbe0
+  Total: 1 calls
+
+----------------------------------------------------------------------
+References TO 0x011f4480 (engine texture/cache lock global)
+----------------------------------------------------------------------
+  WRITE @ 0x00a61c34 (in FUN_00a61b90)
+  WRITE @ 0x00a61cc5 (in FUN_00a61c50)
+  WRITE @ 0x00a61e39 (in FUN_00a61cd0)
+  WRITE @ 0x00a61f93 (in FUN_00a61f30)
+  WRITE @ 0x00a62000 (in FUN_00a61fb0)
+  WRITE @ 0x00a62078 (in FUN_00a62030)
+  DATA @ 0x00452515 (in FUN_00452510)
+  DATA @ 0x00452533 (in FUN_00452530)
+  DATA @ 0x0078d1f3 (in FUN_0078d1f0)
+  DATA @ 0x00a61ba6 (in FUN_00a61b90)
+  DATA @ 0x00a61c5e (in FUN_00a61c50)
+  DATA @ 0x00a61ce3 (in FUN_00a61cd0)
+  DATA @ 0x00a61f3f (in FUN_00a61f30)
+  DATA @ 0x00a61fc0 (in FUN_00a61fb0)
+  DATA @ 0x00a6203c (in FUN_00a62030)
+  WRITE @ 0x00fb57d2 (in ???)
+  Total: 16 refs
+
+----------------------------------------------------------------------
+Disassembly: texture cache operation family (0x00a619a0 - 0x00a620a0)
+----------------------------------------------------------------------
+  0x00a619a2: POP ESI
+  0x00a619a3: MOV AL,BL
+  0x00a619a5: POP EBX
+  0x00a619a6: RET 0xc
+  0x00a619b0: PUSH ECX
+  0x00a619b1: PUSH ESI
+  0x00a619b2: MOV ESI,dword ptr [ESP + 0xc]
+  0x00a619b6: PUSH EDI
+  0x00a619b7: MOV EDI,dword ptr [ESI]
+  0x00a619b9: MOV dword ptr [ESP + 0x8],ECX
+  0x00a619bd: TEST EDI,EDI
+  0x00a619bf: JZ 0x00a61a4c
+  0x00a619c5: PUSH EBX
+  0x00a619c6: PUSH EBP
+  0x00a619c7: MOV EBP,dword ptr [ESP + 0x1c]
+  0x00a619cb: MOV EBX,dword ptr [EBP]
+  0x00a619ce: CMP EBX,dword ptr [EDI]
+  0x00a619d0: JZ 0x00a61a00
+  0x00a619d2: TEST EBX,EBX
+  0x00a619d4: JZ 0x00a619ed
+  0x00a619d6: LEA EAX,[EBX + 0x4]
+  0x00a619d9: PUSH EAX
+  0x00a619da: CALL dword ptr [0x00fdf1c4]
+  0x00a619e0: TEST EAX,EAX
+  0x00a619e2: JNZ 0x00a619ed
+  0x00a619e4: MOV EDX,dword ptr [EBX]
+  0x00a619e6: MOV EAX,dword ptr [EDX + 0x4]
+  0x00a619e9: MOV ECX,EBX
+  0x00a619eb: CALL EAX
+  0x00a619ed: MOV EAX,dword ptr [EDI]
+  0x00a619ef: MOV dword ptr [EBP],EAX
+  0x00a619f2: TEST EAX,EAX
+  0x00a619f4: JZ 0x00a61a00
+  0x00a619f6: ADD EAX,0x4
+  0x00a619f9: PUSH EAX
+  0x00a619fa: CALL dword ptr [0x00fdf1c0]
+  0x00a61a00: MOV ECX,dword ptr [ESI]
+  0x00a61a02: MOV EAX,dword ptr [ECX + 0x8]
+  0x00a61a05: POP EBP
+  0x00a61a06: MOV dword ptr [ESI],EAX
+  0x00a61a08: POP EBX
+  0x00a61a09: TEST EAX,EAX
+  0x00a61a0b: JNZ 0x00a61a4c
+  0x00a61a0d: MOV ECX,0x1
+  0x00a61a12: ADD dword ptr [ESI + 0x4],ECX
+  0x00a61a15: MOV EAX,dword ptr [ESI + 0x4]
+  0x00a61a18: CMP EAX,0x2c9
+  0x00a61a1d: JNC 0x00a61a4c
+  0x00a61a1f: MOV EAX,dword ptr [ESP + 0x8]
+  0x00a61a23: MOV EDX,dword ptr [ESI + 0x4]
+  0x00a61a26: CMP dword ptr [EAX + EDX*0x4],0x0
+  0x00a61a2a: JNZ 0x00a61a45
+  0x00a61a2c: ADD dword ptr [ESI + 0x4],ECX
+  0x00a61a2f: CMP dword ptr [ESI + 0x4],0x2c9
+  0x00a61a36: JC 0x00a61a23
+  0x00a61a38: XOR EAX,EAX
+  0x00a61a3a: CMP dword ptr [ESI],EAX
+  0x00a61a3c: POP EDI
+  0x00a61a3d: SETNZ AL
+  0x00a61a40: POP ESI
+  0x00a61a41: POP ECX
+  0x00a61a42: RET 0x8
+  0x00a61a45: MOV ECX,EDX
+  0x00a61a47: MOV EDX,dword ptr [EAX + ECX*0x4]
+  0x00a61a4a: MOV dword ptr [ESI],EDX
+  0x00a61a4c: XOR EAX,EAX
+  0x00a61a4e: CMP dword ptr [ESI],EAX
+  0x00a61a50: POP EDI
+  0x00a61a51: SETNZ AL
+  0x00a61a54: POP ESI
+  0x00a61a55: POP ECX
+  0x00a61a56: RET 0x8
+  0x00a61a60: MOV EAX,dword ptr [ESP + 0x4]
+  0x00a61a64: MOV ECX,dword ptr [ECX + EAX*0x4]
+  0x00a61a67: XOR AL,AL
+  0x00a61a69: TEST ECX,ECX
+  0x00a61a6b: JZ 0x00a61ac4
+  0x00a61a6d: MOV EDX,dword ptr [ESP + 0x8]
+  0x00a61a71: PUSH ESI
+  0x00a61a72: MOV ESI,dword ptr [ECX]
+  0x00a61a74: CMP EDX,dword ptr [ESI + 0x4]
+  0x00a61a77: JZ 0x00a61a84
+  0x00a61a79: MOV ECX,dword ptr [ECX + 0x4]
+  0x00a61a7c: TEST ECX,ECX
+  0x00a61a7e: JNZ 0x00a61a72
+  0x00a61a80: POP ESI
+  0x00a61a81: RET 0xc
+  0x00a61a84: PUSH EBX
+  0x00a61a85: MOV EBX,dword ptr [ESP + 0x14]
+  0x00a61a89: PUSH EDI
+  0x00a61a8a: MOV EDI,ESI
+  0x00a61a8c: MOV ESI,dword ptr [EBX]
+  0x00a61a8e: CMP ESI,dword ptr [EDI]
+  0x00a61a90: JZ 0x00a61abf
+  0x00a61a92: TEST ESI,ESI
+  0x00a61a94: JZ 0x00a61aad
+  0x00a61a96: LEA ECX,[ESI + 0x4]
+  0x00a61a99: PUSH ECX
+  0x00a61a9a: CALL dword ptr [0x00fdf1c4]
+  0x00a61aa0: TEST EAX,EAX
+  0x00a61aa2: JNZ 0x00a61aad
+  0x00a61aa4: MOV EDX,dword ptr [ESI]
+  0x00a61aa6: MOV EAX,dword ptr [EDX + 0x4]
+  0x00a61aa9: MOV ECX,ESI
+  0x00a61aab: CALL EAX
+  0x00a61aad: MOV EAX,dword ptr [EDI]
+  0x00a61aaf: MOV dword ptr [EBX],EAX
+  0x00a61ab1: TEST EAX,EAX
+  0x00a61ab3: JZ 0x00a61abf
+  0x00a61ab5: ADD EAX,0x4
+  0x00a61ab8: PUSH EAX
+  0x00a61ab9: CALL dword ptr [0x00fdf1c0]
+  0x00a61abf: POP EDI
+  0x00a61ac0: POP EBX
+  0x00a61ac1: MOV AL,0x1
+  0x00a61ac3: POP ESI
+  0x00a61ac4: RET 0xc
+  0x00a61ad0: MOV EAX,[0x0126fd98]
+  0x00a61ad5: MOV ECX,dword ptr FS:[0x2c]
+  0x00a61adc: PUSH EBX
+  0x00a61add: PUSH EBP
+  0x00a61ade: PUSH ESI
+  0x00a61adf: MOV ESI,dword ptr [ECX + EAX*0x4]
+  0x00a61ae2: MOV EBP,dword ptr [ESI + 0x2b4]
+  0x00a61ae8: PUSH EDI
+  0x00a61ae9: PUSH 0xfa8
+  0x00a61aee: MOV ECX,0x11f6238
+  0x00a61af3: MOV dword ptr [ESI + 0x2b4],0xf
+  0x00a61afd: CALL 0x00aa3e40
+  0x00a61b02: MOV EDI,EAX
+  0x00a61b04: XOR EBX,EBX
+  0x00a61b06: CMP EDI,EBX
+  0x00a61b08: JZ 0x00a61b27
+  0x00a61b0a: PUSH 0xfa4
+  0x00a61b0f: PUSH EBX
+  0x00a61b10: PUSH EDI
+  0x00a61b11: CALL 0x00ec61c0
+  0x00a61b16: MOV dword ptr [EDI + 0xfa4],EBX
+  0x00a61b1c: ADD ESP,0xc
+  0x00a61b1f: MOV dword ptr [0x011f4468],EDI
+  0x00a61b25: JMP 0x00a61b2d
+  0x00a61b27: MOV dword ptr [0x011f4468],EBX
+  0x00a61b2d: PUSH 0x4e1c
+  0x00a61b32: MOV ECX,0x11f6238
+  0x00a61b37: CALL 0x00aa3e40
+  0x00a61b3c: CMP EAX,EBX
+  0x00a61b3e: JZ 0x00a61b72
+  0x00a61b40: PUSH 0xa61590
+  0x00a61b45: PUSH 0x7
+  0x00a61b47: LEA EDI,[EAX + 0x4]
+  0x00a61b4a: PUSH 0xb28
+  0x00a61b4f: PUSH EDI
+  0x00a61b50: MOV dword ptr [EAX],0x7
+  0x00a61b56: CALL 0x00401050
+  0x00a61b5b: MOV dword ptr [0x011f4464],EDI
+  0x00a61b61: POP EDI
+  0x00a61b62: MOV dword ptr [ESI + 0x2b4],EBP
+  0x00a61b68: POP ESI
+  0x00a61b69: POP EBP
+  0x00a61b6a: MOV byte ptr [0x011f4461],BL
+  0x00a61b70: POP EBX
+  0x00a61b71: RET
+  0x00a61b72: POP EDI
+  0x00a61b73: MOV dword ptr [ESI + 0x2b4],EBP
+  0x00a61b79: POP ESI
+  0x00a61b7a: POP EBP
+  0x00a61b7b: MOV dword ptr [0x011f4464],EBX
+  0x00a61b81: MOV byte ptr [0x011f4461],BL
+  0x00a61b87: POP EBX
+  0x00a61b88: RET
+  0x00a61b90: PUSH ECX
+  0x00a61b91: PUSH EBX
+  0x00a61b92: XOR BL,BL
+  0x00a61b94: CMP dword ptr [0x011f4468],0x0
+  0x00a61b9b: JZ 0x00a61c41
+  0x00a61ba1: PUSH EBP
+  0x00a61ba2: PUSH ESI
+  0x00a61ba3: PUSH EDI
+  0x00a61ba4: PUSH 0x0
+  0x00a61ba6: MOV ECX,0x11f4480
+  0x00a61bab: CALL 0x0040fbf0
+  0x00a61bb0: MOV EDI,dword ptr [ESP + 0x18]
+  0x00a61bb4: PUSH 0x1
+  0x00a61bb6: PUSH EDI
+  0x00a61bb7: CALL 0x00af4170
+  0x00a61bbc: LEA ESI,[EAX + EDI*0x1]
+  0x00a61bbf: PUSH ESI
+  0x00a61bc0: CALL 0x00a61530
+  0x00a61bc5: MOV EBP,dword ptr [ESP + 0x28]
+  0x00a61bc9: MOV EDI,dword ptr [EBP]
+  0x00a61bcc: ADD ESP,0xc
+  0x00a61bcf: MOV dword ptr [ESP + 0x10],EAX
+  0x00a61bd3: TEST EDI,EDI
+  0x00a61bd5: JZ 0x00a61bf5
+  0x00a61bd7: LEA EAX,[EDI + 0x4]
+  0x00a61bda: PUSH EAX
+  0x00a61bdb: CALL dword ptr [0x00fdf1c4]
+  0x00a61be1: TEST EAX,EAX
+  0x00a61be3: JNZ 0x00a61bee
+  0x00a61be5: MOV EDX,dword ptr [EDI]
+  0x00a61be7: MOV EAX,dword ptr [EDX + 0x4]
+  0x00a61bea: MOV ECX,EDI
+  0x00a61bec: CALL EAX
+  0x00a61bee: MOV dword ptr [EBP],0x0
+  0x00a61bf5: MOV EDI,0x4e18
+  0x00a61bfa: LEA EBX,[EBX]
+  0x00a61c00: MOV ECX,EDI
+  0x00a61c02: SUB EDI,0xb28
+  0x00a61c08: TEST ECX,ECX
+  0x00a61c0a: JZ 0x00a61c26
+  0x00a61c0c: MOV EDX,dword ptr [ESP + 0x10]
+  0x00a61c10: MOV EAX,[0x011f4464]
+  0x00a61c15: PUSH EBP
+  0x00a61c16: PUSH ESI
+  0x00a61c17: PUSH EDX
+  0x00a61c18: LEA ECX,[EDI + EAX*0x1]
+  0x00a61c1b: CALL 0x00a61920
+  0x00a61c20: MOV BL,AL
+  0x00a61c22: TEST BL,BL
+  0x00a61c24: JZ 0x00a61c00
+  0x00a61c26: SUB dword ptr [0x011f4484],0x1
+  0x00a61c2d: POP EDI
+  0x00a61c2e: POP ESI
+  0x00a61c2f: POP EBP
+  0x00a61c30: MOV AL,BL
+  0x00a61c32: JNZ 0x00a61c43
+  0x00a61c34: MOV dword ptr [0x011f4480],0x0
+  0x00a61c3e: POP EBX
+  0x00a61c3f: POP ECX
+  0x00a61c40: RET
+  0x00a61c41: MOV AL,BL
+  0x00a61c43: POP EBX
+  0x00a61c44: POP ECX
+  0x00a61c45: RET
+  0x00a61c50: CMP dword ptr [0x011f4468],0x0
+  0x00a61c57: JZ 0x00a61ccf
+  0x00a61c59: PUSH EBX
+  0x00a61c5a: PUSH ESI
+  0x00a61c5b: PUSH EDI
+  0x00a61c5c: PUSH 0x0
+  0x00a61c5e: MOV ECX,0x11f4480
+  0x00a61c63: CALL 0x0040fbf0
+  0x00a61c68: MOV EBX,dword ptr [ESP + 0x10]
+  0x00a61c6c: PUSH EBX
+  0x00a61c6d: CALL 0x00a61750
+  0x00a61c72: MOV ESI,EAX
+  0x00a61c74: MOV ECX,ESI
+  0x00a61c76: IMUL ECX,ECX,0xb28
+  0x00a61c7c: ADD ECX,dword ptr [0x011f4464]
+  0x00a61c82: ADD ESP,0x4
+  0x00a61c85: PUSH EBX
+  0x00a61c86: CALL 0x00a617c0
+  0x00a61c8b: MOV EDI,EAX
+  0x00a61c8d: CMP dword ptr [EDI + 0x4],0x0
+  0x00a61c91: MOV word ptr [EDI + 0xc],SI
+  0x00a61c95: JNZ 0x00a61cb9
+  0x00a61c97: MOV EAX,dword ptr [ESP + 0x14]
+  0x00a61c9b: TEST EAX,EAX
+  0x00a61c9d: JNZ 0x00a61cac
+  0x00a61c9f: PUSH EBX
+  0x00a61ca0: CALL 0x00c5d560
+  0x00a61ca5: ADD ESP,0x4
+  0x00a61ca8: TEST EAX,EAX
+  0x00a61caa: JZ 0x00a61cb9
+  0x00a61cac: MOV ECX,dword ptr [0x011f4468]
+  0x00a61cb2: PUSH EDI
+  0x00a61cb3: PUSH EAX
+  0x00a61cb4: CALL 0x00a61610
+  0x00a61cb9: SUB dword ptr [0x011f4484],0x1
+  0x00a61cc0: POP EDI
+  0x00a61cc1: POP ESI
+  0x00a61cc2: POP EBX
+  0x00a61cc3: JNZ 0x00a61ccf
+  0x00a61cc5: MOV dword ptr [0x011f4480],0x0
+  0x00a61ccf: RET
+  0x00a61cd0: SUB ESP,0x1c
+  0x00a61cd3: PUSH EBP
+  0x00a61cd4: XOR EBP,EBP
+  0x00a61cd6: CMP dword ptr [0x011f4468],EBP
+  0x00a61cdc: JZ 0x00a61e3f
+  0x00a61ce2: PUSH EBP
+  0x00a61ce3: MOV ECX,0x11f4480
+  0x00a61ce8: CALL 0x0040fbf0
+  0x00a61ced: LEA EAX,[ESP + 0x14]
+  0x00a61cf1: PUSH EAX
+  0x00a61cf2: MOV dword ptr [ESP + 0x8],EBP
+  0x00a61cf6: MOV byte ptr [0x011f4461],0x0
+  0x00a61cfd: CALL 0x00a616e0
+  0x00a61d02: ADD ESP,0x4
+  0x00a61d05: TEST AL,AL
+  0x00a61d07: JZ 0x00a61e30
+  0x00a61d0d: MOV EDX,dword ptr [0x011f4464]
+  0x00a61d13: PUSH EBX
+  0x00a61d14: PUSH ESI
+  0x00a61d15: MOV ESI,dword ptr [ESP + 0x24]
+  0x00a61d19: PUSH EDI
+  0x00a61d1a: MOV EDI,dword ptr [ESP + 0x20]
+  0x00a61d1e: MOV dword ptr [ESP + 0x14],EBP
+  0x00a61d22: JMP 0x00a61d26
+  0x00a61d24: XOR EBP,EBP
+  0x00a61d26: IMUL ESI,ESI,0xb28
+  0x00a61d2c: LEA ECX,[ESP + 0x14]
+  0x00a61d30: PUSH ECX
+  0x00a61d31: LEA EAX,[ESP + 0x24]
+  0x00a61d35: PUSH EAX
+  0x00a61d36: LEA ECX,[ESI + EDX*0x1]
+  0x00a61d39: MOV dword ptr [ESP + 0x20],EDI
+  0x00a61d3d: MOV dword ptr [ESP + 0x24],ESI
+  0x00a61d41: CALL 0x00a619b0
+  0x00a61d46: MOV EDX,dword ptr [0x011f4464]
+  0x00a61d4c: MOV ESI,dword ptr [ESP + 0x28]
+  0x00a61d50: MOV BL,AL
+  0x00a61d52: TEST BL,BL
+  0x00a61d54: JNZ 0x00a61e4d
+  0x00a61d5a: CMP ESI,EBP
+  0x00a61d5c: JZ 0x00a61e44
+  0x00a61d62: DEC ESI
+  0x00a61d63: MOV EAX,ESI
+  0x00a61d65: IMUL EAX,EAX,0xb28
+  0x00a61d6b: ADD EAX,EDX
+  0x00a61d6d: XOR EDI,EDI
+  0x00a61d6f: MOV dword ptr [ESP + 0x24],EBP
+  0x00a61d73: MOV dword ptr [ESP + 0x20],EDI
+  0x00a61d77: CMP dword ptr [EAX + 0xb24],EBP
+  0x00a61d7d: JZ 0x00a61da0
+  0x00a61d7f: XOR ECX,ECX
+  0x00a61d81: CMP dword ptr [EAX + ECX*0x4],EBP
+  0x00a61d84: JNZ 0x00a61d91
+  0x00a61d86: INC ECX
+  0x00a61d87: CMP ECX,0x2c9
+  0x00a61d8d: JC 0x00a61d81
+  0x00a61d8f: JMP 0x00a61da0
+  0x00a61d91: MOV EDI,dword ptr [EAX + ECX*0x4]
+  0x00a61d94: MOVZX ESI,word ptr [EDI + 0xc]
+  0x00a61d98: MOV dword ptr [ESP + 0x24],ECX
+  0x00a61d9c: MOV dword ptr [ESP + 0x20],EDI
+  0x00a61da0: CMP EDI,EBP
+  0x00a61da2: SETNZ BL
+  0x00a61da5: TEST BL,BL
+  0x00a61da7: JNZ 0x00a61db2
+  0x00a61da9: CMP ESI,EBP
+  0x00a61dab: JNZ 0x00a61d62
+  0x00a61dad: MOV dword ptr [ESP + 0x28],ESI
+  0x00a61db1: DEC ESI
+  0x00a61db2: MOV dword ptr [ESP + 0x28],ESI
+  0x00a61db6: MOV EBP,dword ptr [ESP + 0x14]
+  0x00a61dba: TEST EBP,EBP
+  0x00a61dbc: JZ 0x00a61dfb
+  0x00a61dbe: CMP dword ptr [EBP + 0x4],0x2
+  0x00a61dc2: JNZ 0x00a61dfb
+  0x00a61dc4: MOV ECX,dword ptr [ESP + 0x18]
+  0x00a61dc8: MOV EAX,dword ptr [ECX + 0x4]
+  0x00a61dcb: TEST EAX,EAX
+  0x00a61dcd: JZ 0x00a61de1
+  0x00a61dcf: MOV ECX,dword ptr [0x011f4468]
+  0x00a61dd5: PUSH EAX
+  0x00a61dd6: CALL 0x00a61670
+  0x00a61ddb: MOV EDX,dword ptr [0x011f4464]
+  0x00a61de1: MOV EAX,dword ptr [ESP + 0x18]
+  0x00a61de5: MOV ECX,dword ptr [ESP + 0x1c]
+  0x00a61de9: PUSH EAX
+  0x00a61dea: ADD ECX,EDX
+  0x00a61dec: CALL 0x00a61890
+  0x00a61df1: INC dword ptr [ESP + 0x10]
+  0x00a61df5: MOV EDX,dword ptr [0x011f4464]
+  0x00a61dfb: TEST BL,BL
+  0x00a61dfd: JZ 0x00a61e0f
+  0x00a61dff: MOV EAX,dword ptr [ESP + 0x10]
+  0x00a61e03: CMP EAX,dword ptr [0x011a95fc]
+  0x00a61e09: JL 0x00a61d24
+  0x00a61e0f: POP EDI
+  0x00a61e10: POP ESI
+  0x00a61e11: POP EBX
+  0x00a61e12: TEST EBP,EBP
+  0x00a61e14: JZ 0x00a61e2e
+  0x00a61e16: LEA ECX,[EBP + 0x4]
+  0x00a61e19: PUSH ECX
+  0x00a61e1a: CALL dword ptr [0x00fdf1c4]
+  0x00a61e20: TEST EAX,EAX
+  0x00a61e22: JNZ 0x00a61e2e
+  0x00a61e24: MOV EDX,dword ptr [EBP]
+  0x00a61e27: MOV EAX,dword ptr [EDX + 0x4]
+  0x00a61e2a: MOV ECX,EBP
+  0x00a61e2c: CALL EAX
+  0x00a61e2e: XOR EBP,EBP
+  0x00a61e30: SUB dword ptr [0x011f4484],0x1
+  0x00a61e37: JNZ 0x00a61e3f
+  0x00a61e39: MOV dword ptr [0x011f4480],EBP
+  0x00a61e3f: POP EBP
+  0x00a61e40: ADD ESP,0x1c
+  0x00a61e43: RET
+  0x00a61e44: MOV EDI,dword ptr [ESP + 0x20]
+  0x00a61e48: JMP 0x00a61db1
+  0x00a61e4d: MOV EDI,dword ptr [ESP + 0x20]
+  0x00a61e51: JMP 0x00a61db6
+  0x00a61e60: PUSH ESI
+  0x00a61e61: PUSH EDI
+  0x00a61e62: MOV EDI,dword ptr [ESP + 0xc]
+  0x00a61e66: MOV EAX,dword ptr [EDI]
+  0x00a61e68: MOV EDX,dword ptr [EAX + 0x9c]
+  0x00a61e6e: MOV ECX,EDI
+  0x00a61e70: CALL EDX
+  0x00a61e72: MOV ESI,dword ptr [EAX]
+  0x00a61e74: PUSH 0x1
+  0x00a61e76: PUSH ESI
+  0x00a61e77: CALL 0x00af4170
+  0x00a61e7c: ADD EAX,ESI
+  0x00a61e7e: PUSH EAX
+  0x00a61e7f: CALL 0x00a61530
+  0x00a61e84: MOV EDX,dword ptr [0x011f4464]
+  0x00a61e8a: ADD ESP,0xc
+  0x00a61e8d: XOR ECX,ECX
+  0x00a61e8f: LEA EDX,[EDX + EAX*0x4]
+  0x00a61e92: MOV EAX,dword ptr [EDX]
+  0x00a61e94: TEST EAX,EAX
+  0x00a61e96: JZ 0x00a61ea9
+  0x00a61e98: CMP EDI,dword ptr [EAX]
+  0x00a61e9a: JZ 0x00a61ea5
+  0x00a61e9c: MOV EAX,dword ptr [EAX + 0x8]
+  0x00a61e9f: TEST EAX,EAX
+  0x00a61ea1: JNZ 0x00a61e98
+  0x00a61ea3: JMP 0x00a61ea9
+  0x00a61ea5: TEST EAX,EAX
+  0x00a61ea7: JNZ 0x00a61eb5
+  0x00a61ea9: INC ECX
+  0x00a61eaa: ADD EDX,0xb28
+  0x00a61eb0: CMP ECX,0x7
+  0x00a61eb3: JC 0x00a61e92
+  0x00a61eb5: POP EDI
+  0x00a61eb6: POP ESI
+  0x00a61eb7: RET
+  0x00a61ec0: PUSH ECX
+  0x00a61ec1: PUSH EBX
+  0x00a61ec2: PUSH EBP
+  0x00a61ec3: PUSH ESI
+  0x00a61ec4: PUSH EDI
+  0x00a61ec5: MOV dword ptr [ESP + 0x10],ECX
+  0x00a61ec9: XOR EBP,EBP
+  0x00a61ecb: JMP 0x00a61ed0
+  0x00a61ed0: MOV ESI,dword ptr [ECX + EBP*0x4]
+  0x00a61ed3: TEST ESI,ESI
+  0x00a61ed5: JZ 0x00a61f0c
+  0x00a61ed7: MOV EBX,ESI
+  0x00a61ed9: MOV EDI,dword ptr [EBX]
+  0x00a61edb: MOV ESI,dword ptr [ESI + 0x8]
+  0x00a61ede: TEST EDI,EDI
+  0x00a61ee0: JZ 0x00a61ef9
+  0x00a61ee2: LEA EAX,[EDI + 0x4]
+  0x00a61ee5: PUSH EAX
+  0x00a61ee6: CALL dword ptr [0x00fdf1c4]
+  0x00a61eec: TEST EAX,EAX
+  0x00a61eee: JNZ 0x00a61ef9
+  0x00a61ef0: MOV EDX,dword ptr [EDI]
+  0x00a61ef2: MOV EAX,dword ptr [EDX + 0x4]
+  0x00a61ef5: MOV ECX,EDI
+  0x00a61ef7: CALL EAX
+  0x00a61ef9: PUSH EBX
+  0x00a61efa: MOV ECX,0x11f6238
+  0x00a61eff: CALL 0x00aa4060
+  0x00a61f04: TEST ESI,ESI
+  0x00a61f06: JNZ 0x00a61ed7
+  0x00a61f08: MOV ECX,dword ptr [ESP + 0x10]
+  0x00a61f0c: MOV dword ptr [ECX + EBP*0x4],0x0
+  0x00a61f13: INC EBP
+  0x00a61f14: CMP EBP,0x2c9
+  0x00a61f1a: JC 0x00a61ed0
+  0x00a61f1c: POP EDI
+  0x00a61f1d: POP ESI
+  0x00a61f1e: POP EBP
+  0x00a61f1f: MOV dword ptr [ECX + 0xb24],0x0
+  0x00a61f29: POP EBX
+  0x00a61f2a: POP ECX
+  0x00a61f2b: RET
+  0x00a61f30: PUSH EBX
+  0x00a61f31: XOR BL,BL
+  0x00a61f33: CMP dword ptr [0x011f4468],0x0
+  0x00a61f3a: JZ 0x00a61f9f
+  0x00a61f3c: PUSH ESI
+  0x00a61f3d: PUSH 0x0
+  0x00a61f3f: MOV ECX,0x11f4480
+  0x00a61f44: CALL 0x0040fbf0
+  0x00a61f49: MOV EAX,dword ptr [ESP + 0xc]
+  0x00a61f4d: PUSH EAX
+  0x00a61f4e: CALL 0x00a61e60
+  0x00a61f53: MOV ESI,EAX
+  0x00a61f55: ADD ESP,0x4
+  0x00a61f58: TEST ESI,ESI
+  0x00a61f5a: JZ 0x00a61f87
+  0x00a61f5c: MOV EAX,dword ptr [ESI + 0x4]
+  0x00a61f5f: TEST EAX,EAX
+  0x00a61f61: JZ 0x00a61f6f
+  0x00a61f63: MOV ECX,dword ptr [0x011f4468]
+  0x00a61f69: PUSH EAX
+  0x00a61f6a: CALL 0x00a61670
+  0x00a61f6f: MOVZX ECX,word ptr [ESI + 0xc]
+  0x00a61f73: IMUL ECX,ECX,0xb28
+  0x00a61f79: ADD ECX,dword ptr [0x011f4464]
+  0x00a61f7f: PUSH ESI
+  0x00a61f80: CALL 0x00a61890
+  0x00a61f85: MOV BL,0x1
+  0x00a61f87: SUB dword ptr [0x011f4484],0x1
+  0x00a61f8e: POP ESI
+  0x00a61f8f: MOV AL,BL
+  0x00a61f91: JNZ 0x00a61fa1
+  0x00a61f93: MOV dword ptr [0x011f4480],0x0
+  0x00a61f9d: POP EBX
+  0x00a61f9e: RET
+  0x00a61f9f: MOV AL,BL
+  0x00a61fa1: POP EBX
+  0x00a61fa2: RET
+  0x00a61fb0: PUSH ECX
+  0x00a61fb1: PUSH EBX
+  0x00a61fb2: XOR BL,BL
+  0x00a61fb4: CMP dword ptr [0x011f4468],0x0
+  0x00a61fbb: JZ 0x00a6202b
+  0x00a61fbd: PUSH ESI
+  0x00a61fbe: PUSH 0x0
+  0x00a61fc0: MOV ECX,0x11f4480
+  0x00a61fc5: MOV dword ptr [ESP + 0xc],0x0
+  0x00a61fcd: CALL 0x0040fbf0
+  0x00a61fd2: MOV ECX,dword ptr [ESP + 0x10]
+  0x00a61fd6: LEA EAX,[ESP + 0x8]
+  0x00a61fda: PUSH EAX
+  0x00a61fdb: PUSH ECX
+  0x00a61fdc: CALL 0x00a61b90
+  0x00a61fe1: MOV ESI,dword ptr [ESP + 0x10]
+  0x00a61fe5: ADD ESP,0x8
+  0x00a61fe8: TEST AL,AL
+  0x00a61fea: JZ 0x00a61ff7
+  0x00a61fec: PUSH ESI
+  0x00a61fed: CALL 0x00a61f30
+  0x00a61ff2: ADD ESP,0x4
+  0x00a61ff5: MOV BL,AL
+  0x00a61ff7: SUB dword ptr [0x011f4484],0x1
+  0x00a61ffe: JNZ 0x00a6200a
+  0x00a62000: MOV dword ptr [0x011f4480],0x0
+  0x00a6200a: TEST ESI,ESI
+  0x00a6200c: JZ 0x00a62025
+  0x00a6200e: LEA EDX,[ESI + 0x4]
+  0x00a62011: PUSH EDX
+  0x00a62012: CALL dword ptr [0x00fdf1c4]
+  0x00a62018: TEST EAX,EAX
+  0x00a6201a: JNZ 0x00a62025
+  0x00a6201c: MOV EAX,dword ptr [ESI]
+  0x00a6201e: MOV EDX,dword ptr [EAX + 0x4]
+  0x00a62021: MOV ECX,ESI
+  0x00a62023: CALL EDX
+  0x00a62025: POP ESI
+  0x00a62026: MOV AL,BL
+  0x00a62028: POP EBX
+  0x00a62029: POP ECX
+  0x00a6202a: RET
+  0x00a6202b: MOV AL,BL
+  0x00a6202d: POP EBX
+  0x00a6202e: POP ECX
+  0x00a6202f: RET
+  0x00a62030: CMP dword ptr [0x011f4468],0x0
+  0x00a62037: JZ 0x00a62082
+  0x00a62039: PUSH ESI
+  0x00a6203a: PUSH 0x0
+  0x00a6203c: MOV ECX,0x11f4480
+  0x00a62041: CALL 0x0040fbf0
+  0x00a62046: MOV ECX,dword ptr [0x011f4468]
+  0x00a6204c: CALL 0x00a615c0
+  0x00a62051: XOR ESI,ESI
+  0x00a62053: MOV EAX,[0x011f4464]
+  0x00a62058: LEA ECX,[ESI + EAX*0x1]
+  0x00a6205b: CALL 0x00a61ec0
+  0x00a62060: ADD ESI,0xb28
+  0x00a62066: CMP ESI,0x4e18
+  0x00a6206c: JC 0x00a62053
+  0x00a6206e: SUB dword ptr [0x011f4484],0x1
+  0x00a62075: POP ESI
+  0x00a62076: JNZ 0x00a62082
+  0x00a62078: MOV dword ptr [0x011f4480],0x0
+  0x00a62082: RET
+  0x00a62090: PUSH ESI
+  0x00a62091: CALL 0x00a62030
+  0x00a62096: MOV ECX,dword ptr [0x011f4468]
+  0x00a6209c: MOV ESI,ECX
+  0x00a6209e: TEST ECX,ECX
+  0x00a620a0: JZ 0x00a620b2
+
+----------------------------------------------------------------------
+Disassembly: texture destructor ordering (0x00a5fc80 - 0x00a5fe20)
+----------------------------------------------------------------------
+  0x00a5fc80: MOV EAX,0x11f444c
+  0x00a5fc85: RET
+  0x00a5fc90: LEA EAX,[ECX + 0x30]
+  0x00a5fc93: RET
+  0x00a5fca0: PUSH EBX
+  0x00a5fca1: MOV EBX,dword ptr [0x00fdf1c4]
+  0x00a5fca7: PUSH ESI
+  0x00a5fca8: MOV ESI,ECX
+  0x00a5fcaa: PUSH EDI
+  0x00a5fcab: MOV dword ptr [ESI],0x109b9ec
+  0x00a5fcb1: MOV EDI,dword ptr [ESI + 0x3c]
+  0x00a5fcb4: TEST EDI,EDI
+  0x00a5fcb6: JZ 0x00a5fcd2
+  0x00a5fcb8: LEA EAX,[EDI + 0x4]
+  0x00a5fcbb: PUSH EAX
+  0x00a5fcbc: CALL EBX
+  0x00a5fcbe: TEST EAX,EAX
+  0x00a5fcc0: JNZ 0x00a5fccb
+  0x00a5fcc2: MOV EDX,dword ptr [EDI]
+  0x00a5fcc4: MOV EAX,dword ptr [EDX + 0x4]
+  0x00a5fcc7: MOV ECX,EDI
+  0x00a5fcc9: CALL EAX
+  0x00a5fccb: MOV dword ptr [ESI + 0x3c],0x0
+  0x00a5fcd2: MOV EDI,dword ptr [ESI + 0x38]
+  0x00a5fcd5: TEST EDI,EDI
+  0x00a5fcd7: JZ 0x00a5fcf3
+  0x00a5fcd9: LEA ECX,[EDI + 0x4]
+  0x00a5fcdc: PUSH ECX
+  0x00a5fcdd: CALL EBX
+  0x00a5fcdf: TEST EAX,EAX
+  0x00a5fce1: JNZ 0x00a5fcec
+  0x00a5fce3: MOV EDX,dword ptr [EDI]
+  0x00a5fce5: MOV EAX,dword ptr [EDX + 0x4]
+  0x00a5fce8: MOV ECX,EDI
+  0x00a5fcea: CALL EAX
+  0x00a5fcec: MOV dword ptr [ESI + 0x38],0x0
+  0x00a5fcf3: MOV EDI,dword ptr [ESI + 0x3c]
+  0x00a5fcf6: TEST EDI,EDI
+  0x00a5fcf8: JZ 0x00a5fd0d
+  0x00a5fcfa: LEA ECX,[EDI + 0x4]
+  0x00a5fcfd: PUSH ECX
+  0x00a5fcfe: CALL EBX
+  0x00a5fd00: TEST EAX,EAX
+  0x00a5fd02: JNZ 0x00a5fd0d
+  0x00a5fd04: MOV EDX,dword ptr [EDI]
+  0x00a5fd06: MOV EAX,dword ptr [EDX + 0x4]
+  0x00a5fd09: MOV ECX,EDI
+  0x00a5fd0b: CALL EAX
+  0x00a5fd0d: MOV EDI,dword ptr [ESI + 0x38]
+  0x00a5fd10: TEST EDI,EDI
+  0x00a5fd12: JZ 0x00a5fd27
+  0x00a5fd14: LEA ECX,[EDI + 0x4]
+  0x00a5fd17: PUSH ECX
+  0x00a5fd18: CALL EBX
+  0x00a5fd1a: TEST EAX,EAX
+  0x00a5fd1c: JNZ 0x00a5fd27
+  0x00a5fd1e: MOV EDX,dword ptr [EDI]
+  0x00a5fd20: MOV EAX,dword ptr [EDX + 0x4]
+  0x00a5fd23: MOV ECX,EDI
+  0x00a5fd25: CALL EAX
+  0x00a5fd27: MOV EAX,dword ptr [ESI + 0x34]
+  0x00a5fd2a: CMP EAX,dword ptr [0x0109b220]
+  0x00a5fd30: JZ 0x00a5fd38
+  0x00a5fd32: ADD EAX,-0x8
+  0x00a5fd35: PUSH EAX
+  0x00a5fd36: CALL EBX
+  0x00a5fd38: MOV EAX,dword ptr [ESI + 0x30]
+  0x00a5fd3b: CMP EAX,dword ptr [0x0109b220]
+  0x00a5fd41: JZ 0x00a5fd49
+  0x00a5fd43: ADD EAX,-0x8
+  0x00a5fd46: PUSH EAX
+  0x00a5fd47: CALL EBX
+  0x00a5fd49: MOV ECX,dword ptr [ESI + 0x24]
+  0x00a5fd4c: MOV dword ptr [ESI],0x109b944
+  0x00a5fd52: TEST ECX,ECX
+  0x00a5fd54: JZ 0x00a5fd5e
+  0x00a5fd56: MOV EDX,dword ptr [ECX]
+  0x00a5fd58: MOV EAX,dword ptr [EDX]
+  0x00a5fd5a: PUSH 0x1
+  0x00a5fd5c: CALL EAX
+  0x00a5fd5e: MOV ECX,ESI
+  0x00a5fd60: CALL 0x00a5f800
+  0x00a5fd65: POP EDI
+  0x00a5fd66: MOV ECX,ESI
+  0x00a5fd68: POP ESI
+  0x00a5fd69: POP EBX
+  0x00a5fd6a: JMP 0x00a5c240
+  0x00a5fd70: PUSH ESI
+  0x00a5fd71: PUSH 0x48
+  0x00a5fd73: CALL 0x00aa13e0
+  0x00a5fd78: ADD ESP,0x4
+  0x00a5fd7b: TEST EAX,EAX
+  0x00a5fd7d: JZ 0x00a5fd8a
+  0x00a5fd7f: MOV ECX,EAX
+  0x00a5fd81: CALL 0x00a5fc10
+  0x00a5fd86: MOV ESI,EAX
+  0x00a5fd88: JMP 0x00a5fd8c
+  0x00a5fd8a: XOR ESI,ESI
+  0x00a5fd8c: MOV EAX,dword ptr [ESP + 0xc]
+  0x00a5fd90: MOV ECX,dword ptr [EAX]
+  0x00a5fd92: MOV dword ptr [ESI + 0x18],ECX
+  0x00a5fd95: MOV EDX,dword ptr [EAX + 0x4]
+  0x00a5fd98: MOV CL,byte ptr [ESP + 0x10]
+  0x00a5fd9c: MOV dword ptr [ESI + 0x1c],EDX
+  0x00a5fd9f: MOV EAX,dword ptr [EAX + 0x8]
+  0x00a5fda2: MOV DL,byte ptr [ESP + 0x14]
+  0x00a5fda6: MOV dword ptr [ESI + 0x20],EAX
+  0x00a5fda9: MOV EAX,dword ptr [ESP + 0x8]
+  0x00a5fdad: PUSH EBX
+  0x00a5fdae: MOV byte ptr [ESI + 0x41],CL
+  0x00a5fdb1: MOV byte ptr [ESI + 0x42],DL
+  0x00a5fdb4: MOV EBX,dword ptr [EAX]
+  0x00a5fdb6: CMP dword ptr [ESI + 0x30],EBX
+  0x00a5fdb9: PUSH EDI
+  0x00a5fdba: LEA EDI,[ESI + 0x30]
+  0x00a5fdbd: JZ 0x00a5fde7
+  0x00a5fdbf: CMP EBX,dword ptr [0x0109b220]
+  0x00a5fdc5: JZ 0x00a5fdd1
+  0x00a5fdc7: LEA ECX,[EBX + -0x8]
+  0x00a5fdca: PUSH ECX
+  0x00a5fdcb: CALL dword ptr [0x00fdf1c0]
+  0x00a5fdd1: MOV EAX,dword ptr [EDI]
+  0x00a5fdd3: CMP EAX,dword ptr [0x0109b220]
+  0x00a5fdd9: JZ 0x00a5fde5
+  0x00a5fddb: ADD EAX,-0x8
+  0x00a5fdde: PUSH EAX
+  0x00a5fddf: CALL dword ptr [0x00fdf1c4]
+  0x00a5fde5: MOV dword ptr [EDI],EBX
+  0x00a5fde7: PUSH EDI
+  0x00a5fde8: CALL 0x00a57500
+  0x00a5fded: LEA EDX,[ESI + 0x34]
+  0x00a5fdf0: PUSH EDX
+  0x00a5fdf1: PUSH EDI
+  0x00a5fdf2: CALL 0x00a76960
+  0x00a5fdf7: ADD ESP,0xc
+  0x00a5fdfa: CMP byte ptr [0x011a9594],0x0
+  0x00a5fe01: POP EDI
+  0x00a5fe02: POP EBX
+  0x00a5fe03: JZ 0x00a5fe23
+  0x00a5fe05: MOV EAX,dword ptr [ESI]
+  0x00a5fe07: MOV EDX,dword ptr [EAX + 0xac]
+  0x00a5fe0d: MOV ECX,ESI
+  0x00a5fe0f: CALL EDX
+  0x00a5fe11: TEST AL,AL
+  0x00a5fe13: JNZ 0x00a5fe23
+  0x00a5fe15: MOV EAX,dword ptr [ESI]
+  0x00a5fe17: MOV EDX,dword ptr [EAX]
+  0x00a5fe19: PUSH 0x1
+  0x00a5fe1b: MOV ECX,ESI
+  0x00a5fe1d: CALL EDX
+  0x00a5fe1f: XOR EAX,EAX

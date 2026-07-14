@@ -56,6 +56,7 @@ static REMOVE_AGENT_UNLOCK_PATCHED: AtomicU64 = AtomicU64::new(0);
 const PAIR_SIZE: usize = 8;
 const COLLISION_TYPE_COUNT: u8 = 8;
 const DISPATCH_TABLE_ENTRIES: usize = 64;
+const READABLE_REGION_CACHE_ENTRIES: usize = 8;
 const PENDING_ADD_LOOP_SLOT_LOAD_ADDR: usize = 0x00C67577;
 const PENDING_ADD_LOOP_CONTINUE_ADDR: usize = 0x00C6757E;
 const PENDING_ADD_LOOP_NEXT_SLOT_ADDR: usize = 0x00C67681;
@@ -304,10 +305,29 @@ pub unsafe extern "thiscall" fn hook_havok_narrowphase_add_agents(
         return;
     }
 
+    let Some(pair_bytes) = (count as usize).checked_mul(PAIR_SIZE) else {
+        log_narrowphase_skip("pair-count-overflow", pairs as usize, 0, 0, count);
+        return;
+    };
+    if !is_readable(pairs as usize, pair_bytes) {
+        log_narrowphase_skip("bad-pair-array", pairs as usize, 0, 0, count);
+        return;
+    }
+
+    // Each dispatch slot owns one agent object. Validate an agent at most once
+    // per batch instead of repeating three VirtualQuery calls for every pair
+    // that maps to the same slot.
+    let mut agent_states = [0u8; DISPATCH_TABLE_ENTRIES];
+    let mut object_regions = ReadableRegionCache::new();
     let mut bad_seen = false;
     for i in 0..count as usize {
         let pair_addr = pairs as usize + i * PAIR_SIZE;
-        if !valid_pair(dispatch_table as usize, pair_addr) {
+        if !valid_pair(
+            dispatch_table as usize,
+            pair_addr,
+            &mut agent_states,
+            &mut object_regions,
+        ) {
             bad_seen = true;
             break;
         }
@@ -320,11 +340,16 @@ pub unsafe extern "thiscall" fn hook_havok_narrowphase_add_agents(
 
     for i in 0..count as usize {
         let pair_addr = pairs as usize + i * PAIR_SIZE;
-        if valid_pair(dispatch_table as usize, pair_addr) {
+        if valid_pair(
+            dispatch_table as usize,
+            pair_addr,
+            &mut agent_states,
+            &mut object_regions,
+        ) {
             unsafe { original(dispatch_table, pair_addr as *mut c_void, 1, filter) };
         } else {
-            let a = read_u32(pair_addr).unwrap_or(0);
-            let b = read_u32(pair_addr + 4).unwrap_or(0);
+            let a = unsafe { core::ptr::read_unaligned(pair_addr as *const u32) };
+            let b = unsafe { core::ptr::read_unaligned((pair_addr + 4) as *const u32) };
             log_narrowphase_skip("bad-pair", pair_addr, a, b, count);
         }
     }
@@ -365,49 +390,89 @@ fn valid_filter(filter: usize) -> bool {
     is_executable(callback as usize)
 }
 
-fn valid_pair(dispatch_table: usize, pair_addr: usize) -> bool {
-    let Some(a) = read_u32(pair_addr) else {
-        return false;
-    };
-    let Some(b) = read_u32(pair_addr + 4) else {
-        return false;
-    };
+fn valid_pair(
+    dispatch_table: usize,
+    pair_addr: usize,
+    agent_states: &mut [u8; DISPATCH_TABLE_ENTRIES],
+    object_regions: &mut ReadableRegionCache,
+) -> bool {
+    let a = unsafe { core::ptr::read_unaligned(pair_addr as *const u32) };
+    let b = unsafe { core::ptr::read_unaligned((pair_addr + 4) as *const u32) };
     if a == 0 || b == 0 {
         return false;
     }
 
-    let Some(type_a) = read_u8(a as usize + 4) else {
+    if !object_regions.contains(a as usize, 8) || !object_regions.contains(b as usize, 8) {
         return false;
-    };
-    let Some(type_b) = read_u8(b as usize + 4) else {
-        return false;
-    };
+    }
+    let type_a = unsafe { *((a as usize + 4) as *const u8) };
+    let type_b = unsafe { *((b as usize + 4) as *const u8) };
     if type_a >= COLLISION_TYPE_COUNT || type_b >= COLLISION_TYPE_COUNT {
         return false;
     }
 
     let index = type_b as usize + type_a as usize * COLLISION_TYPE_COUNT as usize;
-    let Some(agent) = read_u32(dispatch_table + index * core::mem::size_of::<u32>()) else {
-        return false;
+    match agent_states[index] {
+        1 => return true,
+        2 => return false,
+        _ => {}
+    }
+
+    let agent = unsafe {
+        core::ptr::read_unaligned(
+            (dispatch_table + index * core::mem::size_of::<u32>()) as *const u32,
+        )
     };
     if agent == 0 {
+        agent_states[index] = 2;
         return false;
     }
 
     let Some(vtable) = read_u32(agent as usize) else {
+        agent_states[index] = 2;
         return false;
     };
     let Some(callback) = read_u32(vtable as usize + 4) else {
+        agent_states[index] = 2;
         return false;
     };
-    is_executable(callback as usize)
+    let valid = is_executable(callback as usize);
+    agent_states[index] = if valid { 1 } else { 2 };
+    valid
 }
 
-fn read_u8(addr: usize) -> Option<u8> {
-    if is_readable(addr, core::mem::size_of::<u8>()) {
-        Some(unsafe { *(addr as *const u8) })
-    } else {
-        None
+struct ReadableRegionCache {
+    starts: [usize; READABLE_REGION_CACHE_ENTRIES],
+    ends: [usize; READABLE_REGION_CACHE_ENTRIES],
+    next: usize,
+}
+
+impl ReadableRegionCache {
+    const fn new() -> Self {
+        Self {
+            starts: [0; READABLE_REGION_CACHE_ENTRIES],
+            ends: [0; READABLE_REGION_CACHE_ENTRIES],
+            next: 0,
+        }
+    }
+
+    fn contains(&mut self, address: usize, len: usize) -> bool {
+        let Some(end) = address.checked_add(len) else {
+            return false;
+        };
+        for index in 0..READABLE_REGION_CACHE_ENTRIES {
+            if address >= self.starts[index] && end <= self.ends[index] {
+                return true;
+            }
+        }
+
+        let Some((start, region_end)) = readable_region(address, len) else {
+            return false;
+        };
+        self.starts[self.next] = start;
+        self.ends[self.next] = region_end;
+        self.next = (self.next + 1) % READABLE_REGION_CACHE_ENTRIES;
+        true
     }
 }
 
@@ -420,26 +485,28 @@ fn read_u32(addr: usize) -> Option<u32> {
 }
 
 fn is_readable(addr: usize, len: usize) -> bool {
+    readable_region(addr, len).is_some()
+}
+
+fn readable_region(addr: usize, len: usize) -> Option<(usize, usize)> {
     if addr < 0x10000 || len == 0 {
-        return false;
+        return None;
     }
 
     let Ok(info) = virtual_query(addr as *mut c_void) else {
-        return false;
+        return None;
     };
     if info.state != MEM_COMMIT.0 || info.protect == PAGE_NOACCESS {
-        return false;
+        return None;
     }
     if (info.protect.0 & PAGE_GUARD.0) != 0 {
-        return false;
+        return None;
     }
 
-    let end = match addr.checked_add(len) {
-        Some(end) => end,
-        None => return false,
-    };
-    let region_end = info.base_address as usize + info.region_size;
-    end <= region_end
+    let end = addr.checked_add(len)?;
+    let region_start = info.base_address as usize;
+    let region_end = region_start.checked_add(info.region_size)?;
+    (end <= region_end).then_some((region_start, region_end))
 }
 
 fn is_executable(addr: usize) -> bool {

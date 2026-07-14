@@ -65,7 +65,7 @@
 
 use std::ptr::{self, null_mut};
 use std::sync::Mutex;
-use std::sync::atomic::{AtomicU8, AtomicU32, AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicI32, AtomicU8, AtomicU32, AtomicU64, AtomicUsize, Ordering};
 
 use libc::c_void;
 use windows::Win32::System::Memory::{MEM_COMMIT, MEM_RESERVE, PAGE_READWRITE, VirtualAlloc};
@@ -573,6 +573,13 @@ pub struct PoolPtrInfo {
     pub is_free: bool,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PoolTaskPinResult {
+    NotOwned,
+    Rejected(i32),
+    Pinned(i32),
+}
+
 #[derive(Clone, Copy, Default)]
 pub struct PoolClassUsage {
     pub class_index: u8,
@@ -1017,6 +1024,37 @@ impl Pool {
             // committed, but it has not yet become allocator-visible state.
             is_free: issued && unsafe { !(*link).next.is_null() },
         })
+    }
+
+    fn pin_task_refcount_locked(&self, task: *mut c_void) -> PoolTaskPinResult {
+        let Some(info) = self.ptr_info_locked(task) else {
+            return PoolTaskPinResult::Rejected(0);
+        };
+        if !info.committed
+            || !info.issued
+            || info.offset != 0
+            || info.item_size < 12
+            || info.is_free
+        {
+            return PoolTaskPinResult::Rejected(0);
+        }
+
+        let refcount = unsafe { &*((info.cell_start + 8) as *const AtomicI32) };
+        let mut current = refcount.load(Ordering::Acquire);
+        loop {
+            if current <= 0 || current == i32::MAX {
+                return PoolTaskPinResult::Rejected(current);
+            }
+            match refcount.compare_exchange_weak(
+                current,
+                current + 1,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            ) {
+                Ok(_) => return PoolTaskPinResult::Pinned(current),
+                Err(observed) => current = observed,
+            }
+        }
     }
 
     unsafe fn tombstone_free_cell(
@@ -1717,6 +1755,19 @@ impl PoolHeap {
         }
     }
 
+    pub fn pin_task_refcount(&self, task: *mut c_void) -> PoolTaskPinResult {
+        let Some(pool) = self.pool_from_addr(task) else {
+            return PoolTaskPinResult::NotOwned;
+        };
+        unsafe {
+            let pool = pool as *const Pool as *mut Pool;
+            (*pool).acquire();
+            let result = (*pool).pin_task_refcount_locked(task);
+            (*pool).release();
+            result
+        }
+    }
+
     pub fn tombstone_free_cell(
         &self,
         ptr: *mut c_void,
@@ -1851,6 +1902,12 @@ pub fn usable_size(ptr: *const c_void) -> usize {
 #[inline]
 pub fn ptr_info(ptr: *const c_void) -> Option<PoolPtrInfo> {
     HEAP.get().and_then(|h| h.ptr_info(ptr))
+}
+
+pub fn pin_task_refcount(task: *mut c_void) -> PoolTaskPinResult {
+    HEAP.get()
+        .map(|heap| heap.pin_task_refcount(task))
+        .unwrap_or(PoolTaskPinResult::NotOwned)
 }
 
 pub fn tombstone_free_cell(ptr: *mut c_void, vtable: usize, refcount: i32) -> Option<PoolPtrInfo> {

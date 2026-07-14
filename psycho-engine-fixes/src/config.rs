@@ -172,7 +172,7 @@ pub struct EngineFixesConfig {
     pub havok_post_add_null_entity_guard: bool,
     /// Replace unsafe Havok remove-agent unlock dead-argument rereads.
     pub havok_remove_agent_null_reread_guard: bool,
-    /// Make the game's inlined memset a no-op for NULL destinations.
+    /// Guard the two allocator consumers that zero unchecked NULL results.
     pub memset_null_dst_guard: bool,
     /// Enforce LowProcess generic-location ownership and contain corrupt saves.
     pub lowprocess_generic_locations_fix: bool,

@@ -126,8 +126,9 @@ havok_post_add_null_entity_guard = true
 # dead-argument reread.
 havok_remove_agent_null_reread_guard = true
 
-# Fixes a game memset crash when an upstream allocation fails and vanilla
-# calls memset(NULL, ...). This turns that memset into a no-op.
+# Fixes two game allocator consumers that write an alignment marker or call
+# memset without checking whether allocation returned NULL. The guards stay
+# out of the global memset hot path.
 memset_null_dst_guard = true
 
 # Enforces the engine ownership contract for

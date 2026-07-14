@@ -1,0 +1,878 @@
+RADIO GEOMETRY EVENT INVALIDATION FOLLOW-UP
+Identify the exact values read for current/station cell, worldspace, position, radio mode, radius, and connected-interior state. Then identify engine functions that mutate those values or complete cell transition/load reconciliation.
+
+======================================================================
+reference geometry extraction used by radio scan @ 0x006dcd70
+======================================================================
+  Function: FUN_006dcd70 @ 0x006dcd70, Size: 150 bytes
+
+undefined4 * __thiscall FUN_006dcd70(undefined4 *param_1,int *param_2)
+
+{
+  undefined4 uVar1;
+  int local_c;
+  int local_8;
+  
+  *param_1 = &PTR_FUN_0102583c;
+  FUN_006815c0();
+  local_c = FUN_008d6f30();
+  local_8 = FUN_00575d70();
+  if (((local_c == 0) && (local_8 == 0)) && (param_2 == DAT_011dea3c)) {
+    local_c = FUN_005f36f0();
+    if (local_c == 0) {
+      local_8 = FUN_004fd3e0();
+    }
+  }
+  uVar1 = (**(code **)(*param_2 + 500))(local_c,local_8);
+  FUN_006dd280(uVar1,local_c,local_8);
+  return param_1;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x006dcd70 (reference geometry extraction used by radio scan)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0092fb70 (in FUN_0092f260)
+  UNCONDITIONAL_CALL @ 0x0093d01a (in FUN_0093cdf0)
+  UNCONDITIONAL_CALL @ 0x0093d04c (in FUN_0093cdf0)
+  UNCONDITIONAL_CALL @ 0x00952dab (in FUN_00952d60)
+  UNCONDITIONAL_CALL @ 0x00952dc1 (in FUN_00952d60)
+  UNCONDITIONAL_CALL @ 0x006e2a1f (in FUN_006e29f0)
+  UNCONDITIONAL_CALL @ 0x0098ab4f (in FUN_0098a580)
+  UNCONDITIONAL_CALL @ 0x009debeb (in FUN_009de8b0)
+  UNCONDITIONAL_CALL @ 0x009dec72 (in FUN_009de8b0)
+  UNCONDITIONAL_CALL @ 0x0079dcef (in FUN_0079dbb0)
+  UNCONDITIONAL_CALL @ 0x004ff346 (in FUN_004ff1a0)
+  UNCONDITIONAL_CALL @ 0x004ff375 (in FUN_004ff1a0)
+  UNCONDITIONAL_CALL @ 0x004ff478 (in FUN_004ff1a0)
+  UNCONDITIONAL_CALL @ 0x004ff4a4 (in FUN_004ff1a0)
+  UNCONDITIONAL_CALL @ 0x004ff5d6 (in FUN_004ff1a0)
+  UNCONDITIONAL_CALL @ 0x004ff611 (in FUN_004ff1a0)
+  UNCONDITIONAL_CALL @ 0x006d37c4 (in FUN_006d3780)
+  UNCONDITIONAL_CALL @ 0x006d380a (in FUN_006d3780)
+  UNCONDITIONAL_CALL @ 0x005c26a6 (in FUN_005c25f0)
+  UNCONDITIONAL_CALL @ 0x005c26b6 (in FUN_005c25f0)
+  UNCONDITIONAL_CALL @ 0x005c2806 (in FUN_005c25f0)
+  UNCONDITIONAL_CALL @ 0x005c2f31 (in FUN_005c25f0)
+  UNCONDITIONAL_CALL @ 0x005c305a (in FUN_005c25f0)
+  UNCONDITIONAL_CALL @ 0x007f15c0 (in FUN_007f1290)
+  UNCONDITIONAL_CALL @ 0x007f15d9 (in FUN_007f1290)
+  UNCONDITIONAL_CALL @ 0x008de529 (in FUN_008dddf0)
+  UNCONDITIONAL_CALL @ 0x008de97b (in FUN_008dddf0)
+  UNCONDITIONAL_CALL @ 0x008df382 (in FUN_008df1e0)
+  UNCONDITIONAL_CALL @ 0x008df395 (in FUN_008df1e0)
+  UNCONDITIONAL_CALL @ 0x008e1a07 (in FUN_008e0f80)
+  UNCONDITIONAL_CALL @ 0x008e1be7 (in FUN_008e0f80)
+  UNCONDITIONAL_CALL @ 0x0091288d (in FUN_009125b0)
+  UNCONDITIONAL_CALL @ 0x009128a0 (in FUN_009125b0)
+  UNCONDITIONAL_CALL @ 0x00909a92 (in FUN_00909430)
+  UNCONDITIONAL_CALL @ 0x00909af2 (in FUN_00909430)
+  UNCONDITIONAL_CALL @ 0x00918ce8 (in FUN_00918860)
+  UNCONDITIONAL_CALL @ 0x0099d1e7 (in FUN_0099d030)
+  UNCONDITIONAL_CALL @ 0x0099e25f (in FUN_0099e190)
+  UNCONDITIONAL_CALL @ 0x009d05bf (in FUN_009d0590)
+  UNCONDITIONAL_CALL @ 0x0099e965 (in FUN_0099e840)
+  UNCONDITIONAL_CALL @ 0x009e232d (in FUN_009e22d0)
+  ... (truncated)
+  Total: 41 refs
+
+--- Calls FROM reference geometry extraction used by radio scan (0x006dcd70) ---
+  0x006dcd88 -> 0x006815c0 FUN_006815c0
+  0x006dcd90 -> 0x008d6f30 FUN_008d6f30
+  0x006dcd9b -> 0x00575d70 FUN_00575d70
+  0x006dcdc0 -> 0x005f36f0 FUN_005f36f0
+  0x006dcdd4 -> 0x004fd3e0 FUN_004fd3e0
+  0x006dcdf8 -> 0x006dd280 FUN_006dd280
+  Total: 6 calls
+
+======================================================================
+reference cell or worldspace lookup @ 0x00575d70
+======================================================================
+  Function: FUN_00575d70 @ 0x00575d70, Size: 76 bytes
+
+undefined4 __fastcall FUN_00575d70(int param_1)
+
+{
+  undefined4 local_c;
+  undefined4 local_8;
+  
+  local_8 = 0;
+  local_c = FUN_008d6f30();
+  if (local_c == 0) {
+    local_c = (*(code *)**(undefined4 **)(param_1 + 0x18))();
+  }
+  if (local_c != 0) {
+    local_8 = FUN_0054ddd0();
+  }
+  return local_8;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00575d70 (reference cell or worldspace lookup)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00557557 (in FUN_005574d0)
+  UNCONDITIONAL_CALL @ 0x005738fb (in FUN_00573800)
+  UNCONDITIONAL_CALL @ 0x005488e2 (in FUN_00548880)
+  UNCONDITIONAL_CALL @ 0x00567d68 (in FUN_00567d20)
+  UNCONDITIONAL_CALL @ 0x00567d74 (in FUN_00567d20)
+  UNCONDITIONAL_CALL @ 0x00575a5d (in FUN_00575830)
+  UNCONDITIONAL_CALL @ 0x005788c1 (in FUN_00578870)
+  UNCONDITIONAL_CALL @ 0x004ff1f3 (in FUN_004ff1a0)
+  UNCONDITIONAL_CALL @ 0x00834c43 (in FUN_00834260)
+  UNCONDITIONAL_CALL @ 0x00834c52 (in FUN_00834260)
+  UNCONDITIONAL_CALL @ 0x00834c65 (in FUN_00834260)
+  UNCONDITIONAL_CALL @ 0x0084996d (in FUN_00849730)
+  UNCONDITIONAL_CALL @ 0x00843d66 (in FUN_00843c90)
+  UNCONDITIONAL_CALL @ 0x008680c2 (in FUN_00867f90)
+  UNCONDITIONAL_CALL @ 0x00455dba (in FUN_004556d0)
+  UNCONDITIONAL_CALL @ 0x0084af9e (in FUN_0084ab20)
+  UNCONDITIONAL_CALL @ 0x00858c65 (in FUN_00858af0)
+  UNCONDITIONAL_CALL @ 0x00858cf0 (in FUN_00858af0)
+  UNCONDITIONAL_CALL @ 0x00861ff7 (in FUN_00861f20)
+  UNCONDITIONAL_CALL @ 0x004c6ef9 (in FUN_004c6dd0)
+  UNCONDITIONAL_CALL @ 0x008580c6 (in FUN_00858030)
+  UNCONDITIONAL_CALL @ 0x00859554 (in FUN_008591b0)
+  UNCONDITIONAL_CALL @ 0x00859639 (in FUN_008591b0)
+  UNCONDITIONAL_CALL @ 0x0085ab85 (in FUN_0085a520)
+  UNCONDITIONAL_CALL @ 0x0086fc49 (in FUN_0086fbe0)
+  UNCONDITIONAL_CALL @ 0x00572484 (in FUN_005723b0)
+  UNCONDITIONAL_CALL @ 0x005724a8 (in FUN_005723b0)
+  UNCONDITIONAL_CALL @ 0x008423cf (in FUN_00842310)
+  UNCONDITIONAL_CALL @ 0x00675bed (in FUN_00675a50)
+  UNCONDITIONAL_CALL @ 0x009316f3 (in FUN_009316c0)
+  UNCONDITIONAL_CALL @ 0x0093cb9e (in FUN_0093c200)
+  UNCONDITIONAL_CALL @ 0x0093cbbd (in FUN_0093c200)
+  UNCONDITIONAL_CALL @ 0x0093cbe4 (in FUN_0093c200)
+  UNCONDITIONAL_CALL @ 0x0093cc63 (in FUN_0093c200)
+  UNCONDITIONAL_CALL @ 0x0093cc72 (in FUN_0093c200)
+  UNCONDITIONAL_CALL @ 0x0092f982 (in FUN_0092f260)
+  UNCONDITIONAL_CALL @ 0x006dcd9b (in FUN_006dcd70)
+  UNCONDITIONAL_CALL @ 0x0093d3ca (in FUN_0093cdf0)
+  UNCONDITIONAL_CALL @ 0x00850dc9 (in FUN_00850d60)
+  UNCONDITIONAL_CALL @ 0x0094adcd (in FUN_0094a8c0)
+  UNCONDITIONAL_CALL @ 0x0094addc (in FUN_0094a8c0)
+  ... (truncated)
+  Total: 41 refs
+
+--- Calls FROM reference cell or worldspace lookup (0x00575d70) ---
+  0x00575d83 -> 0x008d6f30 FUN_008d6f30
+  0x00575dad -> 0x0054ddd0 FUN_0054ddd0
+  Total: 2 calls
+
+======================================================================
+current cell or worldspace accessor @ 0x008d6f30
+======================================================================
+  Function: FUN_008d6f30 @ 0x008d6f30, Size: 17 bytes
+
+undefined4 __fastcall FUN_008d6f30(int param_1)
+
+{
+  return *(undefined4 *)(param_1 + 0x40);
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x008d6f30 (current cell or worldspace accessor)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0086b284 (in FUN_0086a850)
+  UNCONDITIONAL_CALL @ 0x00445705 (in FUN_00445670)
+  UNCONDITIONAL_CALL @ 0x00573906 (in FUN_00573800)
+  UNCONDITIONAL_CALL @ 0x00573e4b (in FUN_00573800)
+  UNCONDITIONAL_CALL @ 0x00548314 (in FUN_00548230)
+  UNCONDITIONAL_CALL @ 0x0054867c (in FUN_00548230)
+  UNCONDITIONAL_CALL @ 0x00444c45 (in FUN_00444850)
+  UNCONDITIONAL_CALL @ 0x00444c51 (in FUN_00444850)
+  UNCONDITIONAL_CALL @ 0x00444c6f (in FUN_00444850)
+  UNCONDITIONAL_CALL @ 0x0054926d (in FUN_00548880)
+  UNCONDITIONAL_CALL @ 0x004e4a1a (in FUN_004e4730)
+  UNCONDITIONAL_CALL @ 0x004e4a2d (in FUN_004e4730)
+  UNCONDITIONAL_CALL @ 0x0054a466 (in FUN_0054a070)
+  UNCONDITIONAL_CALL @ 0x00567d44 (in FUN_00567d20)
+  UNCONDITIONAL_CALL @ 0x00567d50 (in FUN_00567d20)
+  UNCONDITIONAL_CALL @ 0x00575d83 (in FUN_00575d70)
+  UNCONDITIONAL_CALL @ 0x00501d4b (in FUN_00501d20)
+  UNCONDITIONAL_CALL @ 0x0043a2c4 (in FUN_0043a2b0)
+  UNCONDITIONAL_CALL @ 0x0050203b (in FUN_00501fd0)
+  UNCONDITIONAL_CALL @ 0x00502047 (in FUN_00501fd0)
+  UNCONDITIONAL_CALL @ 0x0050205e (in FUN_00501fd0)
+  UNCONDITIONAL_CALL @ 0x00567874 (in FUN_00567790)
+  UNCONDITIONAL_CALL @ 0x00567880 (in FUN_00567790)
+  UNCONDITIONAL_CALL @ 0x005679c0 (in FUN_00567960)
+  UNCONDITIONAL_CALL @ 0x005679cc (in FUN_00567960)
+  UNCONDITIONAL_CALL @ 0x00567a7c (in FUN_005679f0)
+  UNCONDITIONAL_CALL @ 0x00567a88 (in FUN_005679f0)
+  UNCONDITIONAL_CALL @ 0x0057887c (in FUN_00578870)
+  UNCONDITIONAL_CALL @ 0x00832b3f (in FUN_00832ad0)
+  UNCONDITIONAL_CALL @ 0x00832b4e (in FUN_00832ad0)
+  UNCONDITIONAL_CALL @ 0x004ff1e2 (in FUN_004ff1a0)
+  UNCONDITIONAL_CALL @ 0x004ff20b (in FUN_004ff1a0)
+  UNCONDITIONAL_CALL @ 0x00834c74 (in FUN_00834260)
+  UNCONDITIONAL_CALL @ 0x00834c93 (in FUN_00834260)
+  UNCONDITIONAL_CALL @ 0x00834ca0 (in FUN_00834260)
+  UNCONDITIONAL_CALL @ 0x0084936a (in FUN_008492b0)
+  UNCONDITIONAL_CALL @ 0x008494ad (in FUN_008492b0)
+  UNCONDITIONAL_CALL @ 0x00849962 (in FUN_00849730)
+  UNCONDITIONAL_CALL @ 0x0081b75e (in FUN_0081b700)
+  UNCONDITIONAL_CALL @ 0x0084f605 (in FUN_0084f330)
+  UNCONDITIONAL_CALL @ 0x0084f639 (in FUN_0084f330)
+  ... (truncated)
+  Total: 41 refs
+
+--- Calls FROM current cell or worldspace accessor (0x008d6f30) ---
+  Total: 0 calls
+
+======================================================================
+radio exterior position reference accessor @ 0x0056b140
+======================================================================
+  Function: FUN_0056b140 @ 0x0056b140, Size: 65 bytes
+
+undefined4 __fastcall FUN_0056b140(undefined4 param_1)
+
+{
+  int iVar1;
+  undefined4 local_c;
+  
+  local_c = 0;
+  FUN_005d43c0(param_1);
+  iVar1 = FUN_004182e0();
+  if ((iVar1 != 0) && (*(int *)(iVar1 + 4) == 0)) {
+    local_c = *(undefined4 *)(iVar1 + 0xc);
+  }
+  return local_c;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x0056b140 (radio exterior position reference accessor)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x004ff2a2 (in FUN_004ff1a0)
+  Total: 1 refs
+
+--- Calls FROM radio exterior position reference accessor (0x0056b140) ---
+  0x0056b153 -> 0x005d43c0 FUN_005d43c0
+  0x0056b15a -> 0x004182e0 FUN_004182e0
+  Total: 2 calls
+
+======================================================================
+radio radius accessor @ 0x0056b190
+======================================================================
+  Function: FUN_0056b190 @ 0x0056b190, Size: 62 bytes
+
+float10 __fastcall FUN_0056b190(undefined4 param_1)
+
+{
+  float *pfVar1;
+  float local_8;
+  
+  local_8 = 0.0;
+  FUN_005d43c0(param_1);
+  pfVar1 = (float *)FUN_004182e0();
+  if ((pfVar1 != (float *)0x0) && (pfVar1[1] == 0.0)) {
+    local_8 = *pfVar1;
+  }
+  return (float10)local_8;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x0056b190 (radio radius accessor)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00833fc1 (in FUN_00833d00)
+  UNCONDITIONAL_CALL @ 0x00574340 (in FUN_00573f40)
+  UNCONDITIONAL_CALL @ 0x004ff333 (in FUN_004ff1a0)
+  UNCONDITIONAL_CALL @ 0x004ff3c6 (in FUN_004ff1a0)
+  Total: 4 refs
+
+--- Calls FROM radio radius accessor (0x0056b190) ---
+  0x0056b1a1 -> 0x005d43c0 FUN_005d43c0
+  0x0056b1a8 -> 0x004182e0 FUN_004182e0
+  Total: 2 calls
+
+======================================================================
+radio attenuation accessor @ 0x0056b1d0
+======================================================================
+  Function: FUN_0056b1d0 @ 0x0056b1d0, Size: 63 bytes
+
+float10 __fastcall FUN_0056b1d0(undefined4 param_1)
+
+{
+  int iVar1;
+  undefined4 local_8;
+  
+  local_8 = 0.0;
+  FUN_005d43c0(param_1);
+  iVar1 = FUN_004182e0();
+  if ((iVar1 != 0) && (*(int *)(iVar1 + 4) == 0)) {
+    local_8 = *(float *)(iVar1 + 8);
+  }
+  return (float10)local_8;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x0056b1d0 (radio attenuation accessor)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00833fce (in FUN_00833d00)
+  UNCONDITIONAL_CALL @ 0x00833fe5 (in FUN_00833d00)
+  Total: 2 refs
+
+--- Calls FROM radio attenuation accessor (0x0056b1d0) ---
+  0x0056b1e1 -> 0x005d43c0 FUN_005d43c0
+  0x0056b1e8 -> 0x004182e0 FUN_004182e0
+  Total: 2 calls
+
+======================================================================
+radio range mode accessor @ 0x0056b210
+======================================================================
+  Function: FUN_0056b210 @ 0x0056b210, Size: 56 bytes
+
+undefined4 __fastcall FUN_0056b210(undefined4 param_1)
+
+{
+  int iVar1;
+  undefined4 local_c;
+  
+  local_c = 0;
+  FUN_005d43c0(param_1);
+  iVar1 = FUN_004182e0();
+  if (iVar1 != 0) {
+    local_c = *(undefined4 *)(iVar1 + 4);
+  }
+  return local_c;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x0056b210 (radio range mode accessor)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x008328d5 (in FUN_00832830)
+  UNCONDITIONAL_CALL @ 0x008328f0 (in FUN_00832830)
+  UNCONDITIONAL_CALL @ 0x0083290c (in FUN_00832830)
+  UNCONDITIONAL_CALL @ 0x00833ffc (in FUN_00833d00)
+  UNCONDITIONAL_CALL @ 0x004ff27a (in FUN_004ff1a0)
+  Total: 5 refs
+
+--- Calls FROM radio range mode accessor (0x0056b210) ---
+  0x0056b223 -> 0x005d43c0 FUN_005d43c0
+  0x0056b22a -> 0x004182e0 FUN_004182e0
+  Total: 2 calls
+
+======================================================================
+pathfinder query implementation @ 0x006f34e0
+======================================================================
+  Function: FUN_006f34e0 @ 0x006f34e0, Size: 493 bytes
+
+undefined4 __thiscall
+FUN_006f34e0(int param_1,undefined4 param_2,undefined4 param_3,int param_4,int param_5,
+            undefined4 param_6,undefined4 param_7,undefined4 param_8)
+
+{
+  char cVar1;
+  int iVar2;
+  undefined4 uVar3;
+  undefined4 *puVar4;
+  undefined1 local_20 [12];
+  undefined1 local_14 [12];
+  undefined4 local_8;
+  
+  FUN_006dcce0(param_2);
+  iVar2 = FUN_00441110();
+  if (iVar2 == 0) {
+    iVar2 = FUN_006dd4f0();
+    if (iVar2 == 0) {
+      return 0;
+    }
+    uVar3 = FUN_006dd4f0();
+    *(undefined4 *)(param_1 + 0x2060) = uVar3;
+    *(undefined1 *)(param_1 + 0x2058) = 0;
+    *(undefined4 *)(param_1 + 0x205c) = 0;
+    local_8 = *(undefined4 *)(param_1 + 0x2060);
+  }
+  else {
+    uVar3 = FUN_00441110();
+    *(undefined4 *)(param_1 + 0x205c) = uVar3;
+    *(undefined1 *)(param_1 + 0x2058) = 1;
+    *(undefined4 *)(param_1 + 0x2060) = 0;
+    local_8 = *(undefined4 *)(param_1 + 0x205c);
+  }
+  *(int *)(param_1 + 0x2098) = param_5;
+  if ((*(int *)(param_1 + 0x205c) == 0) || (param_5 != 2)) {
+    *(undefined4 *)(param_1 + 0x209c) = param_6;
+    *(undefined4 *)(param_1 + 0x20b4) = param_8;
+    if (*(int *)(param_1 + 0x2098) != 3) {
+      iVar2 = FUN_00441110();
+      if (iVar2 == 0) {
+        iVar2 = FUN_006dd4f0();
+        if (iVar2 != 0) {
+          uVar3 = FUN_006dd4f0();
+          *(undefined4 *)(param_1 + 0x2094) = uVar3;
+          *(undefined1 *)(param_1 + 0x208c) = 0;
+          *(undefined4 *)(param_1 + 0x2090) = 0;
+        }
+      }
+      else {
+        uVar3 = FUN_00441110();
+        *(undefined4 *)(param_1 + 0x2090) = uVar3;
+        *(undefined1 *)(param_1 + 0x208c) = 1;
+        *(undefined4 *)(param_1 + 0x2094) = 0;
+      }
+    }
+    *(undefined4 *)(param_1 + 0x20a0) = param_7;
+    puVar4 = (undefined4 *)FUN_005c3420(local_14);
+    *(undefined4 *)(param_4 + 0x20) = *puVar4;
+    *(undefined4 *)(param_4 + 0x24) = puVar4[1];
+    *(undefined4 *)(param_4 + 0x28) = puVar4[2];
+    puVar4 = (undefined4 *)FUN_005c3420(local_20);
+    *(undefined4 *)(param_4 + 0x2c) = *puVar4;
+    *(undefined4 *)(param_4 + 0x30) = puVar4[1];
+    *(undefined4 *)(param_4 + 0x34) = puVar4[2];
+    FUN_006f3d00(local_8,param_1 + 0x2058,0x3f800000);
+    cVar1 = FUN_006f3d90(param_4,param_4 + 0x10,1);
+    if (cVar1 == '\0') {
+      uVar3 = 0;
+    }
+    else {
+      uVar3 = 1;
+    }
+  }
+  else {
+    uVar3 = 0;
+  }
+  return uVar3;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x006f34e0 (pathfinder query implementation)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x006c9bef (in FUN_006c9b20)
+  UNCONDITIONAL_CALL @ 0x006d4dbf (in FUN_006d4d20)
+  UNCONDITIONAL_CALL @ 0x006d52e5 (in FUN_006d4f70)
+  Total: 3 refs
+
+--- Calls FROM pathfinder query implementation (0x006f34e0) ---
+  0x006f34f6 -> 0x006dcce0 FUN_006dcce0
+  0x006f34fe -> 0x00441110 FUN_00441110
+  0x006f350a -> 0x00441110 FUN_00441110
+  0x006f3540 -> 0x006dd4f0 FUN_006dd4f0
+  0x006f354c -> 0x006dd4f0 FUN_006dd4f0
+  0x006f35d2 -> 0x00441110 FUN_00441110
+  0x006f35de -> 0x00441110 FUN_00441110
+  0x006f3608 -> 0x006dd4f0 FUN_006dd4f0
+  0x006f3614 -> 0x006dd4f0 FUN_006dd4f0
+  0x006f364c -> 0x005c3420 FUN_005c3420
+  0x006f366e -> 0x005c3420 FUN_005c3420
+  0x006f36a0 -> 0x006f3d00 FUN_006f3d00
+  0x006f36b5 -> 0x006f3d90 FUN_006f3d90
+  Total: 13 calls
+
+======================================================================
+cell transition destruction boundary @ 0x008774a0
+======================================================================
+  Function: FUN_008774a0 @ 0x008774a0, Size: 561 bytes
+
+void FUN_008774a0(char param_1)
+
+{
+  undefined1 uVar1;
+  undefined1 uVar2;
+  int iVar3;
+  int *piVar4;
+  int *piVar5;
+  undefined4 uVar6;
+  undefined4 local_20;
+  undefined4 local_18;
+  
+  uVar1 = FUN_004f1540();
+  FUN_004f15a0(0);
+  FUN_00877700();
+  uVar2 = FUN_007d6bd0(0);
+  uVar6 = 0xffffffff;
+  FUN_00453a70(0xffffffff);
+  FUN_00ad8780(uVar6);
+  FUN_008324e0(0);
+  iVar3 = FUN_008d6f30();
+  if (iVar3 != 0) {
+    piVar4 = DAT_011dea3c;
+    FUN_008d6f30(DAT_011dea3c);
+    FUN_0054ca90(piVar4);
+  }
+  piVar4 = (int *)FUN_00950bb0(1);
+  if (piVar4 == (int *)0x0) {
+    local_18 = 0;
+  }
+  else {
+    local_18 = (**(code **)(*piVar4 + 0xc))();
+  }
+  if (local_18 != 0) {
+    iVar3 = FUN_009611e0();
+    if (iVar3 != 0) {
+      piVar5 = (int *)FUN_009611e0();
+      (**(code **)(*piVar5 + 0xe8))(piVar4);
+    }
+  }
+  piVar4 = (int *)FUN_00950bb0(0);
+  if (piVar4 == (int *)0x0) {
+    local_20 = 0;
+  }
+  else {
+    local_20 = (**(code **)(*piVar4 + 0xc))();
+  }
+  if (local_20 != 0) {
+    iVar3 = FUN_009611e0();
+    if (iVar3 != 0) {
+      piVar5 = (int *)FUN_009611e0();
+      (**(code **)(*piVar5 + 0xe8))(piVar4);
+    }
+  }
+  FUN_004539a0(0,0);
+  FUN_007037c0(0x7fffffff);
+  FUN_0061cc40(0x7fffffff);
+  FUN_006c0720();
+  FUN_006c09f0();
+  FUN_00868d70(0);
+  FUN_00c459d0(0);
+  (**(code **)(*DAT_011dea3c + 0x1cc))(0,0);
+  FUN_0084a840();
+  FUN_00970d50();
+  FUN_004614e0();
+  FUN_00b4f5c0();
+  FUN_00b631d0();
+  FUN_0040fbe0();
+  FUN_00706320(0);
+  FUN_0045ac80();
+  if (param_1 != '\0') {
+    FUN_007053f0();
+  }
+  FUN_007d6bd0(uVar2);
+  FUN_008776e0();
+  FUN_004f15a0(uVar1);
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x008774a0 (cell transition destruction boundary)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0086b664 (in FUN_0086a850)
+  Total: 1 refs
+
+--- Calls FROM cell transition destruction boundary (0x008774a0) ---
+  0x008774ac -> 0x004f1540 FUN_004f1540
+  0x008774b9 -> 0x004f15a0 FUN_004f15a0
+  0x008774c4 -> 0x00877700 FUN_00877700
+  0x008774d1 -> 0x007d6bd0 FUN_007d6bd0
+  0x008774db -> 0x00453a70 FUN_00453a70
+  0x008774e2 -> 0x00ad8780 FUN_00ad8780
+  0x008774e9 -> 0x008324e0 FUN_008324e0
+  0x008774f7 -> 0x008d6f30 FUN_008d6f30
+  0x0087750c -> 0x008d6f30 FUN_008d6f30
+  0x00877513 -> 0x0054ca90 FUN_0054ca90
+  0x00877520 -> 0x00950bb0 FUN_00950bb0
+  0x00877556 -> 0x009611e0 FUN_009611e0
+  0x00877562 -> 0x009611e0 FUN_009611e0
+  0x00877586 -> 0x00950bb0 FUN_00950bb0
+  0x008775bc -> 0x009611e0 FUN_009611e0
+  0x008775c8 -> 0x009611e0 FUN_009611e0
+  0x008775ee -> 0x004539a0 FUN_004539a0
+  0x008775fe -> 0x007037c0 FUN_007037c0
+  0x0087760e -> 0x0061cc40 FUN_0061cc40
+  0x00877613 -> 0x006c0720 FUN_006c0720
+  0x0087761a -> 0x006c09f0 FUN_006c09f0
+  0x00877621 -> 0x00868d70 FUN_00868d70
+  0x0087762b -> 0x00c459d0 FUN_00c459d0
+  0x00877653 -> 0x0084a840 FUN_0084a840
+  0x0087765d -> 0x00970d50 FUN_00970d50
+  0x00877668 -> 0x004614e0 FUN_004614e0
+  0x0087766d -> 0x00b4f5c0 FUN_00b4f5c0
+  0x00877674 -> 0x00b631d0 FUN_00b631d0
+  0x00877679 -> 0x0040fbe0 FUN_0040fbe0
+  0x00877680 -> 0x00706320 FUN_00706320
+  0x0087768e -> 0x0045ac80 FUN_0045ac80
+  0x0087769b -> 0x007053f0 FUN_007053f0
+  0x008776ab -> 0x007d6bd0 FUN_007d6bd0
+  0x008776b6 -> 0x008776e0 FUN_008776e0
+  0x008776c6 -> 0x004f15a0 FUN_004f15a0
+  Total: 35 calls
+
+======================================================================
+radio load reconciliation boundary @ 0x00836af0
+======================================================================
+  Function: FUN_00836af0 @ 0x00836af0, Size: 805 bytes
+
+void FUN_00836af0(undefined4 *param_1)
+
+{
+  char cVar1;
+  byte bVar2;
+  int *piVar3;
+  undefined4 uVar4;
+  int local_58;
+  int local_3c;
+  char local_35;
+  undefined *local_34;
+  undefined *local_30;
+  int *local_2c;
+  char local_25;
+  undefined *local_24;
+  undefined *local_20;
+  int *local_1c;
+  char local_15;
+  undefined *local_14;
+  undefined *local_10;
+  int local_c;
+  undefined *local_8;
+  
+  local_8 = &DAT_011dd58c;
+  while (local_8 != (undefined *)0x0) {
+    piVar3 = (int *)FUN_006815c0();
+    local_c = *piVar3;
+    if (local_c != 0) {
+      FUN_00835fe0(param_1);
+    }
+    local_8 = (undefined *)FUN_00726070();
+  }
+  local_14 = &DAT_011dd554;
+  local_10 = (undefined *)0x0;
+  while ((local_14 != (undefined *)0x0 && (cVar1 = FUN_008256d0(), cVar1 == '\0'))) {
+    local_1c = (int *)FUN_006815c0();
+    local_1c = (int *)*local_1c;
+    local_15 = '\0';
+    if (local_1c == (int *)0x0) {
+      local_15 = '\x01';
+    }
+    else {
+      FUN_00836660(param_1);
+      if (*local_1c == 0) {
+        if (local_1c != (int *)0x0) {
+          FUN_00832160(1);
+        }
+        local_1c = (int *)0x0;
+        local_15 = '\x01';
+      }
+    }
+    if (local_15 == '\0') {
+      local_10 = local_14;
+      local_14 = (undefined *)FUN_00726070();
+    }
+    else if (local_10 == (undefined *)0x0) {
+      FUN_0063f7b0();
+    }
+    else {
+      uVar4 = FUN_006815c0();
+      FUN_00905330(uVar4);
+      local_14 = (undefined *)FUN_00726070();
+    }
+  }
+  local_24 = &DAT_011dd58c;
+  local_20 = (undefined *)0x0;
+  while ((local_24 != (undefined *)0x0 && (cVar1 = FUN_008256d0(), cVar1 == '\0'))) {
+    local_2c = (int *)FUN_006815c0();
+    local_2c = (int *)*local_2c;
+    local_25 = '\0';
+    if (local_2c == (int *)0x0) {
+      local_25 = '\x01';
+    }
+    else if (*local_2c == 0) {
+      if (local_2c != (int *)0x0) {
+        FUN_00832190(1);
+      }
+      local_2c = (int *)0x0;
+      local_25 = '\x01';
+    }
+    if (local_25 == '\0') {
+      local_20 = local_24;
+      local_24 = (undefined *)FUN_00726070();
+    }
+    else if (local_20 == (undefined *)0x0) {
+      FUN_0063f7b0();
+    }
+    else {
+      uVar4 = FUN_006815c0();
+      FUN_00905330(uVar4);
+      local_24 = (undefined *)FUN_00726070();
+    }
+  }
+  if (DAT_011dd42c != 0) {
+    DAT_011dd42c = FUN_00832830(DAT_011dd42c);
+  }
+  if (DAT_011dd430 != 0) {
+    DAT_011dd430 = FUN_00832830(DAT_011dd430);
+  }
+  bVar2 = (**(code **)*param_1)();
+  if (9 < bVar2) {
+    local_34 = &DAT_011dd59c;
+    local_30 = (undefined *)0x0;
+    while ((local_34 != (undefined *)0x0 && (cVar1 = FUN_008256d0(), cVar1 == '\0'))) {
+      piVar3 = (int *)FUN_006815c0();
+      local_3c = *piVar3;
+      local_35 = '\0';
+      if (local_3c == 0) {
+        local_35 = '\x01';
+        local_3c = 0;
+      }
+      else {
+        if (local_3c == 0) {
+          local_58 = 0;
+        }
+        else {
+          uVar4 = FUN_004839c0(local_3c,&PTR_PTR_01183028,&PTR_PTR_011841cc,0);
+          local_58 = FUN_00ec43fb(uVar4,0);
+        }
+        local_3c = local_58;
+        if (local_58 == 0) {
+          local_35 = '\x01';
+        }
+        else {
+          FUN_00726c60(&local_3c);
+        }
+      }
+      if (local_35 == '\0') {
+        local_30 = local_34;
+        local_34 = (undefined *)FUN_00726070();
+      }
+      else if (local_30 == (undefined *)0x0) {
+        FUN_0063f7b0();
+      }
+      else {
+        uVar4 = FUN_006815c0();
+        FUN_00905330(uVar4);
+        local_34 = (undefined *)FUN_00726070();
+      }
+    }
+  }
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00836af0 (radio load reconciliation boundary)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0084c0b3 (in FUN_0084c030)
+  Total: 1 refs
+
+--- Calls FROM radio load reconciliation boundary (0x00836af0) ---
+  0x00836b06 -> 0x006815c0 FUN_006815c0
+  0x00836b1d -> 0x00835fe0 FUN_00835fe0
+  0x00836b25 -> 0x00726070 FUN_00726070
+  0x00836b4a -> 0x008256d0 FUN_008256d0
+  0x00836b5d -> 0x006815c0 FUN_006815c0
+  0x00836b78 -> 0x00836660 FUN_00836660
+  0x00836b9c -> 0x00832160 FUN_00832160
+  0x00836bcf -> 0x006815c0 FUN_006815c0
+  0x00836bd8 -> 0x00905330 FUN_00905330
+  0x00836be0 -> 0x00726070 FUN_00726070
+  0x00836bed -> 0x0063f7b0 FUN_0063f7b0
+  0x00836bfd -> 0x00726070 FUN_00726070
+  0x00836c25 -> 0x008256d0 FUN_008256d0
+  0x00836c38 -> 0x006815c0 FUN_006815c0
+  0x00836c6b -> 0x00832190 FUN_00832190
+  0x00836c9e -> 0x006815c0 FUN_006815c0
+  0x00836ca7 -> 0x00905330 FUN_00905330
+  0x00836caf -> 0x00726070 FUN_00726070
+  0x00836cbc -> 0x0063f7b0 FUN_0063f7b0
+  0x00836ccc -> 0x00726070 FUN_00726070
+  0x00836ce9 -> 0x00832830 FUN_00832830
+  0x00836d05 -> 0x00832830 FUN_00832830
+  0x00836d45 -> 0x008256d0 FUN_008256d0
+  0x00836d58 -> 0x006815c0 FUN_006815c0
+  0x00836d82 -> 0x004839c0 FUN_004839c0
+  0x00836d8d -> 0x00ec43fb FUN_00ec43fb
+  0x00836db4 -> 0x00726c60 FUN_00726c60
+  0x00836dd6 -> 0x006815c0 FUN_006815c0
+  0x00836ddf -> 0x00905330 FUN_00905330
+  0x00836de7 -> 0x00726070 FUN_00726070
+  0x00836df4 -> 0x0063f7b0 FUN_0063f7b0
+  0x00836e04 -> 0x00726070 FUN_00726070
+  Total: 32 calls
+
+----------------------------------------------------------------------
+References TO 0x011dea3c (player or current radio reference global)
+----------------------------------------------------------------------
+  READ @ 0x0086b1c4 (in FUN_0086a850)
+  READ @ 0x0086b261 (in FUN_0086a850)
+  READ @ 0x0086b27e (in FUN_0086a850)
+  READ @ 0x00462342 (in FUN_00462290)
+  READ @ 0x0052619a (in FUN_00526190)
+  READ @ 0x0054b79b (in FUN_0054b750)
+  READ @ 0x00550ab1 (in FUN_005508b0)
+  READ @ 0x00557cbe (in FUN_00557c40)
+  READ @ 0x00558bff (in FUN_00558ba0)
+  READ @ 0x00558c11 (in FUN_00558ba0)
+  READ @ 0x00573c3f (in FUN_00573800)
+  READ @ 0x00573e67 (in FUN_00573800)
+  READ @ 0x005484e6 (in FUN_00548230)
+  READ @ 0x00548619 (in FUN_00548230)
+  READ @ 0x00444988 (in FUN_00444850)
+  READ @ 0x00441b2b (in FUN_00441b20)
+  READ @ 0x005492f6 (in FUN_00548880)
+  READ @ 0x00549306 (in FUN_00548880)
+  READ @ 0x00549324 (in FUN_00548880)
+  READ @ 0x00549338 (in FUN_00548880)
+  READ @ 0x0054937a (in FUN_00548880)
+  READ @ 0x00549398 (in FUN_00548880)
+  READ @ 0x00545458 (in FUN_005453b0)
+  READ @ 0x0054a1bb (in FUN_0054a070)
+  READ @ 0x0054a1c3 (in FUN_0054a070)
+  READ @ 0x0047df13 (in FUN_0047ded0)
+  READ @ 0x0075ba8b (in FUN_0075b750)
+  READ @ 0x0075bab2 (in FUN_0075b750)
+  READ @ 0x007717b5 (in FUN_00771700)
+  READ @ 0x007717bd (in FUN_00771700)
+  READ @ 0x007717d0 (in FUN_00771700)
+  READ @ 0x007717d7 (in FUN_00771700)
+  READ @ 0x007717f3 (in FUN_00771700)
+  READ @ 0x007717fb (in FUN_00771700)
+  READ @ 0x00771830 (in FUN_00771700)
+  READ @ 0x0077184e (in FUN_00771700)
+  READ @ 0x007718cf (in FUN_00771700)
+  READ @ 0x007718fc (in FUN_00771700)
+  READ @ 0x00771b58 (in FUN_00771700)
+  READ @ 0x00771b61 (in FUN_00771700)
+  READ @ 0x00771b70 (in FUN_00771700)
+  ... (truncated)
+  Total: 41 refs
+
+----------------------------------------------------------------------
+References TO 0x011c8264 (radio scan list root)
+----------------------------------------------------------------------
+  DATA @ 0x004ff220 (in FUN_004ff1a0)
+  DATA @ 0x004ff177 (in FUN_004ff150)
+  DATA @ 0x004ff193 (in FUN_004ff190)
+  DATA @ 0x00f44aa3 (in FUN_00f44aa0)
+  DATA @ 0x00fca073 (in FUN_00fca070)
+  Total: 5 refs
+
+----------------------------------------------------------------------
+References TO 0x011dd554 (registered radio list root)
+----------------------------------------------------------------------
+  DATA @ 0x00833f11 (in FUN_00833d00)
+  DATA @ 0x0083283d (in FUN_00832830)
+  DATA @ 0x00832a16 (in FUN_008329a0)
+  DATA @ 0x00832027 (in FUN_00832010)
+  DATA @ 0x00836b2f (in FUN_00836af0)
+  DATA @ 0x00836bf7 (in FUN_00836af0)
+  DATA @ 0x00836e26 (in FUN_00836e20)
+  DATA @ 0x00836eaf (in FUN_00836e20)
+  DATA @ 0x0083678d (in FUN_008366e0)
+  DATA @ 0x00835c04 (in FUN_00835be0)
+  DATA @ 0x008320dd (in FUN_00832010)
+  DATA @ 0x0083301c (in FUN_00832cb0)
+  DATA @ 0x008369f8 (in FUN_008368b0)
+  DATA @ 0x00836f33 (in FUN_00836ef0)
+  DATA @ 0x00836f44 (in FUN_00836ef0)
+  DATA @ 0x00836f75 (in FUN_00836ef0)
+  DATA @ 0x00f9e4c3 (in FUN_00f9e4c0)
+  DATA @ 0x00fd8a63 (in FUN_00fd8a60)
+  Total: 18 refs

@@ -401,18 +401,11 @@ fn install_havok_guards(config: &EngineFixesConfig) -> anyhow::Result<()> {
 
 fn install_memset_null_dst(config: &EngineFixesConfig) -> anyhow::Result<()> {
     if !config.memset_null_dst_guard {
-        log::info!("[CRT] _memset NULL-dst guard disabled by config");
+        log::info!("[OOM] Zero-allocation NULL guards disabled by config");
         return Ok(());
     }
 
-    unsafe {
-        statics::MEMSET_HOOK.init(
-            "memset_null_dst_guard",
-            statics::MEMSET_ADDR as *mut c_void,
-            memset::hook_memset,
-        )?;
-    }
-    statics::MEMSET_HOOK.enable()?;
-    log::info!("[CRT] _memset NULL-dst guard active");
+    memset::install_zero_alloc_guards()?;
+    log::info!("[OOM] Zero-allocation NULL guards active at allocator vtable consumers");
     Ok(())
 }

@@ -3,7 +3,6 @@
 //! Game-heap allocation hooks are pure forwarders. Frame-level orchestration
 //! is limited to things that are not allocator-state dependent:
 //!   - main-thread id capture on the first Phase 7 frame
-//!   - texture cache dead-set clear
 //!   - vanilla per-frame PDD drain pass-through
 //!   - periodic full PDD drain (10 s cooldown) -- PDD maintenance only,
 //!     does not consult game loading/menu state
@@ -34,7 +33,6 @@ use super::hang::{self, Site};
 use super::hitch::{self, Span};
 use super::pressure::PressureRelief;
 use super::statics;
-use super::texture_cache;
 
 // ---- Game heap alloc/free/msize/realloc ----
 
@@ -74,15 +72,6 @@ pub unsafe extern "C" fn hook_per_frame_queue_drain() {
     // call every frame since it short-circuits once set.
     globals::set_main_thread_id();
 
-    // Clear texture dead-set under write lock.
-    hang::mark_main(Site::Phase7BeforeDeadSet);
-    hitch::measure_span(Span::Phase7DeadSet, || {
-        game_guard::with_write("dead_set_clear", || {
-            texture_cache::clear_dead_set();
-        });
-    });
-    hang::mark_main(Site::Phase7AfterDeadSet);
-
     // Vanilla per-frame PDD drain. Skip if any queue has a NULL buffer
     // (memcpy(NULL) crash defence).
     if let Ok(original) = statics::PER_FRAME_QUEUE_DRAIN_HOOK.original() {
@@ -91,9 +80,9 @@ pub unsafe extern "C" fn hook_per_frame_queue_drain() {
             hang::mark_main(Site::Phase7Exit);
             return;
         }
-        hang::mark_main(Site::Phase7BeforePdd);
+        hang::mark_main_detail(Site::Phase7BeforePdd);
         hitch::measure_span(Span::Phase7Pdd, || unsafe { original() });
-        hang::mark_main(Site::Phase7AfterPdd);
+        hang::mark_main_detail(Site::Phase7AfterPdd);
     }
 
     // Optional legacy full PDD drain. Ghidra shows full PDD drains whole
@@ -146,14 +135,14 @@ pub unsafe extern "thiscall" fn hook_main_loop_maintenance(this: *mut c_void) {
     if let Ok(original) = statics::MAIN_LOOP_MAINTENANCE_HOOK.original() {
         hitch::measure_span(Span::Phase10Original, || unsafe { original(this) });
     }
-    hang::mark_main(Site::Phase10AfterOriginal);
+    hang::mark_main_detail(Site::Phase10AfterOriginal);
 
     hitch::measure_span(Span::Phase10Pressure, || {
         if let Some(pr) = PressureRelief::instance() {
             pr.calibrate_baseline();
         }
     });
-    hang::mark_main(Site::Phase10AfterPressure);
+    hang::mark_main_detail(Site::Phase10AfterPressure);
 
     hitch::measure_span(Span::Phase10Tail, || {
         super::vanilla_large_heap::run_once();
@@ -194,63 +183,74 @@ pub unsafe extern "C" fn hook_radio_signal_scan(
 }
 
 pub unsafe extern "C" fn hook_radio_station_update(station: *mut c_void) {
-    if let Some((reason, form)) = unsafe { invalid_radio_station(station) } {
-        static STALE_STATIONS: AtomicU64 = AtomicU64::new(0);
-        let count = STALE_STATIONS.fetch_add(1, Ordering::Relaxed) + 1;
-        if crate::mods::diagnostics::should_log_power_of_two(count) {
-            let station_pool = super::pool::ptr_info(station.cast_const());
-            let form_pool = super::pool::ptr_info(form.cast_const());
-            log::warn!(
-                "[RADIO] Stale station entry skipped before form access: reason={} station=0x{:08X} form=0x{:08X} station_pool={:?} form_pool={:?} total={}",
-                reason,
-                station as usize,
-                form as usize,
-                station_pool,
-                form_pool,
-                count,
-            );
-        }
-        return;
-    }
     if let Ok(original) = statics::RADIO_STATION_UPDATE_HOOK.original() {
         hitch::measure_span(Span::RadioStationUpdate, || unsafe { original(station) });
     }
 }
 
-/// `FUN_00834260` checks the wrapper and its first pointer for NULL, then calls
-/// `FUN_00440DA0`, which reads flags at `form + 8`. Later code makes virtual
-/// calls on the same form. Validate the complete TESForm prefix and its vtable
-/// before entering either path.
-#[inline]
-unsafe fn invalid_radio_station(station: *mut c_void) -> Option<(&'static str, *mut c_void)> {
-    const FNV_TEXT: std::ops::Range<usize> = 0x0040_0000..0x00E0_0000;
-    const FNV_RDATA: std::ops::Range<usize> = 0x0100_0000..0x0110_0000;
-
-    if station.is_null() {
-        return None;
+/// Reconcile stale serialized radio forms at the load boundary. The caller at
+/// `0x00836AF0` checks the first wrapper pointer immediately after this call;
+/// when it is NULL, vanilla destroys the wrapper and unlinks its list node.
+/// Keeping validation here removes two IsBadReadPtr probes from every active
+/// station update while preserving the engine's own ownership protocol.
+pub unsafe extern "thiscall" fn hook_radio_station_resolve(
+    station: *mut c_void,
+    load_context: *mut c_void,
+) {
+    if let Ok(original) = statics::RADIO_STATION_RESOLVE_HOOK.original() {
+        unsafe { original(station, load_context) };
     }
-    if !unsafe { is_readable_ptr(station.cast_const(), size_of::<usize>()) } {
-        return Some(("wrapper-unreadable", ptr::null_mut()));
+
+    if station.is_null() || !unsafe { is_readable_ptr(station.cast_const(), size_of::<usize>()) } {
+        return;
     }
 
     let form = unsafe { ptr::read_unaligned(station.cast::<*mut c_void>()) };
+    let Some(reason) = (unsafe { invalid_radio_form(form) }) else {
+        return;
+    };
+
+    unsafe { ptr::write_unaligned(station.cast::<*mut c_void>(), ptr::null_mut()) };
+
+    static STALE_STATIONS: AtomicU64 = AtomicU64::new(0);
+    let count = STALE_STATIONS.fetch_add(1, Ordering::Relaxed) + 1;
+    if crate::mods::diagnostics::should_log_power_of_two(count) {
+        let station_pool = super::pool::ptr_info(station.cast_const());
+        let form_pool = super::pool::ptr_info(form.cast_const());
+        log::warn!(
+            "[RADIO] Stale station removed during load reconciliation: reason={} station=0x{:08X} form=0x{:08X} station_pool={:?} form_pool={:?} total={}",
+            reason,
+            station as usize,
+            form as usize,
+            station_pool,
+            form_pool,
+            count,
+        );
+    }
+}
+
+#[inline]
+unsafe fn invalid_radio_form(form: *mut c_void) -> Option<&'static str> {
+    const FNV_TEXT: std::ops::Range<usize> = 0x0040_0000..0x00E0_0000;
+    const FNV_RDATA: std::ops::Range<usize> = 0x0100_0000..0x0110_0000;
+
     if form.is_null() {
         return None;
     }
     if (form as usize) & (size_of::<usize>() - 1) != 0 {
-        return Some(("form-unaligned", form));
+        return Some("form-unaligned");
     }
     if !unsafe { is_readable_ptr(form.cast_const(), 0x10) } {
-        return Some(("form-unreadable", form));
+        return Some("form-unreadable");
     }
 
     let vtable = unsafe { ptr::read_unaligned(form.cast::<usize>()) };
     if !FNV_RDATA.contains(&vtable) {
-        return Some(("form-vtable", form));
+        return Some("form-vtable");
     }
     let first_method = unsafe { ptr::read_unaligned(vtable as *const usize) };
     if !FNV_TEXT.contains(&first_method) {
-        return Some(("form-method", form));
+        return Some("form-method");
     }
     None
 }

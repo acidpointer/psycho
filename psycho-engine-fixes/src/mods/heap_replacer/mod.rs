@@ -32,6 +32,8 @@ pub(crate) enum TaskPoolState {
     Free,
 }
 
+pub(crate) use gheap::pool::PoolTaskPinResult as TaskPoolPinResult;
+
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct TaskCellInfo {
     pub pool_index: u8,
@@ -54,6 +56,13 @@ pub(crate) fn task_pool_state(task: *const c_void) -> TaskPoolState {
     } else {
         TaskPoolState::Live
     }
+}
+
+pub(crate) fn pin_task_refcount(task: *mut c_void) -> TaskPoolPinResult {
+    if current_mode() != Some(AllocatorMode::GheapAndScrapHeap) {
+        return TaskPoolPinResult::NotOwned;
+    }
+    gheap::pool::pin_task_refcount(task)
 }
 
 pub(crate) fn tombstone_free_task(

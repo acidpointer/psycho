@@ -28,14 +28,13 @@
 //!              allocations have fewer stale-reader patterns anyway.
 
 use libc::c_void;
-use std::cell::Cell;
 use std::ptr::null_mut;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 
 use libmimalloc::{mi_is_in_heap_region, mi_usable_size};
 
 use super::super::heap_validate;
-use super::engine::{addr, globals};
+use super::engine::addr;
 use super::statics;
 
 // ---------------------------------------------------------------------------
@@ -78,45 +77,6 @@ pub fn calibrate_thresholds(baseline: usize) {
 
 pub fn get_headroom() -> usize {
     HEADROOM.load(Ordering::Acquire)
-}
-
-// ---------------------------------------------------------------------------
-// Thread identity
-// ---------------------------------------------------------------------------
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-#[repr(u8)]
-enum ThreadRole {
-    Unknown = 0,
-    Main = 1,
-    Worker = 2,
-}
-
-thread_local! {
-    static THREAD_ROLE: Cell<ThreadRole> = const { Cell::new(ThreadRole::Unknown) };
-}
-
-/// True when the current OS thread is the game's main thread. Cached
-/// in a TLS cell after first call. Used by engine guards; the allocator
-/// itself does not branch on it.
-#[inline]
-pub fn is_main_thread() -> bool {
-    THREAD_ROLE.with(|r| match r.get() {
-        ThreadRole::Main => true,
-        ThreadRole::Worker => false,
-        ThreadRole::Unknown => {
-            if !globals::main_thread_id_is_set() {
-                return false;
-            }
-            let is_main = globals::is_main_thread_by_tid();
-            r.set(if is_main {
-                ThreadRole::Main
-            } else {
-                ThreadRole::Worker
-            });
-            is_main
-        }
-    })
 }
 
 // ---------------------------------------------------------------------------
@@ -182,10 +142,10 @@ pub unsafe fn alloc(size: usize) -> *mut c_void {
         }
 
         // Exact-size overflow is the normal growth path. Reaching here means
-        // that it could not reserve or commit more memory. A block cell costs
-        // at least 2 KB, so this is an emergency safety valve rather than a
-        // sustained strategy, but it is still safer than returning immediate
-        // NULL while an existing block has reusable space.
+        // that it could not reserve or commit more memory. This is an
+        // emergency safety valve rather than a sustained strategy, but it is
+        // still safer than returning immediate NULL while an existing block
+        // has reusable space.
         log_pool_fallback(size);
     }
 

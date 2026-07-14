@@ -107,6 +107,11 @@ pub fn prepare_gheap_hooks(hook_realloc_1: bool) -> anyhow::Result<bool> {
                 RADIO_STATION_UPDATE_ADDR as *mut c_void,
                 gheap::hooks::hook_radio_station_update,
             )?;
+            RADIO_STATION_RESOLVE_HOOK.init(
+                "radio_station_resolve",
+                RADIO_STATION_RESOLVE_ADDR as *mut c_void,
+                gheap::hooks::hook_radio_station_resolve,
+            )?;
             PHASE10_PRE_TAIL_HOOK.init(
                 "phase10_pre_tail",
                 PHASE10_PRE_TAIL_ADDR as *mut c_void,
@@ -166,15 +171,10 @@ pub fn prepare_gheap_hooks(hook_realloc_1: bool) -> anyhow::Result<bool> {
             )?;
         }
 
-        // texture cache dead set
+        // Texture cache ownership-root unlink.
         {
             use gheap::statics::*;
 
-            TEXTURE_CACHE_FIND_HOOK.init(
-                "texture_cache_find",
-                TEXTURE_CACHE_FIND_ADDR as *mut c_void,
-                gheap::texture_cache::hook_texture_cache_find,
-            )?;
             NISOURCETEXTURE_DTOR_HOOK.init(
                 "nisourcetexture_dtor",
                 NISOURCETEXTURE_DTOR_ADDR as *mut c_void,
@@ -378,6 +378,7 @@ fn enable_gheap_hooks(
     transaction.enable_inline(&PHASE10_AUDIO_WORKER_HOOK)?;
     transaction.enable_inline(&RADIO_SIGNAL_SCAN_HOOK)?;
     transaction.enable_inline(&RADIO_STATION_UPDATE_HOOK)?;
+    transaction.enable_inline(&RADIO_STATION_RESOLVE_HOOK)?;
     transaction.enable_inline(&PHASE10_PRE_TAIL_HOOK)?;
     transaction.enable_inline(&PHASE10_WORLD_UPDATE_HOOK)?;
     transaction.enable_inline(&PHASE10_MID_HOOK)?;
@@ -387,7 +388,6 @@ fn enable_gheap_hooks(
     transaction.enable_inline(&AI_THREAD_START_HOOK)?;
     transaction.enable_inline(&AI_THREAD_JOIN_HOOK)?;
     transaction.enable_inline(&OOM_STAGE_EXEC_HOOK)?;
-    transaction.enable_inline(&TEXTURE_CACHE_FIND_HOOK)?;
     transaction.enable_inline(&NISOURCETEXTURE_DTOR_HOOK)?;
     transaction.enable_inline(&MODEL_TASK_DTOR_HOOK)?;
     transaction.enable_inline(&HAVOK_STOP_START_HOOK)?;

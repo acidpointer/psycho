@@ -16,13 +16,12 @@ use super::{block, pool, va_alloc};
 const REPORT_MS: u32 = 1_000;
 const ABSOLUTE_HITCH_US: u64 = 20_000;
 const RELATIVE_HITCH_US: u64 = 2_000;
-const SPAN_COUNT: usize = 21;
+const SPAN_COUNT: usize = 20;
 
 #[derive(Clone, Copy)]
 #[repr(usize)]
 pub enum Span {
-    Phase7DeadSet = 0,
-    Phase7Pdd,
+    Phase7Pdd = 0,
     Phase7OptionalPdd,
     Phase10Original,
     Phase10Pre,
@@ -68,10 +67,6 @@ struct SpanDescriptor {
 }
 
 const SPAN_DESCRIPTORS: [SpanDescriptor; SPAN_COUNT] = [
-    SpanDescriptor {
-        span: Span::Phase7DeadSet,
-        name: "7ds",
-    },
     SpanDescriptor {
         span: Span::Phase7Pdd,
         name: "7pdd",

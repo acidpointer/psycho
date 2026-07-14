@@ -74,13 +74,6 @@ pub static HAVOK_NARROWPHASE_ADD_AGENTS_HOOK: LazyLock<
 pub static HAVOK_PENDING_ADD_FLUSH_HOOK: LazyLock<InlineHookContainer<HavokPendingAddFlushFn>> =
     LazyLock::new(InlineHookContainer::new);
 
-// ---- Game-inlined _memset NULL-dst guard ----
-
-pub const MEMSET_ADDR: usize = 0x00EC61C0;
-
-pub static MEMSET_HOOK: LazyLock<InlineHookContainer<libpsycho::os::windows::types::MemsetFn>> =
-    LazyLock::new(InlineHookContainer::new);
-
 // ---- LowProcess generic-location ownership ----
 
 pub const APPEND_REF_ID_ADDR: usize = 0x00865DF0;

@@ -31,12 +31,12 @@
 
 use std::collections::{BTreeMap, HashMap};
 use std::ptr::null_mut;
-use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use rustc_hash::FxBuildHasher;
 
 use libc::c_void;
+use parking_lot::Mutex;
 use windows::Win32::System::Memory::{
     MEM_COMMIT, MEM_RELEASE, MEM_RESERVE, PAGE_READWRITE, VirtualAlloc, VirtualFree,
 };
@@ -48,11 +48,16 @@ use windows::Win32::System::Memory::{
 /// Size of each independently reserved medium-allocation block.
 pub const BLOCK_SIZE: usize = 16 * 1024 * 1024;
 
+/// Commit charge grows independently from the 16 MB VAS reservation. One MB
+/// amortizes VirtualAlloc calls while avoiding a full 16 MB commit per block.
+const COMMIT_CHUNK: usize = 1024 * 1024;
+
 /// Minimum cell size. Leftover below this cannot be split off.
 pub const MIN_CELL: u32 = 4 * 1024;
 
-/// Cell alignment within a block. Everything below rounds up to this.
-pub const CELL_ALIGN: u32 = 2 * 1024;
+/// GameHeap allocations require 16-byte alignment. Larger alignment wastes
+/// committed memory and increases block/VAS pressure on large modlists.
+pub const CELL_ALIGN: u32 = 16;
 
 /// Upper size the block tier handles. Above goes to va_alloc.
 pub const BLOCK_MAX_ALLOC: usize = BLOCK_SIZE;
@@ -103,6 +108,7 @@ struct Block {
     #[allow(dead_code)]
     size: u32,
     backing: BlockBacking,
+    committed: usize,
 
     /// Dense cell array. Once allocated, a slot is never shrunk; it may
     /// be reused when coalescing retires a cell.
@@ -146,7 +152,7 @@ unsafe impl Send for Block {}
 unsafe impl Sync for Block {}
 
 impl Block {
-    fn new(base: *mut u8, size: u32, backing: BlockBacking) -> Self {
+    fn new(base: *mut u8, size: u32, backing: BlockBacking, committed: usize) -> Self {
         let mut cells = Vec::with_capacity(64);
         cells.push(Cell {
             offset: 0,
@@ -162,6 +168,7 @@ impl Block {
             base,
             size,
             backing,
+            committed,
             cells,
             free_slots: Vec::new(),
             free_by_size,
@@ -336,6 +343,28 @@ impl Block {
             .get(&offset)
             .map(|&idx| self.cells[idx as usize].size)
     }
+
+    fn ensure_committed(&mut self, end: usize) -> bool {
+        if end <= self.committed {
+            return true;
+        }
+        let target = round_up_usize(end, COMMIT_CHUNK).min(BLOCK_SIZE);
+        let commit_len = target - self.committed;
+        let commit_base = unsafe { self.base.add(self.committed) };
+        let committed = unsafe {
+            VirtualAlloc(
+                Some(commit_base.cast()),
+                commit_len,
+                MEM_COMMIT,
+                PAGE_READWRITE,
+            )
+        };
+        if committed != commit_base.cast() {
+            return false;
+        }
+        self.committed = target;
+        true
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -343,15 +372,14 @@ impl Block {
 // ---------------------------------------------------------------------------
 
 struct BlockHeap {
-    /// Slot table. `Some` means a block is live (committed and
-    /// owning a 16 MB VirtualAlloc region); `None` means the slot
-    /// is empty. Live blocks NEVER retire -- matches NVHR's
-    /// `dheap_free` semantics. Blocks live at OS-chosen addresses,
-    /// so the slot index is just an internal handle, not an address
-    /// (in contrast to the previous unified-tier design).
+    /// Slot table. `Some` means a block owns a 16 MB reservation; `None`
+    /// means the slot is empty. Normal frees never retire blocks. Empty
+    /// VirtualAlloc blocks can retire only during a failed large-allocation
+    /// recovery. The slot index is an internal handle, not an address.
     blocks: [Option<Block>; BLOCK_COUNT],
     address_to_block: [u8; BLOCK_ADDRESS_SLOTS],
     alloc_hint: u8,
+    high_scan_hint: usize,
 }
 
 // Raw pointers inside `Block` are only touched under the global HEAP mutex.
@@ -364,6 +392,7 @@ impl BlockHeap {
             blocks: [const { None }; BLOCK_COUNT],
             address_to_block: [NO_BLOCK; BLOCK_ADDRESS_SLOTS],
             alloc_hint: 0,
+            high_scan_hint: BLOCK_HIGH_SCAN_START,
         }
     }
 
@@ -405,10 +434,11 @@ impl BlockHeap {
         }
     }
 
-    /// Reserve+commit a fresh 16 MB region. Default-tail adoption is
-    /// best because it reuses already-reserved vanilla VAS. After that
-    /// we scan high addresses exactly before falling back to OS-picked
-    /// placement; low/mid holes are more valuable to D3D than to us.
+    /// Reserve a fresh 16 MB region. Default-tail adoption is best because it
+    /// reuses vanilla's reservation. User pages are committed progressively
+    /// in 1 MB chunks by `ensure_committed`. After that we scan high addresses
+    /// exactly before falling back to OS-picked placement; low/mid holes are
+    /// more valuable to D3D than to us.
     ///
     /// Each slot is still its own independent `MEM_RESERVE` so the
     /// retirement path (`VirtualFree(MEM_RELEASE)`) works unchanged.
@@ -416,7 +446,7 @@ impl BlockHeap {
         let idx = self.blocks.iter().position(|b| b.is_none())?;
 
         let mut ptr =
-            super::vanilla_large_heap::try_alloc_default_tail(BLOCK_SIZE, 0x1000, "block", true);
+            super::vanilla_large_heap::try_alloc_default_tail(BLOCK_SIZE, 0x1000, "block", false);
         let mut backing = BlockBacking::VirtualAlloc;
 
         // Best VAS outcome: consume the already-reserved vanilla
@@ -427,7 +457,7 @@ impl BlockHeap {
         }
 
         if ptr.is_null() {
-            ptr = Self::reserve_high_block();
+            ptr = self.reserve_high_block();
         }
 
         // If the high half is already fragmented or unavailable, try
@@ -441,7 +471,7 @@ impl BlockHeap {
                 VirtualAlloc(
                     Some(hint as *const c_void),
                     BLOCK_SIZE,
-                    MEM_RESERVE | MEM_COMMIT,
+                    MEM_RESERVE,
                     PAGE_READWRITE,
                 )
             };
@@ -449,8 +479,7 @@ impl BlockHeap {
 
         // Fallback: OS picks placement anywhere.
         if ptr.is_null() {
-            ptr =
-                unsafe { VirtualAlloc(None, BLOCK_SIZE, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE) };
+            ptr = unsafe { VirtualAlloc(None, BLOCK_SIZE, MEM_RESERVE, PAGE_READWRITE) };
         }
 
         if ptr.is_null() {
@@ -458,7 +487,7 @@ impl BlockHeap {
             if fails.is_power_of_two() {
                 if let Some(vas) = super::vas::sample() {
                     log::warn!(
-                        "[BLOCK] VirtualAlloc(MEM_RESERVE|MEM_COMMIT, {}MB) failed: err={} total_fails={} live={} largest=0x{:08x}+{}MB free={}MB",
+                        "[BLOCK] VirtualAlloc(MEM_RESERVE, {}MB) failed: err={} total_fails={} live={} largest=0x{:08x}+{}MB free={}MB",
                         BLOCK_SIZE / 1024 / 1024,
                         std::io::Error::last_os_error(),
                         fails,
@@ -469,7 +498,7 @@ impl BlockHeap {
                     );
                 } else {
                     log::warn!(
-                        "[BLOCK] VirtualAlloc(MEM_RESERVE|MEM_COMMIT, {}MB) failed: err={} (total_fails={}, live={})",
+                        "[BLOCK] VirtualAlloc(MEM_RESERVE, {}MB) failed: err={} (total_fails={}, live={})",
                         BLOCK_SIZE / 1024 / 1024,
                         std::io::Error::last_os_error(),
                         fails,
@@ -480,7 +509,8 @@ impl BlockHeap {
             return None;
         }
         let addr = ptr as *mut u8;
-        self.blocks[idx] = Some(Block::new(addr, BLOCK_SIZE as u32, backing));
+        let committed = 0;
+        self.blocks[idx] = Some(Block::new(addr, BLOCK_SIZE as u32, backing, committed));
         self.map_block_address(idx, addr);
         self.alloc_hint = idx as u8;
         log::debug!(
@@ -536,15 +566,18 @@ impl BlockHeap {
         }
     }
 
-    fn reserve_high_block() -> *mut c_void {
-        let mut hint = BLOCK_HIGH_SCAN_START;
-
-        loop {
+    fn reserve_high_block(&mut self) -> *mut c_void {
+        let mut hint = self.high_scan_hint;
+        while hint >= BLOCK_HIGH_SCAN_MIN {
+            self.high_scan_hint = hint
+                .checked_sub(BLOCK_SIZE)
+                .filter(|next| *next >= BLOCK_HIGH_SCAN_MIN)
+                .unwrap_or(0);
             let ptr = unsafe {
                 VirtualAlloc(
                     Some(hint as *const c_void),
                     BLOCK_SIZE,
-                    MEM_RESERVE | MEM_COMMIT,
+                    MEM_RESERVE,
                     PAGE_READWRITE,
                 )
             };
@@ -555,10 +588,10 @@ impl BlockHeap {
                 let _ = unsafe { VirtualFree(ptr, 0, MEM_RELEASE) };
             }
 
-            if hint <= BLOCK_HIGH_SCAN_MIN {
+            if self.high_scan_hint == 0 {
                 break;
             }
-            hint -= BLOCK_SIZE;
+            hint = self.high_scan_hint;
         }
 
         null_mut()
@@ -621,6 +654,12 @@ impl BlockHeap {
                     return null_mut();
                 };
                 let offset = cell.offset;
+                let cell_size = cell.size as usize;
+                if !block.ensure_committed(offset as usize + cell_size) {
+                    let _ = block.free(offset);
+                    log_commit_failure(block.base as usize, offset as usize, cell_size);
+                    continue;
+                }
                 let addr = unsafe { block.base.add(offset as usize) };
                 self.alloc_hint = i as u8;
                 return addr as *mut c_void;
@@ -647,6 +686,12 @@ impl BlockHeap {
                     return null_mut();
                 };
                 let offset = cell.offset;
+                let cell_size = cell.size as usize;
+                if !block.ensure_committed(offset as usize + cell_size) {
+                    let _ = block.free(offset);
+                    log_commit_failure(block.base as usize, offset as usize, cell_size);
+                    return null_mut();
+                }
                 let addr = unsafe { block.base.add(offset as usize) };
                 addr as *mut c_void
             }
@@ -707,6 +752,10 @@ impl BlockHeap {
                 continue;
             }
             self.unmap_block_address(b.base);
+            let base = b.base as usize;
+            if (BLOCK_HIGH_SCAN_MIN..=BLOCK_HIGH_SCAN_START).contains(&base) {
+                self.high_scan_hint = self.high_scan_hint.max(base);
+            }
             slots += 1;
             bytes += BLOCK_SIZE;
             log::info!(
@@ -755,6 +804,14 @@ impl BlockHeap {
             .map(|block| block.live_bytes)
             .sum()
     }
+
+    fn committed_bytes(&self) -> usize {
+        self.blocks
+            .iter()
+            .flatten()
+            .map(|block| block.committed)
+            .sum()
+    }
 }
 
 #[derive(Clone, Copy, Default)]
@@ -777,7 +834,7 @@ static FAIL_COUNT: AtomicU64 = AtomicU64::new(0);
 
 #[inline]
 fn with_heap<R>(f: impl FnOnce(&mut BlockHeap) -> R) -> R {
-    let mut guard = HEAP.lock().unwrap_or_else(|p| p.into_inner());
+    let mut guard = HEAP.lock();
     f(&mut guard)
 }
 
@@ -819,7 +876,7 @@ pub fn snapshot() -> BlockSnapshot {
             slots,
             live_allocations: h.live_allocations(),
             live_bytes: h.live_bytes(),
-            committed_bytes: slots * BLOCK_SIZE,
+            committed_bytes: h.committed_bytes(),
         }
     })
 }
@@ -836,7 +893,7 @@ pub fn emergency_retire_empty() -> (usize, usize) {
 }
 
 pub fn committed_bytes() -> usize {
-    with_heap(|h| h.live_count() * BLOCK_SIZE)
+    with_heap(|h| h.committed_bytes())
 }
 
 pub fn fail_count() -> u64 {
@@ -846,4 +903,23 @@ pub fn fail_count() -> u64 {
 #[inline]
 fn round_up(v: u32, align: u32) -> u32 {
     (v + align - 1) & !(align - 1)
+}
+
+#[inline]
+fn round_up_usize(v: usize, align: usize) -> usize {
+    (v + align - 1) & !(align - 1)
+}
+
+fn log_commit_failure(base: usize, offset: usize, size: usize) {
+    let fails = FAIL_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
+    if fails.is_power_of_two() {
+        log::warn!(
+            "[BLOCK] VirtualAlloc(MEM_COMMIT) failed: base=0x{:08X} offset={} size={} err={} total_fails={}",
+            base,
+            offset,
+            size,
+            std::io::Error::last_os_error(),
+            fails,
+        );
+    }
 }

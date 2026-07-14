@@ -42,6 +42,10 @@ pub type RadioSignalScanFn = unsafe extern "C" fn(*mut c_void, *mut c_void, *mut
 /// FUN_00834260: per-station radio update called from FUN_00833d00.
 pub type RadioStationUpdateFn = unsafe extern "C" fn(*mut c_void);
 
+/// FUN_00836660: resolves a serialized registered-radio form during load.
+/// The caller destroys and unlinks the wrapper when its first pointer is NULL.
+pub type RadioStationResolveFn = unsafe extern "thiscall" fn(*mut c_void, *mut c_void);
+
 /// FUN_0082fb70: helper called from FUN_0086f640 before world update.
 pub type Phase10PreTailFn = unsafe extern "C" fn();
 
@@ -92,10 +96,6 @@ pub type HkWorldLockFn = unsafe extern "fastcall" fn(*mut c_void);
 pub type CancelStaleTasksFn = unsafe extern "thiscall" fn(*mut c_void, u8);
 
 // ---- Texture cache ----
-
-/// FUN_00a61a60: texture cache hash table find (thiscall).
-pub type TextureCacheFindFn =
-    unsafe extern "thiscall" fn(*mut c_void, i32, i32, *mut *mut i32) -> u32;
 
 /// FUN_00a5fca0: NiSourceTexture destructor (fastcall).
 pub type NiSourceTextureDtorFn = unsafe extern "fastcall" fn(*mut c_void);
