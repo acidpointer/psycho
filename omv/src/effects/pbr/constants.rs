@@ -34,6 +34,7 @@ static CURRENT_OBJECT_PROFILE_BITS: LazyLock<[AtomicU32; PBR_PROFILE_VALUE_COUNT
     LazyLock::new(|| array::from_fn(|_| AtomicU32::new(0)));
 const PBR_DATA_REGISTER: u32 = 32;
 const PBR_EXTRA_DATA_REGISTER: u32 = 33;
+const TERRAIN_DATA_REGISTER: u32 = 89;
 
 struct ProfileStorage {
     values: [[AtomicU32; PBR_PROFILE_VALUE_COUNT]; PROFILE_COUNT],
@@ -114,6 +115,33 @@ pub(super) fn upload_object_constants(device: &Device9Ref<'_>) -> bool {
             .is_ok()
 }
 
+pub(super) fn upload_terrain_constants(
+    device: &Device9Ref<'_>,
+) -> Option<([[f32; 4]; 2], [[f32; 4]; 2])> {
+    let profile = current_terrain_profile();
+    let requested = [
+        [profile[0], profile[1], profile[2], profile[3]],
+        [
+            1.0,
+            profile[4],
+            f32::from_bits(TERRAIN_LOD_NOISE_SCALE.load(Ordering::Acquire)),
+            f32::from_bits(TERRAIN_LOD_NOISE_TILE.load(Ordering::Acquire)),
+        ],
+    ];
+    if device
+        .set_pixel_shader_constant_f(TERRAIN_DATA_REGISTER, &requested)
+        .is_err()
+    {
+        return None;
+    }
+
+    let mut observed = [[0.0; 4]; 2];
+    device
+        .pixel_shader_constant_f(TERRAIN_DATA_REGISTER, &mut observed)
+        .ok()?;
+    Some((requested, observed))
+}
+
 pub(super) fn object_constant_version() -> u32 {
     OBJECT_CONSTANT_VERSION.load(Ordering::Acquire)
 }
@@ -141,6 +169,13 @@ fn current_object_profile() -> [f32; PBR_PROFILE_VALUE_COUNT] {
     let t = f32::from_bits(TRANSITION_CURVE.load(Ordering::Acquire)).clamp(0.0, 1.0);
     let night = OBJECT_PROFILES.load(PROFILE_NIGHT);
     let day = OBJECT_PROFILES.load(PROFILE_DEFAULT);
+    lerp_profile(night, day, t)
+}
+
+fn current_terrain_profile() -> [f32; PBR_PROFILE_VALUE_COUNT] {
+    let t = f32::from_bits(TRANSITION_CURVE.load(Ordering::Acquire)).clamp(0.0, 1.0);
+    let night = TERRAIN_PROFILES.load(PROFILE_NIGHT);
+    let day = TERRAIN_PROFILES.load(PROFILE_DEFAULT);
     lerp_profile(night, day, t)
 }
 

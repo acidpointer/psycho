@@ -784,11 +784,18 @@ impl ScreenShaderRuntime {
             return Ok(());
         }
 
+        let depth = self.current_depth_frame();
+        let camera = if depth.world_projection.camera.available {
+            depth.world_projection.camera
+        } else {
+            backend::camera_frame(self.settings.depth_provider, desc)
+        };
         let frame_inputs = backend::FrameInputs {
-            camera: backend::camera_frame(self.settings.depth_provider, desc),
-            depth: self.current_depth_frame(),
+            camera,
+            depth,
             environment: backend::environment_frame(self.settings.depth_provider),
             sun: backend::sun_frame(self.settings.depth_provider),
+            material_state: backend::material_state_frame(),
         };
         self.log_frame_input_state(&frame_inputs);
 
@@ -950,6 +957,7 @@ impl ScreenShaderRuntime {
                         frame_inputs.sun.daylight,
                     ]],
                 )?;
+                bind_depth_contract_constants(device, &frame_inputs)?;
 
                 log::trace!(
                     "[SHADERS] Drawing '{}' screen pass '{}'",
@@ -1150,7 +1158,20 @@ impl ScreenShaderRuntime {
 
         let first_person_texture =
             backend::first_person_depth_texture_ptr(provider).and_then(DepthTexture::new);
-        DepthFrame::from_textures(provider, texture, first_person_texture)
+        let world_projection =
+            backend::depth_projection_frame(provider, backend::DepthResolveSlot::World);
+        let first_person_projection = if first_person_texture.is_some() {
+            backend::depth_projection_frame(provider, backend::DepthResolveSlot::FirstPerson)
+        } else {
+            backend::DepthProjectionFrame::default()
+        };
+        DepthFrame::from_textures(
+            provider,
+            texture,
+            first_person_texture,
+            world_projection,
+            first_person_projection,
+        )
     }
 
     fn draw_menu(&mut self) -> Direct3DResult<()> {
@@ -1265,6 +1286,7 @@ impl ScreenShaderRuntime {
         device.set_texture_stage_state(0, D3DTSS_COLORARG1, D3DTA_TEXTURE)?;
         device.set_texture_stage_state(0, D3DTSS_ALPHAOP, D3DTOP_SELECTARG1.0 as u32)?;
         device.set_texture_stage_state(0, D3DTSS_ALPHAARG1, D3DTA_TEXTURE)?;
+        bind_depth_contract_constants(device, frame_inputs)?;
 
         Ok(())
     }
@@ -1824,66 +1846,32 @@ fn draw_native_pbr_config(
     config: &mut crate::config::NativePbrConfig,
     status: pbr::NativePbrRuntimeStatus,
 ) -> bool {
-    let heading = cstring("Native PBR (WIP)");
+    let heading = cstring("Native PBR");
     ui.text_colored(MENU_ACCENT_TEXT, &heading);
 
-    let kind = cstring("Type: engine material hook");
-    ui.text_colored(MENU_MUTED_TEXT, &kind);
-    let wip = cstring("Work in progress: opt-in only; not ready for early release");
-    ui.text_colored(MENU_WARN_TEXT, &wip);
-    let path = cstring(format!("Config: {}", crate::config::CONFIG_PATH));
-    ui.text_wrapped(&path);
-
     let (status_color, status_text) = if let Some(reason) = status.block_reason {
-        (MENU_WARN_TEXT, format!("PBR rewrite blocked: {reason}"))
+        (MENU_WARN_TEXT, format!("Object PBR: blocked ({reason})"))
     } else if status.installed && status.shader_enabled && status.active_contracts_failed {
-        (
-            MENU_WARN_TEXT,
-            "PBR blocked: object shader contract failed".to_owned(),
-        )
+        (MENU_WARN_TEXT, "Object PBR: shader error".to_owned())
     } else if status.installed && status.shader_enabled && !status.active_contracts_ready {
-        (
-            MENU_WARN_TEXT,
-            "PBR rewrite: waiting for NVR-style shader contracts".to_owned(),
-        )
+        (MENU_WARN_TEXT, "Object PBR: loading".to_owned())
     } else if status.installed && status.shader_enabled {
-        (MENU_GOOD_TEXT, "PBR shader: active".to_owned())
-    } else if status.installed {
         (
-            MENU_WARN_TEXT,
-            "PBR rewrite: installed, shader disabled".to_owned(),
+            MENU_GOOD_TEXT,
+            format!(
+                "Object PBR: active ({} draws)",
+                status.object_replacements_last_frame
+            ),
         )
     } else {
-        (MENU_WARN_TEXT, "PBR rewrite: not installed".to_owned())
+        (MENU_MUTED_TEXT, "Object PBR: disabled".to_owned())
     };
     let status_text = cstring(status_text);
     ui.text_colored(status_color, &status_text);
-    let terrain_text = if status.terrain_enabled && status.terrain_contract_available {
-        "Terrain PBR: LandLOD planned; close terrain/fade blocked"
-    } else if status.terrain_enabled {
-        "Terrain PBR: requested, engine contract missing"
-    } else if status.terrain_contract_available {
-        "Terrain PBR: locked; terrain stack detected but PBR contracts are not ported"
-    } else {
-        "Terrain PBR: locked; terrain contract missing"
-    };
-    let terrain_text = cstring(terrain_text);
-    ui.text_colored(MENU_MUTED_TEXT, &terrain_text);
-    let reload_note = cstring(
-        "Old replacement path removed; visible PBR stays blocked until the new contracts are ported",
-    );
-    ui.text_colored(MENU_MUTED_TEXT, &reload_note);
-    ui.separator();
-    draw_native_pbr_dashboard(ui, status);
     ui.separator();
 
     let mut changed = false;
-    changed |= draw_config_checkbox(
-        ui,
-        "WIP object PBR material shader",
-        "native_pbr.enabled",
-        &mut config.enabled,
-    );
+    changed |= draw_config_checkbox(ui, "Object PBR", "native_pbr.enabled", &mut config.enabled);
     ui.same_line();
     changed |= draw_config_checkbox(
         ui,
@@ -1891,18 +1879,8 @@ fn draw_native_pbr_config(
         "native_pbr.debug_log_draws",
         &mut config.debug_log_draws,
     );
-    if config.terrain_enabled {
-        config.terrain_enabled = false;
-        changed = true;
-    }
-    let terrain_locked =
-        cstring("WIP terrain PBR: locked; LandLOD/close/fade contracts are not ported");
-    ui.text_colored(MENU_WARN_TEXT, &terrain_locked);
+
     if config.enabled {
-        let text = cstring("Visible scope: contract-ready objects");
-        ui.text_colored(MENU_WARN_TEXT, &text);
-        let text = cstring("Object PBR uses c32/c33; terrain registers stay untouched");
-        ui.text_colored(MENU_MUTED_TEXT, &text);
         ui.separator();
         changed |= draw_float_slider(
             ui,
@@ -1946,299 +1924,70 @@ fn draw_native_pbr_config(
         );
     }
 
-    changed
-}
-
-fn draw_native_pbr_dashboard(ui: &mut psycho_imgui::Ui<'_>, status: pbr::NativePbrRuntimeStatus) {
-    let heading = cstring("Runtime contract");
-    ui.text_colored(MENU_ACCENT_TEXT, &heading);
-
-    let ownership = "Ownership: NVR-style side table active";
-    ui.text_colored(MENU_MUTED_TEXT, &cstring(ownership));
-    ui.same_line();
-    draw_status_value(
+    ui.separator();
+    let terrain_heading = cstring("Terrain PBR");
+    ui.text_colored(MENU_ACCENT_TEXT, &terrain_heading);
+    changed |= draw_config_checkbox(
         ui,
-        "Shader identity",
-        status.shader_creation_identity_ready,
-        "not ported",
+        "Terrain PBR",
+        "native_pbr.terrain_enabled",
+        &mut config.terrain_enabled,
     );
-    ui.same_line();
-    draw_status_value(
-        ui,
-        "Package lifetime",
-        status.shader_package_lifetime_contract_ready,
-        "NVR branch",
-    );
-    ui.same_line();
-    draw_status_value(
-        ui,
-        "EyePosition",
-        status.eye_position_contract_ready,
-        "c16 for SLS rows",
-    );
-
-    draw_status_value(
-        ui,
-        "Object shaders",
-        status.active_contracts_ready,
-        "object port",
-    );
-    ui.same_line();
-    draw_status_value(
-        ui,
-        "Terrain stack",
-        status.terrain_contract_available,
-        "VPT/FSL/LODFF",
-    );
-    ui.same_line();
-    draw_status_value(ui, "LandLOD", status.land_lod_contract_active, "not ported");
-    draw_status_value(
-        ui,
-        "Close terrain",
-        status.close_terrain_contract_proven,
-        "WIP blocked",
-    );
-    ui.same_line();
-    draw_status_value(
-        ui,
-        "Terrain fade",
-        status.terrain_fade_contract_proven,
-        "WIP blocked",
-    );
-    let shader_counts = cstring(format!(
-        "Object shaders: bytecode {}/{} failed {} | resources {}/{} failed {}",
-        status.object_bytecode_ready,
-        status.object_shader_total,
-        status.object_bytecode_failed,
-        status.object_resources_ready,
-        status.object_shader_total,
-        status.object_resources_failed
-    ));
-    ui.text_colored(MENU_MUTED_TEXT, &shader_counts);
-    if status.object_bytecode_failed != 0 || status.object_resources_failed != 0 {
-        let failures = cstring(format!(
-            "Shader failure: compile {} | create {}",
-            status.object_last_compile_failed, status.object_last_create_failed
-        ));
-        ui.text_colored(MENU_WARN_TEXT, &failures);
-    }
-    let shader_source = cstring("Object shader source: NVR ObjectTemplate + Object/PBR includes");
-    ui.text_colored(MENU_MUTED_TEXT, &shader_source);
-    let records = cstring(format!(
-        "Wrapper records: active {} | replacement {} | templates {}/{} | captured {} | adopted {}",
-        status.active_shader_records,
-        status.active_object_replacement_records,
-        status.recorded_shader_templates,
-        status.object_shader_total,
-        status.captured_shader_records,
-        status.adopted_shader_records
-    ));
-    ui.text_colored(MENU_MUTED_TEXT, &records);
-    let frame = cstring(format!(
-        "Last frame: replacements {} | fallbacks {} | constant uploads {} | cgen {}",
-        status.object_replacements_last_frame,
-        status.object_fallbacks_last_frame,
-        status.object_constant_uploads_last_frame,
-        status.object_constant_generation
-    ));
-    ui.text_colored(MENU_MUTED_TEXT, &frame);
-    let sampler_state = cstring(format!(
-        "Object samplers: tracker {} | binds {} | checks {} | fallbacks {} | selector drift {}",
-        ready_text(status.object_texture_tracking_ready),
-        status.object_texture_binds_last_frame,
-        status.object_sampler_checks_last_frame,
-        status.object_sampler_fallbacks_last_frame,
-        status.object_sampler_selector_mismatches_last_frame
-    ));
-    let sampler_color = if status.object_sampler_fallbacks_last_frame == 0 {
-        MENU_MUTED_TEXT
-    } else {
-        MENU_WARN_TEXT
-    };
-    ui.text_colored(sampler_color, &sampler_state);
-    let material_contract = cstring(format!(
-        "Material contract: selector 0x{:08X} | expected 0x{:04X} observed 0x{:04X} | layout {} | last {} {}",
-        status.object_last_sampler_selector,
-        status.object_last_sampler_expected_mask,
-        status.object_last_sampler_observed_mask,
-        status.object_last_sampler_layout,
-        status.object_last_sampler_fallback,
-        sampler_failed_stage_text(status.object_last_sampler_failed_stage)
-    ));
-    ui.text_colored(sampler_color, &material_contract);
-    let draw_gate = cstring(format!(
-        "Draw gate: rejected {} | terrain-like {} | last SLS v{} / p{}",
-        status.object_draw_gate_rejections_last_frame,
-        status.object_terrain_rejections_last_frame,
-        status.object_last_vertex_sls,
-        status.object_last_pixel_sls
-    ));
-    ui.text_colored(MENU_MUTED_TEXT, &draw_gate);
-    let templates = cstring(format!(
-        "Object templates: vertex {} | pixel {}",
-        status.object_last_vertex_template, status.object_last_pixel_template
-    ));
-    ui.text_colored(MENU_MUTED_TEXT, &templates);
-    let table_pair = cstring(format!(
-        "Shader table: v{}:{} | p{}:{}",
-        status.object_last_vertex_table,
-        table_index_text(status.object_last_vertex_index),
-        status.object_last_pixel_table,
-        table_index_text(status.object_last_pixel_index)
-    ));
-    ui.text_colored(MENU_MUTED_TEXT, &table_pair);
-    let pair_class = cstring(format!(
-        "Object contract: {} | normalized vertex {}",
-        status.object_last_pair_class,
-        table_index_text(status.object_last_normalized_vertex_index)
-    ));
-    ui.text_colored(pair_class_color(status.object_last_pair_class), &pair_class);
-    let contract_transitions = cstring(format!(
-        "Contract transitions/frame: {} | last {} -> {}",
-        status.object_contract_transitions_last_frame,
-        status.object_last_contract_transition_from,
-        status.object_last_contract_transition_to
-    ));
-    let contract_transition_color = if status.object_contract_transitions_last_frame == 0 {
-        MENU_MUTED_TEXT
-    } else {
-        MENU_WARN_TEXT
-    };
-    ui.text_colored(contract_transition_color, &contract_transitions);
-    let replacement_state = cstring(format!(
-        "Active replacement: vertex {} | pixel {}",
-        ready_text(status.object_last_vertex_replacement_ready),
-        ready_text(status.object_last_pixel_replacement_ready)
-    ));
-    let replacement_color = if status.object_last_vertex_replacement_ready
-        && status.object_last_pixel_replacement_ready
-    {
-        MENU_GOOD_TEXT
-    } else {
-        MENU_WARN_TEXT
-    };
-    ui.text_colored(replacement_color, &replacement_state);
-    if status.object_last_vertex_wrapper != 0 || status.object_last_pixel_wrapper != 0 {
-        let handles = cstring(format!(
-            "Active handles: vw 0x{:08X} -> 0x{:08X} | pw 0x{:08X} -> 0x{:08X}",
-            status.object_last_vertex_wrapper,
-            status.object_last_vertex_replacement,
-            status.object_last_pixel_wrapper,
-            status.object_last_pixel_replacement
-        ));
-        ui.text_colored(MENU_MUTED_TEXT, &handles);
-    }
-    if status.object_last_vertex_d3d != 0 || status.object_last_pixel_d3d != 0 {
-        let d3d_state = cstring(format!(
-            "Current D3D: pair {} | v 0x{:08X} ({}) | p 0x{:08X} ({})",
-            status.object_last_d3d_pair_state,
-            status.object_last_vertex_d3d,
-            replacement_match_text(status.object_last_vertex_d3d_is_replacement),
-            status.object_last_pixel_d3d,
-            replacement_match_text(status.object_last_pixel_d3d_is_replacement)
-        ));
-        ui.text_colored(
-            pair_state_color(status.object_last_d3d_pair_state),
-            &d3d_state,
+    if config.terrain_enabled {
+        changed |= draw_config_checkbox(
+            ui,
+            "Terrain LOD",
+            "native_pbr.terrain_lod_enabled",
+            &mut config.terrain_lod_enabled,
         );
-        let transitions = cstring(format!(
-            "D3D transitions/frame: to replacement {} | to vanilla/other {}",
-            status.object_d3d_to_replacement_last_frame, status.object_d3d_to_other_last_frame
-        ));
-        let transition_color = if status.object_d3d_to_other_last_frame == 0 {
-            MENU_MUTED_TEXT
+        ui.same_line();
+        changed |= draw_config_checkbox(
+            ui,
+            "Close terrain",
+            "native_pbr.close_terrain_enabled",
+            &mut config.close_terrain_enabled,
+        );
+        ui.same_line();
+        changed |= draw_config_checkbox(
+            ui,
+            "Terrain fade",
+            "native_pbr.terrain_fade_enabled",
+            &mut config.terrain_fade_enabled,
+        );
+
+        let terrain_status = if status.land_lod_contract_failed {
+            "Terrain shaders: compile or resource error"
+        } else if status.land_lod_contract_active
+            && status.close_terrain_contract_proven
+            && status.terrain_fade_contract_proven
+        {
+            "Terrain shaders: ready"
         } else {
-            MENU_WARN_TEXT
+            "Terrain shaders: loading"
         };
-        ui.text_colored(transition_color, &transitions);
-    }
-    if status.object_last_selector != 0 {
-        let selector = cstring(format!(
-            "Draw context: selector 0x{:08X} state {} layers {} entries {} list 0x{:08X}",
-            status.object_last_selector,
-            status.object_last_selector_state,
-            status.object_last_active_layer_count,
-            status.object_last_scanned_entries,
-            status.object_last_pass_entry_list
-        ));
-        ui.text_colored(MENU_MUTED_TEXT, &selector);
-    }
-    if status.object_last_reject_reason != "none" {
-        let reject = cstring(format!(
-            "Last draw-gate reject: {} row 0x{:03X} selector 0x{:08X}",
-            status.object_last_reject_reason,
-            status.object_last_reject_row,
-            status.object_last_reject_selector
-        ));
-        ui.text_colored(MENU_WARN_TEXT, &reject);
+        ui.text_colored(MENU_MUTED_TEXT, &cstring(terrain_status));
+
+        if config.terrain_lod_enabled {
+            changed |= draw_float_slider(
+                ui,
+                "LOD noise scale",
+                "native_pbr.terrain_lod_noise_scale",
+                &mut config.terrain_lod_noise_scale,
+                0.0,
+                4.0,
+            );
+            changed |= draw_float_slider(
+                ui,
+                "LOD noise tile",
+                "native_pbr.terrain_lod_noise_tile",
+                &mut config.terrain_lod_noise_tile,
+                0.05,
+                16.0,
+            );
+        }
     }
 
-    let active_steps = [
-        status.shader_package_lifetime_contract_ready,
-        status.eye_position_contract_ready,
-        status.active_contracts_ready,
-        !status.active_contracts_failed,
-    ]
-    .into_iter()
-    .filter(|ready| *ready)
-    .count();
-    let overlay = cstring(format!("{active_steps}/4 core checks"));
-    ui.progress_bar(active_steps as f32 / 4.0, 240.0, 0.0, &overlay);
-}
-
-fn table_index_text(index: u32) -> String {
-    if index == u32::MAX {
-        "unknown".to_owned()
-    } else {
-        index.to_string()
-    }
-}
-
-fn sampler_failed_stage_text(stage: u32) -> String {
-    if stage == u32::MAX {
-        String::new()
-    } else {
-        format!("s{stage}")
-    }
-}
-
-fn ready_text(ready: bool) -> &'static str {
-    if ready { "ready" } else { "missing" }
-}
-
-fn replacement_match_text(matches: bool) -> &'static str {
-    if matches {
-        "replacement"
-    } else {
-        "vanilla/other"
-    }
-}
-
-fn pair_class_color(pair_class: &str) -> [f32; 4] {
-    if pair_class.starts_with("implemented") {
-        MENU_GOOD_TEXT
-    } else if pair_class == "none" {
-        MENU_MUTED_TEXT
-    } else {
-        MENU_WARN_TEXT
-    }
-}
-
-fn pair_state_color(pair_state: &str) -> [f32; 4] {
-    if pair_state == "replacement" {
-        MENU_GOOD_TEXT
-    } else if pair_state == "unknown" {
-        MENU_MUTED_TEXT
-    } else {
-        MENU_WARN_TEXT
-    }
-}
-
-fn draw_status_value(ui: &mut psycho_imgui::Ui<'_>, label: &str, ok: bool, detail: &str) {
-    let color = if ok { MENU_GOOD_TEXT } else { MENU_WARN_TEXT };
-    let state = if ok { "ready" } else { "blocked" };
-    let text = cstring(format!("{label}: {state} ({detail})"));
-    ui.text_colored(color, &text);
+    changed
 }
 
 fn draw_feature_list(
@@ -2538,7 +2287,7 @@ fn native_pbr_list_label(configured_enabled: bool, status: pbr::NativePbrRuntime
     } else {
         "OFF"
     };
-    format!("{status}  Native PBR (WIP)##native_pbr_select")
+    format!("{status}  Native PBR##native_pbr_select")
 }
 
 fn shader_has_error(source: &ScreenShaderSource) -> bool {
@@ -2677,6 +2426,48 @@ fn cstring(text: impl AsRef<str>) -> CString {
 fn runtime_error(message: &'static str) -> WindowsError {
     log::warn!("{message}");
     direct3d_failure()
+}
+
+fn bind_depth_contract_constants(
+    device: &Device9Ref<'_>,
+    frame_inputs: &backend::FrameInputs,
+) -> Direct3DResult<()> {
+    let world = frame_inputs.depth.world_projection;
+    let first_person = frame_inputs.depth.first_person_projection;
+    let world_camera = if world.camera.available {
+        world.camera
+    } else {
+        frame_inputs.camera
+    };
+    device.set_pixel_shader_constant_f(
+        11,
+        &[
+            [
+                world.reversed_depth_f32(),
+                first_person.reversed_depth_f32(),
+                world_camera.available_f32(),
+                first_person.camera.available_f32(),
+            ],
+            [
+                world_camera.frustum_left,
+                world_camera.frustum_right,
+                world_camera.frustum_bottom,
+                world_camera.frustum_top,
+            ],
+            [
+                first_person.camera.near_z,
+                first_person.camera.far_z,
+                first_person.camera.aspect_ratio,
+                0.0,
+            ],
+            [
+                first_person.camera.frustum_left,
+                first_person.camera.frustum_right,
+                first_person.camera.frustum_bottom,
+                first_person.camera.frustum_top,
+            ],
+        ],
+    )
 }
 
 fn fullscreen_quad(desc: &D3DSURFACE_DESC) -> [ScreenVertex; 4] {

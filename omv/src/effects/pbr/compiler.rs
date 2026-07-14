@@ -1,7 +1,7 @@
 //! Shader bytecode preparation boundary.
 //!
 //! The replacement system must not compile HLSL from the draw path. This module
-//! compiles object PBR bytecode asynchronously, writes a small cache, and hands
+//! compiles PBR bytecode asynchronously, writes a small cache, and hands
 //! ready bytecode to the D3D resource owner.
 
 use std::{
@@ -34,11 +34,11 @@ static FINISHED: AtomicBool = AtomicBool::new(false);
 static FAILED: AtomicBool = AtomicBool::new(false);
 static LAST_FAILED_TEMPLATE_ID: AtomicU32 = AtomicU32::new(TEMPLATE_ID_NONE);
 static STATES: LazyLock<Vec<AtomicU32>> = LazyLock::new(|| {
-    (0..shader_registry::object_template_count())
+    (0..shader_registry::template_count())
         .map(|_| AtomicU32::new(BYTECODE_MISSING))
         .collect()
 });
-static READY_BYTECODE: LazyLock<Mutex<Vec<CompiledObjectShader>>> =
+static READY_BYTECODE: LazyLock<Mutex<Vec<CompiledShader>>> =
     LazyLock::new(|| Mutex::new(Vec::new()));
 
 #[derive(Clone, Copy)]
@@ -46,7 +46,7 @@ struct CompileJob {
     template_id: u16,
 }
 
-struct CompiledObjectShader {
+struct CompiledShader {
     template_id: u16,
     bytecode: Vec<u32>,
 }
@@ -70,16 +70,16 @@ pub(super) fn ensure_object_prewarm_started() {
     let queue = Arc::new(Mutex::new(VecDeque::from(jobs)));
     let live_workers = Arc::new(AtomicU32::new(worker_count as u32));
 
-    log::info!("[PBR] Object PBR compile queued {job_count} shader(s) on {worker_count} worker(s)");
+    log::info!("[PBR] PBR compile queued {job_count} shader(s) on {worker_count} worker(s)");
 
     for worker_index in 0..worker_count {
         let queue = Arc::clone(&queue);
         let worker_live_workers = Arc::clone(&live_workers);
         if let Err(err) = thread::Builder::new()
-            .name(format!("omv-pbr-object-compile-{worker_index}"))
+            .name(format!("omv-pbr-compile-{worker_index}"))
             .spawn(move || compile_worker(worker_index, queue, worker_live_workers))
         {
-            log::warn!("[PBR] Object PBR compile worker {worker_index} failed to start: {err}");
+            log::warn!("[PBR] PBR compile worker {worker_index} failed to start: {err}");
             FAILED.store(true, Ordering::Release);
             if live_workers.fetch_sub(1, Ordering::AcqRel) == 1 {
                 FINISHED.store(true, Ordering::Release);
@@ -97,16 +97,24 @@ pub(super) fn take_ready_bytecode(template_id: u16) -> Option<Vec<u32>> {
 }
 
 pub(super) fn object_compile_finished() -> bool {
-    FINISHED.load(Ordering::Acquire)
+    family_states(0..shader_registry::object_template_count()).all(|state| {
+        matches!(
+            state.load(Ordering::Acquire),
+            BYTECODE_READY | BYTECODE_FAILED
+        )
+    })
 }
 
 pub(super) fn object_compile_failed() -> bool {
-    FAILED.load(Ordering::Acquire)
+    object_failed_count() != 0
+        || (FINISHED.load(Ordering::Acquire)
+            && object_ready_count() != shader_registry::object_template_count())
 }
 
 pub(super) fn object_ready_count() -> usize {
     STATES
         .iter()
+        .take(shader_registry::object_template_count())
         .filter(|state| state.load(Ordering::Acquire) == BYTECODE_READY)
         .count()
 }
@@ -114,8 +122,37 @@ pub(super) fn object_ready_count() -> usize {
 pub(super) fn object_failed_count() -> usize {
     STATES
         .iter()
+        .take(shader_registry::object_template_count())
         .filter(|state| state.load(Ordering::Acquire) == BYTECODE_FAILED)
         .count()
+}
+
+pub(super) fn land_lod_compile_ready() -> bool {
+    family_states(land_lod_range()).all(|state| state.load(Ordering::Acquire) == BYTECODE_READY)
+}
+
+pub(super) fn land_lod_compile_failed() -> bool {
+    family_states(land_lod_range()).any(|state| state.load(Ordering::Acquire) == BYTECODE_FAILED)
+        || (FINISHED.load(Ordering::Acquire) && !land_lod_compile_ready())
+}
+
+pub(super) fn terrain_fade_compile_ready() -> bool {
+    family_states(terrain_fade_range()).all(|state| state.load(Ordering::Acquire) == BYTECODE_READY)
+}
+
+pub(super) fn terrain_fade_compile_failed() -> bool {
+    family_states(terrain_fade_range())
+        .any(|state| state.load(Ordering::Acquire) == BYTECODE_FAILED)
+}
+
+pub(super) fn close_terrain_compile_ready() -> bool {
+    family_states(close_terrain_range())
+        .all(|state| state.load(Ordering::Acquire) == BYTECODE_READY)
+}
+
+pub(super) fn close_terrain_compile_failed() -> bool {
+    family_states(close_terrain_range())
+        .any(|state| state.load(Ordering::Acquire) == BYTECODE_FAILED)
 }
 
 pub(super) fn object_last_failed_template_label() -> &'static str {
@@ -134,8 +171,8 @@ pub(super) fn reset() {
 }
 
 fn queue_jobs() -> Vec<CompileJob> {
-    let mut jobs = Vec::with_capacity(shader_registry::object_template_count());
-    for template_id in 0..shader_registry::object_template_count() {
+    let mut jobs = Vec::with_capacity(shader_registry::template_count());
+    for template_id in 0..shader_registry::template_count() {
         if STATES[template_id]
             .compare_exchange(
                 BYTECODE_MISSING,
@@ -150,7 +187,29 @@ fn queue_jobs() -> Vec<CompileJob> {
             });
         }
     }
+    jobs.sort_by_key(|job| compile_priority(job.template_id));
     jobs
+}
+
+fn compile_priority(template_id: u16) -> (u8, u16) {
+    let Some(template) = shader_registry::template_at(template_id) else {
+        return (u8::MAX, template_id);
+    };
+    if (template_id as usize) < shader_registry::object_template_count() {
+        return (0, template_id);
+    }
+    if shader_registry::template_is_land_lod(template_id) {
+        return (1, template_id);
+    }
+    if shader_registry::template_is_terrain_fade(template_id) {
+        return (2, template_id);
+    }
+    if template.stage == ShaderStage::Vertex {
+        return (3, template_id);
+    }
+
+    let light_bucket = template.sls_number.saturating_sub(2092) % 8 / 2;
+    (4 + light_bucket as u8, template.sls_number)
 }
 
 fn compile_worker(
@@ -163,7 +222,7 @@ fn compile_worker(
             if live_workers.fetch_sub(1, Ordering::AcqRel) == 1 {
                 FINISHED.store(true, Ordering::Release);
             }
-            log::info!("[PBR] Object PBR compile worker {worker_index} finished");
+            log::info!("[PBR] PBR compile worker {worker_index} finished");
             return;
         };
 
@@ -176,14 +235,14 @@ fn compile_job(worker_index: usize, job: CompileJob) {
     let result = load_or_compile(job);
     match result {
         Ok((bytecode, source)) => {
-            READY_BYTECODE.lock().push(CompiledObjectShader {
+            READY_BYTECODE.lock().push(CompiledShader {
                 template_id: job.template_id,
                 bytecode,
             });
             STATES[job.template_id as usize].store(BYTECODE_READY, Ordering::Release);
-            if let Some(template) = shader_registry::object_template_at(job.template_id) {
+            if let Some(template) = shader_registry::template_at(job.template_id) {
                 log::info!(
-                    "[PBR] Object PBR compile worker={} shader={} stage={:?} source={} ms={}",
+                    "[PBR] PBR compile worker={} shader={} stage={:?} source={} ms={}",
                     worker_index,
                     template.label,
                     template.stage,
@@ -192,7 +251,7 @@ fn compile_job(worker_index: usize, job: CompileJob) {
                 );
             } else {
                 log::error!(
-                    "[PBR] Compiled unknown object shader template {} on worker {}",
+                    "[PBR] Compiled unknown shader template {} on worker {}",
                     job.template_id,
                     worker_index
                 );
@@ -202,20 +261,20 @@ fn compile_job(worker_index: usize, job: CompileJob) {
             STATES[job.template_id as usize].store(BYTECODE_FAILED, Ordering::Release);
             FAILED.store(true, Ordering::Release);
             LAST_FAILED_TEMPLATE_ID.store(u32::from(job.template_id), Ordering::Release);
-            let label = shader_registry::object_template_at(job.template_id)
+            let label = shader_registry::template_at(job.template_id)
                 .map(|template| template.label)
                 .unwrap_or("unknown");
-            log::warn!("[PBR] Object PBR compile failed shader={label}: {err:#}");
+            log::warn!("[PBR] PBR compile failed shader={label}: {err:#}");
         }
     }
 }
 
 fn load_or_compile(job: CompileJob) -> Result<(Vec<u32>, &'static str)> {
-    let template = shader_registry::object_template_at(job.template_id)
-        .ok_or_else(|| anyhow::anyhow!("unknown object shader template {}", job.template_id))?;
-    let source = shader_registry::object_template_source(template);
+    let template = shader_registry::template_at(job.template_id)
+        .ok_or_else(|| anyhow::anyhow!("unknown shader template {}", job.template_id))?;
+    let source = shader_registry::template_source(job.template_id, template);
     let source_hash = source_hash(template.stage, template.label, source.as_ref());
-    let cache_path = cache_path(template.stage, template.label, source_hash);
+    let cache_path = cache_path(job.template_id, template.stage, template.label, source_hash);
 
     if let Some(bytecode) = read_cache(&cache_path) {
         return Ok((bytecode, "cache"));
@@ -245,12 +304,20 @@ fn fnv1a_hash_bytes(mut hash: u64, bytes: &[u8]) -> u64 {
     hash
 }
 
-fn cache_path(stage: ShaderStage, label: &str, source_hash: u64) -> PathBuf {
+fn cache_path(template_id: u16, stage: ShaderStage, label: &str, source_hash: u64) -> PathBuf {
     let mut path = PathBuf::from(crate::config::CONFIG_PATH);
     let _ = path.pop();
     path.push("cache");
     path.push("native_pbr");
-    path.push("object");
+    path.push(if shader_registry::template_is_land_lod(template_id) {
+        "land_lod"
+    } else if shader_registry::template_is_terrain_fade(template_id) {
+        "terrain_fade"
+    } else if shader_registry::template_is_close_terrain(template_id) {
+        "close_terrain"
+    } else {
+        "object"
+    });
     path.push(format!(
         "{}_{}_{source_hash:016x}.cso",
         label,
@@ -265,7 +332,7 @@ fn read_cache(path: &Path) -> Option<Vec<u32>> {
         Ok(bytecode) => Some(bytecode),
         Err(err) => {
             log::warn!(
-                "[PBR] Ignoring invalid object PBR shader cache '{}': {err:#}",
+                "[PBR] Ignoring invalid PBR shader cache '{}': {err:#}",
                 path.display()
             );
             None
@@ -278,7 +345,7 @@ fn write_cache(path: &Path, bytecode: &[u32]) {
         && let Err(err) = fs::create_dir_all(parent)
     {
         log::warn!(
-            "[PBR] Object PBR shader cache directory '{}' could not be created: {err}",
+            "[PBR] PBR shader cache directory '{}' could not be created: {err}",
             parent.display()
         );
         return;
@@ -291,7 +358,7 @@ fn write_cache(path: &Path, bytecode: &[u32]) {
 
     if let Err(err) = fs::write(path, bytes) {
         log::warn!(
-            "[PBR] Object PBR shader cache '{}' could not be written: {err}",
+            "[PBR] PBR shader cache '{}' could not be written: {err}",
             path.display()
         );
     }
@@ -318,6 +385,24 @@ fn template_label(template_id: u32) -> &'static str {
 
     u16::try_from(template_id)
         .ok()
-        .and_then(shader_registry::object_template_at)
+        .and_then(shader_registry::template_at)
         .map_or("unknown", |template| template.label)
+}
+
+fn family_states(range: std::ops::Range<usize>) -> impl Iterator<Item = &'static AtomicU32> {
+    STATES[range].iter()
+}
+
+fn land_lod_range() -> std::ops::Range<usize> {
+    let start = shader_registry::object_template_count();
+    start..start + 2
+}
+
+fn terrain_fade_range() -> std::ops::Range<usize> {
+    let start = land_lod_range().end;
+    start..start + 2
+}
+
+fn close_terrain_range() -> std::ops::Range<usize> {
+    terrain_fade_range().end..shader_registry::template_count()
 }

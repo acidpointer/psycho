@@ -31,14 +31,24 @@ const PBR_PROFILE_VALUE_COUNT: usize = 5;
 static INSTALLED: AtomicBool = AtomicBool::new(false);
 static SHADER_ENABLED: AtomicBool = AtomicBool::new(false);
 static TERRAIN_ENABLED: AtomicBool = AtomicBool::new(false);
+static CLOSE_TERRAIN_ENABLED: AtomicBool = AtomicBool::new(false);
+static TERRAIN_FADE_ENABLED: AtomicBool = AtomicBool::new(false);
+static TERRAIN_LOD_ENABLED: AtomicBool = AtomicBool::new(false);
 static DEBUG_LOG_DRAWS: AtomicBool = AtomicBool::new(false);
+static DRAW_BOUNDARY_READY: AtomicBool = AtomicBool::new(false);
 static ACTIVE_CONTRACTS_READY: AtomicBool = AtomicBool::new(false);
 static ACTIVE_CONTRACTS_FAILED: AtomicBool = AtomicBool::new(false);
+static INSTALL_BOUNDARY_REACHED: AtomicBool = AtomicBool::new(false);
+static ENABLE_PENDING: AtomicBool = AtomicBool::new(false);
 static BLOCK_REASON: LazyLock<Mutex<Option<&'static str>>> = LazyLock::new(|| Mutex::new(None));
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct NativePbrSettings {
     enabled: bool,
+    terrain_enabled: bool,
+    close_terrain_enabled: bool,
+    terrain_fade_enabled: bool,
+    terrain_lod_enabled: bool,
     debug_log_draws: bool,
     object: NativePbrObjectProfiles,
     terrain: NativePbrTerrainProfiles,
@@ -73,10 +83,14 @@ struct PbrProfileSettings {
 }
 
 #[derive(Clone, Copy, Debug)]
+#[allow(dead_code)]
 pub(crate) struct NativePbrRuntimeStatus {
     pub(crate) installed: bool,
     pub(crate) shader_enabled: bool,
     pub(crate) terrain_enabled: bool,
+    pub(crate) close_terrain_enabled: bool,
+    pub(crate) terrain_fade_enabled: bool,
+    pub(crate) terrain_lod_enabled: bool,
     pub(crate) shader_creation_identity_ready: bool,
     pub(crate) captured_shader_records: u32,
     pub(crate) adopted_shader_records: u32,
@@ -147,15 +161,19 @@ pub(crate) struct NativePbrRuntimeStatus {
     pub(crate) object_last_reject_selector: usize,
     pub(crate) terrain_contract_available: bool,
     pub(crate) land_lod_contract_active: bool,
+    pub(crate) land_lod_contract_failed: bool,
     pub(crate) close_terrain_contract_proven: bool,
     pub(crate) terrain_fade_contract_proven: bool,
     pub(crate) block_reason: Option<&'static str>,
 }
-
 impl Default for NativePbrSettings {
     fn default() -> Self {
         Self {
             enabled: false,
+            terrain_enabled: false,
+            close_terrain_enabled: false,
+            terrain_fade_enabled: false,
+            terrain_lod_enabled: false,
             debug_log_draws: false,
             object: NativePbrObjectProfiles::default(),
             terrain: NativePbrTerrainProfiles::default(),
@@ -214,6 +232,10 @@ impl From<crate::config::NativePbrConfig> for NativePbrSettings {
 
         Self {
             enabled: value.enabled,
+            terrain_enabled: value.terrain_enabled,
+            close_terrain_enabled: value.close_terrain_enabled,
+            terrain_fade_enabled: value.terrain_fade_enabled,
+            terrain_lod_enabled: value.terrain_lod_enabled,
             debug_log_draws: value.debug_log_draws,
             object: NativePbrObjectProfiles {
                 default: PbrProfileSettings::from_config(value.object_default, legacy),
@@ -266,21 +288,19 @@ impl PbrProfileSettings {
 }
 
 pub(crate) fn install(settings: NativePbrSettings) -> Result<()> {
-    configure_runtime_options(settings);
-    hooks::install()?;
-    INSTALLED.store(true, Ordering::Release);
-    refresh_block_reason();
+    constants::store_settings(settings);
+    DEBUG_LOG_DRAWS.store(settings.debug_log_draws, Ordering::Release);
+    store_terrain_options(settings);
+    INSTALL_BOUNDARY_REACHED.store(true, Ordering::Release);
+    if !settings.enabled {
+        SHADER_ENABLED.store(false, Ordering::Release);
+        INSTALLED.store(false, Ordering::Release);
+        refresh_block_reason();
+        log::info!("[PBR] Native PBR disabled; no PBR hooks or engine contracts installed");
+        return Ok(());
+    }
 
-    let registry = shader_registry::summary();
-    log::info!(
-        "[PBR] Native PBR rewrite scaffold installed; old replacement path is disabled. NVR registry plan: object={} landlod={} terrain_fade={} close_terrain={}",
-        registry.object_records,
-        registry.land_lod_records,
-        registry.terrain_fade_records,
-        registry.close_terrain_records
-    );
-
-    Ok(())
+    activate()
 }
 
 pub(crate) fn configure_terrain_contract(available: bool) {
@@ -288,20 +308,43 @@ pub(crate) fn configure_terrain_contract(available: bool) {
     refresh_block_reason();
 }
 
+pub(crate) fn set_draw_boundary_ready(ready: bool) {
+    DRAW_BOUNDARY_READY.store(ready, Ordering::Release);
+}
+
+pub(crate) fn prepare_direct_draw() {
+    hooks::prepare_direct_draw();
+}
+
+pub(crate) fn finish_draw_batches() {
+    hooks::finish_draw_batches();
+}
+
 pub(crate) fn configure_runtime_options(settings: NativePbrSettings) {
     constants::store_settings(settings);
-    let was_enabled = SHADER_ENABLED.swap(settings.enabled, Ordering::AcqRel);
-    // Terrain PBR stays locked until the LandLOD, terrain fade, and close-terrain
-    // contracts are ported. The config field is kept for compatibility only.
-    TERRAIN_ENABLED.store(false, Ordering::Release);
+    store_terrain_options(settings);
     DEBUG_LOG_DRAWS.store(settings.debug_log_draws, Ordering::Release);
+    if !INSTALL_BOUNDARY_REACHED.load(Ordering::Acquire) {
+        SHADER_ENABLED.store(settings.enabled, Ordering::Release);
+        refresh_block_reason();
+        return;
+    }
+
+    let was_enabled = SHADER_ENABLED.load(Ordering::Acquire);
     if was_enabled && !settings.enabled {
+        ENABLE_PENDING.store(false, Ordering::Release);
+        SHADER_ENABLED.store(false, Ordering::Release);
         hooks::request_restore_all();
+        engine_contracts::restore_core_contracts();
         ACTIVE_CONTRACTS_READY.store(false, Ordering::Release);
         ACTIVE_CONTRACTS_FAILED.store(false, Ordering::Release);
+        log::info!("[PBR] Native PBR disabled; captured hooks remain installed and passive");
     } else if !was_enabled && settings.enabled {
-        ACTIVE_CONTRACTS_READY.store(false, Ordering::Release);
-        ACTIVE_CONTRACTS_FAILED.store(false, Ordering::Release);
+        if !ENABLE_PENDING.swap(true, Ordering::AcqRel) {
+            log::info!("[PBR] Native PBR activation queued for the next Present boundary");
+        }
+    } else if !settings.enabled {
+        ENABLE_PENDING.store(false, Ordering::Release);
     }
     refresh_block_reason();
 }
@@ -314,11 +357,14 @@ pub(crate) fn runtime_status() -> NativePbrRuntimeStatus {
         installed: INSTALLED.load(Ordering::Acquire),
         shader_enabled: SHADER_ENABLED.load(Ordering::Acquire),
         terrain_enabled: TERRAIN_ENABLED.load(Ordering::Acquire),
+        close_terrain_enabled: CLOSE_TERRAIN_ENABLED.load(Ordering::Acquire),
+        terrain_fade_enabled: TERRAIN_FADE_ENABLED.load(Ordering::Acquire),
+        terrain_lod_enabled: TERRAIN_LOD_ENABLED.load(Ordering::Acquire),
         shader_creation_identity_ready: shader_record::identity_ready(),
         captured_shader_records: shader_record::captured_records(),
         adopted_shader_records: shader_record::adopted_records(),
         active_shader_records: shader_record::active_record_count(),
-        active_object_replacement_records: object_replacement_record::active_record_count(),
+        active_object_replacement_records: 0,
         recorded_shader_templates: shader_record::recorded_template_count(),
         shader_package_lifetime_contract_ready: engine_contracts::shader_package_lifetime_ready(),
         eye_position_contract_ready: engine_contracts::eye_position_ready(),
@@ -392,9 +438,15 @@ pub(crate) fn runtime_status() -> NativePbrRuntimeStatus {
         object_last_reject_row: diagnostics::object_last_reject_row(),
         object_last_reject_selector: diagnostics::object_last_reject_selector(),
         terrain_contract_available: engine_contracts::terrain_contract_available(),
-        land_lod_contract_active: false,
-        close_terrain_contract_proven: false,
-        terrain_fade_contract_proven: false,
+        land_lod_contract_active: terrain_lod_enabled() && land_lod_contracts_ready(),
+        land_lod_contract_failed: compiler::land_lod_compile_failed()
+            || compiler::terrain_fade_compile_failed()
+            || compiler::close_terrain_compile_failed()
+            || device_resources::land_lod_create_failed()
+            || device_resources::terrain_fade_create_failed()
+            || device_resources::close_terrain_create_failed(),
+        close_terrain_contract_proven: close_terrain_contracts_ready(),
+        terrain_fade_contract_proven: terrain_fade_contracts_ready(),
         block_reason: *BLOCK_REASON.lock(),
     }
 }
@@ -411,10 +463,16 @@ fn object_template_label(stage: shader_registry::ShaderStage, sls_number: u32) -
 }
 
 pub(crate) fn service_present_frame() {
-    engine_contracts::service_frame();
-    constants::service_frame();
-
-    if SHADER_ENABLED.load(Ordering::Acquire) {
+    if ENABLE_PENDING.swap(false, Ordering::AcqRel) {
+        if let Err(err) = activate() {
+            SHADER_ENABLED.store(false, Ordering::Release);
+            log::error!("[PBR] Native PBR activation failed: {err:#}");
+        }
+    }
+    let enabled = SHADER_ENABLED.load(Ordering::Acquire);
+    if enabled {
+        engine_contracts::service_frame();
+        constants::service_frame();
         compiler::ensure_object_prewarm_started();
         device_resources::service_frame();
         let failed = compiler::object_compile_failed() || device_resources::object_create_failed();
@@ -430,19 +488,34 @@ pub(crate) fn service_present_frame() {
 
     refresh_block_reason();
     samplers::service_frame();
-    diagnostics::service_frame(
-        SHADER_ENABLED.load(Ordering::Acquire),
-        DEBUG_LOG_DRAWS.load(Ordering::Acquire),
+    diagnostics::service_frame(enabled, DEBUG_LOG_DRAWS.load(Ordering::Acquire));
+}
+
+fn activate() -> Result<()> {
+    SHADER_ENABLED.store(true, Ordering::Release);
+    hooks::install()?;
+    INSTALLED.store(true, Ordering::Release);
+    ACTIVE_CONTRACTS_READY.store(false, Ordering::Release);
+    ACTIVE_CONTRACTS_FAILED.store(false, Ordering::Release);
+    refresh_block_reason();
+
+    let registry = shader_registry::summary();
+    log::info!(
+        "[PBR] Native PBR object path activated: object={} landlod={} terrain_fade={} close_terrain={}",
+        registry.object_records,
+        registry.land_lod_records,
+        registry.terrain_fade_records,
+        registry.close_terrain_records
     );
+    Ok(())
 }
 
 pub(crate) fn reset_runtime_state() {
-    hooks::reset();
     shader_record::reset();
-    object_replacement_record::reset();
     compiler::reset();
     device_resources::reset();
     samplers::reset();
+    samplers::set_texture_tracking_ready(hooks::hooks_ready());
     diagnostics::reset();
     ACTIVE_CONTRACTS_READY.store(false, Ordering::Release);
     ACTIVE_CONTRACTS_FAILED.store(false, Ordering::Release);
@@ -475,6 +548,60 @@ fn shader_enabled() -> bool {
 fn object_contracts_ready() -> bool {
     ACTIVE_CONTRACTS_READY.load(Ordering::Acquire)
         && !ACTIVE_CONTRACTS_FAILED.load(Ordering::Acquire)
+}
+
+fn terrain_lod_enabled() -> bool {
+    TERRAIN_LOD_ENABLED.load(Ordering::Acquire)
+}
+
+fn terrain_fade_enabled() -> bool {
+    TERRAIN_FADE_ENABLED.load(Ordering::Acquire)
+}
+
+fn close_terrain_enabled() -> bool {
+    CLOSE_TERRAIN_ENABLED.load(Ordering::Acquire)
+}
+
+fn land_lod_contracts_ready() -> bool {
+    hooks::hooks_ready()
+        && DRAW_BOUNDARY_READY.load(Ordering::Acquire)
+        && engine_contracts::terrain_contract_available()
+        && compiler::land_lod_compile_ready()
+        && !compiler::land_lod_compile_failed()
+        && device_resources::land_lod_resources_ready()
+        && !device_resources::land_lod_create_failed()
+}
+
+fn terrain_fade_contracts_ready() -> bool {
+    hooks::hooks_ready()
+        && DRAW_BOUNDARY_READY.load(Ordering::Acquire)
+        && engine_contracts::terrain_contract_available()
+        && compiler::terrain_fade_compile_ready()
+        && device_resources::terrain_fade_resources_ready()
+}
+
+fn close_terrain_contracts_ready() -> bool {
+    hooks::hooks_ready()
+        && DRAW_BOUNDARY_READY.load(Ordering::Acquire)
+        && engine_contracts::terrain_contract_available()
+        && compiler::close_terrain_compile_ready()
+        && device_resources::close_terrain_resources_ready()
+}
+
+fn store_terrain_options(settings: NativePbrSettings) {
+    TERRAIN_ENABLED.store(settings.terrain_enabled, Ordering::Release);
+    CLOSE_TERRAIN_ENABLED.store(
+        settings.terrain_enabled && settings.close_terrain_enabled,
+        Ordering::Release,
+    );
+    TERRAIN_FADE_ENABLED.store(
+        settings.terrain_enabled && settings.terrain_fade_enabled,
+        Ordering::Release,
+    );
+    TERRAIN_LOD_ENABLED.store(
+        settings.terrain_enabled && settings.terrain_lod_enabled,
+        Ordering::Release,
+    );
 }
 
 fn native_pbr_profile_is_neutral_block(value: crate::config::NativePbrProfileConfig) -> bool {

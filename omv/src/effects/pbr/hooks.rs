@@ -10,7 +10,7 @@ use std::{
     slice,
     sync::{
         LazyLock,
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering},
     },
 };
 
@@ -31,13 +31,54 @@ const BS_SHADER_CREATE_VERTEX_SHADER_ADDR: usize = 0x00BE0FE0;
 const BS_SHADER_CREATE_PIXEL_SHADER_ADDR: usize = 0x00BE1750;
 const BS_SHADER_SET_SHADERS_ADDR: usize = 0x00BE1F90;
 const NIDX9_RENDER_STATE_SET_TEXTURE_ADDR: usize = 0x00E88A20;
+const PPLIGHTING_VERTEX_GROUP_A_ADDR: usize = 0x011FDD88;
+const PPLIGHTING_VERTEX_GROUP_B_ADDR: usize = 0x011FDE04;
 const PPLIGHTING_VERTEX_GROUP_C_ADDR: usize = 0x011FDE5C;
+const PPLIGHTING_PIXEL_GROUP_A_ADDR: usize = 0x011FDA48;
 const PPLIGHTING_PIXEL_GROUP_B_ADDR: usize = 0x011FDB08;
+const PPLIGHTING_VERTEX_GROUP_A_COUNT: usize = 0x1F;
+const PPLIGHTING_VERTEX_GROUP_B_COUNT: usize = 0x16;
 const PPLIGHTING_VERTEX_GROUP_C_COUNT: usize = 0x67;
+const PPLIGHTING_PIXEL_GROUP_A_COUNT: usize = 0x30;
 const PPLIGHTING_PIXEL_GROUP_B_COUNT: usize = 0xA0;
 const TABLE_PPLIGHTING_VERTEX_C: u32 = 1;
 const TABLE_PPLIGHTING_PIXEL_B: u32 = 2;
 const TABLE_INDEX_UNKNOWN: u32 = u32::MAX;
+const LAND_LOD_PASS_INDEX: u32 = 0xFE;
+const LAND_LOD_VERTEX_INDEX: usize = 2;
+const LAND_LOD_PIXEL_INDEX: usize = 3;
+const LAND_LOD_SAMPLERS: &[u32] = &[0, 1, 4, 6, 7];
+const TERRAIN_FADE_PASS_INDEX: u32 = 560;
+const TERRAIN_FADE_VERTEX_INDEX: usize = 80;
+const TERRAIN_FADE_PIXEL_INDEX: usize = 82;
+const TERRAIN_FADE_SAMPLERS: &[u32] = &[0, 1, 2];
+const CLOSE_TERRAIN_FIRST_PASS: u32 = 503;
+const CLOSE_TERRAIN_LAST_PASS: u32 = 558;
+const CLOSE_TERRAIN_VERTEX_INDEX: usize = 100;
+const CLOSE_TERRAIN_FIRST_PIXEL_INDEX: usize = 92;
+const CLOSE_TERRAIN_LAST_PIXEL_INDEX: usize = 146;
+const PENDING_DRAW_NONE: u32 = 0;
+const PENDING_DRAW_OBJECT: u32 = 1;
+const PENDING_DRAW_LAND_LOD: u32 = 2;
+const PENDING_DRAW_TERRAIN_FADE: u32 = 3;
+const PENDING_DRAW_CLOSE_TERRAIN: u32 = 4;
+
+#[derive(Clone, Copy)]
+struct PplightingTableSlot {
+    label: &'static str,
+    index: u32,
+}
+
+#[derive(Clone, Copy)]
+struct PreparedObjectReplacement {
+    vertex_record: shader_record::ShaderRecordSnapshot,
+    pixel_record: shader_record::ShaderRecordSnapshot,
+    replacement_vertex: *mut c_void,
+    replacement_pixel: *mut c_void,
+    draw_trace: diagnostics::ObjectDrawTrace,
+    normalized_vertex_index: u32,
+    contract_state: ObjectContractState,
+}
 
 const SET_SHADERS_PROLOGUE: &[u8] = &[
     0x8B, 0x0D, 0x4C, 0xF7, 0x26, 0x01, 0x56, 0x57, 0xE8, 0x23, 0xD8, 0x29, 0x00, 0x8B, 0xF0, 0xA1,
@@ -81,9 +122,29 @@ static HOOKS_READY: AtomicBool = AtomicBool::new(false);
 static CREATION_HOOKS_READY: AtomicBool = AtomicBool::new(false);
 static SET_SHADERS_READY: AtomicBool = AtomicBool::new(false);
 static RESTORE_ALL_PENDING: AtomicBool = AtomicBool::new(false);
+static DIRECT_D3D_ACTIVE: AtomicBool = AtomicBool::new(false);
+static DIRECT_NATIVE_VERTEX: AtomicUsize = AtomicUsize::new(0);
+static DIRECT_NATIVE_PIXEL: AtomicUsize = AtomicUsize::new(0);
+static PENDING_DRAW_KIND: AtomicU32 = AtomicU32::new(PENDING_DRAW_NONE);
+static PENDING_DRAW_PASS_INDEX: AtomicU32 = AtomicU32::new(0);
+static PENDING_CLOSE_TERRAIN_PIXEL_INDEX: AtomicU32 = AtomicU32::new(0);
+static PENDING_DRAW_EVALUATED: AtomicBool = AtomicBool::new(false);
+static LAND_LOD_FIRST_BIND_LOGGED: AtomicBool = AtomicBool::new(false);
+static LAND_LOD_FAILURE_LOGGED: AtomicBool = AtomicBool::new(false);
+static TERRAIN_FADE_FIRST_BIND_LOGGED: AtomicBool = AtomicBool::new(false);
+static TERRAIN_FADE_FAILURE_LOGGED: AtomicBool = AtomicBool::new(false);
+static CLOSE_TERRAIN_FIRST_BIND_LOGGED: AtomicBool = AtomicBool::new(false);
+static CLOSE_TERRAIN_FAILURE_LOGGED: AtomicBool = AtomicBool::new(false);
+static LAND_LOD_LAST_CONSTANT_SIGNATURE: AtomicU32 = AtomicU32::new(0);
+static LAND_LOD_CONSTANT_LOG_COUNT: AtomicU32 = AtomicU32::new(0);
 
 pub(super) fn install() -> Result<()> {
-    engine_contracts::install_core_contracts();
+    if HOOKS_READY.load(Ordering::Acquire) {
+        engine_contracts::install_core_contracts();
+        super::samplers::set_texture_tracking_ready(SET_TEXTURE_HOOK.is_enabled());
+        adopt_existing_object_shaders();
+        return Ok(());
+    }
 
     let creation_ready = install_shader_creation_hooks();
     let set_shaders_ready = install_set_shaders_hook();
@@ -92,6 +153,14 @@ pub(super) fn install() -> Result<()> {
     CREATION_HOOKS_READY.store(creation_ready, Ordering::Release);
     SET_SHADERS_READY.store(set_shaders_ready, Ordering::Release);
     HOOKS_READY.store(set_shaders_ready, Ordering::Release);
+    if !set_shaders_ready {
+        reset();
+        super::samplers::set_texture_tracking_ready(false);
+        log::warn!("[PBR] Native PBR blocked: mandatory SetShaders hook unavailable");
+        return Ok(());
+    }
+
+    engine_contracts::install_core_contracts();
 
     let adopted = adopt_existing_object_shaders();
     if adopted != 0 {
@@ -122,6 +191,7 @@ pub(super) fn install() -> Result<()> {
 }
 
 pub(super) fn reset() {
+    restore_direct_d3d_state();
     let _ = SET_SHADERS_HOOK.disable();
     let _ = SET_TEXTURE_HOOK.disable();
     let _ = CREATE_PIXEL_SHADER_HOOK.disable();
@@ -129,9 +199,27 @@ pub(super) fn reset() {
     HOOKS_READY.store(false, Ordering::Release);
     CREATION_HOOKS_READY.store(false, Ordering::Release);
     SET_SHADERS_READY.store(false, Ordering::Release);
+    DIRECT_D3D_ACTIVE.store(false, Ordering::Release);
+    DIRECT_NATIVE_VERTEX.store(0, Ordering::Release);
+    DIRECT_NATIVE_PIXEL.store(0, Ordering::Release);
+    PENDING_DRAW_KIND.store(PENDING_DRAW_NONE, Ordering::Release);
+    PENDING_DRAW_PASS_INDEX.store(0, Ordering::Release);
+    PENDING_CLOSE_TERRAIN_PIXEL_INDEX.store(0, Ordering::Release);
+    PENDING_DRAW_EVALUATED.store(false, Ordering::Release);
+    LAND_LOD_FIRST_BIND_LOGGED.store(false, Ordering::Release);
+    LAND_LOD_FAILURE_LOGGED.store(false, Ordering::Release);
+    TERRAIN_FADE_FIRST_BIND_LOGGED.store(false, Ordering::Release);
+    TERRAIN_FADE_FAILURE_LOGGED.store(false, Ordering::Release);
+    CLOSE_TERRAIN_FIRST_BIND_LOGGED.store(false, Ordering::Release);
+    CLOSE_TERRAIN_FAILURE_LOGGED.store(false, Ordering::Release);
+    LAND_LOD_LAST_CONSTANT_SIGNATURE.store(0, Ordering::Release);
+    LAND_LOD_CONSTANT_LOG_COUNT.store(0, Ordering::Release);
 }
 
 fn install_set_texture_hook() -> bool {
+    if SET_TEXTURE_HOOK.is_initialized() {
+        return enable_prepared_hook(&SET_TEXTURE_HOOK, "SetTexture");
+    }
     let Some(target) = resolve_hook_target(
         NIDX9_RENDER_STATE_SET_TEXTURE_ADDR,
         SET_TEXTURE_PROLOGUE,
@@ -168,6 +256,11 @@ pub(super) fn request_restore_all() {
 }
 
 fn install_shader_creation_hooks() -> bool {
+    if CREATE_VERTEX_SHADER_HOOK.is_initialized() && CREATE_PIXEL_SHADER_HOOK.is_initialized() {
+        return enable_prepared_hook(&CREATE_VERTEX_SHADER_HOOK, "CreateVertexShader")
+            && enable_prepared_hook(&CREATE_PIXEL_SHADER_HOOK, "CreatePixelShader");
+    }
+
     let Some(vertex_target) = resolve_hook_target(
         BS_SHADER_CREATE_VERTEX_SHADER_ADDR,
         CREATE_VERTEX_SHADER_PROLOGUE,
@@ -195,6 +288,9 @@ fn install_shader_creation_hooks() -> bool {
 }
 
 fn install_create_vertex_shader_hook(target: *mut c_void) -> bool {
+    if CREATE_VERTEX_SHADER_HOOK.is_initialized() {
+        return enable_prepared_hook(&CREATE_VERTEX_SHADER_HOOK, "CreateVertexShader");
+    }
     match unsafe {
         CREATE_VERTEX_SHADER_HOOK.init(
             "FNV BSShader::CreateVertexShader",
@@ -219,6 +315,9 @@ fn install_create_vertex_shader_hook(target: *mut c_void) -> bool {
 }
 
 fn install_create_pixel_shader_hook(target: *mut c_void) -> bool {
+    if CREATE_PIXEL_SHADER_HOOK.is_initialized() {
+        return enable_prepared_hook(&CREATE_PIXEL_SHADER_HOOK, "CreatePixelShader");
+    }
     match unsafe {
         CREATE_PIXEL_SHADER_HOOK.init(
             "FNV BSShader::CreatePixelShader",
@@ -243,6 +342,9 @@ fn install_create_pixel_shader_hook(target: *mut c_void) -> bool {
 }
 
 fn install_set_shaders_hook() -> bool {
+    if SET_SHADERS_HOOK.is_initialized() {
+        return enable_prepared_hook(&SET_SHADERS_HOOK, "SetShaders");
+    }
     let Some(target) = resolve_hook_target(
         BS_SHADER_SET_SHADERS_ADDR,
         SET_SHADERS_PROLOGUE,
@@ -263,6 +365,22 @@ fn install_set_shaders_hook() -> bool {
         Ok(()) => true,
         Err(err) => {
             log::warn!("[PBR] SetShaders hook skipped: {err}");
+            false
+        }
+    }
+}
+
+fn enable_prepared_hook<F>(hook: &InlineHookContainer<F>, label: &'static str) -> bool
+where
+    F: libpsycho::ffi::fnptr::Function,
+{
+    if hook.is_enabled() {
+        return true;
+    }
+    match hook.enable() {
+        Ok(()) => true,
+        Err(err) => {
+            log::warn!("[PBR] {label} hook could not be re-enabled: {err}");
             false
         }
     }
@@ -341,6 +459,9 @@ unsafe extern "thiscall" fn hook_set_shaders(shader: *mut c_void, pass_index: u3
         return;
     };
 
+    restore_direct_d3d_state();
+    PENDING_DRAW_KIND.store(PENDING_DRAW_NONE, Ordering::Release);
+
     if !super::shader_enabled() {
         restore_disabled_shader_state();
         unsafe {
@@ -349,22 +470,480 @@ unsafe extern "thiscall" fn hook_set_shaders(shader: *mut c_void, pass_index: u3
         return;
     }
 
-    if super::object_contracts_ready()
-        && engine_contracts::eye_position_ready()
-        && engine_contracts::shader_package_lifetime_ready()
-        && try_apply_object_replacement()
-    {
+    if super::terrain_lod_enabled() && current_pass_is_land_lod(pass_index) {
+        engine_contracts::enable_fog_for_pass(pass_index);
         unsafe {
             original(shader, pass_index);
+        }
+        if super::land_lod_contracts_ready() {
+            set_pending_draw(PENDING_DRAW_LAND_LOD, pass_index, 0);
         }
         return;
     }
 
-    restore_current_pass_to_vanilla();
-    diagnostics::record_object_fallback();
+    if super::terrain_fade_enabled() && current_pass_is_terrain_fade(pass_index) {
+        engine_contracts::enable_fog_for_pass(pass_index);
+        unsafe {
+            original(shader, pass_index);
+        }
+        if super::terrain_fade_contracts_ready() {
+            set_pending_draw(PENDING_DRAW_TERRAIN_FADE, pass_index, 0);
+        }
+        return;
+    }
+
+    if super::close_terrain_enabled()
+        && engine_contracts::terrain_contract_available()
+        && let Some(pixel_index) = current_close_terrain_pixel_index(pass_index)
+    {
+        unsafe {
+            original(shader, pass_index);
+        }
+        if super::close_terrain_contracts_ready() {
+            set_pending_draw(PENDING_DRAW_CLOSE_TERRAIN, pass_index, pixel_index as u32);
+        }
+        return;
+    }
+
     unsafe {
         original(shader, pass_index);
     }
+    if super::object_contracts_ready()
+        && engine_contracts::eye_position_ready()
+        && engine_contracts::shader_package_lifetime_ready()
+    {
+        set_pending_draw(PENDING_DRAW_OBJECT, pass_index, 0);
+    }
+}
+
+fn set_pending_draw(kind: u32, pass_index: u32, close_terrain_pixel_index: u32) {
+    PENDING_DRAW_PASS_INDEX.store(pass_index, Ordering::Release);
+    PENDING_CLOSE_TERRAIN_PIXEL_INDEX.store(close_terrain_pixel_index, Ordering::Release);
+    PENDING_DRAW_EVALUATED.store(false, Ordering::Release);
+    PENDING_DRAW_KIND.store(kind, Ordering::Release);
+}
+
+fn current_pass_is_land_lod(pass_index: u32) -> bool {
+    if pass_index != LAND_LOD_PASS_INDEX {
+        return false;
+    }
+    let Some((vertex, pixel)) = engine_contracts::current_pass_shaders() else {
+        return false;
+    };
+    let expected_vertex = read_shader_array_slot(
+        PPLIGHTING_VERTEX_GROUP_C_ADDR,
+        PPLIGHTING_VERTEX_GROUP_C_COUNT,
+        LAND_LOD_VERTEX_INDEX,
+    );
+    let expected_pixel = read_shader_array_slot(
+        PPLIGHTING_PIXEL_GROUP_B_ADDR,
+        PPLIGHTING_PIXEL_GROUP_B_COUNT,
+        LAND_LOD_PIXEL_INDEX,
+    );
+
+    expected_vertex == Some(vertex) && expected_pixel == Some(pixel)
+}
+
+fn current_pass_is_terrain_fade(pass_index: u32) -> bool {
+    if pass_index != TERRAIN_FADE_PASS_INDEX {
+        return false;
+    }
+    let Some((vertex, pixel)) = engine_contracts::current_pass_shaders() else {
+        return false;
+    };
+    read_shader_array_slot(
+        PPLIGHTING_VERTEX_GROUP_C_ADDR,
+        PPLIGHTING_VERTEX_GROUP_C_COUNT,
+        TERRAIN_FADE_VERTEX_INDEX,
+    ) == Some(vertex)
+        && read_shader_array_slot(
+            PPLIGHTING_PIXEL_GROUP_B_ADDR,
+            PPLIGHTING_PIXEL_GROUP_B_COUNT,
+            TERRAIN_FADE_PIXEL_INDEX,
+        ) == Some(pixel)
+}
+
+fn current_close_terrain_pixel_index(pass_index: u32) -> Option<usize> {
+    if !(CLOSE_TERRAIN_FIRST_PASS..=CLOSE_TERRAIN_LAST_PASS).contains(&pass_index) {
+        return None;
+    }
+    let (vertex, pixel) = engine_contracts::current_pass_shaders()?;
+    if read_shader_array_slot(
+        PPLIGHTING_VERTEX_GROUP_C_ADDR,
+        PPLIGHTING_VERTEX_GROUP_C_COUNT,
+        CLOSE_TERRAIN_VERTEX_INDEX,
+    ) != Some(vertex)
+    {
+        return None;
+    }
+    let pixel_index = find_shader_array_index(
+        PPLIGHTING_PIXEL_GROUP_B_ADDR,
+        PPLIGHTING_PIXEL_GROUP_B_COUNT,
+        pixel,
+    )? as usize;
+    (CLOSE_TERRAIN_FIRST_PIXEL_INDEX..=CLOSE_TERRAIN_LAST_PIXEL_INDEX)
+        .contains(&pixel_index)
+        .then_some(pixel_index)
+}
+
+fn bind_land_lod_replacement() {
+    let Some(device_ptr) = crate::backend::d3d_device_ptr() else {
+        log_land_lod_failure("D3D device unavailable");
+        return;
+    };
+    let Some(device) = (unsafe { Device9Ref::from_raw_void(device_ptr) }) else {
+        log_land_lod_failure("D3D device invalid");
+        return;
+    };
+    let Some(vertex_wrapper) = read_shader_array_slot(
+        PPLIGHTING_VERTEX_GROUP_C_ADDR,
+        PPLIGHTING_VERTEX_GROUP_C_COUNT,
+        LAND_LOD_VERTEX_INDEX,
+    ) else {
+        log_land_lod_failure("native vertex wrapper unavailable");
+        return;
+    };
+    let Some(pixel_wrapper) = read_shader_array_slot(
+        PPLIGHTING_PIXEL_GROUP_B_ADDR,
+        PPLIGHTING_PIXEL_GROUP_B_COUNT,
+        LAND_LOD_PIXEL_INDEX,
+    ) else {
+        log_land_lod_failure("native pixel wrapper unavailable");
+        return;
+    };
+    let Some(native_vertex) = engine_contracts::shader_handle(vertex_wrapper, ShaderStage::Vertex)
+    else {
+        log_land_lod_failure("native vertex handle unavailable");
+        return;
+    };
+    let Some(native_pixel) = engine_contracts::shader_handle(pixel_wrapper, ShaderStage::Pixel)
+    else {
+        log_land_lod_failure("native pixel handle unavailable");
+        return;
+    };
+    if device.current_vertex_shader_raw().ok() != Some(native_vertex)
+        || device.current_pixel_shader_raw().ok() != Some(native_pixel)
+    {
+        log_land_lod_failure("engine did not bind the proven native pair");
+        return;
+    }
+    if LAND_LOD_SAMPLERS
+        .iter()
+        .any(|stage| device.texture_raw(*stage).is_none())
+    {
+        log_land_lod_failure("required native sampler is unbound");
+        return;
+    }
+    let Some(replacement_vertex) = device_resources::land_lod_shader_handle(ShaderStage::Vertex)
+    else {
+        return;
+    };
+    let Some(replacement_pixel) = device_resources::land_lod_shader_handle(ShaderStage::Pixel)
+    else {
+        return;
+    };
+    let Some((requested_constants, observed_constants)) =
+        constants::upload_terrain_constants(&device)
+    else {
+        log_land_lod_failure("terrain constants could not be uploaded");
+        return;
+    };
+    log_land_lod_constants(requested_constants, observed_constants);
+
+    if !bind_direct_pair(
+        &device,
+        native_vertex,
+        native_pixel,
+        replacement_vertex,
+        replacement_pixel,
+    ) {
+        log_land_lod_failure("replacement pair could not be bound");
+        return;
+    }
+
+    if !LAND_LOD_FIRST_BIND_LOGGED.swap(true, Ordering::AcqRel) {
+        log::info!(
+            "[PBR] LandLOD PBR active pass=0x{LAND_LOD_PASS_INDEX:03X} vertex=C[{LAND_LOD_VERTEX_INDEX}] pixel=B[{LAND_LOD_PIXEL_INDEX}]"
+        );
+    }
+}
+
+fn bind_terrain_fade_replacement() {
+    let Some(device_ptr) = crate::backend::d3d_device_ptr() else {
+        log_terrain_fade_failure("D3D device unavailable");
+        return;
+    };
+    let Some(device) = (unsafe { Device9Ref::from_raw_void(device_ptr) }) else {
+        log_terrain_fade_failure("D3D device invalid");
+        return;
+    };
+    let Some((native_vertex, native_pixel)) =
+        native_shader_pair(TERRAIN_FADE_VERTEX_INDEX, TERRAIN_FADE_PIXEL_INDEX, &device)
+    else {
+        log_terrain_fade_failure("engine did not bind the proven native pair");
+        return;
+    };
+    if TERRAIN_FADE_SAMPLERS
+        .iter()
+        .any(|stage| device.texture_raw(*stage).is_none())
+    {
+        log_terrain_fade_failure("required native sampler is unbound");
+        return;
+    }
+    let Some(replacement_vertex) =
+        device_resources::terrain_fade_shader_handle(ShaderStage::Vertex)
+    else {
+        return;
+    };
+    let Some(replacement_pixel) = device_resources::terrain_fade_shader_handle(ShaderStage::Pixel)
+    else {
+        return;
+    };
+    if constants::upload_terrain_constants(&device).is_none() {
+        log_terrain_fade_failure("terrain constants could not be uploaded");
+        return;
+    }
+    if !bind_direct_pair(
+        &device,
+        native_vertex,
+        native_pixel,
+        replacement_vertex,
+        replacement_pixel,
+    ) {
+        log_terrain_fade_failure("replacement pair could not be bound");
+        return;
+    }
+
+    if !TERRAIN_FADE_FIRST_BIND_LOGGED.swap(true, Ordering::AcqRel) {
+        log::info!(
+            "[PBR] TerrainFade PBR active pass={TERRAIN_FADE_PASS_INDEX} vertex=C[{TERRAIN_FADE_VERTEX_INDEX}] pixel=B[{TERRAIN_FADE_PIXEL_INDEX}]"
+        );
+    }
+}
+
+fn bind_close_terrain_replacement(pixel_index: usize) {
+    let Some(device_ptr) = crate::backend::d3d_device_ptr() else {
+        log_close_terrain_failure("D3D device unavailable");
+        return;
+    };
+    let Some(device) = (unsafe { Device9Ref::from_raw_void(device_ptr) }) else {
+        log_close_terrain_failure("D3D device invalid");
+        return;
+    };
+    let Some((native_vertex, native_pixel)) =
+        native_shader_pair(CLOSE_TERRAIN_VERTEX_INDEX, pixel_index, &device)
+    else {
+        log_close_terrain_failure("engine did not bind the proven VPT pair");
+        return;
+    };
+    let Some(texture_count) = close_terrain_texture_count(pixel_index) else {
+        log_close_terrain_failure("pixel variant is outside the VPT terrain family");
+        return;
+    };
+    let missing_sampler_mask = (0..texture_count)
+        .chain(7..7 + texture_count)
+        .filter(|stage| device.texture_raw(*stage).is_none())
+        .fold(0u16, |mask, stage| mask | (1u16 << stage));
+    if missing_sampler_mask != 0 {
+        log_close_terrain_missing_samplers(pixel_index, texture_count, missing_sampler_mask);
+        return;
+    }
+
+    let Some(replacement_vertex) =
+        device_resources::close_terrain_shader_handle(ShaderStage::Vertex, 2100)
+    else {
+        return;
+    };
+    let pixel_sls = 2000u16 + pixel_index as u16;
+    let Some(replacement_pixel) =
+        device_resources::close_terrain_shader_handle(ShaderStage::Pixel, pixel_sls)
+    else {
+        return;
+    };
+    if constants::upload_terrain_constants(&device).is_none() {
+        log_close_terrain_failure("terrain constants could not be uploaded");
+        return;
+    }
+    if !bind_direct_pair(
+        &device,
+        native_vertex,
+        native_pixel,
+        replacement_vertex,
+        replacement_pixel,
+    ) {
+        log_close_terrain_failure("replacement pair could not be bound");
+        return;
+    }
+
+    if !CLOSE_TERRAIN_FIRST_BIND_LOGGED.swap(true, Ordering::AcqRel) {
+        log::info!(
+            "[PBR] CloseTerrain PBR active vertex=C[{CLOSE_TERRAIN_VERTEX_INDEX}] pixel=B[{pixel_index}] textures={texture_count}"
+        );
+    }
+}
+
+fn native_shader_pair(
+    vertex_index: usize,
+    pixel_index: usize,
+    device: &Device9Ref<'_>,
+) -> Option<(*mut c_void, *mut c_void)> {
+    let vertex_wrapper = read_shader_array_slot(
+        PPLIGHTING_VERTEX_GROUP_C_ADDR,
+        PPLIGHTING_VERTEX_GROUP_C_COUNT,
+        vertex_index,
+    )?;
+    let pixel_wrapper = read_shader_array_slot(
+        PPLIGHTING_PIXEL_GROUP_B_ADDR,
+        PPLIGHTING_PIXEL_GROUP_B_COUNT,
+        pixel_index,
+    )?;
+    let native_vertex = engine_contracts::shader_handle(vertex_wrapper, ShaderStage::Vertex)?;
+    let native_pixel = engine_contracts::shader_handle(pixel_wrapper, ShaderStage::Pixel)?;
+    (device.current_vertex_shader_raw().ok() == Some(native_vertex)
+        && device.current_pixel_shader_raw().ok() == Some(native_pixel))
+    .then_some((native_vertex, native_pixel))
+}
+
+fn close_terrain_texture_count(pixel_index: usize) -> Option<u32> {
+    if !(CLOSE_TERRAIN_FIRST_PIXEL_INDEX..=CLOSE_TERRAIN_LAST_PIXEL_INDEX).contains(&pixel_index)
+        || (pixel_index - CLOSE_TERRAIN_FIRST_PIXEL_INDEX) % 2 != 0
+    {
+        return None;
+    }
+    Some(((pixel_index - CLOSE_TERRAIN_FIRST_PIXEL_INDEX) / 8 + 1) as u32)
+}
+
+fn restore_direct_d3d_state() {
+    if !DIRECT_D3D_ACTIVE.load(Ordering::Acquire) {
+        return;
+    }
+    let Some(device_ptr) = crate::backend::d3d_device_ptr() else {
+        return;
+    };
+    let Some(device) = (unsafe { Device9Ref::from_raw_void(device_ptr) }) else {
+        return;
+    };
+    let native_vertex = DIRECT_NATIVE_VERTEX.load(Ordering::Acquire) as *mut c_void;
+    let native_pixel = DIRECT_NATIVE_PIXEL.load(Ordering::Acquire) as *mut c_void;
+
+    let mut restored = unsafe { device.set_raw_vertex_shader(native_vertex) }.is_ok();
+    restored &= unsafe { device.set_raw_pixel_shader(native_pixel) }.is_ok();
+    DIRECT_D3D_ACTIVE.store(!restored, Ordering::Release);
+}
+
+pub(super) fn prepare_direct_draw() {
+    if !super::shader_enabled() || PENDING_DRAW_EVALUATED.swap(true, Ordering::AcqRel) {
+        return;
+    }
+
+    match PENDING_DRAW_KIND.load(Ordering::Acquire) {
+        PENDING_DRAW_OBJECT => {
+            let pass_index = PENDING_DRAW_PASS_INDEX.load(Ordering::Acquire);
+            if let Some(replacement) = try_prepare_object_replacement(pass_index) {
+                bind_object_replacement(replacement);
+            } else {
+                diagnostics::record_object_fallback();
+            }
+        }
+        PENDING_DRAW_LAND_LOD => bind_land_lod_replacement(),
+        PENDING_DRAW_TERRAIN_FADE => bind_terrain_fade_replacement(),
+        PENDING_DRAW_CLOSE_TERRAIN => {
+            let pixel_index = PENDING_CLOSE_TERRAIN_PIXEL_INDEX.load(Ordering::Acquire) as usize;
+            bind_close_terrain_replacement(pixel_index);
+        }
+        _ => {}
+    }
+}
+
+pub(super) fn finish_draw_batches() {
+    restore_direct_d3d_state();
+    PENDING_DRAW_KIND.store(PENDING_DRAW_NONE, Ordering::Release);
+    PENDING_DRAW_EVALUATED.store(true, Ordering::Release);
+}
+
+fn bind_direct_pair(
+    device: &Device9Ref<'_>,
+    native_vertex: *mut c_void,
+    native_pixel: *mut c_void,
+    replacement_vertex: *mut c_void,
+    replacement_pixel: *mut c_void,
+) -> bool {
+    let vertex_result = unsafe { device.set_raw_vertex_shader(replacement_vertex) };
+    let pixel_result = unsafe { device.set_raw_pixel_shader(replacement_pixel) };
+    if vertex_result.is_err() || pixel_result.is_err() {
+        let _ = unsafe { device.set_raw_vertex_shader(native_vertex) };
+        let _ = unsafe { device.set_raw_pixel_shader(native_pixel) };
+        return false;
+    }
+
+    DIRECT_NATIVE_VERTEX.store(native_vertex as usize, Ordering::Release);
+    DIRECT_NATIVE_PIXEL.store(native_pixel as usize, Ordering::Release);
+    DIRECT_D3D_ACTIVE.store(true, Ordering::Release);
+    true
+}
+
+fn log_land_lod_failure(reason: &'static str) {
+    if !LAND_LOD_FAILURE_LOGGED.swap(true, Ordering::AcqRel) {
+        log::warn!("[PBR] LandLOD PBR kept vanilla: {reason}");
+    }
+}
+
+fn log_terrain_fade_failure(reason: &'static str) {
+    if !TERRAIN_FADE_FAILURE_LOGGED.swap(true, Ordering::AcqRel) {
+        log::warn!("[PBR] TerrainFade PBR kept vanilla: {reason}");
+    }
+}
+
+fn log_close_terrain_failure(reason: &'static str) {
+    if !CLOSE_TERRAIN_FAILURE_LOGGED.swap(true, Ordering::AcqRel) {
+        log::warn!("[PBR] CloseTerrain PBR kept vanilla: {reason}");
+    }
+}
+
+fn log_close_terrain_missing_samplers(
+    pixel_index: usize,
+    texture_count: u32,
+    missing_sampler_mask: u16,
+) {
+    if !CLOSE_TERRAIN_FAILURE_LOGGED.swap(true, Ordering::AcqRel) {
+        log::warn!(
+            "[PBR] CloseTerrain PBR kept vanilla: pixel=B[{pixel_index}] textures={texture_count} missing_sampler_mask=0x{missing_sampler_mask:04X}"
+        );
+    }
+}
+
+fn log_land_lod_constants(requested: [[f32; 4]; 2], observed: [[f32; 4]; 2]) {
+    let mut signature = 0x811C_9DC5u32;
+    for value in requested.into_iter().flatten() {
+        let quantized = (value * 1000.0).round() as i32 as u32;
+        signature = (signature ^ quantized).wrapping_mul(0x0100_0193);
+    }
+    if LAND_LOD_LAST_CONSTANT_SIGNATURE.swap(signature, Ordering::AcqRel) == signature
+        || LAND_LOD_CONSTANT_LOG_COUNT.fetch_add(1, Ordering::Relaxed) >= 16
+    {
+        return;
+    }
+
+    let matches = requested == observed;
+    log::info!(
+        "[PBR_LANDLOD_CONSTANTS] requested=c89[{:.3},{:.3},{:.3},{:.3}] c90[{:.3},{:.3},{:.3},{:.3}] observed=c89[{:.3},{:.3},{:.3},{:.3}] c90[{:.3},{:.3},{:.3},{:.3}] match={matches}",
+        requested[0][0],
+        requested[0][1],
+        requested[0][2],
+        requested[0][3],
+        requested[1][0],
+        requested[1][1],
+        requested[1][2],
+        requested[1][3],
+        observed[0][0],
+        observed[0][1],
+        observed[0][2],
+        observed[0][3],
+        observed[1][0],
+        observed[1][1],
+        observed[1][2],
+        observed[1][3],
+    );
 }
 
 unsafe extern "thiscall" fn hook_set_texture(
@@ -423,24 +1002,40 @@ fn capture_created_shader(shader: *mut c_void, stage: ShaderStage, shader_name: 
     }
 }
 
-fn try_apply_object_replacement() -> bool {
+fn try_prepare_object_replacement(pass_index: u32) -> Option<PreparedObjectReplacement> {
     let Some((vertex_shader, pixel_shader)) = engine_contracts::current_pass_shaders() else {
-        return false;
+        return None;
     };
+    let draw_snapshot = engine_contracts::current_draw_snapshot(pass_index);
+    diagnostics::record_object_draw_context(draw_snapshot);
     record_current_table_pair(vertex_shader, pixel_shader);
 
     let vertex_record = match resolve_current_shader_record(vertex_shader, ShaderStage::Vertex) {
         Ok(record) => record,
         Err(reason) => {
+            record_unresolved_table_pair(
+                draw_snapshot,
+                pass_index,
+                vertex_shader,
+                pixel_shader,
+                reason,
+            );
             diagnostics::record_object_draw_gate_rejection(reason, 0, 0);
-            return false;
+            return None;
         }
     };
     let pixel_record = match resolve_current_shader_record(pixel_shader, ShaderStage::Pixel) {
         Ok(record) => record,
         Err(reason) => {
+            record_unresolved_table_pair(
+                draw_snapshot,
+                pass_index,
+                vertex_shader,
+                pixel_shader,
+                reason,
+            );
             diagnostics::record_object_draw_gate_rejection(reason, 0, 0);
-            return false;
+            return None;
         }
     };
     if vertex_record.stage != ShaderStage::Vertex || pixel_record.stage != ShaderStage::Pixel {
@@ -449,17 +1044,27 @@ fn try_apply_object_replacement() -> bool {
             0,
             0,
         );
-        return false;
+        return None;
     }
     let vertex_record = ensure_table_identity(vertex_record);
     let pixel_record = ensure_table_identity(pixel_record);
 
-    let draw_snapshot = engine_contracts::current_draw_snapshot();
-    diagnostics::record_object_draw_context(draw_snapshot);
-    let draw_key = object_draw_key(draw_snapshot, vertex_record, pixel_record);
+    let draw_key = object_draw_key(draw_snapshot, pass_index, vertex_record, pixel_record);
+    let draw_trace = diagnostics::ObjectDrawTrace {
+        key: draw_key,
+        geometry: draw_snapshot.geometry,
+        pass: draw_snapshot.pass,
+        pass_index,
+        selector: draw_snapshot.selector,
+        selector_state: draw_snapshot.selector_state,
+        active_layer_count: draw_snapshot.active_layer_count,
+        scanned_entries: draw_snapshot.scanned_entries,
+        vertex_index: vertex_record.table_index,
+        pixel_index: pixel_record.table_index,
+    };
     if let Some(rejection) = draw_snapshot.rejection {
         diagnostics::record_object_contract(
-            draw_key,
+            draw_trace,
             vertex_record.table_index,
             ObjectContractState::BlockedPassEntryTerrain,
         );
@@ -468,7 +1073,7 @@ fn try_apply_object_replacement() -> bool {
             rejection.row,
             rejection.selector,
         );
-        return false;
+        return None;
     }
 
     diagnostics::record_object_pair(
@@ -483,18 +1088,22 @@ fn try_apply_object_replacement() -> bool {
         Ok(contract) => contract,
         Err(reason) => {
             diagnostics::record_object_contract(
-                draw_key,
+                draw_trace,
                 vertex_record.table_index,
                 contract_state_for_rejection(reason),
             );
             diagnostics::record_object_draw_gate_rejection(reason, 0, 0);
-            return false;
+            return None;
         }
     };
-    diagnostics::record_object_contract(draw_key, contract.normalized_vertex_index, contract.state);
     if let Some(reason) = object_contract_rejection(contract.state) {
+        diagnostics::record_object_contract(
+            draw_trace,
+            contract.normalized_vertex_index,
+            contract.state,
+        );
         diagnostics::record_object_draw_gate_rejection(reason, 0, 0);
-        return false;
+        return None;
     }
 
     let replacement_vertex = device_resources::object_shader_handle(vertex_record.template_id);
@@ -510,7 +1119,7 @@ fn try_apply_object_replacement() -> bool {
         (replacement_vertex, replacement_pixel)
     else {
         diagnostics::record_object_contract(
-            draw_key,
+            draw_trace,
             contract.normalized_vertex_index,
             ObjectContractState::BlockedMissingReplacementResource,
         );
@@ -519,12 +1128,12 @@ fn try_apply_object_replacement() -> bool {
             0,
             0,
         );
-        return false;
+        return None;
     };
 
     let Some(device_ptr) = crate::backend::d3d_device_ptr() else {
         diagnostics::record_object_contract(
-            draw_key,
+            draw_trace,
             contract.normalized_vertex_index,
             ObjectContractState::BlockedMissingD3DState,
         );
@@ -533,11 +1142,11 @@ fn try_apply_object_replacement() -> bool {
             0,
             0,
         );
-        return false;
+        return None;
     };
     let Some(device) = (unsafe { Device9Ref::from_raw_void(device_ptr) }) else {
         diagnostics::record_object_contract(
-            draw_key,
+            draw_trace,
             contract.normalized_vertex_index,
             ObjectContractState::BlockedMissingD3DState,
         );
@@ -546,7 +1155,7 @@ fn try_apply_object_replacement() -> bool {
             0,
             0,
         );
-        return false;
+        return None;
     };
     let current_vertex_d3d = device.current_vertex_shader_raw().unwrap_or(null_mut());
     let current_pixel_d3d = device.current_pixel_shader_raw().unwrap_or(null_mut());
@@ -562,86 +1171,119 @@ fn try_apply_object_replacement() -> bool {
         draw_snapshot.selector,
     ) {
         diagnostics::record_object_contract(
-            draw_key,
+            draw_trace,
             contract.normalized_vertex_index,
             contract_state_for_rejection(reason),
         );
         diagnostics::record_object_draw_gate_rejection(reason, 0, 0);
-        return false;
+        return None;
     }
 
-    let constant_version = constants::object_constant_version();
-    let Ok(vertex_apply) = object_replacement_record::apply_shader(
+    if matches!(
+        contract.state,
+        ObjectContractState::ImplementedOnlyLight
+            | ObjectContractState::ImplementedDiffusePoint
+            | ObjectContractState::ImplementedOnlySpecular
+    ) {
+        engine_contracts::enable_fog_for_pass(pass_index);
+    }
+
+    Some(PreparedObjectReplacement {
         vertex_record,
+        pixel_record,
         replacement_vertex,
-        contract.state,
-        current_vertex_d3d,
-        constant_version,
-    ) else {
-        diagnostics::record_object_contract(
-            draw_key,
-            contract.normalized_vertex_index,
-            ObjectContractState::BlockedHandleStateMismatch,
-        );
-        diagnostics::record_object_draw_gate_rejection(
-            ObjectDrawRejectReason::HandleStateMismatch,
-            0,
-            0,
-        );
-        return false;
-    };
-    let Ok(pixel_apply) = object_replacement_record::apply_shader(
-        pixel_record,
         replacement_pixel,
-        contract.state,
-        current_pixel_d3d,
-        constant_version,
-    ) else {
-        restore_shader_record(vertex_record);
-        diagnostics::record_object_contract(
-            draw_key,
-            contract.normalized_vertex_index,
-            ObjectContractState::BlockedHandleStateMismatch,
-        );
-        diagnostics::record_object_draw_gate_rejection(
-            ObjectDrawRejectReason::HandleStateMismatch,
-            0,
-            0,
-        );
-        return false;
-    };
-
-    upload_object_constants_if_needed(
-        &device,
-        vertex_record,
-        pixel_record,
-        constant_version,
-        vertex_apply.needs_constants || pixel_apply.needs_constants,
-    );
-
-    diagnostics::record_object_replacement();
-    true
+        draw_trace,
+        normalized_vertex_index: contract.normalized_vertex_index,
+        contract_state: contract.state,
+    })
 }
 
-fn upload_object_constants_if_needed(
-    device: &Device9Ref<'_>,
-    vertex_record: shader_record::ShaderRecordSnapshot,
-    pixel_record: shader_record::ShaderRecordSnapshot,
-    constant_version: u32,
-    needs_constants: bool,
-) {
-    if !needs_constants {
+fn bind_object_replacement(replacement: PreparedObjectReplacement) {
+    let Some(device_ptr) = crate::backend::d3d_device_ptr() else {
+        record_object_bind_failure(replacement, ObjectDrawRejectReason::MissingD3DState);
+        return;
+    };
+    let Some(device) = (unsafe { Device9Ref::from_raw_void(device_ptr) }) else {
+        record_object_bind_failure(replacement, ObjectDrawRejectReason::MissingD3DState);
+        return;
+    };
+    let Some(native_vertex) =
+        engine_contracts::shader_handle(replacement.vertex_record.shader, ShaderStage::Vertex)
+    else {
+        record_object_bind_failure(replacement, ObjectDrawRejectReason::HandleStateMismatch);
+        return;
+    };
+    let Some(native_pixel) =
+        engine_contracts::shader_handle(replacement.pixel_record.shader, ShaderStage::Pixel)
+    else {
+        record_object_bind_failure(replacement, ObjectDrawRejectReason::HandleStateMismatch);
+        return;
+    };
+    if device.current_vertex_shader_raw().ok() != Some(native_vertex)
+        || device.current_pixel_shader_raw().ok() != Some(native_pixel)
+    {
+        record_object_bind_failure(replacement, ObjectDrawRejectReason::HandleStateMismatch);
         return;
     }
 
-    if constants::upload_object_constants(device) {
-        object_replacement_record::mark_constants_uploaded(
-            vertex_record,
-            pixel_record,
-            constant_version,
-        );
-        diagnostics::record_object_constant_upload();
+    if !constants::upload_object_constants(&device) {
+        record_object_bind_failure(replacement, ObjectDrawRejectReason::MissingD3DState);
+        return;
     }
+    diagnostics::record_object_constant_upload();
+    if !bind_direct_pair(
+        &device,
+        native_vertex,
+        native_pixel,
+        replacement.replacement_vertex,
+        replacement.replacement_pixel,
+    ) {
+        record_object_bind_failure(replacement, ObjectDrawRejectReason::HandleStateMismatch);
+        return;
+    }
+
+    diagnostics::record_object_contract(
+        replacement.draw_trace,
+        replacement.normalized_vertex_index,
+        replacement.contract_state,
+    );
+    diagnostics::record_object_replacement();
+}
+
+fn record_object_bind_failure(
+    replacement: PreparedObjectReplacement,
+    reason: ObjectDrawRejectReason,
+) {
+    diagnostics::record_object_contract(
+        replacement.draw_trace,
+        replacement.normalized_vertex_index,
+        contract_state_for_rejection(reason),
+    );
+    diagnostics::record_object_draw_gate_rejection(reason, 0, 0);
+    diagnostics::record_object_fallback();
+}
+
+fn record_unresolved_table_pair(
+    snapshot: engine_contracts::DrawSnapshot,
+    pass_index: u32,
+    vertex_shader: *mut c_void,
+    pixel_shader: *mut c_void,
+    reason: ObjectDrawRejectReason,
+) {
+    let vertex = identify_pplighting_table_slot(vertex_shader, ShaderStage::Vertex);
+    let pixel = identify_pplighting_table_slot(pixel_shader, ShaderStage::Pixel);
+    diagnostics::record_unresolved_table_pair(
+        snapshot,
+        pass_index,
+        vertex_shader,
+        pixel_shader,
+        vertex.map_or("other", |slot| slot.label),
+        vertex.map_or(TABLE_INDEX_UNKNOWN, |slot| slot.index),
+        pixel.map_or("other", |slot| slot.label),
+        pixel.map_or(TABLE_INDEX_UNKNOWN, |slot| slot.index),
+        reason,
+    );
 }
 
 fn record_current_table_pair(vertex_shader: *mut c_void, pixel_shader: *mut c_void) {
@@ -834,14 +1476,14 @@ fn contract_state_for_rejection(reason: ObjectDrawRejectReason) -> ObjectContrac
 
 fn object_draw_key(
     snapshot: engine_contracts::DrawSnapshot,
+    pass_index: u32,
     vertex_record: shader_record::ShaderRecordSnapshot,
     pixel_record: shader_record::ShaderRecordSnapshot,
 ) -> u32 {
     let mut hash = 0x811C_9DC5u32;
-    if snapshot.selector != 0 {
-        hash = hash_word(hash, snapshot.selector);
-        hash = hash_word(hash, snapshot.pass_entry_list);
-        hash = hash_word(hash, snapshot.selector_state as usize);
+    if snapshot.geometry != 0 {
+        hash = hash_word(hash, snapshot.geometry);
+        hash = hash_word(hash, pass_index as usize);
     } else {
         hash = hash_word(hash, vertex_record.shader as usize);
         hash = hash_word(hash, pixel_record.shader as usize);
@@ -868,15 +1510,12 @@ fn restore_current_pass_to_vanilla() {
 }
 
 fn restore_shader_record(record: shader_record::ShaderRecordSnapshot) {
-    if shader_record::restore(record) {
-        object_replacement_record::mark_restored(record);
-    }
+    shader_record::restore(record);
 }
 
 fn restore_disabled_shader_state() {
     if RESTORE_ALL_PENDING.swap(false, Ordering::AcqRel) {
         let restored = shader_record::restore_all_mutated();
-        object_replacement_record::reset();
         if restored != 0 {
             log::info!("[PBR] Restored {restored} object shader wrapper(s) after disabling PBR");
         }
@@ -952,6 +1591,53 @@ fn identify_object_table_slot(shader: *mut c_void, stage: ShaderStage) -> Option
         )
         .map(|index| (TABLE_PPLIGHTING_PIXEL_B, index)),
     }
+}
+
+fn identify_pplighting_table_slot(
+    shader: *mut c_void,
+    stage: ShaderStage,
+) -> Option<PplightingTableSlot> {
+    let tables: &[(&'static str, usize, usize)] = match stage {
+        ShaderStage::Vertex => &[
+            (
+                "A",
+                PPLIGHTING_VERTEX_GROUP_A_ADDR,
+                PPLIGHTING_VERTEX_GROUP_A_COUNT,
+            ),
+            (
+                "B",
+                PPLIGHTING_VERTEX_GROUP_B_ADDR,
+                PPLIGHTING_VERTEX_GROUP_B_COUNT,
+            ),
+            (
+                "C",
+                PPLIGHTING_VERTEX_GROUP_C_ADDR,
+                PPLIGHTING_VERTEX_GROUP_C_COUNT,
+            ),
+        ],
+        ShaderStage::Pixel => &[
+            (
+                "A",
+                PPLIGHTING_PIXEL_GROUP_A_ADDR,
+                PPLIGHTING_PIXEL_GROUP_A_COUNT,
+            ),
+            (
+                "B",
+                PPLIGHTING_PIXEL_GROUP_B_ADDR,
+                PPLIGHTING_PIXEL_GROUP_B_COUNT,
+            ),
+        ],
+    };
+
+    for (label, base, count) in tables {
+        if let Some(index) = find_shader_array_index(*base, *count, shader) {
+            return Some(PplightingTableSlot {
+                label: *label,
+                index,
+            });
+        }
+    }
+    None
 }
 
 fn find_shader_array_index(base: usize, count: usize, shader: *mut c_void) -> Option<u32> {

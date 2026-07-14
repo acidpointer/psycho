@@ -378,6 +378,44 @@ fn bind_fullres_constants(
             frame_inputs.environment.fog_power,
             frame_inputs.environment.fog_available_f32(),
         ]],
+    )?;
+    bind_depth_contract_constants(device, frame_inputs)
+}
+
+fn bind_depth_contract_constants(
+    device: &Device9Ref<'_>,
+    frame_inputs: &FrameInputs,
+) -> Direct3DResult<()> {
+    let world = frame_inputs.depth.world_projection;
+    let first_person = frame_inputs.depth.first_person_projection;
+    device.set_pixel_shader_constant_f(
+        11,
+        &[
+            [
+                world.reversed_depth_f32(),
+                first_person.reversed_depth_f32(),
+                frame_inputs.camera.available_f32(),
+                first_person.camera.available_f32(),
+            ],
+            [
+                frame_inputs.camera.frustum_left,
+                frame_inputs.camera.frustum_right,
+                frame_inputs.camera.frustum_bottom,
+                frame_inputs.camera.frustum_top,
+            ],
+            [
+                first_person.camera.near_z,
+                first_person.camera.far_z,
+                first_person.camera.aspect_ratio,
+                0.0,
+            ],
+            [
+                first_person.camera.frustum_left,
+                first_person.camera.frustum_right,
+                first_person.camera.frustum_bottom,
+                first_person.camera.frustum_top,
+            ],
+        ],
     )
 }
 

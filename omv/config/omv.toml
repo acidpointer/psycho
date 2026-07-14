@@ -149,27 +149,20 @@ occlusion_softness = 0.42
 [graphics.native_pbr]
 # Native material/PBR engine path.
 #
-# WIP / work in progress: this feature is preserved as an opt-in diagnostic
-# path, but it is not ready and must not be treated as an early release feature.
-#
-# The previous draw-time replacement implementation was removed because it did
-# not satisfy the NVR shader lifecycle contract and caused flicker/FPS loss.
-# The current code keeps the user-facing option and settings, but visible PBR
-# replacement is intentionally blocked until the NVR-style rewrite is ported:
+# The object path uses the NVR-style rewrite contracts:
 #   - shader wrapper side-table identity;
 #   - SetShaderPackage and shader package lifetime contracts;
 #   - SetShaders ownership point;
 #   - precompiled shader cache and D3D resource creation outside the draw path;
 #   - reflected/static constant and sampler contracts;
-#   - separate object, LandLOD, terrain fade, and close-terrain collections.
 #
-# Disabled by default. Enabling it today only marks the requested state in the
-# ImGui dashboard; it must not install the old broken replacement path.
+# Changes activate at the next Present boundary without requiring a restart.
 enabled = false
 
-# Experimental. Defaults off. Terrain replacement stays blocked until LandLOD,
-# terrain fade, and close-terrain contracts are ported separately.
 terrain_enabled = false
+close_terrain_enabled = false
+terrain_fade_enabled = false
+terrain_lod_enabled = false
 
 # Object PBR registers:
 #   c32.x metallicness, c32.y roughness scale, c32.z light scale,

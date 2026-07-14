@@ -80,7 +80,7 @@ float PbrAlbedoSaturation()
 
 float RoughnessFromGloss(float gloss)
 {
-    return saturate(max(0.043f, 1.0f - saturate(gloss)) * PbrRoughnessScale());
+    return clamp((1.0f - saturate(gloss)) * PbrRoughnessScale(), 0.043f, 1.0f);
 }
 
 float3 Fresnel(float3 f0, float3 f90, float cosine)

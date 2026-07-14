@@ -188,6 +188,7 @@ unsafe extern "thiscall" fn hook_render_world_scene_graph(
         if scene_graph_phase == WORLD_SCENE_GRAPH_PHASE {
             capture_depth(
                 crate::backend::DepthResolveSlot::World,
+                None,
                 "FNV after world scene graph",
             );
             capture_world_color();
@@ -217,12 +218,17 @@ unsafe extern "thiscall" fn hook_render_first_person(
         original(main, renderer, geo, sky_sun, rendered_texture);
         capture_depth(
             crate::backend::DepthResolveSlot::FirstPerson,
+            Some(rendered_texture),
             "FNV after first-person depth",
         );
     }
 }
 
-unsafe fn capture_depth(slot: crate::backend::DepthResolveSlot, reason: &'static str) {
+unsafe fn capture_depth(
+    slot: crate::backend::DepthResolveSlot,
+    source_rendered_texture: Option<*mut c_void>,
+    reason: &'static str,
+) {
     if !crate::runtime::needs_fnv_depth_capture() {
         log_depth_capture_skip(slot, reason, "runtime not ready or no scene inputs needed");
         return;
@@ -234,7 +240,15 @@ unsafe fn capture_depth(slot: crate::backend::DepthResolveSlot, reason: &'static
     };
 
     let depth_provider = crate::backend::DepthProvider::FalloutNewVegas;
-    if unsafe { crate::backend::resolve_scene_depth(depth_provider, device_ptr, slot, reason) } {
+    if unsafe {
+        crate::backend::resolve_scene_depth(
+            depth_provider,
+            device_ptr,
+            source_rendered_texture,
+            slot,
+            reason,
+        )
+    } {
         log_depth_capture(slot, reason);
     }
 }

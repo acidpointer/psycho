@@ -3,6 +3,16 @@
     #include "Helpers.hlsl"
 #endif
 
+struct PBRLightingComponents {
+    float3 diffuse;
+    float3 specular;
+};
+
+float3 SafeNormalize(float3 value, float3 fallback) {
+    float lengthSquared = dot(value, value);
+    return lengthSquared > 1e-8 ? value * rsqrt(lengthSquared) : fallback;
+}
+
 // Geometric specular AA
 // http://www.jp.square-enix.com/tech/library/pdf/ImprovedGeometricSpecularAA.pdf
 // https://www.jcgt.org/published/0010/02/02/paper.pdf
@@ -30,7 +40,7 @@ float3 LambertianDiffuse(float3 albedo, float3 fresnel) {
 
 float3 DisneyDiffuse(float3 albedo, float roughness, float NdotV, float NdotL, float LdotH) {
     const float linearRoughness = roughness * roughness;
-    
+
     const float energyBias = lerp (0, 0.5 , linearRoughness);
     const float energyFactor = lerp (1.0, 1.0 / 1.51, linearRoughness);
     const float fd90 = energyBias + 2.0 * LdotH * LdotH * linearRoughness;
@@ -75,83 +85,92 @@ float3 BRDF(float roughness, float3 fresnel, float NdotV, float NdotL, float Ndo
 
 float3 PBRDiffuse(float metallicness, float roughness, float3 albedo, float3 normal, float3 eyeDir, float3 lightDir, float3 lightColor) {
     const float3 reflectance = lerp(float(0.04).rrr, albedo, metallicness);
-    
+
     normal = normalize(normal);
     eyeDir = normalize(eyeDir);
     lightDir = normalize(lightDir);
-    
-    const float3 halfway = normalize(eyeDir + lightDir);
+
+    const float3 halfway = SafeNormalize(eyeDir + lightDir, normal);
     const float NdotL = shades(normal, lightDir);
     const float LdotH = shades(lightDir, halfway);
-    
+
     const float3 fresnel = Fresnel(reflectance, (1.0).xxx, LdotH);
-    
+
     const float3 diffuse = (1 - metallicness) * LambertianDiffuse(albedo, fresnel);
-    
+
     return diffuse * NdotL * lightColor * PI;
 }
 
 float3 PBRSpecular(float metallicness, float roughness, float3 albedo, float3 normal, float3 eyeDir, float3 lightDir, float3 lightColor) {
     const float3 reflectance = lerp(float(0.04).rrr, albedo, metallicness);
-    
+
     normal = normalize(normal);
     eyeDir = normalize(eyeDir);
     lightDir = normalize(lightDir);
-    
-    const float3 halfway = normalize(eyeDir + lightDir);
+
+    const float3 halfway = SafeNormalize(eyeDir + lightDir, normal);
     const float NdotL = max(shades(normal, lightDir), 0.00001);
     const float NdotV = max(shades(normal, eyeDir), 0.00001);
     const float NdotH = shades(normal, halfway);
     const float LdotH = shades(lightDir, halfway);
 
     const float3 fresnel = Fresnel(reflectance, (1.0).xxx, LdotH);
-    
+
     const float3 spec = BRDF(roughness, fresnel, NdotV, NdotL, NdotH);
 
     return spec * NdotL * lightColor * PI;
 }
 
-float3 PBR(float metallicness, float roughness, float3 albedo, float3 normal, float3 eyeDir, float3 lightDir, float3 lightColor) {
+PBRLightingComponents EvaluatePBR(float metallicness, float roughness, float3 albedo, float3 normal, float3 eyeDir, float3 lightDir, float3 lightColor) {
+    PBRLightingComponents lighting;
     const float3 reflectance = lerp(float(0.04).rrr, albedo, metallicness);
-    
+
     normal = normalize(normal);
     eyeDir = normalize(eyeDir);
     lightDir = normalize(lightDir);
-    
-    const float3 halfway = normalize(eyeDir + lightDir);
+
+    const float3 halfway = SafeNormalize(eyeDir + lightDir, normal);
     const float NdotL = max(shades(normal, lightDir), 0.00001);
     const float NdotV = max(shades(normal, eyeDir), 0.00001);
     const float NdotH = shades(normal, halfway);
     const float LdotH = shades(lightDir, halfway);
 
     const float3 fresnel = Fresnel(reflectance, (1.0).xxx, LdotH);
-    
-    const float3 diffuse = (1 - metallicness) * LambertianDiffuse(albedo, fresnel);
-    
-    const float3 spec = BRDF(roughness, fresnel, NdotV, NdotL, NdotH);
 
-    return (diffuse + spec) * NdotL * lightColor * PI;
+    lighting.diffuse = (1 - metallicness) * LambertianDiffuse(albedo, fresnel);
+
+    lighting.specular = BRDF(roughness, fresnel, NdotV, NdotL, NdotH);
+
+    lighting.diffuse *= NdotL * lightColor * PI;
+    lighting.specular *= NdotL * lightColor * PI;
+    return lighting;
+}
+
+float3 PBR(float metallicness, float roughness, float3 albedo, float3 normal, float3 eyeDir, float3 lightDir, float3 lightColor) {
+    PBRLightingComponents lighting = EvaluatePBR(metallicness, roughness, albedo, normal, eyeDir, lightDir, lightColor);
+    return lighting.diffuse + lighting.specular;
 }
 
 #define SUN_RADIUS 0.00918043
 
 float3 PBRSunSpecular(float metallicness, float roughness, float3 albedo, float3 normal, float3 eyeDir, float3 lightDir, float3 lightColor) {
     const float3 reflectance = lerp(float(0.04).rrr, albedo, metallicness);
-    
+
     normal = normalize(normal);
     eyeDir = normalize(eyeDir);
     lightDir = normalize(lightDir);
-    
+
     const float3 reflectDir = reflect(lightDir, normal);
 
     const float radius = sin(SUN_RADIUS);
     const float dist = cos(SUN_RADIUS);
-    
-    const float3 LdotR = dot(lightDir, reflectDir);
+
+    const float LdotR = dot(lightDir, reflectDir);
     const float3 closestPoint = reflectDir - LdotR * lightDir;
-    const float3 sunDir = LdotR < dist ? normalize(dist * lightDir + normalize(closestPoint) * radius) : reflectDir;
-    
-    const float3 halfway = normalize(eyeDir + sunDir);
+    const float3 closestDirection = SafeNormalize(closestPoint, reflectDir);
+    const float3 sunDir = LdotR < dist ? SafeNormalize(dist * lightDir + closestDirection * radius, reflectDir) : reflectDir;
+
+    const float3 halfway = SafeNormalize(eyeDir + sunDir, normal);
     const float NdotS = max(shades(normal, sunDir), 0.00001);
     const float NdotV = max(shades(normal, eyeDir), 0.00001);
     const float NdotH = shades(normal, halfway);
@@ -159,29 +178,31 @@ float3 PBRSunSpecular(float metallicness, float roughness, float3 albedo, float3
     const float LdotH = shades(lightDir, halfway);
 
     const float3 fresnel = Fresnel(reflectance, (1.0).xxx, LdotH);
-    
+
     const float3 spec = BRDF(roughness, fresnel, NdotV, NdotS, NdotH);
 
     return spec * NdotS * lightColor * PI;
 }
 
-float3 PBRSun(float metallicness, float roughness, float3 albedo, float3 normal, float3 eyeDir, float3 lightDir, float3 lightColor) {
+PBRLightingComponents EvaluatePBRSun(float metallicness, float roughness, float3 albedo, float3 normal, float3 eyeDir, float3 lightDir, float3 lightColor) {
+    PBRLightingComponents lighting;
     const float3 reflectance = lerp(float(0.04).rrr, albedo, metallicness);
-    
+
     normal = normalize(normal);
     eyeDir = normalize(eyeDir);
     lightDir = normalize(lightDir);
-    
+
     const float3 reflectDir = reflect(lightDir, normal);
 
     const float radius = sin(SUN_RADIUS);
     const float dist = cos(SUN_RADIUS);
-    
-    const float3 LdotR = dot(lightDir, reflectDir);
+
+    const float LdotR = dot(lightDir, reflectDir);
     const float3 closestPoint = reflectDir - LdotR * lightDir;
-    const float3 sunDir = LdotR < dist ? normalize(dist * lightDir + normalize(closestPoint) * radius) : reflectDir;
-    
-    const float3 halfway = normalize(eyeDir + sunDir);
+    const float3 closestDirection = SafeNormalize(closestPoint, reflectDir);
+    const float3 sunDir = LdotR < dist ? SafeNormalize(dist * lightDir + closestDirection * radius, reflectDir) : reflectDir;
+
+    const float3 halfway = SafeNormalize(eyeDir + sunDir, normal);
     const float NdotS = max(shades(normal, sunDir), 0.00001);
     const float NdotV = max(shades(normal, eyeDir), 0.00001);
     const float NdotH = shades(normal, halfway);
@@ -189,10 +210,17 @@ float3 PBRSun(float metallicness, float roughness, float3 albedo, float3 normal,
     const float LdotH = shades(lightDir, halfway);
 
     const float3 fresnel = Fresnel(reflectance, (1.0).xxx, LdotH);
-    
-    const float3 diffuse = (1 - metallicness) * LambertianDiffuse(albedo, fresnel);
-    
-    const float3 spec = BRDF(roughness, fresnel, NdotV, NdotS, NdotH);
 
-    return (diffuse * NdotL + spec * NdotS) * lightColor * PI;
+    lighting.diffuse = (1 - metallicness) * LambertianDiffuse(albedo, fresnel);
+
+    lighting.specular = BRDF(roughness, fresnel, NdotV, NdotS, NdotH);
+
+    lighting.diffuse *= NdotL * lightColor * PI;
+    lighting.specular *= NdotS * lightColor * PI;
+    return lighting;
+}
+
+float3 PBRSun(float metallicness, float roughness, float3 albedo, float3 normal, float3 eyeDir, float3 lightDir, float3 lightColor) {
+    PBRLightingComponents lighting = EvaluatePBRSun(metallicness, roughness, albedo, normal, eyeDir, lightDir, lightColor);
+    return lighting.diffuse + lighting.specular;
 }

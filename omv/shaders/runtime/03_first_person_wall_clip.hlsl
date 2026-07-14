@@ -7,6 +7,8 @@ float4 ScreenData : register(c0);
 float4 FrameData : register(c1);
 float4 CameraData : register(c2);
 float4 OptionData0 : register(c3);
+float4 DepthData : register(c11);
+float4 FirstPersonCameraData : register(c13);
 
 static const float DepthEndpointEpsilon = 0.000001f;
 
@@ -22,8 +24,8 @@ float FirstPersonHardwareDepth(float2 uv) {
     return tex2Dlod(FirstPersonDepth, float4(uv, 0.0f, 0.0f)).r;
 }
 
-bool UseReversedDepth() {
-    return OptionData0.x > 0.5f;
+bool UseWorldReversedDepth() {
+	return DepthData.x >= 0.0f ? DepthData.x > 0.5f : OptionData0.x > 0.5f;
 }
 
 float ClipBias() {
@@ -38,19 +40,40 @@ bool IsEndpointDepth(float depth) {
     return depth <= DepthEndpointEpsilon || depth >= (1.0f - DepthEndpointEpsilon);
 }
 
-float OcclusionAmount(float worldDepth, float firstPersonDepth) {
-    float delta = UseReversedDepth()
-        ? worldDepth - firstPersonDepth
-        : firstPersonDepth - worldDepth;
+bool UseFirstPersonReversedDepth() {
+	return DepthData.y >= 0.0f ? DepthData.y > 0.5f : OptionData0.x > 0.5f;
+}
 
-    float amount = saturate((delta - ClipBias()) / ClipFeather());
+float LinearDepth(float depth, float2 nearFar, bool reversedDepth) {
+	float nearZ = max(nearFar.x, 0.01f);
+	float farZ = max(nearFar.y, nearZ + 1.0f);
+	if (reversedDepth) {
+		return (nearZ * farZ) / max(depth * (farZ - nearZ) + nearZ, 0.001f);
+	}
+
+	return (nearZ * farZ) / max(farZ - depth * (farZ - nearZ), 0.001f);
+}
+
+float OcclusionAmount(float worldDepth, float firstPersonDepth) {
+	float worldViewZ = LinearDepth(worldDepth, CameraData.xy, UseWorldReversedDepth());
+	float firstPersonViewZ = LinearDepth(
+		firstPersonDepth,
+		FirstPersonCameraData.xy,
+		UseFirstPersonReversedDepth()
+	);
+	float referenceDepth = max(min(worldViewZ, firstPersonViewZ), 1.0f);
+	float delta = firstPersonViewZ - worldViewZ;
+	float bias = ClipBias() * referenceDepth;
+	float feather = ClipFeather() * referenceDepth;
+
+	float amount = saturate((delta - bias) / feather);
     return amount >= 0.5f ? 1.0f : 0.0f;
 }
 
 float4 Main(PixelInput input) : COLOR0 {
     float4 color = tex2D(SceneColor, input.uv);
 
-    if (FrameData.w < 0.5f) {
+	if (FrameData.w < 0.5f || DepthData.z < 0.5f || DepthData.w < 0.5f) {
         return color;
     }
 

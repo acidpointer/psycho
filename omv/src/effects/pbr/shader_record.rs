@@ -287,10 +287,6 @@ pub(super) fn find(shader: *mut c_void) -> Option<ShaderRecordSnapshot> {
     TABLE.find(shader)
 }
 
-pub(super) fn set_current(shader: *mut c_void, handle: *mut c_void) {
-    TABLE.set_current(shader, handle);
-}
-
 pub(super) fn set_table_slot(shader: *mut c_void, table_id: u32, table_index: u32) {
     TABLE.set_table_slot(shader, table_id, table_index);
 }

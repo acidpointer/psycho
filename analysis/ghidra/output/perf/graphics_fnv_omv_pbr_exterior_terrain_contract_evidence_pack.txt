@@ -1,0 +1,4496 @@
+FNV OMV PBR EXTERIOR AND TERRAIN CONTRACT EVIDENCE PACK
+Questions:
+1. Is SetShaders PassIndex the stable identity needed to separate base, additive, fade, LandLOD, and close terrain draws?
+2. Which pass rows enable FogParam/FogColor, and are additive object light passes intentionally unfogged?
+3. Where are current geometry and current NiD3DPass established relative to constant and shader-interface application?
+4. Which rows own close terrain material arrays, and which rows are zero-resource, LandO, point-light, or helper paths?
+5. Are terrain fade pass 560 and LandLOD pass 254 independent from the close terrain 0x1F2..0x1F5 material rows?
+6. Which exact state fields must runtime telemetry capture before any terrain family is enabled?
+
+======================================================================
+PPLighting pass description resolver @ 0x00b4f9d0
+======================================================================
+  Function: FUN_00b4f9d0 @ 0x00b4f9d0, Size: 14940 bytes
+
+void FUN_00b4f9d0(undefined4 param_1)
+
+{
+  undefined1 local_10 [12];
+  uint local_4;
+  
+  local_4 = DAT_011c16bc ^ (uint)local_10;
+  switch(param_1) {
+  case 1:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 2:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 3:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 4:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 5:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 6:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 7:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 8:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 9:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 10:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0xb:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0xc:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0xd:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0xe:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0xf:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x10:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x11:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x12:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x13:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x14:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x15:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x16:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x17:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x18:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x19:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x1a:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x1b:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x1c:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x1d:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x1e:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x1f:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x20:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x21:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x22:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x23:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x24:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x25:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x26:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x27:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x28:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x29:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x2a:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x2b:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x2c:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x2d:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x2e:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x2f:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x30:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x31:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x32:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x33:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x34:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x35:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x36:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x37:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x38:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x39:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x3a:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x3b:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x3c:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x3d:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x3e:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x3f:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x40:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x41:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x42:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x43:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x44:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x45:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x46:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x47:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x48:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x49:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x4a:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x4b:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x4c:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x4d:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x4e:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x4f:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x50:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x51:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x52:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x53:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x54:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x55:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x56:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x57:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x58:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x59:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x5a:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x5b:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x5c:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x5d:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x5e:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x5f:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x60:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x61:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x62:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 99:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 100:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x65:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x66:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x67:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x68:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x69:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x6a:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x6b:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x6c:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x6d:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x6e:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x6f:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x70:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x71:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x72:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x73:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x74:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x75:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x76:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x77:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x78:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x79:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x7a:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x7b:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x7c:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x7d:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x7e:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x7f:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x80:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x81:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x82:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x83:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x84:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x85:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x86:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x87:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x88:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x89:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x8a:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x8b:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x8c:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x8d:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x8e:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x8f:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x90:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x91:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x92:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x93:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x94:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x95:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x96:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x97:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x98:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x99:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x9a:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x9b:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x9c:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x9d:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x9e:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0x9f:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0xa0:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0xa1:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0xa2:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0xa3:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0xa4:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0xa5:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0xa6:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0xa7:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0xa8:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0xa9:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0xaa:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0xab:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0xac:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0xad:
+    __security_check_cookie(local_4 ^ (uint)local_10);
+    return;
+  case 0xae:
+    __security_check_cookie(loca
+  ... [truncated, total chars=60158]
+
+======================================================================
+PPLighting shader setup and pass constant dispatch @ 0x00b7af80
+======================================================================
+  Function: FUN_00b7af80 @ 0x00b7af80, Size: 435 bytes
+
+void __thiscall FUN_00b7af80(int param_1,uint param_2)
+
+{
+  int *piVar1;
+  int *piVar2;
+  int iVar3;
+  LONG LVar4;
+  undefined4 uVar5;
+  
+  DAT_0126f74c = (&DAT_011fdff8)[param_2];
+  if (param_2 < 0x107) {
+    if (param_2 < 0x105) {
+      switch(param_2) {
+      case 3:
+      case 5:
+      case 8:
+      case 0x12:
+      case 0x13:
+      case 0x15:
+      case 0x5c:
+      case 0x5d:
+      case 0x5e:
+      case 0x5f:
+      case 0x6f:
+      case 0x70:
+      case 0x71:
+      case 0x72:
+      case 0x73:
+      case 0x74:
+      case 0x75:
+      case 0x76:
+      case 0x77:
+      case 0x78:
+      case 0x79:
+      case 0x7d:
+      case 0x89:
+      case 0x8a:
+      case 0x8b:
+      case 0x8c:
+      case 0x8d:
+      case 0x8e:
+      case 0x8f:
+      case 0x90:
+      case 0x91:
+      case 0x92:
+      case 0x9b:
+      case 0x9c:
+      case 0x9d:
+      case 0xa6:
+      case 0xa7:
+      case 0xa8:
+      case 0xb1:
+      case 0xb2:
+      case 0xb3:
+      case 0xbc:
+      case 0xbd:
+      case 0xbe:
+      case 0xc6:
+      case 199:
+      case 0xcd:
+      case 0xce:
+      case 0xd4:
+      case 0xd5:
+      case 0xdc:
+      case 0xdd:
+      case 0xe5:
+      case 0xe6:
+      case 0xee:
+      case 0xef:
+      case 0xf7:
+      case 0xf8:
+        break;
+      default:
+        goto switchD_00b7afbf_caseD_4;
+      case 0x61:
+      case 0xfe:
+        goto switchD_00b7afbf_caseD_61;
+      case 0x93:
+      case 0x94:
+switchD_00b7afbf_caseD_93:
+        uVar5 = *(undefined4 *)(param_1 + 0x78);
+LAB_00b7b07b:
+        FUN_00a5f860(uVar5);
+        goto LAB_00b7b083;
+      }
+    }
+  }
+  else {
+    if (0x232 < param_2) {
+      switch(param_2) {
+      case 0x233:
+        goto switchD_00b7afbf_caseD_93;
+      default:
+        goto switchD_00b7afbf_caseD_4;
+      case 0x246:
+      case 0x247:
+      case 0x249:
+      case 0x24f:
+      case 0x251:
+      case 0x254:
+      case 0x255:
+      case 0x2d7:
+      case 0x2d9:
+      case 0x2df:
+      case 0x2e5:
+      case 0x2eb:
+        goto switchD_00b7afbf_caseD_3;
+      }
+    }
+    if (param_2 != 0x232) {
+      if (0x150 < param_2) {
+        switch(param_2) {
+        case 0x152:
+        case 0x156:
+        case 0x157:
+        case 0x15d:
+        case 0x15e:
+        case 0x163:
+        case 0x164:
+        case 0x169:
+        case 0x16a:
+        case 0x16f:
+        case 0x170:
+        case 0x175:
+        case 0x176:
+        case 0x1e3:
+        case 0x1e6:
+        case 0x1e8:
+        case 0x1eb:
+        case 0x1ed:
+          goto switchD_00b7afbf_caseD_3;
+        default:
+switchD_00b7afbf_caseD_4:
+          uVar5 = *(undefined4 *)(param_1 + 0x6c);
+          goto LAB_00b7b07b;
+        case 0x1e9:
+switchD_00b7afbf_caseD_61:
+          uVar5 = *(undefined4 *)(param_1 + 0x74);
+          goto LAB_00b7b07b;
+        case 0x1ef:
+        case 0x1f0:
+        case 0x1f1:
+        case 0x1f2:
+        case 499:
+        case 500:
+        case 0x1f5:
+        case 0x1f6:
+        case 0x1f7:
+        case 0x1f8:
+        case 0x1f9:
+        case 0x1fa:
+        case 0x1fb:
+        case 0x1fc:
+        case 0x1fd:
+        case 0x1fe:
+        case 0x1ff:
+        case 0x200:
+        case 0x201:
+        case 0x202:
+        case 0x203:
+        case 0x204:
+        case 0x205:
+        case 0x206:
+        case 0x207:
+        case 0x208:
+        case 0x209:
+        case 0x20a:
+        case 0x20b:
+        case 0x20c:
+        case 0x20d:
+        case 0x20e:
+        case 0x20f:
+        case 0x210:
+        case 0x211:
+        case 0x212:
+        case 0x213:
+        case 0x214:
+        case 0x215:
+        case 0x216:
+        case 0x217:
+        case 0x218:
+        case 0x219:
+        case 0x21a:
+        case 0x21b:
+        case 0x21c:
+        case 0x21d:
+        case 0x21e:
+        case 0x21f:
+        case 0x220:
+        case 0x221:
+        case 0x222:
+        case 0x223:
+        case 0x224:
+        case 0x225:
+        case 0x226:
+        case 0x227:
+        case 0x228:
+        case 0x229:
+        case 0x22a:
+        case 0x22b:
+        case 0x22c:
+        case 0x22d:
+        case 0x22e:
+        case 0x22f:
+        case 0x230:
+          goto switchD_00b7afbf_caseD_93;
+        }
+      }
+      if (param_2 < 0x14f) {
+        switch(param_2) {
+        case 0x109:
+        case 0x111:
+        case 0x112:
+        case 0x115:
+        case 0x11c:
+        case 0x11d:
+        case 0x120:
+        case 0x127:
+        case 0x128:
+        case 299:
+        case 0x12e:
+        case 0x12f:
+        case 0x135:
+        case 0x136:
+        case 0x13b:
+        case 0x13c:
+        case 0x141:
+        case 0x142:
+        case 0x147:
+        case 0x148:
+        case 0x14d:
+          break;
+        default:
+          goto switchD_00b7afbf_caseD_4;
+        case 0x10b:
+          goto switchD_00b7afbf_caseD_61;
+        }
+      }
+    }
+  }
+switchD_00b7afbf_caseD_3:
+  piVar2 = *(int **)(param_1 + 0x70);
+  piVar1 = *(int **)(param_1 + 0x28);
+  if (piVar1 != piVar2) {
+    if ((piVar1 != (int *)0x0) && (LVar4 = InterlockedDecrement(piVar1 + 1), LVar4 == 0)) {
+      (**(code **)(*piVar1 + 4))();
+    }
+    *(int **)(param_1 + 0x28) = piVar2;
+    if (piVar2 != (int *)0x0) {
+      InterlockedIncrement(piVar2 + 1);
+    }
+  }
+LAB_00b7b083:
+  if ((param_2 == 0x250) || (param_2 == 0x251)) {
+    piVar2 = *(int **)(param_1 + 0x30);
+    if (piVar2 != *(int **)(param_1 + 0x7c)) {
+      if ((piVar2 != (int *)0x0) && (LVar4 = InterlockedDecrement(piVar2 + 1), LVar4 == 0)) {
+        (**(code **)(*piVar2 + 4))();
+      }
+      iVar3 = *(int *)(param_1 + 0x7c);
+      *(int *)(param_1 + 0x30) = iVar3;
+      if (iVar3 != 0) {
+        InterlockedIncrement((LONG *)(iVar3 + 4));
+      }
+    }
+    piVar2 = *(int **)(param_1 + 0x34);
+    if (piVar2 != *(int **)(param_1 + 0x80)) {
+      if ((piVar2 != (int *)0x0) && (LVar4 = InterlockedDecrement(piVar2 + 1), LVar4 == 0)) {
+        (**(code **)(*piVar2 + 4))();
+      }
+      iVar3 = *(int *)(param_1 + 0x80);
+      *(int *)(param_1 + 0x34) = iVar3;
+      if (iVar3 != 0) {
+                    /* WARNING: Could not recover jumptable at 0x00b7b12d. Too many branches */
+                    /* WARNING: Treating indirect jump as call */
+        InterlockedIncrement((LONG *)(iVar3 + 4));
+        return;
+      }
+    }
+  }
+  else {
+    FUN_00c663d0(param_1 + 0x84);
+    FUN_00c663d0(param_1 + 0x88);
+  }
+  return;
+}
+
+
+
+======================================================================
+PPLighting per-pass constant flag and fog updater @ 0x00b7b450
+======================================================================
+  Function: FUN_00b7b450 @ 0x00b7b450, Size: 731 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+void __thiscall FUN_00b7b450(int param_1,int param_2)
+
+{
+  uint uVar1;
+  int iVar2;
+  int *piVar3;
+  undefined4 uStack_58;
+  undefined4 uStack_54;
+  undefined1 auStack_50 [76];
+  
+  if ((param_2 != 0x250) && (param_2 != 0x251)) {
+    uVar1 = 1;
+    piVar3 = &DAT_011febdc;
+    do {
+      if (piVar3[-1] != 0) {
+        *(bool *)(piVar3[-1] + 8) =
+             (*(uint *)(&DAT_011fcc80 + param_2 * 4) & (uVar1 << 1 | (uint)((int)uVar1 < 0))) != 0;
+      }
+      uVar1 = uVar1 << 1 | (uint)((int)uVar1 < 0);
+      if (*piVar3 != 0) {
+        *(bool *)(*piVar3 + 8) =
+             (*(uint *)(&DAT_011fcc80 + param_2 * 4) & (uVar1 << 1 | (uint)((int)uVar1 < 0))) != 0;
+      }
+      piVar3 = piVar3 + 2;
+      uVar1 = uVar1 << 1 | (uint)((int)uVar1 < 0);
+    } while ((int)piVar3 < 0x11fec34);
+    uVar1 = 1;
+    piVar3 = &DAT_011fec34;
+    do {
+      if (piVar3[-1] != 0) {
+        *(bool *)(piVar3[-1] + 8) =
+             (*(uint *)(&DAT_011fc0a0 + param_2 * 4) & (uVar1 << 1 | (uint)((int)uVar1 < 0))) != 0;
+      }
+      uVar1 = uVar1 << 1 | (uint)((int)uVar1 < 0);
+      if (*piVar3 != 0) {
+        *(bool *)(*piVar3 + 8) =
+             (*(uint *)(&DAT_011fc0a0 + param_2 * 4) & (uVar1 << 1 | (uint)((int)uVar1 < 0))) != 0;
+      }
+      piVar3 = piVar3 + 2;
+      uVar1 = uVar1 << 1 | (uint)((int)uVar1 < 0);
+    } while ((int)piVar3 < 0x11fec8c);
+    (**(code **)(**(int **)(param_1 + 0x34) + 0x24))();
+    (**(code **)(**(int **)(param_1 + 0x30) + 0x24))();
+    if (*(char *)(DAT_011febf8 + 8) != '\0') {
+      iVar2 = FUN_00b55520(DAT_011f91c4);
+      if (iVar2 != 0) {
+        _DAT_011fa280 = *(float *)(iVar2 + 0x30);
+        _DAT_011fa288 = *(undefined4 *)(iVar2 + 0x60);
+        if ((_DAT_011fa280 == 0.0) && (*(float *)(iVar2 + 0x2c) == 0.0)) {
+          _DAT_011fa280 = _DAT_010ad6e0;
+          _DAT_011fa284 = 0.0;
+          _DAT_011fa288 = 0;
+          _DAT_011fa290 = DAT_011a9bd0;
+          _DAT_011fa29c = DAT_011a9bdc;
+          _DAT_011fa294 = DAT_011a9bd4;
+          _DAT_011fa298 = DAT_011a9bd8;
+        }
+        else {
+          _DAT_011fa290 = *(undefined4 *)(iVar2 + 0x20);
+          _DAT_011fa294 = *(undefined4 *)(iVar2 + 0x24);
+          _DAT_011fa298 = *(undefined4 *)(iVar2 + 0x28);
+          _DAT_011fa284 = _DAT_011fa280 - *(float *)(iVar2 + 0x2c);
+          uStack_54 = 0;
+          _DAT_011fa29c = 0;
+          uStack_58 = _DAT_011fa298;
+        }
+        _DAT_011fa28c = 0;
+      }
+    }
+    if (*(int *)(*DAT_011f91e0 + 0xbc) != 0) {
+      D3DXMatrixTranspose(auStack_50,*(int *)(param_1 + 0x18) + 0xa00);
+      piVar3 = *(int **)(*(int *)(DAT_0126f74c + 0x5c) + 0x20);
+      (**(code **)(*piVar3 + 0x178))(piVar3,1,&uStack_58,4);
+    }
+    if (*(char *)(DAT_011febf8 + 8) != '\0') {
+      DAT_011fd9b8 = DAT_011a9bd0;
+      DAT_011fd9bc = DAT_011a9bd4;
+      DAT_011fd9c0 = DAT_011a9bd8;
+      DAT_011fd9c4 = DAT_011a9bdc;
+      _DAT_011fd9c8 = DAT_011a9bd0;
+      _DAT_011fd9cc = DAT_011a9bd4;
+      _DAT_011fd9d0 = DAT_011a9bd8;
+      _DAT_011fd9d4 = DAT_011a9bdc;
+      _DAT_011fd9d8 = DAT_011a9bd0;
+      _DAT_011fd9dc = DAT_011a9bd4;
+      _DAT_011fd9e0 = DAT_011a9bd8;
+      _DAT_011fd9e4 = DAT_011a9bdc;
+    }
+  }
+  return;
+}
+
+
+
+======================================================================
+PPLighting constant table registration @ 0x00b7e430
+======================================================================
+  Function: FUN_00b7e430 @ 0x00b7e430, Size: 5633 bytes
+
+void __fastcall FUN_00b7e430(int param_1)
+
+{
+  uint uVar1;
+  int iVar2;
+  LONG LVar3;
+  int *piVar4;
+  int *piVar5;
+  int *unaff_FS_OFFSET;
+  int local_c;
+  undefined1 *puStack_8;
+  undefined4 local_4;
+  
+  local_4 = 0xffffffff;
+  puStack_8 = &LAB_00f28e6c;
+  local_c = *unaff_FS_OFFSET;
+  uVar1 = DAT_011c16bc ^ (uint)&stack0xffffffe0;
+  *unaff_FS_OFFSET = (int)&local_c;
+  if (*(int *)(param_1 + 0x34) == 0) {
+    iVar2 = FUN_00aa13e0(0x44,uVar1);
+    piVar5 = (int *)0x0;
+    local_4 = 0;
+    if (iVar2 != 0) {
+      piVar5 = (int *)FUN_00b7e330(*(undefined4 *)(param_1 + 0x18),0);
+    }
+    piVar4 = *(int **)(param_1 + 0x34);
+    local_4 = 0xffffffff;
+    if (piVar4 != piVar5) {
+      if (piVar4 != (int *)0x0) {
+        LVar3 = InterlockedDecrement(piVar4 + 1);
+        if (LVar3 == 0) {
+          (**(code **)(*piVar4 + 4))();
+        }
+      }
+      *(int **)(param_1 + 0x34) = piVar5;
+      if (piVar5 != (int *)0x0) {
+        InterlockedIncrement(piVar5 + 1);
+      }
+    }
+    (**(code **)(**(int **)(param_1 + 0x34) + 0x68))
+              ("WorldViewProjTranspose",0x20000009,0,&lpWindowName_01011584,0,0,0,0);
+    (**(code **)(**(int **)(param_1 + 0x34) + 0x68))
+              ("SkinWorldViewProjTranspose",0x20000009,1,&lpWindowName_01011584,0,0,0,0);
+    (**(code **)(**(int **)(param_1 + 0x34) + 8))
+              ("ShadowProj",0x10000009,0,0x12,4,&lpWindowName_01011584,0x40,4,&DAT_011fd968,0);
+    (**(code **)(**(int **)(param_1 + 0x34) + 8))
+              ("SkinWorldTranspose",0x10000009,0,9,4,&lpWindowName_01011584,0x40,4,&DAT_011fec88,0);
+    (**(code **)(**(int **)(param_1 + 0x34) + 8))
+              ("WorldTranspose",0x10000009,0,8,4,&lpWindowName_01011584,0x40,4,&DAT_011fecc8,0);
+    (**(code **)(**(int **)(param_1 + 0x34) + 8))
+              ("ShadowProjData",0x10000007,0,0x16,1,&lpWindowName_01011584,0x10,4,&DAT_011fd874,0);
+    (**(code **)(**(int **)(param_1 + 0x34) + 8))
+              ("ShadowProjTransform",0x10000007,0,0x17,1,&lpWindowName_01011584,0x10,4,&DAT_011fd884
+               ,0);
+    (**(code **)(**(int **)(param_1 + 0x34) + 8))
+              ("HighDetailRange",0x10000007,0,0xc,1,&lpWindowName_01011584,0x10,4,&DAT_011fa2e0,0);
+    (**(code **)(**(int **)(param_1 + 0x34) + 8))
+              ("LightData",0x10000009,0,0x19,10,&lpWindowName_01011584,0xa0,4,&DAT_011fd9a8,0);
+    (**(code **)(**(int **)(param_1 + 0x34) + 8))
+              ("FogParam | ShadowVolumeFatness",0x10000007,0,0xe,1,&lpWindowName_01011584,0x10,4,
+               &DAT_011fa280,0);
+    (**(code **)(**(int **)(param_1 + 0x34) + 8))
+              ("FogColor | ShadowVolumeExtrudeDistance",0x10000007,0,0xf,1,&lpWindowName_01011584,
+               0x10,4,&DAT_011fa290,0);
+    (**(code **)(**(int **)(param_1 + 0x34) + 8))
+              ("EyePosition",0x10000007,0,0x10,1,&lpWindowName_01011584,0x10,4,&DAT_011fd894,0);
+    (**(code **)(**(int **)(param_1 + 0x34) + 8))
+              ("BoundCenter",0x10000007,0,0x18,1,&lpWindowName_01011584,0x10,4,&DAT_011fd8b4,0);
+    (**(code **)(**(int **)(param_1 + 0x34) + 8))
+              ("LODLandParams",0x10000007,0,0x13,1,&lpWindowName_01011584,0x10,4,&DAT_011fa0b0,0);
+    (**(code **)(**(int **)(param_1 + 0x34) + 8))
+              ("DepthData",0x10000007,0,0x11,1,&lpWindowName_01011584,0x10,4,&DAT_011fd954,0);
+    (**(code **)(**(int **)(param_1 + 0x34) + 8))
+              ("PrevWorldViewPT",0x10000009,0,0x23,4,&lpWindowName_01011584,0x40,4,&DAT_011fed08,0);
+    (**(code **)(**(int **)(param_1 + 0x34) + 8))
+              ("PrevWorldViewT",0x10000009,0,0x27,4,&lpWindowName_01011584,0x40,4,&DAT_011fed48,0);
+    (**(code **)(**(int **)(param_1 + 0x34) + 8))
+              ("BoneMatrix3",0x20000009,0x120000,0x2c,0x36,0,0,0,0,0);
+    (**(code **)(**(int **)(param_1 + 0x34) + 0x68))
+              ("WorldViewTranspose",0x20000009,4,&lpWindowName_01011584,0,0,0,0);
+    (**(code **)(**(int **)(param_1 + 0x34) + 0x68))
+              ("SkinWorldViewTranspose",0x20000009,5,&lpWindowName_01011584,0,0,0,0);
+    (**(code **)(**(int **)(param_1 + 0x34) + 8))
+              (&DAT_01097e74,0x10000004,0,0xd,1,&lpWindowName_01011584,4,4,&DAT_011fd868,0);
+    (**(code **)(**(int **)(param_1 + 0x34) + 8))
+              ("PrevBoneMatrix3",0x10000009,0,0x62,0x36,&lpWindowName_01011584,0x360,4,&DAT_011fa580
+               ,0);
+    piVar4 = (int *)(**(code **)(**(int **)(param_1 + 0x34) + 0x70))("WorldViewProjTranspose");
+    piVar5 = DAT_011febd8;
+    if (DAT_011febd8 != piVar4) {
+      if (DAT_011febd8 != (int *)0x0) {
+        LVar3 = InterlockedDecrement(DAT_011febd8 + 1);
+        if (LVar3 == 0) {
+          (**(code **)(*piVar5 + 4))();
+        }
+      }
+      DAT_011febd8 = piVar4;
+      if (piVar4 != (int *)0x0) {
+        InterlockedIncrement(piVar4 + 1);
+      }
+    }
+    piVar4 = (int *)(**(code **)(**(int **)(param_1 + 0x34) + 0x70))("WorldTranspose");
+    piVar5 = DAT_011febdc;
+    if (DAT_011febdc != piVar4) {
+      if (DAT_011febdc != (int *)0x0) {
+        LVar3 = InterlockedDecrement(DAT_011febdc + 1);
+        if (LVar3 == 0) {
+          (**(code **)(*piVar5 + 4))();
+        }
+      }
+      DAT_011febdc = piVar4;
+      if (piVar4 != (int *)0x0) {
+        InterlockedIncrement(piVar4 + 1);
+      }
+    }
+    piVar4 = (int *)(**(code **)(**(int **)(param_1 + 0x34) + 0x70))("SkinWorldTranspose");
+    piVar5 = DAT_011fec08;
+    if (DAT_011fec08 != piVar4) {
+      if (DAT_011fec08 != (int *)0x0) {
+        LVar3 = InterlockedDecrement(DAT_011fec08 + 1);
+        if (LVar3 == 0) {
+          (**(code **)(*piVar5 + 4))();
+        }
+      }
+      DAT_011fec08 = piVar4;
+      if (piVar4 != (int *)0x0) {
+        InterlockedIncrement(piVar4 + 1);
+      }
+    }
+    piVar4 = (int *)(**(code **)(**(int **)(param_1 + 0x34) + 0x70))("SkinWorldViewProjTranspose");
+    piVar5 = DAT_011febe0;
+    if (DAT_011febe0 != piVar4) {
+      if (DAT_011febe0 != (int *)0x0) {
+        LVar3 = InterlockedDecrement(DAT_011febe0 + 1);
+        if (LVar3 == 0) {
+          (**(code **)(*piVar5 + 4))();
+        }
+      }
+      DAT_011febe0 = piVar4;
+      if (piVar4 != (int *)0x0) {
+        InterlockedIncrement(piVar4 + 1);
+      }
+    }
+    piVar4 = (int *)(**(code **)(**(int **)(param_1 + 0x34) + 0x70))("ShadowProj");
+    piVar5 = DAT_011febe4;
+    if (DAT_011febe4 != piVar4) {
+      if (DAT_011febe4 != (int *)0x0) {
+        LVar3 = InterlockedDecrement(DAT_011febe4 + 1);
+        if (LVar3 == 0) {
+          (**(code **)(*piVar5 + 4))();
+        }
+      }
+      DAT_011febe4 = piVar4;
+      if (piVar4 != (int *)0x0) {
+        InterlockedIncrement(piVar4 + 1);
+      }
+    }
+    piVar4 = (int *)(**(code **)(**(int **)(param_1 + 0x34) + 0x70))("ShadowProjData");
+    piVar5 = DAT_011febe8;
+    if (DAT_011febe8 != piVar4) {
+      if (DAT_011febe8 != (int *)0x0) {
+        LVar3 = InterlockedDecrement(DAT_011febe8 + 1);
+        if (LVar3 == 0) {
+          (**(code **)(*piVar5 + 4))();
+        }
+      }
+      DAT_011febe8 = piVar4;
+      if (piVar4 != (int *)0x0) {
+        InterlockedIncrement(piVar4 + 1);
+      }
+    }
+    piVar4 = (int *)(**(code **)(**(int **)(param_1 + 0x34) + 0x70))("ShadowProjTransform");
+    piVar5 = DAT_011febec;
+    if (DAT_011febec != piVar4) {
+      if (DAT_011febec != (int *)0x0) {
+        LVar3 = InterlockedDecrement(DAT_011febec + 1);
+        if (LVar3 == 0) {
+          (**(code **)(*piVar5 + 4))();
+        }
+      }
+      DAT_011febec = piVar4;
+      if (piVar4 != (int *)0x0) {
+        InterlockedIncrement(piVar4 + 1);
+      }
+    }
+    piVar4 = (int *)(**(code **)(**(int **)(param_1 + 0x34) + 0x70))("HighDetailRange");
+    piVar5 = DAT_011fec18;
+    if (DAT_011fec18 != piVar4) {
+      if (DAT_011fec18 != (int *)0x0) {
+        LVar3 = InterlockedDecrement(DAT_011fec18 + 1);
+        if (LVar3 == 0) {
+          (**(code **)(*piVar5 + 4))();
+        }
+      }
+      DAT_011fec18 = piVar4;
+      if (piVar4 != (int *)0x0) {
+        InterlockedIncrement(piVar4 + 1);
+      }
+    }
+    piVar4 = (int *)(**(code **)(**(int **)(param_1 + 0x34) + 0x70))("LightData");
+    piVar5 = DAT_011febf0;
+    if (DAT_011febf0 != piVar4) {
+      if (DAT_011febf0 != (int *)0x0) {
+        LVar3 = InterlockedDecrement(DAT_011febf0 + 1);
+        if (LVar3 == 0) {
+          (**(code **)(*piVar5 + 4))();
+        }
+      }
+      DAT_011febf0 = piVar4;
+      if (piVar4 != (int *)0x0) {
+        InterlockedIncrement(piVar4 + 1);
+      }
+    }
+    piVar4 = (int *)(**(code **)(**(int **)(param_1 + 0x34) + 0x70))
+                              ("FogParam | ShadowVolumeFatness");
+    piVar5 = DAT_011febf4;
+    if (DAT_011febf4 != piVar4) {
+      if (DAT_011febf4 != (int *)0x0) {
+        LVar3 = InterlockedDecrement(DAT_011febf4 + 1);
+        if (LVar3 == 0) {
+          (**(code **)(*piVar5 + 4))();
+        }
+      }
+      DAT_011febf4 = piVar4;
+      if (piVar4 != (int *)0x0) {
+        InterlockedIncrement(piVar4 + 1);
+      }
+    }
+    piVar4 = (int *)(**(code **)(**(int **)(param_1 + 0x34) + 0x70))
+                              ("FogColor | ShadowVolumeExtrudeDistance");
+    piVar5 = DAT_011febf8;
+    if (DAT_011febf8 != piVar4) {
+      if (DAT_011febf8 != (int *)0x0) {
+        LVar3 = InterlockedDecrement(DAT_011febf8 + 1);
+        if (LVar3 == 0) {
+          (**(code **)(*piVar5 + 4))();
+        }
+      }
+      DAT_011febf8 = piVar4;
+      if (piVar4 != (int *)0x0) {
+        InterlockedIncrement(piVar4 + 1);
+      }
+    }
+    piVar4 = (int *)(**(code **)(**(int **)(param_1 + 0x34) + 0x70))("EyePosition");
+    piVar5 = DAT_011febfc;
+    if (DAT_011febfc != piVar4) {
+      if (DAT_011febfc != (int *)0x0) {
+        LVar3 = InterlockedDecrement(DAT_011febfc + 1);
+        if (LVar3 == 0) {
+          (**(code **)(*piVar5 + 4))();
+        }
+      }
+      DAT_011febfc = piVar4;
+      if (piVar4 != (int *)0x0) {
+        InterlockedIncrement(piVar4 + 1);
+      }
+    }
+    piVar4 = (int *)(**(code **)(**(int **)(param_1 + 0x34) + 0x70))("BoneMatrix3");
+    piVar5 = DAT_011fec00;
+    if (DAT_011fec00 != piVar4) {
+      if (DAT_011fec00 != (int *)0x0) {
+        LVar3 = InterlockedDecrement(DAT_011fec00 + 1);
+        if (LVar3 == 0) {
+          (**(code **)(*piVar5 + 4))();
+        }
+      }
+      DAT_011fec00 = piVar4;
+      if (piVar4 != (int *)0x0) {
+        InterlockedIncrement(piVar4 + 1);
+      }
+    }
+    piVar4 = (int *)(**(code **)(**(int **)(param_1 + 0x34) + 0x70))("WorldViewTranspose");
+    piVar5 = DAT_011fec0c;
+    if (DAT_011fec0c != piVar4) {
+      if (DAT_011fec0c != (int *)0x0) {
+        LVar3 = InterlockedDecrement(DAT_011fec0c + 1);
+        if (LVar3 == 0) {
+          (**(code **)(*piVar5 + 4))();
+        }
+      }
+      DAT_011fec0c = piVar4;
+      if (piVar4 != (int *)0x0) {
+        InterlockedIncrement(piVar4 + 1);
+      }
+    }
+    piVar4 = (int *)(**(code **)(**(int **)(param_1 + 0x34) + 0x70))("SkinWorldViewTranspose");
+    piVar5 = DAT_011fec10;
+    if (DAT_011fec10 != piVar4) {
+      if (DAT_011fec10 != (int *)0x0) {
+        LVar3 = InterlockedDecrement(DAT_011fec10 + 1);
+        if (LVar3 == 0) {
+          (**(code **)(*piVar5 + 4))();
+        }
+      }
+      DAT_011fec10 = piVar4;
+      if (piVar4 != (int *)0x0) {
+        InterlockedIncrement(piVar4 + 1);
+      }
+    }
+    piVar4 = (int *)(**(code **)(**(int **)(param_1 + 0x34) + 0x70))(&DAT_01097e74);
+    piVar5 = DAT_011fec14;
+    if (DAT_011fec14 != piVar4) {
+      if (DAT_011fec14 != (int *)0x0) {
+        LVar3 = InterlockedDecrement(DAT_011fec14 + 1);
+        if (LVar3 == 0) {
+          (**(code **)(*piVar5 + 4))();
+        }
+      }
+      DAT_011fec14 = piVar4;
+      if (piVar4 != (int *)0x0) {
+        InterlockedIncrement(piVar4 + 1);
+      }
+    }
+    piVar4 = (int *)(**(code **)(**(int **)(param_1 + 0x34) + 0x70))("BoundCenter");
+    piVar5 = DAT_011fec1c;
+    if (DAT_011fec1c != piVar4) {
+      if (DAT_011fec1c != (int *)0x0) {
+        LVar3 = InterlockedDecrement(DAT_011fec1c + 1);
+        if (LVar3 == 0) {
+          (**(code **)(*piVar5 + 4))();
+        }
+      }
+      DAT_011fec1c = piVar4;
+      if (piVar4 != (int *)0x0) {
+        InterlockedIncrement(piVar4 + 1);
+      }
+    }
+    piVar4 = (int *)(**(code **)(**(int **)(param_1 + 0x34) + 0x70))("LODLandParams");
+    piVar5 = DAT_011fec2c;
+    if (DAT_011fec2c != piVar4) {
+      if (DAT_011fec2c != (int *)0x0) {
+        LVar3 = InterlockedDecrement(DAT_011fec2c + 1);
+        if (LVar3 == 0) {
+          (**(code **)(*piVar5 + 4))();
+        }
+      }
+      DAT_011fec2c = piVar4;
+      if (piVar4 != (int *)0x0) {
+        InterlockedIncrement(piVar4 + 1);
+      }
+    }
+    piVar4 = (int *)(**(code **)(**(int **)(param_1 + 0x34) + 0x70))("DepthData");
+    piVar5 = DAT_011fec20;
+    if (DAT_011fec20 != piVar4) {
+      if (DAT_011fec20 != (int *)0x0) {
+        LVar3 = InterlockedDecrement(DAT_011fec20 + 1);
+        if (LVar3 == 0) {
+          (**(code **)(*piVar5 + 4))();
+        }
+      }
+      DAT_011fec20 = piVar4;
+      if (piVar4 != (int *)0x0) {
+        InterlockedIncrement(piVar4 + 1);
+      }
+    }
+    piVar4 = (int *)(**(code **)(**(int **)(param_1 + 0x34) + 0x70))("PrevWorldViewPT");
+    piVar5 = DAT_011fec24;
+    if (DAT_011fec24 != piVar4) {
+      if (DAT_011fec24 != (int *)0x0) {
+        LVar3 = InterlockedDecrement(DAT_011fec24 + 1);
+        if (LVar3 == 0) {
+          (**(code **)(*piVar5 + 4))();
+        }
+      }
+      DAT_011fec24 = piVar4;
+      if (piVar4 != (int *)0x0) {
+        InterlockedIncrement(piVar4 + 1);
+      }
+    }
+    piVar4 = (int *)(**(code **)(**(int **)(param_1 + 0x34) + 0x70))("PrevWorldViewT");
+    piVar5 = DAT_011fec28;
+    if (DAT_011fec28 != piVar4) {
+      if (DAT_011fec28 != (int *)0x0) {
+        LVar3 = InterlockedDecrement(DAT_011fec28 + 1);
+        if (LVar3 == 0) {
+          (**(code **)(*piVar5 + 4))();
+        }
+      }
+      DAT_011fec28 = piVar4;
+      if (piVar4 != (int *)0x0) {
+        InterlockedIncrement(piVar4 + 1);
+      }
+    }
+    piVar4 = (int *)(**(code **)(**(int **)(param_1 + 0x34) + 0x70))("PrevBoneMatrix3");
+    piVar5 = DAT_011fec04;
+    if (DAT_011fec04 != piVar4) {
+      if (DAT_011fec04 != (int *)0x0) {
+        LVar3 = InterlockedDecrement(DAT_011fec04 + 1);
+        if (LVar3 == 0) {
+          (**(code **)(*piVar5 + 4))();
+        }
+      }
+      DAT_011fec04 = piVar4;
+      if (piVar4 != (int *)0x0) {
+        InterlockedIncrement(piVar4 + 1);
+      }
+    }
+    piVar5 = *(int **)(param_1 + 0x88);
+    if (piVar5 != *(int **)(param_1 + 0x34)) {
+      if (piVar5 != (int *)0x0) {
+        LVar3 = InterlockedDecrement(piVar5 + 1);
+        if (LVar3 == 0) {
+          (**(code **)(*piVar5 + 4))();
+        }
+      }
+      iVar2 = *(int *)(param_1 + 0x34);
+      *(int *)(param_1 + 0x88) = iVar2;
+      if (iVar2 != 0) {
+        InterlockedIncrement((LONG *)(iVar2 + 4));
+      }
+    }
+  }
+  if (*(int *)(param_1 + 0x30) == 0) {
+    iVar2 = FUN_00aa13e0(0x44,uVar1);
+    local_4 = 1;
+    if (iVar2 == 0) {
+      piVar5 = (int *)0x0;
+    }
+    else {
+      piVar5 = (int *)FUN_00b7e330(*(undefined4 *)(param_1 + 0x18),2);
+    }
+    piVar4 = *(int **)(param_1 + 0x30);
+    local_4 = 0xffffffff;
+    if (piVar4 != piVar5) {
+      if (piVar4 != (int *)0x0) {
+        LVar3 = InterlockedDecrement(piVar4 + 1);
+        if (LVar3 == 0) {
+          (**(code **)(*piVar4 + 4))();
+        }
+      }
+      *(int **)(param_1 + 0x30) = piVar5;
+      if (piVar5 != (int *)0x0) {
+        InterlockedIncrement(piVar5 + 1);
+      }
+    }
+    (**(code **)(**(int **)(param_1 + 0x30) + 8))
+              ("eye dir",0x10000007,0,0,1,&lpWindowName_01011584,0x10,4,&DAT_011fd8a4,0);
+    (**(code **)(**(int **)(param_1 + 0x30) + 8))
+              ("Ambient Color",0x10000007,0,1,1,&lpWindowName_01011584,0x10,4,&DAT_011fa0c0,0);
+    (**(code **)(**(int **)(param_1 + 0x30) + 8))
+              ("LightColors",0x10000009,0,3,10,&lpWindowName_01011584,0xa0,4,&DAT_011fa0d0,0);
+    (**(code **)(**(int **)(param_1 + 0x30) + 8))
+              ("Light Direction",0x10000007,0,0x12,1,&lpWindowName_01011584,0x10,4,&DAT_011fd9a8,0);
+    (**(code **)(**(int **)(param_1 + 0x30) + 8))
+              ("Light Position0",0x10000007,0,0x13,1,&lpWindowName_01011584,0x10,4,&DAT_011fd9b8,0);
+    (**(code **)(**(int **)(param_1 + 0x30) + 8))
+              ("Light Position1",0x10000007,0,0x14,1,&lpWindowName_01011584,0x10,4,&DAT_011fd9c8,0);
+    (**(code **)(**(int **)(param_1 + 0x30) + 8))
+              ("Light Position2",0x10000007,0,0x15,1,&lpWindowName_01011584,0x10,4,&DAT_011fd9d8,0);
+    (**(code **)(**(int **)(param_1 + 0x30) + 8))
+              ("Light Position3",0x10000007,0,0x16,1,&lpWindowName_01011584,0x10,4,&DAT_011fd9e8,0);
+    (**(code **)(**(int **)(param_1 + 0x30) + 8))
+              ("Emittance Color",0x10000007,0,2,1,&lpWindowName_01011584,0x10,4,&DAT_011fa270,0);
+    (**(code **)(**(int **)(param_1 + 0x30) + 8))
+              ("EyePosition",0x10000007,0,0x11,1,&lpWindowName_01011584,0x10,4,&DAT_011fd894,0);
+    (**(code **)(**(int **)(param_1 + 0x30) + 8))
+              ("Toggles",0x10000007,0,0x1b,1,&lpWindowName_01011584,0x10,4,&DAT_011fa2d0,0);
+    (**(code **)(**(int **)(param_1 + 0x30) + 8))
+              ("HairTint",0x10000007,0,0x1c,1,&lpWindowName_01011584,0x10,4,&DAT_011fa090,0);
+    (**(code **)(**(int **)(param_1 + 0x30) + 8))
+              ("STBBColorConstants",0x10000007,0,0x1e,1,&lpWindowName_01011584,0x10,4,&DAT_011fa2f0,
+               0);
+    (**(code **)(**(int **)(param_1 + 0x30) + 8))
+              ("LODTEXPARAMS",0x10000007,0,0x1f,1,&lpWindowName_01011584,0x10,4,&DAT_011fa300,0);
+    (**(code **)(**(int **)(param_1 + 0x30) + 8))
+              ("RefractionParams",0x10000004,0,0x1d,1,&lpWindowName_01011584,4,4,&DAT_011fd944,0);
+    (**(code **)(**(int **)(param_1 + 0x30) + 8))
+              ("FogParams",0x10000004,0,0xe,1,&lpWindowName_01011584,4,4,&DAT_011fd8c4,0);
+    (**(code **)(**(int **)(param_1 + 0x30) + 8))
+              ("FogColor",0x10000004,0,0xf,1,&lpWindowName_01011584,4,4,&DAT_011fd8d4,0);
+    (**(code **)(**(int **)(param_1 + 0x30) + 8))
+              ("FogPlane",0x10000004,0,0x10,1,&lpWindowName_01011584,4,4,&DAT_011fd8e4,0);
+    piVar4 = (int *)(**(code **)(**(int **)(param_1 + 0x30) + 0x70))("HairTint");
+    piVar5 = DAT_011fec6c;
+    if (DAT_011fec6c != piVar4) {
+      if (DAT_011fec6c != (int *)0x0) {
+        LVar3 = InterlockedDecrement(DAT_011fec6c + 1);
+        if (LVar3 == 0) {
+          (**(code **)(*piVar5 + 4))();
+        }
+      }
+      DAT_011fec6c = piVar4;
+      if (piVar4 != (int *)0x0) {
+        InterlockedIncrement(piVar4 + 1);
+      }
+    }
+    piVar4 = (int *)(**(code **)(**(int **)(param_1 + 0x30) + 0x70))("eye dir");
+    piVar5 = DAT_011fec30;
+    if (DAT_011fec30 != piVar4) {
+      if (DAT_011fec30 != (int *)0x0) {
+        LVar3 = InterlockedDecrement(DAT_011fec30 + 1);
+        if (LVar3 == 0) {
+          (**(code **)(*piVar5 + 4))();
+        }
+      }
+      DAT_011fec30 = piVar4;
+      if (piVar4 != (int *)0x0) {
+        InterlockedIncrement(piVar4 + 1);
+      }
+    }
+    piVar4 = (int *)(**(code **)(**(int **)(param_1 + 0x30) + 0x70))("Ambient Color");
+    piVar5 = DAT_011fec34;
+    if (DAT_011fec34 != piVar4) {
+      if (DAT_011fec34 != (int *)0x0) {
+        LVar3 = InterlockedDecrement(DAT_011fec34 + 1);
+        if (LVar3 == 0) {
+          (**(code **)(*piVar5 + 4))();
+        }
+      }
+      DAT_011fec34 = piVar4;
+      if (piVar4 != (int *)0x0) {
+        InterlockedIncrement(piVar4 + 1);
+      }
+    }
+    piVar4 = (int *)(**(code **)(**(int **)(param_1 + 0x30) + 0x70))("LightColors");
+    piVar5 = DAT_011fec38;
+    if (DAT_011fec38 != piVar4) {
+      if (DAT_011fec38 != (int *)0x0) {
+        LVar3 = InterlockedDecrement(DAT_011fec38 + 1);
+        if (LVar3 == 0) {
+          (**(code **)(*piVar5 + 4))();
+        }
+      }
+      DAT_011fec38 = piVar4;
+      if (piVar4 != (int *)0x0) {
+        InterlockedIncrement(piVar4 + 1);
+      }
+    }
+    piVar4 = (int *)(**(code **)(**(int **)(param_1 + 0x30) + 0x70))("Light Direction");
+    piVar5 = DAT_011fec48;
+    if (DAT_011fec48 != piVar4) {
+      if (DAT_011fec48 != (int *)0x0) {
+        LVar3 = InterlockedDecrement(DAT_011fec48 + 1);
+        if (LVar3 == 0) {
+          (**(code **)(*piVar5 + 4))();
+        }
+      }
+      DAT_011fec48 = piVar4;
+      if (piVar4 != (int *)0x0) {
+        InterlockedIncrement(piVar4 + 1);
+      }
+    }
+    piVar4 = (int *)(**(code **)(**(int **)(param_1 + 0x30) + 0x70))("Light Position0");
+    piVar5 = DAT_011fec4c;
+    if (DAT_011fec4c != piVar4) {
+      if (DAT_011fec4c != (int *)0x0) {
+        LVar3 = InterlockedDecrement(DAT_011fec4c + 1);
+        if (LVar3 == 0) {
+          (**(code **)(*piVar5 + 4))();
+        }
+      }
+      DAT_011fec4c = piVar4;
+      if (piVar4 != (int *)0x0) {
+        InterlockedIncrement(piVar4 + 1);
+      }
+    }
+    piVar4 = (int *)(**(code **)(**(int **)(param_1 + 0x30) + 0x70))("Light Position1");
+    piVar5 = DAT_011fec50;
+    if (DAT_011fec50 != piVar4) {
+      if (DAT_011fec50 != (int *)0x0) {
+        LVar3 = InterlockedDecrement(DAT_011fec50 + 1);
+        if (LVar3 == 0) {
+          (**(code **)(*piVar5 + 4))();
+        }
+      }
+      DAT_011fec50 = piVar4;
+      if (piVar4 != (int *)0x0) {
+        InterlockedIncrement(piVar4 + 1);
+      }
+    }
+    piVar4 = (int *)(**(code **)(**(int **)(param_1 + 0x30) + 0x70))("Light Position2");
+    piVar5 = DAT_011fec54;
+    if (DAT_011fec54 != piVar4) {
+      if (DAT_011fec54 != (int *)0x0) {
+        LVar3 = InterlockedDecrement(DAT_011fec54 + 1);
+        if (LVar3 == 0) {
+          (**(code **)(*piVar5 + 4))();
+        }
+      }
+      DAT_011fec54 = piVar4;
+      if (piVar4 != (int *)0x0) {
+        InterlockedIncrement(piVar4 + 1);
+      }
+    }
+    piVar4 = (int *)(**(code **)(**(int **)(param_1 + 0x30) + 0x70))("Light Position3");
+    piVar5 = DAT_011fec58;
+    if (DAT_011fec58 != piVar4) {
+      if (DAT_011fec58 != (int *)0x0) {
+        LVar3 = InterlockedDecrement(DAT_011fec58 + 1);
+        if (LVar3 == 0) {
+          (**(code **)(*piVar5 + 4))();
+        }
+      }
+      DAT_011fec58 = piVar4;
+      if (piVar4 != (int *)0x0) {
+        InterlockedIncrement(piVar4 + 1);
+      }
+    }
+    piVar4 = (int *)(**(code **)(**(int **)(param_1 + 0x30) + 0x70))("Emittance Color");
+    piVar5 = DAT_011fec3c;
+    if (DAT_011fec3c != piVar4) {
+      if (DAT_011fec3c != (int *)0x0) {
+        LVar3 = InterlockedDecrement(DAT_011fec3c + 1);
+        if (LVar3 == 0) {
+          (**(code **)(*piVar5 + 4))();
+        }
+      }
+      DAT_011fec3c = piVar4;
+      if (piVar4 != (int *)0x0) {
+        InterlockedIncrement(piVar4 + 1);
+      }
+    }
+    piVar4 = (int *)(**(code **)(**(int **)(param_1 + 0x30) + 0x70))("EyePosition");
+    piVar5 = DAT_011fec44;
+    if (DAT_011fec44 != piVar4) {
+      if (DAT_011fec44 != (int *)0x0) {
+        LVar3 = InterlockedDecrement(DAT_011fec44 + 1);
+        if (LVar3 == 0) {
+          (**(code **)(*piVar5 + 4))();
+        }
+      }
+      DAT_011fec44 = piVar4;
+      if (piVar4 != (int *)0x0) {
+        InterlockedIncrement(piVar4 + 1);
+      }
+    }
+    piVar4 = (int *)(**(code **)(**(int **)(param_1 + 0x30) + 0x70))("Toggles");
+    piVar5 = DAT_011fec40;
+    if (DAT_011fec40 != piVar4) {
+      if (DAT_011fec40 != (int *)0x0) {
+        LVar3 = InterlockedDecrement(DAT_011fec40 + 1);
+        if (LVar3 == 0) {
+          (**(code **)(*piVar5 + 4))();
+        }
+      }
+      DAT_011fec40 = piVar4;
+      if (piVar4 != (int *)0x0) {
+        InterlockedIncrement(piVar4 + 1);
+      }
+    }
+    piVar4 = (int *)(**(code **)(**(int **)(param_1 + 0x30) + 0x70))("RefractionParams");
+    piVar5 = DAT_011fec70;
+    if (DAT_011fec70 != piVar4) {
+      if (DAT_011fec70 != (int *)0x0) {
+        LVar3 = InterlockedDecrement(DAT_011fec70 + 1);
+        if (LVar3 == 0) {
+          (**(code **)(*piVar5 + 4))();
+        }
+      }
+      DAT_011fec70 = piVar4;
+      if (piVar4 != (int *)0x0) {
+        InterlockedIncrement(piVar4 + 1);
+      }
+    }
+    piVar4 = (int *)(**(code **)(**(int **)(param_1 + 0x30) + 0x70))("FogParams");
+    piVar5 = DAT_011fec74;
+    if (DAT_011fec74 != piVar4) {
+      if (DAT_011fec74 != (int *)0x0) {
+        LVar3 = InterlockedDecrement(DAT_011fec74 + 1);
+        if (LVar3 == 0) {
+          (**(code **)(*piVar5 + 4))();
+        }
+      }
+      DAT_011fec74 = piVar4;
+      if (piVar4 != (int *)0x0) {
+        InterlockedIncrement(piVar4 + 1);
+      }
+    }
+    piVar4 = (int *)(**(code **)(**(int **)(param_1 + 0x30) + 0x70))("FogColor");
+    piVar5 = DAT_011fec78;
+    if (DAT_011fec78 != piVar4) {
+      if (DAT_011fec78 != (int *)0x0) {
+        LVar3 = InterlockedDecrement(DAT_011fec78 + 1);
+        if (LVar3 == 0) {
+          (**(code **)(*piVar5 + 4))();
+        }
+      }
+      DAT_011fec78 = piVar4;
+      if (piVar4 != (int *)0x0) {
+        InterlockedIncrement(piVar4 + 1);
+      }
+    }
+    piVar4 = (int *)(**(code **)(**(int **)(param_1 + 0x30) + 0x70))("FogPlane");
+    piVar5 = DAT_011fec7c;
+    if (DAT_011fec7c != piVar4) {
+      if (DAT_011fec7c != (int *)0x0) {
+        LVar3 = InterlockedDecrement(DAT_011fec7c + 1);
+        if (LVar3 == 0) {
+          (**(code **)(*piVar5 + 4))();
+        }
+      }
+      DAT_011fec7c = piVar4;
+      if (piVar4 != (int *)0x0) {
+        InterlockedIncrement(piVar4 + 1);
+      }
+    }
+    piVar4 = (int *)(**(code **)(**(int **)(param_1 + 0x30) + 0x70))("LODTEXPARAMS");
+    piVar5 = DAT_011fec80;
+    if (DAT_011fec80 != piVar4) {
+      if (DAT_011fec80 != (int *)0x0) {
+        LVar3 = InterlockedDecrement(DAT_011fec80 + 1);
+        if (LVar3 == 0) {
+          (**(code **)(*piVar5 + 4))();
+        }
+      }
+      DAT_011fec80 = piVar4;
+      if (piVar4 != (int *)0x0) {
+        InterlockedIncrement(piVar4 + 1);
+      }
+    }
+    piVar4 = (int *)(**(code **)(**(int **)(param_1 + 0x30) + 0x70))("STBBColorConstants");
+    piVar5 = DAT_011fec84;
+    if (DAT_011fec84 != piVar4) {
+      if (DAT_011fec84 != (int *)0x0) {
+        LVar3 = InterlockedDecrement(DAT_011fec84 + 1);
+        if (LVar3 == 0) {
+          (**(code **)(*piVar5 + 4))();
+        }
+      }
+      DAT_011fec84 = piVar4;
+      if (piVar4 != (int *)0x0) {
+        InterlockedIncrement(piVar4 + 1);
+      }
+    }
+    piVar5 = *(int **)(param_1 + 0x84);
+    if (piVar5 != *(int **)(param_1 + 0x30)) {
+      if (piVar5 != (int *)0x0) {
+        LVar3 = InterlockedDecrement(piVar5 + 1);
+        if (LVar3 == 0) {
+          (**(code **)(*piVar5 + 4))();
+        }
+      }
+      iVar2 = *(int *)(param_1 + 0x30);
+      *(int *)(param_1 + 0x84) = iVar2;
+      if (iVar2 != 0) {
+        InterlockedIncrement((LONG *)(iVar2 + 4));
+      }
+    }
+  }
+  if (*(int *)(param_1 + 0x80) == 0) {
+    iVar2 = FUN_00aa13e0(0x44,uVar1);
+    local_4 = 2;
+    if (iVar2 == 0) {
+      piVar5 = (int *)0x0;
+    }
+    else {
+      piVar5 = (int *)FUN_00b7e330(*(undefined4 *)(param_1 + 0x18),0);
+    }
+    piVar4 = *(int **)(param_1 + 0x80);
+    local_4 = 0xffffffff;
+    if (piVar4 != piVar5) {
+      if (piVar4 != (int *)0x0) {
+        LVar3 = InterlockedDecrement(piVar4 + 1);
+        if (LVar3 == 0) {
+          (**(code **)(*piVar4 + 4))();
+        }
+      }
+      *(int **)(param_1 + 0x80) = piVar5;
+      if (piVar5 != (int *)0x0) {
+        InterlockedIncrement(piVar5 + 1);
+      }
+    }
+    (**(code **)(**(int **)(param_1 + 0x80) + 0x68))
+              ("WorldViewProjTranspose",0x20000009,0,&lpWindowName_01011584,0,0,0,0);
+    (**(code **)(**(int **)(param_1 + 0x80) + 0x68))
+              ("SkinWorldViewProjTranspose",0x20000009,4,&lpWindowName_01011584,0,0,0,0);
+    (**(code **)(**(int **)(param_1 + 0x80) + 8))
+              ("BoneMatrix3",0x20000009,0x120000,0xe,0x36,0,0,0,0,0);
+    (**(code **)(**(int **)(param_1 + 0x80) + 8))
+              ("EyePosition",0x10000007,0,8,1,&lpWindowName_01011584,0x10,4,&DAT_011fd894,0);
+    (**(code **)(**(int **)(param_1 + 0x80) + 8))
+              ("U Offset",0x10000004,0,9,1,&lpWindowName_01011584,4,4,&DAT_011fd85c,0);
+    (**(code **)(**(int **)(param_1 + 0x80) + 8))
+              ("V Offset",0x10000004,0,10,1,&lpWindowName_01011584,4,4,&DAT_011fd860,0);
+    (**(code **)(**(int **)(param_1 + 0x80) + 8))
+              ("Z scaler",0x10000004,0,0xb,1,&lpWindowName_01011584,4,4,&DAT_011fd864,0);
+    (**(code **)(**(int **)(param_1 + 0x80) + 8))
+              ("FogParam",0x10000007,0,0xc,1,&lpWindowName_01011584,0x10,4,&DAT_011fd934,0);
+    (**(code **)(**(int **)(param_1 + 0x80) + 8))
+              ("FogColor",0x10000007,0,0xd,1,&lpWindowName_01011584,0x10,4,&DAT_011fd924,0);
+  }
+  if (*(int *)(param_1 + 0x7c) == 0) {
+    iVar2 = FUN_00aa13e0(0x44,uVar1);
+    local_4 = 3;
+    if (iVar2 == 0) {
+      piVar5 = (int *)0x0;
+    }
+    else {
+      piVar5 = (int *)FUN_00b7e330(*(undefined4 *)(param_1 + 0x18),2);
+    }
+    piVar4 = *(int **)(param_1 + 0x7c);
+    local_4 = 0xffffffff;
+    if (piVar4 != piVar5) {
+      if (piVar4 != (int *)0x0) {
+        LVar3 = InterlockedDecrement(piVar4 + 1);
+        if (LVar3 == 0) {
+          (**(code **)(*piVar4 + 4))();
+        }
+      }
+      *(int **)(param_1 + 0x7c) = piVar5;
+      if (piVar5 != (int *)0x0) {
+        InterlockedIncrement(piVar5 + 1);
+      }
+    }
+    (**(code **)(**(int **)(param_1 + 0x7c) + 8))
+              ("Fill Color",0x10000007,0,0,1,&lpWindowName_01011584,0x10,4,&DAT_011fd8f4,0);
+    (**(code **)(**(int **)(param_1 + 0x7c) + 8))
+              ("Rim Color",0x10000007,0,1,1,&lpWindowName_01011584,0x10,4,&DAT_011fd904,0);
+    (**(code **)(**(int **)(param_1 + 0x7c) + 8))
+              ("fVars",0x10000007,0,2,1,&lpWindowName_01011584,0x10,4,&DAT_011fd914,0);
+  }
+  *unaff_FS_OFFSET = local_c;
+  return;
+}
+
+
+
+======================================================================
+current geometry and selector writer @ 0x00b994f0
+======================================================================
+  Function: FUN_00b994f0 @ 0x00b994f0, Size: 315 bytes
+
+void FUN_00b994f0(int *param_1,uint param_2,undefined4 param_3,undefined4 param_4,undefined4 param_5
+                 )
+
+{
+  bool bVar1;
+  char cVar2;
+  int iVar3;
+  undefined4 uVar4;
+  
+  if (*(ushort *)(param_1 + 1) == param_2) {
+    DAT_011f91e4 = param_2;
+    DAT_011f91e0 = param_1;
+    bVar1 = false;
+    if (((DAT_011ffe30 != param_2) || (param_2 == 0x2f6)) ||
+       (*(int *)(*param_1 + 0xc0) != DAT_011ffe2c)) {
+      bVar1 = true;
+      FUN_00b99390(param_2,*(int *)(*param_1 + 0xc0));
+    }
+    if (DAT_011f9421 != '\0') {
+      if ((*(int *)(*param_1 + 0x9c) == 0) ||
+         ((*(ushort *)(*(int *)(*param_1 + 0x9c) + 0x18) >> 9 & 1) == 0)) {
+        uVar4 = 0;
+      }
+      else {
+        uVar4 = 1;
+      }
+      FUN_00b98540(uVar4,0);
+    }
+    cVar2 = FUN_00e72c20(*param_1,0);
+    if (cVar2 == '\0') {
+      iVar3 = (**(code **)(*(int *)*param_1 + 0x30))();
+      if (iVar3 == 0) {
+        iVar3 = (**(code **)(*(int *)*param_1 + 0x34))();
+        if (iVar3 == 0) {
+          FUN_00b98e80(param_1,param_3,param_4,param_5);
+        }
+        else {
+          (**(code **)(*(int *)*param_1 + 0xdc))(DAT_011f4748);
+        }
+      }
+      else {
+        (**(code **)(*(int *)*param_1 + 0xdc))(DAT_011f4748);
+      }
+    }
+    else {
+      FUN_00b99110(param_1,param_3,param_4,param_5);
+    }
+    if ((bVar1) && (DAT_011ffe2c != 0)) {
+      iVar3 = *(int *)(DAT_011ffe2c + 0x68);
+      if ((0 < iVar3) && (iVar3 < 6)) {
+        FUN_00b7ac20(param_2);
+        return;
+      }
+      if (iVar3 == 0x11) {
+        FUN_00bb96d0(param_2);
+      }
+    }
+  }
+  return;
+}
+
+
+
+======================================================================
+close terrain material row emitter @ 0x00bdaf10
+======================================================================
+  Function: FUN_00bdaf10 @ 0x00bdaf10, Size: 1121 bytes
+
+void __thiscall
+FUN_00bdaf10(int param_1,undefined4 param_2,undefined4 param_3,short *param_4,char param_5,
+            undefined1 *param_6,char param_7)
+
+{
+  int iVar1;
+  bool bVar2;
+  undefined1 *puVar3;
+  int iVar4;
+  int iVar5;
+  byte bVar6;
+  char cVar7;
+  uint uVar8;
+  ushort local_8;
+  
+  iVar4 = FUN_00a59d30(3);
+  puVar3 = param_6;
+  local_8 = *(ushort *)(param_1 + 200);
+  bVar2 = DAT_011f91c0 < 2;
+  if (DAT_011ad828 <= local_8) {
+    local_8 = (ushort)DAT_011ad828;
+  }
+  if (DAT_011f91a7 != '\0') {
+    if (param_5 == '\x01') {
+      FUN_00ba9ee0(param_2,0x93,*param_6,0,0,0,0,0);
+    }
+    else {
+      *param_4 = *param_4 + 1;
+    }
+    uVar8 = 0;
+    *puVar3 = 0;
+    if (local_8 == 0) {
+      return;
+    }
+    do {
+      if (*(int *)(*(int *)(iVar4 + 0xac) + 4 + uVar8 * 4) != 0) {
+        if (param_5 == '\x01') {
+          FUN_00ba9ee0(param_2,0x1f2,*puVar3,0,0,0,0,0);
+          *(char *)(*(int *)(*(int *)(*(int *)(param_1 + 0x3c) + 4) + -4 +
+                            *(int *)(*(int *)(param_1 + 0x3c) + 0x10) * 4) + 0xb) =
+               (char)uVar8 + '\x01';
+        }
+        else {
+          *param_4 = *param_4 + 1;
+        }
+      }
+      bVar6 = (char)uVar8 + 1;
+      uVar8 = (uint)bVar6;
+    } while (bVar6 < local_8);
+    return;
+  }
+  if (param_7 == '\0') {
+    if (param_5 == '\x01') {
+      FUN_00ba9ee0(param_2,0x93,*param_6,1,param_3,0,0,0);
+      goto LAB_00bdb07c;
+    }
+  }
+  else if (param_5 == '\x01') {
+    FUN_00ba9ee0(param_2,0x94,*param_6,1,param_3,0,0,0);
+    goto LAB_00bdb07c;
+  }
+  *param_4 = *param_4 + 1;
+LAB_00bdb07c:
+  *puVar3 = 0;
+  if (**(int **)(iVar4 + 0xb4) != 0) {
+    if (param_5 == '\x01') {
+      FUN_00ba9ee0(param_2,0x1f1,0,0,0,0,0,0);
+    }
+    else {
+      *param_4 = *param_4 + 1;
+    }
+  }
+  if (bVar2) {
+    iVar5 = FUN_00b70600(&param_6);
+    while (iVar5 != 0) {
+      iVar1 = *(int *)(iVar5 + 0xf8);
+      if (((DAT_011f4998 != *(float *)(iVar1 + 0xd4)) || (DAT_011f499c != *(float *)(iVar1 + 0xd8)))
+         || (DAT_011f49a0 != *(float *)(iVar1 + 0xdc))) {
+        if (param_5 == '\x01') {
+          FUN_00ba9ee0(param_2,0x1ef,*puVar3,1,iVar5,0,0,0);
+        }
+        else {
+          *param_4 = *param_4 + 1;
+        }
+      }
+      iVar5 = FUN_00b70700(&param_6);
+    }
+  }
+  uVar8 = 0;
+  if (local_8 != 0) {
+    do {
+      cVar7 = (char)uVar8;
+      if (*(int *)(*(int *)(iVar4 + 0xac) + 4 + uVar8 * 4) != 0) {
+        if (param_7 == '\0') {
+          if (param_5 == '\x01') {
+            FUN_00ba9ee0(param_2,0x1f2,*puVar3,1,param_3,0,0,0);
+            *(char *)(*(int *)(*(int *)(*(int *)(param_1 + 0x3c) + 4) + -4 +
+                              *(int *)(*(int *)(param_1 + 0x3c) + 0x10) * 4) + 0xb) = cVar7 + '\x01'
+            ;
+          }
+          else {
+LAB_00bdb209:
+            *param_4 = *param_4 + 1;
+          }
+        }
+        else {
+          if (param_5 != '\x01') goto LAB_00bdb209;
+          FUN_00ba9ee0(param_2,499,*puVar3,1,param_3,0,0,0);
+          *(char *)(*(int *)(*(int *)(*(int *)(param_1 + 0x3c) + 4) + -4 +
+                            *(int *)(*(int *)(param_1 + 0x3c) + 0x10) * 4) + 0xb) = cVar7 + '\x01';
+        }
+      }
+      uVar8 = (uint)(byte)(cVar7 + 1U);
+    } while ((byte)(cVar7 + 1U) < local_8);
+  }
+  uVar8 = 0;
+  if (local_8 != 0) {
+    do {
+      cVar7 = (char)uVar8;
+      if (*(int *)(uVar8 * 4 + 4 + *(int *)(iVar4 + 0xac)) != 0) {
+        if (*(int *)(uVar8 * 4 + 4 + *(int *)(iVar4 + 0xb4)) != 0) {
+          if (param_5 == '\x01') {
+            FUN_00ba9ee0(param_2,500,*puVar3,0,0,0,0,0);
+            *(char *)(*(int *)(*(int *)(*(int *)(param_1 + 0x3c) + 4) + -4 +
+                              *(int *)(*(int *)(param_1 + 0x3c) + 0x10) * 4) + 0xb) = cVar7 + '\x01'
+            ;
+          }
+          else {
+            *param_4 = *param_4 + 1;
+          }
+        }
+        if (bVar2) {
+          iVar5 = FUN_00b70600(&param_7);
+          while (iVar5 != 0) {
+            iVar1 = *(int *)(iVar5 + 0xf8);
+            if (((DAT_011f4998 != *(float *)(iVar1 + 0xd4)) ||
+                (DAT_011f499c != *(float *)(iVar1 + 0xd8))) ||
+               (DAT_011f49a0 != *(float *)(iVar1 + 0xdc))) {
+              if (param_5 == '\x01') {
+                FUN_00ba9ee0(param_2,0x1f5,*puVar3,1,iVar5,0,0,0);
+                *(char *)(*(int *)(*(int *)(*(int *)(param_1 + 0x3c) + 4) + -4 +
+                                  *(int *)(*(int *)(param_1 + 0x3c) + 0x10) * 4) + 0xb) =
+                     cVar7 + '\x01';
+              }
+              else {
+                *param_4 = *param_4 + 1;
+              }
+            }
+            iVar5 = FUN_00b70700(&param_7);
+          }
+        }
+      }
+      uVar8 = (uint)(byte)(cVar7 + 1U);
+    } while ((byte)(cVar7 + 1U) < local_8);
+  }
+  return;
+}
+
+
+
+======================================================================
+terrain zero-resource row emitter @ 0x00bdac00
+======================================================================
+  Function: FUN_00bdac00 @ 0x00bdac00, Size: 783 bytes
+
+void FUN_00bdac00(int param_1,undefined4 param_2,short *param_3,char param_4,undefined1 *param_5,
+                 char param_6,undefined4 param_7,char param_8,char param_9,char param_10,
+                 char param_11)
+
+{
+  int iVar1;
+  undefined1 local_184 [128];
+  undefined1 local_104 [256];
+  uint local_4;
+  
+  local_4 = DAT_011c16bc ^ (uint)local_184;
+  if (param_6 == '\0') {
+    if (param_10 == '\0') {
+      if (param_9 == '\0') {
+        if (param_8 == '\0') {
+          if (param_4 == '\x01') {
+            FUN_00ba9ee0(param_1,0x14a,*param_5,0,0,0,0,0);
+            goto LAB_00bdaef1;
+          }
+        }
+        else if (param_4 == '\x01') {
+          FUN_00ba9ee0(param_1,0x14b,*param_5,0,0,0,0,0);
+          goto LAB_00bdaef1;
+        }
+      }
+      else if (param_11 == '\0') {
+        if (param_4 == '\x01') {
+          FUN_00ba9ee0(param_1,0x14e,*param_5,0,0,0,0,0);
+          goto LAB_00bdaef1;
+        }
+      }
+      else if (param_4 == '\x01') {
+        FUN_00ba9ee0(param_1,0x14c,*param_5,0,0,0,0,0);
+        goto LAB_00bdaef1;
+      }
+    }
+    else if (param_4 == '\x01') {
+      FUN_00ba9ee0(param_1,0x151,*param_5,0,0,0,0,0);
+      goto LAB_00bdaef1;
+    }
+  }
+  else if (param_8 == '\0') {
+    if (param_9 == '\0') {
+      if (param_4 == '\x01') {
+        FUN_00ba9ee0(param_1,0x14d,*param_5,0,0,0,0,0);
+        goto LAB_00bdaef1;
+      }
+    }
+    else if (param_11 == '\0') {
+      if (param_4 == '\x01') {
+        FUN_00ba9ee0(param_1,0x14f,*param_5,0,0,0,0,0);
+        goto LAB_00bdaef1;
+      }
+    }
+    else if (param_4 == '\x01') {
+      FUN_00ba9ee0(param_1,0x152,*param_5,0,0,0,0,0);
+      goto LAB_00bdaef1;
+    }
+  }
+  else {
+    if (param_9 != '\0') {
+      if (param_1 == 0) {
+LAB_00bdaec9:
+        FUN_00406d00(local_184,0x80,&DAT_010250cc);
+      }
+      else if ((*(int *)(param_1 + 0x18) == 0) ||
+              (iVar1 = *(int *)(*(int *)(param_1 + 0x18) + 8), iVar1 == 0)) {
+        if (*(int *)(param_1 + 8) == 0) goto LAB_00bdaec9;
+        FUN_00406d00(local_184,0x80,&DAT_01019f08,*(int *)(param_1 + 8));
+      }
+      else if (*(int *)(param_1 + 8) == 0) {
+        FUN_00406d00(local_184,0x80,"Parent:%s",iVar1);
+      }
+      else {
+        FUN_00406d00(local_184,0x80,"Parent:%s,Child:%s",iVar1,*(int *)(param_1 + 8));
+      }
+      FUN_00406d00(local_104,0xff,
+                   "SHADER ERROR (%s)(%08X) : no shader to handle TEXTURE_SFgVc ( texture skinned facegen vertexcolors )"
+                   ,local_184,param_1);
+      goto LAB_00bdaef1;
+    }
+    if (param_4 == '\x01') {
+      FUN_00ba9ee0(param_1,0x150,*param_5,0,0,0,0,0);
+      goto LAB_00bdaef1;
+    }
+  }
+  *param_3 = *param_3 + 1;
+LAB_00bdaef1:
+  *param_5 = 0;
+  __security_check_cookie(local_4 ^ (uint)local_184);
+  return;
+}
+
+
+
+======================================================================
+LandO and terrain light-resource row emitter @ 0x00bdf3e0
+======================================================================
+  Function: FUN_00bdf3e0 @ 0x00bdf3e0, Size: 615 bytes
+
+void __thiscall
+FUN_00bdf3e0(int *param_1,undefined4 param_2,undefined4 param_3,short *param_4,char param_5,
+            undefined1 *param_6,undefined4 param_7,char param_8)
+
+{
+  ushort uVar1;
+  int iVar2;
+  int iVar3;
+  int iVar4;
+  uint uVar5;
+  int iVar6;
+  bool bVar7;
+  undefined4 local_4;
+  
+  local_4 = 0;
+  iVar2 = FUN_00b70600(&local_4);
+  while ((((iVar2 != 0 && (iVar3 = *(int *)(iVar2 + 0xf8), DAT_011f4998 == *(float *)(iVar3 + 0xd4))
+           ) && (DAT_011f499c == *(float *)(iVar3 + 0xd8))) &&
+         (DAT_011f49a0 == *(float *)(iVar3 + 0xdc)))) {
+    iVar2 = FUN_00b70700(&local_4);
+  }
+  iVar3 = FUN_00b70700(&local_4);
+  if (iVar3 != 0) {
+    while ((iVar4 = *(int *)(iVar3 + 0xf8), DAT_011f4998 == *(float *)(iVar4 + 0xd4) &&
+           (DAT_011f499c == *(float *)(iVar4 + 0xd8)))) {
+      if ((DAT_011f49a0 != *(float *)(iVar4 + 0xdc)) || (iVar3 = FUN_00b70700(&local_4), iVar3 == 0)
+         ) break;
+    }
+  }
+  iVar4 = FUN_00b70700(&local_4);
+  if (iVar4 != 0) {
+    while ((iVar6 = *(int *)(iVar4 + 0xf8), DAT_011f4998 == *(float *)(iVar6 + 0xd4) &&
+           (DAT_011f499c == *(float *)(iVar6 + 0xd8)))) {
+      if ((DAT_011f49a0 != *(float *)(iVar6 + 0xdc)) || (iVar4 = FUN_00b70700(&local_4), iVar4 == 0)
+         ) break;
+    }
+  }
+  uVar1 = (**(code **)(*param_1 + 0xec))();
+  uVar5 = (uint)uVar1;
+  if (6 < uVar1) {
+    uVar5 = 7;
+  }
+  bVar7 = (param_1[9] & 0x100000U) != 0;
+  if (iVar2 == 0) {
+    iVar2 = uVar5 * 8 + 0x1f7;
+    if (param_8 != '\0') {
+      iVar2 = uVar5 * 8 + 0x1f8;
+    }
+    if (bVar7) {
+      iVar2 = iVar2 + 2;
+    }
+    if (param_5 == '\x01') {
+      FUN_00ba9ee0(param_2,iVar2,1,1,param_3,0,0,0);
+      goto LAB_00bdf5de;
+    }
+  }
+  else {
+    iVar6 = uVar5 * 8 + 0x1fb;
+    if (param_8 != '\0') {
+      iVar6 = uVar5 * 8 + 0x1fc;
+    }
+    if (bVar7) {
+      iVar6 = iVar6 + 2;
+    }
+    if (param_5 == '\x01') {
+      FUN_00ba9ee0(param_2,iVar6,1,4,param_3,iVar2,iVar3,iVar4);
+      goto LAB_00bdf5de;
+    }
+  }
+  *param_4 = *param_4 + 1;
+LAB_00bdf5de:
+  *param_6 = 0;
+  if (((param_5 == '\x01') && (DAT_011f94ab != '\0')) && ((param_1[9] & 0x4000U) == 0)) {
+    FUN_00ba9ee0(param_2,0x230,0,1,param_3,0,0,0);
+    *(undefined1 *)
+     (*(int *)(*(int *)(param_1[0xf] + 4) + -4 + *(int *)(param_1[0xf] + 0x10) * 4) + 0xb) = 9;
+    return;
+  }
+  *param_4 = *param_4 + 1;
+  return;
+}
+
+
+
+======================================================================
+terrain helper row emitter A @ 0x00bdf650
+======================================================================
+  Function: FUN_00bdf650 @ 0x00bdf650, Size: 105 bytes
+
+void FUN_00bdf650(undefined4 param_1,char param_2,char param_3,int param_4)
+
+{
+  undefined4 uVar1;
+  
+  uVar1 = *(undefined4 *)(param_4 + 0x1a0);
+  if (param_2 != '\0') {
+    if (param_3 == '\0') {
+      FUN_00ba9ee0(param_1,0x12,1,1,uVar1,0,0,0);
+      return;
+    }
+    FUN_00ba9ee0(param_1,0x13,1,1,uVar1,0,0,0);
+    return;
+  }
+  if (param_3 == '\0') {
+    FUN_00ba9ee0(param_1,0x10,1,1,uVar1,0,0,0);
+    return;
+  }
+  FUN_00ba9ee0(param_1,0x11,1,1,uVar1,0,0,0);
+  return;
+}
+
+
+
+======================================================================
+terrain helper row emitter B @ 0x00bdf6c0
+======================================================================
+  Function: FUN_00bdf6c0 @ 0x00bdf6c0, Size: 204 bytes
+
+void __thiscall FUN_00bdf6c0(int param_1,int param_2,char param_3)
+
+{
+  int iVar1;
+  uint uVar2;
+  undefined1 uVar3;
+  undefined4 uVar4;
+  
+  if ((*(uint *)(param_1 + 0x20) & 0x4000) == 0) {
+    if ((*(byte *)(param_1 + 0x24) & 2) == 0) {
+      if (param_3 != '\0') goto LAB_00bdf747;
+      if ((*(int *)(param_2 + 0x9c) == 0) ||
+         ((*(ushort *)(*(int *)(param_2 + 0x9c) + 0x18) >> 9 & 1) == 0)) {
+        uVar4 = 0x62;
+      }
+      else {
+        uVar4 = 99;
+      }
+    }
+    else {
+      uVar4 = 0x61;
+    }
+  }
+  else {
+    uVar4 = 0x22f;
+  }
+  FUN_00ba9ee0(param_2,uVar4,1,0,0,0,0,0);
+LAB_00bdf747:
+  if (*(int *)(*(int *)(param_1 + 0x54) + 0x10) != 0) {
+    iVar1 = **(int **)(*(int *)(param_1 + 0x54) + 4);
+    uVar2 = *(uint *)(param_1 + 0x24);
+    uVar3 = 0;
+    if (((uVar2 & 2) == 0) && ((uVar2 & 4) == 0)) {
+      if ((*(uint *)(param_1 + 0x20) & 0x4000000) != 0) {
+        *(byte *)(iVar1 + 6) = (-((uVar2 & 0x200000) != 0) & 0xfdU) + 4;
+        return;
+      }
+    }
+    else {
+      uVar3 = 10;
+    }
+    *(undefined1 *)(iVar1 + 6) = uVar3;
+  }
+  return;
+}
+
+
+
+======================================================================
+PPLighting selector and pass-entry driver @ 0x00bdf790
+======================================================================
+  Function: FUN_00bdf790 @ 0x00bdf790, Size: 4311 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+void __thiscall
+FUN_00bdf790(int *param_1,int param_2,uint param_3,undefined4 param_4,int param_5,int param_6,
+            undefined4 param_7)
+
+{
+  undefined4 uVar1;
+  char cVar2;
+  short sVar3;
+  ushort uVar4;
+  int iVar5;
+  int iVar6;
+  undefined4 uVar7;
+  uint uVar8;
+  undefined1 uVar9;
+  bool bVar10;
+  ushort in_FPUControlWord;
+  undefined1 local_7a;
+  char local_79;
+  undefined4 local_78;
+  char local_74;
+  char local_73;
+  char local_72;
+  char local_71;
+  undefined4 local_70;
+  undefined4 local_6c;
+  undefined4 local_68;
+  uint local_64;
+  undefined4 local_60;
+  char local_5c;
+  char local_5b;
+  char local_5a;
+  uint local_59;
+  char local_55;
+  undefined4 local_54;
+  undefined4 local_50;
+  int local_4c;
+  char local_47;
+  char local_46;
+  char local_45;
+  uint local_44;
+  undefined4 local_40;
+  uint local_3c;
+  int local_38;
+  uint local_33;
+  char local_2f;
+  char local_2e;
+  char local_2d;
+  undefined4 local_2c;
+  undefined4 local_28;
+  int local_24;
+  uint local_20;
+  undefined4 local_1c;
+  undefined4 local_18;
+  int local_14;
+  undefined4 local_10;
+  undefined4 local_c;
+  undefined8 local_8;
+  
+  uVar8 = param_1[8];
+  local_33 = CONCAT31(local_33._1_3_,(uVar8 & 1) != 0);
+  local_79 = (uVar8 & 0x80) != 0;
+  local_10 = CONCAT31(local_10._1_3_,(uVar8 & 0x20000) != 0);
+  local_78 = CONCAT31(local_78._1_3_,(uVar8 & 2) != 0);
+  local_c = CONCAT31(local_c._1_3_,(uVar8 & 0x200000) != 0);
+  if (((uVar8 & 0x20) != 0) || (local_74 = '\0', param_5 == 3)) {
+    local_74 = '\x01';
+  }
+  local_45 = (uVar8 & 0x100) != 0;
+  bVar10 = (uVar8 & 0x400) != 0;
+  local_70 = CONCAT31(local_70._1_3_,bVar10);
+  local_50 = CONCAT31(local_50._1_3_,*(int *)param_1[0x2d] != 0 && !bVar10);
+  local_18 = CONCAT31(local_18._1_3_,
+                      *(int *)(*(int *)(param_2 + 0xb8) + 0x28) != 0 ||
+                      (*(byte *)(param_1 + 9) & 0x20) != 0);
+  if ((((DAT_011f9427 == '\0') && (DAT_011f95e4 != 0)) && (((byte)DAT_011f91d8 & 0x20) != 0)) &&
+     ((1 < DAT_011f91c0 && ((uVar8 & 0x2000) == 0)))) {
+    local_38 = CONCAT22(local_38._2_2_,in_FPUControlWord);
+    local_20 = in_FPUControlWord | 0xc00;
+    local_8 = (ulonglong)ROUND(DAT_011fd890);
+    if (((int)local_8 == 0) ||
+       (iVar5 = FUN_00b4f5c0(), *(char *)(*(int *)(iVar5 + 0x194) + 0x120) == '\x01'))
+    goto LAB_00bdf8c4;
+    iVar5 = FUN_00b4f5c0();
+    local_59 = CONCAT31(local_59._1_3_,1);
+    if (*(char *)(*(int *)(iVar5 + 0x194) + 0x120) == '\x03') goto LAB_00bdf8c4;
+  }
+  else {
+LAB_00bdf8c4:
+    local_59 = local_59 & 0xffffff00;
+  }
+  iVar5 = FUN_00653290(&DAT_01200788);
+  local_28 = CONCAT31(local_28._1_3_,iVar5 != 0);
+  iVar5 = FUN_00653290(&DAT_012024c8);
+  local_2f = iVar5 != 0;
+  iVar5 = FUN_00653290(&DAT_012007a0);
+  local_2e = iVar5 != 0;
+  uVar8 = param_1[8];
+  local_1c = CONCAT31(local_1c._1_3_,(uVar8 & 0x400000) != 0);
+  local_6c = CONCAT31(local_6c._1_3_,(uVar8 & 0x800) != 0);
+  local_2c = CONCAT31(local_2c._1_3_,(uVar8 & 0x1000) != 0);
+  local_73 = (uVar8 & 0x4000) != 0;
+  local_2d = (uVar8 & 0x8000) != 0;
+  local_40 = CONCAT31(local_40._1_3_,(uVar8 & 0x10000) != 0);
+  local_71 = (uVar8 & 0x200) != 0;
+  if (((uVar8 & 0x100000) == 0) || (local_46 = '\0', DAT_011f91a7 != '\0')) {
+    local_46 = '\x01';
+  }
+  local_54 = CONCAT31(local_54._1_3_,(uVar8 & 0x40000) != 0);
+  if (((uVar8 & 0x4000000) != 0) || (local_47 = '\0', (uVar8 & 0x8000000) != 0)) {
+    local_47 = '\x01';
+  }
+  if (((*(byte *)(*(int *)(param_2 + 0x9c) + 0x18) & 1) == 0) &&
+     (((*(int *)(param_6 + 0x34) == 2 || ((param_1[9] & 4U) != 0)) || ((param_1[9] & 2U) != 0)))) {
+    local_5c = '\x01';
+  }
+  else {
+    local_5c = '\0';
+  }
+  local_14 = FUN_00a59d30(0);
+  if (local_14 == 0) {
+    if ((int *)(param_2 + 0x9c) == (int *)0x0) {
+      local_14 = 0;
+    }
+    else {
+      local_14 = *(int *)(param_2 + 0x9c);
+      if (local_14 != 0) goto LAB_00bdf9e0;
+    }
+LAB_00bdf9e6:
+    if (((float)param_1[10] < 1.0) || ((float)param_1[0xb] < 1.0)) goto LAB_00bdfa0b;
+    local_24 = (uint)local_24._1_3_ << 8;
+  }
+  else {
+LAB_00bdf9e0:
+    if ((*(byte *)(local_14 + 0x18) & 1) == 0) goto LAB_00bdf9e6;
+LAB_00bdfa0b:
+    local_24 = CONCAT31(local_24._1_3_,1);
+  }
+  iVar5 = local_14;
+  if ((local_14 == 0) || ((*(ushort *)(local_14 + 0x18) >> 9 & 1) == 0)) {
+    local_4c = (uint)local_4c._1_3_ << 8;
+  }
+  else {
+    local_4c = CONCAT31(local_4c._1_3_,1);
+    local_45 = '\0';
+  }
+  if ((param_1[9] & 0x800000U) == 0) {
+    if ((char)local_10 == '\0') {
+      if ((_DAT_011f9460 != 0.0) && (_DAT_011f9460 <= (float)param_1[0xd])) {
+        local_79 = '\0';
+      }
+    }
+    else if ((_DAT_011f9468 == 0.0) || ((float)param_1[0xd] < _DAT_011f9468)) {
+      local_79 = '\x01';
+      local_33 = (uint)local_33._1_3_ << 8;
+    }
+    else {
+      local_79 = '\0';
+      local_33 = (uint)local_33._1_3_ << 8;
+    }
+    if ((_DAT_011f9458 != 0.0) && (_DAT_011f9458 <= (float)param_1[0xd])) {
+      local_33 = local_33 & 0xffffff00;
+    }
+  }
+  iVar6 = FUN_00b4f5c0();
+  local_60 = *(undefined4 *)(*(int *)(iVar6 + 0x194) + 0xe0);
+  if ((char)local_33 == '\0') {
+LAB_00bdfb0c:
+    local_5b = '\0';
+  }
+  else {
+    cVar2 = FUN_00439090(&DAT_011f4998);
+    local_5b = '\x01';
+    if (cVar2 == '\0') goto LAB_00bdfb0c;
+  }
+  if ((char)local_24 != '\0') {
+    local_72 = '\x01';
+    if ((((local_71 != '\0') || ((float)param_1[0xb] < 1.0)) &&
+        ((iVar5 == 0 || ((*(byte *)(iVar5 + 0x18) & 1) == 0)))) &&
+       (((param_1[8] & 0x8000U) == 0 && ((param_1[8] & 0x10000U) == 0)))) {
+      FUN_00bd9f00(param_2,param_4,param_7,&local_72,local_78,local_4c);
+      if (((float)param_1[0xb] < 1.0) || ((float)param_1[10] < 1.0)) {
+        *(undefined1 *)
+         (*(int *)(*(int *)(param_1[0xf] + 4) + -4 + *(int *)(param_1[0xf] + 0x10) * 4) + 6) = 0xe;
+      }
+      local_33 = local_33 & 0xffffff00;
+    }
+    local_74 = '\x01';
+  }
+  local_7a = 1;
+  if ((param_1[0x37] != 0) && (*(int *)(param_1[0x37] + 0x6c) != 0)) {
+    FUN_00bd9f90(param_2,param_4,param_7,&local_7a,local_78);
+    *(undefined1 *)
+     (*(int *)(*(int *)(param_1[0xf] + 4) + -4 + *(int *)(param_1[0xf] + 0x10) * 4) + 6) = 0xe;
+  }
+  local_44 = FUN_00b707d0();
+  local_44 = local_44 & 0xffff;
+  local_38 = CONCAT31(local_38._1_3_,(param_3 & 1) != 0);
+  local_5a = (param_3 & 2) != 0;
+  local_8 = CONCAT44(local_8._4_4_,param_3) & 0xffffffff00000001;
+  local_55 = (param_3 & 4) != 0;
+  if ((param_3 & 8) == 0) {
+LAB_00bdfc3c:
+    local_64 = local_64 & 0xffffff00;
+  }
+  else {
+    local_64 = CONCAT31(local_64._1_3_,1);
+    if ((char)local_33 == '\0') goto LAB_00bdfc3c;
+  }
+  if ((local_79 == '\0') || (local_71 = '\x01', (param_3 & 8) == 0)) {
+    local_71 = '\0';
+  }
+  local_79 = (DAT_010a91d4 & param_3) == DAT_010a91d4;
+  local_72 = '\x01';
+  local_3c = local_44;
+  local_20 = local_44;
+  if ((local_2d != '\0') || ((char)local_40 != '\0')) {
+    FUN_00bd9da0(param_2,param_4,param_7,&local_7a,local_78,local_40);
+    *(undefined1 *)
+     (*(int *)(*(int *)(param_1[0xf] + 4) + -4 + *(int *)(param_1[0xf] + 0x10) * 4) + 6) = 6;
+    return;
+  }
+  if ((*(byte *)(param_1 + 9) & 0x40) != 0) {
+    FUN_00bd9e60(param_2,param_4,param_7,&local_7a,local_78);
+    *(undefined1 *)
+     (*(int *)(*(int *)(param_1[0xf] + 4) + -4 + *(int *)(param_1[0xf] + 0x10) * 4) + 6) = 7;
+  }
+  if ((local_2f != '\0') || (local_2e != '\0')) {
+    (**(code **)(*param_1 + 0x114))
+              (param_2,param_3,param_4,*(undefined4 *)(param_6 + 0x19c),param_6,param_7);
+    return;
+  }
+  local_68 = 0;
+  cVar2 = FUN_005bf7b0();
+  if (((cVar2 != '\0') && (local_5c == '\0')) && ((char)local_2c == '\0')) {
+    local_40 = 0;
+    iVar5 = FUN_00b70590(&local_40);
+    while (iVar5 != 0) {
+      if (*(char *)(iVar5 + 0xec) != '\0') {
+        FUN_00ba9ee0(param_2,0,1,1,iVar5,0,0,0);
+        iVar5 = *(int *)(*(int *)(param_1[0xf] + 4) + -4 + *(int *)(param_1[0xf] + 0x10) * 4);
+        if ((char)local_78 == '\0') {
+          if (local_73 == '\0') {
+            sVar3 = (-(ushort)((char)local_28 != '\0') & 3) + 0x231;
+          }
+          else {
+            sVar3 = 0x233;
+          }
+        }
+        else {
+          sVar3 = 0x232;
+        }
+        *(short *)(iVar5 + 4) = sVar3;
+        *(undefined1 *)(iVar5 + 8) = 1;
+      }
+      iVar5 = FUN_00b70680(&local_40);
+    }
+  }
+  uVar1 = local_28;
+  if (local_73 == '\0') {
+    if (local_46 == '\0') goto LAB_00be0685;
+    if ((char)local_38 == '\0') {
+LAB_00be035b:
+      if (local_5a != '\0') {
+        if (local_72 == '\0') {
+          local_4c = FUN_00b70700(&local_68);
+        }
+        else {
+          FUN_00bd9840(param_2,local_60,param_4,param_7,&local_7a,local_78,0,0,uVar1);
+          local_4c = FUN_00b70600(&local_68);
+        }
+        while (local_4c != 0) {
+          if (local_44 < 3) {
+            uVar7 = FUN_00b70700(&local_68);
+            FUN_00bdda20(param_2,local_4c,uVar7,param_4,param_7,&local_7a,local_78,local_70,0,
+                         local_6c,uVar1);
+            if (local_44 < 2) {
+              local_44 = 0;
+            }
+            else {
+              local_44 = local_44 - 2;
+            }
+          }
+          else {
+            local_40 = FUN_00b70700(&local_68);
+            uVar7 = FUN_00b70700(&local_68);
+            FUN_00bddbc0(param_2,local_4c,local_40,uVar7,param_4,param_7,&local_7a,local_78,local_70
+                         ,0,local_6c,uVar1);
+            local_44 = local_44 - 3;
+          }
+          local_4c = FUN_00b70700(&local_68);
+        }
+      }
+      if (local_55 != '\0') {
+        FUN_00bddd80(param_2,local_60,param_4,param_7,&local_7a,local_78,0,local_70,local_18,uVar1,0
+                     ,local_6c,local_54);
+      }
+      if ((char)local_64 != '\0') {
+LAB_00be04ce:
+        local_64 = local_20;
+        if (local_5b != '\0') {
+          FUN_00bdef40(param_2,local_60,param_4,param_7,&local_7a,local_78,0,local_59,local_6c,uVar1
+                       ,local_54);
+        }
+        local_3c = FUN_00b70600(&local_68);
+        while (local_3c != 0) {
+          if ((int)local_64 < 3) {
+            if ((int)local_64 < 2) {
+              if (0 < (int)local_64) {
+                FUN_00bdef40(param_2,local_3c,param_4,param_7,&local_7a,local_78,0,local_59,local_6c
+                             ,uVar1,local_54);
+                local_64 = local_64 - 1;
+              }
+            }
+            else {
+              uVar7 = FUN_00b70700(&local_68);
+              FUN_00bdde10(param_2,local_3c,uVar7,param_4,param_7,&local_7a,local_78,local_6c,uVar1,
+                           local_54);
+              local_64 = local_64 - 2;
+            }
+          }
+          else {
+            local_18 = FUN_00b70700(&local_68);
+            uVar7 = FUN_00b70700(&local_68);
+            FUN_00bddfb0(param_2,local_3c,local_18,uVar7,param_4,param_7,&local_7a,local_78,local_6c
+                         ,uVar1,local_54);
+            local_64 = local_64 - 3;
+          }
+          local_3c = FUN_00b70700(&local_68);
+        }
+      }
+    }
+    else {
+      if (DAT_011f9422 != '\0') {
+LAB_00be017b:
+        if (local_5a == '\0') {
+LAB_00be0330:
+          FUN_00bd9540(param_2,local_60,param_4,param_7,&local_7a,local_78,local_4c,local_50,uVar1);
+          goto LAB_00be035b;
+        }
+        if (((local_55 == '\0') || (((char)local_70 != '\0' && (DAT_011f9427 != '\0')))) ||
+           ((1 < (ushort)local_3c && (local_74 == '\0')))) {
+          if (((char)local_70 == '\0') || (DAT_011f9427 == '\0')) {
+            uVar7 = FUN_00b70600(&local_68);
+            if ((ushort)local_3c < 2) {
+              FUN_00bdc0d0(param_2,local_60,uVar7,param_4,param_7,&local_7a,local_78,local_50,
+                           local_70,0,local_59,local_6c,uVar1);
+              local_44 = 0;
+              local_72 = '\0';
+            }
+            else {
+              local_40 = uVar7;
+              uVar7 = FUN_00b70700(&local_68);
+              FUN_00bdc530(param_2,local_60,local_40,uVar7,param_4,param_7,&local_7a,local_78,
+                           local_50,local_70,0,local_59,local_6c,uVar1);
+              local_44 = local_44 - 2;
+              local_72 = '\0';
+            }
+            goto LAB_00be035b;
+          }
+          goto LAB_00be0330;
+        }
+        if ((ushort)local_3c == 0) {
+          FUN_00bde1d0(param_2,local_60,param_4,param_7,&local_7a,local_78,local_50,local_70,0,
+                       local_59,local_6c,local_2c,uVar1,local_1c,local_54,local_4c);
+        }
+        else {
+          uVar7 = FUN_00b70600(&local_68);
+          FUN_00bdca60(param_2,local_60,uVar7,param_4,param_7,&local_7a,local_78,local_50,local_70,0
+                       ,local_59,local_6c,uVar1,local_54);
+        }
+        if ((char)local_64 == '\0') {
+          local_79 = '\0';
+          goto LAB_00be061d;
+        }
+        goto LAB_00be04ce;
+      }
+      if ((local_74 == '\0') && ((char)local_24 == '\0')) {
+        if (local_5a != '\0') {
+          if (((local_55 == '\0') || (local_45 != '\0')) || ((char)local_1c != '\0'))
+          goto LAB_00be017b;
+          goto LAB_00bdfdf3;
+        }
+        goto LAB_00be0330;
+      }
+LAB_00bdfdf3:
+      uVar4 = (ushort)local_3c;
+      if (((uVar4 < 2) && (local_5b != '\0')) &&
+         (((uVar4 == 0 || ((char)local_59 == '\0')) &&
+          (((char)local_64 != '\0' && ((char)local_70 == '\0')))))) {
+LAB_00bdfe62:
+        if ((char)local_64 == '\0') goto LAB_00bdff0b;
+        if (uVar4 == 0) {
+          FUN_00bdd050(param_2,local_60,param_4,param_7,&local_7a,local_78,local_50,local_70,0,
+                       local_59,local_6c,local_28,local_54);
+          local_79 = '\0';
+        }
+        else {
+          uVar7 = FUN_00b70600(&local_68);
+          FUN_00bdd520(param_2,local_60,uVar7,param_4,param_7,&local_7a,local_78,local_50,local_70,0
+                       ,local_59,local_6c,uVar1,local_54);
+          local_79 = '\0';
+        }
+      }
+      else {
+        if ((local_74 == '\0') ||
+           ((((((char)local_6c == '\0' && ((char)local_54 == '\0')) && ((char)local_59 == '\0')) &&
+             (((char)local_2c == '\0' && ((char)local_28 == '\0')))) && ((char)local_50 == '\0'))))
+        {
+          local_38 = 1;
+          if (((((DAT_011ad80d == '\0') ||
+                ((*(int *)(param_2 + 0xa4) != 0 &&
+                 (cVar2 = FUN_004390c0(&DAT_011f4998), cVar2 == '\0')))) ||
+               (cVar2 = FUN_00439090(&DAT_011f4998), cVar2 != '\0')) ||
+              (((cVar2 = FUN_004a2020(0x25), cVar2 == '\0' ||
+                (((local_14 != 0 && ((*(ushort *)(local_14 + 0x18) >> 9 & 1) != 0)) &&
+                 ((float)param_1[0xb] < 1.0)))) ||
+               ((((cVar2 = FUN_004a2020(0x1a), cVar2 != '\0' ||
+                  (cVar2 = FUN_004a2020(0x1b), cVar2 != '\0')) ||
+                 (cVar2 = FUN_004a2020(7), cVar2 != '\0')) ||
+                ((cVar2 = FUN_004a2020(0x15), cVar2 != '\0' ||
+                 (cVar2 = FUN_004a2020(0x11), cVar2 != '\0')))))))) ||
+             (*(int *)(param_2 + 0xbc) != 0)) {
+            local_38 = 0;
+          }
+          if (local_74 == '\0') {
+            if ((((((local_38 + 5 < (int)local_20) || ((char)local_64 != '\0')) ||
+                  ((char)local_70 != '\0')) &&
+                 (((local_38 + 4 < (int)local_20 || ((char)local_64 != '\0')) ||
+                  ((char)local_70 == '\0')))) &&
+                (((local_38 + 2 < (int)local_20 || ((char)local_64 == '\0')) ||
+                 ((char)local_70 != '\0')))) ||
+               ((((((ushort)local_3c < 2 && ((char)local_33 == '\0')) || ((char)local_6c != '\0'))
+                 || (((char)local_54 != '\0' || ((char)local_59 != '\0')))) ||
+                (((char)local_2c != '\0' || (((char)local_28 != '\0' || ((char)local_50 != '\0')))))
+                ))) goto LAB_00be017b;
+          }
+          FUN_00bde9b0(param_2,local_60,param_4,param_7,&local_7a,local_78,local_50,local_64,
+                       local_70,local_38 != 0);
+          local_79 = '\0';
+          goto LAB_00be061d;
+        }
+        if ((char)local_70 == '\0') goto LAB_00bdfe62;
+LAB_00bdff0b:
+        if (uVar4 == 0) {
+          FUN_00bde1d0(param_2,local_60,param_4,param_7,&local_7a,local_78,local_50,local_70,0,
+                       local_59,local_6c,local_2c,local_28,local_1c,local_54,local_4c);
+          local_79 = '\0';
+        }
+        else {
+          uVar7 = FUN_00b70600(&local_68);
+          FUN_00bdca60(param_2,local_60,uVar7,param_4,param_7,&local_7a,local_78,local_50,local_70,0
+                       ,local_59,local_6c,uVar1,local_54);
+          local_79 = '\0';
+        }
+      }
+    }
+LAB_00be061d:
+    if (local_71 == '\0') goto LAB_00be0685;
+    uVar7 = FUN_00b70600(&local_68);
+    FUN_00bdbf60(param_2,local_60,uVar7,param_4,param_7,&local_7a,local_78,local_10,local_c);
+  }
+  else {
+    FUN_00bdf3e0(param_2,local_60,param_4,param_7,&local_7a,local_33,local_59);
+LAB_00be0685:
+    if (local_79 == '\0') {
+      iVar5 = param_1[0xf];
+      if ((*(int *)(iVar5 + 0x10) != 0) && (local_73 == '\0')) {
+        iVar5 = *(int *)(*(int *)(iVar5 + 4) + -4 + *(int *)(iVar5 + 0x10) * 4);
+        sVar3 = *(short *)(iVar5 + 4);
+        if ((sVar3 != 0x252) && (sVar3 != 0x254)) {
+          *(undefined1 *)(iVar5 + 8) = 1;
+        }
+      }
+      goto LAB_00be06ec;
+    }
+    if (local_73 != '\0') goto LAB_00be06ec;
+  }
+  FUN_00bd9bc0(param_2,param_4,param_7,&local_7a,local_78,uVar1,local_24);
+LAB_00be06ec:
+  if (param_1[0x37] != 0) {
+    FUN_00bdc030(param_2,param_4,param_7,&local_7a,local_78);
+    *(undefined1 *)
+     (*(int *)(*(int *)(param_1[0xf] + 4) + -4 + *(int *)(param_1[0xf] + 0x10) * 4) + 6) = 1;
+  }
+  if (DAT_011f9422 != '\0') {
+    if ((int)local_8 != 0) {
+      FUN_00bdb380(param_2,param_4,param_7,local_78,local_50);
+    }
+    if (((((char)local_28 == '\0') && ((char)local_1c == '\0')) && ((char)local_6c == '\0')) &&
+       ((((char)local_2c == '\0' && (local_73 == '\0')) && ((char)local_54 == '\0')))) {
+      FUN_00bda030(param_2,param_4,param_7,local_78);
+    }
+  }
+  uVar9 = 0;
+  if (local_5c == '\0') {
+    if (local_47 == '\0') {
+      if (((char)local_24 != '\0') && (uVar9 = 0xe, 1.0 <= (float)param_1[0xb])) {
+        uVar9 = 1;
+      }
+    }
+    else {
+      uVar9 = 4;
+    }
+  }
+  else {
+    uVar9 = 10;
+  }
+  iVar5 = param_1[0xf];
+  if ((iVar5 != 0) && (uVar8 = 0, *(int *)(iVar5 + 0x10) != 0)) {
+    do {
+      iVar5 = *(int *)(*(int *)(iVar5 + 4) + uVar8 * 4);
+      if (*(char *)(iVar5 + 6) == '\0') {
+        *(undefined1 *)(iVar5 + 6) = uVar9;
+      }
+      iVar5 = param_1[0xf];
+      uVar8 = uVar8 + 1;
+    } while (uVar8 < *(uint *)(iVar5 + 0x10));
+    return;
+  }
+  return;
+}
+
+
+
+======================================================================
+current pass shader-interface apply @ 0x00bd4ba0
+======================================================================
+  Function: FUN_00bd4ba0 @ 0x00bd4ba0, Size: 344 bytes
+
+void __thiscall FUN_00bd4ba0(int *param_1,int param_2)
+
+{
+  int iVar1;
+  undefined4 uVar2;
+  undefined4 uVar3;
+  undefined4 uVar4;
+  int iVar5;
+  int unaff_ESI;
+  undefined4 uVar6;
+  
+  iVar1 = *DAT_011f91e0;
+  uVar6 = *(undefined4 *)(param_2 + 8);
+  uVar2 = *(undefined4 *)(*(int *)(iVar1 + 0xb8) + 0x34);
+  uVar3 = *(undefined4 *)(iVar1 + 0xbc);
+  FUN_00b7dab0(param_2);
+  uVar4 = FUN_00b55520(DAT_011f91c4);
+  (**(code **)(*param_1 + 0x154))(iVar1,uVar4,uVar6);
+  iVar5 = FUN_00b55560(1);
+  uVar4 = uVar2;
+  (**(code **)(**(int **)(iVar5 + 0x30) + 0x78))
+            (*(undefined4 *)(DAT_0126f74c + 0x44),iVar1,uVar3,0,uVar2,param_2,0,iVar1 + 0x68,
+             unaff_ESI,0,1);
+  uVar6 = uVar2;
+  iVar5 = param_2;
+  (**(code **)(**(int **)(unaff_ESI + 0x34) + 0x78))
+            (*(undefined4 *)(DAT_0126f74c + 0x5c),iVar1,uVar3,0,uVar2,param_2,0,iVar1 + 0x68,uVar4,0
+             ,1);
+  if ((*(int **)(iVar5 + 0x30) != (int *)0x0) && (*(int *)(DAT_0126f74c + 0x44) != 0)) {
+    (**(code **)(**(int **)(iVar5 + 0x30) + 0x78))
+              (*(int *)(DAT_0126f74c + 0x44),iVar1,uVar3,0,uVar2,param_2,0,iVar1 + 0x68,uVar6,0,1);
+  }
+  if ((*(int **)(iVar5 + 0x34) != (int *)0x0) && (*(int *)(DAT_0126f74c + 0x5c) != 0)) {
+    (**(code **)(**(int **)(iVar5 + 0x34) + 0x78))
+              (*(int *)(DAT_0126f74c + 0x5c),iVar1,uVar3,0,uVar2,param_2,0,iVar1 + 0x68,uVar6,0,1);
+  }
+  return;
+}
+
+
+
+======================================================================
+current NiD3DPass writer @ 0x00e90850
+======================================================================
+  Function: FUN_00e90850 @ 0x00e90850, Size: 285 bytes
+
+undefined4 __fastcall FUN_00e90850(int param_1)
+
+{
+  int iVar1;
+  int *local_8;
+  int local_4;
+  
+  local_8 = (int *)0x0;
+  FUN_00e804d0(&local_8);
+  *(int **)(param_1 + 0x3c) = local_8;
+  local_4 = 0;
+  FUN_00e7edf0(&local_4);
+  iVar1 = local_4;
+  *(undefined4 *)(local_4 + 4) = 0;
+  *(undefined4 *)(local_4 + 8) = 0;
+  FUN_00e88fc0(1,2,0);
+  FUN_00e88fc0(2,3,0);
+  FUN_00e88fc0(4,2,0);
+  FUN_00e88fc0(5,3,0);
+  FUN_00e88fc0(0xb,0,0);
+  FUN_00e890c0(1,3,0,0);
+  FUN_00e890c0(2,3,0,0);
+  FUN_00e890c0(5,2,0,0);
+  FUN_00e890c0(6,2,0,0);
+  FUN_00e890c0(7,0,0,0);
+  *(undefined1 *)(iVar1 + 0x5e) = 0;
+  FUN_00e88fc0(0x18,0,0);
+  FUN_00e802b0(local_8[5],iVar1);
+  DAT_0126f74c = local_8;
+  if ((local_4 != 0) &&
+     (*(int *)(local_4 + 0x60) = *(int *)(local_4 + 0x60) + -1, *(int *)(local_4 + 0x60) == 0)) {
+    FUN_00e7ecd0();
+  }
+  if (local_8 != (int *)0x0) {
+    local_8[0x19] = local_8[0x19] + -1;
+    if (local_8[0x19] == 0) {
+      FUN_00e80190();
+    }
+  }
+  return 1;
+}
+
+
+
+--- Calls FROM PPLighting pass description resolver (0x00b4f9d0) ---
+  0x00b4fa02 -> 0x00ec408c __security_check_cookie
+  0x00b4fa16 -> 0x00ec408c __security_check_cookie
+  0x00b4fa2a -> 0x00ec408c __security_check_cookie
+  0x00b4fa3e -> 0x00ec408c __security_check_cookie
+  0x00b4fa52 -> 0x00ec408c __security_check_cookie
+  0x00b4fa66 -> 0x00ec408c __security_check_cookie
+  0x00b4fa7a -> 0x00ec408c __security_check_cookie
+  0x00b4fa8e -> 0x00ec408c __security_check_cookie
+  0x00b4faa2 -> 0x00ec408c __security_check_cookie
+  0x00b4fab6 -> 0x00ec408c __security_check_cookie
+  0x00b4faca -> 0x00ec408c __security_check_cookie
+  0x00b4fade -> 0x00ec408c __security_check_cookie
+  0x00b4faf2 -> 0x00ec408c __security_check_cookie
+  0x00b4fb06 -> 0x00ec408c __security_check_cookie
+  0x00b4fb1a -> 0x00ec408c __security_check_cookie
+  0x00b4fb2e -> 0x00ec408c __security_check_cookie
+  0x00b4fb42 -> 0x00ec408c __security_check_cookie
+  0x00b4fb56 -> 0x00ec408c __security_check_cookie
+  0x00b4fb6a -> 0x00ec408c __security_check_cookie
+  0x00b4fb7e -> 0x00ec408c __security_check_cookie
+  0x00b4fb92 -> 0x00ec408c __security_check_cookie
+  0x00b4fba6 -> 0x00ec408c __security_check_cookie
+  0x00b4fbba -> 0x00ec408c __security_check_cookie
+  0x00b4fbce -> 0x00ec408c __security_check_cookie
+  0x00b4fbe2 -> 0x00ec408c __security_check_cookie
+  0x00b4fbf6 -> 0x00ec408c __security_check_cookie
+  0x00b4fc0a -> 0x00ec408c __security_check_cookie
+  0x00b4fc1e -> 0x00ec408c __security_check_cookie
+  0x00b4fc32 -> 0x00ec408c __security_check_cookie
+  0x00b4fc46 -> 0x00ec408c __security_check_cookie
+  0x00b4fc5a -> 0x00ec408c __security_check_cookie
+  0x00b4fc6e -> 0x00ec408c __security_check_cookie
+  0x00b4fc82 -> 0x00ec408c __security_check_cookie
+  0x00b4fc96 -> 0x00ec408c __security_check_cookie
+  0x00b4fcaa -> 0x00ec408c __security_check_cookie
+  0x00b4fcbe -> 0x00ec408c __security_check_cookie
+  0x00b4fcd2 -> 0x00ec408c __security_check_cookie
+  0x00b4fce6 -> 0x00ec408c __security_check_cookie
+  0x00b4fcfa -> 0x00ec408c __security_check_cookie
+  0x00b4fd0e -> 0x00ec408c __security_check_cookie
+  0x00b4fd22 -> 0x00ec408c __security_check_cookie
+  0x00b4fd36 -> 0x00ec408c __security_check_cookie
+  0x00b4fd4a -> 0x00ec408c __security_check_cookie
+  0x00b4fd5e -> 0x00ec408c __security_check_cookie
+  0x00b4fd72 -> 0x00ec408c __security_check_cookie
+  0x00b4fd86 -> 0x00ec408c __security_check_cookie
+  0x00b4fd9a -> 0x00ec408c __security_check_cookie
+  0x00b4fdae -> 0x00ec408c __security_check_cookie
+  0x00b4fdc2 -> 0x00ec408c __security_check_cookie
+  0x00b4fdd6 -> 0x00ec408c __security_check_cookie
+  0x00b4fdea -> 0x00ec408c __security_check_cookie
+  0x00b4fdfe -> 0x00ec408c __security_check_cookie
+  0x00b4fe12 -> 0x00ec408c __security_check_cookie
+  0x00b4fe26 -> 0x00ec408c __security_check_cookie
+  0x00b4fe3a -> 0x00ec408c __security_check_cookie
+  0x00b4fe4e -> 0x00ec408c __security_check_cookie
+  0x00b4fe62 -> 0x00ec408c __security_check_cookie
+  0x00b4fe76 -> 0x00ec408c __security_check_cookie
+  0x00b4fe8a -> 0x00ec408c __security_check_cookie
+  0x00b4fe9e -> 0x00ec408c __security_check_cookie
+  0x00b4feb2 -> 0x00ec408c __security_check_cookie
+  0x00b4fec6 -> 0x00ec408c __security_check_cookie
+  0x00b4feda -> 0x00ec408c __security_check_cookie
+  0x00b4feee -> 0x00ec408c __security_check_cookie
+  0x00b4ff02 -> 0x00ec408c __security_check_cookie
+  0x00b4ff16 -> 0x00ec408c __security_check_cookie
+  0x00b4ff2a -> 0x00ec408c __security_check_cookie
+  0x00b4ff3e -> 0x00ec408c __security_check_cookie
+  0x00b4ff52 -> 0x00ec408c __security_check_cookie
+  0x00b4ff66 -> 0x00ec408c __security_check_cookie
+  0x00b4ff7a -> 0x00ec408c __security_check_cookie
+  0x00b4ff8e -> 0x00ec408c __security_check_cookie
+  0x00b4ffa2 -> 0x00ec408c __security_check_cookie
+  0x00b4ffb6 -> 0x00ec408c __security_check_cookie
+  0x00b4ffca -> 0x00ec408c __security_check_cookie
+  0x00b4ffde -> 0x00ec408c __security_check_cookie
+  0x00b4fff2 -> 0x00ec408c __security_check_cookie
+  0x00b50006 -> 0x00ec408c __security_check_cookie
+  0x00b5001a -> 0x00ec408c __security_check_cookie
+  0x00b5002e -> 0x00ec408c __security_check_cookie
+  0x00b50042 -> 0x00ec408c __security_check_cookie
+  0x00b50056 -> 0x00ec408c __security_check_cookie
+  0x00b5006a -> 0x00ec408c __security_check_cookie
+  0x00b5007e -> 0x00ec408c __security_check_cookie
+  0x00b50092 -> 0x00ec408c __security_check_cookie
+  0x00b500a6 -> 0x00ec408c __security_check_cookie
+  0x00b500ba -> 0x00ec408c __security_check_cookie
+  0x00b500ce -> 0x00ec408c __security_check_cookie
+  0x00b500e2 -> 0x00ec408c __security_check_cookie
+  0x00b500f6 -> 0x00ec408c __security_check_cookie
+  0x00b5010a -> 0x00ec408c __security_check_cookie
+  0x00b5011e -> 0x00ec408c __security_check_cookie
+  0x00b50132 -> 0x00ec408c __security_check_cookie
+  0x00b50146 -> 0x00ec408c __security_check_cookie
+  0x00b5015a -> 0x00ec408c __security_check_cookie
+  0x00b5016e -> 0x00ec408c __security_check_cookie
+  0x00b50182 -> 0x00ec408c __security_check_cookie
+  0x00b50196 -> 0x00ec408c __security_check_cookie
+  0x00b501aa -> 0x00ec408c __security_check_cookie
+  0x00b501be -> 0x00ec408c __security_check_cookie
+  0x00b501d2 -> 0x00ec408c __security_check_cookie
+  0x00b501e6 -> 0x00ec408c __security_check_cookie
+  0x00b501fa -> 0x00ec408c __security_check_cookie
+  0x00b5020e -> 0x00ec408c __security_check_cookie
+  0x00b50222 -> 0x00ec408c __security_check_cookie
+  0x00b50236 -> 0x00ec408c __security_check_cookie
+  0x00b5024a -> 0x00ec408c __security_check_cookie
+  0x00b5025e -> 0x00ec408c __security_check_cookie
+  0x00b50272 -> 0x00ec408c __security_check_cookie
+  0x00b50286 -> 0x00ec408c __security_check_cookie
+  0x00b5029a -> 0x00ec408c __security_check_cookie
+  0x00b502ae -> 0x00ec408c __security_check_cookie
+  0x00b502c2 -> 0x00ec408c __security_check_cookie
+  0x00b502d6 -> 0x00ec408c __security_check_cookie
+  0x00b502ea -> 0x00ec408c __security_check_cookie
+  0x00b502fe -> 0x00ec408c __security_check_cookie
+  0x00b50312 -> 0x00ec408c __security_check_cookie
+  0x00b50326 -> 0x00ec408c __security_check_cookie
+  0x00b5033a -> 0x00ec408c __security_check_cookie
+  0x00b5034e -> 0x00ec408c __security_check_cookie
+  ... [bounded scan stopped]
+  Total printed: 120 calls
+
+--- Calls FROM PPLighting shader setup and pass constant dispatch (0x00b7af80) ---
+  0x00b7b04b -> 0x00000067 ???
+  0x00b7b069 -> 0x00000066 ???
+  0x00b7b07e -> 0x00a5f860 FUN_00a5f860
+  0x00b7b09d -> 0x00c663d0 FUN_00c663d0
+  0x00b7b0ac -> 0x00c663d0 FUN_00c663d0
+  0x00b7b0c8 -> 0x00000067 ???
+  0x00b7b0e9 -> 0x00000066 ???
+  0x00b7b102 -> 0x00000067 ???
+  Total printed: 8 calls
+
+--- Calls FROM PPLighting per-pass constant flag and fog updater (0x00b7b450) ---
+  0x00b7b539 -> 0x00b55520 FUN_00b55520
+  0x00b7b698 -> 0x00ee6dd4 D3DXMatrixTranspose
+  Total printed: 2 calls
+
+--- Calls FROM current geometry and selector writer (0x00b994f0) ---
+  0x00b99539 -> 0x00b99390 FUN_00b99390
+  0x00b9956c -> 0x00b98540 FUN_00b98540
+  0x00b9957f -> 0x00e72c20 FUN_00e72c20
+  0x00b99598 -> 0x00b99110 FUN_00b99110
+  0x00b995f0 -> 0x00b98e80 FUN_00b98e80
+  0x00b99615 -> 0x00b7ac20 FUN_00b7ac20
+  0x00b99623 -> 0x00bb96d0 FUN_00bb96d0
+  Total printed: 7 calls
+
+--- Calls FROM close terrain material row emitter (0x00bdaf10) ---
+  0x00bdaf21 -> 0x00a59d30 FUN_00a59d30
+  0x00bdaf89 -> 0x00ba9ee0 FUN_00ba9ee0
+  0x00bdafe3 -> 0x00ba9ee0 FUN_00ba9ee0
+  0x00bdb045 -> 0x00ba9ee0 FUN_00ba9ee0
+  0x00bdb06e -> 0x00ba9ee0 FUN_00ba9ee0
+  0x00bdb0a7 -> 0x00ba9ee0 FUN_00ba9ee0
+  0x00bdb0c7 -> 0x00b70600 FUN_00b70600
+  0x00bdb139 -> 0x00ba9ee0 FUN_00ba9ee0
+  0x00bdb14e -> 0x00b70700 FUN_00b70700
+  0x00bdb1b1 -> 0x00ba9ee0 FUN_00ba9ee0
+  0x00bdb1ee -> 0x00ba9ee0 FUN_00ba9ee0
+  0x00bdb278 -> 0x00ba9ee0 FUN_00ba9ee0
+  0x00bdb2ac -> 0x00b70600 FUN_00b70600
+  0x00bdb31e -> 0x00ba9ee0 FUN_00ba9ee0
+  0x00bdb347 -> 0x00b70700 FUN_00b70700
+  Total printed: 15 calls
+
+--- Calls FROM terrain zero-resource row emitter (0x00bdac00) ---
+  0x00bdac82 -> 0x00ba9ee0 FUN_00ba9ee0
+  0x00bdacb1 -> 0x00ba9ee0 FUN_00ba9ee0
+  0x00bdacea -> 0x00ba9ee0 FUN_00ba9ee0
+  0x00bdad19 -> 0x00ba9ee0 FUN_00ba9ee0
+  0x00bdad48 -> 0x00ba9ee0 FUN_00ba9ee0
+  0x00bdad8f -> 0x00ba9ee0 FUN_00ba9ee0
+  0x00bdadc8 -> 0x00ba9ee0 FUN_00ba9ee0
+  0x00bdadf3 -> 0x00ba9ee0 FUN_00ba9ee0
+  0x00bdae28 -> 0x00ba9ee0 FUN_00ba9ee0
+  0x00bdae64 -> 0x00406d00 FUN_00406d00
+  0x00bdae7e -> 0x00406d00 FUN_00406d00
+  0x00bdae9f -> 0x00406d00 FUN_00406d00
+  0x00bdaec9 -> 0x00406d00 FUN_00406d00
+  0x00bdaee9 -> 0x00406d00 FUN_00406d00
+  0x00bdaf01 -> 0x00ec408c __security_check_cookie
+  Total printed: 15 calls
+
+--- Calls FROM LandO and terrain light-resource row emitter (0x00bdf3e0) ---
+  0x00bdf3f4 -> 0x00b70600 FUN_00b70600
+  0x00bdf44c -> 0x00b70700 FUN_00b70700
+  0x00bdf45e -> 0x00b70700 FUN_00b70700
+  0x00bdf4bc -> 0x00b70700 FUN_00b70700
+  0x00bdf4ce -> 0x00b70700 FUN_00b70700
+  0x00bdf52c -> 0x00b70700 FUN_00b70700
+  0x00bdf597 -> 0x00ba9ee0 FUN_00ba9ee0
+  0x00bdf5d0 -> 0x00ba9ee0 FUN_00ba9ee0
+  0x00bdf61a -> 0x00ba9ee0 FUN_00ba9ee0
+  Total printed: 9 calls
+
+--- Calls FROM terrain helper row emitter A (0x00bdf650) ---
+  0x00bdf67d -> 0x00ba9ee0 FUN_00ba9ee0
+  0x00bdf68c -> 0x00ba9ee0 FUN_00ba9ee0
+  0x00bdf6a2 -> 0x00ba9ee0 FUN_00ba9ee0
+  0x00bdf6b1 -> 0x00ba9ee0 FUN_00ba9ee0
+  Total printed: 4 calls
+
+--- Calls FROM terrain helper row emitter B (0x00bdf6c0) ---
+  0x00bdf742 -> 0x00ba9ee0 FUN_00ba9ee0
+  Total printed: 1 calls
+
+--- Calls FROM PPLighting selector and pass-entry driver (0x00bdf790) ---
+  0x00bdf897 -> 0x00b4f5c0 FUN_00b4f5c0
+  0x00bdf8ab -> 0x00b4f5c0 FUN_00b4f5c0
+  0x00bdf8d0 -> 0x00653290 FUN_00653290
+  0x00bdf8e3 -> 0x00653290 FUN_00653290
+  0x00bdf8f6 -> 0x00653290 FUN_00653290
+  0x00bdf9c1 -> 0x00a59d30 FUN_00a59d30
+  0x00bdfad1 -> 0x00b4f5c0 FUN_00b4f5c0
+  0x00bdfafe -> 0x00439090 FUN_00439090
+  0x00bdfb78 -> 0x00bd9f00 FUN_00bd9f00
+  0x00bdfbdd -> 0x00bd9f90 FUN_00bd9f90
+  0x00bdfbf5 -> 0x00b707d0 FUN_00b707d0
+  0x00bdfca8 -> 0x00bd9e60 FUN_00bd9e60
+  0x00bdfcda -> 0x005bf7b0 FUN_005bf7b0
+  0x00bdfd06 -> 0x00b70590 FUN_00b70590
+  0x00bdfd30 -> 0x00ba9ee0 FUN_00ba9ee0
+  0x00bdfd7e -> 0x00b70680 FUN_00b70680
+  0x00bdfea9 -> 0x00bdd050 FUN_00bdd050
+  0x00bdfebf -> 0x00b70600 FUN_00b70600
+  0x00bdfefc -> 0x00bdd520 FUN_00bdd520
+  0x00bdff56 -> 0x00bde1d0 FUN_00bde1d0
+  0x00bdff6c -> 0x00b70600 FUN_00b70600
+  0x00bdffa9 -> 0x00bdca60 FUN_00bdca60
+  0x00bdffed -> 0x004390c0 FUN_004390c0
+  0x00be000f -> 0x00439090 FUN_00439090
+  0x00be0020 -> 0x004a2020 FUN_004a2020
+  0x00be004e -> 0x004a2020 FUN_004a2020
+  0x00be005b -> 0x004a2020 FUN_004a2020
+  0x00be0068 -> 0x004a2020 FUN_004a2020
+  0x00be0075 -> 0x004a2020 FUN_004a2020
+  0x00be0082 -> 0x004a2020 FUN_004a2020
+  0x00be016c -> 0x00bde9b0 FUN_00bde9b0
+  0x00be0205 -> 0x00bde1d0 FUN_00bde1d0
+  0x00be0213 -> 0x00b70600 FUN_00b70600
+  0x00be0250 -> 0x00bdca60 FUN_00bdca60
+  0x00be0280 -> 0x00b70600 FUN_00b70600
+  0x00be02c0 -> 0x00bdc0d0 FUN_00bdc0d0
+  0x00be02e2 -> 0x00b70700 FUN_00b70700
+  0x00be031f -> 0x00bdc530 FUN_00bdc530
+  0x00be0356 -> 0x00bd9540 FUN_00bd9540
+  0x00be038d -> 0x00bd9840 FUN_00bd9840
+  0x00be0399 -> 0x00b70600 FUN_00b70600
+  0x00be03a7 -> 0x00b70700 FUN_00b70700
+  0x00be03ce -> 0x00b70700 FUN_00b70700
+  0x00be03fc -> 0x00bdda20 FUN_00bdda20
+  0x00be041e -> 0x00b70700 FUN_00b70700
+  0x00be042e -> 0x00b70700 FUN_00b70700
+  0x00be0461 -> 0x00bddbc0 FUN_00bddbc0
+  0x00be0472 -> 0x00b70700 FUN_00b70700
+  0x00be04be -> 0x00bddd80 FUN_00bddd80
+  0x00be050a -> 0x00bdef40 FUN_00bdef40
+  0x00be0516 -> 0x00b70600 FUN_00b70600
+  0x00be0537 -> 0x00b70700 FUN_00b70700
+  0x00be0547 -> 0x00b70700 FUN_00b70700
+  0x00be057b -> 0x00bddfb0 FUN_00bddfb0
+  0x00be0593 -> 0x00b70700 FUN_00b70700
+  0x00be05bf -> 0x00bdde10 FUN_00bdde10
+  0x00be05fc -> 0x00bdef40 FUN_00bdef40
+  0x00be060c -> 0x00b70700 FUN_00b70700
+  0x00be062b -> 0x00b70600 FUN_00b70600
+  0x00be0659 -> 0x00bdbf60 FUN_00bdbf60
+  0x00be0680 -> 0x00bdf3e0 FUN_00bdf3e0
+  0x00be06e7 -> 0x00bd9bc0 FUN_00bd9bc0
+  0x00be070b -> 0x00bdc030 FUN_00bdc030
+  0x00be074a -> 0x00bdb380 FUN_00bdb380
+  0x00be078a -> 0x00bda030 FUN_00bda030
+  0x00be084d -> 0x00bd9da0 FUN_00bd9da0
+  Total printed: 66 calls
+
+--- Calls FROM current pass shader-interface apply (0x00bd4ba0) ---
+  0x00bd4be0 -> 0x00b7dab0 FUN_00b7dab0
+  0x00bd4bed -> 0x00b55520 FUN_00b55520
+  0x00bd4c14 -> 0x00b55560 FUN_00b55560
+  Total printed: 3 calls
+
+--- Calls FROM current NiD3DPass writer (0x00e90850) ---
+  0x00e90862 -> 0x00e804d0 FUN_00e804d0
+  0x00e90877 -> 0x00e7edf0 FUN_00e7edf0
+  0x00e90891 -> 0x00e88fc0 FUN_00e88fc0
+  0x00e9089e -> 0x00e88fc0 FUN_00e88fc0
+  0x00e908ab -> 0x00e88fc0 FUN_00e88fc0
+  0x00e908b8 -> 0x00e88fc0 FUN_00e88fc0
+  0x00e908c4 -> 0x00e88fc0 FUN_00e88fc0
+  0x00e908d2 -> 0x00e890c0 FUN_00e890c0
+  0x00e908e0 -> 0x00e890c0 FUN_00e890c0
+  0x00e908ee -> 0x00e890c0 FUN_00e890c0
+  0x00e908fc -> 0x00e890c0 FUN_00e890c0
+  0x00e90909 -> 0x00e890c0 FUN_00e890c0
+  0x00e90918 -> 0x00e88fc0 FUN_00e88fc0
+  0x00e90926 -> 0x00e802b0 FUN_00e802b0
+  0x00e90947 -> 0x00e7ecd0 FUN_00e7ecd0
+  0x00e90960 -> 0x00e80190 FUN_00e80190
+  Total printed: 16 calls
+
+----------------------------------------------------------------------
+References TO 0x00b4f9d0 (PPLighting pass description resolver)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00ba9e39 (in FUN_00ba9890)
+  UNCONDITIONAL_CALL @ 0x00ba9e46 (in FUN_00ba9890)
+  Printed: 2 refs
+
+----------------------------------------------------------------------
+References TO 0x00b7af80 (PPLighting shader setup and pass constant dispatch)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00bcd161 (in FUN_00bcce40)
+  UNCONDITIONAL_CALL @ 0x00bccfda (in FUN_00bcce40)
+  DATA @ 0x010af3e8 (in ???)
+  DATA @ 0x010bbc40 (in ???)
+  UNCONDITIONAL_CALL @ 0x00bd0060 (in ???)
+  UNCONDITIONAL_CALL @ 0x00bcfebf (in ???)
+  UNCONDITIONAL_CALL @ 0x00bcfeed (in ???)
+  Printed: 7 refs
+
+----------------------------------------------------------------------
+References TO 0x00b7b450 (PPLighting per-pass constant flag and fog updater)
+----------------------------------------------------------------------
+  DATA @ 0x010af3f4 (in ???)
+  DATA @ 0x010bb8a4 (in ???)
+  DATA @ 0x010bba7c (in ???)
+  DATA @ 0x010bbc4c (in ???)
+  UNCONDITIONAL_CALL @ 0x00bd3270 (in ???)
+  Printed: 5 refs
+
+----------------------------------------------------------------------
+References TO 0x00b994f0 (current geometry and selector writer)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x004e9b18 (in FUN_004e9550)
+  UNCONDITIONAL_CALL @ 0x004ece62 (in FUN_004ecb60)
+  UNCONDITIONAL_CALL @ 0x00b64cec (in FUN_00b64bf0)
+  UNCONDITIONAL_CALL @ 0x00b9a2a1 (in FUN_00b9a120)
+  UNCONDITIONAL_CALL @ 0x00b999c8 (in FUN_00b99990)
+  UNCONDITIONAL_CALL @ 0x00b64fd1 (in FUN_00b64f90)
+  UNCONDITIONAL_CALL @ 0x00b9b1fe (in FUN_00b9af60)
+  UNCONDITIONAL_CALL @ 0x00b99fe4 (in FUN_00b99e20)
+  UNCONDITIONAL_CALL @ 0x00c03f89 (in FUN_00c03d80)
+  Printed: 9 refs
+
+----------------------------------------------------------------------
+References TO 0x00bd4ba0 (current pass shader-interface apply)
+----------------------------------------------------------------------
+  DATA @ 0x010bc0ec (in ???)
+  Printed: 1 refs
+
+----------------------------------------------------------------------
+References TO 0x00be1f90 (BSShader::SetShaders)
+----------------------------------------------------------------------
+  DATA @ 0x010af3ec (in ???)
+  DATA @ 0x010af854 (in ???)
+  DATA @ 0x010afad4 (in ???)
+  DATA @ 0x010aff0c (in ???)
+  DATA @ 0x010b00b4 (in ???)
+  DATA @ 0x010b028c (in ???)
+  DATA @ 0x010b042c (in ???)
+  DATA @ 0x010b060c (in ???)
+  DATA @ 0x010b07b4 (in ???)
+  DATA @ 0x010b0954 (in ???)
+  DATA @ 0x010b0af4 (in ???)
+  DATA @ 0x010b0c8c (in ???)
+  DATA @ 0x010b0e34 (in ???)
+  DATA @ 0x010b0fb4 (in ???)
+  DATA @ 0x010b1134 (in ???)
+  DATA @ 0x010b12b4 (in ???)
+  DATA @ 0x010b1434 (in ???)
+  DATA @ 0x010b15b4 (in ???)
+  DATA @ 0x010b1734 (in ???)
+  DATA @ 0x010b18ec (in ???)
+  DATA @ 0x010b1a74 (in ???)
+  DATA @ 0x010b1bfc (in ???)
+  DATA @ 0x010b1d84 (in ???)
+  DATA @ 0x010b1f14 (in ???)
+  DATA @ 0x010b20a4 (in ???)
+  DATA @ 0x010b2234 (in ???)
+  DATA @ 0x010b2b8c (in ???)
+  DATA @ 0x010b23fc (in ???)
+  DATA @ 0x010b2584 (in ???)
+  DATA @ 0x010b2704 (in ???)
+  DATA @ 0x010b289c (in ???)
+  DATA @ 0x010b2a14 (in ???)
+  DATA @ 0x010b2d04 (in ???)
+  DATA @ 0x010b2ea4 (in ???)
+  DATA @ 0x010b3044 (in ???)
+  DATA @ 0x010b31d4 (in ???)
+  DATA @ 0x010b335c (in ???)
+  DATA @ 0x010b34e4 (in ???)
+  DATA @ 0x010b368c (in ???)
+  DATA @ 0x010b389c (in ???)
+  DATA @ 0x010b3a4c (in ???)
+  DATA @ 0x010b3be4 (in ???)
+  DATA @ 0x010b3d6c (in ???)
+  DATA @ 0x010b3f0c (in ???)
+  DATA @ 0x010b409c (in ???)
+  DATA @ 0x010b422c (in ???)
+  DATA @ 0x010b43bc (in ???)
+  DATA @ 0x010b4554 (in ???)
+  ... [truncated at 48 refs]
+  Printed: 48 refs
+
+----------------------------------------------------------------------
+References TO 0x011fa280 (PPLighting FogParam backing value)
+----------------------------------------------------------------------
+  WRITE @ 0x00b5ec02 (in FUN_00b5e870)
+  WRITE @ 0x00b7c404 (in FUN_00b7c3a0)
+  WRITE @ 0x00b7c48e (in FUN_00b7c3a0)
+  WRITE @ 0x00b7b594 (in FUN_00b7b450)
+  WRITE @ 0x00b7b61c (in FUN_00b7b450)
+  WRITE @ 0x00bb214a (in FUN_00bb1f60)
+  DATA @ 0x00b7e63d (in FUN_00b7e430)
+  DATA @ 0x00b7c501 (in FUN_00b7c3a0)
+  DATA @ 0x00bd31c6 (in FUN_00bd3000)
+  DATA @ 0x00bb2e54 (in FUN_00bb2d10)
+  DATA @ 0x00bd5c24 (in FUN_00bd5a60)
+  DATA @ 0x00bad210 (in FUN_00bad100)
+  WRITE @ 0x00baa489 (in ???)
+  WRITE @ 0x00baa500 (in ???)
+  WRITE @ 0x00bb1ba9 (in ???)
+  Printed: 15 refs
+
+----------------------------------------------------------------------
+References TO 0x011fa290 (PPLighting FogColor backing value)
+----------------------------------------------------------------------
+  WRITE @ 0x00b5ec45 (in FUN_00b5e870)
+  WRITE @ 0x00b7c444 (in FUN_00b7c3a0)
+  WRITE @ 0x00b7c4d1 (in FUN_00b7c3a0)
+  WRITE @ 0x00b7b5d4 (in FUN_00b7b450)
+  WRITE @ 0x00b7b65f (in FUN_00b7b450)
+  WRITE @ 0x00bb219a (in FUN_00bb1f60)
+  DATA @ 0x00b7e667 (in FUN_00b7e430)
+  DATA @ 0x00bd31f0 (in FUN_00bd3000)
+  DATA @ 0x00bb2e7b (in FUN_00bb2d10)
+  DATA @ 0x00bd5c4e (in FUN_00bd5a60)
+  DATA @ 0x00bad23a (in FUN_00bad100)
+  WRITE @ 0x00baa4c8 (in ???)
+  WRITE @ 0x00baa540 (in ???)
+  WRITE @ 0x00bb1be8 (in ???)
+  Printed: 14 refs
+
+----------------------------------------------------------------------
+References TO 0x011fc0a0 (PPLighting pixel constant flags)
+----------------------------------------------------------------------
+  DATA @ 0x00b7b4db (in FUN_00b7b450)
+  DATA @ 0x00b7b4f4 (in FUN_00b7b450)
+  DATA @ 0x00b7a282 (in FUN_00b7a170)
+  DATA @ 0x00b7c531 (in FUN_00b7c510)
+  DATA @ 0x00b7c550 (in FUN_00b7c510)
+  DATA @ 0x00c02fd3 (in FUN_00c02f70)
+  DATA @ 0x00c02fec (in FUN_00c02f70)
+  Printed: 7 refs
+
+----------------------------------------------------------------------
+References TO 0x011fcc80 (PPLighting vertex constant flags)
+----------------------------------------------------------------------
+  DATA @ 0x00b7b48e (in FUN_00b7b450)
+  DATA @ 0x00b7b4a7 (in FUN_00b7b450)
+  DATA @ 0x00b7a271 (in FUN_00b7a170)
+  DATA @ 0x00c02f8b (in FUN_00c02f70)
+  DATA @ 0x00c02fa4 (in FUN_00c02f70)
+  Printed: 5 refs
+
+----------------------------------------------------------------------
+References TO 0x011f91e0 (current geometry slot)
+----------------------------------------------------------------------
+  WRITE @ 0x00b54a17 (in FUN_00b54630)
+  WRITE @ 0x00b57946 (in FUN_00b578a0)
+  WRITE @ 0x00b653f6 (in FUN_00b651e0)
+  WRITE @ 0x00b65445 (in FUN_00b651e0)
+  WRITE @ 0x00b9950c (in FUN_00b994f0)
+  READ @ 0x00b7c583 (in FUN_00b7c580)
+  READ @ 0x00b7c603 (in FUN_00b7c600)
+  READ @ 0x00b7de6a (in FUN_00b7dde0)
+  READ @ 0x00b7c7b3 (in FUN_00b7c7b0)
+  READ @ 0x00b7e22a (in FUN_00b7e150)
+  READ @ 0x00b7df5d (in FUN_00b7ded0)
+  READ @ 0x00b7c85a (in FUN_00b7c850)
+  READ @ 0x00b7e071 (in FUN_00b7dfe0)
+  READ @ 0x00b7cb04 (in FUN_00b7cb00)
+  READ @ 0x00b70878 (in FUN_00b70820)
+  READ @ 0x00b70e28 (in FUN_00b70de0)
+  READ @ 0x00b7b679 (in FUN_00b7b450)
+  READ @ 0x00b7b7b3 (in FUN_00b7b730)
+  READ @ 0x00b7baf2 (in FUN_00b7ba70)
+  READ @ 0x00b7bc5c (in FUN_00b7ba70)
+  READ @ 0x00b7be20 (in FUN_00b7be00)
+  READ @ 0x00b7dab3 (in FUN_00b7dab0)
+  READ @ 0x00b80c23 (in FUN_00b80c20)
+  READ @ 0x00b864d3 (in FUN_00b864d0)
+  READ @ 0x00b89d8d (in FUN_00b89d80)
+  READ @ 0x00baa940 (in FUN_00baa850)
+  READ @ 0x00baaac9 (in FUN_00baa850)
+  READ @ 0x00bac9c3 (in FUN_00bac9c0)
+  READ @ 0x00bb2765 (in FUN_00bb2760)
+  READ @ 0x00b71360 (in FUN_00b71360)
+  READ @ 0x00bb6a83 (in FUN_00bb6a80)
+  READ @ 0x00bbef9c (in FUN_00bbef90)
+  READ @ 0x00bbf181 (in FUN_00bbef90)
+  READ @ 0x00bc9a5b (in FUN_00bc9a50)
+  READ @ 0x00bca983 (in FUN_00bca980)
+  READ @ 0x00bcbce3 (in FUN_00bcbce0)
+  READ @ 0x00bd4ba3 (in FUN_00bd4ba0)
+  WRITE @ 0x00b9d0b1 (in FUN_00b9d020)
+  WRITE @ 0x00b9d0ef (in FUN_00b9d020)
+  READ @ 0x00c043f3 (in FUN_00c043f0)
+  WRITE @ 0x00b63337 (in FUN_00b63320)
+  READ @ 0x00b7d204 (in FUN_00b7d200)
+  READ @ 0x00ba5ee0 (in ???)
+  READ @ 0x00bac98e (in ???)
+  READ @ 0x00b7c12c (in FUN_00b7c120)
+  READ @ 0x00bd4987 (in ???)
+  READ @ 0x00c02ede (in ???)
+  READ @ 0x00c0ce34 (in ???)
+  ... [truncated at 48 refs]
+  Printed: 48 refs
+
+----------------------------------------------------------------------
+References TO 0x0126f74c (current NiD3DPass)
+----------------------------------------------------------------------
+  WRITE @ 0x00e90933 (in FUN_00e90850)
+  READ @ 0x00b7dd50 (in FUN_00b7dd50)
+  READ @ 0x00b7dda4 (in FUN_00b7dd50)
+  READ @ 0x00b7c4ec (in FUN_00b7c3a0)
+  READ @ 0x00b7ddf5 (in FUN_00b7dde0)
+  READ @ 0x00b7de19 (in FUN_00b7dde0)
+  READ @ 0x00b7de46 (in FUN_00b7dde0)
+  READ @ 0x00b7de57 (in FUN_00b7dde0)
+  READ @ 0x00b7c785 (in FUN_00b7c750)
+  READ @ 0x00b7c81d (in FUN_00b7c7b0)
+  READ @ 0x00b7e165 (in FUN_00b7e150)
+  READ @ 0x00b7e189 (in FUN_00b7e150)
+  READ @ 0x00b7e1b6 (in FUN_00b7e150)
+  READ @ 0x00b7e1f3 (in FUN_00b7e150)
+  READ @ 0x00b7e205 (in FUN_00b7e150)
+  READ @ 0x00b7e218 (in FUN_00b7e150)
+  READ @ 0x00b7e279 (in FUN_00b7e150)
+  READ @ 0x00b7dee8 (in FUN_00b7ded0)
+  READ @ 0x00b7df0c (in FUN_00b7ded0)
+  READ @ 0x00b7df39 (in FUN_00b7ded0)
+  READ @ 0x00b7df4a (in FUN_00b7ded0)
+  READ @ 0x00b7df9b (in FUN_00b7ded0)
+  READ @ 0x00b7c853 (in FUN_00b7c850)
+  READ @ 0x00b7c993 (in FUN_00b7c850)
+  READ @ 0x00b7dffc (in FUN_00b7dfe0)
+  READ @ 0x00b7e020 (in FUN_00b7dfe0)
+  READ @ 0x00b7e04d (in FUN_00b7dfe0)
+  READ @ 0x00b7e05e (in FUN_00b7dfe0)
+  READ @ 0x00b7e0e5 (in FUN_00b7dfe0)
+  READ @ 0x00b7e10c (in FUN_00b7dfe0)
+  READ @ 0x00b7cb2a (in FUN_00b7cb00)
+  READ @ 0x00b7cc66 (in FUN_00b7cb00)
+  READ @ 0x00e814ba (in FUN_00e814b0)
+  WRITE @ 0x00e80766 (in FUN_00e806c0)
+  WRITE @ 0x00b7af91 (in FUN_00b7af80)
+  READ @ 0x00b7b69d (in FUN_00b7b450)
+  READ @ 0x00b7dcb0 (in FUN_00b7dab0)
+  READ @ 0x00b7dceb (in FUN_00b7dab0)
+  WRITE @ 0x00b7ad73 (in FUN_00b7ad00)
+  READ @ 0x00b7cf24 (in FUN_00b7ce90)
+  READ @ 0x00b7cf44 (in FUN_00b7ce90)
+  READ @ 0x00b7cf65 (in FUN_00b7ce90)
+  WRITE @ 0x00b7cf9c (in FUN_00b7ce90)
+  READ @ 0x00b80cb4 (in FUN_00b80c20)
+  READ @ 0x00b80cf1 (in FUN_00b80c20)
+  READ @ 0x00b86afc (in FUN_00b864d0)
+  READ @ 0x00b86b39 (in FUN_00b864d0)
+  READ @ 0x00b8a0d3 (in FUN_00b89d80)
+  ... [truncated at 48 refs]
+  Printed: 48 refs
+
+----------------------------------------------------------------------
+Disassembly pass description resolver entry around 0x00b4f9d0
+----------------------------------------------------------------------
+  0x00b4f9ac: MOV EAX,dword ptr [ECX]                                   
+  0x00b4f9ae: MOV EDX,dword ptr [EAX + 0x124]                           
+  0x00b4f9b4: CALL EDX                                                  
+  0x00b4f9b6: ADD ESI,0x4                                               
+  0x00b4f9b9: CMP ESI,0x11f95d4                                         
+  0x00b4f9bf: JL 0x00b4f9a6                                             
+  0x00b4f9c1: POP ESI                                                   
+  0x00b4f9c2: RET                                                       
+  0x00b4f9d0: SUB ESP,0x10                                               << TARGET
+  0x00b4f9d3: MOV EAX,[0x011c16bc]                                      
+  0x00b4f9d8: XOR EAX,ESP                                               
+  0x00b4f9da: MOV dword ptr [ESP + 0xc],EAX                             
+  0x00b4f9de: MOV ECX,dword ptr [ESP + 0x14]                            
+  0x00b4f9e2: LEA EAX,[ECX + -0x1]                                      
+  0x00b4f9e5: CMP EAX,0x2f4                                             
+  0x00b4f9ea: JA 0x00b53403                                             
+  0x00b4f9f0: JMP dword ptr [EAX*0x4 + 0xb5342c]                        
+  0x00b4f9f7: MOV EAX,0x10ad6c8                                         
+  0x00b4f9fc: MOV ECX,dword ptr [ESP + 0xc]                             
+  0x00b4fa00: XOR ECX,ESP                                               
+  0x00b4fa02: CALL 0x00ec408c                                           
+  0x00b4fa07: ADD ESP,0x10                                              
+  0x00b4fa0a: RET                                                       
+  0x00b4fa0b: MOV EAX,0x10ad6b8                                         
+  0x00b4fa10: MOV ECX,dword ptr [ESP + 0xc]                             
+  0x00b4fa14: XOR ECX,ESP                                               
+  0x00b4fa16: CALL 0x00ec408c                                           
+  0x00b4fa1b: ADD ESP,0x10                                              
+  0x00b4fa1e: RET                                                       
+  0x00b4fa1f: MOV EAX,0x10ad6a8                                         
+  0x00b4fa24: MOV ECX,dword ptr [ESP + 0xc]                             
+  0x00b4fa28: XOR ECX,ESP                                               
+  0x00b4fa2a: CALL 0x00ec408c                                           
+  0x00b4fa2f: ADD ESP,0x10                                              
+  0x00b4fa32: RET                                                       
+  0x00b4fa33: MOV EAX,0x10ad690                                         
+  0x00b4fa38: MOV ECX,dword ptr [ESP + 0xc]                             
+  0x00b4fa3c: XOR ECX,ESP                                               
+  0x00b4fa3e: CALL 0x00ec408c                                           
+  0x00b4fa43: ADD ESP,0x10                                              
+  0x00b4fa46: RET                                                       
+  0x00b4fa47: MOV EAX,0x10ad678                                         
+  0x00b4fa4c: MOV ECX,dword ptr [ESP + 0xc]                             
+  0x00b4fa50: XOR ECX,ESP                                               
+  0x00b4fa52: CALL 0x00ec408c                                           
+  0x00b4fa57: ADD ESP,0x10                                              
+  0x00b4fa5a: RET                                                       
+  0x00b4fa5b: MOV EAX,0x10ad668                                         
+  0x00b4fa60: MOV ECX,dword ptr [ESP + 0xc]                             
+  0x00b4fa64: XOR ECX,ESP                                               
+  0x00b4fa66: CALL 0x00ec408c                                           
+  0x00b4fa6b: ADD ESP,0x10                                              
+  0x00b4fa6e: RET                                                       
+  0x00b4fa6f: MOV EAX,0x10ad654                                         
+  0x00b4fa74: MOV ECX,dword ptr [ESP + 0xc]                             
+  0x00b4fa78: XOR ECX,ESP                                               
+  0x00b4fa7a: CALL 0x00ec408c                                           
+
+----------------------------------------------------------------------
+Disassembly per-pass flag dispatch entry around 0x00b7b450
+----------------------------------------------------------------------
+  0x00b7b120: JZ 0x00b7b0b1                                             
+  0x00b7b122: POP EDI                                                   
+  0x00b7b123: POP ESI                                                   
+  0x00b7b124: ADD EAX,0x4                                               
+  0x00b7b127: POP EBP                                                   
+  0x00b7b128: POP EBX                                                   
+  0x00b7b129: MOV dword ptr [ESP + 0x4],EAX                             
+  0x00b7b12d: JMP dword ptr [0x00fdf1c0]                                
+  0x00b7b450: PUSH EBP                                                   << TARGET
+  0x00b7b451: MOV EBP,ESP                                               
+  0x00b7b453: AND ESP,0xfffffff0                                        
+  0x00b7b456: SUB ESP,0x74                                              
+  0x00b7b459: PUSH EBX                                                  
+  0x00b7b45a: PUSH ESI                                                  
+  0x00b7b45b: PUSH EDI                                                  
+  0x00b7b45c: MOV EDI,dword ptr [EBP + 0x8]                             
+  0x00b7b45f: MOV EBX,ECX                                               
+  0x00b7b461: CMP EDI,0x250                                             
+  0x00b7b467: JZ 0x00b7b725                                             
+  0x00b7b46d: CMP EDI,0x251                                             
+  0x00b7b473: JZ 0x00b7b725                                             
+  0x00b7b479: MOV EAX,0x1                                               
+  0x00b7b47e: MOV ECX,0x11febdc                                         
+  0x00b7b483: MOV ESI,dword ptr [ECX + -0x4]                            
+  0x00b7b486: TEST ESI,ESI                                              
+  0x00b7b488: JZ 0x00b7b49b                                             
+  0x00b7b48a: MOV EDX,EAX                                               
+  0x00b7b48c: ROL EDX,0x1                                               
+  0x00b7b48e: TEST dword ptr [EDI*0x4 + 0x11fcc80],EDX                  
+  0x00b7b495: SETNZ DL                                                  
+  0x00b7b498: MOV byte ptr [ESI + 0x8],DL                               
+  0x00b7b49b: MOV ESI,dword ptr [ECX]                                   
+  0x00b7b49d: ROL EAX,0x1                                               
+  0x00b7b49f: TEST ESI,ESI                                              
+  0x00b7b4a1: JZ 0x00b7b4b4                                             
+  0x00b7b4a3: MOV EDX,EAX                                               
+  0x00b7b4a5: ROL EDX,0x1                                               
+  0x00b7b4a7: TEST dword ptr [EDI*0x4 + 0x11fcc80],EDX                  
+  0x00b7b4ae: SETNZ DL                                                  
+  0x00b7b4b1: MOV byte ptr [ESI + 0x8],DL                               
+  0x00b7b4b4: ADD ECX,0x8                                               
+  0x00b7b4b7: ROL EAX,0x1                                               
+  0x00b7b4b9: CMP ECX,0x11fec34                                         
+  0x00b7b4bf: JL 0x00b7b483                                             
+  0x00b7b4c1: MOV EAX,0x1                                               
+  0x00b7b4c6: MOV ECX,0x11fec34                                         
+  0x00b7b4cb: JMP 0x00b7b4d0                                            
+  0x00b7b4d0: MOV ESI,dword ptr [ECX + -0x4]                            
+  0x00b7b4d3: TEST ESI,ESI                                              
+  0x00b7b4d5: JZ 0x00b7b4e8                                             
+  0x00b7b4d7: MOV EDX,EAX                                               
+  0x00b7b4d9: ROL EDX,0x1                                               
+  0x00b7b4db: TEST dword ptr [EDI*0x4 + 0x11fc0a0],EDX                  
+  0x00b7b4e2: SETNZ DL                                                  
+  0x00b7b4e5: MOV byte ptr [ESI + 0x8],DL                               
+  0x00b7b4e8: MOV ESI,dword ptr [ECX]                                   
+  0x00b7b4ea: ROL EAX,0x1                                               
+  0x00b7b4ec: TEST ESI,ESI                                              
+  0x00b7b4ee: JZ 0x00b7b501                                             
+  0x00b7b4f0: MOV EDX,EAX                                               
+  0x00b7b4f2: ROL EDX,0x1                                               
+  0x00b7b4f4: TEST dword ptr [EDI*0x4 + 0x11fc0a0],EDX                  
+  0x00b7b4fb: SETNZ DL                                                  
+  0x00b7b4fe: MOV byte ptr [ESI + 0x8],DL                               
+  0x00b7b501: ADD ECX,0x8                                               
+
+----------------------------------------------------------------------
+Disassembly fog backing update path around 0x00b7b5d4
+----------------------------------------------------------------------
+  0x00b7b575: JP 0x00b7b5e3                                             
+  0x00b7b577: FLD ST2                                                   
+  0x00b7b579: FUCOMP                                                    
+  0x00b7b57b: FNSTSW AX                                                 
+  0x00b7b57d: TEST AH,0x44                                              
+  0x00b7b580: JP 0x00b7b5e3                                             
+  0x00b7b582: FSTP ST1                                                  
+  0x00b7b584: FSTP ST0                                                  
+  0x00b7b586: FLD float ptr [0x010ad6e0]                                
+  0x00b7b58c: FSTP float ptr [ESP + 0x20]                               
+  0x00b7b590: MOV EDX,dword ptr [ESP + 0x20]                            
+  0x00b7b594: MOV dword ptr [0x011fa280],EDX                            
+  0x00b7b59a: FST float ptr [ESP + 0x24]                                
+  0x00b7b59e: MOV EAX,dword ptr [ESP + 0x24]                            
+  0x00b7b5a2: FST float ptr [ESP + 0x28]                                
+  0x00b7b5a6: MOV ECX,dword ptr [ESP + 0x28]                            
+  0x00b7b5aa: MOV [0x011fa284],EAX                                      
+  0x00b7b5af: FSTP float ptr [ESP + 0x2c]                               
+  0x00b7b5b3: MOV EDX,dword ptr [ESP + 0x2c]                            
+  0x00b7b5b7: MOV EAX,[0x011a9bd0]                                      
+  0x00b7b5bc: MOV dword ptr [0x011fa288],ECX                            
+  0x00b7b5c2: MOV ECX,dword ptr [0x011a9bd4]                            
+  0x00b7b5c8: MOV dword ptr [0x011fa28c],EDX                            
+  0x00b7b5ce: MOV EDX,dword ptr [0x011a9bd8]                            
+  0x00b7b5d4: MOV [0x011fa290],EAX                                       << TARGET
+  0x00b7b5d9: MOV EAX,[0x011a9bdc]                                      
+  0x00b7b5de: JMP 0x00b7b668                                            
+  0x00b7b5e3: MOV EDX,dword ptr [ECX + 0x20]                            
+  0x00b7b5e6: FXCH                                                      
+  0x00b7b5e8: MOV EAX,dword ptr [ECX + 0x24]                            
+  0x00b7b5eb: FST float ptr [ESP + 0x30]                                
+  0x00b7b5ef: MOV ECX,dword ptr [ECX + 0x28]                            
+  0x00b7b5f2: FSUBRP                                                    
+  0x00b7b5f4: MOV dword ptr [ESP + 0x20],EDX                            
+  0x00b7b5f8: MOV EDX,dword ptr [ESP + 0x30]                            
+  0x00b7b5fc: FSTP float ptr [ESP + 0x34]                               
+  0x00b7b600: MOV dword ptr [ESP + 0x24],EAX                            
+  0x00b7b604: FLD float ptr [ESP + 0x1c]                                
+  0x00b7b608: MOV EAX,dword ptr [ESP + 0x34]                            
+  0x00b7b60c: FSTP float ptr [ESP + 0x38]                               
+  0x00b7b610: MOV dword ptr [ESP + 0x28],ECX                            
+  0x00b7b614: MOV ECX,dword ptr [ESP + 0x38]                            
+  0x00b7b618: FST float ptr [ESP + 0x3c]                                
+  0x00b7b61c: MOV dword ptr [0x011fa280],EDX                            
+  0x00b7b622: FLD float ptr [ESP + 0x20]                                
+  0x00b7b626: MOV EDX,dword ptr [ESP + 0x3c]                            
+  0x00b7b62a: FSTP float ptr [ESP + 0x30]                               
+  0x00b7b62e: MOV [0x011fa284],EAX                                      
+  0x00b7b633: FLD float ptr [ESP + 0x24]                                
+  0x00b7b637: MOV EAX,dword ptr [ESP + 0x30]                            
+  0x00b7b63b: FSTP float ptr [ESP + 0x34]                               
+  0x00b7b63f: MOV dword ptr [0x011fa288],ECX                            
+  0x00b7b645: FLD float ptr [ESP + 0x28]                                
+  0x00b7b649: MOV ECX,dword ptr [ESP + 0x34]                            
+  0x00b7b64d: FSTP float ptr [ESP + 0x38]                               
+  0x00b7b651: MOV dword ptr [0x011fa28c],EDX                            
+  0x00b7b657: MOV EDX,dword ptr [ESP + 0x38]                            
+
+----------------------------------------------------------------------
+Disassembly current geometry writer entry around 0x00b994f0
+----------------------------------------------------------------------
+  0x00b99480: MOV ECX,ESI                                               
+  0x00b99482: CALL EAX                                                  
+  0x00b99484: MOV dword ptr [0x011ffe30],EDI                            
+  0x00b9948a: POP EDI                                                   
+  0x00b9948b: MOV dword ptr [0x011ffe2c],ESI                            
+  0x00b99491: MOV byte ptr [0x011ad8ec],0x1                             
+  0x00b99498: POP ESI                                                   
+  0x00b99499: RET                                                       
+  0x00b994f0: PUSH ESI                                                   << TARGET
+  0x00b994f1: MOV ESI,dword ptr [ESP + 0x8]                             
+  0x00b994f5: MOVZX EAX,word ptr [ESI + 0x4]                            
+  0x00b994f9: PUSH EDI                                                  
+  0x00b994fa: MOV EDI,dword ptr [ESP + 0x10]                            
+  0x00b994fe: CMP EAX,EDI                                               
+  0x00b99500: JNZ 0x00b99628                                            
+  0x00b99506: MOV dword ptr [0x011f91e4],EDI                            
+  0x00b9950c: MOV dword ptr [0x011f91e0],ESI                            
+  0x00b99512: MOV ECX,dword ptr [ESI]                                   
+  0x00b99514: MOV EAX,dword ptr [ECX + 0xc0]                            
+  0x00b9951a: PUSH EBX                                                  
+  0x00b9951b: XOR BL,BL                                                 
+  0x00b9951d: CMP dword ptr [0x011ffe30],EDI                            
+  0x00b99523: JNZ 0x00b99535                                            
+  0x00b99525: CMP EDI,0x2f6                                             
+  0x00b9952b: JZ 0x00b99535                                             
+  0x00b9952d: CMP EAX,dword ptr [0x011ffe2c]                            
+  0x00b99533: JZ 0x00b99541                                             
+  0x00b99535: PUSH EAX                                                  
+  0x00b99536: PUSH EDI                                                  
+  0x00b99537: MOV BL,0x1                                                
+  0x00b99539: CALL 0x00b99390                                           
+  0x00b9953e: ADD ESP,0x8                                               
+  0x00b99541: CMP byte ptr [0x011f9421],0x0                             
+  0x00b99548: JZ 0x00b99574                                             
+  0x00b9954a: MOV EDX,dword ptr [ESI]                                   
+  0x00b9954c: MOV EAX,dword ptr [EDX + 0x9c]                            
+  0x00b99552: TEST EAX,EAX                                              
+  0x00b99554: JZ 0x00b99568                                             
+  0x00b99556: MOV AX,word ptr [EAX + 0x18]                              
+  0x00b9955a: SHR AX,0x9                                                
+  0x00b9955e: TEST AL,0x1                                               
+  0x00b99560: JZ 0x00b99568                                             
+  0x00b99562: PUSH 0x0                                                  
+  0x00b99564: PUSH 0x1                                                  
+  0x00b99566: JMP 0x00b9956c                                            
+  0x00b99568: PUSH 0x0                                                  
+  0x00b9956a: PUSH 0x0                                                  
+  0x00b9956c: CALL 0x00b98540                                           
+  0x00b99571: ADD ESP,0x8                                               
+  0x00b99574: MOV ECX,dword ptr [ESI]                                   
+  0x00b99576: PUSH 0x0                                                  
+  0x00b99578: PUSH ECX                                                  
+  0x00b99579: MOV ECX,dword ptr [0x011f9508]                            
+  0x00b9957f: CALL 0x00e72c20                                           
+  0x00b99584: TEST AL,AL                                                
+  0x00b99586: JZ 0x00b9959f                                             
+  0x00b99588: MOV EDX,dword ptr [ESP + 0x20]                            
+  0x00b9958c: MOV EAX,dword ptr [ESP + 0x1c]                            
+  0x00b99590: MOV ECX,dword ptr [ESP + 0x18]                            
+  0x00b99594: PUSH EDX                                                  
+  0x00b99595: PUSH EAX                                                  
+  0x00b99596: PUSH ECX                                                  
+  0x00b99597: PUSH ESI                                                  
+  0x00b99598: CALL 0x00b99110                                           
+  0x00b9959d: JMP 0x00b995f5                                            
+  0x00b9959f: MOV ECX,dword ptr [ESI]                                   
+  0x00b995a1: MOV EDX,dword ptr [ECX]                                   
+  0x00b995a3: MOV EAX,dword ptr [EDX + 0x30]                            
+  0x00b995a6: CALL EAX                                                  
+  0x00b995a8: MOV ECX,dword ptr [ESI]                                   
+  0x00b995aa: TEST EAX,EAX                                              
+  0x00b995ac: JZ 0x00b995c0                                             
+  0x00b995ae: MOV EDX,dword ptr [ECX]                                   
+
+----------------------------------------------------------------------
+Disassembly close terrain row 0x1F2 layer write around 0x00bdb1c7
+----------------------------------------------------------------------
+  0x00bdb196: MOV EDX,dword ptr [ESP + 0x20]                            
+  0x00bdb19a: MOVZX EAX,byte ptr [EBP]                                  
+  0x00bdb19e: MOV ECX,dword ptr [ESI + 0x3c]                            
+  0x00bdb1a1: PUSH 0x0                                                  
+  0x00bdb1a3: PUSH 0x0                                                  
+  0x00bdb1a5: PUSH 0x0                                                  
+  0x00bdb1a7: PUSH EDX                                                  
+  0x00bdb1a8: PUSH 0x1                                                  
+  0x00bdb1aa: PUSH EAX                                                  
+  0x00bdb1ab: PUSH 0x1f2                                                
+  0x00bdb1b0: PUSH EDI                                                  
+  0x00bdb1b1: CALL 0x00ba9ee0                                           
+  0x00bdb1b6: MOV EAX,dword ptr [ESI + 0x3c]                            
+  0x00bdb1b9: MOV EDX,dword ptr [EAX + 0x10]                            
+  0x00bdb1bc: MOV EAX,dword ptr [EAX + 0x4]                             
+  0x00bdb1bf: MOV EDX,dword ptr [EAX + EDX*0x4 + -0x4]                  
+  0x00bdb1c3: MOV CL,BL                                                 
+  0x00bdb1c5: INC CL                                                    
+  0x00bdb1c7: MOV byte ptr [EDX + 0xb],CL                                << TARGET
+  0x00bdb1ca: JMP 0x00bdb210                                            
+  0x00bdb1cc: CMP byte ptr [ESP + 0x28],0x1                             
+  0x00bdb1d1: JNZ 0x00bdb209                                            
+  0x00bdb1d3: MOV EAX,dword ptr [ESP + 0x20]                            
+  0x00bdb1d7: MOVZX ECX,byte ptr [EBP]                                  
+  0x00bdb1db: PUSH 0x0                                                  
+  0x00bdb1dd: PUSH 0x0                                                  
+  0x00bdb1df: PUSH 0x0                                                  
+  0x00bdb1e1: PUSH EAX                                                  
+  0x00bdb1e2: PUSH 0x1                                                  
+  0x00bdb1e4: PUSH ECX                                                  
+  0x00bdb1e5: MOV ECX,dword ptr [ESI + 0x3c]                            
+  0x00bdb1e8: PUSH 0x1f3                                                
+  0x00bdb1ed: PUSH EDI                                                  
+  0x00bdb1ee: CALL 0x00ba9ee0                                           
+  0x00bdb1f3: MOV EAX,dword ptr [ESI + 0x3c]                            
+  0x00bdb1f6: MOV ECX,dword ptr [EAX + 0x10]                            
+  0x00bdb1f9: MOV EAX,dword ptr [EAX + 0x4]                             
+  0x00bdb1fc: MOV ECX,dword ptr [EAX + ECX*0x4 + -0x4]                  
+  0x00bdb200: MOV DL,BL                                                 
+  0x00bdb202: INC DL                                                    
+  0x00bdb204: MOV byte ptr [ECX + 0xb],DL                               
+  0x00bdb207: JMP 0x00bdb210                                            
+  0x00bdb209: MOV EAX,dword ptr [ESP + 0x24]                            
+  0x00bdb20d: INC word ptr [EAX]                                        
+  0x00bdb210: MOV EAX,dword ptr [ESP + 0x10]                            
+  0x00bdb214: INC BL                                                    
+  0x00bdb216: MOVZX DX,BL                                               
+
+----------------------------------------------------------------------
+Disassembly close terrain row 0x1F3 layer write around 0x00bdb204
+----------------------------------------------------------------------
+  0x00bdb1d3: MOV EAX,dword ptr [ESP + 0x20]                            
+  0x00bdb1d7: MOVZX ECX,byte ptr [EBP]                                  
+  0x00bdb1db: PUSH 0x0                                                  
+  0x00bdb1dd: PUSH 0x0                                                  
+  0x00bdb1df: PUSH 0x0                                                  
+  0x00bdb1e1: PUSH EAX                                                  
+  0x00bdb1e2: PUSH 0x1                                                  
+  0x00bdb1e4: PUSH ECX                                                  
+  0x00bdb1e5: MOV ECX,dword ptr [ESI + 0x3c]                            
+  0x00bdb1e8: PUSH 0x1f3                                                
+  0x00bdb1ed: PUSH EDI                                                  
+  0x00bdb1ee: CALL 0x00ba9ee0                                           
+  0x00bdb1f3: MOV EAX,dword ptr [ESI + 0x3c]                            
+  0x00bdb1f6: MOV ECX,dword ptr [EAX + 0x10]                            
+  0x00bdb1f9: MOV EAX,dword ptr [EAX + 0x4]                             
+  0x00bdb1fc: MOV ECX,dword ptr [EAX + ECX*0x4 + -0x4]                  
+  0x00bdb200: MOV DL,BL                                                 
+  0x00bdb202: INC DL                                                    
+  0x00bdb204: MOV byte ptr [ECX + 0xb],DL                                << TARGET
+  0x00bdb207: JMP 0x00bdb210                                            
+  0x00bdb209: MOV EAX,dword ptr [ESP + 0x24]                            
+  0x00bdb20d: INC word ptr [EAX]                                        
+  0x00bdb210: MOV EAX,dword ptr [ESP + 0x10]                            
+  0x00bdb214: INC BL                                                    
+  0x00bdb216: MOVZX DX,BL                                               
+  0x00bdb21a: CMP DX,AX                                                 
+  0x00bdb21d: JC 0x00bdb170                                             
+  0x00bdb223: XOR ECX,ECX                                               
+  0x00bdb225: XOR BL,BL                                                 
+  0x00bdb227: CMP CX,AX                                                 
+  0x00bdb22a: JNC 0x00bdb367                                            
+  0x00bdb230: MOV ECX,dword ptr [ESP + 0x14]                            
+  0x00bdb234: MOV EDX,dword ptr [ECX + 0xac]                            
+  0x00bdb23a: MOVZX EAX,BL                                              
+  0x00bdb23d: ADD EAX,EAX                                               
+  0x00bdb23f: ADD EAX,EAX                                               
+  0x00bdb241: CMP dword ptr [EAX + EDX*0x1 + 0x4],0x0                   
+  0x00bdb246: JZ 0x00bdb356                                             
+  0x00bdb24c: MOV ECX,dword ptr [ECX + 0xb4]                            
+  0x00bdb252: CMP dword ptr [EAX + ECX*0x1 + 0x4],0x0                   
+  0x00bdb257: JZ 0x00bdb29a                                             
+  0x00bdb259: CMP byte ptr [ESP + 0x28],0x1                             
+  0x00bdb25e: JNZ 0x00bdb293                                            
+  0x00bdb260: MOVZX EDX,byte ptr [EBP]                                  
+  0x00bdb264: MOV ECX,dword ptr [ESI + 0x3c]                            
+  0x00bdb267: PUSH 0x0                                                  
+  0x00bdb269: PUSH 0x0                                                  
+
+----------------------------------------------------------------------
+Disassembly close terrain row 0x1F4 layer write around 0x00bdb28e
+----------------------------------------------------------------------
+  0x00bdb25e: JNZ 0x00bdb293                                            
+  0x00bdb260: MOVZX EDX,byte ptr [EBP]                                  
+  0x00bdb264: MOV ECX,dword ptr [ESI + 0x3c]                            
+  0x00bdb267: PUSH 0x0                                                  
+  0x00bdb269: PUSH 0x0                                                  
+  0x00bdb26b: PUSH 0x0                                                  
+  0x00bdb26d: PUSH 0x0                                                  
+  0x00bdb26f: PUSH 0x0                                                  
+  0x00bdb271: PUSH EDX                                                  
+  0x00bdb272: PUSH 0x1f4                                                
+  0x00bdb277: PUSH EDI                                                  
+  0x00bdb278: CALL 0x00ba9ee0                                           
+  0x00bdb27d: MOV EAX,dword ptr [ESI + 0x3c]                            
+  0x00bdb280: MOV EDX,dword ptr [EAX + 0x10]                            
+  0x00bdb283: MOV EAX,dword ptr [EAX + 0x4]                             
+  0x00bdb286: MOV EDX,dword ptr [EAX + EDX*0x4 + -0x4]                  
+  0x00bdb28a: MOV CL,BL                                                 
+  0x00bdb28c: INC CL                                                    
+  0x00bdb28e: MOV byte ptr [EDX + 0xb],CL                                << TARGET
+  0x00bdb291: JMP 0x00bdb29a                                            
+  0x00bdb293: MOV EAX,dword ptr [ESP + 0x24]                            
+  0x00bdb297: INC word ptr [EAX]                                        
+  0x00bdb29a: CMP byte ptr [ESP + 0x1c],0x0                             
+  0x00bdb29f: JZ 0x00bdb356                                             
+  0x00bdb2a5: LEA EAX,[ESP + 0x30]                                      
+  0x00bdb2a9: PUSH EAX                                                  
+  0x00bdb2aa: MOV ECX,ESI                                               
+  0x00bdb2ac: CALL 0x00b70600                                           
+  0x00bdb2b1: MOV ECX,EAX                                               
+  0x00bdb2b3: TEST ECX,ECX                                              
+  0x00bdb2b5: JZ 0x00bdb356                                             
+  0x00bdb2bb: MOV EDX,dword ptr [ECX + 0xf8]                            
+  0x00bdb2c1: FLD float ptr [EDX + 0xd4]                                
+  0x00bdb2c7: ADD EDX,0xd4                                              
+  0x00bdb2cd: FLD float ptr [0x011f4998]                                
+  0x00bdb2d3: FUCOMPP                                                   
+  0x00bdb2d5: FNSTSW AX                                                 
+  0x00bdb2d7: TEST AH,0x44                                              
+  0x00bdb2da: JP 0x00bdb300                                             
+  0x00bdb2dc: FLD float ptr [EDX + 0x4]                                 
+  0x00bdb2df: FLD float ptr [0x011f499c]                                
+  0x00bdb2e5: FUCOMPP                                                   
+  0x00bdb2e7: FNSTSW AX                                                 
+  0x00bdb2e9: TEST AH,0x44                                              
+  0x00bdb2ec: JP 0x00bdb300                                             
+  0x00bdb2ee: FLD float ptr [EDX + 0x8]                                 
+  0x00bdb2f1: FLD float ptr [0x011f49a0]                                
+
+----------------------------------------------------------------------
+Disassembly close terrain row 0x1F5 layer write around 0x00bdb334
+----------------------------------------------------------------------
+  0x00bdb305: JNZ 0x00bdb339                                            
+  0x00bdb307: PUSH 0x0                                                  
+  0x00bdb309: PUSH 0x0                                                  
+  0x00bdb30b: PUSH 0x0                                                  
+  0x00bdb30d: PUSH ECX                                                  
+  0x00bdb30e: MOVZX ECX,byte ptr [EBP]                                  
+  0x00bdb312: PUSH 0x1                                                  
+  0x00bdb314: PUSH ECX                                                  
+  0x00bdb315: MOV ECX,dword ptr [ESI + 0x3c]                            
+  0x00bdb318: PUSH 0x1f5                                                
+  0x00bdb31d: PUSH EDI                                                  
+  0x00bdb31e: CALL 0x00ba9ee0                                           
+  0x00bdb323: MOV EAX,dword ptr [ESI + 0x3c]                            
+  0x00bdb326: MOV ECX,dword ptr [EAX + 0x10]                            
+  0x00bdb329: MOV EAX,dword ptr [EAX + 0x4]                             
+  0x00bdb32c: MOV ECX,dword ptr [EAX + ECX*0x4 + -0x4]                  
+  0x00bdb330: MOV DL,BL                                                 
+  0x00bdb332: INC DL                                                    
+  0x00bdb334: MOV byte ptr [ECX + 0xb],DL                                << TARGET
+  0x00bdb337: JMP 0x00bdb340                                            
+  0x00bdb339: MOV EAX,dword ptr [ESP + 0x24]                            
+  0x00bdb33d: INC word ptr [EAX]                                        
+  0x00bdb340: LEA EDX,[ESP + 0x30]                                      
+  0x00bdb344: PUSH EDX                                                  
+  0x00bdb345: MOV ECX,ESI                                               
+  0x00bdb347: CALL 0x00b70700                                           
+  0x00bdb34c: MOV ECX,EAX                                               
+  0x00bdb34e: TEST ECX,ECX                                              
+  0x00bdb350: JNZ 0x00bdb2bb                                            
+  0x00bdb356: INC BL                                                    
+  0x00bdb358: MOVZX AX,BL                                               
+  0x00bdb35c: CMP AX,word ptr [ESP + 0x10]                              
+  0x00bdb361: JC 0x00bdb230                                             
+  0x00bdb367: POP EDI                                                   
+  0x00bdb368: POP ESI                                                   
+  0x00bdb369: POP EBP                                                   
+  0x00bdb36a: POP EBX                                                   
+  0x00bdb36b: ADD ESP,0x8                                               
+  0x00bdb36e: RET 0x18                                                  
+  0x00bdb380: PUSH -0x1                                                 
+  0x00bdb382: PUSH 0xf2d2e6                                             
+  0x00bdb387: MOV EAX,FS:[0x0]                                          
+  0x00bdb38d: PUSH EAX                                                  
+  0x00bdb38e: SUB ESP,0xc                                               
+  0x00bdb391: PUSH EBX                                                  
+  0x00bdb392: PUSH EBP                                                  
+  0x00bdb393: PUSH ESI                                                  
+
+----------------------------------------------------------------------
+Disassembly LandO light-resource branch around 0x00bdf5f5
+----------------------------------------------------------------------
+  0x00bdf5b1: ADD EAX,0x2                                               
+  0x00bdf5b4: CMP byte ptr [ESP + 0x24],0x1                             
+  0x00bdf5b9: JNZ 0x00bdf5d7                                            
+  0x00bdf5bb: MOV ECX,dword ptr [ESP + 0x1c]                            
+  0x00bdf5bf: MOV EDX,dword ptr [ESP + 0x18]                            
+  0x00bdf5c3: PUSH EDI                                                  
+  0x00bdf5c4: PUSH EBX                                                  
+  0x00bdf5c5: PUSH EBP                                                  
+  0x00bdf5c6: PUSH ECX                                                  
+  0x00bdf5c7: MOV ECX,dword ptr [ESI + 0x3c]                            
+  0x00bdf5ca: PUSH 0x4                                                  
+  0x00bdf5cc: PUSH 0x1                                                  
+  0x00bdf5ce: PUSH EAX                                                  
+  0x00bdf5cf: PUSH EDX                                                  
+  0x00bdf5d0: CALL 0x00ba9ee0                                           
+  0x00bdf5d5: JMP 0x00bdf5de                                            
+  0x00bdf5d7: MOV EAX,dword ptr [ESP + 0x20]                            
+  0x00bdf5db: INC word ptr [EAX]                                        
+  0x00bdf5de: CMP byte ptr [ESP + 0x24],0x1                             
+  0x00bdf5e3: MOV EAX,dword ptr [ESP + 0x28]                            
+  0x00bdf5e7: MOV byte ptr [EAX],0x0                                    
+  0x00bdf5ea: JNZ 0x00bdf638                                            
+  0x00bdf5ec: CMP byte ptr [0x011f94ab],0x0                             
+  0x00bdf5f3: JZ 0x00bdf638                                             
+  0x00bdf5f5: TEST dword ptr [ESI + 0x24],0x4000                         << TARGET
+  0x00bdf5fc: JA 0x00bdf638                                             
+  0x00bdf5fe: MOV ECX,dword ptr [ESP + 0x1c]                            
+  0x00bdf602: MOV EDX,dword ptr [ESP + 0x18]                            
+  0x00bdf606: PUSH 0x0                                                  
+  0x00bdf608: PUSH 0x0                                                  
+  0x00bdf60a: PUSH 0x0                                                  
+  0x00bdf60c: PUSH ECX                                                  
+  0x00bdf60d: MOV ECX,dword ptr [ESI + 0x3c]                            
+  0x00bdf610: PUSH 0x1                                                  
+  0x00bdf612: PUSH 0x0                                                  
+  0x00bdf614: PUSH 0x230                                                
+  0x00bdf619: PUSH EDX                                                  
+  0x00bdf61a: CALL 0x00ba9ee0                                           
+  0x00bdf61f: MOV ESI,dword ptr [ESI + 0x3c]                            
+  0x00bdf622: MOV EAX,dword ptr [ESI + 0x10]                            
+  0x00bdf625: MOV ECX,dword ptr [ESI + 0x4]                             
+  0x00bdf628: MOV EDX,dword ptr [ECX + EAX*0x4 + -0x4]                  
+  0x00bdf62c: POP EDI                                                   
+  0x00bdf62d: POP ESI                                                   
+  0x00bdf62e: POP EBP                                                   
+  0x00bdf62f: MOV byte ptr [EDX + 0xb],0x9                              
+  0x00bdf633: POP EBX                                                   
+  0x00bdf634: POP ECX                                                   
+  0x00bdf635: RET 0x1c                                                  
+  0x00bdf638: MOV EAX,dword ptr [ESP + 0x20]                            
+  0x00bdf63c: INC word ptr [EAX]                                        
+  0x00bdf63f: POP EDI                                                   
+  0x00bdf640: POP ESI                                                   
+  0x00bdf641: POP EBP                                                   
+  0x00bdf642: POP EBX                                                   
+  0x00bdf643: POP ECX                                                   
+  0x00bdf644: RET 0x1c                                                  
+
+----------------------------------------------------------------------
+Disassembly pixel shader-interface apply around 0x00bd4c35
+----------------------------------------------------------------------
+  0x00bd4c01: MOV dword ptr [ESP + 0x18],EAX                            
+  0x00bd4c05: MOV EAX,dword ptr [ESP + 0x20]                            
+  0x00bd4c09: PUSH EAX                                                  
+  0x00bd4c0a: MOV EAX,dword ptr [ESP + 0x1c]                            
+  0x00bd4c0e: PUSH EAX                                                  
+  0x00bd4c0f: PUSH ESI                                                  
+  0x00bd4c10: CALL EDX                                                  
+  0x00bd4c12: PUSH 0x1                                                  
+  0x00bd4c14: CALL 0x00b55560                                           
+  0x00bd4c19: MOV ECX,dword ptr [EAX + 0x30]                            
+  0x00bd4c1c: MOV EDX,dword ptr [ECX]                                   
+  0x00bd4c1e: ADD ESP,0x4                                               
+  0x00bd4c21: MOV EDX,dword ptr [EDX + 0x78]                            
+  0x00bd4c24: PUSH 0x1                                                  
+  0x00bd4c26: PUSH 0x0                                                  
+  0x00bd4c28: MOV dword ptr [ESP + 0x28],EAX                            
+  0x00bd4c2c: MOV EAX,dword ptr [ESP + 0x18]                            
+  0x00bd4c30: PUSH EAX                                                  
+  0x00bd4c31: LEA EAX,[ESI + 0x68]                                      
+  0x00bd4c34: PUSH EAX                                                  
+  0x00bd4c35: MOV EAX,[0x0126f74c]                                       << TARGET
+  0x00bd4c3a: MOV EAX,dword ptr [EAX + 0x44]                            
+  0x00bd4c3d: PUSH 0x0                                                  
+  0x00bd4c3f: PUSH EDI                                                  
+  0x00bd4c40: PUSH EBX                                                  
+  0x00bd4c41: PUSH 0x0                                                  
+  0x00bd4c43: PUSH EBP                                                  
+  0x00bd4c44: PUSH ESI                                                  
+  0x00bd4c45: PUSH EAX                                                  
+  0x00bd4c46: CALL EDX                                                  
+  0x00bd4c48: MOV EAX,dword ptr [ESP + 0x20]                            
+  0x00bd4c4c: MOV ECX,dword ptr [EAX + 0x34]                            
+  0x00bd4c4f: MOV EAX,dword ptr [ESP + 0x10]                            
+  0x00bd4c53: MOV EDX,dword ptr [ECX]                                   
+  0x00bd4c55: MOV EDX,dword ptr [EDX + 0x78]                            
+  0x00bd4c58: PUSH 0x1                                                  
+  0x00bd4c5a: PUSH 0x0                                                  
+  0x00bd4c5c: PUSH EAX                                                  
+  0x00bd4c5d: LEA EAX,[ESI + 0x68]                                      
+  0x00bd4c60: PUSH EAX                                                  
+  0x00bd4c61: MOV EAX,[0x0126f74c]                                      
+  0x00bd4c66: MOV EAX,dword ptr [EAX + 0x5c]                            
+  0x00bd4c69: PUSH 0x0                                                  
+  0x00bd4c6b: PUSH EDI                                                  
+  0x00bd4c6c: PUSH EBX                                                  
+  0x00bd4c6d: PUSH 0x0                                                  
+  0x00bd4c6f: PUSH EBP                                                  
+  0x00bd4c70: PUSH ESI                                                  
+  0x00bd4c71: PUSH EAX                                                  
+  0x00bd4c72: CALL EDX                                                  
+  0x00bd4c74: MOV EAX,dword ptr [ESP + 0x14]                            
+  0x00bd4c78: MOV ECX,dword ptr [EAX + 0x30]                            
+  0x00bd4c7b: TEST ECX,ECX                                              
+  0x00bd4c7d: JZ 0x00bd4cb1                                             
+  0x00bd4c7f: MOV EDX,dword ptr [0x0126f74c]                            
+  0x00bd4c85: MOV EAX,dword ptr [EDX + 0x44]                            
+  0x00bd4c88: MOV dword ptr [ESP + 0x20],EAX                            
+  0x00bd4c8c: TEST EAX,EAX                                              
+  0x00bd4c8e: JZ 0x00bd4cb1                                             
+  0x00bd4c90: MOV EAX,dword ptr [ESP + 0x10]                            
+  0x00bd4c94: MOV EDX,dword ptr [ECX]                                   
+  0x00bd4c96: MOV EDX,dword ptr [EDX + 0x78]                            
+  0x00bd4c99: PUSH 0x1                                                  
+
+----------------------------------------------------------------------
+Disassembly vertex shader-interface apply around 0x00bd4cbc
+----------------------------------------------------------------------
+  0x00bd4c94: MOV EDX,dword ptr [ECX]                                   
+  0x00bd4c96: MOV EDX,dword ptr [EDX + 0x78]                            
+  0x00bd4c99: PUSH 0x1                                                  
+  0x00bd4c9b: PUSH 0x0                                                  
+  0x00bd4c9d: PUSH EAX                                                  
+  0x00bd4c9e: LEA EAX,[ESI + 0x68]                                      
+  0x00bd4ca1: PUSH EAX                                                  
+  0x00bd4ca2: MOV EAX,dword ptr [ESP + 0x30]                            
+  0x00bd4ca6: PUSH 0x0                                                  
+  0x00bd4ca8: PUSH EDI                                                  
+  0x00bd4ca9: PUSH EBX                                                  
+  0x00bd4caa: PUSH 0x0                                                  
+  0x00bd4cac: PUSH EBP                                                  
+  0x00bd4cad: PUSH ESI                                                  
+  0x00bd4cae: PUSH EAX                                                  
+  0x00bd4caf: CALL EDX                                                  
+  0x00bd4cb1: MOV EAX,dword ptr [ESP + 0x14]                            
+  0x00bd4cb5: MOV ECX,dword ptr [EAX + 0x34]                            
+  0x00bd4cb8: TEST ECX,ECX                                              
+  0x00bd4cba: JZ 0x00bd4cee                                             
+  0x00bd4cbc: MOV EDX,dword ptr [0x0126f74c]                             << TARGET
+  0x00bd4cc2: MOV EAX,dword ptr [EDX + 0x5c]                            
+  0x00bd4cc5: MOV dword ptr [ESP + 0x20],EAX                            
+  0x00bd4cc9: TEST EAX,EAX                                              
+  0x00bd4ccb: JZ 0x00bd4cee                                             
+  0x00bd4ccd: MOV EAX,dword ptr [ESP + 0x10]                            
+  0x00bd4cd1: MOV EDX,dword ptr [ECX]                                   
+  0x00bd4cd3: MOV EDX,dword ptr [EDX + 0x78]                            
+  0x00bd4cd6: PUSH 0x1                                                  
+  0x00bd4cd8: PUSH 0x0                                                  
+  0x00bd4cda: PUSH EAX                                                  
+  0x00bd4cdb: LEA EAX,[ESI + 0x68]                                      
+  0x00bd4cde: PUSH EAX                                                  
+  0x00bd4cdf: MOV EAX,dword ptr [ESP + 0x30]                            
+  0x00bd4ce3: PUSH 0x0                                                  
+  0x00bd4ce5: PUSH EDI                                                  
+  0x00bd4ce6: PUSH EBX                                                  
+  0x00bd4ce7: PUSH 0x0                                                  
+  0x00bd4ce9: PUSH EBP                                                  
+  0x00bd4cea: PUSH ESI                                                  
+  0x00bd4ceb: PUSH EAX                                                  
+  0x00bd4cec: CALL EDX                                                  
+  0x00bd4cee: POP EDI                                                   
+  0x00bd4cef: POP ESI                                                   
+  0x00bd4cf0: POP EBP                                                   
+  0x00bd4cf1: POP EBX                                                   
+  0x00bd4cf2: ADD ESP,0xc                                               
+  0x00bd4cf5: RET 0x4                                                   
+  0x00bd4d00: PUSH ESI                                                  
+  0x00bd4d01: MOV ESI,ECX                                               
+  0x00bd4d03: CALL 0x00bd4570                                           
+  0x00bd4d08: TEST byte ptr [ESP + 0x8],0x1                             
+  0x00bd4d0d: JZ 0x00bd4d1d                                             
+  0x00bd4d0f: PUSH 0x12c                                                
+  0x00bd4d14: PUSH ESI                                                  
+  0x00bd4d15: CALL 0x00aa1460                                           
+  0x00bd4d1a: ADD ESP,0x8                                               
+  0x00bd4d1d: MOV EAX,ESI                                               
+  0x00bd4d1f: POP ESI                                                   
+  0x00bd4d20: RET 0x4                                                   
+  0x00bd4d30: PUSH -0x1                                                 
+  0x00bd4d32: PUSH 0xf2c74e                                             
+  0x00bd4d37: MOV EAX,FS:[0x0]                                          
+
+----------------------------------------------------------------------
+Disassembly BSShader::SetShaders raw entry around 0x00be1f90
+----------------------------------------------------------------------
+  0x00be1f5e: MOV EDX,dword ptr [EAX]                                   
+  0x00be1f60: PUSH 0x1                                                  
+  0x00be1f62: CALL EDX                                                  
+  0x00be1f64: MOV EAX,0x80004005                                        
+  0x00be1f69: MOV ECX,dword ptr [ESP + 0x114]                           
+  0x00be1f70: POP ESI                                                   
+  0x00be1f71: POP EBP                                                   
+  0x00be1f72: POP EBX                                                   
+  0x00be1f73: XOR ECX,ESP                                               
+  0x00be1f75: CALL 0x00ec408c                                           
+  0x00be1f7a: ADD ESP,0x10c                                             
+  0x00be1f80: RET 0x18                                                  
+  0x00be1f90: MOV ECX,dword ptr [0x0126f74c]                             << TARGET
+  0x00be1f96: PUSH ESI                                                  
+  0x00be1f97: PUSH EDI                                                  
+  0x00be1f98: CALL 0x00e7f7c0                                           
+  0x00be1f9d: MOV ESI,EAX                                               
+  0x00be1f9f: MOV EAX,[0x0126f74c]                                      
+  0x00be1fa4: MOV ECX,dword ptr [EAX + 0x5c]                            
+  0x00be1fa7: MOV EDX,dword ptr [ECX]                                   
+  0x00be1fa9: MOV EAX,dword ptr [EDX + 0x84]                            
+  0x00be1faf: MOV EDI,dword ptr [ESI]                                   
+  0x00be1fb1: PUSH 0x0                                                  
+  0x00be1fb3: CALL EAX                                                  
+  0x00be1fb5: MOV EDX,dword ptr [EDI + 0x8c]                            
+  0x00be1fbb: PUSH EAX                                                  
+  0x00be1fbc: MOV ECX,ESI                                               
+  0x00be1fbe: CALL EDX                                                  
+  0x00be1fc0: MOV EAX,[0x0126f74c]                                      
+  0x00be1fc5: MOV ECX,dword ptr [EAX + 0x44]                            
+  0x00be1fc8: TEST ECX,ECX                                              
+  0x00be1fca: JZ 0x00be1fdf                                             
+  0x00be1fcc: MOV EDX,dword ptr [ECX]                                   
+  0x00be1fce: MOV EAX,dword ptr [EDX + 0x7c]                            
+  0x00be1fd1: MOV EDI,dword ptr [ESI]                                   
+  0x00be1fd3: PUSH 0x0                                                  
+  0x00be1fd5: CALL EAX                                                  
+  0x00be1fd7: MOV EDX,dword ptr [EDI + 0x7c]                            
+  0x00be1fda: PUSH EAX                                                  
+  0x00be1fdb: MOV ECX,ESI                                               
+  0x00be1fdd: CALL EDX                                                  
+  0x00be1fdf: POP EDI                                                   
+  0x00be1fe0: POP ESI                                                   
+  0x00be1fe1: RET 0x4                                                   
+  0x00be1ff0: MOV EAX,dword ptr [ESP + 0x4]                             
+  0x00be1ff4: PUSH EBX                                                  
+  0x00be1ff5: PUSH ESI                                                  
+  0x00be1ff6: MOV ESI,dword ptr [EAX]                                   
+  0x00be1ff8: MOV EAX,dword ptr [EAX + 0xc]                             
+  0x00be1ffb: TEST EAX,EAX                                              
+  0x00be1ffd: JNZ 0x00be2003                                            
+  0x00be1fff: XOR ECX,ECX                                               
+  0x00be2001: JMP 0x00be200d                                            
+  0x00be2003: MOV ECX,dword ptr [EAX + 0x1c]                            
+  0x00be2006: INC ECX                                                   
+  0x00be2007: NEG ECX                                                   
+  0x00be2009: SBB ECX,ECX                                               
+  0x00be200b: AND ECX,EAX                                               
+  0x00be200d: XOR DL,DL                                                 
+  0x00be200f: XOR BL,BL                                                 
+  0x00be2011: MOV byte ptr [ESP + 0xc],DL                               
+  0x00be2015: TEST ESI,ESI                                              
+  0x00be2017: JZ 0x00be2034                                             
+  0x00be2019: MOV AX,word ptr [ESI + 0x18]                              
+  0x00be201d: SHR AX,0x9                                                
+  0x00be2021: TEST AL,0x1                                               
+  0x00be2023: JZ 0x00be202a                                             
+  0x00be2025: MOV byte ptr [ESP + 0xc],0x1                              
+  0x00be202a: TEST byte ptr [ESI + 0x18],0x1                            
+  0x00be202e: JZ 0x00be2034                                             
+  0x00be2030: MOV DL,0x1                                                
+
+----------------------------------------------------------------------
+Disassembly current NiD3DPass write around 0x00e90933
+----------------------------------------------------------------------
+  0x00e908f6: PUSH EBX                                                  
+  0x00e908f7: PUSH EBX                                                  
+  0x00e908f8: PUSH 0x2                                                  
+  0x00e908fa: PUSH 0x6                                                  
+  0x00e908fc: CALL 0x00e890c0                                           
+  0x00e90901: MOV ECX,dword ptr [ESI + 0x10]                            
+  0x00e90904: PUSH EBX                                                  
+  0x00e90905: PUSH EBX                                                  
+  0x00e90906: PUSH EBX                                                  
+  0x00e90907: PUSH 0x7                                                  
+  0x00e90909: CALL 0x00e890c0                                           
+  0x00e9090e: MOV ECX,dword ptr [ESI + 0x10]                            
+  0x00e90911: PUSH EBX                                                  
+  0x00e90912: PUSH EBX                                                  
+  0x00e90913: PUSH 0x18                                                 
+  0x00e90915: MOV byte ptr [ESI + 0x5e],BL                              
+  0x00e90918: CALL 0x00e88fc0                                           
+  0x00e9091d: MOV ECX,dword ptr [ESP + 0x8]                             
+  0x00e90921: PUSH ESI                                                  
+  0x00e90922: MOV EAX,dword ptr [ECX + 0x14]                            
+  0x00e90925: PUSH EAX                                                  
+  0x00e90926: CALL 0x00e802b0                                           
+  0x00e9092b: MOV ECX,dword ptr [ESP + 0xc]                             
+  0x00e9092f: MOV EAX,dword ptr [ESP + 0x8]                             
+  0x00e90933: MOV [0x0126f74c],EAX                                       << TARGET
+  0x00e90938: CMP ECX,EBX                                               
+  0x00e9093a: JZ 0x00e90950                                             
+  0x00e9093c: DEC dword ptr [ECX + 0x60]                                
+  0x00e9093f: CMP dword ptr [ECX + 0x60],EBX                            
+  0x00e90942: LEA EAX,[ECX + 0x60]                                      
+  0x00e90945: JNZ 0x00e9094c                                            
+  0x00e90947: CALL 0x00e7ecd0                                           
+  0x00e9094c: MOV EAX,dword ptr [ESP + 0x8]                             
+  0x00e90950: CMP EAX,EBX                                               
+  0x00e90952: JZ 0x00e90965                                             
+  0x00e90954: DEC dword ptr [EAX + 0x64]                                
+  0x00e90957: MOV ECX,EAX                                               
+  0x00e90959: ADD EAX,0x64                                              
+  0x00e9095c: CMP dword ptr [EAX],EBX                                   
+  0x00e9095e: JNZ 0x00e90965                                            
+  0x00e90960: CALL 0x00e80190                                           
+  0x00e90965: POP ESI                                                   
+  0x00e90966: MOV AL,0x1                                                
+  0x00e90968: POP EBX                                                   
+  0x00e90969: ADD ESP,0x8                                               
+  0x00e9096c: RET                                                       
+  0x00e90970: PUSH EBX                                                  
+  0x00e90971: PUSH ESI                                                  
+  0x00e90972: PUSH EDI                                                  
+  0x00e90973: MOV ESI,ECX                                               
+  0x00e90975: MOV EAX,dword ptr [ESI + 0x18]                            
+  0x00e90978: PUSH 0x1                                                  
+  0x00e9097a: PUSH 0x1                                                  
+  0x00e9097c: PUSH EAX                                                  
+  0x00e9097d: CALL 0x00e76700                                           
+  0x00e90982: MOV EBX,dword ptr [ESI + 0x28]                            
+  0x00e90985: MOV EDI,EAX                                               
+  0x00e90987: ADD ESP,0xc                                               
+  0x00e9098a: CMP EBX,EDI                                               
+  0x00e9098c: JZ 0x00e909ba                                             
+  0x00e9098e: TEST EBX,EBX                                              
+  0x00e90990: JZ 0x00e909a9                                             
+  0x00e90992: LEA ECX,[EBX + 0x4]                                       
+
+======================================================================
+CONTRACT INSTRUCTIONS: PPLighting pass description resolver @ 0x00b4f9d0
+======================================================================
+  Total printed: 0 matches from 4480 instructions
+
+======================================================================
+CONTRACT INSTRUCTIONS: PPLighting shader setup and pass constant dispatch @ 0x00b7af80
+======================================================================
+  0x00b7afe6: CMP EAX,0x44
+  Total printed: 1 matches from 134 instructions
+
+======================================================================
+CONTRACT INSTRUCTIONS: PPLighting per-pass constant flag and fog updater @ 0x00b7b450
+======================================================================
+  0x00b7b48e: TEST dword ptr [EDI*0x4 + 0x11fcc80],EDX
+  0x00b7b4a7: TEST dword ptr [EDI*0x4 + 0x11fcc80],EDX
+  0x00b7b4db: TEST dword ptr [EDI*0x4 + 0x11fc0a0],EDX
+  0x00b7b4f4: TEST dword ptr [EDI*0x4 + 0x11fc0a0],EDX
+  0x00b7b513: MOV EDX,dword ptr [EAX + 0x24]
+  0x00b7b51d: MOV EDX,dword ptr [EAX + 0x24]
+  0x00b7b54e: FSTP float ptr [ESP + 0x18]
+  0x00b7b56e: FLD float ptr [ESP + 0x18]
+  0x00b7b572: TEST AH,0x44
+  0x00b7b57d: TEST AH,0x44
+  0x00b7b59a: FST float ptr [ESP + 0x24]
+  0x00b7b59e: MOV EAX,dword ptr [ESP + 0x24]
+  0x00b7b5e8: MOV EAX,dword ptr [ECX + 0x24]
+  0x00b7b600: MOV dword ptr [ESP + 0x24],EAX
+  0x00b7b633: FLD float ptr [ESP + 0x24]
+  0x00b7b68a: MOV EAX,dword ptr [EBX + 0x18]
+  0x00b7b693: LEA ECX,[ESP + 0x44]
+  0x00b7b6a3: MOV EAX,dword ptr [EDX + 0x5c]
+  0x00b7b6ad: LEA EDX,[ESP + 0x44]
+  Total printed: 19 matches from 201 instructions
+
+======================================================================
+CONTRACT INSTRUCTIONS: current geometry and selector writer @ 0x00b994f0
+======================================================================
+  0x00b99514: MOV EAX,dword ptr [ECX + 0xc0]
+  0x00b99556: MOV AX,word ptr [EAX + 0x18]
+  0x00b99590: MOV ECX,dword ptr [ESP + 0x18]
+  0x00b995e8: MOV EAX,dword ptr [ESP + 0x18]
+  0x00b99607: MOV EAX,dword ptr [ECX + 0x68]
+  Total printed: 5 matches from 114 instructions
+
+======================================================================
+CONTRACT INSTRUCTIONS: close terrain material row emitter @ 0x00bdaf10
+======================================================================
+  0x00bdaf8e: MOV EAX,dword ptr [ESP + 0x24]
+  0x00bdaf94: MOV EAX,dword ptr [ESP + 0x24]
+  0x00bdafdd: PUSH 0x1f2
+  0x00bdaff5: MOV EAX,dword ptr [ESP + 0x24]
+  0x00bdb019: RET 0x18
+  0x00bdb075: MOV EAX,dword ptr [ESP + 0x24]
+  0x00bdb0ae: MOV EAX,dword ptr [ESP + 0x24]
+  0x00bdb0f2: TEST AH,0x44
+  0x00bdb104: TEST AH,0x44
+  0x00bdb116: TEST AH,0x44
+  0x00bdb140: MOV EAX,dword ptr [ESP + 0x24]
+  0x00bdb1ab: PUSH 0x1f2
+  0x00bdb1e8: PUSH 0x1f3
+  0x00bdb209: MOV EAX,dword ptr [ESP + 0x24]
+  0x00bdb272: PUSH 0x1f4
+  0x00bdb293: MOV EAX,dword ptr [ESP + 0x24]
+  0x00bdb2d7: TEST AH,0x44
+  0x00bdb2e9: TEST AH,0x44
+  0x00bdb2fb: TEST AH,0x44
+  0x00bdb318: PUSH 0x1f5
+  0x00bdb339: MOV EAX,dword ptr [ESP + 0x24]
+  0x00bdb36e: RET 0x18
+  Total printed: 22 matches from 362 instructions
+
+======================================================================
+CONTRACT INSTRUCTIONS: terrain zero-resource row emitter @ 0x00bdac00
+======================================================================
+  0x00bdac00: SUB ESP,0x184
+  0x00bdac0d: MOV dword ptr [ESP + 0x180],EAX
+  0x00bdac1d: MOV ESI,dword ptr [ESP + 0x18c]
+  0x00bdae3e: MOV EAX,dword ptr [ESI + 0x18]
+  0x00bdaef1: MOV ECX,dword ptr [ESP + 0x188]
+  0x00bdaf06: ADD ESP,0x184
+  Total printed: 6 matches from 224 instructions
+
+======================================================================
+CONTRACT INSTRUCTIONS: LandO and terrain light-resource row emitter @ 0x00bdf3e0
+======================================================================
+  0x00bdf41c: TEST AH,0x44
+  0x00bdf42e: TEST AH,0x44
+  0x00bdf440: TEST AH,0x44
+  0x00bdf48c: TEST AH,0x44
+  0x00bdf49e: TEST AH,0x44
+  0x00bdf4b0: TEST AH,0x44
+  0x00bdf4fc: TEST AH,0x44
+  0x00bdf50e: TEST AH,0x44
+  0x00bdf520: TEST AH,0x44
+  0x00bdf554: TEST dword ptr [ESI + 0x24],0x100000
+  0x00bdf578: CMP byte ptr [ESP + 0x24],0x1
+  0x00bdf583: MOV EDX,dword ptr [ESP + 0x18]
+  0x00bdf5b4: CMP byte ptr [ESP + 0x24],0x1
+  0x00bdf5bf: MOV EDX,dword ptr [ESP + 0x18]
+  0x00bdf5de: CMP byte ptr [ESP + 0x24],0x1
+  0x00bdf5f5: TEST dword ptr [ESI + 0x24],0x4000
+  0x00bdf602: MOV EDX,dword ptr [ESP + 0x18]
+  0x00bdf614: PUSH 0x230
+  Total printed: 18 matches from 209 instructions
+
+======================================================================
+CONTRACT INSTRUCTIONS: terrain helper row emitter A @ 0x00bdf650
+======================================================================
+  0x00bdf66f: CMP byte ptr [ESP + 0x24],0x0
+  0x00bdf694: CMP byte ptr [ESP + 0x24],0x0
+  Total printed: 2 matches from 35 instructions
+
+======================================================================
+CONTRACT INSTRUCTIONS: terrain helper row emitter B @ 0x00bdf6c0
+======================================================================
+  0x00bdf6c3: TEST dword ptr [ESI + 0x20],0x4000
+  0x00bdf6e3: TEST byte ptr [ESI + 0x24],0x2
+  0x00bdf713: MOV DX,word ptr [ECX + 0x18]
+  0x00bdf755: MOV EAX,dword ptr [ESI + 0x24]
+  0x00bdf762: TEST dword ptr [ESI + 0x20],0x4000000
+  Total printed: 5 matches from 79 instructions
+
+======================================================================
+CONTRACT INSTRUCTIONS: PPLighting selector and pass-entry driver @ 0x00bdf790
+======================================================================
+  0x00bdf7db: MOV byte ptr [ESP + 0x18],0x0
+  0x00bdf7e2: MOV byte ptr [ESP + 0x18],0x1
+  0x00bdf7fe: TEST EAX,0x400
+  0x00bdf82b: TEST byte ptr [ESI + 0x24],BL
+  0x00bdf874: OR EAX,0xc00
+  0x00bdf8de: SETNZ byte ptr [ESP + 0x68]
+  0x00bdf905: TEST EAX,0x400000
+  0x00bdf90f: TEST EAX,0x800
+  0x00bdf923: TEST EAX,0x4000
+  0x00bdf92d: TEST EAX,0x8000
+  0x00bdf965: TEST EAX,0x40000
+  0x00bdf96f: TEST EAX,0x4000000
+  0x00bdf97b: TEST EAX,0x8000000
+  0x00bdf98d: TEST byte ptr [EAX + 0x18],0x1
+  0x00bdf9a6: MOV EAX,dword ptr [ESI + 0x24]
+  0x00bdf9e0: TEST byte ptr [EBX + 0x18],0x1
+  0x00bdf9fa: MOV byte ptr [ESP + 0x68],0x0
+  0x00bdfa0b: MOV byte ptr [ESP + 0x68],0x1
+  0x00bdfa14: MOV DX,word ptr [EBX + 0x18]
+  0x00bdfa2b: TEST dword ptr [ESI + 0x24],0x800000
+  0x00bdfa53: TEST AH,0x44
+  0x00bdfa91: TEST AH,0x44
+  0x00bdfab7: TEST AH,0x44
+  0x00bdfb11: CMP byte ptr [ESP + 0x68],0x0
+  0x00bdfb46: TEST byte ptr [EBX + 0x18],0x1
+  0x00bdfb4f: TEST EAX,0x8000
+  0x00bdfbad: MOV byte ptr [ESP + 0x18],0x1
+  0x00bdfc8c: TEST byte ptr [ESI + 0x24],0x40
+  0x00bdfcd6: MOV dword ptr [ESP + 0x24],EBX
+  0x00bdfdb9: CMP byte ptr [ESP + 0x18],0x0
+  0x00bdfdc0: CMP byte ptr [ESP + 0x68],0x0
+  0x00bdfe1e: CMP byte ptr [ESP + 0x18],0x0
+  0x00bdfe8a: MOV ECX,dword ptr [ESP + 0x24]
+  0x00bdfeb8: LEA EDX,[ESP + 0x24]
+  0x00bdfef1: MOV EAX,dword ptr [ESP + 0xc0]
+  0x00bdff65: LEA ECX,[ESP + 0x24]
+  0x00bdffa1: MOV EAX,dword ptr [ESP + 0x5c]
+  0x00be0031: MOV CX,word ptr [EAX + 0x18]
+  0x00be00a3: CMP byte ptr [ESP + 0x18],0x0
+  0x00be01af: CMP byte ptr [ESP + 0x18],0x0
+  0x00be020c: LEA EAX,[ESP + 0x24]
+  0x00be0245: MOV EAX,dword ptr [ESP + 0xc0]
+  0x00be0279: LEA ECX,[ESP + 0x24]
+  0x00be0297: MOV EDX,dword ptr [ESP + 0x24]
+  0x00be02d7: LEA EDX,[ESP + 0x24]
+  0x00be02f1: MOV ECX,dword ptr [ESP + 0x24]
+  0x00be0392: LEA ECX,[ESP + 0x24]
+  0x00be03a0: LEA EDX,[ESP + 0x24]
+  0x00be03c9: LEA EAX,[ESP + 0x24]
+  0x00be0419: LEA EDX,[ESP + 0x24]
+  0x00be0427: LEA EAX,[ESP + 0x24]
+  0x00be046b: LEA EAX,[ESP + 0x24]
+  0x00be04a5: MOV ECX,dword ptr [ESP + 0x44]
+  0x00be04ea: MOV ECX,dword ptr [ESP + 0x18]
+  0x00be050f: LEA EDX,[ESP + 0x24]
+  0x00be0530: LEA EAX,[ESP + 0x24]
+  0x00be053c: LEA ECX,[ESP + 0x24]
+  0x00be0555: MOV EDX,dword ptr [ESP + 0x18]
+  0x00be058c: LEA EDX,[ESP + 0x24]
+  0x00be05a1: MOV ECX,dword ptr [ESP + 0x18]
+  0x00be05dc: MOV EDX,dword ptr [ESP + 0x18]
+  0x00be0605: LEA EAX,[ESP + 0x24]
+  0x00be0624: LEA ECX,[ESP + 0x24]
+  0x00be063c: MOV EDX,dword ptr [ESP + 0x18]
+  0x00be06b4: MOV EDX,0x254
+  0x00be06cb: MOV EAX,dword ptr [ESP + 0x68]
+  0x00be07ac: CMP byte ptr [ESP + 0x68],0x0
+  0x00be07ff: RET 0x18
+  0x00be082f: RET 0x18
+  0x00be086a: RET 0x18
+  Total printed: 70 matches from 1360 instructions
+
+======================================================================
+CONTRACT INSTRUCTIONS: current pass shader-interface apply @ 0x00bd4ba0
+======================================================================
+  0x00bd4bdc: MOV dword ptr [ESP + 0x24],EAX
+  0x00bd4bf2: MOV ECX,dword ptr [ESP + 0x18]
+  0x00bd4c01: MOV dword ptr [ESP + 0x18],EAX
+  0x00bd4c2c: MOV EAX,dword ptr [ESP + 0x18]
+  0x00bd4c31: LEA EAX,[ESI + 0x68]
+  0x00bd4c3a: MOV EAX,dword ptr [EAX + 0x44]
+  0x00bd4c5d: LEA EAX,[ESI + 0x68]
+  0x00bd4c66: MOV EAX,dword ptr [EAX + 0x5c]
+  0x00bd4c85: MOV EAX,dword ptr [EDX + 0x44]
+  0x00bd4c9e: LEA EAX,[ESI + 0x68]
+  0x00bd4cc2: MOV EAX,dword ptr [EDX + 0x5c]
+  0x00bd4cdb: LEA EAX,[ESI + 0x68]
+  Total printed: 12 matches from 136 instructions
+
+======================================================================
+CONTRACT INSTRUCTIONS: current NiD3DPass writer @ 0x00e90850
+======================================================================
+  0x00e90913: PUSH 0x18
+  Total printed: 1 matches from 109 instructions

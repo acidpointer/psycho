@@ -266,15 +266,19 @@ Cause:
 
 The first object path covered only nearby/runtime-hit object shader variants. Distant object or LOD variants used different shader families and were not replaced.
 
+NVR's object PBR shader also drops the native specular fade carried by `LightData[0].w`. Vanilla shaderpackage 19 bytecode proves that the game multiplies accumulated specular lighting by this value in both ordinary specular variants (`SLS2017.pso`, `SLS2023.pso`) and ADTS10 high-light variants (`SLS2034.pso`, `SLS2035.pso`). NVR leaves an unresolved TODO for the ADTS10 case and omits the same contract in its ordinary specular path. When the engine changes object light or LOD state, the missing multiplication turns the native continuous specular fade into an abrupt PBR pop.
+
 Do not repeat:
 
 - Do not call object PBR complete after one visible nearby family works.
 - Do not rely on one test distance.
+- Do not discard `LightData[0].w` or apply it to diffuse and ambient lighting. It is the native specular transition weight for combined object-lighting passes.
 
 Correct fix path:
 
 - Map runtime-visible object shader families across near, mid, far, lit, shadowed, and LOD states.
 - Add replacement only for proven object/static ABI-compatible variants.
+- Split combined PBR lighting into diffuse and specular components, accumulate both across active lights, and multiply only the accumulated specular component by the native transition weight.
 - Keep object, terrain, and LandLOD shader contracts separate.
 
 ### 8. Vertex Shader Replacement Must Match the Pixel Path

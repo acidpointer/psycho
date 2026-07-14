@@ -52,7 +52,11 @@ impl SunshaftsEffect {
         scene_color: &Texture9,
         frame_index: u32,
     ) -> Direct3DResult<()> {
-        if frame_inputs.sun.available_f32() <= 0.5 || frame_inputs.depth.texture.is_none() {
+        if frame_inputs.sun.available_f32() <= 0.5
+            || frame_inputs.depth.texture.is_none()
+            || (frame_inputs.material_state.exterior_known
+                && !frame_inputs.material_state.is_exterior)
+        {
             return Ok(());
         }
 
@@ -404,6 +408,44 @@ fn bind_effect_constants(
             frame_inputs.sun.available_f32(),
             frame_inputs.sun.daylight,
         ]],
+    )?;
+    bind_depth_contract_constants(device, frame_inputs)
+}
+
+fn bind_depth_contract_constants(
+    device: &Device9Ref<'_>,
+    frame_inputs: &FrameInputs,
+) -> Direct3DResult<()> {
+    let world = frame_inputs.depth.world_projection;
+    let first_person = frame_inputs.depth.first_person_projection;
+    device.set_pixel_shader_constant_f(
+        11,
+        &[
+            [
+                world.reversed_depth_f32(),
+                first_person.reversed_depth_f32(),
+                frame_inputs.camera.available_f32(),
+                first_person.camera.available_f32(),
+            ],
+            [
+                frame_inputs.camera.frustum_left,
+                frame_inputs.camera.frustum_right,
+                frame_inputs.camera.frustum_bottom,
+                frame_inputs.camera.frustum_top,
+            ],
+            [
+                first_person.camera.near_z,
+                first_person.camera.far_z,
+                first_person.camera.aspect_ratio,
+                0.0,
+            ],
+            [
+                first_person.camera.frustum_left,
+                first_person.camera.frustum_right,
+                first_person.camera.frustum_bottom,
+                first_person.camera.frustum_top,
+            ],
+        ],
     )
 }
 

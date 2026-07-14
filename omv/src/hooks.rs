@@ -32,9 +32,17 @@ type PresentFn = unsafe extern "system" fn(
     *const c_void,
 ) -> i32;
 type ResetFn = unsafe extern "system" fn(*mut c_void, *mut c_void) -> i32;
+type DrawPrimitiveFn = unsafe extern "system" fn(*mut c_void, u32, u32, u32) -> i32;
+type DrawIndexedPrimitiveFn =
+    unsafe extern "system" fn(*mut c_void, u32, i32, u32, u32, u32, u32) -> i32;
 
 const PRESENT_INDEX: usize = DEVICE9_VTBL_PRESENT / size_of::<*mut c_void>();
 const RESET_INDEX: usize = DEVICE9_VTBL_RESET / size_of::<*mut c_void>();
+const DRAW_PRIMITIVE_INDEX: usize =
+    libpsycho::os::windows::directx9::DEVICE9_VTBL_DRAW_PRIMITIVE / size_of::<*mut c_void>();
+const DRAW_INDEXED_PRIMITIVE_INDEX: usize =
+    libpsycho::os::windows::directx9::DEVICE9_VTBL_DRAW_INDEXED_PRIMITIVE
+        / size_of::<*mut c_void>();
 const INSTALL_POLL_MS: u64 = 50;
 const INSTALL_LOG_EVERY_POLLS: u32 = 200;
 const GWL_WNDPROC: i32 = -4;
@@ -42,6 +50,8 @@ const GWL_WNDPROC: i32 = -4;
 static INSTALL_WORKER_STARTED: AtomicBool = AtomicBool::new(false);
 static ORIGINAL_PRESENT: AtomicUsize = AtomicUsize::new(0);
 static ORIGINAL_RESET: AtomicUsize = AtomicUsize::new(0);
+static ORIGINAL_DRAW_PRIMITIVE: AtomicUsize = AtomicUsize::new(0);
+static ORIGINAL_DRAW_INDEXED_PRIMITIVE: AtomicUsize = AtomicUsize::new(0);
 static ORIGINAL_WNDPROC: AtomicUsize = AtomicUsize::new(0);
 static WNDPROC_HWND: AtomicUsize = AtomicUsize::new(0);
 static DEVICE_HOOKS: LazyLock<Mutex<DeviceHooks>> =
@@ -51,6 +61,8 @@ static DEVICE_HOOKS: LazyLock<Mutex<DeviceHooks>> =
 struct DeviceHooks {
     present: Option<VmtHook<PresentFn>>,
     reset: Option<VmtHook<ResetFn>>,
+    draw_primitive: Option<VmtHook<DrawPrimitiveFn>>,
+    draw_indexed_primitive: Option<VmtHook<DrawIndexedPrimitiveFn>>,
 }
 
 pub(crate) fn start_install_worker() -> Result<()> {
@@ -74,7 +86,7 @@ fn install_worker() {
         if let Some(device_ptr) = backend::d3d_device_ptr() {
             match install_device_hooks(device_ptr) {
                 Ok(()) => {
-                    log::info!("[HOOKS] Direct3D9 shader hooks installed");
+                    log::info!("[HOOKS] Direct3D9 Present/Reset and draw-boundary hooks installed");
                     return;
                 }
                 Err(err) => {
@@ -95,7 +107,11 @@ fn install_worker() {
 
 fn install_device_hooks(device_ptr: *mut c_void) -> Result<()> {
     let mut hooks = DEVICE_HOOKS.lock();
-    if hooks.present.is_some() && hooks.reset.is_some() {
+    if hooks.present.is_some()
+        && hooks.reset.is_some()
+        && hooks.draw_primitive.is_some()
+        && hooks.draw_indexed_primitive.is_some()
+    {
         return Ok(());
     }
 
@@ -115,16 +131,39 @@ fn install_device_hooks(device_ptr: *mut c_void) -> Result<()> {
             reset_detour as ResetFn,
         )
     }?;
+    let draw_primitive_hook = unsafe {
+        VmtHook::new(
+            "IDirect3DDevice9::DrawPrimitive",
+            device_ptr,
+            DRAW_PRIMITIVE_INDEX,
+            draw_primitive_detour as DrawPrimitiveFn,
+        )
+    }?;
+    let draw_indexed_primitive_hook = unsafe {
+        VmtHook::new(
+            "IDirect3DDevice9::DrawIndexedPrimitive",
+            device_ptr,
+            DRAW_INDEXED_PRIMITIVE_INDEX,
+            draw_indexed_primitive_detour as DrawIndexedPrimitiveFn,
+        )
+    }?;
 
     let original_present = present_hook.original();
     let original_reset = reset_hook.original();
+    let original_draw_primitive = draw_primitive_hook.original();
+    let original_draw_indexed_primitive = draw_indexed_primitive_hook.original();
     ORIGINAL_PRESENT.store(original_present as usize, Ordering::Release);
     ORIGINAL_RESET.store(original_reset as usize, Ordering::Release);
+    ORIGINAL_DRAW_PRIMITIVE.store(original_draw_primitive as usize, Ordering::Release);
+    ORIGINAL_DRAW_INDEXED_PRIMITIVE
+        .store(original_draw_indexed_primitive as usize, Ordering::Release);
 
     macro_rules! disable_all_pending {
         () => {{
             let _ = reset_hook.disable();
             let _ = present_hook.disable();
+            let _ = draw_indexed_primitive_hook.disable();
+            let _ = draw_primitive_hook.disable();
         }};
     }
 
@@ -138,11 +177,16 @@ fn install_device_hooks(device_ptr: *mut c_void) -> Result<()> {
         };
     }
 
+    enable_pending!(draw_primitive_hook, "DrawPrimitive");
+    enable_pending!(draw_indexed_primitive_hook, "DrawIndexedPrimitive");
     enable_pending!(reset_hook, "Reset");
     enable_pending!(present_hook, "Present");
 
     hooks.present = Some(present_hook);
     hooks.reset = Some(reset_hook);
+    hooks.draw_primitive = Some(draw_primitive_hook);
+    hooks.draw_indexed_primitive = Some(draw_indexed_primitive_hook);
+    pbr::set_draw_boundary_ready(true);
     Ok(())
 }
 
@@ -182,6 +226,7 @@ unsafe extern "system" fn present_detour(
     dirty_region: *const c_void,
 ) -> i32 {
     unsafe {
+        pbr::finish_draw_batches();
         runtime::apply_present_frame(device_ptr, dest_window);
         let result = call_original_present(
             device_ptr,
@@ -201,6 +246,42 @@ unsafe extern "system" fn reset_detour(device_ptr: *mut c_void, params: *mut c_v
         backend::reset_depth_resources();
         pbr::reset_runtime_state();
         call_original_reset(device_ptr, params)
+    }
+}
+
+unsafe extern "system" fn draw_primitive_detour(
+    device_ptr: *mut c_void,
+    primitive_type: u32,
+    start_vertex: u32,
+    primitive_count: u32,
+) -> i32 {
+    pbr::prepare_direct_draw();
+    let result = unsafe {
+        call_original_draw_primitive(device_ptr, primitive_type, start_vertex, primitive_count)
+    };
+    result
+}
+
+unsafe extern "system" fn draw_indexed_primitive_detour(
+    device_ptr: *mut c_void,
+    primitive_type: u32,
+    base_vertex_index: i32,
+    min_vertex_index: u32,
+    vertex_count: u32,
+    start_index: u32,
+    primitive_count: u32,
+) -> i32 {
+    pbr::prepare_direct_draw();
+    unsafe {
+        call_original_draw_indexed_primitive(
+            device_ptr,
+            primitive_type,
+            base_vertex_index,
+            min_vertex_index,
+            vertex_count,
+            start_index,
+            primitive_count,
+        )
     }
 }
 
@@ -243,6 +324,55 @@ unsafe fn call_original_reset(device_ptr: *mut c_void, params: *mut c_void) -> i
     unsafe { original.as_fn()(device_ptr, params) }
 }
 
+unsafe fn call_original_draw_primitive(
+    device_ptr: *mut c_void,
+    primitive_type: u32,
+    start_vertex: u32,
+    primitive_count: u32,
+) -> i32 {
+    let original = ORIGINAL_DRAW_PRIMITIVE.load(Ordering::Acquire);
+    if original == 0 {
+        return D3D_FAILURE_CODE;
+    }
+    let Ok(original) = (unsafe { FnPtr::<DrawPrimitiveFn>::from_raw(original as *mut c_void) })
+    else {
+        return D3D_FAILURE_CODE;
+    };
+    unsafe { original.as_fn()(device_ptr, primitive_type, start_vertex, primitive_count) }
+}
+
+#[allow(clippy::too_many_arguments)]
+unsafe fn call_original_draw_indexed_primitive(
+    device_ptr: *mut c_void,
+    primitive_type: u32,
+    base_vertex_index: i32,
+    min_vertex_index: u32,
+    vertex_count: u32,
+    start_index: u32,
+    primitive_count: u32,
+) -> i32 {
+    let original = ORIGINAL_DRAW_INDEXED_PRIMITIVE.load(Ordering::Acquire);
+    if original == 0 {
+        return D3D_FAILURE_CODE;
+    }
+    let Ok(original) =
+        (unsafe { FnPtr::<DrawIndexedPrimitiveFn>::from_raw(original as *mut c_void) })
+    else {
+        return D3D_FAILURE_CODE;
+    };
+    unsafe {
+        original.as_fn()(
+            device_ptr,
+            primitive_type,
+            base_vertex_index,
+            min_vertex_index,
+            vertex_count,
+            start_index,
+            primitive_count,
+        )
+    }
+}
+
 unsafe extern "system" fn wndproc_detour(
     hwnd: *mut c_void,
     msg: u32,
@@ -273,4 +403,7 @@ unsafe fn call_original_wndproc(
 fn clear_originals() {
     ORIGINAL_PRESENT.store(0, Ordering::Release);
     ORIGINAL_RESET.store(0, Ordering::Release);
+    ORIGINAL_DRAW_PRIMITIVE.store(0, Ordering::Release);
+    ORIGINAL_DRAW_INDEXED_PRIMITIVE.store(0, Ordering::Release);
+    pbr::set_draw_boundary_ready(false);
 }

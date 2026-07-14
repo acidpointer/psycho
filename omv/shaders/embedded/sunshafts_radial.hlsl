@@ -17,8 +17,8 @@ struct PixelInput {
 };
 
 float InterleavedNoise(float2 uv) {
-    float2 pixel = floor(uv * ScreenData.xy);
-    return frac(52.9829189f * frac(dot(pixel + FrameData.xx, float2(0.06711056f, 0.00583715f))));
+	float2 pixel = floor(uv * ScreenData.xy);
+	return frac(52.9829189f * frac(dot(pixel, float2(0.06711056f, 0.00583715f))));
 }
 
 float4 Main(PixelInput input) : COLOR0 {

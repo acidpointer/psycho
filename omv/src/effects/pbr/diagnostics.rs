@@ -17,6 +17,9 @@ use super::{
 };
 
 static ENABLED_FRAME_COUNT: AtomicU32 = AtomicU32::new(0);
+static DIAGNOSTIC_LOG_COUNT: AtomicU32 = AtomicU32::new(0);
+static DRAW_TRACE_LOG_COUNT: AtomicU32 = AtomicU32::new(0);
+static UNRESOLVED_IDENTITY_LOG_COUNT: AtomicU32 = AtomicU32::new(0);
 static OBJECT_REPLACEMENTS_THIS_FRAME: AtomicU32 = AtomicU32::new(0);
 static OBJECT_FALLBACKS_THIS_FRAME: AtomicU32 = AtomicU32::new(0);
 static OBJECT_DRAW_GATE_REJECTIONS_THIS_FRAME: AtomicU32 = AtomicU32::new(0);
@@ -78,18 +81,42 @@ const REJECT_UNSUPPORTED_OBJECT_PAIR: u32 = 11;
 const REJECT_MISSING_REPLACEMENT_RESOURCE: u32 = 12;
 const REJECT_HANDLE_STATE_MISMATCH: u32 = 13;
 const REJECT_MISSING_SAMPLER: u32 = 14;
+const REJECT_REASON_COUNT: usize = 15;
 const D3D_PAIR_UNKNOWN: u32 = 0;
 const D3D_PAIR_OTHER: u32 = 1;
 const D3D_PAIR_REPLACEMENT: u32 = 2;
 const OBJECT_DRAW_STATE_SLOT_COUNT: usize = 64;
 const OBJECT_DRAW_STATE_PROBE_COUNT: usize = 4;
+const DRAW_TRACE_LOG_LIMIT: u32 = 96;
+const UNRESOLVED_IDENTITY_SLOT_COUNT: usize = 128;
+const UNRESOLVED_IDENTITY_LOG_LIMIT: u32 = 96;
 
 static OBJECT_DRAW_STATES: LazyLock<[ObjectDrawStateSlot; OBJECT_DRAW_STATE_SLOT_COUNT]> =
     LazyLock::new(|| array::from_fn(|_| ObjectDrawStateSlot::new()));
+static REJECTIONS_THIS_FRAME: LazyLock<[AtomicU32; REJECT_REASON_COUNT]> =
+    LazyLock::new(|| array::from_fn(|_| AtomicU32::new(0)));
+static REJECTIONS_LAST_FRAME: LazyLock<[AtomicU32; REJECT_REASON_COUNT]> =
+    LazyLock::new(|| array::from_fn(|_| AtomicU32::new(0)));
+static UNRESOLVED_IDENTITY_KEYS: LazyLock<[AtomicU32; UNRESOLVED_IDENTITY_SLOT_COUNT]> =
+    LazyLock::new(|| array::from_fn(|_| AtomicU32::new(0)));
 
 struct ObjectDrawStateSlot {
     key: AtomicU32,
     state: AtomicU32,
+}
+
+#[derive(Clone, Copy)]
+pub(super) struct ObjectDrawTrace {
+    pub(super) key: u32,
+    pub(super) geometry: usize,
+    pub(super) pass: usize,
+    pub(super) pass_index: u32,
+    pub(super) selector: usize,
+    pub(super) selector_state: u32,
+    pub(super) active_layer_count: u32,
+    pub(super) scanned_entries: u32,
+    pub(super) vertex_index: u32,
+    pub(super) pixel_index: u32,
 }
 
 impl ObjectDrawStateSlot {
@@ -101,7 +128,7 @@ impl ObjectDrawStateSlot {
     }
 }
 
-pub(super) fn service_frame(shader_enabled: bool, _debug_log_draws: bool) {
+pub(super) fn service_frame(shader_enabled: bool, debug_log_draws: bool) {
     OBJECT_REPLACEMENTS_LAST_FRAME.store(
         OBJECT_REPLACEMENTS_THIS_FRAME.swap(0, Ordering::AcqRel),
         Ordering::Release,
@@ -134,9 +161,51 @@ pub(super) fn service_frame(shader_enabled: bool, _debug_log_draws: bool) {
         OBJECT_CONTRACT_TRANSITIONS_THIS_FRAME.swap(0, Ordering::AcqRel),
         Ordering::Release,
     );
+    for (current, last) in REJECTIONS_THIS_FRAME
+        .iter()
+        .zip(REJECTIONS_LAST_FRAME.iter())
+    {
+        last.store(current.swap(0, Ordering::AcqRel), Ordering::Release);
+    }
 
     if shader_enabled {
-        ENABLED_FRAME_COUNT.fetch_add(1, Ordering::Relaxed);
+        let frame = ENABLED_FRAME_COUNT.fetch_add(1, Ordering::Relaxed);
+        let interval = if debug_log_draws { 30 } else { 240 };
+        if frame % interval == 0 && DIAGNOSTIC_LOG_COUNT.fetch_add(1, Ordering::Relaxed) < 24 {
+            log::info!(
+                "[PBR_CONTRACT] draws: replaced={} fallback={} rejected={} constants={} pair=SLS{}/SLS{} class={} selector=0x{:08X} sampler={} sampler_fallback={} selector_cache_mismatch={}",
+                OBJECT_REPLACEMENTS_LAST_FRAME.load(Ordering::Acquire),
+                OBJECT_FALLBACKS_LAST_FRAME.load(Ordering::Acquire),
+                OBJECT_DRAW_GATE_REJECTIONS_LAST_FRAME.load(Ordering::Acquire),
+                OBJECT_CONSTANT_UPLOADS_LAST_FRAME.load(Ordering::Acquire),
+                OBJECT_LAST_VERTEX_SLS.load(Ordering::Acquire),
+                OBJECT_LAST_PIXEL_SLS.load(Ordering::Acquire),
+                object_contracts::state_label_from_code(
+                    OBJECT_LAST_CONTRACT_STATE.load(Ordering::Acquire)
+                ),
+                OBJECT_LAST_SELECTOR.load(Ordering::Acquire),
+                super::samplers::object_last_sampler_layout_label(),
+                super::samplers::object_last_sampler_fallback_label(),
+                super::samplers::object_sampler_selector_mismatches_last_frame(),
+            );
+            log::info!(
+                "[PBR_REJECTS] terrain={} d3d={} record={} identity={} identity_mismatch={} terrain_slot={} envmap={} unsupported_pair={} resource={} handle={} sampler={}",
+                rejection_count(REJECT_CLOSE_TERRAIN_MATERIAL)
+                    + rejection_count(REJECT_TERRAIN_ZERO_RESOURCE)
+                    + rejection_count(REJECT_TERRAIN_LIGHT_RESOURCE)
+                    + rejection_count(REJECT_TERRAIN_HELPER),
+                rejection_count(REJECT_MISSING_D3D_STATE),
+                rejection_count(REJECT_MISSING_SHADER_RECORD),
+                rejection_count(REJECT_MISSING_TABLE_IDENTITY),
+                rejection_count(REJECT_TABLE_IDENTITY_MISMATCH),
+                rejection_count(REJECT_TERRAIN_TABLE_SLOT),
+                rejection_count(REJECT_ENVMAP_TABLE_SLOT),
+                rejection_count(REJECT_UNSUPPORTED_OBJECT_PAIR),
+                rejection_count(REJECT_MISSING_REPLACEMENT_RESOURCE),
+                rejection_count(REJECT_HANDLE_STATE_MISMATCH),
+                rejection_count(REJECT_MISSING_SAMPLER),
+            );
+        }
     }
 }
 
@@ -157,14 +226,14 @@ pub(super) fn record_object_pair(
 }
 
 pub(super) fn record_object_contract(
-    draw_key: u32,
+    trace: ObjectDrawTrace,
     normalized_vertex_index: u32,
     state: ObjectContractState,
 ) {
     OBJECT_LAST_NORMALIZED_VERTEX_INDEX.store(normalized_vertex_index, Ordering::Release);
     let state_code = object_contracts::state_code(state);
     OBJECT_LAST_CONTRACT_STATE.store(state_code, Ordering::Release);
-    record_object_contract_transition(draw_key, state_code);
+    record_object_contract_transition(trace, normalized_vertex_index, state_code);
 }
 
 pub(super) fn record_object_handles(
@@ -249,12 +318,96 @@ pub(super) fn record_object_draw_gate_rejection(
 ) {
     let reason_code = reject_reason_code(reason);
     OBJECT_DRAW_GATE_REJECTIONS_THIS_FRAME.fetch_add(1, Ordering::Relaxed);
+    if let Some(counter) = REJECTIONS_THIS_FRAME.get(reason_code as usize) {
+        counter.fetch_add(1, Ordering::Relaxed);
+    }
     if reject_reason_is_terrain_like(reason) {
         OBJECT_TERRAIN_REJECTIONS_THIS_FRAME.fetch_add(1, Ordering::Relaxed);
     }
     OBJECT_LAST_REJECT_REASON.store(reason_code, Ordering::Release);
     OBJECT_LAST_REJECT_ROW.store(u32::from(row), Ordering::Release);
     OBJECT_LAST_REJECT_SELECTOR.store(selector, Ordering::Release);
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(super) fn record_unresolved_table_pair(
+    snapshot: DrawSnapshot,
+    pass_index: u32,
+    vertex_shader: *mut std::ffi::c_void,
+    pixel_shader: *mut std::ffi::c_void,
+    vertex_group: &'static str,
+    vertex_index: u32,
+    pixel_group: &'static str,
+    pixel_index: u32,
+    reason: ObjectDrawRejectReason,
+) {
+    let mut key = 0x811C_9DC5u32;
+    for value in [
+        snapshot.geometry,
+        pass_index as usize,
+        vertex_shader as usize,
+        pixel_shader as usize,
+    ] {
+        key = (key ^ value as u32).wrapping_mul(0x0100_0193);
+    }
+    if key == 0 {
+        key = 1;
+    }
+
+    let mut claimed = false;
+    for slot in UNRESOLVED_IDENTITY_KEYS.iter() {
+        let current = slot.load(Ordering::Acquire);
+        if current == key {
+            return;
+        }
+        if current == 0
+            && slot
+                .compare_exchange(0, key, Ordering::AcqRel, Ordering::Acquire)
+                .is_ok()
+        {
+            claimed = true;
+            break;
+        }
+    }
+    if !claimed
+        || UNRESOLVED_IDENTITY_LOG_COUNT.fetch_add(1, Ordering::Relaxed)
+            >= UNRESOLVED_IDENTITY_LOG_LIMIT
+    {
+        return;
+    }
+
+    let geometry_name = super::engine_contracts::geometry_name(snapshot.geometry)
+        .unwrap_or_else(|| "<unnamed>".to_owned());
+    let vertex_index = table_index_label(vertex_index);
+    let pixel_index = table_index_label(pixel_index);
+    log::info!(
+        "[PBR_UNRESOLVED] geometry=0x{:08X} name={} pass=0x{:08X} pass_index={} pair=VS:{}[{}]@{:p}/PS:{}[{}]@{:p} reason={}",
+        snapshot.geometry,
+        geometry_name,
+        snapshot.pass,
+        pass_index,
+        vertex_group,
+        vertex_index,
+        vertex_shader,
+        pixel_group,
+        pixel_index,
+        pixel_shader,
+        reject_reason_label(reject_reason_code(reason)),
+    );
+}
+
+fn table_index_label(index: u32) -> String {
+    if index == u32::MAX {
+        "unknown".to_owned()
+    } else {
+        index.to_string()
+    }
+}
+
+fn rejection_count(reason: u32) -> u32 {
+    REJECTIONS_LAST_FRAME
+        .get(reason as usize)
+        .map_or(0, |counter| counter.load(Ordering::Acquire))
 }
 
 pub(super) fn object_replacements_last_frame() -> u32 {
@@ -411,6 +564,9 @@ pub(super) fn object_last_reject_selector() -> usize {
 
 pub(super) fn reset() {
     ENABLED_FRAME_COUNT.store(0, Ordering::Release);
+    DIAGNOSTIC_LOG_COUNT.store(0, Ordering::Release);
+    DRAW_TRACE_LOG_COUNT.store(0, Ordering::Release);
+    UNRESOLVED_IDENTITY_LOG_COUNT.store(0, Ordering::Release);
     OBJECT_REPLACEMENTS_THIS_FRAME.store(0, Ordering::Release);
     OBJECT_FALLBACKS_THIS_FRAME.store(0, Ordering::Release);
     OBJECT_DRAW_GATE_REJECTIONS_THIS_FRAME.store(0, Ordering::Release);
@@ -456,9 +612,18 @@ pub(super) fn reset() {
     OBJECT_LAST_REJECT_REASON.store(REJECT_NONE, Ordering::Release);
     OBJECT_LAST_REJECT_ROW.store(0, Ordering::Release);
     OBJECT_LAST_REJECT_SELECTOR.store(0, Ordering::Release);
+    for slot in REJECTIONS_THIS_FRAME
+        .iter()
+        .chain(REJECTIONS_LAST_FRAME.iter())
+    {
+        slot.store(0, Ordering::Release);
+    }
     for slot in OBJECT_DRAW_STATES.iter() {
         slot.key.store(0, Ordering::Release);
         slot.state.store(0, Ordering::Release);
+    }
+    for slot in UNRESOLVED_IDENTITY_KEYS.iter() {
+        slot.store(0, Ordering::Release);
     }
 }
 
@@ -520,17 +685,49 @@ fn d3d_pair_state_label(state: u32) -> &'static str {
     }
 }
 
-fn record_object_contract_transition(draw_key: u32, state_code: u32) {
-    if draw_key == 0 || state_code == 0 {
+fn record_object_contract_transition(
+    trace: ObjectDrawTrace,
+    normalized_vertex_index: u32,
+    state_code: u32,
+) {
+    if trace.key == 0 || state_code == 0 {
         return;
     }
 
-    let slot = object_draw_state_slot(draw_key);
+    let slot = object_draw_state_slot(trace.key);
     let previous = slot.state.swap(state_code, Ordering::AcqRel);
     if previous != 0 && previous != state_code {
         OBJECT_CONTRACT_TRANSITIONS_THIS_FRAME.fetch_add(1, Ordering::Relaxed);
         OBJECT_LAST_CONTRACT_TRANSITION_FROM.store(previous, Ordering::Release);
         OBJECT_LAST_CONTRACT_TRANSITION_TO.store(state_code, Ordering::Release);
+    }
+    if (previous == 0 || previous != state_code)
+        && DRAW_TRACE_LOG_COUNT.fetch_add(1, Ordering::Relaxed) < DRAW_TRACE_LOG_LIMIT
+    {
+        let name = super::engine_contracts::geometry_name(trace.geometry)
+            .unwrap_or_else(|| "<unnamed>".to_owned());
+        let constant_flags = super::engine_contracts::pass_constant_flags(trace.pass_index)
+            .map_or_else(
+                || "unavailable".to_owned(),
+                |(vertex, pixel)| format!("VS[0x{vertex:08X}]/PS[0x{pixel:08X}]"),
+            );
+        log::info!(
+            "[PBR_DRAW] geometry=0x{:08X} name={} pass=0x{:08X} pass_index={} constant_flags={} selector=0x{:08X} selector_state={} active_layers={} scanned_entries={} pair=VS[{}]/PS[{}] normalized_vs={} outcome={} previous={}",
+            trace.geometry,
+            name,
+            trace.pass,
+            trace.pass_index,
+            constant_flags,
+            trace.selector,
+            trace.selector_state,
+            trace.active_layer_count,
+            trace.scanned_entries,
+            trace.vertex_index,
+            trace.pixel_index,
+            normalized_vertex_index,
+            object_contracts::state_label_from_code(state_code),
+            object_contracts::state_label_from_code(previous),
+        );
     }
 }
 

@@ -144,7 +144,6 @@
 #endif
 
 #ifdef ONLY_LIGHT
-    #define NO_FOG
     #define NO_VERTEX_COLOR
 #endif
 
@@ -521,12 +520,10 @@ PS_OUTPUT main(PS_INPUT IN) {
     #endif
     
     float4 normal = tex2D(NormalMap, IN.uv.xy);
-    normal.xyz = normalize(expand(normal.xyz));
+    normal.xyz = SafeNormalize(expand(normal.xyz), float3(0, 0, 1));
     
     float roughness = getRoughness(normal.a);
-    
-    //if (TESR_DebugVar.x > 0.0)
-    //    roughness = SpecularAA(normal.xyz, roughness, TESR_DebugVar.z, TESR_DebugVar.w);
+    roughness = SpecularAA(normal.xyz, roughness, 0.0, 0.0);
     
     //if (TESR_DebugVar.y > 0.0) {
     //    OUT.color.a = 1;
@@ -558,7 +555,11 @@ PS_OUTPUT main(PS_INPUT IN) {
         shadowMultiplier = lerp(1, shadow, shadowMask);
     #endif
     
-    #if !defined(DIFFUSE) && !defined(POINT)
+    #if defined(SPECULAR) && !defined(ONLY_SPECULAR)
+        PBRLightingComponents pbrLighting = getSunLightingComponents(IN.lightDir.xyz, PSLightColor[0].rgb * shadowMultiplier, IN.viewDir.xyz, normal.xyz, baseColor.rgb, roughness);
+        float3 lighting = pbrLighting.diffuse;
+        float3 specularLighting = pbrLighting.specular;
+    #elif !defined(DIFFUSE) && !defined(POINT)
         float3 lighting = getSunLighting(IN.lightDir.xyz, PSLightColor[0].rgb * shadowMultiplier, IN.viewDir.xyz, normal.xyz, baseColor.rgb, roughness);
     #else
         // Pointlights only.
@@ -577,21 +578,41 @@ PS_OUTPUT main(PS_INPUT IN) {
     
     // Other light sources.
     #if LIGHTS > 1 || NUM_PT_LIGHTS > 1
-        lighting += getPointLightLighting(IN.light2Dir.xyz, IN.light2Dir.w, PSLightColor[1].rgb, IN.viewDir.xyz, normal.xyz, baseColor.rgb, roughness);
+        #if defined(SPECULAR) && !defined(ONLY_SPECULAR)
+            pbrLighting = getPointLightLightingComponents(IN.light2Dir.xyz, IN.light2Dir.w, PSLightColor[1].rgb, IN.viewDir.xyz, normal.xyz, baseColor.rgb, roughness);
+            lighting += pbrLighting.diffuse;
+            specularLighting += pbrLighting.specular;
+        #else
+            lighting += getPointLightLighting(IN.light2Dir.xyz, IN.light2Dir.w, PSLightColor[1].rgb, IN.viewDir.xyz, normal.xyz, baseColor.rgb, roughness);
+        #endif
     #endif
     
     #if LIGHTS > 2 || NUM_PT_LIGHTS > 2
-        lighting += getPointLightLighting(IN.light3Dir.xyz, IN.light3Dir.w, PSLightColor[2].rgb, IN.viewDir.xyz, normal.xyz, baseColor.rgb, roughness);
+        #if defined(SPECULAR) && !defined(ONLY_SPECULAR)
+            pbrLighting = getPointLightLightingComponents(IN.light3Dir.xyz, IN.light3Dir.w, PSLightColor[2].rgb, IN.viewDir.xyz, normal.xyz, baseColor.rgb, roughness);
+            lighting += pbrLighting.diffuse;
+            specularLighting += pbrLighting.specular;
+        #else
+            lighting += getPointLightLighting(IN.light3Dir.xyz, IN.light3Dir.w, PSLightColor[2].rgb, IN.viewDir.xyz, normal.xyz, baseColor.rgb, roughness);
+        #endif
+    #endif
+
+    #if defined(SPECULAR) && !defined(ONLY_SPECULAR)
+        lighting += specularLighting * saturate(IN.lightDir.w);
     #endif
     
     float3 finalColor = lighting.rgb;
     
     // Fog.
     #ifndef NO_FOG
-        #ifndef OPT
-            finalColor.rgb = (useFog <= 0.0 ? finalColor.rgb : lerp(finalColor.rgb, IN.fogColor.rgb, IN.fogColor.a));
+        #ifdef ONLY_LIGHT
+            finalColor.rgb *= 1.0 - saturate(IN.fogColor.a);
         #else
-            finalColor.rgb = lerp(finalColor.rgb, IN.fogColor.rgb, IN.fogColor.a);
+            #ifndef OPT
+                finalColor.rgb = (useFog <= 0.0 ? finalColor.rgb : lerp(finalColor.rgb, IN.fogColor.rgb, IN.fogColor.a));
+            #else
+                finalColor.rgb = lerp(finalColor.rgb, IN.fogColor.rgb, IN.fogColor.a);
+            #endif
         #endif
     #endif
     
@@ -680,44 +701,89 @@ PS_OUTPUT main(PS_INPUT IN) {
     #endif
     
     float4 normal = tex2D(NormalMap, IN.uv.xy);
-    normal.xyz = normalize(expand(normal.xyz));
+    normal.xyz = SafeNormalize(expand(normal.xyz), float3(0, 0, 1));
     
     float roughness = getRoughness(normal.a);
+    roughness = SpecularAA(normal.xyz, roughness, 0.0, 0.0);
     
     // Lighting.
     float3 viewDir = { IN.lightDir.w, IN.light2.w, IN.light3.w };
     
     float att;
     
-    #ifndef OPT
-        float3 lighting = getSunLighting(IN.lightDir.xyz, PSLightColor[0].rgb, viewDir.xyz, normal.xyz, baseColor.rgb, roughness);
+    #if defined(SPECULAR)
+        #ifndef OPT
+            PBRLightingComponents pbrLighting = getSunLightingComponents(IN.lightDir.xyz, PSLightColor[0].rgb, viewDir.xyz, normal.xyz, baseColor.rgb, roughness);
+        #else
+            att = vanillaAtt(PSLightPosition[0].xyz - IN.lPosition.xyz, PSLightPosition[0].w);
+            PBRLightingComponents pbrLighting = getPointLightLightingAttComponents(IN.lightDir.xyz, att, PSLightColor[0].rgb, viewDir.xyz, normal.xyz, baseColor.rgb, roughness);
+        #endif
+        float3 lighting = pbrLighting.diffuse;
+        float3 specularLighting = pbrLighting.specular;
     #else
-        att = vanillaAtt(PSLightPosition[0].xyz - IN.lPosition.xyz, PSLightPosition[0].w);
-        float3 lighting = getPointLightLightingAtt(IN.lightDir.xyz, att, PSLightColor[0].rgb, viewDir.xyz, normal.xyz, baseColor.rgb, roughness);
+        #ifndef OPT
+            float3 lighting = getSunLighting(IN.lightDir.xyz, PSLightColor[0].rgb, viewDir.xyz, normal.xyz, baseColor.rgb, roughness);
+        #else
+            att = vanillaAtt(PSLightPosition[0].xyz - IN.lPosition.xyz, PSLightPosition[0].w);
+            float3 lighting = getPointLightLightingAtt(IN.lightDir.xyz, att, PSLightColor[0].rgb, viewDir.xyz, normal.xyz, baseColor.rgb, roughness);
+        #endif
     #endif
     
     att = vanillaAtt(PSLightPosition[lightOffset + 0].xyz - IN.lPosition.xyz, PSLightPosition[lightOffset + 0].w);
-    lighting += (1 >= lightsUsed ? 0.0 : 1.0) * getPointLightLightingAtt(IN.light2.xyz, att, PSLightColor[1].rgb, viewDir.xyz, normal.xyz, baseColor.rgb, roughness);
+    #if defined(SPECULAR)
+        pbrLighting = getPointLightLightingAttComponents(IN.light2.xyz, att, PSLightColor[1].rgb, viewDir.xyz, normal.xyz, baseColor.rgb, roughness);
+        lighting += (1 >= lightsUsed ? 0.0 : 1.0) * pbrLighting.diffuse;
+        specularLighting += (1 >= lightsUsed ? 0.0 : 1.0) * pbrLighting.specular;
+    #else
+        lighting += (1 >= lightsUsed ? 0.0 : 1.0) * getPointLightLightingAtt(IN.light2.xyz, att, PSLightColor[1].rgb, viewDir.xyz, normal.xyz, baseColor.rgb, roughness);
+    #endif
     
     att = vanillaAtt(PSLightPosition[lightOffset + 1].xyz - IN.lPosition.xyz, PSLightPosition[lightOffset + 1].w);
-    lighting += (2 > lightsUsed ? 0.0 : 1.0) * getPointLightLightingAtt(IN.light3.xyz, att, PSLightColor[2].rgb, viewDir.xyz, normal.xyz, baseColor.rgb, roughness);
+    #if defined(SPECULAR)
+        pbrLighting = getPointLightLightingAttComponents(IN.light3.xyz, att, PSLightColor[2].rgb, viewDir.xyz, normal.xyz, baseColor.rgb, roughness);
+        lighting += (2 > lightsUsed ? 0.0 : 1.0) * pbrLighting.diffuse;
+        specularLighting += (2 > lightsUsed ? 0.0 : 1.0) * pbrLighting.specular;
+    #else
+        lighting += (2 > lightsUsed ? 0.0 : 1.0) * getPointLightLightingAtt(IN.light3.xyz, att, PSLightColor[2].rgb, viewDir.xyz, normal.xyz, baseColor.rgb, roughness);
+    #endif
     
     #if MAX_LIGHTS > 3
         att = vanillaAtt(PSLightPosition[lightOffset + 2].xyz - IN.lPosition.xyz, PSLightPosition[lightOffset + 2].w);
-        lighting += (3 > lightsUsed ? 0.0 : 1.0) * getPointLightLightingAtt(IN.light4.xyz, att, PSLightColor[3].rgb, viewDir.xyz, normal.xyz, baseColor.rgb, roughness);
+        #if defined(SPECULAR)
+            pbrLighting = getPointLightLightingAttComponents(IN.light4.xyz, att, PSLightColor[3].rgb, viewDir.xyz, normal.xyz, baseColor.rgb, roughness);
+            lighting += (3 > lightsUsed ? 0.0 : 1.0) * pbrLighting.diffuse;
+            specularLighting += (3 > lightsUsed ? 0.0 : 1.0) * pbrLighting.specular;
+        #else
+            lighting += (3 > lightsUsed ? 0.0 : 1.0) * getPointLightLightingAtt(IN.light4.xyz, att, PSLightColor[3].rgb, viewDir.xyz, normal.xyz, baseColor.rgb, roughness);
+        #endif
     #endif
     
     #if MAX_LIGHTS > 4
         att = vanillaAtt(PSLightPosition[3].xyz - IN.lPosition.xyz, PSLightPosition[3].w);
-        lighting += (4 > lightsUsed ? 0.0 : 1.0) * getPointLightLightingAtt(IN.light5.xyz, att, PSLightColor[4].rgb, viewDir.xyz, normal.xyz, baseColor.rgb, roughness);
+        #if defined(SPECULAR)
+            pbrLighting = getPointLightLightingAttComponents(IN.light5.xyz, att, PSLightColor[4].rgb, viewDir.xyz, normal.xyz, baseColor.rgb, roughness);
+            lighting += (4 > lightsUsed ? 0.0 : 1.0) * pbrLighting.diffuse;
+            specularLighting += (4 > lightsUsed ? 0.0 : 1.0) * pbrLighting.specular;
+        #else
+            lighting += (4 > lightsUsed ? 0.0 : 1.0) * getPointLightLightingAtt(IN.light5.xyz, att, PSLightColor[4].rgb, viewDir.xyz, normal.xyz, baseColor.rgb, roughness);
+        #endif
     
         att = vanillaAtt(PSLightPosition[4].xyz - IN.lPosition.xyz, PSLightPosition[4].w);
-        lighting += (5 > lightsUsed ? 0.0 : 1.0) * getPointLightLightingAtt(IN.light6.xyz, att, PSLightColor[5].rgb, viewDir.xyz, normal.xyz, baseColor.rgb, roughness);
+        #if defined(SPECULAR)
+            pbrLighting = getPointLightLightingAttComponents(IN.light6.xyz, att, PSLightColor[5].rgb, viewDir.xyz, normal.xyz, baseColor.rgb, roughness);
+            lighting += (5 > lightsUsed ? 0.0 : 1.0) * pbrLighting.diffuse;
+            specularLighting += (5 > lightsUsed ? 0.0 : 1.0) * pbrLighting.specular;
+        #else
+            lighting += (5 > lightsUsed ? 0.0 : 1.0) * getPointLightLightingAtt(IN.light6.xyz, att, PSLightColor[5].rgb, viewDir.xyz, normal.xyz, baseColor.rgb, roughness);
+        #endif
     #endif
-    
+
+    #if defined(SPECULAR)
+        lighting += specularLighting * saturate(IN.lPosition.w);
+    #endif
+
     lighting += getAmbientLighting(AmbientColor.rgb, baseColor.rgb);
-    
-    // TODO: Vanilla attenuates the full specular term by IN.lPosition.w for some reason. Is this a problem?
+
     float3 finalColor = lighting;
     
     #ifndef OPT

@@ -565,6 +565,10 @@ impl<T: Function> InlineHookContainer<T> {
         hook_lock.as_ref().is_some_and(InlineHook::is_enabled)
     }
 
+    pub fn is_initialized(&self) -> bool {
+        self.hook.read().is_some()
+    }
+
     /// Return the prepared trampoline without taking the hook mutation lock.
     ///
     /// Initialization publishes this pointer before the target can be enabled,

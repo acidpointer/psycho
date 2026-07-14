@@ -468,7 +468,7 @@ fn contact_ao_source(config: &ContactAoConfig) -> ScreenShaderSource {
 fn blooming_hdr_source(config: &BloomingHdrConfig) -> ScreenShaderSource {
     embedded_source(
         EmbeddedEffectKind::BloomingHdr,
-        "07_blooming_hdr_lite",
+        "07_blooming_ldr",
         config.enabled,
         crate::config::EmbeddedEffectsConfig::phase_for_kind(EmbeddedEffectKind::BloomingHdr),
         vec![
@@ -502,7 +502,7 @@ fn blooming_hdr_source(config: &BloomingHdrConfig) -> ScreenShaderSource {
             float_option("soft_knee", "Soft knee", config.soft_knee, 0.02, 0.65, 3, 3),
             float_option(
                 "exposure_bias",
-                "Exposure",
+                "Bloom exposure",
                 config.exposure_bias,
                 -0.5,
                 0.5,
@@ -511,7 +511,7 @@ fn blooming_hdr_source(config: &BloomingHdrConfig) -> ScreenShaderSource {
             ),
             float_option(
                 "highlight_shoulder",
-                "Highlight rolloff",
+                "Bloom blend",
                 config.highlight_shoulder,
                 0.0,
                 1.0,
@@ -520,17 +520,17 @@ fn blooming_hdr_source(config: &BloomingHdrConfig) -> ScreenShaderSource {
             ),
             float_option(
                 "saturation",
-                "Saturation",
+                "Bloom saturation",
                 config.saturation,
                 0.0,
                 1.5,
                 4,
                 2,
             ),
-            float_option("warmth", "Warmth", config.warmth, -1.0, 1.0, 4, 3),
+            float_option("warmth", "Bloom warmth", config.warmth, -1.0, 1.0, 4, 3),
             float_option(
                 "shadow_lift",
-                "Shadow lift",
+                "Bloom lift",
                 config.shadow_lift,
                 0.0,
                 1.0,

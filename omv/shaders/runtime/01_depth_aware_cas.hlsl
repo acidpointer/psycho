@@ -8,6 +8,7 @@ float4 CameraData : register(c2);
 float4 OptionData0 : register(c3);
 float4 OptionData1 : register(c4);
 float4 OptionData2 : register(c5);
+float4 DepthData : register(c11);
 
 static const float DepthEndpointEpsilon = 0.000001f;
 static const float3 LuminanceFactors = float3(0.2126f, 0.7152f, 0.0722f);
@@ -25,7 +26,7 @@ float FirstPersonHardwareDepth(float2 uv) {
 }
 
 bool UseReversedDepth() {
-    return OptionData1.y > 0.5f;
+	return DepthData.x >= 0.0f ? DepthData.x > 0.5f : OptionData1.y > 0.5f;
 }
 
 bool IsValidDepth(float depth) {

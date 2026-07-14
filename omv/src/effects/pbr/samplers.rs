@@ -2,8 +2,9 @@
 //!
 //! This phase validates object samplers declared by the NVR object template.
 //! It does not resolve material arrays or invent fallback textures. D3D sampler
-//! state is global, so selector stamps from the SetTexture mirror are
-//! diagnostic only and must not block replacement.
+//! state is global, so the final contract is the texture currently bound on the
+//! D3D device. The engine caches SetTexture calls across geometry, which means
+//! the last selector observed by the hook is telemetry, not draw ownership.
 
 use std::sync::{
     LazyLock,
@@ -32,6 +33,7 @@ const OBJECT_SAMPLER_FALLBACK_MISSING_NORMAL: u32 = 3;
 const OBJECT_SAMPLER_FALLBACK_MISSING_GLOW: u32 = 4;
 const OBJECT_SAMPLER_FALLBACK_MISSING_SHADOW: u32 = 5;
 const OBJECT_SAMPLER_FALLBACK_MISSING_SHADOW_MASK: u32 = 6;
+const OBJECT_SAMPLER_FALLBACK_UNPROVEN_OWNER: u32 = 7;
 const TEXTURE_STAGE_COUNT: usize = 16;
 
 static TEXTURE_TRACKING_READY: AtomicBool = AtomicBool::new(false);
@@ -279,12 +281,29 @@ fn texture_stage_valid(
     selector: usize,
     missing_reason: u32,
 ) -> bool {
-    if device.texture_bound(stage) {
-        record_selector_drift(stage, selector);
-        return true;
+    let Some(texture) = device.texture_raw(stage) else {
+        record_fallback_for_stage(missing_reason, stage);
+        return false;
+    };
+    record_selector_drift_if_cached(stage, selector, texture as usize);
+    true
+}
+
+fn record_selector_drift_if_cached(stage: u32, selector: usize, texture: usize) {
+    if selector == 0 || !TEXTURE_TRACKING_READY.load(Ordering::Acquire) {
+        return;
     }
-    record_fallback_for_stage(missing_reason, stage);
-    false
+    let Ok(index) = usize::try_from(stage) else {
+        return;
+    };
+    let Some(slot) = TEXTURE_SLOTS.get(index) else {
+        return;
+    };
+    if slot.texture.load(Ordering::Acquire) != texture
+        || slot.selector.load(Ordering::Acquire) != selector
+    {
+        OBJECT_SAMPLER_SELECTOR_MISMATCHES_THIS_FRAME.fetch_add(1, Ordering::Relaxed);
+    }
 }
 
 fn stage_mask(stage: u32) -> u32 {
@@ -410,6 +429,7 @@ fn sampler_fallback_label(reason: u32) -> &'static str {
         OBJECT_SAMPLER_FALLBACK_MISSING_GLOW => "missing GlowMap sampler",
         OBJECT_SAMPLER_FALLBACK_MISSING_SHADOW => "missing ShadowMap sampler",
         OBJECT_SAMPLER_FALLBACK_MISSING_SHADOW_MASK => "missing ShadowMaskMap sampler",
+        OBJECT_SAMPLER_FALLBACK_UNPROVEN_OWNER => "unproven material sampler owner",
         _ => "none",
     }
 }
@@ -422,21 +442,4 @@ fn observed_device_mask(device: &Device9Ref<'_>) -> u32 {
         }
     }
     mask
-}
-
-fn record_selector_drift(stage: u32, selector: usize) {
-    if selector == 0 || !TEXTURE_TRACKING_READY.load(Ordering::Acquire) {
-        return;
-    }
-    let Ok(index) = usize::try_from(stage) else {
-        return;
-    };
-    let Some(slot) = TEXTURE_SLOTS.get(index) else {
-        return;
-    };
-    if slot.texture.load(Ordering::Acquire) != 0
-        && slot.selector.load(Ordering::Acquire) != selector
-    {
-        OBJECT_SAMPLER_SELECTOR_MISMATCHES_THIS_FRAME.fetch_add(1, Ordering::Relaxed);
-    }
 }

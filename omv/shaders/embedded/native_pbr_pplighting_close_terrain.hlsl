@@ -15,8 +15,6 @@ float4 FogParam : register(c36);
 float4 FogColor : register(c37);
 float4 TESR_TerrainData : register(c89);
 float4 TESR_TerrainExtraData : register(c90);
-float4 TESR_TerrainParallaxData : register(c91);
-float4 TESR_TerrainParallaxExtraData : register(c92);
 
 sampler2D BaseMap[7] : register(s0);
 sampler2D NormalMap[7] : register(s7);
@@ -103,7 +101,7 @@ float PbrAlbedoSaturation()
 
 float RoughnessFromGloss(float gloss)
 {
-    return saturate(max(0.043f, 1.0f - saturate(gloss)) * PbrRoughnessScale());
+    return clamp((1.0f - saturate(gloss)) * PbrRoughnessScale(), 0.043f, 1.0f);
 }
 
 float3 Fresnel(float3 f0, float3 f90, float cosine)
@@ -223,195 +221,6 @@ void CopyTerrainWeights(float blends[7], out float weights[7])
     }
 }
 
-float TerrainHeight(float2 uv, float2 dx, float2 dy, float blend_factor, float blends[7], float height_status[7], out float weights[7])
-{
-    float blend_power = max(blend_factor * 4.0f, 0.0001f);
-    float total = 0.0f;
-
-    [unroll] for (int clear_index = 0; clear_index < 7; clear_index++)
-    {
-        weights[clear_index] = 0.0f;
-    }
-
-    [unroll] for (int i = 0; i < PBR_TERRAIN_TEX_COUNT; i++)
-    {
-        weights[i] = pow(abs(blends[i]), 1.0f + blend_factor);
-        if (weights[i] > 0.0f)
-        {
-            float height = (height_status[i] > 0.0f) ? tex2Dgrad(BaseMap[i], uv, dx, dy).a : 0.5f;
-            weights[i] *= 0.001f + pow(abs(height), blend_power);
-        }
-        total += weights[i];
-    }
-
-    float inv_total = (total > 0.000001f) ? rcp(total) : 0.0f;
-    [unroll] for (int weight_index = 0; weight_index < PBR_TERRAIN_TEX_COUNT; weight_index++)
-    {
-        weights[weight_index] *= inv_total;
-    }
-
-    return pow(max(total, 0.000001f), rcp(blend_power));
-}
-
-float2 TerrainParallaxCoords(float distance, float2 uv, float2 dx, float2 dy, float3 view_dir_ts, float blends[7], float height_status[7], out float weights[7])
-{
-    if (TESR_TerrainParallaxData.x <= 0.0f)
-    {
-        CopyTerrainWeights(blends, weights);
-        return uv;
-    }
-
-    float max_steps = (TESR_TerrainParallaxData.w > 0.0f) ? 16.0f : 8.0f;
-    float max_distance = max(TESR_TerrainParallaxExtraData.x, 1.0f);
-    float height = TESR_TerrainParallaxExtraData.y;
-    float distance_blend = saturate(distance / max_distance);
-    float quality = saturate(1.0f - distance_blend);
-    float blend_factor = (TESR_TerrainParallaxData.z > 0.0f) ? quality : 0.25f;
-
-    view_dir_ts = SafeNormalize(view_dir_ts, float3(0.0f, 0.0f, 1.0f));
-    view_dir_ts.z = (view_dir_ts.z * 0.7f) + 0.3f;
-    view_dir_ts.xy /= max(abs(view_dir_ts.z), 0.0001f);
-
-    float max_height = height;
-    float min_height = max_height * 0.5f;
-    if (distance_blend >= 1.0f)
-    {
-        CopyTerrainWeights(blends, weights);
-        return uv;
-    }
-
-    int num_steps = int((max_steps * (1.0f - distance_blend)) + 0.5f);
-    num_steps = ((num_steps + 3) / 4) * 4;
-    num_steps = clamp(num_steps, 4, (int)max_steps);
-
-    float step_size = rcp((float)num_steps);
-    float2 offset_per_step = view_dir_ts.xy * max_height * step_size;
-    float2 previous_offset = view_dir_ts.xy * min_height + uv;
-    float previous_bound = 1.0f;
-    float previous_height = 1.0f;
-    float2 point_a = 0.0f;
-    float2 point_b = 0.0f;
-    int original_steps = num_steps;
-    bool done = false;
-    bool contact_refinement = false;
-
-    [loop][fastopt] while (num_steps > 0 && !done)
-    {
-        float4 current_offset[2];
-        current_offset[0] = previous_offset.xyxy - float4(1.0f, 1.0f, 2.0f, 2.0f) * offset_per_step.xyxy;
-        current_offset[1] = previous_offset.xyxy - float4(3.0f, 3.0f, 4.0f, 4.0f) * offset_per_step.xyxy;
-        float4 current_bound = float4(previous_bound, previous_bound, previous_bound, previous_bound)
-            - float4(1.0f, 2.0f, 3.0f, 4.0f) * step_size;
-        float4 current_height;
-
-        current_height.x = TerrainHeight(current_offset[0].xy, dx, dy, blend_factor, blends, height_status, weights);
-        current_height.y = TerrainHeight(current_offset[0].zw, dx, dy, blend_factor, blends, height_status, weights);
-        current_height.z = TerrainHeight(current_offset[1].xy, dx, dy, blend_factor, blends, height_status, weights);
-        current_height.w = TerrainHeight(current_offset[1].zw, dx, dy, blend_factor, blends, height_status, weights);
-
-        bool4 test_result = current_height >= current_bound;
-        [branch] if (any(test_result))
-        {
-            float2 last_offset = 0.0f;
-            [flatten] if (test_result.w)
-            {
-                last_offset = current_offset[1].xy;
-                point_a = float2(current_bound.w, current_height.w);
-                point_b = float2(current_bound.z, current_height.z);
-            }
-            [flatten] if (test_result.z)
-            {
-                last_offset = current_offset[0].zw;
-                point_a = float2(current_bound.z, current_height.z);
-                point_b = float2(current_bound.y, current_height.y);
-            }
-            [flatten] if (test_result.y)
-            {
-                last_offset = current_offset[0].xy;
-                point_a = float2(current_bound.y, current_height.y);
-                point_b = float2(current_bound.x, current_height.x);
-            }
-            [flatten] if (test_result.x)
-            {
-                last_offset = previous_offset;
-                point_a = float2(current_bound.x, current_height.x);
-                point_b = float2(previous_bound, previous_height);
-            }
-
-            if (contact_refinement)
-            {
-                done = true;
-            }
-            else
-            {
-                contact_refinement = true;
-                previous_offset = last_offset;
-                previous_bound = point_b.x;
-                num_steps = original_steps;
-                step_size /= (float)num_steps;
-                offset_per_step /= (float)num_steps;
-            }
-        }
-        else
-        {
-            previous_offset = current_offset[1].zw;
-            previous_bound = current_bound.w;
-            previous_height = current_height.w;
-            num_steps -= 4;
-        }
-    }
-
-    float delta_b = point_b.x - point_b.y;
-    float delta_a = point_a.x - point_a.y;
-    float denominator = delta_b - delta_a;
-    float parallax_amount = (abs(denominator) > 0.000001f)
-        ? (point_a.x * delta_b - point_b.x * delta_a) / denominator
-        : 0.0f;
-    distance_blend *= distance_blend;
-
-    float offset = (1.0f - parallax_amount) * -max_height + min_height;
-    return lerp(view_dir_ts.xy * offset + uv, uv, distance_blend);
-}
-
-float TerrainParallaxShadow(float distance, float2 uv, float2 dx, float2 dy, float3 light_ts, float blends[7], float height_status[7])
-{
-    if (TESR_TerrainParallaxData.y <= 0.0f)
-    {
-        return 1.0f;
-    }
-
-    float max_distance = max(TESR_TerrainParallaxExtraData.x, 1.0f);
-    float shadows_intensity = TESR_TerrainParallaxExtraData.z;
-    float quality = 1.0f - distance / max_distance;
-    if (quality <= 0.0f)
-    {
-        return 1.0f;
-    }
-
-    float weights[7] = { 0, 0, 0, 0, 0, 0, 0 };
-    float base_height = TerrainHeight(uv, dx, dy, quality, blends, height_status, weights);
-    float2 ray_dir = light_ts.xy * 0.1f;
-    float4 multipliers = rcp(float4(1.0f, 2.0f, 3.0f, 4.0f));
-    float4 base_heights = float4(base_height, base_height, base_height, base_height);
-    float4 shadow_heights = base_heights;
-
-    shadow_heights.x = TerrainHeight(uv + ray_dir * multipliers.x, dx, dy, quality, blends, height_status, weights);
-    if (quality > 0.25f)
-    {
-        shadow_heights.y = TerrainHeight(uv + ray_dir * multipliers.y, dx, dy, quality, blends, height_status, weights);
-    }
-    if (quality > 0.5f)
-    {
-        shadow_heights.z = TerrainHeight(uv + ray_dir * multipliers.z, dx, dy, quality, blends, height_status, weights);
-    }
-    if (quality > 0.75f)
-    {
-        shadow_heights.w = TerrainHeight(uv + ray_dir * multipliers.w, dx, dy, quality, blends, height_status, weights);
-    }
-
-    return 1.0f - saturate(dot(max(float4(0.0f, 0.0f, 0.0f, 0.0f), shadow_heights - base_heights), float4(1.0f, 1.0f, 1.0f, 1.0f)) * shadows_intensity) * quality;
-}
-
 float3 BlendDiffuseMaps(float3 vertex_color, float2 uv, float blends[7])
 {
     float3 color = float3(0.0f, 0.0f, 0.0f);
@@ -493,29 +302,9 @@ PixelOutput Main(PixelInput input)
         LandSpec[1].y,
         LandSpec[1].z
     };
-    float height_status[7] = {
-        LandHeight[0].x,
-        LandHeight[0].y,
-        LandHeight[0].z,
-        LandHeight[0].w,
-        LandHeight[1].x,
-        LandHeight[1].y,
-        LandHeight[1].z
-    };
     float weights[7] = { 0, 0, 0, 0, 0, 0, 0 };
-    float distance_to_eye = length(input.eye_position - input.local_position);
-    float2 terrain_dx = ddx(input.uv.xy);
-    float2 terrain_dy = ddy(input.uv.xy);
-    float2 terrain_uv = TerrainParallaxCoords(
-        distance_to_eye,
-        input.uv.xy,
-        terrain_dx,
-        terrain_dy,
-        view_dir,
-        blends,
-        height_status,
-        weights
-    );
+    CopyTerrainWeights(blends, weights);
+    float2 terrain_uv = input.uv.xy;
 
     float gloss = 0.0f;
     float spec_exponent = 0.0f;
@@ -525,8 +314,7 @@ PixelOutput Main(PixelInput input)
     float roughness = RoughnessFromGloss(gloss);
 
     float3 light_ts = mul(tbn, SunDir.xyz);
-    float parallax_shadow = TerrainParallaxShadow(distance_to_eye, terrain_uv, terrain_dx, terrain_dy, light_ts, blends, height_status);
-    float3 lighting = SunLighting(light_ts, SunColor.rgb, view_dir, normal, AmbientColor.rgb, albedo, gloss, spec_exponent, roughness, parallax_shadow);
+    float3 lighting = SunLighting(light_ts, SunColor.rgb, view_dir, normal, AmbientColor.rgb, albedo, gloss, spec_exponent, roughness, 1.0f);
 
 #if PBR_TERRAIN_POINT_LIGHTS > 0
     int point_count = min((int)PointLightCount, PBR_TERRAIN_POINT_LIGHTS);

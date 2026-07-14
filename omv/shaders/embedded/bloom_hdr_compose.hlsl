@@ -66,11 +66,6 @@ float3 ApplyWarmth(float3 color) {
     return color * tint;
 }
 
-float3 AcesApprox(float3 color) {
-    color = max(color, 0.0f);
-    return saturate((color * (2.51f * color + 0.03f)) / (color * (2.43f * color + 0.59f) + 0.14f));
-}
-
 float GoldenNoise(float2 uv, float frameIndex) {
     float2 pixel = uv * ScreenData.xy;
     float seed = dot(pixel, float2(0.06711056f, 0.00583715f)) + frameIndex * 0.000731f;
@@ -78,8 +73,10 @@ float GoldenNoise(float2 uv, float frameIndex) {
 }
 
 float4 Main(PixelInput input) : COLOR0 {
-    float3 base = SampleColor(input.uv);
-    float3 bloom = ApplyWarmth(SampleBloom(input.uv));
+	float3 base = SampleColor(input.uv);
+	float exposure = exp2(clamp(OptionData1.x, -0.5f, 0.5f));
+	float3 bloom = ApplySaturation(SampleBloom(input.uv), OptionData1.z);
+	bloom = ApplyWarmth(bloom) * exposure;
 
     if (OptionData2.z > 0.5f) {
         return float4(saturate(bloom * 4.0f), 1.0f);
@@ -89,24 +86,13 @@ float4 Main(PixelInput input) : COLOR0 {
         bloom *= 0.28f;
     }
 
-    float exposure = exp2(clamp(OptionData1.x, -0.5f, 0.5f));
-    float3 color = max(base * exposure, 0.0f);
-    float luma = Luma(color);
-
-    float shadowMask = 1.0f - Smooth01((luma - 0.05f) / 0.50f);
-    float atmosphere = saturate(OptionData2.w);
-    color += (1.0f - color) * shadowMask * saturate(OptionData2.x) * (0.075f + atmosphere * 0.045f);
-
-    float3 bloomContribution = bloom * max(OptionData0.x, 0.0f);
-    float shoulder = saturate(OptionData1.y);
-    float3 additive = color + bloomContribution * (1.0f - color * (0.25f + shoulder * 0.55f));
-    float3 screen = 1.0f - (1.0f - saturate(color)) * (1.0f - saturate(bloomContribution));
-    color = lerp(additive, screen, shoulder * 0.70f);
-
-    float3 toneMapped = AcesApprox(color * (1.0f + atmosphere * 0.08f));
-    color = lerp(color, toneMapped, shoulder * 0.48f);
-    color = ApplySaturation(color, OptionData1.z);
-    color = ApplyWarmth(color);
+	float3 color = base;
+	float bloomLift = 1.0f + saturate(OptionData2.x) * 0.25f;
+	float3 bloomContribution = bloom * max(OptionData0.x, 0.0f) * bloomLift;
+	float shoulder = saturate(OptionData1.y);
+	float3 additive = color + bloomContribution * (1.0f - color * (0.25f + shoulder * 0.55f));
+	float3 screen = 1.0f - (1.0f - saturate(color)) * (1.0f - saturate(bloomContribution));
+	color = lerp(additive, screen, shoulder * 0.70f);
 
     float noise = (GoldenNoise(input.uv, FrameData.x) - 0.5f) * saturate(OptionData2.y) / 255.0f;
     return float4(saturate(color + noise), 1.0f);

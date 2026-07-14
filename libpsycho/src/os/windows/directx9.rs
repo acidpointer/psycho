@@ -28,9 +28,9 @@ pub use windows::Win32::Graphics::Direct3D9::{
     D3DCULL, D3DCULL_CCW, D3DCULL_CW, D3DCULL_NONE, D3DFMT_A8R8G8B8, D3DFORMAT, D3DFVF_DIFFUSE,
     D3DFVF_TEX1, D3DFVF_XYZ, D3DFVF_XYZRHW, D3DPOOL_DEFAULT, D3DPOOL_MANAGED, D3DPT_POINTLIST,
     D3DPT_TRIANGLESTRIP, D3DRS_ALPHABLENDENABLE, D3DRS_COLORWRITEENABLE, D3DRS_CULLMODE,
-    D3DRS_POINTSIZE, D3DRS_ZENABLE, D3DRS_ZWRITEENABLE, D3DSAMP_ADDRESSU, D3DSAMP_ADDRESSV,
-    D3DSAMP_MAGFILTER, D3DSAMP_MINFILTER, D3DSAMP_MIPFILTER, D3DSBT_ALL, D3DSURFACE_DESC,
-    D3DTA_TEXTURE, D3DTADDRESS_CLAMP, D3DTEXF_LINEAR, D3DTEXF_NONE, D3DTEXF_POINT,
+    D3DRS_POINTSIZE, D3DRS_ZENABLE, D3DRS_ZFUNC, D3DRS_ZWRITEENABLE, D3DSAMP_ADDRESSU,
+    D3DSAMP_ADDRESSV, D3DSAMP_MAGFILTER, D3DSAMP_MINFILTER, D3DSAMP_MIPFILTER, D3DSBT_ALL,
+    D3DSURFACE_DESC, D3DTA_TEXTURE, D3DTADDRESS_CLAMP, D3DTEXF_LINEAR, D3DTEXF_NONE, D3DTEXF_POINT,
     D3DTOP_SELECTARG1, D3DTSS_ALPHAARG1, D3DTSS_ALPHAOP, D3DTSS_COLORARG1, D3DTSS_COLOROP,
     D3DVIEWPORT9,
 };
@@ -458,6 +458,12 @@ impl<'a> Device9Ref<'a> {
         unsafe { self.inner.GetTexture(stage) }.is_ok()
     }
 
+    /// Return the currently bound texture identity without retaining a COM reference.
+    pub fn texture_raw(&self, stage: u32) -> Option<*mut c_void> {
+        let texture = unsafe { self.inner.GetTexture(stage) }.ok()?;
+        Some(texture.as_raw())
+    }
+
     /// Set a borrowed raw `IDirect3DBaseTexture9` pointer.
     ///
     /// # Safety
@@ -605,6 +611,21 @@ impl<'a> Device9Ref<'a> {
             self.inner.SetPixelShaderConstantF(
                 start_register,
                 constants.as_ptr().cast::<f32>(),
+                constants.len() as u32,
+            )
+        }
+    }
+
+    /// Read pixel shader float constants from the device state.
+    pub fn pixel_shader_constant_f(
+        &self,
+        start_register: u32,
+        constants: &mut [[f32; 4]],
+    ) -> Direct3DResult<()> {
+        unsafe {
+            self.inner.GetPixelShaderConstantF(
+                start_register,
+                constants.as_mut_ptr().cast::<f32>(),
                 constants.len() as u32,
             )
         }

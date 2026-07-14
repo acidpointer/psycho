@@ -56,6 +56,16 @@ pub(crate) fn first_person_depth_texture_ptr(depth_provider: DepthProvider) -> O
     }
 }
 
+pub(crate) fn depth_projection_frame(
+    depth_provider: DepthProvider,
+    slot: DepthResolveSlot,
+) -> DepthProjectionFrame {
+    match depth_provider {
+        DepthProvider::None => DepthProjectionFrame::default(),
+        DepthProvider::FalloutNewVegas => fnv::depth_projection_frame(slot),
+    }
+}
+
 pub(crate) fn rendered_texture_color_surface(
     depth_provider: DepthProvider,
     rendered_texture: *mut c_void,
@@ -69,13 +79,14 @@ pub(crate) fn rendered_texture_color_surface(
 pub(crate) unsafe fn resolve_scene_depth(
     depth_provider: DepthProvider,
     device_ptr: *mut c_void,
+    source_rendered_texture: Option<*mut c_void>,
     slot: DepthResolveSlot,
     reason: &'static str,
 ) -> bool {
     match depth_provider {
         DepthProvider::None => false,
         DepthProvider::FalloutNewVegas => unsafe {
-            fnv::resolve_scene_depth(device_ptr, slot, reason)
+            fnv::resolve_scene_depth(device_ptr, source_rendered_texture, slot, reason)
         },
     }
 }
@@ -134,6 +145,7 @@ pub(crate) struct FrameInputs {
     pub(crate) depth: DepthFrame,
     pub(crate) environment: EnvironmentFrame,
     pub(crate) sun: SunFrame,
+    pub(crate) material_state: MaterialStateFrame,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -141,6 +153,8 @@ pub(crate) struct DepthFrame {
     pub(crate) provider: DepthProvider,
     pub(crate) texture: Option<DepthTexture>,
     pub(crate) first_person_texture: Option<DepthTexture>,
+    pub(crate) world_projection: DepthProjectionFrame,
+    pub(crate) first_person_projection: DepthProjectionFrame,
 }
 
 impl DepthFrame {
@@ -149,6 +163,8 @@ impl DepthFrame {
             provider: DepthProvider::None,
             texture: None,
             first_person_texture: None,
+            world_projection: DepthProjectionFrame::default(),
+            first_person_projection: DepthProjectionFrame::default(),
         }
     }
 
@@ -156,11 +172,15 @@ impl DepthFrame {
         provider: DepthProvider,
         texture: DepthTexture,
         first_person_texture: Option<DepthTexture>,
+        world_projection: DepthProjectionFrame,
+        first_person_projection: DepthProjectionFrame,
     ) -> Self {
         Self {
             provider,
             texture: Some(texture),
             first_person_texture,
+            world_projection,
+            first_person_projection,
         }
     }
 
@@ -196,6 +216,11 @@ pub(crate) struct CameraFrame {
     pub(crate) near_z: f32,
     pub(crate) far_z: f32,
     pub(crate) aspect_ratio: f32,
+    pub(crate) frustum_left: f32,
+    pub(crate) frustum_right: f32,
+    pub(crate) frustum_bottom: f32,
+    pub(crate) frustum_top: f32,
+    pub(crate) available: bool,
 }
 
 impl CameraFrame {
@@ -210,7 +235,16 @@ impl CameraFrame {
             near_z: 0.0,
             far_z: 0.0,
             aspect_ratio,
+            frustum_left: 0.0,
+            frustum_right: 0.0,
+            frustum_bottom: 0.0,
+            frustum_top: 0.0,
+            available: false,
         }
+    }
+
+    pub(crate) fn available_f32(self) -> f32 {
+        if self.available { 1.0 } else { 0.0 }
     }
 }
 
@@ -220,6 +254,29 @@ impl Default for CameraFrame {
             near_z: 0.0,
             far_z: 0.0,
             aspect_ratio: 1.0,
+            frustum_left: 0.0,
+            frustum_right: 0.0,
+            frustum_bottom: 0.0,
+            frustum_top: 0.0,
+            available: false,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct DepthProjectionFrame {
+    pub(crate) camera: CameraFrame,
+    pub(crate) reversed_depth: Option<bool>,
+    pub(crate) depth_function: Option<u32>,
+    pub(crate) source_surface: usize,
+}
+
+impl DepthProjectionFrame {
+    pub(crate) fn reversed_depth_f32(self) -> f32 {
+        match self.reversed_depth {
+            Some(true) => 1.0,
+            Some(false) => 0.0,
+            None => -1.0,
         }
     }
 }

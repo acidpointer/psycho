@@ -6,13 +6,16 @@ use std::sync::{
     atomic::{AtomicU32, AtomicUsize, Ordering},
 };
 
-use super::{CameraFrame, DepthResolveSlot, EnvironmentFrame, MaterialStateFrame, SunFrame};
+use super::{
+    CameraFrame, DepthProjectionFrame, DepthResolveSlot, EnvironmentFrame, MaterialStateFrame,
+    SunFrame,
+};
 use libpsycho::os::windows::{
     directx9::{
         D3DCULL_NONE, D3DFMT_INTZ, D3DPT_POINTLIST, D3DRESZ_POINT_SIZE, D3DRS_ALPHABLENDENABLE,
-        D3DRS_COLORWRITEENABLE, D3DRS_CULLMODE, D3DRS_POINTSIZE, D3DRS_ZENABLE, D3DRS_ZWRITEENABLE,
-        D3DSBT_ALL, D3DSURFACE_DESC, Device9Ref, Direct3DError as WindowsError, Direct3DResult,
-        PositionVertex, StateBlock9, Surface9, Texture9,
+        D3DRS_COLORWRITEENABLE, D3DRS_CULLMODE, D3DRS_POINTSIZE, D3DRS_ZENABLE, D3DRS_ZFUNC,
+        D3DRS_ZWRITEENABLE, D3DSBT_ALL, D3DSURFACE_DESC, Device9Ref, Direct3DError as WindowsError,
+        Direct3DResult, PositionVertex, StateBlock9, Surface9, Texture9,
     },
     memory::validate_memory_range,
 };
@@ -21,6 +24,7 @@ use parking_lot::Mutex;
 const NIDX9_RENDERER_SINGLETON_PTR: usize = 0x011C73B4;
 const NIDX9_RENDERER_DEVICE_OFFSET: usize = 0x288;
 const BSSHADERMANAGER_CAMERA_PTR: usize = 0x011F917C;
+const BSSHADERMANAGER_CURRENT_RENDER_TARGET_PTR: usize = 0x011F9438;
 const BSSHADERMANAGER_SCENE_GRAPH_INDEX: usize = 0x011F91C4;
 const BSSHADERMANAGER_SHADOW_SCENE_NODE_ARRAY: usize = 0x011F91C8;
 const BSSHADERMANAGER_SHADOW_SCENE_NODE_COUNT: usize = 4;
@@ -31,7 +35,6 @@ const TIME_GLOBALS_GAME_HOUR_OFFSET: usize = 0x0C;
 const SKY_CLIMATE_OFFSET: usize = 0x0C;
 const SKY_SUN_OFFSET: usize = 0x28;
 const SKY_GAME_HOUR_OFFSET: usize = 0xEC;
-const SKYOBJECT_ROOT_NODE_OFFSET: usize = 0x04;
 const CLIMATE_SUN_TIME_BYTES_OFFSET: usize = 0x50;
 const CLIMATE_SUN_TIME_BYTES_LEN: usize = 4;
 const CACHED_SUNRISE_BEGIN: usize = 0x011CA9E8;
@@ -39,17 +42,9 @@ const CACHED_SUNRISE_END: usize = 0x011CA9EC;
 const CACHED_SUNSET_BEGIN: usize = 0x011CA9F0;
 const CACHED_SUNSET_END: usize = 0x011CA9F4;
 const SKY_SUN_TIME_DIVISOR: usize = 0x01034208;
+const NATIVE_SUN_SCREEN_X_ADDR: usize = 0x012023F4;
+const NATIVE_SUN_SCREEN_Y_ADDR: usize = 0x012023F8;
 
-const NIAVOBJECT_WORLD_ROT_FORWARD_X_OFFSET: usize = 0x68;
-const NIAVOBJECT_WORLD_ROT_FORWARD_Y_OFFSET: usize = 0x74;
-const NIAVOBJECT_WORLD_ROT_FORWARD_Z_OFFSET: usize = 0x80;
-const NIAVOBJECT_WORLD_ROT_UP_X_OFFSET: usize = 0x6C;
-const NIAVOBJECT_WORLD_ROT_UP_Y_OFFSET: usize = 0x78;
-const NIAVOBJECT_WORLD_ROT_UP_Z_OFFSET: usize = 0x84;
-const NIAVOBJECT_WORLD_ROT_RIGHT_X_OFFSET: usize = 0x70;
-const NIAVOBJECT_WORLD_ROT_RIGHT_Y_OFFSET: usize = 0x7C;
-const NIAVOBJECT_WORLD_ROT_RIGHT_Z_OFFSET: usize = 0x88;
-const NIAVOBJECT_WORLD_POS_OFFSET: usize = 0x8C;
 const NICAMERA_FRUSTUM_LEFT_OFFSET: usize = 0xDC;
 const NICAMERA_FRUSTUM_RIGHT_OFFSET: usize = 0xE0;
 const NICAMERA_FRUSTUM_TOP_OFFSET: usize = 0xE4;
@@ -61,6 +56,7 @@ const BSRENDEREDTEXTURE_RENDER_TARGET_GROUP0_OFFSET: usize = 0x08;
 const NIRENDERTARGETGROUP_SIZE: usize = 0x28;
 const NIRENDERTARGETGROUP_BUFFER0_OFFSET: usize = 0x0C;
 const NIRENDERTARGETGROUP_BUFFER_COUNT_OFFSET: usize = 0x1C;
+const NIRENDERTARGETGROUP_DEPTH_BUFFER_OFFSET: usize = 0x20;
 const NI2DBUFFER_SIZE: usize = 0x14;
 const NI2DBUFFER_RENDERER_DATA_OFFSET: usize = 0x10;
 const NIDX9_TEXTURE_BUFFER_DATA_SURFACE_OFFSET: usize = 0x14;
@@ -75,8 +71,12 @@ const TESOBJECTCELL_FLAGS0_OFFSET: usize = 0x24;
 const TESOBJECTCELL_WORLDSPACE_OFFSET: usize = 0xC0;
 const TESOBJECTCELL_FLAGS0_INTERIOR: u8 = 1 << 0;
 const MAX_DEPTH_RESOLVE_LOGS: u32 = 16;
+const FRAME_CONTRACT_LOG_INTERVAL: u32 = 120;
+const MAX_FRAME_CONTRACT_LOGS: u32 = 32;
 
 static DEPTH_RESOLVE_LOGS: AtomicU32 = AtomicU32::new(0);
+static SUN_FRAME_CALLS: AtomicU32 = AtomicU32::new(0);
+static SUN_FRAME_LOGS: AtomicU32 = AtomicU32::new(0);
 static RESOLVED_WORLD_DEPTH_TEXTURE: AtomicUsize = AtomicUsize::new(0);
 static RESOLVED_FIRST_PERSON_DEPTH_TEXTURE: AtomicUsize = AtomicUsize::new(0);
 static DEPTH_RESOLVE: LazyLock<Mutex<FnvDepthResolve>> =
@@ -100,34 +100,7 @@ pub(super) fn d3d_device_ptr() -> Option<*mut c_void> {
 }
 
 pub(super) fn camera_frame(desc: &D3DSURFACE_DESC) -> CameraFrame {
-    let fallback = CameraFrame::fallback(desc);
-
-    unsafe {
-        let Some(camera) = read_ptr(BSSHADERMANAGER_CAMERA_PTR) else {
-            return fallback;
-        };
-        if camera.is_null() {
-            return fallback;
-        }
-
-        let near_z = match read_f32(camera as usize + NICAMERA_FRUSTUM_NEAR_OFFSET) {
-            Some(value) => value,
-            None => 0.0,
-        };
-        let far_z = match read_f32(camera as usize + NICAMERA_FRUSTUM_FAR_OFFSET) {
-            Some(value) => value,
-            None => 0.0,
-        };
-        if !near_z.is_finite() || !far_z.is_finite() || near_z <= 0.0 || far_z <= near_z {
-            return fallback;
-        }
-
-        CameraFrame {
-            near_z,
-            far_z,
-            aspect_ratio: fallback.aspect_ratio,
-        }
-    }
+    unsafe { read_camera_frame(desc).unwrap_or_else(|| CameraFrame::fallback(desc)) }
 }
 
 pub(super) fn environment_frame() -> EnvironmentFrame {
@@ -152,16 +125,25 @@ pub(super) fn first_person_depth_texture_ptr() -> Option<*mut c_void> {
     (ptr != 0).then_some(ptr as *mut c_void)
 }
 
+pub(super) fn depth_projection_frame(slot: DepthResolveSlot) -> DepthProjectionFrame {
+    DEPTH_RESOLVE.lock().projection_frame(slot)
+}
+
 pub(super) fn rendered_texture_color_surface(rendered_texture: *mut c_void) -> Option<*mut c_void> {
     unsafe { read_rendered_texture_color_surface(rendered_texture).ok() }
 }
 
 pub(super) unsafe fn resolve_scene_depth(
     device_ptr: *mut c_void,
+    source_rendered_texture: Option<*mut c_void>,
     slot: DepthResolveSlot,
     reason: &'static str,
 ) -> bool {
-    match unsafe { DEPTH_RESOLVE.lock().resolve(device_ptr, slot, reason) } {
+    match unsafe {
+        DEPTH_RESOLVE
+            .lock()
+            .resolve(device_ptr, source_rendered_texture, slot, reason)
+    } {
         Ok(()) => true,
         Err(err) => {
             log_depth_resolve_skip(slot, reason, &err);
@@ -173,6 +155,7 @@ pub(super) unsafe fn resolve_scene_depth(
 pub(super) fn finish_frame() {
     RESOLVED_WORLD_DEPTH_TEXTURE.store(0, Ordering::Release);
     RESOLVED_FIRST_PERSON_DEPTH_TEXTURE.store(0, Ordering::Release);
+    DEPTH_RESOLVE.lock().finish_frame();
 }
 
 pub(super) fn reset_depth_resources() {
@@ -215,11 +198,46 @@ unsafe fn read_u32(address: usize) -> Option<u32> {
     Some(unsafe { (address as *const u32).read() })
 }
 
-unsafe fn read_vec3(address: usize) -> Option<Vec3> {
-    Some(Vec3 {
-        x: unsafe { read_f32(address)? },
-        y: unsafe { read_f32(address + size_of::<f32>())? },
-        z: unsafe { read_f32(address + size_of::<f32>() * 2)? },
+unsafe fn read_camera_frame(desc: &D3DSURFACE_DESC) -> Option<CameraFrame> {
+    let camera = unsafe { read_ptr(BSSHADERMANAGER_CAMERA_PTR)? };
+    if camera.is_null() {
+        return None;
+    }
+
+    let near_z = unsafe { read_f32(camera as usize + NICAMERA_FRUSTUM_NEAR_OFFSET)? };
+    let far_z = unsafe { read_f32(camera as usize + NICAMERA_FRUSTUM_FAR_OFFSET)? };
+    let frustum_left = unsafe { read_f32(camera as usize + NICAMERA_FRUSTUM_LEFT_OFFSET)? };
+    let frustum_right = unsafe { read_f32(camera as usize + NICAMERA_FRUSTUM_RIGHT_OFFSET)? };
+    let frustum_top = unsafe { read_f32(camera as usize + NICAMERA_FRUSTUM_TOP_OFFSET)? };
+    let frustum_bottom = unsafe { read_f32(camera as usize + NICAMERA_FRUSTUM_BOTTOM_OFFSET)? };
+    if !near_z.is_finite()
+        || !far_z.is_finite()
+        || !frustum_left.is_finite()
+        || !frustum_right.is_finite()
+        || !frustum_top.is_finite()
+        || !frustum_bottom.is_finite()
+        || near_z <= 0.0
+        || far_z <= near_z
+        || frustum_right <= frustum_left
+        || frustum_top <= frustum_bottom
+    {
+        return None;
+    }
+
+    let aspect_ratio = if desc.Height > 0 {
+        desc.Width as f32 / desc.Height as f32
+    } else {
+        1.0
+    };
+    Some(CameraFrame {
+        near_z,
+        far_z,
+        aspect_ratio,
+        frustum_left,
+        frustum_right,
+        frustum_bottom,
+        frustum_top,
+        available: true,
     })
 }
 
@@ -242,6 +260,19 @@ unsafe fn read_rendered_texture_color_surface(
         )?
     };
     unsafe { read_ni_buffer_surface(buffer, "color buffer") }
+}
+
+unsafe fn read_rendered_texture_depth_surface(
+    rendered_texture: *mut c_void,
+) -> Result<*mut c_void, &'static str> {
+    let group = unsafe { read_rendered_texture_group(rendered_texture)? };
+    let buffer = unsafe {
+        read_ptr_checked(
+            group as usize + NIRENDERTARGETGROUP_DEPTH_BUFFER_OFFSET,
+            "missing render target depth buffer",
+        )?
+    };
+    unsafe { read_ni_buffer_surface(buffer, "depth buffer") }
 }
 
 unsafe fn read_rendered_texture_group(
@@ -372,6 +403,7 @@ unsafe fn read_environment_frame() -> Option<EnvironmentFrame> {
 }
 
 unsafe fn read_sun_frame() -> Option<SunFrame> {
+    let call = SUN_FRAME_CALLS.fetch_add(1, Ordering::Relaxed);
     let sky = unsafe { read_ptr(SKY_SINGLETON_PTR)? };
     if sky.is_null() {
         return None;
@@ -382,76 +414,30 @@ unsafe fn read_sun_frame() -> Option<SunFrame> {
         return None;
     }
 
-    let sun = unsafe { read_ptr(sky as usize + SKY_SUN_OFFSET)? };
-    if sun.is_null() {
+    if unsafe { read_ptr(sky as usize + SKY_SUN_OFFSET)? }.is_null() {
         return None;
     }
 
-    let sun_root = unsafe { read_ptr(sun as usize + SKYOBJECT_ROOT_NODE_OFFSET)? };
-    if sun_root.is_null() {
-        return None;
-    }
-
-    let sun_position = unsafe { read_vec3(sun_root as usize + NIAVOBJECT_WORLD_POS_OFFSET)? };
-    if !sun_position.is_valid() {
-        return None;
-    }
-
-    let camera = unsafe { read_ptr(BSSHADERMANAGER_CAMERA_PTR)? };
-    if camera.is_null() {
-        return None;
-    }
-
-    let camera_position = unsafe { read_vec3(camera as usize + NIAVOBJECT_WORLD_POS_OFFSET)? };
-    let forward = Vec3 {
-        x: unsafe { read_f32(camera as usize + NIAVOBJECT_WORLD_ROT_FORWARD_X_OFFSET)? },
-        y: unsafe { read_f32(camera as usize + NIAVOBJECT_WORLD_ROT_FORWARD_Y_OFFSET)? },
-        z: unsafe { read_f32(camera as usize + NIAVOBJECT_WORLD_ROT_FORWARD_Z_OFFSET)? },
-    }
-    .normalized()?;
-    let up = Vec3 {
-        x: unsafe { read_f32(camera as usize + NIAVOBJECT_WORLD_ROT_UP_X_OFFSET)? },
-        y: unsafe { read_f32(camera as usize + NIAVOBJECT_WORLD_ROT_UP_Y_OFFSET)? },
-        z: unsafe { read_f32(camera as usize + NIAVOBJECT_WORLD_ROT_UP_Z_OFFSET)? },
-    }
-    .normalized()?;
-    let right = Vec3 {
-        x: unsafe { read_f32(camera as usize + NIAVOBJECT_WORLD_ROT_RIGHT_X_OFFSET)? },
-        y: unsafe { read_f32(camera as usize + NIAVOBJECT_WORLD_ROT_RIGHT_Y_OFFSET)? },
-        z: unsafe { read_f32(camera as usize + NIAVOBJECT_WORLD_ROT_RIGHT_Z_OFFSET)? },
-    }
-    .normalized()?;
-
-    let left = unsafe { read_f32(camera as usize + NICAMERA_FRUSTUM_LEFT_OFFSET)? };
-    let frustum_right = unsafe { read_f32(camera as usize + NICAMERA_FRUSTUM_RIGHT_OFFSET)? };
-    let top = unsafe { read_f32(camera as usize + NICAMERA_FRUSTUM_TOP_OFFSET)? };
-    let bottom = unsafe { read_f32(camera as usize + NICAMERA_FRUSTUM_BOTTOM_OFFSET)? };
-    if !left.is_finite()
-        || !frustum_right.is_finite()
-        || !top.is_finite()
-        || !bottom.is_finite()
-        || frustum_right <= left
-        || top <= bottom
+    let screen_x = unsafe { read_f32(NATIVE_SUN_SCREEN_X_ADDR)? };
+    let screen_y = unsafe { read_f32(NATIVE_SUN_SCREEN_Y_ADDR)? };
+    if !screen_x.is_finite()
+        || !screen_y.is_finite()
+        || (screen_x.abs() <= f32::EPSILON && screen_y.abs() <= f32::EPSILON)
     {
+        if call % FRAME_CONTRACT_LOG_INTERVAL == 0
+            && SUN_FRAME_LOGS.fetch_add(1, Ordering::Relaxed) < MAX_FRAME_CONTRACT_LOGS
+        {
+            log::info!("[FNV] Native sun screen globals unavailable");
+        }
         return None;
     }
 
-    let to_sun = sun_position.sub(camera_position);
-    let view_x = to_sun.dot(right);
-    let view_y = to_sun.dot(up);
-    let view_z = to_sun.dot(forward);
-    if !view_x.is_finite() || !view_y.is_finite() || !view_z.is_finite() || view_z <= 0.001 {
-        return None;
-    }
-
-    let frustum_width = frustum_right - left;
-    let frustum_height = top - bottom;
-    let ndc_x = ((2.0 * view_x / view_z) - (frustum_right + left)) / frustum_width;
-    let ndc_y = ((2.0 * view_y / view_z) - (top + bottom)) / frustum_height;
-    let screen_x = ndc_x * 0.5 + 0.5;
-    let screen_y = 0.5 - ndc_y * 0.5;
-    if !screen_x.is_finite() || !screen_y.is_finite() {
-        return None;
+    if call % FRAME_CONTRACT_LOG_INTERVAL == 0
+        && SUN_FRAME_LOGS.fetch_add(1, Ordering::Relaxed) < MAX_FRAME_CONTRACT_LOGS
+    {
+        log::info!(
+            "[FNV] Native sun contract: screen=({screen_x:.5},{screen_y:.5}), source=engine_globals, daylight={daylight:.4}"
+        );
     }
 
     Some(SunFrame {
@@ -627,49 +613,6 @@ fn step(start: f32, end: f32, value: f32) -> f32 {
     ((value - start) / (end - start)).clamp(0.0, 1.0)
 }
 
-#[derive(Clone, Copy)]
-struct Vec3 {
-    x: f32,
-    y: f32,
-    z: f32,
-}
-
-impl Vec3 {
-    fn is_valid(self) -> bool {
-        self.x.is_finite() && self.y.is_finite() && self.z.is_finite()
-    }
-
-    fn dot(self, other: Self) -> f32 {
-        self.x * other.x + self.y * other.y + self.z * other.z
-    }
-
-    fn sub(self, other: Self) -> Self {
-        Self {
-            x: self.x - other.x,
-            y: self.y - other.y,
-            z: self.z - other.z,
-        }
-    }
-
-    fn normalized(self) -> Option<Self> {
-        if !self.is_valid() {
-            return None;
-        }
-
-        let len_sq = self.dot(self);
-        if !len_sq.is_finite() || len_sq <= 0.000001 {
-            return None;
-        }
-
-        let inv_len = len_sq.sqrt().recip();
-        Some(Self {
-            x: self.x * inv_len,
-            y: self.y * inv_len,
-            z: self.z * inv_len,
-        })
-    }
-}
-
 fn log_depth_resolve_skip(
     slot: DepthResolveSlot,
     reason: &'static str,
@@ -690,12 +633,15 @@ struct FnvDepthResolve {
     first_person_target: Option<FnvDepthTarget>,
     state_block: Option<StateBlock9>,
     success_logs: u32,
+    world_projection: DepthProjectionFrame,
+    first_person_projection: DepthProjectionFrame,
 }
 
 impl FnvDepthResolve {
     unsafe fn resolve(
         &mut self,
         device_ptr: *mut c_void,
+        source_rendered_texture: Option<*mut c_void>,
         slot: DepthResolveSlot,
         reason: &'static str,
     ) -> Result<(), FnvDepthResolveError> {
@@ -703,21 +649,31 @@ impl FnvDepthResolve {
             return Err(FnvDepthResolveError::Static("null D3D device"));
         };
 
-        let source_surface = device.depth_stencil_surface()?;
-        let Some(source_surface) = source_surface.as_ref() else {
-            return Err(FnvDepthResolveError::Static(
-                "missing active D3D depth surface",
-            ));
+        let (rendered_texture, source_label) = match source_rendered_texture {
+            Some(rendered_texture) => (rendered_texture, "first-person render target"),
+            None => {
+                let rendered_texture = unsafe {
+                    read_ptr_checked(
+                        BSSHADERMANAGER_CURRENT_RENDER_TARGET_PTR,
+                        "unreadable current render target",
+                    )?
+                };
+                (
+                    rendered_texture.cast::<c_void>(),
+                    "world current render target",
+                )
+            }
         };
+        let source_surface = unsafe { read_rendered_texture_depth_surface(rendered_texture)? };
 
         unsafe {
             self.resolve_from_surface(
                 &device,
                 device_ptr,
-                source_surface.as_raw(),
+                source_surface,
                 slot,
                 reason,
-                "active D3D",
+                source_label,
             )
         }
     }
@@ -744,6 +700,14 @@ impl FnvDepthResolve {
         if desc.Width == 0 || desc.Height == 0 {
             return Err(FnvDepthResolveError::Static("empty depth surface"));
         }
+        let depth_function = device.render_state(D3DRS_ZFUNC).ok();
+        let projection = DepthProjectionFrame {
+            camera: unsafe { read_camera_frame(&desc) }
+                .unwrap_or_else(|| CameraFrame::fallback(&desc)),
+            reversed_depth: depth_convention(depth_function),
+            depth_function,
+            source_surface: source_surface as usize,
+        };
 
         self.ensure_resources(device, &desc, slot)?;
 
@@ -780,12 +744,14 @@ impl FnvDepthResolve {
         match slot {
             DepthResolveSlot::World => {
                 RESOLVED_WORLD_DEPTH_TEXTURE.store(texture_ptr, Ordering::Release);
+                self.world_projection = projection;
             }
             DepthResolveSlot::FirstPerson => {
                 RESOLVED_FIRST_PERSON_DEPTH_TEXTURE.store(texture_ptr, Ordering::Release);
+                self.first_person_projection = projection;
             }
         }
-        self.log_success(slot, reason, source_label, &desc);
+        self.log_success(slot, reason, source_label, &desc, projection);
         Ok(())
     }
 
@@ -831,21 +797,46 @@ impl FnvDepthResolve {
         }
     }
 
+    fn projection_frame(&self, slot: DepthResolveSlot) -> DepthProjectionFrame {
+        match slot {
+            DepthResolveSlot::World => self.world_projection,
+            DepthResolveSlot::FirstPerson => self.first_person_projection,
+        }
+    }
+
+    fn finish_frame(&mut self) {
+        self.world_projection = DepthProjectionFrame::default();
+        self.first_person_projection = DepthProjectionFrame::default();
+    }
+
     fn log_success(
         &mut self,
         slot: DepthResolveSlot,
         reason: &'static str,
         source_label: &'static str,
         desc: &D3DSURFACE_DESC,
+        projection: DepthProjectionFrame,
     ) {
-        if self.success_logs < 8 {
-            log::debug!(
-                "[FNV] D3D depth resolved: slot={}, source={source_label}, reason={reason}, size={}x{}",
+        let log_index = self.success_logs;
+        self.success_logs = self.success_logs.saturating_add(1);
+        if log_index % FRAME_CONTRACT_LOG_INTERVAL < 2
+            && log_index / FRAME_CONTRACT_LOG_INTERVAL < MAX_FRAME_CONTRACT_LOGS
+        {
+            log::info!(
+                "[FNV] Depth contract: slot={}, source={source_label}, reason={reason}, surface=0x{:08X}, size={}x{}, zfunc={:?}, reversed={:?}, near={:.4}, far={:.2}, frustum=({:.5},{:.5},{:.5},{:.5})",
                 slot.label(),
+                projection.source_surface,
                 desc.Width,
-                desc.Height
+                desc.Height,
+                projection.depth_function,
+                projection.reversed_depth,
+                projection.camera.near_z,
+                projection.camera.far_z,
+                projection.camera.frustum_left,
+                projection.camera.frustum_right,
+                projection.camera.frustum_bottom,
+                projection.camera.frustum_top,
             );
-            self.success_logs += 1;
         }
     }
 
@@ -854,6 +845,15 @@ impl FnvDepthResolve {
         self.world_target = None;
         self.first_person_target = None;
         self.state_block = None;
+        self.finish_frame();
+    }
+}
+
+fn depth_convention(depth_function: Option<u32>) -> Option<bool> {
+    match depth_function? {
+        5 | 7 => Some(true),
+        2 | 4 => Some(false),
+        _ => None,
     }
 }
 

@@ -19,6 +19,18 @@ const NVR_HELPERS_INCLUDE_SOURCE: &str =
     include_str!("../../../shaders/embedded/nvr_pbr_object/Helpers.hlsl");
 const NVR_SKIN_HELPERS_INCLUDE_SOURCE: &str =
     include_str!("../../../shaders/embedded/nvr_pbr_object/SkinHelpers.hlsl");
+const LAND_LOD_VERTEX_SOURCE: &str =
+    include_str!("../../../shaders/embedded/native_pbr_pplighting_landlod.vs.hlsl");
+const LAND_LOD_PIXEL_SOURCE: &str =
+    include_str!("../../../shaders/embedded/native_pbr_pplighting_landlod.hlsl");
+const TERRAIN_FADE_VERTEX_SOURCE: &str =
+    include_str!("../../../shaders/embedded/native_pbr_pplighting_terrainfade.vs.hlsl");
+const TERRAIN_FADE_PIXEL_SOURCE: &str =
+    include_str!("../../../shaders/embedded/native_pbr_pplighting_terrainfade.hlsl");
+const CLOSE_TERRAIN_VERTEX_SOURCE: &str =
+    include_str!("../../../shaders/embedded/native_pbr_pplighting_close_terrain.vs.hlsl");
+const CLOSE_TERRAIN_PIXEL_SOURCE: &str =
+    include_str!("../../../shaders/embedded/native_pbr_pplighting_close_terrain.hlsl");
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum ShaderStage {
@@ -554,17 +566,178 @@ const OBJECT_PIXEL_TEMPLATES: &[ShaderTemplate] = &[
     ),
 ];
 
+const LAND_LOD_TEMPLATES: &[ShaderTemplate] = &[
+    vertex(2002, "SLS2002_v_landlod", ""),
+    pixel(2003, "SLS2003_p_landlod", ""),
+];
+
+const TERRAIN_FADE_TEMPLATES: &[ShaderTemplate] = &[
+    vertex(2080, "SLS2080_v_terrain_fade", ""),
+    pixel(2082, "SLS2082_p_terrain_fade", ""),
+];
+
+const CLOSE_TERRAIN_TEMPLATES: &[ShaderTemplate] = &[
+    vertex(2100, "SLS2100_v_close_terrain", ""),
+    pixel(
+        2092,
+        "SLS2092_p_terrain_t1_l0",
+        "#define PBR_TERRAIN_TEX_COUNT 1",
+    ),
+    pixel(
+        2094,
+        "SLS2094_p_terrain_t1_l6",
+        "#define PBR_TERRAIN_TEX_COUNT 1\n#define PBR_TERRAIN_POINT_LIGHTS 6",
+    ),
+    pixel(
+        2096,
+        "SLS2096_p_terrain_t1_l12",
+        "#define PBR_TERRAIN_TEX_COUNT 1\n#define PBR_TERRAIN_POINT_LIGHTS 12",
+    ),
+    pixel(
+        2098,
+        "SLS2098_p_terrain_t1_l24",
+        "#define PBR_TERRAIN_TEX_COUNT 1\n#define PBR_TERRAIN_POINT_LIGHTS 24",
+    ),
+    pixel(
+        2100,
+        "SLS2100_p_terrain_t2_l0",
+        "#define PBR_TERRAIN_TEX_COUNT 2",
+    ),
+    pixel(
+        2102,
+        "SLS2102_p_terrain_t2_l6",
+        "#define PBR_TERRAIN_TEX_COUNT 2\n#define PBR_TERRAIN_POINT_LIGHTS 6",
+    ),
+    pixel(
+        2104,
+        "SLS2104_p_terrain_t2_l12",
+        "#define PBR_TERRAIN_TEX_COUNT 2\n#define PBR_TERRAIN_POINT_LIGHTS 12",
+    ),
+    pixel(
+        2106,
+        "SLS2106_p_terrain_t2_l24",
+        "#define PBR_TERRAIN_TEX_COUNT 2\n#define PBR_TERRAIN_POINT_LIGHTS 24",
+    ),
+    pixel(
+        2108,
+        "SLS2108_p_terrain_t3_l0",
+        "#define PBR_TERRAIN_TEX_COUNT 3",
+    ),
+    pixel(
+        2110,
+        "SLS2110_p_terrain_t3_l6",
+        "#define PBR_TERRAIN_TEX_COUNT 3\n#define PBR_TERRAIN_POINT_LIGHTS 6",
+    ),
+    pixel(
+        2112,
+        "SLS2112_p_terrain_t3_l12",
+        "#define PBR_TERRAIN_TEX_COUNT 3\n#define PBR_TERRAIN_POINT_LIGHTS 12",
+    ),
+    pixel(
+        2114,
+        "SLS2114_p_terrain_t3_l24",
+        "#define PBR_TERRAIN_TEX_COUNT 3\n#define PBR_TERRAIN_POINT_LIGHTS 24",
+    ),
+    pixel(
+        2116,
+        "SLS2116_p_terrain_t4_l0",
+        "#define PBR_TERRAIN_TEX_COUNT 4",
+    ),
+    pixel(
+        2118,
+        "SLS2118_p_terrain_t4_l6",
+        "#define PBR_TERRAIN_TEX_COUNT 4\n#define PBR_TERRAIN_POINT_LIGHTS 6",
+    ),
+    pixel(
+        2120,
+        "SLS2120_p_terrain_t4_l12",
+        "#define PBR_TERRAIN_TEX_COUNT 4\n#define PBR_TERRAIN_POINT_LIGHTS 12",
+    ),
+    pixel(
+        2122,
+        "SLS2122_p_terrain_t4_l24",
+        "#define PBR_TERRAIN_TEX_COUNT 4\n#define PBR_TERRAIN_POINT_LIGHTS 24",
+    ),
+    pixel(
+        2124,
+        "SLS2124_p_terrain_t5_l0",
+        "#define PBR_TERRAIN_TEX_COUNT 5",
+    ),
+    pixel(
+        2126,
+        "SLS2126_p_terrain_t5_l6",
+        "#define PBR_TERRAIN_TEX_COUNT 5\n#define PBR_TERRAIN_POINT_LIGHTS 6",
+    ),
+    pixel(
+        2128,
+        "SLS2128_p_terrain_t5_l12",
+        "#define PBR_TERRAIN_TEX_COUNT 5\n#define PBR_TERRAIN_POINT_LIGHTS 12",
+    ),
+    pixel(
+        2130,
+        "SLS2130_p_terrain_t5_l24",
+        "#define PBR_TERRAIN_TEX_COUNT 5\n#define PBR_TERRAIN_POINT_LIGHTS 24",
+    ),
+    pixel(
+        2132,
+        "SLS2132_p_terrain_t6_l0",
+        "#define PBR_TERRAIN_TEX_COUNT 6",
+    ),
+    pixel(
+        2134,
+        "SLS2134_p_terrain_t6_l6",
+        "#define PBR_TERRAIN_TEX_COUNT 6\n#define PBR_TERRAIN_POINT_LIGHTS 6",
+    ),
+    pixel(
+        2136,
+        "SLS2136_p_terrain_t6_l12",
+        "#define PBR_TERRAIN_TEX_COUNT 6\n#define PBR_TERRAIN_POINT_LIGHTS 12",
+    ),
+    pixel(
+        2138,
+        "SLS2138_p_terrain_t6_l24",
+        "#define PBR_TERRAIN_TEX_COUNT 6\n#define PBR_TERRAIN_POINT_LIGHTS 24",
+    ),
+    pixel(
+        2140,
+        "SLS2140_p_terrain_t7_l0",
+        "#define PBR_TERRAIN_TEX_COUNT 7",
+    ),
+    pixel(
+        2142,
+        "SLS2142_p_terrain_t7_l6",
+        "#define PBR_TERRAIN_TEX_COUNT 7\n#define PBR_TERRAIN_POINT_LIGHTS 6",
+    ),
+    pixel(
+        2144,
+        "SLS2144_p_terrain_t7_l12",
+        "#define PBR_TERRAIN_TEX_COUNT 7\n#define PBR_TERRAIN_POINT_LIGHTS 12",
+    ),
+    pixel(
+        2146,
+        "SLS2146_p_terrain_t7_l24",
+        "#define PBR_TERRAIN_TEX_COUNT 7\n#define PBR_TERRAIN_POINT_LIGHTS 24",
+    ),
+];
+
 pub(super) fn summary() -> RegistrySummary {
     RegistrySummary {
         object_records: object_template_count(),
-        land_lod_records: 2,
-        terrain_fade_records: 2,
-        close_terrain_records: 30,
+        land_lod_records: LAND_LOD_TEMPLATES.len(),
+        terrain_fade_records: TERRAIN_FADE_TEMPLATES.len(),
+        close_terrain_records: CLOSE_TERRAIN_TEMPLATES.len(),
     }
 }
 
 pub(super) fn object_template_count() -> usize {
     OBJECT_VERTEX_TEMPLATES.len() + OBJECT_PIXEL_TEMPLATES.len()
+}
+
+pub(super) fn template_count() -> usize {
+    object_template_count()
+        + LAND_LOD_TEMPLATES.len()
+        + TERRAIN_FADE_TEMPLATES.len()
+        + CLOSE_TERRAIN_TEMPLATES.len()
 }
 
 pub(super) fn object_template_at(id: u16) -> Option<&'static ShaderTemplate> {
@@ -574,6 +747,70 @@ pub(super) fn object_template_at(id: u16) -> Option<&'static ShaderTemplate> {
     }
 
     OBJECT_PIXEL_TEMPLATES.get(index - OBJECT_VERTEX_TEMPLATES.len())
+}
+
+pub(super) fn template_at(id: u16) -> Option<&'static ShaderTemplate> {
+    let index = id as usize;
+    if index < object_template_count() {
+        return object_template_at(id);
+    }
+
+    let mut family_index = index - object_template_count();
+    if family_index < LAND_LOD_TEMPLATES.len() {
+        return LAND_LOD_TEMPLATES.get(family_index);
+    }
+    family_index -= LAND_LOD_TEMPLATES.len();
+    if family_index < TERRAIN_FADE_TEMPLATES.len() {
+        return TERRAIN_FADE_TEMPLATES.get(family_index);
+    }
+    family_index -= TERRAIN_FADE_TEMPLATES.len();
+    CLOSE_TERRAIN_TEMPLATES.get(family_index)
+}
+
+pub(super) fn land_lod_template_id(stage: ShaderStage) -> u16 {
+    let offset = match stage {
+        ShaderStage::Vertex => 0,
+        ShaderStage::Pixel => 1,
+    };
+    (object_template_count() + offset) as u16
+}
+
+pub(super) fn template_is_land_lod(id: u16) -> bool {
+    let index = id as usize;
+    let first = object_template_count();
+    index >= first && index < first + LAND_LOD_TEMPLATES.len()
+}
+
+pub(super) fn terrain_fade_template_id(stage: ShaderStage) -> u16 {
+    let offset = match stage {
+        ShaderStage::Vertex => 0,
+        ShaderStage::Pixel => 1,
+    };
+    (object_template_count() + LAND_LOD_TEMPLATES.len() + offset) as u16
+}
+
+pub(super) fn close_terrain_template_id(stage: ShaderStage, sls_number: u16) -> Option<u16> {
+    let local_index = CLOSE_TERRAIN_TEMPLATES
+        .iter()
+        .position(|template| template.stage == stage && template.sls_number == sls_number)?;
+    Some(
+        (object_template_count()
+            + LAND_LOD_TEMPLATES.len()
+            + TERRAIN_FADE_TEMPLATES.len()
+            + local_index) as u16,
+    )
+}
+
+pub(super) fn template_is_terrain_fade(id: u16) -> bool {
+    let index = id as usize;
+    let first = object_template_count() + LAND_LOD_TEMPLATES.len();
+    index >= first && index < first + TERRAIN_FADE_TEMPLATES.len()
+}
+
+pub(super) fn template_is_close_terrain(id: u16) -> bool {
+    let index = id as usize;
+    let first = object_template_count() + LAND_LOD_TEMPLATES.len() + TERRAIN_FADE_TEMPLATES.len();
+    index >= first && index < template_count()
 }
 
 pub(super) fn object_template_id(stage: ShaderStage, sls_number: u16) -> Option<TemplateRef> {
@@ -609,7 +846,41 @@ pub(super) fn object_template_source(template: &ShaderTemplate) -> Cow<'static, 
     Cow::Owned(source.into_bytes())
 }
 
+pub(super) fn template_source(id: u16, template: &ShaderTemplate) -> Cow<'static, [u8]> {
+    if (id as usize) < object_template_count() {
+        return object_template_source(template);
+    }
+
+    if template_is_land_lod(id) {
+        return match template.stage {
+            ShaderStage::Vertex => Cow::Borrowed(LAND_LOD_VERTEX_SOURCE.as_bytes()),
+            ShaderStage::Pixel => Cow::Borrowed(LAND_LOD_PIXEL_SOURCE.as_bytes()),
+        };
+    }
+    if template_is_terrain_fade(id) {
+        return match template.stage {
+            ShaderStage::Vertex => Cow::Borrowed(TERRAIN_FADE_VERTEX_SOURCE.as_bytes()),
+            ShaderStage::Pixel => Cow::Borrowed(TERRAIN_FADE_PIXEL_SOURCE.as_bytes()),
+        };
+    }
+
+    match template.stage {
+        ShaderStage::Vertex => Cow::Borrowed(CLOSE_TERRAIN_VERTEX_SOURCE.as_bytes()),
+        ShaderStage::Pixel => {
+            let mut source = String::with_capacity(
+                template.defines.len() + CLOSE_TERRAIN_PIXEL_SOURCE.len() + 2,
+            );
+            source.push_str(template.defines);
+            source.push('\n');
+            source.push_str(CLOSE_TERRAIN_PIXEL_SOURCE);
+            Cow::Owned(source.into_bytes())
+        }
+    }
+}
+
 fn append_nvr_defines(output: &mut String, template: &ShaderTemplate) {
+    // NVR's shader loader adds this macro for New Vegas at compile time.
+    output.push_str("#define REVERSED_DEPTH 1\n");
     match template.stage {
         ShaderStage::Vertex => output.push_str("#define VS 1\n"),
         ShaderStage::Pixel => output.push_str("#define PS 1\n"),

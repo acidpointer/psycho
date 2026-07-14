@@ -14,6 +14,7 @@ float4 ContactOption0 : register(c7);
 float4 ContactOption1 : register(c8);
 float4 ContactOption2 : register(c9);
 float4 EffectData : register(c10);
+float4 DepthData : register(c11);
 
 static const float DepthEndpointEpsilon = 0.000001f;
 static const float3 LuminanceFactors = float3(0.2126f, 0.7152f, 0.0722f);
@@ -28,7 +29,11 @@ float Smooth01(float value) {
 }
 
 bool UseReversedDepth() {
-    return FastOption1.y > 0.5f || ContactOption1.y > 0.5f;
+	if (DepthData.x >= 0.0f) {
+		return DepthData.x > 0.5f;
+	}
+
+	return FastOption1.y > 0.5f || ContactOption1.y > 0.5f;
 }
 
 bool IsInsideScreen(float2 uv) {

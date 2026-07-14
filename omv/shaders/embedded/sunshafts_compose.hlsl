@@ -13,6 +13,7 @@ float4 EnvironmentData : register(c6);
 float4 OptionData3 : register(c7);
 float4 SunData : register(c8);
 float4 EffectData : register(c9);
+float4 DepthData : register(c11);
 
 static const float DepthEndpointEpsilon = 0.000001f;
 static const float3 WarmTint = float3(1.0f, 0.80f, 0.46f);
@@ -28,7 +29,7 @@ float Smooth01(float value) {
 }
 
 bool UseReversedDepth() {
-    return OptionData2.z > 0.5f;
+	return DepthData.x >= 0.0f ? DepthData.x > 0.5f : OptionData2.z > 0.5f;
 }
 
 bool DebugMask() {
@@ -152,35 +153,6 @@ float ExposureCurve(float amount) {
     return amount / (1.0f + amount * 1.25f);
 }
 
-float SunRepairSurface(float2 uv) {
-    if (FirstPersonBlock(uv) > 0.0f) {
-        return 0.0f;
-    }
-
-    float sky = SkyMask(uv);
-    if (sky > 0.0f) {
-        return sky;
-    }
-
-    float linearDepth = LinearDepth(HardwareDepth(uv));
-    float farZ = max(CameraData.y, 2.0f);
-    return Smooth01((linearDepth - farZ * 0.92f) / max(farZ * 0.08f, 1.0f));
-}
-
-float SunCoreRepair(float2 uv, float visibility) {
-    float surface = SunRepairSurface(uv);
-    if (surface <= 0.0f) {
-        return 0.0f;
-    }
-
-    float distance = ScreenDistance(uv, SunData.xy);
-    float coreRadius = max(OptionData3.y * 0.72f, 0.014f);
-    float haloRadius = max(OptionData3.y * 1.35f, 0.042f);
-    float core = 1.0f - Smooth01(distance / coreRadius);
-    float halo = 1.0f - Smooth01(distance / haloRadius);
-    return saturate(core * core + halo * halo * 0.18f) * visibility * surface;
-}
-
 float4 Main(PixelInput input) : COLOR0 {
     float4 color = tex2D(SceneColor, input.uv);
     if (SunData.z <= 0.5f || OptionData0.x <= 0.0f || OptionData0.y <= 0.0f || OptionData1.x <= 0.0f) {
@@ -198,17 +170,13 @@ float4 Main(PixelInput input) : COLOR0 {
     }
 
     float force = clamp(OptionData1.x, 0.0f, 4.0f);
-    float rawAmount = shaft * visibility * receiver * distanceShape;
-    rawAmount *= max(OptionData0.x, 0.0f) * max(OptionData0.y, 0.0f) * force * 2.35f;
-    float shaftAmount = min(ExposureCurve(rawAmount), 0.46f);
-    float repairMask = SunCoreRepair(input.uv, visibility);
-    float repairAmount = min(repairMask * force * 0.30f, 0.24f);
+	float rawAmount = shaft * visibility * receiver * distanceShape;
+	rawAmount *= max(OptionData0.x, 0.0f) * max(OptionData0.y, 0.0f) * force * 2.35f;
+	float shaftAmount = min(ExposureCurve(rawAmount), 0.46f);
 
-    float warmth = saturate(OptionData1.w);
-    float3 tint = lerp(DayTint, WarmTint, warmth);
-    float3 composed = color.rgb + tint * shaftAmount * (1.0f - color.rgb * 0.55f);
-    composed += tint * repairAmount * (1.0f - color.rgb * 0.22f);
-    composed = lerp(composed, max(composed, tint * 0.94f), saturate(repairMask * visibility * 0.52f));
+	float warmth = saturate(OptionData1.w);
+	float3 tint = lerp(DayTint, WarmTint, warmth);
+	float3 composed = color.rgb + tint * shaftAmount * (1.0f - color.rgb * 0.55f);
 
-    return float4(saturate(composed), color.a);
+	return float4(saturate(composed), color.a);
 }
