@@ -10,34 +10,28 @@ use std::{
     time::Duration,
 };
 
+use crate::{backend, effects::pbr, runtime};
 use anyhow::{Context, Result};
 use core::ffi::c_void;
 use libpsycho::{
     ffi::fnptr::FnPtr,
     hook::traits::Hook,
     os::windows::{
-        directx9::{DEVICE9_VTBL_PRESENT, DEVICE9_VTBL_RESET},
+        directx9::{D3D_FAILURE_CODE, DEVICE9_VTBL_PRESENT, DEVICE9_VTBL_RESET},
         hook::vmt::vmthook::VmtHook,
-        winapi::{call_window_proc_a, set_window_long_a},
+        winapi::{Rect, call_window_proc_a, set_window_long_a},
     },
 };
 use parking_lot::Mutex;
-use windows::Win32::{
-    Foundation::{E_FAIL, HWND, RECT},
-    Graphics::{Direct3D9::D3DPRESENT_PARAMETERS, Gdi::RGNDATA},
-};
-use windows::core::HRESULT;
-
-use crate::{backend, effects::pbr, runtime};
 
 type PresentFn = unsafe extern "system" fn(
     *mut c_void,
-    *const RECT,
-    *const RECT,
-    HWND,
-    *const RGNDATA,
-) -> HRESULT;
-type ResetFn = unsafe extern "system" fn(*mut c_void, *mut D3DPRESENT_PARAMETERS) -> HRESULT;
+    *const Rect,
+    *const Rect,
+    *mut c_void,
+    *const c_void,
+) -> i32;
+type ResetFn = unsafe extern "system" fn(*mut c_void, *mut c_void) -> i32;
 
 const PRESENT_INDEX: usize = DEVICE9_VTBL_PRESENT / size_of::<*mut c_void>();
 const RESET_INDEX: usize = DEVICE9_VTBL_RESET / size_of::<*mut c_void>();
@@ -182,13 +176,13 @@ pub(crate) fn install_window_proc(hwnd: *mut c_void) -> Result<()> {
 
 unsafe extern "system" fn present_detour(
     device_ptr: *mut c_void,
-    source_rect: *const RECT,
-    dest_rect: *const RECT,
-    dest_window: HWND,
-    dirty_region: *const RGNDATA,
-) -> HRESULT {
+    source_rect: *const Rect,
+    dest_rect: *const Rect,
+    dest_window: *mut c_void,
+    dirty_region: *const c_void,
+) -> i32 {
     unsafe {
-        runtime::apply_present_frame(device_ptr, dest_window.0);
+        runtime::apply_present_frame(device_ptr, dest_window);
         let result = call_original_present(
             device_ptr,
             source_rect,
@@ -201,10 +195,7 @@ unsafe extern "system" fn present_detour(
     }
 }
 
-unsafe extern "system" fn reset_detour(
-    device_ptr: *mut c_void,
-    params: *mut D3DPRESENT_PARAMETERS,
-) -> HRESULT {
+unsafe extern "system" fn reset_detour(device_ptr: *mut c_void, params: *mut c_void) -> i32 {
     unsafe {
         runtime::release_device_resources(device_ptr);
         backend::reset_depth_resources();
@@ -215,18 +206,18 @@ unsafe extern "system" fn reset_detour(
 
 unsafe fn call_original_present(
     device_ptr: *mut c_void,
-    source_rect: *const RECT,
-    dest_rect: *const RECT,
-    dest_window: HWND,
-    dirty_region: *const RGNDATA,
-) -> HRESULT {
+    source_rect: *const Rect,
+    dest_rect: *const Rect,
+    dest_window: *mut c_void,
+    dirty_region: *const c_void,
+) -> i32 {
     let original = ORIGINAL_PRESENT.load(Ordering::Acquire);
     if original == 0 {
-        return E_FAIL;
+        return D3D_FAILURE_CODE;
     }
 
     let Ok(original) = (unsafe { FnPtr::<PresentFn>::from_raw(original as *mut c_void) }) else {
-        return E_FAIL;
+        return D3D_FAILURE_CODE;
     };
     let original = original.as_fn();
     unsafe {
@@ -240,17 +231,14 @@ unsafe fn call_original_present(
     }
 }
 
-unsafe fn call_original_reset(
-    device_ptr: *mut c_void,
-    params: *mut D3DPRESENT_PARAMETERS,
-) -> HRESULT {
+unsafe fn call_original_reset(device_ptr: *mut c_void, params: *mut c_void) -> i32 {
     let original = ORIGINAL_RESET.load(Ordering::Acquire);
     if original == 0 {
-        return E_FAIL;
+        return D3D_FAILURE_CODE;
     }
 
     let Ok(original) = (unsafe { FnPtr::<ResetFn>::from_raw(original as *mut c_void) }) else {
-        return E_FAIL;
+        return D3D_FAILURE_CODE;
     };
     unsafe { original.as_fn()(device_ptr, params) }
 }

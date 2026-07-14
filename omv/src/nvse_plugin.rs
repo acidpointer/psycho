@@ -5,13 +5,13 @@
 use libnvse::api::messaging::{NVSEMessage, NVSEMessageType};
 use libnvse::plugin::PluginContext;
 use libnvse::{NVSEInterfaceFFI, PluginInfoFFI};
-use windows::core::BOOL;
+use libpsycho::os::windows::winapi::WinBool;
 
 const PLUGIN_INFO_VERSION: u32 = 1;
 
 /// xNVSE preload callback.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn NVSEPlugin_Preload() -> BOOL {
+pub unsafe extern "C" fn NVSEPlugin_Preload() -> WinBool {
     true.into()
 }
 
@@ -20,7 +20,7 @@ pub unsafe extern "C" fn NVSEPlugin_Preload() -> BOOL {
 pub unsafe extern "C" fn NVSEPlugin_Query(
     nvse: *const NVSEInterfaceFFI,
     info: *mut PluginInfoFFI,
-) -> BOOL {
+) -> WinBool {
     if unsafe { nvse.as_ref() }.is_none() {
         return false.into();
     }
@@ -37,7 +37,7 @@ pub unsafe extern "C" fn NVSEPlugin_Query(
 
 /// xNVSE load callback.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn NVSEPlugin_Load(nvse: *const NVSEInterfaceFFI) -> BOOL {
+pub unsafe extern "C" fn NVSEPlugin_Load(nvse: *const NVSEInterfaceFFI) -> WinBool {
     match plugin_load(nvse) {
         Ok(()) => true.into(),
         Err(err) => {

@@ -12,7 +12,7 @@
 use libc::c_void;
 
 use libpsycho::ffi::fnptr::FnPtr;
-use libpsycho::os::windows::winapi::{self, WaitResult};
+use libpsycho::os::windows::winapi::{self, BorrowedHandle, WaitResult};
 
 use super::super::types;
 use super::addr;
@@ -496,7 +496,9 @@ pub unsafe fn wait_for_io_idle() {
         if sem_raw.is_null() {
             continue;
         }
-        let sem = windows::Win32::Foundation::HANDLE(sem_raw as *mut _);
+        let Ok(sem) = (unsafe { BorrowedHandle::from_raw(sem_raw) }) else {
+            continue;
+        };
 
         let mut waited = 0u32;
         loop {
@@ -536,7 +538,9 @@ pub unsafe fn wait_for_io_idle() {
         if !bg_clone.is_null() {
             let sem_raw = unsafe { *((bg_clone as usize + 0x1C) as *const *mut c_void) };
             if !sem_raw.is_null() {
-                let sem = windows::Win32::Foundation::HANDLE(sem_raw as *mut _);
+                let Ok(sem) = (unsafe { BorrowedHandle::from_raw(sem_raw) }) else {
+                    return;
+                };
                 let mut waited = 0u32;
                 loop {
                     match winapi::wait_for_single_object(sem, 0) {

@@ -19,7 +19,7 @@ mod plugininfo;
 
 use libnvse::plugin::PluginContext;
 use libnvse::{NVSEInterfaceFFI, PluginInfoFFI};
-use windows::core::BOOL;
+use libpsycho::os::windows::winapi::WinBool;
 
 // xNVSE expects PluginInfo::kInfoVersion here. Leaving it as zero makes this
 // plugin look malformed in nvse.log and can confuse plugin-query consumers.
@@ -38,7 +38,7 @@ const OPCODE_BASE: u32 = 0x7F00;
 /// # Safety
 /// Called by xNVSE with its plugin callback ABI.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn NVSEPlugin_Preload() -> BOOL {
+pub unsafe extern "C" fn NVSEPlugin_Preload() -> WinBool {
     true.into()
 }
 
@@ -51,7 +51,7 @@ pub unsafe extern "C" fn NVSEPlugin_Preload() -> BOOL {
 pub unsafe extern "C" fn NVSEPlugin_Query(
     nvse: *const NVSEInterfaceFFI,
     info: *mut PluginInfoFFI,
-) -> BOOL {
+) -> WinBool {
     if unsafe { nvse.as_ref() }.is_none() {
         return false.into();
     }
@@ -74,7 +74,7 @@ pub unsafe extern "C" fn NVSEPlugin_Query(
 /// # Safety
 /// `nvse` must be the xNVSE interface pointer supplied during plugin load.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn NVSEPlugin_Load(nvse: *const NVSEInterfaceFFI) -> BOOL {
+pub unsafe extern "C" fn NVSEPlugin_Load(nvse: *const NVSEInterfaceFFI) -> WinBool {
     match helper_load(nvse) {
         Ok(()) => true.into(),
         Err(err) => {

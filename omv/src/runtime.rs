@@ -11,23 +11,18 @@ use std::{
 
 use libpsycho::os::windows::{
     directx9::{
-        D3DCULL_NONE, D3DPT_TRIANGLESTRIP, D3DRS_ALPHABLENDENABLE, D3DRS_COLORWRITEENABLE,
-        D3DRS_CULLMODE, D3DRS_ZENABLE, D3DRS_ZWRITEENABLE, D3DSAMP_ADDRESSU, D3DSAMP_ADDRESSV,
-        D3DSAMP_MAGFILTER, D3DSAMP_MINFILTER, D3DSAMP_MIPFILTER, D3DSBT_ALL, D3DTA_TEXTURE,
-        D3DTADDRESS_CLAMP, D3DTEXF_LINEAR, D3DTEXF_NONE, D3DTEXF_POINT, D3DTOP_SELECTARG1,
-        D3DTSS_ALPHAARG1, D3DTSS_ALPHAOP, D3DTSS_COLORARG1, D3DTSS_COLOROP, Device9Ref,
-        Direct3DResult, PixelShader9, ScreenVertex, StateBlock9, Surface9, Texture9,
+        D3DCULL_NONE, D3DFORMAT, D3DPT_TRIANGLESTRIP, D3DRS_ALPHABLENDENABLE,
+        D3DRS_COLORWRITEENABLE, D3DRS_CULLMODE, D3DRS_ZENABLE, D3DRS_ZWRITEENABLE,
+        D3DSAMP_ADDRESSU, D3DSAMP_ADDRESSV, D3DSAMP_MAGFILTER, D3DSAMP_MINFILTER,
+        D3DSAMP_MIPFILTER, D3DSBT_ALL, D3DSURFACE_DESC, D3DTA_TEXTURE, D3DTADDRESS_CLAMP,
+        D3DTEXF_LINEAR, D3DTEXF_NONE, D3DTEXF_POINT, D3DTOP_SELECTARG1, D3DTSS_ALPHAARG1,
+        D3DTSS_ALPHAOP, D3DTSS_COLORARG1, D3DTSS_COLOROP, D3DVIEWPORT9, Device9Ref,
+        Direct3DError as WindowsError, Direct3DResult, PixelShader9, ScreenVertex, StateBlock9,
+        Surface9, Texture9, direct3d_failure,
     },
     winapi::{get_active_window, is_window},
 };
 use parking_lot::Mutex;
-use windows::{
-    Win32::{
-        Foundation::E_FAIL,
-        Graphics::Direct3D9::{D3DSURFACE_DESC, D3DVIEWPORT9},
-    },
-    core::Error as WindowsError,
-};
 
 use crate::{
     backend::{self, DepthFrame, DepthProvider, DepthTexture},
@@ -1377,7 +1372,7 @@ impl ScreenShaderRuntime {
         self.state_block = None;
     }
 
-    fn log_frame_error(&mut self, err: &windows::core::Error) {
+    fn log_frame_error(&mut self, err: &WindowsError) {
         if self.error_logs < 8 {
             log::warn!("[SHADERS] Screen-space pass skipped: {err}");
             self.error_logs += 1;
@@ -1391,7 +1386,7 @@ impl ScreenShaderRuntime {
         }
     }
 
-    fn log_world_color_error(&mut self, err: &windows::core::Error) {
+    fn log_world_color_error(&mut self, err: &WindowsError) {
         if self.error_logs < 8 {
             log::warn!("[FNV] World color capture skipped: {err}");
             self.error_logs += 1;
@@ -1439,7 +1434,7 @@ impl AppliedShaderPhases {
 struct BackbufferCopy {
     width: u32,
     height: u32,
-    format: windows::Win32::Graphics::Direct3D9::D3DFORMAT,
+    format: D3DFORMAT,
     texture: Texture9,
     surface: Surface9,
 }
@@ -2681,7 +2676,7 @@ fn cstring(text: impl AsRef<str>) -> CString {
 
 fn runtime_error(message: &'static str) -> WindowsError {
     log::warn!("{message}");
-    WindowsError::from_hresult(E_FAIL)
+    direct3d_failure()
 }
 
 fn fullscreen_quad(desc: &D3DSURFACE_DESC) -> [ScreenVertex; 4] {

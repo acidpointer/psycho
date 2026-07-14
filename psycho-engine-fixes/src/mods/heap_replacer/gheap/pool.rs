@@ -68,7 +68,7 @@ use std::sync::Mutex;
 use std::sync::atomic::{AtomicI32, AtomicU8, AtomicU32, AtomicU64, AtomicUsize, Ordering};
 
 use libc::c_void;
-use windows::Win32::System::Memory::{MEM_COMMIT, MEM_RESERVE, PAGE_READWRITE, VirtualAlloc};
+use libpsycho::os::windows::winapi::{virtual_commit, virtual_release, virtual_reserve};
 
 use crate::mods::diagnostics;
 
@@ -756,14 +756,7 @@ impl Pool {
             let metadata_delta = metadata_required - metadata_committed;
             let metadata_start =
                 unsafe { (self.cell_links as *mut u8).add(metadata_committed) as *const c_void };
-            let metadata_commit = unsafe {
-                VirtualAlloc(
-                    Some(metadata_start),
-                    metadata_delta,
-                    MEM_COMMIT,
-                    PAGE_READWRITE,
-                )
-            };
+            let metadata_commit = unsafe { virtual_commit(metadata_start, metadata_delta) };
             if metadata_commit.is_null() {
                 record_grow_timing(timer, self.index, self.item_size, false, 0, 0);
                 log::error!(
@@ -780,14 +773,7 @@ impl Pool {
             metadata_committed_now = metadata_delta;
         }
 
-        let user_commit = unsafe {
-            VirtualAlloc(
-                Some(block_start as *const c_void),
-                commit_size,
-                MEM_COMMIT,
-                PAGE_READWRITE,
-            )
-        };
+        let user_commit = unsafe { virtual_commit(block_start as *const c_void, commit_size) };
         if user_commit.is_null() {
             record_grow_timing(
                 timer,
@@ -1407,8 +1393,7 @@ impl PoolHeap {
         // Reserve metadata before consuming a user range. Metadata remains
         // uncommitted until grow() exposes the matching cells, avoiding the
         // multi-megabyte first-touch commit previously paid here.
-        let metadata_ptr =
-            unsafe { VirtualAlloc(None, metadata_reserved_bytes, MEM_RESERVE, PAGE_READWRITE) };
+        let metadata_ptr = unsafe { virtual_reserve(None, metadata_reserved_bytes) };
         if metadata_ptr.is_null() {
             log::error!(
                 "[POOL] #{} link metadata reservation failed ({} KB)",
@@ -1467,22 +1452,14 @@ impl PoolHeap {
                 }
                 if clear {
                     let hint = (slot * POOL_ALIGN) as *mut c_void;
-                    let ptr = unsafe {
-                        VirtualAlloc(Some(hint), max_size as usize, MEM_RESERVE, PAGE_READWRITE)
-                    };
+                    let ptr = unsafe { virtual_reserve(Some(hint), max_size as usize) };
                     if !ptr.is_null() && (ptr as usize) == slot * POOL_ALIGN {
                         reserved_base = ptr as *mut u8;
                         claim_slot = slot;
                         break;
                     }
                     if !ptr.is_null() {
-                        let _ = unsafe {
-                            windows::Win32::System::Memory::VirtualFree(
-                                ptr,
-                                0,
-                                windows::Win32::System::Memory::MEM_RELEASE,
-                            )
-                        };
+                        let _ = unsafe { virtual_release(ptr) };
                     }
                 }
                 slot -= 1;
@@ -1496,13 +1473,7 @@ impl PoolHeap {
                 item_size,
                 max_size / 1024 / 1024,
             );
-            let _ = unsafe {
-                windows::Win32::System::Memory::VirtualFree(
-                    metadata_ptr,
-                    0,
-                    windows::Win32::System::Memory::MEM_RELEASE,
-                )
-            };
+            let _ = unsafe { virtual_release(metadata_ptr) };
             return ReserveResult::Retryable;
         }
 

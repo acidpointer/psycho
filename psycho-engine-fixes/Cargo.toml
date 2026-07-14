@@ -12,7 +12,6 @@ crate-type = ["cdylib", "rlib"]
 libmimalloc = { path = "../libmimalloc" }
 syringe-api = { path = "../syringe-api" }
 libpsycho = { path = "../libpsycho" }
-windows = { workspace = true }
 log = { workspace = true }
 anyhow = { workspace = true }
 parking_lot = { workspace = true }

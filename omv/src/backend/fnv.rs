@@ -6,19 +6,17 @@ use std::sync::{
     atomic::{AtomicU32, AtomicUsize, Ordering},
 };
 
+use super::{CameraFrame, DepthResolveSlot, EnvironmentFrame, MaterialStateFrame, SunFrame};
 use libpsycho::os::windows::{
     directx9::{
         D3DCULL_NONE, D3DFMT_INTZ, D3DPT_POINTLIST, D3DRESZ_POINT_SIZE, D3DRS_ALPHABLENDENABLE,
         D3DRS_COLORWRITEENABLE, D3DRS_CULLMODE, D3DRS_POINTSIZE, D3DRS_ZENABLE, D3DRS_ZWRITEENABLE,
-        D3DSBT_ALL, Device9Ref, Direct3DResult, PositionVertex, StateBlock9, Surface9, Texture9,
+        D3DSBT_ALL, D3DSURFACE_DESC, Device9Ref, Direct3DError as WindowsError, Direct3DResult,
+        PositionVertex, StateBlock9, Surface9, Texture9,
     },
     memory::validate_memory_range,
 };
 use parking_lot::Mutex;
-use windows::Win32::Graphics::Direct3D9::D3DSURFACE_DESC;
-use windows::core::Error as WindowsError;
-
-use super::{CameraFrame, DepthResolveSlot, EnvironmentFrame, MaterialStateFrame, SunFrame};
 
 const NIDX9_RENDERER_SINGLETON_PTR: usize = 0x011C73B4;
 const NIDX9_RENDERER_DEVICE_OFFSET: usize = 0x288;

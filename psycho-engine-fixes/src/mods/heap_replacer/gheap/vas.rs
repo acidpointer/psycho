@@ -6,9 +6,8 @@
 //! that largest-hole signal with VirtualQuery.
 
 use libc::c_void;
-use windows::Win32::System::Memory::{MEM_COMMIT, MEM_FREE, MEM_RESERVE};
 
-use libpsycho::os::windows::winapi::virtual_query;
+use libpsycho::os::windows::winapi::{MemoryState, virtual_query};
 
 pub const MB: usize = 1024 * 1024;
 pub const CRITICAL_LARGEST_HOLE: usize = 128 * MB;
@@ -39,8 +38,8 @@ pub fn sample() -> Option<Summary> {
 
         let base = info.base_address as usize;
         let size = info.region_size;
-        match info.state {
-            s if s == MEM_FREE.0 => {
+        match info.memory_state() {
+            MemoryState::Free => {
                 summary.total_free = summary.total_free.saturating_add(size);
                 summary.holes = summary.holes.saturating_add(1);
                 if size > summary.largest_free {
@@ -53,10 +52,10 @@ pub fn sample() -> Option<Summary> {
                     summary.second_base = base;
                 }
             }
-            s if s == MEM_RESERVE.0 => {
+            MemoryState::Reserve => {
                 summary.total_reserve = summary.total_reserve.saturating_add(size);
             }
-            s if s == MEM_COMMIT.0 => {
+            MemoryState::Commit => {
                 summary.total_commit = summary.total_commit.saturating_add(size);
             }
             _ => {}

@@ -50,14 +50,7 @@ pub const VAS_EMERGENCY_REMAINING: usize = 200 * 1024 * 1024;
 static HEADROOM: AtomicUsize = AtomicUsize::new(0);
 
 pub fn current_free_vas() -> usize {
-    use windows::Win32::System::SystemInformation::{GlobalMemoryStatusEx, MEMORYSTATUSEX};
-    let mut status: MEMORYSTATUSEX = unsafe { std::mem::zeroed() };
-    status.dwLength = std::mem::size_of::<MEMORYSTATUSEX>() as u32;
-    let ok = unsafe { GlobalMemoryStatusEx(&mut status) };
-    if ok.is_err() {
-        return usize::MAX;
-    }
-    status.ullAvailVirtual as usize
+    libpsycho::os::windows::winapi::available_virtual_memory().unwrap_or(usize::MAX)
 }
 
 pub fn calibrate_thresholds(baseline: usize) {

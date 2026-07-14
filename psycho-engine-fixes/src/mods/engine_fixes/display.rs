@@ -46,11 +46,6 @@ use libpsycho::{
         set_last_error, show_window, virtual_query, window_rect,
     },
 };
-use windows::Win32::System::Memory::{
-    MEM_COMMIT, PAGE_EXECUTE, PAGE_EXECUTE_READ, PAGE_EXECUTE_READWRITE, PAGE_EXECUTE_WRITECOPY,
-    PAGE_GUARD, PAGE_NOACCESS,
-};
-
 /// FalloutNV.exe's imported `user32!SetWindowPos` pointer.
 const SET_WINDOW_POS_IAT: usize = 0x00FDF2A4;
 const CREATE_WINDOW_EX_A_IAT: usize = 0x00FDF2B8;
@@ -1502,10 +1497,7 @@ fn is_readable(address: usize, len: usize) -> bool {
     let Ok(info) = virtual_query(address as *mut c_void) else {
         return false;
     };
-    if info.state != MEM_COMMIT.0 || info.protect == PAGE_NOACCESS {
-        return false;
-    }
-    if (info.protect.0 & PAGE_GUARD.0) != 0 {
+    if !info.is_accessible() {
         return false;
     }
     address.saturating_add(len) <= (info.base_address as usize).saturating_add(info.region_size)
@@ -1518,10 +1510,5 @@ fn is_executable(address: usize) -> bool {
     let Ok(info) = virtual_query(address as *mut c_void) else {
         return false;
     };
-    info.state == MEM_COMMIT.0
-        && (info.protect.0 & PAGE_GUARD.0) == 0
-        && matches!(
-            info.protect,
-            PAGE_EXECUTE | PAGE_EXECUTE_READ | PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY
-        )
+    info.is_executable()
 }

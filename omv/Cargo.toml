@@ -17,4 +17,3 @@ psycho-imgui = { path = "../psycho-imgui" }
 serde = { workspace = true }
 toml = { workspace = true }
 toml_edit = "0.22"
-windows = { workspace = true }

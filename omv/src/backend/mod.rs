@@ -2,7 +2,7 @@
 
 use core::ffi::c_void;
 
-use windows::Win32::Graphics::Direct3D9::D3DSURFACE_DESC;
+use libpsycho::os::windows::directx9::D3DSURFACE_DESC;
 
 use crate::config::DepthProviderConfig;
 

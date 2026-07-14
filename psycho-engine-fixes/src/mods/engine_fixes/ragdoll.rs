@@ -17,8 +17,6 @@
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 
 use libc::c_void;
-use windows::Win32::System::Memory::{MEM_COMMIT, PAGE_GUARD, PAGE_NOACCESS};
-
 use libpsycho::os::windows::winapi::virtual_query;
 
 use crate::mods::diagnostics;
@@ -289,12 +287,9 @@ fn query_readable_region(addr: usize) -> Option<(usize, usize)> {
     let Ok(info) = virtual_query(addr as *mut c_void) else {
         return None;
     };
-    if info.state != MEM_COMMIT.0 || info.protect == PAGE_NOACCESS {
+    if !info.is_accessible() {
         return None;
     }
-    if (info.protect.0 & PAGE_GUARD.0) != 0 {
-        return None;
-    };
 
     let base = info.base_address as usize;
     let region_end = base.saturating_add(info.region_size);

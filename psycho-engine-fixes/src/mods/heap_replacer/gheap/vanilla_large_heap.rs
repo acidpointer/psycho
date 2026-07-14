@@ -12,11 +12,8 @@
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 use libc::c_void;
-use windows::Win32::System::Memory::{
-    MEM_COMMIT, MEM_RELEASE, PAGE_READWRITE, VirtualAlloc, VirtualFree,
-};
-use windows::Win32::System::Threading::{
-    CRITICAL_SECTION, EnterCriticalSection, LeaveCriticalSection,
+use libpsycho::os::windows::winapi::{
+    BorrowedCriticalSection, CriticalSectionGuard, virtual_commit, virtual_release,
 };
 
 use super::engine::addr;
@@ -91,16 +88,6 @@ struct Snapshot {
     free_count: usize,
 }
 
-struct HeapLock {
-    cs: *mut CRITICAL_SECTION,
-}
-
-impl Drop for HeapLock {
-    fn drop(&mut self) {
-        unsafe { LeaveCriticalSection(self.cs) };
-    }
-}
-
 /// Log and reclaim pre-gheap Default/File heap reservations once.
 ///
 /// Must be called after gheap activation from the main loop. Reclaim is
@@ -165,7 +152,7 @@ unsafe fn inspect_and_maybe_reclaim(label: &str, heap_offset: usize) -> usize {
         return 0;
     }
 
-    if let Err(err) = unsafe { VirtualFree(snapshot.base as *mut c_void, 0, MEM_RELEASE) } {
+    if let Err(err) = unsafe { virtual_release(snapshot.base as *mut c_void) } {
         log::error!(
             "[VANILLA_HEAP] {}: VirtualFree failed: base=0x{:08x} capacity={}MB err={:?}",
             label,
@@ -420,14 +407,7 @@ pub fn try_alloc_default_tail(
             return next as *mut c_void;
         }
 
-        let ptr = unsafe {
-            VirtualAlloc(
-                Some(next as *const c_void),
-                size,
-                MEM_COMMIT,
-                PAGE_READWRITE,
-            )
-        };
+        let ptr = unsafe { virtual_commit(next as *const c_void, size) };
         if ptr as usize == next {
             log::debug!(
                 "[VANILLA_HEAP_ADOPT] owner={} committed range at 0x{:08x} ({}MB, align={}MB), next=0x{:08x}",
@@ -583,10 +563,12 @@ unsafe fn reset_released_heap(heap: usize) {
     }
 }
 
-unsafe fn lock_heap(heap: usize) -> HeapLock {
-    let cs = (heap + CRITICAL_SECTION_OFFSET) as *mut CRITICAL_SECTION;
-    unsafe { EnterCriticalSection(cs) };
-    HeapLock { cs }
+unsafe fn lock_heap(heap: usize) -> CriticalSectionGuard {
+    let section = unsafe {
+        BorrowedCriticalSection::from_raw((heap + CRITICAL_SECTION_OFFSET) as *mut c_void)
+    }
+    .expect("vanilla heap critical section is null");
+    section.enter()
 }
 
 unsafe fn read_usize(addr: usize) -> usize {

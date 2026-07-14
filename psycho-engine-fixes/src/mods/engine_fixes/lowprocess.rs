@@ -7,11 +7,6 @@ use std::{
 };
 
 use anyhow::{Context, ensure};
-use windows::Win32::System::Memory::{
-    MEM_COMMIT, PAGE_EXECUTE, PAGE_EXECUTE_READ, PAGE_EXECUTE_READWRITE, PAGE_EXECUTE_WRITECOPY,
-    PAGE_GUARD, PAGE_NOACCESS,
-};
-
 use libpsycho::{
     ffi::fnptr::FnPtr,
     os::windows::winapi::{get_current_thread_id, safe_write_32, virtual_query},
@@ -450,10 +445,7 @@ fn is_readable(address: usize, len: usize) -> bool {
     let Ok(info) = virtual_query(address as *mut c_void) else {
         return false;
     };
-    if info.state != MEM_COMMIT.0 || info.protect == PAGE_NOACCESS {
-        return false;
-    }
-    if (info.protect.0 & PAGE_GUARD.0) != 0 {
+    if !info.is_accessible() {
         return false;
     }
     address.saturating_add(len) <= (info.base_address as usize).saturating_add(info.region_size)
@@ -466,10 +458,5 @@ fn is_executable(address: usize) -> bool {
     let Ok(info) = virtual_query(address as *mut c_void) else {
         return false;
     };
-    info.state == MEM_COMMIT.0
-        && (info.protect.0 & PAGE_GUARD.0) == 0
-        && matches!(
-            info.protect,
-            PAGE_EXECUTE | PAGE_EXECUTE_READ | PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY
-        )
+    info.is_executable()
 }

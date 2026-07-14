@@ -1,16 +1,12 @@
 //! Engine-side atmospheric bloom and HDR pipeline.
 
 use libpsycho::os::windows::directx9::{
-    D3DCULL_NONE, D3DPT_TRIANGLESTRIP, D3DRS_ALPHABLENDENABLE, D3DRS_COLORWRITEENABLE,
+    D3DCULL_NONE, D3DFORMAT, D3DPT_TRIANGLESTRIP, D3DRS_ALPHABLENDENABLE, D3DRS_COLORWRITEENABLE,
     D3DRS_CULLMODE, D3DRS_ZENABLE, D3DRS_ZWRITEENABLE, D3DSAMP_ADDRESSU, D3DSAMP_ADDRESSV,
-    D3DSAMP_MAGFILTER, D3DSAMP_MINFILTER, D3DSAMP_MIPFILTER, D3DTA_TEXTURE, D3DTADDRESS_CLAMP,
-    D3DTEXF_LINEAR, D3DTEXF_NONE, D3DTEXF_POINT, D3DTOP_SELECTARG1, D3DTSS_ALPHAARG1,
-    D3DTSS_ALPHAOP, D3DTSS_COLORARG1, D3DTSS_COLOROP, Device9Ref, Direct3DResult, PixelShader9,
-    ScreenVertex, Surface9, Texture9,
-};
-use windows::{
-    Win32::Graphics::Direct3D9::{D3DFORMAT, D3DSURFACE_DESC, D3DVIEWPORT9},
-    core::Error as WindowsError,
+    D3DSAMP_MAGFILTER, D3DSAMP_MINFILTER, D3DSAMP_MIPFILTER, D3DSURFACE_DESC, D3DTA_TEXTURE,
+    D3DTADDRESS_CLAMP, D3DTEXF_LINEAR, D3DTEXF_NONE, D3DTEXF_POINT, D3DTOP_SELECTARG1,
+    D3DTSS_ALPHAARG1, D3DTSS_ALPHAOP, D3DTSS_COLORARG1, D3DTSS_COLOROP, D3DVIEWPORT9, Device9Ref,
+    Direct3DResult, PixelShader9, ScreenVertex, Surface9, Texture9, direct3d_failure,
 };
 
 use crate::{
@@ -206,9 +202,7 @@ fn compile_shader(
         Ok(bytecode) => bytecode,
         Err(err) => {
             log::warn!("[BLOOM_HDR] Failed to compile {source_name}: {err:#}");
-            return Err(WindowsError::from_hresult(
-                windows::Win32::Foundation::E_FAIL,
-            ));
+            return Err(direct3d_failure());
         }
     };
 

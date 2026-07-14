@@ -7,27 +7,40 @@
 use core::ffi::c_void;
 use core::mem::size_of;
 use core::ptr::{NonNull, null, null_mut};
+use core::slice;
+use std::ffi::CString;
+use std::sync::OnceLock;
+
+use thiserror::Error;
 
 use windows::Win32::Foundation::{E_POINTER, HANDLE, RECT};
+use windows::Win32::Graphics::Direct3D::ID3DBlob;
 use windows::Win32::Graphics::Direct3D9::{
     D3DADAPTER_DEFAULT, D3DBACKBUFFER_TYPE, D3DBACKBUFFER_TYPE_MONO, D3DCLEAR_ZBUFFER, D3DDEVTYPE,
-    D3DDEVTYPE_HAL, D3DDISPLAYMODE, D3DFORMAT, D3DLOCKED_RECT, D3DPOOL, D3DPRESENT_PARAMETERS,
+    D3DDEVTYPE_HAL, D3DDISPLAYMODE, D3DLOCKED_RECT, D3DPOOL, D3DPRESENT_PARAMETERS,
     D3DPRIMITIVETYPE, D3DRENDERSTATETYPE, D3DRESOURCETYPE, D3DRTYPE_SURFACE, D3DSAMPLERSTATETYPE,
-    D3DSTATEBLOCKTYPE, D3DSURFACE_DESC, D3DTEXTUREFILTERTYPE, D3DTEXTURESTAGESTATETYPE,
-    D3DUSAGE_DEPTHSTENCIL, D3DUSAGE_RENDERTARGET, D3DVERTEXELEMENT9, D3DVIEWPORT9, IDirect3D9,
-    IDirect3DBaseTexture9, IDirect3DDevice9, IDirect3DPixelShader9, IDirect3DStateBlock9,
-    IDirect3DSurface9, IDirect3DTexture9, IDirect3DVertexBuffer9, IDirect3DVertexShader9,
+    D3DSTATEBLOCKTYPE, D3DTEXTUREFILTERTYPE, D3DTEXTURESTAGESTATETYPE, D3DUSAGE_DEPTHSTENCIL,
+    D3DUSAGE_RENDERTARGET, D3DVERTEXELEMENT9, IDirect3D9, IDirect3DBaseTexture9, IDirect3DDevice9,
+    IDirect3DPixelShader9, IDirect3DStateBlock9, IDirect3DSurface9, IDirect3DTexture9,
+    IDirect3DVertexBuffer9, IDirect3DVertexShader9,
 };
 pub use windows::Win32::Graphics::Direct3D9::{
-    D3DCULL, D3DCULL_CCW, D3DCULL_CW, D3DCULL_NONE, D3DFMT_A8R8G8B8, D3DFVF_DIFFUSE, D3DFVF_TEX1,
-    D3DFVF_XYZ, D3DFVF_XYZRHW, D3DPOOL_DEFAULT, D3DPOOL_MANAGED, D3DPT_POINTLIST,
+    D3DCULL, D3DCULL_CCW, D3DCULL_CW, D3DCULL_NONE, D3DFMT_A8R8G8B8, D3DFORMAT, D3DFVF_DIFFUSE,
+    D3DFVF_TEX1, D3DFVF_XYZ, D3DFVF_XYZRHW, D3DPOOL_DEFAULT, D3DPOOL_MANAGED, D3DPT_POINTLIST,
     D3DPT_TRIANGLESTRIP, D3DRS_ALPHABLENDENABLE, D3DRS_COLORWRITEENABLE, D3DRS_CULLMODE,
     D3DRS_POINTSIZE, D3DRS_ZENABLE, D3DRS_ZWRITEENABLE, D3DSAMP_ADDRESSU, D3DSAMP_ADDRESSV,
-    D3DSAMP_MAGFILTER, D3DSAMP_MINFILTER, D3DSAMP_MIPFILTER, D3DSBT_ALL, D3DTA_TEXTURE,
-    D3DTADDRESS_CLAMP, D3DTEXF_LINEAR, D3DTEXF_NONE, D3DTEXF_POINT, D3DTOP_SELECTARG1,
-    D3DTSS_ALPHAARG1, D3DTSS_ALPHAOP, D3DTSS_COLORARG1, D3DTSS_COLOROP,
+    D3DSAMP_MAGFILTER, D3DSAMP_MINFILTER, D3DSAMP_MIPFILTER, D3DSBT_ALL, D3DSURFACE_DESC,
+    D3DTA_TEXTURE, D3DTADDRESS_CLAMP, D3DTEXF_LINEAR, D3DTEXF_NONE, D3DTEXF_POINT,
+    D3DTOP_SELECTARG1, D3DTSS_ALPHAARG1, D3DTSS_ALPHAOP, D3DTSS_COLORARG1, D3DTSS_COLOROP,
+    D3DVIEWPORT9,
 };
-use windows::core::{Error as WindowsError, Interface, InterfaceRef, Result as WindowsResult};
+pub use windows::core::Error as Direct3DError;
+use windows::core::{HRESULT, Interface, InterfaceRef, PCSTR, Result as WindowsResult};
+
+use Direct3DError as WindowsError;
+
+use crate::ffi::fnptr::FnPtr;
+use crate::os::windows::winapi::{get_proc_address, load_library_a};
 
 /// Byte offset of `IDirect3DDevice9::TestCooperativeLevel` in the device vtable.
 pub const DEVICE9_VTBL_TEST_COOPERATIVE_LEVEL: usize = 0x0c;
@@ -76,6 +89,14 @@ pub const DEVICE9_VTBL_CREATE_PIXEL_SHADER: usize = 0x1a8;
 
 /// Result type returned by Direct3D wrapper calls.
 pub type Direct3DResult<T> = WindowsResult<T>;
+
+/// ABI value returned when a D3D hook cannot call its original function.
+pub const D3D_FAILURE_CODE: i32 = windows::Win32::Foundation::E_FAIL.0;
+
+/// Construct a generic Direct3D failure for higher-level validation errors.
+pub fn direct3d_failure() -> Direct3DError {
+    Direct3DError::from_hresult(windows::Win32::Foundation::E_FAIL)
+}
 
 /// Maximum D3D9 vertex declaration elements captured for diagnostics.
 pub const MAX_VERTEX_DECLARATION_ELEMENTS: usize = 32;
@@ -957,3 +978,151 @@ pub const BACKBUFFER_MONO: D3DBACKBUFFER_TYPE = D3DBACKBUFFER_TYPE_MONO;
 
 /// Default-pool render-target usage flag as a `u32`.
 pub const USAGE_RENDER_TARGET: u32 = D3DUSAGE_RENDERTARGET as u32;
+
+const D3DCOMPILE_ENABLE_BACKWARDS_COMPATIBILITY: u32 = 1 << 12;
+const D3DCOMPILE_OPTIMIZATION_LEVEL3: u32 = 1 << 15;
+const D3D_COMPILER_DLLS: &[&str] = &[
+    "d3dcompiler_47.dll",
+    "d3dcompiler_46.dll",
+    "d3dcompiler_43.dll",
+    "d3dcompiler_42.dll",
+    "d3dcompiler_41.dll",
+];
+
+type D3DCompileFn = unsafe extern "system" fn(
+    src_data: *const c_void,
+    src_data_size: usize,
+    source_name: PCSTR,
+    defines: *const c_void,
+    include: *mut c_void,
+    entry_point: PCSTR,
+    target: PCSTR,
+    flags1: u32,
+    flags2: u32,
+    code: *mut *mut c_void,
+    error_messages: *mut *mut c_void,
+) -> HRESULT;
+
+static D3D_COMPILE_FN: OnceLock<Result<D3DCompileFn, String>> = OnceLock::new();
+
+#[derive(Debug, Error)]
+pub enum ShaderCompileError {
+    #[error("shader compiler input contains an interior nul byte: {0}")]
+    Nul(#[from] std::ffi::NulError),
+    #[error("{0}")]
+    CompilerUnavailable(String),
+    #[error("{0}")]
+    CompilationFailed(String),
+    #[error("D3DCompile returned no shader bytecode")]
+    MissingBytecode,
+    #[error("shader bytecode is empty")]
+    EmptyBytecode,
+    #[error("shader bytecode length is not DWORD aligned")]
+    UnalignedBytecode,
+}
+
+/// Compile HLSL source through the newest available legacy D3D compiler.
+pub fn compile_hlsl(
+    source_name: &str,
+    source: &[u8],
+    target: &str,
+) -> Result<Vec<u32>, ShaderCompileError> {
+    let compiler = d3d_compile_fn()?;
+    let source_name = CString::new(source_name)?;
+    let entry = CString::new("Main")?;
+    let target = CString::new(target)?;
+    let flags = D3DCOMPILE_ENABLE_BACKWARDS_COMPATIBILITY | D3DCOMPILE_OPTIMIZATION_LEVEL3;
+
+    let mut code = null_mut();
+    let mut errors = null_mut();
+    let result = unsafe {
+        compiler(
+            source.as_ptr().cast(),
+            source.len(),
+            PCSTR::from_raw(source_name.as_ptr().cast()),
+            null(),
+            null_mut(),
+            PCSTR::from_raw(entry.as_ptr().cast()),
+            PCSTR::from_raw(target.as_ptr().cast()),
+            flags,
+            0,
+            &mut code,
+            &mut errors,
+        )
+    };
+
+    let diagnostics = unsafe { take_blob(errors) }.and_then(|blob| blob_text(&blob));
+    if result.is_err() {
+        return Err(ShaderCompileError::CompilationFailed(
+            diagnostics.unwrap_or_else(|| format!("D3DCompile failed: {result:?}")),
+        ));
+    }
+
+    if let Some(message) = diagnostics {
+        log::debug!("D3D compiler diagnostics for {source_name:?}: {message}");
+    }
+
+    let code = unsafe { take_blob(code) }.ok_or(ShaderCompileError::MissingBytecode)?;
+    dword_aligned_shader_bytecode(unsafe { blob_bytes(&code) })
+}
+
+fn d3d_compile_fn() -> Result<D3DCompileFn, ShaderCompileError> {
+    match D3D_COMPILE_FN.get_or_init(resolve_d3d_compile_fn) {
+        Ok(function) => Ok(*function),
+        Err(error) => Err(ShaderCompileError::CompilerUnavailable(error.clone())),
+    }
+}
+
+fn resolve_d3d_compile_fn() -> Result<D3DCompileFn, String> {
+    for dll in D3D_COMPILER_DLLS {
+        if let Ok(module) = load_library_a(dll)
+            && let Ok(proc) = get_proc_address(module, "D3DCompile")
+        {
+            let function = unsafe { FnPtr::<D3DCompileFn>::from_raw(proc) }
+                .map_err(|error| format!("D3DCompile export is invalid: {error}"))?;
+            return Ok(function.as_fn());
+        }
+    }
+
+    Err(format!(
+        "D3DCompile not found; tried {}",
+        D3D_COMPILER_DLLS.join(", ")
+    ))
+}
+
+unsafe fn take_blob(ptr: *mut c_void) -> Option<ID3DBlob> {
+    if ptr.is_null() {
+        return None;
+    }
+    Some(unsafe { ID3DBlob::from_raw(ptr) })
+}
+
+unsafe fn blob_bytes(blob: &ID3DBlob) -> &[u8] {
+    let ptr = unsafe { blob.GetBufferPointer() };
+    let len = unsafe { blob.GetBufferSize() };
+    unsafe { slice::from_raw_parts(ptr.cast(), len) }
+}
+
+fn blob_text(blob: &ID3DBlob) -> Option<String> {
+    let bytes = unsafe { blob_bytes(blob) };
+    let end = bytes
+        .iter()
+        .position(|byte| *byte == 0)
+        .unwrap_or(bytes.len());
+    (end != 0).then(|| String::from_utf8_lossy(&bytes[..end]).trim().to_owned())
+}
+
+/// Validate and convert precompiled D3D shader bytes to DWORD bytecode.
+pub fn dword_aligned_shader_bytecode(bytes: &[u8]) -> Result<Vec<u32>, ShaderCompileError> {
+    if bytes.is_empty() {
+        return Err(ShaderCompileError::EmptyBytecode);
+    }
+    if !bytes.len().is_multiple_of(size_of::<u32>()) {
+        return Err(ShaderCompileError::UnalignedBytecode);
+    }
+
+    Ok(bytes
+        .chunks_exact(size_of::<u32>())
+        .map(|chunk| u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]))
+        .collect())
+}

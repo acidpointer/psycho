@@ -23,8 +23,6 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use anyhow::Context;
 use libc::c_void;
-use windows::Win32::System::Memory::{MEM_COMMIT, PAGE_GUARD, PAGE_NOACCESS};
-
 use libpsycho::os::windows::winapi::{replace_call, virtual_query};
 
 use super::statics;
@@ -267,10 +265,7 @@ fn is_readable(addr: usize, len: usize) -> bool {
     let Ok(info) = virtual_query(addr as *mut c_void) else {
         return false;
     };
-    if info.state != MEM_COMMIT.0 || info.protect == PAGE_NOACCESS {
-        return false;
-    }
-    if (info.protect.0 & PAGE_GUARD.0) != 0 {
+    if !info.is_accessible() {
         return false;
     }
 

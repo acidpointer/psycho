@@ -30,17 +30,12 @@
 
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use super::statics;
 use anyhow::{Context, Result};
 use libc::c_void;
 use libpsycho::os::windows::winapi::{
     flush_instructions_cache, patch_bytes, patch_jmp, virtual_alloc_rwx, virtual_query,
 };
-use windows::Win32::System::Memory::{
-    MEM_COMMIT, PAGE_EXECUTE, PAGE_EXECUTE_READ, PAGE_EXECUTE_READWRITE, PAGE_EXECUTE_WRITECOPY,
-    PAGE_GUARD, PAGE_NOACCESS,
-};
-
-use super::statics;
 
 /// Counts how many times we skipped a NULL entity. Referenced by the log
 /// threshold below -- a nonzero value means the vanilla bug is firing.
@@ -496,10 +491,7 @@ fn readable_region(addr: usize, len: usize) -> Option<(usize, usize)> {
     let Ok(info) = virtual_query(addr as *mut c_void) else {
         return None;
     };
-    if info.state != MEM_COMMIT.0 || info.protect == PAGE_NOACCESS {
-        return None;
-    }
-    if (info.protect.0 & PAGE_GUARD.0) != 0 {
+    if !info.is_accessible() {
         return None;
     }
 
@@ -517,17 +509,7 @@ fn is_executable(addr: usize) -> bool {
     let Ok(info) = virtual_query(addr as *mut c_void) else {
         return false;
     };
-    if info.state != MEM_COMMIT.0 {
-        return false;
-    }
-
-    matches!(
-        info.protect.0,
-        p if p == PAGE_EXECUTE.0
-            || p == PAGE_EXECUTE_READ.0
-            || p == PAGE_EXECUTE_READWRITE.0
-            || p == PAGE_EXECUTE_WRITECOPY.0
-    )
+    info.is_executable()
 }
 
 fn rel32(src_after: usize, dst: usize) -> [u8; 4] {

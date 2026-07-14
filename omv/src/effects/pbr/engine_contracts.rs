@@ -11,10 +11,9 @@ use std::{
 };
 
 use libpsycho::os::windows::{
-    memory::validate_memory_range,
-    winapi::{patch_bytes, with_virtual_protect},
+    memory::{validate_memory_range, with_writable_memory},
+    winapi::patch_bytes,
 };
-use windows::Win32::System::Memory::PAGE_READWRITE;
 
 use super::shader_registry::ShaderStage;
 
@@ -203,7 +202,7 @@ pub(super) fn write_shader_handle(
     }
 
     unsafe {
-        with_virtual_protect(slot, PAGE_READWRITE, size_of::<usize>(), || {
+        with_writable_memory(slot, size_of::<usize>(), || {
             (slot as *mut usize).write(handle as usize);
         })
         .is_ok()
@@ -427,7 +426,7 @@ fn write_u32(address: usize, value: u32) -> bool {
     }
 
     unsafe {
-        with_virtual_protect(ptr, PAGE_READWRITE, size_of::<u32>(), || {
+        with_writable_memory(ptr, size_of::<u32>(), || {
             (ptr as *mut u32).write(value);
         })
         .is_ok()

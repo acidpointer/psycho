@@ -6,10 +6,7 @@
 
 use libc::c_void;
 use thiserror::Error;
-use windows::Win32::System::Memory::{
-    MEM_COMMIT, PAGE_EXECUTE, PAGE_EXECUTE_READ, PAGE_EXECUTE_READWRITE, PAGE_EXECUTE_WRITECOPY,
-    PAGE_PROTECTION_FLAGS, PAGE_READWRITE,
-};
+use windows::Win32::System::Memory::{MEM_COMMIT, PAGE_PROTECTION_FLAGS, PAGE_READWRITE};
 
 use crate::os::windows::winapi::{virtual_query, with_virtual_protect};
 
@@ -60,13 +57,18 @@ pub fn validate_memory_range(address: *const c_void, size: usize) -> MemoryResul
         info.protect.0
     );
 
-    if info.state != MEMORY_STATE_COMMIT {
+    if !info.is_committed() {
         log::error!(
             "Memory not committed at {:p}, state=0x{:X}",
             address,
             info.state
         );
         return Err(MemoryError::MemoryNotCommitted(address as usize));
+    }
+
+    if !info.is_accessible() {
+        log::error!("Memory is inaccessible at {:p}", address);
+        return Err(MemoryError::InaccessibleMemory(address as usize));
     }
 
     let start = address as usize;
@@ -166,6 +168,20 @@ pub unsafe fn write_bytes(address: *mut c_void, data: &[u8]) -> MemoryResult<()>
     Ok(())
 }
 
+/// Temporarily make a host memory range writable and restore its protection.
+///
+/// # Safety
+///
+/// The caller must ensure the pointer and size describe the intended host
+/// object and that writes performed by `func` are valid for that object.
+pub unsafe fn with_writable_memory<T, F: FnOnce() -> T>(
+    address: *mut c_void,
+    size: usize,
+    func: F,
+) -> MemoryResult<T> {
+    unsafe { with_virtual_protect(address, PAGE_READWRITE, size, func).map_err(Into::into) }
+}
+
 /// Validates memory behind pointer and return protection flag and region size
 /// # Arguments:
 /// - `ptr` - Pointer to memory we want to check
@@ -175,7 +191,7 @@ pub fn validate_memory_access(ptr: *mut c_void) -> MemoryResult<(PAGE_PROTECTION
 
     // Next, we check if memory is commited.
     // If not - it's obvious error, we cant work with not commited memory.
-    if mem_info.state != MEMORY_STATE_COMMIT {
+    if !mem_info.is_accessible() {
         return Err(MemoryError::InaccessibleMemory(ptr as usize));
     }
 
@@ -183,10 +199,7 @@ pub fn validate_memory_access(ptr: *mut c_void) -> MemoryResult<(PAGE_PROTECTION
     let protect = mem_info.protect;
 
     // We need to check if memory is executable
-    let is_executable = matches!(
-        protect,
-        PAGE_EXECUTE | PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_READ | PAGE_EXECUTE_WRITECOPY
-    );
+    let is_executable = mem_info.is_executable();
 
     // If memory is not executable, we return error.
     // Functions can be located only in executable memory.

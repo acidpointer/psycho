@@ -13,4 +13,3 @@ libc = { workspace = true }
 libnvse = { path = "../libnvse" }
 libpsycho = { path = "../libpsycho" }
 log = { workspace = true }
-windows = { workspace = true }

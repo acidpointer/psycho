@@ -9,9 +9,7 @@ use std::{
 
 use super::super::mem_stats;
 
-use windows::Win32::System::Memory::{
-    MEM_COMMIT, MEM_RELEASE, MEM_RESERVE, PAGE_READWRITE, VirtualAlloc, VirtualFree,
-};
+use libpsycho::os::windows::winapi::{virtual_release, virtual_reserve_commit};
 
 const PAGE_SIZE: usize = 0x1000;
 const HEADER_FREED: u32 = 0x8000_0000;
@@ -129,7 +127,7 @@ impl Region {
     }
 
     fn new_virtual(capacity: usize, accounted: bool) -> Option<Self> {
-        let ptr = unsafe { VirtualAlloc(None, capacity, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE) };
+        let ptr = unsafe { virtual_reserve_commit(None, capacity) };
         let start = NonNull::new(ptr as *mut u8)?;
 
         if accounted {
@@ -246,9 +244,7 @@ impl Drop for Region {
                 libmimalloc::mi_free(self.start.as_ptr() as *mut c_void);
             },
             RegionBacking::VirtualAlloc => {
-                if let Err(e) =
-                    unsafe { VirtualFree(self.start.as_ptr() as *mut c_void, 0, MEM_RELEASE) }
-                {
+                if let Err(e) = unsafe { virtual_release(self.start.as_ptr() as *mut c_void) } {
                     log::error!(
                         "[scrap_heap] VirtualFree failed: base=0x{:08x} capacity={}KB err={:?}",
                         self.start.as_ptr() as usize,

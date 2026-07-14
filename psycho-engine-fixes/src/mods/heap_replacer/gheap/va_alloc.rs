@@ -65,9 +65,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use libc::c_void;
 
-use windows::Win32::System::Memory::{
-    MEM_COMMIT, MEM_RELEASE, MEM_RESERVE, PAGE_READWRITE, VirtualAlloc, VirtualFree,
-};
+use libpsycho::os::windows::winapi::{virtual_release, virtual_reserve_commit};
 
 /// OS page granularity. `VirtualAlloc` rounds up to this anyway; we
 /// track the rounded size for accurate `msize` and accounting.
@@ -104,7 +102,7 @@ pub fn alloc(size: usize) -> *mut c_void {
 
     // Second-chance: raw VirtualAlloc. OS picks placement with
     // first-fit-from-lowest. May fail if VA is fragmented.
-    let mut ptr = unsafe { VirtualAlloc(None, rounded, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE) };
+    let mut ptr = unsafe { virtual_reserve_commit(None, rounded) };
 
     // Emergency recovery: if the first attempt fails (VAS fragmented
     // beyond the request size), ask the block tier to release any
@@ -127,7 +125,7 @@ pub fn alloc(size: usize) -> *mut c_void {
                 slots,
                 bytes / 1024 / 1024,
             );
-            ptr = unsafe { VirtualAlloc(None, rounded, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE) };
+            ptr = unsafe { virtual_reserve_commit(None, rounded) };
         }
     }
 
@@ -185,7 +183,7 @@ pub fn alloc(size: usize) -> *mut c_void {
             block.base,
             block.size,
         );
-        if let Err(e) = unsafe { VirtualFree(ptr, 0, MEM_RELEASE) } {
+        if let Err(e) = unsafe { virtual_release(ptr) } {
             log::error!(
                 "[VA] tracking rollback VirtualFree failed: base=0x{:08x} err={:?}",
                 block.base,
@@ -221,7 +219,7 @@ pub unsafe fn free(ptr: *mut c_void) -> bool {
     let b = blocks[idx];
 
     // Raw VirtualAlloc block: full release returns VA to OS.
-    if let Err(e) = unsafe { VirtualFree(ptr, 0, MEM_RELEASE) } {
+    if let Err(e) = unsafe { virtual_release(ptr) } {
         log::error!(
             "[VA] VirtualFree failed: base=0x{:08x} size={} err={:?}",
             b.base,

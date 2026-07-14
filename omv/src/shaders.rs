@@ -2,26 +2,14 @@
 
 use std::{
     collections::HashMap,
-    ffi::CString,
     fs,
-    mem::size_of,
     path::{Path, PathBuf},
-    ptr::null_mut,
-    slice,
-    sync::OnceLock,
     time::SystemTime,
 };
 
 use anyhow::{Context, Result};
-use libpsycho::{
-    ffi::fnptr::FnPtr,
-    os::windows::winapi::{get_proc_address, load_library_a},
-};
+use libpsycho::os::windows::directx9::{compile_hlsl, dword_aligned_shader_bytecode};
 use serde::{Deserialize, Serialize};
-use windows::{
-    Win32::Graphics::Direct3D::ID3DBlob,
-    core::{HRESULT, Interface, PCSTR},
-};
 
 use crate::config::{
     BloomingHdrConfig, ContactAoConfig, EmbeddedEffectsConfig, FastAoConfig, SunshaftsConfig,
@@ -34,31 +22,6 @@ const SUN_REGISTER: u32 = 8;
 const MAX_OPTION_REGISTER: u32 = 31;
 const MIN_SHADER_PASSES: u32 = 1;
 const MAX_SHADER_PASSES: u32 = 8;
-const D3DCOMPILE_ENABLE_BACKWARDS_COMPATIBILITY: u32 = 1 << 12;
-const D3DCOMPILE_OPTIMIZATION_LEVEL3: u32 = 1 << 15;
-const D3D_COMPILER_DLLS: &[&str] = &[
-    "d3dcompiler_47.dll",
-    "d3dcompiler_46.dll",
-    "d3dcompiler_43.dll",
-    "d3dcompiler_42.dll",
-    "d3dcompiler_41.dll",
-];
-static D3D_COMPILE_FN: OnceLock<std::result::Result<D3DCompileFn, String>> = OnceLock::new();
-
-type D3DCompileFn = unsafe extern "system" fn(
-    src_data: *const std::ffi::c_void,
-    src_data_size: usize,
-    source_name: PCSTR,
-    defines: *const std::ffi::c_void,
-    include: *mut std::ffi::c_void,
-    entry_point: PCSTR,
-    target: PCSTR,
-    flags1: u32,
-    flags2: u32,
-    code: *mut *mut std::ffi::c_void,
-    error_messages: *mut *mut std::ffi::c_void,
-) -> HRESULT;
-
 #[derive(Clone, Debug)]
 pub(crate) struct ScreenShaderSource {
     pub(crate) kind: ScreenShaderSourceKind,
@@ -947,7 +910,7 @@ fn load_shader_file(
     } else {
         let bytes = fs::read(path)
             .with_context(|| format!("failed to read shader file {}", path.display()))?;
-        dword_aligned_bytecode(&bytes)?
+        dword_aligned_shader_bytecode(&bytes)?
     };
 
     log::info!("[SHADERS] Loaded shader '{}'", path.display());
@@ -1117,112 +1080,7 @@ pub(crate) fn compile_hlsl_source_target(
 }
 
 fn compile_hlsl_bytes(source_name: &str, source: &[u8], target: &str) -> Result<Vec<u32>> {
-    let compiler = d3d_compile_fn()?;
-    let source_name = CString::new(source_name.as_bytes())?;
-    let entry = CString::new("Main")?;
-    let target = CString::new(target)?;
-    let flags = D3DCOMPILE_ENABLE_BACKWARDS_COMPATIBILITY | D3DCOMPILE_OPTIMIZATION_LEVEL3;
-
-    let mut code = null_mut();
-    let mut errors = null_mut();
-    let result = unsafe {
-        compiler(
-            source.as_ptr().cast(),
-            source.len(),
-            PCSTR::from_raw(source_name.as_ptr().cast()),
-            std::ptr::null(),
-            null_mut(),
-            PCSTR::from_raw(entry.as_ptr().cast()),
-            PCSTR::from_raw(target.as_ptr().cast()),
-            flags,
-            0,
-            &mut code,
-            &mut errors,
-        )
-    };
-
-    let error_text = unsafe { take_blob(errors) }.and_then(|blob| blob_text(&blob));
-    if result.is_err() {
-        let message = error_text.unwrap_or_else(|| format!("D3DCompile failed: {result:?}"));
-        anyhow::bail!("{message}");
-    }
-
-    if let Some(message) = error_text {
-        log::debug!("[SHADERS] Compiler diagnostics for {source_name:?}: {message}");
-    }
-
-    let Some(code) = (unsafe { take_blob(code) }) else {
-        anyhow::bail!("D3DCompile returned no shader bytecode");
-    };
-
-    let bytes = unsafe { blob_bytes(&code) };
-    dword_aligned_bytecode(bytes)
-}
-
-fn dword_aligned_bytecode(bytes: &[u8]) -> Result<Vec<u32>> {
-    if bytes.is_empty() {
-        anyhow::bail!("shader bytecode is empty");
-    }
-
-    if bytes.len() % size_of::<u32>() != 0 {
-        anyhow::bail!("shader bytecode length is not DWORD aligned");
-    }
-
-    Ok(bytes
-        .chunks_exact(size_of::<u32>())
-        .map(|chunk| u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]))
-        .collect())
-}
-
-fn d3d_compile_fn() -> Result<D3DCompileFn> {
-    match D3D_COMPILE_FN.get_or_init(resolve_d3d_compile_fn) {
-        Ok(function) => Ok(*function),
-        Err(err) => anyhow::bail!("{err}"),
-    }
-}
-
-fn resolve_d3d_compile_fn() -> std::result::Result<D3DCompileFn, String> {
-    for dll in D3D_COMPILER_DLLS {
-        if let Ok(module) = load_library_a(dll)
-            && let Ok(proc) = get_proc_address(module, "D3DCompile")
-        {
-            let function = unsafe { FnPtr::<D3DCompileFn>::from_raw(proc) }
-                .map_err(|error| format!("D3DCompile export is invalid: {error}"))?;
-            return Ok(function.as_fn());
-        }
-    }
-
-    Err(format!(
-        "D3DCompile not found; tried {}",
-        D3D_COMPILER_DLLS.join(", ")
-    ))
-}
-
-unsafe fn take_blob(ptr: *mut std::ffi::c_void) -> Option<ID3DBlob> {
-    if ptr.is_null() {
-        return None;
-    }
-
-    Some(unsafe { ID3DBlob::from_raw(ptr) })
-}
-
-unsafe fn blob_bytes(blob: &ID3DBlob) -> &[u8] {
-    let ptr = unsafe { blob.GetBufferPointer() };
-    let len = unsafe { blob.GetBufferSize() };
-    unsafe { slice::from_raw_parts(ptr.cast::<u8>(), len) }
-}
-
-fn blob_text(blob: &ID3DBlob) -> Option<String> {
-    let bytes = unsafe { blob_bytes(blob) };
-    let end = bytes
-        .iter()
-        .position(|byte| *byte == 0)
-        .unwrap_or(bytes.len());
-    if end == 0 {
-        return None;
-    }
-
-    Some(String::from_utf8_lossy(&bytes[..end]).trim().to_owned())
+    compile_hlsl(source_name, source, target).map_err(Into::into)
 }
 
 fn shader_name(path: &Path) -> String {

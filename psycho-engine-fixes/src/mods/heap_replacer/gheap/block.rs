@@ -36,10 +36,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use rustc_hash::FxBuildHasher;
 
 use libc::c_void;
+use libpsycho::os::windows::winapi::{virtual_commit, virtual_release, virtual_reserve};
 use parking_lot::Mutex;
-use windows::Win32::System::Memory::{
-    MEM_COMMIT, MEM_RELEASE, MEM_RESERVE, PAGE_READWRITE, VirtualAlloc, VirtualFree,
-};
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -351,14 +349,7 @@ impl Block {
         let target = round_up_usize(end, COMMIT_CHUNK).min(BLOCK_SIZE);
         let commit_len = target - self.committed;
         let commit_base = unsafe { self.base.add(self.committed) };
-        let committed = unsafe {
-            VirtualAlloc(
-                Some(commit_base.cast()),
-                commit_len,
-                MEM_COMMIT,
-                PAGE_READWRITE,
-            )
-        };
+        let committed = unsafe { virtual_commit(commit_base.cast(), commit_len) };
         if committed != commit_base.cast() {
             return false;
         }
@@ -467,19 +458,12 @@ impl BlockHeap {
         if ptr.is_null()
             && let Some(hint) = self.preferred_next_address()
         {
-            ptr = unsafe {
-                VirtualAlloc(
-                    Some(hint as *const c_void),
-                    BLOCK_SIZE,
-                    MEM_RESERVE,
-                    PAGE_READWRITE,
-                )
-            };
+            ptr = unsafe { virtual_reserve(Some(hint as *const c_void), BLOCK_SIZE) };
         }
 
         // Fallback: OS picks placement anywhere.
         if ptr.is_null() {
-            ptr = unsafe { VirtualAlloc(None, BLOCK_SIZE, MEM_RESERVE, PAGE_READWRITE) };
+            ptr = unsafe { virtual_reserve(None, BLOCK_SIZE) };
         }
 
         if ptr.is_null() {
@@ -573,19 +557,12 @@ impl BlockHeap {
                 .checked_sub(BLOCK_SIZE)
                 .filter(|next| *next >= BLOCK_HIGH_SCAN_MIN)
                 .unwrap_or(0);
-            let ptr = unsafe {
-                VirtualAlloc(
-                    Some(hint as *const c_void),
-                    BLOCK_SIZE,
-                    MEM_RESERVE,
-                    PAGE_READWRITE,
-                )
-            };
+            let ptr = unsafe { virtual_reserve(Some(hint as *const c_void), BLOCK_SIZE) };
             if !ptr.is_null() {
                 if ptr as usize == hint {
                     return ptr;
                 }
-                let _ = unsafe { VirtualFree(ptr, 0, MEM_RELEASE) };
+                let _ = unsafe { virtual_release(ptr) };
             }
 
             if self.high_scan_hint == 0 {
@@ -741,7 +718,7 @@ impl BlockHeap {
                 self.blocks[i] = Some(b);
                 continue;
             }
-            if let Err(e) = unsafe { VirtualFree(b.base as *mut c_void, 0, MEM_RELEASE) } {
+            if let Err(e) = unsafe { virtual_release(b.base as *mut c_void) } {
                 log::error!(
                     "[BLOCK] Emergency retire VirtualFree failed: slot {} base=0x{:08x} err={:?}",
                     i,

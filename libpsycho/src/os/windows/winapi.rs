@@ -28,9 +28,10 @@ use windows::Win32::System::LibraryLoader::{
     GetProcAddress, LoadLibraryA, LoadLibraryW,
 };
 use windows::Win32::System::Memory::{
-    MEM_COMMIT, MEM_RELEASE, MEM_RESERVE, MEMORY_BASIC_INFORMATION, PAGE_EXECUTE_READWRITE,
-    PAGE_PROTECTION_FLAGS, PAGE_READWRITE, VIRTUAL_ALLOCATION_TYPE, VIRTUAL_FREE_TYPE,
-    VirtualAlloc, VirtualFree, VirtualProtect,
+    MEM_COMMIT, MEM_FREE, MEM_RELEASE, MEM_RESERVE, MEMORY_BASIC_INFORMATION, PAGE_EXECUTE,
+    PAGE_EXECUTE_READ, PAGE_EXECUTE_READWRITE, PAGE_EXECUTE_WRITECOPY, PAGE_GUARD, PAGE_NOACCESS,
+    PAGE_PROTECTION_FLAGS, PAGE_READWRITE, PAGE_WRITECOPY, VIRTUAL_ALLOCATION_TYPE,
+    VIRTUAL_FREE_TYPE, VirtualAlloc, VirtualFree, VirtualProtect,
 };
 use windows::Win32::System::Performance::{QueryPerformanceCounter, QueryPerformanceFrequency};
 use windows::Win32::System::ProcessStatus::{
@@ -38,11 +39,13 @@ use windows::Win32::System::ProcessStatus::{
 };
 use windows::Win32::System::SystemInformation::{
     GetSystemDirectoryW, GetSystemTimeAsFileTime, GetTickCount as WinGetTickCount,
+    GlobalMemoryStatusEx, MEMORYSTATUSEX,
 };
 use windows::Win32::System::SystemServices::MEM_TOP_DOWN;
 use windows::Win32::System::Threading::{
-    CRITICAL_SECTION, CreateThread, GetCurrentThreadId as WinGetCurrentThreadId, GetExitCodeThread,
-    GetProcessTimes, InitializeCriticalSection, OpenThread,
+    CRITICAL_SECTION, CreateThread, EnterCriticalSection,
+    GetCurrentThreadId as WinGetCurrentThreadId, GetExitCodeThread, GetProcessTimes,
+    InitializeCriticalSection, LeaveCriticalSection, OpenThread,
     ReleaseSemaphore as WinReleaseSemaphore, SetThreadPriority, Sleep as WinSleep,
     THREAD_CREATION_FLAGS, THREAD_PRIORITY, THREAD_PRIORITY_ABOVE_NORMAL,
     THREAD_PRIORITY_BELOW_NORMAL, THREAD_PRIORITY_HIGHEST, THREAD_PRIORITY_IDLE,
@@ -96,6 +99,23 @@ pub enum WinapiError {
 
 pub type WinapiResult<T> = std::result::Result<T, WinapiError>;
 
+/// Win32-compatible boolean for exported ABI functions.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(transparent)]
+pub struct WinBool(pub i32);
+
+impl From<bool> for WinBool {
+    fn from(value: bool) -> Self {
+        Self(i32::from(value))
+    }
+}
+
+impl From<WinBool> for bool {
+    fn from(value: WinBool) -> Self {
+        value.0 != 0
+    }
+}
+
 /// Outcome of an atomic pointer comparison that completed without a WinAPI error.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum PointerExchange {
@@ -115,6 +135,69 @@ pub struct MemoryBasicInformation {
     pub state: u32,
     pub protect: PAGE_PROTECTION_FLAGS,
     pub r#type: u32,
+}
+
+/// Stable memory-state classification independent of the Windows bindings.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum MemoryState {
+    Commit,
+    Free,
+    Reserve,
+    Unknown(u32),
+}
+
+impl MemoryBasicInformation {
+    pub fn memory_state(&self) -> MemoryState {
+        match self.state {
+            state if state == MEM_COMMIT.0 => MemoryState::Commit,
+            state if state == MEM_FREE.0 => MemoryState::Free,
+            state if state == MEM_RESERVE.0 => MemoryState::Reserve,
+            state => MemoryState::Unknown(state),
+        }
+    }
+
+    pub fn is_committed(&self) -> bool {
+        self.memory_state() == MemoryState::Commit
+    }
+
+    pub fn is_free(&self) -> bool {
+        self.memory_state() == MemoryState::Free
+    }
+
+    pub fn is_reserved(&self) -> bool {
+        self.memory_state() == MemoryState::Reserve
+    }
+
+    pub fn is_accessible(&self) -> bool {
+        self.is_committed() && self.protect != PAGE_NOACCESS && (self.protect.0 & PAGE_GUARD.0) == 0
+    }
+
+    pub fn is_executable(&self) -> bool {
+        self.is_accessible()
+            && matches!(
+                self.protect,
+                PAGE_EXECUTE | PAGE_EXECUTE_READ | PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY
+            )
+    }
+
+    pub fn is_writable(&self) -> bool {
+        self.is_accessible()
+            && matches!(
+                self.protect,
+                PAGE_READWRITE | PAGE_WRITECOPY | PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY
+            )
+    }
+
+    pub fn contains_range(&self, address: usize, size: usize) -> bool {
+        let Some(end) = address.checked_add(size) else {
+            return false;
+        };
+        let base = self.base_address as usize;
+        let Some(region_end) = base.checked_add(self.region_size) else {
+            return false;
+        };
+        address >= base && end <= region_end
+    }
 }
 
 /// Win32 RECT with plain Rust field names.
@@ -431,6 +514,41 @@ pub unsafe fn initialize_critical_section(ptr: *mut CRITICAL_SECTION) -> WinapiR
     Ok(())
 }
 
+/// Non-owning reference to a critical section stored by the host process.
+#[derive(Clone, Copy, Debug)]
+pub struct BorrowedCriticalSection {
+    ptr: NonNull<c_void>,
+}
+
+impl BorrowedCriticalSection {
+    /// Construct a borrowed critical section from a host-owned pointer.
+    ///
+    /// # Safety
+    ///
+    /// `ptr` must point to a live `CRITICAL_SECTION` for every guard created
+    /// from this value.
+    pub unsafe fn from_raw(ptr: *mut c_void) -> WinapiResult<Self> {
+        let ptr = NonNull::new(ptr).ok_or(WinapiError::InputNullPtr())?;
+        Ok(Self { ptr })
+    }
+
+    pub fn enter(self) -> CriticalSectionGuard {
+        unsafe { EnterCriticalSection(self.ptr.as_ptr().cast()) };
+        CriticalSectionGuard { section: self }
+    }
+}
+
+/// Releases a borrowed critical section when dropped.
+pub struct CriticalSectionGuard {
+    section: BorrowedCriticalSection,
+}
+
+impl Drop for CriticalSectionGuard {
+    fn drop(&mut self) {
+        unsafe { LeaveCriticalSection(self.section.ptr.as_ptr().cast()) };
+    }
+}
+
 /// Idiomatic Rust type for storing `THREAD_PRIORITY` values.
 ///
 /// Actually, not really better than `THREAD_PRIORITY`, but
@@ -551,6 +669,28 @@ pub unsafe fn with_virtual_protect<T, U: FnOnce() -> T>(
 #[derive(Debug)]
 pub struct Handle {
     ptr: NonNull<c_void>,
+}
+
+/// Copyable non-owning handle for kernel objects owned by the host process.
+#[derive(Clone, Copy, Debug)]
+pub struct BorrowedHandle {
+    ptr: NonNull<c_void>,
+}
+
+impl BorrowedHandle {
+    /// Construct a borrowed handle without taking `CloseHandle` ownership.
+    ///
+    /// # Safety
+    ///
+    /// `ptr` must remain a valid handle while it is used.
+    pub unsafe fn from_raw(ptr: *mut c_void) -> WinapiResult<Self> {
+        let ptr = NonNull::new(ptr).ok_or(WinapiError::InputNullPtr())?;
+        Ok(Self { ptr })
+    }
+
+    fn as_raw(self) -> HANDLE {
+        HANDLE(self.ptr.as_ptr())
+    }
 }
 
 // Safety: Safe, because AtomicPtr is used and pointer is not null
@@ -1355,9 +1495,62 @@ pub unsafe fn virtual_free(address: *mut c_void, free_type: FreeType) -> WinapiR
     Ok(())
 }
 
+/// Reserve address space without adding allocator hot-path validation.
+///
+/// Returns null on failure and leaves the Win32 last-error value available to
+/// the caller. This is intended for allocators that already validate sizes.
+///
+/// # Safety
+///
+/// A non-null requested address must describe a range that may be reserved.
+#[inline(always)]
+pub unsafe fn virtual_reserve(address: Option<*const c_void>, size: usize) -> *mut c_void {
+    unsafe { VirtualAlloc(address, size, MEM_RESERVE, PAGE_READWRITE) }
+}
+
+/// Commit pages in an existing reservation without extra validation.
+///
+/// # Safety
+///
+/// `address..address + size` must lie inside a live reservation.
+#[inline(always)]
+pub unsafe fn virtual_commit(address: *const c_void, size: usize) -> *mut c_void {
+    unsafe { VirtualAlloc(Some(address), size, MEM_COMMIT, PAGE_READWRITE) }
+}
+
+/// Reserve and commit pages without extra allocator hot-path validation.
+///
+/// # Safety
+///
+/// A non-null requested address must describe a range that may be allocated.
+#[inline(always)]
+pub unsafe fn virtual_reserve_commit(address: Option<*const c_void>, size: usize) -> *mut c_void {
+    unsafe { VirtualAlloc(address, size, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE) }
+}
+
+/// Release a complete virtual-memory reservation.
+///
+/// # Safety
+///
+/// `address` must be the base of a live `VirtualAlloc` reservation.
+#[inline(always)]
+pub unsafe fn virtual_release(address: *mut c_void) -> WinapiResult<()> {
+    unsafe { virtual_free(address, FreeType::Release) }
+}
+
 /// Reserve address space near the top of the process VAS.
 pub fn virtual_reserve_top_down(size: usize) -> WinapiResult<*mut c_void> {
     unsafe { virtual_alloc(None, size, AllocationType::ReserveTopDown, PAGE_READWRITE) }
+}
+
+/// Return the process's currently available virtual address space.
+pub fn available_virtual_memory() -> WinapiResult<usize> {
+    let mut status = MEMORYSTATUSEX {
+        dwLength: std::mem::size_of::<MEMORYSTATUSEX>() as u32,
+        ..Default::default()
+    };
+    unsafe { GlobalMemoryStatusEx(&mut status)? };
+    Ok(status.ullAvailVirtual as usize)
 }
 
 /// WinAPI: GetModuleHandleW(...)
@@ -1925,8 +2118,8 @@ pub enum WaitResult {
 
 /// Waits for a kernel object (semaphore, event, etc.) to be signaled.
 /// `timeout_ms` = 0 for non-blocking probe, u32::MAX for infinite wait.
-pub fn wait_for_single_object(handle: HANDLE, timeout_ms: u32) -> WaitResult {
-    let result = unsafe { WinWaitForSingleObject(handle, timeout_ms) };
+pub fn wait_for_single_object(handle: BorrowedHandle, timeout_ms: u32) -> WaitResult {
+    let result = unsafe { WinWaitForSingleObject(handle.as_raw(), timeout_ms) };
     match result.0 {
         0 => WaitResult::Signaled,     // WAIT_OBJECT_0
         0x80 => WaitResult::Abandoned, // WAIT_ABANDONED
@@ -1936,8 +2129,8 @@ pub fn wait_for_single_object(handle: HANDLE, timeout_ms: u32) -> WaitResult {
 }
 
 /// Release a semaphore, incrementing its count by `release_count`.
-pub fn release_semaphore(handle: HANDLE, release_count: i32) -> WinapiResult<()> {
-    unsafe { WinReleaseSemaphore(handle, release_count, None)? };
+pub fn release_semaphore(handle: BorrowedHandle, release_count: i32) -> WinapiResult<()> {
+    unsafe { WinReleaseSemaphore(handle.as_raw(), release_count, None)? };
     Ok(())
 }
 
