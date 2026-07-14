@@ -97,7 +97,7 @@ pub(super) struct ObjectDrawRejection {
     pub(super) selector: usize,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Default)]
 pub(super) struct DrawSnapshot {
     pub(super) geometry: usize,
     pub(super) pass: usize,
@@ -156,10 +156,30 @@ pub(super) fn shader_package_lifetime_ready() -> bool {
 }
 
 pub(super) fn eye_position_ready() -> bool {
-    eye_position_contract_ready()
+    EYE_POSITION_CONTRACT_READY.load(Ordering::Acquire)
+}
+
+pub(super) fn eye_position_ready_for_pass(pass_index: u32) -> bool {
+    if !eye_position_ready() {
+        return false;
+    }
+    let Ok(row) = usize::try_from(pass_index) else {
+        return false;
+    };
+    if !(SLS_EYE_POSITION_FIRST_ROW..SLS_EYE_POSITION_LAST_ROW_EXCLUSIVE).contains(&row) {
+        return false;
+    }
+
+    let Some(first_row) = sls_eye_position_first_row() else {
+        return false;
+    };
+    unsafe { first_row.add(row - SLS_EYE_POSITION_FIRST_ROW).read() & SLS_EYE_POSITION_FLAG != 0 }
 }
 
 pub(super) fn enable_fog_for_pass(pass_index: u32) -> bool {
+    if !eye_position_ready() {
+        return false;
+    }
     let Ok(row) = usize::try_from(pass_index) else {
         return false;
     };
@@ -171,10 +191,6 @@ pub(super) fn enable_fog_for_pass(pass_index: u32) -> bool {
         return false;
     };
     let flags = unsafe { first_row.add(row - SLS_EYE_POSITION_FIRST_ROW) };
-    if validate_memory_range(flags.cast::<c_void>(), size_of::<u32>()).is_err() {
-        return false;
-    }
-
     unsafe { flags.write(flags.read() | SLS_FOG_FLAGS) };
     true
 }
@@ -271,6 +287,23 @@ pub(super) fn current_draw_snapshot(pass_index: u32) -> DrawSnapshot {
         scanned_entries,
         rejection,
     }
+}
+
+pub(super) fn current_object_draw_rejection(pass_index: u32) -> Option<ObjectDrawRejection> {
+    let active_row = u16::try_from(pass_index).ok()?;
+    if let Some(reason) = classify_active_object_pass_blocker(active_row, 0) {
+        return Some(ObjectDrawRejection {
+            reason,
+            row: active_row,
+            selector: 0,
+        });
+    }
+
+    if matches!(active_row, 0x10..=0x13 | 0x62 | 0x63 | 0x93 | 0x94) {
+        return current_draw_snapshot(pass_index).rejection;
+    }
+
+    None
 }
 
 pub(super) fn geometry_name(geometry: usize) -> Option<String> {
@@ -446,35 +479,10 @@ fn service_eye_position_contract() {
     let frame = EYE_POSITION_REFRESH_FRAME.fetch_add(1, Ordering::Relaxed);
     if frame == 0
         || frame % EYE_POSITION_REFRESH_INTERVAL_FRAMES == 0
-        || !eye_position_contract_ready()
+        || !EYE_POSITION_CONTRACT_READY.load(Ordering::Acquire)
     {
         enable_eye_position_for_all_sls_passes();
     }
-}
-
-fn eye_position_contract_ready() -> bool {
-    if !EYE_POSITION_CONTRACT_READY.load(Ordering::Acquire) {
-        return false;
-    }
-
-    let Some(first_row) = sls_eye_position_first_row() else {
-        return false;
-    };
-    let row_count = SLS_EYE_POSITION_LAST_ROW_EXCLUSIVE - SLS_EYE_POSITION_FIRST_ROW;
-    let byte_len = row_count * size_of::<u32>();
-    if validate_memory_range(first_row.cast::<c_void>(), byte_len).is_err() {
-        return false;
-    }
-
-    unsafe {
-        for row in 0..row_count {
-            if first_row.add(row).read() & SLS_EYE_POSITION_FLAG == 0 {
-                return false;
-            }
-        }
-    }
-
-    true
 }
 
 fn enable_shader_package_lifetime_contract() -> bool {

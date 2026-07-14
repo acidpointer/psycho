@@ -216,20 +216,24 @@ impl ShaderRecord {
     }
 
     fn snapshot(&self) -> Option<ShaderRecordSnapshot> {
-        let stage = match self.stage.load(Ordering::Acquire) {
+        let shader = self.shader.load(Ordering::Acquire);
+        if shader == 0 {
+            return None;
+        }
+        let stage = match self.stage.load(Ordering::Relaxed) {
             STAGE_VERTEX => ShaderStage::Vertex,
             STAGE_PIXEL => ShaderStage::Pixel,
             _ => return None,
         };
-        let template_id = self.template_id.load(Ordering::Acquire);
+        let template_id = self.template_id.load(Ordering::Relaxed);
         if template_id == TEMPLATE_NONE {
             return None;
         }
 
         Some(ShaderRecordSnapshot {
-            shader: self.shader.load(Ordering::Acquire) as *mut c_void,
+            shader: shader as *mut c_void,
             stage,
-            original_handle: self.original_handle.load(Ordering::Acquire) as *mut c_void,
+            original_handle: self.original_handle.load(Ordering::Relaxed) as *mut c_void,
             current_handle: self.current_handle.load(Ordering::Acquire) as *mut c_void,
             template_id: template_id as u16,
             table_id: self.table_id.load(Ordering::Acquire),

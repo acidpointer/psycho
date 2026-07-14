@@ -32,8 +32,9 @@ static IS_EXTERIOR: AtomicBool = AtomicBool::new(true);
 static OBJECT_CONSTANT_VERSION: AtomicU32 = AtomicU32::new(1);
 static CURRENT_OBJECT_PROFILE_BITS: LazyLock<[AtomicU32; PBR_PROFILE_VALUE_COUNT]> =
     LazyLock::new(|| array::from_fn(|_| AtomicU32::new(0)));
+static CURRENT_TERRAIN_PROFILE_BITS: LazyLock<[AtomicU32; PBR_PROFILE_VALUE_COUNT]> =
+    LazyLock::new(|| array::from_fn(|_| AtomicU32::new(0)));
 const PBR_DATA_REGISTER: u32 = 32;
-const PBR_EXTRA_DATA_REGISTER: u32 = 33;
 const TERRAIN_DATA_REGISTER: u32 = 89;
 
 struct ProfileStorage {
@@ -92,6 +93,7 @@ pub(super) fn store_settings(settings: NativePbrSettings) {
         sanitize(settings.terrain_lod_noise_tile, 1.75, 0.05, 16.0).to_bits(),
         Ordering::Release,
     );
+    update_current_profiles();
     OBJECT_CONSTANT_VERSION.fetch_add(1, Ordering::AcqRel);
 }
 
@@ -100,25 +102,22 @@ pub(super) fn service_frame() {
     TRANSITION_CURVE.store(state.transition_curve.to_bits(), Ordering::Release);
     EXTERIOR_KNOWN.store(state.exterior_known, Ordering::Release);
     IS_EXTERIOR.store(state.is_exterior, Ordering::Release);
-    update_object_constant_version();
+    update_current_profiles();
 }
 
 pub(super) fn upload_object_constants(device: &Device9Ref<'_>) -> bool {
-    let profile = current_object_profile();
-    let pbr_data = [[profile[0], profile[1], profile[2], profile[3]]];
-    let pbr_extra_data = [[profile[4], 0.0, 0.0, 0.0]];
+    let profile = load_current_profile(&CURRENT_OBJECT_PROFILE_BITS);
+    let constants = [
+        [profile[0], profile[1], profile[2], profile[3]],
+        [profile[4], 0.0, 0.0, 0.0],
+    ];
     device
-        .set_pixel_shader_constant_f(PBR_DATA_REGISTER, &pbr_data)
+        .set_pixel_shader_constant_f(PBR_DATA_REGISTER, &constants)
         .is_ok()
-        && device
-            .set_pixel_shader_constant_f(PBR_EXTRA_DATA_REGISTER, &pbr_extra_data)
-            .is_ok()
 }
 
-pub(super) fn upload_terrain_constants(
-    device: &Device9Ref<'_>,
-) -> Option<([[f32; 4]; 2], [[f32; 4]; 2])> {
-    let profile = current_terrain_profile();
+pub(super) fn upload_terrain_constants(device: &Device9Ref<'_>) -> Option<[[f32; 4]; 2]> {
+    let profile = load_current_profile(&CURRENT_TERRAIN_PROFILE_BITS);
     let requested = [
         [profile[0], profile[1], profile[2], profile[3]],
         [
@@ -135,30 +134,48 @@ pub(super) fn upload_terrain_constants(
         return None;
     }
 
+    Some(requested)
+}
+
+pub(super) fn read_terrain_constants(device: &Device9Ref<'_>) -> Option<[[f32; 4]; 2]> {
     let mut observed = [[0.0; 4]; 2];
     device
         .pixel_shader_constant_f(TERRAIN_DATA_REGISTER, &mut observed)
         .ok()?;
-    Some((requested, observed))
+    Some(observed)
 }
 
 pub(super) fn object_constant_version() -> u32 {
     OBJECT_CONSTANT_VERSION.load(Ordering::Acquire)
 }
 
-fn update_object_constant_version() {
-    let profile = current_object_profile();
+fn update_current_profiles() {
+    let object_profile = current_object_profile();
     let mut changed = false;
-    for (slot, value) in CURRENT_OBJECT_PROFILE_BITS.iter().zip(profile) {
+    for (slot, value) in CURRENT_OBJECT_PROFILE_BITS.iter().zip(object_profile) {
         let bits = value.to_bits();
         if slot.swap(bits, Ordering::AcqRel) != bits {
             changed = true;
         }
     }
+    let terrain_profile = current_terrain_profile();
+    for (slot, value) in CURRENT_TERRAIN_PROFILE_BITS.iter().zip(terrain_profile) {
+        slot.store(value.to_bits(), Ordering::Release);
+    }
 
     if changed {
         OBJECT_CONSTANT_VERSION.fetch_add(1, Ordering::AcqRel);
     }
+}
+
+fn load_current_profile(
+    storage: &[AtomicU32; PBR_PROFILE_VALUE_COUNT],
+) -> [f32; PBR_PROFILE_VALUE_COUNT] {
+    let mut values = [0.0; PBR_PROFILE_VALUE_COUNT];
+    for (output, slot) in values.iter_mut().zip(storage.iter()) {
+        *output = f32::from_bits(slot.load(Ordering::Acquire));
+    }
+    values
 }
 
 fn current_object_profile() -> [f32; PBR_PROFILE_VALUE_COUNT] {

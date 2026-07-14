@@ -121,24 +121,30 @@ float SunScreenFade(float2 sunUv) {
     return saturate(fadeX * fadeY * max(SunData.w, 0.0f));
 }
 
-float SceneSunSource(float2 uv, float pathOpen) {
+float SunSource(float2 uv, float pathOpen) {
 	float visibility = SunScreenFade(SunData.xy);
 	if (visibility <= 0.0f || pathOpen <= 0.0f) {
 		return 0.0f;
 	}
 
 	float distanceToSun = ScreenDistance(uv, SunData.xy);
-	float fieldRadius = max(OptionData2.y, 0.08f);
+	float coreRadius = max(OptionData3.y, 0.012f);
+	float haloRadius = max(coreRadius * 4.0f, 0.08f);
+	float fieldRadius = max(coreRadius * 9.0f, 0.26f);
+	float core = 1.0f - Smooth01(distanceToSun / coreRadius);
+	float halo = 1.0f - Smooth01(distanceToSun / haloRadius);
 	float field = 1.0f - Smooth01(distanceToSun / fieldRadius);
 	float sceneSource = ShaftSourceMask(SceneSample(uv));
-	return visibility * pathOpen * field * sceneSource;
+	float analyticSource = core * 0.88f + halo * 0.42f + field * 0.12f;
+	float source = max(analyticSource, field * sceneSource);
+	return visibility * pathOpen * saturate(source);
 }
 
 float4 Main(PixelInput input) : COLOR0 {
 	float sky = SkyMask(input.uv);
 	float firstPerson = FirstPersonBlock(input.uv);
 	float pathOpen = sky * (1.0f - firstPerson);
-	float source = SceneSunSource(input.uv, pathOpen);
+	float source = SunSource(input.uv, pathOpen);
 
     return float4(source, pathOpen, firstPerson, 1.0f);
 }

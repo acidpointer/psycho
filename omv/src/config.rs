@@ -58,10 +58,6 @@ impl Default for GraphicsConfig {
 #[serde(default)]
 pub(crate) struct NativePbrConfig {
     pub(crate) enabled: bool,
-    pub(crate) terrain_enabled: bool,
-    pub(crate) close_terrain_enabled: bool,
-    pub(crate) terrain_fade_enabled: bool,
-    pub(crate) terrain_lod_enabled: bool,
     pub(crate) debug_log_draws: bool,
     pub(crate) metallicness: f32,
     pub(crate) roughness_scale: f32,
@@ -85,10 +81,6 @@ impl Default for NativePbrConfig {
     fn default() -> Self {
         Self {
             enabled: false,
-            terrain_enabled: false,
-            close_terrain_enabled: false,
-            terrain_fade_enabled: false,
-            terrain_lod_enabled: false,
             debug_log_draws: false,
             metallicness: 0.0,
             roughness_scale: 1.0,
@@ -399,13 +391,12 @@ pub(crate) fn save_menu_config(config: &GraphicsMenuConfig) -> Result<()> {
     doc["graphics"]["depth_provider"] = value(config.depth_provider.config_value());
     save_embedded_effect_config(&mut doc, &config.embedded_effects);
     doc["graphics"]["native_pbr"]["enabled"] = value(config.native_pbr.enabled);
-    doc["graphics"]["native_pbr"]["terrain_enabled"] = value(config.native_pbr.terrain_enabled);
-    doc["graphics"]["native_pbr"]["close_terrain_enabled"] =
-        value(config.native_pbr.close_terrain_enabled);
-    doc["graphics"]["native_pbr"]["terrain_fade_enabled"] =
-        value(config.native_pbr.terrain_fade_enabled);
-    doc["graphics"]["native_pbr"]["terrain_lod_enabled"] =
-        value(config.native_pbr.terrain_lod_enabled);
+    if let Some(native_pbr) = doc["graphics"]["native_pbr"].as_table_mut() {
+        native_pbr.remove("terrain_enabled");
+        native_pbr.remove("close_terrain_enabled");
+        native_pbr.remove("terrain_fade_enabled");
+        native_pbr.remove("terrain_lod_enabled");
+    }
     doc["graphics"]["native_pbr"]["debug_log_draws"] = value(config.native_pbr.debug_log_draws);
     doc["graphics"]["native_pbr"]["metallicness"] = value(config.native_pbr.metallicness as f64);
     doc["graphics"]["native_pbr"]["roughness_scale"] =

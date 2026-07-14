@@ -29,7 +29,9 @@ float SpecularAA(float3 normal, float roughness, float sigma, float kappa) {
 // Fresnel
 // Schlick approximation
 float3 Fresnel(float3 f0, float3 f90, float cosine) {
-    return f0 + (f90 - f0) * pow(1 - cosine, 5.f);
+    float oneMinusCosine = 1.0 - cosine;
+    float squared = oneMinusCosine * oneMinusCosine;
+    return f0 + (f90 - f0) * (squared * squared * oneMinusCosine);
 }
 
 // Diffuse
@@ -54,15 +56,16 @@ float3 DisneyDiffuse(float3 albedo, float roughness, float NdotV, float NdotL, f
 // Specular
 // D (normal distribution function)
 float GGX(float NdotH, float roughness) {
-    float alpha = roughness * roughness;
-    float a2 = pow(roughness, 4);
+    float roughnessSquared = roughness * roughness;
+    float a2 = roughnessSquared * roughnessSquared;
     float d = max((NdotH * a2 - NdotH) * NdotH + 1, 1e-5);
     return a2 / (PI * d * d);
 }
 
 // G1
 float ShlickBeckmann(float NdotX, float roughness) {
-    float k = pow(roughness + 1, 2) / 8.0;
+    float roughnessPlusOne = roughness + 1.0;
+    float k = roughnessPlusOne * roughnessPlusOne * 0.125;
     return NdotX/max(NdotX * (1 - k) + k, 0.00000001);
 }
 

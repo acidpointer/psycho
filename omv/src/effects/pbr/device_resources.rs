@@ -6,7 +6,7 @@
 use std::ffi::c_void;
 use std::sync::{
     LazyLock,
-    atomic::{AtomicU32, Ordering},
+    atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering},
 };
 
 use libpsycho::os::windows::directx9::{Device9Ref, PixelShader9, VertexShader9};
@@ -18,6 +18,17 @@ const CREATE_BUDGET_PER_FRAME: usize = 4;
 const TEMPLATE_ID_NONE: u32 = u32::MAX;
 
 static LAST_CREATE_FAILED_TEMPLATE_ID: AtomicU32 = AtomicU32::new(TEMPLATE_ID_NONE);
+static HANDLES: LazyLock<Vec<AtomicUsize>> = LazyLock::new(|| {
+    (0..shader_registry::template_count())
+        .map(|_| AtomicUsize::new(0))
+        .collect()
+});
+static LAND_LOD_CREATE_FAILED: AtomicBool = AtomicBool::new(false);
+static TERRAIN_FADE_CREATE_FAILED: AtomicBool = AtomicBool::new(false);
+static CLOSE_TERRAIN_CREATE_FAILED: AtomicBool = AtomicBool::new(false);
+static LAND_LOD_RESOURCES_READY: AtomicBool = AtomicBool::new(false);
+static TERRAIN_FADE_RESOURCES_READY: AtomicBool = AtomicBool::new(false);
+static CLOSE_TERRAIN_RESOURCES_READY: AtomicBool = AtomicBool::new(false);
 static RESOURCES: LazyLock<Mutex<ResourceState>> = LazyLock::new(|| {
     Mutex::new(ResourceState {
         device: 0,
@@ -58,13 +69,6 @@ impl ResourceSlot {
     fn has_shader(&self) -> bool {
         self.pixel_shader.is_some() || self.vertex_shader.is_some()
     }
-
-    fn handle(&self) -> Option<*mut c_void> {
-        self.pixel_shader
-            .as_ref()
-            .map(PixelShader9::as_raw)
-            .or_else(|| self.vertex_shader.as_ref().map(VertexShader9::as_raw))
-    }
 }
 
 pub(super) fn service_frame() {
@@ -78,6 +82,7 @@ pub(super) fn service_frame() {
     let mut state = RESOURCES.lock();
     let device_key = device_ptr as usize;
     if state.device != device_key {
+        clear_published_handles();
         state.device = device_key;
         for slot in &mut state.slots {
             slot.clear_shader();
@@ -115,6 +120,7 @@ pub(super) fn service_frame() {
                 Ok(shader) => {
                     let handle = shader.as_raw();
                     slot.pixel_shader = Some(shader);
+                    publish_handle(template_id, handle);
                     log::info!(
                         "[PBR] Pixel shader created {} handle={handle:p}",
                         template.label
@@ -134,6 +140,7 @@ pub(super) fn service_frame() {
                 Ok(shader) => {
                     let handle = shader.as_raw();
                     slot.vertex_shader = Some(shader);
+                    publish_handle(template_id, handle);
                     log::info!(
                         "[PBR] Vertex shader created {} handle={handle:p}",
                         template.label
@@ -157,14 +164,12 @@ pub(super) fn service_frame() {
             slot.create_failed = true;
         }
     }
+
+    update_failure_state(&state);
 }
 
 pub(super) fn object_shader_handle(template_id: u16) -> Option<*mut c_void> {
-    RESOURCES
-        .lock()
-        .slots
-        .get(template_id as usize)
-        .and_then(ResourceSlot::handle)
+    published_handle(template_id)
 }
 
 pub(super) fn object_created_count() -> usize {
@@ -211,30 +216,15 @@ pub(super) fn object_resources_ready() -> bool {
 
 pub(super) fn land_lod_shader_handle(stage: shader_registry::ShaderStage) -> Option<*mut c_void> {
     let template_id = shader_registry::land_lod_template_id(stage);
-    RESOURCES
-        .lock()
-        .slots
-        .get(template_id as usize)
-        .and_then(ResourceSlot::handle)
+    published_handle(template_id)
 }
 
 pub(super) fn land_lod_resources_ready() -> bool {
-    [
-        shader_registry::ShaderStage::Vertex,
-        shader_registry::ShaderStage::Pixel,
-    ]
-    .into_iter()
-    .all(|stage| land_lod_shader_handle(stage).is_some())
+    LAND_LOD_RESOURCES_READY.load(Ordering::Acquire)
 }
 
 pub(super) fn land_lod_create_failed() -> bool {
-    let state = RESOURCES.lock();
-    state
-        .slots
-        .iter()
-        .skip(shader_registry::object_template_count())
-        .take(2)
-        .any(|slot| slot.create_failed)
+    LAND_LOD_CREATE_FAILED.load(Ordering::Acquire)
 }
 
 pub(super) fn terrain_fade_shader_handle(
@@ -244,21 +234,11 @@ pub(super) fn terrain_fade_shader_handle(
 }
 
 pub(super) fn terrain_fade_resources_ready() -> bool {
-    [
-        shader_registry::ShaderStage::Vertex,
-        shader_registry::ShaderStage::Pixel,
-    ]
-    .into_iter()
-    .all(|stage| terrain_fade_shader_handle(stage).is_some())
+    TERRAIN_FADE_RESOURCES_READY.load(Ordering::Acquire)
 }
 
 pub(super) fn terrain_fade_create_failed() -> bool {
-    let state = RESOURCES.lock();
-    let first =
-        shader_registry::terrain_fade_template_id(shader_registry::ShaderStage::Vertex) as usize;
-    state.slots[first..first + 2]
-        .iter()
-        .any(|slot| slot.create_failed)
+    TERRAIN_FADE_CREATE_FAILED.load(Ordering::Acquire)
 }
 
 pub(super) fn close_terrain_shader_handle(
@@ -271,34 +251,94 @@ pub(super) fn close_terrain_shader_handle(
 }
 
 pub(super) fn close_terrain_resources_ready() -> bool {
-    let state = RESOURCES.lock();
-    let first =
-        shader_registry::terrain_fade_template_id(shader_registry::ShaderStage::Pixel) as usize + 1;
-    state.slots[first..].iter().all(ResourceSlot::has_shader)
+    CLOSE_TERRAIN_RESOURCES_READY.load(Ordering::Acquire)
 }
 
 pub(super) fn close_terrain_create_failed() -> bool {
-    let state = RESOURCES.lock();
-    let first =
-        shader_registry::terrain_fade_template_id(shader_registry::ShaderStage::Pixel) as usize + 1;
-    state.slots[first..].iter().any(|slot| slot.create_failed)
+    CLOSE_TERRAIN_CREATE_FAILED.load(Ordering::Acquire)
 }
 
 fn resource_handle(template_id: u16) -> Option<*mut c_void> {
-    RESOURCES
-        .lock()
-        .slots
-        .get(template_id as usize)
-        .and_then(ResourceSlot::handle)
+    published_handle(template_id)
 }
 
 pub(super) fn reset() {
     let mut state = RESOURCES.lock();
+    clear_published_handles();
     state.device = 0;
     LAST_CREATE_FAILED_TEMPLATE_ID.store(TEMPLATE_ID_NONE, Ordering::Release);
     for slot in &mut state.slots {
         *slot = ResourceSlot::new();
     }
+    LAND_LOD_CREATE_FAILED.store(false, Ordering::Release);
+    TERRAIN_FADE_CREATE_FAILED.store(false, Ordering::Release);
+    CLOSE_TERRAIN_CREATE_FAILED.store(false, Ordering::Release);
+    LAND_LOD_RESOURCES_READY.store(false, Ordering::Release);
+    TERRAIN_FADE_RESOURCES_READY.store(false, Ordering::Release);
+    CLOSE_TERRAIN_RESOURCES_READY.store(false, Ordering::Release);
+}
+
+fn publish_handle(template_id: usize, handle: *mut c_void) {
+    if let Some(slot) = HANDLES.get(template_id) {
+        slot.store(handle as usize, Ordering::Release);
+    }
+}
+
+fn published_handle(template_id: u16) -> Option<*mut c_void> {
+    let handle = HANDLES.get(template_id as usize)?.load(Ordering::Acquire) as *mut c_void;
+    (!handle.is_null()).then_some(handle)
+}
+
+fn clear_published_handles() {
+    for handle in HANDLES.iter() {
+        handle.store(0, Ordering::Release);
+    }
+}
+
+fn update_failure_state(state: &ResourceState) {
+    let land_lod_first = shader_registry::object_template_count();
+    LAND_LOD_RESOURCES_READY.store(
+        state.slots[land_lod_first..land_lod_first + 2]
+            .iter()
+            .all(ResourceSlot::has_shader),
+        Ordering::Release,
+    );
+    LAND_LOD_CREATE_FAILED.store(
+        state.slots[land_lod_first..land_lod_first + 2]
+            .iter()
+            .any(|slot| slot.create_failed),
+        Ordering::Release,
+    );
+
+    let terrain_fade_first =
+        shader_registry::terrain_fade_template_id(shader_registry::ShaderStage::Vertex) as usize;
+    TERRAIN_FADE_RESOURCES_READY.store(
+        state.slots[terrain_fade_first..terrain_fade_first + 2]
+            .iter()
+            .all(ResourceSlot::has_shader),
+        Ordering::Release,
+    );
+    TERRAIN_FADE_CREATE_FAILED.store(
+        state.slots[terrain_fade_first..terrain_fade_first + 2]
+            .iter()
+            .any(|slot| slot.create_failed),
+        Ordering::Release,
+    );
+
+    let close_terrain_first =
+        shader_registry::terrain_fade_template_id(shader_registry::ShaderStage::Pixel) as usize + 1;
+    CLOSE_TERRAIN_RESOURCES_READY.store(
+        state.slots[close_terrain_first..]
+            .iter()
+            .all(ResourceSlot::has_shader),
+        Ordering::Release,
+    );
+    CLOSE_TERRAIN_CREATE_FAILED.store(
+        state.slots[close_terrain_first..]
+            .iter()
+            .any(|slot| slot.create_failed),
+        Ordering::Release,
+    );
 }
 
 fn template_label(template_id: u32) -> &'static str {

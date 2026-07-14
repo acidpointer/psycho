@@ -159,11 +159,6 @@ occlusion_softness = 0.42
 # Changes activate at the next Present boundary without requiring a restart.
 enabled = false
 
-terrain_enabled = false
-close_terrain_enabled = false
-terrain_fade_enabled = false
-terrain_lod_enabled = false
-
 # Object PBR registers:
 #   c32.x metallicness, c32.y roughness scale, c32.z light scale,
 #   c32.w ambient scale, c33.x albedo saturation.
@@ -249,7 +244,7 @@ light_scale = 1.0
 ambient_scale = 1.0
 albedo_saturation = 1.0
 
-# Log a small bounded native draw-context sample for contract debugging.
+# Enable detailed per-draw contract telemetry. Keep this off during normal play.
 debug_log_draws = false
 
 [diagnostics]

@@ -45,10 +45,6 @@ static BLOCK_REASON: LazyLock<Mutex<Option<&'static str>>> = LazyLock::new(|| Mu
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct NativePbrSettings {
     enabled: bool,
-    terrain_enabled: bool,
-    close_terrain_enabled: bool,
-    terrain_fade_enabled: bool,
-    terrain_lod_enabled: bool,
     debug_log_draws: bool,
     object: NativePbrObjectProfiles,
     terrain: NativePbrTerrainProfiles,
@@ -170,10 +166,6 @@ impl Default for NativePbrSettings {
     fn default() -> Self {
         Self {
             enabled: false,
-            terrain_enabled: false,
-            close_terrain_enabled: false,
-            terrain_fade_enabled: false,
-            terrain_lod_enabled: false,
             debug_log_draws: false,
             object: NativePbrObjectProfiles::default(),
             terrain: NativePbrTerrainProfiles::default(),
@@ -232,10 +224,6 @@ impl From<crate::config::NativePbrConfig> for NativePbrSettings {
 
         Self {
             enabled: value.enabled,
-            terrain_enabled: value.terrain_enabled,
-            close_terrain_enabled: value.close_terrain_enabled,
-            terrain_fade_enabled: value.terrain_fade_enabled,
-            terrain_lod_enabled: value.terrain_lod_enabled,
             debug_log_draws: value.debug_log_draws,
             object: NativePbrObjectProfiles {
                 default: PbrProfileSettings::from_config(value.object_default, legacy),
@@ -290,6 +278,7 @@ impl PbrProfileSettings {
 pub(crate) fn install(settings: NativePbrSettings) -> Result<()> {
     constants::store_settings(settings);
     DEBUG_LOG_DRAWS.store(settings.debug_log_draws, Ordering::Release);
+    diagnostics::set_detailed_enabled(settings.debug_log_draws);
     store_terrain_options(settings);
     INSTALL_BOUNDARY_REACHED.store(true, Ordering::Release);
     if !settings.enabled {
@@ -324,6 +313,7 @@ pub(crate) fn configure_runtime_options(settings: NativePbrSettings) {
     constants::store_settings(settings);
     store_terrain_options(settings);
     DEBUG_LOG_DRAWS.store(settings.debug_log_draws, Ordering::Release);
+    diagnostics::set_detailed_enabled(settings.debug_log_draws);
     if !INSTALL_BOUNDARY_REACHED.load(Ordering::Acquire) {
         SHADER_ENABLED.store(settings.enabled, Ordering::Release);
         refresh_block_reason();
@@ -517,6 +507,7 @@ pub(crate) fn reset_runtime_state() {
     samplers::reset();
     samplers::set_texture_tracking_ready(hooks::hooks_ready());
     diagnostics::reset();
+    diagnostics::set_detailed_enabled(DEBUG_LOG_DRAWS.load(Ordering::Acquire));
     ACTIVE_CONTRACTS_READY.store(false, Ordering::Release);
     ACTIVE_CONTRACTS_FAILED.store(false, Ordering::Release);
     refresh_block_reason();
@@ -589,19 +580,10 @@ fn close_terrain_contracts_ready() -> bool {
 }
 
 fn store_terrain_options(settings: NativePbrSettings) {
-    TERRAIN_ENABLED.store(settings.terrain_enabled, Ordering::Release);
-    CLOSE_TERRAIN_ENABLED.store(
-        settings.terrain_enabled && settings.close_terrain_enabled,
-        Ordering::Release,
-    );
-    TERRAIN_FADE_ENABLED.store(
-        settings.terrain_enabled && settings.terrain_fade_enabled,
-        Ordering::Release,
-    );
-    TERRAIN_LOD_ENABLED.store(
-        settings.terrain_enabled && settings.terrain_lod_enabled,
-        Ordering::Release,
-    );
+    TERRAIN_ENABLED.store(settings.enabled, Ordering::Release);
+    CLOSE_TERRAIN_ENABLED.store(settings.enabled, Ordering::Release);
+    TERRAIN_FADE_ENABLED.store(settings.enabled, Ordering::Release);
+    TERRAIN_LOD_ENABLED.store(settings.enabled, Ordering::Release);
 }
 
 fn native_pbr_profile_is_neutral_block(value: crate::config::NativePbrProfileConfig) -> bool {

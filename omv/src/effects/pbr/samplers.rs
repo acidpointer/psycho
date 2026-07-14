@@ -39,6 +39,21 @@ const TEXTURE_STAGE_COUNT: usize = 16;
 static TEXTURE_TRACKING_READY: AtomicBool = AtomicBool::new(false);
 static TEXTURE_SLOTS: LazyLock<[TextureStageSlot; TEXTURE_STAGE_COUNT]> =
     LazyLock::new(|| std::array::from_fn(|_| TextureStageSlot::new()));
+static OBJECT_SAMPLER_LAYOUTS: LazyLock<Vec<ObjectSamplerLayout>> = LazyLock::new(|| {
+    (0..shader_registry::object_template_count())
+        .map(|template_id| {
+            shader_registry::object_template_at(template_id as u16)
+                .map(object_sampler_layout)
+                .unwrap_or(ObjectSamplerLayout {
+                    code: OBJECT_SAMPLER_LAYOUT_NONE,
+                    base: None,
+                    normal: 0,
+                    glow: None,
+                    shadow: None,
+                })
+        })
+        .collect()
+});
 static TEXTURE_BINDS_THIS_FRAME: AtomicU32 = AtomicU32::new(0);
 static TEXTURE_BINDS_LAST_FRAME: AtomicU32 = AtomicU32::new(0);
 static OBJECT_SAMPLER_CHECKS_THIS_FRAME: AtomicU32 = AtomicU32::new(0);
@@ -90,8 +105,10 @@ pub(super) fn record_texture_binding(stage: u32, texture: *mut std::ffi::c_void,
     };
 
     slot.texture.store(texture as usize, Ordering::Release);
-    slot.selector.store(selector, Ordering::Release);
-    TEXTURE_BINDS_THIS_FRAME.fetch_add(1, Ordering::Relaxed);
+    if super::diagnostics::detailed_enabled() {
+        slot.selector.store(selector, Ordering::Release);
+        TEXTURE_BINDS_THIS_FRAME.fetch_add(1, Ordering::Relaxed);
+    }
 }
 
 pub(super) fn validate_object_layout(
@@ -99,7 +116,10 @@ pub(super) fn validate_object_layout(
     template_id: u16,
     selector: usize,
 ) -> Result<(), ()> {
-    OBJECT_SAMPLER_CHECKS_THIS_FRAME.fetch_add(1, Ordering::Relaxed);
+    let detailed = super::diagnostics::detailed_enabled();
+    if detailed {
+        OBJECT_SAMPLER_CHECKS_THIS_FRAME.fetch_add(1, Ordering::Relaxed);
+    }
 
     let Some(template) = shader_registry::object_template_at(template_id) else {
         record_fallback(
@@ -116,12 +136,17 @@ pub(super) fn validate_object_layout(
         return Err(());
     }
 
-    let layout = object_sampler_layout(template);
-    OBJECT_LAST_SAMPLER_LAYOUT.store(layout.code, Ordering::Release);
-    OBJECT_LAST_SAMPLER_SELECTOR.store(selector, Ordering::Release);
-    OBJECT_LAST_SAMPLER_EXPECTED_MASK.store(layout.expected_mask(), Ordering::Release);
-    OBJECT_LAST_SAMPLER_OBSERVED_MASK.store(observed_device_mask(device), Ordering::Release);
-    OBJECT_LAST_SAMPLER_FAILED_STAGE.store(u32::MAX, Ordering::Release);
+    let Some(layout) = OBJECT_SAMPLER_LAYOUTS.get(template_id as usize).copied() else {
+        return Err(());
+    };
+    if detailed {
+        OBJECT_LAST_SAMPLER_LAYOUT.store(layout.code, Ordering::Release);
+        OBJECT_LAST_SAMPLER_SELECTOR.store(selector, Ordering::Release);
+        OBJECT_LAST_SAMPLER_EXPECTED_MASK.store(layout.expected_mask(), Ordering::Release);
+        OBJECT_LAST_SAMPLER_OBSERVED_MASK.store(0, Ordering::Release);
+        OBJECT_LAST_SAMPLER_FAILED_STAGE.store(u32::MAX, Ordering::Release);
+    }
+    let mut observed_mask = 0u32;
 
     if let Some(stage) = layout.base
         && !texture_stage_valid(
@@ -129,6 +154,7 @@ pub(super) fn validate_object_layout(
             stage,
             selector,
             OBJECT_SAMPLER_FALLBACK_MISSING_BASE,
+            &mut observed_mask,
         )
     {
         return Err(());
@@ -138,6 +164,7 @@ pub(super) fn validate_object_layout(
         layout.normal,
         selector,
         OBJECT_SAMPLER_FALLBACK_MISSING_NORMAL,
+        &mut observed_mask,
     ) {
         return Err(());
     }
@@ -147,6 +174,7 @@ pub(super) fn validate_object_layout(
             stage,
             selector,
             OBJECT_SAMPLER_FALLBACK_MISSING_GLOW,
+            &mut observed_mask,
         )
     {
         return Err(());
@@ -157,6 +185,7 @@ pub(super) fn validate_object_layout(
             shadow,
             selector,
             OBJECT_SAMPLER_FALLBACK_MISSING_SHADOW,
+            &mut observed_mask,
         ) {
             return Err(());
         }
@@ -165,12 +194,16 @@ pub(super) fn validate_object_layout(
             mask,
             selector,
             OBJECT_SAMPLER_FALLBACK_MISSING_SHADOW_MASK,
+            &mut observed_mask,
         ) {
             return Err(());
         }
     }
 
-    OBJECT_LAST_SAMPLER_FALLBACK.store(OBJECT_SAMPLER_FALLBACK_NONE, Ordering::Release);
+    if detailed {
+        OBJECT_LAST_SAMPLER_OBSERVED_MASK.store(observed_mask, Ordering::Release);
+        OBJECT_LAST_SAMPLER_FALLBACK.store(OBJECT_SAMPLER_FALLBACK_NONE, Ordering::Release);
+    }
     Ok(())
 }
 
@@ -280,17 +313,22 @@ fn texture_stage_valid(
     stage: u32,
     selector: usize,
     missing_reason: u32,
+    observed_mask: &mut u32,
 ) -> bool {
     let Some(texture) = device.texture_raw(stage) else {
         record_fallback_for_stage(missing_reason, stage);
         return false;
     };
+    *observed_mask |= stage_mask(stage);
     record_selector_drift_if_cached(stage, selector, texture as usize);
     true
 }
 
 fn record_selector_drift_if_cached(stage: u32, selector: usize, texture: usize) {
-    if selector == 0 || !TEXTURE_TRACKING_READY.load(Ordering::Acquire) {
+    if !super::diagnostics::detailed_enabled()
+        || selector == 0
+        || !TEXTURE_TRACKING_READY.load(Ordering::Acquire)
+    {
         return;
     }
     let Ok(index) = usize::try_from(stage) else {
@@ -384,12 +422,18 @@ fn object_sampler_layout_code(
 }
 
 fn record_fallback(layout: u32, reason: u32) {
+    if !super::diagnostics::detailed_enabled() {
+        return;
+    }
     OBJECT_LAST_SAMPLER_LAYOUT.store(layout, Ordering::Release);
     OBJECT_LAST_SAMPLER_FALLBACK.store(reason, Ordering::Release);
     OBJECT_SAMPLER_FALLBACKS_THIS_FRAME.fetch_add(1, Ordering::Relaxed);
 }
 
 fn record_fallback_for_stage(reason: u32, stage: u32) {
+    if !super::diagnostics::detailed_enabled() {
+        return;
+    }
     OBJECT_LAST_SAMPLER_FALLBACK.store(reason, Ordering::Release);
     OBJECT_LAST_SAMPLER_FAILED_STAGE.store(stage, Ordering::Release);
     OBJECT_SAMPLER_FALLBACKS_THIS_FRAME.fetch_add(1, Ordering::Relaxed);
@@ -432,14 +476,4 @@ fn sampler_fallback_label(reason: u32) -> &'static str {
         OBJECT_SAMPLER_FALLBACK_UNPROVEN_OWNER => "unproven material sampler owner",
         _ => "none",
     }
-}
-
-fn observed_device_mask(device: &Device9Ref<'_>) -> u32 {
-    let mut mask = 0;
-    for stage in 0..TEXTURE_STAGE_COUNT as u32 {
-        if device.texture_bound(stage) {
-            mask |= stage_mask(stage);
-        }
-    }
-    mask
 }

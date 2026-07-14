@@ -62,11 +62,28 @@ const PENDING_DRAW_OBJECT: u32 = 1;
 const PENDING_DRAW_LAND_LOD: u32 = 2;
 const PENDING_DRAW_TERRAIN_FADE: u32 = 3;
 const PENDING_DRAW_CLOSE_TERRAIN: u32 = 4;
+const TABLE_LOOKUP_CACHE_COUNT: usize = 512;
 
 #[derive(Clone, Copy)]
 struct PplightingTableSlot {
     label: &'static str,
     index: u32,
+}
+
+struct TableLookupCacheEntry {
+    shader: AtomicUsize,
+    base: AtomicUsize,
+    index: AtomicU32,
+}
+
+impl TableLookupCacheEntry {
+    fn new() -> Self {
+        Self {
+            shader: AtomicUsize::new(0),
+            base: AtomicUsize::new(0),
+            index: AtomicU32::new(u32::MAX),
+        }
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -135,8 +152,39 @@ static TERRAIN_FADE_FIRST_BIND_LOGGED: AtomicBool = AtomicBool::new(false);
 static TERRAIN_FADE_FAILURE_LOGGED: AtomicBool = AtomicBool::new(false);
 static CLOSE_TERRAIN_FIRST_BIND_LOGGED: AtomicBool = AtomicBool::new(false);
 static CLOSE_TERRAIN_FAILURE_LOGGED: AtomicBool = AtomicBool::new(false);
+static DIRECT_RESTORE_FAILURE_LOGGED: AtomicBool = AtomicBool::new(false);
 static LAND_LOD_LAST_CONSTANT_SIGNATURE: AtomicU32 = AtomicU32::new(0);
 static LAND_LOD_CONSTANT_LOG_COUNT: AtomicU32 = AtomicU32::new(0);
+static SHADER_TABLES_READABLE: LazyLock<bool> = LazyLock::new(|| {
+    [
+        (
+            PPLIGHTING_VERTEX_GROUP_A_ADDR,
+            PPLIGHTING_VERTEX_GROUP_A_COUNT,
+        ),
+        (
+            PPLIGHTING_VERTEX_GROUP_B_ADDR,
+            PPLIGHTING_VERTEX_GROUP_B_COUNT,
+        ),
+        (
+            PPLIGHTING_VERTEX_GROUP_C_ADDR,
+            PPLIGHTING_VERTEX_GROUP_C_COUNT,
+        ),
+        (
+            PPLIGHTING_PIXEL_GROUP_A_ADDR,
+            PPLIGHTING_PIXEL_GROUP_A_COUNT,
+        ),
+        (
+            PPLIGHTING_PIXEL_GROUP_B_ADDR,
+            PPLIGHTING_PIXEL_GROUP_B_COUNT,
+        ),
+    ]
+    .into_iter()
+    .all(|(base, count)| {
+        validate_memory_range(base as *const c_void, count * size_of::<*mut c_void>()).is_ok()
+    })
+});
+static TABLE_LOOKUP_CACHE: LazyLock<[TableLookupCacheEntry; TABLE_LOOKUP_CACHE_COUNT]> =
+    LazyLock::new(|| std::array::from_fn(|_| TableLookupCacheEntry::new()));
 
 pub(super) fn install() -> Result<()> {
     if HOOKS_READY.load(Ordering::Acquire) {
@@ -212,6 +260,7 @@ pub(super) fn reset() {
     TERRAIN_FADE_FAILURE_LOGGED.store(false, Ordering::Release);
     CLOSE_TERRAIN_FIRST_BIND_LOGGED.store(false, Ordering::Release);
     CLOSE_TERRAIN_FAILURE_LOGGED.store(false, Ordering::Release);
+    DIRECT_RESTORE_FAILURE_LOGGED.store(false, Ordering::Release);
     LAND_LOD_LAST_CONSTANT_SIGNATURE.store(0, Ordering::Release);
     LAND_LOD_CONSTANT_LOG_COUNT.store(0, Ordering::Release);
 }
@@ -509,7 +558,7 @@ unsafe extern "thiscall" fn hook_set_shaders(shader: *mut c_void, pass_index: u3
         original(shader, pass_index);
     }
     if super::object_contracts_ready()
-        && engine_contracts::eye_position_ready()
+        && engine_contracts::eye_position_ready_for_pass(pass_index)
         && engine_contracts::shader_package_lifetime_ready()
     {
         set_pending_draw(PENDING_DRAW_OBJECT, pass_index, 0);
@@ -642,13 +691,15 @@ fn bind_land_lod_replacement() {
     else {
         return;
     };
-    let Some((requested_constants, observed_constants)) =
-        constants::upload_terrain_constants(&device)
-    else {
+    let Some(requested_constants) = constants::upload_terrain_constants(&device) else {
         log_land_lod_failure("terrain constants could not be uploaded");
         return;
     };
-    log_land_lod_constants(requested_constants, observed_constants);
+    if diagnostics::detailed_enabled()
+        && let Some(observed_constants) = constants::read_terrain_constants(&device)
+    {
+        log_land_lod_constants(requested_constants, observed_constants);
+    }
 
     if !bind_direct_pair(
         &device,
@@ -814,21 +865,22 @@ fn close_terrain_texture_count(pixel_index: usize) -> Option<u32> {
 }
 
 fn restore_direct_d3d_state() {
-    if !DIRECT_D3D_ACTIVE.load(Ordering::Acquire) {
+    if !DIRECT_D3D_ACTIVE.swap(false, Ordering::AcqRel) {
         return;
     }
+    let native_vertex = DIRECT_NATIVE_VERTEX.swap(0, Ordering::AcqRel) as *mut c_void;
+    let native_pixel = DIRECT_NATIVE_PIXEL.swap(0, Ordering::AcqRel) as *mut c_void;
     let Some(device_ptr) = crate::backend::d3d_device_ptr() else {
         return;
     };
     let Some(device) = (unsafe { Device9Ref::from_raw_void(device_ptr) }) else {
         return;
     };
-    let native_vertex = DIRECT_NATIVE_VERTEX.load(Ordering::Acquire) as *mut c_void;
-    let native_pixel = DIRECT_NATIVE_PIXEL.load(Ordering::Acquire) as *mut c_void;
-
     let mut restored = unsafe { device.set_raw_vertex_shader(native_vertex) }.is_ok();
     restored &= unsafe { device.set_raw_pixel_shader(native_pixel) }.is_ok();
-    DIRECT_D3D_ACTIVE.store(!restored, Ordering::Release);
+    if !restored && !DIRECT_RESTORE_FAILURE_LOGGED.swap(true, Ordering::AcqRel) {
+        log::warn!("[PBR] Native shader pair restore failed; direct replacement ownership cleared");
+    }
 }
 
 pub(super) fn prepare_direct_draw() {
@@ -951,7 +1003,11 @@ unsafe extern "thiscall" fn hook_set_texture(
     stage: u32,
     texture: *mut c_void,
 ) {
-    let selector = engine_contracts::current_draw_selector_address_fast();
+    let selector = if diagnostics::detailed_enabled() {
+        engine_contracts::current_draw_selector_address_fast()
+    } else {
+        0
+    };
     super::samplers::record_texture_binding(stage, texture, selector);
 
     let Ok(original) = SET_TEXTURE_HOOK.original() else {
@@ -1006,9 +1062,18 @@ fn try_prepare_object_replacement(pass_index: u32) -> Option<PreparedObjectRepla
     let Some((vertex_shader, pixel_shader)) = engine_contracts::current_pass_shaders() else {
         return None;
     };
-    let draw_snapshot = engine_contracts::current_draw_snapshot(pass_index);
+    let draw_snapshot = if diagnostics::detailed_enabled() {
+        engine_contracts::current_draw_snapshot(pass_index)
+    } else {
+        engine_contracts::DrawSnapshot {
+            rejection: engine_contracts::current_object_draw_rejection(pass_index),
+            ..engine_contracts::DrawSnapshot::default()
+        }
+    };
     diagnostics::record_object_draw_context(draw_snapshot);
-    record_current_table_pair(vertex_shader, pixel_shader);
+    if diagnostics::detailed_enabled() {
+        record_current_table_pair(vertex_shader, pixel_shader);
+    }
 
     let vertex_record = match resolve_current_shader_record(vertex_shader, ShaderStage::Vertex) {
         Ok(record) => record,
@@ -1076,14 +1141,16 @@ fn try_prepare_object_replacement(pass_index: u32) -> Option<PreparedObjectRepla
         return None;
     }
 
-    diagnostics::record_object_pair(
-        template_sls(vertex_record),
-        template_sls(pixel_record),
-        vertex_record.table_id,
-        vertex_record.table_index,
-        pixel_record.table_id,
-        pixel_record.table_index,
-    );
+    if diagnostics::detailed_enabled() {
+        diagnostics::record_object_pair(
+            template_sls(vertex_record),
+            template_sls(pixel_record),
+            vertex_record.table_id,
+            vertex_record.table_index,
+            pixel_record.table_id,
+            pixel_record.table_index,
+        );
+    }
     let contract = match object_contract_decision(vertex_record, pixel_record) {
         Ok(contract) => contract,
         Err(reason) => {
@@ -1157,14 +1224,6 @@ fn try_prepare_object_replacement(pass_index: u32) -> Option<PreparedObjectRepla
         );
         return None;
     };
-    let current_vertex_d3d = device.current_vertex_shader_raw().unwrap_or(null_mut());
-    let current_pixel_d3d = device.current_pixel_shader_raw().unwrap_or(null_mut());
-    diagnostics::record_object_d3d_state(
-        current_vertex_d3d,
-        current_pixel_d3d,
-        replacement_vertex,
-        replacement_pixel,
-    );
     if let Err(reason) = object_replacement_record::validate_pixel_samplers(
         &device,
         pixel_record,
@@ -1220,9 +1279,15 @@ fn bind_object_replacement(replacement: PreparedObjectReplacement) {
         record_object_bind_failure(replacement, ObjectDrawRejectReason::HandleStateMismatch);
         return;
     };
-    if device.current_vertex_shader_raw().ok() != Some(native_vertex)
-        || device.current_pixel_shader_raw().ok() != Some(native_pixel)
-    {
+    let current_vertex = device.current_vertex_shader_raw().unwrap_or(null_mut());
+    let current_pixel = device.current_pixel_shader_raw().unwrap_or(null_mut());
+    diagnostics::record_object_d3d_state(
+        current_vertex,
+        current_pixel,
+        replacement.replacement_vertex,
+        replacement.replacement_pixel,
+    );
+    if current_vertex != native_vertex || current_pixel != native_pixel {
         record_object_bind_failure(replacement, ObjectDrawRejectReason::HandleStateMismatch);
         return;
     }
@@ -1271,6 +1336,9 @@ fn record_unresolved_table_pair(
     pixel_shader: *mut c_void,
     reason: ObjectDrawRejectReason,
 ) {
+    if !diagnostics::detailed_enabled() {
+        return;
+    }
     let vertex = identify_pplighting_table_slot(vertex_shader, ShaderStage::Vertex);
     let pixel = identify_pplighting_table_slot(pixel_shader, ShaderStage::Pixel);
     diagnostics::record_unresolved_table_pair(
@@ -1641,17 +1709,31 @@ fn identify_pplighting_table_slot(
 }
 
 fn find_shader_array_index(base: usize, count: usize, shader: *mut c_void) -> Option<u32> {
-    if shader.is_null() {
+    if shader.is_null() || !*SHADER_TABLES_READABLE {
         return None;
     }
-    let byte_len = count * size_of::<*mut c_void>();
-    if validate_memory_range(base as *const c_void, byte_len).is_err() {
-        return None;
+
+    let cache_index = ((shader as usize >> 4) ^ (base >> 4)) % TABLE_LOOKUP_CACHE_COUNT;
+    let cached = &TABLE_LOOKUP_CACHE[cache_index];
+    if cached.shader.load(Ordering::Acquire) == shader as usize
+        && cached.base.load(Ordering::Relaxed) == base
+    {
+        let index = cached.index.load(Ordering::Relaxed);
+        if index < count as u32 {
+            let slot = unsafe { (base as *const *mut c_void).add(index as usize).read() };
+            if slot == shader {
+                return Some(index);
+            }
+        }
     }
 
     for index in 0..count {
         let slot = unsafe { (base as *const *mut c_void).add(index) };
         if unsafe { slot.read() } == shader {
+            cached.shader.store(0, Ordering::Release);
+            cached.base.store(base, Ordering::Relaxed);
+            cached.index.store(index as u32, Ordering::Relaxed);
+            cached.shader.store(shader as usize, Ordering::Release);
             return Some(index as u32);
         }
     }
@@ -1667,11 +1749,7 @@ fn table_index_for_log(index: u32) -> String {
 }
 
 fn read_shader_array_slot(base: usize, count: usize, index: usize) -> Option<*mut c_void> {
-    if index >= count {
-        return None;
-    }
-    let byte_len = count * size_of::<*mut c_void>();
-    if validate_memory_range(base as *const c_void, byte_len).is_err() {
+    if index >= count || !*SHADER_TABLES_READABLE {
         return None;
     }
 

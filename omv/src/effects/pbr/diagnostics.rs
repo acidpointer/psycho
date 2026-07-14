@@ -7,7 +7,7 @@ use std::{
     array,
     sync::{
         LazyLock,
-        atomic::{AtomicU32, AtomicUsize, Ordering},
+        atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering},
     },
 };
 
@@ -17,6 +17,7 @@ use super::{
 };
 
 static ENABLED_FRAME_COUNT: AtomicU32 = AtomicU32::new(0);
+static DETAILED_ENABLED: AtomicBool = AtomicBool::new(false);
 static DIAGNOSTIC_LOG_COUNT: AtomicU32 = AtomicU32::new(0);
 static DRAW_TRACE_LOG_COUNT: AtomicU32 = AtomicU32::new(0);
 static UNRESOLVED_IDENTITY_LOG_COUNT: AtomicU32 = AtomicU32::new(0);
@@ -128,6 +129,14 @@ impl ObjectDrawStateSlot {
     }
 }
 
+pub(super) fn set_detailed_enabled(enabled: bool) {
+    DETAILED_ENABLED.store(enabled, Ordering::Release);
+}
+
+pub(super) fn detailed_enabled() -> bool {
+    DETAILED_ENABLED.load(Ordering::Relaxed)
+}
+
 pub(super) fn service_frame(shader_enabled: bool, debug_log_draws: bool) {
     OBJECT_REPLACEMENTS_LAST_FRAME.store(
         OBJECT_REPLACEMENTS_THIS_FRAME.swap(0, Ordering::AcqRel),
@@ -217,6 +226,9 @@ pub(super) fn record_object_pair(
     pixel_table: u32,
     pixel_index: u32,
 ) {
+    if !detailed_enabled() {
+        return;
+    }
     OBJECT_LAST_VERTEX_SLS.store(u32::from(vertex_sls), Ordering::Release);
     OBJECT_LAST_PIXEL_SLS.store(u32::from(pixel_sls), Ordering::Release);
     OBJECT_LAST_VERTEX_TABLE.store(vertex_table, Ordering::Release);
@@ -230,6 +242,9 @@ pub(super) fn record_object_contract(
     normalized_vertex_index: u32,
     state: ObjectContractState,
 ) {
+    if !detailed_enabled() {
+        return;
+    }
     OBJECT_LAST_NORMALIZED_VERTEX_INDEX.store(normalized_vertex_index, Ordering::Release);
     let state_code = object_contracts::state_code(state);
     OBJECT_LAST_CONTRACT_STATE.store(state_code, Ordering::Release);
@@ -242,6 +257,9 @@ pub(super) fn record_object_handles(
     vertex_replacement: Option<*mut std::ffi::c_void>,
     pixel_replacement: Option<*mut std::ffi::c_void>,
 ) {
+    if !detailed_enabled() {
+        return;
+    }
     OBJECT_LAST_VERTEX_WRAPPER.store(vertex_wrapper as usize, Ordering::Release);
     OBJECT_LAST_PIXEL_WRAPPER.store(pixel_wrapper as usize, Ordering::Release);
     OBJECT_LAST_VERTEX_REPLACEMENT.store(
@@ -264,6 +282,9 @@ pub(super) fn record_object_d3d_state(
     replacement_vertex: *mut std::ffi::c_void,
     replacement_pixel: *mut std::ffi::c_void,
 ) {
+    if !detailed_enabled() {
+        return;
+    }
     OBJECT_LAST_VERTEX_D3D.store(current_vertex as usize, Ordering::Release);
     OBJECT_LAST_PIXEL_D3D.store(current_pixel as usize, Ordering::Release);
     OBJECT_LAST_VERTEX_D3D_IS_REPLACEMENT.store(
@@ -292,6 +313,9 @@ pub(super) fn record_object_d3d_state(
 }
 
 pub(super) fn record_object_draw_context(snapshot: DrawSnapshot) {
+    if !detailed_enabled() {
+        return;
+    }
     OBJECT_LAST_SELECTOR.store(snapshot.selector, Ordering::Release);
     OBJECT_LAST_SELECTOR_STATE.store(snapshot.selector_state, Ordering::Release);
     OBJECT_LAST_ACTIVE_LAYER_COUNT.store(snapshot.active_layer_count, Ordering::Release);
@@ -324,9 +348,11 @@ pub(super) fn record_object_draw_gate_rejection(
     if reject_reason_is_terrain_like(reason) {
         OBJECT_TERRAIN_REJECTIONS_THIS_FRAME.fetch_add(1, Ordering::Relaxed);
     }
-    OBJECT_LAST_REJECT_REASON.store(reason_code, Ordering::Release);
-    OBJECT_LAST_REJECT_ROW.store(u32::from(row), Ordering::Release);
-    OBJECT_LAST_REJECT_SELECTOR.store(selector, Ordering::Release);
+    if detailed_enabled() {
+        OBJECT_LAST_REJECT_REASON.store(reason_code, Ordering::Release);
+        OBJECT_LAST_REJECT_ROW.store(u32::from(row), Ordering::Release);
+        OBJECT_LAST_REJECT_SELECTOR.store(selector, Ordering::Release);
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -341,6 +367,9 @@ pub(super) fn record_unresolved_table_pair(
     pixel_index: u32,
     reason: ObjectDrawRejectReason,
 ) {
+    if !detailed_enabled() {
+        return;
+    }
     let mut key = 0x811C_9DC5u32;
     for value in [
         snapshot.geometry,
@@ -563,6 +592,7 @@ pub(super) fn object_last_reject_selector() -> usize {
 }
 
 pub(super) fn reset() {
+    DETAILED_ENABLED.store(false, Ordering::Release);
     ENABLED_FRAME_COUNT.store(0, Ordering::Release);
     DIAGNOSTIC_LOG_COUNT.store(0, Ordering::Release);
     DRAW_TRACE_LOG_COUNT.store(0, Ordering::Release);

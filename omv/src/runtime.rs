@@ -1846,39 +1846,35 @@ fn draw_native_pbr_config(
     config: &mut crate::config::NativePbrConfig,
     status: pbr::NativePbrRuntimeStatus,
 ) -> bool {
-    let heading = cstring("Native PBR");
+    let heading = cstring("PBR");
     ui.text_colored(MENU_ACCENT_TEXT, &heading);
 
     let (status_color, status_text) = if let Some(reason) = status.block_reason {
-        (MENU_WARN_TEXT, format!("Object PBR: blocked ({reason})"))
-    } else if status.installed && status.shader_enabled && status.active_contracts_failed {
-        (MENU_WARN_TEXT, "Object PBR: shader error".to_owned())
-    } else if status.installed && status.shader_enabled && !status.active_contracts_ready {
-        (MENU_WARN_TEXT, "Object PBR: loading".to_owned())
+        (MENU_WARN_TEXT, format!("Blocked: {reason}"))
+    } else if status.installed
+        && status.shader_enabled
+        && (status.active_contracts_failed || status.land_lod_contract_failed)
+    {
+        (MENU_WARN_TEXT, "Shader error".to_owned())
+    } else if status.installed
+        && status.shader_enabled
+        && (!status.active_contracts_ready
+            || !status.land_lod_contract_active
+            || !status.close_terrain_contract_proven
+            || !status.terrain_fade_contract_proven)
+    {
+        (MENU_WARN_TEXT, "Loading".to_owned())
     } else if status.installed && status.shader_enabled {
-        (
-            MENU_GOOD_TEXT,
-            format!(
-                "Object PBR: active ({} draws)",
-                status.object_replacements_last_frame
-            ),
-        )
+        (MENU_GOOD_TEXT, "Active".to_owned())
     } else {
-        (MENU_MUTED_TEXT, "Object PBR: disabled".to_owned())
+        (MENU_MUTED_TEXT, "Disabled".to_owned())
     };
     let status_text = cstring(status_text);
     ui.text_colored(status_color, &status_text);
     ui.separator();
 
     let mut changed = false;
-    changed |= draw_config_checkbox(ui, "Object PBR", "native_pbr.enabled", &mut config.enabled);
-    ui.same_line();
-    changed |= draw_config_checkbox(
-        ui,
-        "Debug draw logs",
-        "native_pbr.debug_log_draws",
-        &mut config.debug_log_draws,
-    );
+    changed |= draw_config_checkbox(ui, "Enable PBR", "native_pbr.enabled", &mut config.enabled);
 
     if config.enabled {
         ui.separator();
@@ -1892,7 +1888,7 @@ fn draw_native_pbr_config(
         );
         changed |= draw_float_slider(
             ui,
-            "Roughness scale",
+            "Roughness",
             "native_pbr.roughness_scale",
             &mut config.roughness_scale,
             0.05,
@@ -1900,7 +1896,7 @@ fn draw_native_pbr_config(
         );
         changed |= draw_float_slider(
             ui,
-            "Light scale",
+            "Light",
             "native_pbr.light_scale",
             &mut config.light_scale,
             0.0,
@@ -1908,7 +1904,7 @@ fn draw_native_pbr_config(
         );
         changed |= draw_float_slider(
             ui,
-            "Ambient scale",
+            "Ambient",
             "native_pbr.ambient_scale",
             &mut config.ambient_scale,
             0.0,
@@ -1916,75 +1912,28 @@ fn draw_native_pbr_config(
         );
         changed |= draw_float_slider(
             ui,
-            "Albedo saturation",
+            "Saturation",
             "native_pbr.albedo_saturation",
             &mut config.albedo_saturation,
             0.0,
             2.0,
         );
-    }
-
-    ui.separator();
-    let terrain_heading = cstring("Terrain PBR");
-    ui.text_colored(MENU_ACCENT_TEXT, &terrain_heading);
-    changed |= draw_config_checkbox(
-        ui,
-        "Terrain PBR",
-        "native_pbr.terrain_enabled",
-        &mut config.terrain_enabled,
-    );
-    if config.terrain_enabled {
-        changed |= draw_config_checkbox(
+        changed |= draw_float_slider(
             ui,
-            "Terrain LOD",
-            "native_pbr.terrain_lod_enabled",
-            &mut config.terrain_lod_enabled,
+            "Terrain detail",
+            "native_pbr.terrain_lod_noise_scale",
+            &mut config.terrain_lod_noise_scale,
+            0.0,
+            4.0,
         );
-        ui.same_line();
-        changed |= draw_config_checkbox(
+        changed |= draw_float_slider(
             ui,
-            "Close terrain",
-            "native_pbr.close_terrain_enabled",
-            &mut config.close_terrain_enabled,
+            "Terrain tiling",
+            "native_pbr.terrain_lod_noise_tile",
+            &mut config.terrain_lod_noise_tile,
+            0.05,
+            16.0,
         );
-        ui.same_line();
-        changed |= draw_config_checkbox(
-            ui,
-            "Terrain fade",
-            "native_pbr.terrain_fade_enabled",
-            &mut config.terrain_fade_enabled,
-        );
-
-        let terrain_status = if status.land_lod_contract_failed {
-            "Terrain shaders: compile or resource error"
-        } else if status.land_lod_contract_active
-            && status.close_terrain_contract_proven
-            && status.terrain_fade_contract_proven
-        {
-            "Terrain shaders: ready"
-        } else {
-            "Terrain shaders: loading"
-        };
-        ui.text_colored(MENU_MUTED_TEXT, &cstring(terrain_status));
-
-        if config.terrain_lod_enabled {
-            changed |= draw_float_slider(
-                ui,
-                "LOD noise scale",
-                "native_pbr.terrain_lod_noise_scale",
-                &mut config.terrain_lod_noise_scale,
-                0.0,
-                4.0,
-            );
-            changed |= draw_float_slider(
-                ui,
-                "LOD noise tile",
-                "native_pbr.terrain_lod_noise_tile",
-                &mut config.terrain_lod_noise_tile,
-                0.05,
-                16.0,
-            );
-        }
     }
 
     changed
@@ -2272,9 +2221,18 @@ fn shader_list_label(source: &ScreenShaderSource, index: usize) -> String {
 fn native_pbr_list_label(configured_enabled: bool, status: pbr::NativePbrRuntimeStatus) -> String {
     let status = if configured_enabled && status.block_reason.is_some() {
         "BLK"
-    } else if status.installed && configured_enabled && status.active_contracts_failed {
+    } else if status.installed
+        && configured_enabled
+        && (status.active_contracts_failed || status.land_lod_contract_failed)
+    {
         "BLK"
-    } else if status.installed && configured_enabled && !status.active_contracts_ready {
+    } else if status.installed
+        && configured_enabled
+        && (!status.active_contracts_ready
+            || !status.land_lod_contract_active
+            || !status.close_terrain_contract_proven
+            || !status.terrain_fade_contract_proven)
+    {
         "WUP"
     } else if status.installed && configured_enabled {
         "ON "
@@ -2287,7 +2245,7 @@ fn native_pbr_list_label(configured_enabled: bool, status: pbr::NativePbrRuntime
     } else {
         "OFF"
     };
-    format!("{status}  Native PBR##native_pbr_select")
+    format!("{status}  PBR##native_pbr_select")
 }
 
 fn shader_has_error(source: &ScreenShaderSource) -> bool {

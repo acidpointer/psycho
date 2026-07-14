@@ -139,10 +139,15 @@ pub(super) fn classify_pair(vertex_index: u32, pixel_index: u32) -> ObjectContra
         );
     }
 
-    for contract in IMPLEMENTED_OBJECT_CONTRACTS {
-        if contract.vertex_index == normalized_vertex_index && contract.pixel_index == pixel_index {
-            return decision(contract.state, normalized_vertex_index);
-        }
+    if let Ok(index) = IMPLEMENTED_OBJECT_CONTRACTS
+        .binary_search_by_key(&(normalized_vertex_index, pixel_index), |contract| {
+            (contract.vertex_index, contract.pixel_index)
+        })
+    {
+        return decision(
+            IMPLEMENTED_OBJECT_CONTRACTS[index].state,
+            normalized_vertex_index,
+        );
     }
 
     decision(ObjectContractState::BlockedUnknown, normalized_vertex_index)
