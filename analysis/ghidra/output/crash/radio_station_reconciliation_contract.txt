@@ -1,0 +1,1726 @@
+======================================================================
+RADIO STATION RECONCILIATION CONTRACT
+======================================================================
+The load reconciliation at 0x00836AF0 removes a registered entry only when its wrapper is NULL or its first form pointer becomes NULL after 0x00836660. Determine why a missing/unloaded form can remain nonzero, and identify the exact load-boundary validation and unlink/destructor calls that are safe for that entry.
+
+======================================================================
+deserialize found-radio entry @ 0x00835f80
+======================================================================
+  Function: FUN_00835f80 @ 0x00835f80, Size: 93 bytes
+
+void __fastcall FUN_00835f80(int param_1)
+
+{
+  FUN_008648e0(param_1);
+  FUN_00864980(param_1 + 0x1c,1);
+  FUN_00864980(param_1 + 0x1d,1);
+  FUN_00864980(param_1 + 0x1e,1);
+  FUN_00864980(param_1 + 0x1f,1);
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00835f80 (deserialize found-radio entry)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0083696d (in FUN_008368b0)
+  Total: 1 refs
+
+--- Calls FROM deserialize found-radio entry (0x00835f80) ---
+  0x00835f8e -> 0x008648e0 FUN_008648e0
+  0x00835f9f -> 0x00864980 FUN_00864980
+  0x00835fb0 -> 0x00864980 FUN_00864980
+  0x00835fc1 -> 0x00864980 FUN_00864980
+  0x00835fd2 -> 0x00864980 FUN_00864980
+  Total: 5 calls
+
+======================================================================
+reconcile found-radio entry @ 0x00835fe0
+======================================================================
+  Function: FUN_00835fe0 @ 0x00835fe0, Size: 80 bytes
+
+void __fastcall FUN_00835fe0(int *param_1)
+
+{
+  undefined4 uVar1;
+  int local_c;
+  
+  if (*param_1 == 0) {
+    local_c = 0;
+  }
+  else {
+    uVar1 = FUN_004839c0(*param_1,&PTR_PTR_01183028,&PTR_PTR_011841cc,0);
+    local_c = FUN_00ec43fb(uVar1,0);
+  }
+  *param_1 = local_c;
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00835fe0 (reconcile found-radio entry)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00836b1d (in FUN_00836af0)
+  UNCONDITIONAL_CALL @ 0x0042d9d1 (in FUN_0042ceb0)
+  Total: 2 refs
+
+--- Calls FROM reconcile found-radio entry (0x00835fe0) ---
+  0x00836003 -> 0x004839c0 FUN_004839c0
+  0x0083600e -> 0x00ec43fb FUN_00ec43fb
+  Total: 2 calls
+
+======================================================================
+deserialize registered-radio wrapper @ 0x00836630
+======================================================================
+  Function: FUN_00836630 @ 0x00836630, Size: 40 bytes
+
+void __thiscall FUN_00836630(undefined4 param_1,undefined4 param_2)
+
+{
+  FUN_008648e0(param_1);
+  FUN_00836240(param_2);
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00836630 (deserialize registered-radio wrapper)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x008369ef (in FUN_008368b0)
+  Total: 1 refs
+
+--- Calls FROM deserialize registered-radio wrapper (0x00836630) ---
+  0x0083663e -> 0x008648e0 FUN_008648e0
+  0x0083664d -> 0x00836240 FUN_00836240
+  Total: 2 calls
+
+======================================================================
+resolve registered-radio wrapper form @ 0x00836660
+======================================================================
+  Function: FUN_00836660 @ 0x00836660, Size: 95 bytes
+
+void __thiscall FUN_00836660(int *param_1,undefined4 param_2)
+
+{
+  undefined4 uVar1;
+  int local_c;
+  
+  if (*param_1 == 0) {
+    local_c = 0;
+  }
+  else {
+    uVar1 = FUN_004839c0(*param_1,&PTR_PTR_01183028,&PTR_PTR_011841cc,0);
+    local_c = FUN_00ec43fb(uVar1,0);
+  }
+  *param_1 = local_c;
+  FUN_008363a0(param_2);
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00836660 (resolve registered-radio wrapper form)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00836b78 (in FUN_00836af0)
+  Total: 1 refs
+
+--- Calls FROM resolve registered-radio wrapper form (0x00836660) ---
+  0x00836683 -> 0x004839c0 FUN_004839c0
+  0x0083668e -> 0x00ec43fb FUN_00ec43fb
+  0x008366b4 -> 0x008363a0 FUN_008363a0
+  Total: 3 calls
+
+======================================================================
+post-load registered-radio finalizer @ 0x008366c0
+======================================================================
+  Function: FUN_008366c0 @ 0x008366c0, Size: 28 bytes
+
+void FUN_008366c0(undefined4 param_1)
+
+{
+  FUN_00836470(param_1);
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x008366c0 (post-load registered-radio finalizer)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00836e6b (in FUN_00836e20)
+  Total: 1 refs
+
+--- Calls FROM post-load registered-radio finalizer (0x008366c0) ---
+  0x008366d1 -> 0x00836470 FUN_00836470
+  Total: 1 calls
+
+======================================================================
+registered-radio wrapper creator @ 0x00832cb0
+======================================================================
+  Function: FUN_00832cb0 @ 0x00832cb0, Size: 905 bytes
+
+undefined4 * FUN_00832cb0(int *param_1,int param_2)
+
+{
+  bool bVar1;
+  char cVar2;
+  undefined1 uVar3;
+  uint uVar4;
+  int iVar5;
+  int iVar6;
+  int *piVar7;
+  int *unaff_FS_OFFSET;
+  undefined4 *local_58;
+  int *local_1c;
+  undefined4 *local_14;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00f11ecb;
+  local_10 = *unaff_FS_OFFSET;
+  uVar4 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  if (param_1 == (int *)0x0) {
+    local_14 = (undefined4 *)0x0;
+    goto LAB_00833029;
+  }
+  bVar1 = false;
+  local_1c = (int *)0x0;
+  iVar5 = FUN_00401000(0x24,uVar4);
+  local_8 = 0;
+  if (iVar5 == 0) {
+    local_58 = (undefined4 *)0x0;
+  }
+  else {
+    local_58 = (undefined4 *)FUN_00833150();
+  }
+  local_8 = 0xffffffff;
+  local_14 = local_58;
+  FUN_007af430();
+  iVar5 = FUN_00401170();
+  if (iVar5 == 0x15) {
+LAB_00832d97:
+    bVar1 = true;
+  }
+  else {
+    FUN_007af430();
+    iVar5 = FUN_00401170();
+    if (iVar5 == 0x2a) goto LAB_00832d97;
+    FUN_007af430();
+    iVar5 = FUN_00401170();
+    if (iVar5 == 0x2b) goto LAB_00832d97;
+    FUN_007af430();
+    iVar5 = FUN_00401170();
+    if (iVar5 == 0x2c) goto LAB_00832d97;
+    FUN_007af430();
+    iVar5 = FUN_00401170();
+    if (iVar5 == 0x2d) goto LAB_00832d97;
+  }
+  FUN_007af430();
+  iVar5 = FUN_00401170();
+  if ((bVar1) && (cVar2 = (**(code **)(*param_1 + 0x100))(), cVar2 == '\0')) {
+    FUN_007af430();
+    iVar5 = FUN_004fd3c0();
+    if (iVar5 == 0) {
+      if (local_14 != (undefined4 *)0x0) {
+        FUN_00832160(1);
+      }
+      local_14 = (undefined4 *)0x0;
+      goto LAB_00833029;
+    }
+    local_1c = (int *)FUN_008356e0(iVar5,param_1);
+    if (local_1c == (int *)0x0) {
+      if (local_14 != (undefined4 *)0x0) {
+        FUN_00832160(1);
+      }
+      local_14 = (undefined4 *)0x0;
+      goto LAB_00833029;
+    }
+  }
+  else if ((bVar1) && ((cVar2 = (**(code **)(*param_1 + 0x100))(), cVar2 != '\0' && (param_2 != 0)))
+          ) {
+    iVar5 = FUN_007af430();
+    if (iVar5 == 0) {
+      if (local_14 != (undefined4 *)0x0) {
+        FUN_00832160(1);
+      }
+      local_14 = (undefined4 *)0x0;
+      goto LAB_00833029;
+    }
+    local_1c = (int *)FUN_008356e0(iVar5,param_1);
+    if (local_1c == (int *)0x0) {
+      if (local_14 != (undefined4 *)0x0) {
+        FUN_00832160(1);
+      }
+      local_14 = (undefined4 *)0x0;
+      goto LAB_00833029;
+    }
+  }
+  else if (iVar5 == 0x16) {
+    local_1c = param_1;
+  }
+  if (local_1c == (int *)0x0) {
+    if (local_14 != (undefined4 *)0x0) {
+      FUN_00832160(1);
+    }
+    local_14 = (undefined4 *)0x0;
+  }
+  else {
+    *local_14 = local_1c;
+    local_14[1] = 0;
+    local_14[2] = 0;
+    FUN_00453a70();
+    iVar5 = FUN_0063d040();
+    iVar6 = FUN_00944460(0,30000);
+    local_14[3] = iVar5 - iVar6;
+    local_14[4] = 1;
+    piVar7 = (int *)FUN_007af430();
+    uVar3 = (**(code **)(*piVar7 + 0xb4))();
+    FUN_00833100(uVar3);
+    uVar3 = FUN_00833040();
+    FUN_008330b0(uVar3);
+    FUN_00833060(1);
+    *(undefined1 *)(local_14 + 5) = 100;
+    *(undefined1 *)((int)local_14 + 0x15) = 100;
+    FUN_005ae3d0(&local_14);
+  }
+LAB_00833029:
+  *unaff_FS_OFFSET = local_10;
+  return local_14;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00832cb0 (registered-radio wrapper creator)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00832695 (in FUN_008325b0)
+  UNCONDITIONAL_CALL @ 0x00832352 (in FUN_00832240)
+  UNCONDITIONAL_CALL @ 0x0083589f (in FUN_00835810)
+  UNCONDITIONAL_CALL @ 0x00835c57 (in FUN_00835be0)
+  Total: 4 refs
+
+--- Calls FROM registered-radio wrapper creator (0x00832cb0) ---
+  0x00832cf4 -> 0x00401000 FUN_00401000
+  0x00832d0f -> 0x00833150 FUN_00833150
+  0x00832d36 -> 0x007af430 FUN_007af430
+  0x00832d3d -> 0x00401170 FUN_00401170
+  0x00832d4a -> 0x007af430 FUN_007af430
+  0x00832d51 -> 0x00401170 FUN_00401170
+  0x00832d5e -> 0x007af430 FUN_007af430
+  0x00832d65 -> 0x00401170 FUN_00401170
+  0x00832d72 -> 0x007af430 FUN_007af430
+  0x00832d79 -> 0x00401170 FUN_00401170
+  0x00832d86 -> 0x007af430 FUN_007af430
+  0x00832d8d -> 0x00401170 FUN_00401170
+  0x00832d9e -> 0x007af430 FUN_007af430
+  0x00832da5 -> 0x00401170 FUN_00401170
+  0x00832ddd -> 0x007af430 FUN_007af430
+  0x00832de4 -> 0x004fd3c0 FUN_004fd3c0
+  0x00832e09 -> 0x00832160 FUN_00832160
+  0x00832e29 -> 0x008356e0 FUN_008356e0
+  0x00832e51 -> 0x00832160 FUN_00832160
+  0x00832ea2 -> 0x007af430 FUN_007af430
+  0x00832ec7 -> 0x00832160 FUN_00832160
+  0x00832ee7 -> 0x008356e0 FUN_008356e0
+  0x00832f0f -> 0x00832160 FUN_00832160
+  0x00832f54 -> 0x00832160 FUN_00832160
+  0x00832f88 -> 0x00453a70 FUN_00453a70
+  0x00832f8f -> 0x0063d040 FUN_0063d040
+  0x00832f9d -> 0x00944460 FUN_00944460
+  0x00832fbc -> 0x007af430 FUN_007af430
+  0x00832fde -> 0x00833100 FUN_00833100
+  0x00832fe9 -> 0x00833040 FUN_00833040
+  0x00832ff8 -> 0x008330b0 FUN_008330b0
+  0x00833005 -> 0x00833060 FUN_00833060
+  0x00833021 -> 0x005ae3d0 FUN_005ae3d0
+  Total: 33 calls
+
+======================================================================
+registered-radio wrapper constructor @ 0x008327d0
+======================================================================
+  Function: _ATL_WIN_MODULE70 @ 0x008327d0, Size: 92 bytes
+
+/* Library Function - Single Match
+    public: __thiscall ATL::_ATL_WIN_MODULE70::_ATL_WIN_MODULE70(void)
+   
+   Library: Visual Studio 2005 Debug */
+
+_ATL_WIN_MODULE70 * __thiscall ATL::_ATL_WIN_MODULE70::_ATL_WIN_MODULE70(_ATL_WIN_MODULE70 *this)
+
+{
+  uint uVar1;
+  int *unaff_FS_OFFSET;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00f11e9b;
+  local_10 = *unaff_FS_OFFSET;
+  uVar1 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  FUN_0041a250(uVar1);
+  local_8 = 0;
+  FUN_0041a250();
+  *unaff_FS_OFFSET = local_10;
+  return this;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x008327d0 (registered-radio wrapper constructor)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x008326ce (in FUN_008325b0)
+  UNCONDITIONAL_CALL @ 0x00836942 (in FUN_008368b0)
+  UNCONDITIONAL_CALL @ 0x008358ec (in FUN_00835810)
+  Total: 3 refs
+
+--- Calls FROM registered-radio wrapper constructor (0x008327d0) ---
+  0x008327fc -> 0x0041a250 FUN_0041a250
+  0x0083280e -> 0x0041a250 FUN_0041a250
+  Total: 2 calls
+
+======================================================================
+serialized registered-radio constructor @ 0x00833150
+======================================================================
+  Function: FUN_00833150 @ 0x00833150, Size: 25 bytes
+
+undefined4 __fastcall FUN_00833150(undefined4 param_1)
+
+{
+  FUN_00833170();
+  return param_1;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00833150 (serialized registered-radio constructor)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00832d0f (in FUN_00832cb0)
+  UNCONDITIONAL_CALL @ 0x008369c4 (in FUN_008368b0)
+  Total: 2 refs
+
+--- Calls FROM serialized registered-radio constructor (0x00833150) ---
+  0x0083315d -> 0x00833170 FUN_00833170
+  Total: 1 calls
+
+======================================================================
+registered-radio wrapper destructor @ 0x00832160
+======================================================================
+  Function: FUN_00832160 @ 0x00832160, Size: 44 bytes
+
+undefined4 __thiscall FUN_00832160(undefined4 param_1,uint param_2)
+
+{
+  FUN_008321c0();
+  if ((param_2 & 1) != 0) {
+    FUN_00401030(param_1);
+  }
+  return param_1;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00832160 (registered-radio wrapper destructor)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x008320bc (in FUN_00832010)
+  UNCONDITIONAL_CALL @ 0x00832e09 (in FUN_00832cb0)
+  UNCONDITIONAL_CALL @ 0x00832e51 (in FUN_00832cb0)
+  UNCONDITIONAL_CALL @ 0x00832ec7 (in FUN_00832cb0)
+  UNCONDITIONAL_CALL @ 0x00832f0f (in FUN_00832cb0)
+  UNCONDITIONAL_CALL @ 0x00832f54 (in FUN_00832cb0)
+  UNCONDITIONAL_CALL @ 0x00836b9c (in FUN_00836af0)
+  UNCONDITIONAL_CALL @ 0x00836f64 (in FUN_00836ef0)
+  Total: 8 refs
+
+--- Calls FROM registered-radio wrapper destructor (0x00832160) ---
+  0x0083216a -> 0x008321c0 FUN_008321c0
+  0x0083217b -> 0x00401030 FUN_00401030
+  Total: 2 calls
+
+======================================================================
+found-radio entry destructor @ 0x00832190
+======================================================================
+  Function: FUN_00832190 @ 0x00832190, Size: 44 bytes
+
+_ATL_WIN_MODULE70 * __thiscall FUN_00832190(_ATL_WIN_MODULE70 *param_1,uint param_2)
+
+{
+  ATL::_ATL_WIN_MODULE70::~_ATL_WIN_MODULE70(param_1);
+  if ((param_2 & 1) != 0) {
+    FUN_00401030(param_1);
+  }
+  return param_1;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00832190 (found-radio entry destructor)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00832121 (in FUN_00832010)
+  UNCONDITIONAL_CALL @ 0x00832aa6 (in FUN_008329a0)
+  UNCONDITIONAL_CALL @ 0x00836c6b (in FUN_00836af0)
+  UNCONDITIONAL_CALL @ 0x00836fe0 (in FUN_00836ef0)
+  Total: 4 refs
+
+--- Calls FROM found-radio entry destructor (0x00832190) ---
+  0x0083219a -> 0x008321e0 ~_ATL_WIN_MODULE70
+  0x008321ab -> 0x00401030 FUN_00401030
+  Total: 2 calls
+
+======================================================================
+list iterator end predicate @ 0x008256d0
+======================================================================
+  Function: FUN_008256d0 @ 0x008256d0, Size: 49 bytes
+
+undefined1 __fastcall FUN_008256d0(int *param_1)
+
+{
+  undefined1 local_c;
+  
+  if ((param_1[1] == 0) && (*param_1 == 0)) {
+    local_c = 1;
+  }
+  else {
+    local_c = 0;
+  }
+  return local_c;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x008256d0 (list iterator end predicate)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00485015 (in FUN_00484f50)
+  UNCONDITIONAL_CALL @ 0x0055092f (in FUN_005508b0)
+  UNCONDITIONAL_CALL @ 0x00544d8a (in FUN_00544ce0)
+  UNCONDITIONAL_CALL @ 0x00544e7b (in FUN_00544ce0)
+  UNCONDITIONAL_CALL @ 0x00544f0e (in FUN_00544ce0)
+  UNCONDITIONAL_CALL @ 0x0054d0e0 (in FUN_0054d090)
+  UNCONDITIONAL_CALL @ 0x005503cd (in FUN_00550340)
+  UNCONDITIONAL_CALL @ 0x00550775 (in FUN_00550500)
+  UNCONDITIONAL_CALL @ 0x00467dbf (in FUN_00467bd0)
+  UNCONDITIONAL_CALL @ 0x004d04ec (in FUN_004d0490)
+  UNCONDITIONAL_CALL @ 0x004d05b1 (in FUN_004d0490)
+  UNCONDITIONAL_CALL @ 0x00420849 (in FUN_00420810)
+  UNCONDITIONAL_CALL @ 0x00572971 (in FUN_005728c0)
+  UNCONDITIONAL_CALL @ 0x005455f8 (in FUN_005455c0)
+  UNCONDITIONAL_CALL @ 0x00587ee4 (in FUN_00587e40)
+  UNCONDITIONAL_CALL @ 0x00485b8f (in FUN_00485b60)
+  UNCONDITIONAL_CALL @ 0x007772e3 (in FUN_00775a00)
+  UNCONDITIONAL_CALL @ 0x0047d75b (in FUN_0047d740)
+  UNCONDITIONAL_CALL @ 0x0077593d (in FUN_00775920)
+  UNCONDITIONAL_CALL @ 0x0078a5d6 (in FUN_0078a5a0)
+  UNCONDITIONAL_CALL @ 0x0078a7e4 (in FUN_0078a5a0)
+  UNCONDITIONAL_CALL @ 0x005a705c (in FUN_005a6ec0)
+  UNCONDITIONAL_CALL @ 0x005a711d (in FUN_005a7110)
+  UNCONDITIONAL_CALL @ 0x007d6e7d (in FUN_007d6e70)
+  UNCONDITIONAL_CALL @ 0x007d80ff (in FUN_007d80f0)
+  UNCONDITIONAL_CALL @ 0x007a6faf (in FUN_007a6fa0)
+  UNCONDITIONAL_CALL @ 0x0083203b (in FUN_00832010)
+  UNCONDITIONAL_CALL @ 0x008320f7 (in FUN_00832010)
+  UNCONDITIONAL_CALL @ 0x0083286a (in FUN_00832830)
+  UNCONDITIONAL_CALL @ 0x00832951 (in FUN_00832930)
+  UNCONDITIONAL_CALL @ 0x008329c1 (in FUN_008329a0)
+  UNCONDITIONAL_CALL @ 0x00832a26 (in FUN_008329a0)
+  UNCONDITIONAL_CALL @ 0x00833f25 (in FUN_00833d00)
+  UNCONDITIONAL_CALL @ 0x004ff234 (in FUN_004ff1a0)
+  UNCONDITIONAL_CALL @ 0x007754dd (in FUN_00775380)
+  UNCONDITIONAL_CALL @ 0x00834381 (in FUN_00834260)
+  UNCONDITIONAL_CALL @ 0x00834426 (in FUN_00834260)
+  UNCONDITIONAL_CALL @ 0x0083476e (in FUN_00834260)
+  UNCONDITIONAL_CALL @ 0x0083482b (in FUN_00834260)
+  UNCONDITIONAL_CALL @ 0x008349e2 (in FUN_00834260)
+  UNCONDITIONAL_CALL @ 0x00834af8 (in FUN_00834260)
+  ... (truncated)
+  Total: 41 refs
+
+--- Calls FROM list iterator end predicate (0x008256d0) ---
+  Total: 0 calls
+
+======================================================================
+list node payload accessor @ 0x006815c0
+======================================================================
+  Function: FUN_006815c0 @ 0x006815c0, Size: 14 bytes
+
+undefined4 __fastcall FUN_006815c0(undefined4 param_1)
+
+{
+  return param_1;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x006815c0 (list node payload accessor)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0086b1b1 (in FUN_0086a850)
+  UNCONDITIONAL_CALL @ 0x00408be5 (in FUN_00408bc0)
+  UNCONDITIONAL_CALL @ 0x004650c4 (in FUN_004650a0)
+  UNCONDITIONAL_CALL @ 0x004650d1 (in FUN_004650a0)
+  UNCONDITIONAL_CALL @ 0x00484fa6 (in FUN_00484f50)
+  UNCONDITIONAL_CALL @ 0x00485024 (in FUN_00484f50)
+  UNCONDITIONAL_CALL @ 0x004850a9 (in FUN_00484f50)
+  UNCONDITIONAL_CALL @ 0x0054b77d (in FUN_0054b750)
+  UNCONDITIONAL_CALL @ 0x00550942 (in FUN_005508b0)
+  UNCONDITIONAL_CALL @ 0x00484e92 (in FUN_00484e60)
+  UNCONDITIONAL_CALL @ 0x0055153a (in FUN_00551480)
+  UNCONDITIONAL_CALL @ 0x00551553 (in FUN_00551480)
+  UNCONDITIONAL_CALL @ 0x00544d9d (in FUN_00544ce0)
+  UNCONDITIONAL_CALL @ 0x00544e8a (in FUN_00544ce0)
+  UNCONDITIONAL_CALL @ 0x00544f1d (in FUN_00544ce0)
+  UNCONDITIONAL_CALL @ 0x0054b99d (in FUN_0054b950)
+  UNCONDITIONAL_CALL @ 0x0054baa5 (in FUN_0054ba80)
+  UNCONDITIONAL_CALL @ 0x00553134 (in FUN_00552dc0)
+  UNCONDITIONAL_CALL @ 0x0054c0d5 (in FUN_0054c030)
+  UNCONDITIONAL_CALL @ 0x0054c171 (in FUN_0054c030)
+  UNCONDITIONAL_CALL @ 0x0054c354 (in FUN_0054c030)
+  UNCONDITIONAL_CALL @ 0x0054c4ce (in FUN_0054c030)
+  UNCONDITIONAL_CALL @ 0x0054c4d6 (in FUN_0054c030)
+  UNCONDITIONAL_CALL @ 0x0054d0f3 (in FUN_0054d090)
+  UNCONDITIONAL_CALL @ 0x0053a51a (in PAGE_INFO)
+  UNCONDITIONAL_CALL @ 0x0053a525 (in PAGE_INFO)
+  UNCONDITIONAL_CALL @ 0x0053a530 (in PAGE_INFO)
+  UNCONDITIONAL_CALL @ 0x0053a53b (in PAGE_INFO)
+  UNCONDITIONAL_CALL @ 0x0053b76f (in FUN_0053b550)
+  UNCONDITIONAL_CALL @ 0x0053bae7 (in FUN_0053b550)
+  UNCONDITIONAL_CALL @ 0x0053bb95 (in FUN_0053b550)
+  UNCONDITIONAL_CALL @ 0x0053f1ec (in FUN_0053f1e0)
+  UNCONDITIONAL_CALL @ 0x0053f1f4 (in FUN_0053f1e0)
+  UNCONDITIONAL_CALL @ 0x0053f1fc (in FUN_0053f1e0)
+  UNCONDITIONAL_CALL @ 0x00470bd3 (in FUN_00470bc0)
+  UNCONDITIONAL_CALL @ 0x00470be7 (in FUN_00470bc0)
+  UNCONDITIONAL_CALL @ 0x00470c18 (in FUN_00470bc0)
+  UNCONDITIONAL_CALL @ 0x00470c2c (in FUN_00470bc0)
+  UNCONDITIONAL_CALL @ 0x00471922 (in FUN_00471870)
+  UNCONDITIONAL_CALL @ 0x00471943 (in FUN_00471870)
+  UNCONDITIONAL_CALL @ 0x00471954 (in FUN_00471870)
+  ... (truncated)
+  Total: 41 refs
+
+--- Calls FROM list node payload accessor (0x006815c0) ---
+  Total: 0 calls
+
+======================================================================
+list next-node accessor @ 0x00726070
+======================================================================
+  Function: FUN_00726070 @ 0x00726070, Size: 17 bytes
+
+undefined4 __fastcall FUN_00726070(int param_1)
+
+{
+  return *(undefined4 *)(param_1 + 4);
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00726070 (list next-node accessor)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00408bd4 (in FUN_00408bc0)
+  UNCONDITIONAL_CALL @ 0x004614ec (in FUN_004614e0)
+  UNCONDITIONAL_CALL @ 0x004614f3 (in FUN_004614e0)
+  UNCONDITIONAL_CALL @ 0x004650f9 (in FUN_004650a0)
+  UNCONDITIONAL_CALL @ 0x004da502 (in FUN_004da4d0)
+  UNCONDITIONAL_CALL @ 0x004da51d (in FUN_004da4d0)
+  UNCONDITIONAL_CALL @ 0x004da542 (in FUN_004da4d0)
+  UNCONDITIONAL_CALL @ 0x0044f130 (in FUN_0044f070)
+  UNCONDITIONAL_CALL @ 0x00545104 (in FUN_00545030)
+  UNCONDITIONAL_CALL @ 0x00484fb9 (in FUN_00484f50)
+  UNCONDITIONAL_CALL @ 0x00485046 (in FUN_00484f50)
+  UNCONDITIONAL_CALL @ 0x00485065 (in FUN_00484f50)
+  UNCONDITIONAL_CALL @ 0x004850cc (in FUN_00484f50)
+  UNCONDITIONAL_CALL @ 0x00533541 (in FUN_00533420)
+  UNCONDITIONAL_CALL @ 0x0054b78a (in FUN_0054b750)
+  UNCONDITIONAL_CALL @ 0x0055099e (in FUN_005508b0)
+  UNCONDITIONAL_CALL @ 0x00550ad0 (in FUN_005508b0)
+  UNCONDITIONAL_CALL @ 0x00484e9f (in FUN_00484e60)
+  UNCONDITIONAL_CALL @ 0x0055156b (in FUN_00551480)
+  UNCONDITIONAL_CALL @ 0x00544daa (in FUN_00544ce0)
+  UNCONDITIONAL_CALL @ 0x00544f30 (in FUN_00544ce0)
+  UNCONDITIONAL_CALL @ 0x00410162 (in FUN_00410140)
+  UNCONDITIONAL_CALL @ 0x0054b9aa (in FUN_0054b950)
+  UNCONDITIONAL_CALL @ 0x0054bab2 (in FUN_0054ba80)
+  UNCONDITIONAL_CALL @ 0x0054c60a (in FUN_0054c030)
+  UNCONDITIONAL_CALL @ 0x0054d30c (in FUN_0054d090)
+  UNCONDITIONAL_CALL @ 0x0047198f (in FUN_00471870)
+  UNCONDITIONAL_CALL @ 0x004719ec (in FUN_00471870)
+  UNCONDITIONAL_CALL @ 0x005101ed (in FUN_005101e0)
+  UNCONDITIONAL_CALL @ 0x005537af (in FUN_00553700)
+  UNCONDITIONAL_CALL @ 0x005575b2 (in FUN_005574d0)
+  UNCONDITIONAL_CALL @ 0x00557743 (in FUN_005576c0)
+  UNCONDITIONAL_CALL @ 0x005577ee (in FUN_005577b0)
+  UNCONDITIONAL_CALL @ 0x0055786f (in FUN_005577b0)
+  UNCONDITIONAL_CALL @ 0x00557cad (in FUN_00557c40)
+  UNCONDITIONAL_CALL @ 0x00558bf5 (in FUN_00558ba0)
+  UNCONDITIONAL_CALL @ 0x004826fc (in FUN_004826d0)
+  UNCONDITIONAL_CALL @ 0x004d058b (in FUN_004d0490)
+  UNCONDITIONAL_CALL @ 0x004d0613 (in FUN_004d0490)
+  UNCONDITIONAL_CALL @ 0x004bfbea (in FUN_004bfba0)
+  UNCONDITIONAL_CALL @ 0x004bfc5c (in FUN_004bfba0)
+  ... (truncated)
+  Total: 41 refs
+
+--- Calls FROM list next-node accessor (0x00726070) ---
+  Total: 0 calls
+
+======================================================================
+remove current or head list node @ 0x0063f7b0
+======================================================================
+  Function: FUN_0063f7b0 @ 0x0063f7b0, Size: 114 bytes
+
+void __fastcall FUN_0063f7b0(undefined4 *param_1)
+
+{
+  undefined4 *puVar1;
+  
+  if (param_1[1] == 0) {
+    *param_1 = 0;
+  }
+  else {
+    puVar1 = (undefined4 *)param_1[1];
+    param_1[1] = puVar1[1];
+    *param_1 = *puVar1;
+    puVar1[1] = 0;
+    if (puVar1 != (undefined4 *)0x0) {
+      FUN_004702f0(1);
+    }
+  }
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x0063f7b0 (remove current or head list node)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00484fcc (in FUN_00484f50)
+  UNCONDITIONAL_CALL @ 0x00484fdd (in FUN_00484f50)
+  UNCONDITIONAL_CALL @ 0x00485072 (in FUN_00484f50)
+  UNCONDITIONAL_CALL @ 0x005509ab (in FUN_005508b0)
+  UNCONDITIONAL_CALL @ 0x00544e97 (in FUN_00544ce0)
+  UNCONDITIONAL_CALL @ 0x00470c07 (in FUN_00470bc0)
+  UNCONDITIONAL_CALL @ 0x00470c4c (in FUN_00470bc0)
+  UNCONDITIONAL_CALL @ 0x004734b3 (in FUN_00473490)
+  UNCONDITIONAL_CALL @ 0x005a8c38 (in FUN_005a8c00)
+  UNCONDITIONAL_CALL @ 0x005a8cc8 (in FUN_005a8c90)
+  UNCONDITIONAL_CALL @ 0x005aa33b (in FUN_005aa2e0)
+  UNCONDITIONAL_CALL @ 0x005aa3df (in FUN_005aa350)
+  UNCONDITIONAL_CALL @ 0x005ab58a (in FUN_005ab400)
+  UNCONDITIONAL_CALL @ 0x0061b4b2 (in FUN_0061b440)
+  UNCONDITIONAL_CALL @ 0x0083b986 (in FUN_0083b930)
+  UNCONDITIONAL_CALL @ 0x0083c6ec (in FUN_0083c670)
+  UNCONDITIONAL_CALL @ 0x00481752 (in FUN_00481700)
+  UNCONDITIONAL_CALL @ 0x0049b0f8 (in FUN_0049b050)
+  UNCONDITIONAL_CALL @ 0x0045e09a (in FUN_0045dfe0)
+  UNCONDITIONAL_CALL @ 0x0045e117 (in FUN_0045dfe0)
+  UNCONDITIONAL_CALL @ 0x0045e18e (in FUN_0045dfe0)
+  UNCONDITIONAL_CALL @ 0x0045e1fc (in FUN_0045dfe0)
+  UNCONDITIONAL_CALL @ 0x0045e270 (in FUN_0045dfe0)
+  UNCONDITIONAL_CALL @ 0x0045e2e1 (in FUN_0045dfe0)
+  UNCONDITIONAL_CALL @ 0x0045e355 (in FUN_0045dfe0)
+  UNCONDITIONAL_CALL @ 0x0045e3d0 (in FUN_0045dfe0)
+  UNCONDITIONAL_CALL @ 0x0045e444 (in FUN_0045dfe0)
+  UNCONDITIONAL_CALL @ 0x0045e4b5 (in FUN_0045dfe0)
+  UNCONDITIONAL_CALL @ 0x0045e52f (in FUN_0045dfe0)
+  UNCONDITIONAL_CALL @ 0x0045e5ac (in FUN_0045dfe0)
+  UNCONDITIONAL_CALL @ 0x0045e629 (in FUN_0045dfe0)
+  UNCONDITIONAL_CALL @ 0x0045e6a0 (in FUN_0045dfe0)
+  UNCONDITIONAL_CALL @ 0x0045e71a (in FUN_0045dfe0)
+  UNCONDITIONAL_CALL @ 0x0045e797 (in FUN_0045dfe0)
+  UNCONDITIONAL_CALL @ 0x0045e80e (in FUN_0045dfe0)
+  UNCONDITIONAL_CALL @ 0x0045e888 (in FUN_0045dfe0)
+  UNCONDITIONAL_CALL @ 0x0045e8ff (in FUN_0045dfe0)
+  UNCONDITIONAL_CALL @ 0x0045e979 (in FUN_0045dfe0)
+  UNCONDITIONAL_CALL @ 0x0045e9f0 (in FUN_0045dfe0)
+  UNCONDITIONAL_CALL @ 0x0045ea64 (in FUN_0045dfe0)
+  UNCONDITIONAL_CALL @ 0x0045eade (in FUN_0045dfe0)
+  ... (truncated)
+  Total: 41 refs
+
+--- Calls FROM remove current or head list node (0x0063f7b0) ---
+  0x0063f802 -> 0x004702f0 FUN_004702f0
+  Total: 1 calls
+
+======================================================================
+remove successor list node @ 0x00905330
+======================================================================
+  Function: FUN_00905330 @ 0x00905330, Size: 273 bytes
+
+void __thiscall FUN_00905330(int *param_1,int *param_2)
+
+{
+  int *piVar1;
+  char cVar2;
+  int *local_c;
+  int *local_8;
+  
+  if ((*param_2 != 0) &&
+     (cVar2 = FUN_008256d0(), local_c = param_1, local_8 = param_1, cVar2 == '\0')) {
+    for (; (local_8 != (int *)0x0 && (*local_8 != *param_2)); local_8 = (int *)local_8[1]) {
+      local_c = local_8;
+    }
+    if (local_8 != (int *)0x0) {
+      if (local_8 == param_1) {
+        if (param_1[1] == 0) {
+          *param_1 = 0;
+        }
+        else {
+          piVar1 = (int *)param_1[1];
+          param_1[1] = piVar1[1];
+          *param_1 = *piVar1;
+          piVar1[1] = 0;
+          if (piVar1 != (int *)0x0) {
+            FUN_004702f0(1);
+          }
+        }
+      }
+      else {
+        local_c[1] = local_8[1];
+        local_8[1] = 0;
+        if (local_8 != (int *)0x0) {
+          FUN_004702f0(1);
+        }
+      }
+    }
+  }
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00905330 (remove successor list node)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0048505d (in FUN_00484f50)
+  UNCONDITIONAL_CALL @ 0x00550996 (in FUN_005508b0)
+  UNCONDITIONAL_CALL @ 0x0054cb2c (in FUN_0054ca90)
+  UNCONDITIONAL_CALL @ 0x00545398 (in FUN_00545360)
+  UNCONDITIONAL_CALL @ 0x005455b3 (in FUN_00545590)
+  UNCONDITIONAL_CALL @ 0x00545693 (in FUN_00545670)
+  UNCONDITIONAL_CALL @ 0x00587e8f (in FUN_00587e40)
+  UNCONDITIONAL_CALL @ 0x00587edc (in FUN_00587e40)
+  UNCONDITIONAL_CALL @ 0x006c0cc8 (in FUN_006c0c80)
+  UNCONDITIONAL_CALL @ 0x006c10ac (in FUN_006c1060)
+  UNCONDITIONAL_CALL @ 0x006c10d7 (in FUN_006c1060)
+  UNCONDITIONAL_CALL @ 0x006fa6b8 (in FUN_006fa6a0)
+  UNCONDITIONAL_CALL @ 0x006f60e7 (in FUN_006f60c0)
+  UNCONDITIONAL_CALL @ 0x004c9438 (in FUN_004c8fd0)
+  UNCONDITIONAL_CALL @ 0x004bc7c2 (in FUN_004bc780)
+  UNCONDITIONAL_CALL @ 0x004bcb20 (in FUN_004bca80)
+  UNCONDITIONAL_CALL @ 0x00832a0a (in FUN_008329a0)
+  UNCONDITIONAL_CALL @ 0x00832a7b (in FUN_008329a0)
+  UNCONDITIONAL_CALL @ 0x005ab575 (in FUN_005ab400)
+  UNCONDITIONAL_CALL @ 0x004c1190 (in FUN_004c0cf0)
+  UNCONDITIONAL_CALL @ 0x004c1310 (in FUN_004c0cf0)
+  UNCONDITIONAL_CALL @ 0x004c1352 (in FUN_004c0cf0)
+  UNCONDITIONAL_CALL @ 0x004c1469 (in FUN_004c0cf0)
+  UNCONDITIONAL_CALL @ 0x004be517 (in FUN_004be3d0)
+  UNCONDITIONAL_CALL @ 0x004c2fe2 (in FUN_004c29a0)
+  UNCONDITIONAL_CALL @ 0x004c3297 (in FUN_004c29a0)
+  UNCONDITIONAL_CALL @ 0x004c3609 (in FUN_004c3380)
+  UNCONDITIONAL_CALL @ 0x004c373d (in FUN_004c3380)
+  UNCONDITIONAL_CALL @ 0x0085a437 (in FUN_0085a410)
+  UNCONDITIONAL_CALL @ 0x0041f8b7 (in FUN_0041f840)
+  UNCONDITIONAL_CALL @ 0x00420dc1 (in FUN_00420da0)
+  UNCONDITIONAL_CALL @ 0x00545703 (in FUN_005456e0)
+  UNCONDITIONAL_CALL @ 0x008616bf (in FUN_00861640)
+  UNCONDITIONAL_CALL @ 0x00856b8b (in FUN_00856870)
+  UNCONDITIONAL_CALL @ 0x00462aa2 (in FUN_004624b0)
+  UNCONDITIONAL_CALL @ 0x00462c45 (in FUN_004624b0)
+  UNCONDITIONAL_CALL @ 0x00463546 (in FUN_00463070)
+  UNCONDITIONAL_CALL @ 0x0046afe5 (in FUN_0046a370)
+  UNCONDITIONAL_CALL @ 0x0048c026 (in FUN_0048bfc0)
+  UNCONDITIONAL_CALL @ 0x0054c872 (in FUN_0054c740)
+  UNCONDITIONAL_CALL @ 0x0061a670 (in FUN_0061a5a0)
+  ... (truncated)
+  Total: 41 refs
+
+--- Calls FROM remove successor list node (0x00905330) ---
+  0x00905344 -> 0x008256d0 FUN_008256d0
+  0x009053df -> 0x004702f0 FUN_004702f0
+  0x0090542a -> 0x004702f0 FUN_004702f0
+  Total: 3 calls
+
+======================================================================
+append list payload @ 0x005ae3d0
+======================================================================
+  Function: FUN_005ae3d0 @ 0x005ae3d0, Size: 187 bytes
+
+void __thiscall FUN_005ae3d0(int *param_1,int *param_2)
+
+{
+  uint uVar1;
+  int iVar2;
+  int *unaff_FS_OFFSET;
+  int local_24;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00eeb0fb;
+  local_10 = *unaff_FS_OFFSET;
+  uVar1 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  if (*param_2 != 0) {
+    if (*param_1 == 0) {
+      *param_1 = *param_2;
+    }
+    else {
+      iVar2 = FUN_00401000(8,uVar1);
+      local_8 = 0;
+      if (iVar2 == 0) {
+        local_24 = 0;
+      }
+      else {
+        local_24 = FUN_00470440(param_1);
+      }
+      *(int *)(local_24 + 4) = param_1[1];
+      param_1[1] = local_24;
+      *param_1 = *param_2;
+    }
+  }
+  *unaff_FS_OFFSET = local_10;
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x005ae3d0 (append list payload)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x004850f8 (in FUN_00484f50)
+  UNCONDITIONAL_CALL @ 0x00544e05 (in FUN_00544ce0)
+  UNCONDITIONAL_CALL @ 0x00544e42 (in FUN_00544ce0)
+  UNCONDITIONAL_CALL @ 0x00544e66 (in FUN_00544ce0)
+  UNCONDITIONAL_CALL @ 0x00420cbc (in FUN_00420c10)
+  UNCONDITIONAL_CALL @ 0x005482ab (in FUN_00548230)
+  UNCONDITIONAL_CALL @ 0x00548344 (in FUN_00548230)
+  UNCONDITIONAL_CALL @ 0x005486bc (in FUN_00548230)
+  UNCONDITIONAL_CALL @ 0x005486ee (in FUN_00548230)
+  UNCONDITIONAL_CALL @ 0x00545583 (in FUN_00545560)
+  UNCONDITIONAL_CALL @ 0x0054565e (in FUN_005455c0)
+  UNCONDITIONAL_CALL @ 0x00545353 (in FUN_005452c0)
+  UNCONDITIONAL_CALL @ 0x005456d3 (in FUN_005456b0)
+  UNCONDITIONAL_CALL @ 0x00587d7e (in FUN_00587d10)
+  UNCONDITIONAL_CALL @ 0x00587e1f (in FUN_00587d10)
+  UNCONDITIONAL_CALL @ 0x006c111a (in FUN_006c1060)
+  UNCONDITIONAL_CALL @ 0x00777e79 (in FUN_00775a00)
+  UNCONDITIONAL_CALL @ 0x0078a885 (in FUN_0078a5a0)
+  UNCONDITIONAL_CALL @ 0x007a7f44 (in FUN_007a7eb0)
+  UNCONDITIONAL_CALL @ 0x00832724 (in FUN_008325b0)
+  UNCONDITIONAL_CALL @ 0x00832733 (in FUN_008325b0)
+  UNCONDITIONAL_CALL @ 0x00833021 (in FUN_00832cb0)
+  UNCONDITIONAL_CALL @ 0x00833ec4 (in FUN_00833d00)
+  UNCONDITIONAL_CALL @ 0x004ff78e (in FUN_004ff1a0)
+  UNCONDITIONAL_CALL @ 0x00775610 (in FUN_00775380)
+  UNCONDITIONAL_CALL @ 0x0061ace5 (in FUN_0061a7d0)
+  UNCONDITIONAL_CALL @ 0x004c7a63 (in FUN_004c7400)
+  UNCONDITIONAL_CALL @ 0x004c804a (in FUN_004c7400)
+  UNCONDITIONAL_CALL @ 0x004c8eb7 (in FUN_004c8c10)
+  UNCONDITIONAL_CALL @ 0x004be4a8 (in FUN_004be3d0)
+  UNCONDITIONAL_CALL @ 0x004c861e (in FUN_004c8220)
+  UNCONDITIONAL_CALL @ 0x004c8a7b (in FUN_004c8220)
+  UNCONDITIONAL_CALL @ 0x0059a0dd (in FUN_0059a030)
+  UNCONDITIONAL_CALL @ 0x0081bbc0 (in FUN_0081b8e0)
+  UNCONDITIONAL_CALL @ 0x00481a70 (in FUN_004818e0)
+  UNCONDITIONAL_CALL @ 0x004c2de8 (in FUN_004c29a0)
+  UNCONDITIONAL_CALL @ 0x004c3108 (in FUN_004c29a0)
+  UNCONDITIONAL_CALL @ 0x004c31f2 (in FUN_004c29a0)
+  UNCONDITIONAL_CALL @ 0x004c36a6 (in FUN_004c3380)
+  UNCONDITIONAL_CALL @ 0x004d176f (in FUN_004d1610)
+  UNCONDITIONAL_CALL @ 0x004d1ce8 (in FUN_004d1960)
+  ... (truncated)
+  Total: 41 refs
+
+--- Calls FROM append list payload (0x005ae3d0) ---
+  0x005ae40c -> 0x00401000 FUN_00401000
+  0x005ae42b -> 0x00470440 FUN_00470440
+  Total: 2 calls
+
+======================================================================
+free list node @ 0x004702f0
+======================================================================
+  Function: FUN_004702f0 @ 0x004702f0, Size: 44 bytes
+
+undefined4 __thiscall FUN_004702f0(undefined4 param_1,uint param_2)
+
+{
+  FUN_0046ffb0();
+  if ((param_2 & 1) != 0) {
+    FUN_00401030(param_1);
+  }
+  return param_1;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x004702f0 (free list node)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x004704b5 (in FUN_00470470)
+  UNCONDITIONAL_CALL @ 0x00587f07 (in FUN_00587e40)
+  UNCONDITIONAL_CALL @ 0x0063f802 (in FUN_0063f7b0)
+  UNCONDITIONAL_CALL @ 0x004bc624 (in FUN_004bc5f0)
+  UNCONDITIONAL_CALL @ 0x007d9cc4 (in FUN_007d9ac0)
+  UNCONDITIONAL_CALL @ 0x007d9d15 (in FUN_007d9ac0)
+  UNCONDITIONAL_CALL @ 0x005a8c6b (in FUN_005a8c00)
+  UNCONDITIONAL_CALL @ 0x005a8cfb (in FUN_005a8c90)
+  UNCONDITIONAL_CALL @ 0x0059a1b5 (in FUN_0059a030)
+  UNCONDITIONAL_CALL @ 0x00804818 (in FUN_00804560)
+  UNCONDITIONAL_CALL @ 0x00804980 (in FUN_00804560)
+  UNCONDITIONAL_CALL @ 0x004c3496 (in FUN_004c3380)
+  UNCONDITIONAL_CALL @ 0x004bf202 (in FUN_004bf150)
+  UNCONDITIONAL_CALL @ 0x005ffeca (in FUN_005ffd20)
+  UNCONDITIONAL_CALL @ 0x008515be (in FUN_00851540)
+  UNCONDITIONAL_CALL @ 0x00856bde (in FUN_00856870)
+  UNCONDITIONAL_CALL @ 0x004477d9 (in FUN_00447330)
+  UNCONDITIONAL_CALL @ 0x005ffac8 (in FUN_005ff950)
+  UNCONDITIONAL_CALL @ 0x0063d832 (in FUN_0063d5e0)
+  UNCONDITIONAL_CALL @ 0x0066dfb0 (in FUN_0066df40)
+  UNCONDITIONAL_CALL @ 0x004ce721 (in FUN_004ce380)
+  UNCONDITIONAL_CALL @ 0x004cf26d (in FUN_004ce380)
+  UNCONDITIONAL_CALL @ 0x004bf44c (in FUN_004bf330)
+  UNCONDITIONAL_CALL @ 0x004d081d (in FUN_004d0650)
+  UNCONDITIONAL_CALL @ 0x004ca1d4 (in FUN_004ca1a0)
+  UNCONDITIONAL_CALL @ 0x0071aca4 (in FUN_0071aaa0)
+  UNCONDITIONAL_CALL @ 0x0071acf5 (in FUN_0071aaa0)
+  UNCONDITIONAL_CALL @ 0x008557c9 (in FUN_00855730)
+  UNCONDITIONAL_CALL @ 0x0085588b (in FUN_00855730)
+  UNCONDITIONAL_CALL @ 0x0085fc66 (in FUN_0085fbd0)
+  UNCONDITIONAL_CALL @ 0x00863240 (in FUN_008627b0)
+  UNCONDITIONAL_CALL @ 0x0040bafd (in FUN_0040b800)
+  UNCONDITIONAL_CALL @ 0x0040bd2d (in FUN_0040b800)
+  UNCONDITIONAL_CALL @ 0x0041cfc4 (in FUN_0041cf30)
+  UNCONDITIONAL_CALL @ 0x0049020f (in FUN_0048ffd0)
+  UNCONDITIONAL_CALL @ 0x004904cd (in FUN_00490400)
+  UNCONDITIONAL_CALL @ 0x008c08b6 (in FUN_008c0460)
+  UNCONDITIONAL_CALL @ 0x008c097a (in FUN_008c0460)
+  UNCONDITIONAL_CALL @ 0x008c0e3f (in FUN_008c09e0)
+  UNCONDITIONAL_CALL @ 0x008c0e98 (in FUN_008c09e0)
+  UNCONDITIONAL_CALL @ 0x009053df (in FUN_00905330)
+  ... (truncated)
+  Total: 41 refs
+
+--- Calls FROM free list node (0x004702f0) ---
+  0x004702fa -> 0x0046ffb0 FUN_0046ffb0
+  0x0047030b -> 0x00401030 FUN_00401030
+  Total: 2 calls
+
+======================================================================
+radio load read stage @ 0x0084be40
+======================================================================
+  Function: FUN_0084be40 @ 0x0084be40, Size: 320 bytes
+
+undefined4 FUN_0084be40(uint param_1,undefined4 param_2)
+
+{
+  undefined4 uVar1;
+  
+  if (param_1 < 0x3e9) {
+    if (param_1 == 1000) {
+      FUN_004534f0(param_2);
+      return 1;
+    }
+    switch(param_1) {
+    case 0:
+      FUN_004d6020(param_2);
+      uVar1 = 1;
+      break;
+    case 1:
+      FUN_0084c5a0(param_2);
+      uVar1 = 1;
+      break;
+    case 2:
+      FUN_004595e0(param_2);
+      uVar1 = 1;
+      break;
+    case 3:
+      FUN_0084cd40(param_2);
+      uVar1 = 1;
+      break;
+    case 4:
+      FUN_00975930(param_2);
+      uVar1 = 1;
+      break;
+    case 5:
+      FUN_00993440(param_2);
+      uVar1 = 1;
+      break;
+    case 6:
+      FUN_00706860(param_2);
+      uVar1 = 1;
+      break;
+    case 7:
+      FUN_0084d070(param_2);
+      uVar1 = 1;
+      break;
+    case 8:
+      FUN_0046dd00(param_2);
+      FUN_0063ecb0(param_2);
+      uVar1 = 1;
+      break;
+    case 9:
+      FUN_0066e750(param_2);
+      uVar1 = 1;
+      break;
+    case 10:
+      FUN_008368b0(param_2);
+      uVar1 = 1;
+      break;
+    case 0xb:
+      FUN_0082ec60(param_2);
+      uVar1 = 1;
+      break;
+    default:
+      goto switchD_0084be6d_default;
+    }
+  }
+  else {
+switchD_0084be6d_default:
+    FUN_00845cc0("SAVELOAD: Unknown global data type %i in LoadGlobalData()",param_1);
+    uVar1 = 0;
+  }
+  return uVar1;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x0084be40 (radio load read stage)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0084bc9b (in FUN_0084bc20)
+  Total: 1 refs
+
+--- Calls FROM radio load read stage (0x0084be40) ---
+  0x0084be7d -> 0x0084c5a0 FUN_0084c5a0
+  0x0084be96 -> 0x004595e0 FUN_004595e0
+  0x0084bea6 -> 0x0084cd40 FUN_0084cd40
+  0x0084bebe -> 0x00975930 FUN_00975930
+  0x0084bed4 -> 0x00993440 FUN_00993440
+  0x0084bee4 -> 0x00706860 FUN_00706860
+  0x0084bef7 -> 0x0084d070 FUN_0084d070
+  0x0084bf07 -> 0x004d6020 FUN_004d6020
+  0x0084bf17 -> 0x0046dd00 FUN_0046dd00
+  0x0084bf1e -> 0x0063ecb0 FUN_0063ecb0
+  0x0084bf2b -> 0x0066e750 FUN_0066e750
+  0x0084bf3b -> 0x008368b0 FUN_008368b0
+  0x0084bf4b -> 0x0082ec60 FUN_0082ec60
+  0x0084bf60 -> 0x004534f0 FUN_004534f0
+  0x0084bf72 -> 0x00845cc0 FUN_00845cc0
+  Total: 15 calls
+
+======================================================================
+radio load reconcile stage @ 0x0084c030
+======================================================================
+  Function: FUN_0084c030 @ 0x0084c030, Size: 174 bytes
+
+undefined4 FUN_0084c030(uint param_1,undefined4 param_2)
+
+{
+  undefined4 uVar1;
+  
+  if (param_1 < 0x3e9) {
+    if (param_1 == 1000) {
+      return 0;
+    }
+    switch(param_1) {
+    case 0:
+      uVar1 = 0;
+      break;
+    case 1:
+      uVar1 = 0;
+      break;
+    case 2:
+      uVar1 = 0;
+      break;
+    case 3:
+      uVar1 = 0;
+      break;
+    case 4:
+      FUN_00975af0(param_2);
+      uVar1 = 1;
+      break;
+    case 5:
+      FUN_00993600(param_2);
+      uVar1 = 1;
+      break;
+    case 6:
+      uVar1 = 0;
+      break;
+    case 7:
+      uVar1 = 0;
+      break;
+    case 8:
+      uVar1 = 0;
+      break;
+    case 9:
+      FUN_0066e810(param_2);
+      uVar1 = 1;
+      break;
+    case 10:
+      FUN_00836af0(param_2);
+      uVar1 = 1;
+      break;
+    case 0xb:
+      uVar1 = 0;
+      break;
+    default:
+      goto switchD_0084c055_default;
+    }
+  }
+  else {
+switchD_0084c055_default:
+    FUN_00845cc0("DEFAULT: Unknown global data type %i in InitGlobalData()",param_1);
+    uVar1 = 0;
+  }
+  return uVar1;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x0084c030 (radio load reconcile stage)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0084c005 (in FUN_0084bfb0)
+  Total: 1 refs
+
+--- Calls FROM radio load reconcile stage (0x0084c030) ---
+  0x0084c073 -> 0x00975af0 FUN_00975af0
+  0x0084c086 -> 0x00993600 FUN_00993600
+  0x0084c0a3 -> 0x0066e810 FUN_0066e810
+  0x0084c0b3 -> 0x00836af0 FUN_00836af0
+  0x0084c0d0 -> 0x00845cc0 FUN_00845cc0
+  Total: 5 calls
+
+======================================================================
+radio load finalize stage @ 0x0084c190
+======================================================================
+  Function: FUN_0084c190 @ 0x0084c190, Size: 175 bytes
+
+undefined4 FUN_0084c190(uint param_1,undefined4 param_2)
+
+{
+  undefined4 uVar1;
+  
+  if (param_1 < 0x3e9) {
+    if (param_1 == 1000) {
+      return 0;
+    }
+    switch(param_1) {
+    case 0:
+      uVar1 = 0;
+      break;
+    case 1:
+      uVar1 = 0;
+      break;
+    case 2:
+      FUN_00459750(param_2);
+      uVar1 = 1;
+      break;
+    case 3:
+      uVar1 = 0;
+      break;
+    case 4:
+      uVar1 = 0;
+      break;
+    case 5:
+      FUN_00993790(param_2);
+      uVar1 = 1;
+      break;
+    case 6:
+      FUN_00706a90(param_2);
+      uVar1 = 1;
+      break;
+    case 7:
+      uVar1 = 0;
+      break;
+    case 8:
+      uVar1 = 0;
+      break;
+    case 9:
+      uVar1 = 0;
+      break;
+    case 10:
+      FUN_00836e20(param_2);
+      uVar1 = 1;
+      break;
+    case 0xb:
+      uVar1 = 0;
+      break;
+    default:
+      goto switchD_0084c1b5_default;
+    }
+  }
+  else {
+switchD_0084c1b5_default:
+    FUN_00845cc0("DEFAULT: Unknown global data type %i in FinishLoadGlobalData()",param_1);
+    uVar1 = 0;
+  }
+  return uVar1;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x0084c190 (radio load finalize stage)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0084c165 (in FUN_0084c110)
+  Total: 1 refs
+
+--- Calls FROM radio load finalize stage (0x0084c190) ---
+  0x0084c1cc -> 0x00459750 FUN_00459750
+  0x0084c1e7 -> 0x00993790 FUN_00993790
+  0x0084c1f4 -> 0x00706a90 FUN_00706a90
+  0x0084c214 -> 0x00836e20 FUN_00836e20
+  0x0084c231 -> 0x00845cc0 FUN_00845cc0
+  Total: 5 calls
+
+======================================================================
+radio load reset stage @ 0x0084c330
+======================================================================
+  Function: FUN_0084c330 @ 0x0084c330, Size: 290 bytes
+
+undefined4 FUN_0084c330(uint param_1,undefined4 param_2,char param_3)
+
+{
+  undefined4 uVar1;
+  
+  if (param_1 < 0x3e9) {
+    if (param_1 == 1000) {
+      FUN_00975c50(param_2);
+      return 1;
+    }
+    switch(param_1) {
+    case 0:
+      FUN_004d60c0(param_2);
+      uVar1 = 1;
+      break;
+    case 1:
+      uVar1 = 0;
+      break;
+    case 2:
+      FUN_00459840(param_2);
+      uVar1 = 1;
+      break;
+    case 3:
+      if (param_3 == '\0') {
+        uVar1 = 0;
+      }
+      else {
+        FUN_0084ced0();
+        uVar1 = 1;
+      }
+      break;
+    case 4:
+      FUN_00975b60(param_2);
+      uVar1 = 1;
+      break;
+    case 5:
+      FUN_00993800(param_2);
+      uVar1 = 1;
+      break;
+    case 6:
+      FUN_00706ae0(param_2);
+      uVar1 = 1;
+      break;
+    case 7:
+      FUN_0084d160();
+      uVar1 = 1;
+      break;
+    case 8:
+      uVar1 = 0;
+      break;
+    case 9:
+      FUN_0066e910(param_2);
+      uVar1 = 1;
+      break;
+    case 10:
+      FUN_00836ef0(param_2);
+      uVar1 = 1;
+      break;
+    case 0xb:
+      FUN_0040fbe0(param_2);
+      uVar1 = 1;
+      break;
+    default:
+      goto switchD_0084c35d_default;
+    }
+  }
+  else {
+switchD_0084c35d_default:
+    FUN_00845cc0("DEFAULT: Unknown global data type %i in RevertGlobalData()",param_1);
+    uVar1 = 0;
+  }
+  return uVar1;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x0084c330 (radio load reset stage)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0084c2fa (in FUN_0084c2a0)
+  Total: 1 refs
+
+--- Calls FROM radio load reset stage (0x0084c330) ---
+  0x0084c37a -> 0x00459840 FUN_00459840
+  0x0084c38e -> 0x0084ced0 FUN_0084ced0
+  0x0084c3aa -> 0x00975b60 FUN_00975b60
+  0x0084c3c0 -> 0x00993800 FUN_00993800
+  0x0084c3d0 -> 0x00706ae0 FUN_00706ae0
+  0x0084c3dc -> 0x0084d160 FUN_0084d160
+  0x0084c3e9 -> 0x004d60c0 FUN_004d60c0
+  0x0084c3fd -> 0x0066e910 FUN_0066e910
+  0x0084c40d -> 0x00836ef0 FUN_00836ef0
+  0x0084c41d -> 0x0040fbe0 FUN_0040fbe0
+  0x0084c432 -> 0x00975c50 FUN_00975c50
+  0x0084c444 -> 0x00845cc0 FUN_00845cc0
+  Total: 12 calls
+
+----------------------------------------------------------------------
+Disassembly: registered list resolve and invalid-entry unlink (0x00836b20 - 0x00836c10)
+----------------------------------------------------------------------
+  0x00836b22: MOV ECX,dword ptr [EBP + -0x4]
+  0x00836b25: CALL 0x00726070
+  0x00836b2a: MOV dword ptr [EBP + -0x4],EAX
+  0x00836b2d: JMP 0x00836afd
+  0x00836b2f: MOV dword ptr [EBP + -0x10],0x11dd554
+  0x00836b36: MOV dword ptr [EBP + -0xc],0x0
+  0x00836b3d: CMP dword ptr [EBP + -0x10],0x0
+  0x00836b41: JZ 0x00836c0a
+  0x00836b47: MOV ECX,dword ptr [EBP + -0x10]
+  0x00836b4a: CALL 0x008256d0
+  0x00836b4f: MOVZX EDX,AL
+  0x00836b52: TEST EDX,EDX
+  0x00836b54: JNZ 0x00836c0a
+  0x00836b5a: MOV ECX,dword ptr [EBP + -0x10]
+  0x00836b5d: CALL 0x006815c0
+  0x00836b62: MOV EAX,dword ptr [EAX]
+  0x00836b64: MOV dword ptr [EBP + -0x18],EAX
+  0x00836b67: MOV byte ptr [EBP + -0x11],0x0
+  0x00836b6b: CMP dword ptr [EBP + -0x18],0x0
+  0x00836b6f: JZ 0x00836bba
+  0x00836b71: MOV ECX,dword ptr [EBP + 0x8]
+  0x00836b74: PUSH ECX
+  0x00836b75: MOV ECX,dword ptr [EBP + -0x18]
+  0x00836b78: CALL 0x00836660
+  0x00836b7d: MOV EDX,dword ptr [EBP + -0x18]
+  0x00836b80: CMP dword ptr [EDX],0x0
+  0x00836b83: JNZ 0x00836bb8
+  0x00836b85: MOV EAX,dword ptr [EBP + -0x18]
+  0x00836b88: MOV dword ptr [EBP + -0x40],EAX
+  0x00836b8b: MOV ECX,dword ptr [EBP + -0x40]
+  0x00836b8e: MOV dword ptr [EBP + -0x3c],ECX
+  0x00836b91: CMP dword ptr [EBP + -0x3c],0x0
+  0x00836b95: JZ 0x00836ba6
+  0x00836b97: PUSH 0x1
+  0x00836b99: MOV ECX,dword ptr [EBP + -0x3c]
+  0x00836b9c: CALL 0x00832160
+  0x00836ba1: MOV dword ptr [EBP + -0x4c],EAX
+  0x00836ba4: JMP 0x00836bad
+  0x00836ba6: MOV dword ptr [EBP + -0x4c],0x0
+  0x00836bad: MOV dword ptr [EBP + -0x18],0x0
+  0x00836bb4: MOV byte ptr [EBP + -0x11],0x1
+  0x00836bb8: JMP 0x00836bbe
+  0x00836bba: MOV byte ptr [EBP + -0x11],0x1
+  0x00836bbe: MOVZX EDX,byte ptr [EBP + -0x11]
+  0x00836bc2: TEST EDX,EDX
+  0x00836bc4: JZ 0x00836bf4
+  0x00836bc6: CMP dword ptr [EBP + -0xc],0x0
+  0x00836bca: JZ 0x00836bea
+  0x00836bcc: MOV ECX,dword ptr [EBP + -0x10]
+  0x00836bcf: CALL 0x006815c0
+  0x00836bd4: PUSH EAX
+  0x00836bd5: MOV ECX,dword ptr [EBP + -0xc]
+  0x00836bd8: CALL 0x00905330
+  0x00836bdd: MOV ECX,dword ptr [EBP + -0xc]
+  0x00836be0: CALL 0x00726070
+  0x00836be5: MOV dword ptr [EBP + -0x10],EAX
+  0x00836be8: JMP 0x00836bf2
+  0x00836bea: MOV ECX,dword ptr [EBP + -0x10]
+  0x00836bed: CALL 0x0063f7b0
+  0x00836bf2: JMP 0x00836c05
+  0x00836bf4: MOV EAX,dword ptr [EBP + -0x10]
+  0x00836bf7: MOV dword ptr [EBP + -0xc],EAX
+  0x00836bfa: MOV ECX,dword ptr [EBP + -0x10]
+  0x00836bfd: CALL 0x00726070
+  0x00836c02: MOV dword ptr [EBP + -0x10],EAX
+  0x00836c05: JMP 0x00836b3d
+  0x00836c0a: MOV dword ptr [EBP + -0x20],0x11dd58c
+
+----------------------------------------------------------------------
+Disassembly: registered wrapper deserialize and resolve (0x00836630 - 0x008366c0)
+----------------------------------------------------------------------
+  0x00836630: PUSH EBP
+  0x00836631: MOV EBP,ESP
+  0x00836633: PUSH ECX
+  0x00836634: MOV dword ptr [EBP + -0x4],ECX
+  0x00836637: MOV EAX,dword ptr [EBP + -0x4]
+  0x0083663a: PUSH EAX
+  0x0083663b: MOV ECX,dword ptr [EBP + 0x8]
+  0x0083663e: CALL 0x008648e0
+  0x00836643: MOV ECX,dword ptr [EBP + 0x8]
+  0x00836646: PUSH ECX
+  0x00836647: MOV ECX,dword ptr [EBP + -0x4]
+  0x0083664a: ADD ECX,0x4
+  0x0083664d: CALL 0x00836240
+  0x00836652: MOV ESP,EBP
+  0x00836654: POP EBP
+  0x00836655: RET 0x4
+  0x00836660: PUSH EBP
+  0x00836661: MOV EBP,ESP
+  0x00836663: SUB ESP,0x8
+  0x00836666: MOV dword ptr [EBP + -0x4],ECX
+  0x00836669: MOV EAX,dword ptr [EBP + -0x4]
+  0x0083666c: CMP dword ptr [EAX],0x0
+  0x0083666f: JZ 0x0083669b
+  0x00836671: PUSH 0x0
+  0x00836673: PUSH 0x11841cc
+  0x00836678: PUSH 0x1183028
+  0x0083667d: MOV ECX,dword ptr [EBP + -0x4]
+  0x00836680: MOV EDX,dword ptr [ECX]
+  0x00836682: PUSH EDX
+  0x00836683: CALL 0x004839c0
+  0x00836688: ADD ESP,0x4
+  0x0083668b: PUSH 0x0
+  0x0083668d: PUSH EAX
+  0x0083668e: CALL 0x00ec43fb
+  0x00836693: ADD ESP,0x14
+  0x00836696: MOV dword ptr [EBP + -0x8],EAX
+  0x00836699: JMP 0x008366a2
+  0x0083669b: MOV dword ptr [EBP + -0x8],0x0
+  0x008366a2: MOV EAX,dword ptr [EBP + -0x4]
+  0x008366a5: MOV ECX,dword ptr [EBP + -0x8]
+  0x008366a8: MOV dword ptr [EAX],ECX
+  0x008366aa: MOV EDX,dword ptr [EBP + 0x8]
+  0x008366ad: PUSH EDX
+  0x008366ae: MOV ECX,dword ptr [EBP + -0x4]
+  0x008366b1: ADD ECX,0x4
+  0x008366b4: CALL 0x008363a0
+  0x008366b9: MOV ESP,EBP
+  0x008366bb: POP EBP
+  0x008366bc: RET 0x4
+  0x008366c0: PUSH EBP
+
+----------------------------------------------------------------------
+Disassembly: load-stage ordering around reconcile and finalize (0x0084bfc0 - 0x0084c240)
+----------------------------------------------------------------------
+  0x0084bfc0: PUSH EAX
+  0x0084bfc1: SUB ESP,0x14
+  0x0084bfc4: MOV EAX,[0x011c16bc]
+  0x0084bfc9: XOR EAX,EBP
+  0x0084bfcb: PUSH EAX
+  0x0084bfcc: LEA EAX,[EBP + -0xc]
+  0x0084bfcf: MOV FS:[0x0],EAX
+  0x0084bfd5: LEA ECX,[EBP + -0x1c]
+  0x0084bfd8: CALL 0x008646b0
+  0x0084bfdd: MOV dword ptr [EBP + -0x4],0x0
+  0x0084bfe4: MOV EAX,dword ptr [EBP + 0x8]
+  0x0084bfe7: MOV dword ptr [EBP + -0x20],EAX
+  0x0084bfea: JMP 0x0084bff5
+  0x0084bfec: MOV ECX,dword ptr [EBP + -0x20]
+  0x0084bfef: ADD ECX,0x1
+  0x0084bff2: MOV dword ptr [EBP + -0x20],ECX
+  0x0084bff5: MOV EDX,dword ptr [EBP + -0x20]
+  0x0084bff8: CMP EDX,dword ptr [EBP + 0xc]
+  0x0084bffb: JNC 0x0084c00f
+  0x0084bffd: LEA EAX,[EBP + -0x1c]
+  0x0084c000: PUSH EAX
+  0x0084c001: MOV ECX,dword ptr [EBP + -0x20]
+  0x0084c004: PUSH ECX
+  0x0084c005: CALL 0x0084c030
+  0x0084c00a: ADD ESP,0x8
+  0x0084c00d: JMP 0x0084bfec
+  0x0084c00f: MOV dword ptr [EBP + -0x4],0xffffffff
+  0x0084c016: LEA ECX,[EBP + -0x1c]
+  0x0084c019: CALL 0x008646f0
+  0x0084c01e: MOV ECX,dword ptr [EBP + -0xc]
+  0x0084c021: MOV dword ptr FS:[0x0],ECX
+  0x0084c028: POP ECX
+  0x0084c029: MOV ESP,EBP
+  0x0084c02b: POP EBP
+  0x0084c02c: RET
+  0x0084c030: PUSH EBP
+  0x0084c031: MOV EBP,ESP
+  0x0084c033: PUSH ECX
+  0x0084c034: MOV EAX,dword ptr [EBP + 0x8]
+  0x0084c037: MOV dword ptr [EBP + -0x4],EAX
+  0x0084c03a: CMP dword ptr [EBP + -0x4],0x3e8
+  0x0084c041: JA 0x0084c05c
+  0x0084c043: CMP dword ptr [EBP + -0x4],0x3e8
+  0x0084c04a: JZ 0x0084c0c3
+  0x0084c04c: CMP dword ptr [EBP + -0x4],0xb
+  0x0084c050: JA 0x0084c0c7
+  0x0084c052: MOV ECX,dword ptr [EBP + -0x4]
+  0x0084c055: JMP dword ptr [ECX*0x4 + 0x84c0e0]
+  0x0084c05c: JMP 0x0084c0c7
+  0x0084c05e: XOR AL,AL
+  0x0084c060: JMP 0x0084c0da
+  0x0084c062: XOR AL,AL
+  0x0084c064: JMP 0x0084c0da
+  0x0084c066: XOR AL,AL
+  0x0084c068: JMP 0x0084c0da
+  0x0084c06a: MOV EDX,dword ptr [EBP + 0xc]
+  0x0084c06d: PUSH EDX
+  0x0084c06e: MOV ECX,0x11e0e80
+  0x0084c073: CALL 0x00975af0
+  0x0084c078: MOV AL,0x1
+  0x0084c07a: JMP 0x0084c0da
+  0x0084c07c: MOV EAX,dword ptr [EBP + 0xc]
+  0x0084c07f: PUSH EAX
+  0x0084c080: MOV ECX,dword ptr [0x011f1958]
+  0x0084c086: CALL 0x00993600
+  0x0084c08b: MOV AL,0x1
+  0x0084c08d: JMP 0x0084c0da
+  0x0084c08f: XOR AL,AL
+  0x0084c091: JMP 0x0084c0da
+  0x0084c093: XOR AL,AL
+  0x0084c095: JMP 0x0084c0da
+  0x0084c097: XOR AL,AL
+  0x0084c099: JMP 0x0084c0da
+  0x0084c09b: XOR AL,AL
+  0x0084c09d: JMP 0x0084c0da
+  0x0084c09f: MOV ECX,dword ptr [EBP + 0xc]
+  0x0084c0a2: PUSH ECX
+  0x0084c0a3: CALL 0x0066e810
+  0x0084c0a8: ADD ESP,0x4
+  0x0084c0ab: MOV AL,0x1
+  0x0084c0ad: JMP 0x0084c0da
+  0x0084c0af: MOV EDX,dword ptr [EBP + 0xc]
+  0x0084c0b2: PUSH EDX
+  0x0084c0b3: CALL 0x00836af0
+  0x0084c0b8: ADD ESP,0x4
+  0x0084c0bb: MOV AL,0x1
+  0x0084c0bd: JMP 0x0084c0da
+  0x0084c0bf: XOR AL,AL
+  0x0084c0c1: JMP 0x0084c0da
+  0x0084c0c3: XOR AL,AL
+  0x0084c0c5: JMP 0x0084c0da
+  0x0084c0c7: MOV EAX,dword ptr [EBP + 0x8]
+  0x0084c0ca: PUSH EAX
+  0x0084c0cb: PUSH 0x107f61c
+  0x0084c0d0: CALL 0x00845cc0
+  0x0084c0d5: ADD ESP,0x8
+  0x0084c0d8: XOR AL,AL
+  0x0084c0da: MOV ESP,EBP
+  0x0084c0dc: POP EBP
+  0x0084c0dd: RET
+  0x0084c110: PUSH EBP
+  0x0084c111: MOV EBP,ESP
+  0x0084c113: PUSH -0x1
+  0x0084c115: PUSH 0xf12df8
+  0x0084c11a: MOV EAX,FS:[0x0]
+  0x0084c120: PUSH EAX
+  0x0084c121: SUB ESP,0x14
+  0x0084c124: MOV EAX,[0x011c16bc]
+  0x0084c129: XOR EAX,EBP
+  0x0084c12b: PUSH EAX
+  0x0084c12c: LEA EAX,[EBP + -0xc]
+  0x0084c12f: MOV FS:[0x0],EAX
+  0x0084c135: LEA ECX,[EBP + -0x1c]
+  0x0084c138: CALL 0x008646b0
+  0x0084c13d: MOV dword ptr [EBP + -0x4],0x0
+  0x0084c144: MOV EAX,dword ptr [EBP + 0x8]
+  0x0084c147: MOV dword ptr [EBP + -0x20],EAX
+  0x0084c14a: JMP 0x0084c155
+  0x0084c14c: MOV ECX,dword ptr [EBP + -0x20]
+  0x0084c14f: ADD ECX,0x1
+  0x0084c152: MOV dword ptr [EBP + -0x20],ECX
+  0x0084c155: MOV EDX,dword ptr [EBP + -0x20]
+  0x0084c158: CMP EDX,dword ptr [EBP + 0xc]
+  0x0084c15b: JNC 0x0084c16f
+  0x0084c15d: LEA EAX,[EBP + -0x1c]
+  0x0084c160: PUSH EAX
+  0x0084c161: MOV ECX,dword ptr [EBP + -0x20]
+  0x0084c164: PUSH ECX
+  0x0084c165: CALL 0x0084c190
+  0x0084c16a: ADD ESP,0x8
+  0x0084c16d: JMP 0x0084c14c
+  0x0084c16f: MOV dword ptr [EBP + -0x4],0xffffffff
+  0x0084c176: LEA ECX,[EBP + -0x1c]
+  0x0084c179: CALL 0x008646f0
+  0x0084c17e: MOV ECX,dword ptr [EBP + -0xc]
+  0x0084c181: MOV dword ptr FS:[0x0],ECX
+  0x0084c188: POP ECX
+  0x0084c189: MOV ESP,EBP
+  0x0084c18b: POP EBP
+  0x0084c18c: RET
+  0x0084c190: PUSH EBP
+  0x0084c191: MOV EBP,ESP
+  0x0084c193: PUSH ECX
+  0x0084c194: MOV EAX,dword ptr [EBP + 0x8]
+  0x0084c197: MOV dword ptr [EBP + -0x4],EAX
+  0x0084c19a: CMP dword ptr [EBP + -0x4],0x3e8
+  0x0084c1a1: JA 0x0084c1bc
+  0x0084c1a3: CMP dword ptr [EBP + -0x4],0x3e8
+  0x0084c1aa: JZ 0x0084c224
+  0x0084c1ac: CMP dword ptr [EBP + -0x4],0xb
+  0x0084c1b0: JA 0x0084c228
+  0x0084c1b2: MOV ECX,dword ptr [EBP + -0x4]
+  0x0084c1b5: JMP dword ptr [ECX*0x4 + 0x84c240]
+  0x0084c1bc: JMP 0x0084c228
+  0x0084c1be: XOR AL,AL
+  0x0084c1c0: JMP 0x0084c23b
+  0x0084c1c2: MOV EDX,dword ptr [EBP + 0xc]
+  0x0084c1c5: PUSH EDX
+  0x0084c1c6: MOV ECX,dword ptr [0x011dea10]
+  0x0084c1cc: CALL 0x00459750
+  0x0084c1d1: MOV AL,0x1
+  0x0084c1d3: JMP 0x0084c23b
+  0x0084c1d5: XOR AL,AL
+  0x0084c1d7: JMP 0x0084c23b
+  0x0084c1d9: XOR AL,AL
+  0x0084c1db: JMP 0x0084c23b
+  0x0084c1dd: MOV EAX,dword ptr [EBP + 0xc]
+  0x0084c1e0: PUSH EAX
+  0x0084c1e1: MOV ECX,dword ptr [0x011f1958]
+  0x0084c1e7: CALL 0x00993790
+  0x0084c1ec: MOV AL,0x1
+  0x0084c1ee: JMP 0x0084c23b
+  0x0084c1f0: MOV ECX,dword ptr [EBP + 0xc]
+  0x0084c1f3: PUSH ECX
+  0x0084c1f4: CALL 0x00706a90
+  0x0084c1f9: ADD ESP,0x4
+  0x0084c1fc: MOV AL,0x1
+  0x0084c1fe: JMP 0x0084c23b
+  0x0084c200: XOR AL,AL
+  0x0084c202: JMP 0x0084c23b
+  0x0084c204: XOR AL,AL
+  0x0084c206: JMP 0x0084c23b
+  0x0084c208: XOR AL,AL
+  0x0084c20a: JMP 0x0084c23b
+  0x0084c20c: XOR AL,AL
+  0x0084c20e: JMP 0x0084c23b
+  0x0084c210: MOV EDX,dword ptr [EBP + 0xc]
+  0x0084c213: PUSH EDX
+  0x0084c214: CALL 0x00836e20
+  0x0084c219: ADD ESP,0x4
+  0x0084c21c: MOV AL,0x1
+  0x0084c21e: JMP 0x0084c23b
+  0x0084c220: XOR AL,AL
+  0x0084c222: JMP 0x0084c23b
+  0x0084c224: XOR AL,AL
+  0x0084c226: JMP 0x0084c23b
+  0x0084c228: MOV EAX,dword ptr [EBP + 0x8]
+  0x0084c22b: PUSH EAX
+  0x0084c22c: PUSH 0x107f658
+  0x0084c231: CALL 0x00845cc0
+  0x0084c236: ADD ESP,0x8
+  0x0084c239: XOR AL,AL
+  0x0084c23b: MOV ESP,EBP
+  0x0084c23d: POP EBP
+  0x0084c23e: RET

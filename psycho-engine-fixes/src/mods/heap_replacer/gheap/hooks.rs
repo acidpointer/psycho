@@ -194,13 +194,19 @@ pub unsafe extern "C" fn hook_radio_signal_scan(
 }
 
 pub unsafe extern "C" fn hook_radio_station_update(station: *mut c_void) {
-    if !unsafe { radio_station_is_readable(station) } {
+    if let Some((reason, form)) = unsafe { invalid_radio_station(station) } {
         static STALE_STATIONS: AtomicU64 = AtomicU64::new(0);
         let count = STALE_STATIONS.fetch_add(1, Ordering::Relaxed) + 1;
         if crate::mods::diagnostics::should_log_power_of_two(count) {
+            let station_pool = super::pool::ptr_info(station.cast_const());
+            let form_pool = super::pool::ptr_info(form.cast_const());
             log::warn!(
-                "[RADIO] Stale station entry skipped before form flag read: station=0x{:08X} total={}",
+                "[RADIO] Stale station entry skipped before form access: reason={} station=0x{:08X} form=0x{:08X} station_pool={:?} form_pool={:?} total={}",
+                reason,
                 station as usize,
+                form as usize,
+                station_pool,
+                form_pool,
                 count,
             );
         }
@@ -211,25 +217,42 @@ pub unsafe extern "C" fn hook_radio_station_update(station: *mut c_void) {
     }
 }
 
-/// `FUN_00834260` checks the wrapper and its first pointer for NULL, then
-/// immediately calls `FUN_00440DA0`, which reads flags at `form + 8` without
-/// validating that the form still exists. The observed post-load crash had a
-/// stale first pointer at this exact read.
+/// `FUN_00834260` checks the wrapper and its first pointer for NULL, then calls
+/// `FUN_00440DA0`, which reads flags at `form + 8`. Later code makes virtual
+/// calls on the same form. Validate the complete TESForm prefix and its vtable
+/// before entering either path.
 #[inline]
-unsafe fn radio_station_is_readable(station: *mut c_void) -> bool {
+unsafe fn invalid_radio_station(station: *mut c_void) -> Option<(&'static str, *mut c_void)> {
+    const FNV_TEXT: std::ops::Range<usize> = 0x0040_0000..0x00E0_0000;
+    const FNV_RDATA: std::ops::Range<usize> = 0x0100_0000..0x0110_0000;
+
     if station.is_null() {
-        return true;
+        return None;
     }
     if !unsafe { is_readable_ptr(station.cast_const(), size_of::<usize>()) } {
-        return false;
+        return Some(("wrapper-unreadable", ptr::null_mut()));
     }
 
     let form = unsafe { ptr::read_unaligned(station.cast::<*mut c_void>()) };
     if form.is_null() {
-        return true;
+        return None;
     }
-    (form as usize) & (size_of::<usize>() - 1) == 0
-        && unsafe { is_readable_ptr(form.cast_const(), 12) }
+    if (form as usize) & (size_of::<usize>() - 1) != 0 {
+        return Some(("form-unaligned", form));
+    }
+    if !unsafe { is_readable_ptr(form.cast_const(), 0x10) } {
+        return Some(("form-unreadable", form));
+    }
+
+    let vtable = unsafe { ptr::read_unaligned(form.cast::<usize>()) };
+    if !FNV_RDATA.contains(&vtable) {
+        return Some(("form-vtable", form));
+    }
+    let first_method = unsafe { ptr::read_unaligned(vtable as *const usize) };
+    if !FNV_TEXT.contains(&first_method) {
+        return Some(("form-method", form));
+    }
+    None
 }
 
 pub unsafe extern "C" fn hook_phase10_pre_tail() {
