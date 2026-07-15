@@ -80,20 +80,20 @@ impl Default for NativeSkyConfig {
     fn default() -> Self {
         Self {
             enabled: true,
-            atmosphere_thickness: 2.0,
-            sun_influence: 1.0,
-            sun_strength: 1.0,
-            glare_strength: 1.0,
+            atmosphere_thickness: 0.7068965,
+            sun_influence: 1.291271,
+            sun_strength: 1.517241,
+            glare_strength: 0.8965517,
             star_strength: 1.0,
             star_twinkle: 1.0,
-            cloud_transparency: 0.4,
-            cloud_brightness: 0.9,
+            cloud_transparency: 0.3610992,
+            cloud_brightness: 1.305171,
             cloud_normals: false,
             use_sun_disk_color: false,
             sunset_red: 0.5,
             sunset_green: 0.0,
             sunset_blue: 0.03,
-            sky_multiplier: 1.0,
+            sky_multiplier: 2.043103,
         }
     }
 }
@@ -171,15 +171,15 @@ impl Default for FastAoConfig {
     fn default() -> Self {
         Self {
             enabled: true,
-            strength: 0.73,
-            radius_scale: 75.5,
+            strength: 1.36793,
+            radius_scale: 71.698_27,
             max_radius_pixels: 7.6,
-            range_scale: 0.076,
+            range_scale: 0.07976293,
             debug_depth: false,
             depth_reversed: true,
-            min_ambient: 0.18,
+            min_ambient: 0.1543535,
             luminance_protection: 0.45,
-            stability: 0.65,
+            stability: 0.5875,
             first_person_mask: 1.0,
             fog_fade: 1.0,
         }
@@ -205,7 +205,7 @@ impl Default for ContactAoConfig {
     fn default() -> Self {
         Self {
             enabled: true,
-            strength: 0.58,
+            strength: 0.4291376,
             radius_pixels: 4.3,
             range_scale: 0.031,
             bias_scale: 0.0,
@@ -280,19 +280,19 @@ impl Default for SunshaftsConfig {
     fn default() -> Self {
         Self {
             enabled: true,
-            intensity: 0.34,
-            exposure: 0.52,
-            decay: 1.005,
-            density: 1.08,
-            force: 2.05,
-            bright_threshold: 0.56,
-            warmth: 0.64,
+            intensity: 0.3076724,
+            exposure: 0.2062068,
+            decay: 1.017446,
+            density: 0.9709481,
+            force: 1.015518,
+            bright_threshold: 0.7188362,
+            warmth: 0.9675861,
             first_person_occlusion: 1.0,
-            sun_falloff: 1.05,
+            sun_falloff: 1.088103,
             depth_reversed: true,
             debug_mask: false,
             sun_sample_px: 32,
-            glare_radius: 0.044,
+            glare_radius: 0.07175863,
             occlusion_softness: 0.42,
         }
     }
@@ -431,18 +431,18 @@ impl Default for DepthOfFieldConfig {
             focus_deadband: 0.025,
             focus_near_seconds: 0.12,
             focus_far_seconds: 0.28,
-            focus_range: 0.12,
-            far_focus_range: 0.16,
-            near_strength: 0.85,
-            far_strength: 0.75,
-            near_radius_pixels: 12.0,
-            far_radius_pixels: 36.0,
-            first_person_strength: 0.4,
-            distant_blur_strength: 0.65,
-            distant_blur_start: 30_000.0,
-            distant_blur_end: 150_000.0,
-            sky_blur_strength: 0.0,
-            softness: 0.75,
+            focus_range: 0.55,
+            far_focus_range: 0.70,
+            near_strength: 0.35,
+            far_strength: 0.35,
+            near_radius_pixels: 10.0,
+            far_radius_pixels: 48.0,
+            first_person_strength: 0.2,
+            distant_blur_strength: 0.6413795,
+            distant_blur_start: 21_551.82,
+            distant_blur_end: 55_172.29,
+            sky_blur_strength: 0.125,
+            softness: 0.9517241,
         }
     }
 }
@@ -472,6 +472,12 @@ impl Default for DiagnosticsConfig {
 
 pub(crate) fn load_config() -> &'static PsychoGraphicsConfig {
     CONFIG.get_or_init(|| Config::load_readonly::<PsychoGraphicsConfig>(CONFIG_PATH))
+}
+
+pub(crate) fn load_menu_config_from_disk() -> Result<GraphicsMenuConfig> {
+    let config = Config::load::<PsychoGraphicsConfig>(CONFIG_PATH)
+        .with_context(|| format!("failed to reload {CONFIG_PATH}"))?;
+    Ok(GraphicsMenuConfig::from(&config))
 }
 
 #[derive(Clone, Copy, Debug)]

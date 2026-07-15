@@ -71,9 +71,11 @@ float DecodeFocus(float encoded) {
     return max(exp2(saturate(encoded) * log2(farZ + 1.0f)) - 1.0f, 0.01f);
 }
 
-float SmoothRamp(float delta, float start, float width) {
-    float value = saturate((delta - start) / max(width, 0.0000001f));
-    return value * value * (3.0f - 2.0f * value);
+float OpticalFalloff(float inverseDistanceDelta, float inverseFocus, float focusWidth) {
+    float normalizedDelta = inverseDistanceDelta
+        / max(inverseFocus * focusWidth, 0.0000001f);
+    float squaredDelta = min(normalizedDelta * normalizedDelta, 32.0f);
+    return 1.0f - exp2(-squaredDelta);
 }
 
 float SignedCoc(float linearDepth, float focusDistance, bool firstPerson, bool sky) {
@@ -85,20 +87,18 @@ float SignedCoc(float linearDepth, float focusDistance, bool firstPerson, bool s
 
     float inverseFocus = rcp(max(focusDistance, 0.01f));
     float inverseDepth = rcp(max(linearDepth, 0.01f));
-    float nearStart = inverseFocus * max(FocusTiming.z, 0.001f);
-    float farStart = inverseFocus * max(DistantData.w, 0.001f);
     float nearCoc = nearEnabled
-        ? SmoothRamp(
+        ? OpticalFalloff(
             max(inverseDepth - inverseFocus, 0.0f),
-            nearStart,
-            max(nearStart, inverseFocus * 0.025f)
+            inverseFocus,
+            max(FocusTiming.z, 0.001f)
         ) * StrengthData.x
         : 0.0f;
     float farCoc = farEnabled
-        ? SmoothRamp(
+        ? OpticalFalloff(
             max(inverseFocus - inverseDepth, 0.0f),
-            farStart,
-            max(farStart, inverseFocus * 0.025f)
+            inverseFocus,
+            max(DistantData.w, 0.001f)
         ) * StrengthData.y
         : 0.0f;
 

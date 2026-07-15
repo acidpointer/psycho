@@ -86,14 +86,14 @@ impl From<crate::config::NativeSkyConfig> for NativeSkySettings {
     fn from(value: crate::config::NativeSkyConfig) -> Self {
         Self {
             enabled: value.enabled,
-            atmosphere_thickness: sanitize(value.atmosphere_thickness, 2.0, 0.0, 8.0),
-            sun_influence: sanitize(value.sun_influence, 1.0, 0.05, 8.0),
-            sun_strength: sanitize(value.sun_strength, 1.0, 0.0, 8.0),
-            glare_strength: sanitize(value.glare_strength, 1.0, 0.0, 8.0),
+            atmosphere_thickness: sanitize(value.atmosphere_thickness, 0.7068965, 0.0, 8.0),
+            sun_influence: sanitize(value.sun_influence, 1.291271, 0.05, 8.0),
+            sun_strength: sanitize(value.sun_strength, 1.517241, 0.0, 8.0),
+            glare_strength: sanitize(value.glare_strength, 0.8965517, 0.0, 8.0),
             star_strength: sanitize(value.star_strength, 1.0, 0.0, 8.0),
             star_twinkle: sanitize(value.star_twinkle, 1.0, 0.0, 8.0),
-            cloud_transparency: sanitize(value.cloud_transparency, 0.4, 0.05, 1.0),
-            cloud_brightness: sanitize(value.cloud_brightness, 0.9, 0.0, 4.0),
+            cloud_transparency: sanitize(value.cloud_transparency, 0.3610992, 0.05, 1.0),
+            cloud_brightness: sanitize(value.cloud_brightness, 1.305171, 0.0, 4.0),
             cloud_normals: value.cloud_normals,
             use_sun_disk_color: value.use_sun_disk_color,
             sunset: [
@@ -101,7 +101,7 @@ impl From<crate::config::NativeSkyConfig> for NativeSkySettings {
                 sanitize(value.sunset_green, 0.0, 0.0, 4.0),
                 sanitize(value.sunset_blue, 0.03, 0.0, 4.0),
             ],
-            sky_multiplier: sanitize(value.sky_multiplier, 1.0, 0.0, 4.0),
+            sky_multiplier: sanitize(value.sky_multiplier, 2.043103, 0.0, 4.0),
         }
     }
 }

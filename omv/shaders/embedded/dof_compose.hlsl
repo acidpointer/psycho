@@ -44,6 +44,19 @@ void AccumulateFar(
 
 float4 UpsampleFar(float2 uv, float targetCoc) {
     float2 texel = EffectData.xy;
+#if DOF_HIGH_QUALITY_UPSAMPLE
+    float4 valueSum = 0.0f;
+    float weightSum = 0.0f;
+    AccumulateFar(uv, targetCoc, 4.0f, valueSum, weightSum);
+    AccumulateFar(uv + float2( texel.x, 0.0f), targetCoc, 2.0f, valueSum, weightSum);
+    AccumulateFar(uv + float2(-texel.x, 0.0f), targetCoc, 2.0f, valueSum, weightSum);
+    AccumulateFar(uv + float2(0.0f,  texel.y), targetCoc, 2.0f, valueSum, weightSum);
+    AccumulateFar(uv + float2(0.0f, -texel.y), targetCoc, 2.0f, valueSum, weightSum);
+    AccumulateFar(uv + float2( texel.x,  texel.y), targetCoc, 1.0f, valueSum, weightSum);
+    AccumulateFar(uv + float2(-texel.x,  texel.y), targetCoc, 1.0f, valueSum, weightSum);
+    AccumulateFar(uv + float2( texel.x, -texel.y), targetCoc, 1.0f, valueSum, weightSum);
+    AccumulateFar(uv + float2(-texel.x, -texel.y), targetCoc, 1.0f, valueSum, weightSum);
+#else
     float2 pixel = uv / texel - 0.5f;
     float2 basePixel = floor(pixel);
     float2 blend = saturate(pixel - basePixel);
@@ -57,6 +70,7 @@ float4 UpsampleFar(float2 uv, float targetCoc) {
     AccumulateFar(uv10, targetCoc, blend.x * (1.0f - blend.y), valueSum, weightSum);
     AccumulateFar(uv01, targetCoc, (1.0f - blend.x) * blend.y, valueSum, weightSum);
     AccumulateFar(uv11, targetCoc, blend.x * blend.y, valueSum, weightSum);
+#endif
     if (weightSum <= 0.0001f) {
         return tex2D(FarTexture, uv);
     }
@@ -65,6 +79,18 @@ float4 UpsampleFar(float2 uv, float targetCoc) {
 
 float4 UpsampleNear(float2 uv) {
     float2 texel = EffectData.xy;
+#if DOF_HIGH_QUALITY_UPSAMPLE
+    float4 value = tex2Dlod(NearTexture, float4(uv, 0.0f, 0.0f)) * 4.0f;
+    value += tex2Dlod(NearTexture, float4(uv + float2( texel.x, 0.0f), 0.0f, 0.0f)) * 2.0f;
+    value += tex2Dlod(NearTexture, float4(uv + float2(-texel.x, 0.0f), 0.0f, 0.0f)) * 2.0f;
+    value += tex2Dlod(NearTexture, float4(uv + float2(0.0f,  texel.y), 0.0f, 0.0f)) * 2.0f;
+    value += tex2Dlod(NearTexture, float4(uv + float2(0.0f, -texel.y), 0.0f, 0.0f)) * 2.0f;
+    value += tex2Dlod(NearTexture, float4(uv + float2( texel.x,  texel.y), 0.0f, 0.0f));
+    value += tex2Dlod(NearTexture, float4(uv + float2(-texel.x,  texel.y), 0.0f, 0.0f));
+    value += tex2Dlod(NearTexture, float4(uv + float2( texel.x, -texel.y), 0.0f, 0.0f));
+    value += tex2Dlod(NearTexture, float4(uv + float2(-texel.x, -texel.y), 0.0f, 0.0f));
+    return value * 0.0625f;
+#else
     float2 pixel = uv / texel - 0.5f;
     float2 basePixel = floor(pixel);
     float2 blend = saturate(pixel - basePixel);
@@ -81,6 +107,7 @@ float4 UpsampleNear(float2 uv) {
     value += tex2Dlod(NearTexture, float4(uv11, 0.0f, 0.0f))
         * blend.x * blend.y;
     return value;
+#endif
 }
 
 float4 Main(PixelInput input) : COLOR0 {

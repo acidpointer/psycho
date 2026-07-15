@@ -67,7 +67,7 @@ impl ScreenShaderSource {
         }
 
         self.enabled = enabled;
-        self.save_config()
+        Ok(())
     }
 
     pub(crate) fn set_pass_count(&mut self, pass_count: u32) -> Result<()> {
@@ -77,7 +77,7 @@ impl ScreenShaderSource {
         }
 
         self.pass_count = pass_count;
-        self.save_config()
+        Ok(())
     }
 
     pub(crate) fn phase(&self) -> ShaderPhase {
@@ -99,7 +99,7 @@ impl ScreenShaderSource {
 
         *float = value;
         self.rebuild_option_constants();
-        self.save_config()
+        Ok(())
     }
 
     pub(crate) fn set_option_integer(&mut self, index: usize, value: i32) -> Result<()> {
@@ -118,7 +118,7 @@ impl ScreenShaderSource {
 
         *integer = value;
         self.rebuild_option_constants();
-        self.save_config()
+        Ok(())
     }
 
     pub(crate) fn set_option_bool(&mut self, index: usize, value: bool) -> Result<()> {
@@ -135,10 +135,10 @@ impl ScreenShaderSource {
 
         *flag = value;
         self.rebuild_option_constants();
-        self.save_config()
+        Ok(())
     }
 
-    fn save_config(&mut self) -> Result<()> {
+    fn save_config_to_disk(&mut self) -> Result<()> {
         if self.is_embedded_effect() {
             return Ok(());
         }
@@ -148,6 +148,24 @@ impl ScreenShaderSource {
         fs::write(&self.config_path, text)
             .with_context(|| format!("failed to write {}", self.config_path.display()))?;
         self.config_stamp = file_stamp(&self.config_path).unwrap_or_default();
+        self.config_error = None;
+        Ok(())
+    }
+
+    fn reload_config_from_disk(&mut self) -> Result<()> {
+        if self.is_embedded_effect() {
+            return Ok(());
+        }
+
+        let config_stamp = shader_config_stamp(&self.config_path)?;
+        let config = load_shader_config_or_default(&self.config_path)?;
+        self.enabled = config.shader.enabled;
+        self.phase = config.shader.phase;
+        self.pass_count = sanitize_pass_count(config.shader.passes);
+        self.options = config.options.into_iter().map(ShaderOption::from).collect();
+        assign_missing_bindings(&mut self.options);
+        self.rebuild_option_constants();
+        self.config_stamp = config_stamp;
         self.config_error = None;
         Ok(())
     }
@@ -249,12 +267,9 @@ pub(crate) fn scan_screen_shaders(previous: &[ScreenShaderSource]) -> Result<Sha
         let previous = previous_by_path.get(path.as_path()).copied();
         let shader_stamp = file_stamp(&path)?;
         let config_path = shader_config_path(&path);
-        let config_stamp = ensure_shader_config(&config_path)?;
 
         let shader_changed = previous
             .is_none_or(|source| source.shader_stamp != shader_stamp || source.path != path);
-        let config_changed = previous.is_none_or(|source| source.config_stamp != config_stamp);
-
         let mut source = if shader_changed {
             shader_resources_changed = true;
             let mut loaded = load_shader_file(&path, previous)
@@ -274,7 +289,8 @@ pub(crate) fn scan_screen_shaders(previous: &[ScreenShaderSource]) -> Result<Sha
             }
         };
 
-        if config_changed || source.config_path != config_path {
+        if previous.is_none() || source.config_path != config_path {
+            let config_stamp = shader_config_stamp(&config_path)?;
             apply_config(&mut source, &config_path, config_stamp);
         }
 
@@ -287,13 +303,26 @@ pub(crate) fn scan_screen_shaders(previous: &[ScreenShaderSource]) -> Result<Sha
     })
 }
 
+pub(crate) fn save_external_shader_configs(sources: &mut [ScreenShaderSource]) -> Result<()> {
+    for source in sources {
+        source.save_config_to_disk()?;
+    }
+    Ok(())
+}
+
+pub(crate) fn reload_external_shader_configs(sources: &mut [ScreenShaderSource]) -> Result<()> {
+    for source in sources {
+        source.reload_config_from_disk()?;
+    }
+    Ok(())
+}
+
 pub(crate) fn merge_embedded_sources(
     embedded_config: &EmbeddedEffectsConfig,
     external_sources: Vec<ScreenShaderSource>,
 ) -> Vec<ScreenShaderSource> {
     let mut sources = embedded_effect_sources(embedded_config);
     sources.extend(external_sources);
-    sources.sort_by(|left, right| left.name.cmp(&right.name));
     sources
 }
 
@@ -336,7 +365,7 @@ fn embedded_effect_sources(config: &EmbeddedEffectsConfig) -> Vec<ScreenShaderSo
 fn fast_ao_source(config: &FastAoConfig) -> ScreenShaderSource {
     embedded_source(
         EmbeddedEffectKind::FastAmbientOcclusion,
-        "00_fast_ao",
+        "Fast Ambient Occlusion",
         config.enabled,
         crate::config::EmbeddedEffectsConfig::phase_for_kind(
             EmbeddedEffectKind::FastAmbientOcclusion,
@@ -414,7 +443,7 @@ fn fast_ao_source(config: &FastAoConfig) -> ScreenShaderSource {
 fn contact_ao_source(config: &ContactAoConfig) -> ScreenShaderSource {
     embedded_source(
         EmbeddedEffectKind::ContactAmbientOcclusion,
-        "02_contact_ao",
+        "Contact Ambient Occlusion",
         config.enabled,
         crate::config::EmbeddedEffectsConfig::phase_for_kind(
             EmbeddedEffectKind::ContactAmbientOcclusion,
@@ -482,7 +511,7 @@ fn contact_ao_source(config: &ContactAoConfig) -> ScreenShaderSource {
 fn blooming_hdr_source(config: &BloomingHdrConfig) -> ScreenShaderSource {
     embedded_source(
         EmbeddedEffectKind::BloomingHdr,
-        "07_blooming_ldr",
+        "Bloom and HDR",
         config.enabled,
         crate::config::EmbeddedEffectsConfig::phase_for_kind(EmbeddedEffectKind::BloomingHdr),
         vec![
@@ -569,7 +598,7 @@ fn blooming_hdr_source(config: &BloomingHdrConfig) -> ScreenShaderSource {
 fn sunshafts_source(config: &SunshaftsConfig) -> ScreenShaderSource {
     embedded_source(
         EmbeddedEffectKind::Sunshafts,
-        "09_sunshafts_lite",
+        "Sun Shafts",
         config.enabled,
         crate::config::EmbeddedEffectsConfig::phase_for_kind(EmbeddedEffectKind::Sunshafts),
         vec![
@@ -648,7 +677,7 @@ fn sunshafts_source(config: &SunshaftsConfig) -> ScreenShaderSource {
 fn depth_of_field_source(config: &DepthOfFieldConfig) -> ScreenShaderSource {
     embedded_source(
         EmbeddedEffectKind::DepthOfField,
-        "10_depth_of_field",
+        "Depth of Field",
         config.enabled,
         crate::config::EmbeddedEffectsConfig::phase_for_kind(EmbeddedEffectKind::DepthOfField),
         vec![
@@ -687,8 +716,8 @@ fn depth_of_field_source(config: &DepthOfFieldConfig) -> ScreenShaderSource {
                 "manual_focus_distance",
                 "Manual focus distance",
                 config.manual_focus_distance,
-                10.0,
-                200_000.0,
+                0.1,
+                2_000_000.0,
                 16,
                 0,
             ),
@@ -697,7 +726,7 @@ fn depth_of_field_source(config: &DepthOfFieldConfig) -> ScreenShaderSource {
                 "Focus sample radius",
                 config.focus_sample_radius,
                 0.0,
-                0.20,
+                0.50,
                 16,
                 1,
             ),
@@ -705,8 +734,8 @@ fn depth_of_field_source(config: &DepthOfFieldConfig) -> ScreenShaderSource {
                 "focus_cluster_tolerance",
                 "Focus cluster tolerance",
                 config.focus_cluster_tolerance,
-                0.02,
-                1.0,
+                0.001,
+                4.0,
                 16,
                 2,
             ),
@@ -715,7 +744,7 @@ fn depth_of_field_source(config: &DepthOfFieldConfig) -> ScreenShaderSource {
                 "Autofocus hysteresis",
                 config.focus_deadband,
                 0.0,
-                0.10,
+                1.0,
                 16,
                 3,
             ),
@@ -723,8 +752,8 @@ fn depth_of_field_source(config: &DepthOfFieldConfig) -> ScreenShaderSource {
                 "focus_near_seconds",
                 "Near focus seconds",
                 config.focus_near_seconds,
-                0.02,
-                1.0,
+                0.001,
+                10.0,
                 17,
                 0,
             ),
@@ -732,26 +761,26 @@ fn depth_of_field_source(config: &DepthOfFieldConfig) -> ScreenShaderSource {
                 "focus_far_seconds",
                 "Far focus seconds",
                 config.focus_far_seconds,
-                0.02,
-                1.5,
+                0.001,
+                10.0,
                 17,
                 1,
             ),
             float_option(
                 "focus_range",
-                "Near in-focus band",
+                "Near focus falloff",
                 config.focus_range,
-                0.02,
-                1.0,
+                0.001,
+                16.0,
                 17,
                 2,
             ),
             float_option(
                 "far_focus_range",
-                "Far in-focus band",
+                "Far focus falloff",
                 config.far_focus_range,
-                0.02,
-                1.0,
+                0.001,
+                16.0,
                 20,
                 1,
             ),
@@ -760,7 +789,7 @@ fn depth_of_field_source(config: &DepthOfFieldConfig) -> ScreenShaderSource {
                 "Near strength",
                 config.near_strength,
                 0.0,
-                1.5,
+                8.0,
                 17,
                 3,
             ),
@@ -769,7 +798,7 @@ fn depth_of_field_source(config: &DepthOfFieldConfig) -> ScreenShaderSource {
                 "Far strength",
                 config.far_strength,
                 0.0,
-                1.5,
+                8.0,
                 18,
                 0,
             ),
@@ -778,7 +807,7 @@ fn depth_of_field_source(config: &DepthOfFieldConfig) -> ScreenShaderSource {
                 "Near radius at 1080p",
                 config.near_radius_pixels,
                 0.0,
-                64.0,
+                256.0,
                 18,
                 1,
             ),
@@ -787,7 +816,7 @@ fn depth_of_field_source(config: &DepthOfFieldConfig) -> ScreenShaderSource {
                 "Far radius at 1080p",
                 config.far_radius_pixels,
                 0.0,
-                96.0,
+                512.0,
                 18,
                 2,
             ),
@@ -796,7 +825,7 @@ fn depth_of_field_source(config: &DepthOfFieldConfig) -> ScreenShaderSource {
                 "First-person strength",
                 config.first_person_strength,
                 0.0,
-                1.0,
+                4.0,
                 18,
                 3,
             ),
@@ -805,7 +834,7 @@ fn depth_of_field_source(config: &DepthOfFieldConfig) -> ScreenShaderSource {
                 "Distant blur strength",
                 config.distant_blur_strength,
                 0.0,
-                1.5,
+                8.0,
                 19,
                 0,
             ),
@@ -813,8 +842,8 @@ fn depth_of_field_source(config: &DepthOfFieldConfig) -> ScreenShaderSource {
                 "distant_blur_start",
                 "Distant blur start",
                 config.distant_blur_start,
-                100.0,
-                300_000.0,
+                0.1,
+                2_000_000.0,
                 19,
                 1,
             ),
@@ -822,8 +851,8 @@ fn depth_of_field_source(config: &DepthOfFieldConfig) -> ScreenShaderSource {
                 "distant_blur_end",
                 "Distant blur end",
                 config.distant_blur_end,
-                200.0,
-                500_000.0,
+                0.2,
+                4_000_000.0,
                 19,
                 2,
             ),
@@ -1111,8 +1140,8 @@ pub(crate) fn apply_depth_of_field_preset(
         DepthOfFieldPreset::Hybrid => {}
         DepthOfFieldPreset::Eye => {
             config.blur_style = crate::config::DofBlurStyle::Round;
-            config.focus_range = 0.10;
-            config.far_focus_range = 0.12;
+            config.focus_range = 0.30;
+            config.far_focus_range = 0.38;
             config.near_strength = 1.0;
             config.far_strength = 1.0;
             config.near_radius_pixels = 14.0;
@@ -1123,8 +1152,8 @@ pub(crate) fn apply_depth_of_field_preset(
         }
         DepthOfFieldPreset::SoulsSoft => {
             config.blur_style = crate::config::DofBlurStyle::Soft;
-            config.focus_range = 0.18;
-            config.far_focus_range = 0.22;
+            config.focus_range = 0.55;
+            config.far_focus_range = 0.70;
             config.near_strength = 0.35;
             config.far_strength = 0.35;
             config.near_radius_pixels = 10.0;
@@ -1303,20 +1332,12 @@ fn shader_config_path(path: &Path) -> PathBuf {
     path.with_extension("toml")
 }
 
-fn ensure_shader_config(path: &Path) -> Result<FileStamp> {
+fn shader_config_stamp(path: &Path) -> Result<FileStamp> {
     if path.exists() {
-        return file_stamp(path);
+        file_stamp(path)
+    } else {
+        Ok(FileStamp::default())
     }
-
-    let config = ShaderConfigFile::default();
-    let text =
-        toml::to_string_pretty(&config).context("failed to serialize default shader config")?;
-    fs::write(path, text).with_context(|| format!("failed to create {}", path.display()))?;
-    log::info!(
-        "[SHADERS] Created default shader config '{}'",
-        path.display()
-    );
-    file_stamp(path)
 }
 
 fn load_shader_file(
@@ -1343,7 +1364,7 @@ fn load_shader_file(
         path: path.to_owned(),
         config_path: shader_config_path(path),
         bytecode: Some(bytecode),
-        enabled: previous.map_or(true, |source| source.enabled),
+        enabled: previous.is_none_or(|source| source.enabled),
         phase: previous.map_or(ShaderPhase::default(), |source| source.phase),
         pass_count: previous.map_or(MIN_SHADER_PASSES, |source| source.pass_count),
         options: previous.map_or_else(Vec::new, |source| source.options.clone()),
@@ -1391,7 +1412,7 @@ fn apply_config(source: &mut ScreenShaderSource, config_path: &Path, config_stam
     source.config_path = config_path.to_owned();
     source.config_stamp = config_stamp;
 
-    match load_shader_config(config_path) {
+    match load_shader_config_or_default(config_path) {
         Ok(config) => {
             source.enabled = config.shader.enabled;
             source.phase = config.shader.phase;
@@ -1441,6 +1462,14 @@ fn load_shader_config(path: &Path) -> Result<ShaderConfigFile> {
         .with_context(|| format!("failed to read shader config {}", path.display()))?;
     toml::from_str(&text)
         .with_context(|| format!("failed to parse shader config {}", path.display()))
+}
+
+fn load_shader_config_or_default(path: &Path) -> Result<ShaderConfigFile> {
+    if path.exists() {
+        load_shader_config(path)
+    } else {
+        Ok(ShaderConfigFile::default())
+    }
 }
 
 fn assign_missing_bindings(options: &mut [ShaderOption]) {

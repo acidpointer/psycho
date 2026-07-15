@@ -51,7 +51,6 @@ const WM_MOUSEWHEEL: u32 = 0x020A;
 const WM_MOUSEHWHEEL: u32 = 0x020E;
 const DEFAULT_MENU_TOGGLE_KEY: u32 = 0x2D;
 const VK_ESCAPE: usize = 0x1B;
-const MENU_CONFIG_SAVE_DEBOUNCE: Duration = Duration::from_millis(350);
 
 static RUNTIME: LazyLock<Mutex<ScreenShaderRuntime>> =
     LazyLock::new(|| Mutex::new(ScreenShaderRuntime::default()));
@@ -272,7 +271,8 @@ struct ScreenShaderRuntime {
     scan_error_logs: u32,
     imgui_error_logs: u32,
     menu_config_error: Option<String>,
-    menu_config_save_due: Option<Instant>,
+    menu_config_notice: Option<String>,
+    menu_config_dirty: bool,
     scene_apply_logs: u32,
     scene_target_logs: u32,
     world_color_capture_logs: u32,
@@ -312,7 +312,8 @@ impl Default for ScreenShaderRuntime {
             scan_error_logs: 0,
             imgui_error_logs: 0,
             menu_config_error: None,
-            menu_config_save_due: None,
+            menu_config_notice: None,
+            menu_config_dirty: false,
             scene_apply_logs: 0,
             scene_target_logs: 0,
             world_color_capture_logs: 0,
@@ -330,7 +331,9 @@ impl ScreenShaderRuntime {
         self.settings = settings;
         self.compiled = None;
         self.next_scan = None;
-        self.menu_config_save_due = None;
+        self.menu_config_error = None;
+        self.menu_config_notice = None;
+        self.menu_config_dirty = false;
     }
 
     unsafe fn apply_present_frame(
@@ -339,7 +342,6 @@ impl ScreenShaderRuntime {
         hwnd_hint: *mut c_void,
     ) -> Direct3DResult<()> {
         self.scan_shaders_if_due();
-        self.save_menu_config_if_due();
 
         let Some(device) = (unsafe { Device9Ref::from_raw_void(device_ptr) }) else {
             return Ok(());
@@ -1268,7 +1270,7 @@ impl ScreenShaderRuntime {
             self.imgui_needs_device_objects = false;
         }
 
-        let menu_config_changed = {
+        let menu_frame = {
             let frame_pacing = self.frame_pacing.snapshot();
             let feature_status = EngineFeatureStatus {
                 pbr: pbr::runtime_status(),
@@ -1282,13 +1284,25 @@ impl ScreenShaderRuntime {
                 &mut self.selected_menu_item,
                 &frame_pacing,
                 feature_status,
-                self.menu_config_error.as_deref(),
+                MenuPersistenceView {
+                    dirty: self.menu_config_dirty,
+                    error: self.menu_config_error.as_deref(),
+                    notice: self.menu_config_notice.as_deref(),
+                },
             )
         };
 
         imgui.render();
-        if menu_config_changed {
+        if menu_frame.changed {
             self.apply_menu_config_change();
+            self.menu_config_dirty = true;
+            self.menu_config_error = None;
+            self.menu_config_notice = None;
+        }
+        match menu_frame.action {
+            MenuAction::None => {}
+            MenuAction::Save => self.save_menu_session(),
+            MenuAction::Reload => self.reload_menu_session(),
         }
         Ok(())
     }
@@ -1303,20 +1317,59 @@ impl ScreenShaderRuntime {
         update_native_dof_query_needed(&self.settings.menu_config);
         pbr::configure_runtime_options(self.settings.menu_config.native_pbr.into());
         sky::configure_runtime_options(self.settings.menu_config.native_sky.into());
-        self.menu_config_save_due = Some(Instant::now() + MENU_CONFIG_SAVE_DEBOUNCE);
     }
 
-    fn save_menu_config_if_due(&mut self) {
-        if self
-            .menu_config_save_due
-            .is_none_or(|deadline| Instant::now() < deadline)
-        {
-            return;
+    fn save_menu_session(&mut self) {
+        shaders::sync_embedded_effect_config(
+            &self.sources,
+            &mut self.settings.menu_config.embedded_effects,
+        );
+        let result = shaders::save_external_shader_configs(&mut self.sources)
+            .and_then(|()| crate::config::save_menu_config(&self.settings.menu_config));
+        match result {
+            Ok(()) => {
+                self.menu_config_dirty = false;
+                self.menu_config_error = None;
+                self.menu_config_notice = Some("Configuration saved to disk".to_owned());
+            }
+            Err(err) => {
+                self.menu_config_error = Some(format!("{err:#}"));
+                self.menu_config_notice = None;
+            }
         }
-        self.menu_config_save_due = None;
-        match crate::config::save_menu_config(&self.settings.menu_config) {
-            Ok(()) => self.menu_config_error = None,
-            Err(err) => self.menu_config_error = Some(format!("{err:#}")),
+    }
+
+    fn reload_menu_session(&mut self) {
+        let result = (|| {
+            let menu_config = crate::config::load_menu_config_from_disk()?;
+            let mut reloaded_sources = self.sources.clone();
+            shaders::reload_external_shader_configs(&mut reloaded_sources)?;
+            let external_sources = reloaded_sources
+                .into_iter()
+                .filter(ScreenShaderSource::is_external_file)
+                .collect();
+
+            self.settings.menu_config = menu_config;
+            self.sources = shaders::merge_embedded_sources(
+                &self.settings.menu_config.embedded_effects,
+                external_sources,
+            );
+            self.compiled = None;
+            self.next_scan = None;
+            self.apply_menu_config_change();
+            Ok::<(), anyhow::Error>(())
+        })();
+
+        match result {
+            Ok(()) => {
+                self.menu_config_dirty = false;
+                self.menu_config_error = None;
+                self.menu_config_notice = Some("Configuration reloaded from disk".to_owned());
+            }
+            Err(err) => {
+                self.menu_config_error = Some(format!("{err:#}"));
+                self.menu_config_notice = None;
+            }
         }
     }
 
@@ -1702,12 +1755,45 @@ impl Default for MenuSelection {
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+enum MenuAction {
+    #[default]
+    None,
+    Save,
+    Reload,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+struct MenuFrameResult {
+    changed: bool,
+    action: MenuAction,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+struct MenuHeaderResult {
+    sources_changed: bool,
+    action: MenuAction,
+}
+
+#[derive(Clone, Copy)]
+struct MenuPersistenceView<'a> {
+    dirty: bool,
+    error: Option<&'a str>,
+    notice: Option<&'a str>,
+}
+
 const MENU_MUTED_TEXT: [f32; 4] = [0.56, 0.62, 0.67, 1.0];
 const MENU_GOOD_TEXT: [f32; 4] = [0.35, 0.88, 0.78, 1.0];
 const MENU_WARN_TEXT: [f32; 4] = [0.95, 0.70, 0.30, 1.0];
 const MENU_ERROR_TEXT: [f32; 4] = [1.0, 0.40, 0.35, 1.0];
 const MENU_ACCENT_TEXT: [f32; 4] = [0.58, 0.86, 0.96, 1.0];
-const MENU_SLIDER_WIDTH: f32 = 480.0;
+const MENU_SAVE_BUTTON: [f32; 4] = [0.10, 0.42, 0.29, 1.0];
+const MENU_SAVE_BUTTON_HOVERED: [f32; 4] = [0.14, 0.61, 0.39, 1.0];
+const MENU_SAVE_BUTTON_ACTIVE: [f32; 4] = [0.08, 0.74, 0.44, 1.0];
+const MENU_RELOAD_BUTTON: [f32; 4] = [0.43, 0.27, 0.08, 1.0];
+const MENU_RELOAD_BUTTON_HOVERED: [f32; 4] = [0.67, 0.42, 0.10, 1.0];
+const MENU_RELOAD_BUTTON_ACTIVE: [f32; 4] = [0.86, 0.54, 0.12, 1.0];
+const MENU_SLIDER_WIDTH: f32 = 520.0;
 
 fn draw_shader_menu(
     ui: &mut psycho_imgui::Ui<'_>,
@@ -1716,31 +1802,41 @@ fn draw_shader_menu(
     selected_item: &mut MenuSelection,
     frame_pacing: &FramePacingSnapshot,
     feature_status: EngineFeatureStatus,
-    menu_config_error: Option<&str>,
-) -> bool {
+    persistence: MenuPersistenceView<'_>,
+) -> MenuFrameResult {
     ui.set_next_window_pos(24.0, 36.0, psycho_imgui::Condition::FirstUseEver);
-    ui.set_next_window_size(860.0, 680.0, psycho_imgui::Condition::FirstUseEver);
+    ui.set_next_window_size(1020.0, 760.0, psycho_imgui::Condition::FirstUseEver);
 
-    let title = cstring("Oh My Vegas!");
+    let title = cstring("OH MY VEGAS // GRAPHICS WORKBENCH");
     let window = ui.window(&title, None);
     if !window.is_visible() {
-        return false;
+        return MenuFrameResult::default();
     }
 
-    let mut menu_config_changed = false;
-    if draw_shader_menu_header(ui, sources, frame_pacing) {
+    let header = draw_shader_menu_header(
+        ui,
+        sources,
+        frame_pacing,
+        persistence.dirty,
+        persistence.error,
+        persistence.notice,
+    );
+    let mut result = MenuFrameResult {
+        changed: header.sources_changed,
+        action: header.action,
+    };
+    if header.sources_changed {
         shaders::sync_embedded_effect_config(sources, &mut menu_config.embedded_effects);
-        menu_config_changed = true;
     }
     ui.separator();
-    menu_config_changed |= draw_global_config(ui, menu_config, menu_config_error);
+    result.changed |= draw_global_config(ui, menu_config);
     ui.separator();
 
     clamp_menu_selection(sources, selected_item);
 
     {
         let item_list = cstring("graphics_feature_list");
-        let child = ui.child(&item_list, 300.0, 0.0, true);
+        let child = ui.child(&item_list, 315.0, 0.0, true);
         if child.is_visible() {
             draw_feature_list(
                 ui,
@@ -1761,44 +1857,103 @@ fn draw_shader_menu(
         if child.is_visible() {
             match *selected_item {
                 MenuSelection::NativePbr => {
-                    menu_config_changed |=
+                    result.changed |=
                         draw_native_pbr_config(ui, &mut menu_config.native_pbr, feature_status.pbr);
                 }
                 MenuSelection::NativeSky => {
-                    menu_config_changed |=
+                    result.changed |=
                         draw_native_sky_config(ui, &mut menu_config.native_sky, feature_status.sky);
                 }
                 MenuSelection::Shader(index) => {
                     if let Some(source) = sources.get_mut(index) {
-                        let embedded_changed = draw_shader_details(ui, source);
-                        if embedded_changed {
+                        let is_embedded = source.is_embedded_effect();
+                        let source_changed = draw_shader_details(ui, source);
+                        if source_changed && is_embedded {
                             shaders::sync_embedded_effect_config(
                                 sources,
                                 &mut menu_config.embedded_effects,
                             );
-                            menu_config_changed = true;
                         }
+                        result.changed |= source_changed;
                     }
                 }
             }
         }
     }
 
-    menu_config_changed
+    result
 }
 
 fn draw_shader_menu_header(
     ui: &mut psycho_imgui::Ui<'_>,
     sources: &mut [ScreenShaderSource],
     frame_pacing: &FramePacingSnapshot,
-) -> bool {
-    let mut embedded_changed = false;
+    menu_config_dirty: bool,
+    menu_config_error: Option<&str>,
+    menu_config_notice: Option<&str>,
+) -> MenuHeaderResult {
+    let mut result = MenuHeaderResult::default();
     let (enabled_count, error_count, scene_count, final_count) = shader_counts(sources);
-    let title = cstring("Screen-space shaders");
+    let title = cstring("OMV RENDER LAB");
+    ui.text_colored(MENU_ACCENT_TEXT, &title);
+    ui.same_line();
+    let session = if menu_config_dirty {
+        cstring("SESSION MODIFIED // NOT SAVED")
+    } else {
+        cstring("SESSION MATCHES DISK")
+    };
+    ui.text_colored(
+        if menu_config_dirty {
+            MENU_WARN_TEXT
+        } else {
+            MENU_GOOD_TEXT
+        },
+        &session,
+    );
+
+    let subtitle =
+        cstring("Live graphics tuning for the Mojave. Changes remain temporary until Save.");
+    ui.text_colored(MENU_MUTED_TEXT, &subtitle);
+
+    let save = cstring("SAVE TO DISK##config_save");
+    if ui.button_colored(
+        &save,
+        MENU_SAVE_BUTTON,
+        MENU_SAVE_BUTTON_HOVERED,
+        MENU_SAVE_BUTTON_ACTIVE,
+    ) {
+        result.action = MenuAction::Save;
+    }
+    ui.same_line();
+    let reload = cstring("RELOAD FROM DISK##config_reload");
+    if ui.button_colored(
+        &reload,
+        MENU_RELOAD_BUTTON,
+        MENU_RELOAD_BUTTON_HOVERED,
+        MENU_RELOAD_BUTTON_ACTIVE,
+    ) {
+        result.action = MenuAction::Reload;
+    }
+    ui.same_line();
+    let path = cstring(crate::config::CONFIG_PATH);
+    ui.text_colored(MENU_MUTED_TEXT, &path);
+
+    if let Some(error) = menu_config_error {
+        let text = cstring(format!("Disk operation failed: {error}"));
+        ui.text_colored(MENU_ERROR_TEXT, &text);
+    } else if let Some(notice) = menu_config_notice {
+        ui.text_colored(MENU_GOOD_TEXT, &cstring(notice));
+    } else if menu_config_dirty {
+        let warning = cstring("Reload discards every unsaved session edit.");
+        ui.text_colored(MENU_WARN_TEXT, &warning);
+    }
+
+    ui.separator();
+    let title = cstring("RENDER STACK");
     ui.text_colored(MENU_ACCENT_TEXT, &title);
     ui.same_line();
     let summary = cstring(format!(
-        "{} loaded | {} enabled | {} scene | {} final | {} issue{}",
+        "{} effects | {} enabled | {} scene | {} final | {} issue{}",
         sources.len(),
         enabled_count,
         scene_count,
@@ -1817,18 +1972,18 @@ fn draw_shader_menu_header(
 
     let enable_all = cstring("Enable all");
     if ui.button(&enable_all) {
-        embedded_changed |= set_all_sources_enabled(sources, true);
+        result.sources_changed |= set_all_sources_enabled(sources, true);
     }
     ui.same_line();
     let disable_all = cstring("Disable all");
     if ui.button(&disable_all) {
-        embedded_changed |= set_all_sources_enabled(sources, false);
+        result.sources_changed |= set_all_sources_enabled(sources, false);
     }
 
     ui.same_line();
     draw_frame_pacing_panel(ui, frame_pacing);
 
-    embedded_changed
+    result
 }
 
 fn draw_frame_pacing_panel(ui: &mut psycho_imgui::Ui<'_>, frame_pacing: &FramePacingSnapshot) {
@@ -1851,33 +2006,25 @@ fn draw_frame_pacing_panel(ui: &mut psycho_imgui::Ui<'_>, frame_pacing: &FramePa
     }
 }
 
-fn draw_global_config(
-    ui: &mut psycho_imgui::Ui<'_>,
-    config: &mut GraphicsMenuConfig,
-    menu_config_error: Option<&str>,
-) -> bool {
+fn draw_global_config(ui: &mut psycho_imgui::Ui<'_>, config: &mut GraphicsMenuConfig) -> bool {
     let mut changed = false;
 
-    let heading = cstring("Global config");
-    ui.text_colored(MENU_ACCENT_TEXT, &heading);
-    let path = cstring(format!("File: {}", crate::config::CONFIG_PATH));
-    ui.text_colored(MENU_MUTED_TEXT, &path);
+    let heading = cstring("SESSION CONTROLS");
+    ui.separator_text(&heading);
 
     changed |= draw_config_checkbox(
         ui,
-        "Screen-space shaders",
+        "Master effects switch",
         "global.screen_space_shaders",
         &mut config.screen_space_shaders,
     );
-    ui.same_line();
-    changed |= draw_config_checkbox(ui, "Debug log", "global.debug_log", &mut config.debug_log);
 
     changed |= draw_menu_keybind_control(ui, &mut config.menu_toggle_key);
 
     let mut scan_interval = config.shader_scan_interval_ms.clamp(50, 5_000) as i32;
     if draw_int_slider(
         ui,
-        "Shader scan interval ms",
+        "Shader hot-reload scan (ms)",
         "global.shader_scan_interval_ms",
         &mut scan_interval,
         50,
@@ -1888,11 +2035,6 @@ fn draw_global_config(
     }
 
     changed |= draw_depth_provider_config(ui, &mut config.depth_provider);
-
-    if let Some(error) = menu_config_error {
-        let text = cstring(format!("Config save error: {error}"));
-        ui.text_colored(MENU_ERROR_TEXT, &text);
-    }
 
     changed
 }
@@ -1961,17 +2103,21 @@ fn draw_depth_provider_config(
     ui: &mut psycho_imgui::Ui<'_>,
     depth_provider: &mut DepthProviderConfig,
 ) -> bool {
-    let text = cstring(format!("Depth provider: {}", depth_provider.config_value()));
+    let provider_name = match depth_provider {
+        DepthProviderConfig::None => "Disabled",
+        DepthProviderConfig::FalloutNewVegas => "Fallout New Vegas native depth",
+    };
+    let text = cstring(format!("Depth source: {provider_name}"));
     ui.text(&text);
 
     let mut changed = false;
-    let none = cstring("None##global.depth_provider.none");
+    let none = cstring("Disable depth##global.depth_provider.none");
     if ui.button(&none) && *depth_provider != DepthProviderConfig::None {
         *depth_provider = DepthProviderConfig::None;
         changed = true;
     }
     ui.same_line();
-    let fnv = cstring("Fallout NV##global.depth_provider.fnv");
+    let fnv = cstring("Use Fallout NV depth##global.depth_provider.fnv");
     if ui.button(&fnv) && *depth_provider != DepthProviderConfig::FalloutNewVegas {
         *depth_provider = DepthProviderConfig::FalloutNewVegas;
         changed = true;
@@ -1985,8 +2131,10 @@ fn draw_native_pbr_config(
     config: &mut crate::config::NativePbrConfig,
     status: pbr::NativePbrRuntimeStatus,
 ) -> bool {
-    let heading = cstring("PBR");
-    ui.text_colored(MENU_ACCENT_TEXT, &heading);
+    let heading = cstring("PBR MATERIALS");
+    ui.separator_text(&heading);
+    let subtitle = cstring("Native material response for terrain, architecture, and objects.");
+    ui.text_colored(MENU_MUTED_TEXT, &subtitle);
 
     let (status_color, status_text) = if let Some(reason) = status.block_reason {
         (MENU_WARN_TEXT, format!("Blocked: {reason}"))
@@ -2016,7 +2164,8 @@ fn draw_native_pbr_config(
     changed |= draw_config_checkbox(ui, "Enable PBR", "native_pbr.enabled", &mut config.enabled);
 
     if config.enabled {
-        ui.separator();
+        let section = cstring("MATERIAL RESPONSE");
+        ui.separator_text(&section);
         changed |= draw_float_slider(
             ui,
             "Metal response",
@@ -2057,6 +2206,8 @@ fn draw_native_pbr_config(
             0.0,
             2.0,
         );
+        let section = cstring("TERRAIN DETAIL");
+        ui.separator_text(&section);
         changed |= draw_float_slider(
             ui,
             "Terrain detail",
@@ -2083,8 +2234,10 @@ fn draw_native_sky_config(
     config: &mut crate::config::NativeSkyConfig,
     status: sky::NativeSkyStatus,
 ) -> bool {
-    let heading = cstring("Sky");
-    ui.text_colored(MENU_ACCENT_TEXT, &heading);
+    let heading = cstring("NATIVE SKY");
+    ui.separator_text(&heading);
+    let subtitle = cstring("Atmosphere, celestial light, clouds, stars, and Mojave sunsets.");
+    ui.text_colored(MENU_MUTED_TEXT, &subtitle);
     let (status_color, status_text) = if status.failed {
         (MENU_ERROR_TEXT, "Shader error".to_owned())
     } else if status.enabled && status.created == status.total {
@@ -2112,6 +2265,8 @@ fn draw_native_sky_config(
         return changed;
     }
 
+    let section = cstring("ATMOSPHERE AND SUN");
+    ui.separator_text(&section);
     changed |= draw_float_slider(
         ui,
         "Atmosphere",
@@ -2152,7 +2307,8 @@ fn draw_native_sky_config(
         0.0,
         4.0,
     );
-    ui.separator();
+    let section = cstring("CLOUD LAYER");
+    ui.separator_text(&section);
     changed |= draw_float_slider(
         ui,
         "Cloud opacity",
@@ -2175,7 +2331,8 @@ fn draw_native_sky_config(
         "native_sky.cloud_normals",
         &mut config.cloud_normals,
     );
-    ui.separator();
+    let section = cstring("STARS AND SUNSET");
+    ui.separator_text(&section);
     changed |= draw_float_slider(
         ui,
         "Star strength",
@@ -2233,8 +2390,8 @@ fn draw_feature_list(
     pbr_status: pbr::NativePbrRuntimeStatus,
     sky_status: sky::NativeSkyStatus,
 ) {
-    let heading = cstring("Engine features");
-    ui.text_colored(MENU_ACCENT_TEXT, &heading);
+    let heading = cstring("ENGINE RENDERING");
+    ui.separator_text(&heading);
     let pbr_label = cstring(native_pbr_list_label(config.native_pbr.enabled, pbr_status));
     if ui.selectable(&pbr_label, *selected_item == MenuSelection::NativePbr) {
         *selected_item = MenuSelection::NativePbr;
@@ -2244,9 +2401,8 @@ fn draw_feature_list(
         *selected_item = MenuSelection::NativeSky;
     }
 
-    ui.separator();
-    let heading = cstring("Embedded effects");
-    ui.text_colored(MENU_ACCENT_TEXT, &heading);
+    let heading = cstring("BUILT-IN EFFECTS");
+    ui.separator_text(&heading);
     let mut embedded_count = 0usize;
     for (index, source) in sources.iter().enumerate() {
         if !source.is_embedded_effect() {
@@ -2263,9 +2419,8 @@ fn draw_feature_list(
         ui.text_colored(MENU_MUTED_TEXT, &empty);
     }
 
-    ui.separator();
-    let heading = cstring("External shaders");
-    ui.text_colored(MENU_ACCENT_TEXT, &heading);
+    let heading = cstring("MOD SHADERS");
+    ui.separator_text(&heading);
     let mut external_count = 0usize;
     for (index, source) in sources.iter().enumerate() {
         if !source.is_external_file() {
@@ -2284,23 +2439,24 @@ fn draw_feature_list(
 }
 
 fn draw_shader_details(ui: &mut psycho_imgui::Ui<'_>, source: &mut ScreenShaderSource) -> bool {
-    let mut embedded_changed = false;
-    let name = cstring(source.name.as_str());
-    ui.text_colored(MENU_ACCENT_TEXT, &name);
-    ui.same_line();
+    let mut changed = false;
+    let name = cstring(shader_display_name(source));
+    ui.separator_text(&name);
+
+    if let Some(description) = embedded_effect_description(source.embedded_effect_kind()) {
+        ui.text_colored(MENU_MUTED_TEXT, &cstring(description));
+    }
 
     let mut enabled = source.enabled;
     let enabled_label = cstring(format!("Enabled##{}.enabled", source.name));
     if ui.checkbox(&enabled_label, &mut enabled) {
-        let is_embedded = source.is_embedded_effect();
         if let Err(err) = source.set_enabled(enabled) {
             source.config_error = Some(format!("{err:#}"));
         } else {
-            embedded_changed |= is_embedded;
+            changed = true;
         }
     }
 
-    ui.separator();
     draw_shader_status(ui, source);
 
     let source_kind = if source.is_embedded_effect() {
@@ -2311,7 +2467,10 @@ fn draw_shader_details(ui: &mut psycho_imgui::Ui<'_>, source: &mut ScreenShaderS
     let source_kind = cstring(source_kind);
     ui.text_colored(MENU_MUTED_TEXT, &source_kind);
 
-    let phase_text = cstring(format!("Phase: {}", source.phase().label()));
+    let phase_text = cstring(format!(
+        "Render stage: {}",
+        shader_phase_display(source.phase())
+    ));
     ui.text_colored(MENU_MUTED_TEXT, &phase_text);
 
     if source.is_external_file() {
@@ -2335,8 +2494,8 @@ fn draw_shader_details(ui: &mut psycho_imgui::Ui<'_>, source: &mut ScreenShaderS
 
     ui.spacing();
     if source.is_external_file() {
-        let pass_heading = cstring("Pass schedule");
-        ui.text_colored(MENU_ACCENT_TEXT, &pass_heading);
+        let pass_heading = cstring("PASS SCHEDULE");
+        ui.separator_text(&pass_heading);
         let mut pass_count = source.pass_count as i32;
         if draw_int_slider(
             ui,
@@ -2349,29 +2508,31 @@ fn draw_shader_details(ui: &mut psycho_imgui::Ui<'_>, source: &mut ScreenShaderS
             let pass_count = pass_count.clamp(1, 8) as u32;
             if let Err(err) = source.set_pass_count(pass_count) {
                 source.config_error = Some(format!("{err:#}"));
+            } else {
+                changed = true;
             }
         }
     }
 
     if source.embedded_effect_kind() == Some(EmbeddedEffectKind::DepthOfField) {
         ui.spacing();
-        let preset_heading = cstring("Presets");
-        ui.text_colored(MENU_ACCENT_TEXT, &preset_heading);
-        let hybrid = cstring("Hybrid##dof_preset_hybrid");
+        let preset_heading = cstring("VISUAL PROFILES");
+        ui.separator_text(&preset_heading);
+        let hybrid = cstring("OMV Hybrid##dof_preset_hybrid");
         if ui.button(&hybrid) {
-            embedded_changed |=
+            changed |=
                 shaders::apply_depth_of_field_preset(source, shaders::DepthOfFieldPreset::Hybrid);
         }
         ui.same_line();
-        let eye = cstring("Eye##dof_preset_eye");
+        let eye = cstring("Eye Focus##dof_preset_eye");
         if ui.button(&eye) {
-            embedded_changed |=
+            changed |=
                 shaders::apply_depth_of_field_preset(source, shaders::DepthOfFieldPreset::Eye);
         }
         ui.same_line();
-        let souls = cstring("Souls Soft##dof_preset_souls");
+        let souls = cstring("Souls Far DOF##dof_preset_souls");
         if ui.button(&souls) {
-            embedded_changed |= shaders::apply_depth_of_field_preset(
+            changed |= shaders::apply_depth_of_field_preset(
                 source,
                 shaders::DepthOfFieldPreset::SoulsSoft,
             );
@@ -2379,12 +2540,16 @@ fn draw_shader_details(ui: &mut psycho_imgui::Ui<'_>, source: &mut ScreenShaderS
     }
 
     ui.spacing();
-    let option_heading = cstring("Options");
-    ui.text_colored(MENU_ACCENT_TEXT, &option_heading);
+    let option_heading = cstring("TUNING CONTROLS");
+    ui.separator_text(&option_heading);
+    if source.embedded_effect_kind() == Some(EmbeddedEffectKind::DepthOfField) {
+        let precision_hint = cstring("Ctrl-click a slider to enter an exact value.");
+        ui.text_colored(MENU_MUTED_TEXT, &precision_hint);
+    }
     if source.options.is_empty() {
         let text = cstring("No dynamic options");
         ui.text_colored(MENU_MUTED_TEXT, &text);
-        return embedded_changed;
+        return changed;
     }
 
     for option_index in 0..source.options.len() {
@@ -2395,8 +2560,8 @@ fn draw_shader_details(ui: &mut psycho_imgui::Ui<'_>, source: &mut ScreenShaderS
             }
             if let Some(section) = depth_of_field_option_section(option.key.as_str()) {
                 ui.spacing();
-                let heading = cstring(section);
-                ui.text_colored(MENU_ACCENT_TEXT, &heading);
+                let heading = cstring(section.to_ascii_uppercase());
+                ui.separator_text(&heading);
             }
         }
 
@@ -2414,7 +2579,7 @@ fn draw_shader_details(ui: &mut psycho_imgui::Ui<'_>, source: &mut ScreenShaderS
                     if let Err(err) = source.set_option_float(option_index, value) {
                         source.config_error = Some(format!("{err:#}"));
                     } else {
-                        embedded_changed |= source.is_embedded_effect();
+                        changed = true;
                     }
                 }
             }
@@ -2454,7 +2619,7 @@ fn draw_shader_details(ui: &mut psycho_imgui::Ui<'_>, source: &mut ScreenShaderS
                     if let Err(err) = source.set_option_integer(option_index, value) {
                         source.config_error = Some(format!("{err:#}"));
                     } else {
-                        embedded_changed |= source.is_embedded_effect();
+                        changed = true;
                     }
                 }
             }
@@ -2465,14 +2630,14 @@ fn draw_shader_details(ui: &mut psycho_imgui::Ui<'_>, source: &mut ScreenShaderS
                     if let Err(err) = source.set_option_bool(option_index, value) {
                         source.config_error = Some(format!("{err:#}"));
                     } else {
-                        embedded_changed |= source.is_embedded_effect();
+                        changed = true;
                     }
                 }
             }
         }
     }
 
-    embedded_changed
+    changed
 }
 
 fn depth_of_field_option_visible(source: &ScreenShaderSource, key: &str) -> bool {
@@ -2526,7 +2691,17 @@ fn draw_float_slider(
     min: f32,
     max: f32,
 ) -> bool {
-    let display = cstring(format!("{label}: {:.3}", *value));
+    let span = (max - min).abs();
+    let formatted_value = if span <= 1.0 {
+        format!("{:.6}", *value)
+    } else if span <= 20.0 {
+        format!("{:.5}", *value)
+    } else if span <= 1_000.0 {
+        format!("{:.3}", *value)
+    } else {
+        format!("{:.1}", *value)
+    };
+    let display = cstring(format!("{label}: {formatted_value}"));
     ui.text(&display);
     let slider_id = cstring(format!("##{id}"));
     let _width = ui.push_item_width(MENU_SLIDER_WIDTH);
@@ -2602,21 +2777,86 @@ fn shader_list_label(source: &ScreenShaderSource, index: usize) -> String {
     let status = if shader_has_error(source) {
         "ERR"
     } else if source.enabled {
-        "ON "
+        "LIVE"
     } else {
         "OFF"
     };
-    format!("{status}  {}##shader_select_{index}", source.name)
+    format!(
+        "[{status}]  {}##shader_select_{index}",
+        shader_display_name(source)
+    )
+}
+
+fn shader_display_name(source: &ScreenShaderSource) -> String {
+    if source.is_embedded_effect() {
+        return source.name.clone();
+    }
+
+    let stem = source.name.trim_start_matches(|character: char| {
+        character.is_ascii_digit() || matches!(character, '_' | '-' | '.' | ' ')
+    });
+    let mut display = String::new();
+    for word in stem.split(['_', '-', '.']).filter(|word| !word.is_empty()) {
+        if !display.is_empty() {
+            display.push(' ');
+        }
+        if word
+            .chars()
+            .all(|character| !character.is_ascii_lowercase())
+        {
+            display.push_str(word);
+            continue;
+        }
+        let mut characters = word.chars();
+        if let Some(first) = characters.next() {
+            display.extend(first.to_uppercase());
+            display.extend(characters);
+        }
+    }
+    if display.is_empty() {
+        source.name.clone()
+    } else {
+        display
+    }
+}
+
+fn shader_phase_display(phase: ShaderPhase) -> &'static str {
+    match phase {
+        ShaderPhase::ScenePreImageSpace => "Scene / before image-space",
+        ShaderPhase::ScenePostImageSpace => "Scene / after image-space",
+        ShaderPhase::FinalImageSpace => "Final image-space",
+    }
+}
+
+fn embedded_effect_description(kind: Option<EmbeddedEffectKind>) -> Option<&'static str> {
+    match kind {
+        Some(EmbeddedEffectKind::FastAmbientOcclusion) => {
+            Some("Broad ambient grounding for terrain, structures, and world geometry.")
+        }
+        Some(EmbeddedEffectKind::ContactAmbientOcclusion) => {
+            Some("Fine contact shadows for creases, intersections, and close geometry.")
+        }
+        Some(EmbeddedEffectKind::BloomingHdr) => {
+            Some("Highlight bloom, exposure shaping, color response, and atmosphere.")
+        }
+        Some(EmbeddedEffectKind::Sunshafts) => {
+            Some("Depth-aware exterior god rays driven by the native sun contract.")
+        }
+        Some(EmbeddedEffectKind::DepthOfField) => {
+            Some("Optical near focus, cinematic far blur, and soft Souls-style depth.")
+        }
+        None => None,
+    }
 }
 
 fn native_pbr_list_label(configured_enabled: bool, status: pbr::NativePbrRuntimeStatus) -> String {
-    let status = if configured_enabled && status.block_reason.is_some() {
-        "BLK"
+    let status = if status.block_reason.is_some() {
+        "BLOCKED"
     } else if status.installed
         && configured_enabled
         && (status.active_contracts_failed || status.land_lod_contract_failed)
     {
-        "BLK"
+        "BLOCKED"
     } else if status.installed
         && configured_enabled
         && (!status.active_contracts_ready
@@ -2624,32 +2864,30 @@ fn native_pbr_list_label(configured_enabled: bool, status: pbr::NativePbrRuntime
             || !status.close_terrain_contract_proven
             || !status.terrain_fade_contract_proven)
     {
-        "WUP"
+        "WARMUP"
     } else if status.installed && configured_enabled {
-        "ON "
-    } else if status.block_reason.is_some() {
-        "BLK"
+        "LIVE"
     } else if status.installed {
-        "HOK"
-    } else if configured_enabled {
         "OFF"
     } else {
-        "OFF"
+        "UNAVAILABLE"
     };
-    format!("{status}  PBR##native_pbr_select")
+    format!("[{status}]  PBR Materials##native_pbr_select")
 }
 
 fn native_sky_list_label(configured_enabled: bool, status: sky::NativeSkyStatus) -> String {
     let state = if status.failed {
         "ERR"
+    } else if !status.installed {
+        "UNAVAILABLE"
     } else if configured_enabled && status.created == status.total {
-        "ON "
+        "LIVE"
     } else if configured_enabled {
-        "WUP"
+        "WARMUP"
     } else {
         "OFF"
     };
-    format!("{state}  Sky##native_sky_select")
+    format!("[{state}]  Native Sky##native_sky_select")
 }
 
 fn shader_has_error(source: &ScreenShaderSource) -> bool {
@@ -2659,16 +2897,16 @@ fn shader_has_error(source: &ScreenShaderSource) -> bool {
 }
 
 fn set_all_sources_enabled(sources: &mut [ScreenShaderSource], enabled: bool) -> bool {
-    let mut embedded_changed = false;
+    let mut changed = false;
     for source in sources {
-        let is_embedded = source.is_embedded_effect();
+        let source_changed = source.enabled != enabled;
         if let Err(err) = source.set_enabled(enabled) {
             source.config_error = Some(format!("{err:#}"));
-        } else {
-            embedded_changed |= is_embedded;
+        } else if source_changed {
+            changed = true;
         }
     }
-    embedded_changed
+    changed
 }
 
 fn clamp_menu_selection(sources: &[ScreenShaderSource], selected_item: &mut MenuSelection) {

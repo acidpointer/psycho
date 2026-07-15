@@ -149,6 +149,10 @@ impl Ui<'_> {
         unsafe { ffi::psycho_imgui_separator() };
     }
 
+    pub fn separator_text(&mut self, label: &CStr) {
+        unsafe { ffi::psycho_imgui_separator_text(label.as_ptr()) };
+    }
+
     pub fn spacing(&mut self) {
         unsafe { ffi::psycho_imgui_spacing() };
     }
@@ -171,6 +175,32 @@ impl Ui<'_> {
 
     pub fn button(&mut self, label: &CStr) -> bool {
         unsafe { ffi::psycho_imgui_button(label.as_ptr()) }
+    }
+
+    pub fn button_colored(
+        &mut self,
+        label: &CStr,
+        color: [f32; 4],
+        hovered: [f32; 4],
+        active: [f32; 4],
+    ) -> bool {
+        unsafe {
+            ffi::psycho_imgui_button_colored(
+                label.as_ptr(),
+                color[0],
+                color[1],
+                color[2],
+                color[3],
+                hovered[0],
+                hovered[1],
+                hovered[2],
+                hovered[3],
+                active[0],
+                active[1],
+                active[2],
+                active[3],
+            )
+        }
     }
 
     pub fn progress_bar(&mut self, fraction: f32, width: f32, height: f32, overlay: &CStr) {
@@ -318,6 +348,7 @@ mod ffi {
         pub fn psycho_imgui_text_wrapped(text: *const c_char);
         pub fn psycho_imgui_text_colored(r: f32, g: f32, b: f32, a: f32, text: *const c_char);
         pub fn psycho_imgui_separator();
+        pub fn psycho_imgui_separator_text(label: *const c_char);
         pub fn psycho_imgui_spacing();
         pub fn psycho_imgui_checkbox(label: *const c_char, value: *mut bool) -> bool;
         pub fn psycho_imgui_slider_float(
@@ -334,6 +365,21 @@ mod ffi {
         ) -> bool;
         pub fn psycho_imgui_selectable(label: *const c_char, selected: bool) -> bool;
         pub fn psycho_imgui_button(label: *const c_char) -> bool;
+        pub fn psycho_imgui_button_colored(
+            label: *const c_char,
+            r: f32,
+            g: f32,
+            b: f32,
+            a: f32,
+            hovered_r: f32,
+            hovered_g: f32,
+            hovered_b: f32,
+            hovered_a: f32,
+            active_r: f32,
+            active_g: f32,
+            active_b: f32,
+            active_a: f32,
+        ) -> bool;
         pub fn psycho_imgui_progress_bar(
             fraction: f32,
             width: f32,

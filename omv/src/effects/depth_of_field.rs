@@ -32,8 +32,6 @@ use crate::{
 
 const COLOR_WRITE_ALL: u32 = 0x0F;
 const HALF_SCALE: u32 = 2;
-const QUARTER_SCALE: u32 = 4;
-const EIGHTH_SCALE: u32 = 8;
 const NEAR_TILE_SIZE: u32 = 8;
 const RESUME_SECONDS: f32 = 0.15;
 
@@ -45,9 +43,7 @@ const DILATE_SHADER: &[u8] = include_bytes!("../../shaders/embedded/dof_near_dil
 const NEAR_SMOOTH_SHADER: &[u8] = include_bytes!("../../shaders/embedded/dof_near_smooth.hlsl");
 const FAR_GATHER_SHADER: &[u8] = include_bytes!("../../shaders/embedded/dof_far_gather.hlsl");
 const NEAR_GATHER_SHADER: &[u8] = include_bytes!("../../shaders/embedded/dof_near_gather.hlsl");
-const DOWNSAMPLE_SHADER: &[u8] = include_bytes!("../../shaders/embedded/dof_downsample.hlsl");
-const SOFT_RECONSTRUCT_SHADER: &[u8] =
-    include_bytes!("../../shaders/embedded/dof_soft_reconstruct.hlsl");
+const SOFT_FILTER_SHADER: &[u8] = include_bytes!("../../shaders/embedded/dof_soft_filter.hlsl");
 const COMPOSE_SHADER: &[u8] = include_bytes!("../../shaders/embedded/dof_compose.hlsl");
 
 static COMPILE_STARTED: AtomicBool = AtomicBool::new(false);
@@ -63,9 +59,8 @@ struct DofBytecode {
     near_smooth: Vec<u32>,
     far_gather: GatherBytecode,
     near_gather: GatherBytecode,
-    downsample: Vec<u32>,
-    soft_reconstruct: SoftReconstructBytecode,
-    compose: Vec<u32>,
+    soft_filter: SoftFilterBytecode,
+    compose: ComposeBytecode,
 }
 
 struct GatherBytecode {
@@ -74,10 +69,15 @@ struct GatherBytecode {
     ultra: Vec<u32>,
 }
 
-struct SoftReconstructBytecode {
-    quarter: Vec<u32>,
+struct SoftFilterBytecode {
+    balanced: Vec<u32>,
     high: Vec<u32>,
     ultra: Vec<u32>,
+}
+
+struct ComposeBytecode {
+    balanced: Vec<u32>,
+    high: Vec<u32>,
 }
 
 impl DofBytecode {
@@ -91,19 +91,27 @@ impl DofBytecode {
             near_smooth: load_or_compile_shader("dof_near_smooth.hlsl", NEAR_SMOOTH_SHADER)?,
             far_gather: GatherBytecode::compile("dof_far_gather.hlsl", FAR_GATHER_SHADER)?,
             near_gather: GatherBytecode::compile("dof_near_gather.hlsl", NEAR_GATHER_SHADER)?,
-            downsample: load_or_compile_shader("dof_downsample.hlsl", DOWNSAMPLE_SHADER)?,
-            soft_reconstruct: SoftReconstructBytecode::compile()?,
-            compose: load_or_compile_shader("dof_compose.hlsl", COMPOSE_SHADER)?,
+            soft_filter: SoftFilterBytecode::compile()?,
+            compose: ComposeBytecode::compile()?,
         })
     }
 }
 
-impl SoftReconstructBytecode {
+impl SoftFilterBytecode {
     fn compile() -> Result<Self> {
         Ok(Self {
-            quarter: compile_soft_reconstruct_bytecode("quarter", false, false)?,
-            high: compile_soft_reconstruct_bytecode("high", true, false)?,
-            ultra: compile_soft_reconstruct_bytecode("ultra", true, true)?,
+            balanced: compile_soft_filter_bytecode("balanced", 5)?,
+            high: compile_soft_filter_bytecode("high", 9)?,
+            ultra: compile_soft_filter_bytecode("ultra", 13)?,
+        })
+    }
+}
+
+impl ComposeBytecode {
+    fn compile() -> Result<Self> {
+        Ok(Self {
+            balanced: compile_compose_bytecode("balanced", false)?,
+            high: compile_compose_bytecode("high", true)?,
         })
     }
 }
@@ -112,8 +120,8 @@ impl GatherBytecode {
     fn compile(source_name: &str, source: &[u8]) -> Result<Self> {
         Ok(Self {
             balanced: compile_gather_bytecode(source_name, source, 12)?,
-            high: compile_gather_bytecode(source_name, source, 16)?,
-            ultra: compile_gather_bytecode(source_name, source, 24)?,
+            high: compile_gather_bytecode(source_name, source, 24)?,
+            ultra: compile_gather_bytecode(source_name, source, 36)?,
         })
     }
 }
@@ -150,9 +158,8 @@ pub(crate) struct DepthOfFieldEffect {
     near_smooth_shader: PixelShader9,
     far_gather_shaders: GatherShaders,
     near_gather_shaders: GatherShaders,
-    downsample_shader: PixelShader9,
-    soft_reconstruct_shaders: SoftReconstructShaders,
-    compose_shader: PixelShader9,
+    soft_filter_shaders: SoftFilterShaders,
+    compose_shaders: ComposeShaders,
     scalar_format: D3DFORMAT,
     targets: Option<DofTargets>,
     failed_target_size: Option<(u32, u32)>,
@@ -192,12 +199,8 @@ impl DepthOfFieldEffect {
             near_smooth_shader: device.create_pixel_shader(&bytecode.near_smooth)?,
             far_gather_shaders: GatherShaders::create(device, &bytecode.far_gather)?,
             near_gather_shaders: GatherShaders::create(device, &bytecode.near_gather)?,
-            downsample_shader: device.create_pixel_shader(&bytecode.downsample)?,
-            soft_reconstruct_shaders: SoftReconstructShaders::create(
-                device,
-                &bytecode.soft_reconstruct,
-            )?,
-            compose_shader: device.create_pixel_shader(&bytecode.compose)?,
+            soft_filter_shaders: SoftFilterShaders::create(device, &bytecode.soft_filter)?,
+            compose_shaders: ComposeShaders::create(device, &bytecode.compose)?,
             scalar_format,
             targets: None,
             failed_target_size: None,
@@ -245,7 +248,7 @@ impl DepthOfFieldEffect {
         if !near_enabled && !far_enabled {
             return Ok(());
         }
-        let soft_pyramid = settings.blur_style == DofBlurStyle::Soft;
+        let soft_filter = settings.blur_style == DofBlurStyle::Soft && settings.softness > 0.001;
         self.ensure_targets(device, desc)?;
         bind_pipeline_state(device)?;
 
@@ -311,7 +314,7 @@ impl DepthOfFieldEffect {
                 settings,
             )?;
         }
-        if far_enabled && !soft_pyramid {
+        if far_enabled {
             draw_far_gather(
                 device,
                 self.far_gather_shaders.shader(settings.quality),
@@ -337,11 +340,10 @@ impl DepthOfFieldEffect {
                 self.resume_mix,
             )?;
         }
-        if soft_pyramid {
-            draw_soft_pyramid(
+        if soft_filter {
+            draw_soft_layers(
                 device,
-                &self.downsample_shader,
-                &self.soft_reconstruct_shaders,
+                &self.soft_filter_shaders,
                 targets,
                 desc,
                 settings,
@@ -351,7 +353,7 @@ impl DepthOfFieldEffect {
         }
         draw_compose(
             device,
-            &self.compose_shader,
+            self.compose_shaders.shader(settings.quality),
             backbuffer,
             desc,
             targets,
@@ -361,7 +363,6 @@ impl DepthOfFieldEffect {
             frame_index,
             frame_seconds,
             self.resume_mix,
-            soft_pyramid,
         )
     }
 
@@ -432,28 +433,47 @@ impl GatherShaders {
     }
 }
 
-struct SoftReconstructShaders {
-    quarter: PixelShader9,
+struct SoftFilterShaders {
+    balanced: PixelShader9,
     high: PixelShader9,
     ultra: PixelShader9,
 }
 
-impl SoftReconstructShaders {
-    fn create(device: &Device9Ref<'_>, bytecode: &SoftReconstructBytecode) -> Direct3DResult<Self> {
+impl SoftFilterShaders {
+    fn create(device: &Device9Ref<'_>, bytecode: &SoftFilterBytecode) -> Direct3DResult<Self> {
         Ok(Self {
-            quarter: device.create_pixel_shader(&bytecode.quarter)?,
+            balanced: device.create_pixel_shader(&bytecode.balanced)?,
             high: device.create_pixel_shader(&bytecode.high)?,
             ultra: device.create_pixel_shader(&bytecode.ultra)?,
         })
     }
 
-    fn shader(&self, quality: DofQuality, use_eighth: bool) -> &PixelShader9 {
-        if !use_eighth {
-            return &self.quarter;
-        }
+    fn shader(&self, quality: DofQuality) -> &PixelShader9 {
         match quality {
+            DofQuality::Balanced => &self.balanced,
+            DofQuality::High => &self.high,
             DofQuality::Ultra => &self.ultra,
-            DofQuality::Balanced | DofQuality::High => &self.high,
+        }
+    }
+}
+
+struct ComposeShaders {
+    balanced: PixelShader9,
+    high: PixelShader9,
+}
+
+impl ComposeShaders {
+    fn create(device: &Device9Ref<'_>, bytecode: &ComposeBytecode) -> Direct3DResult<Self> {
+        Ok(Self {
+            balanced: device.create_pixel_shader(&bytecode.balanced)?,
+            high: device.create_pixel_shader(&bytecode.high)?,
+        })
+    }
+
+    fn shader(&self, quality: DofQuality) -> &PixelShader9 {
+        match quality {
+            DofQuality::Balanced => &self.balanced,
+            DofQuality::High | DofQuality::Ultra => &self.high,
         }
     }
 }
@@ -486,33 +506,34 @@ struct DofSettings {
 
 impl DofSettings {
     fn from_config(config: DepthOfFieldConfig) -> Self {
-        let distant_blur_start = finite(config.distant_blur_start, 30_000.0).clamp(1.0, 500_000.0);
+        let distant_blur_start =
+            finite(config.distant_blur_start, 21_551.82).clamp(0.1, 2_000_000.0);
         let distant_blur_end =
-            finite(config.distant_blur_end, 150_000.0).clamp(distant_blur_start + 1.0, 1_000_000.0);
+            finite(config.distant_blur_end, 55_172.29).clamp(distant_blur_start + 0.1, 4_000_000.0);
         Self {
             respect_vanilla_dof: config.respect_vanilla_dof,
             focus_mode: config.focus_mode,
             quality: config.quality,
             blur_style: config.blur_style,
             manual_focus_distance: finite(config.manual_focus_distance, 2_000.0)
-                .clamp(1.0, 1_000_000.0),
-            focus_sample_radius: finite(config.focus_sample_radius, 0.055).clamp(0.0, 0.25),
-            focus_cluster_tolerance: finite(config.focus_cluster_tolerance, 0.18).clamp(0.01, 1.0),
-            focus_deadband: finite(config.focus_deadband, 0.025).clamp(0.0, 0.25),
-            focus_near_seconds: finite(config.focus_near_seconds, 0.12).clamp(0.01, 2.0),
-            focus_far_seconds: finite(config.focus_far_seconds, 0.28).clamp(0.01, 3.0),
-            focus_range: finite(config.focus_range, 0.12).clamp(0.01, 2.0),
-            far_focus_range: finite(config.far_focus_range, 0.16).clamp(0.01, 2.0),
-            near_strength: finite(config.near_strength, 0.85).clamp(0.0, 2.0),
-            far_strength: finite(config.far_strength, 0.75).clamp(0.0, 2.0),
-            near_radius_pixels: finite(config.near_radius_pixels, 12.0).clamp(0.0, 96.0),
-            far_radius_pixels: finite(config.far_radius_pixels, 36.0).clamp(0.0, 128.0),
-            first_person_strength: finite(config.first_person_strength, 0.4).clamp(0.0, 1.0),
-            distant_blur_strength: finite(config.distant_blur_strength, 0.65).clamp(0.0, 2.0),
+                .clamp(0.1, 2_000_000.0),
+            focus_sample_radius: finite(config.focus_sample_radius, 0.055).clamp(0.0, 0.5),
+            focus_cluster_tolerance: finite(config.focus_cluster_tolerance, 0.18).clamp(0.001, 4.0),
+            focus_deadband: finite(config.focus_deadband, 0.025).clamp(0.0, 1.0),
+            focus_near_seconds: finite(config.focus_near_seconds, 0.12).clamp(0.001, 10.0),
+            focus_far_seconds: finite(config.focus_far_seconds, 0.28).clamp(0.001, 10.0),
+            focus_range: finite(config.focus_range, 0.55).clamp(0.001, 16.0),
+            far_focus_range: finite(config.far_focus_range, 0.70).clamp(0.001, 16.0),
+            near_strength: finite(config.near_strength, 0.35).clamp(0.0, 8.0),
+            far_strength: finite(config.far_strength, 0.35).clamp(0.0, 8.0),
+            near_radius_pixels: finite(config.near_radius_pixels, 10.0).clamp(0.0, 256.0),
+            far_radius_pixels: finite(config.far_radius_pixels, 48.0).clamp(0.0, 512.0),
+            first_person_strength: finite(config.first_person_strength, 0.2).clamp(0.0, 4.0),
+            distant_blur_strength: finite(config.distant_blur_strength, 0.6413795).clamp(0.0, 8.0),
             distant_blur_start,
             distant_blur_end,
-            sky_blur_strength: finite(config.sky_blur_strength, 0.0).clamp(0.0, 1.0),
-            softness: finite(config.softness, 0.75).clamp(0.0, 1.0),
+            sky_blur_strength: finite(config.sky_blur_strength, 0.125).clamp(0.0, 1.0),
+            softness: finite(config.softness, 0.9517241).clamp(0.0, 1.0),
         }
     }
 
@@ -832,145 +853,111 @@ fn draw_near_gather(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn draw_soft_pyramid(
+fn draw_soft_layers(
     device: &Device9Ref<'_>,
-    downsample_shader: &PixelShader9,
-    reconstruct_shaders: &SoftReconstructShaders,
+    filter_shaders: &SoftFilterShaders,
     targets: &DofTargets,
     desc: &D3DSURFACE_DESC,
     settings: DofSettings,
     far_enabled: bool,
     near_enabled: bool,
 ) -> Direct3DResult<()> {
-    let use_eighth = settings.quality != DofQuality::Balanced && settings.softness > 0.3;
-    let reconstruct_shader = reconstruct_shaders.shader(settings.quality, use_eighth);
+    let filter_shader = filter_shaders.shader(settings.quality);
     let radius_scale = desc.Height as f32 / 1080.0;
+    let gather_taps: f32 = match settings.quality {
+        DofQuality::Balanced => 12.0,
+        DofQuality::High => 24.0,
+        DofQuality::Ultra => 36.0,
+    };
     if far_enabled {
-        draw_soft_layer(
+        draw_soft_layer_pair(
             device,
-            downsample_shader,
-            reconstruct_shader,
+            filter_shader,
             targets,
-            &targets.prefilter.texture,
+            &targets.far.texture,
             &targets.far.surface,
             settings.softness,
             settings.far_radius_pixels * radius_scale,
-            use_eighth,
+            gather_taps,
+            false,
         )?;
     }
     if near_enabled {
-        draw_soft_layer(
+        draw_soft_layer_pair(
             device,
-            downsample_shader,
-            reconstruct_shader,
+            filter_shader,
             targets,
             &targets.near.texture,
-            &targets.prefilter.surface,
+            &targets.near.surface,
             settings.softness,
-            settings.near_radius_pixels * radius_scale * 0.5,
-            use_eighth,
+            settings.near_radius_pixels * radius_scale,
+            gather_taps,
+            true,
         )?;
     }
     Ok(())
 }
 
 #[allow(clippy::too_many_arguments)]
-fn draw_soft_layer(
+fn draw_soft_layer_pair(
     device: &Device9Ref<'_>,
-    downsample_shader: &PixelShader9,
-    reconstruct_shader: &PixelShader9,
+    shader: &PixelShader9,
     targets: &DofTargets,
     source: &Texture9,
     output: &Surface9,
     softness: f32,
     radius_pixels: f32,
-    use_eighth: bool,
+    gather_taps: f32,
+    near_layer: bool,
 ) -> Direct3DResult<()> {
-    let quarter = &targets.quarter;
-    let eighth = &targets.eighth;
-    let quarter_downsample_spread = (radius_pixels / 32.0).clamp(0.5, 3.0);
-    let eighth_downsample_spread = (radius_pixels / 64.0).clamp(0.5, 2.0);
-    let quarter_reconstruct_spread = if use_eighth {
-        radius_pixels / 8.0
-    } else {
-        radius_pixels / 4.0
-    }
-    .max(0.5);
-    let eighth_reconstruct_spread = (radius_pixels / 8.0).max(0.5);
+    let sample_spacing = radius_pixels.max(0.0) * 0.5 / gather_taps.sqrt();
+    let first_spread =
+        (0.5 + softness * 0.5 + sample_spacing * (0.15 + softness * 0.25)).clamp(0.5, 64.0);
+    let second_spread =
+        (0.5 + softness * 0.9 + sample_spacing * (0.2 + softness * 0.4)).clamp(0.5, 64.0);
 
-    bind_target(device, &quarter.surface, quarter.width, quarter.height)?;
-    device.set_texture(0, source)?;
-    set_sampler_filter(device, 0, D3DTEXF_LINEAR.0 as u32)?;
-    device.set_pixel_shader_constant_f(
-        9,
-        &[[
-            targets.half_inv_width * quarter_downsample_spread,
-            targets.half_inv_height * quarter_downsample_spread,
-            0.0,
-            0.0,
-        ]],
+    draw_soft_layer_pass(
+        device,
+        shader,
+        targets,
+        source,
+        &targets.prefilter.surface,
+        first_spread,
+        near_layer,
     )?;
-    device.set_pixel_shader(downsample_shader)?;
-    draw_quad(device, quarter.width, quarter.height)?;
+    draw_soft_layer_pass(
+        device,
+        shader,
+        targets,
+        &targets.prefilter.texture,
+        output,
+        second_spread,
+        near_layer,
+    )
+}
 
-    if use_eighth {
-        bind_target(device, &eighth.surface, eighth.width, eighth.height)?;
-        device.set_texture(0, &quarter.texture)?;
-        set_sampler_filter(device, 0, D3DTEXF_LINEAR.0 as u32)?;
-        device.set_pixel_shader_constant_f(
-            9,
-            &[[
-                quarter.inv_width * eighth_downsample_spread,
-                quarter.inv_height * eighth_downsample_spread,
-                0.0,
-                0.0,
-            ]],
-        )?;
-        device.set_pixel_shader(downsample_shader)?;
-        draw_quad(device, eighth.width, eighth.height)?;
-    }
-
+fn draw_soft_layer_pass(
+    device: &Device9Ref<'_>,
+    shader: &PixelShader9,
+    targets: &DofTargets,
+    source: &Texture9,
+    output: &Surface9,
+    spread: f32,
+    near_layer: bool,
+) -> Direct3DResult<()> {
     bind_target(device, output, targets.half_width, targets.half_height)?;
     device.set_texture(0, source)?;
-    device.set_texture(1, &quarter.texture)?;
-    device.set_texture(
-        2,
-        if use_eighth {
-            &eighth.texture
-        } else {
-            &quarter.texture
-        },
-    )?;
     set_sampler_filter(device, 0, D3DTEXF_LINEAR.0 as u32)?;
-    set_sampler_filter(device, 1, D3DTEXF_LINEAR.0 as u32)?;
-    set_sampler_filter(device, 2, D3DTEXF_LINEAR.0 as u32)?;
     device.set_pixel_shader_constant_f(
         9,
         &[[
-            quarter.inv_width * quarter_reconstruct_spread,
-            quarter.inv_height * quarter_reconstruct_spread,
-            if use_eighth {
-                eighth.inv_width * eighth_reconstruct_spread
-            } else {
-                0.0
-            },
-            if use_eighth {
-                eighth.inv_height * eighth_reconstruct_spread
-            } else {
-                0.0
-            },
-        ]],
-    )?;
-    device.set_pixel_shader_constant_f(
-        10,
-        &[[
-            targets.half_inv_width,
-            targets.half_inv_height,
-            softness,
+            targets.half_inv_width * spread,
+            targets.half_inv_height * spread,
+            near_layer as u8 as f32,
             0.0,
         ]],
     )?;
-    device.set_pixel_shader(reconstruct_shader)?;
+    device.set_pixel_shader(shader)?;
     draw_quad(device, targets.half_width, targets.half_height)
 }
 
@@ -987,17 +974,11 @@ fn draw_compose(
     frame_index: u32,
     frame_seconds: f32,
     resume_mix: f32,
-    soft_reconstruction: bool,
 ) -> Direct3DResult<()> {
     bind_target(device, backbuffer, desc.Width, desc.Height)?;
     device.set_texture(0, scene_color)?;
-    if soft_reconstruction {
-        device.set_texture(1, &targets.far.texture)?;
-        device.set_texture(2, &targets.prefilter.texture)?;
-    } else {
-        device.set_texture(1, &targets.far.texture)?;
-        device.set_texture(2, &targets.near.texture)?;
-    }
+    device.set_texture(1, &targets.far.texture)?;
+    device.set_texture(2, &targets.near.texture)?;
     device.set_texture(3, &targets.full_coc.texture)?;
     device.set_texture(4, &targets.near_coc.texture)?;
     set_sampler_filter(device, 0, D3DTEXF_LINEAR.0 as u32)?;
@@ -1104,18 +1085,20 @@ fn compile_gather_bytecode(source_name: &str, source: &[u8], tap_count: u32) -> 
     load_or_compile_shader(&format!("{source_name}:{tap_count}"), &variant)
 }
 
-fn compile_soft_reconstruct_bytecode(
-    label: &str,
-    use_eighth: bool,
-    ultra: bool,
-) -> Result<Vec<u32>> {
+fn compile_soft_filter_bytecode(label: &str, tap_count: u32) -> Result<Vec<u32>> {
+    let mut variant = format!("#define DOF_SOFT_TAP_COUNT {tap_count}\n").into_bytes();
+    variant.extend_from_slice(SOFT_FILTER_SHADER);
+    load_or_compile_shader(&format!("dof_soft_filter.hlsl:{label}"), &variant)
+}
+
+fn compile_compose_bytecode(label: &str, high_quality_upsample: bool) -> Result<Vec<u32>> {
     let mut variant = format!(
-        "#define DOF_USE_EIGHTH {}\n#define DOF_ULTRA {}\n",
-        use_eighth as u8, ultra as u8
+        "#define DOF_HIGH_QUALITY_UPSAMPLE {}\n",
+        high_quality_upsample as u8
     )
     .into_bytes();
-    variant.extend_from_slice(SOFT_RECONSTRUCT_SHADER);
-    load_or_compile_shader(&format!("dof_soft_reconstruct.hlsl:{label}"), &variant)
+    variant.extend_from_slice(COMPOSE_SHADER);
+    load_or_compile_shader(&format!("dof_compose.hlsl:{label}"), &variant)
 }
 
 fn bind_pipeline_state(device: &Device9Ref<'_>) -> Direct3DResult<()> {
@@ -1320,8 +1303,6 @@ struct DofTargets {
     near_coc: EffectTarget,
     focus_a: EffectTarget,
     focus_b: EffectTarget,
-    quarter: SizedTarget,
-    eighth: SizedTarget,
 }
 
 impl DofTargets {
@@ -1359,18 +1340,6 @@ impl DofTargets {
             near_coc: EffectTarget::create(device, half_width, half_height, scalar_format)?,
             focus_a: EffectTarget::create(device, 1, 1, scalar_format)?,
             focus_b: EffectTarget::create(device, 1, 1, scalar_format)?,
-            quarter: SizedTarget::create(
-                device,
-                full_width.div_ceil(QUARTER_SCALE).max(1),
-                full_height.div_ceil(QUARTER_SCALE).max(1),
-                D3DFMT_A16B16G16R16F,
-            )?,
-            eighth: SizedTarget::create(
-                device,
-                full_width.div_ceil(EIGHTH_SCALE).max(1),
-                full_height.div_ceil(EIGHTH_SCALE).max(1),
-                D3DFMT_A16B16G16R16F,
-            )?,
         })
     }
 

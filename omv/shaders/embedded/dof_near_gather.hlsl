@@ -4,6 +4,7 @@ sampler2D FullCoc : register(s2);
 
 float4 ScreenData : register(c0);
 float4 RadiusData : register(c6);
+float4 DistantData : register(c7);
 float4 TargetData : register(c8);
 
 struct PixelInput {
@@ -38,7 +39,14 @@ void AccumulateNear(
     float ringDistance = length(diskOffset) * centerRadius;
     float sampleRadius = RadiusData.x * nearCoc;
     float coverage = saturate((sampleRadius - ringDistance + 2.0f) * 0.25f);
-    float spatial = saturate(1.15f - dot(diskOffset, diskOffset) * 0.35f);
+    float radiusSquared = dot(diskOffset, diskOffset);
+    float roundSpatial = saturate(1.15f - radiusSquared * 0.35f);
+    float softSpatial = exp2(-radiusSquared * 1.8f);
+    float spatial = lerp(
+        roundSpatial,
+        softSpatial,
+        (DistantData.z > 0.5f) ? saturate(RadiusData.z) : 0.0f
+    );
     float weight = coverage * nearCoc * spatial;
     colorSum += tex2Dlod(PrefilterTexture, float4(sampleUv, 0.0f, 0.0f)).rgb * weight;
     nearWeightSum += weight;
@@ -52,7 +60,7 @@ float4 Main(PixelInput input) : COLOR0 {
     }
 
     float2 pixel = floor(input.uv * TargetData.xy);
-    float2 rotation = PixelRotation(pixel);
+    float2 rotation = (DistantData.z > 0.5f) ? float2(1.0f, 0.0f) : PixelRotation(pixel);
     float centerRadius = RadiusData.x * dilatedCoc;
     float centerNear = saturate(-tex2Dlod(FullCoc, float4(input.uv, 0.0f, 0.0f)).r);
     float centerWeight = centerNear * 1.5f;
@@ -88,6 +96,20 @@ float4 Main(PixelInput input) : COLOR0 {
     NEAR_TAP(-0.3827f, -0.9239f);
     NEAR_TAP( 0.3827f, -0.9239f);
     NEAR_TAP( 0.9239f, -0.3827f);
+#endif
+#if DOF_TAP_COUNT >= 36
+    NEAR_TAP( 0.8114f,  0.2174f);
+    NEAR_TAP( 0.5940f,  0.5940f);
+    NEAR_TAP( 0.2174f,  0.8114f);
+    NEAR_TAP(-0.2174f,  0.8114f);
+    NEAR_TAP(-0.5940f,  0.5940f);
+    NEAR_TAP(-0.8114f,  0.2174f);
+    NEAR_TAP(-0.8114f, -0.2174f);
+    NEAR_TAP(-0.5940f, -0.5940f);
+    NEAR_TAP(-0.2174f, -0.8114f);
+    NEAR_TAP( 0.2174f, -0.8114f);
+    NEAR_TAP( 0.5940f, -0.5940f);
+    NEAR_TAP( 0.8114f, -0.2174f);
 #endif
     if (nearWeightSum <= 0.0001f) {
         return 0.0f;

@@ -3,6 +3,7 @@ sampler2D FullCoc : register(s1);
 
 float4 ScreenData : register(c0);
 float4 RadiusData : register(c6);
+float4 DistantData : register(c7);
 float4 TargetData : register(c8);
 
 struct PixelInput {
@@ -39,7 +40,14 @@ void AccumulateFar(
     float coverage = saturate((sampleRadius - ringDistance + 2.0f) * 0.25f);
     float plane = saturate(1.0f - abs(sampleCoc - centerCoc) * 2.5f);
     plane *= plane;
-    float spatial = saturate(1.15f - dot(diskOffset, diskOffset) * 0.35f);
+    float radiusSquared = dot(diskOffset, diskOffset);
+    float roundSpatial = saturate(1.15f - radiusSquared * 0.35f);
+    float softSpatial = exp2(-radiusSquared * 1.8f);
+    float spatial = lerp(
+        roundSpatial,
+        softSpatial,
+        (DistantData.z > 0.5f) ? saturate(RadiusData.z) : 0.0f
+    );
     float weight = coverage * plane * spatial;
     colorSum += tex2Dlod(PrefilterTexture, float4(sampleUv, 0.0f, 0.0f)).rgb * weight;
     weightSum += weight;
@@ -53,7 +61,7 @@ float4 Main(PixelInput input) : COLOR0 {
     }
 
     float2 pixel = floor(input.uv * TargetData.xy);
-    float2 rotation = PixelRotation(pixel);
+    float2 rotation = (DistantData.z > 0.5f) ? float2(1.0f, 0.0f) : PixelRotation(pixel);
     float centerRadius = RadiusData.y * centerCoc;
     float3 colorSum = center.rgb * 1.5f;
     float weightSum = 1.5f;
@@ -85,6 +93,20 @@ float4 Main(PixelInput input) : COLOR0 {
     FAR_TAP(-0.3827f, -0.9239f);
     FAR_TAP( 0.3827f, -0.9239f);
     FAR_TAP( 0.9239f, -0.3827f);
+#endif
+#if DOF_TAP_COUNT >= 36
+    FAR_TAP( 0.8114f,  0.2174f);
+    FAR_TAP( 0.5940f,  0.5940f);
+    FAR_TAP( 0.2174f,  0.8114f);
+    FAR_TAP(-0.2174f,  0.8114f);
+    FAR_TAP(-0.5940f,  0.5940f);
+    FAR_TAP(-0.8114f,  0.2174f);
+    FAR_TAP(-0.8114f, -0.2174f);
+    FAR_TAP(-0.5940f, -0.5940f);
+    FAR_TAP(-0.2174f, -0.8114f);
+    FAR_TAP( 0.2174f, -0.8114f);
+    FAR_TAP( 0.5940f, -0.5940f);
+    FAR_TAP( 0.8114f, -0.2174f);
 #endif
     return float4(colorSum / max(weightSum, 0.0001f), centerCoc);
 }
