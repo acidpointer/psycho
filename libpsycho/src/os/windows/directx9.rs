@@ -18,11 +18,11 @@ use windows::Win32::Graphics::Direct3D::ID3DBlob;
 use windows::Win32::Graphics::Direct3D9::{
     D3DADAPTER_DEFAULT, D3DBACKBUFFER_TYPE, D3DBACKBUFFER_TYPE_MONO, D3DCLEAR_ZBUFFER, D3DDEVTYPE,
     D3DDEVTYPE_HAL, D3DDISPLAYMODE, D3DLOCKED_RECT, D3DPOOL, D3DPRESENT_PARAMETERS,
-    D3DPRIMITIVETYPE, D3DRENDERSTATETYPE, D3DRESOURCETYPE, D3DRTYPE_SURFACE, D3DSAMPLERSTATETYPE,
-    D3DSTATEBLOCKTYPE, D3DTEXTUREFILTERTYPE, D3DTEXTURESTAGESTATETYPE, D3DUSAGE_DEPTHSTENCIL,
-    D3DUSAGE_RENDERTARGET, D3DVERTEXELEMENT9, IDirect3D9, IDirect3DBaseTexture9, IDirect3DDevice9,
-    IDirect3DPixelShader9, IDirect3DStateBlock9, IDirect3DSurface9, IDirect3DTexture9,
-    IDirect3DVertexBuffer9, IDirect3DVertexShader9,
+    D3DPRIMITIVETYPE, D3DRENDERSTATETYPE, D3DRESOURCETYPE, D3DRTYPE_SURFACE, D3DRTYPE_TEXTURE,
+    D3DSAMPLERSTATETYPE, D3DSTATEBLOCKTYPE, D3DTEXTUREFILTERTYPE, D3DTEXTURESTAGESTATETYPE,
+    D3DUSAGE_DEPTHSTENCIL, D3DUSAGE_RENDERTARGET, D3DVERTEXELEMENT9, IDirect3D9,
+    IDirect3DBaseTexture9, IDirect3DDevice9, IDirect3DPixelShader9, IDirect3DStateBlock9,
+    IDirect3DSurface9, IDirect3DTexture9, IDirect3DVertexBuffer9, IDirect3DVertexShader9,
 };
 pub use windows::Win32::Graphics::Direct3D9::{
     D3DCULL, D3DCULL_CCW, D3DCULL_CW, D3DCULL_NONE, D3DFMT_A8R8G8B8, D3DFORMAT, D3DFVF_DIFFUSE,
@@ -122,6 +122,12 @@ pub const D3DFMT_INTZ: D3DFORMAT = D3DFORMAT(make_fourcc(b'I', b'N', b'T', b'Z')
 
 /// Two-channel 16-bit float render target used for compact intermediate buffers.
 pub const D3DFMT_G16R16F: D3DFORMAT = D3DFORMAT(112);
+
+/// Single-channel 16-bit float render target used for scalar intermediate buffers.
+pub const D3DFMT_R16F: D3DFORMAT = D3DFORMAT(111);
+
+/// Four-channel 16-bit float render target used for high-quality color intermediates.
+pub const D3DFMT_A16B16G16R16F: D3DFORMAT = D3DFORMAT(113);
 
 /// Magic render-state value that triggers RESZ depth resolve on supported D3D9 drivers.
 pub const D3DRESZ_POINT_SIZE: u32 = 0x7FA0_5000;
@@ -732,6 +738,22 @@ impl Direct3D9 {
             D3DUSAGE_RENDERTARGET as u32,
             D3DRTYPE_SURFACE,
             D3DFMT_RESZ,
+        )
+    }
+
+    /// Check render-target texture support for the default HAL device.
+    pub fn check_default_render_target_texture_support(
+        &self,
+        format: D3DFORMAT,
+    ) -> Direct3DResult<()> {
+        let mode = self.adapter_display_mode(D3DADAPTER_DEFAULT)?;
+        self.check_device_format(
+            D3DADAPTER_DEFAULT,
+            D3DDEVTYPE_HAL,
+            mode.Format,
+            D3DUSAGE_RENDERTARGET as u32,
+            D3DRTYPE_TEXTURE,
+            format,
         )
     }
 }

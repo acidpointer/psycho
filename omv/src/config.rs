@@ -135,6 +135,7 @@ pub(crate) struct EmbeddedEffectsConfig {
     pub(crate) contact_ao: ContactAoConfig,
     pub(crate) blooming_hdr: BloomingHdrConfig,
     pub(crate) sunshafts: SunshaftsConfig,
+    pub(crate) depth_of_field: DepthOfFieldConfig,
 }
 
 impl Default for EmbeddedEffectsConfig {
@@ -144,6 +145,7 @@ impl Default for EmbeddedEffectsConfig {
             contact_ao: ContactAoConfig::default(),
             blooming_hdr: BloomingHdrConfig::default(),
             sunshafts: SunshaftsConfig::default(),
+            depth_of_field: DepthOfFieldConfig::default(),
         }
     }
 }
@@ -298,6 +300,155 @@ impl Default for SunshaftsConfig {
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
+pub(crate) enum DofFocusMode {
+    #[default]
+    Auto,
+    Manual,
+}
+
+impl DofFocusMode {
+    pub(crate) fn index(self) -> i32 {
+        match self {
+            Self::Auto => 0,
+            Self::Manual => 1,
+        }
+    }
+
+    pub(crate) fn from_index(value: i32) -> Self {
+        if value == 1 { Self::Manual } else { Self::Auto }
+    }
+
+    fn config_value(self) -> &'static str {
+        match self {
+            Self::Auto => "auto",
+            Self::Manual => "manual",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum DofQuality {
+    Balanced,
+    #[default]
+    High,
+    Ultra,
+}
+
+impl DofQuality {
+    pub(crate) fn index(self) -> i32 {
+        match self {
+            Self::Balanced => 0,
+            Self::High => 1,
+            Self::Ultra => 2,
+        }
+    }
+
+    pub(crate) fn from_index(value: i32) -> Self {
+        match value {
+            0 => Self::Balanced,
+            2 => Self::Ultra,
+            _ => Self::High,
+        }
+    }
+
+    fn config_value(self) -> &'static str {
+        match self {
+            Self::Balanced => "balanced",
+            Self::High => "high",
+            Self::Ultra => "ultra",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum DofBlurStyle {
+    Round,
+    #[default]
+    Soft,
+}
+
+impl DofBlurStyle {
+    pub(crate) fn index(self) -> i32 {
+        match self {
+            Self::Round => 0,
+            Self::Soft => 1,
+        }
+    }
+
+    pub(crate) fn from_index(value: i32) -> Self {
+        if value == 0 { Self::Round } else { Self::Soft }
+    }
+
+    fn config_value(self) -> &'static str {
+        match self {
+            Self::Round => "round",
+            Self::Soft => "soft",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
+#[serde(default)]
+pub(crate) struct DepthOfFieldConfig {
+    pub(crate) enabled: bool,
+    pub(crate) respect_vanilla_dof: bool,
+    pub(crate) focus_mode: DofFocusMode,
+    pub(crate) quality: DofQuality,
+    pub(crate) blur_style: DofBlurStyle,
+    pub(crate) manual_focus_distance: f32,
+    pub(crate) focus_sample_radius: f32,
+    pub(crate) focus_cluster_tolerance: f32,
+    pub(crate) focus_deadband: f32,
+    pub(crate) focus_near_seconds: f32,
+    pub(crate) focus_far_seconds: f32,
+    pub(crate) focus_range: f32,
+    pub(crate) far_focus_range: f32,
+    pub(crate) near_strength: f32,
+    pub(crate) far_strength: f32,
+    pub(crate) near_radius_pixels: f32,
+    pub(crate) far_radius_pixels: f32,
+    pub(crate) first_person_strength: f32,
+    pub(crate) distant_blur_strength: f32,
+    pub(crate) distant_blur_start: f32,
+    pub(crate) distant_blur_end: f32,
+    pub(crate) sky_blur_strength: f32,
+    pub(crate) softness: f32,
+}
+
+impl Default for DepthOfFieldConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            respect_vanilla_dof: true,
+            focus_mode: DofFocusMode::Auto,
+            quality: DofQuality::High,
+            blur_style: DofBlurStyle::Soft,
+            manual_focus_distance: 2_000.0,
+            focus_sample_radius: 0.055,
+            focus_cluster_tolerance: 0.18,
+            focus_deadband: 0.025,
+            focus_near_seconds: 0.12,
+            focus_far_seconds: 0.28,
+            focus_range: 0.12,
+            far_focus_range: 0.16,
+            near_strength: 0.85,
+            far_strength: 0.75,
+            near_radius_pixels: 12.0,
+            far_radius_pixels: 36.0,
+            first_person_strength: 0.4,
+            distant_blur_strength: 0.65,
+            distant_blur_start: 30_000.0,
+            distant_blur_end: 150_000.0,
+            sky_blur_strength: 0.0,
+            softness: 0.75,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub(crate) enum DepthProviderConfig {
     None,
     #[default]
@@ -384,7 +535,8 @@ impl EmbeddedEffectsConfig {
                 ShaderPhase::ScenePreImageSpace
             }
             crate::shaders::EmbeddedEffectKind::BloomingHdr => ShaderPhase::FinalImageSpace,
-            crate::shaders::EmbeddedEffectKind::Sunshafts => ShaderPhase::ScenePostImageSpace,
+            crate::shaders::EmbeddedEffectKind::Sunshafts
+            | crate::shaders::EmbeddedEffectKind::DepthOfField => ShaderPhase::ScenePostImageSpace,
         }
     }
 }
@@ -559,4 +711,50 @@ fn save_embedded_effect_config(doc: &mut DocumentMut, config: &EmbeddedEffectsCo
         value(sun.glare_radius as f64);
     doc["graphics"]["embedded_effects"]["sunshafts"]["occlusion_softness"] =
         value(sun.occlusion_softness as f64);
+
+    let dof = &config.depth_of_field;
+    doc["graphics"]["embedded_effects"]["depth_of_field"]["enabled"] = value(dof.enabled);
+    doc["graphics"]["embedded_effects"]["depth_of_field"]["respect_vanilla_dof"] =
+        value(dof.respect_vanilla_dof);
+    doc["graphics"]["embedded_effects"]["depth_of_field"]["focus_mode"] =
+        value(dof.focus_mode.config_value());
+    doc["graphics"]["embedded_effects"]["depth_of_field"]["quality"] =
+        value(dof.quality.config_value());
+    doc["graphics"]["embedded_effects"]["depth_of_field"]["blur_style"] =
+        value(dof.blur_style.config_value());
+    doc["graphics"]["embedded_effects"]["depth_of_field"]["manual_focus_distance"] =
+        value(dof.manual_focus_distance as f64);
+    doc["graphics"]["embedded_effects"]["depth_of_field"]["focus_sample_radius"] =
+        value(dof.focus_sample_radius as f64);
+    doc["graphics"]["embedded_effects"]["depth_of_field"]["focus_cluster_tolerance"] =
+        value(dof.focus_cluster_tolerance as f64);
+    doc["graphics"]["embedded_effects"]["depth_of_field"]["focus_deadband"] =
+        value(dof.focus_deadband as f64);
+    doc["graphics"]["embedded_effects"]["depth_of_field"]["focus_near_seconds"] =
+        value(dof.focus_near_seconds as f64);
+    doc["graphics"]["embedded_effects"]["depth_of_field"]["focus_far_seconds"] =
+        value(dof.focus_far_seconds as f64);
+    doc["graphics"]["embedded_effects"]["depth_of_field"]["focus_range"] =
+        value(dof.focus_range as f64);
+    doc["graphics"]["embedded_effects"]["depth_of_field"]["far_focus_range"] =
+        value(dof.far_focus_range as f64);
+    doc["graphics"]["embedded_effects"]["depth_of_field"]["near_strength"] =
+        value(dof.near_strength as f64);
+    doc["graphics"]["embedded_effects"]["depth_of_field"]["far_strength"] =
+        value(dof.far_strength as f64);
+    doc["graphics"]["embedded_effects"]["depth_of_field"]["near_radius_pixels"] =
+        value(dof.near_radius_pixels as f64);
+    doc["graphics"]["embedded_effects"]["depth_of_field"]["far_radius_pixels"] =
+        value(dof.far_radius_pixels as f64);
+    doc["graphics"]["embedded_effects"]["depth_of_field"]["first_person_strength"] =
+        value(dof.first_person_strength as f64);
+    doc["graphics"]["embedded_effects"]["depth_of_field"]["distant_blur_strength"] =
+        value(dof.distant_blur_strength as f64);
+    doc["graphics"]["embedded_effects"]["depth_of_field"]["distant_blur_start"] =
+        value(dof.distant_blur_start as f64);
+    doc["graphics"]["embedded_effects"]["depth_of_field"]["distant_blur_end"] =
+        value(dof.distant_blur_end as f64);
+    doc["graphics"]["embedded_effects"]["depth_of_field"]["sky_blur_strength"] =
+        value(dof.sky_blur_strength as f64);
+    doc["graphics"]["embedded_effects"]["depth_of_field"]["softness"] = value(dof.softness as f64);
 }

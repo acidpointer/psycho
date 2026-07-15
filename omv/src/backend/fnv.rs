@@ -25,6 +25,9 @@ const NIDX9_RENDERER_SINGLETON_PTR: usize = 0x011C73B4;
 const NIDX9_RENDERER_DEVICE_OFFSET: usize = 0x288;
 const NIDX9_RENDERER_Z_CLEAR_OFFSET: usize = 0x5E4;
 const BSSHADERMANAGER_CAMERA_PTR: usize = 0x011F917C;
+// Main retains the SceneGraph named "World" here. The shader-manager camera is
+// phase-mutable and cannot be paired reliably with the resolved world depth.
+const WORLD_SCENE_GRAPH_PTR: usize = 0x011DEB7C;
 const BSSHADERMANAGER_CURRENT_RENDER_TARGET_PTR: usize = 0x011F9438;
 const BSSHADERMANAGER_SCENE_GRAPH_INDEX: usize = 0x011F91C4;
 const BSSHADERMANAGER_SHADOW_SCENE_NODE_ARRAY: usize = 0x011F91C8;
@@ -54,6 +57,7 @@ const NATIVE_SUN_SCREEN_Y_ADDR: usize = 0x012023F8;
 
 const NIAVOBJECT_LOCAL_TRANSLATION_OFFSET: usize = 0x58;
 const NIAVOBJECT_WORLD_ROTATION_OFFSET: usize = 0x68;
+const SCENE_GRAPH_CAMERA_OFFSET: usize = 0xAC;
 const NICAMERA_FRUSTUM_LEFT_OFFSET: usize = 0xDC;
 const NICAMERA_FRUSTUM_RIGHT_OFFSET: usize = 0xE0;
 const NICAMERA_FRUSTUM_TOP_OFFSET: usize = 0xE4;
@@ -220,6 +224,23 @@ unsafe fn read_u32(address: usize) -> Option<u32> {
 
 unsafe fn read_camera_frame(desc: &D3DSURFACE_DESC) -> Option<CameraFrame> {
     let camera = unsafe { read_ptr(BSSHADERMANAGER_CAMERA_PTR)? };
+    unsafe { read_camera_frame_from_ptr(camera, desc) }
+}
+
+unsafe fn read_world_camera_frame(desc: &D3DSURFACE_DESC) -> Option<CameraFrame> {
+    let scene_graph = unsafe { read_ptr(WORLD_SCENE_GRAPH_PTR)? };
+    if scene_graph.is_null() {
+        return None;
+    }
+
+    let camera = unsafe { read_ptr(scene_graph as usize + SCENE_GRAPH_CAMERA_OFFSET)? };
+    unsafe { read_camera_frame_from_ptr(camera, desc) }
+}
+
+unsafe fn read_camera_frame_from_ptr(
+    camera: *mut u8,
+    desc: &D3DSURFACE_DESC,
+) -> Option<CameraFrame> {
     if camera.is_null() {
         return None;
     }
@@ -912,9 +933,16 @@ impl FnvDepthResolve {
             return Err(FnvDepthResolveError::Static("empty depth surface"));
         }
         let depth_function = device.render_state(D3DRS_ZFUNC).ok();
+        let camera = match slot {
+            DepthResolveSlot::World => unsafe { read_world_camera_frame(&desc) },
+            DepthResolveSlot::FirstPerson => unsafe { read_camera_frame(&desc) },
+        }
+        .ok_or(FnvDepthResolveError::Static(match slot {
+            DepthResolveSlot::World => "missing persistent world camera projection",
+            DepthResolveSlot::FirstPerson => "missing first-person camera projection",
+        }))?;
         let projection = DepthProjectionFrame {
-            camera: unsafe { read_camera_frame(&desc) }
-                .unwrap_or_else(|| CameraFrame::fallback(&desc)),
+            camera,
             reversed_depth: depth_convention(depth_function),
             depth_function,
             source_surface: source_surface as usize,

@@ -146,6 +146,34 @@ sun_sample_px = 32
 glare_radius = 0.044
 occlusion_softness = 0.42
 
+[graphics.embedded_effects.depth_of_field]
+# Engine-owned high-quality depth of field. Fixed phase: scene_post_image_space.
+# Native Fallout image-space DOF keeps ownership while it is active, preventing
+# dialogue, iron-sight, VATS, and weather effects from being blurred twice.
+enabled = true
+respect_vanilla_dof = true
+focus_mode = "auto"
+quality = "high"
+blur_style = "soft"
+manual_focus_distance = 2000.0
+focus_sample_radius = 0.055
+focus_cluster_tolerance = 0.18
+focus_deadband = 0.025
+focus_near_seconds = 0.12
+focus_far_seconds = 0.28
+focus_range = 0.12
+far_focus_range = 0.16
+near_strength = 0.85
+far_strength = 0.75
+near_radius_pixels = 12.0
+far_radius_pixels = 36.0
+first_person_strength = 0.4
+distant_blur_strength = 0.65
+distant_blur_start = 30000.0
+distant_blur_end = 150000.0
+sky_blur_strength = 0.0
+softness = 0.75
+
 [graphics.native_pbr]
 # Native material/PBR engine path.
 #

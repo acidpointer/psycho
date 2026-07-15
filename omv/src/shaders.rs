@@ -12,7 +12,8 @@ use libpsycho::os::windows::directx9::{compile_hlsl, dword_aligned_shader_byteco
 use serde::{Deserialize, Serialize};
 
 use crate::config::{
-    BloomingHdrConfig, ContactAoConfig, EmbeddedEffectsConfig, FastAoConfig, SunshaftsConfig,
+    BloomingHdrConfig, ContactAoConfig, DepthOfFieldConfig, EmbeddedEffectsConfig, FastAoConfig,
+    SunshaftsConfig,
 };
 
 pub(crate) const SHADER_DIR: &str = "./Data/NVSE/plugins/omv/shaders";
@@ -180,6 +181,14 @@ pub(crate) enum EmbeddedEffectKind {
     ContactAmbientOcclusion,
     BloomingHdr,
     Sunshafts,
+    DepthOfField,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) enum DepthOfFieldPreset {
+    Hybrid,
+    Eye,
+    SoulsSoft,
 }
 
 #[derive(Clone, Debug)]
@@ -189,6 +198,7 @@ pub(crate) struct ShaderOption {
     pub(crate) value: ShaderOptionValue,
     pub(crate) min: f32,
     pub(crate) max: f32,
+    pub(crate) choices: Option<&'static [&'static str]>,
     binding: Option<ConstantBinding>,
     constant: Option<String>,
 }
@@ -305,6 +315,9 @@ pub(crate) fn sync_embedded_effect_config(
             Some(EmbeddedEffectKind::Sunshafts) => {
                 sync_sunshafts_config(source, &mut config.sunshafts);
             }
+            Some(EmbeddedEffectKind::DepthOfField) => {
+                sync_depth_of_field_config(source, &mut config.depth_of_field);
+            }
             None => {}
         }
     }
@@ -316,6 +329,7 @@ fn embedded_effect_sources(config: &EmbeddedEffectsConfig) -> Vec<ScreenShaderSo
         contact_ao_source(&config.contact_ao),
         blooming_hdr_source(&config.blooming_hdr),
         sunshafts_source(&config.sunshafts),
+        depth_of_field_source(&config.depth_of_field),
     ]
 }
 
@@ -631,6 +645,210 @@ fn sunshafts_source(config: &SunshaftsConfig) -> ScreenShaderSource {
     )
 }
 
+fn depth_of_field_source(config: &DepthOfFieldConfig) -> ScreenShaderSource {
+    embedded_source(
+        EmbeddedEffectKind::DepthOfField,
+        "10_depth_of_field",
+        config.enabled,
+        crate::config::EmbeddedEffectsConfig::phase_for_kind(EmbeddedEffectKind::DepthOfField),
+        vec![
+            bool_option(
+                "respect_vanilla_dof",
+                "Respect native DOF",
+                config.respect_vanilla_dof,
+                15,
+                0,
+            ),
+            integer_choice_option(
+                "focus_mode",
+                "Focus mode",
+                config.focus_mode.index(),
+                &["Auto", "Manual"],
+                15,
+                1,
+            ),
+            integer_choice_option(
+                "quality",
+                "Quality",
+                config.quality.index(),
+                &["Balanced", "High", "Ultra"],
+                15,
+                2,
+            ),
+            integer_choice_option(
+                "blur_style",
+                "Blur style",
+                config.blur_style.index(),
+                &["Round", "Soft"],
+                15,
+                3,
+            ),
+            float_option(
+                "manual_focus_distance",
+                "Manual focus distance",
+                config.manual_focus_distance,
+                10.0,
+                200_000.0,
+                16,
+                0,
+            ),
+            float_option(
+                "focus_sample_radius",
+                "Focus sample radius",
+                config.focus_sample_radius,
+                0.0,
+                0.20,
+                16,
+                1,
+            ),
+            float_option(
+                "focus_cluster_tolerance",
+                "Focus cluster tolerance",
+                config.focus_cluster_tolerance,
+                0.02,
+                1.0,
+                16,
+                2,
+            ),
+            float_option(
+                "focus_deadband",
+                "Autofocus hysteresis",
+                config.focus_deadband,
+                0.0,
+                0.10,
+                16,
+                3,
+            ),
+            float_option(
+                "focus_near_seconds",
+                "Near focus seconds",
+                config.focus_near_seconds,
+                0.02,
+                1.0,
+                17,
+                0,
+            ),
+            float_option(
+                "focus_far_seconds",
+                "Far focus seconds",
+                config.focus_far_seconds,
+                0.02,
+                1.5,
+                17,
+                1,
+            ),
+            float_option(
+                "focus_range",
+                "Near in-focus band",
+                config.focus_range,
+                0.02,
+                1.0,
+                17,
+                2,
+            ),
+            float_option(
+                "far_focus_range",
+                "Far in-focus band",
+                config.far_focus_range,
+                0.02,
+                1.0,
+                20,
+                1,
+            ),
+            float_option(
+                "near_strength",
+                "Near strength",
+                config.near_strength,
+                0.0,
+                1.5,
+                17,
+                3,
+            ),
+            float_option(
+                "far_strength",
+                "Far strength",
+                config.far_strength,
+                0.0,
+                1.5,
+                18,
+                0,
+            ),
+            float_option(
+                "near_radius_pixels",
+                "Near radius at 1080p",
+                config.near_radius_pixels,
+                0.0,
+                64.0,
+                18,
+                1,
+            ),
+            float_option(
+                "far_radius_pixels",
+                "Far radius at 1080p",
+                config.far_radius_pixels,
+                0.0,
+                96.0,
+                18,
+                2,
+            ),
+            float_option(
+                "first_person_strength",
+                "First-person strength",
+                config.first_person_strength,
+                0.0,
+                1.0,
+                18,
+                3,
+            ),
+            float_option(
+                "distant_blur_strength",
+                "Distant blur strength",
+                config.distant_blur_strength,
+                0.0,
+                1.5,
+                19,
+                0,
+            ),
+            float_option(
+                "distant_blur_start",
+                "Distant blur start",
+                config.distant_blur_start,
+                100.0,
+                300_000.0,
+                19,
+                1,
+            ),
+            float_option(
+                "distant_blur_end",
+                "Distant blur end",
+                config.distant_blur_end,
+                200.0,
+                500_000.0,
+                19,
+                2,
+            ),
+            float_option(
+                "sky_blur_strength",
+                "Sky blur strength",
+                config.sky_blur_strength,
+                0.0,
+                1.0,
+                19,
+                3,
+            ),
+            float_option(
+                "softness",
+                "Soft blur amount",
+                config.softness,
+                0.0,
+                1.0,
+                20,
+                0,
+            ),
+        ],
+    )
+}
+
 fn embedded_source(
     kind: EmbeddedEffectKind,
     name: &str,
@@ -698,6 +916,27 @@ fn integer_option(
     )
 }
 
+fn integer_choice_option(
+    key: &str,
+    label: &str,
+    value: i32,
+    choices: &'static [&'static str],
+    register: u32,
+    component: usize,
+) -> ShaderOption {
+    let mut option = integer_option(
+        key,
+        label,
+        value,
+        0,
+        choices.len().saturating_sub(1) as i32,
+        register,
+        component,
+    );
+    option.choices = Some(choices);
+    option
+}
+
 fn bool_option(
     key: &str,
     label: &str,
@@ -731,6 +970,7 @@ fn option(
         value,
         min,
         max,
+        choices: None,
         binding: Some(ConstantBinding {
             register,
             component,
@@ -818,6 +1058,188 @@ fn sync_sunshafts_config(source: &ScreenShaderSource, config: &mut SunshaftsConf
             "occlusion_softness" => config.occlusion_softness = option_float(option),
             _ => {}
         }
+    }
+}
+
+fn sync_depth_of_field_config(source: &ScreenShaderSource, config: &mut DepthOfFieldConfig) {
+    config.enabled = source.enabled;
+    for option in &source.options {
+        match option.key.as_str() {
+            "respect_vanilla_dof" => config.respect_vanilla_dof = option_bool(option),
+            "focus_mode" => {
+                config.focus_mode = crate::config::DofFocusMode::from_index(option_integer(option));
+            }
+            "quality" => {
+                config.quality = crate::config::DofQuality::from_index(option_integer(option));
+            }
+            "blur_style" => {
+                config.blur_style = crate::config::DofBlurStyle::from_index(option_integer(option));
+            }
+            "manual_focus_distance" => config.manual_focus_distance = option_float(option),
+            "focus_sample_radius" => config.focus_sample_radius = option_float(option),
+            "focus_cluster_tolerance" => config.focus_cluster_tolerance = option_float(option),
+            "focus_deadband" => config.focus_deadband = option_float(option),
+            "focus_near_seconds" => config.focus_near_seconds = option_float(option),
+            "focus_far_seconds" => config.focus_far_seconds = option_float(option),
+            "focus_range" => config.focus_range = option_float(option),
+            "far_focus_range" => config.far_focus_range = option_float(option),
+            "near_strength" => config.near_strength = option_float(option),
+            "far_strength" => config.far_strength = option_float(option),
+            "near_radius_pixels" => config.near_radius_pixels = option_float(option),
+            "far_radius_pixels" => config.far_radius_pixels = option_float(option),
+            "first_person_strength" => config.first_person_strength = option_float(option),
+            "distant_blur_strength" => config.distant_blur_strength = option_float(option),
+            "distant_blur_start" => config.distant_blur_start = option_float(option),
+            "distant_blur_end" => config.distant_blur_end = option_float(option),
+            "sky_blur_strength" => config.sky_blur_strength = option_float(option),
+            "softness" => config.softness = option_float(option),
+            _ => {}
+        }
+    }
+}
+
+pub(crate) fn apply_depth_of_field_preset(
+    source: &mut ScreenShaderSource,
+    preset: DepthOfFieldPreset,
+) -> bool {
+    if source.embedded_effect_kind() != Some(EmbeddedEffectKind::DepthOfField) {
+        return false;
+    }
+
+    let mut config = DepthOfFieldConfig::default();
+    match preset {
+        DepthOfFieldPreset::Hybrid => {}
+        DepthOfFieldPreset::Eye => {
+            config.blur_style = crate::config::DofBlurStyle::Round;
+            config.focus_range = 0.10;
+            config.far_focus_range = 0.12;
+            config.near_strength = 1.0;
+            config.far_strength = 1.0;
+            config.near_radius_pixels = 14.0;
+            config.far_radius_pixels = 20.0;
+            config.first_person_strength = 0.5;
+            config.distant_blur_strength = 0.0;
+            config.softness = 0.0;
+        }
+        DepthOfFieldPreset::SoulsSoft => {
+            config.blur_style = crate::config::DofBlurStyle::Soft;
+            config.focus_range = 0.18;
+            config.far_focus_range = 0.22;
+            config.near_strength = 0.35;
+            config.far_strength = 0.35;
+            config.near_radius_pixels = 10.0;
+            config.far_radius_pixels = 48.0;
+            config.first_person_strength = 0.2;
+            config.distant_blur_strength = 0.9;
+            config.softness = 0.9;
+        }
+    }
+
+    let values = [
+        (
+            "focus_mode",
+            ShaderOptionValue::Integer(config.focus_mode.index()),
+        ),
+        (
+            "quality",
+            ShaderOptionValue::Integer(config.quality.index()),
+        ),
+        (
+            "blur_style",
+            ShaderOptionValue::Integer(config.blur_style.index()),
+        ),
+        (
+            "manual_focus_distance",
+            ShaderOptionValue::Float(config.manual_focus_distance),
+        ),
+        (
+            "focus_sample_radius",
+            ShaderOptionValue::Float(config.focus_sample_radius),
+        ),
+        (
+            "focus_cluster_tolerance",
+            ShaderOptionValue::Float(config.focus_cluster_tolerance),
+        ),
+        (
+            "focus_deadband",
+            ShaderOptionValue::Float(config.focus_deadband),
+        ),
+        (
+            "focus_near_seconds",
+            ShaderOptionValue::Float(config.focus_near_seconds),
+        ),
+        (
+            "focus_far_seconds",
+            ShaderOptionValue::Float(config.focus_far_seconds),
+        ),
+        ("focus_range", ShaderOptionValue::Float(config.focus_range)),
+        (
+            "far_focus_range",
+            ShaderOptionValue::Float(config.far_focus_range),
+        ),
+        (
+            "near_strength",
+            ShaderOptionValue::Float(config.near_strength),
+        ),
+        (
+            "far_strength",
+            ShaderOptionValue::Float(config.far_strength),
+        ),
+        (
+            "near_radius_pixels",
+            ShaderOptionValue::Float(config.near_radius_pixels),
+        ),
+        (
+            "far_radius_pixels",
+            ShaderOptionValue::Float(config.far_radius_pixels),
+        ),
+        (
+            "first_person_strength",
+            ShaderOptionValue::Float(config.first_person_strength),
+        ),
+        (
+            "distant_blur_strength",
+            ShaderOptionValue::Float(config.distant_blur_strength),
+        ),
+        (
+            "distant_blur_start",
+            ShaderOptionValue::Float(config.distant_blur_start),
+        ),
+        (
+            "distant_blur_end",
+            ShaderOptionValue::Float(config.distant_blur_end),
+        ),
+        (
+            "sky_blur_strength",
+            ShaderOptionValue::Float(config.sky_blur_strength),
+        ),
+        ("softness", ShaderOptionValue::Float(config.softness)),
+    ];
+
+    let mut changed = false;
+    for (key, value) in values {
+        let Some(option) = source.options.iter_mut().find(|option| option.key == key) else {
+            continue;
+        };
+        if !option_values_equal(&option.value, &value) {
+            option.value = value;
+            changed = true;
+        }
+    }
+    if changed {
+        source.rebuild_option_constants();
+    }
+    changed
+}
+
+fn option_values_equal(left: &ShaderOptionValue, right: &ShaderOptionValue) -> bool {
+    match (left, right) {
+        (ShaderOptionValue::Float(left), ShaderOptionValue::Float(right)) => {
+            (*left - *right).abs() <= f32::EPSILON
+        }
+        (ShaderOptionValue::Integer(left), ShaderOptionValue::Integer(right)) => left == right,
+        (ShaderOptionValue::Bool(left), ShaderOptionValue::Bool(right)) => left == right,
+        _ => false,
     }
 }
 
@@ -1286,6 +1708,7 @@ impl From<ShaderOptionConfig> for ShaderOption {
             value,
             min,
             max,
+            choices: None,
             binding,
             constant: config.constant,
         }

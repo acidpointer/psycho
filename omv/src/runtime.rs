@@ -27,7 +27,7 @@ use parking_lot::Mutex;
 use crate::{
     backend::{self, DepthFrame, DepthProvider, DepthTexture},
     config::{DepthProviderConfig, GraphicsMenuConfig},
-    effects::{ambient_occlusion, blooming_hdr, pbr, sky, sunshafts},
+    effects::{ambient_occlusion, blooming_hdr, depth_of_field, pbr, sky, sunshafts},
     shaders::{self, EmbeddedEffectKind, ScreenShaderSource, ShaderOptionValue, ShaderPhase},
 };
 
@@ -51,6 +51,7 @@ const WM_MOUSEWHEEL: u32 = 0x020A;
 const WM_MOUSEHWHEEL: u32 = 0x020E;
 const DEFAULT_MENU_TOGGLE_KEY: u32 = 0x2D;
 const VK_ESCAPE: usize = 0x1B;
+const MENU_CONFIG_SAVE_DEBOUNCE: Duration = Duration::from_millis(350);
 
 static RUNTIME: LazyLock<Mutex<ScreenShaderRuntime>> =
     LazyLock::new(|| Mutex::new(ScreenShaderRuntime::default()));
@@ -59,15 +60,21 @@ static IMGUI_READY: AtomicBool = AtomicBool::new(false);
 static MENU_TOGGLE_KEY: AtomicU32 = AtomicU32::new(DEFAULT_MENU_TOGGLE_KEY);
 static MENU_KEY_CAPTURE_ACTIVE: AtomicBool = AtomicBool::new(false);
 static PENDING_MENU_TOGGLE_KEY: AtomicU32 = AtomicU32::new(0);
+static NATIVE_DOF_QUERY_NEEDED: AtomicBool = AtomicBool::new(false);
 
 pub(crate) fn configure(settings: RuntimeSettings) {
     MENU_TOGGLE_KEY.store(
         sanitize_menu_toggle_key(settings.menu_toggle_key),
         Ordering::Release,
     );
+    update_native_dof_query_needed(&settings.menu_config);
 
     let mut runtime = RUNTIME.lock();
     runtime.configure(settings);
+}
+
+pub(crate) fn needs_native_dof_query() -> bool {
+    NATIVE_DOF_QUERY_NEEDED.load(Ordering::Acquire)
 }
 
 pub(crate) unsafe fn apply_present_frame(device_ptr: *mut c_void, hwnd_hint: *mut c_void) {
@@ -101,11 +108,15 @@ pub(crate) unsafe fn apply_fnv_scene_pre_image_space(
     }
 }
 
-pub(crate) unsafe fn apply_fnv_scene_post_image_space(device_ptr: *mut c_void) {
+pub(crate) unsafe fn apply_fnv_scene_post_image_space(
+    device_ptr: *mut c_void,
+    native_dof_active: bool,
+) {
     let Some(mut runtime) = RUNTIME.try_lock() else {
         return;
     };
 
+    runtime.native_dof_active_this_frame = native_dof_active;
     let result = unsafe {
         runtime.apply_scene_phase(
             device_ptr,
@@ -240,6 +251,8 @@ struct ScreenShaderRuntime {
     ambient_occlusion: Option<ambient_occlusion::AmbientOcclusionEffect>,
     blooming_hdr: Option<blooming_hdr::BloomingHdrEffect>,
     sunshafts: Option<sunshafts::SunshaftsEffect>,
+    depth_of_field: Option<depth_of_field::DepthOfFieldEffect>,
+    depth_of_field_creation_failed: bool,
     final_color_copy: Option<BackbufferCopy>,
     scene_pre_color_copy: Option<BackbufferCopy>,
     scene_post_color_copy: Option<BackbufferCopy>,
@@ -259,11 +272,13 @@ struct ScreenShaderRuntime {
     scan_error_logs: u32,
     imgui_error_logs: u32,
     menu_config_error: Option<String>,
+    menu_config_save_due: Option<Instant>,
     scene_apply_logs: u32,
     scene_target_logs: u32,
     world_color_capture_logs: u32,
     world_color_captured_this_frame: bool,
     applied_phases: AppliedShaderPhases,
+    native_dof_active_this_frame: bool,
 }
 
 impl Default for ScreenShaderRuntime {
@@ -276,6 +291,8 @@ impl Default for ScreenShaderRuntime {
             ambient_occlusion: None,
             blooming_hdr: None,
             sunshafts: None,
+            depth_of_field: None,
+            depth_of_field_creation_failed: false,
             final_color_copy: None,
             scene_pre_color_copy: None,
             scene_post_color_copy: None,
@@ -295,11 +312,13 @@ impl Default for ScreenShaderRuntime {
             scan_error_logs: 0,
             imgui_error_logs: 0,
             menu_config_error: None,
+            menu_config_save_due: None,
             scene_apply_logs: 0,
             scene_target_logs: 0,
             world_color_capture_logs: 0,
             world_color_captured_this_frame: false,
             applied_phases: AppliedShaderPhases::default(),
+            native_dof_active_this_frame: false,
         }
     }
 }
@@ -311,6 +330,7 @@ impl ScreenShaderRuntime {
         self.settings = settings;
         self.compiled = None;
         self.next_scan = None;
+        self.menu_config_save_due = None;
     }
 
     unsafe fn apply_present_frame(
@@ -319,6 +339,7 @@ impl ScreenShaderRuntime {
         hwnd_hint: *mut c_void,
     ) -> Direct3DResult<()> {
         self.scan_shaders_if_due();
+        self.save_menu_config_if_due();
 
         let Some(device) = (unsafe { Device9Ref::from_raw_void(device_ptr) }) else {
             return Ok(());
@@ -330,6 +351,7 @@ impl ScreenShaderRuntime {
         }
 
         pbr::service_present_frame();
+        depth_of_field::service_present_frame();
 
         self.ensure_imgui(&device, hwnd_hint);
 
@@ -897,6 +919,14 @@ impl ScreenShaderRuntime {
                 continue;
             }
 
+            if source.embedded_effect_kind() == Some(EmbeddedEffectKind::DepthOfField) {
+                let source_pass_count = source.pass_count.max(1);
+                self.draw_depth_of_field_pipeline(device, backbuffer, desc, &frame_inputs, &copy)?;
+                self.bind_common_state(device, backbuffer, desc, &frame_inputs, &copy)?;
+                pass_index = pass_index.saturating_add(source_pass_count);
+                continue;
+            }
+
             let Some(shader) = self
                 .compiled
                 .as_ref()
@@ -1104,6 +1134,60 @@ impl ScreenShaderRuntime {
         )
     }
 
+    fn draw_depth_of_field_pipeline(
+        &mut self,
+        device: &Device9Ref<'_>,
+        backbuffer: &Surface9,
+        desc: &D3DSURFACE_DESC,
+        frame_inputs: &backend::FrameInputs,
+        current_color_copy: &BackbufferCopy,
+    ) -> Direct3DResult<()> {
+        if self.depth_of_field_creation_failed {
+            return Ok(());
+        }
+        if self.depth_of_field.is_none() {
+            match depth_of_field::DepthOfFieldEffect::create(device) {
+                Ok(Some(effect)) => {
+                    self.depth_of_field = Some(effect);
+                    log::info!("[DOF] Engine-side pipeline initialized");
+                }
+                Ok(None) => return Ok(()),
+                Err(err) => {
+                    self.depth_of_field_creation_failed = true;
+                    return Err(err);
+                }
+            }
+        }
+
+        let config = self.settings.menu_config.embedded_effects.depth_of_field;
+        let frame_seconds = self.frame_pacing.frame_seconds();
+        let native_dof_active = self.native_dof_active_this_frame;
+        let frame_index = self.frame_index;
+        let Some(effect) = self.depth_of_field.as_mut() else {
+            return Ok(());
+        };
+
+        device.clear_texture(0)?;
+        device.stretch_rect(
+            backbuffer,
+            None,
+            &current_color_copy.surface,
+            None,
+            D3DTEXF_POINT,
+        )?;
+        effect.draw(
+            device,
+            backbuffer,
+            desc,
+            frame_inputs,
+            config,
+            &current_color_copy.texture,
+            frame_index,
+            frame_seconds,
+            native_dof_active,
+        )
+    }
+
     fn log_frame_input_state(&mut self, frame_inputs: &backend::FrameInputs) {
         let depth_available = frame_inputs.depth.is_available();
         let fog_available = frame_inputs.environment.fog_available;
@@ -1216,9 +1300,20 @@ impl ScreenShaderRuntime {
         self.settings.menu_config.menu_toggle_key = self.settings.menu_toggle_key;
         self.settings.shader_scan_interval_ms = self.settings.menu_config.shader_scan_interval_ms;
         MENU_TOGGLE_KEY.store(self.settings.menu_toggle_key, Ordering::Release);
+        update_native_dof_query_needed(&self.settings.menu_config);
         pbr::configure_runtime_options(self.settings.menu_config.native_pbr.into());
         sky::configure_runtime_options(self.settings.menu_config.native_sky.into());
+        self.menu_config_save_due = Some(Instant::now() + MENU_CONFIG_SAVE_DEBOUNCE);
+    }
 
+    fn save_menu_config_if_due(&mut self) {
+        if self
+            .menu_config_save_due
+            .is_none_or(|deadline| Instant::now() < deadline)
+        {
+            return;
+        }
+        self.menu_config_save_due = None;
         match crate::config::save_menu_config(&self.settings.menu_config) {
             Ok(()) => self.menu_config_error = None,
             Err(err) => self.menu_config_error = Some(format!("{err:#}")),
@@ -1363,6 +1458,7 @@ impl ScreenShaderRuntime {
         self.frame_pacing.record_frame();
         self.applied_phases = AppliedShaderPhases::default();
         self.world_color_captured_this_frame = false;
+        self.native_dof_active_this_frame = false;
         self.frame_index = self.frame_index.wrapping_add(1);
         backend::finish_frame();
     }
@@ -1380,6 +1476,8 @@ impl ScreenShaderRuntime {
         self.ambient_occlusion = None;
         self.blooming_hdr = None;
         self.sunshafts = None;
+        self.depth_of_field = None;
+        self.depth_of_field_creation_failed = false;
         self.release_default_pool_resources();
         if let Some(imgui) = self.imgui.as_mut() {
             imgui.invalidate_device_objects();
@@ -1395,6 +1493,8 @@ impl ScreenShaderRuntime {
         self.ambient_occlusion = None;
         self.blooming_hdr = None;
         self.sunshafts = None;
+        self.depth_of_field = None;
+        self.depth_of_field_creation_failed = false;
         self.world_color_captured_this_frame = false;
         self.state_block = None;
     }
@@ -1419,6 +1519,14 @@ impl ScreenShaderRuntime {
             self.error_logs += 1;
         }
     }
+}
+
+fn update_native_dof_query_needed(config: &GraphicsMenuConfig) {
+    let dof = config.embedded_effects.depth_of_field;
+    NATIVE_DOF_QUERY_NEEDED.store(
+        config.screen_space_shaders && dof.enabled && dof.respect_vanilla_dof,
+        Ordering::Release,
+    );
 }
 
 struct CompiledPass {
@@ -1557,6 +1665,14 @@ impl FramePacing {
             scale_max,
             samples,
         }
+    }
+
+    fn frame_seconds(&self) -> f32 {
+        if self.count == 0 {
+            return 1.0 / 60.0;
+        }
+        let index = (self.next_index + FRAME_PACING_HISTORY - 1) % FRAME_PACING_HISTORY;
+        (self.samples[index] * 0.001).clamp(1.0 / 240.0, 0.1)
     }
 }
 
@@ -2237,6 +2353,31 @@ fn draw_shader_details(ui: &mut psycho_imgui::Ui<'_>, source: &mut ScreenShaderS
         }
     }
 
+    if source.embedded_effect_kind() == Some(EmbeddedEffectKind::DepthOfField) {
+        ui.spacing();
+        let preset_heading = cstring("Presets");
+        ui.text_colored(MENU_ACCENT_TEXT, &preset_heading);
+        let hybrid = cstring("Hybrid##dof_preset_hybrid");
+        if ui.button(&hybrid) {
+            embedded_changed |=
+                shaders::apply_depth_of_field_preset(source, shaders::DepthOfFieldPreset::Hybrid);
+        }
+        ui.same_line();
+        let eye = cstring("Eye##dof_preset_eye");
+        if ui.button(&eye) {
+            embedded_changed |=
+                shaders::apply_depth_of_field_preset(source, shaders::DepthOfFieldPreset::Eye);
+        }
+        ui.same_line();
+        let souls = cstring("Souls Soft##dof_preset_souls");
+        if ui.button(&souls) {
+            embedded_changed |= shaders::apply_depth_of_field_preset(
+                source,
+                shaders::DepthOfFieldPreset::SoulsSoft,
+            );
+        }
+    }
+
     ui.spacing();
     let option_heading = cstring("Options");
     ui.text_colored(MENU_ACCENT_TEXT, &option_heading);
@@ -2248,6 +2389,16 @@ fn draw_shader_details(ui: &mut psycho_imgui::Ui<'_>, source: &mut ScreenShaderS
 
     for option_index in 0..source.options.len() {
         let option = source.options[option_index].clone();
+        if source.embedded_effect_kind() == Some(EmbeddedEffectKind::DepthOfField) {
+            if !depth_of_field_option_visible(source, option.key.as_str()) {
+                continue;
+            }
+            if let Some(section) = depth_of_field_option_section(option.key.as_str()) {
+                ui.spacing();
+                let heading = cstring(section);
+                ui.text_colored(MENU_ACCENT_TEXT, &heading);
+            }
+        }
 
         match option.value {
             ShaderOptionValue::Float(value) => {
@@ -2268,16 +2419,38 @@ fn draw_shader_details(ui: &mut psycho_imgui::Ui<'_>, source: &mut ScreenShaderS
                 }
             }
             ShaderOptionValue::Integer(value) => {
-                let mut value = value;
-                let (min, max) = integer_option_bounds(&option);
-                if draw_int_slider(
-                    ui,
-                    option.label.as_str(),
-                    &format!("{}.{}", source.name, option.key),
-                    &mut value,
-                    min,
-                    max,
-                ) {
+                let selected = if let Some(choices) = option.choices {
+                    let heading = cstring(option.label.as_str());
+                    ui.text(&heading);
+                    let mut selected = None;
+                    for (choice_index, choice) in choices.iter().enumerate() {
+                        if choice_index > 0 {
+                            ui.same_line();
+                        }
+                        let label = cstring(format!(
+                            "{}##{}.{}.{}",
+                            choice, source.name, option.key, choice_index
+                        ));
+                        if ui.selectable(&label, value == choice_index as i32) {
+                            selected = Some(choice_index as i32);
+                        }
+                    }
+                    selected
+                } else {
+                    let mut value = value;
+                    let (min, max) = integer_option_bounds(&option);
+                    draw_int_slider(
+                        ui,
+                        option.label.as_str(),
+                        &format!("{}.{}", source.name, option.key),
+                        &mut value,
+                        min,
+                        max,
+                    )
+                    .then_some(value)
+                };
+
+                if let Some(value) = selected {
                     if let Err(err) = source.set_option_integer(option_index, value) {
                         source.config_error = Some(format!("{err:#}"));
                     } else {
@@ -2300,6 +2473,49 @@ fn draw_shader_details(ui: &mut psycho_imgui::Ui<'_>, source: &mut ScreenShaderS
     }
 
     embedded_changed
+}
+
+fn depth_of_field_option_visible(source: &ScreenShaderSource, key: &str) -> bool {
+    let focus_mode = source
+        .options
+        .iter()
+        .find(|option| option.key == "focus_mode")
+        .and_then(|option| match &option.value {
+            ShaderOptionValue::Integer(value) => Some(*value),
+            _ => None,
+        })
+        .unwrap_or(0);
+    let blur_style = source
+        .options
+        .iter()
+        .find(|option| option.key == "blur_style")
+        .and_then(|option| match &option.value {
+            ShaderOptionValue::Integer(value) => Some(*value),
+            _ => None,
+        })
+        .unwrap_or(1);
+
+    match key {
+        "manual_focus_distance" => focus_mode == 1,
+        "focus_sample_radius"
+        | "focus_cluster_tolerance"
+        | "focus_deadband"
+        | "focus_near_seconds"
+        | "focus_far_seconds" => focus_mode == 0,
+        "softness" => blur_style == 1,
+        _ => true,
+    }
+}
+
+fn depth_of_field_option_section(key: &str) -> Option<&'static str> {
+    match key {
+        "respect_vanilla_dof" => Some("Pipeline"),
+        "focus_mode" => Some("Focus"),
+        "focus_range" => Some("Optical blur"),
+        "distant_blur_strength" => Some("Distant / Souls blur"),
+        "softness" => Some("Reconstruction"),
+        _ => None,
+    }
 }
 
 fn draw_float_slider(

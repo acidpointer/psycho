@@ -13,6 +13,11 @@ use libpsycho::os::windows::hook::inline::inlinehook::InlineHookContainer;
 const PROCESS_IMAGE_SPACE_SHADERS_ADDR: usize = 0x00B55AC0;
 const RENDER_WORLD_SCENE_GRAPH_ADDR: usize = 0x00873200;
 const RENDER_FIRST_PERSON_ADDR: usize = 0x00875110;
+const IMAGE_SPACE_MANAGER_PTR_ADDR: usize = 0x011F91AC;
+const IMAGE_SPACE_EFFECTS_OFFSET: usize = 0x08;
+const IMAGE_SPACE_LAST_EFFECT_ID_OFFSET: usize = 0x1EC;
+const IMAGE_SPACE_DOF_EFFECT_ID: usize = 4;
+const IMAGE_SPACE_EFFECT_IS_ACTIVE_VTBL_OFFSET: usize = 0x18;
 const WORLD_SCENE_GRAPH_PHASE: u8 = 0;
 
 const MAX_HOOK_ERROR_LOGS: u32 = 8;
@@ -24,6 +29,7 @@ type ProcessImageSpaceShadersFn = unsafe extern "cdecl" fn(*mut c_void, *mut c_v
 type RenderWorldSceneGraphFn = unsafe extern "thiscall" fn(*mut c_void, *mut c_void, u8, u8, u8);
 type RenderFirstPersonFn =
     unsafe extern "thiscall" fn(*mut c_void, *mut c_void, *mut c_void, *mut c_void, *mut c_void);
+type ImageSpaceEffectIsActiveFn = unsafe extern "thiscall" fn(*mut c_void) -> u8;
 
 static PROCESS_IMAGE_SPACE_SHADERS_HOOK: LazyLock<InlineHookContainer<ProcessImageSpaceShadersFn>> =
     LazyLock::new(InlineHookContainer::new);
@@ -145,7 +151,15 @@ unsafe extern "cdecl" fn hook_process_image_space_shaders(
     };
 
     unsafe {
-        if rendered_texture_2.is_null() {
+        let outer_image_space_call = rendered_texture_2.is_null();
+        let native_dof_active =
+            if outer_image_space_call && crate::runtime::needs_native_dof_query() {
+                native_dof_active().unwrap_or(true)
+            } else {
+                false
+            };
+
+        if outer_image_space_call {
             apply_scene_pre_image_space(
                 "FNV before vanilla image-space shaders",
                 rendered_texture_1,
@@ -154,11 +168,54 @@ unsafe extern "cdecl" fn hook_process_image_space_shaders(
 
         original(renderer, rendered_texture_1, rendered_texture_2);
 
-        if rendered_texture_2.is_null() {
-            apply_scene_post_image_space("FNV after image-space shaders");
+        if outer_image_space_call {
+            apply_scene_post_image_space("FNV after image-space shaders", native_dof_active);
             apply_final_image_space("FNV final image-space");
         }
     }
+}
+
+unsafe fn native_dof_active() -> Option<bool> {
+    let manager = unsafe { *(IMAGE_SPACE_MANAGER_PTR_ADDR as *const *mut u8) };
+    if manager.is_null() {
+        return None;
+    }
+
+    let last_effect_id = unsafe { *(manager.add(IMAGE_SPACE_LAST_EFFECT_ID_OFFSET).cast::<i32>()) };
+    if last_effect_id < IMAGE_SPACE_DOF_EFFECT_ID as i32 {
+        return Some(false);
+    }
+
+    let effects = unsafe {
+        *(manager
+            .add(IMAGE_SPACE_EFFECTS_OFFSET)
+            .cast::<*mut *mut c_void>())
+    };
+    if effects.is_null() {
+        return None;
+    }
+
+    let effect = unsafe { *effects.add(IMAGE_SPACE_DOF_EFFECT_ID) };
+    if effect.is_null() {
+        return Some(false);
+    }
+
+    let vtable = unsafe { *(effect.cast::<*const u8>()) };
+    if vtable.is_null() {
+        return None;
+    }
+
+    let function_address = unsafe {
+        *(vtable
+            .add(IMAGE_SPACE_EFFECT_IS_ACTIVE_VTBL_OFFSET)
+            .cast::<usize>())
+    };
+    if function_address == 0 {
+        return None;
+    }
+
+    let is_active: ImageSpaceEffectIsActiveFn = unsafe { std::mem::transmute(function_address) };
+    Some(unsafe { is_active(effect) != 0 })
 }
 
 unsafe extern "thiscall" fn hook_render_world_scene_graph(
@@ -285,14 +342,14 @@ unsafe fn apply_scene_pre_image_space(reason: &'static str, source_rendered_text
     }
 }
 
-unsafe fn apply_scene_post_image_space(reason: &'static str) {
+unsafe fn apply_scene_post_image_space(reason: &'static str, native_dof_active: bool) {
     let Some(device_ptr) = crate::backend::d3d_device_ptr() else {
         return;
     };
 
     log_shader_apply(reason);
     unsafe {
-        crate::runtime::apply_fnv_scene_post_image_space(device_ptr);
+        crate::runtime::apply_fnv_scene_post_image_space(device_ptr, native_dof_active);
     }
 }
 
