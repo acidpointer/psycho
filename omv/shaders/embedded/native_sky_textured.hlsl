@@ -8,7 +8,6 @@ float4 SkyData : register(c26);
 float4 CloudData : register(c27);
 float4 SunData : register(c28);
 float4 SunsetColor : register(c29);
-float4 SunDiskColor : register(c30);
 float4 ObjectData : register(c31);
 
 sampler2D SkyTexture : register(s0);
@@ -58,16 +57,9 @@ float Pow20(float value) {
     return value16 * value4;
 }
 
-float3 EvaluateSun(float sunHeight, float3 sourceColor) {
-    float3 sun = Linearize3(sourceColor);
-    float3 sunset = Linearize3(SunsetColor.rgb);
-    float sunsetWeight = saturate(Pow8(1.0 - sunHeight)) * SunData.x;
-    return (1.0 + sunHeight) * sun + sunset * sunsetWeight * SkyData.x;
-}
-
 float3 EvaluateSky(float verticality, float atmosphere, float sunHeight, float sunInfluence, float3 sunColor) {
-    float3 color = lerp(Linearize3(SkyLower.rgb), Linearize3(SkyUpper.rgb), verticality);
-    color = lerp(color, Linearize3(HorizonColor.rgb), saturate(atmosphere * (0.5 + 0.5 * sunInfluence)));
+    float3 color = lerp(SkyLower.rgb, SkyUpper.rgb, verticality);
+    color = lerp(color, HorizonColor.rgb, saturate(atmosphere * (0.5 + 0.5 * sunInfluence)));
     color += sunColor * sunInfluence * (1.0 - sunHeight) * atmosphere * SkyData.z * smoothstep(0.0, 0.5, SunData.x);
     return color;
 }
@@ -87,8 +79,8 @@ float4 SampleWeatherTextures(float2 uv, float2 blendUv) {
 float4 Main(PixelInput input) : COLOR0 {
     float4 textureColor = Linearize4(tex2D(SkyTexture, input.uv));
     float4 vertexColor = Linearize4(input.color);
-    float sunHeight = max(SunDirection.z, 0.0);
-    float3 sunColor = EvaluateSun(sunHeight, SunLightColor.rgb);
+    float sunHeight = SunData.w;
+    float3 sunColor = SunLightColor.rgb;
     float isSun = 1.0 - step(0.5, abs(ObjectData.x));
     float isMoon = 1.0 - step(0.5, abs(ObjectData.x - 6.0));
     float daylightGate = smoothstep(0.498, 0.502, SunData.x);
@@ -123,9 +115,9 @@ float4 Main(PixelInput input) : COLOR0 {
     float verticality = verticalBase * verticalBase * verticalBase;
     float atmosphere = Pow8(1.0 - verticality) * SkyData.x;
     float sunFacing = saturate(dot(eyeDirection, SunDirection.xyz) * 0.5 + 0.5);
-    float sunInfluence = pow(sunFacing, rcp(max(SkyData.y, 0.05)));
-    float sunHeight = max(SunDirection.z, 0.0);
-    float3 sunColor = EvaluateSun(sunHeight, SunLightColor.rgb);
+    float sunInfluence = pow(sunFacing, SunDirection.w);
+    float sunHeight = SunData.w;
+    float3 sunColor = SunLightColor.rgb;
     float3 skyColor = EvaluateSky(verticality, atmosphere, sunHeight, sunInfluence, sunColor);
     float alpha = cloud.a * CloudData.z;
     float3 scattering = Pow20(sunInfluence) * smoothstep(0.5, 1.0, 1.0 - alpha) * sunColor;
@@ -137,12 +129,12 @@ float4 Main(PixelInput input) : COLOR0 {
     float3 diffuse = saturate(dot(normal, SunDirection.xyz)) * sunColor * (1.0 - dot(ambient, float3(0.2126, 0.7152, 0.0722))) * lerp(0.8, 1.0, sunFacing);
     float fresnelWeight = Pow4(1.0 - max(dot(-eyeDirection, normal), 0.0));
     float3 fresnel = fresnelWeight * saturate(sunFacing * 2.0 - 1.0) * max(dot(normal, up), 0.0) * (sunColor + skyColor) * 0.2;
-    float3 bounce = max(dot(normal, -up), 0.0) * pow(HorizonColor.rgb, 2.2) * 0.1 * sunHeight;
+    float3 bounce = max(dot(normal, -up), 0.0) * ObjectData.yzw * 0.1 * sunHeight;
     cloud = float4(ambient + diffuse + fresnel + scattering + bounce, alpha);
 #else
     float grey = lerp(dot(cloud.rgb, float3(0.2126, 0.7152, 0.0722)), 1.0, saturate(CloudData.w));
     grey = (grey - 0.5) * 1.5 + 0.5;
-    float3 baseSky = Linearize3(SkyUpper.rgb);
+    float3 baseSky = SkyUpper.rgb;
     float3 darkSky = baseSky * 0.5;
     darkSky = darkSky * darkSky;
     darkSky = darkSky * darkSky * (baseSky * 0.5);

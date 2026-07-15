@@ -239,6 +239,8 @@ static BYTECODE: LazyLock<Mutex<Vec<Option<Vec<u32>>>>> =
     LazyLock::new(|| Mutex::new((0..SHADER_COUNT).map(|_| None).collect()));
 static RESOURCES: LazyLock<Mutex<ResourceState>> =
     LazyLock::new(|| Mutex::new(ResourceState::new()));
+static FRAME_STATE: LazyLock<Mutex<FrameState>> =
+    LazyLock::new(|| Mutex::new(FrameState::default()));
 static HANDLES: LazyLock<Vec<AtomicUsize>> =
     LazyLock::new(|| (0..SHADER_COUNT).map(|_| AtomicUsize::new(0)).collect());
 
@@ -258,6 +260,27 @@ static FALLBACK_LOGGED: AtomicBool = AtomicBool::new(false);
 struct ResourceState {
     device: usize,
     slots: Vec<ResourceSlot>,
+}
+
+#[derive(Default)]
+struct FrameState {
+    resolved: bool,
+    sky: Option<crate::backend::NativeSkyFrame>,
+}
+
+impl FrameState {
+    fn clear(&mut self) {
+        self.resolved = false;
+        self.sky = None;
+    }
+
+    fn sky(&mut self) -> Option<crate::backend::NativeSkyFrame> {
+        if !self.resolved {
+            self.sky = crate::backend::native_sky_frame();
+            self.resolved = true;
+        }
+        self.sky
+    }
 }
 
 impl ResourceState {
@@ -319,6 +342,7 @@ pub(crate) fn install(settings: NativeSkySettings) -> Result<()> {
 
 pub(crate) fn configure_runtime_options(settings: NativeSkySettings) {
     *SETTINGS.lock() = settings;
+    FRAME_STATE.lock().clear();
     ENABLED.store(settings.enabled, Ordering::Release);
     if settings.enabled && INSTALLED.load(Ordering::Acquire) {
         start_compile_worker();
@@ -349,24 +373,28 @@ pub(crate) fn runtime_status() -> NativeSkyStatus {
 }
 
 pub(crate) fn service_present_frame() {
+    FRAME_STATE.lock().clear();
     if ENABLED.load(Ordering::Acquire) {
         start_compile_worker();
         create_ready_resources();
     }
 }
 
-pub(crate) fn prepare_direct_draw() {
+pub(crate) fn prepare_direct_draw() -> bool {
+    if !PENDING.load(Ordering::Acquire) {
+        return false;
+    }
     if !ENABLED.load(Ordering::Acquire)
         || !DRAW_BOUNDARY_READY.load(Ordering::Acquire)
-        || !PENDING.load(Ordering::Acquire)
         || PENDING_EVALUATED.swap(true, Ordering::AcqRel)
     {
-        return;
+        return false;
     }
 
     if !try_bind_pending_draw() && !FALLBACK_LOGGED.swap(true, Ordering::AcqRel) {
         log::warn!("[SKY] Sky draw kept vanilla because a replacement contract was unavailable");
     }
+    true
 }
 
 pub(crate) fn finish_direct_draw() {
@@ -378,6 +406,7 @@ pub(crate) fn reset_runtime_state() {
     restore_direct_pair();
     clear_handles();
     *RESOURCES.lock() = ResourceState::new();
+    FRAME_STATE.lock().clear();
     clear_pending();
     FIRST_BIND_LOGGED.store(false, Ordering::Release);
     FALLBACK_LOGGED.store(false, Ordering::Release);
@@ -616,7 +645,7 @@ fn try_bind_pending_draw() -> bool {
     let pixel_index = PENDING_PIXEL_INDEX.load(Ordering::Acquire) as usize;
     let object_type = PENDING_OBJECT_TYPE.load(Ordering::Acquire);
     let settings = *SETTINGS.lock();
-    let Some(frame) = crate::backend::native_sky_frame() else {
+    let Some(frame) = FRAME_STATE.lock().sky() else {
         return false;
     };
     let Some((vertex_template, pixel_template)) = replacement_templates(
@@ -730,7 +759,7 @@ fn upload_constants(
     settings: NativeSkySettings,
     object_type: u32,
 ) -> Option<()> {
-    let sun_disk = if settings.use_sun_disk_color {
+    let sun_disk_source = if settings.use_sun_disk_color {
         frame.sun_disk
     } else {
         frame.sun_light
@@ -744,16 +773,32 @@ fn upload_constants(
     if !frame.is_exterior || frame.daylight <= 0.5 {
         sky_sun_direction[2] = -sky_sun_direction[2];
     }
+    let sun_height = sky_sun_direction[2].max(0.0);
+    let linear_sunset = linearize_color(sunset);
+    let linear_sun_light = evaluate_sun(
+        linearize_color(frame.sun_light),
+        linear_sunset,
+        sun_height,
+        frame.daylight,
+        settings.atmosphere_thickness,
+    );
+    let linear_sun_disk = evaluate_sun(
+        linearize_color(sun_disk_source),
+        linear_sunset,
+        sun_height,
+        frame.daylight,
+        settings.atmosphere_thickness,
+    );
     let constants = [
-        color4(frame.sky_upper),
-        color4(frame.sky_lower),
-        color4(frame.horizon),
-        color4(frame.sun_light),
+        color4(linearize_color(frame.sky_upper)),
+        color4(linearize_color(frame.sky_lower)),
+        color4(linearize_color(frame.horizon)),
+        color4(linear_sun_light),
         [
             sky_sun_direction[0],
             sky_sun_direction[1],
             sky_sun_direction[2],
-            1.0,
+            settings.sun_influence.recip(),
         ],
         [
             settings.atmosphere_thickness,
@@ -771,15 +816,51 @@ fn upload_constants(
             frame.daylight,
             settings.glare_strength,
             frame.game_hour * 3600.0,
-            0.0,
+            sun_height,
         ],
-        [sunset[0], sunset[1], sunset[2], settings.sky_multiplier],
-        color4(sun_disk),
-        [object_type as f32, 0.0, 0.0, 0.0],
+        [
+            linear_sunset[0],
+            linear_sunset[1],
+            linear_sunset[2],
+            settings.sky_multiplier,
+        ],
+        color4(linear_sun_disk),
+        [
+            object_type as f32,
+            frame.horizon[0].max(0.0).powf(2.2),
+            frame.horizon[1].max(0.0).powf(2.2),
+            frame.horizon[2].max(0.0).powf(2.2),
+        ],
     ];
     device
         .set_pixel_shader_constant_f(CONSTANT_FIRST_REGISTER, &constants)
         .ok()
+}
+
+fn linearize_color(color: [f32; 3]) -> [f32; 3] {
+    color.map(|component| {
+        if component <= 0.04045 {
+            component / 12.92
+        } else {
+            ((component + 0.055) / 1.055).powf(2.4)
+        }
+    })
+}
+
+fn evaluate_sun(
+    sun: [f32; 3],
+    sunset: [f32; 3],
+    sun_height: f32,
+    daylight: f32,
+    atmosphere_thickness: f32,
+) -> [f32; 3] {
+    let sunset_base = 1.0 - sun_height;
+    let sunset_base2 = sunset_base * sunset_base;
+    let sunset_base4 = sunset_base2 * sunset_base2;
+    let sunset_weight = (sunset_base4 * sunset_base4).clamp(0.0, 1.0) * daylight;
+    std::array::from_fn(|index| {
+        (1.0 + sun_height) * sun[index] + sunset[index] * sunset_weight * atmosphere_thickness
+    })
 }
 
 fn color4(color: [f32; 3]) -> [f32; 4] {

@@ -79,6 +79,13 @@ const TESOBJECTREFR_PARENT_CELL_OFFSET: usize = 0x40;
 const TESOBJECTCELL_FLAGS0_OFFSET: usize = 0x24;
 const TESOBJECTCELL_WORLDSPACE_OFFSET: usize = 0xC0;
 const TESOBJECTCELL_FLAGS0_INTERIOR: u8 = 1 << 0;
+const NATIVE_SKY_READ_SIZE: usize = SKY_GAME_HOUR_OFFSET + size_of::<f32>();
+const NATIVE_SUN_READ_SIZE: usize = SKY_OBJECT_ROOT_NODE_OFFSET + size_of::<usize>();
+const NATIVE_SUN_ROOT_READ_SIZE: usize = NIAVOBJECT_LOCAL_TRANSLATION_OFFSET + 3 * size_of::<f32>();
+const NATIVE_PLAYER_READ_SIZE: usize = TESOBJECTREFR_PARENT_CELL_OFFSET + size_of::<usize>();
+const NATIVE_CELL_READ_SIZE: usize = TESOBJECTCELL_FLAGS0_OFFSET + size_of::<u8>();
+const CACHED_DAYLIGHT_TIMES_SIZE: usize =
+    CACHED_SUNSET_END + size_of::<f32>() - CACHED_SUNRISE_BEGIN;
 const MAX_DEPTH_RESOLVE_LOGS: u32 = 16;
 const FRAME_CONTRACT_LOG_INTERVAL: u32 = 120;
 const MAX_FRAME_CONTRACT_LOGS: u32 = 32;
@@ -468,30 +475,29 @@ unsafe fn read_sun_frame() -> Option<SunFrame> {
 
 unsafe fn read_native_sky_frame() -> Option<NativeSkyFrame> {
     let sky = unsafe { read_ptr(SKY_SINGLETON_PTR)? };
-    if sky.is_null() {
-        return None;
-    }
+    unsafe { validate_object(sky, NATIVE_SKY_READ_SIZE)? };
 
-    let sun = unsafe { read_ptr(sky as usize + SKY_SUN_OFFSET)? };
-    if sun.is_null() {
-        return None;
-    }
-    let sun_root = unsafe { read_ptr(sun as usize + SKY_OBJECT_ROOT_NODE_OFFSET)? };
-    if sun_root.is_null() {
-        return None;
-    }
+    let sun = unsafe { read_prevalidated_ptr(sky, SKY_SUN_OFFSET) };
+    unsafe { validate_object(sun, NATIVE_SUN_READ_SIZE)? };
+    let sun_root = unsafe { read_prevalidated_ptr(sun, SKY_OBJECT_ROOT_NODE_OFFSET) };
+    unsafe { validate_object(sun_root, NATIVE_SUN_ROOT_READ_SIZE)? };
 
-    let sun_direction =
-        normalize3(unsafe { read_vec3(sun_root as usize + NIAVOBJECT_LOCAL_TRANSLATION_OFFSET)? })?;
-    let game_hour =
-        unsafe { read_sky_game_hour(sky) }.or_else(|| unsafe { read_global_game_hour() })?;
-    let daylight = unsafe { read_daylight_strength(sky)? };
-    let sky_upper = unsafe { read_vec3(sky as usize + SKY_UPPER_COLOR_OFFSET)? };
-    let sky_lower = unsafe { read_vec3(sky as usize + SKY_LOWER_COLOR_OFFSET)? };
-    let horizon = unsafe { read_vec3(sky as usize + SKY_HORIZON_COLOR_OFFSET)? };
-    let sun_light = unsafe { read_vec3(sky as usize + SKY_SUN_DIRECTIONAL_COLOR_OFFSET)? };
-    let sun_disk = unsafe { read_vec3(sky as usize + SKY_SUN_DISK_COLOR_OFFSET)? };
-    let exterior = unsafe { read_player_is_exterior()? };
+    let sun_direction = normalize3(unsafe {
+        read_prevalidated_vec3(sun_root, NIAVOBJECT_LOCAL_TRANSLATION_OFFSET)
+    })?;
+    let sky_game_hour = unsafe { read_prevalidated::<f32>(sky, SKY_GAME_HOUR_OFFSET) };
+    let game_hour = if is_valid_day_hour(sky_game_hour) {
+        sky_game_hour
+    } else {
+        unsafe { read_global_game_hour()? }
+    };
+    let daylight = unsafe { read_native_daylight_strength(sky, game_hour)? };
+    let sky_upper = unsafe { read_prevalidated_vec3(sky, SKY_UPPER_COLOR_OFFSET) };
+    let sky_lower = unsafe { read_prevalidated_vec3(sky, SKY_LOWER_COLOR_OFFSET) };
+    let horizon = unsafe { read_prevalidated_vec3(sky, SKY_HORIZON_COLOR_OFFSET) };
+    let sun_light = unsafe { read_prevalidated_vec3(sky, SKY_SUN_DIRECTIONAL_COLOR_OFFSET) };
+    let sun_disk = unsafe { read_prevalidated_vec3(sky, SKY_SUN_DISK_COLOR_OFFSET) };
+    let exterior = unsafe { read_native_player_is_exterior()? };
     let renderer = unsafe { read_ptr(NIDX9_RENDERER_SINGLETON_PTR)? };
     let z_clear = unsafe { read_f32(renderer as usize + NIDX9_RENDERER_Z_CLEAR_OFFSET)? };
     if !z_clear.is_finite() || !(0.0..=1.0).contains(&z_clear) {
@@ -514,6 +520,85 @@ unsafe fn read_native_sky_frame() -> Option<NativeSkyFrame> {
             is_exterior: exterior,
             reversed_depth: z_clear < 1.0,
         })
+}
+
+unsafe fn validate_object(object: *mut u8, size: usize) -> Option<()> {
+    if object.is_null() {
+        return None;
+    }
+    validate_memory_range(object.cast::<c_void>(), size).ok()
+}
+
+unsafe fn read_prevalidated<T: Copy>(object: *mut u8, offset: usize) -> T {
+    unsafe { object.add(offset).cast::<T>().read_unaligned() }
+}
+
+unsafe fn read_prevalidated_ptr(object: *mut u8, offset: usize) -> *mut u8 {
+    unsafe { read_prevalidated::<*mut u8>(object, offset) }
+}
+
+unsafe fn read_prevalidated_vec3(object: *mut u8, offset: usize) -> [f32; 3] {
+    [
+        unsafe { read_prevalidated::<f32>(object, offset) },
+        unsafe { read_prevalidated::<f32>(object, offset + size_of::<f32>()) },
+        unsafe { read_prevalidated::<f32>(object, offset + 2 * size_of::<f32>()) },
+    ]
+}
+
+unsafe fn read_native_daylight_strength(sky: *mut u8, game_hour: f32) -> Option<f32> {
+    let times = unsafe { read_cached_daylight_times_contiguous() }
+        .or_else(|| unsafe { read_prevalidated_climate_daylight_times(sky) })?;
+    Some(times.daylight_at(game_hour))
+}
+
+unsafe fn read_cached_daylight_times_contiguous() -> Option<DaylightTimes> {
+    validate_memory_range(
+        CACHED_SUNRISE_BEGIN as *const c_void,
+        CACHED_DAYLIGHT_TIMES_SIZE,
+    )
+    .ok()?;
+    let base = CACHED_SUNRISE_BEGIN as *mut u8;
+    DaylightTimes::new(
+        unsafe { read_prevalidated::<f32>(base, 0) },
+        unsafe { read_prevalidated::<f32>(base, CACHED_SUNRISE_END - CACHED_SUNRISE_BEGIN) },
+        unsafe { read_prevalidated::<f32>(base, CACHED_SUNSET_BEGIN - CACHED_SUNRISE_BEGIN) },
+        unsafe { read_prevalidated::<f32>(base, CACHED_SUNSET_END - CACHED_SUNRISE_BEGIN) },
+    )
+}
+
+unsafe fn read_prevalidated_climate_daylight_times(sky: *mut u8) -> Option<DaylightTimes> {
+    let climate = unsafe { read_prevalidated_ptr(sky, SKY_CLIMATE_OFFSET) };
+    if climate.is_null() {
+        return None;
+    }
+    validate_memory_range(
+        unsafe { climate.add(CLIMATE_SUN_TIME_BYTES_OFFSET) }.cast::<c_void>(),
+        CLIMATE_SUN_TIME_BYTES_LEN,
+    )
+    .ok()?;
+
+    let divisor = unsafe { read_f64(SKY_SUN_TIME_DIVISOR)? } as f32;
+    if !divisor.is_finite() || divisor <= 0.0 {
+        return None;
+    }
+    DaylightTimes::new(
+        unsafe { read_prevalidated::<u8>(climate, CLIMATE_SUN_TIME_BYTES_OFFSET) } as f32 / divisor,
+        unsafe { read_prevalidated::<u8>(climate, CLIMATE_SUN_TIME_BYTES_OFFSET + 1) } as f32
+            / divisor,
+        unsafe { read_prevalidated::<u8>(climate, CLIMATE_SUN_TIME_BYTES_OFFSET + 2) } as f32
+            / divisor,
+        unsafe { read_prevalidated::<u8>(climate, CLIMATE_SUN_TIME_BYTES_OFFSET + 3) } as f32
+            / divisor,
+    )
+}
+
+unsafe fn read_native_player_is_exterior() -> Option<bool> {
+    let player = unsafe { read_ptr(PLAYER_CHARACTER_PTR)? };
+    unsafe { validate_object(player, NATIVE_PLAYER_READ_SIZE)? };
+    let cell = unsafe { read_prevalidated_ptr(player, TESOBJECTREFR_PARENT_CELL_OFFSET) };
+    unsafe { validate_object(cell, NATIVE_CELL_READ_SIZE)? };
+    let flags = unsafe { read_prevalidated::<u8>(cell, TESOBJECTCELL_FLAGS0_OFFSET) };
+    Some((flags & TESOBJECTCELL_FLAGS0_INTERIOR) == 0)
 }
 
 unsafe fn project_sun_to_screen(sun_root: *mut u8, camera: *mut u8) -> Option<[f32; 3]> {

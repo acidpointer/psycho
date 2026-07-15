@@ -25,7 +25,10 @@ float3 Delinearize(float3 color) {
 }
 
 float Hash11(float value) {
-    return frac(sin(value) * 43758.5453);
+    value = frac(value * 0.1031);
+    value *= value + 33.33;
+    value *= value + value;
+    return frac(value);
 }
 
 float ValueNoise(float3 value) {

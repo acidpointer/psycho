@@ -264,11 +264,13 @@ unsafe extern "system" fn draw_primitive_detour(
     primitive_count: u32,
 ) -> i32 {
     pbr::prepare_direct_draw();
-    sky::prepare_direct_draw();
+    let sky_draw = sky::prepare_direct_draw();
     let result = unsafe {
         call_original_draw_primitive(device_ptr, primitive_type, start_vertex, primitive_count)
     };
-    sky::finish_direct_draw();
+    if sky_draw {
+        sky::finish_direct_draw();
+    }
     result
 }
 
@@ -282,7 +284,7 @@ unsafe extern "system" fn draw_indexed_primitive_detour(
     primitive_count: u32,
 ) -> i32 {
     pbr::prepare_direct_draw();
-    sky::prepare_direct_draw();
+    let sky_draw = sky::prepare_direct_draw();
     let result = unsafe {
         call_original_draw_indexed_primitive(
             device_ptr,
@@ -294,7 +296,9 @@ unsafe extern "system" fn draw_indexed_primitive_detour(
             primitive_count,
         )
     };
-    sky::finish_direct_draw();
+    if sky_draw {
+        sky::finish_direct_draw();
+    }
     result
 }
 
