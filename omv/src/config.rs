@@ -35,6 +35,7 @@ impl Default for PsychoGraphicsConfig {
 pub(crate) struct GraphicsConfig {
     pub(crate) screen_space_shaders: bool,
     pub(crate) native_pbr: NativePbrConfig,
+    pub(crate) native_sky: NativeSkyConfig,
     pub(crate) embedded_effects: EmbeddedEffectsConfig,
     pub(crate) depth_provider: DepthProviderConfig,
     pub(crate) menu_toggle_key: u32,
@@ -46,10 +47,53 @@ impl Default for GraphicsConfig {
         Self {
             screen_space_shaders: true,
             native_pbr: NativePbrConfig::default(),
+            native_sky: NativeSkyConfig::default(),
             embedded_effects: EmbeddedEffectsConfig::default(),
             depth_provider: DepthProviderConfig::default(),
             menu_toggle_key: 0x2D,
             shader_scan_interval_ms: 200,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
+#[serde(default)]
+pub(crate) struct NativeSkyConfig {
+    pub(crate) enabled: bool,
+    pub(crate) atmosphere_thickness: f32,
+    pub(crate) sun_influence: f32,
+    pub(crate) sun_strength: f32,
+    pub(crate) glare_strength: f32,
+    pub(crate) star_strength: f32,
+    pub(crate) star_twinkle: f32,
+    pub(crate) cloud_transparency: f32,
+    pub(crate) cloud_brightness: f32,
+    pub(crate) cloud_normals: bool,
+    pub(crate) use_sun_disk_color: bool,
+    pub(crate) sunset_red: f32,
+    pub(crate) sunset_green: f32,
+    pub(crate) sunset_blue: f32,
+    pub(crate) sky_multiplier: f32,
+}
+
+impl Default for NativeSkyConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            atmosphere_thickness: 2.0,
+            sun_influence: 1.0,
+            sun_strength: 1.0,
+            glare_strength: 1.0,
+            star_strength: 1.0,
+            star_twinkle: 1.0,
+            cloud_transparency: 0.4,
+            cloud_brightness: 0.9,
+            cloud_normals: false,
+            use_sun_disk_color: false,
+            sunset_red: 0.5,
+            sunset_green: 0.0,
+            sunset_blue: 0.03,
+            sky_multiplier: 1.0,
         }
     }
 }
@@ -66,50 +110,22 @@ pub(crate) struct NativePbrConfig {
     pub(crate) albedo_saturation: f32,
     pub(crate) terrain_lod_noise_scale: f32,
     pub(crate) terrain_lod_noise_tile: f32,
-    pub(crate) object_default: NativePbrProfileConfig,
-    pub(crate) object_rain: NativePbrProfileConfig,
-    pub(crate) object_night: NativePbrProfileConfig,
-    pub(crate) object_night_rain: NativePbrProfileConfig,
-    pub(crate) object_interior: NativePbrProfileConfig,
-    pub(crate) terrain_default: NativePbrProfileConfig,
-    pub(crate) terrain_rain: NativePbrProfileConfig,
-    pub(crate) terrain_night: NativePbrProfileConfig,
-    pub(crate) terrain_night_rain: NativePbrProfileConfig,
 }
 
 impl Default for NativePbrConfig {
     fn default() -> Self {
         Self {
-            enabled: false,
+            enabled: true,
             debug_log_draws: false,
             metallicness: 0.0,
-            roughness_scale: 1.0,
-            light_scale: 1.0,
-            ambient_scale: 1.0,
-            albedo_saturation: 1.0,
+            roughness_scale: 0.82,
+            light_scale: 1.15,
+            ambient_scale: 1.10,
+            albedo_saturation: 1.02,
             terrain_lod_noise_scale: 1.0,
             terrain_lod_noise_tile: 1.75,
-            object_default: NativePbrProfileConfig::default(),
-            object_rain: NativePbrProfileConfig::default(),
-            object_night: NativePbrProfileConfig::default(),
-            object_night_rain: NativePbrProfileConfig::default(),
-            object_interior: NativePbrProfileConfig::default(),
-            terrain_default: NativePbrProfileConfig::default(),
-            terrain_rain: NativePbrProfileConfig::default(),
-            terrain_night: NativePbrProfileConfig::default(),
-            terrain_night_rain: NativePbrProfileConfig::default(),
         }
     }
-}
-
-#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize)]
-#[serde(default)]
-pub(crate) struct NativePbrProfileConfig {
-    pub(crate) metallicness: Option<f32>,
-    pub(crate) roughness_scale: Option<f32>,
-    pub(crate) light_scale: Option<f32>,
-    pub(crate) ambient_scale: Option<f32>,
-    pub(crate) albedo_saturation: Option<f32>,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize)]
@@ -311,6 +327,7 @@ pub(crate) fn load_config() -> &'static PsychoGraphicsConfig {
 pub(crate) struct GraphicsMenuConfig {
     pub(crate) screen_space_shaders: bool,
     pub(crate) native_pbr: NativePbrConfig,
+    pub(crate) native_sky: NativeSkyConfig,
     pub(crate) embedded_effects: EmbeddedEffectsConfig,
     pub(crate) depth_provider: DepthProviderConfig,
     pub(crate) menu_toggle_key: u32,
@@ -325,6 +342,7 @@ impl Default for GraphicsMenuConfig {
         Self {
             screen_space_shaders: graphics.screen_space_shaders,
             native_pbr: graphics.native_pbr,
+            native_sky: graphics.native_sky,
             embedded_effects: graphics.embedded_effects,
             depth_provider: graphics.depth_provider,
             menu_toggle_key: graphics.menu_toggle_key,
@@ -339,6 +357,7 @@ impl From<&PsychoGraphicsConfig> for GraphicsMenuConfig {
         Self {
             screen_space_shaders: value.graphics.screen_space_shaders,
             native_pbr: value.graphics.native_pbr,
+            native_sky: value.graphics.native_sky,
             embedded_effects: value.graphics.embedded_effects,
             depth_provider: value.graphics.depth_provider,
             menu_toggle_key: value.graphics.menu_toggle_key,
@@ -390,12 +409,22 @@ pub(crate) fn save_menu_config(config: &GraphicsMenuConfig) -> Result<()> {
         value(config.shader_scan_interval_ms.min(i64::MAX as u64) as i64);
     doc["graphics"]["depth_provider"] = value(config.depth_provider.config_value());
     save_embedded_effect_config(&mut doc, &config.embedded_effects);
+    save_native_sky_config(&mut doc, &config.native_sky);
     doc["graphics"]["native_pbr"]["enabled"] = value(config.native_pbr.enabled);
     if let Some(native_pbr) = doc["graphics"]["native_pbr"].as_table_mut() {
         native_pbr.remove("terrain_enabled");
         native_pbr.remove("close_terrain_enabled");
         native_pbr.remove("terrain_fade_enabled");
         native_pbr.remove("terrain_lod_enabled");
+        native_pbr.remove("object_default");
+        native_pbr.remove("object_rain");
+        native_pbr.remove("object_night");
+        native_pbr.remove("object_night_rain");
+        native_pbr.remove("object_interior");
+        native_pbr.remove("terrain_default");
+        native_pbr.remove("terrain_rain");
+        native_pbr.remove("terrain_night");
+        native_pbr.remove("terrain_night_rain");
     }
     doc["graphics"]["native_pbr"]["debug_log_draws"] = value(config.native_pbr.debug_log_draws);
     doc["graphics"]["native_pbr"]["metallicness"] = value(config.native_pbr.metallicness as f64);
@@ -426,6 +455,25 @@ pub(crate) fn save_menu_config(config: &GraphicsMenuConfig) -> Result<()> {
     }
     fs::write(path, updated).with_context(|| format!("failed to write {}", path.display()))?;
     Ok(())
+}
+
+fn save_native_sky_config(doc: &mut DocumentMut, config: &NativeSkyConfig) {
+    doc["graphics"]["native_sky"]["enabled"] = value(config.enabled);
+    doc["graphics"]["native_sky"]["atmosphere_thickness"] =
+        value(config.atmosphere_thickness as f64);
+    doc["graphics"]["native_sky"]["sun_influence"] = value(config.sun_influence as f64);
+    doc["graphics"]["native_sky"]["sun_strength"] = value(config.sun_strength as f64);
+    doc["graphics"]["native_sky"]["glare_strength"] = value(config.glare_strength as f64);
+    doc["graphics"]["native_sky"]["star_strength"] = value(config.star_strength as f64);
+    doc["graphics"]["native_sky"]["star_twinkle"] = value(config.star_twinkle as f64);
+    doc["graphics"]["native_sky"]["cloud_transparency"] = value(config.cloud_transparency as f64);
+    doc["graphics"]["native_sky"]["cloud_brightness"] = value(config.cloud_brightness as f64);
+    doc["graphics"]["native_sky"]["cloud_normals"] = value(config.cloud_normals);
+    doc["graphics"]["native_sky"]["use_sun_disk_color"] = value(config.use_sun_disk_color);
+    doc["graphics"]["native_sky"]["sunset_red"] = value(config.sunset_red as f64);
+    doc["graphics"]["native_sky"]["sunset_green"] = value(config.sunset_green as f64);
+    doc["graphics"]["native_sky"]["sunset_blue"] = value(config.sunset_blue as f64);
+    doc["graphics"]["native_sky"]["sky_multiplier"] = value(config.sky_multiplier as f64);
 }
 
 fn save_embedded_effect_config(doc: &mut DocumentMut, config: &EmbeddedEffectsConfig) {

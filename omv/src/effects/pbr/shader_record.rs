@@ -32,8 +32,6 @@ static ADOPTED_RECORDS: AtomicU32 = AtomicU32::new(0);
 pub(super) struct ShaderRecordSnapshot {
     pub(super) shader: *mut c_void,
     pub(super) stage: ShaderStage,
-    pub(super) original_handle: *mut c_void,
-    pub(super) current_handle: *mut c_void,
     pub(super) template_id: u16,
     pub(super) table_id: u32,
     pub(super) table_index: u32,
@@ -46,8 +44,6 @@ struct ShaderRecordTable {
 struct ShaderRecord {
     shader: AtomicUsize,
     stage: AtomicU32,
-    original_handle: AtomicUsize,
-    current_handle: AtomicUsize,
     template_id: AtomicU32,
     table_id: AtomicU32,
     table_index: AtomicU32,
@@ -64,8 +60,6 @@ impl ShaderRecordTable {
         for record in &self.records {
             record.shader.store(0, Ordering::Release);
             record.stage.store(STAGE_NONE, Ordering::Release);
-            record.original_handle.store(0, Ordering::Release);
-            record.current_handle.store(0, Ordering::Release);
             record.template_id.store(TEMPLATE_NONE, Ordering::Release);
             record.table_id.store(TABLE_UNKNOWN, Ordering::Release);
             record.table_index.store(u32::MAX, Ordering::Release);
@@ -86,15 +80,13 @@ impl ShaderRecordTable {
         &self,
         shader: *mut c_void,
         stage: ShaderStage,
-        original_handle: *mut c_void,
         template_id: u16,
         table_id: u32,
         table_index: u32,
         adopted: bool,
     ) -> Option<ShaderRecordSnapshot> {
         let key = shader as usize;
-        let original_handle = original_handle as usize;
-        if key == 0 || original_handle == 0 {
+        if key == 0 {
             return None;
         }
 
@@ -104,12 +96,6 @@ impl ShaderRecordTable {
         let record = &self.records[index];
         record.shader.store(0, Ordering::Release);
         record.stage.store(stage_to_u32(stage), Ordering::Release);
-        record
-            .original_handle
-            .store(original_handle, Ordering::Release);
-        record
-            .current_handle
-            .store(original_handle, Ordering::Release);
         record
             .template_id
             .store(template_id as u32, Ordering::Release);
@@ -124,20 +110,6 @@ impl ShaderRecordTable {
         }
 
         record.snapshot()
-    }
-
-    fn set_current(&self, shader: *mut c_void, handle: *mut c_void) {
-        let key = shader as usize;
-        if key == 0 {
-            return;
-        }
-        let Some(index) = self.find_index(key) else {
-            return;
-        };
-
-        self.records[index]
-            .current_handle
-            .store(handle as usize, Ordering::Release);
     }
 
     fn set_table_slot(&self, shader: *mut c_void, table_id: u32, table_index: u32) {
@@ -207,8 +179,6 @@ impl ShaderRecord {
         Self {
             shader: AtomicUsize::new(0),
             stage: AtomicU32::new(STAGE_NONE),
-            original_handle: AtomicUsize::new(0),
-            current_handle: AtomicUsize::new(0),
             template_id: AtomicU32::new(TEMPLATE_NONE),
             table_id: AtomicU32::new(TABLE_UNKNOWN),
             table_index: AtomicU32::new(u32::MAX),
@@ -233,8 +203,6 @@ impl ShaderRecord {
         Some(ShaderRecordSnapshot {
             shader: shader as *mut c_void,
             stage,
-            original_handle: self.original_handle.load(Ordering::Relaxed) as *mut c_void,
-            current_handle: self.current_handle.load(Ordering::Acquire) as *mut c_void,
             template_id: template_id as u16,
             table_id: self.table_id.load(Ordering::Acquire),
             table_index: self.table_index.load(Ordering::Acquire),
@@ -245,20 +213,11 @@ impl ShaderRecord {
 pub(super) fn store_created(
     shader: *mut c_void,
     stage: ShaderStage,
-    original_handle: *mut c_void,
     template_id: u16,
     table_id: u32,
     table_index: u32,
 ) -> Option<ShaderRecordSnapshot> {
-    TABLE.store(
-        shader,
-        stage,
-        original_handle,
-        template_id,
-        table_id,
-        table_index,
-        false,
-    )
+    TABLE.store(shader, stage, template_id, table_id, table_index, false)
 }
 
 pub(super) fn adopt_existing(
@@ -275,16 +234,8 @@ pub(super) fn adopt_existing(
         }
         return None;
     }
-    let original_handle = engine_contracts::shader_handle(shader, stage)?;
-    TABLE.store(
-        shader,
-        stage,
-        original_handle,
-        template_id,
-        table_id,
-        table_index,
-        true,
-    )
+    engine_contracts::shader_handle(shader, stage)?;
+    TABLE.store(shader, stage, template_id, table_id, table_index, true)
 }
 
 pub(super) fn find(shader: *mut c_void) -> Option<ShaderRecordSnapshot> {
@@ -293,47 +244,6 @@ pub(super) fn find(shader: *mut c_void) -> Option<ShaderRecordSnapshot> {
 
 pub(super) fn set_table_slot(shader: *mut c_void, table_id: u32, table_index: u32) {
     TABLE.set_table_slot(shader, table_id, table_index);
-}
-
-pub(super) fn restore(snapshot: ShaderRecordSnapshot) -> bool {
-    if engine_contracts::write_shader_handle(
-        snapshot.shader,
-        snapshot.stage,
-        snapshot.original_handle,
-    ) {
-        TABLE.set_current(snapshot.shader, snapshot.original_handle);
-        true
-    } else {
-        false
-    }
-}
-
-pub(super) fn restore_all_mutated() -> u32 {
-    let mut restored = 0u32;
-    for record in &TABLE.records {
-        let Some(snapshot) = record.snapshot() else {
-            continue;
-        };
-        if snapshot.current_handle == snapshot.original_handle {
-            continue;
-        }
-
-        let Some(actual_handle) = engine_contracts::shader_handle(snapshot.shader, snapshot.stage)
-        else {
-            continue;
-        };
-        if actual_handle == snapshot.original_handle {
-            TABLE.set_current(snapshot.shader, snapshot.original_handle);
-            continue;
-        }
-        if actual_handle != snapshot.current_handle {
-            continue;
-        }
-        if restore(snapshot) {
-            restored += 1;
-        }
-    }
-    restored
 }
 
 pub(super) fn identity_ready() -> bool {

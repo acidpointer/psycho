@@ -46,27 +46,9 @@ static BLOCK_REASON: LazyLock<Mutex<Option<&'static str>>> = LazyLock::new(|| Mu
 pub(crate) struct NativePbrSettings {
     enabled: bool,
     debug_log_draws: bool,
-    object: NativePbrObjectProfiles,
-    terrain: NativePbrTerrainProfiles,
+    profile: PbrProfileSettings,
     terrain_lod_noise_scale: f32,
     terrain_lod_noise_tile: f32,
-}
-
-#[derive(Clone, Copy, Debug)]
-struct NativePbrObjectProfiles {
-    default: PbrProfileSettings,
-    rain: PbrProfileSettings,
-    night: PbrProfileSettings,
-    night_rain: PbrProfileSettings,
-    interior: PbrProfileSettings,
-}
-
-#[derive(Clone, Copy, Debug)]
-struct NativePbrTerrainProfiles {
-    default: PbrProfileSettings,
-    rain: PbrProfileSettings,
-    night: PbrProfileSettings,
-    night_rain: PbrProfileSettings,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -167,35 +149,9 @@ impl Default for NativePbrSettings {
         Self {
             enabled: false,
             debug_log_draws: false,
-            object: NativePbrObjectProfiles::default(),
-            terrain: NativePbrTerrainProfiles::default(),
+            profile: PbrProfileSettings::default(),
             terrain_lod_noise_scale: 1.0,
             terrain_lod_noise_tile: 1.75,
-        }
-    }
-}
-
-impl Default for NativePbrObjectProfiles {
-    fn default() -> Self {
-        let default = PbrProfileSettings::default();
-        Self {
-            default,
-            rain: default,
-            night: default,
-            night_rain: default,
-            interior: default,
-        }
-    }
-}
-
-impl Default for NativePbrTerrainProfiles {
-    fn default() -> Self {
-        let default = PbrProfileSettings::default();
-        Self {
-            default,
-            rain: default,
-            night: default,
-            night_rain: default,
         }
     }
 }
@@ -214,29 +170,15 @@ impl Default for PbrProfileSettings {
 
 impl From<crate::config::NativePbrConfig> for NativePbrSettings {
     fn from(value: crate::config::NativePbrConfig) -> Self {
-        let legacy = PbrProfileSettings {
-            metallicness: value.metallicness,
-            roughness_scale: value.roughness_scale,
-            light_scale: value.light_scale,
-            ambient_scale: value.ambient_scale,
-            albedo_saturation: value.albedo_saturation,
-        };
-
         Self {
             enabled: value.enabled,
             debug_log_draws: value.debug_log_draws,
-            object: NativePbrObjectProfiles {
-                default: PbrProfileSettings::from_config(value.object_default, legacy),
-                rain: PbrProfileSettings::from_config(value.object_rain, legacy),
-                night: PbrProfileSettings::from_config(value.object_night, legacy),
-                night_rain: PbrProfileSettings::from_config(value.object_night_rain, legacy),
-                interior: PbrProfileSettings::from_config(value.object_interior, legacy),
-            },
-            terrain: NativePbrTerrainProfiles {
-                default: PbrProfileSettings::from_config(value.terrain_default, legacy),
-                rain: PbrProfileSettings::from_config(value.terrain_rain, legacy),
-                night: PbrProfileSettings::from_config(value.terrain_night, legacy),
-                night_rain: PbrProfileSettings::from_config(value.terrain_night_rain, legacy),
+            profile: PbrProfileSettings {
+                metallicness: value.metallicness,
+                roughness_scale: value.roughness_scale,
+                light_scale: value.light_scale,
+                ambient_scale: value.ambient_scale,
+                albedo_saturation: value.albedo_saturation,
             },
             terrain_lod_noise_scale: value.terrain_lod_noise_scale,
             terrain_lod_noise_tile: value.terrain_lod_noise_tile,
@@ -245,25 +187,6 @@ impl From<crate::config::NativePbrConfig> for NativePbrSettings {
 }
 
 impl PbrProfileSettings {
-    fn from_config(
-        value: crate::config::NativePbrProfileConfig,
-        fallback: PbrProfileSettings,
-    ) -> Self {
-        if native_pbr_profile_is_neutral_block(value) {
-            return fallback;
-        }
-
-        Self {
-            metallicness: value.metallicness.unwrap_or(fallback.metallicness),
-            roughness_scale: value.roughness_scale.unwrap_or(fallback.roughness_scale),
-            light_scale: value.light_scale.unwrap_or(fallback.light_scale),
-            ambient_scale: value.ambient_scale.unwrap_or(fallback.ambient_scale),
-            albedo_saturation: value
-                .albedo_saturation
-                .unwrap_or(fallback.albedo_saturation),
-        }
-    }
-
     fn sanitized_values(self) -> [f32; PBR_PROFILE_VALUE_COUNT] {
         [
             sanitize_scale(self.metallicness, 0.0, 0.0, 1.0),
@@ -324,11 +247,11 @@ pub(crate) fn configure_runtime_options(settings: NativePbrSettings) {
     if was_enabled && !settings.enabled {
         ENABLE_PENDING.store(false, Ordering::Release);
         SHADER_ENABLED.store(false, Ordering::Release);
-        hooks::request_restore_all();
-        engine_contracts::restore_core_contracts();
         ACTIVE_CONTRACTS_READY.store(false, Ordering::Release);
         ACTIVE_CONTRACTS_FAILED.store(false, Ordering::Release);
-        log::info!("[PBR] Native PBR disabled; captured hooks remain installed and passive");
+        log::info!(
+            "[PBR] Native PBR disabled; hooks and engine contracts remain resident; draw replacements are passive"
+        );
     } else if !was_enabled && settings.enabled {
         if !ENABLE_PENDING.swap(true, Ordering::AcqRel) {
             log::info!("[PBR] Native PBR activation queued for the next Present boundary");
@@ -435,7 +358,7 @@ pub(crate) fn runtime_status() -> NativePbrRuntimeStatus {
             || device_resources::land_lod_create_failed()
             || device_resources::terrain_fade_create_failed()
             || device_resources::close_terrain_create_failed(),
-        close_terrain_contract_proven: close_terrain_contracts_ready(),
+        close_terrain_contract_proven: close_terrain_contract_available(),
         terrain_fade_contract_proven: terrain_fade_contracts_ready(),
         block_reason: *BLOCK_REASON.lock(),
     }
@@ -462,7 +385,6 @@ pub(crate) fn service_present_frame() {
     let enabled = SHADER_ENABLED.load(Ordering::Acquire);
     if enabled {
         engine_contracts::service_frame();
-        constants::service_frame();
         compiler::ensure_object_prewarm_started();
         device_resources::service_frame();
         let failed = compiler::object_compile_failed() || device_resources::object_create_failed();
@@ -522,10 +444,6 @@ fn refresh_block_reason() {
         Some("EyePosition contract unavailable")
     } else if !engine_contracts::shader_package_lifetime_ready() {
         Some("shader package lifetime contract unavailable")
-    } else if ACTIVE_CONTRACTS_FAILED.load(Ordering::Acquire) {
-        Some("object shader compile/create failed")
-    } else if !ACTIVE_CONTRACTS_READY.load(Ordering::Acquire) {
-        Some("object shader contracts warming")
     } else {
         None
     };
@@ -536,9 +454,11 @@ fn shader_enabled() -> bool {
     SHADER_ENABLED.load(Ordering::Acquire)
 }
 
-fn object_contracts_ready() -> bool {
-    ACTIVE_CONTRACTS_READY.load(Ordering::Acquire)
-        && !ACTIVE_CONTRACTS_FAILED.load(Ordering::Acquire)
+fn object_contract_available() -> bool {
+    hooks::hooks_ready()
+        && DRAW_BOUNDARY_READY.load(Ordering::Acquire)
+        && engine_contracts::eye_position_ready()
+        && engine_contracts::shader_package_lifetime_ready()
 }
 
 fn terrain_lod_enabled() -> bool {
@@ -571,12 +491,10 @@ fn terrain_fade_contracts_ready() -> bool {
         && device_resources::terrain_fade_resources_ready()
 }
 
-fn close_terrain_contracts_ready() -> bool {
+fn close_terrain_contract_available() -> bool {
     hooks::hooks_ready()
         && DRAW_BOUNDARY_READY.load(Ordering::Acquire)
         && engine_contracts::terrain_contract_available()
-        && compiler::close_terrain_compile_ready()
-        && device_resources::close_terrain_resources_ready()
 }
 
 fn store_terrain_options(settings: NativePbrSettings) {
@@ -584,14 +502,6 @@ fn store_terrain_options(settings: NativePbrSettings) {
     CLOSE_TERRAIN_ENABLED.store(settings.enabled, Ordering::Release);
     TERRAIN_FADE_ENABLED.store(settings.enabled, Ordering::Release);
     TERRAIN_LOD_ENABLED.store(settings.enabled, Ordering::Release);
-}
-
-fn native_pbr_profile_is_neutral_block(value: crate::config::NativePbrProfileConfig) -> bool {
-    value.metallicness == Some(0.0)
-        && value.roughness_scale == Some(1.0)
-        && value.light_scale == Some(1.0)
-        && value.ambient_scale == Some(1.0)
-        && value.albedo_saturation == Some(1.0)
 }
 
 fn sanitize_scale(value: f32, fallback: f32, min: f32, max: f32) -> f32 {

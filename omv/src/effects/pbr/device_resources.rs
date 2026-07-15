@@ -28,7 +28,6 @@ static TERRAIN_FADE_CREATE_FAILED: AtomicBool = AtomicBool::new(false);
 static CLOSE_TERRAIN_CREATE_FAILED: AtomicBool = AtomicBool::new(false);
 static LAND_LOD_RESOURCES_READY: AtomicBool = AtomicBool::new(false);
 static TERRAIN_FADE_RESOURCES_READY: AtomicBool = AtomicBool::new(false);
-static CLOSE_TERRAIN_RESOURCES_READY: AtomicBool = AtomicBool::new(false);
 static RESOURCES: LazyLock<Mutex<ResourceState>> = LazyLock::new(|| {
     Mutex::new(ResourceState {
         device: 0,
@@ -250,8 +249,9 @@ pub(super) fn close_terrain_shader_handle(
     )?)
 }
 
-pub(super) fn close_terrain_resources_ready() -> bool {
-    CLOSE_TERRAIN_RESOURCES_READY.load(Ordering::Acquire)
+pub(super) fn close_terrain_variant_resources_ready(pixel_sls: u16) -> bool {
+    close_terrain_shader_handle(shader_registry::ShaderStage::Vertex, 2100).is_some()
+        && close_terrain_shader_handle(shader_registry::ShaderStage::Pixel, pixel_sls).is_some()
 }
 
 pub(super) fn close_terrain_create_failed() -> bool {
@@ -275,7 +275,6 @@ pub(super) fn reset() {
     CLOSE_TERRAIN_CREATE_FAILED.store(false, Ordering::Release);
     LAND_LOD_RESOURCES_READY.store(false, Ordering::Release);
     TERRAIN_FADE_RESOURCES_READY.store(false, Ordering::Release);
-    CLOSE_TERRAIN_RESOURCES_READY.store(false, Ordering::Release);
 }
 
 fn publish_handle(template_id: usize, handle: *mut c_void) {
@@ -327,12 +326,6 @@ fn update_failure_state(state: &ResourceState) {
 
     let close_terrain_first =
         shader_registry::terrain_fade_template_id(shader_registry::ShaderStage::Pixel) as usize + 1;
-    CLOSE_TERRAIN_RESOURCES_READY.store(
-        state.slots[close_terrain_first..]
-            .iter()
-            .all(ResourceSlot::has_shader),
-        Ordering::Release,
-    );
     CLOSE_TERRAIN_CREATE_FAILED.store(
         state.slots[close_terrain_first..]
             .iter()

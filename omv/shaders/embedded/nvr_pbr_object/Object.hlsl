@@ -13,6 +13,10 @@ float getRoughness(float gloss) {
     return clamp((1 - saturate(gloss)) * TESR_PBRData.y, 0.043, 1.0);
 }
 
+float getObjectSpecularTransition(float nativeTransition) {
+    return smoothstep(0.0, 0.1, saturate(nativeTransition));
+}
+
 float getRoughness(float glossmap, float meshgloss){
     // return pow(glossmap, log(meshgloss));    
     // no gloss = 1

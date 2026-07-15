@@ -42,6 +42,10 @@ pub(crate) fn material_state_frame() -> MaterialStateFrame {
     fnv::material_state_frame()
 }
 
+pub(crate) fn native_sky_frame() -> Option<NativeSkyFrame> {
+    fnv::native_sky_frame()
+}
+
 pub(crate) fn depth_texture_ptr(depth_provider: DepthProvider) -> Option<*mut c_void> {
     match depth_provider {
         DepthProvider::None => None,
@@ -322,7 +326,6 @@ impl SunFrame {
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct MaterialStateFrame {
-    pub(crate) transition_curve: f32,
     pub(crate) exterior_known: bool,
     pub(crate) is_exterior: bool,
 }
@@ -330,7 +333,6 @@ pub(crate) struct MaterialStateFrame {
 impl Default for MaterialStateFrame {
     fn default() -> Self {
         Self {
-            transition_curve: 1.0,
             exterior_known: false,
             is_exterior: true,
         }
@@ -346,4 +348,18 @@ impl Default for SunFrame {
             daylight: 0.0,
         }
     }
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct NativeSkyFrame {
+    pub(crate) sky_upper: [f32; 3],
+    pub(crate) sky_lower: [f32; 3],
+    pub(crate) horizon: [f32; 3],
+    pub(crate) sun_light: [f32; 3],
+    pub(crate) sun_disk: [f32; 3],
+    pub(crate) sun_direction: [f32; 3],
+    pub(crate) daylight: f32,
+    pub(crate) game_hour: f32,
+    pub(crate) is_exterior: bool,
+    pub(crate) reversed_depth: bool,
 }

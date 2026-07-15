@@ -138,7 +138,6 @@ static SET_TEXTURE_HOOK: LazyLock<InlineHookContainer<SetTextureFn>> =
 static HOOKS_READY: AtomicBool = AtomicBool::new(false);
 static CREATION_HOOKS_READY: AtomicBool = AtomicBool::new(false);
 static SET_SHADERS_READY: AtomicBool = AtomicBool::new(false);
-static RESTORE_ALL_PENDING: AtomicBool = AtomicBool::new(false);
 static DIRECT_D3D_ACTIVE: AtomicBool = AtomicBool::new(false);
 static DIRECT_NATIVE_VERTEX: AtomicUsize = AtomicUsize::new(0);
 static DIRECT_NATIVE_PIXEL: AtomicUsize = AtomicUsize::new(0);
@@ -151,6 +150,7 @@ static LAND_LOD_FAILURE_LOGGED: AtomicBool = AtomicBool::new(false);
 static TERRAIN_FADE_FIRST_BIND_LOGGED: AtomicBool = AtomicBool::new(false);
 static TERRAIN_FADE_FAILURE_LOGGED: AtomicBool = AtomicBool::new(false);
 static CLOSE_TERRAIN_FIRST_BIND_LOGGED: AtomicBool = AtomicBool::new(false);
+static CLOSE_TERRAIN_WARMING_LOGGED: AtomicBool = AtomicBool::new(false);
 static CLOSE_TERRAIN_FAILURE_LOGGED: AtomicBool = AtomicBool::new(false);
 static DIRECT_RESTORE_FAILURE_LOGGED: AtomicBool = AtomicBool::new(false);
 static LAND_LOD_LAST_CONSTANT_SIGNATURE: AtomicU32 = AtomicU32::new(0);
@@ -259,6 +259,7 @@ pub(super) fn reset() {
     TERRAIN_FADE_FIRST_BIND_LOGGED.store(false, Ordering::Release);
     TERRAIN_FADE_FAILURE_LOGGED.store(false, Ordering::Release);
     CLOSE_TERRAIN_FIRST_BIND_LOGGED.store(false, Ordering::Release);
+    CLOSE_TERRAIN_WARMING_LOGGED.store(false, Ordering::Release);
     CLOSE_TERRAIN_FAILURE_LOGGED.store(false, Ordering::Release);
     DIRECT_RESTORE_FAILURE_LOGGED.store(false, Ordering::Release);
     LAND_LOD_LAST_CONSTANT_SIGNATURE.store(0, Ordering::Release);
@@ -298,10 +299,6 @@ fn install_set_texture_hook() -> bool {
 
 pub(super) fn hooks_ready() -> bool {
     HOOKS_READY.load(Ordering::Acquire)
-}
-
-pub(super) fn request_restore_all() {
-    RESTORE_ALL_PENDING.store(true, Ordering::Release);
 }
 
 fn install_shader_creation_hooks() -> bool {
@@ -512,7 +509,6 @@ unsafe extern "thiscall" fn hook_set_shaders(shader: *mut c_void, pass_index: u3
     PENDING_DRAW_KIND.store(PENDING_DRAW_NONE, Ordering::Release);
 
     if !super::shader_enabled() {
-        restore_disabled_shader_state();
         unsafe {
             original(shader, pass_index);
         }
@@ -548,8 +544,15 @@ unsafe extern "thiscall" fn hook_set_shaders(shader: *mut c_void, pass_index: u3
         unsafe {
             original(shader, pass_index);
         }
-        if super::close_terrain_contracts_ready() {
-            set_pending_draw(PENDING_DRAW_CLOSE_TERRAIN, pass_index, pixel_index as u32);
+        let pixel_sls = 2000u16 + pixel_index as u16;
+        if super::close_terrain_contract_available() {
+            if device_resources::close_terrain_variant_resources_ready(pixel_sls) {
+                set_pending_draw(PENDING_DRAW_CLOSE_TERRAIN, pass_index, pixel_index as u32);
+            } else if !CLOSE_TERRAIN_WARMING_LOGGED.swap(true, Ordering::AcqRel) {
+                log::info!(
+                    "[PBR] CloseTerrain draw remains vanilla while selected variant SLS{pixel_sls} warms"
+                );
+            }
         }
         return;
     }
@@ -557,9 +560,8 @@ unsafe extern "thiscall" fn hook_set_shaders(shader: *mut c_void, pass_index: u3
     unsafe {
         original(shader, pass_index);
     }
-    if super::object_contracts_ready()
+    if super::object_contract_available()
         && engine_contracts::eye_position_ready_for_pass(pass_index)
-        && engine_contracts::shader_package_lifetime_ready()
     {
         set_pending_draw(PENDING_DRAW_OBJECT, pass_index, 0);
     }
@@ -1039,15 +1041,7 @@ fn capture_created_shader(shader: *mut c_void, stage: ShaderStage, shader_name: 
     let (table_id, table_index) = identify_object_table_slot(shader, stage)
         .unwrap_or((shader_record::TABLE_UNKNOWN, TABLE_INDEX_UNKNOWN));
 
-    if shader_record::store_created(
-        shader,
-        stage,
-        original_handle,
-        template_ref.id,
-        table_id,
-        table_index,
-    )
-    .is_some()
+    if shader_record::store_created(shader, stage, template_ref.id, table_id, table_index).is_some()
     {
         log::info!(
             "[PBR] Object PBR captured {:?} wrapper={shader:p} shader={} table={table_id}:{} handle={original_handle:p}",
@@ -1563,32 +1557,6 @@ fn object_draw_key(
 fn hash_word(hash: u32, value: usize) -> u32 {
     let folded = value as u32;
     hash ^ folded.wrapping_mul(0x0100_0193).rotate_left(5)
-}
-
-fn restore_current_pass_to_vanilla() {
-    let Some((vertex_shader, pixel_shader)) = engine_contracts::current_pass_shaders() else {
-        return;
-    };
-    if let Some(record) = shader_record::find(vertex_shader) {
-        restore_shader_record(record);
-    }
-    if let Some(record) = shader_record::find(pixel_shader) {
-        restore_shader_record(record);
-    }
-}
-
-fn restore_shader_record(record: shader_record::ShaderRecordSnapshot) {
-    shader_record::restore(record);
-}
-
-fn restore_disabled_shader_state() {
-    if RESTORE_ALL_PENDING.swap(false, Ordering::AcqRel) {
-        let restored = shader_record::restore_all_mutated();
-        if restored != 0 {
-            log::info!("[PBR] Restored {restored} object shader wrapper(s) after disabling PBR");
-        }
-    }
-    restore_current_pass_to_vanilla();
 }
 
 fn adopt_existing_object_shaders() -> u32 {

@@ -8,7 +8,7 @@ use std::sync::{
 
 use super::{
     CameraFrame, DepthProjectionFrame, DepthResolveSlot, EnvironmentFrame, MaterialStateFrame,
-    SunFrame,
+    NativeSkyFrame, SunFrame,
 };
 use libpsycho::os::windows::{
     directx9::{
@@ -23,6 +23,7 @@ use parking_lot::Mutex;
 
 const NIDX9_RENDERER_SINGLETON_PTR: usize = 0x011C73B4;
 const NIDX9_RENDERER_DEVICE_OFFSET: usize = 0x288;
+const NIDX9_RENDERER_Z_CLEAR_OFFSET: usize = 0x5E4;
 const BSSHADERMANAGER_CAMERA_PTR: usize = 0x011F917C;
 const BSSHADERMANAGER_CURRENT_RENDER_TARGET_PTR: usize = 0x011F9438;
 const BSSHADERMANAGER_SCENE_GRAPH_INDEX: usize = 0x011F91C4;
@@ -36,6 +37,11 @@ const SKY_CLIMATE_OFFSET: usize = 0x0C;
 const SKY_SUN_OFFSET: usize = 0x28;
 const SKY_OBJECT_ROOT_NODE_OFFSET: usize = 0x04;
 const SKY_GAME_HOUR_OFFSET: usize = 0xEC;
+const SKY_UPPER_COLOR_OFFSET: usize = 0x3C;
+const SKY_SUN_DIRECTIONAL_COLOR_OFFSET: usize = 0x6C;
+const SKY_SUN_DISK_COLOR_OFFSET: usize = 0x78;
+const SKY_LOWER_COLOR_OFFSET: usize = 0x90;
+const SKY_HORIZON_COLOR_OFFSET: usize = 0x9C;
 const CLIMATE_SUN_TIME_BYTES_OFFSET: usize = 0x50;
 const CLIMATE_SUN_TIME_BYTES_LEN: usize = 4;
 const CACHED_SUNRISE_BEGIN: usize = 0x011CA9E8;
@@ -116,6 +122,10 @@ pub(super) fn sun_frame() -> SunFrame {
 
 pub(super) fn material_state_frame() -> MaterialStateFrame {
     unsafe { read_material_state_frame().unwrap_or_default() }
+}
+
+pub(super) fn native_sky_frame() -> Option<NativeSkyFrame> {
+    unsafe { read_native_sky_frame() }
 }
 
 pub(super) fn depth_texture_ptr() -> Option<*mut c_void> {
@@ -456,6 +466,56 @@ unsafe fn read_sun_frame() -> Option<SunFrame> {
     })
 }
 
+unsafe fn read_native_sky_frame() -> Option<NativeSkyFrame> {
+    let sky = unsafe { read_ptr(SKY_SINGLETON_PTR)? };
+    if sky.is_null() {
+        return None;
+    }
+
+    let sun = unsafe { read_ptr(sky as usize + SKY_SUN_OFFSET)? };
+    if sun.is_null() {
+        return None;
+    }
+    let sun_root = unsafe { read_ptr(sun as usize + SKY_OBJECT_ROOT_NODE_OFFSET)? };
+    if sun_root.is_null() {
+        return None;
+    }
+
+    let sun_direction =
+        normalize3(unsafe { read_vec3(sun_root as usize + NIAVOBJECT_LOCAL_TRANSLATION_OFFSET)? })?;
+    let game_hour =
+        unsafe { read_sky_game_hour(sky) }.or_else(|| unsafe { read_global_game_hour() })?;
+    let daylight = unsafe { read_daylight_strength(sky)? };
+    let sky_upper = unsafe { read_vec3(sky as usize + SKY_UPPER_COLOR_OFFSET)? };
+    let sky_lower = unsafe { read_vec3(sky as usize + SKY_LOWER_COLOR_OFFSET)? };
+    let horizon = unsafe { read_vec3(sky as usize + SKY_HORIZON_COLOR_OFFSET)? };
+    let sun_light = unsafe { read_vec3(sky as usize + SKY_SUN_DIRECTIONAL_COLOR_OFFSET)? };
+    let sun_disk = unsafe { read_vec3(sky as usize + SKY_SUN_DISK_COLOR_OFFSET)? };
+    let exterior = unsafe { read_player_is_exterior()? };
+    let renderer = unsafe { read_ptr(NIDX9_RENDERER_SINGLETON_PTR)? };
+    let z_clear = unsafe { read_f32(renderer as usize + NIDX9_RENDERER_Z_CLEAR_OFFSET)? };
+    if !z_clear.is_finite() || !(0.0..=1.0).contains(&z_clear) {
+        return None;
+    }
+
+    [sky_upper, sky_lower, horizon, sun_light, sun_disk]
+        .into_iter()
+        .flatten()
+        .all(|component| component.is_finite() && (-0.01..=16.0).contains(&component))
+        .then_some(NativeSkyFrame {
+            sky_upper,
+            sky_lower,
+            horizon,
+            sun_light,
+            sun_disk,
+            sun_direction,
+            daylight: daylight.clamp(0.0, 1.0),
+            game_hour,
+            is_exterior: exterior,
+            reversed_depth: z_clear < 1.0,
+        })
+}
+
 unsafe fn project_sun_to_screen(sun_root: *mut u8, camera: *mut u8) -> Option<[f32; 3]> {
     let sun_direction =
         normalize3(unsafe { read_vec3(sun_root as usize + NIAVOBJECT_LOCAL_TRANSLATION_OFFSET)? })?;
@@ -540,15 +600,9 @@ fn normalize3(value: [f32; 3]) -> Option<[f32; 3]> {
 }
 
 unsafe fn read_material_state_frame() -> Option<MaterialStateFrame> {
-    let sky = unsafe { read_ptr(SKY_SINGLETON_PTR) };
-    let transition_curve = sky
-        .filter(|sky| !sky.is_null())
-        .and_then(|sky| unsafe { read_transition_curve(sky) })
-        .unwrap_or(1.0);
     let exterior = unsafe { read_player_is_exterior() };
 
     Some(MaterialStateFrame {
-        transition_curve,
         exterior_known: exterior.is_some(),
         is_exterior: exterior.unwrap_or(true),
     })
@@ -580,15 +634,6 @@ unsafe fn read_daylight_strength(sky: *mut u8) -> Option<f32> {
     let times = unsafe { read_cached_daylight_times() }
         .or_else(|| unsafe { read_climate_daylight_times(sky) })?;
     Some(times.daylight_at(game_hour))
-}
-
-unsafe fn read_transition_curve(sky: *mut u8) -> Option<f32> {
-    let game_hour =
-        unsafe { read_sky_game_hour(sky) }.or_else(|| unsafe { read_global_game_hour() })?;
-
-    let times = unsafe { read_cached_daylight_times() }
-        .or_else(|| unsafe { read_climate_daylight_times(sky) })?;
-    Some(times.transition_curve_at(game_hour))
 }
 
 unsafe fn read_sky_game_hour(sky: *mut u8) -> Option<f32> {
@@ -683,12 +728,6 @@ impl DaylightTimes {
 
         1.0 - smooth01((day_time - self.sunset_begin) / (self.sunset_end - self.sunset_begin))
     }
-
-    fn transition_curve_at(self, day_time: f32) -> f32 {
-        let sunrise = step(self.sunrise_begin - 1.0, self.sunrise_end - 1.0, day_time);
-        let sunset = step(self.sunset_end + 1.0, self.sunset_begin + 1.0, day_time);
-        smooth01(sunrise * sunset)
-    }
 }
 
 fn is_valid_day_hour(value: f32) -> bool {
@@ -698,10 +737,6 @@ fn is_valid_day_hour(value: f32) -> bool {
 fn smooth01(value: f32) -> f32 {
     let value = value.clamp(0.0, 1.0);
     value * value * (3.0 - 2.0 * value)
-}
-
-fn step(start: f32, end: f32, value: f32) -> f32 {
-    ((value - start) / (end - start)).clamp(0.0, 1.0)
 }
 
 fn log_depth_resolve_skip(

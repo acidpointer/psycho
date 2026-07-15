@@ -157,10 +157,10 @@ occlusion_softness = 0.42
 #   - reflected/static constant and sampler contracts;
 #
 # Changes activate at the next Present boundary without requiring a restart.
-enabled = false
+enabled = true
 
 # Object PBR registers:
-#   c32.x metallicness, c32.y roughness scale, c32.z light scale,
+#   c32.x unmasked metal/specular response, c32.y roughness scale, c32.z light scale,
 #   c32.w ambient scale, c33.x albedo saturation.
 #
 # Terrain/LandLOD PBR registers:
@@ -169,83 +169,33 @@ enabled = false
 #   c90.x use PBR, c90.y saturation, c90.z LOD noise scale,
 #   c90.w LOD noise tile.
 metallicness = 0.0
-roughness_scale = 0.7789999842643738
-light_scale = 1.5429999828338623
-ambient_scale = 1.9220000505447388
-albedo_saturation = 1.0169999599456787
+roughness_scale = 0.82
+light_scale = 1.15
+ambient_scale = 1.10
+albedo_saturation = 1.02
 terrain_lod_noise_scale = 1.0
 terrain_lod_noise_tile = 1.75
 
-# Optional profile overrides. If omitted, each profile falls back to the scalar
-# values above. OMV blends object default/night/interior and terrain
-# default/night. Rain and night-rain profiles are part of the NVR contract, but
-# stay inactive until the rain/wet runtime contract is proven.
-#
-# [graphics.native_pbr.object_default]
-# metallicness = 0.0
-# roughness_scale = 0.779
-# light_scale = 1.543
-# ambient_scale = 1.922
-# albedo_saturation = 1.017
-#
-# [graphics.native_pbr.object_night]
-# metallicness = 0.0
-# roughness_scale = 1.0
-# light_scale = 1.0
-# ambient_scale = 1.0
-# albedo_saturation = 1.0
-#
-[graphics.native_pbr.object_interior]
-metallicness = 0.0
-roughness_scale = 1.0
-light_scale = 1.0
-ambient_scale = 1.0
-albedo_saturation = 1.0
-#
-# [graphics.native_pbr.object_rain]
-# metallicness = 0.0
-# roughness_scale = 1.0
-# light_scale = 1.0
-# ambient_scale = 1.0
-# albedo_saturation = 1.0
-#
-# [graphics.native_pbr.object_night_rain]
-# metallicness = 0.0
-# roughness_scale = 1.0
-# light_scale = 1.0
-# ambient_scale = 1.0
-# albedo_saturation = 1.0
-#
-[graphics.native_pbr.terrain_default]
-metallicness = 0.0
-roughness_scale = 1.0
-light_scale = 1.0
-ambient_scale = 1.0
-albedo_saturation = 1.0
-
-[graphics.native_pbr.terrain_night]
-metallicness = 0.0
-roughness_scale = 1.0
-light_scale = 1.0
-ambient_scale = 1.0
-albedo_saturation = 1.0
-
-[graphics.native_pbr.terrain_rain]
-metallicness = 0.0
-roughness_scale = 0.7
-light_scale = 1.0
-ambient_scale = 1.0
-albedo_saturation = 1.0
-
-[graphics.native_pbr.terrain_night_rain]
-metallicness = 0.0
-roughness_scale = 0.6
-light_scale = 1.0
-ambient_scale = 1.0
-albedo_saturation = 1.0
-
 # Enable detailed per-draw contract telemetry. Keep this off during normal play.
 debug_log_draws = false
+
+[graphics.native_sky]
+# Draw-scoped NVR-style native sky replacement. Unsupported sky passes remain vanilla.
+enabled = true
+atmosphere_thickness = 2.0
+sun_influence = 1.0
+sun_strength = 1.0
+glare_strength = 1.0
+star_strength = 1.0
+star_twinkle = 1.0
+cloud_transparency = 0.4
+cloud_brightness = 0.9
+cloud_normals = false
+use_sun_disk_color = false
+sunset_red = 0.5
+sunset_green = 0.0
+sunset_blue = 0.03
+sky_multiplier = 1.0
 
 [diagnostics]
 # Enable verbose graphics-module logging.

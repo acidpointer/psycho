@@ -7,10 +7,7 @@
 use std::{
     ffi::c_void,
     mem::size_of,
-    sync::{
-        LazyLock,
-        atomic::{AtomicBool, AtomicU32, Ordering},
-    },
+    sync::atomic::{AtomicBool, AtomicU32, Ordering},
 };
 
 use libpsycho::os::windows::{
@@ -19,7 +16,6 @@ use libpsycho::os::windows::{
 };
 
 use super::shader_registry::ShaderStage;
-use parking_lot::Mutex;
 
 const SLS_VERTEX_CONSTANT_FLAGS_ADDR: usize = 0x011FCC80;
 const SLS_PIXEL_CONSTANT_FLAGS_ADDR: usize = 0x011FC0A0;
@@ -61,16 +57,6 @@ static TERRAIN_CONTRACT_AVAILABLE: AtomicBool = AtomicBool::new(false);
 static EYE_POSITION_CONTRACT_READY: AtomicBool = AtomicBool::new(false);
 static SHADER_PACKAGE_LIFETIME_READY: AtomicBool = AtomicBool::new(false);
 static EYE_POSITION_REFRESH_FRAME: AtomicU32 = AtomicU32::new(0);
-static CORE_CONTRACT_ORIGINALS: LazyLock<Mutex<Option<CoreContractOriginals>>> =
-    LazyLock::new(|| Mutex::new(None));
-
-struct CoreContractOriginals {
-    eye_position_bits: Box<[bool]>,
-    fog_bits: Box<[u32]>,
-    shader_package_current: Option<u32>,
-    shader_package_max: Option<u32>,
-    shader_package_lifetime_branch: Option<u8>,
-}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum ObjectDrawRejectReason {
@@ -110,37 +96,9 @@ pub(super) struct DrawSnapshot {
 }
 
 pub(super) fn install_core_contracts() {
-    capture_core_contract_originals();
     enable_eye_position_for_all_sls_passes();
     enable_shader_package_lifetime_contract();
     force_nvr_shader_package();
-}
-
-pub(super) fn restore_core_contracts() {
-    let Some(originals) = CORE_CONTRACT_ORIGINALS.lock().take() else {
-        return;
-    };
-    restore_eye_position_flags(&originals.eye_position_bits);
-    restore_fog_flags(&originals.fog_bits);
-    restore_u32_if_owned(
-        SHADER_PACKAGE_CURRENT_ADDR,
-        NVR_SHADER_PACKAGE_SLS2,
-        originals.shader_package_current,
-    );
-    restore_u32_if_owned(
-        SHADER_PACKAGE_MAX_ADDR,
-        NVR_SHADER_PACKAGE_SLS2,
-        originals.shader_package_max,
-    );
-    if let Some(original) = originals.shader_package_lifetime_branch {
-        let address = SHADER_PACKAGE_LIFETIME_BRANCH_ADDR as *mut c_void;
-        if read_u8(address.cast_const()) == Some(SHADER_PACKAGE_LIFETIME_NVR_JNZ) {
-            let _ = unsafe { patch_bytes(address, &[original]) };
-        }
-    }
-    EYE_POSITION_CONTRACT_READY.store(false, Ordering::Release);
-    SHADER_PACKAGE_LIFETIME_READY.store(false, Ordering::Release);
-    EYE_POSITION_REFRESH_FRAME.store(0, Ordering::Release);
 }
 
 pub(super) fn set_terrain_contract_available(available: bool) {
@@ -334,27 +292,6 @@ pub(super) fn shader_handle(shader: *mut c_void, stage: ShaderStage) -> Option<*
     })
 }
 
-pub(super) fn write_shader_handle(
-    shader: *mut c_void,
-    stage: ShaderStage,
-    handle: *mut c_void,
-) -> bool {
-    let slot = offset_ptr(shader, shader_handle_offset(stage));
-    if slot.is_null() || handle.is_null() {
-        return false;
-    }
-    if !readable_range(slot.cast_const(), size_of::<usize>()) {
-        return false;
-    }
-
-    unsafe {
-        with_writable_memory(slot, size_of::<usize>(), || {
-            (slot as *mut usize).write(handle as usize);
-        })
-        .is_ok()
-    }
-}
-
 fn enable_eye_position_for_all_sls_passes() -> bool {
     let Some(first_row) = sls_eye_position_first_row() else {
         EYE_POSITION_CONTRACT_READY.store(false, Ordering::Release);
@@ -377,102 +314,6 @@ fn enable_eye_position_for_all_sls_passes() -> bool {
 
     EYE_POSITION_CONTRACT_READY.store(true, Ordering::Release);
     true
-}
-
-fn capture_core_contract_originals() {
-    let mut originals = CORE_CONTRACT_ORIGINALS.lock();
-    if originals.is_some() {
-        return;
-    }
-
-    let row_count = SLS_EYE_POSITION_LAST_ROW_EXCLUSIVE - SLS_EYE_POSITION_FIRST_ROW;
-    let eye_position_bits = sls_eye_position_first_row()
-        .filter(|first| {
-            validate_memory_range(first.cast::<c_void>(), row_count * size_of::<u32>()).is_ok()
-        })
-        .map(|first| {
-            (0..row_count)
-                .map(|row| unsafe { first.add(row).read() & SLS_EYE_POSITION_FLAG != 0 })
-                .collect::<Vec<_>>()
-                .into_boxed_slice()
-        })
-        .unwrap_or_default();
-    let fog_bits = sls_eye_position_first_row()
-        .filter(|first| {
-            validate_memory_range(first.cast::<c_void>(), row_count * size_of::<u32>()).is_ok()
-        })
-        .map(|first| {
-            (0..row_count)
-                .map(|row| unsafe { first.add(row).read() & SLS_FOG_FLAGS })
-                .collect::<Vec<_>>()
-                .into_boxed_slice()
-        })
-        .unwrap_or_default();
-    *originals = Some(CoreContractOriginals {
-        eye_position_bits,
-        fog_bits,
-        shader_package_current: read_u32(SHADER_PACKAGE_CURRENT_ADDR as *const c_void),
-        shader_package_max: read_u32(SHADER_PACKAGE_MAX_ADDR as *const c_void),
-        shader_package_lifetime_branch: read_u8(
-            SHADER_PACKAGE_LIFETIME_BRANCH_ADDR as *const c_void,
-        ),
-    });
-}
-
-fn restore_eye_position_flags(original_bits: &[bool]) {
-    let Some(first_row) = sls_eye_position_first_row() else {
-        return;
-    };
-    if original_bits.is_empty()
-        || validate_memory_range(
-            first_row.cast::<c_void>(),
-            original_bits.len() * size_of::<u32>(),
-        )
-        .is_err()
-    {
-        return;
-    }
-
-    for (row, originally_set) in original_bits.iter().copied().enumerate() {
-        let flag = unsafe { first_row.add(row) };
-        let current = unsafe { flag.read() };
-        let restored = if originally_set {
-            current | SLS_EYE_POSITION_FLAG
-        } else {
-            current & !SLS_EYE_POSITION_FLAG
-        };
-        unsafe { flag.write(restored) };
-    }
-}
-
-fn restore_fog_flags(original_bits: &[u32]) {
-    let Some(first_row) = sls_eye_position_first_row() else {
-        return;
-    };
-    if original_bits.is_empty()
-        || validate_memory_range(
-            first_row.cast::<c_void>(),
-            original_bits.len() * size_of::<u32>(),
-        )
-        .is_err()
-    {
-        return;
-    }
-
-    for (row, original) in original_bits.iter().copied().enumerate() {
-        let flag = unsafe { first_row.add(row) };
-        let current = unsafe { flag.read() };
-        unsafe { flag.write((current & !SLS_FOG_FLAGS) | original) };
-    }
-}
-
-fn restore_u32_if_owned(address: usize, owned_value: u32, original: Option<u32>) {
-    let Some(original) = original else {
-        return;
-    };
-    if read_u32(address as *const c_void) == Some(owned_value) {
-        write_u32(address, original);
-    }
 }
 
 fn service_eye_position_contract() {

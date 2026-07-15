@@ -14,6 +14,7 @@ const LOG_FILE: &str = "./omv-latest.log";
 #[derive(Clone, Copy)]
 struct DeferredHookSettings {
     native_pbr: crate::effects::pbr::NativePbrSettings,
+    native_sky: crate::effects::sky::NativeSkySettings,
     screen_space_shaders: bool,
     depth_provider: crate::backend::DepthProvider,
 }
@@ -41,6 +42,7 @@ pub(crate) fn initialize_for_nvse() -> Result<()> {
 
     let menu_config = crate::config::GraphicsMenuConfig::from(cfg);
     let native_pbr = cfg.graphics.native_pbr.into();
+    let native_sky = cfg.graphics.native_sky.into();
 
     if !cfg.graphics.screen_space_shaders {
         log::info!("[SHADERS] Screen-space shader rendering disabled by config");
@@ -63,6 +65,7 @@ pub(crate) fn initialize_for_nvse() -> Result<()> {
 
     *DEFERRED_HOOK_SETTINGS.lock() = Some(DeferredHookSettings {
         native_pbr,
+        native_sky,
         screen_space_shaders: cfg.graphics.screen_space_shaders,
         depth_provider,
     });
@@ -90,6 +93,7 @@ pub(crate) fn install_deferred_hooks() -> Result<()> {
 
     crate::effects::pbr::configure_terrain_contract(compatibility.has_vpt_terrain_contract());
     crate::effects::pbr::install(settings.native_pbr)?;
+    crate::effects::sky::install(settings.native_sky)?;
 
     if settings.screen_space_shaders
         && settings.depth_provider != crate::backend::DepthProvider::None

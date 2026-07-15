@@ -192,7 +192,7 @@ git submodule update --init --recursive
 Build:
 
 ```sh
-cargo build --release --target i686-pc-windows-gnu -p syringe -p psycho-engine-fixes -p psycho-engine-fixes-helper
+cargo build --release --target i686-pc-windows-gnu -p syringe -p psycho-engine-fixes -p psycho-engine-fixes-helper -p omv
 ```
 
 Requires `mingw-w64` with `i686-w64-mingw32-gcc` on `PATH`.
@@ -209,6 +209,8 @@ Release archives:
 cd psycho-engine-fixes
 ./release.sh
 ```
+
+This produces the core, xNVSE helper, and `omv-nvse-*` archives in `.release/`.
 
 ## Developer Notes
 

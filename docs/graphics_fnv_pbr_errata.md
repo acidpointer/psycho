@@ -244,16 +244,20 @@ Cause:
 
 Projected-shadow, point-light, SI, LandO, and landlo-fog rows were treated as if they owned the same texture-array contract as base landscape. These rows can change with distance and active lights.
 
+For the separately proven VPT point-light landscape rows, `PointLightColor.a` carries the scene light's runtime fade. Using only `.rgb`, as the NVR reference shader does, turns cell/light-list transitions into visible chunk-shaped steps. OMV must multiply each point-light contribution by the saturated alpha fade.
+
 Do not repeat:
 
 - Do not replace projected-shadow, point-light, SI, LandO, or landlo-fog rows until independently proven.
 - Do not bind terrain samplers onto light-resource rows.
+- Do not discard the proven VPT point-light alpha fade after a point-light row is admitted.
 
 Correct fix path:
 
 - Prove each light/shadow row independently: resources, constants, samplers, fallback, and pass ownership.
 - Keep these rows vanilla until proven.
 - If PBR needs light integration, derive it from the proven NVR shader contract, not from shader name similarity.
+- For proven VPT point-light landscape rows, preserve both the RGB light color and the alpha fade contract.
 
 ### 7. Object Distance PBR Blink
 
@@ -268,17 +272,22 @@ The first object path covered only nearby/runtime-hit object shader variants. Di
 
 NVR's object PBR shader also drops the native specular fade carried by `LightData[0].w`. Vanilla shaderpackage 19 bytecode proves that the game multiplies accumulated specular lighting by this value in both ordinary specular variants (`SLS2017.pso`, `SLS2023.pso`) and ADTS10 high-light variants (`SLS2034.pso`, `SLS2035.pso`). NVR leaves an unresolved TODO for the ADTS10 case and omits the same contract in its ordinary specular path. When the engine changes object light or LOD state, the missing multiplication turns the native continuous specular fade into an abrupt PBR pop.
 
+With strong global metallicness, the native linear transition can expose a broad dark band before the non-specular or LOD handoff. Removing the transition restores the abrupt pop. The object textures do not provide a metalness mask, so applying the scalar as true metalness also removed diffuse energy from every rock, road, and other object. OMV keeps a dielectric diffuse baseline, uses the scalar for the specular metal response, and compresses the native specular transition into its terminal ten percent. The zero and one endpoints remain intact, but the whole object no longer darkens across the full native distance band.
+
 Do not repeat:
 
 - Do not call object PBR complete after one visible nearby family works.
 - Do not rely on one test distance.
 - Do not discard `LightData[0].w` or apply it to diffuse and ambient lighting. It is the native specular transition weight for combined object-lighting passes.
+- Do not remove object diffuse energy with a global metalness scalar when no per-material metalness mask exists.
 
 Correct fix path:
 
 - Map runtime-visible object shader families across near, mid, far, lit, shadowed, and LOD states.
 - Add replacement only for proven object/static ABI-compatible variants.
 - Split combined PBR lighting into diffuse and specular components, accumulate both across active lights, and multiply only the accumulated specular component by the native transition weight.
+- Keep the unmasked object diffuse baseline dielectric and apply global metallicness only to the specular response.
+- Preserve the native transition endpoints if its presentation curve is adjusted; a nonzero floor cannot agree with the non-specular handoff.
 - Keep object, terrain, and LandLOD shader contracts separate.
 
 ### 8. Vertex Shader Replacement Must Match the Pixel Path
@@ -336,6 +345,58 @@ Correct fix path:
 - If creation hooks are unavailable, log the collision and continue with lazy shader ownership from active draw-time shader wrappers.
 - Keep `SetShaders`, `SetTexture`, selector setup, and pass shader-interface hooks as the mandatory install contract.
 - If the mandatory draw-time hooks collide, block native PBR and report the exact failed hook.
+
+### 10. Runtime Toggle Rewrote Stale Shader Handles
+
+Symptom:
+
+- Object or terrain PBR becomes less stable after the first off/on comparison.
+- Coverage changes after toggling even though the camera and scene are unchanged.
+- Repeated toggles produce distance-dependent or seemingly random shader selection.
+
+Cause:
+
+The current replacement path binds a replacement D3D shader pair only around the draw and restores the native D3D pair afterward. It does not mutate engine shader wrappers. The old disable path nevertheless wrote side-table snapshot handles back into current wrappers and restored global shader-package, EyePosition, and fog contracts. A snapshot can predate a later FSL, VPT, or engine handle update, so this disable transaction could overwrite valid current ownership with stale state.
+
+The profile loader had a second state bug: the menu edited one global settings block while hidden object, terrain, time-of-day, and interior profiles could override it. Close terrain could therefore receive neutral values while objects received the visible menu values, making a working terrain renderer appear disabled. This also made an off/on comparison misleading because the UI did not represent the constants used by every family.
+
+Do not repeat:
+
+- Do not restore shader wrapper handles unless the same code path actually mutated them and still proves ownership of the current value.
+- Do not tear down shared engine contracts for a runtime presentation toggle.
+- Do not expose one shared PBR menu while applying hidden per-family overrides.
+
+Correct fix path:
+
+- Make the runtime toggle a passive draw-time bypass. Keep installed hooks and proven engine contracts resident.
+- Restore only the temporary D3D shader pair owned by the current draw.
+- Use one authoritative settings snapshot for object, close terrain, terrain fade, and LandLOD. Retire legacy profile tables during config save.
+
+### 11. One Shader Edit Disabled All Close Terrain During Warmup
+
+Symptom:
+
+- Object PBR, LandLOD, and TerrainFade work, but close terrain remains vanilla.
+- The log shows close-terrain shaders compiling and being created without ever logging `CloseTerrain PBR active`.
+- The failure appears after editing shared close-terrain HLSL even though the draw contract did not change.
+
+Cause:
+
+Close terrain has one vertex shader and 28 pixel variants across texture counts and `0/6/12/24` point-light buckets. A shared HLSL edit invalidates the cache for the whole family. The broken readiness gate required every variant to finish compiling and creating before it admitted any close-terrain draw. On the measured runtime, useful zero-light variants were ready early, while high-light variants were still compiling more than two minutes later. The game exited before the family-wide gate could open. The object path had the same structural mistake across 101 variants: one failed or warming pair could block every otherwise-ready object pair.
+
+Do not repeat:
+
+- Do not gate one proven terrain variant on unrelated texture-count or light-bucket variants.
+- Do not gate one proven object pair on unrelated object variants.
+- Do not report a proven engine contract as unavailable merely because shader resources are still warming.
+- Do not scan the complete close-terrain resource family every frame to decide whether one draw can run.
+
+Correct fix path:
+
+- Keep engine-contract availability separate from shader-resource readiness.
+- At each proven close-terrain draw, require only the common vertex shader and the exact selected pixel variant.
+- At each proven object draw, require only its exact replacement vertex/pixel pair.
+- Leave that one draw vanilla while its variant is unavailable; admit it immediately once both handles exist.
 
 ## Required Proof Before Broadening Close Terrain PBR
 

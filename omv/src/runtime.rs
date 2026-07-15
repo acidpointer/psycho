@@ -27,7 +27,7 @@ use parking_lot::Mutex;
 use crate::{
     backend::{self, DepthFrame, DepthProvider, DepthTexture},
     config::{DepthProviderConfig, GraphicsMenuConfig},
-    effects::{ambient_occlusion, blooming_hdr, pbr, sunshafts},
+    effects::{ambient_occlusion, blooming_hdr, pbr, sky, sunshafts},
     shaders::{self, EmbeddedEffectKind, ScreenShaderSource, ShaderOptionValue, ShaderPhase},
 };
 
@@ -307,6 +307,7 @@ impl Default for ScreenShaderRuntime {
 impl ScreenShaderRuntime {
     fn configure(&mut self, settings: RuntimeSettings) {
         pbr::configure_runtime_options(settings.menu_config.native_pbr.into());
+        sky::configure_runtime_options(settings.menu_config.native_sky.into());
         self.settings = settings;
         self.compiled = None;
         self.next_scan = None;
@@ -1185,7 +1186,10 @@ impl ScreenShaderRuntime {
 
         let menu_config_changed = {
             let frame_pacing = self.frame_pacing.snapshot();
-            let pbr_status = pbr::runtime_status();
+            let feature_status = EngineFeatureStatus {
+                pbr: pbr::runtime_status(),
+                sky: sky::runtime_status(),
+            };
             let mut ui = imgui.new_frame(true);
             draw_shader_menu(
                 &mut ui,
@@ -1193,7 +1197,7 @@ impl ScreenShaderRuntime {
                 &mut self.sources,
                 &mut self.selected_menu_item,
                 &frame_pacing,
-                pbr_status,
+                feature_status,
                 self.menu_config_error.as_deref(),
             )
         };
@@ -1213,6 +1217,7 @@ impl ScreenShaderRuntime {
         self.settings.shader_scan_interval_ms = self.settings.menu_config.shader_scan_interval_ms;
         MENU_TOGGLE_KEY.store(self.settings.menu_toggle_key, Ordering::Release);
         pbr::configure_runtime_options(self.settings.menu_config.native_pbr.into());
+        sky::configure_runtime_options(self.settings.menu_config.native_sky.into());
 
         match crate::config::save_menu_config(&self.settings.menu_config) {
             Ok(()) => self.menu_config_error = None,
@@ -1565,7 +1570,14 @@ struct FramePacingSnapshot {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum MenuSelection {
     NativePbr,
+    NativeSky,
     Shader(usize),
+}
+
+#[derive(Clone, Copy)]
+struct EngineFeatureStatus {
+    pbr: pbr::NativePbrRuntimeStatus,
+    sky: sky::NativeSkyStatus,
 }
 
 impl Default for MenuSelection {
@@ -1587,7 +1599,7 @@ fn draw_shader_menu(
     sources: &mut [ScreenShaderSource],
     selected_item: &mut MenuSelection,
     frame_pacing: &FramePacingSnapshot,
-    pbr_status: pbr::NativePbrRuntimeStatus,
+    feature_status: EngineFeatureStatus,
     menu_config_error: Option<&str>,
 ) -> bool {
     ui.set_next_window_pos(24.0, 36.0, psycho_imgui::Condition::FirstUseEver);
@@ -1614,7 +1626,14 @@ fn draw_shader_menu(
         let item_list = cstring("graphics_feature_list");
         let child = ui.child(&item_list, 300.0, 0.0, true);
         if child.is_visible() {
-            draw_feature_list(ui, menu_config, sources, selected_item, pbr_status);
+            draw_feature_list(
+                ui,
+                menu_config,
+                sources,
+                selected_item,
+                feature_status.pbr,
+                feature_status.sky,
+            );
         }
     }
 
@@ -1627,7 +1646,11 @@ fn draw_shader_menu(
             match *selected_item {
                 MenuSelection::NativePbr => {
                     menu_config_changed |=
-                        draw_native_pbr_config(ui, &mut menu_config.native_pbr, pbr_status);
+                        draw_native_pbr_config(ui, &mut menu_config.native_pbr, feature_status.pbr);
+                }
+                MenuSelection::NativeSky => {
+                    menu_config_changed |=
+                        draw_native_sky_config(ui, &mut menu_config.native_sky, feature_status.sky);
                 }
                 MenuSelection::Shader(index) => {
                     if let Some(source) = sources.get_mut(index) {
@@ -1880,7 +1903,7 @@ fn draw_native_pbr_config(
         ui.separator();
         changed |= draw_float_slider(
             ui,
-            "Metallicness",
+            "Metal response",
             "native_pbr.metallicness",
             &mut config.metallicness,
             0.0,
@@ -1939,18 +1962,170 @@ fn draw_native_pbr_config(
     changed
 }
 
+fn draw_native_sky_config(
+    ui: &mut psycho_imgui::Ui<'_>,
+    config: &mut crate::config::NativeSkyConfig,
+    status: sky::NativeSkyStatus,
+) -> bool {
+    let heading = cstring("Sky");
+    ui.text_colored(MENU_ACCENT_TEXT, &heading);
+    let (status_color, status_text) = if status.failed {
+        (MENU_ERROR_TEXT, "Shader error".to_owned())
+    } else if status.enabled && status.created == status.total {
+        (MENU_GOOD_TEXT, "Active".to_owned())
+    } else if status.enabled {
+        (
+            MENU_WARN_TEXT,
+            format!(
+                "Loading {}/{}",
+                status.created.max(status.compiled),
+                status.total
+            ),
+        )
+    } else if status.installed {
+        (MENU_MUTED_TEXT, "Disabled".to_owned())
+    } else {
+        (MENU_WARN_TEXT, "Hook unavailable".to_owned())
+    };
+    ui.text_colored(status_color, &cstring(status_text));
+    ui.separator();
+
+    let mut changed = false;
+    changed |= draw_config_checkbox(ui, "Enable sky", "native_sky.enabled", &mut config.enabled);
+    if !config.enabled {
+        return changed;
+    }
+
+    changed |= draw_float_slider(
+        ui,
+        "Atmosphere",
+        "native_sky.atmosphere",
+        &mut config.atmosphere_thickness,
+        0.0,
+        8.0,
+    );
+    changed |= draw_float_slider(
+        ui,
+        "Sun spread",
+        "native_sky.sun_influence",
+        &mut config.sun_influence,
+        0.05,
+        8.0,
+    );
+    changed |= draw_float_slider(
+        ui,
+        "Sun strength",
+        "native_sky.sun_strength",
+        &mut config.sun_strength,
+        0.0,
+        8.0,
+    );
+    changed |= draw_float_slider(
+        ui,
+        "Sun glare",
+        "native_sky.glare_strength",
+        &mut config.glare_strength,
+        0.0,
+        8.0,
+    );
+    changed |= draw_float_slider(
+        ui,
+        "Sky brightness",
+        "native_sky.sky_multiplier",
+        &mut config.sky_multiplier,
+        0.0,
+        4.0,
+    );
+    ui.separator();
+    changed |= draw_float_slider(
+        ui,
+        "Cloud opacity",
+        "native_sky.cloud_transparency",
+        &mut config.cloud_transparency,
+        0.05,
+        1.0,
+    );
+    changed |= draw_float_slider(
+        ui,
+        "Cloud brightness",
+        "native_sky.cloud_brightness",
+        &mut config.cloud_brightness,
+        0.0,
+        4.0,
+    );
+    changed |= draw_config_checkbox(
+        ui,
+        "Normal-map clouds",
+        "native_sky.cloud_normals",
+        &mut config.cloud_normals,
+    );
+    ui.separator();
+    changed |= draw_float_slider(
+        ui,
+        "Star strength",
+        "native_sky.star_strength",
+        &mut config.star_strength,
+        0.0,
+        8.0,
+    );
+    changed |= draw_float_slider(
+        ui,
+        "Star twinkle",
+        "native_sky.star_twinkle",
+        &mut config.star_twinkle,
+        0.0,
+        8.0,
+    );
+    changed |= draw_config_checkbox(
+        ui,
+        "Weather sun color",
+        "native_sky.use_sun_disk_color",
+        &mut config.use_sun_disk_color,
+    );
+    changed |= draw_float_slider(
+        ui,
+        "Sunset red",
+        "native_sky.sunset_red",
+        &mut config.sunset_red,
+        0.0,
+        4.0,
+    );
+    changed |= draw_float_slider(
+        ui,
+        "Sunset green",
+        "native_sky.sunset_green",
+        &mut config.sunset_green,
+        0.0,
+        4.0,
+    );
+    changed |= draw_float_slider(
+        ui,
+        "Sunset blue",
+        "native_sky.sunset_blue",
+        &mut config.sunset_blue,
+        0.0,
+        4.0,
+    );
+    changed
+}
+
 fn draw_feature_list(
     ui: &mut psycho_imgui::Ui<'_>,
     config: &GraphicsMenuConfig,
     sources: &[ScreenShaderSource],
     selected_item: &mut MenuSelection,
     pbr_status: pbr::NativePbrRuntimeStatus,
+    sky_status: sky::NativeSkyStatus,
 ) {
     let heading = cstring("Engine features");
     ui.text_colored(MENU_ACCENT_TEXT, &heading);
     let pbr_label = cstring(native_pbr_list_label(config.native_pbr.enabled, pbr_status));
     if ui.selectable(&pbr_label, *selected_item == MenuSelection::NativePbr) {
         *selected_item = MenuSelection::NativePbr;
+    }
+    let sky_label = cstring(native_sky_list_label(config.native_sky.enabled, sky_status));
+    if ui.selectable(&sky_label, *selected_item == MenuSelection::NativeSky) {
+        *selected_item = MenuSelection::NativeSky;
     }
 
     ui.separator();
@@ -2246,6 +2421,19 @@ fn native_pbr_list_label(configured_enabled: bool, status: pbr::NativePbrRuntime
         "OFF"
     };
     format!("{status}  PBR##native_pbr_select")
+}
+
+fn native_sky_list_label(configured_enabled: bool, status: sky::NativeSkyStatus) -> String {
+    let state = if status.failed {
+        "ERR"
+    } else if configured_enabled && status.created == status.total {
+        "ON "
+    } else if configured_enabled {
+        "WUP"
+    } else {
+        "OFF"
+    };
+    format!("{state}  Sky##native_sky_select")
 }
 
 fn shader_has_error(source: &ScreenShaderSource) -> bool {

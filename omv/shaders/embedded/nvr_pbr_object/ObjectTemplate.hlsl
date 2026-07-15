@@ -598,7 +598,7 @@ PS_OUTPUT main(PS_INPUT IN) {
     #endif
 
     #if defined(SPECULAR) && !defined(ONLY_SPECULAR)
-        lighting += specularLighting * saturate(IN.lightDir.w);
+        lighting += specularLighting * getObjectSpecularTransition(IN.lightDir.w);
     #endif
     
     float3 finalColor = lighting.rgb;
@@ -779,7 +779,7 @@ PS_OUTPUT main(PS_INPUT IN) {
     #endif
 
     #if defined(SPECULAR)
-        lighting += specularLighting * saturate(IN.lPosition.w);
+        lighting += specularLighting * getObjectSpecularTransition(IN.lPosition.w);
     #endif
 
     lighting += getAmbientLighting(AmbientColor.rgb, baseColor.rgb);

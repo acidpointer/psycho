@@ -40,6 +40,12 @@ float3 LambertianDiffuse(float3 albedo, float3 fresnel) {
     return (1 - fresnel) * albedo / PI;
 }
 
+float3 StableObjectDiffuse(float3 albedo, float LdotH) {
+    // Global metalness has no material mask, so it must not remove the diffuse baseline.
+    const float3 dielectricFresnel = Fresnel(float(0.04).rrr, (1.0).xxx, LdotH);
+    return LambertianDiffuse(albedo, dielectricFresnel);
+}
+
 float3 DisneyDiffuse(float3 albedo, float roughness, float NdotV, float NdotL, float LdotH) {
     const float linearRoughness = roughness * roughness;
 
@@ -87,8 +93,6 @@ float3 BRDF(float roughness, float3 fresnel, float NdotV, float NdotL, float Ndo
 }
 
 float3 PBRDiffuse(float metallicness, float roughness, float3 albedo, float3 normal, float3 eyeDir, float3 lightDir, float3 lightColor) {
-    const float3 reflectance = lerp(float(0.04).rrr, albedo, metallicness);
-
     normal = normalize(normal);
     eyeDir = normalize(eyeDir);
     lightDir = normalize(lightDir);
@@ -97,9 +101,7 @@ float3 PBRDiffuse(float metallicness, float roughness, float3 albedo, float3 nor
     const float NdotL = shades(normal, lightDir);
     const float LdotH = shades(lightDir, halfway);
 
-    const float3 fresnel = Fresnel(reflectance, (1.0).xxx, LdotH);
-
-    const float3 diffuse = (1 - metallicness) * LambertianDiffuse(albedo, fresnel);
+    const float3 diffuse = StableObjectDiffuse(albedo, LdotH);
 
     return diffuse * NdotL * lightColor * PI;
 }
@@ -140,7 +142,7 @@ PBRLightingComponents EvaluatePBR(float metallicness, float roughness, float3 al
 
     const float3 fresnel = Fresnel(reflectance, (1.0).xxx, LdotH);
 
-    lighting.diffuse = (1 - metallicness) * LambertianDiffuse(albedo, fresnel);
+    lighting.diffuse = StableObjectDiffuse(albedo, LdotH);
 
     lighting.specular = BRDF(roughness, fresnel, NdotV, NdotL, NdotH);
 
@@ -214,7 +216,7 @@ PBRLightingComponents EvaluatePBRSun(float metallicness, float roughness, float3
 
     const float3 fresnel = Fresnel(reflectance, (1.0).xxx, LdotH);
 
-    lighting.diffuse = (1 - metallicness) * LambertianDiffuse(albedo, fresnel);
+    lighting.diffuse = StableObjectDiffuse(albedo, LdotH);
 
     lighting.specular = BRDF(roughness, fresnel, NdotV, NdotS, NdotH);
 

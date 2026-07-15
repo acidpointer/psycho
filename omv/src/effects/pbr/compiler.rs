@@ -145,11 +145,6 @@ pub(super) fn terrain_fade_compile_failed() -> bool {
         .any(|state| state.load(Ordering::Acquire) == BYTECODE_FAILED)
 }
 
-pub(super) fn close_terrain_compile_ready() -> bool {
-    family_states(close_terrain_range())
-        .all(|state| state.load(Ordering::Acquire) == BYTECODE_READY)
-}
-
 pub(super) fn close_terrain_compile_failed() -> bool {
     family_states(close_terrain_range())
         .any(|state| state.load(Ordering::Acquire) == BYTECODE_FAILED)

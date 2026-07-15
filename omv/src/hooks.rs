@@ -10,7 +10,11 @@ use std::{
     time::Duration,
 };
 
-use crate::{backend, effects::pbr, runtime};
+use crate::{
+    backend,
+    effects::{pbr, sky},
+    runtime,
+};
 use anyhow::{Context, Result};
 use core::ffi::c_void;
 use libpsycho::{
@@ -187,6 +191,7 @@ fn install_device_hooks(device_ptr: *mut c_void) -> Result<()> {
     hooks.draw_primitive = Some(draw_primitive_hook);
     hooks.draw_indexed_primitive = Some(draw_indexed_primitive_hook);
     pbr::set_draw_boundary_ready(true);
+    sky::set_draw_boundary_ready(true);
     Ok(())
 }
 
@@ -227,6 +232,8 @@ unsafe extern "system" fn present_detour(
 ) -> i32 {
     unsafe {
         pbr::finish_draw_batches();
+        sky::finish_direct_draw();
+        sky::service_present_frame();
         runtime::apply_present_frame(device_ptr, dest_window);
         let result = call_original_present(
             device_ptr,
@@ -245,6 +252,7 @@ unsafe extern "system" fn reset_detour(device_ptr: *mut c_void, params: *mut c_v
         runtime::release_device_resources(device_ptr);
         backend::reset_depth_resources();
         pbr::reset_runtime_state();
+        sky::reset_runtime_state();
         call_original_reset(device_ptr, params)
     }
 }
@@ -256,9 +264,11 @@ unsafe extern "system" fn draw_primitive_detour(
     primitive_count: u32,
 ) -> i32 {
     pbr::prepare_direct_draw();
+    sky::prepare_direct_draw();
     let result = unsafe {
         call_original_draw_primitive(device_ptr, primitive_type, start_vertex, primitive_count)
     };
+    sky::finish_direct_draw();
     result
 }
 
@@ -272,7 +282,8 @@ unsafe extern "system" fn draw_indexed_primitive_detour(
     primitive_count: u32,
 ) -> i32 {
     pbr::prepare_direct_draw();
-    unsafe {
+    sky::prepare_direct_draw();
+    let result = unsafe {
         call_original_draw_indexed_primitive(
             device_ptr,
             primitive_type,
@@ -282,7 +293,9 @@ unsafe extern "system" fn draw_indexed_primitive_detour(
             start_index,
             primitive_count,
         )
-    }
+    };
+    sky::finish_direct_draw();
+    result
 }
 
 unsafe fn call_original_present(
@@ -406,4 +419,5 @@ fn clear_originals() {
     ORIGINAL_DRAW_PRIMITIVE.store(0, Ordering::Release);
     ORIGINAL_DRAW_INDEXED_PRIMITIVE.store(0, Ordering::Release);
     pbr::set_draw_boundary_ready(false);
+    sky::set_draw_boundary_ready(false);
 }

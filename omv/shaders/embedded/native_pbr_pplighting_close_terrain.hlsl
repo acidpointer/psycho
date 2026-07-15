@@ -327,7 +327,7 @@ PixelOutput Main(PixelInput input)
             lighting += PointLighting(
                 mul(tbn, light_vector),
                 attenuation,
-                PointLightColor[point_index].rgb,
+                PointLightColor[point_index].rgb * saturate(PointLightColor[point_index].a),
                 view_dir,
                 normal,
                 albedo,

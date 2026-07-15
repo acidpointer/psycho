@@ -60,8 +60,10 @@ jobs:
 
           core_archive=".release/psycho-engine-fixes-$TAG.zip"
           helper_archive=".release/psycho-engine-fixes-nvse-helper-$TAG.zip"
+          omv_archive=".release/omv-nvse-$TAG.zip"
           test -f "$core_archive"
           test -f "$helper_archive"
+          test -f "$omv_archive"
 
           diff -u \
             <(printf '%s\n' \
@@ -75,6 +77,16 @@ jobs:
               "Data/NVSE/plugins/psycho_engine_fixes_helper.dll") \
             <(zipinfo -1 "$helper_archive" | grep -v '/$' | sort)
 
+          diff -u \
+            <(printf '%s\n' \
+              "Data/NVSE/plugins/omv.dll" \
+              "Data/NVSE/plugins/omv/omv.toml" \
+              "Data/NVSE/plugins/omv/shaders/01_depth_aware_cas.hlsl" \
+              "Data/NVSE/plugins/omv/shaders/01_depth_aware_cas.toml" \
+              "Data/NVSE/plugins/omv/shaders/03_fast_fxaa.hlsl" \
+              "Data/NVSE/plugins/omv/shaders/03_fast_fxaa.toml") \
+            <(zipinfo -1 "$omv_archive" | grep -v '/$' | sort)
+
       - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -87,6 +99,7 @@ jobs:
           assets=(
             ".release/psycho-engine-fixes-$TAG.zip"
             ".release/psycho-engine-fixes-nvse-helper-$TAG.zip"
+            ".release/omv-nvse-$TAG.zip"
           )
 
           if gh release view "$TAG" >/dev/null 2>&1; then
