@@ -1,0 +1,3172 @@
+2026-07-15 PHASE10-EXIT BLOCKING BOUNDARY FOLLOW-UP
+======================================================================
+Established runtime facts:
+  The 0x008705D0 phase10 maintenance hook returned and marked phase10-exit.
+  No next-frame phase7 heartbeat arrived and CrashLogger saw no exception.
+  The AI-join hook counter did not advance, but mode flags can bypass that hook.
+  Existing display counters only observe SetWindowPos after renderer recreation.
+
+This audit separates three dynamic paths:
+  A. Deferred renderer recreation and its device-reset callback sequence.
+  B. Mode-bypassed post-AI cleanup and queue synchronization.
+  C. Later frame-tail processing, including the periodic free-block callback.
+
+======================================================================
+A1 deferred renderer recreation owner @ 0x004dc360
+======================================================================
+  Function: FUN_004dc360 @ 0x004dc360, Size: 466 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+void FUN_004dc360(void)
+
+{
+  int iVar1;
+  HWND hWnd;
+  DWORD bMenu;
+  DWORD dwStyle;
+  int iVar2;
+  int X;
+  int cx;
+  undefined4 uVar3;
+  UINT uFlags;
+  tagRECT local_1c;
+  int local_c;
+  undefined1 local_5;
+  
+  iVar1 = FUN_004bc3f0();
+  if (((iVar1 != 0) && (DAT_011c70e0 != 0)) && (DAT_011c70e4 != 0)) {
+    FUN_00b4f5c0();
+    FUN_00b631d0();
+    FUN_0045ce80(DAT_011c70e0);
+    FUN_0045ce80(DAT_011c70e4);
+    DAT_011c70eb = (double)DAT_011c70e4 / (double)DAT_011c70e0 != _DAT_0101de30;
+    FUN_00ec25e0();
+    FUN_00702330();
+    FUN_004dc560();
+    FUN_004dc590();
+    uVar3 = 0;
+    FUN_004bc3f0(0);
+    FUN_004dc540(uVar3);
+    iVar1 = DAT_011c70e0;
+    iVar2 = DAT_011c70e4;
+    FUN_004bc3f0(DAT_011c70e0,DAT_011c70e4);
+    iVar1 = FUN_00e73eb0(iVar1,iVar2);
+    local_5 = iVar1 != 0;
+    if ((bool)local_5) {
+      hWnd = (HWND)FUN_0044ddc0();
+      local_1c.left = 0;
+      local_1c.top = 0;
+      local_1c.right = FUN_004503f0();
+      local_1c.bottom = FUN_004503f0();
+      bMenu = GetClassLongA(DAT_011c6fbc,-8);
+      dwStyle = GetWindowLongA(hWnd,-0x10);
+      AdjustWindowRect(&local_1c,dwStyle,bMenu);
+      cx = local_1c.right - local_1c.left;
+      iVar1 = local_1c.bottom - local_1c.top;
+      uFlags = 0x40;
+      local_c = cx;
+      iVar2 = FUN_004503f0();
+      X = FUN_004503f0();
+      SetWindowPos(hWnd,(HWND)0x0,X,iVar2,cx,iVar1,uFlags);
+    }
+    else {
+      FUN_004dc330("Failed to Recreate Gamebryo Render in desired dimensions.");
+    }
+    FUN_00a62030();
+    FUN_00b578a0();
+    uVar3 = FUN_00b4f5c0();
+    FUN_00559450(uVar3);
+    FUN_004dc540(uVar3);
+    FUN_0045c670();
+    FUN_00c52520();
+    FUN_004dc5c0();
+    FUN_004dc650();
+    FUN_00702250(0);
+    FUN_007022c0();
+    FUN_007053f0();
+  }
+  return;
+}
+
+
+
+--- Calls FROM A1 deferred renderer recreation owner (0x004dc360) ---
+  0x004dc366 -> 0x004bc3f0 FUN_004bc3f0
+  0x004dc38d -> 0x00b4f5c0 FUN_00b4f5c0
+  0x004dc394 -> 0x00b631d0 FUN_00b631d0
+  0x004dc3a4 -> 0x0045ce80 FUN_0045ce80
+  0x004dc3b5 -> 0x0045ce80 FUN_0045ce80
+  0x004dc3e9 -> 0x00ec25e0 FUN_00ec25e0
+  0x004dc3ee -> 0x00702330 FUN_00702330
+  0x004dc3f3 -> 0x004dc560 FUN_004dc560
+  0x004dc3f8 -> 0x004dc590 FUN_004dc590
+  0x004dc3ff -> 0x004bc3f0 FUN_004bc3f0
+  0x004dc406 -> 0x004dc540 FUN_004dc540
+  0x004dc418 -> 0x004bc3f0 FUN_004bc3f0
+  0x004dc41f -> 0x00e73eb0 FUN_00e73eb0
+  0x004dc43f -> 0x0044ddc0 FUN_0044ddc0
+  0x004dc45a -> 0x004503f0 FUN_004503f0
+  0x004dc467 -> 0x004503f0 FUN_004503f0
+  0x004dc478 -> 0x000000ac ???
+  0x004dc485 -> 0x000000ab ???
+  0x004dc490 -> 0x000000b5 ???
+  0x004dc4b7 -> 0x004503f0 FUN_004503f0
+  0x004dc4c2 -> 0x004503f0 FUN_004503f0
+  0x004dc4ce -> 0x0000009a ???
+  0x004dc4db -> 0x004dc330 FUN_004dc330
+  0x004dc4e3 -> 0x00a62030 FUN_00a62030
+  0x004dc4e8 -> 0x00b578a0 FUN_00b578a0
+  0x004dc4ed -> 0x00b4f5c0 FUN_00b4f5c0
+  0x004dc4f8 -> 0x00559450 FUN_00559450
+  0x004dc4ff -> 0x004dc540 FUN_004dc540
+  0x004dc504 -> 0x0045c670 FUN_0045c670
+  0x004dc50b -> 0x00c52520 FUN_00c52520
+  0x004dc510 -> 0x004dc5c0 FUN_004dc5c0
+  0x004dc515 -> 0x004dc650 FUN_004dc650
+  0x004dc51c -> 0x00702250 FUN_00702250
+  0x004dc524 -> 0x007022c0 FUN_007022c0
+  0x004dc529 -> 0x007053f0 FUN_007053f0
+  Total: 35 calls
+
+----------------------------------------------------------------------
+Entry disassembly: A1 deferred renderer recreation owner @ 0x004dc360
+----------------------------------------------------------------------
+  0x004dc360: PUSH EBP
+  0x004dc361: MOV EBP,ESP
+  0x004dc363: SUB ESP,0x20
+  0x004dc366: CALL 0x004bc3f0
+  0x004dc36b: TEST EAX,EAX
+  0x004dc36d: JZ 0x004dc52e
+  0x004dc373: CMP dword ptr [0x011c70e0],0x0
+  0x004dc37a: JZ 0x004dc52e
+  0x004dc380: CMP dword ptr [0x011c70e4],0x0
+  0x004dc387: JZ 0x004dc52e
+  0x004dc38d: CALL 0x00b4f5c0
+  0x004dc392: MOV ECX,EAX
+
+----------------------------------------------------------------------
+References TO 0x004dc360 (A1 deferred renderer recreation owner)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0086ee00 (in FUN_0086e650)
+  Total: 1 refs
+
+======================================================================
+A2 renderer recreate wrapper @ 0x00e73eb0
+======================================================================
+  Function: FUN_00e73eb0 @ 0x00e73eb0, Size: 175 bytes
+
+undefined4 __thiscall FUN_00e73eb0(int param_1,undefined4 param_2)
+
+{
+  undefined4 *_Src;
+  char cVar1;
+  int iVar2;
+  undefined4 unaff_retaddr;
+  
+  iVar2 = (**(code **)(**(int **)(param_1 + 0x884) + 0xb0))(0);
+  if (*(int *)(iVar2 + 0x10) == 0) {
+    iVar2 = 0;
+  }
+  else {
+    iVar2 = FUN_00e69b00(&DAT_0126f5d8);
+  }
+  _Src = (undefined4 *)(iVar2 + 0x20);
+  _memcpy(&stack0xffffffc4,_Src,0x38);
+  *_Src = unaff_retaddr;
+  *(undefined4 *)(iVar2 + 0x24) = param_2;
+  cVar1 = FUN_00e736b0();
+  if (cVar1 == '\0') {
+    FUN_00a29680(
+                "NiDX9Renderer::Recreate> Could not reset device to desired parameters - trying to recover original values\n"
+                );
+    _memcpy(_Src,&stack0xffffffc4,0x38);
+    cVar1 = FUN_00e736b0();
+    if (cVar1 == '\0') {
+      FUN_00a29680("NiDX9Renderer::Recreate> Could not recover original presentation parameters\n");
+      return 0;
+    }
+    return 1;
+  }
+  return 2;
+}
+
+
+
+--- Calls FROM A2 renderer recreate wrapper (0x00e73eb0) ---
+  0x00e73ed9 -> 0x00e69b00 FUN_00e69b00
+  0x00e73ee9 -> 0x00ec44d0 _memcpy
+  0x00e73f00 -> 0x00e736b0 FUN_00e736b0
+  0x00e73f0e -> 0x00a29680 FUN_00a29680
+  0x00e73f1b -> 0x00ec44d0 _memcpy
+  0x00e73f25 -> 0x00e736b0 FUN_00e736b0
+  0x00e73f33 -> 0x00a29680 FUN_00a29680
+  Total: 7 calls
+
+----------------------------------------------------------------------
+Entry disassembly: A2 renderer recreate wrapper @ 0x00e73eb0
+----------------------------------------------------------------------
+  0x00e73eb0: SUB ESP,0x38
+  0x00e73eb3: PUSH ESI
+  0x00e73eb4: PUSH EDI
+  0x00e73eb5: MOV EDI,ECX
+  0x00e73eb7: MOV ECX,dword ptr [EDI + 0x884]
+  0x00e73ebd: MOV EAX,dword ptr [ECX]
+  0x00e73ebf: MOV EDX,dword ptr [EAX + 0xb0]
+  0x00e73ec5: PUSH 0x0
+  0x00e73ec7: CALL EDX
+  0x00e73ec9: MOV ECX,dword ptr [EAX + 0x10]
+  0x00e73ecc: TEST ECX,ECX
+  0x00e73ece: JNZ 0x00e73ed4
+
+----------------------------------------------------------------------
+References TO 0x00e73eb0 (A2 renderer recreate wrapper)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x004dc41f (in FUN_004dc360)
+  Total: 1 refs
+
+======================================================================
+A3 renderer device reset and registered callbacks @ 0x00e736b0
+======================================================================
+  Function: FUN_00e736b0 @ 0x00e736b0, Size: 2015 bytes
+
+undefined4 __fastcall FUN_00e736b0(int *param_1)
+
+{
+  code *pcVar1;
+  byte bVar2;
+  int *piVar3;
+  char cVar4;
+  uint uVar5;
+  int iVar6;
+  undefined *puVar7;
+  LONG LVar8;
+  int iVar9;
+  int *piVar10;
+  undefined4 *puVar11;
+  undefined4 *puVar12;
+  uint unaff_EBX;
+  uint uVar13;
+  int local_10;
+  int *local_c;
+  uint local_8 [2];
+  
+  FUN_00e8be20();
+  FUN_00e8f6d0();
+  FUN_00e8cd60();
+  FUN_00e7cc50(param_1[0xa2],1);
+  FUN_00e7cc50(param_1[0xa2],2);
+  FUN_00e7cc50(param_1[0xa2],3);
+  uVar5 = 0;
+  if (param_1[0x225] != 0) {
+    piVar10 = (int *)param_1[0x226];
+    do {
+      if (*piVar10 != 0) {
+        local_10 = ((int *)param_1[0x226])[uVar5];
+        goto joined_r0x00e7373b;
+      }
+      uVar5 = uVar5 + 1;
+      piVar10 = piVar10 + 1;
+    } while (uVar5 < (uint)param_1[0x225]);
+  }
+  local_10 = 0;
+joined_r0x00e7373b:
+  while (local_10 != 0) {
+    local_c = (int *)0x0;
+    FUN_00e6e630(&local_10,local_8,&local_c);
+    piVar3 = local_c;
+    iVar6 = (**(code **)(*local_c + 0xb0))(0);
+    piVar10 = *(int **)(iVar6 + 0x10);
+    if (piVar10 == (int *)0x0) {
+      piVar10 = (int *)0x0;
+    }
+    else {
+      for (puVar7 = (undefined *)(**(code **)(*piVar10 + 0xc))(); puVar7 != (undefined *)0x0;
+          puVar7 = *(undefined **)(puVar7 + 4)) {
+        if (puVar7 == &DAT_0126f5d8) {
+          bVar2 = 1;
+          goto LAB_00e737a6;
+        }
+      }
+      bVar2 = 0;
+LAB_00e737a6:
+      piVar10 = (int *)(-(uint)bVar2 & (uint)piVar10);
+    }
+    (**(code **)(*piVar10 + 0x54))();
+    iVar6 = (**(code **)(*piVar3 + 0xb4))();
+    if ((iVar6 != 0) && (piVar10 = *(int **)(iVar6 + 0x10), piVar10 != (int *)0x0)) {
+      for (puVar7 = (undefined *)(**(code **)(*piVar10 + 0xc))(); puVar7 != (undefined *)0x0;
+          puVar7 = *(undefined **)(puVar7 + 4)) {
+        if (puVar7 == &DAT_0126f5ac) {
+          bVar2 = 1;
+          goto LAB_00e737f4;
+        }
+      }
+      bVar2 = 0;
+LAB_00e737f4:
+      if ((int *)(-(uint)bVar2 & (uint)piVar10) != (int *)0x0) {
+        (**(code **)(*(int *)(-(uint)bVar2 & (uint)piVar10) + 0x54))();
+      }
+    }
+    LVar8 = InterlockedDecrement(piVar3 + 1);
+    if (LVar8 == 0) {
+      (**(code **)(*piVar3 + 4))();
+    }
+  }
+  uVar5 = 0;
+  if (param_1[0x234] != 0) {
+    piVar10 = (int *)param_1[0x235];
+    do {
+      if (*piVar10 != 0) {
+        piVar10 = (int *)((int *)param_1[0x235])[uVar5];
+        goto LAB_00e73853;
+      }
+      uVar5 = uVar5 + 1;
+      piVar10 = piVar10 + 1;
+    } while (uVar5 < (uint)param_1[0x234]);
+  }
+  piVar10 = (int *)0x0;
+LAB_00e73853:
+  local_10 = 0;
+  while (piVar10 != (int *)0x0) {
+    iVar6 = piVar10[1];
+    piVar10 = (int *)*piVar10;
+    if (piVar10 == (int *)0x0) {
+      iVar9 = (**(code **)(param_1[0x233] + 4))(iVar6);
+      uVar5 = iVar9 + 1;
+      if (uVar5 < (uint)param_1[0x234]) {
+        puVar12 = (undefined4 *)(param_1[0x235] + uVar5 * 4);
+        do {
+          piVar10 = (int *)*puVar12;
+          if (piVar10 != (int *)0x0) goto LAB_00e738a0;
+          uVar5 = uVar5 + 1;
+          puVar12 = puVar12 + 1;
+        } while (uVar5 < (uint)param_1[0x234]);
+      }
+      piVar10 = (int *)0x0;
+    }
+LAB_00e738a0:
+    (**(code **)(*param_1 + 0x108))(iVar6);
+    FUN_00b57ea0(iVar6,0);
+  }
+  uVar5 = 0;
+  if (param_1[0x238] != 0) {
+    piVar10 = (int *)param_1[0x239];
+    do {
+      if (*piVar10 != 0) {
+        piVar10 = (int *)((int *)param_1[0x239])[uVar5];
+        goto joined_r0x00e738ea;
+      }
+      uVar5 = uVar5 + 1;
+      piVar10 = piVar10 + 1;
+    } while (uVar5 < (uint)param_1[0x238]);
+  }
+  piVar10 = (int *)0x0;
+joined_r0x00e738ea:
+  while (piVar10 != (int *)0x0) {
+    iVar6 = piVar10[1];
+    piVar10 = (int *)*piVar10;
+    if (piVar10 == (int *)0x0) {
+      iVar9 = (**(code **)(param_1[0x237] + 4))(iVar6);
+      uVar5 = iVar9 + 1;
+      if (uVar5 < (uint)param_1[0x238]) {
+        puVar12 = (undefined4 *)(param_1[0x239] + uVar5 * 4);
+        do {
+          piVar10 = (int *)*puVar12;
+          if (piVar10 != (int *)0x0) goto LAB_00e73930;
+          uVar5 = uVar5 + 1;
+          puVar12 = puVar12 + 1;
+        } while (uVar5 < (uint)param_1[0x238]);
+      }
+      piVar10 = (int *)0x0;
+    }
+LAB_00e73930:
+    (**(code **)(*param_1 + 0x108))(iVar6);
+    FUN_00b57ea0(iVar6,0);
+  }
+  uVar5 = 0;
+  if (param_1[0x23c] != 0) {
+    piVar10 = (int *)param_1[0x23d];
+    do {
+      if (*piVar10 != 0) {
+        piVar10 = (int *)((int *)param_1[0x23d])[uVar5];
+        goto joined_r0x00e7397a;
+      }
+      uVar5 = uVar5 + 1;
+      piVar10 = piVar10 + 1;
+    } while (uVar5 < (uint)param_1[0x23c]);
+  }
+  piVar10 = (int *)0x0;
+joined_r0x00e7397a:
+  while (piVar10 != (int *)0x0) {
+    iVar6 = piVar10[1];
+    puVar12 = (undefined4 *)piVar10[2];
+    piVar10 = (int *)*piVar10;
+    if (piVar10 == (int *)0x0) {
+      iVar9 = (**(code **)(param_1[0x23b] + 4))(iVar6);
+      uVar5 = iVar9 + 1;
+      if (uVar5 < (uint)param_1[0x23c]) {
+        puVar11 = (undefined4 *)(param_1[0x23d] + uVar5 * 4);
+        do {
+          piVar10 = (int *)*puVar11;
+          if (piVar10 != (int *)0x0) goto LAB_00e739c0;
+          uVar5 = uVar5 + 1;
+          puVar11 = puVar11 + 1;
+        } while (uVar5 < (uint)param_1[0x23c]);
+      }
+      piVar10 = (int *)0x0;
+    }
+LAB_00e739c0:
+    *(undefined4 *)(iVar6 + 0x24) = 0;
+    if (puVar12 != (undefined4 *)0x0) {
+      (**(code **)*puVar12)(1);
+    }
+    FUN_00b57ea0(iVar6,0);
+  }
+  FUN_00e7cec0();
+  puVar12 = (undefined4 *)param_1[0x243];
+  while (puVar12 != (undefined4 *)0x0) {
+    puVar11 = puVar12 + 2;
+    puVar12 = (undefined4 *)*puVar12;
+    (**(code **)(*(int *)*puVar11 + 0xc4))();
+  }
+  (*(code *)**(undefined4 **)param_1[0x22d])();
+  uVar13 = (uint)*(ushort *)((int)param_1 + 0xade);
+  uVar5 = 0;
+  local_8[0] = uVar13;
+  if (uVar13 != 0) {
+    do {
+      pcVar1 = *(code **)(param_1[0x2b6] + uVar5 * 4);
+      if ((pcVar1 != (code *)0x0) &&
+         (cVar4 = (*pcVar1)(1,*(undefined4 *)(param_1[0x2ba] + uVar5 * 4)), cVar4 == '\0')) {
+        FUN_00a29680(
+                    "NiDX9Renderer::Recreate> Reset notification function failed before device reset - FAILING\n"
+                    );
+        return 0;
+      }
+      uVar5 = uVar5 + 1;
+    } while (uVar5 < uVar13);
+  }
+  iVar6 = (**(code **)(*(int *)param_1[0x221] + 0xb0))(0);
+  piVar10 = *(int **)(iVar6 + 0x10);
+  if (piVar10 == (int *)0x0) {
+    uVar5 = 0;
+  }
+  else {
+    for (puVar7 = (undefined *)(**(code **)(*piVar10 + 0xc))(); puVar7 != (undefined *)0x0;
+        puVar7 = *(undefined **)(puVar7 + 4)) {
+      if (puVar7 == &DAT_0126f5d8) {
+        bVar2 = 1;
+        goto LAB_00e73ad4;
+      }
+    }
+    bVar2 = 0;
+LAB_00e73ad4:
+    uVar5 = -(uint)bVar2 & (uint)piVar10;
+  }
+  iVar6 = (**(code **)(*(int *)param_1[0xa2] + 0x40))((int *)param_1[0xa2],uVar5 + 0x20);
+  if (iVar6 < 0) {
+    return 0;
+  }
+  param_1[0x1be] = param_1[0x1be] + 1;
+  *(undefined1 *)(param_1 + 0x1bf) = 0;
+  uVar5 = 0;
+  if (param_1[0x225] != 0) {
+    piVar10 = (int *)param_1[0x226];
+    do {
+      if (*piVar10 != 0) {
+        iVar6 = ((int *)param_1[0x226])[uVar5];
+        goto joined_r0x00e73b29;
+      }
+      uVar5 = uVar5 + 1;
+      piVar10 = piVar10 + 1;
+    } while (uVar5 < (uint)param_1[0x225]);
+  }
+  iVar6 = 0;
+joined_r0x00e73b29:
+  while (iVar6 != 0) {
+    FUN_00e6e630(&stack0xffffffe4,&local_10,&stack0xffffffe8);
+    iVar9 = (**(code **)(iRam00000000 + 0xb0))(0);
+    piVar10 = *(int **)(iVar9 + 0x10);
+    if (piVar10 == (int *)0x0) {
+      piVar10 = (int *)0x0;
+    }
+    else {
+      for (puVar7 = (undefined *)(**(code **)(*piVar10 + 0xc))(); puVar7 != (undefined *)0x0;
+          puVar7 = *(undefined **)(puVar7 + 4)) {
+        if (puVar7 == &DAT_0126f5d8) {
+          bVar2 = 1;
+          goto LAB_00e73ba4;
+        }
+      }
+      bVar2 = 0;
+LAB_00e73ba4:
+      piVar10 = (int *)(-(uint)bVar2 & (uint)piVar10);
+    }
+    (**(code **)(*piVar10 + 0x58))(param_1[0xa2]);
+    piVar10 = (int *)(**(code **)(iRam00000000 + 0xcc))();
+    if (piVar10 != (int *)0x0) {
+      for (puVar7 = (undefined *)(**(code **)(*piVar10 + 0xc))(); puVar7 != (undefined *)0x0;
+          puVar7 = *(undefined **)(puVar7 + 4)) {
+        if (puVar7 == &DAT_0126f5ac) {
+          bVar2 = 1;
+          goto LAB_00e73bf0;
+        }
+      }
+      bVar2 = 0;
+LAB_00e73bf0:
+      if ((int *)(-(uint)bVar2 & (uint)piVar10) != (int *)0x0) {
+        (**(code **)(*(int *)(-(uint)bVar2 & (uint)piVar10) + 0x58))(param_1[0xa2]);
+      }
+    }
+    LVar8 = InterlockedDecrement((LONG *)0x4);
+    if (LVar8 == 0) {
+      (**(code **)(iRam00000000 + 4))();
+    }
+  }
+  cVar4 = FUN_00e6ec90();
+  if (cVar4 == '\0') {
+    FUN_00a29680("NiDX9Renderer::Recreate> Could not initialize texture defaults - FAILING\n");
+    return 0;
+  }
+  uVar5 = 0;
+  if (param_1[0x234] != 0) {
+    piVar10 = (int *)param_1[0x235];
+    do {
+      if (*piVar10 != 0) {
+        piVar10 = (int *)((int *)param_1[0x235])[uVar5];
+        goto joined_r0x00e73c87;
+      }
+      uVar5 = uVar5 + 1;
+      piVar10 = piVar10 + 1;
+    } while (uVar5 < (uint)param_1[0x234]);
+  }
+  piVar10 = (int *)0x0;
+joined_r0x00e73c87:
+  while (piVar10 != (int *)0x0) {
+    iVar6 = piVar10[1];
+    piVar10 = (int *)*piVar10;
+    if (piVar10 == (int *)0x0) {
+      iVar9 = (**(code **)(param_1[0x233] + 4))(iVar6);
+      uVar5 = iVar9 + 1;
+      if (uVar5 < (uint)param_1[0x234]) {
+        puVar12 = (undefined4 *)(param_1[0x235] + uVar5 * 4);
+        do {
+          piVar10 = (int *)*puVar12;
+          if (piVar10 != (int *)0x0) goto LAB_00e73cd0;
+          uVar5 = uVar5 + 1;
+          puVar12 = puVar12 + 1;
+        } while (uVar5 < (uint)param_1[0x234]);
+      }
+      piVar10 = (int *)0x0;
+    }
+LAB_00e73cd0:
+    (**(code **)(*param_1 + 0x140))(iVar6,*(undefined4 *)(iVar6 + 0x3c));
+  }
+  uVar5 = 0;
+  if (param_1[0x238] != 0) {
+    piVar10 = (int *)param_1[0x239];
+    do {
+      if (*piVar10 != 0) {
+        piVar10 = (int *)((int *)param_1[0x239])[uVar5];
+        goto joined_r0x00e73d17;
+      }
+      uVar5 = uVar5 + 1;
+      piVar10 = piVar10 + 1;
+    } while (uVar5 < (uint)param_1[0x238]);
+  }
+  piVar10 = (int *)0x0;
+joined_r0x00e73d17:
+  while (piVar10 != (int *)0x0) {
+    iVar6 = piVar10[1];
+    piVar10 = (int *)*piVar10;
+    if (piVar10 == (int *)0x0) {
+      iVar9 = (**(code **)(param_1[0x237] + 4))(iVar6);
+      uVar5 = iVar9 + 1;
+      if (uVar5 < (uint)param_1[0x238]) {
+        puVar12 = (undefined4 *)(param_1[0x239] + uVar5 * 4);
+        do {
+          piVar10 = (int *)*puVar12;
+          if (piVar10 != (int *)0x0) goto LAB_00e73d60;
+          uVar5 = uVar5 + 1;
+          puVar12 = puVar12 + 1;
+        } while (uVar5 < (uint)param_1[0x238]);
+      }
+      piVar10 = (int *)0x0;
+    }
+LAB_00e73d60:
+    (**(code **)(*param_1 + 0x148))(iVar6);
+  }
+  uVar5 = 0;
+  if (param_1[0x23c] != 0) {
+    piVar10 = (int *)param_1[0x23d];
+    do {
+      if (*piVar10 != 0) {
+        piVar10 = (int *)((int *)param_1[0x23d])[uVar5];
+        goto joined_r0x00e73d9c;
+      }
+      uVar5 = uVar5 + 1;
+      piVar10 = piVar10 + 1;
+    } while (uVar5 < (uint)param_1[0x23c]);
+  }
+  piVar10 = (int *)0x0;
+joined_r0x00e73d9c:
+  do {
+    if (piVar10 == (int *)0x0) {
+      FUN_00e7cf00(param_1[0xa2]);
+      puVar12 = (undefined4 *)param_1[0x243];
+      while (puVar12 != (undefined4 *)0x0) {
+        puVar11 = puVar12 + 2;
+        puVar12 = (undefined4 *)*puVar12;
+        (**(code **)(*(int *)*puVar11 + 200))();
+      }
+      (**(code **)(*(int *)param_1[0x22e] + 0x100))();
+      FUN_00e8b170();
+      uVar5 = 0;
+      if (unaff_EBX != 0) {
+        do {
+          pcVar1 = *(code **)(param_1[0x2b6] + uVar5 * 4);
+          if ((pcVar1 != (code *)0x0) &&
+             (cVar4 = (*pcVar1)(0,*(undefined4 *)(param_1[0x2ba] + uVar5 * 4)), cVar4 == '\0')) {
+            FUN_00a29680(
+                        "NiDX9Renderer::Recreate> Reset notification function failed after device reset - FAILING\n"
+                        );
+            return 0;
+          }
+          uVar5 = uVar5 + 1;
+        } while (uVar5 < unaff_EBX);
+      }
+      return 1;
+    }
+    iVar6 = piVar10[1];
+    piVar10 = (int *)*piVar10;
+    if (piVar10 == (int *)0x0) {
+      iVar9 = (**(code **)(param_1[0x23b] + 4))(iVar6);
+      uVar5 = iVar9 + 1;
+      if (uVar5 < (uint)param_1[0x23c]) {
+        puVar12 = (undefined4 *)(param_1[0x23d] + uVar5 * 4);
+        do {
+          piVar10 = (int *)*puVar12;
+          if (piVar10 != (int *)0x0) goto LAB_00e73de0;
+          uVar5 = uVar5 + 1;
+          puVar12 = puVar12 + 1;
+        } while (uVar5 < (uint)param_1[0x23c]);
+      }
+      piVar10 = (int *)0x0;
+    }
+LAB_00e73de0:
+    (**(code **)(*param_1 + 0x14c))(iVar6);
+  } while( true );
+}
+
+
+
+--- Calls FROM A3 renderer device reset and registered callbacks (0x00e736b0) ---
+  0x00e736bf -> 0x00e8be20 FUN_00e8be20
+  0x00e736ca -> 0x00e8f6d0 FUN_00e8f6d0
+  0x00e736d5 -> 0x00e8cd60 FUN_00e8cd60
+  0x00e736e3 -> 0x00e7cc50 FUN_00e7cc50
+  0x00e736f1 -> 0x00e7cc50 FUN_00e7cc50
+  0x00e736ff -> 0x00e7cc50 FUN_00e7cc50
+  0x00e7375e -> 0x00e6e630 FUN_00e6e630
+  0x00e7380a -> 0x00000067 ???
+  0x00e738b6 -> 0x00b57ea0 FUN_00b57ea0
+  0x00e73946 -> 0x00b57ea0 FUN_00b57ea0
+  0x00e739df -> 0x00b57ea0 FUN_00b57ea0
+  0x00e739e8 -> 0x00e7cec0 FUN_00e7cec0
+  0x00e73a9f -> 0x00a29680 FUN_00a29680
+  0x00e73b52 -> 0x00e6e630 FUN_00e6e630
+  0x00e73c0d -> 0x00000067 ???
+  0x00e73c29 -> 0x00e6ec90 FUN_00e6ec90
+  0x00e73c37 -> 0x00a29680 FUN_00a29680
+  0x00e73df8 -> 0x00e7cf00 FUN_00e7cf00
+  0x00e73e3c -> 0x00e8b170 FUN_00e8b170
+  0x00e73e9e -> 0x00a29680 FUN_00a29680
+  Total: 20 calls
+
+----------------------------------------------------------------------
+Entry disassembly: A3 renderer device reset and registered callbacks @ 0x00e736b0
+----------------------------------------------------------------------
+  0x00e736b0: SUB ESP,0x10
+  0x00e736b3: PUSH EBX
+  0x00e736b4: PUSH EBP
+  0x00e736b5: PUSH ESI
+  0x00e736b6: MOV EBX,ECX
+  0x00e736b8: MOV ECX,dword ptr [EBX + 0x8c8]
+  0x00e736be: PUSH EDI
+  0x00e736bf: CALL 0x00e8be20
+  0x00e736c4: MOV ECX,dword ptr [EBX + 0x8c0]
+  0x00e736ca: CALL 0x00e8f6d0
+  0x00e736cf: MOV ECX,dword ptr [EBX + 0x8bc]
+  0x00e736d5: CALL 0x00e8cd60
+
+----------------------------------------------------------------------
+References TO 0x00e736b0 (A3 renderer device reset and registered callbacks)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00e73f00 (in FUN_00e73eb0)
+  UNCONDITIONAL_CALL @ 0x00e73f25 (in FUN_00e73eb0)
+  UNCONDITIONAL_CALL @ 0x00e74c3c (in FUN_00e74c00)
+  Total: 3 refs
+
+======================================================================
+A4 processor-setting lookup before AI join @ 0x0043d4d0
+======================================================================
+  Function: FUN_0043d4d0 @ 0x0043d4d0, Size: 56 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+undefined1 * __fastcall FUN_0043d4d0(int param_1)
+
+{
+  undefined1 *local_10;
+  
+  if (param_1 == 0) {
+    _DAT_01202800 = 0;
+    local_10 = &DAT_01202800;
+  }
+  else {
+    local_10 = (undefined1 *)(param_1 + 4);
+  }
+  return local_10;
+}
+
+
+
+--- Calls FROM A4 processor-setting lookup before AI join (0x0043d4d0) ---
+  Total: 0 calls
+
+----------------------------------------------------------------------
+Entry disassembly: A4 processor-setting lookup before AI join @ 0x0043d4d0
+----------------------------------------------------------------------
+  0x0043d4d0: PUSH EBP
+  0x0043d4d1: MOV EBP,ESP
+  0x0043d4d3: SUB ESP,0xc
+  0x0043d4d6: MOV dword ptr [EBP + -0x8],ECX
+  0x0043d4d9: CMP dword ptr [EBP + -0x8],0x0
+  0x0043d4dd: JZ 0x0043d4ea
+  0x0043d4df: MOV EAX,dword ptr [EBP + -0x8]
+  0x0043d4e2: ADD EAX,0x4
+  0x0043d4e5: MOV dword ptr [EBP + -0xc],EAX
+  0x0043d4e8: JMP 0x0043d4fb
+  0x0043d4ea: MOV dword ptr [0x01202800],0x0
+  0x0043d4f4: MOV dword ptr [EBP + -0xc],0x1202800
+
+----------------------------------------------------------------------
+References TO 0x0043d4d0 (A4 processor-setting lookup before AI join)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0086a95b (in FUN_0086a850)
+  UNCONDITIONAL_CALL @ 0x0086a97c (in FUN_0086a850)
+  UNCONDITIONAL_CALL @ 0x0086a98b (in FUN_0086a850)
+  UNCONDITIONAL_CALL @ 0x0086ac46 (in FUN_0086a850)
+  UNCONDITIONAL_CALL @ 0x0086ac55 (in FUN_0086a850)
+  UNCONDITIONAL_CALL @ 0x0086ad4d (in FUN_0086a850)
+  UNCONDITIONAL_CALL @ 0x0086b11c (in FUN_0086a850)
+  UNCONDITIONAL_CALL @ 0x0086b74a (in FUN_0086a850)
+  UNCONDITIONAL_CALL @ 0x004503fa (in FUN_004503f0)
+  UNCONDITIONAL_CALL @ 0x00458c13 (in FUN_00458be0)
+  UNCONDITIONAL_CALL @ 0x00458c24 (in FUN_00458be0)
+  UNCONDITIONAL_CALL @ 0x00458c60 (in FUN_00458be0)
+  UNCONDITIONAL_CALL @ 0x00458c96 (in FUN_00458be0)
+  UNCONDITIONAL_CALL @ 0x00458cb7 (in FUN_00458be0)
+  UNCONDITIONAL_CALL @ 0x00458cdc (in FUN_00458be0)
+  UNCONDITIONAL_CALL @ 0x00458cf7 (in FUN_00458be0)
+  UNCONDITIONAL_CALL @ 0x00458d0d (in FUN_00458be0)
+  UNCONDITIONAL_CALL @ 0x00603c38 (in FUN_00603be0)
+  UNCONDITIONAL_CALL @ 0x00603d90 (in FUN_00603be0)
+  UNCONDITIONAL_CALL @ 0x006646af (in FUN_00664440)
+  UNCONDITIONAL_CALL @ 0x007177f6 (in FUN_007177c0)
+  UNCONDITIONAL_CALL @ 0x00717807 (in FUN_007177c0)
+  UNCONDITIONAL_CALL @ 0x00717835 (in FUN_00717820)
+  UNCONDITIONAL_CALL @ 0x00717846 (in FUN_00717820)
+  UNCONDITIONAL_CALL @ 0x00718ddc (in FUN_00718db0)
+  UNCONDITIONAL_CALL @ 0x00718e04 (in FUN_00718db0)
+  UNCONDITIONAL_CALL @ 0x0071af87 (in FUN_0071af10)
+  UNCONDITIONAL_CALL @ 0x0071afb8 (in FUN_0071af10)
+  UNCONDITIONAL_CALL @ 0x0071afca (in FUN_0071af10)
+  UNCONDITIONAL_CALL @ 0x0076ca88 (in FUN_0076bfe0)
+  UNCONDITIONAL_CALL @ 0x0071d684 (in FUN_0071d620)
+  UNCONDITIONAL_CALL @ 0x0071d3b8 (in FUN_0071d380)
+  UNCONDITIONAL_CALL @ 0x0071d3d0 (in FUN_0071d380)
+  UNCONDITIONAL_CALL @ 0x0071d42c (in FUN_0071d410)
+  UNCONDITIONAL_CALL @ 0x0071d453 (in FUN_0071d410)
+  UNCONDITIONAL_CALL @ 0x0071d4f4 (in FUN_0071d410)
+  UNCONDITIONAL_CALL @ 0x00430b48 (in FUN_00430b40)
+  UNCONDITIONAL_CALL @ 0x00430b5d (in FUN_00430b40)
+  UNCONDITIONAL_CALL @ 0x00430b75 (in FUN_00430b40)
+  UNCONDITIONAL_CALL @ 0x00430b8d (in FUN_00430b40)
+  UNCONDITIONAL_CALL @ 0x00430ba5 (in FUN_00430b40)
+  ... (truncated)
+  Total: 41 refs
+
+======================================================================
+A5 AI manager lookup before AI join @ 0x00713d80
+======================================================================
+  Function: FUN_00713d80 @ 0x00713d80, Size: 10 bytes
+
+undefined * FUN_00713d80(void)
+
+{
+  return &DAT_011dfa50;
+}
+
+
+
+--- Calls FROM A5 AI manager lookup before AI join (0x00713d80) ---
+  Total: 0 calls
+
+----------------------------------------------------------------------
+Entry disassembly: A5 AI manager lookup before AI join @ 0x00713d80
+----------------------------------------------------------------------
+  0x00713d80: PUSH EBP
+  0x00713d81: MOV EBP,ESP
+  0x00713d83: MOV EAX,0x11dfa50
+  0x00713d88: POP EBP
+  0x00713d89: RET
+  0x00713d90: PUSH EBP
+  0x00713d91: MOV EBP,ESP
+  0x00713d93: MOV AL,[0x011dfa19]
+  0x00713d98: POP EBP
+  0x00713d99: RET
+  0x00713da0: PUSH EBP
+  0x00713da1: MOV EBP,ESP
+
+----------------------------------------------------------------------
+References TO 0x00713d80 (A5 AI manager lookup before AI join)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0086b126 (in FUN_0086a850)
+  UNCONDITIONAL_CALL @ 0x0086b754 (in FUN_0086a850)
+  UNCONDITIONAL_CALL @ 0x00713c88 (in FUN_00713c70)
+  UNCONDITIONAL_CALL @ 0x00713c9d (in FUN_00713c70)
+  UNCONDITIONAL_CALL @ 0x0086ec80 (in FUN_0086e650)
+  UNCONDITIONAL_CALL @ 0x0086ee47 (in FUN_0086e650)
+  UNCONDITIONAL_CALL @ 0x008c7b12 (in FUN_008c7aa0)
+  UNCONDITIONAL_CALL @ 0x008c7b37 (in FUN_008c7aa0)
+  UNCONDITIONAL_CALL @ 0x008c7b4a (in FUN_008c7aa0)
+  UNCONDITIONAL_CALL @ 0x008c7bd7 (in FUN_008c7bd0)
+  UNCONDITIONAL_CALL @ 0x008c7bf2 (in FUN_008c7bd0)
+  UNCONDITIONAL_CALL @ 0x008c7d0c (in FUN_008c7bd0)
+  UNCONDITIONAL_CALL @ 0x008c7d54 (in FUN_008c7bd0)
+  UNCONDITIONAL_CALL @ 0x008c7d64 (in FUN_008c7bd0)
+  UNCONDITIONAL_CALL @ 0x008c7da7 (in FUN_008c7da0)
+  UNCONDITIONAL_CALL @ 0x008c7dc2 (in FUN_008c7da0)
+  UNCONDITIONAL_CALL @ 0x008c7e06 (in FUN_008c7da0)
+  UNCONDITIONAL_CALL @ 0x008c7e21 (in FUN_008c7da0)
+  UNCONDITIONAL_CALL @ 0x008c7e3c (in FUN_008c7da0)
+  UNCONDITIONAL_CALL @ 0x008c7e56 (in FUN_008c7da0)
+  UNCONDITIONAL_CALL @ 0x008c7e78 (in FUN_008c7da0)
+  UNCONDITIONAL_CALL @ 0x008c7e8d (in FUN_008c7da0)
+  UNCONDITIONAL_CALL @ 0x008c7e9d (in FUN_008c7da0)
+  UNCONDITIONAL_CALL @ 0x008c7ead (in FUN_008c7da0)
+  UNCONDITIONAL_CALL @ 0x008c7ec7 (in FUN_008c7da0)
+  UNCONDITIONAL_CALL @ 0x008c7ee3 (in FUN_008c7da0)
+  UNCONDITIONAL_CALL @ 0x008c7ef3 (in FUN_008c7da0)
+  UNCONDITIONAL_CALL @ 0x008c7f08 (in FUN_008c7da0)
+  UNCONDITIONAL_CALL @ 0x008c7f3f (in FUN_008c7da0)
+  UNCONDITIONAL_CALL @ 0x008c7f57 (in FUN_008c7f50)
+  UNCONDITIONAL_CALL @ 0x008c7f67 (in FUN_008c7f50)
+  UNCONDITIONAL_CALL @ 0x008c7f8d (in FUN_008c7f50)
+  UNCONDITIONAL_CALL @ 0x008c7f9d (in FUN_008c7f50)
+  UNCONDITIONAL_CALL @ 0x008c7fad (in FUN_008c7f50)
+  UNCONDITIONAL_CALL @ 0x008c7fd1 (in FUN_008c7f50)
+  UNCONDITIONAL_CALL @ 0x008c7ffd (in FUN_008c7f50)
+  UNCONDITIONAL_CALL @ 0x008c8012 (in FUN_008c7f50)
+  UNCONDITIONAL_CALL @ 0x008c8022 (in FUN_008c7f50)
+  UNCONDITIONAL_CALL @ 0x008c8046 (in FUN_008c7f50)
+  UNCONDITIONAL_CALL @ 0x008c8062 (in FUN_008c7f50)
+  UNCONDITIONAL_CALL @ 0x008c8072 (in FUN_008c7f50)
+  ... (truncated)
+  Total: 41 refs
+
+======================================================================
+B1 post-AI frame work @ 0x0086f6a0
+======================================================================
+  Function: FUN_0086f6a0 @ 0x0086f6a0, Size: 396 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+void __fastcall FUN_0086f6a0(int param_1)
+
+{
+  char cVar1;
+  int *piVar2;
+  undefined4 *puVar3;
+  float10 fVar4;
+  undefined1 local_15;
+  
+  cVar1 = FUN_007050d0();
+  if (cVar1 != '\0') {
+    cVar1 = FUN_00703d50();
+    if (cVar1 == '\0') {
+      cVar1 = FUN_0086f860();
+      if (cVar1 == '\0') {
+        piVar2 = (int *)FUN_007624d0();
+        if (piVar2 != (int *)0x0) {
+          cVar1 = (**(code **)(*piVar2 + 0x100))();
+          if (cVar1 != '\0') {
+            (**(code **)(*piVar2 + 0x404))(0);
+          }
+        }
+      }
+    }
+  }
+  FUN_0096c240(0);
+  piVar2 = (int *)FUN_0043d4d0();
+  if (*piVar2 < 2) {
+    FUN_0096c860();
+  }
+  else {
+    FUN_0096c970();
+  }
+  FUN_0096c710();
+  fVar4 = (float10)FUN_0084d030();
+  FUN_009781d0((float)fVar4);
+  FUN_00705990();
+  cVar1 = FUN_0086f840();
+  if (cVar1 != '\0') {
+    FUN_007fa990();
+  }
+  piVar2 = (int *)FUN_0043d4d0();
+  if (1 < *piVar2) {
+    FUN_0054ae30();
+    FUN_004537b0();
+    FUN_0087a6d0();
+    FUN_004537b0();
+    FUN_0087a790();
+    FUN_00552570();
+    FUN_0086f830(_DAT_011c3c08);
+    FUN_004537b0();
+    FUN_0087a6b0();
+  }
+  puVar3 = (undefined4 *)FUN_0043d4d0();
+  FUN_007034c0(*puVar3);
+  FUN_00703490();
+  if (((DAT_011dea2b == '\0') && (DAT_011dea2d == '\0')) && (*(char *)(param_1 + 7) == '\0')) {
+    local_15 = 0;
+  }
+  else {
+    local_15 = 1;
+  }
+  FUN_00991600(local_15);
+  return;
+}
+
+
+
+--- Calls FROM B1 post-AI frame work (0x0086f6a0) ---
+  0x0086f6a9 -> 0x007050d0 FUN_007050d0
+  0x0086f6b5 -> 0x00703d50 FUN_00703d50
+  0x0086f6c1 -> 0x0086f860 FUN_0086f860
+  0x0086f6cd -> 0x007624d0 FUN_007624d0
+  0x0086f719 -> 0x0096c240 FUN_0096c240
+  0x0086f723 -> 0x0043d4d0 FUN_0043d4d0
+  0x0086f732 -> 0x0096c970 FUN_0096c970
+  0x0086f73e -> 0x0096c860 FUN_0096c860
+  0x0086f748 -> 0x0096c710 FUN_0096c710
+  0x0086f752 -> 0x0084d030 FUN_0084d030
+  0x0086f760 -> 0x009781d0 FUN_009781d0
+  0x0086f765 -> 0x00705990 FUN_00705990
+  0x0086f770 -> 0x0086f840 FUN_0086f840
+  0x0086f77f -> 0x007fa990 FUN_007fa990
+  0x0086f789 -> 0x0043d4d0 FUN_0043d4d0
+  0x0086f793 -> 0x0054ae30 FUN_0054ae30
+  0x0086f798 -> 0x004537b0 FUN_004537b0
+  0x0086f79f -> 0x0087a6d0 FUN_0087a6d0
+  0x0086f7a4 -> 0x004537b0 FUN_004537b0
+  0x0086f7ab -> 0x0087a790 FUN_0087a790
+  0x0086f7b0 -> 0x00552570 FUN_00552570
+  0x0086f7bf -> 0x0086f830 FUN_0086f830
+  0x0086f7c7 -> 0x004537b0 FUN_004537b0
+  0x0086f7ce -> 0x0087a6b0 FUN_0087a6b0
+  0x0086f7d8 -> 0x0043d4d0 FUN_0043d4d0
+  0x0086f7e0 -> 0x007034c0 FUN_007034c0
+  0x0086f7e8 -> 0x00703490 FUN_00703490
+  0x0086f823 -> 0x00991600 FUN_00991600
+  Total: 28 calls
+
+----------------------------------------------------------------------
+Entry disassembly: B1 post-AI frame work @ 0x0086f6a0
+----------------------------------------------------------------------
+  0x0086f6a0: PUSH EBP
+  0x0086f6a1: MOV EBP,ESP
+  0x0086f6a3: SUB ESP,0x14
+  0x0086f6a6: MOV dword ptr [EBP + -0x10],ECX
+  0x0086f6a9: CALL 0x007050d0
+  0x0086f6ae: MOVZX EAX,AL
+  0x0086f6b1: TEST EAX,EAX
+  0x0086f6b3: JZ 0x0086f70e
+  0x0086f6b5: CALL 0x00703d50
+  0x0086f6ba: MOVZX ECX,AL
+  0x0086f6bd: TEST ECX,ECX
+  0x0086f6bf: JNZ 0x0086f70e
+
+----------------------------------------------------------------------
+References TO 0x0086f6a0 (B1 post-AI frame work)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0086ee62 (in FUN_0086e650)
+  UNCONDITIONAL_CALL @ 0x00850d74 (in FUN_00850d60)
+  Total: 2 refs
+
+======================================================================
+B2 post-AI synchronization entry @ 0x0096c240
+======================================================================
+  Function: FUN_0096c240 @ 0x0096c240, Size: 233 bytes
+
+void FUN_0096c240(void)
+
+{
+  char cVar1;
+  uint uVar2;
+  int *piVar3;
+  undefined4 extraout_var;
+  undefined4 uVar4;
+  uint local_c;
+  
+  local_c = FUN_005de0f0(0);
+  uVar4 = extraout_var;
+  while( true ) {
+    uVar2 = FUN_005be5c0(0);
+    if (uVar2 <= local_c) break;
+    piVar3 = (int *)FUN_00968670(local_c);
+    if (piVar3 != (int *)0x0) {
+      cVar1 = FUN_00576d30(uVar4);
+      if (cVar1 == '\0') {
+        cVar1 = FUN_00440d80();
+        if (cVar1 == '\0') {
+          cVar1 = FUN_00440da0();
+          if (cVar1 == '\0') {
+            cVar1 = (**(code **)(*piVar3 + 0x224))();
+            if (cVar1 == '\0') {
+              cVar1 = (**(code **)(*piVar3 + 0x220))();
+              if (cVar1 != '\0') {
+                FUN_009ae6e0(uVar4,piVar3);
+              }
+            }
+            else {
+              (**(code **)(*piVar3 + 0x314))();
+            }
+          }
+        }
+      }
+    }
+    local_c = local_c + 1;
+  }
+  return;
+}
+
+
+
+--- Calls FROM B2 post-AI synchronization entry (0x0096c240) ---
+  0x0096c258 -> 0x005de0f0 FUN_005de0f0
+  0x0096c273 -> 0x005be5c0 FUN_005be5c0
+  0x0096c28b -> 0x00968670 FUN_00968670
+  0x0096c2a0 -> 0x00576d30 FUN_00576d30
+  0x0096c2af -> 0x00440d80 FUN_00440d80
+  0x0096c2be -> 0x00440da0 FUN_00440da0
+  0x0096c319 -> 0x009ae6e0 FUN_009ae6e0
+  Total: 7 calls
+
+----------------------------------------------------------------------
+Entry disassembly: B2 post-AI synchronization entry @ 0x0096c240
+----------------------------------------------------------------------
+  0x0096c240: PUSH EBP
+  0x0096c241: MOV EBP,ESP
+  0x0096c243: SUB ESP,0x14
+  0x0096c246: MOV dword ptr [EBP + -0x14],ECX
+  0x0096c249: MOV dword ptr [EBP + -0x4],0x0
+  0x0096c250: PUSH 0x0
+  0x0096c252: MOV ECX,dword ptr [EBP + -0x14]
+  0x0096c255: ADD ECX,0x4
+  0x0096c258: CALL 0x005de0f0
+  0x0096c25d: MOV dword ptr [EBP + -0x8],EAX
+  0x0096c260: JMP 0x0096c26b
+  0x0096c262: MOV EAX,dword ptr [EBP + -0x8]
+
+----------------------------------------------------------------------
+References TO 0x0096c240 (B2 post-AI synchronization entry)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0086f719 (in FUN_0086f6a0)
+  Total: 1 refs
+
+======================================================================
+B3 threaded post-AI synchronization branch @ 0x0096c970
+======================================================================
+  Function: FUN_0096c970 @ 0x0096c970, Size: 424 bytes
+
+void FUN_0096c970(void)
+
+{
+  char cVar1;
+  uint uVar2;
+  char *pcVar3;
+  undefined4 uVar4;
+  int iVar5;
+  int *unaff_FS_OFFSET;
+  undefined4 uVar6;
+  undefined4 extraout_var;
+  undefined1 local_54 [19];
+  char local_41;
+  int local_40;
+  int *local_3c;
+  uint local_38;
+  undefined1 local_34 [20];
+  uint local_20;
+  char local_19;
+  uint local_18;
+  int local_14;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00f18988;
+  local_10 = *unaff_FS_OFFSET;
+  uVar2 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  local_20 = FUN_005de0f0(0);
+  uVar4 = extraout_var;
+  local_18 = FUN_005be5c0(1);
+  local_14 = local_18 - local_20;
+  pcVar3 = (char *)FUN_00408d60(uVar2,uVar4);
+  local_19 = *pcVar3;
+  if (local_14 != 0) {
+    FUN_009789e0();
+    local_8 = 0;
+    for (local_38 = local_20; local_38 < local_18; local_38 = local_38 + 1) {
+      local_3c = (int *)FUN_00968670(local_38);
+      if (local_3c != (int *)0x0) {
+        cVar1 = (**(code **)(*local_3c + 0x100))();
+        if (cVar1 != '\0') {
+          local_40 = (**(code **)(*local_3c + 0x1e4))();
+          if (local_40 != 0) {
+            local_41 = '\x01';
+            if (local_19 == '\0') {
+              local_41 = FUN_00493930();
+            }
+            else {
+              FUN_007cb2e0(&local_40);
+            }
+            cVar1 = FUN_0096c950();
+            if ((cVar1 != '\0') && (local_41 != '\0')) {
+              uVar6 = 0;
+              uVar4 = (**(code **)(*local_3c + 0x1d0))(0);
+              FUN_00450b80(0,uVar4);
+              FUN_00b5d9f0(uVar4,uVar6);
+              FUN_00496960(0);
+            }
+          }
+        }
+      }
+    }
+    iVar5 = FUN_0044ddc0();
+    if (iVar5 != 0) {
+      uVar4 = FUN_0044ddc0();
+      FUN_0087cf10(FUN_0096cb20,local_34,uVar4);
+      FUN_00c44c90(local_54);
+    }
+    local_8 = 0xffffffff;
+    FUN_00978a80();
+  }
+  *unaff_FS_OFFSET = local_10;
+  return;
+}
+
+
+
+--- Calls FROM B3 threaded post-AI synchronization branch (0x0096c970) ---
+  0x0096c9a0 -> 0x005de0f0 FUN_005de0f0
+  0x0096c9b0 -> 0x005be5c0 FUN_005be5c0
+  0x0096c9c6 -> 0x00408d60 FUN_00408d60
+  0x0096c9dd -> 0x009789e0 FUN_009789e0
+  0x0096ca10 -> 0x00968670 FUN_00968670
+  0x0096ca69 -> 0x007cb2e0 FUN_007cb2e0
+  0x0096ca73 -> 0x00493930 FUN_00493930
+  0x0096ca7e -> 0x0096c950 FUN_0096c950
+  0x0096caa7 -> 0x00450b80 FUN_00450b80
+  0x0096cab1 -> 0x00b5d9f0 FUN_00b5d9f0
+  0x0096cabb -> 0x00496960 FUN_00496960
+  0x0096cac8 -> 0x0044ddc0 FUN_0044ddc0
+  0x0096cad4 -> 0x0044ddc0 FUN_0044ddc0
+  0x0096cae6 -> 0x0087cf10 FUN_0087cf10
+  0x0096caf5 -> 0x00c44c90 FUN_00c44c90
+  0x0096cb04 -> 0x00978a80 FUN_00978a80
+  Total: 16 calls
+
+----------------------------------------------------------------------
+Entry disassembly: B3 threaded post-AI synchronization branch @ 0x0096c970
+----------------------------------------------------------------------
+  0x0096c970: PUSH EBP
+  0x0096c971: MOV EBP,ESP
+  0x0096c973: PUSH -0x1
+  0x0096c975: PUSH 0xf18988
+  0x0096c97a: MOV EAX,FS:[0x0]
+  0x0096c980: PUSH EAX
+  0x0096c981: SUB ESP,0x48
+  0x0096c984: MOV EAX,[0x011c16bc]
+  0x0096c989: XOR EAX,EBP
+  0x0096c98b: PUSH EAX
+  0x0096c98c: LEA EAX,[EBP + -0xc]
+  0x0096c98f: MOV FS:[0x0],EAX
+
+----------------------------------------------------------------------
+References TO 0x0096c970 (B3 threaded post-AI synchronization branch)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0086f732 (in FUN_0086f6a0)
+  Total: 1 refs
+
+======================================================================
+B4 single-thread post-AI synchronization branch @ 0x0096c860
+======================================================================
+  Function: FUN_0096c860 @ 0x0096c860, Size: 227 bytes
+
+void FUN_0096c860(void)
+
+{
+  char cVar1;
+  uint uVar2;
+  int *piVar3;
+  int iVar4;
+  undefined4 uVar5;
+  undefined4 uVar6;
+  undefined4 extraout_var;
+  undefined4 uVar7;
+  char local_11;
+  uint local_8;
+  
+  local_8 = FUN_005de0f0(0);
+  uVar7 = extraout_var;
+  while( true ) {
+    uVar2 = FUN_005be5c0(1);
+    if (uVar2 <= local_8) break;
+    piVar3 = (int *)FUN_00968670(local_8);
+    if (piVar3 != (int *)0x0) {
+      cVar1 = (**(code **)(*piVar3 + 0x100))(uVar7);
+      if (cVar1 != '\0') {
+        iVar4 = (**(code **)(*piVar3 + 0x1e4))();
+        local_11 = '\0';
+        if (iVar4 != 0) {
+          local_11 = FUN_00493930();
+        }
+        cVar1 = FUN_0096c950();
+        if ((cVar1 != '\0') && (local_11 != '\0')) {
+          uVar6 = 0;
+          uVar5 = (**(code **)(*piVar3 + 0x1d0))(0);
+          FUN_00450b80(0,uVar5);
+          FUN_00b5d9f0(uVar5,uVar6);
+          FUN_00496960(0);
+        }
+      }
+    }
+    local_8 = local_8 + 1;
+  }
+  return;
+}
+
+
+
+--- Calls FROM B4 single-thread post-AI synchronization branch (0x0096c860) ---
+  0x0096c871 -> 0x005de0f0 FUN_005de0f0
+  0x0096c88c -> 0x005be5c0 FUN_005be5c0
+  0x0096c8a4 -> 0x00968670 FUN_00968670
+  0x0096c8ed -> 0x00493930 FUN_00493930
+  0x0096c8f8 -> 0x0096c950 FUN_0096c950
+  0x0096c921 -> 0x00450b80 FUN_00450b80
+  0x0096c92b -> 0x00b5d9f0 FUN_00b5d9f0
+  0x0096c935 -> 0x00496960 FUN_00496960
+  Total: 8 calls
+
+----------------------------------------------------------------------
+Entry disassembly: B4 single-thread post-AI synchronization branch @ 0x0096c860
+----------------------------------------------------------------------
+  0x0096c860: PUSH EBP
+  0x0096c861: MOV EBP,ESP
+  0x0096c863: SUB ESP,0x14
+  0x0096c866: MOV dword ptr [EBP + -0x14],ECX
+  0x0096c869: PUSH 0x0
+  0x0096c86b: MOV ECX,dword ptr [EBP + -0x14]
+  0x0096c86e: ADD ECX,0x4
+  0x0096c871: CALL 0x005de0f0
+  0x0096c876: MOV dword ptr [EBP + -0x4],EAX
+  0x0096c879: JMP 0x0096c884
+  0x0096c87b: MOV EAX,dword ptr [EBP + -0x4]
+  0x0096c87e: ADD EAX,0x1
+
+----------------------------------------------------------------------
+References TO 0x0096c860 (B4 single-thread post-AI synchronization branch)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0086f73e (in FUN_0086f6a0)
+  Total: 1 refs
+
+======================================================================
+B5 post-AI synchronization exit @ 0x0096c710
+======================================================================
+  Function: FUN_0096c710 @ 0x0096c710, Size: 165 bytes
+
+void __fastcall FUN_0096c710(undefined4 param_1)
+
+{
+  char cVar1;
+  int iVar2;
+  uint uVar3;
+  int *piVar4;
+  undefined4 uVar5;
+  uint local_8;
+  
+  iVar2 = FUN_008d8520(param_1);
+  if (iVar2 != 0) {
+    uVar5 = DAT_011dea3c;
+    FUN_008d8520(DAT_011dea3c);
+    FUN_008f63e0(uVar5);
+  }
+  local_8 = FUN_005de0f0(0);
+  while( true ) {
+    uVar3 = FUN_005be5c0(0);
+    if (uVar3 <= local_8) break;
+    piVar4 = (int *)FUN_00968670(local_8);
+    if (piVar4 != (int *)0x0) {
+      cVar1 = (**(code **)(*piVar4 + 0x100))();
+      if (cVar1 != '\0') {
+        FUN_008d8520(piVar4);
+        FUN_008f63e0(piVar4);
+      }
+    }
+    local_8 = local_8 + 1;
+  }
+  return;
+}
+
+
+
+--- Calls FROM B5 post-AI synchronization exit (0x0096c710) ---
+  0x0096c71f -> 0x008d8520 FUN_008d8520
+  0x0096c734 -> 0x008d8520 FUN_008d8520
+  0x0096c73b -> 0x008f63e0 FUN_008f63e0
+  0x0096c748 -> 0x005de0f0 FUN_005de0f0
+  0x0096c763 -> 0x005be5c0 FUN_005be5c0
+  0x0096c777 -> 0x00968670 FUN_00968670
+  0x0096c7a3 -> 0x008d8520 FUN_008d8520
+  0x0096c7aa -> 0x008f63e0 FUN_008f63e0
+  Total: 8 calls
+
+----------------------------------------------------------------------
+Entry disassembly: B5 post-AI synchronization exit @ 0x0096c710
+----------------------------------------------------------------------
+  0x0096c710: PUSH EBP
+  0x0096c711: MOV EBP,ESP
+  0x0096c713: SUB ESP,0xc
+  0x0096c716: MOV dword ptr [EBP + -0xc],ECX
+  0x0096c719: MOV ECX,dword ptr [0x011dea3c]
+  0x0096c71f: CALL 0x008d8520
+  0x0096c724: TEST EAX,EAX
+  0x0096c726: JZ 0x0096c740
+  0x0096c728: MOV EAX,[0x011dea3c]
+  0x0096c72d: PUSH EAX
+  0x0096c72e: MOV ECX,dword ptr [0x011dea3c]
+  0x0096c734: CALL 0x008d8520
+
+----------------------------------------------------------------------
+References TO 0x0096c710 (B5 post-AI synchronization exit)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0086f748 (in FUN_0086f6a0)
+  Total: 1 refs
+
+======================================================================
+B6 post-AI timed update @ 0x009781d0
+======================================================================
+  Function: FUN_009781d0 @ 0x009781d0, Size: 554 bytes
+
+void FUN_009781d0(undefined4 param_1)
+
+{
+  char cVar1;
+  undefined1 uVar2;
+  uint uVar3;
+  int *piVar4;
+  undefined4 uVar5;
+  undefined4 uVar6;
+  int iVar7;
+  undefined1 local_1c [4];
+  int *local_18;
+  int *local_14;
+  uint local_10;
+  int *local_c;
+  int *local_8;
+  
+  local_8 = (int *)0x0;
+  local_c = (int *)0x0;
+  local_10 = 0;
+  while (uVar3 = FUN_005be5c0(0), local_10 < uVar3) {
+    local_c = (int *)FUN_00968670(local_10);
+    local_8 = (int *)0x0;
+    if (((local_c == (int *)0x0) || (cVar1 = (**(code **)(*local_c + 0x100))(), cVar1 == '\0')) ||
+       (cVar1 = FUN_00576d30(), cVar1 != '\0')) {
+      if ((local_c != (int *)0x0) && (cVar1 = (**(code **)(*local_c + 0x220))(), cVar1 != '\0')) {
+        local_18 = local_c;
+        FUN_009b17a0(param_1);
+      }
+    }
+    else {
+      local_8 = local_c;
+      FUN_008ba600();
+      piVar4 = (int *)FUN_008d8520();
+      (**(code **)(*piVar4 + 0x104))();
+      cVar1 = FUN_00978400();
+      if (cVar1 != '\0') {
+        FUN_00931ed0(local_1c);
+        uVar5 = FUN_004a3a20();
+        uVar6 = (**(code **)(*local_8 + 0x1d0))(uVar5);
+        FUN_00ca2ad0(uVar6,uVar5);
+      }
+      FUN_00ca1410();
+      cVar1 = (**(code **)(*local_8 + 0x22c))(0);
+      if (cVar1 == '\0') {
+        FUN_0062c430(local_8);
+      }
+      uVar2 = FUN_0094df60();
+      (**(code **)(*local_8 + 0x34c))(param_1,uVar2);
+      local_14 = (int *)FUN_008d8520();
+      if (local_14 != (int *)0x0) {
+        (**(code **)(*local_14 + 0x500))(local_8,0);
+        (**(code **)(*local_14 + 0x170))(local_8);
+        (**(code **)(*local_14 + 0x1d8))(local_8);
+      }
+    }
+    local_10 = local_10 + 1;
+  }
+  FUN_00978890(param_1);
+  iVar7 = FUN_008d8520();
+  if (iVar7 != 0) {
+    piVar4 = (int *)FUN_008d8520();
+    (**(code **)(*piVar4 + 0x170))(DAT_011dea3c);
+  }
+  return;
+}
+
+
+
+--- Calls FROM B6 post-AI timed update (0x009781d0) ---
+  0x00978201 -> 0x005be5c0 FUN_005be5c0
+  0x00978219 -> 0x00968670 FUN_00968670
+  0x00978250 -> 0x00576d30 FUN_00576d30
+  0x00978269 -> 0x008ba600 FUN_008ba600
+  0x00978271 -> 0x008d8520 FUN_008d8520
+  0x00978292 -> 0x00978400 FUN_00978400
+  0x009782a5 -> 0x00931ed0 FUN_00931ed0
+  0x009782ac -> 0x004a3a20 FUN_004a3a20
+  0x009782cc -> 0x00ca2ad0 FUN_00ca2ad0
+  0x009782da -> 0x00ca1410 FUN_00ca1410
+  0x009782fc -> 0x0062c430 FUN_0062c430
+  0x0097830a -> 0x0094df60 FUN_0094df60
+  0x0097832d -> 0x008d8520 FUN_008d8520
+  0x009783a8 -> 0x009b17a0 FUN_009b17a0
+  0x009783bc -> 0x00978890 FUN_00978890
+  0x009783c7 -> 0x008d8520 FUN_008d8520
+  0x009783d6 -> 0x008d8520 FUN_008d8520
+  Total: 17 calls
+
+----------------------------------------------------------------------
+Entry disassembly: B6 post-AI timed update @ 0x009781d0
+----------------------------------------------------------------------
+  0x009781d0: PUSH EBP
+  0x009781d1: MOV EBP,ESP
+  0x009781d3: SUB ESP,0x24
+  0x009781d6: MOV dword ptr [EBP + -0x1c],ECX
+  0x009781d9: MOV dword ptr [EBP + -0x4],0x0
+  0x009781e0: MOV dword ptr [EBP + -0x8],0x0
+  0x009781e7: MOV dword ptr [EBP + -0xc],0x0
+  0x009781ee: JMP 0x009781f9
+  0x009781f0: MOV EAX,dword ptr [EBP + -0xc]
+  0x009781f3: ADD EAX,0x1
+  0x009781f6: MOV dword ptr [EBP + -0xc],EAX
+  0x009781f9: PUSH 0x0
+
+----------------------------------------------------------------------
+References TO 0x009781d0 (B6 post-AI timed update)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0086f760 (in FUN_0086f6a0)
+  Total: 1 refs
+
+======================================================================
+B7 threaded post-AI pre-queue step @ 0x0054ae30
+======================================================================
+  Function: FUN_0054ae30 @ 0x0054ae30, Size: 258 bytes
+
+void FUN_0054ae30(void)
+
+{
+  uint uVar1;
+  int iVar2;
+  int iVar3;
+  undefined4 uVar4;
+  int *unaff_FS_OFFSET;
+  undefined1 local_24 [12];
+  undefined4 local_18;
+  int local_14;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00ef6378;
+  local_10 = *unaff_FS_OFFSET;
+  uVar1 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  local_14 = FUN_004b9ba0(uVar1);
+  while (local_14 != 0) {
+    local_18 = 0;
+    FUN_0054acf0();
+    local_8 = 0;
+    FUN_005593a0(&local_14,&local_18,local_24);
+    iVar2 = FUN_00559450();
+    if (iVar2 != 0) {
+      FUN_00559450();
+      iVar2 = FUN_009611e0();
+      iVar3 = FUN_00559450();
+      if (iVar2 != iVar3) {
+        uVar4 = FUN_00559450();
+        iVar2 = FUN_0056f930(uVar4);
+        if (iVar2 != 0) {
+          iVar3 = FUN_008d6f30();
+          if (iVar3 != 0) {
+            uVar4 = FUN_00559450();
+            FUN_008d6f30(iVar2,uVar4);
+            FUN_005496b0(iVar2,uVar4);
+          }
+        }
+      }
+    }
+    local_8 = 0xffffffff;
+    FID_conflict___CancellationTokenCallback<<lambda_61f7764e5b8087545c74b0c2f4f68b12>_>();
+  }
+  FUN_00438af0();
+  *unaff_FS_OFFSET = local_10;
+  return;
+}
+
+
+
+--- Calls FROM B7 threaded post-AI pre-queue step (0x0054ae30) ---
+  0x0054ae5b -> 0x004b9ba0 FUN_004b9ba0
+  0x0054ae77 -> 0x0054acf0 FUN_0054acf0
+  0x0054ae94 -> 0x005593a0 FUN_005593a0
+  0x0054ae9c -> 0x00559450 FUN_00559450
+  0x0054aea8 -> 0x00559450 FUN_00559450
+  0x0054aeaf -> 0x009611e0 FUN_009611e0
+  0x0054aeb9 -> 0x00559450 FUN_00559450
+  0x0054aec5 -> 0x00559450 FUN_00559450
+  0x0054aecb -> 0x0056f930 FUN_0056f930
+  0x0054aedf -> 0x008d6f30 FUN_008d6f30
+  0x0054aeeb -> 0x00559450 FUN_00559450
+  0x0054aef8 -> 0x008d6f30 FUN_008d6f30
+  0x0054aeff -> 0x005496b0 FUN_005496b0
+  0x0054af0e -> 0x006208d0 FID_conflict:~_CancellationTokenCallback<<lambda_61f7764e5b8087545c74b0c2f4f68b12>_>
+  0x0054af1d -> 0x00438af0 FUN_00438af0
+  Total: 15 calls
+
+----------------------------------------------------------------------
+Entry disassembly: B7 threaded post-AI pre-queue step @ 0x0054ae30
+----------------------------------------------------------------------
+  0x0054ae30: PUSH EBP
+  0x0054ae31: MOV EBP,ESP
+  0x0054ae33: PUSH -0x1
+  0x0054ae35: PUSH 0xef6378
+  0x0054ae3a: MOV EAX,FS:[0x0]
+  0x0054ae40: PUSH EAX
+  0x0054ae41: SUB ESP,0x18
+  0x0054ae44: PUSH ESI
+  0x0054ae45: MOV EAX,[0x011c16bc]
+  0x0054ae4a: XOR EAX,EBP
+  0x0054ae4c: PUSH EAX
+  0x0054ae4d: LEA EAX,[EBP + -0xc]
+
+----------------------------------------------------------------------
+References TO 0x0054ae30 (B7 threaded post-AI pre-queue step)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0086f793 (in FUN_0086f6a0)
+  Total: 1 refs
+
+======================================================================
+B8 threaded queue step A @ 0x0087a6d0
+======================================================================
+  Function: FUN_0087a6d0 @ 0x0087a6d0, Size: 21 bytes
+
+void __fastcall FUN_0087a6d0(undefined4 param_1)
+
+{
+  FUN_0086cdd0(param_1);
+  return;
+}
+
+
+
+--- Calls FROM B8 threaded queue step A (0x0087a6d0) ---
+  0x0087a6dc -> 0x0086cdd0 FUN_0086cdd0
+  Total: 1 calls
+
+----------------------------------------------------------------------
+Entry disassembly: B8 threaded queue step A @ 0x0087a6d0
+----------------------------------------------------------------------
+  0x0087a6d0: PUSH EBP
+  0x0087a6d1: MOV EBP,ESP
+  0x0087a6d3: PUSH ECX
+  0x0087a6d4: MOV dword ptr [EBP + -0x4],ECX
+  0x0087a6d7: MOV EAX,dword ptr [EBP + -0x4]
+  0x0087a6da: MOV ECX,dword ptr [EAX]
+  0x0087a6dc: CALL 0x0086cdd0
+  0x0087a6e1: MOV ESP,EBP
+  0x0087a6e3: POP EBP
+  0x0087a6e4: RET
+  0x0087a6f0: PUSH EBP
+  0x0087a6f1: MOV EBP,ESP
+
+----------------------------------------------------------------------
+References TO 0x0087a6d0 (B8 threaded queue step A)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0086f79f (in FUN_0086f6a0)
+  UNCONDITIONAL_CALL @ 0x008c7d41 (in FUN_008c7bd0)
+  UNCONDITIONAL_CALL @ 0x008c7eda (in FUN_008c7da0)
+  UNCONDITIONAL_CALL @ 0x008c8059 (in FUN_008c7f50)
+  Total: 4 refs
+
+======================================================================
+B9 threaded queue step B @ 0x0087a790
+======================================================================
+  Function: FUN_0087a790 @ 0x0087a790, Size: 54 bytes
+
+void __fastcall FUN_0087a790(int param_1)
+
+{
+  undefined4 uVar1;
+  
+  *(undefined4 *)(param_1 + 8) = *(undefined4 *)(param_1 + 4);
+  uVar1 = FUN_0040fc90();
+  *(undefined4 *)(param_1 + 0xc) = uVar1;
+  FUN_0087a7d0();
+  *(undefined4 *)(param_1 + 0xc) = 0;
+  return;
+}
+
+
+
+--- Calls FROM B9 threaded queue step B (0x0087a790) ---
+  0x0087a7a3 -> 0x0040fc90 FUN_0040fc90
+  0x0087a7b3 -> 0x0087a7d0 FUN_0087a7d0
+  Total: 2 calls
+
+----------------------------------------------------------------------
+Entry disassembly: B9 threaded queue step B @ 0x0087a790
+----------------------------------------------------------------------
+  0x0087a790: PUSH EBP
+  0x0087a791: MOV EBP,ESP
+  0x0087a793: PUSH ECX
+  0x0087a794: MOV dword ptr [EBP + -0x4],ECX
+  0x0087a797: MOV EAX,dword ptr [EBP + -0x4]
+  0x0087a79a: MOV ECX,dword ptr [EBP + -0x4]
+  0x0087a79d: MOV EDX,dword ptr [ECX + 0x4]
+  0x0087a7a0: MOV dword ptr [EAX + 0x8],EDX
+  0x0087a7a3: CALL 0x0040fc90
+  0x0087a7a8: MOV ECX,dword ptr [EBP + -0x4]
+  0x0087a7ab: MOV dword ptr [ECX + 0xc],EAX
+  0x0087a7ae: MOV EDX,dword ptr [EBP + -0x4]
+
+----------------------------------------------------------------------
+References TO 0x0087a790 (B9 threaded queue step B)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0086f7ab (in FUN_0086f6a0)
+  Total: 1 refs
+
+======================================================================
+B10 deferred deletion queue drain @ 0x00552570
+======================================================================
+  Function: FUN_00552570 @ 0x00552570, Size: 312 bytes
+
+void FUN_00552570(void)
+
+{
+  char cVar1;
+  uint uVar2;
+  undefined4 uVar3;
+  int iVar4;
+  int *piVar5;
+  int iVar6;
+  int *unaff_FS_OFFSET;
+  undefined4 uVar7;
+  cancellation_token_source local_14 [4];
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00f03808;
+  local_10 = *unaff_FS_OFFSET;
+  uVar2 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  FUN_0040fbf0(0);
+  while( true ) {
+    cVar1 = FUN_004a4460(uVar2);
+    if (cVar1 != '\0') break;
+    uVar3 = FUN_006815c0();
+    FUN_00559a40(uVar3);
+    local_8 = 0;
+    FUN_004ee8a0();
+    uVar3 = FUN_00559450();
+    FUN_005526f0(uVar3);
+    iVar4 = FUN_00559450();
+    if (iVar4 != 0) {
+      piVar5 = (int *)FUN_00559450();
+      iVar4 = (**(code **)(*piVar5 + 0x10))();
+      if (iVar4 != 0) {
+        FUN_00559450();
+        cVar1 = FUN_005526b0();
+        if (cVar1 != '\0') {
+          uVar3 = FUN_00559450();
+          iVar4 = FUN_0056f930(uVar3);
+          if (iVar4 != 0) {
+            iVar6 = FUN_008d6f30();
+            if (iVar6 != 0) {
+              uVar7 = 0;
+              uVar3 = 1;
+              FUN_008d6f30(iVar4,1,0);
+              FUN_0054a070(iVar4,uVar3,uVar7);
+              uVar3 = 0;
+              FUN_00559450(0);
+              FUN_005526d0(uVar3);
+            }
+          }
+        }
+      }
+    }
+    local_8 = 0xffffffff;
+    Concurrency::cancellation_token_source::~cancellation_token_source(local_14);
+  }
+  FUN_0040fba0();
+  *unaff_FS_OFFSET = local_10;
+  return;
+}
+
+
+
+--- Calls FROM B10 deferred deletion queue drain (0x00552570) ---
+  0x0055259c -> 0x0040fbf0 FUN_0040fbf0
+  0x005525a6 -> 0x004a4460 FUN_004a4460
+  0x005525bb -> 0x006815c0 FUN_006815c0
+  0x005525c4 -> 0x00559a40 FUN_00559a40
+  0x005525d5 -> 0x004ee8a0 FUN_004ee8a0
+  0x005525dd -> 0x00559450 FUN_00559450
+  0x005525e3 -> 0x005526f0 FUN_005526f0
+  0x005525ee -> 0x00559450 FUN_00559450
+  0x005525fe -> 0x00559450 FUN_00559450
+  0x0055261a -> 0x00559450 FUN_00559450
+  0x00552621 -> 0x005526b0 FUN_005526b0
+  0x00552630 -> 0x00559450 FUN_00559450
+  0x00552636 -> 0x0056f930 FUN_0056f930
+  0x0055264a -> 0x008d6f30 FUN_008d6f30
+  0x0055265e -> 0x008d6f30 FUN_008d6f30
+  0x00552665 -> 0x0054a070 FUN_0054a070
+  0x0055266f -> 0x00559450 FUN_00559450
+  0x00552676 -> 0x005526d0 FUN_005526d0
+  0x00552685 -> 0x0045cec0 ~cancellation_token_source
+  0x00552694 -> 0x0040fba0 FUN_0040fba0
+  Total: 20 calls
+
+----------------------------------------------------------------------
+Entry disassembly: B10 deferred deletion queue drain @ 0x00552570
+----------------------------------------------------------------------
+  0x00552570: PUSH EBP
+  0x00552571: MOV EBP,ESP
+  0x00552573: PUSH -0x1
+  0x00552575: PUSH 0xf03808
+  0x0055257a: MOV EAX,FS:[0x0]
+  0x00552580: PUSH EAX
+  0x00552581: SUB ESP,0xc
+  0x00552584: MOV EAX,[0x011c16bc]
+  0x00552589: XOR EAX,EBP
+  0x0055258b: PUSH EAX
+  0x0055258c: LEA EAX,[EBP + -0xc]
+  0x0055258f: MOV FS:[0x0],EAX
+
+----------------------------------------------------------------------
+References TO 0x00552570 (B10 deferred deletion queue drain)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0086f7b0 (in FUN_0086f6a0)
+  UNCONDITIONAL_CALL @ 0x008705f6 (in FUN_008705d0)
+  Total: 2 refs
+
+======================================================================
+B11 threaded post-queue update @ 0x0086f830
+======================================================================
+  Function: FUN_0086f830 @ 0x0086f830, Size: 14 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+void FUN_0086f830(undefined4 param_1)
+
+{
+  _DAT_011c40ec = param_1;
+  return;
+}
+
+
+
+--- Calls FROM B11 threaded post-queue update (0x0086f830) ---
+  Total: 0 calls
+
+----------------------------------------------------------------------
+Entry disassembly: B11 threaded post-queue update @ 0x0086f830
+----------------------------------------------------------------------
+  0x0086f830: PUSH EBP
+  0x0086f831: MOV EBP,ESP
+  0x0086f833: FLD float ptr [EBP + 0x8]
+  0x0086f836: FSTP float ptr [0x011c40ec]
+  0x0086f83c: POP EBP
+  0x0086f83d: RET
+  0x0086f840: PUSH EBP
+  0x0086f841: MOV EBP,ESP
+  0x0086f843: PUSH ECX
+  0x0086f844: MOV dword ptr [EBP + -0x4],ECX
+  0x0086f847: MOV EAX,dword ptr [EBP + -0x4]
+  0x0086f84a: MOV AL,byte ptr [EAX + 0x16c]
+
+----------------------------------------------------------------------
+References TO 0x0086f830 (B11 threaded post-queue update)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0086f7bf (in FUN_0086f6a0)
+  Total: 1 refs
+
+======================================================================
+B12 threaded queue step C @ 0x0087a6b0
+======================================================================
+  Function: FUN_0087a6b0 @ 0x0087a6b0, Size: 21 bytes
+
+void __fastcall FUN_0087a6b0(undefined4 param_1)
+
+{
+  FUN_0086c600(param_1);
+  return;
+}
+
+
+
+--- Calls FROM B12 threaded queue step C (0x0087a6b0) ---
+  0x0087a6bc -> 0x0086c600 FUN_0086c600
+  Total: 1 calls
+
+----------------------------------------------------------------------
+Entry disassembly: B12 threaded queue step C @ 0x0087a6b0
+----------------------------------------------------------------------
+  0x0087a6b0: PUSH EBP
+  0x0087a6b1: MOV EBP,ESP
+  0x0087a6b3: PUSH ECX
+  0x0087a6b4: MOV dword ptr [EBP + -0x4],ECX
+  0x0087a6b7: MOV EAX,dword ptr [EBP + -0x4]
+  0x0087a6ba: MOV ECX,dword ptr [EAX]
+  0x0087a6bc: CALL 0x0086c600
+  0x0087a6c1: MOV ESP,EBP
+  0x0087a6c3: POP EBP
+  0x0087a6c4: RET
+  0x0087a6d0: PUSH EBP
+  0x0087a6d1: MOV EBP,ESP
+
+----------------------------------------------------------------------
+References TO 0x0087a6b0 (B12 threaded queue step C)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0086f7ce (in FUN_0086f6a0)
+  UNCONDITIONAL_CALL @ 0x008c7c05 (in FUN_008c7bd0)
+  UNCONDITIONAL_CALL @ 0x008c7dd5 (in FUN_008c7da0)
+  UNCONDITIONAL_CALL @ 0x008c7f7a (in FUN_008c7f50)
+  Total: 4 refs
+
+======================================================================
+B13 late post-AI update @ 0x007034c0
+======================================================================
+  Function: FUN_007034c0 @ 0x007034c0, Size: 49 bytes
+
+void FUN_007034c0(undefined4 param_1)
+
+{
+  char cVar1;
+  int iVar2;
+  
+  iVar2 = FUN_004b7210();
+  if (iVar2 != 0) {
+    FUN_004b7210();
+    cVar1 = FUN_009373f0();
+    if (cVar1 != '\0') {
+      FUN_004b7210(param_1);
+      FUN_00984f60(param_1);
+    }
+  }
+  return;
+}
+
+
+
+--- Calls FROM B13 late post-AI update (0x007034c0) ---
+  0x007034c3 -> 0x004b7210 FUN_004b7210
+  0x007034cc -> 0x004b7210 FUN_004b7210
+  0x007034d3 -> 0x009373f0 FUN_009373f0
+  0x007034e3 -> 0x004b7210 FUN_004b7210
+  0x007034ea -> 0x00984f60 FUN_00984f60
+  Total: 5 calls
+
+----------------------------------------------------------------------
+Entry disassembly: B13 late post-AI update @ 0x007034c0
+----------------------------------------------------------------------
+  0x007034c0: PUSH EBP
+  0x007034c1: MOV EBP,ESP
+  0x007034c3: CALL 0x004b7210
+  0x007034c8: TEST EAX,EAX
+  0x007034ca: JZ 0x007034ef
+  0x007034cc: CALL 0x004b7210
+  0x007034d1: MOV ECX,EAX
+  0x007034d3: CALL 0x009373f0
+  0x007034d8: MOVZX EAX,AL
+  0x007034db: TEST EAX,EAX
+  0x007034dd: JZ 0x007034ef
+  0x007034df: MOV ECX,dword ptr [EBP + 0x8]
+
+----------------------------------------------------------------------
+References TO 0x007034c0 (B13 late post-AI update)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0086f7e0 (in FUN_0086f6a0)
+  UNCONDITIONAL_CALL @ 0x008c9a0b (in FUN_008c94e0)
+  Total: 2 refs
+
+======================================================================
+B14 late post-AI finalize @ 0x00703490
+======================================================================
+  Function: FUN_00703490 @ 0x00703490, Size: 45 bytes
+
+void FUN_00703490(void)
+
+{
+  char cVar1;
+  int iVar2;
+  
+  iVar2 = FUN_004b7210();
+  if (iVar2 != 0) {
+    FUN_004b7210();
+    cVar1 = FUN_009373f0();
+    if (cVar1 != '\0') {
+      FUN_004b7210();
+      FUN_0070bc20();
+    }
+  }
+  return;
+}
+
+
+
+--- Calls FROM B14 late post-AI finalize (0x00703490) ---
+  0x00703493 -> 0x004b7210 FUN_004b7210
+  0x0070349c -> 0x004b7210 FUN_004b7210
+  0x007034a3 -> 0x009373f0 FUN_009373f0
+  0x007034af -> 0x004b7210 FUN_004b7210
+  0x007034b6 -> 0x0070bc20 FUN_0070bc20
+  Total: 5 calls
+
+----------------------------------------------------------------------
+Entry disassembly: B14 late post-AI finalize @ 0x00703490
+----------------------------------------------------------------------
+  0x00703490: PUSH EBP
+  0x00703491: MOV EBP,ESP
+  0x00703493: CALL 0x004b7210
+  0x00703498: TEST EAX,EAX
+  0x0070349a: JZ 0x007034bb
+  0x0070349c: CALL 0x004b7210
+  0x007034a1: MOV ECX,EAX
+  0x007034a3: CALL 0x009373f0
+  0x007034a8: MOVZX EAX,AL
+  0x007034ab: TEST EAX,EAX
+  0x007034ad: JZ 0x007034bb
+  0x007034af: CALL 0x004b7210
+
+----------------------------------------------------------------------
+References TO 0x00703490 (B14 late post-AI finalize)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0086f7e8 (in FUN_0086f6a0)
+  UNCONDITIONAL_CALL @ 0x008c9a13 (in FUN_008c94e0)
+  Total: 2 refs
+
+======================================================================
+B15 post-AI audio state update @ 0x00991600
+======================================================================
+  Function: FUN_00991600 @ 0x00991600, Size: 362 bytes
+
+void FUN_00991600(char param_1)
+
+{
+  char cVar1;
+  int *piVar2;
+  int iVar3;
+  uint uVar4;
+  undefined4 *puVar5;
+  undefined4 local_34;
+  int local_30;
+  int local_2c;
+  int local_28;
+  int *local_24;
+  uint local_20;
+  uint local_1c;
+  CPropertySection *local_18;
+  uint local_14;
+  int local_10;
+  uint local_c;
+  uint local_8;
+  
+  local_8 = FUN_00658930();
+  if (local_8 != 0) {
+    for (local_c = 0; local_c < local_8; local_c = local_c + 1) {
+      piVar2 = (int *)FUN_00877a30(local_c);
+      local_10 = *piVar2;
+      if ((local_10 != 0) && (cVar1 = FUN_00986c40(), cVar1 != '\0')) {
+        local_30 = local_10;
+        local_2c = local_10;
+        if (local_10 != 0) {
+          FUN_009914d0(1);
+        }
+        local_34 = 0;
+        FUN_0096ae90(local_c,&local_34);
+      }
+    }
+    iVar3 = FUN_009938b0();
+    if (iVar3 == 0) {
+      FUN_00600bc0();
+      FUN_00438af0();
+    }
+  }
+  if (param_1 == '\0') {
+    local_14 = 0;
+    while (uVar4 = FUN_00658930(), local_14 < uVar4) {
+      puVar5 = (undefined4 *)FUN_00877a30(local_14);
+      local_18 = (CPropertySection *)*puVar5;
+      if (local_18 != (CPropertySection *)0x0) {
+        local_1c = CPropertySection::GetCount(local_18);
+        for (local_20 = 0; local_20 < local_1c; local_20 = local_20 + 1) {
+          local_24 = (int *)FUN_00903600(local_20);
+          local_28 = (**(code **)(*local_24 + 0x428))();
+          if (local_28 != 0) {
+            FUN_0097ef50();
+          }
+        }
+      }
+      local_14 = local_14 + 1;
+    }
+  }
+  FUN_00991770();
+  return;
+}
+
+
+
+--- Calls FROM B15 post-AI audio state update (0x00991600) ---
+  0x0099160c -> 0x00658930 FUN_00658930
+  0x0099163f -> 0x00877a30 FUN_00877a30
+  0x00991652 -> 0x00986c40 FUN_00986c40
+  0x00991675 -> 0x009914d0 FUN_009914d0
+  0x00991698 -> 0x0096ae90 FUN_0096ae90
+  0x009916a2 -> 0x009938b0 FUN_009938b0
+  0x009916ae -> 0x00600bc0 FUN_00600bc0
+  0x009916b9 -> 0x00438af0 FUN_00438af0
+  0x009916df -> 0x00658930 FUN_00658930
+  0x009916f0 -> 0x00877a30 FUN_00877a30
+  0x00991703 -> 0x00990890 GetCount
+  0x0099172c -> 0x00903600 FUN_00903600
+  0x00991750 -> 0x0097ef50 FUN_0097ef50
+  0x0099175f -> 0x00991770 FUN_00991770
+  Total: 14 calls
+
+----------------------------------------------------------------------
+Entry disassembly: B15 post-AI audio state update @ 0x00991600
+----------------------------------------------------------------------
+  0x00991600: PUSH EBP
+  0x00991601: MOV EBP,ESP
+  0x00991603: SUB ESP,0x38
+  0x00991606: MOV dword ptr [EBP + -0x34],ECX
+  0x00991609: MOV ECX,dword ptr [EBP + -0x34]
+  0x0099160c: CALL 0x00658930
+  0x00991611: MOV dword ptr [EBP + -0x4],EAX
+  0x00991614: CMP dword ptr [EBP + -0x4],0x0
+  0x00991618: JZ 0x009916be
+  0x0099161e: MOV dword ptr [EBP + -0x8],0x0
+  0x00991625: JMP 0x00991630
+  0x00991627: MOV EAX,dword ptr [EBP + -0x8]
+
+----------------------------------------------------------------------
+References TO 0x00991600 (B15 post-AI audio state update)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0086f823 (in FUN_0086f6a0)
+  Total: 1 refs
+
+======================================================================
+C1 frame-tail update owner @ 0x00870610
+======================================================================
+  Function: FUN_00870610 @ 0x00870610, Size: 101 bytes
+
+void __fastcall FUN_00870610(undefined4 param_1)
+
+{
+  int *piVar1;
+  
+  FUN_005aa720(param_1);
+  piVar1 = (int *)FUN_0043d4d0();
+  if (1 < *piVar1) {
+    FUN_004537b0();
+    FUN_0087a710();
+    FUN_004537b0();
+    FUN_0087a850();
+    FUN_004537b0();
+    FUN_0087a6f0();
+  }
+  FUN_007094f0();
+  FUN_004b7210();
+  FUN_00870680();
+  FUN_00a0d9e0(1);
+  FUN_00a0e770();
+  return;
+}
+
+
+
+--- Calls FROM C1 frame-tail update owner (0x00870610) ---
+  0x00870617 -> 0x005aa720 FUN_005aa720
+  0x00870621 -> 0x0043d4d0 FUN_0043d4d0
+  0x0087062b -> 0x004537b0 FUN_004537b0
+  0x00870632 -> 0x0087a710 FUN_0087a710
+  0x00870637 -> 0x004537b0 FUN_004537b0
+  0x0087063e -> 0x0087a850 FUN_0087a850
+  0x00870643 -> 0x004537b0 FUN_004537b0
+  0x0087064a -> 0x0087a6f0 FUN_0087a6f0
+  0x0087064f -> 0x007094f0 FUN_007094f0
+  0x00870654 -> 0x004b7210 FUN_004b7210
+  0x0087065b -> 0x00870680 FUN_00870680
+  0x00870662 -> 0x00a0d9e0 FUN_00a0d9e0
+  0x0087066c -> 0x00a0e770 FUN_00a0e770
+  Total: 13 calls
+
+----------------------------------------------------------------------
+Entry disassembly: C1 frame-tail update owner @ 0x00870610
+----------------------------------------------------------------------
+  0x00870610: PUSH EBP
+  0x00870611: MOV EBP,ESP
+  0x00870613: PUSH ECX
+  0x00870614: MOV dword ptr [EBP + -0x4],ECX
+  0x00870617: CALL 0x005aa720
+  0x0087061c: MOV ECX,0x11c3ea4
+  0x00870621: CALL 0x0043d4d0
+  0x00870626: CMP dword ptr [EAX],0x1
+  0x00870629: JLE 0x0087064f
+  0x0087062b: CALL 0x004537b0
+  0x00870630: MOV ECX,EAX
+  0x00870632: CALL 0x0087a710
+
+----------------------------------------------------------------------
+References TO 0x00870610 (C1 frame-tail update owner)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0086ee6a (in FUN_0086e650)
+  Total: 1 refs
+
+======================================================================
+C2 frame-tail worker update @ 0x005aa720
+======================================================================
+  Function: FUN_005aa720 @ 0x005aa720, Size: 411 bytes
+
+void FUN_005aa720(void)
+
+{
+  char cVar1;
+  undefined4 *puVar2;
+  int *piVar3;
+  int local_30;
+  undefined *local_1c;
+  int *local_14;
+  undefined4 local_10;
+  undefined4 local_c;
+  undefined *local_8;
+  
+  FUN_004538a0(0);
+  while (cVar1 = FUN_008256d0(), cVar1 == '\0') {
+    puVar2 = (undefined4 *)FUN_006815c0();
+    local_c = *puVar2;
+    FUN_0063f7b0();
+    FUN_00573f40();
+  }
+  while (cVar1 = FUN_008256d0(), cVar1 == '\0') {
+    puVar2 = (undefined4 *)FUN_006815c0();
+    local_10 = *puVar2;
+    FUN_0063f7b0();
+    FUN_00574400();
+  }
+  local_8 = &DAT_011cace8;
+  while ((local_8 != (undefined *)0x0 && (cVar1 = FUN_008256d0(), cVar1 == '\0'))) {
+    local_1c = (undefined *)FUN_00726070();
+    puVar2 = (undefined4 *)FUN_006815c0();
+    local_14 = (int *)*puVar2;
+    piVar3 = (int *)(**(code **)(*local_14 + 0x1d0))();
+    if (piVar3 == (int *)0x0) {
+      local_30 = 0;
+    }
+    else {
+      local_30 = (**(code **)(*piVar3 + 0x10))();
+    }
+    if ((local_30 == 0) || (cVar1 = FUN_005aa8c0(), cVar1 == '\0')) {
+      FUN_00574400();
+      FUN_00905330(&local_14);
+      if (local_8 == &DAT_011cace8) {
+        local_1c = &DAT_011cace8;
+      }
+    }
+    local_8 = local_1c;
+  }
+  while (cVar1 = FUN_008256d0(), cVar1 == '\0') {
+    piVar3 = (int *)FUN_006815c0();
+    piVar3 = (int *)*piVar3;
+    FUN_0063f7b0();
+    if (piVar3 != (int *)0x0) {
+      (**(code **)(*piVar3 + 0x10))(1);
+    }
+  }
+  FUN_004538c0();
+  return;
+}
+
+
+
+--- Calls FROM C2 frame-tail worker update (0x005aa720) ---
+  0x005aa72d -> 0x004538a0 FUN_004538a0
+  0x005aa737 -> 0x008256d0 FUN_008256d0
+  0x005aa748 -> 0x006815c0 FUN_006815c0
+  0x005aa757 -> 0x0063f7b0 FUN_0063f7b0
+  0x005aa75f -> 0x00573f40 FUN_00573f40
+  0x005aa76b -> 0x008256d0 FUN_008256d0
+  0x005aa77c -> 0x006815c0 FUN_006815c0
+  0x005aa78b -> 0x0063f7b0 FUN_0063f7b0
+  0x005aa793 -> 0x00574400 FUN_00574400
+  0x005aa7ae -> 0x008256d0 FUN_008256d0
+  0x005aa7c1 -> 0x00726070 FUN_00726070
+  0x005aa7cc -> 0x006815c0 FUN_006815c0
+  0x005aa817 -> 0x005aa8c0 FUN_005aa8c0
+  0x005aa826 -> 0x00574400 FUN_00574400
+  0x005aa834 -> 0x00905330 FUN_00905330
+  0x005aa859 -> 0x008256d0 FUN_008256d0
+  0x005aa86a -> 0x006815c0 FUN_006815c0
+  0x005aa879 -> 0x0063f7b0 FUN_0063f7b0
+  0x005aa8b2 -> 0x004538c0 FUN_004538c0
+  Total: 19 calls
+
+----------------------------------------------------------------------
+Entry disassembly: C2 frame-tail worker update @ 0x005aa720
+----------------------------------------------------------------------
+  0x005aa720: PUSH EBP
+  0x005aa721: MOV EBP,ESP
+  0x005aa723: SUB ESP,0x30
+  0x005aa726: PUSH 0x0
+  0x005aa728: MOV ECX,0x11cacf8
+  0x005aa72d: CALL 0x004538a0
+  0x005aa732: MOV ECX,0x11caca8
+  0x005aa737: CALL 0x008256d0
+  0x005aa73c: MOVZX EAX,AL
+  0x005aa73f: TEST EAX,EAX
+  0x005aa741: JNZ 0x005aa766
+  0x005aa743: MOV ECX,0x11caca8
+
+----------------------------------------------------------------------
+References TO 0x005aa720 (C2 frame-tail worker update)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00870617 (in FUN_00870610)
+  Total: 1 refs
+
+======================================================================
+C3 frame-tail queue step A @ 0x0087a710
+======================================================================
+  Function: FUN_0087a710 @ 0x0087a710, Size: 22 bytes
+
+void __fastcall FUN_0087a710(undefined4 param_1)
+
+{
+  FUN_0086cdd0(param_1);
+  return;
+}
+
+
+
+--- Calls FROM C3 frame-tail queue step A (0x0087a710) ---
+  0x0087a71d -> 0x0086cdd0 FUN_0086cdd0
+  Total: 1 calls
+
+----------------------------------------------------------------------
+Entry disassembly: C3 frame-tail queue step A @ 0x0087a710
+----------------------------------------------------------------------
+  0x0087a710: PUSH EBP
+  0x0087a711: MOV EBP,ESP
+  0x0087a713: PUSH ECX
+  0x0087a714: MOV dword ptr [EBP + -0x4],ECX
+  0x0087a717: MOV EAX,dword ptr [EBP + -0x4]
+  0x0087a71a: MOV ECX,dword ptr [EAX + 0x4]
+  0x0087a71d: CALL 0x0086cdd0
+  0x0087a722: MOV ESP,EBP
+  0x0087a724: POP EBP
+  0x0087a725: RET
+  0x0087a730: PUSH EBP
+  0x0087a731: MOV EBP,ESP
+
+----------------------------------------------------------------------
+References TO 0x0087a710 (C3 frame-tail queue step A)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00870632 (in FUN_00870610)
+  Total: 1 refs
+
+======================================================================
+C4 frame-tail queue step B @ 0x0087a850
+======================================================================
+  Function: FUN_0087a850 @ 0x0087a850, Size: 54 bytes
+
+void __fastcall FUN_0087a850(undefined4 *param_1)
+
+{
+  undefined4 uVar1;
+  
+  uVar1 = FUN_0040fc90();
+  param_1[3] = uVar1;
+  FUN_0087a7d0();
+  param_1[3] = 0;
+  param_1[2] = *param_1;
+  return;
+}
+
+
+
+--- Calls FROM C4 frame-tail queue step B (0x0087a850) ---
+  0x0087a857 -> 0x0040fc90 FUN_0040fc90
+  0x0087a868 -> 0x0087a7d0 FUN_0087a7d0
+  Total: 2 calls
+
+----------------------------------------------------------------------
+Entry disassembly: C4 frame-tail queue step B @ 0x0087a850
+----------------------------------------------------------------------
+  0x0087a850: PUSH EBP
+  0x0087a851: MOV EBP,ESP
+  0x0087a853: PUSH ECX
+  0x0087a854: MOV dword ptr [EBP + -0x4],ECX
+  0x0087a857: CALL 0x0040fc90
+  0x0087a85c: MOV ECX,dword ptr [EBP + -0x4]
+  0x0087a85f: MOV dword ptr [ECX + 0xc],EAX
+  0x0087a862: MOV EDX,dword ptr [EBP + -0x4]
+  0x0087a865: MOV ECX,dword ptr [EDX + 0x4]
+  0x0087a868: CALL 0x0087a7d0
+  0x0087a86d: MOV EAX,dword ptr [EBP + -0x4]
+  0x0087a870: MOV dword ptr [EAX + 0xc],0x0
+
+----------------------------------------------------------------------
+References TO 0x0087a850 (C4 frame-tail queue step B)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0087063e (in FUN_00870610)
+  Total: 1 refs
+
+======================================================================
+C5 frame-tail queue step C @ 0x0087a6f0
+======================================================================
+  Function: FUN_0087a6f0 @ 0x0087a6f0, Size: 22 bytes
+
+void __fastcall FUN_0087a6f0(undefined4 param_1)
+
+{
+  FUN_0086c600(param_1);
+  return;
+}
+
+
+
+--- Calls FROM C5 frame-tail queue step C (0x0087a6f0) ---
+  0x0087a6fd -> 0x0086c600 FUN_0086c600
+  Total: 1 calls
+
+----------------------------------------------------------------------
+Entry disassembly: C5 frame-tail queue step C @ 0x0087a6f0
+----------------------------------------------------------------------
+  0x0087a6f0: PUSH EBP
+  0x0087a6f1: MOV EBP,ESP
+  0x0087a6f3: PUSH ECX
+  0x0087a6f4: MOV dword ptr [EBP + -0x4],ECX
+  0x0087a6f7: MOV EAX,dword ptr [EBP + -0x4]
+  0x0087a6fa: MOV ECX,dword ptr [EAX + 0x4]
+  0x0087a6fd: CALL 0x0086c600
+  0x0087a702: MOV ESP,EBP
+  0x0087a704: POP EBP
+  0x0087a705: RET
+  0x0087a710: PUSH EBP
+  0x0087a711: MOV EBP,ESP
+
+----------------------------------------------------------------------
+References TO 0x0087a6f0 (C5 frame-tail queue step C)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0087064a (in FUN_00870610)
+  Total: 1 refs
+
+======================================================================
+C6 frame-tail manager update @ 0x007094f0
+======================================================================
+  Function: FUN_007094f0 @ 0x007094f0, Size: 756 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+void FUN_007094f0(void)
+
+{
+  char cVar1;
+  uint uVar2;
+  int iVar3;
+  undefined4 uVar4;
+  int *unaff_FS_OFFSET;
+  undefined4 uVar5;
+  undefined4 local_3c;
+  undefined4 local_38;
+  char local_1d;
+  char local_11;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00f07b36;
+  local_10 = *unaff_FS_OFFSET;
+  uVar2 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  FUN_0040fbf0(0);
+  if ((DAT_011d8950 != 0) &&
+     (((iVar3 = FUN_004b7210(uVar2), *(int *)(iVar3 + 0x4bc) == 0 || (DAT_011d8950 == 6)) ||
+      (DAT_011d8950 == 7)))) {
+    local_11 = '\0';
+    switch(DAT_011d8950) {
+    case 1:
+      iVar3 = FUN_00704ed0(DAT_011d8954,DAT_011d8964);
+      local_11 = iVar3 != 0;
+      break;
+    case 2:
+      local_11 = FUN_00705ec0(DAT_011d8954);
+      break;
+    case 3:
+      local_11 = FUN_00706130(DAT_011d8954);
+      break;
+    case 4:
+      FUN_004b7210(uVar2);
+      cVar1 = FUN_007023a0();
+      if (cVar1 == '\0') {
+        iVar3 = FUN_00705070(DAT_011d8954,DAT_011d8958,DAT_011d895c);
+        local_11 = iVar3 != 0;
+      }
+      break;
+    case 5:
+      iVar3 = FUN_007ac730(DAT_011d8960);
+      local_11 = iVar3 != 0;
+      break;
+    case 6:
+      local_11 = FUN_007cb7d0(1,0);
+      if (local_11 != '\0') {
+        FUN_00771700(4);
+      }
+      break;
+    case 7:
+      local_11 = FUN_007a8ba0();
+      break;
+    case 8:
+      uVar4 = FUN_00ec43fb(DAT_011d8954,0,&PTR_PTR_011841cc,&PTR_PTR_011846d4,0);
+      local_11 = FUN_00754cf0(uVar4);
+      break;
+    case 9:
+      iVar3 = FUN_00401000(0x40);
+      local_8 = 0;
+      if (iVar3 == 0) {
+        local_38 = 0;
+      }
+      else {
+        local_38 = FUN_00709810(0,0);
+      }
+      local_8 = 0xffffffff;
+      iVar3 = FUN_00401000(0x2c);
+      local_8 = 1;
+      if (iVar3 == 0) {
+        local_3c = 0;
+      }
+      else {
+        local_3c = FUN_007ab690();
+      }
+      local_8 = 0xffffffff;
+      uVar5 = 0;
+      FUN_004b7210(0);
+      uVar4 = FUN_00586150();
+      FUN_00a087d0(uVar4,uVar5);
+      FUN_00707e10("Player Name Entry Menu");
+      FUN_00a1dc70(local_38,1);
+      FUN_00409480(local_3c);
+      local_11 = '\x01';
+    }
+    if (local_11 != '\0') {
+      DAT_011d8950 = 0;
+      DAT_011d8954 = 0;
+    }
+  }
+  if ((DAT_011d8998 != 0) &&
+     (((iVar3 = FUN_004b7210(uVar2), *(int *)(iVar3 + 0x4bc) == 0 || (DAT_011d8998 == 6)) ||
+      (DAT_011d8998 == 7)))) {
+    local_1d = '\0';
+    if (DAT_011d8998 == 7) {
+      local_1d = FUN_007a8ba0();
+    }
+    if (local_1d != '\0') {
+      DAT_011d8998 = 0;
+      _DAT_011d899c = 0;
+    }
+  }
+  FUN_0040fba0();
+  *unaff_FS_OFFSET = local_10;
+  return;
+}
+
+
+
+--- Calls FROM C6 frame-tail manager update (0x007094f0) ---
+  0x0070951c -> 0x0040fbf0 FUN_0040fbf0
+  0x0070952e -> 0x004b7210 FUN_004b7210
+  0x00709588 -> 0x00704ed0 FUN_00704ed0
+  0x007095a5 -> 0x00705ec0 FUN_00705ec0
+  0x007095bb -> 0x00706130 FUN_00706130
+  0x007095cb -> 0x004b7210 FUN_004b7210
+  0x007095d2 -> 0x007023a0 FUN_007023a0
+  0x007095f2 -> 0x00705070 FUN_00705070
+  0x0070960f -> 0x007ac730 FUN_007ac730
+  0x00709629 -> 0x007cb7d0 FUN_007cb7d0
+  0x0070963e -> 0x00771700 FUN_00771700
+  0x0070964b -> 0x007a8ba0 FUN_007a8ba0
+  0x0070966d -> 0x00ec43fb FUN_00ec43fb
+  0x00709676 -> 0x00754cf0 FUN_00754cf0
+  0x00709688 -> 0x00401000 FUN_00401000
+  0x007096a7 -> 0x00709810 FUN_00709810
+  0x007096cd -> 0x00401000 FUN_00401000
+  0x007096e8 -> 0x007ab690 FUN_007ab690
+  0x0070970e -> 0x004b7210 FUN_004b7210
+  0x00709715 -> 0x00586150 FUN_00586150
+  0x0070971e -> 0x00a087d0 FUN_00a087d0
+  0x0070972b -> 0x00707e10 FUN_00707e10
+  0x00709739 -> 0x00a1dc70 FUN_00a1dc70
+  0x00709745 -> 0x00409480 FUN_00409480
+  0x00709773 -> 0x004b7210 FUN_004b7210
+  0x007097a7 -> 0x007a8ba0 FUN_007a8ba0
+  0x007097d0 -> 0x0040fba0 FUN_0040fba0
+  Total: 27 calls
+
+----------------------------------------------------------------------
+Entry disassembly: C6 frame-tail manager update @ 0x007094f0
+----------------------------------------------------------------------
+  0x007094f0: PUSH EBP
+  0x007094f1: MOV EBP,ESP
+  0x007094f3: PUSH -0x1
+  0x007094f5: PUSH 0xf07b36
+  0x007094fa: MOV EAX,FS:[0x0]
+  0x00709500: PUSH EAX
+  0x00709501: SUB ESP,0x30
+  0x00709504: MOV EAX,[0x011c16bc]
+  0x00709509: XOR EAX,EBP
+  0x0070950b: PUSH EAX
+  0x0070950c: LEA EAX,[EBP + -0xc]
+  0x0070950f: MOV FS:[0x0],EAX
+
+----------------------------------------------------------------------
+References TO 0x007094f0 (C6 frame-tail manager update)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x007094dd (in FUN_00709470)
+  UNCONDITIONAL_CALL @ 0x0087064f (in FUN_00870610)
+  Total: 2 refs
+
+======================================================================
+C7 frame-tail state update @ 0x00870680
+======================================================================
+  Function: FUN_00870680 @ 0x00870680, Size: 45 bytes
+
+void __fastcall FUN_00870680(int param_1)
+
+{
+  if (*(char *)(param_1 + 0x4cc) != '\0') {
+    FUN_00706320(0);
+    *(undefined1 *)(param_1 + 0x4cc) = 0;
+  }
+  return;
+}
+
+
+
+--- Calls FROM C7 frame-tail state update (0x00870680) ---
+  0x00870697 -> 0x00706320 FUN_00706320
+  Total: 1 calls
+
+----------------------------------------------------------------------
+Entry disassembly: C7 frame-tail state update @ 0x00870680
+----------------------------------------------------------------------
+  0x00870680: PUSH EBP
+  0x00870681: MOV EBP,ESP
+  0x00870683: PUSH ECX
+  0x00870684: MOV dword ptr [EBP + -0x4],ECX
+  0x00870687: MOV EAX,dword ptr [EBP + -0x4]
+  0x0087068a: MOVZX ECX,byte ptr [EAX + 0x4cc]
+  0x00870691: TEST ECX,ECX
+  0x00870693: JZ 0x008706a9
+  0x00870695: PUSH 0x0
+  0x00870697: CALL 0x00706320
+  0x0087069c: ADD ESP,0x4
+  0x0087069f: MOV EDX,dword ptr [EBP + -0x4]
+
+----------------------------------------------------------------------
+References TO 0x00870680 (C7 frame-tail state update)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0087065b (in FUN_00870610)
+  Total: 1 refs
+
+======================================================================
+C8 frame-tail task update @ 0x00a0e770
+======================================================================
+  Function: FUN_00a0e770 @ 0x00a0e770, Size: 4020 bytes
+
+/* WARNING: Removing unreachable block (ram,0x00a0ec32) */
+/* WARNING: Removing unreachable block (ram,0x00a0ec7b) */
+/* WARNING: Removing unreachable block (ram,0x00a0eca6) */
+
+void __fastcall FUN_00a0e770(int param_1)
+
+{
+  float *pfVar1;
+  undefined4 *puVar2;
+  bool bVar3;
+  uint uVar4;
+  int iVar5;
+  int *piVar6;
+  undefined4 uVar7;
+  int *unaff_FS_OFFSET;
+  uint local_1c4;
+  size_t local_1c0;
+  int local_58;
+  uint local_54;
+  uint local_50;
+  int local_4c;
+  uint local_48;
+  uint local_44;
+  undefined4 local_40;
+  undefined4 local_3c;
+  int local_38;
+  char local_31;
+  char *local_30;
+  ushort local_2c;
+  undefined2 local_2a;
+  uint local_28;
+  char local_21;
+  undefined4 local_20;
+  int local_1c;
+  char local_15;
+  uint local_14;
+  int local_10;
+  undefined1 *puStack_c;
+  uint local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00f1d61d;
+  local_10 = *unaff_FS_OFFSET;
+  uVar4 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  local_14 = 0;
+  do {
+    if (*(uint *)(param_1 + 0x2278) <= local_14) {
+      for (local_54 = 0; local_54 < *(uint *)(param_1 + 0x2278); local_54 = local_54 + 1) {
+        iVar5 = **(int **)(*(int *)(param_1 + 0x2274) + local_54 * 4);
+        if (iVar5 != 0) {
+          FUN_00a119d0(uVar4);
+          FUN_00aa4060(iVar5);
+        }
+        FUN_00aa4060(*(undefined4 *)(*(int *)(param_1 + 0x2274) + local_54 * 4));
+      }
+      FUN_00a1bfa0(1);
+LAB_00a0f715:
+      *unaff_FS_OFFSET = local_10;
+      return;
+    }
+    iVar5 = *(int *)(*(int *)(*(int *)(param_1 + 0x2274) + local_14 * 4) + 4);
+    if (iVar5 == 0) {
+      if (*(int *)(param_1 + 0x10 +
+                  *(int *)(*(int *)(*(int *)(param_1 + 0x2274) + local_14 * 4) + 8) * 0x2c) != 0) {
+        FUN_00a11820();
+        piVar6 = (int *)FUN_00706d10();
+        (**(code **)(*piVar6 + 0xe8))
+                  (*(undefined4 *)
+                    (param_1 + 0x10 +
+                    *(int *)(*(int *)(*(int *)(param_1 + 0x2274) + local_14 * 4) + 8) * 0x2c));
+        FUN_0066b0d0(0);
+        *(undefined4 *)
+         (param_1 + 0xc + *(int *)(*(int *)(*(int *)(param_1 + 0x2274) + local_14 * 4) + 8) * 0x2c)
+             = 0;
+        *(undefined4 *)
+         (param_1 + 4 + *(int *)(*(int *)(*(int *)(param_1 + 0x2274) + local_14 * 4) + 8) * 0x2c) =
+             0;
+        *(undefined4 *)
+         (param_1 + 8 + *(int *)(*(int *)(*(int *)(param_1 + 0x2274) + local_14 * 4) + 8) * 0x2c) =
+             0;
+        FUN_004037f0(0,0);
+        *(undefined4 *)
+         (param_1 + 0x1c + *(int *)(*(int *)(*(int *)(param_1 + 0x2274) + local_14 * 4) + 8) * 0x2c)
+             = DAT_01012054;
+        FUN_00a11840();
+      }
+      local_15 = '\0';
+      if ((*(int *)(param_1 + 0x10 +
+                   *(int *)(*(int *)(*(int *)(param_1 + 0x2274) + local_14 * 4) + 8) * 0x2c) != 0)
+         && (iVar5 = _strcmp(*(char **)(param_1 + 0x14 +
+                                       *(int *)(*(int *)(*(int *)(param_1 + 0x2274) + local_14 * 4)
+                                               + 8) * 0x2c),
+                             *(char **)(**(int **)(*(int *)(param_1 + 0x2274) + local_14 * 4) + 0x10
+                                       )), iVar5 == 0)) {
+        local_15 = '\x01';
+      }
+      if (local_15 == '\0') {
+        FUN_00a11820();
+        uVar7 = FUN_00a0fe20(*(undefined4 *)
+                              (**(int **)(*(int *)(param_1 + 0x2274) + local_14 * 4) + 0x10),
+                             *(undefined4 *)
+                              (param_1 + 4 +
+                              *(int *)(*(int *)(*(int *)(param_1 + 0x2274) + local_14 * 4) + 8) *
+                              0x2c),*(undefined4 *)
+                                     (param_1 + 8 +
+                                     *(int *)(*(int *)(*(int *)(param_1 + 0x2274) + local_14 * 4) +
+                                             8) * 0x2c),
+                             *(undefined4 *)
+                              (param_1 + 0xc +
+                              *(int *)(*(int *)(*(int *)(param_1 + 0x2274) + local_14 * 4) + 8) *
+                              0x2c),0,0);
+        FUN_0066b0d0(uVar7);
+        FUN_00a11840();
+      }
+    }
+    else if (iVar5 == 1) {
+      local_20 = *(undefined4 *)(*(int *)(unaff_FS_OFFSET[0xb] + _tls_index * 4) + 0x2b4);
+      *(undefined4 *)(*(int *)(unaff_FS_OFFSET[0xb] + _tls_index * 4) + 0x2b4) = 0xd;
+      local_8 = 0;
+      iVar5 = FUN_00706d10();
+      if (iVar5 == 0) {
+        *(undefined4 *)(*(int *)(unaff_FS_OFFSET[0xb] + _tls_index * 4) + 0x2b4) = local_20;
+        goto LAB_00a0f715;
+      }
+      local_31 = '\0';
+      local_28 = 0;
+      local_21 = '\0';
+      local_38 = *(int *)(*(int *)(*(int *)(param_1 + 0x2274) + local_14 * 4) + 0x14);
+      if (local_38 == 0) {
+        local_38 = DAT_011f33cc;
+      }
+      local_30 = (char *)0x0;
+      local_2c = 0;
+      local_2a = 0;
+      local_8 = CONCAT31(local_8._1_3_,1);
+      if (*(int *)(**(int **)(*(int *)(param_1 + 0x2274) + local_14 * 4) + 0x10) == 0) {
+LAB_00a0ee07:
+        local_21 = '\x01';
+        *(undefined4 *)(*(int *)(*(int *)(param_1 + 0x2274) + local_14 * 4) + 0xc) = 0;
+      }
+      else {
+        iVar5 = **(int **)(*(int *)(param_1 + 0x2274) + local_14 * 4);
+        if (*(short *)(iVar5 + 0x14) == -1) {
+          local_1c0 = _strlen(*(char **)(iVar5 + 0x10));
+        }
+        else {
+          local_1c0 = (size_t)*(ushort *)(iVar5 + 0x14);
+        }
+        if (local_1c0 == 0) goto LAB_00a0ee07;
+        FUN_00438470(**(int **)(*(int *)(param_1 + 0x2274) + local_14 * 4) + 0x10);
+        local_40 = 0x4b0;
+        local_3c = 0;
+        if (DAT_011c70eb != '\0') {
+          local_40 = FUN_00ec62c0();
+        }
+        FUN_00a160c0(&local_30,&local_40,&local_3c,0,10);
+      }
+      if (0 < *(int *)(*(int *)(*(int *)(param_1 + 0x2274) + local_14 * 4) + 0xc)) {
+        local_4c = 0;
+        if (local_2c == 0xffff) {
+          local_1c4 = _strlen(local_30);
+        }
+        else {
+          local_1c4 = (uint)local_2c;
+        }
+        local_48 = local_1c4;
+        local_44 = 0;
+        while ((local_44 < local_1c4 &&
+               (local_4c < *(int *)(*(int *)(*(int *)(param_1 + 0x2274) + local_14 * 4) + 0xc) + -1)
+               )) {
+          if (local_30[-(uint)(local_30 != (char *)0x0) & local_44] == '\n') {
+            local_4c = local_4c + 1;
+          }
+          local_44 = local_44 + 1;
+        }
+        if (local_44 == local_1c4) {
+          local_8 = local_8 & 0xffffff00;
+          FUN_004037f0(0,0);
+          *(undefined4 *)(*(int *)(unaff_FS_OFFSET[0xb] + _tls_index * 4) + 0x2b4) = local_20;
+          goto LAB_00a0f715;
+        }
+        local_50 = 0;
+        for (; (local_30[-(uint)(local_30 != (char *)0x0) & local_44] != '\n' &&
+               (local_30[-(uint)(local_30 != (char *)0x0) & local_44] != '\0'));
+            local_44 = local_44 + 1) {
+          local_30[-(uint)(local_30 != (char *)0x0) & local_50] =
+               local_30[-(uint)(local_30 != (char *)0x0) & local_44];
+          local_50 = local_50 + 1;
+        }
+        if (local_30[-(uint)(local_30 != (char *)0x0) & local_44] != '\0') {
+          for (local_28 = local_50; local_30[-(uint)(local_30 != (char *)0x0) & local_28] != '\0';
+              local_28 = local_28 + 1) {
+          }
+        }
+        local_30[-(uint)(local_30 != (char *)0x0) & local_50] = '\0';
+      }
+      for (local_1c = 0;
+          (local_1c < 200 &&
+          (((*(float *)**(undefined4 **)(*(int *)(param_1 + 0x2274) + local_14 * 4) !=
+             *(float *)(param_1 + 4 + local_1c * 0x2c) ||
+            (*(float *)(**(int **)(*(int *)(param_1 + 0x2274) + local_14 * 4) + 4) !=
+             *(float *)(param_1 + 8 + local_1c * 0x2c))) ||
+           (*(int *)(param_1 + 0xc + local_1c * 0x2c) !=
+            *(int *)(**(int **)(*(int *)(param_1 + 0x2274) + local_14 * 4) + 8)))));
+          local_1c = local_1c + 1) {
+      }
+      if (local_1c == 200) {
+        for (local_1c = 0; (local_1c < 200 && (*(int *)(param_1 + 0xc + local_1c * 0x2c) != 0));
+            local_1c = local_1c + 1) {
+        }
+        if (local_1c == 200) {
+          FUN_005b5e40("DEFAULT: Too many unique debug text items. \n");
+          local_8 = local_8 & 0xffffff00;
+          FUN_004037f0(0,0);
+          *(undefined4 *)(*(int *)(unaff_FS_OFFSET[0xb] + _tls_index * 4) + 0x2b4) = local_20;
+          goto LAB_00a0f715;
+        }
+      }
+      else {
+        if (local_21 == '\0') {
+          if ((*(int *)(param_1 + 0x10 + local_1c * 0x2c) != 0) &&
+             (iVar5 = FUN_00408a80(local_30,1), iVar5 == 0)) {
+            iVar5 = **(int **)(*(int *)(param_1 + 0x2274) + local_14 * 4);
+            pfVar1 = (float *)(param_1 + 0x20 + local_1c * 0x2c);
+            if (((*(float *)(iVar5 + 0x1c) == *pfVar1) &&
+                ((*(float *)(iVar5 + 0x20) == pfVar1[1] && (*(float *)(iVar5 + 0x24) == pfVar1[2])))
+                ) && (*(float *)(iVar5 + 0x28) == pfVar1[3])) {
+              bVar3 = true;
+            }
+            else {
+              bVar3 = false;
+            }
+            if (bVar3) {
+              local_31 = '\x01';
+            }
+          }
+        }
+        else {
+          local_31 = '\0';
+        }
+        if ((local_31 == '\0') && (*(int *)(param_1 + 0x10 + local_1c * 0x2c) != 0)) {
+          FUN_00a11820();
+          piVar6 = (int *)FUN_00706d10();
+          (**(code **)(*piVar6 + 0xe8))(*(undefined4 *)(param_1 + 0x10 + local_1c * 0x2c));
+          FUN_0066b0d0(0);
+          FUN_00a11840();
+        }
+      }
+      if (local_31 == '\0') {
+        FUN_00a11820();
+        if (local_21 == '\0') {
+          uVar7 = FUN_00a0fe20(local_30,*(undefined4 *)
+                                         **(undefined4 **)
+                                           (*(int *)(param_1 + 0x2274) + local_14 * 4),
+                               *(undefined4 *)
+                                (**(int **)(*(int *)(param_1 + 0x2274) + local_14 * 4) + 4),
+                               *(undefined4 *)
+                                (**(int **)(*(int *)(param_1 + 0x2274) + local_14 * 4) + 8),local_38
+                               ,**(int **)(*(int *)(param_1 + 0x2274) + local_14 * 4) + 0x1c);
+          FUN_0066b0d0(uVar7);
+        }
+        else {
+          FUN_0066b0d0(0);
+        }
+        if (*(int *)(param_1 + 0x10 + local_1c * 0x2c) == 0) {
+          *(undefined4 *)(param_1 + 0xc + local_1c * 0x2c) = 0;
+          *(undefined4 *)(param_1 + 4 + local_1c * 0x2c) = 0;
+          *(undefined4 *)(param_1 + 8 + local_1c * 0x2c) = 0;
+          *(undefined4 *)(param_1 + 0x1c + local_1c * 0x2c) = DAT_01012054;
+        }
+        else {
+          FUN_00438470(&local_30);
+          if (local_30 == (char *)0x0) {
+            local_58 = DAT_0109b220;
+          }
+          else {
+            local_58 = FUN_00a5b690(local_30);
+          }
+          local_8._0_1_ = 2;
+          FUN_00a5b950(&local_58);
+          local_8 = CONCAT31(local_8._1_3_,1);
+          if (local_58 != DAT_0109b220) {
+            InterlockedDecrement((LONG *)(local_58 + -8));
+          }
+          *(undefined4 *)(param_1 + 4 + local_1c * 0x2c) =
+               *(undefined4 *)**(undefined4 **)(*(int *)(param_1 + 0x2274) + local_14 * 4);
+          *(undefined4 *)(param_1 + 8 + local_1c * 0x2c) =
+               *(undefined4 *)(**(int **)(*(int *)(param_1 + 0x2274) + local_14 * 4) + 4);
+          *(undefined4 *)(param_1 + 0xc + local_1c * 0x2c) =
+               *(undefined4 *)(**(int **)(*(int *)(param_1 + 0x2274) + local_14 * 4) + 8);
+          *(undefined4 *)(param_1 + 0x1c + local_1c * 0x2c) =
+               *(undefined4 *)(*(int *)(*(int *)(param_1 + 0x2274) + local_14 * 4) + 0x10);
+          iVar5 = **(int **)(*(int *)(param_1 + 0x2274) + local_14 * 4);
+          puVar2 = (undefined4 *)(param_1 + 0x20 + local_1c * 0x2c);
+          *puVar2 = *(undefined4 *)(iVar5 + 0x1c);
+          puVar2[1] = *(undefined4 *)(iVar5 + 0x20);
+          puVar2[2] = *(undefined4 *)(iVar5 + 0x24);
+          puVar2[3] = *(undefined4 *)(iVar5 + 0x28);
+        }
+        FUN_00a11840();
+      }
+      local_8 = local_8 & 0xffffff00;
+      FUN_004037f0(0,0);
+      local_8 = 0xffffffff;
+      *(undefined4 *)(*(int *)(unaff_FS_OFFSET[0xb] + _tls_index * 4) + 0x2b4) = local_20;
+    }
+    local_14 = local_14 + 1;
+  } while( true );
+}
+
+
+
+--- Calls FROM C8 frame-tail task update (0x00a0e770) ---
+  0x00a0e838 -> 0x00a11820 FUN_00a11820
+  0x00a0e83d -> 0x00706d10 FUN_00706d10
+  0x00a0e8b3 -> 0x0066b0d0 FUN_0066b0d0
+  0x00a0e952 -> 0x004037f0 FUN_004037f0
+  0x00a0e97f -> 0x00a11840 FUN_00a11840
+  0x00a0ea36 -> 0x00ec6da0 _strcmp
+  0x00a0ea52 -> 0x00a11820 FUN_00a11820
+  0x00a0eb44 -> 0x00a0fe20 FUN_00a0fe20
+  0x00a0eb62 -> 0x0066b0d0 FUN_0066b0d0
+  0x00a0eb67 -> 0x00a11840 FUN_00a11840
+  0x00a0ebb6 -> 0x00706d10 FUN_00706d10
+  0x00a0ed49 -> 0x00ec6130 _strlen
+  0x00a0ed9d -> 0x00438470 FUN_00438470
+  0x00a0edc4 -> 0x00ec62c0 FUN_00ec62c0
+  0x00a0ee00 -> 0x00a160c0 FUN_00a160c0
+  0x00a0ee62 -> 0x00ec6130 _strlen
+  0x00a0eef7 -> 0x004037f0 FUN_004037f0
+  0x00a0f0f4 -> 0x005b5e40 FUN_005b5e40
+  0x00a0f107 -> 0x004037f0 FUN_004037f0
+  0x00a0f193 -> 0x00408a80 FUN_00408a80
+  0x00a0f2a7 -> 0x00a11820 FUN_00a11820
+  0x00a0f2ac -> 0x00706d10 FUN_00706d10
+  0x00a0f2fc -> 0x0066b0d0 FUN_0066b0d0
+  0x00a0f301 -> 0x00a11840 FUN_00a11840
+  0x00a0f312 -> 0x00a11820 FUN_00a11820
+  0x00a0f3da -> 0x00a0fe20 FUN_00a0fe20
+  0x00a0f3f0 -> 0x0066b0d0 FUN_0066b0d0
+  0x00a0f409 -> 0x0066b0d0 FUN_0066b0d0
+  0x00a0f451 -> 0x00438470 FUN_00438470
+  0x00a0f479 -> 0x00a5b690 FUN_00a5b690
+  0x00a0f4b4 -> 0x00a5b950 FUN_00a5b950
+  0x00a0f4dd -> 0x00000067 ???
+  0x00a0f609 -> 0x00a11840 FUN_00a11840
+  0x00a0f619 -> 0x004037f0 FUN_004037f0
+  0x00a0f6a8 -> 0x00a119d0 FUN_00a119d0
+  0x00a0f6c0 -> 0x00aa4060 FUN_00aa4060
+  0x00a0f6f8 -> 0x00aa4060 FUN_00aa4060
+  0x00a0f710 -> 0x00a1bfa0 FUN_00a1bfa0
+  Total: 38 calls
+
+----------------------------------------------------------------------
+Entry disassembly: C8 frame-tail task update @ 0x00a0e770
+----------------------------------------------------------------------
+  0x00a0e770: PUSH EBP
+  0x00a0e771: MOV EBP,ESP
+  0x00a0e773: PUSH -0x1
+  0x00a0e775: PUSH 0xf1d61d
+  0x00a0e77a: MOV EAX,FS:[0x0]
+  0x00a0e780: PUSH EAX
+  0x00a0e781: SUB ESP,0x1c4
+  0x00a0e787: MOV EAX,[0x011c16bc]
+  0x00a0e78c: XOR EAX,EBP
+  0x00a0e78e: PUSH EAX
+  0x00a0e78f: LEA EAX,[EBP + -0xc]
+  0x00a0e792: MOV FS:[0x0],EAX
+
+----------------------------------------------------------------------
+References TO 0x00a0e770 (C8 frame-tail task update)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0087066c (in FUN_00870610)
+  Total: 1 refs
+
+======================================================================
+C9 conditional frame-tail action @ 0x00703e10
+======================================================================
+  Function: FUN_00703e10 @ 0x00703e10, Size: 102 bytes
+
+void FUN_00703e10(void)
+
+{
+  char cVar1;
+  int iVar2;
+  undefined4 uVar3;
+  
+  iVar2 = FUN_004b7210();
+  if (iVar2 != 0) {
+    FUN_004b7210();
+    cVar1 = FUN_009373f0();
+    if (cVar1 != '\0') {
+      iVar2 = FUN_0071b160(0);
+      if (iVar2 != 0) {
+        FUN_0071b160(1);
+        cVar1 = FUN_004a4020();
+        if (cVar1 == '\0') {
+          FUN_0071b160(1);
+          FUN_0071d580();
+          uVar3 = 3;
+          FUN_004b7210(3);
+          FUN_00714d90(uVar3);
+        }
+      }
+    }
+  }
+  return;
+}
+
+
+
+--- Calls FROM C9 conditional frame-tail action (0x00703e10) ---
+  0x00703e13 -> 0x004b7210 FUN_004b7210
+  0x00703e1c -> 0x004b7210 FUN_004b7210
+  0x00703e23 -> 0x009373f0 FUN_009373f0
+  0x00703e31 -> 0x0071b160 FUN_0071b160
+  0x00703e3f -> 0x0071b160 FUN_0071b160
+  0x00703e49 -> 0x004a4020 FUN_004a4020
+  0x00703e57 -> 0x0071b160 FUN_0071b160
+  0x00703e61 -> 0x0071d580 FUN_0071d580
+  0x00703e68 -> 0x004b7210 FUN_004b7210
+  0x00703e6f -> 0x00714d90 FUN_00714d90
+  Total: 10 calls
+
+----------------------------------------------------------------------
+Entry disassembly: C9 conditional frame-tail action @ 0x00703e10
+----------------------------------------------------------------------
+  0x00703e10: PUSH EBP
+  0x00703e11: MOV EBP,ESP
+  0x00703e13: CALL 0x004b7210
+  0x00703e18: TEST EAX,EAX
+  0x00703e1a: JZ 0x00703e74
+  0x00703e1c: CALL 0x004b7210
+  0x00703e21: MOV ECX,EAX
+  0x00703e23: CALL 0x009373f0
+  0x00703e28: MOVZX EAX,AL
+  0x00703e2b: TEST EAX,EAX
+  0x00703e2d: JZ 0x00703e74
+  0x00703e2f: PUSH 0x0
+
+----------------------------------------------------------------------
+References TO 0x00703e10 (C9 conditional frame-tail action)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0086ee85 (in FUN_0086e650)
+  UNCONDITIONAL_CALL @ 0x0085093f (in FUN_00850760)
+  Total: 2 refs
+
+======================================================================
+C10 periodic free-block callback @ 0x00aa7290
+======================================================================
+  Function: FUN_00aa7290 @ 0x00aa7290, Size: 110 bytes
+
+void FUN_00aa7290(int param_1)
+
+{
+  int iVar1;
+  
+  if (*(int *)(&DAT_011f67b8 + param_1 * 4) != 0) {
+    FUN_0040fbf0("SortFreeBlocks");
+    FUN_00aa7260();
+    iVar1 = *(int *)(&DAT_011f67b8 + param_1 * 4);
+    *(int *)(iVar1 + 0x24) = *(int *)(iVar1 + 0x24) + -1;
+    if (*(int *)(iVar1 + 0x24) == 0) {
+      *(undefined4 *)(iVar1 + 0x20) = 0;
+    }
+  }
+  return;
+}
+
+
+
+--- Calls FROM C10 periodic free-block callback (0x00aa7290) ---
+  0x00aa72b5 -> 0x0040fbf0 FUN_0040fbf0
+  0x00aa72c4 -> 0x00aa7260 FUN_00aa7260
+  Total: 2 calls
+
+----------------------------------------------------------------------
+Entry disassembly: C10 periodic free-block callback @ 0x00aa7290
+----------------------------------------------------------------------
+  0x00aa7290: PUSH EBP
+  0x00aa7291: MOV EBP,ESP
+  0x00aa7293: SUB ESP,0xc
+  0x00aa7296: MOV EAX,dword ptr [EBP + 0x8]
+  0x00aa7299: CMP dword ptr [EAX*0x4 + 0x11f67b8],0x0
+  0x00aa72a1: JZ 0x00aa72fa
+  0x00aa72a3: PUSH 0x10a2850
+  0x00aa72a8: MOV ECX,dword ptr [EBP + 0x8]
+  0x00aa72ab: MOV ECX,dword ptr [ECX*0x4 + 0x11f67b8]
+  0x00aa72b2: ADD ECX,0x20
+  0x00aa72b5: CALL 0x0040fbf0
+  0x00aa72ba: MOV EDX,dword ptr [EBP + 0x8]
+
+----------------------------------------------------------------------
+References TO 0x00aa7290 (C10 periodic free-block callback)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0086ef0e (in FUN_0086e650)
+  Total: 1 refs
+
+======================================================================
+C11 free-block sort implementation @ 0x00aa7260
+======================================================================
+  Function: FUN_00aa7260 @ 0x00aa7260, Size: 41 bytes
+
+void __fastcall FUN_00aa7260(int param_1)
+
+{
+  undefined4 uVar1;
+  
+  if (1 < *(uint *)(param_1 + 0x54)) {
+    uVar1 = FUN_00aa70c0(*(undefined4 *)(param_1 + 8));
+    *(undefined4 *)(param_1 + 8) = uVar1;
+  }
+  return;
+}
+
+
+
+--- Calls FROM C11 free-block sort implementation (0x00aa7260) ---
+  0x00aa727a -> 0x00aa70c0 FUN_00aa70c0
+  Total: 1 calls
+
+----------------------------------------------------------------------
+Entry disassembly: C11 free-block sort implementation @ 0x00aa7260
+----------------------------------------------------------------------
+  0x00aa7260: PUSH EBP
+  0x00aa7261: MOV EBP,ESP
+  0x00aa7263: PUSH ECX
+  0x00aa7264: MOV dword ptr [EBP + -0x4],ECX
+  0x00aa7267: MOV EAX,dword ptr [EBP + -0x4]
+  0x00aa726a: CMP dword ptr [EAX + 0x54],0x1
+  0x00aa726e: JBE 0x00aa7285
+  0x00aa7270: MOV ECX,dword ptr [EBP + -0x4]
+  0x00aa7273: MOV EDX,dword ptr [ECX + 0x8]
+  0x00aa7276: PUSH EDX
+  0x00aa7277: MOV ECX,dword ptr [EBP + -0x4]
+  0x00aa727a: CALL 0x00aa70c0
+
+----------------------------------------------------------------------
+References TO 0x00aa7260 (C11 free-block sort implementation)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00aa6fe6 (in FUN_00aa6f90)
+  UNCONDITIONAL_CALL @ 0x00aa6ed3 (in FUN_00aa6eb0)
+  UNCONDITIONAL_CALL @ 0x00aa72c4 (in FUN_00aa7290)
+  Total: 3 refs

@@ -14,6 +14,7 @@ use libpsycho::ffi::fnptr::FnPtr;
 use super::statics;
 
 const TEXTURE_CACHE_REMOVE_ADDR: usize = 0x00A61F30;
+const TEXTURE_CACHE_KEY_OFFSET: usize = 0x30;
 
 type TextureCacheRemoveFn = unsafe extern "C" fn(*mut c_void) -> u8;
 
@@ -23,6 +24,10 @@ thread_local! {
 }
 
 pub unsafe extern "fastcall" fn hook_nisourcetexture_dtor(this: *mut c_void) {
+    if this.is_null() {
+        return;
+    }
+
     let reentered = UNLINKING_TEXTURE.with(|active| active.get() == this && !this.is_null());
     if reentered {
         ORIGINAL_RAN_DURING_UNLINK.with(|ran| ran.set(true));
@@ -30,18 +35,27 @@ pub unsafe extern "fastcall" fn hook_nisourcetexture_dtor(this: *mut c_void) {
         return;
     }
 
-    let original_ran = if this.is_null() {
-        false
-    } else {
-        UNLINKING_TEXTURE.with(|active| active.set(this));
-        ORIGINAL_RAN_DURING_UNLINK.with(|ran| ran.set(false));
-        let remove = unsafe {
-            FnPtr::<TextureCacheRemoveFn>::from_address_unchecked(TEXTURE_CACHE_REMOVE_ADDR)
-        };
-        unsafe { remove.as_fn()(this) };
-        UNLINKING_TEXTURE.with(|active| active.set(core::ptr::null_mut()));
-        ORIGINAL_RAN_DURING_UNLINK.with(Cell::get)
+    // Anonymous textures, including FaceGen render textures, have no cache
+    // key and therefore cannot be present in the engine's keyed cache.
+    let cache_key = unsafe {
+        this.cast::<u8>()
+            .add(TEXTURE_CACHE_KEY_OFFSET)
+            .cast::<*const u8>()
+            .read()
     };
+    if cache_key.is_null() {
+        call_original(this);
+        return;
+    }
+
+    UNLINKING_TEXTURE.with(|active| active.set(this));
+    ORIGINAL_RAN_DURING_UNLINK.with(|ran| ran.set(false));
+    let remove = unsafe {
+        FnPtr::<TextureCacheRemoveFn>::from_address_unchecked(TEXTURE_CACHE_REMOVE_ADDR)
+    };
+    unsafe { remove.as_fn()(this) };
+    UNLINKING_TEXTURE.with(|active| active.set(core::ptr::null_mut()));
+    let original_ran = ORIGINAL_RAN_DURING_UNLINK.with(Cell::get);
 
     if !original_ran {
         call_original(this);
