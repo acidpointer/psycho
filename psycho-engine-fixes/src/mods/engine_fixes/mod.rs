@@ -49,6 +49,7 @@ pub fn install(config: &EngineFixesConfig, diagnostics: &DiagnosticsConfig) -> a
     install_linked_ref_children_stale_list(config)?;
     install_linked_ref_target_base_form(config)?;
     install_ragdoll_null_bone(config)?;
+    install_ragdoll_detached_phantom(config)?;
     install_havok_guards(config)?;
     install_memset_null_dst(config)?;
     install_lowprocess_fix(config)?;
@@ -339,6 +340,24 @@ fn install_ragdoll_null_bone(config: &EngineFixesConfig) -> anyhow::Result<()> {
     statics::RAGDOLL_SAVE_LOAD_WRITEBACK_HOOK.enable()?;
     log::info!("[RAGDOLL] Null bone-array guard active");
     log::info!("[RAGDOLL] Controller table guard active");
+    Ok(())
+}
+
+fn install_ragdoll_detached_phantom(config: &EngineFixesConfig) -> anyhow::Result<()> {
+    if !config.ragdoll_detached_phantom_guard {
+        log::info!("[RAGDOLL] Detached phantom guard disabled by config");
+        return Ok(());
+    }
+
+    unsafe {
+        statics::RAGDOLL_PENETRATION_RAYCAST_HOOK.init(
+            "ragdoll_detached_phantom_guard",
+            statics::RAGDOLL_PENETRATION_RAYCAST_ADDR as *mut c_void,
+            ragdoll::hook_ragdoll_penetration_raycast,
+        )?;
+    }
+    statics::RAGDOLL_PENETRATION_RAYCAST_HOOK.enable()?;
+    log::info!("[RAGDOLL] Detached phantom penetration guard active");
     Ok(())
 }
 

@@ -102,6 +102,12 @@ linked_ref_target_base_form_guard = true
 # frame and lets the next frame try again.
 ragdoll_null_bone_guard = true
 
+# Fixes a ragdoll penetration raycast crash when an hkpAabbPhantom remains
+# scheduled after it has detached from its Havok world. The query is
+# best-effort, so Psycho reports no hit for that frame instead of walking the
+# detached phantom's cached overlap array.
+ragdoll_detached_phantom_guard = true
+
 # Fixes a Havok crash where hkpWorld::addEntityBatch receives NULL entity
 # slots and vanilla writes through them.
 havok_add_entity_batch_null_guard = true

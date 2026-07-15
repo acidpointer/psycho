@@ -47,6 +47,7 @@ pub static LINKED_REF_TARGET_TYPE_GATE_HOOK: LazyLock<
 pub const RAGDOLL_ALTERNATE_UPDATE_ADDR: usize = 0x00C7D630;
 pub const RAGDOLL_SAVE_LOAD_WRITEBACK_ADDR: usize = 0x00C75B40;
 pub const RAGDOLL_BONE_TRANSFORM_UPDATE_ADDR: usize = 0x00C7D810;
+pub const RAGDOLL_PENETRATION_RAYCAST_ADDR: usize = 0x00CA1C50;
 
 pub static RAGDOLL_ALTERNATE_UPDATE_HOOK: LazyLock<InlineHookContainer<RagdollAlternateUpdateFn>> =
     LazyLock::new(InlineHookContainer::new);
@@ -55,6 +56,9 @@ pub static RAGDOLL_SAVE_LOAD_WRITEBACK_HOOK: LazyLock<
 > = LazyLock::new(InlineHookContainer::new);
 pub static RAGDOLL_BONE_TRANSFORM_UPDATE_HOOK: LazyLock<
     InlineHookContainer<RagdollBoneTransformUpdateFn>,
+> = LazyLock::new(InlineHookContainer::new);
+pub static RAGDOLL_PENETRATION_RAYCAST_HOOK: LazyLock<
+    InlineHookContainer<RagdollPenetrationRaycastFn>,
 > = LazyLock::new(InlineHookContainer::new);
 
 // ---- Havok sparse/invalid input guards ----

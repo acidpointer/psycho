@@ -162,6 +162,8 @@ pub struct EngineFixesConfig {
     pub linked_ref_target_base_form_guard: bool,
     /// Skip ragdoll update frames while the Havok bone pointer table is not ready.
     pub ragdoll_null_bone_guard: bool,
+    /// Treat penetration raycasts against detached Havok phantoms as no hit.
+    pub ragdoll_detached_phantom_guard: bool,
     /// Compact NULL hkpEntity slots before hkpWorld::addEntityBatch.
     pub havok_add_entity_batch_null_guard: bool,
     /// Compact NULL hkpWorld pending-add slots before flush loops use them.
@@ -191,6 +193,7 @@ impl Default for EngineFixesConfig {
             linked_ref_children_stale_list_guard: true,
             linked_ref_target_base_form_guard: true,
             ragdoll_null_bone_guard: true,
+            ragdoll_detached_phantom_guard: true,
             havok_add_entity_batch_null_guard: true,
             havok_pending_add_null_guard: true,
             havok_narrowphase_invalid_pair_guard: true,
@@ -239,6 +242,9 @@ impl EngineFixesConfig {
             ragdoll_null_bone_guard: raw
                 .ragdoll_null_bone_guard
                 .unwrap_or(default.ragdoll_null_bone_guard),
+            ragdoll_detached_phantom_guard: raw
+                .ragdoll_detached_phantom_guard
+                .unwrap_or(default.ragdoll_detached_phantom_guard),
             havok_add_entity_batch_null_guard: raw
                 .havok_add_entity_batch_null_guard
                 .unwrap_or(default.havok_add_entity_batch_null_guard),
@@ -353,6 +359,7 @@ struct RawEngineFixesConfig {
     linked_ref_children_stale_list_guard: Option<bool>,
     linked_ref_target_base_form_guard: Option<bool>,
     ragdoll_null_bone_guard: Option<bool>,
+    ragdoll_detached_phantom_guard: Option<bool>,
     havok_add_entity_batch_null_guard: Option<bool>,
     havok_pending_add_null_guard: Option<bool>,
     havok_narrowphase_invalid_pair_guard: Option<bool>,

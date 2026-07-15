@@ -42,6 +42,7 @@ const BONE_GROUP_MIN_SIZE: usize = BONE_GROUP_COUNT_OFFSET + 4;
 const MAX_BONES: usize = 512;
 
 static SKIPPED_UPDATES: AtomicU64 = AtomicU64::new(0);
+static DETACHED_PHANTOM_SKIPS: AtomicU64 = AtomicU64::new(0);
 static GUARD_CALLS: AtomicU64 = AtomicU64::new(0);
 static GUARD_SKIPS: AtomicU64 = AtomicU64::new(0);
 static GUARD_VIRTUAL_QUERIES: AtomicU64 = AtomicU64::new(0);
@@ -52,6 +53,8 @@ static DIAGNOSTIC_GUARD_CALLS: AtomicU64 = AtomicU64::new(0);
 static DIAGNOSTIC_GUARD_SKIPS: AtomicU64 = AtomicU64::new(0);
 
 const PERF_REPORT_MS: u32 = 5_000;
+const HAVOK_PHANTOM_WORLD_OFFSET: usize = 0x08;
+const HAVOK_PHANTOM_OVERLAP_COUNT_OFFSET: usize = 0xD4;
 
 pub(super) struct DiagnosticCounters {
     pub calls: u64,
@@ -132,6 +135,79 @@ pub unsafe extern "fastcall" fn hook_ragdoll_save_load_writeback(ragdoll: *mut c
     record_guard_sample(timer, false);
 
     unsafe { original(ragdoll) };
+}
+
+pub unsafe extern "thiscall" fn hook_ragdoll_penetration_raycast(
+    phantom: *mut c_void,
+    out_hit: *mut u8,
+    collision_filter: u32,
+    ray_start: *const c_void,
+    ray_end: *const c_void,
+    out_position: *mut c_void,
+    out_normal: *mut c_void,
+) {
+    if phantom.is_null() {
+        set_penetration_no_hit(out_hit);
+        log_detached_phantom(phantom, 0, "null-phantom");
+        return;
+    }
+
+    let phantom_base = phantom as usize;
+    let world = unsafe {
+        core::ptr::read_unaligned((phantom_base + HAVOK_PHANTOM_WORLD_OFFSET) as *const u32)
+    };
+    if world == 0 {
+        let overlap_count = unsafe {
+            core::ptr::read_unaligned(
+                (phantom_base + HAVOK_PHANTOM_OVERLAP_COUNT_OFFSET) as *const u32,
+            )
+        };
+        set_penetration_no_hit(out_hit);
+        log_detached_phantom(phantom, overlap_count, "detached");
+        return;
+    }
+
+    let original = match statics::RAGDOLL_PENETRATION_RAYCAST_HOOK.original() {
+        Ok(original) => original,
+        Err(error) => {
+            set_penetration_no_hit(out_hit);
+            log::error!(
+                "[RAGDOLL] FUN_00CA1C50 original trampoline missing: {:?}",
+                error
+            );
+            return;
+        }
+    };
+    unsafe {
+        original(
+            phantom,
+            out_hit,
+            collision_filter,
+            ray_start,
+            ray_end,
+            out_position,
+            out_normal,
+        )
+    };
+}
+
+fn set_penetration_no_hit(out_hit: *mut u8) {
+    if !out_hit.is_null() {
+        unsafe { core::ptr::write(out_hit, 0) };
+    }
+}
+
+fn log_detached_phantom(phantom: *mut c_void, overlap_count: u32, reason: &'static str) {
+    let total = DETACHED_PHANTOM_SKIPS.fetch_add(1, Ordering::Relaxed) + 1;
+    if diagnostics::should_log_power_of_two(total) {
+        log::warn!(
+            "[RAGDOLL] penetration raycast skipped: reason={} total={} phantom=0x{:08X} overlaps={}",
+            reason,
+            total,
+            phantom as usize,
+            overlap_count,
+        );
+    }
 }
 
 fn ragdoll_ready_for_bone_update(ragdoll: *mut c_void) -> Result<(), &'static str> {

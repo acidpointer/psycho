@@ -35,8 +35,9 @@ use libpsycho::{
         hook::inline::inlinehook::InlineHookContainer,
         memory::validate_memory_range,
         winapi::{
-            delete_file_if_exists, file_exists, get_current_thread_id,
+            delete_file_if_exists, file_exists, flush_instructions_cache, get_current_thread_id,
             move_file_replace_write_through, open_existing_file_for_flush, replace_file_atomic,
+            virtual_alloc_rwx,
         },
     },
 };
@@ -63,6 +64,11 @@ const LOAD_APPLY_ADDR: usize = 0x0084_9D00;
 const BUFFER_READ_ADDR: usize = 0x0086_4820;
 const BUFFER_PEEK_ADDR: usize = 0x0086_4A60;
 const CHANGED_RECORD_VTABLE: usize = 0x0108_2028;
+const LOAD_BASE_FORM_GUARD_ADDR: usize = 0x0084_9DE6;
+const LOAD_BASE_FORM_ID_ADDR: usize = 0x0084_E3A0;
+const LOAD_BASE_FORM_COMPARE_ADDR: usize = 0x0084_9DED;
+const LOAD_BASE_FORM_MISMATCH_ADDR: usize = 0x0084_9DF2;
+const LOAD_BASE_FORM_GUARD_BYTES: [u8; 7] = [0x8B, 0xC8, 0xE8, 0xB3, 0x45, 0x00, 0x00];
 
 const SAVE_FILE_BSFILE_OFFSET: usize = 0x104;
 const SAVE_MANAGER_PERSISTENT_FILE_OFFSET: usize = 0x20;
@@ -165,6 +171,7 @@ static SHORT_WRITES: AtomicU32 = AtomicU32::new(0);
 static CLOSE_FAILURES: AtomicU32 = AtomicU32::new(0);
 static LOAD_REJECTIONS: AtomicU32 = AtomicU32::new(0);
 static UNRESOLVED_RECORDS: AtomicU32 = AtomicU32::new(0);
+static MISSING_BASE_FORM_RECORDS: AtomicU32 = AtomicU32::new(0);
 
 pub(super) struct DiagnosticSnapshot {
     pub save_attempts: u32,
@@ -331,6 +338,7 @@ fn install_load_containment_hooks() -> anyhow::Result<()> {
         )?;
     }
 
+    install_missing_base_form_guard()?;
     LOAD_APPLY_HOOK.enable()?;
     BUFFER_READ_HOOK.enable()?;
     BUFFER_PEEK_HOOK.enable()?;
@@ -339,6 +347,93 @@ fn install_load_containment_hooks() -> anyhow::Result<()> {
     // read and apply hooks remain locally safe if another mod owns this entry.
     LOAD_OWNER_HOOK.enable()?;
     Ok(())
+}
+
+fn install_missing_base_form_guard() -> anyhow::Result<()> {
+    let stub = virtual_alloc_rwx(64).context("allocate changed-record base-form guard")?;
+    let stub_addr = stub as usize;
+    let mut code = Vec::with_capacity(64);
+
+    code.extend_from_slice(&[0x85, 0xC0]); // test eax, eax
+    code.extend_from_slice(&[0x0F, 0x85, 0, 0, 0, 0]); // jnz valid base form
+    let valid_jump_displacement = 4;
+
+    code.extend_from_slice(&[0xFF, 0x75, 0xB0]); // push dword ptr [ebp-0x50]
+    code.extend_from_slice(&[0xFF, 0x75, 0x0C]); // push dword ptr [ebp+0x0c]
+    code.push(0xE8); // call log_missing_base_form
+    code.extend_from_slice(&rel32(
+        stub_addr + code.len() + 4,
+        log_missing_base_form as *const () as usize,
+    ));
+    code.extend_from_slice(&[0x83, 0xC4, 0x08]); // add esp, 8
+    code.push(0xE9); // jmp vanilla mismatch path
+    code.extend_from_slice(&rel32(
+        stub_addr + code.len() + 4,
+        LOAD_BASE_FORM_MISMATCH_ADDR,
+    ));
+
+    let valid_base_form = stub_addr + code.len();
+    code[valid_jump_displacement..valid_jump_displacement + 4].copy_from_slice(&rel32(
+        stub_addr + valid_jump_displacement + 4,
+        valid_base_form,
+    ));
+    code.extend_from_slice(&[0x8B, 0xC8]); // mov ecx, eax
+    code.push(0xE8); // call TESForm::GetFormID
+    code.extend_from_slice(&rel32(stub_addr + code.len() + 4, LOAD_BASE_FORM_ID_ADDR));
+    code.push(0xE9); // resume vanilla comparison
+    code.extend_from_slice(&rel32(
+        stub_addr + code.len() + 4,
+        LOAD_BASE_FORM_COMPARE_ADDR,
+    ));
+
+    ensure!(
+        code.len() <= 64,
+        "changed-record base-form guard stub overflow"
+    );
+    unsafe { ptr::copy_nonoverlapping(code.as_ptr(), stub.cast::<u8>(), code.len()) };
+    flush_instructions_cache(stub, code.len()).context("flush changed-record base-form guard")?;
+
+    let mut replacement = [0x90; LOAD_BASE_FORM_GUARD_BYTES.len()];
+    replacement[0] = 0xE9;
+    replacement[1..5].copy_from_slice(&rel32(LOAD_BASE_FORM_GUARD_ADDR + 5, stub_addr));
+    unsafe {
+        patching::replace_block(
+            LOAD_BASE_FORM_GUARD_ADDR,
+            &LOAD_BASE_FORM_GUARD_BYTES,
+            &replacement,
+        )
+    }
+    .context("install changed-record null base-form guard")?;
+
+    log::info!(
+        "[SAVE] Changed-record null base-form guard active at 0x{:08X}",
+        LOAD_BASE_FORM_GUARD_ADDR,
+    );
+    Ok(())
+}
+
+unsafe extern "cdecl" fn log_missing_base_form(record: *const ChangedRecord, expected: u32) {
+    let record_form_id = if record.is_null() {
+        0
+    } else {
+        unsafe { ptr::read_unaligned(&raw const (*record).form_id) }
+    };
+    let total = MISSING_BASE_FORM_RECORDS.fetch_add(1, Ordering::Relaxed) + 1;
+    UNRESOLVED_RECORDS.fetch_add(1, Ordering::Relaxed);
+    if total == 1 || total.is_power_of_two() {
+        log::warn!(
+            "[SAVE] Changed record rejected: missing base form total={} record=0x{:08X} form_id=0x{:08X} expected=0x{:08X}",
+            total,
+            record as usize,
+            record_form_id,
+            expected,
+        );
+    }
+}
+
+fn rel32(src_after: usize, dst: usize) -> [u8; 4] {
+    let displacement = (dst as isize).wrapping_sub(src_after as isize) as i32;
+    displacement.to_le_bytes()
 }
 
 fn install_factory_validation_hooks() -> anyhow::Result<()> {
