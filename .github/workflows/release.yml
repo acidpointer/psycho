@@ -44,7 +44,7 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang gcc-mingw-w64-i686 libclang-dev unzip zip
+          sudo apt-get install -y clang gcc-mingw-w64-i686 g++-mingw-w64-i686 libclang-dev unzip zip
 
       - name: Install Rust target
         run: rustup target add i686-pc-windows-gnu
