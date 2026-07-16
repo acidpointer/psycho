@@ -180,37 +180,29 @@ rng = true
 #         is related to decompression.
 zlib = true
 
-# Cache the game's periodic nearby-radio station scan.
+# Suppress scheduler yields inside periodic nearby-radio path searches.
 #
 # In TTW Capital Wasteland, the vanilla nearby-station scan can repeatedly
-# spend tens of milliseconds in connected-interior/path checks while rotating
-# the camera or moving through some areas. Psycho caches only the periodic
-# radio worker callsite; direct station selection and menu/Pip-Boy radio
-# callers still use the vanilla scan path.
+# call Sleep(0) after every 50 expanded path nodes. Under Wine/Proton those
+# repeated yields can turn a path search into a visible hitch.
 #
-# true  = cache periodic nearby-radio scan results.
-#         Recommended for TTW and large modlists. This reduces recurring
-#         camera stutter in radio-heavy worldspaces.
+# true  = skip those yields only while the periodic radio scan is active.
+#         Station enumeration, pathfinding, distance, and result filtering all
+#         remain vanilla and run fresh on every requested refresh.
 #
-# false = use the game's original periodic scan cadence.
-#         Use this for troubleshooting if nearby radio station detection feels
-#         stale or another plugin also patches the same radio worker callsite.
-radio_signal_scan_cache = true
+# false = retain vanilla Sleep(0) behavior in radio path searches.
+radio_pathfinder_yield_fix = true
 
-# Lifetime for cached periodic nearby-radio scan results.
+# Run process-manager reconciliation before a successful load returns.
 #
-# Higher values reduce scan hitches further but delay radio signal/station
-# refresh while moving. Lower values update radio state more often but allow
-# more vanilla scan hitches through.
+# Vanilla also runs this reconciliation in the first rendered frame. Large
+# saves can accumulate enough quest, cell, and reference work to stall that
+# frame. The prepass performs the same guarded and locked engine routine while
+# the load transition is still completing, so the first frame has less backlog.
 #
-# Supported range: 500..10000 ms. Values outside this range are clamped at
-# startup and logged.
-#
-# Recommended: 2000 ms. Do not set this below 500 ms unless you are explicitly
-# testing the vanilla scan cost; too-short TTLs can bring back recurring
-# Capital Wasteland stutter. Do not set this above 10000 ms for normal play;
-# too-long TTLs can make nearby station availability feel stale.
-radio_signal_scan_cache_ttl_ms = 2000
+# true  = perform the additional reconciliation pass after a successful load.
+# false = leave all reconciliation on the vanilla schedule.
+post_load_reconciliation_prepass = true
 
 [diagnostics]
 # Open a Windows console for live log output.

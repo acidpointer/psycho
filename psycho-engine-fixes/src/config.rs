@@ -103,10 +103,13 @@ pub struct PerformanceConfig {
     pub rng: bool,
     /// Replace zlib decompression.
     pub zlib: bool,
-    /// Cache periodic nearby-radio scans to avoid TTW Capital Wasteland stutter.
-    pub radio_signal_scan_cache: bool,
-    /// Cache lifetime for periodic nearby-radio scan results, clamped to 500..=10000ms by the hook.
-    pub radio_signal_scan_cache_ttl_ms: u32,
+    /// Suppress Sleep(0) yields only during periodic nearby-radio path searches.
+    pub radio_pathfinder_yield_fix: bool,
+    /// Drain post-load process reconciliation before returning from a successful load.
+    pub post_load_reconciliation_prepass: bool,
+    /// Existing configs may still contain the removed radio scan cache settings.
+    #[serde(skip)]
+    pub legacy_radio_scan_cache_configured: bool,
 }
 
 impl Default for PerformanceConfig {
@@ -114,8 +117,9 @@ impl Default for PerformanceConfig {
         Self {
             rng: true,
             zlib: true,
-            radio_signal_scan_cache: true,
-            radio_signal_scan_cache_ttl_ms: 2_000,
+            radio_pathfinder_yield_fix: true,
+            post_load_reconciliation_prepass: true,
+            legacy_radio_scan_cache_configured: false,
         }
     }
 }
@@ -134,12 +138,14 @@ impl PerformanceConfig {
         Self {
             rng: raw.rng.or(legacy_perf.rng).unwrap_or(default.rng),
             zlib: raw.zlib.or(legacy_zlib.enabled).unwrap_or(default.zlib),
-            radio_signal_scan_cache: raw
-                .radio_signal_scan_cache
-                .unwrap_or(default.radio_signal_scan_cache),
-            radio_signal_scan_cache_ttl_ms: raw
-                .radio_signal_scan_cache_ttl_ms
-                .unwrap_or(default.radio_signal_scan_cache_ttl_ms),
+            radio_pathfinder_yield_fix: raw
+                .radio_pathfinder_yield_fix
+                .unwrap_or(default.radio_pathfinder_yield_fix),
+            post_load_reconciliation_prepass: raw
+                .post_load_reconciliation_prepass
+                .unwrap_or(default.post_load_reconciliation_prepass),
+            legacy_radio_scan_cache_configured: raw.radio_signal_scan_cache.is_some()
+                || raw.radio_signal_scan_cache_ttl_ms.is_some(),
         }
     }
 }
@@ -342,6 +348,9 @@ struct RawMemoryConfig {
 struct RawPerformanceConfig {
     rng: Option<bool>,
     zlib: Option<bool>,
+    radio_pathfinder_yield_fix: Option<bool>,
+    post_load_reconciliation_prepass: Option<bool>,
+    /// Removed keys retained only so startup can explain that they are ignored.
     radio_signal_scan_cache: Option<bool>,
     radio_signal_scan_cache_ttl_ms: Option<u32>,
     /// Legacy key. New configs use engine_fixes.display_alt_tab.

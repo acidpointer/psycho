@@ -1,14 +1,15 @@
-//! Radio nearby-station scan cache.
+//! Radio pathfinder yield optimization.
 //!
-//! TTW Capital Wasteland can make the periodic radio worker spend tens of
-//! milliseconds in Radio::GetNearbyStations. Ghidra shows the hot recurring
-//! caller is one callsite in FUN_00833d00; cold station-selection/menu callers
-//! must stay vanilla.
+//! TTW Capital Wasteland can expand enough path nodes during a periodic radio
+//! scan to call Sleep(0) repeatedly. The scan and path algorithm stay vanilla;
+//! only that scheduler yield is suppressed while the periodic scan is active.
 
-use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
+use std::{
+    cell::Cell,
+    sync::atomic::{AtomicU32, AtomicU64, Ordering},
+};
 
 use libc::c_void;
-use parking_lot::Mutex;
 
 use libpsycho::{
     ffi::fnptr::FnPtr,
@@ -19,168 +20,51 @@ use crate::mods::diagnostics;
 
 const PERIODIC_RADIO_SCAN_CALL_ADDR: usize = 0x00833D86;
 const RADIO_SIGNAL_SCAN_ADDR: usize = 0x004FF1A0;
-const STATION_LIST_APPEND_ADDR: usize = 0x005AE3D0;
-const META_LIST_APPEND_ADDR: usize = 0x004FF980;
-
-const LOADING_FLAG_ADDR: usize = 0x011DEA2B;
-const RADIO_CURRENT_ENTRY_ADDR: usize = 0x011DD42C;
-const RADIO_LOST_ENTRY_ADDR: usize = 0x011DD430;
-const RADIO_ENABLED_ADDR: usize = 0x011DD434;
-const RADIO_DISABLED_GATE_ADDR: usize = 0x011DD436;
-const RADIO_TRANSITION_GATE_ADDR: usize = 0x011DD437;
-const RADIO_SCAN_LIST_ADDR: usize = 0x011C8264;
-const RADIO_REGISTERED_LIST_ADDR: usize = 0x011DD554;
-const FLOAT_LIST_EMPTY_SENTINEL_ADDR: usize = 0x01012060;
-
-const MIN_CACHE_TTL_MS: u32 = 500;
-const DEFAULT_CACHE_TTL_MS: u32 = 2_000;
-const MAX_CACHE_TTL_MS: u32 = 10_000;
+const PATHFINDER_YIELD_CALL_ADDR: usize = 0x006F41C5;
+const SLEEP_WRAPPER_ADDR: usize = 0x0040FCA0;
 const SUMMARY_INTERVAL_MS: u32 = 10_000;
-const MAX_CACHED_STATIONS: usize = 256;
-const REL_CALL_OPCODE: u8 = 0xE8;
 
 type RadioSignalScanFn = unsafe extern "C" fn(*mut c_void, *mut c_void, *mut c_void);
-type StationListAppendFn = unsafe extern "thiscall" fn(*mut PointerList, *const *mut c_void);
-type MetaListAppendFn = unsafe extern "thiscall" fn(*mut FloatList, *const f32);
+type SleepFn = unsafe extern "C" fn(u32);
 
-#[repr(C)]
-struct PointerList {
-    value: *mut c_void,
-    next: *mut PointerList,
+thread_local! {
+    static RADIO_SCAN_DEPTH: Cell<u32> = const { Cell::new(0) };
 }
 
-#[repr(C)]
-struct FloatList {
-    value: f32,
-    next: *mut FloatList,
-}
-
-#[derive(Clone, Copy, Default, Eq, PartialEq)]
-struct CacheKey {
-    current_ref: usize,
-    radio_current_entry: usize,
-    radio_lost_entry: usize,
-    radio_scan_head: usize,
-    radio_scan_next: usize,
-    registered_head: usize,
-    registered_next: usize,
-    loading: u8,
-    radio_enabled: u8,
-    disabled_gate: u8,
-    transition_gate: u8,
-}
-
-#[derive(Clone, Copy)]
-struct CacheSnapshot {
-    count: usize,
-    stations: [usize; MAX_CACHED_STATIONS],
-    meta_bits: [u32; MAX_CACHED_STATIONS],
-}
-
-impl CacheSnapshot {
-    const fn empty() -> Self {
-        Self {
-            count: 0,
-            stations: [0; MAX_CACHED_STATIONS],
-            meta_bits: [0; MAX_CACHED_STATIONS],
-        }
-    }
-}
-
-struct RadioScanCache {
-    valid: bool,
-    filled_at_ms: u32,
-    key: CacheKey,
-    snapshot: CacheSnapshot,
-}
-
-impl RadioScanCache {
-    const fn new() -> Self {
-        Self {
-            valid: false,
-            filled_at_ms: 0,
-            key: CacheKey {
-                current_ref: 0,
-                radio_current_entry: 0,
-                radio_lost_entry: 0,
-                radio_scan_head: 0,
-                radio_scan_next: 0,
-                registered_head: 0,
-                registered_next: 0,
-                loading: 0,
-                radio_enabled: 0,
-                disabled_gate: 0,
-                transition_gate: 0,
-            },
-            snapshot: CacheSnapshot::empty(),
-        }
-    }
-
-    fn get(&self, key: CacheKey, now_ms: u32, ttl_ms: u32) -> Option<CacheSnapshot> {
-        if !self.valid {
-            return None;
-        }
-        if self.key != key {
-            return None;
-        }
-        if now_ms.wrapping_sub(self.filled_at_ms) >= ttl_ms {
-            return None;
-        }
-        Some(self.snapshot)
-    }
-
-    fn replace(&mut self, key: CacheKey, now_ms: u32, snapshot: CacheSnapshot) {
-        self.valid = true;
-        self.filled_at_ms = now_ms;
-        self.key = key;
-        self.snapshot = snapshot;
-    }
-
-    fn invalidate(&mut self) {
-        self.valid = false;
-        self.snapshot.count = 0;
-    }
-}
-
-static CACHE: Mutex<RadioScanCache> = Mutex::new(RadioScanCache::new());
-
-static HITS: AtomicUsize = AtomicUsize::new(0);
-static MISSES: AtomicUsize = AtomicUsize::new(0);
-static BYPASSES: AtomicUsize = AtomicUsize::new(0);
-static LOADING_SUPPRESSIONS: AtomicUsize = AtomicUsize::new(0);
-static CAPTURE_FAILS: AtomicUsize = AtomicUsize::new(0);
-static LAST_ENTRY_COUNT: AtomicUsize = AtomicUsize::new(0);
+static SCANS: AtomicU64 = AtomicU64::new(0);
+static SUPPRESSED_YIELDS: AtomicU64 = AtomicU64::new(0);
+static SCAN_TOTAL_US: AtomicU64 = AtomicU64::new(0);
+static SCAN_MAX_US: AtomicU64 = AtomicU64::new(0);
 static LAST_SUMMARY_MS: AtomicU32 = AtomicU32::new(0);
-static CACHE_TTL_MS: AtomicU32 = AtomicU32::new(DEFAULT_CACHE_TTL_MS);
-static VANILLA_SCAN_TOTAL_US: AtomicUsize = AtomicUsize::new(0);
-static VANILLA_SCAN_MAX_US: AtomicUsize = AtomicUsize::new(0);
-static REPLAY_TOTAL_US: AtomicUsize = AtomicUsize::new(0);
-static REPLAY_MAX_US: AtomicUsize = AtomicUsize::new(0);
 
-pub fn install_radio_signal_scan_cache(ttl_ms: u32) -> anyhow::Result<()> {
-    let opcode = read_u8(PERIODIC_RADIO_SCAN_CALL_ADDR);
-    if opcode != REL_CALL_OPCODE {
-        return Err(anyhow::anyhow!(
-            "radio scan cache callsite mismatch at 0x{:08x}: expected CALL 0x{:02x}, found 0x{:02x}",
-            PERIODIC_RADIO_SCAN_CALL_ADDR,
-            REL_CALL_OPCODE,
-            opcode
-        ));
+struct RadioScanScope;
+
+impl RadioScanScope {
+    fn enter() -> Self {
+        RADIO_SCAN_DEPTH.with(|depth| depth.set(depth.get().saturating_add(1)));
+        Self
     }
 
-    let effective_ttl_ms = ttl_ms.clamp(MIN_CACHE_TTL_MS, MAX_CACHE_TTL_MS);
-    if effective_ttl_ms != ttl_ms {
-        log::warn!(
-            "[RADIO] radio_signal_scan_cache_ttl_ms={} is outside supported range {}..={}ms; using {}ms",
-            ttl_ms,
-            MIN_CACHE_TTL_MS,
-            MAX_CACHE_TTL_MS,
-            effective_ttl_ms
-        );
+    fn is_active() -> bool {
+        RADIO_SCAN_DEPTH.with(|depth| depth.get() != 0)
     }
-    CACHE_TTL_MS.store(effective_ttl_ms, Ordering::Relaxed);
+}
+
+impl Drop for RadioScanScope {
+    fn drop(&mut self) {
+        RADIO_SCAN_DEPTH.with(|depth| depth.set(depth.get().saturating_sub(1)));
+    }
+}
+
+pub fn install_radio_pathfinder_yield_fix() -> anyhow::Result<()> {
+    verify_rel_call(PERIODIC_RADIO_SCAN_CALL_ADDR, RADIO_SIGNAL_SCAN_ADDR)?;
+    verify_rel_call(PATHFINDER_YIELD_CALL_ADDR, SLEEP_WRAPPER_ADDR)?;
 
     unsafe {
+        replace_call(
+            PATHFINDER_YIELD_CALL_ADDR as *mut c_void,
+            hook_pathfinder_yield as *mut c_void,
+        )?;
         replace_call(
             PERIODIC_RADIO_SCAN_CALL_ADDR as *mut c_void,
             hook_periodic_radio_signal_scan as *mut c_void,
@@ -188,242 +72,85 @@ pub fn install_radio_signal_scan_cache(ttl_ms: u32) -> anyhow::Result<()> {
     }
 
     log::info!(
-        "[RADIO] Periodic nearby-station scan cache active: callsite=0x{:08x} ttl={}ms",
+        "[RADIO] Pathfinder yield fix active: scan_call=0x{:08X} yield_call=0x{:08X}",
         PERIODIC_RADIO_SCAN_CALL_ADDR,
-        effective_ttl_ms
+        PATHFINDER_YIELD_CALL_ADDR,
     );
     Ok(())
 }
 
-pub unsafe extern "C" fn hook_periodic_radio_signal_scan(
-    current_ref: *mut c_void,
-    out_stations: *mut c_void,
-    out_meta: *mut c_void,
-) {
-    let now_ms = get_tick_count();
-    maybe_log_summary(now_ms);
-
-    if current_ref.is_null() || out_stations.is_null() || out_meta.is_null() {
-        BYPASSES.fetch_add(1, Ordering::Relaxed);
-        invalidate_cache();
-        unsafe { call_vanilla_radio_scan_timed(current_ref, out_stations, out_meta) };
-        return;
-    }
-
-    let key = read_key(current_ref);
-    if key.loading != 0 {
-        // The caller constructs empty output lists before this call. During a
-        // load, references and navigation data are still being reconciled, so
-        // neither replaying pointer snapshots nor running pathfinding is safe.
-        // Leave the lists empty and rebuild on the first post-load scan.
-        LOADING_SUPPRESSIONS.fetch_add(1, Ordering::Relaxed);
-        invalidate_cache();
-        return;
-    }
-    if key.disabled_gate != 0 || key.transition_gate != 0 {
-        BYPASSES.fetch_add(1, Ordering::Relaxed);
-        invalidate_cache();
-        unsafe { call_vanilla_radio_scan_timed(current_ref, out_stations, out_meta) };
-        return;
-    }
-
-    let ttl_ms = CACHE_TTL_MS.load(Ordering::Relaxed);
-    let cached = CACHE.lock().get(key, now_ms, ttl_ms);
-
-    if let Some(snapshot) = cached {
-        HITS.fetch_add(1, Ordering::Relaxed);
-        LAST_ENTRY_COUNT.store(snapshot.count, Ordering::Relaxed);
-        let timer = diagnostics::Stopwatch::start_if_hitch_profiling();
-        unsafe { replay_snapshot(snapshot, out_stations.cast(), out_meta.cast()) };
-        record_timing(timer, &REPLAY_TOTAL_US, &REPLAY_MAX_US);
-        return;
-    }
-
-    MISSES.fetch_add(1, Ordering::Relaxed);
-    unsafe { call_vanilla_radio_scan_timed(current_ref, out_stations, out_meta) };
-
-    match unsafe { capture_snapshot(out_stations.cast(), out_meta.cast()) } {
-        Some(snapshot) => {
-            LAST_ENTRY_COUNT.store(snapshot.count, Ordering::Relaxed);
-            CACHE.lock().replace(key, now_ms, snapshot);
-        }
-        None => {
-            CAPTURE_FAILS.fetch_add(1, Ordering::Relaxed);
-            invalidate_cache();
-        }
-    }
-}
-
-fn invalidate_cache() {
-    CACHE.lock().invalidate();
-}
-
-fn read_key(current_ref: *mut c_void) -> CacheKey {
-    CacheKey {
-        current_ref: current_ref as usize,
-        radio_current_entry: read_usize(RADIO_CURRENT_ENTRY_ADDR),
-        radio_lost_entry: read_usize(RADIO_LOST_ENTRY_ADDR),
-        radio_scan_head: read_usize(RADIO_SCAN_LIST_ADDR),
-        radio_scan_next: read_usize(RADIO_SCAN_LIST_ADDR + 4),
-        registered_head: read_usize(RADIO_REGISTERED_LIST_ADDR),
-        registered_next: read_usize(RADIO_REGISTERED_LIST_ADDR + 4),
-        loading: read_u8(LOADING_FLAG_ADDR),
-        radio_enabled: read_u8(RADIO_ENABLED_ADDR),
-        disabled_gate: read_u8(RADIO_DISABLED_GATE_ADDR),
-        transition_gate: read_u8(RADIO_TRANSITION_GATE_ADDR),
-    }
-}
-
-unsafe fn call_vanilla_radio_scan(
-    current_ref: *mut c_void,
-    out_stations: *mut c_void,
-    out_meta: *mut c_void,
-) {
-    let scan =
-        unsafe { FnPtr::<RadioSignalScanFn>::from_address_unchecked(RADIO_SIGNAL_SCAN_ADDR) }
-            .as_fn();
-    unsafe { scan(current_ref, out_stations, out_meta) };
-}
-
-unsafe fn call_vanilla_radio_scan_timed(
+unsafe extern "C" fn hook_periodic_radio_signal_scan(
     current_ref: *mut c_void,
     out_stations: *mut c_void,
     out_meta: *mut c_void,
 ) {
     let timer = diagnostics::Stopwatch::start_if_hitch_profiling();
-    unsafe { call_vanilla_radio_scan(current_ref, out_stations, out_meta) };
-    record_timing(timer, &VANILLA_SCAN_TOTAL_US, &VANILLA_SCAN_MAX_US);
-}
-
-fn record_timing(timer: diagnostics::Stopwatch, total: &AtomicUsize, max: &AtomicUsize) {
-    let Some(elapsed_us) = timer.elapsed_us() else {
-        return;
-    };
-    let elapsed_us = elapsed_us.min(usize::MAX as u64) as usize;
-    total.fetch_add(elapsed_us, Ordering::Relaxed);
-    let mut previous = max.load(Ordering::Relaxed);
-    while elapsed_us > previous {
-        match max.compare_exchange_weak(previous, elapsed_us, Ordering::Relaxed, Ordering::Relaxed)
-        {
-            Ok(_) => break,
-            Err(next) => previous = next,
-        }
-    }
-}
-
-unsafe fn replay_snapshot(
-    snapshot: CacheSnapshot,
-    out_stations: *mut PointerList,
-    out_meta: *mut FloatList,
-) {
-    let append_station =
-        unsafe { FnPtr::<StationListAppendFn>::from_address_unchecked(STATION_LIST_APPEND_ADDR) }
+    let scope = RadioScanScope::enter();
+    let scan =
+        unsafe { FnPtr::<RadioSignalScanFn>::from_address_unchecked(RADIO_SIGNAL_SCAN_ADDR) }
             .as_fn();
-    let append_meta =
-        unsafe { FnPtr::<MetaListAppendFn>::from_address_unchecked(META_LIST_APPEND_ADDR) }.as_fn();
+    unsafe { scan(current_ref, out_stations, out_meta) };
+    drop(scope);
 
-    for i in (0..snapshot.count).rev() {
-        let station = snapshot.stations[i] as *mut c_void;
-        let meta = f32::from_bits(snapshot.meta_bits[i]);
-
-        unsafe { append_station(out_stations, &station) };
-        unsafe { append_meta(out_meta, &meta) };
+    SCANS.fetch_add(1, Ordering::Relaxed);
+    if let Some(elapsed_us) = timer.elapsed_us() {
+        SCAN_TOTAL_US.fetch_add(elapsed_us, Ordering::Relaxed);
+        diagnostics::update_max_u64(&SCAN_MAX_US, elapsed_us);
     }
+    maybe_log_summary();
 }
 
-unsafe fn capture_snapshot(
-    out_stations: *const PointerList,
-    out_meta: *const FloatList,
-) -> Option<CacheSnapshot> {
-    let sentinel = read_f32_bits(FLOAT_LIST_EMPTY_SENTINEL_ADDR);
-    let mut snapshot = CacheSnapshot::empty();
-    let mut station_node = out_stations;
-    let mut meta_node = out_meta;
-
-    loop {
-        if station_node.is_null() || meta_node.is_null() {
-            return None;
-        }
-
-        let station =
-            unsafe { core::ptr::read_unaligned(core::ptr::addr_of!((*station_node).value)) };
-        if station.is_null() {
-            if snapshot.count == 0 {
-                return Some(snapshot);
-            }
-            return None;
-        }
-
-        if snapshot.count >= MAX_CACHED_STATIONS {
-            return None;
-        }
-
-        let meta = unsafe { core::ptr::read_unaligned(core::ptr::addr_of!((*meta_node).value)) };
-        let meta_bits = meta.to_bits();
-        if meta_bits == sentinel {
-            return None;
-        }
-
-        snapshot.stations[snapshot.count] = station as usize;
-        snapshot.meta_bits[snapshot.count] = meta_bits;
-        snapshot.count += 1;
-
-        let next_station =
-            unsafe { core::ptr::read_unaligned(core::ptr::addr_of!((*station_node).next)) };
-        let next_meta =
-            unsafe { core::ptr::read_unaligned(core::ptr::addr_of!((*meta_node).next)) };
-        if next_station.is_null() && next_meta.is_null() {
-            return Some(snapshot);
-        }
-        if next_station.is_null() || next_meta.is_null() {
-            return None;
-        }
-
-        station_node = next_station;
-        meta_node = next_meta;
-    }
-}
-
-fn maybe_log_summary(now_ms: u32) {
-    if !log::log_enabled!(log::Level::Debug) {
+unsafe extern "C" fn hook_pathfinder_yield(milliseconds: u32) {
+    if milliseconds == 0 && RadioScanScope::is_active() {
+        SUPPRESSED_YIELDS.fetch_add(1, Ordering::Relaxed);
         return;
     }
 
-    let last = LAST_SUMMARY_MS.load(Ordering::Relaxed);
-    if now_ms.wrapping_sub(last) < SUMMARY_INTERVAL_MS {
+    let sleep = unsafe { FnPtr::<SleepFn>::from_address_unchecked(SLEEP_WRAPPER_ADDR) }.as_fn();
+    unsafe { sleep(milliseconds) };
+}
+
+fn verify_rel_call(call_addr: usize, expected_target: usize) -> anyhow::Result<()> {
+    let opcode = unsafe { core::ptr::read_volatile(call_addr as *const u8) };
+    if opcode != 0xE8 {
+        return Err(anyhow::anyhow!(
+            "callsite mismatch at 0x{call_addr:08X}: expected CALL opcode 0xE8, found 0x{opcode:02X}"
+        ));
+    }
+
+    let displacement = unsafe { core::ptr::read_unaligned((call_addr + 1) as *const i32) };
+    let observed_target = call_addr
+        .wrapping_add(5)
+        .wrapping_add_signed(displacement as isize);
+    if observed_target != expected_target {
+        return Err(anyhow::anyhow!(
+            "callsite mismatch at 0x{call_addr:08X}: expected target 0x{expected_target:08X}, found 0x{observed_target:08X}"
+        ));
+    }
+
+    Ok(())
+}
+
+fn maybe_log_summary() {
+    if !diagnostics::hitch_profiling_enabled() || !log::log_enabled!(log::Level::Debug) {
         return;
     }
-    if LAST_SUMMARY_MS
-        .compare_exchange(last, now_ms, Ordering::AcqRel, Ordering::Relaxed)
-        .is_err()
+
+    let now = get_tick_count();
+    let last = LAST_SUMMARY_MS.load(Ordering::Acquire);
+    if now.wrapping_sub(last) < SUMMARY_INTERVAL_MS
+        || LAST_SUMMARY_MS
+            .compare_exchange(last, now, Ordering::AcqRel, Ordering::Relaxed)
+            .is_err()
     {
         return;
     }
 
     log::debug!(
-        "[RADIO] scan_cache hits={} misses={} bypasses={} loading_suppressions={} capture_fails={} last_entries={} ttl_ms={} vanilla_us={}/{} replay_us={}/{}",
-        HITS.load(Ordering::Relaxed),
-        MISSES.load(Ordering::Relaxed),
-        BYPASSES.load(Ordering::Relaxed),
-        LOADING_SUPPRESSIONS.load(Ordering::Relaxed),
-        CAPTURE_FAILS.load(Ordering::Relaxed),
-        LAST_ENTRY_COUNT.load(Ordering::Relaxed),
-        CACHE_TTL_MS.load(Ordering::Relaxed),
-        VANILLA_SCAN_TOTAL_US.load(Ordering::Relaxed),
-        VANILLA_SCAN_MAX_US.load(Ordering::Relaxed),
-        REPLAY_TOTAL_US.load(Ordering::Relaxed),
-        REPLAY_MAX_US.load(Ordering::Relaxed),
+        "[RADIO] scans={} suppressed_yields={} scan_us={}/{}",
+        SCANS.load(Ordering::Relaxed),
+        SUPPRESSED_YIELDS.load(Ordering::Relaxed),
+        SCAN_MAX_US.load(Ordering::Relaxed),
+        SCAN_TOTAL_US.load(Ordering::Relaxed),
     );
-}
-
-fn read_u8(addr: usize) -> u8 {
-    unsafe { core::ptr::read_volatile(addr as *const u8) }
-}
-
-fn read_usize(addr: usize) -> usize {
-    unsafe { core::ptr::read_volatile(addr as *const usize) }
-}
-
-fn read_f32_bits(addr: usize) -> u32 {
-    unsafe { core::ptr::read_volatile(addr as *const f32).to_bits() }
 }
