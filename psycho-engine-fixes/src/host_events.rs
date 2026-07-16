@@ -3,7 +3,10 @@
 //! `psycho-engine-fixes-helper` translates xNVSE messages into this small ABI.
 //! Keep it independent from xNVSE types so the core DLL remains loader-driven.
 
-use crate::mods::engine_fixes::observe_event as observe_engine_fix_event;
+use crate::mods::{
+    engine_fixes::observe_event as observe_engine_fix_event,
+    perf::observe_event as observe_perf_event,
+};
 
 #[unsafe(no_mangle)]
 pub unsafe extern "system" fn PsychoEngineFixes_NotifyEvent(
@@ -17,6 +20,7 @@ pub unsafe extern "system" fn PsychoEngineFixes_NotifyEvent(
     }
 
     observe_engine_fix_event(kind);
+    observe_perf_event(kind);
 
     if kind == crate::events::DEFERRED_INIT {
         log::info!("[EVENT] Game engine ready");

@@ -346,11 +346,10 @@ disable the named telemetry. The full `[engine_fixes]` list is explained in the
 | `memory.allocator` | `2` | Selects vanilla heaps (`0`), `scrap_heap` only (`1`), or `gheap + scrap_heap` (`2`). | Use `1` when full gheap has compatibility or address-space problems; use `0` for an allocator-free comparison. |
 | `performance.rng` | `true` | Replaces the heavily used game RNG with the faster compatible path. | Set `false` when comparing RNG behavior or another plugin patches the same function. |
 | `performance.zlib` | `true` | Uses the faster decompression path for compressed game data. It does not change asset quality or save contents. | Set `false` when isolating a startup, resource-load, or decompression conflict. |
-| `performance.radio_pathfinder_yield_fix` | `true` | Suppresses `Sleep(0)` calls only during periodic nearby-radio path searches. Every station refresh and path result remains fresh. | Set `false` to restore vanilla radio pathfinder yielding. |
 | `performance.post_load_reconciliation_prepass` | `true` | Runs the engine's guarded process reconciliation once before a successful load returns, moving backlog work out of the first rendered frame. | Set `false` to retain the vanilla reconciliation schedule. |
 | `diagnostics.console` | `false` | Opens a Windows console and mirrors live log output. | Enable for startup research or when early loader messages are needed. |
 | `diagnostics.debug_log` | `true` | Writes detailed startup, allocator, memory-pressure, OOM, and guard diagnostics. | Keep enabled for bug reports; disable only for a deliberately quieter log. |
-| `diagnostics.hitch_profiling` | `false` | Adds high-resolution timing around engine spans and emits `[HITCH]` reports. | Enable only during a focused hitch reproduction because it adds timing work to hot hooks. |
+| `diagnostics.hitch_profiling` | `false` | Adds high-resolution timing around engine spans and emits `[HITCH]` reports plus detailed `[RADIO_SCAN]` attribution for slow periodic scans. | Enable only during a focused hitch reproduction because it adds timing work to hot hooks. |
 | `diagnostics.task_lifetime_trace` | `false` | Records queued-task retain, release, and dispatch provenance in a fixed ring. | Enable only for focused queued-task crash research. Production lifetime guards do not require it. |
 
 ### Allocator modes

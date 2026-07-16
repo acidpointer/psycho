@@ -180,19 +180,6 @@ rng = true
 #         is related to decompression.
 zlib = true
 
-# Suppress scheduler yields inside periodic nearby-radio path searches.
-#
-# In TTW Capital Wasteland, the vanilla nearby-station scan can repeatedly
-# call Sleep(0) after every 50 expanded path nodes. Under Wine/Proton those
-# repeated yields can turn a path search into a visible hitch.
-#
-# true  = skip those yields only while the periodic radio scan is active.
-#         Station enumeration, pathfinding, distance, and result filtering all
-#         remain vanilla and run fresh on every requested refresh.
-#
-# false = retain vanilla Sleep(0) behavior in radio path searches.
-radio_pathfinder_yield_fix = true
-
 # Run process-manager reconciliation before a successful load returns.
 #
 # Vanilla also runs this reconciliation in the first rendered frame. Large
@@ -245,11 +232,12 @@ debug_log = true
 # hot engine hooks, which is useful for a short hitch investigation but is not
 # needed for normal play or ordinary stability logs.
 #
-# true  = emit [HITCH] reports with per-span timings. Use only while reproducing
-#         a specific hitch.
+# true  = emit [HITCH] reports with per-span timings. Slow periodic radio scans
+#         also emit [RADIO_SCAN] mode/query/traversal/door-policy attribution.
+#         Use only while reproducing a specific hitch.
 # false = keep low-overhead hang, memory, and guard diagnostics without per-frame
 #         timing work. Recommended for normal play.
-hitch_profiling = false
+hitch_profiling = true
 
 # Record queued-task retain/release/dispatch provenance in a fixed ring.
 # Keep disabled outside focused crash research; production guards do not need it.

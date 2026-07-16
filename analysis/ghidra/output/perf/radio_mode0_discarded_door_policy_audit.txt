@@ -1,0 +1,609 @@
+RADIO MODE-0 DISCARDED DOOR POLICY AUDIT
+
+Runtime facts:
+  Candidate enumeration replayed 6253 pointers across 1456 hits
+  but active scans remained 42-44 ms with 1941 provider calls.
+  Prove the exact radio query parameters and whether disposition 3
+  makes door policy setup and accessibility results observationally dead.
+
+======================================================================
+mode-0 radio distance wrapper and argument forwarding @ 0x006d4eb0
+======================================================================
+  Function: FUN_006d4eb0 @ 0x006d4eb0, Size: 171 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+float10 FUN_006d4eb0(undefined4 param_1,undefined4 param_2,undefined4 param_3,undefined4 param_4,
+                    undefined4 param_5)
+
+{
+  float fVar1;
+  char cVar2;
+  uint uVar3;
+  int *unaff_FS_OFFSET;
+  float10 fVar4;
+  CMemoryDC local_48 [56];
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00f04de8;
+  local_10 = *unaff_FS_OFFSET;
+  uVar3 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  FUN_006f48b0(uVar3);
+  local_8 = 0;
+  cVar2 = FUN_006d4d20(param_1,param_2,local_48,0,param_3,param_4,param_5);
+  fVar1 = _DAT_01016970;
+  if (cVar2 == '\0') {
+    local_8 = 0xffffffff;
+    AfxRibbonCollector::CMemoryDC::~CMemoryDC(local_48);
+  }
+  else {
+    fVar4 = (float10)FUN_006f49c0();
+    fVar1 = (float)fVar4;
+    local_8 = 0xffffffff;
+    AfxRibbonCollector::CMemoryDC::~CMemoryDC(local_48);
+  }
+  *unaff_FS_OFFSET = local_10;
+  return (float10)fVar1;
+}
+
+
+
+--- Calls FROM mode-0 radio distance wrapper and argument forwarding (0x006d4eb0) ---
+  0x006d4ed8 -> 0x006f48b0 FUN_006f48b0
+  0x006d4f01 -> 0x006d4d20 FUN_006d4d20
+  0x006d4f13 -> 0x006f49c0 FUN_006f49c0
+  0x006d4f25 -> 0x006f4930 ~CMemoryDC
+  0x006d4f44 -> 0x006f4930 ~CMemoryDC
+  Total: 5 calls
+
+======================================================================
+query field initialization @ 0x006f34e0
+======================================================================
+  Function: FUN_006f34e0 @ 0x006f34e0, Size: 493 bytes
+
+undefined4 __thiscall
+FUN_006f34e0(int param_1,undefined4 param_2,undefined4 param_3,int param_4,int param_5,
+            undefined4 param_6,undefined4 param_7,undefined4 param_8)
+
+{
+  char cVar1;
+  int iVar2;
+  undefined4 uVar3;
+  undefined4 *puVar4;
+  undefined1 local_20 [12];
+  undefined1 local_14 [12];
+  undefined4 local_8;
+  
+  FUN_006dcce0(param_2);
+  iVar2 = FUN_00441110();
+  if (iVar2 == 0) {
+    iVar2 = FUN_006dd4f0();
+    if (iVar2 == 0) {
+      return 0;
+    }
+    uVar3 = FUN_006dd4f0();
+    *(undefined4 *)(param_1 + 0x2060) = uVar3;
+    *(undefined1 *)(param_1 + 0x2058) = 0;
+    *(undefined4 *)(param_1 + 0x205c) = 0;
+    local_8 = *(undefined4 *)(param_1 + 0x2060);
+  }
+  else {
+    uVar3 = FUN_00441110();
+    *(undefined4 *)(param_1 + 0x205c) = uVar3;
+    *(undefined1 *)(param_1 + 0x2058) = 1;
+    *(undefined4 *)(param_1 + 0x2060) = 0;
+    local_8 = *(undefined4 *)(param_1 + 0x205c);
+  }
+  *(int *)(param_1 + 0x2098) = param_5;
+  if ((*(int *)(param_1 + 0x205c) == 0) || (param_5 != 2)) {
+    *(undefined4 *)(param_1 + 0x209c) = param_6;
+    *(undefined4 *)(param_1 + 0x20b4) = param_8;
+    if (*(int *)(param_1 + 0x2098) != 3) {
+      iVar2 = FUN_00441110();
+      if (iVar2 == 0) {
+        iVar2 = FUN_006dd4f0();
+        if (iVar2 != 0) {
+          uVar3 = FUN_006dd4f0();
+          *(undefined4 *)(param_1 + 0x2094) = uVar3;
+          *(undefined1 *)(param_1 + 0x208c) = 0;
+          *(undefined4 *)(param_1 + 0x2090) = 0;
+        }
+      }
+      else {
+        uVar3 = FUN_00441110();
+        *(undefined4 *)(param_1 + 0x2090) = uVar3;
+        *(undefined1 *)(param_1 + 0x208c) = 1;
+        *(undefined4 *)(param_1 + 0x2094) = 0;
+      }
+    }
+    *(undefined4 *)(param_1 + 0x20a0) = param_7;
+    puVar4 = (undefined4 *)FUN_005c3420(local_14);
+    *(undefined4 *)(param_4 + 0x20) = *puVar4;
+    *(undefined4 *)(param_4 + 0x24) = puVar4[1];
+    *(undefined4 *)(param_4 + 0x28) = puVar4[2];
+    puVar4 = (undefined4 *)FUN_005c3420(local_20);
+    *(undefined4 *)(param_4 + 0x2c) = *puVar4;
+    *(undefined4 *)(param_4 + 0x30) = puVar4[1];
+    *(undefined4 *)(param_4 + 0x34) = puVar4[2];
+    FUN_006f3d00(local_8,param_1 + 0x2058,0x3f800000);
+    cVar1 = FUN_006f3d90(param_4,param_4 + 0x10,1);
+    if (cVar1 == '\0') {
+      uVar3 = 0;
+    }
+    else {
+      uVar3 = 1;
+    }
+  }
+  else {
+    uVar3 = 0;
+  }
+  return uVar3;
+}
+
+
+
+--- Calls FROM query field initialization (0x006f34e0) ---
+  0x006f34f6 -> 0x006dcce0 FUN_006dcce0
+  0x006f34fe -> 0x00441110 FUN_00441110
+  0x006f350a -> 0x00441110 FUN_00441110
+  0x006f3540 -> 0x006dd4f0 FUN_006dd4f0
+  0x006f354c -> 0x006dd4f0 FUN_006dd4f0
+  0x006f35d2 -> 0x00441110 FUN_00441110
+  0x006f35de -> 0x00441110 FUN_00441110
+  0x006f3608 -> 0x006dd4f0 FUN_006dd4f0
+  0x006f3614 -> 0x006dd4f0 FUN_006dd4f0
+  0x006f364c -> 0x005c3420 FUN_005c3420
+  0x006f366e -> 0x005c3420 FUN_005c3420
+  0x006f36a0 -> 0x006f3d00 FUN_006f3d00
+  0x006f36b5 -> 0x006f3d90 FUN_006f3d90
+  Total: 13 calls
+
+======================================================================
+vanilla teleport-door provider policy branch @ 0x006f36d0
+======================================================================
+  Function: FUN_006f36d0 @ 0x006f36d0, Size: 1069 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+undefined4 __thiscall FUN_006f36d0(int param_1,float *param_2)
+
+{
+  char cVar1;
+  uint uVar2;
+  uint uVar3;
+  undefined4 *puVar4;
+  int iVar5;
+  undefined4 uVar6;
+  int *unaff_FS_OFFSET;
+  float10 fVar7;
+  undefined1 *puVar8;
+  undefined4 local_88;
+  undefined1 local_80 [12];
+  undefined1 local_74 [12];
+  undefined1 local_68 [12];
+  undefined4 local_5c;
+  float local_58;
+  TaskStack local_54 [24];
+  undefined4 local_3c;
+  char local_35;
+  undefined4 local_34;
+  undefined4 local_30;
+  undefined4 local_2c;
+  char local_25;
+  float local_24;
+  int local_20;
+  int *local_1c;
+  float local_18;
+  uint local_14;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00f06ba8;
+  local_10 = *unaff_FS_OFFSET;
+  uVar2 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  FUN_008454f0(0);
+  if (*(char *)(param_2 + 2) == '\0') {
+    FUN_0054db50(param_1 + 0x20a4);
+  }
+  else {
+    OnStatusTextChange(param_1 + 0x20a4);
+  }
+  if (((*(int *)(param_1 + 0x20b4) == 1) || (*(int *)(param_1 + 0x20b4) == 3)) ||
+     (*(int *)(param_1 + 0x20a0) != 0)) {
+    local_14 = 0;
+    while (uVar3 = FUN_0044ddc0(uVar2), local_14 < uVar3) {
+      puVar4 = (undefined4 *)FUN_00877a30(local_14);
+      local_1c = (int *)*puVar4;
+      cVar1 = FUN_00440da0();
+      if (cVar1 == '\0') {
+        FUN_00568e50();
+        iVar5 = FUN_0043a320();
+        if (iVar5 == 0) {
+          FUN_00568e50();
+          local_88 = FUN_0043a2b0();
+        }
+        else {
+          FUN_00568e50();
+          local_88 = FUN_0043a320();
+        }
+        local_5c = local_88;
+        if (*(int *)(param_1 + 0x2098) == 1) {
+          FUN_00568e50();
+          iVar5 = FUN_0043a320();
+          if (iVar5 != 0) {
+            FUN_00568e50();
+            iVar5 = FUN_0043a320();
+            if (iVar5 != *(int *)(param_1 + 0x205c)) goto LAB_006f3773;
+          }
+        }
+        else if (*(int *)(param_1 + 0x2098) == 2) {
+          FUN_00568e50();
+          iVar5 = FUN_0043a320();
+          if (iVar5 != 0) goto LAB_006f3773;
+        }
+        FUN_00501d20(local_1c);
+        local_8 = 0;
+        local_35 = FUN_00502450(*(undefined4 *)(param_1 + 0x20a0),local_1c,&local_25);
+        local_18 = 0.0;
+        if ((local_35 == '\0') || (local_25 != '\0')) {
+          if (*(int *)(param_1 + 0x20b4) == 0) {
+            local_8 = 0xffffffff;
+            Concurrency::details::TaskStack::~TaskStack(local_54);
+            goto LAB_006f3773;
+          }
+          if (*(int *)(param_1 + 0x20b4) == 2) {
+            local_18 = _DAT_0106c238;
+          }
+        }
+        FUN_007af430();
+        cVar1 = FUN_00518000();
+        if ((cVar1 != '\0') && (*(int *)(param_1 + 0x20b4) != 3)) {
+          local_18 = _DAT_0106c238;
+        }
+        puVar4 = (undefined4 *)(**(code **)(*local_1c + 500))();
+        local_34 = *puVar4;
+        local_30 = puVar4[1];
+        local_2c = puVar4[2];
+        iVar5 = FUN_0059bb30();
+        if (iVar5 == 0) {
+          puVar4 = &local_34;
+          puVar8 = local_80;
+          FUN_005c3420(local_74);
+          FUN_00439ef0(puVar8,puVar4);
+          fVar7 = (float10)FUN_00457990();
+        }
+        else {
+          FUN_00439ef0(local_68,&local_34);
+          fVar7 = (float10)FUN_00457990();
+        }
+        local_58 = (float)fVar7;
+        if ((*(float *)(param_1 + 0x209c) == (float)_DAT_01012060) ||
+           (*param_2 + local_58 <= *(float *)(param_1 + 0x209c))) {
+          local_24 = *param_2 + local_58 + local_18;
+          FUN_00568e50();
+          local_3c = FUN_0043a2b0();
+          iVar5 = FUN_006f3e30(local_5c,local_24,&local_20);
+          if (iVar5 == 0) {
+            FUN_00568e50();
+            iVar5 = FUN_0043a320();
+            if (iVar5 == 0) {
+              *(undefined1 *)(local_20 + 8) = 0;
+              *(undefined4 *)(local_20 + 0xc) = 0;
+              FUN_00568e50();
+              uVar6 = FUN_0043a2b0();
+              *(undefined4 *)(local_20 + 0x10) = uVar6;
+            }
+            else {
+              *(undefined1 *)(local_20 + 8) = 1;
+              *(undefined4 *)(local_20 + 0x10) = 0;
+              FUN_00568e50();
+              uVar6 = FUN_0043a320();
+              *(undefined4 *)(local_20 + 0xc) = uVar6;
+            }
+            *(undefined4 *)(local_20 + 4) = 0x3f800000;
+LAB_006f3a9e:
+            *(int **)(local_20 + 0x14) = local_1c;
+            FUN_00568e50();
+            puVar4 = (undefined4 *)FUN_00717e50();
+            *(undefined4 *)(local_20 + 0x18) = *puVar4;
+            *(undefined4 *)(local_20 + 0x1c) = puVar4[1];
+            *(undefined4 *)(local_20 + 0x20) = puVar4[2];
+            FUN_007cb2e0(&local_20);
+          }
+          else if (iVar5 == 1) goto LAB_006f3a9e;
+          local_8 = 0xffffffff;
+          Concurrency::details::TaskStack::~TaskStack(local_54);
+        }
+        else {
+          local_8 = 0xffffffff;
+          Concurrency::details::TaskStack::~TaskStack(local_54);
+        }
+      }
+LAB_006f3773:
+      local_14 = local_14 + 1;
+    }
+  }
+  *unaff_FS_OFFSET = local_10;
+  return 1;
+}
+
+
+
+--- Calls FROM vanilla teleport-door provider policy branch (0x006f36d0) ---
+  0x006f3706 -> 0x008454f0 FUN_008454f0
+  0x006f3726 -> 0x00588270 OnStatusTextChange
+  0x006f373d -> 0x0054db50 FUN_0054db50
+  0x006f3785 -> 0x0044ddc0 FUN_0044ddc0
+  0x006f37a0 -> 0x00877a30 FUN_00877a30
+  0x006f37ad -> 0x00440da0 FUN_00440da0
+  0x006f37be -> 0x00568e50 FUN_00568e50
+  0x006f37c5 -> 0x0043a320 FUN_0043a320
+  0x006f37d1 -> 0x00568e50 FUN_00568e50
+  0x006f37d8 -> 0x0043a320 FUN_0043a320
+  0x006f37e8 -> 0x00568e50 FUN_00568e50
+  0x006f37ef -> 0x0043a2b0 FUN_0043a2b0
+  0x006f3829 -> 0x00568e50 FUN_00568e50
+  0x006f3830 -> 0x0043a320 FUN_0043a320
+  0x006f3843 -> 0x00568e50 FUN_00568e50
+  0x006f384a -> 0x0043a320 FUN_0043a320
+  0x006f3856 -> 0x00568e50 FUN_00568e50
+  0x006f385d -> 0x0043a320 FUN_0043a320
+  0x006f3879 -> 0x00501d20 FUN_00501d20
+  0x006f389a -> 0x00502450 FUN_00502450
+  0x006f38f1 -> 0x00501e50 ~TaskStack
+  0x006f38fe -> 0x007af430 FUN_007af430
+  0x006f3905 -> 0x00518000 FUN_00518000
+  0x006f394a -> 0x0059bb30 FUN_0059bb30
+  0x006f3961 -> 0x00439ef0 FUN_00439ef0
+  0x006f3968 -> 0x00457990 FUN_00457990
+  0x006f3987 -> 0x005c3420 FUN_005c3420
+  0x006f398e -> 0x00439ef0 FUN_00439ef0
+  0x006f3995 -> 0x00457990 FUN_00457990
+  0x006f39d7 -> 0x00501e50 ~TaskStack
+  0x006f39f2 -> 0x00568e50 FUN_00568e50
+  0x006f39f9 -> 0x0043a2b0 FUN_0043a2b0
+  0x006f3a13 -> 0x006f3e30 FUN_006f3e30
+  0x006f3a38 -> 0x00568e50 FUN_00568e50
+  0x006f3a3f -> 0x0043a320 FUN_0043a320
+  0x006f3a5c -> 0x00568e50 FUN_00568e50
+  0x006f3a63 -> 0x0043a320 FUN_0043a320
+  0x006f3a84 -> 0x00568e50 FUN_00568e50
+  0x006f3a8b -> 0x0043a2b0 FUN_0043a2b0
+  0x006f3aaa -> 0x00568e50 FUN_00568e50
+  0x006f3ab1 -> 0x00717e50 FUN_00717e50
+  0x006f3ad3 -> 0x007cb2e0 FUN_007cb2e0
+  0x006f3ae2 -> 0x00501e50 ~TaskStack
+  Total: 43 calls
+
+======================================================================
+teleport-door policy data setup @ 0x00501d20
+======================================================================
+  Function: FUN_00501d20 @ 0x00501d20, Size: 298 bytes
+
+undefined4 * __fastcall FUN_00501d20(undefined4 *param_1)
+
+{
+  uint uVar1;
+  undefined4 uVar2;
+  int iVar3;
+  undefined1 *puVar4;
+  int *unaff_FS_OFFSET;
+  undefined4 local_28;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00f0b23b;
+  local_10 = *unaff_FS_OFFSET;
+  uVar1 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  uVar2 = FUN_008d6f30(uVar1);
+  *param_1 = uVar2;
+  iVar3 = FUN_00568e50();
+  if (iVar3 == 0) {
+    param_1[1] = 0;
+  }
+  else {
+    uVar2 = FUN_0043a2b0();
+    param_1[1] = uVar2;
+  }
+  puVar4 = (undefined1 *)FUN_00569160();
+  if (puVar4 == (undefined1 *)0x0) {
+    param_1[2] = 0;
+  }
+  else {
+    iVar3 = FUN_00401000(0x14);
+    local_8 = 0;
+    if (iVar3 == 0) {
+      local_28 = 0;
+    }
+    else {
+      local_28 = FUN_00411b00();
+    }
+    local_8 = 0xffffffff;
+    param_1[2] = local_28;
+    *(undefined4 *)(param_1[2] + 4) = *(undefined4 *)(puVar4 + 4);
+    *(undefined1 *)param_1[2] = *puVar4;
+    *(undefined1 *)(param_1[2] + 8) = puVar4[8];
+  }
+  uVar2 = FUN_00567790();
+  param_1[3] = uVar2;
+  uVar2 = FUN_005679f0();
+  param_1[4] = uVar2;
+  uVar2 = FUN_00567960();
+  param_1[5] = uVar2;
+  *unaff_FS_OFFSET = local_10;
+  return param_1;
+}
+
+
+
+--- Calls FROM teleport-door policy data setup (0x00501d20) ---
+  0x00501d4b -> 0x008d6f30 FUN_008d6f30
+  0x00501d58 -> 0x00568e50 FUN_00568e50
+  0x00501d69 -> 0x0043a2b0 FUN_0043a2b0
+  0x00501d83 -> 0x00569160 FUN_00569160
+  0x00501d93 -> 0x00401000 FUN_00401000
+  0x00501dae -> 0x00411b00 FUN_00411b00
+  0x00501e0f -> 0x00567790 FUN_00567790
+  0x00501e1d -> 0x005679f0 FUN_005679f0
+  0x00501e2b -> 0x00567960 FUN_00567960
+  Total: 9 calls
+
+======================================================================
+teleport-door accessibility predicate @ 0x00502450
+======================================================================
+  Function: FUN_00502450 @ 0x00502450, Size: 245 bytes
+
+undefined1 __thiscall FUN_00502450(int param_1,int param_2,undefined4 param_3,undefined1 *param_4)
+
+{
+  char cVar1;
+  int iVar2;
+  undefined4 local_c;
+  undefined1 local_5;
+  
+  local_5 = 0;
+  local_c = 0;
+  *param_4 = 0;
+  if (param_2 != 0) {
+    cVar1 = FUN_00502310(param_2,0);
+    if (cVar1 == '\0') {
+      cVar1 = FUN_005021a0();
+      if (cVar1 == '\0') {
+        local_5 = 1;
+      }
+      else if (((*(int *)(*(int *)(param_1 + 8) + 4) == 0) || (*(int *)(param_2 + 4) == 0)) ||
+              (cVar1 = FUN_004cffe0(*(undefined4 *)(*(int *)(param_1 + 8) + 4),0,1,&local_c,0,0),
+              cVar1 == '\0')) {
+        iVar2 = FUN_004309e0(param_3);
+        if (((iVar2 != 5) && (*(int *)(param_2 + 4) != 0)) &&
+           (cVar1 = FUN_004cffe0(DAT_011ca268,0,1,&local_c,0,0), cVar1 != '\0')) {
+          local_5 = 1;
+          *param_4 = 1;
+        }
+      }
+      else {
+        local_5 = 1;
+      }
+    }
+    else {
+      local_5 = 1;
+    }
+  }
+  return local_5;
+}
+
+
+
+--- Calls FROM teleport-door accessibility predicate (0x00502450) ---
+  0x0050247d -> 0x00502310 FUN_00502310
+  0x00502498 -> 0x005021a0 FUN_005021a0
+  0x005024d9 -> 0x004cffe0 FUN_004cffe0
+  0x005024f5 -> 0x004309e0 FUN_004309e0
+  0x00502520 -> 0x004cffe0 FUN_004cffe0
+  Total: 5 calls
+
+----------------------------------------------------------------------
+Disassembly: radio call pushes disposition 3, null actor, radius, and endpoints (0x004ff322 - 0x004ff39c)
+----------------------------------------------------------------------
+  0x004ff322: CMP dword ptr [EBP + -0x18],0x0
+  0x004ff326: JNZ 0x004ff3c3
+  0x004ff32c: PUSH 0x3
+  0x004ff32e: PUSH 0x0
+  0x004ff330: MOV ECX,dword ptr [EBP + -0x24]
+  0x004ff333: CALL 0x0056b190
+  0x004ff338: PUSH ECX
+  0x004ff339: FSTP float ptr [ESP]
+  0x004ff33c: MOV ECX,dword ptr [EBP + 0x8]
+  0x004ff33f: PUSH ECX
+  0x004ff340: LEA ECX,[EBP + 0xffffff24]
+  0x004ff346: CALL 0x006dcd70
+  0x004ff34b: MOV dword ptr [EBP + 0xfffffe48],EAX
+  0x004ff351: MOV EDX,dword ptr [EBP + 0xfffffe48]
+  0x004ff357: MOV dword ptr [EBP + 0xfffffe44],EDX
+  0x004ff35d: MOV dword ptr [EBP + -0x4],0x0
+  0x004ff364: MOV EAX,dword ptr [EBP + 0xfffffe44]
+  0x004ff36a: PUSH EAX
+  0x004ff36b: MOV ECX,dword ptr [EBP + -0x24]
+  0x004ff36e: PUSH ECX
+  0x004ff36f: LEA ECX,[EBP + 0xfffffefc]
+  0x004ff375: CALL 0x006dcd70
+  0x004ff37a: MOV dword ptr [EBP + 0xfffffe40],EAX
+  0x004ff380: MOV EDX,dword ptr [EBP + 0xfffffe40]
+  0x004ff386: MOV dword ptr [EBP + 0xfffffe3c],EDX
+  0x004ff38c: MOV byte ptr [EBP + -0x4],0x1
+  0x004ff390: MOV EAX,dword ptr [EBP + 0xfffffe3c]
+  0x004ff396: PUSH EAX
+  0x004ff397: CALL 0x006d4eb0
+  0x004ff39c: ADD ESP,0x14
+
+----------------------------------------------------------------------
+Disassembly: provider setup, accessibility result, disposition, and penalty branch (0x006f3868 - 0x006f3930)
+----------------------------------------------------------------------
+  0x006f386b: JZ 0x006f3872
+  0x006f386d: JMP 0x006f3773
+  0x006f3872: MOV EDX,dword ptr [EBP + -0x18]
+  0x006f3875: PUSH EDX
+  0x006f3876: LEA ECX,[EBP + -0x50]
+  0x006f3879: CALL 0x00501d20
+  0x006f387e: MOV dword ptr [EBP + -0x4],0x0
+  0x006f3885: LEA EAX,[EBP + -0x21]
+  0x006f3888: PUSH EAX
+  0x006f3889: MOV ECX,dword ptr [EBP + -0x18]
+  0x006f388c: PUSH ECX
+  0x006f388d: MOV EDX,dword ptr [EBP + -0x80]
+  0x006f3890: MOV EAX,dword ptr [EDX + 0x20a0]
+  0x006f3896: PUSH EAX
+  0x006f3897: LEA ECX,[EBP + -0x50]
+  0x006f389a: CALL 0x00502450
+  0x006f389f: MOV byte ptr [EBP + -0x31],AL
+  0x006f38a2: FLDZ
+  0x006f38a4: FSTP float ptr [EBP + -0x14]
+  0x006f38a7: MOVZX ECX,byte ptr [EBP + -0x31]
+  0x006f38ab: TEST ECX,ECX
+  0x006f38ad: JZ 0x006f38b7
+  0x006f38af: MOVZX EDX,byte ptr [EBP + -0x21]
+  0x006f38b3: TEST EDX,EDX
+  0x006f38b5: JZ 0x006f38fb
+  0x006f38b7: MOV EAX,dword ptr [EBP + -0x80]
+  0x006f38ba: MOV ECX,dword ptr [EAX + 0x20b4]
+  0x006f38c0: MOV dword ptr [EBP + 0xffffff74],ECX
+  0x006f38c6: CMP dword ptr [EBP + 0xffffff74],0x0
+  0x006f38cd: JZ 0x006f38e7
+  0x006f38cf: CMP dword ptr [EBP + 0xffffff74],0x2
+  0x006f38d6: JZ 0x006f38dc
+  0x006f38d8: JMP 0x006f38fb
+  0x006f38dc: FLD float ptr [0x0106c238]
+  0x006f38e2: FSTP float ptr [EBP + -0x14]
+  0x006f38e5: JMP 0x006f38fb
+  0x006f38e7: MOV dword ptr [EBP + -0x4],0xffffffff
+  0x006f38ee: LEA ECX,[EBP + -0x50]
+  0x006f38f1: CALL 0x00501e50
+  0x006f38f6: JMP 0x006f3773
+  0x006f38fb: MOV ECX,dword ptr [EBP + -0x18]
+  0x006f38fe: CALL 0x007af430
+  0x006f3903: MOV ECX,EAX
+  0x006f3905: CALL 0x00518000
+  0x006f390a: MOVZX EDX,AL
+  0x006f390d: TEST EDX,EDX
+  0x006f390f: JZ 0x006f3926
+  0x006f3911: MOV EAX,dword ptr [EBP + -0x80]
+  0x006f3914: CMP dword ptr [EAX + 0x20b4],0x3
+  0x006f391b: JZ 0x006f3926
+  0x006f391d: FLD float ptr [0x0106c238]
+  0x006f3923: FSTP float ptr [EBP + -0x14]
+  0x006f3926: MOV ECX,dword ptr [EBP + -0x18]
+  0x006f3929: MOV EDX,dword ptr [ECX]
+  0x006f392b: MOV ECX,dword ptr [EBP + -0x18]
+  0x006f392e: MOV EAX,dword ptr [EDX + 0x1f4]
+
+AUDIT COMPLETE - output written to /data/storage1/Workspace/psycho/analysis/ghidra/output/perf/radio_mode0_discarded_door_policy_audit.txt (223 lines)

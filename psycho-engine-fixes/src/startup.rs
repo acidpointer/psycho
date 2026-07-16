@@ -16,8 +16,7 @@ use crate::{
             set_active_mode,
         },
         perf::{
-            install_post_load_reconciliation_prepass, install_radio_pathfinder_yield_fix,
-            install_rng_hook,
+            install_post_load_reconciliation_prepass, install_radio_scan_fix, install_rng_hook,
         },
         zlib::install_zlib_hooks,
     },
@@ -168,18 +167,12 @@ fn install_engine_fix_hooks(
 }
 
 fn install_runtime_hooks(performance: &PerformanceConfig) -> anyhow::Result<()> {
-    if performance.legacy_radio_scan_cache_configured {
-        log::warn!(
-            "[RADIO] radio_signal_scan_cache and radio_signal_scan_cache_ttl_ms are obsolete and ignored; fresh vanilla scans are always used"
-        );
+    if performance.obsolete_radio_configured {
+        log::warn!("[RADIO] Removed result-cache/yield settings are obsolete and ignored");
     }
 
-    if performance.radio_pathfinder_yield_fix {
-        if let Err(error) = install_radio_pathfinder_yield_fix() {
-            log::warn!("[RADIO] Pathfinder yield fix disabled: {error:#}");
-        }
-    } else {
-        log::info!("[RADIO] Pathfinder yield fix disabled by config");
+    if let Err(error) = install_radio_scan_fix() {
+        log::warn!("[RADIO] Scan fix disabled: {error:#}");
     }
 
     if performance.post_load_reconciliation_prepass {
