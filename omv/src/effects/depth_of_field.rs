@@ -1080,25 +1080,99 @@ fn decode_cached_shader(bytes: &[u8]) -> Option<Vec<u32>> {
 }
 
 fn compile_gather_bytecode(source_name: &str, source: &[u8], tap_count: u32) -> Result<Vec<u32>> {
-    let mut variant = format!("#define DOF_TAP_COUNT {tap_count}\n").into_bytes();
-    variant.extend_from_slice(source);
+    let variant = gather_shader_source(source, tap_count);
     load_or_compile_shader(&format!("{source_name}:{tap_count}"), &variant)
 }
 
 fn compile_soft_filter_bytecode(label: &str, tap_count: u32) -> Result<Vec<u32>> {
-    let mut variant = format!("#define DOF_SOFT_TAP_COUNT {tap_count}\n").into_bytes();
-    variant.extend_from_slice(SOFT_FILTER_SHADER);
+    let variant = soft_filter_shader_source(tap_count);
     load_or_compile_shader(&format!("dof_soft_filter.hlsl:{label}"), &variant)
 }
 
 fn compile_compose_bytecode(label: &str, high_quality_upsample: bool) -> Result<Vec<u32>> {
+    let variant = compose_shader_source(high_quality_upsample);
+    load_or_compile_shader(&format!("dof_compose.hlsl:{label}"), &variant)
+}
+
+fn gather_shader_source(source: &[u8], tap_count: u32) -> Vec<u8> {
+    let mut variant = format!("#define DOF_TAP_COUNT {tap_count}\n").into_bytes();
+    variant.extend_from_slice(source);
+    variant
+}
+
+fn soft_filter_shader_source(tap_count: u32) -> Vec<u8> {
+    let mut variant = format!("#define DOF_SOFT_TAP_COUNT {tap_count}\n").into_bytes();
+    variant.extend_from_slice(SOFT_FILTER_SHADER);
+    variant
+}
+
+fn compose_shader_source(high_quality_upsample: bool) -> Vec<u8> {
     let mut variant = format!(
         "#define DOF_HIGH_QUALITY_UPSAMPLE {}\n",
         high_quality_upsample as u8
     )
     .into_bytes();
     variant.extend_from_slice(COMPOSE_SHADER);
-    load_or_compile_shader(&format!("dof_compose.hlsl:{label}"), &variant)
+    variant
+}
+
+#[cfg(test)]
+mod shader_compile_tests {
+    use super::{
+        COC_SHADER, DILATE_SHADER, FAR_GATHER_SHADER, FOCUS_SHADER, NEAR_GATHER_SHADER,
+        NEAR_SMOOTH_SHADER, NEAR_TILE_SHADER, PREFILTER_SHADER, compose_shader_source,
+        gather_shader_source, soft_filter_shader_source,
+    };
+
+    #[test]
+    fn all_depth_of_field_shader_variants_compile() {
+        for (name, source) in [
+            ("dof_focus.hlsl", FOCUS_SHADER),
+            ("dof_coc.hlsl", COC_SHADER),
+            ("dof_prefilter.hlsl", PREFILTER_SHADER),
+            ("dof_near_tile.hlsl", NEAR_TILE_SHADER),
+            ("dof_near_dilate.hlsl", DILATE_SHADER),
+            ("dof_near_smooth.hlsl", NEAR_SMOOTH_SHADER),
+        ] {
+            crate::shaders::assert_hlsl_compiles(name, source, "ps_3_0");
+        }
+
+        for (name, source) in [
+            ("dof_far_gather.hlsl", FAR_GATHER_SHADER),
+            ("dof_near_gather.hlsl", NEAR_GATHER_SHADER),
+        ] {
+            for tap_count in [12, 24, 36] {
+                let variant = gather_shader_source(source, tap_count);
+                crate::shaders::assert_hlsl_compiles(
+                    &format!("{name}:{tap_count}"),
+                    &variant,
+                    "ps_3_0",
+                );
+            }
+        }
+
+        for tap_count in [5, 9, 13] {
+            let variant = soft_filter_shader_source(tap_count);
+            crate::shaders::assert_hlsl_compiles(
+                &format!("dof_soft_filter.hlsl:{tap_count}"),
+                &variant,
+                "ps_3_0",
+            );
+        }
+
+        for high_quality in [false, true] {
+            let variant = compose_shader_source(high_quality);
+            crate::shaders::assert_hlsl_compiles(
+                if high_quality {
+                    "dof_compose.hlsl:high"
+                } else {
+                    "dof_compose.hlsl:balanced"
+                },
+                &variant,
+                "ps_3_0",
+            );
+        }
+    }
 }
 
 fn bind_pipeline_state(device: &Device9Ref<'_>) -> Direct3DResult<()> {

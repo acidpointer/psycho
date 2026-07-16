@@ -14,17 +14,11 @@ struct PixelInput {
 };
 
 float3 ToLinear(float3 color) {
-    return color * (color * (color * 0.305306011f + 0.682171111f) + 0.012522878f);
+    return color * color;
 }
 
 float3 ToSrgb(float3 color) {
-    color = max(color, 0.0f);
-    float3 s1 = sqrt(color);
-    float3 s2 = sqrt(s1);
-    float3 s3 = sqrt(s2);
-    return saturate(
-        0.662002687f * s1 + 0.684122060f * s2 - 0.323583601f * s3 - 0.022541147f * color
-    );
+    return sqrt(saturate(color));
 }
 
 void AccumulateFar(

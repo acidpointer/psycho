@@ -22,6 +22,18 @@ const EXTRACT_SHADER: &[u8] = include_bytes!("../../shaders/embedded/bloom_hdr_e
 const BLUR_SHADER: &[u8] = include_bytes!("../../shaders/embedded/bloom_hdr_blur.hlsl");
 const COMPOSE_SHADER: &[u8] = include_bytes!("../../shaders/embedded/bloom_hdr_compose.hlsl");
 
+#[cfg(test)]
+mod shader_compile_tests {
+    use super::{BLUR_SHADER, COMPOSE_SHADER, EXTRACT_SHADER};
+
+    #[test]
+    fn embedded_bloom_shaders_compile() {
+        crate::shaders::assert_hlsl_compiles("bloom_hdr_extract.hlsl", EXTRACT_SHADER, "ps_3_0");
+        crate::shaders::assert_hlsl_compiles("bloom_hdr_blur.hlsl", BLUR_SHADER, "ps_3_0");
+        crate::shaders::assert_hlsl_compiles("bloom_hdr_compose.hlsl", COMPOSE_SHADER, "ps_3_0");
+    }
+}
+
 pub(crate) struct BloomingHdrEffect {
     extract_shader: PixelShader9,
     blur_shader: PixelShader9,

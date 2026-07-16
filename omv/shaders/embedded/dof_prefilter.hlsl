@@ -8,7 +8,9 @@ struct PixelInput {
 };
 
 float3 ToLinear(float3 color) {
-    return color * (color * (color * 0.305306011f + 0.682171111f) + 0.012522878f);
+    // Keep this paired with ToSrgb in dof_compose.hlsl. A matched gamma-2
+    // approximation preserves the original scene exactly at the focus plane.
+    return color * color;
 }
 
 float CocWeight(float centerCoc, float sampleCoc) {

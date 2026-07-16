@@ -23,6 +23,23 @@ const RADIAL_SHADER: &[u8] = include_bytes!("../../shaders/embedded/sunshafts_ra
 const BLUR_SHADER: &[u8] = include_bytes!("../../shaders/embedded/sunshafts_blur.hlsl");
 const COMPOSE_SHADER: &[u8] = include_bytes!("../../shaders/embedded/sunshafts_compose.hlsl");
 
+#[cfg(test)]
+mod shader_compile_tests {
+    use super::{BLUR_SHADER, COMPOSE_SHADER, MASK_SHADER, RADIAL_SHADER};
+
+    #[test]
+    fn embedded_sunshaft_shaders_compile() {
+        for (name, source) in [
+            ("sunshafts_mask.hlsl", MASK_SHADER),
+            ("sunshafts_radial.hlsl", RADIAL_SHADER),
+            ("sunshafts_blur.hlsl", BLUR_SHADER),
+            ("sunshafts_compose.hlsl", COMPOSE_SHADER),
+        ] {
+            crate::shaders::assert_hlsl_compiles(name, source, "ps_3_0");
+        }
+    }
+}
+
 pub(crate) struct SunshaftsEffect {
     mask_shader: PixelShader9,
     radial_shader: PixelShader9,

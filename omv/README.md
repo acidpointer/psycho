@@ -65,7 +65,7 @@ existing image-space boundary hook. OMV does not patch native DOF, DepthResolve,
 or `RenderEndOfFrameEffects`.
 
 The in-game DOF entry provides Hybrid, Eye, and Souls Soft starting presets.
-Quality levels use fixed 12, 16, and 24-tap gather shaders; Soft High and Ultra
+Quality levels use fixed 12, 24, and 36-tap gather shaders; Soft High and Ultra
 also use distinct pyramid reconstruction kernels. FP16 render-target support is
 required; unsupported devices bypass the effect rather than silently using a
 lower-precision path. Shader bytecode is prepared asynchronously and cached by
@@ -145,6 +145,16 @@ Only the 32-bit FNV target is supported:
 ```bash
 cargo build --release --target i686-pc-windows-gnu -p omv
 ```
+
+Compile every active shader and generated quality/engine variant through the
+runtime D3D compiler path:
+
+```bash
+cargo test --target i686-pc-windows-gnu -p omv
+```
+
+Cargo runs the Windows test executable through Wine. Shader tests bypass the
+runtime bytecode caches, so every test run validates the current HLSL source.
 
 Full workspace install from the repository root:
 

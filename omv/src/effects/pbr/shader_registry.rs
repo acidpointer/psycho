@@ -982,6 +982,38 @@ pub(super) fn shader_cache_suffix(stage: ShaderStage) -> &'static str {
     }
 }
 
+#[cfg(test)]
+mod shader_compile_tests {
+    use super::{shader_profile, template_at, template_count, template_source};
+
+    #[test]
+    fn all_registered_pbr_shader_variants_compile() {
+        let mut failures = Vec::new();
+
+        for template_id in 0..template_count() {
+            let template = template_at(template_id as u16)
+                .unwrap_or_else(|| panic!("PBR template {template_id} is missing"));
+            let source = template_source(template_id as u16, template);
+            let profile = shader_profile(template.stage);
+            if let Err(error) =
+                crate::shaders::compile_hlsl_source_target(template.label, source.as_ref(), profile)
+            {
+                failures.push(format!(
+                    "{} ({profile}, SLS{}): {error:#}",
+                    template.label, template.sls_number
+                ));
+            }
+        }
+
+        assert!(
+            failures.is_empty(),
+            "{} PBR shader variant(s) failed to compile:\n{}",
+            failures.len(),
+            failures.join("\n\n")
+        );
+    }
+}
+
 pub(super) fn sls_number_from_name(shader_name: *const c_char, extension: &str) -> Option<u16> {
     if shader_name.is_null() {
         return None;

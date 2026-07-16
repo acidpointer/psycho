@@ -3,35 +3,41 @@
 //! `FUN_00A61F30` is the engine's targeted removal operation. It takes the
 //! recursive texture-cache lock, finds the texture across all seven inner
 //! tables, removes the outer key mapping, unlinks the inner node, and releases
-//! its cache reference. Running it before the destructor prevents stale roots
-//! without a lookup-side dead set or per-frame maintenance.
+//! its cache reference. Destruction originating outside that lock runs the
+//! removal before the destructor, preventing stale roots without lookup-side
+//! checks or per-frame maintenance.
 
 use std::cell::Cell;
 
 use libc::c_void;
 use libpsycho::ffi::fnptr::FnPtr;
+use libpsycho::os::windows::winapi::get_current_thread_id;
 
 use super::statics;
 
 const TEXTURE_CACHE_REMOVE_ADDR: usize = 0x00A61F30;
 const TEXTURE_CACHE_KEY_OFFSET: usize = 0x30;
+const TEXTURE_CACHE_LOCK_OWNER_ADDR: usize = 0x011F4480;
 
 type TextureCacheRemoveFn = unsafe extern "C" fn(*mut c_void) -> u8;
 
+#[derive(Clone, Copy)]
+struct UnlinkState {
+    texture: *mut c_void,
+    original_ran: bool,
+}
+
+const IDLE_UNLINK_STATE: UnlinkState = UnlinkState {
+    texture: core::ptr::null_mut(),
+    original_ran: false,
+};
+
 thread_local! {
-    static UNLINKING_TEXTURE: Cell<*mut c_void> = const { Cell::new(core::ptr::null_mut()) };
-    static ORIGINAL_RAN_DURING_UNLINK: Cell<bool> = const { Cell::new(false) };
+    static UNLINK_STATE: Cell<UnlinkState> = const { Cell::new(IDLE_UNLINK_STATE) };
 }
 
 pub unsafe extern "fastcall" fn hook_nisourcetexture_dtor(this: *mut c_void) {
     if this.is_null() {
-        return;
-    }
-
-    let reentered = UNLINKING_TEXTURE.with(|active| active.get() == this && !this.is_null());
-    if reentered {
-        ORIGINAL_RAN_DURING_UNLINK.with(|ran| ran.set(true));
-        call_original(this);
         return;
     }
 
@@ -48,14 +54,32 @@ pub unsafe extern "fastcall" fn hook_nisourcetexture_dtor(this: *mut c_void) {
         return;
     }
 
-    UNLINKING_TEXTURE.with(|active| active.set(this));
-    ORIGINAL_RAN_DURING_UNLINK.with(|ran| ran.set(false));
-    let remove = unsafe {
-        FnPtr::<TextureCacheRemoveFn>::from_address_unchecked(TEXTURE_CACHE_REMOVE_ADDR)
-    };
+    // Cache removal and full teardown release their texture references while
+    // holding this recursive lock. The surrounding operation already owns the
+    // node, so searching for and unlinking it again would duplicate the work.
+    let lock_owner = unsafe { (TEXTURE_CACHE_LOCK_OWNER_ADDR as *const u32).read_volatile() };
+    if lock_owner != 0 && lock_owner == get_current_thread_id() {
+        UNLINK_STATE.with(|state| {
+            let mut active = state.get();
+            if active.texture == this {
+                active.original_ran = true;
+                state.set(active);
+            }
+        });
+        call_original(this);
+        return;
+    }
+
+    UNLINK_STATE.with(|state| {
+        state.set(UnlinkState {
+            texture: this,
+            original_ran: false,
+        });
+    });
+    let remove =
+        unsafe { FnPtr::<TextureCacheRemoveFn>::from_address_unchecked(TEXTURE_CACHE_REMOVE_ADDR) };
     unsafe { remove.as_fn()(this) };
-    UNLINKING_TEXTURE.with(|active| active.set(core::ptr::null_mut()));
-    let original_ran = ORIGINAL_RAN_DURING_UNLINK.with(Cell::get);
+    let original_ran = UNLINK_STATE.with(|state| state.replace(IDLE_UNLINK_STATE).original_ran);
 
     if !original_ran {
         call_original(this);

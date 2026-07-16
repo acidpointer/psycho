@@ -429,13 +429,8 @@ fn start_compile_worker() {
 
 fn compile_worker() {
     for (index, template) in TEMPLATES.iter().enumerate() {
-        let mut source = Vec::with_capacity(template.prefix.len() + template.source.len());
-        source.extend_from_slice(template.prefix);
-        source.extend_from_slice(template.source);
-        let profile = match template.stage {
-            Stage::Vertex => "vs_3_0",
-            Stage::Pixel => "ps_3_0",
-        };
+        let source = template_source(template);
+        let profile = template_profile(template);
         match load_or_compile(template.label, &source, profile) {
             Ok((bytecode, origin)) => {
                 BYTECODE.lock()[index] = Some(bytecode);
@@ -448,6 +443,37 @@ fn compile_worker() {
         }
     }
     COMPILE_FINISHED.store(true, Ordering::Release);
+}
+
+fn template_source(template: &ShaderTemplate) -> Vec<u8> {
+    let mut source = Vec::with_capacity(template.prefix.len() + template.source.len());
+    source.extend_from_slice(template.prefix);
+    source.extend_from_slice(template.source);
+    source
+}
+
+fn template_profile(template: &ShaderTemplate) -> &'static str {
+    match template.stage {
+        Stage::Vertex => "vs_3_0",
+        Stage::Pixel => "ps_3_0",
+    }
+}
+
+#[cfg(test)]
+mod shader_compile_tests {
+    use super::{TEMPLATES, template_profile, template_source};
+
+    #[test]
+    fn all_native_sky_shader_variants_compile() {
+        for template in &TEMPLATES {
+            let source = template_source(template);
+            crate::shaders::assert_hlsl_compiles(
+                template.label,
+                &source,
+                template_profile(template),
+            );
+        }
+    }
 }
 
 fn load_or_compile(label: &str, source: &[u8], profile: &str) -> Result<(Vec<u32>, &'static str)> {

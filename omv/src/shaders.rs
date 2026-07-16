@@ -1530,8 +1530,39 @@ pub(crate) fn compile_hlsl_source_target(
     compile_hlsl_bytes(source_name, source, target)
 }
 
+#[cfg(test)]
+#[track_caller]
+pub(crate) fn assert_hlsl_compiles(source_name: &str, source: &[u8], target: &str) {
+    let bytecode = compile_hlsl_source_target(source_name, source, target)
+        .unwrap_or_else(|error| panic!("{source_name} ({target}) failed to compile: {error:#}"));
+    let expected_version = if target.starts_with("vs_") {
+        0xFFFE_0300
+    } else {
+        0xFFFF_0300
+    };
+    assert_eq!(
+        bytecode.first().copied(),
+        Some(expected_version),
+        "{source_name} produced bytecode for the wrong shader stage"
+    );
+}
+
 fn compile_hlsl_bytes(source_name: &str, source: &[u8], target: &str) -> Result<Vec<u32>> {
     compile_hlsl(source_name, source, target).map_err(Into::into)
+}
+
+#[cfg(test)]
+mod shader_compile_tests {
+    use super::assert_hlsl_compiles;
+
+    const DEPTH_AWARE_CAS: &[u8] = include_bytes!("../shaders/runtime/01_depth_aware_cas.hlsl");
+    const FAST_FXAA: &[u8] = include_bytes!("../shaders/runtime/03_fast_fxaa.hlsl");
+
+    #[test]
+    fn bundled_runtime_shaders_compile() {
+        assert_hlsl_compiles("01_depth_aware_cas.hlsl", DEPTH_AWARE_CAS, "ps_3_0");
+        assert_hlsl_compiles("03_fast_fxaa.hlsl", FAST_FXAA, "ps_3_0");
+    }
 }
 
 fn shader_name(path: &Path) -> String {
