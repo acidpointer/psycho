@@ -35,6 +35,16 @@ const STATION_MODE_ADDR: usize = 0x0056B210;
 const RADIO_QUERY_VTABLE: usize = 0x0106D8FC;
 const TELEPORT_DOOR_PROVIDER_SLOT: usize = 0x0106D900;
 const DOOR_ACCESSIBILITY_ADDR: usize = 0x00502450;
+const VANILLA_PROVIDER_ADDR: usize = 0x006F36D0;
+const VANILLA_POLICY_SETUP_ADDR: usize = 0x00501D20;
+const VANILLA_POLICY_CLEANUP_ADDR: usize = 0x00501E50;
+const VANILLA_DISPOSITION_ADMISSION_OFFSET: usize = 0x72;
+const VANILLA_POLICY_SETUP_CALL_OFFSET: usize = 0x1A9;
+const VANILLA_ACCESSIBILITY_CALL_OFFSET: usize = 0x1CA;
+const VANILLA_ACCESSIBILITY_RESULT_OFFSET: usize = 0x1CF;
+const VANILLA_DISPOSITION_BRANCH_OFFSET: usize = 0x1E7;
+const VANILLA_MIN_USE_BRANCH_OFFSET: usize = 0x22B;
+const VANILLA_POLICY_CLEANUP_CALL_OFFSETS: [usize; 3] = [0x221, 0x307, 0x412];
 const STEWIE_POLICY_SETUP_CALL_OFFSET: usize = 0x12B;
 const STEWIE_POLICY_BLOCK_OFFSET: usize = 0x118;
 const STEWIE_ACCESSIBILITY_CALL_OFFSET: usize = 0x140;
@@ -45,6 +55,37 @@ const STEWIE_LOCK_CLEANUP_OFFSET: usize = 0x2C4;
 const PRIORITY_BUCKET_COUNT: usize = 20;
 const SLOW_SCAN_US: u64 = 5_000;
 
+const VANILLA_PROVIDER_SIGNATURE: &[u8] = &[
+    0x55, 0x8B, 0xEC, 0x6A, 0xFF, 0x68, 0xA8, 0x6B, 0xF0, 0x00, 0x64, 0xA1, 0x00, 0x00, 0x00, 0x00,
+    0x50, 0x81, 0xEC, 0x84, 0x00, 0x00, 0x00,
+];
+const VANILLA_DISPOSITION_ADMISSION_SIGNATURE: &[u8] = &[
+    0x8B, 0x45, 0x80, 0x83, 0xB8, 0xB4, 0x20, 0x00, 0x00, 0x01, 0x74, 0x1C, 0x8B, 0x4D, 0x80, 0x83,
+    0xB9, 0xB4, 0x20, 0x00, 0x00, 0x03, 0x74, 0x10, 0x8B, 0x55, 0x80, 0x83, 0xBA, 0xA0, 0x20, 0x00,
+    0x00, 0x00,
+];
+const VANILLA_ACCESSIBILITY_RESULT_SIGNATURE: &[u8] = &[
+    0x88, 0x45, 0xCF, 0xD9, 0xEE, 0xD9, 0x5D, 0xEC, 0x0F, 0xB6, 0x4D, 0xCF, 0x85, 0xC9, 0x74, 0x08,
+    0x0F, 0xB6, 0x55, 0xDF, 0x85, 0xD2, 0x74, 0x44,
+];
+const VANILLA_DISPOSITION_BRANCH_SIGNATURE: &[u8] = &[
+    0x8B, 0x45, 0x80, 0x8B, 0x88, 0xB4, 0x20, 0x00, 0x00, 0x89, 0x8D, 0x74, 0xFF, 0xFF, 0xFF, 0x83,
+    0xBD, 0x74, 0xFF, 0xFF, 0xFF, 0x00, 0x74, 0x18, 0x83, 0xBD, 0x74, 0xFF, 0xFF, 0xFF, 0x02, 0x74,
+    0x04, 0xEB, 0x21,
+];
+const VANILLA_MIN_USE_BRANCH_SIGNATURE: &[u8] = &[
+    0x8B, 0x4D, 0xE8, 0xE8, 0x2D, 0xBB, 0x0B, 0x00, 0x8B, 0xC8, 0xE8, 0xF6, 0x46, 0xE2, 0xFF, 0x0F,
+    0xB6, 0xD0, 0x85, 0xD2, 0x74, 0x15, 0x8B, 0x45, 0x80, 0x83, 0xB8, 0xB4, 0x20, 0x00, 0x00, 0x03,
+    0x74, 0x09,
+];
+const VANILLA_POLICY_SETUP_SIGNATURE: &[u8] = &[
+    0x55, 0x8B, 0xEC, 0x6A, 0xFF, 0x68, 0x3B, 0xB2, 0xF0, 0x00, 0x64, 0xA1, 0x00, 0x00, 0x00, 0x00,
+    0x50, 0x83, 0xEC, 0x18,
+];
+const VANILLA_POLICY_CLEANUP_SIGNATURE: &[u8] = &[
+    0x55, 0x8B, 0xEC, 0x83, 0xEC, 0x08, 0x89, 0x4D, 0xF8, 0x8B, 0x45, 0xF8, 0x83, 0x78, 0x08, 0x00,
+    0x74, 0x15, 0x8B, 0x4D, 0xF8, 0x8B, 0x51, 0x08, 0x89, 0x55, 0xFC, 0x8B, 0x45, 0xFC, 0x50,
+];
 const STEWIE_PROVIDER_SIGNATURE: &[u8] = &[
     0x55, 0x8B, 0xEC, 0x83, 0xE4, 0xF8, 0x83, 0xEC, 0x34, 0x53, 0x56, 0x57, 0x8B, 0xF9, 0x8B, 0x4D,
     0x08,
@@ -311,12 +352,110 @@ fn install_door_policy_bypass_hooks() -> anyhow::Result<()> {
     let provider = unsafe { read_u32(TELEPORT_DOOR_PROVIDER_SLOT as *const u8, 0) } as usize;
     let provider_label =
         module_address(provider).unwrap_or_else(|| format!("unknown!0x{provider:08X}"));
+    let setup_target = resolve_policy_setup_target(provider, &provider_label)?;
+    verify_signature(
+        DOOR_ACCESSIBILITY_ADDR,
+        DOOR_ACCESSIBILITY_SIGNATURE,
+        "game teleport-door accessibility predicate",
+    )?;
+
+    unsafe {
+        DOOR_POLICY_SETUP_HOOK.init(
+            "radio_dead_door_policy_setup",
+            setup_target as *mut c_void,
+            hook_door_policy_setup,
+        )?;
+        DOOR_ACCESSIBILITY_HOOK.init(
+            "radio_dead_door_accessibility",
+            DOOR_ACCESSIBILITY_ADDR as *mut c_void,
+            hook_door_accessibility,
+        )?;
+    }
+    let mut transaction = ModificationTransaction::new();
+    transaction.enable_inline(&DOOR_POLICY_SETUP_HOOK)?;
+    transaction.enable_inline(&DOOR_ACCESSIBILITY_HOOK)?;
+    transaction.commit();
+
+    log::info!(
+        "[RADIO] Exact mode-0 dead door-policy bypass active: provider={} setup={} accessibility=0x{:08X}",
+        provider_label,
+        module_address(setup_target).unwrap_or_else(|| format!("unknown!0x{setup_target:08X}")),
+        DOOR_ACCESSIBILITY_ADDR,
+    );
+    Ok(())
+}
+
+fn resolve_policy_setup_target(provider: usize, provider_label: &str) -> anyhow::Result<usize> {
+    if provider == VANILLA_PROVIDER_ADDR {
+        verify_vanilla_policy_provider()?;
+        return Ok(VANILLA_POLICY_SETUP_ADDR);
+    }
 
     ensure!(
         module_name(provider)
             .is_some_and(|name| name.eq_ignore_ascii_case("nvse_stewie_tweaks.dll")),
         "unsupported teleport-door provider {provider_label}"
     );
+    verify_stewie_policy_provider(provider)
+}
+
+fn verify_vanilla_policy_provider() -> anyhow::Result<()> {
+    verify_signature(
+        VANILLA_PROVIDER_ADDR,
+        VANILLA_PROVIDER_SIGNATURE,
+        "vanilla TeleportDoorSearch provider",
+    )?;
+    verify_signature(
+        VANILLA_PROVIDER_ADDR + VANILLA_DISPOSITION_ADMISSION_OFFSET,
+        VANILLA_DISPOSITION_ADMISSION_SIGNATURE,
+        "vanilla disposition admission branch",
+    )?;
+    verify_signature(
+        VANILLA_PROVIDER_ADDR + VANILLA_ACCESSIBILITY_RESULT_OFFSET,
+        VANILLA_ACCESSIBILITY_RESULT_SIGNATURE,
+        "vanilla accessibility result branch",
+    )?;
+    verify_signature(
+        VANILLA_PROVIDER_ADDR + VANILLA_DISPOSITION_BRANCH_OFFSET,
+        VANILLA_DISPOSITION_BRANCH_SIGNATURE,
+        "vanilla disposition penalty branch",
+    )?;
+    verify_signature(
+        VANILLA_PROVIDER_ADDR + VANILLA_MIN_USE_BRANCH_OFFSET,
+        VANILLA_MIN_USE_BRANCH_SIGNATURE,
+        "vanilla minimum-use penalty branch",
+    )?;
+    verify_call_target(
+        VANILLA_PROVIDER_ADDR + VANILLA_POLICY_SETUP_CALL_OFFSET,
+        VANILLA_POLICY_SETUP_ADDR,
+        "vanilla door-policy setup call",
+    )?;
+    verify_call_target(
+        VANILLA_PROVIDER_ADDR + VANILLA_ACCESSIBILITY_CALL_OFFSET,
+        DOOR_ACCESSIBILITY_ADDR,
+        "vanilla accessibility call",
+    )?;
+    for offset in VANILLA_POLICY_CLEANUP_CALL_OFFSETS {
+        verify_call_target(
+            VANILLA_PROVIDER_ADDR + offset,
+            VANILLA_POLICY_CLEANUP_ADDR,
+            "vanilla temporary policy cleanup call",
+        )?;
+    }
+    verify_signature(
+        VANILLA_POLICY_SETUP_ADDR,
+        VANILLA_POLICY_SETUP_SIGNATURE,
+        "vanilla TeleportDoorData setup",
+    )?;
+    verify_signature(
+        VANILLA_POLICY_CLEANUP_ADDR,
+        VANILLA_POLICY_CLEANUP_SIGNATURE,
+        "vanilla TeleportDoorData cleanup",
+    )?;
+    Ok(())
+}
+
+fn verify_stewie_policy_provider(provider: usize) -> anyhow::Result<usize> {
     verify_signature(
         provider,
         STEWIE_PROVIDER_SIGNATURE,
@@ -366,36 +505,7 @@ fn install_door_policy_bypass_hooks() -> anyhow::Result<()> {
         STEWIE_POLICY_SETUP_SIGNATURE,
         "Stewie TeleportDoorData setup",
     )?;
-    verify_signature(
-        DOOR_ACCESSIBILITY_ADDR,
-        DOOR_ACCESSIBILITY_SIGNATURE,
-        "game teleport-door accessibility predicate",
-    )?;
-
-    unsafe {
-        DOOR_POLICY_SETUP_HOOK.init(
-            "radio_dead_door_policy_setup",
-            setup_target as *mut c_void,
-            hook_door_policy_setup,
-        )?;
-        DOOR_ACCESSIBILITY_HOOK.init(
-            "radio_dead_door_accessibility",
-            DOOR_ACCESSIBILITY_ADDR as *mut c_void,
-            hook_door_accessibility,
-        )?;
-    }
-    let mut transaction = ModificationTransaction::new();
-    transaction.enable_inline(&DOOR_POLICY_SETUP_HOOK)?;
-    transaction.enable_inline(&DOOR_ACCESSIBILITY_HOOK)?;
-    transaction.commit();
-
-    log::info!(
-        "[RADIO] Exact mode-0 dead door-policy bypass active: provider={} setup={} accessibility=0x{:08X}",
-        provider_label,
-        module_address(setup_target).unwrap_or_else(|| format!("unknown!0x{setup_target:08X}")),
-        DOOR_ACCESSIBILITY_ADDR,
-    );
-    Ok(())
+    Ok(setup_target)
 }
 
 unsafe extern "C" fn hook_periodic_radio_signal_scan(
@@ -615,6 +725,7 @@ unsafe extern "fastcall" fn hook_door_policy_setup(
         return;
     }
 
+    unsafe { core::ptr::write_unaligned(data.cast::<u8>().add(0x08).cast::<usize>(), 0) };
     PENDING_POLICY_ACCESS.with(|pending| pending.set((data as usize, door as usize)));
     with_active_stats(|stats| {
         stats.policy_setup_bypasses = stats.policy_setup_bypasses.saturating_add(1);
@@ -701,6 +812,15 @@ fn relative_call_target(call_addr: usize) -> anyhow::Result<usize> {
     Ok(call_addr
         .wrapping_add(5)
         .wrapping_add_signed(displacement as isize))
+}
+
+fn verify_call_target(call_addr: usize, expected_target: usize, label: &str) -> anyhow::Result<()> {
+    let observed_target = relative_call_target(call_addr)?;
+    ensure!(
+        observed_target == expected_target,
+        "{label} mismatch at 0x{call_addr:08X}: expected 0x{expected_target:08X}, found 0x{observed_target:08X}"
+    );
+    Ok(())
 }
 
 fn verify_signature(address: usize, expected: &[u8], label: &str) -> anyhow::Result<()> {

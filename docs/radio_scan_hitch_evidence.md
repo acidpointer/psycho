@@ -5,9 +5,9 @@
 This report records the radio hitch investigation on 2026-07-16. Runtime has
 now disproved both the scheduler-yield and candidate-enumeration fixes. The
 current root cause is repeated door-policy work inside Stewie Tweaks' active
-teleport-door provider. The replacement implementation builds successfully;
-its performance gain still needs one runtime validation session in the
-affected save.
+teleport-door provider. Runtime validation confirms the replacement reduced
+the scan from a 42.756 ms baseline average to 5.202 ms without changing the
+observed station/path result distribution.
 
 The latest branch telemetry disproved the proposed mode-0 immediate-goal fast
 path. Do not implement that fast path from the earlier Ghidra audit hypothesis.
@@ -62,6 +62,7 @@ Primary proof:
 ```text
 analysis/ghidra/output/perf/radio_teleport_door_candidate_boundary_audit.txt
 analysis/ghidra/output/perf/radio_mode0_discarded_door_policy_audit.txt
+analysis/ghidra/output/perf/radio_vanilla_provider_independence_audit.txt
 .research/Stewie Tweaks 9.95 Source/code/Features/Inlines/Pathing.cpp
 .research/ROOGNVSE/ttw_nvse/ttw_nvse.h
 ```
@@ -70,9 +71,9 @@ analysis/ghidra/output/perf/radio_mode0_discarded_door_policy_audit.txt
 
 `psycho-engine-fixes/src/mods/perf/radio.rs` now scopes the bypass through the
 actual traversal query. It activates only while the periodic radio scan is
-running and the query vtable and three fields match the tuple above. It hooks
-Stewie's setup routine and the game accessibility predicate only after exact
-Stewie 9.95 provider, call-block, setup, and game-function signatures match.
+running and the query vtable and three fields match the tuple above. It supports
+both the original game provider and Stewie 9.95 after exact provider, branch,
+setup, cleanup, and game-function signatures match. It has no ROOG dependency.
 
 Each skipped setup is paired to the immediately following accessibility call
 using both the stack-data pointer and door pointer. The accessibility hook
@@ -80,18 +81,25 @@ writes the same successful/no-flag result that reaches disposition 3's
 zero-penalty continuation. All nonmatching calls execute the original code.
 No path result, door list, node, or game state is cached.
 
-One affected-save run is enough to evaluate it. Expected evidence is:
+The affected-save validation recorded 134 scans:
 
 ```text
 [RADIO] Exact mode-0 dead door-policy bypass active: provider=nvse_stewie_tweaks.dll!...
-[RADIO_SCAN] ... policy=query:12/setup:<nonzero>/access:<same-nonzero> ...
+baseline: 68 active candidate-cache scans, average 42756 us
+fixed:   134 dead-policy bypass scans, average 5202 us, range 5001-5872 us
+[RADIO_SCAN] ... policy=query:12/setup:7746/access:7746 ...
 ```
 
-Compare active-scan `total_us` against the established 42-45 ms baseline and
-confirm setup and access counts match, while the station-mode and traversal-
-result distributions remain unchanged. This is the first run that can prove
-or disprove the new performance hypothesis; the static audit proves semantic
-safety but cannot quantify the time saved.
+The first validated state remained `11` null traversal results and one
+non-source result for 12 queries. A later station-set change produced 13
+queries, 12 null results, and one non-source result. Setup/access counts matched
+on every scan.
+
+Vanilla uses the same dead disposition-3 policy branch but its setup normally
+initializes temporary `lockData`. The generic bypass writes that sole cleanup
+field (`+0x08`) to null. Ghidra proves all three vanilla cleanup sites call a
+43-byte destructor that reads and optionally frees only this field. Unknown or
+modified providers fail signature checks and retain their original behavior.
 
 ## Required Behavior
 
