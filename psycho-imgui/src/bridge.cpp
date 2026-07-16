@@ -1,4 +1,6 @@
 #include <stdint.h>
+#include <cmath>
+#include <cstdio>
 #include <windows.h>
 #include <d3d9.h>
 
@@ -20,6 +22,9 @@ static volatile LONG g_pending_mouse_wheel_y = 0;
 static volatile LONG g_pending_mouse_wheel_x = 0;
 
 static const float k_mouse_wheel_delta = 120.0f;
+static const char* k_precise_control_tooltip =
+	"Drag for quick tuning. Ctrl-click the slider to type an exact value. "
+	"Hold the -/+ buttons to repeat; hold Ctrl for a larger step.";
 
 static bool is_mouse_button_down(int virtual_key) {
 	return (::GetAsyncKeyState(virtual_key) & 0x8000) != 0;
@@ -55,35 +60,85 @@ static void consume_queued_mouse_wheel(ImGuiIO& io) {
 
 static void configure_font(ImGuiIO& io) {
 	ImFontConfig font_config;
-	font_config.SizePixels = 15.0f;
+	font_config.SizePixels = 16.0f;
 	font_config.OversampleH = 2;
 	font_config.OversampleV = 1;
 	io.Fonts->AddFontDefaultVector(&font_config);
+}
+
+static float clamp_float(float value, float min, float max) {
+	if (value < min) {
+		return min;
+	}
+	if (value > max) {
+		return max;
+	}
+	return value;
+}
+
+static int32_t clamp_int(int32_t value, int32_t min, int32_t max) {
+	if (value < min) {
+		return min;
+	}
+	if (value > max) {
+		return max;
+	}
+	return value;
+}
+
+static void precise_control_tooltip() {
+	if (!ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) {
+		return;
+	}
+
+	ImGui::BeginTooltip();
+	ImGui::PushTextWrapPos(ImGui::GetFontSize() * 28.0f);
+	ImGui::TextUnformatted(k_precise_control_tooltip);
+	ImGui::PopTextWrapPos();
+	ImGui::EndTooltip();
+}
+
+static void precise_control_label(const char* label, const char* range) {
+	ImGui::AlignTextToFramePadding();
+	ImGui::TextUnformatted(label);
+	ImGui::SameLine();
+	ImGui::TextDisabled("%s", range);
+}
+
+static float precise_control_slider_width() {
+	const ImGuiStyle& style = ImGui::GetStyle();
+	const float available = ImGui::GetContentRegionAvail().x;
+	const float button_width = ImGui::GetFrameHeight();
+	const float controls_width = (button_width + style.ItemSpacing.x) * 2.0f;
+	const float slider_width = available - controls_width;
+	return slider_width > 110.0f ? slider_width : 110.0f;
 }
 
 static void apply_psycho_style() {
 	ImGui::StyleColorsDark();
 
 	ImGuiStyle& style = ImGui::GetStyle();
-	style.WindowPadding = ImVec2(14.0f, 12.0f);
+	style.WindowPadding = ImVec2(16.0f, 14.0f);
 	style.FramePadding = ImVec2(9.0f, 6.0f);
 	style.ItemSpacing = ImVec2(9.0f, 8.0f);
 	style.ItemInnerSpacing = ImVec2(7.0f, 5.0f);
-	style.ScrollbarSize = 15.0f;
-	style.GrabMinSize = 12.0f;
-	style.WindowRounding = 4.0f;
-	style.ChildRounding = 3.0f;
-	style.FrameRounding = 2.0f;
-	style.PopupRounding = 3.0f;
-	style.ScrollbarRounding = 3.0f;
-	style.GrabRounding = 2.0f;
-	style.TabRounding = 2.0f;
+	style.ScrollbarSize = 16.0f;
+	style.GrabMinSize = 14.0f;
+	style.WindowRounding = 8.0f;
+	style.ChildRounding = 6.0f;
+	style.FrameRounding = 5.0f;
+	style.PopupRounding = 6.0f;
+	style.ScrollbarRounding = 6.0f;
+	style.GrabRounding = 5.0f;
+	style.TabRounding = 5.0f;
 	style.WindowBorderSize = 1.0f;
 	style.ChildBorderSize = 1.0f;
 	style.FrameBorderSize = 1.0f;
+	style.DisabledAlpha = 0.58f;
 	style.SeparatorTextBorderSize = 1.0f;
 	style.SeparatorTextAlign = ImVec2(0.0f, 0.5f);
 	style.SeparatorTextPadding = ImVec2(8.0f, 5.0f);
+	style.WindowMenuButtonPosition = ImGuiDir_None;
 
 	ImVec4* colors = style.Colors;
 	colors[ImGuiCol_Text] = ImVec4(0.88f, 0.93f, 0.89f, 1.00f);
@@ -96,6 +151,7 @@ static void apply_psycho_style() {
 	colors[ImGuiCol_FrameBg] = ImVec4(0.060f, 0.115f, 0.100f, 0.95f);
 	colors[ImGuiCol_FrameBgHovered] = ImVec4(0.090f, 0.230f, 0.190f, 1.00f);
 	colors[ImGuiCol_FrameBgActive] = ImVec4(0.110f, 0.350f, 0.275f, 1.00f);
+	colors[ImGuiCol_InputTextCursor] = ImVec4(0.58f, 1.00f, 0.76f, 1.00f);
 	colors[ImGuiCol_TitleBg] = ImVec4(0.035f, 0.075f, 0.064f, 1.00f);
 	colors[ImGuiCol_TitleBgActive] = ImVec4(0.060f, 0.190f, 0.155f, 1.00f);
 	colors[ImGuiCol_TitleBgCollapsed] = ImVec4(0.025f, 0.045f, 0.039f, 0.94f);
@@ -123,6 +179,8 @@ static void apply_psycho_style() {
 	colors[ImGuiCol_PlotLinesHovered] = ImVec4(1.00f, 0.82f, 0.40f, 1.00f);
 	colors[ImGuiCol_PlotHistogram] = ImVec4(0.92f, 0.66f, 0.26f, 1.00f);
 	colors[ImGuiCol_PlotHistogramHovered] = ImVec4(1.00f, 0.78f, 0.32f, 1.00f);
+	colors[ImGuiCol_TextSelectedBg] = ImVec4(0.18f, 0.62f, 0.44f, 0.42f);
+	colors[ImGuiCol_NavCursor] = ImVec4(0.52f, 0.96f, 0.70f, 0.95f);
 }
 
 bool psycho_imgui_init_dx9(void* hwnd, void* device) {
@@ -235,6 +293,34 @@ void psycho_imgui_set_next_window_pos(float x, float y, int condition) {
 	ImGui::SetNextWindowPos(ImVec2(x, y), static_cast<ImGuiCond>(condition));
 }
 
+void psycho_imgui_set_next_window_centered(
+	float width_ratio,
+	float height_ratio,
+	float min_width,
+	float min_height,
+	float max_width,
+	float max_height,
+	int condition) {
+	ImGuiViewport* viewport = ImGui::GetMainViewport();
+	const float available_width = viewport->WorkSize.x > 32.0f ? viewport->WorkSize.x - 32.0f : 1.0f;
+	const float available_height = viewport->WorkSize.y > 32.0f ? viewport->WorkSize.y - 32.0f : 1.0f;
+	const float constrained_min_width = min_width < available_width ? min_width : available_width;
+	const float constrained_min_height = min_height < available_height ? min_height : available_height;
+	const float constrained_max_width = max_width < available_width ? max_width : available_width;
+	const float constrained_max_height = max_height < available_height ? max_height : available_height;
+	const float width = clamp_float(
+		viewport->WorkSize.x * width_ratio, constrained_min_width, constrained_max_width);
+	const float height = clamp_float(
+		viewport->WorkSize.y * height_ratio, constrained_min_height, constrained_max_height);
+
+	ImGui::SetNextWindowSizeConstraints(
+		ImVec2(constrained_min_width, constrained_min_height),
+		ImVec2(constrained_max_width, constrained_max_height));
+	ImGui::SetNextWindowSize(ImVec2(width, height), static_cast<ImGuiCond>(condition));
+	ImGui::SetNextWindowPos(
+		viewport->GetWorkCenter(), static_cast<ImGuiCond>(condition), ImVec2(0.5f, 0.5f));
+}
+
 bool psycho_imgui_begin_window(const char* title, bool* open) {
 	return ImGui::Begin(title, open);
 }
@@ -279,12 +365,129 @@ bool psycho_imgui_checkbox(const char* label, bool* value) {
 	return ImGui::Checkbox(label, value);
 }
 
+bool psycho_imgui_radio_button(const char* label, bool active) {
+	return ImGui::RadioButton(label, active);
+}
+
 bool psycho_imgui_slider_float(const char* label, float* value, float min, float max) {
 	return ImGui::SliderFloat(label, value, min, max, "%.7g");
 }
 
 bool psycho_imgui_slider_int(const char* label, int32_t* value, int32_t min, int32_t max) {
 	return ImGui::SliderInt(label, value, min, max);
+}
+
+bool psycho_imgui_precise_float(
+	const char* label,
+	const char* id,
+	float* value,
+	float min,
+	float max,
+	float step,
+	float fast_step,
+	bool logarithmic) {
+	if (label == nullptr || id == nullptr || value == nullptr || !std::isfinite(min)
+		|| !std::isfinite(max) || min >= max || step <= 0.0f || fast_step < step) {
+		return false;
+	}
+
+	if (!std::isfinite(*value)) {
+		*value = min;
+	}
+	*value = clamp_float(*value, min, max);
+
+	char range[128];
+	std::snprintf(
+		range, sizeof(range), "range %.7g - %.7g | +/- %.7g (Ctrl %.7g)",
+		min, max, step, fast_step);
+	precise_control_label(label, range);
+
+	ImGui::PushID(id);
+	ImGui::SetNextItemWidth(precise_control_slider_width());
+	ImGuiSliderFlags flags = ImGuiSliderFlags_AlwaysClamp;
+	if (logarithmic) {
+		flags |= ImGuiSliderFlags_Logarithmic;
+	}
+	bool changed = ImGui::SliderFloat("##slider", value, min, max, "%.7g", flags);
+	precise_control_tooltip();
+
+	const float button_width = ImGui::GetFrameHeight();
+	ImGui::PushButtonRepeat(true);
+	ImGui::SameLine();
+	if (ImGui::Button("-##decrement", ImVec2(button_width, 0.0f))) {
+		const float amount = ImGui::GetIO().KeyCtrl ? fast_step : step;
+		*value = clamp_float(*value - amount, min, max);
+		changed = true;
+	}
+	precise_control_tooltip();
+	ImGui::SameLine();
+	if (ImGui::Button("+##increment", ImVec2(button_width, 0.0f))) {
+		const float amount = ImGui::GetIO().KeyCtrl ? fast_step : step;
+		*value = clamp_float(*value + amount, min, max);
+		changed = true;
+	}
+	precise_control_tooltip();
+	ImGui::PopButtonRepeat();
+
+	const float clamped = std::isfinite(*value) ? clamp_float(*value, min, max) : min;
+	if (clamped != *value) {
+		*value = clamped;
+		changed = true;
+	}
+	ImGui::PopID();
+	return changed;
+}
+
+bool psycho_imgui_precise_int(
+	const char* label,
+	const char* id,
+	int32_t* value,
+	int32_t min,
+	int32_t max,
+	int32_t fast_step) {
+	if (label == nullptr || id == nullptr || value == nullptr || min >= max || fast_step < 1) {
+		return false;
+	}
+
+	*value = clamp_int(*value, min, max);
+	char range[128];
+	std::snprintf(
+		range, sizeof(range), "range %d - %d | +/- 1 (Ctrl %d)", min, max, fast_step);
+	precise_control_label(label, range);
+
+	ImGui::PushID(id);
+	ImGui::SetNextItemWidth(precise_control_slider_width());
+	bool changed = ImGui::SliderInt(
+		"##slider", value, min, max, "%d", ImGuiSliderFlags_AlwaysClamp);
+	precise_control_tooltip();
+
+	const float button_width = ImGui::GetFrameHeight();
+	ImGui::PushButtonRepeat(true);
+	ImGui::SameLine();
+	if (ImGui::Button("-##decrement", ImVec2(button_width, 0.0f))) {
+		const int32_t amount = ImGui::GetIO().KeyCtrl ? fast_step : 1;
+		const int64_t next = static_cast<int64_t>(*value) - amount;
+		*value = next < min ? min : static_cast<int32_t>(next);
+		changed = true;
+	}
+	precise_control_tooltip();
+	ImGui::SameLine();
+	if (ImGui::Button("+##increment", ImVec2(button_width, 0.0f))) {
+		const int32_t amount = ImGui::GetIO().KeyCtrl ? fast_step : 1;
+		const int64_t next = static_cast<int64_t>(*value) + amount;
+		*value = next > max ? max : static_cast<int32_t>(next);
+		changed = true;
+	}
+	precise_control_tooltip();
+	ImGui::PopButtonRepeat();
+
+	const int32_t clamped = clamp_int(*value, min, max);
+	if (clamped != *value) {
+		*value = clamped;
+		changed = true;
+	}
+	ImGui::PopID();
+	return changed;
 }
 
 bool psycho_imgui_selectable(const char* label, bool selected) {

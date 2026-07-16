@@ -237,7 +237,7 @@ debug_log = true
 #         Use only while reproducing a specific hitch.
 # false = keep low-overhead hang, memory, and guard diagnostics without per-frame
 #         timing work. Recommended for normal play.
-hitch_profiling = true
+hitch_profiling = false
 
 # Record queued-task retain/release/dispatch provenance in a fixed ring.
 # Keep disabled outside focused crash research; production guards do not need it.

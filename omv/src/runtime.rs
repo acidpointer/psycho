@@ -1772,8 +1772,6 @@ const MENU_SAVE_BUTTON_ACTIVE: [f32; 4] = [0.08, 0.74, 0.44, 1.0];
 const MENU_RELOAD_BUTTON: [f32; 4] = [0.43, 0.27, 0.08, 1.0];
 const MENU_RELOAD_BUTTON_HOVERED: [f32; 4] = [0.67, 0.42, 0.10, 1.0];
 const MENU_RELOAD_BUTTON_ACTIVE: [f32; 4] = [0.86, 0.54, 0.12, 1.0];
-const MENU_SLIDER_WIDTH: f32 = 520.0;
-
 fn draw_shader_menu(
     ui: &mut psycho_imgui::Ui<'_>,
     menu_config: &mut GraphicsMenuConfig,
@@ -1783,8 +1781,15 @@ fn draw_shader_menu(
     feature_status: EngineFeatureStatus,
     persistence: MenuPersistenceView<'_>,
 ) -> MenuFrameResult {
-    ui.set_next_window_pos(24.0, 36.0, psycho_imgui::Condition::FirstUseEver);
-    ui.set_next_window_size(1020.0, 760.0, psycho_imgui::Condition::FirstUseEver);
+    ui.set_next_window_centered(
+        0.82,
+        0.86,
+        840.0,
+        560.0,
+        1180.0,
+        860.0,
+        psycho_imgui::Condition::FirstUseEver,
+    );
 
     let title = cstring("OH MY VEGAS // GRAPHICS WORKBENCH");
     let window = ui.window(&title, None);
@@ -1893,6 +1898,10 @@ fn draw_shader_menu_header(
     let subtitle =
         cstring("Live graphics tuning for the Mojave. Changes remain temporary until Save.");
     ui.text_colored(MENU_MUTED_TEXT, &subtitle);
+    let controls_hint = cstring(
+        "Ctrl-click a slider to type an exact number. Hold -/+ to repeat; Ctrl uses a larger step.",
+    );
+    ui.text_colored(MENU_MUTED_TEXT, &controls_hint);
 
     let save = cstring("SAVE TO DISK##config_save");
     if ui.button_colored(
@@ -2555,10 +2564,6 @@ fn draw_shader_details(ui: &mut psycho_imgui::Ui<'_>, source: &mut ScreenShaderS
     ui.spacing();
     let option_heading = cstring("TUNING CONTROLS");
     ui.separator_text(&option_heading);
-    if source.embedded_effect_kind() == Some(EmbeddedEffectKind::DepthOfField) {
-        let precision_hint = cstring("Ctrl-click a slider to enter an exact value.");
-        ui.text_colored(MENU_MUTED_TEXT, &precision_hint);
-    }
     if source.options.is_empty() {
         let text = cstring("No dynamic options");
         ui.text_colored(MENU_MUTED_TEXT, &text);
@@ -2609,7 +2614,7 @@ fn draw_shader_details(ui: &mut psycho_imgui::Ui<'_>, source: &mut ScreenShaderS
                             "{}##{}.{}.{}",
                             choice, source.name, option.key, choice_index
                         ));
-                        if ui.selectable(&label, value == choice_index as i32) {
+                        if ui.radio_button(&label, value == choice_index as i32) {
                             selected = Some(choice_index as i32);
                         }
                     }
@@ -2704,21 +2709,11 @@ fn draw_float_slider(
     min: f32,
     max: f32,
 ) -> bool {
-    let span = (max - min).abs();
-    let formatted_value = if span <= 1.0 {
-        format!("{:.6}", *value)
-    } else if span <= 20.0 {
-        format!("{:.5}", *value)
-    } else if span <= 1_000.0 {
-        format!("{:.3}", *value)
-    } else {
-        format!("{:.1}", *value)
-    };
-    let display = cstring(format!("{label}: {formatted_value}"));
-    ui.text(&display);
-    let slider_id = cstring(format!("##{id}"));
-    let _width = ui.push_item_width(MENU_SLIDER_WIDTH);
-    ui.slider_float(&slider_id, value, min, max)
+    let label = cstring(label);
+    let id = cstring(id);
+    let step = float_control_step(min, max);
+    let logarithmic = min > 0.0 && max / min >= 1_000.0;
+    ui.precise_float(&label, &id, value, min, max, step, step * 10.0, logarithmic)
 }
 
 fn draw_int_slider(
@@ -2729,11 +2724,20 @@ fn draw_int_slider(
     min: i32,
     max: i32,
 ) -> bool {
-    let display = cstring(format!("{label}: {}", *value));
-    ui.text(&display);
-    let slider_id = cstring(format!("##{id}"));
-    let _width = ui.push_item_width(MENU_SLIDER_WIDTH);
-    ui.slider_int(&slider_id, value, min, max)
+    let label = cstring(label);
+    let id = cstring(id);
+    let fast_step = if max.saturating_sub(min) <= 10 { 1 } else { 10 };
+    ui.precise_int(&label, &id, value, min, max, fast_step)
+}
+
+fn float_control_step(min: f32, max: f32) -> f32 {
+    let span = (max - min).abs();
+    if !span.is_finite() || span <= f32::EPSILON {
+        return 0.001;
+    }
+
+    let exponent = (span / 1_000.0).log10().floor();
+    10.0_f32.powf(exponent).max(f32::EPSILON)
 }
 
 fn integer_option_bounds(option: &crate::shaders::ShaderOption) -> (i32, i32) {

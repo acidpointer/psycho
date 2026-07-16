@@ -115,6 +115,30 @@ impl Ui<'_> {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
+    pub fn set_next_window_centered(
+        &mut self,
+        width_ratio: f32,
+        height_ratio: f32,
+        min_width: f32,
+        min_height: f32,
+        max_width: f32,
+        max_height: f32,
+        condition: Condition,
+    ) {
+        unsafe {
+            ffi::psycho_imgui_set_next_window_centered(
+                width_ratio,
+                height_ratio,
+                min_width,
+                min_height,
+                max_width,
+                max_height,
+                condition as i32,
+            );
+        }
+    }
+
     pub fn window(&mut self, title: &CStr, open: Option<&mut bool>) -> Window {
         let visible = unsafe {
             ffi::psycho_imgui_begin_window(
@@ -161,12 +185,63 @@ impl Ui<'_> {
         unsafe { ffi::psycho_imgui_checkbox(label.as_ptr(), value as *mut bool) }
     }
 
+    pub fn radio_button(&mut self, label: &CStr, active: bool) -> bool {
+        unsafe { ffi::psycho_imgui_radio_button(label.as_ptr(), active) }
+    }
+
     pub fn slider_float(&mut self, label: &CStr, value: &mut f32, min: f32, max: f32) -> bool {
         unsafe { ffi::psycho_imgui_slider_float(label.as_ptr(), value as *mut f32, min, max) }
     }
 
     pub fn slider_int(&mut self, label: &CStr, value: &mut i32, min: i32, max: i32) -> bool {
         unsafe { ffi::psycho_imgui_slider_int(label.as_ptr(), value as *mut i32, min, max) }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn precise_float(
+        &mut self,
+        label: &CStr,
+        id: &CStr,
+        value: &mut f32,
+        min: f32,
+        max: f32,
+        step: f32,
+        fast_step: f32,
+        logarithmic: bool,
+    ) -> bool {
+        unsafe {
+            ffi::psycho_imgui_precise_float(
+                label.as_ptr(),
+                id.as_ptr(),
+                value as *mut f32,
+                min,
+                max,
+                step,
+                fast_step,
+                logarithmic,
+            )
+        }
+    }
+
+    pub fn precise_int(
+        &mut self,
+        label: &CStr,
+        id: &CStr,
+        value: &mut i32,
+        min: i32,
+        max: i32,
+        fast_step: i32,
+    ) -> bool {
+        unsafe {
+            ffi::psycho_imgui_precise_int(
+                label.as_ptr(),
+                id.as_ptr(),
+                value as *mut i32,
+                min,
+                max,
+                fast_step,
+            )
+        }
     }
 
     pub fn selectable(&mut self, label: &CStr, selected: bool) -> bool {
@@ -335,6 +410,15 @@ mod ffi {
         pub fn psycho_imgui_queue_mouse_wheel_delta(vertical: i32, horizontal: i32);
         pub fn psycho_imgui_set_next_window_size(width: f32, height: f32, condition: i32);
         pub fn psycho_imgui_set_next_window_pos(x: f32, y: f32, condition: i32);
+        pub fn psycho_imgui_set_next_window_centered(
+            width_ratio: f32,
+            height_ratio: f32,
+            min_width: f32,
+            min_height: f32,
+            max_width: f32,
+            max_height: f32,
+            condition: i32,
+        );
         pub fn psycho_imgui_begin_window(title: *const c_char, open: *mut bool) -> bool;
         pub fn psycho_imgui_end_window();
         pub fn psycho_imgui_begin_child(
@@ -351,6 +435,7 @@ mod ffi {
         pub fn psycho_imgui_separator_text(label: *const c_char);
         pub fn psycho_imgui_spacing();
         pub fn psycho_imgui_checkbox(label: *const c_char, value: *mut bool) -> bool;
+        pub fn psycho_imgui_radio_button(label: *const c_char, active: bool) -> bool;
         pub fn psycho_imgui_slider_float(
             label: *const c_char,
             value: *mut f32,
@@ -362,6 +447,24 @@ mod ffi {
             value: *mut i32,
             min: i32,
             max: i32,
+        ) -> bool;
+        pub fn psycho_imgui_precise_float(
+            label: *const c_char,
+            id: *const c_char,
+            value: *mut f32,
+            min: f32,
+            max: f32,
+            step: f32,
+            fast_step: f32,
+            logarithmic: bool,
+        ) -> bool;
+        pub fn psycho_imgui_precise_int(
+            label: *const c_char,
+            id: *const c_char,
+            value: *mut i32,
+            min: i32,
+            max: i32,
+            fast_step: i32,
         ) -> bool;
         pub fn psycho_imgui_selectable(label: *const c_char, selected: bool) -> bool;
         pub fn psycho_imgui_button(label: *const c_char) -> bool;
