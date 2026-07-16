@@ -677,6 +677,21 @@ impl<'a> Device9Ref<'a> {
         let shader = unsafe { self.inner.GetVertexShader()? };
         Ok(shader.as_raw())
     }
+
+    /// Read vertex shader float constants from the device state.
+    pub fn vertex_shader_constant_f(
+        &self,
+        start_register: u32,
+        constants: &mut [[f32; 4]],
+    ) -> Direct3DResult<()> {
+        unsafe {
+            self.inner.GetVertexShaderConstantF(
+                start_register,
+                constants.as_mut_ptr().cast::<f32>(),
+                constants.len() as u32,
+            )
+        }
+    }
 }
 
 /// Owned `IDirect3D9` reference.

@@ -10,6 +10,14 @@ use toml_edit::{DocumentMut, value};
 
 use crate::shaders::ShaderPhase;
 
+fn finite_clamp(value: f32, fallback: f32, min: f32, max: f32) -> f32 {
+    if value.is_finite() {
+        value.clamp(min, max)
+    } else {
+        fallback
+    }
+}
+
 pub(crate) const CONFIG_PATH: &str = "Data/NVSE/plugins/omv/omv.toml";
 
 static CONFIG: OnceLock<PsychoGraphicsConfig> = OnceLock::new();
@@ -138,6 +146,13 @@ impl Default for NativePbrConfig {
             terrain_lod_noise_scale: 1.0,
             terrain_lod_noise_tile: 1.75,
         }
+    }
+}
+
+impl NativePbrConfig {
+    fn sanitized(mut self) -> Self {
+        self.terrain_lod_noise_scale = finite_clamp(self.terrain_lod_noise_scale, 1.0, 0.0, 1.0);
+        self
     }
 }
 
@@ -526,7 +541,7 @@ impl From<&PsychoGraphicsConfig> for GraphicsMenuConfig {
     fn from(value: &PsychoGraphicsConfig) -> Self {
         Self {
             screen_space_shaders: value.graphics.screen_space_shaders,
-            native_pbr: value.graphics.native_pbr,
+            native_pbr: value.graphics.native_pbr.sanitized(),
             native_sky: value.graphics.native_sky,
             embedded_effects: value.graphics.embedded_effects,
             depth_provider: value.graphics.depth_provider,
@@ -617,7 +632,7 @@ pub(crate) fn save_menu_config(config: &GraphicsMenuConfig) -> Result<()> {
     doc["graphics"]["native_pbr"]["terrain_albedo_saturation"] =
         value(config.native_pbr.terrain_albedo_saturation as f64);
     doc["graphics"]["native_pbr"]["terrain_lod_noise_scale"] =
-        value(config.native_pbr.terrain_lod_noise_scale as f64);
+        value(finite_clamp(config.native_pbr.terrain_lod_noise_scale, 1.0, 0.0, 1.0) as f64);
     doc["graphics"]["native_pbr"]["terrain_lod_noise_tile"] =
         value(config.native_pbr.terrain_lod_noise_tile as f64);
     if let Some(native_pbr) = doc["graphics"]["native_pbr"].as_table_mut() {
@@ -820,5 +835,16 @@ albedo_saturation = 1.02
         assert_eq!(config.terrain_light_scale, 1.15);
         assert_eq!(config.terrain_ambient_scale, 1.1);
         assert_eq!(config.terrain_albedo_saturation, 1.02);
+    }
+
+    #[test]
+    fn distant_detail_strength_migrates_to_blend_range() {
+        let config = NativePbrConfig {
+            terrain_lod_noise_scale: 4.0,
+            ..NativePbrConfig::default()
+        }
+        .sanitized();
+
+        assert_eq!(config.terrain_lod_noise_scale, 1.0);
     }
 }

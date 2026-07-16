@@ -555,7 +555,7 @@ PS_OUTPUT main(PS_INPUT IN) {
     #endif
 
     float3 viewDir = SafeNormalize(IN.viewDir.xyz, normal.xyz);
-    float3 directAlbedo = lerp(luma(baseColor.rgb), baseColor.rgb, TESR_PBRExtraData.x);
+    float3 materialAlbedo = lerp(luma(baseColor.rgb), baseColor.rgb, TESR_PBRExtraData.x);
     
     // Vanilla shadows.
     float3 shadowMultiplier = 1.0;
@@ -568,10 +568,10 @@ PS_OUTPUT main(PS_INPUT IN) {
     #endif
     
     #if !defined(DIFFUSE) && !defined(POINT)
-        float3 lighting = getSunLighting(IN.lightDir.xyz, PSLightColor[0].rgb * shadowMultiplier, viewDir, normal.xyz, directAlbedo, materialResponse, normal.a, nativeSpecularFade);
+        float3 lighting = getSunLighting(IN.lightDir.xyz, PSLightColor[0].rgb * shadowMultiplier, viewDir, normal.xyz, materialAlbedo, materialResponse, normal.a, nativeSpecularFade);
     #else
         // Pointlights only.
-        float3 lighting = getPointLightLighting(IN.lightDir.xyz, IN.lightDir.w, PSLightColor[0].rgb * shadowMultiplier, viewDir, normal.xyz, directAlbedo, materialResponse, normal.a, nativeSpecularFade);
+        float3 lighting = getPointLightLighting(IN.lightDir.xyz, IN.lightDir.w, PSLightColor[0].rgb * shadowMultiplier, viewDir, normal.xyz, materialAlbedo, materialResponse, normal.a, nativeSpecularFade);
     #endif
     
     // Self emmitance.
@@ -581,16 +581,16 @@ PS_OUTPUT main(PS_INPUT IN) {
     #endif
     
     #if !defined(DIFFUSE) && !defined(ONLY_SPECULAR)
-        lighting += getAmbientLighting(AmbientColor.rgb, baseColor.rgb);
+        lighting += getAmbientLighting(AmbientColor.rgb, materialAlbedo);
     #endif
     
     // Other light sources.
     #if LIGHTS > 1 || NUM_PT_LIGHTS > 1
-        lighting += getPointLightLighting(IN.light2Dir.xyz, IN.light2Dir.w, PSLightColor[1].rgb, viewDir, normal.xyz, directAlbedo, materialResponse, normal.a, nativeSpecularFade);
+        lighting += getPointLightLighting(IN.light2Dir.xyz, IN.light2Dir.w, PSLightColor[1].rgb, viewDir, normal.xyz, materialAlbedo, materialResponse, normal.a, nativeSpecularFade);
     #endif
     
     #if LIGHTS > 2 || NUM_PT_LIGHTS > 2
-        lighting += getPointLightLighting(IN.light3Dir.xyz, IN.light3Dir.w, PSLightColor[2].rgb, viewDir, normal.xyz, directAlbedo, materialResponse, normal.a, nativeSpecularFade);
+        lighting += getPointLightLighting(IN.light3Dir.xyz, IN.light3Dir.w, PSLightColor[2].rgb, viewDir, normal.xyz, materialAlbedo, materialResponse, normal.a, nativeSpecularFade);
     #endif
     
     float3 finalColor = lighting.rgb;
@@ -705,37 +705,37 @@ PS_OUTPUT main(PS_INPUT IN) {
     
     // Lighting.
     float3 viewDir = SafeNormalize(float3(IN.lightDir.w, IN.light2.w, IN.light3.w), normal.xyz);
-    float3 directAlbedo = lerp(luma(baseColor.rgb), baseColor.rgb, TESR_PBRExtraData.x);
+    float3 materialAlbedo = lerp(luma(baseColor.rgb), baseColor.rgb, TESR_PBRExtraData.x);
     
     float att;
     
     #ifndef OPT
-        float3 lighting = getSunLighting(IN.lightDir.xyz, PSLightColor[0].rgb, viewDir, normal.xyz, directAlbedo, materialResponse, normal.a, nativeSpecularFade);
+        float3 lighting = getSunLighting(IN.lightDir.xyz, PSLightColor[0].rgb, viewDir, normal.xyz, materialAlbedo, materialResponse, normal.a, nativeSpecularFade);
     #else
         att = vanillaAtt(PSLightPosition[0].xyz - IN.lPosition.xyz, PSLightPosition[0].w);
-        float3 lighting = getPointLightLightingAtt(IN.lightDir.xyz, att, PSLightColor[0].rgb, viewDir, normal.xyz, directAlbedo, materialResponse, normal.a, nativeSpecularFade);
+        float3 lighting = getPointLightLightingAtt(IN.lightDir.xyz, att, PSLightColor[0].rgb, viewDir, normal.xyz, materialAlbedo, materialResponse, normal.a, nativeSpecularFade);
     #endif
     
     att = vanillaAtt(PSLightPosition[lightOffset + 0].xyz - IN.lPosition.xyz, PSLightPosition[lightOffset + 0].w);
-    lighting += (1 >= lightsUsed ? 0.0 : 1.0) * getPointLightLightingAtt(IN.light2.xyz, att, PSLightColor[1].rgb, viewDir, normal.xyz, directAlbedo, materialResponse, normal.a, nativeSpecularFade);
+    lighting += (1 >= lightsUsed ? 0.0 : 1.0) * getPointLightLightingAtt(IN.light2.xyz, att, PSLightColor[1].rgb, viewDir, normal.xyz, materialAlbedo, materialResponse, normal.a, nativeSpecularFade);
     
     att = vanillaAtt(PSLightPosition[lightOffset + 1].xyz - IN.lPosition.xyz, PSLightPosition[lightOffset + 1].w);
-    lighting += (2 > lightsUsed ? 0.0 : 1.0) * getPointLightLightingAtt(IN.light3.xyz, att, PSLightColor[2].rgb, viewDir, normal.xyz, directAlbedo, materialResponse, normal.a, nativeSpecularFade);
+    lighting += (2 > lightsUsed ? 0.0 : 1.0) * getPointLightLightingAtt(IN.light3.xyz, att, PSLightColor[2].rgb, viewDir, normal.xyz, materialAlbedo, materialResponse, normal.a, nativeSpecularFade);
     
     #if MAX_LIGHTS > 3
         att = vanillaAtt(PSLightPosition[lightOffset + 2].xyz - IN.lPosition.xyz, PSLightPosition[lightOffset + 2].w);
-        lighting += (3 > lightsUsed ? 0.0 : 1.0) * getPointLightLightingAtt(IN.light4.xyz, att, PSLightColor[3].rgb, viewDir, normal.xyz, directAlbedo, materialResponse, normal.a, nativeSpecularFade);
+        lighting += (3 > lightsUsed ? 0.0 : 1.0) * getPointLightLightingAtt(IN.light4.xyz, att, PSLightColor[3].rgb, viewDir, normal.xyz, materialAlbedo, materialResponse, normal.a, nativeSpecularFade);
     #endif
     
     #if MAX_LIGHTS > 4
         att = vanillaAtt(PSLightPosition[3].xyz - IN.lPosition.xyz, PSLightPosition[3].w);
-        lighting += (4 > lightsUsed ? 0.0 : 1.0) * getPointLightLightingAtt(IN.light5.xyz, att, PSLightColor[4].rgb, viewDir, normal.xyz, directAlbedo, materialResponse, normal.a, nativeSpecularFade);
+        lighting += (4 > lightsUsed ? 0.0 : 1.0) * getPointLightLightingAtt(IN.light5.xyz, att, PSLightColor[4].rgb, viewDir, normal.xyz, materialAlbedo, materialResponse, normal.a, nativeSpecularFade);
     
         att = vanillaAtt(PSLightPosition[4].xyz - IN.lPosition.xyz, PSLightPosition[4].w);
-        lighting += (5 > lightsUsed ? 0.0 : 1.0) * getPointLightLightingAtt(IN.light6.xyz, att, PSLightColor[5].rgb, viewDir, normal.xyz, directAlbedo, materialResponse, normal.a, nativeSpecularFade);
+        lighting += (5 > lightsUsed ? 0.0 : 1.0) * getPointLightLightingAtt(IN.light6.xyz, att, PSLightColor[5].rgb, viewDir, normal.xyz, materialAlbedo, materialResponse, normal.a, nativeSpecularFade);
     #endif
 
-    lighting += getAmbientLighting(AmbientColor.rgb, baseColor.rgb);
+    lighting += getAmbientLighting(AmbientColor.rgb, materialAlbedo);
 
     float3 finalColor = lighting;
     

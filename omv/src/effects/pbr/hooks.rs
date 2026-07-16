@@ -22,7 +22,8 @@ use libpsycho::os::windows::{
 
 use super::{
     constants, device_resources, diagnostics, engine_contracts, object_contracts,
-    object_replacement_record, shader_record, shader_registry, shader_registry::ShaderStage,
+    object_replacement_record, samplers, shader_record, shader_registry,
+    shader_registry::ShaderStage,
 };
 use engine_contracts::ObjectDrawRejectReason;
 use object_contracts::{ObjectContractDecision, ObjectContractState};
@@ -95,6 +96,7 @@ struct PreparedObjectReplacement {
     draw_trace: diagnostics::ObjectDrawTrace,
     normalized_vertex_index: u32,
     contract_state: ObjectContractState,
+    uses_native_specular_fade: bool,
 }
 
 const SET_SHADERS_PROLOGUE: &[u8] = &[
@@ -522,6 +524,8 @@ unsafe extern "thiscall" fn hook_set_shaders(shader: *mut c_void, pass_index: u3
         }
         if super::land_lod_contracts_ready() {
             set_pending_draw(PENDING_DRAW_LAND_LOD, pass_index, 0);
+        } else {
+            diagnostics::record_terrain_fallback(diagnostics::TerrainDrawFamily::LandLod);
         }
         return;
     }
@@ -533,6 +537,8 @@ unsafe extern "thiscall" fn hook_set_shaders(shader: *mut c_void, pass_index: u3
         }
         if super::terrain_fade_contracts_ready() {
             set_pending_draw(PENDING_DRAW_TERRAIN_FADE, pass_index, 0);
+        } else {
+            diagnostics::record_terrain_fallback(diagnostics::TerrainDrawFamily::TerrainFade);
         }
         return;
     }
@@ -548,11 +554,16 @@ unsafe extern "thiscall" fn hook_set_shaders(shader: *mut c_void, pass_index: u3
         if super::close_terrain_contract_available() {
             if device_resources::close_terrain_variant_resources_ready(pixel_sls) {
                 set_pending_draw(PENDING_DRAW_CLOSE_TERRAIN, pass_index, pixel_index as u32);
-            } else if !CLOSE_TERRAIN_WARMING_LOGGED.swap(true, Ordering::AcqRel) {
-                log::info!(
-                    "[PBR] CloseTerrain draw remains vanilla while selected variant SLS{pixel_sls} warms"
-                );
+            } else {
+                diagnostics::record_terrain_fallback(diagnostics::TerrainDrawFamily::CloseTerrain);
+                if !CLOSE_TERRAIN_WARMING_LOGGED.swap(true, Ordering::AcqRel) {
+                    log::info!(
+                        "[PBR] CloseTerrain draw remains vanilla while selected variant SLS{pixel_sls} warms"
+                    );
+                }
             }
+        } else {
+            diagnostics::record_terrain_fallback(diagnostics::TerrainDrawFamily::CloseTerrain);
         }
         return;
     }
@@ -687,10 +698,12 @@ fn bind_land_lod_replacement() {
     }
     let Some(replacement_vertex) = device_resources::land_lod_shader_handle(ShaderStage::Vertex)
     else {
+        diagnostics::record_terrain_fallback(diagnostics::TerrainDrawFamily::LandLod);
         return;
     };
     let Some(replacement_pixel) = device_resources::land_lod_shader_handle(ShaderStage::Pixel)
     else {
+        diagnostics::record_terrain_fallback(diagnostics::TerrainDrawFamily::LandLod);
         return;
     };
     let Some(requested_constants) = constants::upload_terrain_constants(&device) else {
@@ -719,6 +732,7 @@ fn bind_land_lod_replacement() {
             "[PBR] LandLOD PBR active pass=0x{LAND_LOD_PASS_INDEX:03X} vertex=C[{LAND_LOD_VERTEX_INDEX}] pixel=B[{LAND_LOD_PIXEL_INDEX}]"
         );
     }
+    diagnostics::record_terrain_replacement(diagnostics::TerrainDrawFamily::LandLod);
 }
 
 fn bind_terrain_fade_replacement() {
@@ -746,10 +760,12 @@ fn bind_terrain_fade_replacement() {
     let Some(replacement_vertex) =
         device_resources::terrain_fade_shader_handle(ShaderStage::Vertex)
     else {
+        diagnostics::record_terrain_fallback(diagnostics::TerrainDrawFamily::TerrainFade);
         return;
     };
     let Some(replacement_pixel) = device_resources::terrain_fade_shader_handle(ShaderStage::Pixel)
     else {
+        diagnostics::record_terrain_fallback(diagnostics::TerrainDrawFamily::TerrainFade);
         return;
     };
     if constants::upload_terrain_constants(&device).is_none() {
@@ -772,6 +788,7 @@ fn bind_terrain_fade_replacement() {
             "[PBR] TerrainFade PBR active pass={TERRAIN_FADE_PASS_INDEX} vertex=C[{TERRAIN_FADE_VERTEX_INDEX}] pixel=B[{TERRAIN_FADE_PIXEL_INDEX}]"
         );
     }
+    diagnostics::record_terrain_replacement(diagnostics::TerrainDrawFamily::TerrainFade);
 }
 
 fn bind_close_terrain_replacement(pixel_index: usize) {
@@ -805,12 +822,14 @@ fn bind_close_terrain_replacement(pixel_index: usize) {
     let Some(replacement_vertex) =
         device_resources::close_terrain_shader_handle(ShaderStage::Vertex, 2100)
     else {
+        diagnostics::record_terrain_fallback(diagnostics::TerrainDrawFamily::CloseTerrain);
         return;
     };
     let pixel_sls = 2000u16 + pixel_index as u16;
     let Some(replacement_pixel) =
         device_resources::close_terrain_shader_handle(ShaderStage::Pixel, pixel_sls)
     else {
+        diagnostics::record_terrain_fallback(diagnostics::TerrainDrawFamily::CloseTerrain);
         return;
     };
     if constants::upload_terrain_constants(&device).is_none() {
@@ -833,6 +852,7 @@ fn bind_close_terrain_replacement(pixel_index: usize) {
             "[PBR] CloseTerrain PBR active vertex=C[{CLOSE_TERRAIN_VERTEX_INDEX}] pixel=B[{pixel_index}] textures={texture_count}"
         );
     }
+    diagnostics::record_terrain_replacement(diagnostics::TerrainDrawFamily::CloseTerrain);
 }
 
 fn native_shader_pair(
@@ -937,18 +957,21 @@ fn bind_direct_pair(
 }
 
 fn log_land_lod_failure(reason: &'static str) {
+    diagnostics::record_terrain_fallback(diagnostics::TerrainDrawFamily::LandLod);
     if !LAND_LOD_FAILURE_LOGGED.swap(true, Ordering::AcqRel) {
         log::warn!("[PBR] LandLOD PBR kept vanilla: {reason}");
     }
 }
 
 fn log_terrain_fade_failure(reason: &'static str) {
+    diagnostics::record_terrain_fallback(diagnostics::TerrainDrawFamily::TerrainFade);
     if !TERRAIN_FADE_FAILURE_LOGGED.swap(true, Ordering::AcqRel) {
         log::warn!("[PBR] TerrainFade PBR kept vanilla: {reason}");
     }
 }
 
 fn log_close_terrain_failure(reason: &'static str) {
+    diagnostics::record_terrain_fallback(diagnostics::TerrainDrawFamily::CloseTerrain);
     if !CLOSE_TERRAIN_FAILURE_LOGGED.swap(true, Ordering::AcqRel) {
         log::warn!("[PBR] CloseTerrain PBR kept vanilla: {reason}");
     }
@@ -959,6 +982,7 @@ fn log_close_terrain_missing_samplers(
     texture_count: u32,
     missing_sampler_mask: u16,
 ) {
+    diagnostics::record_terrain_fallback(diagnostics::TerrainDrawFamily::CloseTerrain);
     if !CLOSE_TERRAIN_FAILURE_LOGGED.swap(true, Ordering::AcqRel) {
         log::warn!(
             "[PBR] CloseTerrain PBR kept vanilla: pixel=B[{pixel_index}] textures={texture_count} missing_sampler_mask=0x{missing_sampler_mask:04X}"
@@ -1108,10 +1132,11 @@ fn try_prepare_object_replacement(pass_index: u32) -> Option<PreparedObjectRepla
     let vertex_record = ensure_table_identity(vertex_record);
     let pixel_record = ensure_table_identity(pixel_record);
 
-    let draw_key = object_draw_key(draw_snapshot, pass_index, vertex_record, pixel_record);
+    let draw_key = object_draw_key(draw_snapshot, vertex_shader, pixel_shader);
     let draw_trace = diagnostics::ObjectDrawTrace {
         key: draw_key,
         geometry: draw_snapshot.geometry,
+        property: draw_snapshot.property,
         pass: draw_snapshot.pass,
         pass_index,
         selector: draw_snapshot.selector,
@@ -1249,6 +1274,9 @@ fn try_prepare_object_replacement(pass_index: u32) -> Option<PreparedObjectRepla
         draw_trace,
         normalized_vertex_index: contract.normalized_vertex_index,
         contract_state: contract.state,
+        uses_native_specular_fade: shader_registry::object_template_uses_native_specular_fade(
+            pixel_record.template_id,
+        ),
     })
 }
 
@@ -1302,11 +1330,26 @@ fn bind_object_replacement(replacement: PreparedObjectReplacement) {
         return;
     }
 
-    if diagnostics::detailed_enabled()
-        && replacement.contract_state == ObjectContractState::ImplementedSpecular
-        && let Some(fade) = engine_contracts::current_object_specular_fade_snapshot()
-    {
-        diagnostics::record_object_specular_fade(replacement.draw_trace, fade);
+    if diagnostics::detailed_enabled() && replacement.uses_native_specular_fade {
+        let light_count =
+            shader_registry::object_template_light_count(replacement.pixel_record.template_id);
+        let mut light_data = [[0.0; 4]; 10];
+        let light_data_ready = device.vertex_shader_constant_f(25, &mut light_data).is_ok();
+        let renderer_weight = light_data_ready.then_some(light_data[0][3]);
+        let light_signature = light_data_ready
+            .then(|| hash_light_data(&light_data, light_count))
+            .unwrap_or(0);
+        if let Some(fade) = engine_contracts::current_object_specular_fade_snapshot(
+            renderer_weight,
+            light_count,
+            light_signature,
+        ) {
+            diagnostics::record_object_specular_fade(
+                replacement.draw_trace,
+                fade,
+                samplers::object_sampler_identity(&device, replacement.pixel_record.template_id),
+            );
+        }
     }
 
     diagnostics::record_object_contract(
@@ -1342,15 +1385,34 @@ fn record_unresolved_table_pair(
     }
     let vertex = identify_pplighting_table_slot(vertex_shader, ShaderStage::Vertex);
     let pixel = identify_pplighting_table_slot(pixel_shader, ShaderStage::Pixel);
+    let vertex_index = vertex.map_or(TABLE_INDEX_UNKNOWN, |slot| slot.index);
+    let pixel_index = pixel.map_or(TABLE_INDEX_UNKNOWN, |slot| slot.index);
+    diagnostics::record_object_contract(
+        diagnostics::ObjectDrawTrace {
+            key: object_draw_key(snapshot, vertex_shader, pixel_shader),
+            geometry: snapshot.geometry,
+            property: snapshot.property,
+            pass: snapshot.pass,
+            pass_index,
+            selector: snapshot.selector,
+            selector_state: snapshot.selector_state,
+            active_layer_count: snapshot.active_layer_count,
+            scanned_entries: snapshot.scanned_entries,
+            vertex_index,
+            pixel_index,
+        },
+        vertex_index,
+        contract_state_for_rejection(reason),
+    );
     diagnostics::record_unresolved_table_pair(
         snapshot,
         pass_index,
         vertex_shader,
         pixel_shader,
         vertex.map_or("other", |slot| slot.label),
-        vertex.map_or(TABLE_INDEX_UNKNOWN, |slot| slot.index),
+        vertex_index,
         pixel.map_or("other", |slot| slot.label),
-        pixel.map_or(TABLE_INDEX_UNKNOWN, |slot| slot.index),
+        pixel_index,
         reason,
     );
 }
@@ -1545,25 +1607,82 @@ fn contract_state_for_rejection(reason: ObjectDrawRejectReason) -> ObjectContrac
 
 fn object_draw_key(
     snapshot: engine_contracts::DrawSnapshot,
-    pass_index: u32,
-    vertex_record: shader_record::ShaderRecordSnapshot,
-    pixel_record: shader_record::ShaderRecordSnapshot,
+    vertex_shader: *mut c_void,
+    pixel_shader: *mut c_void,
 ) -> u32 {
     let mut hash = 0x811C_9DC5u32;
     if snapshot.geometry != 0 {
         hash = hash_word(hash, snapshot.geometry);
-        hash = hash_word(hash, pass_index as usize);
+        hash = hash_word(hash, snapshot.property);
+        hash = hash_word(hash, snapshot.selector);
     } else {
-        hash = hash_word(hash, vertex_record.shader as usize);
-        hash = hash_word(hash, pixel_record.shader as usize);
+        hash = hash_word(hash, vertex_shader as usize);
+        hash = hash_word(hash, pixel_shader as usize);
     }
 
     if hash == 0 { 1 } else { hash }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::{hash_light_data, object_draw_key};
+    use crate::effects::pbr::engine_contracts::DrawSnapshot;
+
+    #[test]
+    fn object_draw_key_ignores_pass_identity() {
+        let first = DrawSnapshot {
+            geometry: 0x1000,
+            property: 0x2000,
+            pass: 0x3000,
+            selector: 0x4000,
+            ..DrawSnapshot::default()
+        };
+        let second = DrawSnapshot {
+            pass: 0x5000,
+            ..first
+        };
+
+        assert_eq!(
+            object_draw_key(first, std::ptr::null_mut(), std::ptr::null_mut()),
+            object_draw_key(second, std::ptr::null_mut(), std::ptr::null_mut())
+        );
+    }
+
+    #[test]
+    fn light_signature_excludes_native_distance_fade() {
+        let mut first = [[0.0; 4]; 10];
+        first[0] = [1.0, 2.0, 3.0, 0.25];
+        let mut second = first;
+        second[0][3] = 0.75;
+
+        assert_eq!(hash_light_data(&first, 1), hash_light_data(&second, 1));
+
+        second[0][0] = 4.0;
+        assert_ne!(hash_light_data(&first, 1), hash_light_data(&second, 1));
+    }
+}
+
 fn hash_word(hash: u32, value: usize) -> u32 {
     let folded = value as u32;
     hash ^ folded.wrapping_mul(0x0100_0193).rotate_left(5)
+}
+
+fn hash_light_data(light_data: &[[f32; 4]; 10], light_count: u32) -> u32 {
+    let mut hash = 0x811C_9DC5u32;
+    for (light_index, light) in light_data
+        .iter()
+        .take(light_count.min(light_data.len() as u32) as usize)
+        .enumerate()
+    {
+        for (component, value) in light.iter().enumerate() {
+            // LightData[0].w is the distance fade reported separately.
+            if light_index == 0 && component == 3 {
+                continue;
+            }
+            hash = (hash ^ value.to_bits()).wrapping_mul(0x0100_0193);
+        }
+    }
+    hash
 }
 
 fn adopt_existing_object_shaders() -> u32 {

@@ -14,6 +14,7 @@ use std::{
 use super::{
     engine_contracts::{DrawSnapshot, ObjectDrawRejectReason, ObjectSpecularFadeSnapshot},
     object_contracts::{self, ObjectContractState},
+    samplers::ObjectSamplerIdentity,
 };
 
 static ENABLED_FRAME_COUNT: AtomicU32 = AtomicU32::new(0);
@@ -38,6 +39,18 @@ static OBJECT_CONSTANT_UPLOADS_LAST_FRAME: AtomicU32 = AtomicU32::new(0);
 static OBJECT_D3D_TO_REPLACEMENT_LAST_FRAME: AtomicU32 = AtomicU32::new(0);
 static OBJECT_D3D_TO_OTHER_LAST_FRAME: AtomicU32 = AtomicU32::new(0);
 static OBJECT_CONTRACT_TRANSITIONS_LAST_FRAME: AtomicU32 = AtomicU32::new(0);
+static LAND_LOD_REPLACEMENTS_THIS_FRAME: AtomicU32 = AtomicU32::new(0);
+static LAND_LOD_FALLBACKS_THIS_FRAME: AtomicU32 = AtomicU32::new(0);
+static TERRAIN_FADE_REPLACEMENTS_THIS_FRAME: AtomicU32 = AtomicU32::new(0);
+static TERRAIN_FADE_FALLBACKS_THIS_FRAME: AtomicU32 = AtomicU32::new(0);
+static CLOSE_TERRAIN_REPLACEMENTS_THIS_FRAME: AtomicU32 = AtomicU32::new(0);
+static CLOSE_TERRAIN_FALLBACKS_THIS_FRAME: AtomicU32 = AtomicU32::new(0);
+static LAND_LOD_REPLACEMENTS_LAST_FRAME: AtomicU32 = AtomicU32::new(0);
+static LAND_LOD_FALLBACKS_LAST_FRAME: AtomicU32 = AtomicU32::new(0);
+static TERRAIN_FADE_REPLACEMENTS_LAST_FRAME: AtomicU32 = AtomicU32::new(0);
+static TERRAIN_FADE_FALLBACKS_LAST_FRAME: AtomicU32 = AtomicU32::new(0);
+static CLOSE_TERRAIN_REPLACEMENTS_LAST_FRAME: AtomicU32 = AtomicU32::new(0);
+static CLOSE_TERRAIN_FALLBACKS_LAST_FRAME: AtomicU32 = AtomicU32::new(0);
 static OBJECT_LAST_VERTEX_SLS: AtomicU32 = AtomicU32::new(0);
 static OBJECT_LAST_PIXEL_SLS: AtomicU32 = AtomicU32::new(0);
 static OBJECT_LAST_VERTEX_TABLE: AtomicU32 = AtomicU32::new(0);
@@ -67,6 +80,21 @@ static OBJECT_LAST_PASS_ENTRY_LIST: AtomicUsize = AtomicUsize::new(0);
 static OBJECT_LAST_REJECT_REASON: AtomicU32 = AtomicU32::new(0);
 static OBJECT_LAST_REJECT_ROW: AtomicU32 = AtomicU32::new(0);
 static OBJECT_LAST_REJECT_SELECTOR: AtomicUsize = AtomicUsize::new(0);
+static OBJECT_LAST_FADE_GEOMETRY: AtomicUsize = AtomicUsize::new(0);
+static OBJECT_LAST_FADE_PROPERTY: AtomicUsize = AtomicUsize::new(0);
+static OBJECT_LAST_FADE_DISTANCE: AtomicU32 = AtomicU32::new(0);
+static OBJECT_LAST_FADE_START: AtomicU32 = AtomicU32::new(0);
+static OBJECT_LAST_FADE_END: AtomicU32 = AtomicU32::new(0);
+static OBJECT_LAST_FADE_EXPECTED: AtomicU32 = AtomicU32::new(0);
+static OBJECT_LAST_FADE_STAGED: AtomicU32 = AtomicU32::new(0);
+static OBJECT_LAST_FADE_C25: AtomicU32 = AtomicU32::new(f32::NAN.to_bits());
+static OBJECT_LAST_LIGHT_COUNT: AtomicU32 = AtomicU32::new(0);
+static OBJECT_LAST_LIGHT_SIGNATURE: AtomicU32 = AtomicU32::new(0);
+static OBJECT_LAST_BASE_TEXTURE: AtomicUsize = AtomicUsize::new(0);
+static OBJECT_LAST_NORMAL_TEXTURE: AtomicUsize = AtomicUsize::new(0);
+static OBJECT_LAST_GLOW_TEXTURE: AtomicUsize = AtomicUsize::new(0);
+static OBJECT_LAST_SHADOW_TEXTURE: AtomicUsize = AtomicUsize::new(0);
+static OBJECT_LAST_SHADOW_MASK_TEXTURE: AtomicUsize = AtomicUsize::new(0);
 
 const REJECT_NONE: u32 = 0;
 const REJECT_CLOSE_TERRAIN_MATERIAL: u32 = 1;
@@ -114,6 +142,7 @@ struct ObjectDrawStateSlot {
 pub(super) struct ObjectDrawTrace {
     pub(super) key: u32,
     pub(super) geometry: usize,
+    pub(super) property: usize,
     pub(super) pass: usize,
     pub(super) pass_index: u32,
     pub(super) selector: usize,
@@ -122,6 +151,13 @@ pub(super) struct ObjectDrawTrace {
     pub(super) scanned_entries: u32,
     pub(super) vertex_index: u32,
     pub(super) pixel_index: u32,
+}
+
+#[derive(Clone, Copy)]
+pub(super) enum TerrainDrawFamily {
+    LandLod,
+    TerrainFade,
+    CloseTerrain,
 }
 
 impl ObjectDrawStateSlot {
@@ -174,6 +210,30 @@ pub(super) fn service_frame(shader_enabled: bool, debug_log_draws: bool) {
     OBJECT_CONTRACT_TRANSITIONS_LAST_FRAME.store(
         OBJECT_CONTRACT_TRANSITIONS_THIS_FRAME.swap(0, Ordering::AcqRel),
         Ordering::Release,
+    );
+    swap_frame_counter(
+        &LAND_LOD_REPLACEMENTS_THIS_FRAME,
+        &LAND_LOD_REPLACEMENTS_LAST_FRAME,
+    );
+    swap_frame_counter(
+        &LAND_LOD_FALLBACKS_THIS_FRAME,
+        &LAND_LOD_FALLBACKS_LAST_FRAME,
+    );
+    swap_frame_counter(
+        &TERRAIN_FADE_REPLACEMENTS_THIS_FRAME,
+        &TERRAIN_FADE_REPLACEMENTS_LAST_FRAME,
+    );
+    swap_frame_counter(
+        &TERRAIN_FADE_FALLBACKS_THIS_FRAME,
+        &TERRAIN_FADE_FALLBACKS_LAST_FRAME,
+    );
+    swap_frame_counter(
+        &CLOSE_TERRAIN_REPLACEMENTS_THIS_FRAME,
+        &CLOSE_TERRAIN_REPLACEMENTS_LAST_FRAME,
+    );
+    swap_frame_counter(
+        &CLOSE_TERRAIN_FALLBACKS_THIS_FRAME,
+        &CLOSE_TERRAIN_FALLBACKS_LAST_FRAME,
     );
     for (current, last) in REJECTIONS_THIS_FRAME
         .iter()
@@ -331,10 +391,30 @@ pub(super) fn record_object_draw_context(snapshot: DrawSnapshot) {
 pub(super) fn record_object_specular_fade(
     trace: ObjectDrawTrace,
     fade: ObjectSpecularFadeSnapshot,
+    samplers: ObjectSamplerIdentity,
 ) {
     if !detailed_enabled() || trace.key == 0 {
         return;
     }
+
+    OBJECT_LAST_FADE_GEOMETRY.store(trace.geometry, Ordering::Release);
+    OBJECT_LAST_FADE_PROPERTY.store(fade.property, Ordering::Release);
+    OBJECT_LAST_FADE_DISTANCE.store(fade.distance.to_bits(), Ordering::Release);
+    OBJECT_LAST_FADE_START.store(fade.fade_start.to_bits(), Ordering::Release);
+    OBJECT_LAST_FADE_END.store(fade.fade_end.to_bits(), Ordering::Release);
+    OBJECT_LAST_FADE_EXPECTED.store(fade.expected_weight.to_bits(), Ordering::Release);
+    OBJECT_LAST_FADE_STAGED.store(fade.native_weight.to_bits(), Ordering::Release);
+    OBJECT_LAST_FADE_C25.store(
+        fade.renderer_constant_weight.unwrap_or(f32::NAN).to_bits(),
+        Ordering::Release,
+    );
+    OBJECT_LAST_LIGHT_COUNT.store(fade.light_count, Ordering::Release);
+    OBJECT_LAST_LIGHT_SIGNATURE.store(fade.light_signature, Ordering::Release);
+    OBJECT_LAST_BASE_TEXTURE.store(samplers.base, Ordering::Release);
+    OBJECT_LAST_NORMAL_TEXTURE.store(samplers.normal, Ordering::Release);
+    OBJECT_LAST_GLOW_TEXTURE.store(samplers.glow, Ordering::Release);
+    OBJECT_LAST_SHADOW_TEXTURE.store(samplers.shadow, Ordering::Release);
+    OBJECT_LAST_SHADOW_MASK_TEXTURE.store(samplers.shadow_mask, Ordering::Release);
 
     let bucket = specular_fade_bucket(fade.native_weight);
     let slot = object_draw_state_slot(trace.key);
@@ -348,7 +428,7 @@ pub(super) fn record_object_specular_fade(
     let name = super::engine_contracts::geometry_name(trace.geometry)
         .unwrap_or_else(|| "<unnamed>".to_owned());
     log::info!(
-        "[PBR_SPECULAR_FADE] shader_applied=false diagnostic_only=true geometry=0x{:08X} name={} property=0x{:08X} flags=0x{:08X}/0x{:08X} pass_index={} pair=VS[{}]/PS[{}] distance={:.3} range={:.3}..{:.3} native_weight={:.6} bucket={} previous_bucket={}",
+        "[PBR_DISTANCE_FADE] shader_applied=true geometry=0x{:08X} name={} property=0x{:08X} flags=0x{:08X}/0x{:08X} pass_index={} pair=VS[{}]/PS[{}] distance={:.3} specular_range={:.3}..{:.3} expected_specular={:.6} staged_specular={:.6} c25_specular={:.6} lights={} light_signature=0x{:08X} textures=base:0x{:08X},normal:0x{:08X},glow:0x{:08X},shadow:0x{:08X},mask:0x{:08X} specular_bucket={}/{}",
         trace.geometry,
         name,
         fade.property,
@@ -360,7 +440,16 @@ pub(super) fn record_object_specular_fade(
         fade.distance,
         fade.fade_start,
         fade.fade_end,
+        fade.expected_weight,
         fade.native_weight,
+        fade.renderer_constant_weight.unwrap_or(f32::NAN),
+        fade.light_count,
+        fade.light_signature,
+        samplers.base,
+        samplers.normal,
+        samplers.glow,
+        samplers.shadow,
+        samplers.shadow_mask,
         specular_fade_bucket_label(bucket),
         specular_fade_bucket_label(previous),
     );
@@ -376,6 +465,26 @@ pub(super) fn record_object_constant_upload() {
 
 pub(super) fn record_object_fallback() {
     OBJECT_FALLBACKS_THIS_FRAME.fetch_add(1, Ordering::Relaxed);
+}
+
+pub(super) fn record_terrain_replacement(family: TerrainDrawFamily) {
+    terrain_family_counter(
+        family,
+        &LAND_LOD_REPLACEMENTS_THIS_FRAME,
+        &TERRAIN_FADE_REPLACEMENTS_THIS_FRAME,
+        &CLOSE_TERRAIN_REPLACEMENTS_THIS_FRAME,
+    )
+    .fetch_add(1, Ordering::Relaxed);
+}
+
+pub(super) fn record_terrain_fallback(family: TerrainDrawFamily) {
+    terrain_family_counter(
+        family,
+        &LAND_LOD_FALLBACKS_THIS_FRAME,
+        &TERRAIN_FADE_FALLBACKS_THIS_FRAME,
+        &CLOSE_TERRAIN_FALLBACKS_THIS_FRAME,
+    )
+    .fetch_add(1, Ordering::Relaxed);
 }
 
 pub(super) fn record_object_draw_gate_rejection(
@@ -414,12 +523,12 @@ pub(super) fn record_unresolved_table_pair(
         return;
     }
     let mut key = 0x811C_9DC5u32;
-    for value in [
-        snapshot.geometry,
-        pass_index as usize,
-        vertex_shader as usize,
-        pixel_shader as usize,
-    ] {
+    let identity = if snapshot.geometry != 0 {
+        [snapshot.geometry, snapshot.property, snapshot.selector, 0]
+    } else {
+        [0, 0, vertex_shader as usize, pixel_shader as usize]
+    };
+    for value in identity {
         key = (key ^ value as u32).wrapping_mul(0x0100_0193);
     }
     if key == 0 {
@@ -453,9 +562,10 @@ pub(super) fn record_unresolved_table_pair(
     let vertex_index = table_index_label(vertex_index);
     let pixel_index = table_index_label(pixel_index);
     log::info!(
-        "[PBR_UNRESOLVED] geometry=0x{:08X} name={} pass=0x{:08X} pass_index={} selector=0x{:08X} selector_state={} pair=VS:{}[{}]@{:p}/PS:{}[{}]@{:p} reason={}",
+        "[PBR_UNRESOLVED] geometry=0x{:08X} name={} property=0x{:08X} pass=0x{:08X} pass_index={} selector=0x{:08X} selector_state={} pair=VS:{}[{}]@{:p}/PS:{}[{}]@{:p} reason={}",
         snapshot.geometry,
         geometry_name,
+        snapshot.property,
         snapshot.pass,
         pass_index,
         snapshot.selector,
@@ -514,6 +624,30 @@ pub(super) fn object_d3d_to_other_last_frame() -> u32 {
 
 pub(super) fn object_contract_transitions_last_frame() -> u32 {
     OBJECT_CONTRACT_TRANSITIONS_LAST_FRAME.load(Ordering::Acquire)
+}
+
+pub(super) fn land_lod_replacements_last_frame() -> u32 {
+    LAND_LOD_REPLACEMENTS_LAST_FRAME.load(Ordering::Acquire)
+}
+
+pub(super) fn land_lod_fallbacks_last_frame() -> u32 {
+    LAND_LOD_FALLBACKS_LAST_FRAME.load(Ordering::Acquire)
+}
+
+pub(super) fn terrain_fade_replacements_last_frame() -> u32 {
+    TERRAIN_FADE_REPLACEMENTS_LAST_FRAME.load(Ordering::Acquire)
+}
+
+pub(super) fn terrain_fade_fallbacks_last_frame() -> u32 {
+    TERRAIN_FADE_FALLBACKS_LAST_FRAME.load(Ordering::Acquire)
+}
+
+pub(super) fn close_terrain_replacements_last_frame() -> u32 {
+    CLOSE_TERRAIN_REPLACEMENTS_LAST_FRAME.load(Ordering::Acquire)
+}
+
+pub(super) fn close_terrain_fallbacks_last_frame() -> u32 {
+    CLOSE_TERRAIN_FALLBACKS_LAST_FRAME.load(Ordering::Acquire)
 }
 
 pub(super) fn object_last_vertex_sls() -> u32 {
@@ -636,6 +770,54 @@ pub(super) fn object_last_reject_selector() -> usize {
     OBJECT_LAST_REJECT_SELECTOR.load(Ordering::Acquire)
 }
 
+pub(super) fn object_last_fade_geometry() -> usize {
+    OBJECT_LAST_FADE_GEOMETRY.load(Ordering::Acquire)
+}
+
+pub(super) fn object_last_fade_property() -> usize {
+    OBJECT_LAST_FADE_PROPERTY.load(Ordering::Acquire)
+}
+
+pub(super) fn object_last_fade_distance() -> f32 {
+    f32::from_bits(OBJECT_LAST_FADE_DISTANCE.load(Ordering::Acquire))
+}
+
+pub(super) fn object_last_fade_start() -> f32 {
+    f32::from_bits(OBJECT_LAST_FADE_START.load(Ordering::Acquire))
+}
+
+pub(super) fn object_last_fade_end() -> f32 {
+    f32::from_bits(OBJECT_LAST_FADE_END.load(Ordering::Acquire))
+}
+
+pub(super) fn object_last_fade_expected() -> f32 {
+    f32::from_bits(OBJECT_LAST_FADE_EXPECTED.load(Ordering::Acquire))
+}
+
+pub(super) fn object_last_fade_staged() -> f32 {
+    f32::from_bits(OBJECT_LAST_FADE_STAGED.load(Ordering::Acquire))
+}
+
+pub(super) fn object_last_fade_c25() -> f32 {
+    f32::from_bits(OBJECT_LAST_FADE_C25.load(Ordering::Acquire))
+}
+
+pub(super) fn object_last_light_count() -> u32 {
+    OBJECT_LAST_LIGHT_COUNT.load(Ordering::Acquire)
+}
+
+pub(super) fn object_last_light_signature() -> u32 {
+    OBJECT_LAST_LIGHT_SIGNATURE.load(Ordering::Acquire)
+}
+
+pub(super) fn object_last_base_texture() -> usize {
+    OBJECT_LAST_BASE_TEXTURE.load(Ordering::Acquire)
+}
+
+pub(super) fn object_last_normal_texture() -> usize {
+    OBJECT_LAST_NORMAL_TEXTURE.load(Ordering::Acquire)
+}
+
 pub(super) fn reset() {
     DETAILED_ENABLED.store(false, Ordering::Release);
     ENABLED_FRAME_COUNT.store(0, Ordering::Release);
@@ -659,6 +841,22 @@ pub(super) fn reset() {
     OBJECT_D3D_TO_REPLACEMENT_LAST_FRAME.store(0, Ordering::Release);
     OBJECT_D3D_TO_OTHER_LAST_FRAME.store(0, Ordering::Release);
     OBJECT_CONTRACT_TRANSITIONS_LAST_FRAME.store(0, Ordering::Release);
+    for counter in [
+        &LAND_LOD_REPLACEMENTS_THIS_FRAME,
+        &LAND_LOD_FALLBACKS_THIS_FRAME,
+        &TERRAIN_FADE_REPLACEMENTS_THIS_FRAME,
+        &TERRAIN_FADE_FALLBACKS_THIS_FRAME,
+        &CLOSE_TERRAIN_REPLACEMENTS_THIS_FRAME,
+        &CLOSE_TERRAIN_FALLBACKS_THIS_FRAME,
+        &LAND_LOD_REPLACEMENTS_LAST_FRAME,
+        &LAND_LOD_FALLBACKS_LAST_FRAME,
+        &TERRAIN_FADE_REPLACEMENTS_LAST_FRAME,
+        &TERRAIN_FADE_FALLBACKS_LAST_FRAME,
+        &CLOSE_TERRAIN_REPLACEMENTS_LAST_FRAME,
+        &CLOSE_TERRAIN_FALLBACKS_LAST_FRAME,
+    ] {
+        counter.store(0, Ordering::Release);
+    }
     OBJECT_LAST_VERTEX_SLS.store(0, Ordering::Release);
     OBJECT_LAST_PIXEL_SLS.store(0, Ordering::Release);
     OBJECT_LAST_VERTEX_TABLE.store(0, Ordering::Release);
@@ -688,6 +886,21 @@ pub(super) fn reset() {
     OBJECT_LAST_REJECT_REASON.store(REJECT_NONE, Ordering::Release);
     OBJECT_LAST_REJECT_ROW.store(0, Ordering::Release);
     OBJECT_LAST_REJECT_SELECTOR.store(0, Ordering::Release);
+    OBJECT_LAST_FADE_GEOMETRY.store(0, Ordering::Release);
+    OBJECT_LAST_FADE_PROPERTY.store(0, Ordering::Release);
+    OBJECT_LAST_FADE_DISTANCE.store(0, Ordering::Release);
+    OBJECT_LAST_FADE_START.store(0, Ordering::Release);
+    OBJECT_LAST_FADE_END.store(0, Ordering::Release);
+    OBJECT_LAST_FADE_EXPECTED.store(0, Ordering::Release);
+    OBJECT_LAST_FADE_STAGED.store(0, Ordering::Release);
+    OBJECT_LAST_FADE_C25.store(f32::NAN.to_bits(), Ordering::Release);
+    OBJECT_LAST_LIGHT_COUNT.store(0, Ordering::Release);
+    OBJECT_LAST_LIGHT_SIGNATURE.store(0, Ordering::Release);
+    OBJECT_LAST_BASE_TEXTURE.store(0, Ordering::Release);
+    OBJECT_LAST_NORMAL_TEXTURE.store(0, Ordering::Release);
+    OBJECT_LAST_GLOW_TEXTURE.store(0, Ordering::Release);
+    OBJECT_LAST_SHADOW_TEXTURE.store(0, Ordering::Release);
+    OBJECT_LAST_SHADOW_MASK_TEXTURE.store(0, Ordering::Release);
     for slot in REJECTIONS_THIS_FRAME
         .iter()
         .chain(REJECTIONS_LAST_FRAME.iter())
@@ -821,9 +1034,10 @@ fn record_object_contract_transition(
                 |(vertex, pixel)| format!("VS[0x{vertex:08X}]/PS[0x{pixel:08X}]"),
             );
         log::info!(
-            "[PBR_DRAW] geometry=0x{:08X} name={} pass=0x{:08X} pass_index={} constant_flags={} selector=0x{:08X} selector_state={} active_layers={} scanned_entries={} pair=VS[{}]/PS[{}] normalized_vs={} outcome={} previous={}",
+            "[PBR_DRAW] geometry=0x{:08X} name={} property=0x{:08X} pass=0x{:08X} pass_index={} constant_flags={} selector=0x{:08X} selector_state={} active_layers={} scanned_entries={} pair=VS[{}]/PS[{}] normalized_vs={} outcome={} previous={}",
             trace.geometry,
             name,
+            trace.property,
             trace.pass,
             trace.pass_index,
             constant_flags,
@@ -865,4 +1079,21 @@ fn object_draw_state_slot(draw_key: u32) -> &'static ObjectDrawStateSlot {
     slot.specular_fade_bucket
         .store(SPECULAR_FADE_BUCKET_UNSET, Ordering::Release);
     slot
+}
+
+fn swap_frame_counter(current: &AtomicU32, last: &AtomicU32) {
+    last.store(current.swap(0, Ordering::AcqRel), Ordering::Release);
+}
+
+fn terrain_family_counter<'a>(
+    family: TerrainDrawFamily,
+    land_lod: &'a AtomicU32,
+    terrain_fade: &'a AtomicU32,
+    close_terrain: &'a AtomicU32,
+) -> &'a AtomicU32 {
+    match family {
+        TerrainDrawFamily::LandLod => land_lod,
+        TerrainDrawFamily::TerrainFade => terrain_fade,
+        TerrainDrawFamily::CloseTerrain => close_terrain,
+    }
 }

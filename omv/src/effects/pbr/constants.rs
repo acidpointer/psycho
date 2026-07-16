@@ -41,7 +41,7 @@ pub(super) fn store_settings(settings: NativePbrSettings) {
     }
 
     TERRAIN_LOD_NOISE_SCALE.store(
-        sanitize(settings.terrain_lod_noise_scale, 1.0, 0.0, 4.0).to_bits(),
+        sanitize(settings.terrain_lod_noise_scale, 1.0, 0.0, 1.0).to_bits(),
         Ordering::Release,
     );
     TERRAIN_LOD_NOISE_TILE.store(
@@ -127,7 +127,7 @@ fn sanitize(value: f32, fallback: f32, min: f32, max: f32) -> f32 {
 
 #[cfg(test)]
 mod tests {
-    use super::object_constants;
+    use super::{object_constants, sanitize};
 
     #[test]
     fn object_constant_layout_keeps_metallicness_dielectric() {
@@ -135,5 +135,18 @@ mod tests {
 
         assert_eq!(constants[0], [0.0, 0.75, 1.25, 1.5]);
         assert_eq!(constants[1], [0.8, 0.0, 0.0, 0.0]);
+    }
+
+    #[test]
+    fn zero_material_controls_remain_zero() {
+        assert_eq!(sanitize(0.0, 1.0, 0.0, 4.0), 0.0);
+        assert_eq!(sanitize(0.0, 1.0, 0.0, 2.0), 0.0);
+    }
+
+    #[test]
+    fn distant_detail_strength_is_a_blend_weight() {
+        assert_eq!(sanitize(4.0, 1.0, 0.0, 1.0), 1.0);
+        assert_eq!(sanitize(0.25, 1.0, 0.0, 1.0), 0.25);
+        assert_eq!(sanitize(f32::NAN, 1.0, 0.0, 1.0), 1.0);
     }
 }

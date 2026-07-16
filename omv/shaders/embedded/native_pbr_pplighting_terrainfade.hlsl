@@ -65,17 +65,17 @@ float PbrMetallicness()
 
 float PbrLightMultiplier()
 {
-    return (TESR_TerrainData.z > 0.0f) ? TESR_TerrainData.z : 1.0f;
+    return TESR_TerrainData.z;
 }
 
 float PbrAmbientMultiplier()
 {
-    return (TESR_TerrainData.w > 0.0f) ? TESR_TerrainData.w : 1.0f;
+    return TESR_TerrainData.w;
 }
 
 float PbrAlbedoSaturation()
 {
-    return (TESR_TerrainExtraData.y > 0.0f) ? TESR_TerrainExtraData.y : 1.0f;
+    return TESR_TerrainExtraData.y;
 }
 
 float RoughnessFromGloss(float gloss)

@@ -50,6 +50,17 @@ combined-specular object pairs include:
 - `SLS2025.vso` / `SLS2034.pso`
 - `SLS2026.vso` / `SLS2035.pso`
 
+Native additive EnvMap/reflection pairs are:
+
+- base: `SLS2050.vso` / `SLS2057.pso`
+- skin: `SLS2051.vso` / `SLS2057.pso`
+- window: `SLS2050.vso` / `SLS2058.pso`
+- eye: `SLS2052.vso` / `SLS2059.pso`
+
+The EnvMap vertex bytecode and eye pixel bytecode are identical across all 16
+packages. Base/window pixel shaders have two compiler scheduling variants,
+but retain the same registers, samplers, and reflection math.
+
 Do not assume another package is identical. The manifests and disassemblies
 are retained for every installed package so cross-package contracts can be
 checked directly.

@@ -846,6 +846,21 @@ pub(super) fn object_template_source(template: &ShaderTemplate) -> Cow<'static, 
     Cow::Owned(source.into_bytes())
 }
 
+pub(super) fn object_template_uses_native_specular_fade(template_id: u16) -> bool {
+    let Some(template) = object_template_at(template_id) else {
+        return false;
+    };
+    template.stage == ShaderStage::Pixel
+        && has_define(template.defines, "PBR_OBJECT_SPECULAR")
+        && !has_define(template.defines, "PBR_OBJECT_ONLY_SPECULAR")
+}
+
+pub(super) fn object_template_light_count(template_id: u16) -> u32 {
+    object_template_at(template_id)
+        .and_then(|template| define_u32(template.defines, "PBR_OBJECT_LIGHTS"))
+        .unwrap_or(1)
+}
+
 pub(super) fn template_source(id: u16, template: &ShaderTemplate) -> Cow<'static, [u8]> {
     if (id as usize) < object_template_count() {
         return object_template_source(template);
@@ -985,8 +1000,10 @@ pub(super) fn shader_cache_suffix(stage: ShaderStage) -> &'static str {
 #[cfg(test)]
 mod shader_compile_tests {
     use super::{
-        NVR_OBJECT_INCLUDE_SOURCE, NVR_OBJECT_TEMPLATE_SOURCE, NVR_PBR_INCLUDE_SOURCE,
-        shader_profile, template_at, template_count, template_source,
+        CLOSE_TERRAIN_PIXEL_SOURCE, LAND_LOD_PIXEL_SOURCE, NVR_OBJECT_INCLUDE_SOURCE,
+        NVR_OBJECT_TEMPLATE_SOURCE, NVR_PBR_INCLUDE_SOURCE, TERRAIN_FADE_PIXEL_SOURCE,
+        object_template_id, object_template_uses_native_specular_fade, shader_profile, template_at,
+        template_count, template_source,
     };
 
     #[test]
@@ -1001,6 +1018,45 @@ mod shader_compile_tests {
         assert!(NVR_PBR_INCLUDE_SOURCE.contains("PBRBoundedSpecular"));
         assert!(NVR_OBJECT_TEMPLATE_SOURCE.contains("nativeSpecularFade"));
         assert!(NVR_OBJECT_TEMPLATE_SOURCE.contains("normal.a, nativeSpecularFade"));
+    }
+
+    #[test]
+    fn material_saturation_applies_to_object_direct_and_ambient_albedo() {
+        assert!(NVR_OBJECT_TEMPLATE_SOURCE.contains("float3 materialAlbedo = lerp"));
+        assert!(
+            NVR_OBJECT_TEMPLATE_SOURCE
+                .contains("getAmbientLighting(AmbientColor.rgb, materialAlbedo)")
+        );
+        assert!(
+            !NVR_OBJECT_TEMPLATE_SOURCE
+                .contains("getAmbientLighting(AmbientColor.rgb, baseColor.rgb)")
+        );
+    }
+
+    #[test]
+    fn zero_terrain_controls_are_not_replaced_with_neutral_values() {
+        for source in [
+            LAND_LOD_PIXEL_SOURCE,
+            TERRAIN_FADE_PIXEL_SOURCE,
+            CLOSE_TERRAIN_PIXEL_SOURCE,
+        ] {
+            assert!(source.contains("return TESR_TerrainData.z;"));
+            assert!(source.contains("return TESR_TerrainData.w;"));
+            assert!(source.contains("return TESR_TerrainExtraData.y;"));
+        }
+    }
+
+    #[test]
+    fn only_combined_specular_templates_use_native_fade() {
+        let combined = object_template_id(super::ShaderStage::Pixel, 2017).unwrap();
+        let combined_si = object_template_id(super::ShaderStage::Pixel, 2018).unwrap();
+        let only_specular = object_template_id(super::ShaderStage::Pixel, 2047).unwrap();
+        let diffuse = object_template_id(super::ShaderStage::Pixel, 2000).unwrap();
+
+        assert!(object_template_uses_native_specular_fade(combined.id));
+        assert!(object_template_uses_native_specular_fade(combined_si.id));
+        assert!(!object_template_uses_native_specular_fade(only_specular.id));
+        assert!(!object_template_uses_native_specular_fade(diffuse.id));
     }
 
     #[test]

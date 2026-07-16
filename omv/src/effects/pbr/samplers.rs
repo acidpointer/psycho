@@ -92,6 +92,15 @@ pub(super) struct ObjectSamplerLayout {
     shadow: Option<(u32, u32)>,
 }
 
+#[derive(Clone, Copy, Debug, Default)]
+pub(super) struct ObjectSamplerIdentity {
+    pub(super) base: usize,
+    pub(super) normal: usize,
+    pub(super) glow: usize,
+    pub(super) shadow: usize,
+    pub(super) shadow_mask: usize,
+}
+
 pub(super) fn set_texture_tracking_ready(ready: bool) {
     TEXTURE_TRACKING_READY.store(ready, Ordering::Release);
 }
@@ -205,6 +214,30 @@ pub(super) fn validate_object_layout(
         OBJECT_LAST_SAMPLER_FALLBACK.store(OBJECT_SAMPLER_FALLBACK_NONE, Ordering::Release);
     }
     Ok(())
+}
+
+pub(super) fn object_sampler_identity(
+    device: &Device9Ref<'_>,
+    template_id: u16,
+) -> ObjectSamplerIdentity {
+    let Some(layout) = OBJECT_SAMPLER_LAYOUTS.get(template_id as usize) else {
+        return ObjectSamplerIdentity::default();
+    };
+    ObjectSamplerIdentity {
+        base: layout
+            .base
+            .map_or(0, |stage| texture_identity(device, stage)),
+        normal: texture_identity(device, layout.normal),
+        glow: layout
+            .glow
+            .map_or(0, |stage| texture_identity(device, stage)),
+        shadow: layout
+            .shadow
+            .map_or(0, |stages| texture_identity(device, stages.0)),
+        shadow_mask: layout
+            .shadow
+            .map_or(0, |stages| texture_identity(device, stages.1)),
+    }
 }
 
 pub(super) fn service_frame() {
@@ -334,6 +367,12 @@ fn texture_stage_valid(
     *observed_mask |= stage_mask(stage);
     record_selector_drift_if_cached(device, stage, selector, texture);
     true
+}
+
+fn texture_identity(device: &Device9Ref<'_>, stage: u32) -> usize {
+    device
+        .texture_raw(stage)
+        .map_or(0, |texture| texture as usize)
 }
 
 fn record_selector_drift_if_cached(

@@ -222,6 +222,14 @@ pub(super) fn land_lod_resources_ready() -> bool {
     LAND_LOD_RESOURCES_READY.load(Ordering::Acquire)
 }
 
+pub(super) fn land_lod_created_count() -> usize {
+    family_created_count(land_lod_range())
+}
+
+pub(super) fn land_lod_create_failed_count() -> usize {
+    family_create_failed_count(land_lod_range())
+}
+
 pub(super) fn land_lod_create_failed() -> bool {
     LAND_LOD_CREATE_FAILED.load(Ordering::Acquire)
 }
@@ -234,6 +242,14 @@ pub(super) fn terrain_fade_shader_handle(
 
 pub(super) fn terrain_fade_resources_ready() -> bool {
     TERRAIN_FADE_RESOURCES_READY.load(Ordering::Acquire)
+}
+
+pub(super) fn terrain_fade_created_count() -> usize {
+    family_created_count(terrain_fade_range())
+}
+
+pub(super) fn terrain_fade_create_failed_count() -> usize {
+    family_create_failed_count(terrain_fade_range())
 }
 
 pub(super) fn terrain_fade_create_failed() -> bool {
@@ -256,6 +272,14 @@ pub(super) fn close_terrain_variant_resources_ready(pixel_sls: u16) -> bool {
 
 pub(super) fn close_terrain_create_failed() -> bool {
     CLOSE_TERRAIN_CREATE_FAILED.load(Ordering::Acquire)
+}
+
+pub(super) fn close_terrain_created_count() -> usize {
+    family_created_count(close_terrain_range())
+}
+
+pub(super) fn close_terrain_create_failed_count() -> usize {
+    family_create_failed_count(close_terrain_range())
 }
 
 fn resource_handle(template_id: u16) -> Option<*mut c_void> {
@@ -343,4 +367,34 @@ fn template_label(template_id: u32) -> &'static str {
         .ok()
         .and_then(shader_registry::template_at)
         .map_or("unknown", |template| template.label)
+}
+
+fn family_created_count(range: std::ops::Range<usize>) -> usize {
+    let state = RESOURCES.lock();
+    state.slots[range]
+        .iter()
+        .filter(|slot| slot.has_shader())
+        .count()
+}
+
+fn family_create_failed_count(range: std::ops::Range<usize>) -> usize {
+    let state = RESOURCES.lock();
+    state.slots[range]
+        .iter()
+        .filter(|slot| slot.create_failed)
+        .count()
+}
+
+fn land_lod_range() -> std::ops::Range<usize> {
+    let start = shader_registry::object_template_count();
+    start..start + 2
+}
+
+fn terrain_fade_range() -> std::ops::Range<usize> {
+    let start = land_lod_range().end;
+    start..start + 2
+}
+
+fn close_terrain_range() -> std::ops::Range<usize> {
+    terrain_fade_range().end..shader_registry::template_count()
 }

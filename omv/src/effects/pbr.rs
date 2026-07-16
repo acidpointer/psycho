@@ -89,6 +89,7 @@ pub(crate) struct NativePbrRuntimeStatus {
     pub(crate) eye_position_contract_ready: bool,
     pub(crate) active_contracts_ready: bool,
     pub(crate) active_contracts_failed: bool,
+    pub(crate) object_contract_ready: bool,
     pub(crate) object_shader_total: usize,
     pub(crate) object_bytecode_ready: usize,
     pub(crate) object_bytecode_failed: usize,
@@ -147,9 +148,45 @@ pub(crate) struct NativePbrRuntimeStatus {
     pub(crate) object_last_reject_reason: &'static str,
     pub(crate) object_last_reject_row: u32,
     pub(crate) object_last_reject_selector: usize,
+    pub(crate) object_last_fade_geometry: usize,
+    pub(crate) object_last_fade_property: usize,
+    pub(crate) object_last_fade_distance: f32,
+    pub(crate) object_last_fade_start: f32,
+    pub(crate) object_last_fade_end: f32,
+    pub(crate) object_last_fade_expected: f32,
+    pub(crate) object_last_fade_staged: f32,
+    pub(crate) object_last_fade_c25: f32,
+    pub(crate) object_last_light_count: u32,
+    pub(crate) object_last_light_signature: u32,
+    pub(crate) object_last_base_texture: usize,
+    pub(crate) object_last_normal_texture: usize,
     pub(crate) terrain_contract_available: bool,
+    pub(crate) terrain_engine_contract_ready: bool,
+    pub(crate) land_lod_shader_total: usize,
+    pub(crate) land_lod_bytecode_ready: usize,
+    pub(crate) land_lod_bytecode_failed: usize,
+    pub(crate) land_lod_resources_ready: usize,
+    pub(crate) land_lod_resources_failed: usize,
+    pub(crate) terrain_fade_shader_total: usize,
+    pub(crate) terrain_fade_bytecode_ready: usize,
+    pub(crate) terrain_fade_bytecode_failed: usize,
+    pub(crate) terrain_fade_resources_ready: usize,
+    pub(crate) terrain_fade_resources_failed: usize,
+    pub(crate) close_terrain_shader_total: usize,
+    pub(crate) close_terrain_bytecode_ready: usize,
+    pub(crate) close_terrain_bytecode_failed: usize,
+    pub(crate) close_terrain_resources_ready: usize,
+    pub(crate) close_terrain_resources_failed: usize,
+    pub(crate) land_lod_replacements_last_frame: u32,
+    pub(crate) land_lod_fallbacks_last_frame: u32,
+    pub(crate) terrain_fade_replacements_last_frame: u32,
+    pub(crate) terrain_fade_fallbacks_last_frame: u32,
+    pub(crate) close_terrain_replacements_last_frame: u32,
+    pub(crate) close_terrain_fallbacks_last_frame: u32,
     pub(crate) land_lod_contract_active: bool,
     pub(crate) land_lod_contract_failed: bool,
+    pub(crate) terrain_fade_contract_failed: bool,
+    pub(crate) close_terrain_contract_failed: bool,
     pub(crate) close_terrain_contract_proven: bool,
     pub(crate) terrain_fade_contract_proven: bool,
     pub(crate) block_reason: Option<&'static str>,
@@ -305,6 +342,7 @@ pub(crate) fn runtime_status() -> NativePbrRuntimeStatus {
     let object_last_vertex_sls = diagnostics::object_last_vertex_sls();
     let object_last_pixel_sls = diagnostics::object_last_pixel_sls();
 
+    let registry = shader_registry::summary();
     NativePbrRuntimeStatus {
         installed: INSTALLED.load(Ordering::Acquire),
         shader_enabled: SHADER_ENABLED.load(Ordering::Acquire),
@@ -322,6 +360,7 @@ pub(crate) fn runtime_status() -> NativePbrRuntimeStatus {
         eye_position_contract_ready: engine_contracts::eye_position_ready(),
         active_contracts_ready: ACTIVE_CONTRACTS_READY.load(Ordering::Acquire),
         active_contracts_failed: ACTIVE_CONTRACTS_FAILED.load(Ordering::Acquire),
+        object_contract_ready: object_contract_available(),
         object_shader_total: shader_registry::object_template_count(),
         object_bytecode_ready: compiler::object_ready_count(),
         object_bytecode_failed: compiler::object_failed_count(),
@@ -389,13 +428,47 @@ pub(crate) fn runtime_status() -> NativePbrRuntimeStatus {
         object_last_reject_reason: diagnostics::object_last_reject_reason_label(),
         object_last_reject_row: diagnostics::object_last_reject_row(),
         object_last_reject_selector: diagnostics::object_last_reject_selector(),
+        object_last_fade_geometry: diagnostics::object_last_fade_geometry(),
+        object_last_fade_property: diagnostics::object_last_fade_property(),
+        object_last_fade_distance: diagnostics::object_last_fade_distance(),
+        object_last_fade_start: diagnostics::object_last_fade_start(),
+        object_last_fade_end: diagnostics::object_last_fade_end(),
+        object_last_fade_expected: diagnostics::object_last_fade_expected(),
+        object_last_fade_staged: diagnostics::object_last_fade_staged(),
+        object_last_fade_c25: diagnostics::object_last_fade_c25(),
+        object_last_light_count: diagnostics::object_last_light_count(),
+        object_last_light_signature: diagnostics::object_last_light_signature(),
+        object_last_base_texture: diagnostics::object_last_base_texture(),
+        object_last_normal_texture: diagnostics::object_last_normal_texture(),
         terrain_contract_available: engine_contracts::terrain_contract_available(),
+        terrain_engine_contract_ready: terrain_engine_contract_ready(),
+        land_lod_shader_total: registry.land_lod_records,
+        land_lod_bytecode_ready: compiler::land_lod_ready_count(),
+        land_lod_bytecode_failed: compiler::land_lod_failed_count(),
+        land_lod_resources_ready: device_resources::land_lod_created_count(),
+        land_lod_resources_failed: device_resources::land_lod_create_failed_count(),
+        terrain_fade_shader_total: registry.terrain_fade_records,
+        terrain_fade_bytecode_ready: compiler::terrain_fade_ready_count(),
+        terrain_fade_bytecode_failed: compiler::terrain_fade_failed_count(),
+        terrain_fade_resources_ready: device_resources::terrain_fade_created_count(),
+        terrain_fade_resources_failed: device_resources::terrain_fade_create_failed_count(),
+        close_terrain_shader_total: registry.close_terrain_records,
+        close_terrain_bytecode_ready: compiler::close_terrain_ready_count(),
+        close_terrain_bytecode_failed: compiler::close_terrain_failed_count(),
+        close_terrain_resources_ready: device_resources::close_terrain_created_count(),
+        close_terrain_resources_failed: device_resources::close_terrain_create_failed_count(),
+        land_lod_replacements_last_frame: diagnostics::land_lod_replacements_last_frame(),
+        land_lod_fallbacks_last_frame: diagnostics::land_lod_fallbacks_last_frame(),
+        terrain_fade_replacements_last_frame: diagnostics::terrain_fade_replacements_last_frame(),
+        terrain_fade_fallbacks_last_frame: diagnostics::terrain_fade_fallbacks_last_frame(),
+        close_terrain_replacements_last_frame: diagnostics::close_terrain_replacements_last_frame(),
+        close_terrain_fallbacks_last_frame: diagnostics::close_terrain_fallbacks_last_frame(),
         land_lod_contract_active: terrain_lod_enabled() && land_lod_contracts_ready(),
         land_lod_contract_failed: compiler::land_lod_compile_failed()
-            || compiler::terrain_fade_compile_failed()
-            || compiler::close_terrain_compile_failed()
-            || device_resources::land_lod_create_failed()
-            || device_resources::terrain_fade_create_failed()
+            || device_resources::land_lod_create_failed(),
+        terrain_fade_contract_failed: compiler::terrain_fade_compile_failed()
+            || device_resources::terrain_fade_create_failed(),
+        close_terrain_contract_failed: compiler::close_terrain_compile_failed()
             || device_resources::close_terrain_create_failed(),
         close_terrain_contract_proven: close_terrain_contract_available(),
         terrain_fade_contract_proven: terrain_fade_contracts_ready(),
@@ -520,6 +593,12 @@ fn land_lod_contracts_ready() -> bool {
         && !compiler::land_lod_compile_failed()
         && device_resources::land_lod_resources_ready()
         && !device_resources::land_lod_create_failed()
+}
+
+fn terrain_engine_contract_ready() -> bool {
+    hooks::hooks_ready()
+        && DRAW_BOUNDARY_READY.load(Ordering::Acquire)
+        && engine_contracts::terrain_contract_available()
 }
 
 fn terrain_fade_contracts_ready() -> bool {

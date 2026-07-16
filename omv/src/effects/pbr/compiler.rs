@@ -132,6 +132,14 @@ pub(super) fn land_lod_compile_ready() -> bool {
     family_states(land_lod_range()).all(|state| state.load(Ordering::Acquire) == BYTECODE_READY)
 }
 
+pub(super) fn land_lod_ready_count() -> usize {
+    family_ready_count(land_lod_range())
+}
+
+pub(super) fn land_lod_failed_count() -> usize {
+    family_failed_count(land_lod_range())
+}
+
 pub(super) fn land_lod_compile_failed() -> bool {
     family_states(land_lod_range()).any(|state| state.load(Ordering::Acquire) == BYTECODE_FAILED)
         || (FINISHED.load(Ordering::Acquire) && !land_lod_compile_ready())
@@ -139,6 +147,14 @@ pub(super) fn land_lod_compile_failed() -> bool {
 
 pub(super) fn terrain_fade_compile_ready() -> bool {
     family_states(terrain_fade_range()).all(|state| state.load(Ordering::Acquire) == BYTECODE_READY)
+}
+
+pub(super) fn terrain_fade_ready_count() -> usize {
+    family_ready_count(terrain_fade_range())
+}
+
+pub(super) fn terrain_fade_failed_count() -> usize {
+    family_failed_count(terrain_fade_range())
 }
 
 pub(super) fn terrain_fade_compile_failed() -> bool {
@@ -149,6 +165,14 @@ pub(super) fn terrain_fade_compile_failed() -> bool {
 pub(super) fn close_terrain_compile_failed() -> bool {
     family_states(close_terrain_range())
         .any(|state| state.load(Ordering::Acquire) == BYTECODE_FAILED)
+}
+
+pub(super) fn close_terrain_ready_count() -> usize {
+    family_ready_count(close_terrain_range())
+}
+
+pub(super) fn close_terrain_failed_count() -> usize {
+    family_failed_count(close_terrain_range())
 }
 
 pub(super) fn object_last_failed_template_label() -> &'static str {
@@ -400,6 +424,18 @@ fn template_label(template_id: u32) -> &'static str {
 
 fn family_states(range: std::ops::Range<usize>) -> impl Iterator<Item = &'static AtomicU32> {
     STATES[range].iter()
+}
+
+fn family_ready_count(range: std::ops::Range<usize>) -> usize {
+    family_states(range)
+        .filter(|state| state.load(Ordering::Acquire) == BYTECODE_READY)
+        .count()
+}
+
+fn family_failed_count(range: std::ops::Range<usize>) -> usize {
+    family_states(range)
+        .filter(|state| state.load(Ordering::Acquire) == BYTECODE_FAILED)
+        .count()
 }
 
 fn land_lod_range() -> std::ops::Range<usize> {

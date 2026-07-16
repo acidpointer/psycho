@@ -2124,23 +2124,25 @@ fn draw_native_pbr_config(
     let subtitle = cstring("Native material response for terrain, architecture, and objects.");
     ui.text_colored(MENU_MUTED_TEXT, &subtitle);
 
+    let any_shader_failure = status.active_contracts_failed
+        || status.land_lod_contract_failed
+        || status.terrain_fade_contract_failed
+        || status.close_terrain_contract_failed;
+    let any_resource_ready = status.object_resources_ready != 0
+        || status.land_lod_resources_ready != 0
+        || status.terrain_fade_resources_ready != 0
+        || status.close_terrain_resources_ready != 0;
     let (status_color, status_text) = if let Some(reason) = status.block_reason {
         (MENU_WARN_TEXT, format!("Blocked: {reason}"))
-    } else if status.installed
-        && status.shader_enabled
-        && (status.active_contracts_failed || status.land_lod_contract_failed)
-    {
-        (MENU_WARN_TEXT, "Shader error".to_owned())
-    } else if status.installed
-        && status.shader_enabled
-        && (!status.active_contracts_ready
-            || !status.land_lod_contract_active
-            || !status.close_terrain_contract_proven
-            || !status.terrain_fade_contract_proven)
-    {
-        (MENU_WARN_TEXT, "Loading".to_owned())
+    } else if status.installed && status.shader_enabled && any_shader_failure {
+        (MENU_WARN_TEXT, "Active with per-draw fallback".to_owned())
+    } else if status.installed && status.shader_enabled && !any_resource_ready {
+        (MENU_WARN_TEXT, "Shader warmup".to_owned())
     } else if status.installed && status.shader_enabled {
-        (MENU_GOOD_TEXT, "Active".to_owned())
+        (
+            MENU_GOOD_TEXT,
+            "Active - exact pairs replace as soon as ready".to_owned(),
+        )
     } else {
         (MENU_MUTED_TEXT, "Disabled".to_owned())
     };
@@ -2152,6 +2154,57 @@ fn draw_native_pbr_config(
     changed |= draw_config_checkbox(ui, "Enable PBR", "native_pbr.enabled", &mut config.enabled);
 
     if config.enabled {
+        let section = cstring("LIVE PIPELINES");
+        ui.separator_text(&section);
+        draw_pbr_family_status(
+            ui,
+            "Objects",
+            status.shader_enabled,
+            status.object_contract_ready,
+            status.object_resources_ready,
+            status.object_bytecode_ready,
+            status.object_shader_total,
+            status.object_resources_failed + status.object_bytecode_failed,
+            status.object_replacements_last_frame,
+            status.object_fallbacks_last_frame,
+        );
+        draw_pbr_family_status(
+            ui,
+            "Close terrain",
+            status.close_terrain_enabled,
+            status.terrain_engine_contract_ready,
+            status.close_terrain_resources_ready,
+            status.close_terrain_bytecode_ready,
+            status.close_terrain_shader_total,
+            status.close_terrain_resources_failed + status.close_terrain_bytecode_failed,
+            status.close_terrain_replacements_last_frame,
+            status.close_terrain_fallbacks_last_frame,
+        );
+        draw_pbr_family_status(
+            ui,
+            "Terrain fade",
+            status.terrain_fade_enabled,
+            status.terrain_engine_contract_ready,
+            status.terrain_fade_resources_ready,
+            status.terrain_fade_bytecode_ready,
+            status.terrain_fade_shader_total,
+            status.terrain_fade_resources_failed + status.terrain_fade_bytecode_failed,
+            status.terrain_fade_replacements_last_frame,
+            status.terrain_fade_fallbacks_last_frame,
+        );
+        draw_pbr_family_status(
+            ui,
+            "LandLOD",
+            status.terrain_lod_enabled,
+            status.terrain_engine_contract_ready,
+            status.land_lod_resources_ready,
+            status.land_lod_bytecode_ready,
+            status.land_lod_shader_total,
+            status.land_lod_resources_failed + status.land_lod_bytecode_failed,
+            status.land_lod_replacements_last_frame,
+            status.land_lod_fallbacks_last_frame,
+        );
+
         let section = cstring("OBJECT MATERIAL");
         ui.separator_text(&section);
         changed |= draw_float_slider(
@@ -2180,7 +2233,7 @@ fn draw_native_pbr_config(
         );
         changed |= draw_float_slider(
             ui,
-            "Saturation",
+            "Material saturation",
             "native_pbr.object_albedo_saturation",
             &mut config.object_albedo_saturation,
             0.0,
@@ -2222,33 +2275,140 @@ fn draw_native_pbr_config(
         );
         changed |= draw_float_slider(
             ui,
-            "Saturation",
+            "Material saturation",
             "native_pbr.terrain_albedo_saturation",
             &mut config.terrain_albedo_saturation,
             0.0,
             2.0,
         );
-        let section = cstring("TERRAIN DETAIL");
+        let section = cstring("DISTANT TERRAIN DETAIL");
         ui.separator_text(&section);
+        let scope = cstring(
+            "Affects TerrainFade and LandLOD only; close terrain keeps native layer detail.",
+        );
+        ui.text_colored(MENU_MUTED_TEXT, &scope);
         changed |= draw_float_slider(
             ui,
-            "Terrain detail",
+            "Detail strength",
             "native_pbr.terrain_lod_noise_scale",
             &mut config.terrain_lod_noise_scale,
             0.0,
-            4.0,
+            1.0,
         );
         changed |= draw_float_slider(
             ui,
-            "Terrain tiling",
+            "Detail tiling",
             "native_pbr.terrain_lod_noise_tile",
             &mut config.terrain_lod_noise_tile,
             0.05,
             16.0,
         );
+
+        let section = cstring("TRANSITION DIAGNOSTICS");
+        ui.separator_text(&section);
+        changed |= draw_config_checkbox(
+            ui,
+            "Track object distance transitions",
+            "native_pbr.debug_log_draws",
+            &mut config.debug_log_draws,
+        );
+        let diagnostic_cost = cstring(
+            "Development aid: reads draw identity and native fade state only while enabled; logs state changes, not every draw.",
+        );
+        ui.text_colored(MENU_MUTED_TEXT, &diagnostic_cost);
+        if config.debug_log_draws {
+            let transition = cstring(format!(
+                "Last contract change: {} -> {}  |  changes last frame: {}",
+                status.object_last_contract_transition_from,
+                status.object_last_contract_transition_to,
+                status.object_contract_transitions_last_frame,
+            ));
+            ui.text(&transition);
+            let fallback = cstring(format!(
+                "Last fallback: {}  |  row {}  |  selector 0x{:08X}",
+                status.object_last_reject_reason,
+                status.object_last_reject_row,
+                status.object_last_reject_selector,
+            ));
+            ui.text(&fallback);
+            if status.object_last_fade_geometry != 0 {
+                let fade = cstring(format!(
+                    "Specular fade: distance {:.2}  range {:.2}..{:.2}  expected {:.4}  staged {:.4}  c25.w {:.4}",
+                    status.object_last_fade_distance,
+                    status.object_last_fade_start,
+                    status.object_last_fade_end,
+                    status.object_last_fade_expected,
+                    status.object_last_fade_staged,
+                    status.object_last_fade_c25,
+                ));
+                ui.text(&fade);
+                let identity = cstring(format!(
+                    "Fade object: geometry 0x{:08X}  property 0x{:08X}  lights {} / 0x{:08X}",
+                    status.object_last_fade_geometry,
+                    status.object_last_fade_property,
+                    status.object_last_light_count,
+                    status.object_last_light_signature,
+                ));
+                ui.text_colored(MENU_MUTED_TEXT, &identity);
+                let material = cstring(format!(
+                    "Material resources: base 0x{:08X}  normal 0x{:08X}",
+                    status.object_last_base_texture, status.object_last_normal_texture,
+                ));
+                ui.text_colored(MENU_MUTED_TEXT, &material);
+            } else {
+                let waiting = cstring("Waiting for a combined-specular object draw.");
+                ui.text_colored(MENU_MUTED_TEXT, &waiting);
+            }
+        }
     }
 
     changed
+}
+
+#[allow(clippy::too_many_arguments)]
+fn draw_pbr_family_status(
+    ui: &mut psycho_imgui::Ui<'_>,
+    label: &str,
+    enabled: bool,
+    contract_ready: bool,
+    resources_ready: usize,
+    bytecode_ready: usize,
+    total: usize,
+    failed: usize,
+    replacements: u32,
+    fallbacks: u32,
+) {
+    let (color, state) = if !enabled {
+        (MENU_MUTED_TEXT, "disabled".to_owned())
+    } else if !contract_ready {
+        (MENU_WARN_TEXT, "engine contract unavailable".to_owned())
+    } else if failed != 0 {
+        (
+            MENU_WARN_TEXT,
+            format!("degraded - {resources_ready}/{total} ready, {failed} failed"),
+        )
+    } else if resources_ready == total {
+        (MENU_GOOD_TEXT, format!("ready {resources_ready}/{total}"))
+    } else if resources_ready != 0 {
+        (
+            MENU_GOOD_TEXT,
+            format!("live {resources_ready}/{total}; remaining variants warming"),
+        )
+    } else {
+        (
+            MENU_WARN_TEXT,
+            format!("warming {}/{total}", bytecode_ready.max(resources_ready)),
+        )
+    };
+    ui.text_colored(color, &cstring(format!("{label}: {state}")));
+    if replacements != 0 || fallbacks != 0 {
+        ui.text_colored(
+            MENU_MUTED_TEXT,
+            &cstring(format!(
+                "  Last frame: {replacements} PBR draws, {fallbacks} vanilla fallbacks"
+            )),
+        );
+    }
 }
 
 fn draw_native_sky_config(
@@ -2867,20 +3027,19 @@ fn embedded_effect_description(kind: Option<EmbeddedEffectKind>) -> Option<&'sta
 }
 
 fn native_pbr_list_label(configured_enabled: bool, status: pbr::NativePbrRuntimeStatus) -> String {
+    let any_failure = status.active_contracts_failed
+        || status.land_lod_contract_failed
+        || status.terrain_fade_contract_failed
+        || status.close_terrain_contract_failed;
+    let any_resource_ready = status.object_resources_ready != 0
+        || status.land_lod_resources_ready != 0
+        || status.terrain_fade_resources_ready != 0
+        || status.close_terrain_resources_ready != 0;
     let status = if status.block_reason.is_some() {
         "BLOCKED"
-    } else if status.installed
-        && configured_enabled
-        && (status.active_contracts_failed || status.land_lod_contract_failed)
-    {
-        "BLOCKED"
-    } else if status.installed
-        && configured_enabled
-        && (!status.active_contracts_ready
-            || !status.land_lod_contract_active
-            || !status.close_terrain_contract_proven
-            || !status.terrain_fade_contract_proven)
-    {
+    } else if status.installed && configured_enabled && any_failure {
+        "PARTIAL"
+    } else if status.installed && configured_enabled && !any_resource_ready {
         "WARMUP"
     } else if status.installed && configured_enabled {
         "LIVE"

@@ -60,6 +60,9 @@ const SPECULAR_FADE_START_ADDR: usize = 0x011F9454;
 const SPECULAR_FADE_END_ADDR: usize = 0x011F9458;
 const RENDERER_LIGHT_DATA_0_W_ADDR: usize = 0x011FD9B4;
 
+const PROPERTY_FLAG_SPECULAR_FADE: u32 = 1;
+const PROPERTY_FLAG2_DISABLE_DISTANCE_FADES: u32 = 0x800000;
+
 const PPLIGHTING_PROPERTY_VTABLES: &[usize] = &[
     0x010AE0D0, 0x010B8330, 0x010B9338, 0x010B9490, 0x010B9910, 0x010BABF8,
 ];
@@ -97,6 +100,7 @@ pub(super) struct ObjectDrawRejection {
 #[derive(Clone, Copy, Debug, Default)]
 pub(super) struct DrawSnapshot {
     pub(super) geometry: usize,
+    pub(super) property: usize,
     pub(super) pass: usize,
     pub(super) selector: usize,
     pub(super) selector_state: u32,
@@ -114,7 +118,11 @@ pub(super) struct ObjectSpecularFadeSnapshot {
     pub(super) distance: f32,
     pub(super) fade_start: f32,
     pub(super) fade_end: f32,
+    pub(super) expected_weight: f32,
     pub(super) native_weight: f32,
+    pub(super) renderer_constant_weight: Option<f32>,
+    pub(super) light_count: u32,
+    pub(super) light_signature: u32,
 }
 
 pub(super) fn install_core_contracts() {
@@ -223,6 +231,15 @@ pub(super) fn current_draw_selector_address_fast() -> usize {
 
 pub(super) fn current_draw_snapshot(pass_index: u32) -> DrawSnapshot {
     let geometry = current_geometry().map_or(0, |ptr| ptr as usize);
+    let property = if geometry == 0 {
+        0
+    } else {
+        read_ptr_offset(
+            geometry as *mut c_void,
+            CURRENT_DRAW_LIGHTING_PROPERTY_OFFSET,
+        )
+        .map_or(0, |ptr| ptr as usize)
+    };
     let pass = read_ptr(CURRENT_PASS_GLOBAL_ADDR as *const c_void).map_or(0, |ptr| ptr as usize);
     let selector = if geometry == 0 {
         0
@@ -233,6 +250,7 @@ pub(super) fn current_draw_snapshot(pass_index: u32) -> DrawSnapshot {
     if selector == 0 {
         return DrawSnapshot {
             geometry,
+            property,
             pass,
             selector: 0,
             selector_state: 0,
@@ -259,6 +277,7 @@ pub(super) fn current_draw_snapshot(pass_index: u32) -> DrawSnapshot {
 
     DrawSnapshot {
         geometry,
+        property,
         pass,
         selector,
         selector_state,
@@ -286,7 +305,11 @@ pub(super) fn current_object_draw_rejection(pass_index: u32) -> Option<ObjectDra
     None
 }
 
-pub(super) fn current_object_specular_fade_snapshot() -> Option<ObjectSpecularFadeSnapshot> {
+pub(super) fn current_object_specular_fade_snapshot(
+    renderer_constant_weight: Option<f32>,
+    light_count: u32,
+    light_signature: u32,
+) -> Option<ObjectSpecularFadeSnapshot> {
     let geometry = current_geometry()?;
     let property = read_ptr_offset(geometry, CURRENT_DRAW_LIGHTING_PROPERTY_OFFSET)?;
     let property_vtable = read_ptr(property.cast_const())? as usize;
@@ -294,15 +317,84 @@ pub(super) fn current_object_specular_fade_snapshot() -> Option<ObjectSpecularFa
         return None;
     }
 
+    let property_flags = read_u32_offset(property, LIGHTING_PROPERTY_FLAGS_OFFSET)?;
+    let property_flags2 = read_u32_offset(property, LIGHTING_PROPERTY_FLAGS2_OFFSET)?;
+    let distance = read_f32_offset(property, LIGHTING_PROPERTY_DISTANCE_OFFSET)?;
+    let fade_start = read_f32(SPECULAR_FADE_START_ADDR as *const c_void)?;
+    let fade_end = read_f32(SPECULAR_FADE_END_ADDR as *const c_void)?;
     Some(ObjectSpecularFadeSnapshot {
         property: property as usize,
-        property_flags: read_u32_offset(property, LIGHTING_PROPERTY_FLAGS_OFFSET)?,
-        property_flags2: read_u32_offset(property, LIGHTING_PROPERTY_FLAGS2_OFFSET)?,
-        distance: read_f32_offset(property, LIGHTING_PROPERTY_DISTANCE_OFFSET)?,
-        fade_start: read_f32(SPECULAR_FADE_START_ADDR as *const c_void)?,
-        fade_end: read_f32(SPECULAR_FADE_END_ADDR as *const c_void)?,
+        property_flags,
+        property_flags2,
+        distance,
+        fade_start,
+        fade_end,
+        expected_weight: object_specular_fade_weight(
+            property_flags,
+            property_flags2,
+            distance,
+            fade_start,
+            fade_end,
+        ),
         native_weight: read_f32(RENDERER_LIGHT_DATA_0_W_ADDR as *const c_void)?,
+        renderer_constant_weight,
+        light_count,
+        light_signature,
     })
+}
+
+fn object_specular_fade_weight(
+    property_flags: u32,
+    property_flags2: u32,
+    distance: f32,
+    fade_start: f32,
+    fade_end: f32,
+) -> f32 {
+    let enabled = property_flags & PROPERTY_FLAG_SPECULAR_FADE != 0
+        && property_flags2 & PROPERTY_FLAG2_DISABLE_DISTANCE_FADES == 0
+        && fade_end > 0.0;
+    object_distance_fade_weight(enabled, distance, fade_start, fade_end)
+}
+
+fn object_distance_fade_weight(
+    enabled: bool,
+    distance: f32,
+    fade_start: f32,
+    fade_end: f32,
+) -> f32 {
+    if !enabled {
+        return 1.0;
+    }
+    if !distance.is_finite() || !fade_start.is_finite() || !fade_end.is_finite() {
+        return f32::NAN;
+    }
+    if distance <= fade_start {
+        return 1.0;
+    }
+    if distance >= fade_end || fade_end <= fade_start {
+        return 0.0;
+    }
+    1.0 - (distance - fade_start) / (fade_end - fade_start)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::object_specular_fade_weight;
+
+    #[test]
+    fn object_specular_fade_matches_native_linear_contract() {
+        let fade = |distance| object_specular_fade_weight(1, 0, distance, 100.0, 200.0);
+        assert_eq!(fade(90.0), 1.0);
+        assert_eq!(fade(100.0), 1.0);
+        assert_eq!(fade(150.0), 0.5);
+        assert_eq!(fade(200.0), 0.0);
+        assert_eq!(fade(210.0), 0.0);
+        assert_eq!(object_specular_fade_weight(0, 0, 150.0, 100.0, 200.0), 1.0);
+        assert_eq!(
+            object_specular_fade_weight(1, 0x800000, 150.0, 100.0, 200.0),
+            1.0
+        );
+    }
 }
 
 pub(super) fn geometry_name(geometry: usize) -> Option<String> {
