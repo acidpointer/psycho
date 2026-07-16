@@ -1,0 +1,45 @@
+; Source record: SM3024.pso
+; Bytecode size: 908 bytes
+
+ps_3_0
+def c0 = -5.00000000e-01, 5.00000000e-01, 1.00000000e+00, 0.00000000e+00
+dcl_texcoord1_pp_centroid v0
+dcl_texcoord2_pp_centroid v1
+dcl_texcoord3_pp_centroid v2
+dcl_texcoord0_pp v3
+dcl_color_pp v4
+dcl_texcoord4 v5
+dcl_2d s0
+dcl_cube s1
+dcl_2d s3
+nrm_pp r0.xyz, v0.xyzw
+texld_pp r1.xyzw, v3.xyzw, s0
+add r1.xyz, r1.xyzw, c0.x
+add_pp r1.xyz, r1.xyzw, r1.xyzw
+nrm_pp r2.xyz, r1.xyzw
+mul_pp r1.xyz, r2.xyzw, c0.yyzw
+nrm_pp r2.xyz, r1.xyzw
+dp3_pp r0.x, r2.xyzw, r0.xyzw
+nrm_pp r1.xyz, v1.xyzw
+dp3_pp r0.y, r2.xyzw, r1.xyzw
+nrm_pp r1.xyz, v2.xyzw
+dp3_pp r0.z, r2.xyzw, r1.xyzw
+nrm r1.xyz, r0.xyzw
+mov_pp r0.x, v0.w
+mov_pp r0.y, v1.w
+mov_pp r0.z, v2.w
+nrm_pp r2.xyz, r0.xyzw
+dp3 r0.x, r1.xyzw, r2.xyzw
+add r0.x, r0.x, r0.x
+dp3 r0.y, r1.xyzw, r1.xyzw
+mul r0.yzw, r2.xxyz, r0.y
+mad r0.xyz, r0.x, r1.xyzw, -r0.yzww
+texld_pp r0.xyzw, r0.xyzw, s1
+texld_pp r2.xyzw, v3.xyzw, s3
+lrp r0.w, c11.w, r2.x, r1.w
+mul_pp r0.w, r0.w, c11.z
+mul_pp r0.xyz, r0.xyzw, r0.w
+mul_pp r0.xyz, r0.xyzw, c3.x
+mul_pp r0.xyz, r0.xyzw, v4.xyzw
+mul_pp oC0.xyz, r0.xyzw, v5.x
+mov_pp oC0.w, c0.z

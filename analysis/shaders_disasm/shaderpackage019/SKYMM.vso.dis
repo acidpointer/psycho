@@ -1,0 +1,22 @@
+; Source record: SKYMM.vso
+; Bytecode size: 468 bytes
+
+vs_3_0
+def c2 = 9.99949992e-01, 1.00000000e+00, 0.00000000e+00, 0.00000000e+00
+dcl_position0 v0
+dcl_texcoord0 v1
+dcl_color v2
+dcl_position0 o0
+dcl_texcoord0 o1
+dcl_texcoord1 o2
+dcl_color o3
+dp4 o0.x, c0.xyzw, v0.xyzw
+dp4 o0.y, c1.xyzw, v0.xyzw
+mul r0.xyz, c5.xyzw, v2.y
+mad r0.xyz, c4.xyzw, v2.x, r0.xyzw
+mad o3.xyz, c6.xyzw, v2.z, r0.xyzw
+mul o3.w, c4.w, v2.w
+dp4 r0.x, c3.xyzw, v0.xyzw
+mul o0.zw, r0.x, c2.xyxy
+mov o1.xy, v1.xyzw
+mov o2.xy, v1.xyzw

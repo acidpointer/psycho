@@ -1,0 +1,71 @@
+; Source record: SLS2032.pso
+; Bytecode size: 1364 bytes
+
+ps_2_1
+def c0 = -5.00000000e-01, 1.00000000e+00, 0.00000000e+00, 2.00000000e+00
+def c2 = 3.00000000e+00, 0.00000000e+00, 0.00000000e+00, 0.00000000e+00
+dcl t2
+dcl t3
+dcl t4
+dcl t5
+dcl t0
+dcl t1
+dcl v0
+dcl v1
+dcl_2d s0
+dcl_2d s1
+texld_pp r0.xyzw, t0.xyzw, s1
+texld_pp r1.xyzw, t0.xyzw, s0
+add r2.xyz, -t1.xyzw, c19.xyzw
+rcp r0.w, c19.w
+mul_pp r2.xyz, r2.xyzw, r0.w
+dp3_sat_pp r2.x, r2.xyzw, r2.xyzw
+add r3.xyz, -t1.xyzw, c20.xyzw
+rcp r0.w, c20.w
+mul_pp r3.xyz, r3.xyzw, r0.w
+dp3_sat_pp r2.y, r3.xyzw, r3.xyzw
+add r3.xyz, -t1.xyzw, c21.xyzw
+rcp r0.w, c21.w
+mul_pp r3.xyz, r3.xyzw, r0.w
+dp3_sat_pp r2.z, r3.xyzw, r3.xyzw
+add r3.xyz, -t1.xyzw, c22.xyzw
+rcp r0.w, c22.w
+mul_pp r3.xyz, r3.xyzw, r0.w
+dp3_sat_pp r2.w, r3.xyzw, r3.xyzw
+add_pp r2.xyzw, -r2.xyzw, c0.y
+nrm_pp r3.xyz, t2.xyzw
+add r0.xyz, r0.xyzw, c0.x
+add_pp r0.xyz, r0.xyzw, r0.xyzw
+nrm_pp r4.xyz, r0.xyzw
+dp3_sat_pp r4.w, r4.xyzw, r3.xyzw
+mul_pp r0.xyz, r4.w, c3.xyzw
+mul_pp r0.xyz, r2.x, r0.xyzw
+mov_pp r3.yzw, c0.xyzw
+cmp_pp r0.xyz, -c3.w, r3.z, r0.xyzw
+nrm_pp r5.xyz, t3.xyzw
+dp3_sat_pp r0.w, r4.xyzw, r5.xyzw
+mul_pp r5.xyz, r0.w, c4.xyzw
+mad_pp r5.xyz, r5.xyzw, r2.y, r0.xyzw
+add r0.w, r3.y, -c3.w
+cmp_pp r0.xyz, r0.w, r0.xyzw, r5.xyzw
+nrm_pp r3.xyz, t4.xyzw
+dp3_sat_pp r0.w, r4.xyzw, r3.xyzw
+mul_pp r3.xyz, r0.w, c5.xyzw
+mad_pp r2.xyz, r3.xyzw, r2.z, r0.xyzw
+add r0.w, r3.w, -c3.w
+cmp_pp r0.xyz, r0.w, r0.xyzw, r2.xyzw
+nrm_pp r2.xyz, t5.xyzw
+dp3_sat_pp r0.w, r4.xyzw, r2.xyzw
+mul_pp r2.xyz, r0.w, c6.xyzw
+mad_pp r2.xyz, r2.xyzw, r2.w, r0.xyzw
+mov r0.w, c3.w
+add r0.w, -r0.w, c2.x
+cmp_pp r0.xyz, r0.w, r0.xyzw, r2.xyzw
+add_pp r0.xyz, r0.xyzw, c1.xyzw
+max_pp r2.xyz, r0.xyzw, c0.z
+mul_pp r0.xyz, r1.xyzw, v0.xyzw
+mul_pp r1.w, r1.w, c1.w
+mul_pp r3.xyz, r2.xyzw, r0.xyzw
+mad r0.xyz, r2.xyzw, -r0.xyzw, v1.xyzw
+mad_pp r1.xyz, v1.w, r0.xyzw, r3.xyzw
+mov_pp oC0.xyzw, r1.xyzw

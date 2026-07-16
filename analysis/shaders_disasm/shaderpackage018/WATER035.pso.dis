@@ -1,0 +1,6 @@
+; Source record: WATER035.pso
+; Bytecode size: 136 bytes
+
+ps_3_0
+def c0 = 1.00000000e+00, 0.00000000e+00, 0.00000000e+00, 0.00000000e+00
+mov oC0.xyzw, c0.x

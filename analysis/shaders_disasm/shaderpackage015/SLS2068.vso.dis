@@ -1,0 +1,21 @@
+; Source record: SLS2068.vso
+; Bytecode size: 456 bytes
+
+vs_2_0
+def c6 = 1.00000001e-01, -1.00000001e-01, 1.33333332e-03, 8.00000012e-01
+def c7 = 1.00000000e+00, 0.00000000e+00, 0.00000000e+00, 0.00000000e+00
+dcl_position0 v0
+dcl_normal0 v1
+dcl_texcoord0 v2
+dp4 oPos.x, c0.xyzw, v0.xyzw
+dp4 oPos.y, c1.xyzw, v0.xyzw
+dp4 oPos.w, c3.xyzw, v0.xyzw
+dp3 r0.x, c4.xyzw, v1.xyzw
+dp3 r0.y, c5.xyzw, v1.xyzw
+min r0.xy, r0.xyzw, c6.x
+max oT1.xy, r0.xyzw, c6.y
+dp4 r0.x, c2.xyzw, v0.xyzw
+mad r0.y, r0.x, c6.z, c6.w
+mov oPos.z, r0.x
+max oT0.z, r0.y, c7.x
+mov oT0.xy, v2.xyzw

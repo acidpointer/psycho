@@ -1,0 +1,34 @@
+; Source record: SM3000.vso
+; Bytecode size: 644 bytes
+
+vs_2_0
+def c4 = 0.00000000e+00, 1.00000000e+00, 0.00000000e+00, 0.00000000e+00
+dcl_position0 v0
+dcl_tangent v1
+dcl_binormal v2
+dcl_normal0 v3
+dcl_texcoord0 v4
+dp4 oPos.w, c3.xyzw, v0.xyzw
+dp4 r0.x, c0.xyzw, v0.xyzw
+dp4 r0.y, c1.xyzw, v0.xyzw
+dp4 r0.z, c2.xyzw, v0.xyzw
+dp3 r0.w, r0.xyzw, r0.xyzw
+mov oPos.xyz, r0.xyzw
+rsq r0.x, r0.w
+rcp r0.x, r0.x
+add r0.x, -r0.x, c44.x
+rcp r0.y, c44.y
+mul r0.x, r0.x, r0.y
+max r0.x, r0.x, c4.x
+min r0.x, r0.x, c4.y
+add r0.x, -r0.x, c4.y
+log r0.x, r0.x
+mul r0.x, r0.x, c44.z
+exp oT7.w, r0.x
+mov oT0.xy, v4.xyzw
+mov oD0.xyzw, c4.y
+mov oT3.xyz, v1.xyzw
+mov oT4.xyz, v2.xyzw
+mov oT5.xyz, v3.xyzw
+mov oT6.xyz, v0.xyzw
+mov oT7.xyz, c45.xyzw

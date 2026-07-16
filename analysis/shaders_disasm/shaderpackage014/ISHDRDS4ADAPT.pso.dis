@@ -1,0 +1,36 @@
+; Source record: ISHDRDS4ADAPT.pso
+; Bytecode size: 856 bytes
+
+ps_2_1
+def c7 = 1.00000000e+00, 9.99999978e-03, 0.00000000e+00, 0.00000000e+00
+dcl t0
+dcl_2d s0
+dcl_2d s1
+mov r0.xy, c2.xyzw
+mad r1.xy, c4.xyzw, r0.xyzw, t0.xyzw
+mad r2.xy, c3.xyzw, r0.xyzw, t0.xyzw
+mad r3.xy, c5.xyzw, r0.xyzw, t0.xyzw
+mad r0.xy, c6.xyzw, r0.xyzw, t0.xyzw
+texld r1.xyzw, r1.xyzw, s0
+texld r2.xyzw, r2.xyzw, s0
+texld r3.xyzw, r3.xyzw, s0
+texld r0.xyzw, r0.xyzw, s0
+texld r4.xyzw, t0.xyzw, s1
+mul r1.xyz, r1.xyzw, c4.z
+mad r1.xyz, r2.xyzw, c3.z, r1.xyzw
+mad r1.xyz, r3.xyzw, c5.z, r1.xyzw
+mad r0.xyz, r0.xyzw, c6.z, r1.xyzw
+mov r0.w, c1.z
+pow r4.w, r0.w, c0.z
+add r0.w, -r4.w, c7.x
+lrp r1.xyz, r0.w, r0.xyzw, r4.xyzw
+dp3 r1.w, r1.xyzw, r1.xyzw
+rsq r1.w, r1.w
+rcp r1.w, r1.w
+max r0.x, c7.y, r1.w
+min r1.w, r0.x, c1.w
+rcp r0.x, r0.x
+mul r1.w, r1.w, r0.x
+mul r0.xyz, r1.xyzw, r1.w
+mov r0.w, c2.z
+mov oC0.xyzw, r0.xyzw

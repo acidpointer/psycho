@@ -1,0 +1,13 @@
+; Source record: ISTEXMASK.pso
+; Bytecode size: 296 bytes
+
+ps_2_1
+def c0 = 0.00000000e+00, 0.00000000e+00, 0.00000000e+00, 1.00000000e+00
+def c1 = 1.00000000e+00, 1.00000000e+00, 1.00000000e+00, -1.00000000e+00
+dcl t0
+dcl_2d s0
+texld r0.xyzw, t0.xyzw, s0
+mov r1.xyzw, c1.xyzw
+mad r2.xyz, r0.xyzw, r1.xyzw, c0.xyzw
+mad r2.w, r0.x, r1.w, c0.w
+mov oC0.xyzw, r2.xyzw

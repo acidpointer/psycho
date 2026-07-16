@@ -1,0 +1,20 @@
+; Source record: NOLIGHTTEX.pso
+; Bytecode size: 536 bytes
+
+ps_2_1
+def c3 = 1.50000000e+00, 1.00000000e+00, 0.00000000e+00, 0.00000000e+00
+dcl_pp t0
+dcl_2d s0
+texld_pp r0.xyzw, t0.xyzw, s0
+mov r1.xyz, c0.xyzw
+mad r2.xyz, r0.xyzw, -r1.xyzw, c2.xyzw
+mul_pp r3.xyzw, r0.xyzw, c0.xyzw
+mad r0.xyz, r0.xyzw, -r1.xyzw, c3.y
+mad_pp r1.xyz, t0.w, r2.xyzw, r3.xyzw
+mad r2.xyz, t0.w, -r3.xyzw, r3.xyzw
+lrp_pp r4.xyz, c1.x, r2.xyzw, r1.xyzw
+mul_sat r0.w, t0.w, c3.x
+mad r0.xyz, r0.w, r0.xyzw, r3.xyzw
+mul_pp r1.w, r3.w, t0.z
+lrp_pp r1.xyz, c1.y, r0.xyzw, r4.xyzw
+mov_pp oC0.xyzw, r1.xyzw

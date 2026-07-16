@@ -1,0 +1,7 @@
+; Source record: SM3038.pso
+; Bytecode size: 156 bytes
+
+ps_3_0
+def c0 = 1.00000000e+00, 0.00000000e+00, 0.00000000e+00, 0.00000000e+00
+dcl_texcoord0 v0
+mad oC0.xyzw, v0.x, c0.xxxy, c0.yyyx

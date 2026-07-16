@@ -1,0 +1,26 @@
+; Source record: ISFFTVERTICALBUTTERFLY.pso
+; Bytecode size: 552 bytes
+
+ps_2_1
+dcl t0
+dcl_2d s0
+dcl_2d s1
+mov r0.x, t0.x
+mov r1.x, t0.y
+mov r1.y, c1.x
+texld r1.xyzw, r1.xyzw, s0
+abs r0.y, r1.x
+mov r2.y, r1.y
+mov r2.x, t0.x
+texld r0.xyzw, r0.xyzw, s1
+texld r2.xyzw, r2.xyzw, s1
+mul r0.y, r1.w, r0.w
+mad r3.x, r1.z, r0.x, -r0.y
+mul r0.y, r1.z, r0.w
+mad r3.y, r1.w, r0.x, r0.y
+cmp r0.xy, r1.x, r3.xyzw, -r3.xyzw
+add r1.x, r2.x, r0.x
+add r1.y, r2.w, r0.y
+mov r0.xyz, r1.x
+mov r0.w, r1.y
+mov oC0.xyzw, r0.xyzw

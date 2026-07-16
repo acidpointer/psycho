@@ -1,0 +1,86 @@
+; Source record: SLS2140.pso
+; Bytecode size: 1568 bytes
+
+ps_2_1
+def c0 = -5.00000000e-01, 2.00000000e+00, 1.00000000e+00, 0.00000000e+00
+dcl_pp t0
+dcl_pp_centroid t1
+dcl_pp_centroid t3
+dcl_pp_centroid t4
+dcl_pp_centroid t5
+dcl v0
+dcl v1
+dcl_pp_centroid t7
+dcl_2d s0
+dcl_2d s1
+dcl_2d s2
+dcl_2d s3
+dcl_2d s4
+dcl_2d s5
+dcl_2d s6
+dcl_2d s7
+dcl_2d s8
+dcl_2d s9
+dcl_2d s10
+dcl_2d s11
+dcl_2d s12
+dcl_2d s13
+texld r0.xyzw, t0.xyzw, s8
+texld r1.xyzw, t0.xyzw, s7
+texld r2.xyzw, t0.xyzw, s9
+texld r3.xyzw, t0.xyzw, s10
+texld r4.xyzw, t0.xyzw, s11
+texld r5.xyzw, t0.xyzw, s12
+texld r6.xyzw, t0.xyzw, s13
+texld_pp r7.xyzw, t0.xyzw, s1
+texld_pp r8.xyzw, t0.xyzw, s0
+texld_pp r9.xyzw, t0.xyzw, s2
+texld_pp r10.xyzw, t0.xyzw, s3
+texld_pp r11.xyzw, t0.xyzw, s4
+texld_pp r12.xyzw, t0.xyzw, s5
+texld_pp r13.xyzw, t0.xyzw, s6
+add r0.xyz, r0.xyzw, c0.x
+mul_pp r0.xyz, r0.xyzw, v0.y
+add_pp r0.xyz, r0.xyzw, r0.xyzw
+add r1.xyz, r1.xyzw, c0.x
+mul_pp r1.xyz, r1.xyzw, v0.x
+mad_pp r0.xyz, r1.xyzw, c0.y, r0.xyzw
+add r1.xyz, r2.xyzw, c0.x
+mul_pp r1.xyz, r1.xyzw, v0.z
+mad_pp r0.xyz, r1.xyzw, c0.y, r0.xyzw
+add r1.xyz, r3.xyzw, c0.x
+mul_pp r1.xyz, r1.xyzw, v1.x
+mad_pp r0.xyz, r1.xyzw, c0.y, r0.xyzw
+add r1.xyz, r4.xyzw, c0.x
+mul_pp r1.xyz, r1.xyzw, v1.y
+mad_pp r0.xyz, r1.xyzw, c0.y, r0.xyzw
+add r1.xyz, r5.xyzw, c0.x
+mul_pp r1.xyz, r1.xyzw, v1.z
+mad_pp r0.xyz, r1.xyzw, c0.y, r0.xyzw
+add r1.xyz, r6.xyzw, c0.x
+mul_pp r1.xyz, r1.xyzw, v1.w
+mad_pp r0.xyz, r1.xyzw, c0.y, r0.xyzw
+nrm_pp r1.xyz, r0.xyzw
+nrm_pp r0.xyz, t3.xyzw
+dp3_pp r0.x, r0.xyzw, c18.xyzw
+nrm_pp r2.xyz, t4.xyzw
+dp3_pp r0.y, r2.xyzw, c18.xyzw
+nrm_pp r2.xyz, t5.xyzw
+dp3_pp r0.z, r2.xyzw, c18.xyzw
+dp3_sat_pp r7.w, r1.xyzw, r0.xyzw
+mov r0.xyz, c3.xyzw
+mad r0.xyz, r7.w, r0.xyzw, c1.xyzw
+mul_pp r1.xyz, r7.xyzw, v0.y
+mad_pp r1.xyz, v0.x, r8.xyzw, r1.xyzw
+mad_pp r1.xyz, v0.z, r9.xyzw, r1.xyzw
+mad_pp r1.xyz, v1.x, r10.xyzw, r1.xyzw
+mad_pp r1.xyz, v1.y, r11.xyzw, r1.xyzw
+mad_pp r1.xyz, v1.z, r12.xyzw, r1.xyzw
+mad_pp r1.xyz, v1.w, r13.xyzw, r1.xyzw
+mul r0.xyz, r0.xyzw, r1.xyzw
+mul_pp r1.xyz, r0.xyzw, t1.xyzw
+mov_pp r2.xyz, t1.xyzw
+mad_pp r0.xyz, r0.xyzw, -r2.xyzw, t7.xyzw
+mad_pp r0.xyz, t7.w, r0.xyzw, r1.xyzw
+mov_pp r0.w, c0.z
+mov_pp oC0.xyzw, r0.xyzw

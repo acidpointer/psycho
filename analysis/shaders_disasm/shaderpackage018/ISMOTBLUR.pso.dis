@@ -1,0 +1,88 @@
+; Source record: ISMOTBLUR.pso
+; Bytecode size: 1724 bytes
+
+ps_2_1
+def c2 = 1.00000001e-01, 2.00000000e+00, -1.00000000e+00, -4.00000019e-03
+def c3 = -9.99999975e-06, 1.00000000e+00, -1.00000000e+00, 7.14285746e-02
+def c4 = 1.42857149e-01, 2.14285716e-01, 2.85714298e-01, 3.57142866e-01
+def c5 = 4.28571433e-01, 5.00000000e-01, 5.71428597e-01, 6.42857134e-01
+def c6 = 7.14285731e-01, 7.85714269e-01, 8.57142866e-01, 9.28571403e-01
+def c7 = 6.66666701e-02, 0.00000000e+00, 0.00000000e+00, 0.00000000e+00
+def c8 = 0.00000000e+00, 1.00000000e+00, 2.00000000e+00, -1.00399995e+00
+dcl t0
+dcl_2d s0
+dcl_2d s1
+mov r0.w, c2.x
+add r0.x, r0.w, -c0.w
+texld r1.xyzw, t0.xyzw, s1
+mad r0.y, r1.y, c8.z, c8.w
+cmp r0.y, r0.y, c8.x, c8.y
+mad r0.z, r1.x, c8.z, c8.w
+cmp r0.z, r0.z, c8.x, c8.y
+mad r1.xy, r1.xyzw, c2.y, c2.z
+add r0.w, -r1.y, c2.w
+cmp r0.w, r0.w, c8.x, c8.y
+mul r0.y, r0.y, r0.w
+cmp r2.y, -r0.y, r1.y, c8.x
+add r0.y, -r1.x, c2.w
+cmp r0.y, r0.y, c8.x, c8.y
+mul r0.y, r0.z, r0.y
+cmp r2.x, -r0.y, r1.x, c8.x
+mul r0.yz, r2.zxyw, c0.y
+mov r0.w, c0.x
+mul r1.xy, r0.w, c1.xyzw
+cmp r0.xy, r0.x, r0.yzxw, r1.xyzw
+mul r0.z, r0.y, r0.y
+mad r0.z, r0.x, r0.x, r0.z
+add r0.z, r0.z, c3.x
+mul r1.xy, r0.xyzw, c3.yzxw
+mov r1.z, c0.x
+cmp r0.xyz, r0.z, r1.xyzw, c8.x
+mul r0.z, r0.z, r0.z
+mad r1.xy, r0.xyzw, c3.w, t0.xyzw
+mad r2.xy, r0.xyzw, c4.x, t0.xyzw
+mad r3.xy, r0.xyzw, c4.y, t0.xyzw
+mad r4.xy, r0.xyzw, c4.z, t0.xyzw
+mad r5.xy, r0.xyzw, c4.w, t0.xyzw
+mad r6.xy, r0.xyzw, c5.x, t0.xyzw
+mad r7.xy, r0.xyzw, c5.y, t0.xyzw
+mad r8.xy, r0.xyzw, c5.z, t0.xyzw
+mad r9.xy, r0.xyzw, c5.w, t0.xyzw
+mad r10.xy, r0.xyzw, c6.x, t0.xyzw
+mad r11.xy, r0.xyzw, c6.y, t0.xyzw
+mad r12.xy, r0.xyzw, c6.z, t0.xyzw
+mad r13.xy, r0.xyzw, c6.w, t0.xyzw
+add r0.xy, r0.xyzw, t0.xyzw
+texld r1.xyzw, r1.xyzw, s0
+texld r2.xyzw, r2.xyzw, s0
+texld r14.xyzw, t0.xyzw, s0
+texld r3.xyzw, r3.xyzw, s0
+texld r4.xyzw, r4.xyzw, s0
+texld r5.xyzw, r5.xyzw, s0
+texld r6.xyzw, r6.xyzw, s0
+texld r7.xyzw, r7.xyzw, s0
+texld r8.xyzw, r8.xyzw, s0
+texld r9.xyzw, r9.xyzw, s0
+texld r10.xyzw, r10.xyzw, s0
+texld r11.xyzw, r11.xyzw, s0
+texld r12.xyzw, r12.xyzw, s0
+texld r13.xyzw, r13.xyzw, s0
+texld r15.xyzw, r0.xyzw, s0
+add r1.xyz, r1.xyzw, r14.xyzw
+add r1.xyz, r2.xyzw, r1.xyzw
+add r1.xyz, r3.xyzw, r1.xyzw
+add r1.xyz, r4.xyzw, r1.xyzw
+add r1.xyz, r5.xyzw, r1.xyzw
+add r1.xyz, r6.xyzw, r1.xyzw
+add r1.xyz, r7.xyzw, r1.xyzw
+add r1.xyz, r8.xyzw, r1.xyzw
+add r1.xyz, r9.xyzw, r1.xyzw
+add r1.xyz, r10.xyzw, r1.xyzw
+add r1.xyz, r11.xyzw, r1.xyzw
+add r1.xyz, r12.xyzw, r1.xyzw
+add r1.xyz, r13.xyzw, r1.xyzw
+add r1.xyz, r15.xyzw, r1.xyzw
+mul r1.xyz, r1.xyzw, c7.x
+mov r1.w, -c2.z
+cmp r0.xyzw, -r0.z, r14.xyzw, r1.xyzw
+mov oC0.xyzw, r0.xyzw

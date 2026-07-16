@@ -1,0 +1,6 @@
+; Source record: ISWATERDISPLACEMENTWADINGRIPPLE.pso
+; Bytecode size: 136 bytes
+
+ps_2_1
+def c0 = 1.00000000e+00, 5.00000000e-01, 5.00000000e-01, 5.00000000e-01
+mov oC0.xyzw, c0.xyzw

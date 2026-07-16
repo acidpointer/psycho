@@ -1,0 +1,58 @@
+; Source record: SKIN2014.vso
+; Bytecode size: 1176 bytes
+
+vs_2_0
+def c4 = 5.00000000e-01, 1.00000000e+00, 0.00000000e+00, 0.00000000e+00
+dcl_position0 v0
+dcl_tangent v1
+dcl_binormal v2
+dcl_normal0 v3
+dcl_texcoord0 v4
+dp4 oPos.x, c0.xyzw, v0.xyzw
+dp4 oPos.y, c1.xyzw, v0.xyzw
+dp4 oPos.z, c2.xyzw, v0.xyzw
+dp4 oPos.w, c3.xyzw, v0.xyzw
+dp3 r0.x, v1.xyzw, c25.xyzw
+dp3 r0.y, v2.xyzw, c25.xyzw
+dp3 r0.z, v3.xyzw, c25.xyzw
+dp3 r0.w, r0.xyzw, r0.xyzw
+rsq r0.w, r0.w
+mul oT1.xyz, r0.xyzw, r0.w
+add r0.xyz, -v0.xyzw, c16.xyzw
+nrm r1.xyz, r0.xyzw
+dp3 r0.x, v1.xyzw, r1.xyzw
+dp3 r0.y, v2.xyzw, r1.xyzw
+dp3 r0.z, v3.xyzw, r1.xyzw
+dp3 r0.w, r0.xyzw, r0.xyzw
+rsq r0.w, r0.w
+mul oT7.xyz, r0.xyzw, r0.w
+add r0.xyz, -v0.xyzw, c26.xyzw
+nrm r1.xyz, r0.xyzw
+dp3 oT2.x, v1.xyzw, r1.xyzw
+dp3 oT2.y, v2.xyzw, r1.xyzw
+dp3 oT2.z, v3.xyzw, r1.xyzw
+rcp r0.w, c26.w
+mul r0.xyz, r0.xyzw, r0.w
+mad oT4.xyz, r0.xyzw, c4.x, c4.x
+add r0.xyz, -v0.xyzw, c27.xyzw
+nrm r1.xyz, r0.xyzw
+dp3 oT3.x, v1.xyzw, r1.xyzw
+dp3 oT3.y, v2.xyzw, r1.xyzw
+dp3 oT3.z, v3.xyzw, r1.xyzw
+rcp r0.w, c27.w
+mul r0.xyz, r0.xyzw, r0.w
+mad oT5.xyz, r0.xyzw, c4.x, c4.x
+dp4 r0.x, c21.xyzw, v0.xyzw
+mul r0.y, r0.x, c23.w
+rcp r0.y, r0.y
+dp4 r1.x, c18.xyzw, v0.xyzw
+dp4 r1.y, c19.xyzw, v0.xyzw
+mad r0.xz, r0.x, c23.xyyw, r1.xyyw
+add r1.xy, r1.xyzw, -c22.xyzw
+mul oT6.xy, r0.y, r0.xzzw
+rcp r0.x, c22.w
+mul oT6.z, r1.x, r0.x
+mad oT6.w, r1.y, -r0.x, c4.y
+mov oT0.xy, v4.xyzw
+mov oT4.w, c4.x
+mov oT5.w, c4.x

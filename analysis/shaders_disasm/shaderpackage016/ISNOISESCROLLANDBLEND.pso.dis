@@ -1,0 +1,25 @@
+; Source record: ISNOISESCROLLANDBLEND.pso
+; Bytecode size: 704 bytes
+
+ps_2_1
+def c3 = 2.00000000e+00, -1.00000000e+00, 5.00000000e-01, 0.00000000e+00
+def c6 = 0.00000000e+00, 0.00000000e+00, 0.00000000e+00, 1.00000000e+00
+dcl t0
+dcl_2d s0
+mov r0.xyz, c4.xyzw
+mad r1.xy, t0.xyzw, r0.y, c1.xyzw
+mad r0.xy, t0.xyzw, r0.x, c0.xyzw
+mad r2.xy, t0.xyzw, r0.z, c2.xyzw
+texld r1.xyzw, r1.xyzw, s0
+texld r0.xyzw, r0.xyzw, s0
+texld r2.xyzw, r2.xyzw, s0
+mad r0.x, r1.y, c3.x, c3.y
+mul r0.x, r0.x, c5.y
+mad r0.y, r0.z, c3.x, c3.y
+mad r0.x, r0.y, c5.x, r0.x
+mad r0.y, r2.x, c3.x, c3.y
+mad r0.x, r0.y, c5.z, r0.x
+mad_sat r0.x, r0.x, c3.z, c3.z
+mov r0.yz, c6.y
+mov r0.w, c6.w
+mov oC0.xyzw, r0.xyzw

@@ -1,0 +1,20 @@
+; Source record: SKYCLOUDS.vso
+; Bytecode size: 500 bytes
+
+vs_2_0
+def c2 = 9.99899983e-01, 1.00000000e+00, 0.00000000e+00, 0.00000000e+00
+dcl_position0 v0
+dcl_texcoord0 v1
+dcl_color v2
+dp4 oPos.x, c0.xyzw, v0.xyzw
+dp4 oPos.y, c1.xyzw, v0.xyzw
+mul r0.xyz, v2.y, c5.xyzw
+mad r0.xyz, c4.xyzw, v2.x, r0.xyzw
+mad oD0.xyz, c6.xyzw, v2.z, r0.xyzw
+mul oD0.w, v2.w, c4.w
+dp4 r0.x, c3.xyzw, v0.xyzw
+mul oPos.zw, r0.x, c2.xyxy
+add r0.y, v1.y, c12.x
+mov r0.x, v1.x
+mov oT0.xy, r0.xyzw
+mov oT1.xy, r0.xyzw

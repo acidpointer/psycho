@@ -1,0 +1,21 @@
+; Source record: PAR2014.vso
+; Bytecode size: 436 bytes
+
+vs_2_0
+dcl_position0 v0
+dcl_tangent v1
+dcl_binormal v2
+dcl_normal0 v3
+dcl_texcoord0 v4
+dcl_color v5
+dp4 oPos.x, c0.xyzw, v0.xyzw
+dp4 oPos.y, c1.xyzw, v0.xyzw
+dp4 oPos.z, c2.xyzw, v0.xyzw
+dp4 oPos.w, c3.xyzw, v0.xyzw
+add r0.xyz, -v0.xyzw, c16.xyzw
+nrm r1.xyz, r0.xyzw
+dp3 oT6.x, v1.xyzw, r1.xyzw
+dp3 oT6.y, v2.xyzw, r1.xyzw
+dp3 oT6.z, v3.xyzw, r1.xyzw
+mov oT0.xy, v4.xyzw
+mov oD0.xyzw, v5.xyzw

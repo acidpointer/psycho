@@ -1,0 +1,15 @@
+; Source record: ISBLEND.pso
+; Bytecode size: 376 bytes
+
+ps_2_1
+def c1 = 1.00000000e+00, 0.00000000e+00, 0.00000000e+00, 0.00000000e+00
+dcl t0
+dcl t1
+dcl_2d s0
+dcl_2d s1
+texld r0.xyzw, t1.xyzw, s1
+texld r1.xyzw, t0.xyzw, s0
+mul r0.xyz, r0.xyzw, c0.y
+mad r0.xyz, r1.xyzw, c0.x, r0.xyzw
+mov r0.w, c1.x
+mov oC0.xyzw, r0.xyzw

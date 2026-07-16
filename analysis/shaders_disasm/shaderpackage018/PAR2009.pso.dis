@@ -1,0 +1,55 @@
+; Source record: PAR2009.pso
+; Bytecode size: 1132 bytes
+
+ps_2_1
+def c0 = 0.00000000e+00, -1.00000000e+00, 1.00000000e+00, 0.00000000e+00
+def c2 = 3.99999991e-02, -1.99999996e-02, -5.00000000e-01, 2.00000003e-01
+dcl t0
+dcl_pp_centroid t6
+dcl v0
+dcl v1
+dcl_pp_centroid t1
+dcl_pp_centroid t3
+dcl_2d s0
+dcl_2d s1
+dcl_2d s3
+texld_pp r0.xyzw, t0.xyzw, s0
+texld_pp r1.xyzw, t0.xyzw, s3
+mov r0.y, c0.y
+add r0.x, r0.y, c1.w
+cmp r0.x, r0.x, c0.x, c0.z
+add r0.y, r0.w, -c27.w
+mul_pp r2.w, r0.w, c1.w
+mul r0.xyzw, r0.x, r0.y
+dp3_pp r1.y, t6.xyzw, t6.xyzw
+rsq_pp r1.y, r1.y
+mul_pp r1.yz, r1.y, t6.zxyw
+mad_pp r1.x, r1.x, c2.x, c2.y
+mad_pp r1.xy, r1.yzxw, r1.x, t0.xyzw
+texkill r0.xyzw
+texld_pp r0.xyzw, r1.xyzw, s1
+texld_pp r1.xyzw, r1.xyzw, s0
+add r0.xyz, r0.xyzw, c2.z
+add_pp r0.xyz, r0.xyzw, r0.xyzw
+nrm_pp r3.xyz, r0.xyzw
+nrm_pp r0.xyz, t3.xyzw
+dp3_sat_pp r1.w, r3.xyzw, r0.xyzw
+dp3_pp r0.x, r3.xyzw, t1.xyzw
+pow_pp r0.y, r1.w, c27.z
+mul_pp r1.w, r0.w, r0.y
+add_sat_pp r0.y, r0.x, -c2.z
+mul_pp r0.y, r1.w, r0.y
+add r0.z, -r0.x, c2.w
+mov_sat_pp r0.x, r0.x
+mov r3.xyz, c3.xyzw
+mad_pp r3.xyz, r3.xyzw, r0.x, c1.xyzw
+max_pp r4.xyz, r3.xyzw, c0.x
+cmp_pp r1.w, r0.z, r0.y, r1.w
+mul_pp r0.xyz, r1.w, c3.xyzw
+mul_sat_pp r0.xyz, r0.xyzw, t1.w
+mul_pp r3.xyz, r1.xyzw, v0.xyzw
+cmp_pp r1.xyz, -c27.x, r1.xyzw, r3.xyzw
+mad_pp r0.xyz, r4.xyzw, r1.xyzw, r0.xyzw
+lrp_pp r1.xyz, v1.w, v1.xyzw, r0.xyzw
+cmp_pp r2.xyz, -c27.y, r0.xyzw, r1.xyzw
+mov_pp oC0.xyzw, r2.xyzw

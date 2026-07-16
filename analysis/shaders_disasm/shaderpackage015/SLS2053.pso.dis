@@ -1,0 +1,44 @@
+; Source record: SLS2053.pso
+; Bytecode size: 828 bytes
+
+ps_2_1
+def c0 = -5.00000000e-01, 1.00000000e+00, 2.00000003e-01, 5.00000000e-01
+dcl_pp t0
+dcl_pp_centroid t1
+dcl_pp_centroid t3
+dcl_pp_centroid t2
+dcl_pp_centroid t4
+dcl_2d s0
+texld_pp r0.xyzw, t0.xyzw, s0
+rcp r1.w, t1.w
+mul_pp r1.xyz, r1.w, t1.xyzw
+dp3_sat_pp r1.x, r1.xyzw, r1.xyzw
+rcp r1.z, t2.w
+mul_pp r2.xyz, r1.z, t2.xyzw
+dp3_sat_pp r1.y, r2.xyzw, r2.xyzw
+add_pp r1.xy, -r1.xyzw, c0.y
+nrm_pp r2.xyz, t3.xyzw
+add r0.xyz, r0.xyzw, c0.x
+add_pp r0.xyz, r0.xyzw, r0.xyzw
+nrm_pp r3.xyz, r0.xyzw
+dp3_sat_pp r3.w, r3.xyzw, r2.xyzw
+log r0.x, r3.w
+nrm_pp r2.xyz, t4.xyzw
+dp3_sat_pp r3.w, r3.xyzw, r2.xyzw
+log r0.y, r3.w
+mul r0.xy, r0.xyzw, c27.z
+exp r2.x, r0.x
+exp r2.y, r0.y
+mul r0.xy, r0.w, r2.xyzw
+mul_pp r0.xy, r1.xyzw, r0.xyzw
+nrm_pp r1.xyz, t1.xyzw
+dp3_pp r1.x, r3.xyzw, r1.xyzw
+nrm_pp r2.xyz, t2.xyzw
+dp3_pp r1.y, r3.xyzw, r2.xyzw
+add_sat_pp r0.zw, r1.wzyx, c0.w
+add r1.xy, -r1.xyzw, c0.z
+mul_pp r0.zw, r0.wzyx, r0.xyzw
+cmp_pp r0.xy, r1.xyzw, r0.wzyx, r0.xyzw
+mul r1.xyzw, r0.y, c4.xyzw
+mad_sat_pp r0.xyzw, r0.x, c3.xyzw, r1.xyzw
+mov_pp oC0.xyzw, r0.xyzw

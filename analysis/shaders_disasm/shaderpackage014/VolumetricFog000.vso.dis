@@ -1,0 +1,17 @@
+; Source record: VolumetricFog000.vso
+; Bytecode size: 404 bytes
+
+vs_2_0
+def c5 = 5.00000000e-01, 0.00000000e+00, 0.00000000e+00, 0.00000000e+00
+dcl_position0 v0
+dp4 r0.w, c3.xyzw, v0.xyzw
+mul oT0.x, r0.w, c4.x
+dp4 r0.x, c0.xyzw, v0.xyzw
+dp4 r0.y, c1.xyzw, v0.xyzw
+mul r1.xyz, r0.xyww, c5.x
+add r1.xy, r1.z, r1.xyzw
+add r1.z, r0.w, -r1.y
+mad oT1.xy, c4.zwzw, r0.w, r1.xzzw
+dp4 r0.z, c2.xyzw, v0.xyzw
+mov oPos.xyzw, r0.xyzw
+mov oT1.zw, r0.xyzw

@@ -1,0 +1,46 @@
+; Source record: SLS2052.vso
+; Bytecode size: 960 bytes
+
+vs_2_0
+def c4 = 1.00000000e+00, -2.00000000e+00, 3.00000000e+00, 0.00000000e+00
+def c5 = 5.00000000e-01, -5.00000000e-01, 1.42857146e+00, 0.00000000e+00
+dcl_position0 v0
+dcl_color v1
+dp4 oPos.w, c3.xyzw, v0.xyzw
+dp4 r0.x, c8.xyzw, v0.xyzw
+dp4 r0.y, c9.xyzw, v0.xyzw
+dp4 r0.z, c10.xyzw, v0.xyzw
+add r1.xyz, -r0.xyzw, c16.xyzw
+add r0.xyz, r0.xyzw, -c24.xyzw
+nrm r2.xyz, r1.xyzw
+dp3 r0.w, r0.xyzw, r0.xyzw
+rsq r0.w, r0.w
+mad r1.xyz, r0.xyzw, r0.w, r2.xyzw
+mul r0.xyz, r0.xyzw, r0.w
+dp3 r0.x, r0.xyzw, r2.xyzw
+mov oT2.xyz, r2.xyzw
+add r0.x, r0.x, c5.y
+mul r0.x, r0.x, c5.z
+max r0.x, r0.x, c5.w
+min r0.x, r0.x, c4.x
+nrm r2.xyz, r1.xyzw
+mad oT1.xyz, r2.xyzw, c5.x, c5.x
+mad r0.y, r0.x, c4.y, c4.z
+mul r0.x, r0.x, r0.x
+mul oT1.w, r0.y, r0.x
+dp4 r0.x, c0.xyzw, v0.xyzw
+dp4 r0.y, c1.xyzw, v0.xyzw
+dp4 r0.z, c2.xyzw, v0.xyzw
+dp3 r0.w, r0.xyzw, r0.xyzw
+mov oPos.xyz, r0.xyzw
+rsq r0.x, r0.w
+rcp r0.x, r0.x
+add r0.x, -r0.x, c14.x
+rcp r0.y, c14.y
+mul r0.x, r0.x, r0.y
+max r0.x, r0.x, c5.w
+min r0.x, r0.x, c4.x
+add r0.x, -r0.x, c4.x
+pow r1.x, r0.x, c14.z
+add oT4.x, -r1.x, c4.x
+mov oD0.xyz, v1.xyzw

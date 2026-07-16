@@ -1,0 +1,46 @@
+; Source record: SM3024.pso
+; Bytecode size: 920 bytes
+
+ps_2_1
+def c0 = -5.00000000e-01, 1.00000000e+00, 5.00000000e-01, 5.00000000e-01
+dcl_pp_centroid t1
+dcl_pp_centroid t2
+dcl_pp_centroid t3
+dcl_pp t0
+dcl v0
+dcl t4
+dcl_2d s0
+dcl_cube s1
+dcl_2d s3
+texld_pp r0.xyzw, t0.xyzw, s0
+nrm_pp r1.xyz, t1.xyzw
+add r0.xyz, r0.xyzw, c0.x
+add_pp r0.xyz, r0.xyzw, r0.xyzw
+nrm_pp r2.xyz, r0.xyzw
+mul_pp r0.xyz, r2.xyzw, c0.wzyx
+nrm_pp r2.xyz, r0.xyzw
+dp3_pp r0.x, r2.xyzw, r1.xyzw
+nrm_pp r1.xyz, t2.xyzw
+dp3_pp r0.y, r2.xyzw, r1.xyzw
+nrm_pp r1.xyz, t3.xyzw
+dp3_pp r0.z, r2.xyzw, r1.xyzw
+nrm r1.xyz, r0.xyzw
+mov_pp r0.x, t1.w
+mov_pp r0.y, t2.w
+mov_pp r0.z, t3.w
+nrm_pp r2.xyz, r0.xyzw
+dp3 r1.w, r1.xyzw, r2.xyzw
+add r1.w, r1.w, r1.w
+dp3 r2.w, r1.xyzw, r1.xyzw
+mul r0.xyz, r2.xyzw, r2.w
+mad r0.xyz, r1.w, r1.xyzw, -r0.xyzw
+texld_pp r1.xyzw, r0.xyzw, s1
+texld_pp r2.xyzw, t0.xyzw, s3
+lrp r1.w, c11.w, r2.x, r0.w
+mul_pp r1.w, r1.w, c11.z
+mul_pp r0.xyz, r1.xyzw, r1.w
+mul_pp r0.xyz, r0.xyzw, c3.x
+mul_pp r0.xyz, r0.xyzw, v0.xyzw
+mul_pp r0.xyz, r0.xyzw, t4.x
+mov_pp r0.w, c0.y
+mov_pp oC0.xyzw, r0.xyzw

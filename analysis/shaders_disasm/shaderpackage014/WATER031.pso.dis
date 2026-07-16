@@ -1,0 +1,83 @@
+; Source record: WATER031.pso
+; Bytecode size: 1744 bytes
+
+ps_2_1
+def c0 = -4.09600000e+03, -2.44140625e-04, 1.00000000e+00, -5.00000000e-01
+def c7 = 3.99999991e-02, 1.99999995e-04, -4.00000000e+00, 4.00000000e+00
+def c11 = 0.00000000e+00, -1.00000000e+00, -1.00000000e+00, 2.00000000e+00
+dcl_centroid t0
+dcl_centroid t1
+dcl_centroid t2
+dcl_centroid t3
+dcl_centroid t4
+dcl_centroid t5
+dcl t6
+dcl t7
+dcl_2d s0
+dcl_2d s2
+dcl_2d s3
+texld r0.xyzw, t7.xyzw, s2
+texld r1.xyzw, t6.xyzw, s3
+mad r0.xyz, r0.xyzw, c11.w, c11.yzxw
+add r2.xyz, -t0.xyzw, c1.xyzw
+dp2add r0.w, r2.xyzw, r2.xyzw, c11.x
+rsq r0.w, r0.w
+rcp r0.w, r0.w
+add r2.w, r0.w, c0.x
+mul_sat r0.w, r0.w, c7.y
+mad_sat r2.w, r2.w, c0.y, c0.z
+mul r0.xy, r0.xyzw, r2.w
+add r2.w, r2.w, c11.y
+add r1.x, r1.z, c0.w
+add r1.y, r1.w, c0.w
+mul r1.xy, r1.xyzw, c6.w
+mov r1.z, c7.x
+dp3 r1.w, r1.xyzw, r1.xyzw
+rsq r1.w, r1.w
+mad r0.xyz, r1.xyzw, -r1.w, r0.xyzw
+mul r1.xyz, r1.xyzw, r1.w
+mov_sat r1.w, r1.z
+mad r0.xyz, r1.w, r0.xyzw, r1.xyzw
+nrm r1.xyz, r0.xyzw
+mov r3.yzw, c8.xyzw
+add r1.w, r3.w, c7.z
+mad r1.w, r0.w, r1.w, c7.w
+mul r0.xy, r1.xyzw, r1.w
+rcp r1.w, t0.w
+mad r0.xy, r0.xyzw, r1.w, t1.xyzw
+mov r0.z, t1.z
+mov r0.w, -c11.y
+dp4 r4.x, t2.xyzw, r0.xyzw
+dp4 r4.y, t3.xyzw, r0.xyzw
+dp4 r4.z, t4.xyzw, r0.xyzw
+dp4 r4.w, t5.xyzw, r0.xyzw
+texldp_pp r0.xyzw, r4.xyzw, s0
+lrp_pp r4.xyz, r3.y, r0.xyzw, c4.xyzw
+mul_pp r0.xyz, r4.xyzw, c5.w
+mul r0.xyz, r0.xyzw, c4.xyzw
+mul r0.xyz, r0.xyzw, c8.y
+dp3 r0.w, r2.xyzw, r2.xyzw
+rsq r0.w, r0.w
+mul r2.xyz, r2.xyzw, r0.w
+rcp r0.w, r0.w
+add r0.w, -r0.w, c9.x
+dp3_sat r1.x, r2.xyzw, r1.xyzw
+add r1.x, -r1.x, -c11.y
+mul r1.y, r1.x, r1.x
+mul r1.y, r1.y, r1.y
+mul r1.x, r1.x, r1.y
+mov r1.y, c11.y
+lrp r2.x, r1.x, -r1.y, c5.x
+add r1.x, -r3.z, -c11.y
+mad_sat r1.x, -r2.w, r1.x, c8.z
+mov r3.xyz, c2.xyzw
+add r1.yzw, -r3.wzyx, c3.wzyx
+mad_pp r1.yzw, r1.x, r1.xyzw, c2.wzyx
+mul r3.w, r1.x, t6.w
+mad_sat r0.xyz, r0.xyzw, r2.x, r1.wzyx
+rcp r1.x, c9.y
+mul_sat r0.w, r0.w, r1.x
+add r0.w, -r0.w, -c11.y
+pow r1.x, r0.w, c5.y
+lrp r3.xyz, r1.x, c10.xyzw, r0.xyzw
+mov oC0.xyzw, r3.xyzw

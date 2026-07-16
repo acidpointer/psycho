@@ -1,0 +1,20 @@
+; Source record: STB1000.vso
+; Bytecode size: 440 bytes
+
+vs_1_1
+dcl_position0 v0
+dcl_texcoord0 v1
+dcl_blend v2
+mov a.x, v2.y
+dp4 r0.x, c[a.xyzw + 43].xyzw, v0.xyzw
+dp4 r0.y, c[a.xyzw + 44].xyzw, v0.xyzw
+dp4 r0.z, c[a.xyzw + 45].xyzw, v0.xyzw
+dp4 r0.w, c[a.xyzw + 46].xyzw, v0.xyzw
+add r0.xyzw, r0.xyzw, -v0.xyzw
+mov r1.xyzw, v0.xyzw
+mad r0.xyzw, r0.xyzw, v2.x, r1.xyzw
+dp4 oPos.x, c0.xyzw, r0.xyzw
+dp4 oPos.y, c1.xyzw, r0.xyzw
+dp4 oPos.z, c2.xyzw, r0.xyzw
+dp4 oPos.w, c3.xyzw, r0.xyzw
+mov oT0.xy, v1.xyzw

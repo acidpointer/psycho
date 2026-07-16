@@ -1,0 +1,105 @@
+; Source record: WATER021.pso
+; Bytecode size: 2208 bytes
+
+ps_2_1
+def c0 = -4.09600000e+03, -2.44140625e-04, 1.00000000e+00, -5.00000000e-01
+def c7 = 0.00000000e+00, -1.00000000e+00, -1.00000000e+00, 2.00000000e+00
+def c11 = 3.99999991e-02, 1.99999995e-04, -4.00000000e+00, 4.00000000e+00
+def c14 = -5.69999993e-01, -0.00000000e+00, 8.19999993e-01, 0.00000000e+00
+def c15 = 1.00000000e+00, 4.00000000e+00, 1.00000000e+00, 1.00000000e+02
+dcl_centroid t0
+dcl_centroid t1
+dcl_centroid t2
+dcl_centroid t3
+dcl_centroid t4
+dcl_centroid t5
+dcl t6
+dcl t7
+dcl_2d s0
+dcl_2d s1
+dcl_2d s2
+dcl_2d s3
+texld r0.xyzw, t7.xyzw, s2
+texld r1.xyzw, t6.xyzw, s3
+mad r0.xyz, r0.xyzw, c7.w, c7.yzxw
+add r2.xyz, -t0.xyzw, c1.xyzw
+dp2add r0.w, r2.xyzw, r2.xyzw, c7.x
+rsq r0.w, r0.w
+rcp r0.w, r0.w
+add r2.w, r0.w, c0.x
+mul_sat r0.w, r0.w, c11.y
+mad_sat r2.w, r2.w, c0.y, c0.z
+mul r0.xy, r0.xyzw, r2.w
+add r2.w, r2.w, c7.y
+add r1.x, r1.z, c0.w
+add r1.y, r1.w, c0.w
+mul r1.xy, r1.xyzw, c6.w
+mov r1.z, c11.x
+dp3 r1.w, r1.xyzw, r1.xyzw
+rsq r1.w, r1.w
+mad r0.xyz, r1.xyzw, -r1.w, r0.xyzw
+mul r1.xyz, r1.xyzw, r1.w
+mov_sat r1.w, r1.z
+mad r0.xyz, r1.w, r0.xyzw, r1.xyzw
+nrm r1.xyz, r0.xyzw
+mov r3.yzw, c8.xyzw
+add r1.w, r3.w, c11.z
+mad r1.w, r0.w, r1.w, c11.w
+mul r0.xy, r1.xyzw, r1.w
+rcp r1.w, t0.w
+mad r0.xy, r0.xyzw, r1.w, t1.xyzw
+mov r0.z, t1.z
+mov r0.w, -c7.y
+dp4 r4.x, t2.xyzw, r0.xyzw
+dp4 r4.z, t4.xyzw, r0.xyzw
+dp4 r4.w, t5.xyzw, r0.xyzw
+dp4 r4.y, t3.xyzw, r0.xyzw
+add r0.y, -r4.y, r4.w
+mov r0.xzw, r4.xyzw
+texldp_pp r4.xyzw, r4.xyzw, s0
+texldp_pp r0.xyzw, r0.xyzw, s1
+lrp_pp r5.xyz, r3.y, r4.xyzw, c4.xyzw
+mov r4.xyz, c12.xyzw
+mul r4.xyz, r4.xyzw, c15.xyzw
+nrm r6.xyz, r4.xyzw
+dp3_sat r0.w, r6.xyzw, r1.xyzw
+dp3 r1.w, r2.xyzw, r2.xyzw
+rsq r1.w, r1.w
+mul r2.xyz, r2.xyzw, r1.w
+rcp r1.w, r1.w
+add r1.w, -r1.w, c9.x
+dp3_sat r5.w, r2.xyzw, r1.xyzw
+add r5.w, -r5.w, -c7.y
+mul r3.x, r5.w, r5.w
+mul r3.x, r3.x, r3.x
+mul r5.w, r5.w, r3.x
+mov r3.y, c7.y
+lrp r4.x, r5.w, -r3.y, c5.x
+mov r6.xyz, c2.xyzw
+add r4.yzw, -r6.wzyx, c3.wzyx
+mad r6.xyz, r4.x, r4.wzyx, c2.xyzw
+mad r6.xyz, r6.xyzw, r0.w, -r0.xyzw
+mad_pp r0.xyz, r4.x, r6.xyzw, r0.xyzw
+add r0.w, -r3.z, -c7.y
+mad_sat r0.w, -r2.w, r0.w, c8.z
+mad_pp r3.xyz, r0.w, r4.wzyx, c2.xyzw
+lrp r4.yzw, r0.w, r3.wzyx, r0.wzyx
+mad r0.xyz, r5.xyzw, c5.w, -r4.wzyx
+mad r0.xyz, r4.x, r0.xyzw, r4.wzyx
+dp3 r0.w, -r2.xyzw, r1.xyzw
+add r0.w, r0.w, r0.w
+mad r2.xyz, r1.xyzw, -r0.w, -r2.xyzw
+dp3_sat r0.w, r1.xyzw, c14.xyzw
+pow r2.w, r0.w, c15.w
+dp3_sat r0.w, r2.xyzw, c12.xyzw
+pow r1.x, r0.w, c8.x
+add r0.w, r2.w, r1.x
+mul r1.xyz, r0.w, c13.xyzw
+mad r0.xyz, r1.xyzw, c12.w, r0.xyzw
+rcp r0.w, c9.y
+mul_sat r0.w, r1.w, r0.w
+add r0.w, -r0.w, -c7.y
+pow r1.x, r0.w, c5.y
+lrp r2.xyz, r1.x, c10.xyzw, r0.xyzw
+mov r2.w, t6.w
+mov oC0.xyzw, r2.xyzw

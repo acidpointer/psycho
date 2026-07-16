@@ -1,0 +1,12 @@
+; Source record: ISFFTHORIZONTALSCRAMBLE.pso
+; Bytecode size: 292 bytes
+
+ps_2_1
+dcl t0
+dcl_2d s0
+dcl_2d s1
+texld r0.xyzw, t0.xyzw, s0
+mov r0.y, t0.y
+texld r0.xyzw, r0.xyzw, s1
+mov r0.xyzw, r0.x
+mov oC0.xyzw, r0.xyzw

@@ -1,0 +1,21 @@
+; Source record: STB1007.pso
+; Bytecode size: 464 bytes
+
+ps_2_1
+def c0 = -5.00000000e-01, 0.00000000e+00, 0.00000000e+00, 0.00000000e+00
+dcl t0
+dcl t1
+dcl_2d s0
+texld r0.xyzw, t0.xyzw, s0
+add r1.xyz, t1.xyzw, c0.x
+add r1.xyz, r1.xyzw, r1.xyzw
+add r0.xyz, r0.xyzw, c0.x
+add r0.xyz, r0.xyzw, r0.xyzw
+dp3_sat r0.x, r0.xyzw, r1.xyzw
+mul r0.x, r0.x, r0.x
+mul r0.x, r0.x, r0.x
+mul r0.y, r0.x, r0.x
+mul r1.w, r0.w, r0.x
+mul r0.x, r0.y, c3.x
+mul r1.xyz, r0.w, r0.x
+mov oC0.xyzw, r1.xyzw

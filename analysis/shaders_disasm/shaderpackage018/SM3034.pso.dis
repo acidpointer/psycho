@@ -1,0 +1,20 @@
+; Source record: SM3034.pso
+; Bytecode size: 452 bytes
+
+ps_3_0
+def c0 = -5.00000000e-01, 0.00000000e+00, 5.00000000e-01, 0.00000000e+00
+dcl_texcoord0_pp v0
+dcl_texcoord1_pp v1
+dcl_2d s0
+texld r0.xyzw, v0.xyzw, s0
+add r0.xy, r0.xyzw, c0.x
+add r0.xy, r0.xyzw, r0.xyzw
+dp2add r0.z, r0.xyzw, r0.xyzw, c0.y
+rsq r0.z, r0.z
+mul_pp r0.xy, r0.xyzw, r0.z
+rcp r0.z, v0.w
+mul_pp r0.xy, r0.xyzw, r0.z
+mad_pp oC0.xy, r0.xyzw, c0.z, c0.z
+mul_pp r0.x, v1.x, v1.x
+mul_pp oC0.w, r0.x, c0.z
+mov_pp oC0.z, c6.x

@@ -1,0 +1,15 @@
+; Source record: ISTEXMASK.vso
+; Bytecode size: 412 bytes
+
+vs_1_1
+def c2 = 2.00000000e+00, -2.00000000e+00, -5.00000000e-01, 5.00000000e-01
+dcl_position0 v0
+dcl_texcoord0 v1
+mov r0.xy, c2.xyzw
+mad oPos.xy, c0.xyzw, -r0.xyzw, v0.xyzw
+add r0.xy, v1.xyzw, c1.xyzw
+add r0.xy, r0.xyzw, c2.z
+mul r0.yz, r0.y, c9.xxyw
+mad r0.xy, r0.x, c8.xyzw, r0.yzzw
+add oT0.xy, r0.xyzw, c2.w
+mov oPos.zw, v0.xyzw

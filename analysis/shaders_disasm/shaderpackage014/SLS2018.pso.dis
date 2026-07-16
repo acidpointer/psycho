@@ -1,0 +1,48 @@
+; Source record: SLS2018.pso
+; Bytecode size: 1060 bytes
+
+ps_2_1
+def c0 = -1.00000000e+00, 0.00000000e+00, 1.00000000e+00, 0.00000000e+00
+def c4 = -5.00000000e-01, 2.00000003e-01, 5.00000000e-01, 0.00000000e+00
+dcl_pp t0
+dcl v0
+dcl v1
+dcl_pp_centroid t1
+dcl_pp_centroid t3
+dcl_2d s0
+dcl_2d s1
+dcl_2d s4
+texld_pp r0.xyzw, t0.xyzw, s0
+mov r1.xyzw, c1.xyzw
+add r1.w, r1.w, c0.x
+cmp r1.w, r1.w, c0.y, c0.z
+add r2.w, r0.w, -c27.w
+mul r2.xyzw, r1.w, r2.w
+texkill r2.xyzw
+texld_pp r2.xyzw, t0.xyzw, s1
+texld r3.xyzw, t0.xyzw, s4
+mul_pp r4.xyz, r0.xyzw, v0.xyzw
+cmp_pp r0.xyz, -c27.x, r0.xyzw, r4.xyzw
+mul_pp r4.w, r0.w, c1.w
+nrm_pp r5.xyz, t3.xyzw
+add r2.xyz, r2.xyzw, c4.x
+add_pp r2.xyz, r2.xyzw, r2.xyzw
+nrm_pp r6.xyz, r2.xyzw
+dp3_sat_pp r0.w, r6.xyzw, r5.xyzw
+dp3_pp r1.w, r6.xyzw, t1.xyzw
+pow_pp r3.w, r0.w, c27.z
+mul_pp r0.w, r2.w, r3.w
+add_sat_pp r3.w, r1.w, c4.z
+mul_pp r3.w, r0.w, r3.w
+add r2.x, -r1.w, c4.y
+mov_sat_pp r1.w, r1.w
+cmp_pp r0.w, r2.x, r3.w, r0.w
+mul_pp r2.xyz, r0.w, c3.xyzw
+mul_sat_pp r2.xyz, r2.xyzw, t1.w
+mad_pp r1.xyz, c2.xyzw, r3.xyzw, r1.xyzw
+mad_pp r1.xyz, c3.xyzw, r1.w, r1.xyzw
+max_pp r3.xyz, r1.xyzw, c4.w
+mad_pp r0.xyz, r3.xyzw, r0.xyzw, r2.xyzw
+lrp_pp r1.xyz, v1.w, v1.xyzw, r0.xyzw
+cmp_pp r4.xyz, -c27.y, r0.xyzw, r1.xyzw
+mov_pp oC0.xyzw, r4.xyzw

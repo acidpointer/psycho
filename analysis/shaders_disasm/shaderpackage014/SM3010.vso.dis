@@ -1,0 +1,46 @@
+; Source record: SM3010.vso
+; Bytecode size: 940 bytes
+
+vs_2_0
+def c4 = 0.00000000e+00, 1.00000000e+00, 0.00000000e+00, 0.00000000e+00
+dcl_position0 v0
+dcl_tangent v1
+dcl_binormal v2
+dcl_normal0 v3
+dcl_texcoord0 v4
+dcl_color v5
+dp4 oPos.w, c3.xyzw, v0.xyzw
+dp4 r0.x, c0.xyzw, v0.xyzw
+dp4 r0.y, c1.xyzw, v0.xyzw
+dp4 r0.z, c2.xyzw, v0.xyzw
+dp3 r0.w, r0.xyzw, r0.xyzw
+mov oPos.xyz, r0.xyzw
+rsq r0.x, r0.w
+rcp r0.x, r0.x
+add r0.x, -r0.x, c44.x
+rcp r0.y, c44.y
+mul r0.x, r0.x, r0.y
+max r0.x, r0.x, c4.x
+min r0.x, r0.x, c4.y
+add r0.x, -r0.x, c4.y
+log r0.x, r0.x
+mul r0.x, r0.x, c44.z
+exp oT7.w, r0.x
+dp4 r0.x, c35.xyzw, v0.xyzw
+mul r0.y, r0.x, c37.w
+rcp r0.y, r0.y
+dp4 r1.x, c32.xyzw, v0.xyzw
+dp4 r1.y, c33.xyzw, v0.xyzw
+mad r0.xz, r0.x, c37.xyyw, r1.xyyw
+add r1.xy, r1.xyzw, -c36.xyzw
+mul oT1.xy, r0.y, r0.xzzw
+rcp r0.x, c36.w
+mul oT1.z, r1.x, r0.x
+mad oT1.w, r1.y, -r0.x, c4.y
+mov oT0.xy, v4.xyzw
+mov oD0.xyzw, v5.xyzw
+mov oT3.xyz, v1.xyzw
+mov oT4.xyz, v2.xyzw
+mov oT5.xyz, v3.xyzw
+mov oT6.xyz, v0.xyzw
+mov oT7.xyz, c45.xyzw

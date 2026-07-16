@@ -1,0 +1,13 @@
+; Source record: SM3049.vso
+; Bytecode size: 276 bytes
+
+vs_3_0
+dcl_position0 v0
+dcl_texcoord0 v1
+dcl_position0 o0
+dcl_texcoord0 o1
+dp4 o0.x, c0.xyzw, v0.xyzw
+dp4 o0.y, c1.xyzw, v0.xyzw
+dp4 o0.z, c2.xyzw, v0.xyzw
+dp4 o0.w, c3.xyzw, v0.xyzw
+mov o1.xy, v1.xyzw

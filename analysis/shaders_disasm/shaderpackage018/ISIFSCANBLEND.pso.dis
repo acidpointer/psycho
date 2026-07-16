@@ -1,0 +1,67 @@
+; Source record: ISIFSCANBLEND.pso
+; Bytecode size: 1388 bytes
+
+ps_2_1
+def c4 = 1.00000000e+00, 5.00000000e-01, 3.49999994e-01, 0.00000000e+00
+def c5 = 1.11111112e-01, -1.00000000e+00, 1.00000000e+00, 0.00000000e+00
+dcl t0
+dcl_2d s0
+dcl_2d s1
+dcl_2d s2
+dcl_2d s3
+mov r0.x, t0.x
+add r0.z, t0.y, c0.y
+add r0.w, -r0.z, c0.z
+add r1.w, r0.z, -c0.z
+cmp r1.y, r0.w, r0.z, r1.w
+add r0.y, r1.y, -c3.y
+mov r1.x, t0.x
+add r2.xy, r1.xyzw, -c3.xyzw
+add r3.y, r1.y, -c3.y
+add r3.x, r1.x, c3.x
+mov r4.x, -c3.x
+mov r4.y, c4.w
+add r4.xy, r1.xyzw, r4.xyzw
+mov r5.y, r1.y
+add r5.x, r1.x, c3.x
+mov r6.yz, c5.xyzw
+mad r6.xy, c3.xyzw, r6.yzxw, r1.xyzw
+add r7.xy, r1.xyzw, c3.xyzw
+add r8.y, r1.y, c3.y
+mov r8.x, t0.x
+mad r0.z, t0.y, c1.x, -c1.y
+add r9.y, r0.z, c4.x
+mov r9.x, c4.y
+mul r10.xy, t0.xyzw, c0.w
+texld r0.xyzw, r0.xyzw, s0
+texld r2.xyzw, r2.xyzw, s0
+texld r3.xyzw, r3.xyzw, s0
+texld r4.xyzw, r4.xyzw, s0
+texld r11.xyzw, r1.xyzw, s0
+texld r1.xyzw, r1.xyzw, s1
+texld r5.xyzw, r5.xyzw, s0
+texld r7.xyzw, r7.xyzw, s0
+texld r6.xyzw, r6.xyzw, s0
+texld r8.xyzw, r8.xyzw, s0
+texld r9.xyzw, r9.xyzw, s3
+texld r10.xyzw, r10.xyzw, s2
+mul r0.xyzw, r0.xyzw, c5.x
+mad r0.xyzw, r2.xyzw, c5.x, r0.xyzw
+mad r0.xyzw, r3.xyzw, c5.x, r0.xyzw
+mad r0.xyzw, r4.xyzw, c5.x, r0.xyzw
+mad r0.xyzw, r11.xyzw, c5.x, r0.xyzw
+mad r0.xyzw, r5.xyzw, c5.x, r0.xyzw
+mad r0.xyzw, r6.xyzw, c5.x, r0.xyzw
+mad r0.xyzw, r8.xyzw, c5.x, r0.xyzw
+mad r0.xyzw, r7.xyzw, c5.x, r0.xyzw
+mul r0.xyzw, r0.xyzw, c0.x
+mad r0.xyzw, r0.xyzw, c2.xyzw, r1.xyzw
+mul r1.xyz, r9.xyzw, c1.z
+mul r1.xyz, r1.xyzw, c2.xyzw
+mul r1.xyz, r1.xyzw, c4.z
+mov r2.xw, c4.xyzw
+cmp r1.xyz, -c1.x, r2.w, r1.xyzw
+add r0.xyz, r0.xyzw, r1.xyzw
+cmp r1.xyzw, -c0.w, r2.x, r10.xyzw
+mul r0.xyzw, r0.xyzw, r1.xyzw
+mov oC0.xyzw, r0.xyzw

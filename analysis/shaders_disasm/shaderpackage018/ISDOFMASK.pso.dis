@@ -1,0 +1,85 @@
+; Source record: ISDOFMASK.pso
+; Bytecode size: 1724 bytes
+
+ps_2_1
+def c2 = 0.00000000e+00, 1.00000000e+00, -9.99999975e-06, 3.30000013e-01
+def c4 = 6.60000026e-01, 1.11111112e-01, 2.22222224e-01, 3.33333343e-01
+def c5 = 4.44444448e-01, 5.55555582e-01, 6.66666687e-01, 7.77777791e-01
+def c6 = 8.88888896e-01, 1.00000001e-01, 0.00000000e+00, 0.00000000e+00
+dcl t0
+dcl_2d s0
+dcl_2d s1
+dcl_2d s2
+dcl_2d s3
+mul r0.w, c3.y, c3.y
+mad r0.x, c3.x, c3.x, r0.w
+add r0.x, r0.x, c2.z
+mul r1.xy, c3.z, -c3.xyzw
+cmp r0.xy, r0.x, r1.xyzw, c2.x
+mad r1.xy, r0.xyzw, c4.y, t0.xyzw
+mad r2.xy, r0.xyzw, c4.z, t0.xyzw
+mad r3.xy, r0.xyzw, c4.w, t0.xyzw
+mad r4.xy, r0.xyzw, c5.x, t0.xyzw
+mad r5.xy, r0.xyzw, c5.y, t0.xyzw
+mad r6.xy, r0.xyzw, c5.z, t0.xyzw
+mad r7.xy, r0.xyzw, c5.w, t0.xyzw
+mad r8.xy, r0.xyzw, c6.x, t0.xyzw
+add r9.xy, r0.xyzw, t0.xyzw
+mad r10.xy, r0.xyzw, c2.w, t0.xyzw
+mad r0.xy, r0.xyzw, c4.x, t0.xyzw
+texld r11.xyzw, t0.xyzw, s2
+texld r12.xyzw, t0.xyzw, s3
+texld r1.xyzw, r1.xyzw, s0
+texld r2.xyzw, r2.xyzw, s0
+texld r13.xyzw, t0.xyzw, s0
+texld r3.xyzw, r3.xyzw, s0
+texld r4.xyzw, r4.xyzw, s0
+texld r5.xyzw, r5.xyzw, s0
+texld r6.xyzw, r6.xyzw, s0
+texld r7.xyzw, r7.xyzw, s0
+texld r8.xyzw, r8.xyzw, s0
+texld r14.xyzw, r9.xyzw, s0
+texld r9.xyzw, r9.xyzw, s3
+texld r10.xyzw, r10.xyzw, s3
+texld r0.xyzw, r0.xyzw, s3
+texld r15.xyzw, t0.xyzw, s1
+mad r1.w, r11.x, -c0.w, c0.z
+mul r2.w, c1.y, c1.y
+cmp r2.w, -r2.w, c2.x, c2.y
+mad r3.w, r11.x, c0.w, -c0.z
+cmp r4.w, r3.w, c2.x, c2.y
+mul r2.w, r2.w, r4.w
+add r4.w, -c0.x, c0.z
+rcp r4.w, r4.w
+mul r4.w, r1.w, r4.w
+cmp r2.w, -r2.w, c2.x, r4.w
+cmp r1.w, r1.w, c2.x, c2.y
+mul r4.w, c1.z, c1.z
+cmp r4.w, -r4.w, c2.x, c2.y
+mul r1.w, r1.w, r4.w
+add r4.w, -c0.z, c0.y
+rcp r4.w, r4.w
+mul r3.w, r3.w, r4.w
+cmp_sat r1.w, -r1.w, r2.w, r3.w
+mul r1.w, r1.w, c1.x
+mul r2.w, r12.x, r12.x
+cmp r2.w, -r2.w, c2.y, c2.x
+add r0.yzw, r1.wzyx, r13.wzyx
+add r0.yzw, r2.wzyx, r0.xyzw
+add r0.yzw, r3.wzyx, r0.xyzw
+add r0.yzw, r4.wzyx, r0.xyzw
+add r0.yzw, r5.wzyx, r0.xyzw
+add r0.yzw, r6.wzyx, r0.xyzw
+add r0.yzw, r7.wzyx, r0.xyzw
+add r0.yzw, r8.wzyx, r0.xyzw
+add r0.yzw, r14.wzyx, r0.xyzw
+add r1.x, r9.x, r10.x
+add r0.x, r0.x, r1.x
+cmp r0.x, -r0.x, c2.x, c2.y
+mul r0.x, r2.w, r0.x
+cmp r1.x, -r0.x, r1.w, c2.y
+mul r2.xyz, r0.wzyx, c6.y
+mov r2.w, c2.y
+cmp r0.xyzw, -r0.x, r15.xyzw, r2.xyzw
+lrp r2.xyzw, r1.x, r0.xyzw, r13.xyzw
+mov oC0.xyzw, r2.xyzw

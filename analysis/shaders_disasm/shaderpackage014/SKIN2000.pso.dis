@@ -1,0 +1,53 @@
+; Source record: SKIN2000.pso
+; Bytecode size: 1136 bytes
+
+ps_2_1
+def c0 = -5.00000000e-01, 2.00000000e+00, 1.00000000e+00, 5.00000000e-01
+def c2 = 0.00000000e+00, 1.00000000e+00, 0.00000000e+00, 0.00000000e+00
+dcl_pp t0
+dcl_pp_centroid t6
+dcl v0
+dcl v1
+dcl_pp_centroid t1
+dcl_2d s0
+dcl_2d s1
+dcl_2d s2
+dcl_2d s3
+texld_pp r0.xyzw, t0.xyzw, s0
+mov r1.w, c0.z
+add r1.x, -r1.w, c1.w
+cmp r1.x, r1.x, c2.x, c2.y
+add r1.y, r0.w, -c27.w
+mul r1.xyzw, r1.x, r1.y
+texkill r1.xyzw
+texld_pp r1.xyzw, t0.xyzw, s1
+texld_pp r2.xyzw, t0.xyzw, s2
+texld_pp r3.xyzw, t0.xyzw, s3
+add r1.xyz, r1.xyzw, c0.x
+add_pp r1.xyz, r1.xyzw, r1.xyzw
+nrm_pp r4.xyz, r1.xyzw
+nrm_pp r1.xyz, t6.xyzw
+dp3_sat_pp r1.w, r4.xyzw, r1.xyzw
+dp3_sat_pp r2.w, r4.xyzw, t1.xyzw
+dp3_sat_pp r3.w, r1.xyzw, -t1.xyzw
+add_pp r1.x, -r1.w, c0.z
+mul_pp r1.x, r1.x, r1.x
+mul_pp r3.w, r3.w, r1.x
+mul_pp r1.xyz, r3.w, c3.xyzw
+mul_pp r1.xyz, r1.xyzw, c0.w
+mad_pp r1.xyz, c3.xyzw, r2.w, r1.xyzw
+add_pp r1.xyz, r1.xyzw, c1.xyzw
+max_pp r4.xyz, r1.xyzw, c2.x
+add_pp r1.xyz, r2.xyzw, c0.x
+mad_pp r0.xyz, r1.xyzw, c0.y, r0.xyzw
+mul_pp r1.w, r0.w, c1.w
+add_pp r2.xyz, r3.xyzw, r3.xyzw
+mul_pp r0.xyz, r0.xyzw, r2.xyzw
+add_pp r0.xyz, r0.xyzw, r0.xyzw
+mul_pp r2.xyz, r0.xyzw, v0.xyzw
+cmp_pp r0.xyz, -c27.x, r0.xyzw, r2.xyzw
+mad_pp r2.xyz, r4.xyzw, -r0.xyzw, v1.xyzw
+mul_pp r0.xyz, r4.xyzw, r0.xyzw
+mad_pp r2.xyz, v1.w, r2.xyzw, r0.xyzw
+cmp_pp r1.xyz, -c27.y, r0.xyzw, r2.xyzw
+mov_pp oC0.xyzw, r1.xyzw

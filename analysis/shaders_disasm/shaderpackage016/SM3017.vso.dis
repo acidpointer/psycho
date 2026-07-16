@@ -1,0 +1,12 @@
+; Source record: SM3017.vso
+; Bytecode size: 304 bytes
+
+vs_2_0
+dcl_position0 v0
+dp4 oT0.x, c8.xyzw, v0.xyzw
+dp4 oT0.y, c9.xyzw, v0.xyzw
+dp4 oT0.z, c10.xyzw, v0.xyzw
+dp4 oPos.x, c0.xyzw, v0.xyzw
+dp4 oPos.y, c1.xyzw, v0.xyzw
+dp4 oPos.z, c2.xyzw, v0.xyzw
+dp4 oPos.w, c3.xyzw, v0.xyzw

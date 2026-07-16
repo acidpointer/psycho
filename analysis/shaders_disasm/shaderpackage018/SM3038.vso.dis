@@ -1,0 +1,14 @@
+; Source record: SM3038.vso
+; Bytecode size: 304 bytes
+
+vs_3_0
+def c4 = 9.99999975e-05, 0.00000000e+00, 0.00000000e+00, 0.00000000e+00
+dcl_position0 v0
+dcl_position0 o0
+dcl_texcoord0 o1
+dp4 o0.x, c0.xyzw, v0.xyzw
+dp4 o0.y, c1.xyzw, v0.xyzw
+dp4 o0.z, c2.xyzw, v0.xyzw
+dp4 r0.x, c3.xyzw, v0.xyzw
+mul o1.x, r0.x, c4.x
+mov o0.w, r0.x

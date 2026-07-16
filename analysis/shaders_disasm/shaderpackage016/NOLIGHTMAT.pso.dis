@@ -1,0 +1,17 @@
+; Source record: NOLIGHTMAT.pso
+; Bytecode size: 436 bytes
+
+ps_2_1
+def c3 = 1.50000000e+00, 1.00000000e+00, 0.00000000e+00, 0.00000000e+00
+dcl_pp t0
+mov r0.xyz, c0.xyzw
+add r1.xyz, -r0.xyzw, c2.xyzw
+mad_pp r1.xyz, t0.y, r1.xyzw, c0.xyzw
+mad r2.xyz, t0.y, -c0.xyzw, c0.xyzw
+lrp_pp r3.xyz, c1.x, r2.xyzw, r1.xyzw
+mul_sat r0.w, t0.y, c3.x
+add r0.xyz, -r0.xyzw, c3.y
+mad r0.xyz, r0.w, r0.xyzw, c0.xyzw
+lrp_pp r1.xyz, c1.y, r0.xyzw, r3.xyzw
+mul_pp r1.w, t0.x, c0.w
+mov_pp oC0.xyzw, r1.xyzw

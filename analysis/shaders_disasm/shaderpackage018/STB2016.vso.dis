@@ -1,0 +1,39 @@
+; Source record: STB2016.vso
+; Bytecode size: 828 bytes
+
+vs_2_0
+dcl_position0 v0
+dcl_tangent v1
+dcl_binormal v2
+dcl_normal0 v3
+dcl_texcoord0 v4
+dcl_blend v5
+frc r0.x, v5.y
+add r0.x, -r0.x, v5.y
+mova a.x, r0.x
+dp4 r0.x, c[a.x + 43].xyzw, v0.xyzw
+dp4 r0.y, c[a.x + 44].xyzw, v0.xyzw
+dp4 r0.z, c[a.x + 45].xyzw, v0.xyzw
+dp4 r0.w, c[a.x + 46].xyzw, v0.xyzw
+add r0.xyzw, r0.xyzw, -v0.xyzw
+mov r1.xyzw, v0.xyzw
+mad r0.xyzw, r0.xyzw, v5.x, r1.xyzw
+dp4 oPos.x, c0.xyzw, r0.xyzw
+dp4 oPos.y, c1.xyzw, r0.xyzw
+dp4 oPos.z, c2.xyzw, r0.xyzw
+dp4 oPos.w, c3.xyzw, r0.xyzw
+add r1.xyz, -r0.xyzw, c25.xyzw
+add r0.xyz, -r0.xyzw, c16.xyzw
+dp3 oT1.x, v1.xyzw, r1.xyzw
+dp3 oT1.y, v2.xyzw, r1.xyzw
+dp3 oT1.z, v3.xyzw, r1.xyzw
+nrm r2.xyz, r1.xyzw
+dp3 r0.w, r0.xyzw, r0.xyzw
+rsq r0.w, r0.w
+mad r0.xyz, r0.xyzw, r0.w, r2.xyzw
+nrm r1.xyz, r0.xyzw
+dp3 oT3.x, v1.xyzw, r1.xyzw
+dp3 oT3.y, v2.xyzw, r1.xyzw
+dp3 oT3.z, v3.xyzw, r1.xyzw
+mov oT0.xy, v4.xyzw
+mov oT1.w, c25.w

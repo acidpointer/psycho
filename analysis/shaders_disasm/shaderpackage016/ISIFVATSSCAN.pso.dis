@@ -1,0 +1,45 @@
+; Source record: ISIFVATSSCAN.pso
+; Bytecode size: 992 bytes
+
+ps_2_1
+def c0 = -7.81250012e-04, 0.00000000e+00, 0.00000000e+00, 7.81250012e-04
+def c3 = 1.50000000e+02, 1.00000000e+00, 5.00000000e-01, -1.00000000e+00
+def c4 = 0.00000000e+00, -1.38888892e-03, 1.38888892e-03, 0.00000000e+00
+def c5 = 1.00000000e+00, 0.00000000e+00, 0.00000000e+00, 0.00000000e+00
+dcl t0
+dcl_2d s0
+dcl_2d s1
+dcl_2d s2
+dcl_2d s3
+add r0.xy, t0.xyzw, c4.xyzw
+add r1.xy, t0.xyzw, c4.wzyx
+add r2.xy, t0.xyzw, c0.xyzw
+add r3.xy, t0.xyzw, c0.wzyx
+mad r0.z, t0.y, c1.x, -c1.y
+add r4.y, r0.z, c3.y
+mov r4.x, c3.z
+mul r5.xy, t0.xyzw, c3.x
+texld r0.xyzw, r0.xyzw, s1
+texld r1.xyzw, r1.xyzw, s1
+texld r2.xyzw, r2.xyzw, s1
+texld r3.xyzw, r3.xyzw, s1
+texld r6.xyzw, t0.xyzw, s1
+texld r4.xyzw, r4.xyzw, s3
+texld r5.xyzw, r5.xyzw, s2
+texld r7.xyzw, t0.xyzw, s0
+add r4.w, r0.x, r1.x
+mul r4.w, r4.w, c3.z
+add r5.w, r2.x, r3.x
+mad r4.w, r5.w, c3.z, r4.w
+mad r5.w, r4.w, c3.z, c3.w
+mul r4.w, r4.w, c3.z
+cmp r5.w, r5.w, c5.y, c5.x
+add r7.w, r6.x, c3.w
+cmp r7.w, r7.w, c5.x, c5.y
+mul r5.w, r5.w, r7.w
+mul r0.xyz, r4.xyzw, c2.xyzw
+mad r0.xyz, r0.xyzw, r5.xyzw, r7.xyzw
+cmp r0.xyz, -r5.w, r0.xyzw, c2.xyzw
+lrp r1.xyz, r4.w, r0.xyzw, r7.xyzw
+mov r1.w, c3.y
+mov oC0.xyzw, r1.xyzw

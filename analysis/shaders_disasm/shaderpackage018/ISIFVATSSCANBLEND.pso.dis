@@ -1,0 +1,77 @@
+; Source record: ISIFVATSSCANBLEND.pso
+; Bytecode size: 1588 bytes
+
+ps_2_1
+def c5 = 1.00000000e+00, 5.00000000e-01, 3.49999994e-01, 0.00000000e+00
+def c6 = 1.50000000e+00, 0.00000000e+00, 0.00000000e+00, 0.00000000e+00
+def c7 = 1.11111112e-01, -1.00000000e+00, 1.00000000e+00, 2.00000000e+00
+dcl t0
+dcl_2d s0
+dcl_2d s1
+dcl_2d s2
+dcl_2d s3
+mov r0.x, t0.x
+add r0.y, t0.y, -c3.y
+add r1.xy, t0.xyzw, -c3.xyzw
+add r2.x, t0.x, c3.x
+add r2.y, t0.y, -c3.y
+mov r3.x, -c3.x
+mov r3.y, c5.w
+add r3.xy, r3.xyzw, t0.xyzw
+add r4.x, t0.x, c3.x
+mov r4.y, t0.y
+mov r5.yz, c7.xyzw
+mad r5.xy, c3.xyzw, r5.yzxw, t0.xyzw
+mov r6.x, t0.x
+add r6.y, t0.y, c3.y
+add r7.xy, t0.xyzw, c3.xyzw
+mad r0.z, t0.y, c1.x, -c1.y
+add r8.y, r0.z, c5.x
+mov r8.x, c5.y
+mul r9.xy, t0.xyzw, c0.w
+texld r0.xyzw, r0.xyzw, s0
+texld r1.xyzw, r1.xyzw, s0
+texld r2.xyzw, r2.xyzw, s0
+texld r3.xyzw, r3.xyzw, s0
+texld r10.xyzw, t0.xyzw, s0
+texld r4.xyzw, r4.xyzw, s0
+texld r5.xyzw, r5.xyzw, s0
+texld r6.xyzw, r6.xyzw, s0
+texld r7.xyzw, r7.xyzw, s0
+texld r11.xyzw, t0.xyzw, s1
+texld r8.xyzw, r8.xyzw, s3
+texld r9.xyzw, r9.xyzw, s2
+mul r0.xy, r0.xyzw, c7.x
+mad r0.xy, r1.xyzw, c7.x, r0.xyzw
+mad r0.xy, r2.xyzw, c7.x, r0.xyzw
+mad r0.xy, r3.xyzw, c7.x, r0.xyzw
+mad r0.xy, r10.xyzw, c7.x, r0.xyzw
+mad r0.xy, r4.xyzw, c7.x, r0.xyzw
+mad r0.xy, r5.xyzw, c7.x, r0.xyzw
+mad r0.xy, r6.xyzw, c7.x, r0.xyzw
+mad r0.xy, r7.xyzw, c7.x, r0.xyzw
+mul r8.w, r0.y, r0.y
+mov r1.xyz, c2.xyzw
+mul r0.yzw, r1.wzyx, c4.x
+cmp r0.yzw, -r8.w, r0.xyzw, c2.wzyx
+mul r1.xyz, r0.x, r0.wzyx
+mul r0.yzw, r0.xyzw, r0.xyzw
+mul r1.xyz, r1.xyzw, c0.x
+add r1.w, -r0.x, c5.y
+max r8.w, r10.x, r0.x
+abs r1.w, r1.w
+mad r1.w, r1.w, -c7.w, c7.z
+mul r1.xyz, r1.xyzw, r1.w
+mul r1.xyz, r1.xyzw, c6.x
+mad r0.xyz, r0.wzyx, c0.x, r11.xyzw
+mul r2.xyz, r8.xyzw, c1.z
+mul r2.xyz, r2.xyzw, c2.xyzw
+mul r2.xyz, r2.xyzw, c5.z
+mov r3.xw, c5.xyzw
+cmp r2.xyz, -c1.x, r3.w, r2.xyzw
+mad r0.xyz, r2.xyzw, r10.x, r0.xyzw
+cmp r2.xyz, -c0.w, r3.x, r9.xyzw
+mad r0.xyz, r0.xyzw, r2.xyzw, r1.xyzw
+lrp r1.xyz, r8.w, r0.xyzw, r11.xyzw
+mov r1.w, c5.x
+mov oC0.xyzw, r1.xyzw

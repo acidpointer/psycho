@@ -1,0 +1,20 @@
+; Source record: ISHDRBLENDINSHADER.pso
+; Bytecode size: 512 bytes
+
+ps_2_1
+def c0 = 5.00000000e-01, 0.00000000e+00, 0.00000000e+00, 0.00000000e+00
+dcl t0
+dcl t1
+dcl_2d s0
+dcl_2d s1
+texld r0.xyzw, t0.xyzw, s0
+texld r1.xyzw, t1.xyzw, s1
+max r1.w, r0.w, c1.x
+rcp r0.w, r1.w
+mul r1.w, r0.w, c0.x
+mul r0.w, r0.w, c1.x
+mul r0.xyz, r0.xyzw, r1.w
+max r2.xyz, r0.xyzw, c0.y
+mad r0.xyz, r0.w, r1.xyzw, r2.xyzw
+mov r0.w, c2.z
+mov oC0.xyzw, r0.xyzw

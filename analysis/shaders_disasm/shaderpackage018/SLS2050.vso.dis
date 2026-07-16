@@ -1,0 +1,47 @@
+; Source record: SLS2050.vso
+; Bytecode size: 868 bytes
+
+vs_2_0
+def c4 = 1.00000001e-01, 0.00000000e+00, 1.00000000e+00, 0.00000000e+00
+dcl_position0 v0
+dcl_texcoord0 v1
+dcl_normal0 v2
+dcl_tangent v3
+dcl_binormal v4
+dcl_color v5
+dp4 oPos.w, c3.xyzw, v0.xyzw
+mul r0.xyz, v3.xyzw, c4.x
+dp3 oT1.x, r0.xyzw, c8.xyzw
+mul r1.xyz, v4.xyzw, c4.x
+dp3 oT1.y, r1.xyzw, c8.xyzw
+dp3 oT1.z, v2.xyzw, c8.xyzw
+dp3 oT2.x, r0.xyzw, c9.xyzw
+dp3 oT3.x, r0.xyzw, c10.xyzw
+dp3 oT2.y, r1.xyzw, c9.xyzw
+dp3 oT3.y, r1.xyzw, c10.xyzw
+dp3 oT2.z, v2.xyzw, c9.xyzw
+dp3 oT3.z, v2.xyzw, c10.xyzw
+dp4 r0.x, c0.xyzw, v0.xyzw
+dp4 r0.y, c1.xyzw, v0.xyzw
+dp4 r0.z, c2.xyzw, v0.xyzw
+dp3 r0.w, r0.xyzw, r0.xyzw
+mov oPos.xyz, r0.xyzw
+rsq r0.x, r0.w
+rcp r0.x, r0.x
+add r0.x, -r0.x, c14.x
+rcp r0.y, c14.y
+mul r0.x, r0.x, r0.y
+max r0.x, r0.x, c4.y
+min r0.x, r0.x, c4.z
+add r0.x, -r0.x, c4.z
+pow r1.x, r0.x, c14.z
+add oT4.x, -r1.x, c4.z
+mov oT0.xy, v1.xyzw
+dp4 r0.x, c8.xyzw, v0.xyzw
+dp4 r0.y, c9.xyzw, v0.xyzw
+dp4 r0.z, c10.xyzw, v0.xyzw
+nrm r1.xyz, -r0.xyzw
+mov oT1.w, r1.x
+mov oT2.w, r1.y
+mov oT3.w, r1.z
+mov oD0.xyz, v5.xyzw

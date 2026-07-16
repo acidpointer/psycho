@@ -1,0 +1,17 @@
+; Source record: ISWATERDISPLACEMENTTEXOFFSET.pso
+; Bytecode size: 408 bytes
+
+ps_2_1
+def c0 = -5.00000000e-01, 0.00000000e+00, -4.00000006e-01, 1.00000000e+01
+dcl t0
+dcl_2d s0
+add r0.xy, t0.xyzw, c0.x
+dp2add r0.x, r0.xyzw, r0.xyzw, c0.y
+rsq r0.x, r0.x
+rcp r0.x, r0.x
+add r0.x, r0.x, c0.z
+mul_sat r0.x, r0.x, c0.w
+add r1.xy, t0.xyzw, c2.xyzw
+texld r1.xyzw, r1.xyzw, s0
+lrp r2.xyzw, r0.x, -c0.x, r1.xyzw
+mov oC0.xyzw, r2.xyzw

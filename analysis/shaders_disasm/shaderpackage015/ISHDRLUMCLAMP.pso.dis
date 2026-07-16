@@ -1,0 +1,18 @@
+; Source record: ISHDRLUMCLAMP.pso
+; Bytecode size: 444 bytes
+
+ps_2_1
+def c0 = 9.99999978e-03, 0.00000000e+00, 0.00000000e+00, 0.00000000e+00
+dcl t0
+dcl_2d s0
+texld r0.xyzw, t0.xyzw, s0
+dp3 r0.w, r0.xyzw, r0.xyzw
+rsq r0.w, r0.w
+rcp r0.w, r0.w
+max r1.w, c0.x, r0.w
+min r0.w, r1.w, c1.x
+rcp r1.x, r1.w
+mul r0.w, r0.w, r1.x
+mul r0.xyz, r0.xyzw, r0.w
+mov r0.w, c2.z
+mov oC0.xyzw, r0.xyzw

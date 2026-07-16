@@ -1,0 +1,12 @@
+; Source record: BSF.pso
+; Bytecode size: 328 bytes
+
+ps_2_1
+dcl_pp t0
+dcl_2d s0
+dcl_2d s1
+texld_pp r0.xyzw, t0.xyzw, s0
+texld_pp r1.xyzw, t0.xyzw, s1
+mul_pp r0.xyzw, r0.x, r1.xyzw
+mul_pp r0.xyzw, r0.xyzw, c0.x
+mov_pp oC0.xyzw, r0.xyzw

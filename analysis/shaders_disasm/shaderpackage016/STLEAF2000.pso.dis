@@ -1,0 +1,10 @@
+; Source record: STLEAF2000.pso
+; Bytecode size: 228 bytes
+
+ps_2_1
+dcl_pp t0
+dcl_pp t1
+dcl_2d s0
+texld_pp r0.xyzw, t0.xyzw, s0
+mul_pp r0.xyz, r0.xyzw, t1.xyzw
+mov_pp oC0.xyzw, r0.xyzw

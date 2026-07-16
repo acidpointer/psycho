@@ -1,0 +1,51 @@
+; Source record: NOLIGHT009.vso
+; Bytecode size: 1016 bytes
+
+vs_2_0
+def c4 = 1.00000000e+00, 7.65010010e+02, 0.00000000e+00, 0.00000000e+00
+dcl_position0 v0
+dcl_color v1
+dcl_weight v2
+dcl_blend v3
+dp3 r0.x, v2.xyzw, c4.x
+add r0.x, -r0.x, c4.x
+mul r1.xyzw, v3.zyxw, c4.y
+frc r2.xyzw, r1.xyzw
+add r1.xyzw, r1.xyzw, -r2.xyzw
+mova a.xyzw, r1.xyzw
+mad r1.xyzw, v0.xyzx, c4.xxxz, c4.zzzx
+dp4 r2.x, c[a.y + 64].xyzw, r1.xyzw
+dp4 r2.y, c[a.y + 65].xyzw, r1.xyzw
+dp4 r2.z, c[a.y + 66].xyzw, r1.xyzw
+mul r0.yzw, r2.xxyz, v2.y
+dp4 r2.x, c[a.x + 64].xyzw, r1.xyzw
+dp4 r2.y, c[a.x + 65].xyzw, r1.xyzw
+dp4 r2.z, c[a.x + 66].xyzw, r1.xyzw
+mad r0.yzw, r2.xxyz, v2.x, r0.xyzw
+dp4 r2.x, c[a.z + 64].xyzw, r1.xyzw
+dp4 r2.y, c[a.z + 65].xyzw, r1.xyzw
+dp4 r2.z, c[a.z + 66].xyzw, r1.xyzw
+mad r0.yzw, r2.xxyz, v2.z, r0.xyzw
+dp4 r2.x, c[a.w + 64].xyzw, r1.xyzw
+dp4 r2.y, c[a.w + 65].xyzw, r1.xyzw
+dp4 r2.z, c[a.w + 66].xyzw, r1.xyzw
+mad r0.xyz, r2.xyzw, r0.x, r0.yzww
+mov r0.w, c4.x
+dp4 oPos.w, c3.xyzw, r0.xyzw
+dp4 r1.x, c0.xyzw, r0.xyzw
+dp4 r1.y, c1.xyzw, r0.xyzw
+dp4 r1.z, c2.xyzw, r0.xyzw
+mov oPos.xyz, r1.xyzw
+dp3 r0.x, r1.xyzw, r1.xyzw
+rsq r0.x, r0.x
+rcp r0.x, r0.x
+add r0.x, -r0.x, c13.x
+rcp r0.y, c13.y
+mul r0.x, r0.x, r0.y
+max r0.x, r0.x, c4.z
+min r0.x, r0.x, c4.x
+add r0.xy, -r0.x, c4.x
+mov r0.zw, c13.z
+lit r0.xyzw, r0.xyzw
+mad oT0.xy, r0.z, c4.zxzw, c4.xzzw
+mov oD0.xyzw, v1.xyzw

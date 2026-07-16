@@ -1,0 +1,10 @@
+; Source record: PARTICLE.pso
+; Bytecode size: 232 bytes
+
+ps_2_1
+dcl v0
+dcl_pp t0
+dcl_2d s0
+texld_pp r0.xyzw, t0.xyzw, s0
+mul_pp r0.xyzw, r0.xyzw, v0.xyzw
+mov_pp oC0.xyzw, r0.xyzw

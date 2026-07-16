@@ -1,0 +1,77 @@
+; Source record: WATER006.pso
+; Bytecode size: 1676 bytes
+
+ps_3_0
+def c0 = 0.00000000e+00, 2.00000000e+00, -1.00000000e+00, -4.09600000e+03
+def c6 = -2.44140625e-04, 1.00000000e+00, 1.99999995e-04, -4.00000000e+00
+def c7 = -5.69999993e-01, 8.19999993e-01, 0.00000000e+00, 1.00000000e+02
+dcl_texcoord0_centroid v0
+dcl_texcoord1_centroid v1
+dcl_texcoord2_centroid v2
+dcl_texcoord3_centroid v3
+dcl_texcoord4_centroid v4
+dcl_texcoord5_centroid v5
+dcl_texcoord6 v6
+dcl_texcoord7 v7
+dcl_2d s0
+dcl_2d s2
+mov r0.yzw, c8.xyzw
+add r1.xyz, c1.xyzw, -v0.xyzw
+dp2add r0.x, r1.xyzw, r1.xyzw, c0.x
+rsq r0.x, r0.x
+rcp r0.x, r0.x
+mul_sat r1.w, r0.x, c6.z
+add r0.x, r0.x, c0.w
+mad_sat r0.x, r0.x, c6.x, c6.y
+lrp r2.x, r1.w, r0.w, -c6.w
+texld r3.xyzw, v7.xyzw, s2
+mad r2.yzw, r3.xxyz, c0.y, c0.xzzx
+mul r2.yz, r0.x, r2.xyzw
+add r0.x, r0.x, c0.z
+nrm r3.xyz, r2.yzww
+mul r2.xy, r2.x, r3.xyzw
+rcp r0.w, v0.w
+mad r2.xy, r2.xyzw, r0.w, v1.xyzw
+mad r2.zw, v1.z, |c0.xyzx|, |c0.xyxz|
+dp4 r4.x, v2.xyzw, r2.xyzw
+dp4 r4.y, v3.xyzw, r2.xyzw
+dp4 r4.z, v4.xyzw, r2.xyzw
+dp4 r4.w, v5.xyzw, r2.xyzw
+texldp_pp r2.xyzw, r4.xyzw, s0
+lrp_pp r4.xyz, r0.y, r2.xyzw, c4.xyzw
+add r0.y, -r0.z, -c0.z
+mad_sat r0.x, -r0.x, r0.y, c8.z
+mov r2.xyz, c2.xyzw
+add r0.yzw, -r2.xxyz, c3.xxyz
+mad_pp r0.yzw, r0.x, r0.xyzw, c2.xxyz
+mul oC0.w, r0.x, v6.w
+mad r2.xyz, r4.xyzw, c5.w, -r0.yzww
+dp3 r0.x, r1.xyzw, r1.xyzw
+rsq r0.x, r0.x
+mul r1.xyz, r1.xyzw, r0.x
+rcp r0.x, r0.x
+add r0.x, -r0.x, c9.x
+dp3_sat r1.w, r1.xyzw, r3.xyzw
+add r1.w, -r1.w, -c0.z
+mul r2.w, r1.w, r1.w
+mul r2.w, r2.w, r2.w
+mul r1.w, r1.w, r2.w
+mov r4.z, c0.z
+lrp r2.w, r1.w, -r4.z, c5.x
+mad r0.yzw, r2.w, r2.xxyz, r0.xyzw
+dp3 r1.w, -r1.xyzw, r3.xyzw
+add r1.w, r1.w, r1.w
+mad r1.xyz, r3.xyzw, -r1.w, -r1.xyzw
+dp2add_sat r1.w, r3.xzzw, c7.xyzw, c7.z
+pow r2.x, r1.w, c7.w
+dp3_sat r1.x, r1.xyzw, c12.xyzw
+pow r2.y, r1.x, c8.x
+add r1.x, r2.x, r2.y
+mul r1.xyz, r1.x, c13.xyzw
+mad r0.yzw, r1.xxyz, c12.w, r0.xyzw
+add r1.xyz, -r0.yzww, c10.xyzw
+rcp r1.w, c9.y
+mul_sat r0.x, r0.x, r1.w
+add r0.x, -r0.x, -c0.z
+pow r1.w, r0.x, c5.y
+mad oC0.xyz, r1.w, r1.xyzw, r0.yzww

@@ -1,0 +1,60 @@
+; Source record: SLS2021.pso
+; Bytecode size: 1296 bytes
+
+ps_2_1
+def c0 = -5.00000000e-01, -1.00000000e+00, 1.00000000e+00, 2.00000003e-01
+def c4 = 0.00000000e+00, 1.00000000e+00, 0.00000000e+00, 0.00000000e+00
+dcl_pp t0
+dcl_pp t7
+dcl v0
+dcl v1
+dcl_pp_centroid t1
+dcl_pp_centroid t3
+dcl_2d s0
+dcl_2d s1
+dcl_2d s4
+dcl_2d s6
+dcl_2d s7
+texld_pp r0.xyzw, t0.xyzw, s0
+mov_pp r1.w, c0.y
+add r1.x, r1.w, c1.w
+cmp r1.x, r1.x, c4.x, c4.y
+add r1.y, r0.w, -c27.w
+mul r1.xyzw, r1.x, r1.y
+mov_pp r2.x, t7.z
+mov_pp r2.y, t7.w
+texkill r1.xyzw
+texld_pp r1.xyzw, t0.xyzw, s1
+texld_pp r2.xyzw, r2.xyzw, s7
+texld_pp r3.xyzw, t7.xyzw, s6
+texld r4.xyzw, t0.xyzw, s4
+mul_pp r2.yzw, r0.wzyx, v0.wzyx
+cmp_pp r0.xyz, -c27.x, r0.xyzw, r2.wzyx
+mul_pp r5.w, r0.w, c1.w
+nrm_pp r6.xyz, t3.xyzw
+add r1.xyz, r1.xyzw, c0.x
+add_pp r1.xyz, r1.xyzw, r1.xyzw
+nrm_pp r7.xyz, r1.xyzw
+dp3_sat_pp r0.w, r7.xyzw, r6.xyzw
+dp3_pp r3.w, r7.xyzw, t1.xyzw
+pow_pp r4.w, r0.w, c27.z
+mul_pp r0.w, r1.w, r4.w
+add_sat_pp r4.w, r3.w, -c0.x
+mul_pp r4.w, r0.w, r4.w
+add r1.x, -r3.w, c0.w
+mov_sat_pp r3.w, r3.w
+mul_pp r1.yzw, r3.w, c3.wzyx
+cmp_pp r0.w, r1.x, r4.w, r0.w
+mul_pp r2.yzw, r0.w, c3.wzyx
+mul_sat_pp r2.yzw, r2.xyzw, t1.w
+add_pp r3.xyz, r3.xyzw, c0.y
+mad_pp r3.xyz, r2.x, r3.xyzw, c0.z
+mul_pp r2.xyz, r2.wzyx, r3.xyzw
+mov r6.xyz, c1.xyzw
+mad_pp r4.xyz, c2.xyzw, r4.xyzw, r6.xyzw
+mad_pp r1.xyz, r1.wzyx, r3.xyzw, r4.xyzw
+max_pp r3.xyz, r1.xyzw, c4.x
+mad_pp r0.xyz, r3.xyzw, r0.xyzw, r2.xyzw
+lrp_pp r1.xyz, v1.w, v1.xyzw, r0.xyzw
+cmp_pp r5.xyz, -c27.y, r0.xyzw, r1.xyzw
+mov_pp oC0.xyzw, r5.xyzw

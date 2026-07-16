@@ -1,0 +1,45 @@
+; Source record: WATER015.pso
+; Bytecode size: 1060 bytes
+
+ps_2_1
+def c0 = -4.09600000e+03, -2.44140625e-04, 1.00000000e+00, 0.00000000e+00
+def c6 = 0.00000000e+00, -1.00000000e+00, -1.00000000e+00, 2.00000000e+00
+dcl_centroid t0
+dcl t6
+dcl t7
+dcl_2d s2
+texld r0.xyzw, t7.xyzw, s2
+add r1.xyz, -t0.xyzw, c1.xyzw
+dp2add r0.w, r1.xyzw, r1.xyzw, c6.x
+rsq r0.w, r0.w
+rcp r0.w, r0.w
+add r0.w, r0.w, c0.x
+mad_sat r0.w, r0.w, c0.y, c0.z
+mad r0.xyz, r0.xyzw, c6.w, c6.yzxw
+mul r0.xy, r0.w, r0.xyzw
+add r0.w, r0.w, c6.y
+nrm r2.xyz, r0.xyzw
+dp3 r1.w, r1.xyzw, r1.xyzw
+rsq r1.w, r1.w
+mul r0.xyz, r1.xyzw, r1.w
+rcp r2.w, r1.w
+add r2.w, -r2.w, c9.x
+dp3_sat r0.x, r0.xyzw, r2.xyzw
+add r0.x, -r0.x, -c6.y
+mul r0.y, r0.x, r0.x
+mul r0.y, r0.y, r0.y
+mul r0.x, r0.x, r0.y
+mov r0.y, c6.y
+lrp r1.x, r0.x, -r0.y, c5.x
+lrp_sat r1.y, -r0.w, -r0.y, c8.z
+mov r0.xyz, c2.xyzw
+add r0.xyz, -r0.xyzw, c3.xyzw
+mad_pp r0.xyz, r1.y, r0.xyzw, c2.xyzw
+mul r3.w, r1.y, t6.w
+lrp_sat_pp r2.xyz, r1.x, c4.xyzw, r0.xyzw
+rcp r0.x, c9.y
+mul_sat r2.w, r2.w, r0.x
+add r2.w, -r2.w, -c6.y
+pow r0.x, r2.w, c5.y
+lrp r3.xyz, r0.x, c10.xyzw, r2.xyzw
+mov oC0.xyzw, r3.xyzw

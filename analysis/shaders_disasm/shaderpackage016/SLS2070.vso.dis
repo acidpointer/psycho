@@ -1,0 +1,21 @@
+; Source record: SLS2070.vso
+; Bytecode size: 544 bytes
+
+vs_2_0
+def c7 = 3.33333341e-03, 1.00000000e+00, 0.00000000e+00, 0.00000000e+00
+dcl_position0 v0
+dcl_normal0 v1
+dp4 oPos.x, c0.xyzw, v0.xyzw
+dp4 oPos.y, c1.xyzw, v0.xyzw
+dp4 oPos.z, c2.xyzw, v0.xyzw
+dp4 oPos.w, c3.xyzw, v0.xyzw
+add r0.xyz, -v0.xyzw, c16.xyzw
+nrm r1.xyz, r0.xyzw
+dp3 oT1.x, v1.xyzw, r1.xyzw
+mul r0.xyzw, v0.xyzw, c7.x
+dp4 r1.x, c6.xyzw, r0.xyzw
+max oT0.w, r1.x, c7.y
+mov oT0.z, r1.x
+dp4 r1.x, c4.xyzw, r0.xyzw
+dp4 r1.y, c5.xyzw, r0.xyzw
+add oT0.xy, r1.xyzw, -c13.x

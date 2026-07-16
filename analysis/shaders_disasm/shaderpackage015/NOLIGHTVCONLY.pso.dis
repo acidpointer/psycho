@@ -1,0 +1,19 @@
+; Source record: NOLIGHTVCONLY.pso
+; Bytecode size: 472 bytes
+
+ps_2_1
+def c3 = 1.50000000e+00, 1.00000000e+00, 0.00000000e+00, 0.00000000e+00
+dcl_pp t0
+dcl v0
+mov r0.xyz, c0.xyzw
+mad r1.xyz, v0.xyzw, -r0.xyzw, c2.xyzw
+mul_pp r2.xyzw, v0.xyzw, c0.xyzw
+mad_pp r1.xyz, t0.y, r1.xyzw, r2.xyzw
+mad r3.xyz, t0.y, -r2.xyzw, r2.xyzw
+lrp_pp r4.xyz, c1.x, r3.xyzw, r1.xyzw
+mul_sat r0.w, t0.y, c3.x
+mad r0.xyz, v0.xyzw, -r0.xyzw, c3.y
+mad r0.xyz, r0.w, r0.xyzw, r2.xyzw
+mul_pp r1.w, r2.w, t0.x
+lrp_pp r1.xyz, c1.y, r0.xyzw, r4.xyzw
+mov_pp oC0.xyzw, r1.xyzw

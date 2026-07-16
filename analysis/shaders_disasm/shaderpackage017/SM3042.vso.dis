@@ -1,0 +1,36 @@
+; Source record: SM3042.vso
+; Bytecode size: 816 bytes
+
+vs_2_0
+def c7 = 1.00000001e-01, 0.00000000e+00, 0.00000000e+00, 0.00000000e+00
+dcl_position0 v0
+dcl_normal0 v1
+mov r0.w, c30.w
+slt r0.x, c7.x, r0.w
+lrp r1.x, r0.x, c30.y, c30.z
+dp4 r2.x, c12.xyzw, v0.xyzw
+dp4 r2.y, c13.xyzw, v0.xyzw
+dp4 r2.z, c14.xyzw, v0.xyzw
+dp4 r2.w, c15.xyzw, v0.xyzw
+dp4 r3.x, c0.xyzw, v0.xyzw
+dp4 r3.y, c1.xyzw, v0.xyzw
+dp4 r3.z, c2.xyzw, v0.xyzw
+dp4 r3.w, c3.xyzw, v0.xyzw
+add r2.xyzw, r2.xyzw, -r3.xyzw
+mad oT1.xyzw, r1.x, r2.xyzw, r3.xyzw
+mul r1.xyzw, r1.x, r2.xyzw
+dp4 r2.x, c4.xyzw, v0.xyzw
+dp4 r2.y, c5.xyzw, v0.xyzw
+dp4 r2.z, c6.xyzw, v0.xyzw
+dp4 r4.x, c16.xyzw, v0.xyzw
+dp4 r4.y, c17.xyzw, v0.xyzw
+dp4 r4.z, c18.xyzw, v0.xyzw
+add r0.yzw, r2.xxyz, -r4.xxyz
+dp3 r2.x, c4.xyzw, v1.xyzw
+dp3 r2.y, c5.xyzw, v1.xyzw
+dp3 r2.z, c6.xyzw, v1.xyzw
+dp3 r0.y, r2.xyzw, r0.yzww
+slt r0.y, r0.y, c7.y
+mul r0.x, r0.x, r0.y
+mad oPos.xyzw, r0.x, r1.xyzw, r3.xyzw
+mov oT0.xyzw, r3.xyzw

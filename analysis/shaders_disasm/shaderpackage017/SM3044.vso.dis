@@ -1,0 +1,17 @@
+; Source record: SM3044.vso
+; Bytecode size: 396 bytes
+
+vs_2_0
+def c7 = 5.00000000e-01, 5.00000000e+00, -4.40000010e+00, 0.00000000e+00
+dcl_position0 v0
+dcl_normal0 v1
+dp4 oPos.x, c0.xyzw, v0.xyzw
+dp4 oPos.y, c1.xyzw, v0.xyzw
+dp4 oPos.w, c3.xyzw, v0.xyzw
+dp3 r0.x, c4.xyzw, v1.xyzw
+dp3 r0.y, c5.xyzw, v1.xyzw
+dp3 r0.z, c6.xyzw, v1.xyzw
+mad oT0.xyz, r0.xyzw, c7.x, c7.x
+dp4 r0.x, c2.xyzw, v0.xyzw
+mad oT1.x, r0.x, c7.y, c7.z
+mov oPos.z, r0.x

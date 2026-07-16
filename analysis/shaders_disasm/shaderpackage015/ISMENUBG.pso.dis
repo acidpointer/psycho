@@ -1,0 +1,21 @@
+; Source record: ISMENUBG.pso
+; Bytecode size: 488 bytes
+
+ps_2_1
+def c0 = 2.98999995e-01, 5.87000012e-01, 1.14000000e-01, 1.40000001e-01
+def c2 = 1.00000000e+00, 1.09999999e-01, -3.99999991e-02, 0.00000000e+00
+def c3 = 1.00000000e+00, 9.55688059e-01, 6.19858086e-01, 0.00000000e+00
+def c4 = 1.00000000e+00, -2.71581799e-01, -6.46873832e-01, 0.00000000e+00
+def c5 = 1.00000000e+00, -1.10817730e+00, 1.70506454e+00, 0.00000000e+00
+dcl t0
+dcl_2d s0
+texld r0.xyzw, t0.xyzw, s0
+dp3 r0.w, c0.xyzw, r0.xyzw
+add r1.x, r0.w, c0.w
+mov r1.yz, c2.xyzw
+dp3 r2.x, c3.xyzw, r1.xyzw
+dp3 r2.y, c4.xyzw, r1.xyzw
+dp3 r2.z, c5.xyzw, r1.xyzw
+lrp r1.xyz, c1.x, r2.xyzw, r0.xyzw
+mov r1.w, c2.x
+mov oC0.xyzw, r1.xyzw

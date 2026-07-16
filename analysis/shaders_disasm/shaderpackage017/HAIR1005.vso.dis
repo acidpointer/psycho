@@ -1,0 +1,18 @@
+; Source record: HAIR1005.vso
+; Bytecode size: 348 bytes
+
+vs_1_1
+def c4 = 0.00000000e+00, 1.00000000e+00, 0.00000000e+00, 0.00000000e+00
+dcl_position0 v0
+dcl_texcoord0 v1
+dcl_color v2
+dp4 oPos.x, c0.xyzw, v0.xyzw
+dp4 oPos.y, c1.xyzw, v0.xyzw
+dp4 oPos.z, c2.xyzw, v0.xyzw
+dp4 oPos.w, c3.xyzw, v0.xyzw
+mov oT0.xy, v1.xyzw
+mov oT1.xy, v1.xyzw
+mov oT2.xyz, c4.x
+mov oT3.xyz, c4.x
+mov oD0.xyzw, c4.xxxy
+mov oD1.xyzw, v2.xyzw

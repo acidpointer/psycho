@@ -1,0 +1,69 @@
+; Source record: STB2007.vso
+; Bytecode size: 1436 bytes
+
+vs_2_0
+def c4 = 5.00000000e-01, 1.00000000e+00, 0.00000000e+00, 0.00000000e+00
+dcl_position0 v0
+dcl_tangent v1
+dcl_binormal v2
+dcl_normal0 v3
+dcl_texcoord0 v4
+dcl_blend v5
+frc r0.x, v5.y
+add r0.x, -r0.x, v5.y
+mova a.x, r0.x
+dp4 r0.x, c[a.x + 43].xyzw, v0.xyzw
+dp4 r0.y, c[a.x + 44].xyzw, v0.xyzw
+dp4 r0.z, c[a.x + 45].xyzw, v0.xyzw
+dp4 r0.w, c[a.x + 46].xyzw, v0.xyzw
+add r0.xyzw, r0.xyzw, -v0.xyzw
+mov r1.xyzw, v0.xyzw
+mad r0.xyzw, r0.xyzw, v5.x, r1.xyzw
+dp4 oPos.w, c3.xyzw, r0.xyzw
+dp3 r1.x, v1.xyzw, c25.xyzw
+dp3 r1.y, v2.xyzw, c25.xyzw
+dp3 r1.z, v3.xyzw, c25.xyzw
+dp3 r1.w, r1.xyzw, r1.xyzw
+rsq r1.w, r1.w
+mul oT1.xyz, r1.xyzw, r1.w
+add r1.xyz, -r0.xyzw, c26.xyzw
+nrm r2.xyz, r1.xyzw
+dp3 oT2.x, v1.xyzw, r2.xyzw
+dp3 oT2.y, v2.xyzw, r2.xyzw
+dp3 oT2.z, v3.xyzw, r2.xyzw
+rcp r1.w, c26.w
+mul r1.xyz, r1.xyzw, r1.w
+mad oT4.xyz, r1.xyzw, c4.x, c4.x
+dp4 r1.x, c18.xyzw, r0.xyzw
+dp4 r1.y, c19.xyzw, r0.xyzw
+dp4 r1.z, c21.xyzw, r0.xyzw
+mad r2.xy, r1.z, c23.xyzw, r1.xyzw
+add r1.xy, r1.xyzw, -c22.xyzw
+mul r1.z, r1.z, c23.w
+rcp r1.z, r1.z
+mul oT7.xy, r2.xyzw, r1.z
+rcp r1.z, c22.w
+mul oT7.z, r1.x, r1.z
+mad oT7.w, r1.y, -r1.z, c4.y
+dp4 r1.x, c0.xyzw, r0.xyzw
+dp4 r1.y, c1.xyzw, r0.xyzw
+dp4 r1.z, c2.xyzw, r0.xyzw
+dp3 r0.x, r1.xyzw, r1.xyzw
+mov oPos.xyz, r1.xyzw
+rsq r0.x, r0.x
+rcp r0.x, r0.x
+add r0.x, -r0.x, c14.x
+rcp r0.y, c14.y
+mul r0.x, r0.x, r0.y
+max r0.x, r0.x, c4.z
+min r0.x, r0.x, c4.y
+add r0.x, -r0.x, c4.y
+log r0.x, r0.x
+mul r0.x, r0.x, c14.z
+exp oD1.w, r0.x
+mov oT0.xy, v4.xyzw
+mov oT1.w, c4.y
+mov oT2.w, c4.y
+mov oT4.w, c4.x
+mad oD0.xyzw, v5.z, c4.yyyz, c4.zzzy
+mov oD1.xyz, c15.xyzw

@@ -1,0 +1,28 @@
+; Source record: SKYCLOUDSFADE.vso
+; Bytecode size: 680 bytes
+
+vs_3_0
+def c2 = 5.88235296e-02, 9.99899983e-01, 1.00000000e+00, 0.00000000e+00
+dcl_position0 v0
+dcl_texcoord0 v1
+dcl_color v2
+dcl_position0 o0
+dcl_texcoord0 o1
+dcl_texcoord1 o2
+dcl_texcoord2 o3
+dcl_color o4
+dp4 o0.x, c0.xyzw, v0.xyzw
+dp4 o0.y, c1.xyzw, v0.xyzw
+mul r0.xyz, c5.xyzw, v2.y
+mad r0.xyz, c4.xyzw, v2.x, r0.xyzw
+mad o4.xyz, c6.xyzw, v2.z, r0.xyzw
+mul o4.w, c4.w, v2.w
+dp4 r0.x, c10.xyzw, v0.xyzw
+add r0.x, r0.x, -c7.z
+mul_sat o3.x, r0.x, c2.x
+dp4 r0.x, c3.xyzw, v0.xyzw
+mul o0.zw, r0.x, c2.xyyz
+add r0.y, c12.x, v1.y
+mov r0.x, v1.x
+mov o1.xy, r0.xyzw
+mov o2.xy, r0.xyzw
