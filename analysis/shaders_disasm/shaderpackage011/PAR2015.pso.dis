@@ -1,0 +1,46 @@
+; Source record: PAR2015.pso
+; Bytecode size: 1032 bytes
+
+ps_2_1
+def c0 = 3.99999991e-02, -1.99999996e-02, -5.00000000e-01, -1.00000000e+00
+dcl t0
+dcl_pp_centroid t7
+dcl_pp t6
+dcl_pp_centroid t1
+dcl_pp_centroid t2
+dcl_pp t4
+dcl_2d s0
+dcl_2d s1
+dcl_2d s2
+dcl_2d s4
+dcl_2d s5
+dcl_2d s6
+mov_pp r0.xy, t4.zwzw
+texld_pp r1.xyzw, t4.xyzw, s4
+texld_pp r0.xyzw, r0.xyzw, s4
+add_pp r0.y, -r1.x, -c0.w
+add_sat_pp r0.x, -r0.x, r0.y
+dp3_pp r0.y, t7.xyzw, t7.xyzw
+rsq_pp r0.y, r0.y
+mul_pp r0.yz, r0.y, t7.xxyw
+texld_pp r1.xyzw, t0.xyzw, s2
+mad_pp r0.w, r1.x, c0.x, c0.y
+mad_pp r1.xy, r0.yzzw, r0.w, t0.xyzw
+texld_pp r2.xyzw, r1.xyzw, s0
+texld_pp r1.xyzw, r1.xyzw, s1
+add r0.yzw, r1.xxyz, c0.z
+add_pp r0.yzw, r0.xyzw, r0.xyzw
+nrm_pp r1.xyz, r0.yzww
+nrm_pp r3.xyz, t2.xyzw
+dp3_sat_pp r1.w, r1.xyzw, r3.xyzw
+dp3_sat_pp r0.y, r1.xyzw, t1.xyzw
+mul_pp r0.yzw, r0.y, c3.xxyz
+mul_pp r1.xyz, r1.w, c4.xyzw
+mul_pp r1.xyz, r0.x, r1.xyzw
+mov_pp r3.xy, t6.zwzw
+texld_pp r4.xyzw, t6.xyzw, s5
+texld_pp r3.xyzw, r3.xyzw, s6
+lrp_pp r5.xyz, r3.x, r4.xyzw, -c0.w
+mad_pp r0.xyz, r0.yzww, r5.xyzw, r1.xyzw
+add_pp r2.xyz, r0.xyzw, c1.xyzw
+mov_pp oC0.xyzw, r2.xyzw

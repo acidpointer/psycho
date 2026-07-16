@@ -1,0 +1,145 @@
+; Source record: WATER036.pso
+; Bytecode size: 2724 bytes
+
+ps_2_1
+def c0 = -4.09600000e+03, -2.44140625e-04, 1.00000000e+00, 3.00000000e+00
+def c2 = 0.00000000e+00, -1.00000000e+00, -1.00000000e+00, 2.00000000e+00
+def c3 = 4.00000000e+00, 5.00000000e+00, 6.00000000e+00, 7.00000000e+00
+dcl_centroid t0
+dcl t2
+dcl_2d s2
+texld r0.xyzw, t2.xyzw, s2
+mov r1.xyw, c2.xyzw
+add r0.w, -r1.y, -c14.x
+add r2.xyz, -t0.xyzw, c1.xyzw
+dp2add r2.w, r2.xyzw, r2.xyzw, c2.x
+nrm_pp r3.xyz, r2.xyzw
+rsq r3.w, r2.w
+rcp r3.w, r3.w
+add r3.w, r3.w, c0.x
+mad_sat r3.w, r3.w, c0.y, c0.z
+mad r0.xyz, r0.xyzw, c2.w, c2.yzxw
+mul r0.xy, r3.w, r0.xyzw
+nrm_pp r2.xyz, r0.xyzw
+add r0.xyz, t0.xyzw, c7.xyzw
+add r4.xyz, -r0.xyzw, c16.xyzw
+dp3 r2.w, r4.xyzw, r4.xyzw
+rsq r2.w, r2.w
+mad_pp r4.xyz, r4.xyzw, r2.w, r3.xyzw
+rcp r2.w, r2.w
+nrm_pp r5.xyz, r4.xyzw
+dp3_sat_pp r3.w, r5.xyzw, r2.xyzw
+pow_pp r1.z, r3.w, c5.z
+mul_pp r4.xyz, r1.z, c24.xyzw
+add r5.xyz, -r0.xyzw, c15.xyzw
+dp3 r3.w, r5.xyzw, r5.xyzw
+rsq r3.w, r3.w
+mad_pp r5.xyz, r5.xyzw, r3.w, r3.xyzw
+rcp r3.w, r3.w
+nrm_pp r6.xyz, r5.xyzw
+dp3_sat_pp r4.w, r6.xyzw, r2.xyzw
+pow_pp r1.z, r4.w, c5.z
+mul_pp r5.xyz, r1.z, c23.xyzw
+rcp r4.w, c6.z
+mul_sat r3.w, r3.w, r4.w
+mad_pp r3.w, r3.w, -r3.w, -c2.y
+mul r5.xyz, r5.xyzw, r3.w
+cmp r5.xyz, -c14.x, r1.x, r5.xyzw
+mul_sat r2.w, r2.w, r4.w
+mad_pp r2.w, r2.w, -r2.w, -c2.y
+mad r4.xyz, r4.xyzw, r2.w, r5.xyzw
+cmp r4.xyz, r0.w, r5.xyzw, r4.xyzw
+add r5.xyz, -r0.xyzw, c17.xyzw
+dp3 r0.w, r5.xyzw, r5.xyzw
+rsq r0.w, r0.w
+mad_pp r5.xyz, r5.xyzw, r0.w, r3.xyzw
+rcp r0.w, r0.w
+mul_sat r0.w, r4.w, r0.w
+mad_pp r0.w, r0.w, -r0.w, -c2.y
+nrm_pp r6.xyz, r5.xyzw
+dp3_sat_pp r2.w, r6.xyzw, r2.xyzw
+pow_pp r3.w, r2.w, c5.z
+mul_pp r5.xyz, r3.w, c25.xyzw
+mad r5.xyz, r5.xyzw, r0.w, r4.xyzw
+add r0.w, r1.w, -c14.x
+cmp r4.xyz, r0.w, r4.xyzw, r5.xyzw
+add r5.xyz, -r0.xyzw, c18.xyzw
+dp3 r0.w, r5.xyzw, r5.xyzw
+rsq r0.w, r0.w
+mad_pp r5.xyz, r5.xyzw, r0.w, r3.xyzw
+rcp r0.w, r0.w
+mul_sat r0.w, r4.w, r0.w
+mad_pp r0.w, r0.w, -r0.w, -c2.y
+nrm_pp r6.xyz, r5.xyzw
+dp3_sat_pp r2.w, r6.xyzw, r2.xyzw
+pow_pp r3.w, r2.w, c5.z
+mul_pp r5.xyz, r3.w, c26.xyzw
+mad r5.xyz, r5.xyzw, r0.w, r4.xyzw
+mov r0.w, c14.x
+add r2.w, -r0.w, c0.w
+cmp r4.xyz, r2.w, r4.xyzw, r5.xyzw
+add r5.xyz, -r0.xyzw, c19.xyzw
+dp3 r2.w, r5.xyzw, r5.xyzw
+rsq r2.w, r2.w
+mad_pp r5.xyz, r5.xyzw, r2.w, r3.xyzw
+rcp r2.w, r2.w
+mul_sat r2.w, r4.w, r2.w
+mad_pp r2.w, r2.w, -r2.w, -c2.y
+nrm_pp r6.xyz, r5.xyzw
+dp3_sat_pp r3.w, r6.xyzw, r2.xyzw
+pow_pp r1.x, r3.w, c5.z
+mul_pp r5.xyz, r1.x, c27.xyzw
+mad r5.xyz, r5.xyzw, r2.w, r4.xyzw
+add r2.w, -r0.w, c3.x
+cmp r4.xyz, r2.w, r4.xyzw, r5.xyzw
+add r5.xyz, -r0.xyzw, c20.xyzw
+dp3 r2.w, r5.xyzw, r5.xyzw
+rsq r2.w, r2.w
+mad_pp r5.xyz, r5.xyzw, r2.w, r3.xyzw
+rcp r2.w, r2.w
+mul_sat r2.w, r4.w, r2.w
+mad_pp r2.w, r2.w, -r2.w, -c2.y
+nrm_pp r6.xyz, r5.xyzw
+dp3_sat_pp r3.w, r6.xyzw, r2.xyzw
+pow_pp r1.x, r3.w, c5.z
+mul_pp r5.xyz, r1.x, c28.xyzw
+mad r5.xyz, r5.xyzw, r2.w, r4.xyzw
+add r2.w, -r0.w, c3.y
+cmp r4.xyz, r2.w, r4.xyzw, r5.xyzw
+add r5.xyz, -r0.xyzw, c21.xyzw
+add r0.xyz, -r0.xyzw, c22.xyzw
+dp3 r2.w, r5.xyzw, r5.xyzw
+rsq r2.w, r2.w
+mad_pp r5.xyz, r5.xyzw, r2.w, r3.xyzw
+rcp r2.w, r2.w
+mul_sat r2.w, r4.w, r2.w
+mad_pp r2.w, r2.w, -r2.w, -c2.y
+nrm_pp r6.xyz, r5.xyzw
+dp3_sat_pp r3.w, r6.xyzw, r2.xyzw
+pow_pp r1.x, r3.w, c5.z
+mul_pp r5.xyz, r1.x, c29.xyzw
+mad r5.xyz, r5.xyzw, r2.w, r4.xyzw
+add r2.w, -r0.w, c3.z
+cmp r4.xyz, r2.w, r4.xyzw, r5.xyzw
+dp3 r2.w, r0.xyzw, r0.xyzw
+rsq r2.w, r2.w
+mad_pp r0.xyz, r0.xyzw, r2.w, r3.xyzw
+rcp r2.w, r2.w
+mul_sat r2.w, r4.w, r2.w
+mad_pp r2.w, r2.w, -r2.w, -c2.y
+dp3_sat r4.w, r3.xyzw, r2.xyzw
+add r4.w, -r4.w, -c2.y
+nrm_pp r3.xyz, r0.xyzw
+dp3_sat_pp r0.x, r3.xyzw, r2.xyzw
+pow_pp r1.x, r0.x, c5.z
+mul_pp r0.xyz, r1.x, c30.xyzw
+mad r0.xyz, r0.xyzw, r2.w, r4.xyzw
+add r0.w, -r0.w, c3.w
+cmp r0.xyz, r0.w, r4.xyzw, r0.xyzw
+mul r0.w, r4.w, r4.w
+mul r0.w, r0.w, r0.w
+mul r0.w, r4.w, r0.w
+lrp r2.x, r0.w, -r1.y, c5.x
+mul r0.xyz, r0.xyzw, r2.x
+mov r0.w, -c2.y
+mov oC0.xyzw, r0.xyzw

@@ -1,0 +1,27 @@
+; Source record: GRASS23x002TMS.pso
+; Bytecode size: 564 bytes
+
+ps_3_0
+def c0 = -1.00000000e+00, 1.00000000e+00, 1.75000000e+00, 0.00000000e+00
+dcl_texcoord0_pp v0
+dcl_texcoord4_pp_centroid v1
+dcl_texcoord5_pp_centroid v2
+dcl_texcoord2_pp_centroid v3
+dcl_texcoord3_pp_centroid v4
+dcl_color_pp v5
+dcl_2d s0
+dcl_2d s1
+dcl_2d s2
+texld_pp r0.xyzw, v3.xyzw, s1
+add_pp r0.xyz, r0.xyzw, c0.x
+texld_pp r1.xyzw, v4.xyzw, s2
+mul_pp r0.xyz, r0.xyzw, r1.x
+mad_pp r0.xyz, v4.z, r0.xyzw, c0.y
+mov_pp r1.xyz, v2.xyzw
+mad_pp r0.xyz, r1.xyzw, r0.xyzw, v1.xyzw
+texld_pp r1.xyzw, v0.xyzw, s0
+mul_pp r2.xyz, r0.xyzw, r1.xyzw
+mad_pp r0.xyz, r0.xyzw, -r1.xyzw, v5.xyzw
+mul_sat_pp r0.w, r1.w, c0.z
+mul_pp oC0.w, r0.w, v2.w
+mad_pp oC0.xyz, v5.w, r0.xyzw, r2.xyzw

@@ -1,0 +1,57 @@
+; Source record: SLS2019.pso
+; Bytecode size: 1208 bytes
+
+ps_2_1
+def c0 = -5.00000000e-01, 5.00000000e-01, 6.99999988e-01, 1.00000000e+00
+def c4 = 0.00000000e+00, 0.00000000e+00, 1.00000000e+00, 5.00000000e-01
+def c5 = 3.00000000e+01, 2.00000003e-01, 0.00000000e+00, 0.00000000e+00
+dcl_pp t0
+dcl v0
+dcl v1
+dcl_pp_centroid t1
+dcl_pp_centroid t3
+dcl_2d s0
+dcl_2d s1
+dcl_2d s4
+texld_pp r0.xyzw, t0.xyzw, s0
+mov r1.xw, c0.xyzw
+add r1.y, -r1.w, c1.w
+cmp r1.y, r1.y, c4.x, c4.z
+add r1.z, r0.w, -c27.w
+mul r2.xyzw, r1.y, r1.z
+texkill r2.xyzw
+texld_pp r2.xyzw, t0.xyzw, s1
+texld_pp r3.xyzw, t0.xyzw, s4
+nrm_pp r4.xyz, t3.xyzw
+add r1.yzw, r2.wzyx, c0.x
+mul_pp r4.w, r2.w, c0.z
+add_pp r2.xyz, r1.wzyx, r1.wzyx
+nrm_pp r5.xyz, r2.xyzw
+mad_pp r2.xyz, r5.xyzw, c4.w, c4.xyzw
+dp3_pp r2.w, r5.xyzw, t1.xyzw
+nrm_pp r5.xyz, r2.xyzw
+dp3_pp r5.w, r5.xyzw, r4.xyzw
+dp3_pp r1.y, r5.xyzw, t1.xyzw
+add_pp r1.y, -r5.w, r1.y
+abs_sat_pp r1.y, r1.y
+add_pp r1.y, -r1.y, c0.w
+pow_pp r2.x, r1.y, c5.x
+mul_pp r1.y, r4.w, r2.x
+add_sat_pp r1.z, r2.w, c0.y
+mul_pp r1.z, r1.y, r1.z
+add r1.w, -r2.w, c5.y
+mul_sat_pp r2.xyz, r2.w, c3.xyzw
+add_sat_pp r2.xyz, r2.xyzw, c1.xyzw
+cmp_pp r2.w, r1.w, r1.z, r1.y
+mul_pp r1.yzw, r2.w, c3.wzyx
+mul_sat_pp r1.yzw, r1.xyzw, t1.w
+add r4.xyz, r1.x, c2.xyzw
+mad r4.xyz, v0.y, r4.xyzw, c0.y
+add_pp r4.xyz, r4.xyzw, r4.xyzw
+lrp_pp r5.xyz, r3.w, r3.xyzw, r0.xyzw
+mul_pp r0.w, r0.w, c1.w
+mul_pp r3.xyz, r4.xyzw, r5.xyzw
+mad_pp r1.xyz, r2.xyzw, r3.xyzw, r1.wzyx
+lrp_pp r2.xyz, v1.w, v1.xyzw, r1.xyzw
+cmp_pp r0.xyz, -c27.y, r1.xyzw, r2.xyzw
+mov_pp oC0.xyzw, r0.xyzw

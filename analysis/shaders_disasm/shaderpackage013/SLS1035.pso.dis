@@ -1,0 +1,14 @@
+; Source record: SLS1035.pso
+; Bytecode size: 396 bytes
+
+ps_2_1
+dcl v0
+dcl v1
+dcl t0
+dcl_2d s0
+mov r0.xyz, c3.xyzw
+mad r0.xyz, v0.xyzw, r0.xyzw, c1.xyzw
+mad r0.xyz, v1.xyzw, c4.xyzw, r0.xyzw
+texld r1.xyzw, t0.xyzw, s0
+mul r1.xyz, r0.xyzw, r1.xyzw
+mov oC0.xyzw, r1.xyzw

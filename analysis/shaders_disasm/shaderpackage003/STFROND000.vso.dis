@@ -1,0 +1,29 @@
+; Source record: STFROND000.vso
+; Bytecode size: 696 bytes
+
+vs_1_1
+def c4 = 0.00000000e+00, 1.00000000e+00, 0.00000000e+00, 0.00000000e+00
+dcl_position0 v0
+dcl_normal0 v1
+dcl_texcoord0 v2
+dcl_color v3
+dcl_blend v4
+mov a.x, v4.y
+dp4 r0.x, c[a.xyzw + 18].xyzw, v0.xyzw
+dp4 r0.y, c[a.xyzw + 19].xyzw, v0.xyzw
+dp4 r0.z, c[a.xyzw + 20].xyzw, v0.xyzw
+dp4 r0.w, c[a.xyzw + 21].xyzw, v0.xyzw
+add r0.xyzw, r0.xyzw, -v0.xyzw
+mov r1.xyzw, v0.xyzw
+mad r0.xyzw, r0.xyzw, v4.x, r1.xyzw
+dp4 oPos.x, c0.xyzw, r0.xyzw
+dp4 oPos.y, c1.xyzw, r0.xyzw
+dp4 oPos.z, c2.xyzw, r0.xyzw
+dp4 oPos.w, c3.xyzw, r0.xyzw
+dp3 r0.x, v1.xyzw, c8.xyzw
+max r0.x, r0.x, c4.x
+min r0.x, r0.x, c4.y
+mov r1.xyz, c6.xyzw
+mad r0.xyz, r1.xyzw, r0.x, c5.xyzw
+mul oT1.xyz, r0.xyzw, v3.xyzw
+mov oT0.xy, v2.xyzw

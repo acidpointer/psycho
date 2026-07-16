@@ -1,0 +1,28 @@
+; Source record: SLS2059.pso
+; Bytecode size: 656 bytes
+
+ps_2_1
+def c0 = -5.00000000e-01, 1.00000000e+00, 0.00000000e+00, 0.00000000e+00
+dcl_pp_centroid t1
+dcl_pp_centroid t2
+dcl v0
+dcl t4
+dcl_cube s1
+add r0.xyz, t1.xyzw, c0.x
+add r0.xyz, r0.xyzw, r0.xyzw
+nrm r1.xyz, r0.xyzw
+nrm_pp r0.xyz, t2.xyzw
+dp3 r0.w, r1.xyzw, r0.xyzw
+add r0.w, r0.w, r0.w
+dp3 r1.w, r1.xyzw, r1.xyzw
+mul r0.xyz, r0.xyzw, r1.w
+mad r0.xyz, r0.w, r1.xyzw, -r0.xyzw
+texld_pp r0.xyzw, r0.xyzw, s1
+mul_pp r0.xyz, r0.xyzw, c1.w
+mul_pp r1.xyz, r0.xyzw, v0.xyzw
+cmp_pp r0.xyz, -c27.x, r0.xyzw, r1.xyzw
+mul_pp r0.xyz, r0.xyzw, c3.xyzw
+mul_pp r0.xyz, r0.xyzw, t1.w
+mul_pp r0.xyz, r0.xyzw, t4.x
+mov_pp r0.w, c0.y
+mov_pp oC0.xyzw, r0.xyzw

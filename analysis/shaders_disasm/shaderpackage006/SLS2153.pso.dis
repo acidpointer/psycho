@@ -1,0 +1,56 @@
+; Source record: SLS2153.pso
+; Bytecode size: 1056 bytes
+
+ps_2_1
+def c0 = 1.00000000e+00, -1.00000000e+00, 0.00000000e+00, -1.17187505e-03
+def c1 = 5.00000000e-01, 1.00000000e+00, 1.50000000e+01, 0.00000000e+00
+def c2 = 9.99999978e-03, 1.00000000e+00, 2.00000000e+00, 6.00000024e-01
+dcl_pp t0
+dcl_centroid t6
+dcl_pp_centroid t1
+dcl_centroid t2
+dcl_pp t3
+dcl_2d s0
+dcl_2d s6
+mov r0.xyz, t2.xyzw
+add r0.xyz, -r0.xyzw, t6.xyzw
+dp3 r0.x, r0.xyzw, r0.xyzw
+rsq r0.x, r0.x
+rcp r0.x, r0.x
+mul r0.y, t2.w, c1.x
+rcp r0.y, r0.y
+mul_sat r0.x, r0.x, r0.y
+rsq r0.y, r0.x
+mul r0.x, r0.x, r0.x
+rcp r0.y, r0.y
+add_sat r0.y, -r0.y, c1.y
+mul_pp r0.y, r0.y, c1.z
+rcp r0.y, r0.y
+rcp r0.z, t1.w
+mul r0.zw, r0.z, t1.wzyx
+mad r0.zw, r0.xyzw, c1.x, c1.x
+mad r1.xy, r0.wzyx, c0.xyzw, c0.zxyw
+mad_sat r2.xy, r0.y, c2.x, r1.xyzw
+mov_sat r1.xy, r1.xyzw
+texld r1.xyzw, r1.xyzw, s6
+texld r2.xyzw, r2.xyzw, s6
+texld_pp r3.xyzw, t0.xyzw, s0
+add r0.y, r1.x, -t1.z
+add r0.y, -r0.y, c0.w
+add r0.z, r2.x, -t1.z
+add r0.z, -r0.z, c0.w
+cmp_pp r0.w, r0.y, c1.w, c1.y
+cmp_pp r0.y, r0.y, c2.y, c2.z
+cmp_sat_pp r0.y, r0.z, r0.w, r0.y
+add r0.y, r0.y, -c1.y
+mov r1.y, c1.y
+mad_pp r0.y, c3.w, r0.y, r1.y
+add_pp r0.y, -r0.y, c1.y
+mul_pp r0.z, r0.y, c2.w
+mad_pp r1.xyz, r0.z, -c3.xyzw, r1.y
+lrp_pp r2.xyz, r0.x, c1.y, r1.xyzw
+lrp_pp r1.xyz, t3.w, c1.y, r2.xyzw
+lrp_pp r2.xyz, r3.w, r1.xyzw, c1.y
+min_pp r0.x, r3.w, c1.y
+min_pp r2.w, r0.x, r0.y
+mov_pp oC0.xyzw, r2.xyzw

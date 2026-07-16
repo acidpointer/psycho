@@ -1,0 +1,111 @@
+; Source record: SLS1S008.vso
+; Bytecode size: 2200 bytes
+
+vs_2_0
+def c0 = 1.00000000e+00, 7.65010010e+02, 0.00000000e+00, 5.00000000e-01
+dcl_position0 v0
+dcl_normal0 v1
+dcl_texcoord0 v2
+dcl_tangent v3
+dcl_binormal v4
+dcl_weight v5
+dcl_blend v6
+dp3 r0.x, v5.xyzw, c0.x
+add r0.x, -r0.x, c0.x
+mad r1.xyzw, v0.xyzx, c0.xxxz, c0.zzzx
+mul r2.xyzw, v6.zyxw, c0.y
+frc r3.xyzw, r2.xyzw
+add r2.xyzw, r2.xyzw, -r3.xyzw
+mova a.xyzw, r2.xyzw
+dp4 r2.x, c[a.y + 44].xyzw, r1.xyzw
+dp4 r2.y, c[a.y + 45].xyzw, r1.xyzw
+dp4 r2.z, c[a.y + 46].xyzw, r1.xyzw
+mul r0.yzw, r2.xxyz, v5.y
+dp4 r2.x, c[a.x + 44].xyzw, r1.xyzw
+dp4 r2.y, c[a.x + 45].xyzw, r1.xyzw
+dp4 r2.z, c[a.x + 46].xyzw, r1.xyzw
+mad r0.yzw, r2.xxyz, v5.x, r0.xyzw
+dp4 r2.x, c[a.z + 44].xyzw, r1.xyzw
+dp4 r2.y, c[a.z + 45].xyzw, r1.xyzw
+dp4 r2.z, c[a.z + 46].xyzw, r1.xyzw
+mad r0.yzw, r2.xxyz, v5.z, r0.xyzw
+dp4 r2.x, c[a.w + 44].xyzw, r1.xyzw
+dp4 r2.y, c[a.w + 45].xyzw, r1.xyzw
+dp4 r2.z, c[a.w + 46].xyzw, r1.xyzw
+mad r1.xyz, r2.xyzw, r0.x, r0.yzww
+mov r1.w, c0.x
+dp4 oPos.x, c1.xyzw, r1.xyzw
+dp4 oPos.y, c2.xyzw, r1.xyzw
+dp4 oPos.z, c3.xyzw, r1.xyzw
+dp4 oPos.w, c4.xyzw, r1.xyzw
+dp3 r2.x, c[a.y + 44].xyzw, v3.xyzw
+dp3 r2.y, c[a.y + 45].xyzw, v3.xyzw
+dp3 r2.z, c[a.y + 46].xyzw, v3.xyzw
+mul r0.yzw, r2.xxyz, v5.y
+dp3 r2.x, c[a.x + 44].xyzw, v3.xyzw
+dp3 r2.y, c[a.x + 45].xyzw, v3.xyzw
+dp3 r2.z, c[a.x + 46].xyzw, v3.xyzw
+mad r0.yzw, r2.xxyz, v5.x, r0.xyzw
+dp3 r2.x, c[a.z + 44].xyzw, v3.xyzw
+dp3 r2.y, c[a.z + 45].xyzw, v3.xyzw
+dp3 r2.z, c[a.z + 46].xyzw, v3.xyzw
+mad r0.yzw, r2.xxyz, v5.z, r0.xyzw
+dp3 r2.x, c[a.w + 44].xyzw, v3.xyzw
+dp3 r2.y, c[a.w + 45].xyzw, v3.xyzw
+dp3 r2.z, c[a.w + 46].xyzw, v3.xyzw
+mad r0.yzw, r2.xxyz, r0.x, r0.xyzw
+nrm r2.xyz, r0.yzww
+add r0.yzw, -r1.xxyz, c16.xxyz
+add r1.xyz, -r1.xyzw, c25.xyzw
+nrm r3.xyz, r0.yzww
+dp3 r0.y, r1.xyzw, r1.xyzw
+rsq r0.y, r0.y
+mad r0.yzw, r1.xxyz, r0.y, r3.xxyz
+nrm r3.xyz, r0.yzww
+dp3 oT3.x, r2.xyzw, r3.xyzw
+dp3 r4.x, c[a.y + 44].xyzw, v4.xyzw
+dp3 r4.y, c[a.y + 45].xyzw, v4.xyzw
+dp3 r4.z, c[a.y + 46].xyzw, v4.xyzw
+mul r0.yzw, r4.xxyz, v5.y
+dp3 r4.x, c[a.x + 44].xyzw, v4.xyzw
+dp3 r4.y, c[a.x + 45].xyzw, v4.xyzw
+dp3 r4.z, c[a.x + 46].xyzw, v4.xyzw
+mad r0.yzw, r4.xxyz, v5.x, r0.xyzw
+dp3 r4.x, c[a.z + 44].xyzw, v4.xyzw
+dp3 r4.y, c[a.z + 45].xyzw, v4.xyzw
+dp3 r4.z, c[a.z + 46].xyzw, v4.xyzw
+mad r0.yzw, r4.xxyz, v5.z, r0.xyzw
+dp3 r4.x, c[a.w + 44].xyzw, v4.xyzw
+dp3 r4.y, c[a.w + 45].xyzw, v4.xyzw
+dp3 r4.z, c[a.w + 46].xyzw, v4.xyzw
+mad r0.yzw, r4.xxyz, r0.x, r0.xyzw
+nrm r4.xyz, r0.yzww
+dp3 oT3.y, r4.xyzw, r3.xyzw
+dp3 r5.x, c[a.y + 44].xyzw, v1.xyzw
+dp3 r5.y, c[a.y + 45].xyzw, v1.xyzw
+dp3 r5.z, c[a.y + 46].xyzw, v1.xyzw
+mul r0.yzw, r5.xxyz, v5.y
+dp3 r5.x, c[a.x + 44].xyzw, v1.xyzw
+dp3 r5.y, c[a.x + 45].xyzw, v1.xyzw
+dp3 r5.z, c[a.x + 46].xyzw, v1.xyzw
+mad r0.yzw, r5.xxyz, v5.x, r0.xyzw
+dp3 r5.x, c[a.z + 44].xyzw, v1.xyzw
+dp3 r5.y, c[a.z + 45].xyzw, v1.xyzw
+dp3 r5.z, c[a.z + 46].xyzw, v1.xyzw
+mad r0.yzw, r5.xxyz, v5.z, r0.xyzw
+dp3 r5.x, c[a.w + 44].xyzw, v1.xyzw
+dp3 r5.y, c[a.w + 45].xyzw, v1.xyzw
+dp3 r5.z, c[a.w + 46].xyzw, v1.xyzw
+mad r0.xyz, r5.xyzw, r0.x, r0.yzww
+nrm r5.xyz, r0.xyzw
+dp3 oT3.z, r5.xyzw, r3.xyzw
+dp3 r0.x, r2.xyzw, r5.xyzw
+dp3 r0.y, r4.xyzw, r5.xyzw
+dp3 r0.z, r5.xyzw, r5.xyzw
+mad oD0.xyz, r0.xyzw, c0.w, c0.w
+rcp r0.x, c25.w
+mul r0.xyz, r1.xyzw, r0.x
+mad oT1.xy, r0.xyzw, c0.w, c0.w
+mad oT2.x, r0.z, c0.w, c0.w
+mov oT0.xy, v2.xyzw
+mov oT2.y, c0.w

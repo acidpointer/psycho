@@ -12,7 +12,7 @@ use std::{
 };
 
 use super::{
-    engine_contracts::{DrawSnapshot, ObjectDrawRejectReason},
+    engine_contracts::{DrawSnapshot, ObjectDrawRejectReason, ObjectSpecularFadeSnapshot},
     object_contracts::{self, ObjectContractState},
 };
 
@@ -20,6 +20,7 @@ static ENABLED_FRAME_COUNT: AtomicU32 = AtomicU32::new(0);
 static DETAILED_ENABLED: AtomicBool = AtomicBool::new(false);
 static DIAGNOSTIC_LOG_COUNT: AtomicU32 = AtomicU32::new(0);
 static DRAW_TRACE_LOG_COUNT: AtomicU32 = AtomicU32::new(0);
+static SPECULAR_FADE_LOG_COUNT: AtomicU32 = AtomicU32::new(0);
 static UNRESOLVED_IDENTITY_LOG_COUNT: AtomicU32 = AtomicU32::new(0);
 static OBJECT_REPLACEMENTS_THIS_FRAME: AtomicU32 = AtomicU32::new(0);
 static OBJECT_FALLBACKS_THIS_FRAME: AtomicU32 = AtomicU32::new(0);
@@ -89,6 +90,8 @@ const D3D_PAIR_REPLACEMENT: u32 = 2;
 const OBJECT_DRAW_STATE_SLOT_COUNT: usize = 64;
 const OBJECT_DRAW_STATE_PROBE_COUNT: usize = 4;
 const DRAW_TRACE_LOG_LIMIT: u32 = 96;
+const SPECULAR_FADE_LOG_LIMIT: u32 = 128;
+const SPECULAR_FADE_BUCKET_UNSET: u32 = u32::MAX;
 const UNRESOLVED_IDENTITY_SLOT_COUNT: usize = 128;
 const UNRESOLVED_IDENTITY_LOG_LIMIT: u32 = 96;
 
@@ -104,6 +107,7 @@ static UNRESOLVED_IDENTITY_KEYS: LazyLock<[AtomicU32; UNRESOLVED_IDENTITY_SLOT_C
 struct ObjectDrawStateSlot {
     key: AtomicU32,
     state: AtomicU32,
+    specular_fade_bucket: AtomicU32,
 }
 
 #[derive(Clone, Copy)]
@@ -125,6 +129,7 @@ impl ObjectDrawStateSlot {
         Self {
             key: AtomicU32::new(0),
             state: AtomicU32::new(0),
+            specular_fade_bucket: AtomicU32::new(SPECULAR_FADE_BUCKET_UNSET),
         }
     }
 }
@@ -323,6 +328,44 @@ pub(super) fn record_object_draw_context(snapshot: DrawSnapshot) {
     OBJECT_LAST_PASS_ENTRY_LIST.store(snapshot.pass_entry_list, Ordering::Release);
 }
 
+pub(super) fn record_object_specular_fade(
+    trace: ObjectDrawTrace,
+    fade: ObjectSpecularFadeSnapshot,
+) {
+    if !detailed_enabled() || trace.key == 0 {
+        return;
+    }
+
+    let bucket = specular_fade_bucket(fade.native_weight);
+    let slot = object_draw_state_slot(trace.key);
+    let previous = slot.specular_fade_bucket.swap(bucket, Ordering::AcqRel);
+    if previous == bucket
+        || SPECULAR_FADE_LOG_COUNT.fetch_add(1, Ordering::Relaxed) >= SPECULAR_FADE_LOG_LIMIT
+    {
+        return;
+    }
+
+    let name = super::engine_contracts::geometry_name(trace.geometry)
+        .unwrap_or_else(|| "<unnamed>".to_owned());
+    log::info!(
+        "[PBR_SPECULAR_FADE] shader_applied=false diagnostic_only=true geometry=0x{:08X} name={} property=0x{:08X} flags=0x{:08X}/0x{:08X} pass_index={} pair=VS[{}]/PS[{}] distance={:.3} range={:.3}..{:.3} native_weight={:.6} bucket={} previous_bucket={}",
+        trace.geometry,
+        name,
+        fade.property,
+        fade.property_flags,
+        fade.property_flags2,
+        trace.pass_index,
+        trace.vertex_index,
+        trace.pixel_index,
+        fade.distance,
+        fade.fade_start,
+        fade.fade_end,
+        fade.native_weight,
+        specular_fade_bucket_label(bucket),
+        specular_fade_bucket_label(previous),
+    );
+}
+
 pub(super) fn record_object_replacement() {
     OBJECT_REPLACEMENTS_THIS_FRAME.fetch_add(1, Ordering::Relaxed);
 }
@@ -410,11 +453,13 @@ pub(super) fn record_unresolved_table_pair(
     let vertex_index = table_index_label(vertex_index);
     let pixel_index = table_index_label(pixel_index);
     log::info!(
-        "[PBR_UNRESOLVED] geometry=0x{:08X} name={} pass=0x{:08X} pass_index={} pair=VS:{}[{}]@{:p}/PS:{}[{}]@{:p} reason={}",
+        "[PBR_UNRESOLVED] geometry=0x{:08X} name={} pass=0x{:08X} pass_index={} selector=0x{:08X} selector_state={} pair=VS:{}[{}]@{:p}/PS:{}[{}]@{:p} reason={}",
         snapshot.geometry,
         geometry_name,
         snapshot.pass,
         pass_index,
+        snapshot.selector,
+        snapshot.selector_state,
         vertex_group,
         vertex_index,
         vertex_shader,
@@ -596,6 +641,7 @@ pub(super) fn reset() {
     ENABLED_FRAME_COUNT.store(0, Ordering::Release);
     DIAGNOSTIC_LOG_COUNT.store(0, Ordering::Release);
     DRAW_TRACE_LOG_COUNT.store(0, Ordering::Release);
+    SPECULAR_FADE_LOG_COUNT.store(0, Ordering::Release);
     UNRESOLVED_IDENTITY_LOG_COUNT.store(0, Ordering::Release);
     OBJECT_REPLACEMENTS_THIS_FRAME.store(0, Ordering::Release);
     OBJECT_FALLBACKS_THIS_FRAME.store(0, Ordering::Release);
@@ -651,6 +697,8 @@ pub(super) fn reset() {
     for slot in OBJECT_DRAW_STATES.iter() {
         slot.key.store(0, Ordering::Release);
         slot.state.store(0, Ordering::Release);
+        slot.specular_fade_bucket
+            .store(SPECULAR_FADE_BUCKET_UNSET, Ordering::Release);
     }
     for slot in UNRESOLVED_IDENTITY_KEYS.iter() {
         slot.store(0, Ordering::Release);
@@ -712,6 +760,37 @@ fn d3d_pair_state_label(state: u32) -> &'static str {
         D3D_PAIR_OTHER => "vanilla/other",
         D3D_PAIR_REPLACEMENT => "replacement",
         _ => "unknown",
+    }
+}
+
+fn specular_fade_bucket(weight: f32) -> u32 {
+    if !weight.is_finite() {
+        6
+    } else if weight <= 0.0 {
+        0
+    } else if weight < 0.25 {
+        1
+    } else if weight < 0.5 {
+        2
+    } else if weight < 0.75 {
+        3
+    } else if weight < 1.0 {
+        4
+    } else {
+        5
+    }
+}
+
+fn specular_fade_bucket_label(bucket: u32) -> &'static str {
+    match bucket {
+        0 => "zero",
+        1 => "0..0.25",
+        2 => "0.25..0.5",
+        3 => "0.5..0.75",
+        4 => "0.75..1",
+        5 => "one",
+        6 => "non-finite",
+        _ => "unset",
     }
 }
 
@@ -783,5 +862,7 @@ fn object_draw_state_slot(draw_key: u32) -> &'static ObjectDrawStateSlot {
     let slot = &OBJECT_DRAW_STATES[base];
     slot.key.store(draw_key, Ordering::Release);
     slot.state.store(0, Ordering::Release);
+    slot.specular_fade_bucket
+        .store(SPECULAR_FADE_BUCKET_UNSET, Ordering::Release);
     slot
 }

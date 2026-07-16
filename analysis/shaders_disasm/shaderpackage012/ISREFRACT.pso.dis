@@ -1,0 +1,33 @@
+; Source record: ISREFRACT.pso
+; Bytecode size: 700 bytes
+
+ps_2_1
+def c1 = -5.00000000e-01, -1.00000000e+00, 8.00000012e-01, -0.00000000e+00
+def c2 = 2.98999995e-01, 5.87000012e-01, 1.14000000e-01, 0.00000000e+00
+dcl t0
+dcl t1
+dcl_2d s0
+dcl_2d s1
+texld r0.xyzw, t0.xyzw, s0
+texld r1.xyzw, t1.xyzw, s1
+add r2.xyz, r1.xyww, c1.xxyw
+dp2add r1.x, r1.z, -r2.x, t0.x
+dp2add r1.y, r1.z, r2.y, t0.y
+add r1.z, -r1.w, c1.z
+cmp r1.z, r1.z, -c1.w, -c1.y
+cmp r1.w, r2.z, -c1.w, -c1.y
+mul r1.z, r1.z, r1.w
+texld r2.xyzw, r1.xyzw, s0
+texld r3.xyzw, r1.xyzw, s1
+mul r1.x, r3.w, r3.w
+cmp r1.xy, -r1.x, -c1.wyzw, -c1.ywzw
+mul r3.xyzw, r2.xyzw, r1.x
+mad r0.xyzw, r0.xyzw, r1.y, r3.xyzw
+dp3 r1.x, c2.xyzw, r2.xyzw
+mul r1.x, r1.x, c0.w
+mul r1.xyw, r1.x, c0.xyzz
+mov r2.y, c1.y
+add r2.x, -r2.y, -c0.w
+mad r1.xyw, r2.x, r0.xyzz, r1.xyzw
+cmp r0.xyz, -r1.z, r0.xyzw, r1.xyww
+mov oC0.xyzw, r0.xyzw

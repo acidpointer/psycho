@@ -1,0 +1,14 @@
+; Source record: STFROND2001.pso
+; Bytecode size: 292 bytes
+
+ps_2_1
+dcl t0
+dcl v0
+dcl t1
+dcl_2d s0
+texld r0.xyzw, t0.xyzw, s0
+mul r1.xyz, r0.xyzw, v0.xyzw
+mov r2.xyz, v0.xyzw
+mad r2.xyz, r2.xyzw, -r0.xyzw, t1.xyzw
+mad r0.xyz, t1.w, r2.xyzw, r1.xyzw
+mov oC0.xyzw, r0.xyzw

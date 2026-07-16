@@ -1,0 +1,41 @@
+; Source record: SM3004.vso
+; Bytecode size: 720 bytes
+
+vs_3_0
+def c4 = 1.00000000e+00, 0.00000000e+00, 0.00000000e+00, 0.00000000e+00
+dcl_position0 v0
+dcl_tangent v1
+dcl_binormal v2
+dcl_normal0 v3
+dcl_texcoord0 v4
+dcl_color v5
+dcl_position0 o0
+dcl_texcoord0 o1
+dcl_color o2
+dcl_texcoord3 o3
+dcl_texcoord4 o4
+dcl_texcoord5 o5
+dcl_texcoord6 o6
+dcl_texcoord7 o7
+dp4 o0.w, c3.xyzw, v0.xyzw
+dp4 r0.x, c0.xyzw, v0.xyzw
+dp4 r0.y, c1.xyzw, v0.xyzw
+dp4 r0.z, c2.xyzw, v0.xyzw
+dp3 r0.w, r0.xyzw, r0.xyzw
+mov o0.xyz, r0.xyzw
+rsq r0.x, r0.w
+rcp r0.x, r0.x
+add r0.x, -r0.x, c44.x
+rcp r0.y, c44.y
+mul_sat r0.x, r0.x, r0.y
+add r0.x, -r0.x, c4.x
+log r0.x, r0.x
+mul r0.x, r0.x, c44.z
+exp o7.w, r0.x
+mov o1.xy, v4.xyzw
+mov o2.xyzw, v5.xyzw
+mov o3.xyz, v1.xyzw
+mov o4.xyz, v2.xyzw
+mov o5.xyz, v3.xyzw
+mov o6.xyz, v0.xyzw
+mov o7.xyz, c45.xyzw

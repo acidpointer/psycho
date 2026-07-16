@@ -1,0 +1,18 @@
+; Source record: SLS2151.pso
+; Bytecode size: 436 bytes
+
+ps_2_1
+def c0 = -1.00000000e+00, 0.00000000e+00, 1.00000000e+00, 0.00000000e+00
+dcl_pp t0
+dcl v1
+dcl_2d s0
+mov r0.w, c1.w
+add r0.x, r0.w, c0.x
+cmp r0.x, r0.x, c0.y, c0.z
+texld_pp r1.xyzw, t0.xyzw, s0
+add r0.y, r1.w, -c27.w
+mul_pp r1.w, r1.w, c1.w
+mul r0.xyzw, r0.x, r0.y
+texkill r0.xyzw
+lrp_pp r1.xyz, v1.w, v1.xyzw, c1.xyzw
+mov_pp oC0.xyzw, r1.xyzw

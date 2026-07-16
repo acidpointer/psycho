@@ -1,0 +1,8 @@
+; Source record: SKYSUNOCCL.pso
+; Bytecode size: 172 bytes
+
+ps_2_1
+def c0 = 1.00000001e-01, 1.00000001e-01, 1.00000001e-01, 1.00000000e+00
+def c1 = 1.00000000e+00, 0.00000000e+00, 0.00000000e+00, 0.00000000e+00
+mov oDepth, c1.x
+mov oC0.xyzw, c0.xyzw

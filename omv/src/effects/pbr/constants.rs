@@ -1,7 +1,8 @@
 //! NVR-style PBR constant state.
 //!
-//! One sanitized settings snapshot feeds every PBR renderer family. Device
-//! uploads belong to the draw replacement path, not to classification code.
+//! Object and terrain settings have separate snapshots because their shader
+//! ABIs and material models are not interchangeable. Device uploads belong to
+//! the draw replacement path, not to classification code.
 
 use std::{
     array,
@@ -11,10 +12,12 @@ use std::{
     },
 };
 
-use super::{NativePbrSettings, PBR_PROFILE_VALUE_COUNT};
+use super::{NativePbrSettings, OBJECT_PBR_PROFILE_VALUE_COUNT, TERRAIN_PBR_PROFILE_VALUE_COUNT};
 use libpsycho::os::windows::directx9::Device9Ref;
 
-static PROFILE_BITS: LazyLock<[AtomicU32; PBR_PROFILE_VALUE_COUNT]> =
+static OBJECT_PROFILE_BITS: LazyLock<[AtomicU32; OBJECT_PBR_PROFILE_VALUE_COUNT]> =
+    LazyLock::new(|| array::from_fn(|_| AtomicU32::new(0)));
+static TERRAIN_PROFILE_BITS: LazyLock<[AtomicU32; TERRAIN_PBR_PROFILE_VALUE_COUNT]> =
     LazyLock::new(|| array::from_fn(|_| AtomicU32::new(0)));
 static TERRAIN_LOD_NOISE_SCALE: AtomicU32 = AtomicU32::new(1.0f32.to_bits());
 static TERRAIN_LOD_NOISE_TILE: AtomicU32 = AtomicU32::new(1.75f32.to_bits());
@@ -23,13 +26,18 @@ const PBR_DATA_REGISTER: u32 = 32;
 const TERRAIN_DATA_REGISTER: u32 = 89;
 
 pub(super) fn store_settings(settings: NativePbrSettings) {
-    let profile = settings.profile.sanitized_values();
-    let mut changed = false;
-    for (slot, value) in PROFILE_BITS.iter().zip(profile) {
+    let object_profile = settings.object_profile.sanitized_values();
+    let mut object_changed = false;
+    for (slot, value) in OBJECT_PROFILE_BITS.iter().zip(object_profile) {
         let bits = value.to_bits();
         if slot.swap(bits, Ordering::AcqRel) != bits {
-            changed = true;
+            object_changed = true;
         }
+    }
+
+    let terrain_profile = settings.terrain_profile.sanitized_values();
+    for (slot, value) in TERRAIN_PROFILE_BITS.iter().zip(terrain_profile) {
+        slot.store(value.to_bits(), Ordering::Release);
     }
 
     TERRAIN_LOD_NOISE_SCALE.store(
@@ -40,24 +48,28 @@ pub(super) fn store_settings(settings: NativePbrSettings) {
         sanitize(settings.terrain_lod_noise_tile, 1.75, 0.05, 16.0).to_bits(),
         Ordering::Release,
     );
-    if changed {
+    if object_changed {
         OBJECT_CONSTANT_VERSION.fetch_add(1, Ordering::AcqRel);
     }
 }
 
 pub(super) fn upload_object_constants(device: &Device9Ref<'_>) -> bool {
-    let profile = load_profile();
-    let constants = [
-        [profile[0], profile[1], profile[2], profile[3]],
-        [profile[4], 0.0, 0.0, 0.0],
-    ];
+    let profile = load_object_profile();
+    let constants = object_constants(profile);
     device
         .set_pixel_shader_constant_f(PBR_DATA_REGISTER, &constants)
         .is_ok()
 }
 
+fn object_constants(profile: [f32; OBJECT_PBR_PROFILE_VALUE_COUNT]) -> [[f32; 4]; 2] {
+    [
+        [0.0, profile[0], profile[1], profile[2]],
+        [profile[3], 0.0, 0.0, 0.0],
+    ]
+}
+
 pub(super) fn upload_terrain_constants(device: &Device9Ref<'_>) -> Option<[[f32; 4]; 2]> {
-    let profile = load_profile();
+    let profile = load_terrain_profile();
     let requested = [
         [profile[0], profile[1], profile[2], profile[3]],
         [
@@ -89,9 +101,17 @@ pub(super) fn object_constant_version() -> u32 {
     OBJECT_CONSTANT_VERSION.load(Ordering::Acquire)
 }
 
-fn load_profile() -> [f32; PBR_PROFILE_VALUE_COUNT] {
-    let mut values = [0.0; PBR_PROFILE_VALUE_COUNT];
-    for (output, slot) in values.iter_mut().zip(PROFILE_BITS.iter()) {
+fn load_object_profile() -> [f32; OBJECT_PBR_PROFILE_VALUE_COUNT] {
+    let mut values = [0.0; OBJECT_PBR_PROFILE_VALUE_COUNT];
+    for (output, slot) in values.iter_mut().zip(OBJECT_PROFILE_BITS.iter()) {
+        *output = f32::from_bits(slot.load(Ordering::Acquire));
+    }
+    values
+}
+
+fn load_terrain_profile() -> [f32; TERRAIN_PBR_PROFILE_VALUE_COUNT] {
+    let mut values = [0.0; TERRAIN_PBR_PROFILE_VALUE_COUNT];
+    for (output, slot) in values.iter_mut().zip(TERRAIN_PROFILE_BITS.iter()) {
         *output = f32::from_bits(slot.load(Ordering::Acquire));
     }
     values
@@ -102,5 +122,18 @@ fn sanitize(value: f32, fallback: f32, min: f32, max: f32) -> f32 {
         value.clamp(min, max)
     } else {
         fallback
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::object_constants;
+
+    #[test]
+    fn object_constant_layout_keeps_metallicness_dielectric() {
+        let constants = object_constants([0.75, 1.25, 1.5, 0.8]);
+
+        assert_eq!(constants[0], [0.0, 0.75, 1.25, 1.5]);
+        assert_eq!(constants[1], [0.8, 0.0, 0.0, 0.0]);
     }
 }

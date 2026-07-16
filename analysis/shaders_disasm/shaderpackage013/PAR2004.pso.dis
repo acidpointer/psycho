@@ -1,0 +1,55 @@
+; Source record: PAR2004.pso
+; Bytecode size: 1252 bytes
+
+ps_2_1
+def c0 = 0.00000000e+00, 1.00000000e+00, 0.00000000e+00, 0.00000000e+00
+def c4 = 3.99999991e-02, -1.99999996e-02, -5.00000000e-01, -1.00000000e+00
+dcl t0
+dcl_pp_centroid t6
+dcl_pp t7
+dcl v0
+dcl v1
+dcl_pp_centroid t1
+dcl_2d s0
+dcl_2d s1
+dcl_2d s3
+dcl_2d s4
+dcl_2d s6
+dcl_2d s7
+mov_pp r0.w, c4.w
+add r0.x, r0.w, c1.w
+cmp r0.x, r0.x, c0.x, c0.y
+texld_pp r1.xyzw, t0.xyzw, s3
+texld_pp r2.xyzw, t0.xyzw, s0
+add r0.y, r2.w, -c27.w
+mul_pp r2.w, r2.w, c1.w
+mul r0.xyzw, r0.x, r0.y
+dp3_pp r1.y, t6.xyzw, t6.xyzw
+rsq_pp r1.y, r1.y
+mul_pp r1.yz, r1.y, t6.xxyw
+mad_pp r1.x, r1.x, c4.x, c4.y
+mad_pp r1.xy, r1.yzzw, r1.x, t0.xyzw
+mov_pp r3.xy, t7.zwzw
+texkill r0.xyzw
+texld r0.xyzw, t0.xyzw, s4
+texld_pp r4.xyzw, r1.xyzw, s0
+texld_pp r1.xyzw, r1.xyzw, s1
+add r1.xyz, r1.xyzw, c4.z
+add_pp r1.xyz, r1.xyzw, r1.xyzw
+nrm_pp r5.xyz, r1.xyzw
+dp3_sat_pp r0.w, r5.xyzw, t1.xyzw
+mul_pp r1.xyz, r0.w, c3.xyzw
+texld_pp r5.xyzw, t7.xyzw, s6
+texld_pp r3.xyzw, r3.xyzw, s7
+lrp_pp r6.xyz, r3.x, r5.xyzw, -c4.w
+mov r3.xyz, c1.xyzw
+mad_pp r0.xyz, c2.xyzw, r0.xyzw, r3.xyzw
+mad_pp r0.xyz, r1.xyzw, r6.xyzw, r0.xyzw
+max_pp r1.xyz, r0.xyzw, c0.x
+mul_pp r0.xyz, r4.xyzw, v0.xyzw
+cmp_pp r0.xyz, -c27.x, r4.xyzw, r0.xyzw
+mad_pp r3.xyz, r1.xyzw, -r0.xyzw, v1.xyzw
+mul_pp r0.xyz, r1.xyzw, r0.xyzw
+mad_pp r1.xyz, v1.w, r3.xyzw, r0.xyzw
+cmp_pp r2.xyz, -c27.y, r0.xyzw, r1.xyzw
+mov_pp oC0.xyzw, r2.xyzw

@@ -28,6 +28,7 @@ const BYTECODE_QUEUED: u32 = 1;
 const BYTECODE_READY: u32 = 2;
 const BYTECODE_FAILED: u32 = 3;
 const TEMPLATE_ID_NONE: u32 = u32::MAX;
+const SHADER_CONTRACT_REVISION: &[u8] = b"native-pbr-material-contract-v2";
 
 static STARTED: AtomicBool = AtomicBool::new(false);
 static FINISHED: AtomicBool = AtomicBool::new(false);
@@ -286,6 +287,7 @@ fn load_or_compile(job: CompileJob) -> Result<(Vec<u32>, &'static str)> {
 
 fn source_hash(stage: ShaderStage, label: &str, source: &[u8]) -> u64 {
     let mut hash = 0xcbf29ce484222325u64;
+    hash = fnv1a_hash_bytes(hash, SHADER_CONTRACT_REVISION);
     hash = fnv1a_hash_bytes(hash, label.as_bytes());
     hash = fnv1a_hash_bytes(hash, shader_registry::shader_profile(stage).as_bytes());
     fnv1a_hash_bytes(hash, source)

@@ -1,0 +1,19 @@
+; Source record: ISWATERDISPLACEMENTBLENDHEIGHTMAPS.pso
+; Bytecode size: 480 bytes
+
+ps_2_1
+def c0 = 8.00000012e-01, 1.00000000e+00, 0.00000000e+00, 0.00000000e+00
+dcl t0
+dcl_2d s0
+dcl_2d s1
+texld r0.xyzw, t0.xyzw, s1
+texld r1.xyzw, t0.xyzw, s0
+abs r0.x, r0.x
+rcp r0.y, c3.x
+mul r0.y, r0.y, c0.x
+abs r0.z, r1.x
+mad r0.x, r0.y, -r0.z, r0.x
+mul r0.y, r0.y, r0.z
+mad r0.xyz, c1.x, r0.x, r0.y
+mov r0.w, c0.y
+mov oC0.xyzw, r0.xyzw

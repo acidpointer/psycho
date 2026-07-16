@@ -1,0 +1,22 @@
+; Source record: SKYSTARS.vso
+; Bytecode size: 560 bytes
+
+vs_2_0
+def c2 = 5.88235296e-02, 0.00000000e+00, 1.00000000e+00, 0.00000000e+00
+dcl_position0 v0
+dcl_texcoord0 v1
+dcl_color v2
+mul r0.xyz, v2.y, c5.xyzw
+mad r0.xyz, c4.xyzw, v2.x, r0.xyzw
+mad oD0.xyz, c6.xyzw, v2.z, r0.xyzw
+mul oD0.w, v2.w, c4.w
+dp4 r0.x, c10.xyzw, v0.xyzw
+add r0.x, r0.x, -c7.z
+mul r0.x, r0.x, c2.x
+max r0.x, r0.x, c2.y
+min oT2.x, r0.x, c2.z
+dp4 r0.x, c0.xyzw, v0.xyzw
+dp4 r0.y, c1.xyzw, v0.xyzw
+dp4 r0.z, c3.xyzw, v0.xyzw
+mov oPos.xyzw, r0.xyzz
+mov oT0.xy, v1.xyzw

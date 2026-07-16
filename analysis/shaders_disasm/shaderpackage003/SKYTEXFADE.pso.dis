@@ -1,0 +1,12 @@
+; Source record: SKYTEXFADE.pso
+; Bytecode size: 252 bytes
+
+ps_2_1
+dcl t0
+dcl t2
+dcl v0
+dcl_2d s0
+texld r0.xyzw, t0.xyzw, s0
+mul r0.xyzw, r0.xyzw, v0.xyzw
+mul r0.w, r0.w, t2.x
+mov oC0.xyzw, r0.xyzw

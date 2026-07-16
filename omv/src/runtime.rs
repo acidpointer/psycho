@@ -2143,45 +2143,79 @@ fn draw_native_pbr_config(
     changed |= draw_config_checkbox(ui, "Enable PBR", "native_pbr.enabled", &mut config.enabled);
 
     if config.enabled {
-        let section = cstring("MATERIAL RESPONSE");
+        let section = cstring("OBJECT MATERIAL");
         ui.separator_text(&section);
         changed |= draw_float_slider(
             ui,
-            "Metal response",
-            "native_pbr.metallicness",
-            &mut config.metallicness,
-            0.0,
-            1.0,
-        );
-        changed |= draw_float_slider(
-            ui,
             "Roughness",
-            "native_pbr.roughness_scale",
-            &mut config.roughness_scale,
+            "native_pbr.object_roughness_scale",
+            &mut config.object_roughness_scale,
             0.05,
             4.0,
         );
         changed |= draw_float_slider(
             ui,
             "Light",
-            "native_pbr.light_scale",
-            &mut config.light_scale,
+            "native_pbr.object_light_scale",
+            &mut config.object_light_scale,
             0.0,
             4.0,
         );
         changed |= draw_float_slider(
             ui,
             "Ambient",
-            "native_pbr.ambient_scale",
-            &mut config.ambient_scale,
+            "native_pbr.object_ambient_scale",
+            &mut config.object_ambient_scale,
             0.0,
             4.0,
         );
         changed |= draw_float_slider(
             ui,
             "Saturation",
-            "native_pbr.albedo_saturation",
-            &mut config.albedo_saturation,
+            "native_pbr.object_albedo_saturation",
+            &mut config.object_albedo_saturation,
+            0.0,
+            2.0,
+        );
+        let section = cstring("TERRAIN MATERIAL");
+        ui.separator_text(&section);
+        changed |= draw_float_slider(
+            ui,
+            "Metal response",
+            "native_pbr.terrain_metallicness",
+            &mut config.terrain_metallicness,
+            0.0,
+            1.0,
+        );
+        changed |= draw_float_slider(
+            ui,
+            "Roughness",
+            "native_pbr.terrain_roughness_scale",
+            &mut config.terrain_roughness_scale,
+            0.05,
+            4.0,
+        );
+        changed |= draw_float_slider(
+            ui,
+            "Light",
+            "native_pbr.terrain_light_scale",
+            &mut config.terrain_light_scale,
+            0.0,
+            4.0,
+        );
+        changed |= draw_float_slider(
+            ui,
+            "Ambient",
+            "native_pbr.terrain_ambient_scale",
+            &mut config.terrain_ambient_scale,
+            0.0,
+            4.0,
+        );
+        changed |= draw_float_slider(
+            ui,
+            "Saturation",
+            "native_pbr.terrain_albedo_saturation",
+            &mut config.terrain_albedo_saturation,
             0.0,
             2.0,
         );

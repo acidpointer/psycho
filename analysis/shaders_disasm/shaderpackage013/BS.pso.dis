@@ -1,0 +1,18 @@
+; Source record: BS.pso
+; Bytecode size: 432 bytes
+
+ps_2_1
+def c1 = -1.00000000e+00, 1.00000000e+00, 0.00000000e+00, 0.00000000e+00
+dcl_pp t0
+dcl_pp t1
+dcl_2d s0
+dcl_2d s1
+texld_pp r0.xyzw, t1.xyzw, s1
+texld_pp r1.xyzw, t0.xyzw, s0
+add r1.xyz, r1.xyzw, c1.x
+mul r0.w, t0.z, c0.x
+mul_pp r0.w, r1.w, r0.w
+mad_pp r1.xyz, r0.w, r1.xyzw, c1.y
+lrp_pp r2.xyz, r0.w, r0.xyzw, r1.xyzw
+mov_pp r2.w, c1.y
+mov_pp oC0.xyzw, r2.xyzw

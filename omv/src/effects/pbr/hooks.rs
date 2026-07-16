@@ -1302,6 +1302,13 @@ fn bind_object_replacement(replacement: PreparedObjectReplacement) {
         return;
     }
 
+    if diagnostics::detailed_enabled()
+        && replacement.contract_state == ObjectContractState::ImplementedSpecular
+        && let Some(fade) = engine_contracts::current_object_specular_fade_snapshot()
+    {
+        diagnostics::record_object_specular_fade(replacement.draw_trace, fade);
+    }
+
     diagnostics::record_object_contract(
         replacement.draw_trace,
         replacement.normalized_vertex_index,

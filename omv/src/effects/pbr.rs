@@ -26,7 +26,8 @@ use std::sync::{
 use anyhow::Result;
 use parking_lot::Mutex;
 
-const PBR_PROFILE_VALUE_COUNT: usize = 5;
+const OBJECT_PBR_PROFILE_VALUE_COUNT: usize = 4;
+const TERRAIN_PBR_PROFILE_VALUE_COUNT: usize = 5;
 
 static INSTALLED: AtomicBool = AtomicBool::new(false);
 static SHADER_ENABLED: AtomicBool = AtomicBool::new(false);
@@ -46,13 +47,22 @@ static BLOCK_REASON: LazyLock<Mutex<Option<&'static str>>> = LazyLock::new(|| Mu
 pub(crate) struct NativePbrSettings {
     enabled: bool,
     debug_log_draws: bool,
-    profile: PbrProfileSettings,
+    object_profile: ObjectPbrProfileSettings,
+    terrain_profile: TerrainPbrProfileSettings,
     terrain_lod_noise_scale: f32,
     terrain_lod_noise_tile: f32,
 }
 
 #[derive(Clone, Copy, Debug)]
-struct PbrProfileSettings {
+struct ObjectPbrProfileSettings {
+    roughness_scale: f32,
+    light_scale: f32,
+    ambient_scale: f32,
+    albedo_saturation: f32,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct TerrainPbrProfileSettings {
     metallicness: f32,
     roughness_scale: f32,
     light_scale: f32,
@@ -149,21 +159,33 @@ impl Default for NativePbrSettings {
         Self {
             enabled: false,
             debug_log_draws: false,
-            profile: PbrProfileSettings::default(),
+            object_profile: ObjectPbrProfileSettings::default(),
+            terrain_profile: TerrainPbrProfileSettings::default(),
             terrain_lod_noise_scale: 1.0,
             terrain_lod_noise_tile: 1.75,
         }
     }
 }
 
-impl Default for PbrProfileSettings {
+impl Default for ObjectPbrProfileSettings {
     fn default() -> Self {
         Self {
-            metallicness: 0.0,
             roughness_scale: 1.0,
             light_scale: 1.0,
             ambient_scale: 1.0,
             albedo_saturation: 1.0,
+        }
+    }
+}
+
+impl Default for TerrainPbrProfileSettings {
+    fn default() -> Self {
+        Self {
+            metallicness: 0.0,
+            roughness_scale: 0.82,
+            light_scale: 1.15,
+            ambient_scale: 1.10,
+            albedo_saturation: 1.02,
         }
     }
 }
@@ -173,12 +195,18 @@ impl From<crate::config::NativePbrConfig> for NativePbrSettings {
         Self {
             enabled: value.enabled,
             debug_log_draws: value.debug_log_draws,
-            profile: PbrProfileSettings {
-                metallicness: value.metallicness,
-                roughness_scale: value.roughness_scale,
-                light_scale: value.light_scale,
-                ambient_scale: value.ambient_scale,
-                albedo_saturation: value.albedo_saturation,
+            object_profile: ObjectPbrProfileSettings {
+                roughness_scale: value.object_roughness_scale,
+                light_scale: value.object_light_scale,
+                ambient_scale: value.object_ambient_scale,
+                albedo_saturation: value.object_albedo_saturation,
+            },
+            terrain_profile: TerrainPbrProfileSettings {
+                metallicness: value.terrain_metallicness,
+                roughness_scale: value.terrain_roughness_scale,
+                light_scale: value.terrain_light_scale,
+                ambient_scale: value.terrain_ambient_scale,
+                albedo_saturation: value.terrain_albedo_saturation,
             },
             terrain_lod_noise_scale: value.terrain_lod_noise_scale,
             terrain_lod_noise_tile: value.terrain_lod_noise_tile,
@@ -186,8 +214,19 @@ impl From<crate::config::NativePbrConfig> for NativePbrSettings {
     }
 }
 
-impl PbrProfileSettings {
-    fn sanitized_values(self) -> [f32; PBR_PROFILE_VALUE_COUNT] {
+impl ObjectPbrProfileSettings {
+    fn sanitized_values(self) -> [f32; OBJECT_PBR_PROFILE_VALUE_COUNT] {
+        [
+            sanitize_scale(self.roughness_scale, 1.0, 0.05, 4.0),
+            sanitize_scale(self.light_scale, 1.0, 0.0, 4.0),
+            sanitize_scale(self.ambient_scale, 1.0, 0.0, 4.0),
+            sanitize_scale(self.albedo_saturation, 1.0, 0.0, 2.0),
+        ]
+    }
+}
+
+impl TerrainPbrProfileSettings {
+    fn sanitized_values(self) -> [f32; TERRAIN_PBR_PROFILE_VALUE_COUNT] {
         [
             sanitize_scale(self.metallicness, 0.0, 0.0, 1.0),
             sanitize_scale(self.roughness_scale, 1.0, 0.05, 4.0),

@@ -1,0 +1,80 @@
+; Source record: WATER019.pso
+; Bytecode size: 1780 bytes
+
+ps_2_1
+def c2 = 2.00000000e+00, -1.00000000e+00, 0.00000000e+00, 1.99999995e-04
+def c3 = 1.22070313e-04, 1.00000000e+00, -5.00000000e-01, 1.00000001e-01
+def c4 = 2.49600000e+03, 4.00000000e+00, 1.00000000e+00, 0.00000000e+00
+dcl_centroid t0
+dcl_centroid t1
+dcl_centroid t2
+dcl_centroid t3
+dcl_centroid t4
+dcl_centroid t5
+dcl t6
+dcl t7
+dcl_2d s0
+dcl_2d s1
+dcl_2d s4
+add r0.xy, t6.xyzw, c3.z
+dp2add r0.x, r0.xyzw, r0.xyzw, c2.z
+rsq r0.x, r0.x
+rcp r0.x, r0.x
+add r0.y, r0.x, r0.x
+mov r1.xy, c2.xyzw
+mad r0.x, r0.x, -r1.x, c12.x
+rcp r0.z, c12.x
+mul r0.y, r0.y, r0.z
+max r1.x, c3.w, r0.y
+min r0.y, r1.x, -c2.y
+add r0.y, -r0.y, -c2.y
+add r2.xy, t7.zwzw, c0.xyzw
+texld r3.xyzw, t6.xyzw, s4
+texld r2.xyzw, r2.xyzw, s1
+add r1.xzw, r3.xyyz, c3.z
+add r0.zw, -t1.xyxy, c1.xyxy
+dp2add r2.w, r0.zwzw, r0.zwzw, c2.z
+rsq r2.w, r2.w
+rcp r2.w, r2.w
+mad_sat r0.z, r2.w, -c3.x, c3.y
+mul r0.w, r2.w, c2.w
+mov_sat r0.w, r0.w
+mad r0.w, r0.w, c4.x, c4.y
+mad r2.xyz, r2.xyzw, c2.x, c2.y
+mul r2.xy, r0.z, r2.xyzw
+mad r1.xzw, r1.xyzw, c2.x, -r2.xyyz
+mad r1.xzw, r0.y, r1.xyzw, r2.xyyz
+mad r2.xy, r0.w, r1.xzzw, t0.xyzw
+mad r2.zw, t0.z, c4.xyzw, c4.xywz
+dp4 r3.x, t2.xyzw, r2.xyzw
+dp4 r3.y, t3.xyzw, r2.xyzw
+dp4 r3.z, t4.xyzw, r2.xyzw
+dp4 r3.w, t5.xyzw, r2.xyzw
+texldp_pp r2.xyzw, r3.xyzw, s0
+add r0.yzw, r2.xxyz, -c7.xxyz
+mov r2.xyz, c7.xyzw
+mad_pp r0.yzw, c8.y, r0.xyzw, r2.xxyz
+add r2.xyz, -t1.xyzw, c1.xyzw
+dp3 r2.w, r2.xyzw, r2.xyzw
+rsq r2.w, r2.w
+mul r2.xyz, r2.xyzw, r2.w
+rcp r2.w, r2.w
+add r2.w, -r2.w, c9.x
+dp3_sat r1.x, r2.xyzw, r1.xzww
+mov r2.xyz, c6.xyzw
+add r2.xyz, -r2.xyzw, c5.xyzw
+mad_pp r2.xyz, r1.x, r2.xyzw, c6.xyzw
+add r1.x, -r1.x, -c2.y
+mul r1.z, r1.x, r1.x
+mul r1.z, r1.z, r1.z
+mul r1.x, r1.x, r1.z
+lrp r3.x, r1.x, -r1.y, c11.x
+lrp r1.xyz, r3.x, r0.yzww, r2.xyzw
+max r1.w, c8.z, r3.x
+cmp r0.w, r0.x, r1.w, c2.z
+rcp r1.w, c9.y
+mul_sat r1.w, r2.w, r1.w
+add r1.w, -r1.w, -c2.y
+pow r2.x, r1.w, c11.y
+lrp r0.xyz, r2.x, c10.xyzw, r1.xyzw
+mov oC0.xyzw, r0.xyzw

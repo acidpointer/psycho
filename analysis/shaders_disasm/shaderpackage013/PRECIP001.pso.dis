@@ -1,0 +1,11 @@
+; Source record: PRECIP001.pso
+; Bytecode size: 296 bytes
+
+ps_2_1
+dcl v0
+dcl t0
+dcl_2d s0
+texld r0.xyzw, t0.xyzw, s0
+mul r1.w, r0.w, v0.w
+mad_sat r1.xyz, v0.xyzw, r0.xyzw, c0.xyzw
+mov oC0.xyzw, r1.xyzw

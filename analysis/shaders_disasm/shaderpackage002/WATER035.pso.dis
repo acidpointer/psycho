@@ -1,0 +1,27 @@
+; Source record: WATER035.pso
+; Bytecode size: 688 bytes
+
+ps_2_1
+def c2 = 2.00000000e+00, -1.00000000e+00, 1.00000000e+00, 0.00000000e+00
+dcl_centroid t1
+dcl t6
+dcl_2d s1
+add r0.xy, t6.xyzw, c0.xyzw
+texld r0.xyzw, r0.xyzw, s1
+mad r0.xyz, r0.xyzw, c2.x, c2.y
+add r1.xyz, -t1.xyzw, c1.xyzw
+nrm r2.xyz, r1.xyzw
+dp3_sat r0.x, r2.xyzw, r0.xyzw
+add r0.x, -r0.x, c2.z
+mul r0.y, r0.x, r0.x
+mul r0.y, r0.y, r0.y
+mul r0.x, r0.x, r0.y
+mov r0.z, c2.z
+lrp r1.x, r0.x, r0.z, c11.x
+add r0.x, r0.z, -c8.y
+mul_pp r0.yzw, c7.xxyz, c7.xxyz
+mul r0.xyz, r0.x, r0.yzww
+mul r0.xyz, r0.xyzw, c8.y
+mul_sat r0.xyz, r1.x, r0.xyzw
+mov r0.w, c2.w
+mov oC0.xyzw, r0.xyzw

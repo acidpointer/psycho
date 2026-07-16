@@ -1,0 +1,56 @@
+; Source record: WATER007.pso
+; Bytecode size: 1312 bytes
+
+ps_2_1
+def c0 = 0.00000000e+00, 2.00000000e+00, -1.00000000e+00, -4.09600000e+03
+def c6 = -2.44140625e-04, 1.00000000e+00, 1.00000000e+02, 0.00000000e+00
+def c7 = -5.69999993e-01, 8.19999993e-01, 0.00000000e+00, 0.00000000e+00
+dcl_centroid t0
+dcl t6
+dcl t7
+dcl_2d s2
+add r0.xyz, -t0.xyzw, c1.xyzw
+dp2add r0.w, r0.xyzw, r0.xyzw, c0.x
+rsq r0.w, r0.w
+rcp r0.w, r0.w
+add r0.w, r0.w, c0.w
+mad_sat r0.w, r0.w, c6.x, c6.y
+texld r1.xyzw, t7.xyzw, s2
+mad r1.xyz, r1.xyzw, c0.y, c0.zzxw
+mul r1.xy, r0.w, r1.xyzw
+add r0.w, r0.w, c0.z
+nrm r2.xyz, r1.xyzw
+dp3 r2.w, r0.xyzw, r0.xyzw
+rsq r2.w, r2.w
+mul r0.xyz, r0.xyzw, r2.w
+rcp r2.w, r2.w
+add r2.w, -r2.w, c9.x
+dp3 r1.x, -r0.xyzw, r2.xyzw
+add r1.x, r1.x, r1.x
+mad r1.xyz, r2.xyzw, -r1.x, -r0.xyzw
+dp3_sat r1.w, r0.xyzw, r2.xyzw
+dp2add_sat r0.x, r2.xzzw, c7.xyzw, c7.z
+pow r2.x, r0.x, c6.z
+add r1.w, -r1.w, -c0.z
+dp3_sat r0.x, r1.xyzw, c12.xyzw
+pow r1.x, r0.x, c8.x
+add r0.x, r2.x, r1.x
+mul r0.xyz, r0.x, c13.xyzw
+mul r1.x, r1.w, r1.w
+mul r1.x, r1.x, r1.x
+mul r1.x, r1.w, r1.x
+mov r1.z, c0.z
+lrp r2.x, r1.x, -r1.z, c5.x
+lrp_sat r2.y, -r0.w, -r1.z, c8.z
+mov r1.xyz, c2.xyzw
+add r1.xyz, -r1.xyzw, c3.xyzw
+mad_pp r1.xyz, r2.y, r1.xyzw, c2.xyzw
+mul r3.w, r2.y, t6.w
+lrp_sat_pp r4.xyz, r2.x, c4.xyzw, r1.xyzw
+mad_sat r0.xyz, r0.xyzw, c12.w, r4.xyzw
+rcp r0.w, c9.y
+mul_sat r0.w, r2.w, r0.w
+add r0.w, -r0.w, -c0.z
+pow r1.x, r0.w, c5.y
+lrp r3.xyz, r1.x, c10.xyzw, r0.xyzw
+mov oC0.xyzw, r3.xyzw

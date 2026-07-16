@@ -1,0 +1,13 @@
+; Source record: VolumetricFog000.pso
+; Bytecode size: 332 bytes
+
+ps_2_1
+def c1 = 0.00000000e+00, 0.00000000e+00, 0.00000000e+00, 0.00000000e+00
+dcl t0
+dcl t1
+dcl_2d s0
+texldp r0.xyzw, t1.xyzw, s0
+min r1.w, r0.x, t0.x
+mul r0.x, r1.w, c0.x
+mov r0.yzw, c1.x
+mov oC0.xyzw, r0.xyzw

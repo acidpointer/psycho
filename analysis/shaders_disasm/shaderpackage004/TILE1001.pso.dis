@@ -1,0 +1,13 @@
+; Source record: TILE1001.pso
+; Bytecode size: 344 bytes
+
+ps_2_1
+dcl t0
+dcl t1
+dcl_2d s0
+dcl_2d s1
+texld r0.xyzw, t0.xyzw, s0
+texld r1.xyzw, t1.xyzw, s1
+mul r0.xyzw, r0.xyzw, c0.xyzw
+mul r0.w, r1.x, r0.w
+mov oC0.xyzw, r0.xyzw

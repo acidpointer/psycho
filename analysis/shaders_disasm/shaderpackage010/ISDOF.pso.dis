@@ -1,0 +1,30 @@
+; Source record: ISDOF.pso
+; Bytecode size: 696 bytes
+
+ps_2_1
+def c2 = 0.00000000e+00, 1.00000000e+00, 0.00000000e+00, 0.00000000e+00
+dcl t0
+dcl_2d s0
+dcl_2d s1
+dcl_2d s2
+mul r0.xy, c1.yzzw, c1.yzzw
+cmp r0.xy, -r0.xyzw, c2.x, c2.y
+texld r1.xyzw, t0.xyzw, s2
+mad r0.z, r1.x, c0.w, -c0.z
+mad r0.w, r1.x, -c0.w, c0.z
+cmp r1.x, r0.z, c2.x, c2.y
+mul r0.x, r0.x, r1.x
+add r1.xy, -c0.xzzw, c0.zyzw
+rcp r1.x, r1.x
+rcp r1.y, r1.y
+mul r0.z, r0.z, r1.y
+mul r1.x, r0.w, r1.x
+cmp r0.w, r0.w, c2.x, c2.y
+mul r0.y, r0.y, r0.w
+cmp r0.x, -r0.x, c2.x, r1.x
+cmp_sat r0.x, -r0.y, r0.x, r0.z
+mul r0.x, r0.x, c1.x
+texld r1.xyzw, t0.xyzw, s1
+texld r2.xyzw, t0.xyzw, s0
+lrp r3.xyzw, r0.x, r1.xyzw, r2.xyzw
+mov oC0.xyzw, r3.xyzw

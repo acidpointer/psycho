@@ -1,0 +1,33 @@
+; Source record: SLS2000.pso
+; Bytecode size: 752 bytes
+
+ps_2_1
+def c0 = -5.00000000e-01, -1.00000000e+00, 0.00000000e+00, 1.00000000e+00
+dcl_pp t0
+dcl v0
+dcl v1
+dcl_pp_centroid t1
+dcl_2d s0
+dcl_2d s1
+mov r0.w, c0.y
+add r0.x, r0.w, c1.w
+cmp r0.x, r0.x, c0.z, c0.w
+texld_pp r1.xyzw, t0.xyzw, s0
+add r0.y, r1.w, -c27.w
+mul r0.xyzw, r0.x, r0.y
+texld_pp r2.xyzw, t0.xyzw, s1
+texkill r0.xyzw
+mul_pp r0.xyz, r1.xyzw, v0.xyzw
+cmp_pp r0.xyz, -c27.x, r1.xyzw, r0.xyzw
+mul_pp r1.w, r1.w, c1.w
+add r2.xyz, r2.xyzw, c0.x
+add_pp r2.xyz, r2.xyzw, r2.xyzw
+nrm_pp r3.xyz, r2.xyzw
+dp3_pp r0.w, r3.xyzw, t1.xyzw
+mul_sat_pp r2.xyz, r0.w, c3.xyzw
+add_sat_pp r2.xyz, r2.xyzw, c1.xyzw
+mad_pp r3.xyz, r2.xyzw, -r0.xyzw, v1.xyzw
+mul_pp r0.xyz, r0.xyzw, r2.xyzw
+mad_pp r2.xyz, v1.w, r3.xyzw, r0.xyzw
+cmp_pp r1.xyz, -c27.y, r0.xyzw, r2.xyzw
+mov_pp oC0.xyzw, r1.xyzw

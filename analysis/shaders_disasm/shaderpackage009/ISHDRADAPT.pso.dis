@@ -1,0 +1,24 @@
+; Source record: ISHDRADAPT.pso
+; Bytecode size: 592 bytes
+
+ps_2_1
+def c3 = 1.00000000e+00, 9.99999978e-03, 0.00000000e+00, 0.00000000e+00
+dcl t0
+dcl_2d s0
+dcl_2d s1
+mov r0.w, c1.z
+pow r1.w, r0.w, c0.z
+add r0.x, -r1.w, c3.x
+texld r1.xyzw, t0.xyzw, s1
+texld r2.xyzw, t0.xyzw, s0
+lrp r3.xyz, r0.x, r1.xyzw, r2.xyzw
+dp3 r3.w, r3.xyzw, r3.xyzw
+rsq r3.w, r3.w
+rcp r3.w, r3.w
+max r0.x, c3.y, r3.w
+min r3.w, r0.x, c1.w
+rcp r0.x, r0.x
+mul r3.w, r3.w, r0.x
+mul r0.xyz, r3.xyzw, r3.w
+mov r0.w, c2.z
+mov oC0.xyzw, r0.xyzw

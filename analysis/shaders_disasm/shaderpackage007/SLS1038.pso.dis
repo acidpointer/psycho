@@ -1,0 +1,7 @@
+; Source record: SLS1038.pso
+; Bytecode size: 148 bytes
+
+ps_2_1
+def c0 = 0.00000000e+00, 0.00000000e+00, 0.00000000e+00, 0.00000000e+00
+mov r0.xyzw, c0.x
+mov oC0.xyzw, r0.xyzw

@@ -1,0 +1,77 @@
+; Source record: ISHDRDOWN9.pso
+; Bytecode size: 1528 bytes
+
+ps_2_1
+def c0 = 1.28000000e+02, 2.50000000e+00, 0.00000000e+00, 0.00000000e+00
+dcl t0
+dcl_2d s0
+mov r0.w, c0.y
+add r0.x, r0.w, -c4.x
+mul r0.y, t0.x, c0.x
+frc r0.y, r0.y
+cmp r1.x, -r0.y, r0.x, c4.x
+add r0.x, r0.w, -c4.y
+mul r0.z, t0.y, c0.x
+frc r0.z, r0.z
+cmp r1.y, -r0.z, r0.x, c4.y
+mad r1.xy, r1.xyzw, c2.xyzw, t0.xyzw
+add r0.x, r0.w, -c3.x
+cmp r2.x, -r0.y, r0.x, c3.x
+add r0.x, r0.w, -c3.y
+cmp r2.y, -r0.z, r0.x, c3.y
+mad r2.xy, r2.xyzw, c2.xyzw, t0.xyzw
+add r0.x, r0.w, -c5.x
+cmp r3.x, -r0.y, r0.x, c5.x
+add r0.x, r0.w, -c5.y
+cmp r3.y, -r0.z, r0.x, c5.y
+mad r3.xy, r3.xyzw, c2.xyzw, t0.xyzw
+add r0.x, r0.w, -c6.x
+cmp r4.x, -r0.y, r0.x, c6.x
+add r0.x, r0.w, -c6.y
+cmp r4.y, -r0.z, r0.x, c6.y
+mad r4.xy, r4.xyzw, c2.xyzw, t0.xyzw
+add r0.x, r0.w, -c7.x
+cmp r5.x, -r0.y, r0.x, c7.x
+add r0.x, r0.w, -c7.y
+cmp r5.y, -r0.z, r0.x, c7.y
+mad r5.xy, r5.xyzw, c2.xyzw, t0.xyzw
+add r0.x, r0.w, -c8.x
+cmp r6.x, -r0.y, r0.x, c8.x
+add r0.x, r0.w, -c8.y
+cmp r6.y, -r0.z, r0.x, c8.y
+mad r6.xy, r6.xyzw, c2.xyzw, t0.xyzw
+add r0.x, r0.w, -c9.x
+cmp r7.x, -r0.y, r0.x, c9.x
+add r0.x, r0.w, -c9.y
+cmp r7.y, -r0.z, r0.x, c9.y
+mad r7.xy, r7.xyzw, c2.xyzw, t0.xyzw
+add r0.x, r0.w, -c10.x
+cmp r8.x, -r0.y, r0.x, c10.x
+add r0.x, r0.w, -c10.y
+cmp r8.y, -r0.z, r0.x, c10.y
+mad r8.xy, r8.xyzw, c2.xyzw, t0.xyzw
+add r0.x, r0.w, -c11.x
+cmp r0.x, -r0.y, r0.x, c11.x
+add r0.w, r0.w, -c11.y
+cmp r0.y, -r0.z, r0.w, c11.y
+mad r0.xy, r0.xyzw, c2.xyzw, t0.xyzw
+texld r1.xyzw, r1.xyzw, s0
+texld r2.xyzw, r2.xyzw, s0
+texld r3.xyzw, r3.xyzw, s0
+texld r4.xyzw, r4.xyzw, s0
+texld r5.xyzw, r5.xyzw, s0
+texld r6.xyzw, r6.xyzw, s0
+texld r7.xyzw, r7.xyzw, s0
+texld r8.xyzw, r8.xyzw, s0
+texld r0.xyzw, r0.xyzw, s0
+mul r1.xyz, r1.xyzw, c4.z
+mad r1.xyz, r2.xyzw, c3.z, r1.xyzw
+mad r1.xyz, r3.xyzw, c5.z, r1.xyzw
+mad r1.xyz, r4.xyzw, c6.z, r1.xyzw
+mad r1.xyz, r5.xyzw, c7.z, r1.xyzw
+mad r1.xyz, r6.xyzw, c8.z, r1.xyzw
+mad r1.xyz, r7.xyzw, c9.z, r1.xyzw
+mad r1.xyz, r8.xyzw, c10.z, r1.xyzw
+mad r0.xyz, r0.xyzw, c11.z, r1.xyzw
+mov r0.w, c2.z
+mov oC0.xyzw, r0.xyzw

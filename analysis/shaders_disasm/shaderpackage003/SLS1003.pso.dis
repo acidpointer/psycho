@@ -1,0 +1,8 @@
+; Source record: SLS1003.pso
+; Bytecode size: 200 bytes
+
+ps_2_1
+dcl t0
+dcl_2d s0
+texld r0.xyzw, t0.xyzw, s0
+mov oC0.xyzw, r0.xyzw

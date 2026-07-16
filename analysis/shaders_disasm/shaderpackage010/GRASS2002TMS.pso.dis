@@ -1,0 +1,28 @@
+; Source record: GRASS2002TMS.pso
+; Bytecode size: 576 bytes
+
+ps_2_1
+def c0 = -1.00000000e+00, 1.00000000e+00, 1.75000000e+00, 0.00000000e+00
+dcl_pp t0
+dcl_pp_centroid t4
+dcl_pp_centroid t5
+dcl_pp_centroid t2
+dcl_pp_centroid t3
+dcl v0
+dcl_2d s0
+dcl_2d s1
+dcl_2d s2
+texld_pp r0.xyzw, t3.xyzw, s2
+texld_pp r1.xyzw, t2.xyzw, s1
+add_pp r0.yzw, r1.xxyz, c0.x
+mul_pp r0.xyz, r0.x, r0.yzww
+mad_pp r0.xyz, t3.z, r0.xyzw, c0.y
+mov_pp r1.xyz, t5.xyzw
+mad_pp r0.xyz, r1.xyzw, r0.xyzw, t4.xyzw
+texld_pp r1.xyzw, t0.xyzw, s0
+mul_pp r2.xyz, r0.xyzw, r1.xyzw
+mad_pp r0.xyz, r0.xyzw, -r1.xyzw, v0.xyzw
+mul_sat_pp r0.w, r1.w, c0.z
+mul_pp r1.w, r0.w, t5.w
+mad_pp r1.xyz, v0.w, r0.xyzw, r2.xyzw
+mov_pp oC0.xyzw, r1.xyzw

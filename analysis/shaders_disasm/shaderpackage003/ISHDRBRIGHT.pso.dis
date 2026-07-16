@@ -1,0 +1,13 @@
+; Source record: ISHDRBRIGHT.pso
+; Bytecode size: 376 bytes
+
+ps_2_1
+def c0 = 0.00000000e+00, 0.00000000e+00, 0.00000000e+00, 0.00000000e+00
+dcl t0
+dcl_2d s0
+texld r0.xyzw, t0.xyzw, s0
+add r0.xyz, r0.xyzw, -c1.x
+max r1.xyz, r0.xyzw, c0.x
+mul r0.xyz, r1.xyzw, c1.y
+mov r0.w, c2.z
+mov oC0.xyzw, r0.xyzw

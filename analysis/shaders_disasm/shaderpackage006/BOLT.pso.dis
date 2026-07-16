@@ -1,0 +1,17 @@
+; Source record: BOLT.pso
+; Bytecode size: 388 bytes
+
+ps_2_1
+def c2 = 1.00000000e+00, 0.00000000e+00, 0.00000000e+00, 0.00000000e+00
+dcl v0
+dcl_pp t0
+add_pp r0.w, -t0.x, c2.x
+add_pp r0.x, t0.x, c2.x
+cmp_pp r0.x, -t0.x, r0.x, r0.w
+mul_pp r0.y, r0.x, r0.x
+mul_pp r0.y, r0.y, r0.y
+mul_pp r0.y, r0.x, r0.y
+mul_pp r1.xyz, r0.x, c1.xyzw
+mad_pp r0.xyz, c0.xyzw, r0.y, r1.xyzw
+mov_pp r0.w, v0.w
+mov_pp oC0.xyzw, r0.xyzw

@@ -1,0 +1,30 @@
+; Source record: SLS2028.vso
+; Bytecode size: 588 bytes
+
+vs_2_0
+def c4 = 5.00000000e-01, 0.00000000e+00, 0.00000000e+00, 0.00000000e+00
+dcl_position0 v0
+dcl_tangent v1
+dcl_binormal v2
+dcl_normal0 v3
+dcl_texcoord0 v4
+dp4 oPos.x, c0.xyzw, v0.xyzw
+dp4 oPos.y, c1.xyzw, v0.xyzw
+dp4 oPos.z, c2.xyzw, v0.xyzw
+dp4 oPos.w, c3.xyzw, v0.xyzw
+dp3 r0.x, v1.xyzw, c25.xyzw
+dp3 r0.y, v2.xyzw, c25.xyzw
+dp3 r0.z, v3.xyzw, c25.xyzw
+dp3 r0.w, r0.xyzw, r0.xyzw
+rsq r0.w, r0.w
+mul oT1.xyz, r0.xyzw, r0.w
+add r0.xyz, -v0.xyzw, c26.xyzw
+nrm r1.xyz, r0.xyzw
+dp3 oT2.x, v1.xyzw, r1.xyzw
+dp3 oT2.y, v2.xyzw, r1.xyzw
+dp3 oT2.z, v3.xyzw, r1.xyzw
+rcp r0.w, c26.w
+mul r0.xyz, r0.xyzw, r0.w
+mad oT4.xyz, r0.xyzw, c4.x, c4.x
+mov oT0.xy, v4.xyzw
+mov oT4.w, c4.x

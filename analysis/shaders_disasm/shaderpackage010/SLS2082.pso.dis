@@ -1,0 +1,28 @@
+; Source record: SLS2082.pso
+; Bytecode size: 676 bytes
+
+ps_2_1
+def c0 = 1.75000000e+00, 8.00000012e-01, 5.50000012e-01, -5.00000000e-01
+dcl_pp t0
+dcl_pp_centroid t3
+dcl_pp_centroid t4
+dcl_pp_centroid t5
+dcl_2d s0
+dcl_2d s1
+dcl_2d s2
+mul_pp r0.xy, t0.xyzw, c0.x
+texld_pp r1.xyzw, t0.xyzw, s0
+texld r0.xyzw, r0.xyzw, s2
+mad r1.w, r0.x, c0.y, c0.z
+mul_pp r0.xyz, r1.xyzw, r1.w
+texld_pp r1.xyzw, t0.xyzw, s1
+add r1.xyz, r1.xyzw, c0.w
+add_pp r1.xyz, r1.xyzw, r1.xyzw
+dp3_sat_pp r0.w, r1.xyzw, t3.xyzw
+mov r1.xyz, c3.xyzw
+mad_pp r1.xyz, r0.w, r1.xyzw, c1.xyzw
+mul_pp r2.xyz, r0.xyzw, r1.xyzw
+mad_pp r0.xyz, r1.xyzw, -r0.xyzw, t5.xyzw
+mad_pp r0.xyz, t5.w, r0.xyzw, r2.xyzw
+mov_pp r0.w, t4.x
+mov_pp oC0.xyzw, r0.xyzw

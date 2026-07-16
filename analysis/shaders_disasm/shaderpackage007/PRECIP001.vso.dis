@@ -1,0 +1,55 @@
+; Source record: PRECIP001.vso
+; Bytecode size: 1104 bytes
+
+vs_2_0
+def c4 = 0.00000000e+00, 1.00000000e+00, 5.00000000e-01, 0.00000000e+00
+dcl_position0 v0
+dcl_texcoord0 v1
+dcl_texcoord1 v2
+mov r0.xyz, c9.xyzw
+mad r1.xyz, r0.xyzw, c12.x, v2.xyzw
+add r1.xyz, r1.xyzw, -c10.xyzw
+mov r2.xyz, c11.xyzw
+add r3.xyz, r2.xyzw, -c10.xyzw
+rcp r4.x, r3.x
+rcp r4.y, r3.y
+rcp r4.z, r3.z
+mul r1.xyz, r1.xyzw, r4.xyzw
+abs r4.xyz, r1.xyzw
+sge r1.xyz, r1.xyzw, -r1.xyzw
+frc r4.xyz, r4.xyzw
+lrp r5.xyz, r1.xyzw, r4.xyzw, -r4.xyzw
+mul r1.xyz, r3.xyzw, r5.xyzw
+abs r3.xyz, r3.xyzw
+abs r1.xyz, r1.xyzw
+add r4.xyz, r1.xyzw, c10.xyzw
+add r1.xyz, -r1.xyzw, c11.xyzw
+slt r0.xyz, c4.x, r0.xyzw
+lrp r5.xyz, r0.xyzw, r4.xyzw, r1.xyzw
+add r0.xyz, r5.xyzw, -c8.xyzw
+nrm r1.xyz, -r0.xyzw
+mul r0.xyz, r1.yzxw, c13.zxyw
+mad r0.xyz, c13.yzxw, r1.zxyw, -r0.xyzw
+mul r1.xyz, r1.xyzw, v0.y
+nrm r4.xyz, r0.xyzw
+mad r0.xyz, r4.xyzw, v0.x, r1.xyzw
+mad r0.xyz, c13.xyzw, v0.z, r0.xyzw
+add r0.xyz, r5.xyzw, r0.xyzw
+mov r0.w, c4.y
+dp4 oPos.x, c0.xyzw, r0.xyzw
+dp4 oPos.y, c1.xyzw, r0.xyzw
+dp4 oPos.z, c2.xyzw, r0.xyzw
+dp4 oPos.w, c3.xyzw, r0.xyzw
+mad r0.xyz, r3.xyzw, -c4.z, r2.xyzw
+add r0.xyz, -r5.xyzw, r0.xyzw
+rcp r1.x, r3.x
+rcp r1.y, r3.y
+rcp r1.z, r3.z
+mul r0.xyz, r0.xyzw, r1.xyzw
+dp3 r0.x, r0.xyzw, r0.xyzw
+rsq r0.x, r0.x
+rcp r0.x, r0.x
+add r0.x, -r0.x, c4.y
+mul oD0.w, r0.x, r0.x
+mov oD0.xyz, c4.y
+mov oT0.xy, v1.xyzw

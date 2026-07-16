@@ -1,0 +1,74 @@
+; Source record: SLS2023.vso
+; Bytecode size: 1344 bytes
+
+vs_2_0
+def c4 = 0.00000000e+00, 1.00000000e+00, 2.00000000e+00, 3.00000000e+00
+def c5 = 4.00000000e+00, 0.00000000e+00, 1.00000000e+00, 0.00000000e+00
+dcl_position0 v0
+dcl_tangent v1
+dcl_binormal v2
+dcl_normal0 v3
+dcl_texcoord0 v4
+dcl_color v5
+dp4 oPos.w, c3.xyzw, v0.xyzw
+add r0.xyz, -v0.xyzw, c26.xyzw
+nrm r1.xyz, r0.xyzw
+dp3 r0.x, v1.xyzw, r1.xyzw
+mov r2.x, c5.x
+min r0.y, r2.x, c25.w
+frc r0.z, r0.y
+add r0.w, r0.y, -r0.z
+slt r0.z, -r0.z, r0.z
+slt r0.y, r0.y, -r0.y
+mad r0.y, r0.y, r0.z, r0.w
+slt r2.xyzw, c4.xyzw, r0.y
+mul oT2.x, r0.x, r2.x
+dp3 r0.x, v2.xyzw, r1.xyzw
+dp3 r0.y, v3.xyzw, r1.xyzw
+mul oT2.yz, r2.x, r0.xxyw
+mul oT2.w, r2.x, c26.w
+add r0.xyz, -v0.xyzw, c27.xyzw
+nrm r1.xyz, r0.xyzw
+dp3 r0.x, v1.xyzw, r1.xyzw
+mul oT3.x, r2.y, r0.x
+dp3 r0.x, v2.xyzw, r1.xyzw
+dp3 r0.y, v3.xyzw, r1.xyzw
+mul oT3.yz, r2.y, r0.xxyw
+mul oT3.w, r2.y, c27.w
+add r0.xyz, -v0.xyzw, c28.xyzw
+nrm r1.xyz, r0.xyzw
+dp3 r0.x, v1.xyzw, r1.xyzw
+mul oT4.x, r2.z, r0.x
+dp3 r0.x, v2.xyzw, r1.xyzw
+dp3 r0.y, v3.xyzw, r1.xyzw
+mul oT4.yz, r2.z, r0.xxyw
+mul oT4.w, r2.z, c28.w
+add r0.xyz, -v0.xyzw, c29.xyzw
+nrm r1.xyz, r0.xyzw
+dp3 r0.x, v1.xyzw, r1.xyzw
+mul oT5.x, r2.w, r0.x
+dp3 r0.x, v2.xyzw, r1.xyzw
+dp3 r0.y, v3.xyzw, r1.xyzw
+mul oT5.yz, r2.w, r0.xxyw
+mul oT5.w, r2.w, c29.w
+dp4 r0.x, c0.xyzw, v0.xyzw
+dp4 r0.y, c1.xyzw, v0.xyzw
+dp4 r0.z, c2.xyzw, v0.xyzw
+dp3 r0.w, r0.xyzw, r0.xyzw
+mov oPos.xyz, r0.xyzw
+rsq r0.x, r0.w
+rcp r0.x, r0.x
+add r0.x, -r0.x, c14.x
+rcp r0.y, c14.y
+mul r0.x, r0.x, r0.y
+max r0.x, r0.x, c5.y
+min r0.x, r0.x, c5.z
+add r0.x, -r0.x, c5.z
+log r0.x, r0.x
+mul r0.x, r0.x, c14.z
+exp oD1.w, r0.x
+mov oT0.xy, v4.xyzw
+mov oT1.xyz, v0.xyzw
+mov oT1.w, c25.w
+mov oD0.xyzw, v5.xyzw
+mov oD1.xyz, c15.xyzw

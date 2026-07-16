@@ -1,0 +1,16 @@
+; Source record: SM3030.vso
+; Bytecode size: 368 bytes
+
+vs_2_0
+def c7 = 0.00000000e+00, 0.00000000e+00, 0.00000000e+00, 0.00000000e+00
+dcl_position0 v0
+dcl_texcoord0 v1
+dp4 oPos.x, c0.xyzw, v0.xyzw
+dp4 oPos.y, c1.xyzw, v0.xyzw
+dp4 oPos.z, c2.xyzw, v0.xyzw
+dp4 oPos.w, c3.xyzw, v0.xyzw
+dp4 oT1.x, c4.xyzw, v0.xyzw
+dp4 oT1.y, c5.xyzw, v0.xyzw
+dp4 oT1.z, c6.xyzw, v0.xyzw
+mov oT0.xy, v1.xyzw
+mov oT1.w, c7.x

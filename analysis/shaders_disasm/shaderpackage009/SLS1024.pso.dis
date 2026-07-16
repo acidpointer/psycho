@@ -1,0 +1,28 @@
+; Source record: SLS1024.pso
+; Bytecode size: 672 bytes
+
+ps_2_1
+def c0 = -5.00000000e-01, 0.00000000e+00, 0.00000000e+00, 0.00000000e+00
+dcl t0
+dcl t1
+dcl t2
+dcl t3
+dcl v0
+dcl_2d s0
+dcl_2d s1
+dcl_2d s2
+texld r0.xyzw, t2.xyzw, s2
+texld r1.xyzw, t1.xyzw, s1
+add r1.xyz, r1.xyzw, c0.x
+add r1.xyz, r1.xyzw, r1.xyzw
+add r2.xyz, t3.xyzw, c0.x
+add r2.xyz, r2.xyzw, r2.xyzw
+dp3_sat r0.w, r1.xyzw, r2.xyzw
+add r0.xyz, r0.xyzw, c1.xyzw
+mad_sat r0.xyz, r0.w, c3.xyzw, r0.xyzw
+texld r1.xyzw, t0.xyzw, s0
+mul r2.xyz, r0.xyzw, r1.xyzw
+mad r0.xyz, r0.xyzw, -r1.xyzw, v0.xyzw
+mul r1.w, r1.w, c1.w
+mad r1.xyz, v0.w, r0.xyzw, r2.xyzw
+mov oC0.xyzw, r1.xyzw

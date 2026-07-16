@@ -1,0 +1,49 @@
+; Source record: NOLIGHT004.vso
+; Bytecode size: 1004 bytes
+
+vs_2_0
+def c6 = 1.00000000e+00, 0.00000000e+00, -2.00000000e+00, 3.00000000e+00
+dcl_position0 v0
+dcl_texcoord0 v1
+dcl_normal0 v2
+dp4 oPos.w, c3.xyzw, v0.xyzw
+mad r0.xyz, v1.xyxw, c6.xxyw, c6.yyxw
+dp3 oT0.x, c4.xyzw, r0.xyzw
+dp3 oT0.y, c5.xyzw, r0.xyzw
+mad r0.xyzw, v0.xyzx, c6.xxxy, c6.yyyx
+dp4 r1.x, c36.xyzw, r0.xyzw
+dp4 r1.y, c37.xyzw, r0.xyzw
+dp4 r1.z, c38.xyzw, r0.xyzw
+nrm r0.xyz, r1.xyzw
+dp3 r1.x, c36.xyzw, v2.xyzw
+dp3 r1.y, c37.xyzw, v2.xyzw
+dp3 r1.z, c38.xyzw, v2.xyzw
+nrm r2.xyz, r1.xyzw
+dp3 r0.x, r2.xyzw, r0.xyzw
+abs r0.x, r0.x
+add r0.x, r0.x, -c40.x
+add r0.yz, -c40.xxzw, c40.xyww
+rcp r0.y, r0.y
+mul r0.x, r0.x, r0.y
+max r0.x, r0.x, c6.y
+min r0.x, r0.x, c6.x
+mad r0.y, r0.x, c6.z, c6.w
+mul r0.x, r0.x, r0.x
+mul r0.x, r0.y, r0.x
+mad oT0.z, r0.x, r0.z, c40.z
+dp4 r0.x, c0.xyzw, v0.xyzw
+dp4 r0.y, c1.xyzw, v0.xyzw
+dp4 r0.z, c2.xyzw, v0.xyzw
+dp3 r0.w, r0.xyzw, r0.xyzw
+mov oPos.xyz, r0.xyzw
+rsq r0.x, r0.w
+rcp r0.x, r0.x
+add r0.x, -r0.x, c13.x
+rcp r0.y, c13.y
+mul r0.x, r0.x, r0.y
+max r0.x, r0.x, c6.y
+min r0.x, r0.x, c6.x
+add r0.x, -r0.x, c6.x
+log r0.x, r0.x
+mul r0.x, r0.x, c13.z
+exp oT0.w, r0.x

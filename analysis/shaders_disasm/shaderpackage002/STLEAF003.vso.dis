@@ -1,0 +1,108 @@
+; Source record: STLEAF003.vso
+; Bytecode size: 2360 bytes
+
+vs_2_0
+def c4 = 2.08333340e-02, 4.99999583e-01, 5.00000000e-01, 1.59154937e-01
+def c10 = 6.28318548e+00, -3.14159274e+00, 0.00000000e+00, 1.00000000e+00
+def c82 = 0.00000000e+00, 1.00000000e+00, -1.00000000e+00, 0.00000000e+00
+def c83 = -1.55009923e-06, -2.17013894e-05, 2.60416674e-03, 2.60416680e-04
+def c84 = -2.08333340e-02, -1.25000000e-01, 1.00000000e+00, 5.00000000e-01
+dcl_position0 v0
+dcl_normal0 v1
+dcl_texcoord0 v2
+dcl_blend v3
+mov r0.x, c4.x
+mad r0.y, v3.z, r0.x, c16.y
+mad r0.y, r0.y, c4.y, c4.z
+frc r0.y, r0.y
+mad r0.y, r0.y, c10.x, c10.y
+sincos r1.y, r0.y, c83.xyzw, c84.xyzw
+mul r0.y, r1.y, c16.z
+mul r0.y, r0.y, c16.x
+mad r0.y, r0.y, c4.w, c4.z
+frc r0.y, r0.y
+mad r0.y, r0.y, c10.x, c10.y
+sincos r1.xy, r0.y, c83.xyzw, c84.xyzw
+mul r0.yzw, r1.xxyx, c82.xyzx
+mul r1.xyz, r1.yxxw, c10.wwzw
+dp3 r1.w, r0.yzww, c13.xyzw
+dp3 r0.y, r0.yzww, c14.xyzw
+mad r0.x, v3.z, r0.x, c15.y
+mad r0.x, r0.x, c4.y, c4.z
+frc r0.x, r0.x
+mad r0.x, r0.x, c10.x, c10.y
+sincos r2.y, r0.x, c83.xyzw, c84.xyzw
+mul r0.x, r2.y, c15.z
+mul r0.x, r0.x, c15.x
+mad r0.x, r0.x, c4.w, c4.z
+frc r0.x, r0.x
+mad r0.x, r0.x, c10.x, c10.y
+sincos r2.xy, r0.x, c83.xyzw, c84.xyzw
+mul r0.xzw, r2.xyxy, c82.xyyz
+mul r2.xyz, r2.xyxw, c10.zwww
+frc r3.xy, v3.zyzw
+add r3.yw, -r3.xxzy, v3.xzzy
+mova a.xy, r3.ywzw
+mul r4.xyzw, v3.w, c[a.x + 34].xyzw
+dp3 r0.x, r0.xzww, r4.xyzw
+mul r5.x, r1.w, r0.x
+dp3 r0.z, r1.xyzw, c13.xyzw
+dp3 r0.w, r1.xyzw, c14.xyzw
+mul r5.y, r0.x, r0.z
+mul r5.zw, r0.x, c13.xyzw
+dp3 r0.x, r2.xyzw, r4.xyzw
+mul r1.xy, r0.ywzw, r0.x
+mul r1.zw, r0.x, c14.xyzw
+add r0.xyzw, r5.xyzw, r1.xyzw
+add r0.xyzw, r0.xyzw, v0.xyzw
+dp4 r1.x, c[a.y + 18].xyzw, r0.xyzw
+dp4 r1.y, c[a.y + 19].xyzw, r0.xyzw
+dp4 r1.z, c[a.y + 20].xyzw, r0.xyzw
+dp4 r1.w, c[a.y + 21].xyzw, r0.xyzw
+lrp r2.xyzw, v3.x, r1.xyzw, r0.xyzw
+dp4 oPos.w, c3.xyzw, r2.xyzw
+dp4 r0.x, r4.xyzw, r4.xyzw
+rsq r0.x, r0.x
+mul r0.xyz, r4.xyzw, r0.x
+mad r0.xyz, r0.xyzw, c17.y, v1.xyzw
+nrm r1.xyz, r0.xyzw
+add r0.xyz, -r2.xyzw, c12.xyzw
+dp3 r0.w, r0.xyzw, r0.xyzw
+rsq r0.w, r0.w
+mul r0.xyz, r0.xyzw, r0.w
+rcp r0.w, r0.w
+dp3 r0.x, r1.xyzw, r0.xyzw
+dp3 r0.y, r1.xyzw, c11.xyzw
+max r0.y, r0.y, c10.z
+min r0.y, r0.y, c10.w
+mov r1.xyzw, c6.xyzw
+mad r1.xyzw, r1.xyzw, r0.y, c5.xyzw
+max r0.x, r0.x, c10.z
+min r0.x, r0.x, c10.w
+mul r4.xyzw, r0.x, c7.xyzw
+rcp r0.x, c12.w
+mul r0.x, r0.w, r0.x
+max r0.x, r0.x, c10.z
+min r0.x, r0.x, c10.w
+mad r0.x, r0.x, -r0.x, c10.w
+mul r0.xyzw, r4.xyzw, r0.x
+mov r3.z, c10.w
+mad oT1.xyzw, r1.xyzw, r3.xxxz, r0.xyzw
+dp4 r0.x, c0.xyzw, r2.xyzw
+dp4 r0.y, c1.xyzw, r2.xyzw
+dp4 r0.z, c2.xyzw, r2.xyzw
+dp3 r0.w, r0.xyzw, r0.xyzw
+mov oPos.xyz, r0.xyzw
+rsq r0.x, r0.w
+rcp r0.x, r0.x
+add r0.x, -r0.x, c8.x
+rcp r0.y, c8.y
+mul r0.x, r0.x, r0.y
+max r0.x, r0.x, c10.z
+min r0.x, r0.x, c10.w
+add r0.x, -r0.x, c10.w
+log r0.x, r0.x
+mul r0.x, r0.x, c8.z
+exp oT2.w, r0.x
+mov oT0.xy, v2.xyzw
+mov oT2.xyz, c9.xyzw

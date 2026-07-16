@@ -1,0 +1,15 @@
+; Source record: ISWATERDISPLACEMENTWADINGHEIGHTMAP.vso
+; Bytecode size: 320 bytes
+
+vs_1_1
+def c1 = 2.00000000e+00, -2.00000000e+00, -9.76562500e-04, 9.76562500e-04
+dcl_position0 v0
+dcl_texcoord0 v1
+mov r0.xy, c1.xyzw
+mad oPos.xy, c0.xyzw, -r0.xyzw, v0.xyzw
+add oT1.xy, v1.xyzw, c1.z
+add oT2.xy, v1.xyzw, c1.zwzw
+add oT3.xy, v1.xyzw, c1.wzzw
+add oT4.xy, v1.xyzw, c1.w
+mov oPos.zw, v0.xyzw
+mov oT0.xy, v1.xyzw

@@ -1,0 +1,96 @@
+; Source record: ISRBLURH.pso
+; Bytecode size: 1788 bytes
+
+ps_2_1
+def c2 = 0.00000000e+00, 1.00000000e+00, -8.99999976e-01, -8.00000012e-01
+def c3 = -3.00000012e-01, -2.00000003e-01, -1.00000001e-01, 1.00000001e-01
+def c4 = 4.76190485e-02, 0.00000000e+00, 0.00000000e+00, 0.00000000e+00
+def c5 = -6.99999988e-01, -6.00000024e-01, -5.00000000e-01, -4.00000006e-01
+dcl t0
+dcl_2d s0
+add r0.xy, -t0.xyzw, c1.xyzw
+dp2add r0.z, r0.xyzw, r0.xyzw, c2.x
+rsq r0.z, r0.z
+rcp r0.w, r0.z
+mul r0.xy, r0.xyzw, r0.z
+add r0.z, r0.w, -c0.z
+add r0.w, r0.w, -c1.z
+max r1.w, r0.w, c2.x
+max r1.x, r0.z, c2.x
+mov r1.y, c2.y
+mad r0.z, c0.y, r1.x, r1.y
+rcp r0.z, r0.z
+add r0.z, -r0.z, c2.y
+mul r0.z, r0.z, c0.x
+cmp r0.z, -r1.x, c2.x, r0.z
+mad r0.w, c0.w, r1.w, r1.y
+rcp r0.w, r0.w
+add r0.w, -r0.w, c2.y
+mul r0.w, r0.w, c0.x
+cmp r0.w, -r1.w, c2.x, r0.w
+add r0.z, r0.z, -r0.w
+max r1.x, r0.z, c2.x
+mad r2.xy, r0.xyzw, -r1.x, t0.xyzw
+mul r0.zw, r0.xyxy, r1.x
+mad r0.xy, r0.xyzw, r1.x, t0.xyzw
+texld r1.xyzw, r2.xyzw, s0
+texld r2.xyzw, r0.xyzw, s0
+mad r0.xy, r0.zwzw, c2.z, t0.xyzw
+mad r3.xy, r0.zwzw, c2.w, t0.xyzw
+texld r4.xyzw, r0.xyzw, s0
+texld r3.xyzw, r3.xyzw, s0
+add r1.xyzw, r1.xyzw, r4.xyzw
+add r1.xyzw, r3.xyzw, r1.xyzw
+mad r0.xy, r0.zwzw, c5.x, t0.xyzw
+mad r3.xy, r0.zwzw, c5.y, t0.xyzw
+texld r4.xyzw, r0.xyzw, s0
+texld r3.xyzw, r3.xyzw, s0
+add r1.xyzw, r1.xyzw, r4.xyzw
+add r1.xyzw, r3.xyzw, r1.xyzw
+mad r0.xy, r0.zwzw, c5.z, t0.xyzw
+mad r3.xy, r0.zwzw, c5.w, t0.xyzw
+texld r4.xyzw, r0.xyzw, s0
+texld r3.xyzw, r3.xyzw, s0
+add r1.xyzw, r1.xyzw, r4.xyzw
+add r1.xyzw, r3.xyzw, r1.xyzw
+mad r0.xy, r0.zwzw, c3.x, t0.xyzw
+mad r3.xy, r0.zwzw, c3.y, t0.xyzw
+texld r4.xyzw, r0.xyzw, s0
+texld r3.xyzw, r3.xyzw, s0
+add r1.xyzw, r1.xyzw, r4.xyzw
+add r1.xyzw, r3.xyzw, r1.xyzw
+mad r0.xy, r0.zwzw, c3.z, t0.xyzw
+texld r3.xyzw, t0.xyzw, s0
+texld r4.xyzw, r0.xyzw, s0
+add r1.xyzw, r1.xyzw, r4.xyzw
+add r1.xyzw, r3.xyzw, r1.xyzw
+mad r0.xy, r0.zwzw, c3.w, t0.xyzw
+mad r3.xy, r0.zwzw, -c3.y, t0.xyzw
+texld r4.xyzw, r0.xyzw, s0
+texld r3.xyzw, r3.xyzw, s0
+add r1.xyzw, r1.xyzw, r4.xyzw
+add r1.xyzw, r3.xyzw, r1.xyzw
+mad r0.xy, r0.zwzw, -c3.x, t0.xyzw
+mad r3.xy, r0.zwzw, -c5.w, t0.xyzw
+texld r4.xyzw, r0.xyzw, s0
+texld r3.xyzw, r3.xyzw, s0
+add r1.xyzw, r1.xyzw, r4.xyzw
+add r1.xyzw, r3.xyzw, r1.xyzw
+mad r0.xy, r0.zwzw, -c5.z, t0.xyzw
+mad r3.xy, r0.zwzw, -c5.y, t0.xyzw
+texld r4.xyzw, r0.xyzw, s0
+texld r3.xyzw, r3.xyzw, s0
+add r1.xyzw, r1.xyzw, r4.xyzw
+add r1.xyzw, r3.xyzw, r1.xyzw
+mad r0.xy, r0.zwzw, -c5.x, t0.xyzw
+texld r3.xyzw, r0.xyzw, s0
+add r1.xyzw, r1.xyzw, r3.xyzw
+mad r0.xy, r0.zwzw, -c2.w, t0.xyzw
+mad r3.xy, r0.zwzw, -c2.z, t0.xyzw
+texld r0.xyzw, r0.xyzw, s0
+texld r3.xyzw, r3.xyzw, s0
+add r0.xyzw, r1.xyzw, r0.xyzw
+add r0.xyzw, r3.xyzw, r0.xyzw
+add r0.xyzw, r2.xyzw, r0.xyzw
+mul r0.xyzw, r0.xyzw, c4.x
+mov oC0.xyzw, r0.xyzw

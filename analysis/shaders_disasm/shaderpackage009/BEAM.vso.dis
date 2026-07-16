@@ -1,0 +1,21 @@
+; Source record: BEAM.vso
+; Bytecode size: 452 bytes
+
+vs_1_1
+def c5 = 0.00000000e+00, 1.00000000e+00, 0.00000000e+00, 0.00000000e+00
+dcl_position0 v0
+dcl_texcoord0 v1
+mul r0.xy, v0.xyzw, c4.yxzw
+mov r0.z, v0.w
+dp3 oPos.x, c0.xyww, r0.xyzw
+dp3 oPos.y, c1.xyww, r0.xyzw
+dp3 oPos.z, c2.xyww, r0.xyzw
+dp3 oPos.w, c3.xyww, r0.xyzw
+rcp r0.x, c4.z
+mul r0.x, r0.x, c4.x
+rcp r0.y, c4.y
+mul r0.x, r0.x, r0.y
+mul oT0.x, r0.x, v1.y
+mov r0.w, c4.w
+mad oD0.xyzw, r0.w, c5.xxxy, c5.yyyx
+mov oT0.y, v1.x

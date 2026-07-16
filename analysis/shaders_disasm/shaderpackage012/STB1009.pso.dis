@@ -1,0 +1,6 @@
+; Source record: STB1009.pso
+; Bytecode size: 124 bytes
+
+ps_2_1
+dcl v0
+mov oC0.xyzw, v0.xyzw

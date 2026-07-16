@@ -1,0 +1,7 @@
+; Source record: SKYQUADSI.vso
+; Bytecode size: 156 bytes
+
+vs_2_0
+def c0 = 1.00000000e+00, 0.00000000e+00, 0.00000000e+00, 0.00000000e+00
+dcl_position0 v0
+mad oPos.xyzw, v0.xyzx, c0.xxxy, c0.yyyx

@@ -1,0 +1,24 @@
+; Source record: SLS2091.vso
+; Bytecode size: 532 bytes
+
+vs_2_0
+def c4 = 0.00000000e+00, 1.00000000e+00, 0.00000000e+00, 0.00000000e+00
+dcl_position0 v0
+dcl_texcoord0 v1
+dcl_normal0 v2
+dp4 oPos.x, c0.xyzw, v0.xyzw
+dp4 oPos.y, c1.xyzw, v0.xyzw
+dp4 oPos.z, c2.xyzw, v0.xyzw
+dp4 oPos.w, c3.xyzw, v0.xyzw
+dp4 oT1.x, c8.xyzw, v0.xyzw
+dp4 oT1.y, c9.xyzw, v0.xyzw
+dp4 oT1.z, c10.xyzw, v0.xyzw
+dp4 oT1.w, c11.xyzw, v0.xyzw
+nrm r0.xyz, c10.xyzw
+dp3 r0.x, v2.xyzw, r0.xyzw
+max r0.x, r0.x, c4.x
+min oT3.w, r0.x, c4.y
+mov oT0.xy, v1.xyzw
+mov oT6.xyz, v0.xyzw
+mov oT2.xyzw, c25.xyzw
+mov oT3.xyz, c4.x

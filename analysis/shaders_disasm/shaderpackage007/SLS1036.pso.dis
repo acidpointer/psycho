@@ -1,0 +1,13 @@
+; Source record: SLS1036.pso
+; Bytecode size: 388 bytes
+
+ps_2_1
+dcl t0
+dcl t1
+dcl_2d s0
+dcl_2d s1
+texld r0.xyzw, t1.xyzw, s1
+texld r1.xyzw, t0.xyzw, s0
+mov r2.xyz, c2.xyzw
+mad r1.xyz, r2.xyzw, r0.xyzw, c1.xyzw
+mov oC0.xyzw, r1.xyzw

@@ -1,0 +1,13 @@
+; Source record: SKYCLOUDSI.vso
+; Bytecode size: 288 bytes
+
+vs_2_0
+def c2 = 9.99998987e-01, 1.00000000e+00, 0.00000000e+00, 0.00000000e+00
+dcl_position0 v0
+dcl_texcoord0 v1
+dp4 oPos.x, c0.xyzw, v0.xyzw
+dp4 oPos.y, c1.xyzw, v0.xyzw
+dp4 r0.x, c3.xyzw, v0.xyzw
+mul oPos.zw, r0.x, c2.xyxy
+mov oT0.xy, v1.xyzw
+mov oT1.xy, v1.xyzw

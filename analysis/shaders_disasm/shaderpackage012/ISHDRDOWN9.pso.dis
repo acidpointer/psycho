@@ -1,0 +1,57 @@
+; Source record: ISHDRDOWN9.pso
+; Bytecode size: 1176 bytes
+
+ps_2_1
+def c0 = 1.28000000e+02, 2.50000000e+00, 0.00000000e+00, 0.00000000e+00
+dcl t0
+dcl_2d s0
+mov r0.w, c0.y
+add r0.xy, r0.w, -c4.xyzw
+mul r1.xy, t0.xyzw, c0.x
+frc r1.xy, r1.xyzw
+cmp r0.xy, -r1.xyzw, r0.xyzw, c4.xyzw
+mad r0.xy, r0.xyzw, c2.xyzw, t0.xyzw
+add r1.zw, r0.w, -c3.xyxy
+cmp r1.zw, -r1.xyxy, r1.xyzw, c3.xyxy
+mad r2.xy, r1.zwzw, c2.xyzw, t0.xyzw
+texld r3.xyzw, r0.xyzw, s0
+texld r2.xyzw, r2.xyzw, s0
+mul r0.xyz, r3.xyzw, c4.z
+mad r0.xyz, r2.xyzw, c3.z, r0.xyzw
+add r1.zw, r0.w, -c5.xyxy
+cmp r1.zw, -r1.xyxy, r1.xyzw, c5.xyxy
+mad r2.xy, r1.zwzw, c2.xyzw, t0.xyzw
+add r1.zw, r0.w, -c6.xyxy
+cmp r1.zw, -r1.xyxy, r1.xyzw, c6.xyxy
+mad r3.xy, r1.zwzw, c2.xyzw, t0.xyzw
+texld r2.xyzw, r2.xyzw, s0
+texld r3.xyzw, r3.xyzw, s0
+mad r0.xyz, r2.xyzw, c5.z, r0.xyzw
+mad r0.xyz, r3.xyzw, c6.z, r0.xyzw
+add r1.zw, r0.w, -c7.xyxy
+cmp r1.zw, -r1.xyxy, r1.xyzw, c7.xyxy
+mad r2.xy, r1.zwzw, c2.xyzw, t0.xyzw
+add r1.zw, r0.w, -c8.xyxy
+cmp r1.zw, -r1.xyxy, r1.xyzw, c8.xyxy
+mad r3.xy, r1.zwzw, c2.xyzw, t0.xyzw
+texld r2.xyzw, r2.xyzw, s0
+texld r3.xyzw, r3.xyzw, s0
+mad r0.xyz, r2.xyzw, c7.z, r0.xyzw
+mad r0.xyz, r3.xyzw, c8.z, r0.xyzw
+add r1.zw, r0.w, -c9.xyxy
+cmp r1.zw, -r1.xyxy, r1.xyzw, c9.xyxy
+mad r2.xy, r1.zwzw, c2.xyzw, t0.xyzw
+add r1.zw, r0.w, -c10.xyxy
+cmp r1.zw, -r1.xyxy, r1.xyzw, c10.xyxy
+mad r3.xy, r1.zwzw, c2.xyzw, t0.xyzw
+texld r2.xyzw, r2.xyzw, s0
+texld r3.xyzw, r3.xyzw, s0
+mad r0.xyz, r2.xyzw, c9.z, r0.xyzw
+mad r0.xyz, r3.xyzw, c10.z, r0.xyzw
+add r1.zw, r0.w, -c11.xyxy
+cmp r1.xy, -r1.xyzw, r1.zwzw, c11.xyzw
+mad r1.xy, r1.xyzw, c2.xyzw, t0.xyzw
+texld r1.xyzw, r1.xyzw, s0
+mad r0.xyz, r1.xyzw, c11.z, r0.xyzw
+mov r0.w, c2.z
+mov oC0.xyzw, r0.xyzw

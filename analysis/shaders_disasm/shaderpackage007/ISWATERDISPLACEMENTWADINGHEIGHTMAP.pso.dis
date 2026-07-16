@@ -1,0 +1,33 @@
+; Source record: ISWATERDISPLACEMENTWADINGHEIGHTMAP.pso
+; Bytecode size: 652 bytes
+
+ps_2_1
+def c0 = 4.00000000e+00, -5.00000000e-01, 5.00000000e-01, 0.00000000e+00
+dcl t0
+dcl t1
+dcl t2
+dcl t3
+dcl t4
+dcl_2d s0
+texld r0.xyzw, t0.xyzw, s0
+texld r1.xyzw, t1.xyzw, s0
+texld r2.xyzw, t2.xyzw, s0
+texld r3.xyzw, t3.xyzw, s0
+texld r4.xyzw, t4.xyzw, s0
+add r0.z, r1.x, r2.x
+add r0.w, r1.x, -r2.x
+add r1.x, r3.x, r0.z
+add r0.z, -r3.x, r0.z
+add r0.w, r3.x, r0.w
+add r1.x, r4.x, r1.x
+mad r1.x, r0.x, -c0.x, r1.x
+add r0.xy, r0.xyzw, c0.y
+mad r1.y, c5.x, r1.x, r0.y
+mad r1.x, c5.y, r1.y, r0.x
+mul r1.xy, r1.xyzw, c5.z
+add r0.x, -r4.x, r0.w
+add r0.y, -r4.x, r0.z
+mul r1.z, r0.y, c0.z
+mul r1.w, r0.x, c0.z
+add r0.xyzw, r1.xyzw, c0.z
+mov oC0.xyzw, r0.xyzw

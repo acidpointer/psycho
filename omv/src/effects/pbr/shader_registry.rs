@@ -984,7 +984,22 @@ pub(super) fn shader_cache_suffix(stage: ShaderStage) -> &'static str {
 
 #[cfg(test)]
 mod shader_compile_tests {
-    use super::{shader_profile, template_at, template_count, template_source};
+    use super::{
+        NVR_OBJECT_INCLUDE_SOURCE, NVR_OBJECT_TEMPLATE_SOURCE, NVR_PBR_INCLUDE_SOURCE,
+        shader_profile, template_at, template_count, template_source,
+    };
+
+    #[test]
+    fn object_pbr_keeps_the_stable_nvr_material_contract() {
+        assert!(!NVR_PBR_INCLUDE_SOURCE.contains("ddx("));
+        assert!(!NVR_PBR_INCLUDE_SOURCE.contains("ddy("));
+        assert!(!NVR_OBJECT_TEMPLATE_SOURCE.contains("SpecularAA("));
+        assert!(!NVR_OBJECT_TEMPLATE_SOURCE.contains("getObjectSpecularTransition"));
+        assert!(!NVR_OBJECT_TEMPLATE_SOURCE.contains("PBRLightingComponents"));
+        assert!(!NVR_OBJECT_INCLUDE_SOURCE.contains("TESR_PBRData.x"));
+        assert!(NVR_OBJECT_INCLUDE_SOURCE.contains("PBR(0, roughness"));
+        assert!(NVR_OBJECT_INCLUDE_SOURCE.contains("PBRSun(0, roughness"));
+    }
 
     #[test]
     fn all_registered_pbr_shader_variants_compile() {

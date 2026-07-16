@@ -1,0 +1,13 @@
+; Source record: DISTTREESil.pso
+; Bytecode size: 268 bytes
+
+ps_2_1
+dcl_pp t0
+dcl v0
+dcl_pp t2
+dcl_2d s0
+mov_pp r0.xyzw, t2.xyzw
+lrp_pp r1.xyz, r0.w, r0.xyzw, v0.xyzw
+texld_pp r0.xyzw, t0.xyzw, s0
+mov_pp r1.w, r0.w
+mov_pp oC0.xyzw, r1.xyzw

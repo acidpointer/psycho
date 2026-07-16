@@ -1,0 +1,56 @@
+; Source record: PAR2002.vso
+; Bytecode size: 1076 bytes
+
+vs_2_0
+def c4 = 5.00000000e-01, 0.00000000e+00, 1.00000000e+00, 0.00000000e+00
+dcl_position0 v0
+dcl_tangent v1
+dcl_binormal v2
+dcl_normal0 v3
+dcl_texcoord0 v4
+dcl_color v5
+dp4 oPos.w, c3.xyzw, v0.xyzw
+dp3 r0.x, v1.xyzw, c25.xyzw
+dp3 r0.y, v2.xyzw, c25.xyzw
+dp3 r0.z, v3.xyzw, c25.xyzw
+dp3 r0.w, r0.xyzw, r0.xyzw
+rsq r0.w, r0.w
+mul oT1.xyz, r0.xyzw, r0.w
+add r0.xyz, -v0.xyzw, c16.xyzw
+nrm r1.xyz, r0.xyzw
+dp3 r0.x, v1.xyzw, r1.xyzw
+dp3 r0.y, v2.xyzw, r1.xyzw
+dp3 r0.z, v3.xyzw, r1.xyzw
+dp3 r0.w, r0.xyzw, r0.xyzw
+rsq r0.w, r0.w
+mul oT6.xyz, r0.xyzw, r0.w
+add r0.xyz, -v0.xyzw, c26.xyzw
+nrm r1.xyz, r0.xyzw
+dp3 oT2.x, v1.xyzw, r1.xyzw
+dp3 oT2.y, v2.xyzw, r1.xyzw
+dp3 oT2.z, v3.xyzw, r1.xyzw
+rcp r0.w, c26.w
+mul r0.xyz, r0.xyzw, r0.w
+mad oT4.xyz, r0.xyzw, c4.x, c4.x
+dp4 r0.x, c0.xyzw, v0.xyzw
+dp4 r0.y, c1.xyzw, v0.xyzw
+dp4 r0.z, c2.xyzw, v0.xyzw
+dp3 r0.w, r0.xyzw, r0.xyzw
+mov oPos.xyz, r0.xyzw
+rsq r0.x, r0.w
+rcp r0.x, r0.x
+add r0.x, -r0.x, c14.x
+rcp r0.y, c14.y
+mul r0.x, r0.x, r0.y
+max r0.x, r0.x, c4.y
+min r0.x, r0.x, c4.z
+add r0.x, -r0.x, c4.z
+log r0.x, r0.x
+mul r0.x, r0.x, c14.z
+exp oD1.w, r0.x
+mov oT0.xy, v4.xyzw
+mov oT1.w, c4.z
+mov oT2.w, c4.z
+mov oT4.w, c4.x
+mov oD0.xyzw, v5.xyzw
+mov oD1.xyz, c15.xyzw

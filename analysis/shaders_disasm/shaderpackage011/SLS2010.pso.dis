@@ -1,0 +1,48 @@
+; Source record: SLS2010.pso
+; Bytecode size: 1120 bytes
+
+ps_2_1
+def c0 = -5.00000000e-01, 5.00000000e-01, -1.00000000e+00, 1.00000000e+00
+def c4 = 0.00000000e+00, 1.00000000e+00, 0.00000000e+00, 0.00000000e+00
+dcl_pp t0
+dcl_pp t7
+dcl v0
+dcl v1
+dcl_pp_centroid t1
+dcl_2d s0
+dcl_2d s1
+dcl_2d s4
+dcl_2d s6
+dcl_2d s7
+mov r0.xz, c0.xyzw
+add r0.y, r0.z, c1.w
+cmp r0.y, r0.y, c4.x, c4.y
+texld_pp r1.xyzw, t0.xyzw, s0
+add r0.z, r1.w, -c27.w
+mul r2.xyzw, r0.y, r0.z
+texld_pp r3.xyzw, t0.xyzw, s1
+texkill r2.xyzw
+add r0.yzw, r3.xxyz, c0.x
+add_pp r0.yzw, r0.xyzw, r0.xyzw
+nrm_pp r2.xyz, r0.yzww
+dp3_sat_pp r0.y, r2.xyzw, t1.xyzw
+mul_pp r0.yzw, r0.y, c3.xxyz
+mov_pp r2.xy, t7.zwzw
+texld_pp r3.xyzw, t7.xyzw, s6
+texld_pp r2.xyzw, r2.xyzw, s7
+add_pp r2.yzw, r3.xxyz, c0.z
+mad_pp r2.xyz, r2.x, r2.yzww, c0.w
+mad_pp r0.yzw, r0.xyzw, r2.xxyz, c1.xxyz
+max_pp r2.xyz, r0.yzww, c4.x
+add r0.xyz, r0.x, c2.xyzw
+mad r0.xyz, v0.y, r0.xyzw, c0.y
+add_pp r0.xyz, r0.xyzw, r0.xyzw
+texld_pp r3.xyzw, t0.xyzw, s4
+lrp_pp r4.xyz, r3.w, r3.xyzw, r1.xyzw
+mul_pp r1.w, r1.w, c1.w
+mul_pp r0.xyz, r0.xyzw, r4.xyzw
+mad_pp r3.xyz, r2.xyzw, -r0.xyzw, v1.xyzw
+mul_pp r0.xyz, r2.xyzw, r0.xyzw
+mad_pp r2.xyz, v1.w, r3.xyzw, r0.xyzw
+cmp_pp r1.xyz, -c27.y, r0.xyzw, r2.xyzw
+mov_pp oC0.xyzw, r1.xyzw

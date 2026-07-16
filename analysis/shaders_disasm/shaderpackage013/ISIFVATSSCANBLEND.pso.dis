@@ -1,0 +1,71 @@
+; Source record: ISIFVATSSCANBLEND.pso
+; Bytecode size: 1532 bytes
+
+ps_2_1
+def c5 = 1.00000000e+00, 5.00000000e-01, 3.49999994e-01, 0.00000000e+00
+def c6 = 2.00000000e+00, 1.00000000e+00, 1.50000000e+00, 0.00000000e+00
+def c7 = 0.00000000e+00, -1.00000000e+00, 1.11111112e-01, 1.00000000e+00
+dcl t0
+dcl_2d s0
+dcl_2d s1
+dcl_2d s2
+dcl_2d s3
+mov r0.xyw, c7.xyzw
+mad r1.xy, c3.y, r0.xyzw, t0.xyzw
+add r2.xy, t0.xyzw, -c3.xyzw
+texld r1.xyzw, r1.xyzw, s0
+texld r2.xyzw, r2.xyzw, s0
+mul r1.xy, r1.xyzw, c7.z
+mad r1.xy, r2.xyzw, c7.z, r1.xyzw
+mad r2.xy, c3.xyzw, r0.wyzw, t0.xyzw
+mad r3.xy, c3.xyzw, r0.yxzw, t0.xyzw
+texld r2.xyzw, r2.xyzw, s0
+texld r3.xyzw, r3.xyzw, s0
+mad r0.xz, r2.xyyw, c7.z, r1.xyyw
+mad r0.xz, r3.xyyw, c7.z, r0.xyzw
+mov r1.xw, c5.xyzw
+mad r2.xy, c3.xyzw, r1.xwzw, t0.xyzw
+texld r3.xyzw, t0.xyzw, s0
+texld r2.xyzw, r2.xyzw, s0
+mad r0.xz, r3.xyyw, c7.z, r0.xyzw
+mad r0.xz, r2.xyyw, c7.z, r0.xyzw
+mad r2.xy, c3.xyzw, r0.ywzw, t0.xyzw
+mad r4.xy, c3.y, r1.wxzw, t0.xyzw
+texld r2.xyzw, r2.xyzw, s0
+texld r4.xyzw, r4.xyzw, s0
+mad r0.xy, r2.xyzw, c7.z, r0.xzzw
+mad r0.xy, r4.xyzw, c7.z, r0.xyzw
+add r2.xy, t0.xyzw, c3.xyzw
+texld r4.xyzw, t0.xyzw, s1
+texld r2.xyzw, r2.xyzw, s0
+mad r0.xy, r2.xyzw, c7.z, r0.xyzw
+mul r4.w, r0.y, r0.y
+mov r2.xyz, c2.xyzw
+mul r0.yzw, r2.xxyz, c4.x
+cmp r0.yzw, -r4.w, r0.xyzw, c2.xxyz
+mul r2.xyz, r0.x, r0.yzww
+mul r0.yzw, r0.xyzw, r0.xyzw
+mul r2.xyz, r2.xyzw, c0.x
+add r2.w, -r0.x, c5.y
+max r4.w, r3.x, r0.x
+abs r2.w, r2.w
+mad r2.w, r2.w, -c6.x, c6.y
+mul r2.xyz, r2.xyzw, r2.w
+mul r2.xyz, r2.xyzw, c6.z
+mad r0.xyz, r0.yzww, c0.x, r4.xyzw
+mad r0.w, t0.y, c1.x, -c1.y
+add r5.y, r0.w, c5.x
+mov r5.x, c5.y
+mul r6.xy, t0.xyzw, c0.w
+texld r5.xyzw, r5.xyzw, s3
+texld r6.xyzw, r6.xyzw, s2
+mul r3.yzw, r5.xxyz, c1.z
+mul r3.yzw, r3.xyzw, c2.xxyz
+mul r3.yzw, r3.xyzw, c5.z
+cmp r1.yzw, -c1.x, r1.w, r3.xyzw
+mad r0.xyz, r1.yzww, r3.x, r0.xyzw
+cmp r1.xyz, -c0.w, r1.x, r6.xyzw
+mad r0.xyz, r0.xyzw, r1.xyzw, r2.xyzw
+lrp r1.xyz, r4.w, r0.xyzw, r4.xyzw
+mov r1.w, c5.x
+mov oC0.xyzw, r1.xyzw

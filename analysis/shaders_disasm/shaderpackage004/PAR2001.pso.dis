@@ -1,0 +1,34 @@
+; Source record: PAR2001.pso
+; Bytecode size: 768 bytes
+
+ps_2_1
+def c0 = 3.99999991e-02, -1.99999996e-02, -5.00000000e-01, 0.00000000e+00
+dcl t0
+dcl_pp_centroid t6
+dcl v0
+dcl v1
+dcl_pp_centroid t1
+dcl_2d s0
+dcl_2d s1
+dcl_2d s3
+dp3_pp r0.w, t6.xyzw, t6.xyzw
+rsq_pp r0.x, r0.w
+mul_pp r0.xy, r0.x, t6.xyzw
+texld_pp r1.xyzw, t0.xyzw, s3
+mad_pp r0.z, r1.x, c0.x, c0.y
+mad_pp r0.xy, r0.xyzw, r0.z, t0.xyzw
+texld_pp r1.xyzw, r0.xyzw, s0
+texld_pp r0.xyzw, r0.xyzw, s1
+mul_pp r1.xyz, r1.xyzw, v0.xyzw
+add r0.xyz, r0.xyzw, c0.z
+add_pp r0.xyz, r0.xyzw, r0.xyzw
+nrm_pp r2.xyz, r0.xyzw
+dp3_pp r1.w, r2.xyzw, t1.xyzw
+mul_sat_pp r0.xyz, r1.w, c3.xyzw
+add_sat_pp r0.xyz, r0.xyzw, c1.xyzw
+mul_pp r2.xyz, r1.xyzw, r0.xyzw
+mad_pp r0.xyz, r0.xyzw, -r1.xyzw, v1.xyzw
+mad_pp r0.xyz, v1.w, r0.xyzw, r2.xyzw
+texld_pp r1.xyzw, t0.xyzw, s0
+mul_pp r0.w, r1.w, c1.w
+mov_pp oC0.xyzw, r0.xyzw

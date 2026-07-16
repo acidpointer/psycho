@@ -1,0 +1,8 @@
+; Source record: SLS2078.pso
+; Bytecode size: 168 bytes
+
+ps_2_1
+def c0 = 1.00000000e+00, 0.00000000e+00, 0.00000000e+00, 0.00000000e+00
+dcl t0
+mad r0.xyzw, t0.x, c0.xxxy, c0.yyyx
+mov oC0.xyzw, r0.xyzw

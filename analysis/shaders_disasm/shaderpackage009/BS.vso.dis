@@ -1,0 +1,17 @@
+; Source record: BS.vso
+; Bytecode size: 400 bytes
+
+vs_1_1
+def c5 = -5.00000000e-01, 5.00000000e-01, 0.00000000e+00, 0.00000000e+00
+dcl_position0 v0
+dcl_texcoord0 v1
+dp3 oPos.z, c2.xyww, v0.xyww
+dp3 oPos.w, c3.xyww, v0.xyww
+dp3 r0.x, c0.xyww, v0.xyww
+dp3 r0.y, c1.xyww, v0.xyww
+add r0.zw, r0.xyxy, -c4.xyxy
+mov oPos.xy, r0.xyzw
+mul r0.xy, r0.zwzw, c4.w
+mad oT1.xy, r0.xyzw, -c5.xyzw, v1.xyzw
+mov oT0.xy, v1.xyzw
+mov oT0.z, v0.z

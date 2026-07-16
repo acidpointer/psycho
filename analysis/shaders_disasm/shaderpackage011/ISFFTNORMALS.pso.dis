@@ -1,0 +1,52 @@
+; Source record: ISFFTNORMALS.pso
+; Bytecode size: 988 bytes
+
+ps_2_1
+def c0 = 1.60000002e+00, 5.00000000e-01, 0.00000000e+00, 0.00000000e+00
+def c1 = 8.00000012e-01, -1.00000000e+00, 0.00000000e+00, 1.00000000e+00
+dcl t0
+dcl_2d s0
+mov r0.yzw, c1.xyzw
+mad r1.xy, c2.x, r0.yzzw, t0.xyzw
+add r2.xy, t0.xyzw, -c2.x
+texld r1.xyzw, r1.xyzw, s0
+texld r2.xyzw, r2.xyzw, s0
+abs r0.x, r1.x
+abs r1.x, r2.x
+mul r1.x, r1.x, c1.x
+mad r0.x, r0.x, -c0.x, -r1.x
+mad r2.xy, c2.x, r0.ywzw, t0.xyzw
+mad r3.xy, c2.x, r0.wyzw, t0.xyzw
+texld r2.xyzw, r2.xyzw, s0
+texld r3.xyzw, r3.xyzw, s0
+abs r1.y, r2.x
+mad r0.x, r1.y, -c1.x, r0.x
+abs r1.z, r3.x
+mad r1.w, r1.z, c1.x, r0.x
+mad r2.xy, c2.x, r0.wzzw, t0.xyzw
+add r3.xy, t0.xyzw, c2.x
+texld r2.xyzw, r2.xyzw, s0
+texld r3.xyzw, r3.xyzw, s0
+abs r0.x, r2.x
+mad r1.w, r0.x, c0.x, r1.w
+abs r0.x, r3.x
+mad r1.w, r0.x, c1.x, r1.w
+mov r2.x, -r1.w
+mad r3.xy, c2.x, r0.zyzw, t0.xyzw
+mad r4.xy, c2.x, r0.zwzw, t0.xyzw
+texld r3.xyzw, r3.xyzw, s0
+texld r4.xyzw, r4.xyzw, s0
+abs r1.w, r3.x
+mad r2.w, r1.w, -c0.x, -r1.x
+mad r2.w, r1.z, -c1.x, r2.w
+mad r2.w, r1.y, c1.x, r2.w
+abs r0.y, r4.x
+mad r2.w, r0.y, c0.x, r2.w
+mad r2.y, r0.x, c1.x, r2.w
+mov r2.z, c1.w
+dp3 r0.x, r2.xyzw, r2.xyzw
+rsq r0.z, r0.x
+mul r0.xy, r2.xyzw, r0.z
+mov r0.w, c1.w
+mad r0.xyzw, r0.xyzw, c0.y, c0.y
+mov oC0.xyzw, r0.xyzw

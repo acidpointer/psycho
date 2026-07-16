@@ -103,11 +103,20 @@ impl Default for NativeSkyConfig {
 pub(crate) struct NativePbrConfig {
     pub(crate) enabled: bool,
     pub(crate) debug_log_draws: bool,
-    pub(crate) metallicness: f32,
-    pub(crate) roughness_scale: f32,
-    pub(crate) light_scale: f32,
-    pub(crate) ambient_scale: f32,
-    pub(crate) albedo_saturation: f32,
+    pub(crate) object_roughness_scale: f32,
+    pub(crate) object_light_scale: f32,
+    pub(crate) object_ambient_scale: f32,
+    pub(crate) object_albedo_saturation: f32,
+    #[serde(alias = "metallicness")]
+    pub(crate) terrain_metallicness: f32,
+    #[serde(alias = "roughness_scale")]
+    pub(crate) terrain_roughness_scale: f32,
+    #[serde(alias = "light_scale")]
+    pub(crate) terrain_light_scale: f32,
+    #[serde(alias = "ambient_scale")]
+    pub(crate) terrain_ambient_scale: f32,
+    #[serde(alias = "albedo_saturation")]
+    pub(crate) terrain_albedo_saturation: f32,
     pub(crate) terrain_lod_noise_scale: f32,
     pub(crate) terrain_lod_noise_tile: f32,
 }
@@ -117,11 +126,15 @@ impl Default for NativePbrConfig {
         Self {
             enabled: true,
             debug_log_draws: false,
-            metallicness: 0.0,
-            roughness_scale: 0.82,
-            light_scale: 1.15,
-            ambient_scale: 1.10,
-            albedo_saturation: 1.02,
+            object_roughness_scale: 1.0,
+            object_light_scale: 1.0,
+            object_ambient_scale: 1.0,
+            object_albedo_saturation: 1.0,
+            terrain_metallicness: 0.0,
+            terrain_roughness_scale: 0.82,
+            terrain_light_scale: 1.15,
+            terrain_ambient_scale: 1.10,
+            terrain_albedo_saturation: 1.02,
             terrain_lod_noise_scale: 1.0,
             terrain_lod_noise_tile: 1.75,
         }
@@ -585,13 +598,24 @@ pub(crate) fn save_menu_config(config: &GraphicsMenuConfig) -> Result<()> {
         native_pbr.remove("terrain_night_rain");
     }
     doc["graphics"]["native_pbr"]["debug_log_draws"] = value(config.native_pbr.debug_log_draws);
-    doc["graphics"]["native_pbr"]["metallicness"] = value(config.native_pbr.metallicness as f64);
-    doc["graphics"]["native_pbr"]["roughness_scale"] =
-        value(config.native_pbr.roughness_scale as f64);
-    doc["graphics"]["native_pbr"]["light_scale"] = value(config.native_pbr.light_scale as f64);
-    doc["graphics"]["native_pbr"]["ambient_scale"] = value(config.native_pbr.ambient_scale as f64);
-    doc["graphics"]["native_pbr"]["albedo_saturation"] =
-        value(config.native_pbr.albedo_saturation as f64);
+    doc["graphics"]["native_pbr"]["object_roughness_scale"] =
+        value(config.native_pbr.object_roughness_scale as f64);
+    doc["graphics"]["native_pbr"]["object_light_scale"] =
+        value(config.native_pbr.object_light_scale as f64);
+    doc["graphics"]["native_pbr"]["object_ambient_scale"] =
+        value(config.native_pbr.object_ambient_scale as f64);
+    doc["graphics"]["native_pbr"]["object_albedo_saturation"] =
+        value(config.native_pbr.object_albedo_saturation as f64);
+    doc["graphics"]["native_pbr"]["terrain_metallicness"] =
+        value(config.native_pbr.terrain_metallicness as f64);
+    doc["graphics"]["native_pbr"]["terrain_roughness_scale"] =
+        value(config.native_pbr.terrain_roughness_scale as f64);
+    doc["graphics"]["native_pbr"]["terrain_light_scale"] =
+        value(config.native_pbr.terrain_light_scale as f64);
+    doc["graphics"]["native_pbr"]["terrain_ambient_scale"] =
+        value(config.native_pbr.terrain_ambient_scale as f64);
+    doc["graphics"]["native_pbr"]["terrain_albedo_saturation"] =
+        value(config.native_pbr.terrain_albedo_saturation as f64);
     doc["graphics"]["native_pbr"]["terrain_lod_noise_scale"] =
         value(config.native_pbr.terrain_lod_noise_scale as f64);
     doc["graphics"]["native_pbr"]["terrain_lod_noise_tile"] =
@@ -599,6 +623,11 @@ pub(crate) fn save_menu_config(config: &GraphicsMenuConfig) -> Result<()> {
     if let Some(native_pbr) = doc["graphics"]["native_pbr"].as_table_mut() {
         native_pbr.remove("experimental_shader_replacement");
         native_pbr.remove("require_vanilla_prologues");
+        native_pbr.remove("metallicness");
+        native_pbr.remove("roughness_scale");
+        native_pbr.remove("light_scale");
+        native_pbr.remove("ambient_scale");
+        native_pbr.remove("albedo_saturation");
     }
     doc["diagnostics"]["debug_log"] = value(config.debug_log);
 
@@ -763,4 +792,33 @@ fn save_embedded_effect_config(doc: &mut DocumentMut, config: &EmbeddedEffectsCo
     doc["graphics"]["embedded_effects"]["depth_of_field"]["sky_blur_strength"] =
         value(dof.sky_blur_strength as f64);
     doc["graphics"]["embedded_effects"]["depth_of_field"]["softness"] = value(dof.softness as f64);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::NativePbrConfig;
+
+    #[test]
+    fn legacy_pbr_profile_migrates_to_terrain_only() {
+        let config: NativePbrConfig = toml::from_str(
+            r#"
+metallicness = 0.2
+roughness_scale = 0.82
+light_scale = 1.15
+ambient_scale = 1.1
+albedo_saturation = 1.02
+"#,
+        )
+        .expect("legacy native PBR config must remain readable");
+
+        assert_eq!(config.object_roughness_scale, 1.0);
+        assert_eq!(config.object_light_scale, 1.0);
+        assert_eq!(config.object_ambient_scale, 1.0);
+        assert_eq!(config.object_albedo_saturation, 1.0);
+        assert_eq!(config.terrain_metallicness, 0.2);
+        assert_eq!(config.terrain_roughness_scale, 0.82);
+        assert_eq!(config.terrain_light_scale, 1.15);
+        assert_eq!(config.terrain_ambient_scale, 1.1);
+        assert_eq!(config.terrain_albedo_saturation, 1.02);
+    }
 }

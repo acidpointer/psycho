@@ -1,0 +1,32 @@
+; Source record: ISFFTWATERSPECTRUM.pso
+; Bytecode size: 720 bytes
+
+ps_2_1
+def c1 = 1.59154937e-01, 5.00000000e-01, 6.28318548e+00, -3.14159274e+00
+def c2 = 0.00000000e+00, 1.00000000e+00, 0.00000000e+00, 0.00000000e+00
+def c3 = -1.55009923e-06, -2.17013894e-05, 2.60416674e-03, 2.60416680e-04
+def c4 = -2.08333340e-02, -1.25000000e-01, 1.00000000e+00, 5.00000000e-01
+dcl t0
+dcl_2d s0
+dcl_2d s1
+texld r0.xyzw, t0.xyzw, s0
+texld r1.xyzw, t0.xyzw, s1
+mul r1.y, r1.x, c0.x
+mul r1.x, -r1.x, c0.x
+mad r1.x, r1.x, c1.x, c1.y
+frc r1.x, r1.x
+mad r1.x, r1.x, c1.z, c1.w
+sincos r2.xy, r1.x, c3.xyzw, c4.xyzw
+mad r1.x, r1.y, c1.x, c1.y
+frc r1.x, r1.x
+mad r1.x, r1.x, c1.z, c1.w
+sincos r3.xy, r1.x, c3.xyzw, c4.xyzw
+mul r1.x, r0.y, r3.y
+mad r1.x, r0.x, r3.x, -r1.x
+dp2add r1.y, r0.xyzw, r3.yxzw, c2.x
+mul r0.x, r0.w, r2.x
+mad r0.y, r0.z, r2.y, -r0.x
+dp2add r0.x, r0.zwzw, r2.xyzw, c2.x
+add r0.xy, r1.xyzw, r0.xyzw
+mov r0.zw, c2.xyxy
+mov oC0.xyzw, r0.xyzw

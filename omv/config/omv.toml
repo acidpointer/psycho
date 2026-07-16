@@ -190,19 +190,23 @@ softness = 0.9517241
 enabled = true
 
 # Object PBR registers:
-#   c32.x unmasked metal/specular response, c32.y roughness scale, c32.z light scale,
-#   c32.w ambient scale, c33.x albedo saturation.
+#   c32.x is fixed to dielectric metallicness 0, c32.y roughness scale,
+#   c32.z light scale, c32.w ambient scale, c33.x albedo saturation.
 #
 # Terrain/LandLOD PBR registers:
 #   c89.x metallicness, c89.y roughness scale,
 #   c89.z light scale, c89.w ambient scale,
 #   c90.x use PBR, c90.y saturation, c90.z LOD noise scale,
 #   c90.w LOD noise tile.
-metallicness = 0.0
-roughness_scale = 0.82
-light_scale = 1.15
-ambient_scale = 1.10
-albedo_saturation = 1.02
+object_roughness_scale = 1.0
+object_light_scale = 1.0
+object_ambient_scale = 1.0
+object_albedo_saturation = 1.0
+terrain_metallicness = 0.0
+terrain_roughness_scale = 0.82
+terrain_light_scale = 1.15
+terrain_ambient_scale = 1.10
+terrain_albedo_saturation = 1.02
 terrain_lod_noise_scale = 1.0
 terrain_lod_noise_tile = 1.75
 

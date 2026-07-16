@@ -1,0 +1,46 @@
+; Source record: ISMAP.pso
+; Bytecode size: 916 bytes
+
+ps_2_1
+def c1 = 2.00000003e-01, 1.50000006e-01, 1.00000000e+01, 1.00000001e-01
+def c2 = 2.75000006e-01, 0.00000000e+00, 0.00000000e+00, 0.00000000e+00
+def c3 = 0.00000000e+00, -1.00000000e+00, 1.00000000e+00, 2.00000000e+00
+dcl t0
+dcl_2d s0
+mov r0.xyz, c3.xyzw
+mad r1.xy, c0.y, r0.xzzw, t0.xyzw
+mad r2.xy, c0.y, r0.xyzw, t0.xyzw
+texld r1.xyzw, r1.xyzw, s0
+texld r2.xyzw, r2.xyzw, s0
+add r3.xy, t0.xyzw, -c0.xyzw
+mad r4.xy, c0.xyzw, r0.zyzw, t0.xyzw
+texld r3.xyzw, r3.xyzw, s0
+texld r4.xyzw, r4.xyzw, s0
+mad r2.xyzw, r2.xyzw, c3.w, r3.xyzw
+add r2.xyzw, r4.xyzw, r2.xyzw
+mad r5.xy, c0.xyzw, r0.yzzw, t0.xyzw
+add r6.xy, t0.xyzw, c0.xyzw
+texld r5.xyzw, r5.xyzw, s0
+texld r6.xyzw, r6.xyzw, s0
+add r2.xyzw, r2.xyzw, -r5.xyzw
+mad r1.xyzw, r1.xyzw, -c3.w, r2.xyzw
+add r1.xyzw, -r6.xyzw, r1.xyzw
+mul r1.xyzw, r1.xyzw, r1.xyzw
+mad r2.xy, c0.xyzw, r0.yxzw, t0.xyzw
+mad r0.xy, c0.xyzw, r0.zxzw, t0.xyzw
+texld r2.xyzw, r2.xyzw, s0
+texld r0.xyzw, r0.xyzw, s0
+mad r2.xyzw, r2.xyzw, c3.w, r3.xyzw
+add r2.xyzw, r5.xyzw, r2.xyzw
+add r2.xyzw, -r4.xyzw, r2.xyzw
+mad r0.xyzw, r0.xyzw, -c3.w, r2.xyzw
+add r0.xyzw, -r6.xyzw, r0.xyzw
+mad r0.xyzw, r0.xyzw, r0.xyzw, r1.xyzw
+mul r0.w, r0.w, c1.z
+dp3 r0.x, c1.xxyw, r0.xyzw
+min r1.x, r0.w, c1.w
+add r0.x, r0.x, r1.x
+min r1.xyz, r0.x, c2.x
+dp3 r0.x, c3.z, r1.z
+add r1.w, r0.x, r0.x
+mov oC0.xyzw, r1.xyzw

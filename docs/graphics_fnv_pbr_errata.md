@@ -27,6 +27,8 @@ Use these sources before making terrain or lighting changes:
 - `analysis/ghidra/output/perf/graphics_fnv_pbr_close_terrain_pass_entry_runtime_contract.txt`
 - `analysis/ghidra/output/perf/graphics_fnv_pbr_close_terrain_vertex_abi_contract.txt`
 - `analysis/ghidra/output/perf/graphics_fnv_pbr_close_terrain_vertex_declaration_contract.txt`
+- `analysis/ghidra/output/perf/graphics_fnv_pbr_object_distance_specular_transition_contract_audit.txt`
+- `analysis/ghidra/output/perf/graphics_fnv_pbr_object_specular_fade_formula_followup.txt`
 - `.research/TESReloaded10-master/NewVegasReloaded/Main.cpp`
 - `.research/TESReloaded10-master/src/effects/Terrain.cpp`
 - `.research/TESReloaded10-master/src/effects/PBR.cpp`
@@ -268,26 +270,35 @@ Symptom:
 
 Cause:
 
-The first object path covered only nearby/runtime-hit object shader variants. Distant object or LOD variants used different shader families and were not replaced.
+The first object path covered only nearby/runtime-hit object shader variants. Distant object or LOD variants used different shader families and were not replaced. Current OMV contracts now cover the proven base, LOD, ordinary specular, and ADTS10 high-light object pairs, so this is historical context rather than the current widespread failure.
 
-NVR's object PBR shader also drops the native specular fade carried by `LightData[0].w`. Vanilla shaderpackage 19 bytecode proves that the game multiplies accumulated specular lighting by this value in both ordinary specular variants (`SLS2017.pso`, `SLS2023.pso`) and ADTS10 high-light variants (`SLS2034.pso`, `SLS2035.pso`). NVR leaves an unresolved TODO for the ADTS10 case and omits the same contract in its ordinary specular path. When the engine changes object light or LOD state, the missing multiplication turns the native continuous specular fade into an abrupt PBR pop.
+Vanilla object shaders do multiply accumulated specular lighting by the native fade carried by `LightData[0].w`. The complete archive in `analysis/shaders_disasm/` proves this across all 16 installed quality packages for ordinary and ADTS10 combined-specular rows. However, vanilla applies the fade to a bounded gloss lobe: normal-map alpha is amplitude, `glossPower` is lobe width, and the per-light result is saturated before the fade.
 
-With strong global metallicness, the native linear transition can expose a broad dark band before the non-specular or LOD handoff. Removing the transition restores the abrupt pop. The object textures do not provide a metalness mask, so applying the scalar as true metalness also removed diffuse energy from every rock, road, and other object. OMV keeps a dielectric diffuse baseline, uses the scalar for the specular metal response, and compresses the native specular transition into its terminal ten percent. The zero and one endpoints remain intact, but the whole object no longer darkens across the full native distance band.
+Ghidra closes the complete native contract. `BSShaderPPLightingProperty::GetSpecularFade` returns `1` before the configured start distance, `0` at or beyond the end distance, and a linear `1 - (distance - start) / (end - start)` weight between them. `FUN_00B70820` writes that value into staged `LightData[0].w`; `FUN_00B78A90` copies it to renderer vertex constant `c25.w`; the ordinary and ADTS10 object vertex paths pass it to the pixel shader.
+
+NVR deliberately does something different for object PBR. Its object helper calls pass metallicness `0`, its combined BRDF is accumulated as one result, it does not apply the vanilla fade to ordinary PBR specular, and its ADTS10 path leaves the attenuation as a TODO. NVR also leaves its screen-derivative `SpecularAA` call commented out.
+
+OMV mixed these contracts. It enabled the commented-out `SpecularAA`, split the NVR BRDF, and applied the vanilla fade only to the new GGX lobe. The first curve, `smoothstep(0.0, 0.1, nativeTransition)`, made the lobe appear over a very short distance. Replacing that with the full linear fade made more objects unstable because it exposed the screen-space-dependent GGX term across the entire native interval. The installed metallicness is `0.0`, so metallicness switching is not the cause of the captured run.
+
+See `docs/graphics_fnv_pbr_object_temporal_instability_audit.md` for the complete source, bytecode, formula, and fix audit.
 
 Do not repeat:
 
 - Do not call object PBR complete after one visible nearby family works.
 - Do not rely on one test distance.
-- Do not discard `LightData[0].w` or apply it to diffuse and ambient lighting. It is the native specular transition weight for combined object-lighting passes.
-- Do not remove object diffuse energy with a global metalness scalar when no per-material metalness mask exists.
+- Do not assume a scalar with proven vanilla meaning can be applied unchanged to a materially different BRDF.
+- Do not enable NVR's commented-out derivative roughness experiment as normal behavior.
+- Do not use global object metallicness when no per-material metalness mask exists; NVR object calls pass zero.
+- Do not tune another transition curve before restoring the source-proven material model.
+- Do not reinterpret `c25.w` globally. Alternate PPLighting paths can store point-light radius data there; the specular fade contract applies only to the proven combined-specular object pairs.
 
 Correct fix path:
 
 - Map runtime-visible object shader families across near, mid, far, lit, shadowed, and LOD states.
 - Add replacement only for proven object/static ABI-compatible variants.
-- Split combined PBR lighting into diffuse and specular components, accumulate both across active lights, and multiply only the accumulated specular component by the native transition weight.
-- Keep the unmasked object diffuse baseline dielectric and apply global metallicness only to the specular response.
-- Preserve the native transition endpoints if its presentation curve is adjusted; a nonzero floor cannot agree with the non-specular handoff.
+- Restore source-equivalent NVR object behavior first: dielectric metallicness zero, unified PBR accumulation, no derivative `SpecularAA`, and no added vanilla fade.
+- Restore neutral NVR object profile defaults rather than amplifying the lobe with lower roughness and higher light scale.
+- If source-equivalent NVR remains too shiny, design a separate material-faithful mode that preserves normal alpha as specular amplitude and maps engine `glossPower` to GGX roughness. Prove its fade contract separately.
 - Keep object, terrain, and LandLOD shader contracts separate.
 
 ### 8. Vertex Shader Replacement Must Match the Pixel Path
@@ -370,7 +381,7 @@ Correct fix path:
 
 - Make the runtime toggle a passive draw-time bypass. Keep installed hooks and proven engine contracts resident.
 - Restore only the temporary D3D shader pair owned by the current draw.
-- Use one authoritative settings snapshot for object, close terrain, terrain fade, and LandLOD. Retire legacy profile tables during config save.
+- Use one explicit object settings snapshot and one explicit terrain snapshot shared by close terrain, terrain fade, and LandLOD. Do not let hidden profiles or legacy generic keys override either family; retire legacy keys during config save.
 
 ### 11. One Shader Edit Disabled All Close Terrain During Warmup
 

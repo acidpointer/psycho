@@ -1,0 +1,24 @@
+; Source record: SM3033.vso
+; Bytecode size: 492 bytes
+
+vs_3_0
+def c6 = 1.00000001e-01, -1.00000001e-01, 1.33333332e-03, 8.00000012e-01
+def c7 = 1.00000000e+00, 0.00000000e+00, 0.00000000e+00, 0.00000000e+00
+dcl_position0 v0
+dcl_normal0 v1
+dcl_texcoord0 v2
+dcl_position0 o0
+dcl_texcoord0 o1
+dcl_texcoord1 o2
+dp4 o0.x, c0.xyzw, v0.xyzw
+dp4 o0.y, c1.xyzw, v0.xyzw
+dp4 o0.w, c3.xyzw, v0.xyzw
+dp3 r0.x, c4.xyzw, v1.xyzw
+dp3 r0.y, c5.xyzw, v1.xyzw
+min r0.xy, r0.xyzw, c6.x
+max o2.xy, r0.xyzw, c6.y
+dp4 r0.x, c2.xyzw, v0.xyzw
+mad r0.y, r0.x, c6.z, c6.w
+mov o0.z, r0.x
+max o1.z, r0.y, c7.x
+mov o1.xy, v2.xyzw

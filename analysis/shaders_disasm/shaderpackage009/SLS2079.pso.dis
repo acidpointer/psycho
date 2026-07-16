@@ -1,0 +1,14 @@
+; Source record: SLS2079.pso
+; Bytecode size: 252 bytes
+
+ps_2_1
+def c0 = 1.50000000e+00, 5.00000000e-01, 1.00000000e+00, 0.00000000e+00
+dcl t0
+dcl t1
+rcp r0.w, t1.w
+mul r0.xy, r0.w, t1.xyzw
+rcp r0.z, t0.w
+mad r0.xy, t0.xyzw, r0.z, -r0.xyzw
+mad r0.xy, r0.xyzw, c0.x, c0.y
+mov r0.zw, c0.z
+mov oC0.xyzw, r0.xyzw

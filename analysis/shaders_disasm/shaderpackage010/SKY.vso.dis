@@ -1,0 +1,15 @@
+; Source record: SKY.vso
+; Bytecode size: 384 bytes
+
+vs_2_0
+def c2 = 9.99899983e-01, 1.00000000e+00, 0.00000000e+00, 0.00000000e+00
+dcl_position0 v0
+dcl_color v1
+dp4 oPos.x, c0.xyzw, v0.xyzw
+dp4 oPos.y, c1.xyzw, v0.xyzw
+mul r0.xyz, v1.y, c5.xyzw
+mad r0.xyz, c4.xyzw, v1.x, r0.xyzw
+mad oD0.xyz, c6.xyzw, v1.z, r0.xyzw
+mul oD0.w, v1.w, c4.w
+dp4 r0.x, c3.xyzw, v0.xyzw
+mul oPos.zw, r0.x, c2.xyxy

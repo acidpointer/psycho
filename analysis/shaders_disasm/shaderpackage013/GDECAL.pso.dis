@@ -1,0 +1,14 @@
+; Source record: GDECAL.pso
+; Bytecode size: 340 bytes
+
+ps_2_1
+dcl_pp t0
+dcl_2d s1
+mov_sat_pp r0.xy, t0.xyzw
+mad_pp r0.xy, c15.ywzw, r0.xyzw, c15.xzzw
+texld_pp r0.xyzw, r0.xyzw, s1
+mov_pp r1.xyz, r0.xyzw
+mov_pp r1.w, t0.z
+mul_pp r1.xyzw, r1.xyzw, t0.z
+mul_pp r1.w, r0.w, r1.w
+mov_pp oC0.xyzw, r1.xyzw

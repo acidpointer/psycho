@@ -1,0 +1,10 @@
+; Source record: SM3036.vso
+; Bytecode size: 240 bytes
+
+vs_3_0
+dcl_position0 v0
+dcl_position0 o0
+dp4 o0.x, c0.xyzw, v0.xyzw
+dp4 o0.y, c1.xyzw, v0.xyzw
+dp4 o0.z, c2.xyzw, v0.xyzw
+dp4 o0.w, c3.xyzw, v0.xyzw

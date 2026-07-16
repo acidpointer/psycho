@@ -1,0 +1,16 @@
+; Source record: SLS2083.pso
+; Bytecode size: 344 bytes
+
+ps_2_1
+def c0 = 1.00000000e+00, 0.00000000e+00, 0.00000000e+00, 0.00000000e+00
+dcl_pp t0
+dcl_pp t1
+dcl_pp_centroid t2
+dcl_2d s0
+dcl_2d s1
+texld r0.xyzw, t1.xyzw, s1
+texld_pp r1.xyzw, t0.xyzw, s0
+mul_pp r1.xyz, r1.xyzw, t2.xyzw
+mul_pp r0.xyz, r0.xyzw, r1.xyzw
+mov_pp r0.w, c0.x
+mov_pp oC0.xyzw, r0.xyzw

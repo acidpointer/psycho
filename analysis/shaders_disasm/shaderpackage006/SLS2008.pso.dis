@@ -1,0 +1,33 @@
+; Source record: SLS2008.pso
+; Bytecode size: 756 bytes
+
+ps_2_1
+def c0 = -5.00000000e-01, 8.50000024e-01, -1.00000000e+00, -0.00000000e+00
+dcl_pp t0
+dcl v0
+dcl v1
+dcl_pp_centroid t1
+dcl_2d s0
+dcl_2d s1
+texld_pp r0.xyzw, t0.xyzw, s0
+mov r1.yz, c0.xyzw
+add r1.x, r1.z, c1.w
+cmp r1.x, r1.x, -c0.w, -c0.z
+add r1.z, r0.w, -c27.w
+mul r2.xyzw, r1.x, r1.z
+texkill r2.xyzw
+texld_pp r2.xyzw, t0.xyzw, s1
+mul_pp r3.xyz, r0.xyzw, v0.xyzw
+cmp_pp r0.xyz, -c27.x, r0.xyzw, r3.xyzw
+mul_pp r3.w, r0.w, c1.w
+add r2.xyz, r2.xyzw, c0.x
+add_pp r2.xyz, r2.xyzw, r2.xyzw
+nrm_pp r4.xyz, r2.xyzw
+dp3_pp r0.w, r4.xyzw, t1.xyzw
+mul_sat_pp r2.xyz, r0.w, c3.xyzw
+mad_sat_pp r1.xyz, r2.xyzw, r1.y, c1.xyzw
+mad_pp r2.xyz, r1.xyzw, -r0.xyzw, v1.xyzw
+mul_pp r0.xyz, r0.xyzw, r1.xyzw
+mad_pp r1.xyz, v1.w, r2.xyzw, r0.xyzw
+cmp_pp r3.xyz, -c27.y, r0.xyzw, r1.xyzw
+mov_pp oC0.xyzw, r3.xyzw

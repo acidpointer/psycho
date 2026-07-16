@@ -1,0 +1,31 @@
+; Source record: ISWATERDISPLACEMENTRAINHEIGHTMAP.pso
+; Bytecode size: 620 bytes
+
+ps_2_1
+def c0 = 4.00000000e+00, -5.00000000e-01, 5.00000000e-01, 0.00000000e+00
+dcl t0
+dcl t1
+dcl t2
+dcl t3
+dcl t4
+dcl_2d s0
+texld r0.xyzw, t3.xyzw, s0
+texld r1.xyzw, t2.xyzw, s0
+texld r2.xyzw, t1.xyzw, s0
+texld r3.xyzw, t0.xyzw, s0
+add r0.y, r1.x, r2.x
+add r0.z, -r1.x, r2.x
+add r0.w, r0.x, r0.y
+add r0.y, -r0.x, r0.y
+add r0.x, r0.x, r0.z
+texld r1.xyzw, t4.xyzw, s0
+add r0.z, r0.w, r1.x
+mad r0.z, r3.x, -c0.x, r0.z
+add r1.yz, r3.xxyw, c0.y
+mad r2.y, c4.x, r0.z, r1.z
+mad r2.x, c4.y, r2.y, r1.y
+mul r2.xy, r2.xyzw, c4.z
+add r0.xy, r0.xyzw, -r1.x
+mul r2.zw, r0.xyyx, c0.z
+add r0.xyzw, r2.xyzw, c0.z
+mov oC0.xyzw, r0.xyzw

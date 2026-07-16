@@ -1,0 +1,21 @@
+; Source record: ISHDRDOWN4.pso
+; Bytecode size: 520 bytes
+
+ps_2_1
+dcl t0
+dcl_2d s0
+mov r0.xy, c2.xyzw
+mad r1.xy, c4.xyzw, r0.xyzw, t0.xyzw
+mad r2.xy, c3.xyzw, r0.xyzw, t0.xyzw
+texld r1.xyzw, r1.xyzw, s0
+texld r2.xyzw, r2.xyzw, s0
+mul r1.xyz, r1.xyzw, c4.z
+mad r1.xyz, r2.xyzw, c3.z, r1.xyzw
+mad r2.xy, c5.xyzw, r0.xyzw, t0.xyzw
+mad r0.xy, c6.xyzw, r0.xyzw, t0.xyzw
+texld r2.xyzw, r2.xyzw, s0
+texld r0.xyzw, r0.xyzw, s0
+mad r1.xyz, r2.xyzw, c5.z, r1.xyzw
+mad r0.xyz, r0.xyzw, c6.z, r1.xyzw
+mov r0.w, c2.z
+mov oC0.xyzw, r0.xyzw

@@ -1,0 +1,41 @@
+; Source record: GDECALS.vso
+; Bytecode size: 824 bytes
+
+vs_1_1
+def c0 = 1.00000000e+00, 7.65010010e+02, 0.00000000e+00, 0.00000000e+00
+dcl_position0 v0
+dcl_normal0 v1
+dcl_weight v2
+dcl_blend v3
+dp3 r0.x, v2.xyzw, c0.x
+add r0.x, -r0.x, c0.x
+mul r1.xyzw, v3.zyxw, c0.y
+mad r2.xyzw, v0.xyzx, c0.xxxz, c0.zzzx
+mov a.x, r1.y
+dp4 r3.x, c[a.xyzw + 44].xyzw, r2.xyzw
+dp4 r3.y, c[a.xyzw + 45].xyzw, r2.xyzw
+dp4 r3.z, c[a.xyzw + 46].xyzw, r2.xyzw
+mul r0.yzw, r3.xxyz, v2.y
+mov a.x, r1.x
+dp4 r3.x, c[a.xyzw + 44].xyzw, r2.xyzw
+dp4 r3.y, c[a.xyzw + 45].xyzw, r2.xyzw
+dp4 r3.z, c[a.xyzw + 46].xyzw, r2.xyzw
+mad r0.yzw, r3.xxyz, v2.x, r0.xyzw
+mov a.x, r1.z
+dp4 r3.x, c[a.xyzw + 44].xyzw, r2.xyzw
+dp4 r3.y, c[a.xyzw + 45].xyzw, r2.xyzw
+dp4 r3.z, c[a.xyzw + 46].xyzw, r2.xyzw
+mad r0.yzw, r3.xxyz, v2.z, r0.xyzw
+mov a.x, r1.w
+dp4 r1.x, c[a.xyzw + 44].xyzw, r2.xyzw
+dp4 r1.y, c[a.xyzw + 45].xyzw, r2.xyzw
+dp4 r1.z, c[a.xyzw + 46].xyzw, r2.xyzw
+mad r0.xyz, r1.xyzw, r0.x, r0.yzww
+mov r0.w, c0.x
+dp4 oPos.x, c1.xyzw, r0.xyzw
+dp4 oPos.y, c2.xyzw, r0.xyzw
+dp4 oPos.z, c3.xyzw, r0.xyzw
+dp4 oPos.w, c4.xyzw, r0.xyzw
+mul r0.x, c31.y, c31.x
+mul oT0.z, r0.x, v1.z
+mov oT0.xy, v1.xyzw

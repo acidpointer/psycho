@@ -1,0 +1,23 @@
+; Source record: ISFFTHORIZONTALBUTTERFLY.pso
+; Bytecode size: 520 bytes
+
+ps_2_1
+def c0 = 0.00000000e+00, 0.00000000e+00, 0.00000000e+00, 0.00000000e+00
+dcl t0
+dcl_2d s0
+dcl_2d s1
+mov r0.y, t0.y
+mov r1.x, t0.x
+mov r1.y, c1.x
+texld r1.xyzw, r1.xyzw, s0
+abs r0.x, r1.x
+mov r2.x, r1.y
+mov r2.y, t0.y
+texld r0.xyzw, r0.xyzw, s1
+texld r2.xyzw, r2.xyzw, s1
+mul r0.y, r1.w, r0.w
+mad r3.xyz, r1.z, r0.x, -r0.y
+dp2add r3.w, r1.wzzw, r0.xwzw, c0.x
+cmp r0.xyzw, r1.x, r3.xyzw, -r3.zzzw
+add r0.xyzw, r2.xxxw, r0.xyzw
+mov oC0.xyzw, r0.xyzw

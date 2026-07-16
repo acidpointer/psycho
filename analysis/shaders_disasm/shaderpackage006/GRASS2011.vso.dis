@@ -1,0 +1,105 @@
+; Source record: GRASS2011.vso
+; Bytecode size: 2188 bytes
+
+vs_2_0
+def c3 = 1.00000000e+00, 0.00000000e+00, -5.00000000e-01, 9.99999978e-03
+def c7 = 7.50000000e-01, 2.50000000e-01, 7.81250000e-03, 0.00000000e+00
+def c16 = 1.59154937e-01, 5.00000000e-01, 6.28318548e+00, -3.14159274e+00
+def c17 = -1.00000000e+00, 0.00000000e+00, 1.00000000e+00, 0.00000000e+00
+def c18 = -1.55009923e-06, -2.17013894e-05, 2.60416674e-03, 2.60416680e-04
+def c19 = -2.08333340e-02, -1.25000000e-01, 1.00000000e+00, 5.00000000e-01
+dcl_position0 v0
+dcl_normal0 v1
+dcl_color v2
+dcl_texcoord0 v3
+dcl_texcoord1 v4
+frc r0.x, v4.x
+add r0.x, -r0.x, v4.x
+mova a.x, r0.x
+mov r0.xyw, c3.xyzw
+mad r1.xyzw, c[a.x + 20].xyzx, r0.xxxy, r0.yyyx
+dp4 r2.x, c9.xyzw, r1.xyzw
+dp4 r2.y, c10.xyzw, r1.xyzw
+dp4 r2.z, c11.xyzw, r1.xyzw
+dp4 r2.w, c12.xyzw, r1.xyzw
+dp4 r0.y, r2.xyzw, r2.xyzw
+rsq r0.y, r0.y
+rcp r0.y, r0.y
+add r0.y, r0.y, -c5.z
+rcp r0.z, c5.w
+mul r0.y, r0.y, r0.z
+max r0.y, r0.y, c3.y
+min r0.y, r0.y, c3.x
+add oT5.w, -r0.y, c3.x
+add r0.y, c[a.x + 20].y, c[a.x + 20].x
+mov r1.w, c4.w
+mad r0.y, r0.y, c7.z, r1.w
+mad r0.y, r0.y, c16.x, c16.y
+frc r0.y, r0.y
+mad r0.y, r0.y, c16.z, c16.w
+sincos r1.y, r0.y, c18.xyzw, c19.xyzw
+mul r0.y, r1.y, c4.z
+mul r0.z, v2.w, v2.w
+mul r0.y, r0.y, r0.z
+mul r1.xy, r0.y, c4.xyzw
+frc r2.xyzw, c[a.x + 20].xyzw
+add r2.xyz, r2.xyzw, c3.z
+mad r0.y, r2.w, c7.x, c7.y
+add r2.xyz, r2.xyzw, r2.xyzw
+abs r3.xyz, r2.xyzw
+sge r3.xy, r3.yzzw, r3.x
+mul r0.z, r3.y, r3.x
+mul r3.xyz, r2.zzxw, c17.xyzw
+mad r4.xyz, r2.zzyw, c17.yxzw, -r3.xyzw
+mad r3.xyz, r0.z, r4.xyzw, r3.xyzw
+nrm r4.xyz, r3.xyzw
+mul r3.xyz, r2.yzxw, r4.zxyw
+mad r3.xyz, r4.yzxw, r2.zxyw, -r3.xyzw
+mul r0.z, r0.w, c[a.x + 20].w
+mad r0.xzw, r0.z, c2.xyyz, r0.x
+mul r0.xzw, r0.xyzw, v0.xyyz
+mul r5.xyz, r4.xyzw, r0.z
+mul r4.xyz, r4.xyzw, v1.y
+mad r4.xyz, r3.xyzw, v1.x, r4.xyzw
+mad r3.xyz, r3.xyzw, r0.x, r5.xyzw
+mad r0.xzw, r2.xyyz, r0.w, r3.xyyz
+mad r2.xyz, r2.xyzw, v1.z, r4.xyzw
+dp3 r1.w, c0.xyzw, r2.xyzw
+max r1.w, r1.w, c3.y
+min r1.w, r1.w, c3.x
+mov r1.z, c3.y
+add r0.xzw, r1.xyyz, r0.xyzw
+add r2.xyz, r0.xzww, c[a.x + 20].xyzw
+mov r2.w, c3.x
+dp4 oPos.w, c12.xyzw, r2.xyzw
+add r0.xz, r2.xyyw, c13.xyyw
+rcp r0.w, c13.w
+mul oT2.xy, r0.xzzw, r0.w
+mul oT4.xyzw, r0.y, c6.xyzw
+mul r0.xyz, r0.y, v2.xyzw
+mul r0.xyz, r0.xyzw, c1.xyzw
+mul oT5.xyz, r1.w, r0.xyzw
+dp4 r0.x, c9.xyzw, r2.xyzw
+dp4 r0.y, c10.xyzw, r2.xyzw
+dp4 r0.z, c11.xyzw, r2.xyzw
+add r1.xy, r2.xyzw, -c8.xyzw
+dp3 r0.w, r0.xyzw, r0.xyzw
+mov oPos.xyz, r0.xyzw
+rsq r0.x, r0.w
+rcp r0.x, r0.x
+add r0.x, -r0.x, c15.x
+rcp r0.y, c15.y
+mul r0.x, r0.x, r0.y
+max r0.x, r0.x, c3.y
+min r0.x, r0.x, c3.x
+add r0.x, -r0.x, c3.x
+log r0.x, r0.x
+mul r0.x, r0.x, c15.z
+exp oD0.w, r0.x
+mov oT0.xy, v3.xyzw
+rcp r0.x, c8.w
+mul r1.x, r1.x, r0.x
+mad r1.z, r1.y, -r0.x, c3.x
+mov r1.w, c8.z
+mov oT3.xyz, r1.xzww
+mov oD0.xyz, c14.xyzw

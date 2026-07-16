@@ -1,0 +1,11 @@
+; Source record: SM3030.pso
+; Bytecode size: 284 bytes
+
+ps_2_1
+dcl_pp t0
+dcl_pp t1
+dcl_2d s0
+texld_pp r0.xyzw, t0.xyzw, s0
+rcp r1.w, c22.w
+mul_pp r0.xyz, r1.w, t1.z
+mov_pp oC0.xyzw, r0.xyzw

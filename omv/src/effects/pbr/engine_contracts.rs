@@ -38,7 +38,11 @@ const PASS_PIXEL_SHADER_OFFSET: usize = 0x44;
 const PASS_VERTEX_SHADER_OFFSET: usize = 0x5C;
 const CURRENT_GEOMETRY_SLOT_ADDR: usize = 0x011F91E0;
 const GEOMETRY_NAME_OFFSET: usize = 0x08;
+const CURRENT_DRAW_LIGHTING_PROPERTY_OFFSET: usize = 0xA8;
 const CURRENT_DRAW_SELECTOR_OFFSET: usize = 0xC0;
+const LIGHTING_PROPERTY_FLAGS_OFFSET: usize = 0x20;
+const LIGHTING_PROPERTY_FLAGS2_OFFSET: usize = 0x24;
+const LIGHTING_PROPERTY_DISTANCE_OFFSET: usize = 0x34;
 const SELECTOR_STATE_OFFSET: usize = 0xA8;
 const SELECTOR_ACTIVE_LAYER_COUNT_OFFSET: usize = 0xC8;
 const SELECTOR_PASS_ENTRY_LIST_OFFSET: usize = 0x3C;
@@ -52,6 +56,13 @@ const NID3D_VERTEX_SHADER_VTABLE_ADDR: usize = 0x010EF87C;
 const PIXEL_SHADER_NATIVE_HANDLE_OFFSET: usize = 0x2C;
 const VERTEX_SHADER_NATIVE_HANDLE_OFFSET: usize = 0x34;
 const SHADER_PROGRAM_BACKUP_HANDLE_OFFSET: usize = 0x1C;
+const SPECULAR_FADE_START_ADDR: usize = 0x011F9454;
+const SPECULAR_FADE_END_ADDR: usize = 0x011F9458;
+const RENDERER_LIGHT_DATA_0_W_ADDR: usize = 0x011FD9B4;
+
+const PPLIGHTING_PROPERTY_VTABLES: &[usize] = &[
+    0x010AE0D0, 0x010B8330, 0x010B9338, 0x010B9490, 0x010B9910, 0x010BABF8,
+];
 
 static TERRAIN_CONTRACT_AVAILABLE: AtomicBool = AtomicBool::new(false);
 static EYE_POSITION_CONTRACT_READY: AtomicBool = AtomicBool::new(false);
@@ -93,6 +104,17 @@ pub(super) struct DrawSnapshot {
     pub(super) pass_entry_list: usize,
     pub(super) scanned_entries: u32,
     pub(super) rejection: Option<ObjectDrawRejection>,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(super) struct ObjectSpecularFadeSnapshot {
+    pub(super) property: usize,
+    pub(super) property_flags: u32,
+    pub(super) property_flags2: u32,
+    pub(super) distance: f32,
+    pub(super) fade_start: f32,
+    pub(super) fade_end: f32,
+    pub(super) native_weight: f32,
 }
 
 pub(super) fn install_core_contracts() {
@@ -262,6 +284,25 @@ pub(super) fn current_object_draw_rejection(pass_index: u32) -> Option<ObjectDra
     }
 
     None
+}
+
+pub(super) fn current_object_specular_fade_snapshot() -> Option<ObjectSpecularFadeSnapshot> {
+    let geometry = current_geometry()?;
+    let property = read_ptr_offset(geometry, CURRENT_DRAW_LIGHTING_PROPERTY_OFFSET)?;
+    let property_vtable = read_ptr(property.cast_const())? as usize;
+    if !PPLIGHTING_PROPERTY_VTABLES.contains(&property_vtable) {
+        return None;
+    }
+
+    Some(ObjectSpecularFadeSnapshot {
+        property: property as usize,
+        property_flags: read_u32_offset(property, LIGHTING_PROPERTY_FLAGS_OFFSET)?,
+        property_flags2: read_u32_offset(property, LIGHTING_PROPERTY_FLAGS2_OFFSET)?,
+        distance: read_f32_offset(property, LIGHTING_PROPERTY_DISTANCE_OFFSET)?,
+        fade_start: read_f32(SPECULAR_FADE_START_ADDR as *const c_void)?,
+        fade_end: read_f32(SPECULAR_FADE_END_ADDR as *const c_void)?,
+        native_weight: read_f32(RENDERER_LIGHT_DATA_0_W_ADDR as *const c_void)?,
+    })
 }
 
 pub(super) fn geometry_name(geometry: usize) -> Option<String> {
@@ -509,6 +550,13 @@ fn read_u32(address: *const c_void) -> Option<u32> {
     Some(unsafe { address.cast::<u32>().read() })
 }
 
+fn read_f32(address: *const c_void) -> Option<f32> {
+    if !readable_range(address, size_of::<f32>()) {
+        return None;
+    }
+    Some(unsafe { address.cast::<f32>().read() })
+}
+
 fn read_u8(address: *const c_void) -> Option<u8> {
     if !readable_range(address, size_of::<u8>()) {
         return None;
@@ -539,6 +587,11 @@ fn read_u32_offset(base: *mut c_void, offset: usize) -> Option<u32> {
     }
 
     Some(unsafe { (ptr as *const u32).read() })
+}
+
+fn read_f32_offset(base: *mut c_void, offset: usize) -> Option<f32> {
+    let ptr = offset_ptr(base, offset);
+    read_f32(ptr.cast_const())
 }
 
 fn read_u16_offset(base: *mut c_void, offset: usize) -> Option<u16> {

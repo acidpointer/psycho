@@ -1,0 +1,8 @@
+; Source record: SKY.pso
+; Bytecode size: 196 bytes
+
+ps_2_1
+dcl v0
+mul r0.xyz, v0.xyzw, c4.y
+mov r0.w, v0.w
+mov oC0.xyzw, r0.xyzw

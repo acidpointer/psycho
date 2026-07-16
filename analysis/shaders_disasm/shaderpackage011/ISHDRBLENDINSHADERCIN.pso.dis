@@ -1,0 +1,28 @@
+; Source record: ISHDRBLENDINSHADERCIN.pso
+; Bytecode size: 748 bytes
+
+ps_2_1
+def c0 = 5.00000000e-01, 0.00000000e+00, 0.00000000e+00, 0.00000000e+00
+def c3 = 2.98999995e-01, 5.87000012e-01, 1.14000000e-01, 0.00000000e+00
+dcl t0
+dcl t1
+dcl_2d s0
+dcl_2d s1
+texld r0.xyzw, t1.xyzw, s1
+texld r1.xyzw, t0.xyzw, s0
+max r0.w, r1.w, c1.x
+rcp r0.w, r0.w
+mul r1.w, r0.w, c0.x
+mul r0.w, r0.w, c1.x
+mul r1.xyz, r1.xyzw, r1.w
+max r2.xyz, r1.xyzw, c0.y
+mad r0.xyz, r0.w, r0.xyzw, r2.xyzw
+dp3 r0.w, r0.xyzw, c3.xyzw
+lrp r1.xyz, c19.x, r0.xyzw, r0.w
+mad r0.xyz, r0.w, c20.xyzw, -r1.xyzw
+mad r0.xyz, c20.w, r0.xyzw, r1.xyzw
+mad r0.xyz, c19.w, r0.xyzw, -c19.y
+mad r0.xyz, c19.z, r0.xyzw, c19.y
+lrp r1.xyz, c22.w, c22.xyzw, r0.xyzw
+mov r1.w, c2.z
+mov oC0.xyzw, r1.xyzw

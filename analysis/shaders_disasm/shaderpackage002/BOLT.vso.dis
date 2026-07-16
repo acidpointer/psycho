@@ -1,0 +1,76 @@
+; Source record: BOLT.vso
+; Bytecode size: 1452 bytes
+
+vs_1_1
+def c7 = -1.00000000e+00, 1.00000000e+00, 0.00000000e+00, -2.00000000e+00
+dcl_position0 v0
+dcl_specular0 v1
+sge r0.x, v1.x, c4.y
+mad r0.x, r0.x, -c4.y, v1.x
+mov r1.xyz, c7.xyzw
+mov a.x, r0.x
+mad r2.xyzw, c[a.xyzw + 14].xyzx, r1.yyyz, r1.zzzy
+dp4 oPos.z, c2.xyzw, r2.xyzw
+dp4 oPos.w, c3.xyzw, r2.xyzw
+add r0.y, r0.x, c7.x
+mad r3.xyzw, c[a.xyzw + 15].xyzx, r1.yyyz, r1.zzzy
+mov a.x, r0.y
+mad r0.xyzw, c[a.xyzw + 14].xyzx, r1.yyyz, r1.zzzy
+dp4 r4.x, c0.xyzw, r0.xyzw
+dp4 r4.y, c1.xyzw, r0.xyzw
+dp4 r0.x, c0.xyzw, r2.xyzw
+dp4 r0.y, c1.xyzw, r2.xyzw
+add r0.zw, r4.xyxy, -r0.xyxy
+mul r1.yw, r0.xzzw, r0.xzzw
+add r1.y, r1.w, r1.y
+rsq r1.y, r1.y
+dp4 r2.y, c0.xyzw, r3.xyzw
+dp4 r2.x, c1.xyzw, r3.xyzw
+add r2.xy, -r0.yxzw, r2.xyzw
+mul r2.zw, r2.xyyx, r2.xyyx
+add r1.w, r2.w, r2.z
+rsq r1.w, r1.w
+mul r2.xy, r2.xyzw, r1.w
+mad r0.zw, r0.xyzw, r1.y, r2.xyyx
+mul r1.y, r2.y, r0.w
+mad r1.y, r0.z, r2.x, -r1.y
+slt r1.y, r1.y, c7.z
+mul r1.yw, r0.xzzw, r1.y
+mad r0.zw, r1.xyyw, c7.w, r0.xyzw
+mul r1.yw, r0.xzzw, r0.xzzw
+add r1.y, r1.w, r1.y
+rsq r1.y, r1.y
+mul r0.zw, r0.xyzw, r1.y
+frc r1.y, c4.z
+add r1.y, -r1.y, c4.z
+rcp r1.w, r1.y
+mul r1.w, r1.w, v1.x
+frc r2.y, r1.w
+add r2.x, r1.w, -r2.y
+mad r2.x, r2.x, c5.w, c5.z
+mul r2.x, r2.x, v0.x
+mad oPos.xy, r2.x, r0.zwzw, r0.xyzw
+sge r0.x, r1.w, -r1.w
+max r0.y, -r1.w, r1.w
+frc r2.y, r0.y
+add r0.y, r2.y, r2.y
+mad r0.x, r0.x, r0.y, -r2.y
+mul r0.x, r1.y, r0.x
+frc r2.y, r0.x
+add r0.x, r0.x, -r2.y
+add r0.y, r1.x, c5.y
+sge r0.z, r0.x, r0.y
+slt r0.w, r0.x, c5.x
+mul r0.z, r0.z, r0.w
+sge r0.z, -r0.z, r0.z
+mul r1.x, r0.x, c6.x
+sge r0.x, r0.x, r1.y
+sge r0.y, r1.x, r0.y
+mad r0.y, r0.y, -r0.z, r0.z
+slt r0.z, r1.z, c6.x
+mul r0.z, r0.w, r0.z
+mad r0.y, r0.z, -r0.y, r0.y
+mad r0.x, r0.x, -r0.y, r0.y
+mul oD0.w, r0.x, c6.y
+mov oD0.xyz, c7.y
+mov oT0.xy, v0.xyzw

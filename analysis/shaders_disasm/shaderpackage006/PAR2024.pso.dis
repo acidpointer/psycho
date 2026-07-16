@@ -1,0 +1,36 @@
+; Source record: PAR2024.pso
+; Bytecode size: 764 bytes
+
+ps_2_1
+def c0 = 3.99999991e-02, -1.99999996e-02, -5.00000000e-01, 2.00000003e-01
+def c1 = 1.00000000e+00, 0.00000000e+00, 0.00000000e+00, 0.00000000e+00
+dcl t0
+dcl_pp_centroid t1
+dcl_pp_centroid t3
+dcl_pp_centroid t7
+dcl_2d s0
+dcl_2d s2
+texld_pp r0.xyzw, t0.xyzw, s2
+dp3_pp r0.y, t7.xyzw, t7.xyzw
+rsq_pp r0.y, r0.y
+mul_pp r0.yz, r0.y, t7.zxyw
+mad_pp r0.x, r0.x, c0.x, c0.y
+mad_pp r0.xy, r0.yzxw, r0.x, t0.xyzw
+texld_pp r0.xyzw, r0.xyzw, s0
+add r0.xyz, r0.xyzw, c0.z
+add_pp r0.xyz, r0.xyzw, r0.xyzw
+nrm_pp r1.xyz, r0.xyzw
+nrm_pp r0.xyz, t3.xyzw
+dp3_sat_pp r1.w, r1.xyzw, r0.xyzw
+pow_pp r0.x, r1.w, c27.z
+mul_pp r1.w, r0.w, r0.x
+nrm_pp r0.xyz, t1.xyzw
+dp3_pp r0.x, r1.xyzw, r0.xyzw
+add_sat_pp r0.y, r0.x, -c0.z
+add r0.x, -r0.x, c0.w
+mul_pp r0.y, r1.w, r0.y
+cmp_pp r0.x, r0.x, r0.y, r1.w
+mul_pp r0.xyz, r0.x, c3.xyzw
+mov_sat_pp r1.xyz, r0.xyzw
+dp3_pp r1.w, r0.xyzw, c1.x
+mov_pp oC0.xyzw, r1.xyzw

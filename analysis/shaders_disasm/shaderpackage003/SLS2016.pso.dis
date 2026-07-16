@@ -1,0 +1,60 @@
+; Source record: SLS2016.pso
+; Bytecode size: 1328 bytes
+
+ps_2_1
+def c0 = -5.00000000e-01, 5.00000000e-01, -1.00000000e+00, 1.00000000e+00
+def c5 = 0.00000000e+00, 1.00000000e+00, 0.00000000e+00, 0.00000000e+00
+dcl_pp t0
+dcl_pp t7
+dcl v0
+dcl v1
+dcl_pp_centroid t1
+dcl_pp_centroid t2
+dcl_pp t4
+dcl_2d s0
+dcl_2d s1
+dcl_2d s4
+dcl_2d s5
+dcl_2d s6
+dcl_2d s7
+mov r0.xz, c0.xyzw
+add r0.y, r0.z, c1.w
+cmp r0.y, r0.y, c5.x, c5.y
+texld_pp r1.xyzw, t0.xyzw, s0
+add r0.z, r1.w, -c27.w
+mul r2.xyzw, r0.y, r0.z
+mov_pp r3.xy, t4.zwzw
+texkill r2.xyzw
+texld_pp r2.xyzw, t0.xyzw, s1
+texld_pp r4.xyzw, t4.xyzw, s5
+texld_pp r3.xyzw, r3.xyzw, s5
+add_pp r2.w, -r4.x, c0.w
+add_sat_pp r2.w, -r3.x, r2.w
+add r0.yzw, r2.xxyz, c0.x
+add_pp r0.yzw, r0.xyzw, r0.xyzw
+nrm_pp r2.xyz, r0.yzww
+nrm_pp r3.xyz, t2.xyzw
+dp3_pp r0.y, r2.xyzw, r3.xyzw
+dp3_pp r0.z, r2.xyzw, t1.xyzw
+mul_sat_pp r2.xyz, r0.z, c3.xyzw
+mul_sat_pp r0.yzw, r0.y, c4.xxyz
+mul_pp r0.yzw, r2.w, r0.xyzw
+mov_pp r3.xy, t7.zwzw
+texld_pp r4.xyzw, t7.xyzw, s6
+texld_pp r3.xyzw, r3.xyzw, s7
+add_pp r3.yzw, r4.xxyz, c0.z
+mad_pp r3.xyz, r3.x, r3.yzww, c0.w
+mad_pp r0.yzw, r2.xxyz, r3.xxyz, r0.xyzw
+add_sat_pp r0.yzw, r0.xyzw, c1.xxyz
+add r2.xyz, r0.x, c2.xyzw
+mad r2.xyz, v0.y, r2.xyzw, c0.y
+add_pp r2.xyz, r2.xyzw, r2.xyzw
+texld_pp r3.xyzw, t0.xyzw, s4
+lrp_pp r4.xyz, r3.w, r3.xyzw, r1.xyzw
+mul_pp r1.w, r1.w, c1.w
+mul_pp r2.xyz, r2.xyzw, r4.xyzw
+mad_pp r3.xyz, r0.yzww, -r2.xyzw, v1.xyzw
+mul_pp r0.xyz, r0.yzww, r2.xyzw
+mad_pp r2.xyz, v1.w, r3.xyzw, r0.xyzw
+cmp_pp r1.xyz, -c27.y, r0.xyzw, r2.xyzw
+mov_pp oC0.xyzw, r1.xyzw
