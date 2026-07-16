@@ -30,6 +30,11 @@ Use these sources before making terrain or lighting changes:
 - `analysis/ghidra/output/perf/graphics_fnv_pbr_object_distance_specular_transition_contract_audit.txt`
 - `analysis/ghidra/output/perf/graphics_fnv_pbr_object_specular_fade_formula_followup.txt`
 - `analysis/ghidra/output/perf/graphics_fnv_pbr_object_lighting_transition_ownership_audit.txt`
+- `analysis/ghidra/output/perf/graphics_fnv_pbr_object_envmap_runtime_contract_closure.txt`
+- `analysis/ghidra/output/perf/graphics_fnv_pbr_object_envmap_table_apply_followup.txt`
+- `analysis/ghidra/output/perf/graphics_fnv_pbr_object_envmap_owner_runtime_binding_closure.txt`
+- `analysis/ghidra/output/perf/graphics_fnv_pbr_object_envmap_pass_248_24b_texture_binding_closure.txt`
+- `analysis/ghidra/output/perf/graphics_fnv_pbr_object_envmap_accessors_stage2_owner_closure.txt`
 - `.research/TESReloaded10-master/NewVegasReloaded/Main.cpp`
 - `.research/TESReloaded10-master/src/effects/Terrain.cpp`
 - `.research/TESReloaded10-master/src/effects/PBR.cpp`
@@ -277,6 +282,10 @@ Vanilla object shaders do multiply accumulated specular lighting by the native f
 
 Ghidra closes the complete native contract. `BSShaderPPLightingProperty::GetSpecularFade` returns `1` before the configured start distance, `0` at or beyond the end distance, and a linear `1 - (distance - start) / (end - start)` weight between them. `FUN_00B70820` writes that value into staged `LightData[0].w`; `FUN_00B78A90` copies it to renderer vertex constant `c25.w`; the ordinary and ADTS10 object vertex paths pass it to the pixel shader.
 
+The separate native EnvMap pass is also closed. Rows `0x248..0x24B` select base, skin, window, and eye pairs `VS50/PS57`, `VS51/PS57`, `VS50/PS58`, and `VS52/PS59`. Base, skin, and window bind normal `s0`, cube `s1`, and optional mask `s3`; eye uses the static eye cube at `s1`. Pixel `c1.w` carries `GetEnvMapFade`, while `c27.z` is property EnvMap scale and `c27.w` selects dedicated-mask red instead of normal alpha. The installed shader-package disassemblies prove this is an additive author-authored reflection pass, not an ordinary object-lighting row.
+
+`FUN_00BB4740` invalidates the property pass list when distance crosses an EnvMap fade endpoint. It does not swap EnvMap textures with distance. Native shaders multiply reflection by the continuous `c1.w` fade before the pass disappears at zero, so a visible step is a runtime-state mismatch until live constants and bindings prove otherwise.
+
 NVR deliberately does something different for object PBR. Its object helper calls pass metallicness `0`, its combined BRDF is accumulated as one result, it does not apply the vanilla fade to ordinary PBR specular, and its ADTS10 path leaves the attenuation as a TODO. NVR also leaves its screen-derivative `SpecularAA` call commented out.
 
 OMV mixed these contracts. It enabled the commented-out `SpecularAA`, split the NVR BRDF, and applied the vanilla fade only to the new GGX lobe. The first curve, `smoothstep(0.0, 0.1, nativeTransition)`, made the lobe appear over a very short distance. Replacing that with the full linear fade made more objects unstable because it exposed the screen-space-dependent GGX term across the entire native interval. The installed metallicness is `0.0`, so metallicness switching is not the cause of the captured run.
@@ -294,6 +303,8 @@ Do not repeat:
 - Do not use global object metallicness when no per-material metalness mask exists; NVR object calls pass zero.
 - Do not tune another transition curve before restoring the source-proven material model.
 - Do not reinterpret `c25.w` globally. Alternate PPLighting paths can store point-light radius data there; the specular fade contract applies only to the proven combined-specular object pairs.
+- Do not feed EnvMap rows through the ordinary object PBR template; their sampler, vertex, constant, and additive-output ABIs are different.
+- Do not invent roughness LOD or Fresnel for the native cube. No prefiltered mip-chain, BRDF lookup, or material roughness contract has been proven for this pass.
 
 Correct fix path:
 
@@ -303,6 +314,7 @@ Correct fix path:
 - Restore neutral NVR object profile defaults rather than amplifying the lobe with lower roughness and higher light scale.
 - If source-equivalent NVR remains too shiny, design a separate material-faithful mode that preserves normal alpha as specular amplitude and maps engine `glossPower` to GGX roughness. Prove its fade contract separately.
 - Keep object, terrain, and LandLOD shader contracts separate.
+- Keep the proven EnvMap rows native while comparing live `c1.w`, `c27`, and `s0/s1/s3` against the static contract at the reported distance transition.
 
 Current material-faithful implementation (2026-07-16):
 

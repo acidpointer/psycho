@@ -1,0 +1,3348 @@
+FNV PBR OBJECT ENVMAP ACCESSORS AND STAGE-2 OWNER CLOSURE
+
+Established from the prior output:
+- passes 0x248/0x249/0x24A bind descriptor indices 3, 1, and 0
+- pass 0x24B binds descriptor index 0; its descriptor index 1 is static
+- descriptor index 2 is not written by the EnvMap B7D200 block
+- BE2170 skips descriptors whose texture pointer +8 is null
+
+Questions:
+1. Which +0xAC..+0xC0 arrays do C03230, C02F30, and virtual semantic 5 return?
+2. Is EnvMap stage 2 an external persistent binding, an unused sampler, or a missing native write?
+3. Which environment record owns the stage-2 resource or related constant state?
+4. Can distance change any texture binding, or only pass membership and fade constants?
+
+======================================================================
+PPLIGHTING MATERIAL TEXTURE VTABLE SLOTS
+======================================================================
+
+BSShaderPPLightingProperty vtable 0x010ae0d0
+  +0xec texture-set mutation predecessor   -> 0x00b671f0 ???
+  +0xf0 SetTexture candidate               -> 0x00b67200 ???
+  +0xf4 GetTexture candidate               -> 0x00b67260 ???
+  +0xf8 texture accessor successor         -> 0x00b666d0 FUN_00b666d0
+
+Lighting30ShaderProperty vtable 0x010b8330
+  +0xec texture-set mutation predecessor   -> 0x00b671f0 ???
+  +0xf0 SetTexture candidate               -> 0x00b67200 ???
+  +0xf4 GetTexture candidate               -> 0x00b67260 ???
+  +0xf8 texture accessor successor         -> 0x00b666d0 FUN_00b666d0
+
+SpeedTreeBranchShaderProperty vtable 0x010b9338
+  +0xec texture-set mutation predecessor   -> 0x00b671f0 ???
+  +0xf0 SetTexture candidate               -> 0x00b67200 ???
+  +0xf4 GetTexture candidate               -> 0x00b67260 ???
+  +0xf8 texture accessor successor         -> 0x00b666d0 FUN_00b666d0
+
+SpeedTreeShaderPPLightingProperty vtable 0x010b9490
+  +0xec texture-set mutation predecessor   -> 0x00b671f0 ???
+  +0xf0 SetTexture candidate               -> 0x00b67200 ???
+  +0xf4 GetTexture candidate               -> 0x00b67260 ???
+  +0xf8 texture accessor successor         -> 0x00b666d0 FUN_00b666d0
+
+DistantLODShaderProperty vtable 0x010b9910
+  +0xec texture-set mutation predecessor   -> 0x00b671f0 ???
+  +0xf0 SetTexture candidate               -> 0x00b67200 ???
+  +0xf4 GetTexture candidate               -> 0x00b67260 ???
+  +0xf8 texture accessor successor         -> 0x00b666d0 FUN_00b666d0
+
+TallGrassShaderProperty vtable 0x010babf8
+  +0xec texture-set mutation predecessor   -> 0x00b671f0 ???
+  +0xf0 SetTexture candidate               -> 0x00b67200 ???
+  +0xf4 GetTexture candidate               -> 0x00b67260 ???
+  +0xf8 texture accessor successor         -> 0x00b666d0 FUN_00b666d0
+
+======================================================================
+vtable texture method: TallGrassShaderProperty texture accessor successor @ 0x00b666d0
+======================================================================
+  Function: FUN_00b666d0 @ 0x00b666d0, Size: 47 bytes
+
+void __thiscall FUN_00b666d0(int param_1,int *param_2)
+
+{
+  uint uVar1;
+  undefined4 *puVar2;
+  
+  uVar1 = 0;
+  puVar2 = (undefined4 *)(param_1 + 0xac);
+  do {
+    (**(code **)(*param_2 + 0x90))(uVar1,*puVar2);
+    uVar1 = uVar1 + 1;
+    puVar2 = puVar2 + 1;
+  } while (uVar1 < 6);
+  return;
+}
+
+
+
+--- Calls FROM TallGrassShaderProperty texture accessor successor (0x00b666d0) ---
+  Total: 0 calls
+
+MATCHED CONTRACT LINES: TallGrassShaderProperty texture accessor successor @ 0x00b666d0
+  L0009:   puVar2 = (undefined4 *)(param_1 + 0xac);
+  Total matched lines: 1
+
+----------------------------------------------------------------------
+References TO 0x00b666d0 (TallGrassShaderProperty texture accessor successor)
+----------------------------------------------------------------------
+  DATA @ 0x010ae1c8 (in ???)
+  DATA @ 0x010b8428 (in ???)
+  DATA @ 0x010b9430 (in ???)
+  DATA @ 0x010b9588 (in ???)
+  DATA @ 0x010b9a08 (in ???)
+  DATA @ 0x010bacf0 (in ???)
+  DATA @ 0x010bcc58 (in ???)
+  Total: 7 refs
+
+======================================================================
+vtable texture method: TallGrassShaderProperty texture-set mutation predecessor @ 0x00b671f0
+======================================================================
+  [function not found]
+  [function not found at 0x00b671f0]
+
+MATCHED CONTRACT LINES: TallGrassShaderProperty texture-set mutation predecessor @ 0x00b671f0
+  [decompilation failed]
+
+----------------------------------------------------------------------
+References TO 0x00b671f0 (TallGrassShaderProperty texture-set mutation predecessor)
+----------------------------------------------------------------------
+  DATA @ 0x010ae1bc (in ???)
+  DATA @ 0x010b841c (in ???)
+  DATA @ 0x010b9424 (in ???)
+  DATA @ 0x010b957c (in ???)
+  DATA @ 0x010b99fc (in ???)
+  DATA @ 0x010bace4 (in ???)
+  DATA @ 0x010bcc4c (in ???)
+  Total: 7 refs
+
+======================================================================
+vtable texture method: TallGrassShaderProperty SetTexture candidate @ 0x00b67200
+======================================================================
+  [function not found]
+  [function not found at 0x00b67200]
+
+MATCHED CONTRACT LINES: TallGrassShaderProperty SetTexture candidate @ 0x00b67200
+  [decompilation failed]
+
+----------------------------------------------------------------------
+References TO 0x00b67200 (TallGrassShaderProperty SetTexture candidate)
+----------------------------------------------------------------------
+  DATA @ 0x010ae1c0 (in ???)
+  DATA @ 0x010b8420 (in ???)
+  DATA @ 0x010b9428 (in ???)
+  DATA @ 0x010b9580 (in ???)
+  DATA @ 0x010b9a00 (in ???)
+  DATA @ 0x010bace8 (in ???)
+  DATA @ 0x010bcc50 (in ???)
+  Total: 7 refs
+
+======================================================================
+vtable texture method: TallGrassShaderProperty GetTexture candidate @ 0x00b67260
+======================================================================
+  [function not found]
+  [function not found at 0x00b67260]
+
+MATCHED CONTRACT LINES: TallGrassShaderProperty GetTexture candidate @ 0x00b67260
+  [decompilation failed]
+
+----------------------------------------------------------------------
+References TO 0x00b67260 (TallGrassShaderProperty GetTexture candidate)
+----------------------------------------------------------------------
+  DATA @ 0x010ae1c4 (in ???)
+  DATA @ 0x010b8424 (in ???)
+  DATA @ 0x010b942c (in ???)
+  DATA @ 0x010b9584 (in ???)
+  DATA @ 0x010b9a04 (in ???)
+  DATA @ 0x010bacec (in ???)
+  DATA @ 0x010bcc54 (in ???)
+  Total: 7 refs
+
+======================================================================
+RAW DISASSEMBLY: EnvMap descriptor indices 3, 1, 0 and eye fallthrough 0x00b7d350-0x00b7d395
+======================================================================
+  0x00b7d351: MOV EAX,dword ptr [EDX + 0x108]
+  0x00b7d357: MOV ECX,EDI
+  0x00b7d359: CALL EAX
+  0x00b7d35b: POP EDI
+  0x00b7d35c: POP ESI
+  0x00b7d35d: POP EBX
+  0x00b7d35e: RET 0x4
+  0x00b7d361: PUSH 0x0
+  0x00b7d363: PUSH 0x3
+  0x00b7d365: PUSH ESI
+  0x00b7d366: MOV ECX,EDI
+  0x00b7d368: CALL 0x00b7c2c0
+      ref UNCONDITIONAL_CALL -> 0x00b7c2c0
+  0x00b7d36d: PUSH 0x0
+  0x00b7d36f: PUSH 0x1
+  0x00b7d371: PUSH ESI
+  0x00b7d372: MOV ECX,EDI
+  0x00b7d374: CALL 0x00b7c290
+      ref UNCONDITIONAL_CALL -> 0x00b7c290
+  0x00b7d379: PUSH 0x0
+  0x00b7d37b: PUSH 0x0
+  0x00b7d37d: PUSH ESI
+  0x00b7d37e: MOV ECX,EDI
+  0x00b7d380: CALL 0x00b7c0e0
+      ref UNCONDITIONAL_CALL -> 0x00b7c0e0
+  0x00b7d385: MOV EDX,dword ptr [EDI]
+  0x00b7d387: MOV EAX,dword ptr [EDX + 0x108]
+  0x00b7d38d: MOV ECX,EDI
+  0x00b7d38f: CALL EAX
+  0x00b7d391: POP EDI
+  0x00b7d392: POP ESI
+  0x00b7d393: POP EBX
+  0x00b7d394: RET 0x4
+  Total instructions: 30
+
+======================================================================
+RAW DISASSEMBLY: descriptor non-null apply gate 0x00be2170-0x00be21a7
+======================================================================
+  0x00be2170: PUSH EBX
+  0x00be2171: PUSH ESI
+  0x00be2172: PUSH EDI
+  0x00be2173: MOV EDI,dword ptr [0x0126f74c]
+      ref READ               -> 0x0126f74c
+  0x00be2179: MOV EBX,dword ptr [EDI + 0x18]
+  0x00be217c: XOR ESI,ESI
+  0x00be217e: TEST EBX,EBX
+  0x00be2180: JBE 0x00be21a4
+      ref CONDITIONAL_JUMP   -> 0x00be21a4
+  0x00be2182: MOV EAX,dword ptr [EDI + 0x24]
+  0x00be2185: MOV ECX,dword ptr [EAX + ESI*0x4]
+  0x00be2188: TEST ECX,ECX
+  0x00be218a: JZ 0x00be21a4
+      ref CONDITIONAL_JUMP   -> 0x00be21a4
+  0x00be218c: CMP byte ptr [ECX + 0x64],0x0
+  0x00be2190: JZ 0x00be219f
+      ref CONDITIONAL_JUMP   -> 0x00be219f
+  0x00be2192: CMP dword ptr [ECX + 0x8],0x0
+  0x00be2196: JZ 0x00be219f
+      ref CONDITIONAL_JUMP   -> 0x00be219f
+  0x00be2198: PUSH 0x0
+  0x00be219a: CALL 0x00e7eb00
+      ref UNCONDITIONAL_CALL -> 0x00e7eb00
+  0x00be219f: INC ESI
+  0x00be21a0: CMP ESI,EBX
+  0x00be21a2: JC 0x00be2182
+      ref CONDITIONAL_JUMP   -> 0x00be2182
+  0x00be21a4: POP EDI
+  0x00be21a5: POP ESI
+  0x00be21a6: POP EBX
+  0x00be21a7: RET
+  Total instructions: 25
+
+======================================================================
+B7C290 texture accessor @ 0x00c02f30
+======================================================================
+  Function: FUN_00c02f30 @ 0x00c02f30, Size: 56 bytes
+
+int FUN_00c02f30(int *param_1,undefined4 param_2)
+
+{
+  int iVar1;
+  
+  FUN_00b4f5c0();
+  iVar1 = (**(code **)(*param_1 + 0xf4))(4,param_2);
+  if (iVar1 == 0) {
+    iVar1 = DAT_011f95d4;
+  }
+  return iVar1;
+}
+
+
+
+--- Calls FROM B7C290 texture accessor (0x00c02f30) ---
+  0x00c02f32 -> 0x00b4f5c0 FUN_00b4f5c0
+  Total: 1 calls
+
+MATCHED CONTRACT LINES: B7C290 texture accessor @ 0x00c02f30
+  L0008:   iVar1 = (**(code **)(*param_1 + 0xf4))(4,param_2);
+  Total matched lines: 1
+
+======================================================================
+B7C0E0 texture accessor @ 0x00c03230
+======================================================================
+  Function: FUN_00c03230 @ 0x00c03230, Size: 43 bytes
+
+int FUN_00c03230(int param_1,int param_2)
+
+{
+  int iVar1;
+  
+  iVar1 = *(int *)(*(int *)(param_1 + 0xb0) + param_2 * 4);
+  if ((iVar1 == 0) && (iVar1 = DAT_011f9518, (*(uint *)(param_1 + 0x20) & 0x80) == 0)) {
+    iVar1 = DAT_011f9510;
+  }
+  return iVar1;
+}
+
+
+
+--- Calls FROM B7C0E0 texture accessor (0x00c03230) ---
+  Total: 0 calls
+
+MATCHED CONTRACT LINES: B7C0E0 texture accessor @ 0x00c03230
+  L0007:   iVar1 = *(int *)(*(int *)(param_1 + 0xb0) + param_2 * 4);
+  Total matched lines: 1
+
+======================================================================
+descriptor writer using C02F30 @ 0x00b7c290
+======================================================================
+  Function: FUN_00b7c290 @ 0x00b7c290, Size: 47 bytes
+
+void FUN_00b7c290(undefined4 param_1,int param_2,undefined4 param_3)
+
+{
+  int iVar1;
+  undefined4 uVar2;
+  
+  iVar1 = *(int *)(*(int *)(DAT_0126f74c + 0x24) + param_2 * 4);
+  uVar2 = FUN_00c02f30(param_1,param_3);
+  *(undefined4 *)(iVar1 + 8) = uVar2;
+  FUN_00e7de90(0);
+  return;
+}
+
+
+
+--- Calls FROM descriptor writer using C02F30 (0x00b7c290) ---
+  0x00b7c2aa -> 0x00c02f30 FUN_00c02f30
+  0x00b7c2b6 -> 0x00e7de90 FUN_00e7de90
+  Total: 2 calls
+
+MATCHED CONTRACT LINES: descriptor writer using C02F30 @ 0x00b7c290
+  L0008:   iVar1 = *(int *)(*(int *)(DAT_0126f74c + 0x24) + param_2 * 4);
+  Total matched lines: 1
+
+======================================================================
+descriptor writer using C03230 @ 0x00b7c0e0
+======================================================================
+  Function: FUN_00b7c0e0 @ 0x00b7c0e0, Size: 64 bytes
+
+void FUN_00b7c0e0(int *param_1,int param_2,undefined4 param_3)
+
+{
+  int iVar1;
+  undefined4 uVar2;
+  
+  iVar1 = *(int *)(*(int *)(DAT_0126f74c + 0x24) + param_2 * 4);
+  uVar2 = FUN_00c03230(param_1,param_3);
+  *(undefined4 *)(iVar1 + 8) = uVar2;
+  if (param_1 != (int *)0x0) {
+    uVar2 = (**(code **)(*param_1 + 0xe0))();
+    FUN_00e7de90(uVar2);
+  }
+  return;
+}
+
+
+
+--- Calls FROM descriptor writer using C03230 (0x00b7c0e0) ---
+  0x00b7c0fb -> 0x00c03230 FUN_00c03230
+  0x00b7c116 -> 0x00e7de90 FUN_00e7de90
+  Total: 2 calls
+
+MATCHED CONTRACT LINES: descriptor writer using C03230 @ 0x00b7c0e0
+  L0008:   iVar1 = *(int *)(*(int *)(DAT_0126f74c + 0x24) + param_2 * 4);
+  Total matched lines: 1
+
+======================================================================
+descriptor writer using virtual texture semantic 5 @ 0x00b7c2c0
+======================================================================
+  Function: FUN_00b7c2c0 @ 0x00b7c2c0, Size: 83 bytes
+
+void FUN_00b7c2c0(int *param_1,int param_2,undefined4 param_3)
+
+{
+  int iVar1;
+  int iVar2;
+  undefined4 uVar3;
+  
+  iVar1 = *(int *)(*(int *)(DAT_0126f74c + 0x24) + param_2 * 4);
+  iVar2 = (**(code **)(*param_1 + 0xf4))(5,param_3);
+  if (iVar2 != 0) {
+    uVar3 = (**(code **)(*param_1 + 0xf4))(5,param_3);
+    *(undefined4 *)(iVar1 + 8) = uVar3;
+    return;
+  }
+  *(undefined4 *)(iVar1 + 8) = DAT_011f9514;
+  return;
+}
+
+
+
+--- Calls FROM descriptor writer using virtual texture semantic 5 (0x00b7c2c0) ---
+  Total: 0 calls
+
+MATCHED CONTRACT LINES: descriptor writer using virtual texture semantic 5 @ 0x00b7c2c0
+  L0009:   iVar1 = *(int *)(*(int *)(DAT_0126f74c + 0x24) + param_2 * 4);
+  L0010:   iVar2 = (**(code **)(*param_1 + 0xf4))(5,param_3);
+  L0012:     uVar3 = (**(code **)(*param_1 + 0xf4))(5,param_3);
+  Total matched lines: 3
+
+======================================================================
+PPLighting pass texture binder @ 0x00b7d200
+======================================================================
+  Function: FUN_00b7d200 @ 0x00b7d200, Size: 1343 bytes
+
+/* WARNING: Control flow encountered bad instruction data */
+/* WARNING: Instruction at (ram,0x01012833) overlaps instruction at (ram,0x01012832)
+    */
+/* WARNING: Unable to track spacebase fully for stack */
+/* WARNING: Removing unreachable block (ram,0x010121f2) */
+/* WARNING: Removing unreachable block (ram,0x01012267) */
+/* WARNING: Removing unreachable block (ram,0x010121f4) */
+/* WARNING: Removing unreachable block (ram,0x010121fe) */
+/* WARNING: Removing unreachable block (ram,0x01012277) */
+/* WARNING: Removing unreachable block (ram,0x01012203) */
+/* WARNING: Removing unreachable block (ram,0x0101222c) */
+/* WARNING: Removing unreachable block (ram,0x010122a2) */
+/* WARNING: Removing unreachable block (ram,0x0101220c) */
+/* WARNING: Removing unreachable block (ram,0x01012282) */
+/* WARNING: Removing unreachable block (ram,0x0101220f) */
+/* WARNING: Removing unreachable block (ram,0x01012231) */
+/* WARNING: Removing unreachable block (ram,0x01012211) */
+/* WARNING: Removing unreachable block (ram,0x01012284) */
+/* WARNING: Removing unreachable block (ram,0x01012285) */
+/* WARNING: Removing unreachable block (ram,0x010122c1) */
+/* WARNING: Removing unreachable block (ram,0x01012328) */
+/* WARNING: Removing unreachable block (ram,0x010122c3) */
+/* WARNING: Removing unreachable block (ram,0x0101231b) */
+/* WARNING: Removing unreachable block (ram,0x010122ce) */
+/* WARNING: Removing unreachable block (ram,0x01012322) */
+/* WARNING: Removing unreachable block (ram,0x010122d9) */
+/* WARNING: Removing unreachable block (ram,0x010122db) */
+/* WARNING: Removing unreachable block (ram,0x010122f1) */
+/* WARNING: Removing unreachable block (ram,0x010122f3) */
+/* WARNING: Removing unreachable block (ram,0x0101234f) */
+/* WARNING: Removing unreachable block (ram,0x010122fc) */
+/* WARNING: Removing unreachable block (ram,0x0101230a) */
+/* WARNING: Removing unreachable block (ram,0x0101235e) */
+/* WARNING: Removing unreachable block (ram,0x01012315) */
+/* WARNING: Removing unreachable block (ram,0x01012317) */
+/* WARNING: Removing unreachable block (ram,0x0101231c) */
+/* WARNING: Removing unreachable block (ram,0x0101231e) */
+/* WARNING: Removing unreachable block (ram,0x01012320) */
+/* WARNING: Removing unreachable block (ram,0x01012326) */
+/* WARNING: Removing unreachable block (ram,0x01012331) */
+/* WARNING: Removing unreachable block (ram,0x01012333) */
+/* WARNING: Removing unreachable block (ram,0x010123ac) */
+/* WARNING: Removing unreachable block (ram,0x010123af) */
+/* WARNING: Removing unreachable block (ram,0x01012340) */
+/* WARNING: Removing unreachable block (ram,0x01012343) */
+/* WARNING: Removing unreachable block (ram,0x01012398) */
+/* WARNING: Removing unreachable block (ram,0x0101237a) */
+/* WARNING: Removing unreachable block (ram,0x0101237c) */
+/* WARNING: Removing unreachable block (ram,0x0101233a) */
+/* WARNING: Removing unreachable block (ram,0x01012346) */
+/* WARNING: Removing unreachable block (ram,0x0101234a) */
+/* WARNING: Removing unreachable block (ram,0x0101239e) */
+/* WARNING: Removing unreachable block (ram,0x01012355) */
+/* WARNING: Removing unreachable block (ram,0x01012357) */
+/* WARNING: Removing unreachable block (ram,0x01012358) */
+/* WARNING: Removing unreachable block (ram,0x01012360) */
+/* WARNING: Removing unreachable block (ram,0x01012363) */
+/* WARNING: Removing unreachable block (ram,0x01012373) */
+/* WARNING: Removing unreachable block (ram,0x0101237d) */
+/* WARNING: Removing unreachable block (ram,0x0101237f) */
+/* WARNING: Removing unreachable block (ram,0x01012380) */
+/* WARNING: Removing unreachable block (ram,0x0101238b) */
+/* WARNING: Removing unreachable block (ram,0x01012392) */
+/* WARNING: Removing unreachable block (ram,0x01012394) */
+/* WARNING: Removing unreachable block (ram,0x01012396) */
+/* WARNING: Removing unreachable block (ram,0x01012397) */
+/* WARNING: Removing unreachable block (ram,0x0101239f) */
+/* WARNING: Removing unreachable block (ram,0x010123a1) */
+/* WARNING: Removing unreachable block (ram,0x010123a3) */
+/* WARNING: Removing unreachable block (ram,0x010123a4) */
+/* WARNING: Removing unreachable block (ram,0x010123a9) */
+/* WARNING: Removing unreachable block (ram,0x010123e4) */
+/* WARNING: Removing unreachable block (ram,0x0101244c) */
+/* WARNING: Removing unreachable block (ram,0x010123e7) */
+/* WARNING: Removing unreachable block (ram,0x010123c6) */
+/* WARNING: Removing unreachable block (ram,0x010123b0) */
+/* WARNING: Removing unreachable block (ram,0x010123b2) */
+/* WARNING: Removing unreachable block (ram,0x01012406) */
+/* WARNING: Removing unreachable block (ram,0x01012408) */
+/* WARNING: Removing unreachable block (ram,0x0101247a) */
+/* WARNING: Removing unreachable block (ram,0x010123bc) */
+/* WARNING: Removing unreachable block (ram,0x010123bd) */
+/* WARNING: Removing unreachable block (ram,0x010123bf) */
+/* WARNING: Removing unreachable block (ram,0x010123ba) */
+/* WARNING: Removing unreachable block (ram,0x010123c0) */
+/* WARNING: Removing unreachable block (ram,0x010123ca) */
+/* WARNING: Removing unreachable block (ram,0x0101241e) */
+/* WARNING: Removing unreachable block (ram,0x010123d5) */
+/* WARNING: Removing unreachable block (ram,0x0101243c) */
+/* WARNING: Removing unreachable block (ram,0x010123d7) */
+/* WARNING: Removing unreachable block (ram,0x010123db) */
+/* WARNING: Removing unreachable block (ram,0x010123de) */
+/* WARNING: Removing unreachable block (ram,0x010123e3) */
+/* WARNING: Removing unreachable block (ram,0x010123ea) */
+/* WARNING: Removing unreachable block (ram,0x010123ec) */
+/* WARNING: Removing unreachable block (ram,0x0101243b) */
+/* WARNING: Removing unreachable block (ram,0x010123ee) */
+/* WARNING: Removing unreachable block (ram,0x01012442) */
+/* WARNING: Removing unreachable block (ram,0x010123f9) */
+/* WARNING: Removing unreachable block (ram,0x010123fb) */
+/* WARNING: Removing unreachable block (ram,0x010123ff) */
+/* WARNING: Removing unreachable block (ram,0x01012469) */
+/* WARNING: Removing unreachable block (ram,0x01012404) */
+/* WARNING: Removing unreachable block (ram,0x0101240a) */
+/* WARNING: Removing unreachable block (ram,0x01012412) */
+/* WARNING: Removing unreachable block (ram,0x01012417) */
+/* WARNING: Removing unreachable block (ram,0x0101246a) */
+/* WARNING: Removing unreachable block (ram,0x01012421) */
+/* WARNING: Removing unreachable block (ram,0x01012423) */
+/* WARNING: Removing unreachable block (ram,0x01012424) */
+/* WARNING: Removing unreachable block (ram,0x01012428) */
+/* WARNING: Removing unreachable block (ram,0x0101249a) */
+/* WARNING: Removing unreachable block (ram,0x01012431) */
+/* WARNING: Removing unreachable block (ram,0x01012434) */
+/* WARNING: Removing unreachable block (ram,0x01012436) */
+/* WARNING: Removing unreachable block (ram,0x0101248a) */
+/* WARNING: Removing unreachable block (ram,0x0101249c) */
+/* WARNING: Removing unreachable block (ram,0x010124a2) */
+/* WARNING: Removing unreachable block (ram,0x01012460) */
+/* WARNING: Removing unreachable block (ram,0x0101244f) */
+/* WARNING: Removing unreachable block (ram,0x010124c0) */
+/* WARNING: Removing unreachable block (ram,0x01012440) */
+/* WARNING: Removing unreachable block (ram,0x01012441) */
+/* WARNING: Removing unreachable block (ram,0x01012443) */
+/* WARNING: Removing unreachable block (ram,0x01012444) */
+/* WARNING: Removing unreachable block (ram,0x01012448) */
+/* WARNING: Removing unreachable block (ram,0x0101244b) */
+/* WARNING: Removing unreachable block (ram,0x01012450) */
+/* WARNING: Removing unreachable block (ram,0x01012451) */
+/* WARNING: Removing unreachable block (ram,0x01012453) */
+/* WARNING: Removing unreachable block (ram,0x01012461) */
+/* WARNING: Removing unreachable block (ram,0x01012463) */
+/* WARNING: Removing unreachable block (ram,0x01012467) */
+/* WARNING: Removing unreachable block (ram,0x0101246f) */
+/* WARNING: Removing unreachable block (ram,0x01012477) */
+/* WARNING: Removing unreachable block (ram,0x01012481) */
+/* WARNING: Removing unreachable block (ram,0x01012483) */
+/* WARNING: Removing unreachable block (ram,0x01012484) */
+/* WARNING: Removing unreachable block (ram,0x01012488) */
+/* WARNING: Removing unreachable block (ram,0x010124e3) */
+/* WARNING: Removing unreachable block (ram,0x01012496) */
+/* WARNING: Removing unreachable block (ram,0x010124a1) */
+/* WARNING: Removing unreachable block (ram,0x01012508) */
+/* WARNING: Removing unreachable block (ram,0x01012509) */
+/* WARNING: Removing unreachable block (ram,0x010124a3) */
+/* WARNING: Removing unreachable block (ram,0x010124a4) */
+/* WARNING: Removing unreachable block (ram,0x010124ea) */
+/* WARNING: Removing unreachable block (ram,0x0101252b) */
+/* WARNING: Removing unreachable block (ram,0x010124a8) */
+/* WARNING: Removing unreachable block (ram,0x0101250c) */
+/* WARNING: Removing unreachable block (ram,0x0101250d) */
+/* WARNING: Removing unreachable block (ram,0x010124aa) */
+/* WARNING: Removing unreachable block (ram,0x010124fb) */
+/* WARNING: Removing unreachable block (ram,0x01012500) */
+/* WARNING: Removing unreachable block (ram,0x01012511) */
+/* WARNING: Removing unreachable block (ram,0x01012516) */
+/* WARNING: Removing unreachable block (ram,0x010124d1) */
+/* WARNING: Removing unreachable block (ram,0x010124e8) */
+/* WARNING: Removing unreachable block (ram,0x010124ec) */
+/* WARNING: Removing unreachable block (ram,0x010124b0) */
+/* WARNING: Removing unreachable block (ram,0x010124f2) */
+/* WARNING: Removing unreachable block (ram,0x010124b3) */
+/* WARNING: Removing unreachable block (ram,0x010124f4) */
+/* WARNING: Removing unreachable block (ram,0x010124b4) */
+/* WARNING: Removing unreachable block (ram,0x010124f6) */
+/* WARNING: Removing unreachable block (ram,0x010124f8) */
+/* WARNING: Removing unreachable block (ram,0x010124fa) */
+/* WARNING: Removing unreachable block (ram,0x010124bb) */
+/* WARNING: Removing unreachable block (ram,0x010124fc) */
+/* WARNING: Removing unreachable block (ram,0x010124bc) */
+/* WARNING: Removing unreachable block (ram,0x010124fe) */
+/* WARNING: Removing unreachable block (ram,0x010124bf) */
+/* WARNING: Removing unreachable block (ram,0x010124c4) */
+/* WARNING: Removing unreachable block (ram,0x010124c8) */
+/* WARNING: Removing unreachable block (ram,0x010124ae) */
+/* WARNING: Removing unreachable block (ram,0x010124b7) */
+/* WARNING: Removing unreachable block (ram,0x010124b8) */
+/* WARNING: Removing unreachable block (ram,0x010124ba) */
+/* WARNING: Removing unreachable block (ram,0x010124c3) */
+/* WARNING: Removing unreachable block (ram,0x010124ca) */
+/* WARNING: Removing unreachable block (ram,0x010124d0) */
+/* WARNING: Removing unreachable block (ram,0x0101252c) */
+/* WARNING: Removing unreachable block (ram,0x0101252d) */
+/* WARNING: Removing unreachable block (ram,0x0101252f) */
+/* WARNING: Removing unreachable block (ram,0x01012535) */
+/* WARNING: Removing unreachable block (ram,0x010125aa) */
+/* WARNING: Removing unreachable block (ram,0x01012549) */
+/* WARNING: Removing unreachable block (ram,0x010125b6) */
+/* WARNING: Removing unreachable block (ram,0x010125df) */
+/* WARNING: Removing unreachable block (ram,0x0101254e) */
+/* WARNING: Removing unreachable block (ram,0x0101255c) */
+/* WARNING: Removing unreachable block (ram,0x010125d4) */
+/* WARNING: Removing unreachable block (ram,0x01012565) */
+/* WARNING: Removing unreachable block (ram,0x01012567) */
+/* WARNING: Removing unreachable block (ram,0x01012587) */
+/* WARNING: Removing unreachable block (ram,0x0101258d) */
+/* WARNING: Removing unreachable block (ram,0x0101259d) */
+/* WARNING: Removing unreachable block (ram,0x01012611) */
+/* WARNING: Removing unreachable block (ram,0x01012613) */
+/* WARNING: Removing unreachable block (ram,0x01012633) */
+/* WARNING: Removing unreachable block (ram,0x010125a8) */
+/* WARNING: Removing unreachable block (ram,0x010125ad) */
+/* WARNING: Removing unreachable block (ram,0x010125c1) */
+/* WARNING: Removing unreachable block (ram,0x010125b8) */
+/* WARNING: Removing unreachable block (ram,0x010125c2) */
+/* WARNING: Removing unreachable block (ram,0x010125cd) */
+/* WARNING: Removing unreachable block (ram,0x010125d5) */
+/* WARNING: Removing unreachable block (ram,0x010125f2) */
+/* WARNING: Removing unreachable block (ram,0x01012614) */
+/* WARNING: Removing unreachable block (ram,0x0101261e) */
+/* WARNING: Removing unreachable block (ram,0x010125f4) */
+/* WARNING: Removing unreachable block (ram,0x010125fc) */
+/* WARNING: Removing unreachable block (ram,0x0101263d) */
+/* WARNING: Removing unreachable block (ram,0x01012603) */
+/* WARNING: Removing unreachable block (ram,0x0101260b) */
+/* WARNING: Removing unreachable block (ram,0x0101262b) */
+/* WARNING: Removing unreachable block (ram,0x01012640) */
+/* WARNING: Removing unreachable block (ram,0x01012644) */
+/* WARNING: Removing unreachable block (ram,0x01012661) */
+/* WARNING: Removing unreachable block (ram,0x010126e7) */
+/* WARNING: Removing unreachable block (ram,0x0101266e) */
+/* WARNING: Removing unreachable block (ram,0x01012699) */
+/* WARNING: Removing unreachable block (ram,0x01012679) */
+/* WARNING: Removing unreachable block (ram,0x01012686) */
+/* WARNING: Removing unreachable block (ram,0x010126ba) */
+/* WARNING: Removing unreachable block (ram,0x0101268e) */
+/* WARNING: Removing unreachable block (ram,0x0101269d) */
+/* WARNING: Removing unreachable block (ram,0x0101269e) */
+/* WARNING: Removing unreachable block (ram,0x010126a3) */
+/* WARNING: Removing unreachable block (ram,0x010126a7) */
+/* WARNING: Removing unreachable block (ram,0x010126ab) */
+/* WARNING: Removing unreachable block (ram,0x010126be) */
+/* WARNING: Removing unreachable block (ram,0x010126bf) */
+/* WARNING: Removing unreachable block (ram,0x010126c3) */
+/* WARNING: Removing unreachable block (ram,0x010126f3) */
+/* WARNING: Removing unreachable block (ram,0x010126c5) */
+/* WARNING: Removing unreachable block (ram,0x010126c7) */
+/* WARNING: Removing unreachable block (ram,0x010126de) */
+/* WARNING: Removing unreachable block (ram,0x010126e9) */
+/* WARNING: Removing unreachable block (ram,0x010126eb) */
+/* WARNING: Removing unreachable block (ram,0x0101275b) */
+/* WARNING: Removing unreachable block (ram,0x0101275d) */
+/* WARNING: Removing unreachable block (ram,0x0101275f) */
+/* WARNING: Removing unreachable block (ram,0x01012761) */
+/* WARNING: Removing unreachable block (ram,0x01012781) */
+/* WARNING: Removing unreachable block (ram,0x010127c4) */
+/* WARNING: Removing unreachable block (ram,0x010126f6) */
+/* WARNING: Removing unreachable block (ram,0x010126ff) */
+/* WARNING: Removing unreachable block (ram,0x01012770) */
+/* WARNING: Removing unreachable block (ram,0x01012757) */
+/* WARNING: Removing unreachable block (ram,0x01012719) */
+/* WARNING: Removing unreachable block (ram,0x01012702) */
+/* WARNING: Removing unreachable block (ram,0x01012705) */
+/* WARNING: Removing unreachable block (ram,0x01012709) */
+/* WARNING: Removing unreachable block (ram,0x01012708) */
+/* WARNING: Removing unreachable block (ram,0x01012730) */
+/* WARNING: Removing unreachable block (ram,0x01012710) */
+/* WARNING: Removing unreachable block (ram,0x01012712) */
+/* WARNING: Removing unreachable block (ram,0x01012734) */
+/* WARNING: Removing unreachable block (ram,0x01012714) */
+/* WARNING: Removing unreachable block (ram,0x0101277f) */
+/* WARNING: Removing unreachable block (ram,0x01012718) */
+/* WARNING: Removing unreachable block (ram,0x0101271b) */
+/* WARNING: Removing unreachable block (ram,0x0101271d) */
+/* WARNING: Removing unreachable block (ram,0x0101271f) */
+/* WARNING: Removing unreachable block (ram,0x01012723) */
+/* WARNING: Removing unreachable block (ram,0x01012728) */
+/* WARNING: Removing unreachable block (ram,0x01012735) */
+/* WARNING: Removing unreachable block (ram,0x01012737) */
+/* WARNING: Removing unreachable block (ram,0x01012773) */
+/* WARNING: Removing unreachable block (ram,0x01012731) */
+/* WARNING: Removing unreachable block (ram,0x0101273a) */
+/* WARNING: Removing unreachable block (ram,0x0101273b) */
+/* WARNING: Removing unreachable block (ram,0x01012751) */
+/* WARNING: Removing unreachable block (ram,0x0101275c) */
+/* WARNING: Removing unreachable block (ram,0x01012763) */
+/* WARNING: Removing unreachable block (ram,0x0101277b) */
+/* WARNING: Removing unreachable block (ram,0x01012783) */
+/* WARNING: Removing unreachable block (ram,0x01012785) */
+/* WARNING: Removing unreachable block (ram,0x0101278d) */
+/* WARNING: Removing unreachable block (ram,0x010127d1) */
+/* WARNING: Removing unreachable block (ram,0x01012787) */
+/* WARNING: Removing unreachable block (ram,0x0101278f) */
+/* WARNING: Removing unreachable block (ram,0x010127c6) */
+/* WARNING: Removing unreachable block (ram,0x01012823) */
+/* WARNING: Removing unreachable block (ram,0x010127db) */
+/* WARNING: Removing unreachable block (ram,0x010127e1) */
+/* WARNING: Removing unreachable block (ram,0x010127e2) */
+/* WARNING: Removing unreachable block (ram,0x010127e7) */
+/* WARNING: Removing unreachable block (ram,0x01012833) */
+/* WARNING: Removing unreachable block (ram,0x010127eb) */
+/* WARNING: Removing unreachable block (ram,0x01012847) */
+/* WARNING: Removing unreachable block (ram,0x01012887) */
+/* WARNING: Removing unreachable block (ram,0x010120e9) */
+/* WARNING: Removing unreachable block (ram,0x01011ec6) */
+/* WARNING: Removing unreachable block (ram,0x01011e5c) */
+/* WARNING: Removing unreachable block (ram,0x01011e63) */
+/* WARNING: Removing unreachable block (ram,0x01011e70) */
+/* WARNING: Removing unreachable block (ram,0x01011ed5) */
+/* WARNING: Removing unreachable block (ram,0x01011ede) */
+/* WARNING: Removing unreachable block (ram,0x01011ee0) */
+/* WARNING: Removing unreachable block (ram,0x01011f45) */
+/* WARNING: Removing unreachable block (ram,0x01011fdc) */
+/* WARNING: Removing unreachable block (ram,0x010120fa) */
+/* WARNING: Removing unreachable block (ram,0x01012105) */
+/* WARNING: Removing unreachable block (ram,0x01012107) */
+/* WARNING: Removing unreachable block (ram,0x0101216c) */
+/* WARNING: Removing unreachable block (ram,0x01012253) */
+/* WARNING: Removing unreachable block (ram,0x010120a2) */
+/* WARNING: Removing unreachable block (ram,0x010120a4) */
+/* WARNING: Removing unreachable block (ram,0x010120a6) */
+/* WARNING: Removing unreachable block (ram,0x01012136) */
+/* WARNING: Removing unreachable block (ram,0x010120c7) */
+/* WARNING: Removing unreachable block (ram,0x010120da) */
+/* WARNING: Removing unreachable block (ram,0x010120ee) */
+/* WARNING: Removing unreachable block (ram,0x0101214f) */
+/* WARNING: Removing unreachable block (ram,0x0101210b) */
+/* WARNING: Removing unreachable block (ram,0x01011e25) */
+/* WARNING: Removing unreachable block (ram,0x01011e95) */
+/* WARNING: Removing unreachable block (ram,0x01011ea7) */
+/* WARNING: Removing unreachable block (ram,0x01011f22) */
+/* WARNING: Removing unreachable block (ram,0x01012109) */
+/* WARNING: Removing unreachable block (ram,0x01011da3) */
+
+void __thiscall
+FUN_00b7d200(byte *param_1,int param_2,undefined4 param_3,undefined4 param_4,char *param_5,
+            undefined4 param_6,undefined1 param_7,undefined4 param_8,undefined4 param_9,
+            undefined4 param_10,undefined4 param_11,undefined4 param_12,undefined4 param_13,
+            undefined4 param_14,undefined4 param_15,undefined4 param_16,undefined4 param_17,
+            undefined4 param_18,undefined4 param_19,undefined4 param_20,undefined4 param_21,
+            undefined4 param_22,undefined4 param_23,undefined4 param_24,undefined4 param_25,
+            undefined4 param_26,undefined4 param_27,undefined4 param_28,undefined4 param_29,
+            undefined4 param_30,undefined4 param_31,undefined4 param_32,undefined4 param_33,
+            undefined4 param_34,undefined4 param_35,undefined4 param_36,undefined4 param_37,
+            undefined4 param_38,undefined4 param_39,undefined4 param_40,undefined4 param_41,
+            undefined4 param_42,undefined4 param_43,undefined4 param_44,undefined4 param_45,
+            undefined4 param_46,undefined4 param_47,undefined4 param_48,undefined4 param_49,
+            undefined4 param_50,undefined4 param_51,undefined4 param_52,undefined4 param_53,
+            undefined4 param_54,undefined4 param_55,undefined4 param_56,undefined4 param_57,
+            undefined4 param_58,undefined4 param_59,undefined4 param_60,undefined4 param_61,
+            undefined4 param_62)
+
+{
+  ushort *puVar1;
+  byte bVar2;
+  byte bVar3;
+  longlong lVar4;
+  int *piVar5;
+  byte bVar6;
+  byte bVar7;
+  byte bVar8;
+  byte bVar9;
+  undefined2 uVar10;
+  byte bVar11;
+  char cVar12;
+  undefined1 uVar14;
+  byte bVar15;
+  byte bVar16;
+  byte bVar25;
+  uint uVar17;
+  undefined3 uVar26;
+  ushort *puVar18;
+  int iVar19;
+  byte *pbVar20;
+  uint3 uVar27;
+  uint uVar21;
+  byte *pbVar22;
+  undefined2 uVar28;
+  int iVar23;
+  uint *puVar24;
+  byte bVar29;
+  byte bVar30;
+  undefined2 uVar31;
+  undefined2 uVar32;
+  uint uVar33;
+  undefined3 uVar34;
+  char cVar38;
+  undefined4 unaff_EBX;
+  uint uVar35;
+  char *pcVar36;
+  undefined4 uVar37;
+  uint uVar39;
+  int *piVar40;
+  short sVar41;
+  ushort uVar42;
+  undefined4 *unaff_EBP;
+  char *pcVar43;
+  undefined4 unaff_ESI;
+  byte *pbVar44;
+  undefined4 *puVar45;
+  undefined4 *puVar46;
+  undefined4 *puVar47;
+  undefined1 *puVar48;
+  uint unaff_EDI;
+  byte *pbVar49;
+  undefined2 in_ES;
+  undefined2 in_SS;
+  undefined2 in_DS;
+  int unaff_FS_OFFSET;
+  int in_GS_OFFSET;
+  byte in_AF;
+  bool bVar50;
+  bool bVar51;
+  bool bVar52;
+  byte in_TF;
+  bool bVar53;
+  bool bVar54;
+  bool bVar55;
+  byte in_NT;
+  byte in_AC;
+  byte in_VIF;
+  byte in_VIP;
+  byte in_ID;
+  float10 in_ST0;
+  undefined2 uVar57;
+  undefined2 uVar56;
+  undefined2 unaff_retaddr;
+  byte in_stack_464543b3;
+  undefined1 auStack_1be [245];
+  undefined2 uStack_c9;
+  undefined2 uStack_c7;
+  undefined2 uStack_c5;
+  undefined2 uStack_c3;
+  undefined4 uStack_c1;
+  byte *pbStack_bd;
+  undefined4 uStack_b9;
+  byte *pbStack_b5;
+  undefined4 *puStack_b1;
+  undefined1 *puStack_ad;
+  undefined1 *puStack_a9;
+  int *piStack_a5;
+  undefined4 uStack_a1;
+  byte *pbStack_9d;
+  byte *pbStack_99;
+  byte *pbStack_95;
+  byte *pbStack_91;
+  undefined4 uStack_8d;
+  byte *pbStack_88;
+  undefined4 uStack_84;
+  undefined4 *puStack_80;
+  undefined4 uStack_7c;
+  undefined2 uStack_78;
+  undefined1 uStack_76;
+  char cStack_75;
+  undefined2 uStack_74;
+  byte bStack_72;
+  byte bStack_71;
+  undefined2 uStack_70;
+  byte bStack_6e;
+  undefined1 uStack_6d;
+  undefined2 uStack_6c;
+  byte bStack_69;
+  undefined2 uStack_68;
+  char cStack_66;
+  byte bStack_65;
+  undefined2 uStack_64;
+  byte bStack_62;
+  byte bStack_61;
+  undefined2 uStack_60;
+  byte bStack_5e;
+  byte bStack_5d;
+  undefined2 uStack_5c;
+  byte bStack_5a;
+  byte bStack_59;
+  undefined2 uStack_58;
+  undefined1 uStack_56;
+  char cStack_55;
+  undefined2 uStack_54;
+  byte bStack_52;
+  byte bStack_51;
+  byte bStack_50;
+  byte bStack_4f;
+  byte bStack_4e;
+  undefined1 uStack_4d;
+  undefined1 uStack_4c;
+  byte bStack_4b;
+  byte bStack_4a;
+  byte bStack_49;
+  undefined1 uStack_48;
+  undefined1 uStack_47;
+  char cStack_46;
+  byte bStack_45;
+  byte bStack_44;
+  byte bStack_43;
+  byte bStack_42;
+  byte bStack_41;
+  byte bStack_40;
+  undefined2 uStack_3f;
+  byte bStack_3d;
+  byte bStack_3c;
+  undefined2 uStack_3b;
+  byte bStack_39;
+  byte bStack_38;
+  byte bStack_37;
+  undefined1 uStack_36;
+  char cStack_35;
+  byte bStack_34;
+  byte bStack_33;
+  byte bStack_32;
+  byte bStack_31;
+  byte bStack_30;
+  byte bStack_2f;
+  byte bStack_2e;
+  undefined1 uStack_2d;
+  byte bStack_2c;
+  byte bStack_2b;
+  byte bStack_2a;
+  byte bStack_29;
+  undefined1 uStack_28;
+  undefined2 uStack_27;
+  byte bStack_25;
+  byte bStack_24;
+  byte bStack_23;
+  byte bStack_22;
+  byte bStack_21;
+  byte bStack_20;
+  byte bStack_1f;
+  byte bStack_1e;
+  byte bStack_1d;
+  byte bStack_1c;
+  byte bStack_1b;
+  undefined2 uStack_1a;
+  byte bStack_18;
+  byte bStack_17;
+  undefined2 uStack_16;
+  byte bStack_14;
+  byte bStack_13;
+  undefined2 uStack_12;
+  byte bStack_10;
+  byte bStack_f;
+  undefined2 uStack_e;
+  char cStack_c;
+  byte bStack_b;
+  undefined2 uStack_a;
+  byte bStack_8;
+  undefined1 uStack_7;
+  undefined2 uStack_6;
+  undefined1 uStack_4;
+  undefined1 uStack_3;
+  undefined2 uStack_2;
+  char cVar13;
+  
+  uVar28 = uStack_16;
+  bVar15 = bStack_17;
+  bVar25 = bStack_18;
+  puVar18 = DAT_0126f74c;
+  uVar21 = DAT_011f91e0;
+  bVar53 = false;
+  uStack_4 = (undefined1)unaff_EBX;
+  uStack_3 = (undefined1)((uint)unaff_EBX >> 8);
+  uStack_2 = (undefined2)((uint)unaff_EBX >> 0x10);
+  bStack_8 = (byte)unaff_ESI;
+  uStack_7 = (undefined1)((uint)unaff_ESI >> 8);
+  uStack_6 = (undefined2)((uint)unaff_ESI >> 0x10);
+  pbVar20 = *(byte **)(param_2 + 0xc);
+  cStack_c = (char)unaff_EDI;
+  bStack_b = (byte)(unaff_EDI >> 8);
+  uStack_a = (undefined2)(unaff_EDI >> 0x10);
+  uVar27 = (uint3)((uint)param_1 >> 8);
+  pcVar43 = (char *)CONCAT31(uVar27,1);
+  if ((*(uint *)(pbVar20 + 0x24) & 0x100000) != 0) {
+    pcVar43 = (char *)((uint)uVar27 << 8);
+  }
+  uVar35 = *(ushort *)(DAT_011f91e0 + 4) - 2;
+  bVar54 = SBORROW4(uVar35,0x2e9);
+  if (0x2e9 < uVar35) {
+    return;
+  }
+  bVar3 = *(byte *)((int)&PTR_caseD_1d_00b7d7b4 + *(ushort *)(DAT_011f91e0 + 4) + 2);
+  uVar35 = (uint)bVar3;
+  bVar30 = (byte)pcVar43;
+  bStack_18 = (byte)pbVar20;
+  bVar16 = bStack_18;
+  bStack_17 = (byte)((uint)pbVar20 >> 8);
+  bVar29 = bStack_17;
+  uStack_16 = (undefined2)((uint)pbVar20 >> 0x10);
+  uVar32 = uStack_16;
+                    /* WARNING (jumptable): Sanity check requires truncation of jumptable */
+                    /* WARNING: Could not find normalized switch variable to match jumptable */
+  switch(bVar3) {
+  case 0:
+    goto switchD_00b7d23e_caseD_0;
+  case 1:
+    iVar19 = **(int **)(DAT_0126f74c + 0x12);
+    if ((*(int *)(pbVar20 + 0xdc) == 0) ||
+       (iVar23 = *(int *)(*(int *)(pbVar20 + 0xdc) + 0x6c), iVar23 == 0)) {
+      iVar23 = DAT_011f952c;
+    }
+    *(int *)(iVar19 + 8) = iVar23;
+    bStack_14 = (byte)iVar19;
+    bStack_13 = (byte)((uint)iVar19 >> 8);
+    uStack_12 = (undefined2)((uint)iVar19 >> 0x10);
+    bStack_18 = 0x2d;
+    bStack_17 = 0xd7;
+    uStack_16 = 0xb7;
+    bStack_10 = bVar16;
+    bStack_f = bVar29;
+    uStack_e = uVar32;
+    FUN_00b71b10();
+    goto LAB_00b7d72d;
+  case 2:
+    bStack_10 = 0;
+    bStack_f = 0;
+    uStack_e = 0;
+    bStack_14 = 0;
+    bStack_13 = 0;
+    uStack_12 = 0;
+    bStack_1c = 0xd9;
+    bStack_1b = 0xd3;
+    uStack_1a = 0xb7;
+    FUN_00b7c0a0();
+    iVar19 = *(int *)(*(int *)(DAT_0126f74c + 0x12) + 4);
+    if (**(int **)(pbVar20 + 0xb4) != 0) {
+      *(int *)(iVar19 + 8) = **(int **)(pbVar20 + 0xb4);
+      bStack_10 = 4;
+      bStack_f = 0xd4;
+      uStack_e = 0xb7;
+      (**(code **)(*(int *)param_1 + 0x108))();
+      return;
+    }
+LAB_00b7d275:
+    *(int *)(iVar19 + 8) = DAT_011f951c;
+    bStack_10 = 0x8a;
+    bStack_f = 0xd2;
+    uStack_e = 0xb7;
+    (**(code **)(*(int *)param_1 + 0x108))();
+    return;
+  case 4:
+    iVar19 = **(int **)(pbVar20 + 0xb4);
+    if (**(int **)(pbVar20 + 0xb4) == 0) {
+      iVar19 = DAT_011f951c;
+    }
+    *(int *)(*(int *)(*(int *)(DAT_0126f74c + 0x12) + 8) + 8) = iVar19;
+  case 3:
+    bStack_10 = 0;
+    bStack_f = 0;
+    uStack_e = 0;
+    bStack_14 = 1;
+    bStack_13 = 0;
+    uStack_12 = 0;
+    bStack_1c = 0xff;
+    bStack_1b = 0xd2;
+    uStack_1a = 0xb7;
+    FUN_00b7c0e0();
+    goto switchD_00b7d23e_caseD_0;
+  case 5:
+    bStack_10 = 0;
+    bStack_f = 0;
+    uStack_e = 0;
+    bStack_14 = 0;
+    bStack_13 = 0;
+    uStack_12 = 0;
+    bStack_1c = 0x76;
+    bStack_1b = 0xd4;
+    uStack_1a = 0xb7;
+    FUN_00b7c0a0();
+    bStack_10 = 0;
+    bStack_f = 0;
+    uStack_e = 0;
+    bStack_14 = 1;
+    bStack_13 = 0;
+    uStack_12 = 0;
+    bStack_1c = 0x82;
+    bStack_1b = 0xd4;
+    uStack_1a = 0xb7;
+    bStack_18 = bVar16;
+    bStack_17 = bVar29;
+    uStack_16 = uVar32;
+    FUN_00b7c0e0();
+    bStack_10 = 1;
+    bStack_f = 0;
+    uStack_e = 0;
+    bStack_14 = 2;
+    bStack_13 = 0;
+    uStack_12 = 0;
+    bStack_1c = 0x8e;
+    bStack_1b = 0xd4;
+    uStack_1a = 0xb7;
+    bStack_18 = bVar16;
+    bStack_17 = bVar29;
+    uStack_16 = uVar32;
+    FUN_00b7c0a0();
+    bStack_10 = 1;
+    bStack_f = 0;
+    uStack_e = 0;
+    bStack_14 = 3;
+    bStack_13 = 0;
+    uStack_12 = 0;
+    bStack_1c = 0x9a;
+    bStack_1b = 0xd4;
+    uStack_1a = 0xb7;
+    bStack_18 = bVar16;
+    bStack_17 = bVar29;
+    uStack_16 = uVar32;
+    FUN_00b7c0e0();
+    bStack_10 = 0xa6;
+    bStack_f = 0xd4;
+    uStack_e = 0xb7;
+    (**(code **)(*(int *)param_1 + 0x108))();
+    return;
+  case 7:
+    uVar14 = *(undefined1 *)(DAT_011f91e0 + 0xb);
+    bStack_f = 0;
+    uStack_e = 0;
+    bStack_14 = 0;
+    bStack_13 = 0;
+    uStack_12 = 0;
+    bStack_1c = 0x8d;
+    bStack_1b = 0xd5;
+    uStack_1a = 0xb7;
+    bStack_10 = uVar14;
+    FUN_00b7c0a0();
+    bStack_f = 0;
+    uStack_e = 0;
+    bStack_14 = 1;
+    bStack_13 = 0;
+    uStack_12 = 0;
+    bStack_1c = 0x98;
+    bStack_1b = 0xd5;
+    uStack_1a = 0xb7;
+    bStack_18 = bVar16;
+    bStack_17 = bVar29;
+    uStack_16 = uVar32;
+    bStack_10 = uVar14;
+    FUN_00b7c0e0();
+    bStack_10 = 0xa4;
+    bStack_f = 0xd5;
+    uStack_e = 0xb7;
+    (**(code **)(*(int *)param_1 + 0x108))();
+    return;
+  case 9:
+    iVar19 = **(int **)(pbVar20 + 0xb4);
+    if (**(int **)(pbVar20 + 0xb4) == 0) {
+      iVar19 = DAT_011f951c;
+    }
+    *(int *)(*(int *)(*(int *)(DAT_0126f74c + 0x12) + 0x10) + 8) = iVar19;
+  case 8:
+    bStack_10 = 0;
+    bStack_f = 0;
+    uStack_e = 0;
+    bStack_14 = 0;
+    bStack_13 = 0;
+    uStack_12 = 0;
+    bStack_1c = 0x43;
+    bStack_1b = 0xd3;
+    uStack_1a = 0xb7;
+    FUN_00b7c0a0();
+    bStack_10 = 0;
+    bStack_f = 0;
+    uStack_e = 0;
+    bStack_14 = 1;
+    bStack_13 = 0;
+    uStack_12 = 0;
+    bStack_1c = 0x4f;
+    bStack_1b = 0xd3;
+    uStack_1a = 0xb7;
+    bStack_18 = bVar16;
+    bStack_17 = bVar29;
+    uStack_16 = uVar32;
+    FUN_00b7c0e0();
+    bStack_10 = 0x5b;
+    bStack_f = 0xd3;
+    uStack_e = 0xb7;
+    (**(code **)(*(int *)param_1 + 0x108))();
+    return;
+  case 10:
+    bStack_10 = 0;
+    bStack_f = 0;
+    uStack_e = 0;
+    bStack_14 = 0;
+    bStack_13 = 0;
+    uStack_12 = 0;
+    bStack_1c = 0xe2;
+    bStack_1b = 0xd4;
+    uStack_1a = 0xb7;
+    FUN_00b7c0a0();
+    bStack_10 = 0;
+    bStack_f = 0;
+    uStack_e = 0;
+    bStack_14 = 1;
+    bStack_13 = 0;
+    uStack_12 = 0;
+    bStack_1c = 0xee;
+    bStack_1b = 0xd4;
+    uStack_1a = 0xb7;
+    bStack_18 = bVar16;
+    bStack_17 = bVar29;
+    uStack_16 = uVar32;
+    FUN_00b7c0e0();
+    bStack_10 = 1;
+    bStack_f = 0;
+    uStack_e = 0;
+    bStack_14 = 4;
+    bStack_13 = 0;
+    uStack_12 = 0;
+    bStack_1c = 0xfa;
+    bStack_1b = 0xd4;
+    uStack_1a = 0xb7;
+    bStack_18 = bVar16;
+    bStack_17 = bVar29;
+    uStack_16 = uVar32;
+    FUN_00b7c0a0();
+    bStack_10 = 6;
+    bStack_f = 0xd5;
+    uStack_e = 0xb7;
+    (**(code **)(*(int *)param_1 + 0x108))();
+    return;
+  case 0xb:
+    bStack_10 = 0;
+    bStack_f = 0;
+    uStack_e = 0;
+    bStack_14 = 0;
+    bStack_13 = 0;
+    uStack_12 = 0;
+    bStack_1c = 0x51;
+    bStack_1b = 0xd2;
+    uStack_1a = 0xb7;
+    FUN_00b7c0a0();
+    bStack_10 = 0;
+    bStack_f = 0;
+    uStack_e = 0;
+    bStack_14 = 1;
+    bStack_13 = 0;
+    uStack_12 = 0;
+    bStack_1c = 0x5d;
+    bStack_1b = 0xd2;
+    uStack_1a = 0xb7;
+    bStack_18 = bVar16;
+    bStack_17 = bVar29;
+    uStack_16 = uVar32;
+    FUN_00b7c0e0();
+    iVar23 = **(int **)(pbVar20 + 0xb4);
+    iVar19 = *(int *)(*(int *)(DAT_0126f74c + 0x12) + 0x10);
+    if (iVar23 == 0) goto LAB_00b7d275;
+    goto LAB_00b7d2c4;
+  case 0xc:
+    bStack_10 = 0;
+    bStack_f = 0;
+    uStack_e = 0;
+    bStack_14 = 0;
+    bStack_13 = 0;
+    uStack_12 = 0;
+    bStack_1c = 0x9c;
+    bStack_1b = 0xd2;
+    uStack_1a = 0xb7;
+    FUN_00b7c0a0();
+    bStack_10 = 0;
+    bStack_f = 0;
+    uStack_e = 0;
+    bStack_14 = 1;
+    bStack_13 = 0;
+    uStack_12 = 0;
+    bStack_1c = 0xa8;
+    bStack_1b = 0xd2;
+    uStack_1a = 0xb7;
+    bStack_18 = bVar16;
+    bStack_17 = bVar29;
+    uStack_16 = uVar32;
+    FUN_00b7c0e0();
+    iVar23 = **(int **)(pbVar20 + 0xb4);
+    iVar19 = *(int *)(*(int *)(DAT_0126f74c + 0x12) + 0xc);
+    if (iVar23 != 0) goto LAB_00b7d2c4;
+    break;
+  case 0xd:
+    bStack_10 = 0;
+    bStack_f = 0;
+    uStack_e = 0;
+    bStack_14 = 0;
+    bStack_13 = 0;
+    uStack_12 = 0;
+    bStack_1c = 0x18;
+    bStack_1b = 0xd5;
+    uStack_1a = 0xb7;
+    FUN_00b7c0a0();
+    bStack_10 = 0;
+    bStack_f = 0;
+    uStack_e = 0;
+    bStack_14 = 1;
+    bStack_13 = 0;
+    uStack_12 = 0;
+    bStack_1c = 0x24;
+    bStack_1b = 0xd5;
+    uStack_1a = 0xb7;
+    bStack_18 = bVar16;
+    bStack_17 = bVar29;
+    uStack_16 = uVar32;
+    FUN_00b7c0e0();
+    bStack_10 = 1;
+    bStack_f = 0;
+    uStack_e = 0;
+    bStack_14 = 4;
+    bStack_13 = 0;
+    uStack_12 = 0;
+    bStack_1c = 0x30;
+    bStack_1b = 0xd5;
+    uStack_1a = 0xb7;
+    bStack_18 = bVar16;
+    bStack_17 = bVar29;
+    uStack_16 = uVar32;
+    FUN_00b7c0a0();
+    bStack_10 = 1;
+    bStack_f = 0;
+    uStack_e = 0;
+    bStack_14 = 6;
+    bStack_13 = 0;
+    uStack_12 = 0;
+    bStack_1c = 0x3c;
+    bStack_1b = 0xd5;
+    uStack_1a = 0xb7;
+    bStack_18 = bVar16;
+    bStack_17 = bVar29;
+    uStack_16 = uVar32;
+    FUN_00b7c0e0();
+    bStack_10 = 7;
+    bStack_f = 0;
+    uStack_e = 0;
+    bStack_14 = 0x45;
+    bStack_13 = 0xd5;
+    uStack_12 = 0xb7;
+    FUN_00b7c190();
+    bStack_10 = 0x51;
+    bStack_f = 0xd5;
+    uStack_e = 0xb7;
+    (**(code **)(*(int *)param_1 + 0x108))();
+    return;
+  case 0xe:
+    bStack_10 = 0;
+    bStack_f = 0;
+    uStack_e = 0;
+    bStack_14 = 0;
+    bStack_13 = 0;
+    uStack_12 = 0;
+    bStack_1c = 0x40;
+    bStack_1b = 0xd4;
+    uStack_1a = 0xb7;
+    FUN_00b7c0a0();
+    bStack_10 = 1;
+    bStack_f = 0;
+    uStack_e = 0;
+    bStack_14 = 1;
+    bStack_13 = 0;
+    uStack_12 = 0;
+    bStack_1c = 0x4c;
+    bStack_1b = 0xd4;
+    uStack_1a = 0xb7;
+    bStack_18 = bVar16;
+    bStack_17 = bVar29;
+    uStack_16 = uVar32;
+    FUN_00b7c0a0();
+    bStack_10 = 1;
+    bStack_f = 0;
+    uStack_e = 0;
+    bStack_14 = 2;
+    bStack_13 = 0;
+    uStack_12 = 0;
+    bStack_1c = 0x58;
+    bStack_1b = 0xd4;
+    uStack_1a = 0xb7;
+    bStack_18 = bVar16;
+    bStack_17 = bVar29;
+    uStack_16 = uVar32;
+    FUN_00b7c0e0();
+    bStack_10 = 100;
+    bStack_f = 0xd4;
+    uStack_e = 0xb7;
+    (**(code **)(*(int *)param_1 + 0x108))();
+    return;
+  case 0xf:
+    bStack_10 = 0;
+    bStack_f = 0;
+    uStack_e = 0;
+    bStack_14 = 0;
+    bStack_13 = 0;
+    uStack_12 = 0;
+    bStack_1c = 0xb8;
+    bStack_1b = 0xd4;
+    uStack_1a = 0xb7;
+    FUN_00b7c0a0();
+    bStack_10 = 1;
+    bStack_f = 0;
+    uStack_e = 0;
+    bStack_14 = 1;
+    bStack_13 = 0;
+    uStack_12 = 0;
+    bStack_1c = 0xc4;
+    bStack_1b = 0xd4;
+    uStack_1a = 0xb7;
+    bStack_18 = bVar16;
+    bStack_17 = bVar29;
+    uStack_16 = uVar32;
+    FUN_00b7c0a0();
+    bStack_10 = 0xd0;
+    bStack_f = 0xd4;
+    uStack_e = 0xb7;
+    (**(code **)(*(int *)param_1 + 0x108))();
+    return;
+  case 0x11:
+    goto switchD_00b7d23e_caseD_11;
+  case 0x12:
+    goto switchD_00b7d23e_caseD_12;
+  case 0x13:
+    goto switchD_00b7d23e_caseD_13;
+  case 0x14:
+    goto switchD_00b7d23e_caseD_14;
+  case 0x15:
+    goto switchD_00b7d23e_caseD_15;
+  case 0x17:
+    *(undefined4 *)(*(int *)(*(int *)(DAT_0126f74c + 0x12) + 0x18) + 8) =
+         *(undefined4 *)(*(int *)(pbVar20 + 0xac) + 0x18);
+    if (bVar30 != 0) {
+      *(undefined4 *)(*(int *)(*(int *)(puVar18 + 0x12) + 0x34) + 8) =
+           *(undefined4 *)(*(int *)(pbVar20 + 0xb0) + 0x18);
+    }
+  case 0x16:
+    *(undefined4 *)(*(int *)(*(int *)(puVar18 + 0x12) + 0x14) + 8) =
+         *(undefined4 *)(*(int *)(pbVar20 + 0xac) + 0x14);
+    if (bVar30 != 0) {
+      *(undefined4 *)(*(int *)(*(int *)(puVar18 + 0x12) + 0x30) + 8) =
+           *(undefined4 *)(*(int *)(pbVar20 + 0xb0) + 0x14);
+    }
+    goto switchD_00b7d23e_caseD_15;
+  case 0x18:
+    uVar14 = *(undefined1 *)(DAT_011f91e0 + 0xb);
+    bStack_f = 0;
+    uStack_e = 0;
+    bStack_14 = 0;
+    bStack_13 = 0;
+    uStack_12 = 0;
+    bStack_1c = 0xb9;
+    bSta
+
+--- Calls FROM PPLighting pass texture binder (0x00b7d200) ---
+  0x00b7d24c -> 0x00b7c0a0 FUN_00b7c0a0
+  0x00b7d258 -> 0x00b7c0e0 FUN_00b7c0e0
+  0x00b7d297 -> 0x00b7c0a0 FUN_00b7c0a0
+  0x00b7d2a3 -> 0x00b7c0e0 FUN_00b7c0e0
+  0x00b7d2fa -> 0x00b7c0e0 FUN_00b7c0e0
+  0x00b7d306 -> 0x00b7c0a0 FUN_00b7c0a0
+  0x00b7d33e -> 0x00b7c0a0 FUN_00b7c0a0
+  0x00b7d34a -> 0x00b7c0e0 FUN_00b7c0e0
+  0x00b7d368 -> 0x00b7c2c0 FUN_00b7c2c0
+  0x00b7d374 -> 0x00b7c290 FUN_00b7c290
+  0x00b7d380 -> 0x00b7c0e0 FUN_00b7c0e0
+  0x00b7d39e -> 0x00b7c2c0 FUN_00b7c2c0
+  0x00b7d3aa -> 0x00b7c290 FUN_00b7c290
+  0x00b7d3b6 -> 0x00b7c0e0 FUN_00b7c0e0
+  0x00b7d3d4 -> 0x00b7c0a0 FUN_00b7c0a0
+  0x00b7d43b -> 0x00b7c0a0 FUN_00b7c0a0
+  0x00b7d447 -> 0x00b7c0a0 FUN_00b7c0a0
+  0x00b7d453 -> 0x00b7c0e0 FUN_00b7c0e0
+  0x00b7d471 -> 0x00b7c0a0 FUN_00b7c0a0
+  0x00b7d47d -> 0x00b7c0e0 FUN_00b7c0e0
+  0x00b7d489 -> 0x00b7c0a0 FUN_00b7c0a0
+  0x00b7d495 -> 0x00b7c0e0 FUN_00b7c0e0
+  0x00b7d4b3 -> 0x00b7c0a0 FUN_00b7c0a0
+  0x00b7d4bf -> 0x00b7c0a0 FUN_00b7c0a0
+  0x00b7d4dd -> 0x00b7c0a0 FUN_00b7c0a0
+  0x00b7d4e9 -> 0x00b7c0e0 FUN_00b7c0e0
+  0x00b7d4f5 -> 0x00b7c0a0 FUN_00b7c0a0
+  0x00b7d513 -> 0x00b7c0a0 FUN_00b7c0a0
+  0x00b7d51f -> 0x00b7c0e0 FUN_00b7c0e0
+  0x00b7d52b -> 0x00b7c0a0 FUN_00b7c0a0
+  0x00b7d537 -> 0x00b7c0e0 FUN_00b7c0e0
+  0x00b7d540 -> 0x00b7c190 FUN_00b7c190
+  0x00b7d55e -> 0x00b7c0a0 FUN_00b7c0a0
+  0x00b7d567 -> 0x00b7c120 FUN_00b7c120
+  0x00b7d588 -> 0x00b7c0a0 FUN_00b7c0a0
+  0x00b7d593 -> 0x00b7c0e0 FUN_00b7c0e0
+  0x00b7d5b4 -> 0x00b7c0a0 FUN_00b7c0a0
+  0x00b7d5bf -> 0x00b7c0e0 FUN_00b7c0e0
+  0x00b7d5c8 -> 0x00b7c190 FUN_00b7c190
+  0x00b7d728 -> 0x00b71b10 FUN_00b71b10
+  Total: 40 calls
+
+MATCHED CONTRACT LINES: PPLighting pass texture binder @ 0x00b7d200
+  L0547:   puVar18 = DAT_0126f74c;
+  L0585:     iVar19 = **(int **)(DAT_0126f74c + 0x12);
+  L0613:     iVar19 = *(int *)(*(int *)(DAT_0126f74c + 0x12) + 4);
+  L0614:     if (**(int **)(pbVar20 + 0xb4) != 0) {
+  L0615:       *(int *)(iVar19 + 8) = **(int **)(pbVar20 + 0xb4);
+  L0630:     iVar19 = **(int **)(pbVar20 + 0xb4);
+  L0631:     if (**(int **)(pbVar20 + 0xb4) == 0) {
+  L0634:     *(int *)(*(int *)(*(int *)(DAT_0126f74c + 0x12) + 8) + 8) = iVar19;
+  L0733:     iVar19 = **(int **)(pbVar20 + 0xb4);
+  L0734:     if (**(int **)(pbVar20 + 0xb4) == 0) {
+  L0737:     *(int *)(*(int *)(*(int *)(DAT_0126f74c + 0x12) + 0x10) + 8) = iVar19;
+  L0833:     iVar23 = **(int **)(pbVar20 + 0xb4);
+  L0834:     iVar19 = *(int *)(*(int *)(DAT_0126f74c + 0x12) + 0x10);
+  L0861:     iVar23 = **(int **)(pbVar20 + 0xb4);
+  L0862:     iVar19 = *(int *)(*(int *)(DAT_0126f74c + 0x12) + 0xc);
+  L0976:     bStack_1c = 0xb8;
+  L1009:     *(undefined4 *)(*(int *)(*(int *)(DAT_0126f74c + 0x12) + 0x18) + 8) =
+  L1010:          *(undefined4 *)(*(int *)(pbVar20 + 0xac) + 0x18);
+  L1013:            *(undefined4 *)(*(int *)(pbVar20 + 0xb0) + 0x18);
+  L1017:          *(undefined4 *)(*(int *)(pbVar20 + 0xac) + 0x14);
+  L1020:            *(undefined4 *)(*(int *)(pbVar20 + 0xb0) + 0x14);
+  L1170:     iVar19 = **(int **)(DAT_0126f74c + 0x12);
+  L1174:     if (**(int **)(pbVar20 + 0xb4) != 0) {
+  L1175:       *(int *)(iVar19 + 8) = **(int **)(pbVar20 + 0xb4);
+  L1226:       bStack_24 = 0xac;
+  L2286:        *(undefined4 *)(*(int *)(pbVar20 + 0xac) + 0x10);
+  L2289:          *(undefined4 *)(*(int *)(pbVar20 + 0xb0) + 0x10);
+  L2293:        *(undefined4 *)(*(int *)(pbVar20 + 0xac) + 0xc);
+  L2296:          *(undefined4 *)(*(int *)(pbVar20 + 0xb0) + 0xc);
+  L2300:        *(undefined4 *)(*(int *)(pbVar20 + 0xac) + 8);
+  L2303:          *(undefined4 *)(*(int *)(pbVar20 + 0xb0) + 8);
+  L2307:        *(undefined4 *)(*(int *)(pbVar20 + 0xac) + 4);
+  L2310:          *(undefined4 *)(*(int *)(pbVar20 + 0xb0) + 4);
+  L2333:   *(undefined4 *)(**(int **)(puVar18 + 0x12) + 8) = **(undefined4 **)(pbVar20 + 0xac);
+  L2339:          **(undefined4 **)(pbVar20 + 0xb0);
+  Total matched lines: 35
+
+======================================================================
+non-null descriptor apply gate @ 0x00be2170
+======================================================================
+  Function: FUN_00be2170 @ 0x00be2170, Size: 56 bytes
+
+void FUN_00be2170(void)
+
+{
+  uint uVar1;
+  int iVar2;
+  int iVar3;
+  uint uVar4;
+  
+  iVar3 = DAT_0126f74c;
+  uVar1 = *(uint *)(DAT_0126f74c + 0x18);
+  uVar4 = 0;
+  if (uVar1 != 0) {
+    do {
+      iVar2 = *(int *)(*(int *)(iVar3 + 0x24) + uVar4 * 4);
+      if (iVar2 == 0) {
+        return;
+      }
+      if ((*(char *)(iVar2 + 100) != '\0') && (*(int *)(iVar2 + 8) != 0)) {
+        FUN_00e7eb00(0);
+      }
+      uVar4 = uVar4 + 1;
+    } while (uVar4 < uVar1);
+  }
+  return;
+}
+
+
+
+--- Calls FROM non-null descriptor apply gate (0x00be2170) ---
+  0x00be219a -> 0x00e7eb00 FUN_00e7eb00
+  Total: 1 calls
+
+MATCHED CONTRACT LINES: non-null descriptor apply gate @ 0x00be2170
+  L0010:   iVar3 = DAT_0126f74c;
+  L0011:   uVar1 = *(uint *)(DAT_0126f74c + 0x18);
+  Total matched lines: 2
+
+======================================================================
+single descriptor apply wrapper @ 0x00e7eb00
+======================================================================
+  Function: FUN_00e7eb00 @ 0x00e7eb00, Size: 73 bytes
+
+undefined4 __thiscall FUN_00e7eb00(int param_1,char param_2)
+
+{
+  int iVar1;
+  
+  if ((param_2 != '\0') ||
+     (*(int *)(param_1 + 8) != *(int *)(&DAT_0126f680 + *(int *)(param_1 + 4) * 4))) {
+    *(undefined4 *)(&DAT_0126f680 + *(int *)(param_1 + 4) * 4) = *(undefined4 *)(param_1 + 8);
+    iVar1 = FUN_00e89410(*(undefined4 *)(param_1 + 4));
+    if (iVar1 != 0) {
+      return 0;
+    }
+    FUN_00e7ea00();
+  }
+  return 1;
+}
+
+
+
+--- Calls FROM single descriptor apply wrapper (0x00e7eb00) ---
+  0x00e7eb2d -> 0x00e89410 FUN_00e89410
+  0x00e7eb3e -> 0x00e7ea00 FUN_00e7ea00
+  Total: 2 calls
+
+MATCHED CONTRACT LINES: single descriptor apply wrapper @ 0x00e7eb00
+  Total matched lines: 0
+
+======================================================================
+final descriptor texture and sampler apply @ 0x00e7ea00
+======================================================================
+  Function: FUN_00e7ea00 @ 0x00e7ea00, Size: 250 bytes
+
+void __fastcall FUN_00e7ea00(int *param_1)
+
+{
+  char cVar1;
+  undefined4 unaff_EDI;
+  int iVar2;
+  char cVar3;
+  undefined1 auStack_c [3];
+  undefined1 local_9;
+  int local_8;
+  undefined1 local_4 [4];
+  
+  cVar3 = (char)((uint)unaff_EDI >> 0x18);
+  if ((uint)param_1[1] < DAT_011bf558) {
+    local_8 = 0;
+    auStack_c = (undefined1  [3])CONCAT12(0,auStack_c._0_2_);
+    cVar1 = FUN_00e89060(0xb,&local_8,auStack_c + 2);
+    iVar2 = local_8;
+    if (cVar1 == '\0') {
+      iVar2 = param_1[1];
+    }
+    (**(code **)(*DAT_0126f6c8 + 0xc0))(param_1[1],0xb,iVar2,0);
+  }
+  iVar2 = 0;
+  if (param_1[2] != 0) {
+    iVar2 = (**(code **)(**(int **)(DAT_0126f6c4 + 0x8c4) + 0xc))
+                      (param_1[2],auStack_c + 2,auStack_c + 3,local_4);
+  }
+  (**(code **)(*DAT_0126f6c8 + 0xdc))(param_1[1],iVar2);
+  if (iVar2 != 0) {
+    if (cVar3 == '\0') {
+      (**(code **)(*DAT_0126f6c8 + 0xcc))(param_1[1],7,0,0);
+    }
+    FUN_00e7dc90(_auStack_c);
+    FUN_00e7e940();
+  }
+  if (*param_1 == 6) {
+    (**(code **)(*DAT_0126f6c0 + 0x114))(DAT_0126f6c0,param_1[1],10,DAT_011a9608);
+  }
+  return;
+}
+
+
+
+--- Calls FROM final descriptor texture and sampler apply (0x00e7ea00) ---
+  0x00e7ea2d -> 0x00e89060 FUN_00e89060
+  0x00e7eac7 -> 0x00e7dc90 FUN_00e7dc90
+  0x00e7eace -> 0x00e7e940 FUN_00e7e940
+  Total: 3 calls
+
+MATCHED CONTRACT LINES: final descriptor texture and sampler apply @ 0x00e7ea00
+  L0023:     (**(code **)(*DAT_0126f6c8 + 0xc0))(param_1[1],0xb,iVar2,0);
+  Total matched lines: 1
+
+======================================================================
+EnvMap constants and selected environment record setup @ 0x00b795b0
+======================================================================
+  Function: FUN_00b795b0 @ 0x00b795b0, Size: 314 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+void __thiscall
+FUN_00b795b0(int *param_1,uint param_2,undefined4 param_3,int *param_4,undefined4 param_5,
+            int param_6,int param_7)
+
+{
+  float fVar1;
+  undefined4 uVar2;
+  int iVar3;
+  
+  if (*(char *)(DAT_011fec40 + 8) != '\0') {
+    if (param_2 - 0x1f7 < 0x38) {
+      FUN_00c02c30(param_3,0,param_4,0);
+    }
+    else {
+      iVar3 = *param_1;
+      uVar2 = FUN_00b55520(DAT_011f91c4,param_5);
+      (**(code **)(iVar3 + 0x154))(param_3,uVar2);
+    }
+    if ((param_6 != 0) && (*(char *)(param_6 + 8) == '\0')) {
+      _DAT_011fa2d4 = 0;
+    }
+    if (((param_4[8] & 0x4000U) == 0) && ((param_2 < 0x248 || (0x24b < param_2)))) {
+      if ((*(ushort *)(param_7 + 0x18) >> 9 & 1) == 0) {
+        _DAT_011fa2dc = (float)0;
+        if ((*(byte *)(param_7 + 0x18) & 1) != 0) {
+          _DAT_011fa2dc = (float)_DAT_010af2f0;
+        }
+        return;
+      }
+      fVar1 = (float)*(byte *)(param_7 + 0x1a);
+      if (fVar1 < (float)_DAT_01012070) {
+        fVar1 = 1.0;
+      }
+      _DAT_011fa2dc = fVar1 / (float)_DAT_0101e568;
+      return;
+    }
+    if (param_2 - 0x248 < 4) {
+      iVar3 = (**(code **)(*param_4 + 0xf4))(5,0);
+      if (iVar3 == 0) {
+        _DAT_011fa2dc = 0.0;
+      }
+      else {
+        _DAT_011fa2dc = 1.0;
+      }
+      _DAT_011fa2d8 = param_4[0xc];
+    }
+  }
+  return;
+}
+
+
+
+--- Calls FROM EnvMap constants and selected environment record setup (0x00b795b0) ---
+  0x00b795e3 -> 0x00c02c30 FUN_00c02c30
+  0x00b795fa -> 0x00b55520 FUN_00b55520
+  Total: 2 calls
+
+MATCHED CONTRACT LINES: EnvMap constants and selected environment record setup @ 0x00b795b0
+  L0019:       uVar2 = FUN_00b55520(DAT_011f91c4,param_5);
+  L0023:       _DAT_011fa2d4 = 0;
+  L0025:     if (((param_4[8] & 0x4000U) == 0) && ((param_2 < 0x248 || (0x24b < param_2)))) {
+  L0027:         _DAT_011fa2dc = (float)0;
+  L0029:           _DAT_011fa2dc = (float)_DAT_010af2f0;
+  L0037:       _DAT_011fa2dc = fVar1 / (float)_DAT_0101e568;
+  L0040:     if (param_2 - 0x248 < 4) {
+  L0041:       iVar3 = (**(code **)(*param_4 + 0xf4))(5,0);
+  L0043:         _DAT_011fa2dc = 0.0;
+  L0046:         _DAT_011fa2dc = 1.0;
+  L0048:       _DAT_011fa2d8 = param_4[0xc];
+  Total matched lines: 11
+
+======================================================================
+selected environment record constant writer @ 0x00c02d90
+======================================================================
+  Function: FUN_00c02d90 @ 0x00c02d90, Size: 139 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+void FUN_00c02d90(int param_1,int param_2,int param_3)
+
+{
+  undefined4 local_10;
+  
+  if ((*(byte *)(*(int *)(param_1 + 0xa8) + 0x24) & 0x20) == 0) {
+    local_10 = 0;
+  }
+  else {
+    local_10 = 0x3f800000;
+  }
+  _DAT_011fa2d4 = DAT_011a9bd4;
+  if (param_2 != 0) {
+    _DAT_011fa2d4 = 0x3f800000;
+  }
+  _DAT_011fa2d8 = _DAT_01018f5c;
+  if (param_3 != 0) {
+    _DAT_011fa2d8 = *(undefined4 *)(param_3 + 0x38);
+  }
+  _DAT_011fa2d0 = local_10;
+  _DAT_011fa2dc = DAT_011a9bdc;
+  return;
+}
+
+
+
+--- Calls FROM selected environment record constant writer (0x00c02d90) ---
+  Total: 0 calls
+
+MATCHED CONTRACT LINES: selected environment record constant writer @ 0x00c02d90
+  L0015:   _DAT_011fa2d4 = DAT_011a9bd4;
+  L0017:     _DAT_011fa2d4 = 0x3f800000;
+  L0019:   _DAT_011fa2d8 = _DAT_01018f5c;
+  L0021:     _DAT_011fa2d8 = *(undefined4 *)(param_3 + 0x38);
+  L0023:   _DAT_011fa2d0 = local_10;
+  L0024:   _DAT_011fa2dc = DAT_011a9bdc;
+  Total matched lines: 6
+
+======================================================================
+selected environment record resolver @ 0x00b55520
+======================================================================
+  Function: FUN_00b55520 @ 0x00b55520, Size: 18 bytes
+
+undefined4 FUN_00b55520(int param_1)
+
+{
+  return *(undefined4 *)((&DAT_011f91c8)[param_1] + 0x134);
+}
+
+
+
+--- Calls FROM selected environment record resolver (0x00b55520) ---
+  Total: 0 calls
+
+MATCHED CONTRACT LINES: selected environment record resolver @ 0x00b55520
+  L0005:   return *(undefined4 *)((&DAT_011f91c8)[param_1] + 0x134);
+  Total matched lines: 1
+
+======================================================================
+lighting and environment shader-interface setup @ 0x00b7b450
+======================================================================
+  Function: FUN_00b7b450 @ 0x00b7b450, Size: 731 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+void __thiscall FUN_00b7b450(int param_1,int param_2)
+
+{
+  uint uVar1;
+  int iVar2;
+  int *piVar3;
+  undefined4 uStack_58;
+  undefined4 uStack_54;
+  undefined1 auStack_50 [76];
+  
+  if ((param_2 != 0x250) && (param_2 != 0x251)) {
+    uVar1 = 1;
+    piVar3 = &DAT_011febdc;
+    do {
+      if (piVar3[-1] != 0) {
+        *(bool *)(piVar3[-1] + 8) =
+             (*(uint *)(&DAT_011fcc80 + param_2 * 4) & (uVar1 << 1 | (uint)((int)uVar1 < 0))) != 0;
+      }
+      uVar1 = uVar1 << 1 | (uint)((int)uVar1 < 0);
+      if (*piVar3 != 0) {
+        *(bool *)(*piVar3 + 8) =
+             (*(uint *)(&DAT_011fcc80 + param_2 * 4) & (uVar1 << 1 | (uint)((int)uVar1 < 0))) != 0;
+      }
+      piVar3 = piVar3 + 2;
+      uVar1 = uVar1 << 1 | (uint)((int)uVar1 < 0);
+    } while ((int)piVar3 < 0x11fec34);
+    uVar1 = 1;
+    piVar3 = &DAT_011fec34;
+    do {
+      if (piVar3[-1] != 0) {
+        *(bool *)(piVar3[-1] + 8) =
+             (*(uint *)(&DAT_011fc0a0 + param_2 * 4) & (uVar1 << 1 | (uint)((int)uVar1 < 0))) != 0;
+      }
+      uVar1 = uVar1 << 1 | (uint)((int)uVar1 < 0);
+      if (*piVar3 != 0) {
+        *(bool *)(*piVar3 + 8) =
+             (*(uint *)(&DAT_011fc0a0 + param_2 * 4) & (uVar1 << 1 | (uint)((int)uVar1 < 0))) != 0;
+      }
+      piVar3 = piVar3 + 2;
+      uVar1 = uVar1 << 1 | (uint)((int)uVar1 < 0);
+    } while ((int)piVar3 < 0x11fec8c);
+    (**(code **)(**(int **)(param_1 + 0x34) + 0x24))();
+    (**(code **)(**(int **)(param_1 + 0x30) + 0x24))();
+    if (*(char *)(DAT_011febf8 + 8) != '\0') {
+      iVar2 = FUN_00b55520(DAT_011f91c4);
+      if (iVar2 != 0) {
+        _DAT_011fa280 = *(float *)(iVar2 + 0x30);
+        _DAT_011fa288 = *(undefined4 *)(iVar2 + 0x60);
+        if ((_DAT_011fa280 == 0.0) && (*(float *)(iVar2 + 0x2c) == 0.0)) {
+          _DAT_011fa280 = _DAT_010ad6e0;
+          _DAT_011fa284 = 0.0;
+          _DAT_011fa288 = 0;
+          _DAT_011fa290 = DAT_011a9bd0;
+          _DAT_011fa29c = DAT_011a9bdc;
+          _DAT_011fa294 = DAT_011a9bd4;
+          _DAT_011fa298 = DAT_011a9bd8;
+        }
+        else {
+          _DAT_011fa290 = *(undefined4 *)(iVar2 + 0x20);
+          _DAT_011fa294 = *(undefined4 *)(iVar2 + 0x24);
+          _DAT_011fa298 = *(undefined4 *)(iVar2 + 0x28);
+          _DAT_011fa284 = _DAT_011fa280 - *(float *)(iVar2 + 0x2c);
+          uStack_54 = 0;
+          _DAT_011fa29c = 0;
+          uStack_58 = _DAT_011fa298;
+        }
+        _DAT_011fa28c = 0;
+      }
+    }
+    if (*(int *)(*DAT_011f91e0 + 0xbc) != 0) {
+      D3DXMatrixTranspose(auStack_50,*(int *)(param_1 + 0x18) + 0xa00);
+      piVar3 = *(int **)(*(int *)(DAT_0126f74c + 0x5c) + 0x20);
+      (**(code **)(*piVar3 + 0x178))(piVar3,1,&uStack_58,4);
+    }
+    if (*(char *)(DAT_011febf8 + 8) != '\0') {
+      DAT_011fd9b8 = DAT_011a9bd0;
+      DAT_011fd9bc = DAT_011a9bd4;
+      DAT_011fd9c0 = DAT_011a9bd8;
+      DAT_011fd9c4 = DAT_011a9bdc;
+      _DAT_011fd9c8 = DAT_011a9bd0;
+      _DAT_011fd9cc = DAT_011a9bd4;
+      _DAT_011fd9d0 = DAT_011a9bd8;
+      _DAT_011fd9d4 = DAT_011a9bdc;
+      _DAT_011fd9d8 = DAT_011a9bd0;
+      _DAT_011fd9dc = DAT_011a9bd4;
+      _DAT_011fd9e0 = DAT_011a9bd8;
+      _DAT_011fd9e4 = DAT_011a9bdc;
+    }
+  }
+  return;
+}
+
+
+
+--- Calls FROM lighting and environment shader-interface setup (0x00b7b450) ---
+  0x00b7b539 -> 0x00b55520 FUN_00b55520
+  0x00b7b698 -> 0x00ee6dd4 D3DXMatrixTranspose
+  Total: 2 calls
+
+MATCHED CONTRACT LINES: lighting and environment shader-interface setup @ 0x00b7b450
+  L0048:       iVar2 = FUN_00b55520(DAT_011f91c4);
+  L0073:     if (*(int *)(*DAT_011f91e0 + 0xbc) != 0) {
+  L0075:       piVar3 = *(int **)(*(int *)(DAT_0126f74c + 0x5c) + 0x20);
+  Total matched lines: 3
+
+======================================================================
+distance fade selector @ 0x00bb41e0
+======================================================================
+  Function: FUN_00bb41e0 @ 0x00bb41e0, Size: 656 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+undefined4 __thiscall
+FUN_00bb41e0(int param_1,int param_2,uint param_3,undefined4 param_4,int param_5)
+
+{
+  int *piVar1;
+  float fVar2;
+  float fVar3;
+  bool bVar4;
+  int iVar5;
+  undefined4 *puVar6;
+  float10 fVar7;
+  undefined4 uVar8;
+  
+  iVar5 = param_2;
+  if (param_5 == 7) {
+    return 0;
+  }
+  fVar2 = *(float *)(param_1 + 0x34);
+  puVar6 = *(undefined4 **)(param_2 + 0x20);
+  bVar4 = true;
+  if (puVar6 == (undefined4 *)0x0) {
+    puVar6 = &DAT_011f4288;
+  }
+  fVar3 = (float)puVar6[3];
+  fVar7 = (float10)FUN_00ec6040();
+  fVar3 = (float)fVar7 - fVar3;
+  *(float *)(param_1 + 0x34) = fVar3;
+  if (fVar2 != fVar3) {
+    if ((_DAT_011f9478 <= fVar3) || (_DAT_011f9478 < fVar2 == (_DAT_011f9478 == fVar2))) {
+      if ((_DAT_011f9478 < fVar3 != (_DAT_011f9478 == fVar3)) && (fVar2 < _DAT_011f9478)) {
+        *(undefined4 *)(param_1 + 0x38) = 0;
+      }
+    }
+    else {
+      *(undefined4 *)(param_1 + 0x38) = 0;
+    }
+  }
+  if (param_2 != -0x9c) {
+    piVar1 = (int *)(param_2 + 0xa4);
+    param_2 = 0x3f800000;
+    if (*piVar1 != 0) {
+      param_2 = *(undefined4 *)(*piVar1 + 0x3c);
+      if ((_DAT_011f9470 == 0.0) || (_DAT_011f9470 < fVar3 == (_DAT_011f9470 == fVar3))) {
+        if ((_DAT_011f9474 != 0.0) &&
+           (((_DAT_011f9478 != 0.0 && (_DAT_011f9474 < fVar3 != (_DAT_011f9474 == fVar3))) &&
+            (fVar3 < _DAT_011f9478)))) {
+          fVar7 = (float10)FUN_004b3ab0(0,0x3f800000,_DAT_011f9478,_DAT_011f9474,fVar3);
+          FUN_00ba8ab0((float)fVar7);
+          goto LAB_00bb4400;
+        }
+      }
+      else {
+        bVar4 = false;
+      }
+    }
+    FUN_00ba8ab0(param_2);
+  }
+LAB_00bb4400:
+  if (*(uint *)(param_1 + 0x38) != param_3) {
+    FUN_00ba95e0(1);
+    *(undefined4 *)(*(int *)(param_1 + 0x3c) + 0x10) = 0;
+    if (!bVar4) {
+      return 0;
+    }
+    if (*(int *)(iVar5 + 0xbc) == 0) {
+      uVar8 = 0x24c;
+    }
+    else {
+      uVar8 = 0x24d;
+    }
+    FUN_00ba9ee0(iVar5,uVar8,1,0,0,0,0,0);
+    *(uint *)(param_1 + 0x38) = param_5 << 8 | param_3;
+  }
+  return *(undefined4 *)(param_1 + 0x3c);
+}
+
+
+
+--- Calls FROM distance fade selector (0x00bb41e0) ---
+  0x00bb4297 -> 0x00ec6040 FUN_00ec6040
+  0x00bb43ba -> 0x004b3ab0 FUN_004b3ab0
+  0x00bb43d0 -> 0x00ba8ab0 FUN_00ba8ab0
+  0x00bb43f5 -> 0x00ba8ab0 FUN_00ba8ab0
+  0x00bb440e -> 0x00ba95e0 FUN_00ba95e0
+  0x00bb4452 -> 0x00ba9ee0 FUN_00ba9ee0
+  Total: 6 calls
+
+MATCHED CONTRACT LINES: distance fade selector @ 0x00bb41e0
+  L0068:     if (*(int *)(iVar5 + 0xbc) == 0) {
+  Total matched lines: 1
+
+======================================================================
+distance pass-list invalidation owner @ 0x00bb4740
+======================================================================
+  Function: FUN_00bb4740 @ 0x00bb4740, Size: 5446 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+undefined4 __thiscall
+FUN_00bb4740(int param_1,int param_2,float param_3,undefined4 param_4,int param_5,int param_6)
+
+{
+  ushort uVar1;
+  undefined4 uVar2;
+  bool bVar3;
+  bool bVar4;
+  bool bVar5;
+  bool bVar6;
+  bool bVar7;
+  bool bVar8;
+  char cVar9;
+  char cVar10;
+  char cVar11;
+  char cVar12;
+  char cVar13;
+  char cVar14;
+  char cVar15;
+  char cVar16;
+  char cVar17;
+  float *pfVar18;
+  int iVar19;
+  int iVar20;
+  undefined2 uVar21;
+  byte bVar22;
+  byte bVar23;
+  undefined1 uVar24;
+  int iVar25;
+  float fVar27;
+  short sVar28;
+  bool bVar29;
+  bool bVar30;
+  float10 fVar31;
+  undefined1 local_40 [4];
+  uint local_3c;
+  int local_38;
+  float local_34;
+  undefined1 local_30 [4];
+  undefined1 local_2c [4];
+  float local_28;
+  float local_24;
+  float local_20;
+  float local_1c;
+  float local_18;
+  float local_14;
+  float local_10;
+  float local_c;
+  float local_8;
+  float local_4;
+  uint uVar26;
+  
+  local_3c = param_5 << 8 | (uint)param_3;
+  bVar29 = (*(uint *)(param_1 + 0x24) & 0x800000) == 0;
+  bVar6 = true;
+  bVar30 = true;
+  bVar4 = false;
+  if (param_5 == 7) {
+    if (((*(uint *)(param_1 + 0x20) & 0x8000) != 0) || ((*(uint *)(param_1 + 0x20) & 0x10000) != 0))
+    {
+      return 0;
+    }
+    FUN_00ba9660(1);
+    if (*(int *)(*(int *)(param_1 + 0x40) + 0x10) == 0) {
+      if (*(int *)(*(int *)(param_2 + 0xb8) + 0x28) != 0) {
+        cVar9 = FUN_004a2020(1);
+        uVar2 = *(undefined4 *)(*(int *)(DAT_011f4748 + 8) + 0x1a0);
+        if (cVar9 != '\0') {
+          FUN_00ba9ee0(param_2,0x1cb,1,1,uVar2,0,0,0);
+          return *(undefined4 *)(param_1 + 0x40);
+        }
+        FUN_00ba9ee0(param_2,0x1c9,1,1,uVar2,0,0,0);
+        return *(undefined4 *)(param_1 + 0x40);
+      }
+      cVar9 = FUN_004a2020(1);
+      uVar2 = *(undefined4 *)(*(int *)(DAT_011f4748 + 8) + 0x1a0);
+      if (cVar9 == '\0') {
+        FUN_00ba9ee0(param_2,0x1c8,1,1,uVar2,0,0,0);
+        return *(undefined4 *)(param_1 + 0x40);
+      }
+      FUN_00ba9ee0(param_2,0x1ca,1,1,uVar2,0,0,0);
+    }
+    else {
+      iVar19 = **(int **)(*(int *)(param_1 + 0x40) + 4);
+      if (*(char *)(iVar19 + 9) != '\0') {
+        **(undefined4 **)(iVar19 + 0xc) = *(undefined4 *)(*(int *)(DAT_011f4748 + 8) + 0x1a0);
+        return *(undefined4 *)(param_1 + 0x40);
+      }
+    }
+    return *(undefined4 *)(param_1 + 0x40);
+  }
+  if (param_5 == 8) {
+    if ((((*(uint *)(param_1 + 0x20) & 0x8000) == 0) && ((*(uint *)(param_1 + 0x20) & 0x10000) == 0)
+        ) && ((*(uint *)(param_1 + 0x24) & 0x10) == 0)) {
+      FUN_00ba9740(1);
+      if (*(int *)(*(int *)(param_1 + 0x44) + 0x10) == 0) {
+        bVar30 = *(int *)(*(int *)(param_2 + 0xb8) + 0x28) != 0;
+        cVar9 = FUN_004a2020(1);
+        uVar2 = *(undefined4 *)(*(int *)(DAT_011f4748 + 8) + 0x1a0);
+        if (cVar9 == '\0') {
+          if (!bVar30) {
+            FUN_00ba9ee0(param_2,0x1d3,1,1,uVar2,0,0,0);
+            return *(undefined4 *)(param_1 + 0x44);
+          }
+          FUN_00ba9ee0(param_2,0x1d4,1,1,uVar2,0,0,0);
+          return *(undefined4 *)(param_1 + 0x44);
+        }
+        if (bVar30) {
+          FUN_00ba9ee0(param_2,0x1d6,1,1,uVar2,0,0,0);
+          return *(undefined4 *)(param_1 + 0x44);
+        }
+        FUN_00ba9ee0(param_2,0x1d5,1,1,uVar2,0,0,0);
+      }
+      else {
+        iVar19 = **(int **)(*(int *)(param_1 + 0x44) + 4);
+        if (*(char *)(iVar19 + 9) != '\0') {
+          **(undefined4 **)(iVar19 + 0xc) = *(undefined4 *)(*(int *)(DAT_011f4748 + 8) + 0x1a0);
+          return *(undefined4 *)(param_1 + 0x44);
+        }
+      }
+    }
+    return *(undefined4 *)(param_1 + 0x44);
+  }
+  if (param_5 == 9) {
+    FUN_00ba96d0(1);
+    if (*(int *)(*(int *)(param_1 + 0x48) + 0x10) == 0) {
+      if ((*(uint *)(param_1 + 0x20) & 0x100000) != 0) {
+        FUN_00ba9ee0(param_2,0x1df,1,0,0,0,0,0);
+        return *(undefined4 *)(param_1 + 0x48);
+      }
+      cVar9 = FUN_004a2020(1);
+      if (cVar9 == '\0') {
+        FUN_00ba9ee0(param_2,0x1dd,1,0,0,0,0,0);
+        return *(undefined4 *)(param_1 + 0x48);
+      }
+      FUN_00ba9ee0(param_2,0x1de,1,0,0,0,0,0);
+    }
+    return *(undefined4 *)(param_1 + 0x48);
+  }
+  if (param_5 == 0xf) {
+    FUN_00ba9820(1);
+    if ((*(int *)(*(int *)(param_1 + 0x54) + 0x10) == 0) && (*(int *)(param_2 + 0xbc) == 0)) {
+      cVar9 = FUN_004a2020(0x25);
+      if (cVar9 != '\0') {
+        FUN_00ba9ee0(param_2,0x1bc,1,0,0,0,0,0);
+        return *(undefined4 *)(param_1 + 0x54);
+      }
+      FUN_00ba9ee0(param_2,0x1bb,1,0,0,0,0,0);
+    }
+    return *(undefined4 *)(param_1 + 0x54);
+  }
+  local_34 = *(float *)(param_1 + 0x34);
+  uVar26 = *(uint *)(param_1 + 0x20);
+  if (((uVar26 & 0x80) == 0) || (bVar3 = true, _DAT_011f9460 <= 0.0)) {
+    bVar3 = false;
+  }
+  if (((uVar26 & 0x20000) == 0) || (_DAT_011f9468 <= 0.0)) {
+    param_3 = (float)((uint)param_3._1_3_ << 8);
+  }
+  else {
+    param_3 = (float)CONCAT31(param_3._1_3_,1);
+  }
+  if (((((uVar26 & 0x4000000) == 0) && (cVar9 = FUN_004a2020(0x1b), cVar9 != '\x01')) ||
+      (_DAT_011f9470 <= 0.0)) || (cVar9 = FUN_004a2020(0x23), cVar9 != '\0')) {
+    bVar8 = false;
+  }
+  else {
+    bVar8 = true;
+  }
+  if (((uVar26 & 1) == 0) || (_DAT_011f9458 <= 0.0)) {
+    bVar7 = false;
+    bVar5 = false;
+  }
+  else {
+    bVar5 = true;
+    bVar7 = true;
+  }
+  if (((param_3._0_1_ != '\0') || (bVar3)) || ((bVar8 || (bVar5)))) {
+    iVar19 = *(int *)(param_6 + 0x194);
+    local_28 = *(float *)(iVar19 + 0x1f0);
+    local_24 = *(float *)(iVar19 + 500);
+    local_20 = *(float *)(iVar19 + 0x1f8);
+    pfVar18 = *(float **)(param_2 + 0x20);
+    if (pfVar18 == (float *)0x0) {
+      pfVar18 = (float *)&DAT_011f4288;
+    }
+    local_10 = *pfVar18;
+    local_c = pfVar18[1];
+    local_1c = local_10 - local_28;
+    local_8 = pfVar18[2];
+    local_4 = pfVar18[3];
+    local_18 = local_c - local_24;
+    local_14 = local_8 - local_20;
+    fVar31 = (float10)FUN_00457990();
+    *(float *)(param_1 + 0x34) = (float)(fVar31 - (float10)local_4);
+    iVar19 = FUN_00b4f5c0();
+    if (*(int *)(iVar19 + 8) != 0) {
+      iVar19 = FUN_00b4f5c0();
+      *(float *)(param_1 + 0x34) =
+           *(float *)(*(int *)(iVar19 + 8) + 0x110) * *(float *)(param_1 + 0x34);
+    }
+    if (local_34 == *(float *)(param_1 + 0x34)) goto LAB_00bb4db1;
+    if (param_3._0_1_ == '\0') {
+      if (bVar3) {
+        if ((*(float *)(param_1 + 0x34) < _DAT_011f9460) &&
+           (_DAT_011f9460 < local_34 != (_DAT_011f9460 == local_34))) goto LAB_00bb4cd7;
+        if ((_DAT_011f9460 <= *(float *)(param_1 + 0x34)) && (local_34 < _DAT_011f9460)) {
+          *(undefined4 *)(param_1 + 0x38) = 0;
+        }
+      }
+    }
+    else if ((_DAT_011f9468 <= *(float *)(param_1 + 0x34)) ||
+            (_DAT_011f9468 < local_34 == (_DAT_011f9468 == local_34))) {
+      if ((_DAT_011f9468 <= *(float *)(param_1 + 0x34)) && (local_34 < _DAT_011f9468)) {
+        *(undefined4 *)(param_1 + 0x38) = 0;
+      }
+    }
+    else {
+LAB_00bb4cd7:
+      *(undefined4 *)(param_1 + 0x38) = 0;
+    }
+    if ((bVar8) &&
+       (((*(float *)(param_1 + 0x34) < _DAT_011f9470 &&
+         (_DAT_011f9470 < local_34 != (_DAT_011f9470 == local_34))) ||
+        ((_DAT_011f9470 <= *(float *)(param_1 + 0x34) && (local_34 < _DAT_011f9470)))))) {
+      *(undefined4 *)(param_1 + 0x38) = 0;
+    }
+    if (!bVar5) goto LAB_00bb4db1;
+    if (bVar29) {
+      if (((*(float *)(param_1 + 0x34) < _DAT_011f9458) &&
+          (_DAT_011f9458 < local_34 != (_DAT_011f9458 == local_34))) ||
+         ((_DAT_011f9458 <= *(float *)(param_1 + 0x34) && (local_34 < _DAT_011f9458)))) {
+        *(undefined4 *)(param_1 + 0x38) = 0;
+      }
+      if (_DAT_011f9458 <= *(float *)(param_1 + 0x34)) {
+        bVar7 = false;
+      }
+      goto LAB_00bb4db8;
+    }
+  }
+  else {
+LAB_00bb4db1:
+    if (bVar29) {
+LAB_00bb4db8:
+      if ((_DAT_011f9460 != 0.0) && (_DAT_011f9460 <= *(float *)(param_1 + 0x34))) {
+        bVar6 = false;
+      }
+    }
+  }
+  if (param_2 != -0x9c) {
+    iVar19 = *(int *)(param_2 + 0xa4);
+    param_3 = 1.0;
+    if (iVar19 == 0) {
+      fVar31 = (float10)*(float *)(param_1 + 0x2c);
+LAB_00bb4eaf:
+      param_3 = (float)fVar31;
+    }
+    else {
+      if (!bVar8) {
+        fVar31 = (float10)*(float *)(iVar19 + 0x3c) * (float10)*(float *)(param_1 + 0x2c);
+        goto LAB_00bb4eaf;
+      }
+      if ((_DAT_011f9470 == 0.0) || (*(float *)(param_1 + 0x34) < _DAT_011f9470)) {
+        if ((_DAT_011f946c == 0.0) ||
+           (((_DAT_011f9470 == 0.0 || (*(float *)(param_1 + 0x34) < _DAT_011f946c)) ||
+            (_DAT_011f9470 <= *(float *)(param_1 + 0x34))))) {
+          fVar31 = (float10)*(float *)(iVar19 + 0x3c) * (float10)*(float *)(param_1 + 0x2c);
+        }
+        else {
+          fVar31 = (float10)FUN_004b3ab0(0,0x3f800000,_DAT_011f9470,_DAT_011f946c,
+                                         *(undefined4 *)(param_1 + 0x34));
+        }
+        goto LAB_00bb4eaf;
+      }
+      bVar30 = false;
+    }
+    FUN_00ba8ab0(param_3);
+    if (param_3 < 1.0) {
+      bVar4 = true;
+    }
+  }
+  if (*(char *)(param_1 + 0x74) != '\0') {
+    pfVar18 = *(float **)(param_2 + 0x20);
+    if (pfVar18 == (float *)0x0) {
+      pfVar18 = (float *)&DAT_011f4288;
+    }
+    local_10 = *pfVar18;
+    local_c = pfVar18[1];
+    local_8 = pfVar18[2];
+    local_4 = pfVar18[3];
+    FUN_00b70390(&local_10);
+  }
+  if ((*(uint *)(param_1 + 0x38) == local_3c) && (*(char *)(param_1 + 0x74) != '\0')) {
+    iVar19 = FUN_00b4f5c0();
+    local_38 = *(int *)(*(int *)(iVar19 + 0x194) + 0xe0);
+    local_34 = 0.0;
+    if (*(int *)(*(int *)(param_1 + 0x3c) + 0x10) != 0) {
+      do {
+        fVar27 = local_34;
+        iVar19 = *(int *)(*(int *)(*(int *)(param_1 + 0x3c) + 4) + (int)local_34 * 4);
+        uVar1 = *(ushort *)(iVar19 + 4);
+        if ((uVar1 < 0x17f) || (0x1ba < uVar1)) {
+          if ((uVar1 < 0x1bd) || (0x1c3 < uVar1)) {
+            if (((0x1c3 < uVar1) && (uVar1 < 0x1c8)) && (*(char *)(iVar19 + 9) == '\x01')) {
+              iVar20 = FUN_00b70590(local_2c);
+              if (((iVar20 == 0) || (*(char *)(iVar20 + 0xec) == '\0')) ||
+                 ((*(byte *)(*(int *)(iVar20 + 0xf8) + 0x30) & 1) != 0)) {
+                *(undefined4 *)(param_1 + 0x38) = 0;
+                break;
+              }
+LAB_00bb508e:
+              **(int **)(iVar19 + 0xc) = iVar20;
+            }
+          }
+          else if (*(char *)(iVar19 + 9) == '\x01') {
+            iVar25 = FUN_00b70600(local_30);
+            iVar20 = local_38;
+            if (iVar25 == 0) goto LAB_00bb508e;
+            **(int **)(iVar19 + 0xc) = iVar25;
+          }
+        }
+        else {
+          bVar23 = 1;
+          param_3 = (float)CONCAT31(param_3._1_3_,1);
+          iVar20 = FUN_00b70600(local_40);
+          bVar22 = 1;
+          if (iVar20 != 0) {
+            do {
+              bVar23 = bVar22 + 1;
+              iVar20 = FUN_00b70700(local_40);
+              bVar22 = bVar23;
+            } while (iVar20 != 0);
+            param_3 = (float)CONCAT31(param_3._1_3_,bVar23);
+            if (bVar23 == 0) {
+              *(undefined1 *)(iVar19 + 9) = 0;
+              goto LAB_00bb5093;
+            }
+          }
+          if (*(byte *)(iVar19 + 10) < bVar23) {
+            FUN_00ba8c30();
+            FUN_00ba8c00(param_3);
+            *(byte *)(iVar19 + 10) = bVar23;
+          }
+          iVar20 = FUN_00b70600(local_40);
+          **(int **)(iVar19 + 0xc) = local_38;
+          iVar25 = 1;
+          if (iVar20 != 0) {
+            do {
+              fVar27 = local_34;
+              if ((int)((uint)param_3 & 0xff) <= iVar25) break;
+              *(int *)(*(int *)(iVar19 + 0xc) + iVar25 * 4) = iVar20;
+              iVar25 = iVar25 + 1;
+              iVar20 = FUN_00b70700(local_40);
+              fVar27 = local_34;
+            } while (iVar20 != 0);
+          }
+          *(char *)(iVar19 + 9) = (char)iVar25;
+        }
+LAB_00bb5093:
+        local_34 = (float)((int)fVar27 + 1);
+      } while ((uint)local_34 < (uint)*(float *)(*(int *)(param_1 + 0x3c) + 0x10));
+    }
+    *(undefined1 *)(param_1 + 0x74) = 0;
+  }
+  if (*(uint *)(param_1 + 0x38) == local_3c) goto LAB_00bb5bfc;
+  FUN_00ba95e0(0xffffffff);
+  *(undefined4 *)(*(int *)(param_1 + 0x3c) + 0x10) = 0;
+  *(undefined1 *)(param_1 + 0x74) = 0;
+  if (((*(uint *)(param_1 + 0x20) & 0x100000) == 0) || (DAT_011f91a7 != '\0')) {
+    bVar29 = true;
+  }
+  else {
+    bVar29 = false;
+  }
+  if ((bVar30) &&
+     ((cVar9 = FUN_004a2020(0x1a), cVar9 != '\0' || (cVar9 = FUN_004a2020(0x1b), cVar9 != '\0')))) {
+    bVar30 = true;
+  }
+  else {
+    bVar30 = false;
+  }
+  if (((*(float *)(param_1 + 0x28) == 0.0) || (!bVar29)) || ((bVar8 && (!bVar30))))
+  goto LAB_00bb5bfc;
+  cVar9 = FUN_004a2020(1);
+  if (bVar6) {
+    cVar10 = FUN_004a2020(7);
+    bVar30 = true;
+    if (cVar10 == '\0') goto LAB_00bb5165;
+  }
+  else {
+LAB_00bb5165:
+    bVar30 = false;
+  }
+  cVar10 = FUN_004a2020(0x11);
+  cVar11 = FUN_004a2020(0x15);
+  cVar12 = FUN_004a2020(0xf);
+  cVar13 = FUN_004a2020(0x10);
+  cVar14 = FUN_004a2020(0xb);
+  cVar15 = FUN_004a2020(0x1c);
+  cVar16 = FUN_004a2020(10);
+  bVar29 = **(int **)(param_1 + 0xb4) == 0;
+  bVar6 = false;
+  cVar17 = FUN_004a2020(0);
+  if (((cVar17 == '\0') || ((local_3c & 8) == 0)) || (bVar3 = true, !bVar7)) {
+    bVar3 = false;
+  }
+  if ((bVar4) || (bVar4 = false, (*(byte *)(*(int *)(param_2 + 0x9c) + 0x18) & 1) != 0)) {
+    bVar4 = true;
+  }
+  cVar17 = FUN_00b60330();
+  if (((cVar17 == '\0') || (cVar17 = FUN_004a2020(0xd), cVar17 != '\0')) ||
+     ((iVar19 = FUN_00b60170(), iVar19 == 0 ||
+      (iVar19 = FUN_00b4f5c0(), *(char *)(*(int *)(iVar19 + 0x194) + 0x120) == '\x01')))) {
+LAB_00bb5264:
+    bVar8 = false;
+  }
+  else {
+    iVar19 = FUN_00b4f5c0();
+    bVar8 = true;
+    if (*(char *)(*(int *)(iVar19 + 0x194) + 0x120) == '\x03') goto LAB_00bb5264;
+  }
+  if ((*(int *)(*(int *)(param_2 + 0xb8) + 0x28) != 0) ||
+     (cVar17 = FUN_004a2020(0x25), cVar17 != '\0')) {
+    bVar6 = true;
+  }
+  if (*(int *)(param_1 + 0xdc) != 0) {
+    bVar8 = false;
+  }
+  if (cVar12 != '\0') {
+    if (cVar13 == '\0') {
+      if (bVar6) {
+        iVar19 = (uint)(cVar9 != '\0') * 2 + 0x1cd;
+      }
+      else {
+        iVar19 = (uint)(cVar9 != '\0') * 2 + 0x1cc;
+      }
+      FUN_00ba9ee0(param_2,iVar19,1,0,0,0,0,0);
+      *(undefined1 *)
+       (*(int *)(*(int *)(*(int *)(param_1 + 0x3c) + 4) + -4 +
+                *(int *)(*(int *)(param_1 + 0x3c) + 0x10) * 4) + 6) = 6;
+      *(uint *)(param_1 + 0x38) = local_3c;
+      return *(undefined4 *)(param_1 + 0x3c);
+    }
+    FUN_00ba9ee0(param_2,0x1d0,1,0,0,0,0,0);
+    *(undefined1 *)
+     (*(int *)(*(int *)(*(int *)(param_1 + 0x3c) + 4) + -4 +
+              *(int *)(*(int *)(param_1 + 0x3c) + 0x10) * 4) + 6) = 6;
+    *(uint *)(param_1 + 0x38) = local_3c;
+    return *(undefined4 *)(param_1 + 0x3c);
+  }
+  if ((*(byte *)(param_1 + 0x24) & 0x40) != 0) {
+    FUN_00ba9ee0(param_2,(cVar9 != '\0') + 0x1d1,1,0,0,0,0,0);
+    *(undefined1 *)
+     (*(int *)(*(int *)(*(int *)(param_1 + 0x3c) + 4) + -4 +
+              *(int *)(*(int *)(param_1 + 0x3c) + 0x10) * 4) + 6) = 7;
+  }
+  iVar19 = FUN_00b4f5c0();
+  local_34 = *(float *)(*(int *)(iVar19 + 0x194) + 0xe0);
+  FUN_00ba9ee0(param_2,0,1,0,0,0,0,0);
+  iVar19 = *(int *)(*(int *)(*(int *)(param_1 + 0x3c) + 4) + -4 +
+                   *(int *)(*(int *)(param_1 + 0x3c) + 0x10) * 4);
+  *(undefined1 *)(iVar19 + 9) = 1;
+  iVar20 = FUN_00b70590(local_40);
+  while (iVar20 != 0) {
+    if (*(char *)(iVar20 + 0xec) == '\0') {
+      *(char *)(iVar19 + 9) = *(char *)(iVar19 + 9) + '\x01';
+    }
+    iVar20 = FUN_00b70680(local_40);
+  }
+  if (*(byte *)(iVar19 + 9) == 0) {
+    *(undefined4 *)(iVar19 + 0xc) = 0;
+  }
+  else {
+    if (*(byte *)(iVar19 + 10) < *(byte *)(iVar19 + 9)) {
+      FUN_00ba8c30();
+      FUN_00ba8c00(*(undefined1 *)(iVar19 + 9));
+      *(undefined1 *)(iVar19 + 10) = *(undefined1 *)(iVar19 + 9);
+    }
+    iVar20 = FUN_00b70590(local_40);
+    **(int **)(iVar19 + 0xc) = (int)local_34;
+    uVar26 = 1;
+    uVar24 = 1;
+    while (iVar20 != 0) {
+      if (*(char *)(iVar20 + 0xec) == '\0') {
+        *(int *)(*(int *)(iVar19 + 0xc) + uVar26 * 4) = iVar20;
+        uVar26 = (uint)(byte)((char)uVar26 + 1);
+      }
+      uVar24 = (undefined1)uVar26;
+      iVar20 = FUN_00b70680(local_40);
+    }
+    *(undefined1 *)(iVar19 + 9) = uVar24;
+  }
+  FUN_00441130(0x1e,0);
+  cVar12 = FUN_004a2020(0x12);
+  if (cVar12 == '\0') {
+    if (bVar3) {
+      if (cVar9 == '\0') {
+        if (cVar14 == '\0') {
+          if (cVar16 == '\0') {
+            if (bVar29) {
+              if (bVar6) {
+                if (bVar8) {
+                  *(undefined2 *)(iVar19 + 4) = 0x1b5;
+                }
+                else {
+                  *(undefined2 *)(iVar19 + 4) = 0x197;
+                }
+              }
+              else {
+                if (bVar8) {
+                  uVar21 = 0x1ac;
+                  goto LAB_00bb5907;
+                }
+                *(undefined2 *)(iVar19 + 4) = 0x18e;
+              }
+            }
+            else if (bVar6) {
+              if (bVar8) {
+                uVar21 = 0x1b9;
+                goto LAB_00bb5907;
+              }
+              *(undefined2 *)(iVar19 + 4) = 0x19b;
+            }
+            else {
+              if (!bVar8) {
+                uVar21 = 0x195;
+                goto LAB_00bb5907;
+              }
+              *(undefined2 *)(iVar19 + 4) = 0x1b3;
+            }
+          }
+          else if (bVar8) {
+            *(undefined2 *)(iVar19 + 4) = 0x1b1;
+          }
+          else {
+            *(undefined2 *)(iVar19 + 4) = 0x193;
+          }
+        }
+        else if (bVar6) {
+          if (bVar8) {
+            if (cVar15 == '\0') {
+              uVar21 = 0x1b7;
+              goto LAB_00bb5907;
+            }
+            *(undefined2 *)(iVar19 + 4) = 0x1b8;
+          }
+          else if (cVar15 == '\0') {
+            *(undefined2 *)(iVar19 + 4) = 0x199;
+          }
+          else {
+            *(undefined2 *)(iVar19 + 4) = 0x19a;
+          }
+        }
+        else if (bVar8) {
+          if (cVar15 == '\0') {
+            *(undefined2 *)(iVar19 + 4) = 0x1af;
+          }
+          else {
+            uVar21 = 0x1b0;
+LAB_00bb5907:
+            *(undefined2 *)(iVar19 + 4) = uVar21;
+          }
+        }
+        else {
+          if (cVar15 == '\0') {
+            uVar21 = 0x191;
+            goto LAB_00bb5907;
+          }
+          *(undefined2 *)(iVar19 + 4) = 0x192;
+        }
+      }
+      else if (cVar14 == '\0') {
+        if (cVar16 == '\0') {
+          if (bVar29) {
+            if (bVar6) {
+              if (!bVar8) {
+                uVar21 = 0x198;
+                goto LAB_00bb5907;
+              }
+              *(undefined2 *)(iVar19 + 4) = 0x1b6;
+            }
+            else if (bVar8) {
+              *(undefined2 *)(iVar19 + 4) = 0x1ad;
+            }
+            else {
+              *(undefined2 *)(iVar19 + 4) = 399;
+            }
+          }
+          else if (bVar6) {
+            if (bVar8) {
+              *(undefined2 *)(iVar19 + 4) = 0x1ba;
+            }
+            else {
+              *(undefined2 *)(iVar19 + 4) = 0x19c;
+            }
+          }
+          else {
+            if (bVar8) {
+              uVar21 = 0x1b4;
+              goto LAB_00bb5907;
+            }
+            *(undefined2 *)(iVar19 + 4) = 0x196;
+          }
+        }
+        else {
+          if (!bVar8) {
+            uVar21 = 0x194;
+            goto LAB_00bb5907;
+          }
+          *(undefined2 *)(iVar19 + 4) = 0x1b2;
+        }
+      }
+    }
+    else if (cVar9 == '\0') {
+      if (cVar14 == '\0') {
+        if (cVar16 == '\0') {
+          if (bVar29) {
+            if (bVar6) {
+              if (!bVar8) {
+                uVar21 = 0x188;
+                goto LAB_00bb5907;
+              }
+              *(undefined2 *)(iVar19 + 4) = 0x1a6;
+            }
+            else if (bVar8) {
+              *(undefined2 *)(iVar19 + 4) = 0x19d;
+            }
+            else {
+              *(undefined2 *)(iVar19 + 4) = 0x17f;
+            }
+          }
+          else if (bVar6) {
+            if (bVar8) {
+              *(undefined2 *)(iVar19 + 4) = 0x1aa;
+            }
+            else {
+              *(undefined2 *)(iVar19 + 4) = 0x18c;
+            }
+          }
+          else {
+            if (bVar8) {
+              uVar21 = 0x1a4;
+              goto LAB_00bb5907;
+            }
+            *(undefined2 *)(iVar19 + 4) = 0x186;
+          }
+        }
+        else {
+          if (!bVar8) {
+            uVar21 = 0x184;
+            goto LAB_00bb5907;
+          }
+          *(undefined2 *)(iVar19 + 4) = 0x1a2;
+        }
+      }
+      else if (bVar6) {
+        if (bVar8) {
+          if (cVar15 != '\0') {
+            uVar21 = 0x1a9;
+            goto LAB_00bb5907;
+          }
+          *(undefined2 *)(iVar19 + 4) = 0x1a8;
+        }
+        else {
+          if (cVar15 == '\0') {
+            uVar21 = 0x18a;
+            goto LAB_00bb5907;
+          }
+          *(undefined2 *)(iVar19 + 4) = 0x18b;
+        }
+      }
+      else if (bVar8) {
+        if (cVar15 == '\0') {
+          *(undefined2 *)(iVar19 + 4) = 0x1a0;
+        }
+        else {
+          *(undefined2 *)(iVar19 + 4) = 0x1a1;
+        }
+      }
+      else {
+        if (cVar15 != '\0') {
+          uVar21 = 0x183;
+          goto LAB_00bb5907;
+        }
+        *(undefined2 *)(iVar19 + 4) = 0x182;
+      }
+    }
+    else if (cVar14 == '\0') {
+      if (cVar16 == '\0') {
+        if (bVar29) {
+          if (bVar6) {
+            if (bVar8) {
+              uVar21 = 0x1a7;
+              goto LAB_00bb5907;
+            }
+            *(undefined2 *)(iVar19 + 4) = 0x189;
+          }
+          else {
+            if (!bVar8) {
+              uVar21 = 0x180;
+              goto LAB_00bb5907;
+            }
+            *(undefined2 *)(iVar19 + 4) = 0x19e;
+          }
+        }
+        else if (bVar6) {
+          if (!bVar8) {
+            uVar21 = 0x18d;
+            goto LAB_00bb5907;
+          }
+          *(undefined2 *)(iVar19 + 4) = 0x1ab;
+        }
+        else if (bVar8) {
+          *(undefined2 *)(iVar19 + 4) = 0x1a5;
+        }
+        else {
+          *(undefined2 *)(iVar19 + 4) = 0x187;
+        }
+      }
+      else {
+        if (bVar8) {
+          uVar21 = 0x1a3;
+          goto LAB_00bb5907;
+        }
+        *(undefined2 *)(iVar19 + 4) = 0x185;
+      }
+    }
+  }
+  else if (bVar3) {
+    if (bVar8) {
+      *(undefined2 *)(iVar19 + 4) = 0x1ae;
+    }
+    else {
+      *(undefined2 *)(iVar19 + 4) = 400;
+    }
+  }
+  else {
+    if (bVar8) {
+      uVar21 = 0x19f;
+      goto LAB_00bb5907;
+    }
+    *(undefined2 *)(iVar19 + 4) = 0x181;
+  }
+  cVar12 = FUN_004a2020(0x1a);
+  if (cVar12 == '\0') {
+    cVar12 = FUN_004a2020(0x1b);
+    if (cVar12 == '\0') {
+      if (bVar4) {
+        uVar24 = 0xe;
+        if (1.0 <= *(float *)(param_1 + 0x2c)) {
+          uVar24 = 1;
+        }
+        *(undefined1 *)(iVar19 + 6) = uVar24;
+      }
+      else if (((*(int *)(param_6 + 0x34) == 2) || (cVar12 = FUN_004a2020(0x22), cVar12 != '\0')) ||
+              (cVar12 = FUN_004a2020(0x21), cVar12 != '\0')) {
+        *(undefined1 *)(iVar19 + 6) = 10;
+      }
+    }
+    else {
+      cVar12 = FUN_004a2020(0x35);
+      *(char *)(iVar19 + 6) = (cVar12 == '\0') * '\x04' + '\x01';
+    }
+  }
+  else {
+    cVar12 = FUN_004a2020(0x35);
+    *(byte *)(iVar19 + 6) = (-(cVar12 != '\0') & 0xfdU) + 4;
+  }
+  cVar12 = FUN_005bf7b0();
+  if (cVar12 != '\0') {
+    iVar19 = FUN_00b70590(local_40);
+    while (iVar19 != 0) {
+      if (*(char *)(iVar19 + 0xec) != '\0') {
+        FUN_00ba9ee0(param_2,0,0,1,iVar19,0,0,0);
+        iVar19 = *(int *)(*(int *)(*(int *)(param_1 + 0x3c) + 4) + -4 +
+                         *(int *)(*(int *)(param_1 + 0x3c) + 0x10) * 4);
+        if (bVar6) {
+          *(ushort *)(iVar19 + 4) = (ushort)(cVar9 != '\0') * 2 + 0x1c5;
+        }
+        else {
+          *(ushort *)(iVar19 + 4) = (ushort)(cVar9 != '\0') * 2 + 0x1c4;
+        }
+        cVar12 = FUN_004a2020(0x1a);
+        if (cVar12 == '\0') {
+          cVar12 = FUN_004a2020(0x1b);
+          if (cVar12 != '\0') {
+            cVar12 = FUN_004a2020(0x35);
+            *(char *)(iVar19 + 6) = (cVar12 == '\0') * '\x04' + '\x01';
+          }
+        }
+        else {
+          cVar12 = FUN_004a2020(0x35);
+          *(byte *)(iVar19 + 6) = (-(cVar12 != '\0') & 0xfdU) + 4;
+        }
+      }
+      iVar19 = FUN_00b70680(local_40);
+    }
+  }
+  if ((*(int *)(param_1 + 0xdc) == 0) || (*(int *)(*(int *)(param_1 + 0xdc) + 0x6c) == 0)) {
+    cVar12 = FUN_004a2020(9);
+    if (((cVar12 != '\0') || (*(float *)(param_1 + 0x2c) < 1.0)) &&
+       ((*(int *)(param_2 + 0x9c) == 0 || ((*(byte *)(*(int *)(param_2 + 0x9c) + 0x18) & 1) == 0))))
+    {
+      if (bVar6) {
+        cVar12 = (cVar9 != '\0') + '\f';
+      }
+      else {
+        cVar12 = (cVar9 != '\0') + '\n';
+      }
+      FUN_00ba9ee0(param_2,cVar12,1,0,0,0,0,0);
+      iVar19 = *(int *)(*(int *)(*(int *)(param_1 + 0x3c) + 4) + -4 +
+                       *(int *)(*(int *)(param_1 + 0x3c) + 0x10) * 4);
+      cVar12 = FUN_004a2020(9);
+      *(byte *)(iVar19 + 6) = (-(cVar12 != '\0') & 0xf3U) + 0xe;
+      if ((*(float *)(param_1 + 0x2c) < 1.0) || (*(float *)(param_1 + 0x28) < 1.0)) {
+        *(undefined1 *)(iVar19 + 6) = 0xe;
+      }
+    }
+  }
+  else {
+    FUN_00ba9ee0(param_2,(cVar9 != '\0') + '\x0e',1,0,0,0,0,0);
+    *(undefined1 *)
+     (*(int *)(*(int *)(*(int *)(param_1 + 0x3c) + 4) + -4 +
+              *(int *)(*(int *)(param_1 + 0x3c) + 0x10) * 4) + 6) = 0xe;
+  }
+  if (*(int *)(param_1 + 0xdc) != 0) {
+    FUN_00ba9ee0(param_2,(cVar9 != '\0') + 0x1e0,1,0,0,0,0,0);
+    *(undefined1 *)
+     (*(int *)(*(int *)(*(int *)(param_1 + 0x3c) + 4) + -4 +
+              *(int *)(*(int *)(param_1 + 0x3c) + 0x10) * 4) + 6) = 1;
+  }
+  if (bVar30) {
+    if (cVar11 == '\0') {
+      if (cVar10 == '\0') {
+        if (cVar9 == '\0') {
+          sVar28 = (ushort)bVar6 * 2 + 0x1bd;
+        }
+        else {
+          sVar28 = bVar6 + 0x1c1;
+        }
+        goto LAB_00bb5bc2;
+      }
+      iVar19 = FUN_00b70590(local_40);
+      fVar27 = local_34;
+      if (iVar19 != 0) {
+        fVar27 = (float)iVar19;
+      }
+      FUN_00ba9ee0(param_2,0,0,1,fVar27,0,0,0);
+      iVar19 = *(int *)(*(int *)(*(int *)(param_1 + 0x3c) + 4) + -4 +
+                       *(int *)(*(int *)(param_1 + 0x3c) + 0x10) * 4);
+      *(undefined2 *)(iVar19 + 4) = 0x1c3;
+    }
+    else {
+      sVar28 = (ushort)bVar6 * 2 + 0x1be;
+LAB_00bb5bc2:
+      FUN_00ba9ee0(param_2,0,0,0,0,0,0,0);
+      iVar19 = *(int *)(*(int *)(*(int *)(param_1 + 0x3c) + 4) + -4 +
+                       *(int *)(*(int *)(param_1 + 0x3c) + 0x10) * 4);
+      *(short *)(iVar19 + 4) = sVar28;
+    }
+    if (bVar4) {
+      *(undefined1 *)(iVar19 + 6) = 1;
+    }
+  }
+  *(uint *)(param_1 + 0x38) = local_3c;
+LAB_00bb5bfc:
+  return *(undefined4 *)(param_1 + 0x3c);
+}
+
+
+
+--- Calls FROM distance pass-list invalidation owner (0x00bb4740) ---
+  0x00bb47a6 -> 0x00ba9660 FUN_00ba9660
+  0x00bb47f3 -> 0x004a2020 FUN_004a2020
+  0x00bb481d -> 0x00ba9ee0 FUN_00ba9ee0
+  0x00bb4834 -> 0x00ba9ee0 FUN_00ba9ee0
+  0x00bb4845 -> 0x004a2020 FUN_004a2020
+  0x00bb486f -> 0x00ba9ee0 FUN_00ba9ee0
+  0x00bb4886 -> 0x00ba9ee0 FUN_00ba9ee0
+  0x00bb48d2 -> 0x00ba9740 FUN_00ba9740
+  0x00bb4924 -> 0x004a2020 FUN_004a2020
+  0x00bb4952 -> 0x00ba9ee0 FUN_00ba9ee0
+  0x00bb496a -> 0x00ba9ee0 FUN_00ba9ee0
+  0x00bb4986 -> 0x00ba9ee0 FUN_00ba9ee0
+  0x00bb499e -> 0x00ba9ee0 FUN_00ba9ee0
+  0x00bb49bd -> 0x00ba96d0 FUN_00ba96d0
+  0x00bb49e8 -> 0x00ba9ee0 FUN_00ba9ee0
+  0x00bb49fe -> 0x004a2020 FUN_004a2020
+  0x00bb4a1b -> 0x00ba9ee0 FUN_00ba9ee0
+  0x00bb4a35 -> 0x00ba9ee0 FUN_00ba9ee0
+  0x00bb4a50 -> 0x00ba9820 FUN_00ba9820
+  0x00bb4a6b -> 0x004a2020 FUN_004a2020
+  0x00bb4a88 -> 0x00ba9ee0 FUN_00ba9ee0
+  0x00bb4aa0 -> 0x00ba9ee0 FUN_00ba9ee0
+  0x00bb4b14 -> 0x004a2020 FUN_004a2020
+  0x00bb4b34 -> 0x004a2020 FUN_004a2020
+  0x00bb4c10 -> 0x00457990 FUN_00457990
+  0x00bb4c1c -> 0x00b4f5c0 FUN_00b4f5c0
+  0x00bb4c27 -> 0x00b4f5c0 FUN_00b4f5c0
+  0x00bb4e82 -> 0x004b3ab0 FUN_004b3ab0
+  0x00bb4ebd -> 0x00ba8ab0 FUN_00ba8ab0
+  0x00bb4f0e -> 0x00b70390 FUN_00b70390
+  0x00bb4f2a -> 0x00b4f5c0 FUN_00b4f5c0
+  0x00bb4f87 -> 0x00b70600 FUN_00b70600
+  0x00bb4f99 -> 0x00b70700 FUN_00b70700
+  0x00bb4fb1 -> 0x00ba8c30 FUN_00ba8c30
+  0x00bb4fbd -> 0x00ba8c00 FUN_00ba8c00
+  0x00bb4fcc -> 0x00b70600 FUN_00b70600
+  0x00bb4ffa -> 0x00b70700 FUN_00b70700
+  0x00bb5039 -> 0x00b70600 FUN_00b70600
+  0x00bb5070 -> 0x00b70590 FUN_00b70590
+  0x00bb50c6 -> 0x00ba95e0 FUN_00ba95e0
+  0x00bb50fc -> 0x004a2020 FUN_004a2020
+  0x00bb5109 -> 0x004a2020 FUN_004a2020
+  0x00bb5143 -> 0x004a2020 FUN_004a2020
+  0x00bb5157 -> 0x004a2020 FUN_004a2020
+  0x00bb516e -> 0x004a2020 FUN_004a2020
+  0x00bb517b -> 0x004a2020 FUN_004a2020
+  0x00bb5188 -> 0x004a2020 FUN_004a2020
+  0x00bb5193 -> 0x004a2020 FUN_004a2020
+  0x00bb51a0 -> 0x004a2020 FUN_004a2020
+  0x00bb51ad -> 0x004a2020 FUN_004a2020
+  0x00bb51ba -> 0x004a2020 FUN_004a2020
+  0x00bb51da -> 0x004a2020 FUN_004a2020
+  0x00bb5218 -> 0x00b60330 FUN_00b60330
+  0x00bb5225 -> 0x004a2020 FUN_004a2020
+  0x00bb522e -> 0x00b60170 FUN_00b60170
+  0x00bb5237 -> 0x00b4f5c0 FUN_00b4f5c0
+  0x00bb524b -> 0x00b4f5c0 FUN_00b4f5c0
+  0x00bb5279 -> 0x004a2020 FUN_004a2020
+  0x00bb52b9 -> 0x00ba9ee0 FUN_00ba9ee0
+  0x00bb5312 -> 0x00ba9ee0 FUN_00ba9ee0
+  0x00bb5362 -> 0x00ba9ee0 FUN_00ba9ee0
+  0x00bb5378 -> 0x00b4f5c0 FUN_00b4f5c0
+  0x00bb539f -> 0x00ba9ee0 FUN_00ba9ee0
+  0x00bb53bc -> 0x00b70590 FUN_00b70590
+  0x00bb53d8 -> 0x00b70680 FUN_00b70680
+  0x00bb53ef -> 0x00ba8c30 FUN_00ba8c30
+  0x00bb53fb -> 0x00ba8c00 FUN_00ba8c00
+  0x00bb540d -> 0x00b70590 FUN_00b70590
+  0x00bb543c -> 0x00b70680 FUN_00b70680
+  0x00bb5457 -> 0x00441130 FUN_00441130
+  0x00bb5460 -> 0x004a2020 FUN_004a2020
+  0x00bb590f -> 0x004a2020 FUN_004a2020
+  0x00bb5921 -> 0x004a2020 FUN_004a2020
+  0x00bb5935 -> 0x004a2020 FUN_004a2020
+  0x00bb5942 -> 0x004a2020 FUN_004a2020
+  0x00bb5985 -> 0x004a2020 FUN_004a2020
+  0x00bb5992 -> 0x004a2020 FUN_004a2020
+  0x00bb599f -> 0x005bf7b0 FUN_005bf7b0
+  0x00bb59b3 -> 0x00b70590 FUN_00b70590
+  0x00bb59de -> 0x00ba9ee0 FUN_00ba9ee0
+  0x00bb5a25 -> 0x004a2020 FUN_004a2020
+  0x00bb5a32 -> 0x004a2020 FUN_004a2020
+  0x00bb5a46 -> 0x004a2020 FUN_004a2020
+  0x00bb5a53 -> 0x004a2020 FUN_004a2020
+  0x00bb5a6e -> 0x00b70680 FUN_00b70680
+  0x00bb5aa7 -> 0x00ba9ee0 FUN_00ba9ee0
+  0x00bb5ac5 -> 0x004a2020 FUN_004a2020
+  0x00bb5b21 -> 0x00ba9ee0 FUN_00ba9ee0
+  0x00bb5b37 -> 0x004a2020 FUN_004a2020
+  0x00bb5b8c -> 0x00ba9ee0 FUN_00ba9ee0
+  0x00bb5bd4 -> 0x00ba9ee0 FUN_00ba9ee0
+  0x00bb5c45 -> 0x00b70590 FUN_00b70590
+  0x00bb5c66 -> 0x00ba9ee0 FUN_00ba9ee0
+  Total: 93 calls
+
+MATCHED CONTRACT LINES: distance pass-list invalidation owner @ 0x00bb4740
+  L0068:       if (*(int *)(*(int *)(param_2 + 0xb8) + 0x28) != 0) {
+  L0100:         bVar30 = *(int *)(*(int *)(param_2 + 0xb8) + 0x28) != 0;
+  L0145:     if ((*(int *)(*(int *)(param_1 + 0x54) + 0x10) == 0) && (*(int *)(param_2 + 0xbc) == 0)) {
+  L0404:   bVar29 = **(int **)(param_1 + 0xb4) == 0;
+  L0425:   if ((*(int *)(*(int *)(param_2 + 0xb8) + 0x28) != 0) ||
+  Total matched lines: 5
+
+======================================================================
+native specular fade formula @ 0x00b66b80
+======================================================================
+  [function not found]
+  [function not found at 0x00b66b80]
+
+MATCHED CONTRACT LINES: native specular fade formula @ 0x00b66b80
+  [decompilation failed]
+
+======================================================================
+native EnvMap fade formula @ 0x00b66c40
+======================================================================
+  [function not found]
+  [function not found at 0x00b66c40]
+
+MATCHED CONTRACT LINES: native EnvMap fade formula @ 0x00b66c40
+  [decompilation failed]
+
+----------------------------------------------------------------------
+References TO 0x00c02f30 (B7C290 texture accessor)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00b7c2aa (in FUN_00b7c290)
+  Total: 1 refs
+
+----------------------------------------------------------------------
+References TO 0x00c03230 (B7C0E0 texture accessor)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00b7de2a (in FUN_00b7dde0)
+  UNCONDITIONAL_CALL @ 0x00b7e19a (in FUN_00b7e150)
+  UNCONDITIONAL_CALL @ 0x00b7df1d (in FUN_00b7ded0)
+  UNCONDITIONAL_CALL @ 0x00b7e031 (in FUN_00b7dfe0)
+  UNCONDITIONAL_CALL @ 0x00b7cecd (in FUN_00b7ce90)
+  UNCONDITIONAL_CALL @ 0x00b7c0fb (in FUN_00b7c0e0)
+  UNCONDITIONAL_CALL @ 0x00bd48d6 (in ???)
+  UNCONDITIONAL_CALL @ 0x00bd48fb (in ???)
+  Total: 8 refs
+
+----------------------------------------------------------------------
+References TO 0x00c02d90 (selected environment record constant writer)
+----------------------------------------------------------------------
+  DATA @ 0x010af44c (in ???)
+  DATA @ 0x010bb8fc (in ???)
+  DATA @ 0x010bbad4 (in ???)
+  DATA @ 0x010bbca4 (in ???)
+  Total: 4 refs
+
+----------------------------------------------------------------------
+References TO 0x00b55520 (selected environment record resolver)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00b7c3ab (in FUN_00b7c3a0)
+  UNCONDITIONAL_CALL @ 0x006335ee (in FUN_006335d0)
+  UNCONDITIONAL_CALL @ 0x00b7b539 (in FUN_00b7b450)
+  UNCONDITIONAL_CALL @ 0x00b795fa (in FUN_00b795b0)
+  UNCONDITIONAL_CALL @ 0x00b7ae86 (in FUN_00b7ad80)
+  UNCONDITIONAL_CALL @ 0x00b86738 (in FUN_00b864d0)
+  UNCONDITIONAL_CALL @ 0x00bb1fa5 (in FUN_00bb1f60)
+  UNCONDITIONAL_CALL @ 0x00bbdf26 (in FUN_00bbde20)
+  UNCONDITIONAL_CALL @ 0x00bd4bed (in FUN_00bd4ba0)
+  UNCONDITIONAL_CALL @ 0x00baa43b (in ???)
+  UNCONDITIONAL_CALL @ 0x00bb1b5b (in ???)
+  UNCONDITIONAL_CALL @ 0x00bb670e (in ???)
+  UNCONDITIONAL_CALL @ 0x00bbe3ec (in ???)
+  UNCONDITIONAL_CALL @ 0x00bc6e33 (in ???)
+  Total: 14 refs
+
+----------------------------------------------------------------------
+References TO 0x00be2170 (non-null descriptor apply gate)
+----------------------------------------------------------------------
+  DATA @ 0x010af400 (in ???)
+  DATA @ 0x010af868 (in ???)
+  DATA @ 0x010afae8 (in ???)
+  DATA @ 0x010aff20 (in ???)
+  DATA @ 0x010b00c8 (in ???)
+  DATA @ 0x010b02a0 (in ???)
+  DATA @ 0x010b0440 (in ???)
+  DATA @ 0x010b0620 (in ???)
+  DATA @ 0x010b07c8 (in ???)
+  DATA @ 0x010b0968 (in ???)
+  DATA @ 0x010b0b08 (in ???)
+  DATA @ 0x010b0ca0 (in ???)
+  DATA @ 0x010b0e48 (in ???)
+  DATA @ 0x010b0fc8 (in ???)
+  DATA @ 0x010b1148 (in ???)
+  DATA @ 0x010b12c8 (in ???)
+  DATA @ 0x010b1448 (in ???)
+  DATA @ 0x010b15c8 (in ???)
+  DATA @ 0x010b1748 (in ???)
+  DATA @ 0x010b1900 (in ???)
+  DATA @ 0x010b1a88 (in ???)
+  DATA @ 0x010b1c10 (in ???)
+  DATA @ 0x010b1d98 (in ???)
+  DATA @ 0x010b1f28 (in ???)
+  DATA @ 0x010b20b8 (in ???)
+  DATA @ 0x010b2248 (in ???)
+  DATA @ 0x010b2ba0 (in ???)
+  DATA @ 0x010b2410 (in ???)
+  DATA @ 0x010b2598 (in ???)
+  DATA @ 0x010b2718 (in ???)
+  DATA @ 0x010b28b0 (in ???)
+  DATA @ 0x010b2a28 (in ???)
+  DATA @ 0x010b2d18 (in ???)
+  DATA @ 0x010b2eb8 (in ???)
+  DATA @ 0x010b3058 (in ???)
+  DATA @ 0x010b31e8 (in ???)
+  DATA @ 0x010b3370 (in ???)
+  DATA @ 0x010b34f8 (in ???)
+  DATA @ 0x010b36a0 (in ???)
+  DATA @ 0x010b38b0 (in ???)
+  DATA @ 0x010b3a60 (in ???)
+  DATA @ 0x010b3bf8 (in ???)
+  DATA @ 0x010b3d80 (in ???)
+  DATA @ 0x010b3f20 (in ???)
+  DATA @ 0x010b40b0 (in ???)
+  DATA @ 0x010b4240 (in ???)
+  DATA @ 0x010b43d0 (in ???)
+  DATA @ 0x010b4568 (in ???)
+  DATA @ 0x010b4708 (in ???)
+  DATA @ 0x010b48a8 (in ???)
+  DATA @ 0x010b4a40 (in ???)
+  DATA @ 0x010b4bd8 (in ???)
+  DATA @ 0x010b4d70 (in ???)
+  DATA @ 0x010b4ef0 (in ???)
+  DATA @ 0x010b5088 (in ???)
+  DATA @ 0x010b5248 (in ???)
+  DATA @ 0x010b53c8 (in ???)
+  DATA @ 0x010b5588 (in ???)
+  DATA @ 0x010b5748 (in ???)
+  DATA @ 0x010b58d8 (in ???)
+  DATA @ 0x010b5a80 (in ???)
+  DATA @ 0x010b5c18 (in ???)
+  DATA @ 0x010b5dc0 (in ???)
+  DATA @ 0x010b5fb0 (in ???)
+  DATA @ 0x010b6150 (in ???)
+  DATA @ 0x010b62f8 (in ???)
+  DATA @ 0x010b64a0 (in ???)
+  DATA @ 0x010b6650 (in ???)
+  DATA @ 0x010b67f8 (in ???)
+  DATA @ 0x010b69a8 (in ???)
+  DATA @ 0x010b6b48 (in ???)
+  DATA @ 0x010b6ce0 (in ???)
+  DATA @ 0x010b6e98 (in ???)
+  DATA @ 0x010b7040 (in ???)
+  DATA @ 0x010b71e0 (in ???)
+  DATA @ 0x010b7380 (in ???)
+  DATA @ 0x010b7520 (in ???)
+  DATA @ 0x010b76a0 (in ???)
+  DATA @ 0x010b7828 (in ???)
+  DATA @ 0x010b79c0 (in ???)
+  DATA @ 0x010b7b58 (in ???)
+  DATA @ 0x010b7cf8 (in ???)
+  DATA @ 0x010b81b0 (in ???)
+  DATA @ 0x010b8a88 (in ???)
+  DATA @ 0x010b8f88 (in ???)
+  DATA @ 0x010b9298 (in ???)
+  DATA @ 0x010b9bb0 (in ???)
+  DATA @ 0x010ba200 (in ???)
+  DATA @ 0x010ba4b8 (in ???)
+  DATA @ 0x010baea0 (in ???)
+  DATA @ 0x010bb068 (in ???)
+  DATA @ 0x010bb338 (in ???)
+  DATA @ 0x010bb518 (in ???)
+  DATA @ 0x010bb690 (in ???)
+  DATA @ 0x010bb8b0 (in ???)
+  DATA @ 0x010bba88 (in ???)
+  DATA @ 0x010bbc58 (in ???)
+  DATA @ 0x010bbe10 (in ???)
+  DATA @ 0x010bbfc0 (in ???)
+  DATA @ 0x010bc178 (in ???)
+  DATA @ 0x010bc368 (in ???)
+  DATA @ 0x010bc720 (in ???)
+  DATA @ 0x010bca00 (in ???)
+  Total: 103 refs
+
+----------------------------------------------------------------------
+References TO 0x00e7eb00 (single descriptor apply wrapper)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00b7dd63 (in FUN_00b7dd50)
+  UNCONDITIONAL_CALL @ 0x00b7de52 (in FUN_00b7dde0)
+  UNCONDITIONAL_CALL @ 0x00b7de65 (in FUN_00b7dde0)
+  UNCONDITIONAL_CALL @ 0x00b7e200 (in FUN_00b7e150)
+  UNCONDITIONAL_CALL @ 0x00b7e213 (in FUN_00b7e150)
+  UNCONDITIONAL_CALL @ 0x00b7e225 (in FUN_00b7e150)
+  UNCONDITIONAL_CALL @ 0x00b7df45 (in FUN_00b7ded0)
+  UNCONDITIONAL_CALL @ 0x00b7df58 (in FUN_00b7ded0)
+  UNCONDITIONAL_CALL @ 0x00b7e059 (in FUN_00b7dfe0)
+  UNCONDITIONAL_CALL @ 0x00b7e06c (in FUN_00b7dfe0)
+  UNCONDITIONAL_CALL @ 0x00bca913 (in FUN_00bca760)
+  UNCONDITIONAL_CALL @ 0x00bca92d (in FUN_00bca760)
+  UNCONDITIONAL_CALL @ 0x00be219a (in FUN_00be2170)
+  UNCONDITIONAL_CALL @ 0x00be21e2 (in FUN_00be21b0)
+  UNCONDITIONAL_CALL @ 0x00c043a4 (in FUN_00c04310)
+  UNCONDITIONAL_CALL @ 0x00b89cf7 (in ???)
+  UNCONDITIONAL_CALL @ 0x00b89d68 (in ???)
+  UNCONDITIONAL_CALL @ 0x00ba627e (in ???)
+  UNCONDITIONAL_CALL @ 0x00bb66ee (in ???)
+  UNCONDITIONAL_CALL @ 0x00bc8d82 (in ???)
+  UNCONDITIONAL_CALL @ 0x00e7f8d3 (in ???)
+  UNCONDITIONAL_CALL @ 0x00bcbcd0 (in ???)
+  Total: 22 refs
+
+----------------------------------------------------------------------
+References TO 0x011f91c4 (active environment selector index)
+----------------------------------------------------------------------
+  WRITE @ 0x004e20f6 (in FUN_004e20f0)
+  WRITE @ 0x00b5ea40 (in FUN_00b5e870)
+  READ @ 0x00b7c3a0 (in FUN_00b7c3a0)
+  READ @ 0x00b7b531 (in FUN_00b7b450)
+  READ @ 0x00b795ee (in FUN_00b795b0)
+  READ @ 0x00b7ae7e (in FUN_00b7ad80)
+  READ @ 0x00b8671f (in FUN_00b864d0)
+  READ @ 0x00bb1f9b (in FUN_00bb1f60)
+  READ @ 0x00bbdf1e (in FUN_00bbde20)
+  READ @ 0x00bd4be5 (in FUN_00bd4ba0)
+  READ @ 0x00baa430 (in ???)
+  READ @ 0x00bb1b50 (in ???)
+  READ @ 0x00bb6700 (in ???)
+  READ @ 0x00bbe3e4 (in ???)
+  READ @ 0x00bc6e2b (in ???)
+  WRITE @ 0x00b5457c (in FUN_00b54280)
+  Total: 16 refs
+
+----------------------------------------------------------------------
+References TO 0x011f91c8 (environment record pointer table base)
+----------------------------------------------------------------------
+  READ @ 0x00b5d820 (in FUN_00b5d300)
+  READ @ 0x00b5b2c0 (in FUN_00b5b260)
+  READ @ 0x00b803df (in FUN_00b803b0)
+  READ @ 0x00b9d2b1 (in FUN_00b9d150)
+  READ @ 0x00b9d3d7 (in FUN_00b9d150)
+  READ @ 0x00b9d3fa (in FUN_00b9d150)
+  READ @ 0x00b9d8ac (in FUN_00b9d150)
+  READ @ 0x00b9db11 (in FUN_00b9dae0)
+  READ @ 0x00b9dbe3 (in FUN_00b9dbe0)
+  READ @ 0x00b7c924 (in FUN_00b7c850)
+  READ @ 0x00b7cbf4 (in FUN_00b7cb00)
+  READ @ 0x00b78bd4 (in FUN_00b78a90)
+  READ @ 0x00b7bbfc (in FUN_00b7ba70)
+  READ @ 0x00bb41f6 (in FUN_00bb41e0)
+  READ @ 0x00bbc497 (in FUN_00bbc0a4)
+  READ @ 0x00bbf1e4 (in FUN_00bbef90)
+  READ @ 0x00bbb8fa (in FUN_00bbb890)
+  READ @ 0x00bbba1d (in FUN_00bbba00)
+  READ @ 0x00bbbd02 (in FUN_00bbbcf0)
+  READ @ 0x00bbbe98 (in FUN_00bbbe80)
+  READ @ 0x00bbeae9 (in FUN_00bbe9c0)
+  DATA @ 0x00b5e5d8 (in FUN_00b5e5a0)
+  DATA @ 0x00450b86 (in FUN_00450b80)
+  DATA @ 0x00b55524 (in FUN_00b55520)
+  DATA @ 0x00b55548 (in FUN_00b55540)
+  DATA @ 0x00b4f2f8 (in FUN_00b4f2f0)
+  READ @ 0x00b60046 (in FUN_00b60040)
+  DATA @ 0x00b60041 (in FUN_00b60040)
+  Total: 28 refs
+
+----------------------------------------------------------------------
+References TO 0x0126f74c (current NiD3DPass)
+----------------------------------------------------------------------
+  WRITE @ 0x00e90933 (in FUN_00e90850)
+  READ @ 0x00b7dd50 (in FUN_00b7dd50)
+  READ @ 0x00b7dda4 (in FUN_00b7dd50)
+  READ @ 0x00b7c4ec (in FUN_00b7c3a0)
+  READ @ 0x00b7ddf5 (in FUN_00b7dde0)
+  READ @ 0x00b7de19 (in FUN_00b7dde0)
+  READ @ 0x00b7de46 (in FUN_00b7dde0)
+  READ @ 0x00b7de57 (in FUN_00b7dde0)
+  READ @ 0x00b7c785 (in FUN_00b7c750)
+  READ @ 0x00b7c81d (in FUN_00b7c7b0)
+  READ @ 0x00b7e165 (in FUN_00b7e150)
+  READ @ 0x00b7e189 (in FUN_00b7e150)
+  READ @ 0x00b7e1b6 (in FUN_00b7e150)
+  READ @ 0x00b7e1f3 (in FUN_00b7e150)
+  READ @ 0x00b7e205 (in FUN_00b7e150)
+  READ @ 0x00b7e218 (in FUN_00b7e150)
+  READ @ 0x00b7e279 (in FUN_00b7e150)
+  READ @ 0x00b7dee8 (in FUN_00b7ded0)
+  READ @ 0x00b7df0c (in FUN_00b7ded0)
+  READ @ 0x00b7df39 (in FUN_00b7ded0)
+  READ @ 0x00b7df4a (in FUN_00b7ded0)
+  READ @ 0x00b7df9b (in FUN_00b7ded0)
+  READ @ 0x00b7c853 (in FUN_00b7c850)
+  READ @ 0x00b7c993 (in FUN_00b7c850)
+  READ @ 0x00b7dffc (in FUN_00b7dfe0)
+  READ @ 0x00b7e020 (in FUN_00b7dfe0)
+  READ @ 0x00b7e04d (in FUN_00b7dfe0)
+  READ @ 0x00b7e05e (in FUN_00b7dfe0)
+  READ @ 0x00b7e0e5 (in FUN_00b7dfe0)
+  READ @ 0x00b7e10c (in FUN_00b7dfe0)
+  READ @ 0x00b7cb2a (in FUN_00b7cb00)
+  READ @ 0x00b7cc66 (in FUN_00b7cb00)
+  READ @ 0x00e814ba (in FUN_00e814b0)
+  WRITE @ 0x00e80766 (in FUN_00e806c0)
+  WRITE @ 0x00b7af91 (in FUN_00b7af80)
+  READ @ 0x00b7b69d (in FUN_00b7b450)
+  READ @ 0x00b7dcb0 (in FUN_00b7dab0)
+  READ @ 0x00b7dceb (in FUN_00b7dab0)
+  WRITE @ 0x00b7ad73 (in FUN_00b7ad00)
+  READ @ 0x00b7cf24 (in FUN_00b7ce90)
+  READ @ 0x00b7cf44 (in FUN_00b7ce90)
+  READ @ 0x00b7cf65 (in FUN_00b7ce90)
+  WRITE @ 0x00b7cf9c (in FUN_00b7ce90)
+  READ @ 0x00b80cb4 (in FUN_00b80c20)
+  READ @ 0x00b80cf1 (in FUN_00b80c20)
+  READ @ 0x00b86afc (in FUN_00b864d0)
+  READ @ 0x00b86b39 (in FUN_00b864d0)
+  READ @ 0x00b8a0d3 (in FUN_00b89d80)
+  READ @ 0x00b8a10f (in FUN_00b89d80)
+  WRITE @ 0x00b92136 (in FUN_00b91f90)
+  READ @ 0x00bacc85 (in FUN_00bac9c0)
+  READ @ 0x00baccc1 (in FUN_00bac9c0)
+  WRITE @ 0x00bb25bd (in FUN_00bb2580)
+  READ @ 0x00bb26f8 (in FUN_00bb26d0)
+  READ @ 0x00bb2978 (in FUN_00bb2760)
+  READ @ 0x00bb29b5 (in FUN_00bb2760)
+  READ @ 0x00bb6adc (in FUN_00bb6a80)
+  READ @ 0x00bb6b19 (in FUN_00bb6a80)
+  READ @ 0x00bbf060 (in FUN_00bbef90)
+  READ @ 0x00bbf4bc (in FUN_00bbef90)
+  READ @ 0x00bbf4ce (in FUN_00bbef90)
+  READ @ 0x00bbf501 (in FUN_00bbef90)
+  READ @ 0x00bbf53e (in FUN_00bbef90)
+  READ @ 0x00bc9bc0 (in FUN_00bc9a50)
+  READ @ 0x00bc9c35 (in FUN_00bc9a50)
+  READ @ 0x00bca7a3 (in FUN_00bca760)
+  READ @ 0x00bca7be (in FUN_00bca760)
+  READ @ 0x00bca7dd (in FUN_00bca760)
+  READ @ 0x00bca803 (in FUN_00bca760)
+  READ @ 0x00bca81c (in FUN_00bca760)
+  READ @ 0x00bca84e (in FUN_00bca760)
+  READ @ 0x00bca85a (in FUN_00bca760)
+  READ @ 0x00bca87c (in FUN_00bca760)
+  READ @ 0x00bca8bc (in FUN_00bca760)
+  READ @ 0x00bca8d4 (in FUN_00bca760)
+  READ @ 0x00bcaa5e (in FUN_00bca980)
+  READ @ 0x00bcaaa0 (in FUN_00bca980)
+  READ @ 0x00bcbe7e (in FUN_00bcbce0)
+  READ @ 0x00bcbeb1 (in FUN_00bcbce0)
+  READ @ 0x00b7d066 (in FUN_00b7cfb0)
+  READ @ 0x00b7d07b (in FUN_00b7cfb0)
+  WRITE @ 0x00bcd011 (in FUN_00bcce40)
+  WRITE @ 0x00bd1cc0 (in FUN_00bd1c50)
+  WRITE @ 0x00bd1cd2 (in FUN_00bd1c50)
+  WRITE @ 0x00bd1ce4 (in FUN_00bd1c50)
+  READ @ 0x00bd4c35 (in FUN_00bd4ba0)
+  READ @ 0x00bd4c61 (in FUN_00bd4ba0)
+  READ @ 0x00bd4c7f (in FUN_00bd4ba0)
+  READ @ 0x00bd4cbc (in FUN_00bd4ba0)
+  READ @ 0x00be2173 (in FUN_00be2170)
+  READ @ 0x00be21b4 (in FUN_00be21b0)
+  WRITE @ 0x00c042c6 (in FUN_00c04120)
+  READ @ 0x00c04351 (in FUN_00c04310)
+  READ @ 0x00c04428 (in FUN_00c043f0)
+  READ @ 0x00c0445d (in FUN_00c043f0)
+  READ @ 0x00c044d1 (in FUN_00c04490)
+  READ @ 0x00c0450b (in FUN_00c04490)
+  WRITE @ 0x00e7c7a2 (in FUN_00e7c790)
+  WRITE @ 0x00e7c7bb (in FUN_00e7c790)
+  READ @ 0x00e7c834 (in FUN_00e7c830)
+  READ @ 0x00e7c9d9 (in FUN_00e7c830)
+  READ @ 0x00e7ca20 (in FUN_00e7ca20)
+  READ @ 0x00e81201 (in FUN_00e811d0)
+  READ @ 0x00e81236 (in FUN_00e811d0)
+  READ @ 0x00e8127c (in FUN_00e811d0)
+  READ @ 0x00e815a9 (in FUN_00e81510)
+  READ @ 0x00e81664 (in FUN_00e81510)
+  WRITE @ 0x00e90569 (in FUN_00e90560)
+  READ @ 0x00b7cfe3 (in FUN_00b7cfb0)
+  READ @ 0x00b7cff8 (in FUN_00b7cfb0)
+  READ @ 0x00b7d010 (in FUN_00b7cfb0)
+  READ @ 0x00b7d023 (in FUN_00b7cfb0)
+  READ @ 0x00b7d03b (in FUN_00b7cfb0)
+  READ @ 0x00b7d050 (in FUN_00b7cfb0)
+  READ @ 0x00b7d0ab (in FUN_00b7cfb0)
+  READ @ 0x00b7d0c0 (in FUN_00b7cfb0)
+  READ @ 0x00b7c150 (in FUN_00b7c150)
+  READ @ 0x00b7c170 (in FUN_00b7c170)
+  WRITE @ 0x00bcceba (in FUN_00bcce40)
+  WRITE @ 0x00bccecc (in FUN_00bcce40)
+  WRITE @ 0x00bccede (in FUN_00bcce40)
+  ... (truncated)
+  Total: 121 refs

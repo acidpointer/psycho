@@ -1,0 +1,3401 @@
+FNV PBR OBJECT ENVMAP TABLE/APPLY FOLLOW-UP
+
+Goal: distinguish shader-table rows from pass-entry keys and prove the runtime EnvMap ABI.
+The output must identify exact VS/PS pairing, owner fields, sampler stages, constants, and render state.
+
+======================================================================
+BSShaderPPLightingProperty GetEnvMapFade @ 0x00b66c40
+======================================================================
+  [function not found]
+  [function not found at 0x00b66c40]
+
+MATCHED CONTRACT LINES: BSShaderPPLightingProperty GetEnvMapFade @ 0x00b66c40
+  [decompilation failed]
+
+======================================================================
+PPLighting EnvMap vertex shader constructor @ 0x00bb96f0
+======================================================================
+  Function: FUN_00bb96f0 @ 0x00bb96f0, Size: 3793 bytes
+
+/* WARNING: Function: __alloca_probe replaced with injection: alloca_probe */
+
+void FUN_00bb96f0(void)
+
+{
+  int *piVar1;
+  int iVar2;
+  undefined4 uVar3;
+  LONG LVar4;
+  int *piVar5;
+  undefined4 *puVar6;
+  int *local_1308;
+  int local_1304;
+  undefined4 local_12fc;
+  char *local_12f8;
+  undefined4 local_12f4;
+  undefined1 local_12f0 [68];
+  char *local_12ac;
+  undefined4 local_12a8;
+  undefined1 local_12a4 [68];
+  char *local_1260;
+  undefined *local_125c;
+  undefined *local_1258;
+  undefined4 local_1254;
+  undefined1 local_1250 [60];
+  char *local_1214;
+  undefined *local_1210;
+  undefined *local_120c;
+  undefined4 local_1208;
+  undefined1 local_1204 [60];
+  char *local_11c8;
+  undefined *local_11c4;
+  undefined *local_11c0;
+  undefined4 local_11bc;
+  undefined1 local_11b8 [60];
+  char *local_117c;
+  undefined *local_1178;
+  undefined *local_1174;
+  undefined *local_1170;
+  undefined *local_116c;
+  undefined4 local_1168;
+  undefined1 local_1164 [52];
+  char *local_1130;
+  char *local_112c;
+  undefined *local_1128;
+  undefined4 local_1124;
+  undefined1 local_1120 [60];
+  char *local_10e4;
+  char *local_10e0;
+  undefined *local_10dc;
+  undefined4 local_10d8;
+  undefined1 local_10d4 [60];
+  char *local_1098;
+  undefined *local_1094;
+  undefined *local_1090;
+  char *local_108c;
+  undefined *local_1088;
+  undefined4 local_1084;
+  undefined1 local_1080 [52];
+  char *local_104c;
+  undefined *local_1048;
+  undefined *local_1044;
+  char *local_1040;
+  undefined *local_103c;
+  undefined4 local_1038;
+  undefined1 local_1034 [52];
+  char *local_1000;
+  undefined *local_ffc;
+  undefined *local_ff8;
+  char *local_ff4;
+  undefined *local_ff0;
+  undefined4 local_fec;
+  undefined1 local_fe8 [52];
+  char *local_fb4;
+  undefined *local_fb0;
+  undefined *local_fac;
+  undefined *local_fa8;
+  undefined *local_fa4;
+  char *local_fa0;
+  undefined *local_f9c;
+  undefined4 local_f98;
+  undefined1 local_f94 [44];
+  char *local_f68;
+  undefined *local_f64;
+  undefined *local_f60;
+  char *local_f5c;
+  undefined4 local_f58;
+  undefined4 local_f54;
+  undefined1 local_f50 [52];
+  char *local_f1c;
+  undefined *local_f18;
+  undefined *local_f14;
+  char *local_f10;
+  undefined4 local_f0c;
+  undefined *local_f08;
+  undefined *local_f04;
+  undefined4 local_f00;
+  undefined1 local_efc [44];
+  char *local_ed0;
+  undefined *local_ecc;
+  undefined *local_ec8;
+  char *local_ec4;
+  undefined4 local_ec0;
+  undefined *local_ebc;
+  undefined *local_eb8;
+  undefined4 local_eb4;
+  undefined1 local_eb0 [44];
+  char *local_e84;
+  undefined *local_e80;
+  undefined *local_e7c;
+  char *local_e78;
+  undefined4 local_e74;
+  undefined *local_e70;
+  undefined *local_e6c;
+  undefined *local_e68;
+  undefined *local_e64;
+  undefined4 local_e60;
+  undefined4 local_e5c;
+  undefined4 local_e58;
+  undefined4 local_e54;
+  undefined4 local_e50;
+  undefined4 local_e4c;
+  undefined4 local_e48;
+  undefined4 local_e44;
+  undefined4 local_e40;
+  undefined4 local_e3c;
+  char *local_e38;
+  undefined *local_e34;
+  undefined *local_e30;
+  char *local_e2c;
+  undefined4 local_e28;
+  undefined *local_e24;
+  undefined4 local_e20;
+  undefined4 local_e1c;
+  undefined1 local_e18 [44];
+  char *local_dec;
+  undefined *local_de8;
+  undefined *local_de4;
+  undefined4 local_de0;
+  undefined1 local_ddc [60];
+  char *local_da0;
+  undefined *local_d9c;
+  undefined *local_d98;
+  undefined *local_d94;
+  undefined *local_d90;
+  undefined4 local_d8c;
+  undefined1 local_d88 [52];
+  char *local_d54;
+  undefined *local_d50;
+  undefined *local_d4c;
+  char *local_d48;
+  undefined *local_d44;
+  undefined4 local_d40;
+  undefined1 local_d3c [52];
+  char *local_d08;
+  undefined *local_d04;
+  undefined *local_d00;
+  undefined *local_cfc;
+  undefined *local_cf8;
+  char *local_cf4;
+  undefined *local_cf0;
+  undefined4 local_cec;
+  undefined1 local_ce8 [44];
+  char *local_cbc;
+  undefined *local_cb8;
+  undefined *local_cb4;
+  undefined *local_cb0;
+  undefined *local_cac;
+  undefined4 local_ca8;
+  undefined1 local_ca4 [52];
+  char *local_c70;
+  undefined *local_c6c;
+  undefined *local_c68;
+  undefined *local_c64;
+  undefined *local_c60;
+  undefined *local_c5c;
+  undefined *local_c58;
+  undefined4 local_c54;
+  undefined1 local_c50 [44];
+  char *local_c24;
+  undefined *local_c20;
+  undefined *local_c1c;
+  char *local_c18;
+  undefined *local_c14;
+  undefined *local_c10;
+  undefined *local_c0c;
+  undefined4 local_c08;
+  undefined1 local_c04 [44];
+  char *local_bd8;
+  undefined *local_bd4;
+  undefined *local_bd0;
+  undefined *local_bcc;
+  undefined *local_bc8;
+  char *local_bc4;
+  undefined *local_bc0;
+  undefined *local_bbc;
+  undefined *local_bb8;
+  undefined4 local_bb4;
+  undefined4 local_bb0;
+  undefined4 local_bac;
+  undefined4 local_ba8;
+  undefined4 local_ba4;
+  undefined4 local_ba0;
+  undefined4 local_b9c;
+  undefined4 local_b98;
+  undefined4 local_b94;
+  undefined4 local_b90;
+  char *local_b8c;
+  undefined4 local_b88;
+  undefined1 local_b84 [68];
+  char *local_b40;
+  undefined *local_b3c;
+  undefined4 local_b38;
+  undefined4 local_b34;
+  undefined1 local_b30 [60];
+  char *local_af4;
+  undefined *local_af0;
+  undefined *local_aec;
+  undefined4 local_ae8;
+  undefined1 local_ae4 [60];
+  char *local_aa8;
+  undefined *local_aa4;
+  undefined *local_aa0;
+  undefined *local_a9c;
+  undefined4 local_a98;
+  undefined4 local_a94;
+  undefined1 local_a90 [52];
+  char *local_a5c;
+  undefined4 local_a58;
+  undefined1 local_a54 [68];
+  char *local_a10;
+  undefined *local_a0c;
+  undefined *local_a08;
+  undefined4 local_a04;
+  undefined1 local_a00 [60];
+  char *local_9c4;
+  undefined *local_9c0;
+  undefined *local_9bc;
+  undefined4 local_9b8;
+  undefined1 local_9b4 [60];
+  char *local_978;
+  undefined *local_974;
+  undefined *local_970;
+  undefined *local_96c;
+  undefined *local_968;
+  undefined4 local_964;
+  undefined1 local_960 [52];
+  char *local_92c;
+  undefined *local_928;
+  undefined4 local_924;
+  undefined4 local_920;
+  undefined1 local_91c [60];
+  char *local_8e0;
+  undefined *local_8dc;
+  undefined4 local_8d8;
+  undefined *local_8d4;
+  undefined *local_8d0;
+  undefined4 local_8cc;
+  undefined1 local_8c8 [52];
+  char *local_894;
+  undefined *local_890;
+  undefined4 local_88c;
+  undefined *local_888;
+  undefined *local_884;
+  undefined4 local_880;
+  undefined1 local_87c [52];
+  char *local_848;
+  undefined *local_844;
+  undefined4 local_840;
+  char *local_83c;
+  undefined *local_838;
+  undefined4 local_834;
+  undefined1 local_830 [52];
+  char *local_7fc;
+  undefined *local_7f8;
+  undefined4 local_7f4;
+  char *local_7f0;
+  undefined *local_7ec;
+  undefined *local_7e8;
+  undefined *local_7e4;
+  undefined4 local_7e0;
+  undefined1 local_7dc [44];
+  char *local_7b0;
+  undefined *local_7ac;
+  undefined4 local_7a8;
+  undefined4 local_7a4;
+  undefined1 local_7a0 [60];
+  char *local_764;
+  undefined *local_760;
+  undefined4 local_75c;
+  undefined *local_758;
+  undefined4 local_754;
+  undefined4 local_750;
+  undefined1 local_74c [52];
+  char *local_718;
+  undefined *local_714;
+  undefined4 local_710;
+  undefined *local_70c;
+  undefined *local_708;
+  undefined4 local_704;
+  undefined1 local_700 [52];
+  char *local_6cc;
+  undefined *local_6c8;
+  undefined4 local_6c4;
+  undefined *local_6c0;
+  undefined *local_6bc;
+  undefined *local_6b8;
+  undefined4 local_6b4;
+  undefined4 local_6b0;
+  undefined1 local_6ac [44];
+  char *local_680;
+  undefined *local_67c;
+  undefined4 local_678;
+  undefined4 local_674;
+  undefined1 local_670 [60];
+  char *local_634;
+  undefined *local_630;
+  undefined4 local_62c;
+  undefined *local_628;
+  undefined *local_624;
+  undefined4 local_620;
+  undefined1 local_61c [52];
+  char *local_5e8;
+  undefined *local_5e4;
+  undefined4 local_5e0;
+  undefined4 local_5dc;
+  undefined1 local_5d8 [60];
+  char *local_59c;
+  undefined *local_598;
+  undefined4 local_594;
+  undefined *local_590;
+  undefined *local_58c;
+  undefined4 local_588;
+  undefined1 local_584 [52];
+  char *local_550;
+  undefined *local_54c;
+  undefined4 local_548;
+  char *local_544;
+  undefined *local_540;
+  undefined4 local_53c;
+  undefined1 local_538 [52];
+  char *local_504;
+  undefined4 local_500;
+  undefined1 local_4fc [68];
+  char *local_4b8;
+  undefined *local_4b4;
+  undefined *local_4b0;
+  undefined4 local_4ac;
+  undefined1 local_4a8 [60];
+  char *local_46c;
+  undefined4 local_468;
+  undefined1 local_464 [68];
+  char *local_420;
+  undefined *local_41c;
+  undefined *local_418;
+  undefined4 local_414;
+  undefined1 local_410 [60];
+  char *local_3d4;
+  undefined *local_3d0;
+  undefined *local_3cc;
+  undefined4 local_3c8;
+  undefined1 local_3c4 [60];
+  char *local_388;
+  undefined *local_384;
+  undefined *local_380;
+  undefined *local_37c;
+  undefined *local_378;
+  undefined4 local_374;
+  undefined1 local_370 [52];
+  char *local_33c;
+  undefined4 local_338;
+  undefined1 local_334 [68];
+  char *local_2f0;
+  undefined *local_2ec;
+  undefined *local_2e8;
+  undefined4 local_2e4;
+  undefined1 local_2e0 [60];
+  char *local_2a4;
+  undefined4 local_2a0;
+  undefined1 local_29c [68];
+  char *local_258;
+  undefined *local_254;
+  undefined *local_250;
+  undefined4 local_24c;
+  undefined1 local_248 [60];
+  undefined1 local_20c [260];
+  undefined1 local_108 [260];
+  uint local_4;
+  
+  local_4 = DAT_011c16bc ^ (uint)&local_1308;
+  local_12f8 = "lighting\\3x\\SM3Lighting.v.hlsl";
+  local_12f4 = 0;
+  _memset(local_12f0,0,0x44);
+  local_12ac = "lighting\\3x\\SM3Lighting.v.hlsl";
+  local_12a8 = 0;
+  _memset(local_12a4,0,0x44);
+  local_1260 = "lighting\\3x\\SM3Lighting.v.hlsl";
+  local_125c = &DAT_010aec10;
+  local_1258 = &lpWindowName_01011584;
+  local_1254 = 0;
+  _memset(local_1250,0,0x3c);
+  local_1214 = "lighting\\3x\\SM3Lighting.v.hlsl";
+  local_1210 = &DAT_010aed64;
+  local_120c = &lpWindowName_01011584;
+  local_1208 = 0;
+  _memset(local_1204,0,0x3c);
+  local_11c8 = "lighting\\3x\\SM3Lighting.v.hlsl";
+  local_11c4 = &DAT_010aed64;
+  local_11c0 = &lpWindowName_01011584;
+  local_11bc = 0;
+  _memset(local_11b8,0,0x3c);
+  local_117c = "lighting\\3x\\SM3Lighting.v.hlsl";
+  local_1178 = &DAT_010aec10;
+  local_1174 = &lpWindowName_01011584;
+  local_1170 = &DAT_010aed64;
+  local_116c = &lpWindowName_01011584;
+  local_1168 = 0;
+  _memset(local_1164,0,0x34);
+  local_1130 = "lighting\\3x\\SM3Lighting.v.hlsl";
+  local_112c = "PROJSHADOW";
+  local_1128 = &lpWindowName_01011584;
+  local_1124 = 0;
+  _memset(local_1120,0,0x3c);
+  local_10e4 = "lighting\\3x\\SM3Lighting.v.hlsl";
+  local_10e0 = "PROJSHADOW";
+  local_10dc = &lpWindowName_01011584;
+  local_10d8 = 0;
+  _memset(local_10d4,0,0x3c);
+  local_1098 = "lighting\\3x\\SM3Lighting.v.hlsl";
+  local_1094 = &DAT_010aec10;
+  local_1090 = &lpWindowName_01011584;
+  local_108c = "PROJSHADOW";
+  local_1088 = &lpWindowName_01011584;
+  local_1084 = 0;
+  _memset(local_1080,0,0x34);
+  local_104c = "lighting\\3x\\SM3Lighting.v.hlsl";
+  local_1048 = &DAT_010aed64;
+  local_1044 = &lpWindowName_01011584;
+  local_1040 = "PROJSHADOW";
+  local_103c = &lpWindowName_01011584;
+  local_1038 = 0;
+  _memset(local_1034,0,0x34);
+  local_1000 = "lighting\\3x\\SM3Lighting.v.hlsl";
+  local_ffc = &DAT_010aed64;
+  local_ff8 = &lpWindowName_01011584;
+  local_ff4 = "PROJSHADOW";
+  local_ff0 = &lpWindowName_01011584;
+  local_fec = 0;
+  _memset(local_fe8,0,0x34);
+  local_fb4 = "lighting\\3x\\SM3Lighting.v.hlsl";
+  local_fb0 = &DAT_010aec10;
+  local_fac = &lpWindowName_01011584;
+  local_fa8 = &DAT_010aed64;
+  local_fa4 = &lpWindowName_01011584;
+  local_fa0 = "PROJSHADOW";
+  local_f9c = &lpWindowName_01011584;
+  local_f98 = 0;
+  _memset(local_f94,0,0x2c);
+  local_f68 = "lighting\\2x\\v\\EnvMap.v.hlsl";
+  local_f64 = &DAT_010b9fe4;
+  local_f60 = &lpWindowName_01011584;
+  local_f5c = "ENVMAP";
+  local_f58 = 0;
+  local_f54 = 0;
+  _memset(local_f50,0,0x34);
+  local_f1c = "lighting\\2x\\v\\EnvMap.v.hlsl";
+  local_f18 = &DAT_010b9fe4;
+  local_f14 = &lpWindowName_01011584;
+  local_f10 = "ENVMAP";
+  local_f0c = 0;
+  local_f08 = &DAT_010aed64;
+  local_f04 = &lpWindowName_01011584;
+  local_f00 = 0;
+  _memset(local_efc,0,0x2c);
+  local_ed0 = "lighting\\2x\\v\\EnvMap.v.hlsl";
+  local_ecc = &DAT_010b9fe4;
+  local_ec8 = &lpWindowName_01011584;
+  local_ec4 = "ENVMAP";
+  local_ec0 = 0;
+  local_ebc = &DAT_010aec10;
+  local_eb8 = &lpWindowName_01011584;
+  local_eb4 = 0;
+  _memset(local_eb0,0,0x2c);
+  local_e84 = "lighting\\2x\\v\\EnvMap.v.hlsl";
+  local_e38 = "lighting\\2x\\v\\EnvMap.v.hlsl";
+  local_e80 = &DAT_010b9fe4;
+  local_e7c = &lpWindowName_01011584;
+  local_e78 = "ENVMAP";
+  local_e74 = 0;
+  local_e70 = &DAT_010aec10;
+  local_e6c = &lpWindowName_01011584;
+  local_e68 = &DAT_010aed64;
+  local_e64 = &lpWindowName_01011584;
+  local_e60 = 0;
+  local_e5c = 0;
+  local_e58 = 0;
+  local_e54 = 0;
+  local_e50 = 0;
+  local_e4c = 0;
+  local_e48 = 0;
+  local_e44 = 0;
+  local_e40 = 0;
+  local_e3c = 0;
+  local_e34 = &DAT_010b9fe4;
+  local_e30 = &lpWindowName_01011584;
+  local_e2c = "ENVMAP";
+  local_e28 = 0;
+  local_e24 = &DAT_010aead4;
+  local_e20 = 0;
+  local_e1c = 0;
+  _memset(local_e18,0,0x2c);
+  local_dec = "lighting\\2x\\v\\WaterFog.v.hlsl";
+  local_de8 = &DAT_010b9fe4;
+  local_de4 = &lpWindowName_01011584;
+  local_de0 = 0;
+  _memset(local_ddc,0,0x3c);
+  local_da0 = "lighting\\2x\\v\\WaterFog.v.hlsl";
+  local_d9c = &DAT_010b9fe4;
+  local_d98 = &lpWindowName_01011584;
+  local_d94 = &DAT_010aec10;
+  local_d90 = &lpWindowName_01011584;
+  local_d8c = 0;
+  _memset(local_d88,0,0x34);
+  local_d54 = "lighting\\2x\\v\\WaterFog.v.hlsl";
+  local_d50 = &DAT_010b9fe4;
+  local_d4c = &lpWindowName_01011584;
+  local_d48 = "TEXCOORD";
+  local_d44 = &lpWindowName_01011584;
+  local_d40 = 0;
+  _memset(local_d3c,0,0x34);
+  local_d08 = "lighting\\2x\\v\\WaterFog.v.hlsl";
+  local_d04 = &DAT_010b9fe4;
+  local_d00 = &lpWindowName_01011584;
+  local_cfc = &DAT_010aec10;
+  local_cf8 = &lpWindowName_01011584;
+  local_cf4 = "TEXCOORD";
+  local_cf0 = &lpWindowName_01011584;
+  local_cec = 0;
+  _memset(local_ce8,0,0x2c);
+  local_cbc = "lighting\\2x\\v\\WaterFog.v.hlsl";
+  local_cb8 = &DAT_010b9fe4;
+  local_cb4 = &lpWindowName_01011584;
+  local_cb0 = &DAT_010aed64;
+  local_cac = &lpWindowName_01011584;
+  local_ca8 = 0;
+  _memset(local_ca4,0,0x34);
+  local_c70 = "lighting\\2x\\v\\WaterFog.v.hlsl";
+  local_c6c = &DAT_010b9fe4;
+  local_c68 = &lpWindowName_01011584;
+  local_c64 = &DAT_010aec10;
+  local_c60 = &lpWindowName_01011584;
+  local_c5c = &DAT_010aed64;
+  local_c58 = &lpWindowName_01011584;
+  local_c54 = 0;
+  _memset(local_c50,0,0x2c);
+  local_c24 = "lighting\\2x\\v\\WaterFog.v.hlsl";
+  local_c20 = &DAT_010b9fe4;
+  local_c1c = &lpWindowName_01011584;
+  local_c18 = "TEXCOORD";
+  local_c14 = &lpWindowName_01011584;
+  local_c10 = &DAT_010aed64;
+  local_c0c = &lpWindowName_01011584;
+  local_c08 = 0;
+  _memset(local_c04,0,0x2c);
+  local_bd8 = "lighting\\2x\\v\\WaterFog.v.hlsl";
+  local_bd4 = &DAT_010b9fe4;
+  local_bd0 = &lpWindowName_01011584;
+  local_bcc = &DAT_010aec10;
+  local_bc8 = &lpWindowName_01011584;
+  local_bc4 = "TEXCOORD";
+  local_bc0 = &lpWindowName_01011584;
+  local_bbc = &DAT_010aed64;
+  local_bb8 = &lpWindowName_01011584;
+  local_bb4 = 0;
+  local_bb0 = 0;
+  local_bac = 0;
+  local_ba8 = 0;
+  local_ba4 = 0;
+  local_ba0 = 0;
+  local_b9c = 0;
+  local_b98 = 0;
+  local_b94 = 0;
+  local_b90 = 0;
+  local_b8c = "lighting\\3x\\SM3SimpleShadow.v.hlsl";
+  local_b88 = 0;
+  _memset(local_b84,0,0x44);
+  local_b40 = "lighting\\3x\\SM3SimpleShadow.v.hlsl";
+  local_b3c = &DAT_010aed64;
+  local_b38 = 0;
+  local_b34 = 0;
+  _memset(local_b30,0,0x3c);
+  local_af4 = "lighting\\3x\\SM3SimpleShadow.v.hlsl";
+  local_af0 = &DAT_010aec10;
+  local_aec = &lpWindowName_01011584;
+  local_ae8 = 0;
+  _memset(local_ae4,0,0x3c);
+  local_aa8 = "lighting\\3x\\SM3SimpleShadow.v.hlsl";
+  local_aa4 = &DAT_010aec10;
+  local_aa0 = &lpWindowName_01011584;
+  local_a9c = &DAT_010aed64;
+  local_a98 = 0;
+  local_a94 = 0;
+  _memset(local_a90,0,0x34);
+  local_a5c = "lighting\\3x\\SM3DepthMap.v.hlsl";
+  local_a58 = 0;
+  _memset(local_a54,0,0x44);
+  local_a10 = "lighting\\3x\\SM3DepthMap.v.hlsl";
+  local_a0c = &DAT_010aed64;
+  local_a08 = &lpWindowName_01011584;
+  local_a04 = 0;
+  _memset(local_a00,0,0x3c);
+  local_9c4 = "lighting\\3x\\SM3DepthMap.v.hlsl";
+  local_9c0 = &DAT_010aec10;
+  local_9bc = &lpWindowName_01011584;
+  local_9b8 = 0;
+  _memset(local_9b4,0,0x3c);
+  local_978 = "lighting\\3x\\SM3DepthMap.v.hlsl";
+  local_974 = &DAT_010aed64;
+  local_970 = &lpWindowName_01011584;
+  local_96c = &DAT_010aec10;
+  local_968 = &lpWindowName_01011584;
+  local_964 = 0;
+  _memset(local_960,0,0x34);
+  local_92c = "lighting\\2x\\v\\renderNormals.v.hlsl";
+  local_928 = &DAT_010b9fe4;
+  local_924 = 0;
+  local_920 = 0;
+  _memset(local_91c,0,0x3c);
+  local_8e0 = "lighting\\2x\\v\\renderNormals.v.hlsl";
+  local_8dc = &DAT_010b9fe4;
+  local_8d8 = 0;
+  local_8d4 = &DAT_010aec10;
+  local_8d0 = &lpWindowName_01011584;
+  local_8cc = 0;
+  _memset(local_8c8,0,0x34);
+  local_894 = "lighting\\2x\\v\\renderNormals.v.hlsl";
+  local_890 = &DAT_010b9fe4;
+  local_88c = 0;
+  local_888 = &DAT_010aea24;
+  local_884 = &lpWindowName_01011584;
+  local_880 = 0;
+  _memset(local_87c,0,0x34);
+  local_848 = "lighting\\2x\\v\\renderNormals.v.hlsl";
+  local_844 = &DAT_010b9fe4;
+  local_840 = 0;
+  local_83c = "CLEAR";
+  local_838 = &lpWindowName_01011584;
+  local_834 = 0;
+  _memset(local_830,0,0x34);
+  local_7fc = "lighting\\2x\\v\\renderNormals.v.hlsl";
+  local_7f8 = &DAT_010b9fe4;
+  local_7f4 = 0;
+  local_7f0 = "CLEAR";
+  local_7ec = &lpWindowName_01011584;
+  local_7e8 = &DAT_010aec10;
+  local_7e4 = &lpWindowName_01011584;
+  local_7e0 = 0;
+  _memset(local_7dc,0,0x2c);
+  local_7b0 = "lighting\\2x\\v\\renderDepth.v.hlsl";
+  local_7ac = &DAT_010b9fe4;
+  local_7a8 = 0;
+  local_7a4 = 0;
+  _memset(local_7a0,0,0x3c);
+  local_764 = "lighting\\2x\\v\\renderDepth.v.hlsl";
+  local_760 = &DAT_010b9fe4;
+  local_75c = 0;
+  local_758 = &DAT_010aed64;
+  local_754 = 0;
+  local_750 = 0;
+  _memset(local_74c,0,0x34);
+  local_718 = "lighting\\2x\\v\\renderDepth.v.hlsl";
+  local_714 = &DAT_010b9fe4;
+  local_710 = 0;
+  local_70c = &DAT_010aec10;
+  local_708 = &lpWindowName_01011584;
+  local_704 = 0;
+  _memset(local_700,0,0x34);
+  local_6cc = "lighting\\2x\\v\\renderDepth.v.hlsl";
+  local_6c8 = &DAT_010b9fe4;
+  local_6c4 = 0;
+  local_6c0 = &DAT_010aec10;
+  local_6bc = &lpWindowName_01011584;
+  local_6b8 = &DAT_010aed64;
+  local_6b4 = 0;
+  local_6b0 = 0;
+  _memset(local_6ac,0,0x2c);
+  local_680 = "lighting\\2x\\v\\renderVelocity.v.hlsl";
+  local_67c = &DAT_010b9fe4;
+  local_678 = 0;
+  local_674 = 0;
+  _memset(local_670,0,0x3c);
+  local_634 = "lighting\\2x\\v\\renderVelocity.v.hlsl";
+  local_630 = &DAT_010b9fe4;
+  local_62c = 0;
+  local_628 = &DAT_010aec10;
+  local_624 = &lpWindowName_01011584;
+  local_620 = 0;
+  _memset(local_61c,0,0x34);
+  local_5e8 = "lighting\\2x\\v\\localMap.v.hlsl";
+  local_5e4 = &DAT_010b9fe4;
+  local_5e0 = 0;
+  local_5dc = 0;
+  _memset(local_5d8,0,0x3c);
+  local_59c = "lighting\\2x\\v\\localMap.v.hlsl";
+  local_598 = &DAT_010b9fe4;
+  local_594 = 0;
+  local_590 = &DAT_010aec10;
+  local_58c = &lpWindowName_01011584;
+  local_588 = 0;
+  _memset(local_584,0,0x34);
+  local_550 = "lighting\\2x\\v\\localMap.v.hlsl";
+  local_54c = &DAT_010b9fe4;
+  local_548 = 0;
+  local_544 = "CLEAR";
+  local_540 = &lpWindowName_01011584;
+  local_53c = 0;
+  _memset(local_538,0,0x34);
+  local_504 = "lighting\\1x\\v\\texEffect.v.hlsl";
+  local_500 = 0;
+  _memset(local_4fc,0,0x44);
+  local_4b8 = "lighting\\1x\\v\\texEffect.v.hlsl";
+  local_4b4 = &DAT_010aec10;
+  local_4b0 = &lpWindowName_01011584;
+  local_4ac = 0;
+  _memset(local_4a8,0,0x3c);
+  local_46c = "lighting\\3x\\SM3ZOnly.v.hlsl";
+  local_468 = 0;
+  _memset(local_464,0,0x44);
+  local_420 = "lighting\\3x\\SM3ZOnly.v.hlsl";
+  local_41c = &DAT_010aec10;
+  local_418 = &lpWindowName_01011584;
+  local_414 = 0;
+  _memset(local_410,0,0x3c);
+  local_3d4 = "lighting\\3x\\SM3ZOnly.v.hlsl";
+  local_3d0 = &DAT_010aed64;
+  local_3cc = &lpWindowName_01011584;
+  local_3c8 = 0;
+  _memset(local_3c4,0,0x3c);
+  local_388 = "lighting\\3x\\SM3ZOnly.v.hlsl";
+  local_384 = &DAT_010aed64;
+  local_380 = &lpWindowName_01011584;
+  local_37c = &DAT_010aec10;
+  local_378 = &lpWindowName_01011584;
+  local_374 = 0;
+  _memset(local_370,0,0x34);
+  local_33c = "lighting\\3x\\SM3ZOnly.v.hlsl";
+  local_338 = 0;
+  _memset(local_334,0,0x44);
+  local_2f0 = "lighting\\3x\\SM3ZOnly.v.hlsl";
+  local_2ec = &DAT_010aec10;
+  local_2e8 = &lpWindowName_01011584;
+  local_2e4 = 0;
+  _memset(local_2e0,0,0x3c);
+  local_2a4 = "lighting\\3x\\SM3ZOnly.v.hlsl";
+  local_2a0 = 0;
+  _memset(local_29c,0,0x44);
+  local_258 = "lighting\\3x\\SM3ZOnly.v.hlsl";
+  local_254 = &DAT_010aec10;
+  local_250 = &lpWindowName_01011584;
+  local_24c = 0;
+  _memset(local_248,0,0x3c);
+  local_12fc = FUN_00b4f3e0();
+  local_1304 = 0;
+  piVar5 = &DAT_01200dd8;
+  puVar6 = &local_12f4;
+  do {
+    iVar2 = local_1304;
+    FUN_00be0c00(puVar6[-1],local_20c);
+    FUN_00406d00(local_108,0x104,"SM3%03i.vso",iVar2);
+    if ((((iVar2 == 1) || (iVar2 == 4)) || (iVar2 == 7)) || (iVar2 == 10)) {
+      if (DAT_011f94a4 == '\0') {
+        local_1308 = (int *)FUN_00be0fe0(local_20c,puVar6,local_12fc,local_108);
+        piVar1 = (int *)*piVar5;
+        if (piVar1 != local_1308) goto joined_r0x00bba566;
+      }
+      else {
+        local_1308 = (int *)FUN_00be0fe0(local_20c,puVar6,"vs_3_0",local_108);
+        piVar1 = (int *)*piVar5;
+        if (piVar1 != local_1308) {
+joined_r0x00bba566:
+          if ((piVar1 != (int *)0x0) && (LVar4 = InterlockedDecrement(piVar1 + 1), LVar4 == 0)) {
+            (**(code **)(*piVar1 + 4))();
+          }
+          *piVar5 = (int)local_1308;
+          if (local_1308 != (int *)0x0) {
+            InterlockedIncrement(local_1308 + 1);
+          }
+        }
+      }
+    }
+    else {
+      uVar3 = FUN_00be0fe0(local_20c,puVar6,local_12fc,local_108);
+      FUN_00a5f860(uVar3);
+      local_1304 = iVar2;
+    }
+    local_1304 = local_1304 + 1;
+    piVar5 = piVar5 + 1;
+    puVar6 = puVar6 + 0x13;
+    if (0x1200ebb < (int)piVar5) {
+      __security_check_cookie(local_4 ^ (uint)&local_1308);
+      return;
+    }
+  } while( true );
+}
+
+
+
+--- Calls FROM PPLighting EnvMap vertex shader constructor (0x00bb96f0) ---
+  0x00bb96f5 -> 0x00ec8660 __alloca_probe
+  0x00bb9727 -> 0x00ec61c0 _memset
+  0x00bb9745 -> 0x00ec61c0 _memset
+  0x00bb977b -> 0x00ec61c0 _memset
+  0x00bb97ab -> 0x00ec61c0 _memset
+  0x00bb97db -> 0x00ec61c0 _memset
+  0x00bb9819 -> 0x00ec61c0 _memset
+  0x00bb984c -> 0x00ec61c0 _memset
+  0x00bb987c -> 0x00ec61c0 _memset
+  0x00bb98ba -> 0x00ec61c0 _memset
+  0x00bb98fc -> 0x00ec61c0 _memset
+  0x00bb993e -> 0x00ec61c0 _memset
+  0x00bb998e -> 0x00ec61c0 _memset
+  0x00bb99d8 -> 0x00ec61c0 _memset
+  0x00bb9a2c -> 0x00ec61c0 _memset
+  0x00bb9a7c -> 0x00ec61c0 _memset
+  0x00bb9b5b -> 0x00ec61c0 _memset
+  0x00bb9b8b -> 0x00ec61c0 _memset
+  0x00bb9bc9 -> 0x00ec61c0 _memset
+  0x00bb9c0e -> 0x00ec61c0 _memset
+  0x00bb9c5e -> 0x00ec61c0 _memset
+  0x00bb9ca0 -> 0x00ec61c0 _memset
+  0x00bb9cf0 -> 0x00ec61c0 _memset
+  0x00bb9d44 -> 0x00ec61c0 _memset
+  0x00bb9df7 -> 0x00ec61c0 _memset
+  0x00bb9e2e -> 0x00ec61c0 _memset
+  0x00bb9e5e -> 0x00ec61c0 _memset
+  0x00bb9ea0 -> 0x00ec61c0 _memset
+  0x00bb9ec2 -> 0x00ec61c0 _memset
+  0x00bb9ef6 -> 0x00ec61c0 _memset
+  0x00bb9f26 -> 0x00ec61c0 _memset
+  0x00bb9f6b -> 0x00ec61c0 _memset
+  0x00bb9f9b -> 0x00ec61c0 _memset
+  0x00bb9fd9 -> 0x00ec61c0 _memset
+  0x00bba01b -> 0x00ec61c0 _memset
+  0x00bba05d -> 0x00ec61c0 _memset
+  0x00bba0ad -> 0x00ec61c0 _memset
+  0x00bba0e0 -> 0x00ec61c0 _memset
+  0x00bba122 -> 0x00ec61c0 _memset
+  0x00bba160 -> 0x00ec61c0 _memset
+  0x00bba1b0 -> 0x00ec61c0 _memset
+  0x00bba1e0 -> 0x00ec61c0 _memset
+  0x00bba21e -> 0x00ec61c0 _memset
+  0x00bba251 -> 0x00ec61c0 _memset
+  0x00bba28f -> 0x00ec61c0 _memset
+  0x00bba2d1 -> 0x00ec61c0 _memset
+  0x00bba2f4 -> 0x00ec61c0 _memset
+  0x00bba320 -> 0x00ec61c0 _memset
+  0x00bba343 -> 0x00ec61c0 _memset
+  0x00bba372 -> 0x00ec61c0 _memset
+  0x00bba3a2 -> 0x00ec61c0 _memset
+  0x00bba3e0 -> 0x00ec61c0 _memset
+  0x00bba3fe -> 0x00ec61c0 _memset
+  0x00bba42a -> 0x00ec61c0 _memset
+  0x00bba448 -> 0x00ec61c0 _memset
+  0x00bba477 -> 0x00ec61c0 _memset
+  0x00bba47f -> 0x00b4f3e0 FUN_00b4f3e0
+  0x00bba4ac -> 0x00be0c00 FUN_00be0c00
+  0x00bba4c4 -> 0x00406d00 FUN_00406d00
+  0x00bba4fa -> 0x00be0fe0 FUN_00be0fe0
+  0x00bba502 -> 0x00a5f860 FUN_00a5f860
+  0x00bba52e -> 0x00be0fe0 FUN_00be0fe0
+  0x00bba555 -> 0x00be0fe0 FUN_00be0fe0
+  0x00bba56c -> 0x00000067 ???
+  0x00bba58e -> 0x00000066 ???
+  0x00bba5bc -> 0x00ec408c __security_check_cookie
+  Total: 66 calls
+
+MATCHED CONTRACT LINES: PPLighting EnvMap vertex shader constructor @ 0x00bb96f0
+  L0400:   local_1258 = &lpWindowName_01011584;
+  L0405:   local_120c = &lpWindowName_01011584;
+  L0410:   local_11c0 = &lpWindowName_01011584;
+  L0415:   local_1174 = &lpWindowName_01011584;
+  L0417:   local_116c = &lpWindowName_01011584;
+  L0422:   local_1128 = &lpWindowName_01011584;
+  L0427:   local_10dc = &lpWindowName_01011584;
+  L0432:   local_1090 = &lpWindowName_01011584;
+  L0434:   local_1088 = &lpWindowName_01011584;
+  L0439:   local_1044 = &lpWindowName_01011584;
+  L0441:   local_103c = &lpWindowName_01011584;
+  L0446:   local_ff8 = &lpWindowName_01011584;
+  L0448:   local_ff0 = &lpWindowName_01011584;
+  L0453:   local_fac = &lpWindowName_01011584;
+  L0455:   local_fa4 = &lpWindowName_01011584;
+  L0457:   local_f9c = &lpWindowName_01011584;
+  L0460:   local_f68 = "lighting\\2x\\v\\EnvMap.v.hlsl";
+  L0462:   local_f60 = &lpWindowName_01011584;
+  L0463:   local_f5c = "ENVMAP";
+  L0467:   local_f1c = "lighting\\2x\\v\\EnvMap.v.hlsl";
+  L0469:   local_f14 = &lpWindowName_01011584;
+  L0470:   local_f10 = "ENVMAP";
+  L0473:   local_f04 = &lpWindowName_01011584;
+  L0476:   local_ed0 = "lighting\\2x\\v\\EnvMap.v.hlsl";
+  L0478:   local_ec8 = &lpWindowName_01011584;
+  L0479:   local_ec4 = "ENVMAP";
+  L0482:   local_eb8 = &lpWindowName_01011584;
+  L0485:   local_e84 = "lighting\\2x\\v\\EnvMap.v.hlsl";
+  L0486:   local_e38 = "lighting\\2x\\v\\EnvMap.v.hlsl";
+  L0488:   local_e7c = &lpWindowName_01011584;
+  L0489:   local_e78 = "ENVMAP";
+  L0492:   local_e6c = &lpWindowName_01011584;
+  L0494:   local_e64 = &lpWindowName_01011584;
+  L0506:   local_e30 = &lpWindowName_01011584;
+  L0507:   local_e2c = "ENVMAP";
+  L0509:   local_e24 = &DAT_010aead4;
+  L0515:   local_de4 = &lpWindowName_01011584;
+  L0520:   local_d98 = &lpWindowName_01011584;
+  L0522:   local_d90 = &lpWindowName_01011584;
+  L0527:   local_d4c = &lpWindowName_01011584;
+  L0529:   local_d44 = &lpWindowName_01011584;
+  L0534:   local_d00 = &lpWindowName_01011584;
+  L0536:   local_cf8 = &lpWindowName_01011584;
+  L0538:   local_cf0 = &lpWindowName_01011584;
+  L0543:   local_cb4 = &lpWindowName_01011584;
+  L0545:   local_cac = &lpWindowName_01011584;
+  L0550:   local_c68 = &lpWindowName_01011584;
+  L0552:   local_c60 = &lpWindowName_01011584;
+  L0554:   local_c58 = &lpWindowName_01011584;
+  L0559:   local_c1c = &lpWindowName_01011584;
+  L0561:   local_c14 = &lpWindowName_01011584;
+  L0563:   local_c0c = &lpWindowName_01011584;
+  L0568:   local_bd0 = &lpWindowName_01011584;
+  L0570:   local_bc8 = &lpWindowName_01011584;
+  L0572:   local_bc0 = &lpWindowName_01011584;
+  L0574:   local_bb8 = &lpWindowName_01011584;
+  L0595:   local_aec = &lpWindowName_01011584;
+  L0600:   local_aa0 = &lpWindowName_01011584;
+  L0610:   local_a08 = &lpWindowName_01011584;
+  L0615:   local_9bc = &lpWindowName_01011584;
+  L0620:   local_970 = &lpWindowName_01011584;
+  L0622:   local_968 = &lpWindowName_01011584;
+  L0634:   local_8d0 = &lpWindowName_01011584;
+  L0641:   local_884 = &lpWindowName_01011584;
+  L0648:   local_838 = &lpWindowName_01011584;
+  L0655:   local_7ec = &lpWindowName_01011584;
+  L0657:   local_7e4 = &lpWindowName_01011584;
+  L0676:   local_708 = &lpWindowName_01011584;
+  L0683:   local_6bc = &lpWindowName_01011584;
+  L0697:   local_624 = &lpWindowName_01011584;
+  L0709:   local_58c = &lpWindowName_01011584;
+  L0716:   local_540 = &lpWindowName_01011584;
+  L0724:   local_4b0 = &lpWindowName_01011584;
+  L0732:   local_418 = &lpWindowName_01011584;
+  L0737:   local_3cc = &lpWindowName_01011584;
+  L0742:   local_380 = &lpWindowName_01011584;
+  L0744:   local_378 = &lpWindowName_01011584;
+  L0752:   local_2e8 = &lpWindowName_01011584;
+  L0760:   local_250 = &lpWindowName_01011584;
+  Total matched lines: 79
+
+======================================================================
+PPLighting EnvMap pixel shader constructor @ 0x00bba5d0
+======================================================================
+  Function: FUN_00bba5d0 @ 0x00bba5d0, Size: 4532 bytes
+
+/* WARNING: Function: __alloca_probe replaced with injection: alloca_probe */
+
+void FUN_00bba5d0(void)
+
+{
+  int *piVar1;
+  char *pcVar2;
+  int iVar3;
+  LONG LVar4;
+  undefined4 uVar5;
+  int iVar6;
+  char **ppcVar7;
+  int *local_1100 [2];
+  char local_10f8 [4];
+  undefined2 local_10f4;
+  undefined1 local_10f2;
+  char local_10f0 [4];
+  char local_10ec [4];
+  char *local_10e8;
+  char *local_10e4;
+  char *local_10e0;
+  undefined *local_10dc;
+  undefined4 local_10d8;
+  undefined1 local_10d4 [60];
+  char *local_1098;
+  char *local_1094;
+  undefined *local_1090;
+  char *local_108c;
+  undefined4 local_1088;
+  undefined4 local_1084;
+  undefined1 local_1080 [52];
+  char *local_104c;
+  char *local_1048;
+  undefined *local_1044;
+  undefined *local_1040;
+  undefined *local_103c;
+  undefined4 local_1038;
+  undefined1 local_1034 [52];
+  char *local_1000;
+  char *local_ffc;
+  undefined *local_ff8;
+  undefined *local_ff4;
+  undefined *local_ff0;
+  char *local_fec;
+  undefined4 local_fe8;
+  undefined4 local_fe4;
+  undefined1 local_fe0 [44];
+  char *local_fb4;
+  char *local_fb0;
+  undefined *local_fac;
+  char *local_fa8;
+  undefined *local_fa4;
+  undefined4 local_fa0;
+  undefined1 local_f9c [52];
+  char *local_f68;
+  char *local_f64;
+  undefined *local_f60;
+  char *local_f5c;
+  undefined *local_f58;
+  undefined4 local_f54;
+  undefined1 local_f50 [52];
+  char *local_f1c;
+  char *local_f18;
+  undefined *local_f14;
+  char *local_f10;
+  undefined *local_f0c;
+  char *local_f08;
+  undefined4 local_f04;
+  undefined4 local_f00;
+  undefined1 local_efc [44];
+  char *local_ed0;
+  char *local_ecc;
+  undefined *local_ec8;
+  char *local_ec4;
+  undefined *local_ec0;
+  char *local_ebc;
+  undefined4 local_eb8;
+  undefined4 local_eb4;
+  undefined1 local_eb0 [44];
+  char *local_e84;
+  char *local_e80;
+  undefined *local_e7c;
+  char *local_e78;
+  undefined *local_e74;
+  undefined4 local_e70;
+  undefined1 local_e6c [52];
+  char *local_e38;
+  char *local_e34;
+  undefined *local_e30;
+  char *local_e2c;
+  undefined *local_e28;
+  char *local_e24;
+  undefined4 local_e20;
+  undefined4 local_e1c;
+  undefined1 local_e18 [44];
+  char *local_dec;
+  char *local_de8;
+  undefined *local_de4;
+  undefined *local_de0;
+  undefined *local_ddc;
+  undefined4 local_dd8;
+  undefined1 local_dd4 [52];
+  char *local_da0;
+  char *local_d9c;
+  undefined *local_d98;
+  undefined *local_d94;
+  undefined *local_d90;
+  char *local_d8c;
+  undefined4 local_d88;
+  undefined4 local_d84;
+  undefined1 local_d80 [44];
+  char *local_d54;
+  char *local_d50;
+  undefined *local_d4c;
+  char *local_d48;
+  undefined *local_d44;
+  undefined4 local_d40;
+  undefined1 local_d3c [52];
+  char *local_d08;
+  char *local_d04;
+  undefined *local_d00;
+  char *local_cfc;
+  undefined4 local_cf8;
+  char *local_cf4;
+  undefined *local_cf0;
+  undefined4 local_cec;
+  undefined1 local_ce8 [44];
+  char *local_cbc;
+  char *local_cb8;
+  undefined *local_cb4;
+  undefined *local_cb0;
+  undefined *local_cac;
+  char *local_ca8;
+  undefined *local_ca4;
+  undefined4 local_ca0;
+  undefined1 local_c9c [44];
+  char *local_c70;
+  char *local_c6c;
+  undefined *local_c68;
+  undefined *local_c64;
+  undefined *local_c60;
+  char *local_c5c;
+  undefined4 local_c58;
+  char *local_c54;
+  undefined *local_c50;
+  undefined4 local_c4c;
+  undefined4 local_c48;
+  undefined4 local_c44;
+  undefined4 local_c40;
+  undefined4 local_c3c;
+  undefined4 local_c38;
+  undefined4 local_c34;
+  undefined4 local_c30;
+  undefined4 local_c2c;
+  undefined4 local_c28;
+  char *local_c24;
+  char *local_c20;
+  undefined *local_c1c;
+  char *local_c18;
+  undefined *local_c14;
+  char *local_c10;
+  undefined *local_c0c;
+  undefined4 local_c08;
+  undefined1 local_c04 [44];
+  char *local_bd8;
+  char *local_bd4;
+  undefined *local_bd0;
+  char *local_bcc;
+  undefined *local_bc8;
+  char *local_bc4;
+  undefined *local_bc0;
+  undefined4 local_bbc;
+  undefined1 local_bb8 [44];
+  char *local_b8c;
+  char *local_b88;
+  undefined *local_b84;
+  char *local_b80;
+  undefined *local_b7c;
+  char *local_b78;
+  undefined4 local_b74;
+  char *local_b70;
+  undefined *local_b6c;
+  undefined4 local_b68;
+  undefined4 local_b64;
+  undefined4 local_b60;
+  undefined4 local_b5c;
+  undefined4 local_b58;
+  undefined4 local_b54;
+  undefined4 local_b50;
+  undefined4 local_b4c;
+  undefined4 local_b48;
+  undefined4 local_b44;
+  char *local_b40;
+  char *local_b3c;
+  undefined *local_b38;
+  char *local_b34;
+  undefined *local_b30;
+  char *local_b2c;
+  undefined4 local_b28;
+  char *local_b24;
+  undefined *local_b20;
+  undefined4 local_b1c;
+  undefined4 local_b18;
+  undefined4 local_b14;
+  undefined4 local_b10;
+  undefined4 local_b0c;
+  undefined4 local_b08;
+  undefined4 local_b04;
+  undefined4 local_b00;
+  undefined4 local_afc;
+  undefined4 local_af8;
+  char *local_af4;
+  char *local_af0;
+  undefined *local_aec;
+  char *local_ae8;
+  undefined *local_ae4;
+  char *local_ae0;
+  undefined *local_adc;
+  undefined4 local_ad8;
+  undefined1 local_ad4 [44];
+  char *local_aa8;
+  char *local_aa4;
+  undefined *local_aa0;
+  char *local_a9c;
+  undefined *local_a98;
+  char *local_a94;
+  undefined4 local_a90;
+  char *local_a8c;
+  undefined *local_a88;
+  undefined4 local_a84;
+  undefined4 local_a80;
+  undefined4 local_a7c;
+  undefined4 local_a78;
+  undefined4 local_a74;
+  undefined4 local_a70;
+  undefined4 local_a6c;
+  undefined4 local_a68;
+  undefined4 local_a64;
+  undefined4 local_a60;
+  char *local_a5c;
+  char *local_a58;
+  undefined *local_a54;
+  undefined *local_a50;
+  undefined *local_a4c;
+  char *local_a48;
+  undefined *local_a44;
+  undefined4 local_a40;
+  undefined1 local_a3c [44];
+  char *local_a10;
+  char *local_a0c;
+  undefined *local_a08;
+  undefined *local_a04;
+  undefined *local_a00;
+  char *local_9fc;
+  undefined4 local_9f8;
+  char *local_9f4;
+  undefined *local_9f0;
+  undefined4 local_9ec;
+  undefined4 local_9e8;
+  undefined4 local_9e4;
+  undefined4 local_9e0;
+  undefined4 local_9dc;
+  undefined4 local_9d8;
+  undefined4 local_9d4;
+  undefined4 local_9d0;
+  undefined4 local_9cc;
+  undefined4 local_9c8;
+  char *local_9c4;
+  undefined *local_9c0;
+  undefined *local_9bc;
+  undefined4 local_9b8;
+  undefined1 local_9b4 [60];
+  char *local_978;
+  undefined *local_974;
+  undefined *local_970;
+  char *local_96c;
+  undefined4 local_968;
+  undefined4 local_964;
+  undefined1 local_960 [52];
+  char *local_92c;
+  undefined *local_928;
+  undefined *local_924;
+  undefined *local_920;
+  undefined4 local_91c;
+  undefined4 local_918;
+  undefined1 local_914 [52];
+  char *local_8e0;
+  undefined *local_8dc;
+  undefined *local_8d8;
+  undefined4 local_8d4;
+  undefined1 local_8d0 [60];
+  char *local_894;
+  undefined *local_890;
+  undefined *local_88c;
+  char *local_888;
+  undefined *local_884;
+  undefined4 local_880;
+  undefined1 local_87c [52];
+  char *local_848;
+  char *local_844;
+  undefined *local_840;
+  char *local_83c;
+  undefined *local_838;
+  char *local_834;
+  char *local_830;
+  undefined4 local_82c;
+  undefined1 local_828 [44];
+  char *local_7fc;
+  char *local_7f8;
+  char *local_7f4;
+  undefined4 local_7f0;
+  undefined1 local_7ec [60];
+  char *local_7b0;
+  char *local_7ac;
+  char *local_7a8;
+  undefined4 local_7a4;
+  undefined1 local_7a0 [60];
+  char *local_764;
+  undefined *local_760;
+  undefined4 local_75c;
+  undefined4 local_758;
+  undefined1 local_754 [60];
+  char *local_718;
+  undefined *local_714;
+  undefined4 local_710;
+  undefined4 local_70c;
+  undefined1 local_708 [60];
+  char *local_6cc;
+  undefined *local_6c8;
+  undefined4 local_6c4;
+  undefined *local_6c0;
+  undefined *local_6bc;
+  undefined4 local_6b8;
+  undefined1 local_6b4 [52];
+  char *local_680;
+  undefined *local_67c;
+  undefined4 local_678;
+  char *local_674;
+  undefined *local_670;
+  undefined4 local_66c;
+  undefined1 local_668 [52];
+  char *local_634;
+  undefined *local_630;
+  undefined4 local_62c;
+  char *local_628;
+  undefined *local_624;
+  undefined4 local_620;
+  undefined1 local_61c [52];
+  char *local_5e8;
+  char *local_5e4;
+  undefined *local_5e0;
+  char *local_5dc;
+  undefined *local_5d8;
+  undefined4 local_5d4;
+  undefined1 local_5d0 [52];
+  char *local_59c;
+  undefined *local_598;
+  undefined4 local_594;
+  undefined4 local_590;
+  undefined1 local_58c [60];
+  char *local_550;
+  undefined *local_54c;
+  undefined4 local_548;
+  undefined4 local_544;
+  undefined1 local_540 [60];
+  char *local_504;
+  undefined *local_500;
+  undefined4 local_4fc;
+  undefined4 local_4f8;
+  undefined1 local_4f4 [60];
+  char *local_4b8;
+  undefined *local_4b4;
+  undefined4 local_4b0;
+  char *local_4ac;
+  undefined4 local_4a8;
+  undefined4 local_4a4;
+  undefined1 local_4a0 [52];
+  char *local_46c;
+  undefined *local_468;
+  undefined *local_464;
+  undefined4 local_460;
+  undefined1 local_45c [60];
+  char *local_420;
+  undefined *local_41c;
+  undefined *local_418;
+  undefined4 local_414;
+  undefined1 local_410 [60];
+  char *local_3d4;
+  undefined4 local_3d0;
+  undefined1 local_3cc [68];
+  char *local_388;
+  undefined4 local_384;
+  undefined1 local_380 [68];
+  char *local_33c;
+  undefined4 local_338;
+  undefined1 local_334 [68];
+  char *local_2f0;
+  undefined4 local_2ec;
+  undefined1 local_2e8 [68];
+  char *local_2a4;
+  char *local_2a0;
+  undefined *local_29c;
+  undefined4 local_298;
+  undefined1 local_294 [60];
+  char *local_258;
+  char *local_254;
+  undefined *local_250;
+  undefined4 local_24c;
+  undefined1 local_248 [60];
+  undefined1 local_20c [260];
+  undefined1 local_108 [260];
+  uint local_4;
+  
+  local_4 = DAT_011c16bc ^ (uint)local_1100;
+  local_10e4 = "lighting\\3x\\SM3Lighting.p.hlsl";
+  local_10e0 = "MAXLIGHTS";
+  local_10dc = &DAT_01063ee8;
+  local_10d8 = 0;
+  _memset(local_10d4,0,0x3c);
+  local_1098 = "lighting\\3x\\SM3Lighting.p.hlsl";
+  local_1094 = "MAXLIGHTS";
+  local_1090 = &DAT_01063ef4;
+  local_108c = "SPECULAR";
+  local_1088 = 0;
+  local_1084 = 0;
+  _memset(local_1080,0,0x34);
+  local_104c = "lighting\\3x\\SM3Lighting.p.hlsl";
+  local_1048 = "MAXLIGHTS";
+  local_1044 = &DAT_01063ef4;
+  local_1040 = &DAT_0101c61c;
+  local_103c = &DAT_01063f48;
+  local_1038 = 0;
+  _memset(local_1034,0,0x34);
+  local_1000 = "lighting\\3x\\SM3Lighting.p.hlsl";
+  local_ffc = "MAXLIGHTS";
+  local_ff8 = &DAT_01063f00;
+  local_ff4 = &DAT_0101c61c;
+  local_ff0 = &DAT_01063f48;
+  local_fec = "SPECULAR";
+  local_fe8 = 0;
+  local_fe4 = 0;
+  _memset(local_fe0,0,0x2c);
+  local_fac = &DAT_01063ef4;
+  local_fb4 = "lighting\\3x\\SM3Lighting.p.hlsl";
+  local_fb0 = "MAXLIGHTS";
+  local_fa8 = "PARALLAX";
+  local_fa4 = &lpWindowName_01011584;
+  local_fa0 = 0;
+  _memset(local_f9c,0,0x34);
+  local_f68 = "lighting\\3x\\SM3Lighting.p.hlsl";
+  local_f64 = "MAXLIGHTS";
+  local_f60 = &DAT_01063ef4;
+  local_f5c = "PARALLAXOCC";
+  local_f58 = &DAT_010ba0ac;
+  local_f54 = 0;
+  _memset(local_f50,0,0x34);
+  local_f1c = "lighting\\3x\\SM3Lighting.p.hlsl";
+  local_f18 = "MAXLIGHTS";
+  local_f14 = &DAT_01063ef4;
+  local_f10 = "PARALLAX";
+  local_f0c = &lpWindowName_01011584;
+  local_f08 = "SPECULAR";
+  local_f04 = 0;
+  local_f00 = 0;
+  _memset(local_efc,0,0x2c);
+  local_ed0 = "lighting\\3x\\SM3Lighting.p.hlsl";
+  local_ecc = "MAXLIGHTS";
+  local_ec8 = &DAT_01063ef4;
+  local_ec4 = "PARALLAXOCC";
+  local_ec0 = &DAT_010ba0ac;
+  local_ebc = "SPECULAR";
+  local_eb8 = 0;
+  local_eb4 = 0;
+  _memset(local_eb0,0,0x2c);
+  local_e84 = "lighting\\3x\\SM3Lighting.p.hlsl";
+  local_e80 = "MAXLIGHTS";
+  local_e7c = &DAT_01063ef4;
+  local_e78 = "FACEGENBLEND";
+  local_e74 = &lpWindowName_01011584;
+  local_e70 = 0;
+  _memset(local_e6c,0,0x34);
+  local_e38 = "lighting\\3x\\SM3Lighting.p.hlsl";
+  local_e34 = "MAXLIGHTS";
+  local_e30 = &DAT_01063ef4;
+  local_e2c = "FACEGENBLEND";
+  local_e28 = &lpWindowName_01011584;
+  local_e24 = "SPECULAR";
+  local_e20 = 0;
+  local_e1c = 0;
+  _memset(local_e18,0,0x2c);
+  local_dec = "lighting\\3x\\SM3Lighting.p.hlsl";
+  local_de8 = "MAXLIGHTS";
+  local_de4 = &DAT_01063ef4;
+  local_de0 = &DAT_010ba0a4;
+  local_ddc = &lpWindowName_01011584;
+  local_dd8 = 0;
+  _memset(local_dd4,0,0x34);
+  local_da0 = "lighting\\3x\\SM3Lighting.p.hlsl";
+  local_d9c = "MAXLIGHTS";
+  local_d98 = &DAT_01063ef4;
+  local_d94 = &DAT_010ba0a4;
+  local_d90 = &lpWindowName_01011584;
+  local_d8c = "SPECULAR";
+  local_d88 = 0;
+  local_d84 = 0;
+  _memset(local_d80,0,0x2c);
+  local_d54 = "lighting\\3x\\SM3Lighting.p.hlsl";
+  local_d50 = "MAXLIGHTS";
+  local_d4c = &DAT_01063ef4;
+  local_d48 = "PROJSHADOW";
+  local_d44 = &lpWindowName_01011584;
+  local_d40 = 0;
+  _memset(local_d3c,0,0x34);
+  local_d08 = "lighting\\3x\\SM3Lighting.p.hlsl";
+  local_d04 = "MAXLIGHTS";
+  local_d00 = &DAT_01063ef4;
+  local_cfc = "SPECULAR";
+  local_cf8 = 0;
+  local_cf4 = "PROJSHADOW";
+  local_cf0 = &lpWindowName_01011584;
+  local_cec = 0;
+  _memset(local_ce8,0,0x2c);
+  local_cbc = "lighting\\3x\\SM3Lighting.p.hlsl";
+  local_cb8 = "MAXLIGHTS";
+  local_cb4 = &DAT_01063ef4;
+  local_cb0 = &DAT_0101c61c;
+  local_cac = &DAT_01063f48;
+  local_ca8 = "PROJSHADOW";
+  local_ca4 = &lpWindowName_01011584;
+  local_ca0 = 0;
+  _memset(local_c9c,0,0x2c);
+  local_c54 = "PROJSHADOW";
+  local_c10 = "PROJSHADOW";
+  local_c70 = "lighting\\3x\\SM3Lighting.p.hlsl";
+  local_c6c = "MAXLIGHTS";
+  local_c68 = &DAT_01063f00;
+  local_c64 = &DAT_0101c61c;
+  local_c60 = &DAT_01063f48;
+  local_c5c = "SPECULAR";
+  local_c58 = 0;
+  local_c50 = &lpWindowName_01011584;
+  local_c4c = 0;
+  local_c48 = 0;
+  local_c44 = 0;
+  local_c40 = 0;
+  local_c3c = 0;
+  local_c38 = 0;
+  local_c34 = 0;
+  local_c30 = 0;
+  local_c2c = 0;
+  local_c28 = 0;
+  local_c24 = "lighting\\3x\\SM3Lighting.p.hlsl";
+  local_c20 = "MAXLIGHTS";
+  local_c1c = &DAT_01063ef4;
+  local_c18 = "PARALLAX";
+  local_c14 = &lpWindowName_01011584;
+  local_c0c = &lpWindowName_01011584;
+  local_c08 = 0;
+  _memset(local_c04,0,0x2c);
+  local_bd8 = "lighting\\3x\\SM3Lighting.p.hlsl";
+  local_bd4 = "MAXLIGHTS";
+  local_bd0 = &DAT_01063ef4;
+  local_bcc = "PARALLAXOCC";
+  local_bc8 = &DAT_010ba0ac;
+  local_bc4 = "PROJSHADOW";
+  local_bc0 = &lpWindowName_01011584;
+  local_bbc = 0;
+  _memset(local_bb8,0,0x2c);
+  local_b8c = "lighting\\3x\\SM3Lighting.p.hlsl";
+  local_b88 = "MAXLIGHTS";
+  local_b84 = &DAT_01063ef4;
+  local_b80 = "PARALLAX";
+  local_b7c = &lpWindowName_01011584;
+  local_b78 = "SPECULAR";
+  local_b2c = "SPECULAR";
+  local_b74 = 0;
+  local_b70 = "PROJSHADOW";
+  local_b6c = &lpWindowName_01011584;
+  local_b68 = 0;
+  local_b64 = 0;
+  local_b60 = 0;
+  local_b5c = 0;
+  local_b58 = 0;
+  local_b54 = 0;
+  local_b50 = 0;
+  local_b4c = 0;
+  local_b48 = 0;
+  local_b44 = 0;
+  local_b40 = "lighting\\3x\\SM3Lighting.p.hlsl";
+  local_b3c = "MAXLIGHTS";
+  local_b38 = &DAT_01063ef4;
+  local_b34 = "PARALLAXOCC";
+  local_b30 = &DAT_010ba0ac;
+  local_b28 = 0;
+  local_b24 = "PROJSHADOW";
+  local_b20 = &lpWindowName_01011584;
+  local_b1c = 0;
+  local_b18 = 0;
+  local_b14 = 0;
+  local_b10 = 0;
+  local_b0c = 0;
+  local_b08 = 0;
+  local_b04 = 0;
+  local_b00 = 0;
+  local_afc = 0;
+  local_af8 = 0;
+  local_af4 = "lighting\\3x\\SM3Lighting.p.hlsl";
+  local_af0 = "MAXLIGHTS";
+  local_aec = &DAT_01063ef4;
+  local_ae8 = "FACEGENBLEND";
+  local_ae4 = &lpWindowName_01011584;
+  local_ae0 = "PROJSHADOW";
+  local_adc = &lpWindowName_01011584;
+  local_ad8 = 0;
+  _memset(local_ad4,0,0x2c);
+  local_aa0 = &DAT_01063ef4;
+  local_a54 = &DAT_01063ef4;
+  local_aa8 = "lighting\\3x\\SM3Lighting.p.hlsl";
+  local_aa4 = "MAXLIGHTS";
+  local_a9c = "FACEGENBLEND";
+  local_a98 = &lpWindowName_01011584;
+  local_a94 = "SPECULAR";
+  local_a90 = 0;
+  local_a8c = "PROJSHADOW";
+  local_a88 = &lpWindowName_01011584;
+  local_a84 = 0;
+  local_a80 = 0;
+  local_a7c = 0;
+  local_a78 = 0;
+  local_a74 = 0;
+  local_a70 = 0;
+  local_a6c = 0;
+  local_a68 = 0;
+  local_a64 = 0;
+  local_a60 = 0;
+  local_a5c = "lighting\\3x\\SM3Lighting.p.hlsl";
+  local_a58 = "MAXLIGHTS";
+  local_a50 = &DAT_010ba0a4;
+  local_a4c = &lpWindowName_01011584;
+  local_a48 = "PROJSHADOW";
+  local_a44 = &lpWindowName_01011584;
+  local_a40 = 0;
+  _memset(local_a3c,0,0x2c);
+  local_a10 = "lighting\\3x\\SM3Lighting.p.hlsl";
+  local_a0c = "MAXLIGHTS";
+  local_a08 = &DAT_01063ef4;
+  local_a04 = &DAT_010ba0a4;
+  local_a00 = &lpWindowName_01011584;
+  local_9fc = "SPECULAR";
+  local_9f8 = 0;
+  local_9f4 = "PROJSHADOW";
+  local_9f0 = &lpWindowName_01011584;
+  local_9ec = 0;
+  local_9e8 = 0;
+  local_9e4 = 0;
+  local_9e0 = 0;
+  local_9dc = 0;
+  local_9d8 = 0;
+  local_9d4 = 0;
+  local_9d0 = 0;
+  local_9cc = 0;
+  local_9c8 = 0;
+  local_9c4 = "lighting\\2x\\p\\EnvMap.p.hlsl";
+  local_9c0 = &DAT_010b9fe4;
+  local_9bc = &lpWindowName_01011584;
+  local_9b8 = 0;
+  _memset(local_9b4,0,0x3c);
+  local_978 = "lighting\\2x\\p\\EnvMap.p.hlsl";
+  local_974 = &DAT_010b9fe4;
+  local_970 = &lpWindowName_01011584;
+  local_96c = "WINDOW";
+  local_968 = 0;
+  local_964 = 0;
+  _memset(local_960,0,0x34);
+  local_92c = "lighting\\2x\\p\\EnvMap.p.hlsl";
+  local_928 = &DAT_010b9fe4;
+  local_924 = &lpWindowName_01011584;
+  local_920 = &DAT_010aead4;
+  local_91c = 0;
+  local_918 = 0;
+  _memset(local_914,0,0x34);
+  local_8e0 = "lighting\\2x\\p\\WaterFog.p.hlsl";
+  local_8dc = &DAT_010b9fe4;
+  local_8d8 = &lpWindowName_01011584;
+  local_8d4 = 0;
+  _memset(local_8d0,0,0x3c);
+  local_894 = "lighting\\2x\\p\\WaterFog.p.hlsl";
+  local_890 = &DAT_010b9fe4;
+  local_88c = &lpWindowName_01011584;
+  local_888 = "ALPHATESTING";
+  local_884 = &lpWindowName_01011584;
+  local_880 = 0;
+  _memset(local_87c,0,0x34);
+  local_848 = "lighting\\3x\\SM3SimpleShadow.p.hlsl";
+  local_844 = "SOFTSHADOW";
+  local_840 = &DAT_01063f24;
+  local_83c = "DEPTHBIAS";
+  local_838 = &DAT_010ba070;
+  local_834 = "SHADOWMODE";
+  local_830 = "3";
+  local_82c = 0;
+  _memset(local_828,0,0x2c);
+  local_7fc = "lighting\\3x\\SM3DepthMap.p.hlsl";
+  local_7f8 = "SHADOWMODE";
+  local_7f4 = "3";
+  local_7f0 = 0;
+  _memset(local_7ec,0,0x3c);
+  local_7b0 = "lighting\\3x\\SM3DepthMap.p.hlsl";
+  local_7ac = "SHADOWMODE";
+  local_7a8 = "3";
+  local_7a4 = 0;
+  _memset(local_7a0,0,0x3c);
+  local_764 = "lighting\\2x\\p\\renderNormals.p.hlsl";
+  local_760 = &DAT_010b9fe4;
+  local_75c = 0;
+  local_758 = 0;
+  _memset(local_754,0,0x3c);
+  local_718 = "lighting\\2x\\p\\renderNormals.p.hlsl";
+  local_714 = &DAT_010b9fe4;
+  local_710 = 0;
+  local_70c = 0;
+  _memset(local_708,0,0x3c);
+  local_6cc = "lighting\\2x\\p\\renderNormals.p.hlsl";
+  local_6c8 = &DAT_010b9fe4;
+  local_6c4 = 0;
+  local_6c0 = &DAT_010aea24;
+  local_6bc = &lpWindowName_01011584;
+  local_6b8 = 0;
+  _memset(local_6b4,0,0x34);
+  local_680 = "lighting\\2x\\p\\renderNormals.p.hlsl";
+  local_67c = &DAT_010b9fe4;
+  local_678 = 0;
+  local_674 = "CLEAR";
+  local_670 = &lpWindowName_01011584;
+  local_66c = 0;
+  _memset(local_668,0,0x34);
+  local_634 = "lighting\\2x\\p\\renderNormals.p.hlsl";
+  local_630 = &DAT_010b9fe4;
+  local_62c = 0;
+  local_628 = "CLEAR";
+  local_624 = &lpWindowName_01011584;
+  local_620 = 0;
+  _memset(local_61c,0,0x34);
+  local_5e8 = "lighting\\3x\\SM3Lighting.p.hlsl";
+  local_5e4 = "MAXLIGHTS";
+  local_5e0 = &DAT_01063f48;
+  local_5dc = "SILHOUETTE";
+  local_5d8 = &lpWindowName_01011584;
+  local_5d4 = 0;
+  _memset(local_5d0,0,0x34);
+  local_59c = "lighting\\2x\\p\\renderDepth.p.hlsl";
+  local_598 = &DAT_010b9fe4;
+  local_594 = 0;
+  local_590 = 0;
+  _memset(local_58c,0,0x3c);
+  local_550 = "lighting\\2x\\p\\renderVelocity.p.hlsl";
+  local_54c = &DAT_010b9fe4;
+  local_548 = 0;
+  local_544 = 0;
+  _memset(local_540,0,0x3c);
+  local_504 = "lighting\\2x\\p\\localMap.p.hlsl";
+  local_500 = &DAT_010b9fe4;
+  local_4fc = 0;
+  local_4f8 = 0;
+  _memset(local_4f4,0,0x3c);
+  local_4b8 = "lighting\\2x\\p\\localMap.p.hlsl";
+  local_4b4 = &DAT_010b9fe4;
+  local_4b0 = 0;
+  local_4ac = "CLEAR";
+  local_4a8 = 0;
+  local_4a4 = 0;
+  _memset(local_4a0,0,0x34);
+  local_46c = "lighting\\1x\\p\\texEffect.p.hlsl";
+  local_468 = &DAT_010aef30;
+  local_464 = &lpWindowName_01011584;
+  local_460 = 0;
+  _memset(local_45c,0,0x3c);
+  local_420 = "lighting\\1x\\p\\texEffect.p.hlsl";
+  local_41c = &DAT_010aef30;
+  local_418 = &lpWindowName_01011584;
+  local_414 = 0;
+  _memset(local_410,0,0x3c);
+  local_3d4 = "lighting\\3x\\SM3ZOnly.p.hlsl";
+  local_3d0 = 0;
+  _memset(local_3cc,0,0x44);
+  local_388 = "lighting\\3x\\SM3ZOnly.p.hlsl";
+  local_384 = 0;
+  _memset(local_380,0,0x44);
+  local_33c = "lighting\\3x\\SM3ZOnly.p.hlsl";
+  local_338 = 0;
+  _memset(local_334,0,0x44);
+  local_2f0 = "lighting\\3x\\SM3ZOnly.p.hlsl";
+  local_2ec = 0;
+  _memset(local_2e8,0,0x44);
+  local_2a4 = "lighting\\3x\\SM3ZOnly.p.hlsl";
+  local_2a0 = "CONSTALPHA";
+  local_29c = &lpWindowName_01011584;
+  local_298 = 0;
+  _memset(local_294,0,0x3c);
+  local_258 = "lighting\\3x\\SM3ZOnly.p.hlsl";
+  local_254 = "CONSTALPHA";
+  local_250 = &lpWindowName_01011584;
+  local_24c = 0;
+  _memset(local_248,0,0x3c);
+  pcVar2 = (char *)FUN_00b4f380(0);
+  local_10ec[0] = '4';
+  local_10ec[1] = '\0';
+  local_10f4 = DAT_010ba030;
+  local_10f0[0] = '2';
+  local_10f0[1] = '\0';
+  local_10f0[2] = 0;
+  local_10ec[2] = 0;
+  local_10f2 = DAT_010ba032;
+  local_10e8 = pcVar2;
+  _sprintf(local_10f8,"%i",DAT_011f91b0);
+  local_830 = local_10f8;
+  local_7f4 = local_10f8;
+  local_7a8 = local_10f8;
+  iVar6 = 0;
+  ppcVar7 = &local_10e0;
+  do {
+    FUN_00be0c00(ppcVar7[-1],local_108);
+    FUN_00406d00(local_20c,0x104,"SM3%03i.pso",iVar6);
+    iVar3 = FUN_004dc060(0);
+    if (iVar3 == 7) {
+      if (iVar6 < 0x18) {
+        ppcVar7[1] = local_10ec;
+      }
+      if (((iVar6 == 2) || (iVar6 == 3)) || ((iVar6 == 0xe || (iVar6 == 0xf)))) {
+        ppcVar7[3] = local_10f0;
+      }
+LAB_00bbb5df:
+      local_1100[0] = (int *)FUN_00be1750(local_108,ppcVar7,pcVar2,local_20c);
+      piVar1 = (int *)(&DAT_01200c48)[iVar6];
+      if (piVar1 != local_1100[0]) {
+        if ((piVar1 != (int *)0x0) && (LVar4 = InterlockedDecrement(piVar1 + 1), LVar4 == 0)) {
+          (**(code **)(*piVar1 + 4))();
+        }
+        (&DAT_01200c48)[iVar6] = local_1100[0];
+        if (local_1100[0] != (int *)0x0) {
+          InterlockedIncrement(local_1100[0] + 1);
+        }
+      }
+    }
+    else {
+      if ((iVar3 == 5) || (iVar3 == 6)) {
+        if (iVar6 < 0x18) {
+          ppcVar7[1] = local_10ec;
+        }
+        if ((((iVar6 == 5) || (iVar6 == 7)) || (iVar6 == 0x11)) || (iVar6 == 0x13)) {
+          if (DAT_011f94a4 == '\0') {
+            ppcVar7[3] = (char *)&local_10f4;
+          }
+          else {
+            pcVar2 = "ps_3_0";
+          }
+          goto LAB_00bbb5df;
+        }
+      }
+      else if (((iVar6 == 5) || (iVar6 == 7)) || ((iVar6 == 0x11 || (iVar6 == 0x13)))) {
+        if (DAT_011f94a4 == '\0') {
+          ppcVar7[3] = (char *)&local_10f4;
+        }
+        else {
+          pcVar2 = "ps_3_0";
+        }
+      }
+      uVar5 = FUN_00be1750(local_108,ppcVar7,pcVar2,local_20c);
+      FUN_00a5f860(uVar5);
+    }
+    if (iVar6 < 0x18) {
+      FUN_00406d00(local_20c,0x104,"SM3LL%03i.pso",iVar6);
+      ppcVar7[1] = local_10f0;
+      if ((((iVar6 == 5) || (iVar6 == 7)) || (iVar6 == 0x11)) || (iVar6 == 0x13)) {
+        if (DAT_011f94a4 == '\0') {
+          ppcVar7[3] = (char *)&local_10f4;
+          local_1100[0] = (int *)FUN_00be1750(local_108,ppcVar7,local_10e8,local_20c);
+          piVar1 = (int *)(&DAT_01200d10)[iVar6];
+          if (piVar1 != local_1100[0]) {
+            if ((piVar1 != (int *)0x0) && (LVar4 = InterlockedDecrement(piVar1 + 1), LVar4 == 0)) {
+              (**(code **)(*piVar1 + 4))();
+            }
+            goto LAB_00bbb74b;
+          }
+        }
+        else {
+          local_1100[0] = (int *)FUN_00be1750(local_108,ppcVar7,"ps_3_0",local_20c);
+          piVar1 = (int *)(&DAT_01200d10)[iVar6];
+          if (piVar1 != local_1100[0]) {
+            if ((piVar1 != (int *)0x0) && (LVar4 = InterlockedDecrement(piVar1 + 1), LVar4 == 0)) {
+              (**(code **)(*piVar1 + 4))();
+            }
+LAB_00bbb74b:
+            (&DAT_01200d10)[iVar6] = local_1100[0];
+            if (local_1100[0] != (int *)0x0) {
+              InterlockedIncrement(local_1100[0] + 1);
+            }
+          }
+        }
+      }
+      else {
+        uVar5 = FUN_00be1750(local_108,ppcVar7,local_10e8,local_20c);
+        FUN_00a5f860(uVar5);
+      }
+    }
+    iVar6 = iVar6 + 1;
+    ppcVar7 = ppcVar7 + 0x13;
+    pcVar2 = local_10e8;
+    if (0x31 < iVar6) {
+      __security_check_cookie(local_4 ^ (uint)local_1100);
+      return;
+    }
+  } while( true );
+}
+
+
+
+--- Calls FROM PPLighting EnvMap pixel shader constructor (0x00bba5d0) ---
+  0x00bba5d5 -> 0x00ec8660 __alloca_probe
+  0x00bba618 -> 0x00ec61c0 _memset
+  0x00bba65b -> 0x00ec61c0 _memset
+  0x00bba69d -> 0x00ec61c0 _memset
+  0x00bba6f5 -> 0x00ec61c0 _memset
+  0x00bba738 -> 0x00ec61c0 _memset
+  0x00bba77e -> 0x00ec61c0 _memset
+  0x00bba7d5 -> 0x00ec61c0 _memset
+  0x00bba82d -> 0x00ec61c0 _memset
+  0x00bba86f -> 0x00ec61c0 _memset
+  0x00bba8c3 -> 0x00ec61c0 _memset
+  0x00bba905 -> 0x00ec61c0 _memset
+  0x00bba959 -> 0x00ec61c0 _memset
+  0x00bba99e -> 0x00ec61c0 _memset
+  0x00bba9f2 -> 0x00ec61c0 _memset
+  0x00bbaa4a -> 0x00ec61c0 _memset
+  0x00bbab34 -> 0x00ec61c0 _memset
+  0x00bbab8c -> 0x00ec61c0 _memset
+  0x00bbacfd -> 0x00ec61c0 _memset
+  0x00bbade3 -> 0x00ec61c0 _memset
+  0x00bbaeac -> 0x00ec61c0 _memset
+  0x00bbaef2 -> 0x00ec61c0 _memset
+  0x00bbaf38 -> 0x00ec61c0 _memset
+  0x00bbaf6c -> 0x00ec61c0 _memset
+  0x00bbafb2 -> 0x00ec61c0 _memset
+  0x00bbb019 -> 0x00ec61c0 _memset
+  0x00bbb051 -> 0x00ec61c0 _memset
+  0x00bbb089 -> 0x00ec61c0 _memset
+  0x00bbb0bd -> 0x00ec61c0 _memset
+  0x00bbb0f1 -> 0x00ec61c0 _memset
+  0x00bbb137 -> 0x00ec61c0 _memset
+  0x00bbb180 -> 0x00ec61c0 _memset
+  0x00bbb1c6 -> 0x00ec61c0 _memset
+  0x00bbb208 -> 0x00ec61c0 _memset
+  0x00bbb23d -> 0x00ec61c0 _memset
+  0x00bbb26d -> 0x00ec61c0 _memset
+  0x00bbb29e -> 0x00ec61c0 _memset
+  0x00bbb2df -> 0x00ec61c0 _memset
+  0x00bbb315 -> 0x00ec61c0 _memset
+  0x00bbb341 -> 0x00ec61c0 _memset
+  0x00bbb364 -> 0x00ec61c0 _memset
+  0x00bbb382 -> 0x00ec61c0 _memset
+  0x00bbb3a0 -> 0x00ec61c0 _memset
+  0x00bbb3c1 -> 0x00ec61c0 _memset
+  0x00bbb3f2 -> 0x00ec61c0 _memset
+  0x00bbb41e -> 0x00ec61c0 _memset
+  0x00bbb424 -> 0x00b4f380 FUN_00b4f380
+  0x00bbb471 -> 0x00ec623a _sprintf
+  0x00bbb4b0 -> 0x00be0c00 FUN_00be0c00
+  0x00bbb4c8 -> 0x00406d00 FUN_00406d00
+  0x00bbb4ce -> 0x004dc060 FUN_004dc060
+  0x00bbb5a5 -> 0x00be1750 FUN_00be1750
+  0x00bbb5b2 -> 0x00a5f860 FUN_00a5f860
+  0x00bbb5e5 -> 0x00be1750 FUN_00be1750
+  0x00bbb601 -> 0x00000067 ???
+  0x00bbb628 -> 0x00000066 ???
+  0x00bbb64a -> 0x00406d00 FUN_00406d00
+  0x00bbb687 -> 0x00be1750 FUN_00be1750
+  0x00bbb694 -> 0x00a5f860 FUN_00a5f860
+  0x00bbb6c0 -> 0x00be1750 FUN_00be1750
+  0x00bbb6e0 -> 0x00000067 ???
+  0x00bbb717 -> 0x00be1750 FUN_00be1750
+  0x00bbb733 -> 0x00000067 ???
+  0x00bbb75a -> 0x00000066 ???
+  0x00bbb77a -> 0x00ec408c __security_check_cookie
+  Total: 65 calls
+
+MATCHED CONTRACT LINES: PPLighting EnvMap pixel shader constructor @ 0x00bba5d0
+  L0448:   local_fa4 = &lpWindowName_01011584;
+  L0462:   local_f0c = &lpWindowName_01011584;
+  L0480:   local_e74 = &lpWindowName_01011584;
+  L0487:   local_e28 = &lpWindowName_01011584;
+  L0496:   local_ddc = &lpWindowName_01011584;
+  L0503:   local_d90 = &lpWindowName_01011584;
+  L0512:   local_d44 = &lpWindowName_01011584;
+  L0521:   local_cf0 = &lpWindowName_01011584;
+  L0530:   local_ca4 = &lpWindowName_01011584;
+  L0542:   local_c50 = &lpWindowName_01011584;
+  L0557:   local_c14 = &lpWindowName_01011584;
+  L0558:   local_c0c = &lpWindowName_01011584;
+  L0567:   local_bc0 = &lpWindowName_01011584;
+  L0574:   local_b7c = &lpWindowName_01011584;
+  L0579:   local_b6c = &lpWindowName_01011584;
+  L0597:   local_b20 = &lpWindowName_01011584;
+  L0612:   local_ae4 = &lpWindowName_01011584;
+  L0614:   local_adc = &lpWindowName_01011584;
+  L0622:   local_a98 = &lpWindowName_01011584;
+  L0626:   local_a88 = &lpWindowName_01011584;
+  L0640:   local_a4c = &lpWindowName_01011584;
+  L0642:   local_a44 = &lpWindowName_01011584;
+  L0649:   local_a00 = &lpWindowName_01011584;
+  L0653:   local_9f0 = &lpWindowName_01011584;
+  L0664:   local_9c4 = "lighting\\2x\\p\\EnvMap.p.hlsl";
+  L0666:   local_9bc = &lpWindowName_01011584;
+  L0669:   local_978 = "lighting\\2x\\p\\EnvMap.p.hlsl";
+  L0671:   local_970 = &lpWindowName_01011584;
+  L0672:   local_96c = "WINDOW";
+  L0676:   local_92c = "lighting\\2x\\p\\EnvMap.p.hlsl";
+  L0678:   local_924 = &lpWindowName_01011584;
+  L0679:   local_920 = &DAT_010aead4;
+  L0685:   local_8d8 = &lpWindowName_01011584;
+  L0690:   local_88c = &lpWindowName_01011584;
+  L0692:   local_884 = &lpWindowName_01011584;
+  L0728:   local_6bc = &lpWindowName_01011584;
+  L0735:   local_670 = &lpWindowName_01011584;
+  L0742:   local_624 = &lpWindowName_01011584;
+  L0749:   local_5d8 = &lpWindowName_01011584;
+  L0776:   local_464 = &lpWindowName_01011584;
+  L0781:   local_418 = &lpWindowName_01011584;
+  L0798:   local_29c = &lpWindowName_01011584;
+  L0803:   local_250 = &lpWindowName_01011584;
+  Total matched lines: 43
+
+======================================================================
+sole object EnvMap table-row consumer and owner initializer @ 0x00bfbf60
+======================================================================
+  Function: FUN_00bfbf60 @ 0x00bfbf60, Size: 2290 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+void FUN_00bfbf60(void)
+
+{
+  int *piVar1;
+  int *piVar2;
+  uint uVar3;
+  LONG LVar4;
+  undefined4 uVar5;
+  int iVar6;
+  int *unaff_FS_OFFSET;
+  int local_14;
+  int local_10;
+  int local_c;
+  undefined1 *puStack_8;
+  uint local_4;
+  
+  puStack_8 = &LAB_00f2d3e0;
+  local_c = *unaff_FS_OFFSET;
+  uVar3 = DAT_011c16bc ^ (uint)&stack0xffffffe0;
+  *unaff_FS_OFFSET = (int)&local_c;
+  local_10 = 0;
+  local_14 = 0;
+  local_4 = 1;
+  if ((DAT_011fe918 != 0) && (local_10 = DAT_011fe918, DAT_011fe918 != 0)) {
+    *(int *)(DAT_011fe918 + 100) = *(int *)(DAT_011fe918 + 100) + 1;
+  }
+  iVar6 = local_10;
+  if (*(uint *)(local_10 + 0x18) < 4) {
+    FUN_00e7edf0(&local_14,uVar3);
+    FUN_00be0cf0(local_14,0,1,2,1);
+    FUN_00e802b0(*(undefined4 *)(iVar6 + 0x14),local_14);
+    FUN_00e7edf0(&local_14);
+    FUN_00be0cf0(local_14,1,1,2,1);
+    FUN_00e802b0(*(undefined4 *)(iVar6 + 0x14),local_14);
+    FUN_00e7edf0(&local_14);
+    FUN_00be0cf0(local_14,2,1,2,1);
+    FUN_00e802b0(*(undefined4 *)(iVar6 + 0x14),local_14);
+    FUN_00e7edf0(&local_14);
+    FUN_00be0cf0(local_14,3,1,2,1);
+    FUN_00e802b0(*(undefined4 *)(iVar6 + 0x14),local_14);
+  }
+  piVar2 = DAT_011fdf24;
+  piVar1 = *(int **)(iVar6 + 0x5c);
+  if (piVar1 != DAT_011fdf24) {
+    if (piVar1 != (int *)0x0) {
+      LVar4 = InterlockedDecrement(piVar1 + 1);
+      if (LVar4 == 0) {
+        (**(code **)(*piVar1 + 4))();
+      }
+    }
+    *(int **)(iVar6 + 0x5c) = piVar2;
+    if (piVar2 != (int *)0x0) {
+      InterlockedIncrement(piVar2 + 1);
+    }
+  }
+  piVar2 = DAT_011fdbec;
+  piVar1 = *(int **)(iVar6 + 0x44);
+  if (piVar1 != DAT_011fdbec) {
+    if (piVar1 != (int *)0x0) {
+      LVar4 = InterlockedDecrement(piVar1 + 1);
+      if (LVar4 == 0) {
+        (**(code **)(*piVar1 + 4))();
+      }
+    }
+    *(int **)(iVar6 + 0x44) = piVar2;
+    if (piVar2 != (int *)0x0) {
+      InterlockedIncrement(piVar2 + 1);
+    }
+  }
+  if (*(int *)(iVar6 + 0x30) == 0) {
+    uVar5 = FUN_00e7f5d0();
+    *(undefined4 *)(iVar6 + 0x30) = uVar5;
+  }
+  FUN_00e7f430(0x1b,1,1);
+  if (*(int *)(iVar6 + 0x30) == 0) {
+    uVar5 = FUN_00e7f5d0();
+    *(undefined4 *)(iVar6 + 0x30) = uVar5;
+  }
+  FUN_00e7f430(0x13,2,1);
+  if (*(int *)(iVar6 + 0x30) == 0) {
+    uVar5 = FUN_00e7f5d0();
+    *(undefined4 *)(iVar6 + 0x30) = uVar5;
+  }
+  FUN_00e7f430(0x14,2,1);
+  if (*(int *)(iVar6 + 0x30) == 0) {
+    uVar5 = FUN_00e7f5d0();
+    *(undefined4 *)(iVar6 + 0x30) = uVar5;
+  }
+  FUN_00e7f430(0xf,0,1);
+  if (*(int *)(iVar6 + 0x30) == 0) {
+    uVar5 = FUN_00e7f5d0();
+    *(undefined4 *)(iVar6 + 0x30) = uVar5;
+  }
+  FUN_00e7f430(7,1,1);
+  if (*(int *)(iVar6 + 0x30) == 0) {
+    uVar5 = FUN_00e7f5d0();
+    *(undefined4 *)(iVar6 + 0x30) = uVar5;
+  }
+  FUN_00e7f430(0x17,3,1);
+  if (*(int *)(iVar6 + 0x30) == 0) {
+    uVar5 = FUN_00e7f5d0();
+    *(undefined4 *)(iVar6 + 0x30) = uVar5;
+  }
+  FUN_00e7f430(0xe,0,1);
+  _DAT_011fd5a0 = 0x704;
+  _DAT_011fc9c0 = 0x24;
+  if (iVar6 != DAT_011fe91c) {
+    piVar1 = (int *)(iVar6 + 100);
+    *piVar1 = *piVar1 + -1;
+    if (*piVar1 == 0) {
+      FUN_00e80190();
+    }
+    iVar6 = DAT_011fe91c;
+    local_10 = DAT_011fe91c;
+    if (DAT_011fe91c != 0) {
+      *(int *)(DAT_011fe91c + 100) = *(int *)(DAT_011fe91c + 100) + 1;
+    }
+  }
+  if (*(uint *)(iVar6 + 0x18) < 4) {
+    FUN_00e7edf0(&local_14);
+    FUN_00be0cf0(local_14,0,1,2,1);
+    FUN_00e802b0(*(undefined4 *)(iVar6 + 0x14),local_14);
+    FUN_00e7edf0(&local_14);
+    FUN_00be0cf0(local_14,1,1,2,1);
+    FUN_00e802b0(*(undefined4 *)(iVar6 + 0x14),local_14);
+    FUN_00e7edf0(&local_14);
+    FUN_00be0cf0(local_14,2,1,2,1);
+    FUN_00e802b0(*(undefined4 *)(iVar6 + 0x14),local_14);
+    FUN_00e7edf0(&local_14);
+    FUN_00be0cf0(local_14,3,1,2,1);
+    FUN_00e802b0(*(undefined4 *)(iVar6 + 0x14),local_14);
+  }
+  piVar2 = DAT_011fdf28;
+  piVar1 = *(int **)(iVar6 + 0x5c);
+  if (piVar1 != DAT_011fdf28) {
+    if (piVar1 != (int *)0x0) {
+      LVar4 = InterlockedDecrement(piVar1 + 1);
+      if (LVar4 == 0) {
+        (**(code **)(*piVar1 + 4))();
+      }
+    }
+    *(int **)(iVar6 + 0x5c) = piVar2;
+    if (piVar2 != (int *)0x0) {
+      InterlockedIncrement(piVar2 + 1);
+    }
+  }
+  piVar2 = DAT_011fdbec;
+  piVar1 = *(int **)(iVar6 + 0x44);
+  if (piVar1 != DAT_011fdbec) {
+    if (piVar1 != (int *)0x0) {
+      LVar4 = InterlockedDecrement(piVar1 + 1);
+      if (LVar4 == 0) {
+        (**(code **)(*piVar1 + 4))();
+      }
+    }
+    *(int **)(iVar6 + 0x44) = piVar2;
+    if (piVar2 != (int *)0x0) {
+      InterlockedIncrement(piVar2 + 1);
+    }
+  }
+  if (*(int *)(iVar6 + 0x30) == 0) {
+    uVar5 = FUN_00e7f5d0();
+    *(undefined4 *)(iVar6 + 0x30) = uVar5;
+  }
+  FUN_00e7f430(0x1b,1,1);
+  if (*(int *)(iVar6 + 0x30) == 0) {
+    uVar5 = FUN_00e7f5d0();
+    *(undefined4 *)(iVar6 + 0x30) = uVar5;
+  }
+  FUN_00e7f430(0x13,2,1);
+  if (*(int *)(iVar6 + 0x30) == 0) {
+    uVar5 = FUN_00e7f5d0();
+    *(undefined4 *)(iVar6 + 0x30) = uVar5;
+  }
+  FUN_00e7f430(0x14,2,1);
+  if (*(int *)(iVar6 + 0x30) == 0) {
+    uVar5 = FUN_00e7f5d0();
+    *(undefined4 *)(iVar6 + 0x30) = uVar5;
+  }
+  FUN_00e7f430(0xf,0,1);
+  if (*(int *)(iVar6 + 0x30) == 0) {
+    uVar5 = FUN_00e7f5d0();
+    *(undefined4 *)(iVar6 + 0x30) = uVar5;
+  }
+  FUN_00e7f430(7,1,1);
+  if (*(int *)(iVar6 + 0x30) == 0) {
+    uVar5 = FUN_00e7f5d0();
+    *(undefined4 *)(iVar6 + 0x30) = uVar5;
+  }
+  FUN_00e7f430(0x17,3,1);
+  if (*(int *)(iVar6 + 0x30) == 0) {
+    uVar5 = FUN_00e7f5d0();
+    *(undefined4 *)(iVar6 + 0x30) = uVar5;
+  }
+  FUN_00e7f430(0xe,0,1);
+  _DAT_011fd5a4 = 0x2f00;
+  _DAT_011fc9c4 = 0x24;
+  if (iVar6 != DAT_011fe920) {
+    piVar1 = (int *)(iVar6 + 100);
+    *piVar1 = *piVar1 + -1;
+    if (*piVar1 == 0) {
+      FUN_00e80190();
+    }
+    iVar6 = DAT_011fe920;
+    local_10 = DAT_011fe920;
+    if (DAT_011fe920 != 0) {
+      *(int *)(DAT_011fe920 + 100) = *(int *)(DAT_011fe920 + 100) + 1;
+    }
+  }
+  if (*(uint *)(iVar6 + 0x18) < 4) {
+    FUN_00e7edf0(&local_14);
+    FUN_00be0cf0(local_14,0,1,2,1);
+    FUN_00e802b0(*(undefined4 *)(iVar6 + 0x14),local_14);
+    FUN_00e7edf0(&local_14);
+    FUN_00be0cf0(local_14,1,1,2,1);
+    FUN_00e802b0(*(undefined4 *)(iVar6 + 0x14),local_14);
+    FUN_00e7edf0(&local_14);
+    FUN_00be0cf0(local_14,2,1,2,1);
+    FUN_00e802b0(*(undefined4 *)(iVar6 + 0x14),local_14);
+    FUN_00e7edf0(&local_14);
+    FUN_00be0cf0(local_14,3,1,2,1);
+    FUN_00e802b0(*(undefined4 *)(iVar6 + 0x14),local_14);
+  }
+  piVar2 = DAT_011fdf24;
+  piVar1 = *(int **)(iVar6 + 0x5c);
+  if (piVar1 != DAT_011fdf24) {
+    if (piVar1 != (int *)0x0) {
+      LVar4 = InterlockedDecrement(piVar1 + 1);
+      if (LVar4 == 0) {
+        (**(code **)(*piVar1 + 4))();
+      }
+    }
+    *(int **)(iVar6 + 0x5c) = piVar2;
+    if (piVar2 != (int *)0x0) {
+      InterlockedIncrement(piVar2 + 1);
+    }
+  }
+  piVar2 = DAT_011fdbf0;
+  piVar1 = *(int **)(iVar6 + 0x44);
+  if (piVar1 != DAT_011fdbf0) {
+    if (piVar1 != (int *)0x0) {
+      LVar4 = InterlockedDecrement(piVar1 + 1);
+      if (LVar4 == 0) {
+        (**(code **)(*piVar1 + 4))();
+      }
+    }
+    *(int **)(iVar6 + 0x44) = piVar2;
+    if (piVar2 != (int *)0x0) {
+      InterlockedIncrement(piVar2 + 1);
+    }
+  }
+  if (*(int *)(iVar6 + 0x30) == 0) {
+    uVar5 = FUN_00e7f5d0();
+    *(undefined4 *)(iVar6 + 0x30) = uVar5;
+  }
+  FUN_00e7f430(0x1b,1,1);
+  if (*(int *)(iVar6 + 0x30) == 0) {
+    uVar5 = FUN_00e7f5d0();
+    *(undefined4 *)(iVar6 + 0x30) = uVar5;
+  }
+  FUN_00e7f430(0x13,2,1);
+  if (*(int *)(iVar6 + 0x30) == 0) {
+    uVar5 = FUN_00e7f5d0();
+    *(undefined4 *)(iVar6 + 0x30) = uVar5;
+  }
+  FUN_00e7f430(0x14,2,1);
+  if (*(int *)(iVar6 + 0x30) == 0) {
+    uVar5 = FUN_00e7f5d0();
+    *(undefined4 *)(iVar6 + 0x30) = uVar5;
+  }
+  FUN_00e7f430(0xf,0,1);
+  if (*(int *)(iVar6 + 0x30) == 0) {
+    uVar5 = FUN_00e7f5d0();
+    *(undefined4 *)(iVar6 + 0x30) = uVar5;
+  }
+  FUN_00e7f430(7,1,1);
+  if (*(int *)(iVar6 + 0x30) == 0) {
+    uVar5 = FUN_00e7f5d0();
+    *(undefined4 *)(iVar6 + 0x30) = uVar5;
+  }
+  FUN_00e7f430(0x17,3,1);
+  if (*(int *)(iVar6 + 0x30) == 0) {
+    uVar5 = FUN_00e7f5d0();
+    *(undefined4 *)(iVar6 + 0x30) = uVar5;
+  }
+  FUN_00e7f430(0xe,0,1);
+  _DAT_011fd5a8 = 0x704;
+  _DAT_011fc9c8 = 0x24;
+  if (iVar6 != DAT_011fe924) {
+    piVar1 = (int *)(iVar6 + 100);
+    *piVar1 = *piVar1 + -1;
+    if (*piVar1 == 0) {
+      FUN_00e80190();
+    }
+    iVar6 = DAT_011fe924;
+    local_10 = DAT_011fe924;
+    if (DAT_011fe924 != 0) {
+      *(int *)(DAT_011fe924 + 100) = *(int *)(DAT_011fe924 + 100) + 1;
+    }
+  }
+  if (*(uint *)(iVar6 + 0x18) < 2) {
+    FUN_00e7edf0(&local_14);
+    FUN_00be0cf0(local_14,0,1,2,1);
+    FUN_00e802b0(*(undefined4 *)(iVar6 + 0x14),local_14);
+    FUN_00e7edf0(&local_14);
+    FUN_00be0cf0(local_14,1,1,2,1);
+    *(undefined4 *)(local_14 + 8) = DAT_011f9544;
+    *(undefined4 *)(local_14 + 0xc) = 1;
+    FUN_00e802b0(*(undefined4 *)(iVar6 + 0x14),local_14);
+  }
+  piVar2 = DAT_011fdf2c;
+  piVar1 = *(int **)(iVar6 + 0x5c);
+  if (piVar1 != DAT_011fdf2c) {
+    if (piVar1 != (int *)0x0) {
+      LVar4 = InterlockedDecrement(piVar1 + 1);
+      if (LVar4 == 0) {
+        (**(code **)(*piVar1 + 4))();
+      }
+    }
+    *(int **)(iVar6 + 0x5c) = piVar2;
+    if (piVar2 != (int *)0x0) {
+      InterlockedIncrement(piVar2 + 1);
+    }
+  }
+  piVar2 = DAT_011fdbf4;
+  piVar1 = *(int **)(iVar6 + 0x44);
+  if (piVar1 != DAT_011fdbf4) {
+    if (piVar1 != (int *)0x0) {
+      LVar4 = InterlockedDecrement(piVar1 + 1);
+      if (LVar4 == 0) {
+        (**(code **)(*piVar1 + 4))();
+      }
+    }
+    *(int **)(iVar6 + 0x44) = piVar2;
+    if (piVar2 != (int *)0x0) {
+      InterlockedIncrement(piVar2 + 1);
+    }
+  }
+  if (*(int *)(iVar6 + 0x30) == 0) {
+    uVar5 = FUN_00e7f5d0();
+    *(undefined4 *)(iVar6 + 0x30) = uVar5;
+  }
+  FUN_00e7f430(0x1b,1,1);
+  if (*(int *)(iVar6 + 0x30) == 0) {
+    uVar5 = FUN_00e7f5d0();
+    *(undefined4 *)(iVar6 + 0x30) = uVar5;
+  }
+  FUN_00e7f430(0x13,2,1);
+  if (*(int *)(iVar6 + 0x30) == 0) {
+    uVar5 = FUN_00e7f5d0();
+    *(undefined4 *)(iVar6 + 0x30) = uVar5;
+  }
+  FUN_00e7f430(0x14,2,1);
+  if (*(int *)(iVar6 + 0x30) == 0) {
+    uVar5 = FUN_00e7f5d0();
+    *(undefined4 *)(iVar6 + 0x30) = uVar5;
+  }
+  FUN_00e7f430(0xf,0,1);
+  if (*(int *)(iVar6 + 0x30) == 0) {
+    uVar5 = FUN_00e7f5d0();
+    *(undefined4 *)(iVar6 + 0x30) = uVar5;
+  }
+  FUN_00e7f430(7,1,1);
+  if (*(int *)(iVar6 + 0x30) == 0) {
+    uVar5 = FUN_00e7f5d0();
+    *(undefined4 *)(iVar6 + 0x30) = uVar5;
+  }
+  FUN_00e7f430(0x17,3,1);
+  if (*(int *)(iVar6 + 0x30) == 0) {
+    uVar5 = FUN_00e7f5d0();
+    *(undefined4 *)(iVar6 + 0x30) = uVar5;
+  }
+  FUN_00e7f430(0xe,0,1);
+  _DAT_011fd5ac = 0x40704;
+  _DAT_011fc9cc = 0x2c;
+  local_4 = local_4 & 0xffffff00;
+  if ((local_14 != 0) &&
+     (*(int *)(local_14 + 0x60) = *(int *)(local_14 + 0x60) + -1, *(int *)(local_14 + 0x60) == 0)) {
+    FUN_00e7ecd0();
+  }
+  piVar1 = (int *)(iVar6 + 100);
+  *piVar1 = *piVar1 + -1;
+  local_4 = 0xffffffff;
+  if (*piVar1 == 0) {
+    FUN_00e80190();
+  }
+  *unaff_FS_OFFSET = local_c;
+  return;
+}
+
+
+
+--- Calls FROM sole object EnvMap table-row consumer and owner initializer (0x00bfbf60) ---
+  0x00bfbfc0 -> 0x00e7edf0 FUN_00e7edf0
+  0x00bfbfd2 -> 0x00be0cf0 FUN_00be0cf0
+  0x00bfbfe5 -> 0x00e802b0 FUN_00e802b0
+  0x00bfbfef -> 0x00e7edf0 FUN_00e7edf0
+  0x00bfc001 -> 0x00be0cf0 FUN_00be0cf0
+  0x00bfc014 -> 0x00e802b0 FUN_00e802b0
+  0x00bfc01e -> 0x00e7edf0 FUN_00e7edf0
+  0x00bfc030 -> 0x00be0cf0 FUN_00be0cf0
+  0x00bfc043 -> 0x00e802b0 FUN_00e802b0
+  0x00bfc04d -> 0x00e7edf0 FUN_00e7edf0
+  0x00bfc05f -> 0x00be0cf0 FUN_00be0cf0
+  0x00bfc072 -> 0x00e802b0 FUN_00e802b0
+  0x00bfc08d -> 0x00000067 ???
+  0x00bfc0ab -> 0x00000066 ???
+  0x00bfc0c6 -> 0x00000067 ???
+  0x00bfc0e4 -> 0x00000066 ???
+  0x00bfc0f0 -> 0x00e7f5d0 FUN_00e7f5d0
+  0x00bfc101 -> 0x00e7f430 FUN_00e7f430
+  0x00bfc10c -> 0x00e7f5d0 FUN_00e7f5d0
+  0x00bfc11d -> 0x00e7f430 FUN_00e7f430
+  0x00bfc128 -> 0x00e7f5d0 FUN_00e7f5d0
+  0x00bfc139 -> 0x00e7f430 FUN_00e7f430
+  0x00bfc144 -> 0x00e7f5d0 FUN_00e7f5d0
+  0x00bfc155 -> 0x00e7f430 FUN_00e7f430
+  0x00bfc160 -> 0x00e7f5d0 FUN_00e7f5d0
+  0x00bfc171 -> 0x00e7f430 FUN_00e7f430
+  0x00bfc17c -> 0x00e7f5d0 FUN_00e7f5d0
+  0x00bfc18d -> 0x00e7f430 FUN_00e7f430
+  0x00bfc198 -> 0x00e7f5d0 FUN_00e7f5d0
+  0x00bfc1a9 -> 0x00e7f430 FUN_00e7f430
+  0x00bfc1d2 -> 0x00e80190 FUN_00e80190
+  0x00bfc1f7 -> 0x00e7edf0 FUN_00e7edf0
+  0x00bfc209 -> 0x00be0cf0 FUN_00be0cf0
+  0x00bfc21c -> 0x00e802b0 FUN_00e802b0
+  0x00bfc226 -> 0x00e7edf0 FUN_00e7edf0
+  0x00bfc238 -> 0x00be0cf0 FUN_00be0cf0
+  0x00bfc24b -> 0x00e802b0 FUN_00e802b0
+  0x00bfc255 -> 0x00e7edf0 FUN_00e7edf0
+  0x00bfc267 -> 0x00be0cf0 FUN_00be0cf0
+  0x00bfc27a -> 0x00e802b0 FUN_00e802b0
+  0x00bfc284 -> 0x00e7edf0 FUN_00e7edf0
+  0x00bfc296 -> 0x00be0cf0 FUN_00be0cf0
+  0x00bfc2a9 -> 0x00e802b0 FUN_00e802b0
+  0x00bfc2c3 -> 0x00000067 ???
+  0x00bfc2e1 -> 0x00000066 ???
+  0x00bfc2fc -> 0x00000067 ???
+  0x00bfc31a -> 0x00000066 ???
+  0x00bfc326 -> 0x00e7f5d0 FUN_00e7f5d0
+  0x00bfc337 -> 0x00e7f430 FUN_00e7f430
+  0x00bfc342 -> 0x00e7f5d0 FUN_00e7f5d0
+  0x00bfc353 -> 0x00e7f430 FUN_00e7f430
+  0x00bfc35e -> 0x00e7f5d0 FUN_00e7f5d0
+  0x00bfc36f -> 0x00e7f430 FUN_00e7f430
+  0x00bfc37a -> 0x00e7f5d0 FUN_00e7f5d0
+  0x00bfc38b -> 0x00e7f430 FUN_00e7f430
+  0x00bfc396 -> 0x00e7f5d0 FUN_00e7f5d0
+  0x00bfc3a7 -> 0x00e7f430 FUN_00e7f430
+  0x00bfc3b2 -> 0x00e7f5d0 FUN_00e7f5d0
+  0x00bfc3c3 -> 0x00e7f430 FUN_00e7f430
+  0x00bfc3ce -> 0x00e7f5d0 FUN_00e7f5d0
+  0x00bfc3df -> 0x00e7f430 FUN_00e7f430
+  0x00bfc408 -> 0x00e80190 FUN_00e80190
+  0x00bfc42d -> 0x00e7edf0 FUN_00e7edf0
+  0x00bfc43f -> 0x00be0cf0 FUN_00be0cf0
+  0x00bfc452 -> 0x00e802b0 FUN_00e802b0
+  0x00bfc45c -> 0x00e7edf0 FUN_00e7edf0
+  0x00bfc46e -> 0x00be0cf0 FUN_00be0cf0
+  0x00bfc481 -> 0x00e802b0 FUN_00e802b0
+  0x00bfc48b -> 0x00e7edf0 FUN_00e7edf0
+  0x00bfc49d -> 0x00be0cf0 FUN_00be0cf0
+  0x00bfc4b0 -> 0x00e802b0 FUN_00e802b0
+  0x00bfc4ba -> 0x00e7edf0 FUN_00e7edf0
+  0x00bfc4cc -> 0x00be0cf0 FUN_00be0cf0
+  0x00bfc4df -> 0x00e802b0 FUN_00e802b0
+  0x00bfc4f9 -> 0x00000067 ???
+  0x00bfc517 -> 0x00000066 ???
+  0x00bfc532 -> 0x00000067 ???
+  0x00bfc550 -> 0x00000066 ???
+  0x00bfc55c -> 0x00e7f5d0 FUN_00e7f5d0
+  0x00bfc570 -> 0x00e7f430 FUN_00e7f430
+  0x00bfc57b -> 0x00e7f5d0 FUN_00e7f5d0
+  0x00bfc58b -> 0x00e7f430 FUN_00e7f430
+  0x00bfc596 -> 0x00e7f5d0 FUN_00e7f5d0
+  0x00bfc5a6 -> 0x00e7f430 FUN_00e7f430
+  0x00bfc5b1 -> 0x00e7f5d0 FUN_00e7f5d0
+  0x00bfc5c1 -> 0x00e7f430 FUN_00e7f430
+  0x00bfc5cc -> 0x00e7f5d0 FUN_00e7f5d0
+  0x00bfc5db -> 0x00e7f430 FUN_00e7f430
+  0x00bfc5e6 -> 0x00e7f5d0 FUN_00e7f5d0
+  0x00bfc5f6 -> 0x00e7f430 FUN_00e7f430
+  0x00bfc601 -> 0x00e7f5d0 FUN_00e7f5d0
+  0x00bfc611 -> 0x00e7f430 FUN_00e7f430
+  0x00bfc63a -> 0x00e80190 FUN_00e80190
+  0x00bfc65b -> 0x00e7edf0 FUN_00e7edf0
+  0x00bfc66b -> 0x00be0cf0 FUN_00be0cf0
+  0x00bfc67e -> 0x00e802b0 FUN_00e802b0
+  0x00bfc688 -> 0x00e7edf0 FUN_00e7edf0
+  0x00bfc697 -> 0x00be0cf0 FUN_00be0cf0
+  0x00bfc6be -> 0x00e802b0 FUN_00e802b0
+  0x00bfc6d8 -> 0x00000067 ???
+  0x00bfc6f6 -> 0x00000066 ???
+  0x00bfc711 -> 0x00000067 ???
+  0x00bfc72f -> 0x00000066 ???
+  0x00bfc73b -> 0x00e7f5d0 FUN_00e7f5d0
+  0x00bfc74c -> 0x00e7f430 FUN_00e7f430
+  0x00bfc757 -> 0x00e7f5d0 FUN_00e7f5d0
+  0x00bfc768 -> 0x00e7f430 FUN_00e7f430
+  0x00bfc773 -> 0x00e7f5d0 FUN_00e7f5d0
+  0x00bfc784 -> 0x00e7f430 FUN_00e7f430
+  0x00bfc78f -> 0x00e7f5d0 FUN_00e7f5d0
+  0x00bfc7a0 -> 0x00e7f430 FUN_00e7f430
+  0x00bfc7ab -> 0x00e7f5d0 FUN_00e7f5d0
+  0x00bfc7bc -> 0x00e7f430 FUN_00e7f430
+  0x00bfc7c7 -> 0x00e7f5d0 FUN_00e7f5d0
+  0x00bfc7d8 -> 0x00e7f430 FUN_00e7f430
+  0x00bfc7e3 -> 0x00e7f5d0 FUN_00e7f5d0
+  0x00bfc7f4 -> 0x00e7f430 FUN_00e7f430
+  0x00bfc827 -> 0x00e7ecd0 FUN_00e7ecd0
+  0x00bfc83a -> 0x00e80190 FUN_00e80190
+  Total: 119 calls
+
+MATCHED CONTRACT LINES: sole object EnvMap table-row consumer and owner initializer @ 0x00bfbf60
+  L0045:   piVar2 = DAT_011fdf24;
+  L0047:   if (piVar1 != DAT_011fdf24) {
+  L0059:   piVar2 = DAT_011fdbec;
+  L0061:   if (piVar1 != DAT_011fdbec) {
+  L0136:   piVar2 = DAT_011fdf28;
+  L0138:   if (piVar1 != DAT_011fdf28) {
+  L0150:   piVar2 = DAT_011fdbec;
+  L0152:   if (piVar1 != DAT_011fdbec) {
+  L0227:   piVar2 = DAT_011fdf24;
+  L0229:   if (piVar1 != DAT_011fdf24) {
+  L0241:   piVar2 = DAT_011fdbf0;
+  L0243:   if (piVar1 != DAT_011fdbf0) {
+  L0314:   piVar2 = DAT_011fdf2c;
+  L0316:   if (piVar1 != DAT_011fdf2c) {
+  L0328:   piVar2 = DAT_011fdbf4;
+  L0330:   if (piVar1 != DAT_011fdbf4) {
+  Total matched lines: 16
+
+======================================================================
+NiDX9RenderState SetTexture @ 0x00e88a20
+======================================================================
+  [function not found]
+  [function not found at 0x00e88a20]
+
+MATCHED CONTRACT LINES: NiDX9RenderState SetTexture @ 0x00e88a20
+  [decompilation failed]
+
+======================================================================
+DISASM: VS row 50 paired read A around 0x00bfc077
+======================================================================
+   0x00bfc02b: PUSH 0x1
+   0x00bfc02d: PUSH 0x2
+   0x00bfc02f: PUSH EAX
+   0x00bfc030: CALL 0x00be0cf0
+      ref UNCONDITIONAL_CALL -> 0x00be0cf0
+   0x00bfc035: MOV ECX,dword ptr [ESP + 0x28]
+      ref READ               -> 0x-0000014
+   0x00bfc039: MOV EDX,dword ptr [ESI + 0x14]
+   0x00bfc03c: ADD ESP,0x18
+   0x00bfc03f: PUSH ECX
+   0x00bfc040: PUSH EDX
+   0x00bfc041: MOV ECX,ESI
+   0x00bfc043: CALL 0x00e802b0
+      ref UNCONDITIONAL_CALL -> 0x00e802b0
+   0x00bfc048: LEA EAX,[ESP + 0x10]
+      ref DATA               -> 0x-0000014
+   0x00bfc04c: PUSH EAX
+   0x00bfc04d: CALL 0x00e7edf0
+      ref UNCONDITIONAL_CALL -> 0x00e7edf0
+   0x00bfc052: MOV ECX,dword ptr [ESP + 0x14]
+      ref READ               -> 0x-0000014
+   0x00bfc056: PUSH 0x1
+   0x00bfc058: PUSH 0x2
+   0x00bfc05a: PUSH 0x1
+   0x00bfc05c: PUSH 0x3
+   0x00bfc05e: PUSH ECX
+   0x00bfc05f: CALL 0x00be0cf0
+      ref UNCONDITIONAL_CALL -> 0x00be0cf0
+   0x00bfc064: MOV EDX,dword ptr [ESP + 0x28]
+      ref READ               -> 0x-0000014
+   0x00bfc068: MOV EAX,dword ptr [ESI + 0x14]
+   0x00bfc06b: ADD ESP,0x18
+   0x00bfc06e: PUSH EDX
+   0x00bfc06f: PUSH EAX
+   0x00bfc070: MOV ECX,ESI
+   0x00bfc072: CALL 0x00e802b0
+      ref UNCONDITIONAL_CALL -> 0x00e802b0
+=> 0x00bfc077: MOV EAX,[0x011fdf24]
+      ref READ               -> 0x011fdf24
+   0x00bfc07c: MOV EDI,dword ptr [ESI + 0x5c]
+   0x00bfc07f: MOV EBP,EAX
+   0x00bfc081: CMP EDI,EAX
+   0x00bfc083: JZ 0x00bfc0b1
+      ref CONDITIONAL_JUMP   -> 0x00bfc0b1
+   0x00bfc085: TEST EDI,EDI
+   0x00bfc087: JZ 0x00bfc0a0
+      ref CONDITIONAL_JUMP   -> 0x00bfc0a0
+   0x00bfc089: LEA ECX,[EDI + 0x4]
+   0x00bfc08c: PUSH ECX
+   0x00bfc08d: CALL dword ptr [0x00fdf1c4]
+      ref READ               -> 0x00fdf1c4
+      ref COMPUTED_CALL      -> 0x00000067
+   0x00bfc093: TEST EAX,EAX
+   0x00bfc095: JNZ 0x00bfc0a0
+      ref CONDITIONAL_JUMP   -> 0x00bfc0a0
+   0x00bfc097: MOV EDX,dword ptr [EDI]
+   0x00bfc099: MOV EAX,dword ptr [EDX + 0x4]
+   0x00bfc09c: MOV ECX,EDI
+   0x00bfc09e: CALL EAX
+   0x00bfc0a0: MOV dword ptr [ESI + 0x5c],EBP
+   0x00bfc0a3: TEST EBP,EBP
+   0x00bfc0a5: JZ 0x00bfc0b1
+      ref CONDITIONAL_JUMP   -> 0x00bfc0b1
+   0x00bfc0a7: ADD EBP,0x4
+   0x00bfc0aa: PUSH EBP
+   0x00bfc0ab: CALL dword ptr [0x00fdf1c0]
+      ref READ               -> 0x00fdf1c0
+      ref COMPUTED_CALL      -> 0x00000066
+   0x00bfc0b1: MOV EBP,dword ptr [0x011fdbec]
+      ref READ               -> 0x011fdbec
+   0x00bfc0b7: MOV EDI,dword ptr [ESI + 0x44]
+   0x00bfc0ba: CMP EDI,EBP
+   0x00bfc0bc: JZ 0x00bfc0ea
+      ref CONDITIONAL_JUMP   -> 0x00bfc0ea
+   0x00bfc0be: TEST EDI,EDI
+   0x00bfc0c0: JZ 0x00bfc0d9
+      ref CONDITIONAL_JUMP   -> 0x00bfc0d9
+   0x00bfc0c2: LEA ECX,[EDI + 0x4]
+   0x00bfc0c5: PUSH ECX
+   0x00bfc0c6: CALL dword ptr [0x00fdf1c4]
+      ref READ               -> 0x00fdf1c4
+      ref COMPUTED_CALL      -> 0x00000067
+   0x00bfc0cc: TEST EAX,EAX
+   0x00bfc0ce: JNZ 0x00bfc0d9
+      ref CONDITIONAL_JUMP   -> 0x00bfc0d9
+   0x00bfc0d0: MOV EDX,dword ptr [EDI]
+   0x00bfc0d2: MOV EAX,dword ptr [EDX + 0x4]
+   0x00bfc0d5: MOV ECX,EDI
+   0x00bfc0d7: CALL EAX
+
+======================================================================
+DISASM: PS row 57 paired read A around 0x00bfc0b1
+======================================================================
+   0x00bfc068: MOV EAX,dword ptr [ESI + 0x14]
+   0x00bfc06b: ADD ESP,0x18
+   0x00bfc06e: PUSH EDX
+   0x00bfc06f: PUSH EAX
+   0x00bfc070: MOV ECX,ESI
+   0x00bfc072: CALL 0x00e802b0
+      ref UNCONDITIONAL_CALL -> 0x00e802b0
+   0x00bfc077: MOV EAX,[0x011fdf24]
+      ref READ               -> 0x011fdf24
+   0x00bfc07c: MOV EDI,dword ptr [ESI + 0x5c]
+   0x00bfc07f: MOV EBP,EAX
+   0x00bfc081: CMP EDI,EAX
+   0x00bfc083: JZ 0x00bfc0b1
+      ref CONDITIONAL_JUMP   -> 0x00bfc0b1
+   0x00bfc085: TEST EDI,EDI
+   0x00bfc087: JZ 0x00bfc0a0
+      ref CONDITIONAL_JUMP   -> 0x00bfc0a0
+   0x00bfc089: LEA ECX,[EDI + 0x4]
+   0x00bfc08c: PUSH ECX
+   0x00bfc08d: CALL dword ptr [0x00fdf1c4]
+      ref READ               -> 0x00fdf1c4
+      ref COMPUTED_CALL      -> 0x00000067
+   0x00bfc093: TEST EAX,EAX
+   0x00bfc095: JNZ 0x00bfc0a0
+      ref CONDITIONAL_JUMP   -> 0x00bfc0a0
+   0x00bfc097: MOV EDX,dword ptr [EDI]
+   0x00bfc099: MOV EAX,dword ptr [EDX + 0x4]
+   0x00bfc09c: MOV ECX,EDI
+   0x00bfc09e: CALL EAX
+   0x00bfc0a0: MOV dword ptr [ESI + 0x5c],EBP
+   0x00bfc0a3: TEST EBP,EBP
+   0x00bfc0a5: JZ 0x00bfc0b1
+      ref CONDITIONAL_JUMP   -> 0x00bfc0b1
+   0x00bfc0a7: ADD EBP,0x4
+   0x00bfc0aa: PUSH EBP
+   0x00bfc0ab: CALL dword ptr [0x00fdf1c0]
+      ref READ               -> 0x00fdf1c0
+      ref COMPUTED_CALL      -> 0x00000066
+=> 0x00bfc0b1: MOV EBP,dword ptr [0x011fdbec]
+      ref READ               -> 0x011fdbec
+   0x00bfc0b7: MOV EDI,dword ptr [ESI + 0x44]
+   0x00bfc0ba: CMP EDI,EBP
+   0x00bfc0bc: JZ 0x00bfc0ea
+      ref CONDITIONAL_JUMP   -> 0x00bfc0ea
+   0x00bfc0be: TEST EDI,EDI
+   0x00bfc0c0: JZ 0x00bfc0d9
+      ref CONDITIONAL_JUMP   -> 0x00bfc0d9
+   0x00bfc0c2: LEA ECX,[EDI + 0x4]
+   0x00bfc0c5: PUSH ECX
+   0x00bfc0c6: CALL dword ptr [0x00fdf1c4]
+      ref READ               -> 0x00fdf1c4
+      ref COMPUTED_CALL      -> 0x00000067
+   0x00bfc0cc: TEST EAX,EAX
+   0x00bfc0ce: JNZ 0x00bfc0d9
+      ref CONDITIONAL_JUMP   -> 0x00bfc0d9
+   0x00bfc0d0: MOV EDX,dword ptr [EDI]
+   0x00bfc0d2: MOV EAX,dword ptr [EDX + 0x4]
+   0x00bfc0d5: MOV ECX,EDI
+   0x00bfc0d7: CALL EAX
+   0x00bfc0d9: MOV dword ptr [ESI + 0x44],EBP
+   0x00bfc0dc: TEST EBP,EBP
+   0x00bfc0de: JZ 0x00bfc0ea
+      ref CONDITIONAL_JUMP   -> 0x00bfc0ea
+   0x00bfc0e0: ADD EBP,0x4
+   0x00bfc0e3: PUSH EBP
+   0x00bfc0e4: CALL dword ptr [0x00fdf1c0]
+      ref READ               -> 0x00fdf1c0
+      ref COMPUTED_CALL      -> 0x00000066
+   0x00bfc0ea: CMP dword ptr [ESI + 0x30],0x0
+   0x00bfc0ee: JNZ 0x00bfc0f8
+      ref CONDITIONAL_JUMP   -> 0x00bfc0f8
+   0x00bfc0f0: CALL 0x00e7f5d0
+      ref UNCONDITIONAL_CALL -> 0x00e7f5d0
+   0x00bfc0f5: MOV dword ptr [ESI + 0x30],EAX
+   0x00bfc0f8: MOV ECX,dword ptr [ESI + 0x30]
+   0x00bfc0fb: PUSH 0x1
+   0x00bfc0fd: PUSH 0x1
+   0x00bfc0ff: PUSH 0x1b
+   0x00bfc101: CALL 0x00e7f430
+      ref UNCONDITIONAL_CALL -> 0x00e7f430
+   0x00bfc106: CMP dword ptr [ESI + 0x30],0x0
+   0x00bfc10a: JNZ 0x00bfc114
+      ref CONDITIONAL_JUMP   -> 0x00bfc114
+   0x00bfc10c: CALL 0x00e7f5d0
+      ref UNCONDITIONAL_CALL -> 0x00e7f5d0
+   0x00bfc111: MOV dword ptr [ESI + 0x30],EAX
+   0x00bfc114: MOV ECX,dword ptr [ESI + 0x30]
+   0x00bfc117: PUSH 0x1
+   0x00bfc119: PUSH 0x2
+
+======================================================================
+DISASM: VS row 51 paired read around 0x00bfc2ae
+======================================================================
+   0x00bfc262: PUSH 0x1
+   0x00bfc264: PUSH 0x2
+   0x00bfc266: PUSH ECX
+   0x00bfc267: CALL 0x00be0cf0
+      ref UNCONDITIONAL_CALL -> 0x00be0cf0
+   0x00bfc26c: MOV EDX,dword ptr [ESP + 0x28]
+   0x00bfc270: MOV EAX,dword ptr [ESI + 0x14]
+   0x00bfc273: ADD ESP,0x18
+   0x00bfc276: PUSH EDX
+   0x00bfc277: PUSH EAX
+   0x00bfc278: MOV ECX,ESI
+   0x00bfc27a: CALL 0x00e802b0
+      ref UNCONDITIONAL_CALL -> 0x00e802b0
+   0x00bfc27f: LEA ECX,[ESP + 0x10]
+   0x00bfc283: PUSH ECX
+   0x00bfc284: CALL 0x00e7edf0
+      ref UNCONDITIONAL_CALL -> 0x00e7edf0
+   0x00bfc289: MOV EDX,dword ptr [ESP + 0x14]
+   0x00bfc28d: PUSH 0x1
+   0x00bfc28f: PUSH 0x2
+   0x00bfc291: PUSH 0x1
+   0x00bfc293: PUSH 0x3
+   0x00bfc295: PUSH EDX
+   0x00bfc296: CALL 0x00be0cf0
+      ref UNCONDITIONAL_CALL -> 0x00be0cf0
+   0x00bfc29b: MOV EAX,dword ptr [ESP + 0x28]
+   0x00bfc29f: MOV ECX,dword ptr [ESI + 0x14]
+   0x00bfc2a2: ADD ESP,0x18
+   0x00bfc2a5: PUSH EAX
+   0x00bfc2a6: PUSH ECX
+   0x00bfc2a7: MOV ECX,ESI
+   0x00bfc2a9: CALL 0x00e802b0
+      ref UNCONDITIONAL_CALL -> 0x00e802b0
+=> 0x00bfc2ae: MOV EBP,dword ptr [0x011fdf28]
+      ref READ               -> 0x011fdf28
+   0x00bfc2b4: MOV EDI,dword ptr [ESI + 0x5c]
+   0x00bfc2b7: CMP EDI,EBP
+   0x00bfc2b9: JZ 0x00bfc2e7
+      ref CONDITIONAL_JUMP   -> 0x00bfc2e7
+   0x00bfc2bb: TEST EDI,EDI
+   0x00bfc2bd: JZ 0x00bfc2d6
+      ref CONDITIONAL_JUMP   -> 0x00bfc2d6
+   0x00bfc2bf: LEA EDX,[EDI + 0x4]
+   0x00bfc2c2: PUSH EDX
+   0x00bfc2c3: CALL dword ptr [0x00fdf1c4]
+      ref READ               -> 0x00fdf1c4
+      ref COMPUTED_CALL      -> 0x00000067
+   0x00bfc2c9: TEST EAX,EAX
+   0x00bfc2cb: JNZ 0x00bfc2d6
+      ref CONDITIONAL_JUMP   -> 0x00bfc2d6
+   0x00bfc2cd: MOV EAX,dword ptr [EDI]
+   0x00bfc2cf: MOV EDX,dword ptr [EAX + 0x4]
+   0x00bfc2d2: MOV ECX,EDI
+   0x00bfc2d4: CALL EDX
+   0x00bfc2d6: MOV dword ptr [ESI + 0x5c],EBP
+   0x00bfc2d9: TEST EBP,EBP
+   0x00bfc2db: JZ 0x00bfc2e7
+      ref CONDITIONAL_JUMP   -> 0x00bfc2e7
+   0x00bfc2dd: ADD EBP,0x4
+   0x00bfc2e0: PUSH EBP
+   0x00bfc2e1: CALL dword ptr [0x00fdf1c0]
+      ref READ               -> 0x00fdf1c0
+      ref COMPUTED_CALL      -> 0x00000066
+   0x00bfc2e7: MOV EBP,dword ptr [0x011fdbec]
+      ref READ               -> 0x011fdbec
+   0x00bfc2ed: MOV EDI,dword ptr [ESI + 0x44]
+   0x00bfc2f0: CMP EDI,EBP
+   0x00bfc2f2: JZ 0x00bfc320
+      ref CONDITIONAL_JUMP   -> 0x00bfc320
+   0x00bfc2f4: TEST EDI,EDI
+   0x00bfc2f6: JZ 0x00bfc30f
+      ref CONDITIONAL_JUMP   -> 0x00bfc30f
+   0x00bfc2f8: LEA EAX,[EDI + 0x4]
+   0x00bfc2fb: PUSH EAX
+   0x00bfc2fc: CALL dword ptr [0x00fdf1c4]
+      ref READ               -> 0x00fdf1c4
+      ref COMPUTED_CALL      -> 0x00000067
+   0x00bfc302: TEST EAX,EAX
+   0x00bfc304: JNZ 0x00bfc30f
+      ref CONDITIONAL_JUMP   -> 0x00bfc30f
+   0x00bfc306: MOV EDX,dword ptr [EDI]
+   0x00bfc308: MOV EAX,dword ptr [EDX + 0x4]
+   0x00bfc30b: MOV ECX,EDI
+   0x00bfc30d: CALL EAX
+   0x00bfc30f: MOV dword ptr [ESI + 0x44],EBP
+
+======================================================================
+DISASM: PS row 57 paired read B around 0x00bfc2e7
+======================================================================
+   0x00bfc29b: MOV EAX,dword ptr [ESP + 0x28]
+   0x00bfc29f: MOV ECX,dword ptr [ESI + 0x14]
+   0x00bfc2a2: ADD ESP,0x18
+   0x00bfc2a5: PUSH EAX
+   0x00bfc2a6: PUSH ECX
+   0x00bfc2a7: MOV ECX,ESI
+   0x00bfc2a9: CALL 0x00e802b0
+      ref UNCONDITIONAL_CALL -> 0x00e802b0
+   0x00bfc2ae: MOV EBP,dword ptr [0x011fdf28]
+      ref READ               -> 0x011fdf28
+   0x00bfc2b4: MOV EDI,dword ptr [ESI + 0x5c]
+   0x00bfc2b7: CMP EDI,EBP
+   0x00bfc2b9: JZ 0x00bfc2e7
+      ref CONDITIONAL_JUMP   -> 0x00bfc2e7
+   0x00bfc2bb: TEST EDI,EDI
+   0x00bfc2bd: JZ 0x00bfc2d6
+      ref CONDITIONAL_JUMP   -> 0x00bfc2d6
+   0x00bfc2bf: LEA EDX,[EDI + 0x4]
+   0x00bfc2c2: PUSH EDX
+   0x00bfc2c3: CALL dword ptr [0x00fdf1c4]
+      ref READ               -> 0x00fdf1c4
+      ref COMPUTED_CALL      -> 0x00000067
+   0x00bfc2c9: TEST EAX,EAX
+   0x00bfc2cb: JNZ 0x00bfc2d6
+      ref CONDITIONAL_JUMP   -> 0x00bfc2d6
+   0x00bfc2cd: MOV EAX,dword ptr [EDI]
+   0x00bfc2cf: MOV EDX,dword ptr [EAX + 0x4]
+   0x00bfc2d2: MOV ECX,EDI
+   0x00bfc2d4: CALL EDX
+   0x00bfc2d6: MOV dword ptr [ESI + 0x5c],EBP
+   0x00bfc2d9: TEST EBP,EBP
+   0x00bfc2db: JZ 0x00bfc2e7
+      ref CONDITIONAL_JUMP   -> 0x00bfc2e7
+   0x00bfc2dd: ADD EBP,0x4
+   0x00bfc2e0: PUSH EBP
+   0x00bfc2e1: CALL dword ptr [0x00fdf1c0]
+      ref READ               -> 0x00fdf1c0
+      ref COMPUTED_CALL      -> 0x00000066
+=> 0x00bfc2e7: MOV EBP,dword ptr [0x011fdbec]
+      ref READ               -> 0x011fdbec
+   0x00bfc2ed: MOV EDI,dword ptr [ESI + 0x44]
+   0x00bfc2f0: CMP EDI,EBP
+   0x00bfc2f2: JZ 0x00bfc320
+      ref CONDITIONAL_JUMP   -> 0x00bfc320
+   0x00bfc2f4: TEST EDI,EDI
+   0x00bfc2f6: JZ 0x00bfc30f
+      ref CONDITIONAL_JUMP   -> 0x00bfc30f
+   0x00bfc2f8: LEA EAX,[EDI + 0x4]
+   0x00bfc2fb: PUSH EAX
+   0x00bfc2fc: CALL dword ptr [0x00fdf1c4]
+      ref READ               -> 0x00fdf1c4
+      ref COMPUTED_CALL      -> 0x00000067
+   0x00bfc302: TEST EAX,EAX
+   0x00bfc304: JNZ 0x00bfc30f
+      ref CONDITIONAL_JUMP   -> 0x00bfc30f
+   0x00bfc306: MOV EDX,dword ptr [EDI]
+   0x00bfc308: MOV EAX,dword ptr [EDX + 0x4]
+   0x00bfc30b: MOV ECX,EDI
+   0x00bfc30d: CALL EAX
+   0x00bfc30f: MOV dword ptr [ESI + 0x44],EBP
+   0x00bfc312: TEST EBP,EBP
+   0x00bfc314: JZ 0x00bfc320
+      ref CONDITIONAL_JUMP   -> 0x00bfc320
+   0x00bfc316: ADD EBP,0x4
+   0x00bfc319: PUSH EBP
+   0x00bfc31a: CALL dword ptr [0x00fdf1c0]
+      ref READ               -> 0x00fdf1c0
+      ref COMPUTED_CALL      -> 0x00000066
+   0x00bfc320: CMP dword ptr [ESI + 0x30],0x0
+   0x00bfc324: JNZ 0x00bfc32e
+      ref CONDITIONAL_JUMP   -> 0x00bfc32e
+   0x00bfc326: CALL 0x00e7f5d0
+      ref UNCONDITIONAL_CALL -> 0x00e7f5d0
+   0x00bfc32b: MOV dword ptr [ESI + 0x30],EAX
+   0x00bfc32e: MOV ECX,dword ptr [ESI + 0x30]
+   0x00bfc331: PUSH 0x1
+   0x00bfc333: PUSH 0x1
+   0x00bfc335: PUSH 0x1b
+   0x00bfc337: CALL 0x00e7f430
+      ref UNCONDITIONAL_CALL -> 0x00e7f430
+   0x00bfc33c: CMP dword ptr [ESI + 0x30],0x0
+   0x00bfc340: JNZ 0x00bfc34a
+      ref CONDITIONAL_JUMP   -> 0x00bfc34a
+   0x00bfc342: CALL 0x00e7f5d0
+      ref UNCONDITIONAL_CALL -> 0x00e7f5d0
+   0x00bfc347: MOV dword ptr [ESI + 0x30],EAX
+   0x00bfc34a: MOV ECX,dword ptr [ESI + 0x30]
+   0x00bfc34d: PUSH 0x1
+   0x00bfc34f: PUSH 0x2
+
+======================================================================
+DISASM: VS row 50 paired read B around 0x00bfc4e4
+======================================================================
+   0x00bfc498: PUSH 0x1
+   0x00bfc49a: PUSH 0x2
+   0x00bfc49c: PUSH ECX
+   0x00bfc49d: CALL 0x00be0cf0
+      ref UNCONDITIONAL_CALL -> 0x00be0cf0
+   0x00bfc4a2: MOV EDX,dword ptr [ESP + 0x28]
+   0x00bfc4a6: MOV EAX,dword ptr [ESI + 0x14]
+   0x00bfc4a9: ADD ESP,0x18
+   0x00bfc4ac: PUSH EDX
+   0x00bfc4ad: PUSH EAX
+   0x00bfc4ae: MOV ECX,ESI
+   0x00bfc4b0: CALL 0x00e802b0
+      ref UNCONDITIONAL_CALL -> 0x00e802b0
+   0x00bfc4b5: LEA ECX,[ESP + 0x10]
+   0x00bfc4b9: PUSH ECX
+   0x00bfc4ba: CALL 0x00e7edf0
+      ref UNCONDITIONAL_CALL -> 0x00e7edf0
+   0x00bfc4bf: MOV EDX,dword ptr [ESP + 0x14]
+   0x00bfc4c3: PUSH 0x1
+   0x00bfc4c5: PUSH 0x2
+   0x00bfc4c7: PUSH 0x1
+   0x00bfc4c9: PUSH 0x3
+   0x00bfc4cb: PUSH EDX
+   0x00bfc4cc: CALL 0x00be0cf0
+      ref UNCONDITIONAL_CALL -> 0x00be0cf0
+   0x00bfc4d1: MOV EAX,dword ptr [ESP + 0x28]
+   0x00bfc4d5: MOV ECX,dword ptr [ESI + 0x14]
+   0x00bfc4d8: ADD ESP,0x18
+   0x00bfc4db: PUSH EAX
+   0x00bfc4dc: PUSH ECX
+   0x00bfc4dd: MOV ECX,ESI
+   0x00bfc4df: CALL 0x00e802b0
+      ref UNCONDITIONAL_CALL -> 0x00e802b0
+=> 0x00bfc4e4: MOV EBP,dword ptr [0x011fdf24]
+      ref READ               -> 0x011fdf24
+   0x00bfc4ea: MOV EDI,dword ptr [ESI + 0x5c]
+   0x00bfc4ed: CMP EDI,EBP
+   0x00bfc4ef: JZ 0x00bfc51d
+      ref CONDITIONAL_JUMP   -> 0x00bfc51d
+   0x00bfc4f1: TEST EDI,EDI
+   0x00bfc4f3: JZ 0x00bfc50c
+      ref CONDITIONAL_JUMP   -> 0x00bfc50c
+   0x00bfc4f5: LEA EDX,[EDI + 0x4]
+   0x00bfc4f8: PUSH EDX
+   0x00bfc4f9: CALL dword ptr [0x00fdf1c4]
+      ref READ               -> 0x00fdf1c4
+      ref COMPUTED_CALL      -> 0x00000067
+   0x00bfc4ff: TEST EAX,EAX
+   0x00bfc501: JNZ 0x00bfc50c
+      ref CONDITIONAL_JUMP   -> 0x00bfc50c
+   0x00bfc503: MOV EAX,dword ptr [EDI]
+   0x00bfc505: MOV EDX,dword ptr [EAX + 0x4]
+   0x00bfc508: MOV ECX,EDI
+   0x00bfc50a: CALL EDX
+   0x00bfc50c: MOV dword ptr [ESI + 0x5c],EBP
+   0x00bfc50f: TEST EBP,EBP
+   0x00bfc511: JZ 0x00bfc51d
+      ref CONDITIONAL_JUMP   -> 0x00bfc51d
+   0x00bfc513: ADD EBP,0x4
+   0x00bfc516: PUSH EBP
+   0x00bfc517: CALL dword ptr [0x00fdf1c0]
+      ref READ               -> 0x00fdf1c0
+      ref COMPUTED_CALL      -> 0x00000066
+   0x00bfc51d: MOV EBP,dword ptr [0x011fdbf0]
+      ref READ               -> 0x011fdbf0
+   0x00bfc523: MOV EDI,dword ptr [ESI + 0x44]
+   0x00bfc526: CMP EDI,EBP
+   0x00bfc528: JZ 0x00bfc556
+      ref CONDITIONAL_JUMP   -> 0x00bfc556
+   0x00bfc52a: TEST EDI,EDI
+   0x00bfc52c: JZ 0x00bfc545
+      ref CONDITIONAL_JUMP   -> 0x00bfc545
+   0x00bfc52e: LEA EAX,[EDI + 0x4]
+   0x00bfc531: PUSH EAX
+   0x00bfc532: CALL dword ptr [0x00fdf1c4]
+      ref READ               -> 0x00fdf1c4
+      ref COMPUTED_CALL      -> 0x00000067
+   0x00bfc538: TEST EAX,EAX
+   0x00bfc53a: JNZ 0x00bfc545
+      ref CONDITIONAL_JUMP   -> 0x00bfc545
+   0x00bfc53c: MOV EDX,dword ptr [EDI]
+   0x00bfc53e: MOV EAX,dword ptr [EDX + 0x4]
+   0x00bfc541: MOV ECX,EDI
+   0x00bfc543: CALL EAX
+   0x00bfc545: MOV dword ptr [ESI + 0x44],EBP
+
+======================================================================
+DISASM: PS row 58 paired read around 0x00bfc51d
+======================================================================
+   0x00bfc4d1: MOV EAX,dword ptr [ESP + 0x28]
+   0x00bfc4d5: MOV ECX,dword ptr [ESI + 0x14]
+   0x00bfc4d8: ADD ESP,0x18
+   0x00bfc4db: PUSH EAX
+   0x00bfc4dc: PUSH ECX
+   0x00bfc4dd: MOV ECX,ESI
+   0x00bfc4df: CALL 0x00e802b0
+      ref UNCONDITIONAL_CALL -> 0x00e802b0
+   0x00bfc4e4: MOV EBP,dword ptr [0x011fdf24]
+      ref READ               -> 0x011fdf24
+   0x00bfc4ea: MOV EDI,dword ptr [ESI + 0x5c]
+   0x00bfc4ed: CMP EDI,EBP
+   0x00bfc4ef: JZ 0x00bfc51d
+      ref CONDITIONAL_JUMP   -> 0x00bfc51d
+   0x00bfc4f1: TEST EDI,EDI
+   0x00bfc4f3: JZ 0x00bfc50c
+      ref CONDITIONAL_JUMP   -> 0x00bfc50c
+   0x00bfc4f5: LEA EDX,[EDI + 0x4]
+   0x00bfc4f8: PUSH EDX
+   0x00bfc4f9: CALL dword ptr [0x00fdf1c4]
+      ref READ               -> 0x00fdf1c4
+      ref COMPUTED_CALL      -> 0x00000067
+   0x00bfc4ff: TEST EAX,EAX
+   0x00bfc501: JNZ 0x00bfc50c
+      ref CONDITIONAL_JUMP   -> 0x00bfc50c
+   0x00bfc503: MOV EAX,dword ptr [EDI]
+   0x00bfc505: MOV EDX,dword ptr [EAX + 0x4]
+   0x00bfc508: MOV ECX,EDI
+   0x00bfc50a: CALL EDX
+   0x00bfc50c: MOV dword ptr [ESI + 0x5c],EBP
+   0x00bfc50f: TEST EBP,EBP
+   0x00bfc511: JZ 0x00bfc51d
+      ref CONDITIONAL_JUMP   -> 0x00bfc51d
+   0x00bfc513: ADD EBP,0x4
+   0x00bfc516: PUSH EBP
+   0x00bfc517: CALL dword ptr [0x00fdf1c0]
+      ref READ               -> 0x00fdf1c0
+      ref COMPUTED_CALL      -> 0x00000066
+=> 0x00bfc51d: MOV EBP,dword ptr [0x011fdbf0]
+      ref READ               -> 0x011fdbf0
+   0x00bfc523: MOV EDI,dword ptr [ESI + 0x44]
+   0x00bfc526: CMP EDI,EBP
+   0x00bfc528: JZ 0x00bfc556
+      ref CONDITIONAL_JUMP   -> 0x00bfc556
+   0x00bfc52a: TEST EDI,EDI
+   0x00bfc52c: JZ 0x00bfc545
+      ref CONDITIONAL_JUMP   -> 0x00bfc545
+   0x00bfc52e: LEA EAX,[EDI + 0x4]
+   0x00bfc531: PUSH EAX
+   0x00bfc532: CALL dword ptr [0x00fdf1c4]
+      ref READ               -> 0x00fdf1c4
+      ref COMPUTED_CALL      -> 0x00000067
+   0x00bfc538: TEST EAX,EAX
+   0x00bfc53a: JNZ 0x00bfc545
+      ref CONDITIONAL_JUMP   -> 0x00bfc545
+   0x00bfc53c: MOV EDX,dword ptr [EDI]
+   0x00bfc53e: MOV EAX,dword ptr [EDX + 0x4]
+   0x00bfc541: MOV ECX,EDI
+   0x00bfc543: CALL EAX
+   0x00bfc545: MOV dword ptr [ESI + 0x44],EBP
+   0x00bfc548: TEST EBP,EBP
+   0x00bfc54a: JZ 0x00bfc556
+      ref CONDITIONAL_JUMP   -> 0x00bfc556
+   0x00bfc54c: ADD EBP,0x4
+   0x00bfc54f: PUSH EBP
+   0x00bfc550: CALL dword ptr [0x00fdf1c0]
+      ref READ               -> 0x00fdf1c0
+      ref COMPUTED_CALL      -> 0x00000066
+   0x00bfc556: CMP dword ptr [ESI + 0x30],0x0
+   0x00bfc55a: JNZ 0x00bfc564
+      ref CONDITIONAL_JUMP   -> 0x00bfc564
+   0x00bfc55c: CALL 0x00e7f5d0
+      ref UNCONDITIONAL_CALL -> 0x00e7f5d0
+   0x00bfc561: MOV dword ptr [ESI + 0x30],EAX
+   0x00bfc564: MOV ECX,dword ptr [ESI + 0x30]
+   0x00bfc567: MOV EDI,0x1
+   0x00bfc56c: PUSH EDI
+   0x00bfc56d: PUSH EDI
+   0x00bfc56e: PUSH 0x1b
+   0x00bfc570: CALL 0x00e7f430
+      ref UNCONDITIONAL_CALL -> 0x00e7f430
+   0x00bfc575: CMP dword ptr [ESI + 0x30],0x0
+   0x00bfc579: JNZ 0x00bfc583
+      ref CONDITIONAL_JUMP   -> 0x00bfc583
+   0x00bfc57b: CALL 0x00e7f5d0
+      ref UNCONDITIONAL_CALL -> 0x00e7f5d0
+   0x00bfc580: MOV dword ptr [ESI + 0x30],EAX
+   0x00bfc583: MOV ECX,dword ptr [ESI + 0x30]
+   0x00bfc586: PUSH EDI
+
+======================================================================
+DISASM: VS row 52 paired read around 0x00bfc6c3
+======================================================================
+   0x00bfc674: MOV ECX,dword ptr [ESI + 0x14]
+   0x00bfc677: ADD ESP,0x18
+   0x00bfc67a: PUSH EAX
+   0x00bfc67b: PUSH ECX
+   0x00bfc67c: MOV ECX,ESI
+   0x00bfc67e: CALL 0x00e802b0
+      ref UNCONDITIONAL_CALL -> 0x00e802b0
+   0x00bfc683: LEA EDX,[ESP + 0x10]
+   0x00bfc687: PUSH EDX
+   0x00bfc688: CALL 0x00e7edf0
+      ref UNCONDITIONAL_CALL -> 0x00e7edf0
+   0x00bfc68d: MOV EAX,dword ptr [ESP + 0x14]
+   0x00bfc691: PUSH EDI
+   0x00bfc692: PUSH 0x2
+   0x00bfc694: PUSH EDI
+   0x00bfc695: PUSH EDI
+   0x00bfc696: PUSH EAX
+   0x00bfc697: CALL 0x00be0cf0
+      ref UNCONDITIONAL_CALL -> 0x00be0cf0
+   0x00bfc69c: MOV ECX,dword ptr [ESP + 0x28]
+   0x00bfc6a0: MOV EDX,dword ptr [0x011f9544]
+      ref READ               -> 0x011f9544
+   0x00bfc6a6: MOV dword ptr [ECX + 0x8],EDX
+   0x00bfc6a9: MOV EAX,dword ptr [ESP + 0x28]
+   0x00bfc6ad: MOV dword ptr [EAX + 0xc],EDI
+   0x00bfc6b0: MOV ECX,dword ptr [ESP + 0x28]
+   0x00bfc6b4: MOV EDX,dword ptr [ESI + 0x14]
+   0x00bfc6b7: ADD ESP,0x18
+   0x00bfc6ba: PUSH ECX
+   0x00bfc6bb: PUSH EDX
+   0x00bfc6bc: MOV ECX,ESI
+   0x00bfc6be: CALL 0x00e802b0
+      ref UNCONDITIONAL_CALL -> 0x00e802b0
+=> 0x00bfc6c3: MOV EBP,dword ptr [0x011fdf2c]
+      ref READ               -> 0x011fdf2c
+   0x00bfc6c9: MOV EDI,dword ptr [ESI + 0x5c]
+   0x00bfc6cc: CMP EDI,EBP
+   0x00bfc6ce: JZ 0x00bfc6fc
+      ref CONDITIONAL_JUMP   -> 0x00bfc6fc
+   0x00bfc6d0: TEST EDI,EDI
+   0x00bfc6d2: JZ 0x00bfc6eb
+      ref CONDITIONAL_JUMP   -> 0x00bfc6eb
+   0x00bfc6d4: LEA EAX,[EDI + 0x4]
+   0x00bfc6d7: PUSH EAX
+   0x00bfc6d8: CALL dword ptr [0x00fdf1c4]
+      ref READ               -> 0x00fdf1c4
+      ref COMPUTED_CALL      -> 0x00000067
+   0x00bfc6de: TEST EAX,EAX
+   0x00bfc6e0: JNZ 0x00bfc6eb
+      ref CONDITIONAL_JUMP   -> 0x00bfc6eb
+   0x00bfc6e2: MOV EDX,dword ptr [EDI]
+   0x00bfc6e4: MOV EAX,dword ptr [EDX + 0x4]
+   0x00bfc6e7: MOV ECX,EDI
+   0x00bfc6e9: CALL EAX
+   0x00bfc6eb: MOV dword ptr [ESI + 0x5c],EBP
+   0x00bfc6ee: TEST EBP,EBP
+   0x00bfc6f0: JZ 0x00bfc6fc
+      ref CONDITIONAL_JUMP   -> 0x00bfc6fc
+   0x00bfc6f2: ADD EBP,0x4
+   0x00bfc6f5: PUSH EBP
+   0x00bfc6f6: CALL dword ptr [0x00fdf1c0]
+      ref READ               -> 0x00fdf1c0
+      ref COMPUTED_CALL      -> 0x00000066
+   0x00bfc6fc: MOV EBP,dword ptr [0x011fdbf4]
+      ref READ               -> 0x011fdbf4
+   0x00bfc702: MOV EDI,dword ptr [ESI + 0x44]
+   0x00bfc705: CMP EDI,EBP
+   0x00bfc707: JZ 0x00bfc735
+      ref CONDITIONAL_JUMP   -> 0x00bfc735
+   0x00bfc709: TEST EDI,EDI
+   0x00bfc70b: JZ 0x00bfc724
+      ref CONDITIONAL_JUMP   -> 0x00bfc724
+   0x00bfc70d: LEA ECX,[EDI + 0x4]
+   0x00bfc710: PUSH ECX
+   0x00bfc711: CALL dword ptr [0x00fdf1c4]
+      ref READ               -> 0x00fdf1c4
+      ref COMPUTED_CALL      -> 0x00000067
+   0x00bfc717: TEST EAX,EAX
+   0x00bfc719: JNZ 0x00bfc724
+      ref CONDITIONAL_JUMP   -> 0x00bfc724
+   0x00bfc71b: MOV EDX,dword ptr [EDI]
+   0x00bfc71d: MOV EAX,dword ptr [EDX + 0x4]
+   0x00bfc720: MOV ECX,EDI
+   0x00bfc722: CALL EAX
+   0x00bfc724: MOV dword ptr [ESI + 0x44],EBP
+
+======================================================================
+DISASM: PS row 59 paired read around 0x00bfc6fc
+======================================================================
+   0x00bfc6b0: MOV ECX,dword ptr [ESP + 0x28]
+   0x00bfc6b4: MOV EDX,dword ptr [ESI + 0x14]
+   0x00bfc6b7: ADD ESP,0x18
+   0x00bfc6ba: PUSH ECX
+   0x00bfc6bb: PUSH EDX
+   0x00bfc6bc: MOV ECX,ESI
+   0x00bfc6be: CALL 0x00e802b0
+      ref UNCONDITIONAL_CALL -> 0x00e802b0
+   0x00bfc6c3: MOV EBP,dword ptr [0x011fdf2c]
+      ref READ               -> 0x011fdf2c
+   0x00bfc6c9: MOV EDI,dword ptr [ESI + 0x5c]
+   0x00bfc6cc: CMP EDI,EBP
+   0x00bfc6ce: JZ 0x00bfc6fc
+      ref CONDITIONAL_JUMP   -> 0x00bfc6fc
+   0x00bfc6d0: TEST EDI,EDI
+   0x00bfc6d2: JZ 0x00bfc6eb
+      ref CONDITIONAL_JUMP   -> 0x00bfc6eb
+   0x00bfc6d4: LEA EAX,[EDI + 0x4]
+   0x00bfc6d7: PUSH EAX
+   0x00bfc6d8: CALL dword ptr [0x00fdf1c4]
+      ref READ               -> 0x00fdf1c4
+      ref COMPUTED_CALL      -> 0x00000067
+   0x00bfc6de: TEST EAX,EAX
+   0x00bfc6e0: JNZ 0x00bfc6eb
+      ref CONDITIONAL_JUMP   -> 0x00bfc6eb
+   0x00bfc6e2: MOV EDX,dword ptr [EDI]
+   0x00bfc6e4: MOV EAX,dword ptr [EDX + 0x4]
+   0x00bfc6e7: MOV ECX,EDI
+   0x00bfc6e9: CALL EAX
+   0x00bfc6eb: MOV dword ptr [ESI + 0x5c],EBP
+   0x00bfc6ee: TEST EBP,EBP
+   0x00bfc6f0: JZ 0x00bfc6fc
+      ref CONDITIONAL_JUMP   -> 0x00bfc6fc
+   0x00bfc6f2: ADD EBP,0x4
+   0x00bfc6f5: PUSH EBP
+   0x00bfc6f6: CALL dword ptr [0x00fdf1c0]
+      ref READ               -> 0x00fdf1c0
+      ref COMPUTED_CALL      -> 0x00000066
+=> 0x00bfc6fc: MOV EBP,dword ptr [0x011fdbf4]
+      ref READ               -> 0x011fdbf4
+   0x00bfc702: MOV EDI,dword ptr [ESI + 0x44]
+   0x00bfc705: CMP EDI,EBP
+   0x00bfc707: JZ 0x00bfc735
+      ref CONDITIONAL_JUMP   -> 0x00bfc735
+   0x00bfc709: TEST EDI,EDI
+   0x00bfc70b: JZ 0x00bfc724
+      ref CONDITIONAL_JUMP   -> 0x00bfc724
+   0x00bfc70d: LEA ECX,[EDI + 0x4]
+   0x00bfc710: PUSH ECX
+   0x00bfc711: CALL dword ptr [0x00fdf1c4]
+      ref READ               -> 0x00fdf1c4
+      ref COMPUTED_CALL      -> 0x00000067
+   0x00bfc717: TEST EAX,EAX
+   0x00bfc719: JNZ 0x00bfc724
+      ref CONDITIONAL_JUMP   -> 0x00bfc724
+   0x00bfc71b: MOV EDX,dword ptr [EDI]
+   0x00bfc71d: MOV EAX,dword ptr [EDX + 0x4]
+   0x00bfc720: MOV ECX,EDI
+   0x00bfc722: CALL EAX
+   0x00bfc724: MOV dword ptr [ESI + 0x44],EBP
+   0x00bfc727: TEST EBP,EBP
+   0x00bfc729: JZ 0x00bfc735
+      ref CONDITIONAL_JUMP   -> 0x00bfc735
+   0x00bfc72b: ADD EBP,0x4
+   0x00bfc72e: PUSH EBP
+   0x00bfc72f: CALL dword ptr [0x00fdf1c0]
+      ref READ               -> 0x00fdf1c0
+      ref COMPUTED_CALL      -> 0x00000066
+   0x00bfc735: CMP dword ptr [ESI + 0x30],0x0
+   0x00bfc739: JNZ 0x00bfc743
+      ref CONDITIONAL_JUMP   -> 0x00bfc743
+   0x00bfc73b: CALL 0x00e7f5d0
+      ref UNCONDITIONAL_CALL -> 0x00e7f5d0
+   0x00bfc740: MOV dword ptr [ESI + 0x30],EAX
+   0x00bfc743: MOV ECX,dword ptr [ESI + 0x30]
+   0x00bfc746: PUSH 0x1
+   0x00bfc748: PUSH 0x1
+   0x00bfc74a: PUSH 0x1b
+   0x00bfc74c: CALL 0x00e7f430
+      ref UNCONDITIONAL_CALL -> 0x00e7f430
+   0x00bfc751: CMP dword ptr [ESI + 0x30],0x0
+   0x00bfc755: JNZ 0x00bfc75f
+      ref CONDITIONAL_JUMP   -> 0x00bfc75f
+   0x00bfc757: CALL 0x00e7f5d0
+      ref UNCONDITIONAL_CALL -> 0x00e7f5d0
+   0x00bfc75c: MOV dword ptr [ESI + 0x30],EAX
+   0x00bfc75f: MOV ECX,dword ptr [ESI + 0x30]
+   0x00bfc762: PUSH 0x1
+   0x00bfc764: PUSH 0x2
+
+----------------------------------------------------------------------
+References TO 0x00bfbf60 (EnvMap table owner initializer)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00b78a01 (in FUN_00b78980)
+  UNCONDITIONAL_CALL @ 0x00b7a819 (in ???)
+  Total: 2 refs
+
+----------------------------------------------------------------------
+References TO 0x00e88a20 (NiDX9RenderState SetTexture)
+----------------------------------------------------------------------
+  DATA @ 0x010ef6e8 (in ???)
+  DATA @ 0x010f0968 (in ???)
+  Total: 2 refs
+
+----------------------------------------------------------------------
+References TO 0x011fdf24 (PPLighting vertex group C row 50)
+----------------------------------------------------------------------
+  READ @ 0x00bfc077 (in FUN_00bfbf60)
+  READ @ 0x00bfc4e4 (in FUN_00bfbf60)
+  Total: 2 refs
+
+----------------------------------------------------------------------
+References TO 0x011fdf28 (PPLighting vertex group C row 51)
+----------------------------------------------------------------------
+  READ @ 0x00bfc2ae (in FUN_00bfbf60)
+  Total: 1 refs
+
+----------------------------------------------------------------------
+References TO 0x011fdf2c (PPLighting vertex group C row 52)
+----------------------------------------------------------------------
+  READ @ 0x00bfc6c3 (in FUN_00bfbf60)
+  Total: 1 refs
+
+----------------------------------------------------------------------
+References TO 0x011fdbec (PPLighting pixel group B row 57)
+----------------------------------------------------------------------
+  READ @ 0x00bfc0b1 (in FUN_00bfbf60)
+  READ @ 0x00bfc2e7 (in FUN_00bfbf60)
+  Total: 2 refs
+
+----------------------------------------------------------------------
+References TO 0x011fdbf0 (PPLighting pixel group B row 58)
+----------------------------------------------------------------------
+  READ @ 0x00bfc51d (in FUN_00bfbf60)
+  Total: 1 refs
+
+----------------------------------------------------------------------
+References TO 0x011fdbf4 (PPLighting pixel group B row 59)
+----------------------------------------------------------------------
+  READ @ 0x00bfc6fc (in FUN_00bfbf60)
+  Total: 1 refs
+
+----------------------------------------------------------------------
+References TO 0x010aeae0 (lighting 2x vertex EnvMap source string)
+----------------------------------------------------------------------
+  DATA @ 0x00bb99a6 (in FUN_00bb96f0)
+  DATA @ 0x00bb99e8 (in FUN_00bb96f0)
+  DATA @ 0x00bb9a33 (in FUN_00bb96f0)
+  DATA @ 0x00bb9a88 (in FUN_00bb96f0)
+  DATA @ 0x00bb9a8f (in FUN_00bb96f0)
+  DATA @ 0x00b733c6 (in FUN_00b71bf0)
+  DATA @ 0x00b733fd (in FUN_00b71bf0)
+  DATA @ 0x00b7343f (in FUN_00b71bf0)
+  DATA @ 0x00bb9a81 (in FUN_00bb96f0)
+  Total: 9 refs
+
+----------------------------------------------------------------------
+References TO 0x010af054 (lighting 2x pixel EnvMap source string)
+----------------------------------------------------------------------
+  DATA @ 0x00bbae88 (in FUN_00bba5d0)
+  DATA @ 0x00bbaebc (in FUN_00bba5d0)
+  DATA @ 0x00bbaf02 (in FUN_00bba5d0)
+  DATA @ 0x00b75c1a (in ???)
+  DATA @ 0x00b75c38 (in ???)
+  DATA @ 0x00b75c68 (in ???)
+  DATA @ 0x00b75c14 (in ???)
+  Total: 7 refs
+
+----------------------------------------------------------------------
+References TO 0x010aead8 (ENVMAP define string)
+----------------------------------------------------------------------
+  DATA @ 0x00bb99bf (in FUN_00bb96f0)
+  DATA @ 0x00bb9a01 (in FUN_00bb96f0)
+  DATA @ 0x00bb9a4c (in FUN_00bb96f0)
+  DATA @ 0x00bb9ab2 (in FUN_00bb96f0)
+  DATA @ 0x00bb9b34 (in FUN_00bb96f0)
+  DATA @ 0x00b733d1 (in FUN_00b71bf0)
+  DATA @ 0x00b73416 (in FUN_00b71bf0)
+  DATA @ 0x00b7344a (in FUN_00b71bf0)
+  DATA @ 0x00bb9a96 (in FUN_00bb96f0)
+  Total: 9 refs
+
+----------------------------------------------------------------------
+References TO 0x010af04c (WINDOW define string)
+----------------------------------------------------------------------
+  DATA @ 0x00bbaed9 (in FUN_00bba5d0)
+  DATA @ 0x00b75c3f (in ???)
+  Total: 2 refs
+
+----------------------------------------------------------------------
+References TO 0x010aead4 (EYE define string)
+----------------------------------------------------------------------
+  DATA @ 0x00bbaf1f (in FUN_00bba5d0)
+  DATA @ 0x00bb9b42 (in FUN_00bb96f0)
+  DATA @ 0x00b7345c (in FUN_00b71bf0)
+  DATA @ 0x00b75c6f (in ???)
+  Total: 4 refs
