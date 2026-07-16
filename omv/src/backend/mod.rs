@@ -211,6 +211,7 @@ pub(crate) struct CameraFrame {
     pub(crate) frustum_right: f32,
     pub(crate) frustum_bottom: f32,
     pub(crate) frustum_top: f32,
+    pub(crate) world_transform: CameraTransformFrame,
     pub(crate) available: bool,
 }
 
@@ -230,6 +231,7 @@ impl CameraFrame {
             frustum_right: 0.0,
             frustum_bottom: 0.0,
             frustum_top: 0.0,
+            world_transform: CameraTransformFrame::default(),
             available: false,
         }
     }
@@ -249,6 +251,26 @@ impl Default for CameraFrame {
             frustum_right: 0.0,
             frustum_bottom: 0.0,
             frustum_top: 0.0,
+            world_transform: CameraTransformFrame::default(),
+            available: false,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct CameraTransformFrame {
+    pub(crate) rotation: [[f32; 3]; 3],
+    pub(crate) translation: [f32; 3],
+    pub(crate) scale: f32,
+    pub(crate) available: bool,
+}
+
+impl Default for CameraTransformFrame {
+    fn default() -> Self {
+        Self {
+            rotation: [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
+            translation: [0.0; 3],
+            scale: 1.0,
             available: false,
         }
     }

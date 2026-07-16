@@ -14,9 +14,18 @@ Implemented on 2026-07-16:
 - coherent world/first-person depth publication with a frame epoch and same-size validation;
 - first-person mask rejection when its capture does not match the world capture;
 - AO intermediate format tracking and fallback-target recreation when the scene format changes;
-- focused compile-time tests for capture coherence and fallback-format matching.
+- camera world-transform capture paired with the resolved world depth;
+- temporal AO reprojection with depth rejection, neighborhood clamping, first-person rejection,
+  and history invalidation on generation or resource discontinuities;
+- real weighted behavior for the Fast AO and Contact AO `stability` controls;
+- focused tests for capture coherence, fallback-format matching, transform handedness,
+  translation, rotation, generation invalidation, and every embedded HLSL program.
 
-The supported `i686-pc-windows-gnu` OMV and engine-fixes release builds pass. Temporal AO is intentionally not implemented yet. The remaining transform/handedness contract must be produced by running `analysis/ghidra/scripts/graphics_fnv_ao_temporal_camera_contract_audit.py` and reviewing its output before any history shader or camera matrix fields are added.
+The temporal camera and handedness audits are complete. They prove the camera owner and timing,
+the world-transform offsets, matrix-vector convention, and the direction/up/right column order.
+The supported `i686-pc-windows-gnu` build and Wine-hosted 32-bit unit/HLSL tests pass.
+In-game validation at the reported locations remains required because static analysis cannot
+reproduce third-party D3D state or judge the visual stability/ghosting tradeoff.
 
 ## Current pipeline
 
@@ -26,8 +35,11 @@ OMV runs AO at the outer `ImageSpaceManager::ProcessImageSpaceShaders` hook, bef
 2. Copy the scene color from the rendered-texture source.
 3. Run a half-resolution AO extraction pass.
 4. Run horizontal and vertical bilateral blur passes.
-5. Composite AO into the full-resolution scene target.
-6. Restore the D3D9 state block and continue vanilla image-space processing.
+5. Reproject the previous half-resolution AO into the current camera, reject disocclusions,
+   and clamp accepted history to the current neighborhood.
+6. Composite the stabilized AO into the full-resolution scene target.
+7. Publish the stabilized AO/depth-key pair as next-frame history.
+8. Restore the D3D9 state block and continue vanilla image-space processing.
 
 The pipeline uses:
 
@@ -45,6 +57,7 @@ The relevant implementation is in:
 - `omv/src/effects/ambient_occlusion.rs`
 - `omv/shaders/embedded/ambient_occlusion_extract.hlsl`
 - `omv/shaders/embedded/ambient_occlusion_blur.hlsl`
+- `omv/shaders/embedded/ambient_occlusion_temporal.hlsl`
 - `omv/shaders/embedded/ambient_occlusion_compose.hlsl`
 
 ## Findings
@@ -102,15 +115,19 @@ OMV's post-`RenderFirstPerson` hook therefore resolves the first-person depth af
 
 Generation telemetry is still useful to defend this contract and to diagnose nonstandard render paths, but moving the capture into `ProcessImageSpaceShaders` is no longer part of the fix plan.
 
-### 4. Both `stability` settings are currently no-ops
+### 4. Both `stability` settings were no-ops
 
-Confidence: confirmed.
+Confidence: confirmed defect; implemented.
 
 The Fast AO stability value is stored in `FastOption2.x`, and Contact AO stability is stored in `ContactOption1.w`. Neither value is read by the extract, blur, or compose shader. There is no AO history texture, camera reprojection, disocclusion rejection, or camera-cut reset.
 
 The eight-sample kernel is rotated by a hash of the half-resolution screen pixel. A world point receives a different kernel orientation as it moves between pixels. This can produce shimmer or local AO instability during camera/player movement. It does not by itself explain a clean full-screen or whole-region toggle.
 
-The UI must not claim that `stability` works until it has a real, proven implementation.
+The temporal pass now weights the two stability settings by their enabled AO strengths. It uses
+the camera transform captured with world depth, not the phase-mutable shader-manager camera.
+History is rejected for nonconsecutive depth epochs, resource recreation, invalid transforms,
+first-person pixels, off-screen reprojection, behind-near-plane reprojection, and depth mismatch.
+Accepted history is clamped to the current AO neighborhood before blending.
 
 ### 5. Shader rejection paths are not observable enough
 
@@ -159,6 +176,8 @@ The completed audits are:
 
 - `analysis/ghidra/output/perf/graphics_fnv_ao_state_capture_contract_audit.txt`
 - `analysis/ghidra/output/perf/graphics_fnv_image_space_pass_state_vtable_followup.txt`
+- `analysis/ghidra/output/perf/graphics_fnv_ao_temporal_camera_contract_audit.txt`
+- `analysis/ghidra/output/perf/graphics_fnv_ao_temporal_basis_handedness_followup.txt`
 
 They prove:
 
@@ -166,6 +185,10 @@ They prove:
 2. native image-space pass construction explicitly disables alpha testing;
 3. OMV omits that native alpha-test state;
 4. the native preset does not explicitly establish stencil or scissor state.
+5. the persistent World scene-graph camera is republished immediately before image-space work;
+6. camera rotation, translation, scale, and frustum offsets are established;
+7. rotation columns are direction/forward, up, and right, while matrix multiplication uses
+   row-dot-column semantics.
 
 Static Ghidra output cannot show state left by other loaded DLLs or the exact D3D state on a failing frame. Runtime telemetry is also required.
 
@@ -248,18 +271,22 @@ Exit criterion: every AO draw has a current world contract, and every used first
 
 ### Phase 5: implement real stability only after the frame contract is correct
 
+Status: implemented; runtime visual validation is pending.
+
 Do not mask a capture/state bug with extra blur or a shader-only history guess.
 
-First verify whether deterministic current-frame AO still shimmers. If it does, prove the engine camera transform/projection contract needed for reprojection, then implement:
+The camera transform/projection contract is now proven and the implementation includes:
 
-- previous AO/depth history at the AO resolution;
+- previous AO/depth-key history at the AO resolution;
 - current-to-previous camera reprojection;
-- depth and normal rejection for disocclusions;
+- depth rejection for disocclusions;
 - neighborhood clamping;
-- resets on load screens, cell transitions, camera cuts, FOV/aspect/near/far changes, resolution changes, and device reset;
+- resets on skipped captures, effect gaps, resolution/format changes, and device reset, with
+  reprojection/depth rejection handling camera motion, projection changes, and cell transitions;
 - a real mapping from the two `stability` controls to history weight/rejection strength.
 
-Without a proven reprojection contract, keep the AO spatial and deterministic. Do not blend the previous screen pixel at the same UV; that will ghost while the camera moves.
+History is sampled at the reprojected previous-frame UV. It is never blended at the same screen
+pixel merely because the camera moved.
 
 Exit criterion: the same world point remains stable during walking, crouching, jumping, and camera rotation without ghosting or delayed AO.
 
@@ -269,7 +296,7 @@ Exit criterion: the same world point remains stable during walking, crouching, j
 - Recreate targets on size, relevant fallback format, and device changes. Implemented.
 - Make diagnostic state and generation mismatches visible in the log without per-frame spam.
 - Consolidate duplicated screen-pass state setup used by AO, bloom, sunshafts, DOF, and generic screen passes.
-- Keep `stability` hidden or explicitly marked unavailable until Phase 5 implements it; do not silently leave a no-op control.
+- Keep the `stability` controls covered by the temporal shader compile and transform tests.
 
 ## Validation matrix
 
@@ -294,7 +321,7 @@ For every case verify:
 - no sky/fog darkening regression;
 - engine render state is restored after OMV;
 - no new image-space ordering conflict;
-- GPU cost remains within the existing four-pass budget before optional temporal stabilization.
+- GPU cost remains acceptable with the added temporal pass and history copy.
 
 ## Safe diagnostics before implementation
 
@@ -312,5 +339,5 @@ These are diagnostics only, not fixes:
 3. If any switch remains, add bounded state/generation telemetry and reproduce once.
 4. Harden only the additional screen-pass states identified by telemetry.
 5. Add world/first-person generation pairing without moving the proven capture boundary.
-6. Implement proven temporal stability only for residual shimmer.
+6. Validate the implemented temporal stability for residual shimmer and ghosting.
 7. Complete the validation matrix and remove temporary diagnostics.

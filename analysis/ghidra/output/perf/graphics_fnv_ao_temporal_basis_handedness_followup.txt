@@ -1,0 +1,1780 @@
+FNV AO TEMPORAL BASIS AND HANDEDNESS FOLLOW-UP
+
+Questions:
+1. Which camera world-rotation column is passed as direction, up, and right?
+2. Does NiMatrix3 multiply a column vector using row dot products?
+3. Does NiTransform inverse transpose the rotation and divide translation by scale?
+4. What exact formula converts current AO view coordinates to previous camera view coordinates?
+
+Do not implement temporal AO until direction/up/right order and signs are explicit in this output.
+
+----------------------------------------------------------------------
+References TO 0x0045bb80 (NiAVObjectWorldTranslationGetter)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x004e46cd (in FUN_004e46b0)
+  UNCONDITIONAL_CALL @ 0x004e498a (in FUN_004e4730)
+  UNCONDITIONAL_CALL @ 0x0057a653 (in FUN_0057a410)
+  UNCONDITIONAL_CALL @ 0x004e9bf5 (in FUN_004e9bb0)
+  UNCONDITIONAL_CALL @ 0x004e530d (in FUN_004e52f0)
+  UNCONDITIONAL_CALL @ 0x004e5aaa (in FUN_004e59f0)
+  UNCONDITIONAL_CALL @ 0x00450a26 (in FUN_00450770)
+  UNCONDITIONAL_CALL @ 0x004539aa (in FUN_004539a0)
+  UNCONDITIONAL_CALL @ 0x0045258c (in FUN_00452580)
+  UNCONDITIONAL_CALL @ 0x00453403 (in FUN_00452ff0)
+  UNCONDITIONAL_CALL @ 0x0045b0e2 (in FUN_0045b070)
+  UNCONDITIONAL_CALL @ 0x0045b8a2 (in FUN_0045b070)
+  UNCONDITIONAL_CALL @ 0x006372de (in FUN_00636ed0)
+  UNCONDITIONAL_CALL @ 0x00665327 (in FUN_006652e0)
+  UNCONDITIONAL_CALL @ 0x00665334 (in FUN_006652e0)
+  UNCONDITIONAL_CALL @ 0x00665342 (in FUN_006652e0)
+  UNCONDITIONAL_CALL @ 0x006fa6df (in FUN_006fa6d0)
+  UNCONDITIONAL_CALL @ 0x006f59ef (in FUN_006f5970)
+  UNCONDITIONAL_CALL @ 0x0063ad12 (in FUN_0063ac70)
+  UNCONDITIONAL_CALL @ 0x0063bd1e (in FUN_0063bce0)
+  UNCONDITIONAL_CALL @ 0x008706db (in FUN_008706b0)
+  UNCONDITIONAL_CALL @ 0x00871046 (in FUN_00870bd0)
+  UNCONDITIONAL_CALL @ 0x0087181f (in FUN_00871290)
+  UNCONDITIONAL_CALL @ 0x004e1c79 (in FUN_004e1bc0)
+  UNCONDITIONAL_CALL @ 0x004e1d41 (in FUN_004e1bc0)
+  UNCONDITIONAL_CALL @ 0x004e1d8b (in FUN_004e1bc0)
+  UNCONDITIONAL_CALL @ 0x004e2e06 (in FUN_004e21b0)
+  UNCONDITIONAL_CALL @ 0x004ebfb7 (in FUN_004ebef0)
+  UNCONDITIONAL_CALL @ 0x004ecbcd (in FUN_004ecb60)
+  UNCONDITIONAL_CALL @ 0x008744dd (in FUN_008744a0)
+  UNCONDITIONAL_CALL @ 0x00874dc8 (in FUN_00874c10)
+  UNCONDITIONAL_CALL @ 0x00874e78 (in FUN_00874c10)
+  UNCONDITIONAL_CALL @ 0x00874f03 (in FUN_00874c10)
+  UNCONDITIONAL_CALL @ 0x00874fc3 (in FUN_00874c10)
+  UNCONDITIONAL_CALL @ 0x00874feb (in FUN_00874c10)
+  UNCONDITIONAL_CALL @ 0x00875682 (in FUN_00875110)
+  UNCONDITIONAL_CALL @ 0x0087569c (in FUN_00875110)
+  UNCONDITIONAL_CALL @ 0x008756f2 (in FUN_00875110)
+  UNCONDITIONAL_CALL @ 0x00876312 (in FUN_008761e0)
+  UNCONDITIONAL_CALL @ 0x00876344 (in FUN_008761e0)
+  UNCONDITIONAL_CALL @ 0x0089f6a3 (in FUN_0089f580)
+  UNCONDITIONAL_CALL @ 0x008b6798 (in FUN_008b65f0)
+  UNCONDITIONAL_CALL @ 0x008b5cd3 (in FUN_008b52a0)
+  UNCONDITIONAL_CALL @ 0x0058cc92 (in FUN_0058cbc0)
+  UNCONDITIONAL_CALL @ 0x0058cdaf (in FUN_0058ccf0)
+  UNCONDITIONAL_CALL @ 0x0068a6cc (in FUN_0068a600)
+  UNCONDITIONAL_CALL @ 0x0068a77d (in FUN_0068a600)
+  UNCONDITIONAL_CALL @ 0x008bcf18 (in FUN_008bcdf0)
+  UNCONDITIONAL_CALL @ 0x008bcf3f (in FUN_008bcdf0)
+  UNCONDITIONAL_CALL @ 0x00888e24 (in FUN_00888b50)
+  UNCONDITIONAL_CALL @ 0x00888e4b (in FUN_00888b50)
+  UNCONDITIONAL_CALL @ 0x0092f77e (in FUN_0092f260)
+  UNCONDITIONAL_CALL @ 0x0089b5a2 (in FUN_0089a760)
+  UNCONDITIONAL_CALL @ 0x00816a81 (in FUN_00815d00)
+  UNCONDITIONAL_CALL @ 0x008188e1 (in FUN_00818610)
+  UNCONDITIONAL_CALL @ 0x0088e267 (in FUN_0088e1e0)
+  UNCONDITIONAL_CALL @ 0x0088ea4e (in FUN_0088e8d0)
+  UNCONDITIONAL_CALL @ 0x0088ff67 (in FUN_0088fb00)
+  UNCONDITIONAL_CALL @ 0x0089003f (in FUN_0088fb00)
+  UNCONDITIONAL_CALL @ 0x008902a6 (in FUN_0088fb00)
+  UNCONDITIONAL_CALL @ 0x008902e0 (in FUN_0088fb00)
+  UNCONDITIONAL_CALL @ 0x008ae2c3 (in FUN_008ae000)
+  UNCONDITIONAL_CALL @ 0x00523571 (in FUN_00523150)
+  UNCONDITIONAL_CALL @ 0x0052360d (in FUN_00523150)
+  UNCONDITIONAL_CALL @ 0x00524ea7 (in FUN_00524db0)
+  UNCONDITIONAL_CALL @ 0x00524edb (in FUN_00524db0)
+  UNCONDITIONAL_CALL @ 0x00524ee8 (in FUN_00524db0)
+  UNCONDITIONAL_CALL @ 0x00524f55 (in FUN_00524db0)
+  UNCONDITIONAL_CALL @ 0x0083aeb5 (in FUN_0083ac30)
+  UNCONDITIONAL_CALL @ 0x0083aef3 (in FUN_0083ac30)
+  UNCONDITIONAL_CALL @ 0x008affa5 (in FUN_008aff80)
+  UNCONDITIONAL_CALL @ 0x0094b1f7 (in FUN_0094ae40)
+  UNCONDITIONAL_CALL @ 0x0094b27e (in FUN_0094ae40)
+  UNCONDITIONAL_CALL @ 0x0094b3a3 (in FUN_0094ae40)
+  UNCONDITIONAL_CALL @ 0x0094b561 (in FUN_0094ae40)
+  UNCONDITIONAL_CALL @ 0x0094b56e (in FUN_0094ae40)
+  UNCONDITIONAL_CALL @ 0x0094c2c1 (in FUN_0094ae40)
+  UNCONDITIONAL_CALL @ 0x0094c30f (in FUN_0094ae40)
+  UNCONDITIONAL_CALL @ 0x0094a83e (in FUN_0094a0c0)
+  UNCONDITIONAL_CALL @ 0x0062159b (in FUN_006214d0)
+  UNCONDITIONAL_CALL @ 0x009501b7 (in FUN_00950110)
+  ... (truncated)
+  Total: 81 refs
+
+======================================================================
+NiAVObjectWorldTranslationGetter @ 0x0045bb80
+======================================================================
+  Function: FUN_0045bb80 @ 0x0045bb80, Size: 19 bytes
+
+int __fastcall FUN_0045bb80(int param_1)
+
+{
+  return param_1 + 0x8c;
+}
+
+
+
+--- Calls FROM NiAVObjectWorldTranslationGetter (0x0045bb80) ---
+  Total: 0 calls
+
+======================================================================
+BASIS OPERANDS: NiAVObjectWorldTranslationGetter @ 0x0045bb80
+======================================================================
+  L0005:   return param_1 + 0x8c;
+  Total matched lines: 1
+
+----------------------------------------------------------------------
+References TO 0x0045bba0 (CameraWorldDirectionGetterCandidate)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x004e9bec (in FUN_004e9bb0)
+  UNCONDITIONAL_CALL @ 0x0045b88b (in FUN_0045b070)
+  UNCONDITIONAL_CALL @ 0x004a081a (in FUN_004a04c0)
+  UNCONDITIONAL_CALL @ 0x004a08fb (in FUN_004a04c0)
+  UNCONDITIONAL_CALL @ 0x00665354 (in FUN_006652e0)
+  UNCONDITIONAL_CALL @ 0x008744fa (in FUN_008744a0)
+  UNCONDITIONAL_CALL @ 0x0094be63 (in FUN_0094ae40)
+  UNCONDITIONAL_CALL @ 0x0094c09b (in FUN_0094ae40)
+  UNCONDITIONAL_CALL @ 0x005c021d (in FUN_005bfe90)
+  UNCONDITIONAL_CALL @ 0x005c0262 (in FUN_005bfe90)
+  UNCONDITIONAL_CALL @ 0x007f65ea (in FUN_007f52c0)
+  UNCONDITIONAL_CALL @ 0x007f6669 (in FUN_007f52c0)
+  UNCONDITIONAL_CALL @ 0x0077e9c5 (in FUN_0077e750)
+  UNCONDITIONAL_CALL @ 0x007f51cb (in FUN_007f51b0)
+  Total: 14 refs
+
+======================================================================
+CameraWorldDirectionGetterCandidate @ 0x0045bba0
+======================================================================
+  Function: FUN_0045bba0 @ 0x0045bba0, Size: 63 bytes
+
+undefined4 * __thiscall FUN_0045bba0(undefined4 param_1,undefined4 *param_2)
+
+{
+  undefined4 local_10;
+  undefined4 local_c;
+  undefined4 local_8;
+  
+  FUN_006815c0(param_1);
+  FUN_00439f50(0,&local_10);
+  *param_2 = local_10;
+  param_2[1] = local_c;
+  param_2[2] = local_8;
+  return param_2;
+}
+
+
+
+--- Calls FROM CameraWorldDirectionGetterCandidate (0x0045bba0) ---
+  0x0045bbac -> 0x006815c0 FUN_006815c0
+  0x0045bbbd -> 0x00439f50 FUN_00439f50
+  Total: 2 calls
+
+======================================================================
+BASIS OPERANDS: CameraWorldDirectionGetterCandidate @ 0x0045bba0
+======================================================================
+  Total matched lines: 0
+
+----------------------------------------------------------------------
+References TO 0x0045bbe0 (CameraFrustumOrViewportGetterCandidate)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x004e9bc5 (in FUN_004e9bb0)
+  UNCONDITIONAL_CALL @ 0x0045b0ce (in FUN_0045b070)
+  UNCONDITIONAL_CALL @ 0x0045b86e (in FUN_0045b070)
+  UNCONDITIONAL_CALL @ 0x0057d759 (in FUN_0057d4f0)
+  UNCONDITIONAL_CALL @ 0x006fd0d4 (in FUN_006fd080)
+  UNCONDITIONAL_CALL @ 0x0071b5e2 (in FUN_0071b210)
+  UNCONDITIONAL_CALL @ 0x00871698 (in FUN_00871290)
+  UNCONDITIONAL_CALL @ 0x004e98d7 (in FUN_004e9550)
+  UNCONDITIONAL_CALL @ 0x004ec035 (in FUN_004ebef0)
+  UNCONDITIONAL_CALL @ 0x004ecc3b (in FUN_004ecb60)
+  UNCONDITIONAL_CALL @ 0x004eccaf (in FUN_004ecb60)
+  UNCONDITIONAL_CALL @ 0x00873386 (in FUN_00873200)
+  UNCONDITIONAL_CALL @ 0x008018fb (in FUN_00801880)
+  UNCONDITIONAL_CALL @ 0x00874e14 (in FUN_00874c10)
+  UNCONDITIONAL_CALL @ 0x008752d9 (in FUN_00875110)
+  UNCONDITIONAL_CALL @ 0x008d6f8e (in FUN_008d6f50)
+  UNCONDITIONAL_CALL @ 0x008d6bea (in FUN_008d6bb0)
+  UNCONDITIONAL_CALL @ 0x0094c056 (in FUN_0094ae40)
+  UNCONDITIONAL_CALL @ 0x0058c86b (in FUN_0058c5d0)
+  UNCONDITIONAL_CALL @ 0x0058d3b4 (in FUN_0058cf60)
+  UNCONDITIONAL_CALL @ 0x0058d3da (in FUN_0058cf60)
+  UNCONDITIONAL_CALL @ 0x005bfa77 (in FUN_005bf9e0)
+  UNCONDITIONAL_CALL @ 0x00633ae2 (in FUN_006335d0)
+  UNCONDITIONAL_CALL @ 0x007fbbb5 (in FUN_007fba00)
+  Total: 24 refs
+
+======================================================================
+CameraFrustumOrViewportGetterCandidate @ 0x0045bbe0
+======================================================================
+  Function: FUN_0045bbe0 @ 0x0045bbe0, Size: 19 bytes
+
+int __fastcall FUN_0045bbe0(int param_1)
+
+{
+  return param_1 + 0xdc;
+}
+
+
+
+--- Calls FROM CameraFrustumOrViewportGetterCandidate (0x0045bbe0) ---
+  Total: 0 calls
+
+======================================================================
+BASIS OPERANDS: CameraFrustumOrViewportGetterCandidate @ 0x0045bbe0
+======================================================================
+  L0005:   return param_1 + 0xdc;
+  Total matched lines: 1
+
+----------------------------------------------------------------------
+References TO 0x004a0d10 (CameraFrustumOrViewportGetterCandidate)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x004e9bbc (in FUN_004e9bb0)
+  UNCONDITIONAL_CALL @ 0x00464443 (in FUN_00463070)
+  UNCONDITIONAL_CALL @ 0x004a0ac0 (in FUN_004a04c0)
+  UNCONDITIONAL_CALL @ 0x004e9882 (in FUN_004e9550)
+  UNCONDITIONAL_CALL @ 0x004eb392 (in FUN_004eb220)
+  UNCONDITIONAL_CALL @ 0x004eb6f3 (in FUN_004eb540)
+  UNCONDITIONAL_CALL @ 0x004ebd47 (in FUN_004ebbe0)
+  UNCONDITIONAL_CALL @ 0x004ec887 (in FUN_004ec800)
+  UNCONDITIONAL_CALL @ 0x004ecc0f (in FUN_004ecb60)
+  UNCONDITIONAL_CALL @ 0x00874e35 (in FUN_00874c10)
+  UNCONDITIONAL_CALL @ 0x00876465 (in FUN_008761e0)
+  UNCONDITIONAL_CALL @ 0x0046087b (in FUN_004603b0)
+  Total: 12 refs
+
+======================================================================
+CameraFrustumOrViewportGetterCandidate @ 0x004a0d10
+======================================================================
+  Function: FUN_004a0d10 @ 0x004a0d10, Size: 19 bytes
+
+int __fastcall FUN_004a0d10(int param_1)
+
+{
+  return param_1 + 0x100;
+}
+
+
+
+--- Calls FROM CameraFrustumOrViewportGetterCandidate (0x004a0d10) ---
+  Total: 0 calls
+
+======================================================================
+BASIS OPERANDS: CameraFrustumOrViewportGetterCandidate @ 0x004a0d10
+======================================================================
+  Total matched lines: 0
+
+----------------------------------------------------------------------
+References TO 0x004b4500 (NiMatrix3MultiplyVector)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x004e47bc (in FUN_004e4730)
+  UNCONDITIONAL_CALL @ 0x004e47e8 (in FUN_004e4730)
+  UNCONDITIONAL_CALL @ 0x006bd287 (in FUN_006bd040)
+  UNCONDITIONAL_CALL @ 0x004e53dc (in FUN_004e5370)
+  UNCONDITIONAL_CALL @ 0x004e5a7a (in FUN_004e59f0)
+  UNCONDITIONAL_CALL @ 0x004b48ca (in FUN_004b4880)
+  UNCONDITIONAL_CALL @ 0x0062c29f (in FUN_0062c250)
+  UNCONDITIONAL_CALL @ 0x006387b6 (in FUN_00637890)
+  UNCONDITIONAL_CALL @ 0x006389c4 (in FUN_00637890)
+  UNCONDITIONAL_CALL @ 0x00638b8a (in FUN_00637890)
+  UNCONDITIONAL_CALL @ 0x00638d4b (in FUN_00637890)
+  UNCONDITIONAL_CALL @ 0x00524c6d (in FUN_00524c40)
+  UNCONDITIONAL_CALL @ 0x0068e30b (in FUN_0068dea0)
+  UNCONDITIONAL_CALL @ 0x006c2bed (in FUN_006c2650)
+  UNCONDITIONAL_CALL @ 0x006c2c43 (in FUN_006c2650)
+  UNCONDITIONAL_CALL @ 0x006c2c99 (in FUN_006c2650)
+  UNCONDITIONAL_CALL @ 0x006c2cef (in FUN_006c2650)
+  UNCONDITIONAL_CALL @ 0x006c2d45 (in FUN_006c2650)
+  UNCONDITIONAL_CALL @ 0x006c2d9b (in FUN_006c2650)
+  UNCONDITIONAL_CALL @ 0x006c2df1 (in FUN_006c2650)
+  UNCONDITIONAL_CALL @ 0x006c2e47 (in FUN_006c2650)
+  UNCONDITIONAL_CALL @ 0x006c2ecb (in FUN_006c2650)
+  UNCONDITIONAL_CALL @ 0x006c2fcc (in FUN_006c2650)
+  UNCONDITIONAL_CALL @ 0x006c308a (in FUN_006c2650)
+  UNCONDITIONAL_CALL @ 0x006d99f4 (in FUN_006d99a0)
+  UNCONDITIONAL_CALL @ 0x006da46b (in FUN_006da420)
+  UNCONDITIONAL_CALL @ 0x004e505e (in FUN_004e4c80)
+  UNCONDITIONAL_CALL @ 0x004c6e92 (in FUN_004c6dd0)
+  UNCONDITIONAL_CALL @ 0x0089eecb (in FUN_0089d900)
+  UNCONDITIONAL_CALL @ 0x0089f102 (in FUN_0089d900)
+  UNCONDITIONAL_CALL @ 0x008b431c (in FUN_008b42e0)
+  UNCONDITIONAL_CALL @ 0x0088d3de (in FUN_0088d2f0)
+  UNCONDITIONAL_CALL @ 0x0092f574 (in FUN_0092f260)
+  UNCONDITIONAL_CALL @ 0x0092f698 (in FUN_0092f260)
+  UNCONDITIONAL_CALL @ 0x0092f94e (in FUN_0092f260)
+  UNCONDITIONAL_CALL @ 0x0092fe6a (in FUN_0092f260)
+  UNCONDITIONAL_CALL @ 0x0092fee5 (in FUN_0092f260)
+  UNCONDITIONAL_CALL @ 0x009301e5 (in FUN_0092f260)
+  UNCONDITIONAL_CALL @ 0x00930255 (in FUN_0092f260)
+  UNCONDITIONAL_CALL @ 0x0093030d (in FUN_0092f260)
+  UNCONDITIONAL_CALL @ 0x0093044a (in FUN_0092f260)
+  UNCONDITIONAL_CALL @ 0x004e0dcc (in FUN_004e08a0)
+  UNCONDITIONAL_CALL @ 0x004e0e2d (in FUN_004e08a0)
+  UNCONDITIONAL_CALL @ 0x004e0e95 (in FUN_004e08a0)
+  UNCONDITIONAL_CALL @ 0x004e0efb (in FUN_004e08a0)
+  UNCONDITIONAL_CALL @ 0x004e0f70 (in FUN_004e08a0)
+  UNCONDITIONAL_CALL @ 0x004e0fd1 (in FUN_004e08a0)
+  UNCONDITIONAL_CALL @ 0x004e1039 (in FUN_004e08a0)
+  UNCONDITIONAL_CALL @ 0x004e109f (in FUN_004e08a0)
+  UNCONDITIONAL_CALL @ 0x0052517e (in FUN_00524db0)
+  UNCONDITIONAL_CALL @ 0x0094ad1f (in FUN_0094a8c0)
+  UNCONDITIONAL_CALL @ 0x0094b702 (in FUN_0094ae40)
+  UNCONDITIONAL_CALL @ 0x0094b745 (in FUN_0094ae40)
+  UNCONDITIONAL_CALL @ 0x0094b779 (in FUN_0094ae40)
+  UNCONDITIONAL_CALL @ 0x0094b7e8 (in FUN_0094ae40)
+  UNCONDITIONAL_CALL @ 0x0094b858 (in FUN_0094ae40)
+  UNCONDITIONAL_CALL @ 0x0094bad1 (in FUN_0094ae40)
+  UNCONDITIONAL_CALL @ 0x0094bb04 (in FUN_0094ae40)
+  UNCONDITIONAL_CALL @ 0x00952514 (in FUN_00952290)
+  UNCONDITIONAL_CALL @ 0x0095feac (in FUN_0095f930)
+  UNCONDITIONAL_CALL @ 0x009647d4 (in FUN_00964260)
+  UNCONDITIONAL_CALL @ 0x00964912 (in FUN_00964260)
+  UNCONDITIONAL_CALL @ 0x00965e49 (in FUN_00965620)
+  UNCONDITIONAL_CALL @ 0x00965e83 (in FUN_00965620)
+  UNCONDITIONAL_CALL @ 0x009bb3fb (in FUN_009bb240)
+  UNCONDITIONAL_CALL @ 0x009bd48f (in FUN_009bca60)
+  UNCONDITIONAL_CALL @ 0x00a062eb (in FUN_00a04640)
+  UNCONDITIONAL_CALL @ 0x00c348ed (in FUN_00c34890)
+  UNCONDITIONAL_CALL @ 0x00c35ca5 (in FUN_00c35c10)
+  UNCONDITIONAL_CALL @ 0x00c35ccc (in FUN_00c35c10)
+  UNCONDITIONAL_CALL @ 0x00e9b941 (in FUN_00e9b4f0)
+  UNCONDITIONAL_CALL @ 0x00e9c01a (in FUN_00e9b4f0)
+  UNCONDITIONAL_CALL @ 0x00e997b0 (in FUN_00e993d0)
+  UNCONDITIONAL_CALL @ 0x00e99ebf (in FUN_00e993d0)
+  UNCONDITIONAL_CALL @ 0x00e9af10 (in FUN_00e9a280)
+  UNCONDITIONAL_CALL @ 0x00a0b875 (in FUN_00a0b520)
+  UNCONDITIONAL_CALL @ 0x004b4312 (in FUN_004b3e60)
+  UNCONDITIONAL_CALL @ 0x008cd9b5 (in FUN_008cd780)
+  UNCONDITIONAL_CALL @ 0x008cda99 (in FUN_008cd780)
+  UNCONDITIONAL_CALL @ 0x004df58d (in FUN_004df040)
+  UNCONDITIONAL_CALL @ 0x004df5ee (in FUN_004df040)
+  ... (truncated)
+  Total: 81 refs
+
+======================================================================
+NiMatrix3MultiplyVector @ 0x004b4500
+======================================================================
+  Function: FUN_004b4500 @ 0x004b4500, Size: 172 bytes
+
+undefined4 __thiscall FUN_004b4500(float *param_1,undefined4 param_2,float *param_3)
+
+{
+  FUN_00416870(param_1[2] * param_3[2] + param_1[1] * param_3[1] + *param_1 * *param_3,
+               param_1[5] * param_3[2] + param_1[4] * param_3[1] + param_1[3] * *param_3,
+               param_1[8] * param_3[2] + param_1[7] * param_3[1] + param_1[6] * *param_3);
+  return param_2;
+}
+
+
+
+--- Calls FROM NiMatrix3MultiplyVector (0x004b4500) ---
+  0x004b459e -> 0x00416870 FUN_00416870
+  Total: 1 calls
+
+======================================================================
+BASIS OPERANDS: NiMatrix3MultiplyVector @ 0x004b4500
+======================================================================
+  Total matched lines: 0
+
+----------------------------------------------------------------------
+References TO 0x004b4880 (NiTransformInverse)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0068966f (in FUN_00689310)
+  UNCONDITIONAL_CALL @ 0x00638775 (in FUN_00637890)
+  UNCONDITIONAL_CALL @ 0x00638983 (in FUN_00637890)
+  UNCONDITIONAL_CALL @ 0x00638b49 (in FUN_00637890)
+  UNCONDITIONAL_CALL @ 0x00638d0a (in FUN_00637890)
+  UNCONDITIONAL_CALL @ 0x00818537 (in FUN_00818310)
+  UNCONDITIONAL_CALL @ 0x008a54b2 (in FUN_008a5340)
+  UNCONDITIONAL_CALL @ 0x0062c1da (in FUN_0062bfb0)
+  UNCONDITIONAL_CALL @ 0x00a85611 (in FUN_00a855f0)
+  UNCONDITIONAL_CALL @ 0x00c4c2ea (in FUN_00c4c2d0)
+  UNCONDITIONAL_CALL @ 0x004b403e (in FUN_004b3e60)
+  UNCONDITIONAL_CALL @ 0x008cc104 (in FUN_008cba30)
+  UNCONDITIONAL_CALL @ 0x008cc3de (in FUN_008cba30)
+  UNCONDITIONAL_CALL @ 0x009ba9f3 (in FUN_009ba660)
+  UNCONDITIONAL_CALL @ 0x00a9600b (in FUN_00a95fb0)
+  UNCONDITIONAL_CALL @ 0x00c1cf92 (in FUN_00c1cf50)
+  UNCONDITIONAL_CALL @ 0x00c1d24f (in FUN_00c1d230)
+  UNCONDITIONAL_CALL @ 0x00c26e9d (in FUN_00c26de0)
+  UNCONDITIONAL_CALL @ 0x00c269ed (in FUN_00c269b0)
+  UNCONDITIONAL_CALL @ 0x00c26c3a (in FUN_00c26c00)
+  UNCONDITIONAL_CALL @ 0x00c28856 (in FUN_00c287a0)
+  UNCONDITIONAL_CALL @ 0x00c28659 (in FUN_00c28620)
+  UNCONDITIONAL_CALL @ 0x00c2ad42 (in FUN_00c2acb0)
+  UNCONDITIONAL_CALL @ 0x00c2aaf9 (in FUN_00c2aac0)
+  UNCONDITIONAL_CALL @ 0x00c6bbe6 (in FUN_00c6bbb0)
+  UNCONDITIONAL_CALL @ 0x00e6ff17 (in FUN_00e6fe30)
+  UNCONDITIONAL_CALL @ 0x00ba5fc4 (in ???)
+  UNCONDITIONAL_CALL @ 0x00c22bc7 (in ???)
+  UNCONDITIONAL_CALL @ 0x00c2c1d7 (in ???)
+  UNCONDITIONAL_CALL @ 0x00c2fbef (in ???)
+  UNCONDITIONAL_CALL @ 0x00c2f69c (in FUN_00c2f650)
+  UNCONDITIONAL_CALL @ 0x00c2f919 (in FUN_00c2f8d0)
+  UNCONDITIONAL_CALL @ 0x00c31d30 (in ???)
+  UNCONDITIONAL_CALL @ 0x00e85186 (in FUN_00e84ed0)
+  UNCONDITIONAL_CALL @ 0x00e854b1 (in FUN_00e84ed0)
+  UNCONDITIONAL_CALL @ 0x00e8581d (in FUN_00e84ed0)
+  UNCONDITIONAL_CALL @ 0x00e85909 (in FUN_00e84ed0)
+  UNCONDITIONAL_CALL @ 0x00e85b17 (in FUN_00e84ed0)
+  UNCONDITIONAL_CALL @ 0x00c24079 (in ???)
+  UNCONDITIONAL_CALL @ 0x00c27873 (in ???)
+  UNCONDITIONAL_CALL @ 0x00c274fa (in FUN_00c274c0)
+  UNCONDITIONAL_CALL @ 0x00c27fde (in ???)
+  UNCONDITIONAL_CALL @ 0x00c295ff (in ???)
+  UNCONDITIONAL_CALL @ 0x00c2cbcd (in ???)
+  UNCONDITIONAL_CALL @ 0x00c2c989 (in FUN_00c2c950)
+  UNCONDITIONAL_CALL @ 0x00c2e702 (in ???)
+  Total: 46 refs
+
+======================================================================
+NiTransformInverse @ 0x004b4880
+======================================================================
+  Function: FUN_004b4880 @ 0x004b4880, Size: 132 bytes
+
+void __thiscall FUN_004b4880(int param_1,undefined4 *param_2)
+
+{
+  undefined4 *puVar1;
+  undefined4 uVar2;
+  int iVar3;
+  undefined4 *puVar4;
+  undefined1 local_4c [12];
+  undefined1 local_40 [12];
+  undefined1 local_34 [12];
+  undefined1 local_28 [36];
+  
+  puVar1 = (undefined4 *)FUN_004768c0(local_28);
+  puVar4 = param_2;
+  for (iVar3 = 9; iVar3 != 0; iVar3 = iVar3 + -1) {
+    *puVar4 = *puVar1;
+    puVar1 = puVar1 + 1;
+    puVar4 = puVar4 + 1;
+  }
+  param_2[0xc] = 1.0 / *(float *)(param_1 + 0x30);
+  uVar2 = FUN_004a0bd0(local_34);
+  uVar2 = FUN_004b4500(local_40,uVar2);
+  puVar1 = (undefined4 *)FUN_004a3760(local_4c,param_2[0xc],uVar2);
+  param_2[9] = *puVar1;
+  param_2[10] = puVar1[1];
+  param_2[0xb] = puVar1[2];
+  return;
+}
+
+
+
+--- Calls FROM NiTransformInverse (0x004b4880) ---
+  0x004b4892 -> 0x004768c0 FUN_004768c0
+  0x004b48bd -> 0x004a0bd0 FUN_004a0bd0
+  0x004b48ca -> 0x004b4500 NiMatrix3MultiplyVector
+  0x004b48de -> 0x004a3760 FUN_004a3760
+  Total: 4 calls
+
+======================================================================
+BASIS OPERANDS: NiTransformInverse @ 0x004b4880
+======================================================================
+  Total matched lines: 0
+
+----------------------------------------------------------------------
+References TO 0x004e9bb0 (NiRenderer::SetCameraData)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x007139cb (in FUN_007134d0)
+  UNCONDITIONAL_CALL @ 0x00713a62 (in FUN_007134d0)
+  UNCONDITIONAL_CALL @ 0x00713b23 (in FUN_007134d0)
+  UNCONDITIONAL_CALL @ 0x004e98cc (in FUN_004e9550)
+  UNCONDITIONAL_CALL @ 0x004eb3d5 (in FUN_004eb220)
+  UNCONDITIONAL_CALL @ 0x004eb7c5 (in FUN_004eb540)
+  UNCONDITIONAL_CALL @ 0x004ebdd7 (in FUN_004ebbe0)
+  UNCONDITIONAL_CALL @ 0x004ec8ca (in FUN_004ec800)
+  UNCONDITIONAL_CALL @ 0x004ec96e (in FUN_004ec800)
+  UNCONDITIONAL_CALL @ 0x004ecca4 (in FUN_004ecb60)
+  UNCONDITIONAL_CALL @ 0x008018e7 (in FUN_00801880)
+  UNCONDITIONAL_CALL @ 0x00876a41 (in FUN_00876a20)
+  UNCONDITIONAL_CALL @ 0x00b64cc0 (in FUN_00b64bf0)
+  UNCONDITIONAL_CALL @ 0x00b6ba35 (in FUN_00b6ba20)
+  UNCONDITIONAL_CALL @ 0x00b6c0e9 (in FUN_00b6c0d0)
+  UNCONDITIONAL_CALL @ 0x00b9f96c (in FUN_00b9f780)
+  UNCONDITIONAL_CALL @ 0x007fbc14 (in FUN_007fba00)
+  UNCONDITIONAL_CALL @ 0x00b65cf6 (in FUN_00b65c60)
+  UNCONDITIONAL_CALL @ 0x00a695fa (in ???)
+  Total: 19 refs
+
+======================================================================
+NiRenderer::SetCameraData @ 0x004e9bb0
+======================================================================
+  Function: FUN_004e9bb0 @ 0x004e9bb0, Size: 89 bytes
+
+void __fastcall FUN_004e9bb0(undefined4 param_1)
+
+{
+  undefined4 uVar1;
+  undefined4 uVar2;
+  undefined4 uVar3;
+  undefined4 uVar4;
+  undefined4 uVar5;
+  undefined4 uVar6;
+  undefined1 local_28 [12];
+  undefined1 local_1c [12];
+  undefined1 local_10 [12];
+  
+  uVar1 = FUN_004a0d10(param_1);
+  uVar2 = FUN_0045bbe0(uVar1);
+  uVar3 = FUN_004e9c50(local_10);
+  uVar4 = FUN_004e9c10(local_1c);
+  uVar5 = FUN_0045bba0(local_28);
+  uVar6 = FUN_0045bb80(uVar5,uVar4,uVar3,uVar2);
+  FUN_004e9c90(uVar6,uVar5,uVar4,uVar3,uVar2,uVar1);
+  return;
+}
+
+
+
+--- Calls FROM NiRenderer::SetCameraData (0x004e9bb0) ---
+  0x004e9bbc -> 0x004a0d10 CameraFrustumOrViewportGetterCandidate
+  0x004e9bc5 -> 0x0045bbe0 CameraFrustumOrViewportGetterCandidate
+  0x004e9bd2 -> 0x004e9c50 CameraBasisGetterCandidateB
+  0x004e9bdf -> 0x004e9c10 CameraBasisGetterCandidateA
+  0x004e9bec -> 0x0045bba0 CameraWorldDirectionGetterCandidate
+  0x004e9bf5 -> 0x0045bb80 NiAVObjectWorldTranslationGetter
+  0x004e9bfe -> 0x004e9c90 NiRendererDoSetCameraDataDispatch
+  Total: 7 calls
+
+======================================================================
+BASIS OPERANDS: NiRenderer::SetCameraData @ 0x004e9bb0
+======================================================================
+  Total matched lines: 0
+
+----------------------------------------------------------------------
+References TO 0x004e9c10 (CameraBasisGetterCandidateA)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x004e9bdf (in FUN_004e9bb0)
+  UNCONDITIONAL_CALL @ 0x0094be38 (in FUN_0094ae40)
+  Total: 2 refs
+
+======================================================================
+CameraBasisGetterCandidateA @ 0x004e9c10
+======================================================================
+  Function: FUN_004e9c10 @ 0x004e9c10, Size: 63 bytes
+
+undefined4 * __thiscall FUN_004e9c10(undefined4 param_1,undefined4 *param_2)
+
+{
+  undefined4 local_10;
+  undefined4 local_c;
+  undefined4 local_8;
+  
+  FUN_006815c0(param_1);
+  FUN_00439f50(1,&local_10);
+  *param_2 = local_10;
+  param_2[1] = local_c;
+  param_2[2] = local_8;
+  return param_2;
+}
+
+
+
+--- Calls FROM CameraBasisGetterCandidateA (0x004e9c10) ---
+  0x004e9c1c -> 0x006815c0 FUN_006815c0
+  0x004e9c2d -> 0x00439f50 FUN_00439f50
+  Total: 2 calls
+
+======================================================================
+BASIS OPERANDS: CameraBasisGetterCandidateA @ 0x004e9c10
+======================================================================
+  Total matched lines: 0
+
+----------------------------------------------------------------------
+References TO 0x004e9c50 (CameraBasisGetterCandidateB)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x004e9bd2 (in FUN_004e9bb0)
+  Total: 1 refs
+
+======================================================================
+CameraBasisGetterCandidateB @ 0x004e9c50
+======================================================================
+  Function: FUN_004e9c50 @ 0x004e9c50, Size: 63 bytes
+
+undefined4 * __thiscall FUN_004e9c50(undefined4 param_1,undefined4 *param_2)
+
+{
+  undefined4 local_10;
+  undefined4 local_c;
+  undefined4 local_8;
+  
+  FUN_006815c0(param_1);
+  FUN_00439f50(2,&local_10);
+  *param_2 = local_10;
+  param_2[1] = local_c;
+  param_2[2] = local_8;
+  return param_2;
+}
+
+
+
+--- Calls FROM CameraBasisGetterCandidateB (0x004e9c50) ---
+  0x004e9c5c -> 0x006815c0 FUN_006815c0
+  0x004e9c6d -> 0x00439f50 FUN_00439f50
+  Total: 2 calls
+
+======================================================================
+BASIS OPERANDS: CameraBasisGetterCandidateB @ 0x004e9c50
+======================================================================
+  Total matched lines: 0
+
+----------------------------------------------------------------------
+References TO 0x004e9c90 (NiRendererDoSetCameraDataDispatch)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x004e9bfe (in FUN_004e9bb0)
+  Total: 1 refs
+
+======================================================================
+NiRendererDoSetCameraDataDispatch @ 0x004e9c90
+======================================================================
+  Function: FUN_004e9c90 @ 0x004e9c90, Size: 77 bytes
+
+void __thiscall
+FUN_004e9c90(int *param_1,undefined4 param_2,undefined4 param_3,undefined4 param_4,
+            undefined4 param_5,undefined4 param_6,undefined4 param_7)
+
+{
+  char cVar1;
+  
+  cVar1 = FUN_004a0e10("SetCameraData",1);
+  if (cVar1 != '\0') {
+    (**(code **)(*param_1 + 0x18c))(param_2,param_3,param_4,param_5,param_6,param_7);
+  }
+  return;
+}
+
+
+
+--- Calls FROM NiRendererDoSetCameraDataDispatch (0x004e9c90) ---
+  0x004e9ca1 -> 0x004a0e10 FUN_004a0e10
+  Total: 1 calls
+
+======================================================================
+BASIS OPERANDS: NiRendererDoSetCameraDataDispatch @ 0x004e9c90
+======================================================================
+  Total matched lines: 0
+
+----------------------------------------------------------------------
+References TO 0x0062c250 (NiTransformApplyTransform)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00689685 (in FUN_00689310)
+  UNCONDITIONAL_CALL @ 0x0063878e (in FUN_00637890)
+  UNCONDITIONAL_CALL @ 0x0063899c (in FUN_00637890)
+  UNCONDITIONAL_CALL @ 0x00638b62 (in FUN_00637890)
+  UNCONDITIONAL_CALL @ 0x00638d23 (in FUN_00637890)
+  UNCONDITIONAL_CALL @ 0x008b569f (in FUN_008b52a0)
+  UNCONDITIONAL_CALL @ 0x008b5935 (in FUN_008b52a0)
+  UNCONDITIONAL_CALL @ 0x008b4249 (in FUN_008b3fe0)
+  UNCONDITIONAL_CALL @ 0x008a54c8 (in FUN_008a5340)
+  UNCONDITIONAL_CALL @ 0x008e54b5 (in FUN_008e51b0)
+  UNCONDITIONAL_CALL @ 0x0062c1fe (in FUN_0062bfb0)
+  UNCONDITIONAL_CALL @ 0x009bb433 (in FUN_009bb240)
+  UNCONDITIONAL_CALL @ 0x00a68c28 (in FUN_00a68bf0)
+  UNCONDITIONAL_CALL @ 0x00c7d6ad (in FUN_00c7d630)
+  UNCONDITIONAL_CALL @ 0x00c7ecaf (in FUN_00c7e9a0)
+  UNCONDITIONAL_CALL @ 0x00c88607 (in FUN_00c88520)
+  UNCONDITIONAL_CALL @ 0x00c884ff (in FUN_00c884c0)
+  UNCONDITIONAL_CALL @ 0x00a85629 (in FUN_00a855f0)
+  UNCONDITIONAL_CALL @ 0x00a8580c (in FUN_00a855f0)
+  UNCONDITIONAL_CALL @ 0x00a85813 (in FUN_00a855f0)
+  UNCONDITIONAL_CALL @ 0x00a85d7c (in FUN_00a855f0)
+  UNCONDITIONAL_CALL @ 0x00a85d83 (in FUN_00a855f0)
+  UNCONDITIONAL_CALL @ 0x00a860d4 (in FUN_00a855f0)
+  UNCONDITIONAL_CALL @ 0x00a860db (in FUN_00a855f0)
+  UNCONDITIONAL_CALL @ 0x00689a9b (in FUN_00689a10)
+  UNCONDITIONAL_CALL @ 0x009b8211 (in FUN_009b8030)
+  UNCONDITIONAL_CALL @ 0x009b960a (in FUN_009b90b0)
+  UNCONDITIONAL_CALL @ 0x009baa0b (in FUN_009ba660)
+  UNCONDITIONAL_CALL @ 0x00a86627 (in FUN_00a86530)
+  UNCONDITIONAL_CALL @ 0x00c1cfa8 (in FUN_00c1cf50)
+  UNCONDITIONAL_CALL @ 0x00c1d264 (in FUN_00c1d230)
+  UNCONDITIONAL_CALL @ 0x00c1d3aa (in FUN_00c1d230)
+  UNCONDITIONAL_CALL @ 0x00c1d3b1 (in FUN_00c1d230)
+  UNCONDITIONAL_CALL @ 0x00c26eb6 (in FUN_00c26de0)
+  UNCONDITIONAL_CALL @ 0x00c26a06 (in FUN_00c269b0)
+  UNCONDITIONAL_CALL @ 0x00c26c50 (in FUN_00c26c00)
+  UNCONDITIONAL_CALL @ 0x00c2886f (in FUN_00c287a0)
+  UNCONDITIONAL_CALL @ 0x00c2866f (in FUN_00c28620)
+  UNCONDITIONAL_CALL @ 0x00c2ad5b (in FUN_00c2acb0)
+  UNCONDITIONAL_CALL @ 0x00c2ab0f (in FUN_00c2aac0)
+  UNCONDITIONAL_CALL @ 0x00c6bbf5 (in FUN_00c6bbb0)
+  UNCONDITIONAL_CALL @ 0x00e6ff2c (in FUN_00e6fe30)
+  UNCONDITIONAL_CALL @ 0x00e6ff52 (in FUN_00e6fe30)
+  UNCONDITIONAL_CALL @ 0x00e6ffd0 (in FUN_00e6fe30)
+  UNCONDITIONAL_CALL @ 0x00e7001e (in FUN_00e6fe30)
+  UNCONDITIONAL_CALL @ 0x00a7de85 (in FUN_00a7de40)
+  UNCONDITIONAL_CALL @ 0x00c22be0 (in ???)
+  UNCONDITIONAL_CALL @ 0x00c2c1f0 (in ???)
+  UNCONDITIONAL_CALL @ 0x00c2fc0b (in ???)
+  UNCONDITIONAL_CALL @ 0x00c2f6b5 (in FUN_00c2f650)
+  UNCONDITIONAL_CALL @ 0x00c2f92f (in FUN_00c2f8d0)
+  UNCONDITIONAL_CALL @ 0x00c31d43 (in ???)
+  UNCONDITIONAL_CALL @ 0x00e8554a (in FUN_00e84ed0)
+  UNCONDITIONAL_CALL @ 0x00e85567 (in FUN_00e84ed0)
+  UNCONDITIONAL_CALL @ 0x00c27889 (in ???)
+  UNCONDITIONAL_CALL @ 0x00c27510 (in FUN_00c274c0)
+  UNCONDITIONAL_CALL @ 0x00c27ff4 (in ???)
+  UNCONDITIONAL_CALL @ 0x00c29615 (in ???)
+  UNCONDITIONAL_CALL @ 0x00c2cbe6 (in ???)
+  UNCONDITIONAL_CALL @ 0x00c2c99f (in FUN_00c2c950)
+  UNCONDITIONAL_CALL @ 0x00c2e71e (in ???)
+  Total: 61 refs
+
+======================================================================
+NiTransformApplyTransform @ 0x0062c250
+======================================================================
+  Function: FUN_0062c250 @ 0x0062c250, Size: 164 bytes
+
+undefined4 * __thiscall FUN_0062c250(int param_1,undefined4 *param_2,int param_3)
+
+{
+  undefined4 *puVar1;
+  undefined4 uVar2;
+  int iVar3;
+  undefined4 *puVar4;
+  undefined1 local_80 [12];
+  undefined1 local_74 [12];
+  undefined1 local_68 [12];
+  undefined1 local_5c [36];
+  undefined4 local_38 [9];
+  undefined4 local_14;
+  undefined4 local_10;
+  undefined4 local_c;
+  float local_8;
+  
+  FUN_00476a80();
+  local_8 = *(float *)(param_1 + 0x30) * *(float *)(param_3 + 0x30);
+  puVar1 = (undefined4 *)FUN_0043f8d0(local_5c,param_3);
+  puVar4 = local_38;
+  for (iVar3 = 9; iVar3 != 0; iVar3 = iVar3 + -1) {
+    *puVar4 = *puVar1;
+    puVar1 = puVar1 + 1;
+    puVar4 = puVar4 + 1;
+  }
+  uVar2 = FUN_004b4500(local_68,param_3 + 0x24);
+  uVar2 = FUN_004a3760(local_74,*(undefined4 *)(param_1 + 0x30),uVar2);
+  puVar1 = (undefined4 *)FUN_00439e90(local_80,uVar2);
+  local_14 = *puVar1;
+  local_10 = puVar1[1];
+  local_c = puVar1[2];
+  puVar1 = local_38;
+  puVar4 = param_2;
+  for (iVar3 = 0xd; iVar3 != 0; iVar3 = iVar3 + -1) {
+    *puVar4 = *puVar1;
+    puVar1 = puVar1 + 1;
+    puVar4 = puVar4 + 1;
+  }
+  return param_2;
+}
+
+
+
+--- Calls FROM NiTransformApplyTransform (0x0062c250) ---
+  0x0062c261 -> 0x00476a80 FUN_00476a80
+  0x0062c280 -> 0x0043f8d0 FUN_0043f8d0
+  0x0062c29f -> 0x004b4500 NiMatrix3MultiplyVector
+  0x0062c2b3 -> 0x004a3760 FUN_004a3760
+  0x0062c2c6 -> 0x00439e90 FUN_00439e90
+  Total: 5 calls
+
+======================================================================
+BASIS OPERANDS: NiTransformApplyTransform @ 0x0062c250
+======================================================================
+  Total matched lines: 0
+
+Bytes @ 0x0045bb80 (NiAVObjectWorldTranslationGetter): 55 8B EC 51 89 4D FC 8B 45 FC 05 8C 00 00 00 8B
+
+----------------------------------------------------------------------
+Disassembly NiAVObjectWorldTranslationGetter around 0x0045bb80
+----------------------------------------------------------------------
+  0x0045bb52: MOV EDX,dword ptr [EBP + -0x4]                      
+  0x0045bb55: FMUL float ptr [EDX]                                
+  0x0045bb57: FSTP float ptr [EBP + -0x10]                        
+  0x0045bb5a: FLD float ptr [EBP + -0x10]                         
+  0x0045bb5d: PUSH ECX                                            
+  0x0045bb5e: FSTP float ptr [ESP]                                
+  0x0045bb61: MOV ECX,dword ptr [EBP + 0x8]                       
+  0x0045bb64: CALL 0x00416870                                      ; CALL 0x00416870 FUN_00416870
+  0x0045bb69: MOV EAX,dword ptr [EBP + 0x8]                       
+  0x0045bb6c: MOV ESP,EBP                                         
+  0x0045bb6e: POP EBP                                             
+  0x0045bb6f: RET 0x8                                             
+  0x0045bb80: PUSH EBP                                             << TARGET
+  0x0045bb81: MOV EBP,ESP                                         
+  0x0045bb83: PUSH ECX                                            
+  0x0045bb84: MOV dword ptr [EBP + -0x4],ECX                      
+  0x0045bb87: MOV EAX,dword ptr [EBP + -0x4]                      
+  0x0045bb8a: ADD EAX,0x8c                                        
+  0x0045bb8f: MOV ESP,EBP                                         
+  0x0045bb91: POP EBP                                             
+  0x0045bb92: RET                                                 
+  0x0045bba0: PUSH EBP                                            
+  0x0045bba1: MOV EBP,ESP                                         
+  0x0045bba3: SUB ESP,0x10                                        
+  0x0045bba6: MOV dword ptr [EBP + -0x10],ECX                     
+  0x0045bba9: LEA ECX,[EBP + -0xc]                                
+  0x0045bbac: CALL 0x006815c0                                      ; CALL 0x006815c0 FUN_006815c0
+  0x0045bbb1: LEA EAX,[EBP + -0xc]                                
+  0x0045bbb4: PUSH EAX                                            
+  0x0045bbb5: PUSH 0x0                                            
+  0x0045bbb7: MOV ECX,dword ptr [EBP + -0x10]                     
+  0x0045bbba: ADD ECX,0x68                                        
+  0x0045bbbd: CALL 0x00439f50                                      ; CALL 0x00439f50 FUN_00439f50
+  0x0045bbc2: MOV ECX,dword ptr [EBP + 0x8]                       
+  0x0045bbc5: MOV EDX,dword ptr [EBP + -0xc]                      
+  0x0045bbc8: MOV dword ptr [ECX],EDX                             
+  0x0045bbca: MOV EAX,dword ptr [EBP + -0x8]                      
+  0x0045bbcd: MOV dword ptr [ECX + 0x4],EAX                       
+  0x0045bbd0: MOV EDX,dword ptr [EBP + -0x4]                      
+  0x0045bbd3: MOV dword ptr [ECX + 0x8],EDX                       
+  0x0045bbd6: MOV EAX,dword ptr [EBP + 0x8]                       
+  0x0045bbd9: MOV ESP,EBP                                         
+  0x0045bbdb: POP EBP                                             
+  0x0045bbdc: RET 0x4                                             
+  0x0045bbe0: PUSH EBP                                            
+  0x0045bbe1: MOV EBP,ESP                                         
+  0x0045bbe3: PUSH ECX                                            
+  0x0045bbe4: MOV dword ptr [EBP + -0x4],ECX                      
+  0x0045bbe7: MOV EAX,dword ptr [EBP + -0x4]                      
+  0x0045bbea: ADD EAX,0xdc                                        
+  0x0045bbef: MOV ESP,EBP                                         
+  0x0045bbf1: POP EBP                                             
+  0x0045bbf2: RET                                                 
+  0x0045bc00: PUSH EBP                                            
+  0x0045bc01: MOV EBP,ESP                                         
+  0x0045bc03: PUSH ECX                                            
+  0x0045bc04: MOV dword ptr [EBP + -0x4],ECX                      
+  0x0045bc07: MOV ECX,dword ptr [EBP + -0x4]                      
+  0x0045bc0a: ADD ECX,0x9c                                        
+  0x0045bc10: CALL 0x00658930                                      ; CALL 0x00658930 FUN_00658930
+  0x0045bc15: CMP EAX,dword ptr [EBP + 0x8]                       
+  0x0045bc18: JA 0x0045bc20                                       
+  0x0045bc1a: XOR EAX,EAX                                         
+  0x0045bc1c: JMP 0x0045bc39                                      
+  0x0045bc20: MOV EAX,dword ptr [EBP + 0x8]                       
+  0x0045bc23: PUSH EAX                                            
+  0x0045bc24: MOV ECX,dword ptr [EBP + -0x4]                      
+  0x0045bc27: ADD ECX,0x9c                                        
+  0x0045bc2d: CALL 0x00877a30                                      ; CALL 0x00877a30 FUN_00877a30
+  0x0045bc32: MOV ECX,EAX                                         
+  0x0045bc34: CALL 0x00559450                                      ; CALL 0x00559450 FUN_00559450
+  0x0045bc39: MOV ESP,EBP                                         
+  0x0045bc3b: POP EBP                                             
+  0x0045bc3c: RET 0x4                                             
+  0x0045bc40: PUSH EBP                                            
+  0x0045bc41: MOV EBP,ESP                                         
+  0x0045bc43: PUSH ECX                                            
+  0x0045bc44: MOV dword ptr [EBP + -0x4],ECX                      
+  0x0045bc47: MOV EAX,dword ptr [EBP + 0x8]                       
+  0x0045bc4a: PUSH EAX                                            
+  0x0045bc4b: MOV ECX,dword ptr [EBP + -0x4]                      
+  0x0045bc4e: ADD ECX,0x2c                                        
+  0x0045bc51: CALL 0x0066b0d0                                      ; CALL 0x0066b0d0 FUN_0066b0d0
+  0x0045bc56: MOV ESP,EBP                                         
+  0x0045bc58: POP EBP                                             
+
+Bytes @ 0x0045bba0 (CameraWorldDirectionGetterCandidate): 55 8B EC 83 EC 10 89 4D F0 8D 4D F4 E8 0F 5A 22
+
+----------------------------------------------------------------------
+Disassembly CameraWorldDirectionGetterCandidate around 0x0045bba0
+----------------------------------------------------------------------
+  0x0045bb6c: MOV ESP,EBP                                         
+  0x0045bb6e: POP EBP                                             
+  0x0045bb6f: RET 0x8                                             
+  0x0045bb80: PUSH EBP                                            
+  0x0045bb81: MOV EBP,ESP                                         
+  0x0045bb83: PUSH ECX                                            
+  0x0045bb84: MOV dword ptr [EBP + -0x4],ECX                      
+  0x0045bb87: MOV EAX,dword ptr [EBP + -0x4]                      
+  0x0045bb8a: ADD EAX,0x8c                                        
+  0x0045bb8f: MOV ESP,EBP                                         
+  0x0045bb91: POP EBP                                             
+  0x0045bb92: RET                                                 
+  0x0045bba0: PUSH EBP                                             << TARGET
+  0x0045bba1: MOV EBP,ESP                                         
+  0x0045bba3: SUB ESP,0x10                                        
+  0x0045bba6: MOV dword ptr [EBP + -0x10],ECX                     
+  0x0045bba9: LEA ECX,[EBP + -0xc]                                
+  0x0045bbac: CALL 0x006815c0                                      ; CALL 0x006815c0 FUN_006815c0
+  0x0045bbb1: LEA EAX,[EBP + -0xc]                                
+  0x0045bbb4: PUSH EAX                                            
+  0x0045bbb5: PUSH 0x0                                            
+  0x0045bbb7: MOV ECX,dword ptr [EBP + -0x10]                     
+  0x0045bbba: ADD ECX,0x68                                        
+  0x0045bbbd: CALL 0x00439f50                                      ; CALL 0x00439f50 FUN_00439f50
+  0x0045bbc2: MOV ECX,dword ptr [EBP + 0x8]                       
+  0x0045bbc5: MOV EDX,dword ptr [EBP + -0xc]                      
+  0x0045bbc8: MOV dword ptr [ECX],EDX                             
+  0x0045bbca: MOV EAX,dword ptr [EBP + -0x8]                      
+  0x0045bbcd: MOV dword ptr [ECX + 0x4],EAX                       
+  0x0045bbd0: MOV EDX,dword ptr [EBP + -0x4]                      
+  0x0045bbd3: MOV dword ptr [ECX + 0x8],EDX                       
+  0x0045bbd6: MOV EAX,dword ptr [EBP + 0x8]                       
+  0x0045bbd9: MOV ESP,EBP                                         
+  0x0045bbdb: POP EBP                                             
+  0x0045bbdc: RET 0x4                                             
+  0x0045bbe0: PUSH EBP                                            
+  0x0045bbe1: MOV EBP,ESP                                         
+  0x0045bbe3: PUSH ECX                                            
+  0x0045bbe4: MOV dword ptr [EBP + -0x4],ECX                      
+  0x0045bbe7: MOV EAX,dword ptr [EBP + -0x4]                      
+  0x0045bbea: ADD EAX,0xdc                                        
+  0x0045bbef: MOV ESP,EBP                                         
+  0x0045bbf1: POP EBP                                             
+  0x0045bbf2: RET                                                 
+  0x0045bc00: PUSH EBP                                            
+  0x0045bc01: MOV EBP,ESP                                         
+  0x0045bc03: PUSH ECX                                            
+  0x0045bc04: MOV dword ptr [EBP + -0x4],ECX                      
+  0x0045bc07: MOV ECX,dword ptr [EBP + -0x4]                      
+  0x0045bc0a: ADD ECX,0x9c                                        
+  0x0045bc10: CALL 0x00658930                                      ; CALL 0x00658930 FUN_00658930
+  0x0045bc15: CMP EAX,dword ptr [EBP + 0x8]                       
+  0x0045bc18: JA 0x0045bc20                                       
+  0x0045bc1a: XOR EAX,EAX                                         
+  0x0045bc1c: JMP 0x0045bc39                                      
+  0x0045bc20: MOV EAX,dword ptr [EBP + 0x8]                       
+  0x0045bc23: PUSH EAX                                            
+  0x0045bc24: MOV ECX,dword ptr [EBP + -0x4]                      
+  0x0045bc27: ADD ECX,0x9c                                        
+  0x0045bc2d: CALL 0x00877a30                                      ; CALL 0x00877a30 FUN_00877a30
+  0x0045bc32: MOV ECX,EAX                                         
+  0x0045bc34: CALL 0x00559450                                      ; CALL 0x00559450 FUN_00559450
+  0x0045bc39: MOV ESP,EBP                                         
+  0x0045bc3b: POP EBP                                             
+  0x0045bc3c: RET 0x4                                             
+  0x0045bc40: PUSH EBP                                            
+  0x0045bc41: MOV EBP,ESP                                         
+  0x0045bc43: PUSH ECX                                            
+  0x0045bc44: MOV dword ptr [EBP + -0x4],ECX                      
+  0x0045bc47: MOV EAX,dword ptr [EBP + 0x8]                       
+  0x0045bc4a: PUSH EAX                                            
+  0x0045bc4b: MOV ECX,dword ptr [EBP + -0x4]                      
+  0x0045bc4e: ADD ECX,0x2c                                        
+  0x0045bc51: CALL 0x0066b0d0                                      ; CALL 0x0066b0d0 FUN_0066b0d0
+  0x0045bc56: MOV ESP,EBP                                         
+  0x0045bc58: POP EBP                                             
+  0x0045bc59: RET 0x4                                             
+  0x0045bc60: PUSH EBP                                            
+  0x0045bc61: MOV EBP,ESP                                         
+  0x0045bc63: PUSH ECX                                            
+  0x0045bc64: MOV dword ptr [EBP + -0x4],ECX                      
+  0x0045bc67: MOV ECX,dword ptr [EBP + -0x4]                      
+  0x0045bc6a: ADD ECX,0x30                                        
+  0x0045bc6d: CALL 0x004a4650                                      ; CALL 0x004a4650 FUN_004a4650
+  0x0045bc72: MOV ESP,EBP                                         
+
+Bytes @ 0x0045bbe0 (CameraFrustumOrViewportGetterCandidate): 55 8B EC 51 89 4D FC 8B 45 FC 05 DC 00 00 00 8B
+
+----------------------------------------------------------------------
+Disassembly CameraFrustumOrViewportGetterCandidate around 0x0045bbe0
+----------------------------------------------------------------------
+  0x0045bbbd: CALL 0x00439f50                                      ; CALL 0x00439f50 FUN_00439f50
+  0x0045bbc2: MOV ECX,dword ptr [EBP + 0x8]                       
+  0x0045bbc5: MOV EDX,dword ptr [EBP + -0xc]                      
+  0x0045bbc8: MOV dword ptr [ECX],EDX                             
+  0x0045bbca: MOV EAX,dword ptr [EBP + -0x8]                      
+  0x0045bbcd: MOV dword ptr [ECX + 0x4],EAX                       
+  0x0045bbd0: MOV EDX,dword ptr [EBP + -0x4]                      
+  0x0045bbd3: MOV dword ptr [ECX + 0x8],EDX                       
+  0x0045bbd6: MOV EAX,dword ptr [EBP + 0x8]                       
+  0x0045bbd9: MOV ESP,EBP                                         
+  0x0045bbdb: POP EBP                                             
+  0x0045bbdc: RET 0x4                                             
+  0x0045bbe0: PUSH EBP                                             << TARGET
+  0x0045bbe1: MOV EBP,ESP                                         
+  0x0045bbe3: PUSH ECX                                            
+  0x0045bbe4: MOV dword ptr [EBP + -0x4],ECX                      
+  0x0045bbe7: MOV EAX,dword ptr [EBP + -0x4]                      
+  0x0045bbea: ADD EAX,0xdc                                        
+  0x0045bbef: MOV ESP,EBP                                         
+  0x0045bbf1: POP EBP                                             
+  0x0045bbf2: RET                                                 
+  0x0045bc00: PUSH EBP                                            
+  0x0045bc01: MOV EBP,ESP                                         
+  0x0045bc03: PUSH ECX                                            
+  0x0045bc04: MOV dword ptr [EBP + -0x4],ECX                      
+  0x0045bc07: MOV ECX,dword ptr [EBP + -0x4]                      
+  0x0045bc0a: ADD ECX,0x9c                                        
+  0x0045bc10: CALL 0x00658930                                      ; CALL 0x00658930 FUN_00658930
+  0x0045bc15: CMP EAX,dword ptr [EBP + 0x8]                       
+  0x0045bc18: JA 0x0045bc20                                       
+  0x0045bc1a: XOR EAX,EAX                                         
+  0x0045bc1c: JMP 0x0045bc39                                      
+  0x0045bc20: MOV EAX,dword ptr [EBP + 0x8]                       
+  0x0045bc23: PUSH EAX                                            
+  0x0045bc24: MOV ECX,dword ptr [EBP + -0x4]                      
+  0x0045bc27: ADD ECX,0x9c                                        
+  0x0045bc2d: CALL 0x00877a30                                      ; CALL 0x00877a30 FUN_00877a30
+  0x0045bc32: MOV ECX,EAX                                         
+  0x0045bc34: CALL 0x00559450                                      ; CALL 0x00559450 FUN_00559450
+  0x0045bc39: MOV ESP,EBP                                         
+  0x0045bc3b: POP EBP                                             
+  0x0045bc3c: RET 0x4                                             
+  0x0045bc40: PUSH EBP                                            
+  0x0045bc41: MOV EBP,ESP                                         
+  0x0045bc43: PUSH ECX                                            
+  0x0045bc44: MOV dword ptr [EBP + -0x4],ECX                      
+  0x0045bc47: MOV EAX,dword ptr [EBP + 0x8]                       
+  0x0045bc4a: PUSH EAX                                            
+  0x0045bc4b: MOV ECX,dword ptr [EBP + -0x4]                      
+  0x0045bc4e: ADD ECX,0x2c                                        
+  0x0045bc51: CALL 0x0066b0d0                                      ; CALL 0x0066b0d0 FUN_0066b0d0
+  0x0045bc56: MOV ESP,EBP                                         
+  0x0045bc58: POP EBP                                             
+  0x0045bc59: RET 0x4                                             
+  0x0045bc60: PUSH EBP                                            
+  0x0045bc61: MOV EBP,ESP                                         
+  0x0045bc63: PUSH ECX                                            
+  0x0045bc64: MOV dword ptr [EBP + -0x4],ECX                      
+  0x0045bc67: MOV ECX,dword ptr [EBP + -0x4]                      
+  0x0045bc6a: ADD ECX,0x30                                        
+  0x0045bc6d: CALL 0x004a4650                                      ; CALL 0x004a4650 FUN_004a4650
+  0x0045bc72: MOV ESP,EBP                                         
+  0x0045bc74: POP EBP                                             
+  0x0045bc75: RET                                                 
+  0x0045bc80: PUSH EBP                                            
+  0x0045bc81: MOV EBP,ESP                                         
+  0x0045bc83: PUSH -0x1                                           
+  0x0045bc85: PUSH 0xeed6b8                                       
+  0x0045bc8a: MOV EAX,FS:[0x0]                                    
+  0x0045bc90: PUSH EAX                                            
+  0x0045bc91: SUB ESP,0xc4                                        
+  0x0045bc97: MOV EAX,[0x011c16bc]                                
+  0x0045bc9c: XOR EAX,EBP                                         
+  0x0045bc9e: PUSH EAX                                            
+  0x0045bc9f: LEA EAX,[EBP + -0xc]                                
+  0x0045bca2: MOV FS:[0x0],EAX                                    
+  0x0045bca8: MOV dword ptr [EBP + 0xffffff3c],ECX                
+  0x0045bcae: MOV EAX,dword ptr [EBP + 0xffffff3c]                
+  0x0045bcb4: CMP dword ptr [EAX + 0x34],0x0                      
+  0x0045bcb8: JZ 0x0045bd42                                       
+  0x0045bcbe: PUSH 0x7                                            
+  0x0045bcc0: MOV ECX,dword ptr [EBP + 0xffffff3c]                
+  0x0045bcc6: MOV ECX,dword ptr [ECX + 0x34]                      
+  0x0045bcc9: CALL 0x00456fc0                                      ; CALL 0x00456fc0 FUN_00456fc0
+  0x0045bcce: MOV dword ptr [EBP + -0x18],EAX                     
+
+Bytes @ 0x004a0d10 (CameraFrustumOrViewportGetterCandidate): 55 8B EC 51 89 4D FC 8B 45 FC 05 00 01 00 00 8B
+
+----------------------------------------------------------------------
+Disassembly CameraFrustumOrViewportGetterCandidate around 0x004a0d10
+----------------------------------------------------------------------
+  0x004a0ce5: MOV EDX,dword ptr [EBP + -0xc]                      
+  0x004a0ce8: FLDZ                                                
+  0x004a0cea: FSTP float ptr [EDX + 0x18]                         
+  0x004a0ced: MOV EAX,dword ptr [EBP + -0xc]                      
+  0x004a0cf0: FLDZ                                                
+  0x004a0cf2: FSTP float ptr [EAX + 0x1c]                         
+  0x004a0cf5: MOV ECX,dword ptr [EBP + -0xc]                      
+  0x004a0cf8: FLD1                                                
+  0x004a0cfa: FSTP float ptr [ECX + 0x20]                         
+  0x004a0cfd: MOV ESP,EBP                                         
+  0x004a0cff: POP EBP                                             
+  0x004a0d00: RET 0x4                                             
+  0x004a0d10: PUSH EBP                                             << TARGET
+  0x004a0d11: MOV EBP,ESP                                         
+  0x004a0d13: PUSH ECX                                            
+  0x004a0d14: MOV dword ptr [EBP + -0x4],ECX                      
+  0x004a0d17: MOV EAX,dword ptr [EBP + -0x4]                      
+  0x004a0d1a: ADD EAX,0x100                                       
+  0x004a0d1f: MOV ESP,EBP                                         
+  0x004a0d21: POP EBP                                             
+  0x004a0d22: RET                                                 
+  0x004a0d30: PUSH EBP                                            
+  0x004a0d31: MOV EBP,ESP                                         
+  0x004a0d33: PUSH ECX                                            
+  0x004a0d34: MOV dword ptr [EBP + -0x4],ECX                      
+  0x004a0d37: MOV EAX,dword ptr [EBP + -0x4]                      
+  0x004a0d3a: ADD EAX,0x34                                        
+  0x004a0d3d: MOV ECX,dword ptr [EBP + 0x8]                       
+  0x004a0d40: MOV EDX,dword ptr [EAX]                             
+  0x004a0d42: MOV dword ptr [ECX],EDX                             
+  0x004a0d44: MOV EDX,dword ptr [EAX + 0x4]                       
+  0x004a0d47: MOV dword ptr [ECX + 0x4],EDX                       
+  0x004a0d4a: MOV EAX,dword ptr [EAX + 0x8]                       
+  0x004a0d4d: MOV dword ptr [ECX + 0x8],EAX                       
+  0x004a0d50: MOV EAX,dword ptr [EBP + 0x8]                       
+  0x004a0d53: MOV ESP,EBP                                         
+  0x004a0d55: POP EBP                                             
+  0x004a0d56: RET 0x4                                             
+  0x004a0d60: PUSH EBP                                            
+  0x004a0d61: MOV EBP,ESP                                         
+  0x004a0d63: PUSH ECX                                            
+  0x004a0d64: MOV dword ptr [EBP + -0x4],ECX                      
+  0x004a0d67: MOV EAX,dword ptr [EBP + -0x4]                      
+  0x004a0d6a: ADD EAX,0x40                                        
+  0x004a0d6d: MOV ECX,dword ptr [EBP + 0x8]                       
+  0x004a0d70: MOV EDX,dword ptr [EAX]                             
+  0x004a0d72: MOV dword ptr [ECX],EDX                             
+  0x004a0d74: MOV EDX,dword ptr [EAX + 0x4]                       
+  0x004a0d77: MOV dword ptr [ECX + 0x4],EDX                       
+  0x004a0d7a: MOV EAX,dword ptr [EAX + 0x8]                       
+  0x004a0d7d: MOV dword ptr [ECX + 0x8],EAX                       
+  0x004a0d80: MOV EAX,dword ptr [EBP + 0x8]                       
+  0x004a0d83: MOV ESP,EBP                                         
+  0x004a0d85: POP EBP                                             
+  0x004a0d86: RET 0x4                                             
+  0x004a0d90: PUSH EBP                                            
+  0x004a0d91: MOV EBP,ESP                                         
+  0x004a0d93: PUSH ECX                                            
+  0x004a0d94: MOV dword ptr [EBP + -0x4],ECX                      
+  0x004a0d97: MOV EAX,dword ptr [EBP + -0x4]                      
+  0x004a0d9a: FLD float ptr [EAX + 0x11c]                         
+  0x004a0da0: MOV ESP,EBP                                         
+  0x004a0da2: POP EBP                                             
+  0x004a0da3: RET                                                 
+  0x004a0db0: PUSH EBP                                            
+  0x004a0db1: MOV EBP,ESP                                         
+  0x004a0db3: PUSH ECX                                            
+  0x004a0db4: MOV dword ptr [EBP + -0x4],ECX                      
+  0x004a0db7: MOV EAX,dword ptr [EBP + -0x4]                      
+  0x004a0dba: FLD float ptr [EAX + 0x120]                         
+  0x004a0dc0: MOV ESP,EBP                                         
+  0x004a0dc2: POP EBP                                             
+  0x004a0dc3: RET                                                 
+  0x004a0dd0: PUSH EBP                                            
+  0x004a0dd1: MOV EBP,ESP                                         
+  0x004a0dd3: PUSH ECX                                            
+  0x004a0dd4: MOV dword ptr [EBP + -0x4],ECX                      
+  0x004a0dd7: PUSH 0x1                                            
+  0x004a0dd9: PUSH 0x101e2c8                                      
+  0x004a0dde: MOV ECX,dword ptr [EBP + -0x4]                      
+  0x004a0de1: CALL 0x004a0e10                                      ; CALL 0x004a0e10 FUN_004a0e10
+  0x004a0de6: MOVZX EAX,AL                                        
+  0x004a0de9: TEST EAX,EAX                                        
+  0x004a0deb: JNZ 0x004a0def                                      
+  0x004a0ded: JMP 0x004a0e03                                      
+
+Bytes @ 0x004b4500 (NiMatrix3MultiplyVector): 55 8B EC 83 EC 10 89 4D FC 8B 45 FC D9 40 18 8B
+
+----------------------------------------------------------------------
+Disassembly NiMatrix3MultiplyVector around 0x004b4500
+----------------------------------------------------------------------
+  0x004b44d4: MOV dword ptr [EBP + -0x4],0xffffffff               
+  0x004b44db: LEA ECX,[EBP + -0x24]                               
+  0x004b44de: CALL 0x004b9cd0                                      ; CALL 0x004b9cd0 FID_conflict:~ctype<char>
+  0x004b44e3: MOV AL,byte ptr [EBP + 0xfffffe8b]                  
+  0x004b44e9: MOV ECX,dword ptr [EBP + -0xc]                      
+  0x004b44ec: MOV dword ptr FS:[0x0],ECX                          
+  0x004b44f3: POP ECX                                             
+  0x004b44f4: POP EDI                                             
+  0x004b44f5: POP ESI                                             
+  0x004b44f6: MOV ESP,EBP                                         
+  0x004b44f8: POP EBP                                             
+  0x004b44f9: RET                                                 
+  0x004b4500: PUSH EBP                                             << TARGET
+  0x004b4501: MOV EBP,ESP                                         
+  0x004b4503: SUB ESP,0x10                                        
+  0x004b4506: MOV dword ptr [EBP + -0x4],ECX                      
+  0x004b4509: MOV EAX,dword ptr [EBP + -0x4]                      
+  0x004b450c: FLD float ptr [EAX + 0x18]                          
+  0x004b450f: MOV ECX,dword ptr [EBP + 0xc]                       
+  0x004b4512: FMUL float ptr [ECX]                                
+  0x004b4514: MOV EDX,dword ptr [EBP + -0x4]                      
+  0x004b4517: FLD float ptr [EDX + 0x1c]                          
+  0x004b451a: MOV EAX,dword ptr [EBP + 0xc]                       
+  0x004b451d: FMUL float ptr [EAX + 0x4]                          
+  0x004b4520: FADDP                                               
+  0x004b4522: MOV ECX,dword ptr [EBP + -0x4]                      
+  0x004b4525: FLD float ptr [ECX + 0x20]                          
+  0x004b4528: MOV EDX,dword ptr [EBP + 0xc]                       
+  0x004b452b: FMUL float ptr [EDX + 0x8]                          
+  0x004b452e: FADDP                                               
+  0x004b4530: FSTP float ptr [EBP + -0x8]                         
+  0x004b4533: FLD float ptr [EBP + -0x8]                          
+  0x004b4536: PUSH ECX                                            
+  0x004b4537: FSTP float ptr [ESP]                                
+  0x004b453a: MOV EAX,dword ptr [EBP + -0x4]                      
+  0x004b453d: FLD float ptr [EAX + 0xc]                           
+  0x004b4540: MOV ECX,dword ptr [EBP + 0xc]                       
+  0x004b4543: FMUL float ptr [ECX]                                
+  0x004b4545: MOV EDX,dword ptr [EBP + -0x4]                      
+  0x004b4548: FLD float ptr [EDX + 0x10]                          
+  0x004b454b: MOV EAX,dword ptr [EBP + 0xc]                       
+  0x004b454e: FMUL float ptr [EAX + 0x4]                          
+  0x004b4551: FADDP                                               
+  0x004b4553: MOV ECX,dword ptr [EBP + -0x4]                      
+  0x004b4556: FLD float ptr [ECX + 0x14]                          
+  0x004b4559: MOV EDX,dword ptr [EBP + 0xc]                       
+  0x004b455c: FMUL float ptr [EDX + 0x8]                          
+  0x004b455f: FADDP                                               
+  0x004b4561: FSTP float ptr [EBP + -0xc]                         
+  0x004b4564: FLD float ptr [EBP + -0xc]                          
+  0x004b4567: PUSH ECX                                            
+  0x004b4568: FSTP float ptr [ESP]                                
+  0x004b456b: MOV EAX,dword ptr [EBP + -0x4]                      
+  0x004b456e: FLD float ptr [EAX]                                 
+  0x004b4570: MOV ECX,dword ptr [EBP + 0xc]                       
+  0x004b4573: FMUL float ptr [ECX]                                
+  0x004b4575: MOV EDX,dword ptr [EBP + -0x4]                      
+  0x004b4578: FLD float ptr [EDX + 0x4]                           
+  0x004b457b: MOV EAX,dword ptr [EBP + 0xc]                       
+  0x004b457e: FMUL float ptr [EAX + 0x4]                          
+  0x004b4581: FADDP                                               
+  0x004b4583: MOV ECX,dword ptr [EBP + -0x4]                      
+  0x004b4586: FLD float ptr [ECX + 0x8]                           
+  0x004b4589: MOV EDX,dword ptr [EBP + 0xc]                       
+  0x004b458c: FMUL float ptr [EDX + 0x8]                          
+  0x004b458f: FADDP                                               
+  0x004b4591: FSTP float ptr [EBP + -0x10]                        
+  0x004b4594: FLD float ptr [EBP + -0x10]                         
+  0x004b4597: PUSH ECX                                            
+  0x004b4598: FSTP float ptr [ESP]                                
+  0x004b459b: MOV ECX,dword ptr [EBP + 0x8]                       
+  0x004b459e: CALL 0x00416870                                      ; CALL 0x00416870 FUN_00416870
+  0x004b45a3: MOV EAX,dword ptr [EBP + 0x8]                       
+  0x004b45a6: MOV ESP,EBP                                         
+  0x004b45a8: POP EBP                                             
+  0x004b45a9: RET 0x8                                             
+  0x004b45b0: PUSH EBP                                            
+  0x004b45b1: MOV EBP,ESP                                         
+  0x004b45b3: SUB ESP,0x28                                        
+  0x004b45b6: PUSH ESI                                            
+  0x004b45b7: PUSH EDI                                            
+  0x004b45b8: MOV dword ptr [EBP + -0x28],ECX                     
+  0x004b45bb: LEA ECX,[EBP + -0x24]                               
+  0x004b45be: CALL 0x006815c0                                      ; CALL 0x006815c0 FUN_006815c0
+  0x004b45c3: LEA EAX,[EBP + -0x24]                               
+
+Bytes @ 0x004b4880 (NiTransformInverse): 55 8B EC 83 EC 4C 56 57 89 4D B4 8D 45 DC 50 8B
+
+----------------------------------------------------------------------
+Disassembly NiTransformInverse around 0x004b4880
+----------------------------------------------------------------------
+  0x004b4856: FMUL float ptr [EBP + -0x4]                         
+  0x004b4859: MOV ECX,dword ptr [EBP + -0xc]                      
+  0x004b485c: IMUL ECX,ECX,0xc                                    
+  0x004b485f: ADD ECX,dword ptr [EBP + 0x8]                       
+  0x004b4862: MOV EDX,dword ptr [EBP + -0x10]                     
+  0x004b4865: FSTP float ptr [ECX + EDX*0x4]                      
+  0x004b4868: JMP 0x004b4838                                      
+  0x004b486a: JMP 0x004b4820                                      
+  0x004b486c: MOV AL,0x1                                          
+  0x004b486e: MOV ESP,EBP                                         
+  0x004b4870: POP EBP                                             
+  0x004b4871: RET 0x4                                             
+  0x004b4880: PUSH EBP                                             << TARGET
+  0x004b4881: MOV EBP,ESP                                         
+  0x004b4883: SUB ESP,0x4c                                        
+  0x004b4886: PUSH ESI                                            
+  0x004b4887: PUSH EDI                                            
+  0x004b4888: MOV dword ptr [EBP + -0x4c],ECX                     
+  0x004b488b: LEA EAX,[EBP + -0x24]                               
+  0x004b488e: PUSH EAX                                            
+  0x004b488f: MOV ECX,dword ptr [EBP + -0x4c]                     
+  0x004b4892: CALL 0x004768c0                                      ; CALL 0x004768c0 FUN_004768c0
+  0x004b4897: MOV ECX,0x9                                         
+  0x004b489c: MOV ESI,EAX                                         
+  0x004b489e: MOV EDI,dword ptr [EBP + 0x8]                       
+  0x004b48a1: MOVSD.REP ES:EDI,ESI                                
+  0x004b48a3: MOV ECX,dword ptr [EBP + -0x4c]                     
+  0x004b48a6: FLD float ptr [ECX + 0x30]                          
+  0x004b48a9: FLD1                                                
+  0x004b48ab: FDIVRP                                              
+  0x004b48ad: MOV EDX,dword ptr [EBP + 0x8]                       
+  0x004b48b0: FSTP float ptr [EDX + 0x30]                         
+  0x004b48b3: LEA EAX,[EBP + -0x30]                               
+  0x004b48b6: PUSH EAX                                            
+  0x004b48b7: MOV ECX,dword ptr [EBP + -0x4c]                     
+  0x004b48ba: ADD ECX,0x24                                        
+  0x004b48bd: CALL 0x004a0bd0                                      ; CALL 0x004a0bd0 FUN_004a0bd0
+  0x004b48c2: PUSH EAX                                            
+  0x004b48c3: LEA ECX,[EBP + -0x3c]                               
+  0x004b48c6: PUSH ECX                                            
+  0x004b48c7: MOV ECX,dword ptr [EBP + 0x8]                       
+  0x004b48ca: CALL 0x004b4500                                      ; CALL 0x004b4500 NiMatrix3MultiplyVector
+  0x004b48cf: PUSH EAX                                            
+  0x004b48d0: MOV EDX,dword ptr [EBP + 0x8]                       
+  0x004b48d3: PUSH ECX                                            
+  0x004b48d4: FLD float ptr [EDX + 0x30]                          
+  0x004b48d7: FSTP float ptr [ESP]                                
+  0x004b48da: LEA EAX,[EBP + -0x48]                               
+  0x004b48dd: PUSH EAX                                            
+  0x004b48de: CALL 0x004a3760                                      ; CALL 0x004a3760 FUN_004a3760
+  0x004b48e3: ADD ESP,0xc                                         
+  0x004b48e6: MOV ECX,dword ptr [EBP + 0x8]                       
+  0x004b48e9: ADD ECX,0x24                                        
+  0x004b48ec: MOV EDX,dword ptr [EAX]                             
+  0x004b48ee: MOV dword ptr [ECX],EDX                             
+  0x004b48f0: MOV EDX,dword ptr [EAX + 0x4]                       
+  0x004b48f3: MOV dword ptr [ECX + 0x4],EDX                       
+  0x004b48f6: MOV EAX,dword ptr [EAX + 0x8]                       
+  0x004b48f9: MOV dword ptr [ECX + 0x8],EAX                       
+  0x004b48fc: POP EDI                                             
+  0x004b48fd: POP ESI                                             
+  0x004b48fe: MOV ESP,EBP                                         
+  0x004b4900: POP EBP                                             
+  0x004b4901: RET 0x4                                             
+  0x004b4910: PUSH EBP                                            
+  0x004b4911: MOV EBP,ESP                                         
+  0x004b4913: PUSH -0x1                                           
+  0x004b4915: PUSH 0xf07a1b                                       
+  0x004b491a: MOV EAX,FS:[0x0]                                    
+  0x004b4920: PUSH EAX                                            
+  0x004b4921: SUB ESP,0x14                                        
+  0x004b4924: MOV EAX,[0x011c16bc]                                
+  0x004b4929: XOR EAX,EBP                                         
+  0x004b492b: PUSH EAX                                            
+  0x004b492c: LEA EAX,[EBP + -0xc]                                
+  0x004b492f: MOV FS:[0x0],EAX                                    
+  0x004b4935: MOV dword ptr [EBP + -0x10],0x0                     
+  0x004b493c: CMP dword ptr [EBP + 0x8],0x0                       
+  0x004b4940: JZ 0x004b4951                                       
+  0x004b4942: MOV ECX,dword ptr [EBP + 0x8]                       
+  0x004b4945: CALL 0x00456650                                      ; CALL 0x00456650 FUN_00456650
+  0x004b494a: MOVZX EAX,AX                                        
+  0x004b494d: TEST EAX,EAX                                        
+  0x004b494f: JNZ 0x004b4958                                      
+  0x004b4951: XOR EAX,EAX                                         
+
+Bytes @ 0x004e9bb0 (NiRenderer::SetCameraData): 55 8B EC 83 EC 28 89 4D D8 8B 4D 08 E8 4F 71 FB
+
+----------------------------------------------------------------------
+Disassembly NiRenderer::SetCameraData around 0x004e9bb0
+----------------------------------------------------------------------
+  0x004e9b74: MOV byte ptr [EBP + -0x4],0x0                       
+  0x004e9b78: LEA ECX,[EBP + 0xffffff1c]                          
+  0x004e9b7e: CALL 0x004a0f60                                      ; CALL 0x004a0f60 FUN_004a0f60
+  0x004e9b83: MOV dword ptr [EBP + -0x4],0xffffffff               
+  0x004e9b8a: LEA ECX,[EBP + 0xfffffdcc]                          
+  0x004e9b90: CALL 0x00a6fae0                                      ; CALL 0x00a6fae0 FUN_00a6fae0
+  0x004e9b95: MOV ECX,dword ptr [EBP + -0xc]                      
+  0x004e9b98: MOV dword ptr FS:[0x0],ECX                          
+  0x004e9b9f: POP ECX                                             
+  0x004e9ba0: MOV ESP,EBP                                         
+  0x004e9ba2: POP EBP                                             
+  0x004e9ba3: RET                                                 
+  0x004e9bb0: PUSH EBP                                             << TARGET
+  0x004e9bb1: MOV EBP,ESP                                         
+  0x004e9bb3: SUB ESP,0x28                                        
+  0x004e9bb6: MOV dword ptr [EBP + -0x28],ECX                     
+  0x004e9bb9: MOV ECX,dword ptr [EBP + 0x8]                       
+  0x004e9bbc: CALL 0x004a0d10                                      ; CALL 0x004a0d10 CameraFrustumOrViewportGetterCandidate
+  0x004e9bc1: PUSH EAX                                            
+  0x004e9bc2: MOV ECX,dword ptr [EBP + 0x8]                       
+  0x004e9bc5: CALL 0x0045bbe0                                      ; CALL 0x0045bbe0 CameraFrustumOrViewportGetterCandidate
+  0x004e9bca: PUSH EAX                                            
+  0x004e9bcb: LEA EAX,[EBP + -0xc]                                
+  0x004e9bce: PUSH EAX                                            
+  0x004e9bcf: MOV ECX,dword ptr [EBP + 0x8]                       
+  0x004e9bd2: CALL 0x004e9c50                                      ; CALL 0x004e9c50 CameraBasisGetterCandidateB
+  0x004e9bd7: PUSH EAX                                            
+  0x004e9bd8: LEA ECX,[EBP + -0x18]                               
+  0x004e9bdb: PUSH ECX                                            
+  0x004e9bdc: MOV ECX,dword ptr [EBP + 0x8]                       
+  0x004e9bdf: CALL 0x004e9c10                                      ; CALL 0x004e9c10 CameraBasisGetterCandidateA
+  0x004e9be4: PUSH EAX                                            
+  0x004e9be5: LEA EDX,[EBP + -0x24]                               
+  0x004e9be8: PUSH EDX                                            
+  0x004e9be9: MOV ECX,dword ptr [EBP + 0x8]                       
+  0x004e9bec: CALL 0x0045bba0                                      ; CALL 0x0045bba0 CameraWorldDirectionGetterCandidate
+  0x004e9bf1: PUSH EAX                                            
+  0x004e9bf2: MOV ECX,dword ptr [EBP + 0x8]                       
+  0x004e9bf5: CALL 0x0045bb80                                      ; CALL 0x0045bb80 NiAVObjectWorldTranslationGetter
+  0x004e9bfa: PUSH EAX                                            
+  0x004e9bfb: MOV ECX,dword ptr [EBP + -0x28]                     
+  0x004e9bfe: CALL 0x004e9c90                                      ; CALL 0x004e9c90 NiRendererDoSetCameraDataDispatch
+  0x004e9c03: MOV ESP,EBP                                         
+  0x004e9c05: POP EBP                                             
+  0x004e9c06: RET 0x4                                             
+  0x004e9c10: PUSH EBP                                            
+  0x004e9c11: MOV EBP,ESP                                         
+  0x004e9c13: SUB ESP,0x10                                        
+  0x004e9c16: MOV dword ptr [EBP + -0x10],ECX                     
+  0x004e9c19: LEA ECX,[EBP + -0xc]                                
+  0x004e9c1c: CALL 0x006815c0                                      ; CALL 0x006815c0 FUN_006815c0
+  0x004e9c21: LEA EAX,[EBP + -0xc]                                
+  0x004e9c24: PUSH EAX                                            
+  0x004e9c25: PUSH 0x1                                            
+  0x004e9c27: MOV ECX,dword ptr [EBP + -0x10]                     
+  0x004e9c2a: ADD ECX,0x68                                        
+  0x004e9c2d: CALL 0x00439f50                                      ; CALL 0x00439f50 FUN_00439f50
+  0x004e9c32: MOV ECX,dword ptr [EBP + 0x8]                       
+  0x004e9c35: MOV EDX,dword ptr [EBP + -0xc]                      
+  0x004e9c38: MOV dword ptr [ECX],EDX                             
+  0x004e9c3a: MOV EAX,dword ptr [EBP + -0x8]                      
+  0x004e9c3d: MOV dword ptr [ECX + 0x4],EAX                       
+  0x004e9c40: MOV EDX,dword ptr [EBP + -0x4]                      
+  0x004e9c43: MOV dword ptr [ECX + 0x8],EDX                       
+  0x004e9c46: MOV EAX,dword ptr [EBP + 0x8]                       
+  0x004e9c49: MOV ESP,EBP                                         
+  0x004e9c4b: POP EBP                                             
+  0x004e9c4c: RET 0x4                                             
+  0x004e9c50: PUSH EBP                                            
+  0x004e9c51: MOV EBP,ESP                                         
+  0x004e9c53: SUB ESP,0x10                                        
+  0x004e9c56: MOV dword ptr [EBP + -0x10],ECX                     
+  0x004e9c59: LEA ECX,[EBP + -0xc]                                
+  0x004e9c5c: CALL 0x006815c0                                      ; CALL 0x006815c0 FUN_006815c0
+  0x004e9c61: LEA EAX,[EBP + -0xc]                                
+  0x004e9c64: PUSH EAX                                            
+  0x004e9c65: PUSH 0x2                                            
+  0x004e9c67: MOV ECX,dword ptr [EBP + -0x10]                     
+  0x004e9c6a: ADD ECX,0x68                                        
+  0x004e9c6d: CALL 0x00439f50                                      ; CALL 0x00439f50 FUN_00439f50
+  0x004e9c72: MOV ECX,dword ptr [EBP + 0x8]                       
+  0x004e9c75: MOV EDX,dword ptr [EBP + -0xc]                      
+  0x004e9c78: MOV dword ptr [ECX],EDX                             
+  0x004e9c7a: MOV EAX,dword ptr [EBP + -0x8]                      
+  0x004e9c7d: MOV dword ptr [ECX + 0x4],EAX                       
+
+Bytes @ 0x004e9c10 (CameraBasisGetterCandidateA): 55 8B EC 83 EC 10 89 4D F0 8D 4D F4 E8 9F 79 19
+
+----------------------------------------------------------------------
+Disassembly CameraBasisGetterCandidateA around 0x004e9c10
+----------------------------------------------------------------------
+  0x004e9be8: PUSH EDX                                            
+  0x004e9be9: MOV ECX,dword ptr [EBP + 0x8]                       
+  0x004e9bec: CALL 0x0045bba0                                      ; CALL 0x0045bba0 CameraWorldDirectionGetterCandidate
+  0x004e9bf1: PUSH EAX                                            
+  0x004e9bf2: MOV ECX,dword ptr [EBP + 0x8]                       
+  0x004e9bf5: CALL 0x0045bb80                                      ; CALL 0x0045bb80 NiAVObjectWorldTranslationGetter
+  0x004e9bfa: PUSH EAX                                            
+  0x004e9bfb: MOV ECX,dword ptr [EBP + -0x28]                     
+  0x004e9bfe: CALL 0x004e9c90                                      ; CALL 0x004e9c90 NiRendererDoSetCameraDataDispatch
+  0x004e9c03: MOV ESP,EBP                                         
+  0x004e9c05: POP EBP                                             
+  0x004e9c06: RET 0x4                                             
+  0x004e9c10: PUSH EBP                                             << TARGET
+  0x004e9c11: MOV EBP,ESP                                         
+  0x004e9c13: SUB ESP,0x10                                        
+  0x004e9c16: MOV dword ptr [EBP + -0x10],ECX                     
+  0x004e9c19: LEA ECX,[EBP + -0xc]                                
+  0x004e9c1c: CALL 0x006815c0                                      ; CALL 0x006815c0 FUN_006815c0
+  0x004e9c21: LEA EAX,[EBP + -0xc]                                
+  0x004e9c24: PUSH EAX                                            
+  0x004e9c25: PUSH 0x1                                            
+  0x004e9c27: MOV ECX,dword ptr [EBP + -0x10]                     
+  0x004e9c2a: ADD ECX,0x68                                        
+  0x004e9c2d: CALL 0x00439f50                                      ; CALL 0x00439f50 FUN_00439f50
+  0x004e9c32: MOV ECX,dword ptr [EBP + 0x8]                       
+  0x004e9c35: MOV EDX,dword ptr [EBP + -0xc]                      
+  0x004e9c38: MOV dword ptr [ECX],EDX                             
+  0x004e9c3a: MOV EAX,dword ptr [EBP + -0x8]                      
+  0x004e9c3d: MOV dword ptr [ECX + 0x4],EAX                       
+  0x004e9c40: MOV EDX,dword ptr [EBP + -0x4]                      
+  0x004e9c43: MOV dword ptr [ECX + 0x8],EDX                       
+  0x004e9c46: MOV EAX,dword ptr [EBP + 0x8]                       
+  0x004e9c49: MOV ESP,EBP                                         
+  0x004e9c4b: POP EBP                                             
+  0x004e9c4c: RET 0x4                                             
+  0x004e9c50: PUSH EBP                                            
+  0x004e9c51: MOV EBP,ESP                                         
+  0x004e9c53: SUB ESP,0x10                                        
+  0x004e9c56: MOV dword ptr [EBP + -0x10],ECX                     
+  0x004e9c59: LEA ECX,[EBP + -0xc]                                
+  0x004e9c5c: CALL 0x006815c0                                      ; CALL 0x006815c0 FUN_006815c0
+  0x004e9c61: LEA EAX,[EBP + -0xc]                                
+  0x004e9c64: PUSH EAX                                            
+  0x004e9c65: PUSH 0x2                                            
+  0x004e9c67: MOV ECX,dword ptr [EBP + -0x10]                     
+  0x004e9c6a: ADD ECX,0x68                                        
+  0x004e9c6d: CALL 0x00439f50                                      ; CALL 0x00439f50 FUN_00439f50
+  0x004e9c72: MOV ECX,dword ptr [EBP + 0x8]                       
+  0x004e9c75: MOV EDX,dword ptr [EBP + -0xc]                      
+  0x004e9c78: MOV dword ptr [ECX],EDX                             
+  0x004e9c7a: MOV EAX,dword ptr [EBP + -0x8]                      
+  0x004e9c7d: MOV dword ptr [ECX + 0x4],EAX                       
+  0x004e9c80: MOV EDX,dword ptr [EBP + -0x4]                      
+  0x004e9c83: MOV dword ptr [ECX + 0x8],EDX                       
+  0x004e9c86: MOV EAX,dword ptr [EBP + 0x8]                       
+  0x004e9c89: MOV ESP,EBP                                         
+  0x004e9c8b: POP EBP                                             
+  0x004e9c8c: RET 0x4                                             
+  0x004e9c90: PUSH EBP                                            
+  0x004e9c91: MOV EBP,ESP                                         
+  0x004e9c93: PUSH ECX                                            
+  0x004e9c94: MOV dword ptr [EBP + -0x4],ECX                      
+  0x004e9c97: PUSH 0x1                                            
+  0x004e9c99: PUSH 0x10231b8                                      
+  0x004e9c9e: MOV ECX,dword ptr [EBP + -0x4]                      
+  0x004e9ca1: CALL 0x004a0e10                                      ; CALL 0x004a0e10 FUN_004a0e10
+  0x004e9ca6: MOVZX EAX,AL                                        
+  0x004e9ca9: TEST EAX,EAX                                        
+  0x004e9cab: JNZ 0x004e9caf                                      
+  0x004e9cad: JMP 0x004e9cd7                                      
+  0x004e9caf: MOV ECX,dword ptr [EBP + 0x1c]                      
+  0x004e9cb2: PUSH ECX                                            
+  0x004e9cb3: MOV EDX,dword ptr [EBP + 0x18]                      
+  0x004e9cb6: PUSH EDX                                            
+  0x004e9cb7: MOV EAX,dword ptr [EBP + 0x14]                      
+  0x004e9cba: PUSH EAX                                            
+  0x004e9cbb: MOV ECX,dword ptr [EBP + 0x10]                      
+  0x004e9cbe: PUSH ECX                                            
+  0x004e9cbf: MOV EDX,dword ptr [EBP + 0xc]                       
+  0x004e9cc2: PUSH EDX                                            
+  0x004e9cc3: MOV EAX,dword ptr [EBP + 0x8]                       
+  0x004e9cc6: PUSH EAX                                            
+  0x004e9cc7: MOV ECX,dword ptr [EBP + -0x4]                      
+  0x004e9cca: MOV EDX,dword ptr [ECX]                             
+  0x004e9ccc: MOV ECX,dword ptr [EBP + -0x4]                      
+
+Bytes @ 0x004e9c50 (CameraBasisGetterCandidateB): 55 8B EC 83 EC 10 89 4D F0 8D 4D F4 E8 5F 79 19
+
+----------------------------------------------------------------------
+Disassembly CameraBasisGetterCandidateB around 0x004e9c50
+----------------------------------------------------------------------
+  0x004e9c2d: CALL 0x00439f50                                      ; CALL 0x00439f50 FUN_00439f50
+  0x004e9c32: MOV ECX,dword ptr [EBP + 0x8]                       
+  0x004e9c35: MOV EDX,dword ptr [EBP + -0xc]                      
+  0x004e9c38: MOV dword ptr [ECX],EDX                             
+  0x004e9c3a: MOV EAX,dword ptr [EBP + -0x8]                      
+  0x004e9c3d: MOV dword ptr [ECX + 0x4],EAX                       
+  0x004e9c40: MOV EDX,dword ptr [EBP + -0x4]                      
+  0x004e9c43: MOV dword ptr [ECX + 0x8],EDX                       
+  0x004e9c46: MOV EAX,dword ptr [EBP + 0x8]                       
+  0x004e9c49: MOV ESP,EBP                                         
+  0x004e9c4b: POP EBP                                             
+  0x004e9c4c: RET 0x4                                             
+  0x004e9c50: PUSH EBP                                             << TARGET
+  0x004e9c51: MOV EBP,ESP                                         
+  0x004e9c53: SUB ESP,0x10                                        
+  0x004e9c56: MOV dword ptr [EBP + -0x10],ECX                     
+  0x004e9c59: LEA ECX,[EBP + -0xc]                                
+  0x004e9c5c: CALL 0x006815c0                                      ; CALL 0x006815c0 FUN_006815c0
+  0x004e9c61: LEA EAX,[EBP + -0xc]                                
+  0x004e9c64: PUSH EAX                                            
+  0x004e9c65: PUSH 0x2                                            
+  0x004e9c67: MOV ECX,dword ptr [EBP + -0x10]                     
+  0x004e9c6a: ADD ECX,0x68                                        
+  0x004e9c6d: CALL 0x00439f50                                      ; CALL 0x00439f50 FUN_00439f50
+  0x004e9c72: MOV ECX,dword ptr [EBP + 0x8]                       
+  0x004e9c75: MOV EDX,dword ptr [EBP + -0xc]                      
+  0x004e9c78: MOV dword ptr [ECX],EDX                             
+  0x004e9c7a: MOV EAX,dword ptr [EBP + -0x8]                      
+  0x004e9c7d: MOV dword ptr [ECX + 0x4],EAX                       
+  0x004e9c80: MOV EDX,dword ptr [EBP + -0x4]                      
+  0x004e9c83: MOV dword ptr [ECX + 0x8],EDX                       
+  0x004e9c86: MOV EAX,dword ptr [EBP + 0x8]                       
+  0x004e9c89: MOV ESP,EBP                                         
+  0x004e9c8b: POP EBP                                             
+  0x004e9c8c: RET 0x4                                             
+  0x004e9c90: PUSH EBP                                            
+  0x004e9c91: MOV EBP,ESP                                         
+  0x004e9c93: PUSH ECX                                            
+  0x004e9c94: MOV dword ptr [EBP + -0x4],ECX                      
+  0x004e9c97: PUSH 0x1                                            
+  0x004e9c99: PUSH 0x10231b8                                      
+  0x004e9c9e: MOV ECX,dword ptr [EBP + -0x4]                      
+  0x004e9ca1: CALL 0x004a0e10                                      ; CALL 0x004a0e10 FUN_004a0e10
+  0x004e9ca6: MOVZX EAX,AL                                        
+  0x004e9ca9: TEST EAX,EAX                                        
+  0x004e9cab: JNZ 0x004e9caf                                      
+  0x004e9cad: JMP 0x004e9cd7                                      
+  0x004e9caf: MOV ECX,dword ptr [EBP + 0x1c]                      
+  0x004e9cb2: PUSH ECX                                            
+  0x004e9cb3: MOV EDX,dword ptr [EBP + 0x18]                      
+  0x004e9cb6: PUSH EDX                                            
+  0x004e9cb7: MOV EAX,dword ptr [EBP + 0x14]                      
+  0x004e9cba: PUSH EAX                                            
+  0x004e9cbb: MOV ECX,dword ptr [EBP + 0x10]                      
+  0x004e9cbe: PUSH ECX                                            
+  0x004e9cbf: MOV EDX,dword ptr [EBP + 0xc]                       
+  0x004e9cc2: PUSH EDX                                            
+  0x004e9cc3: MOV EAX,dword ptr [EBP + 0x8]                       
+  0x004e9cc6: PUSH EAX                                            
+  0x004e9cc7: MOV ECX,dword ptr [EBP + -0x4]                      
+  0x004e9cca: MOV EDX,dword ptr [ECX]                             
+  0x004e9ccc: MOV ECX,dword ptr [EBP + -0x4]                      
+  0x004e9ccf: MOV EAX,dword ptr [EDX + 0x18c]                     
+  0x004e9cd5: CALL EAX                                            
+  0x004e9cd7: MOV ESP,EBP                                         
+  0x004e9cd9: POP EBP                                             
+  0x004e9cda: RET 0x18                                            
+  0x004e9ce0: PUSH EBP                                            
+  0x004e9ce1: MOV EBP,ESP                                         
+  0x004e9ce3: SUB ESP,0x8                                         
+  0x004e9ce6: MOV EAX,dword ptr [EBP + 0x8]                       
+  0x004e9ce9: XOR EDX,EDX                                         
+  0x004e9ceb: MOV ECX,0x10                                        
+  0x004e9cf0: DIV ECX                                             
+  0x004e9cf2: MOV dword ptr [EBP + -0x8],EDX                      
+  0x004e9cf5: MOV EDX,0x1                                         
+  0x004e9cfa: MOV ECX,dword ptr [EBP + -0x8]                      
+  0x004e9cfd: SHL EDX,CL                                          
+  0x004e9cff: MOV dword ptr [EBP + -0x4],EDX                      
+  0x004e9d02: MOVZX EAX,byte ptr [EBP + 0xc]                      
+  0x004e9d06: TEST EAX,EAX                                        
+  0x004e9d08: JZ 0x004e9d1d                                       
+  0x004e9d0a: MOVZX ECX,word ptr [0x011f941c]                     
+  0x004e9d11: OR ECX,dword ptr [EBP + -0x4]                       
+  0x004e9d14: MOV word ptr [0x011f941c],CX                        
+
+Bytes @ 0x004e9c90 (NiRendererDoSetCameraDataDispatch): 55 8B EC 51 89 4D FC 6A 01 68 B8 31 02 01 8B 4D
+
+----------------------------------------------------------------------
+Disassembly NiRendererDoSetCameraDataDispatch around 0x004e9c90
+----------------------------------------------------------------------
+  0x004e9c6d: CALL 0x00439f50                                      ; CALL 0x00439f50 FUN_00439f50
+  0x004e9c72: MOV ECX,dword ptr [EBP + 0x8]                       
+  0x004e9c75: MOV EDX,dword ptr [EBP + -0xc]                      
+  0x004e9c78: MOV dword ptr [ECX],EDX                             
+  0x004e9c7a: MOV EAX,dword ptr [EBP + -0x8]                      
+  0x004e9c7d: MOV dword ptr [ECX + 0x4],EAX                       
+  0x004e9c80: MOV EDX,dword ptr [EBP + -0x4]                      
+  0x004e9c83: MOV dword ptr [ECX + 0x8],EDX                       
+  0x004e9c86: MOV EAX,dword ptr [EBP + 0x8]                       
+  0x004e9c89: MOV ESP,EBP                                         
+  0x004e9c8b: POP EBP                                             
+  0x004e9c8c: RET 0x4                                             
+  0x004e9c90: PUSH EBP                                             << TARGET
+  0x004e9c91: MOV EBP,ESP                                         
+  0x004e9c93: PUSH ECX                                            
+  0x004e9c94: MOV dword ptr [EBP + -0x4],ECX                      
+  0x004e9c97: PUSH 0x1                                            
+  0x004e9c99: PUSH 0x10231b8                                      
+  0x004e9c9e: MOV ECX,dword ptr [EBP + -0x4]                      
+  0x004e9ca1: CALL 0x004a0e10                                      ; CALL 0x004a0e10 FUN_004a0e10
+  0x004e9ca6: MOVZX EAX,AL                                        
+  0x004e9ca9: TEST EAX,EAX                                        
+  0x004e9cab: JNZ 0x004e9caf                                      
+  0x004e9cad: JMP 0x004e9cd7                                      
+  0x004e9caf: MOV ECX,dword ptr [EBP + 0x1c]                      
+  0x004e9cb2: PUSH ECX                                            
+  0x004e9cb3: MOV EDX,dword ptr [EBP + 0x18]                      
+  0x004e9cb6: PUSH EDX                                            
+  0x004e9cb7: MOV EAX,dword ptr [EBP + 0x14]                      
+  0x004e9cba: PUSH EAX                                            
+  0x004e9cbb: MOV ECX,dword ptr [EBP + 0x10]                      
+  0x004e9cbe: PUSH ECX                                            
+  0x004e9cbf: MOV EDX,dword ptr [EBP + 0xc]                       
+  0x004e9cc2: PUSH EDX                                            
+  0x004e9cc3: MOV EAX,dword ptr [EBP + 0x8]                       
+  0x004e9cc6: PUSH EAX                                            
+  0x004e9cc7: MOV ECX,dword ptr [EBP + -0x4]                      
+  0x004e9cca: MOV EDX,dword ptr [ECX]                             
+  0x004e9ccc: MOV ECX,dword ptr [EBP + -0x4]                      
+  0x004e9ccf: MOV EAX,dword ptr [EDX + 0x18c]                     
+  0x004e9cd5: CALL EAX                                            
+  0x004e9cd7: MOV ESP,EBP                                         
+  0x004e9cd9: POP EBP                                             
+  0x004e9cda: RET 0x18                                            
+  0x004e9ce0: PUSH EBP                                            
+  0x004e9ce1: MOV EBP,ESP                                         
+  0x004e9ce3: SUB ESP,0x8                                         
+  0x004e9ce6: MOV EAX,dword ptr [EBP + 0x8]                       
+  0x004e9ce9: XOR EDX,EDX                                         
+  0x004e9ceb: MOV ECX,0x10                                        
+  0x004e9cf0: DIV ECX                                             
+  0x004e9cf2: MOV dword ptr [EBP + -0x8],EDX                      
+  0x004e9cf5: MOV EDX,0x1                                         
+  0x004e9cfa: MOV ECX,dword ptr [EBP + -0x8]                      
+  0x004e9cfd: SHL EDX,CL                                          
+  0x004e9cff: MOV dword ptr [EBP + -0x4],EDX                      
+  0x004e9d02: MOVZX EAX,byte ptr [EBP + 0xc]                      
+  0x004e9d06: TEST EAX,EAX                                        
+  0x004e9d08: JZ 0x004e9d1d                                       
+  0x004e9d0a: MOVZX ECX,word ptr [0x011f941c]                     
+  0x004e9d11: OR ECX,dword ptr [EBP + -0x4]                       
+  0x004e9d14: MOV word ptr [0x011f941c],CX                        
+  0x004e9d1b: JMP 0x004e9d31                                      
+  0x004e9d1d: MOV EDX,dword ptr [EBP + -0x4]                      
+  0x004e9d20: NOT EDX                                             
+  0x004e9d22: MOVZX EAX,word ptr [0x011f941c]                     
+  0x004e9d29: AND EAX,EDX                                         
+  0x004e9d2b: MOV [0x011f941c],AX                                 
+  0x004e9d31: MOV ESP,EBP                                         
+  0x004e9d33: POP EBP                                             
+  0x004e9d34: RET                                                 
+  0x004e9d40: PUSH EBP                                            
+  0x004e9d41: MOV EBP,ESP                                         
+  0x004e9d43: PUSH -0x1                                           
+  0x004e9d45: PUSH 0xef26f2                                       
+  0x004e9d4a: MOV EAX,FS:[0x0]                                    
+  0x004e9d50: PUSH EAX                                            
+  0x004e9d51: SUB ESP,0xd8                                        
+  0x004e9d57: MOV EAX,[0x011c16bc]                                
+  0x004e9d5c: XOR EAX,EBP                                         
+  0x004e9d5e: PUSH EAX                                            
+  0x004e9d5f: LEA EAX,[EBP + -0xc]                                
+  0x004e9d62: MOV FS:[0x0],EAX                                    
+  0x004e9d68: MOV dword ptr [EBP + 0xffffff34],ECX                
+  0x004e9d6e: PUSH 0xefb                                          
+
+Bytes @ 0x0062c250 (NiTransformApplyTransform): 55 8B EC 81 EC 80 00 00 00 56 57 89 4D 80 8D 4D
+
+----------------------------------------------------------------------
+Disassembly NiTransformApplyTransform around 0x0062c250
+----------------------------------------------------------------------
+  0x0062c226: MOV dword ptr [EAX + 0x4],EDX                       
+  0x0062c229: MOV ECX,dword ptr [EBP + -0x8]                      
+  0x0062c22c: MOV dword ptr [EAX + 0x8],ECX                       
+  0x0062c22f: MOV EAX,dword ptr [EBX + 0x8]                       
+  0x0062c232: MOV ECX,dword ptr [EBP + -0x4]                      
+  0x0062c235: XOR ECX,EBP                                         
+  0x0062c237: CALL 0x00ec408c                                      ; CALL 0x00ec408c __security_check_cookie
+  0x0062c23c: MOV ESP,EBP                                         
+  0x0062c23e: POP EBP                                             
+  0x0062c23f: MOV ESP,EBX                                         
+  0x0062c241: POP EBX                                             
+  0x0062c242: RET                                                 
+  0x0062c250: PUSH EBP                                             << TARGET
+  0x0062c251: MOV EBP,ESP                                         
+  0x0062c253: SUB ESP,0x80                                        
+  0x0062c259: PUSH ESI                                            
+  0x0062c25a: PUSH EDI                                            
+  0x0062c25b: MOV dword ptr [EBP + -0x80],ECX                     
+  0x0062c25e: LEA ECX,[EBP + -0x34]                               
+  0x0062c261: CALL 0x00476a80                                      ; CALL 0x00476a80 FUN_00476a80
+  0x0062c266: MOV EAX,dword ptr [EBP + -0x80]                     
+  0x0062c269: FLD float ptr [EAX + 0x30]                          
+  0x0062c26c: MOV ECX,dword ptr [EBP + 0xc]                       
+  0x0062c26f: FMUL float ptr [ECX + 0x30]                         
+  0x0062c272: FSTP float ptr [EBP + -0x4]                         
+  0x0062c275: MOV EDX,dword ptr [EBP + 0xc]                       
+  0x0062c278: PUSH EDX                                            
+  0x0062c279: LEA EAX,[EBP + -0x58]                               
+  0x0062c27c: PUSH EAX                                            
+  0x0062c27d: MOV ECX,dword ptr [EBP + -0x80]                     
+  0x0062c280: CALL 0x0043f8d0                                      ; CALL 0x0043f8d0 FUN_0043f8d0
+  0x0062c285: MOV ECX,0x9                                         
+  0x0062c28a: MOV ESI,EAX                                         
+  0x0062c28c: LEA EDI,[EBP + -0x34]                               
+  0x0062c28f: MOVSD.REP ES:EDI,ESI                                
+  0x0062c291: MOV ECX,dword ptr [EBP + 0xc]                       
+  0x0062c294: ADD ECX,0x24                                        
+  0x0062c297: PUSH ECX                                            
+  0x0062c298: LEA EDX,[EBP + -0x64]                               
+  0x0062c29b: PUSH EDX                                            
+  0x0062c29c: MOV ECX,dword ptr [EBP + -0x80]                     
+  0x0062c29f: CALL 0x004b4500                                      ; CALL 0x004b4500 NiMatrix3MultiplyVector
+  0x0062c2a4: PUSH EAX                                            
+  0x0062c2a5: MOV EAX,dword ptr [EBP + -0x80]                     
+  0x0062c2a8: PUSH ECX                                            
+  0x0062c2a9: FLD float ptr [EAX + 0x30]                          
+  0x0062c2ac: FSTP float ptr [ESP]                                
+  0x0062c2af: LEA ECX,[EBP + -0x70]                               
+  0x0062c2b2: PUSH ECX                                            
+  0x0062c2b3: CALL 0x004a3760                                      ; CALL 0x004a3760 FUN_004a3760
+  0x0062c2b8: ADD ESP,0xc                                         
+  0x0062c2bb: PUSH EAX                                            
+  0x0062c2bc: LEA EDX,[EBP + -0x7c]                               
+  0x0062c2bf: PUSH EDX                                            
+  0x0062c2c0: MOV ECX,dword ptr [EBP + -0x80]                     
+  0x0062c2c3: ADD ECX,0x24                                        
+  0x0062c2c6: CALL 0x00439e90                                      ; CALL 0x00439e90 FUN_00439e90
+  0x0062c2cb: MOV ECX,dword ptr [EAX]                             
+  0x0062c2cd: MOV dword ptr [EBP + -0x10],ECX                     
+  0x0062c2d0: MOV EDX,dword ptr [EAX + 0x4]                       
+  0x0062c2d3: MOV dword ptr [EBP + -0xc],EDX                      
+  0x0062c2d6: MOV EAX,dword ptr [EAX + 0x8]                       
+  0x0062c2d9: MOV dword ptr [EBP + -0x8],EAX                      
+  0x0062c2dc: MOV ECX,0xd                                         
+  0x0062c2e1: LEA ESI,[EBP + -0x34]                               
+  0x0062c2e4: MOV EDI,dword ptr [EBP + 0x8]                       
+  0x0062c2e7: MOVSD.REP ES:EDI,ESI                                
+  0x0062c2e9: MOV EAX,dword ptr [EBP + 0x8]                       
+  0x0062c2ec: POP EDI                                             
+  0x0062c2ed: POP ESI                                             
+  0x0062c2ee: MOV ESP,EBP                                         
+  0x0062c2f0: POP EBP                                             
+  0x0062c2f1: RET 0x8                                             
+  0x0062c300: PUSH EBP                                            
+  0x0062c301: MOV EBP,ESP                                         
+  0x0062c303: SUB ESP,0x18                                        
+  0x0062c306: FLDZ                                                
+  0x0062c308: FSTP float ptr [EBP + -0x4]                         
+  0x0062c30b: CMP dword ptr [EBP + 0x8],0x0                       
+  0x0062c30f: JZ 0x0062c3b6                                       
+  0x0062c315: MOV EAX,dword ptr [EBP + 0x8]                       
+  0x0062c318: PUSH EAX                                            
+  0x0062c319: CALL 0x0043b610                                      ; CALL 0x0043b610 FUN_0043b610
+  0x0062c31e: ADD ESP,0x4                                         
+  0x0062c321: MOV dword ptr [EBP + -0xc],EAX                      

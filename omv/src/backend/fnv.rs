@@ -7,8 +7,8 @@ use std::sync::{
 };
 
 use super::{
-    CameraFrame, DepthFrame, DepthProjectionFrame, DepthProvider, DepthResolveSlot, DepthTexture,
-    EnvironmentFrame, MaterialStateFrame, NativeSkyFrame, SunFrame,
+    CameraFrame, CameraTransformFrame, DepthFrame, DepthProjectionFrame, DepthProvider,
+    DepthResolveSlot, DepthTexture, EnvironmentFrame, MaterialStateFrame, NativeSkyFrame, SunFrame,
 };
 use libpsycho::os::windows::{
     directx9::{
@@ -58,6 +58,8 @@ const NATIVE_SUN_SCREEN_Y_ADDR: usize = 0x012023F8;
 
 const NIAVOBJECT_LOCAL_TRANSLATION_OFFSET: usize = 0x58;
 const NIAVOBJECT_WORLD_ROTATION_OFFSET: usize = 0x68;
+const NIAVOBJECT_WORLD_TRANSLATION_OFFSET: usize = 0x8C;
+const NIAVOBJECT_WORLD_SCALE_OFFSET: usize = 0x98;
 const SCENE_GRAPH_CAMERA_OFFSET: usize = 0xAC;
 const NICAMERA_FRUSTUM_LEFT_OFFSET: usize = 0xDC;
 const NICAMERA_FRUSTUM_RIGHT_OFFSET: usize = 0xE0;
@@ -255,6 +257,7 @@ unsafe fn read_camera_frame_from_ptr(
     } else {
         1.0
     };
+    let world_transform = unsafe { read_camera_world_transform(camera) }.unwrap_or_default();
     Some(CameraFrame {
         near_z,
         far_z,
@@ -263,6 +266,28 @@ unsafe fn read_camera_frame_from_ptr(
         frustum_right,
         frustum_bottom,
         frustum_top,
+        world_transform,
+        available: true,
+    })
+}
+
+unsafe fn read_camera_world_transform(camera: *mut u8) -> Option<CameraTransformFrame> {
+    let rotation_address = camera as usize + NIAVOBJECT_WORLD_ROTATION_OFFSET;
+    let rotation = [
+        unsafe { read_vec3(rotation_address)? },
+        unsafe { read_vec3(rotation_address + 3 * size_of::<f32>())? },
+        unsafe { read_vec3(rotation_address + 6 * size_of::<f32>())? },
+    ];
+    let translation = unsafe { read_vec3(camera as usize + NIAVOBJECT_WORLD_TRANSLATION_OFFSET)? };
+    let scale = unsafe { read_f32(camera as usize + NIAVOBJECT_WORLD_SCALE_OFFSET)? };
+    if !scale.is_finite() || scale.abs() <= f32::EPSILON {
+        return None;
+    }
+
+    Some(CameraTransformFrame {
+        rotation,
+        translation,
+        scale,
         available: true,
     })
 }
@@ -1083,7 +1108,7 @@ impl FnvDepthResolve {
             && log_index / FRAME_CONTRACT_LOG_INTERVAL < MAX_FRAME_CONTRACT_LOGS
         {
             log::info!(
-                "[FNV] Depth contract: slot={}, source={source_label}, reason={reason}, surface=0x{:08X}, size={}x{}, zfunc={:?}, reversed={:?}, near={:.4}, far={:.2}, frustum=({:.5},{:.5},{:.5},{:.5})",
+                "[FNV] Depth contract: slot={}, source={source_label}, reason={reason}, surface=0x{:08X}, size={}x{}, zfunc={:?}, reversed={:?}, near={:.4}, far={:.2}, frustum=({:.5},{:.5},{:.5},{:.5}), transform={}, position=({:.2},{:.2},{:.2}), scale={:.4}",
                 slot.label(),
                 projection.source_surface,
                 desc.Width,
@@ -1096,6 +1121,11 @@ impl FnvDepthResolve {
                 projection.camera.frustum_right,
                 projection.camera.frustum_bottom,
                 projection.camera.frustum_top,
+                projection.camera.world_transform.available,
+                projection.camera.world_transform.translation[0],
+                projection.camera.world_transform.translation[1],
+                projection.camera.world_transform.translation[2],
+                projection.camera.world_transform.scale,
             );
         }
     }
