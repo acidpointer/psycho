@@ -1,0 +1,1530 @@
+FNV IMAGE-SPACE PASS STATE VTABLE FOLLOW-UP
+
+Known ImageSpaceShader layout from the reference headers:
+  BSShader::ReloadShaders is primary vtable entry 72
+  ImageSpaceShader::LoadShaders through Func_84 are entries 79 through 84
+  ImageSpaceShader::PresetStages is primary vtable entry 83
+  ImageSpaceEffect::Render is secondary vtable entry 1
+
+Questions:
+1. What functions occupy the native ImageSpaceShader render and PresetStages slots?
+2. Which D3D/BS render states are applied and restored for every native image-space pass?
+3. Does the native pass explicitly disable alpha test, stencil test, and scissor test?
+4. Which behavior must OMV reproduce when bypassing the native ImageSpaceEffect pipeline?
+
+======================================================================
+ImageSpaceShader constructor @ 0x00c04570
+======================================================================
+  Function: FUN_00c04570 @ 0x00c04570, Size: 142 bytes
+
+undefined4 * __fastcall FUN_00c04570(undefined4 *param_1)
+
+{
+  uint uVar1;
+  int *unaff_FS_OFFSET;
+  int local_c;
+  undefined1 *puStack_8;
+  undefined4 local_4;
+  
+  local_4 = 0xffffffff;
+  puStack_8 = &LAB_00f2d63f;
+  local_c = *unaff_FS_OFFSET;
+  uVar1 = DAT_011c16bc ^ (uint)&stack0xffffffe8;
+  *unaff_FS_OFFSET = (int)&local_c;
+  FUN_00be2200(uVar1);
+  local_4 = 0;
+  FUN_00ba4080();
+  *param_1 = &PTR_FUN_010bc8f8;
+  param_1[0x1b] = &PTR_LAB_010b0318;
+  param_1[0x31] = 0;
+  param_1[0x32] = 0;
+  local_4 = CONCAT31(local_4._1_3_,3);
+  param_1[0x1a] = 0x18;
+  FUN_00be0870();
+  FUN_00c04030();
+  *unaff_FS_OFFSET = local_c;
+  return param_1;
+}
+
+
+
+--- Calls FROM ImageSpaceShader constructor (0x00c04570) ---
+  0x00c04599 -> 0x00be2200 FUN_00be2200
+  0x00c045ab -> 0x00ba4080 FUN_00ba4080
+  0x00c045de -> 0x00be0870 FUN_00be0870
+  0x00c045e5 -> 0x00c04030 FUN_00c04030
+  Total: 4 calls
+
+======================================================================
+ImageSpaceEffect base Render @ 0x00ba3f20
+======================================================================
+  Function: FUN_00ba3f20 @ 0x00ba3f20, Size: 106 bytes
+
+void __thiscall FUN_00ba3f20(int *param_1,undefined4 param_2,undefined4 param_3,undefined4 param_4)
+
+{
+  undefined4 unaff_EBX;
+  uint uVar1;
+  
+  (**(code **)(*param_1 + 0x10))(param_4);
+  uVar1 = 0;
+  if (*(short *)((int)param_1 + 0x12) != 0) {
+    do {
+      FUN_00ba3e30(uVar1);
+      (**(code **)(*param_1 + 0x1c))(param_4);
+      (**(code **)(**(int **)(param_1[3] + uVar1 * 4) + 4))
+                (unaff_EBX,param_2,*(undefined4 *)(param_1[7] + uVar1 * 4),param_3);
+      uVar1 = uVar1 + 1;
+    } while (uVar1 < *(ushort *)((int)param_1 + 0x12));
+  }
+  (**(code **)(*param_1 + 0x14))();
+  return;
+}
+
+
+
+--- Calls FROM ImageSpaceEffect base Render (0x00ba3f20) ---
+  0x00ba3f43 -> 0x00ba3e30 FUN_00ba3e30
+  Total: 1 calls
+
+======================================================================
+ImageSpaceShader primary vtable @ 0x010bc8f8
+======================================================================
+  [60] slot=0x010bc9e8 target=0x00c03d70 ???
+  [61] slot=0x010bc9ec target=0x00be1f90 ???
+  [62] slot=0x010bc9f0 target=0x00a89af0 FUN_00a89af0
+  [63] slot=0x010bc9f4 target=0x00a89af0 FUN_00a89af0
+  [64] slot=0x010bc9f8 target=0x00be0eb0 ???
+  [65] slot=0x010bc9fc target=0x00be0ee0 ???
+  [66] slot=0x010bca00 target=0x00be2170 FUN_00be2170
+  [67] slot=0x010bca04 target=0x00be21b0 FUN_00be21b0
+  [68] slot=0x010bca08 target=0x00be0e50 ???
+  [69] slot=0x010bca0c target=0x00be0e90 ???
+  [70] slot=0x010bca10 target=0x00b807c0 ???
+  [71] slot=0x010bca14 target=0x00a29680 FUN_00a29680
+  [72] slot=0x010bca18 target=0x00ec60fa ???
+  [73] slot=0x010bca1c target=0x00be0ce0 ???
+  [74] slot=0x010bca20 target=0x00be0fb0 ???
+  [75] slot=0x010bca24 target=0x00b606e0 ???
+  [76] slot=0x010bca28 target=0x00be08e0 ???
+  [77] slot=0x010bca2c target=0x00b606e0 ???
+  [78] slot=0x010bca30 target=0x00b79db0 ???
+  [79] slot=0x010bca34 target=0x00c03ae0 ???
+  [80] slot=0x010bca38 target=0x00c04030 FUN_00c04030
+  [81] slot=0x010bca3c target=0x00a89af0 FUN_00a89af0
+  [82] slot=0x010bca40 target=0x00c04090 ???
+  [83] slot=0x010bca44 target=0x00c04120 FUN_00c04120
+  [84] slot=0x010bca48 target=0x00a29680 FUN_00a29680
+
+======================================================================
+ImageSpaceShader ImageSpaceEffect vtable @ 0x010b0318
+======================================================================
+  [00] slot=0x010b0318 target=0x00b91b40 ???
+  [01] slot=0x010b031c target=0x00c03d80 FUN_00c03d80
+  [02] slot=0x010b0320 target=0x00d070a0 ???
+  [03] slot=0x010b0324 target=0x00a29680 FUN_00a29680
+  [04] slot=0x010b0328 target=0x00a89af0 FUN_00a89af0
+  [05] slot=0x010b032c target=0x00a29680 FUN_00a29680
+  [06] slot=0x010b0330 target=0x00b8bda0 ???
+  [07] slot=0x010b0334 target=0x00c9a420 FUN_00c9a420
+
+======================================================================
+ImageSpaceShader primary vtable[72] @ 0x00ec60fa
+======================================================================
+  [function not found]
+  [function not found at 0x00ec60fa]
+
+----------------------------------------------------------------------
+References TO 0x00ec60fa (ImageSpaceShader primary vtable[72])
+----------------------------------------------------------------------
+  DATA @ 0x01011c90 (in ???)
+  DATA @ 0x01011c94 (in ???)
+  DATA @ 0x01011ccc (in ???)
+  DATA @ 0x01011b14 (in ???)
+  DATA @ 0x01011b18 (in ???)
+  DATA @ 0x01011b1c (in ???)
+  DATA @ 0x01011b28 (in ???)
+  DATA @ 0x01011b2c (in ???)
+  DATA @ 0x01011b30 (in ???)
+  DATA @ 0x01011b34 (in ???)
+  DATA @ 0x01011b38 (in ???)
+  DATA @ 0x01011b40 (in ???)
+  DATA @ 0x01011d1c (in ???)
+  DATA @ 0x01011d20 (in ???)
+  DATA @ 0x01011d24 (in ???)
+  DATA @ 0x01011d30 (in ???)
+  DATA @ 0x01011d34 (in ???)
+  DATA @ 0x01011d38 (in ???)
+  DATA @ 0x01011d3c (in ???)
+  DATA @ 0x01011d40 (in ???)
+  DATA @ 0x01011d48 (in ???)
+  DATA @ 0x01011d68 (in ???)
+  DATA @ 0x01011d6c (in ???)
+  DATA @ 0x01011d70 (in ???)
+  DATA @ 0x01011d74 (in ???)
+  DATA @ 0x0101216c (in ???)
+  DATA @ 0x01012170 (in ???)
+  DATA @ 0x0101218c (in ???)
+  DATA @ 0x01012190 (in ???)
+  DATA @ 0x01012194 (in ???)
+  DATA @ 0x01012198 (in ???)
+  DATA @ 0x0101219c (in ???)
+  DATA @ 0x0101228c (in ???)
+  DATA @ 0x01012290 (in ???)
+  DATA @ 0x0101317c (in ???)
+  DATA @ 0x0101300c (in ???)
+  DATA @ 0x01013010 (in ???)
+  DATA @ 0x01013014 (in ???)
+  DATA @ 0x01013020 (in ???)
+  DATA @ 0x01013024 (in ???)
+  DATA @ 0x01013028 (in ???)
+  ... (truncated)
+  Total: 41 refs
+
+======================================================================
+ImageSpaceShader primary vtable[73] @ 0x00be0ce0
+======================================================================
+  [function not found]
+  [function not found at 0x00be0ce0]
+
+----------------------------------------------------------------------
+References TO 0x00be0ce0 (ImageSpaceShader primary vtable[73])
+----------------------------------------------------------------------
+  DATA @ 0x010b00e4 (in ???)
+  DATA @ 0x010b02bc (in ???)
+  DATA @ 0x010b045c (in ???)
+  DATA @ 0x010b063c (in ???)
+  DATA @ 0x010b07e4 (in ???)
+  DATA @ 0x010b0984 (in ???)
+  DATA @ 0x010b0b24 (in ???)
+  DATA @ 0x010b0cbc (in ???)
+  DATA @ 0x010b0e64 (in ???)
+  DATA @ 0x010b0fe4 (in ???)
+  DATA @ 0x010b1164 (in ???)
+  DATA @ 0x010b12e4 (in ???)
+  DATA @ 0x010b1464 (in ???)
+  DATA @ 0x010b15e4 (in ???)
+  DATA @ 0x010b1764 (in ???)
+  DATA @ 0x010b191c (in ???)
+  DATA @ 0x010b1aa4 (in ???)
+  DATA @ 0x010b1c2c (in ???)
+  DATA @ 0x010b1db4 (in ???)
+  DATA @ 0x010b1f44 (in ???)
+  DATA @ 0x010b20d4 (in ???)
+  DATA @ 0x010b2264 (in ???)
+  DATA @ 0x010b2bbc (in ???)
+  DATA @ 0x010b242c (in ???)
+  DATA @ 0x010b25b4 (in ???)
+  DATA @ 0x010b2734 (in ???)
+  DATA @ 0x010b28cc (in ???)
+  DATA @ 0x010b2a44 (in ???)
+  DATA @ 0x010b2d34 (in ???)
+  DATA @ 0x010b2ed4 (in ???)
+  DATA @ 0x010b3074 (in ???)
+  DATA @ 0x010b3204 (in ???)
+  DATA @ 0x010b338c (in ???)
+  DATA @ 0x010b3514 (in ???)
+  DATA @ 0x010b36bc (in ???)
+  DATA @ 0x010b38cc (in ???)
+  DATA @ 0x010b3a7c (in ???)
+  DATA @ 0x010b3c14 (in ???)
+  DATA @ 0x010b3d9c (in ???)
+  DATA @ 0x010b3f3c (in ???)
+  DATA @ 0x010b40cc (in ???)
+  ... (truncated)
+  Total: 41 refs
+
+======================================================================
+ImageSpaceShader primary vtable[74] @ 0x00be0fb0
+======================================================================
+  [function not found]
+  [function not found at 0x00be0fb0]
+
+----------------------------------------------------------------------
+References TO 0x00be0fb0 (ImageSpaceShader primary vtable[74])
+----------------------------------------------------------------------
+  DATA @ 0x010af420 (in ???)
+  DATA @ 0x010af888 (in ???)
+  DATA @ 0x010afb08 (in ???)
+  DATA @ 0x010aff40 (in ???)
+  DATA @ 0x010b00e8 (in ???)
+  DATA @ 0x010b02c0 (in ???)
+  DATA @ 0x010b0460 (in ???)
+  DATA @ 0x010b0640 (in ???)
+  DATA @ 0x010b07e8 (in ???)
+  DATA @ 0x010b0988 (in ???)
+  DATA @ 0x010b0b28 (in ???)
+  DATA @ 0x010b0cc0 (in ???)
+  DATA @ 0x010b0e68 (in ???)
+  DATA @ 0x010b0fe8 (in ???)
+  DATA @ 0x010b1168 (in ???)
+  DATA @ 0x010b12e8 (in ???)
+  DATA @ 0x010b1468 (in ???)
+  DATA @ 0x010b15e8 (in ???)
+  DATA @ 0x010b1768 (in ???)
+  DATA @ 0x010b1920 (in ???)
+  DATA @ 0x010b1aa8 (in ???)
+  DATA @ 0x010b1c30 (in ???)
+  DATA @ 0x010b1db8 (in ???)
+  DATA @ 0x010b1f48 (in ???)
+  DATA @ 0x010b20d8 (in ???)
+  DATA @ 0x010b2268 (in ???)
+  DATA @ 0x010b2bc0 (in ???)
+  DATA @ 0x010b2430 (in ???)
+  DATA @ 0x010b25b8 (in ???)
+  DATA @ 0x010b2738 (in ???)
+  DATA @ 0x010b28d0 (in ???)
+  DATA @ 0x010b2a48 (in ???)
+  DATA @ 0x010b2d38 (in ???)
+  DATA @ 0x010b2ed8 (in ???)
+  DATA @ 0x010b3078 (in ???)
+  DATA @ 0x010b3208 (in ???)
+  DATA @ 0x010b3390 (in ???)
+  DATA @ 0x010b3518 (in ???)
+  DATA @ 0x010b36c0 (in ???)
+  DATA @ 0x010b38d0 (in ???)
+  DATA @ 0x010b3a80 (in ???)
+  ... (truncated)
+  Total: 41 refs
+
+======================================================================
+ImageSpaceShader primary vtable[75] @ 0x00b606e0
+======================================================================
+  [function not found]
+  [function not found at 0x00b606e0]
+
+----------------------------------------------------------------------
+References TO 0x00b606e0 (ImageSpaceShader primary vtable[75])
+----------------------------------------------------------------------
+  DATA @ 0x00b576e0 (in FUN_00b57420)
+  DATA @ 0x01022950 (in ???)
+  DATA @ 0x01022954 (in ???)
+  DATA @ 0x01022ab0 (in ???)
+  DATA @ 0x01022ab4 (in ???)
+  DATA @ 0x01024460 (in ???)
+  DATA @ 0x01024464 (in ???)
+  DATA @ 0x0102e420 (in ???)
+  DATA @ 0x0102e424 (in ???)
+  DATA @ 0x01064ea8 (in ???)
+  DATA @ 0x01064eac (in ???)
+  DATA @ 0x01065c80 (in ???)
+  DATA @ 0x01065c84 (in ???)
+  DATA @ 0x01066038 (in ???)
+  DATA @ 0x0106603c (in ???)
+  DATA @ 0x01066b80 (in ???)
+  DATA @ 0x01066c48 (in ???)
+  DATA @ 0x01094d88 (in ???)
+  DATA @ 0x01094d8c (in ???)
+  DATA @ 0x01095040 (in ???)
+  DATA @ 0x01095044 (in ???)
+  DATA @ 0x01096918 (in ???)
+  DATA @ 0x01096a4c (in ???)
+  DATA @ 0x0109683c (in ???)
+  DATA @ 0x01096854 (in ???)
+  DATA @ 0x01096d8c (in ???)
+  DATA @ 0x01096ec8 (in ???)
+  DATA @ 0x01096ee4 (in ???)
+  DATA @ 0x01096fdc (in ???)
+  DATA @ 0x01097004 (in ???)
+  DATA @ 0x01097124 (in ???)
+  DATA @ 0x010972c4 (in ???)
+  DATA @ 0x010972dc (in ???)
+  DATA @ 0x010973cc (in ???)
+  DATA @ 0x010973e4 (in ???)
+  DATA @ 0x010975c4 (in ???)
+  DATA @ 0x010975dc (in ???)
+  DATA @ 0x010979d4 (in ???)
+  DATA @ 0x01097aac (in ???)
+  DATA @ 0x01097ac4 (in ???)
+  DATA @ 0x01097bac (in ???)
+  ... (truncated)
+  Total: 41 refs
+
+======================================================================
+ImageSpaceShader primary vtable[76] @ 0x00be08e0
+======================================================================
+  [function not found]
+  [function not found at 0x00be08e0]
+
+----------------------------------------------------------------------
+References TO 0x00be08e0 (ImageSpaceShader primary vtable[76])
+----------------------------------------------------------------------
+  DATA @ 0x010af428 (in ???)
+  DATA @ 0x010af890 (in ???)
+  DATA @ 0x010afb10 (in ???)
+  DATA @ 0x010aff48 (in ???)
+  DATA @ 0x010b00f0 (in ???)
+  DATA @ 0x010b02c8 (in ???)
+  DATA @ 0x010b0468 (in ???)
+  DATA @ 0x010b0648 (in ???)
+  DATA @ 0x010b07f0 (in ???)
+  DATA @ 0x010b0990 (in ???)
+  DATA @ 0x010b0b30 (in ???)
+  DATA @ 0x010b0cc8 (in ???)
+  DATA @ 0x010b0e70 (in ???)
+  DATA @ 0x010b0ff0 (in ???)
+  DATA @ 0x010b1170 (in ???)
+  DATA @ 0x010b12f0 (in ???)
+  DATA @ 0x010b1470 (in ???)
+  DATA @ 0x010b15f0 (in ???)
+  DATA @ 0x010b1770 (in ???)
+  DATA @ 0x010b1928 (in ???)
+  DATA @ 0x010b1ab0 (in ???)
+  DATA @ 0x010b1c38 (in ???)
+  DATA @ 0x010b1dc0 (in ???)
+  DATA @ 0x010b1f50 (in ???)
+  DATA @ 0x010b20e0 (in ???)
+  DATA @ 0x010b2270 (in ???)
+  DATA @ 0x010b2bc8 (in ???)
+  DATA @ 0x010b2438 (in ???)
+  DATA @ 0x010b25c0 (in ???)
+  DATA @ 0x010b2740 (in ???)
+  DATA @ 0x010b28d8 (in ???)
+  DATA @ 0x010b2a50 (in ???)
+  DATA @ 0x010b2d40 (in ???)
+  DATA @ 0x010b2ee0 (in ???)
+  DATA @ 0x010b3080 (in ???)
+  DATA @ 0x010b3210 (in ???)
+  DATA @ 0x010b3398 (in ???)
+  DATA @ 0x010b3520 (in ???)
+  DATA @ 0x010b36c8 (in ???)
+  DATA @ 0x010b38d8 (in ???)
+  DATA @ 0x010b3a88 (in ???)
+  ... (truncated)
+  Total: 41 refs
+
+======================================================================
+ImageSpaceShader primary vtable[77] @ 0x00b606e0
+======================================================================
+  [function not found]
+  [function not found at 0x00b606e0]
+
+----------------------------------------------------------------------
+References TO 0x00b606e0 (ImageSpaceShader primary vtable[77])
+----------------------------------------------------------------------
+  DATA @ 0x00b576e0 (in FUN_00b57420)
+  DATA @ 0x01022950 (in ???)
+  DATA @ 0x01022954 (in ???)
+  DATA @ 0x01022ab0 (in ???)
+  DATA @ 0x01022ab4 (in ???)
+  DATA @ 0x01024460 (in ???)
+  DATA @ 0x01024464 (in ???)
+  DATA @ 0x0102e420 (in ???)
+  DATA @ 0x0102e424 (in ???)
+  DATA @ 0x01064ea8 (in ???)
+  DATA @ 0x01064eac (in ???)
+  DATA @ 0x01065c80 (in ???)
+  DATA @ 0x01065c84 (in ???)
+  DATA @ 0x01066038 (in ???)
+  DATA @ 0x0106603c (in ???)
+  DATA @ 0x01066b80 (in ???)
+  DATA @ 0x01066c48 (in ???)
+  DATA @ 0x01094d88 (in ???)
+  DATA @ 0x01094d8c (in ???)
+  DATA @ 0x01095040 (in ???)
+  DATA @ 0x01095044 (in ???)
+  DATA @ 0x01096918 (in ???)
+  DATA @ 0x01096a4c (in ???)
+  DATA @ 0x0109683c (in ???)
+  DATA @ 0x01096854 (in ???)
+  DATA @ 0x01096d8c (in ???)
+  DATA @ 0x01096ec8 (in ???)
+  DATA @ 0x01096ee4 (in ???)
+  DATA @ 0x01096fdc (in ???)
+  DATA @ 0x01097004 (in ???)
+  DATA @ 0x01097124 (in ???)
+  DATA @ 0x010972c4 (in ???)
+  DATA @ 0x010972dc (in ???)
+  DATA @ 0x010973cc (in ???)
+  DATA @ 0x010973e4 (in ???)
+  DATA @ 0x010975c4 (in ???)
+  DATA @ 0x010975dc (in ???)
+  DATA @ 0x010979d4 (in ???)
+  DATA @ 0x01097aac (in ???)
+  DATA @ 0x01097ac4 (in ???)
+  DATA @ 0x01097bac (in ???)
+  ... (truncated)
+  Total: 41 refs
+
+======================================================================
+ImageSpaceShader primary vtable[78] @ 0x00b79db0
+======================================================================
+  [function not found]
+  [function not found at 0x00b79db0]
+
+----------------------------------------------------------------------
+References TO 0x00b79db0 (ImageSpaceShader primary vtable[78])
+----------------------------------------------------------------------
+  DATA @ 0x010af430 (in ???)
+  DATA @ 0x010af898 (in ???)
+  DATA @ 0x010afb18 (in ???)
+  DATA @ 0x010aff50 (in ???)
+  DATA @ 0x010b00f8 (in ???)
+  DATA @ 0x010b02d0 (in ???)
+  DATA @ 0x010b0470 (in ???)
+  DATA @ 0x010b0650 (in ???)
+  DATA @ 0x010b07f8 (in ???)
+  DATA @ 0x010b0998 (in ???)
+  DATA @ 0x010b0b38 (in ???)
+  DATA @ 0x010b0cd0 (in ???)
+  DATA @ 0x010b0e78 (in ???)
+  DATA @ 0x010b0ff8 (in ???)
+  DATA @ 0x010b1178 (in ???)
+  DATA @ 0x010b12f8 (in ???)
+  DATA @ 0x010b1478 (in ???)
+  DATA @ 0x010b15f8 (in ???)
+  DATA @ 0x010b1778 (in ???)
+  DATA @ 0x010b1930 (in ???)
+  DATA @ 0x010b1ab8 (in ???)
+  DATA @ 0x010b1c40 (in ???)
+  DATA @ 0x010b1dc8 (in ???)
+  DATA @ 0x010b1f58 (in ???)
+  DATA @ 0x010b20e8 (in ???)
+  DATA @ 0x010b2278 (in ???)
+  DATA @ 0x010b2bd0 (in ???)
+  DATA @ 0x010b2440 (in ???)
+  DATA @ 0x010b25c8 (in ???)
+  DATA @ 0x010b2748 (in ???)
+  DATA @ 0x010b28e0 (in ???)
+  DATA @ 0x010b2a58 (in ???)
+  DATA @ 0x010b2d48 (in ???)
+  DATA @ 0x010b2ee8 (in ???)
+  DATA @ 0x010b3088 (in ???)
+  DATA @ 0x010b3218 (in ???)
+  DATA @ 0x010b33a0 (in ???)
+  DATA @ 0x010b3528 (in ???)
+  DATA @ 0x010b36d0 (in ???)
+  DATA @ 0x010b38e0 (in ???)
+  DATA @ 0x010b3a90 (in ???)
+  ... (truncated)
+  Total: 41 refs
+
+======================================================================
+ImageSpaceShader primary vtable[79] @ 0x00c03ae0
+======================================================================
+  [function not found]
+  [function not found at 0x00c03ae0]
+
+----------------------------------------------------------------------
+References TO 0x00c03ae0 (ImageSpaceShader primary vtable[79])
+----------------------------------------------------------------------
+  DATA @ 0x010b00fc (in ???)
+  DATA @ 0x010b02d4 (in ???)
+  DATA @ 0x010b0474 (in ???)
+  DATA @ 0x010b0654 (in ???)
+  DATA @ 0x010b07fc (in ???)
+  DATA @ 0x010b099c (in ???)
+  DATA @ 0x010b0b3c (in ???)
+  DATA @ 0x010b0cd4 (in ???)
+  DATA @ 0x010b0e7c (in ???)
+  DATA @ 0x010b0ffc (in ???)
+  DATA @ 0x010b117c (in ???)
+  DATA @ 0x010b12fc (in ???)
+  DATA @ 0x010b147c (in ???)
+  DATA @ 0x010b15fc (in ???)
+  DATA @ 0x010b177c (in ???)
+  DATA @ 0x010b1934 (in ???)
+  DATA @ 0x010b1abc (in ???)
+  DATA @ 0x010b1c44 (in ???)
+  DATA @ 0x010b1dcc (in ???)
+  DATA @ 0x010b1f5c (in ???)
+  DATA @ 0x010b20ec (in ???)
+  DATA @ 0x010b227c (in ???)
+  DATA @ 0x010b2bd4 (in ???)
+  DATA @ 0x010b2444 (in ???)
+  DATA @ 0x010b25cc (in ???)
+  DATA @ 0x010b274c (in ???)
+  DATA @ 0x010b28e4 (in ???)
+  DATA @ 0x010b2a5c (in ???)
+  DATA @ 0x010b2d4c (in ???)
+  DATA @ 0x010b2eec (in ???)
+  DATA @ 0x010b308c (in ???)
+  DATA @ 0x010b321c (in ???)
+  DATA @ 0x010b33a4 (in ???)
+  DATA @ 0x010b352c (in ???)
+  DATA @ 0x010b36d4 (in ???)
+  DATA @ 0x010b38e4 (in ???)
+  DATA @ 0x010b3a94 (in ???)
+  DATA @ 0x010b3c2c (in ???)
+  DATA @ 0x010b3db4 (in ???)
+  DATA @ 0x010b3f54 (in ???)
+  DATA @ 0x010b40e4 (in ???)
+  ... (truncated)
+  Total: 41 refs
+
+======================================================================
+ImageSpaceShader primary vtable[80] @ 0x00c04030
+======================================================================
+  Function: FUN_00c04030 @ 0x00c04030, Size: 96 bytes
+
+void __fastcall FUN_00c04030(int *param_1)
+
+{
+  int *piVar1;
+  
+  piVar1 = (int *)FUN_00e76700(DAT_011f9508,2,1);
+  (**(code **)(*piVar1 + 0x8c))(0,0,0,2,0);
+  (**(code **)(*piVar1 + 0x8c))(1,7,5,1,0);
+  (**(code **)(*piVar1 + 0xb4))();
+  (**(code **)(*param_1 + 0xc0))(piVar1);
+  return;
+}
+
+
+
+--- Calls FROM ImageSpaceShader primary vtable[80] (0x00c04030) ---
+  0x00c0403e -> 0x00e76700 FUN_00e76700
+  Total: 1 calls
+
+----------------------------------------------------------------------
+References TO 0x00c04030 (ImageSpaceShader primary vtable[80])
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00c045e5 (in FUN_00c04570)
+  DATA @ 0x010b0100 (in ???)
+  DATA @ 0x010b02d8 (in ???)
+  DATA @ 0x010b0478 (in ???)
+  DATA @ 0x010b0658 (in ???)
+  DATA @ 0x010b0800 (in ???)
+  DATA @ 0x010b09a0 (in ???)
+  DATA @ 0x010b0b40 (in ???)
+  DATA @ 0x010b0cd8 (in ???)
+  DATA @ 0x010b0e80 (in ???)
+  DATA @ 0x010b1000 (in ???)
+  DATA @ 0x010b1180 (in ???)
+  DATA @ 0x010b1300 (in ???)
+  DATA @ 0x010b1480 (in ???)
+  DATA @ 0x010b1600 (in ???)
+  DATA @ 0x010b1780 (in ???)
+  DATA @ 0x010b1938 (in ???)
+  DATA @ 0x010b1ac0 (in ???)
+  DATA @ 0x010b1c48 (in ???)
+  DATA @ 0x010b1dd0 (in ???)
+  DATA @ 0x010b1f60 (in ???)
+  DATA @ 0x010b20f0 (in ???)
+  DATA @ 0x010b2280 (in ???)
+  DATA @ 0x010b2bd8 (in ???)
+  DATA @ 0x010b2448 (in ???)
+  DATA @ 0x010b25d0 (in ???)
+  DATA @ 0x010b2750 (in ???)
+  DATA @ 0x010b28e8 (in ???)
+  DATA @ 0x010b2a60 (in ???)
+  DATA @ 0x010b2d50 (in ???)
+  DATA @ 0x010b2ef0 (in ???)
+  DATA @ 0x010b3090 (in ???)
+  DATA @ 0x010b3220 (in ???)
+  DATA @ 0x010b33a8 (in ???)
+  DATA @ 0x010b3530 (in ???)
+  DATA @ 0x010b36d8 (in ???)
+  DATA @ 0x010b38e8 (in ???)
+  DATA @ 0x010b3a98 (in ???)
+  DATA @ 0x010b3c30 (in ???)
+  DATA @ 0x010b3db8 (in ???)
+  DATA @ 0x010b3f58 (in ???)
+  ... (truncated)
+  Total: 41 refs
+
+======================================================================
+ImageSpaceShader primary vtable[81] @ 0x00a89af0
+======================================================================
+  Function: FUN_00a89af0 @ 0x00a89af0, Size: 3 bytes
+
+void FUN_00a89af0(void)
+
+{
+  return;
+}
+
+
+
+--- Calls FROM ImageSpaceShader primary vtable[81] (0x00a89af0) ---
+  Total: 0 calls
+
+----------------------------------------------------------------------
+References TO 0x00a89af0 (ImageSpaceShader primary vtable[81])
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00700867 (in FUN_007006c0)
+  UNCONDITIONAL_CALL @ 0x0086cfb7 (in FUN_0086cf20)
+  UNCONDITIONAL_CALL @ 0x004bbd8a (in FUN_004baf10)
+  UNCONDITIONAL_CALL @ 0x008741fe (in FUN_00873200)
+  UNCONDITIONAL_CALL @ 0x00a6d73b (in FUN_00a6d730)
+  UNCONDITIONAL_CALL @ 0x00a326ee (in FUN_00a326e0)
+  UNCONDITIONAL_CALL @ 0x00a33bfe (in FUN_00a33bf0)
+  UNCONDITIONAL_CALL @ 0x00a352fe (in FUN_00a352f0)
+  UNCONDITIONAL_JUMP @ 0x00a724d0 (in thunk_FUN_00a89af0)
+  UNCONDITIONAL_CALL @ 0x00a41d9e (in FUN_00a41d90)
+  UNCONDITIONAL_CALL @ 0x00a44b8b (in FUN_00a44b80)
+  UNCONDITIONAL_CALL @ 0x00a4561b (in FUN_00a45610)
+  UNCONDITIONAL_CALL @ 0x00a5c0ea (in FUN_00a5c0e0)
+  UNCONDITIONAL_CALL @ 0x00a5c5bb (in FUN_00a5c5b0)
+  UNCONDITIONAL_CALL @ 0x00a6852e (in FUN_00a68520)
+  UNCONDITIONAL_CALL @ 0x00a7337e (in FUN_00a73370)
+  UNCONDITIONAL_CALL @ 0x00a7be8a (in FUN_00a7be80)
+  UNCONDITIONAL_CALL @ 0x00a85262 (in FUN_00a85250)
+  UNCONDITIONAL_CALL @ 0x00a90f7e (in FUN_00a90f70)
+  UNCONDITIONAL_CALL @ 0x00a7b2c9 (in FUN_00a7b2c0)
+  UNCONDITIONAL_CALL @ 0x00a9560a (in FUN_00a95600)
+  UNCONDITIONAL_CALL @ 0x00a95aa1 (in FUN_00a95a90)
+  UNCONDITIONAL_CALL @ 0x00a9811a (in FUN_00a98110)
+  UNCONDITIONAL_CALL @ 0x00a984be (in FUN_00a984b0)
+  UNCONDITIONAL_CALL @ 0x00a677e9 (in FUN_00a677e0)
+  UNCONDITIONAL_CALL @ 0x00a5c6aa (in FUN_00a5c6a0)
+  UNCONDITIONAL_CALL @ 0x00c3195b (in FUN_00c31950)
+  UNCONDITIONAL_CALL @ 0x00c3290b (in FUN_00c32900)
+  UNCONDITIONAL_CALL @ 0x00c31656 (in FUN_00c31650)
+  UNCONDITIONAL_CALL @ 0x00c3261a (in FUN_00c32610)
+  UNCONDITIONAL_CALL @ 0x00c36080 (in FUN_00c36070)
+  UNCONDITIONAL_CALL @ 0x00c36100 (in FUN_00c360f0)
+  UNCONDITIONAL_CALL @ 0x00c4fa1e (in FUN_00c4fa10)
+  UNCONDITIONAL_CALL @ 0x00c4fa6e (in FUN_00c4fa60)
+  UNCONDITIONAL_CALL @ 0x00c53ac0 (in FUN_00c53ab0)
+  UNCONDITIONAL_CALL @ 0x00c61f46 (in FUN_00c61f30)
+  UNCONDITIONAL_CALL @ 0x00c6495e (in FUN_00c64950)
+  UNCONDITIONAL_CALL @ 0x00c64ae0 (in FUN_00c64ad0)
+  UNCONDITIONAL_CALL @ 0x00c64ba0 (in FUN_00c64b90)
+  UNCONDITIONAL_CALL @ 0x00c87678 (in FUN_00c87670)
+  UNCONDITIONAL_CALL @ 0x00c87870 (in FUN_00c87850)
+  ... (truncated)
+  Total: 41 refs
+
+======================================================================
+ImageSpaceShader primary vtable[82] @ 0x00c04090
+======================================================================
+  [function not found]
+  [function not found at 0x00c04090]
+
+----------------------------------------------------------------------
+References TO 0x00c04090 (ImageSpaceShader primary vtable[82])
+----------------------------------------------------------------------
+  DATA @ 0x010b0108 (in ???)
+  DATA @ 0x010b02e0 (in ???)
+  DATA @ 0x010b0480 (in ???)
+  DATA @ 0x010b0660 (in ???)
+  DATA @ 0x010b0808 (in ???)
+  DATA @ 0x010b09a8 (in ???)
+  DATA @ 0x010b0b48 (in ???)
+  DATA @ 0x010b0ce0 (in ???)
+  DATA @ 0x010b0e88 (in ???)
+  DATA @ 0x010b1008 (in ???)
+  DATA @ 0x010b1188 (in ???)
+  DATA @ 0x010b1308 (in ???)
+  DATA @ 0x010b1488 (in ???)
+  DATA @ 0x010b1608 (in ???)
+  DATA @ 0x010b1788 (in ???)
+  DATA @ 0x010b1940 (in ???)
+  DATA @ 0x010b1ac8 (in ???)
+  DATA @ 0x010b1c50 (in ???)
+  DATA @ 0x010b1dd8 (in ???)
+  DATA @ 0x010b1f68 (in ???)
+  DATA @ 0x010b20f8 (in ???)
+  DATA @ 0x010b2288 (in ???)
+  DATA @ 0x010b2be0 (in ???)
+  DATA @ 0x010b2450 (in ???)
+  DATA @ 0x010b25d8 (in ???)
+  DATA @ 0x010b2758 (in ???)
+  DATA @ 0x010b28f0 (in ???)
+  DATA @ 0x010b2a68 (in ???)
+  DATA @ 0x010b2d58 (in ???)
+  DATA @ 0x010b2ef8 (in ???)
+  DATA @ 0x010b3098 (in ???)
+  DATA @ 0x010b3228 (in ???)
+  DATA @ 0x010b33b0 (in ???)
+  DATA @ 0x010b3538 (in ???)
+  DATA @ 0x010b36e0 (in ???)
+  DATA @ 0x010b38f0 (in ???)
+  DATA @ 0x010b3aa0 (in ???)
+  DATA @ 0x010b3c38 (in ???)
+  DATA @ 0x010b3dc0 (in ???)
+  DATA @ 0x010b3f60 (in ???)
+  DATA @ 0x010b40f0 (in ???)
+  ... (truncated)
+  Total: 41 refs
+
+======================================================================
+ImageSpaceShader primary vtable[83] @ 0x00c04120
+======================================================================
+  Function: FUN_00c04120 @ 0x00c04120, Size: 483 bytes
+
+undefined4 __fastcall FUN_00c04120(int *param_1)
+
+{
+  int *piVar1;
+  int iVar2;
+  int *piVar3;
+  int *piVar4;
+  uint uVar5;
+  undefined4 uVar6;
+  LONG LVar7;
+  int *unaff_FS_OFFSET;
+  int local_14;
+  int iStack_10;
+  int local_c;
+  undefined1 *puStack_8;
+  undefined4 local_4;
+  
+  puStack_8 = &LAB_00f296a8;
+  local_c = *unaff_FS_OFFSET;
+  uVar5 = DAT_011c16bc ^ (uint)&stack0xffffffdc;
+  *unaff_FS_OFFSET = (int)&local_c;
+  local_14 = 0;
+  piVar1 = param_1 + 0x17;
+  local_4 = 0;
+  FUN_00e804d0(piVar1,uVar5);
+  uVar5 = 0;
+  if ((short)param_1[0x27] != 0) {
+    do {
+      FUN_00e7edf0(&local_14);
+      FUN_00be0cf0(local_14,uVar5,3,2,1);
+      FUN_00e802b0(*(undefined4 *)(*piVar1 + 0x14),local_14);
+      uVar5 = uVar5 + 1;
+    } while (uVar5 < *(ushort *)(param_1 + 0x27));
+  }
+  iVar2 = *piVar1;
+  if (*(int *)(iVar2 + 0x30) == 0) {
+    uVar6 = FUN_00e7f5d0();
+    *(undefined4 *)(iVar2 + 0x30) = uVar6;
+  }
+  FUN_00e7f430(7,0,1);
+  iVar2 = *piVar1;
+  if (*(int *)(iVar2 + 0x30) == 0) {
+    uVar6 = FUN_00e7f5d0();
+    *(undefined4 *)(iVar2 + 0x30) = uVar6;
+  }
+  FUN_00e7f430(0xe,0,1);
+  iVar2 = *piVar1;
+  if (*(int *)(iVar2 + 0x30) == 0) {
+    uVar6 = FUN_00e7f5d0();
+    *(undefined4 *)(iVar2 + 0x30) = uVar6;
+  }
+  FUN_00e7f430(0x1b,0,1);
+  iVar2 = *piVar1;
+  if (*(int *)(iVar2 + 0x30) == 0) {
+    uVar6 = FUN_00e7f5d0();
+    *(undefined4 *)(iVar2 + 0x30) = uVar6;
+  }
+  FUN_00e7f430(0xf,0,1);
+  iVar2 = *piVar1;
+  if (*(int *)(iVar2 + 0x30) == 0) {
+    uVar6 = FUN_00e7f5d0();
+    *(undefined4 *)(iVar2 + 0x30) = uVar6;
+  }
+  FUN_00e7f430(0xa8,0xf,1);
+  (**(code **)(*param_1 + 0x150))();
+  iStack_10 = *piVar1;
+  piVar3 = (int *)param_1[0x31];
+  piVar4 = *(int **)(iStack_10 + 0x5c);
+  if (piVar4 != piVar3) {
+    if ((piVar4 != (int *)0x0) && (LVar7 = InterlockedDecrement(piVar4 + 1), LVar7 == 0)) {
+      (**(code **)(*piVar4 + 4))();
+    }
+    *(int **)(iStack_10 + 0x5c) = piVar3;
+    if (piVar3 != (int *)0x0) {
+      InterlockedIncrement(piVar3 + 1);
+    }
+  }
+  iVar2 = *piVar1;
+  piVar3 = (int *)param_1[0x32];
+  piVar4 = *(int **)(iVar2 + 0x44);
+  if (piVar4 != piVar3) {
+    if ((piVar4 != (int *)0x0) && (LVar7 = InterlockedDecrement(piVar4 + 1), LVar7 == 0)) {
+      (**(code **)(*piVar4 + 4))();
+    }
+    *(int **)(iVar2 + 0x44) = piVar3;
+    if (piVar3 != (int *)0x0) {
+      InterlockedIncrement(piVar3 + 1);
+    }
+  }
+  DAT_0126f74c = *piVar1;
+  local_4 = 0xffffffff;
+  if ((local_14 != 0) &&
+     (*(int *)(local_14 + 0x60) = *(int *)(local_14 + 0x60) + -1, *(int *)(local_14 + 0x60) == 0)) {
+    FUN_00e7ecd0();
+  }
+  *unaff_FS_OFFSET = local_c;
+  return 1;
+}
+
+
+
+--- Calls FROM ImageSpaceShader primary vtable[83] (0x00c04120) ---
+  0x00c04157 -> 0x00e804d0 FUN_00e804d0
+  0x00c04175 -> 0x00e7edf0 FUN_00e7edf0
+  0x00c04186 -> 0x00be0cf0 FUN_00be0cf0
+  0x00c04199 -> 0x00e802b0 FUN_00e802b0
+  0x00c041b1 -> 0x00e7f5d0 FUN_00e7f5d0
+  0x00c041c1 -> 0x00e7f430 FUN_00e7f430
+  0x00c041cd -> 0x00e7f5d0 FUN_00e7f5d0
+  0x00c041dd -> 0x00e7f430 FUN_00e7f430
+  0x00c041e9 -> 0x00e7f5d0 FUN_00e7f5d0
+  0x00c041f9 -> 0x00e7f430 FUN_00e7f430
+  0x00c04205 -> 0x00e7f5d0 FUN_00e7f5d0
+  0x00c04215 -> 0x00e7f430 FUN_00e7f430
+  0x00c04221 -> 0x00e7f5d0 FUN_00e7f5d0
+  0x00c04235 -> 0x00e7f430 FUN_00e7f430
+  0x00c04261 -> 0x00000067 ???
+  0x00c04283 -> 0x00000066 ???
+  0x00c042a0 -> 0x00000067 ???
+  0x00c042be -> 0x00000066 ???
+  0x00c042e8 -> 0x00e7ecd0 FUN_00e7ecd0
+  Total: 19 calls
+
+----------------------------------------------------------------------
+References TO 0x00c04120 (ImageSpaceShader primary vtable[83])
+----------------------------------------------------------------------
+  DATA @ 0x010b010c (in ???)
+  DATA @ 0x010b02e4 (in ???)
+  DATA @ 0x010b0484 (in ???)
+  DATA @ 0x010b0664 (in ???)
+  DATA @ 0x010b080c (in ???)
+  DATA @ 0x010b09ac (in ???)
+  DATA @ 0x010b0b4c (in ???)
+  DATA @ 0x010b0ce4 (in ???)
+  DATA @ 0x010b0e8c (in ???)
+  DATA @ 0x010b100c (in ???)
+  DATA @ 0x010b118c (in ???)
+  DATA @ 0x010b130c (in ???)
+  DATA @ 0x010b148c (in ???)
+  DATA @ 0x010b160c (in ???)
+  DATA @ 0x010b178c (in ???)
+  DATA @ 0x010b1944 (in ???)
+  DATA @ 0x010b1acc (in ???)
+  DATA @ 0x010b1c54 (in ???)
+  DATA @ 0x010b1ddc (in ???)
+  DATA @ 0x010b1f6c (in ???)
+  DATA @ 0x010b20fc (in ???)
+  DATA @ 0x010b228c (in ???)
+  DATA @ 0x010b2be4 (in ???)
+  DATA @ 0x010b2454 (in ???)
+  DATA @ 0x010b25dc (in ???)
+  DATA @ 0x010b275c (in ???)
+  DATA @ 0x010b28f4 (in ???)
+  DATA @ 0x010b2a6c (in ???)
+  DATA @ 0x010b2d5c (in ???)
+  DATA @ 0x010b2efc (in ???)
+  DATA @ 0x010b309c (in ???)
+  DATA @ 0x010b322c (in ???)
+  DATA @ 0x010b33b4 (in ???)
+  DATA @ 0x010b353c (in ???)
+  DATA @ 0x010b36e4 (in ???)
+  DATA @ 0x010b38f4 (in ???)
+  DATA @ 0x010b3aa4 (in ???)
+  DATA @ 0x010b3c3c (in ???)
+  DATA @ 0x010b3dc4 (in ???)
+  DATA @ 0x010b3f64 (in ???)
+  DATA @ 0x010b40f4 (in ???)
+  ... (truncated)
+  Total: 41 refs
+
+======================================================================
+ImageSpaceShader primary vtable[84] @ 0x00a29680
+======================================================================
+  Function: FUN_00a29680 @ 0x00a29680, Size: 1 bytes
+
+void FUN_00a29680(void)
+
+{
+  return;
+}
+
+
+
+--- Calls FROM ImageSpaceShader primary vtable[84] (0x00a29680) ---
+  Total: 0 calls
+
+----------------------------------------------------------------------
+References TO 0x00a29680 (ImageSpaceShader primary vtable[84])
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x004e695c (in FUN_004e6620)
+  UNCONDITIONAL_CALL @ 0x004ae724 (in FUN_004ae700)
+  UNCONDITIONAL_CALL @ 0x004ae737 (in FUN_004ae700)
+  UNCONDITIONAL_CALL @ 0x0086ee8a (in FUN_0086e650)
+  UNCONDITIONAL_CALL @ 0x00622f3d (in FUN_00622f20)
+  UNCONDITIONAL_CALL @ 0x00622f51 (in FUN_00622f20)
+  UNCONDITIONAL_CALL @ 0x005616ad (in FUN_00561690)
+  UNCONDITIONAL_CALL @ 0x005616c1 (in FUN_00561690)
+  UNCONDITIONAL_CALL @ 0x006288f1 (in FUN_006288c0)
+  UNCONDITIONAL_CALL @ 0x0062890a (in FUN_006288c0)
+  UNCONDITIONAL_CALL @ 0x005617dd (in FUN_005617c0)
+  UNCONDITIONAL_CALL @ 0x005617f1 (in FUN_005617c0)
+  UNCONDITIONAL_CALL @ 0x00870052 (in FUN_0086ff70)
+  UNCONDITIONAL_CALL @ 0x008758a5 (in FUN_00875110)
+  UNCONDITIONAL_CALL @ 0x00621a0d (in FUN_006219f0)
+  UNCONDITIONAL_CALL @ 0x00621a27 (in FUN_006219f0)
+  UNCONDITIONAL_CALL @ 0x00623179 (in FUN_00623150)
+  UNCONDITIONAL_CALL @ 0x00623194 (in FUN_00623150)
+  UNCONDITIONAL_CALL @ 0x008cffc1 (in FUN_008cffa0)
+  UNCONDITIONAL_CALL @ 0x008cffdf (in FUN_008cffa0)
+  UNCONDITIONAL_CALL @ 0x0056e06d (in FUN_0056e050)
+  UNCONDITIONAL_CALL @ 0x0056e081 (in FUN_0056e050)
+  UNCONDITIONAL_CALL @ 0x009b0c6d (in FUN_009b0c50)
+  UNCONDITIONAL_CALL @ 0x009b0c81 (in FUN_009b0c50)
+  UNCONDITIONAL_CALL @ 0x009b0d0d (in FUN_009b0cf0)
+  UNCONDITIONAL_CALL @ 0x009b0d21 (in FUN_009b0cf0)
+  UNCONDITIONAL_CALL @ 0x00a7b08c (in FUN_00a7aff0)
+  UNCONDITIONAL_CALL @ 0x00b549c5 (in FUN_00b54630)
+  UNCONDITIONAL_CALL @ 0x00b6b2d0 (in FUN_00b6b2a0)
+  UNCONDITIONAL_CALL @ 0x00c6b9a5 (in FUN_00c6b980)
+  UNCONDITIONAL_CALL @ 0x00c6b9bd (in FUN_00c6b980)
+  UNCONDITIONAL_CALL @ 0x00c6ba07 (in FUN_00c6b980)
+  UNCONDITIONAL_CALL @ 0x00c6ba1c (in FUN_00c6b980)
+  UNCONDITIONAL_CALL @ 0x00c6e080 (in FUN_00c6e050)
+  UNCONDITIONAL_CALL @ 0x00c6e095 (in FUN_00c6e050)
+  UNCONDITIONAL_CALL @ 0x00c6d8ae (in FUN_00c6d8a0)
+  UNCONDITIONAL_CALL @ 0x00c6d8d3 (in FUN_00c6d8a0)
+  UNCONDITIONAL_CALL @ 0x00c6d8e4 (in FUN_00c6d8a0)
+  UNCONDITIONAL_CALL @ 0x00c6e64a (in FUN_00c6e420)
+  UNCONDITIONAL_CALL @ 0x00c6e65d (in FUN_00c6e420)
+  UNCONDITIONAL_CALL @ 0x00c751a7 (in FUN_00c75180)
+  ... (truncated)
+  Total: 41 refs
+
+======================================================================
+ImageSpaceShader ImageSpaceEffect vtable[0] @ 0x00b91b40
+======================================================================
+  [function not found]
+  [function not found at 0x00b91b40]
+
+----------------------------------------------------------------------
+References TO 0x00b91b40 (ImageSpaceShader ImageSpaceEffect vtable[0])
+----------------------------------------------------------------------
+  DATA @ 0x010b0318 (in ???)
+  DATA @ 0x010b511c (in ???)
+  Total: 2 refs
+
+======================================================================
+ImageSpaceShader ImageSpaceEffect vtable[1] @ 0x00c03d80
+======================================================================
+  Function: FUN_00c03d80 @ 0x00c03d80, Size: 674 bytes
+
+void __thiscall FUN_00c03d80(int param_1,int param_2,undefined4 param_3,undefined *param_4)
+
+{
+  int *piVar1;
+  uint uVar2;
+  int *piVar3;
+  undefined4 uVar4;
+  int iVar5;
+  int iVar6;
+  LONG LVar7;
+  int *piVar8;
+  int *piVar9;
+  int *unaff_FS_OFFSET;
+  int unaff_retaddr;
+  undefined4 uStack_34;
+  int *local_30;
+  undefined4 uStack_2c;
+  undefined4 auStack_28 [4];
+  int iStack_18;
+  uint uStack_10;
+  int local_c;
+  undefined1 *puStack_8;
+  undefined4 local_4;
+  
+  local_4 = 0xffffffff;
+  puStack_8 = &LAB_00f2d5f0;
+  local_c = *unaff_FS_OFFSET;
+  uVar2 = DAT_011c16bc ^ (uint)&stack0xffffffbc;
+  *unaff_FS_OFFSET = (int)&local_c;
+  if (param_4 == (undefined *)0x0) {
+    param_4 = &DAT_01202410;
+  }
+  piVar3 = (int *)FUN_00ba3770(uVar2);
+  local_30 = piVar3;
+  if (piVar3 != (int *)0x0) {
+    InterlockedIncrement(piVar3 + 1);
+  }
+  piVar9 = (int *)(param_1 + -0x6c);
+  *(int **)(param_2 + 0xc0) = piVar9;
+  local_4 = 0;
+  (**(code **)(*piVar9 + 0x50))(param_2);
+  (**(code **)(*piVar9 + 0x148))(param_4);
+  FUN_00c03c80();
+  uVar2 = *(uint *)(param_4 + 0x28);
+  uStack_34 = 0;
+  local_30 = (int *)0x0;
+  uStack_2c = 0;
+  auStack_28[0] = 0;
+  if ((piVar3 == (int *)0x0) && (DAT_011f9426 != '\0')) {
+    uVar2 = 1;
+    (**(code **)(*DAT_011f9508 + 0xb4))(&uStack_34);
+    (**(code **)(*DAT_011f9508 + 0xac))(&DAT_011a9bd0);
+  }
+  else {
+    if ((uVar2 & 1) != 0) {
+      (**(code **)(*DAT_011f9508 + 0xb4))(&uStack_34);
+      (**(code **)(*DAT_011f9508 + 0xac))(param_4 + 0x2c);
+    }
+    if (piVar3 != (int *)0x0) {
+      if (DAT_011f4748[0x80] == 0) {
+        uVar4 = FUN_00b6b260();
+        FUN_00b6b8d0(uVar2,uVar4);
+      }
+      goto LAB_00c03e85;
+    }
+  }
+  if (DAT_011f4748[0x80] == 0) {
+    FUN_00b6b890(uVar2,0);
+  }
+LAB_00c03e85:
+  piVar1 = DAT_011f4748;
+  if (piVar3 == (int *)*DAT_011f91ac) {
+    piVar8 = DAT_011f91ac + 0xc2;
+  }
+  else {
+    piVar8 = (int *)0x0;
+  }
+  if ((piVar3 == (int *)0x0) && (DAT_011f9426 != '\0')) {
+    iVar5 = (**(code **)(*DAT_011f4748 + 200))();
+    iVar6 = (**(code **)(*piVar1 + 0xcc))();
+    if (iVar5 == iVar6) {
+      piVar8 = &DAT_011ad840;
+    }
+  }
+  if (((DAT_011f4748[0x80] == 1) || (DAT_011f4748[0x80] == 2)) &&
+     ((char)DAT_011f4748[0x82] == '\x01')) {
+    (**(code **)(*DAT_011f4748 + 400))(piVar8);
+  }
+  (**(code **)(*piVar9 + 0xf4))(0x2f6);
+  FUN_00ba8ec0(auStack_28,puStack_8,0x2f6,1,0,0);
+  uStack_10 = CONCAT31(uStack_10._1_3_,1);
+  FUN_00b994f0(auStack_28,0x2f6,0,0,0);
+  if ((piVar3 != (int *)0x0) && ((char)param_2 != '\0')) {
+    iVar5 = (**(code **)(*DAT_011f4748 + 200))();
+    iVar6 = FUN_00b6b100();
+    if (iVar6 != iVar5) {
+      FUN_00b6b790();
+    }
+  }
+  if ((*(byte *)(unaff_retaddr + 0x28) & 1) != 0) {
+    (**(code **)(*DAT_011f9508 + 0xac))(&stack0xffffffc8);
+  }
+  uStack_10 = uStack_10 & 0xffffff00;
+  FUN_00ba8cd0();
+  uStack_10 = 0xffffffff;
+  if ((piVar3 != (int *)0x0) && (LVar7 = InterlockedDecrement(piVar3 + 1), LVar7 == 0)) {
+    (**(code **)(*piVar3 + 4))();
+  }
+  *unaff_FS_OFFSET = iStack_18;
+  return;
+}
+
+
+
+--- Calls FROM ImageSpaceShader ImageSpaceEffect vtable[1] (0x00c03d80) ---
+  0x00c03dca -> 0x00ba3770 FUN_00ba3770
+  0x00c03ddd -> 0x00000066 ???
+  0x00c03e11 -> 0x00c03c80 FUN_00c03c80
+  0x00c03e77 -> 0x00b6b890 FUN_00b6b890
+  0x00c03ed9 -> 0x00b6b260 FUN_00b6b260
+  0x00c03ee0 -> 0x00b6b8d0 FUN_00b6b8d0
+  0x00c03f6f -> 0x00ba8ec0 FUN_00ba8ec0
+  0x00c03f89 -> 0x00b994f0 FUN_00b994f0
+  0x00c03fae -> 0x00b6b100 FUN_00b6b100
+  0x00c03fb7 -> 0x00b6b790 FUN_00b6b790
+  0x00c03fe4 -> 0x00ba8cd0 FUN_00ba8cd0
+  0x00c03ff9 -> 0x00000067 ???
+  Total: 12 calls
+
+----------------------------------------------------------------------
+References TO 0x00c03d80 (ImageSpaceShader ImageSpaceEffect vtable[1])
+----------------------------------------------------------------------
+  DATA @ 0x010affa4 (in ???)
+  DATA @ 0x010b0178 (in ???)
+  DATA @ 0x010b031c (in ???)
+  DATA @ 0x010b04f8 (in ???)
+  DATA @ 0x010b06a4 (in ???)
+  DATA @ 0x010b0840 (in ???)
+  DATA @ 0x010b09e0 (in ???)
+  DATA @ 0x010b0b7c (in ???)
+  DATA @ 0x010b0d20 (in ???)
+  DATA @ 0x010b0ea0 (in ???)
+  DATA @ 0x010b1020 (in ???)
+  DATA @ 0x010b11a0 (in ???)
+  DATA @ 0x010b1324 (in ???)
+  DATA @ 0x010b14a4 (in ???)
+  DATA @ 0x010b1624 (in ???)
+  DATA @ 0x010b17dc (in ???)
+  DATA @ 0x010b1964 (in ???)
+  DATA @ 0x010b1aec (in ???)
+  DATA @ 0x010b1c74 (in ???)
+  DATA @ 0x010b1e00 (in ???)
+  DATA @ 0x010b1f90 (in ???)
+  DATA @ 0x010b2120 (in ???)
+  DATA @ 0x010b2a78 (in ???)
+  DATA @ 0x010b22ec (in ???)
+  DATA @ 0x010b2474 (in ???)
+  DATA @ 0x010b25f4 (in ???)
+  DATA @ 0x010b2788 (in ???)
+  DATA @ 0x010b2900 (in ???)
+  DATA @ 0x010b2bf0 (in ???)
+  DATA @ 0x010b2d90 (in ???)
+  DATA @ 0x010b2f34 (in ???)
+  DATA @ 0x010b30c4 (in ???)
+  DATA @ 0x010b3248 (in ???)
+  DATA @ 0x010b33d0 (in ???)
+  DATA @ 0x010b3578 (in ???)
+  DATA @ 0x010b378c (in ???)
+  DATA @ 0x010b3938 (in ???)
+  DATA @ 0x010b3ad4 (in ???)
+  DATA @ 0x010b3c5c (in ???)
+  DATA @ 0x010b3df8 (in ???)
+  DATA @ 0x010b3f8c (in ???)
+  ... (truncated)
+  Total: 41 refs
+
+======================================================================
+ImageSpaceShader ImageSpaceEffect vtable[2] @ 0x00d070a0
+======================================================================
+  [function not found]
+  [function not found at 0x00d070a0]
+
+----------------------------------------------------------------------
+References TO 0x00d070a0 (ImageSpaceShader ImageSpaceEffect vtable[2])
+----------------------------------------------------------------------
+  DATA @ 0x0109650c (in ???)
+  DATA @ 0x0109651c (in ???)
+  DATA @ 0x0109675c (in ???)
+  DATA @ 0x0109676c (in ???)
+  DATA @ 0x01097118 (in ???)
+  DATA @ 0x01097ab8 (in ???)
+  DATA @ 0x01099640 (in ???)
+  DATA @ 0x0109a9e8 (in ???)
+  DATA @ 0x0109af50 (in ???)
+  DATA @ 0x0109f60c (in ???)
+  DATA @ 0x010a217c (in ???)
+  DATA @ 0x010a2180 (in ???)
+  DATA @ 0x010adb8c (in ???)
+  DATA @ 0x010adf64 (in ???)
+  DATA @ 0x010ae0a8 (in ???)
+  DATA @ 0x010ae18c (in ???)
+  DATA @ 0x010ae86c (in ???)
+  DATA @ 0x010af438 (in ???)
+  DATA @ 0x010affa8 (in ???)
+  DATA @ 0x010b017c (in ???)
+  DATA @ 0x010b0320 (in ???)
+  DATA @ 0x010b04fc (in ???)
+  DATA @ 0x010b06a8 (in ???)
+  DATA @ 0x010b0844 (in ???)
+  DATA @ 0x010b09e4 (in ???)
+  DATA @ 0x010b0b80 (in ???)
+  DATA @ 0x010b0d24 (in ???)
+  DATA @ 0x010b0ea4 (in ???)
+  DATA @ 0x010b1024 (in ???)
+  DATA @ 0x010b11a4 (in ???)
+  DATA @ 0x010b1328 (in ???)
+  DATA @ 0x010b14a8 (in ???)
+  DATA @ 0x010b1628 (in ???)
+  DATA @ 0x010b17e0 (in ???)
+  DATA @ 0x010b1968 (in ???)
+  DATA @ 0x010b1af0 (in ???)
+  DATA @ 0x010b1c78 (in ???)
+  DATA @ 0x010b1e04 (in ???)
+  DATA @ 0x010b1f94 (in ???)
+  DATA @ 0x010b2124 (in ???)
+  DATA @ 0x010b2a7c (in ???)
+  ... (truncated)
+  Total: 41 refs
+
+======================================================================
+ImageSpaceShader ImageSpaceEffect vtable[3] @ 0x00a29680
+======================================================================
+  Function: FUN_00a29680 @ 0x00a29680, Size: 1 bytes
+
+void FUN_00a29680(void)
+
+{
+  return;
+}
+
+
+
+--- Calls FROM ImageSpaceShader ImageSpaceEffect vtable[3] (0x00a29680) ---
+  Total: 0 calls
+
+----------------------------------------------------------------------
+References TO 0x00a29680 (ImageSpaceShader ImageSpaceEffect vtable[3])
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x004e695c (in FUN_004e6620)
+  UNCONDITIONAL_CALL @ 0x004ae724 (in FUN_004ae700)
+  UNCONDITIONAL_CALL @ 0x004ae737 (in FUN_004ae700)
+  UNCONDITIONAL_CALL @ 0x0086ee8a (in FUN_0086e650)
+  UNCONDITIONAL_CALL @ 0x00622f3d (in FUN_00622f20)
+  UNCONDITIONAL_CALL @ 0x00622f51 (in FUN_00622f20)
+  UNCONDITIONAL_CALL @ 0x005616ad (in FUN_00561690)
+  UNCONDITIONAL_CALL @ 0x005616c1 (in FUN_00561690)
+  UNCONDITIONAL_CALL @ 0x006288f1 (in FUN_006288c0)
+  UNCONDITIONAL_CALL @ 0x0062890a (in FUN_006288c0)
+  UNCONDITIONAL_CALL @ 0x005617dd (in FUN_005617c0)
+  UNCONDITIONAL_CALL @ 0x005617f1 (in FUN_005617c0)
+  UNCONDITIONAL_CALL @ 0x00870052 (in FUN_0086ff70)
+  UNCONDITIONAL_CALL @ 0x008758a5 (in FUN_00875110)
+  UNCONDITIONAL_CALL @ 0x00621a0d (in FUN_006219f0)
+  UNCONDITIONAL_CALL @ 0x00621a27 (in FUN_006219f0)
+  UNCONDITIONAL_CALL @ 0x00623179 (in FUN_00623150)
+  UNCONDITIONAL_CALL @ 0x00623194 (in FUN_00623150)
+  UNCONDITIONAL_CALL @ 0x008cffc1 (in FUN_008cffa0)
+  UNCONDITIONAL_CALL @ 0x008cffdf (in FUN_008cffa0)
+  UNCONDITIONAL_CALL @ 0x0056e06d (in FUN_0056e050)
+  UNCONDITIONAL_CALL @ 0x0056e081 (in FUN_0056e050)
+  UNCONDITIONAL_CALL @ 0x009b0c6d (in FUN_009b0c50)
+  UNCONDITIONAL_CALL @ 0x009b0c81 (in FUN_009b0c50)
+  UNCONDITIONAL_CALL @ 0x009b0d0d (in FUN_009b0cf0)
+  UNCONDITIONAL_CALL @ 0x009b0d21 (in FUN_009b0cf0)
+  UNCONDITIONAL_CALL @ 0x00a7b08c (in FUN_00a7aff0)
+  UNCONDITIONAL_CALL @ 0x00b549c5 (in FUN_00b54630)
+  UNCONDITIONAL_CALL @ 0x00b6b2d0 (in FUN_00b6b2a0)
+  UNCONDITIONAL_CALL @ 0x00c6b9a5 (in FUN_00c6b980)
+  UNCONDITIONAL_CALL @ 0x00c6b9bd (in FUN_00c6b980)
+  UNCONDITIONAL_CALL @ 0x00c6ba07 (in FUN_00c6b980)
+  UNCONDITIONAL_CALL @ 0x00c6ba1c (in FUN_00c6b980)
+  UNCONDITIONAL_CALL @ 0x00c6e080 (in FUN_00c6e050)
+  UNCONDITIONAL_CALL @ 0x00c6e095 (in FUN_00c6e050)
+  UNCONDITIONAL_CALL @ 0x00c6d8ae (in FUN_00c6d8a0)
+  UNCONDITIONAL_CALL @ 0x00c6d8d3 (in FUN_00c6d8a0)
+  UNCONDITIONAL_CALL @ 0x00c6d8e4 (in FUN_00c6d8a0)
+  UNCONDITIONAL_CALL @ 0x00c6e64a (in FUN_00c6e420)
+  UNCONDITIONAL_CALL @ 0x00c6e65d (in FUN_00c6e420)
+  UNCONDITIONAL_CALL @ 0x00c751a7 (in FUN_00c75180)
+  ... (truncated)
+  Total: 41 refs
+
+======================================================================
+ImageSpaceShader ImageSpaceEffect vtable[4] @ 0x00a89af0
+======================================================================
+  Function: FUN_00a89af0 @ 0x00a89af0, Size: 3 bytes
+
+void FUN_00a89af0(void)
+
+{
+  return;
+}
+
+
+
+--- Calls FROM ImageSpaceShader ImageSpaceEffect vtable[4] (0x00a89af0) ---
+  Total: 0 calls
+
+----------------------------------------------------------------------
+References TO 0x00a89af0 (ImageSpaceShader ImageSpaceEffect vtable[4])
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00700867 (in FUN_007006c0)
+  UNCONDITIONAL_CALL @ 0x0086cfb7 (in FUN_0086cf20)
+  UNCONDITIONAL_CALL @ 0x004bbd8a (in FUN_004baf10)
+  UNCONDITIONAL_CALL @ 0x008741fe (in FUN_00873200)
+  UNCONDITIONAL_CALL @ 0x00a6d73b (in FUN_00a6d730)
+  UNCONDITIONAL_CALL @ 0x00a326ee (in FUN_00a326e0)
+  UNCONDITIONAL_CALL @ 0x00a33bfe (in FUN_00a33bf0)
+  UNCONDITIONAL_CALL @ 0x00a352fe (in FUN_00a352f0)
+  UNCONDITIONAL_JUMP @ 0x00a724d0 (in thunk_FUN_00a89af0)
+  UNCONDITIONAL_CALL @ 0x00a41d9e (in FUN_00a41d90)
+  UNCONDITIONAL_CALL @ 0x00a44b8b (in FUN_00a44b80)
+  UNCONDITIONAL_CALL @ 0x00a4561b (in FUN_00a45610)
+  UNCONDITIONAL_CALL @ 0x00a5c0ea (in FUN_00a5c0e0)
+  UNCONDITIONAL_CALL @ 0x00a5c5bb (in FUN_00a5c5b0)
+  UNCONDITIONAL_CALL @ 0x00a6852e (in FUN_00a68520)
+  UNCONDITIONAL_CALL @ 0x00a7337e (in FUN_00a73370)
+  UNCONDITIONAL_CALL @ 0x00a7be8a (in FUN_00a7be80)
+  UNCONDITIONAL_CALL @ 0x00a85262 (in FUN_00a85250)
+  UNCONDITIONAL_CALL @ 0x00a90f7e (in FUN_00a90f70)
+  UNCONDITIONAL_CALL @ 0x00a7b2c9 (in FUN_00a7b2c0)
+  UNCONDITIONAL_CALL @ 0x00a9560a (in FUN_00a95600)
+  UNCONDITIONAL_CALL @ 0x00a95aa1 (in FUN_00a95a90)
+  UNCONDITIONAL_CALL @ 0x00a9811a (in FUN_00a98110)
+  UNCONDITIONAL_CALL @ 0x00a984be (in FUN_00a984b0)
+  UNCONDITIONAL_CALL @ 0x00a677e9 (in FUN_00a677e0)
+  UNCONDITIONAL_CALL @ 0x00a5c6aa (in FUN_00a5c6a0)
+  UNCONDITIONAL_CALL @ 0x00c3195b (in FUN_00c31950)
+  UNCONDITIONAL_CALL @ 0x00c3290b (in FUN_00c32900)
+  UNCONDITIONAL_CALL @ 0x00c31656 (in FUN_00c31650)
+  UNCONDITIONAL_CALL @ 0x00c3261a (in FUN_00c32610)
+  UNCONDITIONAL_CALL @ 0x00c36080 (in FUN_00c36070)
+  UNCONDITIONAL_CALL @ 0x00c36100 (in FUN_00c360f0)
+  UNCONDITIONAL_CALL @ 0x00c4fa1e (in FUN_00c4fa10)
+  UNCONDITIONAL_CALL @ 0x00c4fa6e (in FUN_00c4fa60)
+  UNCONDITIONAL_CALL @ 0x00c53ac0 (in FUN_00c53ab0)
+  UNCONDITIONAL_CALL @ 0x00c61f46 (in FUN_00c61f30)
+  UNCONDITIONAL_CALL @ 0x00c6495e (in FUN_00c64950)
+  UNCONDITIONAL_CALL @ 0x00c64ae0 (in FUN_00c64ad0)
+  UNCONDITIONAL_CALL @ 0x00c64ba0 (in FUN_00c64b90)
+  UNCONDITIONAL_CALL @ 0x00c87678 (in FUN_00c87670)
+  UNCONDITIONAL_CALL @ 0x00c87870 (in FUN_00c87850)
+  ... (truncated)
+  Total: 41 refs
+
+======================================================================
+ImageSpaceShader ImageSpaceEffect vtable[5] @ 0x00a29680
+======================================================================
+  Function: FUN_00a29680 @ 0x00a29680, Size: 1 bytes
+
+void FUN_00a29680(void)
+
+{
+  return;
+}
+
+
+
+--- Calls FROM ImageSpaceShader ImageSpaceEffect vtable[5] (0x00a29680) ---
+  Total: 0 calls
+
+----------------------------------------------------------------------
+References TO 0x00a29680 (ImageSpaceShader ImageSpaceEffect vtable[5])
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x004e695c (in FUN_004e6620)
+  UNCONDITIONAL_CALL @ 0x004ae724 (in FUN_004ae700)
+  UNCONDITIONAL_CALL @ 0x004ae737 (in FUN_004ae700)
+  UNCONDITIONAL_CALL @ 0x0086ee8a (in FUN_0086e650)
+  UNCONDITIONAL_CALL @ 0x00622f3d (in FUN_00622f20)
+  UNCONDITIONAL_CALL @ 0x00622f51 (in FUN_00622f20)
+  UNCONDITIONAL_CALL @ 0x005616ad (in FUN_00561690)
+  UNCONDITIONAL_CALL @ 0x005616c1 (in FUN_00561690)
+  UNCONDITIONAL_CALL @ 0x006288f1 (in FUN_006288c0)
+  UNCONDITIONAL_CALL @ 0x0062890a (in FUN_006288c0)
+  UNCONDITIONAL_CALL @ 0x005617dd (in FUN_005617c0)
+  UNCONDITIONAL_CALL @ 0x005617f1 (in FUN_005617c0)
+  UNCONDITIONAL_CALL @ 0x00870052 (in FUN_0086ff70)
+  UNCONDITIONAL_CALL @ 0x008758a5 (in FUN_00875110)
+  UNCONDITIONAL_CALL @ 0x00621a0d (in FUN_006219f0)
+  UNCONDITIONAL_CALL @ 0x00621a27 (in FUN_006219f0)
+  UNCONDITIONAL_CALL @ 0x00623179 (in FUN_00623150)
+  UNCONDITIONAL_CALL @ 0x00623194 (in FUN_00623150)
+  UNCONDITIONAL_CALL @ 0x008cffc1 (in FUN_008cffa0)
+  UNCONDITIONAL_CALL @ 0x008cffdf (in FUN_008cffa0)
+  UNCONDITIONAL_CALL @ 0x0056e06d (in FUN_0056e050)
+  UNCONDITIONAL_CALL @ 0x0056e081 (in FUN_0056e050)
+  UNCONDITIONAL_CALL @ 0x009b0c6d (in FUN_009b0c50)
+  UNCONDITIONAL_CALL @ 0x009b0c81 (in FUN_009b0c50)
+  UNCONDITIONAL_CALL @ 0x009b0d0d (in FUN_009b0cf0)
+  UNCONDITIONAL_CALL @ 0x009b0d21 (in FUN_009b0cf0)
+  UNCONDITIONAL_CALL @ 0x00a7b08c (in FUN_00a7aff0)
+  UNCONDITIONAL_CALL @ 0x00b549c5 (in FUN_00b54630)
+  UNCONDITIONAL_CALL @ 0x00b6b2d0 (in FUN_00b6b2a0)
+  UNCONDITIONAL_CALL @ 0x00c6b9a5 (in FUN_00c6b980)
+  UNCONDITIONAL_CALL @ 0x00c6b9bd (in FUN_00c6b980)
+  UNCONDITIONAL_CALL @ 0x00c6ba07 (in FUN_00c6b980)
+  UNCONDITIONAL_CALL @ 0x00c6ba1c (in FUN_00c6b980)
+  UNCONDITIONAL_CALL @ 0x00c6e080 (in FUN_00c6e050)
+  UNCONDITIONAL_CALL @ 0x00c6e095 (in FUN_00c6e050)
+  UNCONDITIONAL_CALL @ 0x00c6d8ae (in FUN_00c6d8a0)
+  UNCONDITIONAL_CALL @ 0x00c6d8d3 (in FUN_00c6d8a0)
+  UNCONDITIONAL_CALL @ 0x00c6d8e4 (in FUN_00c6d8a0)
+  UNCONDITIONAL_CALL @ 0x00c6e64a (in FUN_00c6e420)
+  UNCONDITIONAL_CALL @ 0x00c6e65d (in FUN_00c6e420)
+  UNCONDITIONAL_CALL @ 0x00c751a7 (in FUN_00c75180)
+  ... (truncated)
+  Total: 41 refs
+
+======================================================================
+ImageSpaceShader ImageSpaceEffect vtable[6] @ 0x00b8bda0
+======================================================================
+  [function not found]
+  [function not found at 0x00b8bda0]
+
+----------------------------------------------------------------------
+References TO 0x00b8bda0 (ImageSpaceShader ImageSpaceEffect vtable[6])
+----------------------------------------------------------------------
+  DATA @ 0x010affb8 (in ???)
+  DATA @ 0x010b018c (in ???)
+  DATA @ 0x010b0330 (in ???)
+  DATA @ 0x010b06b8 (in ???)
+  DATA @ 0x010b0854 (in ???)
+  DATA @ 0x010b09f4 (in ???)
+  DATA @ 0x010b0b90 (in ???)
+  DATA @ 0x010b0d34 (in ???)
+  DATA @ 0x010b0eb4 (in ???)
+  DATA @ 0x010b1034 (in ???)
+  DATA @ 0x010b11b4 (in ???)
+  DATA @ 0x010b1338 (in ???)
+  DATA @ 0x010b14b8 (in ???)
+  DATA @ 0x010b1638 (in ???)
+  DATA @ 0x010b17f0 (in ???)
+  DATA @ 0x010b1978 (in ???)
+  DATA @ 0x010b1b00 (in ???)
+  DATA @ 0x010b1c88 (in ???)
+  DATA @ 0x010b1e14 (in ???)
+  DATA @ 0x010b1fa4 (in ???)
+  DATA @ 0x010b2134 (in ???)
+  DATA @ 0x010b2a8c (in ???)
+  DATA @ 0x010b2300 (in ???)
+  DATA @ 0x010b2488 (in ???)
+  DATA @ 0x010b2608 (in ???)
+  DATA @ 0x010b279c (in ???)
+  DATA @ 0x010b2914 (in ???)
+  DATA @ 0x010b2c04 (in ???)
+  DATA @ 0x010b2da4 (in ???)
+  DATA @ 0x010b2f48 (in ???)
+  DATA @ 0x010b30d8 (in ???)
+  DATA @ 0x010b325c (in ???)
+  DATA @ 0x010b33e4 (in ???)
+  DATA @ 0x010b358c (in ???)
+  DATA @ 0x010b37a0 (in ???)
+  DATA @ 0x010b394c (in ???)
+  DATA @ 0x010b3ae8 (in ???)
+  DATA @ 0x010b3c70 (in ???)
+  DATA @ 0x010b3e0c (in ???)
+  DATA @ 0x010b3fa0 (in ???)
+  DATA @ 0x010b412c (in ???)
+  ... (truncated)
+  Total: 41 refs
+
+======================================================================
+ImageSpaceShader ImageSpaceEffect vtable[7] @ 0x00c9a420
+======================================================================
+  Function: FUN_00c9a420 @ 0x00c9a420, Size: 5 bytes
+
+undefined1 FUN_00c9a420(void)
+
+{
+  return 0;
+}
+
+
+
+--- Calls FROM ImageSpaceShader ImageSpaceEffect vtable[7] (0x00c9a420) ---
+  Total: 0 calls
+
+----------------------------------------------------------------------
+References TO 0x00c9a420 (ImageSpaceShader ImageSpaceEffect vtable[7])
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00bc3952 (in FUN_00bc3930)
+  DATA @ 0x0102c0a8 (in ???)
+  DATA @ 0x0102f128 (in ???)
+  DATA @ 0x0102f12c (in ???)
+  DATA @ 0x0104d938 (in ???)
+  DATA @ 0x0104d93c (in ???)
+  DATA @ 0x0104e244 (in ???)
+  DATA @ 0x0104e248 (in ???)
+  DATA @ 0x0104e270 (in ???)
+  DATA @ 0x0104e274 (in ???)
+  DATA @ 0x0104e3c0 (in ???)
+  DATA @ 0x0104e3c4 (in ???)
+  DATA @ 0x01097300 (in ???)
+  DATA @ 0x0109df34 (in ???)
+  DATA @ 0x0109df44 (in ???)
+  DATA @ 0x0109f624 (in ???)
+  DATA @ 0x0109f62c (in ???)
+  DATA @ 0x010a2174 (in ???)
+  DATA @ 0x010a2188 (in ???)
+  DATA @ 0x010a239c (in ???)
+  DATA @ 0x010a2444 (in ???)
+  DATA @ 0x010adb6c (in ???)
+  DATA @ 0x010adf04 (in ???)
+  DATA @ 0x010adf44 (in ???)
+  DATA @ 0x010ae494 (in ???)
+  DATA @ 0x010ae4d4 (in ???)
+  DATA @ 0x010ae6cc (in ???)
+  DATA @ 0x010ae84c (in ???)
+  DATA @ 0x010af398 (in ???)
+  DATA @ 0x010af800 (in ???)
+  DATA @ 0x010af944 (in ???)
+  DATA @ 0x010afa80 (in ???)
+  DATA @ 0x010afeb8 (in ???)
+  DATA @ 0x010b0060 (in ???)
+  DATA @ 0x010affbc (in ???)
+  DATA @ 0x010b0238 (in ???)
+  DATA @ 0x010b0190 (in ???)
+  DATA @ 0x010b03d8 (in ???)
+  DATA @ 0x010b0334 (in ???)
+  DATA @ 0x010b05b8 (in ???)
+  DATA @ 0x010b0510 (in ???)
+  ... (truncated)
+  Total: 41 refs

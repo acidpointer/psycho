@@ -46,27 +46,10 @@ pub(crate) fn native_sky_frame() -> Option<NativeSkyFrame> {
     fnv::native_sky_frame()
 }
 
-pub(crate) fn depth_texture_ptr(depth_provider: DepthProvider) -> Option<*mut c_void> {
+pub(crate) fn depth_frame(depth_provider: DepthProvider) -> DepthFrame {
     match depth_provider {
-        DepthProvider::None => None,
-        DepthProvider::FalloutNewVegas => fnv::depth_texture_ptr(),
-    }
-}
-
-pub(crate) fn first_person_depth_texture_ptr(depth_provider: DepthProvider) -> Option<*mut c_void> {
-    match depth_provider {
-        DepthProvider::None => None,
-        DepthProvider::FalloutNewVegas => fnv::first_person_depth_texture_ptr(),
-    }
-}
-
-pub(crate) fn depth_projection_frame(
-    depth_provider: DepthProvider,
-    slot: DepthResolveSlot,
-) -> DepthProjectionFrame {
-    match depth_provider {
-        DepthProvider::None => DepthProjectionFrame::default(),
-        DepthProvider::FalloutNewVegas => fnv::depth_projection_frame(slot),
+        DepthProvider::None => DepthFrame::none(),
+        DepthProvider::FalloutNewVegas => fnv::depth_frame(),
     }
 }
 
@@ -159,6 +142,7 @@ pub(crate) struct DepthFrame {
     pub(crate) first_person_texture: Option<DepthTexture>,
     pub(crate) world_projection: DepthProjectionFrame,
     pub(crate) first_person_projection: DepthProjectionFrame,
+    pub(crate) capture_epoch: u64,
 }
 
 impl DepthFrame {
@@ -169,6 +153,7 @@ impl DepthFrame {
             first_person_texture: None,
             world_projection: DepthProjectionFrame::default(),
             first_person_projection: DepthProjectionFrame::default(),
+            capture_epoch: 0,
         }
     }
 
@@ -178,6 +163,7 @@ impl DepthFrame {
         first_person_texture: Option<DepthTexture>,
         world_projection: DepthProjectionFrame,
         first_person_projection: DepthProjectionFrame,
+        capture_epoch: u64,
     ) -> Self {
         Self {
             provider,
@@ -185,6 +171,7 @@ impl DepthFrame {
             first_person_texture,
             world_projection,
             first_person_projection,
+            capture_epoch,
         }
     }
 

@@ -3,19 +3,20 @@
 use core::{ffi::c_void, fmt, mem::size_of};
 use std::sync::{
     LazyLock,
-    atomic::{AtomicU32, AtomicUsize, Ordering},
+    atomic::{AtomicU32, Ordering},
 };
 
 use super::{
-    CameraFrame, DepthProjectionFrame, DepthResolveSlot, EnvironmentFrame, MaterialStateFrame,
-    NativeSkyFrame, SunFrame,
+    CameraFrame, DepthFrame, DepthProjectionFrame, DepthProvider, DepthResolveSlot, DepthTexture,
+    EnvironmentFrame, MaterialStateFrame, NativeSkyFrame, SunFrame,
 };
 use libpsycho::os::windows::{
     directx9::{
         D3DCULL_NONE, D3DFMT_INTZ, D3DPT_POINTLIST, D3DRESZ_POINT_SIZE, D3DRS_ALPHABLENDENABLE,
-        D3DRS_COLORWRITEENABLE, D3DRS_CULLMODE, D3DRS_POINTSIZE, D3DRS_ZENABLE, D3DRS_ZFUNC,
-        D3DRS_ZWRITEENABLE, D3DSBT_ALL, D3DSURFACE_DESC, Device9Ref, Direct3DError as WindowsError,
-        Direct3DResult, PositionVertex, StateBlock9, Surface9, Texture9,
+        D3DRS_ALPHATESTENABLE, D3DRS_COLORWRITEENABLE, D3DRS_CULLMODE, D3DRS_POINTSIZE,
+        D3DRS_ZENABLE, D3DRS_ZFUNC, D3DRS_ZWRITEENABLE, D3DSBT_ALL, D3DSURFACE_DESC, Device9Ref,
+        Direct3DError as WindowsError, Direct3DResult, PositionVertex, StateBlock9, Surface9,
+        Texture9,
     },
     memory::validate_memory_range,
 };
@@ -97,8 +98,6 @@ const MAX_FRAME_CONTRACT_LOGS: u32 = 32;
 static DEPTH_RESOLVE_LOGS: AtomicU32 = AtomicU32::new(0);
 static SUN_FRAME_CALLS: AtomicU32 = AtomicU32::new(0);
 static SUN_FRAME_LOGS: AtomicU32 = AtomicU32::new(0);
-static RESOLVED_WORLD_DEPTH_TEXTURE: AtomicUsize = AtomicUsize::new(0);
-static RESOLVED_FIRST_PERSON_DEPTH_TEXTURE: AtomicUsize = AtomicUsize::new(0);
 static DEPTH_RESOLVE: LazyLock<Mutex<FnvDepthResolve>> =
     LazyLock::new(|| Mutex::new(FnvDepthResolve::default()));
 
@@ -139,18 +138,8 @@ pub(super) fn native_sky_frame() -> Option<NativeSkyFrame> {
     unsafe { read_native_sky_frame() }
 }
 
-pub(super) fn depth_texture_ptr() -> Option<*mut c_void> {
-    let ptr = RESOLVED_WORLD_DEPTH_TEXTURE.load(Ordering::Acquire);
-    (ptr != 0).then_some(ptr as *mut c_void)
-}
-
-pub(super) fn first_person_depth_texture_ptr() -> Option<*mut c_void> {
-    let ptr = RESOLVED_FIRST_PERSON_DEPTH_TEXTURE.load(Ordering::Acquire);
-    (ptr != 0).then_some(ptr as *mut c_void)
-}
-
-pub(super) fn depth_projection_frame(slot: DepthResolveSlot) -> DepthProjectionFrame {
-    DEPTH_RESOLVE.lock().projection_frame(slot)
+pub(super) fn depth_frame() -> DepthFrame {
+    DEPTH_RESOLVE.lock().depth_frame()
 }
 
 pub(super) fn rendered_texture_color_surface(rendered_texture: *mut c_void) -> Option<*mut c_void> {
@@ -177,14 +166,10 @@ pub(super) unsafe fn resolve_scene_depth(
 }
 
 pub(super) fn finish_frame() {
-    RESOLVED_WORLD_DEPTH_TEXTURE.store(0, Ordering::Release);
-    RESOLVED_FIRST_PERSON_DEPTH_TEXTURE.store(0, Ordering::Release);
     DEPTH_RESOLVE.lock().finish_frame();
 }
 
 pub(super) fn reset_depth_resources() {
-    RESOLVED_WORLD_DEPTH_TEXTURE.store(0, Ordering::Release);
-    RESOLVED_FIRST_PERSON_DEPTH_TEXTURE.store(0, Ordering::Release);
     DEPTH_RESOLVE.lock().release();
 }
 
@@ -865,8 +850,18 @@ struct FnvDepthResolve {
     first_person_target: Option<FnvDepthTarget>,
     state_block: Option<StateBlock9>,
     success_logs: u32,
-    world_projection: DepthProjectionFrame,
-    first_person_projection: DepthProjectionFrame,
+    frame_epoch: u64,
+    world_capture: ResolvedDepthCapture,
+    first_person_capture: ResolvedDepthCapture,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+struct ResolvedDepthCapture {
+    texture_ptr: usize,
+    projection: DepthProjectionFrame,
+    frame_epoch: u64,
+    width: u32,
+    height: u32,
 }
 
 impl FnvDepthResolve {
@@ -980,16 +975,13 @@ impl FnvDepthResolve {
         depth_restore_result?;
 
         let texture_ptr = target.texture.as_raw_base_texture() as usize;
-        match slot {
-            DepthResolveSlot::World => {
-                RESOLVED_WORLD_DEPTH_TEXTURE.store(texture_ptr, Ordering::Release);
-                self.world_projection = projection;
-            }
-            DepthResolveSlot::FirstPerson => {
-                RESOLVED_FIRST_PERSON_DEPTH_TEXTURE.store(texture_ptr, Ordering::Release);
-                self.first_person_projection = projection;
-            }
-        }
+        *self.capture_mut(slot) = ResolvedDepthCapture {
+            texture_ptr,
+            projection,
+            frame_epoch: self.frame_epoch,
+            width: desc.Width,
+            height: desc.Height,
+        };
         self.log_success(slot, reason, source_label, &desc, projection);
         Ok(())
     }
@@ -1006,7 +998,9 @@ impl FnvDepthResolve {
             .is_none_or(|target| !target.matches(desc));
 
         if needs_target {
-            *self.target_mut(slot) = Some(FnvDepthTarget::create(device, desc)?);
+            *self.capture_mut(slot) = ResolvedDepthCapture::default();
+            let target = FnvDepthTarget::create(device, desc)?;
+            *self.target_mut(slot) = Some(target);
             log::info!(
                 "[FNV] INTZ depth target: slot={}, size={}x{}",
                 slot.label(),
@@ -1036,16 +1030,43 @@ impl FnvDepthResolve {
         }
     }
 
-    fn projection_frame(&self, slot: DepthResolveSlot) -> DepthProjectionFrame {
+    fn capture_mut(&mut self, slot: DepthResolveSlot) -> &mut ResolvedDepthCapture {
         match slot {
-            DepthResolveSlot::World => self.world_projection,
-            DepthResolveSlot::FirstPerson => self.first_person_projection,
+            DepthResolveSlot::World => &mut self.world_capture,
+            DepthResolveSlot::FirstPerson => &mut self.first_person_capture,
         }
     }
 
+    fn depth_frame(&self) -> DepthFrame {
+        let Some(texture) = DepthTexture::new(self.world_capture.texture_ptr as *mut c_void) else {
+            return DepthFrame::none();
+        };
+
+        let first_person_matches_world = self.first_person_capture.frame_epoch
+            == self.world_capture.frame_epoch
+            && self.first_person_capture.width == self.world_capture.width
+            && self.first_person_capture.height == self.world_capture.height;
+        let first_person_capture = first_person_matches_world.then_some(self.first_person_capture);
+        let first_person_texture = first_person_capture
+            .and_then(|capture| DepthTexture::new(capture.texture_ptr as *mut c_void));
+        let first_person_projection = first_person_texture
+            .and_then(|_| first_person_capture.map(|capture| capture.projection))
+            .unwrap_or_default();
+
+        DepthFrame::from_textures(
+            DepthProvider::FalloutNewVegas,
+            texture,
+            first_person_texture,
+            self.world_capture.projection,
+            first_person_projection,
+            self.world_capture.frame_epoch,
+        )
+    }
+
     fn finish_frame(&mut self) {
-        self.world_projection = DepthProjectionFrame::default();
-        self.first_person_projection = DepthProjectionFrame::default();
+        self.frame_epoch = self.frame_epoch.wrapping_add(1);
+        self.world_capture = ResolvedDepthCapture::default();
+        self.first_person_capture = ResolvedDepthCapture::default();
     }
 
     fn log_success(
@@ -1085,6 +1106,65 @@ impl FnvDepthResolve {
         self.first_person_target = None;
         self.state_block = None;
         self.finish_frame();
+    }
+}
+
+#[cfg(test)]
+mod depth_capture_tests {
+    use super::{DepthProjectionFrame, FnvDepthResolve, ResolvedDepthCapture};
+
+    fn capture(
+        texture_ptr: usize,
+        frame_epoch: u64,
+        width: u32,
+        height: u32,
+    ) -> ResolvedDepthCapture {
+        ResolvedDepthCapture {
+            texture_ptr,
+            projection: DepthProjectionFrame {
+                source_surface: texture_ptr,
+                ..DepthProjectionFrame::default()
+            },
+            frame_epoch,
+            width,
+            height,
+        }
+    }
+
+    #[test]
+    fn first_person_capture_requires_matching_epoch_and_size() {
+        let mut resolve = FnvDepthResolve {
+            frame_epoch: 7,
+            world_capture: capture(1, 7, 1920, 1080),
+            first_person_capture: capture(2, 6, 1920, 1080),
+            ..FnvDepthResolve::default()
+        };
+
+        assert!(resolve.depth_frame().first_person_texture.is_none());
+
+        resolve.first_person_capture = capture(2, 7, 1280, 720);
+        assert!(resolve.depth_frame().first_person_texture.is_none());
+
+        resolve.first_person_capture = capture(2, 7, 1920, 1080);
+        let frame = resolve.depth_frame();
+        assert!(frame.first_person_texture.is_some());
+        assert_eq!(frame.first_person_projection.source_surface, 2);
+        assert_eq!(frame.capture_epoch, 7);
+    }
+
+    #[test]
+    fn finishing_frame_invalidates_both_captures() {
+        let mut resolve = FnvDepthResolve {
+            frame_epoch: 7,
+            world_capture: capture(1, 7, 1920, 1080),
+            first_person_capture: capture(2, 7, 1920, 1080),
+            ..FnvDepthResolve::default()
+        };
+
+        resolve.finish_frame();
+
+        assert_eq!(resolve.frame_epoch, 8);
+        assert!(!resolve.depth_frame().is_available());
     }
 }
 
@@ -1128,6 +1208,7 @@ impl FnvDepthTarget {
         device.set_fvf(PositionVertex::FVF)?;
         device.set_render_state(D3DRS_CULLMODE, D3DCULL_NONE.0 as u32)?;
         device.set_render_state(D3DRS_ALPHABLENDENABLE, 0)?;
+        device.set_render_state(D3DRS_ALPHATESTENABLE, 0)?;
         device.set_render_state(D3DRS_ZENABLE, 0)?;
         device.set_render_state(D3DRS_ZWRITEENABLE, 0)?;
         device.set_render_state(D3DRS_COLORWRITEENABLE, 0)?;

@@ -2,12 +2,12 @@
 
 use libpsycho::os::windows::directx9::{
     D3DCULL_NONE, D3DFMT_G16R16F, D3DFORMAT, D3DPT_TRIANGLESTRIP, D3DRS_ALPHABLENDENABLE,
-    D3DRS_COLORWRITEENABLE, D3DRS_CULLMODE, D3DRS_ZENABLE, D3DRS_ZWRITEENABLE, D3DSAMP_ADDRESSU,
-    D3DSAMP_ADDRESSV, D3DSAMP_MAGFILTER, D3DSAMP_MINFILTER, D3DSAMP_MIPFILTER, D3DSURFACE_DESC,
-    D3DTA_TEXTURE, D3DTADDRESS_CLAMP, D3DTEXF_LINEAR, D3DTEXF_NONE, D3DTEXF_POINT,
-    D3DTOP_SELECTARG1, D3DTSS_ALPHAARG1, D3DTSS_ALPHAOP, D3DTSS_COLORARG1, D3DTSS_COLOROP,
-    D3DVIEWPORT9, Device9Ref, Direct3DResult, PixelShader9, ScreenVertex, Surface9, Texture9,
-    direct3d_failure,
+    D3DRS_ALPHATESTENABLE, D3DRS_COLORWRITEENABLE, D3DRS_CULLMODE, D3DRS_ZENABLE,
+    D3DRS_ZWRITEENABLE, D3DSAMP_ADDRESSU, D3DSAMP_ADDRESSV, D3DSAMP_MAGFILTER, D3DSAMP_MINFILTER,
+    D3DSAMP_MIPFILTER, D3DSURFACE_DESC, D3DTA_TEXTURE, D3DTADDRESS_CLAMP, D3DTEXF_LINEAR,
+    D3DTEXF_NONE, D3DTEXF_POINT, D3DTOP_SELECTARG1, D3DTSS_ALPHAARG1, D3DTSS_ALPHAOP,
+    D3DTSS_COLORARG1, D3DTSS_COLOROP, D3DVIEWPORT9, Device9Ref, Direct3DResult, PixelShader9,
+    ScreenVertex, Surface9, Texture9, direct3d_failure,
 };
 
 use crate::{
@@ -28,7 +28,9 @@ const COMPOSE_SHADER: &[u8] =
 
 #[cfg(test)]
 mod shader_compile_tests {
-    use super::{BLUR_SHADER, COMPOSE_SHADER, EXTRACT_SHADER};
+    use libpsycho::os::windows::directx9::{D3DFMT_A8R8G8B8, D3DFMT_G16R16F};
+
+    use super::{BLUR_SHADER, COMPOSE_SHADER, EXTRACT_SHADER, fallback_format_matches};
 
     #[test]
     fn embedded_ambient_occlusion_shaders_compile() {
@@ -43,6 +45,29 @@ mod shader_compile_tests {
             COMPOSE_SHADER,
             "ps_3_0",
         );
+    }
+
+    #[test]
+    fn preferred_targets_ignore_scene_format_changes() {
+        assert!(fallback_format_matches(
+            false,
+            D3DFMT_A8R8G8B8,
+            D3DFMT_G16R16F
+        ));
+    }
+
+    #[test]
+    fn fallback_targets_require_the_same_scene_format() {
+        assert!(fallback_format_matches(
+            true,
+            D3DFMT_A8R8G8B8,
+            D3DFMT_A8R8G8B8
+        ));
+        assert!(!fallback_format_matches(
+            true,
+            D3DFMT_A8R8G8B8,
+            D3DFMT_G16R16F
+        ));
     }
 }
 
@@ -152,12 +177,17 @@ impl AmbientOcclusionEffect {
         let needs_targets = self
             .targets
             .as_ref()
-            .is_none_or(|targets| !targets.matches(width, height));
+            .is_none_or(|targets| !targets.matches(width, height, format));
         if needs_targets {
-            self.targets = Some(AmbientOcclusionTargets::create(
-                device, width, height, format,
-            )?);
-            log::info!("[AO] Intermediate targets: {}x{}", width, height);
+            let targets = AmbientOcclusionTargets::create(device, width, height, format)?;
+            log::info!(
+                "[AO] Intermediate targets: {}x{}, format={}, fallback={}",
+                width,
+                height,
+                targets.format.0,
+                targets.used_fallback
+            );
+            self.targets = Some(targets);
         }
 
         Ok(())
@@ -287,6 +317,7 @@ fn bind_pipeline_state(device: &Device9Ref<'_>) -> Direct3DResult<()> {
     device.set_fvf(ScreenVertex::FVF)?;
     device.set_render_state(D3DRS_CULLMODE, D3DCULL_NONE.0 as u32)?;
     device.set_render_state(D3DRS_ALPHABLENDENABLE, 0)?;
+    device.set_render_state(D3DRS_ALPHATESTENABLE, 0)?;
     device.set_render_state(D3DRS_ZENABLE, 0)?;
     device.set_render_state(D3DRS_ZWRITEENABLE, 0)?;
     device.set_render_state(D3DRS_COLORWRITEENABLE, COLOR_WRITE_ALL)?;
@@ -494,6 +525,9 @@ struct AmbientOcclusionTargets {
     height: u32,
     inv_width: f32,
     inv_height: f32,
+    format: D3DFORMAT,
+    fallback_format: D3DFORMAT,
+    used_fallback: bool,
     occlusion: EffectTarget,
     blur: EffectTarget,
 }
@@ -505,11 +539,11 @@ impl AmbientOcclusionTargets {
         height: u32,
         fallback_format: D3DFORMAT,
     ) -> Direct3DResult<Self> {
-        let (occlusion, blur) = match (
+        let (occlusion, blur, format, used_fallback) = match (
             EffectTarget::create(device, width, height, D3DFMT_G16R16F),
             EffectTarget::create(device, width, height, D3DFMT_G16R16F),
         ) {
-            (Ok(occlusion), Ok(blur)) => (occlusion, blur),
+            (Ok(occlusion), Ok(blur)) => (occlusion, blur, D3DFMT_G16R16F, false),
             (Err(err), _) | (_, Err(err)) => {
                 log::warn!(
                     "[AO] G16R16F targets unavailable ({err}); falling back to scene format"
@@ -517,6 +551,8 @@ impl AmbientOcclusionTargets {
                 (
                     EffectTarget::create(device, width, height, fallback_format)?,
                     EffectTarget::create(device, width, height, fallback_format)?,
+                    fallback_format,
+                    true,
                 )
             }
         };
@@ -526,14 +562,27 @@ impl AmbientOcclusionTargets {
             height,
             inv_width: 1.0 / width as f32,
             inv_height: 1.0 / height as f32,
+            format,
+            fallback_format,
+            used_fallback,
             occlusion,
             blur,
         })
     }
 
-    fn matches(&self, width: u32, height: u32) -> bool {
-        self.width == width && self.height == height
+    fn matches(&self, width: u32, height: u32, fallback_format: D3DFORMAT) -> bool {
+        self.width == width
+            && self.height == height
+            && fallback_format_matches(self.used_fallback, self.fallback_format, fallback_format)
     }
+}
+
+fn fallback_format_matches(
+    used_fallback: bool,
+    active_format: D3DFORMAT,
+    requested_format: D3DFORMAT,
+) -> bool {
+    !used_fallback || active_format == requested_format
 }
 
 struct EffectTarget {

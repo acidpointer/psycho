@@ -12,20 +12,20 @@ use std::{
 use libpsycho::os::windows::{
     directx9::{
         D3DCULL_NONE, D3DFORMAT, D3DPT_TRIANGLESTRIP, D3DRS_ALPHABLENDENABLE,
-        D3DRS_COLORWRITEENABLE, D3DRS_CULLMODE, D3DRS_ZENABLE, D3DRS_ZWRITEENABLE,
-        D3DSAMP_ADDRESSU, D3DSAMP_ADDRESSV, D3DSAMP_MAGFILTER, D3DSAMP_MINFILTER,
-        D3DSAMP_MIPFILTER, D3DSBT_ALL, D3DSURFACE_DESC, D3DTA_TEXTURE, D3DTADDRESS_CLAMP,
-        D3DTEXF_LINEAR, D3DTEXF_NONE, D3DTEXF_POINT, D3DTOP_SELECTARG1, D3DTSS_ALPHAARG1,
-        D3DTSS_ALPHAOP, D3DTSS_COLORARG1, D3DTSS_COLOROP, D3DVIEWPORT9, Device9Ref,
-        Direct3DError as WindowsError, Direct3DResult, PixelShader9, ScreenVertex, StateBlock9,
-        Surface9, Texture9, direct3d_failure,
+        D3DRS_ALPHATESTENABLE, D3DRS_COLORWRITEENABLE, D3DRS_CULLMODE, D3DRS_ZENABLE,
+        D3DRS_ZWRITEENABLE, D3DSAMP_ADDRESSU, D3DSAMP_ADDRESSV, D3DSAMP_MAGFILTER,
+        D3DSAMP_MINFILTER, D3DSAMP_MIPFILTER, D3DSBT_ALL, D3DSURFACE_DESC, D3DTA_TEXTURE,
+        D3DTADDRESS_CLAMP, D3DTEXF_LINEAR, D3DTEXF_NONE, D3DTEXF_POINT, D3DTOP_SELECTARG1,
+        D3DTSS_ALPHAARG1, D3DTSS_ALPHAOP, D3DTSS_COLORARG1, D3DTSS_COLOROP, D3DVIEWPORT9,
+        Device9Ref, Direct3DError as WindowsError, Direct3DResult, PixelShader9, ScreenVertex,
+        StateBlock9, Surface9, Texture9, direct3d_failure,
     },
     winapi::{get_active_window, is_window},
 };
 use parking_lot::Mutex;
 
 use crate::{
-    backend::{self, DepthFrame, DepthProvider, DepthTexture},
+    backend::{self, DepthFrame, DepthProvider},
     config::{DepthProviderConfig, GraphicsMenuConfig},
     effects::{ambient_occlusion, blooming_hdr, depth_of_field, pbr, sky, sunshafts},
     shaders::{self, EmbeddedEffectKind, ScreenShaderSource, ShaderOptionValue, ShaderPhase},
@@ -1205,13 +1205,14 @@ impl ScreenShaderRuntime {
         self.last_fog_available = Some(fog_available);
         self.last_sun_available = Some(sun_available);
         log::debug!(
-            "[SHADERS] Frame inputs: depth={} (provider={}, near={:.3}, far={:.3}), fog={} (start={:.3}, end={:.3}, power={:.3}), sun={} (uv={:.3},{:.3}, daylight={:.3})",
+            "[SHADERS] Frame inputs: depth={} (provider={}, epoch={}, near={:.3}, far={:.3}), fog={} (start={:.3}, end={:.3}, power={:.3}), sun={} (uv={:.3},{:.3}, daylight={:.3})",
             if depth_available {
                 "available"
             } else {
                 "missing"
             },
             frame_inputs.depth.provider_id(),
+            frame_inputs.depth.capture_epoch,
             frame_inputs.camera.near_z,
             frame_inputs.camera.far_z,
             if fog_available {
@@ -1235,30 +1236,7 @@ impl ScreenShaderRuntime {
 
     fn current_depth_frame(&self) -> DepthFrame {
         let provider = self.settings.depth_provider;
-        if provider == DepthProvider::None {
-            return DepthFrame::none();
-        }
-
-        let Some(texture) = backend::depth_texture_ptr(provider).and_then(DepthTexture::new) else {
-            return DepthFrame::none();
-        };
-
-        let first_person_texture =
-            backend::first_person_depth_texture_ptr(provider).and_then(DepthTexture::new);
-        let world_projection =
-            backend::depth_projection_frame(provider, backend::DepthResolveSlot::World);
-        let first_person_projection = if first_person_texture.is_some() {
-            backend::depth_projection_frame(provider, backend::DepthResolveSlot::FirstPerson)
-        } else {
-            backend::DepthProjectionFrame::default()
-        };
-        DepthFrame::from_textures(
-            provider,
-            texture,
-            first_person_texture,
-            world_projection,
-            first_person_projection,
-        )
+        backend::depth_frame(provider)
     }
 
     fn draw_menu(&mut self) -> Direct3DResult<()> {
@@ -1396,6 +1374,7 @@ impl ScreenShaderRuntime {
         device.set_fvf(ScreenVertex::FVF)?;
         device.set_render_state(D3DRS_CULLMODE, D3DCULL_NONE.0 as u32)?;
         device.set_render_state(D3DRS_ALPHABLENDENABLE, 0)?;
+        device.set_render_state(D3DRS_ALPHATESTENABLE, 0)?;
         device.set_render_state(D3DRS_ZENABLE, 0)?;
         device.set_render_state(D3DRS_ZWRITEENABLE, 0)?;
         device.set_render_state(D3DRS_COLORWRITEENABLE, COLOR_WRITE_ALL)?;
