@@ -315,16 +315,33 @@ fn texture_stage_valid(
     missing_reason: u32,
     observed_mask: &mut u32,
 ) -> bool {
-    let Some(texture) = device.texture_raw(stage) else {
+    let tracked_texture = usize::try_from(stage)
+        .ok()
+        .and_then(|index| TEXTURE_SLOTS.get(index))
+        .map(|slot| slot.texture.load(Ordering::Acquire))
+        .unwrap_or(0);
+    let texture = if TEXTURE_TRACKING_READY.load(Ordering::Acquire) {
+        tracked_texture
+    } else {
+        device
+            .texture_raw(stage)
+            .map_or(0, |texture| texture as usize)
+    };
+    if texture == 0 {
         record_fallback_for_stage(missing_reason, stage);
         return false;
-    };
+    }
     *observed_mask |= stage_mask(stage);
-    record_selector_drift_if_cached(stage, selector, texture as usize);
+    record_selector_drift_if_cached(device, stage, selector, texture);
     true
 }
 
-fn record_selector_drift_if_cached(stage: u32, selector: usize, texture: usize) {
+fn record_selector_drift_if_cached(
+    device: &Device9Ref<'_>,
+    stage: u32,
+    selector: usize,
+    texture: usize,
+) {
     if !super::diagnostics::detailed_enabled()
         || selector == 0
         || !TEXTURE_TRACKING_READY.load(Ordering::Acquire)
@@ -337,7 +354,11 @@ fn record_selector_drift_if_cached(stage: u32, selector: usize, texture: usize) 
     let Some(slot) = TEXTURE_SLOTS.get(index) else {
         return;
     };
+    let d3d_texture = device
+        .texture_raw(stage)
+        .map_or(0, |texture| texture as usize);
     if slot.texture.load(Ordering::Acquire) != texture
+        || d3d_texture != texture
         || slot.selector.load(Ordering::Acquire) != selector
     {
         OBJECT_SAMPLER_SELECTOR_MISMATCHES_THIS_FRAME.fetch_add(1, Ordering::Relaxed);

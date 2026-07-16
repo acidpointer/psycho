@@ -29,6 +29,7 @@ Use these sources before making terrain or lighting changes:
 - `analysis/ghidra/output/perf/graphics_fnv_pbr_close_terrain_vertex_declaration_contract.txt`
 - `analysis/ghidra/output/perf/graphics_fnv_pbr_object_distance_specular_transition_contract_audit.txt`
 - `analysis/ghidra/output/perf/graphics_fnv_pbr_object_specular_fade_formula_followup.txt`
+- `analysis/ghidra/output/perf/graphics_fnv_pbr_object_lighting_transition_ownership_audit.txt`
 - `.research/TESReloaded10-master/NewVegasReloaded/Main.cpp`
 - `.research/TESReloaded10-master/src/effects/Terrain.cpp`
 - `.research/TESReloaded10-master/src/effects/PBR.cpp`
@@ -280,6 +281,8 @@ NVR deliberately does something different for object PBR. Its object helper call
 
 OMV mixed these contracts. It enabled the commented-out `SpecularAA`, split the NVR BRDF, and applied the vanilla fade only to the new GGX lobe. The first curve, `smoothstep(0.0, 0.1, nativeTransition)`, made the lobe appear over a very short distance. Replacing that with the full linear fade made more objects unstable because it exposed the screen-space-dependent GGX term across the entire native interval. The installed metallicness is `0.0`, so metallicness switching is not the cause of the captured run.
 
+The lighting-transition ownership audit closes the remaining row-handoff contract. `FUN_00BB4740` invalidates and rebuilds the property pass list when its camera-relative distance reaches the specular-fade end. Source-equivalent NVR leaves its GGX lobe fully active until that row change, so restoring NVR alone removes the experimental instability but does not make the native specular-to-non-specular handoff continuous. `FUN_00B70820` also proves that staged light RGB already contains the engine light dimmer and property scale; object lighting must not reinterpret light alpha as a missing generic RGB fade.
+
 See `docs/graphics_fnv_pbr_object_temporal_instability_audit.md` for the complete source, bytecode, formula, and fix audit.
 
 Do not repeat:
@@ -300,6 +303,16 @@ Correct fix path:
 - Restore neutral NVR object profile defaults rather than amplifying the lobe with lower roughness and higher light scale.
 - If source-equivalent NVR remains too shiny, design a separate material-faithful mode that preserves normal alpha as specular amplitude and maps engine `glossPower` to GGX roughness. Prove its fade contract separately.
 - Keep object, terrain, and LandLOD shader contracts separate.
+
+Current material-faithful implementation (2026-07-16):
+
+- Normal-map alpha remains specular amplitude.
+- Engine `glossPower` remains lobe width; the object roughness scale adjusts that exponent rather than replacing it with normal alpha.
+- Direct object specular uses a normalized, dielectric Blinn distribution with Schlick Fresnel and a bounded per-light result. This preserves the engine material controls without exposing the previous unbounded GGX peak.
+- Only combined-specular object rows consume the proven native fade. Diffuse and ambient are not attenuated by it.
+- Combined and non-specular rows use the same direct diffuse equation, so the result converges before `FUN_00BB4740` changes rows.
+- Normal/view normalization and albedo preparation are performed once per pixel, not once per light.
+- Representative bytecode size is guarded in the shader compile tests.
 
 ### 8. Vertex Shader Replacement Must Match the Pixel Path
 

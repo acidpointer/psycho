@@ -229,6 +229,8 @@ material mapping:
 That would be a new engine/material contract, not an NVR source port, and must
 be labeled accordingly.
 
+Implementation status (2026-07-16): complete in source after the lighting-transition ownership audit closed the native row handoff. OMV now uses normal alpha as specular amplitude, engine gloss power as the bounded lobe-width control, dielectric Schlick Fresnel, and the proven native fade only on combined-row specular. The direct diffuse equation is identical on both sides of the row transition. The implementation deliberately uses a normalized Blinn distribution instead of reapplying the native fade to NVR's unbounded GGX peak.
+
 ## Do Not Repeat
 
 - Do not tune another `smoothstep` around `LightData[0].w` before fixing the

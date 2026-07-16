@@ -28,7 +28,7 @@ const BYTECODE_QUEUED: u32 = 1;
 const BYTECODE_READY: u32 = 2;
 const BYTECODE_FAILED: u32 = 3;
 const TEMPLATE_ID_NONE: u32 = u32::MAX;
-const SHADER_CONTRACT_REVISION: &[u8] = b"native-pbr-material-contract-v2";
+const SHADER_CONTRACT_REVISION: &[u8] = b"native-pbr-object-lighting-contract-v3";
 
 static STARTED: AtomicBool = AtomicBool::new(false);
 static FINISHED: AtomicBool = AtomicBool::new(false);
@@ -214,7 +214,19 @@ fn compile_worker(
     live_workers: Arc<AtomicU32>,
 ) {
     loop {
-        let Some(job) = queue.lock().pop_front() else {
+        let job = {
+            let mut queue = queue.lock();
+            if worker_index != 0
+                && queue
+                    .front()
+                    .is_some_and(|job| shader_registry::template_is_close_terrain(job.template_id))
+            {
+                None
+            } else {
+                queue.pop_front()
+            }
+        };
+        let Some(job) = job else {
             if live_workers.fetch_sub(1, Ordering::AcqRel) == 1 {
                 FINISHED.store(true, Ordering::Release);
             }

@@ -990,15 +990,17 @@ mod shader_compile_tests {
     };
 
     #[test]
-    fn object_pbr_keeps_the_stable_nvr_material_contract() {
+    fn object_pbr_preserves_the_native_specular_transition_contract() {
         assert!(!NVR_PBR_INCLUDE_SOURCE.contains("ddx("));
         assert!(!NVR_PBR_INCLUDE_SOURCE.contains("ddy("));
         assert!(!NVR_OBJECT_TEMPLATE_SOURCE.contains("SpecularAA("));
         assert!(!NVR_OBJECT_TEMPLATE_SOURCE.contains("getObjectSpecularTransition"));
-        assert!(!NVR_OBJECT_TEMPLATE_SOURCE.contains("PBRLightingComponents"));
         assert!(!NVR_OBJECT_INCLUDE_SOURCE.contains("TESR_PBRData.x"));
-        assert!(NVR_OBJECT_INCLUDE_SOURCE.contains("PBR(0, roughness"));
-        assert!(NVR_OBJECT_INCLUDE_SOURCE.contains("PBRSun(0, roughness"));
+        assert!(NVR_PBR_INCLUDE_SOURCE.contains("PBRBounded"));
+        assert!(NVR_OBJECT_INCLUDE_SOURCE.contains("getSpecularGlossPower"));
+        assert!(NVR_PBR_INCLUDE_SOURCE.contains("PBRBoundedSpecular"));
+        assert!(NVR_OBJECT_TEMPLATE_SOURCE.contains("nativeSpecularFade"));
+        assert!(NVR_OBJECT_TEMPLATE_SOURCE.contains("normal.a, nativeSpecularFade"));
     }
 
     #[test]
@@ -1026,6 +1028,34 @@ mod shader_compile_tests {
             failures.len(),
             failures.join("\n\n")
         );
+    }
+
+    #[test]
+    fn representative_object_shader_bytecode_stays_bounded() {
+        let limits = [
+            ("SLS2017_p_specular", 2_400),
+            ("SLS2034_p_specular_lights4", 4_400),
+            ("SLS2035_p_specular_lights4_opt", 4_200),
+        ];
+        for template_id in 0..template_count() {
+            let template = template_at(template_id as u16).unwrap();
+            if let Some((_, limit)) = limits.iter().find(|(label, _)| *label == template.label) {
+                let source = template_source(template_id as u16, template);
+                let bytecode = crate::shaders::compile_hlsl_source_target(
+                    template.label,
+                    source.as_ref(),
+                    shader_profile(template.stage),
+                )
+                .unwrap();
+                assert!(
+                    bytecode.len() * 4 <= *limit,
+                    "{} grew to {} bytes (limit {})",
+                    template.label,
+                    bytecode.len() * 4,
+                    limit
+                );
+            }
+        }
     }
 }
 

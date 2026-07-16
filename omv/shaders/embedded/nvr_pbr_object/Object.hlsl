@@ -13,6 +13,11 @@ float getRoughness(float gloss) {
     return clamp((1 - saturate(gloss)) * TESR_PBRData.y, 0.043, 1.0);
 }
 
+float getSpecularGlossPower(float glossPower) {
+    const float roughnessScale = max(TESR_PBRData.y, 0.043);
+    return max(glossPower / (roughnessScale * roughnessScale), 1.0);
+}
+
 float getRoughness(float glossmap, float meshgloss){
     // return pow(glossmap, log(meshgloss));    
     // no gloss = 1
@@ -26,7 +31,7 @@ float getRoughness(float glossmap, float meshgloss){
 // Vanilla
 float3 getVanillaLighting(float3 lightDir, float radius, float3 lightColor, float3 viewDir, float3 normal, float3 albedo, float gloss, float glossPower) {
     float att = vanillaAtt(lightDir, radius);
-    
+
     lightDir = normalize(lightDir);
     viewDir = normalize(viewDir);
     float3 halfwayDir = normalize(lightDir + viewDir);
@@ -69,44 +74,41 @@ float3 getVanillaLightingAtt(float3 lightDir, float att, float3 lightColor, floa
 }
 
 // PBR
-float3 getPointLightLighting(float3 lightDir, float radius, float3 lightColor, float3 viewDir, float3 normal, float3 albedo, float roughness) {
+float3 getPointLightLighting(float3 lightDir, float radius, float3 lightColor, float3 viewDir, float3 normal, float3 albedo, float materialResponse, float specularStrength, float specularFade) {
     lightColor = lightColor * TESR_PBRData.z;
-    albedo = lerp(luma(albedo), albedo, TESR_PBRExtraData.x);
-    
+
     float att = vanillaAtt(lightDir, radius);
 
     #if defined(ONLY_SPECULAR)
-        return att * PBRSpecular(0, roughness, albedo, normal, viewDir, lightDir, lightColor);
+        return PBRBoundedSpecular(materialResponse, specularStrength, specularFade, att, normal, viewDir, lightDir, lightColor);
     #elif defined(SPECULAR)
-        return att * PBR(0, roughness, albedo, normal, viewDir, lightDir, lightColor);
+        return PBRBounded(materialResponse, specularStrength, specularFade, att, albedo, normal, viewDir, lightDir, lightColor);
     #else
-        return att * PBRDiffuse(0, roughness, albedo, normal, viewDir, lightDir, lightColor);
+        return att * PBRDiffuse(0, materialResponse, albedo, normal, viewDir, lightDir, lightColor);
     #endif
 }
 
-float3 getPointLightLightingAtt(float3 lightDir, float att, float3 lightColor, float3 viewDir, float3 normal, float3 albedo, float roughness) {
+float3 getPointLightLightingAtt(float3 lightDir, float att, float3 lightColor, float3 viewDir, float3 normal, float3 albedo, float materialResponse, float specularStrength, float specularFade) {
     lightColor = lightColor * TESR_PBRData.z;
-    albedo = lerp(luma(albedo), albedo, TESR_PBRExtraData.x);
 
     #if defined(ONLY_SPECULAR)
-        return att * PBRSpecular(0, roughness, albedo, normal, viewDir, lightDir, lightColor);
+        return PBRBoundedSpecular(materialResponse, specularStrength, specularFade, att, normal, viewDir, lightDir, lightColor);
     #elif defined(SPECULAR)
-        return att * PBR(0, roughness, albedo, normal, viewDir, lightDir, lightColor);
+        return PBRBounded(materialResponse, specularStrength, specularFade, att, albedo, normal, viewDir, lightDir, lightColor);
     #else
-    return att * PBRDiffuse(0, roughness, albedo, normal, viewDir, lightDir, lightColor);
+        return att * PBRDiffuse(0, materialResponse, albedo, normal, viewDir, lightDir, lightColor);
     #endif
 }
 
-float3 getSunLighting(float3 lightDir, float3 lightColor, float3 viewDir, float3 normal, float3 albedo, float roughness) {
+float3 getSunLighting(float3 lightDir, float3 lightColor, float3 viewDir, float3 normal, float3 albedo, float materialResponse, float specularStrength, float specularFade) {
     lightColor = lightColor * TESR_PBRData.z;
-    albedo = lerp(luma(albedo), albedo, TESR_PBRExtraData.x);
 
     #if defined(ONLY_SPECULAR)
-        return PBRSunSpecular(0, roughness, albedo, normal, viewDir, lightDir, lightColor);
+        return PBRBoundedSpecular(materialResponse, specularStrength, specularFade, 1.0, normal, viewDir, lightDir, lightColor);
     #elif defined(SPECULAR)
-        return PBRSun(0, roughness, albedo, normal, viewDir, lightDir, lightColor);
+        return PBRBounded(materialResponse, specularStrength, specularFade, 1.0, albedo, normal, viewDir, lightDir, lightColor);
     #else
-        return PBRDiffuse(0, roughness, albedo, normal, viewDir, lightDir, lightColor);
+        return PBRDiffuse(0, materialResponse, albedo, normal, viewDir, lightDir, lightColor);
     #endif
 }
 

@@ -71,8 +71,6 @@ float3 BRDF(float roughness, float3 fresnel, float NdotV, float NdotL, float Ndo
 float3 PBRDiffuse(float metallicness, float roughness, float3 albedo, float3 normal, float3 eyeDir, float3 lightDir, float3 lightColor) {
     const float3 reflectance = lerp(float(0.04).rrr, albedo, metallicness);
 
-    normal = normalize(normal);
-    eyeDir = normalize(eyeDir);
     lightDir = normalize(lightDir);
 
     const float3 halfway = SafeNormalize(eyeDir + lightDir, normal);
@@ -89,8 +87,6 @@ float3 PBRDiffuse(float metallicness, float roughness, float3 albedo, float3 nor
 float3 PBRSpecular(float metallicness, float roughness, float3 albedo, float3 normal, float3 eyeDir, float3 lightDir, float3 lightColor) {
     const float3 reflectance = lerp(float(0.04).rrr, albedo, metallicness);
 
-    normal = normalize(normal);
-    eyeDir = normalize(eyeDir);
     lightDir = normalize(lightDir);
 
     const float3 halfway = SafeNormalize(eyeDir + lightDir, normal);
@@ -104,6 +100,39 @@ float3 PBRSpecular(float metallicness, float roughness, float3 albedo, float3 no
     const float3 spec = BRDF(roughness, fresnel, NdotV, NdotL, NdotH);
 
     return spec * NdotL * lightColor * PI;
+}
+
+float3 PBRBoundedSpecular(float glossPower, float specularStrength, float specularFade, float attenuation, float3 normal, float3 eyeDir, float3 lightDir, float3 lightColor) {
+    const float3 reflectance = float(0.04).rrr;
+
+    lightDir = normalize(lightDir);
+
+    const float3 halfway = SafeNormalize(eyeDir + lightDir, normal);
+    const float NdotL = shades(normal, lightDir);
+    const float NdotH = shades(normal, halfway);
+    const float LdotH = shades(lightDir, halfway);
+    const float3 fresnel = Fresnel(reflectance, (1.0).xxx, LdotH);
+    const float distribution = pow(NdotH, glossPower) * (glossPower + 2.0) * 0.125;
+    const float3 radiance = NdotL * lightColor * attenuation;
+    const float3 specular = fresnel * distribution * radiance;
+    return saturate(specular * saturate(specularStrength)) * saturate(specularFade);
+}
+
+float3 PBRBounded(float glossPower, float specularStrength, float specularFade, float attenuation, float3 albedo, float3 normal, float3 eyeDir, float3 lightDir, float3 lightColor) {
+    const float3 reflectance = float(0.04).rrr;
+
+    lightDir = normalize(lightDir);
+
+    const float3 halfway = SafeNormalize(eyeDir + lightDir, normal);
+    const float NdotL = shades(normal, lightDir);
+    const float NdotH = shades(normal, halfway);
+    const float LdotH = shades(lightDir, halfway);
+    const float3 fresnel = Fresnel(reflectance, (1.0).xxx, LdotH);
+    const float distribution = pow(NdotH, glossPower) * (glossPower + 2.0) * 0.125;
+    const float3 radiance = NdotL * lightColor * attenuation;
+    const float3 diffuse = LambertianDiffuse(albedo, fresnel) * radiance * PI;
+    const float3 specular = fresnel * distribution * radiance;
+    return diffuse + saturate(specular * saturate(specularStrength)) * saturate(specularFade);
 }
 
 float3 PBR(float metallicness, float roughness, float3 albedo, float3 normal, float3 eyeDir, float3 lightDir, float3 lightColor) {
@@ -133,8 +162,6 @@ float3 PBR(float metallicness, float roughness, float3 albedo, float3 normal, fl
 float3 PBRSunSpecular(float metallicness, float roughness, float3 albedo, float3 normal, float3 eyeDir, float3 lightDir, float3 lightColor) {
     const float3 reflectance = lerp(float(0.04).rrr, albedo, metallicness);
 
-    normal = normalize(normal);
-    eyeDir = normalize(eyeDir);
     lightDir = normalize(lightDir);
 
     const float3 reflectDir = reflect(lightDir, normal);
@@ -164,8 +191,6 @@ float3 PBRSunSpecular(float metallicness, float roughness, float3 albedo, float3
 float3 PBRSun(float metallicness, float roughness, float3 albedo, float3 normal, float3 eyeDir, float3 lightDir, float3 lightColor) {
     const float3 reflectance = lerp(float(0.04).rrr, albedo, metallicness);
 
-    normal = normalize(normal);
-    eyeDir = normalize(eyeDir);
     lightDir = normalize(lightDir);
 
     const float3 reflectDir = reflect(lightDir, normal);
