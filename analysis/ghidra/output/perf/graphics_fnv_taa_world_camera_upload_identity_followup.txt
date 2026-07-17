@@ -1,0 +1,768 @@
+FNV TAA WORLD CAMERA UPLOAD IDENTITY FOLLOWUP
+
+Questions:
+1. What exact object is held in RenderWorldSceneGraph local [EBP-0x24]?
+2. Does FUN_006629F0 return that object's World NiCamera at SceneGraph +0xAC?
+3. Is the returned camera passed unchanged through FUN_00B6BA20 to SetCameraData?
+4. Does SetCameraData consume camera +0xDC after the OMV entry hook and before world draws?
+
+----------------------------------------------------------------------
+References TO 0x011deb7c (Main World SceneGraph pointer)
+----------------------------------------------------------------------
+  DATA @ 0x0045c673 (in FUN_0045c670)
+  DATA @ 0x00524c93 (in FUN_00524c90)
+  DATA @ 0x0086c8e6 (in FUN_0086c880)
+  DATA @ 0x0086c8f9 (in FUN_0086c880)
+  DATA @ 0x0086d629 (in FUN_0086d590)
+  DATA @ 0x0086d69f (in FUN_0086d590)
+  DATA @ 0x0086d873 (in FUN_0086d590)
+  DATA @ 0x0086d88f (in FUN_0086d590)
+  DATA @ 0x0086e0bc (in FUN_0086d590)
+  DATA @ 0x0086e0d4 (in FUN_0086d590)
+  DATA @ 0x0086e0fb (in FUN_0086d590)
+  DATA @ 0x0086e98c (in FUN_0086e650)
+  DATA @ 0x0086eba7 (in FUN_0086e650)
+  DATA @ 0x00870580 (in FUN_0086ff70)
+  DATA @ 0x00872bc9 (in FUN_00872b00)
+  DATA @ 0x00872c55 (in FUN_00872b00)
+  DATA @ 0x00872ca6 (in FUN_00872b00)
+  DATA @ 0x00874265 (in FUN_00873200)
+  DATA @ 0x0087431b (in FUN_00873200)
+  DATA @ 0x008743e6 (in FUN_00873200)
+  DATA @ 0x00875b4c (in FUN_00875110)
+  DATA @ 0x00fa2365 (in FUN_00fa2360)
+  DATA @ 0x00fd8e03 (in FUN_00fd8e00)
+  Total: 23 refs
+
+======================================================================
+single-pointer slot getter @ 0x00559450
+======================================================================
+  Function: FUN_00559450 @ 0x00559450, Size: 16 bytes
+
+undefined4 __fastcall FUN_00559450(undefined4 *param_1)
+
+{
+  return *param_1;
+}
+
+
+
+----------------------------------------------------------------------
+Disassembly single-pointer slot getter raw body around 0x00559450
+----------------------------------------------------------------------
+  0x00559450: PUSH EBP                                                   <<
+  0x00559451: MOV EBP,ESP                                               
+  0x00559453: PUSH ECX                                                  
+  0x00559454: MOV dword ptr [EBP + -0x4],ECX                            
+  0x00559457: MOV EAX,dword ptr [EBP + -0x4]                            
+  0x0055945a: MOV EAX,dword ptr [EAX]                                   
+  0x0055945c: MOV ESP,EBP                                               
+  0x0055945e: POP EBP                                                   
+  0x0055945f: RET                                                       
+  0x00559460: PUSH EBP                                                  
+  0x00559461: MOV EBP,ESP                                               
+
+======================================================================
+Main World SceneGraph getter @ 0x0045c670
+======================================================================
+  Function: FUN_0045c670 @ 0x0045c670, Size: 15 bytes
+
+void FUN_0045c670(void)
+
+{
+  FUN_00559450();
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+Disassembly Main World SceneGraph getter raw body around 0x0045c670
+----------------------------------------------------------------------
+  0x0045c670: PUSH EBP                                                   <<
+  0x0045c671: MOV EBP,ESP                                               
+  0x0045c673: MOV ECX,0x11deb7c                                         
+  0x0045c678: CALL 0x00559450                                           
+  0x0045c67d: POP EBP                                                   
+  0x0045c67e: RET                                                       
+  0x0045c680: PUSH EBP                                                  
+  0x0045c681: MOV EBP,ESP                                               
+  0x0045c683: MOVZX EAX,byte ptr [EBP + 0xc]                            
+  0x0045c687: TEST EAX,EAX                                              
+  0x0045c689: JZ 0x0045c699                                             
+  0x0045c68b: MOV ECX,dword ptr [EBP + 0x8]                             
+  0x0045c68e: PUSH ECX                                                  
+
+======================================================================
+RenderWorld camera/scene getter wrapper @ 0x006629f0
+======================================================================
+  Function: FUN_006629f0 @ 0x006629f0, Size: 25 bytes
+
+void __fastcall FUN_006629f0(undefined4 param_1)
+
+{
+  FUN_00559450(param_1);
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+Disassembly SceneGraph camera getter raw body around 0x006629f0
+----------------------------------------------------------------------
+  0x006629f0: PUSH EBP                                                   <<
+  0x006629f1: MOV EBP,ESP                                               
+  0x006629f3: PUSH ECX                                                  
+  0x006629f4: MOV dword ptr [EBP + -0x4],ECX                            
+  0x006629f7: MOV ECX,dword ptr [EBP + -0x4]                            
+  0x006629fa: ADD ECX,0xac                                              
+  0x00662a00: CALL 0x00559450                                           
+  0x00662a05: MOV ESP,EBP                                               
+  0x00662a07: POP EBP                                                   
+  0x00662a08: RET                                                       
+  0x00662a10: PUSH EBP                                                  
+  0x00662a11: MOV EBP,ESP                                               
+  0x00662a13: PUSH ECX                                                  
+  0x00662a14: PUSH ESI                                                  
+  0x00662a15: PUSH EDI                                                  
+
+----------------------------------------------------------------------
+References TO 0x006629f0 (RenderWorld camera/scene getter wrapper)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0086b0f4 (in FUN_0086a850)
+  UNCONDITIONAL_CALL @ 0x0086b109 (in FUN_0086a850)
+  UNCONDITIONAL_CALL @ 0x005450f9 (in FUN_00545030)
+  UNCONDITIONAL_CALL @ 0x005457de (in FUN_00545740)
+  UNCONDITIONAL_CALL @ 0x00545848 (in FUN_00545740)
+  UNCONDITIONAL_CALL @ 0x00548bfd (in FUN_00548880)
+  UNCONDITIONAL_CALL @ 0x00549517 (in FUN_00548880)
+  UNCONDITIONAL_CALL @ 0x0054a432 (in FUN_0054a070)
+  UNCONDITIONAL_CALL @ 0x00712fac (in FUN_00712e90)
+  UNCONDITIONAL_CALL @ 0x00713063 (in FUN_00712e90)
+  UNCONDITIONAL_CALL @ 0x007130b7 (in FUN_00712e90)
+  UNCONDITIONAL_CALL @ 0x00714386 (in FUN_00713fb0)
+  UNCONDITIONAL_CALL @ 0x007136b1 (in FUN_007134d0)
+  UNCONDITIONAL_CALL @ 0x0071371d (in FUN_007134d0)
+  UNCONDITIONAL_CALL @ 0x0071373d (in FUN_007134d0)
+  UNCONDITIONAL_CALL @ 0x0071386a (in FUN_007134d0)
+  UNCONDITIONAL_CALL @ 0x0071388c (in FUN_007134d0)
+  UNCONDITIONAL_CALL @ 0x00713936 (in FUN_007134d0)
+  UNCONDITIONAL_CALL @ 0x00713958 (in FUN_007134d0)
+  UNCONDITIONAL_CALL @ 0x007139c2 (in FUN_007134d0)
+  UNCONDITIONAL_CALL @ 0x00713a00 (in FUN_007134d0)
+  UNCONDITIONAL_CALL @ 0x00713a22 (in FUN_007134d0)
+  UNCONDITIONAL_CALL @ 0x00713a59 (in FUN_007134d0)
+  UNCONDITIONAL_CALL @ 0x00713a89 (in FUN_007134d0)
+  UNCONDITIONAL_CALL @ 0x00713aab (in FUN_007134d0)
+  UNCONDITIONAL_CALL @ 0x00713b1a (in FUN_007134d0)
+  UNCONDITIONAL_CALL @ 0x00713b58 (in FUN_007134d0)
+  UNCONDITIONAL_CALL @ 0x00713b8a (in FUN_007134d0)
+  UNCONDITIONAL_CALL @ 0x00713baa (in FUN_007134d0)
+  UNCONDITIONAL_CALL @ 0x0056fd8e (in FUN_0056fcb0)
+  UNCONDITIONAL_CALL @ 0x0086d6ab (in FUN_0086d590)
+  UNCONDITIONAL_CALL @ 0x0086d87f (in FUN_0086d590)
+  UNCONDITIONAL_CALL @ 0x0086ebb3 (in FUN_0086e650)
+  UNCONDITIONAL_CALL @ 0x0045bd28 (in FUN_0045bc80)
+  UNCONDITIONAL_CALL @ 0x0045be65 (in FUN_0045bc80)
+  UNCONDITIONAL_CALL @ 0x0045becc (in FUN_0045bc80)
+  UNCONDITIONAL_CALL @ 0x0045bf72 (in FUN_0045bc80)
+  UNCONDITIONAL_CALL @ 0x0045c32b (in FUN_0045bc80)
+  UNCONDITIONAL_CALL @ 0x0045c45d (in FUN_0045bc80)
+  UNCONDITIONAL_CALL @ 0x0045c580 (in FUN_0045c570)
+  UNCONDITIONAL_CALL @ 0x00524c9f (in FUN_00524c90)
+  UNCONDITIONAL_CALL @ 0x005376e0 (in FUN_005374f0)
+  UNCONDITIONAL_CALL @ 0x0057d752 (in FUN_0057d4f0)
+  UNCONDITIONAL_CALL @ 0x0057d791 (in FUN_0057d4f0)
+  UNCONDITIONAL_CALL @ 0x0057d8cc (in FUN_0057d4f0)
+  UNCONDITIONAL_CALL @ 0x0057d8eb (in FUN_0057d4f0)
+  UNCONDITIONAL_CALL @ 0x0054737e (in FUN_00547250)
+  UNCONDITIONAL_CALL @ 0x006f588f (in FUN_006f5840)
+  UNCONDITIONAL_CALL @ 0x006f58b8 (in FUN_006f5840)
+  UNCONDITIONAL_CALL @ 0x006fa89e (in FUN_006fa860)
+  UNCONDITIONAL_CALL @ 0x006fa8c8 (in FUN_006fa860)
+  UNCONDITIONAL_CALL @ 0x006fa8f2 (in FUN_006fa860)
+  UNCONDITIONAL_CALL @ 0x006fad66 (in FUN_006facb0)
+  UNCONDITIONAL_CALL @ 0x0071094d (in FUN_00710880)
+  UNCONDITIONAL_CALL @ 0x007128ea (in FUN_007126c0)
+  UNCONDITIONAL_CALL @ 0x0071291f (in FUN_007126c0)
+  UNCONDITIONAL_CALL @ 0x0071b5db (in FUN_0071b210)
+  UNCONDITIONAL_CALL @ 0x0071b616 (in FUN_0071b210)
+  UNCONDITIONAL_CALL @ 0x0077f1ee (in FUN_0077f0d0)
+  UNCONDITIONAL_CALL @ 0x008706d4 (in FUN_008706b0)
+  UNCONDITIONAL_CALL @ 0x00871092 (in FUN_00870bd0)
+  UNCONDITIONAL_CALL @ 0x00871680 (in FUN_00871290)
+  UNCONDITIONAL_CALL @ 0x00871691 (in FUN_00871290)
+  UNCONDITIONAL_CALL @ 0x004e6331 (in FUN_004e62e0)
+  UNCONDITIONAL_CALL @ 0x007335b3 (in FUN_00733500)
+  UNCONDITIONAL_CALL @ 0x00740fe3 (in FUN_00740f30)
+  UNCONDITIONAL_CALL @ 0x0078e886 (in FUN_0078e7c0)
+  UNCONDITIONAL_CALL @ 0x007bbda3 (in FUN_007bbcf0)
+  UNCONDITIONAL_CALL @ 0x007c1a73 (in FUN_007c19c0)
+  UNCONDITIONAL_CALL @ 0x00872b34 (in FUN_00872b00)
+  UNCONDITIONAL_CALL @ 0x00872bbd (in FUN_00872b00)
+  UNCONDITIONAL_CALL @ 0x00872bd5 (in FUN_00872b00)
+  UNCONDITIONAL_CALL @ 0x00873245 (in FUN_00873200)
+  UNCONDITIONAL_CALL @ 0x0087336f (in FUN_00873200)
+  UNCONDITIONAL_CALL @ 0x0087417a (in FUN_00873200)
+  UNCONDITIONAL_CALL @ 0x008741d5 (in FUN_00873200)
+  UNCONDITIONAL_CALL @ 0x00874271 (in FUN_00873200)
+  UNCONDITIONAL_CALL @ 0x00874327 (in FUN_00873200)
+  UNCONDITIONAL_CALL @ 0x008743d2 (in FUN_00873200)
+  UNCONDITIONAL_CALL @ 0x008743f2 (in FUN_00873200)
+  UNCONDITIONAL_CALL @ 0x008014ff (in FUN_00801450)
+  ... (truncated)
+  Total: 81 refs
+
+======================================================================
+rendered-texture camera setup @ 0x00b6ba20
+======================================================================
+  Function: FUN_00b6ba20 @ 0x00b6ba20, Size: 74 bytes
+
+void FUN_00b6ba20(int param_1,int *param_2)
+
+{
+  if ((DAT_011f4748 != 0) && (param_1 != 0)) {
+    FUN_004e9bb0(param_1);
+    DAT_011f917c = param_1;
+    FUN_00b54b10(param_2);
+    (**(code **)(*param_2 + 0x8c))(param_1);
+                    /* WARNING: Could not recover jumptable at 0x00b6ba66. Too many branches */
+                    /* WARNING: Treating indirect jump as call */
+    (**(code **)(*param_2 + 0xa8))();
+    return;
+  }
+  return;
+}
+
+
+
+======================================================================
+NiRenderer::SetCameraData @ 0x004e9bb0
+======================================================================
+  Function: FUN_004e9bb0 @ 0x004e9bb0, Size: 89 bytes
+
+void __fastcall FUN_004e9bb0(undefined4 param_1)
+
+{
+  undefined4 uVar1;
+  undefined4 uVar2;
+  undefined4 uVar3;
+  undefined4 uVar4;
+  undefined4 uVar5;
+  undefined4 uVar6;
+  undefined1 local_28 [12];
+  undefined1 local_1c [12];
+  undefined1 local_10 [12];
+  
+  uVar1 = FUN_004a0d10(param_1);
+  uVar2 = FUN_0045bbe0(uVar1);
+  uVar3 = FUN_004e9c50(local_10);
+  uVar4 = FUN_004e9c10(local_1c);
+  uVar5 = FUN_0045bba0(local_28);
+  uVar6 = FUN_0045bb80(uVar5,uVar4,uVar3,uVar2);
+  FUN_004e9c90(uVar6,uVar5,uVar4,uVar3,uVar2,uVar1);
+  return;
+}
+
+
+
+======================================================================
+NiCamera frustum getter @ 0x0045bbe0
+======================================================================
+  Function: FUN_0045bbe0 @ 0x0045bbe0, Size: 19 bytes
+
+int __fastcall FUN_0045bbe0(int param_1)
+
+{
+  return param_1 + 0xdc;
+}
+
+
+
+----------------------------------------------------------------------
+Disassembly current-camera writer and local provenance around 0x00873f5f
+----------------------------------------------------------------------
+  0x00873e80: TEST EAX,EAX                                              
+  0x00873e82: JNZ 0x00873e90                                            
+  0x00873e84: LEA ECX,[EBP + -0x4c]                                     
+  0x00873e87: PUSH ECX                                                  
+  0x00873e88: LEA ECX,[EBP + -0x38]                                     
+  0x00873e8b: CALL 0x004ed8c0                                           
+  0x00873e90: PUSH 0x6                                                  
+  0x00873e92: MOV ECX,dword ptr [EBP + -0x5c]                           
+  0x00873e95: CALL 0x0045bc00                                           
+  0x00873e9a: MOV dword ptr [EBP + -0x4c],EAX                           
+  0x00873e9d: CMP dword ptr [EBP + -0x4c],0x0                           
+  0x00873ea1: JZ 0x00873ebe                                             
+  0x00873ea3: MOV ECX,dword ptr [EBP + -0x4c]                           
+  0x00873ea6: CALL 0x00456610                                           
+  0x00873eab: MOVZX EDX,AL                                              
+  0x00873eae: TEST EDX,EDX                                              
+  0x00873eb0: JNZ 0x00873ebe                                            
+  0x00873eb2: LEA EAX,[EBP + -0x4c]                                     
+  0x00873eb5: PUSH EAX                                                  
+  0x00873eb6: LEA ECX,[EBP + -0x58]                                     
+  0x00873eb9: CALL 0x004ed8c0                                           
+  0x00873ebe: MOV dword ptr [EBP + 0xfffffe6c],0x7                      
+  0x00873ec8: JMP 0x00873ed9                                            
+  0x00873eca: MOV ECX,dword ptr [EBP + 0xfffffe6c]                      
+  0x00873ed0: ADD ECX,0x1                                               
+  0x00873ed3: MOV dword ptr [EBP + 0xfffffe6c],ECX                      
+  0x00873ed9: MOV ECX,dword ptr [EBP + -0x5c]                           
+  0x00873edc: CALL 0x0043b480                                           
+  0x00873ee1: CMP dword ptr [EBP + 0xfffffe6c],EAX                      
+  0x00873ee7: JNC 0x00873f43                                            
+  0x00873ee9: MOV EDX,dword ptr [EBP + 0xfffffe6c]                      
+  0x00873eef: PUSH EDX                                                  
+  0x00873ef0: MOV ECX,dword ptr [EBP + -0x5c]                           
+  0x00873ef3: CALL 0x0043b4a0                                           
+  0x00873ef8: MOV dword ptr [EBP + -0x4c],EAX                           
+  0x00873efb: CMP dword ptr [EBP + -0x4c],0x0                           
+  0x00873eff: JZ 0x00873f41                                             
+  0x00873f01: MOV ECX,dword ptr [EBP + -0x4c]                           
+  0x00873f04: CALL 0x00456610                                           
+  0x00873f09: MOVZX EAX,AL                                              
+  0x00873f0c: TEST EAX,EAX                                              
+  0x00873f0e: JNZ 0x00873f41                                            
+  0x00873f10: MOV ECX,dword ptr [EBP + 0xfffffe6c]                      
+  0x00873f16: AND ECX,0x80000001                                        
+  0x00873f1c: JNS 0x00873f23                                            
+  0x00873f1e: DEC ECX                                                   
+  0x00873f1f: OR ECX,0xfffffffe                                         
+  0x00873f22: INC ECX                                                   
+  0x00873f23: TEST ECX,ECX                                              
+  0x00873f25: JZ 0x00873f35                                             
+  0x00873f27: LEA EDX,[EBP + -0x4c]                                     
+  0x00873f2a: PUSH EDX                                                  
+  0x00873f2b: LEA ECX,[EBP + -0x58]                                     
+  0x00873f2e: CALL 0x004ed8c0                                           
+  0x00873f33: JMP 0x00873f41                                            
+  0x00873f35: LEA EAX,[EBP + -0x4c]                                     
+  0x00873f38: PUSH EAX                                                  
+  0x00873f39: LEA ECX,[EBP + -0x44]                                     
+  0x00873f3c: CALL 0x004ed8c0                                           
+  0x00873f41: JMP 0x00873eca                                            
+  0x00873f43: MOV ECX,dword ptr [EBP + -0x18]                           
+  0x00873f46: PUSH ECX                                                  
+  0x00873f47: MOV ECX,dword ptr [EBP + -0x10]                           
+  0x00873f4a: CALL 0x0041fd00                                           
+  0x00873f4f: MOV EDX,dword ptr [EBP + -0x10]                           
+  0x00873f52: PUSH EDX                                                  
+  0x00873f53: PUSH 0x0                                                  
+  0x00873f55: CALL 0x00450b80                                           
+  0x00873f5a: ADD ESP,0x4                                               
+  0x00873f5d: MOV ECX,EAX                                               
+  0x00873f5f: CALL 0x00b5e870                                            <<
+  0x00873f64: PUSH 0x0                                                  
+  0x00873f66: CALL 0x00450b80                                           
+  0x00873f6b: ADD ESP,0x4                                               
+  0x00873f6e: MOV ECX,EAX                                               
+  0x00873f70: CALL 0x00874670                                           
+  0x00873f75: TEST EAX,EAX                                              
+  0x00873f77: JZ 0x00873f91                                             
+  0x00873f79: PUSH 0x0                                                  
+  0x00873f7b: CALL 0x00450b80                                           
+  0x00873f80: ADD ESP,0x4                                               
+  0x00873f83: MOV ECX,EAX                                               
+  0x00873f85: CALL 0x00874670                                           
+  0x00873f8a: MOV ECX,EAX                                               
+  0x00873f8c: CALL 0x00c49850                                           
+  0x00873f91: MOV ECX,dword ptr [EBP + 0xfffffe58]                      
+  0x00873f97: ADD ECX,0x88                                              
+  0x00873f9d: CALL 0x00559450                                           
+  0x00873fa2: MOV dword ptr [EBP + 0xfffffe44],EAX                      
+  0x00873fa8: MOV EAX,dword ptr [EBP + -0x18]                           
+  0x00873fab: PUSH EAX                                                  
+  0x00873fac: MOV ECX,dword ptr [EBP + 0xfffffe44]                      
+  0x00873fb2: MOV EDX,dword ptr [ECX]                                   
+  0x00873fb4: MOV ECX,dword ptr [EBP + 0xfffffe44]                      
+  0x00873fba: MOV EAX,dword ptr [EDX + 0x8c]                            
+  0x00873fc0: CALL EAX                                                  
+  0x00873fc2: MOV ECX,dword ptr [EBP + 0xfffffe58]                      
+  0x00873fc8: ADD ECX,0x88                                              
+  0x00873fce: CALL 0x00559450                                           
+  0x00873fd3: PUSH EAX                                                  
+  0x00873fd4: CALL 0x00b54ac0                                           
+  0x00873fd9: ADD ESP,0x4                                               
+  0x00873fdc: MOV ECX,dword ptr [EBP + 0xfffffe58]                      
+  0x00873fe2: ADD ECX,0x88                                              
+  0x00873fe8: CALL 0x00559450                                           
+  0x00873fed: PUSH EAX                                                  
+  0x00873fee: CALL 0x0043c4b0                                           
+  0x00873ff3: MOV ECX,EAX                                               
+  0x00873ff5: CALL 0x004dc540                                           
+  0x00873ffa: PUSH 0x1                                                  
+  0x00873ffc: PUSH 0x15                                                 
+  0x00873ffe: PUSH 0x0                                                  
+  0x00874000: MOV ECX,dword ptr [EBP + 0xfffffe58]                      
+  0x00874006: ADD ECX,0x88                                              
+  0x0087400c: CALL 0x00559450                                           
+  0x00874011: PUSH EAX                                                  
+  0x00874012: PUSH 0x0                                                  
+  0x00874014: LEA ECX,[EBP + -0x58]                                     
+  0x00874017: PUSH ECX                                                  
+  0x00874018: PUSH 0x0                                                  
+  0x0087401a: PUSH 0x0                                                  
+  0x0087401c: CALL 0x00450b80                                           
+  0x00874021: ADD ESP,0x4                                               
+  0x00874024: MOV ECX,EAX                                               
+  0x00874026: CALL 0x00874670                                           
+  0x0087402b: PUSH EAX                                                  
+  0x0087402c: MOV EDX,dword ptr [EBP + -0x18]                           
+  0x0087402f: PUSH EDX                                                  
+  0x00874030: CALL 0x004ea970                                           
+  0x00874035: MOV ECX,EAX                                               
+  0x00874037: CALL 0x00ba3390                                           
+  0x0087403c: PUSH 0x15                                                 
+  0x0087403e: PUSH 0x0                                                  
+  0x00874040: CALL 0x004ea970                                           
+  0x00874045: MOV ECX,EAX                                               
+  0x00874047: CALL 0x00ba30f0                                           
+  0x0087404c: MOV EAX,[0x0126fd98]                                      
+  0x00874051: MOV ECX,dword ptr FS:[0x2c]                               
+  0x00874058: MOV EDX,dword ptr [ECX + EAX*0x4]                         
+  0x0087405b: MOV dword ptr [EDX + 0x2bc],0x0                           
+  0x00874065: PUSH 0x0                                                  
+  0x00874067: LEA ECX,[EBP + 0xfffffedc]                                
+  0x0087406d: CALL 0x004a0eb0                                           
+  0x00874072: MOV byte ptr [EBP + -0x4],0x4                             
+  0x00874076: MOV EAX,dword ptr [EBP + -0x18]                           
+  0x00874079: PUSH EAX                                                  
+  0x0087407a: LEA ECX,[EBP + 0xfffffedc]                                
+  0x00874080: CALL 0x0041fd00                                           
+  0x00874085: MOV ECX,dword ptr [EBP + 0xfffffe58]                      
+  0x0087408b: ADD ECX,0x88                                              
+  0x00874091: CALL 0x00559450                                           
+  0x00874096: PUSH EAX                                                  
+  0x00874097: LEA ECX,[EBP + 0xfffffedc]                                
+  0x0087409d: CALL 0x004a0fd0                                           
+  0x008740a2: PUSH 0x0                                                  
+  0x008740a4: CALL 0x00450b80                                           
+  0x008740a9: ADD ESP,0x4                                               
+  0x008740ac: MOV ECX,EAX                                               
+  0x008740ae: CALL 0x00874670                                           
+  0x008740b3: PUSH EAX                                                  
+  0x008740b4: LEA ECX,[EBP + 0xfffffedc]                                
+  0x008740ba: CALL 0x00874460                                           
+  0x008740bf: LEA ECX,[EBP + 0xfffffedc]                                
+  0x008740c5: PUSH ECX                                                  
+  0x008740c6: LEA EDX,[EBP + -0x44]                                     
+  0x008740c9: PUSH EDX                                                  
+  0x008740ca: MOV EAX,dword ptr [EBP + -0x18]                           
+  0x008740cd: PUSH EAX                                                  
+  0x008740ce: CALL 0x00b6bfc0                                           
+  0x008740d3: ADD ESP,0xc                                               
+  0x008740d6: PUSH 0x0                                                  
+  0x008740d8: LEA ECX,[EBP + 0xfffffedc]                                
+  0x008740de: CALL 0x00874460                                           
+  0x008740e3: LEA ECX,[EBP + 0xfffffedc]                                
+  0x008740e9: PUSH ECX                                                  
+  0x008740ea: LEA EDX,[EBP + -0x38]                                     
+  0x008740ed: PUSH EDX                                                  
+  0x008740ee: MOV EAX,dword ptr [EBP + -0x18]                           
+  0x008740f1: PUSH EAX                                                  
+  0x008740f2: CALL 0x00b6bfc0                                           
+  0x008740f7: ADD ESP,0xc                                               
+  0x008740fa: PUSH 0x15                                                 
+  0x008740fc: PUSH 0x1                                                  
+  0x008740fe: CALL 0x004ea970                                           
+  0x00874103: MOV ECX,EAX                                               
+  0x00874105: CALL 0x00ba3130                                           
+  0x0087410a: LEA ECX,[EBP + -0x58]                                     
+  0x0087410d: CALL 0x004ed900                                           
+  0x00874112: LEA ECX,[EBP + -0x44]                                     
+  0x00874115: CALL 0x004ed900                                           
+  0x0087411a: MOV byte ptr [EBP + -0x4],0x3                             
+  0x0087411e: LEA ECX,[EBP + 0xfffffedc]                                
+  0x00874124: CALL 0x004a0f60                                           
+  0x00874129: MOV byte ptr [EBP + -0x4],0x2                             
+  0x0087412d: LEA ECX,[EBP + -0x38]                                     
+  0x00874130: CALL 0x004a1a30                                           
+  0x00874135: MOV byte ptr [EBP + -0x4],0x1                             
+  0x00874139: LEA ECX,[EBP + -0x44]                                     
+  0x0087413c: CALL 0x004a1a30                                           
+  0x00874141: MOV byte ptr [EBP + -0x4],0x0                             
+  0x00874145: LEA ECX,[EBP + -0x58]                                     
+  0x00874148: CALL 0x004a1a30                                           
+  0x0087414d: JMP 0x00874163                                            
+  0x0087414f: MOV ECX,dword ptr [EBP + -0x10]                           
+  0x00874152: PUSH ECX                                                  
+  0x00874153: MOV EDX,dword ptr [EBP + -0x24]                           
+  0x00874156: PUSH EDX                                                  
+  0x00874157: MOV EAX,dword ptr [EBP + -0x18]                           
+  0x0087415a: PUSH EAX                                                  
+  0x0087415b: CALL 0x00b6bee0                                           
+  0x00874160: ADD ESP,0xc                                               
+  0x00874163: PUSH 0x1                                                  
+  0x00874165: MOV ECX,dword ptr [EBP + 0xfffffe58]                      
+  0x0087416b: ADD ECX,0x88                                              
+  0x00874171: CALL 0x00559450                                           
+  0x00874176: PUSH EAX                                                  
+  0x00874177: MOV ECX,dword ptr [EBP + -0x24]                           
+  0x0087417a: CALL 0x006629f0                                           
+  0x0087417f: PUSH EAX                                                  
+  0x00874180: CALL 0x00b6ba20                                           
+  0x00874185: ADD ESP,0xc                                               
+
+----------------------------------------------------------------------
+Disassembly world camera upload and following draws around 0x00874180
+----------------------------------------------------------------------
+  0x00874018: PUSH 0x0                                                  
+  0x0087401a: PUSH 0x0                                                  
+  0x0087401c: CALL 0x00450b80                                           
+  0x00874021: ADD ESP,0x4                                               
+  0x00874024: MOV ECX,EAX                                               
+  0x00874026: CALL 0x00874670                                           
+  0x0087402b: PUSH EAX                                                  
+  0x0087402c: MOV EDX,dword ptr [EBP + -0x18]                           
+  0x0087402f: PUSH EDX                                                  
+  0x00874030: CALL 0x004ea970                                           
+  0x00874035: MOV ECX,EAX                                               
+  0x00874037: CALL 0x00ba3390                                           
+  0x0087403c: PUSH 0x15                                                 
+  0x0087403e: PUSH 0x0                                                  
+  0x00874040: CALL 0x004ea970                                           
+  0x00874045: MOV ECX,EAX                                               
+  0x00874047: CALL 0x00ba30f0                                           
+  0x0087404c: MOV EAX,[0x0126fd98]                                      
+  0x00874051: MOV ECX,dword ptr FS:[0x2c]                               
+  0x00874058: MOV EDX,dword ptr [ECX + EAX*0x4]                         
+  0x0087405b: MOV dword ptr [EDX + 0x2bc],0x0                           
+  0x00874065: PUSH 0x0                                                  
+  0x00874067: LEA ECX,[EBP + 0xfffffedc]                                
+  0x0087406d: CALL 0x004a0eb0                                           
+  0x00874072: MOV byte ptr [EBP + -0x4],0x4                             
+  0x00874076: MOV EAX,dword ptr [EBP + -0x18]                           
+  0x00874079: PUSH EAX                                                  
+  0x0087407a: LEA ECX,[EBP + 0xfffffedc]                                
+  0x00874080: CALL 0x0041fd00                                           
+  0x00874085: MOV ECX,dword ptr [EBP + 0xfffffe58]                      
+  0x0087408b: ADD ECX,0x88                                              
+  0x00874091: CALL 0x00559450                                           
+  0x00874096: PUSH EAX                                                  
+  0x00874097: LEA ECX,[EBP + 0xfffffedc]                                
+  0x0087409d: CALL 0x004a0fd0                                           
+  0x008740a2: PUSH 0x0                                                  
+  0x008740a4: CALL 0x00450b80                                           
+  0x008740a9: ADD ESP,0x4                                               
+  0x008740ac: MOV ECX,EAX                                               
+  0x008740ae: CALL 0x00874670                                           
+  0x008740b3: PUSH EAX                                                  
+  0x008740b4: LEA ECX,[EBP + 0xfffffedc]                                
+  0x008740ba: CALL 0x00874460                                           
+  0x008740bf: LEA ECX,[EBP + 0xfffffedc]                                
+  0x008740c5: PUSH ECX                                                  
+  0x008740c6: LEA EDX,[EBP + -0x44]                                     
+  0x008740c9: PUSH EDX                                                  
+  0x008740ca: MOV EAX,dword ptr [EBP + -0x18]                           
+  0x008740cd: PUSH EAX                                                  
+  0x008740ce: CALL 0x00b6bfc0                                           
+  0x008740d3: ADD ESP,0xc                                               
+  0x008740d6: PUSH 0x0                                                  
+  0x008740d8: LEA ECX,[EBP + 0xfffffedc]                                
+  0x008740de: CALL 0x00874460                                           
+  0x008740e3: LEA ECX,[EBP + 0xfffffedc]                                
+  0x008740e9: PUSH ECX                                                  
+  0x008740ea: LEA EDX,[EBP + -0x38]                                     
+  0x008740ed: PUSH EDX                                                  
+  0x008740ee: MOV EAX,dword ptr [EBP + -0x18]                           
+  0x008740f1: PUSH EAX                                                  
+  0x008740f2: CALL 0x00b6bfc0                                           
+  0x008740f7: ADD ESP,0xc                                               
+  0x008740fa: PUSH 0x15                                                 
+  0x008740fc: PUSH 0x1                                                  
+  0x008740fe: CALL 0x004ea970                                           
+  0x00874103: MOV ECX,EAX                                               
+  0x00874105: CALL 0x00ba3130                                           
+  0x0087410a: LEA ECX,[EBP + -0x58]                                     
+  0x0087410d: CALL 0x004ed900                                           
+  0x00874112: LEA ECX,[EBP + -0x44]                                     
+  0x00874115: CALL 0x004ed900                                           
+  0x0087411a: MOV byte ptr [EBP + -0x4],0x3                             
+  0x0087411e: LEA ECX,[EBP + 0xfffffedc]                                
+  0x00874124: CALL 0x004a0f60                                           
+  0x00874129: MOV byte ptr [EBP + -0x4],0x2                             
+  0x0087412d: LEA ECX,[EBP + -0x38]                                     
+  0x00874130: CALL 0x004a1a30                                           
+  0x00874135: MOV byte ptr [EBP + -0x4],0x1                             
+  0x00874139: LEA ECX,[EBP + -0x44]                                     
+  0x0087413c: CALL 0x004a1a30                                           
+  0x00874141: MOV byte ptr [EBP + -0x4],0x0                             
+  0x00874145: LEA ECX,[EBP + -0x58]                                     
+  0x00874148: CALL 0x004a1a30                                           
+  0x0087414d: JMP 0x00874163                                            
+  0x0087414f: MOV ECX,dword ptr [EBP + -0x10]                           
+  0x00874152: PUSH ECX                                                  
+  0x00874153: MOV EDX,dword ptr [EBP + -0x24]                           
+  0x00874156: PUSH EDX                                                  
+  0x00874157: MOV EAX,dword ptr [EBP + -0x18]                           
+  0x0087415a: PUSH EAX                                                  
+  0x0087415b: CALL 0x00b6bee0                                           
+  0x00874160: ADD ESP,0xc                                               
+  0x00874163: PUSH 0x1                                                  
+  0x00874165: MOV ECX,dword ptr [EBP + 0xfffffe58]                      
+  0x0087416b: ADD ECX,0x88                                              
+  0x00874171: CALL 0x00559450                                           
+  0x00874176: PUSH EAX                                                  
+  0x00874177: MOV ECX,dword ptr [EBP + -0x24]                           
+  0x0087417a: CALL 0x006629f0                                           
+  0x0087417f: PUSH EAX                                                  
+  0x00874180: CALL 0x00b6ba20                                            <<
+  0x00874185: ADD ESP,0xc                                               
+  0x00874188: MOVZX ECX,byte ptr [EBP + 0x14]                           
+  0x0087418c: TEST ECX,ECX                                              
+  0x0087418e: JZ 0x008741be                                             
+  0x00874190: PUSH 0x1                                                  
+  0x00874192: PUSH 0x0                                                  
+  0x00874194: CALL 0x00b98380                                           
+  0x00874199: ADD ESP,0x8                                               
+  0x0087419c: PUSH 0x0                                                  
+  0x0087419e: PUSH 0x0                                                  
+  0x008741a0: PUSH 0x0                                                  
+  0x008741a2: PUSH 0x1                                                  
+  0x008741a4: PUSH 0x2                                                  
+  0x008741a6: PUSH 0x0                                                  
+  0x008741a8: CALL 0x00705910                                           
+  0x008741ad: MOV ECX,EAX                                               
+  0x008741af: CALL 0x00800f30                                           
+  0x008741b4: PUSH 0x1                                                  
+  0x008741b6: CALL 0x004eced0                                           
+  0x008741bb: ADD ESP,0x4                                               
+  0x008741be: PUSH 0x1                                                  
+  0x008741c0: MOV ECX,dword ptr [EBP + 0xfffffe58]                      
+  0x008741c6: ADD ECX,0x88                                              
+  0x008741cc: CALL 0x00559450                                           
+  0x008741d1: PUSH EAX                                                  
+  0x008741d2: MOV ECX,dword ptr [EBP + -0x24]                           
+  0x008741d5: CALL 0x006629f0                                           
+  0x008741da: PUSH EAX                                                  
+  0x008741db: CALL 0x00b6b930                                           
+  0x008741e0: ADD ESP,0xc                                               
+  0x008741e3: MOVZX EDX,byte ptr [0x011f94b4]                           
+  0x008741ea: TEST EDX,EDX                                              
+  0x008741ec: JZ 0x00874203                                             
+  0x008741ee: MOV EAX,dword ptr [EBP + -0x10]                           
+  0x008741f1: PUSH EAX                                                  
+  0x008741f2: PUSH 0x0                                                  
+  0x008741f4: CALL 0x00450b80                                           
+  0x008741f9: ADD ESP,0x4                                               
+  0x008741fc: MOV ECX,EAX                                               
+  0x008741fe: CALL 0x00a89af0                                           
+  0x00874203: PUSH 0x0                                                  
+  0x00874205: MOV ECX,dword ptr [EBP + -0x10]                           
+  0x00874208: CALL 0x004a0fd0                                           
+  0x0087420d: LEA ECX,[EBP + -0x1c]                                     
+  0x00874210: CALL 0x00404f70                                           
+  0x00874215: MOV ECX,dword ptr [EBP + 0xfffffe58]                      
+  0x0087421b: ADD ECX,0x88                                              
+  0x00874221: CALL 0x00559450                                           
+  0x00874226: MOV byte ptr [EAX + 0x38],0x0                             
+  0x0087422a: MOV ECX,dword ptr [EBP + 0xfffffe58]                      
+  0x00874230: ADD ECX,0x88                                              
+  0x00874236: CALL 0x00559450                                           
+  0x0087423b: MOV byte ptr [EAX + 0x3a],0x0                             
+  0x0087423f: CALL 0x008746c0                                           
+  0x00874244: CALL 0x004a0e90                                           
+  0x00874249: MOV dword ptr [EBP + -0x28],EAX                           
+  0x0087424c: CALL 0x0045c670                                           
+  0x00874251: MOV ECX,EAX                                               
+  0x00874253: CALL 0x008d80e0                                           
+  0x00874258: MOV dword ptr [EBP + -0x14],EAX                           
+  0x0087425b: PUSH 0x1                                                  
+  0x0087425d: MOV ECX,dword ptr [EBP + -0x14]                           
+  0x00874260: CALL 0x004fb0b0                                           
+  0x00874265: MOV ECX,0x11deb7c                                         
+  0x0087426a: CALL 0x00559450                                           
+  0x0087426f: MOV ECX,EAX                                               
+  0x00874271: CALL 0x006629f0                                           
+  0x00874276: PUSH EAX                                                  
+  0x00874277: CALL 0x00b803b0                                           
+  0x0087427c: ADD ESP,0x4                                               
+  0x0087427f: CALL 0x00874690                                           
+  0x00874284: PUSH EAX                                                  
+  0x00874285: MOV ECX,dword ptr [EBP + -0x14]                           
+  0x00874288: CALL 0x0041fd00                                           
+  0x0087428d: MOV ECX,dword ptr [EBP + 0xfffffe58]                      
+  0x00874293: ADD ECX,0x94                                              
+  0x00874299: CALL 0x00559450                                           
+  0x0087429e: PUSH EAX                                                  
+  0x0087429f: MOV ECX,dword ptr [EBP + -0x14]                           
+  0x008742a2: CALL 0x004a0fd0                                           
+  0x008742a7: MOV ECX,dword ptr [EBP + -0x14]                           
+  0x008742aa: PUSH ECX                                                  
+  0x008742ab: CALL 0x005bac50                                           
+  0x008742b0: PUSH EAX                                                  
+  0x008742b1: CALL 0x00874690                                           
+  0x008742b6: PUSH EAX                                                  
+  0x008742b7: CALL 0x00b6bee0                                           
+  0x008742bc: ADD ESP,0xc                                               
+  0x008742bf: PUSH 0x0                                                  
+  0x008742c1: MOV ECX,dword ptr [EBP + 0xfffffe58]                      
+  0x008742c7: ADD ECX,0x94                                              
+  0x008742cd: CALL 0x00559450                                           
+  0x008742d2: PUSH EAX                                                  
+  0x008742d3: CALL 0x00874690                                           
+  0x008742d8: PUSH EAX                                                  
+  0x008742d9: CALL 0x00b6c0d0                                           
+  0x008742de: ADD ESP,0xc                                               
+  0x008742e1: PUSH 0x0                                                  
+  0x008742e3: MOV ECX,dword ptr [EBP + -0x10]                           
+  0x008742e6: CALL 0x004a0fd0                                           
+  0x008742eb: PUSH 0x0                                                  
+  0x008742ed: MOV ECX,dword ptr [EBP + -0x14]                           
+  0x008742f0: CALL 0x004fb0b0                                           
+  0x008742f5: CALL 0x008746c0                                           
+  0x008742fa: CALL 0x004a0e90                                           
+  0x008742ff: MOV dword ptr [EBP + -0x28],EAX                           
+  0x00874302: CALL 0x0045c670                                           
+  0x00874307: MOV ECX,EAX                                               
+  0x00874309: CALL 0x008d80e0                                           
+  0x0087430e: MOV dword ptr [EBP + -0x14],EAX                           
+  0x00874311: PUSH 0x1                                                  
+  0x00874313: MOV ECX,dword ptr [EBP + -0x14]                           
+  0x00874316: CALL 0x004fb0b0                                           
+  0x0087431b: MOV ECX,0x11deb7c                                         
+  0x00874320: CALL 0x00559450                                           
+  0x00874325: MOV ECX,EAX                                               
+  0x00874327: CALL 0x006629f0                                           
+  0x0087432c: PUSH EAX                                                  
+  0x0087432d: CALL 0x00b803b0                                           
+  0x00874332: ADD ESP,0x4                                               
+  0x00874335: CALL 0x008746b0                                           
+  0x0087433a: PUSH EAX                                                  
+  0x0087433b: MOV ECX,dword ptr [EBP + -0x14]                           
+  0x0087433e: CALL 0x0041fd00                                           
+  0x00874343: MOV ECX,dword ptr [EBP + 0xfffffe58]                      
+  0x00874349: ADD ECX,0x94                                              
+  0x0087434f: CALL 0x00559450                                           
+  0x00874354: PUSH EAX                                                  
+  0x00874355: MOV ECX,dword ptr [EBP + -0x14]                           
+  0x00874358: CALL 0x004a0fd0                                           
+  0x0087435d: MOV EDX,dword ptr [EBP + -0x14]                           
+  0x00874360: PUSH EDX                                                  
+  0x00874361: CALL 0x008746a0                                           
+  0x00874366: PUSH EAX                                                  
+  0x00874367: CALL 0x008746b0                                           
+  0x0087436c: PUSH EAX                                                  
+  0x0087436d: CALL 0x00b6bee0                                           
+  0x00874372: ADD ESP,0xc                                               
+  0x00874375: PUSH 0x0                                                  
+  0x00874377: MOV ECX,dword ptr [EBP + 0xfffffe58]                      
+
+----------------------------------------------------------------------
+Field-offset operands in Main::RenderWorldSceneGraph
+----------------------------------------------------------------------
+  0x00874265: MOV ECX,0x11deb7c
+  0x0087431b: MOV ECX,0x11deb7c
+  0x008743e6: MOV ECX,0x11deb7c
+  Total: 3 matched instructions
+
+----------------------------------------------------------------------
+Field-offset operands in rendered-texture camera setup
+----------------------------------------------------------------------
+  Total: 0 matched instructions
+
+--- Calls FROM rendered-texture camera setup (0x00b6ba20) ---
+  0x00b6ba35 -> 0x004e9bb0 FUN_004e9bb0
+  0x00b6ba45 -> 0x00b54b10 FUN_00b54b10
+  Total: 2 calls
