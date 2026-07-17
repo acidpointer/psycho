@@ -82,9 +82,7 @@ jobs:
               "Data/NVSE/plugins/omv.dll" \
               "Data/NVSE/plugins/omv/omv.toml" \
               "Data/NVSE/plugins/omv/shaders/01_depth_aware_cas.hlsl" \
-              "Data/NVSE/plugins/omv/shaders/01_depth_aware_cas.toml" \
-              "Data/NVSE/plugins/omv/shaders/03_fast_fxaa.hlsl" \
-              "Data/NVSE/plugins/omv/shaders/03_fast_fxaa.toml") \
+              "Data/NVSE/plugins/omv/shaders/01_depth_aware_cas.toml") \
             <(zipinfo -1 "$omv_archive" | grep -v '/$' | sort)
 
       - name: Publish GitHub release
