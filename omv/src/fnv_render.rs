@@ -257,6 +257,7 @@ unsafe extern "thiscall" fn hook_render_world_scene_graph(
             drop(camera_jitter);
             apply_temporal_aa();
             capture_world_color();
+            apply_atmosphere();
         } else {
             log_depth_capture_skip(
                 crate::backend::DepthResolveSlot::World,
@@ -359,6 +360,16 @@ unsafe fn apply_temporal_aa() {
 
     unsafe {
         crate::runtime::apply_fnv_temporal_aa(device_ptr);
+    }
+}
+
+unsafe fn apply_atmosphere() {
+    let Some(device_ptr) = crate::backend::d3d_device_ptr() else {
+        return;
+    };
+
+    unsafe {
+        crate::runtime::apply_fnv_atmosphere(device_ptr);
     }
 }
 

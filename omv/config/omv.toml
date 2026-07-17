@@ -112,6 +112,38 @@ stability = 0.63
 first_person_mask = 1.0
 fog_fade = 1.0
 
+# Shared world-only atmosphere pipeline. Production color composition remains
+# bypassed until the HDR transfer, exposure, and alpha contracts are proven.
+# Enabling either component currently prepares strict-FP16 logarithmic depth;
+# select a debug view to visualize that input before first-person/UI rendering.
+[graphics.embedded_effects.volumetric_fog]
+enabled = false
+quality = "high"
+density = 0.0
+height_density = 0.00002
+height_falloff = 0.0001
+base_height = 0.0
+max_distance = 120000.0
+scattering_albedo = 0.9
+noise_amount = 0.25
+noise_scale = 0.0005
+noise_speed = 0.02
+temporal_stability = 0.9
+# 0 = off, 1 = nearest reduced depth, 2 = reduced depth span
+debug_view = 0
+
+[graphics.embedded_effects.volumetric_lighting]
+enabled = false
+intensity = 1.0
+medium_density = 0.00001
+anisotropy = 0.65
+shaft_strength = 1.0
+sun_disk_boost = 1.0
+shaft_quality = "high"
+temporal_stability = 0.9
+# 0 = off, 1 = nearest reduced depth, 2 = reduced depth span
+debug_view = 0
+
 [graphics.embedded_effects.blooming_hdr]
 # Engine-owned bloom/HDR pass. Fixed phase: final_image_space.
 enabled = true

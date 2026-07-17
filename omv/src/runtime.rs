@@ -28,8 +28,8 @@ use crate::{
     backend::{self, DepthFrame, DepthProvider},
     config::{DepthProviderConfig, GraphicsMenuConfig},
     effects::{
-        ambient_occlusion, anti_aliasing, blooming_hdr, depth_of_field, pbr, sky, sunshafts,
-        temporal_aa,
+        ambient_occlusion, anti_aliasing, atmosphere, blooming_hdr, depth_of_field, pbr, sky,
+        sunshafts, temporal_aa,
     },
     shaders::{self, EmbeddedEffectKind, ScreenShaderSource, ShaderOptionValue, ShaderPhase},
 };
@@ -180,8 +180,20 @@ pub(crate) unsafe fn temporal_aa_jitter_pixels(
 }
 
 pub(crate) unsafe fn apply_fnv_temporal_aa(device_ptr: *mut c_void) {
-    let mut runtime = RUNTIME.lock();
+    let Some(mut runtime) = RUNTIME.try_lock() else {
+        return;
+    };
     let result = unsafe { runtime.apply_fnv_temporal_aa(device_ptr) };
+    if let Err(err) = result {
+        runtime.log_frame_error(&err);
+    }
+}
+
+pub(crate) unsafe fn apply_fnv_atmosphere(device_ptr: *mut c_void) {
+    let Some(mut runtime) = RUNTIME.try_lock() else {
+        return;
+    };
+    let result = unsafe { runtime.apply_fnv_atmosphere(device_ptr) };
     if let Err(err) = result {
         runtime.log_frame_error(&err);
     }
@@ -294,6 +306,8 @@ struct ScreenShaderRuntime {
     anti_aliasing: Option<anti_aliasing::AntiAliasingEffect>,
     temporal_aa: Option<temporal_aa::TemporalAaEffect>,
     temporal_aa_creation_failed: bool,
+    atmosphere: Option<atmosphere::AtmosphereEffect>,
+    atmosphere_creation_failed: bool,
     blooming_hdr: Option<blooming_hdr::BloomingHdrEffect>,
     sunshafts: Option<sunshafts::SunshaftsEffect>,
     depth_of_field: Option<depth_of_field::DepthOfFieldEffect>,
@@ -323,6 +337,9 @@ struct ScreenShaderRuntime {
     scene_target_logs: u32,
     world_color_capture_logs: u32,
     world_color_captured_this_frame: bool,
+    atmosphere_called_this_frame: bool,
+    atmosphere_duplicate_logs: u32,
+    atmosphere_skip_logs: u32,
     applied_phases: AppliedShaderPhases,
     native_dof_active_this_frame: bool,
 }
@@ -338,6 +355,8 @@ impl Default for ScreenShaderRuntime {
             anti_aliasing: None,
             temporal_aa: None,
             temporal_aa_creation_failed: false,
+            atmosphere: None,
+            atmosphere_creation_failed: false,
             blooming_hdr: None,
             sunshafts: None,
             depth_of_field: None,
@@ -367,6 +386,9 @@ impl Default for ScreenShaderRuntime {
             scene_target_logs: 0,
             world_color_capture_logs: 0,
             world_color_captured_this_frame: false,
+            atmosphere_called_this_frame: false,
+            atmosphere_duplicate_logs: 0,
+            atmosphere_skip_logs: 0,
             applied_phases: AppliedShaderPhases::default(),
             native_dof_active_this_frame: false,
         }
@@ -767,6 +789,109 @@ impl ScreenShaderRuntime {
         draw_result
     }
 
+    unsafe fn apply_fnv_atmosphere(&mut self, device_ptr: *mut c_void) -> Direct3DResult<()> {
+        if !self.settings.menu_config.screen_space_shaders {
+            return Ok(());
+        }
+        let Some(settings) = ({
+            let fog_source = self.sources.iter().find(|source| {
+                source.enabled
+                    && source.embedded_effect_kind() == Some(EmbeddedEffectKind::VolumetricFog)
+            });
+            let lighting_source = self.sources.iter().find(|source| {
+                source.enabled
+                    && source.embedded_effect_kind() == Some(EmbeddedEffectKind::VolumetricLighting)
+            });
+            (fog_source.is_some() || lighting_source.is_some())
+                .then(|| atmosphere::AtmosphereSettings::from_sources(fog_source, lighting_source))
+        }) else {
+            return Ok(());
+        };
+        if self.atmosphere_called_this_frame {
+            if self.atmosphere_duplicate_logs < 8 {
+                log::warn!("[ATMOSPHERE] Duplicate world-boundary callback skipped");
+                self.atmosphere_duplicate_logs += 1;
+            }
+            return Ok(());
+        }
+        if self.atmosphere_creation_failed {
+            return Ok(());
+        }
+
+        let Some(device) = (unsafe { Device9Ref::from_raw_void(device_ptr) }) else {
+            return Ok(());
+        };
+        if self.device_ptr != device_ptr as usize {
+            self.release_for_new_device();
+            self.device_ptr = device_ptr as usize;
+        }
+
+        let world_target = device.render_target(0)?;
+        let desc = world_target.desc()?;
+        if desc.Width == 0 || desc.Height == 0 {
+            return Ok(());
+        }
+        let world_color = if self.world_color_captured_this_frame {
+            self.world_color_copy.clone()
+        } else {
+            None
+        };
+        if settings.requires_world_color() && world_color.is_none() {
+            if self.atmosphere_skip_logs < 8 {
+                log::warn!("[ATMOSPHERE] World-color capture missing; pipeline bypassed");
+                self.atmosphere_skip_logs += 1;
+            }
+            return Ok(());
+        }
+
+        let frame =
+            backend::atmosphere_frame(self.settings.depth_provider, &desc, settings.max_distance);
+        if !frame.depth_contract_ready() {
+            if self.atmosphere_skip_logs < 8 {
+                log::warn!("[ATMOSPHERE] World depth/camera contract missing; pipeline bypassed");
+                self.atmosphere_skip_logs += 1;
+            }
+            return Ok(());
+        }
+        self.atmosphere_called_this_frame = true;
+
+        if self.atmosphere.is_none() {
+            match atmosphere::AtmosphereEffect::create(&device) {
+                Ok(effect) => {
+                    self.atmosphere = Some(effect);
+                    log::info!("[ATMOSPHERE] Strict-FP16 world pipeline initialized");
+                }
+                Err(err) => {
+                    self.atmosphere_creation_failed = true;
+                    return Err(err);
+                }
+            }
+        }
+
+        self.ensure_state_block(&device)?;
+        let restore_target = world_target.clone();
+        let attachments = RenderAttachments::capture(&device, restore_target)?;
+        let Some(state_block) = self.state_block.as_ref() else {
+            return Err(runtime_error("[ATMOSPHERE] Missing D3D state block"));
+        };
+        state_block.capture()?;
+        let draw_result = self.atmosphere.as_mut().map_or(Ok(()), |effect| {
+            effect.draw(
+                &device,
+                &world_target,
+                &desc,
+                frame,
+                world_color.as_ref().map(|copy| &copy.texture),
+                settings,
+            )
+        });
+        let attachment_restore_result = attachments.restore(&device);
+        let restore_result = state_block.apply();
+        attachment_restore_result?;
+        restore_result?;
+        draw_result
+    }
+
     fn scan_shaders_if_due(&mut self) {
         let now = Instant::now();
         if self.next_scan.is_some_and(|next| now < next) {
@@ -958,7 +1083,9 @@ impl ScreenShaderRuntime {
                     let source = &self.sources[pass.source_index];
                     source.enabled
                         && source.phase() == phase
-                        && source.embedded_effect_kind() != Some(EmbeddedEffectKind::TemporalAa)
+                        && !source
+                            .embedded_effect_kind()
+                            .is_some_and(EmbeddedEffectKind::owns_world_boundary)
                 })
                 .map(|pass| self.sources[pass.source_index].pass_count)
                 .sum()
@@ -1023,10 +1150,12 @@ impl ScreenShaderRuntime {
                 continue;
             }
 
-            if source.embedded_effect_kind() == Some(EmbeddedEffectKind::TemporalAa) {
-                // TAA owns the post-world/pre-first-person boundary and is resolved
-                // from the RenderWorldSceneGraph hook, not from image-space.
-                pass_index = pass_index.saturating_add(source.pass_count.max(1));
+            if source
+                .embedded_effect_kind()
+                .is_some_and(EmbeddedEffectKind::owns_world_boundary)
+            {
+                // World-only effects are resolved from the RenderWorldSceneGraph
+                // hook, not from vanilla image-space phases.
                 continue;
             }
 
@@ -1445,7 +1574,7 @@ impl ScreenShaderRuntime {
         self.last_fog_available = Some(fog_available);
         self.last_sun_available = Some(sun_available);
         log::debug!(
-            "[SHADERS] Frame inputs: depth={} (provider={}, epoch={}, near={:.3}, far={:.3}), fog={} (start={:.3}, end={:.3}, power={:.3}), sun={} (uv={:.3},{:.3}, daylight={:.3})",
+            "[SHADERS] Frame inputs: depth={} (provider={}, epoch={}, near={:.3}, far={:.3}), fog={} (rgb={:.4},{:.4},{:.4}, start={:.3}, end={:.3}, power={:.3}), sun={} (uv={:.3},{:.3}, daylight={:.3})",
             if depth_available {
                 "available"
             } else {
@@ -1460,6 +1589,9 @@ impl ScreenShaderRuntime {
             } else {
                 "missing"
             },
+            frame_inputs.environment.fog_color[0],
+            frame_inputs.environment.fog_color[1],
+            frame_inputs.environment.fog_color[2],
             frame_inputs.environment.fog_start,
             frame_inputs.environment.fog_end,
             frame_inputs.environment.fog_power,
@@ -1682,7 +1814,9 @@ impl ScreenShaderRuntime {
         self.sources.iter().any(|source| {
             source.enabled
                 && source.phase() == phase
-                && source.embedded_effect_kind() != Some(EmbeddedEffectKind::TemporalAa)
+                && !source
+                    .embedded_effect_kind()
+                    .is_some_and(EmbeddedEffectKind::owns_world_boundary)
                 && (source.is_embedded_effect() || source.bytecode.is_some())
         })
     }
@@ -1698,13 +1832,19 @@ impl ScreenShaderRuntime {
         self.sources
             .iter()
             .filter(|source| {
-                source.enabled && (source.is_embedded_effect() || source.bytecode.is_some())
+                source.enabled
+                    && !(self.atmosphere_called_this_frame
+                        && source
+                            .embedded_effect_kind()
+                            .is_some_and(EmbeddedEffectKind::is_atmosphere))
+                    && !(self.atmosphere_creation_failed
+                        && source
+                            .embedded_effect_kind()
+                            .is_some_and(EmbeddedEffectKind::is_atmosphere))
+                    && (source.is_embedded_effect() || source.bytecode.is_some())
             })
             .fold(SceneInputRequirements::default(), |requirements, source| {
-                let source_requirements = source.embedded_effect_kind().map_or_else(
-                    SceneInputRequirements::all,
-                    SceneInputRequirements::for_embedded,
-                );
+                let source_requirements = SceneInputRequirements::for_source(source);
                 requirements.union(source_requirements)
             })
     }
@@ -1715,7 +1855,9 @@ impl ScreenShaderRuntime {
                 let source = &self.sources[pass.source_index];
                 source.enabled
                     && source.phase() == phase
-                    && source.embedded_effect_kind() != Some(EmbeddedEffectKind::TemporalAa)
+                    && !source
+                        .embedded_effect_kind()
+                        .is_some_and(EmbeddedEffectKind::owns_world_boundary)
                     && (source.is_embedded_effect() || pass.shader.is_some())
             })
         })
@@ -1727,13 +1869,13 @@ impl ScreenShaderRuntime {
                 && source.phase() == phase
                 && match source.embedded_effect_kind() {
                     None => source.bytecode.is_some(),
+                    Some(kind) if kind.owns_world_boundary() => false,
                     Some(
                         EmbeddedEffectKind::FastFxaa
                         | EmbeddedEffectKind::Nfaa
                         | EmbeddedEffectKind::Axaa
                         | EmbeddedEffectKind::Dlaa
-                        | EmbeddedEffectKind::Smaa
-                        | EmbeddedEffectKind::TemporalAa,
+                        | EmbeddedEffectKind::Smaa,
                     ) => false,
                     Some(_) => true,
                 }
@@ -1763,7 +1905,9 @@ impl ScreenShaderRuntime {
                 let source = &self.sources[pass.source_index];
                 source.enabled
                     && source.phase() == phase
-                    && source.embedded_effect_kind() != Some(EmbeddedEffectKind::TemporalAa)
+                    && !source
+                        .embedded_effect_kind()
+                        .is_some_and(EmbeddedEffectKind::owns_world_boundary)
                     && (source.is_embedded_effect() || pass.shader.is_some())
             })
         })
@@ -1780,6 +1924,7 @@ impl ScreenShaderRuntime {
         self.frame_pacing.record_frame();
         self.applied_phases = AppliedShaderPhases::default();
         self.world_color_captured_this_frame = false;
+        self.atmosphere_called_this_frame = false;
         self.native_dof_active_this_frame = false;
         self.frame_index = self.frame_index.wrapping_add(1);
         backend::finish_frame();
@@ -1799,6 +1944,8 @@ impl ScreenShaderRuntime {
         self.anti_aliasing = None;
         self.temporal_aa = None;
         self.temporal_aa_creation_failed = false;
+        self.atmosphere = None;
+        self.atmosphere_creation_failed = false;
         self.blooming_hdr = None;
         self.sunshafts = None;
         self.depth_of_field = None;
@@ -1819,11 +1966,14 @@ impl ScreenShaderRuntime {
         self.anti_aliasing = None;
         self.temporal_aa = None;
         self.temporal_aa_creation_failed = false;
+        self.atmosphere = None;
+        self.atmosphere_creation_failed = false;
         self.blooming_hdr = None;
         self.sunshafts = None;
         self.depth_of_field = None;
         self.depth_of_field_creation_failed = false;
         self.world_color_captured_this_frame = false;
+        self.atmosphere_called_this_frame = false;
         self.state_block = None;
     }
 
@@ -1885,6 +2035,11 @@ impl SceneInputRequirements {
                 first_person_depth: false,
                 world_color: false,
             },
+            EmbeddedEffectKind::VolumetricFog | EmbeddedEffectKind::VolumetricLighting => Self {
+                world_depth: true,
+                first_person_depth: false,
+                world_color: false,
+            },
             EmbeddedEffectKind::FastFxaa
             | EmbeddedEffectKind::Nfaa
             | EmbeddedEffectKind::Axaa
@@ -1895,6 +2050,22 @@ impl SceneInputRequirements {
                 world_color: false,
             },
         }
+    }
+
+    fn for_source(source: &ScreenShaderSource) -> Self {
+        let Some(kind) = source.embedded_effect_kind() else {
+            return Self::all();
+        };
+        let mut requirements = Self::for_embedded(kind);
+        if kind.is_atmosphere() {
+            let settings = if kind == EmbeddedEffectKind::VolumetricFog {
+                atmosphere::AtmosphereSettings::from_sources(Some(source), None)
+            } else {
+                atmosphere::AtmosphereSettings::from_sources(None, Some(source))
+            };
+            requirements.world_color = settings.requires_world_color();
+        }
+        requirements
     }
 
     const fn union(self, other: Self) -> Self {
@@ -1909,6 +2080,7 @@ impl SceneInputRequirements {
 #[cfg(test)]
 mod scene_input_requirement_tests {
     use super::{EmbeddedEffectKind, SceneInputRequirements};
+    use crate::{config::EmbeddedEffectsConfig, shaders};
 
     #[test]
     fn spatial_aa_requires_no_fnv_scene_inputs() {
@@ -1934,6 +2106,40 @@ mod scene_input_requirement_tests {
                 world_depth: true,
                 first_person_depth: false,
                 world_color: false,
+            }
+        );
+    }
+
+    #[test]
+    fn atmosphere_requires_world_depth_and_only_debug_requires_color() {
+        for kind in [
+            EmbeddedEffectKind::VolumetricFog,
+            EmbeddedEffectKind::VolumetricLighting,
+        ] {
+            assert_eq!(
+                SceneInputRequirements::for_embedded(kind),
+                SceneInputRequirements {
+                    world_depth: true,
+                    first_person_depth: false,
+                    world_color: false,
+                }
+            );
+        }
+
+        let mut config = EmbeddedEffectsConfig::default();
+        config.volumetric_fog.enabled = true;
+        config.volumetric_fog.debug_view = 2;
+        let sources = shaders::merge_embedded_sources(&config, Vec::new());
+        let source = sources
+            .iter()
+            .find(|source| source.embedded_effect_kind() == Some(EmbeddedEffectKind::VolumetricFog))
+            .expect("volumetric fog source");
+        assert_eq!(
+            SceneInputRequirements::for_source(source),
+            SceneInputRequirements {
+                world_depth: true,
+                first_person_depth: false,
+                world_color: true,
             }
         );
     }
@@ -2036,6 +2242,68 @@ struct BackbufferCopy {
     format: D3DFORMAT,
     texture: Texture9,
     surface: Surface9,
+}
+
+struct RenderAttachments {
+    target0: Surface9,
+    target1: Option<Surface9>,
+    target2: Option<Surface9>,
+    target3: Option<Surface9>,
+    depth: Option<Surface9>,
+}
+
+impl RenderAttachments {
+    fn capture(device: &Device9Ref<'_>, target0: Surface9) -> Direct3DResult<Self> {
+        Ok(Self {
+            target0,
+            target1: device.optional_render_target(1)?,
+            target2: device.optional_render_target(2)?,
+            target3: device.optional_render_target(3)?,
+            depth: device.depth_stencil_surface()?,
+        })
+    }
+
+    fn restore(self, device: &Device9Ref<'_>) -> Direct3DResult<()> {
+        let mut result = device.set_depth_stencil_surface(None);
+        for index in 1..=3 {
+            keep_first_d3d_error(&mut result, device.clear_render_target(index));
+        }
+        keep_first_d3d_error(&mut result, device.set_render_target(0, &self.target0));
+        keep_first_d3d_error(
+            &mut result,
+            restore_auxiliary_target(device, 1, self.target1.as_ref()),
+        );
+        keep_first_d3d_error(
+            &mut result,
+            restore_auxiliary_target(device, 2, self.target2.as_ref()),
+        );
+        keep_first_d3d_error(
+            &mut result,
+            restore_auxiliary_target(device, 3, self.target3.as_ref()),
+        );
+        keep_first_d3d_error(
+            &mut result,
+            device.set_depth_stencil_surface(self.depth.as_ref()),
+        );
+        result
+    }
+}
+
+fn keep_first_d3d_error(result: &mut Direct3DResult<()>, next: Direct3DResult<()>) {
+    if result.is_ok() && next.is_err() {
+        *result = next;
+    }
+}
+
+fn restore_auxiliary_target(
+    device: &Device9Ref<'_>,
+    index: u32,
+    target: Option<&Surface9>,
+) -> Direct3DResult<()> {
+    match target {
+        Some(target) => device.set_render_target(index, target),
+        None => device.clear_render_target(index),
+    }
 }
 
 impl BackbufferCopy {
@@ -3081,7 +3349,10 @@ fn draw_shader_details(ui: &mut psycho_imgui::Ui<'_>, source: &mut ScreenShaderS
     let source_kind = cstring(source_kind);
     ui.text_colored(MENU_MUTED_TEXT, &source_kind);
 
-    let stage = if source.embedded_effect_kind() == Some(EmbeddedEffectKind::TemporalAa) {
+    let stage = if source
+        .embedded_effect_kind()
+        .is_some_and(EmbeddedEffectKind::owns_world_boundary)
+    {
         "World / before first-person and UI"
     } else {
         shader_phase_display(source.phase())
@@ -3474,6 +3745,12 @@ fn embedded_effect_description(kind: Option<EmbeddedEffectKind>) -> Option<&'sta
         Some(EmbeddedEffectKind::ContactAmbientOcclusion) => {
             Some("Fine contact shadows for creases, intersections, and close geometry.")
         }
+        Some(EmbeddedEffectKind::VolumetricFog) => Some(
+            "World-only supplemental atmosphere foundation; physical composition awaits a proven HDR contract.",
+        ),
+        Some(EmbeddedEffectKind::VolumetricLighting) => Some(
+            "Shared directional-scattering foundation; native sun shadows are not currently claimed.",
+        ),
         Some(EmbeddedEffectKind::BloomingHdr) => {
             Some("Highlight bloom, exposure shaping, color response, and atmosphere.")
         }

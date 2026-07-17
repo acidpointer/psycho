@@ -161,6 +161,8 @@ impl NativePbrConfig {
 pub(crate) struct EmbeddedEffectsConfig {
     pub(crate) fast_ao: FastAoConfig,
     pub(crate) contact_ao: ContactAoConfig,
+    pub(crate) volumetric_fog: VolumetricFogConfig,
+    pub(crate) volumetric_lighting: VolumetricLightingConfig,
     pub(crate) blooming_hdr: BloomingHdrConfig,
     pub(crate) sunshafts: SunshaftsConfig,
     pub(crate) depth_of_field: DepthOfFieldConfig,
@@ -177,6 +179,8 @@ impl Default for EmbeddedEffectsConfig {
         Self {
             fast_ao: FastAoConfig::default(),
             contact_ao: ContactAoConfig::default(),
+            volumetric_fog: VolumetricFogConfig::default(),
+            volumetric_lighting: VolumetricLightingConfig::default(),
             blooming_hdr: BloomingHdrConfig::default(),
             sunshafts: SunshaftsConfig::default(),
             depth_of_field: DepthOfFieldConfig::default(),
@@ -187,6 +191,147 @@ impl Default for EmbeddedEffectsConfig {
             dlaa: DlaaConfig::default(),
             smaa: SmaaConfig::default(),
         }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum AtmosphereQuality {
+    Performance,
+    #[default]
+    High,
+    Ultra,
+}
+
+impl AtmosphereQuality {
+    pub(crate) fn index(self) -> i32 {
+        match self {
+            Self::Performance => 0,
+            Self::High => 1,
+            Self::Ultra => 2,
+        }
+    }
+
+    pub(crate) fn from_index(value: i32) -> Self {
+        match value {
+            0 => Self::Performance,
+            2 => Self::Ultra,
+            _ => Self::High,
+        }
+    }
+
+    fn config_value(self) -> &'static str {
+        match self {
+            Self::Performance => "performance",
+            Self::High => "high",
+            Self::Ultra => "ultra",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
+#[serde(default)]
+pub(crate) struct VolumetricFogConfig {
+    pub(crate) enabled: bool,
+    pub(crate) quality: AtmosphereQuality,
+    pub(crate) density: f32,
+    pub(crate) height_density: f32,
+    pub(crate) height_falloff: f32,
+    pub(crate) base_height: f32,
+    pub(crate) max_distance: f32,
+    pub(crate) scattering_albedo: f32,
+    pub(crate) noise_amount: f32,
+    pub(crate) noise_scale: f32,
+    pub(crate) noise_speed: f32,
+    pub(crate) temporal_stability: f32,
+    pub(crate) debug_view: i32,
+}
+
+impl Default for VolumetricFogConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            quality: AtmosphereQuality::High,
+            density: 0.0,
+            height_density: 0.00002,
+            height_falloff: 0.0001,
+            base_height: 0.0,
+            max_distance: 120_000.0,
+            scattering_albedo: 0.9,
+            noise_amount: 0.25,
+            noise_scale: 0.0005,
+            noise_speed: 0.02,
+            temporal_stability: 0.9,
+            debug_view: 0,
+        }
+    }
+}
+
+impl VolumetricFogConfig {
+    fn sanitized(mut self) -> Self {
+        self.density = finite_clamp(self.density, 0.0, 0.0, 0.001);
+        self.height_density = finite_clamp(self.height_density, 0.00002, 0.0, 0.001);
+        self.height_falloff = finite_clamp(self.height_falloff, 0.0001, 0.000001, 0.01);
+        self.base_height = finite_clamp(self.base_height, 0.0, -100_000.0, 100_000.0);
+        self.max_distance = finite_clamp(self.max_distance, 120_000.0, 1_000.0, 250_000.0);
+        self.scattering_albedo = finite_clamp(self.scattering_albedo, 0.9, 0.0, 1.0);
+        self.noise_amount = finite_clamp(self.noise_amount, 0.25, 0.0, 1.0);
+        self.noise_scale = finite_clamp(self.noise_scale, 0.0005, 0.000001, 0.05);
+        self.noise_speed = finite_clamp(self.noise_speed, 0.02, 0.0, 1.0);
+        self.temporal_stability = finite_clamp(self.temporal_stability, 0.9, 0.0, 0.98);
+        self.debug_view = self.debug_view.clamp(0, 2);
+        self
+    }
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
+#[serde(default)]
+pub(crate) struct VolumetricLightingConfig {
+    pub(crate) enabled: bool,
+    pub(crate) intensity: f32,
+    pub(crate) medium_density: f32,
+    pub(crate) anisotropy: f32,
+    pub(crate) shaft_strength: f32,
+    pub(crate) sun_disk_boost: f32,
+    pub(crate) shaft_quality: AtmosphereQuality,
+    pub(crate) temporal_stability: f32,
+    pub(crate) debug_view: i32,
+}
+
+impl Default for VolumetricLightingConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            intensity: 1.0,
+            medium_density: 0.00001,
+            anisotropy: 0.65,
+            shaft_strength: 1.0,
+            sun_disk_boost: 1.0,
+            shaft_quality: AtmosphereQuality::High,
+            temporal_stability: 0.9,
+            debug_view: 0,
+        }
+    }
+}
+
+impl VolumetricLightingConfig {
+    fn sanitized(mut self) -> Self {
+        self.intensity = finite_clamp(self.intensity, 1.0, 0.0, 8.0);
+        self.medium_density = finite_clamp(self.medium_density, 0.00001, 0.0, 0.001);
+        self.anisotropy = finite_clamp(self.anisotropy, 0.65, -0.8, 0.9);
+        self.shaft_strength = finite_clamp(self.shaft_strength, 1.0, 0.0, 4.0);
+        self.sun_disk_boost = finite_clamp(self.sun_disk_boost, 1.0, 0.0, 8.0);
+        self.temporal_stability = finite_clamp(self.temporal_stability, 0.9, 0.0, 0.98);
+        self.debug_view = self.debug_view.clamp(0, 2);
+        self
+    }
+}
+
+impl EmbeddedEffectsConfig {
+    fn sanitized(mut self) -> Self {
+        self.volumetric_fog = self.volumetric_fog.sanitized();
+        self.volumetric_lighting = self.volumetric_lighting.sanitized();
+        self
     }
 }
 
@@ -654,7 +799,7 @@ impl From<&PsychoGraphicsConfig> for GraphicsMenuConfig {
             screen_space_shaders: value.graphics.screen_space_shaders,
             native_pbr: value.graphics.native_pbr.sanitized(),
             native_sky: value.graphics.native_sky,
-            embedded_effects: value.graphics.embedded_effects,
+            embedded_effects: value.graphics.embedded_effects.sanitized(),
             depth_provider: value.graphics.depth_provider,
             menu_toggle_key: value.graphics.menu_toggle_key,
             shader_scan_interval_ms: value.graphics.shader_scan_interval_ms,
@@ -678,6 +823,10 @@ impl EmbeddedEffectsConfig {
             crate::shaders::EmbeddedEffectKind::FastAmbientOcclusion
             | crate::shaders::EmbeddedEffectKind::ContactAmbientOcclusion => {
                 ShaderPhase::ScenePreImageSpace
+            }
+            crate::shaders::EmbeddedEffectKind::VolumetricFog
+            | crate::shaders::EmbeddedEffectKind::VolumetricLighting => {
+                ShaderPhase::ScenePostImageSpace
             }
             crate::shaders::EmbeddedEffectKind::BloomingHdr => ShaderPhase::FinalImageSpace,
             crate::shaders::EmbeddedEffectKind::FastFxaa
@@ -796,6 +945,51 @@ fn save_native_sky_config(doc: &mut DocumentMut, config: &NativeSkyConfig) {
 }
 
 fn save_embedded_effect_config(doc: &mut DocumentMut, config: &EmbeddedEffectsConfig) {
+    let fog = &config.volumetric_fog;
+    doc["graphics"]["embedded_effects"]["volumetric_fog"]["enabled"] = value(fog.enabled);
+    doc["graphics"]["embedded_effects"]["volumetric_fog"]["quality"] =
+        value(fog.quality.config_value());
+    doc["graphics"]["embedded_effects"]["volumetric_fog"]["density"] = value(fog.density as f64);
+    doc["graphics"]["embedded_effects"]["volumetric_fog"]["height_density"] =
+        value(fog.height_density as f64);
+    doc["graphics"]["embedded_effects"]["volumetric_fog"]["height_falloff"] =
+        value(fog.height_falloff as f64);
+    doc["graphics"]["embedded_effects"]["volumetric_fog"]["base_height"] =
+        value(fog.base_height as f64);
+    doc["graphics"]["embedded_effects"]["volumetric_fog"]["max_distance"] =
+        value(fog.max_distance as f64);
+    doc["graphics"]["embedded_effects"]["volumetric_fog"]["scattering_albedo"] =
+        value(fog.scattering_albedo as f64);
+    doc["graphics"]["embedded_effects"]["volumetric_fog"]["noise_amount"] =
+        value(fog.noise_amount as f64);
+    doc["graphics"]["embedded_effects"]["volumetric_fog"]["noise_scale"] =
+        value(fog.noise_scale as f64);
+    doc["graphics"]["embedded_effects"]["volumetric_fog"]["noise_speed"] =
+        value(fog.noise_speed as f64);
+    doc["graphics"]["embedded_effects"]["volumetric_fog"]["temporal_stability"] =
+        value(fog.temporal_stability as f64);
+    doc["graphics"]["embedded_effects"]["volumetric_fog"]["debug_view"] =
+        value(fog.debug_view as i64);
+
+    let lighting = &config.volumetric_lighting;
+    doc["graphics"]["embedded_effects"]["volumetric_lighting"]["enabled"] = value(lighting.enabled);
+    doc["graphics"]["embedded_effects"]["volumetric_lighting"]["intensity"] =
+        value(lighting.intensity as f64);
+    doc["graphics"]["embedded_effects"]["volumetric_lighting"]["medium_density"] =
+        value(lighting.medium_density as f64);
+    doc["graphics"]["embedded_effects"]["volumetric_lighting"]["anisotropy"] =
+        value(lighting.anisotropy as f64);
+    doc["graphics"]["embedded_effects"]["volumetric_lighting"]["shaft_strength"] =
+        value(lighting.shaft_strength as f64);
+    doc["graphics"]["embedded_effects"]["volumetric_lighting"]["sun_disk_boost"] =
+        value(lighting.sun_disk_boost as f64);
+    doc["graphics"]["embedded_effects"]["volumetric_lighting"]["shaft_quality"] =
+        value(lighting.shaft_quality.config_value());
+    doc["graphics"]["embedded_effects"]["volumetric_lighting"]["temporal_stability"] =
+        value(lighting.temporal_stability as f64);
+    doc["graphics"]["embedded_effects"]["volumetric_lighting"]["debug_view"] =
+        value(lighting.debug_view as i64);
+
     let fast_fxaa = &config.fast_fxaa;
     doc["graphics"]["embedded_effects"]["fast_fxaa"]["enabled"] = value(fast_fxaa.enabled);
     doc["graphics"]["embedded_effects"]["fast_fxaa"]["edge_threshold"] =
@@ -968,7 +1162,7 @@ fn save_embedded_effect_config(doc: &mut DocumentMut, config: &EmbeddedEffectsCo
 
 #[cfg(test)]
 mod tests {
-    use super::NativePbrConfig;
+    use super::{EmbeddedEffectsConfig, NativePbrConfig};
 
     #[test]
     fn legacy_pbr_profile_migrates_to_terrain_only() {
@@ -1003,5 +1197,23 @@ albedo_saturation = 1.02
         .sanitized();
 
         assert_eq!(config.terrain_lod_noise_scale, 1.0);
+    }
+
+    #[test]
+    fn atmosphere_values_are_bounded_on_load() {
+        let mut config = EmbeddedEffectsConfig::default();
+        config.volumetric_fog.max_distance = f32::INFINITY;
+        config.volumetric_fog.scattering_albedo = 4.0;
+        config.volumetric_fog.debug_view = 99;
+        config.volumetric_lighting.anisotropy = -5.0;
+        config.volumetric_lighting.temporal_stability = f32::NAN;
+
+        let config = config.sanitized();
+
+        assert_eq!(config.volumetric_fog.max_distance, 120_000.0);
+        assert_eq!(config.volumetric_fog.scattering_albedo, 1.0);
+        assert_eq!(config.volumetric_fog.debug_view, 2);
+        assert_eq!(config.volumetric_lighting.anisotropy, -0.8);
+        assert_eq!(config.volumetric_lighting.temporal_stability, 0.9);
     }
 }

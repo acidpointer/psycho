@@ -33,6 +33,43 @@ pub(crate) fn environment_frame(depth_provider: DepthProvider) -> EnvironmentFra
     }
 }
 
+pub(crate) fn atmosphere_frame(
+    depth_provider: DepthProvider,
+    desc: &D3DSURFACE_DESC,
+    user_max_distance: f32,
+) -> AtmosphereFrame {
+    let depth = depth_frame(depth_provider);
+    let camera = if depth.world_projection.camera.available {
+        depth.world_projection.camera
+    } else {
+        camera_frame(depth_provider, desc)
+    };
+    let environment = environment_frame(depth_provider);
+    let material_state = material_state_frame();
+    let mut distance_bound = if user_max_distance.is_finite() {
+        user_max_distance.max(camera.near_z + 1.0)
+    } else {
+        camera.near_z + 1.0
+    };
+    if camera.available {
+        distance_bound = distance_bound.min(camera.far_z);
+    }
+    if environment.fog_available {
+        distance_bound = distance_bound.min(environment.fog_end.max(camera.near_z + 1.0));
+    }
+
+    AtmosphereFrame {
+        camera,
+        depth,
+        environment,
+        sun: sun_frame(depth_provider),
+        sky: native_sky_frame(),
+        material_state,
+        frame_epoch: depth.capture_epoch,
+        distance_bound,
+    }
+}
+
 pub(crate) fn sun_frame(depth_provider: DepthProvider) -> SunFrame {
     match depth_provider {
         DepthProvider::None => SunFrame::default(),
@@ -318,6 +355,7 @@ impl DepthProjectionFrame {
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct EnvironmentFrame {
+    pub(crate) fog_color: [f32; 3],
     pub(crate) fog_start: f32,
     pub(crate) fog_end: f32,
     pub(crate) fog_power: f32,
@@ -333,11 +371,34 @@ impl EnvironmentFrame {
 impl Default for EnvironmentFrame {
     fn default() -> Self {
         Self {
+            fog_color: [0.0; 3],
             fog_start: 0.0,
             fog_end: 0.0,
             fog_power: 1.0,
             fog_available: false,
         }
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct AtmosphereFrame {
+    pub(crate) camera: CameraFrame,
+    pub(crate) depth: DepthFrame,
+    pub(crate) environment: EnvironmentFrame,
+    pub(crate) sun: SunFrame,
+    pub(crate) sky: Option<NativeSkyFrame>,
+    pub(crate) material_state: MaterialStateFrame,
+    pub(crate) frame_epoch: u64,
+    pub(crate) distance_bound: f32,
+}
+
+impl AtmosphereFrame {
+    pub(crate) fn depth_contract_ready(self) -> bool {
+        self.depth.texture.is_some()
+            && self.camera.available
+            && self.depth.world_projection.reversed_depth.is_some()
+            && self.distance_bound.is_finite()
+            && self.distance_bound > self.camera.near_z
     }
 }
 

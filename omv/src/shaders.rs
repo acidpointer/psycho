@@ -12,9 +12,9 @@ use libpsycho::os::windows::directx9::{compile_hlsl, dword_aligned_shader_byteco
 use serde::{Deserialize, Serialize};
 
 use crate::config::{
-    AxaaConfig, BloomingHdrConfig, ContactAoConfig, DepthOfFieldConfig, DlaaConfig,
-    EmbeddedEffectsConfig, FastAoConfig, FastFxaaConfig, NfaaConfig, SmaaConfig, SunshaftsConfig,
-    TemporalAaConfig,
+    AtmosphereQuality, AxaaConfig, BloomingHdrConfig, ContactAoConfig, DepthOfFieldConfig,
+    DlaaConfig, EmbeddedEffectsConfig, FastAoConfig, FastFxaaConfig, NfaaConfig, SmaaConfig,
+    SunshaftsConfig, TemporalAaConfig, VolumetricFogConfig, VolumetricLightingConfig,
 };
 
 pub(crate) const SHADER_DIR: &str = "./Data/NVSE/plugins/omv/shaders";
@@ -198,6 +198,8 @@ pub(crate) enum ScreenShaderSourceKind {
 pub(crate) enum EmbeddedEffectKind {
     FastAmbientOcclusion,
     ContactAmbientOcclusion,
+    VolumetricFog,
+    VolumetricLighting,
     BloomingHdr,
     Sunshafts,
     DepthOfField,
@@ -207,6 +209,16 @@ pub(crate) enum EmbeddedEffectKind {
     Dlaa,
     Smaa,
     TemporalAa,
+}
+
+impl EmbeddedEffectKind {
+    pub(crate) fn is_atmosphere(self) -> bool {
+        matches!(self, Self::VolumetricFog | Self::VolumetricLighting)
+    }
+
+    pub(crate) fn owns_world_boundary(self) -> bool {
+        self == Self::TemporalAa || self.is_atmosphere()
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -345,6 +357,12 @@ pub(crate) fn sync_embedded_effect_config(
             Some(EmbeddedEffectKind::ContactAmbientOcclusion) => {
                 sync_contact_ao_config(source, &mut config.contact_ao);
             }
+            Some(EmbeddedEffectKind::VolumetricFog) => {
+                sync_volumetric_fog_config(source, &mut config.volumetric_fog);
+            }
+            Some(EmbeddedEffectKind::VolumetricLighting) => {
+                sync_volumetric_lighting_config(source, &mut config.volumetric_lighting);
+            }
             Some(EmbeddedEffectKind::BloomingHdr) => {
                 sync_blooming_hdr_config(source, &mut config.blooming_hdr);
             }
@@ -373,6 +391,8 @@ fn embedded_effect_sources(config: &EmbeddedEffectsConfig) -> Vec<ScreenShaderSo
     vec![
         fast_ao_source(&config.fast_ao),
         contact_ao_source(&config.contact_ao),
+        volumetric_fog_source(&config.volumetric_fog),
+        volumetric_lighting_source(&config.volumetric_lighting),
         blooming_hdr_source(&config.blooming_hdr),
         temporal_aa_source(&config.temporal_aa),
         sunshafts_source(&config.sunshafts),
@@ -383,6 +403,196 @@ fn embedded_effect_sources(config: &EmbeddedEffectsConfig) -> Vec<ScreenShaderSo
         dlaa_source(&config.dlaa),
         smaa_source(&config.smaa),
     ]
+}
+
+fn volumetric_fog_source(config: &VolumetricFogConfig) -> ScreenShaderSource {
+    embedded_source(
+        EmbeddedEffectKind::VolumetricFog,
+        "Volumetric Fog",
+        config.enabled,
+        EmbeddedEffectsConfig::phase_for_kind(EmbeddedEffectKind::VolumetricFog),
+        vec![
+            float_option(
+                "density",
+                "Distance density",
+                config.density,
+                0.0,
+                0.001,
+                3,
+                0,
+            ),
+            float_option(
+                "height_density",
+                "Height density",
+                config.height_density,
+                0.0,
+                0.001,
+                3,
+                1,
+            ),
+            float_option(
+                "height_falloff",
+                "Height falloff",
+                config.height_falloff,
+                0.000001,
+                0.01,
+                3,
+                2,
+            ),
+            float_option(
+                "base_height",
+                "Base world height",
+                config.base_height,
+                -100_000.0,
+                100_000.0,
+                3,
+                3,
+            ),
+            float_option(
+                "max_distance",
+                "Maximum distance",
+                config.max_distance,
+                1_000.0,
+                250_000.0,
+                4,
+                0,
+            ),
+            float_option(
+                "scattering_albedo",
+                "Scattering albedo",
+                config.scattering_albedo,
+                0.0,
+                1.0,
+                4,
+                1,
+            ),
+            float_option(
+                "noise_amount",
+                "Density variation",
+                config.noise_amount,
+                0.0,
+                1.0,
+                4,
+                2,
+            ),
+            float_option(
+                "noise_scale",
+                "Noise world scale",
+                config.noise_scale,
+                0.000001,
+                0.05,
+                4,
+                3,
+            ),
+            float_option(
+                "noise_speed",
+                "Noise speed",
+                config.noise_speed,
+                0.0,
+                1.0,
+                5,
+                0,
+            ),
+            float_option(
+                "temporal_stability",
+                "Temporal stability",
+                config.temporal_stability,
+                0.0,
+                0.98,
+                5,
+                1,
+            ),
+            integer_choice_option(
+                "quality",
+                "Quality",
+                config.quality.index(),
+                &["Performance", "High", "Ultra"],
+                5,
+                2,
+            ),
+            integer_choice_option(
+                "debug_view",
+                "Debug view",
+                config.debug_view,
+                &["Off", "Nearest depth", "Depth span"],
+                5,
+                3,
+            ),
+        ],
+    )
+}
+
+fn volumetric_lighting_source(config: &VolumetricLightingConfig) -> ScreenShaderSource {
+    embedded_source(
+        EmbeddedEffectKind::VolumetricLighting,
+        "Volumetric Lighting",
+        config.enabled,
+        EmbeddedEffectsConfig::phase_for_kind(EmbeddedEffectKind::VolumetricLighting),
+        vec![
+            float_option("intensity", "Intensity", config.intensity, 0.0, 8.0, 3, 0),
+            float_option(
+                "medium_density",
+                "Lighting medium density",
+                config.medium_density,
+                0.0,
+                0.001,
+                3,
+                1,
+            ),
+            float_option(
+                "anisotropy",
+                "Anisotropy",
+                config.anisotropy,
+                -0.8,
+                0.9,
+                3,
+                2,
+            ),
+            float_option(
+                "shaft_strength",
+                "Shaft factor strength",
+                config.shaft_strength,
+                0.0,
+                4.0,
+                3,
+                3,
+            ),
+            float_option(
+                "sun_disk_boost",
+                "Sun disk boost",
+                config.sun_disk_boost,
+                0.0,
+                8.0,
+                4,
+                0,
+            ),
+            float_option(
+                "temporal_stability",
+                "Temporal stability",
+                config.temporal_stability,
+                0.0,
+                0.98,
+                4,
+                1,
+            ),
+            integer_choice_option(
+                "shaft_quality",
+                "Shaft quality",
+                config.shaft_quality.index(),
+                &["Performance", "High", "Ultra"],
+                4,
+                2,
+            ),
+            integer_choice_option(
+                "debug_view",
+                "Debug view",
+                config.debug_view,
+                &["Off", "Nearest depth", "Depth span"],
+                4,
+                3,
+            ),
+        ],
+    )
 }
 
 fn temporal_aa_source(config: &TemporalAaConfig) -> ScreenShaderSource {
@@ -1224,6 +1434,49 @@ fn sync_fast_ao_config(source: &ScreenShaderSource, config: &mut FastAoConfig) {
             "stability" => config.stability = option_float(option),
             "first_person_mask" => config.first_person_mask = option_float(option),
             "fog_fade" => config.fog_fade = option_float(option),
+            _ => {}
+        }
+    }
+}
+
+fn sync_volumetric_fog_config(source: &ScreenShaderSource, config: &mut VolumetricFogConfig) {
+    config.enabled = source.enabled;
+    for option in &source.options {
+        match option.key.as_str() {
+            "density" => config.density = option_float(option),
+            "height_density" => config.height_density = option_float(option),
+            "height_falloff" => config.height_falloff = option_float(option),
+            "base_height" => config.base_height = option_float(option),
+            "max_distance" => config.max_distance = option_float(option),
+            "scattering_albedo" => config.scattering_albedo = option_float(option),
+            "noise_amount" => config.noise_amount = option_float(option),
+            "noise_scale" => config.noise_scale = option_float(option),
+            "noise_speed" => config.noise_speed = option_float(option),
+            "temporal_stability" => config.temporal_stability = option_float(option),
+            "quality" => config.quality = AtmosphereQuality::from_index(option_integer(option)),
+            "debug_view" => config.debug_view = option_integer(option),
+            _ => {}
+        }
+    }
+}
+
+fn sync_volumetric_lighting_config(
+    source: &ScreenShaderSource,
+    config: &mut VolumetricLightingConfig,
+) {
+    config.enabled = source.enabled;
+    for option in &source.options {
+        match option.key.as_str() {
+            "intensity" => config.intensity = option_float(option),
+            "medium_density" => config.medium_density = option_float(option),
+            "anisotropy" => config.anisotropy = option_float(option),
+            "shaft_strength" => config.shaft_strength = option_float(option),
+            "sun_disk_boost" => config.sun_disk_boost = option_float(option),
+            "temporal_stability" => config.temporal_stability = option_float(option),
+            "shaft_quality" => {
+                config.shaft_quality = AtmosphereQuality::from_index(option_integer(option));
+            }
+            "debug_view" => config.debug_view = option_integer(option),
             _ => {}
         }
     }

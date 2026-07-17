@@ -79,6 +79,7 @@ const NIDX9_TEXTURE_BUFFER_DATA_SURFACE_OFFSET: usize = 0x14;
 const SHADOW_SCENE_NODE_FOG_PROPERTY_OFFSET: usize = 0x134;
 const BSFOGPROPERTY_VTABLE: usize = 0x010B9E38;
 const BSFOGPROPERTY_SIZE: usize = 0x64;
+const BSFOGPROPERTY_COLOR_OFFSET: usize = 0x20;
 const BSFOGPROPERTY_START_DISTANCE_OFFSET: usize = 0x2C;
 const BSFOGPROPERTY_END_DISTANCE_OFFSET: usize = 0x30;
 const BSFOGPROPERTY_POWER_OFFSET: usize = 0x60;
@@ -578,12 +579,16 @@ unsafe fn read_environment_frame() -> Option<EnvironmentFrame> {
         return None;
     }
 
+    let fog_color = unsafe { read_vec3(fog_property as usize + BSFOGPROPERTY_COLOR_OFFSET)? };
     let fog_start =
         unsafe { read_f32(fog_property as usize + BSFOGPROPERTY_START_DISTANCE_OFFSET)? };
     let fog_end = unsafe { read_f32(fog_property as usize + BSFOGPROPERTY_END_DISTANCE_OFFSET)? };
     let fog_power = unsafe { read_f32(fog_property as usize + BSFOGPROPERTY_POWER_OFFSET)? };
 
-    if !fog_start.is_finite()
+    if !fog_color
+        .iter()
+        .all(|component| (-0.01..=16.0).contains(component))
+        || !fog_start.is_finite()
         || !fog_end.is_finite()
         || !fog_power.is_finite()
         || fog_end <= fog_start
@@ -593,6 +598,7 @@ unsafe fn read_environment_frame() -> Option<EnvironmentFrame> {
     }
 
     Some(EnvironmentFrame {
+        fog_color: fog_color.map(|component| component.max(0.0)),
         fog_start,
         fog_end,
         fog_power: fog_power.max(0.001),

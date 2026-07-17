@@ -28,11 +28,12 @@ pub use windows::Win32::Graphics::Direct3D9::{
     D3DCULL, D3DCULL_CCW, D3DCULL_CW, D3DCULL_NONE, D3DFMT_A8R8G8B8, D3DFORMAT, D3DFVF_DIFFUSE,
     D3DFVF_TEX1, D3DFVF_XYZ, D3DFVF_XYZRHW, D3DPOOL_DEFAULT, D3DPOOL_MANAGED, D3DPT_POINTLIST,
     D3DPT_TRIANGLESTRIP, D3DRS_ALPHABLENDENABLE, D3DRS_ALPHATESTENABLE, D3DRS_COLORWRITEENABLE,
-    D3DRS_CULLMODE, D3DRS_POINTSIZE, D3DRS_ZENABLE, D3DRS_ZFUNC, D3DRS_ZWRITEENABLE,
-    D3DSAMP_ADDRESSU, D3DSAMP_ADDRESSV, D3DSAMP_MAGFILTER, D3DSAMP_MINFILTER, D3DSAMP_MIPFILTER,
-    D3DSBT_ALL, D3DSURFACE_DESC, D3DTA_TEXTURE, D3DTADDRESS_CLAMP, D3DTEXF_LINEAR, D3DTEXF_NONE,
-    D3DTEXF_POINT, D3DTOP_SELECTARG1, D3DTSS_ALPHAARG1, D3DTSS_ALPHAOP, D3DTSS_COLORARG1,
-    D3DTSS_COLOROP, D3DVIEWPORT9,
+    D3DRS_CULLMODE, D3DRS_POINTSIZE, D3DRS_SCISSORTESTENABLE, D3DRS_SRGBWRITEENABLE, D3DRS_ZENABLE,
+    D3DRS_ZFUNC, D3DRS_ZWRITEENABLE, D3DSAMP_ADDRESSU, D3DSAMP_ADDRESSV, D3DSAMP_MAGFILTER,
+    D3DSAMP_MINFILTER, D3DSAMP_MIPFILTER, D3DSAMP_SRGBTEXTURE, D3DSBT_ALL, D3DSURFACE_DESC,
+    D3DTA_TEXTURE, D3DTADDRESS_CLAMP, D3DTEXF_LINEAR, D3DTEXF_NONE, D3DTEXF_POINT,
+    D3DTOP_SELECTARG1, D3DTSS_ALPHAARG1, D3DTSS_ALPHAOP, D3DTSS_COLORARG1, D3DTSS_COLOROP,
+    D3DVIEWPORT9,
 };
 pub use windows::core::Error as Direct3DError;
 use windows::core::{HRESULT, Interface, InterfaceRef, PCSTR, Result as WindowsResult};
@@ -92,6 +93,7 @@ pub type Direct3DResult<T> = WindowsResult<T>;
 
 /// ABI value returned when a D3D hook cannot call its original function.
 pub const D3D_FAILURE_CODE: i32 = windows::Win32::Foundation::E_FAIL.0;
+const D3DERR_NOTFOUND: HRESULT = HRESULT(0x8876_0866u32 as i32);
 
 /// Construct a generic Direct3D failure for higher-level validation errors.
 pub fn direct3d_failure() -> Direct3DError {
@@ -307,9 +309,26 @@ impl<'a> Device9Ref<'a> {
         unsafe { self.inner.GetRenderTarget(index).map(Surface9::new) }
     }
 
+    /// Get an optional auxiliary render target.
+    pub fn optional_render_target(&self, index: u32) -> Direct3DResult<Option<Surface9>> {
+        match unsafe { self.inner.GetRenderTarget(index) } {
+            Ok(surface) => Ok(Some(Surface9::new(surface))),
+            Err(err) if err.code() == D3DERR_NOTFOUND => Ok(None),
+            Err(err) => Err(err),
+        }
+    }
+
     /// Set a render target surface.
     pub fn set_render_target(&self, index: u32, surface: &Surface9) -> Direct3DResult<()> {
         unsafe { self.inner.SetRenderTarget(index, surface.as_inner()) }
+    }
+
+    /// Unbind an auxiliary render target. Render target zero cannot be null.
+    pub fn clear_render_target(&self, index: u32) -> Direct3DResult<()> {
+        unsafe {
+            self.inner
+                .SetRenderTarget(index, Option::<&IDirect3DSurface9>::None)
+        }
     }
 
     /// Set a borrowed raw `IDirect3DSurface9` as current render target.
