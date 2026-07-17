@@ -179,10 +179,10 @@ softness = 0.9517241
 # Temporal AA jitters and resolves the world before first-person/UI rendering.
 # It primes the proven depth/camera contract for one unjittered frame before use.
 [graphics.embedded_effects.temporal_aa]
-enabled = false
-history_weight = 0.90
-clamp_strength = 1.0
-sharpness = 0.10
+enabled = true
+history_weight = 0.6678948
+clamp_strength = 1.028143
+sharpness = 0.724269
 jitter_scale = 1.0
 
 # Embedded spatial AA runs after bloom and before loose final-image shaders.

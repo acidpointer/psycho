@@ -306,7 +306,7 @@ fn bind_common_constants(
                 frame_index as f32,
                 pass_index,
                 4.0,
-                frame_inputs.depth.is_available() as u8 as f32,
+                frame_inputs.depth.first_person_texture.is_some() as u8 as f32,
             ],
             [
                 frame_inputs.camera.near_z,
@@ -340,7 +340,7 @@ fn bind_lowres_constants(
                 frame_index as f32,
                 pass_index,
                 4.0,
-                frame_inputs.depth.is_available() as u8 as f32,
+                frame_inputs.depth.first_person_texture.is_some() as u8 as f32,
             ],
             [
                 frame_inputs.camera.near_z,

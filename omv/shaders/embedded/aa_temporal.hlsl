@@ -53,9 +53,8 @@ float DepthKey(float depth) {
     return saturate(log2(depth + 1.0) / max(log2(PreviousDepth.y + 1.0), 0.001));
 }
 
-void Neighborhood(float2 uv, out float3 low, out float3 high, out float3 average) {
+void Neighborhood(float2 uv, float3 center, out float3 low, out float3 high, out float3 average) {
     float2 t = ScreenData.zw;
-    float3 center = tex2Dlod(CurrentColor, float4(uv, 0.0, 0.0)).rgb;
     low = center;
     high = center;
     average = center;
@@ -101,7 +100,7 @@ float4 Main(float2 uv : TEXCOORD0) : COLOR0 {
     float3 low;
     float3 high;
     float3 average;
-    Neighborhood(uv, low, high, average);
+    Neighborhood(uv, current, low, high, average);
     float3 clampedHistory = clamp(history.rgb, low, high);
     float historyWeight = saturate(Options0.x * depthWeight);
     float3 sharpened = max(current + (current - average) * Options0.z, 0.0);

@@ -167,11 +167,10 @@ pub(crate) unsafe fn capture_fnv_world_color(device_ptr: *mut c_void) {
 
 pub(crate) unsafe fn temporal_aa_jitter_pixels(
     device_ptr: *mut c_void,
-    width: u32,
-    height: u32,
+    target: temporal_aa::TargetDescription,
 ) -> Option<[f32; 2]> {
     let mut runtime = RUNTIME.try_lock()?;
-    match unsafe { runtime.temporal_aa_jitter_pixels(device_ptr, width, height) } {
+    match unsafe { runtime.temporal_aa_jitter_pixels(device_ptr, target) } {
         Ok(jitter) => jitter,
         Err(err) => {
             runtime.log_frame_error(&err);
@@ -181,21 +180,31 @@ pub(crate) unsafe fn temporal_aa_jitter_pixels(
 }
 
 pub(crate) unsafe fn apply_fnv_temporal_aa(device_ptr: *mut c_void) {
-    let Some(mut runtime) = RUNTIME.try_lock() else {
-        return;
-    };
+    let mut runtime = RUNTIME.lock();
     let result = unsafe { runtime.apply_fnv_temporal_aa(device_ptr) };
     if let Err(err) = result {
         runtime.log_frame_error(&err);
     }
 }
 
-pub(crate) fn needs_fnv_depth_capture() -> bool {
+pub(crate) fn needs_fnv_depth_capture(slot: backend::DepthResolveSlot) -> bool {
+    let Some(runtime) = RUNTIME.try_lock() else {
+        return slot == backend::DepthResolveSlot::World && needs_temporal_aa();
+    };
+
+    let requirements = runtime.fnv_scene_input_requirements();
+    match slot {
+        backend::DepthResolveSlot::World => requirements.world_depth,
+        backend::DepthResolveSlot::FirstPerson => requirements.first_person_depth,
+    }
+}
+
+pub(crate) fn needs_fnv_world_color_capture() -> bool {
     let Some(runtime) = RUNTIME.try_lock() else {
         return false;
     };
 
-    runtime.needs_fnv_scene_inputs()
+    runtime.fnv_scene_input_requirements().world_color
 }
 
 pub(crate) unsafe fn release_device_resources(device_ptr: *mut c_void) {
@@ -607,7 +616,7 @@ impl ScreenShaderRuntime {
     }
 
     unsafe fn capture_fnv_world_color(&mut self, device_ptr: *mut c_void) -> Direct3DResult<()> {
-        if !self.needs_fnv_scene_inputs() {
+        if !self.fnv_scene_input_requirements().world_color {
             return Ok(());
         }
 
@@ -654,8 +663,7 @@ impl ScreenShaderRuntime {
     unsafe fn temporal_aa_jitter_pixels(
         &mut self,
         device_ptr: *mut c_void,
-        width: u32,
-        height: u32,
+        target: temporal_aa::TargetDescription,
     ) -> Direct3DResult<Option<[f32; 2]>> {
         if !self.settings.menu_config.screen_space_shaders {
             return Ok(None);
@@ -663,9 +671,10 @@ impl ScreenShaderRuntime {
         let source = self.sources.iter().find(|source| {
             source.enabled && source.embedded_effect_kind() == Some(EmbeddedEffectKind::TemporalAa)
         });
-        let Some(source) = source.cloned() else {
+        let Some(source) = source else {
             return Ok(None);
         };
+        let config = temporal_aa::TemporalAaConfig::from_source(source);
         if self.temporal_aa_creation_failed {
             return Ok(None);
         }
@@ -688,24 +697,22 @@ impl ScreenShaderRuntime {
                 }
             }
         }
-        let Some(epoch) = backend::fnv_temporal_depth_epoch(device_ptr, width, height) else {
+        let Some(epoch) =
+            backend::fnv_temporal_depth_epoch(device_ptr, target.width, target.height)
+        else {
             return Ok(None);
         };
-        let Some(camera) = backend::fnv_world_camera_frame(width, height) else {
+        let Some(camera) = backend::fnv_world_camera_frame(target.width, target.height) else {
             return Ok(None);
         };
         if !self
             .temporal_aa
             .as_ref()
-            .is_some_and(|effect| effect.can_jitter(camera, epoch))
+            .is_some_and(|effect| effect.can_jitter(camera, epoch, target))
         {
             return Ok(None);
         }
-        let scale = source
-            .option_constants
-            .first()
-            .map_or(1.0, |options| options[3])
-            .clamp(0.0, 1.5);
+        let scale = config.jitter_scale();
         let sample_index = self.frame_index.wrapping_add(1);
         Ok(Some([
             (halton(sample_index, 2) - 0.5) * scale,
@@ -717,9 +724,10 @@ impl ScreenShaderRuntime {
         let source = self.sources.iter().find(|source| {
             source.enabled && source.embedded_effect_kind() == Some(EmbeddedEffectKind::TemporalAa)
         });
-        let Some(source) = source.cloned() else {
+        let Some(source) = source else {
             return Ok(());
         };
+        let config = temporal_aa::TemporalAaConfig::from_source(source);
         if self.temporal_aa_creation_failed {
             return Ok(());
         }
@@ -750,7 +758,7 @@ impl ScreenShaderRuntime {
 
         let depth = self.current_depth_frame();
         let draw_result = self.temporal_aa.as_mut().map_or(Ok(()), |effect| {
-            effect.draw(&device, &render_target, &desc, depth, &source)
+            effect.draw(&device, &render_target, &desc, depth, config)
         });
         let restore_result = state_block.apply();
         let target_restore_result = device.set_render_target(0, &restore_target);
@@ -959,20 +967,27 @@ impl ScreenShaderRuntime {
             return Ok(());
         }
 
-        let depth = self.current_depth_frame();
-        let camera = if depth.world_projection.camera.available {
-            depth.world_projection.camera
+        let needs_frame_inputs = self.phase_needs_frame_inputs(phase);
+        let frame_inputs = if needs_frame_inputs {
+            let depth = self.current_depth_frame();
+            let camera = if depth.world_projection.camera.available {
+                depth.world_projection.camera
+            } else {
+                backend::camera_frame(self.settings.depth_provider, desc)
+            };
+            backend::FrameInputs {
+                camera,
+                depth,
+                environment: backend::environment_frame(self.settings.depth_provider),
+                sun: backend::sun_frame(self.settings.depth_provider),
+                material_state: backend::material_state_frame(),
+            }
         } else {
-            backend::camera_frame(self.settings.depth_provider, desc)
+            backend::FrameInputs::default()
         };
-        let frame_inputs = backend::FrameInputs {
-            camera,
-            depth,
-            environment: backend::environment_frame(self.settings.depth_provider),
-            sun: backend::sun_frame(self.settings.depth_provider),
-            material_state: backend::material_state_frame(),
-        };
-        self.log_frame_input_state(&frame_inputs);
+        if needs_frame_inputs {
+            self.log_frame_input_state(&frame_inputs);
+        }
 
         let Some(copy) = self.phase_color_copy(phase).cloned() else {
             return Ok(());
@@ -1024,6 +1039,7 @@ impl ScreenShaderRuntime {
             ) {
                 let source_pass_count = source.pass_count.max(1);
                 if !ambient_occlusion_drawn {
+                    let rebind_common_state = self.has_enabled_pass_after(phase, pass_position);
                     let fast_source = self.find_enabled_embedded_source(
                         EmbeddedEffectKind::FastAmbientOcclusion,
                         phase,
@@ -1041,7 +1057,9 @@ impl ScreenShaderRuntime {
                         fast_source.as_ref(),
                         contact_source.as_ref(),
                     )?;
-                    self.bind_common_state(device, backbuffer, desc, &frame_inputs, &copy)?;
+                    if rebind_common_state {
+                        self.bind_common_state(device, backbuffer, desc, &frame_inputs, &copy)?;
+                    }
                     ambient_occlusion_drawn = true;
                 }
                 pass_index = pass_index.saturating_add(source_pass_count);
@@ -1049,6 +1067,7 @@ impl ScreenShaderRuntime {
             }
 
             if source.embedded_effect_kind() == Some(EmbeddedEffectKind::BloomingHdr) {
+                let rebind_common_state = self.has_enabled_pass_after(phase, pass_position);
                 let source = source.clone();
                 self.draw_blooming_hdr_pipeline(
                     device,
@@ -1058,12 +1077,15 @@ impl ScreenShaderRuntime {
                     &copy,
                     &source,
                 )?;
-                self.bind_common_state(device, backbuffer, desc, &frame_inputs, &copy)?;
+                if rebind_common_state {
+                    self.bind_common_state(device, backbuffer, desc, &frame_inputs, &copy)?;
+                }
                 pass_index = pass_index.saturating_add(source.pass_count.max(1));
                 continue;
             }
 
             if source.embedded_effect_kind() == Some(EmbeddedEffectKind::Sunshafts) {
+                let rebind_common_state = self.has_enabled_pass_after(phase, pass_position);
                 let source = source.clone();
                 self.draw_sunshafts_pipeline(
                     device,
@@ -1073,15 +1095,20 @@ impl ScreenShaderRuntime {
                     &copy,
                     &source,
                 )?;
-                self.bind_common_state(device, backbuffer, desc, &frame_inputs, &copy)?;
+                if rebind_common_state {
+                    self.bind_common_state(device, backbuffer, desc, &frame_inputs, &copy)?;
+                }
                 pass_index = pass_index.saturating_add(source.pass_count.max(1));
                 continue;
             }
 
             if source.embedded_effect_kind() == Some(EmbeddedEffectKind::DepthOfField) {
+                let rebind_common_state = self.has_enabled_pass_after(phase, pass_position);
                 let source_pass_count = source.pass_count.max(1);
                 self.draw_depth_of_field_pipeline(device, backbuffer, desc, &frame_inputs, &copy)?;
-                self.bind_common_state(device, backbuffer, desc, &frame_inputs, &copy)?;
+                if rebind_common_state {
+                    self.bind_common_state(device, backbuffer, desc, &frame_inputs, &copy)?;
+                }
                 pass_index = pass_index.saturating_add(source_pass_count);
                 continue;
             }
@@ -1096,9 +1123,12 @@ impl ScreenShaderRuntime {
                         | EmbeddedEffectKind::Smaa
                 )
             ) {
+                let rebind_common_state = self.has_enabled_pass_after(phase, pass_position);
                 let source = source.clone();
                 self.draw_anti_aliasing_pipeline(device, backbuffer, desc, &copy, &source)?;
-                self.bind_common_state(device, backbuffer, desc, &frame_inputs, &copy)?;
+                if rebind_common_state {
+                    self.bind_common_state(device, backbuffer, desc, &frame_inputs, &copy)?;
+                }
                 pass_index = pass_index.saturating_add(source.pass_count.max(1));
                 continue;
             }
@@ -1252,6 +1282,9 @@ impl ScreenShaderRuntime {
         let Some(effect) = self.anti_aliasing.as_mut() else {
             return Ok(());
         };
+        if !effect.prepare(device, source)? {
+            return Ok(());
+        }
         device.clear_texture(0)?;
         device.stretch_rect(
             backbuffer,
@@ -1654,10 +1687,57 @@ impl ScreenShaderRuntime {
         })
     }
 
-    fn needs_fnv_scene_inputs(&self) -> bool {
-        self.settings.depth_provider == DepthProvider::FalloutNewVegas
-            && !self.applied_phases.is_applied(ShaderPhase::FinalImageSpace)
-            && self.has_enabled_shader()
+    fn fnv_scene_input_requirements(&self) -> SceneInputRequirements {
+        if self.settings.depth_provider != DepthProvider::FalloutNewVegas
+            || !self.settings.menu_config.screen_space_shaders
+            || self.applied_phases.is_applied(ShaderPhase::FinalImageSpace)
+        {
+            return SceneInputRequirements::default();
+        }
+
+        self.sources
+            .iter()
+            .filter(|source| {
+                source.enabled && (source.is_embedded_effect() || source.bytecode.is_some())
+            })
+            .fold(SceneInputRequirements::default(), |requirements, source| {
+                let source_requirements = source.embedded_effect_kind().map_or_else(
+                    SceneInputRequirements::all,
+                    SceneInputRequirements::for_embedded,
+                );
+                requirements.union(source_requirements)
+            })
+    }
+
+    fn has_enabled_pass_after(&self, phase: ShaderPhase, pass_position: usize) -> bool {
+        self.compiled.as_ref().is_some_and(|passes| {
+            passes.iter().skip(pass_position + 1).any(|pass| {
+                let source = &self.sources[pass.source_index];
+                source.enabled
+                    && source.phase() == phase
+                    && source.embedded_effect_kind() != Some(EmbeddedEffectKind::TemporalAa)
+                    && (source.is_embedded_effect() || pass.shader.is_some())
+            })
+        })
+    }
+
+    fn phase_needs_frame_inputs(&self, phase: ShaderPhase) -> bool {
+        self.sources.iter().any(|source| {
+            source.enabled
+                && source.phase() == phase
+                && match source.embedded_effect_kind() {
+                    None => source.bytecode.is_some(),
+                    Some(
+                        EmbeddedEffectKind::FastFxaa
+                        | EmbeddedEffectKind::Nfaa
+                        | EmbeddedEffectKind::Axaa
+                        | EmbeddedEffectKind::Dlaa
+                        | EmbeddedEffectKind::Smaa
+                        | EmbeddedEffectKind::TemporalAa,
+                    ) => false,
+                    Some(_) => true,
+                }
+        })
     }
 
     fn has_drawable_shader(&self) -> bool {
@@ -1766,6 +1846,135 @@ impl ScreenShaderRuntime {
             log::warn!("[FNV] World color capture skipped: {err}");
             self.error_logs += 1;
         }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+struct SceneInputRequirements {
+    world_depth: bool,
+    first_person_depth: bool,
+    world_color: bool,
+}
+
+impl SceneInputRequirements {
+    const fn all() -> Self {
+        Self {
+            world_depth: true,
+            first_person_depth: true,
+            world_color: true,
+        }
+    }
+
+    const fn for_embedded(kind: EmbeddedEffectKind) -> Self {
+        match kind {
+            EmbeddedEffectKind::FastAmbientOcclusion
+            | EmbeddedEffectKind::ContactAmbientOcclusion
+            | EmbeddedEffectKind::Sunshafts
+            | EmbeddedEffectKind::DepthOfField => Self {
+                world_depth: true,
+                first_person_depth: true,
+                world_color: false,
+            },
+            EmbeddedEffectKind::BloomingHdr => Self {
+                world_depth: false,
+                first_person_depth: true,
+                world_color: false,
+            },
+            EmbeddedEffectKind::TemporalAa => Self {
+                world_depth: true,
+                first_person_depth: false,
+                world_color: false,
+            },
+            EmbeddedEffectKind::FastFxaa
+            | EmbeddedEffectKind::Nfaa
+            | EmbeddedEffectKind::Axaa
+            | EmbeddedEffectKind::Dlaa
+            | EmbeddedEffectKind::Smaa => Self {
+                world_depth: false,
+                first_person_depth: false,
+                world_color: false,
+            },
+        }
+    }
+
+    const fn union(self, other: Self) -> Self {
+        Self {
+            world_depth: self.world_depth || other.world_depth,
+            first_person_depth: self.first_person_depth || other.first_person_depth,
+            world_color: self.world_color || other.world_color,
+        }
+    }
+}
+
+#[cfg(test)]
+mod scene_input_requirement_tests {
+    use super::{EmbeddedEffectKind, SceneInputRequirements};
+
+    #[test]
+    fn spatial_aa_requires_no_fnv_scene_inputs() {
+        for kind in [
+            EmbeddedEffectKind::FastFxaa,
+            EmbeddedEffectKind::Nfaa,
+            EmbeddedEffectKind::Axaa,
+            EmbeddedEffectKind::Dlaa,
+            EmbeddedEffectKind::Smaa,
+        ] {
+            assert_eq!(
+                SceneInputRequirements::for_embedded(kind),
+                SceneInputRequirements::default()
+            );
+        }
+    }
+
+    #[test]
+    fn temporal_aa_requires_only_world_depth() {
+        assert_eq!(
+            SceneInputRequirements::for_embedded(EmbeddedEffectKind::TemporalAa),
+            SceneInputRequirements {
+                world_depth: true,
+                first_person_depth: false,
+                world_color: false,
+            }
+        );
+    }
+
+    #[test]
+    fn embedded_scene_effect_requirements_are_specialized() {
+        for kind in [
+            EmbeddedEffectKind::FastAmbientOcclusion,
+            EmbeddedEffectKind::ContactAmbientOcclusion,
+            EmbeddedEffectKind::Sunshafts,
+            EmbeddedEffectKind::DepthOfField,
+        ] {
+            assert_eq!(
+                SceneInputRequirements::for_embedded(kind),
+                SceneInputRequirements {
+                    world_depth: true,
+                    first_person_depth: true,
+                    world_color: false,
+                }
+            );
+        }
+        assert_eq!(
+            SceneInputRequirements::for_embedded(EmbeddedEffectKind::BloomingHdr),
+            SceneInputRequirements {
+                world_depth: false,
+                first_person_depth: true,
+                world_color: false,
+            }
+        );
+    }
+
+    #[test]
+    fn external_shader_requirements_preserve_all_inputs() {
+        assert_eq!(
+            SceneInputRequirements::all(),
+            SceneInputRequirements {
+                world_depth: true,
+                first_person_depth: true,
+                world_color: true,
+            }
+        );
     }
 }
 

@@ -336,6 +336,13 @@ unsafe fn read_camera_frame(desc: &D3DSURFACE_DESC) -> Option<CameraFrame> {
 
 unsafe fn read_world_camera_frame(desc: &D3DSURFACE_DESC) -> Option<CameraFrame> {
     let scene_graph = unsafe { read_ptr(WORLD_SCENE_GRAPH_PTR)? };
+    unsafe { read_scene_graph_camera_frame(scene_graph.cast(), desc) }
+}
+
+unsafe fn read_scene_graph_camera_frame(
+    scene_graph: *mut c_void,
+    desc: &D3DSURFACE_DESC,
+) -> Option<CameraFrame> {
     if scene_graph.is_null() {
         return None;
     }
@@ -352,12 +359,19 @@ unsafe fn read_camera_frame_from_ptr(
         return None;
     }
 
-    let near_z = unsafe { read_f32(camera as usize + NICAMERA_FRUSTUM_NEAR_OFFSET)? };
-    let far_z = unsafe { read_f32(camera as usize + NICAMERA_FRUSTUM_FAR_OFFSET)? };
-    let frustum_left = unsafe { read_f32(camera as usize + NICAMERA_FRUSTUM_LEFT_OFFSET)? };
-    let frustum_right = unsafe { read_f32(camera as usize + NICAMERA_FRUSTUM_RIGHT_OFFSET)? };
-    let frustum_top = unsafe { read_f32(camera as usize + NICAMERA_FRUSTUM_TOP_OFFSET)? };
-    let frustum_bottom = unsafe { read_f32(camera as usize + NICAMERA_FRUSTUM_BOTTOM_OFFSET)? };
+    validate_memory_range(
+        unsafe { camera.add(NIAVOBJECT_WORLD_ROTATION_OFFSET) }.cast::<c_void>(),
+        NICAMERA_FRUSTUM_FAR_OFFSET + size_of::<f32>() - NIAVOBJECT_WORLD_ROTATION_OFFSET,
+    )
+    .ok()?;
+
+    let read_camera_f32 = |offset| unsafe { camera.add(offset).cast::<f32>().read() };
+    let near_z = read_camera_f32(NICAMERA_FRUSTUM_NEAR_OFFSET);
+    let far_z = read_camera_f32(NICAMERA_FRUSTUM_FAR_OFFSET);
+    let frustum_left = read_camera_f32(NICAMERA_FRUSTUM_LEFT_OFFSET);
+    let frustum_right = read_camera_f32(NICAMERA_FRUSTUM_RIGHT_OFFSET);
+    let frustum_top = read_camera_f32(NICAMERA_FRUSTUM_TOP_OFFSET);
+    let frustum_bottom = read_camera_f32(NICAMERA_FRUSTUM_BOTTOM_OFFSET);
     if !near_z.is_finite()
         || !far_z.is_finite()
         || !frustum_left.is_finite()
@@ -377,7 +391,7 @@ unsafe fn read_camera_frame_from_ptr(
     } else {
         1.0
     };
-    let world_transform = unsafe { read_camera_world_transform(camera) }.unwrap_or_default();
+    let world_transform = unsafe { read_camera_world_transform_unchecked(camera) };
     Some(CameraFrame {
         near_z,
         far_z,
@@ -391,25 +405,38 @@ unsafe fn read_camera_frame_from_ptr(
     })
 }
 
-unsafe fn read_camera_world_transform(camera: *mut u8) -> Option<CameraTransformFrame> {
+unsafe fn read_camera_world_transform_unchecked(camera: *mut u8) -> CameraTransformFrame {
     let rotation_address = camera as usize + NIAVOBJECT_WORLD_ROTATION_OFFSET;
     let rotation = [
-        unsafe { read_vec3(rotation_address)? },
-        unsafe { read_vec3(rotation_address + 3 * size_of::<f32>())? },
-        unsafe { read_vec3(rotation_address + 6 * size_of::<f32>())? },
+        unsafe { read_vec3_unchecked(rotation_address) },
+        unsafe { read_vec3_unchecked(rotation_address + 3 * size_of::<f32>()) },
+        unsafe { read_vec3_unchecked(rotation_address + 6 * size_of::<f32>()) },
     ];
-    let translation = unsafe { read_vec3(camera as usize + NIAVOBJECT_WORLD_TRANSLATION_OFFSET)? };
-    let scale = unsafe { read_f32(camera as usize + NIAVOBJECT_WORLD_SCALE_OFFSET)? };
-    if !scale.is_finite() || scale.abs() <= f32::EPSILON {
-        return None;
+    let translation =
+        unsafe { read_vec3_unchecked(camera as usize + NIAVOBJECT_WORLD_TRANSLATION_OFFSET) };
+    let scale = unsafe {
+        camera
+            .add(NIAVOBJECT_WORLD_SCALE_OFFSET)
+            .cast::<f32>()
+            .read()
+    };
+    if !rotation
+        .iter()
+        .flatten()
+        .chain(translation.iter())
+        .all(|component| component.is_finite())
+        || !scale.is_finite()
+        || scale.abs() <= f32::EPSILON
+    {
+        return CameraTransformFrame::default();
     }
 
-    Some(CameraTransformFrame {
+    CameraTransformFrame {
         rotation,
         translation,
         scale,
         available: true,
-    })
+    }
 }
 
 unsafe fn read_rendered_texture_color_surface(
@@ -803,6 +830,14 @@ unsafe fn read_vec3(address: usize) -> Option<[f32; 3]> {
         .iter()
         .all(|component| component.is_finite())
         .then_some(value)
+}
+
+unsafe fn read_vec3_unchecked(address: usize) -> [f32; 3] {
+    [
+        unsafe { (address as *const f32).read() },
+        unsafe { ((address + size_of::<f32>()) as *const f32).read() },
+        unsafe { ((address + size_of::<f32>() * 2) as *const f32).read() },
+    ]
 }
 
 unsafe fn read_matrix_column3(address: usize, column: usize) -> Option<[f32; 3]> {
@@ -1213,15 +1248,19 @@ impl FnvDepthResolve {
     }
 
     fn depth_frame(&self) -> DepthFrame {
-        let Some(texture) = DepthTexture::new(self.world_capture.texture_ptr as *mut c_void) else {
-            return DepthFrame::none();
-        };
-
-        let first_person_matches_world = self.first_person_capture.frame_epoch
-            == self.world_capture.frame_epoch
-            && self.first_person_capture.width == self.world_capture.width
-            && self.first_person_capture.height == self.world_capture.height;
-        let first_person_capture = first_person_matches_world.then_some(self.first_person_capture);
+        let world_capture = (self.world_capture.texture_ptr != 0
+            && self.world_capture.frame_epoch == self.frame_epoch)
+            .then_some(self.world_capture);
+        let texture =
+            world_capture.and_then(|capture| DepthTexture::new(capture.texture_ptr as *mut c_void));
+        let first_person_matches_world = world_capture.is_none_or(|world| {
+            self.first_person_capture.width == world.width
+                && self.first_person_capture.height == world.height
+        });
+        let first_person_capture = (self.first_person_capture.texture_ptr != 0
+            && self.first_person_capture.frame_epoch == self.frame_epoch
+            && first_person_matches_world)
+            .then_some(self.first_person_capture);
         let first_person_texture = first_person_capture
             .and_then(|capture| DepthTexture::new(capture.texture_ptr as *mut c_void));
         let first_person_projection = first_person_texture
@@ -1232,9 +1271,11 @@ impl FnvDepthResolve {
             DepthProvider::FalloutNewVegas,
             texture,
             first_person_texture,
-            self.world_capture.projection,
+            texture
+                .and_then(|_| world_capture.map(|capture| capture.projection))
+                .unwrap_or_default(),
             first_person_projection,
-            self.world_capture.frame_epoch,
+            self.frame_epoch,
         )
     }
 
@@ -1328,6 +1369,21 @@ mod depth_capture_tests {
 
         resolve.first_person_capture = capture(2, 7, 1920, 1080);
         let frame = resolve.depth_frame();
+        assert!(frame.first_person_texture.is_some());
+        assert_eq!(frame.first_person_projection.source_surface, 2);
+        assert_eq!(frame.capture_epoch, 7);
+    }
+
+    #[test]
+    fn first_person_capture_is_available_without_world_capture() {
+        let resolve = FnvDepthResolve {
+            frame_epoch: 7,
+            first_person_capture: capture(2, 7, 1920, 1080),
+            ..FnvDepthResolve::default()
+        };
+
+        let frame = resolve.depth_frame();
+        assert!(frame.texture.is_none());
         assert!(frame.first_person_texture.is_some());
         assert_eq!(frame.first_person_projection.source_surface, 2);
         assert_eq!(frame.capture_epoch, 7);

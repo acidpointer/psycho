@@ -6,7 +6,7 @@ float4 ScreenData : register(c0);
 float4 Options : register(c3);
 
 float Luma(float3 color) {
-    return dot(color.ggg, float3(0.333333, 0.333333, 0.333333));
+    return dot(color, float3(0.2126, 0.7152, 0.0722));
 }
 
 float SafeDenominator(float value) {

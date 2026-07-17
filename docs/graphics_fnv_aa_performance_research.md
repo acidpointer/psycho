@@ -385,12 +385,12 @@ rendered. The raw global getter at `0x0045C670` also proves that the persistent
 World scene graph is `*(SceneGraph**)0x011DEB7C`, and later world paths obtain
 its camera through the same `+0xAC` getter.
 
-OMV should nevertheless remove an avoidable alias assumption: the world hook
-already receives the `SceneGraph` being rendered, while `jitter_world_camera`
-rereads the global World scene graph. Passing the hook argument into the jitter
-helper guarantees that the mutated camera is the one uploaded at `0x00874180`
-and removes redundant pointer lookup/validation. This is a quality hardening
-and a small CPU optimization, not a filter change.
+Runtime validation disproved an earlier ABI assumption: the first stack argument
+to the `0x00873200` hook is not the `SceneGraph` later held in internal local
+`[EBP-0x24]`. Treating that argument as a `SceneGraph` makes `+0xAC` unreadable
+and disables world depth. The proven usable camera source at the entry hook is
+the main World scene graph global `*(SceneGraph**)0x011DEB7C`; keep using it for
+jitter and world-depth projection publication.
 
 The alpha audit found only five direct references to the current-render-target
 global: its writer, one first-person reader, and three depth-resolve readers.
@@ -450,8 +450,8 @@ Implementation work should report both performance and image quality:
 Recommended implementation order:
 
 1. Per-effect input requirements.
-2. Use the hook's rendered `SceneGraph` for jitter, then read its camera through
-   the proven `+0xAC` contract.
+2. Read the persistent World `SceneGraph` global and its camera through the
+   proven `+0xAC` contract; do not reinterpret the hook's first stack argument.
 3. Contiguous validated camera snapshots.
 4. TAA duplicate-sample removal.
 5. State-call reduction and compact TAA configuration.

@@ -1,19 +1,14 @@
 //! Embedded spatial anti-aliasing pipelines.
 
 use libpsycho::os::windows::directx9::{
-    D3DCULL_NONE, D3DFMT_A8R8G8B8, D3DPT_TRIANGLESTRIP, D3DRS_ALPHABLENDENABLE,
-    D3DRS_ALPHATESTENABLE, D3DRS_COLORWRITEENABLE, D3DRS_CULLMODE, D3DRS_ZENABLE,
-    D3DRS_ZWRITEENABLE, D3DSAMP_ADDRESSU, D3DSAMP_ADDRESSV, D3DSAMP_MAGFILTER, D3DSAMP_MINFILTER,
-    D3DSAMP_MIPFILTER, D3DSURFACE_DESC, D3DTA_TEXTURE, D3DTADDRESS_CLAMP, D3DTEXF_LINEAR,
-    D3DTEXF_NONE, D3DTOP_SELECTARG1, D3DTSS_ALPHAARG1, D3DTSS_ALPHAOP, D3DTSS_COLORARG1,
-    D3DTSS_COLOROP, D3DVIEWPORT9, Device9Ref, Direct3DResult, PixelShader9, ScreenVertex, Surface9,
-    Texture9, direct3d_failure,
+    D3DFMT_A8R8G8B8, D3DPT_TRIANGLESTRIP, D3DSAMP_MAGFILTER, D3DSAMP_MINFILTER, D3DSURFACE_DESC,
+    D3DTEXF_LINEAR, Device9Ref, Direct3DResult, PixelShader9, ScreenVertex, Surface9, Texture9,
+    direct3d_failure,
 };
 
 use crate::shaders::{self, EmbeddedEffectKind, ScreenShaderSource};
 
 const FIRST_OPTION_REGISTER: u32 = 3;
-const COLOR_WRITE_ALL: u32 = 0x0F;
 
 const FAST_FXAA_SHADER: &[u8] = include_bytes!("../../shaders/embedded/aa_fast_fxaa.hlsl");
 const NFAA_SHADER: &[u8] = include_bytes!("../../shaders/embedded/aa_nfaa.hlsl");
@@ -52,6 +47,15 @@ mod shader_compile_tests {
         assert!(!source.contains("for ("));
         assert!(!source.contains("while ("));
     }
+
+    #[test]
+    fn dlaa_uses_rgb_luma() {
+        for shader in [DLAA_PREFILTER_SHADER, DLAA_RESOLVE_SHADER] {
+            let source = std::str::from_utf8(shader).expect("DLAA source is UTF-8");
+            assert!(source.contains("dot(color, float3(0.2126, 0.7152, 0.0722))"));
+            assert!(!source.contains("color.ggg"));
+        }
+    }
 }
 
 pub(crate) struct AntiAliasingEffect {
@@ -63,8 +67,8 @@ pub(crate) struct AntiAliasingEffect {
     smaa_edges: ShaderSlot,
     smaa_weights: ShaderSlot,
     smaa_blend: ShaderSlot,
-    dlaa_target: Option<EffectTarget>,
-    smaa_targets: Option<SmaaTargets>,
+    scratch_primary: Option<EffectTarget>,
+    scratch_secondary: Option<EffectTarget>,
 }
 
 impl AntiAliasingEffect {
@@ -78,8 +82,8 @@ impl AntiAliasingEffect {
             smaa_edges: ShaderSlot::new("aa_smaa_edges.hlsl", SMAA_EDGES_SHADER),
             smaa_weights: ShaderSlot::new("aa_smaa_weights.hlsl", SMAA_WEIGHTS_SHADER),
             smaa_blend: ShaderSlot::new("aa_smaa_blend.hlsl", SMAA_BLEND_SHADER),
-            dlaa_target: None,
-            smaa_targets: None,
+            scratch_primary: None,
+            scratch_secondary: None,
         }
     }
 
@@ -91,7 +95,12 @@ impl AntiAliasingEffect {
         source: &ScreenShaderSource,
         scene_color: &Texture9,
     ) -> Direct3DResult<()> {
-        bind_pipeline_state(device)?;
+        if source.embedded_effect_kind() == Some(EmbeddedEffectKind::Smaa) {
+            for sampler in 1..=2 {
+                device.set_sampler_state(sampler, D3DSAMP_MINFILTER, D3DTEXF_LINEAR.0 as u32)?;
+                device.set_sampler_state(sampler, D3DSAMP_MAGFILTER, D3DTEXF_LINEAR.0 as u32)?;
+            }
+        }
         match source.embedded_effect_kind() {
             Some(EmbeddedEffectKind::FastFxaa) => match self.fast_fxaa.get(device)?.cloned() {
                 Some(shader) => draw_single(device, backbuffer, desc, source, scene_color, &shader),
@@ -115,6 +124,29 @@ impl AntiAliasingEffect {
         }
     }
 
+    pub(crate) fn prepare(
+        &mut self,
+        device: &Device9Ref<'_>,
+        source: &ScreenShaderSource,
+    ) -> Direct3DResult<bool> {
+        let available = match source.embedded_effect_kind() {
+            Some(EmbeddedEffectKind::FastFxaa) => self.fast_fxaa.get(device)?.is_some(),
+            Some(EmbeddedEffectKind::Nfaa) => self.nfaa.get(device)?.is_some(),
+            Some(EmbeddedEffectKind::Axaa) => self.axaa.get(device)?.is_some(),
+            Some(EmbeddedEffectKind::Dlaa) => {
+                self.dlaa_prefilter.get(device)?.is_some()
+                    && self.dlaa_resolve.get(device)?.is_some()
+            }
+            Some(EmbeddedEffectKind::Smaa) => {
+                self.smaa_edges.get(device)?.is_some()
+                    && (smaa_edge_debug(source) || self.smaa_weights.get(device)?.is_some())
+                    && self.smaa_blend.get(device)?.is_some()
+            }
+            _ => false,
+        };
+        Ok(available)
+    }
+
     fn draw_dlaa(
         &mut self,
         device: &Device9Ref<'_>,
@@ -130,25 +162,24 @@ impl AntiAliasingEffect {
             return Ok(());
         };
         let needs_target = self
-            .dlaa_target
+            .scratch_primary
             .as_ref()
             .is_none_or(|target| !target.matches(desc));
         if needs_target {
-            self.dlaa_target = Some(EffectTarget::create(device, desc)?);
+            self.scratch_primary = Some(EffectTarget::create(device, desc)?);
         }
-        let Some(target) = self.dlaa_target.as_ref() else {
+        let Some(target) = self.scratch_primary.as_ref() else {
             return Ok(());
         };
 
+        bind_constants(device, desc, source)?;
         bind_target(device, &target.surface, desc)?;
         device.set_texture(0, scene_color)?;
-        bind_constants(device, desc, source)?;
         device.set_pixel_shader(&prefilter_shader)?;
         draw_quad(device, desc)?;
 
         bind_target(device, backbuffer, desc)?;
         device.set_texture(0, &target.texture)?;
-        bind_constants(device, desc, source)?;
         device.set_pixel_shader(&resolve_shader)?;
         draw_quad(device, desc)
     }
@@ -164,45 +195,73 @@ impl AntiAliasingEffect {
         let Some(edges_shader) = self.smaa_edges.get(device)?.cloned() else {
             return Ok(());
         };
-        let Some(weights_shader) = self.smaa_weights.get(device)?.cloned() else {
-            return Ok(());
-        };
         let Some(blend_shader) = self.smaa_blend.get(device)?.cloned() else {
             return Ok(());
         };
-        let needs_targets = self
-            .smaa_targets
+        let edge_debug = smaa_edge_debug(source);
+        let weights_shader = if edge_debug {
+            None
+        } else {
+            let Some(shader) = self.smaa_weights.get(device)?.cloned() else {
+                return Ok(());
+            };
+            Some(shader)
+        };
+        let needs_primary = self
+            .scratch_primary
             .as_ref()
-            .is_none_or(|targets| !targets.matches(desc));
-        if needs_targets {
-            self.smaa_targets = Some(SmaaTargets::create(device, desc)?);
+            .is_none_or(|target| !target.matches(desc));
+        if needs_primary {
+            self.scratch_primary = Some(EffectTarget::create(device, desc)?);
         }
-        let Some(targets) = self.smaa_targets.as_ref() else {
+        if !edge_debug {
+            let needs_secondary = self
+                .scratch_secondary
+                .as_ref()
+                .is_none_or(|target| !target.matches(desc));
+            if needs_secondary {
+                self.scratch_secondary = Some(EffectTarget::create(device, desc)?);
+            }
+        }
+        let Some(edges) = self.scratch_primary.as_ref() else {
             return Ok(());
         };
 
-        bind_target(device, &targets.edges.surface, desc)?;
-        device.set_texture(0, scene_color)?;
         bind_constants(device, desc, source)?;
+        bind_target(device, &edges.surface, desc)?;
+        device.set_texture(0, scene_color)?;
         device.set_pixel_shader(&edges_shader)?;
         draw_quad(device, desc)?;
 
-        bind_target(device, &targets.weights.surface, desc)?;
-        device.set_texture(0, &targets.edges.texture)?;
-        bind_constants(device, desc, source)?;
-        device.set_pixel_shader(&weights_shader)?;
-        draw_quad(device, desc)?;
+        if let (Some(weights), Some(weights_shader)) =
+            (self.scratch_secondary.as_ref(), weights_shader.as_ref())
+        {
+            bind_target(device, &weights.surface, desc)?;
+            device.set_texture(0, &edges.texture)?;
+            device.set_pixel_shader(weights_shader)?;
+            draw_quad(device, desc)?;
+        }
 
         bind_target(device, backbuffer, desc)?;
         device.set_texture(0, scene_color)?;
-        device.set_texture(1, &targets.weights.texture)?;
-        device.set_texture(2, &targets.edges.texture)?;
-        bind_constants(device, desc, source)?;
+        if edge_debug {
+            device.set_texture(1, &edges.texture)?;
+        } else if let Some(weights) = self.scratch_secondary.as_ref() {
+            device.set_texture(1, &weights.texture)?;
+        }
+        device.set_texture(2, &edges.texture)?;
         device.set_pixel_shader(&blend_shader)?;
         draw_quad(device, desc)?;
         device.clear_texture(1)?;
         device.clear_texture(2)
     }
+}
+
+fn smaa_edge_debug(source: &ScreenShaderSource) -> bool {
+    source
+        .option_constants
+        .get(1)
+        .is_some_and(|options| options[1] > 0.5 && options[1] < 1.5)
 }
 
 struct ShaderSlot {
@@ -289,43 +348,13 @@ fn bind_constants(
     Ok(())
 }
 
-fn bind_pipeline_state(device: &Device9Ref<'_>) -> Direct3DResult<()> {
-    device.clear_vertex_shader()?;
-    device.set_fvf(ScreenVertex::FVF)?;
-    device.set_render_state(D3DRS_CULLMODE, D3DCULL_NONE.0 as u32)?;
-    device.set_render_state(D3DRS_ALPHABLENDENABLE, 0)?;
-    device.set_render_state(D3DRS_ALPHATESTENABLE, 0)?;
-    device.set_render_state(D3DRS_ZENABLE, 0)?;
-    device.set_render_state(D3DRS_ZWRITEENABLE, 0)?;
-    device.set_render_state(D3DRS_COLORWRITEENABLE, COLOR_WRITE_ALL)?;
-    for sampler in 0..=2 {
-        device.set_sampler_state(sampler, D3DSAMP_ADDRESSU, D3DTADDRESS_CLAMP.0 as u32)?;
-        device.set_sampler_state(sampler, D3DSAMP_ADDRESSV, D3DTADDRESS_CLAMP.0 as u32)?;
-        device.set_sampler_state(sampler, D3DSAMP_MINFILTER, D3DTEXF_LINEAR.0 as u32)?;
-        device.set_sampler_state(sampler, D3DSAMP_MAGFILTER, D3DTEXF_LINEAR.0 as u32)?;
-        device.set_sampler_state(sampler, D3DSAMP_MIPFILTER, D3DTEXF_NONE.0 as u32)?;
-    }
-    device.set_texture_stage_state(0, D3DTSS_COLOROP, D3DTOP_SELECTARG1.0 as u32)?;
-    device.set_texture_stage_state(0, D3DTSS_COLORARG1, D3DTA_TEXTURE)?;
-    device.set_texture_stage_state(0, D3DTSS_ALPHAOP, D3DTOP_SELECTARG1.0 as u32)?;
-    device.set_texture_stage_state(0, D3DTSS_ALPHAARG1, D3DTA_TEXTURE)
-}
-
 fn bind_target(
     device: &Device9Ref<'_>,
     surface: &Surface9,
-    desc: &D3DSURFACE_DESC,
+    _desc: &D3DSURFACE_DESC,
 ) -> Direct3DResult<()> {
     device.clear_texture(0)?;
-    device.set_render_target(0, surface)?;
-    device.set_viewport(&D3DVIEWPORT9 {
-        X: 0,
-        Y: 0,
-        Width: desc.Width,
-        Height: desc.Height,
-        MinZ: 0.0,
-        MaxZ: 1.0,
-    })
+    device.set_render_target(0, surface)
 }
 
 fn draw_quad(device: &Device9Ref<'_>, desc: &D3DSURFACE_DESC) -> Direct3DResult<()> {
@@ -362,23 +391,5 @@ impl EffectTarget {
 
     fn matches(&self, desc: &D3DSURFACE_DESC) -> bool {
         self.width == desc.Width && self.height == desc.Height
-    }
-}
-
-struct SmaaTargets {
-    edges: EffectTarget,
-    weights: EffectTarget,
-}
-
-impl SmaaTargets {
-    fn create(device: &Device9Ref<'_>, desc: &D3DSURFACE_DESC) -> Direct3DResult<Self> {
-        Ok(Self {
-            edges: EffectTarget::create(device, desc)?,
-            weights: EffectTarget::create(device, desc)?,
-        })
-    }
-
-    fn matches(&self, desc: &D3DSURFACE_DESC) -> bool {
-        self.edges.matches(desc) && self.weights.matches(desc)
     }
 }

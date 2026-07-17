@@ -181,7 +181,7 @@ impl DepthFrame {
 
     pub(crate) fn from_textures(
         provider: DepthProvider,
-        texture: DepthTexture,
+        texture: Option<DepthTexture>,
         first_person_texture: Option<DepthTexture>,
         world_projection: DepthProjectionFrame,
         first_person_projection: DepthProjectionFrame,
@@ -189,7 +189,7 @@ impl DepthFrame {
     ) -> Self {
         Self {
             provider,
-            texture: Some(texture),
+            texture,
             first_person_texture,
             world_projection,
             first_person_projection,

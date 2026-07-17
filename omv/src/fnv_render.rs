@@ -232,6 +232,8 @@ unsafe extern "thiscall" fn hook_render_world_scene_graph(
 
     unsafe {
         let world_scene_graph = scene_graph_phase == WORLD_SCENE_GRAPH_PHASE;
+        // The first stack argument is not the SceneGraph held in the function's
+        // internal [EBP-0x24] local. Camera access must use the world global.
         let camera_jitter = world_scene_graph
             .then(|| begin_temporal_aa_jitter())
             .flatten();
@@ -274,8 +276,12 @@ unsafe fn begin_temporal_aa_jitter() -> Option<crate::backend::WorldCameraJitter
     let device = unsafe { Device9Ref::from_raw_void(device_ptr) }?;
     let render_target = device.render_target(0).ok()?;
     let desc = render_target.desc().ok()?;
-    let jitter =
-        unsafe { crate::runtime::temporal_aa_jitter_pixels(device_ptr, desc.Width, desc.Height)? };
+    let jitter = unsafe {
+        crate::runtime::temporal_aa_jitter_pixels(
+            device_ptr,
+            crate::effects::temporal_aa::TargetDescription::from(&desc),
+        )?
+    };
     unsafe { crate::backend::jitter_fnv_world_camera(jitter, desc.Width, desc.Height) }
 }
 
@@ -306,7 +312,7 @@ unsafe fn capture_depth(
     source_rendered_texture: Option<*mut c_void>,
     reason: &'static str,
 ) {
-    if !crate::runtime::needs_fnv_depth_capture() {
+    if !crate::runtime::needs_fnv_depth_capture(slot) {
         log_depth_capture_skip(slot, reason, "runtime not ready or no scene inputs needed");
         return;
     }
@@ -331,6 +337,9 @@ unsafe fn capture_depth(
 }
 
 unsafe fn capture_world_color() {
+    if !crate::runtime::needs_fnv_world_color_capture() {
+        return;
+    }
     let Some(device_ptr) = crate::backend::d3d_device_ptr() else {
         return;
     };

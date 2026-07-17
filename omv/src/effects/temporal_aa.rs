@@ -18,7 +18,25 @@ use crate::{
 const COLOR_WRITE_ALL: u32 = 0x0F;
 const OPTION_REGISTER: u32 = 3;
 const REPROJECTION_REGISTER: u32 = 5;
+const TARGET_RETRY_FRAMES: u16 = 120;
 const TAA_SHADER: &[u8] = include_bytes!("../../shaders/embedded/aa_temporal.hlsl");
+
+#[derive(Clone, Copy)]
+pub(crate) struct TemporalAaConfig {
+    options: [f32; 4],
+}
+
+impl TemporalAaConfig {
+    pub(crate) fn from_source(source: &ScreenShaderSource) -> Self {
+        Self {
+            options: source.option_constants.first().copied().unwrap_or_default(),
+        }
+    }
+
+    pub(crate) fn jitter_scale(self) -> f32 {
+        self.options[3].clamp(0.0, 1.5)
+    }
+}
 
 #[cfg(test)]
 mod shader_compile_tests {
@@ -47,6 +65,15 @@ mod shader_compile_tests {
     #[test]
     fn embedded_temporal_aa_shader_compiles() {
         crate::shaders::assert_hlsl_compiles("aa_temporal.hlsl", TAA_SHADER, "ps_3_0");
+    }
+
+    #[test]
+    fn temporal_neighborhood_reuses_current_color_sample() {
+        let source = std::str::from_utf8(TAA_SHADER).expect("TAA source is UTF-8");
+        assert!(source.contains("Neighborhood(uv, current, low, high, average)"));
+        assert!(
+            !source.contains("float3 center = tex2Dlod(CurrentColor, float4(uv, 0.0, 0.0)).rgb;")
+        );
     }
 
     #[test]
@@ -103,6 +130,8 @@ pub(crate) struct TemporalAaEffect {
     previous_camera: Option<TemporalCameraState>,
     history_index: usize,
     history_valid: bool,
+    failed_target: Option<TargetDescription>,
+    target_retry_frames: u16,
 }
 
 impl TemporalAaEffect {
@@ -113,6 +142,8 @@ impl TemporalAaEffect {
             previous_camera: None,
             history_index: 0,
             history_valid: false,
+            failed_target: None,
+            target_retry_frames: 0,
         })
     }
 
@@ -121,8 +152,17 @@ impl TemporalAaEffect {
         self.history_valid = false;
     }
 
-    pub(crate) fn can_jitter(&self, camera: CameraFrame, epoch: u64) -> bool {
+    pub(crate) fn can_jitter(
+        &self,
+        camera: CameraFrame,
+        epoch: u64,
+        target: TargetDescription,
+    ) -> bool {
         self.history_valid
+            && self
+                .targets
+                .as_ref()
+                .is_some_and(|targets| targets.matches_description(target))
             && self.previous_camera.is_some_and(|previous| {
                 TemporalReprojection::between(previous, TemporalCameraState { camera, epoch })
                     .is_some()
@@ -135,7 +175,7 @@ impl TemporalAaEffect {
         render_target: &Surface9,
         desc: &D3DSURFACE_DESC,
         depth: DepthFrame,
-        source: &ScreenShaderSource,
+        config: TemporalAaConfig,
     ) -> Direct3DResult<()> {
         let Some(depth_texture) = depth.texture else {
             self.invalidate_history();
@@ -148,7 +188,26 @@ impl TemporalAaEffect {
             return Ok(());
         }
 
-        let targets_changed = self.ensure_targets(device, desc)?;
+        let target = TargetDescription::from(desc);
+        if self.failed_target == Some(target) {
+            if self.target_retry_frames > 0 {
+                self.target_retry_frames -= 1;
+                self.invalidate_history();
+                return Ok(());
+            }
+            self.failed_target = None;
+        }
+        let targets_changed = match self.ensure_targets(device, desc) {
+            Ok(changed) => changed,
+            Err(err) => {
+                self.failed_target = Some(target);
+                self.target_retry_frames = TARGET_RETRY_FRAMES;
+                self.invalidate_history();
+                return Err(err);
+            }
+        };
+        self.failed_target = None;
+        self.target_retry_frames = 0;
         if targets_changed {
             self.invalidate_history();
         }
@@ -181,7 +240,7 @@ impl TemporalAaEffect {
             device.set_raw_base_texture(1, depth_texture.as_ptr())?;
         }
         device.set_texture(2, &targets.history[read_index].texture)?;
-        bind_constants(device, desc, depth, source, reprojection, history_available)?;
+        bind_constants(device, desc, depth, config, reprojection, history_available)?;
         device.set_pixel_shader(&self.shader)?;
         draw_quad(device, desc)?;
 
@@ -342,7 +401,7 @@ fn bind_constants(
     device: &Device9Ref<'_>,
     desc: &D3DSURFACE_DESC,
     depth: DepthFrame,
-    source: &ScreenShaderSource,
+    config: TemporalAaConfig,
     reprojection: Option<TemporalReprojection>,
     history_available: bool,
 ) -> Direct3DResult<()> {
@@ -370,9 +429,7 @@ fn bind_constants(
             ],
         ],
     )?;
-    if !source.option_constants.is_empty() {
-        device.set_pixel_shader_constant_f(OPTION_REGISTER, &source.option_constants)?;
-    }
+    device.set_pixel_shader_constant_f(OPTION_REGISTER, &[config.options])?;
     let reprojection_constants = reprojection.map_or_else(
         || {
             [
@@ -422,14 +479,17 @@ fn bind_pipeline_state(device: &Device9Ref<'_>) -> Direct3DResult<()> {
     device.set_render_state(D3DRS_ZWRITEENABLE, 0)?;
     device.set_render_state(D3DRS_COLORWRITEENABLE, COLOR_WRITE_ALL)?;
     for sampler in 0..=2 {
+        let filter = if sampler == 1 {
+            D3DTEXF_POINT
+        } else {
+            D3DTEXF_LINEAR
+        };
         device.set_sampler_state(sampler, D3DSAMP_ADDRESSU, D3DTADDRESS_CLAMP.0 as u32)?;
         device.set_sampler_state(sampler, D3DSAMP_ADDRESSV, D3DTADDRESS_CLAMP.0 as u32)?;
-        device.set_sampler_state(sampler, D3DSAMP_MINFILTER, D3DTEXF_LINEAR.0 as u32)?;
-        device.set_sampler_state(sampler, D3DSAMP_MAGFILTER, D3DTEXF_LINEAR.0 as u32)?;
+        device.set_sampler_state(sampler, D3DSAMP_MINFILTER, filter.0 as u32)?;
+        device.set_sampler_state(sampler, D3DSAMP_MAGFILTER, filter.0 as u32)?;
         device.set_sampler_state(sampler, D3DSAMP_MIPFILTER, D3DTEXF_NONE.0 as u32)?;
     }
-    device.set_sampler_state(1, D3DSAMP_MINFILTER, D3DTEXF_POINT.0 as u32)?;
-    device.set_sampler_state(1, D3DSAMP_MAGFILTER, D3DTEXF_POINT.0 as u32)?;
     device.set_texture_stage_state(0, D3DTSS_COLOROP, D3DTOP_SELECTARG1.0 as u32)?;
     device.set_texture_stage_state(0, D3DTSS_COLORARG1, D3DTA_TEXTURE)?;
     device.set_texture_stage_state(0, D3DTSS_ALPHAOP, D3DTOP_SELECTARG1.0 as u32)?;
@@ -477,7 +537,7 @@ impl TemporalTargets {
             EffectTarget::create(device, desc.Width, desc.Height, D3DFMT_A16B16G16R16F),
         ) {
             (Ok(first), Ok(second)) => [first, second],
-            (Err(err), _) | (_, Err(err)) => {
+            (Err(err), _) | (_, Err(err)) if desc.Format == D3DFMT_A8R8G8B8 => {
                 log::warn!(
                     "[TAA] A16B16G16R16F history unavailable ({err}); falling back to A8R8G8B8"
                 );
@@ -485,6 +545,13 @@ impl TemporalTargets {
                     EffectTarget::create(device, desc.Width, desc.Height, D3DFMT_A8R8G8B8)?,
                     EffectTarget::create(device, desc.Width, desc.Height, D3DFMT_A8R8G8B8)?,
                 ]
+            }
+            (Err(err), _) | (_, Err(err)) => {
+                log::warn!(
+                    "[TAA] A16B16G16R16F history unavailable for source format {:?}: {err}",
+                    desc.Format
+                );
+                return Err(err);
             }
         };
         Ok(Self {
@@ -497,6 +564,29 @@ impl TemporalTargets {
         self.current.width == desc.Width
             && self.current.height == desc.Height
             && self.current.format == desc.Format
+    }
+
+    fn matches_description(&self, target: TargetDescription) -> bool {
+        self.current.width == target.width
+            && self.current.height == target.height
+            && self.current.format == target.format
+    }
+}
+
+#[derive(Clone, Copy, Eq, PartialEq)]
+pub(crate) struct TargetDescription {
+    pub(crate) width: u32,
+    pub(crate) height: u32,
+    pub(crate) format: D3DFORMAT,
+}
+
+impl From<&D3DSURFACE_DESC> for TargetDescription {
+    fn from(desc: &D3DSURFACE_DESC) -> Self {
+        Self {
+            width: desc.Width,
+            height: desc.Height,
+            format: desc.Format,
+        }
     }
 }
 
