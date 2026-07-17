@@ -1,0 +1,1399 @@
+FNV PBR LIGHT/SHADOW CONTINUITY FINAL FOLLOW-UP
+
+Required closure:
+1. Recover the exact camera-relative PPLighting list metric and equality behavior.
+2. Prove how shadow transition direction/time changes per-candidate fade.
+3. Prove when fade changes dirty attached PPLighting properties.
+4. Prove when rejected shadow candidates detach from those properties.
+5. Identify whether a safe intervention is needed after both native continuity paths are understood.
+
+----------------------------------------------------------------------
+References TO 0x00b9dae0 (PPLighting light eligibility and influence test)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00b5dbc6 (in FUN_00b5dac0) CALL 0x00b9dae0
+  UNCONDITIONAL_CALL @ 0x00b5dc59 (in FUN_00b5dac0) CALL 0x00b9dae0
+  UNCONDITIONAL_CALL @ 0x00b5dce7 (in FUN_00b5dac0) CALL 0x00b9dae0
+  UNCONDITIONAL_CALL @ 0x00b5b331 (in FUN_00b5b260) CALL 0x00b9dae0
+  UNCONDITIONAL_CALL @ 0x00b5b391 (in FUN_00b5b260) CALL 0x00b9dae0
+  UNCONDITIONAL_CALL @ 0x00b5b3d7 (in FUN_00b5b260) CALL 0x00b9dae0
+  UNCONDITIONAL_CALL @ 0x00b9f6d5 (in FUN_00b9f6a0) CALL 0x00b9dae0
+  Total printed refs: 7
+
+======================================================================
+PPLighting light eligibility and influence test @ 0x00b9dae0
+======================================================================
+  Function: FUN_00b9dae0 @ 0x00b9dae0, Size: 252 bytes
+
+undefined2 __thiscall FUN_00b9dae0(int param_1,int param_2,int *param_3,float param_4)
+
+{
+  undefined4 *puVar1;
+  float10 fVar2;
+  
+  if (param_3 == (int *)0x0) {
+    param_3 = *(int **)(param_1 + 0xf8);
+  }
+  puVar1 = (undefined4 *)(**(code **)(*param_3 + 8))();
+  if (puVar1 != &DAT_011f4a68) {
+    fVar2 = (float10)FUN_00ec6040();
+    if ((float)param_3[0x38] <= (float)fVar2 - *(float *)(param_2 + 0xc) * param_4) {
+      return 0;
+    }
+  }
+  return 1;
+}
+
+
+
+--- Calls FROM PPLighting light eligibility and influence test (0x00b9dae0) ---
+  0x00b9dba1 -> 0x00ec6040 FUN_00ec6040
+  Total: 1 calls
+
+======================================================================
+RAW FUNCTION: PPLighting light eligibility and influence test @ 0x00b9dae0
+======================================================================
+  0x00b9dae0 +0x0000  83 ec 24                 SUB ESP,0x24                                   
+  0x00b9dae3 +0x0003  56                       PUSH ESI                                       
+  0x00b9dae4 +0x0004  8b 74 24 30              MOV ESI,dword ptr [ESP + 0x30]                 READ->0x00000008
+  0x00b9dae8 +0x0008  85 f6                    TEST ESI,ESI                                   
+  0x00b9daea +0x000a  75 06                    JNZ 0x00b9daf2                                 CONDITIONAL_JUMP->0x00b9daf2
+  0x00b9daec +0x000c  8b b1 f8 00 00 00        MOV ESI,dword ptr [ECX + 0xf8]                 
+  0x00b9daf2 +0x0012  8b 06                    MOV EAX,dword ptr [ESI]                        
+  0x00b9daf4 +0x0014  8b 50 08                 MOV EDX,dword ptr [EAX + 0x8]                  
+  0x00b9daf7 +0x0017  8b ce                    MOV ECX,ESI                                    
+  0x00b9daf9 +0x0019  ff d2                    CALL EDX                                       
+  0x00b9dafb +0x001b  3d 68 4a 1f 01           CMP EAX,0x11f4a68                              DATA->0x011f4a68
+  0x00b9db00 +0x0020  75 09                    JNZ 0x00b9db0b                                 CONDITIONAL_JUMP->0x00b9db0b
+  0x00b9db02 +0x0022  b0 01                    MOV AL,0x1                                     
+  0x00b9db04 +0x0024  5e                       POP ESI                                        
+  0x00b9db05 +0x0025  83 c4 24                 ADD ESP,0x24                                   
+  0x00b9db08 +0x0028  c2 0c 00                 RET 0xc                                        
+  0x00b9db0b +0x002b  d9 86 8c 00 00 00        FLD float ptr [ESI + 0x8c]                     
+  0x00b9db11 +0x0031  a1 c8 91 1f 01           MOV EAX,[0x011f91c8]                           READ->0x011f91c8
+  0x00b9db16 +0x0036  8b 88 e4 01 00 00        MOV ECX,dword ptr [EAX + 0x1e4]                
+  0x00b9db1c +0x003c  8b 90 e8 01 00 00        MOV EDX,dword ptr [EAX + 0x1e8]                
+  0x00b9db22 +0x0042  57                       PUSH EDI                                       
+  0x00b9db23 +0x0043  8b 7c 24 30              MOV EDI,dword ptr [ESP + 0x30]                 
+  0x00b9db27 +0x0047  d8 27                    FSUB float ptr [EDI]                           
+  0x00b9db29 +0x0049  8b 80 ec 01 00 00        MOV EAX,dword ptr [EAX + 0x1ec]                
+  0x00b9db2f +0x004f  89 4c 24 08              MOV dword ptr [ESP + 0x8],ECX                  
+  0x00b9db33 +0x0053  89 54 24 0c              MOV dword ptr [ESP + 0xc],EDX                  
+  0x00b9db37 +0x0057  d9 5c 24 14              FSTP float ptr [ESP + 0x14]                    
+  0x00b9db3b +0x005b  89 44 24 10              MOV dword ptr [ESP + 0x10],EAX                 
+  0x00b9db3f +0x005f  d9 86 90 00 00 00        FLD float ptr [ESI + 0x90]                     
+  0x00b9db45 +0x0065  d8 67 04                 FSUB float ptr [EDI + 0x4]                     
+  0x00b9db48 +0x0068  d9 5c 24 18              FSTP float ptr [ESP + 0x18]                    
+  0x00b9db4c +0x006c  d9 86 94 00 00 00        FLD float ptr [ESI + 0x94]                     
+  0x00b9db52 +0x0072  d8 67 08                 FSUB float ptr [EDI + 0x8]                     
+  0x00b9db55 +0x0075  d9 5c 24 1c              FSTP float ptr [ESP + 0x1c]                    
+  0x00b9db59 +0x0079  d9 44 24 08              FLD float ptr [ESP + 0x8]                      
+  0x00b9db5d +0x007d  d8 44 24 14              FADD float ptr [ESP + 0x14]                    
+  0x00b9db61 +0x0081  d9 5c 24 20              FSTP float ptr [ESP + 0x20]                    
+  0x00b9db65 +0x0085  d9 44 24 0c              FLD float ptr [ESP + 0xc]                      
+  0x00b9db69 +0x0089  d8 44 24 18              FADD float ptr [ESP + 0x18]                    
+  0x00b9db6d +0x008d  d9 5c 24 24              FSTP float ptr [ESP + 0x24]                    
+  0x00b9db71 +0x0091  d9 44 24 10              FLD float ptr [ESP + 0x10]                     
+  0x00b9db75 +0x0095  d8 44 24 1c              FADD float ptr [ESP + 0x1c]                    
+  0x00b9db79 +0x0099  d9 5c 24 28              FSTP float ptr [ESP + 0x28]                    
+  0x00b9db7d +0x009d  d9 44 24 24              FLD float ptr [ESP + 0x24]                     
+  0x00b9db81 +0x00a1  d9 44 24 20              FLD float ptr [ESP + 0x20]                     
+  0x00b9db85 +0x00a5  d9 44 24 28              FLD float ptr [ESP + 0x28]                     
+  0x00b9db89 +0x00a9  d9 c1                    FLD ST1                                        
+  0x00b9db8b +0x00ab  de ca                    FMULP ST2                                      
+  0x00b9db8d +0x00ad  d9 c2                    FLD ST2                                        
+  0x00b9db8f +0x00af  de cb                    FMULP ST3                                      
+  0x00b9db91 +0x00b1  d9 c9                    FXCH                                           
+  0x00b9db93 +0x00b3  de c2                    FADDP ST2,ST0                                  
+  0x00b9db95 +0x00b5  dc c8                    FMUL ST0                                       
+  0x00b9db97 +0x00b7  de c1                    FADDP                                          
+  0x00b9db99 +0x00b9  d9 5c 24 34              FSTP float ptr [ESP + 0x34]                    
+  0x00b9db9d +0x00bd  d9 44 24 34              FLD float ptr [ESP + 0x34]                     
+  0x00b9dba1 +0x00c1  e8 9a 84 32 00           CALL 0x00ec6040                                UNCONDITIONAL_CALL->0x00ec6040
+  0x00b9dba6 +0x00c6  d9 5c 24 34              FSTP float ptr [ESP + 0x34]                    
+  0x00b9dbaa +0x00ca  d9 44 24 34              FLD float ptr [ESP + 0x34]                     
+  0x00b9dbae +0x00ce  d9 47 0c                 FLD float ptr [EDI + 0xc]                      
+  0x00b9dbb1 +0x00d1  5f                       POP EDI                                        
+  0x00b9dbb2 +0x00d2  d8 4c 24 34              FMUL float ptr [ESP + 0x34]                    
+  0x00b9dbb6 +0x00d6  de e9                    FSUBP                                          
+  0x00b9dbb8 +0x00d8  d9 5c 24 30              FSTP float ptr [ESP + 0x30]                    
+  0x00b9dbbc +0x00dc  d9 44 24 30              FLD float ptr [ESP + 0x30]                     
+  0x00b9dbc0 +0x00e0  d9 86 e0 00 00 00        FLD float ptr [ESI + 0xe0]                     
+  0x00b9dbc6 +0x00e6  de d9                    FCOMPP                                         
+  0x00b9dbc8 +0x00e8  df e0                    FNSTSW AX                                      
+  0x00b9dbca +0x00ea  f6 c4 41                 TEST AH,0x41                                   
+  0x00b9dbcd +0x00ed  0f 84 2f ff ff ff        JZ 0x00b9db02                                  CONDITIONAL_JUMP->0x00b9db02
+  0x00b9dbd3 +0x00f3  32 c0                    XOR AL,AL                                      
+  0x00b9dbd5 +0x00f5  5e                       POP ESI                                        
+  0x00b9dbd6 +0x00f6  83 c4 24                 ADD ESP,0x24                                   
+  0x00b9dbd9 +0x00f9  c2 0c 00                 RET 0xc                                        
+  Total instructions: 74
+
+----------------------------------------------------------------------
+References TO 0x00b9dbe0 (PPLighting light-list camera metric)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00b5dbe3 (in FUN_00b5dac0) CALL 0x00b9dbe0
+  UNCONDITIONAL_CALL @ 0x00b5dc76 (in FUN_00b5dac0) CALL 0x00b9dbe0
+  UNCONDITIONAL_CALL @ 0x00b5dd04 (in FUN_00b5dac0) CALL 0x00b9dbe0
+  UNCONDITIONAL_CALL @ 0x00b703ce (in FUN_00b70390) CALL 0x00b9dbe0
+  UNCONDITIONAL_CALL @ 0x00b703fe (in FUN_00b70390) CALL 0x00b9dbe0
+  Total printed refs: 5
+
+======================================================================
+PPLighting light-list camera metric @ 0x00b9dbe0
+======================================================================
+  Function: FUN_00b9dbe0 @ 0x00b9dbe0, Size: 205 bytes
+
+void __thiscall FUN_00b9dbe0(int param_1,int param_2)
+
+{
+  int iVar1;
+  float10 fVar2;
+  
+  iVar1 = *(int *)(param_1 + 0xf8);
+  fVar2 = (float10)FUN_00ec6040();
+  *(float *)(param_1 + 0xc) = ((float)fVar2 - *(float *)(param_2 + 0xc)) / *(float *)(iVar1 + 0xe0);
+  return;
+}
+
+
+
+--- Calls FROM PPLighting light-list camera metric (0x00b9dbe0) ---
+  0x00b9dc83 -> 0x00ec6040 FUN_00ec6040
+  Total: 1 calls
+
+======================================================================
+RAW FUNCTION: PPLighting light-list camera metric @ 0x00b9dbe0
+======================================================================
+  0x00b9dbe0 +0x0000  83 ec 18                 SUB ESP,0x18                                   
+  0x00b9dbe3 +0x0003  a1 c8 91 1f 01           MOV EAX,[0x011f91c8]                           READ->0x011f91c8
+  0x00b9dbe8 +0x0008  8b 90 e8 01 00 00        MOV EDX,dword ptr [EAX + 0x1e8]                
+  0x00b9dbee +0x000e  53                       PUSH EBX                                       
+  0x00b9dbef +0x000f  8b d9                    MOV EBX,ECX                                    
+  0x00b9dbf1 +0x0011  8b 88 e4 01 00 00        MOV ECX,dword ptr [EAX + 0x1e4]                
+  0x00b9dbf7 +0x0017  8b 80 ec 01 00 00        MOV EAX,dword ptr [EAX + 0x1ec]                
+  0x00b9dbfd +0x001d  56                       PUSH ESI                                       
+  0x00b9dbfe +0x001e  8b b3 f8 00 00 00        MOV ESI,dword ptr [EBX + 0xf8]                 
+  0x00b9dc04 +0x0024  89 4c 24 08              MOV dword ptr [ESP + 0x8],ECX                  WRITE->0x-0000018
+  0x00b9dc08 +0x0028  d9 44 24 08              FLD float ptr [ESP + 0x8]                      READ->0x-0000018
+  0x00b9dc0c +0x002c  d8 86 8c 00 00 00        FADD float ptr [ESI + 0x8c]                    
+  0x00b9dc12 +0x0032  89 54 24 0c              MOV dword ptr [ESP + 0xc],EDX                  WRITE->0x-0000014
+  0x00b9dc16 +0x0036  89 44 24 10              MOV dword ptr [ESP + 0x10],EAX                 WRITE->0x-0000010
+  0x00b9dc1a +0x003a  57                       PUSH EDI                                       
+  0x00b9dc1b +0x003b  d9 5c 24 18              FSTP float ptr [ESP + 0x18]                    WRITE->0x-000000c
+  0x00b9dc1f +0x003f  8b 7c 24 28              MOV EDI,dword ptr [ESP + 0x28]                 READ->0x00000004
+  0x00b9dc23 +0x0043  d9 86 90 00 00 00        FLD float ptr [ESI + 0x90]                     
+  0x00b9dc29 +0x0049  d8 44 24 10              FADD float ptr [ESP + 0x10]                    READ->0x-0000014
+  0x00b9dc2d +0x004d  d9 5c 24 1c              FSTP float ptr [ESP + 0x1c]                    WRITE->0x-0000008
+  0x00b9dc31 +0x0051  d9 86 94 00 00 00        FLD float ptr [ESI + 0x94]                     
+  0x00b9dc37 +0x0057  d8 44 24 14              FADD float ptr [ESP + 0x14]                    READ->0x-0000010
+  0x00b9dc3b +0x005b  d9 5c 24 20              FSTP float ptr [ESP + 0x20]                    WRITE->0x-0000004
+  0x00b9dc3f +0x005f  d9 44 24 18              FLD float ptr [ESP + 0x18]                     READ->0x-000000c
+  0x00b9dc43 +0x0063  d8 27                    FSUB float ptr [EDI]                           
+  0x00b9dc45 +0x0065  d9 5c 24 0c              FSTP float ptr [ESP + 0xc]                     WRITE->0x-0000018
+  0x00b9dc49 +0x0069  d9 44 24 1c              FLD float ptr [ESP + 0x1c]                     READ->0x-0000008
+  0x00b9dc4d +0x006d  d8 67 04                 FSUB float ptr [EDI + 0x4]                     
+  0x00b9dc50 +0x0070  d9 5c 24 10              FSTP float ptr [ESP + 0x10]                    WRITE->0x-0000014
+  0x00b9dc54 +0x0074  d9 44 24 20              FLD float ptr [ESP + 0x20]                     READ->0x-0000004
+  0x00b9dc58 +0x0078  d8 67 08                 FSUB float ptr [EDI + 0x8]                     
+  0x00b9dc5b +0x007b  d9 5c 24 14              FSTP float ptr [ESP + 0x14]                    WRITE->0x-0000010
+  0x00b9dc5f +0x007f  d9 44 24 10              FLD float ptr [ESP + 0x10]                     READ->0x-0000014
+  0x00b9dc63 +0x0083  d9 44 24 0c              FLD float ptr [ESP + 0xc]                      READ->0x-0000018
+  0x00b9dc67 +0x0087  d9 44 24 14              FLD float ptr [ESP + 0x14]                     READ->0x-0000010
+  0x00b9dc6b +0x008b  d9 c1                    FLD ST1                                        
+  0x00b9dc6d +0x008d  de ca                    FMULP ST2                                      
+  0x00b9dc6f +0x008f  d9 c2                    FLD ST2                                        
+  0x00b9dc71 +0x0091  de cb                    FMULP ST3                                      
+  0x00b9dc73 +0x0093  d9 c9                    FXCH                                           
+  0x00b9dc75 +0x0095  de c2                    FADDP ST2,ST0                                  
+  0x00b9dc77 +0x0097  dc c8                    FMUL ST0                                       
+  0x00b9dc79 +0x0099  de c1                    FADDP                                          
+  0x00b9dc7b +0x009b  d9 5c 24 28              FSTP float ptr [ESP + 0x28]                    WRITE->0x00000004
+  0x00b9dc7f +0x009f  d9 44 24 28              FLD float ptr [ESP + 0x28]                     READ->0x00000004
+  0x00b9dc83 +0x00a3  e8 b8 83 32 00           CALL 0x00ec6040                                UNCONDITIONAL_CALL->0x00ec6040
+  0x00b9dc88 +0x00a8  d9 5c 24 28              FSTP float ptr [ESP + 0x28]                    WRITE->0x00000004
+  0x00b9dc8c +0x00ac  d9 44 24 28              FLD float ptr [ESP + 0x28]                     READ->0x00000004
+  0x00b9dc90 +0x00b0  d8 67 0c                 FSUB float ptr [EDI + 0xc]                     
+  0x00b9dc93 +0x00b3  5f                       POP EDI                                        
+  0x00b9dc94 +0x00b4  d8 b6 e0 00 00 00        FDIV float ptr [ESI + 0xe0]                    
+  0x00b9dc9a +0x00ba  5e                       POP ESI                                        
+  0x00b9dc9b +0x00bb  d9 5c 24 20              FSTP float ptr [ESP + 0x20]                    WRITE->0x00000004
+  0x00b9dc9f +0x00bf  d9 44 24 20              FLD float ptr [ESP + 0x20]                     READ->0x00000004
+  0x00b9dca3 +0x00c3  d9 53 0c                 FST float ptr [EBX + 0xc]                      
+  0x00b9dca6 +0x00c6  5b                       POP EBX                                        
+  0x00b9dca7 +0x00c7  83 c4 18                 ADD ESP,0x18                                   
+  0x00b9dcaa +0x00ca  c2 04 00                 RET 0x4                                        
+  Total instructions: 58
+
+----------------------------------------------------------------------
+References TO 0x00b719e0 (alternate PPLighting light metric)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00b7bcf9 (in FUN_00b7ba70) CALL 0x00b719e0
+  UNCONDITIONAL_CALL @ 0x00bbeb1f (in FUN_00bbe9c0) CALL 0x00b719e0
+  UNCONDITIONAL_CALL @ 0x00bbebbe (in FUN_00bbe9c0) CALL 0x00b719e0
+  UNCONDITIONAL_CALL @ 0x00bc401b (in FUN_00bc3e40) CALL 0x00b719e0
+  UNCONDITIONAL_CALL @ 0x00bc40d6 (in FUN_00bc3e40) CALL 0x00b719e0
+  Total printed refs: 5
+
+======================================================================
+alternate PPLighting light metric @ 0x00b719e0
+======================================================================
+  Function: FUN_00b719e0 @ 0x00b719e0, Size: 39 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+float10 __fastcall FUN_00b719e0(float *param_1)
+
+{
+  return (float10)(param_1[2] * (float)_DAT_010ae8b0 +
+                  *param_1 * (float)_DAT_010ae8b8 + param_1[1] * (float)_DAT_010ae8c0);
+}
+
+
+
+--- Calls FROM alternate PPLighting light metric (0x00b719e0) ---
+  Total: 0 calls
+
+======================================================================
+RAW FUNCTION: alternate PPLighting light metric @ 0x00b719e0
+======================================================================
+  0x00b719e0 +0x0000  51                       PUSH ECX                                       
+  0x00b719e1 +0x0001  d9 41 04                 FLD float ptr [ECX + 0x4]                      
+  0x00b719e4 +0x0004  dc 0d c0 e8 0a 01        FMUL double ptr [0x010ae8c0]                   READ->0x010ae8c0
+  0x00b719ea +0x000a  d9 01                    FLD float ptr [ECX]                            
+  0x00b719ec +0x000c  dc 0d b8 e8 0a 01        FMUL double ptr [0x010ae8b8]                   READ->0x010ae8b8
+  0x00b719f2 +0x0012  de c1                    FADDP                                          
+  0x00b719f4 +0x0014  d9 41 08                 FLD float ptr [ECX + 0x8]                      
+  0x00b719f7 +0x0017  dc 0d b0 e8 0a 01        FMUL double ptr [0x010ae8b0]                   READ->0x010ae8b0
+  0x00b719fd +0x001d  de c1                    FADDP                                          
+  0x00b719ff +0x001f  d9 1c 24                 FSTP float ptr [ESP]                           DATA->0x-0000004
+  0x00b71a02 +0x0022  d9 04 24                 FLD float ptr [ESP]                            DATA->0x-0000004
+  0x00b71a05 +0x0025  59                       POP ECX                                        
+  0x00b71a06 +0x0026  c3                       RET                                            
+  Total instructions: 13
+
+----------------------------------------------------------------------
+References TO 0x00b9bb10 (shadow candidate transition initializer)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0087177f (in FUN_00871290) CALL 0x00b9bb10
+  UNCONDITIONAL_CALL @ 0x008717aa (in FUN_00871290) CALL 0x00b9bb10
+  UNCONDITIONAL_CALL @ 0x00b5cc63 (in FUN_00b5cbd0) CALL 0x00b9bb10
+  Total printed refs: 3
+
+======================================================================
+shadow candidate transition initializer @ 0x00b9bb10
+======================================================================
+  Function: FUN_00b9bb10 @ 0x00b9bb10, Size: 147 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+void __thiscall FUN_00b9bb10(int param_1,float param_2,char param_3)
+
+{
+  float fVar1;
+  
+  if (param_2 == *(float *)(param_1 + 0xd8)) {
+    return;
+  }
+  if (param_3 == '\0') {
+    fVar1 = *(float *)(param_1 + 0xdc) / _DAT_011ad834;
+    if (fVar1 < (float)_DAT_01012060) {
+      fVar1 = 0.0;
+    }
+    if (1.0 < fVar1) {
+      fVar1 = 1.0;
+    }
+    *(float *)(param_1 + 0xdc) = (1.0 - fVar1) * _DAT_011ad834;
+    *(float *)(param_1 + 0xd8) = param_2;
+    return;
+  }
+  *(undefined4 *)(param_1 + 0xdc) = 0x3f800000;
+  *(float *)(param_1 + 0xd8) = param_2;
+  return;
+}
+
+
+
+--- Calls FROM shadow candidate transition initializer (0x00b9bb10) ---
+  Total: 0 calls
+
+======================================================================
+RAW FUNCTION: shadow candidate transition initializer @ 0x00b9bb10
+======================================================================
+  0x00b9bb10 +0x0000  d9 81 d8 00 00 00        FLD float ptr [ECX + 0xd8]                     
+  0x00b9bb16 +0x0006  d9 44 24 04              FLD float ptr [ESP + 0x4]                      READ->0x00000004
+  0x00b9bb1a +0x000a  d9 c0                    FLD ST0                                        
+  0x00b9bb1c +0x000c  dd ea                    FUCOMP ST2                                     
+  0x00b9bb1e +0x000e  df e0                    FNSTSW AX                                      
+  0x00b9bb20 +0x0010  dd d9                    FSTP ST1                                       
+  0x00b9bb22 +0x0012  f6 c4 44                 TEST AH,0x44                                   
+  0x00b9bb25 +0x0015  7b 77                    JNP 0x00b9bb9e                                 CONDITIONAL_JUMP->0x00b9bb9e
+  0x00b9bb27 +0x0017  80 7c 24 08 00           CMP byte ptr [ESP + 0x8],0x0                   READ->0x00000008
+  0x00b9bb2c +0x001c  74 11                    JZ 0x00b9bb3f                                  CONDITIONAL_JUMP->0x00b9bb3f
+  0x00b9bb2e +0x001e  d9 e8                    FLD1                                           
+  0x00b9bb30 +0x0020  d9 99 dc 00 00 00        FSTP float ptr [ECX + 0xdc]                    
+  0x00b9bb36 +0x0026  d9 99 d8 00 00 00        FSTP float ptr [ECX + 0xd8]                    
+  0x00b9bb3c +0x002c  c2 08 00                 RET 0x8                                        
+  0x00b9bb3f +0x002f  d9 81 dc 00 00 00        FLD float ptr [ECX + 0xdc]                     
+  0x00b9bb45 +0x0035  d9 05 34 d8 1a 01        FLD float ptr [0x011ad834]                     READ->0x011ad834
+  0x00b9bb4b +0x003b  d9 c0                    FLD ST0                                        
+  0x00b9bb4d +0x003d  de fa                    FDIVP ST2,ST0                                  
+  0x00b9bb4f +0x003f  d9 c9                    FXCH                                           
+  0x00b9bb51 +0x0041  d9 5c 24 08              FSTP float ptr [ESP + 0x8]                     WRITE->0x00000008
+  0x00b9bb55 +0x0045  d9 44 24 08              FLD float ptr [ESP + 0x8]                      READ->0x00000008
+  0x00b9bb59 +0x0049  dc 15 60 20 01 01        FCOM double ptr [0x01012060]                   READ->0x01012060
+  0x00b9bb5f +0x004f  df e0                    FNSTSW AX                                      
+  0x00b9bb61 +0x0051  f6 c4 05                 TEST AH,0x5                                    
+  0x00b9bb64 +0x0054  7a 04                    JP 0x00b9bb6a                                  CONDITIONAL_JUMP->0x00b9bb6a
+  0x00b9bb66 +0x0056  dd d8                    FSTP ST0                                       
+  0x00b9bb68 +0x0058  d9 ee                    FLDZ                                           
+  0x00b9bb6a +0x005a  d9 5c 24 08              FSTP float ptr [ESP + 0x8]                     WRITE->0x00000008
+  0x00b9bb6e +0x005e  d9 44 24 08              FLD float ptr [ESP + 0x8]                      READ->0x00000008
+  0x00b9bb72 +0x0062  d9 e8                    FLD1                                           
+  0x00b9bb74 +0x0064  d8 d1                    FCOM                                           
+  0x00b9bb76 +0x0066  df e0                    FNSTSW AX                                      
+  0x00b9bb78 +0x0068  f6 c4 05                 TEST AH,0x5                                    
+  0x00b9bb7b +0x006b  7a 06                    JP 0x00b9bb83                                  CONDITIONAL_JUMP->0x00b9bb83
+  0x00b9bb7d +0x006d  dd d9                    FSTP ST1                                       
+  0x00b9bb7f +0x006f  d9 e8                    FLD1                                           
+  0x00b9bb81 +0x0071  eb 02                    JMP 0x00b9bb85                                 UNCONDITIONAL_JUMP->0x00b9bb85
+  0x00b9bb83 +0x0073  d9 c9                    FXCH                                           
+  0x00b9bb85 +0x0075  d9 5c 24 08              FSTP float ptr [ESP + 0x8]                     WRITE->0x00000008
+  0x00b9bb89 +0x0079  d8 64 24 08              FSUB float ptr [ESP + 0x8]                     READ->0x00000008
+  0x00b9bb8d +0x007d  de c9                    FMULP                                          
+  0x00b9bb8f +0x007f  d9 99 dc 00 00 00        FSTP float ptr [ECX + 0xdc]                    
+  0x00b9bb95 +0x0085  d9 99 d8 00 00 00        FSTP float ptr [ECX + 0xd8]                    
+  0x00b9bb9b +0x008b  c2 08 00                 RET 0x8                                        
+  0x00b9bb9e +0x008e  dd d8                    FSTP ST0                                       
+  0x00b9bba0 +0x0090  c2 08 00                 RET 0x8                                        
+  Total instructions: 46
+
+----------------------------------------------------------------------
+References TO 0x00b9e970 (shadow candidate distance and transition fade updater)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0087184a (in FUN_00871290) CALL 0x00b9e970
+  UNCONDITIONAL_CALL @ 0x00b5e915 (in FUN_00b5e870) CALL 0x00b9e970
+  Total printed refs: 2
+
+======================================================================
+shadow candidate distance and transition fade updater @ 0x00b9e970
+======================================================================
+  Function: FUN_00b9e970 @ 0x00b9e970, Size: 1469 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+void __thiscall FUN_00b9e970(int param_1,int param_2)
+
+{
+  float fVar1;
+  float fVar2;
+  float fVar3;
+  float fVar4;
+  undefined4 *puVar5;
+  int *piVar6;
+  float fVar7;
+  char cVar8;
+  int iVar9;
+  LONG LVar10;
+  uint uVar11;
+  float *pfVar12;
+  byte bVar13;
+  float *pfVar14;
+  bool bVar15;
+  float10 fVar16;
+  float local_a0;
+  uint local_9c;
+  float local_98;
+  float local_64 [24];
+  uint local_4;
+  
+  iVar9 = *(int *)(param_1 + 0xf8);
+  fVar2 = *(float *)(iVar9 + 0x8c);
+  fVar1 = *(float *)(iVar9 + 0xe0);
+  fVar3 = *(float *)(iVar9 + 0x90);
+  cVar8 = *(char *)(param_1 + 0xec);
+  fVar4 = *(float *)(iVar9 + 0x94);
+  local_9c = 0;
+  local_9c._0_2_ = 0;
+  bVar15 = true;
+  if ((cVar8 == '\0') || (*(int *)(param_1 + 0x140) == 0)) {
+    pfVar12 = (float *)(param_2 + 0x2c);
+    pfVar14 = local_64;
+    for (iVar9 = 0x19; iVar9 != 0; iVar9 = iVar9 + -1) {
+      *pfVar14 = *pfVar12;
+      pfVar12 = pfVar12 + 1;
+      pfVar14 = pfVar14 + 1;
+    }
+    uVar11 = 0;
+    pfVar12 = local_64;
+    do {
+      if ((local_4 & 1 << ((byte)uVar11 & 0x1f)) != 0) {
+        fVar7 = pfVar12[2] * fVar4 + fVar2 * *pfVar12 + pfVar12[1] * fVar3;
+        if (fVar7 - pfVar12[3] <= -fVar1) {
+          local_9c._0_2_ = 0xff;
+          goto LAB_00b9eb47;
+        }
+        if (fVar7 - pfVar12[3] < 0.0) {
+          bVar15 = false;
+        }
+      }
+      uVar11 = uVar11 + 1;
+      pfVar12 = pfVar12 + 4;
+    } while (uVar11 < 6);
+    if ((((!bVar15) && (cVar8 != '\0')) && (2 < DAT_011f91c0)) &&
+       ((((byte)DAT_011f91d8 & 0x10) != 0 && (*(char *)(param_1 + 0xed) != '\0')))) {
+      iVar9 = 0;
+      bVar13 = 0;
+      do {
+        cVar8 = FUN_00b9de90(fVar2,fVar3,fVar4,fVar1,param_2,iVar9);
+        if (cVar8 == '\0') {
+          local_9c = local_9c | 1 << (bVar13 & 0x1f);
+        }
+        iVar9 = iVar9 + 1;
+        bVar13 = bVar13 + 1;
+      } while ((ushort)iVar9 < 6);
+    }
+  }
+  else {
+    cVar8 = FUN_00b9c020(*(undefined4 *)(param_2 + 0xc),*(int *)(param_1 + 0x140));
+    local_9c._0_2_ = (-(ushort)(cVar8 != '\0') & 0xff01) + 0xff;
+  }
+LAB_00b9eb47:
+  local_a0 = *(float *)(param_1 + 0xd0);
+  local_98 = *(float *)(param_1 + 0xd4);
+  if ((short)local_9c != 0xff) {
+    fVar16 = (float10)FUN_00ec6040();
+    local_a0 = (float)fVar16 - fVar1;
+    iVar9 = FUN_00b4f5c0();
+    if (*(int *)(iVar9 + 8) != 0) {
+      iVar9 = FUN_00b4f5c0();
+      local_a0 = *(float *)(*(int *)(iVar9 + 8) + 0x110) * local_a0;
+    }
+    fVar1 = local_a0;
+    if ((local_a0 < _DAT_011f9444) || (_DAT_011f9448 == 0.0)) {
+      local_a0 = 1.0;
+LAB_00b9ed47:
+      if (*(char *)(param_1 + 0xec) != '\0') {
+        if ((fVar1 < _DAT_011f944c) || (_DAT_011f9450 == 0.0)) {
+          local_98 = 1.0;
+        }
+        else if (_DAT_011f9450 < fVar1) {
+          local_98 = 0.0;
+        }
+        else {
+          local_98 = 1.0 - (fVar1 - _DAT_011f944c) / (_DAT_011f9450 - _DAT_011f944c);
+        }
+      }
+    }
+    else if (local_a0 <= _DAT_011f9448) {
+      local_a0 = 1.0 - (local_a0 - _DAT_011f9444) / (_DAT_011f9448 - _DAT_011f9444);
+      if (0.0 < local_a0) goto LAB_00b9ed47;
+    }
+    else {
+      local_9c._0_2_ = 0xff;
+      local_a0 = 0.0;
+      local_98 = 0.0;
+    }
+    if ((*(int *)(param_1 + 0x128) != 0) && (iVar9 = FUN_00a59d30(2), iVar9 != 0)) {
+      local_98 = *(float *)(iVar9 + 0x3c) * local_98;
+    }
+    fVar1 = *(float *)(param_1 + 0xdc) + _DAT_011f9410;
+    *(float *)(param_1 + 0xdc) = fVar1;
+    fVar1 = fVar1 / _DAT_011ad834;
+    if (1.0 < fVar1) {
+      fVar1 = 1.0;
+    }
+    if (*(float *)(param_1 + 0xd8) == 0.0) {
+      fVar1 = 1.0 - fVar1;
+    }
+    local_98 = local_98 * fVar1;
+  }
+  if (*(short *)(param_1 + 0x110) == 0xff) {
+    if ((short)local_9c == 0xff) {
+LAB_00b9edf8:
+      if (((((*(float *)(param_1 + 0xd0) != 0.0) || (local_a0 <= 0.0)) &&
+           ((*(float *)(param_1 + 0xd0) <= 0.0 || (local_a0 != 0.0)))) &&
+          ((*(float *)(param_1 + 0xd4) != 0.0 || (local_98 <= 0.0)))) &&
+         ((*(float *)(param_1 + 0xd4) <= 0.0 || (local_98 != 0.0)))) goto LAB_00b9ef05;
+    }
+  }
+  else if ((short)local_9c != 0xff) goto LAB_00b9edf8;
+  puVar5 = *(undefined4 **)(param_1 + 0xe0);
+  while (puVar5 != (undefined4 *)0x0) {
+    piVar6 = puVar5 + 2;
+    puVar5 = (undefined4 *)*puVar5;
+    if (*piVar6 != 0) {
+      uVar11 = *(uint *)(*piVar6 + 0xa8);
+      if (uVar11 == 0) {
+        bVar15 = false;
+      }
+      else {
+        bVar15 = *(int *)(uVar11 + 0x1c) - 1U < 0xc;
+      }
+      if ((-(uint)bVar15 & uVar11) != 0) {
+        *(undefined1 *)((-(uint)bVar15 & uVar11) + 0x74) = 1;
+      }
+    }
+  }
+  if ((*(float *)(param_1 + 0xd4) == 0.0) && (*(int *)(param_1 + 0x10c) != 0)) {
+    FUN_00b6d4c0(*(int *)(param_1 + 0x10c));
+    piVar6 = *(int **)(param_1 + 0x10c);
+    if (piVar6 != (int *)0x0) {
+      LVar10 = InterlockedDecrement(piVar6 + 1);
+      if (LVar10 == 0) {
+        (**(code **)(*piVar6 + 4))();
+      }
+      *(undefined4 *)(param_1 + 0x10c) = 0;
+    }
+  }
+LAB_00b9ef05:
+  *(short *)(param_1 + 0x110) = (short)local_9c;
+  *(float *)(param_1 + 0xd0) = local_a0;
+  *(float *)(param_1 + 0xd4) = local_98;
+  return;
+}
+
+
+
+--- Calls FROM shadow candidate distance and transition fade updater (0x00b9e970) ---
+  0x00b9e9ef -> 0x00b9c020 FUN_00b9c020
+  0x00b9eb27 -> 0x00b9de90 FUN_00b9de90
+  0x00b9ebdf -> 0x00ec6040 FUN_00ec6040
+  0x00b9ebf4 -> 0x00b4f5c0 FUN_00b4f5c0
+  0x00b9ebff -> 0x00b4f5c0 FUN_00b4f5c0
+  0x00b9ecc2 -> 0x00a59d30 FUN_00a59d30
+  0x00b9eecf -> 0x00b6d4c0 FUN_00b6d4c0
+  0x00b9eee2 -> 0x00000067 unknown
+  Total: 8 calls
+
+======================================================================
+RAW FUNCTION: shadow candidate distance and transition fade updater @ 0x00b9e970
+======================================================================
+  0x00b9e970 +0x0000  81 ec a0 00 00 00        SUB ESP,0xa0                                   
+  0x00b9e976 +0x0006  53                       PUSH EBX                                       
+  0x00b9e977 +0x0007  55                       PUSH EBP                                       
+  0x00b9e978 +0x0008  8b e9                    MOV EBP,ECX                                    
+  0x00b9e97a +0x000a  8b 85 f8 00 00 00        MOV EAX,dword ptr [EBP + 0xf8]                 
+  0x00b9e980 +0x0010  8b 88 8c 00 00 00        MOV ECX,dword ptr [EAX + 0x8c]                 
+  0x00b9e986 +0x0016  d9 80 e0 00 00 00        FLD float ptr [EAX + 0xe0]                     
+  0x00b9e98c +0x001c  8b 90 90 00 00 00        MOV EDX,dword ptr [EAX + 0x90]                 
+  0x00b9e992 +0x0022  d9 5c 24 24              FSTP float ptr [ESP + 0x24]                    WRITE->0x-0000084
+  0x00b9e996 +0x0026  8a 9d ec 00 00 00        MOV BL,byte ptr [EBP + 0xec]                   
+  0x00b9e99c +0x002c  d9 44 24 24              FLD float ptr [ESP + 0x24]                     READ->0x-0000084
+  0x00b9e9a0 +0x0030  89 4c 24 18              MOV dword ptr [ESP + 0x18],ECX                 WRITE->0x-0000090
+  0x00b9e9a4 +0x0034  8b 88 94 00 00 00        MOV ECX,dword ptr [EAX + 0x94]                 
+  0x00b9e9aa +0x003a  89 4c 24 20              MOV dword ptr [ESP + 0x20],ECX                 WRITE->0x-0000088
+  0x00b9e9ae +0x003e  d9 44 24 20              FLD float ptr [ESP + 0x20]                     READ->0x-0000088
+  0x00b9e9b2 +0x0042  56                       PUSH ESI                                       
+  0x00b9e9b3 +0x0043  89 54 24 20              MOV dword ptr [ESP + 0x20],EDX                 WRITE->0x-000008c
+  0x00b9e9b7 +0x0047  d9 44 24 20              FLD float ptr [ESP + 0x20]                     READ->0x-000008c
+  0x00b9e9bb +0x004b  d9 ee                    FLDZ                                           
+  0x00b9e9bd +0x004d  57                       PUSH EDI                                       
+  0x00b9e9be +0x004e  c7 44 24 14 00 00 00 00  MOV dword ptr [ESP + 0x14],0x0                 WRITE->0x-000009c
+  0x00b9e9c6 +0x0056  c6 44 24 1f 01           MOV byte ptr [ESP + 0x1f],0x1                  WRITE->0x-0000091
+  0x00b9e9cb +0x005b  84 db                    TEST BL,BL                                     
+  0x00b9e9cd +0x005d  74 3f                    JZ 0x00b9ea0e                                  CONDITIONAL_JUMP->0x00b9ea0e
+  0x00b9e9cf +0x005f  8b 8d 40 01 00 00        MOV ECX,dword ptr [EBP + 0x140]                
+  0x00b9e9d5 +0x0065  85 c9                    TEST ECX,ECX                                   
+  0x00b9e9d7 +0x0067  74 35                    JZ 0x00b9ea0e                                  CONDITIONAL_JUMP->0x00b9ea0e
+  0x00b9e9d9 +0x0069  8b 94 24 b4 00 00 00     MOV EDX,dword ptr [ESP + 0xb4]                 READ->0x00000004
+  0x00b9e9e0 +0x0070  dd d8                    FSTP ST0                                       
+  0x00b9e9e2 +0x0072  8b 42 0c                 MOV EAX,dword ptr [EDX + 0xc]                  
+  0x00b9e9e5 +0x0075  dd da                    FSTP ST2                                       
+  0x00b9e9e7 +0x0077  51                       PUSH ECX                                       
+  0x00b9e9e8 +0x0078  dd d8                    FSTP ST0                                       
+  0x00b9e9ea +0x007a  50                       PUSH EAX                                       
+  0x00b9e9eb +0x007b  dd d8                    FSTP ST0                                       
+  0x00b9e9ed +0x007d  8b cd                    MOV ECX,EBP                                    
+  0x00b9e9ef +0x007f  e8 2c d6 ff ff           CALL 0x00b9c020                                UNCONDITIONAL_CALL->0x00b9c020
+  0x00b9e9f4 +0x0084  0f b6 c0                 MOVZX EAX,AL                                   
+  0x00b9e9f7 +0x0087  f7 d8                    NEG EAX                                        
+  0x00b9e9f9 +0x0089  1b c0                    SBB EAX,EAX                                    
+  0x00b9e9fb +0x008b  25 01 ff ff ff           AND EAX,0xffffff01                             
+  0x00b9ea00 +0x0090  05 ff 00 00 00           ADD EAX,0xff                                   
+  0x00b9ea05 +0x0095  89 44 24 14              MOV dword ptr [ESP + 0x14],EAX                 WRITE->0x-000009c
+  0x00b9ea09 +0x0099  e9 37 01 00 00           JMP 0x00b9eb45                                 UNCONDITIONAL_JUMP->0x00b9eb45
+  0x00b9ea0e +0x009e  8b b4 24 b4 00 00 00     MOV ESI,dword ptr [ESP + 0xb4]                 READ->0x00000004
+  0x00b9ea15 +0x00a5  83 c6 2c                 ADD ESI,0x2c                                   
+  0x00b9ea18 +0x00a8  b9 19 00 00 00           MOV ECX,0x19                                   
+  0x00b9ea1d +0x00ad  8d 7c 24 4c              LEA EDI,[ESP + 0x4c]                           DATA->0x-0000064
+  0x00b9ea21 +0x00b1  f3 a5                    MOVSD.REP ES:EDI,ESI                           
+  0x00b9ea23 +0x00b3  8b b4 24 ac 00 00 00     MOV ESI,dword ptr [ESP + 0xac]                 READ->0x-0000004
+  0x00b9ea2a +0x00ba  33 c9                    XOR ECX,ECX                                    
+  0x00b9ea2c +0x00bc  8d 54 24 4c              LEA EDX,[ESP + 0x4c]                           DATA->0x-0000064
+  0x00b9ea30 +0x00c0  b8 01 00 00 00           MOV EAX,0x1                                    
+  0x00b9ea35 +0x00c5  d3 e0                    SHL EAX,CL                                     
+  0x00b9ea37 +0x00c7  85 c6                    TEST ESI,EAX                                   
+  0x00b9ea39 +0x00c9  74 74                    JZ 0x00b9eaaf                                  CONDITIONAL_JUMP->0x00b9eaaf
+  0x00b9ea3b +0x00cb  8b 02                    MOV EAX,dword ptr [EDX]                        DATA->0x-0000064
+  0x00b9ea3d +0x00cd  89 44 24 30              MOV dword ptr [ESP + 0x30],EAX                 WRITE->0x-0000080
+  0x00b9ea41 +0x00d1  8b 42 04                 MOV EAX,dword ptr [EDX + 0x4]                  READ->0x-0000060
+  0x00b9ea44 +0x00d4  89 44 24 34              MOV dword ptr [ESP + 0x34],EAX                 WRITE->0x-000007c
+  0x00b9ea48 +0x00d8  d9 44 24 34              FLD float ptr [ESP + 0x34]                     READ->0x-000007c
+  0x00b9ea4c +0x00dc  8b 42 08                 MOV EAX,dword ptr [EDX + 0x8]                  READ->0x-000005c
+  0x00b9ea4f +0x00df  d8 ca                    FMUL ST2                                       
+  0x00b9ea51 +0x00e1  d9 44 24 20              FLD float ptr [ESP + 0x20]                     READ->0x-0000090
+  0x00b9ea55 +0x00e5  89 44 24 38              MOV dword ptr [ESP + 0x38],EAX                 WRITE->0x-0000078
+  0x00b9ea59 +0x00e9  d8 4c 24 30              FMUL float ptr [ESP + 0x30]                    READ->0x-0000080
+  0x00b9ea5d +0x00ed  8b 42 0c                 MOV EAX,dword ptr [EDX + 0xc]                  READ->0x-0000058
+  0x00b9ea60 +0x00f0  89 44 24 3c              MOV dword ptr [ESP + 0x3c],EAX                 WRITE->0x-0000074
+  0x00b9ea64 +0x00f4  de c1                    FADDP                                          
+  0x00b9ea66 +0x00f6  d9 44 24 38              FLD float ptr [ESP + 0x38]                     READ->0x-0000078
+  0x00b9ea6a +0x00fa  d8 cc                    FMUL ST4                                       
+  0x00b9ea6c +0x00fc  de c1                    FADDP                                          
+  0x00b9ea6e +0x00fe  d9 54 24 10              FST float ptr [ESP + 0x10]                     WRITE->0x-00000a0
+  0x00b9ea72 +0x0102  d9 44 24 10              FLD float ptr [ESP + 0x10]                     READ->0x-00000a0
+  0x00b9ea76 +0x0106  d9 44 24 3c              FLD float ptr [ESP + 0x3c]                     READ->0x-0000074
+  0x00b9ea7a +0x010a  d9 c0                    FLD ST0                                        
+  0x00b9ea7c +0x010c  de ea                    FSUBP ST2,ST0                                  
+  0x00b9ea7e +0x010e  d9 c9                    FXCH                                           
+  0x00b9ea80 +0x0110  d9 5c 24 10              FSTP float ptr [ESP + 0x10]                    WRITE->0x-00000a0
+  0x00b9ea84 +0x0114  d9 44 24 10              FLD float ptr [ESP + 0x10]                     READ->0x-00000a0
+  0x00b9ea88 +0x0118  d9 c6                    FLD ST6                                        
+  0x00b9ea8a +0x011a  d9 e0                    FCHS                                           
+  0x00b9ea8c +0x011c  de d9                    FCOMPP                                         
+  0x00b9ea8e +0x011e  df e0                    FNSTSW AX                                      
+  0x00b9ea90 +0x0120  f6 c4 01                 TEST AH,0x1                                    
+  0x00b9ea93 +0x0123  0f 84 d7 01 00 00        JZ 0x00b9ec70                                  CONDITIONAL_JUMP->0x00b9ec70
+  0x00b9ea99 +0x0129  de e9                    FSUBP                                          
+  0x00b9ea9b +0x012b  d9 5c 24 10              FSTP float ptr [ESP + 0x10]                    WRITE->0x-00000a0
+  0x00b9ea9f +0x012f  d8 54 24 10              FCOM float ptr [ESP + 0x10]                    READ->0x-00000a0
+  0x00b9eaa3 +0x0133  df e0                    FNSTSW AX                                      
+  0x00b9eaa5 +0x0135  f6 c4 41                 TEST AH,0x41                                   
+  0x00b9eaa8 +0x0138  75 05                    JNZ 0x00b9eaaf                                 CONDITIONAL_JUMP->0x00b9eaaf
+  0x00b9eaaa +0x013a  c6 44 24 1f 00           MOV byte ptr [ESP + 0x1f],0x0                  WRITE->0x-0000091
+  0x00b9eaaf +0x013f  41                       INC ECX                                        
+  0x00b9eab0 +0x0140  83 c2 10                 ADD EDX,0x10                                   
+  0x00b9eab3 +0x0143  83 f9 06                 CMP ECX,0x6                                    
+  0x00b9eab6 +0x0146  0f 82 74 ff ff ff        JC 0x00b9ea30                                  CONDITIONAL_JUMP->0x00b9ea30
+  0x00b9eabc +0x014c  80 7c 24 1f 00           CMP byte ptr [ESP + 0x1f],0x0                  READ->0x-0000091
+  0x00b9eac1 +0x0151  dd db                    FSTP ST3                                       
+  0x00b9eac3 +0x0153  dd d9                    FSTP ST1                                       
+  0x00b9eac5 +0x0155  dd d8                    FSTP ST0                                       
+  0x00b9eac7 +0x0157  75 7e                    JNZ 0x00b9eb47                                 CONDITIONAL_JUMP->0x00b9eb47
+  0x00b9eac9 +0x0159  84 db                    TEST BL,BL                                     
+  0x00b9eacb +0x015b  74 7a                    JZ 0x00b9eb47                                  CONDITIONAL_JUMP->0x00b9eb47
+  0x00b9eacd +0x015d  83 3d c0 91 1f 01 03     CMP dword ptr [0x011f91c0],0x3                 READ->0x011f91c0
+  0x00b9ead4 +0x0164  7c 71                    JL 0x00b9eb47                                  CONDITIONAL_JUMP->0x00b9eb47
+  0x00b9ead6 +0x0166  f6 05 d8 91 1f 01 10     TEST byte ptr [0x011f91d8],0x10                READ->0x011f91d8
+  0x00b9eadd +0x016d  b8 00 00 00 00           MOV EAX,0x0                                    
+  0x00b9eae2 +0x0172  0f 9f c0                 SETG AL                                        
+  0x00b9eae5 +0x0175  84 c0                    TEST AL,AL                                     
+  0x00b9eae7 +0x0177  74 5e                    JZ 0x00b9eb47                                  CONDITIONAL_JUMP->0x00b9eb47
+  0x00b9eae9 +0x0179  80 bd ed 00 00 00 00     CMP byte ptr [EBP + 0xed],0x0                  
+  0x00b9eaf0 +0x0180  74 55                    JZ 0x00b9eb47                                  CONDITIONAL_JUMP->0x00b9eb47
+  0x00b9eaf2 +0x0182  8b 7c 24 2c              MOV EDI,dword ptr [ESP + 0x2c]                 READ->0x-0000084
+  0x00b9eaf6 +0x0186  dd d8                    FSTP ST0                                       
+  0x00b9eaf8 +0x0188  33 f6                    XOR ESI,ESI                                    
+  0x00b9eafa +0x018a  33 db                    XOR EBX,EBX                                    
+  0x00b9eafc +0x018c  8d 64 24 00              LEA ESP,[ESP]                                  DATA->0x-00000b0
+  0x00b9eb00 +0x0190  8b 8c 24 b4 00 00 00     MOV ECX,dword ptr [ESP + 0xb4]                 READ->0x00000004
+  0x00b9eb07 +0x0197  8b 54 24 20              MOV EDX,dword ptr [ESP + 0x20]                 READ->0x-0000090
+  0x00b9eb0b +0x019b  56                       PUSH ESI                                       
+  0x00b9eb0c +0x019c  51                       PUSH ECX                                       
+  0x00b9eb0d +0x019d  8b 4c 24 2c              MOV ECX,dword ptr [ESP + 0x2c]                 READ->0x-000008c
+  0x00b9eb11 +0x01a1  83 ec 10                 SUB ESP,0x10                                   
+  0x00b9eb14 +0x01a4  8b c4                    MOV EAX,ESP                                    
+  0x00b9eb16 +0x01a6  89 10                    MOV dword ptr [EAX],EDX                        DATA->0x-00000c8
+  0x00b9eb18 +0x01a8  8b 54 24 40              MOV EDX,dword ptr [ESP + 0x40]                 READ->0x-0000088
+  0x00b9eb1c +0x01ac  89 48 04                 MOV dword ptr [EAX + 0x4],ECX                  WRITE->0x-00000c4
+  0x00b9eb1f +0x01af  89 50 08                 MOV dword ptr [EAX + 0x8],EDX                  WRITE->0x-00000c0
+  0x00b9eb22 +0x01b2  8b cd                    MOV ECX,EBP                                    
+  0x00b9eb24 +0x01b4  89 78 0c                 MOV dword ptr [EAX + 0xc],EDI                  WRITE->0x-00000bc
+  0x00b9eb27 +0x01b7  e8 64 f3 ff ff           CALL 0x00b9de90                                UNCONDITIONAL_CALL->0x00b9de90
+  0x00b9eb2c +0x01bc  84 c0                    TEST AL,AL                                     
+  0x00b9eb2e +0x01be  75 0d                    JNZ 0x00b9eb3d                                 CONDITIONAL_JUMP->0x00b9eb3d
+  0x00b9eb30 +0x01c0  b8 01 00 00 00           MOV EAX,0x1                                    
+  0x00b9eb35 +0x01c5  8b cb                    MOV ECX,EBX                                    
+  0x00b9eb37 +0x01c7  d3 e0                    SHL EAX,CL                                     
+  0x00b9eb39 +0x01c9  09 44 24 14              OR dword ptr [ESP + 0x14],EAX                  READ_WRITE->0x-000009c
+  0x00b9eb3d +0x01cd  46                       INC ESI                                        
+  0x00b9eb3e +0x01ce  43                       INC EBX                                        
+  0x00b9eb3f +0x01cf  66 83 fe 06              CMP SI,0x6                                     
+  0x00b9eb43 +0x01d3  72 bb                    JC 0x00b9eb00                                  CONDITIONAL_JUMP->0x00b9eb00
+  0x00b9eb45 +0x01d5  d9 ee                    FLDZ                                           
+  0x00b9eb47 +0x01d7  d9 85 d0 00 00 00        FLD float ptr [EBP + 0xd0]                     
+  0x00b9eb4d +0x01dd  8b 7c 24 14              MOV EDI,dword ptr [ESP + 0x14]                 READ->0x-000009c
+  0x00b9eb51 +0x01e1  d9 5c 24 10              FSTP float ptr [ESP + 0x10]                    WRITE->0x-00000a0
+  0x00b9eb55 +0x01e5  b9 ff 00 00 00           MOV ECX,0xff                                   
+  0x00b9eb5a +0x01ea  d9 85 d4 00 00 00        FLD float ptr [EBP + 0xd4]                     
+  0x00b9eb60 +0x01f0  d9 5c 24 18              FSTP float ptr [ESP + 0x18]                    WRITE->0x-0000098
+  0x00b9eb64 +0x01f4  66 3b f9                 CMP DI,CX                                      
+  0x00b9eb67 +0x01f7  0f 84 63 02 00 00        JZ 0x00b9edd0                                  CONDITIONAL_JUMP->0x00b9edd0
+  0x00b9eb6d +0x01fd  8b 94 24 b4 00 00 00     MOV EDX,dword ptr [ESP + 0xb4]                 READ->0x00000004
+  0x00b9eb74 +0x0204  dd d8                    FSTP ST0                                       
+  0x00b9eb76 +0x0206  8b 42 0c                 MOV EAX,dword ptr [EDX + 0xc]                  
+  0x00b9eb79 +0x0209  d9 44 24 20              FLD float ptr [ESP + 0x20]                     READ->0x-0000090
+  0x00b9eb7d +0x020d  8b 88 8c 00 00 00        MOV ECX,dword ptr [EAX + 0x8c]                 
+  0x00b9eb83 +0x0213  8b 90 90 00 00 00        MOV EDX,dword ptr [EAX + 0x90]                 
+  0x00b9eb89 +0x0219  8b 80 94 00 00 00        MOV EAX,dword ptr [EAX + 0x94]                 
+  0x00b9eb8f +0x021f  89 4c 24 40              MOV dword ptr [ESP + 0x40],ECX                 WRITE->0x-0000070
+  0x00b9eb93 +0x0223  d8 64 24 40              FSUB float ptr [ESP + 0x40]                    READ->0x-0000070
+  0x00b9eb97 +0x0227  89 54 24 44              MOV dword ptr [ESP + 0x44],EDX                 WRITE->0x-000006c
+  0x00b9eb9b +0x022b  89 44 24 48              MOV dword ptr [ESP + 0x48],EAX                 WRITE->0x-0000068
+  0x00b9eb9f +0x022f  d9 5c 24 30              FSTP float ptr [ESP + 0x30]                    WRITE->0x-0000080
+  0x00b9eba3 +0x0233  d9 44 24 24              FLD float ptr [ESP + 0x24]                     READ->0x-000008c
+  0x00b9eba7 +0x0237  d8 64 24 44              FSUB float ptr [ESP + 0x44]                    READ->0x-000006c
+  0x00b9ebab +0x023b  d9 5c 24 34              FSTP float ptr [ESP + 0x34]                    WRITE->0x-000007c
+  0x00b9ebaf +0x023f  d9 44 24 28              FLD float ptr [ESP + 0x28]                     READ->0x-0000088
+  0x00b9ebb3 +0x0243  d8 64 24 48              FSUB float ptr [ESP + 0x48]                    READ->0x-0000068
+  0x00b9ebb7 +0x0247  d9 5c 24 38              FSTP float ptr [ESP + 0x38]                    WRITE->0x-0000078
+  0x00b9ebbb +0x024b  d9 44 24 34              FLD float ptr [ESP + 0x34]                     READ->0x-000007c
+  0x00b9ebbf +0x024f  d9 44 24 30              FLD float ptr [ESP + 0x30]                     READ->0x-0000080
+  0x00b9ebc3 +0x0253  d9 44 24 38              FLD float ptr [ESP + 0x38]                     READ->0x-0000078
+  0x00b9ebc7 +0x0257  d9 c1                    FLD ST1                                        
+  0x00b9ebc9 +0x0259  de ca                    FMULP ST2                                      
+  0x00b9ebcb +0x025b  d9 c2                    FLD ST2                                        
+  0x00b9ebcd +0x025d  de cb                    FMULP ST3                                      
+  0x00b9ebcf +0x025f  d9 c9                    FXCH                                           
+  0x00b9ebd1 +0x0261  de c2                    FADDP ST2,ST0                                  
+  0x00b9ebd3 +0x0263  dc c8                    FMUL ST0                                       
+  0x00b9ebd5 +0x0265  de c1                    FADDP                                          
+  0x00b9ebd7 +0x0267  d9 5c 24 10              FSTP float ptr [ESP + 0x10]                    WRITE->0x-00000a0
+  0x00b9ebdb +0x026b  d9 44 24 10              FLD float ptr [ESP + 0x10]                     READ->0x-00000a0
+  0x00b9ebdf +0x026f  e8 5c 74 32 00           CALL 0x00ec6040                                UNCONDITIONAL_CALL->0x00ec6040
+  0x00b9ebe4 +0x0274  d9 5c 24 10              FSTP float ptr [ESP + 0x10]                    WRITE->0x-00000a0
+  0x00b9ebe8 +0x0278  d9 44 24 10              FLD float ptr [ESP + 0x10]                     READ->0x-00000a0
+  0x00b9ebec +0x027c  d8 64 24 2c              FSUB float ptr [ESP + 0x2c]                    READ->0x-0000084
+  0x00b9ebf0 +0x0280  d9 5c 24 10              FSTP float ptr [ESP + 0x10]                    WRITE->0x-00000a0
+  0x00b9ebf4 +0x0284  e8 c7 09 fb ff           CALL 0x00b4f5c0                                UNCONDITIONAL_CALL->0x00b4f5c0
+  0x00b9ebf9 +0x0289  83 78 08 00              CMP dword ptr [EAX + 0x8],0x0                  
+  0x00b9ebfd +0x028d  74 16                    JZ 0x00b9ec15                                  CONDITIONAL_JUMP->0x00b9ec15
+  0x00b9ebff +0x028f  e8 bc 09 fb ff           CALL 0x00b4f5c0                                UNCONDITIONAL_CALL->0x00b4f5c0
+  0x00b9ec04 +0x0294  8b 48 08                 MOV ECX,dword ptr [EAX + 0x8]                  
+  0x00b9ec07 +0x0297  d9 81 10 01 00 00        FLD float ptr [ECX + 0x110]                    
+  0x00b9ec0d +0x029d  d8 4c 24 10              FMUL float ptr [ESP + 0x10]                    READ->0x-00000a0
+  0x00b9ec11 +0x02a1  d9 5c 24 10              FSTP float ptr [ESP + 0x10]                    WRITE->0x-00000a0
+  0x00b9ec15 +0x02a5  d9 44 24 10              FLD float ptr [ESP + 0x10]                     READ->0x-00000a0
+  0x00b9ec19 +0x02a9  d9 05 44 94 1f 01        FLD float ptr [0x011f9444]                     READ->0x011f9444
+  0x00b9ec1f +0x02af  d8 d1                    FCOM                                           
+  0x00b9ec21 +0x02b1  df e0                    FNSTSW AX                                      
+  0x00b9ec23 +0x02b3  d9 e8                    FLD1                                           
+  0x00b9ec25 +0x02b5  d9 e8                    FLD1                                           
+  0x00b9ec27 +0x02b7  f6 c4 41                 TEST AH,0x41                                   
+  0x00b9ec2a +0x02ba  0f 84 07 01 00 00        JZ 0x00b9ed37                                  CONDITIONAL_JUMP->0x00b9ed37
+  0x00b9ec30 +0x02c0  d9 ee                    FLDZ                                           
+  0x00b9ec32 +0x02c2  d9 c0                    FLD ST0                                        
+  0x00b9ec34 +0x02c4  d9 05 48 94 1f 01        FLD float ptr [0x011f9448]                     READ->0x011f9448
+  0x00b9ec3a +0x02ca  dd e1                    FUCOM                                          
+  0x00b9ec3c +0x02cc  df e0                    FNSTSW AX                                      
+  0x00b9ec3e +0x02ce  dd d9                    FSTP ST1                                       
+  0x00b9ec40 +0x02d0  f6 c4 44                 TEST AH,0x44                                   
+  0x00b9ec43 +0x02d3  0f 8b 4b 01 00 00        JNP 0x00b9ed94                                 CONDITIONAL_JUMP->0x00b9ed94
+  0x00b9ec49 +0x02d9  d8 d5                    FCOM ST5                                       
+  0x00b9ec4b +0x02db  df e0                    FNSTSW AX                                      
+  0x00b9ec4d +0x02dd  f6 c4 05                 TEST AH,0x5                                    
+  0x00b9ec50 +0x02e0  7a 35                    JP 0x00b9ec87                                  CONDITIONAL_JUMP->0x00b9ec87
+  0x00b9ec52 +0x02e2  dd dd                    FSTP ST5                                       
+  0x00b9ec54 +0x02e4  c7 44 24 14 ff 00 00 00  MOV dword ptr [ESP + 0x14],0xff                WRITE->0x-000009c
+  0x00b9ec5c +0x02ec  8b 7c 24 14              MOV EDI,dword ptr [ESP + 0x14]                 READ->0x-000009c
+  0x00b9ec60 +0x02f0  dd db                    FSTP ST3                                       
+  0x00b9ec62 +0x02f2  dd db                    FSTP ST3                                       
+  0x00b9ec64 +0x02f4  dd d8                    FSTP ST0                                       
+  0x00b9ec66 +0x02f6  d9 54 24 10              FST float ptr [ESP + 0x10]                     WRITE->0x-00000a0
+  0x00b9ec6a +0x02fa  d9 54 24 18              FST float ptr [ESP + 0x18]                     WRITE->0x-0000098
+  0x00b9ec6e +0x02fe  eb 42                    JMP 0x00b9ecb2                                 UNCONDITIONAL_JUMP->0x00b9ecb2
+  0x00b9ec70 +0x0300  dd d9                    FSTP ST1                                       
+  0x00b9ec72 +0x0302  c7 44 24 14 ff 00 00 00  MOV dword ptr [ESP + 0x14],0xff                WRITE->0x-000009c
+  0x00b9ec7a +0x030a  dd d8                    FSTP ST0                                       
+  0x00b9ec7c +0x030c  dd db                    FSTP ST3                                       
+  0x00b9ec7e +0x030e  dd d9                    FSTP ST1                                       
+  0x00b9ec80 +0x0310  dd d8                    FSTP ST0                                       
+  0x00b9ec82 +0x0312  e9 c0 fe ff ff           JMP 0x00b9eb47                                 UNCONDITIONAL_JUMP->0x00b9eb47
+  0x00b9ec87 +0x0317  d9 c5                    FLD ST5                                        
+  0x00b9ec89 +0x0319  d8 e5                    FSUB ST0,ST5                                   
+  0x00b9ec8b +0x031b  d9 c9                    FXCH                                           
+  0x00b9ec8d +0x031d  de e5                    FSUBRP ST5,ST0                                 
+  0x00b9ec8f +0x031f  de f4                    FDIVRP ST4,ST0                                 
+  0x00b9ec91 +0x0321  d9 c1                    FLD ST1                                        
+  0x00b9ec93 +0x0323  de e4                    FSUBRP ST4,ST0                                 
+  0x00b9ec95 +0x0325  d9 cb                    FXCH ST3                                       
+  0x00b9ec97 +0x0327  d9 5c 24 10              FSTP float ptr [ESP + 0x10]                    WRITE->0x-00000a0
+  0x00b9ec9b +0x032b  d9 ca                    FXCH ST2                                       
+  0x00b9ec9d +0x032d  d8 54 24 10              FCOM float ptr [ESP + 0x10]                    READ->0x-00000a0
+  0x00b9eca1 +0x0331  df e0                    FNSTSW AX                                      
+  0x00b9eca3 +0x0333  f6 c4 05                 TEST AH,0x5                                    
+  0x00b9eca6 +0x0336  0f 8b 9b 00 00 00        JNP 0x00b9ed47                                 CONDITIONAL_JUMP->0x00b9ed47
+  0x00b9ecac +0x033c  dd db                    FSTP ST3                                       
+  0x00b9ecae +0x033e  dd d8                    FSTP ST0                                       
+  0x00b9ecb0 +0x0340  d9 c9                    FXCH                                           
+  0x00b9ecb2 +0x0342  8b 8d 28 01 00 00        MOV ECX,dword ptr [EBP + 0x128]                
+  0x00b9ecb8 +0x0348  85 c9                    TEST ECX,ECX                                   
+  0x00b9ecba +0x034a  74 1e                    JZ 0x00b9ecda                                  CONDITIONAL_JUMP->0x00b9ecda
+  0x00b9ecbc +0x034c  dd d8                    FSTP ST0                                       
+  0x00b9ecbe +0x034e  6a 02                    PUSH 0x2                                       
+  0x00b9ecc0 +0x0350  dd d8                    FSTP ST0                                       
+  0x00b9ecc2 +0x0352  e8 69 b0 eb ff           CALL 0x00a59d30                                UNCONDITIONAL_CALL->0x00a59d30
+  0x00b9ecc7 +0x0357  85 c0                    TEST EAX,EAX                                   
+  0x00b9ecc9 +0x0359  74 0b                    JZ 0x00b9ecd6                                  CONDITIONAL_JUMP->0x00b9ecd6
+  0x00b9eccb +0x035b  d9 40 3c                 FLD float ptr [EAX + 0x3c]                     
+  0x00b9ecce +0x035e  d8 4c 24 18              FMUL float ptr [ESP + 0x18]                    READ->0x-0000098
+  0x00b9ecd2 +0x0362  d9 5c 24 18              FSTP float ptr [ESP + 0x18]                    WRITE->0x-0000098
+  0x00b9ecd6 +0x0366  d9 e8                    FLD1                                           
+  0x00b9ecd8 +0x0368  d9 ee                    FLDZ                                           
+  0x00b9ecda +0x036a  d9 85 dc 00 00 00        FLD float ptr [EBP + 0xdc]                     
+  0x00b9ece0 +0x0370  d8 05 10 94 1f 01        FADD float ptr [0x011f9410]                    READ->0x011f9410
+  0x00b9ece6 +0x0376  d9 5c 24 14              FSTP float ptr [ESP + 0x14]                    WRITE->0x-000009c
+  0x00b9ecea +0x037a  d9 44 24 14              FLD float ptr [ESP + 0x14]                     READ->0x-000009c
+  0x00b9ecee +0x037e  d9 95 dc 00 00 00        FST float ptr [EBP + 0xdc]                     
+  0x00b9ecf4 +0x0384  d8 35 34 d8 1a 01        FDIV float ptr [0x011ad834]                    READ->0x011ad834
+  0x00b9ecfa +0x038a  d9 5c 24 14              FSTP float ptr [ESP + 0x14]                    WRITE->0x-000009c
+  0x00b9ecfe +0x038e  d9 44 24 14              FLD float ptr [ESP + 0x14]                     READ->0x-000009c
+  0x00b9ed02 +0x0392  d8 d2                    FCOM ST2                                       
+  0x00b9ed04 +0x0394  df e0                    FNSTSW AX                                      
+  0x00b9ed06 +0x0396  f6 c4 41                 TEST AH,0x41                                   
+  0x00b9ed09 +0x0399  75 04                    JNZ 0x00b9ed0f                                 CONDITIONAL_JUMP->0x00b9ed0f
+  0x00b9ed0b +0x039b  dd d8                    FSTP ST0                                       
+  0x00b9ed0d +0x039d  d9 e8                    FLD1                                           
+  0x00b9ed0f +0x039f  d9 5c 24 14              FSTP float ptr [ESP + 0x14]                    WRITE->0x-000009c
+  0x00b9ed13 +0x03a3  d8 95 d8 00 00 00        FCOM float ptr [EBP + 0xd8]                    
+  0x00b9ed19 +0x03a9  df e0                    FNSTSW AX                                      
+  0x00b9ed1b +0x03ab  f6 c4 44                 TEST AH,0x44                                   
+  0x00b9ed1e +0x03ae  0f 8a 9e 00 00 00        JP 0x00b9edc2                                  CONDITIONAL_JUMP->0x00b9edc2
+  0x00b9ed24 +0x03b4  d9 44 24 14              FLD float ptr [ESP + 0x14]                     READ->0x-000009c
+  0x00b9ed28 +0x03b8  de ea                    FSUBP ST2,ST0                                  
+  0x00b9ed2a +0x03ba  d9 44 24 18              FLD float ptr [ESP + 0x18]                     READ->0x-0000098
+  0x00b9ed2e +0x03be  de ca                    FMULP ST2                                      
+  0x00b9ed30 +0x03c0  d9 c9                    FXCH                                           
+  0x00b9ed32 +0x03c2  e9 95 00 00 00           JMP 0x00b9edcc                                 UNCONDITIONAL_JUMP->0x00b9edcc
+  0x00b9ed37 +0x03c7  dd da                    FSTP ST2                                       
+  0x00b9ed39 +0x03c9  d9 ee                    FLDZ                                           
+  0x00b9ed3b +0x03cb  d9 ca                    FXCH ST2                                       
+  0x00b9ed3d +0x03cd  d9 c9                    FXCH                                           
+  0x00b9ed3f +0x03cf  d9 54 24 10              FST float ptr [ESP + 0x10]                     WRITE->0x-00000a0
+  0x00b9ed43 +0x03d3  d9 c9                    FXCH                                           
+  0x00b9ed45 +0x03d5  d9 ca                    FXCH ST2                                       
+  0x00b9ed47 +0x03d7  80 bd ec 00 00 00 00     CMP byte ptr [EBP + 0xec],0x0                  
+  0x00b9ed4e +0x03de  0f 84 58 ff ff ff        JZ 0x00b9ecac                                  CONDITIONAL_JUMP->0x00b9ecac
+  0x00b9ed54 +0x03e4  d9 05 4c 94 1f 01        FLD float ptr [0x011f944c]                     READ->0x011f944c
+  0x00b9ed5a +0x03ea  d8 d4                    FCOM ST4                                       
+  0x00b9ed5c +0x03ec  df e0                    FNSTSW AX                                      
+  0x00b9ed5e +0x03ee  f6 c4 41                 TEST AH,0x41                                   
+  0x00b9ed61 +0x03f1  74 52                    JZ 0x00b9edb5                                  CONDITIONAL_JUMP->0x00b9edb5
+  0x00b9ed63 +0x03f3  d9 c1                    FLD ST1                                        
+  0x00b9ed65 +0x03f5  d9 05 50 94 1f 01        FLD float ptr [0x011f9450]                     READ->0x011f9450
+  0x00b9ed6b +0x03fb  dd e1                    FUCOM                                          
+  0x00b9ed6d +0x03fd  df e0                    FNSTSW AX                                      
+  0x00b9ed6f +0x03ff  dd d9                    FSTP ST1                                       
+  0x00b9ed71 +0x0401  f6 c4 44                 TEST AH,0x44                                   
+  0x00b9ed74 +0x0404  7b 3d                    JNP 0x00b9edb3                                 CONDITIONAL_JUMP->0x00b9edb3
+  0x00b9ed76 +0x0406  dd db                    FSTP ST3                                       
+  0x00b9ed78 +0x0408  d9 cc                    FXCH ST4                                       
+  0x00b9ed7a +0x040a  d8 d2                    FCOM ST2                                       
+  0x00b9ed7c +0x040c  df e0                    FNSTSW AX                                      
+  0x00b9ed7e +0x040e  f6 c4 41                 TEST AH,0x41                                   
+  0x00b9ed81 +0x0411  75 17                    JNZ 0x00b9ed9a                                 CONDITIONAL_JUMP->0x00b9ed9a
+  0x00b9ed83 +0x0413  dd d8                    FSTP ST0                                       
+  0x00b9ed85 +0x0415  dd d9                    FSTP ST1                                       
+  0x00b9ed87 +0x0417  dd da                    FSTP ST2                                       
+  0x00b9ed89 +0x0419  d9 c9                    FXCH                                           
+  0x00b9ed8b +0x041b  d9 54 24 18              FST float ptr [ESP + 0x18]                     WRITE->0x-0000098
+  0x00b9ed8f +0x041f  e9 1e ff ff ff           JMP 0x00b9ecb2                                 UNCONDITIONAL_JUMP->0x00b9ecb2
+  0x00b9ed94 +0x0424  dd dc                    FSTP ST4                                       
+  0x00b9ed96 +0x0426  dd db                    FSTP ST3                                       
+  0x00b9ed98 +0x0428  eb a3                    JMP 0x00b9ed3d                                 UNCONDITIONAL_JUMP->0x00b9ed3d
+  0x00b9ed9a +0x042a  d8 e4                    FSUB ST0,ST4                                   
+  0x00b9ed9c +0x042c  d9 ca                    FXCH ST2                                       
+  0x00b9ed9e +0x042e  de e4                    FSUBRP ST4,ST0                                 
+  0x00b9eda0 +0x0430  d9 c9                    FXCH                                           
+  0x00b9eda2 +0x0432  de f3                    FDIVRP ST3,ST0                                 
+  0x00b9eda4 +0x0434  d9 c1                    FLD ST1                                        
+  0x00b9eda6 +0x0436  de e3                    FSUBRP ST3,ST0                                 
+  0x00b9eda8 +0x0438  d9 ca                    FXCH ST2                                       
+  0x00b9edaa +0x043a  d9 5c 24 18              FSTP float ptr [ESP + 0x18]                    WRITE->0x-0000098
+  0x00b9edae +0x043e  e9 fd fe ff ff           JMP 0x00b9ecb0                                 UNCONDITIONAL_JUMP->0x00b9ecb0
+  0x00b9edb3 +0x0443  dd dd                    FSTP ST5                                       
+  0x00b9edb5 +0x0445  dd dc                    FSTP ST4                                       
+  0x00b9edb7 +0x0447  dd db                    FSTP ST3                                       
+  0x00b9edb9 +0x0449  d9 5c 24 18              FSTP float ptr [ESP + 0x18]                    WRITE->0x-0000098
+  0x00b9edbd +0x044d  e9 ee fe ff ff           JMP 0x00b9ecb0                                 UNCONDITIONAL_JUMP->0x00b9ecb0
+  0x00b9edc2 +0x0452  dd d9                    FSTP ST1                                       
+  0x00b9edc4 +0x0454  d9 44 24 14              FLD float ptr [ESP + 0x14]                     READ->0x-000009c
+  0x00b9edc8 +0x0458  d8 4c 24 18              FMUL float ptr [ESP + 0x18]                    READ->0x-0000098
+  0x00b9edcc +0x045c  d9 5c 24 18              FSTP float ptr [ESP + 0x18]                    WRITE->0x-0000098
+  0x00b9edd0 +0x0460  0f b7 85 10 01 00 00     MOVZX EAX,word ptr [EBP + 0x110]               
+  0x00b9edd7 +0x0467  d9 44 24 18              FLD float ptr [ESP + 0x18]                     READ->0x-0000098
+  0x00b9eddb +0x046b  ba ff 00 00 00           MOV EDX,0xff                                   
+  0x00b9ede0 +0x0470  66 3b c2                 CMP AX,DX                                      
+  0x00b9ede3 +0x0473  75 0c                    JNZ 0x00b9edf1                                 CONDITIONAL_JUMP->0x00b9edf1
+  0x00b9ede5 +0x0475  8b ca                    MOV ECX,EDX                                    
+  0x00b9ede7 +0x0477  66 3b f9                 CMP DI,CX                                      
+  0x00b9edea +0x047a  75 7e                    JNZ 0x00b9ee6a                                 CONDITIONAL_JUMP->0x00b9ee6a
+  0x00b9edec +0x047c  66 3b c2                 CMP AX,DX                                      
+  0x00b9edef +0x047f  74 07                    JZ 0x00b9edf8                                  CONDITIONAL_JUMP->0x00b9edf8
+  0x00b9edf1 +0x0481  8b c2                    MOV EAX,EDX                                    
+  0x00b9edf3 +0x0483  66 3b f8                 CMP DI,AX                                      
+  0x00b9edf6 +0x0486  74 72                    JZ 0x00b9ee6a                                  CONDITIONAL_JUMP->0x00b9ee6a
+  0x00b9edf8 +0x0488  d9 c1                    FLD ST1                                        
+  0x00b9edfa +0x048a  d8 9d d0 00 00 00        FCOMP float ptr [EBP + 0xd0]                   
+  0x00b9ee00 +0x0490  df e0                    FNSTSW AX                                      
+  0x00b9ee02 +0x0492  f6 c4 44                 TEST AH,0x44                                   
+  0x00b9ee05 +0x0495  7a 0f                    JP 0x00b9ee16                                  CONDITIONAL_JUMP->0x00b9ee16
+  0x00b9ee07 +0x0497  d9 c9                    FXCH                                           
+  0x00b9ee09 +0x0499  d8 54 24 10              FCOM float ptr [ESP + 0x10]                    READ->0x-00000a0
+  0x00b9ee0d +0x049d  df e0                    FNSTSW AX                                      
+  0x00b9ee0f +0x049f  f6 c4 05                 TEST AH,0x5                                    
+  0x00b9ee12 +0x04a2  7b 5a                    JNP 0x00b9ee6e                                 CONDITIONAL_JUMP->0x00b9ee6e
+  0x00b9ee14 +0x04a4  d9 c9                    FXCH                                           
+  0x00b9ee16 +0x04a6  d9 c9                    FXCH                                           
+  0x00b9ee18 +0x04a8  d8 95 d0 00 00 00        FCOM float ptr [EBP + 0xd0]                    
+  0x00b9ee1e +0x04ae  df e0                    FNSTSW AX                                      
+  0x00b9ee20 +0x04b0  f6 c4 05                 TEST AH,0x5                                    
+  0x00b9ee23 +0x04b3  7a 0b                    JP 0x00b9ee30                                  CONDITIONAL_JUMP->0x00b9ee30
+  0x00b9ee25 +0x04b5  d8 54 24 10              FCOM float ptr [ESP + 0x10]                    READ->0x-00000a0
+  0x00b9ee29 +0x04b9  df e0                    FNSTSW AX                                      
+  0x00b9ee2b +0x04bb  f6 c4 44                 TEST AH,0x44                                   
+  0x00b9ee2e +0x04be  7b 3e                    JNP 0x00b9ee6e                                 CONDITIONAL_JUMP->0x00b9ee6e
+  0x00b9ee30 +0x04c0  d8 95 d4 00 00 00        FCOM float ptr [EBP + 0xd4]                    
+  0x00b9ee36 +0x04c6  df e0                    FNSTSW AX                                      
+  0x00b9ee38 +0x04c8  f6 c4 44                 TEST AH,0x44                                   
+  0x00b9ee3b +0x04cb  7a 09                    JP 0x00b9ee46                                  CONDITIONAL_JUMP->0x00b9ee46
+  0x00b9ee3d +0x04cd  d8 d1                    FCOM                                           
+  0x00b9ee3f +0x04cf  df e0                    FNSTSW AX                                      
+  0x00b9ee41 +0x04d1  f6 c4 05                 TEST AH,0x5                                    
+  0x00b9ee44 +0x04d4  7b 28                    JNP 0x00b9ee6e                                 CONDITIONAL_JUMP->0x00b9ee6e
+  0x00b9ee46 +0x04d6  d8 95 d4 00 00 00        FCOM float ptr [EBP + 0xd4]                    
+  0x00b9ee4c +0x04dc  df e0                    FNSTSW AX                                      
+  0x00b9ee4e +0x04de  f6 c4 05                 TEST AH,0x5                                    
+  0x00b9ee51 +0x04e1  0f 8a aa 00 00 00        JP 0x00b9ef01                                  CONDITIONAL_JUMP->0x00b9ef01
+  0x00b9ee57 +0x04e7  d9 c0                    FLD ST0                                        
+  0x00b9ee59 +0x04e9  dd ea                    FUCOMP ST2                                     
+  0x00b9ee5b +0x04eb  df e0                    FNSTSW AX                                      
+  0x00b9ee5d +0x04ed  dd d9                    FSTP ST1                                       
+  0x00b9ee5f +0x04ef  f6 c4 44                 TEST AH,0x44                                   
+  0x00b9ee62 +0x04f2  0f 8a 9b 00 00 00        JP 0x00b9ef03                                  CONDITIONAL_JUMP->0x00b9ef03
+  0x00b9ee68 +0x04f8  eb 06                    JMP 0x00b9ee70                                 UNCONDITIONAL_JUMP->0x00b9ee70
+  0x00b9ee6a +0x04fa  dd d8                    FSTP ST0                                       
+  0x00b9ee6c +0x04fc  eb 02                    JMP 0x00b9ee70                                 UNCONDITIONAL_JUMP->0x00b9ee70
+  0x00b9ee6e +0x04fe  dd d9                    FSTP ST1                                       
+  0x00b9ee70 +0x0500  8b 95 e0 00 00 00        MOV EDX,dword ptr [EBP + 0xe0]                 
+  0x00b9ee76 +0x0506  85 d2                    TEST EDX,EDX                                   
+  0x00b9ee78 +0x0508  74 37                    JZ 0x00b9eeb1                                  CONDITIONAL_JUMP->0x00b9eeb1
+  0x00b9ee7a +0x050a  8d 42 08                 LEA EAX,[EDX + 0x8]                            
+  0x00b9ee7d +0x050d  8b 00                    MOV EAX,dword ptr [EAX]                        
+  0x00b9ee7f +0x050f  8b 12                    MOV EDX,dword ptr [EDX]                        
+  0x00b9ee81 +0x0511  85 c0                    TEST EAX,EAX                                   
+  0x00b9ee83 +0x0513  74 28                    JZ 0x00b9eead                                  CONDITIONAL_JUMP->0x00b9eead
+  0x00b9ee85 +0x0515  8b 88 a8 00 00 00        MOV ECX,dword ptr [EAX + 0xa8]                 
+  0x00b9ee8b +0x051b  85 c9                    TEST ECX,ECX                                   
+  0x00b9ee8d +0x051d  75 04                    JNZ 0x00b9ee93                                 CONDITIONAL_JUMP->0x00b9ee93
+  0x00b9ee8f +0x051f  33 c0                    XOR EAX,EAX                                    
+  0x00b9ee91 +0x0521  eb 0e                    JMP 0x00b9eea1                                 UNCONDITIONAL_JUMP->0x00b9eea1
+  0x00b9ee93 +0x0523  8b 41 1c                 MOV EAX,dword ptr [ECX + 0x1c]                 
+  0x00b9ee96 +0x0526  48                       DEC EAX                                        
+  0x00b9ee97 +0x0527  be 0b 00 00 00           MOV ESI,0xb                                    
+  0x00b9ee9c +0x052c  3b f0                    CMP ESI,EAX                                    
+  0x00b9ee9e +0x052e  1b c0                    SBB EAX,EAX                                    
+  0x00b9eea0 +0x0530  40                       INC EAX                                        
+  0x00b9eea1 +0x0531  f7 d8                    NEG EAX                                        
+  0x00b9eea3 +0x0533  1b c0                    SBB EAX,EAX                                    
+  0x00b9eea5 +0x0535  23 c1                    AND EAX,ECX                                    
+  0x00b9eea7 +0x0537  74 04                    JZ 0x00b9eead                                  CONDITIONAL_JUMP->0x00b9eead
+  0x00b9eea9 +0x0539  c6 40 74 01              MOV byte ptr [EAX + 0x74],0x1                  
+  0x00b9eead +0x053d  85 d2                    TEST EDX,EDX                                   
+  0x00b9eeaf +0x053f  75 c9                    JNZ 0x00b9ee7a                                 CONDITIONAL_JUMP->0x00b9ee7a
+  0x00b9eeb1 +0x0541  d8 9d d4 00 00 00        FCOMP float ptr [EBP + 0xd4]                   
+  0x00b9eeb7 +0x0547  df e0                    FNSTSW AX                                      
+  0x00b9eeb9 +0x0549  f6 c4 44                 TEST AH,0x44                                   
+  0x00b9eebc +0x054c  7a 47                    JP 0x00b9ef05                                  CONDITIONAL_JUMP->0x00b9ef05
+  0x00b9eebe +0x054e  8b 85 0c 01 00 00        MOV EAX,dword ptr [EBP + 0x10c]                
+  0x00b9eec4 +0x0554  85 c0                    TEST EAX,EAX                                   
+  0x00b9eec6 +0x0556  74 3d                    JZ 0x00b9ef05                                  CONDITIONAL_JUMP->0x00b9ef05
+  0x00b9eec8 +0x0558  8b 0d a8 91 1f 01        MOV ECX,dword ptr [0x011f91a8]                 READ->0x011f91a8
+  0x00b9eece +0x055e  50                       PUSH EAX                                       
+  0x00b9eecf +0x055f  e8 ec e5 fc ff           CALL 0x00b6d4c0                                UNCONDITIONAL_CALL->0x00b6d4c0
+  0x00b9eed4 +0x0564  8b b5 0c 01 00 00        MOV ESI,dword ptr [EBP + 0x10c]                
+  0x00b9eeda +0x056a  85 f6                    TEST ESI,ESI                                   
+  0x00b9eedc +0x056c  74 27                    JZ 0x00b9ef05                                  CONDITIONAL_JUMP->0x00b9ef05
+  0x00b9eede +0x056e  8d 4e 04                 LEA ECX,[ESI + 0x4]                            
+  0x00b9eee1 +0x0571  51                       PUSH ECX                                       
+  0x00b9eee2 +0x0572  ff 15 c4 f1 fd 00        CALL dword ptr [0x00fdf1c4]                    READ->0x00fdf1c4, COMPUTED_CALL->0x00000067
+  0x00b9eee8 +0x0578  85 c0                    TEST EAX,EAX                                   
+  0x00b9eeea +0x057a  75 09                    JNZ 0x00b9eef5                                 CONDITIONAL_JUMP->0x00b9eef5
+  0x00b9eeec +0x057c  8b 16                    MOV EDX,dword ptr [ESI]                        
+  0x00b9eeee +0x057e  8b 42 04                 MOV EAX,dword ptr [EDX + 0x4]                  
+  0x00b9eef1 +0x0581  8b ce                    MOV ECX,ESI                                    
+  0x00b9eef3 +0x0583  ff d0                    CALL EAX                                       
+  0x00b9eef5 +0x0585  c7 85 0c 01 00 00 00 00 00 00 MOV dword ptr [EBP + 0x10c],0x0                
+  0x00b9eeff +0x058f  eb 04                    JMP 0x00b9ef05                                 UNCONDITIONAL_JUMP->0x00b9ef05
+  0x00b9ef01 +0x0591  dd d9                    FSTP ST1                                       
+  0x00b9ef03 +0x0593  dd d8                    FSTP ST0                                       
+  0x00b9ef05 +0x0595  d9 44 24 10              FLD float ptr [ESP + 0x10]                     READ->0x-00000a0
+  0x00b9ef09 +0x0599  66 89 bd 10 01 00 00     MOV word ptr [EBP + 0x110],DI                  
+  0x00b9ef10 +0x05a0  d9 9d d0 00 00 00        FSTP float ptr [EBP + 0xd0]                    
+  0x00b9ef16 +0x05a6  5f                       POP EDI                                        
+  0x00b9ef17 +0x05a7  d9 44 24 14              FLD float ptr [ESP + 0x14]                     READ->0x-0000098
+  0x00b9ef1b +0x05ab  5e                       POP ESI                                        
+  0x00b9ef1c +0x05ac  d9 9d d4 00 00 00        FSTP float ptr [EBP + 0xd4]                    
+  0x00b9ef22 +0x05b2  5d                       POP EBP                                        
+  0x00b9ef23 +0x05b3  5b                       POP EBX                                        
+  0x00b9ef24 +0x05b4  81 c4 a0 00 00 00        ADD ESP,0xa0                                   
+  0x00b9ef2a +0x05ba  c2 04 00                 RET 0x4                                        
+  Total instructions: 460
+
+----------------------------------------------------------------------
+References TO 0x00b717a0 (shadow candidate PPLighting detach)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00b9ef73 (in FUN_00b9ef30) CALL 0x00b717a0
+  UNCONDITIONAL_CALL @ 0x00ba01ec (in FUN_00ba01a0) CALL 0x00b717a0
+  Total printed refs: 2
+
+======================================================================
+shadow candidate PPLighting detach @ 0x00b717a0
+======================================================================
+  Function: FUN_00b717a0 @ 0x00b717a0, Size: 88 bytes
+
+void __thiscall FUN_00b717a0(int param_1,int param_2)
+
+{
+  int *piVar1;
+  undefined4 *puVar2;
+  int iVar3;
+  
+  iVar3 = param_2;
+  if (*(int *)(param_1 + 0x78) == 0) {
+    FUN_00e7db70(&param_2);
+    *(undefined1 *)(param_1 + 0x74) = 1;
+    if (*(char *)(iVar3 + 0xec) != '\0') {
+      *(undefined4 *)(param_1 + 0x38) = 0;
+    }
+    if (*(int *)(param_1 + 0x78) == 0) {
+      puVar2 = *(undefined4 **)(param_1 + 0x60);
+      while (puVar2 != (undefined4 *)0x0) {
+        piVar1 = puVar2 + 2;
+        puVar2 = (undefined4 *)*puVar2;
+        if (*piVar1 == iVar3) {
+          DebugBreak();
+        }
+      }
+    }
+  }
+  return;
+}
+
+
+
+--- Calls FROM shadow candidate PPLighting detach (0x00b717a0) ---
+  0x00b717b6 -> 0x00e7db70 FUN_00e7db70
+  0x00b717ec -> 0x00000028 unknown
+  Total: 2 calls
+
+======================================================================
+RAW FUNCTION: shadow candidate PPLighting detach @ 0x00b717a0
+======================================================================
+  0x00b717a0 +0x0000  56                       PUSH ESI                                       
+  0x00b717a1 +0x0001  8b f1                    MOV ESI,ECX                                    
+  0x00b717a3 +0x0003  83 7e 78 00              CMP dword ptr [ESI + 0x78],0x0                 
+  0x00b717a7 +0x0007  57                       PUSH EDI                                       
+  0x00b717a8 +0x0008  8b 7c 24 0c              MOV EDI,dword ptr [ESP + 0xc]                  READ->0x00000004
+  0x00b717ac +0x000c  75 45                    JNZ 0x00b717f3                                 CONDITIONAL_JUMP->0x00b717f3
+  0x00b717ae +0x000e  8d 44 24 0c              LEA EAX,[ESP + 0xc]                            DATA->0x00000004
+  0x00b717b2 +0x0012  50                       PUSH EAX                                       
+  0x00b717b3 +0x0013  8d 4e 60                 LEA ECX,[ESI + 0x60]                           
+  0x00b717b6 +0x0016  e8 b5 c3 30 00           CALL 0x00e7db70                                UNCONDITIONAL_CALL->0x00e7db70
+  0x00b717bb +0x001b  c6 46 74 01              MOV byte ptr [ESI + 0x74],0x1                  
+  0x00b717bf +0x001f  80 bf ec 00 00 00 00     CMP byte ptr [EDI + 0xec],0x0                  
+  0x00b717c6 +0x0026  74 07                    JZ 0x00b717cf                                  CONDITIONAL_JUMP->0x00b717cf
+  0x00b717c8 +0x0028  c7 46 38 00 00 00 00     MOV dword ptr [ESI + 0x38],0x0                 
+  0x00b717cf +0x002f  83 7e 78 00              CMP dword ptr [ESI + 0x78],0x0                 
+  0x00b717d3 +0x0033  75 1e                    JNZ 0x00b717f3                                 CONDITIONAL_JUMP->0x00b717f3
+  0x00b717d5 +0x0035  8b 76 60                 MOV ESI,dword ptr [ESI + 0x60]                 
+  0x00b717d8 +0x0038  85 f6                    TEST ESI,ESI                                   
+  0x00b717da +0x003a  74 17                    JZ 0x00b717f3                                  CONDITIONAL_JUMP->0x00b717f3
+  0x00b717dc +0x003c  53                       PUSH EBX                                       
+  0x00b717dd +0x003d  8b 1d c8 f0 fd 00        MOV EBX,dword ptr [0x00fdf0c8]                 READ->0x00fdf0c8
+  0x00b717e3 +0x0043  8d 46 08                 LEA EAX,[ESI + 0x8]                            
+  0x00b717e6 +0x0046  8b 36                    MOV ESI,dword ptr [ESI]                        
+  0x00b717e8 +0x0048  39 38                    CMP dword ptr [EAX],EDI                        
+  0x00b717ea +0x004a  75 02                    JNZ 0x00b717ee                                 CONDITIONAL_JUMP->0x00b717ee
+  0x00b717ec +0x004c  ff d3                    CALL EBX                                       COMPUTED_CALL->0x00000028
+  0x00b717ee +0x004e  85 f6                    TEST ESI,ESI                                   
+  0x00b717f0 +0x0050  75 f1                    JNZ 0x00b717e3                                 CONDITIONAL_JUMP->0x00b717e3
+  0x00b717f2 +0x0052  5b                       POP EBX                                        
+  0x00b717f3 +0x0053  5f                       POP EDI                                        
+  0x00b717f4 +0x0054  5e                       POP ESI                                        
+  0x00b717f5 +0x0055  c2 04 00                 RET 0x4                                        
+  Total instructions: 32
+
+----------------------------------------------------------------------
+DISASM WINDOW: shadow dependent-array pointer comparator around 0x00b5a980
+----------------------------------------------------------------------
+  0x00b5a94a  85 c0                    TEST EAX,EAX                                   
+  0x00b5a94c  74 0e                    JZ 0x00b5a95c                                  CONDITIONAL_JUMP->0x00b5a95c
+  0x00b5a94e  8d 04 b0                 LEA EAX,[EAX + ESI*0x4]                        
+  0x00b5a951  55                       PUSH EBP                                       
+  0x00b5a952  50                       PUSH EAX                                       
+  0x00b5a953  ff d3                    CALL EBX                                       
+  0x00b5a955  83 c4 08                 ADD ESP,0x8                                    
+  0x00b5a958  84 c0                    TEST AL,AL                                     
+  0x00b5a95a  75 10                    JNZ 0x00b5a96c                                 CONDITIONAL_JUMP->0x00b5a96c
+  0x00b5a95c  46                       INC ESI                                        
+  0x00b5a95d  3b 77 08                 CMP ESI,dword ptr [EDI + 0x8]                  
+  0x00b5a960  72 e5                    JC 0x00b5a947                                  CONDITIONAL_JUMP->0x00b5a947
+  0x00b5a962  5f                       POP EDI                                        
+  0x00b5a963  5e                       POP ESI                                        
+  0x00b5a964  5d                       POP EBP                                        
+  0x00b5a965  83 c8 ff                 OR EAX,0xffffffff                              
+  0x00b5a968  5b                       POP EBX                                        
+  0x00b5a969  c2 0c 00                 RET 0xc                                        
+  0x00b5a96c  5f                       POP EDI                                        
+  0x00b5a96d  8b c6                    MOV EAX,ESI                                    
+  0x00b5a96f  5e                       POP ESI                                        
+  0x00b5a970  5d                       POP EBP                                        
+  0x00b5a971  5b                       POP EBX                                        
+  0x00b5a972  c2 0c 00                 RET 0xc                                        
+  0x00b5a980  8b 44 24 04              MOV EAX,dword ptr [ESP + 0x4]                   << TARGET
+  0x00b5a984  8b 08                    MOV ECX,dword ptr [EAX]                        
+  0x00b5a986  8b 54 24 08              MOV EDX,dword ptr [ESP + 0x8]                  
+  0x00b5a98a  33 c0                    XOR EAX,EAX                                    
+  0x00b5a98c  3b 0a                    CMP ECX,dword ptr [EDX]                        
+  0x00b5a98e  0f 94 c0                 SETZ AL                                        
+  0x00b5a991  c3                       RET                                            
+  0x00b5a9a0  8b 44 24 04              MOV EAX,dword ptr [ESP + 0x4]                  READ->0x00000004
+  0x00b5a9a4  c7 00 00 00 00 00        MOV dword ptr [EAX],0x0                        
+  0x00b5a9aa  8b 51 04                 MOV EDX,dword ptr [ECX + 0x4]                  
+  0x00b5a9ad  89 50 04                 MOV dword ptr [EAX + 0x4],EDX                  
+  0x00b5a9b0  8b 51 04                 MOV EDX,dword ptr [ECX + 0x4]                  
+  0x00b5a9b3  85 d2                    TEST EDX,EDX                                   
+  0x00b5a9b5  74 0b                    JZ 0x00b5a9c2                                  CONDITIONAL_JUMP->0x00b5a9c2
+  0x00b5a9b7  89 02                    MOV dword ptr [EDX],EAX                        
+  0x00b5a9b9  ff 41 08                 INC dword ptr [ECX + 0x8]                      
+  0x00b5a9bc  89 41 04                 MOV dword ptr [ECX + 0x4],EAX                  
+  0x00b5a9bf  c2 04 00                 RET 0x4                                        
+  0x00b5a9c2  ff 41 08                 INC dword ptr [ECX + 0x8]                      
+  0x00b5a9c5  89 01                    MOV dword ptr [ECX],EAX                        
+  0x00b5a9c7  89 41 04                 MOV dword ptr [ECX + 0x4],EAX                  
+  0x00b5a9ca  c2 04 00                 RET 0x4                                        
+  0x00b5a9d0  8b 44 24 04              MOV EAX,dword ptr [ESP + 0x4]                  READ->0x00000004
+  0x00b5a9d4  8b 54 24 08              MOV EDX,dword ptr [ESP + 0x8]                  READ->0x00000008
+  0x00b5a9d8  89 81 00 01 00 00        MOV dword ptr [ECX + 0x100],EAX                
+  0x00b5a9de  8b 44 24 0c              MOV EAX,dword ptr [ESP + 0xc]                  READ->0x0000000c
+  0x00b5a9e2  89 91 04 01 00 00        MOV dword ptr [ECX + 0x104],EDX                
+  0x00b5a9e8  89 81 08 01 00 00        MOV dword ptr [ECX + 0x108],EAX                
+  0x00b5a9ee  c2 0c 00                 RET 0xc                                        
+  0x00b5aa00  33 c0                    XOR EAX,EAX                                    
+  0x00b5aa02  38 81 e9 00 00 00        CMP byte ptr [ECX + 0xe9],AL                   
+  0x00b5aa08  0f 94 c0                 SETZ AL                                        
+  0x00b5aa0b  33 d2                    XOR EDX,EDX                                    
+
+----------------------------------------------------------------------
+DISASM WINDOW: shadow transition time accumulation around 0x00b9ecee
+----------------------------------------------------------------------
+  0x00b9eca1  df e0                    FNSTSW AX                                      
+  0x00b9eca3  f6 c4 05                 TEST AH,0x5                                    
+  0x00b9eca6  0f 8b 9b 00 00 00        JNP 0x00b9ed47                                 CONDITIONAL_JUMP->0x00b9ed47
+  0x00b9ecac  dd db                    FSTP ST3                                       
+  0x00b9ecae  dd d8                    FSTP ST0                                       
+  0x00b9ecb0  d9 c9                    FXCH                                           
+  0x00b9ecb2  8b 8d 28 01 00 00        MOV ECX,dword ptr [EBP + 0x128]                
+  0x00b9ecb8  85 c9                    TEST ECX,ECX                                   
+  0x00b9ecba  74 1e                    JZ 0x00b9ecda                                  CONDITIONAL_JUMP->0x00b9ecda
+  0x00b9ecbc  dd d8                    FSTP ST0                                       
+  0x00b9ecbe  6a 02                    PUSH 0x2                                       
+  0x00b9ecc0  dd d8                    FSTP ST0                                       
+  0x00b9ecc2  e8 69 b0 eb ff           CALL 0x00a59d30                                UNCONDITIONAL_CALL->0x00a59d30
+  0x00b9ecc7  85 c0                    TEST EAX,EAX                                   
+  0x00b9ecc9  74 0b                    JZ 0x00b9ecd6                                  CONDITIONAL_JUMP->0x00b9ecd6
+  0x00b9eccb  d9 40 3c                 FLD float ptr [EAX + 0x3c]                     
+  0x00b9ecce  d8 4c 24 18              FMUL float ptr [ESP + 0x18]                    READ->0x-0000098
+  0x00b9ecd2  d9 5c 24 18              FSTP float ptr [ESP + 0x18]                    WRITE->0x-0000098
+  0x00b9ecd6  d9 e8                    FLD1                                           
+  0x00b9ecd8  d9 ee                    FLDZ                                           
+  0x00b9ecda  d9 85 dc 00 00 00        FLD float ptr [EBP + 0xdc]                     
+  0x00b9ece0  d8 05 10 94 1f 01        FADD float ptr [0x011f9410]                    READ->0x011f9410
+  0x00b9ece6  d9 5c 24 14              FSTP float ptr [ESP + 0x14]                    WRITE->0x-000009c
+  0x00b9ecea  d9 44 24 14              FLD float ptr [ESP + 0x14]                     READ->0x-000009c
+  0x00b9ecee  d9 95 dc 00 00 00        FST float ptr [EBP + 0xdc]                      << TARGET
+  0x00b9ecf4  d8 35 34 d8 1a 01        FDIV float ptr [0x011ad834]                    READ->0x011ad834
+  0x00b9ecfa  d9 5c 24 14              FSTP float ptr [ESP + 0x14]                    WRITE->0x-000009c
+  0x00b9ecfe  d9 44 24 14              FLD float ptr [ESP + 0x14]                     READ->0x-000009c
+  0x00b9ed02  d8 d2                    FCOM ST2                                       
+  0x00b9ed04  df e0                    FNSTSW AX                                      
+  0x00b9ed06  f6 c4 41                 TEST AH,0x41                                   
+  0x00b9ed09  75 04                    JNZ 0x00b9ed0f                                 CONDITIONAL_JUMP->0x00b9ed0f
+  0x00b9ed0b  dd d8                    FSTP ST0                                       
+  0x00b9ed0d  d9 e8                    FLD1                                           
+  0x00b9ed0f  d9 5c 24 14              FSTP float ptr [ESP + 0x14]                    WRITE->0x-000009c
+  0x00b9ed13  d8 95 d8 00 00 00        FCOM float ptr [EBP + 0xd8]                    
+  0x00b9ed19  df e0                    FNSTSW AX                                      
+  0x00b9ed1b  f6 c4 44                 TEST AH,0x44                                   
+  0x00b9ed1e  0f 8a 9e 00 00 00        JP 0x00b9edc2                                  CONDITIONAL_JUMP->0x00b9edc2
+  0x00b9ed24  d9 44 24 14              FLD float ptr [ESP + 0x14]                     READ->0x-000009c
+  0x00b9ed28  de ea                    FSUBP ST2,ST0                                  
+  0x00b9ed2a  d9 44 24 18              FLD float ptr [ESP + 0x18]                     READ->0x-0000098
+  0x00b9ed2e  de ca                    FMULP ST2                                      
+  0x00b9ed30  d9 c9                    FXCH                                           
+  0x00b9ed32  e9 95 00 00 00           JMP 0x00b9edcc                                 UNCONDITIONAL_JUMP->0x00b9edcc
+  0x00b9ed37  dd da                    FSTP ST2                                       
+  0x00b9ed39  d9 ee                    FLDZ                                           
+  0x00b9ed3b  d9 ca                    FXCH ST2                                       
+  0x00b9ed3d  d9 c9                    FXCH                                           
+  0x00b9ed3f  d9 54 24 10              FST float ptr [ESP + 0x10]                     WRITE->0x-00000a0
+  0x00b9ed43  d9 c9                    FXCH                                           
+  0x00b9ed45  d9 ca                    FXCH ST2                                       
+  0x00b9ed47  80 bd ec 00 00 00 00     CMP byte ptr [EBP + 0xec],0x0                  
+  0x00b9ed4e  0f 84 58 ff ff ff        JZ 0x00b9ecac                                  CONDITIONAL_JUMP->0x00b9ecac
+  0x00b9ed54  d9 05 4c 94 1f 01        FLD float ptr [0x011f944c]                     READ->0x011f944c
+  0x00b9ed5a  d8 d4                    FCOM ST4                                       
+  0x00b9ed5c  df e0                    FNSTSW AX                                      
+  0x00b9ed5e  f6 c4 41                 TEST AH,0x41                                   
+  0x00b9ed61  74 52                    JZ 0x00b9edb5                                  CONDITIONAL_JUMP->0x00b9edb5
+  0x00b9ed63  d9 c1                    FLD ST1                                        
+  0x00b9ed65  d9 05 50 94 1f 01        FLD float ptr [0x011f9450]                     READ->0x011f9450
+  0x00b9ed6b  dd e1                    FUCOM                                          
+  0x00b9ed6d  df e0                    FNSTSW AX                                      
+  0x00b9ed6f  dd d9                    FSTP ST1                                       
+  0x00b9ed71  f6 c4 44                 TEST AH,0x44                                   
+  0x00b9ed74  7b 3d                    JNP 0x00b9edb3                                 CONDITIONAL_JUMP->0x00b9edb3
+  0x00b9ed76  dd db                    FSTP ST3                                       
+
+----------------------------------------------------------------------
+DISASM WINDOW: shadow fade change propagation to PPLighting around 0x00b9ee90
+----------------------------------------------------------------------
+  0x00b9ee4c  df e0                    FNSTSW AX                                      
+  0x00b9ee4e  f6 c4 05                 TEST AH,0x5                                    
+  0x00b9ee51  0f 8a aa 00 00 00        JP 0x00b9ef01                                  CONDITIONAL_JUMP->0x00b9ef01
+  0x00b9ee57  d9 c0                    FLD ST0                                        
+  0x00b9ee59  dd ea                    FUCOMP ST2                                     
+  0x00b9ee5b  df e0                    FNSTSW AX                                      
+  0x00b9ee5d  dd d9                    FSTP ST1                                       
+  0x00b9ee5f  f6 c4 44                 TEST AH,0x44                                   
+  0x00b9ee62  0f 8a 9b 00 00 00        JP 0x00b9ef03                                  CONDITIONAL_JUMP->0x00b9ef03
+  0x00b9ee68  eb 06                    JMP 0x00b9ee70                                 UNCONDITIONAL_JUMP->0x00b9ee70
+  0x00b9ee6a  dd d8                    FSTP ST0                                       
+  0x00b9ee6c  eb 02                    JMP 0x00b9ee70                                 UNCONDITIONAL_JUMP->0x00b9ee70
+  0x00b9ee6e  dd d9                    FSTP ST1                                       
+  0x00b9ee70  8b 95 e0 00 00 00        MOV EDX,dword ptr [EBP + 0xe0]                 
+  0x00b9ee76  85 d2                    TEST EDX,EDX                                   
+  0x00b9ee78  74 37                    JZ 0x00b9eeb1                                  CONDITIONAL_JUMP->0x00b9eeb1
+  0x00b9ee7a  8d 42 08                 LEA EAX,[EDX + 0x8]                            
+  0x00b9ee7d  8b 00                    MOV EAX,dword ptr [EAX]                        
+  0x00b9ee7f  8b 12                    MOV EDX,dword ptr [EDX]                        
+  0x00b9ee81  85 c0                    TEST EAX,EAX                                   
+  0x00b9ee83  74 28                    JZ 0x00b9eead                                  CONDITIONAL_JUMP->0x00b9eead
+  0x00b9ee85  8b 88 a8 00 00 00        MOV ECX,dword ptr [EAX + 0xa8]                 
+  0x00b9ee8b  85 c9                    TEST ECX,ECX                                   
+  0x00b9ee8d  75 04                    JNZ 0x00b9ee93                                 CONDITIONAL_JUMP->0x00b9ee93
+  0x00b9ee8f  33 c0                    XOR EAX,EAX                                    
+  0x00b9ee91  eb 0e                    JMP 0x00b9eea1                                 UNCONDITIONAL_JUMP->0x00b9eea1
+  0x00b9ee93  8b 41 1c                 MOV EAX,dword ptr [ECX + 0x1c]                 
+  0x00b9ee96  48                       DEC EAX                                        
+  0x00b9ee97  be 0b 00 00 00           MOV ESI,0xb                                    
+  0x00b9ee9c  3b f0                    CMP ESI,EAX                                    
+  0x00b9ee9e  1b c0                    SBB EAX,EAX                                    
+  0x00b9eea0  40                       INC EAX                                        
+  0x00b9eea1  f7 d8                    NEG EAX                                        
+  0x00b9eea3  1b c0                    SBB EAX,EAX                                    
+  0x00b9eea5  23 c1                    AND EAX,ECX                                    
+  0x00b9eea7  74 04                    JZ 0x00b9eead                                  CONDITIONAL_JUMP->0x00b9eead
+  0x00b9eea9  c6 40 74 01              MOV byte ptr [EAX + 0x74],0x1                  
+  0x00b9eead  85 d2                    TEST EDX,EDX                                   
+  0x00b9eeaf  75 c9                    JNZ 0x00b9ee7a                                 CONDITIONAL_JUMP->0x00b9ee7a
+  0x00b9eeb1  d8 9d d4 00 00 00        FCOMP float ptr [EBP + 0xd4]                   
+  0x00b9eeb7  df e0                    FNSTSW AX                                      
+  0x00b9eeb9  f6 c4 44                 TEST AH,0x44                                   
+  0x00b9eebc  7a 47                    JP 0x00b9ef05                                  CONDITIONAL_JUMP->0x00b9ef05
+  0x00b9eebe  8b 85 0c 01 00 00        MOV EAX,dword ptr [EBP + 0x10c]                
+  0x00b9eec4  85 c0                    TEST EAX,EAX                                   
+  0x00b9eec6  74 3d                    JZ 0x00b9ef05                                  CONDITIONAL_JUMP->0x00b9ef05
+  0x00b9eec8  8b 0d a8 91 1f 01        MOV ECX,dword ptr [0x011f91a8]                 READ->0x011f91a8
+  0x00b9eece  50                       PUSH EAX                                       
+  0x00b9eecf  e8 ec e5 fc ff           CALL 0x00b6d4c0                                UNCONDITIONAL_CALL->0x00b6d4c0
+  0x00b9eed4  8b b5 0c 01 00 00        MOV ESI,dword ptr [EBP + 0x10c]                
+  0x00b9eeda  85 f6                    TEST ESI,ESI                                   
+  0x00b9eedc  74 27                    JZ 0x00b9ef05                                  CONDITIONAL_JUMP->0x00b9ef05
+  0x00b9eede  8d 4e 04                 LEA ECX,[ESI + 0x4]                            
+  0x00b9eee1  51                       PUSH ECX                                       
+  0x00b9eee2  ff 15 c4 f1 fd 00        CALL dword ptr [0x00fdf1c4]                    READ->0x00fdf1c4, COMPUTED_CALL->0x00000067
+  0x00b9eee8  85 c0                    TEST EAX,EAX                                   
+  0x00b9eeea  75 09                    JNZ 0x00b9eef5                                 CONDITIONAL_JUMP->0x00b9eef5
+  0x00b9eeec  8b 16                    MOV EDX,dword ptr [ESI]                        
+  0x00b9eeee  8b 42 04                 MOV EAX,dword ptr [EDX + 0x4]                  
+  0x00b9eef1  8b ce                    MOV ECX,ESI                                    
+  0x00b9eef3  ff d0                    CALL EAX                                       
+  0x00b9eef5  c7 85 0c 01 00 00 00 00 00 00 MOV dword ptr [EBP + 0x10c],0x0                
+  0x00b9eeff  eb 04                    JMP 0x00b9ef05                                 UNCONDITIONAL_JUMP->0x00b9ef05
+  0x00b9ef01  dd d9                    FSTP ST1                                       
+  0x00b9ef03  dd d8                    FSTP ST0                                       
+  0x00b9ef05  d9 44 24 10              FLD float ptr [ESP + 0x10]                     READ->0x-00000a0
+  0x00b9ef09  66 89 bd 10 01 00 00     MOV word ptr [EBP + 0x110],DI                  
+  0x00b9ef10  d9 9d d0 00 00 00        FSTP float ptr [EBP + 0xd0]                    
+  0x00b9ef16  5f                       POP EDI                                        
+  0x00b9ef17  d9 44 24 14              FLD float ptr [ESP + 0x14]                     READ->0x-0000098
+  0x00b9ef1b  5e                       POP ESI                                        
+  0x00b9ef1c  d9 9d d4 00 00 00        FSTP float ptr [EBP + 0xd4]                    
+  0x00b9ef22  5d                       POP EBP                                        
+
+----------------------------------------------------------------------
+DISASM WINDOW: shadow candidate PPLighting detach entry around 0x00b717a0
+----------------------------------------------------------------------
+  0x00b71761  8b f1                    MOV ESI,ECX                                    
+  0x00b71763  57                       PUSH EDI                                       
+  0x00b71764  8d 7e 60                 LEA EDI,[ESI + 0x60]                           
+  0x00b71767  8b cf                    MOV ECX,EDI                                    
+  0x00b71769  c7 06 b0 e7 0a 01        MOV dword ptr [ESI],0x10ae7b0                  DATA->0x010ae7b0
+  0x00b7176f  e8 8c fb ff ff           CALL 0x00b71300                                UNCONDITIONAL_CALL->0x00b71300
+  0x00b71774  8b cf                    MOV ECX,EDI                                    
+  0x00b71776  e8 85 fb ff ff           CALL 0x00b71300                                UNCONDITIONAL_CALL->0x00b71300
+  0x00b7177b  8b ce                    MOV ECX,ESI                                    
+  0x00b7177d  e8 5e 89 03 00           CALL 0x00baa0e0                                UNCONDITIONAL_CALL->0x00baa0e0
+  0x00b71782  f6 44 24 0c 01           TEST byte ptr [ESP + 0xc],0x1                  READ->0x00000004
+  0x00b71787  74 0b                    JZ 0x00b71794                                  CONDITIONAL_JUMP->0x00b71794
+  0x00b71789  6a 7c                    PUSH 0x7c                                      
+  0x00b7178b  56                       PUSH ESI                                       
+  0x00b7178c  e8 cf fc f2 ff           CALL 0x00aa1460                                UNCONDITIONAL_CALL->0x00aa1460
+  0x00b71791  83 c4 08                 ADD ESP,0x8                                    
+  0x00b71794  5f                       POP EDI                                        
+  0x00b71795  8b c6                    MOV EAX,ESI                                    
+  0x00b71797  5e                       POP ESI                                        
+  0x00b71798  c2 04 00                 RET 0x4                                        
+  0x00b717a0  56                       PUSH ESI                                        << TARGET
+  0x00b717a1  8b f1                    MOV ESI,ECX                                    
+  0x00b717a3  83 7e 78 00              CMP dword ptr [ESI + 0x78],0x0                 
+  0x00b717a7  57                       PUSH EDI                                       
+  0x00b717a8  8b 7c 24 0c              MOV EDI,dword ptr [ESP + 0xc]                  READ->0x00000004
+  0x00b717ac  75 45                    JNZ 0x00b717f3                                 CONDITIONAL_JUMP->0x00b717f3
+  0x00b717ae  8d 44 24 0c              LEA EAX,[ESP + 0xc]                            DATA->0x00000004
+  0x00b717b2  50                       PUSH EAX                                       
+  0x00b717b3  8d 4e 60                 LEA ECX,[ESI + 0x60]                           
+  0x00b717b6  e8 b5 c3 30 00           CALL 0x00e7db70                                UNCONDITIONAL_CALL->0x00e7db70
+  0x00b717bb  c6 46 74 01              MOV byte ptr [ESI + 0x74],0x1                  
+  0x00b717bf  80 bf ec 00 00 00 00     CMP byte ptr [EDI + 0xec],0x0                  
+  0x00b717c6  74 07                    JZ 0x00b717cf                                  CONDITIONAL_JUMP->0x00b717cf
+  0x00b717c8  c7 46 38 00 00 00 00     MOV dword ptr [ESI + 0x38],0x0                 
+  0x00b717cf  83 7e 78 00              CMP dword ptr [ESI + 0x78],0x0                 
+  0x00b717d3  75 1e                    JNZ 0x00b717f3                                 CONDITIONAL_JUMP->0x00b717f3
+  0x00b717d5  8b 76 60                 MOV ESI,dword ptr [ESI + 0x60]                 
+  0x00b717d8  85 f6                    TEST ESI,ESI                                   
+  0x00b717da  74 17                    JZ 0x00b717f3                                  CONDITIONAL_JUMP->0x00b717f3
+  0x00b717dc  53                       PUSH EBX                                       
+  0x00b717dd  8b 1d c8 f0 fd 00        MOV EBX,dword ptr [0x00fdf0c8]                 READ->0x00fdf0c8
+  0x00b717e3  8d 46 08                 LEA EAX,[ESI + 0x8]                            
+  0x00b717e6  8b 36                    MOV ESI,dword ptr [ESI]                        
+  0x00b717e8  39 38                    CMP dword ptr [EAX],EDI                        
+  0x00b717ea  75 02                    JNZ 0x00b717ee                                 CONDITIONAL_JUMP->0x00b717ee
+  0x00b717ec  ff d3                    CALL EBX                                       COMPUTED_CALL->0x00000028
+  0x00b717ee  85 f6                    TEST ESI,ESI                                   
+  0x00b717f0  75 f1                    JNZ 0x00b717e3                                 CONDITIONAL_JUMP->0x00b717e3
+  0x00b717f2  5b                       POP EBX                                        
+  0x00b717f3  5f                       POP EDI                                        
+  0x00b717f4  5e                       POP ESI                                        
+  0x00b717f5  c2 04 00                 RET 0x4                                        
+  0x00b71800  6a ff                    PUSH -0x1                                      
+  0x00b71802  68 1f 8c f2 00           PUSH 0xf28c1f                                  DATA->0x00f28c1f
+  0x00b71807  64 a1 00 00 00 00        MOV EAX,FS:[0x0]                               
+  0x00b7180d  50                       PUSH EAX                                       
+  0x00b7180e  51                       PUSH ECX                                       
+  0x00b7180f  53                       PUSH EBX                                       
+  0x00b71810  56                       PUSH ESI                                       
+  0x00b71811  57                       PUSH EDI                                       
+  0x00b71812  a1 bc 16 1c 01           MOV EAX,[0x011c16bc]                           READ->0x011c16bc
+  0x00b71817  33 c4                    XOR EAX,ESP                                    
+  0x00b71819  50                       PUSH EAX                                       
+  0x00b7181a  8d 44 24 14              LEA EAX,[ESP + 0x14]                           DATA->0x-000000c
+  0x00b7181e  64 a3 00 00 00 00        MOV FS:[0x0],EAX                               
+  0x00b71824  8b f9                    MOV EDI,ECX                                    
+  0x00b71826  6a 7c                    PUSH 0x7c                                      
+  0x00b71828  e8 b3 fb f2 ff           CALL 0x00aa13e0                                UNCONDITIONAL_CALL->0x00aa13e0
+  0x00b7182d  8b f0                    MOV ESI,EAX                                    
+
+OUTPUT COMPLETE: /data/storage1/Workspace/psycho/analysis/ghidra/output/perf/graphics_fnv_pbr_light_shadow_continuity_final_followup.txt (1124 lines)

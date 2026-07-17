@@ -254,11 +254,16 @@ Projected-shadow, point-light, SI, LandO, and landlo-fog rows were treated as if
 
 For the separately proven VPT point-light landscape rows, `PointLightColor.a` carries the scene light's runtime fade. Using only `.rgb`, as the NVR reference shader does, turns cell/light-list transitions into visible chunk-shaped steps. OMV must multiply each point-light contribution by the saturated alpha fade.
 
+The final light/shadow continuity closure separates two native systems that must not be conflated. `FUN_00B70390` stable-sorts each PPLighting property's light list by the normalized camera-relative sphere-separation metric from `FUN_00B9DBE0`; equal metrics keep the existing order, while a real crossing reorders the list and invalidates cached pass state. This general light-list truncation has no outgoing-light cross-fade. In contrast, shadow candidates use target direction `+0xD8` and elapsed transition time `+0xDC`: `FUN_00B9BB10` preserves the current fade when direction reverses, and `FUN_00B9E970` advances and applies that fade before dirtying attached PPLighting properties at membership boundaries. `FUN_00B717A0` removes a rejected candidate from an eligible property's light list and marks that property dirty.
+
+This evidence does not justify adding hysteresis to the native light comparator or a second shadow fade. Either change would alter vanilla selection without proving a PBR contract failure. A residual PBR-only blink must first identify the changing replacement row and staged light/resource values against the same native draw; preserve the existing shadow transition and the VPT point-light alpha fade.
+
 Do not repeat:
 
 - Do not replace projected-shadow, point-light, SI, LandO, or landlo-fog rows until independently proven.
 - Do not bind terrain samplers onto light-resource rows.
 - Do not discard the proven VPT point-light alpha fade after a point-light row is admitted.
+- Do not add comparator hysteresis or an independent shadow fade to hide an unidentified PBR-only transition.
 
 Correct fix path:
 

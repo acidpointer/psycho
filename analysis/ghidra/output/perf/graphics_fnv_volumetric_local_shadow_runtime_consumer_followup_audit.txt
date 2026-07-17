@@ -1,0 +1,2787 @@
+FNV VOLUMETRIC LOCAL-SHADOW RUNTIME CONSUMER FOLLOW-UP AUDIT
+
+Proven starting point:
+1. BF0720 installs SimpleShadow vertex indices 89-91 into three package blocks.
+2. Each block pairs its vertex shader with the pixel family rooted at index 152.
+3. B80600 only assigns the package pixel shader at +0x44; it does not bind a texture stage.
+4. PROJ_SHADOW is a compile define; ShadowProj backing 0x011FD968 is a separate per-draw matrix.
+5. Current-shadow global 0x011F9174 has only the render-loop write and no proven sampling read.
+
+Closure questions:
+1. Which persistent package objects own the three SimpleShadow blocks, and who dispatches them at draw time?
+2. Does any draw-time path read the selected light's +0x10C texture and bind it through D3D SetTexture?
+3. Which object/matrix is paired with that texture, and is its lifetime safe outside the native draw?
+
+======================================================================
+SIMPLESHADOW DESCRIPTOR STRINGS
+======================================================================
+  0x010ae95c SimpleShadow vertex/pixel descriptor entry point 'SHADOWMAP'
+  0x010aee24 SimpleShadow pixel descriptor token A          'DEPTHBIAS'
+  0x010aee1c SimpleShadow pixel descriptor token B          '-0.1'
+  0x010aee54 SimpleShadow pixel descriptor token C          'SAMPLE'
+  0x01063f48 SimpleShadow pixel descriptor token D          '1'
+  0x010aee14 SimpleShadow pixel descriptor token E          'PASSES'
+  0x010aefe0 SimpleShadow pixel descriptor token F          'SHADOWMODE'
+  0x01063f30 SimpleShadow pixel descriptor token G          '3'
+  0x010aea5c SimpleShadow pixel descriptor token H          'ALPHATEST'
+  0x01063f24 SimpleShadow pixel descriptor token I          '4'
+  0x01063f3c SimpleShadow pixel descriptor token J          '2'
+  0x010aef10 SimpleShadow pixel descriptor token K          'lighting\\2x\\p\\WaterFog.p.hlsl'
+  0x010aee0c SimpleShadow pixel descriptor token L          'SRT_EYE'
+  0x0101c45c SimpleShadow vertex descriptor token A         'LAND'
+  0x010aed64 SimpleShadow vertex descriptor token B         'VC'
+
+======================================================================
+DISASM RANGE: three SimpleShadow package blocks 0x00bf5d80-0x00bf66bf
+======================================================================
+  0x00bf5d81: MOV ECX,ESI
+  0x00bf5d83: CALL 0x00e802b0
+      ref UNCONDITIONAL_CALL -> 0x00e802b0
+  0x00bf5d88: LEA EDX,[ESP + 0x14]
+      ref DATA               -> 0x-0000018
+  0x00bf5d8c: PUSH EDX
+  0x00bf5d8d: CALL 0x00e7edf0
+      ref UNCONDITIONAL_CALL -> 0x00e7edf0
+  0x00bf5d92: MOV EAX,dword ptr [ESP + 0x18]
+      ref READ               -> 0x-0000018
+  0x00bf5d96: PUSH EBX
+  0x00bf5d97: PUSH EBP
+  0x00bf5d98: PUSH 0x3
+  0x00bf5d9a: PUSH 0x7
+  0x00bf5d9c: PUSH EAX
+  0x00bf5d9d: CALL 0x00be0cf0
+      ref UNCONDITIONAL_CALL -> 0x00be0cf0
+  0x00bf5da2: MOV ECX,dword ptr [ESP + 0x2c]
+      ref READ               -> 0x-0000018
+  0x00bf5da6: ADD ESP,0x18
+  0x00bf5da9: PUSH ECX
+  0x00bf5daa: PUSH 0x7
+  0x00bf5dac: MOV ECX,ESI
+  0x00bf5dae: CALL 0x00e802b0
+      ref UNCONDITIONAL_CALL -> 0x00e802b0
+  0x00bf5db3: MOV EDX,dword ptr [0x011fdec8]
+      ref READ               -> 0x011fdec8
+  0x00bf5db9: PUSH EDX
+  0x00bf5dba: MOV ECX,ESI
+  0x00bf5dbc: CALL 0x00b79950
+      ref UNCONDITIONAL_CALL -> 0x00b79950
+  0x00bf5dc1: MOV EAX,[0x011fdb98]
+      ref READ               -> 0x011fdb98
+  0x00bf5dc6: PUSH EAX
+  0x00bf5dc7: MOV ECX,ESI
+  0x00bf5dc9: CALL 0x00b80600
+      ref UNCONDITIONAL_CALL -> 0x00b80600
+  0x00bf5dce: CMP dword ptr [ESI + 0x30],EBP
+  0x00bf5dd1: JNZ 0x00bf5ddb
+      ref CONDITIONAL_JUMP   -> 0x00bf5ddb
+  0x00bf5dd3: CALL 0x00e7f5d0
+      ref UNCONDITIONAL_CALL -> 0x00e7f5d0
+  0x00bf5dd8: MOV dword ptr [ESI + 0x30],EAX
+  0x00bf5ddb: MOV ECX,dword ptr [ESI + 0x30]
+  0x00bf5dde: PUSH EBX
+  0x00bf5ddf: PUSH EBP
+  0x00bf5de0: PUSH 0x1b
+  0x00bf5de2: CALL 0x00e7f430
+      ref UNCONDITIONAL_CALL -> 0x00e7f430
+  0x00bf5de7: CMP dword ptr [ESI + 0x30],EBP
+  0x00bf5dea: JNZ 0x00bf5df4
+      ref CONDITIONAL_JUMP   -> 0x00bf5df4
+  0x00bf5dec: CALL 0x00e7f5d0
+      ref UNCONDITIONAL_CALL -> 0x00e7f5d0
+  0x00bf5df1: MOV dword ptr [ESI + 0x30],EAX
+  0x00bf5df4: MOV ECX,dword ptr [ESI + 0x30]
+  0x00bf5df7: PUSH EBX
+  0x00bf5df8: PUSH EBP
+  0x00bf5df9: PUSH 0xf
+  0x00bf5dfb: CALL 0x00e7f430
+      ref UNCONDITIONAL_CALL -> 0x00e7f430
+  0x00bf5e00: CMP dword ptr [ESI + 0x30],EBP
+  0x00bf5e03: JNZ 0x00bf5e0d
+      ref CONDITIONAL_JUMP   -> 0x00bf5e0d
+  0x00bf5e05: CALL 0x00e7f5d0
+      ref UNCONDITIONAL_CALL -> 0x00e7f5d0
+  0x00bf5e0a: MOV dword ptr [ESI + 0x30],EAX
+  0x00bf5e0d: MOV ECX,dword ptr [ESI + 0x30]
+  0x00bf5e10: PUSH EBX
+  0x00bf5e11: PUSH EBX
+  0x00bf5e12: PUSH 0x7
+  0x00bf5e14: CALL 0x00e7f430
+      ref UNCONDITIONAL_CALL -> 0x00e7f430
+  0x00bf5e19: CMP dword ptr [ESI + 0x30],EBP
+  0x00bf5e1c: JNZ 0x00bf5e26
+      ref CONDITIONAL_JUMP   -> 0x00bf5e26
+  0x00bf5e1e: CALL 0x00e7f5d0
+      ref UNCONDITIONAL_CALL -> 0x00e7f5d0
+  0x00bf5e23: MOV dword ptr [ESI + 0x30],EAX
+  0x00bf5e26: MOV ECX,dword ptr [ESI + 0x30]
+  0x00bf5e29: PUSH EBX
+  0x00bf5e2a: PUSH 0x4
+  0x00bf5e2c: PUSH 0x17
+  0x00bf5e2e: CALL 0x00e7f430
+      ref UNCONDITIONAL_CALL -> 0x00e7f430
+  0x00bf5e33: CMP dword ptr [ESI + 0x30],EBP
+  0x00bf5e36: JNZ 0x00bf5e40
+      ref CONDITIONAL_JUMP   -> 0x00bf5e40
+  0x00bf5e38: CALL 0x00e7f5d0
+      ref UNCONDITIONAL_CALL -> 0x00e7f5d0
+  0x00bf5e3d: MOV dword ptr [ESI + 0x30],EAX
+  0x00bf5e40: MOV ECX,dword ptr [ESI + 0x30]
+  0x00bf5e43: PUSH EBX
+  0x00bf5e44: PUSH EBX
+  0x00bf5e45: PUSH 0xe
+  0x00bf5e47: CALL 0x00e7f430
+      ref UNCONDITIONAL_CALL -> 0x00e7f430
+  0x00bf5e4c: PUSH 0x11fe8bc
+      ref DATA               -> 0x011fe8bc
+  0x00bf5e51: LEA ECX,[ESP + 0x1c]
+      ref DATA               -> 0x-0000014
+  0x00bf5e55: MOV dword ptr [0x011fcfd4],EDI
+      ref WRITE              -> 0x011fcfd4
+  0x00bf5e5b: MOV dword ptr [0x011fc3f4],0x13c
+      ref WRITE              -> 0x011fc3f4
+  0x00bf5e65: MOV dword ptr [0x011fb814],0x300
+      ref WRITE              -> 0x011fb814
+  0x00bf5e6f: MOV dword ptr [0x011fac34],EBP
+      ref WRITE              -> 0x011fac34
+  0x00bf5e75: CALL 0x00ba53c0
+      ref UNCONDITIONAL_CALL -> 0x00ba53c0
+  0x00bf5e7a: MOV ESI,dword ptr [ESP + 0x18]
+      ref READ               -> 0x-0000014
+  0x00bf5e7e: CMP dword ptr [ESI + 0x18],0x8
+  0x00bf5e82: JNC 0x00bf5ff0
+      ref CONDITIONAL_JUMP   -> 0x00bf5ff0
+  0x00bf5e88: LEA ECX,[ESP + 0x14]
+      ref DATA               -> 0x-0000018
+  0x00bf5e8c: PUSH ECX
+  0x00bf5e8d: CALL 0x00e7edf0
+      ref UNCONDITIONAL_CALL -> 0x00e7edf0
+  0x00bf5e92: MOV EDX,dword ptr [ESP + 0x18]
+      ref READ               -> 0x-0000018
+  0x00bf5e96: PUSH EBX
+  0x00bf5e97: PUSH 0x2
+  0x00bf5e99: PUSH EBX
+  0x00bf5e9a: PUSH EBP
+  0x00bf5e9b: PUSH EDX
+  0x00bf5e9c: CALL 0x00be0cf0
+      ref UNCONDITIONAL_CALL -> 0x00be0cf0
+  0x00bf5ea1: MOV EAX,dword ptr [ESP + 0x2c]
+      ref READ               -> 0x-0000018
+  0x00bf5ea5: ADD ESP,0x18
+  0x00bf5ea8: PUSH EAX
+  0x00bf5ea9: PUSH EBP
+  0x00bf5eaa: MOV ECX,ESI
+  0x00bf5eac: CALL 0x00e802b0
+      ref UNCONDITIONAL_CALL -> 0x00e802b0
+  0x00bf5eb1: LEA ECX,[ESP + 0x14]
+      ref DATA               -> 0x-0000018
+  0x00bf5eb5: PUSH ECX
+  0x00bf5eb6: CALL 0x00e7edf0
+      ref UNCONDITIONAL_CALL -> 0x00e7edf0
+  0x00bf5ebb: MOV EDX,dword ptr [ESP + 0x18]
+      ref READ               -> 0x-0000018
+  0x00bf5ebf: PUSH EBX
+  0x00bf5ec0: PUSH 0x2
+  0x00bf5ec2: PUSH EBX
+  0x00bf5ec3: PUSH EBX
+  0x00bf5ec4: PUSH EDX
+  0x00bf5ec5: CALL 0x00be0cf0
+      ref UNCONDITIONAL_CALL -> 0x00be0cf0
+  0x00bf5eca: MOV EAX,dword ptr [ESP + 0x2c]
+      ref READ               -> 0x-0000018
+  0x00bf5ece: ADD ESP,0x18
+  0x00bf5ed1: PUSH EAX
+  0x00bf5ed2: PUSH EBX
+  0x00bf5ed3: MOV ECX,ESI
+  0x00bf5ed5: CALL 0x00e802b0
+      ref UNCONDITIONAL_CALL -> 0x00e802b0
+  0x00bf5eda: LEA ECX,[ESP + 0x14]
+      ref DATA               -> 0x-0000018
+  0x00bf5ede: PUSH ECX
+  0x00bf5edf: CALL 0x00e7edf0
+      ref UNCONDITIONAL_CALL -> 0x00e7edf0
+  0x00bf5ee4: MOV EDX,dword ptr [ESP + 0x18]
+      ref READ               -> 0x-0000018
+  0x00bf5ee8: PUSH EBX
+  0x00bf5ee9: PUSH 0x2
+  0x00bf5eeb: PUSH EBX
+  0x00bf5eec: PUSH 0x2
+  0x00bf5eee: PUSH EDX
+  0x00bf5eef: CALL 0x00be0cf0
+      ref UNCONDITIONAL_CALL -> 0x00be0cf0
+  0x00bf5ef4: MOV EAX,dword ptr [ESP + 0x2c]
+      ref READ               -> 0x-0000018
+  0x00bf5ef8: ADD ESP,0x18
+  0x00bf5efb: PUSH EAX
+  0x00bf5efc: PUSH 0x2
+  0x00bf5efe: MOV ECX,ESI
+  0x00bf5f00: CALL 0x00e802b0
+      ref UNCONDITIONAL_CALL -> 0x00e802b0
+  0x00bf5f05: LEA ECX,[ESP + 0x14]
+      ref DATA               -> 0x-0000018
+  0x00bf5f09: PUSH ECX
+  0x00bf5f0a: CALL 0x00e7edf0
+      ref UNCONDITIONAL_CALL -> 0x00e7edf0
+  0x00bf5f0f: MOV EDX,dword ptr [ESP + 0x18]
+      ref READ               -> 0x-0000018
+  0x00bf5f13: PUSH EBX
+  0x00bf5f14: PUSH 0x2
+  0x00bf5f16: PUSH EBX
+  0x00bf5f17: PUSH 0x3
+  0x00bf5f19: PUSH EDX
+  0x00bf5f1a: CALL 0x00be0cf0
+      ref UNCONDITIONAL_CALL -> 0x00be0cf0
+  0x00bf5f1f: MOV EAX,dword ptr [ESP + 0x2c]
+      ref READ               -> 0x-0000018
+  0x00bf5f23: ADD ESP,0x18
+  0x00bf5f26: PUSH EAX
+  0x00bf5f27: PUSH 0x3
+  0x00bf5f29: MOV ECX,ESI
+  0x00bf5f2b: CALL 0x00e802b0
+      ref UNCONDITIONAL_CALL -> 0x00e802b0
+  0x00bf5f30: LEA ECX,[ESP + 0x14]
+      ref DATA               -> 0x-0000018
+  0x00bf5f34: PUSH ECX
+  0x00bf5f35: CALL 0x00e7edf0
+      ref UNCONDITIONAL_CALL -> 0x00e7edf0
+  0x00bf5f3a: MOV EDX,dword ptr [ESP + 0x18]
+      ref READ               -> 0x-0000018
+  0x00bf5f3e: PUSH EBX
+  0x00bf5f3f: PUSH 0x2
+  0x00bf5f41: PUSH EBX
+  0x00bf5f42: PUSH 0x4
+  0x00bf5f44: PUSH EDX
+  0x00bf5f45: CALL 0x00be0cf0
+      ref UNCONDITIONAL_CALL -> 0x00be0cf0
+  0x00bf5f4a: MOV EAX,dword ptr [ESP + 0x2c]
+      ref READ               -> 0x-0000018
+  0x00bf5f4e: ADD ESP,0x18
+  0x00bf5f51: PUSH EAX
+  0x00bf5f52: PUSH 0x4
+  0x00bf5f54: MOV ECX,ESI
+  0x00bf5f56: CALL 0x00e802b0
+      ref UNCONDITIONAL_CALL -> 0x00e802b0
+  0x00bf5f5b: LEA ECX,[ESP + 0x14]
+      ref DATA               -> 0x-0000018
+  0x00bf5f5f: PUSH ECX
+  0x00bf5f60: CALL 0x00e7edf0
+      ref UNCONDITIONAL_CALL -> 0x00e7edf0
+  0x00bf5f65: MOV EDX,dword ptr [ESP + 0x18]
+      ref READ               -> 0x-0000018
+  0x00bf5f69: PUSH EBX
+  0x00bf5f6a: PUSH EBP
+  0x00bf5f6b: PUSH 0x3
+  0x00bf5f6d: PUSH 0x5
+  0x00bf5f6f: PUSH EDX
+  0x00bf5f70: CALL 0x00be0cf0
+      ref UNCONDITIONAL_CALL -> 0x00be0cf0
+  0x00bf5f75: MOV EAX,dword ptr [ESP + 0x2c]
+      ref READ               -> 0x-0000018
+  0x00bf5f79: MOV ECX,dword ptr [0x011f9534]
+      ref READ               -> 0x011f9534
+  0x00bf5f7f: MOV dword ptr [EAX + 0x8],ECX
+  0x00bf5f82: MOV EDX,dword ptr [ESP + 0x2c]
+      ref READ               -> 0x-0000018
+  0x00bf5f86: ADD ESP,0x18
+  0x00bf5f89: MOV dword ptr [EDX + 0xc],EBX
+  0x00bf5f8c: MOV EAX,dword ptr [ESP + 0x14]
+      ref READ               -> 0x-0000018
+  0x00bf5f90: PUSH EAX
+  0x00bf5f91: PUSH 0x5
+  0x00bf5f93: MOV ECX,ESI
+  0x00bf5f95: CALL 0x00e802b0
+      ref UNCONDITIONAL_CALL -> 0x00e802b0
+  0x00bf5f9a: LEA ECX,[ESP + 0x14]
+      ref DATA               -> 0x-0000018
+  0x00bf5f9e: PUSH ECX
+  0x00bf5f9f: CALL 0x00e7edf0
+      ref UNCONDITIONAL_CALL -> 0x00e7edf0
+  0x00bf5fa4: MOV EDX,dword ptr [ESP + 0x18]
+      ref READ               -> 0x-0000018
+  0x00bf5fa8: PUSH EBX
+  0x00bf5fa9: PUSH 0x2
+  0x00bf5fab: PUSH EBX
+  0x00bf5fac: PUSH 0x6
+  0x00bf5fae: PUSH EDX
+  0x00bf5faf: CALL 0x00be0cf0
+      ref UNCONDITIONAL_CALL -> 0x00be0cf0
+  0x00bf5fb4: MOV EAX,dword ptr [ESP + 0x2c]
+      ref READ               -> 0x-0000018
+  0x00bf5fb8: ADD ESP,0x18
+  0x00bf5fbb: PUSH EAX
+  0x00bf5fbc: PUSH 0x6
+  0x00bf5fbe: MOV ECX,ESI
+  0x00bf5fc0: CALL 0x00e802b0
+      ref UNCONDITIONAL_CALL -> 0x00e802b0
+  0x00bf5fc5: LEA ECX,[ESP + 0x14]
+      ref DATA               -> 0x-0000018
+  0x00bf5fc9: PUSH ECX
+  0x00bf5fca: CALL 0x00e7edf0
+      ref UNCONDITIONAL_CALL -> 0x00e7edf0
+  0x00bf5fcf: MOV EDX,dword ptr [ESP + 0x18]
+      ref READ               -> 0x-0000018
+  0x00bf5fd3: PUSH EBX
+  0x00bf5fd4: PUSH EBP
+  0x00bf5fd5: PUSH 0x3
+  0x00bf5fd7: PUSH 0x7
+  0x00bf5fd9: PUSH EDX
+  0x00bf5fda: CALL 0x00be0cf0
+      ref UNCONDITIONAL_CALL -> 0x00be0cf0
+  0x00bf5fdf: MOV EAX,dword ptr [ESP + 0x2c]
+      ref READ               -> 0x-0000018
+  0x00bf5fe3: ADD ESP,0x18
+  0x00bf5fe6: PUSH EAX
+  0x00bf5fe7: PUSH 0x7
+  0x00bf5fe9: MOV ECX,ESI
+  0x00bf5feb: CALL 0x00e802b0
+      ref UNCONDITIONAL_CALL -> 0x00e802b0
+  0x00bf5ff0: MOV EAX,[0x011f91b0]
+      ref READ               -> 0x011f91b0
+  0x00bf5ff5: CMP EAX,EBX
+  0x00bf5ff7: JZ 0x00bf6007
+      ref CONDITIONAL_JUMP   -> 0x00bf6007
+  0x00bf5ff9: CMP EAX,0x2
+  0x00bf5ffc: JZ 0x00bf6007
+      ref CONDITIONAL_JUMP   -> 0x00bf6007
+  0x00bf5ffe: MOV ECX,dword ptr [ESI + 0x24]
+  0x00bf6001: MOV ECX,dword ptr [ECX + 0x18]
+  0x00bf6004: PUSH EBX
+  0x00bf6005: JMP 0x00bf600e
+      ref UNCONDITIONAL_JUMP -> 0x00bf600e
+  0x00bf6007: MOV EDX,dword ptr [ESI + 0x24]
+  0x00bf600a: MOV ECX,dword ptr [EDX + 0x18]
+  0x00bf600d: PUSH EBP
+  0x00bf600e: CALL 0x00e7def0
+      ref UNCONDITIONAL_CALL -> 0x00e7def0
+  0x00bf6013: MOV EAX,[0x011fdfc0]
+      ref READ               -> 0x011fdfc0
+  0x00bf6018: PUSH EAX
+  0x00bf6019: MOV ECX,ESI
+  0x00bf601b: CALL 0x00b79950
+      ref UNCONDITIONAL_CALL -> 0x00b79950
+  0x00bf6020: CMP dword ptr [0x011f91b0],0x3
+      ref READ               -> 0x011f91b0
+  0x00bf6027: JNZ 0x00bf6039
+      ref CONDITIONAL_JUMP   -> 0x00bf6039
+  0x00bf6029: MOV ECX,dword ptr [0x011f948c]
+      ref READ               -> 0x011f948c
+  0x00bf602f: MOV EAX,dword ptr [ECX*0x8 + 0x11fdd68]
+      ref DATA               -> 0x011fdd68
+  0x00bf6036: PUSH EAX
+  0x00bf6037: JMP 0x00bf6040
+      ref UNCONDITIONAL_JUMP -> 0x00bf6040
+  0x00bf6039: MOV EDX,dword ptr [0x011fdd68]
+      ref READ               -> 0x011fdd68
+  0x00bf603f: PUSH EDX
+  0x00bf6040: MOV ECX,ESI
+  0x00bf6042: CALL 0x00b80600
+      ref UNCONDITIONAL_CALL -> 0x00b80600
+  0x00bf6047: CMP dword ptr [ESI + 0x30],EBP
+  0x00bf604a: JNZ 0x00bf6054
+      ref CONDITIONAL_JUMP   -> 0x00bf6054
+  0x00bf604c: CALL 0x00e7f5d0
+      ref UNCONDITIONAL_CALL -> 0x00e7f5d0
+  0x00bf6051: MOV dword ptr [ESI + 0x30],EAX
+  0x00bf6054: MOV ECX,dword ptr [ESI + 0x30]
+  0x00bf6057: PUSH EBX
+  0x00bf6058: PUSH EBX
+  0x00bf6059: PUSH 0x1b
+  0x00bf605b: CALL 0x00e7f430
+      ref UNCONDITIONAL_CALL -> 0x00e7f430
+  0x00bf6060: CMP dword ptr [ESI + 0x30],EBP
+  0x00bf6063: JNZ 0x00bf606d
+      ref CONDITIONAL_JUMP   -> 0x00bf606d
+  0x00bf6065: CALL 0x00e7f5d0
+      ref UNCONDITIONAL_CALL -> 0x00e7f5d0
+  0x00bf606a: MOV dword ptr [ESI + 0x30],EAX
+  0x00bf606d: MOV ECX,dword ptr [ESI + 0x30]
+  0x00bf6070: PUSH EBX
+  0x00bf6071: PUSH 0x9
+  0x00bf6073: PUSH 0x13
+  0x00bf6075: CALL 0x00e7f430
+      ref UNCONDITIONAL_CALL -> 0x00e7f430
+  0x00bf607a: CMP dword ptr [ESI + 0x30],EBP
+  0x00bf607d: JNZ 0x00bf6087
+      ref CONDITIONAL_JUMP   -> 0x00bf6087
+  0x00bf607f: CALL 0x00e7f5d0
+      ref UNCONDITIONAL_CALL -> 0x00e7f5d0
+  0x00bf6084: MOV dword ptr [ESI + 0x30],EAX
+  0x00bf6087: MOV ECX,dword ptr [ESI + 0x30]
+  0x00bf608a: PUSH EBX
+  0x00bf608b: PUSH EBX
+  0x00bf608c: PUSH 0x14
+  0x00bf608e: CALL 0x00e7f430
+      ref UNCONDITIONAL_CALL -> 0x00e7f430
+  0x00bf6093: CMP dword ptr [ESI + 0x30],EBP
+  0x00bf6096: JNZ 0x00bf60a0
+      ref CONDITIONAL_JUMP   -> 0x00bf60a0
+  0x00bf6098: CALL 0x00e7f5d0
+      ref UNCONDITIONAL_CALL -> 0x00e7f5d0
+  0x00bf609d: MOV dword ptr [ESI + 0x30],EAX
+  0x00bf60a0: MOV ECX,dword ptr [ESI + 0x30]
+  0x00bf60a3: PUSH EBX
+  0x00bf60a4: PUSH EBP
+  0x00bf60a5: PUSH 0xe
+  0x00bf60a7: CALL 0x00e7f430
+      ref UNCONDITIONAL_CALL -> 0x00e7f430
+  0x00bf60ac: CMP dword ptr [ESI + 0x30],EBP
+  0x00bf60af: JNZ 0x00bf60b9
+      ref CONDITIONAL_JUMP   -> 0x00bf60b9
+  0x00bf60b1: CALL 0x00e7f5d0
+      ref UNCONDITIONAL_CALL -> 0x00e7f5d0
+  0x00bf60b6: MOV dword ptr [ESI + 0x30],EAX
+  0x00bf60b9: MOV ECX,dword ptr [ESI + 0x30]
+  0x00bf60bc: PUSH EBX
+  0x00bf60bd: PUSH 0x3f
+  0x00bf60bf: PUSH 0x98
+  0x00bf60c4: CALL 0x00e7f430
+      ref UNCONDITIONAL_CALL -> 0x00e7f430
+  0x00bf60c9: FLD float ptr [0x01200458]
+      ref READ               -> 0x01200458
+  0x00bf60cf: FSTP float ptr [ESP + 0x1c]
+      ref WRITE              -> 0x-0000010
+  0x00bf60d3: CMP dword ptr [ESI + 0x30],EBP
+  0x00bf60d6: JNZ 0x00bf60e0
+      ref CONDITIONAL_JUMP   -> 0x00bf60e0
+  0x00bf60d8: CALL 0x00e7f5d0
+      ref UNCONDITIONAL_CALL -> 0x00e7f5d0
+  0x00bf60dd: MOV dword ptr [ESI + 0x30],EAX
+  0x00bf60e0: MOV EAX,dword ptr [ESP + 0x1c]
+      ref READ               -> 0x-0000010
+  0x00bf60e4: MOV ECX,dword ptr [ESI + 0x30]
+  0x00bf60e7: PUSH EBX
+  0x00bf60e8: PUSH EAX
+  0x00bf60e9: PUSH 0xc3
+  0x00bf60ee: CALL 0x00e7f430
+      ref UNCONDITIONAL_CALL -> 0x00e7f430
+  0x00bf60f3: MOV EBP,0x184
+  0x00bf60f8: MOV EDI,0x100
+  0x00bf60fd: PUSH 0x11fe8c0
+      ref DATA               -> 0x011fe8c0
+  0x00bf6102: LEA ECX,[ESP + 0x1c]
+      ref DATA               -> 0x-0000014
+  0x00bf6106: MOV dword ptr [0x011fd544],EBP
+      ref WRITE              -> 0x011fd544
+  0x00bf610c: MOV dword ptr [0x011fc964],0x8
+      ref WRITE              -> 0x011fc964
+  0x00bf6116: MOV dword ptr [0x011fbd84],EDI
+      ref WRITE              -> 0x011fbd84
+  0x00bf611c: CALL 0x00ba53c0
+      ref UNCONDITIONAL_CALL -> 0x00ba53c0
+  0x00bf6121: MOV ESI,dword ptr [ESP + 0x18]
+      ref READ               -> 0x-0000014
+  0x00bf6125: CMP dword ptr [ESI + 0x18],0x8
+  0x00bf6129: JNC 0x00bf629b
+      ref CONDITIONAL_JUMP   -> 0x00bf629b
+  0x00bf612f: LEA ECX,[ESP + 0x14]
+      ref DATA               -> 0x-0000018
+  0x00bf6133: PUSH ECX
+  0x00bf6134: CALL 0x00e7edf0
+      ref UNCONDITIONAL_CALL -> 0x00e7edf0
+  0x00bf6139: MOV EDX,dword ptr [ESP + 0x18]
+      ref READ               -> 0x-0000018
+  0x00bf613d: PUSH EBX
+  0x00bf613e: PUSH 0x2
+  0x00bf6140: PUSH EBX
+  0x00bf6141: PUSH 0x0
+  0x00bf6143: PUSH EDX
+  0x00bf6144: CALL 0x00be0cf0
+      ref UNCONDITIONAL_CALL -> 0x00be0cf0
+  0x00bf6149: MOV EAX,dword ptr [ESP + 0x2c]
+      ref READ               -> 0x-0000018
+  0x00bf614d: ADD ESP,0x18
+  0x00bf6150: PUSH EAX
+  0x00bf6151: PUSH 0x0
+  0x00bf6153: MOV ECX,ESI
+  0x00bf6155: CALL 0x00e802b0
+      ref UNCONDITIONAL_CALL -> 0x00e802b0
+  0x00bf615a: LEA ECX,[ESP + 0x14]
+      ref DATA               -> 0x-0000018
+  0x00bf615e: PUSH ECX
+  0x00bf615f: CALL 0x00e7edf0
+      ref UNCONDITIONAL_CALL -> 0x00e7edf0
+  0x00bf6164: MOV EDX,dword ptr [ESP + 0x18]
+      ref READ               -> 0x-0000018
+  0x00bf6168: PUSH EBX
+  0x00bf6169: PUSH 0x2
+  0x00bf616b: PUSH EBX
+  0x00bf616c: PUSH EBX
+  0x00bf616d: PUSH EDX
+  0x00bf616e: CALL 0x00be0cf0
+      ref UNCONDITIONAL_CALL -> 0x00be0cf0
+  0x00bf6173: MOV EAX,dword ptr [ESP + 0x2c]
+      ref READ               -> 0x-0000018
+  0x00bf6177: ADD ESP,0x18
+  0x00bf617a: PUSH EAX
+  0x00bf617b: PUSH EBX
+  0x00bf617c: MOV ECX,ESI
+  0x00bf617e: CALL 0x00e802b0
+      ref UNCONDITIONAL_CALL -> 0x00e802b0
+  0x00bf6183: LEA ECX,[ESP + 0x14]
+      ref DATA               -> 0x-0000018
+  0x00bf6187: PUSH ECX
+  0x00bf6188: CALL 0x00e7edf0
+      ref UNCONDITIONAL_CALL -> 0x00e7edf0
+  0x00bf618d: MOV EDX,dword ptr [ESP + 0x18]
+      ref READ               -> 0x-0000018
+  0x00bf6191: PUSH EBX
+  0x00bf6192: PUSH 0x2
+  0x00bf6194: PUSH EBX
+  0x00bf6195: PUSH 0x2
+  0x00bf6197: PUSH EDX
+  0x00bf6198: CALL 0x00be0cf0
+      ref UNCONDITIONAL_CALL -> 0x00be0cf0
+  0x00bf619d: MOV EAX,dword ptr [ESP + 0x2c]
+      ref READ               -> 0x-0000018
+  0x00bf61a1: ADD ESP,0x18
+  0x00bf61a4: PUSH EAX
+  0x00bf61a5: PUSH 0x2
+  0x00bf61a7: MOV ECX,ESI
+  0x00bf61a9: CALL 0x00e802b0
+      ref UNCONDITIONAL_CALL -> 0x00e802b0
+  0x00bf61ae: LEA ECX,[ESP + 0x14]
+      ref DATA               -> 0x-0000018
+  0x00bf61b2: PUSH ECX
+  0x00bf61b3: CALL 0x00e7edf0
+      ref UNCONDITIONAL_CALL -> 0x00e7edf0
+  0x00bf61b8: MOV EDX,dword ptr [ESP + 0x18]
+      ref READ               -> 0x-0000018
+  0x00bf61bc: PUSH EBX
+  0x00bf61bd: PUSH 0x2
+  0x00bf61bf: PUSH EBX
+  0x00bf61c0: PUSH 0x3
+  0x00bf61c2: PUSH EDX
+  0x00bf61c3: CALL 0x00be0cf0
+      ref UNCONDITIONAL_CALL -> 0x00be0cf0
+  0x00bf61c8: MOV EAX,dword ptr [ESP + 0x2c]
+      ref READ               -> 0x-0000018
+  0x00bf61cc: ADD ESP,0x18
+  0x00bf61cf: PUSH EAX
+  0x00bf61d0: PUSH 0x3
+  0x00bf61d2: MOV ECX,ESI
+  0x00bf61d4: CALL 0x00e802b0
+      ref UNCONDITIONAL_CALL -> 0x00e802b0
+  0x00bf61d9: LEA ECX,[ESP + 0x14]
+      ref DATA               -> 0x-0000018
+  0x00bf61dd: PUSH ECX
+  0x00bf61de: CALL 0x00e7edf0
+      ref UNCONDITIONAL_CALL -> 0x00e7edf0
+  0x00bf61e3: MOV EDX,dword ptr [ESP + 0x18]
+      ref READ               -> 0x-0000018
+  0x00bf61e7: PUSH EBX
+  0x00bf61e8: PUSH 0x2
+  0x00bf61ea: PUSH EBX
+  0x00bf61eb: PUSH 0x4
+  0x00bf61ed: PUSH EDX
+  0x00bf61ee: CALL 0x00be0cf0
+      ref UNCONDITIONAL_CALL -> 0x00be0cf0
+  0x00bf61f3: MOV EAX,dword ptr [ESP + 0x2c]
+      ref READ               -> 0x-0000018
+  0x00bf61f7: ADD ESP,0x18
+  0x00bf61fa: PUSH EAX
+  0x00bf61fb: PUSH 0x4
+  0x00bf61fd: MOV ECX,ESI
+  0x00bf61ff: CALL 0x00e802b0
+      ref UNCONDITIONAL_CALL -> 0x00e802b0
+  0x00bf6204: LEA ECX,[ESP + 0x14]
+      ref DATA               -> 0x-0000018
+  0x00bf6208: PUSH ECX
+  0x00bf6209: CALL 0x00e7edf0
+      ref UNCONDITIONAL_CALL -> 0x00e7edf0
+  0x00bf620e: MOV EDX,dword ptr [ESP + 0x18]
+      ref READ               -> 0x-0000018
+  0x00bf6212: PUSH EBX
+  0x00bf6213: PUSH 0x0
+  0x00bf6215: PUSH 0x3
+  0x00bf6217: PUSH 0x5
+  0x00bf6219: PUSH EDX
+  0x00bf621a: CALL 0x00be0cf0
+      ref UNCONDITIONAL_CALL -> 0x00be0cf0
+  0x00bf621f: MOV EAX,dword ptr [ESP + 0x2c]
+      ref READ               -> 0x-0000018
+  0x00bf6223: MOV ECX,dword ptr [0x011f9534]
+      ref READ               -> 0x011f9534
+  0x00bf6229: MOV dword ptr [EAX + 0x8],ECX
+  0x00bf622c: MOV EDX,dword ptr [ESP + 0x2c]
+      ref READ               -> 0x-0000018
+  0x00bf6230: ADD ESP,0x18
+  0x00bf6233: MOV dword ptr [EDX + 0xc],EBX
+  0x00bf6236: MOV EAX,dword ptr [ESP + 0x14]
+      ref READ               -> 0x-0000018
+  0x00bf623a: PUSH EAX
+  0x00bf623b: PUSH 0x5
+  0x00bf623d: MOV ECX,ESI
+  0x00bf623f: CALL 0x00e802b0
+      ref UNCONDITIONAL_CALL -> 0x00e802b0
+  0x00bf6244: LEA ECX,[ESP + 0x14]
+      ref DATA               -> 0x-0000018
+  0x00bf6248: PUSH ECX
+  0x00bf6249: CALL 0x00e7edf0
+      ref UNCONDITIONAL_CALL -> 0x00e7edf0
+  0x00bf624e: MOV EDX,dword ptr [ESP + 0x18]
+      ref READ               -> 0x-0000018
+  0x00bf6252: PUSH EBX
+  0x00bf6253: PUSH 0x2
+  0x00bf6255: PUSH EBX
+  0x00bf6256: PUSH 0x6
+  0x00bf6258: PUSH EDX
+  0x00bf6259: CALL 0x00be0cf0
+      ref UNCONDITIONAL_CALL -> 0x00be0cf0
+  0x00bf625e: MOV EAX,dword ptr [ESP + 0x2c]
+      ref READ               -> 0x-0000018
+  0x00bf6262: ADD ESP,0x18
+  0x00bf6265: PUSH EAX
+  0x00bf6266: PUSH 0x6
+  0x00bf6268: MOV ECX,ESI
+  0x00bf626a: CALL 0x00e802b0
+      ref UNCONDITIONAL_CALL -> 0x00e802b0
+  0x00bf626f: LEA ECX,[ESP + 0x14]
+      ref DATA               -> 0x-0000018
+  0x00bf6273: PUSH ECX
+  0x00bf6274: CALL 0x00e7edf0
+      ref UNCONDITIONAL_CALL -> 0x00e7edf0
+  0x00bf6279: MOV EDX,dword ptr [ESP + 0x18]
+      ref READ               -> 0x-0000018
+  0x00bf627d: PUSH EBX
+  0x00bf627e: PUSH 0x0
+  0x00bf6280: PUSH 0x3
+  0x00bf6282: PUSH 0x7
+  0x00bf6284: PUSH EDX
+  0x00bf6285: CALL 0x00be0cf0
+      ref UNCONDITIONAL_CALL -> 0x00be0cf0
+  0x00bf628a: MOV EAX,dword ptr [ESP + 0x2c]
+      ref READ               -> 0x-0000018
+  0x00bf628e: ADD ESP,0x18
+  0x00bf6291: PUSH EAX
+  0x00bf6292: PUSH 0x7
+  0x00bf6294: MOV ECX,ESI
+  0x00bf6296: CALL 0x00e802b0
+      ref UNCONDITIONAL_CALL -> 0x00e802b0
+  0x00bf629b: MOV EAX,[0x011f91b0]
+      ref READ               -> 0x011f91b0
+  0x00bf62a0: CMP EAX,EBX
+  0x00bf62a2: JZ 0x00bf62b2
+      ref CONDITIONAL_JUMP   -> 0x00bf62b2
+  0x00bf62a4: CMP EAX,0x2
+  0x00bf62a7: JZ 0x00bf62b2
+      ref CONDITIONAL_JUMP   -> 0x00bf62b2
+  0x00bf62a9: MOV ECX,dword ptr [ESI + 0x24]
+  0x00bf62ac: MOV ECX,dword ptr [ECX + 0x18]
+  0x00bf62af: PUSH EBX
+  0x00bf62b0: JMP 0x00bf62ba
+      ref UNCONDITIONAL_JUMP -> 0x00bf62ba
+  0x00bf62b2: MOV EDX,dword ptr [ESI + 0x24]
+  0x00bf62b5: MOV ECX,dword ptr [EDX + 0x18]
+  0x00bf62b8: PUSH 0x0
+  0x00bf62ba: CALL 0x00e7def0
+      ref UNCONDITIONAL_CALL -> 0x00e7def0
+  0x00bf62bf: MOV EAX,[0x011fdfc4]
+      ref READ               -> 0x011fdfc4
+  0x00bf62c4: PUSH EAX
+  0x00bf62c5: MOV ECX,ESI
+  0x00bf62c7: CALL 0x00b79950
+      ref UNCONDITIONAL_CALL -> 0x00b79950
+  0x00bf62cc: CMP dword ptr [0x011f91b0],0x3
+      ref READ               -> 0x011f91b0
+  0x00bf62d3: JNZ 0x00bf62e5
+      ref CONDITIONAL_JUMP   -> 0x00bf62e5
+  0x00bf62d5: MOV ECX,dword ptr [0x011f948c]
+      ref READ               -> 0x011f948c
+  0x00bf62db: MOV EAX,dword ptr [ECX*0x8 + 0x11fdd68]
+      ref DATA               -> 0x011fdd68
+  0x00bf62e2: PUSH EAX
+  0x00bf62e3: JMP 0x00bf62ec
+      ref UNCONDITIONAL_JUMP -> 0x00bf62ec
+  0x00bf62e5: MOV EDX,dword ptr [0x011fdd68]
+      ref READ               -> 0x011fdd68
+  0x00bf62eb: PUSH EDX
+  0x00bf62ec: MOV ECX,ESI
+  0x00bf62ee: CALL 0x00b80600
+      ref UNCONDITIONAL_CALL -> 0x00b80600
+  0x00bf62f3: CMP dword ptr [ESI + 0x30],0x0
+  0x00bf62f7: JNZ 0x00bf6301
+      ref CONDITIONAL_JUMP   -> 0x00bf6301
+  0x00bf62f9: CALL 0x00e7f5d0
+      ref UNCONDITIONAL_CALL -> 0x00e7f5d0
+  0x00bf62fe: MOV dword ptr [ESI + 0x30],EAX
+  0x00bf6301: MOV ECX,dword ptr [ESI + 0x30]
+  0x00bf6304: PUSH EBX
+  0x00bf6305: PUSH EBX
+  0x00bf6306: PUSH 0x1b
+  0x00bf6308: CALL 0x00e7f430
+      ref UNCONDITIONAL_CALL -> 0x00e7f430
+  0x00bf630d: CMP dword ptr [ESI + 0x30],0x0
+  0x00bf6311: JNZ 0x00bf631b
+      ref CONDITIONAL_JUMP   -> 0x00bf631b
+  0x00bf6313: CALL 0x00e7f5d0
+      ref UNCONDITIONAL_CALL -> 0x00e7f5d0
+  0x00bf6318: MOV dword ptr [ESI + 0x30],EAX
+  0x00bf631b: MOV ECX,dword ptr [ESI + 0x30]
+  0x00bf631e: PUSH EBX
+  0x00bf631f: PUSH 0x9
+  0x00bf6321: PUSH 0x13
+  0x00bf6323: CALL 0x00e7f430
+      ref UNCONDITIONAL_CALL -> 0x00e7f430
+  0x00bf6328: CMP dword ptr [ESI + 0x30],0x0
+  0x00bf632c: JNZ 0x00bf6336
+      ref CONDITIONAL_JUMP   -> 0x00bf6336
+  0x00bf632e: CALL 0x00e7f5d0
+      ref UNCONDITIONAL_CALL -> 0x00e7f5d0
+  0x00bf6333: MOV dword ptr [ESI + 0x30],EAX
+  0x00bf6336: MOV ECX,dword ptr [ESI + 0x30]
+  0x00bf6339: PUSH EBX
+  0x00bf633a: PUSH EBX
+  0x00bf633b: PUSH 0x14
+  0x00bf633d: CALL 0x00e7f430
+      ref UNCONDITIONAL_CALL -> 0x00e7f430
+  0x00bf6342: CMP dword ptr [ESI + 0x30],0x0
+  0x00bf6346: JNZ 0x00bf6350
+      ref CONDITIONAL_JUMP   -> 0x00bf6350
+  0x00bf6348: CALL 0x00e7f5d0
+      ref UNCONDITIONAL_CALL -> 0x00e7f5d0
+  0x00bf634d: MOV dword ptr [ESI + 0x30],EAX
+  0x00bf6350: MOV ECX,dword ptr [ESI + 0x30]
+  0x00bf6353: PUSH EBX
+  0x00bf6354: PUSH 0x0
+  0x00bf6356: PUSH 0xe
+  0x00bf6358: CALL 0x00e7f430
+      ref UNCONDITIONAL_CALL -> 0x00e7f430
+  0x00bf635d: FLD float ptr [0x01200458]
+      ref READ               -> 0x01200458
+  0x00bf6363: CMP dword ptr [ESI + 0x30],0x0
+  0x00bf6367: FSTP float ptr [ESP + 0x1c]
+      ref WRITE              -> 0x-0000010
+  0x00bf636b: JNZ 0x00bf6375
+      ref CONDITIONAL_JUMP   -> 0x00bf6375
+  0x00bf636d: CALL 0x00e7f5d0
+      ref UNCONDITIONAL_CALL -> 0x00e7f5d0
+  0x00bf6372: MOV dword ptr [ESI + 0x30],EAX
+  0x00bf6375: MOV EAX,dword ptr [ESP + 0x1c]
+      ref READ               -> 0x-0000010
+  0x00bf6379: MOV ECX,dword ptr [ESI + 0x30]
+  0x00bf637c: PUSH EBX
+  0x00bf637d: PUSH EAX
+  0x00bf637e: PUSH 0xc3
+  0x00bf6383: CALL 0x00e7f430
+      ref UNCONDITIONAL_CALL -> 0x00e7f430
+  0x00bf6388: CMP dword ptr [ESI + 0x30],0x0
+  0x00bf638c: JNZ 0x00bf6396
+      ref CONDITIONAL_JUMP   -> 0x00bf6396
+  0x00bf638e: CALL 0x00e7f5d0
+      ref UNCONDITIONAL_CALL -> 0x00e7f5d0
+  0x00bf6393: MOV dword ptr [ESI + 0x30],EAX
+  0x00bf6396: MOV ECX,dword ptr [ESI + 0x30]
+  0x00bf6399: PUSH EBX
+  0x00bf639a: PUSH 0x3f
+  0x00bf639c: PUSH 0x98
+  0x00bf63a1: CALL 0x00e7f430
+      ref UNCONDITIONAL_CALL -> 0x00e7f430
+  0x00bf63a6: PUSH 0x11fe8c4
+      ref DATA               -> 0x011fe8c4
+  0x00bf63ab: LEA ECX,[ESP + 0x1c]
+      ref DATA               -> 0x-0000014
+  0x00bf63af: MOV dword ptr [0x011fd548],0x984
+      ref WRITE              -> 0x011fd548
+  0x00bf63b9: MOV dword ptr [0x011fc968],0x8
+      ref WRITE              -> 0x011fc968
+  0x00bf63c3: MOV dword ptr [0x011fbd88],EDI
+      ref WRITE              -> 0x011fbd88
+  0x00bf63c9: CALL 0x00ba53c0
+      ref UNCONDITIONAL_CALL -> 0x00ba53c0
+  0x00bf63ce: MOV ESI,dword ptr [ESP + 0x18]
+      ref READ               -> 0x-0000014
+  0x00bf63d2: CMP dword ptr [ESI + 0x18],0x8
+  0x00bf63d6: JNC 0x00bf6553
+      ref CONDITIONAL_JUMP   -> 0x00bf6553
+  0x00bf63dc: LEA ECX,[ESP + 0x14]
+      ref DATA               -> 0x-0000018
+  0x00bf63e0: PUSH ECX
+  0x00bf63e1: CALL 0x00e7edf0
+      ref UNCONDITIONAL_CALL -> 0x00e7edf0
+  0x00bf63e6: MOV EDX,dword ptr [ESP + 0x18]
+      ref READ               -> 0x-0000018
+  0x00bf63ea: PUSH EBX
+  0x00bf63eb: PUSH 0x2
+  0x00bf63ed: PUSH EBX
+  0x00bf63ee: PUSH 0x0
+  0x00bf63f0: PUSH EDX
+  0x00bf63f1: CALL 0x00be0cf0
+      ref UNCONDITIONAL_CALL -> 0x00be0cf0
+  0x00bf63f6: MOV EAX,dword ptr [ESP + 0x2c]
+      ref READ               -> 0x-0000018
+  0x00bf63fa: ADD ESP,0x18
+  0x00bf63fd: PUSH EAX
+  0x00bf63fe: PUSH 0x0
+  0x00bf6400: MOV ECX,ESI
+  0x00bf6402: CALL 0x00e802b0
+      ref UNCONDITIONAL_CALL -> 0x00e802b0
+  0x00bf6407: LEA ECX,[ESP + 0x14]
+      ref DATA               -> 0x-0000018
+  0x00bf640b: PUSH ECX
+  0x00bf640c: CALL 0x00e7edf0
+      ref UNCONDITIONAL_CALL -> 0x00e7edf0
+  0x00bf6411: MOV EDX,dword ptr [ESP + 0x18]
+      ref READ               -> 0x-0000018
+  0x00bf6415: PUSH EBX
+  0x00bf6416: PUSH 0x2
+  0x00bf6418: PUSH EBX
+  0x00bf6419: PUSH EBX
+  0x00bf641a: PUSH EDX
+  0x00bf641b: CALL 0x00be0cf0
+      ref UNCONDITIONAL_CALL -> 0x00be0cf0
+  0x00bf6420: MOV EAX,dword ptr [ESP + 0x2c]
+      ref READ               -> 0x-0000018
+  0x00bf6424: ADD ESP,0x18
+  0x00bf6427: PUSH EAX
+  0x00bf6428: PUSH EBX
+  0x00bf6429: MOV ECX,ESI
+  0x00bf642b: CALL 0x00e802b0
+      ref UNCONDITIONAL_CALL -> 0x00e802b0
+  0x00bf6430: LEA ECX,[ESP + 0x14]
+      ref DATA               -> 0x-0000018
+  0x00bf6434: PUSH ECX
+  0x00bf6435: CALL 0x00e7edf0
+      ref UNCONDITIONAL_CALL -> 0x00e7edf0
+  0x00bf643a: MOV EDX,dword ptr [ESP + 0x18]
+      ref READ               -> 0x-0000018
+  0x00bf643e: PUSH EBX
+  0x00bf643f: PUSH 0x2
+  0x00bf6441: PUSH EBX
+  0x00bf6442: PUSH 0x2
+  0x00bf6444: PUSH EDX
+  0x00bf6445: CALL 0x00be0cf0
+      ref UNCONDITIONAL_CALL -> 0x00be0cf0
+  0x00bf644a: MOV EAX,dword ptr [ESP + 0x2c]
+      ref READ               -> 0x-0000018
+  0x00bf644e: ADD ESP,0x18
+  0x00bf6451: PUSH EAX
+  0x00bf6452: PUSH 0x2
+  0x00bf6454: MOV ECX,ESI
+  0x00bf6456: CALL 0x00e802b0
+      ref UNCONDITIONAL_CALL -> 0x00e802b0
+  0x00bf645b: LEA ECX,[ESP + 0x14]
+      ref DATA               -> 0x-0000018
+  0x00bf645f: PUSH ECX
+  0x00bf6460: CALL 0x00e7edf0
+      ref UNCONDITIONAL_CALL -> 0x00e7edf0
+  0x00bf6465: MOV EDX,dword ptr [ESP + 0x18]
+      ref READ               -> 0x-0000018
+  0x00bf6469: PUSH EBX
+  0x00bf646a: PUSH 0x2
+  0x00bf646c: PUSH EBX
+  0x00bf646d: PUSH 0x3
+  0x00bf646f: PUSH EDX
+  0x00bf6470: CALL 0x00be0cf0
+      ref UNCONDITIONAL_CALL -> 0x00be0cf0
+  0x00bf6475: MOV EAX,dword ptr [ESP + 0x2c]
+      ref READ               -> 0x-0000018
+  0x00bf6479: ADD ESP,0x18
+  0x00bf647c: PUSH EAX
+  0x00bf647d: PUSH 0x3
+  0x00bf647f: MOV ECX,ESI
+  0x00bf6481: CALL 0x00e802b0
+      ref UNCONDITIONAL_CALL -> 0x00e802b0
+  0x00bf6486: LEA ECX,[ESP + 0x14]
+      ref DATA               -> 0x-0000018
+  0x00bf648a: PUSH ECX
+  0x00bf648b: CALL 0x00e7edf0
+      ref UNCONDITIONAL_CALL -> 0x00e7edf0
+  0x00bf6490: MOV EDX,dword ptr [ESP + 0x18]
+      ref READ               -> 0x-0000018
+  0x00bf6494: PUSH EBX
+  0x00bf6495: PUSH 0x2
+  0x00bf6497: PUSH EBX
+  0x00bf6498: PUSH 0x4
+  0x00bf649a: PUSH EDX
+  0x00bf649b: CALL 0x00be0cf0
+      ref UNCONDITIONAL_CALL -> 0x00be0cf0
+  0x00bf64a0: MOV EAX,dword ptr [ESP + 0x2c]
+      ref READ               -> 0x-0000018
+  0x00bf64a4: ADD ESP,0x18
+  0x00bf64a7: PUSH EAX
+  0x00bf64a8: PUSH 0x4
+  0x00bf64aa: MOV ECX,ESI
+  0x00bf64ac: CALL 0x00e802b0
+      ref UNCONDITIONAL_CALL -> 0x00e802b0
+  0x00bf64b1: LEA ECX,[ESP + 0x14]
+      ref DATA               -> 0x-0000018
+  0x00bf64b5: PUSH ECX
+  0x00bf64b6: CALL 0x00e7edf0
+      ref UNCONDITIONAL_CALL -> 0x00e7edf0
+  0x00bf64bb: MOV EDX,dword ptr [ESP + 0x18]
+      ref READ               -> 0x-0000018
+  0x00bf64bf: PUSH EBX
+  0x00bf64c0: PUSH 0x0
+  0x00bf64c2: PUSH 0x3
+  0x00bf64c4: PUSH 0x5
+  0x00bf64c6: PUSH EDX
+  0x00bf64c7: CALL 0x00be0cf0
+      ref UNCONDITIONAL_CALL -> 0x00be0cf0
+  0x00bf64cc: MOV EAX,dword ptr [ESP + 0x2c]
+      ref READ               -> 0x-0000018
+  0x00bf64d0: MOV ECX,dword ptr [0x011f9534]
+      ref READ               -> 0x011f9534
+  0x00bf64d6: MOV dword ptr [EAX + 0x8],ECX
+  0x00bf64d9: MOV EDX,dword ptr [ESP + 0x2c]
+      ref READ               -> 0x-0000018
+  0x00bf64dd: ADD ESP,0x18
+  0x00bf64e0: MOV dword ptr [EDX + 0xc],EBX
+  0x00bf64e3: MOV EAX,dword ptr [ESP + 0x14]
+      ref READ               -> 0x-0000018
+  0x00bf64e7: PUSH EAX
+  0x00bf64e8: PUSH 0x5
+  0x00bf64ea: MOV ECX,ESI
+  0x00bf64ec: CALL 0x00e802b0
+      ref UNCONDITIONAL_CALL -> 0x00e802b0
+  0x00bf64f1: LEA ECX,[ESP + 0x14]
+      ref DATA               -> 0x-0000018
+  0x00bf64f5: PUSH ECX
+  0x00bf64f6: CALL 0x00e7edf0
+      ref UNCONDITIONAL_CALL -> 0x00e7edf0
+  0x00bf64fb: MOV EDX,dword ptr [ESP + 0x18]
+      ref READ               -> 0x-0000018
+  0x00bf64ff: PUSH EBX
+  0x00bf6500: PUSH 0x2
+  0x00bf6502: PUSH EBX
+  0x00bf6503: PUSH 0x6
+  0x00bf6505: PUSH EDX
+  0x00bf6506: CALL 0x00be0cf0
+      ref UNCONDITIONAL_CALL -> 0x00be0cf0
+  0x00bf650b: MOV ECX,dword ptr [ESP + 0x2c]
+      ref READ               -> 0x-0000018
+  0x00bf650f: ADD ESP,0x18
+  0x00bf6512: PUSH 0x0
+  0x00bf6514: CALL 0x00e7de90
+      ref UNCONDITIONAL_CALL -> 0x00e7de90
+  0x00bf6519: MOV EAX,dword ptr [ESP + 0x14]
+      ref READ               -> 0x-0000018
+  0x00bf651d: PUSH EAX
+  0x00bf651e: PUSH 0x6
+  0x00bf6520: MOV ECX,ESI
+  0x00bf6522: CALL 0x00e802b0
+      ref UNCONDITIONAL_CALL -> 0x00e802b0
+  0x00bf6527: LEA ECX,[ESP + 0x14]
+      ref DATA               -> 0x-0000018
+  0x00bf652b: PUSH ECX
+  0x00bf652c: CALL 0x00e7edf0
+      ref UNCONDITIONAL_CALL -> 0x00e7edf0
+  0x00bf6531: MOV EDX,dword ptr [ESP + 0x18]
+      ref READ               -> 0x-0000018
+  0x00bf6535: PUSH EBX
+  0x00bf6536: PUSH 0x0
+  0x00bf6538: PUSH 0x3
+  0x00bf653a: PUSH 0x7
+  0x00bf653c: PUSH EDX
+  0x00bf653d: CALL 0x00be0cf0
+      ref UNCONDITIONAL_CALL -> 0x00be0cf0
+  0x00bf6542: MOV EAX,dword ptr [ESP + 0x2c]
+      ref READ               -> 0x-0000018
+  0x00bf6546: ADD ESP,0x18
+  0x00bf6549: PUSH EAX
+  0x00bf654a: PUSH 0x7
+  0x00bf654c: MOV ECX,ESI
+  0x00bf654e: CALL 0x00e802b0
+      ref UNCONDITIONAL_CALL -> 0x00e802b0
+  0x00bf6553: MOV EAX,[0x011f91b0]
+      ref READ               -> 0x011f91b0
+  0x00bf6558: CMP EAX,EBX
+  0x00bf655a: JZ 0x00bf656a
+      ref CONDITIONAL_JUMP   -> 0x00bf656a
+  0x00bf655c: CMP EAX,0x2
+  0x00bf655f: JZ 0x00bf656a
+      ref CONDITIONAL_JUMP   -> 0x00bf656a
+  0x00bf6561: MOV ECX,dword ptr [ESI + 0x24]
+  0x00bf6564: MOV ECX,dword ptr [ECX + 0x18]
+  0x00bf6567: PUSH EBX
+  0x00bf6568: JMP 0x00bf6572
+      ref UNCONDITIONAL_JUMP -> 0x00bf6572
+  0x00bf656a: MOV EDX,dword ptr [ESI + 0x24]
+  0x00bf656d: MOV ECX,dword ptr [EDX + 0x18]
+  0x00bf6570: PUSH 0x0
+  0x00bf6572: CALL 0x00e7def0
+      ref UNCONDITIONAL_CALL -> 0x00e7def0
+  0x00bf6577: MOV EAX,[0x011fdfc8]
+      ref READ               -> 0x011fdfc8
+  0x00bf657c: PUSH EAX
+  0x00bf657d: MOV ECX,ESI
+  0x00bf657f: CALL 0x00b79950
+      ref UNCONDITIONAL_CALL -> 0x00b79950
+  0x00bf6584: CMP dword ptr [0x011f91b0],0x3
+      ref READ               -> 0x011f91b0
+  0x00bf658b: JNZ 0x00bf659d
+      ref CONDITIONAL_JUMP   -> 0x00bf659d
+  0x00bf658d: MOV ECX,dword ptr [0x011f948c]
+      ref READ               -> 0x011f948c
+  0x00bf6593: MOV EAX,dword ptr [ECX*0x8 + 0x11fdd68]
+      ref DATA               -> 0x011fdd68
+  0x00bf659a: PUSH EAX
+  0x00bf659b: JMP 0x00bf65a4
+      ref UNCONDITIONAL_JUMP -> 0x00bf65a4
+  0x00bf659d: MOV EDX,dword ptr [0x011fdd68]
+      ref READ               -> 0x011fdd68
+  0x00bf65a3: PUSH EDX
+  0x00bf65a4: MOV ECX,ESI
+  0x00bf65a6: CALL 0x00b80600
+      ref UNCONDITIONAL_CALL -> 0x00b80600
+  0x00bf65ab: CMP dword ptr [ESI + 0x30],0x0
+  0x00bf65af: JNZ 0x00bf65b9
+      ref CONDITIONAL_JUMP   -> 0x00bf65b9
+  0x00bf65b1: CALL 0x00e7f5d0
+      ref UNCONDITIONAL_CALL -> 0x00e7f5d0
+  0x00bf65b6: MOV dword ptr [ESI + 0x30],EAX
+  0x00bf65b9: MOV ECX,dword ptr [ESI + 0x30]
+  0x00bf65bc: PUSH EBX
+  0x00bf65bd: PUSH EBX
+  0x00bf65be: PUSH 0x1b
+  0x00bf65c0: CALL 0x00e7f430
+      ref UNCONDITIONAL_CALL -> 0x00e7f430
+  0x00bf65c5: CMP dword ptr [ESI + 0x30],0x0
+  0x00bf65c9: JNZ 0x00bf65d3
+      ref CONDITIONAL_JUMP   -> 0x00bf65d3
+  0x00bf65cb: CALL 0x00e7f5d0
+      ref UNCONDITIONAL_CALL -> 0x00e7f5d0
+  0x00bf65d0: MOV dword ptr [ESI + 0x30],EAX
+  0x00bf65d3: MOV ECX,dword ptr [ESI + 0x30]
+  0x00bf65d6: PUSH EBX
+  0x00bf65d7: PUSH 0x9
+  0x00bf65d9: PUSH 0x13
+  0x00bf65db: CALL 0x00e7f430
+      ref UNCONDITIONAL_CALL -> 0x00e7f430
+  0x00bf65e0: CMP dword ptr [ESI + 0x30],0x0
+  0x00bf65e4: JNZ 0x00bf65ee
+      ref CONDITIONAL_JUMP   -> 0x00bf65ee
+  0x00bf65e6: CALL 0x00e7f5d0
+      ref UNCONDITIONAL_CALL -> 0x00e7f5d0
+  0x00bf65eb: MOV dword ptr [ESI + 0x30],EAX
+  0x00bf65ee: MOV ECX,dword ptr [ESI + 0x30]
+  0x00bf65f1: PUSH EBX
+  0x00bf65f2: PUSH EBX
+  0x00bf65f3: PUSH 0x14
+  0x00bf65f5: CALL 0x00e7f430
+      ref UNCONDITIONAL_CALL -> 0x00e7f430
+  0x00bf65fa: CMP dword ptr [ESI + 0x30],0x0
+  0x00bf65fe: JNZ 0x00bf6608
+      ref CONDITIONAL_JUMP   -> 0x00bf6608
+  0x00bf6600: CALL 0x00e7f5d0
+      ref UNCONDITIONAL_CALL -> 0x00e7f5d0
+  0x00bf6605: MOV dword ptr [ESI + 0x30],EAX
+  0x00bf6608: MOV ECX,dword ptr [ESI + 0x30]
+  0x00bf660b: PUSH EBX
+  0x00bf660c: PUSH 0x0
+  0x00bf660e: PUSH 0xe
+  0x00bf6610: CALL 0x00e7f430
+      ref UNCONDITIONAL_CALL -> 0x00e7f430
+  0x00bf6615: FLD float ptr [0x01200458]
+      ref READ               -> 0x01200458
+  0x00bf661b: CMP dword ptr [ESI + 0x30],0x0
+  0x00bf661f: FSTP float ptr [ESP + 0x1c]
+      ref WRITE              -> 0x-0000010
+  0x00bf6623: JNZ 0x00bf662d
+      ref CONDITIONAL_JUMP   -> 0x00bf662d
+  0x00bf6625: CALL 0x00e7f5d0
+      ref UNCONDITIONAL_CALL -> 0x00e7f5d0
+  0x00bf662a: MOV dword ptr [ESI + 0x30],EAX
+  0x00bf662d: MOV EAX,dword ptr [ESP + 0x1c]
+      ref READ               -> 0x-0000010
+  0x00bf6631: MOV ECX,dword ptr [ESI + 0x30]
+  0x00bf6634: PUSH EBX
+  0x00bf6635: PUSH EAX
+  0x00bf6636: PUSH 0xc3
+  0x00bf663b: CALL 0x00e7f430
+      ref UNCONDITIONAL_CALL -> 0x00e7f430
+  0x00bf6640: CMP dword ptr [ESI + 0x30],0x0
+  0x00bf6644: JNZ 0x00bf664e
+      ref CONDITIONAL_JUMP   -> 0x00bf664e
+  0x00bf6646: CALL 0x00e7f5d0
+      ref UNCONDITIONAL_CALL -> 0x00e7f5d0
+  0x00bf664b: MOV dword ptr [ESI + 0x30],EAX
+  0x00bf664e: MOV ECX,dword ptr [ESI + 0x30]
+  0x00bf6651: PUSH EBX
+  0x00bf6652: PUSH 0x3f
+  0x00bf6654: PUSH 0x98
+  0x00bf6659: CALL 0x00e7f430
+      ref UNCONDITIONAL_CALL -> 0x00e7f430
+  0x00bf665e: MOV EAX,dword ptr [ESP + 0x14]
+      ref READ               -> 0x-0000018
+  0x00bf6662: MOV dword ptr [0x011fd54c],EBP
+      ref WRITE              -> 0x011fd54c
+  0x00bf6668: MOV dword ptr [0x011fc96c],0x8
+      ref WRITE              -> 0x011fc96c
+  0x00bf6672: MOV dword ptr [0x011fbd8c],EDI
+      ref WRITE              -> 0x011fbd8c
+  0x00bf6678: MOV byte ptr [ESP + 0x28],0x0
+      ref WRITE              -> 0x-0000004
+  0x00bf667d: TEST EAX,EAX
+  0x00bf667f: JZ 0x00bf6693
+      ref CONDITIONAL_JUMP   -> 0x00bf6693
+  0x00bf6681: DEC dword ptr [EAX + 0x60]
+  0x00bf6684: MOV ECX,EAX
+  0x00bf6686: ADD EAX,0x60
+  0x00bf6689: CMP dword ptr [EAX],0x0
+  0x00bf668c: JNZ 0x00bf6693
+      ref CONDITIONAL_JUMP   -> 0x00bf6693
+  0x00bf668e: CALL 0x00e7ecd0
+      ref UNCONDITIONAL_CALL -> 0x00e7ecd0
+  0x00bf6693: OR EAX,0xffffffff
+  0x00bf6696: ADD dword ptr [ESI + 0x64],EAX
+  0x00bf6699: MOV dword ptr [ESP + 0x28],EAX
+      ref WRITE              -> 0x-0000004
+  0x00bf669d: JNZ 0x00bf66a6
+      ref CONDITIONAL_JUMP   -> 0x00bf66a6
+  0x00bf669f: MOV ECX,ESI
+  0x00bf66a1: CALL 0x00e80190
+      ref UNCONDITIONAL_CALL -> 0x00e80190
+  0x00bf66a6: MOV ECX,dword ptr [ESP + 0x20]
+      ref READ               -> 0x-000000c
+  0x00bf66aa: MOV dword ptr FS:[0x0],ECX
+  0x00bf66b1: POP ECX
+  0x00bf66b2: POP EDI
+  0x00bf66b3: POP ESI
+  0x00bf66b4: POP EBP
+  0x00bf66b5: POP EBX
+  0x00bf66b6: ADD ESP,0x18
+  0x00bf66b9: RET
+
+======================================================================
+GLOBALS REFERENCED BY SIMPLESHADOW PACKAGE BLOCKS
+======================================================================
+
+Global 0x011f91b0
+  outside WRITE        0x004dbed6 in FUN_004da670             MOV dword ptr [0x011f91b0],EDX
+  outside READ         0x00b9e626 in FUN_00b9dfc0             CMP dword ptr [0x011f91b0],0x0
+  outside READ         0x00b9fa89 in FUN_00b9f780             CMP dword ptr [0x011f91b0],EDI
+  outside WRITE        0x005bf437 in FUN_005bf130             MOV [0x011f91b0],EAX
+  outside READ         0x00c09e2b in FUN_00c072c0             MOV EAX,[0x011f91b0]
+  outside READ         0x00c09f31 in FUN_00c072c0             MOV EAX,[0x011f91b0]
+  outside READ         0x00c0a02c in FUN_00c072c0             MOV EAX,[0x011f91b0]
+  outside READ         0x00c0a143 in FUN_00c072c0             MOV EAX,[0x011f91b0]
+  outside READ         0x00bbb43c in FUN_00bba5d0             MOV ECX,dword ptr [0x011f91b0]
+  outside READ         0x00b787e7 in ???                      MOV EAX,[0x011f91b0]
+  outside READ         0x00b788c8 in ???                      MOV ECX,dword ptr [0x011f91b0]
+  outside READ         0x00c0ce68 in ???                      CMP dword ptr [0x011f91b0],0x3
+  Outside-range references: 12
+
+Global 0x011f948c
+  outside WRITE        0x004dc0ed in FUN_004dc0c0             MOV [0x011f948c],EAX
+  outside READ         0x00bac7d8 in FUN_00bac160             MOV EAX,[0x011f948c]
+  Outside-range references: 2
+
+Global 0x011f9534
+  outside READ         0x00b547df in FUN_00b54630             MOV EAX,[0x011f9534]
+  outside WRITE        0x00b547fd in FUN_00b54630             MOV dword ptr [0x011f9534],EBP
+  outside READ         0x00b5725f in FUN_00b55bb0             MOV EAX,[0x011f9534]
+  outside WRITE        0x00b5728e in FUN_00b55bb0             MOV [0x011f9534],EAX
+  outside READ         0x00b572a1 in FUN_00b55bb0             MOV EAX,[0x011f9534]
+  outside READ         0x00b572c2 in FUN_00b55bb0             MOV EAX,[0x011f9534]
+  outside READ         0x00b572ea in FUN_00b55bb0             MOV EAX,[0x011f9534]
+  outside READ         0x00b7abc2 in FUN_00b7a870             CMP EAX,dword ptr [0x011f9534]
+  outside READ         0x00be74ca in FUN_00be7420             MOV ECX,dword ptr [0x011f9534]
+  outside READ         0x00be76f0 in FUN_00be7420             MOV EDX,dword ptr [0x011f9534]
+  outside READ         0x00be7bca in FUN_00be78e0             MOV EDX,dword ptr [0x011f9534]
+  outside READ         0x00be7da0 in FUN_00be78e0             MOV EDX,dword ptr [0x011f9534]
+  outside READ         0x00be8b27 in FUN_00be8960             MOV EDX,dword ptr [0x011f9534]
+  outside READ         0x00be8e0e in FUN_00be8960             MOV EDX,dword ptr [0x011f9534]
+  outside READ         0x00bebe73 in FUN_00bebd20             MOV EAX,[0x011f9534]
+  outside READ         0x00bec12d in FUN_00bebd20             MOV ECX,dword ptr [0x011f9534]
+  outside READ         0x00bec371 in FUN_00bebd20             MOV ECX,dword ptr [0x011f9534]
+  outside READ         0x00bec5b7 in FUN_00bebd20             MOV ECX,dword ptr [0x011f9534]
+  outside READ         0x00bec883 in FUN_00bebd20             MOV ECX,dword ptr [0x011f9534]
+  outside READ         0x00becb3a in FUN_00bebd20             MOV ECX,dword ptr [0x011f9534]
+  Outside-range references: 202
+
+Global 0x011fac34
+  Outside-range references: 0
+
+Global 0x011fb814
+  Outside-range references: 0
+
+Global 0x011fbd84
+  outside READ         0x00c1a280 in FUN_00c17510             MOV EDX,dword ptr [0x011fbd84]
+  Outside-range references: 1
+
+Global 0x011fbd88
+  Outside-range references: 0
+
+Global 0x011fbd8c
+  Outside-range references: 0
+
+Global 0x011fc3f4
+  Outside-range references: 0
+
+Global 0x011fc964
+  outside READ         0x00c1a27a in FUN_00c17510             MOV ECX,dword ptr [0x011fc964]
+  Outside-range references: 1
+
+Global 0x011fc968
+  Outside-range references: 0
+
+Global 0x011fc96c
+  Outside-range references: 0
+
+Global 0x011fcfd4
+  Outside-range references: 0
+
+Global 0x011fd544
+  outside READ         0x00c1a275 in FUN_00c17510             MOV EAX,[0x011fd544]
+  Outside-range references: 1
+
+Global 0x011fd548
+  Outside-range references: 0
+
+Global 0x011fd54c
+  Outside-range references: 0
+
+Global 0x011fdb98
+  outside READ         0x00bf5942 in FUN_00bf0720             MOV EDX,dword ptr [0x011fdb98]
+  Outside-range references: 1
+
+Global 0x011fdd68
+  Outside-range references: 0
+
+Global 0x011fdec8
+  outside READ         0x00bf5b71 in FUN_00bf0720             MOV EAX,[0x011fdec8]
+  Outside-range references: 1
+
+Global 0x011fdfc0
+  Outside-range references: 0
+
+Global 0x011fdfc4
+  Outside-range references: 0
+
+Global 0x011fdfc8
+  Outside-range references: 0
+
+Global 0x011fe8bc
+  Outside-range references: 0
+
+Global 0x011fe8c0
+  Outside-range references: 0
+
+Global 0x011fe8c4
+  Outside-range references: 0
+
+Global 0x01200458
+  outside WRITE        0x00b4f938 in FUN_00b4f710             FSTP float ptr [0x01200458]
+  outside READ         0x00b9b1bb in FUN_00b9af60             FLD float ptr [0x01200458]
+  outside READ         0x00b64e4d in FUN_00b64e30             FLD float ptr [0x01200458]
+  outside READ         0x00c02421 in FUN_00c02340             FLD float ptr [0x01200458]
+  outside READ         0x00c02518 in FUN_00c02340             FLD float ptr [0x01200458]
+  outside READ         0x00c0263f in FUN_00c02340             FLD float ptr [0x01200458]
+  outside READ         0x00c02766 in FUN_00c02340             FLD float ptr [0x01200458]
+  outside READ         0x00c0285d in FUN_00c02340             FLD float ptr [0x01200458]
+  outside READ         0x00c02954 in FUN_00c02340             FLD float ptr [0x01200458]
+  outside READ         0x00c02a7b in FUN_00c02340             FLD float ptr [0x01200458]
+  outside READ         0x00c02ba2 in FUN_00c02340             FLD float ptr [0x01200458]
+  outside READ         0x00beb607 in FUN_00beb070             FLD float ptr [0x01200458]
+  outside READ         0x00beb7a9 in FUN_00beb070             FLD float ptr [0x01200458]
+  outside READ         0x00c0190a in FUN_00c017c0             FLD float ptr [0x01200458]
+  outside READ         0x00c01a62 in FUN_00c017c0             FLD float ptr [0x01200458]
+  outside READ         0x00c01bba in FUN_00c017c0             FLD float ptr [0x01200458]
+  outside READ         0x00c01d6a in FUN_00c01c20             FLD float ptr [0x01200458]
+  outside READ         0x00c01edd in FUN_00c01c20             FLD float ptr [0x01200458]
+  outside READ         0x00bac758 in FUN_00bac160             FLD float ptr [0x01200458]
+  outside READ         0x00c072fb in FUN_00c072c0             FLD float ptr [0x01200458]
+  Outside-range references: 22
+
+----------------------------------------------------------------------
+References TO 0x00bf0720 (PPLighting package setup containing SimpleShadow)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00b789ec (in FUN_00b78980) CALL 0x00bf0720
+  UNCONDITIONAL_CALL @ 0x00b7a804 (in ???) CALL 0x00bf0720
+  Total: 2 refs
+
+----------------------------------------------------------------------
+References TO 0x00b78980 (shader package setup dispatcher)
+----------------------------------------------------------------------
+  DATA @ 0x010af418 (in ???) <no instruction>
+  Total: 1 refs
+
+----------------------------------------------------------------------
+References TO 0x00ba53c0 (package-block object acquisition helper)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00bf05f4 (in FUN_00bebd20) CALL 0x00ba53c0
+  UNCONDITIONAL_CALL @ 0x00bf3f86 (in FUN_00bf0720) CALL 0x00ba53c0
+  UNCONDITIONAL_CALL @ 0x00bf41cc (in FUN_00bf0720) CALL 0x00ba53c0
+  UNCONDITIONAL_CALL @ 0x00bf4414 (in FUN_00bf0720) CALL 0x00ba53c0
+  UNCONDITIONAL_CALL @ 0x00bf4666 (in FUN_00bf0720) CALL 0x00ba53c0
+  UNCONDITIONAL_CALL @ 0x00bf48b1 (in FUN_00bf0720) CALL 0x00ba53c0
+  UNCONDITIONAL_CALL @ 0x00bf4afd (in FUN_00bf0720) CALL 0x00ba53c0
+  UNCONDITIONAL_CALL @ 0x00bf4cc5 (in FUN_00bf0720) CALL 0x00ba53c0
+  UNCONDITIONAL_CALL @ 0x00bf4f10 (in FUN_00bf0720) CALL 0x00ba53c0
+  UNCONDITIONAL_CALL @ 0x00bf515c (in FUN_00bf0720) CALL 0x00ba53c0
+  UNCONDITIONAL_CALL @ 0x00bf53ad (in FUN_00bf0720) CALL 0x00ba53c0
+  UNCONDITIONAL_CALL @ 0x00bf55fa (in FUN_00bf0720) CALL 0x00ba53c0
+  UNCONDITIONAL_CALL @ 0x00bf57b9 (in FUN_00bf0720) CALL 0x00ba53c0
+  UNCONDITIONAL_CALL @ 0x00bf59f7 (in FUN_00bf0720) CALL 0x00ba53c0
+  UNCONDITIONAL_CALL @ 0x00bf5c38 (in FUN_00bf0720) CALL 0x00ba53c0
+  UNCONDITIONAL_CALL @ 0x00bf5e75 (in FUN_00bf0720) CALL 0x00ba53c0
+  UNCONDITIONAL_CALL @ 0x00bf611c (in FUN_00bf0720) CALL 0x00ba53c0
+  UNCONDITIONAL_CALL @ 0x00bf63c9 (in FUN_00bf0720) CALL 0x00ba53c0
+  UNCONDITIONAL_CALL @ 0x00c09767 (in FUN_00c072c0) CALL 0x00ba53c0
+  UNCONDITIONAL_CALL @ 0x00c097fa (in FUN_00c072c0) CALL 0x00ba53c0
+  UNCONDITIONAL_CALL @ 0x00c09892 (in FUN_00c072c0) CALL 0x00ba53c0
+  UNCONDITIONAL_CALL @ 0x00c09925 (in FUN_00c072c0) CALL 0x00ba53c0
+  UNCONDITIONAL_CALL @ 0x00c099c0 (in FUN_00c072c0) CALL 0x00ba53c0
+  UNCONDITIONAL_CALL @ 0x00c09a4b (in FUN_00c072c0) CALL 0x00ba53c0
+  UNCONDITIONAL_CALL @ 0x00c09ad2 (in FUN_00c072c0) CALL 0x00ba53c0
+  UNCONDITIONAL_CALL @ 0x00c09b5f (in FUN_00c072c0) CALL 0x00ba53c0
+  UNCONDITIONAL_CALL @ 0x00c09bec (in FUN_00c072c0) CALL 0x00ba53c0
+  UNCONDITIONAL_CALL @ 0x00c09c6e (in FUN_00c072c0) CALL 0x00ba53c0
+  UNCONDITIONAL_CALL @ 0x00c09cf0 (in FUN_00c072c0) CALL 0x00ba53c0
+  UNCONDITIONAL_CALL @ 0x00c09d7d (in FUN_00c072c0) CALL 0x00ba53c0
+  UNCONDITIONAL_CALL @ 0x00c09e0a (in FUN_00c072c0) CALL 0x00ba53c0
+  UNCONDITIONAL_CALL @ 0x00c09f10 (in FUN_00c072c0) CALL 0x00ba53c0
+  UNCONDITIONAL_CALL @ 0x00c0a00b (in FUN_00c072c0) CALL 0x00ba53c0
+  UNCONDITIONAL_CALL @ 0x00c0a10b (in FUN_00c072c0) CALL 0x00ba53c0
+  UNCONDITIONAL_CALL @ 0x00c0a21d (in FUN_00c072c0) CALL 0x00ba53c0
+  UNCONDITIONAL_CALL @ 0x00c0a2a1 (in FUN_00c072c0) CALL 0x00ba53c0
+  UNCONDITIONAL_CALL @ 0x00c0a308 (in FUN_00c072c0) CALL 0x00ba53c0
+  UNCONDITIONAL_CALL @ 0x00c0a3b3 (in FUN_00c072c0) CALL 0x00ba53c0
+  UNCONDITIONAL_CALL @ 0x00c0a445 (in FUN_00c072c0) CALL 0x00ba53c0
+  UNCONDITIONAL_CALL @ 0x00c0a4d5 (in FUN_00c072c0) CALL 0x00ba53c0
+  UNCONDITIONAL_CALL @ 0x00c0a53e (in FUN_00c072c0) CALL 0x00ba53c0
+  UNCONDITIONAL_CALL @ 0x00c0a5a7 (in FUN_00c072c0) CALL 0x00ba53c0
+  UNCONDITIONAL_CALL @ 0x00c0a5e8 (in FUN_00c072c0) CALL 0x00ba53c0
+  UNCONDITIONAL_CALL @ 0x00c0a621 (in FUN_00c072c0) CALL 0x00ba53c0
+  UNCONDITIONAL_CALL @ 0x00c0a65f (in FUN_00c072c0) CALL 0x00ba53c0
+  UNCONDITIONAL_CALL @ 0x00c0a699 (in FUN_00c072c0) CALL 0x00ba53c0
+  UNCONDITIONAL_CALL @ 0x00c0a738 (in FUN_00c072c0) CALL 0x00ba53c0
+  UNCONDITIONAL_CALL @ 0x00c0a7d9 (in FUN_00c072c0) CALL 0x00ba53c0
+  UNCONDITIONAL_CALL @ 0x00c0a8b6 (in FUN_00c072c0) CALL 0x00ba53c0
+  UNCONDITIONAL_CALL @ 0x00c0a981 (in FUN_00c072c0) CALL 0x00ba53c0
+  UNCONDITIONAL_CALL @ 0x00c0a9c9 (in FUN_00c072c0) CALL 0x00ba53c0
+  UNCONDITIONAL_CALL @ 0x00c0aa0c (in FUN_00c072c0) CALL 0x00ba53c0
+  UNCONDITIONAL_CALL @ 0x00c0aa54 (in FUN_00c072c0) CALL 0x00ba53c0
+  UNCONDITIONAL_CALL @ 0x00c0aa9b (in FUN_00c072c0) CALL 0x00ba53c0
+  UNCONDITIONAL_CALL @ 0x00c0aaf5 (in FUN_00c072c0) CALL 0x00ba53c0
+  UNCONDITIONAL_CALL @ 0x00c0ab33 (in FUN_00c072c0) CALL 0x00ba53c0
+  Total: 56 refs
+
+----------------------------------------------------------------------
+References TO 0x00b79950 (vertex shader refcounted setter)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00b85dcf (in FUN_00b83dd0) CALL 0x00b79950
+  UNCONDITIONAL_CALL @ 0x00b85df9 (in FUN_00b83dd0) CALL 0x00b79950
+  UNCONDITIONAL_CALL @ 0x00b85e23 (in FUN_00b83dd0) CALL 0x00b79950
+  UNCONDITIONAL_CALL @ 0x00b85e4d (in FUN_00b83dd0) CALL 0x00b79950
+  UNCONDITIONAL_CALL @ 0x00b85e77 (in FUN_00b83dd0) CALL 0x00b79950
+  UNCONDITIONAL_CALL @ 0x00b85ea6 (in FUN_00b83dd0) CALL 0x00b79950
+  UNCONDITIONAL_CALL @ 0x00b85ed0 (in FUN_00b83dd0) CALL 0x00b79950
+  UNCONDITIONAL_CALL @ 0x00b85efa (in FUN_00b83dd0) CALL 0x00b79950
+  UNCONDITIONAL_CALL @ 0x00b85f24 (in FUN_00b83dd0) CALL 0x00b79950
+  UNCONDITIONAL_CALL @ 0x00b85f53 (in FUN_00b83dd0) CALL 0x00b79950
+  UNCONDITIONAL_CALL @ 0x00b85f7d (in FUN_00b83dd0) CALL 0x00b79950
+  UNCONDITIONAL_CALL @ 0x00b85fa7 (in FUN_00b83dd0) CALL 0x00b79950
+  UNCONDITIONAL_CALL @ 0x00b85fd1 (in FUN_00b83dd0) CALL 0x00b79950
+  UNCONDITIONAL_CALL @ 0x00b86000 (in FUN_00b83dd0) CALL 0x00b79950
+  UNCONDITIONAL_CALL @ 0x00b8602a (in FUN_00b83dd0) CALL 0x00b79950
+  UNCONDITIONAL_CALL @ 0x00b86054 (in FUN_00b83dd0) CALL 0x00b79950
+  UNCONDITIONAL_CALL @ 0x00b8607e (in FUN_00b83dd0) CALL 0x00b79950
+  UNCONDITIONAL_CALL @ 0x00b860a8 (in FUN_00b83dd0) CALL 0x00b79950
+  UNCONDITIONAL_CALL @ 0x00b860d2 (in FUN_00b83dd0) CALL 0x00b79950
+  UNCONDITIONAL_CALL @ 0x00b860fc (in FUN_00b83dd0) CALL 0x00b79950
+  UNCONDITIONAL_CALL @ 0x00b86126 (in FUN_00b83dd0) CALL 0x00b79950
+  UNCONDITIONAL_CALL @ 0x00b86154 (in FUN_00b83dd0) CALL 0x00b79950
+  UNCONDITIONAL_CALL @ 0x00b86183 (in FUN_00b83dd0) CALL 0x00b79950
+  UNCONDITIONAL_CALL @ 0x00be561d (in FUN_00be39e0) CALL 0x00b79950
+  UNCONDITIONAL_CALL @ 0x00be57bc (in FUN_00be39e0) CALL 0x00b79950
+  UNCONDITIONAL_CALL @ 0x00be5964 (in FUN_00be39e0) CALL 0x00b79950
+  UNCONDITIONAL_CALL @ 0x00be5aa2 (in FUN_00be39e0) CALL 0x00b79950
+  UNCONDITIONAL_CALL @ 0x00be5bd2 (in FUN_00be39e0) CALL 0x00b79950
+  UNCONDITIONAL_CALL @ 0x00be5d17 (in FUN_00be39e0) CALL 0x00b79950
+  UNCONDITIONAL_CALL @ 0x00be5e87 (in FUN_00be39e0) CALL 0x00b79950
+  UNCONDITIONAL_CALL @ 0x00be5ff8 (in FUN_00be39e0) CALL 0x00b79950
+  UNCONDITIONAL_CALL @ 0x00be6172 (in FUN_00be39e0) CALL 0x00b79950
+  UNCONDITIONAL_CALL @ 0x00be631a (in FUN_00be39e0) CALL 0x00b79950
+  UNCONDITIONAL_CALL @ 0x00be64ae (in FUN_00be39e0) CALL 0x00b79950
+  UNCONDITIONAL_CALL @ 0x00be65ee (in FUN_00be39e0) CALL 0x00b79950
+  UNCONDITIONAL_CALL @ 0x00be6756 (in FUN_00be39e0) CALL 0x00b79950
+  UNCONDITIONAL_CALL @ 0x00be68c0 (in FUN_00be39e0) CALL 0x00b79950
+  UNCONDITIONAL_CALL @ 0x00be6a35 (in FUN_00be39e0) CALL 0x00b79950
+  UNCONDITIONAL_CALL @ 0x00be6bda (in FUN_00be39e0) CALL 0x00b79950
+  UNCONDITIONAL_CALL @ 0x00be6d7e (in FUN_00be39e0) CALL 0x00b79950
+  UNCONDITIONAL_CALL @ 0x00be6f4f (in FUN_00be39e0) CALL 0x00b79950
+  UNCONDITIONAL_CALL @ 0x00be70f4 (in FUN_00be39e0) CALL 0x00b79950
+  UNCONDITIONAL_CALL @ 0x00be72a2 (in FUN_00be39e0) CALL 0x00b79950
+  UNCONDITIONAL_CALL @ 0x00bed124 (in FUN_00bebd20) CALL 0x00b79950
+  UNCONDITIONAL_CALL @ 0x00bed372 (in FUN_00bebd20) CALL 0x00b79950
+  UNCONDITIONAL_CALL @ 0x00bed5c8 (in FUN_00bebd20) CALL 0x00b79950
+  UNCONDITIONAL_CALL @ 0x00bed81d (in FUN_00bebd20) CALL 0x00b79950
+  UNCONDITIONAL_CALL @ 0x00beda75 (in FUN_00bebd20) CALL 0x00b79950
+  UNCONDITIONAL_CALL @ 0x00bedccf (in FUN_00bebd20) CALL 0x00b79950
+  UNCONDITIONAL_CALL @ 0x00bedf24 (in FUN_00bebd20) CALL 0x00b79950
+  UNCONDITIONAL_CALL @ 0x00bee178 (in FUN_00bebd20) CALL 0x00b79950
+  UNCONDITIONAL_CALL @ 0x00bee3d2 (in FUN_00bebd20) CALL 0x00b79950
+  UNCONDITIONAL_CALL @ 0x00bee627 (in FUN_00bebd20) CALL 0x00b79950
+  UNCONDITIONAL_CALL @ 0x00bee87f (in FUN_00bebd20) CALL 0x00b79950
+  UNCONDITIONAL_CALL @ 0x00beead4 (in FUN_00bebd20) CALL 0x00b79950
+  UNCONDITIONAL_CALL @ 0x00beed2e (in FUN_00bebd20) CALL 0x00b79950
+  UNCONDITIONAL_CALL @ 0x00beef82 (in FUN_00bebd20) CALL 0x00b79950
+  UNCONDITIONAL_CALL @ 0x00bef1d9 (in FUN_00bebd20) CALL 0x00b79950
+  UNCONDITIONAL_CALL @ 0x00bef42e (in FUN_00bebd20) CALL 0x00b79950
+  UNCONDITIONAL_CALL @ 0x00bef682 (in FUN_00bebd20) CALL 0x00b79950
+  UNCONDITIONAL_CALL @ 0x00bef8d9 (in FUN_00bebd20) CALL 0x00b79950
+  UNCONDITIONAL_CALL @ 0x00befb2e (in FUN_00bebd20) CALL 0x00b79950
+  UNCONDITIONAL_CALL @ 0x00befd86 (in FUN_00bebd20) CALL 0x00b79950
+  UNCONDITIONAL_CALL @ 0x00beffdb (in FUN_00bebd20) CALL 0x00b79950
+  UNCONDITIONAL_CALL @ 0x00bf0235 (in FUN_00bebd20) CALL 0x00b79950
+  UNCONDITIONAL_CALL @ 0x00bf034a (in FUN_00bebd20) CALL 0x00b79950
+  UNCONDITIONAL_CALL @ 0x00bf044c (in FUN_00bebd20) CALL 0x00b79950
+  UNCONDITIONAL_CALL @ 0x00bf0549 (in FUN_00bebd20) CALL 0x00b79950
+  UNCONDITIONAL_CALL @ 0x00bf0637 (in FUN_00bebd20) CALL 0x00b79950
+  UNCONDITIONAL_CALL @ 0x00bf08f1 (in FUN_00bf0720) CALL 0x00b79950
+  UNCONDITIONAL_CALL @ 0x00bf0b4c (in FUN_00bf0720) CALL 0x00b79950
+  UNCONDITIONAL_CALL @ 0x00bf0da1 (in FUN_00bf0720) CALL 0x00b79950
+  UNCONDITIONAL_CALL @ 0x00bf0ff5 (in FUN_00bf0720) CALL 0x00b79950
+  UNCONDITIONAL_CALL @ 0x00bf1250 (in FUN_00bf0720) CALL 0x00b79950
+  UNCONDITIONAL_CALL @ 0x00bf14a5 (in FUN_00bf0720) CALL 0x00b79950
+  UNCONDITIONAL_CALL @ 0x00bf16fd (in FUN_00bf0720) CALL 0x00b79950
+  UNCONDITIONAL_CALL @ 0x00bf1952 (in FUN_00bf0720) CALL 0x00b79950
+  UNCONDITIONAL_CALL @ 0x00bf1bac (in FUN_00bf0720) CALL 0x00b79950
+  UNCONDITIONAL_CALL @ 0x00bf1e00 (in FUN_00bf0720) CALL 0x00b79950
+  UNCONDITIONAL_CALL @ 0x00bf205b (in FUN_00bf0720) CALL 0x00b79950
+  UNCONDITIONAL_CALL @ 0x00bf22b0 (in FUN_00bf0720) CALL 0x00b79950
+  ... (truncated)
+  Total: 81 refs
+
+----------------------------------------------------------------------
+References TO 0x00b80600 (pixel shader refcounted setter)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00b85db2 (in FUN_00b83dd0) CALL 0x00b80600
+  UNCONDITIONAL_CALL @ 0x00b85de1 (in FUN_00b83dd0) CALL 0x00b80600
+  UNCONDITIONAL_CALL @ 0x00b85e0b (in FUN_00b83dd0) CALL 0x00b80600
+  UNCONDITIONAL_CALL @ 0x00b85e35 (in FUN_00b83dd0) CALL 0x00b80600
+  UNCONDITIONAL_CALL @ 0x00b85e5f (in FUN_00b83dd0) CALL 0x00b80600
+  UNCONDITIONAL_CALL @ 0x00b85e89 (in FUN_00b83dd0) CALL 0x00b80600
+  UNCONDITIONAL_CALL @ 0x00b85eb8 (in FUN_00b83dd0) CALL 0x00b80600
+  UNCONDITIONAL_CALL @ 0x00b85ee2 (in FUN_00b83dd0) CALL 0x00b80600
+  UNCONDITIONAL_CALL @ 0x00b85f0c (in FUN_00b83dd0) CALL 0x00b80600
+  UNCONDITIONAL_CALL @ 0x00b85f36 (in FUN_00b83dd0) CALL 0x00b80600
+  UNCONDITIONAL_CALL @ 0x00b85f65 (in FUN_00b83dd0) CALL 0x00b80600
+  UNCONDITIONAL_CALL @ 0x00b85f8f (in FUN_00b83dd0) CALL 0x00b80600
+  UNCONDITIONAL_CALL @ 0x00b85fb9 (in FUN_00b83dd0) CALL 0x00b80600
+  UNCONDITIONAL_CALL @ 0x00b85fe3 (in FUN_00b83dd0) CALL 0x00b80600
+  UNCONDITIONAL_CALL @ 0x00b86012 (in FUN_00b83dd0) CALL 0x00b80600
+  UNCONDITIONAL_CALL @ 0x00b8603c (in FUN_00b83dd0) CALL 0x00b80600
+  UNCONDITIONAL_CALL @ 0x00b86066 (in FUN_00b83dd0) CALL 0x00b80600
+  UNCONDITIONAL_CALL @ 0x00b86090 (in FUN_00b83dd0) CALL 0x00b80600
+  UNCONDITIONAL_CALL @ 0x00b860ba (in FUN_00b83dd0) CALL 0x00b80600
+  UNCONDITIONAL_CALL @ 0x00b860e4 (in FUN_00b83dd0) CALL 0x00b80600
+  UNCONDITIONAL_CALL @ 0x00b8610e (in FUN_00b83dd0) CALL 0x00b80600
+  UNCONDITIONAL_CALL @ 0x00b86138 (in FUN_00b83dd0) CALL 0x00b80600
+  UNCONDITIONAL_CALL @ 0x00b86166 (in FUN_00b83dd0) CALL 0x00b80600
+  UNCONDITIONAL_CALL @ 0x00b86195 (in FUN_00b83dd0) CALL 0x00b80600
+  UNCONDITIONAL_CALL @ 0x00be5452 (in FUN_00be39e0) CALL 0x00b80600
+  UNCONDITIONAL_CALL @ 0x00be562b (in FUN_00be39e0) CALL 0x00b80600
+  UNCONDITIONAL_CALL @ 0x00be57ca (in FUN_00be39e0) CALL 0x00b80600
+  UNCONDITIONAL_CALL @ 0x00be5972 (in FUN_00be39e0) CALL 0x00b80600
+  UNCONDITIONAL_CALL @ 0x00be5aaf (in FUN_00be39e0) CALL 0x00b80600
+  UNCONDITIONAL_CALL @ 0x00be5be0 (in FUN_00be39e0) CALL 0x00b80600
+  UNCONDITIONAL_CALL @ 0x00be5d25 (in FUN_00be39e0) CALL 0x00b80600
+  UNCONDITIONAL_CALL @ 0x00be5e95 (in FUN_00be39e0) CALL 0x00b80600
+  UNCONDITIONAL_CALL @ 0x00be6005 (in FUN_00be39e0) CALL 0x00b80600
+  UNCONDITIONAL_CALL @ 0x00be6180 (in FUN_00be39e0) CALL 0x00b80600
+  UNCONDITIONAL_CALL @ 0x00be6328 (in FUN_00be39e0) CALL 0x00b80600
+  UNCONDITIONAL_CALL @ 0x00be64bc (in FUN_00be39e0) CALL 0x00b80600
+  UNCONDITIONAL_CALL @ 0x00be65fb (in FUN_00be39e0) CALL 0x00b80600
+  UNCONDITIONAL_CALL @ 0x00be6764 (in FUN_00be39e0) CALL 0x00b80600
+  UNCONDITIONAL_CALL @ 0x00be68ce (in FUN_00be39e0) CALL 0x00b80600
+  UNCONDITIONAL_CALL @ 0x00be6a42 (in FUN_00be39e0) CALL 0x00b80600
+  UNCONDITIONAL_CALL @ 0x00be6be8 (in FUN_00be39e0) CALL 0x00b80600
+  UNCONDITIONAL_CALL @ 0x00be6d8c (in FUN_00be39e0) CALL 0x00b80600
+  UNCONDITIONAL_CALL @ 0x00be6f5d (in FUN_00be39e0) CALL 0x00b80600
+  UNCONDITIONAL_CALL @ 0x00be7101 (in FUN_00be39e0) CALL 0x00b80600
+  UNCONDITIONAL_CALL @ 0x00be72b0 (in FUN_00be39e0) CALL 0x00b80600
+  UNCONDITIONAL_CALL @ 0x00bed132 (in FUN_00bebd20) CALL 0x00b80600
+  UNCONDITIONAL_CALL @ 0x00bed380 (in FUN_00bebd20) CALL 0x00b80600
+  UNCONDITIONAL_CALL @ 0x00bed5d5 (in FUN_00bebd20) CALL 0x00b80600
+  UNCONDITIONAL_CALL @ 0x00bed82b (in FUN_00bebd20) CALL 0x00b80600
+  UNCONDITIONAL_CALL @ 0x00beda83 (in FUN_00bebd20) CALL 0x00b80600
+  UNCONDITIONAL_CALL @ 0x00bedcdc (in FUN_00bebd20) CALL 0x00b80600
+  UNCONDITIONAL_CALL @ 0x00bedf32 (in FUN_00bebd20) CALL 0x00b80600
+  UNCONDITIONAL_CALL @ 0x00bee186 (in FUN_00bebd20) CALL 0x00b80600
+  UNCONDITIONAL_CALL @ 0x00bee3df (in FUN_00bebd20) CALL 0x00b80600
+  UNCONDITIONAL_CALL @ 0x00bee635 (in FUN_00bebd20) CALL 0x00b80600
+  UNCONDITIONAL_CALL @ 0x00bee88d (in FUN_00bebd20) CALL 0x00b80600
+  UNCONDITIONAL_CALL @ 0x00beeae1 (in FUN_00bebd20) CALL 0x00b80600
+  UNCONDITIONAL_CALL @ 0x00beed3c (in FUN_00bebd20) CALL 0x00b80600
+  UNCONDITIONAL_CALL @ 0x00beef90 (in FUN_00bebd20) CALL 0x00b80600
+  UNCONDITIONAL_CALL @ 0x00bef1e6 (in FUN_00bebd20) CALL 0x00b80600
+  UNCONDITIONAL_CALL @ 0x00bef43c (in FUN_00bebd20) CALL 0x00b80600
+  UNCONDITIONAL_CALL @ 0x00bef690 (in FUN_00bebd20) CALL 0x00b80600
+  UNCONDITIONAL_CALL @ 0x00bef8e6 (in FUN_00bebd20) CALL 0x00b80600
+  UNCONDITIONAL_CALL @ 0x00befb3c (in FUN_00bebd20) CALL 0x00b80600
+  UNCONDITIONAL_CALL @ 0x00befd94 (in FUN_00bebd20) CALL 0x00b80600
+  UNCONDITIONAL_CALL @ 0x00beffe8 (in FUN_00bebd20) CALL 0x00b80600
+  UNCONDITIONAL_CALL @ 0x00bf0243 (in FUN_00bebd20) CALL 0x00b80600
+  UNCONDITIONAL_CALL @ 0x00bf0358 (in FUN_00bebd20) CALL 0x00b80600
+  UNCONDITIONAL_CALL @ 0x00bf045a (in FUN_00bebd20) CALL 0x00b80600
+  UNCONDITIONAL_CALL @ 0x00bf0557 (in FUN_00bebd20) CALL 0x00b80600
+  UNCONDITIONAL_CALL @ 0x00bf0645 (in FUN_00bebd20) CALL 0x00b80600
+  UNCONDITIONAL_CALL @ 0x00bf08ff (in FUN_00bf0720) CALL 0x00b80600
+  UNCONDITIONAL_CALL @ 0x00bf0b59 (in FUN_00bf0720) CALL 0x00b80600
+  UNCONDITIONAL_CALL @ 0x00bf0daf (in FUN_00bf0720) CALL 0x00b80600
+  UNCONDITIONAL_CALL @ 0x00bf1003 (in FUN_00bf0720) CALL 0x00b80600
+  UNCONDITIONAL_CALL @ 0x00bf125d (in FUN_00bf0720) CALL 0x00b80600
+  UNCONDITIONAL_CALL @ 0x00bf14b3 (in FUN_00bf0720) CALL 0x00b80600
+  UNCONDITIONAL_CALL @ 0x00bf170b (in FUN_00bf0720) CALL 0x00b80600
+  UNCONDITIONAL_CALL @ 0x00bf195f (in FUN_00bf0720) CALL 0x00b80600
+  UNCONDITIONAL_CALL @ 0x00bf1bba (in FUN_00bf0720) CALL 0x00b80600
+  UNCONDITIONAL_CALL @ 0x00bf1e0e (in FUN_00bf0720) CALL 0x00b80600
+  ... (truncated)
+  Total: 81 refs
+
+----------------------------------------------------------------------
+References TO 0x00e88a20 (D3D SetTexture stage wrapper)
+----------------------------------------------------------------------
+  DATA @ 0x010ef6e8 (in ???) <no instruction>
+  DATA @ 0x010f0968 (in ???) <no instruction>
+  Total: 2 refs
+
+----------------------------------------------------------------------
+References TO 0x00e910a0 (D3D sampler-state wrapper)
+----------------------------------------------------------------------
+  DATA @ 0x010f0958 (in ???) <no instruction>
+  Total: 1 refs
+
+----------------------------------------------------------------------
+References TO 0x011f9174 (current per-light shadow object diagnostic global)
+----------------------------------------------------------------------
+  WRITE @ 0x00b5b9d6 (in FUN_00b5b880) MOV dword ptr [0x011f9174],ESI
+  Total: 1 refs
+
+----------------------------------------------------------------------
+References TO 0x011fd968 (ShadowProj per-draw matrix backing)
+----------------------------------------------------------------------
+  WRITE @ 0x00b7ba63 (in FUN_00b7b930) MOVSD.REP ES:EDI,ESI
+  DATA @ 0x00b7e514 (in FUN_00b7e430) PUSH 0x11fd968
+  DATA @ 0x00b7ba5a (in FUN_00b7b930) MOV EDI,0x11fd968
+  Total: 3 refs
+
+======================================================================
+FIELD-DISPLACEMENT SCAN
+======================================================================
+
+Range 0x00b78000-0x00b7efff (PPLighting draw helpers)
+  0x00b78c36 in FUN_00b78a90             FLD float ptr [ESP + 0x50]
+  0x00b78cf7 in FUN_00b78a90             LEA ECX,[ESP + 0x50]
+  0x00b792c8 in FUN_00b791f0             MOV EDX,dword ptr [EAX + 0x90]
+  0x00b7adea in FUN_00b7ad80             FLD float ptr [EAX + 0x50]
+  0x00b7b822 in FUN_00b7b730             FSTP float ptr [ESP + 0x50]
+  0x00b7b8bc in FUN_00b7b730             LEA ESI,[ESP + 0x90]
+  0x00b7b8c3 in FUN_00b7b730             LEA EDI,[ESP + 0x50]
+  0x00b7b8c9 in FUN_00b7b730             LEA ECX,[ESP + 0x50]
+  0x00b7b900 in FUN_00b7b730             LEA EDI,[ESP + 0x90]
+  0x00b7b909 in FUN_00b7b730             LEA ECX,[ESP + 0x90]
+  0x00b7b942 in FUN_00b7b930             MOV ECX,dword ptr [ESP + 0x50]
+  0x00b7ba56 in FUN_00b7b930             FSTP float ptr [ESP + 0x50]
+  0x00b7bde1 in FUN_00b7ba70             MOV EDX,dword ptr [EAX + 0x110]
+  0x00b7be52 in FUN_00b7be00             LEA EDI,[ESP + 0x50]
+  0x00b7be64 in FUN_00b7be00             FMUL float ptr [ESP + 0x50]
+  0x00b7be8c in FUN_00b7be00             LEA EDX,[ESP + 0x50]
+  0x00b7be94 in FUN_00b7be00             LEA EAX,[ESP + 0x90]
+  0x00b7bf09 in FUN_00b7be00             LEA ECX,[ESP + 0x90]
+  0x00b7bfb2 in FUN_00b7be00             LEA ECX,[ESP + 0x90]
+  0x00b7c13a in FUN_00b7c120             MOV ECX,dword ptr [EDX + 0x10c]
+  0x00b7c91e in FUN_00b7c850             MOV ECX,dword ptr [EDI + 0x90]
+  0x00b7cb14 in FUN_00b7cb00             MOV EAX,dword ptr [EDX + 0x10c]
+  0x00b7cbee in FUN_00b7cb00             MOV ECX,dword ptr [EDI + 0x90]
+  0x00b7cc42 in FUN_00b7cb00             FADD float ptr [ESP + 0x50]
+  0x00b7cdf1 in FUN_00b7cb00             FST float ptr [ESP + 0x50]
+  0x00b7cdf5 in FUN_00b7cb00             MOV ECX,dword ptr [ESP + 0x50]
+  Total matches: 26
+
+Range 0x00bf0000-0x00bf66bf (PPLighting package setup)
+  Total matches: 0
+
+Range 0x00b58000-0x00b5ffff (local shadow scene manager)
+  0x00b589b6 in FUN_00b587c0             MOV dword ptr [ESP + 0x90],EBP
+  0x00b58b2a in FUN_00b587c0             MOV dword ptr [ESP + 0x50],ECX
+  0x00b58b60 in FUN_00b587c0             MOV EBP,dword ptr [ESP + 0x90]
+  0x00b58c42 in FUN_00b587c0             MOV EBP,dword ptr [ESP + 0x90]
+  0x00b58c4f in FUN_00b587c0             MOV ECX,dword ptr [ESP + 0x50]
+  0x00b58cb2 in FUN_00b587c0             MOV dword ptr [ESP + 0x50],ECX
+  0x00b58e0e in FUN_00b587c0             MOV dword ptr [ESP + 0x50],EAX
+  0x00b58f34 in FUN_00b587c0             MOV ECX,dword ptr [ESP + 0x50]
+  0x00b58f96 in FUN_00b587c0             MOV EDX,dword ptr [ESP + 0x90]
+  0x00b59b15 in FUN_00b59ae0             MOV dword ptr [ESP + 0x50],EDI
+  0x00b59d6f in FUN_00b59d30             MOV ECX,dword ptr [EAX + 0x10c]
+  0x00b59e29 in FUN_00b59d30             FLD float ptr [ESP + 0x50]
+  0x00b5a2f5 in FUN_00b5a220             FLD float ptr [ESI + 0x90]
+  0x00b5a601 in FUN_00b5a590             FST float ptr [ESI + 0x90]
+  0x00b5ac80 in FUN_00b5ac60             CMP word ptr [EDX + 0x110],SI
+  0x00b5ad5d in FUN_00b5ac90             LEA EAX,[ESP + 0x50]
+  0x00b5ad6f in FUN_00b5ac90             MOV EDX,dword ptr [EBP + 0x90]
+  0x00b5ada7 in FUN_00b5ac90             MOV dword ptr [ESP + 0x110],0xffffffff
+  0x00b5aee4 in FUN_00b5aee0             MOV ESI,dword ptr [EBX + 0x10c]
+  0x00b5af0e in FUN_00b5aee0             MOV dword ptr [EBX + 0x10c],EDI
+  0x00b5b085 in FUN_00b5b060             MOV EAX,dword ptr [ESI + 0x10c]
+  0x00b5b097 in FUN_00b5b060             MOV EDI,dword ptr [ESI + 0x10c]
+  0x00b5b0b8 in FUN_00b5b060             MOV dword ptr [ESI + 0x10c],0x0
+  0x00b5b20c in FUN_00b5b1f0             MOV EAX,dword ptr [ESI + 0x10c]
+  0x00b5b21e in FUN_00b5b1f0             MOV EBX,dword ptr [ESI + 0x10c]
+  0x00b5b23f in FUN_00b5b1f0             MOV dword ptr [ESI + 0x10c],0x0
+  0x00b5b7aa in FUN_00b5b610             FLD float ptr [ESP + 0x50]
+  0x00b5b7e8 in FUN_00b5b610             FSTP float ptr [ESP + 0x50]
+  0x00b5b7f8 in FUN_00b5b610             FMUL float ptr [ESP + 0x50]
+  0x00b5b9c5 in FUN_00b5b880             CMP word ptr [ESI + 0x110],CX
+  0x00b5bbf6 in FUN_00b5bbe0             MOV EAX,dword ptr [EBX + 0x90]
+  0x00b5bd54 in FUN_00b5bca0             FSTP float ptr [ESP + 0x50]
+  0x00b5bd6a in FUN_00b5bca0             LEA ECX,[ESP + 0x50]
+  0x00b5bd79 in FUN_00b5bca0             FLD float ptr [ESP + 0x50]
+  0x00b5be77 in FUN_00b5bca0             FSTP float ptr [ESP + 0x50]
+  0x00b5be7b in FUN_00b5bca0             MOV EBP,dword ptr [ESP + 0x50]
+  0x00b5be7f in FUN_00b5bca0             FLD float ptr [ESI + 0x90]
+  0x00b5bf57 in FUN_00b5bca0             FLD float ptr [ESP + 0x50]
+  0x00b5c324 in FUN_00b5bca0             FSTP float ptr [ESP + 0x50]
+  0x00b5c328 in FUN_00b5bca0             MOV ECX,dword ptr [ESP + 0x50]
+  0x00b5c3e3 in FUN_00b5c3c0             MOV EAX,dword ptr [ESI + 0x10c]
+  0x00b5c3f5 in FUN_00b5c3c0             MOV EBX,dword ptr [ESI + 0x10c]
+  0x00b5c416 in FUN_00b5c3c0             MOV dword ptr [ESI + 0x10c],EBP
+  0x00b5d3f1 in FUN_00b5d300             MOV EDX,dword ptr [EAX + 0x90]
+  0x00b5d498 in FUN_00b5d300             MOV EDX,dword ptr [EAX + 0x110]
+  0x00b5d9b6 in FUN_00b5d930             CMP word ptr [ESI + 0x110],DX
+  0x00b5dba9 in FUN_00b5dac0             CMP word ptr [ESI + 0x110],CX
+  0x00b5dc3c in FUN_00b5dac0             CMP word ptr [ESI + 0x110],CX
+  0x00b5dcca in FUN_00b5dac0             CMP word ptr [ESI + 0x110],AX
+  0x00b5e18e in FUN_00b5e0f0             MOV dword ptr [ESI + 0x110],EBX
+  0x00b5e19a in FUN_00b5e0f0             MOV dword ptr [ESI + 0x10c],EBX
+  0x00b5e899 in FUN_00b5e870             MOV ESI,dword ptr [ESP + 0x50]
+  0x00b5e90e in FUN_00b5e870             MOV EAX,dword ptr [ESP + 0x50]
+  0x00b5e958 in FUN_00b5e870             MOV dword ptr [ESP + 0x50],0x0
+  0x00b5e9f1 in FUN_00b5e870             MOV dword ptr [ESP + 0x50],0x1
+  0x00b5ea2f in FUN_00b5e870             MOV ESI,dword ptr [ESP + 0x50]
+  0x00b5eaa4 in FUN_00b5e870             MOV ECX,dword ptr [EBX + 0x90]
+  0x00b5ebcd in FUN_00b5e870             FSTP float ptr [ESP + 0x50]
+  0x00b5ebd1 in FUN_00b5e870             FLD float ptr [ESP + 0x50]
+  0x00b5f1a5 in FUN_00b5f170             MOV dword ptr [ESP + 0x50],EBX
+  0x00b5f1f4 in FUN_00b5f170             MOV ECX,dword ptr [ESI + 0x90]
+  0x00b5faeb in FUN_00b5f9b0             MOV EAX,dword ptr [EBX + 0x90]
+  0x00b5fbec in FUN_00b5f9b0             MOV EAX,dword ptr [EBX + 0x90]
+  0x00b5fe3c in FUN_00b5fd60             MOV EAX,dword ptr [EAX + 0x10c]
+  0x00b5fe52 in FUN_00b5fd60             MOV ESI,dword ptr [EDI + 0x10c]
+  Total matches: 65
+
+Range 0x00b9d000-0x00ba0fff (local shadow renderer)
+  0x00b9d184 in FUN_00b9d150             MOV EDX,dword ptr [ECX + 0x90]
+  0x00b9d310 in FUN_00b9d150             FLD float ptr [ESI + 0x90]
+  0x00b9d46b in FUN_00b9d150             MOV dword ptr [ESP + 0x50],EAX
+  0x00b9d4c9 in FUN_00b9d150             MOV dword ptr [ESP + 0x50],ECX
+  0x00b9d5d6 in FUN_00b9d150             FLD float ptr [EAX + 0x90]
+  0x00b9d887 in FUN_00b9d150             FADD float ptr [ESP + 0x50]
+  0x00b9d88b in FUN_00b9d150             FSTP float ptr [ESP + 0x50]
+  0x00b9db3f in FUN_00b9dae0             FLD float ptr [ESI + 0x90]
+  0x00b9dc23 in FUN_00b9dbe0             FLD float ptr [ESI + 0x90]
+  0x00b9dd2f in FUN_00b9dcb0             MOV EAX,dword ptr [ESI + 0x10c]
+  0x00b9dd45 in FUN_00b9dcb0             MOV EAX,dword ptr [ESI + 0x10c]
+  0x00b9dd6c in FUN_00b9dcb0             MOV dword ptr [ESI + 0x10c],0x0
+  0x00b9de22 in FUN_00b9dda0             MOV EDX,dword ptr [ESI + 0x90]
+  0x00b9e02d in FUN_00b9dfc0             CMP dword ptr [EBX + 0x10c],0x0
+  0x00b9e067 in FUN_00b9dfc0             CMP word ptr [EBX + 0x110],AX
+  0x00b9e08b in FUN_00b9dfc0             CMP dword ptr [EBX + 0x10c],0x0
+  0x00b9e0c6 in FUN_00b9dfc0             FLD float ptr [EAX + 0x90]
+  0x00b9e255 in FUN_00b9dfc0             MOV EDX,dword ptr [ESI + 0x90]
+  0x00b9e2a2 in FUN_00b9dfc0             MOV dword ptr [ESP + 0x50],ECX
+  0x00b9e350 in FUN_00b9dfc0             FLD float ptr [ESI + 0x90]
+  0x00b9e3df in FUN_00b9dfc0             FSTP float ptr [ESP + 0x90]
+  0x00b9e4d1 in FUN_00b9dfc0             MOV EDX,dword ptr [ECX + 0x90]
+  0x00b9e5d5 in FUN_00b9dfc0             FSTP float ptr [ESP + 0x50]
+  0x00b9e5d9 in FUN_00b9dfc0             LEA EAX,[ESP + 0x50]
+  0x00b9e6d2 in FUN_00b9dfc0             MOV EAX,dword ptr [EBX + 0x10c]
+  0x00b9e6e8 in FUN_00b9dfc0             MOV ESI,dword ptr [EBX + 0x10c]
+  0x00b9e70b in FUN_00b9dfc0             MOV dword ptr [EBX + 0x10c],0x0
+  0x00b9e98c in FUN_00b9e970             MOV EDX,dword ptr [EAX + 0x90]
+  0x00b9eb83 in FUN_00b9e970             MOV EDX,dword ptr [EAX + 0x90]
+  0x00b9ec07 in FUN_00b9e970             FLD float ptr [ECX + 0x110]
+  0x00b9edd0 in FUN_00b9e970             MOVZX EAX,word ptr [EBP + 0x110]
+  0x00b9eebe in FUN_00b9e970             MOV EAX,dword ptr [EBP + 0x10c]
+  0x00b9eed4 in FUN_00b9e970             MOV ESI,dword ptr [EBP + 0x10c]
+  0x00b9eef5 in FUN_00b9e970             MOV dword ptr [EBP + 0x10c],0x0
+  0x00b9ef09 in FUN_00b9e970             MOV word ptr [EBP + 0x110],DI
+  0x00b9f14c in FUN_00b9f0c0             MOV EAX,dword ptr [ESI + 0x10c]
+  0x00b9f162 in FUN_00b9f0c0             MOV EBX,dword ptr [ESI + 0x10c]
+  0x00b9f17f in FUN_00b9f0c0             MOV dword ptr [ESI + 0x10c],EDI
+  0x00b9f187 in FUN_00b9f0c0             MOV word ptr [ESI + 0x110],CX
+  0x00b9f3e2 in FUN_00b9f0c0             MOV EDI,dword ptr [ESI + 0x10c]
+  0x00b9f7ec in FUN_00b9f780             MOV dword ptr [ESP + 0x50],EDX
+  0x00b9f82a in FUN_00b9f780             MOV ECX,dword ptr [EBX + 0x10c]
+  0x00b9f9dd in FUN_00b9f780             LEA EAX,[EBX + 0x50]
+  0x00b9fa4c in FUN_00b9f780             LEA EDX,[EBX + 0x90]
+  0x00b9fb04 in FUN_00b9f780             MOV EAX,dword ptr [EBX + 0x10c]
+  0x00b9fb61 in FUN_00b9f780             MOV ECX,dword ptr [EBX + 0x10c]
+  0x00b9fe09 in FUN_00b9fda0             MOV dword ptr [ESI + 0x10c],EBX
+  0x00b9ff15 in FUN_00b9fda0             MOV word ptr [ESI + 0x110],AX
+  0x00b9ff96 in FUN_00b9fda0             MOV EDI,dword ptr [ESI + 0x10c]
+  0x00b9ffb7 in FUN_00b9fda0             MOV dword ptr [ESI + 0x10c],EBX
+  0x00ba0a33 in FUN_00ba0900             MOV dword ptr [ESP + 0x50],EBX
+  0x00ba0eea in FUN_00ba0900             MOV ECX,dword ptr [ESP + 0x90]
+  Total matches: 52
+
+======================================================================
+shader package setup dispatcher @ 0x00b78980
+======================================================================
+  Function: FUN_00b78980 @ 0x00b78980, Size: 190 bytes
+
+void __fastcall FUN_00b78980(int *param_1)
+
+{
+  (**(code **)(*param_1 + 0x144))();
+  FUN_00beb070();
+  FUN_00be22b0();
+  FUN_00be39e0();
+  FUN_00be7420();
+  FUN_00be78e0();
+  FUN_00be7f40();
+  FUN_00be8960();
+  FUN_00be8fb0();
+  FUN_00be9920();
+  FUN_00beac70();
+  if (1 < DAT_011f91c0) {
+    FUN_00bf66c0();
+    FUN_00bebd20();
+    FUN_00bf0720();
+    FUN_00bf8f70();
+    FUN_00bf96b0();
+    FUN_00bfbf60();
+    FUN_00bfc860();
+    FUN_00c01020();
+    FUN_00c017c0();
+    FUN_00c01c20();
+    FUN_00c01f60();
+    FUN_00c00be0();
+    FUN_00c02340();
+    return;
+  }
+  FUN_00bea040();
+  return;
+}
+
+
+
+--- Calls FROM shader package setup dispatcher (0x00b78980) ---
+  0x00b7898f -> 0x00beb070 FUN_00beb070
+  0x00b78996 -> 0x00be22b0 FUN_00be22b0
+  0x00b7899d -> 0x00be39e0 FUN_00be39e0
+  0x00b789a4 -> 0x00be7420 FUN_00be7420
+  0x00b789ab -> 0x00be78e0 FUN_00be78e0
+  0x00b789b2 -> 0x00be7f40 FUN_00be7f40
+  0x00b789b9 -> 0x00be8960 FUN_00be8960
+  0x00b789c0 -> 0x00be8fb0 FUN_00be8fb0
+  0x00b789c7 -> 0x00be9920 FUN_00be9920
+  0x00b789ce -> 0x00beac70 FUN_00beac70
+  0x00b789de -> 0x00bf66c0 FUN_00bf66c0
+  0x00b789e5 -> 0x00bebd20 FUN_00bebd20
+  0x00b789ec -> 0x00bf0720 FUN_00bf0720
+  0x00b789f3 -> 0x00bf8f70 FUN_00bf8f70
+  0x00b789fa -> 0x00bf96b0 FUN_00bf96b0
+  0x00b78a01 -> 0x00bfbf60 FUN_00bfbf60
+  0x00b78a08 -> 0x00bfc860 FUN_00bfc860
+  0x00b78a0f -> 0x00c01020 FUN_00c01020
+  0x00b78a16 -> 0x00c017c0 FUN_00c017c0
+  0x00b78a1d -> 0x00c01c20 FUN_00c01c20
+  0x00b78a24 -> 0x00c01f60 FUN_00c01f60
+  0x00b78a2b -> 0x00c00be0 FUN_00c00be0
+  0x00b78a33 -> 0x00c02340 FUN_00c02340
+  0x00b78a39 -> 0x00bea040 FUN_00bea040
+  Total: 24 calls
+
+======================================================================
+package-block object acquisition helper @ 0x00ba53c0
+======================================================================
+  Function: FUN_00ba53c0 @ 0x00ba53c0, Size: 47 bytes
+
+int * __thiscall FUN_00ba53c0(int *param_1,int *param_2)
+
+{
+  int *piVar1;
+  int iVar2;
+  
+  iVar2 = *param_1;
+  if (iVar2 != *param_2) {
+    if (iVar2 != 0) {
+      piVar1 = (int *)(iVar2 + 100);
+      *piVar1 = *piVar1 + -1;
+      if (*piVar1 == 0) {
+        FUN_00e80190();
+      }
+    }
+    iVar2 = *param_2;
+    *param_1 = iVar2;
+    if (iVar2 != 0) {
+      *(int *)(iVar2 + 100) = *(int *)(iVar2 + 100) + 1;
+    }
+  }
+  return param_1;
+}
+
+
+
+--- Calls FROM package-block object acquisition helper (0x00ba53c0) ---
+  0x00ba53d8 -> 0x00e80190 FUN_00e80190
+  Total: 1 calls
+
+======================================================================
+vertex shader refcounted setter @ 0x00b79950
+======================================================================
+  Function: FUN_00b79950 @ 0x00b79950, Size: 66 bytes
+
+void __thiscall FUN_00b79950(int param_1,int *param_2)
+
+{
+  int *piVar1;
+  LONG LVar2;
+  
+  piVar1 = *(int **)(param_1 + 0x5c);
+  if (piVar1 != param_2) {
+    if (piVar1 != (int *)0x0) {
+      LVar2 = InterlockedDecrement(piVar1 + 1);
+      if (LVar2 == 0) {
+        (**(code **)(*piVar1 + 4))();
+      }
+    }
+    *(int **)(param_1 + 0x5c) = param_2;
+    if (param_2 != (int *)0x0) {
+      InterlockedIncrement(param_2 + 1);
+    }
+  }
+  return;
+}
+
+
+
+--- Calls FROM vertex shader refcounted setter (0x00b79950) ---
+  0x00b79968 -> 0x00000067 ???
+  0x00b79986 -> 0x00000066 ???
+  Total: 2 calls
+
+======================================================================
+pixel shader refcounted setter @ 0x00b80600
+======================================================================
+  Function: FUN_00b80600 @ 0x00b80600, Size: 66 bytes
+
+void __thiscall FUN_00b80600(int param_1,int *param_2)
+
+{
+  int *piVar1;
+  LONG LVar2;
+  
+  piVar1 = *(int **)(param_1 + 0x44);
+  if (piVar1 != param_2) {
+    if (piVar1 != (int *)0x0) {
+      LVar2 = InterlockedDecrement(piVar1 + 1);
+      if (LVar2 == 0) {
+        (**(code **)(*piVar1 + 4))();
+      }
+    }
+    *(int **)(param_1 + 0x44) = param_2;
+    if (param_2 != (int *)0x0) {
+      InterlockedIncrement(param_2 + 1);
+    }
+  }
+  return;
+}
+
+
+
+--- Calls FROM pixel shader refcounted setter (0x00b80600) ---
+  0x00b80618 -> 0x00000067 ???
+  0x00b80636 -> 0x00000066 ???
+  Total: 2 calls
+
+======================================================================
+shader-interface field setup helper @ 0x00b80040
+======================================================================
+  Function: FUN_00b80040 @ 0x00b80040, Size: 69 bytes
+
+void __thiscall FUN_00b80040(int param_1,undefined4 param_2,undefined4 param_3)
+
+{
+  undefined4 uVar1;
+  
+  if (*(int *)(param_1 + 0x30) == 0) {
+    uVar1 = FUN_00e7f5d0();
+    *(undefined4 *)(param_1 + 0x30) = uVar1;
+  }
+  FUN_00e7f430(0x13,param_2,1);
+  if (*(int *)(param_1 + 0x30) == 0) {
+    uVar1 = FUN_00e7f5d0();
+    *(undefined4 *)(param_1 + 0x30) = uVar1;
+  }
+  FUN_00e7f430(0x14,param_3,1);
+  return;
+}
+
+
+
+--- Calls FROM shader-interface field setup helper (0x00b80040) ---
+  0x00b80049 -> 0x00e7f5d0 FUN_00e7f5d0
+  0x00b8005d -> 0x00e7f430 FUN_00e7f430
+  0x00b80068 -> 0x00e7f5d0 FUN_00e7f5d0
+  0x00b8007c -> 0x00e7f430 FUN_00e7f430
+  Total: 4 calls
+
+======================================================================
+pixel shader indexed lookup helper @ 0x00c163a0
+======================================================================
+  Function: FUN_00c163a0 @ 0x00c163a0, Size: 88 bytes
+
+undefined4 FUN_00c163a0(int *param_1)
+
+{
+  undefined4 uVar1;
+  bool bVar2;
+  int *piVar3;
+  undefined4 *puVar4;
+  LONG LVar5;
+  
+  bVar2 = (int *)0xcf < param_1;
+  if (bVar2) {
+    param_1 = (int *)0x0;
+    puVar4 = &param_1;
+  }
+  else {
+    puVar4 = &DAT_011fda48 + (int)param_1;
+  }
+  piVar3 = param_1;
+  uVar1 = *puVar4;
+  if ((bVar2) && (param_1 != (int *)0x0)) {
+    LVar5 = InterlockedDecrement(param_1 + 1);
+    if (LVar5 == 0) {
+      (**(code **)(*piVar3 + 4))();
+    }
+  }
+  return uVar1;
+}
+
+
+
+--- Calls FROM pixel shader indexed lookup helper (0x00c163a0) ---
+  0x00c163df -> 0x00000067 ???
+  Total: 1 calls
+
+======================================================================
+render pass state apply helper @ 0x00e7def0
+======================================================================
+  Function: FUN_00e7def0 @ 0x00e7def0, Size: 158 bytes
+
+void __thiscall FUN_00e7def0(int *param_1,int param_2)
+
+{
+  FUN_00e890c0(5,*(undefined4 *)(&DAT_0126f054 + param_2 * 0xc),0,0);
+  FUN_00e890c0(6,*(undefined4 *)(&DAT_0126f050 + param_2 * 0xc),0,0);
+  FUN_00e890c0(7,*(undefined4 *)(&DAT_0126f058 + param_2 * 0xc),0,0);
+  *param_1 = param_2;
+  return;
+}
+
+
+
+--- Calls FROM render pass state apply helper (0x00e7def0) ---
+  0x00e7df26 -> 0x00e890c0 FUN_00e890c0
+  0x00e7df52 -> 0x00e890c0 FUN_00e890c0
+  0x00e7df7e -> 0x00e890c0 FUN_00e890c0
+  Total: 3 calls
+
+======================================================================
+shader-interface field registration helper @ 0x00e7f430
+======================================================================
+  Function: FUN_00e7f430 @ 0x00e7f430, Size: 279 bytes
+
+void __thiscall FUN_00e7f430(uint param_1,undefined4 param_2,undefined4 param_3,char param_4)
+
+{
+  int *piVar1;
+  int *piVar2;
+  int *piVar3;
+  undefined4 *puVar4;
+  int iVar5;
+  undefined4 uStack_4;
+  
+  uStack_4 = param_1 & 0xffffff;
+  iVar5 = FUN_00e7f000(param_2,(int)&uStack_4 + 3);
+  piVar3 = DAT_0126f71c;
+  if (iVar5 == 0) {
+    piVar1 = DAT_0126f71c + 2;
+    if (*piVar1 == 0) {
+      piVar2 = DAT_0126f71c + 4;
+      FUN_00e7f210(DAT_0126f71c[4]);
+      *piVar2 = *piVar2 * 2;
+    }
+    piVar3 = (int *)*piVar3;
+    puVar4 = (undefined4 *)*piVar3;
+    *piVar1 = *piVar1 + -1;
+    *piVar3 = piVar3[*piVar1];
+    puVar4[2] = 0;
+    puVar4[3] = 0;
+    *puVar4 = param_2;
+    puVar4[1] = param_3;
+    if (param_4 != '\0') {
+      if (*(int *)(param_1 + 0x10) != 0) {
+        *(undefined4 **)(*(int *)(param_1 + 0x10) + 0xc) = puVar4;
+        puVar4[2] = *(undefined4 *)(param_1 + 0x10);
+      }
+      puVar4[3] = 0;
+      *(int *)(param_1 + 0xc) = *(int *)(param_1 + 0xc) + 1;
+      *(undefined4 **)(param_1 + 0x10) = puVar4;
+      return;
+    }
+    if (*(int *)(param_1 + 8) != 0) {
+      *(undefined4 **)(*(int *)(param_1 + 8) + 0xc) = puVar4;
+      puVar4[2] = *(undefined4 *)(param_1 + 8);
+    }
+    puVar4[3] = 0;
+    *(int *)(param_1 + 4) = *(int *)(param_1 + 4) + 1;
+    *(undefined4 **)(param_1 + 8) = puVar4;
+  }
+  else {
+    *(undefined4 *)(iVar5 + 4) = param_3;
+    if (uStack_4._3_1_ != param_4) {
+      if (uStack_4._3_1_ != '\0') {
+        FUN_00e7efc0(iVar5);
+        if (*(int *)(param_1 + 8) != 0) {
+          *(int *)(*(int *)(param_1 + 8) + 0xc) = iVar5;
+          *(undefined4 *)(iVar5 + 8) = *(undefined4 *)(param_1 + 8);
+        }
+        *(undefined4 *)(iVar5 + 0xc) = 0;
+        *(int *)(param_1 + 4) = *(int *)(param_1 + 4) + 1;
+        *(int *)(param_1 + 8) = iVar5;
+        return;
+      }
+      FUN_00e7ef80(iVar5);
+      if (*(int *)(param_1 + 0x10) != 0) {
+        *(int *)(*(int *)(param_1 + 0x10) + 0xc) = iVar5;
+        *(undefined4 *)(iVar5 + 8) = *(undefined4 *)(param_1 + 0x10);
+      }
+      *(undefined4 *)(iVar5 + 0xc) = 0;
+      *(int *)(param_1 + 0xc) = *(int *)(param_1 + 0xc) + 1;
+      *(int *)(param_1 + 0x10) = iVar5;
+      return;
+    }
+  }
+  return;
+}
+
+
+
+--- Calls FROM shader-interface field registration helper (0x00e7f430) ---
+  0x00e7f447 -> 0x00e7f000 FUN_00e7f000
+  0x00e7f470 -> 0x00e7efc0 FUN_00e7efc0
+  0x00e7f495 -> 0x00e7ef80 FUN_00e7ef80
+  0x00e7f4d1 -> 0x00e7f210 FUN_00e7f210
+  Total: 4 calls
+
+======================================================================
+ShadowProj per-draw matrix writer @ 0x00b7b930
+======================================================================
+  Function: FUN_00b7b930 @ 0x00b7b930, Size: 317 bytes
+
+void FUN_00b7b930(int param_1,int param_2,undefined4 *param_3)
+
+{
+  int iVar1;
+  undefined4 *puVar2;
+  undefined4 *puVar3;
+  undefined4 local_40 [4];
+  undefined4 local_30;
+  undefined4 local_2c;
+  undefined4 local_28;
+  undefined4 local_24;
+  undefined4 local_20;
+  undefined4 local_1c;
+  undefined4 local_18;
+  undefined4 local_14;
+  undefined4 local_10;
+  undefined4 local_c;
+  undefined4 local_8;
+  undefined4 local_4;
+  
+  if ((((*(char *)(DAT_011febe4 + 8) != '\0') && (*(int *)(param_1 + 0xc) != 0)) &&
+      (*(int *)(*(int *)(param_1 + 0xc) + 0x1c) != -1)) &&
+     (iVar1 = FUN_00b4f5c0(), *(int *)(iVar1 + 0x194) != 0)) {
+    if (param_2 == 0) {
+      local_40[0] = *param_3;
+      local_40[1] = param_3[1];
+      local_40[2] = param_3[2];
+      local_40[3] = param_3[9];
+      local_30 = param_3[3];
+      local_2c = param_3[4];
+      local_28 = param_3[5];
+      local_24 = param_3[10];
+      local_20 = param_3[6];
+      local_1c = param_3[7];
+      local_18 = param_3[8];
+      local_14 = param_3[0xb];
+      local_10 = 0;
+      local_c = 0;
+      local_8 = 0;
+      local_4 = param_3[0xc];
+    }
+    else {
+      local_40[0] = 0x3f800000;
+      local_40[1] = 0;
+      local_40[2] = 0;
+      local_40[3] = DAT_011f474c;
+      local_30 = 0;
+      local_28 = 0;
+      local_2c = 0x3f800000;
+      local_24 = DAT_011f4750;
+      local_20 = 0;
+      local_1c = 0;
+      local_18 = 0x3f800000;
+      local_14 = DAT_011f4754;
+      local_10 = 0;
+      local_c = 0;
+      local_8 = 0;
+      local_4 = 0x3f800000;
+    }
+    puVar2 = local_40;
+    puVar3 = &DAT_011fd968;
+    for (iVar1 = 0x10; iVar1 != 0; iVar1 = iVar1 + -1) {
+      *puVar3 = *puVar2;
+      puVar2 = puVar2 + 1;
+      puVar3 = puVar3 + 1;
+    }
+  }
+  return;
+}
+
+
+
+--- Calls FROM ShadowProj per-draw matrix writer (0x00b7b930) ---
+  0x00b7b95b -> 0x00b4f5c0 FUN_00b4f5c0
+  Total: 1 calls
+
+======================================================================
+ShadowLightShader UpdateLights @ 0x00b78a90
+======================================================================
+  Function: FUN_00b78a90 @ 0x00b78a90, Size: 1111 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+void FUN_00b78a90(int param_1,float param_2,undefined4 param_3,undefined4 param_4,undefined4 param_5
+                 ,undefined4 param_6)
+
+{
+  undefined4 uVar1;
+  float fVar2;
+  int iVar3;
+  int iVar4;
+  byte bVar5;
+  uint uVar6;
+  int in_stack_0000004c;
+  int in_stack_00000050;
+  int in_stack_00000054;
+  float local_40;
+  float local_3c;
+  float local_38;
+  float local_34;
+  float fStack_30;
+  float fStack_2c;
+  float local_28;
+  float local_24;
+  float local_20;
+  float local_1c;
+  float local_18;
+  float local_14;
+  float local_10;
+  float local_c;
+  float local_8;
+  float local_4;
+  
+  iVar4 = (int)param_2;
+  uVar1 = *(undefined4 *)(param_1 + 0x6c);
+  if (DAT_011f91b8 == 0xf) {
+    iVar4 = FUN_00b4f5d0();
+    DAT_011fa0c0 = *(undefined4 *)(iVar4 + 0x154);
+    DAT_011fa0c4 = *(undefined4 *)(iVar4 + 0x158);
+    DAT_011fa0c8 = *(undefined4 *)(iVar4 + 0x15c);
+    DAT_011fa0cc = *(undefined4 *)(iVar4 + 0x160);
+    return;
+  }
+  if (*(char *)(DAT_011febf0 + 8) != '\0') {
+    if ((*(ushort *)((int)param_2 + 4) < 0x10) || (0x13 < *(ushort *)((int)param_2 + 4))) {
+      *(uint *)(DAT_011febf0 + 0x20) = (uint)*(byte *)((int)param_2 + 9);
+    }
+    else {
+      *(undefined4 *)(DAT_011febf0 + 0x20) = 1;
+    }
+  }
+  if (*(char *)(DAT_011fec38 + 8) != '\0') {
+    *(uint *)(DAT_011fec38 + 0x20) = (uint)*(byte *)((int)param_2 + 9);
+  }
+  if (*(char *)(DAT_011fec4c + 8) != '\0') {
+    *(uint *)(DAT_011fec4c + 0x20) = *(byte *)((int)param_2 + 9) - 1;
+  }
+  bVar5 = 0;
+  if (*(char *)((int)param_2 + 9) != '\0') {
+    do {
+      if (9 < bVar5) break;
+      uVar6 = (uint)bVar5;
+      iVar3 = *(int *)(*(int *)(iVar4 + 0xc) + uVar6 * 4);
+      FUN_00b70820(uVar6,iVar3,uVar1);
+      if ((*(ushort *)(iVar4 + 4) < 0x10) || (0x13 < *(ushort *)(iVar4 + 4))) {
+        if (iVar3 != 0) {
+          if (*(char *)(iVar3 + 0xf4) == '\0') {
+            local_28 = -(float)(&DAT_011fa1f0)[uVar6 * 4];
+            local_24 = -(float)(&DAT_011fa1f4)[uVar6 * 4];
+            local_20 = -(float)(&DAT_011fa1f8)[uVar6 * 4];
+            D3DXVec3TransformNormal(&local_10,&local_28,&param_3);
+            D3DXVec3Normalize(&local_34,&local_1c);
+            (&DAT_011fd9a8)[uVar6 * 4] = local_28;
+            (&DAT_011fd9ac)[uVar6 * 4] = local_24;
+            (&DAT_011fd9b0)[uVar6 * 4] = local_20;
+            param_2 = (float)(&DAT_011fa1fc)[uVar6 * 4];
+          }
+          else {
+            local_1c = *(float *)(DAT_011f91c8 + 0x1e4);
+            local_18 = *(float *)(DAT_011f91c8 + 0x1e8);
+            local_14 = *(float *)(DAT_011f91c8 + 0x1ec);
+            local_40 = local_1c + (float)(&DAT_011fa170)[uVar6 * 4];
+            local_3c = local_18 + (float)(&DAT_011fa174)[uVar6 * 4];
+            local_38 = local_14 + (float)(&DAT_011fa178)[uVar6 * 4];
+            D3DXVec3TransformCoord(&local_34,&local_40,&param_3);
+            param_2 = (float)(&DAT_011fa1f0)[uVar6 * 4];
+            if (in_stack_00000054 == 0) {
+              if ((*(ushort *)(iVar4 + 4) < 0x231) || (0x233 < *(ushort *)(iVar4 + 4))) {
+                param_2 = param_2 / *(float *)(in_stack_0000004c + 0x30);
+              }
+              else {
+                fVar2 = *(float *)(in_stack_0000004c + 0x30);
+                local_34 = fVar2 * local_34;
+                fStack_30 = fVar2 * fStack_30;
+                fStack_2c = fVar2 * fStack_2c;
+              }
+            }
+            (&DAT_011fd9a8)[uVar6 * 4] = local_34;
+            (&DAT_011fd9ac)[uVar6 * 4] = fStack_30;
+            (&DAT_011fd9b0)[uVar6 * 4] = fStack_2c;
+          }
+          goto LAB_00b78d44;
+        }
+      }
+      else {
+        param_2 = (float)(&DAT_011fa1f0)[uVar6 * 4];
+        (&DAT_011fd9a8)[uVar6 * 4] = (&DAT_011fa170)[uVar6 * 4];
+        (&DAT_011fd9ac)[uVar6 * 4] = (&DAT_011fa174)[uVar6 * 4];
+        (&DAT_011fd9b0)[uVar6 * 4] = (&DAT_011fa178)[uVar6 * 4];
+        (&DAT_011fd9b4)[uVar6 * 4] = (&DAT_011fa17c)[uVar6 * 4];
+LAB_00b78d44:
+        (&DAT_011fd9b4)[uVar6 * 4] = param_2;
+      }
+      bVar5 = bVar5 + 1;
+    } while (bVar5 < *(byte *)(iVar4 + 9));
+  }
+  if ((((DAT_011f941e != '\0') && ((*(uint *)(param_1 + 0x20) & 0x400) != 0)) &&
+      (*(char *)(iVar4 + 9) != '\0')) && (*(char *)(**(int **)(iVar4 + 0xc) + 0xf4) == '\0')) {
+    DAT_011fa0d0 = _DAT_011f9184 * DAT_011fa0d0;
+    DAT_011fa0d4 = DAT_011fa0d4 * _DAT_011f9184;
+    DAT_011fa0d8 = DAT_011fa0d8 * _DAT_011f9184;
+    DAT_011fa0dc = _DAT_011f9184 * DAT_011fa0dc;
+    local_10 = DAT_011fa0d0;
+    local_c = DAT_011fa0d4;
+    local_8 = DAT_011fa0d8;
+    local_4 = DAT_011fa0dc;
+  }
+  if (in_stack_00000050 == 0x24b) {
+    in_stack_0000004c = 0;
+    if (DAT_011f91b8 == 10) {
+      iVar4 = FUN_00b70590(&stack0x0000004c);
+      if ((iVar4 == 0) || (*(char *)(iVar4 + 0xf4) == '\0')) {
+        DAT_011fa0d0 = _DAT_01016248;
+        DAT_011fa0d4 = _DAT_01016248;
+        DAT_011fa0d8 = _DAT_01016248;
+        DAT_011fa0dc = 1.0;
+      }
+    }
+    else {
+      iVar4 = FUN_00b70590(&stack0x0000004c);
+      if ((iVar4 == 0) || (*(char *)(iVar4 + 0xf4) == '\0')) {
+        DAT_011fa0d0 = (float)DAT_011fa0c0;
+        DAT_011fa0d4 = (float)DAT_011fa0c4;
+        DAT_011fa0d8 = (float)DAT_011fa0c8;
+        DAT_011fa0dc = (float)DAT_011fa0cc;
+        return;
+      }
+    }
+  }
+  return;
+}
+
+
+
+--- Calls FROM ShadowLightShader UpdateLights (0x00b78a90) ---
+  0x00b78aa6 -> 0x00b4f5d0 FUN_00b4f5d0
+  0x00b78b60 -> 0x00b70820 FUN_00b70820
+  0x00b78c42 -> 0x00ee6df8 D3DXVec3TransformCoord
+  0x00b78d0c -> 0x00ee6df2 D3DXVec3TransformNormal
+  0x00b78d1b -> 0x00ee6dec D3DXVec3Normalize
+  0x00b78e3c -> 0x00b70590 FUN_00b70590
+  0x00b78e90 -> 0x00b70590 FUN_00b70590
+  Total: 7 calls
+
+======================================================================
+selected local-shadow render loop @ 0x00b5b880
+======================================================================
+  Function: FUN_00b5b880 @ 0x00b5b880, Size: 506 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+void __thiscall FUN_00b5b880(int param_1,undefined4 param_2)
+
+{
+  int iVar1;
+  undefined4 uVar2;
+  int *piVar3;
+  undefined4 *puVar4;
+  int iVar5;
+  uint uVar6;
+  int iVar7;
+  int *piVar8;
+  LONG LVar9;
+  int *unaff_FS_OFFSET;
+  undefined4 uStack_18;
+  undefined1 uStack_14;
+  undefined1 uStack_13;
+  undefined1 uStack_12;
+  undefined1 uStack_11;
+  undefined1 uStack_10;
+  int local_c;
+  undefined1 *puStack_8;
+  int local_4;
+  
+  puStack_8 = &LAB_00f2759a;
+  local_c = *unaff_FS_OFFSET;
+  uVar6 = DAT_011c16bc ^ (uint)&stack0xffffffc8;
+  *unaff_FS_OFFSET = (int)&local_c;
+  iVar1 = *(int *)(unaff_FS_OFFSET[0xb] + _tls_index * 4);
+  uVar2 = *(undefined4 *)(iVar1 + 0x2b4);
+  *(undefined4 *)(iVar1 + 0x2b4) = 0x20;
+  local_4 = 0;
+  if (*(int *)(param_1 + 0x128) == 0) {
+    iVar7 = FUN_00aa13e0(0x140,uVar6);
+    local_4._0_1_ = 1;
+    if (iVar7 == 0) {
+      piVar8 = (int *)0x0;
+    }
+    else {
+      piVar8 = (int *)FUN_00bd8290(0);
+    }
+    piVar3 = *(int **)(param_1 + 0x128);
+    local_4 = (uint)local_4._1_3_ << 8;
+    if (piVar3 != piVar8) {
+      if ((piVar3 != (int *)0x0) && (LVar9 = InterlockedDecrement(piVar3 + 1), LVar9 == 0)) {
+        (**(code **)(*piVar3 + 4))();
+      }
+      *(int **)(param_1 + 0x128) = piVar8;
+      if (piVar8 != (int *)0x0) {
+        InterlockedIncrement(piVar8 + 1);
+      }
+    }
+  }
+  *(undefined4 *)(*(int *)(param_1 + 0x128) + 0x114) = 0;
+  if (*(int *)(param_1 + 200) != 0) {
+    puVar4 = *(undefined4 **)(param_1 + 0xc0);
+    iVar7 = 0;
+    while (puVar4 != (undefined4 *)0x0) {
+      iVar5 = puVar4[2];
+      puVar4 = (undefined4 *)*puVar4;
+      if ((iVar5 != 0) && (*(int *)(iVar5 + 0xf8) != 0)) {
+        if ((*(byte *)(*(int *)(iVar5 + 0xf8) + 0x30) & 1) == 0) {
+          uStack_18 = 0;
+          uStack_14 = 0;
+          uStack_13 = 0;
+          uStack_12 = 0;
+          uStack_11 = 0;
+          uStack_10 = 0;
+          FUN_00a59c60(&uStack_18);
+          if (*(short *)(iVar5 + 0x110) != 0xff) {
+            _DAT_011f9174 = iVar5;
+            FUN_00b9f780(param_2,iVar7);
+            iVar7 = iVar7 + 1;
+          }
+        }
+        else {
+          FUN_00b9ef30();
+        }
+      }
+    }
+    for (iVar7 = iVar7 + 0x11; iVar7 < 0x15; iVar7 = iVar7 + 1) {
+      FUN_00ba3130(1,iVar7);
+    }
+  }
+  iVar7 = *(int *)(param_1 + 0x128);
+  piVar8 = *(int **)(iVar7 + 0x130);
+  if (piVar8 == (int *)0x0) {
+    *(undefined4 *)(iVar1 + 0x2b4) = uVar2;
+  }
+  else {
+    LVar9 = InterlockedDecrement(piVar8 + 1);
+    if (LVar9 == 0) {
+      (**(code **)(*piVar8 + 4))();
+    }
+    *(undefined4 *)(iVar7 + 0x130) = 0;
+    *(undefined4 *)(iVar1 + 0x2b4) = uVar2;
+  }
+  *unaff_FS_OFFSET = local_c;
+  return;
+}
+
+
+
+--- Calls FROM selected local-shadow render loop (0x00b5b880) ---
+  0x00b5b8e9 -> 0x00aa13e0 FUN_00aa13e0
+  0x00b5b901 -> 0x00bd8290 FUN_00bd8290
+  0x00b5b922 -> 0x00000067 ???
+  0x00b5b94b -> 0x00000066 ???
+  0x00b5b9bb -> 0x00a59c60 FUN_00a59c60
+  0x00b5b9dc -> 0x00b9f780 FUN_00b9f780
+  0x00b5b9ed -> 0x00b9ef30 FUN_00b9ef30
+  0x00b5ba08 -> 0x00ba3130 FUN_00ba3130
+  0x00b5ba31 -> 0x00000067 ???
+  Total: 9 calls
+
+======================================================================
+per-light shadow render and matrix producer @ 0x00b9f780
+======================================================================
+  Function: FUN_00b9f780 @ 0x00b9f780, Size: 1056 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+void __thiscall FUN_00b9f780(int param_1,int param_2,int param_3)
+
+{
+  float fVar1;
+  float fVar2;
+  int *piVar3;
+  int *piVar4;
+  uint uVar5;
+  undefined4 uVar6;
+  LONG LVar7;
+  int iVar8;
+  int iVar9;
+  int iVar10;
+  undefined4 *puVar11;
+  float *pfVar12;
+  undefined4 *puVar13;
+  float *pfVar14;
+  int *unaff_FS_OFFSET;
+  float afStack_144 [6];
+  float fStack_12c;
+  float fStack_128;
+  float fStack_124;
+  float fStack_120;
+  float fStack_11c;
+  float fStack_118;
+  undefined1 auStack_110 [8];
+  undefined4 local_108;
+  undefined4 local_104;
+  undefined4 local_100;
+  undefined4 local_fc;
+  undefined4 auStack_e0 [9];
+  float fStack_bc;
+  float afStack_b8 [19];
+  undefined4 auStack_6c [14];
+  int iStack_34;
+  int iStack_2c;
+  int local_1c;
+  undefined1 *puStack_18;
+  undefined4 uStack_14;
+  
+  uStack_14 = 0xffffffff;
+  puStack_18 = &LAB_00f2a1e6;
+  local_1c = *unaff_FS_OFFSET;
+  uVar5 = DAT_011c16bc ^ (uint)&stack0xfffffeb0;
+  *unaff_FS_OFFSET = (int)&local_1c;
+  FUN_00ba3130(1,param_3 + 0x11);
+  local_108 = DAT_011a9bd0;
+  local_fc = DAT_011a9bdc;
+  local_104 = DAT_011a9bd4;
+  local_100 = DAT_011a9bd8;
+  (**(code **)(*DAT_011f4748 + 0xb4))(&local_108,uVar5);
+  afStack_144[0] = 1.0;
+  afStack_144[1] = 1.0;
+  afStack_144[2] = 1.0;
+  afStack_144[3] = 1.0;
+  (**(code **)(*DAT_011f4748 + 0xac))(afStack_144);
+  uVar6 = FUN_00b6b260();
+  FUN_00b6b8d0(7,uVar6);
+  (**(code **)(*DAT_011f4748 + 0xac))(auStack_110);
+  piVar3 = *(int **)(param_1 + 0x20c);
+  piVar4 = *(int **)(param_2 + 0xc4);
+  if (piVar4 != piVar3) {
+    if (piVar4 != (int *)0x0) {
+      LVar7 = InterlockedDecrement(piVar4 + 1);
+      if (LVar7 == 0) {
+        (**(code **)(*piVar4 + 4))();
+      }
+    }
+    *(int **)(param_2 + 0xc4) = piVar3;
+    if (piVar3 != (int *)0x0) {
+      InterlockedIncrement(piVar3 + 1);
+    }
+  }
+  FUN_00b6c0d0(*(undefined4 *)(param_1 + 0x140),*(undefined4 *)(param_1 + 0x20c),0);
+  iVar10 = *(int *)(param_1 + 0x20c);
+  piVar3 = *(int **)(iVar10 + 0x1a0);
+  if (piVar3 != (int *)0x0) {
+    LVar7 = InterlockedDecrement(piVar3 + 1);
+    if (LVar7 == 0) {
+      (**(code **)(*piVar3 + 4))();
+    }
+    *(undefined4 *)(iVar10 + 0x1a0) = 0;
+  }
+  piVar3 = *(int **)(param_2 + 0xc4);
+  if (piVar3 != (int *)0x0) {
+    LVar7 = InterlockedDecrement(piVar3 + 1);
+    if (LVar7 == 0) {
+      (**(code **)(*piVar3 + 4))();
+    }
+    *(undefined4 *)(param_2 + 0xc4) = 0;
+  }
+  iVar9 = DAT_011f9508;
+  iVar10 = *(int *)(param_1 + 0x140);
+  fStack_120 = *(float *)(iVar10 + 0x70);
+  fStack_11c = *(float *)(iVar10 + 0x7c);
+  fStack_118 = *(float *)(iVar10 + 0x88);
+  fStack_12c = *(float *)(iVar10 + 0x6c);
+  fStack_128 = *(float *)(iVar10 + 0x78);
+  fStack_124 = *(float *)(iVar10 + 0x84);
+  fVar1 = *(float *)(iVar10 + 0x68);
+  fVar2 = *(float *)(iVar10 + 0x74);
+  afStack_144[0] = *(float *)(iVar10 + 0x80);
+  FUN_004e9bb0(iVar10);
+  iVar10 = *(int *)(param_1 + 0xf8);
+  puVar11 = (undefined4 *)(iVar9 + 0x980);
+  puVar13 = auStack_6c;
+  for (iVar8 = 0x10; iVar8 != 0; iVar8 = iVar8 + -1) {
+    *puVar13 = *puVar11;
+    puVar11 = puVar11 + 1;
+    puVar13 = puVar13 + 1;
+  }
+  pfVar12 = (float *)(iVar9 + 0x9c0);
+  pfVar14 = afStack_b8 + 3;
+  for (iVar8 = 0x10; iVar8 != 0; iVar8 = iVar8 + -1) {
+    *pfVar14 = *pfVar12;
+    pfVar12 = pfVar12 + 1;
+    pfVar14 = pfVar14 + 1;
+  }
+  puVar11 = (undefined4 *)(iVar10 + 0x68);
+  puVar13 = auStack_e0;
+  for (iVar9 = 0xd; iVar9 != 0; iVar9 = iVar9 + -1) {
+    *puVar13 = *puVar11;
+    puVar11 = puVar11 + 1;
+    puVar13 = puVar13 + 1;
+  }
+  puVar11 = auStack_6c;
+  puVar13 = (undefined4 *)(param_1 + 0x50);
+  for (iVar10 = 0x10; iVar10 != 0; iVar10 = iVar10 + -1) {
+    *puVar13 = *puVar11;
+    puVar11 = puVar11 + 1;
+    puVar13 = puVar13 + 1;
+  }
+  *(float *)(param_1 + 0x80) =
+       -(afStack_b8[1] * fStack_118 + fStack_bc * fStack_120 + afStack_b8[0] * fStack_11c);
+  *(float *)(param_1 + 0x84) =
+       -(afStack_b8[1] * fStack_124 + fStack_bc * fStack_12c + afStack_b8[0] * fStack_128);
+  *(float *)(param_1 + 0x88) =
+       -(afStack_b8[1] * afStack_144[0] + fStack_bc * fVar1 + fVar2 * afStack_b8[0]);
+  pfVar12 = afStack_b8 + 3;
+  pfVar14 = (float *)(param_1 + 0x90);
+  for (iVar10 = 0x10; iVar10 != 0; iVar10 = iVar10 + -1) {
+    *pfVar14 = *pfVar12;
+    pfVar12 = pfVar12 + 1;
+    pfVar14 = pfVar14 + 1;
+  }
+  D3DXMatrixMultiply(afStack_b8 + 3,(undefined4 *)(param_1 + 0x50),(float *)(param_1 + 0x90));
+  pfVar12 = afStack_b8;
+  pfVar14 = (float *)(param_1 + 0x10);
+  for (iVar10 = 0x10; iVar10 != 0; iVar10 = iVar10 + -1) {
+    *pfVar14 = *pfVar12;
+    pfVar12 = pfVar12 + 1;
+    pfVar14 = pfVar14 + 1;
+  }
+  FUN_00b6b790();
+  if (DAT_011f91b0 == 0) {
+    uVar6 = FUN_00b6d3f0();
+    afStack_144[0] = 0.0;
+    afStack_144[1] = 0.0;
+    afStack_144[2] = 0.0;
+    iStack_2c = 0;
+    FUN_00ba37a0(uVar6);
+    FUN_004eba20();
+    _DAT_012003c4 = _DAT_010162c0;
+    iStack_2c._0_1_ = 1;
+    FUN_00ba3cb0(2,&stack0xfffffeb8,0);
+    FUN_00b97550(0x11,DAT_011f9508,*(undefined4 *)(param_1 + 0x10c),*(undefined4 *)(param_1 + 0x10c)
+                 ,auStack_110,1);
+    FUN_00b6d4c0(uVar6);
+    iStack_2c = (uint)iStack_2c._1_3_ << 8;
+    FUN_004eba90();
+    iStack_2c = 0xffffffff;
+    FUN_00ba3a00();
+  }
+  if (*(char *)(param_1 + 0x124) != '\0') {
+    uVar6 = FUN_004bc320(0);
+    FUN_00b55560(9);
+    FUN_00bd22c0(uVar6);
+  }
+  *(undefined1 *)(param_1 + 0x208) = 0;
+  *unaff_FS_OFFSET = iStack_34;
+  return;
+}
+
+
+
+--- Calls FROM per-light shadow render and matrix producer (0x00b9f780) ---
+  0x00b9f7c2 -> 0x00ba3130 FUN_00ba3130
+  0x00b9f830 -> 0x00b6b260 FUN_00b6b260
+  0x00b9f838 -> 0x00b6b8d0 FUN_00b6b8d0
+  0x00b9f870 -> 0x00000067 ???
+  0x00b9f894 -> 0x00000066 ???
+  0x00b9f8aa -> 0x00b6c0d0 FUN_00b6c0d0
+  0x00b9f8c6 -> 0x00000067 ???
+  0x00b9f8f4 -> 0x00000067 ???
+  0x00b9f96c -> 0x004e9bb0 FUN_004e9bb0
+  0x00b9fa6c -> 0x00ee6de0 D3DXMatrixMultiply
+  0x00b9fa82 -> 0x00b6b790 FUN_00b6b790
+  0x00b9fa9b -> 0x00b6d3f0 FUN_00b6d3f0
+  0x00b9fac9 -> 0x00ba37a0 FUN_00ba37a0
+  0x00b9fad2 -> 0x004eba20 FUN_004eba20
+  0x00b9faff -> 0x00ba3cb0 FUN_00ba3cb0
+  0x00b9fb22 -> 0x00b97550 FUN_00b97550
+  0x00b9fb2e -> 0x00b6d4c0 FUN_00b6d4c0
+  0x00b9fb3f -> 0x004eba90 FUN_004eba90
+  0x00b9fb53 -> 0x00ba3a00 FUN_00ba3a00
+  0x00b9fb68 -> 0x004bc320 FUN_004bc320
+  0x00b9fb71 -> 0x00b55560 FUN_00b55560
+  0x00b9fb7c -> 0x00bd22c0 FUN_00bd22c0
+  Total: 22 calls
+
+======================================================================
+package setup function following SimpleShadow blocks @ 0x00bf66c0
+======================================================================
+  Function: FUN_00bf66c0 @ 0x00bf66c0, Size: 10407 bytes
+  [skipped: function exceeds 5000-byte bound]
+
+--- Calls FROM package setup function following SimpleShadow blocks (0x00bf66c0) ---
+  0x00bf6726 -> 0x00e7edf0 FUN_00e7edf0
+  0x00bf6735 -> 0x00be0cf0 FUN_00be0cf0
+  0x00bf6745 -> 0x00e802b0 FUN_00e802b0
+  0x00bf674f -> 0x00e7edf0 FUN_00e7edf0
+  0x00bf675e -> 0x00be0cf0 FUN_00be0cf0
+  0x00bf676e -> 0x00e802b0 FUN_00e802b0
+  0x00bf6778 -> 0x00e7edf0 FUN_00e7edf0
+  0x00bf6788 -> 0x00be0cf0 FUN_00be0cf0
+  0x00bf6799 -> 0x00e802b0 FUN_00e802b0
+  0x00bf67a3 -> 0x00e7edf0 FUN_00e7edf0
+  0x00bf67b3 -> 0x00be0cf0 FUN_00be0cf0
+  0x00bf67c4 -> 0x00e802b0 FUN_00e802b0
+  0x00bf67ce -> 0x00e7edf0 FUN_00e7edf0
+  0x00bf67de -> 0x00be0cf0 FUN_00be0cf0
+  0x00bf6802 -> 0x00e802b0 FUN_00e802b0
+  0x00bf680c -> 0x00e7edf0 FUN_00e7edf0
+  0x00bf681c -> 0x00be0cf0 FUN_00be0cf0
+  0x00bf682d -> 0x00e802b0 FUN_00e802b0
+  0x00bf6837 -> 0x00e7edf0 FUN_00e7edf0
+  0x00bf6847 -> 0x00be0cf0 FUN_00be0cf0
+  0x00bf6858 -> 0x00e802b0 FUN_00e802b0
+  0x00bf6873 -> 0x00000067 ???
+  0x00bf6891 -> 0x00000066 ???
+  0x00bf68ac -> 0x00000067 ???
+  0x00bf68ca -> 0x00000066 ???
+  0x00bf68d5 -> 0x00e7f5d0 FUN_00e7f5d0
+  0x00bf68e9 -> 0x00e7f430 FUN_00e7f430
+  0x00bf68f3 -> 0x00e7f5d0 FUN_00e7f5d0
+  0x00bf6902 -> 0x00e7f430 FUN_00e7f430
+  0x00bf690c -> 0x00e7f5d0 FUN_00e7f5d0
+  0x00bf691b -> 0x00e7f430 FUN_00e7f430
+  0x00bf6925 -> 0x00e7f5d0 FUN_00e7f5d0
+  0x00bf6935 -> 0x00e7f430 FUN_00e7f430
+  0x00bf693f -> 0x00e7f5d0 FUN_00e7f5d0
+  0x00bf694e -> 0x00e7f430 FUN_00e7f430
+  0x00bf697d -> 0x00e80190 FUN_00e80190
+  0x00bf69a2 -> 0x00e7edf0 FUN_00e7edf0
+  0x00bf69b1 -> 0x00be0cf0 FUN_00be0cf0
+  0x00bf69c1 -> 0x00e802b0 FUN_00e802b0
+  0x00bf69cb -> 0x00e7edf0 FUN_00e7edf0
+  0x00bf69da -> 0x00be0cf0 FUN_00be0cf0
+  0x00bf69ea -> 0x00e802b0 FUN_00e802b0
+  0x00bf69f4 -> 0x00e7edf0 FUN_00e7edf0
+  0x00bf6a04 -> 0x00be0cf0 FUN_00be0cf0
+  0x00bf6a15 -> 0x00e802b0 FUN_00e802b0
+  0x00bf6a1f -> 0x00e7edf0 FUN_00e7edf0
+  0x00bf6a2f -> 0x00be0cf0 FUN_00be0cf0
+  0x00bf6a40 -> 0x00e802b0 FUN_00e802b0
+  0x00bf6a4a -> 0x00e7edf0 FUN_00e7edf0
+  0x00bf6a5a -> 0x00be0cf0 FUN_00be0cf0
+  0x00bf6a7f -> 0x00e802b0 FUN_00e802b0
+  0x00bf6a89 -> 0x00e7edf0 FUN_00e7edf0
+  0x00bf6a99 -> 0x00be0cf0 FUN_00be0cf0
+  0x00bf6aaa -> 0x00e802b0 FUN_00e802b0
+  0x00bf6ab4 -> 0x00e7edf0 FUN_00e7edf0
+  0x00bf6ac4 -> 0x00be0cf0 FUN_00be0cf0
+  0x00bf6ad5 -> 0x00e802b0 FUN_00e802b0
+  0x00bf6aef -> 0x00000067 ???
+  0x00bf6b0d -> 0x00000066 ???
+  0x00bf6b28 -> 0x00000067 ???
+  0x00bf6b46 -> 0x00000066 ???
+  0x00bf6b51 -> 0x00e7f5d0 FUN_00e7f5d0
+  0x00bf6b65 -> 0x00e7f430 FUN_00e7f430
+  0x00bf6b6f -> 0x00e7f5d0 FUN_00e7f5d0
+  0x00bf6b7e -> 0x00e7f430 FUN_00e7f430
+  0x00bf6b88 -> 0x00e7f5d0 FUN_00e7f5d0
+  0x00bf6b97 -> 0x00e7f430 FUN_00e7f430
+  0x00bf6ba1 -> 0x00e7f5d0 FUN_00e7f5d0
+  0x00bf6bb1 -> 0x00e7f430 FUN_00e7f430
+  0x00bf6bbb -> 0x00e7f5d0 FUN_00e7f5d0
+  0x00bf6bca -> 0x00e7f430 FUN_00e7f430
+  0x00bf6bfd -> 0x00e80190 FUN_00e80190
+  0x00bf6c22 -> 0x00e7edf0 FUN_00e7edf0
+  0x00bf6c31 -> 0x00be0cf0 FUN_00be0cf0
+  0x00bf6c41 -> 0x00e802b0 FUN_00e802b0
+  0x00bf6c4b -> 0x00e7edf0 FUN_00e7edf0
+  0x00bf6c5a -> 0x00be0cf0 FUN_00be0cf0
+  0x00bf6c6a -> 0x00e802b0 FUN_00e802b0
+  0x00bf6c74 -> 0x00e7edf0 FUN_00e7edf0
+  0x00bf6c84 -> 0x00be0cf0 FUN_00be0cf0
+  0x00bf6c95 -> 0x00e802b0 FUN_00e802b0
+  0x00bf6c9f -> 0x00e7edf0 FUN_00e7edf0
+  0x00bf6caf -> 0x00be0cf0 FUN_00be0cf0
+  0x00bf6cc0 -> 0x00e802b0 FUN_00e802b0
+  0x00bf6cca -> 0x00e7edf0 FUN_00e7edf0
+  0x00bf6cda -> 0x00be0cf0 FUN_00be0cf0
+  0x00bf6cff -> 0x00e802b0 FUN_00e802b0
+  0x00bf6d09 -> 0x00e7edf0 FUN_00e7edf0
+  0x00bf6d19 -> 0x00be0cf0 FUN_00be0cf0
+  0x00bf6d2a -> 0x00e802b0 FUN_00e802b0
+  0x00bf6d34 -> 0x00e7edf0 FUN_00e7edf0
+  0x00bf6d44 -> 0x00be0cf0 FUN_00be0cf0
+  0x00bf6d55 -> 0x00e802b0 FUN_00e802b0
+  0x00bf6d6f -> 0x00000067 ???
+  0x00bf6d8d -> 0x00000066 ???
+  0x00bf6da8 -> 0x00000067 ???
+  0x00bf6dc6 -> 0x00000066 ???
+  0x00bf6dd1 -> 0x00e7f5d0 FUN_00e7f5d0
+  0x00bf6de5 -> 0x00e7f430 FUN_00e7f430
+  0x00bf6def -> 0x00e7f5d0 FUN_00e7f5d0
+  0x00bf6dfe -> 0x00e7f430 FUN_00e7f430
+  0x00bf6e08 -> 0x00e7f5d0 FUN_00e7f5d0
+  0x00bf6e17 -> 0x00e7f430 FUN_00e7f430
+  0x00bf6e21 -> 0x00e7f5d0 FUN_00e7f5d0
+  0x00bf6e31 -> 0x00e7f430 FUN_00e7f430
+  0x00bf6e3b -> 0x00e7f5d0 FUN_00e7f5d0
+  0x00bf6e4a -> 0x00e7f430 FUN_00e7f430
+  0x00bf6e79 -> 0x00e80190 FUN_00e80190
+  0x00bf6e9e -> 0x00e7edf0 FUN_00e7edf0
+  0x00bf6ead -> 0x00be0cf0 FUN_00be0cf0
+  0x00bf6ebd -> 0x00e802b0 FUN_00e802b0
+  0x00bf6ec7 -> 0x00e7edf0 FUN_00e7edf0
+  0x00bf6ed6 -> 0x00be0cf0 FUN_00be0cf0
+  0x00bf6ee6 -> 0x00e802b0 FUN_00e802b0
+  0x00bf6ef0 -> 0x00e7edf0 FUN_00e7edf0
+  0x00bf6f00 -> 0x00be0cf0 FUN_00be0cf0
+  0x00bf6f11 -> 0x00e802b0 FUN_00e802b0
+  0x00bf6f1b -> 0x00e7edf0 FUN_00e7edf0
+  0x00bf6f2b -> 0x00be0cf0 FUN_00be0cf0
+  0x00bf6f3c -> 0x00e802b0 FUN_00e802b0
+  ... (truncated)
+  Total shown: 120 calls
