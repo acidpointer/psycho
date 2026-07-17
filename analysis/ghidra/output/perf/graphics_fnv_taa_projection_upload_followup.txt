@@ -1,0 +1,402 @@
+FNV TAA PROJECTION UPLOAD FOLLOWUP
+
+The first audit did not identify the projection upload or a paired jitter boundary.
+This followup traces every remaining pCurrentCamera reader and its callers.
+
+======================================================================
+Image-space shader constant/vector upload @ 0x00b8a790
+======================================================================
+  Function: FUN_00b8a790 @ 0x00b8a790, Size: 45 bytes
+
+void __thiscall
+FUN_00b8a790(int param_1,int param_2,undefined4 param_3,undefined4 param_4,undefined4 param_5,
+            undefined4 param_6)
+
+{
+  int iVar1;
+  
+  iVar1 = *(int *)(param_1 + 0x44);
+  *(undefined4 *)(iVar1 + param_2 * 0x10) = param_3;
+  *(undefined4 *)(iVar1 + 4 + param_2 * 0x10) = param_4;
+  *(undefined4 *)(iVar1 + 8 + param_2 * 0x10) = param_5;
+  *(undefined4 *)(iVar1 + 0xc + param_2 * 0x10) = param_6;
+  return;
+}
+
+
+
+--- Calls FROM Image-space shader constant/vector upload (0x00b8a790) ---
+  Total: 0 calls
+
+----------------------------------------------------------------------
+References TO 0x00b8a790 (Image-space shader constant/vector upload)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x004e2fd0 (in FUN_004e21b0)
+  UNCONDITIONAL_CALL @ 0x00b59cdb (in FUN_00b59cb0)
+  UNCONDITIONAL_CALL @ 0x00b59d01 (in FUN_00b59cb0)
+  UNCONDITIONAL_CALL @ 0x00b5a288 (in FUN_00b5a220)
+  UNCONDITIONAL_CALL @ 0x00b5a2af (in FUN_00b5a220)
+  UNCONDITIONAL_CALL @ 0x00b5a2d6 (in FUN_00b5a220)
+  UNCONDITIONAL_CALL @ 0x00b5a30a (in FUN_00b5a220)
+  UNCONDITIONAL_CALL @ 0x00b5a32d (in FUN_00b5a220)
+  UNCONDITIONAL_CALL @ 0x00b5a529 (in FUN_00b5a4a0)
+  UNCONDITIONAL_CALL @ 0x00b5a7ab (in FUN_00b5a720)
+  UNCONDITIONAL_CALL @ 0x00b5a85c (in FUN_00b5a720)
+  UNCONDITIONAL_CALL @ 0x00b9b5a9 (in FUN_00b9b540)
+  UNCONDITIONAL_CALL @ 0x00b9b5d2 (in FUN_00b9b540)
+  UNCONDITIONAL_CALL @ 0x00b9b5fb (in FUN_00b9b540)
+  UNCONDITIONAL_CALL @ 0x00b9b61e (in FUN_00b9b540)
+  UNCONDITIONAL_CALL @ 0x00b9b64d (in FUN_00b9b540)
+  UNCONDITIONAL_CALL @ 0x00b9b67c (in FUN_00b9b540)
+  UNCONDITIONAL_CALL @ 0x00b9b710 (in FUN_00b9b540)
+  UNCONDITIONAL_CALL @ 0x00b9b739 (in FUN_00b9b540)
+  UNCONDITIONAL_CALL @ 0x00b9b762 (in FUN_00b9b540)
+  UNCONDITIONAL_CALL @ 0x00b9b785 (in FUN_00b9b540)
+  UNCONDITIONAL_CALL @ 0x00ba0b16 (in FUN_00ba0900)
+  UNCONDITIONAL_CALL @ 0x00ba0b39 (in FUN_00ba0900)
+  UNCONDITIONAL_CALL @ 0x00ba0b62 (in FUN_00ba0900)
+  UNCONDITIONAL_CALL @ 0x00ba0b95 (in FUN_00ba0900)
+  UNCONDITIONAL_CALL @ 0x00ba0bc8 (in FUN_00ba0900)
+  UNCONDITIONAL_CALL @ 0x00ba1003 (in FUN_00ba0900)
+  UNCONDITIONAL_CALL @ 0x00ba1026 (in FUN_00ba0900)
+  UNCONDITIONAL_CALL @ 0x00ba104f (in FUN_00ba0900)
+  UNCONDITIONAL_CALL @ 0x00ba1082 (in FUN_00ba0900)
+  UNCONDITIONAL_CALL @ 0x00ba10b5 (in FUN_00ba0900)
+  UNCONDITIONAL_CALL @ 0x00ba288d (in FUN_00ba2760)
+  UNCONDITIONAL_CALL @ 0x00ba29cd (in FUN_00ba2760)
+  UNCONDITIONAL_CALL @ 0x00ba2b55 (in FUN_00ba2760)
+  UNCONDITIONAL_CALL @ 0x00ba2c3c (in FUN_00ba2760)
+  UNCONDITIONAL_CALL @ 0x00ba43dd (in FUN_00ba4270)
+  UNCONDITIONAL_CALL @ 0x00ba440c (in FUN_00ba4270)
+  UNCONDITIONAL_CALL @ 0x00ba4457 (in FUN_00ba4270)
+  UNCONDITIONAL_CALL @ 0x00ba4fe8 (in FUN_00ba4ee0)
+  UNCONDITIONAL_CALL @ 0x00ba5011 (in FUN_00ba4ee0)
+  UNCONDITIONAL_CALL @ 0x00ba5040 (in FUN_00ba4ee0)
+  ... (truncated)
+  Total: 41 refs
+
+======================================================================
+Current-camera reader A @ 0x00b8b7d0
+======================================================================
+  Function: FUN_00b8b7d0 @ 0x00b8b7d0, Size: 249 bytes
+
+void FUN_00b8b7d0(undefined4 param_1,undefined4 param_2,undefined4 param_3,float param_4,
+                 float *param_5)
+
+{
+  float fVar1;
+  float *pfVar2;
+  float10 fVar3;
+  float local_24;
+  float local_20;
+  float local_1c;
+  float local_18;
+  float local_14;
+  float local_10;
+  float local_c;
+  float local_8;
+  float local_4;
+  
+  pfVar2 = param_5;
+  local_14 = *(float *)(DAT_011f917c + 0x90);
+  local_18 = *(float *)(DAT_011f917c + 0x8c);
+  local_10 = *(float *)(DAT_011f917c + 0x94);
+  local_24 = *param_5;
+  local_c = local_24 - local_18;
+  local_20 = param_5[1];
+  local_1c = param_5[2];
+  local_8 = local_20 - local_14;
+  local_4 = local_1c - local_10;
+  param_5 = (float *)(local_4 * local_4 + local_c * local_c + local_8 * local_8);
+  fVar3 = (float10)FUN_00ec6040();
+  fVar1 = (float)fVar3;
+  param_5 = (float *)fVar1;
+  FUN_00b59d30(pfVar2,&local_24,&param_5);
+  param_5 = (float *)((float)param_5 + param_4);
+  FUN_00b8b060(param_1,param_2,fVar1,fVar1,param_3,param_5,&local_24);
+  return;
+}
+
+
+
+======================================================================
+Current-camera reader B @ 0x00b8b8d0
+======================================================================
+  Function: FUN_00b8b8d0 @ 0x00b8b8d0, Size: 203 bytes
+
+void FUN_00b8b8d0(undefined4 param_1,undefined4 param_2,undefined4 param_3)
+
+{
+  float10 fVar1;
+  
+  fVar1 = (float10)FUN_00ec6040();
+  FUN_00b8b0d0(param_1,param_2,param_3,(float)fVar1,(float)fVar1);
+  return;
+}
+
+
+
+======================================================================
+Current-camera reader C @ 0x00b8bb70
+======================================================================
+  Function: FUN_00b8bb70 @ 0x00b8bb70, Size: 162 bytes
+
+void FUN_00b8bb70(undefined4 param_1,float *param_2)
+
+{
+  float10 fVar1;
+  
+  fVar1 = (float10)FUN_00ec6040();
+  *param_2 = (float)fVar1;
+  param_2[1] = (float)fVar1;
+  return;
+}
+
+
+
+======================================================================
+Current-camera reader D @ 0x00bb1a90
+======================================================================
+  Function: FUN_00bb1a90 @ 0x00bb1a90, Size: 132 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+void FUN_00bb1a90(void)
+
+{
+  _DAT_01200648 = *(undefined4 *)(DAT_011f917c + 0x6c);
+  _DAT_0120064c = *(undefined4 *)(DAT_011f917c + 0x78);
+  _DAT_01200650 = *(undefined4 *)(DAT_011f917c + 0x84);
+  _DAT_01200654 = 0;
+  _DAT_01200638 = *(undefined4 *)(DAT_011f917c + 0x70);
+  _DAT_0120063c = *(undefined4 *)(DAT_011f917c + 0x7c);
+  _DAT_01200640 = *(undefined4 *)(DAT_011f917c + 0x88);
+  _DAT_01200644 = 0;
+  return;
+}
+
+
+
+======================================================================
+Unassigned current-camera reader @ 0x00c04c2c
+======================================================================
+  [function not found]
+
+----------------------------------------------------------------------
+References TO 0x00b8b7d0 (Current-camera reader A)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0052a71e (in FUN_0052a670)
+  Total: 1 refs
+
+----------------------------------------------------------------------
+References TO 0x00b8b8d0 (Current-camera reader B)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00531c80 (in FUN_00531720)
+  UNCONDITIONAL_CALL @ 0x0052a104 (in FUN_0052a060)
+  Total: 2 refs
+
+----------------------------------------------------------------------
+References TO 0x00b8bb70 (Current-camera reader C)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00532cc5 (in FUN_00532220)
+  UNCONDITIONAL_CALL @ 0x00532d01 (in FUN_00532220)
+  Total: 2 refs
+
+----------------------------------------------------------------------
+References TO 0x00bb1a90 (Current-camera reader D)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00bb26b0 (in ???)
+  Total: 1 refs
+
+----------------------------------------------------------------------
+Camera render setup callers from 0x00400000-0x00e00000
+----------------------------------------------------------------------
+  Total: 0 callers
+
+FINAL COMPOSITION CALLEES
+
+======================================================================
+Final camera/render setup @ 0x00ba9420
+======================================================================
+  Function: FUN_00ba9420 @ 0x00ba9420, Size: 139 bytes
+
+void FUN_00ba9420(int param_1)
+
+{
+  int iVar1;
+  int iVar2;
+  undefined4 *puVar3;
+  undefined4 *puVar4;
+  
+  iVar1 = DAT_011f9508;
+  if ((DAT_0120045c == '\0') && (DAT_0120045d == '\0')) {
+    puVar3 = (undefined4 *)(DAT_011f9508 + 0x980);
+    puVar4 = &DAT_01200470;
+    for (iVar2 = 0x10; iVar2 != 0; iVar2 = iVar2 + -1) {
+      *puVar4 = *puVar3;
+      puVar3 = puVar3 + 1;
+      puVar4 = puVar4 + 1;
+    }
+    puVar3 = (undefined4 *)(iVar1 + 0x9c0);
+    puVar4 = &DAT_012004b0;
+    for (iVar2 = 0x10; iVar2 != 0; iVar2 = iVar2 + -1) {
+      *puVar4 = *puVar3;
+      puVar3 = puVar3 + 1;
+      puVar4 = puVar4 + 1;
+    }
+    DAT_0120045e = 1;
+    DAT_011adcdc = 0;
+    DAT_012004f0 = *(undefined4 *)(param_1 + 0x68);
+    DAT_012004f4 = *(undefined4 *)(param_1 + 0x74);
+    DAT_012004f8 = *(undefined4 *)(param_1 + 0x80);
+  }
+  return;
+}
+
+
+
+======================================================================
+Final accumulator path A @ 0x00b65660
+======================================================================
+  Function: FUN_00b65660 @ 0x00b65660, Size: 72 bytes
+
+void __fastcall FUN_00b65660(int param_1)
+
+{
+  int iVar1;
+  undefined4 *puVar2;
+  
+  puVar2 = (undefined4 *)(param_1 + 0xa0);
+  iVar1 = 4;
+  do {
+    FUN_00b63e90();
+    puVar2[2] = *puVar2;
+    *puVar2 = 0;
+    puVar2[1] = 0;
+    puVar2[3] = 0;
+    FUN_00b63e90();
+    puVar2[0x16] = puVar2[0x14];
+    puVar2[0x14] = 0;
+    puVar2[0x15] = 0;
+    puVar2[0x17] = 0;
+    puVar2 = puVar2 + 5;
+    iVar1 = iVar1 + -1;
+  } while (iVar1 != 0);
+  return;
+}
+
+
+
+======================================================================
+Final accumulator path B @ 0x00b630c0
+======================================================================
+  Function: FUN_00b630c0 @ 0x00b630c0, Size: 46 bytes
+
+void __fastcall FUN_00b630c0(int param_1)
+
+{
+  uint uVar1;
+  
+  uVar1 = 0;
+  if (*(int *)(param_1 + 0x18c) != 0) {
+    do {
+      FUN_00b99bc0(0);
+      uVar1 = uVar1 + 1;
+    } while (uVar1 < *(uint *)(param_1 + 0x18c));
+  }
+  return;
+}
+
+
+
+======================================================================
+Final render-state path @ 0x00b4f510
+======================================================================
+  Function: FUN_00b4f510 @ 0x00b4f510, Size: 32 bytes
+
+void FUN_00b4f510(void)
+
+{
+  if (DAT_011f949c != 0) {
+    FUN_00b6da10(DAT_011f949c);
+    DAT_011f949c = 0;
+  }
+  return;
+}
+
+
+
+======================================================================
+Final interface helper @ 0x00876a00
+======================================================================
+  Function: FUN_00876a00 @ 0x00876a00, Size: 22 bytes
+
+void __fastcall FUN_00876a00(undefined4 param_1)
+
+{
+  FUN_00ba39a0(param_1);
+  return;
+}
+
+
+
+======================================================================
+Conditional final overlay @ 0x00bad4a0
+======================================================================
+  Function: FUN_00bad4a0 @ 0x00bad4a0, Size: 35 bytes
+
+void FUN_00bad4a0(void)
+
+{
+  int iVar1;
+  
+  iVar1 = FUN_00ba3780();
+  if (iVar1 != 0) {
+    FUN_00ba39a0();
+    FUN_00ba38b0();
+    return;
+  }
+  return;
+}
+
+
+
+======================================================================
+Final scene-graph helper @ 0x004a0e90
+======================================================================
+  Function: FUN_004a0e90 @ 0x004a0e90, Size: 15 bytes
+
+void FUN_004a0e90(void)
+
+{
+  FUN_00559450();
+  return;
+}
+
+
+
+======================================================================
+Final interface object getter @ 0x004dc020
+======================================================================
+  Function: FUN_004dc020 @ 0x004dc020, Size: 20 bytes
+
+undefined4 __fastcall FUN_004dc020(int param_1)
+
+{
+  return *(undefined4 *)(param_1 + 0x288);
+}
+
+
+
+--- Calls FROM Final accumulator path A (0x00b65660) ---
+  0x00b65673 -> 0x00b63e90 FUN_00b63e90
+  0x00b65688 -> 0x00b63e90 FUN_00b63e90
+  Total: 2 calls
+
+--- Calls FROM Final accumulator path B (0x00b630c0) ---
+  0x00b630d9 -> 0x00b99bc0 FUN_00b99bc0
+  Total: 1 calls
+
+--- Calls FROM Final interface helper (0x00876a00) ---
+  0x00876a0d -> 0x00ba39a0 FUN_00ba39a0
+  Total: 1 calls

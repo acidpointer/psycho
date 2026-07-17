@@ -12,8 +12,9 @@ use libpsycho::os::windows::directx9::{compile_hlsl, dword_aligned_shader_byteco
 use serde::{Deserialize, Serialize};
 
 use crate::config::{
-    BloomingHdrConfig, ContactAoConfig, DepthOfFieldConfig, EmbeddedEffectsConfig, FastAoConfig,
-    SunshaftsConfig,
+    AxaaConfig, BloomingHdrConfig, ContactAoConfig, DepthOfFieldConfig, DlaaConfig,
+    EmbeddedEffectsConfig, FastAoConfig, FastFxaaConfig, NfaaConfig, SmaaConfig, SunshaftsConfig,
+    TemporalAaConfig,
 };
 
 pub(crate) const SHADER_DIR: &str = "./Data/NVSE/plugins/omv/shaders";
@@ -200,6 +201,12 @@ pub(crate) enum EmbeddedEffectKind {
     BloomingHdr,
     Sunshafts,
     DepthOfField,
+    FastFxaa,
+    Nfaa,
+    Axaa,
+    Dlaa,
+    Smaa,
+    TemporalAa,
 }
 
 #[derive(Clone, Copy)]
@@ -347,6 +354,16 @@ pub(crate) fn sync_embedded_effect_config(
             Some(EmbeddedEffectKind::DepthOfField) => {
                 sync_depth_of_field_config(source, &mut config.depth_of_field);
             }
+            Some(EmbeddedEffectKind::FastFxaa) => {
+                sync_fast_fxaa_config(source, &mut config.fast_fxaa);
+            }
+            Some(EmbeddedEffectKind::Nfaa) => sync_nfaa_config(source, &mut config.nfaa),
+            Some(EmbeddedEffectKind::Axaa) => config.axaa.enabled = source.enabled,
+            Some(EmbeddedEffectKind::Dlaa) => sync_dlaa_config(source, &mut config.dlaa),
+            Some(EmbeddedEffectKind::Smaa) => sync_smaa_config(source, &mut config.smaa),
+            Some(EmbeddedEffectKind::TemporalAa) => {
+                sync_temporal_aa_config(source, &mut config.temporal_aa);
+            }
             None => {}
         }
     }
@@ -357,9 +374,180 @@ fn embedded_effect_sources(config: &EmbeddedEffectsConfig) -> Vec<ScreenShaderSo
         fast_ao_source(&config.fast_ao),
         contact_ao_source(&config.contact_ao),
         blooming_hdr_source(&config.blooming_hdr),
+        temporal_aa_source(&config.temporal_aa),
         sunshafts_source(&config.sunshafts),
         depth_of_field_source(&config.depth_of_field),
+        fast_fxaa_source(&config.fast_fxaa),
+        nfaa_source(&config.nfaa),
+        axaa_source(&config.axaa),
+        dlaa_source(&config.dlaa),
+        smaa_source(&config.smaa),
     ]
+}
+
+fn temporal_aa_source(config: &TemporalAaConfig) -> ScreenShaderSource {
+    embedded_source(
+        EmbeddedEffectKind::TemporalAa,
+        "Temporal AA",
+        config.enabled,
+        EmbeddedEffectsConfig::phase_for_kind(EmbeddedEffectKind::TemporalAa),
+        vec![
+            float_option(
+                "history_weight",
+                "History weight",
+                config.history_weight,
+                0.0,
+                0.98,
+                3,
+                0,
+            ),
+            float_option(
+                "clamp_strength",
+                "Clamp strength",
+                config.clamp_strength,
+                0.25,
+                2.0,
+                3,
+                1,
+            ),
+            float_option("sharpness", "Sharpness", config.sharpness, 0.0, 1.0, 3, 2),
+            float_option(
+                "jitter_scale",
+                "Jitter scale",
+                config.jitter_scale,
+                0.0,
+                1.5,
+                3,
+                3,
+            ),
+        ],
+    )
+}
+
+fn fast_fxaa_source(config: &FastFxaaConfig) -> ScreenShaderSource {
+    embedded_source(
+        EmbeddedEffectKind::FastFxaa,
+        "Fast FXAA",
+        config.enabled,
+        EmbeddedEffectsConfig::phase_for_kind(EmbeddedEffectKind::FastFxaa),
+        vec![
+            float_option(
+                "edge_threshold",
+                "Edge threshold",
+                config.edge_threshold,
+                0.03,
+                0.20,
+                3,
+                0,
+            ),
+            float_option(
+                "reduce",
+                "Direction reduce",
+                config.reduce,
+                0.05,
+                0.60,
+                3,
+                1,
+            ),
+            float_option("span", "Maximum span", config.span, 1.0, 8.0, 3, 2),
+            float_option("blend", "Blend", config.blend, 0.0, 1.0, 3, 3),
+        ],
+    )
+}
+
+fn nfaa_source(config: &NfaaConfig) -> ScreenShaderSource {
+    embedded_source(
+        EmbeddedEffectKind::Nfaa,
+        "NFAA",
+        config.enabled,
+        EmbeddedEffectsConfig::phase_for_kind(EmbeddedEffectKind::Nfaa),
+        vec![
+            float_option("aa_power", "AA power", config.aa_power, 1.0, 32.0, 3, 0),
+            float_option(
+                "mask_adjust",
+                "Mask adjust",
+                config.mask_adjust,
+                0.0,
+                2.0,
+                3,
+                1,
+            ),
+            integer_choice_option(
+                "debug_view",
+                "Debug view",
+                config.debug_view,
+                &["Off", "Edge mask", "Normals"],
+                3,
+                2,
+            ),
+        ],
+    )
+}
+
+fn axaa_source(config: &AxaaConfig) -> ScreenShaderSource {
+    embedded_source(
+        EmbeddedEffectKind::Axaa,
+        "AXAA",
+        config.enabled,
+        EmbeddedEffectsConfig::phase_for_kind(EmbeddedEffectKind::Axaa),
+        Vec::new(),
+    )
+}
+
+fn dlaa_source(config: &DlaaConfig) -> ScreenShaderSource {
+    embedded_pipeline_source(
+        EmbeddedEffectKind::Dlaa,
+        "DLAA",
+        config.enabled,
+        EmbeddedEffectsConfig::phase_for_kind(EmbeddedEffectKind::Dlaa),
+        vec![integer_choice_option(
+            "debug_view",
+            "Debug view",
+            config.debug_view,
+            &["Off", "Edge mask A", "Edge mask B"],
+            3,
+            0,
+        )],
+        2,
+    )
+}
+
+fn smaa_source(config: &SmaaConfig) -> ScreenShaderSource {
+    embedded_pipeline_source(
+        EmbeddedEffectKind::Smaa,
+        "SMAA 1x (LUT-free)",
+        config.enabled,
+        EmbeddedEffectsConfig::phase_for_kind(EmbeddedEffectKind::Smaa),
+        vec![
+            integer_choice_option(
+                "edge_detection",
+                "Edge detection",
+                config.edge_detection,
+                &["Luma", "Color"],
+                3,
+                0,
+            ),
+            float_option("threshold", "Threshold", config.threshold, 0.02, 0.30, 3, 1),
+            float_option(
+                "corner_rounding",
+                "Corner rounding",
+                config.corner_rounding,
+                0.0,
+                100.0,
+                4,
+                0,
+            ),
+            integer_choice_option(
+                "debug_view",
+                "Debug view",
+                config.debug_view,
+                &["Off", "Edges", "Blend weights"],
+                4,
+                1,
+            ),
+        ],
+        3,
+    )
 }
 
 fn fast_ao_source(config: &FastAoConfig) -> ScreenShaderSource {
@@ -905,6 +1093,19 @@ fn embedded_source(
     source
 }
 
+fn embedded_pipeline_source(
+    kind: EmbeddedEffectKind,
+    name: &str,
+    enabled: bool,
+    phase: ShaderPhase,
+    options: Vec<ShaderOption>,
+    pass_count: u32,
+) -> ScreenShaderSource {
+    let mut source = embedded_source(kind, name, enabled, phase, options);
+    source.pass_count = sanitize_pass_count(pass_count);
+    source
+}
+
 fn float_option(
     key: &str,
     label: &str,
@@ -1023,6 +1224,66 @@ fn sync_fast_ao_config(source: &ScreenShaderSource, config: &mut FastAoConfig) {
             "stability" => config.stability = option_float(option),
             "first_person_mask" => config.first_person_mask = option_float(option),
             "fog_fade" => config.fog_fade = option_float(option),
+            _ => {}
+        }
+    }
+}
+
+fn sync_fast_fxaa_config(source: &ScreenShaderSource, config: &mut FastFxaaConfig) {
+    config.enabled = source.enabled;
+    for option in &source.options {
+        match option.key.as_str() {
+            "edge_threshold" => config.edge_threshold = option_float(option),
+            "reduce" => config.reduce = option_float(option),
+            "span" => config.span = option_float(option),
+            "blend" => config.blend = option_float(option),
+            _ => {}
+        }
+    }
+}
+
+fn sync_temporal_aa_config(source: &ScreenShaderSource, config: &mut TemporalAaConfig) {
+    config.enabled = source.enabled;
+    for option in &source.options {
+        match option.key.as_str() {
+            "history_weight" => config.history_weight = option_float(option),
+            "clamp_strength" => config.clamp_strength = option_float(option),
+            "sharpness" => config.sharpness = option_float(option),
+            "jitter_scale" => config.jitter_scale = option_float(option),
+            _ => {}
+        }
+    }
+}
+
+fn sync_nfaa_config(source: &ScreenShaderSource, config: &mut NfaaConfig) {
+    config.enabled = source.enabled;
+    for option in &source.options {
+        match option.key.as_str() {
+            "aa_power" => config.aa_power = option_float(option),
+            "mask_adjust" => config.mask_adjust = option_float(option),
+            "debug_view" => config.debug_view = option_integer(option),
+            _ => {}
+        }
+    }
+}
+
+fn sync_dlaa_config(source: &ScreenShaderSource, config: &mut DlaaConfig) {
+    config.enabled = source.enabled;
+    for option in &source.options {
+        if option.key == "debug_view" {
+            config.debug_view = option_integer(option);
+        }
+    }
+}
+
+fn sync_smaa_config(source: &ScreenShaderSource, config: &mut SmaaConfig) {
+    config.enabled = source.enabled;
+    for option in &source.options {
+        match option.key.as_str() {
+            "edge_detection" => config.edge_detection = option_integer(option),
+            "threshold" => config.threshold = option_float(option),
+            "corner_rounding" => config.corner_rounding = option_float(option),
+            "debug_view" => config.debug_view = option_integer(option),
             _ => {}
         }
     }
@@ -1556,12 +1817,10 @@ mod shader_compile_tests {
     use super::assert_hlsl_compiles;
 
     const DEPTH_AWARE_CAS: &[u8] = include_bytes!("../shaders/runtime/01_depth_aware_cas.hlsl");
-    const FAST_FXAA: &[u8] = include_bytes!("../shaders/runtime/03_fast_fxaa.hlsl");
 
     #[test]
     fn bundled_runtime_shaders_compile() {
         assert_hlsl_compiles("01_depth_aware_cas.hlsl", DEPTH_AWARE_CAS, "ps_3_0");
-        assert_hlsl_compiles("03_fast_fxaa.hlsl", FAST_FXAA, "ps_3_0");
     }
 }
 

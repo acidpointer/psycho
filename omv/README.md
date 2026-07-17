@@ -39,8 +39,9 @@ not guarantee safe co-installation with `NewVegasReloaded.dll`.
 
 - In-game OMV graphics menu, toggled with `Insert` by default.
 - Loose screen-space shader loading from `Data/NVSE/plugins/omv/shaders`.
-- Embedded ambient occlusion, contact AO, bloom/HDR, sunshafts, and depth of
-  field.
+- Embedded ambient occlusion, contact AO, bloom/HDR, sunshafts, depth of field,
+  world-only temporal AA, and selectable Fast FXAA, NFAA, AXAA, DLAA, and SMAA
+  spatial anti-aliasing.
 - Native PBR and Sky shader ports derived from New Vegas Reloaded, then
   refactored and optimized substantially for OMV.
 - Dependency logging for VPT, Fallout Shader Loader, and LOD Flicker Fix.
@@ -71,6 +72,36 @@ required; unsupported devices bypass the effect rather than silently using a
 lower-precision path. Shader bytecode is prepared asynchronously and cached by
 source hash. Ordinary effect toggles retain shader objects and targets, so they
 neither compile shaders nor reallocate the pipeline.
+
+## Anti-Aliasing
+
+OMV embeds temporal AA plus five spatial anti-aliasing choices. They are
+disabled by default. The spatial choices run in the final image-space phase:
+Fast FXAA, NFAA, AXAA, two-pass DLAA, and a three-pass, stencil-free, LUT-free
+SMAA 1x adaptation. The in-game menu exposes each algorithm's implemented
+controls and debug views. Enable one at a time for normal play; stacking is
+retained for visual comparison but compounds blur and GPU cost.
+
+Fast FXAA, NFAA, and AXAA read an owned copy of the current backbuffer and write
+directly to the final target. DLAA owns one full-resolution intermediate. SMAA
+owns full-resolution edge and blend-weight targets. Each shader is compiled
+lazily and fails independently. The pipelines recreate resources after device
+reset or resolution changes, do not clear or borrow the game's stencil, and are
+enclosed by OMV's D3D9 state block.
+
+Temporal AA uses the engine-side contract proven from the FNV render path. OMV
+jitters the active world `NiCamera` frustum, captures the matching world depth,
+and resolves history before the first-person scene and UI are rendered. It owns
+a current-color copy and two full-resolution history targets, rejects history
+after capture gaps and large camera cuts, and uses depth plus neighborhood
+clamping for disocclusion control. A newly enabled or resized pipeline renders
+an unjittered priming frame; jitter starts only after the depth convention,
+camera transform, and temporal shader have all succeeded. The GShade shader
+named TAA is a work-in-progress temporal blur, so OMV does not use it as the
+temporal implementation.
+
+License and attribution details for the adapted shader sources are in
+[`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
 
 ## Install Layout
 

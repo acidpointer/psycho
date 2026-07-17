@@ -8,7 +8,7 @@ use std::{
     },
 };
 
-use libpsycho::os::windows::hook::inline::inlinehook::InlineHookContainer;
+use libpsycho::os::windows::{directx9::Device9Ref, hook::inline::inlinehook::InlineHookContainer};
 
 const PROCESS_IMAGE_SPACE_SHADERS_ADDR: usize = 0x00B55AC0;
 const RENDER_WORLD_SCENE_GRAPH_ADDR: usize = 0x00873200;
@@ -231,6 +231,10 @@ unsafe extern "thiscall" fn hook_render_world_scene_graph(
     };
 
     unsafe {
+        let world_scene_graph = scene_graph_phase == WORLD_SCENE_GRAPH_PHASE;
+        let camera_jitter = world_scene_graph
+            .then(|| begin_temporal_aa_jitter())
+            .flatten();
         original(
             main,
             scene_graph,
@@ -242,12 +246,14 @@ unsafe extern "thiscall" fn hook_render_world_scene_graph(
         // Ghidra callsites prove the third stack argument is the scene phase:
         // 0x00870AE8 pushes 1, 0x00870E18 pushes 0. The second u8 is not the
         // world/first-person discriminator.
-        if scene_graph_phase == WORLD_SCENE_GRAPH_PHASE {
+        if world_scene_graph {
             capture_depth(
                 crate::backend::DepthResolveSlot::World,
                 None,
                 "FNV after world scene graph",
             );
+            drop(camera_jitter);
+            apply_temporal_aa();
             capture_world_color();
         } else {
             log_depth_capture_skip(
@@ -257,6 +263,20 @@ unsafe extern "thiscall" fn hook_render_world_scene_graph(
             );
         }
     }
+}
+
+unsafe fn begin_temporal_aa_jitter() -> Option<crate::backend::WorldCameraJitter> {
+    if !crate::runtime::needs_temporal_aa() {
+        return None;
+    }
+
+    let device_ptr = crate::backend::d3d_device_ptr()?;
+    let device = unsafe { Device9Ref::from_raw_void(device_ptr) }?;
+    let render_target = device.render_target(0).ok()?;
+    let desc = render_target.desc().ok()?;
+    let jitter =
+        unsafe { crate::runtime::temporal_aa_jitter_pixels(device_ptr, desc.Width, desc.Height)? };
+    unsafe { crate::backend::jitter_fnv_world_camera(jitter, desc.Width, desc.Height) }
 }
 
 unsafe extern "thiscall" fn hook_render_first_person(
@@ -317,6 +337,19 @@ unsafe fn capture_world_color() {
 
     unsafe {
         crate::runtime::capture_fnv_world_color(device_ptr);
+    }
+}
+
+unsafe fn apply_temporal_aa() {
+    if !crate::runtime::needs_temporal_aa() {
+        return;
+    }
+    let Some(device_ptr) = crate::backend::d3d_device_ptr() else {
+        return;
+    };
+
+    unsafe {
+        crate::runtime::apply_fnv_temporal_aa(device_ptr);
     }
 }
 

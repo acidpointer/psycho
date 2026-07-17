@@ -1,244 +1,271 @@
+# =============================================================================
+# PSYCHO ENGINE FIXES - USER CONFIGURATION
+# =============================================================================
+#
+# QUICK SETUP
+#
+# 1. Keep memory.allocator = 2 for the complete, recommended experience.
+# 2. Keep all engine fixes and performance options enabled.
+# 3. Keep the console and focused profiling tools disabled during normal play.
+#
+# Most users do not need to change anything. Every shipped setting is already
+# selected for normal play. Individual switches exist so advanced users and
+# support can isolate a specific mod conflict without disabling Psycho.
+#
+# HOW TO EDIT
+#
+# - true means ON; false means OFF.
+# - memory.allocator uses the numbered modes explained below.
+# - Save this file and fully restart the game after a change.
+# - For troubleshooting, change one setting at a time. Restore it after the
+#   test so the result is clear.
+#
+# SUPPORT
+#
+# Include the Psycho log with a crash or compatibility report. If Crash Logger
+# is installed, include its log too:
+#
+#   <FalloutNV>/psycho-engine-fixes-latest.log
+#   <FalloutNV>/CrashLogger.log
+#
+
+# =============================================================================
+# MEMORY ALLOCATOR
+# =============================================================================
 [memory]
-# Heap allocator mode.
+
+# The main user choice. This controls how much of the game's old memory system
+# Psycho replaces.
 #
-# Fallout: New Vegas is a 32-bit game. Even on a modern PC it can only use a
-# limited virtual address space, and heavily modded setups can run into slow
-# allocation paths, fragmentation, or out-of-memory crashes. This option
-# controls how much of the game's memory allocation system Psycho replaces.
+# 2 = FULL GHEAP + SCRAP HEAP - RECOMMENDED
+#     Best performance and the complete Psycho allocator design. Syringe
+#     activates gheap at a proven pre-CRT startup boundary, before the game and
+#     later plugin systems begin normal initialization. Gheap owns the main
+#     allocation path and its initial backing from the start instead of taking
+#     over after the 32-bit address space has already been fragmented.
 #
-# 0 = vanilla game allocators
-#     Psycho does not replace the game's heaps.
-#     Use this when you want maximum compatibility, or when testing whether a
-#     crash is related to Psycho's heap replacement. This gives no heap-related
-#     performance improvement.
+# 1 = SCRAP HEAP ONLY - COMPATIBILITY FALLBACK
+#     Replaces temporary scratch heaps but leaves the game's main object heap
+#     unchanged. Use this when support asks you to isolate gheap, or when a
+#     specific setup has a confirmed incompatibility with mode 2. The
+#     performance improvement is smaller.
 #
-# 1 = scrap_heap only
-#     Replaces the game's temporary/scratch allocation heaps.
-#     This is the safer Psycho allocator mode. It can reduce some allocation
-#     overhead while leaving the game's main object heap alone. Use this for
-#     very heavy modlists, troubleshooting, or if full gheap mode is unstable.
+# 0 = VANILLA ALLOCATORS - DIAGNOSTIC ONLY
+#     Disables both allocator replacements. Other engine fixes still work.
+#     Use this to prove whether a problem is allocator-related; it provides no
+#     allocator performance or memory-safety benefit.
 #
-# 2 = gheap + scrap_heap
-#     Replaces the game's main heap with gheap and also enables scrap_heap.
-#     This gives the strongest performance benefit and is the intended default.
-#     gheap is built for New Vegas' unsafe memory behavior: it keeps freed
-#     game-object memory readable for a while instead of immediately reusing it,
-#     because the engine and worker threads can touch stale pointers during
-#     loading, AI, Havok, and cell transitions.
+# Technical background:
+# Fallout: New Vegas is a 32-bit process with a limited virtual address space.
+# Mode 2 validates and installs transactionally before normal game startup.
+# Initial allocator backing is reserved while Psycho still has first ownership;
+# additional small and medium ranges are reserved in bounded pieces as demand
+# appears, and pages are committed only as needed. This preserves large holes
+# for game and Direct3D allocations without surrendering early allocator
+# control. Out-of-band free metadata does not overwrite freed game-object bytes;
+# they remain readable until the cell is reused. Targeted lifetime guards cover
+# proven stale-reader failures, while pressure monitoring and staged cleanup
+# provide OOM recovery. The design balances performance, UAF protection, and
+# address-space pressure rather than optimizing one by sacrificing the others.
 #
-#     Tradeoff: this mode is more complex and can expose address-space pressure
-#     on very large modlists. If you get crashes that disappear when this is set
-#     to 1, keep the crash log and psycho-engine-fixes-latest.log for a bug
-#     report.
-#
-# Change this value, save the file, then restart the game.
+# If mode 2 appears involved in a crash, test mode 1 and then mode 0. Keep the
+# Psycho and CrashLogger logs from every test; the difference between these
+# modes is much more useful than a log from only the crashing run.
 allocator = 2
 
+# Advanced gheap experiment. KEEP OFF for normal play.
+#
+# When enabled in mode 2, Psycho performs a blocking full Process Deferred
+# Destruction (PDD) drain every 10 seconds instead of relying only on the game's
+# bounded per-frame drain. It may reclaim deferred engine resources sooner, but
+# it can cause hitches and is more aggressive toward stale-object lifetimes.
+# Enable it only for a focused memory experiment requested by the developer.
+#
+# OOM: may reclaim resources sooner. UAF: less conservative. Performance: adds
+# periodic blocking work. It has no useful effect in allocator modes 0 or 1.
+gheap_periodic_pdd_purge = false
+
+# =============================================================================
+# ENGINE FIXES
+# =============================================================================
 [engine_fixes]
-# Fixes fullscreen placement during startup, renderer reset, and Alt-Tab
-# transitions.
+
+# USER GUIDANCE
 #
-# New Vegas creates a visible 320x240 bootstrap window and never resizes it on
-# the native-fullscreen branch. Three later engine paths also construct a
-# negative-height window move. Psycho creates the bootstrap at the configured
-# render size with an explicit popup style, repairs reset/regain/renderer-
-# lifecycle placement, and suppresses the focus-loss move that would raise the
-# game window again. The game remains responsible for focus state and D3D9
-# device recovery.
+# Keep every option in this section ON. These are narrowly targeted correctness
+# and crash fixes, not visual preferences. Turning one off does not normally
+# improve performance; it restores the specific broken vanilla behavior.
 #
-# The fix recognizes exact engine instruction and argument patterns. It chains
-# existing CreateWindowExA and SetWindowPos IAT hooks, while callsites changed
-# directly by another mod are reported and left untouched.
+# Disable a single option only to test a suspected conflict. A "guard" is a
+# safety check that rejects an invalid or not-yet-ready engine object instead of
+# letting vanilla code dereference it and crash. Normal valid objects continue
+# through the original path.
+
+# --- Display ---------------------------------------------------------------
+
+# Fixes incorrect fullscreen size and placement at startup, renderer reset,
+# focus changes, and Alt-Tab. Leave ON unless another window-management mod has
+# a confirmed conflict.
 #
-# true  = apply the fullscreen placement fix.
-# false = preserve the game's original window behavior.
-#
-# Ordinary windowed calls pass through unchanged. Existing borderless owners
-# keep control of style and size; Psycho recognizes a live undecorated window
-# covering its monitor and applies only the safe transition protections.
+# Technical: repairs the audited bootstrap and transition callsites while
+# leaving ordinary windowed calls unchanged. Existing borderless owners retain
+# style and size control; Psycho applies only safe transition protections.
 display_alt_tab = true
 
-# Prevents the game from reporting a successful save when the temporary file
-# was only partly written, failed to flush or close, or could not replace the
-# previous save. Psycho closes and flushes the completed temporary file first,
-# rotates the configured .bak files, then replaces the final .fos atomically.
-# If a step fails, Psycho reports Save Failed and retains or restores the old
-# file whenever Windows completed any part of the replacement operation.
+# --- Saves and loaded data -------------------------------------------------
+
+# Prevents the game from claiming that a save succeeded when the file was only
+# partly written or could not safely replace the previous save. Also rejects
+# malformed changed records before they can overrun a load buffer. Leave ON.
 #
-# Loading also bounds-checks changed-record reads before the engine copies
-# them. A malformed record is rejected through the engine's own second-pass
-# skip path instead of reading beyond its buffer. Records belonging to missing
-# plugins are skipped before first-pass reconstruction, preventing unavailable
-# content from publishing partial live state. Existing data is not rewritten.
+# Technical: flushes and closes the completed temporary file, rotates the
+# configured backups, and atomically promotes the new .fos. Failed promotion
+# keeps or restores the old save when possible. Load checks use the engine's
+# own rejection path and skip records whose source plugin is unavailable.
 save_integrity_fix = true
 
-# Fixes a navmesh/pathfinding crash where the game passes a tiny invalid
-# pointer instead of a NavMeshInfo object.
+# Prevents a pathfinding crash caused by a tiny invalid pointer where the game
+# expects NavMeshInfo. The bad value is treated as "no path identity."
 navmesh_low_pointer_guard = true
 
-# Fixes corrupted container EntryData during load/save by dropping invalid
-# item type forms before vanilla save code dereferences them.
+# Prevents corrupt container data from crashing save/load. Entries whose item
+# type form is invalid are dropped before vanilla code dereferences them.
 entrydata_invalid_form_guard = true
 
-# Fixes corrupted ownership data by converting invalid ExtraOwnership.owner
-# pointers to no-owner instead of letting vanilla/xNVSE dereference them.
+# Prevents corrupt ownership data from crashing the game or xNVSE. An invalid
+# ExtraOwnership owner pointer is converted to "no owner."
 extraownership_invalid_owner_guard = true
 
-# Fixes a save-to-save transition crash where a deleted/unloading reference
-# has a stale linked-reference child list. The game already treats a missing
-# list as valid, so corrupt lists are ignored during this cleanup path.
+# Prevents a save-to-save transition crash when a deleted or unloading
+# reference retains a stale linked-reference child list. Only that corrupt list
+# is ignored during cleanup.
 linked_ref_children_stale_list_guard = true
 
-# Fixes activation/link-ref crashes where ExtraLinkedRef points at a reference
-# with a broken base form pointer. Vanilla checks only for NULL before calling
-# GetTypeID; Psycho treats invalid base forms as "not the linked-ref type
-# vanilla wanted" and skips that optional path.
+# Prevents activation and linked-reference crashes when ExtraLinkedRef targets
+# a reference with a broken base form. The invalid optional link is skipped.
 linked_ref_target_base_form_guard = true
 
-# Fixes a Havok ragdoll update crash where the game starts updating a
-# bhkRagdollController before its bone pointer table is fully populated.
-# Vanilla blindly reads bone_table[i] + 0x34; when bone_table[i] is NULL the
-# game crashes at address 0x00A6DF48. Psycho skips only that not-ready update
-# frame and lets the next frame try again.
+# --- Ragdoll and Havok physics --------------------------------------------
+
+# Skips a ragdoll update only while its bone pointer table is incomplete. The
+# next frame tries again, avoiding a crash without disabling the ragdoll.
 ragdoll_null_bone_guard = true
 
-# Fixes a ragdoll penetration raycast crash when an hkpAabbPhantom remains
-# scheduled after it has detached from its Havok world. The query is
-# best-effort, so Psycho reports no hit for that frame instead of walking the
-# detached phantom's cached overlap array.
+# Treats a best-effort ragdoll penetration raycast as "no hit" for one frame
+# when its Havok phantom has already detached from the physics world.
 ragdoll_detached_phantom_guard = true
 
-# Fixes a Havok crash where hkpWorld::addEntityBatch receives NULL entity
-# slots and vanilla writes through them.
+# Removes NULL entries from an hkpWorld add-entity batch before Havok writes
+# through them. Valid entities in the same batch are still added.
 havok_add_entity_batch_null_guard = true
 
-# Fixes a Havok pending-add crash where the pending entity array contains
-# NULL slots after broadphase processing.
+# Removes NULL entries from Havok's pending-add array before the engine flushes
+# it. Valid pending entities continue normally.
 havok_pending_add_null_guard = true
 
-# Fixes a Havok narrowphase crash by skipping invalid collision pairs before
-# vanilla dispatches through the collision-agent table.
+# Skips invalid collision pairs before Havok dispatches through its collision-
+# agent table. Valid narrowphase collision work is unchanged.
 havok_narrowphase_invalid_pair_guard = true
 
-# Fixes a Havok callback crash where vanilla dispatches AddedToWorld for a
-# NULL entity pointer.
+# Skips the AddedToWorld callback when Havok supplies a NULL entity pointer.
 havok_post_add_null_entity_guard = true
 
-# Fixes a Havok remove/add-agent crash on AI Linear Task threads.
-# Vanilla enters a Havok critical section, runs narrowphase agent work, then
-# rereads a broadphase entity slot only to pass an argument that the unlock
-# wrapper does not actually use. That slot can become NULL during StAddAgt and
-# crash at 0x00D0D7D8. Psycho keeps the unlock call but removes the unsafe
-# dead-argument reread.
+# Prevents an AI-thread Havok crash caused by rereading a broadphase slot after
+# agent work has already made that slot NULL.
+#
+# Technical: the reread supplies an argument that the unlock wrapper does not
+# use. Psycho preserves the critical-section unlock and removes only the unsafe
+# dead-argument load.
 havok_remove_agent_null_reread_guard = true
 
-# Fixes two game allocator consumers that write an alignment marker or call
-# memset without checking whether allocation returned NULL. The guards stay
-# out of the global memset hot path.
+# --- Allocation failure and object lifetime -------------------------------
+
+# Prevents two known out-of-memory paths from writing an alignment marker or
+# zeroing memory through a NULL allocation result. The failure is returned to
+# the caller instead of becoming an immediate address-zero crash.
+#
+# Technical: only the two unsafe allocator consumers are replaced; Psycho does
+# not add a check to the global memset hot path.
 memset_null_dst_guard = true
 
-# Enforces the engine ownership contract for
-# LowProcess::genericLocationsList regardless of which mod, if any, replaces
-# the cleanup vtable slots. Matching list nodes are removed without freeing
-# their non-owned TESObjectREFR payloads. Already-corrupt save entries are
-# converted to NULL at the precise serializer callsite.
+# Fixes ownership of LowProcess generic-location lists and contains already-
+# corrupt entries when saving. This prevents non-owned reference payloads from
+# being freed and invalid forms from being serialized as live references.
+#
+# Technical: list nodes are removed without freeing their TESObjectREFR
+# payloads. The fix remains compatible with mods that replace the cleanup
+# vtable slots by wrapping the current valid owner.
 lowprocess_generic_locations_fix = true
 
 # Prevents queued tasks from reaching virtual callbacks or final-release paths
-# after their intrusive reference count has already reached zero. This is an
-# engine fix and remains active in every allocator mode.
+# after their intrusive reference count has already reached zero.
+#
+# This is an engine lifetime fix, not a gheap workaround, and remains useful in
+# every allocator mode.
 queued_task_lifetime_guard = true
 
+# =============================================================================
+# PERFORMANCE
+# =============================================================================
 [performance]
-# Replace the game's Mersenne Twister RNG with a faster compatible path.
+
+# Keep these options ON for normal play. Turn one off only to isolate the named
+# system during troubleshooting.
+
+# Replaces the game's old Mersenne Twister with a much faster per-thread random
+# generator. Output ranges and special game call cases remain compatible.
 #
-# The engine calls its random-number generator very often from many small
-# systems. The original implementation is old and slower than it needs to be.
-#
-# true  = use Psycho's faster compatible RNG path.
-#         Recommended for most users.
-#
-# false = use the game's original RNG implementation.
-#         Use this only for troubleshooting if you suspect a rare compatibility
-#         issue with another plugin that also patches RNG.
+# Technical: the exact random sequence is intentionally different from
+# vanilla. Turn this off if testing a mod that depends on vanilla's deterministic
+# RNG sequence rather than only its numeric range.
 rng = true
 
-# Replace the game's zlib decompression path with a faster implementation.
+# Uses a faster zlib implementation for compressed archives and game data.
+# This can reduce decompression time during startup, save loading, and cell
+# transitions. It does not change textures, meshes, plugins, save format, or
+# image quality.
 #
-# New Vegas uses zlib to decompress compressed data from archives and other game
-# resources. This can be a real loading-time cost on modded setups, especially
-# when many compressed files are read during startup, save loading, or cell
-# transitions.
-#
-# true  = use Psycho's faster zlib path.
-#         Recommended for most users. It does not change texture quality,
-#         meshes, plugins, or saves; it only changes how compressed bytes are
-#         decompressed.
-#
-# false = use the game's original zlib path.
-#         Use this only for troubleshooting if you suspect a startup/load crash
-#         is related to decompression.
+# Technical: the replacement preserves the zlib stream contract and verifies
+# the Adler-32 checksum. It changes how bytes are decompressed, not the bytes
+# produced. Turn it off only to isolate an archive/decompression conflict.
 zlib = true
 
-# Run process-manager reconciliation before a successful load returns.
+# Reduces the first-frame stall after loading a save by running process-manager
+# reconciliation before the successful load returns. Keep ON for normal play.
 #
-# Vanilla also runs this reconciliation in the first rendered frame. Large
-# saves can accumulate enough quest, cell, and reference work to stall that
-# frame. The prepass performs the same guarded and locked engine routine while
-# the load transition is still completing, so the first frame has less backlog.
-#
-# true  = perform the additional reconciliation pass after a successful load.
-# false = leave all reconciliation on the vanilla schedule.
+# Technical: vanilla performs the same reconciliation in the first rendered
+# frame. This guarded prepass drains accumulated quest, cell, and reference work
+# while the load transition is still active. It may move a small amount of work
+# into the loading transition so the first playable frame has less backlog.
 post_load_reconciliation_prepass = true
 
+# =============================================================================
+# DIAGNOSTICS
+# =============================================================================
 [diagnostics]
-# Open a Windows console for live log output.
-#
-# This is mainly useful when actively testing Psycho or when you want to watch
-# startup/loading messages in real time. The console can also show early loader
-# messages before the normal log file is fully useful.
-#
-# true  = open a console window and mirror log output there.
-#         Useful for development, focused troubleshooting, or confirming that
-#         Psycho loaded before xNVSE plugins.
-#
-# false = do not open a console window.
-#         Recommended for normal play. Logs are still written to the log file
-#         when debug_log is enabled.
-console = false
 
-# Enable verbose diagnostic logging.
+# Adds detailed diagnostic messages to psycho-engine-fixes-latest.log.
+# Recommended ON: these messages are important for allocator and crash reports.
 #
-# The log is the most important file for support reports. It records which
-# fixes were enabled, allocator mode, startup/loading timing, memory pressure,
-# OOM recovery attempts, and guard paths that prevented engine crashes.
-#
-# Log file:
-#   <FalloutNV>/psycho-engine-fixes-latest.log
-#
-# true  = write detailed diagnostics.
-#         Recommended. Keep this enabled if you use gheap, test crashes, or
-#         report bugs. The log is designed to be useful without spamming users
-#         during normal play.
-#
-# false = write less diagnostic detail.
-#         Use this only if you do not need support logs and want the quietest
-#         setup possible.
+# Turning this off does NOT disable the log file. Normal informational and
+# warning messages are still written; only verbose debug detail is omitted.
 debug_log = true
 
-# Enable high-resolution per-frame and per-engine-span timing.
+# Opens a separate Windows console showing live log output. Useful when
+# developing or watching startup in real time; unnecessary during normal play.
+console = false
+
+# Records high-resolution timings around many engine hooks and writes [HITCH]
+# reports. Enable only while reproducing a specific hitch, then turn it off.
 #
-# This is intentionally separate from debug_log. It adds QPC reads around many
-# hot engine hooks, which is useful for a short hitch investigation but is not
-# needed for normal play or ordinary stability logs.
-#
-# true  = emit [HITCH] reports with per-span timings. Slow periodic radio scans
-#         also emit [RADIO_SCAN] mode/query/traversal/door-policy attribution.
-#         Use only while reproducing a specific hitch.
-# false = keep low-overhead hang, memory, and guard diagnostics without per-frame
-#         timing work. Recommended for normal play.
+# This adds timer reads to hot paths and requires debug_log = true for timing
+# summaries. Normal hang, memory-pressure, and guard diagnostics do not require
+# it. Slow radio scans also receive [RADIO_SCAN] attribution while enabled.
 hitch_profiling = false
 
-# Record queued-task retain/release/dispatch provenance in a fixed ring.
-# Keep disabled outside focused crash research; production guards do not need it.
+# Records the last 256 queued-task retain, release, dispatch, and rejection
+# events for focused lifetime-crash research. It has no normal-play benefit.
+#
+# Enable only when requested. It requires queued_task_lifetime_guard = true;
+# keep debug_log = true so a triggered trace can be written to the log.
 task_lifetime_trace = false

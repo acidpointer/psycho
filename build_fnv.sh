@@ -21,6 +21,7 @@ HELPER_DLL="psycho_engine_fixes_helper.dll"
 OMV_DLL="omv.dll"
 ENGINE_CFGNAME="psycho_engine_fixes.toml"
 OMV_CFGNAME="omv.toml"
+OMV_NOTICENAME="THIRD_PARTY_NOTICES.md"
 
 BIN_DIR="$DIR/target/$TARGET/$BUILD_TYPE"
 LOADER_BIN="$BIN_DIR/$LOADER_DLL"
@@ -29,6 +30,7 @@ HELPER_BIN="$BIN_DIR/$HELPER_DLL"
 OMV_BIN="$BIN_DIR/$OMV_DLL"
 ENGINE_CFG="$DIR/psycho-engine-fixes/config/$ENGINE_CFGNAME"
 OMV_CFG="$DIR/omv/config/$OMV_CFGNAME"
+OMV_NOTICE="$DIR/omv/$OMV_NOTICENAME"
 OMV_SHADER_SRC_DIR="$DIR/omv/shaders/runtime"
 STALE_OMV_SHADER_FILES=(
     "00_fast_ao.hlsl"
@@ -41,6 +43,8 @@ STALE_OMV_SHADER_FILES=(
     "07_blooming_hdr_lite.toml"
     "09_sunshafts_lite.hlsl"
     "09_sunshafts_lite.toml"
+    "03_fast_fxaa.hlsl"
+    "03_fast_fxaa.toml"
 )
 
 GAME_ROOT="$TARGET_DIR/FalloutNV"
@@ -64,6 +68,7 @@ HELPER_PATH="$NVSE_PLUGIN_DIR/$HELPER_DLL"
 OMV_PATH="$OMV_PLUGIN_DIR/$OMV_DLL"
 ENGINE_CFG_PATH="$GAME_SYRINGE_DIR/$ENGINE_CFGNAME"
 OMV_CFG_PATH="$OMV_DATA_DIR/$OMV_CFGNAME"
+OMV_NOTICE_PATH="$OMV_DATA_DIR/$OMV_NOTICENAME"
 
 function build_rust() {
     cd "$DIR"
@@ -109,6 +114,7 @@ function install_files() {
     require_file "$OMV_BIN"
     require_file "$ENGINE_CFG"
     require_file "$OMV_CFG"
+    require_file "$OMV_NOTICE"
 
     mkdir -p "$GAME_SYRINGE_DIR"
     mkdir -p "$NVSE_PLUGIN_DIR"
@@ -121,6 +127,7 @@ function install_files() {
     cp "$OMV_BIN" "$OMV_PATH"
     cp "$ENGINE_CFG" "$ENGINE_CFG_PATH"
     cp "$OMV_CFG" "$OMV_CFG_PATH"
+    cp "$OMV_NOTICE" "$OMV_NOTICE_PATH"
 
     for stale_shader in "${STALE_OMV_SHADER_FILES[@]}"; do
         remove_if_exists "$OMV_SHADER_DIR/$stale_shader"
@@ -179,6 +186,7 @@ echo "'$HELPER_DLL' copied to '$HELPER_PATH'"
 echo "'$OMV_DLL' copied to '$OMV_PATH'"
 echo "Engine config copied to '$ENGINE_CFG_PATH'"
 echo "OMV config copied to '$OMV_CFG_PATH'"
+echo "OMV third-party notices copied to '$OMV_NOTICE_PATH'"
 echo "OMV shader directory ready at '$OMV_SHADER_DIR'"
 echo "Build type: $BUILD_TYPE"
 echo "Target:     $TARGET"

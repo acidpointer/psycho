@@ -27,7 +27,10 @@ use parking_lot::Mutex;
 use crate::{
     backend::{self, DepthFrame, DepthProvider},
     config::{DepthProviderConfig, GraphicsMenuConfig},
-    effects::{ambient_occlusion, blooming_hdr, depth_of_field, pbr, sky, sunshafts},
+    effects::{
+        ambient_occlusion, anti_aliasing, blooming_hdr, depth_of_field, pbr, sky, sunshafts,
+        temporal_aa,
+    },
     shaders::{self, EmbeddedEffectKind, ScreenShaderSource, ShaderOptionValue, ShaderPhase},
 };
 
@@ -60,6 +63,7 @@ static MENU_TOGGLE_KEY: AtomicU32 = AtomicU32::new(DEFAULT_MENU_TOGGLE_KEY);
 static MENU_KEY_CAPTURE_ACTIVE: AtomicBool = AtomicBool::new(false);
 static PENDING_MENU_TOGGLE_KEY: AtomicU32 = AtomicU32::new(0);
 static NATIVE_DOF_QUERY_NEEDED: AtomicBool = AtomicBool::new(false);
+static TEMPORAL_AA_NEEDED: AtomicBool = AtomicBool::new(false);
 
 pub(crate) fn configure(settings: RuntimeSettings) {
     MENU_TOGGLE_KEY.store(
@@ -67,6 +71,7 @@ pub(crate) fn configure(settings: RuntimeSettings) {
         Ordering::Release,
     );
     update_native_dof_query_needed(&settings.menu_config);
+    update_temporal_aa_needed(&settings.menu_config);
 
     let mut runtime = RUNTIME.lock();
     runtime.configure(settings);
@@ -74,6 +79,10 @@ pub(crate) fn configure(settings: RuntimeSettings) {
 
 pub(crate) fn needs_native_dof_query() -> bool {
     NATIVE_DOF_QUERY_NEEDED.load(Ordering::Acquire)
+}
+
+pub(crate) fn needs_temporal_aa() -> bool {
+    TEMPORAL_AA_NEEDED.load(Ordering::Acquire)
 }
 
 pub(crate) unsafe fn apply_present_frame(device_ptr: *mut c_void, hwnd_hint: *mut c_void) {
@@ -153,6 +162,31 @@ pub(crate) unsafe fn capture_fnv_world_color(device_ptr: *mut c_void) {
     let result = unsafe { runtime.capture_fnv_world_color(device_ptr) };
     if let Err(err) = result {
         runtime.log_world_color_error(&err);
+    }
+}
+
+pub(crate) unsafe fn temporal_aa_jitter_pixels(
+    device_ptr: *mut c_void,
+    width: u32,
+    height: u32,
+) -> Option<[f32; 2]> {
+    let mut runtime = RUNTIME.try_lock()?;
+    match unsafe { runtime.temporal_aa_jitter_pixels(device_ptr, width, height) } {
+        Ok(jitter) => jitter,
+        Err(err) => {
+            runtime.log_frame_error(&err);
+            None
+        }
+    }
+}
+
+pub(crate) unsafe fn apply_fnv_temporal_aa(device_ptr: *mut c_void) {
+    let Some(mut runtime) = RUNTIME.try_lock() else {
+        return;
+    };
+    let result = unsafe { runtime.apply_fnv_temporal_aa(device_ptr) };
+    if let Err(err) = result {
+        runtime.log_frame_error(&err);
     }
 }
 
@@ -248,6 +282,9 @@ struct ScreenShaderRuntime {
     device_ptr: usize,
     compiled: Option<Vec<CompiledPass>>,
     ambient_occlusion: Option<ambient_occlusion::AmbientOcclusionEffect>,
+    anti_aliasing: Option<anti_aliasing::AntiAliasingEffect>,
+    temporal_aa: Option<temporal_aa::TemporalAaEffect>,
+    temporal_aa_creation_failed: bool,
     blooming_hdr: Option<blooming_hdr::BloomingHdrEffect>,
     sunshafts: Option<sunshafts::SunshaftsEffect>,
     depth_of_field: Option<depth_of_field::DepthOfFieldEffect>,
@@ -289,6 +326,9 @@ impl Default for ScreenShaderRuntime {
             device_ptr: 0,
             compiled: None,
             ambient_occlusion: None,
+            anti_aliasing: None,
+            temporal_aa: None,
+            temporal_aa_creation_failed: false,
             blooming_hdr: None,
             sunshafts: None,
             depth_of_field: None,
@@ -611,6 +651,114 @@ impl ScreenShaderRuntime {
         Ok(())
     }
 
+    unsafe fn temporal_aa_jitter_pixels(
+        &mut self,
+        device_ptr: *mut c_void,
+        width: u32,
+        height: u32,
+    ) -> Direct3DResult<Option<[f32; 2]>> {
+        if !self.settings.menu_config.screen_space_shaders {
+            return Ok(None);
+        }
+        let source = self.sources.iter().find(|source| {
+            source.enabled && source.embedded_effect_kind() == Some(EmbeddedEffectKind::TemporalAa)
+        });
+        let Some(source) = source.cloned() else {
+            return Ok(None);
+        };
+        if self.temporal_aa_creation_failed {
+            return Ok(None);
+        }
+        let Some(device) = (unsafe { Device9Ref::from_raw_void(device_ptr) }) else {
+            return Ok(None);
+        };
+        if self.device_ptr != device_ptr as usize {
+            self.release_for_new_device();
+            self.device_ptr = device_ptr as usize;
+        }
+        if self.temporal_aa.is_none() {
+            match temporal_aa::TemporalAaEffect::create(&device) {
+                Ok(effect) => {
+                    self.temporal_aa = Some(effect);
+                    log::info!("[TAA] World temporal resolve initialized");
+                }
+                Err(err) => {
+                    self.temporal_aa_creation_failed = true;
+                    return Err(err);
+                }
+            }
+        }
+        let Some(epoch) = backend::fnv_temporal_depth_epoch(device_ptr, width, height) else {
+            return Ok(None);
+        };
+        let Some(camera) = backend::fnv_world_camera_frame(width, height) else {
+            return Ok(None);
+        };
+        if !self
+            .temporal_aa
+            .as_ref()
+            .is_some_and(|effect| effect.can_jitter(camera, epoch))
+        {
+            return Ok(None);
+        }
+        let scale = source
+            .option_constants
+            .first()
+            .map_or(1.0, |options| options[3])
+            .clamp(0.0, 1.5);
+        let sample_index = self.frame_index.wrapping_add(1);
+        Ok(Some([
+            (halton(sample_index, 2) - 0.5) * scale,
+            (halton(sample_index, 3) - 0.5) * scale,
+        ]))
+    }
+
+    unsafe fn apply_fnv_temporal_aa(&mut self, device_ptr: *mut c_void) -> Direct3DResult<()> {
+        let source = self.sources.iter().find(|source| {
+            source.enabled && source.embedded_effect_kind() == Some(EmbeddedEffectKind::TemporalAa)
+        });
+        let Some(source) = source.cloned() else {
+            return Ok(());
+        };
+        if self.temporal_aa_creation_failed {
+            return Ok(());
+        }
+        let Some(device) = (unsafe { Device9Ref::from_raw_void(device_ptr) }) else {
+            return Ok(());
+        };
+        if self.device_ptr != device_ptr as usize {
+            self.release_for_new_device();
+            self.device_ptr = device_ptr as usize;
+        }
+
+        let render_target = device.render_target(0)?;
+        let desc = render_target.desc()?;
+        if desc.Width == 0 || desc.Height == 0 {
+            return Ok(());
+        }
+        self.ensure_state_block(&device)?;
+        let restore_target = render_target.clone();
+        let Some(state_block) = self.state_block.as_ref() else {
+            return Err(runtime_error("[TAA] Missing D3D state block"));
+        };
+        state_block.capture()?;
+
+        if self.temporal_aa.is_none() {
+            let _ = state_block.apply();
+            return Ok(());
+        }
+
+        let depth = self.current_depth_frame();
+        let draw_result = self.temporal_aa.as_mut().map_or(Ok(()), |effect| {
+            effect.draw(&device, &render_target, &desc, depth, &source)
+        });
+        let restore_result = state_block.apply();
+        let target_restore_result = device.set_render_target(0, &restore_target);
+        restore_result?;
+        target_restore_result?;
+        draw_result
+    }
+
     fn scan_shaders_if_due(&mut self) {
         let now = Instant::now();
         if self.next_scan.is_some_and(|next| now < next) {
@@ -800,7 +948,9 @@ impl ScreenShaderRuntime {
                 .iter()
                 .filter(|pass| {
                     let source = &self.sources[pass.source_index];
-                    source.enabled && source.phase() == phase
+                    source.enabled
+                        && source.phase() == phase
+                        && source.embedded_effect_kind() != Some(EmbeddedEffectKind::TemporalAa)
                 })
                 .map(|pass| self.sources[pass.source_index].pass_count)
                 .sum()
@@ -855,6 +1005,13 @@ impl ScreenShaderRuntime {
             };
             let source = &self.sources[source_index];
             if !source.enabled || source.phase() != phase {
+                continue;
+            }
+
+            if source.embedded_effect_kind() == Some(EmbeddedEffectKind::TemporalAa) {
+                // TAA owns the post-world/pre-first-person boundary and is resolved
+                // from the RenderWorldSceneGraph hook, not from image-space.
+                pass_index = pass_index.saturating_add(source.pass_count.max(1));
                 continue;
             }
 
@@ -926,6 +1083,23 @@ impl ScreenShaderRuntime {
                 self.draw_depth_of_field_pipeline(device, backbuffer, desc, &frame_inputs, &copy)?;
                 self.bind_common_state(device, backbuffer, desc, &frame_inputs, &copy)?;
                 pass_index = pass_index.saturating_add(source_pass_count);
+                continue;
+            }
+
+            if matches!(
+                source.embedded_effect_kind(),
+                Some(
+                    EmbeddedEffectKind::FastFxaa
+                        | EmbeddedEffectKind::Nfaa
+                        | EmbeddedEffectKind::Axaa
+                        | EmbeddedEffectKind::Dlaa
+                        | EmbeddedEffectKind::Smaa
+                )
+            ) {
+                let source = source.clone();
+                self.draw_anti_aliasing_pipeline(device, backbuffer, desc, &copy, &source)?;
+                self.bind_common_state(device, backbuffer, desc, &frame_inputs, &copy)?;
+                pass_index = pass_index.saturating_add(source.pass_count.max(1));
                 continue;
             }
 
@@ -1059,6 +1233,39 @@ impl ScreenShaderRuntime {
             contact_source,
             &current_color_copy.texture,
             self.frame_index,
+        )
+    }
+
+    fn draw_anti_aliasing_pipeline(
+        &mut self,
+        device: &Device9Ref<'_>,
+        backbuffer: &Surface9,
+        desc: &D3DSURFACE_DESC,
+        current_color_copy: &BackbufferCopy,
+        source: &ScreenShaderSource,
+    ) -> Direct3DResult<()> {
+        if self.anti_aliasing.is_none() {
+            self.anti_aliasing = Some(anti_aliasing::AntiAliasingEffect::create());
+            log::info!("[AA] Embedded spatial AA pipelines initialized");
+        }
+
+        let Some(effect) = self.anti_aliasing.as_mut() else {
+            return Ok(());
+        };
+        device.clear_texture(0)?;
+        device.stretch_rect(
+            backbuffer,
+            None,
+            &current_color_copy.surface,
+            None,
+            D3DTEXF_POINT,
+        )?;
+        effect.draw(
+            device,
+            backbuffer,
+            desc,
+            source,
+            &current_color_copy.texture,
         )
     }
 
@@ -1293,6 +1500,7 @@ impl ScreenShaderRuntime {
         self.settings.shader_scan_interval_ms = self.settings.menu_config.shader_scan_interval_ms;
         MENU_TOGGLE_KEY.store(self.settings.menu_toggle_key, Ordering::Release);
         update_native_dof_query_needed(&self.settings.menu_config);
+        update_temporal_aa_needed(&self.settings.menu_config);
         pbr::configure_runtime_options(self.settings.menu_config.native_pbr.into());
         sky::configure_runtime_options(self.settings.menu_config.native_sky.into());
     }
@@ -1441,6 +1649,7 @@ impl ScreenShaderRuntime {
         self.sources.iter().any(|source| {
             source.enabled
                 && source.phase() == phase
+                && source.embedded_effect_kind() != Some(EmbeddedEffectKind::TemporalAa)
                 && (source.is_embedded_effect() || source.bytecode.is_some())
         })
     }
@@ -1474,6 +1683,7 @@ impl ScreenShaderRuntime {
                 let source = &self.sources[pass.source_index];
                 source.enabled
                     && source.phase() == phase
+                    && source.embedded_effect_kind() != Some(EmbeddedEffectKind::TemporalAa)
                     && (source.is_embedded_effect() || pass.shader.is_some())
             })
         })
@@ -1506,6 +1716,9 @@ impl ScreenShaderRuntime {
     fn release_device_resources(&mut self) {
         self.compiled = None;
         self.ambient_occlusion = None;
+        self.anti_aliasing = None;
+        self.temporal_aa = None;
+        self.temporal_aa_creation_failed = false;
         self.blooming_hdr = None;
         self.sunshafts = None;
         self.depth_of_field = None;
@@ -1523,6 +1736,9 @@ impl ScreenShaderRuntime {
         self.scene_post_color_copy = None;
         self.world_color_copy = None;
         self.ambient_occlusion = None;
+        self.anti_aliasing = None;
+        self.temporal_aa = None;
+        self.temporal_aa_creation_failed = false;
         self.blooming_hdr = None;
         self.sunshafts = None;
         self.depth_of_field = None;
@@ -1557,6 +1773,13 @@ fn update_native_dof_query_needed(config: &GraphicsMenuConfig) {
     let dof = config.embedded_effects.depth_of_field;
     NATIVE_DOF_QUERY_NEEDED.store(
         config.screen_space_shaders && dof.enabled && dof.respect_vanilla_dof,
+        Ordering::Release,
+    );
+}
+
+fn update_temporal_aa_needed(config: &GraphicsMenuConfig) {
+    TEMPORAL_AA_NEEDED.store(
+        config.screen_space_shaders && config.embedded_effects.temporal_aa.enabled,
         Ordering::Release,
     );
 }
@@ -2649,10 +2872,12 @@ fn draw_shader_details(ui: &mut psycho_imgui::Ui<'_>, source: &mut ScreenShaderS
     let source_kind = cstring(source_kind);
     ui.text_colored(MENU_MUTED_TEXT, &source_kind);
 
-    let phase_text = cstring(format!(
-        "Render stage: {}",
+    let stage = if source.embedded_effect_kind() == Some(EmbeddedEffectKind::TemporalAa) {
+        "World / before first-person and UI"
+    } else {
         shader_phase_display(source.phase())
-    ));
+    };
+    let phase_text = cstring(format!("Render stage: {stage}"));
     ui.text_colored(MENU_MUTED_TEXT, &phase_text);
 
     if source.is_external_file() {
@@ -2663,6 +2888,22 @@ fn draw_shader_details(ui: &mut psycho_imgui::Ui<'_>, source: &mut ScreenShaderS
     } else {
         let config_text = cstring(format!("Config: {}", crate::config::CONFIG_PATH));
         ui.text_wrapped(&config_text);
+    }
+    if matches!(
+        source.embedded_effect_kind(),
+        Some(
+            EmbeddedEffectKind::FastFxaa
+                | EmbeddedEffectKind::Nfaa
+                | EmbeddedEffectKind::Axaa
+                | EmbeddedEffectKind::Dlaa
+                | EmbeddedEffectKind::Smaa
+                | EmbeddedEffectKind::TemporalAa
+        )
+    ) {
+        let warning = cstring(
+            "Enable one AA effect at a time. Stacking is supported for comparison but softens the image and adds cost.",
+        );
+        ui.text_colored(MENU_WARN_TEXT, &warning);
     }
 
     if let Some(error) = &source.shader_error {
@@ -3005,6 +3246,17 @@ fn shader_phase_display(phase: ShaderPhase) -> &'static str {
     }
 }
 
+fn halton(mut index: u32, base: u32) -> f32 {
+    let mut result = 0.0;
+    let mut fraction = 1.0;
+    while index > 0 {
+        fraction /= base as f32;
+        result += fraction * (index % base) as f32;
+        index /= base;
+    }
+    result
+}
+
 fn embedded_effect_description(kind: Option<EmbeddedEffectKind>) -> Option<&'static str> {
     match kind {
         Some(EmbeddedEffectKind::FastAmbientOcclusion) => {
@@ -3022,6 +3274,20 @@ fn embedded_effect_description(kind: Option<EmbeddedEffectKind>) -> Option<&'sta
         Some(EmbeddedEffectKind::DepthOfField) => {
             Some("Optical near focus, cinematic far blur, and soft Souls-style depth.")
         }
+        Some(EmbeddedEffectKind::FastFxaa) => Some("Low-cost single-pass edge smoothing."),
+        Some(EmbeddedEffectKind::Nfaa) => {
+            Some("Normal-filter edge smoothing with mask and normal debug views.")
+        }
+        Some(EmbeddedEffectKind::Axaa) => {
+            Some("Adaptive single-pass edge smoothing with bounded directional taps.")
+        }
+        Some(EmbeddedEffectKind::Dlaa) => Some("Two-pass directionally localized anti-aliasing."),
+        Some(EmbeddedEffectKind::Smaa) => {
+            Some("Three-pass LUT-free morphological AA using private edge and weight buffers.")
+        }
+        Some(EmbeddedEffectKind::TemporalAa) => Some(
+            "World-only temporal resolve with engine projection jitter; first-person and UI stay unjittered.",
+        ),
         None => None,
     }
 }

@@ -8,6 +8,8 @@ use crate::config::DepthProviderConfig;
 
 mod fnv;
 
+pub(crate) use fnv::WorldCameraJitter;
+
 pub(crate) fn d3d_device_ptr() -> Option<*mut c_void> {
     fnv::d3d_device_ptr()
 }
@@ -51,6 +53,26 @@ pub(crate) fn depth_frame(depth_provider: DepthProvider) -> DepthFrame {
         DepthProvider::None => DepthFrame::none(),
         DepthProvider::FalloutNewVegas => fnv::depth_frame(),
     }
+}
+
+pub(crate) fn fnv_temporal_depth_epoch(
+    device_ptr: *mut c_void,
+    width: u32,
+    height: u32,
+) -> Option<u64> {
+    fnv::temporal_depth_epoch(device_ptr, width, height)
+}
+
+pub(crate) fn fnv_world_camera_frame(width: u32, height: u32) -> Option<CameraFrame> {
+    fnv::world_camera_frame(width, height)
+}
+
+pub(crate) unsafe fn jitter_fnv_world_camera(
+    jitter_pixels: [f32; 2],
+    width: u32,
+    height: u32,
+) -> Option<WorldCameraJitter> {
+    unsafe { fnv::jitter_world_camera(jitter_pixels, width, height) }
 }
 
 pub(crate) fn rendered_texture_color_surface(

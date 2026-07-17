@@ -144,6 +144,128 @@ pub(super) fn depth_frame() -> DepthFrame {
     DEPTH_RESOLVE.lock().depth_frame()
 }
 
+pub(super) fn temporal_depth_epoch(
+    device_ptr: *mut c_void,
+    width: u32,
+    height: u32,
+) -> Option<u64> {
+    DEPTH_RESOLVE
+        .lock()
+        .temporal_depth_epoch(device_ptr, width, height)
+}
+
+pub(super) fn world_camera_frame(width: u32, height: u32) -> Option<CameraFrame> {
+    let desc = D3DSURFACE_DESC {
+        Width: width,
+        Height: height,
+        ..D3DSURFACE_DESC::default()
+    };
+    unsafe { read_world_camera_frame(&desc) }
+}
+
+pub(crate) struct WorldCameraJitter {
+    camera: *mut u8,
+    frustum: [f32; 4],
+}
+
+impl Drop for WorldCameraJitter {
+    fn drop(&mut self) {
+        unsafe {
+            self.camera
+                .add(NICAMERA_FRUSTUM_LEFT_OFFSET)
+                .cast::<f32>()
+                .write(self.frustum[0]);
+            self.camera
+                .add(NICAMERA_FRUSTUM_RIGHT_OFFSET)
+                .cast::<f32>()
+                .write(self.frustum[1]);
+            self.camera
+                .add(NICAMERA_FRUSTUM_TOP_OFFSET)
+                .cast::<f32>()
+                .write(self.frustum[2]);
+            self.camera
+                .add(NICAMERA_FRUSTUM_BOTTOM_OFFSET)
+                .cast::<f32>()
+                .write(self.frustum[3]);
+        }
+    }
+}
+
+pub(super) unsafe fn jitter_world_camera(
+    jitter_pixels: [f32; 2],
+    width: u32,
+    height: u32,
+) -> Option<WorldCameraJitter> {
+    if width == 0 || height == 0 || !jitter_pixels.iter().all(|value| value.is_finite()) {
+        return None;
+    }
+
+    let scene_graph = unsafe { read_ptr(WORLD_SCENE_GRAPH_PTR)? };
+    if scene_graph.is_null() {
+        return None;
+    }
+    let camera = unsafe { read_ptr(scene_graph as usize + SCENE_GRAPH_CAMERA_OFFSET)? };
+    if camera.is_null() {
+        return None;
+    }
+    validate_memory_range(
+        unsafe { camera.add(NICAMERA_FRUSTUM_LEFT_OFFSET) }.cast::<c_void>(),
+        NICAMERA_FRUSTUM_BOTTOM_OFFSET + size_of::<f32>() - NICAMERA_FRUSTUM_LEFT_OFFSET,
+    )
+    .ok()?;
+
+    let frustum = [
+        unsafe {
+            camera
+                .add(NICAMERA_FRUSTUM_LEFT_OFFSET)
+                .cast::<f32>()
+                .read()
+        },
+        unsafe {
+            camera
+                .add(NICAMERA_FRUSTUM_RIGHT_OFFSET)
+                .cast::<f32>()
+                .read()
+        },
+        unsafe { camera.add(NICAMERA_FRUSTUM_TOP_OFFSET).cast::<f32>().read() },
+        unsafe {
+            camera
+                .add(NICAMERA_FRUSTUM_BOTTOM_OFFSET)
+                .cast::<f32>()
+                .read()
+        },
+    ];
+    if !frustum.iter().all(|value| value.is_finite())
+        || frustum[1] <= frustum[0]
+        || frustum[2] <= frustum[3]
+    {
+        return None;
+    }
+
+    let offset_x = (frustum[1] - frustum[0]) * jitter_pixels[0] / width as f32;
+    let offset_y = (frustum[2] - frustum[3]) * jitter_pixels[1] / height as f32;
+    unsafe {
+        camera
+            .add(NICAMERA_FRUSTUM_LEFT_OFFSET)
+            .cast::<f32>()
+            .write(frustum[0] + offset_x);
+        camera
+            .add(NICAMERA_FRUSTUM_RIGHT_OFFSET)
+            .cast::<f32>()
+            .write(frustum[1] + offset_x);
+        camera
+            .add(NICAMERA_FRUSTUM_TOP_OFFSET)
+            .cast::<f32>()
+            .write(frustum[2] - offset_y);
+        camera
+            .add(NICAMERA_FRUSTUM_BOTTOM_OFFSET)
+            .cast::<f32>()
+            .write(frustum[3] - offset_y);
+    }
+
+    Some(WorldCameraJitter { camera, frustum })
+}
+
 pub(super) fn rendered_texture_color_surface(rendered_texture: *mut c_void) -> Option<*mut c_void> {
     unsafe { read_rendered_texture_color_surface(rendered_texture).ok() }
 }
@@ -154,13 +276,11 @@ pub(super) unsafe fn resolve_scene_depth(
     slot: DepthResolveSlot,
     reason: &'static str,
 ) -> bool {
-    match unsafe {
-        DEPTH_RESOLVE
-            .lock()
-            .resolve(device_ptr, source_rendered_texture, slot, reason)
-    } {
+    let mut resolve = DEPTH_RESOLVE.lock();
+    match unsafe { resolve.resolve(device_ptr, source_rendered_texture, slot, reason) } {
         Ok(()) => true,
         Err(err) => {
+            resolve.invalidate_capture(slot);
             log_depth_resolve_skip(slot, reason, &err);
             false
         }
@@ -876,6 +996,7 @@ struct FnvDepthResolve {
     state_block: Option<StateBlock9>,
     success_logs: u32,
     frame_epoch: u64,
+    temporal_depth_proven: bool,
     world_capture: ResolvedDepthCapture,
     first_person_capture: ResolvedDepthCapture,
 }
@@ -1007,6 +1128,10 @@ impl FnvDepthResolve {
             width: desc.Width,
             height: desc.Height,
         };
+        if slot == DepthResolveSlot::World {
+            self.temporal_depth_proven =
+                projection.reversed_depth.is_some() && projection.camera.world_transform.available;
+        }
         self.log_success(slot, reason, source_label, &desc, projection);
         Ok(())
     }
@@ -1024,6 +1149,9 @@ impl FnvDepthResolve {
 
         if needs_target {
             *self.capture_mut(slot) = ResolvedDepthCapture::default();
+            if slot == DepthResolveSlot::World {
+                self.temporal_depth_proven = false;
+            }
             let target = FnvDepthTarget::create(device, desc)?;
             *self.target_mut(slot) = Some(target);
             log::info!(
@@ -1060,6 +1188,28 @@ impl FnvDepthResolve {
             DepthResolveSlot::World => &mut self.world_capture,
             DepthResolveSlot::FirstPerson => &mut self.first_person_capture,
         }
+    }
+
+    fn invalidate_capture(&mut self, slot: DepthResolveSlot) {
+        *self.capture_mut(slot) = ResolvedDepthCapture::default();
+        if slot == DepthResolveSlot::World {
+            self.temporal_depth_proven = false;
+        }
+    }
+
+    fn temporal_depth_epoch(
+        &self,
+        device_ptr: *mut c_void,
+        width: u32,
+        height: u32,
+    ) -> Option<u64> {
+        (self.temporal_depth_proven
+            && self.device_ptr == device_ptr as usize
+            && self
+                .world_target
+                .as_ref()
+                .is_some_and(|target| target.width == width && target.height == height))
+        .then_some(self.frame_epoch)
     }
 
     fn depth_frame(&self) -> DepthFrame {
@@ -1132,6 +1282,7 @@ impl FnvDepthResolve {
 
     fn release(&mut self) {
         self.device_ptr = 0;
+        self.temporal_depth_proven = false;
         self.world_target = None;
         self.first_person_target = None;
         self.state_block = None;

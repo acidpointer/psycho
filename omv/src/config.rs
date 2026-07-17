@@ -164,6 +164,12 @@ pub(crate) struct EmbeddedEffectsConfig {
     pub(crate) blooming_hdr: BloomingHdrConfig,
     pub(crate) sunshafts: SunshaftsConfig,
     pub(crate) depth_of_field: DepthOfFieldConfig,
+    pub(crate) temporal_aa: TemporalAaConfig,
+    pub(crate) fast_fxaa: FastFxaaConfig,
+    pub(crate) nfaa: NfaaConfig,
+    pub(crate) axaa: AxaaConfig,
+    pub(crate) dlaa: DlaaConfig,
+    pub(crate) smaa: SmaaConfig,
 }
 
 impl Default for EmbeddedEffectsConfig {
@@ -174,6 +180,111 @@ impl Default for EmbeddedEffectsConfig {
             blooming_hdr: BloomingHdrConfig::default(),
             sunshafts: SunshaftsConfig::default(),
             depth_of_field: DepthOfFieldConfig::default(),
+            temporal_aa: TemporalAaConfig::default(),
+            fast_fxaa: FastFxaaConfig::default(),
+            nfaa: NfaaConfig::default(),
+            axaa: AxaaConfig::default(),
+            dlaa: DlaaConfig::default(),
+            smaa: SmaaConfig::default(),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
+#[serde(default)]
+pub(crate) struct TemporalAaConfig {
+    pub(crate) enabled: bool,
+    pub(crate) history_weight: f32,
+    pub(crate) clamp_strength: f32,
+    pub(crate) sharpness: f32,
+    pub(crate) jitter_scale: f32,
+}
+
+impl Default for TemporalAaConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            history_weight: 0.90,
+            clamp_strength: 1.0,
+            sharpness: 0.10,
+            jitter_scale: 1.0,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
+#[serde(default)]
+pub(crate) struct FastFxaaConfig {
+    pub(crate) enabled: bool,
+    pub(crate) edge_threshold: f32,
+    pub(crate) reduce: f32,
+    pub(crate) span: f32,
+    pub(crate) blend: f32,
+}
+
+impl Default for FastFxaaConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            edge_threshold: 0.08,
+            reduce: 0.25,
+            span: 3.0,
+            blend: 0.75,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
+#[serde(default)]
+pub(crate) struct NfaaConfig {
+    pub(crate) enabled: bool,
+    pub(crate) aa_power: f32,
+    pub(crate) mask_adjust: f32,
+    pub(crate) debug_view: i32,
+}
+
+impl Default for NfaaConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            aa_power: 16.0,
+            mask_adjust: 1.0,
+            debug_view: 0,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize)]
+#[serde(default)]
+pub(crate) struct AxaaConfig {
+    pub(crate) enabled: bool,
+}
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize)]
+#[serde(default)]
+pub(crate) struct DlaaConfig {
+    pub(crate) enabled: bool,
+    pub(crate) debug_view: i32,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
+#[serde(default)]
+pub(crate) struct SmaaConfig {
+    pub(crate) enabled: bool,
+    pub(crate) edge_detection: i32,
+    pub(crate) threshold: f32,
+    pub(crate) corner_rounding: f32,
+    pub(crate) debug_view: i32,
+}
+
+impl Default for SmaaConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            edge_detection: 1,
+            threshold: 0.10,
+            corner_rounding: 25.0,
+            debug_view: 0,
         }
     }
 }
@@ -569,8 +680,14 @@ impl EmbeddedEffectsConfig {
                 ShaderPhase::ScenePreImageSpace
             }
             crate::shaders::EmbeddedEffectKind::BloomingHdr => ShaderPhase::FinalImageSpace,
+            crate::shaders::EmbeddedEffectKind::FastFxaa
+            | crate::shaders::EmbeddedEffectKind::Nfaa
+            | crate::shaders::EmbeddedEffectKind::Axaa
+            | crate::shaders::EmbeddedEffectKind::Dlaa
+            | crate::shaders::EmbeddedEffectKind::Smaa => ShaderPhase::FinalImageSpace,
             crate::shaders::EmbeddedEffectKind::Sunshafts
-            | crate::shaders::EmbeddedEffectKind::DepthOfField => ShaderPhase::ScenePostImageSpace,
+            | crate::shaders::EmbeddedEffectKind::DepthOfField
+            | crate::shaders::EmbeddedEffectKind::TemporalAa => ShaderPhase::ScenePostImageSpace,
         }
     }
 }
@@ -679,6 +796,46 @@ fn save_native_sky_config(doc: &mut DocumentMut, config: &NativeSkyConfig) {
 }
 
 fn save_embedded_effect_config(doc: &mut DocumentMut, config: &EmbeddedEffectsConfig) {
+    let fast_fxaa = &config.fast_fxaa;
+    doc["graphics"]["embedded_effects"]["fast_fxaa"]["enabled"] = value(fast_fxaa.enabled);
+    doc["graphics"]["embedded_effects"]["fast_fxaa"]["edge_threshold"] =
+        value(fast_fxaa.edge_threshold as f64);
+    doc["graphics"]["embedded_effects"]["fast_fxaa"]["reduce"] = value(fast_fxaa.reduce as f64);
+    doc["graphics"]["embedded_effects"]["fast_fxaa"]["span"] = value(fast_fxaa.span as f64);
+    doc["graphics"]["embedded_effects"]["fast_fxaa"]["blend"] = value(fast_fxaa.blend as f64);
+
+    let nfaa = &config.nfaa;
+    doc["graphics"]["embedded_effects"]["nfaa"]["enabled"] = value(nfaa.enabled);
+    doc["graphics"]["embedded_effects"]["nfaa"]["aa_power"] = value(nfaa.aa_power as f64);
+    doc["graphics"]["embedded_effects"]["nfaa"]["mask_adjust"] = value(nfaa.mask_adjust as f64);
+    doc["graphics"]["embedded_effects"]["nfaa"]["debug_view"] = value(nfaa.debug_view as i64);
+
+    doc["graphics"]["embedded_effects"]["axaa"]["enabled"] = value(config.axaa.enabled);
+    doc["graphics"]["embedded_effects"]["dlaa"]["enabled"] = value(config.dlaa.enabled);
+    doc["graphics"]["embedded_effects"]["dlaa"]["debug_view"] =
+        value(config.dlaa.debug_view as i64);
+
+    let smaa = &config.smaa;
+    doc["graphics"]["embedded_effects"]["smaa"]["enabled"] = value(smaa.enabled);
+    if let Some(smaa_table) = doc["graphics"]["embedded_effects"]["smaa"].as_table_mut() {
+        smaa_table.remove("max_search_steps");
+    }
+    doc["graphics"]["embedded_effects"]["smaa"]["edge_detection"] =
+        value(smaa.edge_detection as i64);
+    doc["graphics"]["embedded_effects"]["smaa"]["threshold"] = value(smaa.threshold as f64);
+    doc["graphics"]["embedded_effects"]["smaa"]["corner_rounding"] =
+        value(smaa.corner_rounding as f64);
+    doc["graphics"]["embedded_effects"]["smaa"]["debug_view"] = value(smaa.debug_view as i64);
+
+    let taa = &config.temporal_aa;
+    doc["graphics"]["embedded_effects"]["temporal_aa"]["enabled"] = value(taa.enabled);
+    doc["graphics"]["embedded_effects"]["temporal_aa"]["history_weight"] =
+        value(taa.history_weight as f64);
+    doc["graphics"]["embedded_effects"]["temporal_aa"]["clamp_strength"] =
+        value(taa.clamp_strength as f64);
+    doc["graphics"]["embedded_effects"]["temporal_aa"]["sharpness"] = value(taa.sharpness as f64);
+    doc["graphics"]["embedded_effects"]["temporal_aa"]["jitter_scale"] =
+        value(taa.jitter_scale as f64);
     let fast = &config.fast_ao;
     doc["graphics"]["embedded_effects"]["fast_ao"]["enabled"] = value(fast.enabled);
     doc["graphics"]["embedded_effects"]["fast_ao"]["strength"] = value(fast.strength as f64);

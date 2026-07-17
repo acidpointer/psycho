@@ -176,6 +176,49 @@ distant_blur_end = 55172.29
 sky_blur_strength = 0.125
 softness = 0.9517241
 
+# Temporal AA jitters and resolves the world before first-person/UI rendering.
+# It primes the proven depth/camera contract for one unjittered frame before use.
+[graphics.embedded_effects.temporal_aa]
+enabled = false
+history_weight = 0.90
+clamp_strength = 1.0
+sharpness = 0.10
+jitter_scale = 1.0
+
+# Embedded spatial AA runs after bloom and before loose final-image shaders.
+# Keep these disabled until chosen in the in-game menu. Enabling more than one
+# is useful for comparison but compounds blur and GPU cost.
+[graphics.embedded_effects.fast_fxaa]
+enabled = false
+edge_threshold = 0.08
+reduce = 0.25
+span = 3.0
+blend = 0.75
+
+[graphics.embedded_effects.nfaa]
+enabled = false
+aa_power = 16.0
+mask_adjust = 1.0
+# 0 = off, 1 = edge mask, 2 = normals
+debug_view = 0
+
+[graphics.embedded_effects.axaa]
+enabled = false
+
+[graphics.embedded_effects.dlaa]
+enabled = false
+# 0 = off, 1 = edge mask A, 2 = edge mask B
+debug_view = 0
+
+[graphics.embedded_effects.smaa]
+enabled = false
+# 0 = luma, 1 = color
+edge_detection = 1
+threshold = 0.10
+corner_rounding = 25.0
+# 0 = off, 1 = edges, 2 = blend weights
+debug_view = 0
+
 [graphics.native_pbr]
 # Native material/PBR engine path.
 #
