@@ -140,7 +140,7 @@ pub(crate) fn append_diagnostic_report(out: &mut String) {
         display.last_error,
     ));
     out.push_str(&format!(
-        "  LowProcess: enabled={} observations={} slots={}/{}/{}/{} predecessors={:08X?} wraps={} rewraps={} unsupported={} sanitized={} save_nulls={} patch_failures={}\n",
+        "  LowProcess: enabled={} observations={} slots={}/{}/{}/{} predecessors={:08X?} wraps={} rewraps={} unsupported={} cleanup=removed:{} invalid:{} truncated:{} predecessor:{}/{} save=owner:{} nulls:{} invalid_nodes:{} invalid_links:{} cycles:{} limits:{} observer=restored:{} restores:{} failures:{} patch_failures={}\n",
         low.enabled,
         low.observations,
         lowprocess::slot_state_name(low.slot_states[0]),
@@ -152,7 +152,19 @@ pub(crate) fn append_diagnostic_report(out: &mut String) {
         low.rewraps,
         low.unsupported,
         low.sanitized_entries,
+        low.invalid_cleanup_forms,
+        low.truncated_cleanup_links,
+        low.predecessor_calls,
+        low.predecessor_fallbacks,
+        low.save_owner_hook,
         low.invalid_save_forms,
+        low.invalid_save_nodes,
+        low.invalid_save_links,
+        low.save_cycles,
+        low.save_traversal_limits,
+        low.main_boundary_restored,
+        low.main_boundary_restores,
+        low.main_boundary_restore_failures,
         low.patch_failures,
     ));
     out.push_str(&format!(
@@ -206,7 +218,10 @@ fn install_lowprocess_fix(config: &EngineFixesConfig) -> anyhow::Result<()> {
         return Ok(());
     }
     if let Err(err) = lowprocess::install_save_containment() {
-        log::warn!("[LOWPROCESS] Save containment disabled: {:#}", err);
+        log::warn!(
+            "[LOWPROCESS] Save payload containment unavailable: {:#}",
+            err
+        );
     }
     if let Err(err) = lowprocess::install_late_boundary() {
         lowprocess::disable();

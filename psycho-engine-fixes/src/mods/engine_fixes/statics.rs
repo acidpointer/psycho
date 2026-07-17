@@ -81,12 +81,18 @@ pub static HAVOK_PENDING_ADD_FLUSH_HOOK: LazyLock<InlineHookContainer<HavokPendi
 // ---- LowProcess generic-location ownership ----
 
 pub const APPEND_REF_ID_ADDR: usize = 0x00865DF0;
+pub const LOWPROCESS_SAVE_OWNER_ADDR: usize = 0x00910450;
+pub const LOWPROCESS_SAVE_DATA_CALL_ADDR: usize = 0x009105A6;
 pub const LOWPROCESS_SAVE_CALL_ADDR: usize = 0x009105BF;
+pub const LOWPROCESS_SAVE_NEXT_CALL_ADDR: usize = 0x009105D0;
 pub const MAIN_TASK_DRAIN_ADDR: usize = 0x00446B50;
 pub const MAIN_TASK_DRAIN_CALL_ADDR: usize = 0x0094CFD6;
 pub const VANILLA_LOWPROCESS_FUNC011F: usize = 0x0090CC10;
 pub const LOWPROCESS_VTABLE_BASES: [usize; 4] = [0x01087864, 0x010886E4, 0x0108904C, 0x01089BCC];
 pub const LOWPROCESS_FUNC011F_SLOTS: [usize; 4] = [0x01087CE0, 0x01088B60, 0x010894C8, 0x0108A048];
+
+pub static LOWPROCESS_SAVE_OWNER_HOOK: LazyLock<InlineHookContainer<LowProcessSaveFn>> =
+    LazyLock::new(InlineHookContainer::new);
 
 // ---- Queued-task lifetime ----
 

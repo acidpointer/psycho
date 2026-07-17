@@ -59,6 +59,9 @@ pub type HavokPendingAddFlushFn = unsafe extern "thiscall" fn(*mut c_void, *mut 
 /// FUN_00865DF0: serializes one optional TESForm reference.
 pub type AppendRefIdFn = unsafe extern "thiscall" fn(*mut c_void, *mut c_void, u32);
 
+/// FUN_00910450: serializes one LowProcess instance.
+pub type LowProcessSaveFn = unsafe extern "thiscall" fn(*mut c_void, *mut c_void);
+
 /// FUN_00446B50: drains the main-thread queued-task stack.
 pub type MainTaskDrainFn = unsafe extern "thiscall" fn(*mut c_void, u32);
 
