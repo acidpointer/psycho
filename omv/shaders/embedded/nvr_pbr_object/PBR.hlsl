@@ -71,7 +71,7 @@ float3 BRDF(float roughness, float3 fresnel, float NdotV, float NdotL, float Ndo
 float3 PBRDiffuse(float metallicness, float roughness, float3 albedo, float3 normal, float3 eyeDir, float3 lightDir, float3 lightColor) {
     const float3 reflectance = lerp(float(0.04).rrr, albedo, metallicness);
 
-    lightDir = normalize(lightDir);
+    lightDir = SafeNormalize(lightDir, float3(0, 0, 0));
 
     const float3 halfway = SafeNormalize(eyeDir + lightDir, normal);
     const float NdotL = shades(normal, lightDir);
@@ -87,7 +87,7 @@ float3 PBRDiffuse(float metallicness, float roughness, float3 albedo, float3 nor
 float3 PBRSpecular(float metallicness, float roughness, float3 albedo, float3 normal, float3 eyeDir, float3 lightDir, float3 lightColor) {
     const float3 reflectance = lerp(float(0.04).rrr, albedo, metallicness);
 
-    lightDir = normalize(lightDir);
+    lightDir = SafeNormalize(lightDir, float3(0, 0, 0));
 
     const float3 halfway = SafeNormalize(eyeDir + lightDir, normal);
     const float NdotL = max(shades(normal, lightDir), 0.00001);
@@ -105,7 +105,7 @@ float3 PBRSpecular(float metallicness, float roughness, float3 albedo, float3 no
 float3 PBRBoundedSpecular(float glossPower, float specularStrength, float specularFade, float attenuation, float3 normal, float3 eyeDir, float3 lightDir, float3 lightColor) {
     const float3 reflectance = float(0.04).rrr;
 
-    lightDir = normalize(lightDir);
+    lightDir = SafeNormalize(lightDir, float3(0, 0, 0));
 
     const float3 halfway = SafeNormalize(eyeDir + lightDir, normal);
     const float NdotL = shades(normal, lightDir);
@@ -121,7 +121,7 @@ float3 PBRBoundedSpecular(float glossPower, float specularStrength, float specul
 float3 PBRBounded(float glossPower, float specularStrength, float specularFade, float attenuation, float3 albedo, float3 normal, float3 eyeDir, float3 lightDir, float3 lightColor) {
     const float3 reflectance = float(0.04).rrr;
 
-    lightDir = normalize(lightDir);
+    lightDir = SafeNormalize(lightDir, float3(0, 0, 0));
 
     const float3 halfway = SafeNormalize(eyeDir + lightDir, normal);
     const float NdotL = shades(normal, lightDir);
@@ -140,7 +140,7 @@ float3 PBR(float metallicness, float roughness, float3 albedo, float3 normal, fl
 
     normal = normalize(normal);
     eyeDir = normalize(eyeDir);
-    lightDir = normalize(lightDir);
+    lightDir = SafeNormalize(lightDir, float3(0, 0, 0));
 
     const float3 halfway = SafeNormalize(eyeDir + lightDir, normal);
     const float NdotL = max(shades(normal, lightDir), 0.00001);
@@ -162,7 +162,7 @@ float3 PBR(float metallicness, float roughness, float3 albedo, float3 normal, fl
 float3 PBRSunSpecular(float metallicness, float roughness, float3 albedo, float3 normal, float3 eyeDir, float3 lightDir, float3 lightColor) {
     const float3 reflectance = lerp(float(0.04).rrr, albedo, metallicness);
 
-    lightDir = normalize(lightDir);
+    lightDir = SafeNormalize(lightDir, float3(0, 0, 0));
 
     const float3 reflectDir = reflect(lightDir, normal);
 
@@ -191,7 +191,7 @@ float3 PBRSunSpecular(float metallicness, float roughness, float3 albedo, float3
 float3 PBRSun(float metallicness, float roughness, float3 albedo, float3 normal, float3 eyeDir, float3 lightDir, float3 lightColor) {
     const float3 reflectance = lerp(float(0.04).rrr, albedo, metallicness);
 
-    lightDir = normalize(lightDir);
+    lightDir = SafeNormalize(lightDir, float3(0, 0, 0));
 
     const float3 reflectDir = reflect(lightDir, normal);
 

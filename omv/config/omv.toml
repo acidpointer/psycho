@@ -198,17 +198,17 @@ enabled = true
 #   c89.z light scale, c89.w ambient scale,
 #   c90.x use PBR, c90.y saturation, c90.z LOD noise scale,
 #   c90.w LOD noise tile.
-object_roughness_scale = 1.0
-object_light_scale = 1.0
-object_ambient_scale = 1.0
+object_roughness_scale = 0.7516814
+object_light_scale = 1.315789
+object_ambient_scale = 0.8654971
 object_albedo_saturation = 1.0
-terrain_metallicness = 0.0
-terrain_roughness_scale = 0.82
-terrain_light_scale = 1.15
-terrain_ambient_scale = 1.10
-terrain_albedo_saturation = 1.02
+terrain_metallicness = 0.3143275
+terrain_roughness_scale = 1.276213
+terrain_light_scale = 1.202632
+terrain_ambient_scale = 0.6906431
+terrain_albedo_saturation = 0.7071348
 terrain_lod_noise_scale = 1.0
-terrain_lod_noise_tile = 1.75
+terrain_lod_noise_tile = 3.19576
 
 # Enable detailed per-draw contract telemetry. Keep this off during normal play.
 debug_log_draws = false

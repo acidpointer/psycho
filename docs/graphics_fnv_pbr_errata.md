@@ -292,6 +292,8 @@ OMV mixed these contracts. It enabled the commented-out `SpecularAA`, split the 
 
 The lighting-transition ownership audit closes the remaining row-handoff contract. `FUN_00BB4740` invalidates and rebuilds the property pass list when its camera-relative distance reaches the specular-fade end. Source-equivalent NVR leaves its GGX lobe fully active until that row change, so restoring NVR alone removes the experimental instability but does not make the native specular-to-non-specular handoff continuous. `FUN_00B70820` also proves that staged light RGB already contains the engine light dimmer and property scale; object lighting must not reinterpret light alpha as a missing generic RGB fade.
 
+The ADTS10 high-light path had a separate source-level count mismatch inherited from NVR. Native pixel bytecode retains the previous lighting sum when `lightCount <= threshold`; the replacement source used that correct inclusive comparison only for the second light and strict comparisons for lights three through six. At an exact integer count, the pixel shader therefore evaluated one more light than the vertex shader exposed. The unavailable interpolator was zero, and the PBR helper normalized that zero direction before multiplying the contribution by its mask. Camera-driven light-list rebuilds could consequently turn an ordinary count transition into undefined lighting for only the objects using the high-light rows.
+
 See `docs/graphics_fnv_pbr_object_temporal_instability_audit.md` for the complete source, bytecode, formula, and fix audit.
 
 Do not repeat:
@@ -303,6 +305,8 @@ Do not repeat:
 - Do not use global object metallicness when no per-material metalness mask exists; NVR object calls pass zero.
 - Do not tune another transition curve before restoring the source-proven material model.
 - Do not reinterpret `c25.w` globally. Alternate PPLighting paths can store point-light radius data there; the specular fade contract applies only to the proven combined-specular object pairs.
+- Do not use strict `N > lightsUsed` exclusion tests in the high-light pixel path. Native excludes the next slot when `lightsUsed <= N`, matching the vertex shader's `N < lightsThreshold` activation rule.
+- Do not rely on multiplying an invalid light calculation by zero. Inactive light directions must remain finite before PBR evaluation.
 - Do not feed EnvMap rows through the ordinary object PBR template; their sampler, vertex, constant, and additive-output ABIs are different.
 - Do not invent roughness LOD or Fresnel for the native cube. No prefiltered mip-chain, BRDF lookup, or material roughness contract has been proven for this pass.
 

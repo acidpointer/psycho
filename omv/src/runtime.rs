@@ -2308,7 +2308,7 @@ fn draw_native_pbr_config(
         ui.separator_text(&section);
         changed |= draw_config_checkbox(
             ui,
-            "Track object distance transitions",
+            "Track object lighting transitions",
             "native_pbr.debug_log_draws",
             &mut config.debug_log_draws,
         );
@@ -2343,10 +2343,10 @@ fn draw_native_pbr_config(
                 ));
                 ui.text(&fade);
                 let identity = cstring(format!(
-                    "Fade object: geometry 0x{:08X}  property 0x{:08X}  lights {} / 0x{:08X}",
+                    "Fade object: geometry 0x{:08X}  property 0x{:08X}  light capacity {} / 0x{:08X}",
                     status.object_last_fade_geometry,
                     status.object_last_fade_property,
-                    status.object_last_light_count,
+                    status.object_last_light_capacity,
                     status.object_last_light_signature,
                 ));
                 ui.text_colored(MENU_MUTED_TEXT, &identity);

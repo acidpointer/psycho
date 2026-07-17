@@ -88,7 +88,7 @@ static OBJECT_LAST_FADE_END: AtomicU32 = AtomicU32::new(0);
 static OBJECT_LAST_FADE_EXPECTED: AtomicU32 = AtomicU32::new(0);
 static OBJECT_LAST_FADE_STAGED: AtomicU32 = AtomicU32::new(0);
 static OBJECT_LAST_FADE_C25: AtomicU32 = AtomicU32::new(f32::NAN.to_bits());
-static OBJECT_LAST_LIGHT_COUNT: AtomicU32 = AtomicU32::new(0);
+static OBJECT_LAST_LIGHT_CAPACITY: AtomicU32 = AtomicU32::new(0);
 static OBJECT_LAST_LIGHT_SIGNATURE: AtomicU32 = AtomicU32::new(0);
 static OBJECT_LAST_BASE_TEXTURE: AtomicUsize = AtomicUsize::new(0);
 static OBJECT_LAST_NORMAL_TEXTURE: AtomicUsize = AtomicUsize::new(0);
@@ -408,7 +408,7 @@ pub(super) fn record_object_specular_fade(
         fade.renderer_constant_weight.unwrap_or(f32::NAN).to_bits(),
         Ordering::Release,
     );
-    OBJECT_LAST_LIGHT_COUNT.store(fade.light_count, Ordering::Release);
+    OBJECT_LAST_LIGHT_CAPACITY.store(fade.light_capacity, Ordering::Release);
     OBJECT_LAST_LIGHT_SIGNATURE.store(fade.light_signature, Ordering::Release);
     OBJECT_LAST_BASE_TEXTURE.store(samplers.base, Ordering::Release);
     OBJECT_LAST_NORMAL_TEXTURE.store(samplers.normal, Ordering::Release);
@@ -428,7 +428,7 @@ pub(super) fn record_object_specular_fade(
     let name = super::engine_contracts::geometry_name(trace.geometry)
         .unwrap_or_else(|| "<unnamed>".to_owned());
     log::info!(
-        "[PBR_DISTANCE_FADE] shader_applied=true geometry=0x{:08X} name={} property=0x{:08X} flags=0x{:08X}/0x{:08X} pass_index={} pair=VS[{}]/PS[{}] distance={:.3} specular_range={:.3}..{:.3} expected_specular={:.6} staged_specular={:.6} c25_specular={:.6} lights={} light_signature=0x{:08X} textures=base:0x{:08X},normal:0x{:08X},glow:0x{:08X},shadow:0x{:08X},mask:0x{:08X} specular_bucket={}/{}",
+        "[PBR_DISTANCE_FADE] shader_applied=true geometry=0x{:08X} name={} property=0x{:08X} flags=0x{:08X}/0x{:08X} pass_index={} pair=VS[{}]/PS[{}] distance={:.3} specular_range={:.3}..{:.3} expected_specular={:.6} staged_specular={:.6} c25_specular={:.6} light_capacity={} light_signature=0x{:08X} textures=base:0x{:08X},normal:0x{:08X},glow:0x{:08X},shadow:0x{:08X},mask:0x{:08X} specular_bucket={}/{}",
         trace.geometry,
         name,
         fade.property,
@@ -443,7 +443,7 @@ pub(super) fn record_object_specular_fade(
         fade.expected_weight,
         fade.native_weight,
         fade.renderer_constant_weight.unwrap_or(f32::NAN),
-        fade.light_count,
+        fade.light_capacity,
         fade.light_signature,
         samplers.base,
         samplers.normal,
@@ -802,8 +802,8 @@ pub(super) fn object_last_fade_c25() -> f32 {
     f32::from_bits(OBJECT_LAST_FADE_C25.load(Ordering::Acquire))
 }
 
-pub(super) fn object_last_light_count() -> u32 {
-    OBJECT_LAST_LIGHT_COUNT.load(Ordering::Acquire)
+pub(super) fn object_last_light_capacity() -> u32 {
+    OBJECT_LAST_LIGHT_CAPACITY.load(Ordering::Acquire)
 }
 
 pub(super) fn object_last_light_signature() -> u32 {
@@ -894,7 +894,7 @@ pub(super) fn reset() {
     OBJECT_LAST_FADE_EXPECTED.store(0, Ordering::Release);
     OBJECT_LAST_FADE_STAGED.store(0, Ordering::Release);
     OBJECT_LAST_FADE_C25.store(f32::NAN.to_bits(), Ordering::Release);
-    OBJECT_LAST_LIGHT_COUNT.store(0, Ordering::Release);
+    OBJECT_LAST_LIGHT_CAPACITY.store(0, Ordering::Release);
     OBJECT_LAST_LIGHT_SIGNATURE.store(0, Ordering::Release);
     OBJECT_LAST_BASE_TEXTURE.store(0, Ordering::Release);
     OBJECT_LAST_NORMAL_TEXTURE.store(0, Ordering::Release);

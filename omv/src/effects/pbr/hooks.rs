@@ -1331,17 +1331,17 @@ fn bind_object_replacement(replacement: PreparedObjectReplacement) {
     }
 
     if diagnostics::detailed_enabled() && replacement.uses_native_specular_fade {
-        let light_count =
+        let light_capacity =
             shader_registry::object_template_light_count(replacement.pixel_record.template_id);
         let mut light_data = [[0.0; 4]; 10];
         let light_data_ready = device.vertex_shader_constant_f(25, &mut light_data).is_ok();
         let renderer_weight = light_data_ready.then_some(light_data[0][3]);
         let light_signature = light_data_ready
-            .then(|| hash_light_data(&light_data, light_count))
+            .then(|| hash_light_data(&light_data, light_capacity))
             .unwrap_or(0);
         if let Some(fade) = engine_contracts::current_object_specular_fade_snapshot(
             renderer_weight,
-            light_count,
+            light_capacity,
             light_signature,
         ) {
             diagnostics::record_object_specular_fade(
@@ -1667,11 +1667,11 @@ fn hash_word(hash: u32, value: usize) -> u32 {
     hash ^ folded.wrapping_mul(0x0100_0193).rotate_left(5)
 }
 
-fn hash_light_data(light_data: &[[f32; 4]; 10], light_count: u32) -> u32 {
+fn hash_light_data(light_data: &[[f32; 4]; 10], light_capacity: u32) -> u32 {
     let mut hash = 0x811C_9DC5u32;
     for (light_index, light) in light_data
         .iter()
-        .take(light_count.min(light_data.len() as u32) as usize)
+        .take(light_capacity.min(light_data.len() as u32) as usize)
         .enumerate()
     {
         for (component, value) in light.iter().enumerate() {

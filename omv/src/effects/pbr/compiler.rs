@@ -28,7 +28,7 @@ const BYTECODE_QUEUED: u32 = 1;
 const BYTECODE_READY: u32 = 2;
 const BYTECODE_FAILED: u32 = 3;
 const TEMPLATE_ID_NONE: u32 = u32::MAX;
-const SHADER_CONTRACT_REVISION: &[u8] = b"native-pbr-object-lighting-contract-v3";
+const SHADER_CONTRACT_REVISION: &[u8] = b"native-pbr-object-lighting-contract-v4";
 
 static STARTED: AtomicBool = AtomicBool::new(false);
 static FINISHED: AtomicBool = AtomicBool::new(false);

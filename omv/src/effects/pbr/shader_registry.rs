@@ -1034,6 +1034,31 @@ mod shader_compile_tests {
     }
 
     #[test]
+    fn high_light_count_gates_match_the_native_contract() {
+        for threshold in 1..=5 {
+            assert!(
+                NVR_OBJECT_TEMPLATE_SOURCE
+                    .contains(&format!("({threshold} >= lightsUsed ? 0.0 : 1.0)"))
+            );
+            assert!(
+                !NVR_OBJECT_TEMPLATE_SOURCE
+                    .contains(&format!("({threshold} > lightsUsed ? 0.0 : 1.0)"))
+            );
+        }
+    }
+
+    #[test]
+    fn pbr_light_directions_are_zero_safe() {
+        assert!(!NVR_PBR_INCLUDE_SOURCE.contains("lightDir = normalize(lightDir);"));
+        assert_eq!(
+            NVR_PBR_INCLUDE_SOURCE
+                .matches("lightDir = SafeNormalize(lightDir, float3(0, 0, 0));")
+                .count(),
+            7
+        );
+    }
+
+    #[test]
     fn zero_terrain_controls_are_not_replaced_with_neutral_values() {
         for source in [
             LAND_LOD_PIXEL_SOURCE,

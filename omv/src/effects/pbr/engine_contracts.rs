@@ -121,7 +121,7 @@ pub(super) struct ObjectSpecularFadeSnapshot {
     pub(super) expected_weight: f32,
     pub(super) native_weight: f32,
     pub(super) renderer_constant_weight: Option<f32>,
-    pub(super) light_count: u32,
+    pub(super) light_capacity: u32,
     pub(super) light_signature: u32,
 }
 
@@ -307,7 +307,7 @@ pub(super) fn current_object_draw_rejection(pass_index: u32) -> Option<ObjectDra
 
 pub(super) fn current_object_specular_fade_snapshot(
     renderer_constant_weight: Option<f32>,
-    light_count: u32,
+    light_capacity: u32,
     light_signature: u32,
 ) -> Option<ObjectSpecularFadeSnapshot> {
     let geometry = current_geometry()?;
@@ -338,7 +338,7 @@ pub(super) fn current_object_specular_fade_snapshot(
         ),
         native_weight: read_f32(RENDERER_LIGHT_DATA_0_W_ADDR as *const c_void)?,
         renderer_constant_weight,
-        light_count,
+        light_capacity,
         light_signature,
     })
 }
