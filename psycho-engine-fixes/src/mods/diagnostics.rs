@@ -4,6 +4,93 @@ use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 
 static PERF_FREQUENCY: AtomicU64 = AtomicU64::new(0);
 static HITCH_PROFILING: AtomicBool = AtomicBool::new(false);
+static LOAD_DEPTH: AtomicU32 = AtomicU32::new(0);
+static LOAD_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+static LOAD_SITE: AtomicU32 = AtomicU32::new(0);
+static LOAD_THREAD_ID: AtomicU32 = AtomicU32::new(0);
+
+#[derive(Clone, Copy)]
+#[repr(u32)]
+pub(crate) enum LoadSite {
+    TopLoadOriginalEnter = 1,
+    ChangedFormOwnerEnter,
+    LowProcessSanitizeEnter,
+    LowProcessSanitizeExit,
+    LowProcessPredecessorEnter,
+    LowProcessPredecessorExit,
+    ChangedFormOwnerExit,
+    TopLoadOriginalExit,
+    PostLoadPrepassEnter,
+    PostLoadPrepassExit,
+    TopLoadHookExit,
+}
+
+pub(crate) struct LoadSnapshot {
+    pub sequence: u64,
+    pub depth: u32,
+    pub site: &'static str,
+    pub thread_id: u32,
+}
+
+pub(crate) fn begin_load() {
+    let thread_id = libpsycho::os::windows::winapi::get_current_thread_id();
+    if LOAD_DEPTH.fetch_add(1, Ordering::AcqRel) == 0 {
+        LOAD_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+        LOAD_THREAD_ID.store(thread_id, Ordering::Release);
+    }
+    mark_load_site(LoadSite::TopLoadOriginalEnter);
+}
+
+pub(crate) fn finish_load() {
+    mark_load_site(LoadSite::TopLoadHookExit);
+    let depth = LOAD_DEPTH.load(Ordering::Acquire);
+    if depth != 0 {
+        LOAD_DEPTH.fetch_sub(1, Ordering::AcqRel);
+    }
+}
+
+#[inline]
+pub(crate) fn load_active() -> bool {
+    LOAD_DEPTH.load(Ordering::Acquire) != 0
+}
+
+#[inline]
+pub(crate) fn mark_load_site(site: LoadSite) {
+    if !load_active() {
+        return;
+    }
+    let thread_id = libpsycho::os::windows::winapi::get_current_thread_id();
+    if LOAD_THREAD_ID.load(Ordering::Acquire) != thread_id {
+        return;
+    }
+    LOAD_SITE.store(site as u32, Ordering::Release);
+}
+
+pub(crate) fn load_snapshot() -> LoadSnapshot {
+    LoadSnapshot {
+        sequence: LOAD_SEQUENCE.load(Ordering::Relaxed),
+        depth: LOAD_DEPTH.load(Ordering::Acquire),
+        site: load_site_name(LOAD_SITE.load(Ordering::Acquire)),
+        thread_id: LOAD_THREAD_ID.load(Ordering::Acquire),
+    }
+}
+
+fn load_site_name(site: u32) -> &'static str {
+    match site {
+        x if x == LoadSite::TopLoadOriginalEnter as u32 => "top-load-original-enter",
+        x if x == LoadSite::ChangedFormOwnerEnter as u32 => "changed-form-owner-enter",
+        x if x == LoadSite::LowProcessSanitizeEnter as u32 => "lowprocess-sanitize-enter",
+        x if x == LoadSite::LowProcessSanitizeExit as u32 => "lowprocess-sanitize-exit",
+        x if x == LoadSite::LowProcessPredecessorEnter as u32 => "lowprocess-predecessor-enter",
+        x if x == LoadSite::LowProcessPredecessorExit as u32 => "lowprocess-predecessor-exit",
+        x if x == LoadSite::ChangedFormOwnerExit as u32 => "changed-form-owner-exit",
+        x if x == LoadSite::TopLoadOriginalExit as u32 => "top-load-original-exit",
+        x if x == LoadSite::PostLoadPrepassEnter as u32 => "post-load-prepass-enter",
+        x if x == LoadSite::PostLoadPrepassExit as u32 => "post-load-prepass-exit",
+        x if x == LoadSite::TopLoadHookExit as u32 => "top-load-hook-exit",
+        _ => "none",
+    }
+}
 
 /// Configures opt-in QPC timing for frame hitch investigations.
 pub(crate) fn configure_hitch_profiling(enabled: bool) {

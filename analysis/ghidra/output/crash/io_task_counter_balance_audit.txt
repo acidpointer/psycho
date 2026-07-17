@@ -1,0 +1,1479 @@
+IO TASK COUNTER BALANCE AUDIT
+
+Goal:
+  Prove one accepted-task increment has exactly one balancing decrement
+  across processing, completion, cancellation, mode transition, and destruction.
+
+======================================================================
+accepted task enqueue and mode-counter increment @ 0x00c3fb50
+======================================================================
+  Function: FUN_00c3fb50 @ 0x00c3fb50, Size: 299 bytes
+
+bool __thiscall FUN_00c3fb50(int *param_1,int param_2)
+
+{
+  uint uVar1;
+  int *unaff_FS_OFFSET;
+  bool bVar2;
+  int local_20;
+  char local_19;
+  undefined4 local_18;
+  int local_14;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00f2dfb8;
+  local_10 = *unaff_FS_OFFSET;
+  uVar1 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  *(undefined4 *)(param_2 + 0xc) = 1;
+  local_14 = (**(code **)(*param_1 + 0x24))
+                       (*(undefined4 *)(param_2 + 0x10),*(undefined4 *)(param_2 + 0x14),uVar1);
+  local_18 = (**(code **)(*param_1 + 0x58))(param_2);
+  local_20 = param_2;
+  if (param_2 != 0) {
+    InterlockedIncrement((LONG *)(param_2 + 8));
+  }
+  local_8 = 0;
+  local_19 = (**(code **)(*param_1 + 0x10))
+                       (*(undefined4 *)(param_2 + 0x10),*(undefined4 *)(param_2 + 0x14),&local_20,0)
+  ;
+  local_8 = 0xffffffff;
+  if (local_20 != 0) {
+    FUN_0044dd60();
+  }
+  bVar2 = local_19 != '\0';
+  if (bVar2) {
+    InterlockedIncrement((LONG *)(param_1[0x15] + local_14 * 4));
+    InterlockedIncrement(param_1 + 0x16);
+    FUN_00442600();
+  }
+  *unaff_FS_OFFSET = local_10;
+  return bVar2;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00c3fb50 (accepted task enqueue and mode-counter increment)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00c3deef (in FUN_00c3de80)
+  DATA @ 0x010c16c4 (in ???)
+  Total: 2 refs
+
+--- Calls FROM accepted task enqueue and mode-counter increment (0x00c3fb50) ---
+  0x00c3fbd6 -> 0x00000066 ???
+  0x00c3fc20 -> 0x0044dd60 FUN_0044dd60
+  0x00c3fc40 -> 0x00000066 ???
+  0x00c3fc4d -> 0x00000066 ???
+  0x00c3fc5f -> 0x00442600 FUN_00442600
+  Total: 5 calls
+
+======================================================================
+IOManager completion accounting override @ 0x00c3de80
+======================================================================
+  Function: FUN_00c3de80 @ 0x00c3de80, Size: 183 bytes
+
+undefined4 __thiscall FUN_00c3de80(int param_1,int *param_2)
+
+{
+  ulonglong uVar1;
+  char cVar2;
+  uint uVar3;
+  uint uVar4;
+  longlong lVar5;
+  
+  if (*(int *)(param_1 + 0x68) != 6) {
+    uVar3 = __allshr();
+    if ((int)(uVar3 & 0xff) <= *(int *)(param_1 + 0x68)) {
+      uVar1 = *(ulonglong *)(param_2 + 4);
+      lVar5 = __allshl();
+      *(ulonglong *)(param_2 + 4) = lVar5 + (uVar1 & 0xffffffffff00ffff);
+    }
+  }
+  (**(code **)(*param_2 + 0x18))();
+  while( true ) {
+    cVar2 = FUN_00c3fb50(param_2);
+    if (cVar2 != '\0') break;
+    uVar4 = InterlockedIncrement((LONG *)&lpAddend_01202d9c);
+    uVar3 = param_2[4];
+    param_2[4] = (uVar3 & 0xffff0000) + (uVar4 & 0xffff);
+    param_2[5] = param_2[5] + (uint)CARRY4(uVar3 & 0xffff0000,uVar4 & 0xffff);
+  }
+  return 1;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00c3de80 (IOManager completion accounting override)
+----------------------------------------------------------------------
+  DATA @ 0x010c164c (in ???)
+  Total: 1 refs
+
+--- Calls FROM IOManager completion accounting override (0x00c3de80) ---
+  0x00c3dea5 -> 0x00ec77e0 __allshr
+  0x00c3dec9 -> 0x00ec7810 __allshl
+  0x00c3deef -> 0x00c3fb50 FUN_00c3fb50
+  0x00c3df00 -> 0x00000066 ???
+  Total: 4 calls
+
+======================================================================
+worker processing dispatch @ 0x00c3fc80
+======================================================================
+  Function: FUN_00c3fc80 @ 0x00c3fc80, Size: 26 bytes
+
+void __thiscall FUN_00c3fc80(undefined4 param_1,int *param_2)
+
+{
+  (**(code **)(*param_2 + 4))(param_1);
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00c3fc80 (worker processing dispatch)
+----------------------------------------------------------------------
+  DATA @ 0x010c1650 (in ???)
+  DATA @ 0x010c16c8 (in ???)
+  Total: 2 refs
+
+--- Calls FROM worker processing dispatch (0x00c3fc80) ---
+  Total: 0 calls
+
+======================================================================
+worker finalization dispatch @ 0x00c3fca0
+======================================================================
+  Function: FUN_00c3fca0 @ 0x00c3fca0, Size: 58 bytes
+
+void __thiscall FUN_00c3fca0(undefined4 param_1,int *param_2)
+
+{
+  param_2[3] = 4;
+  (**(code **)(*param_2 + 8))(param_1);
+  param_2[3] = 5;
+  FUN_0044e050(param_2);
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00c3fca0 (worker finalization dispatch)
+----------------------------------------------------------------------
+  DATA @ 0x010c1654 (in ???)
+  DATA @ 0x010c16cc (in ???)
+  Total: 2 refs
+
+--- Calls FROM worker finalization dispatch (0x00c3fca0) ---
+  0x00c3fccf -> 0x0044e050 FUN_0044e050
+  Total: 1 calls
+
+======================================================================
+BSTaskManagerThread worker loop @ 0x00c410b0
+======================================================================
+  Function: FUN_00c410b0 @ 0x00c410b0, Size: 633 bytes
+
+/* WARNING: Removing unreachable block (ram,0x00c411bc) */
+/* WARNING: Removing unreachable block (ram,0x00c412b6) */
+
+void __fastcall FUN_00c410b0(int param_1)
+
+{
+  char cVar1;
+  DWORD DVar2;
+  LONG LVar3;
+  int *unaff_FS_OFFSET;
+  undefined1 local_40 [8];
+  int local_38;
+  char local_31;
+  undefined **local_30 [2];
+  undefined4 local_28;
+  undefined4 local_20;
+  undefined4 local_1c;
+  byte local_18;
+  int local_10;
+  undefined1 *puStack_c;
+  uint local_8;
+  
+  puStack_c = &LAB_00f2e0a0;
+  local_10 = *unaff_FS_OFFSET;
+  *unaff_FS_OFFSET = (int)&local_10;
+  while (local_8 = 0xffffffff, *(char *)(*(int *)(param_1 + 0x30) + 0x40) != '\x01') {
+    WaitForSingleObject(*(HANDLE *)(param_1 + 0x10),0xffffffff);
+    InterlockedDecrement((LONG *)(param_1 + 0xc));
+    local_28 = 0;
+    local_20 = 0;
+    local_1c = 0;
+    local_18 = 0;
+    local_30[0] = &PTR_FUN_010c1664;
+    local_8 = 0;
+    local_31 = '\0';
+    while ((local_18 & 2) == 0) {
+      DVar2 = WaitForSingleObject(*(HANDLE *)(param_1 + 0x1c),0);
+      if (DVar2 == 0x102) {
+        WaitForSingleObject(*(HANDLE *)(param_1 + 0x1c),0xffffffff);
+        InterlockedDecrement((LONG *)(param_1 + 0x18));
+        FUN_00c42060(0);
+      }
+      local_38 = 0;
+      local_8 = CONCAT31(local_8._1_3_,1);
+      cVar1 = FUN_00c40e70(local_30,local_40,&local_38,local_31 == '\0');
+      if (cVar1 == '\0') {
+        if ((local_18 & 2) == 0) {
+          FUN_00c42060(0);
+          local_31 = '\0';
+        }
+      }
+      else if ((*(int *)(local_38 + 0xc) == 1) &&
+              (LVar3 = InterlockedCompareExchange((LONG *)(local_38 + 0xc),3,1), LVar3 == 1)) {
+        local_31 = '\x01';
+        (**(code **)(**(int **)(param_1 + 0x30) + 0x4c))(local_38);
+        (**(code **)(**(int **)(param_1 + 0x30) + 0x50))(local_38);
+      }
+      if (local_38 != 0) {
+        if (local_38 != 0) {
+          FUN_0044dd60();
+        }
+        local_38 = 0;
+      }
+      ReleaseSemaphore(*(HANDLE *)(param_1 + 0x1c),1,(LPLONG)0x0);
+      InterlockedIncrement((LONG *)(param_1 + 0x18));
+      local_8 = local_8 & 0xffffff00;
+      if (local_38 != 0) {
+        FUN_0044dd60();
+      }
+    }
+    local_30[0] = &PTR_FUN_010c1670;
+  }
+  *unaff_FS_OFFSET = local_10;
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00c410b0 (BSTaskManagerThread worker loop)
+----------------------------------------------------------------------
+  Total: 0 refs
+
+--- Calls FROM BSTaskManagerThread worker loop (0x00c410b0) ---
+  0x00c41106 -> 0x00000068 ???
+  0x00c41110 -> 0x00000067 ???
+  0x00c41169 -> 0x00000068 ???
+  0x00c41195 -> 0x00000068 ???
+  0x00c4119f -> 0x00000067 ???
+  0x00c411aa -> 0x00c42060 FUN_00c42060
+  0x00c411c9 -> 0x00000066 ???
+  0x00c411f5 -> 0x00c40e70 FUN_00c40e70
+  0x00c4121b -> 0x00000065 ???
+  0x00c4128c -> 0x00c42060 FUN_00c42060
+  0x00c412a4 -> 0x0044dd60 FUN_0044dd60
+  0x00c412c3 -> 0x00000066 ???
+  0x00c412e0 -> 0x00000063 ???
+  0x00c412ea -> 0x00000066 ???
+  0x00c412fd -> 0x0044dd60 FUN_0044dd60
+  Total: 15 calls
+
+======================================================================
+synchronous task drain or cancellation owner @ 0x00c3fce0
+======================================================================
+  Function: FUN_00c3fce0 @ 0x00c3fce0, Size: 286 bytes
+
+/* WARNING: Removing unreachable block (ram,0x00c3fd79) */
+
+void FUN_00c3fce0(void)
+
+{
+  char cVar1;
+  int *unaff_FS_OFFSET;
+  undefined4 local_48;
+  undefined4 local_44;
+  int local_3c;
+  undefined **local_38 [2];
+  undefined4 local_30;
+  undefined4 local_28;
+  undefined4 local_24;
+  byte local_20;
+  char local_11;
+  int local_10;
+  undefined1 *puStack_c;
+  uint local_8;
+  
+  puStack_c = &LAB_00f2dff0;
+  local_10 = *unaff_FS_OFFSET;
+  *unaff_FS_OFFSET = (int)&local_10;
+  local_11 = '\x01';
+  while (local_11 != '\0') {
+    local_11 = '\0';
+    local_30 = 0;
+    local_28 = 0;
+    local_24 = 0;
+    local_20 = 0;
+    local_38[0] = &PTR_FUN_010c1664;
+    local_8 = 0;
+    while ((local_20 & 2) == 0) {
+      local_3c = 0;
+      local_44 = 0;
+      local_48 = 0;
+      local_8 = CONCAT31(local_8._1_3_,1);
+      cVar1 = FUN_00c40e70(local_38,&local_48,&local_3c,1);
+      if (cVar1 != '\0') {
+        FUN_0044ac40(local_3c,0);
+        local_11 = '\x01';
+      }
+      local_8 = local_8 & 0xffffff00;
+      if (local_3c != 0) {
+        FUN_0044dd60();
+      }
+    }
+  }
+  *unaff_FS_OFFSET = local_10;
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00c3fce0 (synchronous task drain or cancellation owner)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00c3e38a (in FUN_00c3e380)
+  DATA @ 0x010c16d0 (in ???)
+  Total: 2 refs
+
+--- Calls FROM synchronous task drain or cancellation owner (0x00c3fce0) ---
+  0x00c3fd86 -> 0x00000066 ???
+  0x00c3fda4 -> 0x00c40e70 FUN_00c40e70
+  0x00c3fdbc -> 0x0044ac40 FUN_0044ac40
+  0x00c3fdd2 -> 0x0044dd60 FUN_0044dd60
+  Total: 4 calls
+
+======================================================================
+IO task queue ownership helper @ 0x00c3d4f0
+======================================================================
+  Function: FUN_00c3d4f0 @ 0x00c3d4f0, Size: 231 bytes
+
+int __thiscall FUN_00c3d4f0(int param_1,int *param_2)
+
+{
+  int *piVar1;
+  bool bVar2;
+  int iVar3;
+  
+  iVar3 = FUN_00c3d6c0();
+  piVar1 = (int *)(*(int *)(param_1 + 4) + iVar3 * 4);
+  bVar2 = false;
+  while (!bVar2) {
+    if ((piVar1 != (int *)0x0) && (*piVar1 = 0, *piVar1 != 0)) {
+      InterlockedIncrement((LONG *)(*piVar1 + 8));
+    }
+    bVar2 = true;
+  }
+  piVar1 = (int *)(*(int *)(param_1 + 4) + iVar3 * 4);
+  if (*piVar1 != *param_2) {
+    if (*piVar1 != 0) {
+      FUN_0044dd60();
+    }
+    *piVar1 = *param_2;
+    if (*piVar1 != 0) {
+      InterlockedIncrement((LONG *)(*piVar1 + 8));
+    }
+  }
+  return iVar3;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00c3d4f0 (IO task queue ownership helper)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00c3c7a7 (in FUN_00c3c700)
+  UNCONDITIONAL_CALL @ 0x00c3c8f2 (in FUN_00c3c7e0)
+  Total: 2 refs
+
+--- Calls FROM IO task queue ownership helper (0x00c3d4f0) ---
+  0x00c3d4fc -> 0x00c3d6c0 FUN_00c3d6c0
+  0x00c3d55d -> 0x00000066 ???
+  0x00c3d5a2 -> 0x0044dd60 FUN_0044dd60
+  0x00c3d5c8 -> 0x00000066 ???
+  Total: 4 calls
+
+======================================================================
+IO task queue cancellation helper @ 0x00c3d5e0
+======================================================================
+  Function: FUN_00c3d5e0 @ 0x00c3d5e0, Size: 216 bytes
+
+/* WARNING: Removing unreachable block (ram,0x00c3d662) */
+
+void __thiscall FUN_00c3d5e0(int param_1,int param_2,uint param_3)
+
+{
+  int iVar1;
+  undefined4 local_34;
+  undefined4 local_10;
+  
+  local_34 = (*(int *)(param_1 + 8) - param_2) - param_3;
+  if (param_3 <= local_34) {
+    local_34 = param_3;
+  }
+  iVar1 = *(int *)(param_1 + 4);
+  for (local_10 = 0; local_10 < param_3; local_10 = local_10 + 1) {
+    if (*(int *)(iVar1 + param_2 * 4 + local_10 * 4) != 0) {
+      FUN_0044dd60();
+    }
+  }
+  FUN_0042fb60(*(int *)(param_1 + 4) + param_2 * 4,
+               *(int *)(param_1 + 4) + *(int *)(param_1 + 8) * 4 + local_34 * -4,local_34);
+  *(uint *)(param_1 + 8) = *(int *)(param_1 + 8) - param_3;
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00c3d5e0 (IO task queue cancellation helper)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00c3cc6b (in FUN_00c3cb70)
+  Total: 1 refs
+
+--- Calls FROM IO task queue cancellation helper (0x00c3d5e0) ---
+  0x00c3d656 -> 0x0044dd60 FUN_0044dd60
+  0x00c3d66b -> 0x00aa4060 FUN_00aa4060
+  0x00c3d69e -> 0x0042fb60 FUN_0042fb60
+  Total: 3 calls
+
+======================================================================
+QueuedCharacter worker process @ 0x00441800
+======================================================================
+  Function: FUN_00441800 @ 0x00441800, Size: 19 bytes
+
+void __fastcall FUN_00441800(undefined4 param_1)
+
+{
+  FUN_00440ba0(param_1);
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00441800 (QueuedCharacter worker process)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00441c3a (in FUN_00441c30)
+  DATA @ 0x01016d28 (in ???)
+  Total: 2 refs
+
+--- Calls FROM QueuedCharacter worker process (0x00441800) ---
+  0x0044180a -> 0x00440ba0 FUN_00440ba0
+  Total: 1 calls
+
+======================================================================
+QueuedCharacter completion or finalizer @ 0x00441820
+======================================================================
+  Function: FUN_00441820 @ 0x00441820, Size: 132 bytes
+
+void __fastcall FUN_00441820(int param_1)
+
+{
+  uint uVar1;
+  int iVar2;
+  int *unaff_FS_OFFSET;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00eec338;
+  local_10 = *unaff_FS_OFFSET;
+  uVar1 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  FUN_00404eb0(*(undefined4 *)(param_1 + 0x18),1,
+               "D:\\_Fallout3\\Platforms\\Common\\Code\\Fallout Shared\\ModelLoader.cpp",0x8ff);
+  local_8 = 0;
+  FUN_00483710(uVar1);
+  iVar2 = FUN_005d8710();
+  if (iVar2 == 0) {
+    FUN_004418b0();
+  }
+  local_8 = 0xffffffff;
+  FUN_00404ee0();
+  *unaff_FS_OFFSET = local_10;
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00441820 (QueuedCharacter completion or finalizer)
+----------------------------------------------------------------------
+  DATA @ 0x01016d2c (in ???)
+  DATA @ 0x01016dbc (in ???)
+  Total: 2 refs
+
+--- Calls FROM QueuedCharacter completion or finalizer (0x00441820) ---
+  0x0044185e -> 0x00404eb0 FUN_00404eb0
+  0x0044186d -> 0x00483710 FUN_00483710
+  0x00441875 -> 0x005d8710 FUN_005d8710
+  0x00441881 -> 0x004418b0 FUN_004418b0
+  0x00441890 -> 0x00404ee0 FUN_00404ee0
+  Total: 5 calls
+
+======================================================================
+QueuedPlayer worker process @ 0x00441c30
+======================================================================
+  Function: FUN_00441c30 @ 0x00441c30, Size: 19 bytes
+
+void __fastcall FUN_00441c30(undefined4 param_1)
+
+{
+  FUN_00441800(param_1);
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00441c30 (QueuedPlayer worker process)
+----------------------------------------------------------------------
+  DATA @ 0x01016db8 (in ???)
+  Total: 1 refs
+
+--- Calls FROM QueuedPlayer worker process (0x00441c30) ---
+  0x00441c3a -> 0x00441800 FUN_00441800
+  Total: 1 calls
+
+======================================================================
+queued-file worker process @ 0x00441e40
+======================================================================
+  Function: FUN_00441e40 @ 0x00441e40, Size: 314 bytes
+
+void __fastcall FUN_00441e40(int param_1)
+
+{
+  uint uVar1;
+  undefined4 uVar2;
+  int iVar3;
+  int iVar4;
+  int *unaff_FS_OFFSET;
+  undefined4 uVar5;
+  undefined4 local_28;
+  int local_10;
+  undefined1 *puStack_c;
+  int local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00eec3a7;
+  local_10 = *unaff_FS_OFFSET;
+  uVar1 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  FUN_00404eb0(*(undefined4 *)(param_1 + 0x18),1,
+               "D:\\_Fallout3\\Platforms\\Common\\Code\\Fallout Shared\\ModelLoader.cpp",0x976);
+  local_8 = 0;
+  uVar2 = FUN_0045cd60(uVar1);
+  uVar2 = FUN_004483a0(uVar2);
+  FUN_0044b220(uVar2);
+  iVar3 = FUN_00559450();
+  if (iVar3 == 0) {
+    uVar5 = 0xffff;
+    uVar2 = FUN_00449050(*(undefined4 *)(param_1 + 0x34),0xffff);
+    iVar3 = FUN_00c3cff0(uVar2,uVar5);
+    if (iVar3 == 0) {
+      uVar2 = FUN_0045cd60();
+      FUN_005b5e40("MODELS: Could not get file for %s.",uVar2);
+    }
+    else {
+      iVar4 = FUN_00aa13e0(0x10);
+      local_8._0_1_ = 1;
+      if (iVar4 == 0) {
+        local_28 = 0;
+      }
+      else {
+        uVar2 = FUN_0045cd60(iVar3);
+        local_28 = FUN_0043baf0(uVar2,iVar3);
+      }
+      local_8 = (uint)local_8._1_3_ << 8;
+      FUN_0044b220(local_28);
+    }
+    local_8 = 0xffffffff;
+    FUN_00404ee0();
+  }
+  else {
+    local_8 = 0xffffffff;
+    FUN_00404ee0();
+  }
+  *unaff_FS_OFFSET = local_10;
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00441e40 (queued-file worker process)
+----------------------------------------------------------------------
+  DATA @ 0x01016dc8 (in ???)
+  DATA @ 0x01016e20 (in ???)
+  Total: 2 refs
+
+--- Calls FROM queued-file worker process (0x00441e40) ---
+  0x00441e7e -> 0x00404eb0 FUN_00404eb0
+  0x00441e8d -> 0x0045cd60 FUN_0045cd60
+  0x00441e99 -> 0x004483a0 FUN_004483a0
+  0x00441ea5 -> 0x0044b220 FUN_0044b220
+  0x00441eb0 -> 0x00559450 FUN_00559450
+  0x00441ec3 -> 0x00404ee0 FUN_00404ee0
+  0x00441ed9 -> 0x00449050 FUN_00449050
+  0x00441ee5 -> 0x00c3cff0 FUN_00c3cff0
+  0x00441ef5 -> 0x00aa13e0 FUN_00aa13e0
+  0x00441f11 -> 0x0045cd60 FUN_0045cd60
+  0x00441f1a -> 0x0043baf0 FUN_0043baf0
+  0x00441f3f -> 0x0044b220 FUN_0044b220
+  0x00441f49 -> 0x0045cd60 FUN_0045cd60
+  0x00441f54 -> 0x005b5e40 FUN_005b5e40
+  0x00441f66 -> 0x00404ee0 FUN_00404ee0
+  Total: 15 calls
+
+======================================================================
+queued-file completion method @ 0x0043daa0
+======================================================================
+  Function: FUN_0043daa0 @ 0x0043daa0, Size: 19 bytes
+
+void __fastcall FUN_0043daa0(undefined4 param_1)
+
+{
+  FUN_0043c610(param_1);
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x0043daa0 (queued-file completion method)
+----------------------------------------------------------------------
+  DATA @ 0x010169dc (in ???)
+  DATA @ 0x01016dcc (in ???)
+  DATA @ 0x01016e24 (in ???)
+  Total: 3 refs
+
+--- Calls FROM queued-file completion method (0x0043daa0) ---
+  0x0043daaa -> 0x0043c610 FUN_0043c610
+  Total: 1 calls
+
+======================================================================
+queued-file completion publication @ 0x00441e10
+======================================================================
+  Function: FUN_00441e10 @ 0x00441e10, Size: 34 bytes
+
+void __fastcall FUN_00441e10(undefined4 param_1)
+
+{
+  (**(code **)(*DAT_01202d98 + 0x48))(param_1);
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00441e10 (queued-file completion publication)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0043e738 (in FUN_0043e690)
+  DATA @ 0x01016a68 (in ???)
+  DATA @ 0x01016ae0 (in ???)
+  DATA @ 0x01016de4 (in ???)
+  DATA @ 0x01016e3c (in ???)
+  Total: 5 refs
+
+--- Calls FROM queued-file completion publication (0x00441e10) ---
+  Total: 0 calls
+
+======================================================================
+generic IO task completion method @ 0x00c3cb70
+======================================================================
+  Function: FUN_00c3cb70 @ 0x00c3cb70, Size: 741 bytes
+
+void __thiscall FUN_00c3cb70(int param_1,int param_2,int param_3)
+
+{
+  uint uVar1;
+  int iVar2;
+  int *piVar3;
+  uint local_10;
+  uint local_8;
+  
+  InterlockedIncrement((LONG *)(param_1 + 8));
+  if (param_3 == 0) {
+    piVar3 = (int *)(param_1 + 0x1c);
+    if (*piVar3 != 0) {
+      if (*piVar3 != 0) {
+        FUN_0044dd60();
+      }
+      *piVar3 = 0;
+      if (*piVar3 != 0) {
+        InterlockedIncrement((LONG *)(*piVar3 + 8));
+      }
+    }
+    if (*(undefined4 **)(param_1 + 0x24) != (undefined4 *)0x0) {
+      (**(code **)**(undefined4 **)(param_1 + 0x24))(1);
+    }
+    *(undefined4 *)(param_1 + 0x24) = 0;
+  }
+  else if (*(int *)(param_1 + 0x1c) == param_3) {
+    piVar3 = (int *)(param_1 + 0x1c);
+    if (*piVar3 != 0) {
+      if (*piVar3 != 0) {
+        FUN_0044dd60();
+      }
+      *piVar3 = 0;
+      if (*piVar3 != 0) {
+        InterlockedIncrement((LONG *)(*piVar3 + 8));
+      }
+    }
+  }
+  else if (*(int *)(param_1 + 0x24) != 0) {
+    for (local_8 = 0; local_8 < *(uint *)(*(int *)(param_1 + 0x24) + 8); local_8 = local_8 + 1) {
+      if (*(int *)(*(int *)(*(int *)(param_1 + 0x24) + 4) + local_8 * 4) == param_3) {
+        FUN_00c3d5e0(local_8,1);
+        break;
+      }
+    }
+    if (*(int *)(*(int *)(param_1 + 0x24) + 8) == 0) {
+      if (*(undefined4 **)(param_1 + 0x24) != (undefined4 *)0x0) {
+        (**(code **)**(undefined4 **)(param_1 + 0x24))(1);
+      }
+      *(undefined4 *)(param_1 + 0x24) = 0;
+    }
+  }
+  if ((*(int *)(param_1 + 0x1c) == 0) && (*(int *)(param_1 + 0x24) == 0)) {
+    if (*(int *)(param_1 + 0x20) != 0) {
+      uVar1 = *(uint *)(*(int *)(param_1 + 0x20) + 8);
+      for (local_10 = 0; local_10 < uVar1; local_10 = local_10 + 1) {
+        iVar2 = *(int *)(*(int *)(*(int *)(param_1 + 0x20) + 4) + local_10 * 4);
+        if (iVar2 != 0) {
+          FUN_0044ac40(iVar2,param_1);
+        }
+      }
+    }
+  }
+  else if (param_2 == 1) {
+    (**(code **)(*DAT_01202d98 + 0x48))(param_1);
+  }
+  else {
+    InterlockedCompareExchange((LONG *)(param_1 + 0xc),param_2,*(LONG *)(param_1 + 0xc));
+  }
+  FUN_0044dd60();
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00c3cb70 (generic IO task completion method)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0043c662 (in FUN_0043c650)
+  UNCONDITIONAL_CALL @ 0x0043dad2 (in FUN_0043dac0)
+  UNCONDITIONAL_CALL @ 0x0043e852 (in FUN_0043e840)
+  UNCONDITIONAL_CALL @ 0x0043ead2 (in FUN_0043eac0)
+  UNCONDITIONAL_CALL @ 0x0043fb22 (in FUN_0043fb10)
+  UNCONDITIONAL_CALL @ 0x00440923 (in FUN_004408f0)
+  UNCONDITIONAL_CALL @ 0x006f71c6 (in FUN_006f71a0)
+  UNCONDITIONAL_CALL @ 0x006f9559 (in FUN_006f9540)
+  UNCONDITIONAL_CALL @ 0x006fbce9 (in FUN_006fbcd0)
+  UNCONDITIONAL_CALL @ 0x00905dd2 (in FUN_00905dc0)
+  DATA @ 0x0101689c (in ???)
+  DATA @ 0x01016a24 (in ???)
+  DATA @ 0x01016a54 (in ???)
+  DATA @ 0x01016acc (in ???)
+  DATA @ 0x01016b10 (in ???)
+  DATA @ 0x01016dd0 (in ???)
+  DATA @ 0x01016e28 (in ???)
+  DATA @ 0x0104f124 (in ???)
+  DATA @ 0x0107cf24 (in ???)
+  DATA @ 0x010ade78 (in ???)
+  DATA @ 0x010c1530 (in ???)
+  DATA @ 0x010c1560 (in ???)
+  Total: 22 refs
+
+--- Calls FROM generic IO task completion method (0x00c3cb70) ---
+  0x00c3cb89 -> 0x00000066 ???
+  0x00c3cbce -> 0x0044dd60 FUN_0044dd60
+  0x00c3cbf3 -> 0x00000066 ???
+  0x00c3cc6b -> 0x00c3d5e0 FUN_00c3d5e0
+  0x00c3ccf4 -> 0x0044dd60 FUN_0044dd60
+  0x00c3cd19 -> 0x00000066 ???
+  0x00c3cdc1 -> 0x00000065 ???
+  0x00c3ce3d -> 0x0044ac40 FUN_0044ac40
+  0x00c3ce4a -> 0x0044dd60 FUN_0044dd60
+  Total: 9 calls
+
+======================================================================
+generic IO task mode method @ 0x00c3d440
+======================================================================
+  Function: FUN_00c3d440 @ 0x00c3d440, Size: 174 bytes
+
+void __fastcall FUN_00c3d440(int *param_1)
+
+{
+  uint uVar1;
+  ulonglong uVar2;
+  ulonglong uVar3;
+  ulonglong uVar4;
+  
+  if (param_1[0xb] == 0) {
+    FUN_0043db70();
+  }
+  else {
+    uVar1 = InterlockedIncrement((LONG *)&lpAddend_01202d9c);
+    __allshr();
+    (**(code **)(*param_1 + 0x2c))();
+    uVar2 = __allshl();
+    uVar3 = __allshl();
+    uVar4 = __allshl();
+    uVar4 = uVar2 | uVar3 | uVar4;
+    param_1[4] = (uint)uVar4 | uVar1 & 0xffff;
+    param_1[5] = (int)(uVar4 >> 0x20);
+  }
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00c3d440 (generic IO task mode method)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0043ca1a (in FUN_0043ca10)
+  DATA @ 0x010167a0 (in ???)
+  DATA @ 0x010169a4 (in ???)
+  DATA @ 0x01016a60 (in ???)
+  DATA @ 0x01016a98 (in ???)
+  DATA @ 0x01016ad8 (in ???)
+  DATA @ 0x01016ddc (in ???)
+  DATA @ 0x01016e34 (in ???)
+  DATA @ 0x0104f130 (in ???)
+  DATA @ 0x0106dc54 (in ???)
+  DATA @ 0x0106dee8 (in ???)
+  DATA @ 0x0106e1f4 (in ???)
+  DATA @ 0x0107cf30 (in ???)
+  DATA @ 0x010885d0 (in ???)
+  DATA @ 0x010a3730 (in ???)
+  DATA @ 0x010ade84 (in ???)
+  DATA @ 0x010c156c (in ???)
+  Total: 17 refs
+
+--- Calls FROM generic IO task mode method (0x00c3d440) ---
+  0x00c3d45d -> 0x00000066 ???
+  0x00c3d472 -> 0x00ec77e0 __allshr
+  0x00c3d4a3 -> 0x00ec7810 __allshl
+  0x00c3d4b3 -> 0x00ec7810 __allshl
+  0x00c3d4c3 -> 0x00ec7810 __allshl
+  0x00c3d4e3 -> 0x0043db70 FUN_0043db70
+  Total: 6 calls
+
+======================================================================
+generic IO task queue method @ 0x00c3cae0
+======================================================================
+  Function: FUN_00c3cae0 @ 0x00c3cae0, Size: 132 bytes
+
+void __thiscall FUN_00c3cae0(int param_1,undefined4 param_2)
+
+{
+  uint uVar1;
+  int *piVar2;
+  undefined4 local_c;
+  
+  if (*(int *)(param_1 + 0x20) != 0) {
+    uVar1 = *(uint *)(*(int *)(param_1 + 0x20) + 8);
+    for (local_c = 0; local_c < uVar1; local_c = local_c + 1) {
+      piVar2 = *(int **)(*(int *)(*(int *)(param_1 + 0x20) + 4) + local_c * 4);
+      if (piVar2 != (int *)0x0) {
+        (**(code **)(*piVar2 + 0x1c))(param_2);
+      }
+    }
+  }
+  FUN_00c3df40(param_1,param_2);
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00c3cae0 (generic IO task queue method)
+----------------------------------------------------------------------
+  DATA @ 0x010167a4 (in ???)
+  DATA @ 0x010168ac (in ???)
+  DATA @ 0x010169a8 (in ???)
+  DATA @ 0x010169f0 (in ???)
+  DATA @ 0x01016a34 (in ???)
+  DATA @ 0x01016a64 (in ???)
+  DATA @ 0x01016a9c (in ???)
+  DATA @ 0x01016adc (in ???)
+  DATA @ 0x01016b20 (in ???)
+  DATA @ 0x01016b68 (in ???)
+  DATA @ 0x01016bc0 (in ???)
+  DATA @ 0x01016c78 (in ???)
+  DATA @ 0x01016cc0 (in ???)
+  DATA @ 0x01016d08 (in ???)
+  DATA @ 0x01016d50 (in ???)
+  DATA @ 0x01016d98 (in ???)
+  DATA @ 0x01016de0 (in ???)
+  DATA @ 0x01016e38 (in ???)
+  DATA @ 0x01016fdc (in ???)
+  DATA @ 0x0104f134 (in ???)
+  DATA @ 0x0106dc58 (in ???)
+  DATA @ 0x0106deec (in ???)
+  DATA @ 0x0106e1f8 (in ???)
+  DATA @ 0x0107cf34 (in ???)
+  DATA @ 0x010885d4 (in ???)
+  DATA @ 0x010a3734 (in ???)
+  DATA @ 0x010ade88 (in ???)
+  DATA @ 0x010c1540 (in ???)
+  DATA @ 0x010c1570 (in ???)
+  Total: 29 refs
+
+--- Calls FROM generic IO task queue method (0x00c3cae0) ---
+  0x00c3cb59 -> 0x00c3df40 FUN_00c3df40
+  Total: 1 calls
+
+======================================================================
+generic IO task fallback publication @ 0x00c3c930
+======================================================================
+  Function: FUN_00c3c930 @ 0x00c3c930, Size: 420 bytes
+
+void __fastcall FUN_00c3c930(int param_1)
+
+{
+  int *piVar1;
+  bool bVar2;
+  uint local_8;
+  
+  if (((*(int *)(param_1 + 0x1c) != 0) || (*(int *)(param_1 + 0x24) != 0)) &&
+     (3 < *(int *)(param_1 + 0xc))) {
+    if (*(int *)(param_1 + 0x20) == 0) {
+      bVar2 = true;
+    }
+    else {
+      bVar2 = *(int *)(*(int *)(param_1 + 0x20) + 8) == *(int *)(*(int *)(param_1 + 0x20) + 0x10);
+    }
+    if (bVar2) {
+      InterlockedIncrement((LONG *)(param_1 + 8));
+      if (*(int *)(param_1 + 0x1c) != 0) {
+        (**(code **)(**(int **)(param_1 + 0x1c) + 0x24))(param_1);
+        piVar1 = (int *)(param_1 + 0x1c);
+        if (*piVar1 != 0) {
+          if (*piVar1 != 0) {
+            FUN_0044dd60();
+          }
+          *piVar1 = 0;
+          if (*piVar1 != 0) {
+            InterlockedIncrement((LONG *)(*piVar1 + 8));
+          }
+        }
+      }
+      if (*(int *)(param_1 + 0x24) != 0) {
+        for (local_8 = 0; local_8 < *(uint *)(*(int *)(param_1 + 0x24) + 8); local_8 = local_8 + 1)
+        {
+          (**(code **)(**(int **)(*(int *)(*(int *)(param_1 + 0x24) + 4) + local_8 * 4) + 0x24))
+                    (param_1);
+        }
+        if (*(undefined4 **)(param_1 + 0x24) != (undefined4 *)0x0) {
+          (**(code **)**(undefined4 **)(param_1 + 0x24))(1);
+        }
+        *(undefined4 *)(param_1 + 0x24) = 0;
+      }
+      FUN_0044dd60();
+    }
+  }
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00c3c930 (generic IO task fallback publication)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0043ca49 (in FUN_0043ca30)
+  UNCONDITIONAL_CALL @ 0x0043ca8a (in FUN_0043ca30)
+  UNCONDITIONAL_CALL @ 0x0043eca0 (in FUN_0043ec60)
+  UNCONDITIONAL_CALL @ 0x0043f336 (in FUN_0043f2f0)
+  UNCONDITIONAL_CALL @ 0x0043f813 (in FUN_0043f2f0)
+  UNCONDITIONAL_CALL @ 0x00446a4a (in FUN_00446a40)
+  UNCONDITIONAL_CALL @ 0x006f718c (in FUN_006f7140)
+  UNCONDITIONAL_CALL @ 0x006f952c (in FUN_006f94e0)
+  DATA @ 0x010167b0 (in ???)
+  DATA @ 0x010169b4 (in ???)
+  DATA @ 0x01016a70 (in ???)
+  DATA @ 0x01016ae8 (in ???)
+  DATA @ 0x01016dec (in ???)
+  DATA @ 0x01016e44 (in ???)
+  DATA @ 0x0104f140 (in ???)
+  DATA @ 0x0107cf40 (in ???)
+  DATA @ 0x010885e0 (in ???)
+  DATA @ 0x010a3740 (in ???)
+  DATA @ 0x010ade94 (in ???)
+  DATA @ 0x010c154c (in ???)
+  DATA @ 0x010c157c (in ???)
+  Total: 21 refs
+
+--- Calls FROM generic IO task fallback publication (0x00c3c930) ---
+  0x00c3c9b1 -> 0x00000066 ???
+  0x00c3ca04 -> 0x0044dd60 FUN_0044dd60
+  0x00c3ca29 -> 0x00000066 ???
+  0x00c3cacb -> 0x0044dd60 FUN_0044dd60
+  Total: 4 calls
+
+======================================================================
+IO task base constructor @ 0x00c3c620
+======================================================================
+  Function: FUN_00c3c620 @ 0x00c3c620, Size: 223 bytes
+
+void __fastcall FUN_00c3c620(undefined4 *param_1)
+
+{
+  uint uVar1;
+  undefined4 uVar2;
+  undefined4 uVar3;
+  int *unaff_FS_OFFSET;
+  int local_10;
+  undefined1 *puStack_c;
+  uint local_8;
+  
+  puStack_c = &LAB_00f2dcb3;
+  local_10 = *unaff_FS_OFFSET;
+  uVar1 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  *param_1 = &PTR_FUN_010c1524;
+  local_8 = 1;
+  if ((undefined4 *)param_1[8] == (undefined4 *)0x0) {
+    uVar2 = 0;
+  }
+  else {
+    uVar2 = (*(code *)**(undefined4 **)param_1[8])(1,uVar1);
+  }
+  if ((undefined4 *)param_1[9] == (undefined4 *)0x0) {
+    uVar3 = 0;
+  }
+  else {
+    uVar3 = (*(code *)**(undefined4 **)param_1[9])(1);
+  }
+  local_8 = local_8 & 0xffffff00;
+  if (param_1[7] != 0) {
+    FUN_0044dd60(uVar1,uVar3,uVar2);
+  }
+  local_8 = 0xffffffff;
+  *param_1 = &PTR_FUN_01017138;
+  InterlockedDecrement((LONG *)&lpAddend_01202d94);
+  *unaff_FS_OFFSET = local_10;
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00c3c620 (IO task base constructor)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00c3cecc (in FUN_00c3cea0)
+  UNCONDITIONAL_CALL @ 0x0043ec01 (in FUN_0043ebb0)
+  UNCONDITIONAL_CALL @ 0x0043dc5a (in FUN_0043dc50)
+  UNCONDITIONAL_CALL @ 0x0043f100 (in FUN_0043f080)
+  UNCONDITIONAL_CALL @ 0x0043feaf (in ~CBitmapButton)
+  UNCONDITIONAL_CALL @ 0x00c3d3ea (in FUN_00c3d3e0)
+  Total: 6 refs
+
+--- Calls FROM IO task base constructor (0x00c3c620) ---
+  0x00c3c6d0 -> 0x0044dd60 FUN_0044dd60
+  0x00c3c6ea -> 0x00000067 ???
+  Total: 2 calls
+
+======================================================================
+IO task base copy or cancellation @ 0x00c3c700
+======================================================================
+  Function: FUN_00c3c700 @ 0x00c3c700, Size: 210 bytes
+
+void __thiscall FUN_00c3c700(int param_1,int param_2)
+
+{
+  uint uVar1;
+  int *unaff_FS_OFFSET;
+  undefined4 local_60;
+  int local_1c;
+  int local_18;
+  undefined4 local_14;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00f2dce1;
+  local_10 = *unaff_FS_OFFSET;
+  uVar1 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  if (*(int *)(param_1 + 0x20) == 0) {
+    local_18 = FUN_00aa3e40(0x14);
+    local_8 = 0;
+    if (local_18 == 0) {
+      local_60 = 0;
+    }
+    else {
+      local_60 = FUN_00c3c4e0();
+    }
+    local_14 = local_60;
+    *(undefined4 *)(param_1 + 0x20) = local_60;
+  }
+  local_8 = 0xffffffff;
+  local_1c = param_2;
+  if (param_2 != 0) {
+    InterlockedIncrement((LONG *)(param_2 + 8));
+  }
+  local_8 = 1;
+  FUN_00c3d4f0(&local_1c);
+  local_8 = 0xffffffff;
+  if (local_1c != 0) {
+    FUN_0044dd60(uVar1);
+  }
+  *unaff_FS_OFFSET = local_10;
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00c3c700 (IO task base copy or cancellation)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00443ad6 (in FUN_00443aa0)
+  UNCONDITIONAL_CALL @ 0x00c3c913 (in FUN_00c3c7e0)
+  Total: 2 refs
+
+--- Calls FROM IO task base copy or cancellation (0x00c3c700) ---
+  0x00c3c738 -> 0x00aa3e40 FUN_00aa3e40
+  0x00c3c750 -> 0x00c3c4e0 FUN_00c3c4e0
+  0x00c3c790 -> 0x00000066 ???
+  0x00c3c7a7 -> 0x00c3d4f0 FUN_00c3d4f0
+  0x00c3c7bc -> 0x0044dd60 FUN_0044dd60
+  Total: 5 calls
+
+======================================================================
+IO task base state owner @ 0x00c3c7e0
+======================================================================
+  Function: FUN_00c3c7e0 @ 0x00c3c7e0, Size: 329 bytes
+
+void __thiscall FUN_00c3c7e0(int param_1,int param_2)
+
+{
+  int iVar1;
+  uint uVar2;
+  int *unaff_FS_OFFSET;
+  undefined4 local_70;
+  uint local_28;
+  uint local_20;
+  int local_1c;
+  int local_18;
+  undefined4 local_14;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00f2dd0f;
+  local_10 = *unaff_FS_OFFSET;
+  uVar2 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  if (*(int *)(param_1 + 0x24) == 0) {
+    local_18 = FUN_00aa3e40(0x10);
+    local_8 = 0;
+    if (local_18 == 0) {
+      local_70 = 0;
+    }
+    else {
+      local_70 = FUN_00c3c540();
+    }
+    local_14 = local_70;
+    *(undefined4 *)(param_1 + 0x24) = local_70;
+  }
+  else {
+    iVar1 = *(int *)(param_1 + 0x24);
+    for (local_20 = 0; local_20 < *(uint *)(iVar1 + 8); local_20 = local_20 + 1) {
+      if ((*(int *)(iVar1 + 4) != 0) && (*(int *)(*(int *)(iVar1 + 4) + local_20 * 4) == param_2)) {
+        local_28 = local_20;
+        goto LAB_00c3c8b4;
+      }
+    }
+    local_28 = 0xffffffff;
+LAB_00c3c8b4:
+    if (local_28 != 0xffffffff) goto LAB_00c3c918;
+  }
+  local_8 = 0xffffffff;
+  local_1c = param_2;
+  if (param_2 != 0) {
+    InterlockedIncrement((LONG *)(param_2 + 8));
+  }
+  local_8 = 1;
+  FUN_00c3d4f0(&local_1c);
+  local_8 = 0xffffffff;
+  if (local_1c != 0) {
+    FUN_0044dd60(uVar2);
+  }
+  FUN_00c3c700(param_1);
+LAB_00c3c918:
+  *unaff_FS_OFFSET = local_10;
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00c3c7e0 (IO task base state owner)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0044361a (in FUN_00443540)
+  Total: 1 refs
+
+--- Calls FROM IO task base state owner (0x00c3c7e0) ---
+  0x00c3c818 -> 0x00aa3e40 FUN_00aa3e40
+  0x00c3c830 -> 0x00c3c540 FUN_00c3c540
+  0x00c3c8db -> 0x00000066 ???
+  0x00c3c8f2 -> 0x00c3d4f0 FUN_00c3d4f0
+  0x00c3c907 -> 0x0044dd60 FUN_0044dd60
+  0x00c3c913 -> 0x00c3c700 FUN_00c3c700
+  Total: 6 calls
+
+======================================================================
+manager queue transition and release @ 0x00c3ea60
+======================================================================
+  Function: FUN_00c3ea60 @ 0x00c3ea60, Size: 538 bytes
+
+undefined4 __thiscall FUN_00c3ea60(int *param_1,int *param_2)
+
+{
+  int *Comperand;
+  int Exchange;
+  int *piVar1;
+  
+  do {
+    while( true ) {
+      do {
+        do {
+          Comperand = *(int **)(*param_1 + 4);
+          *(int **)param_1[1] = Comperand;
+        } while (Comperand != *(int **)(*param_1 + 4));
+        piVar1 = *(int **)(*param_1 + 8);
+        Exchange = *Comperand;
+        *(int *)param_1[2] = Exchange;
+      } while (Comperand != *(int **)(*param_1 + 4));
+      if (Exchange == 0) {
+        *(undefined4 *)param_1[1] = 0;
+        if (*param_2 != 0) {
+          if (*param_2 != 0) {
+            FUN_0044dd60();
+          }
+          *param_2 = 0;
+          if (*param_2 != 0) {
+            InterlockedIncrement((LONG *)(*param_2 + 8));
+          }
+        }
+        return 0;
+      }
+      if (Comperand != piVar1) break;
+      InterlockedCompareExchange((LONG *)(*param_1 + 8),Exchange,(LONG)piVar1);
+    }
+    if (*param_2 != *(int *)(Exchange + 4)) {
+      if (*param_2 != 0) {
+        FUN_0044dd60();
+      }
+      *param_2 = *(int *)(Exchange + 4);
+      if (*param_2 != 0) {
+        InterlockedIncrement((LONG *)(*param_2 + 8));
+      }
+    }
+    piVar1 = (int *)InterlockedCompareExchange((LONG *)(*param_1 + 4),Exchange,(LONG)Comperand);
+  } while (piVar1 != Comperand);
+  (**(code **)(*(int *)*param_1 + 0xc))();
+  piVar1 = (int *)(Exchange + 4);
+  if (*piVar1 != 0) {
+    if (*piVar1 != 0) {
+      FUN_0044dd60();
+    }
+    *piVar1 = 0;
+    if (*piVar1 != 0) {
+      InterlockedIncrement((LONG *)(*piVar1 + 8));
+    }
+  }
+  *(undefined4 *)param_1[1] = 0;
+  *(undefined4 *)param_1[2] = 0;
+  FUN_00c3f090(Comperand);
+  return 1;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00c3ea60 (manager queue transition and release)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00c3e4b4 (in FUN_00c3e490)
+  Total: 1 refs
+
+--- Calls FROM manager queue transition and release (0x00c3ea60) ---
+  0x00c3eaf6 -> 0x0044dd60 FUN_0044dd60
+  0x00c3eb1b -> 0x00000066 ???
+  0x00c3eb4d -> 0x00000065 ???
+  0x00c3eb85 -> 0x0044dd60 FUN_0044dd60
+  0x00c3ebab -> 0x00000066 ???
+  0x00c3ebd4 -> 0x00000065 ???
+  0x00c3ec1c -> 0x0044dd60 FUN_0044dd60
+  0x00c3ec41 -> 0x00000066 ???
+  0x00c3ec6d -> 0x00c3f090 FUN_00c3f090
+  Total: 9 calls
+
+======================================================================
+POINTER TABLE: IOManager vtable @ 0x010c1604
+======================================================================
+  [00] +0x00 -> 0x00c3e3f0 FUN_00c3e3f0
+  [01] +0x04 -> 0x00c3f530 FUN_00c3f530
+  [02] +0x08 -> 0x00c3f160 FUN_00c3f160
+  [03] +0x0c -> 0x00c3f430 FUN_00c3f430
+  [04] +0x10 -> 0x00c3f1f0 FUN_00c3f1f0
+  [05] +0x14 -> 0x00c3f2b0 FUN_00c3f2b0
+  [06] +0x18 -> 0x00c3f360 FUN_00c3f360
+  [07] +0x1c -> 0x00c3f960 FUN_00c3f960
+  [08] +0x20 -> 0x00c3f4c0 FUN_00c3f4c0
+  [09] +0x24 -> 0x00c3e3a0 FUN_00c3e3a0
+  [10] +0x28 -> 0x008d0600 FUN_008d0600
+  [11] +0x2c -> 0x00c3f670 FUN_00c3f670
+  [12] +0x30 -> 0x00c3f690 FUN_00c3f690
+  [13] +0x34 -> 0x00c3f6b0 FUN_00c3f6b0
+  [14] +0x38 -> 0x0084b950 FUN_0084b950
+  [15] +0x3c -> 0x00c3f6f0 FUN_00c3f6f0
+  [16] +0x40 -> 0x00c3f8a0 FUN_00c3f8a0
+  [17] +0x44 -> 0x009611e0 FUN_009611e0
+  [18] +0x48 -> 0x00c3de80 FUN_00c3de80
+  [19] +0x4c -> 0x00c3fc80 FUN_00c3fc80
+  [20] +0x50 -> 0x00c3fca0 FUN_00c3fca0
+  [21] +0x54 -> 0x00c3e380 FUN_00c3e380
+  [22] +0x58 -> 0x008d0560 FUN_008d0560
+  [23] +0x5c -> 0x0112b4f4 ???
+  [24] +0x60 -> 0x00c40b40 FUN_00c40b40
+  [25] +0x64 -> 0x00c40b20 FUN_00c40b20
+  [26] +0x68 -> 0x0112b4ac ???
+  [27] +0x6c -> 0x00c40b40 FUN_00c40b40
+
+======================================================================
+POINTER TABLE: BSTaskManager vtable @ 0x010c167c
+======================================================================
+  [00] +0x00 -> 0x00c40960 FUN_00c40960
+  [01] +0x04 -> 0x00c3f530 FUN_00c3f530
+  [02] +0x08 -> 0x00c3f160 FUN_00c3f160
+  [03] +0x0c -> 0x00c3f430 FUN_00c3f430
+  [04] +0x10 -> 0x00c3f1f0 FUN_00c3f1f0
+  [05] +0x14 -> 0x00c3f2b0 FUN_00c3f2b0
+  [06] +0x18 -> 0x00c3f360 FUN_00c3f360
+  [07] +0x1c -> 0x00c3f960 FUN_00c3f960
+  [08] +0x20 -> 0x00c3f4c0 FUN_00c3f4c0
+  [09] +0x24 -> 0x00c3f650 FUN_00c3f650
+  [10] +0x28 -> 0x008d0600 FUN_008d0600
+  [11] +0x2c -> 0x00c3f670 FUN_00c3f670
+  [12] +0x30 -> 0x00c3f690 FUN_00c3f690
+  [13] +0x34 -> 0x00c3f6b0 FUN_00c3f6b0
+  [14] +0x38 -> 0x0084b950 FUN_0084b950
+  [15] +0x3c -> 0x00c3f6f0 FUN_00c3f6f0
+  [16] +0x40 -> 0x00c3f8a0 FUN_00c3f8a0
+  [17] +0x44 -> 0x009611e0 FUN_009611e0
+  [18] +0x48 -> 0x00c3fb50 FUN_00c3fb50
+  [19] +0x4c -> 0x00c3fc80 FUN_00c3fc80
+  [20] +0x50 -> 0x00c3fca0 FUN_00c3fca0
+  [21] +0x54 -> 0x00c3fce0 FUN_00c3fce0
+  [22] +0x58 -> 0x008d0560 FUN_008d0560
+  [23] +0x5c -> 0x0112b554 ???
+  [24] +0x60 -> 0x00c409b0 FUN_00c409b0
+  [25] +0x64 -> 0x00c3f710 FUN_00c3f710
+  [26] +0x68 -> 0x00c3f730 FUN_00c3f730
+  [27] +0x6c -> 0x0084e3a0 FUN_0084e3a0
+
+======================================================================
+POINTER TABLE: QueuedCharacter vtable @ 0x01016cec
+======================================================================
+  [00] +0x00 -> 0x004414c0 FUN_004414c0
+  [01] +0x04 -> 0x00483710 FUN_00483710
+  [02] +0x08 -> 0x0043c610 FUN_0043c610
+  [03] +0x0c -> 0x004408f0 FUN_004408f0
+  [04] +0x10 -> 0x00440dc0 FUN_00440dc0
+  [05] +0x14 -> 0x0043fdf0 FUN_0043fdf0
+  [06] +0x18 -> 0x0043db70 FUN_0043db70
+  [07] +0x1c -> 0x00c3cae0 FUN_00c3cae0
+  [08] +0x20 -> 0x00441200 FUN_00441200
+  [09] +0x24 -> 0x0043bde0 FUN_0043bde0
+  [10] +0x28 -> 0x00440780 FUN_00440780
+  [11] +0x2c -> 0x00441560 FUN_00441560
+
+======================================================================
+POINTER TABLE: QueuedPlayer vtable @ 0x01016d7c
+======================================================================
+  [00] +0x00 -> 0x00441b50 FUN_00441b50
+  [01] +0x04 -> 0x00483710 FUN_00483710
+  [02] +0x08 -> 0x0043c610 FUN_0043c610
+  [03] +0x0c -> 0x004408f0 FUN_004408f0
+  [04] +0x10 -> 0x00440dc0 FUN_00440dc0
+  [05] +0x14 -> 0x0043fdf0 FUN_0043fdf0
+  [06] +0x18 -> 0x0043db70 FUN_0043db70
+  [07] +0x1c -> 0x00c3cae0 FUN_00c3cae0
+  [08] +0x20 -> 0x00441200 FUN_00441200
+  [09] +0x24 -> 0x0043bde0 FUN_0043bde0
+  [10] +0x28 -> 0x00440780 FUN_00440780
+  [11] +0x2c -> 0x00441ba0 FUN_00441ba0
+
+======================================================================
+POINTER TABLE: queued-file vtable A @ 0x01016dc4
+======================================================================
+  [00] +0x00 -> 0x00441cf0 FUN_00441cf0
+  [01] +0x04 -> 0x00441e40 FUN_00441e40
+  [02] +0x08 -> 0x0043daa0 FUN_0043daa0
+  [03] +0x0c -> 0x00c3cb70 FUN_00c3cb70
+  [04] +0x10 -> 0x008d0300 FUN_008d0300
+  [05] +0x14 -> 0x00483710 FUN_00483710
+  [06] +0x18 -> 0x00c3d440 FUN_00c3d440
+  [07] +0x1c -> 0x00c3cae0 FUN_00c3cae0
+  [08] +0x20 -> 0x00441e10 FUN_00441e10
+  [09] +0x24 -> 0x0043bde0 FUN_0043bde0
+  [10] +0x28 -> 0x00c3c930 FUN_00c3c930
+  [11] +0x2c -> 0x00712380 FUN_00712380
+
+======================================================================
+POINTER TABLE: queued-file vtable B @ 0x01016e1c
+======================================================================
+  [00] +0x00 -> 0x00442010 FUN_00442010
+  [01] +0x04 -> 0x00441e40 FUN_00441e40
+  [02] +0x08 -> 0x0043daa0 FUN_0043daa0
+  [03] +0x0c -> 0x00c3cb70 FUN_00c3cb70
+  [04] +0x10 -> 0x008d0300 FUN_008d0300
+  [05] +0x14 -> 0x00483710 FUN_00483710
+  [06] +0x18 -> 0x00c3d440 FUN_00c3d440
+  [07] +0x1c -> 0x00c3cae0 FUN_00c3cae0
+  [08] +0x20 -> 0x00441e10 FUN_00441e10
+  [09] +0x24 -> 0x0043bde0 FUN_0043bde0
+  [10] +0x28 -> 0x00c3c930 FUN_00c3c930
+  [11] +0x2c -> 0x00712380 FUN_00712380
+
+----------------------------------------------------------------------
+References TO 0x00c3fb50 (accepted-task enqueue)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00c3deef (in FUN_00c3de80)
+  DATA @ 0x010c16c4 (in ???)
+  Total: 2 refs
+
+----------------------------------------------------------------------
+References TO 0x00c3de80 (completion accounting override)
+----------------------------------------------------------------------
+  DATA @ 0x010c164c (in ???)
+  Total: 1 refs
+
+----------------------------------------------------------------------
+References TO 0x00c3fc80 (worker process dispatch)
+----------------------------------------------------------------------
+  DATA @ 0x010c1650 (in ???)
+  DATA @ 0x010c16c8 (in ???)
+  Total: 2 refs
+
+----------------------------------------------------------------------
+References TO 0x00c3fca0 (worker finalization dispatch)
+----------------------------------------------------------------------
+  DATA @ 0x010c1654 (in ???)
+  DATA @ 0x010c16cc (in ???)
+  Total: 2 refs

@@ -54,8 +54,11 @@ unsafe extern "thiscall" fn hook_top_level_load(
         return 0;
     };
 
+    diagnostics::begin_load();
     let succeeded = unsafe { original(this, path, load_context, save_history, allow_missing) };
+    diagnostics::mark_load_site(diagnostics::LoadSite::TopLoadOriginalExit);
     if succeeded == 0 {
+        diagnostics::finish_load();
         return succeeded;
     }
 
@@ -65,7 +68,9 @@ unsafe extern "thiscall" fn hook_top_level_load(
     let reconcile =
         unsafe { FnPtr::<ProcessReconcileFn>::from_address_unchecked(PROCESS_RECONCILE_ADDR) }
             .as_fn();
+    diagnostics::mark_load_site(diagnostics::LoadSite::PostLoadPrepassEnter);
     unsafe { reconcile(process_context) };
+    diagnostics::mark_load_site(diagnostics::LoadSite::PostLoadPrepassExit);
 
     let count = PREPASSES.fetch_add(1, Ordering::Relaxed) + 1;
     if let Some(elapsed_us) = timer.elapsed_us() {
@@ -80,5 +85,6 @@ unsafe extern "thiscall" fn hook_top_level_load(
         }
     }
 
+    diagnostics::finish_load();
     succeeded
 }

@@ -932,10 +932,16 @@ unsafe extern "thiscall" fn hook_load_owner(owner: *mut c_void, file: *mut c_voi
         return unsafe { original(owner, file, mode) };
     }
 
+    crate::mods::diagnostics::mark_load_site(
+        crate::mods::diagnostics::LoadSite::ChangedFormOwnerEnter,
+    );
     LOAD_REJECTED.store(false, Ordering::Release);
     LOAD_ERROR_WAS_SET.store(load_error_is_set(owner), Ordering::Release);
     let unresolved_before = UNRESOLVED_RECORDS.load(Ordering::Relaxed);
     let result = unsafe { original(owner, file, mode) };
+    crate::mods::diagnostics::mark_load_site(
+        crate::mods::diagnostics::LoadSite::ChangedFormOwnerExit,
+    );
 
     let rejected = LOAD_REJECTED.swap(false, Ordering::AcqRel);
     if rejected {

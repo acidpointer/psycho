@@ -258,7 +258,9 @@ unsafe fn process_cleanup_for_slot(index: usize, process: *mut c_void, removed_r
         return;
     };
     let original = original.as_fn();
+    diagnostics::mark_load_site(diagnostics::LoadSite::LowProcessPredecessorEnter);
     unsafe { original(process, removed_ref) };
+    diagnostics::mark_load_site(diagnostics::LoadSite::LowProcessPredecessorExit);
 }
 
 fn wrapper_for_slot(index: usize) -> usize {

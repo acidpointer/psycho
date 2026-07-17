@@ -3,9 +3,14 @@
 //! This does not change game behavior. Hot hooks only write atomics; the
 //! watchdog thread turns stale heartbeats into diagnostics.
 
-use std::sync::atomic::{AtomicU32, AtomicU64, AtomicUsize, Ordering};
+use std::{
+    mem::size_of,
+    sync::atomic::{AtomicU32, AtomicU64, AtomicUsize, Ordering},
+};
 
-use crate::mods::engine_fixes;
+use crate::mods::{diagnostics, engine_fixes};
+use libc::c_void;
+use libpsycho::os::windows::winapi::is_readable_ptr;
 
 use super::engine::globals::{self, PddQueue};
 use super::game_guard;
@@ -50,6 +55,24 @@ static AI_JOIN_CALLS: AtomicU64 = AtomicU64::new(0);
 static HAVOK_LOCK_CALLS: AtomicU64 = AtomicU64::new(0);
 static HAVOK_UNLOCK_CALLS: AtomicU64 = AtomicU64::new(0);
 static LAST_STALE_REPORT_MS: AtomicU32 = AtomicU32::new(0);
+
+const IO_MANAGER_PTR_ADDR: usize = 0x01202D98;
+const IO_DRAIN_COMPLETE_ADDR: usize = 0x011AF70C;
+const IO_COMPLETION_ACTIVE_ADDR: usize = 0x01202DD8;
+
+struct ModelLoaderSnapshot {
+    manager: usize,
+    state: u32,
+    active: u32,
+    accepted_total: u32,
+    counts: [u32; 24],
+    completed_queues: usize,
+    external_count: usize,
+    completion_gate: usize,
+    progress_callback: usize,
+    drain_complete: u8,
+    completion_active: u8,
+}
 
 #[inline]
 pub fn mark_main(site: Site) {
@@ -155,6 +178,7 @@ pub fn log_if_main_stale() {
         now.wrapping_sub(event_tick)
     };
     let display = engine_fixes::display_diagnostic_snapshot();
+    let load = diagnostics::load_snapshot();
     let display_age = if display.last_transition_ms != 0 {
         now.wrapping_sub(display.last_transition_ms)
     } else {
@@ -162,7 +186,7 @@ pub fn log_if_main_stale() {
     };
 
     log::warn!(
-        "[HANG] main-loop heartbeat stale: age={}ms main_site={} main_seq={} main_tid={} event_site={} event_age={}ms event_tid={} phase7={} phase10={} ai_start={} ai_join={} hk_lock={} hk_unlock={} ai_active={} havok_active={} loading={} heap_trigger={} pddq={}/{}/{}/{}/{} display=create:{}/{}/{}/{} setpos:{} sites:{}/{}/{}/{}/{}/{} windowed:{} reset:{}/{} catchup:{}/{}/{} loss:{} regain:{} lifecycle:{} mismatches:{} failures:{} last_age:{}ms last_ok:{} last_error:{}",
+        "[HANG] main-loop heartbeat stale: age={}ms main_site={} main_seq={} main_tid={} event_site={} event_age={}ms event_tid={} phase7={} phase10={} load_seq={} load_depth={} load_site={} load_tid={} ai_start={} ai_join={} hk_lock={} hk_unlock={} ai_active={} havok_active={} loading={} heap_trigger={} pddq={}/{}/{}/{}/{} display=create:{}/{}/{}/{} setpos:{} sites:{}/{}/{}/{}/{}/{} windowed:{} reset:{}/{} catchup:{}/{}/{} loss:{} regain:{} lifecycle:{} mismatches:{} failures:{} last_age:{}ms last_ok:{} last_error:{}",
         main_age,
         site_name(LAST_MAIN_SITE.load(Ordering::Acquire)),
         MAIN_HEARTBEATS.load(Ordering::Relaxed),
@@ -172,6 +196,10 @@ pub fn log_if_main_stale() {
         LAST_EVENT_THREAD_ID.load(Ordering::Acquire),
         PHASE7_FRAMES.load(Ordering::Relaxed),
         PHASE10_FRAMES.load(Ordering::Relaxed),
+        load.sequence,
+        load.depth,
+        load.site,
+        load.thread_id,
         AI_START_CALLS.load(Ordering::Relaxed),
         AI_JOIN_CALLS.load(Ordering::Relaxed),
         HAVOK_LOCK_CALLS.load(Ordering::Relaxed),
@@ -211,6 +239,56 @@ pub fn log_if_main_stale() {
         display.last_result,
         display.last_error,
     );
+
+    if load.depth != 0
+        && let Some(model) = model_loader_snapshot()
+    {
+        log::warn!(
+            "[HANG_LOAD] manager=0x{:08X} state={} active={} accepted_total={} counts={:?} completed_queues=0x{:08X} external_count=0x{:08X} completion_gate=0x{:08X} progress=0x{:08X} drain_complete={} completion_active={}",
+            model.manager,
+            model.state,
+            model.active,
+            model.accepted_total,
+            model.counts,
+            model.completed_queues,
+            model.external_count,
+            model.completion_gate,
+            model.progress_callback,
+            model.drain_complete,
+            model.completion_active,
+        );
+    }
+}
+
+fn model_loader_snapshot() -> Option<ModelLoaderSnapshot> {
+    let manager = unsafe { (IO_MANAGER_PTR_ADDR as *const usize).read_volatile() };
+    if !unsafe { is_readable_ptr(manager as *const c_void, 0x84) } {
+        return None;
+    }
+
+    let counts_ptr = unsafe { ((manager + 0x54) as *const usize).read_volatile() };
+    if !unsafe { is_readable_ptr(counts_ptr as *const c_void, 24 * size_of::<u32>()) } {
+        return None;
+    }
+
+    let mut counts = [0; 24];
+    for (index, value) in counts.iter_mut().enumerate() {
+        *value = unsafe { ((counts_ptr + index * size_of::<u32>()) as *const u32).read_volatile() };
+    }
+
+    Some(ModelLoaderSnapshot {
+        manager,
+        active: unsafe { ((manager + 0x18) as *const u32).read_volatile() },
+        accepted_total: unsafe { ((manager + 0x58) as *const u32).read_volatile() },
+        completed_queues: unsafe { ((manager + 0x64) as *const usize).read_volatile() },
+        state: unsafe { ((manager + 0x68) as *const u32).read_volatile() },
+        external_count: unsafe { ((manager + 0x6C) as *const usize).read_volatile() },
+        completion_gate: unsafe { ((manager + 0x74) as *const usize).read_volatile() },
+        progress_callback: unsafe { ((manager + 0x78) as *const usize).read_volatile() },
+        drain_complete: unsafe { (IO_DRAIN_COMPLETE_ADDR as *const u8).read_volatile() },
+        completion_active: unsafe { (IO_COMPLETION_ACTIVE_ADDR as *const u8).read_volatile() },
+        counts,
+    })
 }
 
 #[inline]
