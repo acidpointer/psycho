@@ -26,12 +26,19 @@ const DEPTH_REDUCE_SHADER: &[u8] =
 const INTEGRATE_SHADER: &[u8] = include_bytes!("../../shaders/embedded/atmosphere_integrate.hlsl");
 const COMPOSE_SHADER: &[u8] = include_bytes!("../../shaders/embedded/atmosphere_compose.hlsl");
 const DEBUG_SHADER: &[u8] = include_bytes!("../../shaders/embedded/atmosphere_debug.hlsl");
+const SHAFT_MASK_SHADER: &[u8] =
+    include_bytes!("../../shaders/embedded/atmosphere_shaft_mask.hlsl");
+const SHAFT_RADIAL_SHADER: &[u8] =
+    include_bytes!("../../shaders/embedded/atmosphere_shaft_radial.hlsl");
 const DENSITY_NOISE_SIZE: u32 = 64;
 const DENSITY_NOISE_SEED: u32 = 0xA7F4_31D9;
+const LIGHTING_DEBUG_BASE: i32 = 8;
+const SHAFT_TARGET_SCALE: u32 = 4;
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct AtmosphereSettings {
     fog_enabled: bool,
+    lighting_enabled: bool,
     density: f32,
     height_density: f32,
     height_falloff: f32,
@@ -44,6 +51,12 @@ pub(crate) struct AtmosphereSettings {
     temporal_stability: f32,
     debug_view: i32,
     quality: AtmosphereQuality,
+    lighting_intensity: f32,
+    lighting_medium_density: f32,
+    anisotropy: f32,
+    shaft_strength: f32,
+    sun_disk_boost: f32,
+    shaft_quality: AtmosphereQuality,
 }
 
 impl AtmosphereSettings {
@@ -53,22 +66,33 @@ impl AtmosphereSettings {
     ) -> Self {
         Self {
             fog_enabled: fog.enabled,
+            lighting_enabled: lighting.enabled,
             density: finite(fog.density, 0.0).clamp(0.0, 0.001),
             height_density: finite(fog.height_density, 0.000002).clamp(0.0, 0.001),
             height_falloff: finite(fog.height_falloff, 0.0001).clamp(0.000001, 0.01),
             base_height: finite(fog.base_height, 0.0).clamp(-100_000.0, 100_000.0),
-            max_distance: finite(fog.max_distance, 120_000.0).clamp(1_000.0, 250_000.0),
+            max_distance: if fog.enabled {
+                finite(fog.max_distance, 120_000.0).clamp(1_000.0, 250_000.0)
+            } else {
+                finite(lighting.max_distance, 120_000.0).clamp(1_000.0, 250_000.0)
+            },
             scattering_albedo: finite(fog.scattering_albedo, 0.9).clamp(0.0, 1.0),
             noise_amount: finite(fog.noise_amount, 0.25).clamp(0.0, 1.0),
             noise_scale: finite(fog.noise_scale, 0.0005).clamp(0.000001, 0.05),
             noise_speed: finite(fog.noise_speed, 0.02).clamp(0.0, 1.0),
             temporal_stability: finite(fog.temporal_stability, 0.9).clamp(0.0, 0.98),
-            debug_view: fog.debug_view.max(lighting.debug_view).clamp(0, 8),
+            debug_view: selected_debug_view(fog.debug_view, lighting.debug_view),
             quality: if fog.enabled {
                 fog.quality
             } else {
                 lighting.shaft_quality
             },
+            lighting_intensity: finite(lighting.intensity, 1.0).clamp(0.0, 8.0),
+            lighting_medium_density: finite(lighting.medium_density, 0.000002).clamp(0.0, 0.001),
+            anisotropy: finite(lighting.anisotropy, 0.65).clamp(-0.8, 0.9),
+            shaft_strength: finite(lighting.shaft_strength, 1.0).clamp(0.0, 1.0),
+            sun_disk_boost: finite(lighting.sun_disk_boost, 1.0).clamp(0.0, 8.0),
+            shaft_quality: lighting.shaft_quality,
         }
     }
 
@@ -79,6 +103,7 @@ impl AtmosphereSettings {
         let fog_constants = fog.map(|source| source.option_constants.as_slice());
         let lighting_constants = lighting.map(|source| source.option_constants.as_slice());
         let fog_enabled = fog.is_some();
+        let lighting_enabled = lighting.is_some();
         let density = option_component(fog_constants, 0, 0, 0.0);
         let height_density = option_component(fog_constants, 0, 1, 0.000002);
         let height_falloff = option_component(fog_constants, 0, 2, 0.0001);
@@ -92,6 +117,12 @@ impl AtmosphereSettings {
         let fog_debug = fog_constants
             .and_then(|constants| constants.get(2))
             .map_or(0, |value| finite_i32(value[3]));
+        let lighting_intensity = option_component(lighting_constants, 0, 0, 1.0);
+        let lighting_medium_density = option_component(lighting_constants, 0, 1, 0.000002);
+        let lighting_max_distance = option_component(lighting_constants, 0, 2, 120_000.0);
+        let anisotropy = option_component(lighting_constants, 0, 3, 0.65);
+        let shaft_strength = option_component(lighting_constants, 1, 0, 1.0);
+        let sun_disk_boost = option_component(lighting_constants, 1, 1, 1.0);
         let lighting_debug = lighting_constants
             .and_then(|constants| constants.get(1))
             .map_or(0, |value| finite_i32(value[3]));
@@ -105,18 +136,29 @@ impl AtmosphereSettings {
 
         Self {
             fog_enabled,
+            lighting_enabled,
             density: finite(density, 0.0).clamp(0.0, 0.001),
             height_density: finite(height_density, 0.000002).clamp(0.0, 0.001),
             height_falloff: finite(height_falloff, 0.0001).clamp(0.000001, 0.01),
             base_height: finite(base_height, 0.0).clamp(-100_000.0, 100_000.0),
-            max_distance: finite(max_distance, 120_000.0).clamp(1_000.0, 250_000.0),
+            max_distance: if fog_enabled {
+                finite(max_distance, 120_000.0).clamp(1_000.0, 250_000.0)
+            } else {
+                finite(lighting_max_distance, 120_000.0).clamp(1_000.0, 250_000.0)
+            },
             scattering_albedo: finite(scattering_albedo, 0.9).clamp(0.0, 1.0),
             noise_amount: finite(noise_amount, 0.25).clamp(0.0, 1.0),
             noise_scale: finite(noise_scale, 0.0005).clamp(0.000001, 0.05),
             noise_speed: finite(noise_speed, 0.02).clamp(0.0, 1.0),
             temporal_stability: finite(temporal_stability, 0.9).clamp(0.0, 0.98),
-            debug_view: fog_debug.max(lighting_debug).clamp(0, 8),
+            debug_view: selected_debug_view(fog_debug, lighting_debug),
             quality,
+            lighting_intensity: finite(lighting_intensity, 1.0).clamp(0.0, 8.0),
+            lighting_medium_density: finite(lighting_medium_density, 0.000002).clamp(0.0, 0.001),
+            anisotropy: finite(anisotropy, 0.65).clamp(-0.8, 0.9),
+            shaft_strength: finite(shaft_strength, 1.0).clamp(0.0, 1.0),
+            sun_disk_boost: finite(sun_disk_boost, 1.0).clamp(0.0, 8.0),
+            shaft_quality: lighting_quality.unwrap_or_default(),
         }
     }
 
@@ -129,10 +171,16 @@ impl AtmosphereSettings {
     }
 
     pub(crate) fn requires_integration(self) -> bool {
-        self.fog_enabled && (self.density > 0.0 || self.height_density > 0.0)
+        (self.fog_enabled && (self.density > 0.0 || self.height_density > 0.0))
+            || (self.lighting_enabled && self.lighting_medium_density > 0.0)
     }
 
     pub(crate) fn estimated_horizontal_transmittance(self, frame: AtmosphereFrame) -> f32 {
+        if !self.fog_enabled {
+            return (-(self.lighting_medium_density) * frame.distance_bound)
+                .exp()
+                .clamp(0.0, 1.0);
+        }
         let camera_height = frame.camera.world_transform.translation[2];
         let height_density = self.height_density
             * (-(camera_height - self.base_height) * self.height_falloff)
@@ -161,6 +209,55 @@ impl AtmosphereSettings {
     fn shader_index(self) -> usize {
         self.quality.index() as usize
     }
+
+    fn shaft_sample_count(self) -> u32 {
+        match self.shaft_quality {
+            AtmosphereQuality::Performance => 24,
+            AtmosphereQuality::High => 40,
+            AtmosphereQuality::Ultra => 56,
+        }
+    }
+
+    fn shaft_shader_index(self) -> usize {
+        self.shaft_quality.index() as usize
+    }
+
+    fn lighting_debug_view(self) -> i32 {
+        (self.debug_view - LIGHTING_DEBUG_BASE).max(0)
+    }
+
+    fn fog_debug_view(self) -> i32 {
+        if self.debug_view <= LIGHTING_DEBUG_BASE {
+            self.debug_view
+        } else {
+            0
+        }
+    }
+
+    fn effective_uniform_density(self) -> f32 {
+        if self.fog_enabled {
+            self.density
+        } else {
+            self.lighting_medium_density
+        }
+    }
+
+    fn effective_scattering_albedo(self) -> f32 {
+        if self.fog_enabled {
+            self.scattering_albedo
+        } else {
+            1.0
+        }
+    }
+}
+
+fn selected_debug_view(fog: i32, lighting: i32) -> i32 {
+    let lighting = lighting.clamp(0, 5);
+    if lighting != 0 {
+        LIGHTING_DEBUG_BASE + lighting
+    } else {
+        fog.clamp(0, LIGHTING_DEBUG_BASE)
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -188,7 +285,7 @@ enum FogIntegrationGate {
     Interior,
     UnderwaterUnknown,
     Underwater,
-    MissingMediumColor,
+    NoReadyContribution,
     Ready,
 }
 
@@ -226,7 +323,7 @@ impl FogIntegrationGate {
             Self::Interior => "interior",
             Self::UnderwaterUnknown => "underwater_unknown",
             Self::Underwater => "underwater",
-            Self::MissingMediumColor => "missing_medium_color",
+            Self::NoReadyContribution => "no_ready_contribution",
             Self::Ready => "ready",
         }
     }
@@ -237,15 +334,173 @@ struct MediumColor {
     linear_rgb: [f32; 3],
 }
 
+#[derive(Clone, Copy, Debug, Default)]
+struct SunProjection {
+    uv: [f32; 2],
+    facing: f32,
+    edge_fade: f32,
+    on_screen: bool,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct DirectionalLight {
+    world_direction: [f32; 3],
+    linear_color: [f32; 3],
+    linear_disk_delta: [f32; 3],
+    daylight: f32,
+    projection: SunProjection,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct AtmosphereContributions {
+    medium_color: [f32; 3],
+    fog: bool,
+    light: Option<DirectionalLight>,
+}
+
+impl AtmosphereContributions {
+    fn any(self) -> bool {
+        self.fog || self.light.is_some()
+    }
+
+    fn lighting_ready(self) -> bool {
+        self.light.is_some()
+    }
+}
+
+#[cfg(test)]
+fn henyey_greenstein(mu: f32, anisotropy: f32) -> f32 {
+    let mu = finite(mu, 0.0).clamp(-1.0, 1.0);
+    let g = finite(anisotropy, 0.0).clamp(-0.8, 0.9);
+    let denominator = (1.0 + g * g - 2.0 * g * mu).max(0.000001);
+    (1.0 - g * g) / (4.0 * core::f32::consts::PI * denominator.powf(1.5))
+}
+
+#[cfg(test)]
+fn directional_phase_response(mu: f32, anisotropy: f32) -> f32 {
+    henyey_greenstein(mu, anisotropy) * 4.0 * core::f32::consts::PI
+}
+
+#[cfg(test)]
+fn bounded_shaft_visibility(field: f32, edge_fade: f32, strength: f32) -> f32 {
+    let field = finite(field, 1.0).clamp(0.0, 1.0);
+    let influence = finite(edge_fade, 0.0).clamp(0.0, 1.0) * finite(strength, 0.0).clamp(0.0, 1.0);
+    1.0 + (field - 1.0) * influence
+}
+
+#[cfg(test)]
+fn shaft_visibility_from_blocked_fraction(
+    blocked_fraction: f32,
+    edge_fade: f32,
+    strength: f32,
+) -> f32 {
+    let field = (-12.0 * finite(blocked_fraction, 0.0).clamp(0.0, 1.0)).exp();
+    bounded_shaft_visibility(field, edge_fade, strength)
+}
+
+#[cfg(test)]
+fn directional_radiance(
+    base: [f32; 3],
+    disk_delta: [f32; 3],
+    disk_boost: f32,
+    mu: f32,
+) -> [f32; 3] {
+    let disk_lobe = smooth01(((finite(mu, 0.0) - 0.995) / (0.9999 - 0.995)).clamp(0.0, 1.0));
+    let boost = finite(disk_boost, 0.0).clamp(0.0, 8.0) * disk_lobe;
+    [
+        finite(base[0], 0.0).max(0.0) + finite(disk_delta[0], 0.0).max(0.0) * boost,
+        finite(base[1], 0.0).max(0.0) + finite(disk_delta[1], 0.0).max(0.0) * boost,
+        finite(base[2], 0.0).max(0.0) + finite(disk_delta[2], 0.0).max(0.0) * boost,
+    ]
+}
+
+fn project_sun_from_captured_camera(
+    camera: crate::backend::CameraFrame,
+    world_direction: [f32; 3],
+) -> SunProjection {
+    let transform = camera.world_transform;
+    if !camera.available || !transform.available || !world_direction.into_iter().all(f32::is_finite)
+    {
+        return SunProjection::default();
+    }
+    let direction_length = dot3(world_direction, world_direction).sqrt();
+    if !direction_length.is_finite() || direction_length <= 0.000001 {
+        return SunProjection::default();
+    }
+    let direction = world_direction.map(|value| value / direction_length);
+    let forward = [
+        transform.rotation[0][0],
+        transform.rotation[1][0],
+        transform.rotation[2][0],
+    ];
+    let up = [
+        transform.rotation[0][1],
+        transform.rotation[1][1],
+        transform.rotation[2][1],
+    ];
+    let right = [
+        transform.rotation[0][2],
+        transform.rotation[1][2],
+        transform.rotation[2][2],
+    ];
+    let view_x = dot3(direction, right);
+    let view_y = dot3(direction, up);
+    let facing = dot3(direction, forward);
+    let frustum_width = camera.frustum_right - camera.frustum_left;
+    let frustum_height = camera.frustum_top - camera.frustum_bottom;
+    if !facing.is_finite()
+        || facing <= 0.001
+        || !frustum_width.is_finite()
+        || !frustum_height.is_finite()
+        || frustum_width <= f32::EPSILON
+        || frustum_height <= f32::EPSILON
+    {
+        return SunProjection {
+            facing: finite(facing, 0.0),
+            ..SunProjection::default()
+        };
+    }
+
+    let ndc_x =
+        (2.0 * view_x / facing - (camera.frustum_right + camera.frustum_left)) / frustum_width;
+    let ndc_y =
+        (2.0 * view_y / facing - (camera.frustum_top + camera.frustum_bottom)) / frustum_height;
+    let uv = [ndc_x.mul_add(0.5, 0.5), ndc_y.mul_add(-0.5, 0.5)];
+    if !uv.into_iter().all(f32::is_finite) {
+        return SunProjection::default();
+    }
+    let edge = uv[0].min(1.0 - uv[0]).min(uv[1].min(1.0 - uv[1]));
+    let edge_fade = smooth01((edge / 0.035).clamp(0.0, 1.0));
+    SunProjection {
+        uv,
+        facing,
+        edge_fade,
+        on_screen: edge >= 0.0,
+    }
+}
+
+fn smooth01(value: f32) -> f32 {
+    let value = finite(value, 0.0).clamp(0.0, 1.0);
+    value * value * (3.0 - 2.0 * value)
+}
+
+fn dot3(a: [f32; 3], b: [f32; 3]) -> f32 {
+    a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+}
+
 pub(crate) struct AtmosphereEffect {
     depth_reduce_half_shader: PixelShader9,
     depth_reduce_quarter_shader: PixelShader9,
+    shaft_pipeline: Option<ShaftPipeline>,
     integrate_shaders: [PixelShader9; 3],
     compose_shader: PixelShader9,
     debug_shader: PixelShader9,
     density_noise: Texture9,
+    neutral_visibility: Texture9,
     targets: Option<AtmosphereTargets>,
+    shaft_targets: Option<ShaftTargets>,
     failed_target_size: Option<(u32, u32, u32)>,
+    failed_shaft_size: Option<(u32, u32)>,
     last_contract: Option<u16>,
     last_fog_signature: Option<[i32; 6]>,
     contract_logs: u32,
@@ -254,6 +509,7 @@ pub(crate) struct AtmosphereEffect {
     last_composition_gate: Option<FogCompositionGate>,
     composition_gate_logs: u32,
     integration_draws: u64,
+    shaft_draws: u64,
     composition_draws: u64,
     debug_draws: u64,
 }
@@ -262,7 +518,15 @@ pub(crate) struct AtmosphereEffect {
 pub(crate) enum AtmosphereDrawOutcome {
     Skipped,
     Composed,
+    ComposedWithLighting,
     DebugDrawn,
+    LightingDebugDrawn,
+}
+
+impl AtmosphereDrawOutcome {
+    pub(crate) fn drew(self) -> bool {
+        self != Self::Skipped
+    }
 }
 
 impl AtmosphereEffect {
@@ -274,6 +538,15 @@ impl AtmosphereEffect {
             .direct3d()?
             .check_default_render_target_texture_support(D3DFMT_A16B16G16R16F)?;
         let quarter_source = depth_reduce_shader_source(4);
+        let shaft_pipeline = match ShaftPipeline::create(device) {
+            Ok(pipeline) => Some(pipeline),
+            Err(err) => {
+                log::warn!(
+                    "[ATMOSPHERE] Optional shaft pipeline unavailable; base directional scattering remains active: {err}"
+                );
+                None
+            }
+        };
         Ok(Self {
             depth_reduce_half_shader: compile_shader(
                 device,
@@ -285,6 +558,7 @@ impl AtmosphereEffect {
                 "atmosphere_depth_reduce.hlsl:quarter",
                 &quarter_source,
             )?,
+            shaft_pipeline,
             integrate_shaders: [
                 compile_shader(
                     device,
@@ -305,8 +579,11 @@ impl AtmosphereEffect {
             compose_shader: compile_shader(device, "atmosphere_compose.hlsl", COMPOSE_SHADER)?,
             debug_shader: compile_shader(device, "atmosphere_debug.hlsl", DEBUG_SHADER)?,
             density_noise: create_density_noise(device)?,
+            neutral_visibility: create_neutral_visibility(device)?,
             targets: None,
+            shaft_targets: None,
             failed_target_size: None,
+            failed_shaft_size: None,
             last_contract: None,
             last_fog_signature: None,
             contract_logs: 0,
@@ -315,6 +592,7 @@ impl AtmosphereEffect {
             last_composition_gate: None,
             composition_gate_logs: 0,
             integration_draws: 0,
+            shaft_draws: 0,
             composition_draws: 0,
             debug_draws: 0,
         })
@@ -352,6 +630,17 @@ impl AtmosphereEffect {
         }
 
         self.ensure_targets(device, desc, settings.target_scale())?;
+        let contributions = resolve_contributions(frame, settings);
+        let shaft_requested = contributions.light.is_some_and(|light| {
+            light.projection.facing > 0.001
+                && light.projection.on_screen
+                && light.projection.edge_fade > 0.0
+                && (settings.shaft_strength > 0.0
+                    || matches!(settings.lighting_debug_view(), 1 | 2))
+        });
+        if shaft_requested && self.shaft_pipeline.is_some() {
+            self.ensure_shaft_targets(device, desc);
+        }
         let Some(targets) = self.targets.as_ref() else {
             return Ok(AtmosphereDrawOutcome::Skipped);
         };
@@ -369,18 +658,44 @@ impl AtmosphereEffect {
             frame,
             depth,
         )?;
+        let shaft_ready = if shaft_requested {
+            if let (Some(shaft_targets), Some(light), Some(pipeline)) = (
+                self.shaft_targets.as_ref(),
+                contributions.light,
+                self.shaft_pipeline.as_ref(),
+            ) {
+                draw_shaft_mask(device, &pipeline.mask_shader, targets, shaft_targets, frame)?;
+                draw_shaft_radial(
+                    device,
+                    &pipeline.radial_shaders[settings.shaft_shader_index()],
+                    shaft_targets,
+                    light,
+                    settings,
+                )?;
+                self.shaft_draws = self.shaft_draws.saturating_add(2);
+                true
+            } else {
+                false
+            }
+        } else {
+            false
+        };
         let integration_ready = if integration_gate == FogIntegrationGate::Ready {
-            let Some(medium_color) = resolve_medium_color(frame) else {
-                return Ok(AtmosphereDrawOutcome::Skipped);
-            };
+            let shaft_visibility = self
+                .shaft_targets
+                .as_ref()
+                .filter(|_| shaft_ready)
+                .map_or(&self.neutral_visibility, |targets| &targets.radial.texture);
             draw_integration(
                 device,
                 &self.integrate_shaders[settings.shader_index()],
                 targets,
                 &self.density_noise,
+                shaft_visibility,
                 frame,
                 settings,
-                medium_color,
+                contributions,
+                shaft_ready,
                 false,
             )?;
             draw_integration(
@@ -388,18 +703,23 @@ impl AtmosphereEffect {
                 &self.integrate_shaders[settings.shader_index()],
                 targets,
                 &self.density_noise,
+                shaft_visibility,
                 frame,
                 settings,
-                medium_color,
+                contributions,
+                shaft_ready,
                 true,
             )?;
             self.integration_draws = self.integration_draws.saturating_add(1);
             if self.integration_draws == 1 {
                 log::info!(
-                    "[ATMOSPHERE] Layered fog integration active: quality={:?}, scale={}, samples={}, target={}x{} near/far=A16B16G16R16F",
+                    "[ATMOSPHERE] Layered integration active: fog={}, lighting={}, quality={:?}, scale={}, density_samples={}, shaft_samples={}, target={}x{} near/far=A16B16G16R16F",
+                    contributions.fog,
+                    contributions.lighting_ready(),
                     settings.quality,
                     settings.target_scale(),
                     settings.sample_count(),
+                    settings.shaft_sample_count(),
                     targets.width,
                     targets.height,
                 );
@@ -447,7 +767,9 @@ impl AtmosphereEffect {
             self.composition_draws = self.composition_draws.saturating_add(1);
             if self.composition_draws == 1 {
                 log::info!(
-                    "[ATMOSPHERE] Production fog composition active: quality={:?}, scale={}, target={}x{} format=0x{:08X}, transfer={}",
+                    "[ATMOSPHERE] Production composition active: fog={}, lighting={}, quality={:?}, scale={}, target={}x{} format=0x{:08X}, transfer={}",
+                    contributions.fog,
+                    contributions.lighting_ready(),
                     settings.quality,
                     settings.target_scale(),
                     desc.Width,
@@ -456,15 +778,21 @@ impl AtmosphereEffect {
                     SOURCE_TRANSFER.label(),
                 );
             }
-            return Ok(AtmosphereDrawOutcome::Composed);
+            return Ok(if contributions.lighting_ready() {
+                AtmosphereDrawOutcome::ComposedWithLighting
+            } else {
+                AtmosphereDrawOutcome::Composed
+            });
         }
-        if settings.debug_view >= 6 && !integration_ready {
+        if (settings.fog_debug_view() >= 6 || settings.lighting_debug_view() >= 3)
+            && !integration_ready
+        {
             return Ok(AtmosphereDrawOutcome::Skipped);
         }
         let Some(world_color) = world_color else {
             return Ok(AtmosphereDrawOutcome::Skipped);
         };
-        if settings.debug_view == 8 {
+        if settings.fog_debug_view() == 8 {
             draw_composition(
                 device,
                 &self.compose_shader,
@@ -487,10 +815,19 @@ impl AtmosphereEffect {
                 frame,
                 settings.debug_view,
                 integration_ready,
+                settings,
+                contributions,
+                shaft_ready,
+                self.shaft_targets.as_ref(),
+                &self.neutral_visibility,
             )?;
         }
         self.debug_draws = self.debug_draws.saturating_add(1);
-        Ok(AtmosphereDrawOutcome::DebugDrawn)
+        Ok(if settings.lighting_debug_view() != 0 {
+            AtmosphereDrawOutcome::LightingDebugDrawn
+        } else {
+            AtmosphereDrawOutcome::DebugDrawn
+        })
     }
 
     fn ensure_targets(
@@ -526,6 +863,40 @@ impl AtmosphereEffect {
                 self.targets = None;
                 self.failed_target_size = Some(size);
                 Err(err)
+            }
+        }
+    }
+
+    fn ensure_shaft_targets(&mut self, device: &Device9Ref<'_>, desc: &D3DSURFACE_DESC) {
+        let size = (
+            desc.Width.div_ceil(SHAFT_TARGET_SCALE).max(1),
+            desc.Height.div_ceil(SHAFT_TARGET_SCALE).max(1),
+        );
+        let needs_targets = self
+            .shaft_targets
+            .as_ref()
+            .is_none_or(|targets| !targets.matches(size.0, size.1));
+        if !needs_targets || self.failed_shaft_size == Some(size) {
+            return;
+        }
+        match ShaftTargets::create(device, size.0, size.1) {
+            Ok(targets) => {
+                log::info!(
+                    "[ATMOSPHERE] Shaft targets: {}x{} G16R16F mask/visibility",
+                    targets.width,
+                    targets.height,
+                );
+                self.shaft_targets = Some(targets);
+                self.failed_shaft_size = None;
+            }
+            Err(err) => {
+                self.shaft_targets = None;
+                self.failed_shaft_size = Some(size);
+                log::warn!(
+                    "[ATMOSPHERE] Optional shaft targets unavailable at {}x{}: {err}",
+                    size.0,
+                    size.1,
+                );
             }
         }
     }
@@ -704,15 +1075,80 @@ fn draw_depth_reduce(
     draw_quad(device, targets.width, targets.height)
 }
 
+fn draw_shaft_mask(
+    device: &Device9Ref<'_>,
+    shader: &PixelShader9,
+    atmosphere: &AtmosphereTargets,
+    shafts: &ShaftTargets,
+    frame: AtmosphereFrame,
+) -> Direct3DResult<()> {
+    bind_target(device, &shafts.mask.surface, shafts.width, shafts.height)?;
+    device.set_texture(0, &atmosphere.depth.texture)?;
+    set_sampler_filter(device, 0, D3DTEXF_POINT.0 as u32)?;
+    device.set_pixel_shader_constant_f(
+        0,
+        &[
+            [
+                shafts.width as f32,
+                shafts.height as f32,
+                shafts.inv_width,
+                shafts.inv_height,
+            ],
+            [
+                atmosphere.width as f32,
+                atmosphere.height as f32,
+                atmosphere.inv_width,
+                atmosphere.inv_height,
+            ],
+            [frame.distance_bound, 0.0, 0.0, 0.0],
+        ],
+    )?;
+    device.set_pixel_shader(shader)?;
+    draw_quad(device, shafts.width, shafts.height)
+}
+
+fn draw_shaft_radial(
+    device: &Device9Ref<'_>,
+    shader: &PixelShader9,
+    shafts: &ShaftTargets,
+    light: DirectionalLight,
+    settings: AtmosphereSettings,
+) -> Direct3DResult<()> {
+    bind_target(device, &shafts.radial.surface, shafts.width, shafts.height)?;
+    device.set_texture(0, &shafts.mask.texture)?;
+    set_sampler_filter(device, 0, D3DTEXF_LINEAR.0 as u32)?;
+    device.set_pixel_shader_constant_f(
+        0,
+        &[
+            [
+                shafts.width as f32,
+                shafts.height as f32,
+                shafts.inv_width,
+                shafts.inv_height,
+            ],
+            [
+                light.projection.uv[0],
+                light.projection.uv[1],
+                light.projection.edge_fade,
+                settings.shaft_strength,
+            ],
+        ],
+    )?;
+    device.set_pixel_shader(shader)?;
+    draw_quad(device, shafts.width, shafts.height)
+}
+
 #[allow(clippy::too_many_arguments)]
 fn draw_integration(
     device: &Device9Ref<'_>,
     shader: &PixelShader9,
     targets: &AtmosphereTargets,
     density_noise: &Texture9,
+    shaft_visibility: &Texture9,
     frame: AtmosphereFrame,
     settings: AtmosphereSettings,
-    medium_color: MediumColor,
+    contributions: AtmosphereContributions,
+    shaft_ready: bool,
     far_layer: bool,
 ) -> Direct3DResult<()> {
     bind_target(
@@ -727,11 +1163,28 @@ fn draw_integration(
     )?;
     device.set_texture(0, &targets.depth.texture)?;
     device.set_texture(1, density_noise)?;
+    device.set_texture(2, shaft_visibility)?;
     set_sampler_filter(device, 0, D3DTEXF_POINT.0 as u32)?;
     set_sampler_filter(device, 1, D3DTEXF_LINEAR.0 as u32)?;
+    set_sampler_filter(device, 2, D3DTEXF_LINEAR.0 as u32)?;
     device.set_sampler_state(1, D3DSAMP_ADDRESSU, D3DTADDRESS_WRAP.0 as u32)?;
     device.set_sampler_state(1, D3DSAMP_ADDRESSV, D3DTADDRESS_WRAP.0 as u32)?;
     let view_to_world = view_to_world_rows(frame.camera);
+    let light = contributions.light;
+    let world_direction = light.map_or([0.0; 3], |light| light.world_direction);
+    let sun_color = light.map_or([0.0; 3], |light| light.linear_color);
+    let sun_disk_delta = light.map_or([0.0; 3], |light| light.linear_disk_delta);
+    let daylight = light.map_or(0.0, |light| light.daylight);
+    let fog_density = if settings.fog_enabled {
+        settings.height_density
+    } else {
+        0.0
+    };
+    let noise_amount = if settings.fog_enabled {
+        settings.noise_amount
+    } else {
+        0.0
+    };
     device.set_pixel_shader_constant_f(
         0,
         &[
@@ -757,24 +1210,42 @@ fn draw_integration(
             view_to_world[1],
             view_to_world[2],
             [
-                settings.density,
-                settings.height_density,
+                settings.effective_uniform_density(),
+                fog_density,
                 settings.height_falloff,
                 settings.base_height,
             ],
             [
                 settings.max_distance,
-                settings.scattering_albedo,
-                settings.noise_amount,
+                settings.effective_scattering_albedo(),
+                noise_amount,
                 settings.noise_scale,
             ],
             [
-                medium_color.linear_rgb[0],
-                medium_color.linear_rgb[1],
-                medium_color.linear_rgb[2],
-                1.0,
+                contributions.medium_color[0],
+                contributions.medium_color[1],
+                contributions.medium_color[2],
+                if contributions.fog { 1.0 } else { 0.0 },
             ],
             [1.0, 1.0, 0.0, if far_layer { 1.0 } else { 0.0 }],
+            [
+                settings.lighting_intensity,
+                settings.anisotropy,
+                settings.sun_disk_boost,
+                if contributions.lighting_ready() {
+                    1.0
+                } else {
+                    0.0
+                },
+            ],
+            [
+                world_direction[0],
+                world_direction[1],
+                world_direction[2],
+                if shaft_ready { 1.0 } else { 0.0 },
+            ],
+            [sun_color[0], sun_color[1], sun_color[2], daylight],
+            [sun_disk_delta[0], sun_disk_delta[1], sun_disk_delta[2], 0.0],
         ],
     )?;
     device.set_pixel_shader(shader)?;
@@ -854,15 +1325,35 @@ fn draw_debug(
     frame: AtmosphereFrame,
     debug_view: i32,
     integration_ready: bool,
+    settings: AtmosphereSettings,
+    contributions: AtmosphereContributions,
+    shaft_ready: bool,
+    shaft_targets: Option<&ShaftTargets>,
+    neutral_visibility: &Texture9,
 ) -> Direct3DResult<()> {
     bind_target(device, world_target, desc.Width, desc.Height)?;
     device.set_texture(0, world_color)?;
     device.set_texture(1, &targets.depth.texture)?;
     device.set_texture(2, &targets.far_atmosphere.texture)?;
+    device.set_texture(
+        3,
+        shaft_targets.map_or(neutral_visibility, |targets| &targets.mask.texture),
+    )?;
+    device.set_texture(
+        4,
+        shaft_targets.map_or(neutral_visibility, |targets| &targets.radial.texture),
+    )?;
     set_sampler_filter(device, 0, D3DTEXF_LINEAR.0 as u32)?;
     set_sampler_filter(device, 1, D3DTEXF_POINT.0 as u32)?;
     set_sampler_filter(device, 2, D3DTEXF_LINEAR.0 as u32)?;
+    set_sampler_filter(device, 3, D3DTEXF_LINEAR.0 as u32)?;
+    set_sampler_filter(device, 4, D3DTEXF_LINEAR.0 as u32)?;
     let view_to_world = view_to_world_rows(frame.camera);
+    let light = contributions.light;
+    let direction = light.map_or([0.0; 3], |light| light.world_direction);
+    let color = light.map_or([0.0; 3], |light| light.linear_color);
+    let disk_delta = light.map_or([0.0; 3], |light| light.linear_disk_delta);
+    let daylight = light.map_or(0.0, |light| light.daylight);
     device.set_pixel_shader_constant_f(
         0,
         &[
@@ -897,6 +1388,24 @@ fn draw_debug(
             view_to_world[0],
             view_to_world[1],
             view_to_world[2],
+            [
+                settings.anisotropy,
+                settings.lighting_intensity,
+                settings.sun_disk_boost,
+                if contributions.lighting_ready() {
+                    1.0
+                } else {
+                    0.0
+                },
+            ],
+            [
+                direction[0],
+                direction[1],
+                direction[2],
+                if shaft_ready { 1.0 } else { 0.0 },
+            ],
+            [color[0], color[1], color[2], daylight],
+            [disk_delta[0], disk_delta[1], disk_delta[2], 0.0],
         ],
     )?;
     device.set_pixel_shader(shader)?;
@@ -934,7 +1443,7 @@ fn fog_integration_gate(
     frame: AtmosphereFrame,
     settings: AtmosphereSettings,
 ) -> FogIntegrationGate {
-    if !settings.fog_enabled {
+    if !settings.fog_enabled && !settings.lighting_enabled {
         return FogIntegrationGate::Disabled;
     }
     if !settings.requires_integration() {
@@ -958,8 +1467,8 @@ fn fog_integration_gate(
     if frame.underwater.underwater {
         return FogIntegrationGate::Underwater;
     }
-    if resolve_medium_color(frame).is_none() {
-        return FogIntegrationGate::MissingMediumColor;
+    if !resolve_contributions(frame, settings).any() {
+        return FogIntegrationGate::NoReadyContribution;
     }
     FogIntegrationGate::Ready
 }
@@ -1003,6 +1512,52 @@ fn resolve_medium_color(frame: AtmosphereFrame) -> Option<MediumColor> {
         return None;
     }
     linearize_native_color(sky.horizon).map(|linear_rgb| MediumColor { linear_rgb })
+}
+
+fn resolve_contributions(
+    frame: AtmosphereFrame,
+    settings: AtmosphereSettings,
+) -> AtmosphereContributions {
+    let medium_color = settings
+        .fog_enabled
+        .then(|| resolve_medium_color(frame))
+        .flatten();
+    AtmosphereContributions {
+        medium_color: medium_color.map_or([0.0; 3], |color| color.linear_rgb),
+        fog: medium_color.is_some(),
+        light: settings
+            .lighting_enabled
+            .then(|| resolve_directional_light(frame))
+            .flatten(),
+    }
+}
+
+fn resolve_directional_light(frame: AtmosphereFrame) -> Option<DirectionalLight> {
+    if !frame.material_state.exterior_known || !frame.material_state.is_exterior {
+        return None;
+    }
+    let sky = frame.sky?;
+    if !sky.is_exterior || !sky.daylight.is_finite() || sky.daylight <= 0.001 {
+        return None;
+    }
+    let length = dot3(sky.sun_direction, sky.sun_direction).sqrt();
+    if !length.is_finite() || !(0.99..=1.01).contains(&length) {
+        return None;
+    }
+    let linear_color = linearize_native_color(sky.sun_light)?;
+    let linear_disk = linearize_native_color(sky.sun_disk)?;
+    let linear_disk_delta = [
+        (linear_disk[0] - linear_color[0]).max(0.0),
+        (linear_disk[1] - linear_color[1]).max(0.0),
+        (linear_disk[2] - linear_color[2]).max(0.0),
+    ];
+    Some(DirectionalLight {
+        world_direction: sky.sun_direction,
+        linear_color,
+        linear_disk_delta,
+        daylight: sky.daylight.clamp(0.0, 1.0),
+        projection: project_sun_from_captured_camera(frame.camera, sky.sun_direction),
+    })
 }
 
 fn linearize_native_color(color: [f32; 3]) -> Option<[f32; 3]> {
@@ -1088,6 +1643,13 @@ fn integration_shader_source(sample_count: u32) -> Vec<u8> {
     variant
 }
 
+fn shaft_radial_shader_source(sample_count: u32) -> Vec<u8> {
+    let mut variant =
+        format!("#define ATMOSPHERE_SHAFT_SAMPLE_COUNT {sample_count}\n").into_bytes();
+    variant.extend_from_slice(SHAFT_RADIAL_SHADER);
+    variant
+}
+
 fn create_density_noise(device: &Device9Ref<'_>) -> Direct3DResult<Texture9> {
     let texture = device.create_texture(
         DENSITY_NOISE_SIZE,
@@ -1105,6 +1667,12 @@ fn create_density_noise(device: &Device9Ref<'_>) -> Direct3DResult<Texture9> {
         DENSITY_NOISE_SIZE,
         DENSITY_NOISE_SEED,
     );
+    Ok(texture)
+}
+
+fn create_neutral_visibility(device: &Device9Ref<'_>) -> Direct3DResult<Texture9> {
+    let texture = device.create_texture(1, 1, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED)?;
+    texture.write_level0_argb(1, 1, &[0xFFFF_FFFF])?;
     Ok(texture)
 }
 
@@ -1265,6 +1833,62 @@ struct EffectTarget {
     surface: Surface9,
 }
 
+struct ShaftPipeline {
+    mask_shader: PixelShader9,
+    radial_shaders: [PixelShader9; 3],
+}
+
+impl ShaftPipeline {
+    fn create(device: &Device9Ref<'_>) -> Direct3DResult<Self> {
+        Ok(Self {
+            mask_shader: compile_shader(device, "atmosphere_shaft_mask.hlsl", SHAFT_MASK_SHADER)?,
+            radial_shaders: [
+                compile_shader(
+                    device,
+                    "atmosphere_shaft_radial.hlsl:performance",
+                    &shaft_radial_shader_source(24),
+                )?,
+                compile_shader(
+                    device,
+                    "atmosphere_shaft_radial.hlsl:high",
+                    &shaft_radial_shader_source(40),
+                )?,
+                compile_shader(
+                    device,
+                    "atmosphere_shaft_radial.hlsl:ultra",
+                    &shaft_radial_shader_source(56),
+                )?,
+            ],
+        })
+    }
+}
+
+struct ShaftTargets {
+    width: u32,
+    height: u32,
+    inv_width: f32,
+    inv_height: f32,
+    mask: EffectTarget,
+    radial: EffectTarget,
+}
+
+impl ShaftTargets {
+    fn create(device: &Device9Ref<'_>, width: u32, height: u32) -> Direct3DResult<Self> {
+        Ok(Self {
+            width,
+            height,
+            inv_width: 1.0 / width as f32,
+            inv_height: 1.0 / height as f32,
+            mask: EffectTarget::create(device, width, height, D3DFMT_G16R16F)?,
+            radial: EffectTarget::create(device, width, height, D3DFMT_G16R16F)?,
+        })
+    }
+
+    fn matches(&self, width: u32, height: u32) -> bool {
+        self.width == width && self.height == height
+    }
+}
+
 impl EffectTarget {
     fn create(
         device: &Device9Ref<'_>,
@@ -1283,10 +1907,13 @@ mod feature_tests {
     use core::ffi::c_void;
 
     use super::{
-        AtmosphereSettings, FogCompositionGate, FogIntegrationGate, atmosphere_layer_blend,
-        decode_extended_srgb, density_noise_pixels, encode_extended_srgb, fog_composition_gate,
-        fog_integration_gate, layered_tap_weight, linearize_native_color, option_component,
-        resolve_medium_color,
+        AtmosphereDrawOutcome, AtmosphereSettings, FogCompositionGate, FogIntegrationGate,
+        atmosphere_layer_blend, bounded_shaft_visibility, decode_extended_srgb,
+        density_noise_pixels, directional_phase_response, directional_radiance,
+        encode_extended_srgb, fog_composition_gate, fog_integration_gate, henyey_greenstein,
+        layered_tap_weight, linearize_native_color, option_component,
+        project_sun_from_captured_camera, resolve_contributions, resolve_medium_color,
+        selected_debug_view, shaft_visibility_from_blocked_fraction,
     };
     use crate::{
         backend::{
@@ -1301,6 +1928,7 @@ mod feature_tests {
     fn settings() -> AtmosphereSettings {
         AtmosphereSettings {
             fog_enabled: true,
+            lighting_enabled: false,
             density: 0.00001,
             height_density: 0.00002,
             height_falloff: 0.0001,
@@ -1313,6 +1941,12 @@ mod feature_tests {
             temporal_stability: 0.9,
             debug_view: 0,
             quality: AtmosphereQuality::High,
+            lighting_intensity: 1.0,
+            lighting_medium_density: 0.00001,
+            anisotropy: 0.65,
+            shaft_strength: 1.0,
+            sun_disk_boost: 1.0,
+            shaft_quality: AtmosphereQuality::High,
         }
     }
 
@@ -1371,6 +2005,21 @@ mod feature_tests {
         }
     }
 
+    fn valid_sky(direction: [f32; 3]) -> NativeSkyFrame {
+        NativeSkyFrame {
+            sky_upper: [0.2, 0.3, 0.6],
+            sky_lower: [0.4, 0.45, 0.55],
+            horizon: [0.65, 0.6, 0.5],
+            sun_light: [1.2, 1.0, 0.8],
+            sun_disk: [2.0, 1.7, 1.1],
+            sun_direction: direction,
+            daylight: 0.85,
+            game_hour: 12.0,
+            is_exterior: true,
+            reversed_depth: true,
+        }
+    }
+
     #[test]
     fn quality_selects_fixed_scale_and_sample_count() {
         let mut settings = settings();
@@ -1386,6 +2035,28 @@ mod feature_tests {
     }
 
     #[test]
+    fn shaft_quality_has_fixed_quarter_resolution_work_budgets() {
+        let mut settings = settings();
+        let width = 3440_u32.div_ceil(4);
+        let height = 1440_u32.div_ceil(4);
+        assert_eq!((width, height), (860, 360));
+
+        for (quality, samples, expected_fetches) in [
+            (AtmosphereQuality::Performance, 24, 7_430_400_u64),
+            (AtmosphereQuality::High, 40, 12_384_000),
+            (AtmosphereQuality::Ultra, 56, 17_337_600),
+        ] {
+            settings.shaft_quality = quality;
+            assert_eq!(settings.shaft_sample_count(), samples);
+            assert_eq!(u64::from(width * height * samples), expected_fetches);
+        }
+
+        let target_bytes = u64::from(width * height) * 4 * 2;
+        assert_eq!(target_bytes, 2_476_800);
+        assert!(target_bytes < 5 * 1024 * 1024);
+    }
+
+    #[test]
     fn calibrated_default_estimates_about_two_percent_extinction_at_observed_bound() {
         let mut config = EmbeddedEffectsConfig::default();
         config.volumetric_fog.enabled = true;
@@ -1396,6 +2067,18 @@ mod feature_tests {
 
         let transmittance = settings.estimated_horizontal_transmittance(frame);
         assert!((0.979..0.981).contains(&transmittance));
+    }
+
+    #[test]
+    fn lighting_default_keeps_distant_extinction_bounded() {
+        let mut config = EmbeddedEffectsConfig::default();
+        config.volumetric_lighting.enabled = true;
+        let settings =
+            AtmosphereSettings::from_config(config.volumetric_fog, config.volumetric_lighting);
+        let frame = valid_frame();
+
+        assert_eq!(settings.lighting_medium_density, 0.000002);
+        assert!((0.786..0.788).contains(&settings.estimated_horizontal_transmittance(frame)));
     }
 
     #[test]
@@ -1447,6 +2130,222 @@ mod feature_tests {
         assert_eq!(choices[6], "Optical depth / transmittance");
         assert_eq!(choices[7], "Integrated scattering");
         assert_eq!(choices[8], "Bilateral acceptance");
+    }
+
+    #[test]
+    fn lighting_options_map_to_the_fixed_atmosphere_abi() {
+        let mut config = EmbeddedEffectsConfig::default();
+        config.volumetric_lighting.enabled = true;
+        config.volumetric_lighting.intensity = 2.5;
+        config.volumetric_lighting.medium_density = 0.00004;
+        config.volumetric_lighting.max_distance = 88_000.0;
+        config.volumetric_lighting.anisotropy = 0.4;
+        config.volumetric_lighting.shaft_strength = 0.7;
+        config.volumetric_lighting.sun_disk_boost = 3.0;
+        config.volumetric_lighting.shaft_quality = AtmosphereQuality::Ultra;
+        config.volumetric_lighting.debug_view = 5;
+        let sources = shaders::merge_embedded_sources(&config, Vec::new());
+        let source = sources
+            .iter()
+            .find(|source| {
+                source.embedded_effect_kind() == Some(EmbeddedEffectKind::VolumetricLighting)
+            })
+            .expect("volumetric lighting source");
+        let settings = AtmosphereSettings::from_sources(None, Some(source));
+
+        assert!(!settings.fog_enabled);
+        assert!(settings.lighting_enabled);
+        assert_eq!(settings.lighting_intensity, 2.5);
+        assert_eq!(settings.lighting_medium_density, 0.00004);
+        assert_eq!(settings.max_distance, 88_000.0);
+        assert_eq!(settings.anisotropy, 0.4);
+        assert_eq!(settings.shaft_strength, 0.7);
+        assert_eq!(settings.sun_disk_boost, 3.0);
+        assert_eq!(settings.shaft_quality, AtmosphereQuality::Ultra);
+        assert_eq!(settings.quality, AtmosphereQuality::Ultra);
+        assert_eq!(settings.lighting_debug_view(), 5);
+        assert!(settings.requires_depth());
+        assert!(settings.requires_world_color());
+
+        let choices = source
+            .options
+            .iter()
+            .find(|option| option.key == "debug_view")
+            .and_then(|option| option.choices)
+            .expect("lighting debug choices");
+        assert_eq!(choices.len(), 6);
+        assert_eq!(choices[1], "Shaft mask");
+        assert_eq!(choices[5], "Combined acceptance");
+    }
+
+    #[test]
+    fn lighting_debug_selection_has_explicit_precedence() {
+        assert_eq!(selected_debug_view(0, 0), 0);
+        assert_eq!(selected_debug_view(7, 0), 7);
+        assert_eq!(selected_debug_view(7, 2), 10);
+        assert_eq!(selected_debug_view(99, 99), 13);
+    }
+
+    #[test]
+    fn henyey_greenstein_is_normalized_finite_and_directional() {
+        let isotropic = 1.0 / (4.0 * core::f32::consts::PI);
+        assert!((henyey_greenstein(-0.75, 0.0) - isotropic).abs() < 0.000001);
+        assert!(henyey_greenstein(1.0, 0.65) > henyey_greenstein(0.0, 0.65));
+        assert!(henyey_greenstein(0.0, 0.65) > henyey_greenstein(-1.0, 0.65));
+        assert!((henyey_greenstein(0.6, -0.7) - henyey_greenstein(-0.6, 0.7)).abs() < 0.000001);
+        assert!((directional_phase_response(0.25, 0.0) - 1.0).abs() < 0.000001);
+        assert!(directional_phase_response(1.0, 0.65) > 10.0);
+
+        let steps = 20_000;
+        let delta_mu = 2.0 / steps as f32;
+        for anisotropy in [-0.8, -0.4, 0.0, 0.65, 0.9] {
+            let mut integral = 0.0;
+            for index in 0..steps {
+                let mu = -1.0 + (index as f32 + 0.5) * delta_mu;
+                let phase = henyey_greenstein(mu, anisotropy);
+                assert!(phase.is_finite() && phase >= 0.0);
+                integral += phase * 2.0 * core::f32::consts::PI * delta_mu;
+            }
+            assert!((integral - 1.0).abs() < 0.001, "g={anisotropy}: {integral}");
+        }
+    }
+
+    #[test]
+    fn captured_camera_projection_handles_rotation_jitter_and_visibility() {
+        let frame = valid_frame();
+        let center = project_sun_from_captured_camera(frame.camera, [1.0, 0.0, 0.0]);
+        assert_eq!(center.uv, [0.5, 0.5]);
+        assert_eq!(center.facing, 1.0);
+        assert!(center.on_screen && center.edge_fade == 1.0);
+
+        let mut rotated = frame.camera;
+        rotated.world_transform.rotation = [[0.0, -1.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 1.0]];
+        let rotated_center = project_sun_from_captured_camera(rotated, [0.0, 1.0, 0.0]);
+        assert_eq!(rotated_center.uv, [0.5, 0.5]);
+        assert!(rotated_center.on_screen);
+
+        let mut asymmetric = frame.camera;
+        asymmetric.frustum_left = -0.9;
+        asymmetric.frustum_right = 1.1;
+        let shifted = project_sun_from_captured_camera(asymmetric, [1.0, 0.0, 0.0]);
+        assert!((shifted.uv[0] - 0.45).abs() < 0.000001);
+        asymmetric.frustum_left += 0.02;
+        asymmetric.frustum_right += 0.02;
+        let jittered = project_sun_from_captured_camera(asymmetric, [1.0, 0.0, 0.0]);
+        assert!((jittered.uv[0] - 0.44).abs() < 0.000001);
+
+        let behind = project_sun_from_captured_camera(frame.camera, [-1.0, 0.0, 0.0]);
+        assert_eq!(behind.facing, -1.0);
+        assert!(!behind.on_screen);
+        let off_screen = project_sun_from_captured_camera(frame.camera, [1.0, 0.0, 2.0]);
+        assert!(off_screen.facing > 0.0);
+        assert!(!off_screen.on_screen);
+    }
+
+    #[test]
+    fn shaft_modulation_and_disk_boost_are_bounded_and_local() {
+        for strength in [0.0, 0.25, 0.5, 1.0] {
+            for field in [0.0, 0.3, 1.0] {
+                let visibility = bounded_shaft_visibility(field, 0.8, strength);
+                assert!((0.0..=1.0).contains(&visibility));
+                if strength == 0.0 {
+                    assert_eq!(visibility, 1.0);
+                }
+            }
+        }
+        assert_eq!(bounded_shaft_visibility(0.0, 0.0, 1.0), 1.0);
+        let one_blocker_in_forty = shaft_visibility_from_blocked_fraction(1.0 / 40.0, 1.0, 1.0);
+        assert!((0.73..0.75).contains(&one_blocker_in_forty));
+        assert_eq!(shaft_visibility_from_blocked_fraction(1.0, 1.0, 0.0), 1.0);
+        assert!(shaft_visibility_from_blocked_fraction(0.1, 1.0, 1.0) < 0.31);
+
+        let base = [2.0, 1.5, 1.0];
+        let delta = [3.0, 1.0, 0.5];
+        assert_eq!(directional_radiance(base, delta, 8.0, 0.0), base);
+        assert_eq!(directional_radiance(base, delta, 0.0, 1.0), base);
+        let boosted = directional_radiance(base, delta, 8.0, 1.0);
+        assert_eq!(boosted, [26.0, 9.5, 5.0]);
+        assert!(
+            boosted
+                .into_iter()
+                .all(|value| value.is_finite() && value >= 0.0)
+        );
+    }
+
+    #[test]
+    fn calibrated_default_produces_visible_directional_scattering() {
+        let density = 0.000002_f32;
+        let distance = 10_000.0_f32;
+        let scatter_amount = 1.0 - (-density * distance).exp();
+        let forward = directional_phase_response(1.0, 0.65) * scatter_amount;
+        let side = directional_phase_response(0.0, 0.65) * scatter_amount;
+
+        assert!(forward > 0.25);
+        assert!(side > 0.005);
+        assert!(forward > side * 30.0);
+        assert!(forward * 8.0 > forward);
+    }
+
+    #[test]
+    fn fog_and_directional_lighting_contributions_are_independent() {
+        let frame = valid_frame();
+        let fog_only = settings();
+        let contributions = resolve_contributions(frame, fog_only);
+        assert!(contributions.fog);
+        assert!(!contributions.lighting_ready());
+        assert_eq!(
+            fog_integration_gate(frame, fog_only),
+            FogIntegrationGate::Ready
+        );
+
+        let mut lighting_only = settings();
+        lighting_only.fog_enabled = false;
+        lighting_only.lighting_enabled = true;
+        assert_eq!(
+            fog_integration_gate(frame, lighting_only),
+            FogIntegrationGate::NoReadyContribution
+        );
+        let mut sun_frame = frame;
+        sun_frame.sky = Some(valid_sky([1.0, 0.0, 0.0]));
+        let contributions = resolve_contributions(sun_frame, lighting_only);
+        assert!(!contributions.fog);
+        assert!(contributions.lighting_ready());
+        assert_eq!(
+            fog_integration_gate(sun_frame, lighting_only),
+            FogIntegrationGate::Ready
+        );
+        assert_eq!(
+            lighting_only.effective_uniform_density(),
+            lighting_only.lighting_medium_density
+        );
+        assert_eq!(lighting_only.effective_scattering_albedo(), 1.0);
+
+        let mut combined = settings();
+        combined.lighting_enabled = true;
+        combined.lighting_medium_density = 0.0009;
+        assert_eq!(combined.effective_uniform_density(), combined.density);
+        assert_eq!(
+            combined.effective_scattering_albedo(),
+            combined.scattering_albedo
+        );
+        let missing_sun = resolve_contributions(frame, combined);
+        assert!(missing_sun.fog);
+        assert!(!missing_sun.lighting_ready());
+        assert_eq!(
+            fog_integration_gate(frame, combined),
+            FogIntegrationGate::Ready
+        );
+        let ready = resolve_contributions(sun_frame, combined);
+        assert!(ready.fog && ready.lighting_ready());
+    }
+
+    #[test]
+    fn draw_outcomes_report_whether_the_atmosphere_drew() {
+        assert!(!AtmosphereDrawOutcome::Skipped.drew());
+        assert!(AtmosphereDrawOutcome::Composed.drew());
+        assert!(AtmosphereDrawOutcome::ComposedWithLighting.drew());
+        assert!(AtmosphereDrawOutcome::DebugDrawn.drew());
+        assert!(AtmosphereDrawOutcome::LightingDebugDrawn.drew());
     }
 
     #[test]
@@ -1517,7 +2416,7 @@ mod feature_tests {
         frame.environment.fog_available = false;
         assert_eq!(
             fog_integration_gate(frame, settings),
-            FogIntegrationGate::MissingMediumColor
+            FogIntegrationGate::NoReadyContribution
         );
     }
 
@@ -1697,8 +2596,9 @@ mod feature_tests {
 #[cfg(test)]
 mod shader_compile_tests {
     use super::{
-        COMPOSE_SHADER, DEBUG_SHADER, DEPTH_REDUCE_SHADER, INTEGRATE_SHADER,
-        depth_reduce_shader_source, integration_shader_source, view_to_world_rows,
+        COMPOSE_SHADER, DEBUG_SHADER, DEPTH_REDUCE_SHADER, INTEGRATE_SHADER, SHAFT_MASK_SHADER,
+        SHAFT_RADIAL_SHADER, depth_reduce_shader_source, integration_shader_source,
+        shaft_radial_shader_source, view_to_world_rows,
     };
     use crate::backend::{CameraFrame, CameraTransformFrame};
 
@@ -1723,6 +2623,18 @@ mod shader_compile_tests {
                 "ps_3_0",
             );
         }
+        crate::shaders::assert_hlsl_compiles(
+            "atmosphere_shaft_mask.hlsl",
+            SHAFT_MASK_SHADER,
+            "ps_3_0",
+        );
+        for samples in [24, 40, 56] {
+            crate::shaders::assert_hlsl_compiles(
+                &format!("atmosphere_shaft_radial.hlsl:{samples}"),
+                &shaft_radial_shader_source(samples),
+                "ps_3_0",
+            );
+        }
         crate::shaders::assert_hlsl_compiles("atmosphere_compose.hlsl", COMPOSE_SHADER, "ps_3_0");
         crate::shaders::assert_hlsl_compiles("atmosphere_debug.hlsl", DEBUG_SHADER, "ps_3_0");
     }
@@ -1736,6 +2648,36 @@ mod shader_compile_tests {
         assert!(compose.contains("sampler2D FarAtmosphere : register(s4)"));
         assert!(compose.contains("clamp(fullDistance, nearest, farthest)"));
         assert!(!compose.contains("abs(fullDistance - nearest)"));
+        assert!(compose.contains("return float4(encodedOutput, source.a)"));
+    }
+
+    #[test]
+    fn directional_shader_abi_is_fixed_and_deterministic() {
+        let integrate = std::str::from_utf8(INTEGRATE_SHADER).expect("integration shader source");
+        let mask = std::str::from_utf8(SHAFT_MASK_SHADER).expect("shaft mask source");
+        let radial = std::str::from_utf8(SHAFT_RADIAL_SHADER).expect("shaft radial source");
+
+        assert!(integrate.contains("ShaftVisibility : register(s2)"));
+        assert!(integrate.contains("LightingData : register(c10)"));
+        assert!(integrate.contains("SunDirection : register(c11)"));
+        assert!(integrate.contains("SunColor : register(c12)"));
+        assert!(integrate.contains("SunDiskDelta : register(c13)"));
+        assert!(integrate.contains("HenyeyGreenstein"));
+        assert!(integrate.contains("HenyeyGreenstein(mu, LightingData.y) * FourPi"));
+        assert_eq!(
+            integrate
+                .matches("HeterogeneousCorrection(distance")
+                .count(),
+            1
+        );
+        assert!(radial.contains("#define ATMOSPHERE_SHAFT_SAMPLE_COUNT"));
+        assert!(radial.contains("index < ATMOSPHERE_SHAFT_SAMPLE_COUNT"));
+        assert!(radial.contains("exp(-12.0f * blockedFraction)"));
+        assert!(radial.contains("lerp(1.0f, field, influence)"));
+        assert!(!radial.contains("frame"));
+        assert!(!radial.contains("Frame"));
+        assert!(!mask.contains("frame"));
+        assert!(!mask.contains("Frame"));
     }
 
     #[test]

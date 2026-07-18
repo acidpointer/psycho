@@ -112,9 +112,9 @@ stability = 0.63
 first_person_mask = 1.0
 fog_fade = 1.0
 
-# Shared world-only atmosphere pipeline. The fog toggle adds supplemental
-# exterior height and heterogeneous fog before first-person and native image
-# space. Volumetric lighting remains a later directional-lighting phase.
+# Shared world-only atmosphere pipeline before first-person and native image
+# space. Fog and native-sun directional lighting share one extinction and
+# composition path; the lighting shaft field is deterministic and quarter-res.
 [graphics.embedded_effects.volumetric_fog]
 enabled = false
 quality = "high"
@@ -137,13 +137,17 @@ debug_view = 0
 [graphics.embedded_effects.volumetric_lighting]
 enabled = false
 intensity = 1.0
-medium_density = 0.00001
+medium_density = 0.000002
+max_distance = 120000.0
 anisotropy = 0.65
 shaft_strength = 1.0
 sun_disk_boost = 1.0
 shaft_quality = "high"
 temporal_stability = 0.9
-# 0 = off, 1 = nearest reduced depth, 2 = reduced depth span
+# Reserved for a future motion-aware atmosphere history. It is not exposed as
+# an active control until that contract exists.
+# 0 = off, 1 = shaft mask, 2 = shaft visibility, 3 = phase response,
+# 4 = directional scattering, 5 = combined atmosphere acceptance
 debug_view = 0
 
 [graphics.embedded_effects.blooming_hdr]

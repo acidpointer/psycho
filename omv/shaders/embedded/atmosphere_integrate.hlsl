@@ -1,5 +1,6 @@
 sampler2D ReducedDepth : register(s0);
 sampler2D DensityNoise : register(s1);
+sampler2D ShaftVisibility : register(s2);
 
 #ifndef ATMOSPHERE_SAMPLE_COUNT
 #define ATMOSPHERE_SAMPLE_COUNT 12
@@ -15,9 +16,15 @@ float4 MediumData0 : register(c6);
 float4 MediumData1 : register(c7);
 float4 MediumColor : register(c8);
 float4 GateData : register(c9);
+float4 LightingData : register(c10);
+float4 SunDirection : register(c11);
+float4 SunColor : register(c12);
+float4 SunDiskDelta : register(c13);
 
 static const float MaximumOpticalDepth = 40.0f;
 static const float MaximumExponent = 20.0f;
+static const float InverseFourPi = 0.0795774715f;
+static const float FourPi = 12.5663706144f;
 
 struct PixelInput {
 	float2 uv : TEXCOORD0;
@@ -81,8 +88,14 @@ float HeterogeneousCorrection(float distance, float3 worldOrigin, float3 worldDi
 	return correction;
 }
 
+float HenyeyGreenstein(float mu, float anisotropy) {
+	float g = clamp(anisotropy, -0.8f, 0.9f);
+	float denominator = max(1.0f + g * g - 2.0f * g * clamp(mu, -1.0f, 1.0f), 0.000001f);
+	return (1.0f - g * g) * InverseFourPi / pow(denominator, 1.5f);
+}
+
 float4 Main(PixelInput input) : COLOR0 {
-	if (MediumColor.w < 0.5f || GateData.x < 0.5f || GateData.y < 0.5f || GateData.z > 0.5f) {
+	if (GateData.x < 0.5f || GateData.y < 0.5f || GateData.z > 0.5f) {
 		return IdentityMedium();
 	}
 
@@ -115,9 +128,26 @@ float4 Main(PixelInput input) : COLOR0 {
 	opticalDepth = clamp(opticalDepth, 0.0f, MaximumOpticalDepth);
 
 	float transmittance = exp(-opticalDepth);
-	float3 scattering = max(MediumColor.rgb, 0.0f)
-		* (1.0f - transmittance)
-		* saturate(MediumData1.y);
+	float scatterAmount = (1.0f - transmittance) * saturate(MediumData1.y);
+	float3 scattering = max(MediumColor.rgb, 0.0f) * scatterAmount * saturate(MediumColor.w);
+	if (LightingData.w > 0.5f) {
+		float mu = dot(worldDirection, SunDirection.xyz);
+		// FNV supplies irradiance-scale direct light, not radiance per steradian.
+		float phase = HenyeyGreenstein(mu, LightingData.y) * FourPi;
+		float diskLobe = smoothstep(0.995f, 0.9999f, mu);
+		float3 radiance = max(SunColor.rgb, 0.0f)
+			+ max(SunDiskDelta.rgb, 0.0f) * max(LightingData.z, 0.0f) * diskLobe;
+		float shaft = 1.0f;
+		if (SunDirection.w > 0.5f) {
+			shaft = saturate(tex2Dlod(ShaftVisibility, float4(input.uv, 0.0f, 0.0f)).r);
+		}
+		scattering += radiance
+			* max(LightingData.x, 0.0f)
+			* saturate(SunColor.w)
+			* phase
+			* scatterAmount
+			* shaft;
+	}
 	if (!IsFiniteScalar(transmittance) || !IsFiniteVector(scattering)) {
 		return IdentityMedium();
 	}

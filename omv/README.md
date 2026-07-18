@@ -132,12 +132,26 @@ The pass also requires the exact render target captured before first-person;
 interiors, underwater frames, stale epochs, unsupported targets, and missing
 resources fail closed.
 
-Debug views cover reduced nearest depth, depth span, reconstructed world-height
-bands, source alpha, negative/overbright HDR range, optical
+Directional volumetric lighting uses the copied native sun direction,
+directional/disk colors, daylight, and the exact camera captured with world
+depth. It evaluates normalized Henyey-Greenstein single scattering, calibrated
+so FNV's irradiance-scale direct light has unit isotropic response, in the same
+medium and integration as fog. Combined mode therefore does not double
+extinction. A deterministic quarter-resolution depth mask and fixed
+24/40/56-sample blocker-sensitive radial field provide conservative
+screen-space shaft visibility. If that optional field is unavailable or the
+sun is off-screen, base directional scattering and fog remain valid. Legacy
+Sunshafts remain an independent, complementary later pass and keep their own
+toggle.
+
+Fog debug views cover reduced nearest depth, depth span, reconstructed
+world-height bands, source alpha, negative/overbright HDR range, optical
 depth/transmittance, integrated scattering, and production bilateral
-acceptance. Native distance fog remains enabled. Directional volumetric
-lighting and atmosphere temporal history are later phases, not shader-only
-guesses hidden behind the current toggles.
+acceptance. Lighting adds shaft mask, shaft visibility, phase response,
+directional scattering, and combined-result views. Native distance fog remains
+enabled. Atmosphere temporal history remains a later motion-aware phase; the
+serialized stability value is compatibility-reserved and is not presented as
+an active control.
 
 The calibrated clear-weather defaults use zero uniform density and
 `0.000002` height density. The fog menu keeps exact zero as a distinct value,

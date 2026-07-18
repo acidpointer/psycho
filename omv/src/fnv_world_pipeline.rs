@@ -637,7 +637,7 @@ impl FnvWorldPipelineRuntime {
                 result = restore.map(|_| AtmosphereDrawOutcome::Skipped);
             }
             let outcome = result?;
-            drew |= outcome != AtmosphereDrawOutcome::Skipped;
+            drew |= outcome.drew();
         }
 
         self.epoch.target = target;
@@ -903,6 +903,17 @@ mod tests {
         let mut menu = GraphicsMenuConfig::default();
         menu.depth_provider = crate::config::DepthProviderConfig::FalloutNewVegas;
         menu.embedded_effects.volumetric_fog.enabled = true;
+        let config = WorldEffectsConfig::from_menu(menu);
+        assert_eq!(config.depth_provider, DepthProvider::FalloutNewVegas);
+        assert!(config.requires_world_depth());
+        assert!(config.requires_world_color());
+    }
+
+    #[test]
+    fn production_lighting_requests_coherent_depth_and_color() {
+        let mut menu = GraphicsMenuConfig::default();
+        menu.depth_provider = crate::config::DepthProviderConfig::FalloutNewVegas;
+        menu.embedded_effects.volumetric_lighting.enabled = true;
         let config = WorldEffectsConfig::from_menu(menu);
         assert_eq!(config.depth_provider, DepthProvider::FalloutNewVegas);
         assert!(config.requires_world_depth());

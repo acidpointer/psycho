@@ -3245,11 +3245,18 @@ fn draw_shader_details(ui: &mut psycho_imgui::Ui<'_>, source: &mut ScreenShaderS
         match option.value {
             ShaderOptionValue::Float(value) => {
                 let mut value = value;
-                let fog_density = source.embedded_effect_kind()
-                    == Some(EmbeddedEffectKind::VolumetricFog)
-                    && matches!(option.key.as_str(), "density" | "height_density");
-                let value_changed = if fog_density {
-                    draw_fog_density_control(
+                let atmosphere_density = matches!(
+                    (source.embedded_effect_kind(), option.key.as_str()),
+                    (
+                        Some(EmbeddedEffectKind::VolumetricFog),
+                        "density" | "height_density"
+                    ) | (
+                        Some(EmbeddedEffectKind::VolumetricLighting),
+                        "medium_density"
+                    )
+                );
+                let value_changed = if atmosphere_density {
+                    draw_atmosphere_density_control(
                         ui,
                         option.label.as_str(),
                         &format!("{}.{}", source.name, option.key),
@@ -3390,7 +3397,7 @@ fn draw_float_slider(
     ui.precise_float(&label, &id, value, min, max, step, step * 10.0, logarithmic)
 }
 
-fn draw_fog_density_control(
+fn draw_atmosphere_density_control(
     ui: &mut psycho_imgui::Ui<'_>,
     label: &str,
     id: &str,
@@ -3571,7 +3578,7 @@ fn embedded_effect_description(kind: Option<EmbeddedEffectKind>) -> Option<&'sta
             "World-only supplemental exterior height and heterogeneous fog; Off uses production composition, modes 6/7 inspect the reduced medium, and mode 8 shows bilateral acceptance.",
         ),
         Some(EmbeddedEffectKind::VolumetricLighting) => Some(
-            "Planned Phase 3 directional volumetric lighting; this toggle does not yet add production light scattering.",
+            "World-only native-sun single scattering with deterministic depth-occluded shafts; lighting-only and shared-fog media use one dual-layer composition, while legacy Sunshafts remain independent.",
         ),
         Some(EmbeddedEffectKind::BloomingHdr) => {
             Some("Highlight bloom, exposure shaping, color response, and atmosphere.")

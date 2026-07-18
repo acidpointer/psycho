@@ -290,6 +290,7 @@ pub(crate) struct VolumetricLightingConfig {
     pub(crate) enabled: bool,
     pub(crate) intensity: f32,
     pub(crate) medium_density: f32,
+    pub(crate) max_distance: f32,
     pub(crate) anisotropy: f32,
     pub(crate) shaft_strength: f32,
     pub(crate) sun_disk_boost: f32,
@@ -303,7 +304,8 @@ impl Default for VolumetricLightingConfig {
         Self {
             enabled: false,
             intensity: 1.0,
-            medium_density: 0.00001,
+            medium_density: 0.000002,
+            max_distance: 120_000.0,
             anisotropy: 0.65,
             shaft_strength: 1.0,
             sun_disk_boost: 1.0,
@@ -317,12 +319,13 @@ impl Default for VolumetricLightingConfig {
 impl VolumetricLightingConfig {
     fn sanitized(mut self) -> Self {
         self.intensity = finite_clamp(self.intensity, 1.0, 0.0, 8.0);
-        self.medium_density = finite_clamp(self.medium_density, 0.00001, 0.0, 0.001);
+        self.medium_density = finite_clamp(self.medium_density, 0.000002, 0.0, 0.001);
+        self.max_distance = finite_clamp(self.max_distance, 120_000.0, 1_000.0, 250_000.0);
         self.anisotropy = finite_clamp(self.anisotropy, 0.65, -0.8, 0.9);
-        self.shaft_strength = finite_clamp(self.shaft_strength, 1.0, 0.0, 4.0);
+        self.shaft_strength = finite_clamp(self.shaft_strength, 1.0, 0.0, 1.0);
         self.sun_disk_boost = finite_clamp(self.sun_disk_boost, 1.0, 0.0, 8.0);
         self.temporal_stability = finite_clamp(self.temporal_stability, 0.9, 0.0, 0.98);
-        self.debug_view = self.debug_view.clamp(0, 2);
+        self.debug_view = self.debug_view.clamp(0, 5);
         self
     }
 }
@@ -977,6 +980,8 @@ fn save_embedded_effect_config(doc: &mut DocumentMut, config: &EmbeddedEffectsCo
         value(lighting.intensity as f64);
     doc["graphics"]["embedded_effects"]["volumetric_lighting"]["medium_density"] =
         value(lighting.medium_density as f64);
+    doc["graphics"]["embedded_effects"]["volumetric_lighting"]["max_distance"] =
+        value(lighting.max_distance as f64);
     doc["graphics"]["embedded_effects"]["volumetric_lighting"]["anisotropy"] =
         value(lighting.anisotropy as f64);
     doc["graphics"]["embedded_effects"]["volumetric_lighting"]["shaft_strength"] =
@@ -1206,6 +1211,9 @@ albedo_saturation = 1.02
         config.volumetric_fog.scattering_albedo = 4.0;
         config.volumetric_fog.debug_view = 99;
         config.volumetric_lighting.anisotropy = -5.0;
+        config.volumetric_lighting.max_distance = f32::INFINITY;
+        config.volumetric_lighting.shaft_strength = 9.0;
+        config.volumetric_lighting.debug_view = 99;
         config.volumetric_lighting.temporal_stability = f32::NAN;
 
         let config = config.sanitized();
@@ -1214,6 +1222,9 @@ albedo_saturation = 1.02
         assert_eq!(config.volumetric_fog.scattering_albedo, 1.0);
         assert_eq!(config.volumetric_fog.debug_view, 8);
         assert_eq!(config.volumetric_lighting.anisotropy, -0.8);
+        assert_eq!(config.volumetric_lighting.max_distance, 120_000.0);
+        assert_eq!(config.volumetric_lighting.shaft_strength, 1.0);
+        assert_eq!(config.volumetric_lighting.debug_view, 5);
         assert_eq!(config.volumetric_lighting.temporal_stability, 0.9);
     }
 

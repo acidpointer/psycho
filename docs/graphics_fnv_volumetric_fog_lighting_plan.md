@@ -589,13 +589,22 @@ This phase is useful and honest without shadow maps.
 
 ### Phase 3: directional volumetric lighting
 
+Implemented on 2026-07-19; feature-first runtime acceptance is pending.
+
+The complete implementation contract is in
+`docs/graphics_fnv_atmosphere_phase3_directional_lighting_plan.md`. It preserves
+the accepted dual-layer fog fix, derives sun projection from the exact captured
+depth camera, adds a bounded quarter-resolution shaft field, and statically
+compiles every fixed `ps_3_0` variant before deployment.
+
 1. Refactor current sunshafts into the shared atmosphere pipeline.
 2. Replace fixed shaft tint with native sun light/disk/horizon colors.
 3. Produce a temporally stable screen-space shaft field.
 4. Integrate Henyey-Greenstein sun in-scattering through the same medium, then
    use the shaft field only as a 2D directional-scattering modulation.
-5. Keep the existing sunshaft pipeline as a compatibility fallback until the
-   new path passes quality/performance gates.
+5. Keep the existing sunshaft pipeline as an independent complementary pass;
+   successful Phase 3 composition is not proof that it can replace the legacy
+   artistic shafts.
 
 This delivers convincing screen-space volumetric lighting, but diagnostics must
 call the input a shaft factor rather than shadow-map or per-ray visibility.
