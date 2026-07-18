@@ -58,6 +58,8 @@ Do not "fix" a broken graphics feature by globally disabling that target feature
 
 Before changing Fallout NV native PBR, read `docs/graphics_fnv_pbr_errata.md`. It records known PBR terrain/object/light regressions, including the close-terrain `-40 FPS` failure, broken terrain colors, interior wall/floor corruption, and light/shadow blinking. Do not repeat any "do not repeat" pattern from that document.
 
+Before changing OMV atmosphere startup or ownership, read `docs/graphics_fnv_atmosphere_startup_crash_errata.md`. The focused FNV world pipeline must not be initialized or receive its first config publication from `NVSEPlugin_Load`; stage config with the existing startup/runtime lock and publish it from `DeferredInit` before installing render hooks. Blocking locks are valid for startup/configuration. Render callbacks remain `try_lock`-only.
+
 ## Config
 
 Plugin runtime config: `psycho-engine-fixes/config/psycho_engine_fixes.toml`, deployed beside the core DLL as `<game root>/syringe/psycho_engine_fixes.toml`. Important memory setting: `memory.allocator` (`0` = off, `1` = scrap_heap, `2` = gheap + scrap_heap). It also controls zlib, display tweaks, logging, and debug probes.

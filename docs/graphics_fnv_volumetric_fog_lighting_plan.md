@@ -565,18 +565,14 @@ Expected outputs:
 The complete implementation contract is in
 `docs/graphics_fnv_volumetric_fog_phase2_implementation_plan.md`.
 
-Status on 2026-07-18: Slices A and B are implemented. The known diagnostic blink
-has been deferred so feature development can continue, and Slice C reduced
-medium integration is implemented and statically verified under
-`docs/graphics_fnv_atmosphere_phase2_slice_c_feature_plan.md`. Slice C does not
-write production world color. A fresh DXVK log proves its High-quality,
-half-resolution 12-sample integration draw executes under the complete
-exterior/above-water contract, but debug view 0 cannot validate its pixels.
-Slice D production-visible fog and the resizable/wrapped OMV menu are now
-planned in
+Status on 2026-07-18: Slices A through D are implemented. Production-visible
+fog and the resizable/wrapped OMV menu are defined in
 `docs/graphics_fnv_atmosphere_phase2_slice_d_visual_composition_ui_plan.md`.
-The blink closure remains tracked for final Phase 2 acceptance, while the
-independent source-transfer gate remains in force for production composition.
+The first production playtest proves fog composition works, but also captures
+consecutive missing-world-color bypasses and excessive clear-weather
+extinction. The active release blocker is
+`docs/graphics_fnv_atmosphere_phase2_reliability_calibration_plan.md`. It must
+close non-blocking execution ownership and fog calibration before Phase 3.
 
 1. Publish the proven epoch-tagged underwater value and repair TAA alpha
    ownership before composing fog.

@@ -12,7 +12,7 @@ use libpsycho::os::windows::directx9::{
 
 use crate::{
     backend::{CameraFrame, DepthFrame},
-    shaders::{self, ScreenShaderSource},
+    config, shaders,
 };
 
 const COLOR_WRITE_ALL: u32 = 0x0F;
@@ -28,9 +28,14 @@ pub(crate) struct TemporalAaConfig {
 }
 
 impl TemporalAaConfig {
-    pub(crate) fn from_source(source: &ScreenShaderSource) -> Self {
+    pub(crate) fn from_config(config: config::TemporalAaConfig) -> Self {
         Self {
-            options: source.option_constants.first().copied().unwrap_or_default(),
+            options: [
+                config.history_weight,
+                config.clamp_strength,
+                config.sharpness,
+                config.jitter_scale,
+            ],
         }
     }
 

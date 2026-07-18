@@ -113,6 +113,15 @@ resolution. The engine's explicit above/underwater classification is published
 as an epoch-tagged value; OMV retains no engine water pointer and rejects stale
 or missing publication.
 
+World TAA, source capture, and atmosphere composition share one focused
+nonblocking owner. Present advances an atomic render epoch even when menu or
+final-pass work is busy. A busy primary world/depth owner publishes an exact
+epoch/target token and gets one retry at first-person entry; a retry that is no
+longer safe fails closed before first-person instead of applying late. Reset
+uses nonblocking nested ownership and returns device-lost until every affected
+owner can release resources without a partial reset. The log emits periodic
+`[FNV WORLD] Reliability` counters for playtest acceptance.
+
 Debug view Off depth-bilaterally upsamples the current integration and composes
 `linear_source * transmittance + scattering` directly onto the original FP16
 world target. The proven pre-native-image-space transfer is decoded and encoded
@@ -129,6 +138,13 @@ depth/transmittance, integrated scattering, and production bilateral
 acceptance. Native distance fog remains enabled. Directional volumetric
 lighting and atmosphere temporal history are later phases, not shader-only
 guesses hidden behind the current toggles.
+
+The calibrated clear-weather defaults use zero uniform density and
+`0.000002` height density. The fog menu keeps exact zero as a distinct value,
+uses logarithmic nonzero density controls, shows the current effective distance
+bound and estimated horizontal transmission, and provides a fog-only reset to
+the calibrated profile. Higher user values remain available for intentional
+heavy-weather presets.
 
 The graphics workbench opens at a compact centered size and can be resized up
 to the current viewport work area. Its feature/details panes adapt to the

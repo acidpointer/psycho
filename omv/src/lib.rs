@@ -9,6 +9,7 @@ mod compat;
 mod config;
 mod effects;
 mod fnv_render;
+mod fnv_world_pipeline;
 mod hooks;
 mod input;
 mod nvse_plugin;

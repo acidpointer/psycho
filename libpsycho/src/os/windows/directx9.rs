@@ -94,6 +94,8 @@ pub type Direct3DResult<T> = WindowsResult<T>;
 
 /// ABI value returned when a D3D hook cannot call its original function.
 pub const D3D_FAILURE_CODE: i32 = windows::Win32::Foundation::E_FAIL.0;
+/// ABI value returned when a nonblocking Reset preflight must be retried.
+pub const D3D_DEVICE_LOST_CODE: i32 = 0x8876_0868u32 as i32;
 const D3DERR_NOTFOUND: HRESULT = HRESULT(0x8876_0866u32 as i32);
 
 /// Construct a generic Direct3D failure for higher-level validation errors.

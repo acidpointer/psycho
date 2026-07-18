@@ -532,6 +532,18 @@ fn volumetric_fog_source(config: &VolumetricFogConfig) -> ScreenShaderSource {
     )
 }
 
+pub(crate) fn reset_volumetric_fog_defaults(source: &mut ScreenShaderSource) -> bool {
+    if source.embedded_effect_kind() != Some(EmbeddedEffectKind::VolumetricFog) {
+        return false;
+    }
+
+    let enabled = source.enabled;
+    let mut defaults = volumetric_fog_source(&VolumetricFogConfig::default());
+    defaults.enabled = enabled;
+    *source = defaults;
+    true
+}
+
 fn volumetric_lighting_source(config: &VolumetricLightingConfig) -> ScreenShaderSource {
     embedded_source(
         EmbeddedEffectKind::VolumetricLighting,

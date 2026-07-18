@@ -29,7 +29,7 @@ use crate::{
     config::{DepthProviderConfig, GraphicsMenuConfig},
     effects::{
         ambient_occlusion, anti_aliasing, atmosphere, blooming_hdr, depth_of_field, pbr, sky,
-        sunshafts, temporal_aa,
+        sunshafts,
     },
     shaders::{self, EmbeddedEffectKind, ScreenShaderSource, ShaderOptionValue, ShaderPhase},
 };
@@ -63,16 +63,24 @@ static MENU_TOGGLE_KEY: AtomicU32 = AtomicU32::new(DEFAULT_MENU_TOGGLE_KEY);
 static MENU_KEY_CAPTURE_ACTIVE: AtomicBool = AtomicBool::new(false);
 static PENDING_MENU_TOGGLE_KEY: AtomicU32 = AtomicU32::new(0);
 static NATIVE_DOF_QUERY_NEEDED: AtomicBool = AtomicBool::new(false);
-static TEMPORAL_AA_NEEDED: AtomicBool = AtomicBool::new(false);
+static FNV_SCENE_REQUIREMENTS: AtomicU32 = AtomicU32::new(0);
+static PRESENT_APPLY_BUSY: AtomicU32 = AtomicU32::new(0);
+static PRESENT_FINISH_BUSY: AtomicU32 = AtomicU32::new(0);
+static SCENE_PHASE_BUSY: AtomicU32 = AtomicU32::new(0);
+static WORLD_COLOR_BUSY: AtomicU32 = AtomicU32::new(0);
+static RESET_BUSY: AtomicU32 = AtomicU32::new(0);
+const FNV_REQUIRE_WORLD_DEPTH: u32 = 1 << 0;
+const FNV_REQUIRE_FIRST_PERSON_DEPTH: u32 = 1 << 1;
+const FNV_REQUIRE_WORLD_COLOR: u32 = 1 << 2;
 
 pub(crate) fn configure(settings: RuntimeSettings) {
+    // This runs from NVSEPlugin_Load. Keep the focused FNV world owner dormant
+    // until DeferredInit; see graphics_fnv_atmosphere_startup_crash_errata.md.
     MENU_TOGGLE_KEY.store(
         sanitize_menu_toggle_key(settings.menu_toggle_key),
         Ordering::Release,
     );
     update_native_dof_query_needed(&settings.menu_config);
-    update_temporal_aa_needed(&settings.menu_config);
-
     let mut runtime = RUNTIME.lock();
     runtime.configure(settings);
 }
@@ -81,14 +89,16 @@ pub(crate) fn needs_native_dof_query() -> bool {
     NATIVE_DOF_QUERY_NEEDED.load(Ordering::Acquire)
 }
 
-pub(crate) fn needs_temporal_aa() -> bool {
-    TEMPORAL_AA_NEEDED.load(Ordering::Acquire)
-}
-
 pub(crate) unsafe fn apply_present_frame(device_ptr: *mut c_void, hwnd_hint: *mut c_void) {
     let Some(mut runtime) = RUNTIME.try_lock() else {
+        PRESENT_APPLY_BUSY.fetch_add(1, Ordering::Relaxed);
         return;
     };
+    runtime.begin_render_epoch(crate::hooks::render_epoch());
+
+    if crate::fnv_world_pipeline::config_publish_pending() {
+        crate::fnv_world_pipeline::publish_config(runtime.settings.menu_config);
+    }
 
     let result = unsafe { runtime.apply_present_frame(device_ptr, hwnd_hint) };
     if let Err(err) = result {
@@ -101,8 +111,10 @@ pub(crate) unsafe fn apply_fnv_scene_pre_image_space(
     source_rendered_texture: *mut c_void,
 ) {
     let Some(mut runtime) = RUNTIME.try_lock() else {
+        SCENE_PHASE_BUSY.fetch_add(1, Ordering::Relaxed);
         return;
     };
+    runtime.begin_render_epoch(crate::hooks::render_epoch());
 
     let result = unsafe {
         runtime.apply_scene_phase(
@@ -121,8 +133,10 @@ pub(crate) unsafe fn apply_fnv_scene_post_image_space(
     native_dof_active: bool,
 ) {
     let Some(mut runtime) = RUNTIME.try_lock() else {
+        SCENE_PHASE_BUSY.fetch_add(1, Ordering::Relaxed);
         return;
     };
+    runtime.begin_render_epoch(crate::hooks::render_epoch());
 
     runtime.native_dof_active_this_frame = native_dof_active;
     let result = unsafe {
@@ -139,8 +153,10 @@ pub(crate) unsafe fn apply_fnv_scene_post_image_space(
 
 pub(crate) unsafe fn apply_fnv_final_image_space(device_ptr: *mut c_void) {
     let Some(mut runtime) = RUNTIME.try_lock() else {
+        SCENE_PHASE_BUSY.fetch_add(1, Ordering::Relaxed);
         return;
     };
+    runtime.begin_render_epoch(crate::hooks::render_epoch());
 
     let result = unsafe {
         runtime.apply_scene_phase(
@@ -156,8 +172,10 @@ pub(crate) unsafe fn apply_fnv_final_image_space(device_ptr: *mut c_void) {
 
 pub(crate) unsafe fn capture_fnv_world_color(device_ptr: *mut c_void) {
     let Some(mut runtime) = RUNTIME.try_lock() else {
+        WORLD_COLOR_BUSY.fetch_add(1, Ordering::Relaxed);
         return;
     };
+    runtime.begin_render_epoch(crate::hooks::render_epoch());
 
     let result = unsafe { runtime.capture_fnv_world_color(device_ptr) };
     if let Err(err) = result {
@@ -165,71 +183,64 @@ pub(crate) unsafe fn capture_fnv_world_color(device_ptr: *mut c_void) {
     }
 }
 
-pub(crate) unsafe fn temporal_aa_jitter_pixels(
-    device_ptr: *mut c_void,
-    target: temporal_aa::TargetDescription,
-) -> Option<[f32; 2]> {
-    let mut runtime = RUNTIME.try_lock()?;
-    match unsafe { runtime.temporal_aa_jitter_pixels(device_ptr, target) } {
-        Ok(jitter) => jitter,
-        Err(err) => {
-            runtime.log_frame_error(&err);
-            None
+pub(crate) fn needs_fnv_depth_capture(slot: backend::DepthResolveSlot) -> bool {
+    let requirements = FNV_SCENE_REQUIREMENTS.load(Ordering::Acquire);
+    match slot {
+        backend::DepthResolveSlot::World => requirements & FNV_REQUIRE_WORLD_DEPTH != 0,
+        backend::DepthResolveSlot::FirstPerson => {
+            requirements & FNV_REQUIRE_FIRST_PERSON_DEPTH != 0
         }
     }
 }
 
-pub(crate) unsafe fn apply_fnv_temporal_aa(device_ptr: *mut c_void) {
-    let Some(mut runtime) = RUNTIME.try_lock() else {
-        return;
-    };
-    let result = unsafe { runtime.apply_fnv_temporal_aa(device_ptr) };
-    if let Err(err) = result {
-        runtime.log_frame_error(&err);
-    }
-}
-
-pub(crate) unsafe fn apply_fnv_atmosphere(device_ptr: *mut c_void) {
-    let Some(mut runtime) = RUNTIME.try_lock() else {
-        return;
-    };
-    let result = unsafe { runtime.apply_fnv_atmosphere(device_ptr) };
-    if let Err(err) = result {
-        runtime.log_frame_error(&err);
-    }
-}
-
-pub(crate) fn needs_fnv_depth_capture(slot: backend::DepthResolveSlot) -> bool {
-    let Some(runtime) = RUNTIME.try_lock() else {
-        return slot == backend::DepthResolveSlot::World && needs_temporal_aa();
-    };
-
-    let requirements = runtime.fnv_scene_input_requirements();
-    match slot {
-        backend::DepthResolveSlot::World => requirements.world_depth,
-        backend::DepthResolveSlot::FirstPerson => requirements.first_person_depth,
-    }
-}
-
 pub(crate) fn needs_fnv_world_color_capture() -> bool {
-    let Some(runtime) = RUNTIME.try_lock() else {
+    FNV_SCENE_REQUIREMENTS.load(Ordering::Acquire) & FNV_REQUIRE_WORLD_COLOR != 0
+}
+
+pub(crate) unsafe fn try_release_device_resources(device_ptr: *mut c_void) -> bool {
+    let Some(mut runtime) = RUNTIME.try_lock() else {
+        RESET_BUSY.fetch_add(1, Ordering::Relaxed);
         return false;
     };
-
-    runtime.fnv_scene_input_requirements().world_color
-}
-
-pub(crate) unsafe fn release_device_resources(device_ptr: *mut c_void) {
-    let mut runtime = RUNTIME.lock();
+    if !crate::fnv_world_pipeline::try_release_device_resources_after(device_ptr, || {
+        backend::try_reset_depth_resources()
+    }) {
+        RESET_BUSY.fetch_add(1, Ordering::Relaxed);
+        return false;
+    }
     runtime.release_if_device(device_ptr);
+    true
 }
 
 pub(crate) unsafe fn finish_present_frame(device_ptr: *mut c_void) {
     let Some(mut runtime) = RUNTIME.try_lock() else {
+        PRESENT_FINISH_BUSY.fetch_add(1, Ordering::Relaxed);
         return;
     };
 
+    runtime.begin_render_epoch(crate::hooks::render_epoch());
     runtime.finish_present_frame(device_ptr);
+}
+
+pub(crate) fn service_lock_telemetry(render_epoch: u32) {
+    if render_epoch % 600 != 0 {
+        return;
+    }
+    let present_apply = PRESENT_APPLY_BUSY.load(Ordering::Relaxed);
+    let present_finish = PRESENT_FINISH_BUSY.load(Ordering::Relaxed);
+    let scene_phase = SCENE_PHASE_BUSY.load(Ordering::Relaxed);
+    let world_color = WORLD_COLOR_BUSY.load(Ordering::Relaxed);
+    let reset = RESET_BUSY.load(Ordering::Relaxed);
+    if present_apply | present_finish | scene_phase | world_color | reset != 0 {
+        log::info!(
+            "[SHADERS] Nonblocking owner contention: present_apply={}, present_finish={}, scene_phase={}, world_color={}, reset={}",
+            present_apply,
+            present_finish,
+            scene_phase,
+            world_color,
+            reset,
+        );
+    }
 }
 
 pub(crate) fn handle_window_message(
@@ -304,10 +315,6 @@ struct ScreenShaderRuntime {
     compiled: Option<Vec<CompiledPass>>,
     ambient_occlusion: Option<ambient_occlusion::AmbientOcclusionEffect>,
     anti_aliasing: Option<anti_aliasing::AntiAliasingEffect>,
-    temporal_aa: Option<temporal_aa::TemporalAaEffect>,
-    temporal_aa_creation_failed: bool,
-    atmosphere: Option<atmosphere::AtmosphereEffect>,
-    atmosphere_creation_failed: bool,
     blooming_hdr: Option<blooming_hdr::BloomingHdrEffect>,
     sunshafts: Option<sunshafts::SunshaftsEffect>,
     depth_of_field: Option<depth_of_field::DepthOfFieldEffect>,
@@ -324,6 +331,7 @@ struct ScreenShaderRuntime {
     selected_menu_item: MenuSelection,
     frame_pacing: FramePacing,
     next_scan: Option<Instant>,
+    render_epoch: u32,
     frame_index: u32,
     last_depth_available: Option<bool>,
     last_fog_available: Option<bool>,
@@ -338,10 +346,6 @@ struct ScreenShaderRuntime {
     scene_target_logs: u32,
     world_color_capture_logs: u32,
     world_color_captured_this_frame: bool,
-    atmosphere_called_this_frame: bool,
-    atmosphere_callbacks_this_frame: u8,
-    atmosphere_duplicate_logs: u32,
-    atmosphere_skip_logs: u32,
     applied_phases: AppliedShaderPhases,
     native_dof_active_this_frame: bool,
 }
@@ -355,10 +359,6 @@ impl Default for ScreenShaderRuntime {
             compiled: None,
             ambient_occlusion: None,
             anti_aliasing: None,
-            temporal_aa: None,
-            temporal_aa_creation_failed: false,
-            atmosphere: None,
-            atmosphere_creation_failed: false,
             blooming_hdr: None,
             sunshafts: None,
             depth_of_field: None,
@@ -375,6 +375,7 @@ impl Default for ScreenShaderRuntime {
             selected_menu_item: MenuSelection::default(),
             frame_pacing: FramePacing::default(),
             next_scan: None,
+            render_epoch: 0,
             frame_index: 0,
             last_depth_available: None,
             last_fog_available: None,
@@ -389,10 +390,6 @@ impl Default for ScreenShaderRuntime {
             scene_target_logs: 0,
             world_color_capture_logs: 0,
             world_color_captured_this_frame: false,
-            atmosphere_called_this_frame: false,
-            atmosphere_callbacks_this_frame: 0,
-            atmosphere_duplicate_logs: 0,
-            atmosphere_skip_logs: 0,
             applied_phases: AppliedShaderPhases::default(),
             native_dof_active_this_frame: false,
         }
@@ -400,6 +397,18 @@ impl Default for ScreenShaderRuntime {
 }
 
 impl ScreenShaderRuntime {
+    fn begin_render_epoch(&mut self, render_epoch: u32) {
+        if self.render_epoch == render_epoch {
+            return;
+        }
+        self.render_epoch = render_epoch;
+        self.applied_phases = AppliedShaderPhases::default();
+        self.world_color_captured_this_frame = false;
+        self.world_color_source_target = 0;
+        self.native_dof_active_this_frame = false;
+        self.frame_index = self.frame_index.wrapping_add(1);
+    }
+
     fn configure(&mut self, settings: RuntimeSettings) {
         pbr::configure_runtime_options(settings.menu_config.native_pbr.into());
         sky::configure_runtime_options(settings.menu_config.native_sky.into());
@@ -409,6 +418,7 @@ impl ScreenShaderRuntime {
         self.menu_config_error = None;
         self.menu_config_notice = None;
         self.menu_config_dirty = false;
+        self.publish_fnv_scene_requirements();
     }
 
     unsafe fn apply_present_frame(
@@ -687,234 +697,6 @@ impl ScreenShaderRuntime {
         Ok(())
     }
 
-    unsafe fn temporal_aa_jitter_pixels(
-        &mut self,
-        device_ptr: *mut c_void,
-        target: temporal_aa::TargetDescription,
-    ) -> Direct3DResult<Option<[f32; 2]>> {
-        if !self.settings.menu_config.screen_space_shaders {
-            return Ok(None);
-        }
-        let source = self.sources.iter().find(|source| {
-            source.enabled && source.embedded_effect_kind() == Some(EmbeddedEffectKind::TemporalAa)
-        });
-        let Some(source) = source else {
-            return Ok(None);
-        };
-        let config = temporal_aa::TemporalAaConfig::from_source(source);
-        if self.temporal_aa_creation_failed {
-            return Ok(None);
-        }
-        let Some(device) = (unsafe { Device9Ref::from_raw_void(device_ptr) }) else {
-            return Ok(None);
-        };
-        if self.device_ptr != device_ptr as usize {
-            self.release_for_new_device();
-            self.device_ptr = device_ptr as usize;
-        }
-        if self.temporal_aa.is_none() {
-            match temporal_aa::TemporalAaEffect::create(&device) {
-                Ok(effect) => {
-                    self.temporal_aa = Some(effect);
-                    log::info!("[TAA] World temporal resolve initialized");
-                }
-                Err(err) => {
-                    self.temporal_aa_creation_failed = true;
-                    return Err(err);
-                }
-            }
-        }
-        let Some(epoch) =
-            backend::fnv_temporal_depth_epoch(device_ptr, target.width, target.height)
-        else {
-            return Ok(None);
-        };
-        let Some(camera) = backend::fnv_world_camera_frame(target.width, target.height) else {
-            return Ok(None);
-        };
-        if !self
-            .temporal_aa
-            .as_ref()
-            .is_some_and(|effect| effect.can_jitter(camera, epoch, target))
-        {
-            return Ok(None);
-        }
-        let scale = config.jitter_scale();
-        let sample_index = self.frame_index.wrapping_add(1);
-        Ok(Some([
-            (halton(sample_index, 2) - 0.5) * scale,
-            (halton(sample_index, 3) - 0.5) * scale,
-        ]))
-    }
-
-    unsafe fn apply_fnv_temporal_aa(&mut self, device_ptr: *mut c_void) -> Direct3DResult<()> {
-        let source = self.sources.iter().find(|source| {
-            source.enabled && source.embedded_effect_kind() == Some(EmbeddedEffectKind::TemporalAa)
-        });
-        let Some(source) = source else {
-            return Ok(());
-        };
-        let config = temporal_aa::TemporalAaConfig::from_source(source);
-        if self.temporal_aa_creation_failed {
-            return Ok(());
-        }
-        let Some(device) = (unsafe { Device9Ref::from_raw_void(device_ptr) }) else {
-            return Ok(());
-        };
-        if self.device_ptr != device_ptr as usize {
-            self.release_for_new_device();
-            self.device_ptr = device_ptr as usize;
-        }
-
-        let render_target = device.render_target(0)?;
-        let desc = render_target.desc()?;
-        if desc.Width == 0 || desc.Height == 0 {
-            return Ok(());
-        }
-        self.ensure_state_block(&device)?;
-        let restore_target = render_target.clone();
-        let Some(state_block) = self.state_block.as_ref() else {
-            return Err(runtime_error("[TAA] Missing D3D state block"));
-        };
-        state_block.capture()?;
-
-        if self.temporal_aa.is_none() {
-            let _ = state_block.apply();
-            return Ok(());
-        }
-
-        let depth = self.current_depth_frame();
-        let draw_result = self.temporal_aa.as_mut().map_or(Ok(()), |effect| {
-            effect.draw(&device, &render_target, &desc, depth, config)
-        });
-        let restore_result = state_block.apply();
-        let target_restore_result = device.set_render_target(0, &restore_target);
-        restore_result?;
-        target_restore_result?;
-        draw_result
-    }
-
-    unsafe fn apply_fnv_atmosphere(&mut self, device_ptr: *mut c_void) -> Direct3DResult<()> {
-        if !self.settings.menu_config.screen_space_shaders {
-            return Ok(());
-        }
-        let Some(settings) = ({
-            let fog_source = self.sources.iter().find(|source| {
-                source.enabled
-                    && source.embedded_effect_kind() == Some(EmbeddedEffectKind::VolumetricFog)
-            });
-            let lighting_source = self.sources.iter().find(|source| {
-                source.enabled
-                    && source.embedded_effect_kind() == Some(EmbeddedEffectKind::VolumetricLighting)
-            });
-            (fog_source.is_some() || lighting_source.is_some())
-                .then(|| atmosphere::AtmosphereSettings::from_sources(fog_source, lighting_source))
-        }) else {
-            return Ok(());
-        };
-        self.atmosphere_callbacks_this_frame =
-            self.atmosphere_callbacks_this_frame.saturating_add(1);
-        if self.atmosphere_callbacks_this_frame > 1 {
-            if self.atmosphere_duplicate_logs < 8 {
-                log::warn!(
-                    "[ATMOSPHERE] Duplicate world-boundary callback skipped: calls_this_present={}",
-                    self.atmosphere_callbacks_this_frame
-                );
-                self.atmosphere_duplicate_logs += 1;
-            }
-            return Ok(());
-        }
-        if self.atmosphere_creation_failed {
-            return Ok(());
-        }
-
-        let Some(device) = (unsafe { Device9Ref::from_raw_void(device_ptr) }) else {
-            return Ok(());
-        };
-        if self.device_ptr != device_ptr as usize {
-            self.release_for_new_device();
-            self.device_ptr = device_ptr as usize;
-        }
-
-        let world_target = device.render_target(0)?;
-        let desc = world_target.desc()?;
-        if desc.Width == 0 || desc.Height == 0 {
-            return Ok(());
-        }
-        let taa_enabled = self.sources.iter().any(|source| {
-            source.enabled && source.embedded_effect_kind() == Some(EmbeddedEffectKind::TemporalAa)
-        });
-        let taa_alpha_ready = !taa_enabled
-            || self.temporal_aa.as_ref().is_some_and(|effect| {
-                effect.alpha_preserving_history_ready(temporal_aa::TargetDescription::from(&desc))
-            });
-        let world_target_matches_capture =
-            self.world_color_source_target == world_target.as_raw() as usize;
-        let world_color = if self.world_color_captured_this_frame && world_target_matches_capture {
-            self.world_color_copy.clone()
-        } else {
-            None
-        };
-        if settings.requires_world_color() && world_color.is_none() {
-            if self.atmosphere_skip_logs < 8 {
-                log::warn!(
-                    "[ATMOSPHERE] World-color capture missing or target changed; pipeline bypassed: captured={}, target_match={}",
-                    self.world_color_captured_this_frame,
-                    world_target_matches_capture,
-                );
-                self.atmosphere_skip_logs += 1;
-            }
-            return Ok(());
-        }
-
-        let frame =
-            backend::atmosphere_frame(self.settings.depth_provider, &desc, settings.max_distance);
-        if let Some(reason) = frame.depth_contract_failure() {
-            if self.atmosphere_skip_logs < 8 {
-                log::warn!("[ATMOSPHERE] Pipeline bypassed: {reason}");
-                self.atmosphere_skip_logs += 1;
-            }
-            return Ok(());
-        }
-        self.atmosphere_called_this_frame = true;
-
-        if self.atmosphere.is_none() {
-            match atmosphere::AtmosphereEffect::create(&device) {
-                Ok(effect) => {
-                    self.atmosphere = Some(effect);
-                    log::info!("[ATMOSPHERE] Strict-FP16 world pipeline initialized");
-                }
-                Err(err) => {
-                    self.atmosphere_creation_failed = true;
-                    return Err(err);
-                }
-            }
-        }
-
-        self.ensure_state_block(&device)?;
-        let restore_target = world_target.clone();
-        let attachments = RenderAttachments::capture(&device, restore_target)?;
-        let Some(state_block) = self.state_block.as_ref() else {
-            return Err(runtime_error("[ATMOSPHERE] Missing D3D state block"));
-        };
-        state_block.capture()?;
-        let mut result = self.atmosphere.as_mut().map_or(Ok(()), |effect| {
-            effect.draw(
-                &device,
-                &world_target,
-                &desc,
-                frame,
-                world_color.as_ref().map(|copy| &copy.texture),
-                settings,
-                taa_enabled,
-                taa_alpha_ready,
-            )
-        });
-        keep_first_d3d_error(&mut result, attachments.restore(&device));
-        keep_first_d3d_error(&mut result, state_block.apply());
-        result
-    }
-
     fn scan_shaders_if_due(&mut self) {
         let now = Instant::now();
         if self.next_scan.is_some_and(|next| now < next) {
@@ -936,6 +718,7 @@ impl ScreenShaderRuntime {
                     self.compiled = None;
                 }
                 self.sources = sources;
+                self.publish_fnv_scene_requirements();
                 if old_count != new_count {
                     log::info!("[SHADERS] Live shader list: {new_count} shader(s)");
                 }
@@ -1688,7 +1471,8 @@ impl ScreenShaderRuntime {
         self.settings.shader_scan_interval_ms = self.settings.menu_config.shader_scan_interval_ms;
         MENU_TOGGLE_KEY.store(self.settings.menu_toggle_key, Ordering::Release);
         update_native_dof_query_needed(&self.settings.menu_config);
-        update_temporal_aa_needed(&self.settings.menu_config);
+        crate::fnv_world_pipeline::publish_config(self.settings.menu_config);
+        self.publish_fnv_scene_requirements();
         pbr::configure_runtime_options(self.settings.menu_config.native_pbr.into());
         sky::configure_runtime_options(self.settings.menu_config.native_sky.into());
     }
@@ -1847,7 +1631,6 @@ impl ScreenShaderRuntime {
     fn fnv_scene_input_requirements(&self) -> SceneInputRequirements {
         if self.settings.depth_provider != DepthProvider::FalloutNewVegas
             || !self.settings.menu_config.screen_space_shaders
-            || self.applied_phases.is_applied(ShaderPhase::FinalImageSpace)
         {
             return SceneInputRequirements::default();
         }
@@ -1856,20 +1639,30 @@ impl ScreenShaderRuntime {
             .iter()
             .filter(|source| {
                 source.enabled
-                    && !(self.atmosphere_called_this_frame
-                        && source
-                            .embedded_effect_kind()
-                            .is_some_and(EmbeddedEffectKind::is_atmosphere))
-                    && !(self.atmosphere_creation_failed
-                        && source
-                            .embedded_effect_kind()
-                            .is_some_and(EmbeddedEffectKind::is_atmosphere))
+                    && !source
+                        .embedded_effect_kind()
+                        .is_some_and(EmbeddedEffectKind::owns_world_boundary)
                     && (source.is_embedded_effect() || source.bytecode.is_some())
             })
             .fold(SceneInputRequirements::default(), |requirements, source| {
                 let source_requirements = SceneInputRequirements::for_source(source);
                 requirements.union(source_requirements)
             })
+    }
+
+    fn publish_fnv_scene_requirements(&self) {
+        let requirements = self.fnv_scene_input_requirements();
+        let mut bits = 0;
+        if requirements.world_depth {
+            bits |= FNV_REQUIRE_WORLD_DEPTH;
+        }
+        if requirements.first_person_depth {
+            bits |= FNV_REQUIRE_FIRST_PERSON_DEPTH;
+        }
+        if requirements.world_color {
+            bits |= FNV_REQUIRE_WORLD_COLOR;
+        }
+        FNV_SCENE_REQUIREMENTS.store(bits, Ordering::Release);
     }
 
     fn has_enabled_pass_after(&self, phase: ShaderPhase, pass_position: usize) -> bool {
@@ -1945,14 +1738,6 @@ impl ScreenShaderRuntime {
     fn finish_present_frame(&mut self, device_ptr: *mut c_void) {
         let _ = device_ptr;
         self.frame_pacing.record_frame();
-        self.applied_phases = AppliedShaderPhases::default();
-        self.world_color_captured_this_frame = false;
-        self.world_color_source_target = 0;
-        self.atmosphere_called_this_frame = false;
-        self.atmosphere_callbacks_this_frame = 0;
-        self.native_dof_active_this_frame = false;
-        self.frame_index = self.frame_index.wrapping_add(1);
-        backend::finish_frame();
     }
 
     fn release_for_new_device(&mut self) {
@@ -1967,10 +1752,6 @@ impl ScreenShaderRuntime {
         self.compiled = None;
         self.ambient_occlusion = None;
         self.anti_aliasing = None;
-        self.temporal_aa = None;
-        self.temporal_aa_creation_failed = false;
-        self.atmosphere = None;
-        self.atmosphere_creation_failed = false;
         self.blooming_hdr = None;
         self.sunshafts = None;
         self.depth_of_field = None;
@@ -1990,17 +1771,11 @@ impl ScreenShaderRuntime {
         self.world_color_source_target = 0;
         self.ambient_occlusion = None;
         self.anti_aliasing = None;
-        self.temporal_aa = None;
-        self.temporal_aa_creation_failed = false;
-        self.atmosphere = None;
-        self.atmosphere_creation_failed = false;
         self.blooming_hdr = None;
         self.sunshafts = None;
         self.depth_of_field = None;
         self.depth_of_field_creation_failed = false;
         self.world_color_captured_this_frame = false;
-        self.atmosphere_called_this_frame = false;
-        self.atmosphere_callbacks_this_frame = 0;
         self.state_block = None;
     }
 
@@ -2107,7 +1882,7 @@ impl SceneInputRequirements {
 
 #[cfg(test)]
 mod scene_input_requirement_tests {
-    use super::{EmbeddedEffectKind, SceneInputRequirements};
+    use super::{EmbeddedEffectKind, SceneInputRequirements, ScreenShaderRuntime};
     use crate::{config::EmbeddedEffectsConfig, shaders};
 
     #[test]
@@ -2124,6 +1899,26 @@ mod scene_input_requirement_tests {
                 SceneInputRequirements::default()
             );
         }
+    }
+
+    #[test]
+    fn lazy_render_epoch_reconciliation_clears_stale_frame_state() {
+        let mut runtime = ScreenShaderRuntime::default();
+        runtime.render_epoch = 4;
+        runtime.frame_index = 9;
+        runtime.world_color_captured_this_frame = true;
+        runtime.world_color_source_target = 0x1234;
+        runtime.native_dof_active_this_frame = true;
+
+        runtime.begin_render_epoch(4);
+        assert!(runtime.world_color_captured_this_frame);
+        assert_eq!(runtime.frame_index, 9);
+
+        runtime.begin_render_epoch(5);
+        assert!(!runtime.world_color_captured_this_frame);
+        assert_eq!(runtime.world_color_source_target, 0);
+        assert!(!runtime.native_dof_active_this_frame);
+        assert_eq!(runtime.frame_index, 10);
     }
 
     #[test]
@@ -2220,13 +2015,6 @@ fn update_native_dof_query_needed(config: &GraphicsMenuConfig) {
     );
 }
 
-fn update_temporal_aa_needed(config: &GraphicsMenuConfig) {
-    TEMPORAL_AA_NEEDED.store(
-        config.screen_space_shaders && config.embedded_effects.temporal_aa.enabled,
-        Ordering::Release,
-    );
-}
-
 struct CompiledPass {
     source_index: usize,
     shader: Option<PixelShader9>,
@@ -2270,68 +2058,6 @@ struct BackbufferCopy {
     format: D3DFORMAT,
     texture: Texture9,
     surface: Surface9,
-}
-
-struct RenderAttachments {
-    target0: Surface9,
-    target1: Option<Surface9>,
-    target2: Option<Surface9>,
-    target3: Option<Surface9>,
-    depth: Option<Surface9>,
-}
-
-impl RenderAttachments {
-    fn capture(device: &Device9Ref<'_>, target0: Surface9) -> Direct3DResult<Self> {
-        Ok(Self {
-            target0,
-            target1: device.optional_render_target(1)?,
-            target2: device.optional_render_target(2)?,
-            target3: device.optional_render_target(3)?,
-            depth: device.depth_stencil_surface()?,
-        })
-    }
-
-    fn restore(self, device: &Device9Ref<'_>) -> Direct3DResult<()> {
-        let mut result = device.set_depth_stencil_surface(None);
-        for index in 1..=3 {
-            keep_first_d3d_error(&mut result, device.clear_render_target(index));
-        }
-        keep_first_d3d_error(&mut result, device.set_render_target(0, &self.target0));
-        keep_first_d3d_error(
-            &mut result,
-            restore_auxiliary_target(device, 1, self.target1.as_ref()),
-        );
-        keep_first_d3d_error(
-            &mut result,
-            restore_auxiliary_target(device, 2, self.target2.as_ref()),
-        );
-        keep_first_d3d_error(
-            &mut result,
-            restore_auxiliary_target(device, 3, self.target3.as_ref()),
-        );
-        keep_first_d3d_error(
-            &mut result,
-            device.set_depth_stencil_surface(self.depth.as_ref()),
-        );
-        result
-    }
-}
-
-fn keep_first_d3d_error(result: &mut Direct3DResult<()>, next: Direct3DResult<()>) {
-    if result.is_ok() && next.is_err() {
-        *result = next;
-    }
-}
-
-fn restore_auxiliary_target(
-    device: &Device9Ref<'_>,
-    index: u32,
-    target: Option<&Surface9>,
-) -> Direct3DResult<()> {
-    match target {
-        Some(target) => device.set_render_target(index, target),
-        None => device.clear_render_target(index),
-    }
 }
 
 impl BackbufferCopy {
@@ -3472,6 +3198,28 @@ fn draw_shader_details(ui: &mut psycho_imgui::Ui<'_>, source: &mut ScreenShaderS
         }
     }
 
+    if source.embedded_effect_kind() == Some(EmbeddedEffectKind::VolumetricFog) {
+        ui.spacing();
+        let calibration_heading = cstring("FOG CALIBRATION");
+        ui.separator_text(&calibration_heading);
+        let reset = cstring("Reset calibrated fog defaults##volumetric_fog.reset");
+        if ui.button(&reset) {
+            changed |= shaders::reset_volumetric_fog_defaults(source);
+        }
+        if let Some((distance_bound, transmittance)) = crate::fnv_world_pipeline::fog_estimate() {
+            let estimate = cstring(format!(
+                "Current bound: {:.0} units // estimated horizontal transmission: {:.1}%",
+                distance_bound,
+                transmittance * 100.0,
+            ));
+            ui.text_colored(MENU_MUTED_TEXT, &estimate);
+        } else {
+            let estimate =
+                cstring("Fog estimate becomes available after one eligible world frame.");
+            ui.text_colored(MENU_MUTED_TEXT, &estimate);
+        }
+    }
+
     ui.spacing();
     let option_heading = cstring("TUNING CONTROLS");
     ui.separator_text(&option_heading);
@@ -3497,14 +3245,28 @@ fn draw_shader_details(ui: &mut psycho_imgui::Ui<'_>, source: &mut ScreenShaderS
         match option.value {
             ShaderOptionValue::Float(value) => {
                 let mut value = value;
-                if draw_float_slider(
-                    ui,
-                    option.label.as_str(),
-                    &format!("{}.{}", source.name, option.key),
-                    &mut value,
-                    option.min,
-                    option.max,
-                ) {
+                let fog_density = source.embedded_effect_kind()
+                    == Some(EmbeddedEffectKind::VolumetricFog)
+                    && matches!(option.key.as_str(), "density" | "height_density");
+                let value_changed = if fog_density {
+                    draw_fog_density_control(
+                        ui,
+                        option.label.as_str(),
+                        &format!("{}.{}", source.name, option.key),
+                        &mut value,
+                        option.max,
+                    )
+                } else {
+                    draw_float_slider(
+                        ui,
+                        option.label.as_str(),
+                        &format!("{}.{}", source.name, option.key),
+                        &mut value,
+                        option.min,
+                        option.max,
+                    )
+                };
+                if value_changed {
                     if let Err(err) = source.set_option_float(option_index, value) {
                         source.config_error = Some(format!("{err:#}"));
                     } else {
@@ -3626,6 +3388,46 @@ fn draw_float_slider(
     let step = float_control_step(min, max);
     let logarithmic = min > 0.0 && max / min >= 1_000.0;
     ui.precise_float(&label, &id, value, min, max, step, step * 10.0, logarithmic)
+}
+
+fn draw_fog_density_control(
+    ui: &mut psycho_imgui::Ui<'_>,
+    label: &str,
+    id: &str,
+    value: &mut f32,
+    max: f32,
+) -> bool {
+    const MIN_NONZERO_DENSITY: f32 = 0.0000001;
+
+    let mut changed = false;
+    let zero = cstring(format!("Zero##{id}.zero"));
+    if ui.button(&zero) && *value != 0.0 {
+        *value = 0.0;
+        changed = true;
+    }
+    ui.same_line();
+
+    let mut nonzero = if *value > 0.0 {
+        *value
+    } else {
+        MIN_NONZERO_DENSITY
+    };
+    let label = cstring(label);
+    let control_id = cstring(id);
+    if ui.precise_float(
+        &label,
+        &control_id,
+        &mut nonzero,
+        MIN_NONZERO_DENSITY,
+        max.max(MIN_NONZERO_DENSITY),
+        MIN_NONZERO_DENSITY,
+        0.000001,
+        true,
+    ) {
+        *value = nonzero;
+        changed = true;
+    }
+    changed
 }
 
 fn draw_int_slider(
@@ -3755,17 +3557,6 @@ fn shader_phase_display(phase: ShaderPhase) -> &'static str {
         ShaderPhase::ScenePostImageSpace => "Scene / after image-space",
         ShaderPhase::FinalImageSpace => "Final image-space",
     }
-}
-
-fn halton(mut index: u32, base: u32) -> f32 {
-    let mut result = 0.0;
-    let mut fraction = 1.0;
-    while index > 0 {
-        fraction /= base as f32;
-        result += fraction * (index % base) as f32;
-        index /= base;
-    }
-    result
 }
 
 fn embedded_effect_description(kind: Option<EmbeddedEffectKind>) -> Option<&'static str> {

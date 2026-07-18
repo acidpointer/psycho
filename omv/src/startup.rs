@@ -13,6 +13,7 @@ const LOG_FILE: &str = "./omv-latest.log";
 
 #[derive(Clone, Copy)]
 struct DeferredHookSettings {
+    menu_config: crate::config::GraphicsMenuConfig,
     native_pbr: crate::effects::pbr::NativePbrSettings,
     native_sky: crate::effects::sky::NativeSkySettings,
     screen_space_shaders: bool,
@@ -64,6 +65,7 @@ pub(crate) fn initialize_for_nvse() -> Result<()> {
     log::info!("[IMGUI] Shader menu enabled");
 
     *DEFERRED_HOOK_SETTINGS.lock() = Some(DeferredHookSettings {
+        menu_config,
         native_pbr,
         native_sky,
         screen_space_shaders: cfg.graphics.screen_space_shaders,
@@ -90,6 +92,13 @@ pub(crate) fn install_deferred_hooks() -> Result<()> {
         .context("graphics startup settings were not initialized")?;
     let compatibility = crate::compat::GraphicsCompatibility::detect();
     log_compatibility_report(compatibility);
+
+    // This must remain the first world-pipeline config publication. Publishing
+    // from NVSEPlugin_Load caused the 2026-07-18 data-loading crash.
+    if !crate::fnv_world_pipeline::publish_config(settings.menu_config) {
+        anyhow::bail!("world-effects config owner was busy before hook installation");
+    }
+    log::info!("[FNV WORLD] Initial config published at DeferredInit");
 
     crate::effects::pbr::configure_terrain_contract(compatibility.has_vpt_terrain_contract());
     crate::effects::pbr::install(settings.native_pbr)?;

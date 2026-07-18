@@ -4,7 +4,7 @@ use std::{
     mem::size_of,
     sync::{
         LazyLock,
-        atomic::{AtomicBool, AtomicUsize, Ordering},
+        atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering},
     },
     thread,
     time::Duration,
@@ -21,7 +21,9 @@ use libpsycho::{
     ffi::fnptr::FnPtr,
     hook::traits::Hook,
     os::windows::{
-        directx9::{D3D_FAILURE_CODE, DEVICE9_VTBL_PRESENT, DEVICE9_VTBL_RESET},
+        directx9::{
+            D3D_DEVICE_LOST_CODE, D3D_FAILURE_CODE, DEVICE9_VTBL_PRESENT, DEVICE9_VTBL_RESET,
+        },
         hook::vmt::vmthook::VmtHook,
         winapi::{Rect, call_window_proc_a, set_window_long_a},
     },
@@ -52,6 +54,7 @@ const INSTALL_LOG_EVERY_POLLS: u32 = 200;
 const GWL_WNDPROC: i32 = -4;
 
 static INSTALL_WORKER_STARTED: AtomicBool = AtomicBool::new(false);
+static RENDER_EPOCH: AtomicU32 = AtomicU32::new(1);
 static ORIGINAL_PRESENT: AtomicUsize = AtomicUsize::new(0);
 static ORIGINAL_RESET: AtomicUsize = AtomicUsize::new(0);
 static ORIGINAL_DRAW_PRIMITIVE: AtomicUsize = AtomicUsize::new(0);
@@ -67,6 +70,14 @@ struct DeviceHooks {
     reset: Option<VmtHook<ResetFn>>,
     draw_primitive: Option<VmtHook<DrawPrimitiveFn>>,
     draw_indexed_primitive: Option<VmtHook<DrawIndexedPrimitiveFn>>,
+}
+
+pub(crate) fn render_epoch() -> u32 {
+    RENDER_EPOCH.load(Ordering::Acquire)
+}
+
+fn advance_render_epoch(epoch: &AtomicU32) {
+    epoch.fetch_add(1, Ordering::AcqRel);
 }
 
 pub(crate) fn start_install_worker() -> Result<()> {
@@ -231,6 +242,7 @@ unsafe extern "system" fn present_detour(
     dirty_region: *const c_void,
 ) -> i32 {
     unsafe {
+        let render_epoch = render_epoch();
         pbr::finish_draw_batches();
         sky::finish_direct_draw();
         sky::service_present_frame();
@@ -243,14 +255,31 @@ unsafe extern "system" fn present_detour(
             dirty_region,
         );
         runtime::finish_present_frame(device_ptr);
+        crate::fnv_world_pipeline::finish_present(render_epoch);
+        runtime::service_lock_telemetry(render_epoch);
+        advance_render_epoch(&RENDER_EPOCH);
         result
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::advance_render_epoch;
+    use std::sync::atomic::{AtomicU32, Ordering};
+
+    #[test]
+    fn present_epoch_advances_without_runtime_ownership() {
+        let epoch = AtomicU32::new(41);
+        advance_render_epoch(&epoch);
+        assert_eq!(epoch.load(Ordering::Acquire), 42);
     }
 }
 
 unsafe extern "system" fn reset_detour(device_ptr: *mut c_void, params: *mut c_void) -> i32 {
     unsafe {
-        runtime::release_device_resources(device_ptr);
-        backend::reset_depth_resources();
+        if !runtime::try_release_device_resources(device_ptr) {
+            return D3D_DEVICE_LOST_CODE;
+        }
         pbr::reset_runtime_state();
         sky::reset_runtime_state();
         call_original_reset(device_ptr, params)

@@ -33,19 +33,19 @@ pub(crate) fn environment_frame(depth_provider: DepthProvider) -> EnvironmentFra
     }
 }
 
-pub(crate) fn atmosphere_frame(
+pub(crate) fn atmosphere_frame_from_depth(
     depth_provider: DepthProvider,
     desc: &D3DSURFACE_DESC,
     user_max_distance: f32,
+    depth: DepthFrame,
+    underwater: UnderwaterFrame,
 ) -> AtmosphereFrame {
-    let depth = depth_frame(depth_provider);
     let camera = if depth.world_projection.camera.available {
         depth.world_projection.camera
     } else {
         camera_frame(depth_provider, desc)
     };
     let environment = environment_frame(depth_provider);
-    let underwater = underwater_frame(depth_provider);
     let material_state = material_state_frame();
     let mut distance_bound = if user_max_distance.is_finite() {
         user_max_distance.max(camera.near_z + 1.0)
@@ -76,13 +76,6 @@ pub(crate) fn publish_fnv_underwater_classification(underwater: bool) {
     fnv::publish_underwater_classification(underwater);
 }
 
-pub(crate) fn underwater_frame(depth_provider: DepthProvider) -> UnderwaterFrame {
-    match depth_provider {
-        DepthProvider::None => UnderwaterFrame::default(),
-        DepthProvider::FalloutNewVegas => fnv::underwater_frame(),
-    }
-}
-
 pub(crate) fn sun_frame(depth_provider: DepthProvider) -> SunFrame {
     match depth_provider {
         DepthProvider::None => SunFrame::default(),
@@ -99,18 +92,10 @@ pub(crate) fn native_sky_frame() -> Option<NativeSkyFrame> {
 }
 
 pub(crate) fn depth_frame(depth_provider: DepthProvider) -> DepthFrame {
-    match depth_provider {
-        DepthProvider::None => DepthFrame::none(),
-        DepthProvider::FalloutNewVegas => fnv::depth_frame(),
+    match try_depth_frame(depth_provider, crate::hooks::render_epoch()) {
+        DepthAccess::Ready(frame) => frame,
+        DepthAccess::Busy => DepthFrame::none(),
     }
-}
-
-pub(crate) fn fnv_temporal_depth_epoch(
-    device_ptr: *mut c_void,
-    width: u32,
-    height: u32,
-) -> Option<u64> {
-    fnv::temporal_depth_epoch(device_ptr, width, height)
 }
 
 pub(crate) fn fnv_world_camera_frame(width: u32, height: u32) -> Option<CameraFrame> {
@@ -141,21 +126,43 @@ pub(crate) unsafe fn resolve_scene_depth(
     source_rendered_texture: Option<*mut c_void>,
     slot: DepthResolveSlot,
     reason: &'static str,
-) -> bool {
+    render_epoch: u32,
+) -> DepthResolveOutcome {
     match depth_provider {
-        DepthProvider::None => false,
+        DepthProvider::None => DepthResolveOutcome::Rejected,
         DepthProvider::FalloutNewVegas => unsafe {
-            fnv::resolve_scene_depth(device_ptr, source_rendered_texture, slot, reason)
+            fnv::resolve_scene_depth(
+                device_ptr,
+                source_rendered_texture,
+                slot,
+                reason,
+                render_epoch,
+            )
         },
     }
 }
 
-pub(crate) fn finish_frame() {
-    fnv::finish_frame();
+pub(crate) fn try_depth_frame(
+    depth_provider: DepthProvider,
+    render_epoch: u32,
+) -> DepthAccess<DepthFrame> {
+    match depth_provider {
+        DepthProvider::None => DepthAccess::Ready(DepthFrame::none()),
+        DepthProvider::FalloutNewVegas => fnv::try_depth_frame(render_epoch),
+    }
 }
 
-pub(crate) fn reset_depth_resources() {
-    fnv::reset_depth_resources();
+pub(crate) fn try_temporal_depth_epoch(
+    device_ptr: *mut c_void,
+    width: u32,
+    height: u32,
+    render_epoch: u32,
+) -> DepthAccess<Option<u64>> {
+    fnv::try_temporal_depth_epoch(device_ptr, width, height, render_epoch)
+}
+
+pub(crate) fn try_reset_depth_resources() -> bool {
+    fnv::try_reset_depth_resources()
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -187,6 +194,22 @@ impl From<DepthProviderConfig> for DepthProvider {
 pub(crate) enum DepthResolveSlot {
     World,
     FirstPerson,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum DepthAccess<T> {
+    Busy,
+    Ready(T),
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum DepthResolveOutcome {
+    Busy,
+    Rejected,
+    Resolved {
+        depth: DepthFrame,
+        underwater: UnderwaterFrame,
+    },
 }
 
 impl DepthResolveSlot {

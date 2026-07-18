@@ -203,6 +203,7 @@ unsafe extern "cdecl" fn hook_process_image_space_shaders(
             };
 
         if outer_image_space_call {
+            crate::fnv_world_pipeline::close_deadline(rendered_texture_1);
             apply_scene_pre_image_space(
                 "FNV before vanilla image-space shaders",
                 rendered_texture_1,
@@ -305,15 +306,21 @@ unsafe extern "thiscall" fn hook_render_world_scene_graph(
         // 0x00870AE8 pushes 1, 0x00870E18 pushes 0. The second u8 is not the
         // world/first-person discriminator.
         if world_scene_graph {
-            capture_depth(
-                crate::backend::DepthResolveSlot::World,
-                None,
-                "FNV after world scene graph",
-            );
             drop(camera_jitter);
-            apply_temporal_aa();
-            capture_world_color();
-            apply_atmosphere();
+            if let Some(device_ptr) = crate::backend::d3d_device_ptr() {
+                if crate::fnv_world_pipeline::needs_depth(crate::backend::DepthResolveSlot::World) {
+                    crate::fnv_world_pipeline::apply_primary(device_ptr);
+                } else {
+                    capture_depth(
+                        crate::backend::DepthResolveSlot::World,
+                        None,
+                        "FNV after world scene graph",
+                    );
+                }
+                if crate::runtime::needs_fnv_world_color_capture() {
+                    crate::runtime::capture_fnv_world_color(device_ptr);
+                }
+            }
         } else {
             log_depth_capture_skip(
                 crate::backend::DepthResolveSlot::World,
@@ -325,7 +332,7 @@ unsafe extern "thiscall" fn hook_render_world_scene_graph(
 }
 
 unsafe fn begin_temporal_aa_jitter() -> Option<crate::backend::WorldCameraJitter> {
-    if !crate::runtime::needs_temporal_aa() {
+    if !crate::fnv_world_pipeline::needs_temporal_aa() {
         return None;
     }
 
@@ -334,7 +341,7 @@ unsafe fn begin_temporal_aa_jitter() -> Option<crate::backend::WorldCameraJitter
     let render_target = device.render_target(0).ok()?;
     let desc = render_target.desc().ok()?;
     let jitter = unsafe {
-        crate::runtime::temporal_aa_jitter_pixels(
+        crate::fnv_world_pipeline::begin_temporal_aa_jitter(
             device_ptr,
             crate::effects::temporal_aa::TargetDescription::from(&desc),
         )?
@@ -355,6 +362,9 @@ unsafe extern "thiscall" fn hook_render_first_person(
     };
 
     unsafe {
+        if let Some(device_ptr) = crate::backend::d3d_device_ptr() {
+            crate::fnv_world_pipeline::retry_before_first_person(device_ptr, rendered_texture);
+        }
         original(main, renderer, geo, sky_sun, rendered_texture);
         capture_depth(
             crate::backend::DepthResolveSlot::FirstPerson,
@@ -369,7 +379,9 @@ unsafe fn capture_depth(
     source_rendered_texture: Option<*mut c_void>,
     reason: &'static str,
 ) {
-    if !crate::runtime::needs_fnv_depth_capture(slot) {
+    if !crate::runtime::needs_fnv_depth_capture(slot)
+        && !crate::fnv_world_pipeline::needs_depth(slot)
+    {
         log_depth_capture_skip(slot, reason, "runtime not ready or no scene inputs needed");
         return;
     }
@@ -380,52 +392,21 @@ unsafe fn capture_depth(
     };
 
     let depth_provider = crate::backend::DepthProvider::FalloutNewVegas;
-    if unsafe {
+    match unsafe {
         crate::backend::resolve_scene_depth(
             depth_provider,
             device_ptr,
             source_rendered_texture,
             slot,
             reason,
+            crate::hooks::render_epoch(),
         )
     } {
-        log_depth_capture(slot, reason);
-    }
-}
-
-unsafe fn capture_world_color() {
-    if !crate::runtime::needs_fnv_world_color_capture() {
-        return;
-    }
-    let Some(device_ptr) = crate::backend::d3d_device_ptr() else {
-        return;
-    };
-
-    unsafe {
-        crate::runtime::capture_fnv_world_color(device_ptr);
-    }
-}
-
-unsafe fn apply_temporal_aa() {
-    if !crate::runtime::needs_temporal_aa() {
-        return;
-    }
-    let Some(device_ptr) = crate::backend::d3d_device_ptr() else {
-        return;
-    };
-
-    unsafe {
-        crate::runtime::apply_fnv_temporal_aa(device_ptr);
-    }
-}
-
-unsafe fn apply_atmosphere() {
-    let Some(device_ptr) = crate::backend::d3d_device_ptr() else {
-        return;
-    };
-
-    unsafe {
-        crate::runtime::apply_fnv_atmosphere(device_ptr);
+        crate::backend::DepthResolveOutcome::Resolved { .. } => log_depth_capture(slot, reason),
+        crate::backend::DepthResolveOutcome::Busy => {
+            log_depth_capture_skip(slot, reason, "depth owner busy")
+        }
+        crate::backend::DepthResolveOutcome::Rejected => {}
     }
 }
 

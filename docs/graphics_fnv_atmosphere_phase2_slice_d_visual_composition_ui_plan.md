@@ -2,6 +2,14 @@
 
 Date: 2026-07-18
 
+Status revision on 2026-07-18: production composition and the resizable UI are
+implemented, and the fog toggle now has a visible result. The playtest failed
+acceptance item 8 because consecutive frames bypassed after missing the
+world-color capture, and the shipped height-fog default is too strong for clear
+weather. Phase 2 release closure now follows
+`docs/graphics_fnv_atmosphere_phase2_reliability_calibration_plan.md` before
+directional Volumetric Lighting begins.
+
 ## Outcome
 
 Ship the first production-visible result from the completed atmosphere

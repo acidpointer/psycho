@@ -253,7 +253,7 @@ impl Default for VolumetricFogConfig {
             enabled: false,
             quality: AtmosphereQuality::High,
             density: 0.0,
-            height_density: 0.00002,
+            height_density: 0.000002,
             height_falloff: 0.0001,
             base_height: 0.0,
             max_distance: 120_000.0,
@@ -270,7 +270,7 @@ impl Default for VolumetricFogConfig {
 impl VolumetricFogConfig {
     fn sanitized(mut self) -> Self {
         self.density = finite_clamp(self.density, 0.0, 0.0, 0.001);
-        self.height_density = finite_clamp(self.height_density, 0.00002, 0.0, 0.001);
+        self.height_density = finite_clamp(self.height_density, 0.000002, 0.0, 0.001);
         self.height_falloff = finite_clamp(self.height_falloff, 0.0001, 0.000001, 0.01);
         self.base_height = finite_clamp(self.base_height, 0.0, -100_000.0, 100_000.0);
         self.max_distance = finite_clamp(self.max_distance, 120_000.0, 1_000.0, 250_000.0);
@@ -1162,7 +1162,7 @@ fn save_embedded_effect_config(doc: &mut DocumentMut, config: &EmbeddedEffectsCo
 
 #[cfg(test)]
 mod tests {
-    use super::{EmbeddedEffectsConfig, NativePbrConfig};
+    use super::{EmbeddedEffectsConfig, NativePbrConfig, VolumetricFogConfig};
 
     #[test]
     fn legacy_pbr_profile_migrates_to_terrain_only() {
@@ -1215,5 +1215,19 @@ albedo_saturation = 1.02
         assert_eq!(config.volumetric_fog.debug_view, 8);
         assert_eq!(config.volumetric_lighting.anisotropy, -0.8);
         assert_eq!(config.volumetric_lighting.temporal_stability, 0.9);
+    }
+
+    #[test]
+    fn calibrated_fog_default_is_subtle_and_explicit_values_are_preserved() {
+        let defaults = VolumetricFogConfig::default();
+        assert_eq!(defaults.density, 0.0);
+        assert_eq!(defaults.height_density, 0.000002);
+
+        let mut explicit = defaults;
+        explicit.height_density = 0.00002;
+        assert_eq!(explicit.sanitized().height_density, 0.00002);
+
+        explicit.height_density = f32::NAN;
+        assert_eq!(explicit.sanitized().height_density, 0.000002);
     }
 }

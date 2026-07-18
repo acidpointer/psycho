@@ -796,7 +796,7 @@ all output is finite, and Performance/High/Ultra costs are measured.
 
 ### Slice D: production composition
 
-The active implementation contract is
+The implementation contract is
 `docs/graphics_fnv_atmosphere_phase2_slice_d_visual_composition_ui_plan.md`.
 
 Add depth-bilateral upsampling and HDR composition behind the complete
@@ -804,12 +804,24 @@ fail-closed gate. Merge only after controlled fog off/on captures prove a
 visible result with unchanged alpha, no first-person/UI contamination, no
 silhouette leaks, and unchanged world color for every rejected contract.
 
+Status on 2026-07-18: production fog and the resizable/wrapped UI are
+implemented. The first visual playtest proves the fog composition works, but
+it failed release acceptance: consecutive frames bypassed after missing the
+world-color capture, and the legacy height-density default is too strong for
+clear sunny weather.
+
 ### Slice E: hardening and release evidence
 
 Complete reset/device-change handling, menu text, config comments, README,
 parent-plan status, runtime matrix, and per-pass timing. Phase 2 is complete
 only after all reject conditions and quality tiers pass on the supported FNV
 runtime.
+
+The active Slice E blocker is
+`docs/graphics_fnv_atmosphere_phase2_reliability_calibration_plan.md`. It owns
+the try-lock-only world transaction, Present epoch recovery, target-aware retry,
+outcome telemetry, and calibrated clear-weather fog defaults. Phase 3 must not
+start until that plan passes.
 
 ## Implementation order and stop points
 
@@ -823,10 +835,13 @@ runtime.
 5. Add integration debug output without composing onto world color.
 6. Validate world anchoring, optical depth, sky, water, and interior gates.
 7. Add bilateral production composition with exact alpha preservation.
-8. Tune defaults and quality tiers only after correctness passes.
-9. Update user-facing documentation and mark Phase 2 complete.
+8. Implement the try-lock-only reliability plan and prove zero missed
+   atmosphere deadlines at the known trigger.
+9. Tune defaults and quality tiers only after correctness passes.
+10. Update user-facing documentation and mark Phase 2 complete.
 
-The next stage after this plan is Phase 3 directional volumetric lighting. It
+The next stage after the Slice E reliability/calibration blocker passes is
+Phase 3 directional volumetric lighting. It
 will reuse the Phase 2 medium and composition but must refactor the current
 sunshaft mask into a native-color, quality-tiered shaft factor before adding
 Henyey-Greenstein directional scattering.

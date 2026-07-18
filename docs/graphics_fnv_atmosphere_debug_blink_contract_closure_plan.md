@@ -20,6 +20,14 @@ blocks Slice C, but it must be resumed before Phase 2 is declared complete if
 the symptom remains. Deferral does not authorize a speculative state fix or a
 guessed production color transfer.
 
+Second revision on 2026-07-18: production fog is now visibly active and the
+fresh playtest captured consecutive frames where atmosphere bypassed because
+the required world-color capture had not executed. The try-lock-only execution
+and fog-calibration correction is specified in
+`docs/graphics_fnv_atmosphere_phase2_reliability_calibration_plan.md`. That
+focused plan supersedes work package 7A below. Blocking `.lock()` is not an
+allowed render-path fix.
+
 Do not treat the current MSAA/sample-mask, inherited-state, runtime-lock, or
 native-HDR explanations as proven. The implementation must distinguish them
 before selecting a fix.
@@ -422,16 +430,22 @@ unreachable from production configuration after the cause is proven.
 Apply only if counters prove a missed callback, lock acquisition, capture, or
 draw stage.
 
-- remove silent render-path `try_lock` loss for required world-boundary work;
-- first prove that blocking cannot re-enter the same mutex from OMV's D3D draw
-  hooks;
-- prefer a render-thread-owned runtime with atomically published immutable menu
-  settings over a blocking cross-thread configuration path if reentrancy is
-  possible;
-- make `finish_present_frame` loss impossible or recover the epoch explicitly;
+- keep every hook non-blocking and model `try_lock` failure as an explicit,
+  recoverable outcome;
+- move required world work into a focused owner with atomically published
+  immutable settings so menu and final-pass work cannot contend with it;
+- combine capture and atmosphere into one coherent transaction after one
+  successful acquisition;
+- leave a failed primary attempt pending for a proven pre-first-person retry;
+- advance the Present epoch atomically even when `finish_present_frame` cannot
+  acquire a runtime owner;
 - preserve the at-most-one execution guard;
 - never reuse a prior frame's world color, depth, or underwater classification
   after a missed stage.
+
+The complete state model, retry rules, Reset behavior, and acceptance matrix
+are owned by
+`docs/graphics_fnv_atmosphere_phase2_reliability_calibration_plan.md`.
 
 Acceptance: 10,000 diagnostic Presents report zero required-stage lock misses
 and exactly one successful debug presentation whenever the effect is enabled.

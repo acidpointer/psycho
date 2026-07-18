@@ -15,7 +15,7 @@ use libpsycho::os::windows::directx9::{
 
 use crate::{
     backend::{AtmosphereFrame, DepthTexture},
-    config::AtmosphereQuality,
+    config::{AtmosphereQuality, VolumetricFogConfig, VolumetricLightingConfig},
     shaders::{self, ScreenShaderSource},
 };
 
@@ -47,6 +47,31 @@ pub(crate) struct AtmosphereSettings {
 }
 
 impl AtmosphereSettings {
+    pub(crate) fn from_config(
+        fog: VolumetricFogConfig,
+        lighting: VolumetricLightingConfig,
+    ) -> Self {
+        Self {
+            fog_enabled: fog.enabled,
+            density: finite(fog.density, 0.0).clamp(0.0, 0.001),
+            height_density: finite(fog.height_density, 0.000002).clamp(0.0, 0.001),
+            height_falloff: finite(fog.height_falloff, 0.0001).clamp(0.000001, 0.01),
+            base_height: finite(fog.base_height, 0.0).clamp(-100_000.0, 100_000.0),
+            max_distance: finite(fog.max_distance, 120_000.0).clamp(1_000.0, 250_000.0),
+            scattering_albedo: finite(fog.scattering_albedo, 0.9).clamp(0.0, 1.0),
+            noise_amount: finite(fog.noise_amount, 0.25).clamp(0.0, 1.0),
+            noise_scale: finite(fog.noise_scale, 0.0005).clamp(0.000001, 0.05),
+            noise_speed: finite(fog.noise_speed, 0.02).clamp(0.0, 1.0),
+            temporal_stability: finite(fog.temporal_stability, 0.9).clamp(0.0, 0.98),
+            debug_view: fog.debug_view.max(lighting.debug_view).clamp(0, 8),
+            quality: if fog.enabled {
+                fog.quality
+            } else {
+                lighting.shaft_quality
+            },
+        }
+    }
+
     pub(crate) fn from_sources(
         fog: Option<&ScreenShaderSource>,
         lighting: Option<&ScreenShaderSource>,
@@ -55,7 +80,7 @@ impl AtmosphereSettings {
         let lighting_constants = lighting.map(|source| source.option_constants.as_slice());
         let fog_enabled = fog.is_some();
         let density = option_component(fog_constants, 0, 0, 0.0);
-        let height_density = option_component(fog_constants, 0, 1, 0.00002);
+        let height_density = option_component(fog_constants, 0, 1, 0.000002);
         let height_falloff = option_component(fog_constants, 0, 2, 0.0001);
         let base_height = option_component(fog_constants, 0, 3, 0.0);
         let max_distance = option_component(fog_constants, 1, 0, 120_000.0);
@@ -81,7 +106,7 @@ impl AtmosphereSettings {
         Self {
             fog_enabled,
             density: finite(density, 0.0).clamp(0.0, 0.001),
-            height_density: finite(height_density, 0.00002).clamp(0.0, 0.001),
+            height_density: finite(height_density, 0.000002).clamp(0.0, 0.001),
             height_falloff: finite(height_falloff, 0.0001).clamp(0.000001, 0.01),
             base_height: finite(base_height, 0.0).clamp(-100_000.0, 100_000.0),
             max_distance: finite(max_distance, 120_000.0).clamp(1_000.0, 250_000.0),
@@ -103,8 +128,19 @@ impl AtmosphereSettings {
         self.requires_integration() || self.debug_view != 0
     }
 
-    fn requires_integration(self) -> bool {
+    pub(crate) fn requires_integration(self) -> bool {
         self.fog_enabled && (self.density > 0.0 || self.height_density > 0.0)
+    }
+
+    pub(crate) fn estimated_horizontal_transmittance(self, frame: AtmosphereFrame) -> f32 {
+        let camera_height = frame.camera.world_transform.translation[2];
+        let height_density = self.height_density
+            * (-(camera_height - self.base_height) * self.height_falloff)
+                .exp()
+                .clamp(0.0, 64.0);
+        (-(self.density + height_density) * frame.distance_bound)
+            .exp()
+            .clamp(0.0, 1.0)
     }
 
     fn target_scale(self) -> u32 {
@@ -223,6 +259,13 @@ pub(crate) struct AtmosphereEffect {
     debug_draws: u64,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum AtmosphereDrawOutcome {
+    Skipped,
+    Composed,
+    DebugDrawn,
+}
+
 impl AtmosphereEffect {
     pub(crate) fn create(device: &Device9Ref<'_>) -> Direct3DResult<Self> {
         device
@@ -288,7 +331,7 @@ impl AtmosphereEffect {
         settings: AtmosphereSettings,
         taa_enabled: bool,
         taa_alpha_ready: bool,
-    ) -> Direct3DResult<()> {
+    ) -> Direct3DResult<AtmosphereDrawOutcome> {
         self.log_contract(
             desc,
             frame,
@@ -299,19 +342,19 @@ impl AtmosphereEffect {
         let integration_gate = fog_integration_gate(frame, settings);
         self.log_integration_gate(integration_gate, settings);
         let Some(depth) = frame.depth.texture else {
-            return Ok(());
+            return Ok(AtmosphereDrawOutcome::Skipped);
         };
         if !frame.camera.available
             || frame.depth.world_projection.reversed_depth.is_none()
             || !frame.distance_bound.is_finite()
             || frame.distance_bound <= frame.camera.near_z
         {
-            return Ok(());
+            return Ok(AtmosphereDrawOutcome::Skipped);
         }
 
         self.ensure_targets(device, desc, settings.target_scale())?;
         let Some(targets) = self.targets.as_ref() else {
-            return Ok(());
+            return Ok(AtmosphereDrawOutcome::Skipped);
         };
 
         bind_pipeline_state(device)?;
@@ -329,7 +372,7 @@ impl AtmosphereEffect {
         )?;
         let integration_ready = if integration_gate == FogIntegrationGate::Ready {
             let Some(medium_color) = resolve_medium_color(frame) else {
-                return Ok(());
+                return Ok(AtmosphereDrawOutcome::Skipped);
             };
             draw_integration(
                 device,
@@ -375,10 +418,10 @@ impl AtmosphereEffect {
 
         if settings.debug_view == 0 {
             if composition_gate != FogCompositionGate::Ready {
-                return Ok(());
+                return Ok(AtmosphereDrawOutcome::Skipped);
             }
             let Some(world_color) = world_color else {
-                return Ok(());
+                return Ok(AtmosphereDrawOutcome::Skipped);
             };
             draw_composition(
                 device,
@@ -403,13 +446,13 @@ impl AtmosphereEffect {
                     SOURCE_TRANSFER.label(),
                 );
             }
-            return Ok(());
+            return Ok(AtmosphereDrawOutcome::Composed);
         }
         if settings.debug_view >= 6 && !integration_ready {
-            return Ok(());
+            return Ok(AtmosphereDrawOutcome::Skipped);
         }
         let Some(world_color) = world_color else {
-            return Ok(());
+            return Ok(AtmosphereDrawOutcome::Skipped);
         };
         if settings.debug_view == 8 {
             draw_composition(
@@ -437,7 +480,7 @@ impl AtmosphereEffect {
             )?;
         }
         self.debug_draws = self.debug_draws.saturating_add(1);
-        Ok(())
+        Ok(AtmosphereDrawOutcome::DebugDrawn)
     }
 
     fn ensure_targets(
@@ -978,12 +1021,7 @@ fn encode_extended_srgb(component: f32) -> f32 {
 }
 
 #[cfg(test)]
-fn bilateral_tap_weight(
-    full_distance: f32,
-    nearest: f32,
-    farthest: f32,
-    scale: u32,
-) -> f32 {
+fn bilateral_tap_weight(full_distance: f32, nearest: f32, farthest: f32, scale: u32) -> f32 {
     let base_tolerance = (64.0 * scale.max(1) as f32).max(full_distance * 0.02);
     let span = (farthest - nearest).max(0.0);
     let mixed = (span / (base_tolerance * 4.0).max(1.0)).clamp(0.0, 1.0);
@@ -1224,8 +1262,8 @@ mod feature_tests {
     use core::ffi::c_void;
 
     use super::{
-        AtmosphereSettings, FogCompositionGate, FogIntegrationGate, decode_extended_srgb,
-        bilateral_tap_weight, density_noise_pixels, encode_extended_srgb, fog_composition_gate,
+        AtmosphereSettings, FogCompositionGate, FogIntegrationGate, bilateral_tap_weight,
+        decode_extended_srgb, density_noise_pixels, encode_extended_srgb, fog_composition_gate,
         fog_integration_gate, linearize_native_color, option_component, resolve_medium_color,
     };
     use crate::{
@@ -1323,6 +1361,19 @@ mod feature_tests {
             assert_eq!(settings.target_scale(), scale);
             assert_eq!(settings.sample_count(), samples);
         }
+    }
+
+    #[test]
+    fn calibrated_default_estimates_about_two_percent_extinction_at_observed_bound() {
+        let mut config = EmbeddedEffectsConfig::default();
+        config.volumetric_fog.enabled = true;
+        let settings =
+            AtmosphereSettings::from_config(config.volumetric_fog, config.volumetric_lighting);
+        let mut frame = valid_frame();
+        frame.distance_bound = 10_240.0;
+
+        let transmittance = settings.estimated_horizontal_transmittance(frame);
+        assert!((0.979..0.981).contains(&transmittance));
     }
 
     #[test]
