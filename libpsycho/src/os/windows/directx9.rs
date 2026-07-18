@@ -28,12 +28,13 @@ pub use windows::Win32::Graphics::Direct3D9::{
     D3DCULL, D3DCULL_CCW, D3DCULL_CW, D3DCULL_NONE, D3DFMT_A8R8G8B8, D3DFORMAT, D3DFVF_DIFFUSE,
     D3DFVF_TEX1, D3DFVF_XYZ, D3DFVF_XYZRHW, D3DPOOL_DEFAULT, D3DPOOL_MANAGED, D3DPT_POINTLIST,
     D3DPT_TRIANGLESTRIP, D3DRS_ALPHABLENDENABLE, D3DRS_ALPHATESTENABLE, D3DRS_COLORWRITEENABLE,
-    D3DRS_CULLMODE, D3DRS_POINTSIZE, D3DRS_SCISSORTESTENABLE, D3DRS_SRGBWRITEENABLE, D3DRS_ZENABLE,
+    D3DRS_CULLMODE, D3DRS_MULTISAMPLEANTIALIAS, D3DRS_MULTISAMPLEMASK, D3DRS_POINTSIZE,
+    D3DRS_SCISSORTESTENABLE, D3DRS_SRGBWRITEENABLE, D3DRS_STENCILENABLE, D3DRS_ZENABLE,
     D3DRS_ZFUNC, D3DRS_ZWRITEENABLE, D3DSAMP_ADDRESSU, D3DSAMP_ADDRESSV, D3DSAMP_MAGFILTER,
     D3DSAMP_MINFILTER, D3DSAMP_MIPFILTER, D3DSAMP_SRGBTEXTURE, D3DSBT_ALL, D3DSURFACE_DESC,
-    D3DTA_TEXTURE, D3DTADDRESS_CLAMP, D3DTEXF_LINEAR, D3DTEXF_NONE, D3DTEXF_POINT,
-    D3DTOP_SELECTARG1, D3DTSS_ALPHAARG1, D3DTSS_ALPHAOP, D3DTSS_COLORARG1, D3DTSS_COLOROP,
-    D3DVIEWPORT9,
+    D3DTA_TEXTURE, D3DTADDRESS_CLAMP, D3DTADDRESS_WRAP, D3DTEXF_LINEAR, D3DTEXF_NONE,
+    D3DTEXF_POINT, D3DTOP_SELECTARG1, D3DTSS_ALPHAARG1, D3DTSS_ALPHAOP, D3DTSS_COLORARG1,
+    D3DTSS_COLOROP, D3DVIEWPORT9,
 };
 pub use windows::core::Error as Direct3DError;
 use windows::core::{HRESULT, Interface, InterfaceRef, PCSTR, Result as WindowsResult};
@@ -891,14 +892,60 @@ impl Texture9 {
         unsafe { self.inner.GetSurfaceLevel(level).map(Surface9::new) }
     }
 
-    /// Write one ARGB texel into a lockable level-0 texture.
-    pub fn write_level0_argb_pixel(&self, pixel: u32) -> Direct3DResult<()> {
-        let mut locked = D3DLOCKED_RECT::default();
-        unsafe {
-            self.inner.LockRect(0, &mut locked, null(), 0)?;
-            locked.pBits.cast::<u32>().write(pixel);
-            self.inner.UnlockRect(0)
+    /// Write a tightly packed ARGB image into a matching lockable level-0 texture.
+    pub fn write_level0_argb(&self, width: u32, height: u32, pixels: &[u32]) -> Direct3DResult<()> {
+        let desc = self.surface_level(0)?.desc()?;
+        let pixel_count = width
+            .checked_mul(height)
+            .and_then(|count| usize::try_from(count).ok())
+            .ok_or_else(direct3d_failure)?;
+        if desc.Width != width
+            || desc.Height != height
+            || desc.Format != D3DFMT_A8R8G8B8
+            || width == 0
+            || height == 0
+            || pixels.len() != pixel_count
+        {
+            return Err(direct3d_failure());
         }
+        let row_bytes = usize::try_from(width)
+            .ok()
+            .and_then(|width| width.checked_mul(size_of::<u32>()))
+            .ok_or_else(direct3d_failure)?;
+
+        let mut locked = D3DLOCKED_RECT::default();
+        unsafe { self.inner.LockRect(0, &mut locked, null(), 0)? };
+        let copy_result = (|| {
+            let pitch = usize::try_from(locked.Pitch).map_err(|_| direct3d_failure())?;
+            if locked.pBits.is_null() || pitch < row_bytes {
+                return Err(direct3d_failure());
+            }
+            let row_count = height as usize;
+            let _destination_span = row_count
+                .checked_sub(1)
+                .and_then(|last_row| last_row.checked_mul(pitch))
+                .and_then(|offset| offset.checked_add(row_bytes))
+                .ok_or_else(direct3d_failure)?;
+            for (row, source) in pixels.chunks_exact(width as usize).enumerate() {
+                let destination_offset = row.checked_mul(pitch).ok_or_else(direct3d_failure)?;
+                unsafe {
+                    core::ptr::copy_nonoverlapping(
+                        source.as_ptr().cast::<u8>(),
+                        locked.pBits.cast::<u8>().add(destination_offset),
+                        row_bytes,
+                    );
+                }
+            }
+            Ok(())
+        })();
+        let unlock_result = unsafe { self.inner.UnlockRect(0) };
+        copy_result?;
+        unlock_result
+    }
+
+    /// Write one ARGB texel into a lockable 1x1 level-0 texture.
+    pub fn write_level0_argb_pixel(&self, pixel: u32) -> Direct3DResult<()> {
+        self.write_level0_argb(1, 1, &[pixel])
     }
 }
 

@@ -45,6 +45,7 @@ pub(crate) fn atmosphere_frame(
         camera_frame(depth_provider, desc)
     };
     let environment = environment_frame(depth_provider);
+    let underwater = underwater_frame(depth_provider);
     let material_state = material_state_frame();
     let mut distance_bound = if user_max_distance.is_finite() {
         user_max_distance.max(camera.near_z + 1.0)
@@ -62,11 +63,23 @@ pub(crate) fn atmosphere_frame(
         camera,
         depth,
         environment,
+        underwater,
         sun: sun_frame(depth_provider),
         sky: native_sky_frame(),
         material_state,
         frame_epoch: depth.capture_epoch,
         distance_bound,
+    }
+}
+
+pub(crate) fn publish_fnv_underwater_classification(underwater: bool) {
+    fnv::publish_underwater_classification(underwater);
+}
+
+pub(crate) fn underwater_frame(depth_provider: DepthProvider) -> UnderwaterFrame {
+    match depth_provider {
+        DepthProvider::None => UnderwaterFrame::default(),
+        DepthProvider::FalloutNewVegas => fnv::underwater_frame(),
     }
 }
 
@@ -385,6 +398,7 @@ pub(crate) struct AtmosphereFrame {
     pub(crate) camera: CameraFrame,
     pub(crate) depth: DepthFrame,
     pub(crate) environment: EnvironmentFrame,
+    pub(crate) underwater: UnderwaterFrame,
     pub(crate) sun: SunFrame,
     pub(crate) sky: Option<NativeSkyFrame>,
     pub(crate) material_state: MaterialStateFrame,
@@ -393,13 +407,35 @@ pub(crate) struct AtmosphereFrame {
 }
 
 impl AtmosphereFrame {
-    pub(crate) fn depth_contract_ready(self) -> bool {
-        self.depth.texture.is_some()
-            && self.camera.available
-            && self.depth.world_projection.reversed_depth.is_some()
-            && self.distance_bound.is_finite()
-            && self.distance_bound > self.camera.near_z
+    pub(crate) fn depth_contract_failure(self) -> Option<&'static str> {
+        if self.depth.texture.is_none() {
+            return Some("missing current world depth");
+        }
+        if !self.camera.available {
+            return Some("missing current world camera");
+        }
+        if self.depth.world_projection.reversed_depth.is_none() {
+            return Some("unknown world depth direction");
+        }
+        if !self.distance_bound.is_finite() || self.distance_bound <= self.camera.near_z {
+            return Some("invalid atmosphere distance bound");
+        }
+        None
     }
+
+    pub(crate) fn underwater_contract_ready(self) -> bool {
+        self.underwater.hook_available
+            && self.underwater.known
+            && self.underwater.frame_epoch == self.frame_epoch
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) struct UnderwaterFrame {
+    pub(crate) frame_epoch: u64,
+    pub(crate) hook_available: bool,
+    pub(crate) known: bool,
+    pub(crate) underwater: bool,
 }
 
 #[derive(Clone, Copy, Debug)]

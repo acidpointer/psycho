@@ -3,6 +3,7 @@
 sampler2D CurrentColor : register(s0);
 sampler2D SceneDepth : register(s1);
 sampler2D HistoryColor : register(s2);
+sampler2D HistoryDepthKey : register(s3);
 
 float4 ScreenData : register(c0);
 float4 CurrentFrustum : register(c1);
@@ -74,12 +75,11 @@ void Neighborhood(float2 uv, float3 center, out float3 low, out float3 high, out
 }
 
 float4 Main(float2 uv : TEXCOORD0) : COLOR0 {
-    float3 current = tex2Dlod(CurrentColor, float4(uv, 0.0, 0.0)).rgb;
+    float4 current = tex2Dlod(CurrentColor, float4(uv, 0.0, 0.0));
     float rawDepth = tex2Dlod(SceneDepth, float4(uv, 0.0, 0.0)).r;
     float linearDepth = ValidDepth(rawDepth) ? LinearDepth(rawDepth) : CameraData.y;
-    float currentKey = saturate(log2(linearDepth + 1.0) / max(log2(CameraData.y + 1.0), 0.001));
     if (CameraData.w < 0.5 || !ValidDepth(rawDepth)) {
-        return float4(current, currentKey);
+        return current;
     }
 
     float3 position = ReconstructCurrent(uv, linearDepth);
@@ -90,21 +90,22 @@ float4 Main(float2 uv : TEXCOORD0) : COLOR0 {
     );
     float2 historyUv = ProjectPrevious(previousPosition);
     if (previousPosition.z <= max(PreviousDepth.x, 0.001) || !Inside(historyUv)) {
-        return float4(current, currentKey);
+        return current;
     }
 
     float4 history = tex2Dlod(HistoryColor, float4(historyUv, 0.0, 0.0));
+    float historyKey = tex2Dlod(HistoryDepthKey, float4(historyUv, 0.0, 0.0)).r;
     float expectedKey = DepthKey(previousPosition.z);
-    float depthWeight = saturate(1.0 - abs(history.a - expectedKey) * PreviousDepth.z);
+    float depthWeight = saturate(1.0 - abs(historyKey - expectedKey) * PreviousDepth.z);
     depthWeight *= depthWeight;
     float3 low;
     float3 high;
     float3 average;
-    Neighborhood(uv, current, low, high, average);
+    Neighborhood(uv, current.rgb, low, high, average);
     float3 clampedHistory = clamp(history.rgb, low, high);
     float historyWeight = saturate(Options0.x * depthWeight);
-    float3 sharpened = max(current + (current - average) * Options0.z, 0.0);
+    float3 sharpened = max(current.rgb + (current.rgb - average) * Options0.z, 0.0);
     float3 resolved = lerp(sharpened, clampedHistory, historyWeight);
 
-    return float4(resolved, currentKey);
+    return float4(resolved, current.a);
 }

@@ -122,8 +122,8 @@ impl Ui<'_> {
         height_ratio: f32,
         min_width: f32,
         min_height: f32,
-        max_width: f32,
-        max_height: f32,
+        preferred_max_width: f32,
+        preferred_max_height: f32,
         condition: Condition,
     ) {
         unsafe {
@@ -132,8 +132,8 @@ impl Ui<'_> {
                 height_ratio,
                 min_width,
                 min_height,
-                max_width,
-                max_height,
+                preferred_max_width,
+                preferred_max_height,
                 condition as i32,
             );
         }
@@ -187,6 +187,19 @@ impl Ui<'_> {
 
     pub fn radio_button(&mut self, label: &CStr, active: bool) -> bool {
         unsafe { ffi::psycho_imgui_radio_button(label.as_ptr(), active) }
+    }
+
+    pub fn radio_button_wrapped(
+        &mut self,
+        label: &CStr,
+        active: bool,
+        first_in_group: bool,
+    ) -> bool {
+        unsafe { ffi::psycho_imgui_radio_button_wrapped(label.as_ptr(), active, first_in_group) }
+    }
+
+    pub fn content_region_available_width(&self) -> f32 {
+        unsafe { ffi::psycho_imgui_content_region_available_width() }
     }
 
     pub fn slider_float(&mut self, label: &CStr, value: &mut f32, min: f32, max: f32) -> bool {
@@ -436,6 +449,12 @@ mod ffi {
         pub fn psycho_imgui_spacing();
         pub fn psycho_imgui_checkbox(label: *const c_char, value: *mut bool) -> bool;
         pub fn psycho_imgui_radio_button(label: *const c_char, active: bool) -> bool;
+        pub fn psycho_imgui_radio_button_wrapped(
+            label: *const c_char,
+            active: bool,
+            first_in_group: bool,
+        ) -> bool;
+        pub fn psycho_imgui_content_region_available_width() -> f32;
         pub fn psycho_imgui_slider_float(
             label: *const c_char,
             value: *mut f32,

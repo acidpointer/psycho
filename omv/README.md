@@ -92,13 +92,49 @@ enclosed by OMV's D3D9 state block.
 Temporal AA uses the engine-side contract proven from the FNV render path. OMV
 jitters the active world `NiCamera` frustum, captures the matching world depth,
 and resolves history before the first-person scene and UI are rendered. It owns
-a current-color copy and two full-resolution history targets, rejects history
-after capture gaps and large camera cuts, and uses depth plus neighborhood
-clamping for disocclusion control. A newly enabled or resized pipeline renders
-an unjittered priming frame; jitter starts only after the depth convention,
-camera transform, and temporal shader have all succeeded. The GShade shader
-named TAA is a work-in-progress temporal blur, so OMV does not use it as the
-temporal implementation.
+a current-color copy, two full-resolution FP16 color histories, and two paired
+R16F depth-key histories. Depth rejection never borrows the engine-owned scene
+alpha channel. Capture gaps, large camera cuts, resize, and resource failure
+invalidate color and depth-key history together. A newly enabled or resized
+pipeline renders an unjittered priming frame; jitter starts only after the depth
+convention, camera transform, and temporal shader have all succeeded. The
+GShade shader named TAA is a work-in-progress temporal blur, so OMV does not use
+it as the temporal implementation.
+
+## Volumetric Atmosphere
+
+OMV owns a world-only atmosphere boundary after world TAA and before
+first-person and UI rendering. It reduces resolved INTZ depth to strict
+`G16R16F` logarithmic nearest/farthest intervals, then integrates a
+supplemental uniform, exponential-height, and deterministic world-anchored
+heterogeneous medium into an `A16B16G16R16F` target. Performance, High, and
+Ultra use fixed 8, 12, and 20-sample variants at quarter, half, and half
+resolution. The engine's explicit above/underwater classification is published
+as an epoch-tagged value; OMV retains no engine water pointer and rejects stale
+or missing publication.
+
+Debug view Off depth-bilaterally upsamples the current integration and composes
+`linear_source * transmittance + scattering` directly onto the original FP16
+world target. The proven pre-native-image-space transfer is decoded and encoded
+explicitly as extended sRGB with hardware sRGB states disabled. Negative and
+overbright RGB remain unsaturated, source alpha is copied unchanged, and a
+full-resolution pixel with no safe nearest-depth tap returns its source color.
+The pass also requires the exact render target captured before first-person;
+interiors, underwater frames, stale epochs, unsupported targets, and missing
+resources fail closed.
+
+Debug views cover reduced nearest depth, depth span, reconstructed world-height
+bands, source alpha, negative/overbright HDR range, optical
+depth/transmittance, integrated scattering, and production bilateral
+acceptance. Native distance fog remains enabled. Directional volumetric
+lighting and atmosphere temporal history are later phases, not shader-only
+guesses hidden behind the current toggles.
+
+The graphics workbench opens at a compact centered size and can be resized up
+to the current viewport work area. Its feature/details panes adapt to the
+available width, and radio-button choice groups wrap instead of extending
+beyond the details pane. Window size is session-local because OMV does not
+write an ImGui ini file.
 
 License and attribution details for the adapted shader sources are in
 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).

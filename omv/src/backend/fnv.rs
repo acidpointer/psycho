@@ -9,6 +9,7 @@ use std::sync::{
 use super::{
     CameraFrame, CameraTransformFrame, DepthFrame, DepthProjectionFrame, DepthProvider,
     DepthResolveSlot, DepthTexture, EnvironmentFrame, MaterialStateFrame, NativeSkyFrame, SunFrame,
+    UnderwaterFrame,
 };
 use libpsycho::os::windows::{
     directx9::{
@@ -143,6 +144,16 @@ pub(super) fn native_sky_frame() -> Option<NativeSkyFrame> {
 
 pub(super) fn depth_frame() -> DepthFrame {
     DEPTH_RESOLVE.lock().depth_frame()
+}
+
+pub(super) fn publish_underwater_classification(underwater: bool) {
+    DEPTH_RESOLVE
+        .lock()
+        .publish_underwater_classification(underwater);
+}
+
+pub(super) fn underwater_frame() -> UnderwaterFrame {
+    DEPTH_RESOLVE.lock().underwater_frame()
 }
 
 pub(super) fn temporal_depth_epoch(
@@ -1037,9 +1048,17 @@ struct FnvDepthResolve {
     state_block: Option<StateBlock9>,
     success_logs: u32,
     frame_epoch: u64,
+    underwater: PublishedUnderwaterClassification,
     temporal_depth_proven: bool,
     world_capture: ResolvedDepthCapture,
     first_person_capture: ResolvedDepthCapture,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+struct PublishedUnderwaterClassification {
+    frame_epoch: u64,
+    known: bool,
+    underwater: bool,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -1052,6 +1071,23 @@ struct ResolvedDepthCapture {
 }
 
 impl FnvDepthResolve {
+    fn publish_underwater_classification(&mut self, underwater: bool) {
+        self.underwater = PublishedUnderwaterClassification {
+            frame_epoch: self.frame_epoch,
+            known: true,
+            underwater,
+        };
+    }
+
+    fn underwater_frame(&self) -> UnderwaterFrame {
+        UnderwaterFrame {
+            frame_epoch: self.underwater.frame_epoch,
+            hook_available: crate::fnv_render::underwater_publication_hook_ready(),
+            known: self.underwater.known && self.underwater.frame_epoch == self.frame_epoch,
+            underwater: self.underwater.underwater,
+        }
+    }
+
     unsafe fn resolve(
         &mut self,
         device_ptr: *mut c_void,
@@ -1333,6 +1369,7 @@ impl FnvDepthResolve {
         self.world_target = None;
         self.first_person_target = None;
         self.state_block = None;
+        self.underwater = PublishedUnderwaterClassification::default();
         self.finish_frame();
     }
 }
@@ -1408,6 +1445,39 @@ mod depth_capture_tests {
 
         assert_eq!(resolve.frame_epoch, 8);
         assert!(!resolve.depth_frame().is_available());
+    }
+
+    #[test]
+    fn underwater_classification_requires_the_current_epoch() {
+        let mut resolve = FnvDepthResolve {
+            frame_epoch: 7,
+            ..FnvDepthResolve::default()
+        };
+
+        resolve.publish_underwater_classification(true);
+        let current = resolve.underwater_frame();
+        assert!(current.known);
+        assert!(current.underwater);
+        assert_eq!(current.frame_epoch, 7);
+
+        resolve.finish_frame();
+        let stale = resolve.underwater_frame();
+        assert!(!stale.known);
+        assert_eq!(stale.frame_epoch, 7);
+    }
+
+    #[test]
+    fn fallback_above_water_value_is_published_without_an_engine_pointer() {
+        let mut resolve = FnvDepthResolve {
+            frame_epoch: 11,
+            ..FnvDepthResolve::default()
+        };
+
+        resolve.publish_underwater_classification(false);
+        let frame = resolve.underwater_frame();
+        assert!(frame.known);
+        assert!(!frame.underwater);
+        assert_eq!(frame.frame_epoch, 11);
     }
 }
 

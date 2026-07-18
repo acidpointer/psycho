@@ -4,13 +4,14 @@ use std::{
     ffi::c_void,
     sync::{
         LazyLock,
-        atomic::{AtomicU32, Ordering},
+        atomic::{AtomicBool, AtomicU32, Ordering},
     },
 };
 
 use libpsycho::os::windows::{directx9::Device9Ref, hook::inline::inlinehook::InlineHookContainer};
 
 const PROCESS_IMAGE_SPACE_SHADERS_ADDR: usize = 0x00B55AC0;
+const SET_WATER_SHADER_UNDERWATER_ADDR: usize = 0x004E2120;
 const RENDER_WORLD_SCENE_GRAPH_ADDR: usize = 0x00873200;
 const RENDER_FIRST_PERSON_ADDR: usize = 0x00875110;
 const IMAGE_SPACE_MANAGER_PTR_ADDR: usize = 0x011F91AC;
@@ -26,6 +27,7 @@ const MAX_DEPTH_CAPTURE_SKIP_LOGS: u32 = 16;
 const MAX_SHADER_APPLY_LOGS: u32 = 16;
 
 type ProcessImageSpaceShadersFn = unsafe extern "cdecl" fn(*mut c_void, *mut c_void, *mut c_void);
+type SetWaterShaderUnderwaterFn = unsafe extern "thiscall" fn(*mut c_void, u8);
 type RenderWorldSceneGraphFn = unsafe extern "thiscall" fn(*mut c_void, *mut c_void, u8, u8, u8);
 type RenderFirstPersonFn =
     unsafe extern "thiscall" fn(*mut c_void, *mut c_void, *mut c_void, *mut c_void, *mut c_void);
@@ -33,20 +35,28 @@ type ImageSpaceEffectIsActiveFn = unsafe extern "thiscall" fn(*mut c_void) -> u8
 
 static PROCESS_IMAGE_SPACE_SHADERS_HOOK: LazyLock<InlineHookContainer<ProcessImageSpaceShadersFn>> =
     LazyLock::new(InlineHookContainer::new);
+static SET_WATER_SHADER_UNDERWATER_HOOK: LazyLock<InlineHookContainer<SetWaterShaderUnderwaterFn>> =
+    LazyLock::new(InlineHookContainer::new);
 static RENDER_WORLD_SCENE_GRAPH_HOOK: LazyLock<InlineHookContainer<RenderWorldSceneGraphFn>> =
     LazyLock::new(InlineHookContainer::new);
 static RENDER_FIRST_PERSON_HOOK: LazyLock<InlineHookContainer<RenderFirstPersonFn>> =
     LazyLock::new(InlineHookContainer::new);
 
 static HOOK_ERROR_LOGS: AtomicU32 = AtomicU32::new(0);
+static UNDERWATER_PUBLICATION_HOOK_READY: AtomicBool = AtomicBool::new(false);
 static DEPTH_CAPTURE_LOGS: AtomicU32 = AtomicU32::new(0);
 static DEPTH_CAPTURE_SKIP_LOGS: AtomicU32 = AtomicU32::new(0);
 static SHADER_APPLY_LOGS: AtomicU32 = AtomicU32::new(0);
 
 pub(crate) fn install_scene_boundary_hook() {
     install_process_image_space_shaders_hook();
+    install_set_water_shader_underwater_hook();
     install_render_world_scene_graph_hook();
     install_render_first_person_hook();
+}
+
+pub(crate) fn underwater_publication_hook_ready() -> bool {
+    UNDERWATER_PUBLICATION_HOOK_READY.load(Ordering::Acquire)
 }
 
 fn install_process_image_space_shaders_hook() {
@@ -76,6 +86,39 @@ fn install_process_image_space_shaders_hook() {
             log::warn!(
                 "[FNV] ProcessImageSpaceShaders hook skipped at 0x{PROCESS_IMAGE_SPACE_SHADERS_ADDR:08X}: {err}"
             )
+        }
+    }
+}
+
+fn install_set_water_shader_underwater_hook() {
+    UNDERWATER_PUBLICATION_HOOK_READY.store(false, Ordering::Release);
+    match unsafe {
+        SET_WATER_SHADER_UNDERWATER_HOOK.init(
+            "FNV SetWaterShaderUnderwater",
+            SET_WATER_SHADER_UNDERWATER_ADDR as *mut c_void,
+            hook_set_water_shader_underwater,
+        )
+    } {
+        Ok(()) => {}
+        Err(err) => {
+            log::warn!(
+                "[FNV] Underwater publication hook skipped at 0x{SET_WATER_SHADER_UNDERWATER_ADDR:08X}: {err}"
+            );
+            return;
+        }
+    }
+
+    match SET_WATER_SHADER_UNDERWATER_HOOK.enable() {
+        Ok(()) => {
+            UNDERWATER_PUBLICATION_HOOK_READY.store(true, Ordering::Release);
+            log::info!(
+                "[FNV] Underwater publication hook installed at 0x{SET_WATER_SHADER_UNDERWATER_ADDR:08X}"
+            );
+        }
+        Err(err) => {
+            log::warn!(
+                "[FNV] Underwater publication hook skipped at 0x{SET_WATER_SHADER_UNDERWATER_ADDR:08X}: {err}"
+            );
         }
     }
 }
@@ -173,6 +216,19 @@ unsafe extern "cdecl" fn hook_process_image_space_shaders(
             apply_final_image_space("FNV final image-space");
         }
     }
+}
+
+unsafe extern "thiscall" fn hook_set_water_shader_underwater(
+    water_shader_state: *mut c_void,
+    underwater: u8,
+) {
+    let Ok(original) = SET_WATER_SHADER_UNDERWATER_HOOK.original() else {
+        log_hook_error("[FNV] Missing original SetWaterShaderUnderwater function");
+        return;
+    };
+
+    unsafe { original(water_shader_state, underwater) };
+    crate::backend::publish_fnv_underwater_classification(underwater != 0);
 }
 
 unsafe fn native_dof_active() -> Option<bool> {

@@ -316,6 +316,7 @@ struct ScreenShaderRuntime {
     scene_pre_color_copy: Option<BackbufferCopy>,
     scene_post_color_copy: Option<BackbufferCopy>,
     world_color_copy: Option<BackbufferCopy>,
+    world_color_source_target: usize,
     state_block: Option<StateBlock9>,
     imgui: Option<psycho_imgui::Dx9Context>,
     imgui_hwnd: usize,
@@ -338,6 +339,7 @@ struct ScreenShaderRuntime {
     world_color_capture_logs: u32,
     world_color_captured_this_frame: bool,
     atmosphere_called_this_frame: bool,
+    atmosphere_callbacks_this_frame: u8,
     atmosphere_duplicate_logs: u32,
     atmosphere_skip_logs: u32,
     applied_phases: AppliedShaderPhases,
@@ -365,6 +367,7 @@ impl Default for ScreenShaderRuntime {
             scene_pre_color_copy: None,
             scene_post_color_copy: None,
             world_color_copy: None,
+            world_color_source_target: 0,
             state_block: None,
             imgui: None,
             imgui_hwnd: 0,
@@ -387,6 +390,7 @@ impl Default for ScreenShaderRuntime {
             world_color_capture_logs: 0,
             world_color_captured_this_frame: false,
             atmosphere_called_this_frame: false,
+            atmosphere_callbacks_this_frame: 0,
             atmosphere_duplicate_logs: 0,
             atmosphere_skip_logs: 0,
             applied_phases: AppliedShaderPhases::default(),
@@ -670,6 +674,7 @@ impl ScreenShaderRuntime {
 
         device.stretch_rect(&render_target, None, &copy.surface, None, D3DTEXF_POINT)?;
         self.world_color_captured_this_frame = true;
+        self.world_color_source_target = render_target.as_raw() as usize;
         if self.world_color_capture_logs < 8 {
             log::debug!(
                 "[FNV] Captured world color before first-person: {}x{}",
@@ -807,9 +812,14 @@ impl ScreenShaderRuntime {
         }) else {
             return Ok(());
         };
-        if self.atmosphere_called_this_frame {
+        self.atmosphere_callbacks_this_frame =
+            self.atmosphere_callbacks_this_frame.saturating_add(1);
+        if self.atmosphere_callbacks_this_frame > 1 {
             if self.atmosphere_duplicate_logs < 8 {
-                log::warn!("[ATMOSPHERE] Duplicate world-boundary callback skipped");
+                log::warn!(
+                    "[ATMOSPHERE] Duplicate world-boundary callback skipped: calls_this_present={}",
+                    self.atmosphere_callbacks_this_frame
+                );
                 self.atmosphere_duplicate_logs += 1;
             }
             return Ok(());
@@ -831,14 +841,27 @@ impl ScreenShaderRuntime {
         if desc.Width == 0 || desc.Height == 0 {
             return Ok(());
         }
-        let world_color = if self.world_color_captured_this_frame {
+        let taa_enabled = self.sources.iter().any(|source| {
+            source.enabled && source.embedded_effect_kind() == Some(EmbeddedEffectKind::TemporalAa)
+        });
+        let taa_alpha_ready = !taa_enabled
+            || self.temporal_aa.as_ref().is_some_and(|effect| {
+                effect.alpha_preserving_history_ready(temporal_aa::TargetDescription::from(&desc))
+            });
+        let world_target_matches_capture =
+            self.world_color_source_target == world_target.as_raw() as usize;
+        let world_color = if self.world_color_captured_this_frame && world_target_matches_capture {
             self.world_color_copy.clone()
         } else {
             None
         };
         if settings.requires_world_color() && world_color.is_none() {
             if self.atmosphere_skip_logs < 8 {
-                log::warn!("[ATMOSPHERE] World-color capture missing; pipeline bypassed");
+                log::warn!(
+                    "[ATMOSPHERE] World-color capture missing or target changed; pipeline bypassed: captured={}, target_match={}",
+                    self.world_color_captured_this_frame,
+                    world_target_matches_capture,
+                );
                 self.atmosphere_skip_logs += 1;
             }
             return Ok(());
@@ -846,9 +869,9 @@ impl ScreenShaderRuntime {
 
         let frame =
             backend::atmosphere_frame(self.settings.depth_provider, &desc, settings.max_distance);
-        if !frame.depth_contract_ready() {
+        if let Some(reason) = frame.depth_contract_failure() {
             if self.atmosphere_skip_logs < 8 {
-                log::warn!("[ATMOSPHERE] World depth/camera contract missing; pipeline bypassed");
+                log::warn!("[ATMOSPHERE] Pipeline bypassed: {reason}");
                 self.atmosphere_skip_logs += 1;
             }
             return Ok(());
@@ -875,7 +898,7 @@ impl ScreenShaderRuntime {
             return Err(runtime_error("[ATMOSPHERE] Missing D3D state block"));
         };
         state_block.capture()?;
-        let draw_result = self.atmosphere.as_mut().map_or(Ok(()), |effect| {
+        let mut result = self.atmosphere.as_mut().map_or(Ok(()), |effect| {
             effect.draw(
                 &device,
                 &world_target,
@@ -883,13 +906,13 @@ impl ScreenShaderRuntime {
                 frame,
                 world_color.as_ref().map(|copy| &copy.texture),
                 settings,
+                taa_enabled,
+                taa_alpha_ready,
             )
         });
-        let attachment_restore_result = attachments.restore(&device);
-        let restore_result = state_block.apply();
-        attachment_restore_result?;
-        restore_result?;
-        draw_result
+        keep_first_d3d_error(&mut result, attachments.restore(&device));
+        keep_first_d3d_error(&mut result, state_block.apply());
+        result
     }
 
     fn scan_shaders_if_due(&mut self) {
@@ -1924,7 +1947,9 @@ impl ScreenShaderRuntime {
         self.frame_pacing.record_frame();
         self.applied_phases = AppliedShaderPhases::default();
         self.world_color_captured_this_frame = false;
+        self.world_color_source_target = 0;
         self.atmosphere_called_this_frame = false;
+        self.atmosphere_callbacks_this_frame = 0;
         self.native_dof_active_this_frame = false;
         self.frame_index = self.frame_index.wrapping_add(1);
         backend::finish_frame();
@@ -1962,6 +1987,7 @@ impl ScreenShaderRuntime {
         self.scene_pre_color_copy = None;
         self.scene_post_color_copy = None;
         self.world_color_copy = None;
+        self.world_color_source_target = 0;
         self.ambient_occlusion = None;
         self.anti_aliasing = None;
         self.temporal_aa = None;
@@ -1974,6 +2000,7 @@ impl ScreenShaderRuntime {
         self.depth_of_field_creation_failed = false;
         self.world_color_captured_this_frame = false;
         self.atmosphere_called_this_frame = false;
+        self.atmosphere_callbacks_this_frame = 0;
         self.state_block = None;
     }
 
@@ -2063,6 +2090,7 @@ impl SceneInputRequirements {
             } else {
                 atmosphere::AtmosphereSettings::from_sources(None, Some(source))
             };
+            requirements.world_depth = settings.requires_depth();
             requirements.world_color = settings.requires_world_color();
         }
         requirements
@@ -2111,7 +2139,7 @@ mod scene_input_requirement_tests {
     }
 
     #[test]
-    fn atmosphere_requires_world_depth_and_only_debug_requires_color() {
+    fn atmosphere_requires_world_depth_and_production_fog_requires_color() {
         for kind in [
             EmbeddedEffectKind::VolumetricFog,
             EmbeddedEffectKind::VolumetricLighting,
@@ -2128,7 +2156,7 @@ mod scene_input_requirement_tests {
 
         let mut config = EmbeddedEffectsConfig::default();
         config.volumetric_fog.enabled = true;
-        config.volumetric_fog.debug_view = 2;
+        config.volumetric_fog.debug_view = 0;
         let sources = shaders::merge_embedded_sources(&config, Vec::new());
         let source = sources
             .iter()
@@ -2517,10 +2545,14 @@ fn draw_shader_menu(
     ui.separator();
 
     clamp_menu_selection(sources, selected_item);
+    let available_width = ui.content_region_available_width().max(1.0);
+    let list_width = (available_width * 0.28)
+        .clamp(260.0, 380.0)
+        .min((available_width - 320.0).max(180.0));
 
     {
         let item_list = cstring("graphics_feature_list");
-        let child = ui.child(&item_list, 315.0, 0.0, true);
+        let child = ui.child(&item_list, list_width, 0.0, true);
         if child.is_visible() {
             draw_feature_list(
                 ui,
@@ -2580,7 +2612,6 @@ fn draw_shader_menu_header(
     let (enabled_count, error_count, scene_count, final_count) = shader_counts(sources);
     let title = cstring("OMV RENDER LAB");
     ui.text_colored(MENU_ACCENT_TEXT, &title);
-    ui.same_line();
     let session = if menu_config_dirty {
         cstring("SESSION MODIFIED // NOT SAVED")
     } else {
@@ -2622,8 +2653,8 @@ fn draw_shader_menu_header(
     ) {
         result.action = MenuAction::Reload;
     }
-    ui.same_line();
     let path = cstring(crate::config::CONFIG_PATH);
+    ui.spacing();
     ui.text_colored(MENU_MUTED_TEXT, &path);
 
     if let Some(error) = menu_config_error {
@@ -2639,7 +2670,6 @@ fn draw_shader_menu_header(
     ui.separator();
     let title = cstring("RENDER STACK");
     ui.text_colored(MENU_ACCENT_TEXT, &title);
-    ui.same_line();
     let summary = cstring(format!(
         "{} effects | {} enabled | {} scene | {} final | {} issue{}",
         sources.len(),
@@ -2668,7 +2698,7 @@ fn draw_shader_menu_header(
         result.sources_changed |= set_all_sources_enabled(sources, false);
     }
 
-    ui.same_line();
+    ui.spacing();
     draw_frame_pacing_panel(ui, frame_pacing);
 
     result
@@ -3488,14 +3518,15 @@ fn draw_shader_details(ui: &mut psycho_imgui::Ui<'_>, source: &mut ScreenShaderS
                     ui.text(&heading);
                     let mut selected = None;
                     for (choice_index, choice) in choices.iter().enumerate() {
-                        if choice_index > 0 {
-                            ui.same_line();
-                        }
                         let label = cstring(format!(
                             "{}##{}.{}.{}",
                             choice, source.name, option.key, choice_index
                         ));
-                        if ui.radio_button(&label, value == choice_index as i32) {
+                        if ui.radio_button_wrapped(
+                            &label,
+                            value == choice_index as i32,
+                            choice_index == 0,
+                        ) {
                             selected = Some(choice_index as i32);
                         }
                     }
@@ -3746,10 +3777,10 @@ fn embedded_effect_description(kind: Option<EmbeddedEffectKind>) -> Option<&'sta
             Some("Fine contact shadows for creases, intersections, and close geometry.")
         }
         Some(EmbeddedEffectKind::VolumetricFog) => Some(
-            "World-only supplemental atmosphere foundation; physical composition awaits a proven HDR contract.",
+            "World-only supplemental exterior height and heterogeneous fog; Off uses production composition, modes 6/7 inspect the reduced medium, and mode 8 shows bilateral acceptance.",
         ),
         Some(EmbeddedEffectKind::VolumetricLighting) => Some(
-            "Shared directional-scattering foundation; native sun shadows are not currently claimed.",
+            "Planned Phase 3 directional volumetric lighting; this toggle does not yet add production light scattering.",
         ),
         Some(EmbeddedEffectKind::BloomingHdr) => {
             Some("Highlight bloom, exposure shaping, color response, and atmosphere.")

@@ -1,0 +1,720 @@
+FNV ATMOSPHERE DEBUG BLINK STATE-ID FOLLOW-UP
+
+This follow-up reads the immediate PUSH directly before every call to
+the render-state node builder. It does not infer IDs from nearby
+instructions and does not cap the census or relevant call-site output.
+Computed state IDs are printed separately and remain unresolved until
+their call windows are reviewed.
+
+======================================================================
+ImageSpaceShader::PresetStages @ 0x00c04120
+======================================================================
+  Function: FUN_00c04120 @ 0x00c04120, Size: 483 bytes
+
+undefined4 __fastcall FUN_00c04120(int *param_1)
+
+{
+  int *piVar1;
+  int iVar2;
+  int *piVar3;
+  int *piVar4;
+  uint uVar5;
+  undefined4 uVar6;
+  LONG LVar7;
+  int *unaff_FS_OFFSET;
+  int local_14;
+  int iStack_10;
+  int local_c;
+  undefined1 *puStack_8;
+  undefined4 local_4;
+  
+  puStack_8 = &LAB_00f296a8;
+  local_c = *unaff_FS_OFFSET;
+  uVar5 = DAT_011c16bc ^ (uint)&stack0xffffffdc;
+  *unaff_FS_OFFSET = (int)&local_c;
+  local_14 = 0;
+  piVar1 = param_1 + 0x17;
+  local_4 = 0;
+  FUN_00e804d0(piVar1,uVar5);
+  uVar5 = 0;
+  if ((short)param_1[0x27] != 0) {
+    do {
+      FUN_00e7edf0(&local_14);
+      FUN_00be0cf0(local_14,uVar5,3,2,1);
+      FUN_00e802b0(*(undefined4 *)(*piVar1 + 0x14),local_14);
+      uVar5 = uVar5 + 1;
+    } while (uVar5 < *(ushort *)(param_1 + 0x27));
+  }
+  iVar2 = *piVar1;
+  if (*(int *)(iVar2 + 0x30) == 0) {
+    uVar6 = FUN_00e7f5d0();
+    *(undefined4 *)(iVar2 + 0x30) = uVar6;
+  }
+  FUN_00e7f430(7,0,1);
+  iVar2 = *piVar1;
+  if (*(int *)(iVar2 + 0x30) == 0) {
+    uVar6 = FUN_00e7f5d0();
+    *(undefined4 *)(iVar2 + 0x30) = uVar6;
+  }
+  FUN_00e7f430(0xe,0,1);
+  iVar2 = *piVar1;
+  if (*(int *)(iVar2 + 0x30) == 0) {
+    uVar6 = FUN_00e7f5d0();
+    *(undefined4 *)(iVar2 + 0x30) = uVar6;
+  }
+  FUN_00e7f430(0x1b,0,1);
+  iVar2 = *piVar1;
+  if (*(int *)(iVar2 + 0x30) == 0) {
+    uVar6 = FUN_00e7f5d0();
+    *(undefined4 *)(iVar2 + 0x30) = uVar6;
+  }
+  FUN_00e7f430(0xf,0,1);
+  iVar2 = *piVar1;
+  if (*(int *)(iVar2 + 0x30) == 0) {
+    uVar6 = FUN_00e7f5d0();
+    *(undefined4 *)(iVar2 + 0x30) = uVar6;
+  }
+  FUN_00e7f430(0xa8,0xf,1);
+  (**(code **)(*param_1 + 0x150))();
+  iStack_10 = *piVar1;
+  piVar3 = (int *)param_1[0x31];
+  piVar4 = *(int **)(iStack_10 + 0x5c);
+  if (piVar4 != piVar3) {
+    if ((piVar4 != (int *)0x0) && (LVar7 = InterlockedDecrement(piVar4 + 1), LVar7 == 0)) {
+      (**(code **)(*piVar4 + 4))();
+    }
+    *(int **)(iStack_10 + 0x5c) = piVar3;
+    if (piVar3 != (int *)0x0) {
+      InterlockedIncrement(piVar3 + 1);
+    }
+  }
+  iVar2 = *piVar1;
+  piVar3 = (int *)param_1[0x32];
+  piVar4 = *(int **)(iVar2 + 0x44);
+  if (piVar4 != piVar3) {
+    if ((piVar4 != (int *)0x0) && (LVar7 = InterlockedDecrement(piVar4 + 1), LVar7 == 0)) {
+      (**(code **)(*piVar4 + 4))();
+    }
+    *(int **)(iVar2 + 0x44) = piVar3;
+    if (piVar3 != (int *)0x0) {
+      InterlockedIncrement(piVar3 + 1);
+    }
+  }
+  DAT_0126f74c = *piVar1;
+  local_4 = 0xffffffff;
+  if ((local_14 != 0) &&
+     (*(int *)(local_14 + 0x60) = *(int *)(local_14 + 0x60) + -1, *(int *)(local_14 + 0x60) == 0)) {
+    FUN_00e7ecd0();
+  }
+  *unaff_FS_OFFSET = local_c;
+  return 1;
+}
+
+
+
+--- Calls FROM ImageSpaceShader::PresetStages (0x00c04120) ---
+  0x00c04157 -> 0x00e804d0 FUN_00e804d0
+  0x00c04175 -> 0x00e7edf0 FUN_00e7edf0
+  0x00c04186 -> 0x00be0cf0 FUN_00be0cf0
+  0x00c04199 -> 0x00e802b0 FUN_00e802b0
+  0x00c041b1 -> 0x00e7f5d0 FUN_00e7f5d0
+  0x00c041c1 -> 0x00e7f430 FUN_00e7f430
+  0x00c041cd -> 0x00e7f5d0 FUN_00e7f5d0
+  0x00c041dd -> 0x00e7f430 FUN_00e7f430
+  0x00c041e9 -> 0x00e7f5d0 FUN_00e7f5d0
+  0x00c041f9 -> 0x00e7f430 FUN_00e7f430
+  0x00c04205 -> 0x00e7f5d0 FUN_00e7f5d0
+  0x00c04215 -> 0x00e7f430 FUN_00e7f430
+  0x00c04221 -> 0x00e7f5d0 FUN_00e7f5d0
+  0x00c04235 -> 0x00e7f430 FUN_00e7f430
+  0x00c04261 -> 0x00000067 ???
+  0x00c04283 -> 0x00000066 ???
+  0x00c042a0 -> 0x00000067 ???
+  0x00c042be -> 0x00000066 ???
+  0x00c042e8 -> 0x00e7ecd0 FUN_00e7ecd0
+  Total: 19 calls
+
+======================================================================
+render-state node builder @ 0x00e7f430
+======================================================================
+  Function: FUN_00e7f430 @ 0x00e7f430, Size: 279 bytes
+
+void __thiscall FUN_00e7f430(uint param_1,undefined4 param_2,undefined4 param_3,char param_4)
+
+{
+  int *piVar1;
+  int *piVar2;
+  int *piVar3;
+  undefined4 *puVar4;
+  int iVar5;
+  undefined4 uStack_4;
+  
+  uStack_4 = param_1 & 0xffffff;
+  iVar5 = FUN_00e7f000(param_2,(int)&uStack_4 + 3);
+  piVar3 = DAT_0126f71c;
+  if (iVar5 == 0) {
+    piVar1 = DAT_0126f71c + 2;
+    if (*piVar1 == 0) {
+      piVar2 = DAT_0126f71c + 4;
+      FUN_00e7f210(DAT_0126f71c[4]);
+      *piVar2 = *piVar2 * 2;
+    }
+    piVar3 = (int *)*piVar3;
+    puVar4 = (undefined4 *)*piVar3;
+    *piVar1 = *piVar1 + -1;
+    *piVar3 = piVar3[*piVar1];
+    puVar4[2] = 0;
+    puVar4[3] = 0;
+    *puVar4 = param_2;
+    puVar4[1] = param_3;
+    if (param_4 != '\0') {
+      if (*(int *)(param_1 + 0x10) != 0) {
+        *(undefined4 **)(*(int *)(param_1 + 0x10) + 0xc) = puVar4;
+        puVar4[2] = *(undefined4 *)(param_1 + 0x10);
+      }
+      puVar4[3] = 0;
+      *(int *)(param_1 + 0xc) = *(int *)(param_1 + 0xc) + 1;
+      *(undefined4 **)(param_1 + 0x10) = puVar4;
+      return;
+    }
+    if (*(int *)(param_1 + 8) != 0) {
+      *(undefined4 **)(*(int *)(param_1 + 8) + 0xc) = puVar4;
+      puVar4[2] = *(undefined4 *)(param_1 + 8);
+    }
+    puVar4[3] = 0;
+    *(int *)(param_1 + 4) = *(int *)(param_1 + 4) + 1;
+    *(undefined4 **)(param_1 + 8) = puVar4;
+  }
+  else {
+    *(undefined4 *)(iVar5 + 4) = param_3;
+    if (uStack_4._3_1_ != param_4) {
+      if (uStack_4._3_1_ != '\0') {
+        FUN_00e7efc0(iVar5);
+        if (*(int *)(param_1 + 8) != 0) {
+          *(int *)(*(int *)(param_1 + 8) + 0xc) = iVar5;
+          *(undefined4 *)(iVar5 + 8) = *(undefined4 *)(param_1 + 8);
+        }
+        *(undefined4 *)(iVar5 + 0xc) = 0;
+        *(int *)(param_1 + 4) = *(int *)(param_1 + 4) + 1;
+        *(int *)(param_1 + 8) = iVar5;
+        return;
+      }
+      FUN_00e7ef80(iVar5);
+      if (*(int *)(param_1 + 0x10) != 0) {
+        *(int *)(*(int *)(param_1 + 0x10) + 0xc) = iVar5;
+        *(undefined4 *)(iVar5 + 8) = *(undefined4 *)(param_1 + 0x10);
+      }
+      *(undefined4 *)(iVar5 + 0xc) = 0;
+      *(int *)(param_1 + 0xc) = *(int *)(param_1 + 0xc) + 1;
+      *(int *)(param_1 + 0x10) = iVar5;
+      return;
+    }
+  }
+  return;
+}
+
+
+
+======================================================================
+EXACT IMMEDIATE STATE-ID CENSUS
+======================================================================
+Total references: 1953
+Call references: 1953
+Immediate state-ID calls: 1949
+Computed or unrecognized state-ID calls: 4
+
+Immediate state-ID histogram:
+  7 (0x7): 275 calls
+  14 (0xe): 303 calls
+  15 (0xf): 274 calls
+  19 (0x13): 132 calls
+  20 (0x14): 131 calls
+  22 (0x16): 9 calls
+  23 (0x17): 263 calls
+  24 (0x18): 22 calls
+  25 (0x19): 21 calls
+  27 (0x1b): 300 calls
+  28 (0x1c): 2 calls
+  29 (0x1d): 1 calls
+  52 (0x34): 16 calls
+  53 (0x35): 2 calls
+  54 (0x36): 2 calls
+  55 (0x37): 5 calls
+  56 (0x38): 10 calls
+  57 (0x39): 7 calls
+  58 (0x3a): 2 calls
+  60 (0x3c): 1 calls
+  152 (0x98): 8 calls
+  168 (0xa8): 119 calls
+  171 (0xab): 4 calls
+  190 (0xbe): 1 calls
+  195 (0xc3): 39 calls
+
+Exact IDs relevant to the blink contract:
+  52/D3DRS_STENCILENABLE: 16 immediate calls
+  152/D3DRS_CLIPPLANEENABLE: 8 immediate calls
+  161/D3DRS_MULTISAMPLEANTIALIAS: 0 immediate calls
+  162/D3DRS_MULTISAMPLEMASK: 0 immediate calls
+  174/D3DRS_SCISSORTESTENABLE: 0 immediate calls
+  181/D3DRS_ADAPTIVETESS_Y: 0 immediate calls
+  206/D3DRS_SEPARATEALPHABLENDENABLE: 0 immediate calls
+
+Matching call sites:
+  0x00b7ab0a in FUN_00b7a870: 52/D3DRS_STENCILENABLE
+
+----------------------------------------------------------------------
+Disassembly 52/D3DRS_STENCILENABLE around 0x00b7ab0a
+----------------------------------------------------------------------
+  0x00b7aaf9: CALL 0x00e7f5d0                                     
+  0x00b7aafe: MOV dword ptr [EDI + 0x30],EAX                      
+  0x00b7ab01: MOV ECX,dword ptr [EDI + 0x30]                      
+  0x00b7ab04: PUSH 0x1                                            
+  0x00b7ab06: PUSH 0x1                                            
+  0x00b7ab08: PUSH 0x34                                           
+  0x00b7ab0a: CALL 0x00e7f430                                      << TARGET
+  0x00b7ab0f: MOV EDI,dword ptr [ESI*0x4 + 0x11fdff8]             
+  0x00b7ab16: CMP dword ptr [EDI + 0x30],0x0                      
+  0x00b7ab1a: JNZ 0x00b7ab24                                      
+  0x00b7ab1c: CALL 0x00e7f5d0                                     
+  0x00b88f8c in FUN_00b887c0: 52/D3DRS_STENCILENABLE
+
+----------------------------------------------------------------------
+Disassembly 52/D3DRS_STENCILENABLE around 0x00b88f8c
+----------------------------------------------------------------------
+  0x00b88f7b: CALL 0x00e7f5d0                                     
+  0x00b88f80: MOV dword ptr [EDI + 0x30],EAX                      
+  0x00b88f83: MOV ECX,dword ptr [EDI + 0x30]                      
+  0x00b88f86: PUSH 0x1                                            
+  0x00b88f88: PUSH 0x0                                            
+  0x00b88f8a: PUSH 0x34                                           
+  0x00b88f8c: CALL 0x00e7f430                                      << TARGET
+  0x00b88f91: MOV EDI,dword ptr [ESI]                             
+  0x00b88f93: CMP dword ptr [EDI + 0x30],0x0                      
+  0x00b88f97: JNZ 0x00b88fa1                                      
+  0x00b88f99: CALL 0x00e7f5d0                                     
+  0x00b8409b in FUN_00b83dd0: 52/D3DRS_STENCILENABLE
+
+----------------------------------------------------------------------
+Disassembly 52/D3DRS_STENCILENABLE around 0x00b8409b
+----------------------------------------------------------------------
+  0x00b8408a: CALL 0x00e7f5d0                                     
+  0x00b8408f: MOV dword ptr [EBX + 0x30],EAX                      
+  0x00b84092: MOV ECX,dword ptr [EBX + 0x30]                      
+  0x00b84095: PUSH 0x1                                            
+  0x00b84097: PUSH 0x1                                            
+  0x00b84099: PUSH 0x34                                           
+  0x00b8409b: CALL 0x00e7f430                                      << TARGET
+  0x00b840a0: MOV EBX,dword ptr [EDI]                             
+  0x00b840a2: CMP dword ptr [EBX + 0x30],EBP                      
+  0x00b840a5: JNZ 0x00b840af                                      
+  0x00b840a7: CALL 0x00e7f5d0                                     
+  0x00b84179 in FUN_00b83dd0: 52/D3DRS_STENCILENABLE
+
+----------------------------------------------------------------------
+Disassembly 52/D3DRS_STENCILENABLE around 0x00b84179
+----------------------------------------------------------------------
+  0x00b84168: CALL 0x00e7f5d0                                     
+  0x00b8416d: MOV dword ptr [EBX + 0x30],EAX                      
+  0x00b84170: MOV ECX,dword ptr [EBX + 0x30]                      
+  0x00b84173: PUSH 0x1                                            
+  0x00b84175: PUSH 0x1                                            
+  0x00b84177: PUSH 0x34                                           
+  0x00b84179: CALL 0x00e7f430                                      << TARGET
+  0x00b8417e: MOV EBX,dword ptr [EDI]                             
+  0x00b84180: CMP dword ptr [EBX + 0x30],EBP                      
+  0x00b84183: JNZ 0x00b8418d                                      
+  0x00b84185: CALL 0x00e7f5d0                                     
+  0x00bf60c4 in FUN_00bf0720: 152/D3DRS_CLIPPLANEENABLE
+
+----------------------------------------------------------------------
+Disassembly 152/D3DRS_CLIPPLANEENABLE around 0x00bf60c4
+----------------------------------------------------------------------
+  0x00bf60b1: CALL 0x00e7f5d0                                     
+  0x00bf60b6: MOV dword ptr [ESI + 0x30],EAX                      
+  0x00bf60b9: MOV ECX,dword ptr [ESI + 0x30]                      
+  0x00bf60bc: PUSH EBX                                            
+  0x00bf60bd: PUSH 0x3f                                           
+  0x00bf60bf: PUSH 0x98                                           
+  0x00bf60c4: CALL 0x00e7f430                                      << TARGET
+  0x00bf60c9: FLD float ptr [0x01200458]                          
+  0x00bf60cf: FSTP float ptr [ESP + 0x1c]                         
+  0x00bf60d3: CMP dword ptr [ESI + 0x30],EBP                      
+  0x00bf60d6: JNZ 0x00bf60e0                                      
+  0x00bf63a1 in FUN_00bf0720: 152/D3DRS_CLIPPLANEENABLE
+
+----------------------------------------------------------------------
+Disassembly 152/D3DRS_CLIPPLANEENABLE around 0x00bf63a1
+----------------------------------------------------------------------
+  0x00bf638e: CALL 0x00e7f5d0                                     
+  0x00bf6393: MOV dword ptr [ESI + 0x30],EAX                      
+  0x00bf6396: MOV ECX,dword ptr [ESI + 0x30]                      
+  0x00bf6399: PUSH EBX                                            
+  0x00bf639a: PUSH 0x3f                                           
+  0x00bf639c: PUSH 0x98                                           
+  0x00bf63a1: CALL 0x00e7f430                                      << TARGET
+  0x00bf63a6: PUSH 0x11fe8c4                                      
+  0x00bf63ab: LEA ECX,[ESP + 0x1c]                                
+  0x00bf63af: MOV dword ptr [0x011fd548],0x984                    
+  0x00bf63b9: MOV dword ptr [0x011fc968],0x8                      
+  0x00bf6659 in FUN_00bf0720: 152/D3DRS_CLIPPLANEENABLE
+
+----------------------------------------------------------------------
+Disassembly 152/D3DRS_CLIPPLANEENABLE around 0x00bf6659
+----------------------------------------------------------------------
+  0x00bf6646: CALL 0x00e7f5d0                                     
+  0x00bf664b: MOV dword ptr [ESI + 0x30],EAX                      
+  0x00bf664e: MOV ECX,dword ptr [ESI + 0x30]                      
+  0x00bf6651: PUSH EBX                                            
+  0x00bf6652: PUSH 0x3f                                           
+  0x00bf6654: PUSH 0x98                                           
+  0x00bf6659: CALL 0x00e7f430                                      << TARGET
+  0x00bf665e: MOV EAX,dword ptr [ESP + 0x14]                      
+  0x00bf6662: MOV dword ptr [0x011fd54c],EBP                      
+  0x00bf6668: MOV dword ptr [0x011fc96c],0x8                      
+  0x00bf6672: MOV dword ptr [0x011fbd8c],EDI                      
+  0x00b8bffe in FUN_00b8bfe0: 52/D3DRS_STENCILENABLE
+
+----------------------------------------------------------------------
+Disassembly 52/D3DRS_STENCILENABLE around 0x00b8bffe
+----------------------------------------------------------------------
+  0x00b8bfed: CALL 0x00e7f5d0                                     
+  0x00b8bff2: MOV dword ptr [EDI + 0x30],EAX                      
+  0x00b8bff5: MOV ECX,dword ptr [EDI + 0x30]                      
+  0x00b8bff8: PUSH 0x1                                            
+  0x00b8bffa: PUSH 0x1                                            
+  0x00b8bffc: PUSH 0x34                                           
+  0x00b8bffe: CALL 0x00e7f430                                      << TARGET
+  0x00b8c003: MOV EDI,dword ptr [ESI + 0x5c]                      
+  0x00b8c006: CMP dword ptr [EDI + 0x30],0x0                      
+  0x00b8c00a: JNZ 0x00b8c014                                      
+  0x00b8c00c: CALL 0x00e7f5d0                                     
+  0x00b8d47e in FUN_00b8d460: 52/D3DRS_STENCILENABLE
+
+----------------------------------------------------------------------
+Disassembly 52/D3DRS_STENCILENABLE around 0x00b8d47e
+----------------------------------------------------------------------
+  0x00b8d46d: CALL 0x00e7f5d0                                     
+  0x00b8d472: MOV dword ptr [ESI + 0x30],EAX                      
+  0x00b8d475: MOV ECX,dword ptr [ESI + 0x30]                      
+  0x00b8d478: PUSH 0x1                                            
+  0x00b8d47a: PUSH 0x1                                            
+  0x00b8d47c: PUSH 0x34                                           
+  0x00b8d47e: CALL 0x00e7f430                                      << TARGET
+  0x00b8d483: MOV ESI,dword ptr [EDI + 0x5c]                      
+  0x00b8d486: CMP dword ptr [ESI + 0x30],0x0                      
+  0x00b8d48a: JNZ 0x00b8d494                                      
+  0x00b8d48c: CALL 0x00e7f5d0                                     
+  0x00b8f30e in FUN_00b8f2f0: 52/D3DRS_STENCILENABLE
+
+----------------------------------------------------------------------
+Disassembly 52/D3DRS_STENCILENABLE around 0x00b8f30e
+----------------------------------------------------------------------
+  0x00b8f2fd: CALL 0x00e7f5d0                                     
+  0x00b8f302: MOV dword ptr [ESI + 0x30],EAX                      
+  0x00b8f305: MOV ECX,dword ptr [ESI + 0x30]                      
+  0x00b8f308: PUSH 0x1                                            
+  0x00b8f30a: PUSH 0x1                                            
+  0x00b8f30c: PUSH 0x34                                           
+  0x00b8f30e: CALL 0x00e7f430                                      << TARGET
+  0x00b8f313: MOV ESI,dword ptr [EDI + 0x5c]                      
+  0x00b8f316: CMP dword ptr [ESI + 0x30],0x0                      
+  0x00b8f31a: JNZ 0x00b8f324                                      
+  0x00b8f31c: CALL 0x00e7f5d0                                     
+  0x00b8f4ed in FUN_00b8f4b0: 52/D3DRS_STENCILENABLE
+
+----------------------------------------------------------------------
+Disassembly 52/D3DRS_STENCILENABLE around 0x00b8f4ed
+----------------------------------------------------------------------
+  0x00b8f4dc: CALL 0x00e7f5d0                                     
+  0x00b8f4e1: MOV dword ptr [ESI + 0x30],EAX                      
+  0x00b8f4e4: MOV ECX,dword ptr [ESI + 0x30]                      
+  0x00b8f4e7: PUSH 0x1                                            
+  0x00b8f4e9: PUSH 0x1                                            
+  0x00b8f4eb: PUSH 0x34                                           
+  0x00b8f4ed: CALL 0x00e7f430                                      << TARGET
+  0x00b8f4f2: MOV EDI,dword ptr [EDI + 0x5c]                      
+  0x00b8f4f5: CMP dword ptr [EDI + 0x30],0x0                      
+  0x00b8f4f9: JNZ 0x00b8f503                                      
+  0x00b8f4fb: CALL 0x00e7f5d0                                     
+  0x00ba5b77 in FUN_00ba59e0: 52/D3DRS_STENCILENABLE
+
+----------------------------------------------------------------------
+Disassembly 52/D3DRS_STENCILENABLE around 0x00ba5b77
+----------------------------------------------------------------------
+  0x00ba5b67: CALL 0x00e7f5d0                                     
+  0x00ba5b6c: MOV dword ptr [ESI + 0x30],EAX                      
+  0x00ba5b6f: MOV ECX,dword ptr [ESI + 0x30]                      
+  0x00ba5b72: PUSH EDI                                            
+  0x00ba5b73: PUSH 0x0                                            
+  0x00ba5b75: PUSH 0x34                                           
+  0x00ba5b77: CALL 0x00e7f430                                      << TARGET
+  0x00ba5b7c: CMP dword ptr [ESI + 0x30],0x0                      
+  0x00ba5b80: JNZ 0x00ba5b8a                                      
+  0x00ba5b82: CALL 0x00e7f5d0                                     
+  0x00ba5b87: MOV dword ptr [ESI + 0x30],EAX                      
+  0x00ba5d33 in FUN_00ba59e0: 52/D3DRS_STENCILENABLE
+
+----------------------------------------------------------------------
+Disassembly 52/D3DRS_STENCILENABLE around 0x00ba5d33
+----------------------------------------------------------------------
+  0x00ba5d22: CALL 0x00e7f5d0                                     
+  0x00ba5d27: MOV dword ptr [ESI + 0x30],EAX                      
+  0x00ba5d2a: MOV ECX,dword ptr [ESI + 0x30]                      
+  0x00ba5d2d: PUSH 0x1                                            
+  0x00ba5d2f: PUSH 0x0                                            
+  0x00ba5d31: PUSH 0x34                                           
+  0x00ba5d33: CALL 0x00e7f430                                      << TARGET
+  0x00ba5d38: CMP dword ptr [ESI + 0x30],0x0                      
+  0x00ba5d3c: JNZ 0x00ba5d46                                      
+  0x00ba5d3e: CALL 0x00e7f5d0                                     
+  0x00ba5d43: MOV dword ptr [ESI + 0x30],EAX                      
+  0x00bac79e in FUN_00bac160: 152/D3DRS_CLIPPLANEENABLE
+
+----------------------------------------------------------------------
+Disassembly 152/D3DRS_CLIPPLANEENABLE around 0x00bac79e
+----------------------------------------------------------------------
+  0x00bac78a: CALL 0x00e7f5d0                                     
+  0x00bac78f: MOV dword ptr [ESI + 0x30],EAX                      
+  0x00bac792: MOV ECX,dword ptr [ESI + 0x30]                      
+  0x00bac795: PUSH 0x1                                            
+  0x00bac797: PUSH 0x3f                                           
+  0x00bac799: PUSH 0x98                                           
+  0x00bac79e: CALL 0x00e7f430                                      << TARGET
+  0x00bac7a3: MOV EBP,dword ptr [EBX]                             
+  0x00bac7a5: MOV EDI,dword ptr [ESI + 0x5c]                      
+  0x00bac7a8: CMP EDI,EBP                                         
+  0x00bac7aa: JZ 0x00bac7d8                                       
+  0x00bb23ba in FUN_00bb1f60: 52/D3DRS_STENCILENABLE
+
+----------------------------------------------------------------------
+Disassembly 52/D3DRS_STENCILENABLE around 0x00bb23ba
+----------------------------------------------------------------------
+  0x00bb23a9: CALL 0x00e7f5d0                                     
+  0x00bb23ae: MOV dword ptr [ESI + 0x30],EAX                      
+  0x00bb23b1: MOV ECX,dword ptr [ESI + 0x30]                      
+  0x00bb23b4: PUSH 0x1                                            
+  0x00bb23b6: PUSH 0x1                                            
+  0x00bb23b8: PUSH 0x34                                           
+  0x00bb23ba: CALL 0x00e7f430                                      << TARGET
+  0x00bb23bf: MOV ESI,dword ptr [EDI + 0x384]                     
+  0x00bb23c5: CMP dword ptr [ESI + 0x30],0x0                      
+  0x00bb23c9: JNZ 0x00bb23d3                                      
+  0x00bb23cb: CALL 0x00e7f5d0                                     
+  0x00c09eec in FUN_00c072c0: 152/D3DRS_CLIPPLANEENABLE
+
+----------------------------------------------------------------------
+Disassembly 152/D3DRS_CLIPPLANEENABLE around 0x00c09eec
+----------------------------------------------------------------------
+  0x00c09ed8: CALL 0x00e7f5d0                                     
+  0x00c09edd: MOV dword ptr [ESI + 0x30],EAX                      
+  0x00c09ee0: MOV ECX,dword ptr [ESI + 0x30]                      
+  0x00c09ee3: PUSH 0x1                                            
+  0x00c09ee5: PUSH 0x3f                                           
+  0x00c09ee7: PUSH 0x98                                           
+  0x00c09eec: CALL 0x00e7f430                                      << TARGET
+  0x00c09ef1: MOV EDI,0x10082                                     
+  0x00c09ef6: MOV EBX,0x410                                       
+  0x00c09efb: PUSH 0x1200ff4                                      
+  0x00c09f00: LEA ECX,[ESP + 0x18]                                
+  0x00c09ff1 in FUN_00c072c0: 152/D3DRS_CLIPPLANEENABLE
+
+----------------------------------------------------------------------
+Disassembly 152/D3DRS_CLIPPLANEENABLE around 0x00c09ff1
+----------------------------------------------------------------------
+  0x00c09fdd: CALL 0x00e7f5d0                                     
+  0x00c09fe2: MOV dword ptr [ESI + 0x30],EAX                      
+  0x00c09fe5: MOV ECX,dword ptr [ESI + 0x30]                      
+  0x00c09fe8: PUSH 0x1                                            
+  0x00c09fea: PUSH 0x3f                                           
+  0x00c09fec: PUSH 0x98                                           
+  0x00c09ff1: CALL 0x00e7f430                                      << TARGET
+  0x00c09ff6: PUSH 0x1200ff8                                      
+  0x00c09ffb: LEA ECX,[ESP + 0x18]                                
+  0x00c09fff: MOV dword ptr [0x01200b5c],EDI                      
+  0x00c0a005: MOV dword ptr [0x0120099c],EBX                      
+  0x00c0a0ec in FUN_00c072c0: 152/D3DRS_CLIPPLANEENABLE
+
+----------------------------------------------------------------------
+Disassembly 152/D3DRS_CLIPPLANEENABLE around 0x00c0a0ec
+----------------------------------------------------------------------
+  0x00c0a0d8: CALL 0x00e7f5d0                                     
+  0x00c0a0dd: MOV dword ptr [ESI + 0x30],EAX                      
+  0x00c0a0e0: MOV ECX,dword ptr [ESI + 0x30]                      
+  0x00c0a0e3: PUSH 0x1                                            
+  0x00c0a0e5: PUSH 0x3f                                           
+  0x00c0a0e7: PUSH 0x98                                           
+  0x00c0a0ec: CALL 0x00e7f430                                      << TARGET
+  0x00c0a0f1: MOV EDI,0x100a4                                     
+  0x00c0a0f6: PUSH 0x1200ffc                                      
+  0x00c0a0fb: LEA ECX,[ESP + 0x18]                                
+  0x00c0a0ff: MOV dword ptr [0x01200b60],EDI                      
+  0x00c0a203 in FUN_00c072c0: 152/D3DRS_CLIPPLANEENABLE
+
+----------------------------------------------------------------------
+Disassembly 152/D3DRS_CLIPPLANEENABLE around 0x00c0a203
+----------------------------------------------------------------------
+  0x00c0a1ef: CALL 0x00e7f5d0                                     
+  0x00c0a1f4: MOV dword ptr [ESI + 0x30],EAX                      
+  0x00c0a1f7: MOV ECX,dword ptr [ESI + 0x30]                      
+  0x00c0a1fa: PUSH 0x1                                            
+  0x00c0a1fc: PUSH 0x3f                                           
+  0x00c0a1fe: PUSH 0x98                                           
+  0x00c0a203: CALL 0x00e7f430                                      << TARGET
+  0x00c0a208: PUSH 0x1201010                                      
+  0x00c0a20d: LEA ECX,[ESP + 0x18]                                
+  0x00c0a211: MOV dword ptr [0x01200b64],EDI                      
+  0x00c0a217: MOV dword ptr [0x012009a4],EBX                      
+  0x00bc13cb in FUN_00bc1210: 52/D3DRS_STENCILENABLE
+
+----------------------------------------------------------------------
+Disassembly 52/D3DRS_STENCILENABLE around 0x00bc13cb
+----------------------------------------------------------------------
+  0x00bc13ba: CALL 0x00e7f5d0                                     
+  0x00bc13bf: MOV dword ptr [ESI + 0x30],EAX                      
+  0x00bc13c2: MOV ECX,dword ptr [ESI + 0x30]                      
+  0x00bc13c5: PUSH 0x1                                            
+  0x00bc13c7: PUSH 0x0                                            
+  0x00bc13c9: PUSH 0x34                                           
+  0x00bc13cb: CALL 0x00e7f430                                      << TARGET
+  0x00bc13d0: CMP dword ptr [ESI + 0x30],0x0                      
+  0x00bc13d4: JNZ 0x00bc13de                                      
+  0x00bc13d6: CALL 0x00e7f5d0                                     
+  0x00bc13db: MOV dword ptr [ESI + 0x30],EAX                      
+  0x00bc4dcc in FUN_00bc4c00: 52/D3DRS_STENCILENABLE
+
+----------------------------------------------------------------------
+Disassembly 52/D3DRS_STENCILENABLE around 0x00bc4dcc
+----------------------------------------------------------------------
+  0x00bc4dbb: CALL 0x00e7f5d0                                     
+  0x00bc4dc0: MOV dword ptr [ESI + 0x30],EAX                      
+  0x00bc4dc3: MOV ECX,dword ptr [ESI + 0x30]                      
+  0x00bc4dc6: PUSH 0x1                                            
+  0x00bc4dc8: PUSH 0x0                                            
+  0x00bc4dca: PUSH 0x34                                           
+  0x00bc4dcc: CALL 0x00e7f430                                      << TARGET
+  0x00bc4dd1: CMP dword ptr [ESI + 0x30],0x0                      
+  0x00bc4dd5: JNZ 0x00bc4ddf                                      
+  0x00bc4dd7: CALL 0x00e7f5d0                                     
+  0x00bc4ddc: MOV dword ptr [ESI + 0x30],EAX                      
+  0x00bc57f0 in FUN_00bc5510: 52/D3DRS_STENCILENABLE
+
+----------------------------------------------------------------------
+Disassembly 52/D3DRS_STENCILENABLE around 0x00bc57f0
+----------------------------------------------------------------------
+  0x00bc57df: CALL 0x00e7f5d0                                     
+  0x00bc57e4: MOV dword ptr [EDI + 0x30],EAX                      
+  0x00bc57e7: MOV ECX,dword ptr [EDI + 0x30]                      
+  0x00bc57ea: PUSH 0x1                                            
+  0x00bc57ec: PUSH 0x1                                            
+  0x00bc57ee: PUSH 0x34                                           
+  0x00bc57f0: CALL 0x00e7f430                                      << TARGET
+  0x00bc57f5: MOV EDI,dword ptr [ESI]                             
+  0x00bc57f7: CMP dword ptr [EDI + 0x30],0x0                      
+  0x00bc57fb: JNZ 0x00bc5805                                      
+  0x00bc57fd: CALL 0x00e7f5d0                                     
+  0x00e90721 in FUN_00e90590: 52/D3DRS_STENCILENABLE
+
+----------------------------------------------------------------------
+Disassembly 52/D3DRS_STENCILENABLE around 0x00e90721
+----------------------------------------------------------------------
+  0x00e90710: CALL 0x00e7f5d0                                     
+  0x00e90715: MOV dword ptr [EDI + 0x30],EAX                      
+  0x00e90718: MOV ECX,dword ptr [EDI + 0x30]                      
+  0x00e9071b: PUSH 0x1                                            
+  0x00e9071d: PUSH 0x0                                            
+  0x00e9071f: PUSH 0x34                                           
+  0x00e90721: CALL 0x00e7f430                                      << TARGET
+  0x00e90726: MOV EAX,dword ptr [ESP + 0x34]                      
+  0x00e9072a: MOV ECX,dword ptr [ESP + 0x30]                      
+  0x00e9072e: MOV EDX,dword ptr [ESP + 0x2c]                      
+  0x00e90732: PUSH EAX                                            
+  0x00b92d47 in ???: 52/D3DRS_STENCILENABLE
+
+----------------------------------------------------------------------
+Disassembly 52/D3DRS_STENCILENABLE around 0x00b92d47
+----------------------------------------------------------------------
+  0x00b92d36: CALL 0x00e7f5d0                                     
+  0x00b92d3b: MOV dword ptr [ESI + 0x30],EAX                      
+  0x00b92d3e: MOV ECX,dword ptr [ESI + 0x30]                      
+  0x00b92d41: PUSH 0x1                                            
+  0x00b92d43: PUSH 0x1                                            
+  0x00b92d45: PUSH 0x34                                           
+  0x00b92d47: CALL 0x00e7f430                                      << TARGET
+  0x00b92d4c: MOV ESI,dword ptr [EDI + 0x5c]                      
+  0x00b92d4f: CMP dword ptr [ESI + 0x30],0x0                      
+  0x00b92d53: JNZ 0x00b92d5d                                      
+  0x00b92d55: CALL 0x00e7f5d0                                     
+
+Computed or unrecognized state-ID call sites:
+  0x00b71a30 in FUN_00b71a10
+
+----------------------------------------------------------------------
+Disassembly computed or unrecognized state ID around 0x00b71a30
+----------------------------------------------------------------------
+  0x00b71a19: CALL 0x00e7f5d0                                     
+  0x00b71a1e: MOV dword ptr [ESI + 0x30],EAX                      
+  0x00b71a21: MOV EAX,dword ptr [ESP + 0xc]                       
+  0x00b71a25: MOV ECX,dword ptr [ESP + 0x8]                       
+  0x00b71a29: PUSH 0x1                                            
+  0x00b71a2b: PUSH EAX                                            
+  0x00b71a2c: PUSH ECX                                            
+  0x00b71a2d: MOV ECX,dword ptr [ESI + 0x30]                      
+  0x00b71a30: CALL 0x00e7f430                                      << TARGET
+  0x00b71a35: POP ESI                                             
+  0x00b71a36: RET 0xc                                             
+  0x00b71a40: MOV ECX,dword ptr [ESP + 0x8]                       
+  0x00b71a44: FLD float ptr [ECX]                                 
+  0x00b8410f in FUN_00b83dd0
+
+----------------------------------------------------------------------
+Disassembly computed or unrecognized state ID around 0x00b8410f
+----------------------------------------------------------------------
+  0x00b840f9: CMP dword ptr [EBX + 0x30],EBP                      
+  0x00b840fc: JNZ 0x00b84106                                      
+  0x00b840fe: CALL 0x00e7f5d0                                     
+  0x00b84103: MOV dword ptr [EBX + 0x30],EAX                      
+  0x00b84106: PUSH 0x1                                            
+  0x00b84108: PUSH 0x1                                            
+  0x00b8410a: PUSH 0x37                                           
+  0x00b8410c: MOV ECX,dword ptr [EBX + 0x30]                      
+  0x00b8410f: CALL 0x00e7f430                                      << TARGET
+  0x00b84114: MOV EAX,dword ptr [ESP + 0x18]                      
+  0x00b84118: CMP EAX,0x23                                        
+  0x00b8411b: JZ 0x00b84126                                       
+  0x00b8411d: CMP EAX,0x47                                        
+  0x00bac5e0 in FUN_00bac160
+
+----------------------------------------------------------------------
+Disassembly computed or unrecognized state ID around 0x00bac5e0
+----------------------------------------------------------------------
+  0x00bac5c9: CMP dword ptr [ESI + 0x30],0x0                      
+  0x00bac5cd: JNZ 0x00bac5d7                                      
+  0x00bac5cf: CALL 0x00e7f5d0                                     
+  0x00bac5d4: MOV dword ptr [ESI + 0x30],EAX                      
+  0x00bac5d7: PUSH 0x1                                            
+  0x00bac5d9: PUSH 0x0                                            
+  0x00bac5db: PUSH 0xf                                            
+  0x00bac5dd: MOV ECX,dword ptr [ESI + 0x30]                      
+  0x00bac5e0: CALL 0x00e7f430                                      << TARGET
+  0x00bac5e5: MOV EDX,dword ptr [ESP + 0x20]                      
+  0x00bac5e9: MOV EBP,dword ptr [EDX]                             
+  0x00bac5eb: MOV EDI,dword ptr [ESI + 0x5c]                      
+  0x00bac5ee: CMP EDI,EBP                                         
+  0x00bb24e6 in FUN_00bb1f60
+
+----------------------------------------------------------------------
+Disassembly computed or unrecognized state ID around 0x00bb24e6
+----------------------------------------------------------------------
+  0x00bb24cf: CMP dword ptr [ESI + 0x30],0x0                      
+  0x00bb24d3: JNZ 0x00bb24dd                                      
+  0x00bb24d5: CALL 0x00e7f5d0                                     
+  0x00bb24da: MOV dword ptr [ESI + 0x30],EAX                      
+  0x00bb24dd: PUSH 0x1                                            
+  0x00bb24df: PUSH 0x0                                            
+  0x00bb24e1: PUSH 0x34                                           
+  0x00bb24e3: MOV ECX,dword ptr [ESI + 0x30]                      
+  0x00bb24e6: CALL 0x00e7f430                                      << TARGET
+  0x00bb24eb: TEST byte ptr [0x011f941c],0x1                      
+  0x00bb24f2: MOV ESI,dword ptr [EDI + 0x384]                     
+  0x00bb24f8: JBE 0x00bb250e                                      
+  0x00bb24fa: CMP dword ptr [ESI + 0x30],0x0                      

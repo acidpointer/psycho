@@ -562,12 +562,32 @@ Expected outputs:
 
 ### Phase 2: high-quality supplemental volumetric fog
 
-1. Add depth min/max reduction.
-2. Add supplemental analytic height extinction and native-color in-scattering
-   in the proven linear-radiance space.
-3. Add world-anchored heterogeneous density and static blue-noise ray jitter.
-4. Add depth-bilateral upsampling and HDR composition.
-5. Keep native distance fog; default to supplemental height/heterogeneous fog.
+The complete implementation contract is in
+`docs/graphics_fnv_volumetric_fog_phase2_implementation_plan.md`.
+
+Status on 2026-07-18: Slices A and B are implemented. The known diagnostic blink
+has been deferred so feature development can continue, and Slice C reduced
+medium integration is implemented and statically verified under
+`docs/graphics_fnv_atmosphere_phase2_slice_c_feature_plan.md`. Slice C does not
+write production world color. A fresh DXVK log proves its High-quality,
+half-resolution 12-sample integration draw executes under the complete
+exterior/above-water contract, but debug view 0 cannot validate its pixels.
+Slice D production-visible fog and the resizable/wrapped OMV menu are now
+planned in
+`docs/graphics_fnv_atmosphere_phase2_slice_d_visual_composition_ui_plan.md`.
+The blink closure remains tracked for final Phase 2 acceptance, while the
+independent source-transfer gate remains in force for production composition.
+
+1. Publish the proven epoch-tagged underwater value and repair TAA alpha
+   ownership before composing fog.
+2. Retain the completed logarithmic depth min/max reduction.
+3. Add supplemental analytic height extinction and native-color in-scattering
+   in the runtime-proven linear-radiance space.
+4. Add deterministic world-anchored heterogeneous density with fixed ray
+   sample positions. Ray jitter waits for atmosphere temporal history.
+5. Add depth-bilateral upsampling and HDR composition with exact source-alpha
+   preservation.
+6. Keep native distance fog; default to supplemental height/heterogeneous fog.
 
 This phase is useful and honest without shadow maps.
 

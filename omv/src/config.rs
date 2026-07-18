@@ -279,7 +279,7 @@ impl VolumetricFogConfig {
         self.noise_scale = finite_clamp(self.noise_scale, 0.0005, 0.000001, 0.05);
         self.noise_speed = finite_clamp(self.noise_speed, 0.02, 0.0, 1.0);
         self.temporal_stability = finite_clamp(self.temporal_stability, 0.9, 0.0, 0.98);
-        self.debug_view = self.debug_view.clamp(0, 2);
+        self.debug_view = self.debug_view.clamp(0, 8);
         self
     }
 }
@@ -1212,7 +1212,7 @@ albedo_saturation = 1.02
 
         assert_eq!(config.volumetric_fog.max_distance, 120_000.0);
         assert_eq!(config.volumetric_fog.scattering_albedo, 1.0);
-        assert_eq!(config.volumetric_fog.debug_view, 2);
+        assert_eq!(config.volumetric_fog.debug_view, 8);
         assert_eq!(config.volumetric_lighting.anisotropy, -0.8);
         assert_eq!(config.volumetric_lighting.temporal_stability, 0.9);
     }

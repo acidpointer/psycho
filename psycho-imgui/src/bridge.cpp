@@ -195,6 +195,7 @@ bool psycho_imgui_init_dx9(void* hwnd, void* device) {
 	io.IniFilename = nullptr;
 	io.LogFilename = nullptr;
 	io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+	io.ConfigWindowsResizeFromEdges = true;
 	configure_font(io);
 	apply_psycho_style();
 
@@ -298,24 +299,30 @@ void psycho_imgui_set_next_window_centered(
 	float height_ratio,
 	float min_width,
 	float min_height,
-	float max_width,
-	float max_height,
+	float preferred_max_width,
+	float preferred_max_height,
 	int condition) {
 	ImGuiViewport* viewport = ImGui::GetMainViewport();
 	const float available_width = viewport->WorkSize.x > 32.0f ? viewport->WorkSize.x - 32.0f : 1.0f;
 	const float available_height = viewport->WorkSize.y > 32.0f ? viewport->WorkSize.y - 32.0f : 1.0f;
 	const float constrained_min_width = min_width < available_width ? min_width : available_width;
 	const float constrained_min_height = min_height < available_height ? min_height : available_height;
-	const float constrained_max_width = max_width < available_width ? max_width : available_width;
-	const float constrained_max_height = max_height < available_height ? max_height : available_height;
+	const float initial_max_width =
+		clamp_float(preferred_max_width, constrained_min_width, available_width);
+	const float initial_max_height =
+		clamp_float(preferred_max_height, constrained_min_height, available_height);
 	const float width = clamp_float(
-		viewport->WorkSize.x * width_ratio, constrained_min_width, constrained_max_width);
+		viewport->WorkSize.x * width_ratio,
+		constrained_min_width,
+		initial_max_width);
 	const float height = clamp_float(
-		viewport->WorkSize.y * height_ratio, constrained_min_height, constrained_max_height);
+		viewport->WorkSize.y * height_ratio,
+		constrained_min_height,
+		initial_max_height);
 
 	ImGui::SetNextWindowSizeConstraints(
 		ImVec2(constrained_min_width, constrained_min_height),
-		ImVec2(constrained_max_width, constrained_max_height));
+		ImVec2(available_width, available_height));
 	ImGui::SetNextWindowSize(ImVec2(width, height), static_cast<ImGuiCond>(condition));
 	ImGui::SetNextWindowPos(
 		viewport->GetWorkCenter(), static_cast<ImGuiCond>(condition), ImVec2(0.5f, 0.5f));
@@ -367,6 +374,28 @@ bool psycho_imgui_checkbox(const char* label, bool* value) {
 
 bool psycho_imgui_radio_button(const char* label, bool active) {
 	return ImGui::RadioButton(label, active);
+}
+
+bool psycho_imgui_radio_button_wrapped(const char* label, bool active, bool first_in_group) {
+	if (!first_in_group) {
+		const ImGuiStyle& style = ImGui::GetStyle();
+		const ImVec2 label_size = ImGui::CalcTextSize(label, nullptr, true);
+		const float radio_size = ImGui::GetFrameHeight();
+		const float item_width = radio_size
+			+ (label_size.x > 0.0f ? style.ItemInnerSpacing.x + label_size.x : 0.0f);
+		const float content_right =
+			ImGui::GetWindowPos().x + ImGui::GetWindowContentRegionMax().x;
+		const float next_right =
+			ImGui::GetItemRectMax().x + style.ItemSpacing.x + item_width;
+		if (next_right <= content_right) {
+			ImGui::SameLine();
+		}
+	}
+	return ImGui::RadioButton(label, active);
+}
+
+float psycho_imgui_content_region_available_width() {
+	return ImGui::GetContentRegionAvail().x;
 }
 
 bool psycho_imgui_slider_float(const char* label, float* value, float min, float max) {

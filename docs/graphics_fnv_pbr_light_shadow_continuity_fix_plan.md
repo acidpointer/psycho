@@ -38,8 +38,141 @@ preserving:
 - object, close-terrain, TerrainFade, and LandLOD as separate contracts;
 - vanilla fallback for an individual unproven draw without globally disabling
   the target feature;
+- equal or better frame time in the existing PBR production path, including the
+  close-terrain exterior hot view;
 - no expansion of experimental close-terrain coverage as a side effect of this
   continuity fix.
+
+## Non-Negotiable Performance Contract
+
+Correctness and performance are co-equal acceptance gates. The continuity fix
+is rejected if it removes the blink by moving more work into every draw or by
+making an existing replacement shader materially more expensive. Diagnostic
+captures may be slower while explicitly armed; the production path may not be.
+
+### Production draw-path rules
+
+With continuity capture disabled, this change must add no:
+
+- D3D `Get*` call, including shader, constant, texture, declaration, or stream
+  readback;
+- `VirtualQuery`, pointer-range validation, pass-entry scan, property-list walk,
+  material-array scan, or texture-resource resolution;
+- allocation, lock attempt, logging, string formatting, or buffer write;
+- texture bind or sampler-state bind;
+- full constant-table or full sampler-table walk;
+- per-draw register snapshot or restore.
+
+The disabled diagnostic gate may add at most one early, predictable relaxed
+mode load and branch before returning to the current path. Put the armed capture
+implementation in a cold, non-inlined routine so none of its pointer validation,
+hashing, counters, or buffer synchronization executes when disabled.
+
+This plan should improve the current CPU path, not merely avoid making it worse.
+For an admitted draw, remove these existing production getters:
+
+- object: two shader getters, plus sampler getters when tracking is unavailable;
+- LandLOD: two shader getters and five texture getters;
+- TerrainFade: two shader getters and three texture getters;
+- close terrain: two shader getters and `2 * active_layer_count` texture getters,
+  currently as many as fourteen.
+
+Hook-time native handles and certified tracked sampler slots replace those
+queries. Keep the existing successful-mutation budget at one two-register
+constant upload, two replacement shader setters, and the existing native-pair
+restore. Do not add another setter, query, or texture bind to the successful
+path. Any later setter elision requires a separately proven engine-owned cache
+and is outside this continuity fix.
+
+Production admission must use only:
+
+- precomputed row/template contract metadata;
+- already-proven direct draw fields;
+- fixed-size comparisons;
+- the separately ready engine `SetTexture` tracking slots for only the samplers
+  required by the selected template;
+- a contract cache whose key and every invalidation edge are proven.
+
+Do not scan selector pass entries on every draw. Either obtain the active entry
+through a proven direct bridge or certify/cache the ownership result under an
+exact selector/property/pass key. Invalidate it on every proven pass rebuild,
+selector mutation, property dirty transition, shader/resource generation
+change, and device reset. If a complete stable key and invalidation contract
+cannot be proven, keep that draw native instead of paying an unbounded hot-path
+search.
+
+Drive invalidation from an existing proven lifecycle hook or a field already
+read for admission. Do not poll extra engine fields on every draw merely to
+maintain the cache.
+
+Do not add a broad D3D state cache or suppress D3D setters. State blocks, reset,
+COM aliases, other plugins, and downstream hooks make such a cache unsafe. The
+only production texture cache in scope is the observation already owned by the
+engine `SetTexture` hook, and it is usable only after its completeness for the
+affected draw family is proven.
+
+Keep the production `SetTexture` hook to its existing relevant-stage pointer
+store. Do not add a global generation `fetch_add`, selector walk, hash, logging,
+or contract classification to every texture bind. Selector identity and bind
+counters remain armed-diagnostics work only.
+
+### Mutation and rollback rules
+
+Production must preflight all row, resource, sampler, and replacement readiness
+before its first D3D mutation. It must not read back `c32/c33` or `c89/c90` on
+every draw merely to support rollback.
+
+The required production order is:
+
+1. complete query-free preflight;
+2. bind the replacement pair, restoring the native pair immediately if the
+   second bind fails;
+3. upload the one existing family-specific two-register payload;
+4. draw;
+5. restore only the native shader pair at the existing batch boundary.
+
+This order is allowed only after static and focused runtime evidence proves that
+the OMV-owned registers are not consumed by the native fallback row and may
+remain live until the next engine-owned constant update. If that lifetime is
+not proven, relocate the OMV ABI or keep the affected draw native; do not solve
+the uncertainty with production `GetPixelShaderConstantF` plus restore calls.
+Focused diagnostics may snapshot and restore these registers because that path
+is explicitly armed and is not a benchmark path.
+
+### Sampler authority without production readback
+
+Actual D3D sampler state is the diagnostic ground truth, but production must not
+call `GetTexture` for every required stage on every draw. Use two lanes:
+
+- focused capture reads every required actual D3D stage once per captured event
+  and compares it with the engine `SetTexture` observation;
+- production uses the tracked stage pointers only when the `SetTexture` hook has
+  its own ready state and focused evidence has certified the draw family.
+
+The certification must explicitly cover reset, null unbinds, engine state-block
+application, and any observed direct device mutation that bypasses the engine
+hook. If focused capture observes drift without a proven invalidation edge,
+cached sampler admission is unsafe. Keep that affected contract native and do
+more ownership research; do not choose between stale cache acceptance and
+fourteen production `GetTexture` calls.
+
+### Frame-time budgets
+
+The goal is no measurable production regression. Because Proton/DXVK frame
+times have run-to-run noise, use these as hard rejection thresholds, not as a
+performance allowance:
+
+- median frame time regresses by more than `0.10 ms`;
+- p95 frame time regresses by more than `0.20 ms`;
+- mean FPS or 1% low regresses by more than `1%`;
+- any repeatable regression remains outside the paired-run noise band;
+- close-terrain replacement performs work for inactive layers or broadens the
+  admitted draw set without an independently measured visual requirement.
+
+Crossing any one threshold rejects the implementation. A result inside the
+thresholds is accepted only if alternating baseline/candidate runs show no
+repeatable loss. Compare production with capture fully disabled; never use an
+instrumented frame as a performance sample.
 
 ## Authoritative Evidence
 
@@ -53,10 +186,18 @@ Use these Ghidra outputs as ground truth:
 - `analysis/ghidra/output/perf/graphics_fnv_pbr_vpt_nvr_contract_gap_audit.txt`
 - `analysis/ghidra/output/perf/graphics_fnv_pbr_close_terrain_pass_entry_runtime_contract.txt`
 - `analysis/ghidra/output/perf/graphics_fnv_pbr_close_terrain_vertex_declaration_contract.txt`
+- `analysis/ghidra/output/perf/graphics_fnv_pbr_continuity_hotpath_contract_closure.txt`
+- `analysis/ghidra/output/perf/graphics_fnv_pbr_continuity_draw_resource_contract_closure.txt`
+- `analysis/ghidra/output/perf/graphics_fnv_pbr_close_terrain_selector_family_classification_audit.txt`
+- `analysis/ghidra/output/perf/graphics_fnv_pbr_pplighting_entry_to_texture_record_bridge_audit.txt`
+- `analysis/ghidra/output/perf/graphics_fnv_pbr_pplighting_current_pass_texture_record_slot_provenance_audit.txt`
+- `analysis/ghidra/output/perf/graphics_fnv_pbr_pplighting_selector_side_table_key_contract_audit.txt`
+- `analysis/ghidra/output/perf/graphics_fnv_pplighting_renderer_8b8_render_state_constructor_audit.txt`
 
 Use these source contracts with the Ghidra output:
 
 - `docs/graphics_fnv_pbr_errata.md`
+- `docs/nvr_d3d9_performance_research.md`
 - `docs/graphics_fnv_pbr_contract_map.md`
 - `docs/graphics_fnv_pbr_object_temporal_instability_audit.md`
 - `docs/nvr_reference_contract.md`
@@ -412,9 +553,11 @@ and sampler bindings remain unchanged around replacement binding.
 
 The current bind path uploads custom constants before `bind_direct_pair`. If a
 later bind or detailed verification fails, only the native shader pair is
-restored. The plan therefore needs an explicit draw-state transaction that can
-restore every register OMV intentionally wrote before declaring the draw a
-vanilla fallback.
+restored. The plan therefore needs two transaction lanes: focused diagnostics
+snapshot and restore every OMV-written register, while production reorders bind
+before upload and relies only on a separately proven custom-register lifetime.
+Adding production register getters/restores would fix the rollback model by
+regressing the hot path and is not acceptable.
 
 ### Close-terrain point-light alpha is already preserved in HLSL
 
@@ -523,6 +666,201 @@ vertex declaration, or shadow candidate-to-slot bridge is unavailable, prepare
 a focused script under `analysis/ghidra/scripts/` and wait for its output before
 implementing that gate. A runtime pointer heuristic is not a substitute.
 
+The query-free production design adds three mandatory closure questions. Reuse
+existing `.txt` output only if it answers the exact question; otherwise prepare
+focused Ghidra scripts for the user to run:
+
+- prove which native object/terrain rows consume `c32/c33` and `c89/c90`, when
+  the engine next overwrites them, and whether the native fallback can observe a
+  failed or retained OMV payload;
+- prove every engine path that can change the required texture stages between
+  `NiDX9RenderState::SetTexture` and the draw, including state-block application
+  and direct device calls;
+- prove a direct active-pass-entry bridge or the exact selector/property/pass
+  ownership cache key and all invalidation sites, so production never scans the
+  selector list per draw.
+
+Do not implement the corresponding production optimization until its output is
+available and recorded in the contract map.
+
+Use one consolidated two-script research pack for these prerequisites:
+
+1. Run `analysis/ghidra/scripts/graphics_fnv_pbr_continuity_hotpath_contract_closure.py`.
+   Its output,
+   `analysis/ghidra/output/perf/graphics_fnv_pbr_continuity_hotpath_contract_closure.txt`,
+   must close constant-record lifetime, direct D3D texture/state-block bypasses,
+   and the pass-cache ownership/invalidation contract.
+2. After the hot-path output is accepted, run
+   `analysis/ghidra/scripts/graphics_fnv_pbr_continuity_draw_resource_contract_closure.py`.
+   Its output,
+   `analysis/ghidra/output/perf/graphics_fnv_pbr_continuity_draw_resource_contract_closure.txt`,
+   must close exterior/pass identity, vertex binding, and the projected-shadow
+   candidate-to-resource chain.
+
+Do not create another research script unless one of these outputs leaves a
+specific named ambiguity. Extend the applicable consolidated script instead.
+
+### Hot-path closure verdict
+
+The corrected
+`graphics_fnv_pbr_continuity_hotpath_contract_closure.txt` completed on
+2026-07-18 without an exception. It is accepted for constant-table stage
+separation, the normal render-state texture cache, the direct texture-clear
+bypass, and property pass-cache lifecycle. Its broad vtable-offset census is
+not accepted as D3D interface proof: an exact method displacement still
+collides with unrelated engine interfaces.
+
+The constant result must be read by shader stage, not by register number alone:
+
+- `FUN_00B7E430` creates the table at owner `+0x34` with stage argument `0`.
+  That table contains vertex-oriented world matrices, `LightData c25..c34`,
+  and `BoneMatrix3 c44..c97`; its numeric ranges therefore overlap
+  `c32/c33/c89/c90` only in the vertex register bank.
+- The table at owner `+0x30` is created with stage argument `2` and contains the
+  PPLighting pixel records: ambient `c1`, light colors `c3..c12`, light
+  direction/positions `c18..c22`, fog `c14..c16`, toggles `c27`, and
+  `LODTEXPARAMS c31`. It registers no pixel `c32/c33` or `c89/c90` record.
+- The alternate owner `+0x80` is another stage-`0` table whose bone range
+  numerically crosses `c32/c33`; owner `+0x7C` is a stage-`2` table limited to
+  `c0..c2`.
+- `FUN_00E826D0` confirms record stage `1` dispatches through device method
+  `+0x178` and stage `2` through `+0x1B4`, separating vertex and pixel constant
+  application.
+
+This rules out the generic PPLighting pixel table as an overwriter of OMV
+object `c32/c33` or terrain `c89/c90`. The draw/resource output additionally
+shows that `FUN_00BDAF10` and `FUN_00BDF3E0` construct selector rows rather than
+uploading those pixel constants. `FUN_00BD4BA0` orders the generic pass resource
+dispatcher and shader-interface application, but it does not prove the final
+row-specific draw or every possible direct constant upload. Retained-payload
+lifetime therefore remains a focused runtime certification requirement;
+production may not add readback rollback or assume the lifetime is closed from
+the row builders alone.
+
+Texture tracking has two proven paths:
+
+- `NiDX9RenderState::SetTexture` at `0x00E88A20` compares and updates the engine
+  cache at `render_state + 0x10A0 + stage * 4`, then calls device method
+  `+0x104` only when the pointer changed.
+- The sibling block at `0x00E88A60` scans all sixteen cached stages for a
+  specified texture, clears each matching cache slot, and directly calls device
+  `SetTexture(stage, null)`. It intentionally bypasses `0x00E88A20` while
+  keeping the engine cache coherent.
+
+Therefore the production tracker cannot claim completeness from the
+`0x00E88A20` hook alone. The implementation must either add a cold
+`0x00E88A60` invalidation hook that clears matching tracked slots, or keep a
+family native until focused actual-D3D capture proves the bypass cannot create
+drift for it. The invalidation hook may perform one fixed sixteen-slot pointer
+clear per texture-clear event; it must not add work to every draw or ordinary
+texture bind.
+
+The property/pass lifecycle is also concrete:
+
+- `FUN_00B70390` sorts the property light list at `+0x60` and clears property
+  cache key `+0x38` when ordering changes.
+- `FUN_00BB4740` uses `+0x74` as the dirty transition. If `+0x38` still matches,
+  it refreshes resources in existing entries and clears `+0x74`; on mismatch it
+  resets active count `selector_list+0x10`, rebuilds through `FUN_00BA9EE0`, and
+  publishes the new `+0x38` key.
+- `FUN_00BA9EE0` reuses or allocates one entry and increments active count
+  `+0x10`; selector builders `FUN_00BDB4A0` and `FUN_00BDF790` then mutate the
+  emitted entries.
+- `FUN_00B994F0` publishes current geometry/selector state and calls
+  `FUN_00B99390` when selector identity or the geometry source at `+0xC0`
+  changes.
+- `FUN_00BD4BA0` proves a direct current-geometry/current-pass shader-interface
+  apply boundary, but its second parameter is not yet proven to be the
+  sixteen-byte selector pass entry. Do not relabel it as that entry or use it
+  as the production ownership key without the second-script bridge evidence.
+
+This is enough to reject a per-draw selector-list scan, but not enough to choose
+the final O(1) ownership cache. The second script now includes
+`NiDX9RenderState +0x10F8` device-provenance filtering and targeted decompiles
+for `0x00E7CC10`, `0x00E91590`, and `0x00EBFF30`, so state-block-looking and
+`SetTexture`-looking offset collisions can be separated from real renderer
+calls without creating a third script.
+
+### Draw/resource closure verdict
+
+The first complete
+`graphics_fnv_pbr_continuity_draw_resource_contract_closure.txt` output and its
+focused 2026-07-18 revision are accepted as structural evidence, not as full
+production closure.
+
+It proves these contracts:
+
+- `FUN_00BDAF10` emits the close-land companion material rows
+  `0x1F2..0x1F5`, while `FUN_00BDF3E0` emits the distinct LandO/VPT family
+  beginning at `0x1F7` and TerrainFade `0x230`. A VPT row is not material-array
+  ownership evidence.
+- `FUN_00BA9EE0` entries have resource/owner `+0x00`, row `+0x04`, flags and
+  layer bytes `+0x06..+0x0B`, and argument storage `+0x0C`. Projected rows
+  `0x10..0x13` store their builder owner `+0x1A0` in entry `+0x00`.
+- `FUN_00B67BE0`, `FUN_00B68450`, and `FUN_00B68660` expose selector rebuild,
+  material-array mutation, and dirty/cache transitions. These are cold cache
+  invalidation sites; they do not authorize a draw-time list scan.
+- the examined shadow path assigns selected candidates to render-task slots
+  `0x11..0x14` through `FUN_004EA970` and configures the returned slot record
+  through `FUN_00BA3390` using candidate resources `+0x10C/+0x20C`, but does
+  not prove that the projected-row builder owner is the same candidate object.
+  `FUN_00BA30F0` and `FUN_00BA3130` are slot synchronization release/acquire
+  helpers, not texture clear/bind functions.
+- the only calls found with the proven `NiDX9RenderState +0x10F8` device
+  provenance are the normal `SetTexture` and direct null-clear blocks. This
+  filters the reported state-block-looking wrappers as offset collisions. It
+  does not certify that no raw device call exists through another receiver;
+  focused actual-D3D capture remains the completeness check.
+
+The normal projected texture-record bind does reach native `SetTexture`:
+`FUN_00E7EB00` uses the low-level record fields at `+0x04/+0x08/+0x10`,
+`FUN_00E7EA00` resolves the source and calls the render-state virtual `+0xDC`,
+and the renderer `+0x8B8` constructor audit maps that slot to
+`NiDX9RenderState::SetTexture` at `0x00E88A20`. `0x00E90B10` is the renderer
+`+0x8C4` source resolver vtable target even though the current Ghidra database
+does not define it as a function. Its raw body takes the source texture object,
+uses or lazily creates its texture-data object at `+0x24` under the renderer
+lock, validates the resolved data, and returns the resource consumed by
+`FUN_00E7EA00`. This closes the normal source-to-`SetTexture` chain without
+turning the resolver into a production draw-path operation.
+
+The selector-to-draw bridge is proven lossy for the target PPLighting rows. The
+existing entry-to-texture-record and current-pass slot-provenance audits show that
+`FUN_00B7DD50`, `FUN_00B7DDE0`, and `FUN_00B7E150` apply low-level records from
+the current `NiD3DPass`; the examined path retains neither the `FUN_00BA9EE0`
+entry pointer nor its layer/material identity. The focused revision makes the
+loss boundary explicit:
+
+- `FUN_00B7AD00` does receive a selector entry and derives the native pass from
+  entry row `+0x04`, but `FUN_00B7DAB0` calls it only for rows `4` and `5`, not
+  the close-terrain, VPT, TerrainFade, or projected-shadow target families.
+- for the target rows, `FUN_00B7AF80` publishes
+  `DAT_0126F74C = DAT_011FDFF8[row]`. Only the row-indexed `NiD3DPass` survives;
+  selector entry, resource owner, layer byte, and material-array identity do
+  not.
+
+Do not attempt to recover that identity in `FUN_00E7EB00` or at the draw with a
+selector scan, and do not key a side table by current `NiD3DPass` alone. A
+future query-free production admission needs a new O(1) publication boundary
+that carries builder-time metadata to the draw and is invalidated at every
+rebuild/mutation/reset edge. Until focused runtime evidence identifies and
+certifies such a boundary, close terrain stays native.
+
+The following remain explicitly unproven:
+
+- a unique exterior discriminator at the replacement hook;
+- equality between a projected row owner and the candidate assigned to one of
+  physical slots `0x11..0x14`;
+- the close-terrain vertex declaration/FVF and stream ABI;
+- complete row-specific `c89/c90` retained-payload lifetime.
+
+Accordingly, projected-shadow events remain `slot_unproven`, Branch D is not
+eligible, and no query-free close-terrain production admission may be
+implemented yet. The consolidated static research pack is complete: the
+remaining vertex ABI, exterior identity, actual-D3D slot correlation, and
+retained-register lifetime questions require the already-planned bounded
+focused runtime capture. Do not add another broad Ghidra script for them.
+
 ### Phase 1: Add a bounded continuity capture
 
 Modify `omv/src/effects/pbr/diagnostics.rs`.
@@ -556,8 +894,10 @@ The trace must have these properties:
 - reset only on the disabled-to-armed edge or an explicit reset request;
 - the first observation establishes a baseline and is not emitted as a change
   unless that identity is explicitly focused;
-- record only when pass, row, count, light membership/signature, shader pair,
-  sampler identity, or shadow resource identity changes;
+- discovery records only cheap identity, pass, row, pair, rejection, and
+  tracked-sampler transition keys;
+- focused capture records when count, light membership/signature, actual sampler,
+  shadow resource, or any other complete snapshot field changes;
 - preserve a stable geometry/property identity while recording pass changes as
   events;
 - assign a monotonic sequence number to every emitted event;
@@ -577,19 +917,29 @@ Use a non-blocking render-thread write path. A fixed `parking_lot::Mutex` with
 draw hook. Dumping may acquire the buffer only after capture is frozen. No
 worker or UI thread may walk engine pointers or read live D3D state.
 
+The draw-hook boundary performs exactly one relaxed continuity-mode load. When
+it is disabled, do not call any continuity-capture entry point for that draw.
+The cold entry points may keep defensive state checks for non-draw callers, but
+those checks must not become repeated loads in the disabled draw path. Return
+before hashing, counter updates, pointer validation, or lock acquisition. Do not
+extend the current always-on atomic telemetry merely to measure this capture.
+Detailed/performance counters belong behind the same armed gate.
+
 Every discovery and focused event must contain this shared header:
 
 - sequence, capture mode, validity flags, and truncation flags;
 - frame and draw ordinal;
 - geometry, property, selector, and pass pointers;
 - pass index and C/B table rows;
-- native wrappers and native D3D handles;
-- intended and observed replacement handles;
-- contract state and rejection reason;
-- property `+0x38/+0x74` values.
+- native wrappers and their engine-owned shader handles;
+- intended replacement handles and the setter/bind result, without a D3D
+  getter;
+- contract state and rejection reason.
 
 Every focused event additionally contains:
 
+- observed pre/post D3D shader handles;
+- validated property `+0x38/+0x74` values;
 - active pass-entry pointer and the proven pass-entry fields `+0x00`, `+0x04`,
   `+0x06..+0x0B`;
 - bounded pass arguments from `+0x0C`, with argument count, capacity, and a
@@ -612,22 +962,25 @@ walk, or fourteen terrain `GetTexture` calls for every unrelated draw. Focused
 mode may do the complete work for the selected identity. Cache one actual D3D
 sampler snapshot per event and reuse it for validation, signatures, and logging.
 
-Discovery still needs enough signal to find a same-row failure. Its per-family
-minimal signatures are:
+Discovery is a family/identity locator, not proof of a same-row constant or
+membership failure. Its per-family transition keys are limited to:
 
-- object: row/pair, all explicit count carriers, and compact signatures of
-  `c25/c3/c19` from one read of each range;
-- projected shadow: row, pass resource owner, `c18..c23` signature, and cached
-  versus final shadow/mask identities;
-- close terrain: active row, layer count, selected capacity, `c88`, and compact
-  active `c39/c63` signatures;
-- TerrainFade/LandLOD: row/pair and the family-specific native constant
-  signature.
+- object: geometry/property identity, pass, row/pair, contract decision, and
+  the tracked required-sampler pointer key;
+- projected shadow: geometry/property identity, row, pass pointer/resource-owner
+  identity if directly available, and tracked shadow/mask keys;
+- close terrain: geometry/property/selector identity, active row, directly
+  available layer/capacity metadata, and tracked active-sampler key;
+- TerrainFade/LandLOD: geometry/property identity, row/pair, and contract
+  decision.
 
-Discovery stores signatures and changed masks, not the raw arrays or full
-engine list snapshot. Measure and report discovery overhead separately. If even
-this short diagnostic mode materially changes the repro, use a manual
-geometry-name/pass/family filter and focused capture instead.
+Discovery performs no D3D getter, engine list walk, pass-entry scan, or pointer
+validation beyond direct fields already read by current admission. It therefore
+cannot diagnose a same-row failure by itself. Select the visible identity from
+the cheap records or enter a manual geometry-name/pass/family filter, then use
+focused mode for constants, list membership, pass entries, and actual resources.
+Measure and report discovery overhead separately. If discovery changes the
+repro, skip it and arm the narrow manual focus directly.
 
 Expose minimal runtime controls and status:
 
@@ -651,8 +1004,10 @@ practical regression tool for future row/constant transitions.
 Modify `omv/src/effects/pbr/hooks.rs` and
 `omv/src/effects/pbr/engine_contracts.rs`.
 
-Capture after native handles and the exact implemented row are verified, but
-before `upload_object_constants` or `bind_direct_pair`.
+This phase runs only for an armed focused identity. Capture after native handles
+and the exact implemented row are verified, but before
+`upload_object_constants` or `bind_direct_pair`. Production must not perform
+these D3D readbacks.
 
 For object draws capture:
 
@@ -689,7 +1044,7 @@ their pointers happen to match.
 
 ### Phase 3: Capture ordered property light membership
 
-Add a validated bounded walker for property list `+0x60`.
+Add a focused-capture-only validated bounded walker for property list `+0x60`.
 
 For each node capture:
 
@@ -746,39 +1101,51 @@ PBR-on draw remains the synchronized state comparison for that exact draw.
 ### Phase 5: Make replacement binding transactional
 
 Create one explicit render-thread transaction for a pending replacement draw.
-Before mutation it owns:
+The production transaction owns only:
 
-- native VS/PS handles;
-- the exact OMV-written register values that must be restored (`c32/c33` for
-  object or `c89/c90` for terrain);
-- the intended replacement handles;
-- the pre-bind diagnostic snapshot when detailed capture is enabled.
+- native VS/PS handles already supplied by the proven hook context;
+- intended replacement handles;
+- the family and its precomputed two-register payload;
+- direct-bind ownership and the precise failure state.
 
-Preflight row ownership, replacement readiness, constant-read availability, and
-required sampler state before changing shaders or constants. Do not upload
-constants when the selected replacement pair is already known to be unusable.
+The focused diagnostic extension additionally owns the pre-bind register and
+complete native-state snapshots. Do not put those snapshots in the production
+transaction.
 
-On partial bind failure, constant-upload failure, or detailed verification
-failure:
+Preflight row ownership, replacement readiness, proven cached ownership, and
+required tracked sampler state before changing shaders or constants. Production
+must not call `current_vertex_shader_raw`, `current_pixel_shader_raw`,
+`GetPixelShaderConstantF`, or `GetTexture` for this preflight. The focused lane
+uses those getters to verify that the hook-time assumptions are true.
 
-- restore the native shader pair;
-- restore every OMV-written register from the transaction;
-- clear direct-bind ownership;
-- record the precise fallback reason;
-- leave the draw on the native path.
+Bind the replacement pair before uploading the custom payload. On a partial
+pair failure, restore the native pair, clear direct-bind ownership, and leave
+the draw native without having touched constants. On constant-upload failure,
+restore the native pair and disable replacement for that affected contract
+until the next safe resource/device generation; do not retry a failing D3D call
+for every draw.
 
-On successful batch completion, restore the native pair and prior OMV-written
-registers before clearing the transaction. Never restore an engine sampler from
-an opaque pointer snapshot: OMV does not own sampler mutation in this path, and
-the pointer was captured for immediate identity only.
+Focused mode restores its captured `c32/c33` or `c89/c90` values on any detailed
+verification failure so its fallback is a faithful diagnostic control.
+Production does not read or restore them. Before landing that production path,
+prove per family that:
 
-Measure the cost of the two-register snapshot/restore in production. If it is
-not acceptable, replace it only with a separately proven register-ownership
-lifetime contract; do not silently drop rollback.
+- the native fallback row does not consume the OMV-owned registers;
+- a failed two-register upload cannot expose a partially updated payload to the
+  native fallback row;
+- leaving the payload live after a successful draw cannot affect a later native
+  row before the engine's next constant application;
+- device reset and shader/resource regeneration clear transaction ownership.
+
+If any item is unproven, relocate the replacement ABI or keep that family native.
+Do not buy rollback certainty with two extra getter/setter calls on every draw.
+Never restore an engine sampler from an opaque pointer snapshot: OMV did not
+mutate samplers in this path.
 
 ### Phase 6: Verify post-bind state
 
-After successful `bind_direct_pair`:
+In armed focused mode only, after successful `bind_direct_pair` and constant
+upload:
 
 - verify current D3D VS/PS handles equal the intended replacements;
 - record D3D pair telemetry here, not only before the bind;
@@ -787,32 +1154,46 @@ After successful `bind_direct_pair`:
 - verify actual D3D sampler pointers are unchanged;
 - verify only object `c32/c33` or terrain `c89/c90` changed as intended.
 
-In detailed mode, a mismatch must log the exact register/stage and keep that
-draw vanilla through the transaction rollback. Production mode must not add
-full native constant readback overhead.
+On mismatch, record the exact register/stage and keep that draw vanilla through
+the focused transaction rollback. Mark the affected production contract
+uncertified until the ownership error is understood.
 
-### Phase 7: Make actual D3D sampler state authoritative
+Production treats successful D3D setter results as the bind result and performs
+no post-bind getter. This removes the current pre-bind shader `Get*` calls from
+the common path rather than adding a second verification set.
+
+### Phase 7: Certify cached sampler ownership
 
 Modify `omv/src/effects/pbr/samplers.rs` and hook initialization/reset state.
 
 - Track `SetTexture` hook readiness separately from mandatory `SetShaders`
   readiness.
 - Preserve that separate state through device reset.
-- Snapshot each required stage once with final `device.texture_raw(stage)` and
-  reuse the result for admission, identity, and diagnostics.
-- Retain cached selector/texture observations only for drift telemetry.
-- Fail only the current replacement draw if a required final resource is null.
+- In focused capture, snapshot each required stage once with final
+  `device.texture_raw(stage)` and reuse it for admission evidence, identity,
+  drift comparison, and logging.
+- In production, load only the tracked stages required by the selected template.
+  Do not call `device.texture_raw` as a fallback when tracking is unavailable.
+- Fail only the current replacement draw if tracking is not ready or a required
+  tracked resource is null; log hook unavailability once outside the draw loop.
 - Compare resource identity only where an expected owner/resource pointer is
   independently proven. Otherwise report cached/final drift without inventing
   an expected identity.
 - Expose shadow and shadow-mask identities in runtime status.
+- Certify each admitted family against focused actual-D3D snapshots, including
+  reset and state-block behavior. If cached/final drift is observed, remove that
+  family from cached production admission until a complete invalidation or
+  ownership bridge is proven.
 
-This is a correctness change independent of which captured root cause wins.
+The existing cached slot is a cheap production observation, not universal D3D
+ground truth. This phase is valid only with the certification rule above; a
+broad external device-state cache or unconditional `GetTexture` loop is not an
+acceptable substitute.
 
 ### Phase 8: Capture and enforce the full close-terrain ABI
 
-At the verified close-terrain draw boundary, before terrain constant upload,
-capture:
+In focused mode, at the verified close-terrain draw boundary and before terrain
+constant upload, capture:
 
 - exact active row, vertex/pixel table indices, wrappers, and D3D handles;
 - selector state, active layer count, and complete bounded pass-entry snapshot;
@@ -826,7 +1207,7 @@ capture:
 - active `PointLightPosition c63` entries;
 - alpha and membership signatures;
 - final material samplers for only the active diffuse and normal layers;
-- pre-upload `c89/c90` for transaction rollback.
+- pre-upload `c89/c90` for focused diagnostic rollback.
 
 Verify that terrain upload changes only `c89/c90`. If `c39/c63/c88` changes
 around replacement, repair the binding/upload path rather than modifying the
@@ -848,8 +1229,15 @@ Before admission require:
   layer byte is in `1..active_layer_count`;
 - exact vertex ABI compatibility with the replacement vertex shader;
 - all required native constants valid for the selected row;
-- every active diffuse/normal sampler non-null in final D3D state;
+- every active diffuse/normal sampler non-null in certified tracked state;
 - exact selected VPT point-light variant and available resources.
+
+Encode the row-to-layer/capacity mapping and required sampler mask in immutable
+tables. Production may load only the `2 * active_layer_count` tracked pointers;
+it must not iterate fourteen stages for a one-layer variant. Companion-entry
+ownership must come from a proven direct active-entry bridge or a cache with the
+complete invalidation contract defined in the performance section, never a
+per-draw selector-list scan.
 
 The current implementation uses only even pixel table indices. Keep canopy/odd
 variants native until their exact shader pair and output ABI are implemented.
@@ -874,6 +1262,9 @@ from shader names or selector state alone.
 ### Phase 9: Add separate TerrainFade and LandLOD captures
 
 Do not reuse the close-terrain event layout as an implicit ABI.
+
+Everything captured in this phase is focused diagnostics, not production
+readback.
 
 For LandLOD row `0xFE`, capture and verify:
 
@@ -920,16 +1311,20 @@ retain the candidate for later dereference.
 
 The work proceeds in this order:
 
-1. Implement the bounded diagnostic state machine, transaction rollback, and
-   authoritative sampler snapshot foundation.
-2. Add only the family snapshots whose current engine contracts are proven.
-3. Prepare and run focused Ghidra research for every named missing bridge.
-4. Run discovery and focused capture.
-5. Record a capture verdict in this document: repro, focus identity, family,
+1. Record release-build production baselines with the current code and capture
+   fully disabled.
+2. Implement the cold bounded diagnostic state machine and focused transaction
+   verification without changing production admission.
+3. Add only the family snapshots whose current engine contracts are proven.
+4. Prepare focused Ghidra scripts for every named missing bridge; the user runs
+   them and supplies the output for analysis.
+5. Run discovery and focused capture.
+6. Record a capture verdict in this document: repro, focus identity, family,
    decisive sequence range, loss/truncation counters, native-control result,
    and selected branch.
-6. Implement the smallest behavioral correction selected by that verdict.
-7. Run static, shader, build, and final runtime validation.
+7. Implement the smallest query-free production correction selected by that
+   verdict, including certified sampler and register ownership.
+8. Run static, shader, build, visual, and paired performance validation.
 
 Stop before behavioral HLSL, row coverage, light selection, or shadow changes
 when any of these is true:
@@ -938,19 +1333,30 @@ when any of these is true:
 - the decisive event was overwritten, dropped, invalid, ambiguous, or truncated;
 - a required pointer class, pass-entry owner, vertex ABI, exterior identity, or
   shadow slot bridge is unproven;
+- a production contract needs a D3D getter, pointer validation, list scan,
+  resource resolver, or lock on every draw;
+- sampler tracking completeness or custom-register lifetime is unproven;
 - the PBR-off control was not repeated on the same scene and motion path;
 - focused capture materially changes the repro and no narrower filter has been
-  tried.
+  tried;
+- the candidate exceeds any production frame-time rejection threshold.
 
-Sampler authority, hook-readiness separation, and transaction rollback are
-independent correctness changes. They may land before the behavioral verdict,
-but must still pass their own performance and fallback validation.
+Hook-readiness separation and focused transaction verification are independent
+correctness foundations. Production cached sampler admission may land only for
+families that focused capture certifies, and every foundation change must pass
+its own disabled-capture and fallback performance validation.
 
 ## Evidence-Selected Final Fix
 
 The instrumented capture determines which branch is implemented. More than one
 branch may be required if the same symptom has separate object and terrain
 causes.
+
+Every branch must replace incorrect work rather than layer more work over it.
+It may not add a scene pass, geometry replay, texture resolution/binding loop,
+history buffer, per-draw D3D getter, or extra production constant-table walk.
+Any HLSL change must pass the compiled instruction/sample budgets and paired
+release frame-time gate.
 
 ### Branch A: Native membership changes and OMV state matches native
 
@@ -1032,7 +1438,8 @@ Fix:
 
 - correct the selected template's exact sampler layout;
 - preserve final native projection constants;
-- preserve actual shadow/mask resources from the native row;
+- preserve the certified tracked shadow/mask resources from the native row
+  without rebinding or resolving them;
 - implement any missing proven incoming/outgoing projected-shadow pair;
 - keep `lerp(1, shadow, mask)` composition consistent with native ownership.
 
@@ -1138,15 +1545,31 @@ Add focused tests for:
 - candidate metric capture and bounded cycle detection;
 - post-bind D3D pair recording;
 - pre/post non-OMV constant preservation;
-- transaction rollback after partial shader bind, constant-upload failure, and
-  detailed verification failure;
-- successful batch completion restoring native pair and prior OMV registers;
+- production partial-pair failure restoring the native pair before any constant
+  upload;
+- constant-upload failure restoring the native pair and suppressing repeated
+  retries for the affected contract generation;
+- focused detailed verification failure restoring the native pair and captured
+  OMV registers;
+- successful production batch completion restoring only the native pair under
+  the proven custom-register lifetime contract;
 - independent signatures and changed masks for `c25`, `c3`, and `c19`;
 - every high-light integer count boundary;
 - inactive light directions remaining finite;
 - separate `SetTexture` hook readiness after device reset;
-- final D3D texture state overriding stale cached tracking;
-- one actual D3D sampler read per required stage per snapshot;
+- production rejection when texture tracking is unavailable, with no D3D getter
+  fallback;
+- focused actual D3D texture state detecting stale cached tracking and revoking
+  certification for that contract;
+- exactly one actual D3D sampler read per required stage per focused event;
+- production sampler admission reading only the selected template's tracked
+  stages and no inactive close-terrain stages;
+- disabled capture performing exactly one draw-boundary mode load and returning
+  before hashing, counter increments, validation, buffer locking, or additional
+  continuity-mode loads;
+- mock/call-count coverage proving zero production D3D getters and zero
+  production pointer/list validation;
+- contract-cache reset on every proven invalidation edge;
 - ordinary, only-light, and only-specular projected-shadow layouts;
 - projected-shadow candidate/resource transitions with `slot_unproven` handling;
 - close-terrain `PointLightColor.a` consumption;
@@ -1161,7 +1584,11 @@ Add focused tests for:
 - close-terrain vertex declaration and full native constant validity gates;
 - separate LandLOD and TerrainFade register/sampler schemas;
 - all registered PBR variants compiling;
-- representative object shader bytecode remaining bounded.
+- representative object shader bytecode remaining bounded;
+- unaffected shader variants retaining their existing instruction and texture
+  sample budgets;
+- each close-terrain `TEX_COUNT` variant sampling only its compiled active
+  layers, verified from compiled bytecode rather than source inspection alone.
 
 Run:
 
@@ -1211,6 +1638,59 @@ overwritten/dropped counts, invalid reads, truncated list/pass arguments, and
 whether shadow slot ownership was proven. An incomplete trace is diagnostic
 evidence only and cannot select a final behavioral patch.
 
+## Production Performance Validation Protocol
+
+Record the baseline before changing production admission or shader code. Build
+baseline and candidate in release mode with the same Rust toolchain, shader
+compiler, configuration, Proton version, DXVK version, resolution, and driver.
+Continuity capture and unrelated debug probes must be disabled.
+
+Use at least these fixed scenes:
+
+- the reported blink reproduction view and camera path;
+- the known close-terrain exterior hot view;
+- a close-terrain/TerrainFade/LandLOD transition view;
+- a high-light object scene with projected shadows;
+- an ordinary interior with walls and floors;
+- an object-heavy exterior without close terrain dominating the frame.
+
+For each scene:
+
+1. load the same save, weather, time, camera position, and graphics state;
+2. warm the scene and shader/resource caches before measurement;
+3. collect at least three 60-second baseline and three 60-second candidate runs;
+4. alternate build order, for example `A/B/B/A`, to expose thermal or scene
+   drift;
+5. use the same stationary view or repeatable camera path for each pair;
+6. record median, p95, and p99 frame time, mean FPS, 1% low, resolution, draw
+   family replacement/fallback totals already exposed by the current build, and
+   run-to-run spread;
+7. repeat a CPU-sensitive lower-resolution run and the normal target-resolution
+   run so CPU hook cost is not hidden by an unrelated GPU bottleneck.
+
+Use a frame-time source that does not install per-draw observers. A separately
+sampled profiling build may count D3D getters, setters, sampler checks,
+replacement draws, and fallbacks, but those sampled frames are never benchmark
+frames. Keep profiling counters behind an explicit mode or compile-time feature;
+do not add production atomics to obtain the report. If a required total is not
+already available, collect it only in this separate profiling run.
+
+Compare shader work separately:
+
+- compile and inspect every affected permutation;
+- record bytecode size, arithmetic/flow-control instruction count, declared
+  samplers, and texture instruction count;
+- require unchanged budgets for unaffected variants;
+- require close-terrain material work to scale with compiled `TEX_COUNT`, not
+  the seven-layer maximum;
+- reject a more expensive shader unless the focused evidence proves that work
+  is necessary and the paired frame-time gate still passes.
+
+Store the baseline/candidate table and exact configurations beside the final
+capture verdict. Do not average different scenes into one headline number; a
+regression in the close-terrain hot view is a failure even if another view gets
+faster.
+
 ## Final Validation Matrix
 
 Validate after the evidence-selected patch:
@@ -1224,16 +1704,19 @@ Validate after the evidence-selected patch:
 - PBR-off native comparison follows the same camera path;
 - same-draw native pre-bind and PBR post-bind snapshots agree on all non-OMV
   state;
-- no stale sampler/resource fallback;
+- focused captures show no stale tracked sampler/resource admission for any
+  certified production family;
 - no replacement/native shader oscillation;
-- bind failure and detailed mismatch paths restore native shaders and OMV-written
-  registers;
+- partial bind and constant-upload failures restore native shaders; focused
+  detailed mismatches also restore captured OMV-written registers;
 - close terrain proves dispatch row, companion ownership, vertex ABI, constants,
   layer count, and samplers independently;
 - TerrainFade and LandLOD retain their separate row and constant contracts;
 - capture disabled has no measurable frame-time cost and focused capture reports
   its overhead;
-- no meaningful frame-time regression without corresponding visual benefit.
+- production performs no new D3D getter, pointer validation, list scan,
+  allocation, lock, logging, resource resolution, or texture bind per draw;
+- all paired release performance runs pass every hard rejection threshold.
 
 ## Acceptance Criteria
 
@@ -1252,12 +1735,27 @@ The issue is fixed only when all applicable criteria hold:
   native for that draw.
 - No interior/helper row enters close-terrain replacement.
 - No shader consumes an unavailable light interpolator or invalid count slot.
-- Every fallback after OMV mutation restores the transaction before the draw.
+- Every fallback restores all state owned by its production or focused
+  transaction before the draw.
+- The custom-register lifetime and failed-upload behavior are proven for every
+  production family; no per-draw register snapshot/restore is used.
+- Every production sampler-dependent family is certified against actual focused
+  D3D snapshots, and unavailable tracking fails only the affected draw without
+  a getter fallback.
+- Production companion-entry ownership uses a proven direct bridge or a fully
+  invalidated cache, never a per-draw pass-entry scan.
+- Disabled capture executes at most its single early mode check and no capture
+  counter, validation, hashing, or synchronization work.
 - The decisive capture has no unaccounted overwritten/dropped record or
   relevant truncated list/pass argument.
 - The final fix does not broaden an unproven close-terrain, TerrainFade, or
   LandLOD contract.
 - All shader tests and i686 release builds pass.
+- Unaffected compiled shader budgets do not grow, and close-terrain texture work
+  scales only with active compiled layers.
+- Baseline/candidate release runs show no repeatable frame-time or FPS loss and
+  cross none of the `0.10 ms` median, `0.20 ms` p95, or `1%` FPS/1%-low rejection
+  thresholds in any required scene.
 - Final runtime validation shows no recurrence under rotation, translation,
   strafing, elevation changes, or the reported light/shadow transition.
 
@@ -1276,12 +1774,21 @@ Do not implement any of the following as the solution:
 - globally disabling object, terrain, point-light, or projected-shadow PBR;
 - narrowing intended feature coverage merely to avoid the failing row;
 - retaining detached engine candidate pointers;
-- accepting cached `SetTexture` state as final draw ownership;
+- accepting cached `SetTexture` state without focused certification of its
+  completeness and invalidation contract;
+- using production `GetTexture` or shader/constant getters as the substitute for
+  that certification;
+- snapshotting and restoring custom registers on every production draw;
+- scanning selector pass entries, material arrays, or property lists on every
+  production draw;
+- binding or resolving all fourteen terrain textures as a generic fix;
+- accepting a repeatable FPS/frame-time loss because the visual blink improved;
 - treating a stable or changed D3D texture pointer as proof of physical shadow
   slot ownership;
 - complete per-draw capture for every unrelated geometry without discovery and
   focus filtering;
-- declaring a mutated draw vanilla without restoring the draw transaction;
+- declaring a mutated draw vanilla without restoring the state owned by its
+  production or focused transaction;
 - another shader-only guess without same-draw native pre-bind evidence.
 
 ## Expected Files Changed During Implementation
@@ -1296,11 +1803,12 @@ Do not implement any of the following as the solution:
 - `omv/src/effects/pbr/shader_registry.rs`
 - the exact affected object or terrain HLSL file selected by evidence
 - a focused `analysis/ghidra/scripts/` script only for an unresolved identity,
-  vertex, bound, or shadow-slot bridge, followed by its user-generated `.txt`
+  vertex, bound, shadow-slot, custom-register lifetime, texture-state ownership,
+  or pass-cache invalidation bridge, followed by its user-generated `.txt`
   output
 - `docs/graphics_fnv_pbr_errata.md`
 - this plan, updated with the captured verdict and implemented branch
 
 Do not change all listed files mechanically. The final behavioral patch must be
 the smallest set selected by the captured evidence; the diagnostic, sampler
-authority, and ownership-hardening changes are the common foundation.
+certification, and ownership-hardening changes are the common foundation.

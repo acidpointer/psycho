@@ -1,7 +1,7 @@
 //! World-only temporal anti-aliasing resolved before first-person and UI rendering.
 
 use libpsycho::os::windows::directx9::{
-    D3DCULL_NONE, D3DFMT_A8R8G8B8, D3DFMT_A16B16G16R16F, D3DFORMAT, D3DPT_TRIANGLESTRIP,
+    D3DCULL_NONE, D3DFMT_A16B16G16R16F, D3DFMT_R16F, D3DFORMAT, D3DPT_TRIANGLESTRIP,
     D3DRS_ALPHABLENDENABLE, D3DRS_ALPHATESTENABLE, D3DRS_COLORWRITEENABLE, D3DRS_CULLMODE,
     D3DRS_ZENABLE, D3DRS_ZWRITEENABLE, D3DSAMP_ADDRESSU, D3DSAMP_ADDRESSV, D3DSAMP_MAGFILTER,
     D3DSAMP_MINFILTER, D3DSAMP_MIPFILTER, D3DSURFACE_DESC, D3DTA_TEXTURE, D3DTADDRESS_CLAMP,
@@ -20,6 +20,7 @@ const OPTION_REGISTER: u32 = 3;
 const REPROJECTION_REGISTER: u32 = 5;
 const TARGET_RETRY_FRAMES: u16 = 120;
 const TAA_SHADER: &[u8] = include_bytes!("../../shaders/embedded/aa_temporal.hlsl");
+const DEPTH_KEY_SHADER: &[u8] = include_bytes!("../../shaders/embedded/aa_temporal_depth_key.hlsl");
 
 #[derive(Clone, Copy)]
 pub(crate) struct TemporalAaConfig {
@@ -40,7 +41,7 @@ impl TemporalAaConfig {
 
 #[cfg(test)]
 mod shader_compile_tests {
-    use super::{TAA_SHADER, TemporalCameraState, TemporalReprojection};
+    use super::{DEPTH_KEY_SHADER, TAA_SHADER, TemporalCameraState, TemporalReprojection};
     use crate::backend::{CameraFrame, CameraTransformFrame};
 
     fn camera(rotation: [[f32; 3]; 3], translation: [f32; 3]) -> CameraFrame {
@@ -65,15 +66,29 @@ mod shader_compile_tests {
     #[test]
     fn embedded_temporal_aa_shader_compiles() {
         crate::shaders::assert_hlsl_compiles("aa_temporal.hlsl", TAA_SHADER, "ps_3_0");
+        crate::shaders::assert_hlsl_compiles(
+            "aa_temporal_depth_key.hlsl",
+            DEPTH_KEY_SHADER,
+            "ps_3_0",
+        );
     }
 
     #[test]
     fn temporal_neighborhood_reuses_current_color_sample() {
         let source = std::str::from_utf8(TAA_SHADER).expect("TAA source is UTF-8");
-        assert!(source.contains("Neighborhood(uv, current, low, high, average)"));
+        assert!(source.contains("Neighborhood(uv, current.rgb, low, high, average)"));
         assert!(
             !source.contains("float3 center = tex2Dlod(CurrentColor, float4(uv, 0.0, 0.0)).rgb;")
         );
+    }
+
+    #[test]
+    fn temporal_resolve_keeps_depth_keys_out_of_world_alpha() {
+        let source = std::str::from_utf8(TAA_SHADER).expect("TAA source is UTF-8");
+        assert!(source.contains("sampler2D HistoryDepthKey : register(s3)"));
+        assert!(source.contains("return float4(resolved, current.a)"));
+        assert!(!source.contains("history.a - expectedKey"));
+        assert!(!source.contains("return float4(current, currentKey)"));
     }
 
     #[test]
@@ -126,6 +141,7 @@ mod shader_compile_tests {
 
 pub(crate) struct TemporalAaEffect {
     shader: PixelShader9,
+    depth_key_shader: PixelShader9,
     targets: Option<TemporalTargets>,
     previous_camera: Option<TemporalCameraState>,
     history_index: usize,
@@ -137,7 +153,12 @@ pub(crate) struct TemporalAaEffect {
 impl TemporalAaEffect {
     pub(crate) fn create(device: &Device9Ref<'_>) -> Direct3DResult<Self> {
         Ok(Self {
-            shader: compile_shader(device)?,
+            shader: compile_shader(device, "aa_temporal.hlsl", TAA_SHADER)?,
+            depth_key_shader: compile_shader(
+                device,
+                "aa_temporal_depth_key.hlsl",
+                DEPTH_KEY_SHADER,
+            )?,
             targets: None,
             previous_camera: None,
             history_index: 0,
@@ -167,6 +188,14 @@ impl TemporalAaEffect {
                 TemporalReprojection::between(previous, TemporalCameraState { camera, epoch })
                     .is_some()
             })
+    }
+
+    pub(crate) fn alpha_preserving_history_ready(&self, target: TargetDescription) -> bool {
+        self.history_valid
+            && self
+                .targets
+                .as_ref()
+                .is_some_and(|targets| targets.matches_description(target))
     }
 
     pub(crate) fn draw(
@@ -234,12 +263,13 @@ impl TemporalAaEffect {
         let write_index = 1 - read_index;
 
         bind_pipeline_state(device)?;
-        bind_target(device, &targets.history[write_index].surface, desc)?;
+        bind_target(device, &targets.color_history[write_index].surface, desc)?;
         device.set_texture(0, &targets.current.texture)?;
         unsafe {
             device.set_raw_base_texture(1, depth_texture.as_ptr())?;
         }
-        device.set_texture(2, &targets.history[read_index].texture)?;
+        device.set_texture(2, &targets.color_history[read_index].texture)?;
+        device.set_texture(3, &targets.depth_key_history[read_index].texture)?;
         bind_constants(device, desc, depth, config, reprojection, history_available)?;
         device.set_pixel_shader(&self.shader)?;
         draw_quad(device, desc)?;
@@ -247,8 +277,24 @@ impl TemporalAaEffect {
         device.clear_texture(0)?;
         device.clear_texture(1)?;
         device.clear_texture(2)?;
+        device.clear_texture(3)?;
+        bind_target(
+            device,
+            &targets.depth_key_history[write_index].surface,
+            desc,
+        )?;
+        unsafe {
+            device.set_raw_base_texture(0, depth_texture.as_ptr())?;
+        }
+        device.set_sampler_state(0, D3DSAMP_MINFILTER, D3DTEXF_POINT.0 as u32)?;
+        device.set_sampler_state(0, D3DSAMP_MAGFILTER, D3DTEXF_POINT.0 as u32)?;
+        bind_depth_key_constants(device, depth)?;
+        device.set_pixel_shader(&self.depth_key_shader)?;
+        draw_quad(device, desc)?;
+
+        device.clear_texture(0)?;
         device.stretch_rect(
-            &targets.history[write_index].surface,
+            &targets.color_history[write_index].surface,
             None,
             render_target,
             None,
@@ -458,11 +504,28 @@ fn bind_constants(
     device.set_pixel_shader_constant_f(REPROJECTION_REGISTER, &reprojection_constants)
 }
 
-fn compile_shader(device: &Device9Ref<'_>) -> Direct3DResult<PixelShader9> {
-    let bytecode = match shaders::compile_hlsl_source("aa_temporal.hlsl", TAA_SHADER) {
+fn bind_depth_key_constants(device: &Device9Ref<'_>, depth: DepthFrame) -> Direct3DResult<()> {
+    let camera = depth.world_projection.camera;
+    device.set_pixel_shader_constant_f(
+        0,
+        &[[
+            camera.near_z,
+            camera.far_z,
+            depth.world_projection.reversed_depth_f32(),
+            0.0,
+        ]],
+    )
+}
+
+fn compile_shader(
+    device: &Device9Ref<'_>,
+    source_name: &str,
+    source: &[u8],
+) -> Direct3DResult<PixelShader9> {
+    let bytecode = match shaders::compile_hlsl_source(source_name, source) {
         Ok(bytecode) => bytecode,
         Err(err) => {
-            log::warn!("[TAA] Failed to compile aa_temporal.hlsl: {err:#}");
+            log::warn!("[TAA] Failed to compile {source_name}: {err:#}");
             return Err(direct3d_failure());
         }
     };
@@ -478,8 +541,8 @@ fn bind_pipeline_state(device: &Device9Ref<'_>) -> Direct3DResult<()> {
     device.set_render_state(D3DRS_ZENABLE, 0)?;
     device.set_render_state(D3DRS_ZWRITEENABLE, 0)?;
     device.set_render_state(D3DRS_COLORWRITEENABLE, COLOR_WRITE_ALL)?;
-    for sampler in 0..=2 {
-        let filter = if sampler == 1 {
+    for sampler in 0..=3 {
+        let filter = if sampler == 1 || sampler == 3 {
             D3DTEXF_POINT
         } else {
             D3DTEXF_LINEAR
@@ -527,36 +590,24 @@ fn draw_quad(device: &Device9Ref<'_>, desc: &D3DSURFACE_DESC) -> Direct3DResult<
 
 struct TemporalTargets {
     current: EffectTarget,
-    history: [EffectTarget; 2],
+    color_history: [EffectTarget; 2],
+    depth_key_history: [EffectTarget; 2],
 }
 
 impl TemporalTargets {
     fn create(device: &Device9Ref<'_>, desc: &D3DSURFACE_DESC) -> Direct3DResult<Self> {
-        let history = match (
-            EffectTarget::create(device, desc.Width, desc.Height, D3DFMT_A16B16G16R16F),
-            EffectTarget::create(device, desc.Width, desc.Height, D3DFMT_A16B16G16R16F),
-        ) {
-            (Ok(first), Ok(second)) => [first, second],
-            (Err(err), _) | (_, Err(err)) if desc.Format == D3DFMT_A8R8G8B8 => {
-                log::warn!(
-                    "[TAA] A16B16G16R16F history unavailable ({err}); falling back to A8R8G8B8"
-                );
-                [
-                    EffectTarget::create(device, desc.Width, desc.Height, D3DFMT_A8R8G8B8)?,
-                    EffectTarget::create(device, desc.Width, desc.Height, D3DFMT_A8R8G8B8)?,
-                ]
-            }
-            (Err(err), _) | (_, Err(err)) => {
-                log::warn!(
-                    "[TAA] A16B16G16R16F history unavailable for source format {:?}: {err}",
-                    desc.Format
-                );
-                return Err(err);
-            }
-        };
+        let color_history = [
+            EffectTarget::create(device, desc.Width, desc.Height, D3DFMT_A16B16G16R16F)?,
+            EffectTarget::create(device, desc.Width, desc.Height, D3DFMT_A16B16G16R16F)?,
+        ];
+        let depth_key_history = [
+            EffectTarget::create(device, desc.Width, desc.Height, D3DFMT_R16F)?,
+            EffectTarget::create(device, desc.Width, desc.Height, D3DFMT_R16F)?,
+        ];
         Ok(Self {
             current: EffectTarget::create(device, desc.Width, desc.Height, desc.Format)?,
-            history,
+            color_history,
+            depth_key_history,
         })
     }
 

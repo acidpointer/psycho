@@ -112,10 +112,9 @@ stability = 0.63
 first_person_mask = 1.0
 fog_fade = 1.0
 
-# Shared world-only atmosphere pipeline. Production color composition remains
-# bypassed until the HDR transfer, exposure, and alpha contracts are proven.
-# Enabling either component currently prepares strict-FP16 logarithmic depth;
-# select a debug view to visualize that input before first-person/UI rendering.
+# Shared world-only atmosphere pipeline. The fog toggle adds supplemental
+# exterior height and heterogeneous fog before first-person and native image
+# space. Volumetric lighting remains a later directional-lighting phase.
 [graphics.embedded_effects.volumetric_fog]
 enabled = false
 quality = "high"
@@ -129,7 +128,10 @@ noise_amount = 0.25
 noise_scale = 0.0005
 noise_speed = 0.02
 temporal_stability = 0.9
-# 0 = off, 1 = nearest reduced depth, 2 = reduced depth span
+# 0 = off, 1 = nearest reduced depth, 2 = reduced depth span,
+# 3 = reconstructed world-height bands, 4 = source alpha,
+# 5 = HDR overbright/negative range, 6 = optical depth/transmittance,
+# 7 = integrated scattering, 8 = bilateral acceptance
 debug_view = 0
 
 [graphics.embedded_effects.volumetric_lighting]
