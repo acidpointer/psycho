@@ -87,7 +87,8 @@ float4 Main(PixelInput input) : COLOR0 {
 	}
 
 	float2 encodedDepth = tex2Dlod(ReducedDepth, float4(input.uv, 0.0f, 0.0f)).rg;
-	float distance = min(DecodeDistance(encodedDepth.x), min(MediumData1.x, DepthData.w));
+	float encodedDistance = lerp(encodedDepth.x, encodedDepth.y, saturate(GateData.w));
+	float distance = min(DecodeDistance(encodedDistance), min(MediumData1.x, DepthData.w));
 	distance = max(distance, 0.0f);
 
 	float viewX = lerp(CameraFrustum.x, CameraFrustum.y, input.uv.x);

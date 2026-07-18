@@ -1,0 +1,1901 @@
+FNV TAA PROJECTION-ONLY UPLOAD CONTRACT FOLLOWUP
+
+Proven input from the prior audit:
+Entry-wide NiCamera frustum jitter is copied into the culling process and used to build six world-space clip planes.
+
+Questions:
+1. What exact NiDX9Renderer function occupies vtable slot +0x18C?
+2. Does it synchronously copy/derive projection state, or retain camera/frustum pointers after return?
+3. Which renderer and D3D state fields receive the projection derived from the frustum?
+4. Can OMV jitter only during the direct 0x00B6BA35 SetCameraData call and restore immediately afterward?
+5. Does that boundary leave culling, LOD, first-person, UI, and later camera users unjittered?
+
+======================================================================
+NiDX9Renderer vtable window @ 0x010ee4bc
+======================================================================
+  [092] +0x170: 0x00e757c0 -> ???
+  [093] +0x174: 0x00e698a0 -> ???
+  [094] +0x178: 0x00e698d0 -> ???
+  [095] +0x17c: 0x00e74f40 -> ???
+  [096] +0x180: 0x00e69660 -> FUN_00e69660
+  [097] +0x184: 0x00e75000 -> ???
+  [098] +0x188: 0x00e6f310 -> FUN_00e6f310
+  [099] +0x18c: 0x00e6c780 -> FUN_00e6c780 << SET CAMERA DATA
+  [100] +0x190: 0x00e6cf40 -> FUN_00e6cf40
+  [101] +0x194: 0x00e6eea0 -> ???
+  [102] +0x198: 0x00e74dc0 -> FUN_00e74dc0
+  [103] +0x19c: 0x00e69900 -> ???
+  [104] +0x1a0: 0x00e711e0 -> FUN_00e711e0
+  [105] +0x1a4: 0x00e752a0 -> ???
+  [106] +0x1a8: 0x00e752a0 -> ???
+
+----------------------------------------------------------------------
+References TO 0x010ee4bc (NiDX9Renderer vtable)
+----------------------------------------------------------------------
+  DATA @ 0x00e75a7e (in FUN_00e75a70)
+  DATA @ 0x00e754aa (in FUN_00e754a0)
+  Total: 2 refs
+
+======================================================================
+NiDX9Renderer constructor/destructor vtable writer A @ 0x00e75a70
+======================================================================
+  Function: FUN_00e75a70 @ 0x00e75a70, Size: 1911 bytes
+
+void __fastcall FUN_00e75a70(undefined4 *param_1)
+
+{
+  LONG LVar1;
+  int *piVar2;
+  uint uVar3;
+  int *piVar4;
+  int iVar5;
+  undefined4 *puVar6;
+  int iVar7;
+  uint unaff_ESI;
+  uint uVar8;
+  int *piVar9;
+  int *local_c;
+  int iStack_8;
+  undefined1 auStack_4 [4];
+  
+  *param_1 = &PTR_FUN_010ee4bc;
+  if (param_1[0xa2] != 0) {
+    if ((param_1[0x22e] != 0) && (uVar8 = 0, DAT_011bf558 != 0)) {
+      do {
+        (**(code **)(*(int *)param_1[0x22e] + 0xdc))(uVar8,0);
+        uVar8 = uVar8 + 1;
+      } while (uVar8 < DAT_011bf558);
+    }
+    uVar8 = 0;
+    if (param_1[0x1ba] != 0) {
+      do {
+        (**(code **)(*(int *)param_1[0xa2] + 400))((int *)param_1[0xa2],uVar8,0,0,0);
+        uVar8 = uVar8 + 1;
+      } while (uVar8 < (uint)param_1[0x1ba]);
+    }
+    (**(code **)(*(int *)param_1[0xa2] + 0x1a0))((int *)param_1[0xa2],0);
+  }
+  piVar2 = param_1 + 0x21c;
+  puVar6 = param_1 + 0x1c0;
+  local_c = (int *)0x4;
+  do {
+    iVar7 = 0x16;
+    do {
+      FUN_00aa4060(*puVar6);
+      puVar6 = puVar6 + 1;
+      iVar7 = iVar7 + -1;
+    } while (iVar7 != 0);
+    piVar4 = (int *)*piVar2;
+    if (piVar4 != (int *)0x0) {
+      LVar1 = InterlockedDecrement(piVar4 + 1);
+      if (LVar1 == 0) {
+        (**(code **)(*piVar4 + 4))();
+      }
+      *piVar2 = 0;
+    }
+    piVar2 = piVar2 + 1;
+    local_c = (int *)((int)local_c + -1);
+  } while (local_c != (int *)0x0);
+  iVar7 = param_1[0x188];
+  iVar5 = DAT_0126f0ec;
+  while (DAT_0126f0ec = iVar7, DAT_0126f0ec != 0) {
+    iVar7 = *(int *)(DAT_0126f0ec + 0xc);
+    *(int *)(DAT_0126f0ec + 0xc) = iVar5;
+    iVar5 = DAT_0126f0ec;
+  }
+  DAT_0126f0ec = iVar5;
+  param_1[0x188] = 0;
+  param_1[0x189] = 0;
+  local_c = (int *)0x0;
+  iVar7 = DAT_0126f0ec;
+  while (iVar7 != 0) {
+    iVar5 = *(int *)(iVar7 + 0xc);
+    FUN_00aa1460(iVar7,0x10);
+    iVar7 = iVar5;
+  }
+  DAT_0126f0ec = 0;
+  uVar8 = 0;
+  if (param_1[0x185] != 0) {
+    piVar2 = (int *)param_1[0x186];
+    do {
+      if (*piVar2 != 0) {
+        piVar2 = (int *)((int *)param_1[0x186])[uVar8];
+        goto joined_r0x00e75bf2;
+      }
+      uVar8 = uVar8 + 1;
+      piVar2 = piVar2 + 1;
+    } while (uVar8 < (uint)param_1[0x185]);
+  }
+  piVar2 = (int *)0x0;
+joined_r0x00e75bf2:
+  while (piVar2 != (int *)0x0) {
+    piVar4 = (int *)*piVar2;
+    local_c = (int *)piVar2[1];
+    iVar7 = piVar2[2];
+    piVar2 = piVar4;
+    if (piVar4 == (int *)0x0) {
+      iVar5 = (**(code **)(param_1[0x184] + 4))(local_c);
+      uVar8 = iVar5 + 1;
+      if (uVar8 < (uint)param_1[0x185]) {
+        puVar6 = (undefined4 *)(param_1[0x186] + uVar8 * 4);
+        do {
+          piVar2 = (int *)*puVar6;
+          if ((int *)*puVar6 != (int *)0x0) goto joined_r0x00e75c49;
+          uVar8 = uVar8 + 1;
+          puVar6 = puVar6 + 1;
+        } while (uVar8 < (uint)param_1[0x185]);
+      }
+      piVar2 = (int *)0x0;
+    }
+joined_r0x00e75c49:
+    while (iVar7 != 0) {
+      iVar5 = *(int *)(iVar7 + 0x20);
+      if (iVar5 == 0) {
+        FUN_00e91fd0(local_c);
+      }
+      else {
+        FUN_00b57ea0(local_c,iVar5);
+      }
+      FUN_00aa1460(iVar7,0x24);
+      iVar7 = iVar5;
+    }
+  }
+  FUN_00a8f870();
+  FUN_00e75380();
+  FUN_00e819f0();
+  FUN_00e7cec0();
+  FUN_00b601a0();
+  FUN_00b601a0();
+  FUN_00b601a0();
+  FUN_00e8a9b0(param_1);
+  uVar8 = 0;
+  piVar2 = local_c;
+  if (param_1[0x225] != 0) {
+    piVar4 = (int *)param_1[0x226];
+    do {
+      if (*piVar4 != 0) {
+        iStack_8 = ((int *)param_1[0x226])[uVar8];
+        goto joined_r0x00e75cfe;
+      }
+      uVar8 = uVar8 + 1;
+      piVar4 = piVar4 + 1;
+    } while (uVar8 < (uint)param_1[0x225]);
+  }
+  iStack_8 = 0;
+joined_r0x00e75cfe:
+  while (local_c = piVar2, iStack_8 != 0) {
+    local_c = (int *)0x0;
+    FUN_00e6e630(&iStack_8,auStack_4,&local_c);
+    piVar4 = local_c;
+    piVar2 = (int *)0x0;
+    if (local_c != (int *)0x0) {
+      iVar7 = *local_c;
+      uVar8 = 0;
+      local_c = (int *)0x0;
+      iVar7 = (**(code **)(iVar7 + 0xa4))();
+      if (iVar7 != 0) {
+        do {
+          iVar7 = (**(code **)(*piVar4 + 0xb0))(uVar8);
+          if ((iVar7 != 0) && (piVar2 = *(int **)(iVar7 + 0x10), piVar2 != (int *)0x0)) {
+            LVar1 = InterlockedDecrement(piVar2 + 1);
+            if (LVar1 == 0) {
+              (**(code **)(*piVar2 + 4))();
+            }
+            *(undefined4 *)(iVar7 + 0x10) = 0;
+          }
+          uVar8 = unaff_ESI + 1;
+          uVar3 = (**(code **)(*piVar4 + 0xa4))();
+          unaff_ESI = uVar8;
+        } while (uVar8 < uVar3);
+      }
+      iVar7 = (**(code **)(*piVar4 + 0xb4))();
+      if ((iVar7 != 0) && (piVar2 = *(int **)(iVar7 + 0x10), piVar2 != (int *)0x0)) {
+        LVar1 = InterlockedDecrement(piVar2 + 1);
+        if (LVar1 == 0) {
+          (**(code **)(*piVar2 + 4))();
+        }
+        *(undefined4 *)(iVar7 + 0x10) = 0;
+      }
+      LVar1 = InterlockedDecrement(piVar4 + 1);
+      piVar2 = local_c;
+      if (LVar1 == 0) {
+        (**(code **)(*piVar4 + 4))();
+        piVar2 = local_c;
+      }
+    }
+  }
+  FUN_00b601a0();
+  piVar2 = param_1 + 0x2c5;
+  uVar8 = 0;
+  if (param_1[0x2c6] != 0) {
+    piVar4 = (int *)param_1[0x2c7];
+    do {
+      if (*piVar4 != 0) {
+        piVar4 = (int *)((int *)param_1[0x2c7])[uVar8];
+        goto joined_r0x00e75e33;
+      }
+      uVar8 = uVar8 + 1;
+      piVar4 = piVar4 + 1;
+    } while (uVar8 < (uint)param_1[0x2c6]);
+  }
+  piVar4 = (int *)0x0;
+joined_r0x00e75e33:
+  do {
+    if (piVar4 == (int *)0x0) {
+      param_1[0x22a] = 0;
+      if ((undefined4 *)param_1[0x22f] != (undefined4 *)0x0) {
+        (*(code *)**(undefined4 **)param_1[0x22f])(1);
+      }
+      param_1[0x22f] = 0;
+      if ((undefined4 *)param_1[0x230] != (undefined4 *)0x0) {
+        (*(code *)**(undefined4 **)param_1[0x230])(1);
+        param_1[0x230] = 0;
+      }
+      if ((int *)param_1[0x22b] != (int *)0x0) {
+        (**(code **)(*(int *)param_1[0x22b] + 8))(param_1[0x22c]);
+        (**(code **)(*(int *)param_1[0x22b] + 8))(param_1[0x22d]);
+        if ((undefined4 *)param_1[0x22b] != (undefined4 *)0x0) {
+          (*(code *)**(undefined4 **)param_1[0x22b])(1);
+        }
+        param_1[0x22b] = 0;
+      }
+      if ((undefined4 *)param_1[0x22e] != (undefined4 *)0x0) {
+        (*(code *)**(undefined4 **)param_1[0x22e])(1);
+      }
+      param_1[0x22e] = 0;
+      if ((undefined4 *)param_1[0x231] != (undefined4 *)0x0) {
+        (*(code *)**(undefined4 **)param_1[0x231])(1);
+      }
+      iVar7 = param_1[0x232];
+      param_1[0x231] = 0;
+      if (iVar7 != 0) {
+        FUN_00e8b630();
+        FUN_00aa1460(iVar7,0x23c);
+      }
+      param_1[0x232] = 0;
+      uVar8 = 0;
+      do {
+        piVar4 = *(int **)((int)&DAT_0126f108 + uVar8);
+        if (piVar4 != (int *)0x0) {
+          LVar1 = InterlockedDecrement(piVar4 + 1);
+          if (LVar1 == 0) {
+            (**(code **)(*piVar4 + 4))();
+          }
+          *(undefined4 *)((int)&DAT_0126f108 + uVar8) = 0;
+        }
+        uVar8 = uVar8 + 4;
+      } while (uVar8 < 0x400);
+      piVar4 = (int *)param_1[0xa2];
+      if (piVar4 != (int *)0x0) {
+        (**(code **)(*piVar4 + 8))(piVar4);
+        param_1[0xa2] = 0;
+      }
+      FUN_00aa4060(param_1[0x2a0]);
+      FUN_00aa4060(param_1[0x2a1]);
+      FUN_00aa4060(param_1[0x2a2]);
+      FUN_00aa10f0(param_1[0x2a4]);
+      FUN_00e6e730();
+      FUN_00e6e7b0();
+      FUN_00a63520("NiPersistentSrcTextureRendererData");
+      FUN_00a98460();
+      *piVar2 = (int)&PTR_FUN_010edb9c;
+      FUN_00b601a0();
+      *piVar2 = (int)&PTR_FUN_010edac4;
+      FUN_00b601a0();
+      FUN_00aa10f0(param_1[0x2c7]);
+      param_1[0x2c1] = &PTR_FUN_010edae4;
+      FUN_00aa10f0(param_1[0x2c2]);
+      param_1[0x2bd] = &PTR_FUN_010edaf4;
+      FUN_00aa10f0(param_1[0x2be]);
+      param_1[0x2b9] = &PTR_FUN_010edae4;
+      FUN_00aa10f0(param_1[0x2ba]);
+      param_1[0x2b5] = &PTR_FUN_010edaec;
+      FUN_00aa10f0(param_1[0x2b6]);
+      FUN_00b71300();
+      FUN_00e74d40();
+      piVar2 = (int *)param_1[0x23f];
+      if ((piVar2 != (int *)0x0) && (LVar1 = InterlockedDecrement(piVar2 + 1), LVar1 == 0)) {
+        (**(code **)(*piVar2 + 4))();
+      }
+      param_1[0x23b] = &PTR_FUN_010edb7c;
+      FUN_00b601a0();
+      param_1[0x23b] = &PTR_FUN_010edaa4;
+      FUN_00b601a0();
+      FUN_00aa10f0(param_1[0x23d]);
+      param_1[0x237] = &PTR_FUN_010edb5c;
+      FUN_00b601a0();
+      param_1[0x237] = &PTR_FUN_010eda84;
+      FUN_00b601a0();
+      FUN_00aa10f0(param_1[0x239]);
+      param_1[0x233] = &PTR_FUN_010edb3c;
+      FUN_00b601a0();
+      param_1[0x233] = &PTR_FUN_010eda64;
+      FUN_00b601a0();
+      FUN_00aa10f0(param_1[0x235]);
+      param_1[0x224] = &PTR_FUN_010edb1c;
+      FUN_00b601a0();
+      param_1[0x224] = &PTR_FUN_010eda44;
+      FUN_00b601a0();
+      FUN_00aa10f0(param_1[0x226]);
+      puVar6 = param_1 + 0x220;
+      iVar7 = 3;
+      do {
+        piVar2 = (int *)puVar6[-1];
+        puVar6 = puVar6 + -1;
+        if ((piVar2 != (int *)0x0) && (LVar1 = InterlockedDecrement(piVar2 + 1), LVar1 == 0)) {
+          (**(code **)(*piVar2 + 4))();
+        }
+        iVar7 = iVar7 + -1;
+      } while (-1 < iVar7);
+      piVar2 = (int *)param_1[0x18c];
+      if ((piVar2 != (int *)0x0) && (LVar1 = InterlockedDecrement(piVar2 + 1), LVar1 == 0)) {
+        (**(code **)(*piVar2 + 4))();
+      }
+      param_1[0x184] = &PTR_FUN_010edafc;
+      FUN_00b601a0();
+      param_1[0x184] = &PTR_FUN_010eda24;
+      FUN_00b601a0();
+      FUN_00aa10f0(param_1[0x186]);
+      FUN_00a62b60();
+      return;
+    }
+    piVar9 = (int *)*piVar4;
+    iVar7 = piVar4[2];
+    if (piVar9 == (int *)0x0) {
+      iVar5 = (**(code **)(*piVar2 + 4))(piVar4[1]);
+      uVar8 = iVar5 + 1;
+      if (uVar8 < (uint)param_1[0x2c6]) {
+        puVar6 = (undefined4 *)(param_1[0x2c7] + uVar8 * 4);
+        do {
+          piVar9 = (int *)*puVar6;
+          if (piVar9 != (int *)0x0) goto LAB_00e75e80;
+          uVar8 = uVar8 + 1;
+          puVar6 = puVar6 + 1;
+        } while (uVar8 < (uint)param_1[0x2c6]);
+      }
+      piVar9 = (int *)0x0;
+    }
+LAB_00e75e80:
+    FUN_00aa4060(iVar7);
+    piVar4 = piVar9;
+  } while( true );
+}
+
+
+
+======================================================================
+NiDX9Renderer constructor/destructor vtable writer B @ 0x00e754a0
+======================================================================
+  Function: FUN_00e754a0 @ 0x00e754a0, Size: 778 bytes
+
+undefined4 * __fastcall FUN_00e754a0(undefined4 *param_1)
+
+{
+  void *pvVar1;
+  
+  FUN_00a62af0();
+  *param_1 = &PTR_FUN_010ee4bc;
+  param_1[0x184] = &PTR_FUN_010eda24;
+  param_1[0x185] = 0x25;
+  param_1[0x187] = 0;
+  pvVar1 = (void *)FUN_00aa1070(0x94);
+  param_1[0x186] = pvVar1;
+  _memset(pvVar1,0,param_1[0x185] * 4);
+  param_1[0x184] = &PTR_FUN_010edafc;
+  param_1[0x18c] = 0;
+  param_1[0x21c] = 0;
+  param_1[0x21d] = 0;
+  param_1[0x21e] = 0;
+  param_1[0x21f] = 0;
+  param_1[0x224] = &PTR_FUN_010eda44;
+  param_1[0x225] = 0x25;
+  param_1[0x227] = 0;
+  pvVar1 = (void *)FUN_00aa1070(0x94);
+  param_1[0x226] = pvVar1;
+  _memset(pvVar1,0,param_1[0x225] * 4);
+  param_1[0x224] = &PTR_FUN_010edb1c;
+  param_1[0x233] = &PTR_FUN_010eda64;
+  param_1[0x234] = 0x25;
+  param_1[0x236] = 0;
+  pvVar1 = (void *)FUN_00aa1070(0x94);
+  param_1[0x235] = pvVar1;
+  _memset(pvVar1,0,param_1[0x234] * 4);
+  param_1[0x233] = &PTR_FUN_010edb3c;
+  param_1[0x237] = &PTR_FUN_010eda84;
+  param_1[0x238] = 0x25;
+  param_1[0x23a] = 0;
+  pvVar1 = (void *)FUN_00aa1070(0x94);
+  param_1[0x239] = pvVar1;
+  _memset(pvVar1,0,param_1[0x238] * 4);
+  param_1[0x237] = &PTR_FUN_010edb5c;
+  param_1[0x23b] = &PTR_FUN_010edaa4;
+  param_1[0x23c] = 0x25;
+  param_1[0x23e] = 0;
+  pvVar1 = (void *)FUN_00aa1070(0x94);
+  param_1[0x23d] = pvVar1;
+  _memset(pvVar1,0,param_1[0x23c] * 4);
+  param_1[0x23b] = &PTR_FUN_010edb7c;
+  param_1[0x23f] = 0;
+  param_1[0x242] = 0;
+  param_1[0x240] = 0;
+  param_1[0x241] = 0;
+  param_1[0x245] = 0;
+  param_1[0x243] = 0;
+  param_1[0x244] = 0;
+  param_1[0x246] = 0;
+  param_1[0x247] = 0;
+  param_1[0x248] = 0;
+  param_1[0x249] = 0;
+  param_1[0x24a] = 0;
+  param_1[0x24b] = 0;
+  param_1[0x24c] = 0;
+  param_1[0x24d] = 0;
+  param_1[0x24e] = 0;
+  param_1[0x24f] = 0;
+  param_1[0x2b6] = 0;
+  param_1[0x2b5] = &PTR_FUN_010ede18;
+  *(undefined2 *)(param_1 + 0x2b7) = 0;
+  *(undefined2 *)(param_1 + 0x2b8) = 0;
+  *(undefined2 *)((int)param_1 + 0xae2) = 1;
+  *(undefined2 *)((int)param_1 + 0xade) = 0;
+  *(undefined2 *)((int)param_1 + 0xaee) = 0;
+  param_1[0x2ba] = 0;
+  *(undefined2 *)(param_1 + 699) = 0;
+  *(undefined2 *)(param_1 + 700) = 0;
+  param_1[0x2b9] = &PTR_FUN_010ede20;
+  *(undefined2 *)((int)param_1 + 0xaf2) = 1;
+  param_1[0x2be] = 0;
+  param_1[0x2bd] = &PTR_FUN_010ede28;
+  *(undefined2 *)((int)param_1 + 0xb02) = 1;
+  *(undefined2 *)(param_1 + 0x2c0) = 0;
+  *(undefined2 *)(param_1 + 0x2bf) = 0;
+  *(undefined2 *)((int)param_1 + 0xafe) = 0;
+  *(undefined2 *)((int)param_1 + 0xb12) = 1;
+  *(undefined2 *)(param_1 + 0x2c3) = 0;
+  *(undefined2 *)((int)param_1 + 0xb0e) = 0;
+  *(undefined2 *)(param_1 + 0x2c4) = 0;
+  param_1[0x2c2] = 0;
+  param_1[0x2c1] = &PTR_FUN_010ede20;
+  param_1[0x2c5] = &PTR_FUN_010edac4;
+  param_1[0x2c6] = 7;
+  param_1[0x2c8] = 0;
+  pvVar1 = (void *)FUN_00aa1070(0x1c);
+  param_1[0x2c7] = pvVar1;
+  _memset(pvVar1,0,param_1[0x2c6] * 4);
+  param_1[0x2c5] = &PTR_FUN_010edb9c;
+  FUN_00e6b990();
+  return param_1;
+}
+
+
+
+======================================================================
+NiRenderer::SetCameraData front end @ 0x004e9bb0
+======================================================================
+  Function: FUN_004e9bb0 @ 0x004e9bb0, Size: 89 bytes
+
+void __fastcall FUN_004e9bb0(undefined4 param_1)
+
+{
+  undefined4 uVar1;
+  undefined4 uVar2;
+  undefined4 uVar3;
+  undefined4 uVar4;
+  undefined4 uVar5;
+  undefined4 uVar6;
+  undefined1 local_28 [12];
+  undefined1 local_1c [12];
+  undefined1 local_10 [12];
+  
+  uVar1 = FUN_004a0d10(param_1);
+  uVar2 = FUN_0045bbe0(uVar1);
+  uVar3 = FUN_004e9c50(local_10);
+  uVar4 = FUN_004e9c10(local_1c);
+  uVar5 = FUN_0045bba0(local_28);
+  uVar6 = FUN_0045bb80(uVar5,uVar4,uVar3,uVar2);
+  FUN_004e9c90(uVar6,uVar5,uVar4,uVar3,uVar2,uVar1);
+  return;
+}
+
+
+
+======================================================================
+NiRenderer SetCameraData virtual dispatch @ 0x004e9c90
+======================================================================
+  Function: FUN_004e9c90 @ 0x004e9c90, Size: 77 bytes
+
+void __thiscall
+FUN_004e9c90(int *param_1,undefined4 param_2,undefined4 param_3,undefined4 param_4,
+            undefined4 param_5,undefined4 param_6,undefined4 param_7)
+
+{
+  char cVar1;
+  
+  cVar1 = FUN_004a0e10("SetCameraData",1);
+  if (cVar1 != '\0') {
+    (**(code **)(*param_1 + 0x18c))(param_2,param_3,param_4,param_5,param_6,param_7);
+  }
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+Disassembly SetCameraData argument construction and virtual dispatch around 0x004e9bfe
+----------------------------------------------------------------------
+  0x004e9ba3: RET                                                       
+  0x004e9bb0: PUSH EBP                                                  
+  0x004e9bb1: MOV EBP,ESP                                               
+  0x004e9bb3: SUB ESP,0x28                                              
+  0x004e9bb6: MOV dword ptr [EBP + -0x28],ECX                           
+  0x004e9bb9: MOV ECX,dword ptr [EBP + 0x8]                             
+  0x004e9bbc: CALL 0x004a0d10                                           
+  0x004e9bc1: PUSH EAX                                                  
+  0x004e9bc2: MOV ECX,dword ptr [EBP + 0x8]                             
+  0x004e9bc5: CALL 0x0045bbe0                                           
+  0x004e9bca: PUSH EAX                                                  
+  0x004e9bcb: LEA EAX,[EBP + -0xc]                                      
+  0x004e9bce: PUSH EAX                                                  
+  0x004e9bcf: MOV ECX,dword ptr [EBP + 0x8]                             
+  0x004e9bd2: CALL 0x004e9c50                                           
+  0x004e9bd7: PUSH EAX                                                  
+  0x004e9bd8: LEA ECX,[EBP + -0x18]                                     
+  0x004e9bdb: PUSH ECX                                                  
+  0x004e9bdc: MOV ECX,dword ptr [EBP + 0x8]                             
+  0x004e9bdf: CALL 0x004e9c10                                           
+  0x004e9be4: PUSH EAX                                                  
+  0x004e9be5: LEA EDX,[EBP + -0x24]                                     
+  0x004e9be8: PUSH EDX                                                  
+  0x004e9be9: MOV ECX,dword ptr [EBP + 0x8]                             
+  0x004e9bec: CALL 0x0045bba0                                           
+  0x004e9bf1: PUSH EAX                                                  
+  0x004e9bf2: MOV ECX,dword ptr [EBP + 0x8]                             
+  0x004e9bf5: CALL 0x0045bb80                                           
+  0x004e9bfa: PUSH EAX                                                  
+  0x004e9bfb: MOV ECX,dword ptr [EBP + -0x28]                           
+  0x004e9bfe: CALL 0x004e9c90                                            <<
+  0x004e9c03: MOV ESP,EBP                                               
+  0x004e9c05: POP EBP                                                   
+  0x004e9c06: RET 0x4                                                   
+  0x004e9c10: PUSH EBP                                                  
+  0x004e9c11: MOV EBP,ESP                                               
+  0x004e9c13: SUB ESP,0x10                                              
+  0x004e9c16: MOV dword ptr [EBP + -0x10],ECX                           
+  0x004e9c19: LEA ECX,[EBP + -0xc]                                      
+  0x004e9c1c: CALL 0x006815c0                                           
+  0x004e9c21: LEA EAX,[EBP + -0xc]                                      
+  0x004e9c24: PUSH EAX                                                  
+  0x004e9c25: PUSH 0x1                                                  
+  0x004e9c27: MOV ECX,dword ptr [EBP + -0x10]                           
+  0x004e9c2a: ADD ECX,0x68                                              
+  0x004e9c2d: CALL 0x00439f50                                           
+  0x004e9c32: MOV ECX,dword ptr [EBP + 0x8]                             
+  0x004e9c35: MOV EDX,dword ptr [EBP + -0xc]                            
+  0x004e9c38: MOV dword ptr [ECX],EDX                                   
+  0x004e9c3a: MOV EAX,dword ptr [EBP + -0x8]                            
+  0x004e9c3d: MOV dword ptr [ECX + 0x4],EAX                             
+  0x004e9c40: MOV EDX,dword ptr [EBP + -0x4]                            
+  0x004e9c43: MOV dword ptr [ECX + 0x8],EDX                             
+  0x004e9c46: MOV EAX,dword ptr [EBP + 0x8]                             
+  0x004e9c49: MOV ESP,EBP                                               
+  0x004e9c4b: POP EBP                                                   
+
+----------------------------------------------------------------------
+Disassembly unique world SetCameraData direct call around 0x00b6ba35
+----------------------------------------------------------------------
+  0x00b6b9ee: CMP EDI,EBX                                               
+  0x00b6b9f0: JC 0x00b6b970                                             
+  0x00b6b9f6: POP EBP                                                   
+  0x00b6b9f7: INC dword ptr [ESI + 0x68]                                
+  0x00b6b9fa: POP EDI                                                   
+  0x00b6b9fb: POP EBX                                                   
+  0x00b6b9fc: POP ESI                                                   
+  0x00b6b9fd: ADD ESP,0xc                                               
+  0x00b6ba00: RET                                                       
+  0x00b6ba20: MOV ECX,dword ptr [0x011f4748]                            
+  0x00b6ba26: TEST ECX,ECX                                              
+  0x00b6ba28: JZ 0x00b6ba69                                             
+  0x00b6ba2a: PUSH EDI                                                  
+  0x00b6ba2b: MOV EDI,dword ptr [ESP + 0x8]                             
+  0x00b6ba2f: TEST EDI,EDI                                              
+  0x00b6ba31: JZ 0x00b6ba68                                             
+  0x00b6ba33: PUSH ESI                                                  
+  0x00b6ba34: PUSH EDI                                                  
+  0x00b6ba35: CALL 0x004e9bb0                                            <<
+  0x00b6ba3a: MOV ESI,dword ptr [ESP + 0x10]                            
+  0x00b6ba3e: PUSH ESI                                                  
+  0x00b6ba3f: MOV dword ptr [0x011f917c],EDI                            
+  0x00b6ba45: CALL 0x00b54b10                                           
+  0x00b6ba4a: MOV EAX,dword ptr [ESI]                                   
+  0x00b6ba4c: MOV EDX,dword ptr [EAX + 0x8c]                            
+  0x00b6ba52: ADD ESP,0x4                                               
+  0x00b6ba55: PUSH EDI                                                  
+  0x00b6ba56: MOV ECX,ESI                                               
+  0x00b6ba58: CALL EDX                                                  
+  0x00b6ba5a: MOV EAX,dword ptr [ESI]                                   
+  0x00b6ba5c: MOV EDX,dword ptr [EAX + 0xa8]                            
+  0x00b6ba62: MOV ECX,ESI                                               
+  0x00b6ba64: POP ESI                                                   
+  0x00b6ba65: POP EDI                                                   
+  0x00b6ba66: JMP EDX                                                   
+  0x00b6ba68: POP EDI                                                   
+  0x00b6ba69: RET                                                       
+  0x00b6ba70: PUSH -0x1                                                 
+  0x00b6ba72: PUSH 0xf28786                                             
+  0x00b6ba77: MOV EAX,FS:[0x0]                                          
+  0x00b6ba7d: PUSH EAX                                                  
+  0x00b6ba7e: PUSH ECX                                                  
+  0x00b6ba7f: PUSH ESI                                                  
+  0x00b6ba80: MOV EAX,[0x011c16bc]                                      
+  0x00b6ba85: XOR EAX,ESP                                               
+  0x00b6ba87: PUSH EAX                                                  
+  0x00b6ba88: LEA EAX,[ESP + 0xc]                                       
+  0x00b6ba8c: MOV FS:[0x0],EAX                                          
+  0x00b6ba92: PUSH 0x4                                                  
+
+----------------------------------------------------------------------
+References TO 0x00b6ba20 (unique world rendered-texture camera setup)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00874180 (in FUN_00873200)
+  Total: 1 refs
+
+======================================================================
+RESOLVED SET CAMERA DATA SLOT
+======================================================================
+  NiDX9Renderer vtable: 0x010ee4bc
+  Slot: +0x18c (index 99)
+  Target: 0x00e6c780
+
+======================================================================
+NiDX9Renderer SetCameraData implementation @ 0x00e6c780
+======================================================================
+  Function: FUN_00e6c780 @ 0x00e6c780, Size: 1969 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+void __thiscall
+FUN_00e6c780(int param_1,float *param_2,float *param_3,float *param_4,float *param_5,float *param_6,
+            float *param_7)
+
+{
+  float fVar1;
+  code *pcVar2;
+  float fVar3;
+  float fVar4;
+  float fVar5;
+  char cVar6;
+  int iVar7;
+  float fVar8;
+  float unaff_EBX;
+  float *pfVar9;
+  float fStack_80;
+  float fStack_78;
+  float fStack_74;
+  undefined4 uStack_70;
+  undefined4 uStack_6c;
+  float local_68;
+  float local_64;
+  float local_60;
+  float fStack_5c;
+  float fStack_58;
+  float fStack_54;
+  float fStack_50;
+  float fStack_4c;
+  float fStack_48;
+  undefined4 uStack_44;
+  undefined4 uStack_40;
+  undefined4 uStack_3c;
+  float fStack_38;
+  undefined4 uStack_34;
+  
+  if (*(char *)(param_1 + 0x6fc) == '\0') {
+    if ((DAT_0126efd1 == '\0') || (DAT_011a9604 == '\0')) {
+      DAT_011f474c = *param_2;
+      DAT_011f4750 = param_2[1];
+      DAT_011f4754 = param_2[2];
+      local_60 = DAT_011f4274;
+      fVar8 = DAT_011f426c;
+      local_64 = DAT_011f4270;
+    }
+    else {
+      DAT_011f474c = DAT_011f426c;
+      DAT_011f4750 = DAT_011f4270;
+      DAT_011f4754 = DAT_011f4274;
+      local_60 = param_2[2];
+      fVar8 = *param_2;
+      local_64 = param_2[1];
+    }
+    *(float *)(param_1 + 0x980) = *param_5;
+    *(float *)(param_1 + 0x984) = *param_4;
+    *(float *)(param_1 + 0x988) = *param_3;
+    *(undefined4 *)(param_1 + 0x98c) = 0;
+    *(float *)(param_1 + 0x990) = param_5[1];
+    *(float *)(param_1 + 0x994) = param_4[1];
+    *(float *)(param_1 + 0x998) = param_3[1];
+    *(undefined4 *)(param_1 + 0x99c) = 0;
+    *(float *)(param_1 + 0x9a0) = param_5[2];
+    *(float *)(param_1 + 0x9a4) = param_4[2];
+    *(float *)(param_1 + 0x9a8) = param_3[2];
+    *(undefined4 *)(param_1 + 0x9ac) = 0;
+    *(float *)(param_1 + 0x9b0) =
+         -(fVar8 * *param_5 + local_64 * param_5[1] + local_60 * param_5[2]);
+    *(float *)(param_1 + 0x9b4) =
+         -(param_4[2] * local_60 + param_4[1] * local_64 + *param_4 * fVar8);
+    local_68 = local_60 * param_3[2] + *param_3 * fVar8 + param_3[1] * local_64;
+    *(float *)(param_1 + 0x9b8) = -local_68;
+    *(undefined4 *)(param_1 + 0x9bc) = 0x3f800000;
+    *(float *)(param_1 + 0xa40) = *param_5;
+    *(float *)(param_1 + 0xa44) = param_5[1];
+    *(float *)(param_1 + 0xa48) = param_5[2];
+    *(undefined4 *)(param_1 + 0xa4c) = 0;
+    *(float *)(param_1 + 0xa50) = *param_4;
+    *(float *)(param_1 + 0xa54) = param_4[1];
+    *(float *)(param_1 + 0xa58) = param_4[2];
+    *(undefined4 *)(param_1 + 0xa5c) = 0;
+    *(float *)(param_1 + 0xa60) = *param_3;
+    *(float *)(param_1 + 0xa64) = param_3[1];
+    *(float *)(param_1 + 0xa68) = param_3[2];
+    *(undefined4 *)(param_1 + 0xa6c) = 0;
+    *(float *)(param_1 + 0xa70) = fVar8;
+    *(float *)(param_1 + 0xa74) = local_64;
+    *(float *)(param_1 + 0xa78) = local_60;
+    *(undefined4 *)(param_1 + 0xa7c) = 0x3f800000;
+    (**(code **)(**(int **)(param_1 + 0x288) + 0xb0))(*(int **)(param_1 + 0x288),2,param_1 + 0x980);
+    *(float *)(param_1 + 0x64c) = *param_5;
+    *(float *)(param_1 + 0x650) = param_5[1];
+    *(float *)(param_1 + 0x654) = param_5[2];
+    *(float *)(param_1 + 0x634) = *param_5;
+    *(float *)(param_1 + 0x638) = param_5[1];
+    *(float *)(param_1 + 0x63c) = param_5[2];
+    *(float *)(param_1 + 0x658) = *param_4;
+    *(float *)(param_1 + 0x65c) = param_4[1];
+    *(float *)(param_1 + 0x660) = param_4[2];
+    *(float *)(param_1 + 0x640) = *param_4;
+    *(float *)(param_1 + 0x644) = param_4[1];
+    *(float *)(param_1 + 0x648) = param_4[2];
+    *(float *)(param_1 + 0x684) = param_6[4];
+    fVar8 = param_6[5];
+    fVar1 = param_6[4];
+    *(float *)(param_1 + 0x688) = fVar8 - fVar1;
+    fVar3 = param_6[1] - *param_6;
+    pcVar2 = *(code **)(**(int **)(param_1 + 0x8b8) + 0x4c);
+    fVar4 = *param_6 + param_6[1];
+    fVar5 = param_6[2] - param_6[3];
+    fStack_78 = param_6[3] + param_6[2];
+    fStack_74 = 1.0 / (fVar8 - fVar1);
+    if (*(char *)(param_6 + 6) == '\0') {
+      cVar6 = (*pcVar2)();
+      fVar8 = (float)_DAT_01011590;
+      if (cVar6 == '\0') {
+        *(float *)(param_1 + 0x9c0) = fVar8 / fVar3;
+        *(undefined4 *)(param_1 + 0x9d0) = 0;
+        fVar4 = -fVar4;
+      }
+      else {
+        *(float *)(param_1 + 0x9c0) = (float)_DAT_0106d4c8 / fVar3;
+        *(undefined4 *)(param_1 + 0x9d0) = 0;
+      }
+      *(float *)(param_1 + 0x9e0) = fVar4 / fVar3;
+      *(undefined4 *)(param_1 + 0x9f0) = 0;
+      *(undefined4 *)(param_1 + 0x9c4) = 0;
+      *(float *)(param_1 + 0x9d4) = fVar8 / fVar5;
+      *(float *)(param_1 + 0x9e4) = -fStack_78 / fVar5;
+      *(undefined4 *)(param_1 + 0x9f4) = 0;
+      *(undefined4 *)(param_1 + 0x9c8) = 0;
+      *(undefined4 *)(param_1 + 0x9d8) = 0;
+      *(float *)(param_1 + 0x9e8) = fStack_74 * param_6[5];
+      *(float *)(param_1 + 0x9f8) = -(param_6[4] * param_6[5] * fStack_74);
+      *(undefined4 *)(param_1 + 0x9cc) = 0;
+      *(undefined4 *)(param_1 + 0x9dc) = 0;
+      *(undefined4 *)(param_1 + 0x9ec) = 0x3f800000;
+      *(undefined4 *)(param_1 + 0x9fc) = 0;
+    }
+    else {
+      cVar6 = (*pcVar2)();
+      fVar8 = (float)_DAT_01011590;
+      if (cVar6 == '\0') {
+        *(float *)(param_1 + 0x9c0) = fVar8 / fVar3;
+        *(undefined4 *)(param_1 + 0x9d0) = 0;
+        *(undefined4 *)(param_1 + 0x9e0) = 0;
+        fVar4 = -fVar4;
+      }
+      else {
+        *(float *)(param_1 + 0x9c0) = (float)_DAT_0106d4c8 / fVar3;
+        *(undefined4 *)(param_1 + 0x9d0) = 0;
+        *(undefined4 *)(param_1 + 0x9e0) = 0;
+      }
+      *(float *)(param_1 + 0x9f0) = fVar4 / fVar3;
+      *(undefined4 *)(param_1 + 0x9c4) = 0;
+      *(float *)(param_1 + 0x9d4) = fVar8 / fVar5;
+      *(undefined4 *)(param_1 + 0x9e4) = 0;
+      *(float *)(param_1 + 0x9f4) = -fStack_78 / fVar5;
+      *(undefined4 *)(param_1 + 0x9c8) = 0;
+      *(undefined4 *)(param_1 + 0x9d8) = 0;
+      *(float *)(param_1 + 0x9e8) = fStack_74;
+      *(float *)(param_1 + 0x9f8) = -(fStack_74 * param_6[4]);
+      *(undefined4 *)(param_1 + 0x9cc) = 0;
+      *(undefined4 *)(param_1 + 0x9dc) = 0;
+      *(undefined4 *)(param_1 + 0x9ec) = 0;
+      *(undefined4 *)(param_1 + 0x9fc) = 0x3f800000;
+    }
+    pfVar9 = (float *)(param_1 + 0x9c0);
+    if (DAT_0126efd1 != '\0') {
+      uStack_44 = 0;
+      uStack_40 = 0;
+      fStack_38 = 0.0;
+      fStack_74 = 0.0;
+      uStack_70 = 0;
+      uStack_3c = 0x3f800000;
+      uStack_6c = _DAT_0126efd4;
+      D3DXVec4Transform(&fStack_54,&uStack_44,param_1 + 0x980);
+      D3DXVec3Normalize(&local_60,&local_60);
+      D3DXVec3TransformCoord(&fStack_78,&stack0xffffff78,param_1 + 0x980);
+      fStack_38 = -(fStack_50 * local_60 + fStack_54 * local_64 + fStack_4c * fStack_5c);
+      fVar8 = 0.0;
+      if (fStack_54 <= 0.0) {
+        if (0.0 <= fStack_54) {
+          fStack_80 = 0.0;
+        }
+        else {
+          fStack_80 = DAT_01012054;
+        }
+      }
+      else {
+        fStack_80 = 1.0;
+      }
+      if (fStack_50 <= 0.0) {
+        if (fStack_50 < 0.0) {
+          fVar8 = DAT_01012054;
+        }
+      }
+      else {
+        fVar8 = 1.0;
+      }
+      fVar8 = fVar8 / *(float *)(param_1 + 0x9d4);
+      fStack_48 = (1.0 - *(float *)(param_1 + 0x9e8)) / *(float *)(param_1 + 0x9f8);
+      fStack_74 = 1.0 / ((fStack_80 / *pfVar9) * fStack_54 + fVar8 * fStack_50 + fStack_4c +
+                        fStack_38 * fStack_48);
+      local_64 = fStack_74 * fStack_54;
+      local_60 = fStack_74 * fStack_50;
+      fStack_5c = fStack_4c * fStack_74;
+      fStack_58 = fStack_38 * fStack_74;
+      *(float *)(param_1 + 0x9c8) = local_64;
+      *(float *)(param_1 + 0x9d8) = local_60;
+      *(float *)(param_1 + 0x9e8) = fStack_5c;
+      *(float *)(param_1 + 0x9f8) = fStack_58;
+      fStack_54 = fStack_80 / *pfVar9;
+      fStack_50 = fVar8;
+    }
+    (**(code **)(**(int **)(param_1 + 0x288) + 0xb0))(*(int **)(param_1 + 0x288),3,pfVar9);
+    (**(code **)(**(int **)(param_1 + 0x888) + 0x8c))(0);
+    iVar7 = (**(code **)(**(int **)(param_1 + 0x888) + 0x90))(0);
+    fVar8 = (float)iVar7;
+    if (iVar7 < 0) {
+      fVar8 = fVar8 + _DAT_01099378;
+    }
+    fStack_48 = (float)(longlong)ROUND(unaff_EBX * *param_7);
+    uStack_44 = (undefined4)(longlong)ROUND(fVar8 * (1.0 - param_7[2]));
+    uStack_40 = (undefined4)(longlong)ROUND((param_7[1] - *param_7) * unaff_EBX);
+    uStack_3c = (undefined4)(longlong)ROUND((param_7[2] - param_7[3]) * fVar8);
+    fStack_38 = 0.0;
+    uStack_34 = 0x3f800000;
+    (**(code **)(**(int **)(param_1 + 0x288) + 0xbc))(*(int **)(param_1 + 0x288),&fStack_48);
+    D3DXMatrixMultiply(param_1 + 0xa00,param_1 + 0x980,pfVar9);
+    (**(code **)(**(int **)(param_1 + 0x8b8) + 0x48))(param_6[4],param_6[5]);
+  }
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00e6c780 (NiDX9Renderer SetCameraData implementation)
+----------------------------------------------------------------------
+  DATA @ 0x010ee648 (in ???)
+  Total: 1 refs
+
+--- Calls FROM NiDX9Renderer SetCameraData implementation (0x00e6c780) ---
+  0x00e6cc30 -> 0x00ee6e34 D3DXVec4Transform
+  0x00e6cc3d -> 0x00ee6dec D3DXVec3Normalize
+  0x00e6cc53 -> 0x00ee6df8 D3DXVec3TransformCoord
+  0x00e6cf04 -> 0x00ee6de0 D3DXMatrixMultiply
+  Total: 4 calls
+
+======================================================================
+FULL DISASSEMBLY: NiDX9Renderer SetCameraData implementation @ 0x00e6c780
+======================================================================
+  0x00e6c780: PUSH EBP                                                        
+  0x00e6c781: MOV EBP,ESP                                                     
+  0x00e6c783: AND ESP,0xfffffff0                                              
+  0x00e6c786: SUB ESP,0x74                                                    
+  0x00e6c789: PUSH EBX                                                        
+  0x00e6c78a: PUSH ESI                                                        
+  0x00e6c78b: MOV ESI,ECX                                                     
+  0x00e6c78d: CMP byte ptr [ESI + 0x6fc],0x0                                  
+  0x00e6c794: PUSH EDI                                                        
+  0x00e6c795: JNZ 0x00e6cf28                                                  
+  0x00e6c79b: CMP byte ptr [0x0126efd1],0x0                                   
+  0x00e6c7a2: JZ 0x00e6c7dc                                                   
+  0x00e6c7a4: CMP byte ptr [0x011a9604],0x0                                   
+  0x00e6c7ab: JZ 0x00e6c7dc                                                   
+  0x00e6c7ad: MOV EAX,[0x011f426c]                                            
+  0x00e6c7b2: MOV ECX,dword ptr [0x011f4270]                                  
+  0x00e6c7b8: MOV EDX,dword ptr [0x011f4274]                                  
+  0x00e6c7be: MOV [0x011f474c],EAX                                            
+  0x00e6c7c3: MOV EAX,dword ptr [EBP + 0x8]                                   
+  0x00e6c7c6: MOV dword ptr [0x011f4750],ECX                                  
+  0x00e6c7cc: MOV dword ptr [0x011f4754],EDX                                  
+  0x00e6c7d2: MOV ECX,dword ptr [EAX]                                         
+  0x00e6c7d4: MOV EDX,dword ptr [EAX + 0x4]                                   
+  0x00e6c7d7: MOV EAX,dword ptr [EAX + 0x8]                                   
+  0x00e6c7da: JMP 0x00e6c809                                                  
+  0x00e6c7dc: MOV EAX,dword ptr [EBP + 0x8]                                   
+  0x00e6c7df: MOV ECX,dword ptr [EAX]                                         
+  0x00e6c7e1: MOV dword ptr [0x011f474c],ECX                                  
+  0x00e6c7e7: MOV EDX,dword ptr [EAX + 0x4]                                   
+  0x00e6c7ea: MOV ECX,dword ptr [0x011f426c]                                  
+  0x00e6c7f0: MOV dword ptr [0x011f4750],EDX                                  
+  0x00e6c7f6: MOV EAX,dword ptr [EAX + 0x8]                                   
+  0x00e6c7f9: MOV EDX,dword ptr [0x011f4270]                                  
+  0x00e6c7ff: MOV [0x011f4754],EAX                                            
+  0x00e6c804: MOV EAX,[0x011f4274]                                            
+  0x00e6c809: MOV EDI,dword ptr [EBP + 0x14]                                  
+  0x00e6c80c: FLD float ptr [EDI]                                             
+  0x00e6c80e: MOV EBX,dword ptr [EBP + 0x10]                                  
+  0x00e6c811: FSTP float ptr [ESI + 0x980]                                    
+  0x00e6c817: MOV dword ptr [ESP + 0x28],ECX                                  
+  0x00e6c81b: FLD float ptr [EBX]                                             
+  0x00e6c81d: LEA ECX,[ESI + 0x980]                                           
+  0x00e6c823: FSTP float ptr [ESI + 0x984]                                    
+  0x00e6c829: MOV dword ptr [ESP + 0x30],EAX                                  
+  0x00e6c82d: MOV EAX,dword ptr [EBP + 0xc]                                   
+  0x00e6c830: FLD float ptr [EAX]                                             
+  0x00e6c832: MOV dword ptr [ESP + 0x2c],EDX                                  
+  0x00e6c836: FSTP float ptr [ESI + 0x988]                                    
+  0x00e6c83c: FLDZ                                                            
+  0x00e6c83e: FST float ptr [ESI + 0x98c]                                     
+  0x00e6c844: FLD float ptr [EDI + 0x4]                                       
+  0x00e6c847: FSTP float ptr [ESI + 0x990]                                    
+  0x00e6c84d: FLD float ptr [EBX + 0x4]                                       
+  0x00e6c850: FSTP float ptr [ESI + 0x994]                                    
+  0x00e6c856: FLD float ptr [EAX + 0x4]                                       
+  0x00e6c859: FSTP float ptr [ESI + 0x998]                                    
+  0x00e6c85f: FST float ptr [ESI + 0x99c]                                     
+  0x00e6c865: FLD float ptr [EDI + 0x8]                                       
+  0x00e6c868: FSTP float ptr [ESI + 0x9a0]                                    
+  0x00e6c86e: FLD float ptr [EBX + 0x8]                                       
+  0x00e6c871: FSTP float ptr [ESI + 0x9a4]                                    
+  0x00e6c877: FLD float ptr [EAX + 0x8]                                       
+  0x00e6c87a: FSTP float ptr [ESI + 0x9a8]                                    
+  0x00e6c880: FST float ptr [ESI + 0x9ac]                                     
+  0x00e6c886: FLD float ptr [EDI]                                             
+  0x00e6c888: FLD float ptr [ESP + 0x28]                                      
+  0x00e6c88c: FLD ST0                                                         
+  0x00e6c88e: FMULP ST2                                                       
+  0x00e6c890: FLD float ptr [EDI + 0x4]                                       
+  0x00e6c893: FLD float ptr [ESP + 0x2c]                                      
+  0x00e6c897: FLD ST0                                                         
+  0x00e6c899: FMULP ST2                                                       
+  0x00e6c89b: FXCH ST3                                                        
+  0x00e6c89d: FADDP                                                           
+  0x00e6c89f: FLD float ptr [EDI + 0x8]                                       
+  0x00e6c8a2: FLD float ptr [ESP + 0x30]                                      
+  0x00e6c8a6: FLD ST0                                                         
+  0x00e6c8a8: FMULP ST2                                                       
+  0x00e6c8aa: FXCH ST2                                                        
+  0x00e6c8ac: FADDP                                                           
+  0x00e6c8ae: FSTP float ptr [ESP + 0x28]                                     
+  0x00e6c8b2: FLD float ptr [ESP + 0x28]                                      
+  0x00e6c8b6: FCHS                                                            
+  0x00e6c8b8: FSTP float ptr [ESI + 0x9b0]                                    
+  0x00e6c8be: FLD float ptr [EBX]                                             
+  0x00e6c8c0: FMUL ST2                                                        
+  0x00e6c8c2: FLD float ptr [EBX + 0x4]                                       
+  0x00e6c8c5: FMUL ST4                                                        
+  0x00e6c8c7: FADDP                                                           
+  0x00e6c8c9: FLD float ptr [EBX + 0x8]                                       
+  0x00e6c8cc: FMUL ST2                                                        
+  0x00e6c8ce: FADDP                                                           
+  0x00e6c8d0: FSTP float ptr [ESP + 0x28]                                     
+  0x00e6c8d4: FLD float ptr [ESP + 0x28]                                      
+  0x00e6c8d8: FCHS                                                            
+  0x00e6c8da: FSTP float ptr [ESI + 0x9b4]                                    
+  0x00e6c8e0: FLD float ptr [EAX + 0x4]                                       
+  0x00e6c8e3: FMUL ST3                                                        
+  0x00e6c8e5: FLD float ptr [EAX]                                             
+  0x00e6c8e7: FMUL ST3                                                        
+  0x00e6c8e9: FADDP                                                           
+  0x00e6c8eb: FLD ST1                                                         
+  0x00e6c8ed: FMUL float ptr [EAX + 0x8]                                      
+  0x00e6c8f0: FADDP                                                           
+  0x00e6c8f2: FSTP float ptr [ESP + 0x28]                                     
+  0x00e6c8f6: FLD float ptr [ESP + 0x28]                                      
+  0x00e6c8fa: FCHS                                                            
+  0x00e6c8fc: FSTP float ptr [ESI + 0x9b8]                                    
+  0x00e6c902: FLD1                                                            
+  0x00e6c904: FST float ptr [ESI + 0x9bc]                                     
+  0x00e6c90a: FLD float ptr [EDI]                                             
+  0x00e6c90c: FSTP float ptr [ESI + 0xa40]                                    
+  0x00e6c912: FLD float ptr [EDI + 0x4]                                       
+  0x00e6c915: FSTP float ptr [ESI + 0xa44]                                    
+  0x00e6c91b: FLD float ptr [EDI + 0x8]                                       
+  0x00e6c91e: FSTP float ptr [ESI + 0xa48]                                    
+  0x00e6c924: FXCH ST4                                                        
+  0x00e6c926: PUSH ECX                                                        
+  0x00e6c927: FST float ptr [ESI + 0xa4c]                                     
+  0x00e6c92d: PUSH 0x2                                                        
+  0x00e6c92f: FLD float ptr [EBX]                                             
+  0x00e6c931: FSTP float ptr [ESI + 0xa50]                                    
+  0x00e6c937: FLD float ptr [EBX + 0x4]                                       
+  0x00e6c93a: FSTP float ptr [ESI + 0xa54]                                    
+  0x00e6c940: FLD float ptr [EBX + 0x8]                                       
+  0x00e6c943: FSTP float ptr [ESI + 0xa58]                                    
+  0x00e6c949: FST float ptr [ESI + 0xa5c]                                     
+  0x00e6c94f: FLD float ptr [EAX]                                             
+  0x00e6c951: FSTP float ptr [ESI + 0xa60]                                    
+  0x00e6c957: FLD float ptr [EAX + 0x4]                                       
+  0x00e6c95a: FSTP float ptr [ESI + 0xa64]                                    
+  0x00e6c960: FLD float ptr [EAX + 0x8]                                       
+  0x00e6c963: MOV EAX,dword ptr [ESI + 0x288]                                 
+  0x00e6c969: FSTP float ptr [ESI + 0xa68]                                    
+  0x00e6c96f: PUSH EAX                                                        
+  0x00e6c970: FSTP float ptr [ESI + 0xa6c]                                    
+  0x00e6c976: FXCH                                                            
+  0x00e6c978: FSTP float ptr [ESI + 0xa70]                                    
+  0x00e6c97e: FXCH                                                            
+  0x00e6c980: FSTP float ptr [ESI + 0xa74]                                    
+  0x00e6c986: FSTP float ptr [ESI + 0xa78]                                    
+  0x00e6c98c: FSTP float ptr [ESI + 0xa7c]                                    
+  0x00e6c992: MOV EDX,dword ptr [EAX]                                         
+  0x00e6c994: MOV EAX,dword ptr [EDX + 0xb0]                                  
+  0x00e6c99a: CALL EAX                                                        
+  0x00e6c99c: MOV ECX,dword ptr [EDI]                                         
+  0x00e6c99e: MOV dword ptr [ESI + 0x64c],ECX                                 
+  0x00e6c9a4: MOV EDX,dword ptr [EDI + 0x4]                                   
+  0x00e6c9a7: MOV dword ptr [ESI + 0x650],EDX                                 
+  0x00e6c9ad: MOV EAX,dword ptr [EDI + 0x8]                                   
+  0x00e6c9b0: MOV dword ptr [ESI + 0x654],EAX                                 
+  0x00e6c9b6: MOV ECX,dword ptr [EDI]                                         
+  0x00e6c9b8: MOV dword ptr [ESI + 0x634],ECX                                 
+  0x00e6c9be: MOV EDX,dword ptr [EDI + 0x4]                                   
+  0x00e6c9c1: MOV dword ptr [ESI + 0x638],EDX                                 
+  0x00e6c9c7: MOV EAX,dword ptr [EDI + 0x8]                                   
+  0x00e6c9ca: MOV EDI,dword ptr [EBP + 0x18]                                  
+  0x00e6c9cd: MOV dword ptr [ESI + 0x63c],EAX                                 
+  0x00e6c9d3: MOV ECX,dword ptr [EBX]                                         
+  0x00e6c9d5: MOV dword ptr [ESI + 0x658],ECX                                 
+  0x00e6c9db: MOV EDX,dword ptr [EBX + 0x4]                                   
+  0x00e6c9de: MOV dword ptr [ESI + 0x65c],EDX                                 
+  0x00e6c9e4: MOV EAX,dword ptr [EBX + 0x8]                                   
+  0x00e6c9e7: MOV dword ptr [ESI + 0x660],EAX                                 
+  0x00e6c9ed: MOV ECX,dword ptr [EBX]                                         
+  0x00e6c9ef: MOV dword ptr [ESI + 0x640],ECX                                 
+  0x00e6c9f5: MOV EDX,dword ptr [EBX + 0x4]                                   
+  0x00e6c9f8: MOV dword ptr [ESI + 0x644],EDX                                 
+  0x00e6c9fe: MOV EAX,dword ptr [EBX + 0x8]                                   
+  0x00e6ca01: MOV dword ptr [ESI + 0x648],EAX                                 
+  0x00e6ca07: FLD float ptr [EDI + 0x10]                                      
+  0x00e6ca0a: FSTP float ptr [ESI + 0x684]                                    
+  0x00e6ca10: MOV ECX,dword ptr [ESI + 0x8b8]                                 
+  0x00e6ca16: FLD float ptr [EDI + 0x14]                                      
+  0x00e6ca19: FSUB float ptr [EDI + 0x10]                                     
+  0x00e6ca1c: FSTP float ptr [ESP + 0x28]                                     
+  0x00e6ca20: FLD float ptr [ESP + 0x28]                                      
+  0x00e6ca24: FST float ptr [ESI + 0x688]                                     
+  0x00e6ca2a: CMP byte ptr [EDI + 0x18],0x0                                   
+  0x00e6ca2e: FLD float ptr [EDI + 0x4]                                       
+  0x00e6ca31: MOV EDX,dword ptr [ECX]                                         
+  0x00e6ca33: FSUB float ptr [EDI]                                            
+  0x00e6ca35: MOV EAX,dword ptr [EDX + 0x4c]                                  
+  0x00e6ca38: FSTP float ptr [ESP + 0x18]                                     
+  0x00e6ca3c: FLD float ptr [EDI]                                             
+  0x00e6ca3e: FADD float ptr [EDI + 0x4]                                      
+  0x00e6ca41: FSTP float ptr [ESP + 0x1c]                                     
+  0x00e6ca45: FLD float ptr [EDI + 0x8]                                       
+  0x00e6ca48: FSUB float ptr [EDI + 0xc]                                      
+  0x00e6ca4b: FSTP float ptr [ESP + 0x20]                                     
+  0x00e6ca4f: FLD float ptr [EDI + 0xc]                                       
+  0x00e6ca52: FADD float ptr [EDI + 0x8]                                      
+  0x00e6ca55: FSTP float ptr [ESP + 0x24]                                     
+  0x00e6ca59: FLD1                                                            
+  0x00e6ca5b: FDIVRP                                                          
+  0x00e6ca5d: FSTP float ptr [ESP + 0x28]                                     
+  0x00e6ca61: JZ 0x00e6cb29                                                   
+  0x00e6ca67: CALL EAX                                                        
+  0x00e6ca69: FLD double ptr [0x01011590]                                     
+  0x00e6ca6f: FLD float ptr [ESP + 0x18]                                      
+  0x00e6ca73: LEA EBX,[ESI + 0x9c0]                                           
+  0x00e6ca79: FLD ST0                                                         
+  0x00e6ca7b: TEST AL,AL                                                      
+  0x00e6ca7d: JZ 0x00e6ca9b                                                   
+  0x00e6ca7f: FDIVR double ptr [0x0106d4c8]                                   
+  0x00e6ca85: FSTP float ptr [EBX]                                            
+  0x00e6ca87: FLDZ                                                            
+  0x00e6ca89: FST float ptr [ESI + 0x9d0]                                     
+  0x00e6ca8f: FST float ptr [ESI + 0x9e0]                                     
+  0x00e6ca95: FLD float ptr [ESP + 0x1c]                                      
+  0x00e6ca99: JMP 0x00e6cab3                                                  
+  0x00e6ca9b: FDIVR ST0,ST2                                                   
+  0x00e6ca9d: FSTP float ptr [EBX]                                            
+  0x00e6ca9f: FLDZ                                                            
+  0x00e6caa1: FST float ptr [ESI + 0x9d0]                                     
+  0x00e6caa7: FST float ptr [ESI + 0x9e0]                                     
+  0x00e6caad: FLD float ptr [ESP + 0x1c]                                      
+  0x00e6cab1: FCHS                                                            
+  0x00e6cab3: FDIVRP ST2,ST0                                                  
+  0x00e6cab5: FXCH                                                            
+  0x00e6cab7: FSTP float ptr [ESI + 0x9f0]                                    
+  0x00e6cabd: FST float ptr [ESI + 0x9c4]                                     
+  0x00e6cac3: FLD float ptr [ESP + 0x20]                                      
+  0x00e6cac7: FLD ST0                                                         
+  0x00e6cac9: FDIVP ST3,ST0                                                   
+  0x00e6cacb: FXCH ST2                                                        
+  0x00e6cacd: FSTP float ptr [ESI + 0x9d4]                                    
+  0x00e6cad3: FST float ptr [ESI + 0x9e4]                                     
+  0x00e6cad9: FLD float ptr [ESP + 0x24]                                      
+  0x00e6cadd: FCHS                                                            
+  0x00e6cadf: FDIVRP ST2,ST0                                                  
+  0x00e6cae1: FXCH                                                            
+  0x00e6cae3: FSTP float ptr [ESI + 0x9f4]                                    
+  0x00e6cae9: FST float ptr [ESI + 0x9c8]                                     
+  0x00e6caef: FST float ptr [ESI + 0x9d8]                                     
+  0x00e6caf5: FLD float ptr [ESP + 0x28]                                      
+  0x00e6caf9: FST float ptr [ESI + 0x9e8]                                     
+  0x00e6caff: FMUL float ptr [EDI + 0x10]                                     
+  0x00e6cb02: FCHS                                                            
+  0x00e6cb04: FSTP float ptr [ESI + 0x9f8]                                    
+  0x00e6cb0a: FST float ptr [ESI + 0x9cc]                                     
+  0x00e6cb10: FST float ptr [ESI + 0x9dc]                                     
+  0x00e6cb16: FST float ptr [ESI + 0x9ec]                                     
+  0x00e6cb1c: FLD1                                                            
+  0x00e6cb1e: FST float ptr [ESI + 0x9fc]                                     
+  0x00e6cb24: JMP 0x00e6cbee                                                  
+  0x00e6cb29: CALL EAX                                                        
+  0x00e6cb2b: FLD double ptr [0x01011590]                                     
+  0x00e6cb31: FLD float ptr [ESP + 0x18]                                      
+  0x00e6cb35: LEA EBX,[ESI + 0x9c0]                                           
+  0x00e6cb3b: FLD ST0                                                         
+  0x00e6cb3d: TEST AL,AL                                                      
+  0x00e6cb3f: JZ 0x00e6cb57                                                   
+  0x00e6cb41: FDIVR double ptr [0x0106d4c8]                                   
+  0x00e6cb47: FSTP float ptr [EBX]                                            
+  0x00e6cb49: FLDZ                                                            
+  0x00e6cb4b: FST float ptr [ESI + 0x9d0]                                     
+  0x00e6cb51: FLD float ptr [ESP + 0x1c]                                      
+  0x00e6cb55: JMP 0x00e6cb69                                                  
+  0x00e6cb57: FDIVR ST0,ST2                                                   
+  0x00e6cb59: FSTP float ptr [EBX]                                            
+  0x00e6cb5b: FLDZ                                                            
+  0x00e6cb5d: FST float ptr [ESI + 0x9d0]                                     
+  0x00e6cb63: FLD float ptr [ESP + 0x1c]                                      
+  0x00e6cb67: FCHS                                                            
+  0x00e6cb69: FDIVRP ST2,ST0                                                  
+  0x00e6cb6b: FXCH                                                            
+  0x00e6cb6d: FSTP float ptr [ESI + 0x9e0]                                    
+  0x00e6cb73: FST float ptr [ESI + 0x9f0]                                     
+  0x00e6cb79: FST float ptr [ESI + 0x9c4]                                     
+  0x00e6cb7f: FLD float ptr [ESP + 0x20]                                      
+  0x00e6cb83: FLD ST0                                                         
+  0x00e6cb85: FDIVP ST3,ST0                                                   
+  0x00e6cb87: FXCH ST2                                                        
+  0x00e6cb89: FSTP float ptr [ESI + 0x9d4]                                    
+  0x00e6cb8f: FLD float ptr [ESP + 0x24]                                      
+  0x00e6cb93: FCHS                                                            
+  0x00e6cb95: FDIVRP ST2,ST0                                                  
+  0x00e6cb97: FXCH                                                            
+  0x00e6cb99: FSTP float ptr [ESI + 0x9e4]                                    
+  0x00e6cb9f: FST float ptr [ESI + 0x9f4]                                     
+  0x00e6cba5: FST float ptr [ESI + 0x9c8]                                     
+  0x00e6cbab: FST float ptr [ESI + 0x9d8]                                     
+  0x00e6cbb1: FLD float ptr [ESP + 0x28]                                      
+  0x00e6cbb5: FLD ST0                                                         
+  0x00e6cbb7: FMUL float ptr [EDI + 0x14]                                     
+  0x00e6cbba: FSTP float ptr [ESI + 0x9e8]                                    
+  0x00e6cbc0: FLD float ptr [EDI + 0x10]                                      
+  0x00e6cbc3: FMUL float ptr [EDI + 0x14]                                     
+  0x00e6cbc6: FMULP                                                           
+  0x00e6cbc8: FCHS                                                            
+  0x00e6cbca: FSTP float ptr [ESI + 0x9f8]                                    
+  0x00e6cbd0: FST float ptr [ESI + 0x9cc]                                     
+  0x00e6cbd6: FST float ptr [ESI + 0x9dc]                                     
+  0x00e6cbdc: FLD1                                                            
+  0x00e6cbde: FST float ptr [ESI + 0x9ec]                                     
+  0x00e6cbe4: FXCH                                                            
+  0x00e6cbe6: FST float ptr [ESI + 0x9fc]                                     
+  0x00e6cbec: FXCH                                                            
+  0x00e6cbee: CMP byte ptr [0x0126efd1],0x0                                   
+  0x00e6cbf5: JZ 0x00e6cda0                                                   
+  0x00e6cbfb: FXCH                                                            
+  0x00e6cbfd: LEA EAX,[ESI + 0x980]                                           
+  0x00e6cc03: FST float ptr [ESP + 0x58]                                      
+  0x00e6cc07: PUSH EAX                                                        
+  0x00e6cc08: FST float ptr [ESP + 0x60]                                      
+  0x00e6cc0c: LEA ECX,[ESP + 0x5c]                                            
+  0x00e6cc10: FST float ptr [ESP + 0x68]                                      
+  0x00e6cc14: PUSH ECX                                                        
+  0x00e6cc15: FST float ptr [ESP + 0x30]                                      
+  0x00e6cc19: LEA EDX,[ESP + 0x50]                                            
+  0x00e6cc1d: FSTP float ptr [ESP + 0x34]                                     
+  0x00e6cc21: PUSH EDX                                                        
+  0x00e6cc22: FSTP float ptr [ESP + 0x6c]                                     
+  0x00e6cc26: FLD float ptr [0x0126efd4]                                      
+  0x00e6cc2c: FSTP float ptr [ESP + 0x3c]                                     
+  0x00e6cc30: CALL 0x00ee6e34                                                  ; CALL 0x00ee6e34 D3DXVec4Transform
+  0x00e6cc35: LEA EAX,[ESP + 0x48]                                            
+  0x00e6cc39: PUSH EAX                                                        
+  0x00e6cc3a: MOV ECX,EAX                                                     
+  0x00e6cc3c: PUSH ECX                                                        
+  0x00e6cc3d: CALL 0x00ee6dec                                                  ; CALL 0x00ee6dec D3DXVec3Normalize
+  0x00e6cc42: LEA EAX,[ESI + 0x980]                                           
+  0x00e6cc48: PUSH EAX                                                        
+  0x00e6cc49: LEA EDX,[ESP + 0x2c]                                            
+  0x00e6cc4d: PUSH EDX                                                        
+  0x00e6cc4e: LEA EAX,[ESP + 0x40]                                            
+  0x00e6cc52: PUSH EAX                                                        
+  0x00e6cc53: CALL 0x00ee6df8                                                  ; CALL 0x00ee6df8 D3DXVec3TransformCoord
+  0x00e6cc58: FLD float ptr [ESP + 0x3c]                                      
+  0x00e6cc5c: FLD float ptr [ESP + 0x4c]                                      
+  0x00e6cc60: FLD ST0                                                         
+  0x00e6cc62: FMULP ST2                                                       
+  0x00e6cc64: FLD float ptr [ESP + 0x38]                                      
+  0x00e6cc68: FLD float ptr [ESP + 0x48]                                      
+  0x00e6cc6c: FLD ST0                                                         
+  0x00e6cc6e: FMULP ST2                                                       
+  0x00e6cc70: FXCH ST3                                                        
+  0x00e6cc72: FADDP                                                           
+  0x00e6cc74: FLD float ptr [ESP + 0x40]                                      
+  0x00e6cc78: FLD float ptr [ESP + 0x50]                                      
+  0x00e6cc7c: FLD ST0                                                         
+  0x00e6cc7e: FMULP ST2                                                       
+  0x00e6cc80: FXCH ST2                                                        
+  0x00e6cc82: FADDP                                                           
+  0x00e6cc84: FSTP float ptr [ESP + 0x28]                                     
+  0x00e6cc88: FLD float ptr [ESP + 0x28]                                      
+  0x00e6cc8c: FCHS                                                            
+  0x00e6cc8e: FSTP float ptr [ESP + 0x64]                                     
+  0x00e6cc92: FLDZ                                                            
+  0x00e6cc94: FCOM ST3                                                        
+  0x00e6cc96: FNSTSW AX                                                       
+  0x00e6cc98: FLD float ptr [0x01012054]                                      
+  0x00e6cc9e: TEST AH,0x5                                                     
+  0x00e6cca1: JP 0x00e6ccab                                                   
+  0x00e6cca3: FLD1                                                            
+  0x00e6cca5: FSTP float ptr [ESP + 0x1c]                                     
+  0x00e6cca9: JMP 0x00e6ccc8                                                  
+  0x00e6ccab: FXCH ST4                                                        
+  0x00e6ccad: FCOM                                                            
+  0x00e6ccaf: FNSTSW AX                                                       
+  0x00e6ccb1: TEST AH,0x5                                                     
+  0x00e6ccb4: JP 0x00e6ccbe                                                   
+  0x00e6ccb6: FXCH ST4                                                        
+  0x00e6ccb8: FST float ptr [ESP + 0x1c]                                      
+  0x00e6ccbc: JMP 0x00e6ccc8                                                  
+  0x00e6ccbe: FXCH                                                            
+  0x00e6ccc0: FST float ptr [ESP + 0x1c]                                      
+  0x00e6ccc4: FXCH                                                            
+  0x00e6ccc6: FXCH ST4                                                        
+  0x00e6ccc8: FLD float ptr [ESP + 0x1c]                                      
+  0x00e6cccc: FDIV float ptr [EBX]                                            
+  0x00e6ccce: FSTP float ptr [ESP + 0x48]                                     
+  0x00e6ccd2: FXCH ST3                                                        
+  0x00e6ccd4: FCOM                                                            
+  0x00e6ccd6: FNSTSW AX                                                       
+  0x00e6ccd8: TEST AH,0x41                                                    
+  0x00e6ccdb: JNZ 0x00e6cce5                                                  
+  0x00e6ccdd: FSTP ST1                                                        
+  0x00e6ccdf: FSTP ST2                                                        
+  0x00e6cce1: FLD1                                                            
+  0x00e6cce3: JMP 0x00e6ccf6                                                  
+  0x00e6cce5: FCOM                                                            
+  0x00e6cce7: FNSTSW AX                                                       
+  0x00e6cce9: TEST AH,0x5                                                     
+  0x00e6ccec: JP 0x00e6ccf4                                                   
+  0x00e6ccee: FSTP ST1                                                        
+  0x00e6ccf0: FXCH ST2                                                        
+  0x00e6ccf2: JMP 0x00e6ccf6                                                  
+  0x00e6ccf4: FSTP ST3                                                        
+  0x00e6ccf6: FSTP float ptr [ESP + 0x1c]                                     
+  0x00e6ccfa: FLD float ptr [ESP + 0x1c]                                      
+  0x00e6ccfe: FDIV float ptr [ESI + 0x9d4]                                    
+  0x00e6cd04: FSTP float ptr [ESP + 0x4c]                                     
+  0x00e6cd08: FLD float ptr [ESI + 0x9e8]                                     
+  0x00e6cd0e: FLD1                                                            
+  0x00e6cd10: FLD ST0                                                         
+  0x00e6cd12: FSUBRP ST2,ST0                                                  
+  0x00e6cd14: FLD float ptr [ESI + 0x9f8]                                     
+  0x00e6cd1a: FDIVP ST2,ST0                                                   
+  0x00e6cd1c: FXCH                                                            
+  0x00e6cd1e: FSTP float ptr [ESP + 0x54]                                     
+  0x00e6cd22: FLD float ptr [ESP + 0x4c]                                      
+  0x00e6cd26: FMUL ST3                                                        
+  0x00e6cd28: FLD float ptr [ESP + 0x48]                                      
+  0x00e6cd2c: FMUL ST5                                                        
+  0x00e6cd2e: FADDP                                                           
+  0x00e6cd30: FADD ST0,ST2                                                    
+  0x00e6cd32: FLD float ptr [ESP + 0x54]                                      
+  0x00e6cd36: FLD float ptr [ESP + 0x64]                                      
+  0x00e6cd3a: FLD ST0                                                         
+  0x00e6cd3c: FMULP ST2                                                       
+  0x00e6cd3e: FXCH ST2                                                        
+  0x00e6cd40: FADDP                                                           
+  0x00e6cd42: FSTP float ptr [ESP + 0x28]                                     
+  0x00e6cd46: FLD float ptr [ESP + 0x28]                                      
+  0x00e6cd4a: FDIVP ST2,ST0                                                   
+  0x00e6cd4c: FXCH                                                            
+  0x00e6cd4e: FSTP float ptr [ESP + 0x28]                                     
+  0x00e6cd52: FLD float ptr [ESP + 0x28]                                      
+  0x00e6cd56: FLD ST0                                                         
+  0x00e6cd58: FMULP ST5                                                       
+  0x00e6cd5a: FXCH ST4                                                        
+  0x00e6cd5c: FSTP float ptr [ESP + 0x38]                                     
+  0x00e6cd60: FLD ST3                                                         
+  0x00e6cd62: FMULP ST3                                                       
+  0x00e6cd64: FXCH ST2                                                        
+  0x00e6cd66: FSTP float ptr [ESP + 0x3c]                                     
+  0x00e6cd6a: FMUL ST2                                                        
+  0x00e6cd6c: FSTP float ptr [ESP + 0x40]                                     
+  0x00e6cd70: FMULP                                                           
+  0x00e6cd72: FSTP float ptr [ESP + 0x44]                                     
+  0x00e6cd76: FLD float ptr [ESP + 0x38]                                      
+  0x00e6cd7a: FSTP float ptr [ESI + 0x9c8]                                    
+  0x00e6cd80: FLD float ptr [ESP + 0x3c]                                      
+  0x00e6cd84: FSTP float ptr [ESI + 0x9d8]                                    
+  0x00e6cd8a: FLD float ptr [ESP + 0x40]                                      
+  0x00e6cd8e: FSTP float ptr [ESI + 0x9e8]                                    
+  0x00e6cd94: FLD float ptr [ESP + 0x44]                                      
+  0x00e6cd98: FSTP float ptr [ESI + 0x9f8]                                    
+  0x00e6cd9e: JMP 0x00e6cda4                                                  
+  0x00e6cda0: FSTP ST1                                                        
+  0x00e6cda2: FSTP ST0                                                        
+  0x00e6cda4: MOV EAX,dword ptr [ESI + 0x288]                                 
+  0x00e6cdaa: MOV ECX,dword ptr [EAX]                                         
+  0x00e6cdac: MOV EDX,dword ptr [ECX + 0xb0]                                  
+  0x00e6cdb2: PUSH EBX                                                        
+  0x00e6cdb3: PUSH 0x3                                                        
+  0x00e6cdb5: PUSH EAX                                                        
+  0x00e6cdb6: CALL EDX                                                        
+  0x00e6cdb8: MOV ECX,dword ptr [ESI + 0x888]                                 
+  0x00e6cdbe: MOV EAX,dword ptr [ECX]                                         
+  0x00e6cdc0: MOV EDX,dword ptr [EAX + 0x8c]                                  
+  0x00e6cdc6: PUSH 0x0                                                        
+  0x00e6cdc8: CALL EDX                                                        
+  0x00e6cdca: MOV dword ptr [ESP + 0x28],EAX                                  
+  0x00e6cdce: FILD dword ptr [ESP + 0x28]                                     
+  0x00e6cdd2: TEST EAX,EAX                                                    
+  0x00e6cdd4: JGE 0x00e6cddc                                                  
+  0x00e6cdd6: FADD float ptr [0x01099378]                                     
+  0x00e6cddc: MOV ECX,dword ptr [ESI + 0x888]                                 
+  0x00e6cde2: FSTP float ptr [ESP + 0x28]                                     
+  0x00e6cde6: MOV EAX,dword ptr [ECX]                                         
+  0x00e6cde8: MOV EDX,dword ptr [EAX + 0x90]                                  
+  0x00e6cdee: PUSH 0x0                                                        
+  0x00e6cdf0: CALL EDX                                                        
+  0x00e6cdf2: MOV dword ptr [ESP + 0x24],EAX                                  
+  0x00e6cdf6: FILD dword ptr [ESP + 0x24]                                     
+  0x00e6cdfa: TEST EAX,EAX                                                    
+  0x00e6cdfc: JGE 0x00e6ce04                                                  
+  0x00e6cdfe: FADD float ptr [0x01099378]                                     
+  0x00e6ce04: MOV ECX,dword ptr [EBP + 0x1c]                                  
+  0x00e6ce07: FSTP float ptr [ESP + 0x24]                                     
+  0x00e6ce0b: FLD float ptr [ESP + 0x28]                                      
+  0x00e6ce0f: FLD ST0                                                         
+  0x00e6ce11: FMUL float ptr [ECX]                                            
+  0x00e6ce13: FNSTCW word ptr [ESP + 0x18]                                    
+  0x00e6ce17: MOVZX EAX,word ptr [ESP + 0x18]                                 
+  0x00e6ce1c: OR EAX,0xc00                                                    
+  0x00e6ce21: MOV dword ptr [ESP + 0x28],EAX                                  
+  0x00e6ce25: FLDCW word ptr [ESP + 0x28]                                     
+  0x00e6ce29: FISTP qword ptr [ESP + 0x28]                                    
+  0x00e6ce2d: MOV EAX,dword ptr [ESP + 0x28]                                  
+  0x00e6ce31: MOV dword ptr [ESP + 0x68],EAX                                  
+  0x00e6ce35: FLDCW word ptr [ESP + 0x18]                                     
+  0x00e6ce39: FLD float ptr [ECX + 0x8]                                       
+  0x00e6ce3c: FLD1                                                            
+  0x00e6ce3e: FSUBRP                                                          
+  0x00e6ce40: FLD float ptr [ESP + 0x24]                                      
+  0x00e6ce44: FLD ST0                                                         
+  0x00e6ce46: FMULP ST2                                                       
+  0x00e6ce48: FNSTCW word ptr [ESP + 0x18]                                    
+  0x00e6ce4c: FXCH                                                            
+  0x00e6ce4e: MOVZX EAX,word ptr [ESP + 0x18]                                 
+  0x00e6ce53: OR EAX,0xc00                                                    
+  0x00e6ce58: MOV dword ptr [ESP + 0x28],EAX                                  
+  0x00e6ce5c: FLDCW word ptr [ESP + 0x28]                                     
+  0x00e6ce60: FISTP qword ptr [ESP + 0x28]                                    
+  0x00e6ce64: MOV EDX,dword ptr [ESP + 0x28]                                  
+  0x00e6ce68: MOV dword ptr [ESP + 0x6c],EDX                                  
+  0x00e6ce6c: FLDCW word ptr [ESP + 0x18]                                     
+  0x00e6ce70: FLD float ptr [ECX + 0x4]                                       
+  0x00e6ce73: FSUB float ptr [ECX]                                            
+  0x00e6ce75: FNSTCW word ptr [ESP + 0x18]                                    
+  0x00e6ce79: FMULP ST2                                                       
+  0x00e6ce7b: MOVZX EAX,word ptr [ESP + 0x18]                                 
+  0x00e6ce80: FXCH                                                            
+  0x00e6ce82: OR EAX,0xc00                                                    
+  0x00e6ce87: MOV dword ptr [ESP + 0x28],EAX                                  
+  0x00e6ce8b: FLDCW word ptr [ESP + 0x28]                                     
+  0x00e6ce8f: FISTP qword ptr [ESP + 0x28]                                    
+  0x00e6ce93: MOV EAX,dword ptr [ESP + 0x28]                                  
+  0x00e6ce97: MOV dword ptr [ESP + 0x70],EAX                                  
+  0x00e6ce9b: FLDCW word ptr [ESP + 0x18]                                     
+  0x00e6ce9f: FLD float ptr [ECX + 0x8]                                       
+  0x00e6cea2: FSUB float ptr [ECX + 0xc]                                      
+  0x00e6cea5: FNSTCW word ptr [ESP + 0x18]                                    
+  0x00e6cea9: FMULP                                                           
+  0x00e6ceab: MOVZX EAX,word ptr [ESP + 0x18]                                 
+  0x00e6ceb0: OR EAX,0xc00                                                    
+  0x00e6ceb5: MOV dword ptr [ESP + 0x28],EAX                                  
+  0x00e6ceb9: MOV EAX,dword ptr [ESI + 0x288]                                 
+  0x00e6cebf: FLDCW word ptr [ESP + 0x28]                                     
+  0x00e6cec3: FISTP qword ptr [ESP + 0x28]                                    
+  0x00e6cec7: MOV ECX,dword ptr [ESP + 0x28]                                  
+  0x00e6cecb: MOV dword ptr [ESP + 0x74],ECX                                  
+  0x00e6cecf: LEA ECX,[ESP + 0x68]                                            
+  0x00e6ced3: PUSH ECX                                                        
+  0x00e6ced4: FLDCW word ptr [ESP + 0x1c]                                     
+  0x00e6ced8: PUSH EAX                                                        
+  0x00e6ced9: FLDZ                                                            
+  0x00e6cedb: FSTP float ptr [ESP + 0x80]                                     
+  0x00e6cee2: FLD1                                                            
+  0x00e6cee4: FSTP float ptr [ESP + 0x84]                                     
+  0x00e6ceeb: MOV EDX,dword ptr [EAX]                                         
+  0x00e6ceed: MOV EDX,dword ptr [EDX + 0xbc]                                  
+  0x00e6cef3: CALL EDX                                                        
+  0x00e6cef5: PUSH EBX                                                        
+  0x00e6cef6: LEA EAX,[ESI + 0x980]                                           
+  0x00e6cefc: PUSH EAX                                                        
+  0x00e6cefd: LEA EAX,[ESI + 0xa00]                                           
+  0x00e6cf03: PUSH EAX                                                        
+  0x00e6cf04: CALL 0x00ee6de0                                                  ; CALL 0x00ee6de0 D3DXMatrixMultiply
+  0x00e6cf09: FLD float ptr [EDI + 0x14]                                      
+  0x00e6cf0c: MOV ESI,dword ptr [ESI + 0x8b8]                                 
+  0x00e6cf12: MOV EDX,dword ptr [ESI]                                         
+  0x00e6cf14: MOV EAX,dword ptr [EDX + 0x48]                                  
+  0x00e6cf17: SUB ESP,0x8                                                     
+  0x00e6cf1a: FSTP float ptr [ESP + 0x4]                                      
+  0x00e6cf1e: MOV ECX,ESI                                                     
+  0x00e6cf20: FLD float ptr [EDI + 0x10]                                      
+  0x00e6cf23: FSTP float ptr [ESP]                                            
+  0x00e6cf26: CALL EAX                                                        
+  0x00e6cf28: POP EDI                                                         
+  0x00e6cf29: POP ESI                                                         
+  0x00e6cf2a: POP EBX                                                         
+  0x00e6cf2b: MOV ESP,EBP                                                     
+  0x00e6cf2d: POP EBP                                                         
+  0x00e6cf2e: RET 0x18                                                        
+  Total printed: 559 instructions
+
+======================================================================
+MEMORY OPERANDS: NiDX9Renderer SetCameraData implementation @ 0x00e6c780
+======================================================================
+  0x00e6c78d: CMP byte ptr [ESI + 0x6fc],0x0
+  0x00e6c79b: CMP byte ptr [0x0126efd1],0x0
+  0x00e6c7a4: CMP byte ptr [0x011a9604],0x0
+  0x00e6c7ad: MOV EAX,[0x011f426c]
+  0x00e6c7b2: MOV ECX,dword ptr [0x011f4270]
+  0x00e6c7b8: MOV EDX,dword ptr [0x011f4274]
+  0x00e6c7be: MOV [0x011f474c],EAX
+  0x00e6c7c3: MOV EAX,dword ptr [EBP + 0x8]
+  0x00e6c7c6: MOV dword ptr [0x011f4750],ECX
+  0x00e6c7cc: MOV dword ptr [0x011f4754],EDX
+  0x00e6c7d2: MOV ECX,dword ptr [EAX]
+  0x00e6c7d4: MOV EDX,dword ptr [EAX + 0x4]
+  0x00e6c7d7: MOV EAX,dword ptr [EAX + 0x8]
+  0x00e6c7dc: MOV EAX,dword ptr [EBP + 0x8]
+  0x00e6c7df: MOV ECX,dword ptr [EAX]
+  0x00e6c7e1: MOV dword ptr [0x011f474c],ECX
+  0x00e6c7e7: MOV EDX,dword ptr [EAX + 0x4]
+  0x00e6c7ea: MOV ECX,dword ptr [0x011f426c]
+  0x00e6c7f0: MOV dword ptr [0x011f4750],EDX
+  0x00e6c7f6: MOV EAX,dword ptr [EAX + 0x8]
+  0x00e6c7f9: MOV EDX,dword ptr [0x011f4270]
+  0x00e6c7ff: MOV [0x011f4754],EAX
+  0x00e6c804: MOV EAX,[0x011f4274]
+  0x00e6c809: MOV EDI,dword ptr [EBP + 0x14]
+  0x00e6c80c: FLD float ptr [EDI]
+  0x00e6c80e: MOV EBX,dword ptr [EBP + 0x10]
+  0x00e6c811: FSTP float ptr [ESI + 0x980]
+  0x00e6c817: MOV dword ptr [ESP + 0x28],ECX
+  0x00e6c81b: FLD float ptr [EBX]
+  0x00e6c81d: LEA ECX,[ESI + 0x980]
+  0x00e6c823: FSTP float ptr [ESI + 0x984]
+  0x00e6c829: MOV dword ptr [ESP + 0x30],EAX
+  0x00e6c82d: MOV EAX,dword ptr [EBP + 0xc]
+  0x00e6c830: FLD float ptr [EAX]
+  0x00e6c832: MOV dword ptr [ESP + 0x2c],EDX
+  0x00e6c836: FSTP float ptr [ESI + 0x988]
+  0x00e6c83e: FST float ptr [ESI + 0x98c]
+  0x00e6c844: FLD float ptr [EDI + 0x4]
+  0x00e6c847: FSTP float ptr [ESI + 0x990]
+  0x00e6c84d: FLD float ptr [EBX + 0x4]
+  0x00e6c850: FSTP float ptr [ESI + 0x994]
+  0x00e6c856: FLD float ptr [EAX + 0x4]
+  0x00e6c859: FSTP float ptr [ESI + 0x998]
+  0x00e6c85f: FST float ptr [ESI + 0x99c]
+  0x00e6c865: FLD float ptr [EDI + 0x8]
+  0x00e6c868: FSTP float ptr [ESI + 0x9a0]
+  0x00e6c86e: FLD float ptr [EBX + 0x8]
+  0x00e6c871: FSTP float ptr [ESI + 0x9a4]
+  0x00e6c877: FLD float ptr [EAX + 0x8]
+  0x00e6c87a: FSTP float ptr [ESI + 0x9a8]
+  0x00e6c880: FST float ptr [ESI + 0x9ac]
+  0x00e6c886: FLD float ptr [EDI]
+  0x00e6c888: FLD float ptr [ESP + 0x28]
+  0x00e6c890: FLD float ptr [EDI + 0x4]
+  0x00e6c893: FLD float ptr [ESP + 0x2c]
+  0x00e6c89f: FLD float ptr [EDI + 0x8]
+  0x00e6c8a2: FLD float ptr [ESP + 0x30]
+  0x00e6c8ae: FSTP float ptr [ESP + 0x28]
+  0x00e6c8b2: FLD float ptr [ESP + 0x28]
+  0x00e6c8b8: FSTP float ptr [ESI + 0x9b0]
+  0x00e6c8be: FLD float ptr [EBX]
+  0x00e6c8c2: FLD float ptr [EBX + 0x4]
+  0x00e6c8c9: FLD float ptr [EBX + 0x8]
+  0x00e6c8d0: FSTP float ptr [ESP + 0x28]
+  0x00e6c8d4: FLD float ptr [ESP + 0x28]
+  0x00e6c8da: FSTP float ptr [ESI + 0x9b4]
+  0x00e6c8e0: FLD float ptr [EAX + 0x4]
+  0x00e6c8e5: FLD float ptr [EAX]
+  0x00e6c8ed: FMUL float ptr [EAX + 0x8]
+  0x00e6c8f2: FSTP float ptr [ESP + 0x28]
+  0x00e6c8f6: FLD float ptr [ESP + 0x28]
+  0x00e6c8fc: FSTP float ptr [ESI + 0x9b8]
+  0x00e6c904: FST float ptr [ESI + 0x9bc]
+  0x00e6c90a: FLD float ptr [EDI]
+  0x00e6c90c: FSTP float ptr [ESI + 0xa40]
+  0x00e6c912: FLD float ptr [EDI + 0x4]
+  0x00e6c915: FSTP float ptr [ESI + 0xa44]
+  0x00e6c91b: FLD float ptr [EDI + 0x8]
+  0x00e6c91e: FSTP float ptr [ESI + 0xa48]
+  0x00e6c927: FST float ptr [ESI + 0xa4c]
+  0x00e6c92f: FLD float ptr [EBX]
+  0x00e6c931: FSTP float ptr [ESI + 0xa50]
+  0x00e6c937: FLD float ptr [EBX + 0x4]
+  0x00e6c93a: FSTP float ptr [ESI + 0xa54]
+  0x00e6c940: FLD float ptr [EBX + 0x8]
+  0x00e6c943: FSTP float ptr [ESI + 0xa58]
+  0x00e6c949: FST float ptr [ESI + 0xa5c]
+  0x00e6c94f: FLD float ptr [EAX]
+  0x00e6c951: FSTP float ptr [ESI + 0xa60]
+  0x00e6c957: FLD float ptr [EAX + 0x4]
+  0x00e6c95a: FSTP float ptr [ESI + 0xa64]
+  0x00e6c960: FLD float ptr [EAX + 0x8]
+  0x00e6c963: MOV EAX,dword ptr [ESI + 0x288]
+  0x00e6c969: FSTP float ptr [ESI + 0xa68]
+  0x00e6c970: FSTP float ptr [ESI + 0xa6c]
+  0x00e6c978: FSTP float ptr [ESI + 0xa70]
+  0x00e6c980: FSTP float ptr [ESI + 0xa74]
+  0x00e6c986: FSTP float ptr [ESI + 0xa78]
+  0x00e6c98c: FSTP float ptr [ESI + 0xa7c]
+  0x00e6c992: MOV EDX,dword ptr [EAX]
+  0x00e6c994: MOV EAX,dword ptr [EDX + 0xb0]
+  0x00e6c99c: MOV ECX,dword ptr [EDI]
+  0x00e6c99e: MOV dword ptr [ESI + 0x64c],ECX
+  0x00e6c9a4: MOV EDX,dword ptr [EDI + 0x4]
+  0x00e6c9a7: MOV dword ptr [ESI + 0x650],EDX
+  0x00e6c9ad: MOV EAX,dword ptr [EDI + 0x8]
+  0x00e6c9b0: MOV dword ptr [ESI + 0x654],EAX
+  0x00e6c9b6: MOV ECX,dword ptr [EDI]
+  0x00e6c9b8: MOV dword ptr [ESI + 0x634],ECX
+  0x00e6c9be: MOV EDX,dword ptr [EDI + 0x4]
+  0x00e6c9c1: MOV dword ptr [ESI + 0x638],EDX
+  0x00e6c9c7: MOV EAX,dword ptr [EDI + 0x8]
+  0x00e6c9ca: MOV EDI,dword ptr [EBP + 0x18]
+  0x00e6c9cd: MOV dword ptr [ESI + 0x63c],EAX
+  0x00e6c9d3: MOV ECX,dword ptr [EBX]
+  0x00e6c9d5: MOV dword ptr [ESI + 0x658],ECX
+  0x00e6c9db: MOV EDX,dword ptr [EBX + 0x4]
+  0x00e6c9de: MOV dword ptr [ESI + 0x65c],EDX
+  0x00e6c9e4: MOV EAX,dword ptr [EBX + 0x8]
+  0x00e6c9e7: MOV dword ptr [ESI + 0x660],EAX
+  0x00e6c9ed: MOV ECX,dword ptr [EBX]
+  0x00e6c9ef: MOV dword ptr [ESI + 0x640],ECX
+  0x00e6c9f5: MOV EDX,dword ptr [EBX + 0x4]
+  0x00e6c9f8: MOV dword ptr [ESI + 0x644],EDX
+  0x00e6c9fe: MOV EAX,dword ptr [EBX + 0x8]
+  0x00e6ca01: MOV dword ptr [ESI + 0x648],EAX
+  0x00e6ca07: FLD float ptr [EDI + 0x10]
+  0x00e6ca0a: FSTP float ptr [ESI + 0x684]
+  0x00e6ca10: MOV ECX,dword ptr [ESI + 0x8b8]
+  0x00e6ca16: FLD float ptr [EDI + 0x14]
+  0x00e6ca19: FSUB float ptr [EDI + 0x10]
+  0x00e6ca1c: FSTP float ptr [ESP + 0x28]
+  0x00e6ca20: FLD float ptr [ESP + 0x28]
+  0x00e6ca24: FST float ptr [ESI + 0x688]
+  0x00e6ca2a: CMP byte ptr [EDI + 0x18],0x0
+  0x00e6ca2e: FLD float ptr [EDI + 0x4]
+  0x00e6ca31: MOV EDX,dword ptr [ECX]
+  0x00e6ca33: FSUB float ptr [EDI]
+  0x00e6ca35: MOV EAX,dword ptr [EDX + 0x4c]
+  0x00e6ca38: FSTP float ptr [ESP + 0x18]
+  0x00e6ca3c: FLD float ptr [EDI]
+  0x00e6ca3e: FADD float ptr [EDI + 0x4]
+  0x00e6ca41: FSTP float ptr [ESP + 0x1c]
+  0x00e6ca45: FLD float ptr [EDI + 0x8]
+  0x00e6ca48: FSUB float ptr [EDI + 0xc]
+  0x00e6ca4b: FSTP float ptr [ESP + 0x20]
+  0x00e6ca4f: FLD float ptr [EDI + 0xc]
+  0x00e6ca52: FADD float ptr [EDI + 0x8]
+  0x00e6ca55: FSTP float ptr [ESP + 0x24]
+  0x00e6ca5d: FSTP float ptr [ESP + 0x28]
+  0x00e6ca69: FLD double ptr [0x01011590]
+  0x00e6ca6f: FLD float ptr [ESP + 0x18]
+  0x00e6ca73: LEA EBX,[ESI + 0x9c0]
+  0x00e6ca7f: FDIVR double ptr [0x0106d4c8]
+  0x00e6ca85: FSTP float ptr [EBX]
+  0x00e6ca89: FST float ptr [ESI + 0x9d0]
+  0x00e6ca8f: FST float ptr [ESI + 0x9e0]
+  0x00e6ca95: FLD float ptr [ESP + 0x1c]
+  0x00e6ca9d: FSTP float ptr [EBX]
+  0x00e6caa1: FST float ptr [ESI + 0x9d0]
+  0x00e6caa7: FST float ptr [ESI + 0x9e0]
+  0x00e6caad: FLD float ptr [ESP + 0x1c]
+  0x00e6cab7: FSTP float ptr [ESI + 0x9f0]
+  0x00e6cabd: FST float ptr [ESI + 0x9c4]
+  0x00e6cac3: FLD float ptr [ESP + 0x20]
+  0x00e6cacd: FSTP float ptr [ESI + 0x9d4]
+  0x00e6cad3: FST float ptr [ESI + 0x9e4]
+  0x00e6cad9: FLD float ptr [ESP + 0x24]
+  0x00e6cae3: FSTP float ptr [ESI + 0x9f4]
+  0x00e6cae9: FST float ptr [ESI + 0x9c8]
+  0x00e6caef: FST float ptr [ESI + 0x9d8]
+  0x00e6caf5: FLD float ptr [ESP + 0x28]
+  0x00e6caf9: FST float ptr [ESI + 0x9e8]
+  0x00e6caff: FMUL float ptr [EDI + 0x10]
+  0x00e6cb04: FSTP float ptr [ESI + 0x9f8]
+  0x00e6cb0a: FST float ptr [ESI + 0x9cc]
+  0x00e6cb10: FST float ptr [ESI + 0x9dc]
+  0x00e6cb16: FST float ptr [ESI + 0x9ec]
+  0x00e6cb1e: FST float ptr [ESI + 0x9fc]
+  0x00e6cb2b: FLD double ptr [0x01011590]
+  0x00e6cb31: FLD float ptr [ESP + 0x18]
+  0x00e6cb35: LEA EBX,[ESI + 0x9c0]
+  0x00e6cb41: FDIVR double ptr [0x0106d4c8]
+  0x00e6cb47: FSTP float ptr [EBX]
+  0x00e6cb4b: FST float ptr [ESI + 0x9d0]
+  0x00e6cb51: FLD float ptr [ESP + 0x1c]
+  0x00e6cb59: FSTP float ptr [EBX]
+  0x00e6cb5d: FST float ptr [ESI + 0x9d0]
+  0x00e6cb63: FLD float ptr [ESP + 0x1c]
+  0x00e6cb6d: FSTP float ptr [ESI + 0x9e0]
+  0x00e6cb73: FST float ptr [ESI + 0x9f0]
+  0x00e6cb79: FST float ptr [ESI + 0x9c4]
+  0x00e6cb7f: FLD float ptr [ESP + 0x20]
+  0x00e6cb89: FSTP float ptr [ESI + 0x9d4]
+  0x00e6cb8f: FLD float ptr [ESP + 0x24]
+  0x00e6cb99: FSTP float ptr [ESI + 0x9e4]
+  0x00e6cb9f: FST float ptr [ESI + 0x9f4]
+  0x00e6cba5: FST float ptr [ESI + 0x9c8]
+  0x00e6cbab: FST float ptr [ESI + 0x9d8]
+  0x00e6cbb1: FLD float ptr [ESP + 0x28]
+  0x00e6cbb7: FMUL float ptr [EDI + 0x14]
+  0x00e6cbba: FSTP float ptr [ESI + 0x9e8]
+  0x00e6cbc0: FLD float ptr [EDI + 0x10]
+  0x00e6cbc3: FMUL float ptr [EDI + 0x14]
+  0x00e6cbca: FSTP float ptr [ESI + 0x9f8]
+  0x00e6cbd0: FST float ptr [ESI + 0x9cc]
+  0x00e6cbd6: FST float ptr [ESI + 0x9dc]
+  0x00e6cbde: FST float ptr [ESI + 0x9ec]
+  0x00e6cbe6: FST float ptr [ESI + 0x9fc]
+  0x00e6cbee: CMP byte ptr [0x0126efd1],0x0
+  0x00e6cbfd: LEA EAX,[ESI + 0x980]
+  0x00e6cc03: FST float ptr [ESP + 0x58]
+  0x00e6cc08: FST float ptr [ESP + 0x60]
+  0x00e6cc0c: LEA ECX,[ESP + 0x5c]
+  0x00e6cc10: FST float ptr [ESP + 0x68]
+  0x00e6cc15: FST float ptr [ESP + 0x30]
+  0x00e6cc19: LEA EDX,[ESP + 0x50]
+  0x00e6cc1d: FSTP float ptr [ESP + 0x34]
+  0x00e6cc22: FSTP float ptr [ESP + 0x6c]
+  0x00e6cc26: FLD float ptr [0x0126efd4]
+  0x00e6cc2c: FSTP float ptr [ESP + 0x3c]
+  0x00e6cc35: LEA EAX,[ESP + 0x48]
+  0x00e6cc42: LEA EAX,[ESI + 0x980]
+  0x00e6cc49: LEA EDX,[ESP + 0x2c]
+  0x00e6cc4e: LEA EAX,[ESP + 0x40]
+  0x00e6cc58: FLD float ptr [ESP + 0x3c]
+  0x00e6cc5c: FLD float ptr [ESP + 0x4c]
+  0x00e6cc64: FLD float ptr [ESP + 0x38]
+  0x00e6cc68: FLD float ptr [ESP + 0x48]
+  0x00e6cc74: FLD float ptr [ESP + 0x40]
+  0x00e6cc78: FLD float ptr [ESP + 0x50]
+  0x00e6cc84: FSTP float ptr [ESP + 0x28]
+  0x00e6cc88: FLD float ptr [ESP + 0x28]
+  0x00e6cc8e: FSTP float ptr [ESP + 0x64]
+  0x00e6cc98: FLD float ptr [0x01012054]
+  0x00e6cca5: FSTP float ptr [ESP + 0x1c]
+  0x00e6ccb8: FST float ptr [ESP + 0x1c]
+  0x00e6ccc0: FST float ptr [ESP + 0x1c]
+  0x00e6ccc8: FLD float ptr [ESP + 0x1c]
+  0x00e6cccc: FDIV float ptr [EBX]
+  0x00e6ccce: FSTP float ptr [ESP + 0x48]
+  0x00e6ccf6: FSTP float ptr [ESP + 0x1c]
+  0x00e6ccfa: FLD float ptr [ESP + 0x1c]
+  0x00e6ccfe: FDIV float ptr [ESI + 0x9d4]
+  0x00e6cd04: FSTP float ptr [ESP + 0x4c]
+  0x00e6cd08: FLD float ptr [ESI + 0x9e8]
+  0x00e6cd14: FLD float ptr [ESI + 0x9f8]
+  0x00e6cd1e: FSTP float ptr [ESP + 0x54]
+  0x00e6cd22: FLD float ptr [ESP + 0x4c]
+  0x00e6cd28: FLD float ptr [ESP + 0x48]
+  0x00e6cd32: FLD float ptr [ESP + 0x54]
+  0x00e6cd36: FLD float ptr [ESP + 0x64]
+  0x00e6cd42: FSTP float ptr [ESP + 0x28]
+  0x00e6cd46: FLD float ptr [ESP + 0x28]
+  0x00e6cd4e: FSTP float ptr [ESP + 0x28]
+  0x00e6cd52: FLD float ptr [ESP + 0x28]
+  0x00e6cd5c: FSTP float ptr [ESP + 0x38]
+  0x00e6cd66: FSTP float ptr [ESP + 0x3c]
+  0x00e6cd6c: FSTP float ptr [ESP + 0x40]
+  0x00e6cd72: FSTP float ptr [ESP + 0x44]
+  0x00e6cd76: FLD float ptr [ESP + 0x38]
+  0x00e6cd7a: FSTP float ptr [ESI + 0x9c8]
+  0x00e6cd80: FLD float ptr [ESP + 0x3c]
+  0x00e6cd84: FSTP float ptr [ESI + 0x9d8]
+  0x00e6cd8a: FLD float ptr [ESP + 0x40]
+  0x00e6cd8e: FSTP float ptr [ESI + 0x9e8]
+  0x00e6cd94: FLD float ptr [ESP + 0x44]
+  0x00e6cd98: FSTP float ptr [ESI + 0x9f8]
+  0x00e6cda4: MOV EAX,dword ptr [ESI + 0x288]
+  0x00e6cdaa: MOV ECX,dword ptr [EAX]
+  0x00e6cdac: MOV EDX,dword ptr [ECX + 0xb0]
+  0x00e6cdb8: MOV ECX,dword ptr [ESI + 0x888]
+  0x00e6cdbe: MOV EAX,dword ptr [ECX]
+  0x00e6cdc0: MOV EDX,dword ptr [EAX + 0x8c]
+  0x00e6cdca: MOV dword ptr [ESP + 0x28],EAX
+  0x00e6cdce: FILD dword ptr [ESP + 0x28]
+  0x00e6cdd6: FADD float ptr [0x01099378]
+  0x00e6cddc: MOV ECX,dword ptr [ESI + 0x888]
+  0x00e6cde2: FSTP float ptr [ESP + 0x28]
+  0x00e6cde6: MOV EAX,dword ptr [ECX]
+  0x00e6cde8: MOV EDX,dword ptr [EAX + 0x90]
+  0x00e6cdf2: MOV dword ptr [ESP + 0x24],EAX
+  0x00e6cdf6: FILD dword ptr [ESP + 0x24]
+  0x00e6cdfe: FADD float ptr [0x01099378]
+  0x00e6ce04: MOV ECX,dword ptr [EBP + 0x1c]
+  0x00e6ce07: FSTP float ptr [ESP + 0x24]
+  0x00e6ce0b: FLD float ptr [ESP + 0x28]
+  0x00e6ce11: FMUL float ptr [ECX]
+  0x00e6ce13: FNSTCW word ptr [ESP + 0x18]
+  0x00e6ce17: MOVZX EAX,word ptr [ESP + 0x18]
+  0x00e6ce21: MOV dword ptr [ESP + 0x28],EAX
+  0x00e6ce25: FLDCW word ptr [ESP + 0x28]
+  0x00e6ce29: FISTP qword ptr [ESP + 0x28]
+  0x00e6ce2d: MOV EAX,dword ptr [ESP + 0x28]
+  0x00e6ce31: MOV dword ptr [ESP + 0x68],EAX
+  0x00e6ce35: FLDCW word ptr [ESP + 0x18]
+  0x00e6ce39: FLD float ptr [ECX + 0x8]
+  0x00e6ce40: FLD float ptr [ESP + 0x24]
+  0x00e6ce48: FNSTCW word ptr [ESP + 0x18]
+  0x00e6ce4e: MOVZX EAX,word ptr [ESP + 0x18]
+  0x00e6ce58: MOV dword ptr [ESP + 0x28],EAX
+  0x00e6ce5c: FLDCW word ptr [ESP + 0x28]
+  0x00e6ce60: FISTP qword ptr [ESP + 0x28]
+  0x00e6ce64: MOV EDX,dword ptr [ESP + 0x28]
+  0x00e6ce68: MOV dword ptr [ESP + 0x6c],EDX
+  0x00e6ce6c: FLDCW word ptr [ESP + 0x18]
+  0x00e6ce70: FLD float ptr [ECX + 0x4]
+  0x00e6ce73: FSUB float ptr [ECX]
+  0x00e6ce75: FNSTCW word ptr [ESP + 0x18]
+  0x00e6ce7b: MOVZX EAX,word ptr [ESP + 0x18]
+  0x00e6ce87: MOV dword ptr [ESP + 0x28],EAX
+  0x00e6ce8b: FLDCW word ptr [ESP + 0x28]
+  0x00e6ce8f: FISTP qword ptr [ESP + 0x28]
+  0x00e6ce93: MOV EAX,dword ptr [ESP + 0x28]
+  0x00e6ce97: MOV dword ptr [ESP + 0x70],EAX
+  0x00e6ce9b: FLDCW word ptr [ESP + 0x18]
+  0x00e6ce9f: FLD float ptr [ECX + 0x8]
+  0x00e6cea2: FSUB float ptr [ECX + 0xc]
+  0x00e6cea5: FNSTCW word ptr [ESP + 0x18]
+  0x00e6ceab: MOVZX EAX,word ptr [ESP + 0x18]
+  0x00e6ceb5: MOV dword ptr [ESP + 0x28],EAX
+  0x00e6ceb9: MOV EAX,dword ptr [ESI + 0x288]
+  0x00e6cebf: FLDCW word ptr [ESP + 0x28]
+  0x00e6cec3: FISTP qword ptr [ESP + 0x28]
+  0x00e6cec7: MOV ECX,dword ptr [ESP + 0x28]
+  0x00e6cecb: MOV dword ptr [ESP + 0x74],ECX
+  0x00e6cecf: LEA ECX,[ESP + 0x68]
+  0x00e6ced4: FLDCW word ptr [ESP + 0x1c]
+  0x00e6cedb: FSTP float ptr [ESP + 0x80]
+  0x00e6cee4: FSTP float ptr [ESP + 0x84]
+  0x00e6ceeb: MOV EDX,dword ptr [EAX]
+  0x00e6ceed: MOV EDX,dword ptr [EDX + 0xbc]
+  0x00e6cef6: LEA EAX,[ESI + 0x980]
+  0x00e6cefd: LEA EAX,[ESI + 0xa00]
+  0x00e6cf09: FLD float ptr [EDI + 0x14]
+  0x00e6cf0c: MOV ESI,dword ptr [ESI + 0x8b8]
+  0x00e6cf12: MOV EDX,dword ptr [ESI]
+  0x00e6cf14: MOV EAX,dword ptr [EDX + 0x48]
+  0x00e6cf1a: FSTP float ptr [ESP + 0x4]
+  0x00e6cf20: FLD float ptr [EDI + 0x10]
+  0x00e6cf23: FSTP float ptr [ESP]
+  Total: 341 memory-operand instructions
+
+======================================================================
+DIRECT CALLEE DECOMPILATIONS: NiDX9Renderer SetCameraData implementation @ 0x00e6c780
+======================================================================
+
+======================================================================
+direct callee 1 @ 0x00ee6de0
+======================================================================
+  Function: D3DXMatrixMultiply @ 0x00ee6de0, Size: 6 bytes
+
+void D3DXMatrixMultiply(void)
+
+{
+                    /* WARNING: Could not recover jumptable at 0x00ee6de0. Too many branches */
+                    /* WARNING: Treating indirect jump as call */
+  D3DXMatrixMultiply();
+  return;
+}
+
+
+
+======================================================================
+direct callee 2 @ 0x00ee6dec
+======================================================================
+  Function: D3DXVec3Normalize @ 0x00ee6dec, Size: 6 bytes
+
+void D3DXVec3Normalize(void)
+
+{
+                    /* WARNING: Could not recover jumptable at 0x00ee6dec. Too many branches */
+                    /* WARNING: Treating indirect jump as call */
+  D3DXVec3Normalize();
+  return;
+}
+
+
+
+======================================================================
+direct callee 3 @ 0x00ee6df8
+======================================================================
+  Function: D3DXVec3TransformCoord @ 0x00ee6df8, Size: 6 bytes
+
+void D3DXVec3TransformCoord(void)
+
+{
+                    /* WARNING: Could not recover jumptable at 0x00ee6df8. Too many branches */
+                    /* WARNING: Treating indirect jump as call */
+  D3DXVec3TransformCoord();
+  return;
+}
+
+
+
+======================================================================
+direct callee 4 @ 0x00ee6e34
+======================================================================
+  Function: D3DXVec4Transform @ 0x00ee6e34, Size: 6 bytes
+
+void D3DXVec4Transform(void)
+
+{
+                    /* WARNING: Could not recover jumptable at 0x00ee6e34. Too many branches */
+                    /* WARNING: Treating indirect jump as call */
+  D3DXVec4Transform();
+  return;
+}
+
+
+  Decompiled: 4 of 4 direct callees

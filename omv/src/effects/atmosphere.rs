@@ -235,7 +235,6 @@ impl FogIntegrationGate {
 #[derive(Clone, Copy, Debug)]
 struct MediumColor {
     linear_rgb: [f32; 3],
-    source: f32,
 }
 
 pub(crate) struct AtmosphereEffect {
@@ -382,11 +381,22 @@ impl AtmosphereEffect {
                 frame,
                 settings,
                 medium_color,
+                false,
+            )?;
+            draw_integration(
+                device,
+                &self.integrate_shaders[settings.shader_index()],
+                targets,
+                &self.density_noise,
+                frame,
+                settings,
+                medium_color,
+                true,
             )?;
             self.integration_draws = self.integration_draws.saturating_add(1);
             if self.integration_draws == 1 {
                 log::info!(
-                    "[ATMOSPHERE] Fog integration active: quality={:?}, scale={}, samples={}, target={}x{} A16B16G16R16F",
+                    "[ATMOSPHERE] Layered fog integration active: quality={:?}, scale={}, samples={}, target={}x{} near/far=A16B16G16R16F",
                     settings.quality,
                     settings.target_scale(),
                     settings.sample_count(),
@@ -501,7 +511,7 @@ impl AtmosphereEffect {
         match AtmosphereTargets::create(device, desc.Width, desc.Height, target_scale) {
             Ok(targets) => {
                 log::info!(
-                    "[ATMOSPHERE] Targets: full={}x{}, reduced={}x{}, scale={}, depth=G16R16F, integration=A16B16G16R16F",
+                    "[ATMOSPHERE] Targets: full={}x{}, reduced={}x{}, scale={}, depth=G16R16F, near/far=A16B16G16R16F",
                     desc.Width,
                     desc.Height,
                     targets.width,
@@ -703,10 +713,15 @@ fn draw_integration(
     frame: AtmosphereFrame,
     settings: AtmosphereSettings,
     medium_color: MediumColor,
+    far_layer: bool,
 ) -> Direct3DResult<()> {
     bind_target(
         device,
-        &targets.integration.surface,
+        if far_layer {
+            &targets.far_atmosphere.surface
+        } else {
+            &targets.near_atmosphere.surface
+        },
         targets.width,
         targets.height,
     )?;
@@ -759,7 +774,7 @@ fn draw_integration(
                 medium_color.linear_rgb[2],
                 1.0,
             ],
-            [1.0, 1.0, 0.0, medium_color.source],
+            [1.0, 1.0, 0.0, if far_layer { 1.0 } else { 0.0 }],
         ],
     )?;
     device.set_pixel_shader(shader)?;
@@ -784,8 +799,9 @@ fn draw_composition(
         device.set_raw_base_texture(1, depth.as_ptr())?;
     }
     device.set_texture(2, &targets.depth.texture)?;
-    device.set_texture(3, &targets.integration.texture)?;
-    for sampler in 0..=3 {
+    device.set_texture(3, &targets.near_atmosphere.texture)?;
+    device.set_texture(4, &targets.far_atmosphere.texture)?;
+    for sampler in 0..=4 {
         set_sampler_filter(device, sampler, D3DTEXF_POINT.0 as u32)?;
     }
     device.set_pixel_shader_constant_f(
@@ -842,7 +858,7 @@ fn draw_debug(
     bind_target(device, world_target, desc.Width, desc.Height)?;
     device.set_texture(0, world_color)?;
     device.set_texture(1, &targets.depth.texture)?;
-    device.set_texture(2, &targets.integration.texture)?;
+    device.set_texture(2, &targets.far_atmosphere.texture)?;
     set_sampler_filter(device, 0, D3DTEXF_LINEAR.0 as u32)?;
     set_sampler_filter(device, 1, D3DTEXF_POINT.0 as u32)?;
     set_sampler_filter(device, 2, D3DTEXF_LINEAR.0 as u32)?;
@@ -979,20 +995,14 @@ fn resolve_medium_color(frame: AtmosphereFrame) -> Option<MediumColor> {
     if frame.environment.fog_available
         && let Some(linear_rgb) = linearize_native_color(frame.environment.fog_color)
     {
-        return Some(MediumColor {
-            linear_rgb,
-            source: 1.0,
-        });
+        return Some(MediumColor { linear_rgb });
     }
     let sky = frame.sky?;
     if !frame.material_state.exterior_known || !frame.material_state.is_exterior || !sky.is_exterior
     {
         return None;
     }
-    linearize_native_color(sky.horizon).map(|linear_rgb| MediumColor {
-        linear_rgb,
-        source: 2.0,
-    })
+    linearize_native_color(sky.horizon).map(|linear_rgb| MediumColor { linear_rgb })
 }
 
 fn linearize_native_color(color: [f32; 3]) -> Option<[f32; 3]> {
@@ -1021,15 +1031,23 @@ fn encode_extended_srgb(component: f32) -> f32 {
 }
 
 #[cfg(test)]
-fn bilateral_tap_weight(full_distance: f32, nearest: f32, farthest: f32, scale: u32) -> f32 {
+fn layered_tap_weight(full_distance: f32, nearest: f32, farthest: f32, scale: u32) -> f32 {
     let base_tolerance = (64.0 * scale.max(1) as f32).max(full_distance * 0.02);
-    let span = (farthest - nearest).max(0.0);
-    let mixed = (span / (base_tolerance * 4.0).max(1.0)).clamp(0.0, 1.0);
-    let effective_tolerance =
-        base_tolerance + (base_tolerance.mul_add(0.15, -base_tolerance)) * mixed;
+    let farthest = farthest.max(nearest);
+    let matched_distance = full_distance.clamp(nearest, farthest);
     let depth_weight =
-        (1.0 - (full_distance - nearest).abs() / effective_tolerance.max(1.0)).clamp(0.0, 1.0);
+        (1.0 - (full_distance - matched_distance).abs() / base_tolerance.max(1.0)).clamp(0.0, 1.0);
     depth_weight * depth_weight
+}
+
+#[cfg(test)]
+fn atmosphere_layer_blend(full_distance: f32, nearest: f32, farthest: f32) -> f32 {
+    let span = (farthest - nearest).max(0.0);
+    if span <= 0.0001 {
+        0.0
+    } else {
+        ((full_distance.clamp(nearest, farthest) - nearest) / span).clamp(0.0, 1.0)
+    }
 }
 
 fn option_component(
@@ -1127,7 +1145,7 @@ fn bind_pipeline_state(device: &Device9Ref<'_>) -> Direct3DResult<()> {
     device.set_render_state(D3DRS_MULTISAMPLEMASK, u32::MAX)?;
     device.set_render_state(D3DRS_SRGBWRITEENABLE, 0)?;
     device.set_render_state(D3DRS_COLORWRITEENABLE, COLOR_WRITE_ALL)?;
-    for sampler in 0..=3 {
+    for sampler in 0..=4 {
         device.set_sampler_state(sampler, D3DSAMP_ADDRESSU, D3DTADDRESS_CLAMP.0 as u32)?;
         device.set_sampler_state(sampler, D3DSAMP_ADDRESSV, D3DTADDRESS_CLAMP.0 as u32)?;
         device.set_sampler_state(sampler, D3DSAMP_MINFILTER, D3DTEXF_POINT.0 as u32)?;
@@ -1151,6 +1169,7 @@ fn bind_target(
     device.clear_texture(1)?;
     device.clear_texture(2)?;
     device.clear_texture(3)?;
+    device.clear_texture(4)?;
     device.set_depth_stencil_surface(None)?;
     for index in 1..=3 {
         device.clear_render_target(index)?;
@@ -1208,7 +1227,8 @@ struct AtmosphereTargets {
     inv_width: f32,
     inv_height: f32,
     depth: EffectTarget,
-    integration: EffectTarget,
+    near_atmosphere: EffectTarget,
+    far_atmosphere: EffectTarget,
 }
 
 impl AtmosphereTargets {
@@ -1230,7 +1250,8 @@ impl AtmosphereTargets {
             inv_width: 1.0 / width as f32,
             inv_height: 1.0 / height as f32,
             depth: EffectTarget::create(device, width, height, D3DFMT_G16R16F)?,
-            integration: EffectTarget::create(device, width, height, D3DFMT_A16B16G16R16F)?,
+            near_atmosphere: EffectTarget::create(device, width, height, D3DFMT_A16B16G16R16F)?,
+            far_atmosphere: EffectTarget::create(device, width, height, D3DFMT_A16B16G16R16F)?,
         })
     }
 
@@ -1262,9 +1283,10 @@ mod feature_tests {
     use core::ffi::c_void;
 
     use super::{
-        AtmosphereSettings, FogCompositionGate, FogIntegrationGate, bilateral_tap_weight,
+        AtmosphereSettings, FogCompositionGate, FogIntegrationGate, atmosphere_layer_blend,
         decode_extended_srgb, density_noise_pixels, encode_extended_srgb, fog_composition_gate,
-        fog_integration_gate, linearize_native_color, option_component, resolve_medium_color,
+        fog_integration_gate, layered_tap_weight, linearize_native_color, option_component,
+        resolve_medium_color,
     };
     use crate::{
         backend::{
@@ -1595,7 +1617,6 @@ mod feature_tests {
             reversed_depth: true,
         });
         let fog = resolve_medium_color(frame).expect("active fog color");
-        assert_eq!(fog.source, 1.0);
         assert_eq!(
             fog.linear_rgb,
             linearize_native_color(frame.environment.fog_color).expect("finite fog")
@@ -1603,7 +1624,6 @@ mod feature_tests {
 
         frame.environment.fog_available = false;
         let horizon = resolve_medium_color(frame).expect("exterior horizon fallback");
-        assert_eq!(horizon.source, 2.0);
         assert_eq!(
             horizon.linear_rgb,
             linearize_native_color(frame.sky.expect("sky").horizon).expect("finite horizon")
@@ -1639,11 +1659,22 @@ mod feature_tests {
     }
 
     #[test]
-    fn bilateral_key_rejects_background_inside_a_mixed_depth_interval() {
-        assert_eq!(bilateral_tap_weight(100.0, 100.0, 100.0, 2), 1.0);
-        assert!(bilateral_tap_weight(10_000.0, 100.0, 10_000.0, 2) <= f32::EPSILON);
-        assert!(bilateral_tap_weight(5_050.0, 5_000.0, 5_100.0, 2) > 0.2);
-        assert!(bilateral_tap_weight(7_000.0, 5_000.0, 5_100.0, 4) <= f32::EPSILON);
+    fn layered_key_keeps_foreground_and_background_inside_a_mixed_interval() {
+        assert_eq!(layered_tap_weight(100.0, 100.0, 100.0, 2), 1.0);
+        assert_eq!(layered_tap_weight(100.0, 100.0, 10_000.0, 2), 1.0);
+        assert_eq!(layered_tap_weight(10_000.0, 100.0, 10_000.0, 2), 1.0);
+        assert_eq!(layered_tap_weight(5_050.0, 5_000.0, 5_100.0, 2), 1.0);
+        assert!(layered_tap_weight(7_000.0, 5_000.0, 5_100.0, 4) <= f32::EPSILON);
+    }
+
+    #[test]
+    fn mixed_foreground_sky_cell_cannot_toggle_sky_fog_off() {
+        let foreground = 100.0;
+        let sky = 10_000.0;
+        assert_eq!(layered_tap_weight(sky, foreground, sky, 2), 1.0);
+        assert_eq!(atmosphere_layer_blend(sky, foreground, sky), 1.0);
+        assert_eq!(layered_tap_weight(sky, sky, sky, 2), 1.0);
+        assert_eq!(atmosphere_layer_blend(sky, sky, sky), 0.0);
     }
 
     #[test]
@@ -1666,8 +1697,8 @@ mod feature_tests {
 #[cfg(test)]
 mod shader_compile_tests {
     use super::{
-        COMPOSE_SHADER, DEBUG_SHADER, DEPTH_REDUCE_SHADER, depth_reduce_shader_source,
-        integration_shader_source, view_to_world_rows,
+        COMPOSE_SHADER, DEBUG_SHADER, DEPTH_REDUCE_SHADER, INTEGRATE_SHADER,
+        depth_reduce_shader_source, integration_shader_source, view_to_world_rows,
     };
     use crate::backend::{CameraFrame, CameraTransformFrame};
 
@@ -1694,6 +1725,17 @@ mod shader_compile_tests {
         }
         crate::shaders::assert_hlsl_compiles("atmosphere_compose.hlsl", COMPOSE_SHADER, "ps_3_0");
         crate::shaders::assert_hlsl_compiles("atmosphere_debug.hlsl", DEBUG_SHADER, "ps_3_0");
+    }
+
+    #[test]
+    fn atmosphere_composition_uses_depth_matched_near_and_far_layers() {
+        let integrate = std::str::from_utf8(INTEGRATE_SHADER).expect("integration shader source");
+        let compose = std::str::from_utf8(COMPOSE_SHADER).expect("composition shader source");
+        assert!(integrate.contains("lerp(encodedDepth.x, encodedDepth.y"));
+        assert!(compose.contains("sampler2D NearAtmosphere : register(s3)"));
+        assert!(compose.contains("sampler2D FarAtmosphere : register(s4)"));
+        assert!(compose.contains("clamp(fullDistance, nearest, farthest)"));
+        assert!(!compose.contains("abs(fullDistance - nearest)"));
     }
 
     #[test]

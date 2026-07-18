@@ -1,7 +1,8 @@
 sampler2D WorldColor : register(s0);
 sampler2D SceneDepth : register(s1);
 sampler2D ReducedDepth : register(s2);
-sampler2D IntegratedAtmosphere : register(s3);
+sampler2D NearAtmosphere : register(s3);
+sampler2D FarAtmosphere : register(s4);
 
 float4 FullTarget : register(c0);
 float4 ReducedTarget : register(c1);
@@ -87,18 +88,20 @@ void AccumulateTap(
 	float farthest = max(DecodeDistance(encodedDepth.y), nearest);
 	float span = farthest - nearest;
 	float mixed = saturate(span / max(baseTolerance * 4.0f, 1.0f));
-	float effectiveTolerance = lerp(baseTolerance, max(baseTolerance * 0.15f, 4.0f), mixed);
-	float depthWeight = saturate(1.0f - abs(fullDistance - nearest) / max(effectiveTolerance, 1.0f));
+	float matchedDistance = clamp(fullDistance, nearest, farthest);
+	float depthWeight = saturate(1.0f - abs(fullDistance - matchedDistance) / max(baseTolerance, 1.0f));
 	depthWeight *= depthWeight;
 	float weight = spatialWeight * depthWeight;
 	if (weight <= 0.0f) {
 		return;
 	}
 
-	float4 atmosphere = tex2Dlod(
-		IntegratedAtmosphere,
-		float4(reducedUv, 0.0f, 0.0f)
-	);
+	float layerBlend = span > 0.0001f
+		? saturate((matchedDistance - nearest) / span)
+		: 0.0f;
+	float4 nearAtmosphere = tex2Dlod(NearAtmosphere, float4(reducedUv, 0.0f, 0.0f));
+	float4 farAtmosphere = tex2Dlod(FarAtmosphere, float4(reducedUv, 0.0f, 0.0f));
+	float4 atmosphere = lerp(nearAtmosphere, farAtmosphere, layerBlend);
 	if (!IsFiniteVector(atmosphere.rgb) || !IsFiniteScalar(atmosphere.a)) {
 		return;
 	}

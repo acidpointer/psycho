@@ -11,6 +11,31 @@ Date: 2026-07-18
 
 Implemented on 2026-07-18; runtime playtest acceptance remains open.
 
+Static root-cause closure on 2026-07-18 supersedes the earlier lock/camera
+hypotheses for the persistent angle-dependent fog blink. The failure was in
+OMV's reduced-resolution atmosphere representation:
+
+- each 2x2 or 4x4 depth cell stored both its nearest and farthest distances;
+- integration generated only one atmosphere value at the nearest distance;
+- composition compared every full-resolution pixel only with that nearest
+  distance and rejected the tap when the pixel belonged to the far layer;
+- therefore a mixed fence/foliage/sky cell had no usable sky atmosphere. A
+  subpixel camera or TAA shift that changed the reduction-cell membership
+  toggled the same sky pixel between untouched source and fog composition.
+
+This is deterministic and was encoded by the former
+`bilateral_key_rejects_background_inside_a_mixed_depth_interval` test: a cell
+with near=100 and far/sky=10,000 explicitly assigned the sky a zero weight.
+VRR only made the invalid on/off transition more visible. AO does not share
+this reduced single-layer compositor, which explains why its debug view did
+not reproduce the failure.
+
+The corrected contract keeps two reduced atmosphere targets, integrates both
+nearest and farthest distances, and matches each full-resolution pixel to its
+position inside that depth interval. Mixed foreground/sky cells retain valid
+fog for both layers. Do not restore nearest-only integration or bilateral
+rejection against `abs(fullDistance - nearest)`.
+
 - Present now owns an unconditional atomic render epoch.
 - World TAA, source-color capture, atmosphere resources, and per-epoch target
   ownership moved to `fnv_world_pipeline.rs`.

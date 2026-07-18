@@ -16,7 +16,7 @@ This BREAKS:
 ```python
 calls = [(1, 2), (3, 4)]
 for src, tgt in calls:
-    write("  0x%08x -> 0x%08x" % (src, tgt))
+	write("  0x%08x -> 0x%08x" % (src, tgt))
 write("done")  # SyntaxError here, pointing at this line
 ```
 
@@ -28,34 +28,37 @@ This WORKS -- put the loop inside a function:
 
 ```python
 def print_calls(calls):
-    for src, tgt in calls:
-        write("  0x%08x -> 0x%08x" % (src, tgt))
-    write("done")
+	for src, tgt in calls:
+		write("  0x%08x -> 0x%08x" % (src, tgt))
+	write("done")
 
 print_calls(my_list)
 ```
 
-Also works -- iterate without unpacking:
+Inside a helper, iteration without tuple unpacking also works:
 
 ```python
-for item in calls:
-    write("  0x%08x -> 0x%08x" % (item[0], item[1]))
+def print_calls_without_unpacking(calls):
+	for item in calls:
+		write("  0x%08x -> 0x%08x" % (item[0], item[1]))
 ```
 
 General rule: keep the top-level body simple. Only call helper functions.
-Never put complex loops or tuple unpacking at the top level.
+Never put loops or tuple unpacking at the top level.
 
-## Top-level for loops that DO work
+## No top-level loops
 
-Simple iteration over a single variable is fine at the top level:
+Some simple top-level loops happen to work in some Ghidra/Jython builds:
 
 ```python
 for ref in refs:
-    from_func = fm.getFunctionContaining(ref.getFromAddress())
-    write("  %s" % from_func.getName())
+	from_func = fm.getFunctionContaining(ref.getFromAddress())
+	write("  %s" % from_func.getName())
 ```
 
-But even these are safer inside a function. When in doubt, wrap it.
+Do not use this pattern. Parser behavior is not consistent enough for a
+user-facing research script. Every `for` and `while` loop must be inside a
+small helper function.
 
 ## While loops with hasNext/next at top level
 
@@ -69,8 +72,8 @@ This BREAKS:
 refs = ref_mgr.getReferencesTo(toAddr(0x011dea10))
 count = 0
 while refs.hasNext():
-    refs.next()
-    count += 1
+	refs.next()
+	count += 1
 write("Total: %d" % count)  # SyntaxError here
 ```
 
@@ -78,12 +81,12 @@ This WORKS -- wrap in a function:
 
 ```python
 def count_refs(addr_int):
-    refs = ref_mgr.getReferencesTo(toAddr(addr_int))
-    c = 0
-    while refs.hasNext():
-        refs.next()
-        c += 1
-    return c
+	refs = ref_mgr.getReferencesTo(toAddr(addr_int))
+	c = 0
+	while refs.hasNext():
+		refs.next()
+		c += 1
+	return c
 
 result = count_refs(0x011dea10)
 write("Total: %d" % result)
@@ -99,19 +102,60 @@ hasNext/next pattern inside a function:
 
 ```python
 def find_refs_to(addr_int, label):
-    refs = ref_mgr.getReferencesTo(toAddr(addr_int))
-    count = 0
-    while refs.hasNext():
-        ref = refs.next()
-        # ... process ref ...
-        count += 1
-    write("  Total: %d refs" % count)
+	refs = ref_mgr.getReferencesTo(toAddr(addr_int))
+	count = 0
+	while refs.hasNext():
+		ref = refs.next()
+		# ... process ref ...
+		count += 1
+	write("  Total: %d refs" % count)
 ```
 
 Do NOT use `for ref in refs` on a ReferenceIterator at the top level.
 It sometimes works inside functions but is unreliable at module scope.
 
 ## Standard script structure
+
+### Hard rule: never wrap the script body in `main()` or `run()`
+
+The executable body MUST remain at module scope and contain only simple
+assignments and helper-function calls. Do not put the complete audit sequence
+inside `def main():`, `def run():`, or another large wrapper and then call it.
+
+This is forbidden even though it parses in CPython and even though small Jython
+functions may work. Ghidra's Jython parser can reject a long wrapper body partway
+through and then report every remaining indented statement as a separate
+`SyntaxError: no viable alternative at input`. That exact failure occurred in
+`graphics_fnv_taa_frustum_lod_culling_contract_audit.py`.
+
+This BREAKS and must never be handed to the user:
+
+```python
+def main():
+	write("TITLE")
+	decompile_at(0x00AABBCC, "SomeFunction")
+	# Many more audit calls...
+
+main()
+```
+
+This is the required layout:
+
+```python
+write("TITLE")
+decompile_at(0x00AABBCC, "SomeFunction")
+find_refs_to(0x00DDEEFF, "SomeGlobal")
+
+outpath = "/data/storage1/Workspace/psycho/analysis/ghidra/output/perf/filename.txt"
+fout = open(outpath, "w")
+fout.write("\n".join(output))
+fout.close()
+decomp.dispose()
+```
+
+Helper functions remain mandatory for every loop, iterator walk, collection
+build, or other multi-statement operation. The top-level body only sequences
+those helpers.
 
 Every script follows this pattern:
 
@@ -129,17 +173,17 @@ decomp.openProgram(currentProgram)
 output = []
 
 def write(msg):
-    output.append(msg)
-    print(msg)
+	output.append(msg)
+	print(msg)
 
 def decompile_at(addr_int, label, max_len=8000):
-    # ... standard decompile helper ...
+	# ... standard decompile helper ...
 
 def find_refs_to(addr_int, label):
-    # ... standard refs helper using while hasNext ...
+	# ... standard refs helper using while hasNext ...
 
 def find_and_print_calls_from(addr_int, label):
-    # ... standard calls helper, iterates+prints internally ...
+	# ... standard calls helper, iterates+prints internally ...
 
 # --- Main body: only simple statements and function calls ---
 
@@ -149,7 +193,7 @@ find_refs_to(0x00DDEEFF, "SomeGlobal")
 
 # --- Output ---
 
-outpath = "/data/storage0/Workspace/psycho/analysis/ghidra/output/memory/filename.txt"
+outpath = "/data/storage1/Workspace/psycho/analysis/ghidra/output/memory/filename.txt"
 fout = open(outpath, "w")
 fout.write("\n".join(output))
 fout.close()
@@ -168,27 +212,27 @@ the case where the address is inside a function (not at the entry).
 
 ```python
 def decompile_at(addr_int, label, max_len=8000):
-    addr = toAddr(addr_int)
-    func = fm.getFunctionAt(addr)
-    if func is None:
-        func = fm.getFunctionContaining(addr)
-    write("")
-    write("=" * 70)
-    write("%s @ 0x%08x" % (label, addr_int))
-    write("=" * 70)
-    if func is None:
-        write("  [function not found]")
-        return
-    faddr = func.getEntryPoint().getOffset()
-    write("  Function: %s @ 0x%08x, Size: %d bytes" % (func.getName(), faddr, func.getBody().getNumAddresses()))
-    if faddr != addr_int:
-        write("  NOTE: Requested 0x%08x is inside %s (entry at 0x%08x)" % (addr_int, func.getName(), faddr))
-    result = decomp.decompileFunction(func, 120, monitor)
-    if result and result.decompileCompleted():
-        code = result.getDecompiledFunction().getC()
-        write(code[:max_len])
-    else:
-        write("  [decompilation failed]")
+	addr = toAddr(addr_int)
+	func = fm.getFunctionAt(addr)
+	if func is None:
+		func = fm.getFunctionContaining(addr)
+	write("")
+	write("=" * 70)
+	write("%s @ 0x%08x" % (label, addr_int))
+	write("=" * 70)
+	if func is None:
+		write("  [function not found]")
+		return
+	faddr = func.getEntryPoint().getOffset()
+	write("  Function: %s @ 0x%08x, Size: %d bytes" % (func.getName(), faddr, func.getBody().getNumAddresses()))
+	if faddr != addr_int:
+		write("  NOTE: Requested 0x%08x is inside %s (entry at 0x%08x)" % (addr_int, func.getName(), faddr))
+	result = decomp.decompileFunction(func, 120, monitor)
+	if result and result.decompileCompleted():
+		code = result.getDecompiledFunction().getC()
+		write(code[:max_len])
+	else:
+		write("  [decompilation failed]")
 ```
 
 ### find_refs_to
@@ -197,22 +241,22 @@ Prints all references to a given address. Uses hasNext/next iterator.
 
 ```python
 def find_refs_to(addr_int, label):
-    write("")
-    write("-" * 70)
-    write("References TO 0x%08x (%s)" % (addr_int, label))
-    write("-" * 70)
-    refs = ref_mgr.getReferencesTo(toAddr(addr_int))
-    count = 0
-    while refs.hasNext():
-        ref = refs.next()
-        from_func = fm.getFunctionContaining(ref.getFromAddress())
-        fname = from_func.getName() if from_func else "???"
-        write("  %s @ 0x%08x (in %s)" % (ref.getReferenceType(), ref.getFromAddress().getOffset(), fname))
-        count += 1
-        if count > 40:
-            write("  ... (truncated)")
-            break
-    write("  Total: %d refs" % count)
+	write("")
+	write("-" * 70)
+	write("References TO 0x%08x (%s)" % (addr_int, label))
+	write("-" * 70)
+	refs = ref_mgr.getReferencesTo(toAddr(addr_int))
+	count = 0
+	while refs.hasNext():
+		ref = refs.next()
+		from_func = fm.getFunctionContaining(ref.getFromAddress())
+		fname = from_func.getName() if from_func else "???"
+		write("  %s @ 0x%08x (in %s)" % (ref.getReferenceType(), ref.getFromAddress().getOffset(), fname))
+		count += 1
+		if count > 40:
+			write("  ... (truncated)")
+			break
+	write("  Total: %d refs" % count)
 ```
 
 ### find_and_print_calls_from
@@ -222,28 +266,28 @@ happens inside the function, avoiding top-level tuple unpacking.
 
 ```python
 def find_and_print_calls_from(addr_int, label):
-    func = fm.getFunctionAt(toAddr(addr_int))
-    if func is None:
-        func = fm.getFunctionContaining(toAddr(addr_int))
-    if func is None:
-        write("  [function not found at 0x%08x]" % addr_int)
-        return
-    body = func.getBody()
-    inst_iter = currentProgram.getListing().getInstructions(body, True)
-    write("")
-    write("--- Calls FROM %s (0x%08x) ---" % (label, addr_int))
-    count = 0
-    while inst_iter.hasNext():
-        inst = inst_iter.next()
-        refs = inst.getReferencesFrom()
-        for ref in refs:
-            if ref.getReferenceType().isCall():
-                tgt = ref.getToAddress().getOffset()
-                tgt_func = fm.getFunctionAt(toAddr(tgt))
-                name = tgt_func.getName() if tgt_func else "???"
-                write("  0x%08x -> 0x%08x %s" % (inst.getAddress().getOffset(), tgt, name))
-                count += 1
-    write("  Total: %d calls" % count)
+	func = fm.getFunctionAt(toAddr(addr_int))
+	if func is None:
+		func = fm.getFunctionContaining(toAddr(addr_int))
+	if func is None:
+		write("  [function not found at 0x%08x]" % addr_int)
+		return
+	body = func.getBody()
+	inst_iter = currentProgram.getListing().getInstructions(body, True)
+	write("")
+	write("--- Calls FROM %s (0x%08x) ---" % (label, addr_int))
+	count = 0
+	while inst_iter.hasNext():
+		inst = inst_iter.next()
+		refs = inst.getReferencesFrom()
+		for ref in refs:
+			if ref.getReferenceType().isCall():
+				tgt = ref.getToAddress().getOffset()
+				tgt_func = fm.getFunctionAt(toAddr(tgt))
+				name = tgt_func.getName() if tgt_func else "???"
+				write("  0x%08x -> 0x%08x %s" % (inst.getAddress().getOffset(), tgt, name))
+				count += 1
+	write("  Total: %d calls" % count)
 ```
 
 ### find_callers_in_range
@@ -253,21 +297,21 @@ for finding which subsystem (Havok, game code, etc.) calls a function.
 
 ```python
 def find_callers_in_range(target_addr, range_start, range_end, label):
-    write("")
-    write("-" * 70)
-    write("%s callers from 0x%08x-0x%08x" % (label, range_start, range_end))
-    write("-" * 70)
-    refs = ref_mgr.getReferencesTo(toAddr(target_addr))
-    count = 0
-    while refs.hasNext():
-        ref = refs.next()
-        src = ref.getFromAddress().getOffset()
-        if range_start <= src <= range_end and ref.getReferenceType().isCall():
-            func = fm.getFunctionContaining(ref.getFromAddress())
-            name = func.getName() if func else "???"
-            write("  0x%08x in %s" % (src, name))
-            count += 1
-    write("  Total: %d callers" % count)
+	write("")
+	write("-" * 70)
+	write("%s callers from 0x%08x-0x%08x" % (label, range_start, range_end))
+	write("-" * 70)
+	refs = ref_mgr.getReferencesTo(toAddr(target_addr))
+	count = 0
+	while refs.hasNext():
+		ref = refs.next()
+		src = ref.getFromAddress().getOffset()
+		if range_start <= src <= range_end and ref.getReferenceType().isCall():
+			func = fm.getFunctionContaining(ref.getFromAddress())
+			name = func.getName() if func else "???"
+			write("  0x%08x in %s" % (src, name))
+			count += 1
+	write("  Total: %d callers" % count)
 ```
 
 ## Output path
@@ -275,9 +319,9 @@ def find_callers_in_range(target_addr, range_start, range_end, label):
 Always write to the analysis output directory:
 
 ```
-/data/storage0/Workspace/psycho/analysis/ghidra/output/memory/
-/data/storage0/Workspace/psycho/analysis/ghidra/output/crash/
-/data/storage0/Workspace/psycho/analysis/ghidra/output/perf/
+/data/storage1/Workspace/psycho/analysis/ghidra/output/memory/
+/data/storage1/Workspace/psycho/analysis/ghidra/output/crash/
+/data/storage1/Workspace/psycho/analysis/ghidra/output/perf/
 ```
 
 Pick the subdirectory that matches the analysis topic.
@@ -286,3 +330,38 @@ Pick the subdirectory that matches the analysis topic.
 
 Always call `decomp.dispose()` at the end of the script. Ghidra leaks
 memory if you don't.
+
+## Mandatory pre-handoff gate
+
+Never tell the user that a new or edited Ghidra script is ready until every item
+below has been checked against the actual file:
+
+1. Read the complete final script, not only the edited region.
+2. Confirm every indented code line starts with tabs only. There must be no
+   leading spaces and no spaces after leading tabs.
+3. Confirm there is no top-level `for` or `while` loop.
+4. Confirm there is no `main()`, `run()`, or other whole-script wrapper.
+5. Confirm the module-scope body contains only simple assignments and helper
+   calls. Move all iteration and complex control flow into helpers.
+6. Confirm all three standard helpers are copied without structural changes:
+   `decompile_at`, `find_refs_to`, and `find_and_print_calls_from`.
+7. Confirm the standard header, output directory, output write, and final
+   `decomp.dispose()` are present.
+8. Run the repository structural gate and require a zero exit status:
+
+   ```bash
+   python3 analysis/ghidra/validate_script_structure.py analysis/ghidra/scripts/NAME.py
+   ```
+
+9. Compare the final executable-body layout with a previously successful script
+   that uses the standard module-scope structure.
+10. A CPython compile check may catch ordinary syntax errors, but it is never
+   evidence that Ghidra Jython accepts the script. Do not use it as the handoff
+   gate or claim that it validates Jython compatibility.
+11. If any item cannot be confirmed, the script is not ready and must not be
+    handed to the user.
+
+Only a successful run inside Ghidra proves full parser and API compatibility.
+If the agent cannot run Ghidra under the operational rules, it must say that
+clearly; it must still complete all static checks above before asking the user
+to run the script once.

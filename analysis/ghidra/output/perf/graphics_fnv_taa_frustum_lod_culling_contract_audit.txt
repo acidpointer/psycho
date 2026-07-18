@@ -1,0 +1,1250 @@
+FNV TAA FRUSTUM / LOD / CULLING CONTRACT AUDIT
+
+Runtime fact motivating this audit:
+OMV currently mutates the real World NiCamera +0xDC..+0xE8 at RenderWorldSceneGraph entry.
+The engine publishes/consumes that frustum at 0x0087338F, before the proven camera upload at 0x00874180.
+
+Questions:
+1. What exact state does FUN_00A694A0 derive or publish from NiCamera +0xDC?
+2. Is that state consumed by visibility, culling, LOD, occlusion, or draw-list selection before 0x00874180?
+3. Does raw +0xDC..+0xE8 mutation bypass any required camera setter or derived-state update?
+4. Does NiRenderer::SetCameraData copy projection state synchronously, allowing a projection-only jitter boundary?
+5. What is the narrowest proven point that can receive jitter without changing scene selection?
+
+----------------------------------------------------------------------
+Disassembly early world-frustum publication around 0x0087338f
+----------------------------------------------------------------------
+  0x00873274: PUSH 0x1                                                  
+  0x00873276: PUSH 0x1                                                  
+  0x00873278: MOV ECX,dword ptr [0x011dea3c]                            
+  0x0087327e: CALL 0x00950bb0                                           
+  0x00873283: MOV ECX,EAX                                               
+  0x00873285: CALL 0x00450f90                                           
+  0x0087328a: MOVZX EBX,byte ptr [EBP + 0x10]                           
+  0x0087328e: NEG EBX                                                   
+  0x00873290: SBB EBX,EBX                                               
+  0x00873292: ADD EBX,0x1                                               
+  0x00873295: MOV ECX,dword ptr [EBP + 0xfffffe58]                      
+  0x0087329b: ADD ECX,0x88                                              
+  0x008732a1: CALL 0x00559450                                           
+  0x008732a6: MOV byte ptr [EAX + 0x38],BL                              
+  0x008732a9: PUSH 0x4                                                  
+  0x008732ab: CALL 0x004e3270                                           
+  0x008732b0: MOV ECX,EAX                                               
+  0x008732b2: CALL 0x004ebbc0                                           
+  0x008732b7: MOV dword ptr [EBP + -0x20],EAX                           
+  0x008732ba: MOVZX EAX,byte ptr [EBP + 0x10]                           
+  0x008732be: TEST EAX,EAX                                              
+  0x008732c0: JNZ 0x008732dd                                            
+  0x008732c2: MOV ECX,dword ptr [EBP + -0x20]                           
+  0x008732c5: CALL 0x00871220                                           
+  0x008732ca: MOVZX ECX,AL                                              
+  0x008732cd: TEST ECX,ECX                                              
+  0x008732cf: JZ 0x008732dd                                             
+  0x008732d1: MOV dword ptr [EBP + 0xfffffe54],0x1                      
+  0x008732db: JMP 0x008732e7                                            
+  0x008732dd: MOV dword ptr [EBP + 0xfffffe54],0x0                      
+  0x008732e7: MOV ECX,dword ptr [EBP + 0xfffffe58]                      
+  0x008732ed: ADD ECX,0x88                                              
+  0x008732f3: CALL 0x00559450                                           
+  0x008732f8: MOV DL,byte ptr [EBP + 0xfffffe54]                        
+  0x008732fe: MOV byte ptr [EAX + 0x3a],DL                              
+  0x00873301: MOVZX EAX,byte ptr [EBP + 0x10]                           
+  0x00873305: TEST EAX,EAX                                              
+  0x00873307: JNZ 0x00873324                                            
+  0x00873309: MOV ECX,dword ptr [EBP + -0x20]                           
+  0x0087330c: CALL 0x00871220                                           
+  0x00873311: MOVZX ECX,AL                                              
+  0x00873314: TEST ECX,ECX                                              
+  0x00873316: JZ 0x00873324                                             
+  0x00873318: MOV dword ptr [EBP + 0xfffffe50],0x1                      
+  0x00873322: JMP 0x0087332e                                            
+  0x00873324: MOV dword ptr [EBP + 0xfffffe50],0x0                      
+  0x0087332e: MOV ECX,dword ptr [EBP + 0xfffffe58]                      
+  0x00873334: ADD ECX,0x8c                                              
+  0x0087333a: CALL 0x00559450                                           
+  0x0087333f: MOV DL,byte ptr [EBP + 0xfffffe50]                        
+  0x00873345: MOV byte ptr [EAX + 0x3a],DL                              
+  0x00873348: PUSH 0x1eb7                                               
+  0x0087334d: PUSH 0x10829c4                                            
+  0x00873352: PUSH 0x1                                                  
+  0x00873354: PUSH 0xf                                                  
+  0x00873356: LEA ECX,[EBP + -0x1c]                                     
+  0x00873359: CALL 0x00404eb0                                           
+  0x0087335e: MOV dword ptr [EBP + -0x4],0x0                            
+  0x00873365: MOV dword ptr [EBP + -0x18],0x0                           
+  0x0087336c: MOV ECX,dword ptr [EBP + -0x24]                           
+  0x0087336f: CALL 0x006629f0                                           
+  0x00873374: MOV dword ptr [EBP + -0x18],EAX                           
+  0x00873377: MOV EAX,dword ptr [EBP + -0x18]                           
+  0x0087337a: PUSH EAX                                                  
+  0x0087337b: MOV ECX,dword ptr [EBP + -0x10]                           
+  0x0087337e: CALL 0x0041fd00                                           
+  0x00873383: MOV ECX,dword ptr [EBP + -0x18]                           
+  0x00873386: CALL 0x0045bbe0                                           
+  0x0087338b: PUSH EAX                                                  
+  0x0087338c: MOV ECX,dword ptr [EBP + -0x10]                           
+  0x0087338f: CALL 0x00a694a0                                            <<
+  0x00873394: MOV ECX,dword ptr [EBP + 0xfffffe58]                      
+  0x0087339a: ADD ECX,0x88                                              
+  0x008733a0: CALL 0x00559450                                           
+  0x008733a5: PUSH EAX                                                  
+  0x008733a6: MOV ECX,dword ptr [EBP + -0x10]                           
+  0x008733a9: CALL 0x004a0fd0                                           
+  0x008733ae: MOVZX ECX,byte ptr [0x011f94b4]                           
+  0x008733b5: TEST ECX,ECX                                              
+  0x008733b7: JZ 0x0087414f                                             
+  0x008733bd: LEA ECX,[EBP + -0x58]                                     
+  0x008733c0: CALL 0x0048f200                                           
+  0x008733c5: MOV byte ptr [EBP + -0x4],0x1                             
+  0x008733c9: LEA ECX,[EBP + -0x44]                                     
+  0x008733cc: CALL 0x0048f200                                           
+  0x008733d1: MOV byte ptr [EBP + -0x4],0x2                             
+  0x008733d5: LEA ECX,[EBP + -0x38]                                     
+  0x008733d8: CALL 0x0048f200                                           
+  0x008733dd: MOV byte ptr [EBP + -0x4],0x3                             
+  0x008733e1: PUSH 0x0                                                  
+  0x008733e3: CALL 0x00450b80                                           
+  0x008733e8: ADD ESP,0x4                                               
+  0x008733eb: MOV dword ptr [EBP + -0x5c],EAX                           
+  0x008733ee: MOV dword ptr [EBP + -0x4c],0x0                           
+  0x008733f5: MOV dword ptr [EBP + -0x48],0x0                           
+  0x008733fc: PUSH 0x0                                                  
+  0x008733fe: MOV ECX,dword ptr [EBP + -0x5c]                           
+  0x00873401: CALL 0x0045bc00                                           
+  0x00873406: MOV dword ptr [EBP + -0x4c],EAX                           
+  0x00873409: CMP dword ptr [EBP + -0x4c],0x0                           
+  0x0087340d: JZ 0x0087342a                                             
+  0x0087340f: MOV ECX,dword ptr [EBP + -0x4c]                           
+  0x00873412: CALL 0x00456610                                           
+  0x00873417: MOVZX EDX,AL                                              
+  0x0087341a: TEST EDX,EDX                                              
+  0x0087341c: JNZ 0x0087342a                                            
+  0x0087341e: LEA EAX,[EBP + -0x4c]                                     
+  0x00873421: PUSH EAX                                                  
+  0x00873422: LEA ECX,[EBP + -0x38]                                     
+  0x00873425: CALL 0x004ed8c0                                           
+  0x0087342a: PUSH 0x1                                                  
+  0x0087342c: MOV ECX,dword ptr [EBP + -0x5c]                           
+  0x0087342f: CALL 0x0045bc00                                           
+  0x00873434: MOV dword ptr [EBP + -0x4c],EAX                           
+  0x00873437: CMP dword ptr [EBP + -0x4c],0x0                           
+  0x0087343b: JZ 0x00873458                                             
+  0x0087343d: MOV ECX,dword ptr [EBP + -0x4c]                           
+  0x00873440: CALL 0x00456610                                           
+  0x00873445: MOVZX ECX,AL                                              
+  0x00873448: TEST ECX,ECX                                              
+  0x0087344a: JNZ 0x00873458                                            
+  0x0087344c: LEA EDX,[EBP + -0x4c]                                     
+  0x0087344f: PUSH EDX                                                  
+  0x00873450: LEA ECX,[EBP + -0x38]                                     
+  0x00873453: CALL 0x004ed8c0                                           
+  0x00873458: PUSH 0x2                                                  
+  0x0087345a: MOV ECX,dword ptr [EBP + -0x5c]                           
+  0x0087345d: CALL 0x0045bc00                                           
+  0x00873462: MOV dword ptr [EBP + -0x4c],EAX                           
+  0x00873465: CMP dword ptr [EBP + -0x4c],0x0                           
+  0x00873469: JZ 0x0087348a                                             
+  0x0087346b: MOV ECX,dword ptr [EBP + -0x4c]                           
+  0x0087346e: CALL 0x00456610                                           
+  0x00873473: MOVZX EAX,AL                                              
+  0x00873476: TEST EAX,EAX                                              
+  0x00873478: JNZ 0x0087348a                                            
+  0x0087347a: MOV ECX,dword ptr [EBP + -0x4c]                           
+  0x0087347d: MOV EDX,dword ptr [ECX]                                   
+  0x0087347f: MOV ECX,dword ptr [EBP + -0x4c]                           
+  0x00873482: MOV EAX,dword ptr [EDX + 0xc]                             
+  0x00873485: CALL EAX                                                  
+  0x00873487: MOV dword ptr [EBP + -0x48],EAX                           
+  0x0087348a: CMP dword ptr [EBP + -0x48],0x0                           
+  0x0087348e: JZ 0x0087351e                                             
+  0x00873494: PUSH 0x0                                                  
+  0x00873496: MOV ECX,dword ptr [EBP + -0x48]                           
+  0x00873499: CALL 0x0045bc00                                           
+  0x0087349e: MOV dword ptr [EBP + -0x4c],EAX                           
+  0x008734a1: CMP dword ptr [EBP + -0x4c],0x0                           
+  0x008734a5: JZ 0x008734c2                                             
+  0x008734a7: MOV ECX,dword ptr [EBP + -0x4c]                           
+  0x008734aa: CALL 0x00456610                                           
+  0x008734af: MOVZX ECX,AL                                              
+  0x008734b2: TEST ECX,ECX                                              
+  0x008734b4: JNZ 0x008734c2                                            
+  0x008734b6: LEA EDX,[EBP + -0x4c]                                     
+  0x008734b9: PUSH EDX                                                  
+  0x008734ba: LEA ECX,[EBP + -0x58]                                     
+  0x008734bd: CALL 0x004ed8c0                                           
+  0x008734c2: PUSH 0x1                                                  
+  0x008734c4: MOV ECX,dword ptr [EBP + -0x48]                           
+
+----------------------------------------------------------------------
+Disassembly world camera upload and first following draw setup around 0x00874180
+----------------------------------------------------------------------
+  0x00874035: MOV ECX,EAX                                               
+  0x00874037: CALL 0x00ba3390                                           
+  0x0087403c: PUSH 0x15                                                 
+  0x0087403e: PUSH 0x0                                                  
+  0x00874040: CALL 0x004ea970                                           
+  0x00874045: MOV ECX,EAX                                               
+  0x00874047: CALL 0x00ba30f0                                           
+  0x0087404c: MOV EAX,[0x0126fd98]                                      
+  0x00874051: MOV ECX,dword ptr FS:[0x2c]                               
+  0x00874058: MOV EDX,dword ptr [ECX + EAX*0x4]                         
+  0x0087405b: MOV dword ptr [EDX + 0x2bc],0x0                           
+  0x00874065: PUSH 0x0                                                  
+  0x00874067: LEA ECX,[EBP + 0xfffffedc]                                
+  0x0087406d: CALL 0x004a0eb0                                           
+  0x00874072: MOV byte ptr [EBP + -0x4],0x4                             
+  0x00874076: MOV EAX,dword ptr [EBP + -0x18]                           
+  0x00874079: PUSH EAX                                                  
+  0x0087407a: LEA ECX,[EBP + 0xfffffedc]                                
+  0x00874080: CALL 0x0041fd00                                           
+  0x00874085: MOV ECX,dword ptr [EBP + 0xfffffe58]                      
+  0x0087408b: ADD ECX,0x88                                              
+  0x00874091: CALL 0x00559450                                           
+  0x00874096: PUSH EAX                                                  
+  0x00874097: LEA ECX,[EBP + 0xfffffedc]                                
+  0x0087409d: CALL 0x004a0fd0                                           
+  0x008740a2: PUSH 0x0                                                  
+  0x008740a4: CALL 0x00450b80                                           
+  0x008740a9: ADD ESP,0x4                                               
+  0x008740ac: MOV ECX,EAX                                               
+  0x008740ae: CALL 0x00874670                                           
+  0x008740b3: PUSH EAX                                                  
+  0x008740b4: LEA ECX,[EBP + 0xfffffedc]                                
+  0x008740ba: CALL 0x00874460                                           
+  0x008740bf: LEA ECX,[EBP + 0xfffffedc]                                
+  0x008740c5: PUSH ECX                                                  
+  0x008740c6: LEA EDX,[EBP + -0x44]                                     
+  0x008740c9: PUSH EDX                                                  
+  0x008740ca: MOV EAX,dword ptr [EBP + -0x18]                           
+  0x008740cd: PUSH EAX                                                  
+  0x008740ce: CALL 0x00b6bfc0                                           
+  0x008740d3: ADD ESP,0xc                                               
+  0x008740d6: PUSH 0x0                                                  
+  0x008740d8: LEA ECX,[EBP + 0xfffffedc]                                
+  0x008740de: CALL 0x00874460                                           
+  0x008740e3: LEA ECX,[EBP + 0xfffffedc]                                
+  0x008740e9: PUSH ECX                                                  
+  0x008740ea: LEA EDX,[EBP + -0x38]                                     
+  0x008740ed: PUSH EDX                                                  
+  0x008740ee: MOV EAX,dword ptr [EBP + -0x18]                           
+  0x008740f1: PUSH EAX                                                  
+  0x008740f2: CALL 0x00b6bfc0                                           
+  0x008740f7: ADD ESP,0xc                                               
+  0x008740fa: PUSH 0x15                                                 
+  0x008740fc: PUSH 0x1                                                  
+  0x008740fe: CALL 0x004ea970                                           
+  0x00874103: MOV ECX,EAX                                               
+  0x00874105: CALL 0x00ba3130                                           
+  0x0087410a: LEA ECX,[EBP + -0x58]                                     
+  0x0087410d: CALL 0x004ed900                                           
+  0x00874112: LEA ECX,[EBP + -0x44]                                     
+  0x00874115: CALL 0x004ed900                                           
+  0x0087411a: MOV byte ptr [EBP + -0x4],0x3                             
+  0x0087411e: LEA ECX,[EBP + 0xfffffedc]                                
+  0x00874124: CALL 0x004a0f60                                           
+  0x00874129: MOV byte ptr [EBP + -0x4],0x2                             
+  0x0087412d: LEA ECX,[EBP + -0x38]                                     
+  0x00874130: CALL 0x004a1a30                                           
+  0x00874135: MOV byte ptr [EBP + -0x4],0x1                             
+  0x00874139: LEA ECX,[EBP + -0x44]                                     
+  0x0087413c: CALL 0x004a1a30                                           
+  0x00874141: MOV byte ptr [EBP + -0x4],0x0                             
+  0x00874145: LEA ECX,[EBP + -0x58]                                     
+  0x00874148: CALL 0x004a1a30                                           
+  0x0087414d: JMP 0x00874163                                            
+  0x0087414f: MOV ECX,dword ptr [EBP + -0x10]                           
+  0x00874152: PUSH ECX                                                  
+  0x00874153: MOV EDX,dword ptr [EBP + -0x24]                           
+  0x00874156: PUSH EDX                                                  
+  0x00874157: MOV EAX,dword ptr [EBP + -0x18]                           
+  0x0087415a: PUSH EAX                                                  
+  0x0087415b: CALL 0x00b6bee0                                           
+  0x00874160: ADD ESP,0xc                                               
+  0x00874163: PUSH 0x1                                                  
+  0x00874165: MOV ECX,dword ptr [EBP + 0xfffffe58]                      
+  0x0087416b: ADD ECX,0x88                                              
+  0x00874171: CALL 0x00559450                                           
+  0x00874176: PUSH EAX                                                  
+  0x00874177: MOV ECX,dword ptr [EBP + -0x24]                           
+  0x0087417a: CALL 0x006629f0                                           
+  0x0087417f: PUSH EAX                                                  
+  0x00874180: CALL 0x00b6ba20                                            <<
+  0x00874185: ADD ESP,0xc                                               
+  0x00874188: MOVZX ECX,byte ptr [EBP + 0x14]                           
+  0x0087418c: TEST ECX,ECX                                              
+  0x0087418e: JZ 0x008741be                                             
+  0x00874190: PUSH 0x1                                                  
+  0x00874192: PUSH 0x0                                                  
+  0x00874194: CALL 0x00b98380                                           
+  0x00874199: ADD ESP,0x8                                               
+  0x0087419c: PUSH 0x0                                                  
+  0x0087419e: PUSH 0x0                                                  
+  0x008741a0: PUSH 0x0                                                  
+  0x008741a2: PUSH 0x1                                                  
+  0x008741a4: PUSH 0x2                                                  
+  0x008741a6: PUSH 0x0                                                  
+  0x008741a8: CALL 0x00705910                                           
+  0x008741ad: MOV ECX,EAX                                               
+  0x008741af: CALL 0x00800f30                                           
+  0x008741b4: PUSH 0x1                                                  
+  0x008741b6: CALL 0x004eced0                                           
+  0x008741bb: ADD ESP,0x4                                               
+  0x008741be: PUSH 0x1                                                  
+  0x008741c0: MOV ECX,dword ptr [EBP + 0xfffffe58]                      
+  0x008741c6: ADD ECX,0x88                                              
+  0x008741cc: CALL 0x00559450                                           
+  0x008741d1: PUSH EAX                                                  
+  0x008741d2: MOV ECX,dword ptr [EBP + -0x24]                           
+  0x008741d5: CALL 0x006629f0                                           
+  0x008741da: PUSH EAX                                                  
+  0x008741db: CALL 0x00b6b930                                           
+  0x008741e0: ADD ESP,0xc                                               
+  0x008741e3: MOVZX EDX,byte ptr [0x011f94b4]                           
+  0x008741ea: TEST EDX,EDX                                              
+  0x008741ec: JZ 0x00874203                                             
+  0x008741ee: MOV EAX,dword ptr [EBP + -0x10]                           
+  0x008741f1: PUSH EAX                                                  
+  0x008741f2: PUSH 0x0                                                  
+  0x008741f4: CALL 0x00450b80                                           
+  0x008741f9: ADD ESP,0x4                                               
+  0x008741fc: MOV ECX,EAX                                               
+  0x008741fe: CALL 0x00a89af0                                           
+  0x00874203: PUSH 0x0                                                  
+  0x00874205: MOV ECX,dword ptr [EBP + -0x10]                           
+  0x00874208: CALL 0x004a0fd0                                           
+  0x0087420d: LEA ECX,[EBP + -0x1c]                                     
+  0x00874210: CALL 0x00404f70                                           
+  0x00874215: MOV ECX,dword ptr [EBP + 0xfffffe58]                      
+  0x0087421b: ADD ECX,0x88                                              
+  0x00874221: CALL 0x00559450                                           
+  0x00874226: MOV byte ptr [EAX + 0x38],0x0                             
+  0x0087422a: MOV ECX,dword ptr [EBP + 0xfffffe58]                      
+  0x00874230: ADD ECX,0x88                                              
+  0x00874236: CALL 0x00559450                                           
+  0x0087423b: MOV byte ptr [EAX + 0x3a],0x0                             
+  0x0087423f: CALL 0x008746c0                                           
+  0x00874244: CALL 0x004a0e90                                           
+  0x00874249: MOV dword ptr [EBP + -0x28],EAX                           
+  0x0087424c: CALL 0x0045c670                                           
+  0x00874251: MOV ECX,EAX                                               
+  0x00874253: CALL 0x008d80e0                                           
+  0x00874258: MOV dword ptr [EBP + -0x14],EAX                           
+  0x0087425b: PUSH 0x1                                                  
+  0x0087425d: MOV ECX,dword ptr [EBP + -0x14]                           
+  0x00874260: CALL 0x004fb0b0                                           
+  0x00874265: MOV ECX,0x11deb7c                                         
+  0x0087426a: CALL 0x00559450                                           
+  0x0087426f: MOV ECX,EAX                                               
+  0x00874271: CALL 0x006629f0                                           
+  0x00874276: PUSH EAX                                                  
+  0x00874277: CALL 0x00b803b0                                           
+  0x0087427c: ADD ESP,0x4                                               
+
+----------------------------------------------------------------------
+Calls in RenderWorld entry through early frustum publication from 0x00873200 through 0x008733a0
+----------------------------------------------------------------------
+  0x0087322f -> 0x0045c670 FUN_0045c670
+  0x0087323a -> 0x008d80e0 FUN_008d80e0
+  0x00873245 -> 0x006629f0 FUN_006629f0
+  0x00873258 -> 0x00642860 FUN_00642860
+  0x00873265 -> 0x00950bb0 FUN_00950bb0
+  0x0087326c -> 0x00456610 FUN_00456610
+  0x0087327e -> 0x00950bb0 FUN_00950bb0
+  0x00873285 -> 0x00450f90 FUN_00450f90
+  0x008732a1 -> 0x00559450 FUN_00559450
+  0x008732ab -> 0x004e3270 FUN_004e3270
+  0x008732b2 -> 0x004ebbc0 GetNextDocTemplate
+  0x008732c5 -> 0x00871220 FUN_00871220
+  0x008732f3 -> 0x00559450 FUN_00559450
+  0x0087330c -> 0x00871220 FUN_00871220
+  0x0087333a -> 0x00559450 FUN_00559450
+  0x00873359 -> 0x00404eb0 FUN_00404eb0
+  0x0087336f -> 0x006629f0 FUN_006629f0
+  0x0087337e -> 0x0041fd00 FUN_0041fd00
+  0x00873386 -> 0x0045bbe0 FUN_0045bbe0
+  0x0087338f -> 0x00a694a0 FUN_00a694a0
+  0x008733a0 -> 0x00559450 FUN_00559450
+  Total: 21 calls
+
+----------------------------------------------------------------------
+Calls in RenderWorld between frustum publication and camera upload from 0x00873390 through 0x00874180
+----------------------------------------------------------------------
+  0x008733a0 -> 0x00559450 FUN_00559450
+  0x008733a9 -> 0x004a0fd0 FUN_004a0fd0
+  0x008733c0 -> 0x0048f200 FUN_0048f200
+  0x008733cc -> 0x0048f200 FUN_0048f200
+  0x008733d8 -> 0x0048f200 FUN_0048f200
+  0x008733e3 -> 0x00450b80 FUN_00450b80
+  0x00873401 -> 0x0045bc00 FUN_0045bc00
+  0x00873412 -> 0x00456610 FUN_00456610
+  0x00873425 -> 0x004ed8c0 FUN_004ed8c0
+  0x0087342f -> 0x0045bc00 FUN_0045bc00
+  0x00873440 -> 0x00456610 FUN_00456610
+  0x00873453 -> 0x004ed8c0 FUN_004ed8c0
+  0x0087345d -> 0x0045bc00 FUN_0045bc00
+  0x0087346e -> 0x00456610 FUN_00456610
+  0x00873499 -> 0x0045bc00 FUN_0045bc00
+  0x008734aa -> 0x00456610 FUN_00456610
+  0x008734bd -> 0x004ed8c0 FUN_004ed8c0
+  0x008734c7 -> 0x0045bc00 FUN_0045bc00
+  0x008734d8 -> 0x00456610 FUN_00456610
+  0x008734eb -> 0x004ed8c0 FUN_004ed8c0
+  0x008734f5 -> 0x0045bc00 FUN_0045bc00
+  0x00873506 -> 0x00456610 FUN_00456610
+  0x00873519 -> 0x004ed8c0 FUN_004ed8c0
+  0x00873523 -> 0x0045bc00 FUN_0045bc00
+  0x00873541 -> 0x005f36f0 FUN_005f36f0
+  0x0087355b -> 0x00456610 FUN_00456610
+  0x00873589 -> 0x0043b480 FUN_0043b480
+  0x008735a4 -> 0x0043b4a0 FUN_0043b4a0
+  0x008735dc -> 0x00456610 FUN_00456610
+  0x0087360d -> 0x0043b480 FUN_0043b480
+  0x0087362b -> 0x0043b4a0 FUN_0043b4a0
+  0x0087366f -> 0x00456610 FUN_00456610
+  0x008736b3 -> 0x0043b480 FUN_0043b480
+  0x008736cd -> 0x0043b4a0 FUN_0043b4a0
+  0x008736e7 -> 0x00456610 FUN_00456610
+  0x00873714 -> 0x004ed8c0 FUN_004ed8c0
+  0x00873725 -> 0x004ed8c0 FUN_004ed8c0
+  0x00873752 -> 0x004ed8c0 FUN_004ed8c0
+  0x00873763 -> 0x004ed8c0 FUN_004ed8c0
+  0x00873779 -> 0x00450b80 FUN_00450b80
+  0x00873783 -> 0x00874650 FUN_00874650
+  0x00873798 -> 0x0045bc00 FUN_0045bc00
+  0x008737a9 -> 0x00456610 FUN_00456610
+  0x008737bc -> 0x004ed8c0 FUN_004ed8c0
+  0x008737c6 -> 0x0045bc00 FUN_0045bc00
+  0x008737d7 -> 0x00456610 FUN_00456610
+  0x008737ea -> 0x004ed8c0 FUN_004ed8c0
+  0x008737f4 -> 0x0045bc00 FUN_0045bc00
+  0x00873823 -> 0x00456610 FUN_00456610
+  0x00873851 -> 0x0043b480 FUN_0043b480
+  0x0087386c -> 0x0043b4a0 FUN_0043b4a0
+  0x008738be -> 0x00456610 FUN_00456610
+  0x00873902 -> 0x0043b480 FUN_0043b480
+  0x0087391c -> 0x0043b4a0 FUN_0043b4a0
+  0x00873936 -> 0x00456610 FUN_00456610
+  0x00873963 -> 0x004ed8c0 FUN_004ed8c0
+  0x00873974 -> 0x004ed8c0 FUN_004ed8c0
+  0x0087398d -> 0x0045bc00 FUN_0045bc00
+  0x008739bc -> 0x00456610 FUN_00456610
+  0x008739d1 -> 0x0045bc00 FUN_0045bc00
+  0x00873a1b -> 0x0043b480 FUN_0043b480
+  0x00873a32 -> 0x0043b4a0 FUN_0043b4a0
+  0x00873a4c -> 0x00456610 FUN_00456610
+  0x00873a79 -> 0x004ed8c0 FUN_004ed8c0
+  0x00873a8a -> 0x004ed8c0 FUN_004ed8c0
+  0x00873a96 -> 0x00450b80 FUN_00450b80
+  0x00873aa0 -> 0x00454b30 FUN_00454b30
+  0x00873aba -> 0x00436aa0 FUN_00436aa0
+  0x00873aec -> 0x00559450 FUN_00559450
+  0x00873b33 -> 0x00436aa0 FUN_00436aa0
+  0x00873b3a -> 0x0057cbe0 FUN_0057cbe0
+  0x00873b41 -> 0x00559450 FUN_00559450
+  0x00873b5f -> 0x006ab360 FUN_006ab360
+  0x00873b66 -> 0x0076b610 FUN_0076b610
+  0x00873b7c -> 0x006ab360 FUN_006ab360
+  0x00873b83 -> 0x00559450 FUN_00559450
+  0x00873ba8 -> 0x006ab360 FUN_006ab360
+  0x00873baf -> 0x0057cbe0 FUN_0057cbe0
+  0x00873bcf -> 0x0045c4c0 FUN_0045c4c0
+  0x00873bd8 -> 0x00c4f320 FUN_00c4f320
+  0x00873bee -> 0x0045c4c0 FUN_0045c4c0
+  0x00873c0c -> 0x00874480 FUN_00874480
+  0x00873c1b -> 0x009b4440 FUN_009b4440
+  0x00873c2e -> 0x0084e3a0 FUN_0084e3a0
+  0x00873c36 -> 0x00450b80 FUN_00450b80
+  0x00873c40 -> 0x00b5ba80 FUN_00b5ba80
+  0x00873c71 -> 0x004ed8c0 FUN_004ed8c0
+  0x00873c8e -> 0x004ed8c0 FUN_004ed8c0
+  0x00873cae -> 0x00450b80 FUN_00450b80
+  0x00873cb8 -> 0x00874650 FUN_00874650
+  0x00873cce -> 0x007d6bb0 FUN_007d6bb0
+  0x00873cd5 -> 0x00559450 FUN_00559450
+  0x00873cfa -> 0x007d6bb0 FUN_007d6bb0
+  0x00873d01 -> 0x0057cbe0 FUN_0057cbe0
+  0x00873d21 -> 0x0045c4c0 FUN_0045c4c0
+  0x00873d2a -> 0x00c4f320 FUN_00c4f320
+  0x00873d3c -> 0x0045c4c0 FUN_0045c4c0
+  0x00873d7d -> 0x004ed8c0 FUN_004ed8c0
+  0x00873d9a -> 0x004ed8c0 FUN_004ed8c0
+  0x00873db9 -> 0x00457070 FUN_00457070
+  0x00873dc0 -> 0x009d9f20 FUN_009d9f20
+  0x00873df5 -> 0x00c5b5d0 FUN_00c5b5d0
+  0x00873e0f -> 0x00c5b5a0 FUN_00c5b5a0
+  0x00873e2d -> 0x004ed8c0 FUN_004ed8c0
+  0x00873e39 -> 0x0045bc00 FUN_0045bc00
+  0x00873e4a -> 0x00456610 FUN_00456610
+  0x00873e5d -> 0x004ed8c0 FUN_004ed8c0
+  0x00873e67 -> 0x0045bc00 FUN_0045bc00
+  0x00873e78 -> 0x00456610 FUN_00456610
+  0x00873e8b -> 0x004ed8c0 FUN_004ed8c0
+  0x00873e95 -> 0x0045bc00 FUN_0045bc00
+  0x00873ea6 -> 0x00456610 FUN_00456610
+  0x00873eb9 -> 0x004ed8c0 FUN_004ed8c0
+  0x00873edc -> 0x0043b480 FUN_0043b480
+  0x00873ef3 -> 0x0043b4a0 FUN_0043b4a0
+  0x00873f04 -> 0x00456610 FUN_00456610
+  0x00873f2e -> 0x004ed8c0 FUN_004ed8c0
+  0x00873f3c -> 0x004ed8c0 FUN_004ed8c0
+  0x00873f4a -> 0x0041fd00 FUN_0041fd00
+  0x00873f55 -> 0x00450b80 FUN_00450b80
+  0x00873f5f -> 0x00b5e870 FUN_00b5e870
+  0x00873f66 -> 0x00450b80 FUN_00450b80
+  0x00873f70 -> 0x00874670 FUN_00874670
+  0x00873f7b -> 0x00450b80 FUN_00450b80
+  0x00873f85 -> 0x00874670 FUN_00874670
+  0x00873f8c -> 0x00c49850 FUN_00c49850
+  0x00873f9d -> 0x00559450 FUN_00559450
+  0x00873fce -> 0x00559450 FUN_00559450
+  0x00873fd4 -> 0x00b54ac0 FUN_00b54ac0
+  0x00873fe8 -> 0x00559450 FUN_00559450
+  0x00873fee -> 0x0043c4b0 FUN_0043c4b0
+  0x00873ff5 -> 0x004dc540 FUN_004dc540
+  0x0087400c -> 0x00559450 FUN_00559450
+  0x0087401c -> 0x00450b80 FUN_00450b80
+  0x00874026 -> 0x00874670 FUN_00874670
+  0x00874030 -> 0x004ea970 FUN_004ea970
+  0x00874037 -> 0x00ba3390 FUN_00ba3390
+  0x00874040 -> 0x004ea970 FUN_004ea970
+  0x00874047 -> 0x00ba30f0 FUN_00ba30f0
+  0x0087406d -> 0x004a0eb0 FUN_004a0eb0
+  0x00874080 -> 0x0041fd00 FUN_0041fd00
+  0x00874091 -> 0x00559450 FUN_00559450
+  0x0087409d -> 0x004a0fd0 FUN_004a0fd0
+  0x008740a4 -> 0x00450b80 FUN_00450b80
+  0x008740ae -> 0x00874670 FUN_00874670
+  0x008740ba -> 0x00874460 FUN_00874460
+  0x008740ce -> 0x00b6bfc0 FUN_00b6bfc0
+  0x008740de -> 0x00874460 FUN_00874460
+  0x008740f2 -> 0x00b6bfc0 FUN_00b6bfc0
+  0x008740fe -> 0x004ea970 FUN_004ea970
+  0x00874105 -> 0x00ba3130 FUN_00ba3130
+  0x0087410d -> 0x004ed900 FUN_004ed900
+  0x00874115 -> 0x004ed900 FUN_004ed900
+  0x00874124 -> 0x004a0f60 FUN_004a0f60
+  0x00874130 -> 0x004a1a30 FUN_004a1a30
+  0x0087413c -> 0x004a1a30 FUN_004a1a30
+  0x00874148 -> 0x004a1a30 FUN_004a1a30
+  0x0087415b -> 0x00b6bee0 FUN_00b6bee0
+  0x00874171 -> 0x00559450 FUN_00559450
+  0x0087417a -> 0x006629f0 FUN_006629f0
+  0x00874180 -> 0x00b6ba20 FUN_00b6ba20
+  Total: 161 calls
+
+======================================================================
+NiCamera frustum getter @ 0x0045bbe0
+======================================================================
+  Function: FUN_0045bbe0 @ 0x0045bbe0, Size: 19 bytes
+
+int __fastcall FUN_0045bbe0(int param_1)
+
+{
+  return param_1 + 0xdc;
+}
+
+
+
+======================================================================
+early frustum-derived-state publisher @ 0x00a694a0
+======================================================================
+  Function: FUN_00a694a0 @ 0x00a694a0, Size: 57 bytes
+
+void __thiscall FUN_00a694a0(int param_1,undefined4 *param_2)
+
+{
+  int iVar1;
+  int iVar2;
+  undefined4 *puVar3;
+  
+  iVar1 = *(int *)(param_1 + 0xc);
+  if (iVar1 != 0) {
+    puVar3 = (undefined4 *)(param_1 + 0x10);
+    for (iVar2 = 7; iVar2 != 0; iVar2 = iVar2 + -1) {
+      *puVar3 = *param_2;
+      param_2 = param_2 + 1;
+      puVar3 = puVar3 + 1;
+    }
+    FUN_00a74e10((undefined4 *)(param_1 + 0x10),iVar1 + 0x68);
+    *(undefined4 *)(param_1 + 0x8c) = 0x3f;
+  }
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00a694a0 (early frustum-derived-state publisher)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0045b0da (in FUN_0045b070)
+  UNCONDITIONAL_CALL @ 0x006fd0e0 (in FUN_006fd080)
+  UNCONDITIONAL_CALL @ 0x008716a1 (in FUN_00871290)
+  UNCONDITIONAL_CALL @ 0x004e98e3 (in FUN_004e9550)
+  UNCONDITIONAL_CALL @ 0x004eccbb (in FUN_004ecb60)
+  UNCONDITIONAL_CALL @ 0x0087338f (in FUN_00873200)
+  UNCONDITIONAL_CALL @ 0x00801904 (in FUN_00801880)
+  UNCONDITIONAL_CALL @ 0x008d6f9a (in FUN_008d6f50)
+  UNCONDITIONAL_CALL @ 0x008d6bf6 (in FUN_008d6bb0)
+  UNCONDITIONAL_CALL @ 0x00b5acf8 (in FUN_00b5ac90)
+  UNCONDITIONAL_CALL @ 0x00b9caf7 (in FUN_00b9c020)
+  UNCONDITIONAL_CALL @ 0x00b9cb26 (in FUN_00b9c020)
+  UNCONDITIONAL_CALL @ 0x00bd7758 (in FUN_00bd7620)
+  UNCONDITIONAL_CALL @ 0x00bd7a33 (in FUN_00bd77c0)
+  UNCONDITIONAL_CALL @ 0x00bd7e40 (in FUN_00bd7bb0)
+  UNCONDITIONAL_CALL @ 0x00c4f0c1 (in FUN_00c4f070)
+  UNCONDITIONAL_CALL @ 0x00a69599 (in ???)
+  Total: 17 refs
+
+--- Calls FROM early frustum-derived-state publisher (0x00a694a0) ---
+  0x00a694c4 -> 0x00a74e10 FUN_00a74e10
+  Total: 1 calls
+
+----------------------------------------------------------------------
+Camera/frustum offset operands in early frustum-derived-state publisher
+----------------------------------------------------------------------
+  Total: 0 matched instructions
+
+======================================================================
+DATA TARGETS AND CONSUMERS: early frustum-derived-state publisher @ 0x00a694a0
+======================================================================
+  No direct data targets found
+
+======================================================================
+DIRECT CALLEE DECOMPILATIONS: early frustum-derived-state publisher @ 0x00a694a0
+======================================================================
+
+======================================================================
+direct callee 1 @ 0x00a74e10
+======================================================================
+  Function: FUN_00a74e10 @ 0x00a74e10, Size: 1974 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+void __thiscall FUN_00a74e10(undefined4 *param_1,float *param_2,float *param_3)
+
+{
+  undefined4 *puVar1;
+  float *pfVar2;
+  float *pfVar3;
+  float10 fVar4;
+  float local_74;
+  float local_70;
+  float local_6c;
+  float local_68;
+  float local_64;
+  float local_60;
+  float local_5c;
+  float local_58;
+  float local_54;
+  float local_50;
+  float local_4c;
+  float local_48;
+  float local_44;
+  float local_40;
+  float local_3c;
+  float local_38;
+  float local_34;
+  float local_30;
+  float local_2c;
+  float local_28;
+  float local_24;
+  float local_20;
+  float local_1c;
+  float local_18;
+  float local_10;
+  float local_c;
+  float local_8;
+  
+  local_5c = *param_3;
+  local_58 = param_3[3];
+  local_70 = param_3[10];
+  local_54 = param_3[6];
+  local_74 = param_3[9];
+  local_44 = param_3[1];
+  local_6c = param_3[0xb];
+  local_40 = param_3[4];
+  local_3c = param_3[7];
+  local_50 = param_3[2];
+  local_4c = param_3[5];
+  local_48 = param_3[8];
+  local_30 = param_2[4];
+  local_38 = local_30 * local_5c;
+  local_34 = local_58 * local_30;
+  local_30 = local_30 * local_54;
+  local_68 = local_74 + local_38;
+  local_64 = local_70 + local_34;
+  local_60 = local_6c + local_30;
+  puVar1 = (undefined4 *)FUN_00a69990(&local_5c,&local_68);
+  *param_1 = *puVar1;
+  param_1[1] = puVar1[1];
+  param_1[2] = puVar1[2];
+  param_1[3] = puVar1[3];
+  local_30 = param_2[5];
+  local_38 = local_5c * local_30;
+  local_34 = local_58 * local_30;
+  local_30 = local_54 * local_30;
+  local_68 = local_38 + local_74;
+  local_64 = local_34 + local_70;
+  local_60 = local_30 + local_6c;
+  local_10 = -local_5c;
+  local_c = -local_58;
+  local_8 = -local_54;
+  local_2c = local_68;
+  local_28 = local_64;
+  local_24 = local_60;
+  puVar1 = (undefined4 *)FUN_00a69990(&local_10,&local_68);
+  param_1[4] = *puVar1;
+  param_1[5] = puVar1[1];
+  param_1[6] = puVar1[2];
+  param_1[7] = puVar1[3];
+  if (*(char *)(param_2 + 6) == '\0') {
+    fVar4 = (float10)FUN_00ec6040();
+    local_18 = 1.0 / (float)fVar4;
+    local_24 = local_18 * -*param_2;
+    local_20 = local_50 * local_18;
+    local_1c = local_4c * local_18;
+    local_18 = local_18 * local_48;
+    local_2c = local_24 * local_5c;
+    local_28 = local_58 * local_24;
+    local_24 = local_24 * local_54;
+    local_38 = local_2c + local_20;
+    local_34 = local_28 + local_1c;
+    local_30 = local_24 + local_18;
+    puVar1 = (undefined4 *)FUN_00a69990(&local_38,&local_74);
+    param_1[8] = *puVar1;
+    param_1[9] = puVar1[1];
+    param_1[10] = puVar1[2];
+    param_1[0xb] = puVar1[3];
+    fVar4 = (float10)FUN_00ec6040();
+    local_18 = (1.0 / (float)fVar4) * param_2[1];
+    local_24 = -(1.0 / (float)fVar4);
+    local_2c = local_24 * local_50;
+    local_28 = local_4c * local_24;
+    local_24 = local_24 * local_48;
+    local_20 = local_18 * local_5c;
+    local_1c = local_58 * local_18;
+    local_18 = local_18 * local_54;
+    local_38 = local_20 + local_2c;
+    local_34 = local_1c + local_28;
+    local_30 = local_18 + local_24;
+    local_10 = local_38;
+    local_c = local_34;
+    local_8 = local_30;
+    puVar1 = (undefined4 *)FUN_00a69990(&local_38,&local_74);
+    param_1[0xc] = *puVar1;
+    param_1[0xd] = puVar1[1];
+    param_1[0xe] = puVar1[2];
+    param_1[0xf] = puVar1[3];
+    fVar4 = (float10)FUN_00ec6040();
+    local_8 = (1.0 / (float)fVar4) * param_2[2];
+    local_18 = -(1.0 / (float)fVar4);
+    local_20 = local_18 * local_44;
+    local_1c = local_40 * local_18;
+    local_18 = local_18 * local_3c;
+    local_10 = local_8 * local_5c;
+    local_c = local_58 * local_8;
+    local_8 = local_8 * local_54;
+    local_38 = local_10 + local_20;
+    local_34 = local_c + local_1c;
+    local_30 = local_8 + local_18;
+    local_2c = local_38;
+    local_28 = local_34;
+    local_24 = local_30;
+    puVar1 = (undefined4 *)FUN_00a69990(&local_38,&local_74);
+    param_1[0x10] = *puVar1;
+    param_1[0x11] = puVar1[1];
+    param_1[0x12] = puVar1[2];
+    param_1[0x13] = puVar1[3];
+    fVar4 = (float10)FUN_00ec6040();
+    local_18 = 1.0 / (float)fVar4;
+    local_8 = local_18 * -param_2[3];
+    local_20 = local_44 * local_18;
+    local_1c = local_40 * local_18;
+    local_18 = local_18 * local_3c;
+    local_10 = local_8 * local_5c;
+    local_c = local_58 * local_8;
+    local_8 = local_8 * local_54;
+    local_38 = local_10 + local_20;
+    local_34 = local_c + local_1c;
+    pfVar2 = &local_74;
+    local_30 = local_8 + local_18;
+    pfVar3 = &local_38;
+    local_2c = local_38;
+    local_28 = local_34;
+    local_24 = local_30;
+  }
+  else {
+    local_24 = *param_2;
+    local_2c = local_24 * local_50;
+    local_28 = local_4c * local_24;
+    local_24 = local_24 * local_48;
+    local_68 = local_2c + local_74;
+    local_64 = local_28 + local_70;
+    local_60 = local_24 + local_6c;
+    local_38 = local_68;
+    local_34 = local_64;
+    local_30 = local_60;
+    puVar1 = (undefined4 *)FUN_00a69990(&local_50,&local_68);
+    param_1[8] = *puVar1;
+    param_1[9] = puVar1[1];
+    param_1[10] = puVar1[2];
+    param_1[0xb] = puVar1[3];
+    local_24 = param_2[1];
+    local_2c = local_50 * local_24;
+    local_28 = local_4c * local_24;
+    local_24 = local_48 * local_24;
+    local_68 = local_2c + local_74;
+    local_64 = local_28 + local_70;
+    local_60 = local_24 + local_6c;
+    local_10 = -local_50;
+    local_c = -local_4c;
+    local_8 = -local_48;
+    local_38 = local_68;
+    local_34 = local_64;
+    local_30 = local_60;
+    puVar1 = (undefined4 *)FUN_00a69990(&local_10,&local_68);
+    param_1[0xc] = *puVar1;
+    param_1[0xd] = puVar1[1];
+    param_1[0xe] = puVar1[2];
+    param_1[0xf] = puVar1[3];
+    local_24 = param_2[2];
+    local_2c = local_44 * local_24;
+    local_28 = local_40 * local_24;
+    local_24 = local_3c * local_24;
+    local_68 = local_2c + local_74;
+    local_64 = local_28 + local_70;
+    local_60 = local_24 + local_6c;
+    local_10 = -local_44;
+    local_c = -local_40;
+    local_8 = -local_3c;
+    local_38 = local_68;
+    local_34 = local_64;
+    local_30 = local_60;
+    puVar1 = (undefined4 *)FUN_00a69990(&local_10,&local_68);
+    param_1[0x10] = *puVar1;
+    param_1[0x11] = puVar1[1];
+    param_1[0x12] = puVar1[2];
+    param_1[0x13] = puVar1[3];
+    local_24 = param_2[3];
+    local_2c = local_24 * local_44;
+    local_28 = local_40 * local_24;
+    local_24 = local_24 * local_3c;
+    local_68 = local_2c + local_74;
+    local_64 = local_28 + local_70;
+    pfVar2 = &local_68;
+    local_60 = local_24 + local_6c;
+    pfVar3 = &local_44;
+    local_38 = local_68;
+    local_34 = local_64;
+    local_30 = local_60;
+  }
+  puVar1 = (undefined4 *)FUN_00a69990(pfVar3,pfVar2);
+  param_1[0x14] = *puVar1;
+  param_1[0x15] = puVar1[1];
+  param_1[0x16] = puVar1[2];
+  param_1[0x17] = puVar1[3];
+  return;
+}
+
+
+  Decompiled: 1 of 1 direct callees
+
+======================================================================
+DECOMPILED DATA CONSUMERS: early frustum-derived-state publisher @ 0x00a694a0
+======================================================================
+  Decompiled: 0 of 0 discovered consumer functions
+
+======================================================================
+NiCamera frustum setter @ 0x00a6faf0
+======================================================================
+  Function: FUN_00a6faf0 @ 0x00a6faf0, Size: 148 bytes
+
+void __thiscall FUN_00a6faf0(int param_1,undefined4 *param_2)
+
+{
+  float fVar1;
+  float fVar2;
+  
+  fVar1 = (float)param_2[4];
+  *(float *)(param_1 + 0xec) = fVar1;
+  fVar2 = (float)param_2[5] / *(float *)(param_1 + 0xfc);
+  if (fVar1 < fVar2) {
+    *(float *)(param_1 + 0xec) = fVar2;
+  }
+  if (*(float *)(param_1 + 0xec) < *(float *)(param_1 + 0xf8)) {
+    *(undefined4 *)(param_1 + 0xec) = *(undefined4 *)(param_1 + 0xf8);
+  }
+  *(undefined4 *)(param_1 + 0xdc) = *param_2;
+  *(undefined4 *)(param_1 + 0xe0) = param_2[1];
+  *(undefined4 *)(param_1 + 0xe4) = param_2[2];
+  *(undefined4 *)(param_1 + 0xe8) = param_2[3];
+  *(undefined4 *)(param_1 + 0xf0) = param_2[5];
+  *(undefined1 *)(param_1 + 0xf4) = *(undefined1 *)(param_2 + 6);
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00a6faf0 (NiCamera frustum setter)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x004dece4 (in FUN_004deb30)
+  UNCONDITIONAL_CALL @ 0x004e06f4 (in FUN_004e0540)
+  UNCONDITIONAL_CALL @ 0x0071306a (in FUN_00712e90)
+  UNCONDITIONAL_CALL @ 0x0077f041 (in FUN_0077ee50)
+  UNCONDITIONAL_CALL @ 0x004a0789 (in FUN_004a04c0)
+  UNCONDITIONAL_CALL @ 0x0071b61d (in FUN_0071b210)
+  UNCONDITIONAL_CALL @ 0x004bbce2 (in FUN_004baf10)
+  UNCONDITIONAL_CALL @ 0x00709e74 (in FUN_00709d50)
+  UNCONDITIONAL_CALL @ 0x004e97ec (in FUN_004e9550)
+  UNCONDITIONAL_CALL @ 0x004ec04b (in FUN_004ebef0)
+  UNCONDITIONAL_CALL @ 0x004ecc47 (in FUN_004ecb60)
+  UNCONDITIONAL_CALL @ 0x00874e2d (in FUN_00874c10)
+  UNCONDITIONAL_CALL @ 0x008752f2 (in FUN_00875110)
+  UNCONDITIONAL_CALL @ 0x00b9e5bd (in FUN_00b9dfc0)
+  UNCONDITIONAL_CALL @ 0x00b9e693 (in FUN_00b9dfc0)
+  UNCONDITIONAL_CALL @ 0x00c4c2a5 (in FUN_00c4bf40)
+  UNCONDITIONAL_CALL @ 0x00c523ca (in FUN_00c52020)
+  UNCONDITIONAL_CALL @ 0x0054f16d (in FUN_0054ee80)
+  UNCONDITIONAL_CALL @ 0x0054f920 (in FUN_0054f500)
+  UNCONDITIONAL_CALL @ 0x0058d484 (in FUN_0058cf60)
+  UNCONDITIONAL_CALL @ 0x0078eac4 (in FUN_0078e900)
+  UNCONDITIONAL_CALL @ 0x005bfabc (in FUN_005bf9e0)
+  UNCONDITIONAL_CALL @ 0x007c9bba (in FUN_007c99c0)
+  UNCONDITIONAL_CALL @ 0x007c234d (in FUN_007c2180)
+  UNCONDITIONAL_CALL @ 0x007947ea (in FUN_007945f0)
+  UNCONDITIONAL_CALL @ 0x00633b2d (in FUN_006335d0)
+  UNCONDITIONAL_CALL @ 0x007fbc08 (in FUN_007fba00)
+  UNCONDITIONAL_CALL @ 0x007fbe38 (in FUN_007fba00)
+  UNCONDITIONAL_CALL @ 0x007fd2e9 (in FUN_007fc970)
+  UNCONDITIONAL_CALL @ 0x007fde6f (in FUN_007fd6c0)
+  UNCONDITIONAL_CALL @ 0x007ff42b (in FUN_007feeb0)
+  UNCONDITIONAL_CALL @ 0x00a42e6c (in FUN_00a42dc0)
+  UNCONDITIONAL_CALL @ 0x00c52816 (in FUN_00c52590)
+  Total: 33 refs
+
+--- Calls FROM NiCamera frustum setter (0x00a6faf0) ---
+  Total: 0 calls
+
+----------------------------------------------------------------------
+Camera/frustum offset operands in NiCamera frustum setter
+----------------------------------------------------------------------
+  0x00a6faff: FST float ptr [ECX + 0xec]
+  0x00a6fb08: FDIV float ptr [ECX + 0xfc]
+  0x00a6fb21: FSTP float ptr [ECX + 0xec]
+  0x00a6fb2b: FLD float ptr [ECX + 0xec]
+  0x00a6fb31: FLD float ptr [ECX + 0xf8]
+  0x00a6fb40: FLD float ptr [ECX + 0xf8]
+  0x00a6fb46: FSTP float ptr [ECX + 0xec]
+  0x00a6fb4e: FSTP float ptr [ECX + 0xdc]
+  0x00a6fb57: FSTP float ptr [ECX + 0xe0]
+  0x00a6fb60: FSTP float ptr [ECX + 0xe4]
+  0x00a6fb69: FSTP float ptr [ECX + 0xe8]
+  0x00a6fb72: FSTP float ptr [ECX + 0xf0]
+  0x00a6fb7b: MOV byte ptr [ECX + 0xf4],AL
+  Total: 13 matched instructions
+
+======================================================================
+world rendered-texture camera setup @ 0x00b6ba20
+======================================================================
+  Function: FUN_00b6ba20 @ 0x00b6ba20, Size: 74 bytes
+
+void FUN_00b6ba20(int param_1,int *param_2)
+
+{
+  if ((DAT_011f4748 != 0) && (param_1 != 0)) {
+    FUN_004e9bb0(param_1);
+    DAT_011f917c = param_1;
+    FUN_00b54b10(param_2);
+    (**(code **)(*param_2 + 0x8c))(param_1);
+                    /* WARNING: Could not recover jumptable at 0x00b6ba66. Too many branches */
+                    /* WARNING: Treating indirect jump as call */
+    (**(code **)(*param_2 + 0xa8))();
+    return;
+  }
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00b6ba20 (world rendered-texture camera setup)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00874180 (in FUN_00873200)
+  Total: 1 refs
+
+--- Calls FROM world rendered-texture camera setup (0x00b6ba20) ---
+  0x00b6ba35 -> 0x004e9bb0 FUN_004e9bb0
+  0x00b6ba45 -> 0x00b54b10 FUN_00b54b10
+  Total: 2 calls
+
+======================================================================
+NiRenderer::SetCameraData @ 0x004e9bb0
+======================================================================
+  Function: FUN_004e9bb0 @ 0x004e9bb0, Size: 89 bytes
+
+void __fastcall FUN_004e9bb0(undefined4 param_1)
+
+{
+  undefined4 uVar1;
+  undefined4 uVar2;
+  undefined4 uVar3;
+  undefined4 uVar4;
+  undefined4 uVar5;
+  undefined4 uVar6;
+  undefined1 local_28 [12];
+  undefined1 local_1c [12];
+  undefined1 local_10 [12];
+  
+  uVar1 = FUN_004a0d10(param_1);
+  uVar2 = FUN_0045bbe0(uVar1);
+  uVar3 = FUN_004e9c50(local_10);
+  uVar4 = FUN_004e9c10(local_1c);
+  uVar5 = FUN_0045bba0(local_28);
+  uVar6 = FUN_0045bb80(uVar5,uVar4,uVar3,uVar2);
+  FUN_004e9c90(uVar6,uVar5,uVar4,uVar3,uVar2,uVar1);
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x004e9bb0 (NiRenderer::SetCameraData)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x007139cb (in FUN_007134d0)
+  UNCONDITIONAL_CALL @ 0x00713a62 (in FUN_007134d0)
+  UNCONDITIONAL_CALL @ 0x00713b23 (in FUN_007134d0)
+  UNCONDITIONAL_CALL @ 0x004e98cc (in FUN_004e9550)
+  UNCONDITIONAL_CALL @ 0x004eb3d5 (in FUN_004eb220)
+  UNCONDITIONAL_CALL @ 0x004eb7c5 (in FUN_004eb540)
+  UNCONDITIONAL_CALL @ 0x004ebdd7 (in FUN_004ebbe0)
+  UNCONDITIONAL_CALL @ 0x004ec8ca (in FUN_004ec800)
+  UNCONDITIONAL_CALL @ 0x004ec96e (in FUN_004ec800)
+  UNCONDITIONAL_CALL @ 0x004ecca4 (in FUN_004ecb60)
+  UNCONDITIONAL_CALL @ 0x008018e7 (in FUN_00801880)
+  UNCONDITIONAL_CALL @ 0x00876a41 (in FUN_00876a20)
+  UNCONDITIONAL_CALL @ 0x00b64cc0 (in FUN_00b64bf0)
+  UNCONDITIONAL_CALL @ 0x00b6ba35 (in FUN_00b6ba20)
+  UNCONDITIONAL_CALL @ 0x00b6c0e9 (in FUN_00b6c0d0)
+  UNCONDITIONAL_CALL @ 0x00b9f96c (in FUN_00b9f780)
+  UNCONDITIONAL_CALL @ 0x007fbc14 (in FUN_007fba00)
+  UNCONDITIONAL_CALL @ 0x00b65cf6 (in FUN_00b65c60)
+  UNCONDITIONAL_CALL @ 0x00a695fa (in ???)
+  Total: 19 refs
+
+--- Calls FROM NiRenderer::SetCameraData (0x004e9bb0) ---
+  0x004e9bbc -> 0x004a0d10 FUN_004a0d10
+  0x004e9bc5 -> 0x0045bbe0 FUN_0045bbe0
+  0x004e9bd2 -> 0x004e9c50 FUN_004e9c50
+  0x004e9bdf -> 0x004e9c10 FUN_004e9c10
+  0x004e9bec -> 0x0045bba0 FUN_0045bba0
+  0x004e9bf5 -> 0x0045bb80 FUN_0045bb80
+  0x004e9bfe -> 0x004e9c90 FUN_004e9c90
+  Total: 7 calls
+
+======================================================================
+DIRECT CALLEE DECOMPILATIONS: NiRenderer::SetCameraData @ 0x004e9bb0
+======================================================================
+
+======================================================================
+direct callee 1 @ 0x0045bb80
+======================================================================
+  Function: FUN_0045bb80 @ 0x0045bb80, Size: 19 bytes
+
+int __fastcall FUN_0045bb80(int param_1)
+
+{
+  return param_1 + 0x8c;
+}
+
+
+
+======================================================================
+direct callee 2 @ 0x0045bba0
+======================================================================
+  Function: FUN_0045bba0 @ 0x0045bba0, Size: 63 bytes
+
+undefined4 * __thiscall FUN_0045bba0(undefined4 param_1,undefined4 *param_2)
+
+{
+  undefined4 local_10;
+  undefined4 local_c;
+  undefined4 local_8;
+  
+  FUN_006815c0(param_1);
+  FUN_00439f50(0,&local_10);
+  *param_2 = local_10;
+  param_2[1] = local_c;
+  param_2[2] = local_8;
+  return param_2;
+}
+
+
+
+======================================================================
+direct callee 3 @ 0x0045bbe0
+======================================================================
+  Function: FUN_0045bbe0 @ 0x0045bbe0, Size: 19 bytes
+
+int __fastcall FUN_0045bbe0(int param_1)
+
+{
+  return param_1 + 0xdc;
+}
+
+
+
+======================================================================
+direct callee 4 @ 0x004a0d10
+======================================================================
+  Function: FUN_004a0d10 @ 0x004a0d10, Size: 19 bytes
+
+int __fastcall FUN_004a0d10(int param_1)
+
+{
+  return param_1 + 0x100;
+}
+
+
+
+======================================================================
+direct callee 5 @ 0x004e9c10
+======================================================================
+  Function: FUN_004e9c10 @ 0x004e9c10, Size: 63 bytes
+
+undefined4 * __thiscall FUN_004e9c10(undefined4 param_1,undefined4 *param_2)
+
+{
+  undefined4 local_10;
+  undefined4 local_c;
+  undefined4 local_8;
+  
+  FUN_006815c0(param_1);
+  FUN_00439f50(1,&local_10);
+  *param_2 = local_10;
+  param_2[1] = local_c;
+  param_2[2] = local_8;
+  return param_2;
+}
+
+
+
+======================================================================
+direct callee 6 @ 0x004e9c50
+======================================================================
+  Function: FUN_004e9c50 @ 0x004e9c50, Size: 63 bytes
+
+undefined4 * __thiscall FUN_004e9c50(undefined4 param_1,undefined4 *param_2)
+
+{
+  undefined4 local_10;
+  undefined4 local_c;
+  undefined4 local_8;
+  
+  FUN_006815c0(param_1);
+  FUN_00439f50(2,&local_10);
+  *param_2 = local_10;
+  param_2[1] = local_c;
+  param_2[2] = local_8;
+  return param_2;
+}
+
+
+
+======================================================================
+direct callee 7 @ 0x004e9c90
+======================================================================
+  Function: FUN_004e9c90 @ 0x004e9c90, Size: 77 bytes
+
+void __thiscall
+FUN_004e9c90(int *param_1,undefined4 param_2,undefined4 param_3,undefined4 param_4,
+            undefined4 param_5,undefined4 param_6,undefined4 param_7)
+
+{
+  char cVar1;
+  
+  cVar1 = FUN_004a0e10("SetCameraData",1);
+  if (cVar1 != '\0') {
+    (**(code **)(*param_1 + 0x18c))(param_2,param_3,param_4,param_5,param_6,param_7);
+  }
+  return;
+}
+
+
+  Decompiled: 7 of 7 direct callees
+
+======================================================================
+camera-to-renderer projection packet builder @ 0x004e9c90
+======================================================================
+  Function: FUN_004e9c90 @ 0x004e9c90, Size: 77 bytes
+
+void __thiscall
+FUN_004e9c90(int *param_1,undefined4 param_2,undefined4 param_3,undefined4 param_4,
+            undefined4 param_5,undefined4 param_6,undefined4 param_7)
+
+{
+  char cVar1;
+  
+  cVar1 = FUN_004a0e10("SetCameraData",1);
+  if (cVar1 != '\0') {
+    (**(code **)(*param_1 + 0x18c))(param_2,param_3,param_4,param_5,param_6,param_7);
+  }
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x004e9c90 (camera-to-renderer projection packet builder)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x004e9bfe (in FUN_004e9bb0)
+  Total: 1 refs
+
+--- Calls FROM camera-to-renderer projection packet builder (0x004e9c90) ---
+  0x004e9ca1 -> 0x004a0e10 FUN_004a0e10
+  Total: 1 calls
+
+----------------------------------------------------------------------
+Camera/frustum offset operands in camera-to-renderer projection packet builder
+----------------------------------------------------------------------
+  Total: 0 matched instructions
+
+======================================================================
+DATA TARGETS AND CONSUMERS: camera-to-renderer projection packet builder @ 0x004e9c90
+======================================================================
+
+Data target 0x010231b8
+  DATA @ 0x004e9c99 (in FUN_004e9c90)
+  Listed: 1 refs
+
+======================================================================
+DIRECT CALLEE DECOMPILATIONS: camera-to-renderer projection packet builder @ 0x004e9c90
+======================================================================
+
+======================================================================
+direct callee 1 @ 0x004a0e10
+======================================================================
+  Function: FUN_004a0e10 @ 0x004a0e10, Size: 56 bytes
+
+undefined4 __thiscall FUN_004a0e10(int param_1,undefined4 param_2,char param_3)
+
+{
+  char cVar1;
+  undefined4 uVar2;
+  
+  cVar1 = FUN_004a0e50();
+  if (cVar1 == '\0') {
+    uVar2 = 0;
+  }
+  else if (*(char *)(param_1 + 0x208) == param_3) {
+    uVar2 = 1;
+  }
+  else {
+    uVar2 = 0;
+  }
+  return uVar2;
+}
+
+
+  Decompiled: 1 of 1 direct callees
