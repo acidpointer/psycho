@@ -1,10 +1,6 @@
 //! Engine-side depth-of-field pipeline.
 
 use std::{
-    fs,
-    mem::size_of,
-    path::PathBuf,
-    slice,
     sync::{
         LazyLock,
         atomic::{AtomicBool, Ordering},
@@ -1012,71 +1008,19 @@ fn draw_compose(
 }
 
 fn load_or_compile_shader(source_name: &str, source: &[u8]) -> Result<Vec<u32>> {
-    let hash = shader_source_hash(source_name, source);
-    let path = shader_cache_path(source_name, hash);
-    if let Ok(bytes) = fs::read(&path)
-        && let Some(bytecode) = decode_cached_shader(&bytes)
-    {
-        return Ok(bytecode);
-    }
-
-    let bytecode = shaders::compile_hlsl_source(source_name, source)?;
-    if let Some(parent) = path.parent()
-        && fs::create_dir_all(parent).is_ok()
-    {
-        let bytes = unsafe {
-            slice::from_raw_parts(
-                bytecode.as_ptr().cast::<u8>(),
-                bytecode.len() * size_of::<u32>(),
-            )
-        };
-        let _ = fs::write(path, bytes);
-    }
-    Ok(bytecode)
-}
-
-fn shader_source_hash(source_name: &str, source: &[u8]) -> u64 {
-    let mut hash = 0xcbf29ce484222325u64;
-    for byte in source_name.as_bytes().iter().chain(b"ps_3_0").chain(source) {
-        hash ^= u64::from(*byte);
-        hash = hash.wrapping_mul(0x100000001b3);
-    }
-    hash
-}
-
-fn shader_cache_path(source_name: &str, hash: u64) -> PathBuf {
-    let mut path = PathBuf::from(crate::config::CONFIG_PATH);
-    let _ = path.pop();
-    path.push("cache");
-    path.push("depth_of_field");
-    let label: String = source_name
-        .chars()
-        .map(|character| {
-            if character.is_ascii_alphanumeric() {
-                character
-            } else {
-                '_'
-            }
-        })
-        .collect();
-    path.push(format!("{label}_{hash:016x}.cso"));
-    path
-}
-
-fn decode_cached_shader(bytes: &[u8]) -> Option<Vec<u32>> {
-    if bytes.len() < size_of::<u32>() || !bytes.len().is_multiple_of(size_of::<u32>()) {
-        return None;
-    }
-    let version = u32::from_le_bytes(bytes[..4].try_into().ok()?);
-    if version != 0xFFFF_0300 {
-        return None;
-    }
-    Some(
-        bytes
-            .chunks_exact(4)
-            .map(|word| u32::from_le_bytes(word.try_into().expect("four-byte shader word")))
-            .collect(),
-    )
+    Ok(shaders::load_or_compile_hlsl_cached(
+        shaders::HlslCacheSpec {
+            namespace: "depth_of_field",
+            family: None,
+            cache_label: source_name,
+            source_name,
+            target: "ps_3_0",
+            cache_tag: "pso",
+            contract_revision: b"depth-of-field-v1",
+        },
+        source,
+    )?
+    .bytecode)
 }
 
 fn compile_gather_bytecode(source_name: &str, source: &[u8], tap_count: u32) -> Result<Vec<u32>> {

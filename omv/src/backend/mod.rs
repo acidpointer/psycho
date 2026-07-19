@@ -486,6 +486,7 @@ pub(crate) struct DepthProjectionFrame {
     pub(crate) reversed_depth: Option<bool>,
     pub(crate) depth_function: Option<u32>,
     pub(crate) source_surface: usize,
+    pub(crate) sampled_depth_bits: u8,
 }
 
 impl DepthProjectionFrame {
@@ -494,6 +495,13 @@ impl DepthProjectionFrame {
             Some(true) => 1.0,
             Some(false) => 0.0,
             None => -1.0,
+        }
+    }
+
+    pub(crate) fn sampled_depth_levels(self) -> f32 {
+        match self.sampled_depth_bits {
+            1..=24 => ((1u32 << self.sampled_depth_bits) - 1) as f32,
+            _ => 16_777_215.0,
         }
     }
 }

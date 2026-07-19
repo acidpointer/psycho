@@ -2,9 +2,6 @@
 
 use std::{
     ffi::c_void,
-    fs,
-    mem::size_of,
-    path::PathBuf,
     slice,
     sync::{
         LazyLock,
@@ -103,6 +100,13 @@ impl From<crate::config::NativeSkyConfig> for NativeSkySettings {
             ],
             sky_multiplier: sanitize(value.sky_multiplier, 2.043103, 0.0, 4.0),
         }
+    }
+}
+
+impl NativeSkySettings {
+    pub(crate) const fn with_master_enabled(mut self, master_enabled: bool) -> Self {
+        self.enabled = self.enabled && master_enabled;
+        self
     }
 }
 
@@ -461,7 +465,7 @@ fn template_profile(template: &ShaderTemplate) -> &'static str {
 
 #[cfg(test)]
 mod shader_compile_tests {
-    use super::{TEMPLATES, template_profile, template_source};
+    use super::{NativeSkySettings, TEMPLATES, template_profile, template_source};
 
     #[test]
     fn all_native_sky_shader_variants_compile() {
@@ -474,74 +478,30 @@ mod shader_compile_tests {
             );
         }
     }
+
+    #[test]
+    fn master_switch_is_a_runtime_override_not_a_config_mutation() {
+        let configured = NativeSkySettings::from(crate::config::NativeSkyConfig::default());
+        assert!(configured.enabled);
+        assert!(!configured.with_master_enabled(false).enabled);
+        assert!(configured.with_master_enabled(true).enabled);
+    }
 }
 
 fn load_or_compile(label: &str, source: &[u8], profile: &str) -> Result<(Vec<u32>, &'static str)> {
-    let hash = shader_source_hash(label, profile, source);
-    let path = shader_cache_path(label, profile, hash);
-    if let Ok(bytes) = fs::read(&path)
-        && let Some(bytecode) = decode_cached_shader(&bytes, profile)
-    {
-        return Ok((bytecode, "cache"));
-    }
-
-    let bytecode = crate::shaders::compile_hlsl_source_target(label, source, profile)?;
-    if let Some(parent) = path.parent()
-        && fs::create_dir_all(parent).is_ok()
-    {
-        let bytes = unsafe {
-            slice::from_raw_parts(
-                bytecode.as_ptr().cast::<u8>(),
-                bytecode.len() * size_of::<u32>(),
-            )
-        };
-        let _ = fs::write(path, bytes);
-    }
-    Ok((bytecode, "compiler"))
-}
-
-fn shader_source_hash(label: &str, profile: &str, source: &[u8]) -> u64 {
-    let mut hash = 0xcbf29ce484222325u64;
-    for byte in label
-        .as_bytes()
-        .iter()
-        .chain(profile.as_bytes())
-        .chain(source)
-    {
-        hash ^= u64::from(*byte);
-        hash = hash.wrapping_mul(0x100000001b3);
-    }
-    hash
-}
-
-fn shader_cache_path(label: &str, profile: &str, hash: u64) -> PathBuf {
-    let mut path = PathBuf::from(crate::config::CONFIG_PATH);
-    let _ = path.pop();
-    path.push("cache");
-    path.push("native_sky");
-    path.push(format!("{label}_{profile}_{hash:016x}.cso"));
-    path
-}
-
-fn decode_cached_shader(bytes: &[u8], profile: &str) -> Option<Vec<u32>> {
-    if bytes.len() < size_of::<u32>() || !bytes.len().is_multiple_of(size_of::<u32>()) {
-        return None;
-    }
-    let expected_version = if profile.starts_with("vs_") {
-        0xFFFE_0300
-    } else {
-        0xFFFF_0300
-    };
-    let version = u32::from_le_bytes(bytes[..4].try_into().ok()?);
-    if version != expected_version {
-        return None;
-    }
-    Some(
-        bytes
-            .chunks_exact(4)
-            .map(|word| u32::from_le_bytes(word.try_into().expect("four-byte shader word")))
-            .collect(),
-    )
+    let cached = crate::shaders::load_or_compile_hlsl_cached(
+        crate::shaders::HlslCacheSpec {
+            namespace: "native_sky",
+            family: None,
+            cache_label: label,
+            source_name: label,
+            target: profile,
+            cache_tag: profile,
+            contract_revision: b"native-sky-v1",
+        },
+        source,
+    )?;
+    Ok((cached.bytecode, cached.origin.label()))
 }
 
 fn create_ready_resources() {

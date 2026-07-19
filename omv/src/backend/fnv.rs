@@ -13,11 +13,12 @@ use super::{
 };
 use libpsycho::os::windows::{
     directx9::{
-        D3DCULL_NONE, D3DFMT_INTZ, D3DPT_POINTLIST, D3DRESZ_POINT_SIZE, D3DRS_ALPHABLENDENABLE,
-        D3DRS_ALPHATESTENABLE, D3DRS_COLORWRITEENABLE, D3DRS_CULLMODE, D3DRS_POINTSIZE,
-        D3DRS_ZENABLE, D3DRS_ZFUNC, D3DRS_ZWRITEENABLE, D3DSBT_ALL, D3DSURFACE_DESC, Device9Ref,
-        Direct3DError as WindowsError, Direct3DResult, PositionVertex, StateBlock9, Surface9,
-        Texture9,
+        D3DCULL_NONE, D3DFMT_D15S1, D3DFMT_D16, D3DFMT_D24FS8, D3DFMT_D24S8, D3DFMT_D24X4S4,
+        D3DFMT_D24X8, D3DFMT_D32, D3DFMT_D32F_LOCKABLE, D3DFMT_INTZ, D3DFORMAT, D3DPT_POINTLIST,
+        D3DRESZ_POINT_SIZE, D3DRS_ALPHABLENDENABLE, D3DRS_ALPHATESTENABLE, D3DRS_COLORWRITEENABLE,
+        D3DRS_CULLMODE, D3DRS_POINTSIZE, D3DRS_ZENABLE, D3DRS_ZFUNC, D3DRS_ZWRITEENABLE,
+        D3DSBT_ALL, D3DSURFACE_DESC, Device9Ref, Direct3DError as WindowsError, Direct3DResult,
+        PositionVertex, StateBlock9, Surface9, Texture9,
     },
     memory::validate_memory_range,
 };
@@ -1214,6 +1215,7 @@ impl FnvDepthResolve {
             reversed_depth: depth_convention(depth_function),
             depth_function,
             source_surface: source_surface as usize,
+            sampled_depth_bits: sampled_depth_bits(desc.Format),
         };
 
         self.ensure_resources(device, &desc, slot)?;
@@ -1420,9 +1422,13 @@ impl FnvDepthResolve {
 
 #[cfg(test)]
 mod depth_capture_tests {
+    use libpsycho::os::windows::directx9::{
+        D3DFMT_A8R8G8B8, D3DFMT_D15S1, D3DFMT_D16, D3DFMT_D24S8, D3DFMT_D32,
+    };
+
     use super::{
         AlphaCoverageMode, DepthProjectionFrame, FnvDepthResolve, ResolvedDepthCapture,
-        alpha_coverage_mode_from_raw, underwater_frame_for_publication,
+        alpha_coverage_mode_from_raw, sampled_depth_bits, underwater_frame_for_publication,
     };
 
     fn capture(
@@ -1521,6 +1527,15 @@ mod depth_capture_tests {
         assert_eq!(alpha_coverage_mode_from_raw(2), AlphaCoverageMode::Amd);
         assert_eq!(alpha_coverage_mode_from_raw(3), AlphaCoverageMode::None);
     }
+
+    #[test]
+    fn intz_precision_tracks_the_resolved_source_depth_format() {
+        assert_eq!(sampled_depth_bits(D3DFMT_D15S1), 15);
+        assert_eq!(sampled_depth_bits(D3DFMT_D16), 16);
+        assert_eq!(sampled_depth_bits(D3DFMT_D24S8), 24);
+        assert_eq!(sampled_depth_bits(D3DFMT_D32), 24);
+        assert_eq!(sampled_depth_bits(D3DFMT_A8R8G8B8), 24);
+    }
 }
 
 fn depth_convention(depth_function: Option<u32>) -> Option<bool> {
@@ -1528,6 +1543,26 @@ fn depth_convention(depth_function: Option<u32>) -> Option<bool> {
         5 | 7 => Some(true),
         2 | 4 => Some(false),
         _ => None,
+    }
+}
+
+fn sampled_depth_bits(format: D3DFORMAT) -> u8 {
+    if format == D3DFMT_D15S1 {
+        15
+    } else if format == D3DFMT_D16 {
+        16
+    } else if matches!(
+        format,
+        D3DFMT_D24S8
+            | D3DFMT_D24X8
+            | D3DFMT_D24X4S4
+            | D3DFMT_D24FS8
+            | D3DFMT_D32
+            | D3DFMT_D32F_LOCKABLE
+    ) {
+        24
+    } else {
+        24
     }
 }
 

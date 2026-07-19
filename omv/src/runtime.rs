@@ -412,8 +412,15 @@ impl ScreenShaderRuntime {
     }
 
     fn configure(&mut self, settings: RuntimeSettings) {
-        pbr::configure_runtime_options(settings.menu_config.native_pbr.into());
-        sky::configure_runtime_options(settings.menu_config.native_sky.into());
+        let master_enabled = settings.menu_config.screen_space_shaders;
+        pbr::configure_runtime_options(
+            pbr::NativePbrSettings::from(settings.menu_config.native_pbr)
+                .with_master_enabled(master_enabled),
+        );
+        sky::configure_runtime_options(
+            sky::NativeSkySettings::from(settings.menu_config.native_sky)
+                .with_master_enabled(master_enabled),
+        );
         self.settings = settings;
         self.compiled = None;
         self.next_scan = None;
@@ -1480,8 +1487,15 @@ impl ScreenShaderRuntime {
         update_native_dof_query_needed(&self.settings.menu_config);
         crate::fnv_world_pipeline::publish_config(self.settings.menu_config);
         self.publish_fnv_scene_requirements();
-        pbr::configure_runtime_options(self.settings.menu_config.native_pbr.into());
-        sky::configure_runtime_options(self.settings.menu_config.native_sky.into());
+        let master_enabled = self.settings.menu_config.screen_space_shaders;
+        pbr::configure_runtime_options(
+            pbr::NativePbrSettings::from(self.settings.menu_config.native_pbr)
+                .with_master_enabled(master_enabled),
+        );
+        sky::configure_runtime_options(
+            sky::NativeSkySettings::from(self.settings.menu_config.native_sky)
+                .with_master_enabled(master_enabled),
+        );
     }
 
     fn save_menu_session(&mut self) {
@@ -3037,11 +3051,17 @@ fn draw_feature_list(
 ) {
     let heading = cstring("ENGINE RENDERING");
     ui.separator_text(&heading);
-    let pbr_label = cstring(native_pbr_list_label(config.native_pbr.enabled, pbr_status));
+    let pbr_label = cstring(native_pbr_list_label(
+        config.screen_space_shaders && config.native_pbr.enabled,
+        pbr_status,
+    ));
     if ui.selectable(&pbr_label, *selected_item == MenuSelection::NativePbr) {
         *selected_item = MenuSelection::NativePbr;
     }
-    let sky_label = cstring(native_sky_list_label(config.native_sky.enabled, sky_status));
+    let sky_label = cstring(native_sky_list_label(
+        config.screen_space_shaders && config.native_sky.enabled,
+        sky_status,
+    ));
     if ui.selectable(&sky_label, *selected_item == MenuSelection::NativeSky) {
         *selected_item = MenuSelection::NativeSky;
     }

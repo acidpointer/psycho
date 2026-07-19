@@ -126,6 +126,30 @@ pub struct VertexStreamSourceSnapshot {
 /// D3D9 INTZ depth texture format used for shader-readable depth.
 pub const D3DFMT_INTZ: D3DFORMAT = D3DFORMAT(make_fourcc(b'I', b'N', b'T', b'Z'));
 
+/// 32-bit depth surface.
+pub const D3DFMT_D32: D3DFORMAT = D3DFORMAT(71);
+
+/// 15-bit depth and 1-bit stencil surface.
+pub const D3DFMT_D15S1: D3DFORMAT = D3DFORMAT(73);
+
+/// 24-bit depth and 8-bit stencil surface.
+pub const D3DFMT_D24S8: D3DFORMAT = D3DFORMAT(75);
+
+/// 24-bit depth surface stored in 32 bits.
+pub const D3DFMT_D24X8: D3DFORMAT = D3DFORMAT(77);
+
+/// 24-bit depth and 4-bit stencil surface.
+pub const D3DFMT_D24X4S4: D3DFORMAT = D3DFORMAT(79);
+
+/// 16-bit depth surface.
+pub const D3DFMT_D16: D3DFORMAT = D3DFORMAT(80);
+
+/// Lockable 32-bit floating-point depth surface.
+pub const D3DFMT_D32F_LOCKABLE: D3DFORMAT = D3DFORMAT(82);
+
+/// 24-bit floating-point depth and 8-bit stencil surface.
+pub const D3DFMT_D24FS8: D3DFORMAT = D3DFORMAT(83);
+
 /// Two-channel 16-bit float render target used for compact intermediate buffers.
 pub const D3DFMT_G16R16F: D3DFORMAT = D3DFORMAT(112);
 
@@ -1173,6 +1197,9 @@ pub const USAGE_RENDER_TARGET: u32 = D3DUSAGE_RENDERTARGET as u32;
 
 const D3DCOMPILE_ENABLE_BACKWARDS_COMPATIBILITY: u32 = 1 << 12;
 const D3DCOMPILE_OPTIMIZATION_LEVEL3: u32 = 1 << 15;
+/// Compiler flags that are part of the shader cache contract.
+pub const HLSL_COMPILER_FLAGS: u32 =
+    D3DCOMPILE_ENABLE_BACKWARDS_COMPATIBILITY | D3DCOMPILE_OPTIMIZATION_LEVEL3;
 const D3D_COMPILER_DLLS: &[&str] = &[
     "d3dcompiler_47.dll",
     "d3dcompiler_46.dll",
@@ -1223,8 +1250,6 @@ pub fn compile_hlsl(
     let source_name = CString::new(source_name)?;
     let entry = CString::new("Main")?;
     let target = CString::new(target)?;
-    let flags = D3DCOMPILE_ENABLE_BACKWARDS_COMPATIBILITY | D3DCOMPILE_OPTIMIZATION_LEVEL3;
-
     let mut code = null_mut();
     let mut errors = null_mut();
     let result = unsafe {
@@ -1236,7 +1261,7 @@ pub fn compile_hlsl(
             null_mut(),
             PCSTR::from_raw(entry.as_ptr().cast()),
             PCSTR::from_raw(target.as_ptr().cast()),
-            flags,
+            HLSL_COMPILER_FLAGS,
             0,
             &mut code,
             &mut errors,

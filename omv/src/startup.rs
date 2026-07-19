@@ -16,7 +16,6 @@ struct DeferredHookSettings {
     menu_config: crate::config::GraphicsMenuConfig,
     native_pbr: crate::effects::pbr::NativePbrSettings,
     native_sky: crate::effects::sky::NativeSkySettings,
-    screen_space_shaders: bool,
     depth_provider: crate::backend::DepthProvider,
 }
 
@@ -40,13 +39,16 @@ pub(crate) fn initialize_for_nvse() -> Result<()> {
         "[CONFIG] Loaded '{}' (read-only)",
         crate::config::CONFIG_PATH
     );
+    crate::shaders::start_shader_cache_maintenance();
 
     let menu_config = crate::config::GraphicsMenuConfig::from(cfg);
-    let native_pbr = cfg.graphics.native_pbr.into();
-    let native_sky = cfg.graphics.native_sky.into();
+    let native_pbr = crate::effects::pbr::NativePbrSettings::from(cfg.graphics.native_pbr)
+        .with_master_enabled(cfg.graphics.screen_space_shaders);
+    let native_sky = crate::effects::sky::NativeSkySettings::from(cfg.graphics.native_sky)
+        .with_master_enabled(cfg.graphics.screen_space_shaders);
 
     if !cfg.graphics.screen_space_shaders {
-        log::info!("[SHADERS] Screen-space shader rendering disabled by config");
+        log::info!("[SHADERS] OMV effects disabled by the master config switch");
     }
 
     let depth_provider = cfg.graphics.depth_provider.into();
@@ -68,7 +70,6 @@ pub(crate) fn initialize_for_nvse() -> Result<()> {
         menu_config,
         native_pbr,
         native_sky,
-        screen_space_shaders: cfg.graphics.screen_space_shaders,
         depth_provider,
     });
 
@@ -104,9 +105,7 @@ pub(crate) fn install_deferred_hooks() -> Result<()> {
     crate::effects::pbr::install(settings.native_pbr)?;
     crate::effects::sky::install(settings.native_sky)?;
 
-    if settings.screen_space_shaders
-        && settings.depth_provider != crate::backend::DepthProvider::None
-    {
+    if settings.depth_provider != crate::backend::DepthProvider::None {
         crate::fnv_local_lights::install_hooks();
         crate::fnv_render::install_scene_boundary_hook();
     }

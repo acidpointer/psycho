@@ -2686,6 +2686,7 @@ mod feature_tests {
             reversed_depth: Some(true),
             depth_function: Some(7),
             source_surface: 1,
+            sampled_depth_bits: 24,
         };
         AtmosphereFrame {
             camera,

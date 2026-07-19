@@ -6,9 +6,6 @@
 
 use std::{
     collections::VecDeque,
-    fs,
-    mem::size_of,
-    path::{Path, PathBuf},
     sync::{
         Arc, LazyLock,
         atomic::{AtomicBool, AtomicU32, Ordering},
@@ -305,44 +302,23 @@ fn load_or_compile(job: CompileJob) -> Result<(Vec<u32>, &'static str)> {
     let template = shader_registry::template_at(job.template_id)
         .ok_or_else(|| anyhow::anyhow!("unknown shader template {}", job.template_id))?;
     let source = shader_registry::template_source(job.template_id, template);
-    let source_hash = source_hash(template.stage, template.label, source.as_ref());
-    let cache_path = cache_path(job.template_id, template.stage, template.label, source_hash);
-
-    if let Some(bytecode) = read_cache(&cache_path) {
-        return Ok((bytecode, "cache"));
-    }
-
-    let bytecode = crate::shaders::compile_hlsl_source_target(
-        template.label,
+    let cached = crate::shaders::load_or_compile_hlsl_cached(
+        crate::shaders::HlslCacheSpec {
+            namespace: "native_pbr",
+            family: Some(shader_family(job.template_id)),
+            cache_label: template.label,
+            source_name: template.label,
+            target: shader_registry::shader_profile(template.stage),
+            cache_tag: shader_registry::shader_cache_suffix(template.stage),
+            contract_revision: SHADER_CONTRACT_REVISION,
+        },
         source.as_ref(),
-        shader_registry::shader_profile(template.stage),
     )?;
-    write_cache(&cache_path, &bytecode);
-    Ok((bytecode, "compiler"))
+    Ok((cached.bytecode, cached.origin.label()))
 }
 
-fn source_hash(stage: ShaderStage, label: &str, source: &[u8]) -> u64 {
-    let mut hash = 0xcbf29ce484222325u64;
-    hash = fnv1a_hash_bytes(hash, SHADER_CONTRACT_REVISION);
-    hash = fnv1a_hash_bytes(hash, label.as_bytes());
-    hash = fnv1a_hash_bytes(hash, shader_registry::shader_profile(stage).as_bytes());
-    fnv1a_hash_bytes(hash, source)
-}
-
-fn fnv1a_hash_bytes(mut hash: u64, bytes: &[u8]) -> u64 {
-    for byte in bytes {
-        hash ^= *byte as u64;
-        hash = hash.wrapping_mul(0x100000001b3);
-    }
-    hash
-}
-
-fn cache_path(template_id: u16, stage: ShaderStage, label: &str, source_hash: u64) -> PathBuf {
-    let mut path = PathBuf::from(crate::config::CONFIG_PATH);
-    let _ = path.pop();
-    path.push("cache");
-    path.push("native_pbr");
-    path.push(if shader_registry::template_is_land_lod(template_id) {
+fn shader_family(template_id: u16) -> &'static str {
+    if shader_registry::template_is_land_lod(template_id) {
         "land_lod"
     } else if shader_registry::template_is_terrain_fade(template_id) {
         "terrain_fade"
@@ -350,65 +326,7 @@ fn cache_path(template_id: u16, stage: ShaderStage, label: &str, source_hash: u6
         "close_terrain"
     } else {
         "object"
-    });
-    path.push(format!(
-        "{}_{}_{source_hash:016x}.cso",
-        label,
-        shader_registry::shader_cache_suffix(stage)
-    ));
-    path
-}
-
-fn read_cache(path: &Path) -> Option<Vec<u32>> {
-    let bytes = fs::read(path).ok()?;
-    match dword_aligned_bytecode(&bytes) {
-        Ok(bytecode) => Some(bytecode),
-        Err(err) => {
-            log::warn!(
-                "[PBR] Ignoring invalid PBR shader cache '{}': {err:#}",
-                path.display()
-            );
-            None
-        }
     }
-}
-
-fn write_cache(path: &Path, bytecode: &[u32]) {
-    if let Some(parent) = path.parent()
-        && let Err(err) = fs::create_dir_all(parent)
-    {
-        log::warn!(
-            "[PBR] PBR shader cache directory '{}' could not be created: {err}",
-            parent.display()
-        );
-        return;
-    }
-
-    let mut bytes = Vec::with_capacity(std::mem::size_of_val(bytecode));
-    for word in bytecode {
-        bytes.extend_from_slice(&word.to_le_bytes());
-    }
-
-    if let Err(err) = fs::write(path, bytes) {
-        log::warn!(
-            "[PBR] PBR shader cache '{}' could not be written: {err}",
-            path.display()
-        );
-    }
-}
-
-fn dword_aligned_bytecode(bytes: &[u8]) -> Result<Vec<u32>> {
-    if bytes.is_empty() {
-        anyhow::bail!("shader bytecode is empty");
-    }
-    if bytes.len() % size_of::<u32>() != 0 {
-        anyhow::bail!("shader bytecode length is not DWORD aligned");
-    }
-
-    Ok(bytes
-        .chunks_exact(size_of::<u32>())
-        .map(|chunk| u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]))
-        .collect())
 }
 
 fn template_label(template_id: u32) -> &'static str {

@@ -252,6 +252,13 @@ impl From<crate::config::NativePbrConfig> for NativePbrSettings {
     }
 }
 
+impl NativePbrSettings {
+    pub(crate) const fn with_master_enabled(mut self, master_enabled: bool) -> Self {
+        self.enabled = self.enabled && master_enabled;
+        self
+    }
+}
+
 impl ObjectPbrProfileSettings {
     fn sanitized_values(self) -> [f32; OBJECT_PBR_PROFILE_VALUE_COUNT] {
         [
@@ -628,5 +635,18 @@ fn sanitize_scale(value: f32, fallback: f32, min: f32, max: f32) -> f32 {
         value.clamp(min, max)
     } else {
         fallback
+    }
+}
+
+#[cfg(test)]
+mod master_setting_tests {
+    use super::NativePbrSettings;
+
+    #[test]
+    fn master_switch_is_a_runtime_override_not_a_config_mutation() {
+        let configured = NativePbrSettings::from(crate::config::NativePbrConfig::default());
+        assert!(configured.enabled);
+        assert!(!configured.with_master_enabled(false).enabled);
+        assert!(configured.with_master_enabled(true).enabled);
     }
 }

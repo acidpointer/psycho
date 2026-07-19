@@ -1,6 +1,10 @@
 sampler2D SceneDepth : register(s1);
 sampler2D FirstPersonDepth : register(s2);
 
+#ifndef AO_FAMILY_MODE
+#define AO_FAMILY_MODE 3
+#endif
+
 float4 ScreenData : register(c0);
 float4 FrameData : register(c1);
 float4 CameraData : register(c2);
@@ -12,6 +16,8 @@ float4 ContactOption1 : register(c8);
 float4 ContactOption2 : register(c9);
 float4 DepthData : register(c11);
 float4 CameraFrustum : register(c12);
+float4 DepthPrecisionData : register(c19);
+float4 DepthLinearizeData : register(c20);
 
 static const float DepthEndpointEpsilon = 0.000001f;
 static const float MinFastRadiusPixels = 1.0f;
@@ -20,6 +26,7 @@ static const float MinFastBias = 0.015f;
 static const float FastDepthBiasScale = 0.000035f;
 static const float MinContactRange = 0.08f;
 static const float MinContactBias = 0.01f;
+static const float KernelTurn = 0.70710678f;
 
 struct PixelInput {
     float2 uv : TEXCOORD0;
@@ -50,27 +57,27 @@ float FirstPersonHardwareDepth(float2 uv) {
     return tex2Dlod(FirstPersonDepth, float4(uv, 0.0f, 0.0f)).r;
 }
 
-bool IsValidDepth(float depth) {
-    if (UseReversedDepth()) {
+bool IsValidDepth(float depth, bool reversedDepth) {
+    if (reversedDepth) {
         return depth >= 0.0f && depth <= 1.0f;
     }
 
     return depth > DepthEndpointEpsilon && depth < (1.0f - DepthEndpointEpsilon);
 }
 
-float LinearDepth(float depth) {
-    float nearZ = max(CameraData.x, 0.01f);
-    float farZ = max(CameraData.y, nearZ + 1.0f);
-    if (UseReversedDepth()) {
-        return (nearZ * farZ) / max(depth * (farZ - nearZ) + nearZ, 0.001f);
+float LinearDepth(float depth, bool reversedDepth) {
+    if (reversedDepth) {
+        return DepthLinearizeData.x
+            / max(depth * DepthLinearizeData.y + DepthLinearizeData.z, 0.001f);
     }
 
-    return (nearZ * farZ) / max(farZ - depth * (farZ - nearZ), 0.001f);
+    return DepthLinearizeData.x
+        / max(DepthLinearizeData.w - depth * DepthLinearizeData.y, 0.001f);
 }
 
-bool IsSkyDepth(float rawDepth, float linearDepth) {
-    float farZ = max(CameraData.y, 2.0f);
-    if (UseReversedDepth()) {
+bool IsSkyDepth(float rawDepth, float linearDepth, bool reversedDepth) {
+    float farZ = DepthLinearizeData.w;
+    if (reversedDepth) {
         return rawDepth <= DepthEndpointEpsilon || linearDepth >= farZ * 0.995f;
     }
 
@@ -91,8 +98,12 @@ bool IsFirstPersonPixel(float2 uv) {
 }
 
 float DepthKey(float linearDepth) {
-    float farZ = max(CameraData.y, 2.0f);
+    float farZ = DepthLinearizeData.w;
     return saturate(log2(linearDepth + 1.0f) / max(log2(farZ + 1.0f), 0.001f));
+}
+
+float DepthPrecisionBias(float linearDepth) {
+	return linearDepth * linearDepth * max(DepthPrecisionData.x, 0.0f);
 }
 
 float FastRadiusPixels(float linearDepth) {
@@ -110,45 +121,64 @@ float3 ReconstructViewPosition(float2 uv, float linearDepth) {
 	return float3(viewX, viewY, linearDepth);
 }
 
-bool LoadViewPosition(float2 uv, out float3 position) {
+float2 DepthTexelCenter(float2 uv) {
+	float2 pixel = min(floor(uv * ScreenData.xy), ScreenData.xy - 1.0f);
+	return (pixel + 0.5f) * ScreenData.zw;
+}
+
+bool LoadViewPosition(float2 uv, bool reversedDepth, out float3 position) {
 	position = 0.0f;
 	if (!IsInsideScreen(uv)) {
 		return false;
 	}
 
-	float rawSampleDepth = HardwareDepth(uv);
-	if (!IsValidDepth(rawSampleDepth)) {
+	float2 sampleUv = DepthTexelCenter(uv);
+	float rawSampleDepth = HardwareDepth(sampleUv);
+	if (!IsValidDepth(rawSampleDepth, reversedDepth)) {
 		return false;
 	}
 
-	float sampleDepth = LinearDepth(rawSampleDepth);
-	if (IsSkyDepth(rawSampleDepth, sampleDepth)) {
+	float sampleDepth = LinearDepth(rawSampleDepth, reversedDepth);
+	if (IsSkyDepth(rawSampleDepth, sampleDepth, reversedDepth)) {
 		return false;
 	}
-	position = ReconstructViewPosition(uv, sampleDepth);
+	position = ReconstructViewPosition(sampleUv, sampleDepth);
 	return true;
 }
 
-float3 PositionOrCenter(float2 uv, float3 centerPosition) {
-	float3 position;
-	return LoadViewPosition(uv, position) ? position : centerPosition;
-}
+float3 ReconstructNormal(float2 uv, bool reversedDepth, float3 centerPosition) {
+	float3 left;
+	float3 right;
+	float3 up;
+	float3 down;
+	bool leftValid = LoadViewPosition(
+		uv - float2(ScreenData.z, 0.0f), reversedDepth, left
+	);
+	bool rightValid = LoadViewPosition(
+		uv + float2(ScreenData.z, 0.0f), reversedDepth, right
+	);
+	bool upValid = LoadViewPosition(
+		uv - float2(0.0f, ScreenData.w), reversedDepth, up
+	);
+	bool downValid = LoadViewPosition(
+		uv + float2(0.0f, ScreenData.w), reversedDepth, down
+	);
 
-float3 ReconstructNormal(float2 uv, float3 centerPosition) {
-	float3 left = PositionOrCenter(uv - float2(ScreenData.z, 0.0f), centerPosition);
-	float3 right = PositionOrCenter(uv + float2(ScreenData.z, 0.0f), centerPosition);
-	float3 up = PositionOrCenter(uv - float2(0.0f, ScreenData.w), centerPosition);
-	float3 down = PositionOrCenter(uv + float2(0.0f, ScreenData.w), centerPosition);
-
-	float3 dx = abs(left.z - centerPosition.z) < abs(right.z - centerPosition.z)
-		? centerPosition - left
-		: right - centerPosition;
-	float3 dy = abs(up.z - centerPosition.z) < abs(down.z - centerPosition.z)
-		? centerPosition - up
-		: down - centerPosition;
+	float3 dx = !leftValid
+		? (rightValid ? right - centerPosition : 0.0f)
+		: (!rightValid || abs(left.z - centerPosition.z) < abs(right.z - centerPosition.z)
+			? centerPosition - left
+			: right - centerPosition);
+	float3 dy = !upValid
+		? (downValid ? down - centerPosition : 0.0f)
+		: (!downValid || abs(up.z - centerPosition.z) < abs(down.z - centerPosition.z)
+			? centerPosition - up
+			: down - centerPosition);
 	float3 normal = cross(dx, dy);
 	float lengthSquared = dot(normal, normal);
-	return lengthSquared > 0.0000001f ? normal * rsqrt(lengthSquared) : float3(0.0f, 0.0f, -1.0f);
+	return lengthSquared > 0.0000001f
+		? normal * rsqrt(lengthSquared)
+		: float3(0.0f, 0.0f, -1.0f);
 }
 
 float2 ProjectViewPosition(float3 position) {
@@ -178,7 +208,9 @@ float SampleProjectedOcclusion(
 	float2 direction,
 	float sampleScale,
 	float radius,
-	float bias
+	float bias,
+	bool reversedDepth,
+	bool rejectCoplanar
 ) {
 	float3 hemisphereDirection = normalize(
 		tangent * direction.x + bitangent * direction.y + normal * 0.55f
@@ -186,7 +218,7 @@ float SampleProjectedOcclusion(
 	float3 expectedPosition = centerPosition + hemisphereDirection * radius * sampleScale;
 	float2 sampleUv = ProjectViewPosition(expectedPosition);
 	float3 actualPosition;
-	if (!LoadViewPosition(sampleUv, actualPosition)) {
+	if (!LoadViewPosition(sampleUv, reversedDepth, actualPosition)) {
 		return 0.0f;
 	}
 
@@ -195,29 +227,54 @@ float SampleProjectedOcclusion(
 		return 0.0f;
 	}
 
+	if (rejectCoplanar && dot(actualPosition - centerPosition, normal) <= bias) {
+		return 0.0f;
+	}
+
 	float falloff = 1.0f - Smooth01(abs(depthDelta) / max(radius, 0.001f));
 	return falloff * falloff;
 }
 
-float KernelOcclusion(float3 centerPosition, float3 normal, float2 uv, float radiusPixels, float range, float bias) {
-	float3 axis = abs(normal.z) < 0.99f ? float3(0.0f, 0.0f, 1.0f) : float3(0.0f, 1.0f, 0.0f);
+float KernelOcclusion(
+	float3 centerPosition,
+	float3 normal,
+	float2 uv,
+	float radiusPixels,
+	float range,
+	float bias,
+	bool reversedDepth,
+	bool rejectCoplanar
+) {
+	float3 axis = abs(normal.z) < 0.99f
+		? float3(0.0f, 0.0f, 1.0f)
+		: float3(0.0f, 1.0f, 0.0f);
 	float3 tangent = normalize(cross(axis, normal));
 	float3 bitangent = cross(normal, tangent);
 	float angle = StableRotation(uv);
 	float cosine = cos(angle);
 	float sine = sin(angle);
 	float2x2 rotation = float2x2(cosine, -sine, sine, cosine);
-	float radius = min(max(range, 0.001f), ViewRadiusFromPixels(radiusPixels, centerPosition.z));
+	float radius = min(
+		max(range, 0.001f),
+		ViewRadiusFromPixels(radiusPixels, centerPosition.z)
+	);
 
 	float occlusion = 0.0f;
-	occlusion += SampleProjectedOcclusion(centerPosition, normal, tangent, bitangent, mul(float2( 1.0000f,  0.0000f), rotation), 0.28f, radius, bias);
-	occlusion += SampleProjectedOcclusion(centerPosition, normal, tangent, bitangent, mul(float2( 0.7071f,  0.7071f), rotation), 0.40f, radius, bias);
-	occlusion += SampleProjectedOcclusion(centerPosition, normal, tangent, bitangent, mul(float2( 0.0000f,  1.0000f), rotation), 0.52f, radius, bias);
-	occlusion += SampleProjectedOcclusion(centerPosition, normal, tangent, bitangent, mul(float2(-0.7071f,  0.7071f), rotation), 0.64f, radius, bias);
-	occlusion += SampleProjectedOcclusion(centerPosition, normal, tangent, bitangent, mul(float2(-1.0000f,  0.0000f), rotation), 0.73f, radius, bias);
-	occlusion += SampleProjectedOcclusion(centerPosition, normal, tangent, bitangent, mul(float2(-0.7071f, -0.7071f), rotation), 0.82f, radius, bias);
-	occlusion += SampleProjectedOcclusion(centerPosition, normal, tangent, bitangent, mul(float2( 0.0000f, -1.0000f), rotation), 0.91f, radius, bias);
-	occlusion += SampleProjectedOcclusion(centerPosition, normal, tangent, bitangent, mul(float2( 0.7071f, -0.7071f), rotation), 1.00f, radius, bias);
+	float2 direction = mul(float2(1.0f, 0.0f), rotation);
+	[loop]
+	for (int sampleIndex = 0; sampleIndex < 8; ++sampleIndex) {
+		float sampleScale = sampleIndex < 4
+			? 0.28f + 0.12f * sampleIndex
+			: 0.73f + 0.09f * (sampleIndex - 4);
+		occlusion += SampleProjectedOcclusion(
+			centerPosition, normal, tangent, bitangent, direction,
+			sampleScale, radius, bias, reversedDepth, rejectCoplanar
+		);
+		direction = float2(
+			(direction.x - direction.y) * KernelTurn,
+			(direction.x + direction.y) * KernelTurn
+		);
+	}
 	return occlusion * 0.125f;
 }
 
@@ -234,13 +291,15 @@ float4 Main(PixelInput input) : COLOR0 {
         return NoOcclusion();
     }
 
-    float rawDepth = HardwareDepth(input.uv);
-    if (!IsValidDepth(rawDepth)) {
+    bool reversedDepth = UseReversedDepth();
+	float2 centerUv = DepthTexelCenter(input.uv);
+	float rawDepth = HardwareDepth(centerUv);
+    if (!IsValidDepth(rawDepth, reversedDepth)) {
         return NoOcclusion();
     }
 
-	float centerDepth = LinearDepth(rawDepth);
-    if (IsSkyDepth(rawDepth, centerDepth)) {
+	float centerDepth = LinearDepth(rawDepth, reversedDepth);
+    if (IsSkyDepth(rawDepth, centerDepth, reversedDepth)) {
         return NoOcclusion();
     }
 
@@ -254,20 +313,33 @@ float4 Main(PixelInput input) : COLOR0 {
 		return NoOcclusion();
 	}
 
-	float3 centerPosition = ReconstructViewPosition(input.uv, centerDepth);
-	float3 normal = ReconstructNormal(input.uv, centerPosition);
+	float3 centerPosition = ReconstructViewPosition(centerUv, centerDepth);
+	float3 normal = ReconstructNormal(centerUv, reversedDepth, centerPosition);
 	float fastRadius = FastRadiusPixels(centerDepth);
 	float fastRange = max(centerDepth * FastOption0.w, MinFastRange);
 	float fastBias = max(centerDepth * FastDepthBiasScale, MinFastBias);
+	float contactRadius = max(ContactOption0.y, 0.5f);
+	float contactRange = max(centerDepth * ContactOption0.z, MinContactRange);
+	float contactBias = max(
+		max(centerDepth * ContactOption0.w, MinContactBias),
+		DepthPrecisionBias(centerDepth)
+	);
 
-    float contactRadius = max(ContactOption0.y, 0.5f);
-    float contactRange = max(centerDepth * ContactOption0.z, MinContactRange);
-    float contactBias = max(centerDepth * ContactOption0.w, MinContactBias);
-
-	float fastOcclusion = KernelOcclusion(centerPosition, normal, input.uv, fastRadius, fastRange, fastBias);
-	float contactOcclusion = KernelOcclusion(centerPosition, normal, input.uv, contactRadius, contactRange, contactBias);
-
-	float amount = saturate(fastOcclusion) * fastStrength;
+	float amount = 0.0f;
+#if AO_FAMILY_MODE != 2
+	float fastOcclusion = KernelOcclusion(
+		centerPosition, normal, input.uv,
+		fastRadius, fastRange, fastBias, reversedDepth, false
+	);
+	amount += saturate(fastOcclusion) * fastStrength;
+#endif
+#if AO_FAMILY_MODE != 1
+	float contactOcclusion = KernelOcclusion(
+		centerPosition, normal, input.uv,
+		contactRadius, contactRange, contactBias, reversedDepth, true
+	);
 	amount += saturate(contactOcclusion) * contactStrength;
+#endif
+
     return float4(saturate(amount), DepthKey(centerDepth), 0.0f, 1.0f);
 }
