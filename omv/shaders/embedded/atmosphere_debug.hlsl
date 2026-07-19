@@ -15,6 +15,7 @@ float4 LightingDebugData : register(c7);
 float4 SunDirection : register(c8);
 float4 SunColor : register(c9);
 float4 SunDiskDelta : register(c10);
+float4 LightingMediumData : register(c11);
 
 static const float InverseFourPi = 0.0795774715f;
 static const float FourPi = 12.5663706144f;
@@ -80,8 +81,11 @@ float4 Main(PixelInput input) : COLOR0 {
 			float3 radiance = max(SunColor.rgb, 0.0f)
 				+ max(SunDiskDelta.rgb, 0.0f) * max(LightingDebugData.z, 0.0f) * diskLobe;
 			float visibility = lerp(1.0f, shaft.x, saturate(SunDirection.w));
+			float distance = DecodeDistance(tex2Dlod(ReducedDepth, float4(reducedUv, 0.0f, 0.0f)).y);
+			float lightingAmount = 1.0f - exp(-max(LightingMediumData.x, 0.0f) * distance);
+			float directionalAmount = max(1.0f - saturate(integrated.a), lightingAmount);
 			float3 preview = radiance * SunColor.w * LightingDebugData.y * phase
-				* (1.0f - saturate(integrated.a)) * visibility;
+				* directionalAmount * visibility;
 			preview = preview / (1.0f + preview);
 			return float4(preview, source.a);
 		}

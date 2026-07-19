@@ -334,6 +334,7 @@ impl EmbeddedEffectsConfig {
     fn sanitized(mut self) -> Self {
         self.volumetric_fog = self.volumetric_fog.sanitized();
         self.volumetric_lighting = self.volumetric_lighting.sanitized();
+        self.sunshafts = self.sunshafts.sanitized();
         self
     }
 }
@@ -560,6 +561,7 @@ pub(crate) struct SunshaftsConfig {
     pub(crate) debug_mask: bool,
     pub(crate) sun_sample_px: i32,
     pub(crate) glare_radius: f32,
+    pub(crate) medium_response: f32,
     pub(crate) occlusion_softness: f32,
 }
 
@@ -580,8 +582,41 @@ impl Default for SunshaftsConfig {
             debug_mask: false,
             sun_sample_px: 32,
             glare_radius: 0.07175863,
+            medium_response: 1.0,
             occlusion_softness: 0.42,
         }
+    }
+}
+
+impl SunshaftsConfig {
+    fn sanitized(mut self) -> Self {
+        let defaults = Self::default();
+        self.intensity = finite_clamp(self.intensity, defaults.intensity, 0.0, 2.5);
+        self.exposure = finite_clamp(self.exposure, defaults.exposure, 0.0, 2.8);
+        self.decay = finite_clamp(self.decay, defaults.decay, 0.65, 1.035);
+        self.density = finite_clamp(self.density, defaults.density, 0.2, 1.35);
+        self.force = finite_clamp(self.force, defaults.force, 0.0, 4.0);
+        self.bright_threshold =
+            finite_clamp(self.bright_threshold, defaults.bright_threshold, 0.0, 1.0);
+        self.warmth = finite_clamp(self.warmth, defaults.warmth, 0.0, 1.0);
+        self.first_person_occlusion = finite_clamp(
+            self.first_person_occlusion,
+            defaults.first_person_occlusion,
+            0.0,
+            1.0,
+        );
+        self.sun_falloff = finite_clamp(self.sun_falloff, defaults.sun_falloff, 0.16, 1.2);
+        self.sun_sample_px = self.sun_sample_px.clamp(2, 48);
+        self.glare_radius = finite_clamp(self.glare_radius, defaults.glare_radius, 0.01, 0.08);
+        self.medium_response =
+            finite_clamp(self.medium_response, defaults.medium_response, 0.0, 2.0);
+        self.occlusion_softness = finite_clamp(
+            self.occlusion_softness,
+            defaults.occlusion_softness,
+            0.0,
+            0.75,
+        );
+        self
     }
 }
 
@@ -1115,6 +1150,8 @@ fn save_embedded_effect_config(doc: &mut DocumentMut, config: &EmbeddedEffectsCo
         value(sun.sun_sample_px as i64);
     doc["graphics"]["embedded_effects"]["sunshafts"]["glare_radius"] =
         value(sun.glare_radius as f64);
+    doc["graphics"]["embedded_effects"]["sunshafts"]["medium_response"] =
+        value(sun.medium_response as f64);
     doc["graphics"]["embedded_effects"]["sunshafts"]["occlusion_softness"] =
         value(sun.occlusion_softness as f64);
 
@@ -1215,6 +1252,8 @@ albedo_saturation = 1.02
         config.volumetric_lighting.shaft_strength = 9.0;
         config.volumetric_lighting.debug_view = 99;
         config.volumetric_lighting.temporal_stability = f32::NAN;
+        config.sunshafts.medium_response = f32::NAN;
+        config.sunshafts.sun_sample_px = 99;
 
         let config = config.sanitized();
 
@@ -1226,6 +1265,8 @@ albedo_saturation = 1.02
         assert_eq!(config.volumetric_lighting.shaft_strength, 1.0);
         assert_eq!(config.volumetric_lighting.debug_view, 5);
         assert_eq!(config.volumetric_lighting.temporal_stability, 0.9);
+        assert_eq!(config.sunshafts.medium_response, 1.0);
+        assert_eq!(config.sunshafts.sun_sample_px, 48);
     }
 
     #[test]

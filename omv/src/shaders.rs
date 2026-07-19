@@ -1036,7 +1036,7 @@ fn sunshafts_source(config: &SunshaftsConfig) -> ScreenShaderSource {
             float_option("force", "Force", config.force, 0.0, 4.0, 4, 0),
             float_option(
                 "bright_threshold",
-                "Bright threshold",
+                "Sun source response",
                 config.bright_threshold,
                 0.28,
                 0.95,
@@ -1087,6 +1087,15 @@ fn sunshafts_source(config: &SunshaftsConfig) -> ScreenShaderSource {
                 0.080,
                 7,
                 1,
+            ),
+            float_option(
+                "medium_response",
+                "Fog visibility gain",
+                config.medium_response,
+                0.0,
+                2.0,
+                7,
+                2,
             ),
             float_option(
                 "occlusion_softness",
@@ -1627,6 +1636,7 @@ fn sync_sunshafts_config(source: &ScreenShaderSource, config: &mut SunshaftsConf
             "debug_mask" => config.debug_mask = option_bool(option),
             "sun_sample_px" => config.sun_sample_px = option_integer(option),
             "glare_radius" => config.glare_radius = option_float(option),
+            "medium_response" => config.medium_response = option_float(option),
             "occlusion_softness" => config.occlusion_softness = option_float(option),
             _ => {}
         }

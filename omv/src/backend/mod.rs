@@ -76,6 +76,14 @@ pub(crate) fn publish_fnv_underwater_classification(underwater: bool) {
     fnv::publish_underwater_classification(underwater);
 }
 
+pub(crate) fn publish_fnv_first_person_rendered() {
+    fnv::publish_first_person_rendered();
+}
+
+pub(crate) fn fnv_first_person_rendered() -> bool {
+    fnv::first_person_rendered()
+}
+
 pub(crate) fn sun_frame(depth_provider: DepthProvider) -> SunFrame {
     match depth_provider {
         DepthProvider::None => SunFrame::default(),
@@ -89,6 +97,10 @@ pub(crate) fn material_state_frame() -> MaterialStateFrame {
 
 pub(crate) fn native_sky_frame() -> Option<NativeSkyFrame> {
     fnv::native_sky_frame()
+}
+
+pub(crate) fn fnv_alpha_coverage_mode() -> AlphaCoverageMode {
+    fnv::alpha_coverage_mode()
 }
 
 pub(crate) fn depth_frame(depth_provider: DepthProvider) -> DepthFrame {
@@ -202,6 +214,14 @@ pub(crate) enum DepthAccess<T> {
     Ready(T),
 }
 
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) enum AlphaCoverageMode {
+    #[default]
+    None,
+    Nvidia,
+    Amd,
+}
+
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum DepthResolveOutcome {
     Busy,
@@ -227,6 +247,10 @@ pub(crate) struct FrameInputs {
     pub(crate) depth: DepthFrame,
     pub(crate) environment: EnvironmentFrame,
     pub(crate) sun: SunFrame,
+    pub(crate) sky: Option<NativeSkyFrame>,
+    pub(crate) atmosphere_visibility: f32,
+    pub(crate) atmosphere_available: bool,
+    pub(crate) first_person_rendered: bool,
     pub(crate) material_state: MaterialStateFrame,
 }
 
@@ -350,6 +374,91 @@ impl Default for CameraFrame {
             available: false,
         }
     }
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct SunProjectionFrame {
+    pub(crate) uv: [f32; 2],
+    pub(crate) facing: f32,
+    pub(crate) edge_fade: f32,
+    pub(crate) on_screen: bool,
+}
+
+pub(crate) fn project_world_direction(
+    camera: CameraFrame,
+    world_direction: [f32; 3],
+) -> SunProjectionFrame {
+    let transform = camera.world_transform;
+    if !camera.available || !transform.available || !world_direction.into_iter().all(f32::is_finite)
+    {
+        return SunProjectionFrame::default();
+    }
+    let direction_length = dot3(world_direction, world_direction).sqrt();
+    if !direction_length.is_finite() || direction_length <= 0.000001 {
+        return SunProjectionFrame::default();
+    }
+    let direction = world_direction.map(|value| value / direction_length);
+    let forward = [
+        transform.rotation[0][0],
+        transform.rotation[1][0],
+        transform.rotation[2][0],
+    ];
+    let up = [
+        transform.rotation[0][1],
+        transform.rotation[1][1],
+        transform.rotation[2][1],
+    ];
+    let right = [
+        transform.rotation[0][2],
+        transform.rotation[1][2],
+        transform.rotation[2][2],
+    ];
+    let view_x = dot3(direction, right);
+    let view_y = dot3(direction, up);
+    let facing = dot3(direction, forward);
+    let frustum_width = camera.frustum_right - camera.frustum_left;
+    let frustum_height = camera.frustum_top - camera.frustum_bottom;
+    if !facing.is_finite()
+        || facing <= 0.001
+        || !frustum_width.is_finite()
+        || !frustum_height.is_finite()
+        || frustum_width <= f32::EPSILON
+        || frustum_height <= f32::EPSILON
+    {
+        return SunProjectionFrame {
+            facing: finite(facing, 0.0),
+            ..SunProjectionFrame::default()
+        };
+    }
+
+    let ndc_x =
+        (2.0 * view_x / facing - (camera.frustum_right + camera.frustum_left)) / frustum_width;
+    let ndc_y =
+        (2.0 * view_y / facing - (camera.frustum_top + camera.frustum_bottom)) / frustum_height;
+    let uv = [ndc_x.mul_add(0.5, 0.5), ndc_y.mul_add(-0.5, 0.5)];
+    if !uv.into_iter().all(f32::is_finite) {
+        return SunProjectionFrame::default();
+    }
+    let edge = uv[0].min(1.0 - uv[0]).min(uv[1].min(1.0 - uv[1]));
+    SunProjectionFrame {
+        uv,
+        facing,
+        edge_fade: smooth01((edge / 0.035).clamp(0.0, 1.0)),
+        on_screen: edge >= 0.0,
+    }
+}
+
+fn dot3(a: [f32; 3], b: [f32; 3]) -> f32 {
+    a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+}
+
+fn smooth01(value: f32) -> f32 {
+    let value = finite(value, 0.0).clamp(0.0, 1.0);
+    value * value * (3.0 - 2.0 * value)
+}
+
+fn finite(value: f32, fallback: f32) -> f32 {
+    if value.is_finite() { value } else { fallback }
 }
 
 #[derive(Clone, Copy, Debug)]

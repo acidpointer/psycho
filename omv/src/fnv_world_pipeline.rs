@@ -49,6 +49,8 @@ static CONFIG_PUBLISH_BUSY: AtomicU32 = AtomicU32::new(0);
 static CONFIG_READ_BUSY: AtomicU32 = AtomicU32::new(0);
 static JITTER_LOCK_BUSY: AtomicU32 = AtomicU32::new(0);
 static PRIMARY_ATTEMPTS: AtomicU32 = AtomicU32::new(0);
+static PRE_ALPHA_ATTEMPTS: AtomicU32 = AtomicU32::new(0);
+static PRE_ALPHA_LOCK_BUSY: AtomicU32 = AtomicU32::new(0);
 static PRIMARY_LOCK_BUSY: AtomicU32 = AtomicU32::new(0);
 static DEPTH_LOCK_BUSY: AtomicU32 = AtomicU32::new(0);
 static RETRY_ATTEMPTS: AtomicU32 = AtomicU32::new(0);
@@ -184,6 +186,10 @@ pub(crate) fn needs_temporal_aa() -> bool {
     REQUIREMENTS.load(Ordering::Acquire) & REQUIRE_TEMPORAL_AA != 0
 }
 
+pub(crate) fn needs_atmosphere() -> bool {
+    REQUIREMENTS.load(Ordering::Acquire) & REQUIRE_WORLD_COLOR != 0
+}
+
 pub(crate) fn fog_estimate() -> Option<(f32, f32)> {
     (LAST_ESTIMATE_EPOCH.load(Ordering::Acquire) != 0).then(|| {
         (
@@ -191,6 +197,11 @@ pub(crate) fn fog_estimate() -> Option<(f32, f32)> {
             f32::from_bits(LAST_TRANSMITTANCE.load(Ordering::Acquire)),
         )
     })
+}
+
+pub(crate) fn atmosphere_visibility() -> Option<f32> {
+    (LAST_ESTIMATE_EPOCH.load(Ordering::Acquire) == crate::hooks::render_epoch())
+        .then(|| 1.0 - f32::from_bits(LAST_TRANSMITTANCE.load(Ordering::Acquire)).clamp(0.0, 1.0))
 }
 
 pub(crate) unsafe fn begin_temporal_aa_jitter(
@@ -230,6 +241,23 @@ pub(crate) unsafe fn apply_primary(device_ptr: *mut c_void) {
 
     if let Err(err) = unsafe { runtime.apply(device_ptr, epoch, target, ApplyOrigin::Primary) } {
         runtime.log_error("primary", &err);
+    }
+}
+
+pub(crate) unsafe fn apply_before_alpha(device_ptr: *mut c_void) {
+    if !needs_atmosphere() {
+        return;
+    }
+
+    let epoch = crate::hooks::render_epoch();
+    PRE_ALPHA_ATTEMPTS.fetch_add(1, Ordering::Relaxed);
+    let target = current_device_target(device_ptr).unwrap_or(0);
+    let Some(mut runtime) = WORLD_PIPELINE.try_lock() else {
+        PRE_ALPHA_LOCK_BUSY.fetch_add(1, Ordering::Relaxed);
+        return;
+    };
+    if let Err(err) = unsafe { runtime.apply_atmosphere_before_alpha(device_ptr, epoch, target) } {
+        runtime.log_error("before_alpha", &err);
     }
 }
 
@@ -325,8 +353,10 @@ pub(crate) fn finish_present(epoch: u32) {
     let presents = PRESENTS.fetch_add(1, Ordering::Relaxed) + 1;
     if PRIMARY_ATTEMPTS.load(Ordering::Relaxed) != 0 && presents % 600 == 0 {
         log::info!(
-            "[FNV WORLD] Reliability: presents={}, primary={}, applied={}, completed_no_draw={}, config_publish_busy={}, config_read_busy={}, jitter_busy={}, primary_busy={}, depth_busy={}, retries={}, retry_busy={}, retry_completed={}, target_rejected={}, outer_target_mismatch={}, deadline_missed={}, failures={}",
+            "[FNV WORLD] Reliability: presents={}, pre_alpha={}/busy={}, primary={}, applied={}, completed_no_draw={}, config_publish_busy={}, config_read_busy={}, jitter_busy={}, primary_busy={}, depth_busy={}, retries={}, retry_busy={}, retry_completed={}, target_rejected={}, outer_target_mismatch={}, deadline_missed={}, failures={}",
             presents,
+            PRE_ALPHA_ATTEMPTS.load(Ordering::Relaxed),
+            PRE_ALPHA_LOCK_BUSY.load(Ordering::Relaxed),
             PRIMARY_ATTEMPTS.load(Ordering::Relaxed),
             APPLIED_FRAMES.load(Ordering::Relaxed),
             COMPLETED_WITHOUT_DRAW.load(Ordering::Relaxed),
@@ -411,6 +441,14 @@ struct EpochState {
     epoch: u32,
     target: usize,
     outcome: EpochOutcome,
+    atmosphere_complete: bool,
+    atmosphere_drew: bool,
+}
+
+fn record_pre_alpha_outcome(epoch: &mut EpochState, outcome: AtmosphereDrawOutcome) {
+    let drew = outcome.drew();
+    epoch.atmosphere_complete = outcome.completes_pre_alpha();
+    epoch.atmosphere_drew = drew;
 }
 
 impl Default for EpochState {
@@ -419,6 +457,8 @@ impl Default for EpochState {
             epoch: 0,
             target: 0,
             outcome: EpochOutcome::CompletedWithoutDraw,
+            atmosphere_complete: false,
+            atmosphere_drew: false,
         }
     }
 }
@@ -440,6 +480,57 @@ struct FnvWorldPipelineRuntime {
 }
 
 impl FnvWorldPipelineRuntime {
+    unsafe fn apply_atmosphere_before_alpha(
+        &mut self,
+        device_ptr: *mut c_void,
+        epoch: u32,
+        target: usize,
+    ) -> Direct3DResult<()> {
+        self.refresh_config();
+        self.begin_epoch(epoch);
+        let settings = self.config.atmosphere_settings();
+        if !settings.requires_world_color() || self.epoch.atmosphere_complete {
+            return Ok(());
+        }
+        if target == 0 || current_device_target(device_ptr) != Some(target) {
+            return Ok(());
+        }
+        let Some(device) = (unsafe { Device9Ref::from_raw_void(device_ptr) }) else {
+            return Ok(());
+        };
+        self.ensure_device(device_ptr);
+        let world_target = device.render_target(0)?;
+        if world_target.as_raw() as usize != target {
+            return Ok(());
+        }
+        let desc = world_target.desc()?;
+        if desc.Width == 0 || desc.Height == 0 {
+            return Ok(());
+        }
+        let depth = match unsafe {
+            backend::resolve_scene_depth(
+                self.config.depth_provider,
+                device_ptr,
+                None,
+                DepthResolveSlot::World,
+                "FNV atmosphere before alpha coverage",
+                epoch,
+            )
+        } {
+            DepthResolveOutcome::Busy => {
+                DEPTH_LOCK_BUSY.fetch_add(1, Ordering::Relaxed);
+                return Ok(());
+            }
+            DepthResolveOutcome::Rejected => return Ok(()),
+            DepthResolveOutcome::Resolved { depth, underwater } => (depth, underwater),
+        };
+
+        let outcome =
+            self.draw_atmosphere(&device, &world_target, &desc, depth, settings, true, epoch)?;
+        record_pre_alpha_outcome(&mut self.epoch, outcome);
+        Ok(())
+    }
+
     unsafe fn temporal_aa_jitter(
         &mut self,
         device_ptr: *mut c_void,
@@ -533,6 +624,13 @@ impl FnvWorldPipelineRuntime {
             return Ok(());
         }
 
+        let settings = self.config.atmosphere_settings();
+        let atmosphere_remaining =
+            settings.requires_world_color() && !self.epoch.atmosphere_complete;
+        if !self.config.temporal_aa_enabled() && !atmosphere_remaining {
+            return self.finish_epoch(epoch, target, origin, self.epoch.atmosphere_drew);
+        }
+
         let depth = match unsafe {
             backend::resolve_scene_depth(
                 self.config.depth_provider,
@@ -560,7 +658,7 @@ impl FnvWorldPipelineRuntime {
             DepthResolveOutcome::Resolved { depth, underwater } => (depth, underwater),
         };
 
-        let mut drew = false;
+        let mut drew = self.epoch.atmosphere_drew;
         if self.config.temporal_aa_enabled() {
             self.ensure_temporal_aa(&device)?;
             let temporal_aa_ready = self.temporal_aa.is_some();
@@ -586,60 +684,95 @@ impl FnvWorldPipelineRuntime {
             drew |= temporal_aa_ready;
         }
 
-        let settings = self.config.atmosphere_settings();
-        if settings.requires_world_color() {
-            self.capture_world_color(&device, &world_target, &desc)?;
-            self.ensure_atmosphere(&device)?;
-            self.ensure_state_block(&device)?;
-            let frame = backend::atmosphere_frame_from_depth(
-                self.config.depth_provider,
+        if atmosphere_remaining {
+            let taa_alpha_ready = !self.config.temporal_aa_enabled()
+                || self.temporal_aa.as_ref().is_some_and(|effect| {
+                    effect.alpha_preserving_history_ready(TargetDescription::from(&desc))
+                });
+            let outcome = self.draw_atmosphere(
+                &device,
+                &world_target,
                 &desc,
-                settings.max_distance,
-                depth.0,
-                depth.1,
-            );
+                depth,
+                settings,
+                taa_alpha_ready,
+                epoch,
+            )?;
+            self.epoch.atmosphere_complete = true;
+            self.epoch.atmosphere_drew = outcome.drew();
+            drew |= outcome.drew();
+        }
+
+        self.finish_epoch(epoch, target, origin, drew)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn draw_atmosphere(
+        &mut self,
+        device: &Device9Ref<'_>,
+        world_target: &Surface9,
+        desc: &D3DSURFACE_DESC,
+        depth: (backend::DepthFrame, backend::UnderwaterFrame),
+        settings: AtmosphereSettings,
+        taa_alpha_ready: bool,
+        epoch: u32,
+    ) -> Direct3DResult<AtmosphereDrawOutcome> {
+        self.capture_world_color(device, world_target, desc)?;
+        self.ensure_atmosphere(device)?;
+        self.ensure_state_block(device)?;
+        let frame = backend::atmosphere_frame_from_depth(
+            self.config.depth_provider,
+            desc,
+            settings.max_distance,
+            depth.0,
+            depth.1,
+        );
+        let attachments = RenderAttachments::capture(device, world_target.clone())?;
+        let state_block = self
+            .state_block
+            .as_ref()
+            .ok_or_else(|| runtime_error("missing atmosphere state block"))?;
+        state_block.capture()?;
+        let world_color = self.world_color.as_ref().map(|copy| &copy.texture);
+        let mut result =
+            self.atmosphere
+                .as_mut()
+                .map_or(Ok(AtmosphereDrawOutcome::Skipped), |effect| {
+                    effect.draw(
+                        device,
+                        world_target,
+                        desc,
+                        frame,
+                        world_color,
+                        settings,
+                        self.config.temporal_aa_enabled(),
+                        taa_alpha_ready,
+                    )
+                });
+        let mut restore = attachments.restore(device);
+        keep_first_error(&mut restore, state_block.apply());
+        if result.is_ok() && restore.is_err() {
+            result = restore.map(|_| AtmosphereDrawOutcome::Skipped);
+        }
+        let outcome = result?;
+        if outcome.drew() {
             LAST_DISTANCE_BOUND.store(frame.distance_bound.to_bits(), Ordering::Release);
             LAST_TRANSMITTANCE.store(
                 settings.estimated_horizontal_transmittance(frame).to_bits(),
                 Ordering::Release,
             );
             LAST_ESTIMATE_EPOCH.store(epoch, Ordering::Release);
-
-            let taa_alpha_ready = !self.config.temporal_aa_enabled()
-                || self.temporal_aa.as_ref().is_some_and(|effect| {
-                    effect.alpha_preserving_history_ready(TargetDescription::from(&desc))
-                });
-            let attachments = RenderAttachments::capture(&device, world_target.clone())?;
-            let state_block = self
-                .state_block
-                .as_ref()
-                .ok_or_else(|| runtime_error("missing atmosphere state block"))?;
-            state_block.capture()?;
-            let world_color = self.world_color.as_ref().map(|copy| &copy.texture);
-            let mut result =
-                self.atmosphere
-                    .as_mut()
-                    .map_or(Ok(AtmosphereDrawOutcome::Skipped), |effect| {
-                        effect.draw(
-                            &device,
-                            &world_target,
-                            &desc,
-                            frame,
-                            world_color,
-                            settings,
-                            self.config.temporal_aa_enabled(),
-                            taa_alpha_ready,
-                        )
-                    });
-            let mut restore = attachments.restore(&device);
-            keep_first_error(&mut restore, state_block.apply());
-            if result.is_ok() && restore.is_err() {
-                result = restore.map(|_| AtmosphereDrawOutcome::Skipped);
-            }
-            let outcome = result?;
-            drew |= outcome.drew();
         }
+        Ok(outcome)
+    }
 
+    fn finish_epoch(
+        &mut self,
+        epoch: u32,
+        target: usize,
+        origin: ApplyOrigin,
+        drew: bool,
+    ) -> Direct3DResult<()> {
         self.epoch.target = target;
         self.epoch.outcome = if drew {
             APPLIED_FRAMES.fetch_add(1, Ordering::Relaxed);
@@ -665,6 +798,8 @@ impl FnvWorldPipelineRuntime {
             epoch,
             target: 0,
             outcome: EpochOutcome::Pending,
+            atmosphere_complete: false,
+            atmosphere_drew: false,
         };
         self.frame_index = self.frame_index.wrapping_add(1);
     }
@@ -886,10 +1021,13 @@ fn halton(mut index: u64, base: u64) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::{
-        CONFIG_GENERATION, CONFIG_MAILBOX, WorldEffectsConfig, halton, publish_config,
-        retry_target_matches,
+        CONFIG_GENERATION, CONFIG_MAILBOX, EpochState, WorldEffectsConfig, halton, publish_config,
+        record_pre_alpha_outcome, retry_target_matches,
     };
-    use crate::{backend::DepthProvider, config::GraphicsMenuConfig};
+    use crate::{
+        backend::DepthProvider, config::GraphicsMenuConfig,
+        effects::atmosphere::AtmosphereDrawOutcome,
+    };
     use std::sync::atomic::Ordering;
 
     #[test]
@@ -945,5 +1083,22 @@ mod tests {
         assert!(!retry_target_matches(7, 7, 0x1234, 0x5678, 0x1234));
         assert!(!retry_target_matches(7, 7, 0x1234, 0x1234, 0x5678));
         assert!(!retry_target_matches(7, 7, 0, 0, 0));
+    }
+
+    #[test]
+    fn skipped_pre_alpha_attempt_remains_eligible_for_complete_world_fallback() {
+        let mut epoch = EpochState::default();
+        record_pre_alpha_outcome(&mut epoch, AtmosphereDrawOutcome::Skipped);
+
+        assert!(!epoch.atmosphere_complete);
+        assert!(!epoch.atmosphere_drew);
+
+        record_pre_alpha_outcome(&mut epoch, AtmosphereDrawOutcome::NoVisibleContribution);
+        assert!(epoch.atmosphere_complete);
+        assert!(!epoch.atmosphere_drew);
+
+        record_pre_alpha_outcome(&mut epoch, AtmosphereDrawOutcome::ComposedWithLighting);
+        assert!(epoch.atmosphere_complete);
+        assert!(epoch.atmosphere_drew);
     }
 }

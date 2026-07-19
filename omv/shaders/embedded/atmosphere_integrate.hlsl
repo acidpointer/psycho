@@ -20,6 +20,7 @@ float4 LightingData : register(c10);
 float4 SunDirection : register(c11);
 float4 SunColor : register(c12);
 float4 SunDiskDelta : register(c13);
+float4 LightingMediumData : register(c14);
 
 static const float MaximumOpticalDepth = 40.0f;
 static const float MaximumExponent = 20.0f;
@@ -131,6 +132,15 @@ float4 Main(PixelInput input) : COLOR0 {
 	float scatterAmount = (1.0f - transmittance) * saturate(MediumData1.y);
 	float3 scattering = max(MediumColor.rgb, 0.0f) * scatterAmount * saturate(MediumColor.w);
 	if (LightingData.w > 0.5f) {
+		float lightingOpticalDepth = clamp(
+			max(LightingMediumData.x, 0.0f) * distance,
+			0.0f,
+			MaximumOpticalDepth
+		);
+		float directionalScatterAmount = max(
+			scatterAmount,
+			1.0f - exp(-lightingOpticalDepth)
+		);
 		float mu = dot(worldDirection, SunDirection.xyz);
 		// FNV supplies irradiance-scale direct light, not radiance per steradian.
 		float phase = HenyeyGreenstein(mu, LightingData.y) * FourPi;
@@ -145,7 +155,7 @@ float4 Main(PixelInput input) : COLOR0 {
 			* max(LightingData.x, 0.0f)
 			* saturate(SunColor.w)
 			* phase
-			* scatterAmount
+			* directionalScatterAmount
 			* shaft;
 	}
 	if (!IsFiniteScalar(transmittance) || !IsFiniteVector(scattering)) {

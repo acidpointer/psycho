@@ -2,9 +2,10 @@
 
 Date: 2026-07-18
 
-Implementation status: complete on 2026-07-19. The CPU contract suite and all
-fixed `ps_3_0` variants pass under the real D3D compiler in the i686 Wine test
-run. The feature-first runtime playtest remains the final acceptance gate.
+Implementation status: composition follow-up complete on 2026-07-19. All 93
+OMV unit/static tests pass, including every fixed `ps_3_0` variant under the
+real D3D compiler in the i686 Wine test run. The corrected feature-first runtime
+playtest remains the final acceptance gate.
 
 Runtime correction on 2026-07-19: the first deployed build completed its draw
 but was visually ineffective. It applied a normalized per-steradian phase
@@ -16,14 +17,52 @@ shaft field converts blocked-sample fraction to Beer-like visibility. Automatic
 legacy Sunshafts suppression was removed: successful composition alone cannot
 prove that Phase 3 visibly replaces that independent artistic pass.
 
+Composition correction on 2026-07-19: the first accepted visual build exposed
+three coupled contracts. Phase 3 and legacy Sunshafts used different sun
+projection sources, fog albedo could reduce the directional scattering amount,
+and atmosphere composed after coverage-sensitive foliage. The two ray systems
+now share native sun direction/color and the captured depth camera. Lighting
+uses its own medium optical depth as a lower bound, while active fog can only
+increase its scatter amount. Legacy shafts no longer derive their source from
+fog-altered scene brightness and expose a bounded `Fog visibility gain`.
+
+The authoritative alpha-coverage audits prove the engine stage correction:
+`FUN_00b98540` writes vendor `ATOC`/`A2M0` state, `0x00B65AE0` completes the
+opaque/pre-depth portion, and `0x00B65C60` owns the post-depth and sorted-alpha
+groups. Atmosphere now composes between those two functions; world TAA stays at
+the complete-world boundary. This prevents a single resolved depth sample from
+misclassifying alpha-to-coverage foliage. First-person geometry is later than
+Phase 3 and therefore covers it naturally; legacy shafts require exact
+first-person depth/projection and fail closed if that requested mask is absent.
+
+Edge/first-person correction on 2026-07-19: Phase 3 previously kept full
+directional scattering after its on-screen shaft field became unavailable, so
+crossing the screen edge discontinuously replaced occluded lighting with an
+unoccluded yellow wash. Native late alpha groups could also leave vendor
+`ATOC`/`A2M1` state active for OMV full-screen draws. Directional light now
+fades continuously with the shared projected-sun edge weight and contributes
+nothing at or beyond the projection boundary. The atmosphere and Sunshafts
+draws explicitly disable the researched NVIDIA/AMD alpha-to-coverage mode
+inside their captured state blocks.
+
+Legacy Sunshafts now distinguish "no first-person geometry this epoch" from
+"first-person geometry rendered but its current depth capture failed." The
+former needs no hand mask; the latter fails closed. Their shader consumes raw
+first-person depth endpoints only, so camera/projection metadata no longer
+incorrectly gates the whole pass. The native-sun source response is smooth and
+bounded instead of using an absolute brightness cutoff that could silently
+remove shafts as weather lighting changed.
+
 ## Outcome
 
 Implement the currently non-functional `Volumetric Lighting` toggle as
 directional single scattering inside OMV's proven world-only atmosphere pass.
 The result must use native FNV sun direction and colors, the same medium and
 dual reduced-depth layers as volumetric fog, and a conservative screen-space
-shaft visibility field. It composes after world TAA and before first-person,
-native image space, HUD, and UI.
+shaft visibility field. It composes after native opaque/pre-depth geometry and
+before coverage-sensitive alpha geometry, first-person, native image space,
+HUD, and UI. World TAA runs after the complete world, including atmosphere and
+late alpha groups.
 
 This phase is complete only when all of the following are true:
 

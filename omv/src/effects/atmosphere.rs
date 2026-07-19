@@ -2,15 +2,15 @@
 
 use libpsycho::os::windows::directx9::{
     D3DCULL_NONE, D3DFMT_A8R8G8B8, D3DFMT_A16B16G16R16F, D3DFMT_G16R16F, D3DFORMAT,
-    D3DPOOL_MANAGED, D3DPT_TRIANGLESTRIP, D3DRS_ALPHABLENDENABLE, D3DRS_ALPHATESTENABLE,
-    D3DRS_COLORWRITEENABLE, D3DRS_CULLMODE, D3DRS_MULTISAMPLEANTIALIAS, D3DRS_MULTISAMPLEMASK,
-    D3DRS_SCISSORTESTENABLE, D3DRS_SRGBWRITEENABLE, D3DRS_STENCILENABLE, D3DRS_ZENABLE,
-    D3DRS_ZWRITEENABLE, D3DSAMP_ADDRESSU, D3DSAMP_ADDRESSV, D3DSAMP_MAGFILTER, D3DSAMP_MINFILTER,
-    D3DSAMP_MIPFILTER, D3DSAMP_SRGBTEXTURE, D3DSURFACE_DESC, D3DTA_TEXTURE, D3DTADDRESS_CLAMP,
-    D3DTADDRESS_WRAP, D3DTEXF_LINEAR, D3DTEXF_NONE, D3DTEXF_POINT, D3DTOP_SELECTARG1,
-    D3DTSS_ALPHAARG1, D3DTSS_ALPHAOP, D3DTSS_COLORARG1, D3DTSS_COLOROP, D3DVIEWPORT9, Device9Ref,
-    Direct3DResult, PixelShader9, ScreenVertex, Surface9, Texture9, USAGE_RENDER_TARGET,
-    direct3d_failure,
+    D3DPOOL_MANAGED, D3DPT_TRIANGLESTRIP, D3DRS_ADAPTIVETESS_Y, D3DRS_ALPHABLENDENABLE,
+    D3DRS_ALPHATESTENABLE, D3DRS_COLORWRITEENABLE, D3DRS_CULLMODE, D3DRS_MULTISAMPLEANTIALIAS,
+    D3DRS_MULTISAMPLEMASK, D3DRS_POINTSIZE, D3DRS_SCISSORTESTENABLE, D3DRS_SRGBWRITEENABLE,
+    D3DRS_STENCILENABLE, D3DRS_ZENABLE, D3DRS_ZWRITEENABLE, D3DSAMP_ADDRESSU, D3DSAMP_ADDRESSV,
+    D3DSAMP_MAGFILTER, D3DSAMP_MINFILTER, D3DSAMP_MIPFILTER, D3DSAMP_SRGBTEXTURE, D3DSURFACE_DESC,
+    D3DTA_TEXTURE, D3DTADDRESS_CLAMP, D3DTADDRESS_WRAP, D3DTEXF_LINEAR, D3DTEXF_NONE,
+    D3DTEXF_POINT, D3DTOP_SELECTARG1, D3DTSS_ALPHAARG1, D3DTSS_ALPHAOP, D3DTSS_COLORARG1,
+    D3DTSS_COLOROP, D3DVIEWPORT9, Device9Ref, Direct3DResult, PixelShader9, ScreenVertex, Surface9,
+    Texture9, USAGE_RENDER_TARGET, direct3d_failure,
 };
 
 use crate::{
@@ -20,6 +20,7 @@ use crate::{
 };
 
 const COLOR_WRITE_ALL: u32 = 0x0F;
+const AMD_ALPHA_TO_COVERAGE_OFF: u32 = u32::from_le_bytes(*b"A2M0");
 const MAX_CONTRACT_LOGS: u32 = 32;
 const DEPTH_REDUCE_SHADER: &[u8] =
     include_bytes!("../../shaders/embedded/atmosphere_depth_reduce.hlsl");
@@ -334,21 +335,13 @@ struct MediumColor {
     linear_rgb: [f32; 3],
 }
 
-#[derive(Clone, Copy, Debug, Default)]
-struct SunProjection {
-    uv: [f32; 2],
-    facing: f32,
-    edge_fade: f32,
-    on_screen: bool,
-}
-
 #[derive(Clone, Copy, Debug)]
 struct DirectionalLight {
     world_direction: [f32; 3],
     linear_color: [f32; 3],
     linear_disk_delta: [f32; 3],
     daylight: f32,
-    projection: SunProjection,
+    projection: crate::backend::SunProjectionFrame,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -379,6 +372,20 @@ fn henyey_greenstein(mu: f32, anisotropy: f32) -> f32 {
 #[cfg(test)]
 fn directional_phase_response(mu: f32, anisotropy: f32) -> f32 {
     henyey_greenstein(mu, anisotropy) * 4.0 * core::f32::consts::PI
+}
+
+#[cfg(test)]
+fn directional_scatter_amount(
+    medium_transmittance: f32,
+    scattering_albedo: f32,
+    lighting_density: f32,
+    distance: f32,
+) -> f32 {
+    let fog_amount = (1.0 - finite(medium_transmittance, 1.0).clamp(0.0, 1.0))
+        * finite(scattering_albedo, 0.0).clamp(0.0, 1.0);
+    let lighting_optical_depth =
+        (finite(lighting_density, 0.0).max(0.0) * finite(distance, 0.0).max(0.0)).clamp(0.0, 40.0);
+    fog_amount.max(1.0 - (-lighting_optical_depth).exp())
 }
 
 #[cfg(test)]
@@ -417,68 +424,11 @@ fn directional_radiance(
 fn project_sun_from_captured_camera(
     camera: crate::backend::CameraFrame,
     world_direction: [f32; 3],
-) -> SunProjection {
-    let transform = camera.world_transform;
-    if !camera.available || !transform.available || !world_direction.into_iter().all(f32::is_finite)
-    {
-        return SunProjection::default();
-    }
-    let direction_length = dot3(world_direction, world_direction).sqrt();
-    if !direction_length.is_finite() || direction_length <= 0.000001 {
-        return SunProjection::default();
-    }
-    let direction = world_direction.map(|value| value / direction_length);
-    let forward = [
-        transform.rotation[0][0],
-        transform.rotation[1][0],
-        transform.rotation[2][0],
-    ];
-    let up = [
-        transform.rotation[0][1],
-        transform.rotation[1][1],
-        transform.rotation[2][1],
-    ];
-    let right = [
-        transform.rotation[0][2],
-        transform.rotation[1][2],
-        transform.rotation[2][2],
-    ];
-    let view_x = dot3(direction, right);
-    let view_y = dot3(direction, up);
-    let facing = dot3(direction, forward);
-    let frustum_width = camera.frustum_right - camera.frustum_left;
-    let frustum_height = camera.frustum_top - camera.frustum_bottom;
-    if !facing.is_finite()
-        || facing <= 0.001
-        || !frustum_width.is_finite()
-        || !frustum_height.is_finite()
-        || frustum_width <= f32::EPSILON
-        || frustum_height <= f32::EPSILON
-    {
-        return SunProjection {
-            facing: finite(facing, 0.0),
-            ..SunProjection::default()
-        };
-    }
-
-    let ndc_x =
-        (2.0 * view_x / facing - (camera.frustum_right + camera.frustum_left)) / frustum_width;
-    let ndc_y =
-        (2.0 * view_y / facing - (camera.frustum_top + camera.frustum_bottom)) / frustum_height;
-    let uv = [ndc_x.mul_add(0.5, 0.5), ndc_y.mul_add(-0.5, 0.5)];
-    if !uv.into_iter().all(f32::is_finite) {
-        return SunProjection::default();
-    }
-    let edge = uv[0].min(1.0 - uv[0]).min(uv[1].min(1.0 - uv[1]));
-    let edge_fade = smooth01((edge / 0.035).clamp(0.0, 1.0));
-    SunProjection {
-        uv,
-        facing,
-        edge_fade,
-        on_screen: edge >= 0.0,
-    }
+) -> crate::backend::SunProjectionFrame {
+    crate::backend::project_world_direction(camera, world_direction)
 }
 
+#[cfg(test)]
 fn smooth01(value: f32) -> f32 {
     let value = finite(value, 0.0).clamp(0.0, 1.0);
     value * value * (3.0 - 2.0 * value)
@@ -517,6 +467,7 @@ pub(crate) struct AtmosphereEffect {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum AtmosphereDrawOutcome {
     Skipped,
+    NoVisibleContribution,
     Composed,
     ComposedWithLighting,
     DebugDrawn,
@@ -525,7 +476,17 @@ pub(crate) enum AtmosphereDrawOutcome {
 
 impl AtmosphereDrawOutcome {
     pub(crate) fn drew(self) -> bool {
-        self != Self::Skipped
+        matches!(
+            self,
+            Self::Composed
+                | Self::ComposedWithLighting
+                | Self::DebugDrawn
+                | Self::LightingDebugDrawn
+        )
+    }
+
+    pub(crate) fn completes_pre_alpha(self) -> bool {
+        self.drew() || self == Self::NoVisibleContribution
     }
 }
 
@@ -618,6 +579,18 @@ impl AtmosphereEffect {
         );
         let integration_gate = fog_integration_gate(frame, settings);
         self.log_integration_gate(integration_gate, settings);
+        if settings.debug_view == 0
+            && matches!(
+                integration_gate,
+                FogIntegrationGate::Disabled
+                    | FogIntegrationGate::EmptyMedium
+                    | FogIntegrationGate::Interior
+                    | FogIntegrationGate::Underwater
+                    | FogIntegrationGate::NoReadyContribution
+            )
+        {
+            return Ok(AtmosphereDrawOutcome::NoVisibleContribution);
+        }
         let Some(depth) = frame.depth.texture else {
             return Ok(AtmosphereDrawOutcome::Skipped);
         };
@@ -1246,6 +1219,7 @@ fn draw_integration(
             ],
             [sun_color[0], sun_color[1], sun_color[2], daylight],
             [sun_disk_delta[0], sun_disk_delta[1], sun_disk_delta[2], 0.0],
+            [settings.lighting_medium_density, 0.0, 0.0, 0.0],
         ],
     )?;
     device.set_pixel_shader(shader)?;
@@ -1406,6 +1380,7 @@ fn draw_debug(
             ],
             [color[0], color[1], color[2], daylight],
             [disk_delta[0], disk_delta[1], disk_delta[2], 0.0],
+            [settings.lighting_medium_density, 0.0, 0.0, 0.0],
         ],
     )?;
     device.set_pixel_shader(shader)?;
@@ -1551,12 +1526,16 @@ fn resolve_directional_light(frame: AtmosphereFrame) -> Option<DirectionalLight>
         (linear_disk[1] - linear_color[1]).max(0.0),
         (linear_disk[2] - linear_color[2]).max(0.0),
     ];
+    let projection = project_sun_from_captured_camera(frame.camera, sky.sun_direction);
+    if projection.facing <= 0.001 || !projection.on_screen || projection.edge_fade <= 0.0 {
+        return None;
+    }
     Some(DirectionalLight {
         world_direction: sky.sun_direction,
         linear_color,
         linear_disk_delta,
-        daylight: sky.daylight.clamp(0.0, 1.0),
-        projection: project_sun_from_captured_camera(frame.camera, sky.sun_direction),
+        daylight: sky.daylight.clamp(0.0, 1.0) * projection.edge_fade,
+        projection,
     })
 }
 
@@ -1711,6 +1690,15 @@ fn bind_pipeline_state(device: &Device9Ref<'_>) -> Direct3DResult<()> {
     device.set_render_state(D3DRS_SCISSORTESTENABLE, 0)?;
     device.set_render_state(D3DRS_MULTISAMPLEANTIALIAS, 1)?;
     device.set_render_state(D3DRS_MULTISAMPLEMASK, u32::MAX)?;
+    match crate::backend::fnv_alpha_coverage_mode() {
+        crate::backend::AlphaCoverageMode::None => {}
+        crate::backend::AlphaCoverageMode::Nvidia => {
+            device.set_render_state(D3DRS_ADAPTIVETESS_Y, 0)?;
+        }
+        crate::backend::AlphaCoverageMode::Amd => {
+            device.set_render_state(D3DRS_POINTSIZE, AMD_ALPHA_TO_COVERAGE_OFF)?;
+        }
+    }
     device.set_render_state(D3DRS_SRGBWRITEENABLE, 0)?;
     device.set_render_state(D3DRS_COLORWRITEENABLE, COLOR_WRITE_ALL)?;
     for sampler in 0..=4 {
@@ -1910,10 +1898,11 @@ mod feature_tests {
         AtmosphereDrawOutcome, AtmosphereSettings, FogCompositionGate, FogIntegrationGate,
         atmosphere_layer_blend, bounded_shaft_visibility, decode_extended_srgb,
         density_noise_pixels, directional_phase_response, directional_radiance,
-        encode_extended_srgb, fog_composition_gate, fog_integration_gate, henyey_greenstein,
-        layered_tap_weight, linearize_native_color, option_component,
-        project_sun_from_captured_camera, resolve_contributions, resolve_medium_color,
-        selected_debug_view, shaft_visibility_from_blocked_fraction,
+        directional_scatter_amount, encode_extended_srgb, fog_composition_gate,
+        fog_integration_gate, henyey_greenstein, layered_tap_weight, linearize_native_color,
+        option_component, project_sun_from_captured_camera, resolve_contributions,
+        resolve_directional_light, resolve_medium_color, selected_debug_view,
+        shaft_visibility_from_blocked_fraction,
     };
     use crate::{
         backend::{
@@ -2243,6 +2232,40 @@ mod feature_tests {
     }
 
     #[test]
+    fn directional_lighting_fades_continuously_and_stops_at_the_screen_edge() {
+        let mut frame = valid_frame();
+        frame.sky = Some(valid_sky([1.0, 0.0, 0.0]));
+        let centered = resolve_contributions(frame, {
+            let mut settings = settings();
+            settings.fog_enabled = false;
+            settings.lighting_enabled = true;
+            settings
+        })
+        .light
+        .expect("centered sun");
+
+        let normalize = |direction: [f32; 3]| {
+            let length = direction
+                .into_iter()
+                .map(|value| value * value)
+                .sum::<f32>()
+                .sqrt();
+            direction.map(|value| value / length)
+        };
+        frame.sky = Some(valid_sky(normalize([1.0, 0.0, 0.98])));
+        let near_edge = resolve_directional_light(frame).expect("sun just inside edge");
+        frame.sky = Some(valid_sky(normalize([1.0, 0.0, 1.0])));
+        let at_edge = resolve_directional_light(frame);
+        frame.sky = Some(valid_sky(normalize([1.0, 0.0, 1.02])));
+        let outside = resolve_directional_light(frame);
+
+        assert!(centered.daylight > near_edge.daylight);
+        assert!(near_edge.daylight > 0.0);
+        assert!(at_edge.is_none());
+        assert!(outside.is_none());
+    }
+
+    #[test]
     fn shaft_modulation_and_disk_boost_are_bounded_and_local() {
         for strength in [0.0, 0.25, 0.5, 1.0] {
             for field in [0.0, 0.3, 1.0] {
@@ -2284,6 +2307,17 @@ mod feature_tests {
         assert!(side > 0.005);
         assert!(forward > side * 30.0);
         assert!(forward * 8.0 > forward);
+    }
+
+    #[test]
+    fn fog_cannot_reduce_directional_scattering() {
+        let lighting_only = directional_scatter_amount(1.0, 0.9, 0.000002, 10_000.0);
+        let thin_fog = directional_scatter_amount(0.98, 0.9, 0.000002, 10_000.0);
+        let dense_fog = directional_scatter_amount(0.35, 0.9, 0.000002, 10_000.0);
+
+        assert!(lighting_only > 0.0);
+        assert!(thin_fog >= lighting_only);
+        assert!(dense_fog > thin_fog);
     }
 
     #[test]
@@ -2342,6 +2376,9 @@ mod feature_tests {
     #[test]
     fn draw_outcomes_report_whether_the_atmosphere_drew() {
         assert!(!AtmosphereDrawOutcome::Skipped.drew());
+        assert!(!AtmosphereDrawOutcome::NoVisibleContribution.drew());
+        assert!(!AtmosphereDrawOutcome::Skipped.completes_pre_alpha());
+        assert!(AtmosphereDrawOutcome::NoVisibleContribution.completes_pre_alpha());
         assert!(AtmosphereDrawOutcome::Composed.drew());
         assert!(AtmosphereDrawOutcome::ComposedWithLighting.drew());
         assert!(AtmosphereDrawOutcome::DebugDrawn.drew());
@@ -2662,8 +2699,12 @@ mod shader_compile_tests {
         assert!(integrate.contains("SunDirection : register(c11)"));
         assert!(integrate.contains("SunColor : register(c12)"));
         assert!(integrate.contains("SunDiskDelta : register(c13)"));
+        assert!(integrate.contains("LightingMediumData : register(c14)"));
         assert!(integrate.contains("HenyeyGreenstein"));
         assert!(integrate.contains("HenyeyGreenstein(mu, LightingData.y) * FourPi"));
+        assert!(integrate.contains("float directionalScatterAmount = max("));
+        assert!(integrate.contains("1.0f - exp(-lightingOpticalDepth)"));
+        assert!(integrate.contains("* directionalScatterAmount"));
         assert_eq!(
             integrate
                 .matches("HeterogeneousCorrection(distance")
@@ -2678,6 +2719,11 @@ mod shader_compile_tests {
         assert!(!radial.contains("Frame"));
         assert!(!mask.contains("frame"));
         assert!(!mask.contains("Frame"));
+    }
+
+    #[test]
+    fn atmosphere_vendor_coverage_disable_magic_is_exact() {
+        assert_eq!(super::AMD_ALPHA_TO_COVERAGE_OFF, 0x304D_3241);
     }
 
     #[test]

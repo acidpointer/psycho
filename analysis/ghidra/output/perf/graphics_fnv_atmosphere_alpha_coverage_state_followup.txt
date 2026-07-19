@@ -1,0 +1,5317 @@
+FNV ATMOSPHERE ALPHA-COVERAGE STATE FOLLOWUP
+
+Proven by the first audit:
+RenderWorldSceneGraph completes post-depth groups 9 and 1 plus the alpha renderer before returning to OMV.
+Native effect 0x22 runs before those final groups and is not a complete world-color boundary.
+
+Questions:
+1. What do TallGrass and SpeedTree virtual slots 75, 76, and 77 set and restore around drawing?
+2. Do those methods enable alpha test, alpha-to-coverage, multisample antialiasing, or a sample mask?
+3. Which accumulator finalizer calls the pre-depth and post-depth owners for the main world camera?
+4. Does the final post-depth alpha path write depth, color, or both, and can a single resolved depth represent its partial coverage?
+5. Does the proven contract require coverage-aware atmosphere composition instead of a single-depth full-pixel overwrite?
+
+======================================================================
+VTABLE RENDER-STATE RANGE: TallGrassShader @ 0x010b8980
+======================================================================
+  [70] +0x118: 0x00b807c0 -> ???
+
+======================================================================
+TallGrassShader vtable[70] @ 0x00b807c0
+======================================================================
+  [function not found]
+  [function not found at 0x00b807c0]
+
+======================================================================
+DIRECT CALLEE DECOMPILATIONS: TallGrassShader vtable[70] @ 0x00b807c0
+======================================================================
+  [function not found]
+  [71] +0x11c: 0x00bad100 -> FUN_00bad100
+
+======================================================================
+TallGrassShader vtable[71] @ 0x00bad100
+======================================================================
+  Function: FUN_00bad100 @ 0x00bad100, Size: 766 bytes
+
+void __fastcall FUN_00bad100(int param_1)
+
+{
+  int iVar1;
+  undefined4 uVar2;
+  int *piVar3;
+  uint uVar4;
+  int iVar5;
+  LONG LVar6;
+  undefined4 uVar7;
+  int *piVar8;
+  int *unaff_FS_OFFSET;
+  undefined *puVar9;
+  int local_c;
+  undefined1 *puStack_8;
+  int local_4;
+  
+  puStack_8 = &LAB_00f2b0a6;
+  local_c = *unaff_FS_OFFSET;
+  uVar4 = DAT_011c16bc ^ (uint)&stack0xffffffdc;
+  *unaff_FS_OFFSET = (int)&local_c;
+  iVar1 = *(int *)(unaff_FS_OFFSET[0xb] + _tls_index * 4);
+  uVar2 = *(undefined4 *)(iVar1 + 0x2b4);
+  *(undefined4 *)(iVar1 + 0x2b4) = 0x1c;
+  piVar8 = (int *)0x0;
+  local_4 = 0;
+  if (*(int *)(param_1 + 0x34) == 0) {
+    iVar5 = FUN_00aa13e0(0x44,uVar4);
+    local_4._0_1_ = 1;
+    if (iVar5 != 0) {
+      piVar8 = (int *)FUN_00b7e330(*(undefined4 *)(param_1 + 0x18),0);
+    }
+    piVar3 = *(int **)(param_1 + 0x34);
+    local_4 = (uint)local_4._1_3_ << 8;
+    if (piVar3 != piVar8) {
+      if (piVar3 != (int *)0x0) {
+        LVar6 = InterlockedDecrement(piVar3 + 1);
+        if (LVar6 == 0) {
+          (**(code **)(*piVar3 + 4))();
+        }
+      }
+      *(int **)(param_1 + 0x34) = piVar8;
+      if (piVar8 != (int *)0x0) {
+        InterlockedIncrement(piVar8 + 1);
+      }
+    }
+    (**(code **)(**(int **)(param_1 + 0x34) + 8))
+              ("WorldViewProjTranspose",0x20000009,0,9,4,0,0,0,0,0);
+    (**(code **)(**(int **)(param_1 + 0x34) + 8))
+              ("ShadowProjTransform",0x10000007,0,0xd,1,&lpWindowName_01011584,0x10,4,&DAT_011fd884,
+               0);
+    (**(code **)(**(int **)(param_1 + 0x34) + 8))
+              ("fogparam",0x10000007,0,0xf,1,&lpWindowName_01011584,0x10,4,&DAT_011fa280,0);
+    (**(code **)(**(int **)(param_1 + 0x34) + 8))
+              ("fogcolor",0x10000007,0,0xe,1,&lpWindowName_01011584,0x10,4,&DAT_011fa290,0);
+    (**(code **)(**(int **)(param_1 + 0x34) + 8))
+              ("grouped constants",0x10000009,0,0,9,&lpWindowName_01011584,0x90,4,&DAT_01200510,0);
+    (**(code **)(**(int **)(param_1 + 0x34) + 8))
+              ("instance data",0x10000009,0,0x14,(uint)*(ushort *)(param_1 + 0x1ac),
+               &lpWindowName_01011584,(uint)*(ushort *)(param_1 + 0x1ac) << 4,4,
+               *(undefined4 *)(param_1 + 0x1a4),0);
+    uVar7 = (**(code **)(**(int **)(param_1 + 0x34) + 0x70))("instance data");
+    *(undefined4 *)(param_1 + 0x1a8) = uVar7;
+  }
+  if (*(int *)(param_1 + 0x30) == 0) {
+    iVar5 = FUN_00aa13e0(0x44,uVar4);
+    local_4._0_1_ = 2;
+    if (iVar5 == 0) {
+      piVar8 = (int *)0x0;
+    }
+    else {
+      piVar8 = (int *)FUN_00b7e330(*(undefined4 *)(param_1 + 0x18),2);
+    }
+    piVar3 = *(int **)(param_1 + 0x30);
+    local_4 = (uint)local_4._1_3_ << 8;
+    if (piVar3 != piVar8) {
+      if (piVar3 != (int *)0x0) {
+        LVar6 = InterlockedDecrement(piVar3 + 1);
+        if (LVar6 == 0) {
+          (**(code **)(*piVar3 + 4))();
+        }
+      }
+      *(int **)(param_1 + 0x30) = piVar8;
+      if (piVar8 != (int *)0x0) {
+        InterlockedIncrement(piVar8 + 1);
+      }
+    }
+    (**(code **)(**(int **)(param_1 + 0x30) + 8))
+              ("point light color",0x10000007,0,2,1,&lpWindowName_01011584,0x10,4,param_1 + 0x1b0,0)
+    ;
+    (**(code **)(**(int **)(param_1 + 0x30) + 8))
+              ("point light data",0x10000007,0,4,1,&lpWindowName_01011584,0x10,4,param_1 + 0x1c0,0);
+    iVar5 = 4;
+    puVar9 = &lpWindowName_01011584;
+    (**(code **)(**(int **)(param_1 + 0x30) + 8))
+              ("alpha test ref",0x10000007,0,3,1,&lpWindowName_01011584,0x10,4,param_1 + 0x1d0,0);
+    *(undefined **)(iVar1 + 0x2b4) = puVar9;
+    *unaff_FS_OFFSET = iVar5;
+    return;
+  }
+  *(undefined4 *)(iVar1 + 0x2b4) = uVar2;
+  *unaff_FS_OFFSET = local_c;
+  return;
+}
+
+
+
+--- Calls FROM TallGrassShader vtable[71] (0x00bad100) ---
+  0x00bad15d -> 0x00aa13e0 FUN_00aa13e0
+  0x00bad179 -> 0x00b7e330 FUN_00b7e330
+  0x00bad194 -> 0x00000067 ???
+  0x00bad1b2 -> 0x00000066 ???
+  0x00bad2de -> 0x00aa13e0 FUN_00aa13e0
+  0x00bad2fb -> 0x00b7e330 FUN_00b7e330
+  0x00bad31a -> 0x00000067 ???
+  0x00bad338 -> 0x00000066 ???
+  Total: 8 calls
+
+======================================================================
+DIRECT CALLEE DECOMPILATIONS: TallGrassShader vtable[71] @ 0x00bad100
+======================================================================
+
+======================================================================
+direct callee 1 @ 0x00000066
+======================================================================
+  [function not found]
+
+======================================================================
+direct callee 2 @ 0x00000067
+======================================================================
+  [function not found]
+
+======================================================================
+direct callee 3 @ 0x00aa13e0
+======================================================================
+  Function: FUN_00aa13e0 @ 0x00aa13e0, Size: 62 bytes
+
+void FUN_00aa13e0(int param_1)
+
+{
+  int local_4;
+  
+  local_4 = param_1;
+  if (param_1 == 0) {
+    local_4 = 1;
+  }
+  param_1 = 4;
+  (**(code **)(*(int *)*DAT_011f6080 + 4))(&local_4,&param_1,1,1,0,0xffffffff,0);
+  return;
+}
+
+
+
+======================================================================
+direct callee 4 @ 0x00b7e330
+======================================================================
+  Function: FUN_00b7e330 @ 0x00b7e330, Size: 198 bytes
+
+undefined4 * __thiscall FUN_00b7e330(undefined4 *param_1,undefined4 param_2,undefined4 param_3)
+
+{
+  uint uVar1;
+  int *unaff_FS_OFFSET;
+  int local_c;
+  undefined1 *puStack_8;
+  undefined4 local_4;
+  
+  local_4 = 0xffffffff;
+  puStack_8 = &LAB_00f28e0e;
+  local_c = *unaff_FS_OFFSET;
+  uVar1 = DAT_011c16bc ^ (uint)&stack0xffffffe8;
+  *unaff_FS_OFFSET = (int)&local_c;
+  FUN_00a9be80(param_3);
+  *param_1 = &PTR_FUN_010ef544;
+  *(undefined2 *)((int)param_1 + 0x1a) = 1;
+  *(undefined2 *)(param_1 + 5) = 0;
+  *(undefined2 *)((int)param_1 + 0x16) = 0;
+  *(undefined2 *)(param_1 + 6) = 0;
+  param_1[4] = 0;
+  param_1[3] = &PTR_FUN_010f003c;
+  *(undefined2 *)((int)param_1 + 0x2a) = 1;
+  *(undefined2 *)(param_1 + 9) = 0;
+  *(undefined2 *)((int)param_1 + 0x26) = 0;
+  *(undefined2 *)(param_1 + 10) = 0;
+  param_1[8] = 0;
+  param_1[7] = &PTR_FUN_010f003c;
+  param_1[0xc] = 0;
+  param_1[0xd] = 0;
+  param_1[0xe] = 0;
+  param_1[0xf] = 0;
+  param_1[0x10] = 0;
+  local_4 = 2;
+  *(undefined1 *)(param_1 + 0xb) = 1;
+  FUN_00e81d00(param_2);
+  FUN_00b799c0(uVar1);
+  *unaff_FS_OFFSET = local_c;
+  return param_1;
+}
+
+
+  Decompiled: 4 of 4 direct callees
+  [72] +0x120: 0x00bac8b0 -> FUN_00bac8b0
+
+======================================================================
+TallGrassShader vtable[72] @ 0x00bac8b0
+======================================================================
+  Function: FUN_00bac8b0 @ 0x00bac8b0, Size: 21 bytes
+
+void __fastcall FUN_00bac8b0(int *param_1)
+
+{
+  (**(code **)(*param_1 + 0x13c))();
+  FUN_00bac160();
+  return;
+}
+
+
+
+--- Calls FROM TallGrassShader vtable[72] (0x00bac8b0) ---
+  0x00bac8c0 -> 0x00bac160 FUN_00bac160
+  Total: 1 calls
+
+======================================================================
+DIRECT CALLEE DECOMPILATIONS: TallGrassShader vtable[72] @ 0x00bac8b0
+======================================================================
+
+======================================================================
+direct callee 1 @ 0x00bac160
+======================================================================
+  Function: FUN_00bac160 @ 0x00bac160, Size: 1870 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+void __fastcall FUN_00bac160(int param_1)
+
+{
+  int iVar1;
+  int *piVar2;
+  int *piVar3;
+  uint uVar4;
+  undefined4 uVar5;
+  int iVar6;
+  LONG LVar7;
+  int iVar8;
+  int *piVar9;
+  int *unaff_FS_OFFSET;
+  undefined4 uVar10;
+  int local_24;
+  int local_20;
+  int local_1c;
+  int *local_18;
+  undefined4 local_14;
+  int local_10;
+  int local_c;
+  undefined1 *puStack_8;
+  uint local_4;
+  
+  puStack_8 = &LAB_00f2afb0;
+  local_c = *unaff_FS_OFFSET;
+  uVar4 = DAT_011c16bc ^ (uint)&stack0xffffffcc;
+  *unaff_FS_OFFSET = (int)&local_c;
+  local_10 = *(int *)(unaff_FS_OFFSET[0xb] + _tls_index * 4);
+  local_14 = *(undefined4 *)(local_10 + 0x2b4);
+  *(undefined4 *)(local_10 + 0x2b4) = 0x1c;
+  local_24 = 0;
+  local_20 = 0;
+  local_18 = (int *)(param_1 + 0x128);
+  local_4 = 1;
+  local_1c = param_1;
+  do {
+    iVar1 = local_18[-0x2f];
+    if (*(int *)(iVar1 + 0x18) == 0) {
+      FUN_00e7edf0(&local_24,uVar4);
+      iVar8 = local_24;
+      FUN_00be0cf0(local_24,0,3,2,0);
+      FUN_00e802b0(*(undefined4 *)(iVar1 + 0x14),iVar8);
+    }
+    if ((local_20 < 8) || (0xf < local_20)) {
+      iVar8 = 0;
+    }
+    else {
+      if (*(uint *)(iVar1 + 0x18) < 3) {
+        FUN_00e7edf0(&local_24,uVar4);
+        iVar8 = local_24;
+        FUN_00be0cf0(local_24,1,1,2,0);
+        FUN_00e802b0(*(undefined4 *)(iVar1 + 0x14),iVar8);
+        FUN_00e7edf0(&local_24);
+        iVar8 = local_24;
+        FUN_00be0cf0(local_24,2,1,2,0);
+        FUN_00e802b0(*(undefined4 *)(iVar1 + 0x14),iVar8);
+      }
+      iVar8 = 2;
+    }
+    if (*(int *)(iVar1 + 0x30) == 0) {
+      uVar5 = FUN_00e7f5d0();
+      *(undefined4 *)(iVar1 + 0x30) = uVar5;
+    }
+    FUN_00e7f430(0x1b,0,1);
+    iVar6 = FUN_004dc060(0);
+    if (1 < iVar6) {
+      if (*(int *)(iVar1 + 0x30) == 0) {
+        uVar5 = FUN_00e7f5d0();
+        *(undefined4 *)(iVar1 + 0x30) = uVar5;
+      }
+      FUN_00e7f430(0xf,1,1);
+      if (*(int *)(iVar1 + 0x30) == 0) {
+        uVar5 = FUN_00e7f5d0();
+        *(undefined4 *)(iVar1 + 0x30) = uVar5;
+      }
+      FUN_00e7f430(0x19,5,1);
+      if (*(int *)(iVar1 + 0x30) == 0) {
+        uVar5 = FUN_00e7f5d0();
+        *(undefined4 *)(iVar1 + 0x30) = uVar5;
+      }
+      FUN_00e7f430(0x18,10,1);
+      if ((DAT_011f941e != '\0') && (DAT_011f9421 == '\0')) {
+        if (*(int *)(iVar1 + 0x30) == 0) {
+          uVar5 = FUN_00e7f5d0();
+          *(undefined4 *)(iVar1 + 0x30) = uVar5;
+        }
+        FUN_00e7f430(0x1b,1,1);
+        if (*(int *)(iVar1 + 0x30) == 0) {
+          uVar5 = FUN_00e7f5d0();
+          *(undefined4 *)(iVar1 + 0x30) = uVar5;
+        }
+        FUN_00e7f430(0x13,5,1);
+        if (*(int *)(iVar1 + 0x30) == 0) {
+          uVar5 = FUN_00e7f5d0();
+          *(undefined4 *)(iVar1 + 0x30) = uVar5;
+        }
+        FUN_00e7f430(0x14,6,1);
+      }
+    }
+    piVar9 = (int *)*local_18;
+    piVar2 = *(int **)(iVar1 + 0x5c);
+    if (piVar2 != piVar9) {
+      if ((piVar2 != (int *)0x0) && (LVar7 = InterlockedDecrement(piVar2 + 1), LVar7 == 0)) {
+        (**(code **)(*piVar2 + 4))();
+      }
+      *(int **)(iVar1 + 0x5c) = piVar9;
+      if (piVar9 != (int *)0x0) {
+        InterlockedIncrement(piVar9 + 1);
+      }
+    }
+    piVar9 = *(int **)(local_1c + 0x188 + iVar8 * 4);
+    piVar2 = *(int **)(iVar1 + 0x44);
+    if (piVar2 != piVar9) {
+      if ((piVar2 != (int *)0x0) && (LVar7 = InterlockedDecrement(piVar2 + 1), LVar7 == 0)) {
+        (**(code **)(*piVar2 + 4))();
+      }
+      *(int **)(iVar1 + 0x44) = piVar9;
+      if (piVar9 != (int *)0x0) {
+        InterlockedIncrement(piVar9 + 1);
+      }
+    }
+    local_18 = local_18 + 1;
+    local_20 = local_20 + 1;
+  } while (local_20 < 0x14);
+  local_18 = (int *)(local_1c + 0x128);
+  local_20 = 0x14;
+  do {
+    iVar8 = local_20;
+    iVar1 = local_18[-0x1b];
+    if (*(uint *)(iVar1 + 0x18) < 2) {
+      FUN_00e7edf0(&local_24);
+      iVar6 = local_24;
+      FUN_00be0cf0(local_24,0,3,2,0);
+      FUN_00e802b0(*(undefined4 *)(iVar1 + 0x14),iVar6);
+      FUN_00e7edf0(&local_24);
+      iVar6 = local_24;
+      FUN_00be0cf0(local_24,1,3,2,0);
+      *(undefined4 *)(iVar6 + 8) = DAT_011f9534;
+      *(undefined4 *)(iVar6 + 0xc) = 1;
+      FUN_00e802b0(*(undefined4 *)(iVar1 + 0x14),iVar6);
+    }
+    if ((iVar8 < 0x1c) || (0x23 < iVar8)) {
+      iVar8 = 1;
+    }
+    else {
+      if (*(uint *)(iVar1 + 0x18) < 4) {
+        FUN_00e7edf0(&local_24);
+        iVar8 = local_24;
+        FUN_00be0cf0(local_24,2,1,2,0);
+        FUN_00e802b0(*(undefined4 *)(iVar1 + 0x14),iVar8);
+        FUN_00e7edf0(&local_24);
+        iVar8 = local_24;
+        FUN_00be0cf0(local_24,3,1,2,0);
+        FUN_00e802b0(*(undefined4 *)(iVar1 + 0x14),iVar8);
+      }
+      iVar8 = 3;
+    }
+    iVar6 = FUN_004dc060(0);
+    if (iVar6 < 2) {
+      if (*(int *)(iVar1 + 0x30) == 0) {
+        uVar5 = FUN_00e7f5d0();
+        *(undefined4 *)(iVar1 + 0x30) = uVar5;
+      }
+      uVar10 = 0;
+      uVar5 = 0xf;
+LAB_00bac5dd:
+      FUN_00e7f430(uVar5,uVar10,1);
+    }
+    else {
+      if (*(int *)(iVar1 + 0x30) == 0) {
+        uVar5 = FUN_00e7f5d0();
+        *(undefined4 *)(iVar1 + 0x30) = uVar5;
+      }
+      FUN_00e7f430(0xf,1,1);
+      if (*(int *)(iVar1 + 0x30) == 0) {
+        uVar5 = FUN_00e7f5d0();
+        *(undefined4 *)(iVar1 + 0x30) = uVar5;
+      }
+      FUN_00e7f430(0x19,5,1);
+      if (*(int *)(iVar1 + 0x30) == 0) {
+        uVar5 = FUN_00e7f5d0();
+        *(undefined4 *)(iVar1 + 0x30) = uVar5;
+      }
+      FUN_00e7f430(0x18,10,1);
+      if ((DAT_011f941e != '\0') && (DAT_011f9421 == '\0')) {
+        if (*(int *)(iVar1 + 0x30) == 0) {
+          uVar5 = FUN_00e7f5d0();
+          *(undefined4 *)(iVar1 + 0x30) = uVar5;
+        }
+        FUN_00e7f430(0x1b,1,1);
+        if (*(int *)(iVar1 + 0x30) == 0) {
+          uVar5 = FUN_00e7f5d0();
+          *(undefined4 *)(iVar1 + 0x30) = uVar5;
+        }
+        FUN_00e7f430(0x13,5,1);
+        if (*(int *)(iVar1 + 0x30) == 0) {
+          uVar5 = FUN_00e7f5d0();
+          *(undefined4 *)(iVar1 + 0x30) = uVar5;
+        }
+        uVar10 = 6;
+        uVar5 = 0x14;
+        goto LAB_00bac5dd;
+      }
+    }
+    piVar9 = (int *)*local_18;
+    piVar2 = *(int **)(iVar1 + 0x5c);
+    if (piVar2 != piVar9) {
+      if ((piVar2 != (int *)0x0) && (LVar7 = InterlockedDecrement(piVar2 + 1), LVar7 == 0)) {
+        (**(code **)(*piVar2 + 4))();
+      }
+      *(int **)(iVar1 + 0x5c) = piVar9;
+      if (piVar9 != (int *)0x0) {
+        InterlockedIncrement(piVar9 + 1);
+      }
+    }
+    piVar9 = *(int **)(local_1c + 0x188 + iVar8 * 4);
+    piVar2 = *(int **)(iVar1 + 0x44);
+    if (piVar2 != piVar9) {
+      if ((piVar2 != (int *)0x0) && (LVar7 = InterlockedDecrement(piVar2 + 1), LVar7 == 0)) {
+        (**(code **)(*piVar2 + 4))();
+      }
+      *(int **)(iVar1 + 0x44) = piVar9;
+      if (piVar9 != (int *)0x0) {
+        InterlockedIncrement(piVar9 + 1);
+      }
+    }
+    local_18 = local_18 + 1;
+    local_20 = local_20 + 1;
+    if (0x27 < local_20) {
+      piVar9 = (int *)(local_1c + 0x178);
+      local_18 = (int *)0x4;
+      do {
+        iVar1 = piVar9[-0x1b];
+        if (*(uint *)(iVar1 + 0x18) < 2) {
+          FUN_00e7edf0(&local_24);
+          iVar8 = local_24;
+          FUN_00be0cf0(local_24,0,3,2,0);
+          FUN_00e802b0(*(undefined4 *)(iVar1 + 0x14),iVar8);
+          FUN_00e7edf0(&local_24);
+          iVar8 = local_24;
+          FUN_00be0cf0(local_24,1,3,2,0);
+          FUN_00e802b0(*(undefined4 *)(iVar1 + 0x14),iVar8);
+        }
+        if (*(int *)(iVar1 + 0x30) == 0) {
+          uVar5 = FUN_00e7f5d0();
+          *(undefined4 *)(iVar1 + 0x30) = uVar5;
+        }
+        FUN_00e7f430(0x1b,1,1);
+        if (*(int *)(iVar1 + 0x30) == 0) {
+          uVar5 = FUN_00e7f5d0();
+          *(undefined4 *)(iVar1 + 0x30) = uVar5;
+        }
+        FUN_00e7f430(0x13,9,1);
+        if (*(int *)(iVar1 + 0x30) == 0) {
+          uVar5 = FUN_00e7f5d0();
+          *(undefined4 *)(iVar1 + 0x30) = uVar5;
+        }
+        FUN_00e7f430(0x14,1,1);
+        if (*(int *)(iVar1 + 0x30) == 0) {
+          uVar5 = FUN_00e7f5d0();
+          *(undefined4 *)(iVar1 + 0x30) = uVar5;
+        }
+        FUN_00e7f430(0xe,0,1);
+        local_20 = _DAT_01200458;
+        if (*(int *)(iVar1 + 0x30) == 0) {
+          uVar5 = FUN_00e7f5d0();
+          *(undefined4 *)(iVar1 + 0x30) = uVar5;
+        }
+        FUN_00e7f430(0xc3,local_20,1);
+        if (*(int *)(iVar1 + 0x30) == 0) {
+          uVar5 = FUN_00e7f5d0();
+          *(undefined4 *)(iVar1 + 0x30) = uVar5;
+        }
+        FUN_00e7f430(0x98,0x3f,1);
+        piVar2 = (int *)*piVar9;
+        piVar3 = *(int **)(iVar1 + 0x5c);
+        if (piVar3 != piVar2) {
+          if ((piVar3 != (int *)0x0) && (LVar7 = InterlockedDecrement(piVar3 + 1), LVar7 == 0)) {
+            (**(code **)(*piVar3 + 4))();
+          }
+          *(int **)(iVar1 + 0x5c) = piVar2;
+          if (piVar2 != (int *)0x0) {
+            InterlockedIncrement(piVar2 + 1);
+          }
+        }
+        piVar2 = *(int **)(local_1c + 0x198 + DAT_011f948c * 4);
+        piVar3 = *(int **)(iVar1 + 0x44);
+        if (piVar3 != piVar2) {
+          if ((piVar3 != (int *)0x0) && (LVar7 = InterlockedDecrement(piVar3 + 1), LVar7 == 0)) {
+            (**(code **)(*piVar3 + 4))();
+          }
+          *(int **)(iVar1 + 0x44) = piVar2;
+          if (piVar2 != (int *)0x0) {
+            InterlockedIncrement(piVar2 + 1);
+          }
+        }
+        piVar9 = piVar9 + 1;
+        local_18 = (int *)((int)local_18 + -1);
+      } while (local_18 != (int *)0x0);
+      local_4 = local_4 & 0xffffff00;
+      if (local_24 == 0) {
+        *(undefined4 *)(local_10 + 0x2b4) = local_14;
+        *unaff_FS_OFFSET = local_c;
+        return;
+      }
+      *(int *)(local_24 + 0x60) = *(int *)(local_24 + 0x60) + -1;
+      if (*(int *)(local_24 + 0x60) != 0) {
+        *(undefined4 *)(local_10 + 0x2b4) = local_14;
+        *unaff_FS_OFFSET = local_c;
+        return;
+      }
+      FUN_00e7ecd0();
+      *(undefined4 *)(local_10 + 0x2b4) = local_14;
+      *unaff_FS_OFFSET = local_c;
+      return;
+    }
+  } while( true );
+}
+
+
+  Decompiled: 1 of 1 direct callees
+  [73] +0x124: 0x00baa3c0 -> FUN_00baa3c0
+
+======================================================================
+TallGrassShader vtable[73] @ 0x00baa3c0
+======================================================================
+  Function: FUN_00baa3c0 @ 0x00baa3c0, Size: 43 bytes
+
+void __fastcall FUN_00baa3c0(int *param_1)
+
+{
+  int iVar1;
+  int *piVar2;
+  
+  piVar2 = param_1 + 0x1b;
+  iVar1 = 0x2c;
+  do {
+    (**(code **)(*param_1 + 0x128))(*piVar2);
+    piVar2 = piVar2 + 1;
+    iVar1 = iVar1 + -1;
+  } while (iVar1 != 0);
+  return;
+}
+
+
+
+--- Calls FROM TallGrassShader vtable[73] (0x00baa3c0) ---
+  Total: 0 calls
+
+======================================================================
+DIRECT CALLEE DECOMPILATIONS: TallGrassShader vtable[73] @ 0x00baa3c0
+======================================================================
+  Decompiled: 0 of 0 direct callees
+  [74] +0x128: 0x00be0fb0 -> ???
+
+======================================================================
+TallGrassShader vtable[74] @ 0x00be0fb0
+======================================================================
+  [function not found]
+  [function not found at 0x00be0fb0]
+
+======================================================================
+DIRECT CALLEE DECOMPILATIONS: TallGrassShader vtable[74] @ 0x00be0fb0
+======================================================================
+  [function not found]
+  [75] +0x12c: 0x00b606e0 -> ???
+
+======================================================================
+TallGrassShader vtable[75] @ 0x00b606e0
+======================================================================
+  [function not found]
+  [function not found at 0x00b606e0]
+
+======================================================================
+DIRECT CALLEE DECOMPILATIONS: TallGrassShader vtable[75] @ 0x00b606e0
+======================================================================
+  [function not found]
+  [76] +0x130: 0x00be08e0 -> ???
+
+======================================================================
+TallGrassShader vtable[76] @ 0x00be08e0
+======================================================================
+  [function not found]
+  [function not found at 0x00be08e0]
+
+======================================================================
+DIRECT CALLEE DECOMPILATIONS: TallGrassShader vtable[76] @ 0x00be08e0
+======================================================================
+  [function not found]
+  [77] +0x134: 0x00b606e0 -> ???
+  [78] +0x138: 0x00baa640 -> ???
+
+======================================================================
+TallGrassShader vtable[78] @ 0x00baa640
+======================================================================
+  [function not found]
+  [function not found at 0x00baa640]
+
+======================================================================
+DIRECT CALLEE DECOMPILATIONS: TallGrassShader vtable[78] @ 0x00baa640
+======================================================================
+  [function not found]
+  [79] +0x13c: 0x00baafc0 -> FUN_00baafc0
+
+======================================================================
+TallGrassShader vtable[79] @ 0x00baafc0
+======================================================================
+  Function: FUN_00baafc0 @ 0x00baafc0, Size: 4474 bytes
+
+void FUN_00baafc0(void)
+
+{
+  char *pcVar1;
+  LONG LVar2;
+  int *piVar3;
+  int *piVar4;
+  uint uVar5;
+  char **ppcVar6;
+  int iVar7;
+  int *piVar8;
+  int *unaff_FS_OFFSET;
+  bool bVar9;
+  int *local_b6c;
+  char **local_b68;
+  int *local_b64;
+  int *local_b60;
+  int local_b5c;
+  char *local_b58;
+  int local_b54;
+  undefined4 local_b50;
+  char *local_b4c;
+  char *local_b48 [2];
+  int local_b40;
+  undefined1 local_b3c [60];
+  char *local_b00;
+  char *local_afc;
+  undefined4 local_af8;
+  undefined4 local_af4;
+  undefined1 local_af0 [60];
+  char *local_ab4;
+  char *local_ab0;
+  undefined4 local_aac;
+  char *local_aa8;
+  undefined *local_aa4;
+  undefined4 local_aa0;
+  undefined1 local_a9c [52];
+  char *local_a68;
+  char *local_a64;
+  undefined4 local_a60;
+  char *local_a5c;
+  undefined *local_a58;
+  undefined4 local_a54;
+  undefined1 local_a50 [52];
+  char *local_a1c;
+  char *local_a18;
+  undefined4 local_a14;
+  char *local_a10;
+  undefined *local_a0c;
+  char *local_a08;
+  undefined *local_a04;
+  char *local_a00;
+  undefined *local_9fc;
+  char *local_9f8;
+  undefined *local_9f4;
+  undefined4 local_9f0;
+  undefined4 local_9ec;
+  undefined4 local_9e8;
+  undefined4 local_9e4;
+  undefined4 local_9e0;
+  undefined4 local_9dc;
+  undefined4 local_9d8;
+  undefined4 local_9d4;
+  char *local_9d0;
+  char *local_9cc;
+  undefined4 local_9c8;
+  char *local_9c4;
+  undefined *local_9c0;
+  char *local_9bc;
+  undefined *local_9b8;
+  char *local_9b4;
+  undefined *local_9b0;
+  char *local_9ac;
+  undefined *local_9a8;
+  undefined4 local_9a4;
+  undefined4 local_9a0;
+  undefined4 local_99c;
+  undefined4 local_998;
+  undefined4 local_994;
+  undefined4 local_990;
+  undefined4 local_98c;
+  undefined4 local_988;
+  char *local_984;
+  char *local_980;
+  undefined4 local_97c;
+  char *local_978;
+  undefined *local_974;
+  char *local_970;
+  undefined *local_96c;
+  char *local_968;
+  undefined *local_964;
+  char *local_960;
+  undefined *local_95c;
+  undefined4 local_958;
+  undefined4 local_954;
+  undefined4 local_950;
+  undefined4 local_94c;
+  undefined4 local_948;
+  undefined4 local_944;
+  undefined4 local_940;
+  undefined4 local_93c;
+  char *local_938;
+  char *local_934;
+  undefined4 local_930;
+  undefined4 local_92c;
+  undefined1 local_928 [60];
+  char *local_8ec;
+  char *local_8e8;
+  undefined4 local_8e4;
+  char *local_8e0;
+  undefined *local_8dc;
+  undefined4 local_8d8;
+  undefined1 local_8d4 [52];
+  char *local_8a0;
+  char *local_89c;
+  undefined4 local_898;
+  char *local_894;
+  undefined *local_890;
+  undefined4 local_88c;
+  undefined1 local_888 [52];
+  char *local_854;
+  char *local_850;
+  undefined4 local_84c;
+  char *local_848;
+  undefined *local_844;
+  char *local_840;
+  undefined *local_83c;
+  undefined4 local_838;
+  undefined1 local_834 [44];
+  char *local_808;
+  char *local_804;
+  undefined4 local_800;
+  char *local_7fc;
+  undefined *local_7f8;
+  undefined4 local_7f4;
+  undefined1 local_7f0 [52];
+  char *local_7bc;
+  char *local_7b8;
+  undefined4 local_7b4;
+  char *local_7b0;
+  undefined *local_7ac;
+  char *local_7a8;
+  undefined *local_7a4;
+  undefined4 local_7a0;
+  undefined1 local_79c [44];
+  char *local_770;
+  char *local_76c;
+  undefined4 local_768;
+  char *local_764;
+  undefined *local_760;
+  char *local_75c;
+  undefined *local_758;
+  undefined4 local_754;
+  undefined1 local_750 [44];
+  char *local_724;
+  char *local_720;
+  undefined4 local_71c;
+  char *local_718;
+  undefined *local_714;
+  char *local_710;
+  undefined *local_70c;
+  char *local_708;
+  undefined *local_704;
+  undefined4 local_700;
+  undefined4 local_6fc;
+  undefined4 local_6f8;
+  undefined4 local_6f4;
+  undefined4 local_6f0;
+  undefined4 local_6ec;
+  undefined4 local_6e8;
+  undefined4 local_6e4;
+  undefined4 local_6e0;
+  undefined4 local_6dc;
+  char *local_6d8;
+  char *local_6d4;
+  undefined4 local_6d0;
+  char *local_6cc;
+  undefined *local_6c8;
+  undefined4 local_6c4;
+  undefined1 local_6c0 [52];
+  char *local_68c;
+  char *local_688;
+  undefined4 local_684;
+  char *local_680;
+  undefined *local_67c;
+  char *local_678;
+  undefined *local_674;
+  undefined4 local_670;
+  undefined1 local_66c [44];
+  char *local_640;
+  char *local_63c;
+  undefined4 local_638;
+  char *local_634;
+  undefined *local_630;
+  char *local_62c;
+  undefined *local_628;
+  undefined4 local_624;
+  undefined1 local_620 [44];
+  char *local_5f4;
+  char *local_5f0;
+  undefined4 local_5ec;
+  char *local_5e8;
+  undefined *local_5e4;
+  char *local_5e0;
+  undefined *local_5dc;
+  char *local_5d8;
+  undefined *local_5d4;
+  undefined4 local_5d0;
+  undefined4 local_5cc;
+  undefined4 local_5c8;
+  undefined4 local_5c4;
+  undefined4 local_5c0;
+  undefined4 local_5bc;
+  undefined4 local_5b8;
+  undefined4 local_5b4;
+  undefined4 local_5b0;
+  undefined4 local_5ac;
+  char *local_5a8;
+  char *local_5a4;
+  undefined4 local_5a0;
+  char *local_59c;
+  undefined *local_598;
+  char *local_594;
+  undefined *local_590;
+  undefined4 local_58c;
+  undefined1 local_588 [44];
+  char *local_55c;
+  char *local_558;
+  undefined4 local_554;
+  char *local_550;
+  undefined *local_54c;
+  char *local_548;
+  undefined *local_544;
+  char *local_540;
+  undefined *local_53c;
+  undefined4 local_538;
+  undefined4 local_534;
+  undefined4 local_530;
+  undefined4 local_52c;
+  undefined4 local_528;
+  undefined4 local_524;
+  undefined4 local_520;
+  undefined4 local_51c;
+  undefined4 local_518;
+  undefined4 local_514;
+  char *local_510;
+  char *local_50c;
+  undefined4 local_508;
+  char *local_504;
+  undefined *local_500;
+  char *local_4fc;
+  undefined *local_4f8;
+  char *local_4f4;
+  undefined *local_4f0;
+  undefined4 local_4ec;
+  undefined4 local_4e8;
+  undefined4 local_4e4;
+  undefined4 local_4e0;
+  undefined4 local_4dc;
+  undefined4 local_4d8;
+  undefined4 local_4d4;
+  undefined4 local_4d0;
+  undefined4 local_4cc;
+  undefined4 local_4c8;
+  char *local_4c4;
+  char *local_4c0;
+  undefined4 local_4bc;
+  char *local_4b8;
+  undefined *local_4b4;
+  char *local_4b0;
+  undefined *local_4ac;
+  char *local_4a8;
+  undefined *local_4a4;
+  char *local_4a0;
+  undefined *local_49c;
+  undefined4 local_498;
+  undefined4 local_494;
+  undefined4 local_490;
+  undefined4 local_48c;
+  undefined4 local_488;
+  undefined4 local_484;
+  undefined4 local_480;
+  undefined4 local_47c;
+  char *local_478;
+  char *local_474;
+  undefined4 local_470;
+  char *local_46c;
+  undefined *local_468;
+  undefined4 local_464;
+  undefined1 local_460 [52];
+  char *local_42c;
+  char *local_428;
+  undefined4 local_424;
+  char *local_420;
+  undefined *local_41c;
+  char *local_418;
+  undefined *local_414;
+  undefined4 local_410;
+  undefined1 local_40c [44];
+  char *local_3e0;
+  char *local_3dc;
+  undefined4 local_3d8;
+  char *local_3d4;
+  undefined *local_3d0;
+  char *local_3cc;
+  undefined *local_3c8;
+  undefined4 local_3c4;
+  undefined1 local_3c0 [44];
+  char *local_394;
+  char *local_390;
+  undefined4 local_38c;
+  char *local_388;
+  undefined *local_384;
+  char *local_380;
+  undefined *local_37c;
+  char *local_378;
+  undefined *local_374;
+  undefined4 local_370;
+  undefined4 local_36c;
+  undefined4 local_368;
+  undefined4 local_364;
+  undefined4 local_360;
+  undefined4 local_35c;
+  undefined4 local_358;
+  undefined4 local_354;
+  undefined4 local_350;
+  undefined4 local_34c;
+  char *local_348;
+  char *local_344;
+  undefined4 local_340;
+  char *local_33c;
+  undefined *local_338;
+  undefined4 local_334;
+  undefined1 local_330 [52];
+  char *local_2fc;
+  char *local_2f8;
+  undefined4 local_2f4;
+  char *local_2f0;
+  undefined *local_2ec;
+  char *local_2e8;
+  undefined *local_2e4;
+  undefined4 local_2e0;
+  undefined1 local_2dc [44];
+  char *local_2b0;
+  char *local_2ac;
+  undefined4 local_2a8;
+  char *local_2a4;
+  undefined *local_2a0;
+  char *local_29c;
+  undefined *local_298;
+  undefined4 local_294;
+  undefined1 local_290 [44];
+  char *local_264;
+  char *local_260;
+  undefined4 local_25c;
+  char *local_258;
+  undefined *local_254;
+  char *local_250;
+  undefined *local_24c;
+  char *local_248;
+  undefined *local_244;
+  undefined4 local_240;
+  undefined4 local_23c;
+  undefined4 local_238;
+  undefined4 local_234;
+  undefined4 local_230;
+  undefined4 local_22c;
+  undefined4 local_228;
+  undefined4 local_224;
+  undefined4 local_220;
+  undefined4 local_21c;
+  undefined1 local_218 [260];
+  undefined1 local_114 [260];
+  uint local_10;
+  int local_c;
+  undefined1 *puStack_8;
+  undefined4 local_4;
+  
+  puStack_8 = &LAB_00f2af6b;
+  local_c = *unaff_FS_OFFSET;
+  local_10 = DAT_011c16bc ^ (uint)&local_b6c;
+  *unaff_FS_OFFSET = (int)&local_c;
+  local_b54 = *(int *)(unaff_FS_OFFSET[0xb] + _tls_index * 4);
+  local_b50 = *(undefined4 *)(local_b54 + 0x2b4);
+  *(undefined4 *)(local_b54 + 0x2b4) = 0x1c;
+  local_4 = 0;
+  local_938 = "tallgrass\\1x\\v\\lowDetail.v.hlsl";
+  local_934 = "VS_2_0";
+  local_930 = 0;
+  local_92c = 0;
+  _memset(local_928,0,0x3c);
+  local_8ec = "tallgrass\\1x\\v\\lowDetail.v.hlsl";
+  local_8e8 = "VS_2_0";
+  local_8e4 = 0;
+  local_8e0 = "VERTLIT";
+  local_8dc = &lpWindowName_01011584;
+  local_8d8 = 0;
+  _memset(local_8d4,0,0x34);
+  local_8a0 = "tallgrass\\1x\\v\\lowDetail.v.hlsl";
+  local_89c = "VS_2_0";
+  local_898 = 0;
+  local_894 = "FIT_TO_SLOPE";
+  local_890 = &lpWindowName_01011584;
+  local_88c = 0;
+  _memset(local_888,0,0x34);
+  local_854 = "tallgrass\\1x\\v\\lowDetail.v.hlsl";
+  local_850 = "VS_2_0";
+  local_84c = 0;
+  local_848 = "VERTLIT";
+  local_844 = &lpWindowName_01011584;
+  local_840 = "FIT_TO_SLOPE";
+  local_83c = &lpWindowName_01011584;
+  local_838 = 0;
+  _memset(local_834,0,0x2c);
+  local_808 = "tallgrass\\1x\\v\\lowDetail.v.hlsl";
+  local_804 = "VS_2_0";
+  local_800 = 0;
+  local_7fc = "PTLIGHT";
+  local_7f8 = &lpWindowName_01011584;
+  local_7f4 = 0;
+  _memset(local_7f0,0,0x34);
+  local_7bc = "tallgrass\\1x\\v\\lowDetail.v.hlsl";
+  local_7b8 = "VS_2_0";
+  local_7b4 = 0;
+  local_7b0 = "PTLIGHT";
+  local_7ac = &lpWindowName_01011584;
+  local_7a8 = "VERTLIT";
+  local_7a4 = &lpWindowName_01011584;
+  local_7a0 = 0;
+  _memset(local_79c,0,0x2c);
+  local_770 = "tallgrass\\1x\\v\\lowDetail.v.hlsl";
+  local_76c = "VS_2_0";
+  local_768 = 0;
+  local_764 = "PTLIGHT";
+  local_760 = &lpWindowName_01011584;
+  local_75c = "FIT_TO_SLOPE";
+  local_758 = &lpWindowName_01011584;
+  local_754 = 0;
+  _memset(local_750,0,0x2c);
+  local_724 = "tallgrass\\1x\\v\\lowDetail.v.hlsl";
+  local_720 = "VS_2_0";
+  local_71c = 0;
+  local_718 = "PTLIGHT";
+  local_714 = &lpWindowName_01011584;
+  local_710 = "VERTLIT";
+  local_70c = &lpWindowName_01011584;
+  local_708 = "FIT_TO_SLOPE";
+  local_704 = &lpWindowName_01011584;
+  local_700 = 0;
+  local_6fc = 0;
+  local_6f8 = 0;
+  local_6f4 = 0;
+  local_6f0 = 0;
+  local_6ec = 0;
+  local_6e8 = 0;
+  local_6e4 = 0;
+  local_6e0 = 0;
+  local_6dc = 0;
+  local_6d8 = "tallgrass\\1x\\v\\lowDetail.v.hlsl";
+  local_6d4 = "VS_2_0";
+  local_6d0 = 0;
+  local_6cc = "PROJ_SHADOW";
+  local_6c8 = &lpWindowName_01011584;
+  local_6c4 = 0;
+  _memset(local_6c0,0,0x34);
+  local_68c = "tallgrass\\1x\\v\\lowDetail.v.hlsl";
+  local_688 = "VS_2_0";
+  local_684 = 0;
+  local_680 = "VERTLIT";
+  local_67c = &lpWindowName_01011584;
+  local_678 = "PROJ_SHADOW";
+  local_674 = &lpWindowName_01011584;
+  local_670 = 0;
+  _memset(local_66c,0,0x2c);
+  local_640 = "tallgrass\\1x\\v\\lowDetail.v.hlsl";
+  local_63c = "VS_2_0";
+  local_638 = 0;
+  local_634 = "FIT_TO_SLOPE";
+  local_630 = &lpWindowName_01011584;
+  local_62c = "PROJ_SHADOW";
+  local_628 = &lpWindowName_01011584;
+  local_624 = 0;
+  _memset(local_620,0,0x2c);
+  local_5f4 = "tallgrass\\1x\\v\\lowDetail.v.hlsl";
+  local_5f0 = "VS_2_0";
+  local_5ec = 0;
+  local_5e8 = "VERTLIT";
+  local_5e4 = &lpWindowName_01011584;
+  local_5e0 = "FIT_TO_SLOPE";
+  local_5dc = &lpWindowName_01011584;
+  local_5d8 = "PROJ_SHADOW";
+  local_5d4 = &lpWindowName_01011584;
+  local_5d0 = 0;
+  local_5cc = 0;
+  local_5c8 = 0;
+  local_5c4 = 0;
+  local_5c0 = 0;
+  local_5bc = 0;
+  local_5b8 = 0;
+  local_5b4 = 0;
+  local_5b0 = 0;
+  local_5ac = 0;
+  local_5a8 = "tallgrass\\1x\\v\\lowDetail.v.hlsl";
+  local_5a4 = "VS_2_0";
+  local_5a0 = 0;
+  local_59c = "PTLIGHT";
+  local_598 = &lpWindowName_01011584;
+  local_594 = "PROJ_SHADOW";
+  local_590 = &lpWindowName_01011584;
+  local_58c = 0;
+  _memset(local_588,0,0x2c);
+  local_55c = "tallgrass\\1x\\v\\lowDetail.v.hlsl";
+  local_558 = "VS_2_0";
+  local_554 = 0;
+  local_550 = "PTLIGHT";
+  local_54c = &lpWindowName_01011584;
+  local_548 = "VERTLIT";
+  local_544 = &lpWindowName_01011584;
+  local_540 = "PROJ_SHADOW";
+  local_53c = &lpWindowName_01011584;
+  local_538 = 0;
+  local_534 = 0;
+  local_530 = 0;
+  local_52c = 0;
+  local_528 = 0;
+  local_524 = 0;
+  local_520 = 0;
+  local_51c = 0;
+  local_518 = 0;
+  local_514 = 0;
+  local_510 = "tallgrass\\1x\\v\\lowDetail.v.hlsl";
+  local_50c = "VS_2_0";
+  local_508 = 0;
+  local_504 = "PTLIGHT";
+  local_500 = &lpWindowName_01011584;
+  local_4fc = "FIT_TO_SLOPE";
+  local_4f8 = &lpWindowName_01011584;
+  local_4f4 = "PROJ_SHADOW";
+  local_4f0 = &lpWindowName_01011584;
+  local_4ec = 0;
+  local_4e8 = 0;
+  local_4e4 = 0;
+  local_4e0 = 0;
+  local_4dc = 0;
+  local_4d8 = 0;
+  local_4d4 = 0;
+  local_4d0 = 0;
+  local_4cc = 0;
+  local_4c8 = 0;
+  local_4c4 = "tallgrass\\1x\\v\\lowDetail.v.hlsl";
+  local_4c0 = "VS_2_0";
+  local_4bc = 0;
+  local_4b8 = "PTLIGHT";
+  local_4b4 = &lpWindowName_01011584;
+  local_4b0 = "VERTLIT";
+  local_4ac = &lpWindowName_01011584;
+  local_4a8 = "FIT_TO_SLOPE";
+  local_4a4 = &lpWindowName_01011584;
+  local_4a0 = "PROJ_SHADOW";
+  local_49c = &lpWindowName_01011584;
+  local_498 = 0;
+  local_494 = 0;
+  local_490 = 0;
+  local_48c = 0;
+  local_488 = 0;
+  local_484 = 0;
+  local_480 = 0;
+  local_47c = 0;
+  local_478 = "tallgrass\\1x\\v\\lowDetail.v.hlsl";
+  local_474 = "VS_2_0";
+  local_470 = 0;
+  local_46c = "BILLBOARD";
+  local_468 = &lpWindowName_01011584;
+  local_464 = 0;
+  _memset(local_460,0,0x34);
+  local_42c = "tallgrass\\1x\\v\\lowDetail.v.hlsl";
+  local_428 = "VS_2_0";
+  local_424 = 0;
+  local_420 = "BILLBOARD";
+  local_41c = &lpWindowName_01011584;
+  local_418 = "FIT_TO_SLOPE";
+  local_414 = &lpWindowName_01011584;
+  local_410 = 0;
+  _memset(local_40c,0,0x2c);
+  local_3e0 = "tallgrass\\1x\\v\\lowDetail.v.hlsl";
+  local_3dc = "VS_2_0";
+  local_3d8 = 0;
+  local_3d4 = "BILLBOARD";
+  local_3d0 = &lpWindowName_01011584;
+  local_3cc = "PTLIGHT";
+  local_3c8 = &lpWindowName_01011584;
+  local_3c4 = 0;
+  _memset(local_3c0,0,0x2c);
+  local_394 = "tallgrass\\1x\\v\\lowDetail.v.hlsl";
+  local_390 = "VS_2_0";
+  local_38c = 0;
+  local_388 = "BILLBOARD";
+  local_384 = &lpWindowName_01011584;
+  local_380 = "PTLIGHT";
+  local_37c = &lpWindowName_01011584;
+  local_378 = "FIT_TO_SLOPE";
+  local_374 = &lpWindowName_01011584;
+  local_370 = 0;
+  local_36c = 0;
+  local_368 = 0;
+  local_364 = 0;
+  local_360 = 0;
+  local_35c = 0;
+  local_358 = 0;
+  local_354 = 0;
+  local_350 = 0;
+  local_34c = 0;
+  local_348 = "tallgrass\\1x\\v\\lowDetail.v.hlsl";
+  local_344 = "VS_2_0";
+  local_340 = 0;
+  local_33c = "SHADOWMAP";
+  local_338 = &lpWindowName_01011584;
+  local_334 = 0;
+  _memset(local_330,0,0x34);
+  local_2fc = "tallgrass\\1x\\v\\lowDetail.v.hlsl";
+  local_2f8 = "VS_2_0";
+  local_2f4 = 0;
+  local_2f0 = "SHADOWMAP";
+  local_2ec = &lpWindowName_01011584;
+  local_2e8 = "FIT_TO_SLOPE";
+  local_2e4 = &lpWindowName_01011584;
+  local_2e0 = 0;
+  _memset(local_2dc,0,0x2c);
+  local_2b0 = "tallgrass\\1x\\v\\lowDetail.v.hlsl";
+  local_2ac = "VS_2_0";
+  local_2a8 = 0;
+  local_2a4 = "SHADOWMAP";
+  local_2a0 = &lpWindowName_01011584;
+  local_29c = "BILLBOARD";
+  local_298 = &lpWindowName_01011584;
+  local_294 = 0;
+  _memset(local_290,0,0x2c);
+  local_264 = "tallgrass\\1x\\v\\lowDetail.v.hlsl";
+  local_260 = "VS_2_0";
+  local_25c = 0;
+  local_258 = "SHADOWMAP";
+  local_254 = &lpWindowName_01011584;
+  local_250 = "BILLBOARD";
+  local_24c = &lpWindowName_01011584;
+  local_248 = "FIT_TO_SLOPE";
+  local_244 = &lpWindowName_01011584;
+  local_240 = 0;
+  local_23c = 0;
+  local_238 = 0;
+  local_234 = 0;
+  local_230 = 0;
+  local_22c = 0;
+  local_228 = 0;
+  local_224 = 0;
+  local_220 = 0;
+  local_21c = 0;
+  local_b4c = "tallgrass\\1x\\p\\highDetail.p.hlsl";
+  local_b48[0] = "PS_2_0";
+  local_b48[1] = (char *)0x0;
+  local_b40 = 0;
+  _memset(local_b3c,0,0x3c);
+  local_b00 = "tallgrass\\1x\\p\\highDetail_1pt.p.hlsl";
+  local_afc = "PS_2_0";
+  local_af8 = 0;
+  local_af4 = 0;
+  _memset(local_af0,0,0x3c);
+  local_ab4 = "tallgrass\\1x\\p\\highDetail.p.hlsl";
+  local_ab0 = "PS_2_0";
+  local_aac = 0;
+  local_aa8 = "PROJ_SHADOW";
+  local_aa4 = &lpWindowName_01011584;
+  local_aa0 = 0;
+  _memset(local_a9c,0,0x34);
+  local_a68 = "tallgrass\\1x\\p\\highDetail_1pt.p.hlsl";
+  local_a64 = "PS_2_0";
+  local_a60 = 0;
+  local_a5c = "PROJ_SHADOW";
+  local_a58 = &lpWindowName_01011584;
+  local_a54 = 0;
+  _memset(local_a50,0,0x34);
+  local_a1c = "tallgrass\\1x\\p\\highDetail.p.hlsl";
+  local_a18 = "PS_2_0";
+  local_a14 = 0;
+  local_a10 = "SHADOWMAP";
+  local_a0c = &lpWindowName_01011584;
+  local_a08 = "DEPTHBIAS";
+  local_a04 = &DAT_010b8b44;
+  local_a00 = "SAMPLE";
+  local_9fc = &DAT_01063f48;
+  local_9f8 = "PASSES";
+  local_9f4 = &DAT_01063f48;
+  local_9f0 = 0;
+  local_9ec = 0;
+  local_9e8 = 0;
+  local_9e4 = 0;
+  local_9e0 = 0;
+  local_9dc = 0;
+  local_9d8 = 0;
+  local_9d4 = 0;
+  local_9d0 = "tallgrass\\1x\\p\\highDetail.p.hlsl";
+  local_9cc = "PS_2_0";
+  local_9c8 = 0;
+  local_9c4 = "SHADOWMAP";
+  local_9c0 = &lpWindowName_01011584;
+  local_9bc = "DEPTHBIAS";
+  local_9b8 = &DAT_010b8b44;
+  local_9b4 = "SAMPLE";
+  local_9b0 = &DAT_01063f24;
+  local_9ac = "PASSES";
+  local_9a8 = &DAT_01063f48;
+  local_9a4 = 0;
+  local_9a0 = 0;
+  local_99c = 0;
+  local_998 = 0;
+  local_994 = 0;
+  local_990 = 0;
+  local_98c = 0;
+  local_988 = 0;
+  local_984 = "tallgrass\\1x\\p\\highDetail.p.hlsl";
+  local_980 = "PS_2_0";
+  local_97c = 0;
+  local_978 = "SHADOWMAP";
+  local_974 = &lpWindowName_01011584;
+  local_970 = "DEPTHBIAS";
+  local_96c = &DAT_010b8b44;
+  local_968 = "SAMPLE";
+  local_964 = &DAT_01063f24;
+  local_960 = "PASSES";
+  local_95c = &DAT_01063f3c;
+  local_958 = 0;
+  local_954 = 0;
+  local_950 = 0;
+  local_94c = 0
+
+--- Calls FROM TallGrassShader vtable[79] (0x00baafc0) ---
+  0x00bab060 -> 0x00ec61c0 _memset
+  0x00bab0a3 -> 0x00ec61c0 _memset
+  0x00bab0e1 -> 0x00ec61c0 _memset
+  0x00bab131 -> 0x00ec61c0 _memset
+  0x00bab16f -> 0x00ec61c0 _memset
+  0x00bab1bf -> 0x00ec61c0 _memset
+  0x00bab212 -> 0x00ec61c0 _memset
+  0x00bab2e1 -> 0x00ec61c0 _memset
+  0x00bab331 -> 0x00ec61c0 _memset
+  0x00bab381 -> 0x00ec61c0 _memset
+  0x00bab45f -> 0x00ec61c0 _memset
+  0x00bab643 -> 0x00ec61c0 _memset
+  0x00bab696 -> 0x00ec61c0 _memset
+  0x00bab6e6 -> 0x00ec61c0 _memset
+  0x00bab7b5 -> 0x00ec61c0 _memset
+  0x00bab805 -> 0x00ec61c0 _memset
+  0x00bab855 -> 0x00ec61c0 _memset
+  0x00bab919 -> 0x00ec61c0 _memset
+  0x00bab94c -> 0x00ec61c0 _memset
+  0x00bab98a -> 0x00ec61c0 _memset
+  0x00bab9cc -> 0x00ec61c0 _memset
+  0x00babba1 -> 0x00b4f380 FUN_00b4f380
+  0x00babc20 -> 0x00be0c00 FUN_00be0c00
+  0x00babc38 -> 0x00406d00 FUN_00406d00
+  0x00babc68 -> 0x00406d00 FUN_00406d00
+  0x00babc8b -> 0x00be0fe0 FUN_00be0fe0
+  0x00babca6 -> 0x00000067 ???
+  0x00babccc -> 0x00000066 ???
+  0x00babd30 -> 0x00be0c00 FUN_00be0c00
+  0x00babd48 -> 0x00406d00 FUN_00406d00
+  0x00babd78 -> 0x00406d00 FUN_00406d00
+  0x00babd9b -> 0x00be0fe0 FUN_00be0fe0
+  0x00babdb6 -> 0x00000067 ???
+  0x00babddb -> 0x00000066 ???
+  0x00babe16 -> 0x004dc060 FUN_004dc060
+  0x00babebd -> 0x00406d00 FUN_00406d00
+  0x00babed6 -> 0x00be0c00 FUN_00be0c00
+  0x00babf09 -> 0x00406d00 FUN_00406d00
+  0x00babf2d -> 0x00406d00 FUN_00406d00
+  0x00babf41 -> 0x00b4f380 FUN_00b4f380
+  0x00babf67 -> 0x00be1750 FUN_00be1750
+  0x00babf80 -> 0x00000067 ???
+  0x00babfa1 -> 0x00000066 ???
+  0x00bac057 -> 0x00406d00 FUN_00406d00
+  0x00bac088 -> 0x00be0c00 FUN_00be0c00
+  0x00bac0aa -> 0x00be1750 FUN_00be1750
+  0x00bac0c3 -> 0x00000067 ???
+  0x00bac0e5 -> 0x00000066 ???
+  0x00bac14a -> 0x00ec408c __security_check_cookie
+  Total: 49 calls
+
+======================================================================
+DIRECT CALLEE DECOMPILATIONS: TallGrassShader vtable[79] @ 0x00baafc0
+======================================================================
+
+======================================================================
+direct callee 1 @ 0x00000066
+======================================================================
+  [function not found]
+
+======================================================================
+direct callee 2 @ 0x00000067
+======================================================================
+  [function not found]
+
+======================================================================
+direct callee 3 @ 0x00406d00
+======================================================================
+  Function: FUN_00406d00 @ 0x00406d00, Size: 38 bytes
+
+void FUN_00406d00(char *param_1,size_t param_2,char *param_3)
+
+{
+  _vsprintf_s(param_1,param_2,param_3,&stack0x00000010);
+  return;
+}
+
+
+
+======================================================================
+direct callee 4 @ 0x004dc060
+======================================================================
+  Function: FUN_004dc060 @ 0x004dc060, Size: 39 bytes
+
+undefined4 FUN_004dc060(char param_1)
+
+{
+  undefined4 local_8;
+  
+  if (param_1 == '\0') {
+    local_8 = DAT_011f91c0;
+  }
+  else {
+    local_8 = DAT_011f91bc;
+  }
+  return local_8;
+}
+
+
+
+======================================================================
+direct callee 5 @ 0x00b4f380
+======================================================================
+  Function: FUN_00b4f380 @ 0x00b4f380, Size: 63 bytes
+
+char * FUN_00b4f380(char param_1)
+
+{
+  undefined4 uVar1;
+  
+  uVar1 = DAT_011f91bc;
+  if (param_1 == '\0') {
+    uVar1 = DAT_011f91c0;
+  }
+  switch(uVar1) {
+  case 1:
+    return "ps_1_3";
+  case 2:
+    return "ps_2_0";
+  case 3:
+  case 5:
+    return "ps_2_a";
+  case 4:
+  case 6:
+    return "ps_2_b";
+  case 7:
+    return "ps_3_0";
+  default:
+    return (char *)0x0;
+  }
+}
+
+
+
+======================================================================
+direct callee 6 @ 0x00be0c00
+======================================================================
+  Function: FUN_00be0c00 @ 0x00be0c00, Size: 212 bytes
+
+void FUN_00be0c00(char *param_1,char *param_2)
+
+{
+  char local_2a4 [8];
+  char local_29c [16];
+  char local_28c [128];
+  char local_20c [260];
+  char local_108 [260];
+  uint local_4;
+  
+  local_4 = DAT_011c16bc ^ (uint)local_2a4;
+  if (param_2 != (char *)0x0) {
+    __splitpath_s(param_1,local_29c,0x10,local_108,0x104,local_28c,0x80,local_2a4,8);
+    __splitpath_s(&DAT_011f9308,local_29c,0x10,local_20c,0x104,(char *)0x0,0,(char *)0x0,0);
+    _strcat_s(local_20c,0x104,local_108);
+    __makepath_s(param_2,0x104,local_29c,local_20c,local_28c,local_2a4);
+  }
+  __security_check_cookie(local_4 ^ (uint)local_2a4);
+  return;
+}
+
+
+
+======================================================================
+direct callee 7 @ 0x00be0fe0
+======================================================================
+  Function: FUN_00be0fe0 @ 0x00be0fe0, Size: 1889 bytes
+
+/* WARNING: Function: __alloca_probe replaced with injection: alloca_probe */
+
+void FUN_00be0fe0(char *param_1,int *param_2,undefined4 param_3,undefined4 param_4)
+
+{
+  undefined4 uVar1;
+  char cVar2;
+  undefined1 uVar3;
+  uint uVar4;
+  int *piVar5;
+  undefined4 uVar6;
+  undefined4 uVar7;
+  FILE *_File;
+  int *piVar8;
+  void *_Str;
+  undefined1 *puVar9;
+  int iVar10;
+  int iVar11;
+  int *unaff_FS_OFFSET;
+  FILE *_File_00;
+  FILE *pFVar12;
+  char *pcVar13;
+  undefined4 uStack_12a4;
+  int *local_12a0;
+  int *local_129c;
+  int *local_1298;
+  int *local_1294;
+  undefined4 local_1290;
+  int *local_128c;
+  undefined4 local_1288;
+  undefined4 local_1284;
+  int iStack_1280;
+  int *local_127c;
+  int *local_1278;
+  undefined4 local_1274;
+  char *local_1270;
+  undefined4 local_126c;
+  undefined4 local_1268;
+  undefined4 local_1264;
+  undefined **ppuStack_1260;
+  char *pcStack_125c;
+  char local_1258 [260];
+  undefined1 local_1154 [256];
+  undefined1 auStack_1054 [4];
+  char acStack_1050 [1300];
+  undefined1 local_b3c [260];
+  char acStack_a38 [1296];
+  undefined1 auStack_528 [4];
+  undefined1 auStack_524 [1300];
+  uint local_10;
+  int local_c;
+  undefined1 *puStack_8;
+  undefined4 uStack_4;
+  
+  uStack_4 = 0xffffffff;
+  puStack_8 = &LAB_00f2d322;
+  local_c = *unaff_FS_OFFSET;
+  local_10 = DAT_011c16bc ^ (uint)&uStack_12a4;
+  uVar4 = DAT_011c16bc ^ (uint)&stack0xffffed4c;
+  *unaff_FS_OFFSET = (int)&local_c;
+  iVar10 = 0;
+  local_1270 = param_1;
+  local_1294 = param_2;
+  local_1264 = param_3;
+  local_1284 = param_4;
+  local_129c = (int *)0x0;
+  local_1298 = (int *)0x0;
+  local_127c = (int *)0x0;
+  local_1268 = 0;
+  local_1290 = 0;
+  FUN_00be0dc0(local_1258,param_1,param_4,&DAT_010bc868,uVar4);
+  uStack_12a4._0_3_ = (uint3)uStack_12a4 & 0xffff;
+  uStack_12a4 = (int *)CONCAT13(1,(uint3)uStack_12a4);
+  if (DAT_011f9498 != 0) {
+    iVar10 = FUN_00b7fac0(param_4);
+  }
+  if ((DAT_011ae638 != '\0') && (iVar10 == 0)) {
+    local_1278 = (int *)0x0;
+    local_1274 = 0;
+    local_128c = (int *)0x0;
+    local_1288 = 0;
+    cVar2 = FUN_00afe7d0(local_1258,&local_128c,0x20);
+    uStack_12a4._0_3_ = CONCAT12(cVar2,(ushort)uStack_12a4);
+    uVar3 = FUN_00afe7d0(param_1,&local_1278,0x20);
+    uStack_12a4._0_2_ = CONCAT11(uVar3,(byte)uStack_12a4);
+    if ((cVar2 == '\0') && (DAT_011f94a7 != '\0')) {
+      if (DAT_011f9200 == '\0') {
+        _strcpy_s(&DAT_011f9200,0x104,"cache:\\");
+        FUN_00be0dc0(local_1258,param_1,param_4,&DAT_010bc868);
+      }
+      cVar2 = FUN_00afe7d0(local_1258,&local_128c,0x20);
+      uStack_12a4._0_3_ = CONCAT12(cVar2,(ushort)uStack_12a4);
+    }
+    if (uStack_12a4._1_1_ == '\0') {
+      FUN_00406d00(local_1154,0x104,"SHADER ERROR : error opening HLSL source file : %s",param_1);
+    }
+    param_2 = local_1294;
+    if (cVar2 == '\0') {
+      uStack_12a4 = (int *)((uint)uStack_12a4 & 0xffffff);
+    }
+  }
+  uVar4 = (uint)uStack_12a4;
+  uStack_12a4._0_2_ = (ushort)(byte)uStack_12a4;
+  piVar5 = uStack_12a4;
+  local_12a0 = (int *)0x0;
+  if (iVar10 == 0) {
+    uStack_12a4._3_1_ = SUB41(uVar4,3);
+    uStack_12a4 = piVar5;
+    if (uStack_12a4._3_1_ == '\0') {
+      local_1278 = (int *)0x0;
+      if (DAT_011f941e != '\0') {
+        iVar10 = *param_2;
+        local_1278 = param_2;
+        while (iVar10 != 0) {
+          local_1278 = local_1278 + 2;
+          iVar10 = *local_1278;
+        }
+        *local_1278 = (int)&DAT_010bc828;
+        local_1278[1] = (int)&lpWindowName_01011584;
+      }
+      piVar5 = (int *)FUN_00afdf20(param_1,0,0x4000,0x20);
+      if (piVar5 != (int *)0x0) {
+        if ((char)piVar5[0xb] != '\0') {
+          uVar6 = (*(code *)((undefined4 *)*piVar5)[10])();
+          uVar7 = FUN_00aa3e40(uVar6);
+          FUN_00462d80(uVar7,uVar6);
+          pcStack_125c = param_1;
+          piVar8 = local_1294 + 1;
+          ppuStack_1260 = &PTR_LAB_010bc610;
+          acStack_1050[0] = '\0';
+          acStack_a38[0] = '\0';
+          iStack_1280 = 8;
+          local_128c = piVar8;
+          do {
+            if ((char *)piVar8[-1] != (char *)0x0) {
+              _strcat_s(acStack_1050,0x514,(char *)piVar8[-1]);
+              _strcat_s(acStack_a38,0x514," /D");
+              _strcat_s(acStack_a38,0x514,(char *)piVar8[-1]);
+              if (((char *)*piVar8 == (char *)0x0) || (*(char *)*piVar8 == '\0')) {
+                _strcat_s(acStack_a38,0x514,"=1");
+              }
+              else {
+                _strcat_s(acStack_1050,0x514,"=");
+                _strcat_s(acStack_1050,0x514,(char *)*piVar8);
+                _strcat_s(acStack_a38,0x514,"=");
+                _strcat_s(acStack_a38,0x514,(char *)*piVar8);
+              }
+              _strcat_s(acStack_1050,0x514,", ");
+            }
+            uVar1 = local_1264;
+            piVar8 = piVar8 + 2;
+            iStack_1280 = iStack_1280 + -1;
+          } while (iStack_1280 != 0);
+          FUN_00406d00(auStack_524,0x514,"compiling : %s\n %s %s",local_1270,local_1264,acStack_1050
+                      );
+          iVar10 = D3DXCompileShader(uVar7,uVar6,local_1294,&ppuStack_1260,&DAT_01094d90,uVar1,0,
+                                     &local_129c,&local_1298,&local_1268);
+          (**(code **)*piVar5)(1);
+          FUN_00aa4060(uVar7);
+          if ((local_1298 != (int *)0x0) && (local_129c == (int *)0x0)) {
+            acStack_1050[0] = '\0';
+            iVar11 = 0;
+            piVar5 = local_128c;
+            do {
+              if ((char *)piVar5[-1] == (char *)0x0) break;
+              _strcat_s(acStack_1050,0x514,(char *)piVar5[-1]);
+              if (((char *)*piVar5 != (char *)0x0) && (*(char *)*piVar5 != '\0')) {
+                _strcat_s(acStack_1050,0x514,"=");
+                _strcat_s(acStack_1050,0x514,(char *)*piVar5);
+              }
+              _strcat_s(acStack_1050,0x514,", ");
+              iVar11 = iVar11 + 1;
+              piVar5 = piVar5 + 2;
+            } while (iVar11 < 8);
+            uVar6 = (**(code **)(*local_1298 + 0xc))(local_1298);
+            FUN_00406d00(auStack_528,0x514,"%s\n %s\n %s",local_1274,auStack_1054,uVar6);
+            (**(code **)(*local_129c + 8))(local_129c);
+            local_1298 = (int *)0x0;
+          }
+          if ((iVar10 == 0) && (local_129c != (int *)0x0)) {
+            _File = _fopen(local_1258,"wb");
+            if (_File == (FILE *)0x0) {
+              FUN_00406d00(local_1154,0xff,"invalid cache file : %s",local_1258);
+              local_12a0 = (int *)(**(code **)(*local_129c + 0xc))(local_129c);
+            }
+            else {
+              piVar8 = (int *)(**(code **)(*local_129c + 0x10))(local_129c);
+              _File_00 = (FILE *)&DAT_00000001;
+              piVar5 = local_12a0;
+              pFVar12 = _File;
+              local_1294 = piVar8;
+              _Str = (void *)(**(code **)(*local_12a0 + 0xc))();
+              _fwrite(_Str,(size_t)piVar5,(size_t)piVar8,_File_00);
+              _fclose(_File);
+              FUN_00af5e40(&ppuStack_1260);
+              local_12a0 = (int *)(**(code **)(*uStack_12a4 + 0xc))(uStack_12a4,pFVar12);
+            }
+          }
+          else {
+            if ((uStack_12a4._2_1_ == '\0') ||
+               (piVar5 = (int *)FUN_00afdf20(local_1258,0,0x4000,0x20), piVar5 == (int *)0x0))
+            goto LAB_00be1717;
+            piVar8 = local_12a0;
+            if ((char)piVar5[0xb] != '\0') {
+              uVar6 = (**(code **)(*piVar5 + 0x28))();
+              local_1290 = uVar6;
+              piVar8 = (int *)FUN_00aa3e40(uVar6);
+              uStack_12a4._0_2_ = CONCAT11(1,(byte)uStack_12a4);
+              local_12a0 = piVar8;
+              FUN_00462d80(piVar8,uVar6);
+            }
+            (**(code **)*piVar5)(1);
+            if (piVar8 == (int *)0x0) goto LAB_00be1717;
+          }
+          param_4 = local_1284;
+          if (local_1278 != (int *)0x0) {
+            *local_1278 = 0;
+            local_1278[1] = 0;
+          }
+          goto LAB_00be163b;
+        }
+        (**(code **)*piVar5)(1);
+      }
+      pcVar13 = "SHADER ERROR : error opening hlsl file : %s";
+      puVar9 = local_1154;
+    }
+    else {
+      piVar5 = (int *)FUN_00afdf20(local_1258,0,0x4000,0x20);
+      if (piVar5 != (int *)0x0) {
+        if ((char)piVar5[0xb] != '\0') {
+          uVar6 = (**(code **)(*piVar5 + 0x28))();
+          local_1290 = uVar6;
+          local_12a0 = (int *)FUN_00aa3e40(uVar6);
+          uStack_12a4._0_2_ = CONCAT11(1,(byte)uStack_12a4);
+          FUN_00462d80(local_12a0,uVar6);
+        }
+        (**(code **)*piVar5)(1);
+        goto LAB_00be163b;
+      }
+      pcVar13 = "SHADER ERROR : error opening cache file : %s";
+LAB_00be1700:
+      param_1 = local_1258;
+      puVar9 = local_b3c;
+    }
+    FUN_00406d00(puVar9,0x104,pcVar13,param_1);
+  }
+  else {
+    local_12a0 = (int *)(iVar10 + 0x104);
+LAB_00be163b:
+    piVar5 = local_12a0;
+    if (local_12a0 != (int *)0x0) {
+      if (DAT_011f9494 == 0) {
+        iVar10 = (**(code **)(**(int **)(DAT_011f9508 + 0x288) + 0x16c))
+                           (*(int **)(DAT_011f9508 + 0x288),local_12a0,&local_126c);
+        if (iVar10 != 0) {
+          pcVar13 = "SHADER ERROR : failed to create vertex shader : %s";
+          goto LAB_00be1700;
+        }
+        local_128c = (int *)FUN_00aa13e0(0x3c);
+        uStack_4 = 0;
+        if (local_128c == (int *)0x0) {
+          local_127c = (int *)0x0;
+        }
+        else {
+          local_127c = (int *)FUN_00be0b30(DAT_011f9508);
+        }
+        uStack_4 = 0xffffffff;
+        (**(code **)(*local_127c + 0x88))(local_126c);
+      }
+      else {
+        FUN_00b7fd90(param_4,local_12a0,local_1290);
+      }
+    }
+    if (uStack_12a4._1_1_ != '\0') {
+      FUN_00aa4060(piVar5);
+    }
+  }
+LAB_00be1717:
+  *unaff_FS_OFFSET = local_c;
+  __security_check_cookie(local_10 ^ (uint)&uStack_12a4);
+  return;
+}
+
+
+
+======================================================================
+direct callee 8 @ 0x00be1750
+======================================================================
+  Function: FUN_00be1750 @ 0x00be1750, Size: 1884 bytes
+
+/* WARNING: Function: __alloca_probe replaced with injection: alloca_probe */
+
+void FUN_00be1750(char *param_1,int *param_2,char *param_3,undefined4 param_4)
+
+{
+  undefined1 uVar1;
+  char cVar2;
+  uint uVar3;
+  int *piVar4;
+  undefined4 uVar5;
+  undefined4 uVar6;
+  FILE *_File;
+  int *piVar7;
+  void *_Str;
+  undefined1 *puVar8;
+  int iVar9;
+  int iVar10;
+  int *unaff_FS_OFFSET;
+  FILE *_File_00;
+  char *pcVar11;
+  undefined4 uStack_12a8;
+  int *local_12a4;
+  int *local_12a0;
+  int *local_129c;
+  int *local_1298;
+  undefined4 local_1294;
+  char *local_1290;
+  int *local_128c;
+  undefined4 local_1288;
+  int *local_1284;
+  undefined4 local_1280;
+  undefined4 local_127c;
+  char *local_1278;
+  int *local_1274;
+  int iStack_1270;
+  char *local_126c;
+  undefined4 local_1268;
+  undefined4 local_1264;
+  undefined **ppuStack_1260;
+  char *pcStack_125c;
+  char local_1258 [256];
+  undefined1 auStack_1158 [4];
+  char acStack_1154 [1300];
+  undefined1 local_c40 [260];
+  undefined1 local_b3c [260];
+  char acStack_a38 [1296];
+  undefined1 auStack_528 [4];
+  undefined1 auStack_524 [1300];
+  uint local_10;
+  int local_c;
+  undefined1 *puStack_8;
+  undefined4 uStack_4;
+  
+  uStack_4 = 0xffffffff;
+  puStack_8 = &LAB_00f2d362;
+  local_c = *unaff_FS_OFFSET;
+  local_10 = DAT_011c16bc ^ (uint)&uStack_12a8;
+  uVar3 = DAT_011c16bc ^ (uint)&stack0xffffed48;
+  *unaff_FS_OFFSET = (int)&local_c;
+  iVar9 = 0;
+  local_1278 = param_1;
+  local_1298 = param_2;
+  local_126c = param_3;
+  local_127c = param_4;
+  local_12a0 = (int *)0x0;
+  local_129c = (int *)0x0;
+  local_1274 = (int *)0x0;
+  local_1264 = 0;
+  local_1294 = 0;
+  FUN_00be0dc0(local_1258,param_1,param_4,&DAT_010bc8a0,uVar3);
+  uStack_12a8._0_3_ = (uint3)uStack_12a8 & 0xffff;
+  uStack_12a8 = (int *)CONCAT13(1,(uint3)uStack_12a8);
+  if (DAT_011f9498 != 0) {
+    iVar9 = FUN_00b7fac0(param_4);
+  }
+  if ((DAT_011ae638 != '\0') && (iVar9 == 0)) {
+    local_1284 = (int *)0x0;
+    local_1280 = 0;
+    local_128c = (int *)0x0;
+    local_1288 = 0;
+    uVar1 = FUN_00afe7d0(param_1,&local_1284,0x20);
+    uStack_12a8._0_2_ = CONCAT11(uVar1,(byte)uStack_12a8);
+    cVar2 = FUN_00afe7d0(local_1258,&local_128c,0x20);
+    uStack_12a8._0_3_ = CONCAT12(cVar2,(ushort)uStack_12a8);
+    if ((cVar2 == '\0') && (DAT_011f94a7 != '\0')) {
+      if (DAT_011f9200 == '\0') {
+        _strcpy_s(&DAT_011f9200,0x104,"cache:\\");
+        FUN_00be0dc0(local_1258,param_1,param_4,&DAT_010bc8a0);
+      }
+      cVar2 = FUN_00afe7d0(local_1258,&local_128c,0x20);
+      uStack_12a8._0_3_ = CONCAT12(cVar2,(ushort)uStack_12a8);
+    }
+    if (uStack_12a8._1_1_ == '\0') {
+      FUN_00406d00(local_c40,0x104,"SHADER ERROR : error opening HLSL source file : %s",param_1);
+    }
+    param_2 = local_1298;
+    if (cVar2 == '\0') {
+      uStack_12a8 = (int *)((uint)uStack_12a8 & 0xffffff);
+    }
+  }
+  pcVar11 = local_126c;
+  uVar3 = (uint)uStack_12a8;
+  uStack_12a8._0_2_ = (ushort)(byte)uStack_12a8;
+  piVar4 = uStack_12a8;
+  local_12a4 = (int *)0x0;
+  if (iVar9 == 0) {
+    uStack_12a8._3_1_ = SUB41(uVar3,3);
+    uStack_12a8 = piVar4;
+    if (uStack_12a8._3_1_ == '\0') {
+      local_1284 = (int *)0x0;
+      if (DAT_011f941e != '\0') {
+        iVar9 = *param_2;
+        local_1284 = param_2;
+        while (iVar9 != 0) {
+          local_1284 = local_1284 + 2;
+          iVar9 = *local_1284;
+        }
+        *local_1284 = (int)&DAT_010bc828;
+        local_1284[1] = (int)&lpWindowName_01011584;
+      }
+      local_1290 = local_126c;
+      iVar9 = _strncmp(local_126c,"ps_2_0",4);
+      if ((iVar9 == 0) && (local_1290 = (char *)FUN_00b4f380(1), local_1290 == (char *)0x0)) {
+        local_1290 = pcVar11;
+      }
+      piVar4 = (int *)FUN_00afdf20(param_1,0,0x4000,0x20);
+      if (piVar4 != (int *)0x0) {
+        if ((char)piVar4[0xb] != '\0') {
+          uVar5 = (*(code *)((undefined4 *)*piVar4)[10])();
+          uVar6 = FUN_00aa3e40(uVar5);
+          FUN_00462d80(uVar6,uVar5);
+          pcStack_125c = param_1;
+          piVar7 = local_1298 + 1;
+          ppuStack_1260 = &PTR_LAB_010bc610;
+          acStack_1154[0] = '\0';
+          acStack_a38[0] = '\0';
+          iStack_1270 = 8;
+          local_128c = piVar7;
+          do {
+            if ((char *)piVar7[-1] != (char *)0x0) {
+              _strcat_s(acStack_1154,0x514,(char *)piVar7[-1]);
+              _strcat_s(acStack_a38,0x514," /D");
+              _strcat_s(acStack_a38,0x514,(char *)piVar7[-1]);
+              if (((char *)*piVar7 == (char *)0x0) || (*(char *)*piVar7 == '\0')) {
+                _strcat_s(acStack_a38,0x514,"=1");
+              }
+              else {
+                _strcat_s(acStack_1154,0x514,"=");
+                _strcat_s(acStack_1154,0x514,(char *)*piVar7);
+                _strcat_s(acStack_a38,0x514,"=");
+                _strcat_s(acStack_a38,0x514,(char *)*piVar7);
+              }
+              _strcat_s(acStack_1154,0x514,", ");
+            }
+            piVar7 = piVar7 + 2;
+            iStack_1270 = iStack_1270 + -1;
+          } while (iStack_1270 != 0);
+          FUN_00406d00(auStack_524,0x514,"compiling : %s\n %s %s",local_1278,local_126c,acStack_1154
+                      );
+          iVar9 = D3DXCompileShader(uVar6,uVar5,local_1298,&ppuStack_1260,&DAT_01094d90,local_1290,0
+                                    ,&local_12a0,&local_129c,&local_1264);
+          (**(code **)*piVar4)(1);
+          FUN_00aa4060(uVar6);
+          if ((local_129c != (int *)0x0) && (local_12a0 == (int *)0x0)) {
+            acStack_1154[0] = '\0';
+            iVar10 = 8;
+            piVar4 = local_128c;
+            do {
+              if ((char *)piVar4[-1] != (char *)0x0) {
+                _strcat_s(acStack_1154,0x514,(char *)piVar4[-1]);
+                if (((char *)*piVar4 != (char *)0x0) && (*(char *)*piVar4 != '\0')) {
+                  _strcat_s(acStack_1154,0x514,"=");
+                  _strcat_s(acStack_1154,0x514,(char *)*piVar4);
+                }
+                _strcat_s(acStack_1154,0x514,", ");
+              }
+              piVar4 = piVar4 + 2;
+              iVar10 = iVar10 + -1;
+            } while (iVar10 != 0);
+            uVar5 = (**(code **)(*local_129c + 0xc))(local_129c);
+            FUN_00406d00(auStack_528,0x514,"%s\n %s\n %s",local_127c,auStack_1158,uVar5);
+            (**(code **)(*local_12a0 + 8))(local_12a0);
+            local_129c = (int *)0x0;
+          }
+          if ((iVar9 == 0) && (local_12a0 != (int *)0x0)) {
+            _File = _fopen(local_1258,"wb");
+            piVar7 = (int *)(**(code **)(*local_12a0 + 0x10))(local_12a0);
+            _File_00 = (FILE *)&DAT_00000001;
+            piVar4 = local_12a4;
+            local_1298 = piVar7;
+            _Str = (void *)(**(code **)(*local_12a4 + 0xc))();
+            _fwrite(_Str,(size_t)piVar4,(size_t)piVar7,_File_00);
+            _fflush(_File);
+            _fclose(_File);
+            FUN_00af5e40(&ppuStack_1260);
+            local_12a4 = (int *)(**(code **)(*uStack_12a8 + 0xc))(uStack_12a8);
+          }
+          else {
+            if ((uStack_12a8._2_1_ == '\0') ||
+               (piVar4 = (int *)FUN_00afdf20(local_1258,0,0x4000,0x20), piVar4 == (int *)0x0))
+            goto LAB_00be1e82;
+            piVar7 = local_12a4;
+            if ((char)piVar4[0xb] != '\0') {
+              uVar5 = (**(code **)(*piVar4 + 0x28))();
+              local_1294 = uVar5;
+              piVar7 = (int *)FUN_00aa3e40(uVar5);
+              uStack_12a8._0_2_ = CONCAT11(1,(byte)uStack_12a8);
+              local_12a4 = piVar7;
+              FUN_00462d80(piVar7,uVar5);
+            }
+            (**(code **)*piVar4)(1);
+            if (piVar7 == (int *)0x0) goto LAB_00be1e82;
+          }
+          param_4 = local_127c;
+          if (local_1284 != (int *)0x0) {
+            *local_1284 = 0;
+            local_1284[1] = 0;
+          }
+          goto LAB_00be1da6;
+        }
+        (**(code **)*piVar4)(1);
+      }
+      pcVar11 = "SHADER ERROR : error opening hlsl file : %s";
+      puVar8 = local_c40;
+    }
+    else {
+      piVar4 = (int *)FUN_00afdf20(local_1258,0,0x4000,0x20);
+      if (piVar4 != (int *)0x0) {
+        if ((char)piVar4[0xb] != '\0') {
+          uVar5 = (**(code **)(*piVar4 + 0x28))();
+          local_1294 = uVar5;
+          local_12a4 = (int *)FUN_00aa3e40(uVar5);
+          uStack_12a8._0_2_ = CONCAT11(1,(byte)uStack_12a8);
+          FUN_00462d80(local_12a4,uVar5);
+        }
+        (**(code **)*piVar4)(1);
+        goto LAB_00be1da6;
+      }
+      pcVar11 = "SHADER ERROR : error opening cache file : %s";
+LAB_00be1e6b:
+      param_1 = local_1258;
+      puVar8 = local_b3c;
+    }
+    FUN_00406d00(puVar8,0x104,pcVar11,param_1);
+  }
+  else {
+    local_12a4 = (int *)(iVar9 + 0x104);
+LAB_00be1da6:
+    piVar4 = local_12a4;
+    if (local_12a4 != (int *)0x0) {
+      if (DAT_011f9494 == 0) {
+        iVar9 = (**(code **)(**(int **)(DAT_011f9508 + 0x288) + 0x1a8))
+                          (*(int **)(DAT_011f9508 + 0x288),local_12a4,&local_1268);
+        if (iVar9 != 0) {
+          pcVar11 = "SHADER ERROR : failed to create pixel shader : %s";
+          goto LAB_00be1e6b;
+        }
+        local_128c = (int *)FUN_00aa13e0(0x30);
+        uStack_4 = 0;
+        if (local_128c == (int *)0x0) {
+          local_1274 = (int *)0x0;
+        }
+        else {
+          local_1274 = (int *)FUN_00be08f0(DAT_011f9508);
+        }
+        uStack_4 = 0xffffffff;
+        (**(code **)(*local_1274 + 0x80))(local_1268);
+      }
+      else {
+        FUN_00b7fd90(param_4,local_12a4,local_1294);
+      }
+    }
+    if (uStack_12a8._1_1_ != '\0') {
+      FUN_00aa4060(piVar4);
+    }
+  }
+LAB_00be1e82:
+  *unaff_FS_OFFSET = local_c;
+  __security_check_cookie(local_10 ^ (uint)&uStack_12a8);
+  return;
+}
+
+
+
+======================================================================
+direct callee 9 @ 0x00ec408c
+======================================================================
+  Function: __security_check_cookie @ 0x00ec408c, Size: 15 bytes
+
+/* Library Function - Single Match
+    @__security_check_cookie@4
+   
+   Libraries: Visual Studio 2005 Release, Visual Studio 2008 Release, Visual Studio 2010 Release
+   __fastcall __security_check_cookie,4 */
+
+void __fastcall __security_check_cookie(int param_1)
+
+{
+  if (param_1 == DAT_011c16bc) {
+    return;
+  }
+                    /* WARNING: Subroutine does not return */
+  ___report_gsfailure();
+}
+
+
+
+======================================================================
+direct callee 10 @ 0x00ec61c0
+======================================================================
+  Function: _memset @ 0x00ec61c0, Size: 122 bytes
+
+/* Library Function - Single Match
+    _memset
+   
+   Libraries: Visual Studio 2005 Debug, Visual Studio 2005 Release, Visual Studio 2008 Debug, Visual
+   Studio 2008 Release */
+
+void * __cdecl _memset(void *_Dst,int _Val,size_t _Size)
+
+{
+  uint uVar1;
+  void *pvVar2;
+  uint uVar3;
+  size_t sVar4;
+  uint *puVar5;
+  
+  if (_Size == 0) {
+    return _Dst;
+  }
+  uVar1 = _Val & 0xff;
+  if ((((char)_Val == '\0') && (0xff < _Size)) && (DAT_01270a6c != 0)) {
+    pvVar2 = (void *)__VEC_memzero();
+    return pvVar2;
+  }
+  puVar5 = _Dst;
+  if (3 < _Size) {
+    uVar3 = -(int)_Dst & 3;
+    sVar4 = _Size;
+    if (uVar3 != 0) {
+      sVar4 = _Size - uVar3;
+      do {
+        *(char *)puVar5 = (char)_Val;
+        puVar5 = (uint *)((int)puVar5 + 1);
+        uVar3 = uVar3 - 1;
+      } while (uVar3 != 0);
+    }
+    uVar1 = uVar1 * 0x1010101;
+    _Size = sVar4 & 3;
+    uVar3 = sVar4 >> 2;
+    if (uVar3 != 0) {
+      for (; uVar3 != 0; uVar3 = uVar3 - 1) {
+        *puVar5 = uVar1;
+        puVar5 = puVar5 + 1;
+      }
+      if (_Size == 0) {
+        return _Dst;
+      }
+    }
+  }
+  do {
+    *(char *)puVar5 = (char)uVar1;
+    puVar5 = (uint *)((int)puVar5 + 1);
+    _Size = _Size - 1;
+  } while (_Size != 0);
+  return _Dst;
+}
+
+
+  Decompiled: 10 of 10 direct callees
+  [80] +0x140: 0x00bad060 -> FUN_00bad060
+
+======================================================================
+TallGrassShader vtable[80] @ 0x00bad060
+======================================================================
+  Function: FUN_00bad060 @ 0x00bad060, Size: 152 bytes
+
+undefined4 __fastcall FUN_00bad060(int param_1)
+
+{
+  int iVar1;
+  undefined4 uVar2;
+  uint uVar3;
+  int iVar4;
+  int *unaff_FS_OFFSET;
+  int local_c;
+  undefined1 *puStack_8;
+  undefined4 local_4;
+  
+  puStack_8 = &LAB_00f30788;
+  local_c = *unaff_FS_OFFSET;
+  uVar3 = DAT_011c16bc ^ (uint)&stack0xffffffe0;
+  *unaff_FS_OFFSET = (int)&local_c;
+  iVar1 = *(int *)(unaff_FS_OFFSET[0xb] + _tls_index * 4);
+  uVar2 = *(undefined4 *)(iVar1 + 0x2b4);
+  *(undefined4 *)(iVar1 + 0x2b4) = 0x1c;
+  local_4 = 0;
+  param_1 = param_1 + 0x6c;
+  iVar4 = 0x2c;
+  do {
+    FUN_00e804d0(param_1,uVar3);
+    param_1 = param_1 + 4;
+    iVar4 = iVar4 + -1;
+  } while (iVar4 != 0);
+  FUN_00bac160();
+  *(undefined4 *)(iVar1 + 0x2b4) = uVar2;
+  *unaff_FS_OFFSET = local_c;
+  return CONCAT31((int3)((uint)uVar2 >> 8),1);
+}
+
+
+
+--- Calls FROM TallGrassShader vtable[80] (0x00bad060) ---
+  0x00bad0c1 -> 0x00e804d0 FUN_00e804d0
+  0x00bad0d3 -> 0x00bac160 FUN_00bac160
+  Total: 2 calls
+
+======================================================================
+DIRECT CALLEE DECOMPILATIONS: TallGrassShader vtable[80] @ 0x00bad060
+======================================================================
+
+======================================================================
+direct callee 1 @ 0x00bac160
+======================================================================
+  Function: FUN_00bac160 @ 0x00bac160, Size: 1870 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+void __fastcall FUN_00bac160(int param_1)
+
+{
+  int iVar1;
+  int *piVar2;
+  int *piVar3;
+  uint uVar4;
+  undefined4 uVar5;
+  int iVar6;
+  LONG LVar7;
+  int iVar8;
+  int *piVar9;
+  int *unaff_FS_OFFSET;
+  undefined4 uVar10;
+  int local_24;
+  int local_20;
+  int local_1c;
+  int *local_18;
+  undefined4 local_14;
+  int local_10;
+  int local_c;
+  undefined1 *puStack_8;
+  uint local_4;
+  
+  puStack_8 = &LAB_00f2afb0;
+  local_c = *unaff_FS_OFFSET;
+  uVar4 = DAT_011c16bc ^ (uint)&stack0xffffffcc;
+  *unaff_FS_OFFSET = (int)&local_c;
+  local_10 = *(int *)(unaff_FS_OFFSET[0xb] + _tls_index * 4);
+  local_14 = *(undefined4 *)(local_10 + 0x2b4);
+  *(undefined4 *)(local_10 + 0x2b4) = 0x1c;
+  local_24 = 0;
+  local_20 = 0;
+  local_18 = (int *)(param_1 + 0x128);
+  local_4 = 1;
+  local_1c = param_1;
+  do {
+    iVar1 = local_18[-0x2f];
+    if (*(int *)(iVar1 + 0x18) == 0) {
+      FUN_00e7edf0(&local_24,uVar4);
+      iVar8 = local_24;
+      FUN_00be0cf0(local_24,0,3,2,0);
+      FUN_00e802b0(*(undefined4 *)(iVar1 + 0x14),iVar8);
+    }
+    if ((local_20 < 8) || (0xf < local_20)) {
+      iVar8 = 0;
+    }
+    else {
+      if (*(uint *)(iVar1 + 0x18) < 3) {
+        FUN_00e7edf0(&local_24,uVar4);
+        iVar8 = local_24;
+        FUN_00be0cf0(local_24,1,1,2,0);
+        FUN_00e802b0(*(undefined4 *)(iVar1 + 0x14),iVar8);
+        FUN_00e7edf0(&local_24);
+        iVar8 = local_24;
+        FUN_00be0cf0(local_24,2,1,2,0);
+        FUN_00e802b0(*(undefined4 *)(iVar1 + 0x14),iVar8);
+      }
+      iVar8 = 2;
+    }
+    if (*(int *)(iVar1 + 0x30) == 0) {
+      uVar5 = FUN_00e7f5d0();
+      *(undefined4 *)(iVar1 + 0x30) = uVar5;
+    }
+    FUN_00e7f430(0x1b,0,1);
+    iVar6 = FUN_004dc060(0);
+    if (1 < iVar6) {
+      if (*(int *)(iVar1 + 0x30) == 0) {
+        uVar5 = FUN_00e7f5d0();
+        *(undefined4 *)(iVar1 + 0x30) = uVar5;
+      }
+      FUN_00e7f430(0xf,1,1);
+      if (*(int *)(iVar1 + 0x30) == 0) {
+        uVar5 = FUN_00e7f5d0();
+        *(undefined4 *)(iVar1 + 0x30) = uVar5;
+      }
+      FUN_00e7f430(0x19,5,1);
+      if (*(int *)(iVar1 + 0x30) == 0) {
+        uVar5 = FUN_00e7f5d0();
+        *(undefined4 *)(iVar1 + 0x30) = uVar5;
+      }
+      FUN_00e7f430(0x18,10,1);
+      if ((DAT_011f941e != '\0') && (DAT_011f9421 == '\0')) {
+        if (*(int *)(iVar1 + 0x30) == 0) {
+          uVar5 = FUN_00e7f5d0();
+          *(undefined4 *)(iVar1 + 0x30) = uVar5;
+        }
+        FUN_00e7f430(0x1b,1,1);
+        if (*(int *)(iVar1 + 0x30) == 0) {
+          uVar5 = FUN_00e7f5d0();
+          *(undefined4 *)(iVar1 + 0x30) = uVar5;
+        }
+        FUN_00e7f430(0x13,5,1);
+        if (*(int *)(iVar1 + 0x30) == 0) {
+          uVar5 = FUN_00e7f5d0();
+          *(undefined4 *)(iVar1 + 0x30) = uVar5;
+        }
+        FUN_00e7f430(0x14,6,1);
+      }
+    }
+    piVar9 = (int *)*local_18;
+    piVar2 = *(int **)(iVar1 + 0x5c);
+    if (piVar2 != piVar9) {
+      if ((piVar2 != (int *)0x0) && (LVar7 = InterlockedDecrement(piVar2 + 1), LVar7 == 0)) {
+        (**(code **)(*piVar2 + 4))();
+      }
+      *(int **)(iVar1 + 0x5c) = piVar9;
+      if (piVar9 != (int *)0x0) {
+        InterlockedIncrement(piVar9 + 1);
+      }
+    }
+    piVar9 = *(int **)(local_1c + 0x188 + iVar8 * 4);
+    piVar2 = *(int **)(iVar1 + 0x44);
+    if (piVar2 != piVar9) {
+      if ((piVar2 != (int *)0x0) && (LVar7 = InterlockedDecrement(piVar2 + 1), LVar7 == 0)) {
+        (**(code **)(*piVar2 + 4))();
+      }
+      *(int **)(iVar1 + 0x44) = piVar9;
+      if (piVar9 != (int *)0x0) {
+        InterlockedIncrement(piVar9 + 1);
+      }
+    }
+    local_18 = local_18 + 1;
+    local_20 = local_20 + 1;
+  } while (local_20 < 0x14);
+  local_18 = (int *)(local_1c + 0x128);
+  local_20 = 0x14;
+  do {
+    iVar8 = local_20;
+    iVar1 = local_18[-0x1b];
+    if (*(uint *)(iVar1 + 0x18) < 2) {
+      FUN_00e7edf0(&local_24);
+      iVar6 = local_24;
+      FUN_00be0cf0(local_24,0,3,2,0);
+      FUN_00e802b0(*(undefined4 *)(iVar1 + 0x14),iVar6);
+      FUN_00e7edf0(&local_24);
+      iVar6 = local_24;
+      FUN_00be0cf0(local_24,1,3,2,0);
+      *(undefined4 *)(iVar6 + 8) = DAT_011f9534;
+      *(undefined4 *)(iVar6 + 0xc) = 1;
+      FUN_00e802b0(*(undefined4 *)(iVar1 + 0x14),iVar6);
+    }
+    if ((iVar8 < 0x1c) || (0x23 < iVar8)) {
+      iVar8 = 1;
+    }
+    else {
+      if (*(uint *)(iVar1 + 0x18) < 4) {
+        FUN_00e7edf0(&local_24);
+        iVar8 = local_24;
+        FUN_00be0cf0(local_24,2,1,2,0);
+        FUN_00e802b0(*(undefined4 *)(iVar1 + 0x14),iVar8);
+        FUN_00e7edf0(&local_24);
+        iVar8 = local_24;
+        FUN_00be0cf0(local_24,3,1,2,0);
+        FUN_00e802b0(*(undefined4 *)(iVar1 + 0x14),iVar8);
+      }
+      iVar8 = 3;
+    }
+    iVar6 = FUN_004dc060(0);
+    if (iVar6 < 2) {
+      if (*(int *)(iVar1 + 0x30) == 0) {
+        uVar5 = FUN_00e7f5d0();
+        *(undefined4 *)(iVar1 + 0x30) = uVar5;
+      }
+      uVar10 = 0;
+      uVar5 = 0xf;
+LAB_00bac5dd:
+      FUN_00e7f430(uVar5,uVar10,1);
+    }
+    else {
+      if (*(int *)(iVar1 + 0x30) == 0) {
+        uVar5 = FUN_00e7f5d0();
+        *(undefined4 *)(iVar1 + 0x30) = uVar5;
+      }
+      FUN_00e7f430(0xf,1,1);
+      if (*(int *)(iVar1 + 0x30) == 0) {
+        uVar5 = FUN_00e7f5d0();
+        *(undefined4 *)(iVar1 + 0x30) = uVar5;
+      }
+      FUN_00e7f430(0x19,5,1);
+      if (*(int *)(iVar1 + 0x30) == 0) {
+        uVar5 = FUN_00e7f5d0();
+        *(undefined4 *)(iVar1 + 0x30) = uVar5;
+      }
+      FUN_00e7f430(0x18,10,1);
+      if ((DAT_011f941e != '\0') && (DAT_011f9421 == '\0')) {
+        if (*(int *)(iVar1 + 0x30) == 0) {
+          uVar5 = FUN_00e7f5d0();
+          *(undefined4 *)(iVar1 + 0x30) = uVar5;
+        }
+        FUN_00e7f430(0x1b,1,1);
+        if (*(int *)(iVar1 + 0x30) == 0) {
+          uVar5 = FUN_00e7f5d0();
+          *(undefined4 *)(iVar1 + 0x30) = uVar5;
+        }
+        FUN_00e7f430(0x13,5,1);
+        if (*(int *)(iVar1 + 0x30) == 0) {
+          uVar5 = FUN_00e7f5d0();
+          *(undefined4 *)(iVar1 + 0x30) = uVar5;
+        }
+        uVar10 = 6;
+        uVar5 = 0x14;
+        goto LAB_00bac5dd;
+      }
+    }
+    piVar9 = (int *)*local_18;
+    piVar2 = *(int **)(iVar1 + 0x5c);
+    if (piVar2 != piVar9) {
+      if ((piVar2 != (int *)0x0) && (LVar7 = InterlockedDecrement(piVar2 + 1), LVar7 == 0)) {
+        (**(code **)(*piVar2 + 4))();
+      }
+      *(int **)(iVar1 + 0x5c) = piVar9;
+      if (piVar9 != (int *)0x0) {
+        InterlockedIncrement(piVar9 + 1);
+      }
+    }
+    piVar9 = *(int **)(local_1c + 0x188 + iVar8 * 4);
+    piVar2 = *(int **)(iVar1 + 0x44);
+    if (piVar2 != piVar9) {
+      if ((piVar2 != (int *)0x0) && (LVar7 = InterlockedDecrement(piVar2 + 1), LVar7 == 0)) {
+        (**(code **)(*piVar2 + 4))();
+      }
+      *(int **)(iVar1 + 0x44) = piVar9;
+      if (piVar9 != (int *)0x0) {
+        InterlockedIncrement(piVar9 + 1);
+      }
+    }
+    local_18 = local_18 + 1;
+    local_20 = local_20 + 1;
+    if (0x27 < local_20) {
+      piVar9 = (int *)(local_1c + 0x178);
+      local_18 = (int *)0x4;
+      do {
+        iVar1 = piVar9[-0x1b];
+        if (*(uint *)(iVar1 + 0x18) < 2) {
+          FUN_00e7edf0(&local_24);
+          iVar8 = local_24;
+          FUN_00be0cf0(local_24,0,3,2,0);
+          FUN_00e802b0(*(undefined4 *)(iVar1 + 0x14),iVar8);
+          FUN_00e7edf0(&local_24);
+          iVar8 = local_24;
+          FUN_00be0cf0(local_24,1,3,2,0);
+          FUN_00e802b0(*(undefined4 *)(iVar1 + 0x14),iVar8);
+        }
+        if (*(int *)(iVar1 + 0x30) == 0) {
+          uVar5 = FUN_00e7f5d0();
+          *(undefined4 *)(iVar1 + 0x30) = uVar5;
+        }
+        FUN_00e7f430(0x1b,1,1);
+        if (*(int *)(iVar1 + 0x30) == 0) {
+          uVar5 = FUN_00e7f5d0();
+          *(undefined4 *)(iVar1 + 0x30) = uVar5;
+        }
+        FUN_00e7f430(0x13,9,1);
+        if (*(int *)(iVar1 + 0x30) == 0) {
+          uVar5 = FUN_00e7f5d0();
+          *(undefined4 *)(iVar1 + 0x30) = uVar5;
+        }
+        FUN_00e7f430(0x14,1,1);
+        if (*(int *)(iVar1 + 0x30) == 0) {
+          uVar5 = FUN_00e7f5d0();
+          *(undefined4 *)(iVar1 + 0x30) = uVar5;
+        }
+        FUN_00e7f430(0xe,0,1);
+        local_20 = _DAT_01200458;
+        if (*(int *)(iVar1 + 0x30) == 0) {
+          uVar5 = FUN_00e7f5d0();
+          *(undefined4 *)(iVar1 + 0x30) = uVar5;
+        }
+        FUN_00e7f430(0xc3,local_20,1);
+        if (*(int *)(iVar1 + 0x30) == 0) {
+          uVar5 = FUN_00e7f5d0();
+          *(undefined4 *)(iVar1 + 0x30) = uVar5;
+        }
+        FUN_00e7f430(0x98,0x3f,1);
+        piVar2 = (int *)*piVar9;
+        piVar3 = *(int **)(iVar1 + 0x5c);
+        if (piVar3 != piVar2) {
+          if ((piVar3 != (int *)0x0) && (LVar7 = InterlockedDecrement(piVar3 + 1), LVar7 == 0)) {
+            (**(code **)(*piVar3 + 4))();
+          }
+          *(int **)(iVar1 + 0x5c) = piVar2;
+          if (piVar2 != (int *)0x0) {
+            InterlockedIncrement(piVar2 + 1);
+          }
+        }
+        piVar2 = *(int **)(local_1c + 0x198 + DAT_011f948c * 4);
+        piVar3 = *(int **)(iVar1 + 0x44);
+        if (piVar3 != piVar2) {
+          if ((piVar3 != (int *)0x0) && (LVar7 = InterlockedDecrement(piVar3 + 1), LVar7 == 0)) {
+            (**(code **)(*piVar3 + 4))();
+          }
+          *(int **)(iVar1 + 0x44) = piVar2;
+          if (piVar2 != (int *)0x0) {
+            InterlockedIncrement(piVar2 + 1);
+          }
+        }
+        piVar9 = piVar9 + 1;
+        local_18 = (int *)((int)local_18 + -1);
+      } while (local_18 != (int *)0x0);
+      local_4 = local_4 & 0xffffff00;
+      if (local_24 == 0) {
+        *(undefined4 *)(local_10 + 0x2b4) = local_14;
+        *unaff_FS_OFFSET = local_c;
+        return;
+      }
+      *(int *)(local_24 + 0x60) = *(int *)(local_24 + 0x60) + -1;
+      if (*(int *)(local_24 + 0x60) != 0) {
+        *(undefined4 *)(local_10 + 0x2b4) = local_14;
+        *unaff_FS_OFFSET = local_c;
+        return;
+      }
+      FUN_00e7ecd0();
+      *(undefined4 *)(local_10 + 0x2b4) = local_14;
+      *unaff_FS_OFFSET = local_c;
+      return;
+    }
+  } while( true );
+}
+
+
+
+======================================================================
+direct callee 2 @ 0x00e804d0
+======================================================================
+  Function: FUN_00e804d0 @ 0x00e804d0, Size: 147 bytes
+
+void FUN_00e804d0(int *param_1)
+
+{
+  int *piVar1;
+  int *piVar2;
+  int *piVar3;
+  int iVar4;
+  int iVar5;
+  
+  piVar3 = DAT_0126f72c;
+  piVar2 = DAT_0126f72c + 2;
+  if (DAT_0126f72c[2] == 0) {
+    piVar1 = DAT_0126f72c + 4;
+    FUN_00e80420(DAT_0126f72c[4]);
+    *piVar1 = *piVar1 * 2;
+  }
+  piVar3 = (int *)*piVar3;
+  iVar4 = *piVar3;
+  *piVar2 = *piVar2 + -1;
+  *piVar3 = piVar3[*piVar2];
+  if (iVar4 != 0) {
+    *(int *)(iVar4 + 100) = *(int *)(iVar4 + 100) + 1;
+  }
+  if (*(char *)(iVar4 + 0x61) == '\0') {
+    *(undefined1 *)(iVar4 + 0x61) = 1;
+  }
+  iVar5 = FUN_00e7f5d0();
+  if (*(int *)(iVar4 + 0x30) != iVar5) {
+    FUN_00e7f6b0(*(int *)(iVar4 + 0x30));
+  }
+  *(int *)(iVar4 + 0x30) = iVar5;
+  iVar5 = *param_1;
+  if (iVar5 != iVar4) {
+    if (iVar5 != 0) {
+      piVar2 = (int *)(iVar5 + 100);
+      *piVar2 = *piVar2 + -1;
+      if (*piVar2 == 0) {
+        FUN_00e80190();
+      }
+    }
+    *param_1 = iVar4;
+    *(int *)(iVar4 + 100) = *(int *)(iVar4 + 100) + 1;
+  }
+  piVar2 = (int *)(iVar4 + 100);
+  *piVar2 = *piVar2 + -1;
+  if (*piVar2 == 0) {
+    FUN_00e80190();
+    return;
+  }
+  return;
+}
+
+
+  Decompiled: 2 of 2 direct callees
+  [81] +0x144: 0x53415247 -> ???
+
+======================================================================
+TallGrassShader vtable[81] @ 0x53415247
+======================================================================
+  [function not found]
+  [function not found at 0x53415247]
+
+======================================================================
+DIRECT CALLEE DECOMPILATIONS: TallGrassShader vtable[81] @ 0x53415247
+======================================================================
+  [function not found]
+  [82] +0x148: 0x78333253 -> ???
+
+======================================================================
+TallGrassShader vtable[82] @ 0x78333253
+======================================================================
+  [function not found]
+  [function not found at 0x78333253]
+
+======================================================================
+DIRECT CALLEE DECOMPILATIONS: TallGrassShader vtable[82] @ 0x78333253
+======================================================================
+  [function not found]
+
+======================================================================
+VTABLE RENDER-STATE RANGE: SpeedTreeLeafShader @ 0x010b9190
+======================================================================
+  [70] +0x118: 0x00b807c0 -> ???
+
+======================================================================
+SpeedTreeLeafShader vtable[70] @ 0x00b807c0
+======================================================================
+  [function not found]
+  [function not found at 0x00b807c0]
+
+======================================================================
+DIRECT CALLEE DECOMPILATIONS: SpeedTreeLeafShader vtable[70] @ 0x00b807c0
+======================================================================
+  [function not found]
+  [71] +0x11c: 0x00bb2d10 -> FUN_00bb2d10
+
+======================================================================
+SpeedTreeLeafShader vtable[71] @ 0x00bb2d10
+======================================================================
+  Function: FUN_00bb2d10 @ 0x00bb2d10, Size: 568 bytes
+
+void __fastcall FUN_00bb2d10(int param_1)
+
+{
+  int *piVar1;
+  uint uVar2;
+  int iVar3;
+  int *piVar4;
+  LONG LVar5;
+  int *unaff_FS_OFFSET;
+  int local_c;
+  undefined1 *puStack_8;
+  undefined4 local_4;
+  
+  local_4 = 0xffffffff;
+  puStack_8 = &LAB_00f2b6af;
+  local_c = *unaff_FS_OFFSET;
+  uVar2 = DAT_011c16bc ^ (uint)&stack0xffffffe4;
+  *unaff_FS_OFFSET = (int)&local_c;
+  if (*(int *)(param_1 + 0x34) == 0) {
+    iVar3 = FUN_00aa13e0(0x44,uVar2);
+    local_4 = 0;
+    if (iVar3 == 0) {
+      piVar4 = (int *)0x0;
+    }
+    else {
+      piVar4 = (int *)FUN_00b7e330(*(undefined4 *)(param_1 + 0x18),0);
+    }
+    piVar1 = *(int **)(param_1 + 0x34);
+    local_4 = 0xffffffff;
+    if (piVar1 != piVar4) {
+      if (piVar1 != (int *)0x0) {
+        LVar5 = InterlockedDecrement(piVar1 + 1);
+        if (LVar5 == 0) {
+          (**(code **)(*piVar1 + 4))();
+        }
+      }
+      *(int **)(param_1 + 0x34) = piVar4;
+      if (piVar4 != (int *)0x0) {
+        InterlockedIncrement(piVar4 + 1);
+      }
+    }
+    (**(code **)(**(int **)(param_1 + 0x34) + 8))
+              ("WorldViewProjTranspose",0x20000009,0,0,4,0,0,0,0,0);
+    (**(code **)(**(int **)(param_1 + 0x34) + 8))
+              ("Ambient Color",0x10000007,0,5,1,&lpWindowName_01011584,0x10,4,&DAT_011fa0c0,0);
+    (**(code **)(**(int **)(param_1 + 0x34) + 8))
+              ("Diff Color 0",0x10000007,0,6,1,&lpWindowName_01011584,0x10,4,&DAT_011fa0d0,0);
+    (**(code **)(**(int **)(param_1 + 0x34) + 8))
+              ("Diff Color 1",0x10000007,0,7,1,&lpWindowName_01011584,0x10,4,&DAT_011fa0e0,0);
+    (**(code **)(**(int **)(param_1 + 0x34) + 8))
+              ("FogParam | ShadowVolumeFatness",0x10000007,0,8,1,&lpWindowName_01011584,0x10,4,
+               &DAT_011fa280,0);
+    (**(code **)(**(int **)(param_1 + 0x34) + 8))
+              ("FogColor | ShadowVolumeExtrudeDistance",0x10000007,0,9,1,&lpWindowName_01011584,0x10
+               ,4,&DAT_011fa290,0);
+    if (DAT_011f941e != '\0') {
+      (**(code **)(**(int **)(param_1 + 0x34) + 8))
+                ("Tree Dimmer",0x10000004,0,10,1,&lpWindowName_01011584,4,4,&DAT_011f918c,0);
+    }
+    (**(code **)(**(int **)(param_1 + 0x34) + 8))
+              ("grouped constants",0x10000009,0,0xb,6,&lpWindowName_01011584,0x60,4,&DAT_01200618,0)
+    ;
+    FUN_00bb2f50(*(undefined4 *)(param_1 + 0x34),0x11);
+    (**(code **)(**(int **)(param_1 + 0x34) + 8))
+              ("leaf data",0x10000009,0,0x22,0x30,&lpWindowName_01011584,0x300,4,param_1 + 0x6c,0);
+  }
+  *unaff_FS_OFFSET = local_c;
+  return;
+}
+
+
+
+--- Calls FROM SpeedTreeLeafShader vtable[71] (0x00bb2d10) ---
+  0x00bb2d42 -> 0x00aa13e0 FUN_00aa13e0
+  0x00bb2d62 -> 0x00b7e330 FUN_00b7e330
+  0x00bb2d84 -> 0x00000067 ???
+  0x00bb2da2 -> 0x00000066 ???
+  0x00bb2f01 -> 0x00bb2f50 FUN_00bb2f50
+  Total: 5 calls
+
+======================================================================
+DIRECT CALLEE DECOMPILATIONS: SpeedTreeLeafShader vtable[71] @ 0x00bb2d10
+======================================================================
+
+======================================================================
+direct callee 1 @ 0x00000066
+======================================================================
+  [function not found]
+
+======================================================================
+direct callee 2 @ 0x00000067
+======================================================================
+  [function not found]
+
+======================================================================
+direct callee 3 @ 0x00aa13e0
+======================================================================
+  Function: FUN_00aa13e0 @ 0x00aa13e0, Size: 62 bytes
+
+void FUN_00aa13e0(int param_1)
+
+{
+  int local_4;
+  
+  local_4 = param_1;
+  if (param_1 == 0) {
+    local_4 = 1;
+  }
+  param_1 = 4;
+  (**(code **)(*(int *)*DAT_011f6080 + 4))(&local_4,&param_1,1,1,0,0xffffffff,0);
+  return;
+}
+
+
+
+======================================================================
+direct callee 4 @ 0x00b7e330
+======================================================================
+  Function: FUN_00b7e330 @ 0x00b7e330, Size: 198 bytes
+
+undefined4 * __thiscall FUN_00b7e330(undefined4 *param_1,undefined4 param_2,undefined4 param_3)
+
+{
+  uint uVar1;
+  int *unaff_FS_OFFSET;
+  int local_c;
+  undefined1 *puStack_8;
+  undefined4 local_4;
+  
+  local_4 = 0xffffffff;
+  puStack_8 = &LAB_00f28e0e;
+  local_c = *unaff_FS_OFFSET;
+  uVar1 = DAT_011c16bc ^ (uint)&stack0xffffffe8;
+  *unaff_FS_OFFSET = (int)&local_c;
+  FUN_00a9be80(param_3);
+  *param_1 = &PTR_FUN_010ef544;
+  *(undefined2 *)((int)param_1 + 0x1a) = 1;
+  *(undefined2 *)(param_1 + 5) = 0;
+  *(undefined2 *)((int)param_1 + 0x16) = 0;
+  *(undefined2 *)(param_1 + 6) = 0;
+  param_1[4] = 0;
+  param_1[3] = &PTR_FUN_010f003c;
+  *(undefined2 *)((int)param_1 + 0x2a) = 1;
+  *(undefined2 *)(param_1 + 9) = 0;
+  *(undefined2 *)((int)param_1 + 0x26) = 0;
+  *(undefined2 *)(param_1 + 10) = 0;
+  param_1[8] = 0;
+  param_1[7] = &PTR_FUN_010f003c;
+  param_1[0xc] = 0;
+  param_1[0xd] = 0;
+  param_1[0xe] = 0;
+  param_1[0xf] = 0;
+  param_1[0x10] = 0;
+  local_4 = 2;
+  *(undefined1 *)(param_1 + 0xb) = 1;
+  FUN_00e81d00(param_2);
+  FUN_00b799c0(uVar1);
+  *unaff_FS_OFFSET = local_c;
+  return param_1;
+}
+
+
+
+======================================================================
+direct callee 5 @ 0x00bb2f50
+======================================================================
+  Function: FUN_00bb2f50 @ 0x00bb2f50, Size: 97 bytes
+
+void FUN_00bb2f50(int *param_1,int param_2)
+
+{
+  (**(code **)(*param_1 + 8))
+            ("TreeData",0x10000007,0,param_2,1,&lpWindowName_01011584,0x10,4,&DAT_01200678,0);
+  (**(code **)(*param_1 + 8))
+            ("WindMatrices",0x10000009,0,param_2 + 1,0x10,&lpWindowName_01011584,0x100,4,
+             &DAT_01200688,0);
+  return;
+}
+
+
+  Decompiled: 5 of 5 direct callees
+  [72] +0x120: 0x00bb2be0 -> FUN_00bb2be0
+
+======================================================================
+SpeedTreeLeafShader vtable[72] @ 0x00bb2be0
+======================================================================
+  Function: FUN_00bb2be0 @ 0x00bb2be0, Size: 21 bytes
+
+void __fastcall FUN_00bb2be0(int *param_1)
+
+{
+  (**(code **)(*param_1 + 0x13c))();
+  FUN_00bb1d40();
+  return;
+}
+
+
+
+--- Calls FROM SpeedTreeLeafShader vtable[72] (0x00bb2be0) ---
+  0x00bb2bf0 -> 0x00bb1d40 FUN_00bb1d40
+  Total: 1 calls
+
+======================================================================
+DIRECT CALLEE DECOMPILATIONS: SpeedTreeLeafShader vtable[72] @ 0x00bb2be0
+======================================================================
+
+======================================================================
+direct callee 1 @ 0x00bb1d40
+======================================================================
+  Function: FUN_00bb1d40 @ 0x00bb1d40, Size: 530 bytes
+
+void __fastcall FUN_00bb1d40(int param_1)
+
+{
+  int *piVar1;
+  int iVar2;
+  int iVar3;
+  int *piVar4;
+  int *piVar5;
+  uint uVar6;
+  int iVar7;
+  LONG LVar8;
+  int *unaff_FS_OFFSET;
+  int local_14;
+  int local_10;
+  int local_c;
+  undefined1 *puStack_8;
+  undefined4 local_4;
+  
+  local_4 = 0xffffffff;
+  puStack_8 = &LAB_00f296a8;
+  local_c = *unaff_FS_OFFSET;
+  uVar6 = DAT_011c16bc ^ (uint)&stack0xffffffdc;
+  *unaff_FS_OFFSET = (int)&local_c;
+  piVar1 = (int *)(param_1 + 900);
+  FUN_00e804d0(piVar1,uVar6);
+  local_14 = 0;
+  local_4 = 0;
+  FUN_00e7edf0(&local_14);
+  FUN_00be0cf0(local_14,0,1,2,1);
+  FUN_00e802b0(*(undefined4 *)(*piVar1 + 0x14),local_14);
+  iVar2 = *piVar1;
+  iVar7 = FUN_00e7f5d0();
+  iVar3 = *(int *)(iVar2 + 0x30);
+  if (iVar3 != iVar7) {
+    FUN_00e7f6b0(iVar3);
+  }
+  *(int *)(iVar2 + 0x30) = iVar7;
+  local_10 = *piVar1;
+  piVar4 = *(int **)(param_1 + 0x370);
+  piVar5 = *(int **)(local_10 + 0x5c);
+  if (piVar5 != piVar4) {
+    if (piVar5 != (int *)0x0) {
+      LVar8 = InterlockedDecrement(piVar5 + 1);
+      if (LVar8 == 0) {
+        (**(code **)(*piVar5 + 4))();
+      }
+    }
+    *(int **)(local_10 + 0x5c) = piVar4;
+    if (piVar4 != (int *)0x0) {
+      InterlockedIncrement(piVar4 + 1);
+    }
+  }
+  iVar2 = *piVar1;
+  piVar1 = *(int **)(param_1 + 0x380);
+  piVar4 = *(int **)(iVar2 + 0x44);
+  if (piVar4 != piVar1) {
+    if (piVar4 != (int *)0x0) {
+      LVar8 = InterlockedDecrement(piVar4 + 1);
+      if (LVar8 == 0) {
+        (**(code **)(*piVar4 + 4))();
+      }
+    }
+    *(int **)(iVar2 + 0x44) = piVar1;
+    if (piVar1 != (int *)0x0) {
+      InterlockedIncrement(piVar1 + 1);
+    }
+  }
+  piVar1 = (int *)(param_1 + 0x388);
+  FUN_00e804d0(piVar1);
+  FUN_00e7edf0(&local_14);
+  FUN_00be0cf0(local_14,0,1,2,1);
+  FUN_00e802b0(*(undefined4 *)(*piVar1 + 0x14),local_14);
+  iVar2 = *piVar1;
+  iVar7 = FUN_00e7f5d0();
+  iVar3 = *(int *)(iVar2 + 0x30);
+  if (iVar3 != iVar7) {
+    FUN_00e7f6b0(iVar3);
+  }
+  *(int *)(iVar2 + 0x30) = iVar7;
+  local_10 = *piVar1;
+  piVar4 = *(int **)(param_1 + 0x378);
+  piVar5 = *(int **)(local_10 + 0x5c);
+  if (piVar5 != piVar4) {
+    if (piVar5 != (int *)0x0) {
+      LVar8 = InterlockedDecrement(piVar5 + 1);
+      if (LVar8 == 0) {
+        (**(code **)(*piVar5 + 4))();
+      }
+    }
+    *(int **)(local_10 + 0x5c) = piVar4;
+    if (piVar4 != (int *)0x0) {
+      InterlockedIncrement(piVar4 + 1);
+    }
+  }
+  iVar2 = *piVar1;
+  piVar1 = *(int **)(param_1 + 0x380);
+  piVar4 = *(int **)(iVar2 + 0x44);
+  if (piVar4 != piVar1) {
+    if (piVar4 != (int *)0x0) {
+      LVar8 = InterlockedDecrement(piVar4 + 1);
+      if (LVar8 == 0) {
+        (**(code **)(*piVar4 + 4))();
+      }
+    }
+    *(int **)(iVar2 + 0x44) = piVar1;
+    if (piVar1 != (int *)0x0) {
+      InterlockedIncrement(piVar1 + 1);
+    }
+  }
+  local_4 = 0xffffffff;
+  if ((local_14 != 0) &&
+     (*(int *)(local_14 + 0x60) = *(int *)(local_14 + 0x60) + -1, *(int *)(local_14 + 0x60) == 0)) {
+    FUN_00e7ecd0();
+  }
+  *unaff_FS_OFFSET = local_c;
+  return;
+}
+
+
+  Decompiled: 1 of 1 direct callees
+  [73] +0x124: 0x00bb1a70 -> ???
+
+======================================================================
+SpeedTreeLeafShader vtable[73] @ 0x00bb1a70
+======================================================================
+  [function not found]
+  [function not found at 0x00bb1a70]
+
+======================================================================
+DIRECT CALLEE DECOMPILATIONS: SpeedTreeLeafShader vtable[73] @ 0x00bb1a70
+======================================================================
+  [function not found]
+  [74] +0x128: 0x00be0fb0 -> ???
+
+======================================================================
+SpeedTreeLeafShader vtable[74] @ 0x00be0fb0
+======================================================================
+  [function not found]
+  [function not found at 0x00be0fb0]
+
+======================================================================
+DIRECT CALLEE DECOMPILATIONS: SpeedTreeLeafShader vtable[74] @ 0x00be0fb0
+======================================================================
+  [function not found]
+  [75] +0x12c: 0x00b606e0 -> ???
+
+======================================================================
+SpeedTreeLeafShader vtable[75] @ 0x00b606e0
+======================================================================
+  [function not found]
+  [function not found at 0x00b606e0]
+
+======================================================================
+DIRECT CALLEE DECOMPILATIONS: SpeedTreeLeafShader vtable[75] @ 0x00b606e0
+======================================================================
+  [function not found]
+  [76] +0x130: 0x00be08e0 -> ???
+
+======================================================================
+SpeedTreeLeafShader vtable[76] @ 0x00be08e0
+======================================================================
+  [function not found]
+  [function not found at 0x00be08e0]
+
+======================================================================
+DIRECT CALLEE DECOMPILATIONS: SpeedTreeLeafShader vtable[76] @ 0x00be08e0
+======================================================================
+  [function not found]
+  [77] +0x134: 0x00b606e0 -> ???
+  [78] +0x138: 0x00b79db0 -> ???
+
+======================================================================
+SpeedTreeLeafShader vtable[78] @ 0x00b79db0
+======================================================================
+  [function not found]
+  [function not found at 0x00b79db0]
+
+======================================================================
+DIRECT CALLEE DECOMPILATIONS: SpeedTreeLeafShader vtable[78] @ 0x00b79db0
+======================================================================
+  [function not found]
+  [79] +0x13c: 0x00bb13d0 -> ???
+
+======================================================================
+SpeedTreeLeafShader vtable[79] @ 0x00bb13d0
+======================================================================
+  [function not found]
+  [function not found at 0x00bb13d0]
+
+======================================================================
+DIRECT CALLEE DECOMPILATIONS: SpeedTreeLeafShader vtable[79] @ 0x00bb13d0
+======================================================================
+  [function not found]
+  [80] +0x140: 0x6661656c -> ???
+
+======================================================================
+SpeedTreeLeafShader vtable[80] @ 0x6661656c
+======================================================================
+  [function not found]
+  [function not found at 0x6661656c]
+
+======================================================================
+DIRECT CALLEE DECOMPILATIONS: SpeedTreeLeafShader vtable[80] @ 0x6661656c
+======================================================================
+  [function not found]
+  [81] +0x144: 0x74616420 -> ???
+
+======================================================================
+SpeedTreeLeafShader vtable[81] @ 0x74616420
+======================================================================
+  [function not found]
+  [function not found at 0x74616420]
+
+======================================================================
+DIRECT CALLEE DECOMPILATIONS: SpeedTreeLeafShader vtable[81] @ 0x74616420
+======================================================================
+  [function not found]
+  [82] +0x148: 0x00000061 -> ???
+
+======================================================================
+SpeedTreeLeafShader vtable[82] @ 0x00000061
+======================================================================
+  [function not found]
+  [function not found at 0x00000061]
+
+======================================================================
+DIRECT CALLEE DECOMPILATIONS: SpeedTreeLeafShader vtable[82] @ 0x00000061
+======================================================================
+  [function not found]
+
+======================================================================
+VTABLE RENDER-STATE RANGE: SpeedTreeBranchShader @ 0x010bc070
+======================================================================
+  [70] +0x118: 0x00b7a6f0 -> ???
+
+======================================================================
+SpeedTreeBranchShader vtable[70] @ 0x00b7a6f0
+======================================================================
+  [function not found]
+  [function not found at 0x00b7a6f0]
+
+======================================================================
+DIRECT CALLEE DECOMPILATIONS: SpeedTreeBranchShader vtable[70] @ 0x00b7a6f0
+======================================================================
+  [function not found]
+  [71] +0x11c: 0x00bd4d30 -> FUN_00bd4d30
+
+======================================================================
+SpeedTreeBranchShader vtable[71] @ 0x00bd4d30
+======================================================================
+  Function: FUN_00bd4d30 @ 0x00bd4d30, Size: 405 bytes
+
+void __fastcall FUN_00bd4d30(int param_1)
+
+{
+  int *piVar1;
+  uint uVar2;
+  int iVar3;
+  LONG LVar4;
+  int *piVar5;
+  int *unaff_FS_OFFSET;
+  int local_c;
+  undefined1 *puStack_8;
+  undefined4 local_4;
+  
+  local_4 = 0xffffffff;
+  puStack_8 = &LAB_00f2c74e;
+  local_c = *unaff_FS_OFFSET;
+  uVar2 = DAT_011c16bc ^ (uint)&stack0xffffffe4;
+  *unaff_FS_OFFSET = (int)&local_c;
+  piVar5 = (int *)0x0;
+  if (*(int *)(param_1 + 0x34) == 0) {
+    iVar3 = FUN_00aa13e0(0x44,uVar2);
+    local_4 = 0;
+    if (iVar3 != 0) {
+      piVar5 = (int *)FUN_00b7e330(*(undefined4 *)(param_1 + 0x18),0);
+    }
+    piVar1 = *(int **)(param_1 + 0x34);
+    local_4 = 0xffffffff;
+    if (piVar1 != piVar5) {
+      if (piVar1 != (int *)0x0) {
+        LVar4 = InterlockedDecrement(piVar1 + 1);
+        if (LVar4 == 0) {
+          (**(code **)(*piVar1 + 4))();
+        }
+      }
+      *(int **)(param_1 + 0x34) = piVar5;
+      if (piVar5 != (int *)0x0) {
+        InterlockedIncrement(piVar5 + 1);
+      }
+    }
+  }
+  if (*(int *)(param_1 + 0x30) == 0) {
+    iVar3 = FUN_00aa13e0(0x44,uVar2);
+    local_4 = 1;
+    if (iVar3 == 0) {
+      piVar5 = (int *)0x0;
+    }
+    else {
+      piVar5 = (int *)FUN_00b7e330(*(undefined4 *)(param_1 + 0x18),2);
+    }
+    piVar1 = *(int **)(param_1 + 0x30);
+    local_4 = 0xffffffff;
+    if (piVar1 != piVar5) {
+      if (piVar1 != (int *)0x0) {
+        LVar4 = InterlockedDecrement(piVar1 + 1);
+        if (LVar4 == 0) {
+          (**(code **)(*piVar1 + 4))();
+        }
+      }
+      *(int **)(param_1 + 0x30) = piVar5;
+      if (piVar5 != (int *)0x0) {
+        InterlockedIncrement(piVar5 + 1);
+      }
+    }
+  }
+  piVar5 = *(int **)(param_1 + 0x84);
+  if (piVar5 != *(int **)(param_1 + 0x30)) {
+    if (piVar5 != (int *)0x0) {
+      LVar4 = InterlockedDecrement(piVar5 + 1);
+      if (LVar4 == 0) {
+        (**(code **)(*piVar5 + 4))();
+      }
+    }
+    iVar3 = *(int *)(param_1 + 0x30);
+    *(int *)(param_1 + 0x84) = iVar3;
+    if (iVar3 != 0) {
+      InterlockedIncrement((LONG *)(iVar3 + 4));
+    }
+  }
+  piVar5 = *(int **)(param_1 + 0x88);
+  if (piVar5 != *(int **)(param_1 + 0x34)) {
+    if (piVar5 != (int *)0x0) {
+      LVar4 = InterlockedDecrement(piVar5 + 1);
+      if (LVar4 == 0) {
+        (**(code **)(*piVar5 + 4))();
+      }
+    }
+    iVar3 = *(int *)(param_1 + 0x34);
+    *(int *)(param_1 + 0x88) = iVar3;
+    if (iVar3 != 0) {
+      InterlockedIncrement((LONG *)(iVar3 + 4));
+    }
+  }
+  FUN_00bb2f50(*(undefined4 *)(param_1 + 0x34),0x2a);
+  *unaff_FS_OFFSET = local_c;
+  return;
+}
+
+
+
+--- Calls FROM SpeedTreeBranchShader vtable[71] (0x00bd4d30) ---
+  0x00bd4d5f -> 0x00aa13e0 FUN_00aa13e0
+  0x00bd4d7a -> 0x00b7e330 FUN_00b7e330
+  0x00bd4d98 -> 0x00000067 ???
+  0x00bd4db6 -> 0x00000066 ???
+  0x00bd4dc4 -> 0x00aa13e0 FUN_00aa13e0
+  0x00bd4de4 -> 0x00b7e330 FUN_00b7e330
+  0x00bd4e06 -> 0x00000067 ???
+  0x00bd4e24 -> 0x00000066 ???
+  0x00bd4e3d -> 0x00000067 ???
+  0x00bd4e61 -> 0x00000066 ???
+  0x00bd4e7a -> 0x00000067 ???
+  0x00bd4e9e -> 0x00000066 ???
+  0x00bd4eaa -> 0x00bb2f50 FUN_00bb2f50
+  Total: 13 calls
+
+======================================================================
+DIRECT CALLEE DECOMPILATIONS: SpeedTreeBranchShader vtable[71] @ 0x00bd4d30
+======================================================================
+
+======================================================================
+direct callee 1 @ 0x00000066
+======================================================================
+  [function not found]
+
+======================================================================
+direct callee 2 @ 0x00000067
+======================================================================
+  [function not found]
+
+======================================================================
+direct callee 3 @ 0x00aa13e0
+======================================================================
+  Function: FUN_00aa13e0 @ 0x00aa13e0, Size: 62 bytes
+
+void FUN_00aa13e0(int param_1)
+
+{
+  int local_4;
+  
+  local_4 = param_1;
+  if (param_1 == 0) {
+    local_4 = 1;
+  }
+  param_1 = 4;
+  (**(code **)(*(int *)*DAT_011f6080 + 4))(&local_4,&param_1,1,1,0,0xffffffff,0);
+  return;
+}
+
+
+
+======================================================================
+direct callee 4 @ 0x00b7e330
+======================================================================
+  Function: FUN_00b7e330 @ 0x00b7e330, Size: 198 bytes
+
+undefined4 * __thiscall FUN_00b7e330(undefined4 *param_1,undefined4 param_2,undefined4 param_3)
+
+{
+  uint uVar1;
+  int *unaff_FS_OFFSET;
+  int local_c;
+  undefined1 *puStack_8;
+  undefined4 local_4;
+  
+  local_4 = 0xffffffff;
+  puStack_8 = &LAB_00f28e0e;
+  local_c = *unaff_FS_OFFSET;
+  uVar1 = DAT_011c16bc ^ (uint)&stack0xffffffe8;
+  *unaff_FS_OFFSET = (int)&local_c;
+  FUN_00a9be80(param_3);
+  *param_1 = &PTR_FUN_010ef544;
+  *(undefined2 *)((int)param_1 + 0x1a) = 1;
+  *(undefined2 *)(param_1 + 5) = 0;
+  *(undefined2 *)((int)param_1 + 0x16) = 0;
+  *(undefined2 *)(param_1 + 6) = 0;
+  param_1[4] = 0;
+  param_1[3] = &PTR_FUN_010f003c;
+  *(undefined2 *)((int)param_1 + 0x2a) = 1;
+  *(undefined2 *)(param_1 + 9) = 0;
+  *(undefined2 *)((int)param_1 + 0x26) = 0;
+  *(undefined2 *)(param_1 + 10) = 0;
+  param_1[8] = 0;
+  param_1[7] = &PTR_FUN_010f003c;
+  param_1[0xc] = 0;
+  param_1[0xd] = 0;
+  param_1[0xe] = 0;
+  param_1[0xf] = 0;
+  param_1[0x10] = 0;
+  local_4 = 2;
+  *(undefined1 *)(param_1 + 0xb) = 1;
+  FUN_00e81d00(param_2);
+  FUN_00b799c0(uVar1);
+  *unaff_FS_OFFSET = local_c;
+  return param_1;
+}
+
+
+
+======================================================================
+direct callee 5 @ 0x00bb2f50
+======================================================================
+  Function: FUN_00bb2f50 @ 0x00bb2f50, Size: 97 bytes
+
+void FUN_00bb2f50(int *param_1,int param_2)
+
+{
+  (**(code **)(*param_1 + 8))
+            ("TreeData",0x10000007,0,param_2,1,&lpWindowName_01011584,0x10,4,&DAT_01200678,0);
+  (**(code **)(*param_1 + 8))
+            ("WindMatrices",0x10000009,0,param_2 + 1,0x10,&lpWindowName_01011584,0x100,4,
+             &DAT_01200688,0);
+  return;
+}
+
+
+  Decompiled: 5 of 5 direct callees
+  [72] +0x120: 0x00bd3f80 -> FUN_00bd3f80
+
+======================================================================
+SpeedTreeBranchShader vtable[72] @ 0x00bd3f80
+======================================================================
+  Function: FUN_00bd3f80 @ 0x00bd3f80, Size: 49 bytes
+
+void __fastcall FUN_00bd3f80(int *param_1)
+
+{
+  (**(code **)(*param_1 + 0x144))();
+  (**(code **)(*param_1 + 0x15c))();
+  if (1 < DAT_011f91c0) {
+                    /* WARNING: Could not recover jumptable at 0x00bd3fad. Too many branches */
+                    /* WARNING: Treating indirect jump as call */
+    (**(code **)(*param_1 + 0x160))();
+    return;
+  }
+  return;
+}
+
+
+
+--- Calls FROM SpeedTreeBranchShader vtable[72] (0x00bd3f80) ---
+  Total: 0 calls
+
+======================================================================
+DIRECT CALLEE DECOMPILATIONS: SpeedTreeBranchShader vtable[72] @ 0x00bd3f80
+======================================================================
+  Decompiled: 0 of 0 direct callees
+  [73] +0x124: 0x00bd4000 -> FUN_00bd4000
+
+======================================================================
+SpeedTreeBranchShader vtable[73] @ 0x00bd4000
+======================================================================
+  Function: FUN_00bd4000 @ 0x00bd4000, Size: 45 bytes
+
+void __fastcall FUN_00bd4000(int *param_1)
+
+{
+  undefined4 *puVar1;
+  
+  puVar1 = &DAT_01202350;
+  do {
+    (**(code **)(*param_1 + 0x128))(*puVar1);
+    puVar1 = puVar1 + 1;
+  } while ((int)puVar1 < 0x12023c8);
+  return;
+}
+
+
+
+--- Calls FROM SpeedTreeBranchShader vtable[73] (0x00bd4000) ---
+  Total: 0 calls
+
+======================================================================
+DIRECT CALLEE DECOMPILATIONS: SpeedTreeBranchShader vtable[73] @ 0x00bd4000
+======================================================================
+  Decompiled: 0 of 0 direct callees
+  [74] +0x128: 0x00be0fb0 -> ???
+
+======================================================================
+SpeedTreeBranchShader vtable[74] @ 0x00be0fb0
+======================================================================
+  [function not found]
+  [function not found at 0x00be0fb0]
+
+======================================================================
+DIRECT CALLEE DECOMPILATIONS: SpeedTreeBranchShader vtable[74] @ 0x00be0fb0
+======================================================================
+  [function not found]
+  [75] +0x12c: 0x00b606e0 -> ???
+
+======================================================================
+SpeedTreeBranchShader vtable[75] @ 0x00b606e0
+======================================================================
+  [function not found]
+  [function not found at 0x00b606e0]
+
+======================================================================
+DIRECT CALLEE DECOMPILATIONS: SpeedTreeBranchShader vtable[75] @ 0x00b606e0
+======================================================================
+  [function not found]
+  [76] +0x130: 0x00be08e0 -> ???
+
+======================================================================
+SpeedTreeBranchShader vtable[76] @ 0x00be08e0
+======================================================================
+  [function not found]
+  [function not found at 0x00be08e0]
+
+======================================================================
+DIRECT CALLEE DECOMPILATIONS: SpeedTreeBranchShader vtable[76] @ 0x00be08e0
+======================================================================
+  [function not found]
+  [77] +0x134: 0x00b606e0 -> ???
+  [78] +0x138: 0x00b79db0 -> ???
+
+======================================================================
+SpeedTreeBranchShader vtable[78] @ 0x00b79db0
+======================================================================
+  [function not found]
+  [function not found at 0x00b79db0]
+
+======================================================================
+DIRECT CALLEE DECOMPILATIONS: SpeedTreeBranchShader vtable[78] @ 0x00b79db0
+======================================================================
+  [function not found]
+  [79] +0x13c: 0x00c02e20 -> ???
+
+======================================================================
+SpeedTreeBranchShader vtable[79] @ 0x00c02e20
+======================================================================
+  [function not found]
+  [function not found at 0x00c02e20]
+
+======================================================================
+DIRECT CALLEE DECOMPILATIONS: SpeedTreeBranchShader vtable[79] @ 0x00c02e20
+======================================================================
+  [function not found]
+  [80] +0x140: 0x00d070a0 -> ???
+
+======================================================================
+SpeedTreeBranchShader vtable[80] @ 0x00d070a0
+======================================================================
+  [function not found]
+  [function not found at 0x00d070a0]
+
+======================================================================
+DIRECT CALLEE DECOMPILATIONS: SpeedTreeBranchShader vtable[80] @ 0x00d070a0
+======================================================================
+  [function not found]
+  [81] +0x144: 0x00bd0470 -> FUN_00bd0470
+
+======================================================================
+SpeedTreeBranchShader vtable[81] @ 0x00bd0470
+======================================================================
+  Function: FUN_00bd0470 @ 0x00bd0470, Size: 26 bytes
+
+void __fastcall FUN_00bd0470(int *param_1)
+
+{
+  (**(code **)(*param_1 + 0x148))();
+                    /* WARNING: Could not recover jumptable at 0x00bd0488. Too many branches */
+                    /* WARNING: Treating indirect jump as call */
+  (**(code **)(*param_1 + 0x14c))();
+  return;
+}
+
+
+
+--- Calls FROM SpeedTreeBranchShader vtable[81] (0x00bd0470) ---
+  Total: 0 calls
+
+======================================================================
+DIRECT CALLEE DECOMPILATIONS: SpeedTreeBranchShader vtable[81] @ 0x00bd0470
+======================================================================
+  Decompiled: 0 of 0 direct callees
+  [82] +0x148: 0x00bd3280 -> ???
+
+======================================================================
+SpeedTreeBranchShader vtable[82] @ 0x00bd3280
+======================================================================
+  [function not found]
+  [function not found at 0x00bd3280]
+
+======================================================================
+DIRECT CALLEE DECOMPILATIONS: SpeedTreeBranchShader vtable[82] @ 0x00bd3280
+======================================================================
+  [function not found]
+
+======================================================================
+TallGrassShader constructor @ 0x00baa570
+======================================================================
+  Function: FUN_00baa570 @ 0x00baa570, Size: 188 bytes
+
+void __fastcall FUN_00baa570(undefined4 *param_1)
+
+{
+  uint uVar1;
+  int *unaff_FS_OFFSET;
+  int local_c;
+  undefined1 *puStack_8;
+  int local_4;
+  
+  puStack_8 = &LAB_00f2af3e;
+  local_c = *unaff_FS_OFFSET;
+  uVar1 = DAT_011c16bc ^ (uint)&stack0xffffffec;
+  *unaff_FS_OFFSET = (int)&local_c;
+  *param_1 = &PTR_FUN_010b8980;
+  local_4 = 3;
+  param_1[0x6a] = 0;
+  FUN_00aa4060(param_1[0x69]);
+  local_4._0_1_ = 2;
+  _eh_vector_destructor_iterator_(param_1 + 0x62,4,7,FUN_00b66f20);
+  local_4._0_1_ = 1;
+  _eh_vector_destructor_iterator_(param_1 + 0x4a,4,0x18,FUN_00b66f20);
+  local_4 = (uint)local_4._1_3_ << 8;
+  _eh_vector_destructor_iterator_(param_1 + 0x1b,4,0x2c,FUN_00b79930);
+  local_4 = 0xffffffff;
+  FUN_00be0f10(uVar1);
+  *unaff_FS_OFFSET = local_c;
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00baa570 (TallGrassShader constructor)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00baced3 (in FUN_00baced0)
+  Total: 1 refs
+
+--- Calls FROM TallGrassShader constructor (0x00baa570) ---
+  0x00baa5bc -> 0x00aa4060 FUN_00aa4060
+  0x00baa5d6 -> 0x00ec5fce `eh_vector_destructor_iterator'
+  0x00baa5f0 -> 0x00ec5fce `eh_vector_destructor_iterator'
+  0x00baa607 -> 0x00ec5fce `eh_vector_destructor_iterator'
+  0x00baa616 -> 0x00be0f10 FUN_00be0f10
+  Total: 5 calls
+
+======================================================================
+DIRECT CALLEE DECOMPILATIONS: TallGrassShader constructor @ 0x00baa570
+======================================================================
+
+======================================================================
+direct callee 1 @ 0x00aa4060
+======================================================================
+  Function: FUN_00aa4060 @ 0x00aa4060, Size: 236 bytes
+
+void __thiscall FUN_00aa4060(char *param_1,uint param_2)
+
+{
+  int iVar1;
+  bool bVar2;
+  int *piVar3;
+  
+  if (param_2 != 0) {
+    if (*param_1 == '\0') {
+      FUN_00aa42c0(param_2,0);
+    }
+    else if (*(int *)(param_1 + 0x110) == 0) {
+      FUN_00aa42c0(param_2,0);
+    }
+    else {
+      iVar1 = *(int *)(&DAT_011f63b8 + (param_2 >> 0x18) * 4);
+      if (iVar1 != 0) {
+        if ((param_2 < *(uint *)(iVar1 + 4)) ||
+           ((uint)(*(int *)(iVar1 + 4) + *(int *)(iVar1 + 0x50)) <= param_2)) {
+          bVar2 = false;
+        }
+        else {
+          bVar2 = true;
+        }
+        if (bVar2) {
+          FUN_00aa6c70(param_2);
+          return;
+        }
+      }
+      piVar3 = (int *)FUN_00aa45a0(param_2);
+      if (piVar3 == (int *)0x0) {
+        FUN_00aa42c0(param_2,0);
+      }
+      else {
+        (**(code **)(*piVar3 + 0xc))(param_2,0);
+      }
+    }
+  }
+  return;
+}
+
+
+
+======================================================================
+direct callee 2 @ 0x00be0f10
+======================================================================
+  Function: FUN_00be0f10 @ 0x00be0f10, Size: 147 bytes
+
+void __fastcall FUN_00be0f10(undefined4 *param_1)
+
+{
+  int *piVar1;
+  uint uVar2;
+  int *unaff_FS_OFFSET;
+  int local_c;
+  undefined1 *puStack_8;
+  uint local_4;
+  
+  puStack_8 = &LAB_00f2d3ae;
+  local_c = *unaff_FS_OFFSET;
+  uVar2 = DAT_011c16bc ^ (uint)&stack0xffffffe8;
+  *unaff_FS_OFFSET = (int)&local_c;
+  *param_1 = &PTR_FUN_010bc618;
+  local_4 = 1;
+  if (param_1[0x17] != 0) {
+    piVar1 = (int *)(param_1[0x17] + 100);
+    *piVar1 = *piVar1 + -1;
+    if (*piVar1 == 0) {
+      FUN_00e80190(uVar2);
+    }
+    param_1[0x17] = 0;
+  }
+  FUN_00e75340(param_1);
+  local_4 = local_4 & 0xffffff00;
+  _eh_vector_destructor_iterator_(param_1 + 0x17,4,1,FUN_00b79930);
+  local_4 = 0xffffffff;
+  FUN_00e7c540();
+  *unaff_FS_OFFSET = local_c;
+  return;
+}
+
+
+
+======================================================================
+direct callee 3 @ 0x00ec5fce
+======================================================================
+  Function: `eh_vector_destructor_iterator' @ 0x00ec5fce, Size: 75 bytes
+
+/* WARNING: Function: __SEH_prolog4 replaced with injection: SEH_prolog4 */
+/* WARNING: Function: __SEH_epilog4 replaced with injection: EH_epilog3 */
+/* Library Function - Single Match
+    void __stdcall `eh vector destructor iterator'(void *,unsigned int,int,void (__thiscall*)(void
+   *))
+   
+   Libraries: Visual Studio 2005 Release, Visual Studio 2008 Release */
+
+void _eh_vector_destructor_iterator_
+               (void *param_1,uint param_2,int param_3,_func_void_void_ptr *param_4)
+
+{
+  void *in_stack_ffffffd0;
+  
+  while( true ) {
+    param_3 = param_3 + -1;
+    if (param_3 < 0) break;
+    (*param_4)(in_stack_ffffffd0);
+  }
+  FUN_00ec6019();
+  return;
+}
+
+
+  Decompiled: 3 of 3 direct callees
+
+======================================================================
+SpeedTreeLeafShader constructor @ 0x00bb1c10
+======================================================================
+  Function: FUN_00bb1c10 @ 0x00bb1c10, Size: 284 bytes
+
+void __fastcall FUN_00bb1c10(undefined4 *param_1)
+
+{
+  int *piVar1;
+  uint uVar2;
+  LONG LVar3;
+  int iVar4;
+  int *piVar5;
+  int *unaff_FS_OFFSET;
+  int local_c;
+  undefined1 *puStack_8;
+  int local_4;
+  
+  puStack_8 = &LAB_00f2b590;
+  local_c = *unaff_FS_OFFSET;
+  uVar2 = DAT_011c16bc ^ (uint)&stack0xffffffe0;
+  *unaff_FS_OFFSET = (int)&local_c;
+  *param_1 = &PTR_FUN_010b9190;
+  local_4 = 3;
+  piVar5 = param_1 + 0xdb;
+  iVar4 = 4;
+  do {
+    piVar1 = (int *)*piVar5;
+    if (piVar1 != (int *)0x0) {
+      LVar3 = InterlockedDecrement(piVar1 + 1);
+      if (LVar3 == 0) {
+        (**(code **)(*piVar1 + 4))(uVar2);
+      }
+      *piVar5 = 0;
+    }
+    piVar5 = piVar5 + 1;
+    iVar4 = iVar4 + -1;
+  } while (iVar4 != 0);
+  piVar5 = param_1 + 0xdf;
+  iVar4 = 2;
+  do {
+    piVar1 = (int *)*piVar5;
+    if (piVar1 != (int *)0x0) {
+      LVar3 = InterlockedDecrement(piVar1 + 1);
+      if (LVar3 == 0) {
+        (**(code **)(*piVar1 + 4))();
+      }
+      *piVar5 = 0;
+    }
+    piVar5 = piVar5 + 1;
+    iVar4 = iVar4 + -1;
+  } while (iVar4 != 0);
+  local_4._0_1_ = 2;
+  _eh_vector_destructor_iterator_(param_1 + 0xe1,4,2,FUN_00b79930);
+  local_4._0_1_ = 1;
+  _eh_vector_destructor_iterator_(param_1 + 0xdf,4,2,FUN_00b66f20);
+  local_4 = (uint)local_4._1_3_ << 8;
+  _eh_vector_destructor_iterator_(param_1 + 0xdb,4,4,FUN_00b66f20);
+  local_4 = 0xffffffff;
+  FUN_00be0f10();
+  *unaff_FS_OFFSET = local_c;
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00bb1c10 (SpeedTreeLeafShader constructor)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00bb2bb3 (in FUN_00bb2bb0)
+  Total: 1 refs
+
+--- Calls FROM SpeedTreeLeafShader constructor (0x00bb1c10) ---
+  0x00bb1c5e -> 0x00000067 ???
+  0x00bb1c9a -> 0x00000067 ???
+  0x00bb1cd0 -> 0x00ec5fce `eh_vector_destructor_iterator'
+  0x00bb1cea -> 0x00ec5fce `eh_vector_destructor_iterator'
+  0x00bb1d04 -> 0x00ec5fce `eh_vector_destructor_iterator'
+  0x00bb1d13 -> 0x00be0f10 FUN_00be0f10
+  Total: 6 calls
+
+======================================================================
+DIRECT CALLEE DECOMPILATIONS: SpeedTreeLeafShader constructor @ 0x00bb1c10
+======================================================================
+
+======================================================================
+direct callee 1 @ 0x00000067
+======================================================================
+  [function not found]
+
+======================================================================
+direct callee 2 @ 0x00be0f10
+======================================================================
+  Function: FUN_00be0f10 @ 0x00be0f10, Size: 147 bytes
+
+void __fastcall FUN_00be0f10(undefined4 *param_1)
+
+{
+  int *piVar1;
+  uint uVar2;
+  int *unaff_FS_OFFSET;
+  int local_c;
+  undefined1 *puStack_8;
+  uint local_4;
+  
+  puStack_8 = &LAB_00f2d3ae;
+  local_c = *unaff_FS_OFFSET;
+  uVar2 = DAT_011c16bc ^ (uint)&stack0xffffffe8;
+  *unaff_FS_OFFSET = (int)&local_c;
+  *param_1 = &PTR_FUN_010bc618;
+  local_4 = 1;
+  if (param_1[0x17] != 0) {
+    piVar1 = (int *)(param_1[0x17] + 100);
+    *piVar1 = *piVar1 + -1;
+    if (*piVar1 == 0) {
+      FUN_00e80190(uVar2);
+    }
+    param_1[0x17] = 0;
+  }
+  FUN_00e75340(param_1);
+  local_4 = local_4 & 0xffffff00;
+  _eh_vector_destructor_iterator_(param_1 + 0x17,4,1,FUN_00b79930);
+  local_4 = 0xffffffff;
+  FUN_00e7c540();
+  *unaff_FS_OFFSET = local_c;
+  return;
+}
+
+
+
+======================================================================
+direct callee 3 @ 0x00ec5fce
+======================================================================
+  Function: `eh_vector_destructor_iterator' @ 0x00ec5fce, Size: 75 bytes
+
+/* WARNING: Function: __SEH_prolog4 replaced with injection: SEH_prolog4 */
+/* WARNING: Function: __SEH_epilog4 replaced with injection: EH_epilog3 */
+/* Library Function - Single Match
+    void __stdcall `eh vector destructor iterator'(void *,unsigned int,int,void (__thiscall*)(void
+   *))
+   
+   Libraries: Visual Studio 2005 Release, Visual Studio 2008 Release */
+
+void _eh_vector_destructor_iterator_
+               (void *param_1,uint param_2,int param_3,_func_void_void_ptr *param_4)
+
+{
+  void *in_stack_ffffffd0;
+  
+  while( true ) {
+    param_3 = param_3 + -1;
+    if (param_3 < 0) break;
+    (*param_4)(in_stack_ffffffd0);
+  }
+  FUN_00ec6019();
+  return;
+}
+
+
+  Decompiled: 3 of 3 direct callees
+
+======================================================================
+SpeedTreeBranchShader constructor @ 0x00bd4560
+======================================================================
+  [function not found]
+
+----------------------------------------------------------------------
+References TO 0x00bd4560 (SpeedTreeBranchShader constructor)
+----------------------------------------------------------------------
+  DATA @ 0x010bc078 (in ???)
+  Total: 1 refs
+  [function not found at 0x00bd4560]
+
+======================================================================
+DIRECT CALLEE DECOMPILATIONS: SpeedTreeBranchShader constructor @ 0x00bd4560
+======================================================================
+  [function not found]
+
+======================================================================
+accumulator finalizer variant A @ 0x00b66520
+======================================================================
+  Function: FUN_00b66520 @ 0x00b66520, Size: 68 bytes
+
+void __fastcall FUN_00b66520(int param_1)
+
+{
+  FUN_00b4f450(*(undefined4 *)(param_1 + 0x19c));
+  if (*(int *)(param_1 + 0x19c) == 0) {
+    FUN_00b65ae0();
+    return;
+  }
+  if ((&DAT_011f9f40)[*(int *)(param_1 + 0x19c)] != (code *)0x0) {
+    (*(&DAT_011f9f40)[*(int *)(param_1 + 0x19c)])();
+    return;
+  }
+  (*DAT_011f9f40)(param_1);
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00b66520 (accumulator finalizer variant A)
+----------------------------------------------------------------------
+  DATA @ 0x010ae0a0 (in ???)
+  Total: 1 refs
+
+--- Calls FROM accumulator finalizer variant A (0x00b66520) ---
+  0x00b6652a -> 0x00b4f450 FUN_00b4f450
+  0x00b6653d -> 0x00b65ae0 FUN_00b65ae0
+  Total: 2 calls
+
+======================================================================
+DIRECT CALLEE DECOMPILATIONS: accumulator finalizer variant A @ 0x00b66520
+======================================================================
+
+======================================================================
+direct callee 1 @ 0x00b4f450
+======================================================================
+  Function: FUN_00b4f450 @ 0x00b4f450, Size: 67 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+void FUN_00b4f450(int param_1)
+
+{
+  _DAT_011f9f3c = (&DAT_011f9f80)[param_1];
+  DAT_011f91b8 = param_1;
+  if (_DAT_011f9f3c == 0) {
+    _DAT_011f9f3c = DAT_011f9f80;
+  }
+  _DAT_011f9f38 = (&DAT_011f9f40)[param_1];
+  if (_DAT_011f9f38 == 0) {
+    _DAT_011f9f38 = DAT_011f9f40;
+  }
+  return;
+}
+
+
+
+======================================================================
+direct callee 2 @ 0x00b65ae0
+======================================================================
+  Function: FUN_00b65ae0 @ 0x00b65ae0, Size: 373 bytes
+
+void FUN_00b65ae0(int param_1)
+
+{
+  undefined4 uVar1;
+  
+  if (*(int *)(param_1 + 8) != 0) {
+    if (*(int *)(param_1 + 0x19c) == 8) {
+      FUN_00b63770(6,8,0,0xffffffff);
+      FUN_00b63770(0x1d3,0x1d6,0,0xffffffff);
+      FUN_00b65580();
+      return;
+    }
+    if (*(int *)(param_1 + 0x19c) == 7) {
+      FUN_00b63770(0x10,0x13,0,0xffffffff);
+      FUN_00b63770(0x1c8,0x1cb,0,0xffffffff);
+      FUN_00b65580();
+      return;
+    }
+    FUN_00b639e0(10,0);
+    if ((DAT_011f9fc1 != '\0') && (*(int *)(param_1 + 0x19c) != 7)) {
+      uVar1 = FUN_00b63420();
+      FUN_0066b0d0(uVar1);
+      DAT_011f9fc1 = '\0';
+    }
+    if (*(char *)(param_1 + 0x164) == '\0') {
+      FUN_00b63770(1,0x25b,0,0xffffffff);
+    }
+    else {
+      FUN_00b63770(1,0x237,0,0xffffffff);
+      FUN_00b98280(0,0,0,0,0,0,0);
+      FUN_00b63770(0x238,0x25b,0,0xffffffff);
+      FUN_00b98280(1,0,0,0,0,0,0);
+    }
+    uVar1 = DAT_011a9608;
+    DAT_011a9608 = 1;
+    FUN_00b639e0(0,0);
+    DAT_011a9608 = uVar1;
+    FUN_00b64e30();
+    FUN_00b63770(0x25c,0x287,0,0xffffffff);
+    FUN_00b63a50();
+    if (*(char *)(param_1 + 0x167) != '\0') {
+      FUN_00b650c0(0);
+      return;
+    }
+    FUN_00b650c0(1);
+  }
+  return;
+}
+
+
+  Decompiled: 2 of 2 direct callees
+
+======================================================================
+accumulator finalizer variant B @ 0x00b66570
+======================================================================
+  Function: FUN_00b66570 @ 0x00b66570, Size: 41 bytes
+
+void __fastcall FUN_00b66570(int param_1)
+
+{
+  if (*(int *)(param_1 + 0x19c) == 0) {
+    FUN_00b65c60(param_1);
+  }
+  *(undefined4 *)(DAT_011f4748 + 0xc) = 0;
+  FUN_00aa0fe0();
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00b66570 (accumulator finalizer variant B)
+----------------------------------------------------------------------
+  DATA @ 0x010ae0a4 (in ???)
+  Total: 1 refs
+
+--- Calls FROM accumulator finalizer variant B (0x00b66570) ---
+  0x00b6657d -> 0x00b65c60 FUN_00b65c60
+  0x00b66594 -> 0x00aa0fe0 FUN_00aa0fe0
+  Total: 2 calls
+
+======================================================================
+DIRECT CALLEE DECOMPILATIONS: accumulator finalizer variant B @ 0x00b66570
+======================================================================
+
+======================================================================
+direct callee 1 @ 0x00aa0fe0
+======================================================================
+  Function: FUN_00aa0fe0 @ 0x00aa0fe0, Size: 8 bytes
+
+void __fastcall FUN_00aa0fe0(int param_1)
+
+{
+  *(undefined4 *)(param_1 + 8) = 0;
+  return;
+}
+
+
+
+======================================================================
+direct callee 2 @ 0x00b65c60
+======================================================================
+  Function: FUN_00b65c60 @ 0x00b65c60, Size: 340 bytes
+
+void FUN_00b65c60(int param_1)
+
+{
+  char cVar1;
+  undefined4 uVar2;
+  
+  if ((*(char *)(param_1 + 0x38) != '\0') && (cVar1 = FUN_00b63120(0x288,0x2ce), cVar1 != '\0')) {
+    if (DAT_011f9438 != 0) {
+      FUN_00b6b790();
+      if (DAT_011f943c == 0) {
+        DAT_011f943c = FUN_00b6e110(DAT_011f9508,5,0,0,0);
+      }
+      FUN_00b97550(0x22,DAT_011f9508,DAT_011f9438,DAT_011f943c,0,1);
+      uVar2 = FUN_00b6b260();
+      FUN_00b6b8d0(0,uVar2);
+    }
+    FUN_004e9bb0(*(undefined4 *)(param_1 + 8));
+  }
+  FUN_00b63770(0x288,0x289,0,0xffffffff);
+  FUN_00b63770(0x28a,0x2ab,0,0xffffffff);
+  FUN_00b63770(0x2ac,0x2ce,0,0xffffffff);
+  if (*(char *)(param_1 + 0x38) != '\0') {
+    FUN_00b6da10(DAT_011f943c);
+    DAT_011f943c = 0;
+  }
+  FUN_00b639e0(9,1);
+  FUN_00b650c0(*(char *)(param_1 + 0x167) != '\0');
+  FUN_00b97fa0(0,0);
+  FUN_00b97fa0(0,0);
+  FUN_00b63770(0x2cf,0x2d7,0,0xffffffff);
+  FUN_00b639e0(1,0);
+  return;
+}
+
+
+  Decompiled: 2 of 2 direct callees
+
+======================================================================
+accumulator finalizer variant C @ 0x00b665a0
+======================================================================
+  Function: FUN_00b665a0 @ 0x00b665a0, Size: 22 bytes
+
+void FUN_00b665a0(undefined4 param_1)
+
+{
+  FUN_00b65ae0(param_1);
+  FUN_00b65c60(param_1);
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00b665a0 (accumulator finalizer variant C)
+----------------------------------------------------------------------
+  DATA @ 0x00b576c0 (in FUN_00b57420)
+  Total: 1 refs
+
+--- Calls FROM accumulator finalizer variant C (0x00b665a0) ---
+  0x00b665a6 -> 0x00b65ae0 FUN_00b65ae0
+  0x00b665ac -> 0x00b65c60 FUN_00b65c60
+  Total: 2 calls
+
+======================================================================
+DIRECT CALLEE DECOMPILATIONS: accumulator finalizer variant C @ 0x00b665a0
+======================================================================
+
+======================================================================
+direct callee 1 @ 0x00b65ae0
+======================================================================
+  Function: FUN_00b65ae0 @ 0x00b65ae0, Size: 373 bytes
+
+void FUN_00b65ae0(int param_1)
+
+{
+  undefined4 uVar1;
+  
+  if (*(int *)(param_1 + 8) != 0) {
+    if (*(int *)(param_1 + 0x19c) == 8) {
+      FUN_00b63770(6,8,0,0xffffffff);
+      FUN_00b63770(0x1d3,0x1d6,0,0xffffffff);
+      FUN_00b65580();
+      return;
+    }
+    if (*(int *)(param_1 + 0x19c) == 7) {
+      FUN_00b63770(0x10,0x13,0,0xffffffff);
+      FUN_00b63770(0x1c8,0x1cb,0,0xffffffff);
+      FUN_00b65580();
+      return;
+    }
+    FUN_00b639e0(10,0);
+    if ((DAT_011f9fc1 != '\0') && (*(int *)(param_1 + 0x19c) != 7)) {
+      uVar1 = FUN_00b63420();
+      FUN_0066b0d0(uVar1);
+      DAT_011f9fc1 = '\0';
+    }
+    if (*(char *)(param_1 + 0x164) == '\0') {
+      FUN_00b63770(1,0x25b,0,0xffffffff);
+    }
+    else {
+      FUN_00b63770(1,0x237,0,0xffffffff);
+      FUN_00b98280(0,0,0,0,0,0,0);
+      FUN_00b63770(0x238,0x25b,0,0xffffffff);
+      FUN_00b98280(1,0,0,0,0,0,0);
+    }
+    uVar1 = DAT_011a9608;
+    DAT_011a9608 = 1;
+    FUN_00b639e0(0,0);
+    DAT_011a9608 = uVar1;
+    FUN_00b64e30();
+    FUN_00b63770(0x25c,0x287,0,0xffffffff);
+    FUN_00b63a50();
+    if (*(char *)(param_1 + 0x167) != '\0') {
+      FUN_00b650c0(0);
+      return;
+    }
+    FUN_00b650c0(1);
+  }
+  return;
+}
+
+
+
+======================================================================
+direct callee 2 @ 0x00b65c60
+======================================================================
+  Function: FUN_00b65c60 @ 0x00b65c60, Size: 340 bytes
+
+void FUN_00b65c60(int param_1)
+
+{
+  char cVar1;
+  undefined4 uVar2;
+  
+  if ((*(char *)(param_1 + 0x38) != '\0') && (cVar1 = FUN_00b63120(0x288,0x2ce), cVar1 != '\0')) {
+    if (DAT_011f9438 != 0) {
+      FUN_00b6b790();
+      if (DAT_011f943c == 0) {
+        DAT_011f943c = FUN_00b6e110(DAT_011f9508,5,0,0,0);
+      }
+      FUN_00b97550(0x22,DAT_011f9508,DAT_011f9438,DAT_011f943c,0,1);
+      uVar2 = FUN_00b6b260();
+      FUN_00b6b8d0(0,uVar2);
+    }
+    FUN_004e9bb0(*(undefined4 *)(param_1 + 8));
+  }
+  FUN_00b63770(0x288,0x289,0,0xffffffff);
+  FUN_00b63770(0x28a,0x2ab,0,0xffffffff);
+  FUN_00b63770(0x2ac,0x2ce,0,0xffffffff);
+  if (*(char *)(param_1 + 0x38) != '\0') {
+    FUN_00b6da10(DAT_011f943c);
+    DAT_011f943c = 0;
+  }
+  FUN_00b639e0(9,1);
+  FUN_00b650c0(*(char *)(param_1 + 0x167) != '\0');
+  FUN_00b97fa0(0,0);
+  FUN_00b97fa0(0,0);
+  FUN_00b63770(0x2cf,0x2d7,0,0xffffffff);
+  FUN_00b639e0(1,0);
+  return;
+}
+
+
+  Decompiled: 2 of 2 direct callees
+
+======================================================================
+single-group geometry draw path @ 0x00b9a120
+======================================================================
+  Function: FUN_00b9a120 @ 0x00b9a120, Size: 654 bytes
+
+undefined4 __thiscall
+FUN_00b9a120(int param_1,undefined4 *param_2,int *param_3,undefined1 *param_4,undefined4 param_5)
+
+{
+  char cVar1;
+  int *piVar2;
+  bool bVar3;
+  int iVar4;
+  int iVar5;
+  undefined4 uVar6;
+  int iVar7;
+  uint local_8;
+  int local_4;
+  
+  local_8 = 0;
+  FUN_00853130(*param_2,&local_8);
+  iVar7 = local_8 * 0x68;
+  cVar1 = *(char *)(*(int *)(*(int *)(iVar7 + *param_3 * 0x14 + 4 + *(int *)(param_1 + 8)) + 8) + 7)
+  ;
+  local_8 = local_8 & 0xffffff00;
+  if (*param_3 == 0) {
+    FUN_00b984d0(1,0);
+    FUN_00b97ed0(0,1);
+    FUN_00b98540(0,1);
+  }
+  if (*param_3 == 1) {
+    FUN_00b984d0(3,1);
+    FUN_00b97ed0(0,1);
+    FUN_00b98540(0,1);
+  }
+  if (*param_3 == 2) {
+    FUN_00b984d0(3,1);
+    FUN_00b97ed0(1,1);
+    local_8 = CONCAT31(local_8._1_3_,1);
+    if (DAT_011f9421 != '\0') {
+      FUN_00b98540(1,1);
+    }
+  }
+  if (*param_3 == 3) {
+    FUN_00b984d0(1,1);
+    FUN_00b97ed0(1,1);
+    local_8 = CONCAT31(local_8._1_3_,1);
+    if (DAT_011f9421 != '\0') {
+      FUN_00b98540(1,1);
+    }
+  }
+  if (*param_3 == 4) {
+    FUN_00b984d0(1,1);
+    FUN_00b97ed0(1,1);
+    local_8 = CONCAT31(local_8._1_3_,1);
+    if (DAT_011f9421 != '\0') {
+      FUN_00b98540(0,1);
+    }
+  }
+  iVar4 = *(int *)(*(int *)(iVar7 + *param_3 * 0x14 + 4 + *(int *)(param_1 + 8)) + 8);
+  bVar3 = false;
+  if (iVar4 != 0) {
+    while (*(char *)(iVar4 + 7) == cVar1) {
+      FUN_00b994f0(iVar4,*param_2,local_8,param_5,0);
+      iVar5 = *(int *)(param_1 + 8) + iVar7;
+      iVar4 = iVar5 + *param_3 * 0x14;
+      piVar2 = *(int **)(iVar4 + 4);
+      if (piVar2 != (int *)0x0) {
+        if (piVar2 == *(int **)(iVar4 + 8)) {
+          *(undefined4 *)(iVar4 + 8) = 0;
+        }
+        local_4 = 0;
+        if (*piVar2 != 0) {
+          local_4 = *piVar2;
+          *(undefined4 *)(local_4 + 4) = 0;
+        }
+        if (*(int *)(iVar4 + 0xc) != 0) {
+          *(undefined4 *)(*(int *)(iVar4 + 0xc) + 4) = *(undefined4 *)(iVar4 + 4);
+        }
+        **(undefined4 **)(iVar4 + 4) = *(undefined4 *)(iVar4 + 0xc);
+        *(undefined4 *)(iVar4 + 0xc) = *(undefined4 *)(iVar4 + 4);
+        *(int *)(iVar4 + 0x10) = *(int *)(iVar4 + 0x10) + -1;
+        *(int *)(iVar4 + 4) = local_4;
+      }
+      piVar2 = (int *)(iVar5 + 100);
+      *piVar2 = *piVar2 + -1;
+      if ((*(int *)(*(int *)(param_1 + 8) + iVar7 + 4 + *param_3 * 0x14) == 0) ||
+         (iVar4 = *(int *)(*(int *)(*(int *)(param_1 + 8) + iVar7 + 4 + *param_3 * 0x14) + 8),
+         iVar4 == 0)) goto LAB_00b9a348;
+    }
+    *param_4 = *(undefined1 *)(iVar4 + 7);
+    bVar3 = true;
+  }
+LAB_00b9a348:
+  if (DAT_011ffa24 != 0) {
+    DAT_011ffa24 = DAT_011ffa24 + -1;
+  }
+  if (DAT_011ff9e8 != 0) {
+    DAT_011ff9e8 = DAT_011ff9e8 + -1;
+  }
+  if (DAT_011f9421 != '\0') {
+    DAT_011ffa28 = DAT_011ffa28 + -1;
+    FUN_00b98540(0,0);
+  }
+  FUN_00b98540(0,0);
+  uVar6 = 1;
+  if (!bVar3) {
+    uVar6 = FUN_00b9a090(param_2,param_3,param_4);
+  }
+  return uVar6;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00b9a120 (single-group geometry draw path)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00b63990 (in FUN_00b63770)
+  Total: 1 refs
+
+--- Calls FROM single-group geometry draw path (0x00b9a120) ---
+  0x00b9a13f -> 0x00853130 FUN_00853130
+  0x00b9a175 -> 0x00b984d0 FUN_00b984d0
+  0x00b9a17e -> 0x00b97ed0 FUN_00b97ed0
+  0x00b9a187 -> 0x00b98540 FUN_00b98540
+  0x00b9a199 -> 0x00b984d0 FUN_00b984d0
+  0x00b9a1a2 -> 0x00b97ed0 FUN_00b97ed0
+  0x00b9a1ab -> 0x00b98540 FUN_00b98540
+  0x00b9a1bd -> 0x00b984d0 FUN_00b984d0
+  0x00b9a1c6 -> 0x00b97ed0 FUN_00b97ed0
+  0x00b9a1e0 -> 0x00b98540 FUN_00b98540
+  0x00b9a1f2 -> 0x00b984d0 FUN_00b984d0
+  0x00b9a1fb -> 0x00b97ed0 FUN_00b97ed0
+  0x00b9a215 -> 0x00b98540 FUN_00b98540
+  0x00b9a227 -> 0x00b984d0 FUN_00b984d0
+  0x00b9a230 -> 0x00b97ed0 FUN_00b97ed0
+  0x00b9a24a -> 0x00b98540 FUN_00b98540
+  0x00b9a2a1 -> 0x00b994f0 FUN_00b994f0
+  0x00b9a37e -> 0x00b98540 FUN_00b98540
+  0x00b9a38a -> 0x00b98540 FUN_00b98540
+  0x00b9a3a8 -> 0x00b9a090 FUN_00b9a090
+  Total: 20 calls
+
+======================================================================
+DIRECT CALLEE DECOMPILATIONS: single-group geometry draw path @ 0x00b9a120
+======================================================================
+
+======================================================================
+direct callee 1 @ 0x00853130
+======================================================================
+  Function: FUN_00853130 @ 0x00853130, Size: 114 bytes
+
+uint __thiscall FUN_00853130(int *param_1,undefined4 param_2,undefined4 *param_3)
+
+{
+  undefined4 uVar1;
+  char cVar2;
+  uint uVar3;
+  undefined4 *local_c;
+  
+  uVar3 = (**(code **)(*param_1 + 4))(param_2);
+  local_c = *(undefined4 **)(param_1[2] + uVar3 * 4);
+  while( true ) {
+    if (local_c == (undefined4 *)0x0) {
+      return uVar3 & 0xffffff00;
+    }
+    cVar2 = (**(code **)(*param_1 + 8))(param_2,local_c[1]);
+    if (cVar2 != '\0') break;
+    local_c = (undefined4 *)*local_c;
+    uVar3 = 0;
+  }
+  uVar1 = local_c[2];
+  *param_3 = uVar1;
+  return CONCAT31((int3)((uint)uVar1 >> 8),1);
+}
+
+
+
+======================================================================
+direct callee 2 @ 0x00b97ed0
+======================================================================
+  Function: FUN_00b97ed0 @ 0x00b97ed0, Size: 73 bytes
+
+void FUN_00b97ed0(undefined1 param_1,int param_2)
+
+{
+  int iVar1;
+  
+  iVar1 = DAT_011ffa6c;
+  if ((&DAT_011ff9d8)[DAT_011ffa6c] == 0) {
+    (**(code **)(**(int **)(DAT_011f9508 + 0x8b8) + 0x68))(0xf,param_1,0);
+    (&DAT_011ff9d8)[iVar1] = (&DAT_011ff9d8)[iVar1];
+    return;
+  }
+  (&DAT_011ff9d8)[DAT_011ffa6c] = (&DAT_011ff9d8)[DAT_011ffa6c] + param_2;
+  return;
+}
+
+
+
+======================================================================
+direct callee 3 @ 0x00b984d0
+======================================================================
+  Function: FUN_00b984d0 @ 0x00b984d0, Size: 25 bytes
+
+void FUN_00b984d0(undefined4 param_1)
+
+{
+  FUN_00e879b0(param_1,0);
+  return;
+}
+
+
+
+======================================================================
+direct callee 4 @ 0x00b98540
+======================================================================
+  Function: FUN_00b98540 @ 0x00b98540, Size: 165 bytes
+
+void __thiscall FUN_00b98540(undefined4 param_1,char param_2,int param_3)
+
+{
+  undefined4 uVar1;
+  int iVar2;
+  
+  if (DAT_011ffa28 == 0) {
+    if (DAT_011f94b8 == 1) {
+      if (param_2 == '\0') {
+        uVar1 = 0;
+      }
+      else {
+        uVar1 = 0x434f5441;
+      }
+      iVar2 = 0;
+      (**(code **)(**(int **)(DAT_011f9508 + 0x8b8) + 0x68))(0xb5,uVar1,0);
+      DAT_011ffa28 = DAT_011ffa28 + iVar2;
+      return;
+    }
+    if (DAT_011f94b8 == 2) {
+      iVar2 = 0;
+      (**(code **)(**(int **)(DAT_011f9508 + 0x8b8) + 0x68))
+                (0x9a,(-(uint)(param_2 != '\0') & 0x1000000) + 0x304d3241,0,0,param_1);
+      DAT_011ffa28 = DAT_011ffa28 + iVar2;
+      return;
+    }
+  }
+  DAT_011ffa28 = DAT_011ffa28 + param_3;
+  return;
+}
+
+
+
+======================================================================
+direct callee 5 @ 0x00b994f0
+======================================================================
+  Function: FUN_00b994f0 @ 0x00b994f0, Size: 315 bytes
+
+void FUN_00b994f0(int *param_1,uint param_2,undefined4 param_3,undefined4 param_4,undefined4 param_5
+                 )
+
+{
+  bool bVar1;
+  char cVar2;
+  int iVar3;
+  undefined4 uVar4;
+  
+  if (*(ushort *)(param_1 + 1) == param_2) {
+    DAT_011f91e4 = param_2;
+    DAT_011f91e0 = param_1;
+    bVar1 = false;
+    if (((DAT_011ffe30 != param_2) || (param_2 == 0x2f6)) ||
+       (*(int *)(*param_1 + 0xc0) != DAT_011ffe2c)) {
+      bVar1 = true;
+      FUN_00b99390(param_2,*(int *)(*param_1 + 0xc0));
+    }
+    if (DAT_011f9421 != '\0') {
+      if ((*(int *)(*param_1 + 0x9c) == 0) ||
+         ((*(ushort *)(*(int *)(*param_1 + 0x9c) + 0x18) >> 9 & 1) == 0)) {
+        uVar4 = 0;
+      }
+      else {
+        uVar4 = 1;
+      }
+      FUN_00b98540(uVar4,0);
+    }
+    cVar2 = FUN_00e72c20(*param_1,0);
+    if (cVar2 == '\0') {
+      iVar3 = (**(code **)(*(int *)*param_1 + 0x30))();
+      if (iVar3 == 0) {
+        iVar3 = (**(code **)(*(int *)*param_1 + 0x34))();
+        if (iVar3 == 0) {
+          FUN_00b98e80(param_1,param_3,param_4,param_5);
+        }
+        else {
+          (**(code **)(*(int *)*param_1 + 0xdc))(DAT_011f4748);
+        }
+      }
+      else {
+        (**(code **)(*(int *)*param_1 + 0xdc))(DAT_011f4748);
+      }
+    }
+    else {
+      FUN_00b99110(param_1,param_3,param_4,param_5);
+    }
+    if ((bVar1) && (DAT_011ffe2c != 0)) {
+      iVar3 = *(int *)(DAT_011ffe2c + 0x68);
+      if ((0 < iVar3) && (iVar3 < 6)) {
+        FUN_00b7ac20(param_2);
+        return;
+      }
+      if (iVar3 == 0x11) {
+        FUN_00bb96d0(param_2);
+      }
+    }
+  }
+  return;
+}
+
+
+
+======================================================================
+direct callee 6 @ 0x00b9a090
+======================================================================
+  Function: FUN_00b9a090 @ 0x00b9a090, Size: 144 bytes
+
+char __thiscall FUN_00b9a090(int param_1,int *param_2,int *param_3,undefined1 *param_4)
+
+{
+  char cVar1;
+  char cVar2;
+  int local_4;
+  
+  cVar2 = '\x01';
+  local_4 = 0;
+  if (*param_2 != 0) {
+    FUN_00853130(*param_2,&local_4);
+    cVar1 = FUN_00b98ae0(local_4,param_3);
+    if (cVar1 != '\0') goto LAB_00b9a0e3;
+  }
+  cVar2 = FUN_00b99900(param_2,param_3);
+  if (cVar2 == '\0') {
+    return '\0';
+  }
+LAB_00b9a0e3:
+  FUN_00853130(*param_2,&local_4);
+  *param_4 = *(undefined1 *)
+              (*(int *)(*(int *)(local_4 * 0x68 + *param_3 * 0x14 + 4 + *(int *)(param_1 + 8)) + 8)
+              + 7);
+  return cVar2;
+}
+
+
+  Decompiled: 6 of 6 direct callees
+
+======================================================================
+special multisample geometry draw path @ 0x00b9a3c0
+======================================================================
+  Function: FUN_00b9a3c0 @ 0x00b9a3c0, Size: 74 bytes
+
+void FUN_00b9a3c0(undefined4 *param_1,undefined4 param_2,undefined4 param_3)
+
+{
+  undefined4 local_4;
+  
+  local_4 = 0;
+  FUN_00853130(*param_1,&local_4);
+  FUN_00b99a50(0);
+  FUN_00b9a090(param_1,param_2,param_3);
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00b9a3c0 (special multisample geometry draw path)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00b63961 (in FUN_00b63770)
+  Total: 1 refs
+
+--- Calls FROM special multisample geometry draw path (0x00b9a3c0) ---
+  0x00b9a3dc -> 0x00853130 FUN_00853130
+  0x00b9a3ed -> 0x00b99a50 FUN_00b99a50
+  0x00b9a3ff -> 0x00b9a090 FUN_00b9a090
+  Total: 3 calls
+
+======================================================================
+DIRECT CALLEE DECOMPILATIONS: special multisample geometry draw path @ 0x00b9a3c0
+======================================================================
+
+======================================================================
+direct callee 1 @ 0x00853130
+======================================================================
+  Function: FUN_00853130 @ 0x00853130, Size: 114 bytes
+
+uint __thiscall FUN_00853130(int *param_1,undefined4 param_2,undefined4 *param_3)
+
+{
+  undefined4 uVar1;
+  char cVar2;
+  uint uVar3;
+  undefined4 *local_c;
+  
+  uVar3 = (**(code **)(*param_1 + 4))(param_2);
+  local_c = *(undefined4 **)(param_1[2] + uVar3 * 4);
+  while( true ) {
+    if (local_c == (undefined4 *)0x0) {
+      return uVar3 & 0xffffff00;
+    }
+    cVar2 = (**(code **)(*param_1 + 8))(param_2,local_c[1]);
+    if (cVar2 != '\0') break;
+    local_c = (undefined4 *)*local_c;
+    uVar3 = 0;
+  }
+  uVar1 = local_c[2];
+  *param_3 = uVar1;
+  return CONCAT31((int3)((uint)uVar1 >> 8),1);
+}
+
+
+
+======================================================================
+direct callee 2 @ 0x00b99a50
+======================================================================
+  Function: FUN_00b99a50 @ 0x00b99a50, Size: 60 bytes
+
+void __fastcall FUN_00b99a50(int param_1)
+
+{
+  undefined4 *puVar1;
+  int iVar2;
+  
+  puVar1 = (undefined4 *)(param_1 + 4);
+  iVar2 = 5;
+  do {
+    if (puVar1[3] != 0) {
+      FUN_00b63e90();
+      puVar1[2] = *puVar1;
+      *puVar1 = 0;
+      puVar1[1] = 0;
+      puVar1[3] = 0;
+    }
+    puVar1 = puVar1 + 5;
+    iVar2 = iVar2 + -1;
+  } while (iVar2 != 0);
+  *(undefined4 *)(param_1 + 100) = 0;
+  return;
+}
+
+
+
+======================================================================
+direct callee 3 @ 0x00b9a090
+======================================================================
+  Function: FUN_00b9a090 @ 0x00b9a090, Size: 144 bytes
+
+char __thiscall FUN_00b9a090(int param_1,int *param_2,int *param_3,undefined1 *param_4)
+
+{
+  char cVar1;
+  char cVar2;
+  int local_4;
+  
+  cVar2 = '\x01';
+  local_4 = 0;
+  if (*param_2 != 0) {
+    FUN_00853130(*param_2,&local_4);
+    cVar1 = FUN_00b98ae0(local_4,param_3);
+    if (cVar1 != '\0') goto LAB_00b9a0e3;
+  }
+  cVar2 = FUN_00b99900(param_2,param_3);
+  if (cVar2 == '\0') {
+    return '\0';
+  }
+LAB_00b9a0e3:
+  FUN_00853130(*param_2,&local_4);
+  *param_4 = *(undefined1 *)
+              (*(int *)(*(int *)(local_4 * 0x68 + *param_3 * 0x14 + 4 + *(int *)(param_1 + 8)) + 8)
+              + 7);
+  return cVar2;
+}
+
+
+  Decompiled: 3 of 3 direct callees
+
+======================================================================
+sorted alpha geometry draw path @ 0x00b9af60
+======================================================================
+  Function: FUN_00b9af60 @ 0x00b9af60, Size: 1047 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+void __thiscall FUN_00b9af60(int param_1,int param_2,int *param_3,char param_4,float param_5)
+
+{
+  int *piVar1;
+  int *piVar2;
+  float fVar3;
+  float fVar4;
+  float fVar5;
+  int *piVar6;
+  bool bVar7;
+  float *pfVar8;
+  int iVar9;
+  undefined4 *puVar10;
+  int iVar11;
+  int *piVar12;
+  byte *pbVar13;
+  float local_1c;
+  undefined4 local_14;
+  
+  fVar3 = *(float *)((int)param_3 + 0x68);
+  fVar4 = *(float *)((int)param_3 + 0x74);
+  fVar5 = *(float *)((int)param_3 + 0x80);
+  iVar9 = *(int *)(*(int *)(param_1 + 0x70 + param_2 * 4) + 0x10);
+  if (iVar9 == 0) {
+    param_3 = (int *)0x0;
+  }
+  else {
+    param_3 = *(int **)(iVar9 + 8);
+  }
+  local_1c = 0.0;
+  if (param_3 != (int *)0x0) {
+    if (param_4 == '\0') {
+      pfVar8 = *(float **)(*param_3 + 0x20);
+      if (pfVar8 == (float *)0x0) {
+        pfVar8 = (float *)&DAT_011f4288;
+      }
+      local_1c = fVar3 * *pfVar8 + pfVar8[1] * fVar4 + pfVar8[2] * fVar5;
+    }
+    else {
+      pfVar8 = *(float **)(*param_3 + 0x20);
+      if (pfVar8 == (float *)0x0) {
+        pfVar8 = (float *)&DAT_011f4288;
+      }
+      puVar10 = *(undefined4 **)(*param_3 + 0x20);
+      if (puVar10 == (undefined4 *)0x0) {
+        puVar10 = &DAT_011f4288;
+      }
+      local_1c = (fVar3 * *pfVar8 + pfVar8[1] * fVar4 + pfVar8[2] * fVar5) - (float)puVar10[3];
+    }
+  }
+  piVar2 = (int *)(param_1 + 0x80 + param_2 * 0xc);
+  if (*piVar2 == 0) {
+    pbVar13 = (byte *)0x0;
+  }
+  else {
+    pbVar13 = *(byte **)(*(int *)(param_1 + (param_2 * 3 + 0x1e) * 4) + 8);
+  }
+  param_5 = param_5 - (float)_DAT_01016978;
+  piVar12 = param_3;
+LAB_00b9b060:
+  if (pbVar13 != (byte *)0x0) {
+    if ((*(float *)(pbVar13 + 0x20) <= local_1c) && (piVar12 != (int *)0x0)) {
+LAB_00b9b15c:
+      if (param_5 < local_1c != (param_5 == local_1c)) {
+        iVar9 = *(int *)(*piVar12 + 0xa8);
+        if ((iVar9 != 0) &&
+           ((DAT_011f91b8 != 9 ||
+            ((*(int *)(iVar9 + 0x1c) != 0x15 && (*(int *)(iVar9 + 0x1c) != 0x11)))))) {
+          if (((*(uint *)(iVar9 + 0x20) & 0x4000000) == 0) &&
+             ((*(uint *)(iVar9 + 0x20) & 0x8000000) == 0)) {
+            bVar7 = false;
+          }
+          else {
+            local_14 = _DAT_01200458;
+            bVar7 = true;
+            if (DAT_011ad80f == '\0') {
+              local_14 = 0;
+            }
+            FUN_00b97e30(0,1);
+            FUN_00b98320(local_14,1);
+          }
+          FUN_00b994f0(param_3,(short)param_3[1],1,1,1);
+          if (bVar7) {
+            DAT_011ff9dc = DAT_011ff9dc + -1;
+            FUN_00b97e30(1,0);
+            DAT_011ff9e4 = DAT_011ff9e4 + -1;
+            FUN_00b98320(0,0);
+          }
+        }
+        iVar9 = *(int *)(param_1 + 0x70 + param_2 * 4);
+        if (*(int *)(iVar9 + 0x10) != 0) {
+          *(short *)(iVar9 + 2) = *(short *)(iVar9 + 2) + -1;
+          piVar12 = *(int **)(iVar9 + 0x10);
+          if (piVar12 != (int *)0x0) {
+            if (piVar12 == *(int **)(iVar9 + 0x14)) {
+              *(undefined4 *)(iVar9 + 0x14) = 0;
+            }
+            iVar11 = 0;
+            if (*piVar12 != 0) {
+              iVar11 = *piVar12;
+              *(undefined4 *)(iVar11 + 4) = 0;
+            }
+            if (*(int *)(iVar9 + 0x18) != 0) {
+              *(undefined4 *)(*(int *)(iVar9 + 0x18) + 4) = *(undefined4 *)(iVar9 + 0x10);
+            }
+            **(undefined4 **)(iVar9 + 0x10) = *(undefined4 *)(iVar9 + 0x18);
+            *(int *)(iVar9 + 0x1c) = *(int *)(iVar9 + 0x1c) + -1;
+            *(undefined4 *)(iVar9 + 0x18) = *(undefined4 *)(iVar9 + 0x10);
+            *(int *)(iVar9 + 0x10) = iVar11;
+          }
+        }
+        iVar9 = *(int *)(*(int *)(param_1 + 0x70 + param_2 * 4) + 0x10);
+        if (iVar9 == 0) {
+          param_3 = (int *)0x0;
+          piVar12 = (int *)0x0;
+        }
+        else {
+          piVar12 = *(int **)(iVar9 + 8);
+          param_3 = piVar12;
+          if (piVar12 != (int *)0x0) {
+            if (param_4 == '\0') {
+              pfVar8 = *(float **)(*piVar12 + 0x20);
+              if (pfVar8 == (float *)0x0) {
+                pfVar8 = (float *)&DAT_011f4288;
+              }
+              local_1c = pfVar8[2] * fVar5 + *pfVar8 * fVar3 + pfVar8[1] * fVar4;
+            }
+            else {
+              pfVar8 = *(float **)(*piVar12 + 0x20);
+              if (pfVar8 == (float *)0x0) {
+                pfVar8 = (float *)&DAT_011f4288;
+              }
+              puVar10 = *(undefined4 **)(*piVar12 + 0x20);
+              if (puVar10 == (undefined4 *)0x0) {
+                puVar10 = &DAT_011f4288;
+              }
+              local_1c = (pfVar8[2] * fVar5 + *pfVar8 * fVar3 + pfVar8[1] * fVar4) -
+                         (float)puVar10[3];
+            }
+            goto LAB_00b9b324;
+          }
+        }
+        goto LAB_00b9b33f;
+      }
+LAB_00b9b324:
+      if ((piVar12 == (int *)0x0) || (param_5 < local_1c == (param_5 == local_1c)))
+      goto LAB_00b9b33f;
+      goto LAB_00b9b353;
+    }
+    if (param_5 < *(float *)(pbVar13 + 0x20) != (param_5 == *(float *)(pbVar13 + 0x20))) {
+      if ((*pbVar13 & 1) == 0) {
+        if (*(int **)(pbVar13 + 8) != (int *)0x0) {
+          (**(code **)(**(int **)(pbVar13 + 8) + 0x90))(1,0x2f1,1);
+        }
+      }
+      else {
+        FUN_00b99990(pbVar13 + 0xc);
+      }
+      if (*(int *)(pbVar13 + 8) != 0) {
+        FUN_00b64ec0();
+      }
+      pbVar13[2] = 0;
+      pbVar13[3] = 0;
+      FUN_00b9a410();
+      FUN_00aa4060();
+      iVar9 = param_2 * 3 + 0x1e;
+      piVar6 = *(int **)(param_1 + iVar9 * 4);
+      iVar11 = *piVar6;
+      piVar1 = (int *)(param_1 + iVar9 * 4);
+      *piVar1 = iVar11;
+      if (iVar11 == 0) {
+        piVar1[1] = 0;
+      }
+      else {
+        *(undefined4 *)(iVar11 + 4) = 0;
+      }
+      piVar6[2] = 0;
+      FUN_0040fbf0();
+      piVar6[1] = 0;
+      *piVar6 = (int)DAT_011c5f58;
+      _DAT_011c5f84 = _DAT_011c5f84 + -1;
+      if (_DAT_011c5f84 == 0) {
+        _DAT_011c5f80 = 0;
+      }
+      DAT_011c5f58 = piVar6;
+      piVar1[2] = piVar1[2] + -1;
+      if (*piVar2 == 0) {
+        pbVar13 = (byte *)0x0;
+        goto LAB_00b9b154;
+      }
+      pbVar13 = *(byte **)(*piVar1 + 8);
+      goto LAB_00b9b060;
+    }
+  }
+LAB_00b9b154:
+  if (piVar12 != (int *)0x0) goto LAB_00b9b15c;
+LAB_00b9b33f:
+  if (pbVar13 == (byte *)0x0) {
+    return;
+  }
+  if (param_5 < *(float *)(pbVar13 + 0x20) == (param_5 == *(float *)(pbVar13 + 0x20))) {
+    return;
+  }
+LAB_00b9b353:
+  iVar9 = __isnan((double)local_1c);
+  if (iVar9 != 0) {
+    return;
+  }
+  goto LAB_00b9b060;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00b9af60 (sorted alpha geometry draw path)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00b651b1 (in FUN_00b650c0)
+  Total: 1 refs
+
+--- Calls FROM sorted alpha geometry draw path (0x00b9af60) ---
+  0x00b9b09f -> 0x00b99990 FUN_00b99990
+  0x00b9b0cd -> 0x00b64ec0 FUN_00b64ec0
+  0x00b9b0da -> 0x00b9a410 FUN_00b9a410
+  0x00b9b0e5 -> 0x00aa4060 FUN_00aa4060
+  0x00b9b111 -> 0x0040fbf0 FUN_0040fbf0
+  0x00b9b1d2 -> 0x00b97e30 FUN_00b97e30
+  0x00b9b1e4 -> 0x00b98320 FUN_00b98320
+  0x00b9b1fe -> 0x00b994f0 FUN_00b994f0
+  0x00b9b212 -> 0x00b97e30 FUN_00b97e30
+  0x00b9b227 -> 0x00b98320 FUN_00b98320
+  0x00b9b35d -> 0x00ec75b1 __isnan
+  Total: 11 calls
+
+======================================================================
+DIRECT CALLEE DECOMPILATIONS: sorted alpha geometry draw path @ 0x00b9af60
+======================================================================
+
+======================================================================
+direct callee 1 @ 0x0040fbf0
+======================================================================
+  Function: FUN_0040fbf0 @ 0x0040fbf0, Size: 149 bytes
+
+void __fastcall FUN_0040fbf0(int *param_1)
+
+{
+  int iVar1;
+  int iVar2;
+  uint local_64;
+  
+  iVar1 = FUN_0040fc90();
+  if (*param_1 == iVar1) {
+    param_1[1] = param_1[1] + 1;
+  }
+  else {
+    local_64 = 0;
+    while (iVar2 = FUN_0043b460(param_1,0,iVar1), iVar2 != 0) {
+      local_64 = local_64 + 1;
+      if (local_64 < 0x2711) {
+        FUN_0040fca0(0);
+      }
+      else {
+        FUN_0040fca0(1);
+      }
+    }
+    FUN_0040fbe0();
+    param_1[1] = 1;
+  }
+  return;
+}
+
+
+
+======================================================================
+direct callee 2 @ 0x00aa4060
+======================================================================
+  Function: FUN_00aa4060 @ 0x00aa4060, Size: 236 bytes
+
+void __thiscall FUN_00aa4060(char *param_1,uint param_2)
+
+{
+  int iVar1;
+  bool bVar2;
+  int *piVar3;
+  
+  if (param_2 != 0) {
+    if (*param_1 == '\0') {
+      FUN_00aa42c0(param_2,0);
+    }
+    else if (*(int *)(param_1 + 0x110) == 0) {
+      FUN_00aa42c0(param_2,0);
+    }
+    else {
+      iVar1 = *(int *)(&DAT_011f63b8 + (param_2 >> 0x18) * 4);
+      if (iVar1 != 0) {
+        if ((param_2 < *(uint *)(iVar1 + 4)) ||
+           ((uint)(*(int *)(iVar1 + 4) + *(int *)(iVar1 + 0x50)) <= param_2)) {
+          bVar2 = false;
+        }
+        else {
+          bVar2 = true;
+        }
+        if (bVar2) {
+          FUN_00aa6c70(param_2);
+          return;
+        }
+      }
+      piVar3 = (int *)FUN_00aa45a0(param_2);
+      if (piVar3 == (int *)0x0) {
+        FUN_00aa42c0(param_2,0);
+      }
+      else {
+        (**(code **)(*piVar3 + 0xc))(param_2,0);
+      }
+    }
+  }
+  return;
+}
+
+
+
+======================================================================
+direct callee 3 @ 0x00b64ec0
+======================================================================
+  Function: FUN_00b64ec0 @ 0x00b64ec0, Size: 74 bytes
+
+void __fastcall FUN_00b64ec0(undefined2 *param_1)
+
+{
+  int iVar1;
+  int iVar2;
+  
+  if (*(int *)(param_1 + 2) == 0) {
+    *param_1 = 0;
+    return;
+  }
+  do {
+    iVar1 = *(int *)(*(int *)(param_1 + 2) + 4);
+    *(undefined4 *)(*(int *)(param_1 + 2) + 4) = 0;
+    iVar2 = *(int *)(param_1 + 2);
+    if (iVar2 != 0) {
+      FUN_00b64ec0();
+      FUN_00aa4060(iVar2);
+    }
+    *(int *)(param_1 + 2) = iVar1;
+  } while (iVar1 != 0);
+  *param_1 = 0;
+  return;
+}
+
+
+
+======================================================================
+direct callee 4 @ 0x00b97e30
+======================================================================
+  Function: FUN_00b97e30 @ 0x00b97e30, Size: 73 bytes
+
+void FUN_00b97e30(undefined1 param_1,int param_2)
+
+{
+  int iVar1;
+  
+  iVar1 = DAT_011ffa68;
+  if ((&DAT_011ff9d8)[DAT_011ffa68] == 0) {
+    (**(code **)(**(int **)(DAT_011f9508 + 0x8b8) + 0x68))(0xe,param_1,0);
+    (&DAT_011ff9d8)[iVar1] = (&DAT_011ff9d8)[iVar1];
+    return;
+  }
+  (&DAT_011ff9d8)[DAT_011ffa68] = (&DAT_011ff9d8)[DAT_011ffa68] + param_2;
+  return;
+}
+
+
+
+======================================================================
+direct callee 5 @ 0x00b98320
+======================================================================
+  Function: FUN_00b98320 @ 0x00b98320, Size: 83 bytes
+
+void FUN_00b98320(undefined4 param_1,int param_2)
+
+{
+  int iVar1;
+  
+  iVar1 = DAT_011ffd3c;
+  if ((&DAT_011ff9d8)[DAT_011ffd3c] == 0) {
+    (**(code **)(**(int **)(DAT_011f9508 + 0x8b8) + 0x68))(0xc3,param_1,0);
+    (&DAT_011ff9d8)[iVar1] = (&DAT_011ff9d8)[iVar1];
+    return;
+  }
+  (&DAT_011ff9d8)[DAT_011ffd3c] = (&DAT_011ff9d8)[DAT_011ffd3c] + param_2;
+  return;
+}
+
+
+
+======================================================================
+direct callee 6 @ 0x00b994f0
+======================================================================
+  Function: FUN_00b994f0 @ 0x00b994f0, Size: 315 bytes
+
+void FUN_00b994f0(int *param_1,uint param_2,undefined4 param_3,undefined4 param_4,undefined4 param_5
+                 )
+
+{
+  bool bVar1;
+  char cVar2;
+  int iVar3;
+  undefined4 uVar4;
+  
+  if (*(ushort *)(param_1 + 1) == param_2) {
+    DAT_011f91e4 = param_2;
+    DAT_011f91e0 = param_1;
+    bVar1 = false;
+    if (((DAT_011ffe30 != param_2) || (param_2 == 0x2f6)) ||
+       (*(int *)(*param_1 + 0xc0) != DAT_011ffe2c)) {
+      bVar1 = true;
+      FUN_00b99390(param_2,*(int *)(*param_1 + 0xc0));
+    }
+    if (DAT_011f9421 != '\0') {
+      if ((*(int *)(*param_1 + 0x9c) == 0) ||
+         ((*(ushort *)(*(int *)(*param_1 + 0x9c) + 0x18) >> 9 & 1) == 0)) {
+        uVar4 = 0;
+      }
+      else {
+        uVar4 = 1;
+      }
+      FUN_00b98540(uVar4,0);
+    }
+    cVar2 = FUN_00e72c20(*param_1,0);
+    if (cVar2 == '\0') {
+      iVar3 = (**(code **)(*(int *)*param_1 + 0x30))();
+      if (iVar3 == 0) {
+        iVar3 = (**(code **)(*(int *)*param_1 + 0x34))();
+        if (iVar3 == 0) {
+          FUN_00b98e80(param_1,param_3,param_4,param_5);
+        }
+        else {
+          (**(code **)(*(int *)*param_1 + 0xdc))(DAT_011f4748);
+        }
+      }
+      else {
+        (**(code **)(*(int *)*param_1 + 0xdc))(DAT_011f4748);
+      }
+    }
+    else {
+      FUN_00b99110(param_1,param_3,param_4,param_5);
+    }
+    if ((bVar1) && (DAT_011ffe2c != 0)) {
+      iVar3 = *(int *)(DAT_011ffe2c + 0x68);
+      if ((0 < iVar3) && (iVar3 < 6)) {
+        FUN_00b7ac20(param_2);
+        return;
+      }
+      if (iVar3 == 0x11) {
+        FUN_00bb96d0(param_2);
+      }
+    }
+  }
+  return;
+}
+
+
+
+======================================================================
+direct callee 7 @ 0x00b99990
+======================================================================
+  Function: FUN_00b99990 @ 0x00b99990, Size: 123 bytes
+
+void FUN_00b99990(int param_1,undefined4 param_2)
+
+{
+  undefined4 *puVar1;
+  undefined4 *puVar2;
+  int *piVar3;
+  
+  if (*(int *)(param_1 + 0x10) == 0) {
+    return;
+  }
+  FUN_00b988e0();
+  puVar1 = *(undefined4 **)(param_1 + 4);
+  if (puVar1 != (undefined4 *)0x0) {
+    puVar2 = (undefined4 *)*puVar1;
+    piVar3 = (int *)puVar1[2];
+    while (piVar3 != (int *)0x0) {
+      if (*piVar3 != 0) {
+        FUN_00b994f0(piVar3,(short)piVar3[1],1,param_2,1);
+      }
+      if (puVar2 == (undefined4 *)0x0) break;
+      puVar1 = puVar2 + 2;
+      puVar2 = (undefined4 *)*puVar2;
+      piVar3 = (int *)*puVar1;
+    }
+  }
+  FUN_00b63e90();
+  *(undefined4 *)(param_1 + 0xc) = *(undefined4 *)(param_1 + 4);
+  *(undefined4 *)(param_1 + 4) = 0;
+  *(undefined4 *)(param_1 + 8) = 0;
+  *(undefined4 *)(param_1 + 0x10) = 0;
+  FUN_00b988e0();
+  return;
+}
+
+
+
+======================================================================
+direct callee 8 @ 0x00b9a410
+======================================================================
+  Function: FUN_00b9a410 @ 0x00b9a410, Size: 121 bytes
+
+void __fastcall FUN_00b9a410(int param_1)
+
+{
+  uint uVar1;
+  int *unaff_FS_OFFSET;
+  int local_c;
+  undefined1 *puStack_8;
+  undefined4 local_4;
+  
+  puStack_8 = &LAB_00f29e9b;
+  local_c = *unaff_FS_OFFSET;
+  uVar1 = DAT_011c16bc ^ (uint)&stack0xffffffe8;
+  *unaff_FS_OFFSET = (int)&local_c;
+  local_4 = 0;
+  if (*(undefined4 **)(param_1 + 8) != (undefined4 *)0x0) {
+    (**(code **)**(undefined4 **)(param_1 + 8))(1,uVar1);
+    *(undefined4 *)(param_1 + 8) = 0;
+  }
+  *(undefined ***)(param_1 + 0xc) = &PTR_FUN_010b7dc0;
+  FUN_00b63e90();
+  *(undefined4 *)(param_1 + 0x18) = *(undefined4 *)(param_1 + 0x10);
+  *(undefined4 *)(param_1 + 0x10) = 0;
+  *(undefined4 *)(param_1 + 0x14) = 0;
+  *(undefined4 *)(param_1 + 0x1c) = 0;
+  FUN_00b63e90();
+  *unaff_FS_OFFSET = local_c;
+  return;
+}
+
+
+
+======================================================================
+direct callee 9 @ 0x00ec75b1
+======================================================================
+  Function: __isnan @ 0x00ec75b1, Size: 52 bytes
+
+/* Library Function - Single Match
+    __isnan
+   
+   Library: Visual Studio 2008 Release */
+
+int __cdecl __isnan(double _X)
+
+{
+  if ((((_X._6_2_ & 0x7ff8) != 0x7ff0) ||
+      ((((ulonglong)_X & 0x7ffff00000000) == 0 && (_X._0_4_ == 0)))) &&
+     ((_X._6_2_ & 0x7ff8) != 0x7ff8)) {
+    return 0;
+  }
+  return 1;
+}
+
+
+  Decompiled: 9 of 9 direct callees

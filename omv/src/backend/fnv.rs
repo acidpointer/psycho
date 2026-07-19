@@ -2,14 +2,14 @@
 
 use core::{ffi::c_void, fmt, mem::size_of};
 use std::sync::{
-    LazyLock,
+    LazyLock, OnceLock,
     atomic::{AtomicBool, AtomicU32, Ordering},
 };
 
 use super::{
-    CameraFrame, CameraTransformFrame, DepthAccess, DepthFrame, DepthProjectionFrame,
-    DepthProvider, DepthResolveOutcome, DepthResolveSlot, DepthTexture, EnvironmentFrame,
-    MaterialStateFrame, NativeSkyFrame, SunFrame, UnderwaterFrame,
+    AlphaCoverageMode, CameraFrame, CameraTransformFrame, DepthAccess, DepthFrame,
+    DepthProjectionFrame, DepthProvider, DepthResolveOutcome, DepthResolveSlot, DepthTexture,
+    EnvironmentFrame, MaterialStateFrame, NativeSkyFrame, SunFrame, UnderwaterFrame,
 };
 use libpsycho::os::windows::{
     directx9::{
@@ -32,6 +32,7 @@ const BSSHADERMANAGER_CAMERA_PTR: usize = 0x011F917C;
 const WORLD_SCENE_GRAPH_PTR: usize = 0x011DEB7C;
 const BSSHADERMANAGER_CURRENT_RENDER_TARGET_PTR: usize = 0x011F9438;
 const BSSHADERMANAGER_SCENE_GRAPH_INDEX: usize = 0x011F91C4;
+const BSSHADERMANAGER_ALPHA_COVERAGE_MODE: usize = 0x011F94B8;
 const BSSHADERMANAGER_SHADOW_SCENE_NODE_ARRAY: usize = 0x011F91C8;
 const BSSHADERMANAGER_SHADOW_SCENE_NODE_COUNT: usize = 4;
 const PLAYER_CHARACTER_PTR: usize = 0x011DEA3C;
@@ -100,8 +101,10 @@ const FRAME_CONTRACT_LOG_INTERVAL: u32 = 120;
 const MAX_FRAME_CONTRACT_LOGS: u32 = 32;
 
 static DEPTH_RESOLVE_LOGS: AtomicU32 = AtomicU32::new(0);
+static ALPHA_COVERAGE_MODE: OnceLock<AlphaCoverageMode> = OnceLock::new();
 static SUN_FRAME_CALLS: AtomicU32 = AtomicU32::new(0);
 static SUN_FRAME_LOGS: AtomicU32 = AtomicU32::new(0);
+static FIRST_PERSON_RENDER_EPOCH: AtomicU32 = AtomicU32::new(0);
 static UNDERWATER_EPOCH: AtomicU32 = AtomicU32::new(0);
 static UNDERWATER_VALUE: AtomicBool = AtomicBool::new(false);
 static DEPTH_RESOLVE: LazyLock<Mutex<FnvDepthResolve>> =
@@ -144,10 +147,34 @@ pub(super) fn native_sky_frame() -> Option<NativeSkyFrame> {
     unsafe { read_native_sky_frame() }
 }
 
+pub(super) fn alpha_coverage_mode() -> AlphaCoverageMode {
+    *ALPHA_COVERAGE_MODE.get_or_init(|| {
+        unsafe { read_u32(BSSHADERMANAGER_ALPHA_COVERAGE_MODE) }
+            .map(alpha_coverage_mode_from_raw)
+            .unwrap_or_default()
+    })
+}
+
+fn alpha_coverage_mode_from_raw(raw: u32) -> AlphaCoverageMode {
+    match raw {
+        1 => AlphaCoverageMode::Nvidia,
+        2 => AlphaCoverageMode::Amd,
+        _ => AlphaCoverageMode::None,
+    }
+}
+
 pub(super) fn publish_underwater_classification(underwater: bool) {
     let render_epoch = crate::hooks::render_epoch();
     UNDERWATER_VALUE.store(underwater, Ordering::Relaxed);
     UNDERWATER_EPOCH.store(render_epoch, Ordering::Release);
+}
+
+pub(super) fn publish_first_person_rendered() {
+    FIRST_PERSON_RENDER_EPOCH.store(crate::hooks::render_epoch(), Ordering::Release);
+}
+
+pub(super) fn first_person_rendered() -> bool {
+    FIRST_PERSON_RENDER_EPOCH.load(Ordering::Acquire) == crate::hooks::render_epoch()
 }
 
 pub(super) fn world_camera_frame(width: u32, height: u32) -> Option<CameraFrame> {
@@ -1394,8 +1421,8 @@ impl FnvDepthResolve {
 #[cfg(test)]
 mod depth_capture_tests {
     use super::{
-        DepthProjectionFrame, FnvDepthResolve, ResolvedDepthCapture,
-        underwater_frame_for_publication,
+        AlphaCoverageMode, DepthProjectionFrame, FnvDepthResolve, ResolvedDepthCapture,
+        alpha_coverage_mode_from_raw, underwater_frame_for_publication,
     };
 
     fn capture(
@@ -1485,6 +1512,14 @@ mod depth_capture_tests {
         assert!(frame.known);
         assert!(!frame.underwater);
         assert_eq!(frame.frame_epoch, 11);
+    }
+
+    #[test]
+    fn native_alpha_coverage_vendor_ids_map_exactly() {
+        assert_eq!(alpha_coverage_mode_from_raw(0), AlphaCoverageMode::None);
+        assert_eq!(alpha_coverage_mode_from_raw(1), AlphaCoverageMode::Nvidia);
+        assert_eq!(alpha_coverage_mode_from_raw(2), AlphaCoverageMode::Amd);
+        assert_eq!(alpha_coverage_mode_from_raw(3), AlphaCoverageMode::None);
     }
 }
 

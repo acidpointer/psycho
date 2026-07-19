@@ -908,11 +908,16 @@ impl ScreenShaderRuntime {
             } else {
                 backend::camera_frame(self.settings.depth_provider, desc)
             };
+            let atmosphere_visibility = crate::fnv_world_pipeline::atmosphere_visibility();
             backend::FrameInputs {
                 camera,
                 depth,
                 environment: backend::environment_frame(self.settings.depth_provider),
                 sun: backend::sun_frame(self.settings.depth_provider),
+                sky: backend::native_sky_frame(),
+                atmosphere_visibility: atmosphere_visibility.unwrap_or(0.0),
+                atmosphere_available: atmosphere_visibility.is_some(),
+                first_person_rendered: backend::fnv_first_person_rendered(),
                 material_state: backend::material_state_frame(),
             }
         } else {

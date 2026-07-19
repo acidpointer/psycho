@@ -103,8 +103,9 @@ it as the temporal implementation.
 
 ## Volumetric Atmosphere
 
-OMV owns a world-only atmosphere boundary after world TAA and before
-first-person and UI rendering. It reduces resolved INTZ depth to strict
+OMV owns a world-only atmosphere boundary after native opaque/pre-depth groups
+and before the late alpha-to-coverage, sorted-alpha, first-person, and UI
+groups. It reduces resolved INTZ depth to strict
 `G16R16F` logarithmic nearest/farthest intervals, then integrates a
 supplemental uniform, exponential-height, and deterministic world-anchored
 heterogeneous medium into an `A16B16G16R16F` target. Performance, High, and
@@ -112,6 +113,16 @@ Ultra use fixed 8, 12, and 20-sample variants at quarter, half, and half
 resolution. The engine's explicit above/underwater classification is published
 as an epoch-tagged value; OMV retains no engine water pointer and rejects stale
 or missing publication.
+
+The boundary is the researched split between FNV's `0x00B65AE0` pre-depth
+finalizer and `0x00B65C60` post-depth groups. Late foliage uses vendor
+alpha-to-coverage (`ATOC`/`A2M0`), which cannot be reconstructed correctly from
+one resolved depth sample. Atmosphere therefore composes before that geometry;
+native alpha-tested foliage then preserves its own coverage and fog behavior.
+World TAA remains after the complete world, so it sees both atmosphere and late
+alpha geometry. A missing contract at the early boundary stays pending for the
+existing complete-world fallback instead of being recorded as a successful
+atmosphere frame.
 
 World TAA, source capture, and atmosphere composition share one focused
 nonblocking owner. Present advances an atomic render epoch even when menu or
@@ -137,12 +148,29 @@ directional/disk colors, daylight, and the exact camera captured with world
 depth. It evaluates normalized Henyey-Greenstein single scattering, calibrated
 so FNV's irradiance-scale direct light has unit isotropic response, in the same
 medium and integration as fog. Combined mode therefore does not double
-extinction. A deterministic quarter-resolution depth mask and fixed
+extinction, and the lighting-only optical-depth response is a lower bound, so
+enabling fog cannot weaken directional scattering. A deterministic
+quarter-resolution depth mask and fixed
 24/40/56-sample blocker-sensitive radial field provide conservative
 screen-space shaft visibility. If that optional field is unavailable or the
-sun is off-screen, base directional scattering and fog remain valid. Legacy
+sun approaches the screen boundary, directional scattering follows the same
+continuous edge fade as its visibility field and reaches zero at or beyond the
+projection edge. Fog remains valid independently. Legacy
 Sunshafts remain an independent, complementary later pass and keep their own
-toggle.
+toggle, but now use the same captured-camera/native-sun projection and native
+sun color instead of a separate live screen position and scene-brightness
+source. Their `Fog visibility gain` control makes a denser active medium
+strengthen, rather than suppress, the artistic ray pass. Their native-sun
+source response is continuous instead of using a weather-dependent absolute
+cutoff. First-person occlusion is required only when first-person geometry was
+actually rendered in the current epoch. A missing current depth capture then
+fails closed; a third-person frame does not disable the pass. The earlier
+atmosphere is naturally covered by first-person geometry drawn afterward.
+
+The atmosphere and legacy Sunshafts full-screen passes explicitly disable the
+native renderer's active vendor alpha-to-coverage mode (`ATOC` or `A2M1`) while
+their captured D3D9 state blocks are active. Restoring the state block returns
+ownership to the native late-alpha pipeline after the OMV draw.
 
 Fog debug views cover reduced nearest depth, depth span, reconstructed
 world-height bands, source alpha, negative/overbright HDR range, optical

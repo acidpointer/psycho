@@ -4,7 +4,7 @@ use std::{
     ffi::c_void,
     sync::{
         LazyLock,
-        atomic::{AtomicBool, AtomicU32, Ordering},
+        atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering},
     },
 };
 
@@ -14,6 +14,7 @@ const PROCESS_IMAGE_SPACE_SHADERS_ADDR: usize = 0x00B55AC0;
 const SET_WATER_SHADER_UNDERWATER_ADDR: usize = 0x004E2120;
 const RENDER_WORLD_SCENE_GRAPH_ADDR: usize = 0x00873200;
 const RENDER_FIRST_PERSON_ADDR: usize = 0x00875110;
+const RENDER_PRE_DEPTH_GROUPS_ADDR: usize = 0x00B65AE0;
 const IMAGE_SPACE_MANAGER_PTR_ADDR: usize = 0x011F91AC;
 const IMAGE_SPACE_EFFECTS_OFFSET: usize = 0x08;
 const IMAGE_SPACE_LAST_EFFECT_ID_OFFSET: usize = 0x1EC;
@@ -31,6 +32,7 @@ type SetWaterShaderUnderwaterFn = unsafe extern "thiscall" fn(*mut c_void, u8);
 type RenderWorldSceneGraphFn = unsafe extern "thiscall" fn(*mut c_void, *mut c_void, u8, u8, u8);
 type RenderFirstPersonFn =
     unsafe extern "thiscall" fn(*mut c_void, *mut c_void, *mut c_void, *mut c_void, *mut c_void);
+type RenderPreDepthGroupsFn = unsafe extern "cdecl" fn(*mut c_void);
 type ImageSpaceEffectIsActiveFn = unsafe extern "thiscall" fn(*mut c_void) -> u8;
 
 static PROCESS_IMAGE_SPACE_SHADERS_HOOK: LazyLock<InlineHookContainer<ProcessImageSpaceShadersFn>> =
@@ -41,18 +43,23 @@ static RENDER_WORLD_SCENE_GRAPH_HOOK: LazyLock<InlineHookContainer<RenderWorldSc
     LazyLock::new(InlineHookContainer::new);
 static RENDER_FIRST_PERSON_HOOK: LazyLock<InlineHookContainer<RenderFirstPersonFn>> =
     LazyLock::new(InlineHookContainer::new);
+static RENDER_PRE_DEPTH_GROUPS_HOOK: LazyLock<InlineHookContainer<RenderPreDepthGroupsFn>> =
+    LazyLock::new(InlineHookContainer::new);
 
 static HOOK_ERROR_LOGS: AtomicU32 = AtomicU32::new(0);
 static UNDERWATER_PUBLICATION_HOOK_READY: AtomicBool = AtomicBool::new(false);
 static DEPTH_CAPTURE_LOGS: AtomicU32 = AtomicU32::new(0);
 static DEPTH_CAPTURE_SKIP_LOGS: AtomicU32 = AtomicU32::new(0);
 static SHADER_APPLY_LOGS: AtomicU32 = AtomicU32::new(0);
+static PRE_ALPHA_WORLD_TARGET: AtomicUsize = AtomicUsize::new(0);
+static PRE_ALPHA_WORLD_ARMED: AtomicBool = AtomicBool::new(false);
 
 pub(crate) fn install_scene_boundary_hook() {
     install_process_image_space_shaders_hook();
     install_set_water_shader_underwater_hook();
     install_render_world_scene_graph_hook();
     install_render_first_person_hook();
+    install_render_pre_depth_groups_hook();
 }
 
 pub(crate) fn underwater_publication_hook_ready() -> bool {
@@ -183,6 +190,33 @@ fn install_render_first_person_hook() {
     }
 }
 
+fn install_render_pre_depth_groups_hook() {
+    match unsafe {
+        RENDER_PRE_DEPTH_GROUPS_HOOK.init(
+            "FNV RenderPreDepthGroups",
+            RENDER_PRE_DEPTH_GROUPS_ADDR as *mut c_void,
+            hook_render_pre_depth_groups,
+        )
+    } {
+        Ok(()) => {}
+        Err(err) => {
+            log::warn!(
+                "[FNV] Pre-alpha atmosphere hook skipped at 0x{RENDER_PRE_DEPTH_GROUPS_ADDR:08X}: {err}"
+            );
+            return;
+        }
+    }
+
+    match RENDER_PRE_DEPTH_GROUPS_HOOK.enable() {
+        Ok(()) => log::info!(
+            "[FNV] Pre-alpha atmosphere hook installed at 0x{RENDER_PRE_DEPTH_GROUPS_ADDR:08X}"
+        ),
+        Err(err) => log::warn!(
+            "[FNV] Pre-alpha atmosphere hook skipped at 0x{RENDER_PRE_DEPTH_GROUPS_ADDR:08X}: {err}"
+        ),
+    }
+}
+
 unsafe extern "cdecl" fn hook_process_image_space_shaders(
     renderer: *mut c_void,
     rendered_texture_1: *mut c_void,
@@ -294,6 +328,13 @@ unsafe extern "thiscall" fn hook_render_world_scene_graph(
         let camera_jitter = world_scene_graph
             .then(|| begin_temporal_aa_jitter())
             .flatten();
+        let pre_alpha_target = world_scene_graph
+            .then(current_render_target)
+            .flatten()
+            .filter(|_| crate::fnv_world_pipeline::needs_atmosphere())
+            .unwrap_or(0);
+        PRE_ALPHA_WORLD_TARGET.store(pre_alpha_target, Ordering::Release);
+        PRE_ALPHA_WORLD_ARMED.store(pre_alpha_target != 0, Ordering::Release);
         original(
             main,
             scene_graph,
@@ -301,6 +342,8 @@ unsafe extern "thiscall" fn hook_render_world_scene_graph(
             scene_graph_phase,
             render_flags,
         );
+        PRE_ALPHA_WORLD_ARMED.store(false, Ordering::Release);
+        PRE_ALPHA_WORLD_TARGET.store(0, Ordering::Release);
 
         // Ghidra callsites prove the third stack argument is the scene phase:
         // 0x00870AE8 pushes 1, 0x00870E18 pushes 0. The second u8 is not the
@@ -329,6 +372,35 @@ unsafe extern "thiscall" fn hook_render_world_scene_graph(
             );
         }
     }
+}
+
+unsafe extern "cdecl" fn hook_render_pre_depth_groups(accumulator: *mut c_void) {
+    let Ok(original) = RENDER_PRE_DEPTH_GROUPS_HOOK.original() else {
+        log_hook_error("[FNV] Missing original RenderPreDepthGroups function");
+        return;
+    };
+    unsafe { original(accumulator) };
+
+    if !PRE_ALPHA_WORLD_ARMED.load(Ordering::Acquire) {
+        return;
+    }
+    let expected_target = PRE_ALPHA_WORLD_TARGET.load(Ordering::Acquire);
+    if expected_target == 0 || current_render_target() != Some(expected_target) {
+        return;
+    }
+    let Some(device_ptr) = crate::backend::d3d_device_ptr() else {
+        return;
+    };
+    unsafe { crate::fnv_world_pipeline::apply_before_alpha(device_ptr) };
+}
+
+fn current_render_target() -> Option<usize> {
+    let device_ptr = crate::backend::d3d_device_ptr()?;
+    let device = unsafe { Device9Ref::from_raw_void(device_ptr) }?;
+    device
+        .render_target(0)
+        .ok()
+        .map(|surface| surface.as_raw() as usize)
 }
 
 unsafe fn begin_temporal_aa_jitter() -> Option<crate::backend::WorldCameraJitter> {
@@ -366,6 +438,7 @@ unsafe extern "thiscall" fn hook_render_first_person(
             crate::fnv_world_pipeline::retry_before_first_person(device_ptr, rendered_texture);
         }
         original(main, renderer, geo, sky_sun, rendered_texture);
+        crate::backend::publish_fnv_first_person_rendered();
         capture_depth(
             crate::backend::DepthResolveSlot::FirstPerson,
             Some(rendered_texture),

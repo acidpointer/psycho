@@ -182,6 +182,7 @@ depth_reversed = true
 debug_mask = false
 sun_sample_px = 32
 glare_radius = 0.07175863
+medium_response = 1.0
 occlusion_softness = 0.42
 
 [graphics.embedded_effects.depth_of_field]

@@ -1,4 +1,3 @@
-sampler2D SceneColor : register(s0);
 sampler2D SceneDepth : register(s1);
 sampler2D FirstPersonDepth : register(s2);
 
@@ -11,6 +10,7 @@ float4 OptionData2 : register(c5);
 float4 EnvironmentData : register(c6);
 float4 OptionData3 : register(c7);
 float4 SunData : register(c8);
+float4 NativeSunData : register(c10);
 float4 DepthData : register(c11);
 
 static const float DepthEndpointEpsilon = 0.000001f;
@@ -39,10 +39,6 @@ float HardwareDepth(float2 uv) {
 
 float FirstPersonHardwareDepth(float2 uv) {
     return tex2Dlod(FirstPersonDepth, float4(uv, 0.0f, 0.0f)).r;
-}
-
-float3 SceneSample(float2 uv) {
-    return tex2Dlod(SceneColor, float4(uv, 0.0f, 0.0f)).rgb;
 }
 
 float ScreenDistance(float2 a, float2 b) {
@@ -81,7 +77,7 @@ float SkyMask(float2 uv) {
 }
 
 float FirstPersonMask(float2 uv) {
-    if (!IsInsideScreen(uv) || FrameData.w < 0.5f) {
+    if (!IsInsideScreen(uv) || DepthData.w < 0.5f) {
         return 0.0f;
     }
 
@@ -90,25 +86,29 @@ float FirstPersonMask(float2 uv) {
 }
 
 float FirstPersonBlock(float2 uv) {
+    float requested = saturate(OptionData2.x);
+    if (requested <= 0.0f || DepthData.z < 0.5f) {
+        return 0.0f;
+    }
+    if (DepthData.w < 0.5f) {
+        return 1.0f;
+    }
     float2 texel = ScreenData.zw;
     float mask = FirstPersonMask(uv);
     mask = max(mask, FirstPersonMask(uv + float2( texel.x * 1.5f, 0.0f)));
     mask = max(mask, FirstPersonMask(uv + float2(-texel.x * 1.5f, 0.0f)));
     mask = max(mask, FirstPersonMask(uv + float2(0.0f,  texel.y * 1.5f)));
     mask = max(mask, FirstPersonMask(uv + float2(0.0f, -texel.y * 1.5f)));
-    return mask * saturate(OptionData2.x);
+    return mask * requested;
 }
 
-float RawBrightness(float3 color) {
+float NativeSunStrength() {
+    float3 color = max(NativeSunData.rgb, 0.0f);
     float luminance = dot(color, LuminanceFactors);
     float peak = max(color.r, max(color.g, color.b));
-    return max(luminance, peak * 0.72f);
-}
-
-float ShaftSourceMask(float3 color) {
-    float threshold = saturate(OptionData1.z);
-    float brightness = RawBrightness(color);
-    return Smooth01((brightness - threshold) / max(1.0f - threshold, 0.001f));
+    float brightness = max(luminance, peak * 0.72f);
+    float response = lerp(0.02f, 0.75f, saturate(OptionData1.z));
+    return Smooth01(brightness / max(brightness + response, 0.001f));
 }
 
 float SunScreenFade(float2 sunUv) {
@@ -127,8 +127,7 @@ float VisibleSunSource(float2 uv, float pathOpen) {
 	float distanceToSun = ScreenDistance(uv, SunData.xy);
 	float sourceRadius = max(OptionData3.y * 3.0f, 0.10f);
 	float sourceWindow = 1.0f - Smooth01(distanceToSun / sourceRadius);
-	float sceneSource = ShaftSourceMask(SceneSample(uv));
-	return visibility * pathOpen * sourceWindow * sceneSource;
+	return visibility * pathOpen * sourceWindow * NativeSunStrength();
 }
 
 float4 Main(PixelInput input) : COLOR0 {

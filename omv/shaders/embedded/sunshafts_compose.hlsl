@@ -13,7 +13,9 @@ float4 EnvironmentData : register(c6);
 float4 OptionData3 : register(c7);
 float4 SunData : register(c8);
 float4 EffectData : register(c9);
+float4 NativeSunData : register(c10);
 float4 DepthData : register(c11);
+float4 AtmosphereData : register(c15);
 
 static const float DepthEndpointEpsilon = 0.000001f;
 static const float3 WarmTint = float3(1.0f, 0.80f, 0.46f);
@@ -84,7 +86,7 @@ float SkyMask(float2 uv) {
 }
 
 float FirstPersonMask(float2 uv) {
-    if (!IsInsideScreen(uv) || FrameData.w < 0.5f) {
+    if (!IsInsideScreen(uv) || DepthData.w < 0.5f) {
         return 0.0f;
     }
 
@@ -93,13 +95,20 @@ float FirstPersonMask(float2 uv) {
 }
 
 float FirstPersonBlock(float2 uv) {
+    float requested = saturate(OptionData2.x);
+    if (requested <= 0.0f || DepthData.z < 0.5f) {
+        return 0.0f;
+    }
+    if (DepthData.w < 0.5f) {
+        return 1.0f;
+    }
     float2 texel = ScreenData.zw;
     float mask = FirstPersonMask(uv);
     mask = max(mask, FirstPersonMask(uv + float2( texel.x * 1.5f, 0.0f)));
     mask = max(mask, FirstPersonMask(uv + float2(-texel.x * 1.5f, 0.0f)));
     mask = max(mask, FirstPersonMask(uv + float2(0.0f,  texel.y * 1.5f)));
     mask = max(mask, FirstPersonMask(uv + float2(0.0f, -texel.y * 1.5f)));
-    return mask * saturate(OptionData2.x);
+    return mask * requested;
 }
 
 float FogAlpha(float linearDepth) {
@@ -166,12 +175,17 @@ float4 Main(PixelInput input) : COLOR0 {
     }
 
     float force = clamp(OptionData1.x, 0.0f, 4.0f);
-	float rawAmount = shaft * visibility * receiver * distanceShape;
+	float mediumGain = 1.0f
+		+ saturate(AtmosphereData.x) * max(OptionData3.z, 0.0f) * saturate(AtmosphereData.y);
+	float rawAmount = shaft * visibility * receiver * distanceShape * mediumGain;
 	rawAmount *= max(OptionData0.x, 0.0f) * max(OptionData0.y, 0.0f) * force * 2.35f;
 	float shaftAmount = min(ExposureCurve(rawAmount), 0.46f);
 
 	float warmth = saturate(OptionData1.w);
-	float3 tint = lerp(DayTint, WarmTint, warmth);
+	float3 nativeColor = max(NativeSunData.rgb, 0.0f);
+	float nativePeak = max(nativeColor.r, max(nativeColor.g, nativeColor.b));
+	float3 nativeTint = nativePeak > 0.0001f ? nativeColor / nativePeak : DayTint;
+	float3 tint = lerp(nativeTint, nativeTint * WarmTint, warmth);
 	float3 composed = color.rgb + tint * shaftAmount * (1.0f - color.rgb * 0.55f);
 
 	return float4(saturate(composed), color.a);
