@@ -8,7 +8,8 @@ pub(super) fn validate_pixel_samplers(
     device: &Device9Ref<'_>,
     record: shader_record::ShaderRecordSnapshot,
     selector: usize,
+    diagnostics_enabled: bool,
 ) -> std::result::Result<(), ObjectDrawRejectReason> {
-    samplers::validate_object_layout(device, record.template_id, selector)
+    samplers::validate_object_layout(device, record.template_id, selector, diagnostics_enabled)
         .map_err(|()| ObjectDrawRejectReason::MissingSampler)
 }

@@ -107,6 +107,10 @@ pub struct LodConfig {
     pub prefetch_enabled: bool,
     /// Replace lifetime-total distant handoff readiness.
     pub handoff_fix_enabled: bool,
+    /// Raise native LOD task priority without changing task classes.
+    pub priority_boost_enabled: bool,
+    /// Use the audited two-worker native IOManager configuration.
+    pub parallel_io_enabled: bool,
     pub object_prefetch_multiplier: f32,
     pub object_retention_multiplier: f32,
     pub tree_prefetch_multiplier: f32,
@@ -123,6 +127,8 @@ impl Default for LodConfig {
             enabled: true,
             prefetch_enabled: true,
             handoff_fix_enabled: true,
+            priority_boost_enabled: true,
+            parallel_io_enabled: true,
             object_prefetch_multiplier: 1.35,
             object_retention_multiplier: 1.50,
             tree_prefetch_multiplier: 1.35,
@@ -180,6 +186,12 @@ impl LodConfig {
             handoff_fix_enabled: raw
                 .handoff_fix_enabled
                 .unwrap_or(default.handoff_fix_enabled),
+            priority_boost_enabled: raw
+                .priority_boost_enabled
+                .unwrap_or(default.priority_boost_enabled),
+            parallel_io_enabled: raw
+                .parallel_io_enabled
+                .unwrap_or(default.parallel_io_enabled),
             object_prefetch_multiplier,
             object_retention_multiplier,
             tree_prefetch_multiplier,
@@ -506,6 +518,8 @@ struct RawLodConfig {
     enabled: Option<bool>,
     prefetch_enabled: Option<bool>,
     handoff_fix_enabled: Option<bool>,
+    priority_boost_enabled: Option<bool>,
+    parallel_io_enabled: Option<bool>,
     object_prefetch_multiplier: Option<f32>,
     object_retention_multiplier: Option<f32>,
     tree_prefetch_multiplier: Option<f32>,

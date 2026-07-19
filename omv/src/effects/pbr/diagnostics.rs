@@ -138,7 +138,7 @@ struct ObjectDrawStateSlot {
     specular_fade_bucket: AtomicU32,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Default)]
 pub(super) struct ObjectDrawTrace {
     pub(super) key: u32,
     pub(super) geometry: usize,
@@ -242,10 +242,9 @@ pub(super) fn service_frame(shader_enabled: bool, debug_log_draws: bool) {
         last.store(current.swap(0, Ordering::AcqRel), Ordering::Release);
     }
 
-    if shader_enabled {
+    if shader_enabled && debug_log_draws {
         let frame = ENABLED_FRAME_COUNT.fetch_add(1, Ordering::Relaxed);
-        let interval = if debug_log_draws { 30 } else { 240 };
-        if frame % interval == 0 && DIAGNOSTIC_LOG_COUNT.fetch_add(1, Ordering::Relaxed) < 24 {
+        if frame % 30 == 0 && DIAGNOSTIC_LOG_COUNT.fetch_add(1, Ordering::Relaxed) < 24 {
             log::info!(
                 "[PBR_CONTRACT] draws: replaced={} fallback={} rejected={} constants={} pair=SLS{}/SLS{} class={} selector=0x{:08X} sampler={} sampler_fallback={} selector_cache_mismatch={}",
                 OBJECT_REPLACEMENTS_LAST_FRAME.load(Ordering::Acquire),
@@ -456,18 +455,30 @@ pub(super) fn record_object_specular_fade(
 }
 
 pub(super) fn record_object_replacement() {
+    if !detailed_enabled() {
+        return;
+    }
     OBJECT_REPLACEMENTS_THIS_FRAME.fetch_add(1, Ordering::Relaxed);
 }
 
 pub(super) fn record_object_constant_upload() {
+    if !detailed_enabled() {
+        return;
+    }
     OBJECT_CONSTANT_UPLOADS_THIS_FRAME.fetch_add(1, Ordering::Relaxed);
 }
 
 pub(super) fn record_object_fallback() {
+    if !detailed_enabled() {
+        return;
+    }
     OBJECT_FALLBACKS_THIS_FRAME.fetch_add(1, Ordering::Relaxed);
 }
 
 pub(super) fn record_terrain_replacement(family: TerrainDrawFamily) {
+    if !detailed_enabled() {
+        return;
+    }
     terrain_family_counter(
         family,
         &LAND_LOD_REPLACEMENTS_THIS_FRAME,
@@ -478,6 +489,9 @@ pub(super) fn record_terrain_replacement(family: TerrainDrawFamily) {
 }
 
 pub(super) fn record_terrain_fallback(family: TerrainDrawFamily) {
+    if !detailed_enabled() {
+        return;
+    }
     terrain_family_counter(
         family,
         &LAND_LOD_FALLBACKS_THIS_FRAME,
@@ -492,6 +506,9 @@ pub(super) fn record_object_draw_gate_rejection(
     row: u16,
     selector: usize,
 ) {
+    if !detailed_enabled() {
+        return;
+    }
     let reason_code = reject_reason_code(reason);
     OBJECT_DRAW_GATE_REJECTIONS_THIS_FRAME.fetch_add(1, Ordering::Relaxed);
     if let Some(counter) = REJECTIONS_THIS_FRAME.get(reason_code as usize) {
@@ -500,11 +517,9 @@ pub(super) fn record_object_draw_gate_rejection(
     if reject_reason_is_terrain_like(reason) {
         OBJECT_TERRAIN_REJECTIONS_THIS_FRAME.fetch_add(1, Ordering::Relaxed);
     }
-    if detailed_enabled() {
-        OBJECT_LAST_REJECT_REASON.store(reason_code, Ordering::Release);
-        OBJECT_LAST_REJECT_ROW.store(u32::from(row), Ordering::Release);
-        OBJECT_LAST_REJECT_SELECTOR.store(selector, Ordering::Release);
-    }
+    OBJECT_LAST_REJECT_REASON.store(reason_code, Ordering::Release);
+    OBJECT_LAST_REJECT_ROW.store(u32::from(row), Ordering::Release);
+    OBJECT_LAST_REJECT_SELECTOR.store(selector, Ordering::Release);
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1095,5 +1110,69 @@ fn terrain_family_counter<'a>(
         TerrainDrawFamily::LandLod => land_lod,
         TerrainDrawFamily::TerrainFade => terrain_fade,
         TerrainDrawFamily::CloseTerrain => close_terrain,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        CLOSE_TERRAIN_REPLACEMENTS_THIS_FRAME, OBJECT_CONSTANT_UPLOADS_THIS_FRAME,
+        OBJECT_DRAW_GATE_REJECTIONS_THIS_FRAME, OBJECT_FALLBACKS_THIS_FRAME,
+        OBJECT_REPLACEMENTS_THIS_FRAME, TerrainDrawFamily, record_object_constant_upload,
+        record_object_draw_gate_rejection, record_object_fallback, record_object_replacement,
+        record_terrain_replacement, reset, set_detailed_enabled,
+    };
+    use crate::effects::pbr::engine_contracts::ObjectDrawRejectReason;
+    use std::sync::atomic::Ordering;
+
+    #[test]
+    fn normal_mode_keeps_diagnostics_out_of_draw_hot_paths() {
+        reset();
+        set_detailed_enabled(false);
+        record_object_replacement();
+        record_object_constant_upload();
+        record_object_fallback();
+        record_object_draw_gate_rejection(ObjectDrawRejectReason::MissingSampler, 0, 0);
+        record_terrain_replacement(TerrainDrawFamily::CloseTerrain);
+
+        assert_eq!(OBJECT_REPLACEMENTS_THIS_FRAME.load(Ordering::Relaxed), 0);
+        assert_eq!(
+            OBJECT_CONSTANT_UPLOADS_THIS_FRAME.load(Ordering::Relaxed),
+            0
+        );
+        assert_eq!(OBJECT_FALLBACKS_THIS_FRAME.load(Ordering::Relaxed), 0);
+        assert_eq!(
+            OBJECT_DRAW_GATE_REJECTIONS_THIS_FRAME.load(Ordering::Relaxed),
+            0
+        );
+        assert_eq!(
+            CLOSE_TERRAIN_REPLACEMENTS_THIS_FRAME.load(Ordering::Relaxed),
+            0
+        );
+
+        set_detailed_enabled(true);
+        record_object_replacement();
+        record_object_constant_upload();
+        record_object_fallback();
+        record_object_draw_gate_rejection(ObjectDrawRejectReason::MissingSampler, 0, 0);
+        record_terrain_replacement(TerrainDrawFamily::CloseTerrain);
+
+        assert_eq!(OBJECT_REPLACEMENTS_THIS_FRAME.load(Ordering::Relaxed), 1);
+        assert_eq!(
+            OBJECT_CONSTANT_UPLOADS_THIS_FRAME.load(Ordering::Relaxed),
+            1
+        );
+        assert_eq!(OBJECT_FALLBACKS_THIS_FRAME.load(Ordering::Relaxed), 1);
+        assert_eq!(
+            OBJECT_DRAW_GATE_REJECTIONS_THIS_FRAME.load(Ordering::Relaxed),
+            1
+        );
+        assert_eq!(
+            CLOSE_TERRAIN_REPLACEMENTS_THIS_FRAME.load(Ordering::Relaxed),
+            1
+        );
+
+        reset();
+        set_detailed_enabled(false);
     }
 }

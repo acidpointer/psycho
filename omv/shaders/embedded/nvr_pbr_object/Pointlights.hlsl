@@ -6,8 +6,7 @@
 
 // Vanilla attenuation, lightVector not normalized.
 float vanillaAtt(float3 lightVector, float radius) {
-    const float3 att = lightVector / radius;
-    return 1 - shades(att, att);
+    return saturate(1 - dot(lightVector, lightVector) / max(radius * radius, 1e-8));
 }
 
 // https://lisyarus.github.io/blog/posts/point-light-attenuation.html

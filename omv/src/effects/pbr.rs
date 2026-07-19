@@ -17,6 +17,7 @@ mod object_replacement_record;
 mod samplers;
 mod shader_record;
 mod shader_registry;
+mod terrain_lights;
 
 use std::sync::{
     LazyLock,

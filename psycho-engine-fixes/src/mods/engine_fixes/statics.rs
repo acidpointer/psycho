@@ -127,6 +127,19 @@ pub const FLOAT_SETTING_ACCESSOR_ADDR: usize = 0x0040_3E20;
 pub const BLOCK_LOAD_DISTANCE_SETTING: usize = 0x011D_877C;
 pub const TREE_LOAD_DISTANCE_SETTING: usize = 0x011D_8788;
 
+pub const LOCK_FREE_MAP_CONSTRUCTOR_A_ADDR: usize = 0x0044_C040;
+pub const LOCK_FREE_MAP_CONSTRUCTOR_B_ADDR: usize = 0x0044_C270;
+pub const BSTREE_LOCK_FREE_MAP_CONSTRUCTOR_ADDR: usize = 0x0066_5CB0;
+pub const BSFILE_OPEN_STATE_ADDR: usize = 0x00AF_F490;
+pub const IO_MANAGER_WORKER_PATCH_ADDR: usize = 0x00C3_DA7A;
+pub const IO_MANAGER_SINGLETON_ADDR: usize = 0x0120_2D98;
+pub const BSTREE_MANAGER_SINGLETON_ADDR: usize = 0x011D_5C48;
+
+pub const LOD_OBJECT_TASK_PRODUCER_ADDR: usize = 0x006F_6D10;
+pub const LOD_TREE_TASK_PRODUCER_ADDR: usize = 0x006F_9360;
+pub const LOD_TERRAIN_TASK_PRODUCER_ADDR: usize = 0x006F_B980;
+pub const IO_TASK_PRIORITY_ADDR: usize = 0x00C3_CAE0;
+
 pub static LOD_TERRAIN_DEMAND_HOOK: LazyLock<InlineHookContainer<LodDemandFn>> =
     LazyLock::new(InlineHookContainer::new);
 pub static LOD_OBJECT_DEMAND_HOOK: LazyLock<InlineHookContainer<LodDemandFn>> =
@@ -147,6 +160,25 @@ pub static LOD_CELL_READY_GATE_HOOK: LazyLock<InlineHookContainer<LodCellReadyGa
 pub static LOD_CELL_RELOAD_RESET_HOOK: LazyLock<InlineHookContainer<LodCellOwnerFn>> =
     LazyLock::new(InlineHookContainer::new);
 pub static LOD_CELL_TEARDOWN_HOOK: LazyLock<InlineHookContainer<LodCellOwnerFn>> =
+    LazyLock::new(InlineHookContainer::new);
+
+pub static LOCK_FREE_MAP_CONSTRUCTOR_A_HOOK: LazyLock<
+    InlineHookContainer<LockFreeMapConstructorFn>,
+> = LazyLock::new(InlineHookContainer::new);
+pub static LOCK_FREE_MAP_CONSTRUCTOR_B_HOOK: LazyLock<
+    InlineHookContainer<LockFreeMapConstructorFn>,
+> = LazyLock::new(InlineHookContainer::new);
+pub static BSTREE_LOCK_FREE_MAP_CONSTRUCTOR_HOOK: LazyLock<
+    InlineHookContainer<LockFreeMapConstructorFn>,
+> = LazyLock::new(InlineHookContainer::new);
+pub static BSFILE_OPEN_STATE_HOOK: LazyLock<InlineHookContainer<BsFileOpenStateFn>> =
+    LazyLock::new(InlineHookContainer::new);
+
+pub static LOD_OBJECT_TASK_PRODUCER_HOOK: LazyLock<InlineHookContainer<LodObjectTaskProducerFn>> =
+    LazyLock::new(InlineHookContainer::new);
+pub static LOD_TREE_TASK_PRODUCER_HOOK: LazyLock<InlineHookContainer<LodBlockTaskProducerFn>> =
+    LazyLock::new(InlineHookContainer::new);
+pub static LOD_TERRAIN_TASK_PRODUCER_HOOK: LazyLock<InlineHookContainer<LodBlockTaskProducerFn>> =
     LazyLock::new(InlineHookContainer::new);
 
 // ---- SpeedTree clone lifetime ----

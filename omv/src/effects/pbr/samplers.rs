@@ -25,6 +25,11 @@ const OBJECT_SAMPLER_LAYOUT_BASE_NORMAL_SHADOW67: u32 = 6;
 const OBJECT_SAMPLER_LAYOUT_NORMAL_ONLY_SHADOW45: u32 = 7;
 const OBJECT_SAMPLER_LAYOUT_BASE_NORMAL_GLOW3_SHADOW56: u32 = 8;
 const OBJECT_SAMPLER_LAYOUT_BASE_NORMAL_GLOW4_SHADOW67: u32 = 9;
+const OBJECT_SAMPLER_LAYOUT_BASE_NORMAL_ATTENUATION4: u32 = 10;
+const OBJECT_SAMPLER_LAYOUT_BASE_NORMAL_GLOW3_ATTENUATION4: u32 = 11;
+const OBJECT_SAMPLER_LAYOUT_BASE_NORMAL_ATTENUATION4_SHADOW56: u32 = 12;
+const OBJECT_SAMPLER_LAYOUT_BASE_NORMAL_GLOW3_ATTENUATION4_SHADOW56: u32 = 13;
+const OBJECT_SAMPLER_LAYOUT_NORMAL_ATTENUATION3: u32 = 14;
 
 const OBJECT_SAMPLER_FALLBACK_NONE: u32 = 0;
 const OBJECT_SAMPLER_FALLBACK_NOT_PIXEL: u32 = 1;
@@ -34,6 +39,7 @@ const OBJECT_SAMPLER_FALLBACK_MISSING_GLOW: u32 = 4;
 const OBJECT_SAMPLER_FALLBACK_MISSING_SHADOW: u32 = 5;
 const OBJECT_SAMPLER_FALLBACK_MISSING_SHADOW_MASK: u32 = 6;
 const OBJECT_SAMPLER_FALLBACK_UNPROVEN_OWNER: u32 = 7;
+const OBJECT_SAMPLER_FALLBACK_MISSING_ATTENUATION: u32 = 8;
 const TEXTURE_STAGE_COUNT: usize = 16;
 
 static TEXTURE_TRACKING_READY: AtomicBool = AtomicBool::new(false);
@@ -49,6 +55,7 @@ static OBJECT_SAMPLER_LAYOUTS: LazyLock<Vec<ObjectSamplerLayout>> = LazyLock::ne
                     base: None,
                     normal: 0,
                     glow: None,
+                    attenuation: None,
                     shadow: None,
                 })
         })
@@ -89,6 +96,7 @@ pub(super) struct ObjectSamplerLayout {
     base: Option<u32>,
     normal: u32,
     glow: Option<u32>,
+    attenuation: Option<u32>,
     shadow: Option<(u32, u32)>,
 }
 
@@ -124,8 +132,8 @@ pub(super) fn validate_object_layout(
     device: &Device9Ref<'_>,
     template_id: u16,
     selector: usize,
+    detailed: bool,
 ) -> Result<(), ()> {
-    let detailed = super::diagnostics::detailed_enabled();
     if detailed {
         OBJECT_SAMPLER_CHECKS_THIS_FRAME.fetch_add(1, Ordering::Relaxed);
     }
@@ -164,6 +172,7 @@ pub(super) fn validate_object_layout(
             selector,
             OBJECT_SAMPLER_FALLBACK_MISSING_BASE,
             &mut observed_mask,
+            detailed,
         )
     {
         return Err(());
@@ -174,6 +183,7 @@ pub(super) fn validate_object_layout(
         selector,
         OBJECT_SAMPLER_FALLBACK_MISSING_NORMAL,
         &mut observed_mask,
+        detailed,
     ) {
         return Err(());
     }
@@ -184,6 +194,19 @@ pub(super) fn validate_object_layout(
             selector,
             OBJECT_SAMPLER_FALLBACK_MISSING_GLOW,
             &mut observed_mask,
+            detailed,
+        )
+    {
+        return Err(());
+    }
+    if let Some(stage) = layout.attenuation
+        && !texture_stage_valid(
+            device,
+            stage,
+            selector,
+            OBJECT_SAMPLER_FALLBACK_MISSING_ATTENUATION,
+            &mut observed_mask,
+            detailed,
         )
     {
         return Err(());
@@ -195,6 +218,7 @@ pub(super) fn validate_object_layout(
             selector,
             OBJECT_SAMPLER_FALLBACK_MISSING_SHADOW,
             &mut observed_mask,
+            detailed,
         ) {
             return Err(());
         }
@@ -204,6 +228,7 @@ pub(super) fn validate_object_layout(
             selector,
             OBJECT_SAMPLER_FALLBACK_MISSING_SHADOW_MASK,
             &mut observed_mask,
+            detailed,
         ) {
             return Err(());
         }
@@ -334,6 +359,9 @@ impl ObjectSamplerLayout {
         if let Some(stage) = self.glow {
             mask |= stage_mask(stage);
         }
+        if let Some(stage) = self.attenuation {
+            mask |= stage_mask(stage);
+        }
         if let Some((shadow, shadow_mask)) = self.shadow {
             mask |= stage_mask(shadow) | stage_mask(shadow_mask);
         }
@@ -347,6 +375,7 @@ fn texture_stage_valid(
     selector: usize,
     missing_reason: u32,
     observed_mask: &mut u32,
+    detailed: bool,
 ) -> bool {
     let tracked_texture = usize::try_from(stage)
         .ok()
@@ -365,7 +394,9 @@ fn texture_stage_valid(
         return false;
     }
     *observed_mask |= stage_mask(stage);
-    record_selector_drift_if_cached(device, stage, selector, texture);
+    if detailed {
+        record_selector_drift_if_cached(device, stage, selector, texture);
+    }
     true
 }
 
@@ -381,10 +412,7 @@ fn record_selector_drift_if_cached(
     selector: usize,
     texture: usize,
 ) {
-    if !super::diagnostics::detailed_enabled()
-        || selector == 0
-        || !TEXTURE_TRACKING_READY.load(Ordering::Acquire)
-    {
+    if selector == 0 || !TEXTURE_TRACKING_READY.load(Ordering::Acquire) {
         return;
     }
     let Ok(index) = usize::try_from(stage) else {
@@ -427,6 +455,7 @@ fn object_sampler_layout(template: &ShaderTemplate) -> ObjectSamplerLayout {
             base: Some(0),
             normal: 1,
             glow: None,
+            attenuation: None,
             shadow: None,
         };
     }
@@ -438,6 +467,11 @@ fn object_sampler_layout(template: &ShaderTemplate) -> ObjectSamplerLayout {
     };
     let glow = if (si || hair) && !only_specular {
         Some(if only_light { 3 } else { 4 })
+    } else {
+        None
+    };
+    let attenuation = if only_light && !only_specular {
+        Some(if diffuse { 3 } else { 4 })
     } else {
         None
     };
@@ -454,10 +488,11 @@ fn object_sampler_layout(template: &ShaderTemplate) -> ObjectSamplerLayout {
     };
 
     ObjectSamplerLayout {
-        code: object_sampler_layout_code(base, glow, shadow),
+        code: object_sampler_layout_code(base, glow, attenuation, shadow),
         base,
         normal,
         glow,
+        attenuation,
         shadow,
     }
 }
@@ -465,18 +500,28 @@ fn object_sampler_layout(template: &ShaderTemplate) -> ObjectSamplerLayout {
 fn object_sampler_layout_code(
     base: Option<u32>,
     glow: Option<u32>,
+    attenuation: Option<u32>,
     shadow: Option<(u32, u32)>,
 ) -> u32 {
-    match (base, glow, shadow) {
-        (None, None, None) => OBJECT_SAMPLER_LAYOUT_NORMAL_ONLY,
-        (None, None, Some((4, 5))) => OBJECT_SAMPLER_LAYOUT_NORMAL_ONLY_SHADOW45,
-        (Some(0), None, None) => OBJECT_SAMPLER_LAYOUT_BASE_NORMAL,
-        (Some(0), Some(3), None) => OBJECT_SAMPLER_LAYOUT_BASE_NORMAL_GLOW3,
-        (Some(0), Some(4), None) => OBJECT_SAMPLER_LAYOUT_BASE_NORMAL_GLOW4,
-        (Some(0), None, Some((5, 6))) => OBJECT_SAMPLER_LAYOUT_BASE_NORMAL_SHADOW56,
-        (Some(0), None, Some((6, 7))) => OBJECT_SAMPLER_LAYOUT_BASE_NORMAL_SHADOW67,
-        (Some(0), Some(3), Some((5, 6))) => OBJECT_SAMPLER_LAYOUT_BASE_NORMAL_GLOW3_SHADOW56,
-        (Some(0), Some(4), Some((6, 7))) => OBJECT_SAMPLER_LAYOUT_BASE_NORMAL_GLOW4_SHADOW67,
+    match (base, glow, attenuation, shadow) {
+        (None, None, None, None) => OBJECT_SAMPLER_LAYOUT_NORMAL_ONLY,
+        (None, None, None, Some((4, 5))) => OBJECT_SAMPLER_LAYOUT_NORMAL_ONLY_SHADOW45,
+        (None, None, Some(3), None) => OBJECT_SAMPLER_LAYOUT_NORMAL_ATTENUATION3,
+        (Some(0), None, None, None) => OBJECT_SAMPLER_LAYOUT_BASE_NORMAL,
+        (Some(0), Some(3), None, None) => OBJECT_SAMPLER_LAYOUT_BASE_NORMAL_GLOW3,
+        (Some(0), Some(4), None, None) => OBJECT_SAMPLER_LAYOUT_BASE_NORMAL_GLOW4,
+        (Some(0), None, None, Some((5, 6))) => OBJECT_SAMPLER_LAYOUT_BASE_NORMAL_SHADOW56,
+        (Some(0), None, None, Some((6, 7))) => OBJECT_SAMPLER_LAYOUT_BASE_NORMAL_SHADOW67,
+        (Some(0), Some(3), None, Some((5, 6))) => OBJECT_SAMPLER_LAYOUT_BASE_NORMAL_GLOW3_SHADOW56,
+        (Some(0), Some(4), None, Some((6, 7))) => OBJECT_SAMPLER_LAYOUT_BASE_NORMAL_GLOW4_SHADOW67,
+        (Some(0), None, Some(4), None) => OBJECT_SAMPLER_LAYOUT_BASE_NORMAL_ATTENUATION4,
+        (Some(0), Some(3), Some(4), None) => OBJECT_SAMPLER_LAYOUT_BASE_NORMAL_GLOW3_ATTENUATION4,
+        (Some(0), None, Some(4), Some((5, 6))) => {
+            OBJECT_SAMPLER_LAYOUT_BASE_NORMAL_ATTENUATION4_SHADOW56
+        }
+        (Some(0), Some(3), Some(4), Some((5, 6))) => {
+            OBJECT_SAMPLER_LAYOUT_BASE_NORMAL_GLOW3_ATTENUATION4_SHADOW56
+        }
         _ => OBJECT_SAMPLER_LAYOUT_NONE,
     }
 }
@@ -521,6 +566,17 @@ fn sampler_layout_label(layout: u32) -> &'static str {
         OBJECT_SAMPLER_LAYOUT_BASE_NORMAL_GLOW4_SHADOW67 => {
             "Base s0, Normal s1, Glow s4, Shadow s6/s7"
         }
+        OBJECT_SAMPLER_LAYOUT_BASE_NORMAL_ATTENUATION4 => "Base s0, Normal s1, Attenuation s4",
+        OBJECT_SAMPLER_LAYOUT_BASE_NORMAL_GLOW3_ATTENUATION4 => {
+            "Base s0, Normal s1, Glow s3, Attenuation s4"
+        }
+        OBJECT_SAMPLER_LAYOUT_BASE_NORMAL_ATTENUATION4_SHADOW56 => {
+            "Base s0, Normal s1, Attenuation s4, Shadow s5/s6"
+        }
+        OBJECT_SAMPLER_LAYOUT_BASE_NORMAL_GLOW3_ATTENUATION4_SHADOW56 => {
+            "Base s0, Normal s1, Glow s3, Attenuation s4, Shadow s5/s6"
+        }
+        OBJECT_SAMPLER_LAYOUT_NORMAL_ATTENUATION3 => "Normal s0, Attenuation s3",
         _ => "none",
     }
 }
@@ -534,6 +590,60 @@ fn sampler_fallback_label(reason: u32) -> &'static str {
         OBJECT_SAMPLER_FALLBACK_MISSING_SHADOW => "missing ShadowMap sampler",
         OBJECT_SAMPLER_FALLBACK_MISSING_SHADOW_MASK => "missing ShadowMaskMap sampler",
         OBJECT_SAMPLER_FALLBACK_UNPROVEN_OWNER => "unproven material sampler owner",
+        OBJECT_SAMPLER_FALLBACK_MISSING_ATTENUATION => "missing attenuation sampler",
         _ => "none",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{OBJECT_SAMPLER_LAYOUT_NONE, object_sampler_layout};
+    use crate::effects::pbr::shader_registry::{self, ShaderStage};
+
+    fn sampler_mask(sls_number: u16) -> u32 {
+        let template = shader_registry::object_template_id(ShaderStage::Pixel, sls_number)
+            .unwrap_or_else(|| panic!("missing pixel SLS{sls_number}"))
+            .template;
+        object_sampler_layout(template).expected_mask()
+    }
+
+    #[test]
+    fn every_object_pixel_template_has_a_known_sampler_layout() {
+        for template_id in 0..shader_registry::object_template_count() {
+            let template = shader_registry::object_template_at(template_id as u16).unwrap();
+            if template.stage != ShaderStage::Pixel {
+                continue;
+            }
+            let layout = object_sampler_layout(template);
+            assert_ne!(
+                layout.code, OBJECT_SAMPLER_LAYOUT_NONE,
+                "unknown sampler layout for {}",
+                template.label
+            );
+        }
+    }
+
+    #[test]
+    fn special_light_sampler_masks_match_the_vanilla_archive() {
+        let base_normal_attenuation = (1 << 0) | (1 << 1) | (1 << 4);
+        let with_glow = base_normal_attenuation | (1 << 3);
+        let with_shadow = base_normal_attenuation | (1 << 5) | (1 << 6);
+        let with_glow_and_shadow = with_glow | (1 << 5) | (1 << 6);
+
+        for sls in [2037, 2041] {
+            assert_eq!(sampler_mask(sls), base_normal_attenuation);
+        }
+        for sls in [2038, 2042] {
+            assert_eq!(sampler_mask(sls), with_glow);
+        }
+        for sls in [2039, 2043] {
+            assert_eq!(sampler_mask(sls), with_shadow);
+        }
+        for sls in [2040, 2044] {
+            assert_eq!(sampler_mask(sls), with_glow_and_shadow);
+        }
+        for sls in [2045, 2046] {
+            assert_eq!(sampler_mask(sls), (1 << 0) | (1 << 3));
+        }
     }
 }

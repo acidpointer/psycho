@@ -868,7 +868,7 @@ impl AtmosphereEffect {
                 );
             }
             if local_ready && let Some(local_pipeline) = self.local_light_pipeline.as_ref() {
-                let draws = draw_local_lights(
+                let local_stats = draw_local_lights(
                     device,
                     local_pipeline,
                     targets,
@@ -878,9 +878,11 @@ impl AtmosphereEffect {
                     &usable_local_lights,
                 )?;
                 bind_pipeline_state(device)?;
-                self.local_light_draws = self.local_light_draws.saturating_add(draws as u64);
-                crate::fnv_local_lights::record_rendered_lights(draws / 2);
-                if draws != 0 && self.local_light_draws == draws as u64 {
+                self.local_light_draws = self
+                    .local_light_draws
+                    .saturating_add(local_stats.draws as u64);
+                crate::fnv_local_lights::record_rendered_lights(local_stats.lights);
+                if local_stats.draws != 0 && self.local_light_draws == local_stats.draws as u64 {
                     log::info!(
                         "[ATMOSPHERE LOCAL] Scissored scene-wide integration active: quality={:?}, scale={}, samples={}, captured={}, usable={}, shadowed={}, capture_age={}, max_lights={}, draw_ceiling={}",
                         settings.local_lights_quality,
@@ -895,7 +897,18 @@ impl AtmosphereEffect {
                             .count(),
                         captured_local_age,
                         settings.local_max_lights(),
-                        settings.local_max_lights() * 2,
+                        local_light_draw_count(
+                            usable_local_lights
+                                .iter()
+                                .flatten()
+                                .filter(|light| light.shadow.is_none())
+                                .count(),
+                            usable_local_lights
+                                .iter()
+                                .flatten()
+                                .filter(|light| light.shadow.is_some())
+                                .count(),
+                        ),
                     );
                 }
             }
@@ -1569,7 +1582,107 @@ fn draw_local_lights(
     frame: AtmosphereFrame,
     settings: AtmosphereSettings,
     lights: &[Option<UsableLocalLight<'_>>; 4],
-) -> Direct3DResult<u32> {
+) -> Direct3DResult<LocalLightDrawStats> {
+    let mut shadowless = [None; 4];
+    let mut shadowless_count = 0usize;
+    let mut shadowed = [None; 4];
+    let mut shadowed_count = 0usize;
+    for usable in lights.iter().flatten().copied() {
+        if usable.shadow.is_some() {
+            shadowed[shadowed_count] = Some(usable);
+            shadowed_count += 1;
+        } else {
+            shadowless[shadowless_count] = Some(usable);
+            shadowless_count += 1;
+        }
+    }
+
+    let mut stats = LocalLightDrawStats::default();
+    if shadowless_count != 0 {
+        stats.add(draw_local_light_batch(
+            device,
+            pipeline,
+            targets,
+            density_noise,
+            frame,
+            settings,
+            &shadowless,
+            shadowless_count,
+            false,
+        )?);
+    }
+    for usable in shadowed.into_iter().take(shadowed_count).flatten() {
+        stats.add(draw_local_light_batch(
+            device,
+            pipeline,
+            targets,
+            density_noise,
+            frame,
+            settings,
+            &[Some(usable), None, None, None],
+            1,
+            true,
+        )?);
+    }
+    Ok(stats)
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+struct LocalLightDrawStats {
+    draws: u32,
+    lights: u32,
+}
+
+impl LocalLightDrawStats {
+    fn add(&mut self, other: Self) {
+        self.draws = self.draws.saturating_add(other.draws);
+        self.lights = self.lights.saturating_add(other.lights);
+    }
+}
+
+fn local_light_draw_count(shadowless_count: usize, shadowed_count: usize) -> u32 {
+    2 * (u32::from(shadowless_count != 0) + shadowed_count.min(4) as u32)
+}
+
+fn union_scissor(current: Option<ScissorRect>, next: ScissorRect) -> ScissorRect {
+    current.map_or(next, |current| ScissorRect {
+        left: current.left.min(next.left),
+        top: current.top.min(next.top),
+        right: current.right.max(next.right),
+        bottom: current.bottom.max(next.bottom),
+    })
+}
+
+fn write_batched_light_constants(
+    constants: &mut [[f32; 4]; 21],
+    index: usize,
+    values: crate::fnv_local_lights::LocalLightValues,
+    intensity: f32,
+) {
+    debug_assert!(index < 4);
+    constants[8 + index] = [
+        values.position[0],
+        values.position[1],
+        values.position[2],
+        values.radius,
+    ];
+    constants[12 + index] = [values.color[0], values.color[1], values.color[2], intensity];
+}
+
+#[allow(clippy::too_many_arguments)]
+fn draw_local_light_batch(
+    device: &Device9Ref<'_>,
+    pipeline: &LocalLightPipeline,
+    targets: &AtmosphereTargets,
+    density_noise: &Texture9,
+    frame: AtmosphereFrame,
+    settings: AtmosphereSettings,
+    lights: &[Option<UsableLocalLight<'_>>; 4],
+    batch_size: usize,
+    shadowed: bool,
+) -> Direct3DResult<LocalLightDrawStats> {
+    debug_assert!((1..=4).contains(&batch_size));
+    debug_assert!(!shadowed || batch_size == 1);
     let contributions = resolve_contributions(frame, settings);
     let fog_active = contributions.fog;
     let view_to_world = view_to_world_rows(frame.camera);
@@ -1579,135 +1692,152 @@ fn draw_local_lights(
         8 => 3.0,
         _ => 0.0,
     };
-    let mut draws = 0u32;
-    for usable in lights.iter().flatten().copied() {
+    let height_density = if fog_active {
+        settings.height_density
+    } else {
+        0.0
+    };
+    let noise_amount = if fog_active {
+        settings.noise_amount
+    } else {
+        0.0
+    };
+    let mut constants = [[0.0f32; 4]; 21];
+    constants[0] = [
+        targets.width as f32,
+        targets.height as f32,
+        targets.inv_width,
+        targets.inv_height,
+    ];
+    constants[1] = [
+        frame.camera.near_z,
+        frame.camera.far_z,
+        frame.depth.world_projection.reversed_depth_f32(),
+        frame.distance_bound,
+    ];
+    constants[2] = [
+        frame.camera.frustum_left,
+        frame.camera.frustum_right,
+        frame.camera.frustum_bottom,
+        frame.camera.frustum_top,
+    ];
+    constants[3] = view_to_world[0];
+    constants[4] = view_to_world[1];
+    constants[5] = view_to_world[2];
+    constants[6] = [
+        settings.effective_uniform_density(fog_active),
+        height_density,
+        settings.height_falloff,
+        settings.base_height,
+    ];
+    constants[7] = [
+        settings.max_distance,
+        settings.effective_scattering_albedo(fog_active),
+        noise_amount,
+        settings.noise_scale,
+    ];
+
+    let mut scissor = None;
+    for (index, usable) in lights.iter().take(batch_size).flatten().enumerate() {
         let light = usable.light;
-        let Some(scissor) = local_light_scissor(
+        write_batched_light_constants(
+            &mut constants,
+            index,
+            light.values,
+            settings.local_lights_intensity,
+        );
+        if let Some(light_scissor) = local_light_scissor(
             frame.camera,
             targets.width,
             targets.height,
             light.values.position,
             light.values.radius,
             settings.max_distance,
-        ) else {
-            continue;
-        };
-        for far_layer in [false, true] {
-            bind_target(
-                device,
-                if far_layer {
-                    &targets.far_atmosphere.surface
-                } else {
-                    &targets.near_atmosphere.surface
-                },
-                targets.width,
-                targets.height,
-            )?;
-            device.set_texture(0, &targets.depth.texture)?;
-            device.set_texture(1, density_noise)?;
-            if let Some(shadow) = usable.shadow {
-                unsafe { device.set_raw_base_texture(2, shadow.texture)? };
-            } else {
-                device.clear_texture(2)?;
-            }
-            set_sampler_filter(device, 0, D3DTEXF_POINT.0 as u32)?;
-            set_sampler_filter(device, 1, D3DTEXF_LINEAR.0 as u32)?;
-            if usable.shadow.is_some() {
-                set_sampler_filter(device, 2, D3DTEXF_POINT.0 as u32)?;
-            }
-            device.set_sampler_state(1, D3DSAMP_ADDRESSU, D3DTADDRESS_WRAP.0 as u32)?;
-            device.set_sampler_state(1, D3DSAMP_ADDRESSV, D3DTADDRESS_WRAP.0 as u32)?;
-            device.set_render_state(D3DRS_ALPHABLENDENABLE, 1)?;
-            device.set_render_state(D3DRS_SRCBLEND, D3DBLEND_ONE.0 as u32)?;
-            device.set_render_state(D3DRS_DESTBLEND, D3DBLEND_ONE.0 as u32)?;
-            device.set_render_state(D3DRS_BLENDOP, D3DBLENDOP_ADD.0 as u32)?;
-            device.set_render_state(D3DRS_COLORWRITEENABLE, 0x07)?;
-            device.set_render_state(D3DRS_SCISSORTESTENABLE, 1)?;
-            device.set_scissor_rect(scissor.left, scissor.top, scissor.right, scissor.bottom)?;
-            let height_density = if fog_active {
-                settings.height_density
-            } else {
-                0.0
-            };
-            let noise_amount = if fog_active {
-                settings.noise_amount
-            } else {
-                0.0
-            };
-            let shadow_matrix = usable
-                .shadow
-                .map_or([[0.0; 4]; 4], |shadow| shadow.values.shadow_matrix);
-            let shadow_bias = usable
-                .shadow
-                .map_or(0.0, |shadow| shadow.values.format.bias());
-            device.set_pixel_shader_constant_f(
-                0,
-                &[
-                    [
-                        targets.width as f32,
-                        targets.height as f32,
-                        targets.inv_width,
-                        targets.inv_height,
-                    ],
-                    [
-                        frame.camera.near_z,
-                        frame.camera.far_z,
-                        frame.depth.world_projection.reversed_depth_f32(),
-                        frame.distance_bound,
-                    ],
-                    [
-                        frame.camera.frustum_left,
-                        frame.camera.frustum_right,
-                        frame.camera.frustum_bottom,
-                        frame.camera.frustum_top,
-                    ],
-                    view_to_world[0],
-                    view_to_world[1],
-                    view_to_world[2],
-                    [
-                        settings.effective_uniform_density(fog_active),
-                        height_density,
-                        settings.height_falloff,
-                        settings.base_height,
-                    ],
-                    [
-                        settings.max_distance,
-                        settings.effective_scattering_albedo(fog_active),
-                        noise_amount,
-                        settings.noise_scale,
-                    ],
-                    [
-                        light.values.position[0],
-                        light.values.position[1],
-                        light.values.position[2],
-                        light.values.radius,
-                    ],
-                    [
-                        light.values.color[0],
-                        light.values.color[1],
-                        light.values.color[2],
-                        settings.local_lights_intensity,
-                    ],
-                    shadow_matrix[0],
-                    shadow_matrix[1],
-                    shadow_matrix[2],
-                    shadow_matrix[3],
-                    [
-                        shadow_bias,
-                        if far_layer { 1.0 } else { 0.0 },
-                        settings.anisotropy,
-                        debug_mode,
-                    ],
-                ],
-            )?;
-            device.set_pixel_shader(
-                pipeline.shader(settings.local_shader_index(), usable.shadow.is_some()),
-            )?;
-            draw_quad(device, targets.width, targets.height)?;
-            draws += 1;
+        ) {
+            scissor = Some(union_scissor(scissor, light_scissor));
         }
     }
-    Ok(draws)
+    let Some(scissor) = scissor else {
+        return Ok(LocalLightDrawStats::default());
+    };
+
+    let shadow = lights[0].and_then(|usable| usable.shadow);
+    if shadowed {
+        let Some(shadow) = shadow else {
+            return Ok(LocalLightDrawStats::default());
+        };
+        constants[16][0] = shadow.values.format.bias();
+        constants[17..21].copy_from_slice(&shadow.values.shadow_matrix);
+    }
+    constants[16][2] = settings.anisotropy;
+    constants[16][3] = debug_mode;
+
+    let shader = pipeline.shader(settings.local_shader_index(), shadowed, batch_size);
+    draw_local_light_layer(
+        device,
+        &targets.near_atmosphere.surface,
+        targets,
+        density_noise,
+        shadow,
+        scissor,
+        shader,
+        &constants,
+    )?;
+
+    constants[16][1] = 1.0;
+    draw_local_light_layer(
+        device,
+        &targets.far_atmosphere.surface,
+        targets,
+        density_noise,
+        shadow,
+        scissor,
+        shader,
+        &constants,
+    )?;
+
+    Ok(LocalLightDrawStats {
+        draws: 2,
+        lights: batch_size as u32,
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
+fn draw_local_light_layer(
+    device: &Device9Ref<'_>,
+    target: &Surface9,
+    targets: &AtmosphereTargets,
+    density_noise: &Texture9,
+    shadow: Option<crate::fnv_local_lights::LocalShadowBinding>,
+    scissor: ScissorRect,
+    shader: &PixelShader9,
+    constants: &[[f32; 4]; 21],
+) -> Direct3DResult<()> {
+    // bind_target clears s0..s4 to prevent render-target feedback. Every input
+    // must be rebound after it, for both the near and far layer.
+    bind_target(device, target, targets.width, targets.height)?;
+    device.set_texture(0, &targets.depth.texture)?;
+    device.set_texture(1, density_noise)?;
+    if let Some(shadow) = shadow {
+        unsafe { device.set_raw_base_texture(2, shadow.texture)? };
+        set_sampler_filter(device, 2, D3DTEXF_POINT.0 as u32)?;
+    } else {
+        device.clear_texture(2)?;
+    }
+    set_sampler_filter(device, 0, D3DTEXF_POINT.0 as u32)?;
+    set_sampler_filter(device, 1, D3DTEXF_LINEAR.0 as u32)?;
+    device.set_sampler_state(1, D3DSAMP_ADDRESSU, D3DTADDRESS_WRAP.0 as u32)?;
+    device.set_sampler_state(1, D3DSAMP_ADDRESSV, D3DTADDRESS_WRAP.0 as u32)?;
+    device.set_render_state(D3DRS_ALPHABLENDENABLE, 1)?;
+    device.set_render_state(D3DRS_SRCBLEND, D3DBLEND_ONE.0 as u32)?;
+    device.set_render_state(D3DRS_DESTBLEND, D3DBLEND_ONE.0 as u32)?;
+    device.set_render_state(D3DRS_BLENDOP, D3DBLENDOP_ADD.0 as u32)?;
+    device.set_render_state(D3DRS_COLORWRITEENABLE, 0x07)?;
+    device.set_render_state(D3DRS_SCISSORTESTENABLE, 1)?;
+    device.set_scissor_rect(scissor.left, scissor.top, scissor.right, scissor.bottom)?;
+    device.set_pixel_shader_constant_f(0, constants)?;
+    device.set_pixel_shader(shader)?;
+    draw_quad(device, targets.width, targets.height)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -2129,11 +2259,14 @@ fn shaft_radial_shader_source(sample_count: u32) -> Vec<u8> {
 
 fn local_light_shader_source(
     sample_count: u32,
+    batch_size: usize,
     use_noise: bool,
     use_native_shadow: bool,
 ) -> Vec<u8> {
+    debug_assert!((1..=4).contains(&batch_size));
+    debug_assert!(!use_native_shadow || batch_size == 1);
     let mut variant = format!(
-        "#define LOCAL_LIGHT_SAMPLE_COUNT {sample_count}\n#define LOCAL_LIGHT_USE_NOISE {}\n#define LOCAL_LIGHT_USE_NATIVE_SHADOW {}\n",
+        "#define LOCAL_LIGHT_SAMPLE_COUNT {sample_count}\n#define LOCAL_LIGHT_BATCH_SIZE {batch_size}\n#define LOCAL_LIGHT_USE_NOISE {}\n#define LOCAL_LIGHT_USE_NATIVE_SHADOW {}\n",
         u8::from(use_noise),
         u8::from(use_native_shadow),
     )
@@ -2335,7 +2468,7 @@ struct EffectTarget {
 }
 
 struct LocalLightPipeline {
-    shadowless_shaders: [PixelShader9; 3],
+    shadowless_shaders: [[PixelShader9; 4]; 3],
     shadowed_shaders: [PixelShader9; 3],
 }
 
@@ -2346,49 +2479,68 @@ impl LocalLightPipeline {
             .check_default_render_target_blending_support(D3DFMT_A16B16G16R16F)?;
         Ok(Self {
             shadowless_shaders: [
-                compile_shader(
-                    device,
-                    "atmosphere_local_light.hlsl:performance:shadowless",
-                    &local_light_shader_source(4, false, false),
-                )?,
-                compile_shader(
-                    device,
-                    "atmosphere_local_light.hlsl:high:shadowless",
-                    &local_light_shader_source(6, true, false),
-                )?,
-                compile_shader(
-                    device,
-                    "atmosphere_local_light.hlsl:ultra:shadowless",
-                    &local_light_shader_source(10, true, false),
-                )?,
+                compile_local_light_batch(device, "performance", 4, false)?,
+                compile_local_light_batch(device, "high", 6, true)?,
+                compile_local_light_batch(device, "ultra", 10, true)?,
             ],
             shadowed_shaders: [
                 compile_shader(
                     device,
                     "atmosphere_local_light.hlsl:performance:shadowed",
-                    &local_light_shader_source(4, false, true),
+                    &local_light_shader_source(4, 1, false, true),
                 )?,
                 compile_shader(
                     device,
                     "atmosphere_local_light.hlsl:high:shadowed",
-                    &local_light_shader_source(6, true, true),
+                    &local_light_shader_source(6, 1, true, true),
                 )?,
                 compile_shader(
                     device,
                     "atmosphere_local_light.hlsl:ultra:shadowed",
-                    &local_light_shader_source(10, true, true),
+                    &local_light_shader_source(10, 1, true, true),
                 )?,
             ],
         })
     }
 
-    fn shader(&self, quality_index: usize, shadowed: bool) -> &PixelShader9 {
+    fn shader(&self, quality_index: usize, shadowed: bool, batch_size: usize) -> &PixelShader9 {
         if shadowed {
+            debug_assert_eq!(batch_size, 1);
             &self.shadowed_shaders[quality_index]
         } else {
-            &self.shadowless_shaders[quality_index]
+            &self.shadowless_shaders[quality_index][batch_size.saturating_sub(1).min(3)]
         }
     }
+}
+
+fn compile_local_light_batch(
+    device: &Device9Ref<'_>,
+    quality: &str,
+    sample_count: u32,
+    use_noise: bool,
+) -> Direct3DResult<[PixelShader9; 4]> {
+    Ok([
+        compile_shader(
+            device,
+            &format!("atmosphere_local_light.hlsl:{quality}:shadowless:batch=1"),
+            &local_light_shader_source(sample_count, 1, use_noise, false),
+        )?,
+        compile_shader(
+            device,
+            &format!("atmosphere_local_light.hlsl:{quality}:shadowless:batch=2"),
+            &local_light_shader_source(sample_count, 2, use_noise, false),
+        )?,
+        compile_shader(
+            device,
+            &format!("atmosphere_local_light.hlsl:{quality}:shadowless:batch=3"),
+            &local_light_shader_source(sample_count, 3, use_noise, false),
+        )?,
+        compile_shader(
+            device,
+            &format!("atmosphere_local_light.hlsl:{quality}:shadowless:batch=4"),
+            &local_light_shader_source(sample_count, 4, use_noise, false),
+        )?,
+    ])
 }
 
 struct ShaftPipeline {
@@ -2470,10 +2622,11 @@ mod feature_tests {
         decode_extended_srgb, density_noise_pixels, directional_phase_response,
         directional_radiance, directional_scatter_amount, encode_extended_srgb,
         fog_composition_gate, fog_integration_gate, henyey_greenstein, integrated_uniform_scatter,
-        layered_tap_weight, linearize_native_color, local_light_scissor, option_component,
-        project_native_shadow, project_sun_from_captured_camera, ray_sphere_interval,
-        resolve_contributions, resolve_directional_light, resolve_medium_color,
-        selected_debug_view, shaft_visibility_from_blocked_fraction,
+        layered_tap_weight, linearize_native_color, local_light_draw_count, local_light_scissor,
+        option_component, project_native_shadow, project_sun_from_captured_camera,
+        ray_sphere_interval, resolve_contributions, resolve_directional_light,
+        resolve_medium_color, selected_debug_view, shaft_visibility_from_blocked_fraction,
+        union_scissor, write_batched_light_constants,
     };
     use crate::{
         backend::{
@@ -3310,6 +3463,96 @@ mod feature_tests {
     }
 
     #[test]
+    fn shadowless_light_count_does_not_increase_draw_count() {
+        assert_eq!(local_light_draw_count(0, 0), 0);
+        assert_eq!(local_light_draw_count(1, 0), 2);
+        assert_eq!(local_light_draw_count(2, 0), 2);
+        assert_eq!(local_light_draw_count(4, 0), 2);
+        assert_eq!(local_light_draw_count(1, 1), 4);
+        assert_eq!(local_light_draw_count(1, 3), 8);
+        assert_eq!(local_light_draw_count(0, 4), 8);
+    }
+
+    #[test]
+    fn batched_scissor_conservatively_contains_every_light_rectangle() {
+        let first = super::ScissorRect {
+            left: 100,
+            top: 40,
+            right: 300,
+            bottom: 240,
+        };
+        let second = super::ScissorRect {
+            left: 20,
+            top: 80,
+            right: 220,
+            bottom: 400,
+        };
+        assert_eq!(
+            union_scissor(Some(first), second),
+            super::ScissorRect {
+                left: 20,
+                top: 40,
+                right: 300,
+                bottom: 400,
+            }
+        );
+        assert_eq!(union_scissor(None, first), first);
+    }
+
+    #[test]
+    fn batched_light_constants_match_the_fixed_shader_register_abi() {
+        let mut constants = [[0.0; 4]; 21];
+        for index in 0..4 {
+            write_batched_light_constants(
+                &mut constants,
+                index,
+                crate::fnv_local_lights::LocalLightValues {
+                    position: [index as f32 + 1.0, 2.0, 3.0],
+                    color: [4.0, index as f32 + 5.0, 6.0],
+                    radius: 7.0,
+                },
+                1.5,
+            );
+            assert_eq!(constants[8 + index], [index as f32 + 1.0, 2.0, 3.0, 7.0]);
+            assert_eq!(constants[12 + index], [4.0, index as f32 + 5.0, 6.0, 1.5]);
+        }
+        assert_eq!(constants[16], [0.0; 4]);
+    }
+
+    #[test]
+    fn local_light_layer_rebinds_inputs_after_target_hazard_clear() {
+        let source = include_str!("atmosphere.rs");
+        let batch_start = source
+            .find("fn draw_local_light_batch(")
+            .expect("local-light batch function");
+        let layer_start = source
+            .find("fn draw_local_light_layer(")
+            .expect("local-light layer function");
+        let composition_start = source
+            .find("fn draw_composition(")
+            .expect("composition function");
+        let batch = &source[batch_start..layer_start];
+        let layer = &source[layer_start..composition_start];
+
+        assert!(!batch.contains("set_texture("));
+        assert!(!batch.contains("set_raw_base_texture("));
+
+        let target_bind = layer.find("bind_target(").expect("target bind");
+        let depth_bind = layer.find("set_texture(0").expect("depth bind");
+        let noise_bind = layer.find("set_texture(1").expect("noise bind");
+        let shadow_bind = layer
+            .find("set_raw_base_texture(2")
+            .expect("native-shadow bind");
+        let draw = layer.find("draw_quad(").expect("local-light draw");
+        assert!(target_bind < depth_bind);
+        assert!(target_bind < noise_bind);
+        assert!(target_bind < shadow_bind);
+        assert!(depth_bind < draw);
+        assert!(noise_bind < draw);
+        assert!(shadow_bind < draw);
+    }
+
+    #[test]
     fn native_shadow_projection_preserves_row_dots_y_flip_and_compare_direction() {
         let matrix = [
             [1.0, 0.0, 0.0, 0.0],
@@ -3410,13 +3653,18 @@ mod shader_compile_tests {
             );
         }
         for (samples, noise) in [(4, false), (6, true), (10, true)] {
-            for shadowed in [false, true] {
+            for batch_size in 1..=4 {
                 crate::shaders::assert_hlsl_compiles(
-                    &format!("atmosphere_local_light.hlsl:{samples}:shadowed={shadowed}"),
-                    &local_light_shader_source(samples, noise, shadowed),
+                    &format!("atmosphere_local_light.hlsl:{samples}:shadowless:batch={batch_size}"),
+                    &local_light_shader_source(samples, batch_size, noise, false),
                     "ps_3_0",
                 );
             }
+            crate::shaders::assert_hlsl_compiles(
+                &format!("atmosphere_local_light.hlsl:{samples}:shadowed"),
+                &local_light_shader_source(samples, 1, noise, true),
+                "ps_3_0",
+            );
         }
         crate::shaders::assert_hlsl_compiles("atmosphere_compose.hlsl", COMPOSE_SHADER, "ps_3_0");
         crate::shaders::assert_hlsl_compiles("atmosphere_debug.hlsl", DEBUG_SHADER, "ps_3_0");
@@ -3474,29 +3722,84 @@ mod shader_compile_tests {
         assert!(source.contains("DensityNoise : register(s1)"));
         assert!(source.contains("NativeShadow : register(s2)"));
         assert!(source.contains("#if LOCAL_LIGHT_USE_NATIVE_SHADOW"));
-        assert!(source.contains("ShadowMatrix0 : register(c10)"));
-        assert!(source.contains("ShadowMatrix3 : register(c13)"));
+        assert!(source.contains("LocalPositionRadius0 : register(c8)"));
+        assert!(source.contains("LocalPositionRadius3 : register(c11)"));
+        assert!(source.contains("LocalColorIntensity0 : register(c12)"));
+        assert!(source.contains("LocalColorIntensity3 : register(c15)"));
+        assert!(source.contains("LocalControl : register(c16)"));
+        assert!(source.contains("ShadowMatrix0 : register(c17)"));
+        assert!(source.contains("ShadowMatrix3 : register(c20)"));
         assert!(source.contains("dot(ShadowMatrix0, homogeneous)"));
         assert!(source.contains("0.5f * shadowPosition.x / shadowPosition.w + 0.5f"));
         assert!(source.contains("0.5f - 0.5f * shadowPosition.y / shadowPosition.w"));
         assert!(source.contains("shadowPosition.z < shadowDepth + LocalControl.x"));
         assert!(source.contains("#else\n\treturn 1.0f;\n#endif"));
         assert!(source.contains("sampleIndex < LOCAL_LIGHT_SAMPLE_COUNT"));
-        assert!(source.contains("float4(0.10f, 0.55f, 1.0f, 0.0f)"));
+        assert!(source.contains("#if LOCAL_LIGHT_BATCH_SIZE >= 4"));
+        assert!(source.contains("result += IntegrateLocalLight("));
+        assert!(!source.contains("[localIndex]"));
+        assert!(!source.contains("for (int localIndex"));
+        assert!(source.contains("return float3(0.10f, 0.55f, 1.0f)"));
         assert!(source.contains("lerp(shadowed, visible, visibility)"));
         assert!(source.contains("scattering / (scattering + 0.01f)"));
+        assert!(source.contains("denominator * sqrt(denominator)"));
+        assert!(source.contains("float stepTransmittance = exp(-stepOpticalDepth)"));
+        assert!(source.contains("cameraTransmittance *= stepTransmittance"));
+        assert_eq!(source.matches("exp(-stepOpticalDepth)").count(), 1);
+        assert!(!source.contains("pow(denominator"));
         assert!(!source.contains("frameIndex"));
         assert!(!source.contains("FrameIndex"));
         for (samples, noise) in [(4, false), (6, true), (10, true)] {
-            for shadowed in [false, true] {
+            for batch_size in 1..=4 {
                 let variant =
-                    String::from_utf8(local_light_shader_source(samples, noise, shadowed))
+                    String::from_utf8(local_light_shader_source(samples, batch_size, noise, false))
                         .expect("local-light variant");
                 assert!(variant.starts_with(&format!(
-                    "#define LOCAL_LIGHT_SAMPLE_COUNT {samples}\n#define LOCAL_LIGHT_USE_NOISE {}\n#define LOCAL_LIGHT_USE_NATIVE_SHADOW {}\n",
+                    "#define LOCAL_LIGHT_SAMPLE_COUNT {samples}\n#define LOCAL_LIGHT_BATCH_SIZE {batch_size}\n#define LOCAL_LIGHT_USE_NOISE {}\n#define LOCAL_LIGHT_USE_NATIVE_SHADOW 0\n",
                     u8::from(noise),
-                    u8::from(shadowed),
                 )));
+            }
+            let shadowed = String::from_utf8(local_light_shader_source(samples, 1, noise, true))
+                .expect("shadowed local-light variant");
+            assert!(shadowed.starts_with(&format!(
+                "#define LOCAL_LIGHT_SAMPLE_COUNT {samples}\n#define LOCAL_LIGHT_BATCH_SIZE 1\n#define LOCAL_LIGHT_USE_NOISE {}\n#define LOCAL_LIGHT_USE_NATIVE_SHADOW 1\n",
+                u8::from(noise),
+            )));
+        }
+    }
+
+    #[test]
+    fn batched_local_light_bytecode_stays_within_the_ps3_budget() {
+        for (samples, noise) in [(4, false), (6, true), (10, true)] {
+            let single = crate::shaders::compile_hlsl_source_target(
+                "local-light-single-budget",
+                &local_light_shader_source(samples, 1, noise, false),
+                "ps_3_0",
+            )
+            .expect("single local-light shader");
+            assert!(
+                single.len() * 4 <= 12_288,
+                "single shader grew to {} bytes",
+                single.len() * 4,
+            );
+            for batch_size in 2..=4 {
+                let batch = crate::shaders::compile_hlsl_source_target(
+                    "local-light-batch-budget",
+                    &local_light_shader_source(samples, batch_size, noise, false),
+                    "ps_3_0",
+                )
+                .expect("batched local-light shader");
+                assert!(
+                    batch.len() * 4 <= 32_768,
+                    "batch {batch_size} grew to {} bytes",
+                    batch.len() * 4
+                );
+                assert!(
+                    batch.len() <= single.len() * batch_size,
+                    "batch {batch_size} grew from {} to {} bytes",
+                    single.len() * 4,
+                    batch.len() * 4,
+                );
             }
         }
     }

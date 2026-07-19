@@ -17,6 +17,10 @@ OMV should document exact dependency tiers:
 - **Core OMV graphics runtime:** no hard NVR dependency.
 - **Close terrain / terrain fade / terrain point-light PBR:** require Vanilla Plus Terrain's contract.
 - **Vanilla Plus Terrain dependency chain:** VPT requires Fallout Shader Loader and LOD Flicker Fix. VPT source checks `Fallout Shader Loader.dll` version `>= 131` and requires `LODFlickerFix.dll`.
+- **Portable close-terrain point lights in OMV PBR:** use the engine's general
+  active-light list and deduplicate against the current native pass. No VPT
+  version, export, filename, or private RVA is a portable-light capability
+  signal.
 - **NVR:** not a dependency and not a supported compatibility target.
 - **Shader source reference:** TESReloaded10/NVR is reference material. OMV must not patch, edit, or depend on NVR internals.
 
@@ -53,6 +57,9 @@ Known owners:
 OMV rules:
 
 - If VPT is loaded, do not install duplicate terrain pass/light/constant hooks.
+- OMV may read the current engine pass and active PPLighting property at its own
+  admitted replacement draw. This downstream read-only merge is not ownership
+  of VPT's pass builder or constants.
 - If FSL is loaded, do not install competing shader creation hooks unless an explicit chain is implemented and proven.
 - NVR hook ownership is not an OMV compatibility target. Do not add special NVR hook chaining unless the project explicitly reopens that goal.
 - If a known hook target has a non-vanilla prologue and the owner is unknown, disable the overlapping OMV feature and log the address, expected owner, and feature disabled.
@@ -92,12 +99,30 @@ Contract OMV may rely on when VPT is loaded:
 - EyePosition vertex flags for land rows
 - VPT terrain pass/light selection
 
+Portable-light correction is OMV-owned and downstream:
+
+- enumerate `0x00B70590/0x00B70680` only during an admitted OMV close-terrain
+  replacement draw;
+- filter point/non-ambient/IsLit/multibound candidates;
+- deduplicate by `NiLight*` against the current pass;
+- preserve general-list order and the combined 24-light cap;
+- upload only missing entries through disjoint OMV constants;
+- consume native and supplemental fade alpha in the OMV shader.
+
+This makes an upstream fix self-disabling: once the current pass already owns
+the identity, OMV supplies no duplicate. An incompatible future pass/shader ABI
+must fail the normal OMV draw gate rather than be inferred from a module
+version.
+
 OMV/NVR terrain constants still need OMV-side ownership if OMV supplies the shader logic:
 
 - `TESR_TerrainData c89`
 - `TESR_TerrainExtraData c90`
-- `TESR_TerrainParallaxData c91`
-- `TESR_TerrainParallaxExtraData c92`
+- supplemental point-light count `c91`
+- supplemental interleaved position/radius and color/fade `c92..c139`
+
+Future terrain parallax constants must use a separately proven non-overlapping
+ABI; `c91/c92` are no longer available for the old speculative parallax plan.
 
 ### LandLOD
 
@@ -127,6 +152,8 @@ Object parallax is not ordinary object PBR.
 5. Fix object PBR matcher to exclude skin variants.
 6. Correct LandLOD register ownership.
 7. Only after those are stable, add terrain PBR that explicitly requires VPT/FSL/LODFF.
+8. Add the OMV-only identity-deduplicated portable-light supplement and prove
+   old-omission plus future-upstream-fix behavior with pure tests.
 
 ## Documentation Requirement
 

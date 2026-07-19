@@ -2,8 +2,9 @@
 
 Date: 2026-07-19
 
-Status: scene-wide zero-shadow ownership correction implemented; all 111 i686
-tests pass before runtime acceptance.
+Status: scene-wide zero-shadow ownership correction accepted in game; scalable
+shadowless batching and its zero-output texture-binding regression corrected;
+all 125 i686 tests pass before runtime performance acceptance.
 
 ## Implementation record
 
@@ -37,9 +38,12 @@ model recorded later in this document:
   red-channel compare, and format-specific bias. Unsupported or foreign-device
   resources fail closed for that light only.
 - Performance, High, and Ultra are deterministic 4/6/10-step variants, compiled
-  separately for shadowless and native-shadow sampling. The render path uses
-  fixed stack storage, no temporal jitter, no local history, and no additional
-  render target or scene-color copy.
+  separately for shadowless batch sizes one through four and native-shadow
+  sampling. One to four shadowless lights share a single near/far draw pair,
+  depth decode, world-ray reconstruction, constant publication, and FP16 target
+  traffic. Every light retains its full sample count and independent sphere
+  interval. The render path uses fixed stack storage, no temporal jitter, no
+  local history, and no additional render target or scene-color copy.
 - Configuration, wrapped ImGui controls, local debug views, rejection and lock
   telemetry, reset ownership, and device validation keep local capture
   independent from the directional-sun toggle.
@@ -49,9 +53,27 @@ model recorded later in this document:
 Static validation covers epoch rollover and busy-owner preservation, explicit
 empty replacement, foreign-device invalidation, zero-native-shadow publication,
 bounded deterministic ranking, native projection and compare math, ray/sphere
-and scissor edge cases, quality-tier energy invariance, interior/exterior medium
-gating, and real D3D compilation of all six local shader variants. Static
-validation cannot certify final game pixels, so runtime acceptance remains.
+and batched-scissor edge cases, quality-tier energy invariance, constant
+shadowless draw count, interior/exterior medium gating, and real D3D compilation
+of all fifteen local shader variants. A bytecode regression test also proves
+that every fixed-register batch remains inside the recorded shader-model-3
+budget. Static validation cannot certify final game pixels, so runtime
+acceptance remains.
+
+The first two batched builds were rejected in game despite successful shader
+compilation. Capture and draw telemetry remained correct, but all local
+production and debug output was zero. The root cause was render-state ordering:
+`bind_target` clears texture stages `s0..s4` to prevent render-target feedback,
+while the batched path had already bound reduced depth, density noise, and the
+optional native shadow. Both near and far draws therefore sampled null inputs.
+The production path owns a complete local-layer draw in one helper: bind the
+target first, then rebind every input, then draw. A static source-order test
+rejects hoisting any local input bind ahead of the target hazard clear.
+
+Fixed `c8..c15` position/color registers and compile-time-expanded light calls
+remain useful shader-model-3 hardening; only the inner, fixed sample-count loop
+is dynamic. Static shader tests reject relative light-array indexing, but that
+ABI was not the cause of the zero-output regression.
 
 The original design record below remains useful for the rendering, composition,
 resource lifetime, UI, and quality contracts. Any statement below that makes
@@ -62,10 +84,11 @@ record.
 ## Outcome
 
 Add scene-wide positional-light scattering to OMV's existing world atmosphere
-pipeline, with at most four draws per frame. It works in exteriors and
-interiors, shares the active fog or lighting-only medium, optionally uses a
-native per-light shadow texture when one already exists, and preserves the
-accepted near/far alpha-coverage composition.
+pipeline. The normal zero-native-shadow configuration costs exactly two local
+draws for one to four visible lights. It works in exteriors and interiors,
+shares the active fog or lighting-only medium, optionally uses a native
+per-light shadow texture when one already exists, and preserves the accepted
+near/far alpha-coverage composition.
 
 This phase is complete only when:
 
@@ -429,15 +452,17 @@ Quality is a preset, not a runtime-variable shader loop:
 
 | Local quality | Target scale | Max lights | Samples per layer/light | Fog variation | Max local draws |
 |---|---:|---:|---:|---|---:|
-| Performance | quarter | 2 | 4 | off | 4 |
-| High | half | 4 | 6 | on when fog supplies the medium | 8 |
-| Ultra | half | 4 | 10 | on when fog supplies the medium | 8 |
+| Performance | quarter | 2 | 4 | off | 2 shadowless |
+| High | half | 4 | 6 | on when fog supplies the medium | 2 shadowless |
+| Ultra | half | 4 | 10 | on when fog supplies the medium | 2 shadowless |
 
-At 1920x1080 with every sphere conservatively covering the whole screen, the
-shadow-tap ceilings are approximately 2.1 million for Performance, 24.9 million
-for High, and 41.5 million for Ultra. Real work is normally much lower because
-each draw is scissored to one light sphere and empty ray intervals exit before
-sampling.
+The batch shares depth decoding and camera-ray reconstruction and writes each
+FP16 near/far target once. Light integration remains physically bounded and
+linear inside the shader because every light retains its full quality sample
+count. A union scissor bounds the batch, and every per-light sphere miss exits
+before noise or scattering samples. Native-shadow-enriched lights remain
+separate because their textures differ; with the intended native shadow draws
+disabled, all lights use the two-draw batch.
 
 High remains the default. Performance is the explicit low-end path. Ultra
 spends its budget on ray integration rather than multiplying every step by
@@ -454,10 +479,11 @@ Performance invariants:
 - no per-light texture copy or render-target allocation;
 - no full-resolution local ray march;
 - no per-pixel engine memory reads;
-- no dynamic light-count or sample-count loop;
+- only compile-time-bounded light-count and sample-count loops;
 - no shadow tap before sphere, depth, projection, and format rejection;
 - no local work when disabled or when the complete epoch is empty;
-- fixed maximum of four retained resources and eight local draw calls.
+- exactly two local draws for one to four shadowless lights; optional native
+  shadow enrichment adds one near/far pair per enriched light.
 
 ## Configuration and ImGui
 
@@ -578,7 +604,8 @@ i686 Wine test run.
 
 Tests must assert:
 
-- fixed compile-time sample counts `4/6/10` and no user/runtime loop bound;
+- fixed compile-time sample counts `4/6/10`, batch sizes `1..4`, and no
+  user-controlled loop bound;
 - sampler ABI: reduced depth `s0`, optional density noise `s1`, native shadow
   red `s2`;
 - constant ABI does not overlap the current atmosphere registers;

@@ -1001,10 +1001,95 @@ pub(super) fn shader_cache_suffix(stage: ShaderStage) -> &'static str {
 mod shader_compile_tests {
     use super::{
         CLOSE_TERRAIN_PIXEL_SOURCE, LAND_LOD_PIXEL_SOURCE, NVR_OBJECT_INCLUDE_SOURCE,
-        NVR_OBJECT_TEMPLATE_SOURCE, NVR_PBR_INCLUDE_SOURCE, TERRAIN_FADE_PIXEL_SOURCE,
-        object_template_id, object_template_uses_native_specular_fade, shader_profile, template_at,
-        template_count, template_source,
+        NVR_OBJECT_TEMPLATE_SOURCE, NVR_PBR_INCLUDE_SOURCE, NVR_POINTLIGHTS_INCLUDE_SOURCE,
+        ShaderStage, TERRAIN_FADE_PIXEL_SOURCE, close_terrain_template_id, object_template_at,
+        object_template_count, object_template_id, object_template_uses_native_specular_fade,
+        shader_profile, template_at, template_count, template_source,
     };
+
+    const VANILLA_ONLY_LIGHT_2_PIXEL: &str =
+        include_str!("../../../../analysis/shaders_disasm/shaderpackage019/SLS2037.pso.dis");
+    const VANILLA_ONLY_LIGHT_2_VERTEX: &str =
+        include_str!("../../../../analysis/shaders_disasm/shaderpackage019/SLS2028.vso.dis");
+    const VANILLA_ONLY_LIGHT_3_PIXEL: &str =
+        include_str!("../../../../analysis/shaders_disasm/shaderpackage019/SLS2041.pso.dis");
+    const VANILLA_ONLY_LIGHT_3_VERTEX: &str =
+        include_str!("../../../../analysis/shaders_disasm/shaderpackage019/SLS2032.vso.dis");
+    const VANILLA_DIFFUSE_POINT_PIXEL: &str =
+        include_str!("../../../../analysis/shaders_disasm/shaderpackage019/SLS2045.pso.dis");
+    const VANILLA_DIFFUSE_POINT_VERTEX: &str =
+        include_str!("../../../../analysis/shaders_disasm/shaderpackage019/SLS2036.vso.dis");
+
+    fn dot(left: [f32; 3], right: [f32; 3]) -> f32 {
+        left[0] * right[0] + left[1] * right[1] + left[2] * right[2]
+    }
+
+    fn stable_vector(value: [f32; 3]) -> [f32; 3] {
+        let inverse_length = dot(value, value).max(1.0e-8).sqrt().recip();
+        [
+            value[0] * inverse_length,
+            value[1] * inverse_length,
+            value[2] * inverse_length,
+        ]
+    }
+
+    fn bounded_object_light(
+        gloss_power: f32,
+        specular_strength: f32,
+        specular_fade: f32,
+        attenuation: f32,
+        albedo: f32,
+        normal: [f32; 3],
+        view: [f32; 3],
+        light: [f32; 3],
+        light_color: f32,
+    ) -> (f32, f32) {
+        let light = stable_vector(light);
+        let halfway = stable_vector([view[0] + light[0], view[1] + light[1], view[2] + light[2]]);
+        let ndotl = dot(normal, light).clamp(0.0, 1.0);
+        let ndoth = dot(normal, halfway).clamp(0.0, 1.0);
+        let ldoth = dot(light, halfway).clamp(0.0, 1.0);
+        let fresnel = 0.04 + 0.96 * (1.0 - ldoth).powi(5);
+        let distribution = ndoth.powf(gloss_power) * (gloss_power + 2.0) * 0.125;
+        let radiance = ndotl * light_color * attenuation;
+        let diffuse = (1.0 - fresnel) * albedo * radiance;
+        let specular = (fresnel * distribution * radiance * specular_strength.clamp(0.0, 1.0))
+            .clamp(0.0, 1.0)
+            * specular_fade.clamp(0.0, 1.0);
+        (diffuse, specular)
+    }
+
+    fn compiled_instruction_opcodes(bytecode: &[u32]) -> Vec<u16> {
+        const COMMENT: u16 = 0xfffe;
+        const END: u16 = 0xffff;
+
+        let mut opcodes = Vec::new();
+        let mut offset = 1usize;
+        while offset < bytecode.len() {
+            let token = bytecode[offset];
+            let opcode = token as u16;
+            if opcode == END {
+                break;
+            }
+            if opcode == COMMENT {
+                offset += 1 + ((token >> 16) & 0x7fff) as usize;
+                continue;
+            }
+
+            let instruction_length = ((token >> 24) & 0x0f) as usize;
+            opcodes.push(opcode);
+            offset += 1 + instruction_length;
+        }
+        assert!(offset < bytecode.len(), "shader bytecode has no END token");
+        opcodes
+    }
+
+    fn compiled_opcode_count(bytecode: &[u32], opcode: u16) -> usize {
+        compiled_instruction_opcodes(bytecode)
+            .into_iter()
+            .filter(|candidate| *candidate == opcode)
+            .count()
+    }
 
     #[test]
     fn object_pbr_preserves_the_native_specular_transition_contract() {
@@ -1034,16 +1119,299 @@ mod shader_compile_tests {
     }
 
     #[test]
+    fn object_halfway_vector_is_continuous_when_view_opposes_light() {
+        assert!(NVR_PBR_INCLUDE_SOURCE.contains("float3 StableHalfway("));
+        assert_eq!(NVR_PBR_INCLUDE_SOURCE.matches("StableHalfway(").count(), 8);
+        assert!(
+            NVR_PBR_INCLUDE_SOURCE.contains("return halfway * rsqrt(max(lengthSquared, 1e-8));")
+        );
+        assert!(!NVR_PBR_INCLUDE_SOURCE.contains("SafeNormalize(eyeDir + lightDir, normal)"));
+        assert!(!NVR_PBR_INCLUDE_SOURCE.contains("SafeNormalize(eyeDir + sunDir, normal)"));
+
+        fn fresnel(cosine: f32) -> f32 {
+            let one_minus_cosine = 1.0 - cosine;
+            0.04 + 0.96 * one_minus_cosine.powi(5)
+        }
+
+        fn stable_light_halfway_cosine(view: [f32; 3], light: [f32; 3]) -> f32 {
+            let halfway = [view[0] + light[0], view[1] + light[1], view[2] + light[2]];
+            dot(light, stable_vector(halfway)).clamp(0.0, 1.0)
+        }
+
+        let light = [0.0, 0.0, 1.0];
+        let exact = stable_light_halfway_cosine([0.0, 0.0, -1.0], light);
+        let near_x = 2.0e-4f32;
+        let near_z = -(1.0 - near_x * near_x).sqrt();
+        let before = stable_light_halfway_cosine([-near_x, 0.0, near_z], light);
+        let after = stable_light_halfway_cosine([near_x, 0.0, near_z], light);
+
+        assert_eq!(exact, 0.0);
+        assert!((before - after).abs() <= f32::EPSILON);
+        assert!((fresnel(before) - fresnel(exact)).abs() < 0.002);
+        assert!((fresnel(after) - fresnel(exact)).abs() < 0.002);
+
+        let legacy_exact_fallback = fresnel(1.0);
+        assert!((legacy_exact_fallback - fresnel(exact)).abs() > 0.9);
+
+        let mut previous = [0.0; 3];
+        let mut maximum_step = 0.0f32;
+        for step in 0..=200 {
+            let tangent = step as f32 * 1.0e-6;
+            let view = [tangent, 0.0, -(1.0 - tangent * tangent).sqrt()];
+            let halfway = stable_vector([view[0], view[1], view[2] + 1.0]);
+            if step != 0 {
+                maximum_step = maximum_step.max(
+                    halfway
+                        .into_iter()
+                        .zip(previous)
+                        .map(|(current, last)| (current - last).abs())
+                        .fold(0.0, f32::max),
+                );
+            }
+            previous = halfway;
+        }
+        assert!(
+            maximum_step < 0.011,
+            "half-vector cutoff introduced a {maximum_step} camera step"
+        );
+    }
+
+    #[test]
+    fn point_light_attenuation_is_finite_and_matches_vanilla_inside_valid_radii() {
+        assert!(
+            NVR_POINTLIGHTS_INCLUDE_SOURCE
+                .contains("dot(lightVector, lightVector) / max(radius * radius, 1e-8)")
+        );
+        let vanilla_attenuation = NVR_POINTLIGHTS_INCLUDE_SOURCE
+            .split_once("float vanillaAtt")
+            .unwrap()
+            .1
+            .split_once('}')
+            .unwrap()
+            .0;
+        assert!(!vanilla_attenuation.contains("lightVector / radius"));
+
+        fn attenuation(light: [f32; 3], radius: f32) -> f32 {
+            (1.0 - dot(light, light) / (radius * radius).max(1.0e-8)).clamp(0.0, 1.0)
+        }
+
+        for radius in [0.0f32, 1.0e-8, 1.0e-4, 0.5, 64.0, 4096.0] {
+            let mut previous = 1.0;
+            for step in 0..=64 {
+                let distance = radius.max(1.0) * step as f32 / 64.0;
+                let value = attenuation([distance, 0.0, 0.0], radius);
+                assert!(value.is_finite());
+                assert!((0.0..=1.0).contains(&value));
+                assert!(value <= previous + f32::EPSILON);
+                previous = value;
+            }
+        }
+
+        for radius in [0.5f32, 64.0, 4096.0] {
+            for ratio in [0.0, 0.125, 0.5, 0.875, 1.0, 2.0] {
+                let distance = radius * ratio;
+                let legacy = (1.0 - (distance / radius).powi(2)).clamp(0.0, 1.0);
+                assert!((attenuation([distance, 0.0, 0.0], radius) - legacy).abs() < 1.0e-6);
+            }
+        }
+    }
+
+    #[test]
+    fn special_object_rows_preserve_native_attenuation_lookup_contract() {
+        for source in [VANILLA_ONLY_LIGHT_2_PIXEL, VANILLA_ONLY_LIGHT_3_PIXEL] {
+            assert!(source.contains("dcl_2d s4"));
+            assert!(source.matches("s4").count() >= 3);
+        }
+        for source in [VANILLA_ONLY_LIGHT_2_VERTEX, VANILLA_ONLY_LIGHT_3_VERTEX] {
+            assert!(source.contains("mad oT4.xyz"));
+            assert!(source.contains("mov oT4.w"));
+        }
+        assert!(VANILLA_ONLY_LIGHT_3_VERTEX.contains("mad oT5.xyz"));
+        assert!(VANILLA_DIFFUSE_POINT_PIXEL.contains("dcl_2d s3"));
+        assert!(VANILLA_DIFFUSE_POINT_PIXEL.matches("s3").count() >= 3);
+        assert!(VANILLA_DIFFUSE_POINT_VERTEX.contains("mad oT4.xyz"));
+        assert!(VANILLA_DIFFUSE_POINT_VERTEX.contains("mad oT5.xyz"));
+
+        assert!(NVR_OBJECT_TEMPLATE_SOURCE.contains("sampler2D AttenuationMap"));
+        assert!(NVR_OBJECT_TEMPLATE_SOURCE.contains("float sampleObjectAttenuation("));
+        assert!(NVR_OBJECT_TEMPLATE_SOURCE.contains("float4 lightAttenuation : TEXCOORD4"));
+        assert!(NVR_OBJECT_TEMPLATE_SOURCE.contains("float4 light2Attenuation : TEXCOORD4"));
+        assert!(NVR_OBJECT_TEMPLATE_SOURCE.contains("float4 light3Attenuation : TEXCOORD6"));
+        assert!(
+            NVR_OBJECT_TEMPLATE_SOURCE.contains("sampleObjectAttenuation(IN.lightAttenuation)")
+        );
+        assert!(
+            NVR_OBJECT_TEMPLATE_SOURCE.contains("sampleObjectAttenuation(IN.light2Attenuation)")
+        );
+        assert!(
+            NVR_OBJECT_TEMPLATE_SOURCE.contains("sampleObjectAttenuation(IN.light3Attenuation)")
+        );
+    }
+
+    #[test]
     fn high_light_count_gates_match_the_native_contract() {
-        for threshold in 1..=5 {
+        for light_index in 0..=5 {
             assert!(
                 NVR_OBJECT_TEMPLATE_SOURCE
-                    .contains(&format!("({threshold} >= lightsUsed ? 0.0 : 1.0)"))
+                    .contains(&format!("{light_index} < lightsThreshold ? 1.0 : 0.0"))
             );
+        }
+        for threshold in 1..=5 {
+            assert!(NVR_OBJECT_TEMPLATE_SOURCE.contains(&format!("if (lightsUsed > {threshold})")));
             assert!(
                 !NVR_OBJECT_TEMPLATE_SOURCE
-                    .contains(&format!("({threshold} > lightsUsed ? 0.0 : 1.0)"))
+                    .contains(&format!("({threshold} >= lightsUsed ? 0.0 : 1.0)"))
             );
+        }
+
+        for light_count in 0..=6 {
+            for light_index in 1..=5 {
+                let vertex_activates = light_index < light_count;
+                let pixel_activates = !(light_index >= light_count);
+                assert_eq!(
+                    vertex_activates, pixel_activates,
+                    "light {light_index} disagrees at integer count {light_count}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn object_registry_covers_the_complete_source_derived_family() {
+        const EXPECTED_VERTEX_ROWS: &[u16] = &[
+            2000, 2001, 2003, 2004, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015,
+            2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025, 2026, 2027, 2028, 2029,
+            2030, 2031, 2032, 2033, 2034, 2035, 2036, 2037, 2038, 2039, 2040, 2041, 2042, 2043,
+            2044, 2045, 2046, 2047, 2048, 2049,
+        ];
+        const EXPECTED_PIXEL_ROWS: &[u16] = &[
+            2000, 2001, 2002, 2004, 2005, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015,
+            2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2026, 2027, 2029, 2030, 2031,
+            2032, 2033, 2034, 2035, 2036, 2037, 2038, 2039, 2040, 2041, 2042, 2043, 2044, 2045,
+            2046, 2047, 2048, 2049, 2050, 2051, 2052, 2053, 2054, 2055, 2056,
+        ];
+
+        let mut vertex_rows = Vec::new();
+        let mut pixel_rows = Vec::new();
+        for template_id in 0..object_template_count() {
+            let template = object_template_at(template_id as u16).unwrap();
+            match template.stage {
+                ShaderStage::Vertex => vertex_rows.push(template.sls_number),
+                ShaderStage::Pixel => pixel_rows.push(template.sls_number),
+            }
+        }
+        assert_eq!(vertex_rows, EXPECTED_VERTEX_ROWS);
+        assert_eq!(pixel_rows, EXPECTED_PIXEL_ROWS);
+    }
+
+    #[test]
+    fn combined_specular_handoff_converges_to_the_non_specular_equation() {
+        assert!(NVR_PBR_INCLUDE_SOURCE.contains(
+            "const float3 diffuse = LambertianDiffuse(albedo, fresnel) * radiance * PI;"
+        ));
+        assert!(NVR_PBR_INCLUDE_SOURCE.contains(
+            "return diffuse + saturate(specular * saturate(specularStrength)) * saturate(specularFade);"
+        ));
+        assert!(NVR_PBR_INCLUDE_SOURCE.contains("return diffuse * NdotL * lightColor * PI;"));
+        assert!(NVR_OBJECT_INCLUDE_SOURCE.contains(
+            "return att * PBRDiffuse(0, materialResponse, albedo, normal, viewDir, lightDir, lightColor);"
+        ));
+        assert!(
+            NVR_OBJECT_TEMPLATE_SOURCE
+                .contains("lighting += getAmbientLighting(AmbientColor.rgb, materialAlbedo);")
+        );
+        let ambient = NVR_OBJECT_INCLUDE_SOURCE
+            .split_once("float3 getAmbientLighting")
+            .unwrap()
+            .1;
+        assert!(!ambient.contains("specularFade"));
+
+        for diffuse in [0.0f32, 0.125, 0.5, 2.0] {
+            for bounded_specular in [0.0f32, 0.25, 1.0] {
+                let non_specular_row = diffuse;
+                let combined_row_at_handoff = diffuse + bounded_specular.clamp(0.0, 1.0) * 0.0;
+                assert_eq!(combined_row_at_handoff, non_specular_row);
+            }
+        }
+    }
+
+    #[test]
+    fn bounded_object_brdf_is_finite_bounded_and_fade_monotonic() {
+        assert!(NVR_PBR_INCLUDE_SOURCE.contains(
+            "return saturate(specular * saturate(specularStrength)) * saturate(specularFade);"
+        ));
+        assert!(NVR_PBR_INCLUDE_SOURCE.contains(
+            "return diffuse + saturate(specular * saturate(specularStrength)) * saturate(specularFade);"
+        ));
+
+        let normals = [[0.0, 0.0, 1.0], [0.6, 0.0, 0.8], [-0.8, 0.2, 0.565_685_45]];
+        let directions = [
+            [0.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0],
+            [0.0, 0.0, -1.0],
+            [1.0e-6, 0.0, -1.0],
+            [-1.0e-6, 0.0, -1.0],
+            [1.0, 0.0, 0.0],
+            [-0.6, 0.2, 0.774_596_7],
+        ];
+
+        for normal in normals {
+            for view in directions {
+                let view = if dot(view, view) > 1.0e-8 {
+                    stable_vector(view)
+                } else {
+                    normal
+                };
+                for light in directions {
+                    for gloss_power in [1.0, 2.0, 16.0, 128.0, 4_096.0, 70_000.0] {
+                        for specular_strength in [0.0, 0.25, 1.0, 4.0] {
+                            for attenuation in [0.0, 0.01, 0.5, 1.0] {
+                                for (albedo, light_color) in [(0.0, 0.0), (0.5, 1.0), (1.0, 8.0)] {
+                                    let mut previous_specular = 0.0;
+                                    let (diffuse_at_zero, specular_at_zero) = bounded_object_light(
+                                        gloss_power,
+                                        specular_strength,
+                                        0.0,
+                                        attenuation,
+                                        albedo,
+                                        normal,
+                                        view,
+                                        light,
+                                        light_color,
+                                    );
+                                    assert_eq!(specular_at_zero, 0.0);
+
+                                    for fade in [0.0, 0.125, 0.5, 0.875, 1.0] {
+                                        let (diffuse, specular) = bounded_object_light(
+                                            gloss_power,
+                                            specular_strength,
+                                            fade,
+                                            attenuation,
+                                            albedo,
+                                            normal,
+                                            view,
+                                            light,
+                                            light_color,
+                                        );
+                                        assert!(diffuse.is_finite() && specular.is_finite());
+                                        assert!(diffuse >= 0.0 && specular >= 0.0);
+                                        assert!(specular <= fade + f32::EPSILON);
+                                        assert!(specular + f32::EPSILON >= previous_specular);
+                                        assert_eq!(diffuse, diffuse_at_zero);
+                                        assert!(
+                                            diffuse + specular
+                                                <= albedo * light_color * attenuation
+                                                    + fade
+                                                    + 1.0e-5
+                                        );
+                                        previous_specular = specular;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -1052,10 +1420,11 @@ mod shader_compile_tests {
         assert!(!NVR_PBR_INCLUDE_SOURCE.contains("lightDir = normalize(lightDir);"));
         assert_eq!(
             NVR_PBR_INCLUDE_SOURCE
-                .matches("lightDir = SafeNormalize(lightDir, float3(0, 0, 0));")
+                .matches("lightDir = StableNormalize(lightDir);")
                 .count(),
             7
         );
+        assert!(NVR_PBR_INCLUDE_SOURCE.contains("return value * rsqrt(max(lengthSquared, 1e-8));"));
     }
 
     #[test]
@@ -1068,6 +1437,84 @@ mod shader_compile_tests {
             assert!(source.contains("return TESR_TerrainData.z;"));
             assert!(source.contains("return TESR_TerrainData.w;"));
             assert!(source.contains("return TESR_TerrainExtraData.y;"));
+        }
+    }
+
+    #[test]
+    fn close_terrain_portable_light_shader_abi_is_exact() {
+        assert!(
+            CLOSE_TERRAIN_PIXEL_SOURCE
+                .contains("float4 PointLightColor[PBR_TERRAIN_POINT_LIGHTS] : register(c39);")
+        );
+        assert!(
+            CLOSE_TERRAIN_PIXEL_SOURCE
+                .contains("float4 PointLightPosition[PBR_TERRAIN_POINT_LIGHTS] : register(c63);")
+        );
+        assert!(CLOSE_TERRAIN_PIXEL_SOURCE.contains("float PointLightCount : register(c88);"));
+        assert!(
+            CLOSE_TERRAIN_PIXEL_SOURCE
+                .contains("float OMV_SupplementalPointLightCount : register(c91);")
+        );
+        assert!(
+            CLOSE_TERRAIN_PIXEL_SOURCE
+                .contains("float4 OMV_SupplementalPointLightData[48] : register(c92);")
+        );
+        assert!(
+            CLOSE_TERRAIN_PIXEL_SOURCE.contains(
+                "native_point_count = min((int)PointLightCount, PBR_TERRAIN_POINT_LIGHTS);"
+            )
+        );
+        assert_eq!(
+            CLOSE_TERRAIN_PIXEL_SOURCE
+                .matches("light_color.rgb * saturate(light_color.a)")
+                .count(),
+            1
+        );
+        assert!(CLOSE_TERRAIN_PIXEL_SOURCE.contains(
+            "int supplemental_point_count = min((int)OMV_SupplementalPointLightCount, 24 - native_point_count);"
+        ));
+        assert!(
+            CLOSE_TERRAIN_PIXEL_SOURCE
+                .contains("int total_point_count = native_point_count + supplemental_point_count;")
+        );
+        assert!(
+            CLOSE_TERRAIN_PIXEL_SOURCE
+                .contains("OMV_SupplementalPointLightData[supplemental_index * 2]")
+        );
+        assert!(
+            CLOSE_TERRAIN_PIXEL_SOURCE
+                .contains("OMV_SupplementalPointLightData[supplemental_index * 2 + 1]")
+        );
+        assert!(CLOSE_TERRAIN_PIXEL_SOURCE.contains("light_color = PointLightColor[point_index];"));
+    }
+
+    #[test]
+    fn close_terrain_registry_matches_every_vpt_non_canopy_row() {
+        for texture_count in 1..=7u16 {
+            for (row_offset, point_light_capacity) in [(0u16, 0u16), (2, 6), (4, 12), (6, 24)] {
+                let sls_number = 2092 + (texture_count - 1) * 8 + row_offset;
+                let template_id = close_terrain_template_id(ShaderStage::Pixel, sls_number)
+                    .unwrap_or_else(|| panic!("missing close-terrain SLS{sls_number}"));
+                let template = template_at(template_id).unwrap();
+
+                assert_eq!(template.sls_number, sls_number);
+                assert!(
+                    template
+                        .defines
+                        .contains(&format!("#define PBR_TERRAIN_TEX_COUNT {texture_count}"))
+                );
+                if point_light_capacity == 0 {
+                    assert!(
+                        !template
+                            .defines
+                            .contains("#define PBR_TERRAIN_POINT_LIGHTS")
+                    );
+                } else {
+                    assert!(template.defines.contains(&format!(
+                        "#define PBR_TERRAIN_POINT_LIGHTS {point_light_capacity}"
+                    )));
+                }
+            }
         }
     }
 
@@ -1093,13 +1540,27 @@ mod shader_compile_tests {
                 .unwrap_or_else(|| panic!("PBR template {template_id} is missing"));
             let source = template_source(template_id as u16, template);
             let profile = shader_profile(template.stage);
-            if let Err(error) =
-                crate::shaders::compile_hlsl_source_target(template.label, source.as_ref(), profile)
-            {
-                failures.push(format!(
+            match crate::shaders::compile_hlsl_source_target(
+                template.label,
+                source.as_ref(),
+                profile,
+            ) {
+                Ok(bytecode) => {
+                    let expected_version = match template.stage {
+                        ShaderStage::Vertex => 0xfffe_0300,
+                        ShaderStage::Pixel => 0xffff_0300,
+                    };
+                    assert_eq!(
+                        bytecode.first().copied(),
+                        Some(expected_version),
+                        "{} compiled to the wrong shader stage/version",
+                        template.label
+                    );
+                }
+                Err(error) => failures.push(format!(
                     "{} ({profile}, SLS{}): {error:#}",
                     template.label, template.sls_number
-                ));
+                )),
             }
         }
 
@@ -1112,15 +1573,115 @@ mod shader_compile_tests {
     }
 
     #[test]
-    fn representative_object_shader_bytecode_stays_bounded() {
-        let limits = [
+    fn every_object_shader_stays_within_static_gpu_budget() {
+        let representative_limits = [
             ("SLS2017_p_specular", 2_400),
             ("SLS2034_p_specular_lights4", 4_400),
             ("SLS2035_p_specular_lights4_opt", 4_200),
         ];
+        for template_id in 0..object_template_count() {
+            let template = object_template_at(template_id as u16).unwrap();
+            let source = template_source(template_id as u16, template);
+            let bytecode = crate::shaders::compile_hlsl_source_target(
+                template.label,
+                source.as_ref(),
+                shader_profile(template.stage),
+            )
+            .unwrap();
+            let byte_size = bytecode.len() * 4;
+            let opcodes = compiled_instruction_opcodes(&bytecode);
+            let texture_count = opcodes.iter().filter(|opcode| **opcode == 66).count();
+            let broad_limit = match template.stage {
+                ShaderStage::Vertex if template.defines.contains("PBR_OBJECT_SKIN") => 8_100,
+                ShaderStage::Vertex => 3_700,
+                ShaderStage::Pixel if template.defines.contains("PBR_OBJECT_HIGH") => 5_500,
+                ShaderStage::Pixel if template.defines.contains("PBR_OBJECT_ONLY_SPECULAR") => {
+                    3_000
+                }
+                ShaderStage::Pixel if template.defines.contains("PBR_OBJECT_ONLY_LIGHT") => 3_300,
+                ShaderStage::Pixel => 3_400,
+            };
+            assert!(
+                byte_size <= broad_limit,
+                "{} grew to {} bytes (family limit {})",
+                template.label,
+                byte_size,
+                broad_limit
+            );
+
+            let instruction_limit = match template.stage {
+                ShaderStage::Vertex if template.defines.contains("PBR_OBJECT_SKIN") => 530,
+                ShaderStage::Vertex => 225,
+                ShaderStage::Pixel if template.defines.contains("PBR_OBJECT_HIGH") => 340,
+                ShaderStage::Pixel if template.defines.contains("PBR_OBJECT_ONLY_SPECULAR") => 175,
+                ShaderStage::Pixel if template.defines.contains("PBR_OBJECT_ONLY_LIGHT") => 170,
+                ShaderStage::Pixel => 185,
+            };
+            assert!(
+                opcodes.len() <= instruction_limit,
+                "{} grew to {} instructions (family limit {})",
+                template.label,
+                opcodes.len(),
+                instruction_limit
+            );
+            if template.stage == ShaderStage::Pixel {
+                assert!(
+                    texture_count <= 9,
+                    "{} grew to {} texture samples",
+                    template.label,
+                    texture_count
+                );
+            }
+
+            if let Some((_, limit)) = representative_limits
+                .iter()
+                .find(|(label, _)| *label == template.label)
+            {
+                assert!(
+                    byte_size <= *limit,
+                    "{} grew to {} bytes (limit {})",
+                    template.label,
+                    byte_size,
+                    limit
+                );
+            }
+
+            if template.stage == ShaderStage::Pixel && template.defines.contains("PBR_OBJECT_HIGH")
+            {
+                const IF: u16 = 40;
+                const IFC: u16 = 41;
+                let conditional_count =
+                    compiled_opcode_count(&bytecode, IF) + compiled_opcode_count(&bytecode, IFC);
+                let expected = if template.defines.contains("PBR_OBJECT_LIGHTS 9") {
+                    5
+                } else if template.defines.contains("PBR_OBJECT_SPECULAR") {
+                    2
+                } else {
+                    3
+                };
+                assert!(
+                    conditional_count >= expected,
+                    "{} lost uniform inactive-light branches: {} found, {} required",
+                    template.label,
+                    conditional_count,
+                    expected
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn representative_close_terrain_bytecode_stays_bounded() {
+        const CLOSE_TERRAIN_BYTECODE_LIMIT: usize = 25_600;
+        let labels = [
+            "SLS2092_p_terrain_t1_l0",
+            "SLS2098_p_terrain_t1_l24",
+            "SLS2140_p_terrain_t7_l0",
+            "SLS2146_p_terrain_t7_l24",
+        ];
         for template_id in 0..template_count() {
             let template = template_at(template_id as u16).unwrap();
-            if let Some((_, limit)) = limits.iter().find(|(label, _)| *label == template.label) {
+            if labels.contains(&template.label) {
                 let source = template_source(template_id as u16, template);
                 let bytecode = crate::shaders::compile_hlsl_source_target(
                     template.label,
@@ -1129,11 +1690,11 @@ mod shader_compile_tests {
                 )
                 .unwrap();
                 assert!(
-                    bytecode.len() * 4 <= *limit,
+                    bytecode.len() * 4 <= CLOSE_TERRAIN_BYTECODE_LIMIT,
                     "{} grew to {} bytes (limit {})",
                     template.label,
                     bytecode.len() * 4,
-                    limit
+                    CLOSE_TERRAIN_BYTECODE_LIMIT
                 );
             }
         }

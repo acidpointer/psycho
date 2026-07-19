@@ -143,6 +143,13 @@ pub(crate) fn append_diagnostic_report(out: &mut String) {
         "LOD reset",
         lod.worldspace_reset_installed,
     );
+    push_feature_pair(
+        out,
+        "LOD priority",
+        lod.scheduler.priority_installed,
+        "Parallel IO",
+        lod.scheduler.parallel_installed,
+    );
 
     let covered_move_sites = display
         .site_states
@@ -315,6 +322,57 @@ pub(crate) fn append_diagnostic_report(out: &mut String) {
             on_off(low.main_boundary_restored),
         ),
     );
+
+    let requested_workers = if lod.scheduler.parallel_requested {
+        2
+    } else {
+        1
+    };
+    let (barrier_layout_failures, barrier_timeouts) =
+        crate::mods::heap_replacer::gheap::engine::globals::io_barrier_diagnostic_counts();
+
+    push_report_section(out, "LOD scheduler");
+    push_report_value(
+        out,
+        "IO workers",
+        format!(
+            "{} active / {} requested",
+            lod.scheduler.observed_workers, requested_workers,
+        ),
+    );
+    push_report_value(
+        out,
+        "Priority",
+        format!(
+            "{} / req {} / max 255",
+            on_off(lod.scheduler.priority_installed),
+            on_off(lod.scheduler.priority_requested),
+        ),
+    );
+    push_report_value(
+        out,
+        "File cache",
+        format!(
+            "{} / {} fallback",
+            on_off(lod.scheduler.cache_fallback_installed),
+            lod.scheduler.cache_fallbacks,
+        ),
+    );
+    push_report_value(out, "Terrain boosts", lod.scheduler.priority_boosts[0]);
+    push_report_value(out, "Object boosts", lod.scheduler.priority_boosts[1]);
+    push_report_value(out, "Tree boosts", lod.scheduler.priority_boosts[2]);
+    push_report_value(out, "TLS maps A", lod.scheduler.map_expansions[0]);
+    push_report_value(out, "TLS maps B", lod.scheduler.map_expansions[1]);
+    push_report_value(out, "Tree TLS maps", lod.scheduler.map_expansions[2]);
+    push_report_value(out, "IO fallbacks", lod.scheduler.parallel_fallbacks);
+    push_report_value(
+        out,
+        "Priority failures",
+        lod.scheduler.priority_install_failures,
+    );
+    push_report_value(out, "Capacity failures", lod.scheduler.capacity_failures);
+    push_report_value(out, "Barrier layouts", barrier_layout_failures);
+    push_report_value(out, "Barrier timeouts", barrier_timeouts);
 
     push_report_section(out, "LOD streaming");
     push_report_value(
@@ -490,6 +548,14 @@ pub(crate) fn append_diagnostic_report(out: &mut String) {
         .saturating_add(lod.speedtree.stale_pointer_rejects)
         .saturating_add(lod.speedtree.invalid_refcount_rejects)
         .saturating_add(lod.speedtree.constructor_postcondition_failures);
+    let scheduler_alerts = lod
+        .scheduler
+        .parallel_fallbacks
+        .saturating_add(lod.scheduler.priority_install_failures)
+        .saturating_add(lod.scheduler.capacity_failures)
+        .saturating_add(lod.scheduler.cache_fallbacks)
+        .saturating_add(barrier_layout_failures)
+        .saturating_add(barrier_timeouts);
 
     push_report_section(out, "Warnings");
     let alert_total = display_alerts
@@ -497,7 +563,8 @@ pub(crate) fn append_diagnostic_report(out: &mut String) {
         .saturating_add(task_alerts)
         .saturating_add(low_alerts)
         .saturating_add(lod_alerts)
-        .saturating_add(tree_alerts);
+        .saturating_add(tree_alerts)
+        .saturating_add(scheduler_alerts);
     if alert_total == 0 {
         out.push_str("  No runtime warnings.\n");
     } else {
@@ -507,6 +574,7 @@ pub(crate) fn append_diagnostic_report(out: &mut String) {
         push_nonzero(out, "LowProcess", low_alerts);
         push_nonzero(out, "LOD handoff", lod_alerts);
         push_nonzero(out, "SpeedTree", tree_alerts);
+        push_nonzero(out, "LOD scheduler", scheduler_alerts);
         out.push_str("  Handled events are listed above.\n");
     }
 

@@ -1,0 +1,4281 @@
+LOD STREAMING MULTI-WORKER TLS CAPACITY FINAL AUDIT
+Program: FalloutNV.exe
+Image base: 00400000
+
+# EXACT PACKED PRIORITY ABI
+
+======================================================================
+BSTask packed priority read @ 0x0043cc60
+======================================================================
+  Function: FUN_0043cc60 @ 0x0043cc60, Size: 22 bytes
+
+undefined1 __fastcall FUN_0043cc60(undefined4 param_1)
+
+{
+  undefined1 uVar1;
+  
+  uVar1 = FUN_0043cc80(param_1);
+  return uVar1;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x0043cc60 (BSTask packed priority read)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0044492b (in FUN_00444850)
+  UNCONDITIONAL_CALL @ 0x00443645 (in FUN_00443540)
+  UNCONDITIONAL_CALL @ 0x0043cbab (in FUN_0043cb50)
+  UNCONDITIONAL_CALL @ 0x0043cc22 (in FUN_0043cb50)
+  UNCONDITIONAL_CALL @ 0x0043d9c5 (in FUN_0043d910)
+  UNCONDITIONAL_CALL @ 0x0043dcd1 (in FUN_0043dc70)
+  UNCONDITIONAL_CALL @ 0x0043de02 (in FUN_0043dc70)
+  UNCONDITIONAL_CALL @ 0x0043de61 (in FUN_0043dc70)
+  UNCONDITIONAL_CALL @ 0x0043de9a (in FUN_0043dc70)
+  UNCONDITIONAL_CALL @ 0x0043df01 (in FUN_0043dc70)
+  UNCONDITIONAL_CALL @ 0x0043df8c (in FUN_0043dc70)
+  UNCONDITIONAL_CALL @ 0x0043dfd6 (in FUN_0043dc70)
+  UNCONDITIONAL_CALL @ 0x0043e71e (in FUN_0043e690)
+  UNCONDITIONAL_CALL @ 0x0043ec2e (in FUN_0043ec20)
+  UNCONDITIONAL_CALL @ 0x0043f185 (in FUN_0043f120)
+  UNCONDITIONAL_CALL @ 0x0043f1ae (in FUN_0043f120)
+  UNCONDITIONAL_CALL @ 0x004400f2 (in FUN_00440050)
+  UNCONDITIONAL_CALL @ 0x00440159 (in FUN_00440050)
+  UNCONDITIONAL_CALL @ 0x00440f8c (in FUN_00440ed0)
+  UNCONDITIONAL_CALL @ 0x008b76a2 (in FUN_008b73f0)
+  UNCONDITIONAL_CALL @ 0x008b7849 (in FUN_008b73f0)
+  UNCONDITIONAL_CALL @ 0x0044135a (in FUN_004412e0)
+  UNCONDITIONAL_CALL @ 0x00441614 (in FUN_00441560)
+  UNCONDITIONAL_CALL @ 0x00441629 (in FUN_00441560)
+  UNCONDITIONAL_CALL @ 0x00441678 (in FUN_00441560)
+  UNCONDITIONAL_CALL @ 0x00441a9f (in FUN_004419a0)
+  UNCONDITIONAL_CALL @ 0x00441ac2 (in FUN_004419a0)
+  UNCONDITIONAL_CALL @ 0x00441bf1 (in FUN_00441ba0)
+  UNCONDITIONAL_CALL @ 0x00446bee (in FUN_00446b50)
+  UNCONDITIONAL_CALL @ 0x006f70bd (in FUN_006f7070)
+  UNCONDITIONAL_CALL @ 0x006f70fb (in FUN_006f7070)
+  UNCONDITIONAL_CALL @ 0x006fbc2f (in FUN_006fbbd0)
+  UNCONDITIONAL_CALL @ 0x006fbc8d (in FUN_006fbbd0)
+  Total: 33 refs
+
+--- Calls FROM BSTask packed priority read (0x0043cc60) ---
+  0x0043cc6a -> 0x0043cc80 FUN_0043cc80
+  Total: 1 calls
+
+======================================================================
+BSTask packed priority byte wrapper @ 0x0043cc80
+======================================================================
+  Function: FUN_0043cc80 @ 0x0043cc80, Size: 26 bytes
+
+void __fastcall FUN_0043cc80(int param_1)
+
+{
+  FUN_0043cca0(param_1 + 0x10);
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x0043cc80 (BSTask packed priority byte wrapper)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0043cc6a (in FUN_0043cc60)
+  UNCONDITIONAL_CALL @ 0x0043db86 (in FUN_0043db70)
+  UNCONDITIONAL_CALL @ 0x0043d6f2 (in FUN_0043d6b0)
+  UNCONDITIONAL_CALL @ 0x0043ffdf (in FUN_0043fed0)
+  Total: 4 refs
+
+--- Calls FROM BSTask packed priority byte wrapper (0x0043cc80) ---
+  0x0043cc8e -> 0x0043cca0 FUN_0043cca0
+  Total: 1 calls
+
+======================================================================
+BSTask packed priority shift helper @ 0x0043cca0
+======================================================================
+  Function: FUN_0043cca0 @ 0x0043cca0, Size: 20 bytes
+
+void FUN_0043cca0(void)
+
+{
+  __allshr();
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x0043cca0 (BSTask packed priority shift helper)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0043cc8e (in FUN_0043cc80)
+  Total: 1 refs
+
+--- Calls FROM BSTask packed priority shift helper (0x0043cca0) ---
+  0x0043ccad -> 0x00ec77e0 __allshr
+  Total: 1 calls
+
+======================================================================
+IOTask public priority update wrapper @ 0x00440660
+======================================================================
+  Function: FUN_00440660 @ 0x00440660, Size: 32 bytes
+
+void __thiscall FUN_00440660(undefined4 param_1,undefined4 param_2)
+
+{
+  FUN_00c3df40(param_1,param_2);
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00440660 (IOTask public priority update wrapper)
+----------------------------------------------------------------------
+  DATA @ 0x01016c08 (in ???)
+  DATA @ 0x01016c2c (in ???)
+  DATA @ 0x0102d044 (in ???)
+  DATA @ 0x0102ee64 (in ???)
+  Total: 4 refs
+
+--- Calls FROM IOTask public priority update wrapper (0x00440660) ---
+  0x00440675 -> 0x00c3df40 FUN_00c3df40
+  Total: 1 calls
+
+======================================================================
+BSTask packed queue key builder @ 0x00c3d440
+======================================================================
+  Function: FUN_00c3d440 @ 0x00c3d440, Size: 174 bytes
+
+void __fastcall FUN_00c3d440(int *param_1)
+
+{
+  uint uVar1;
+  ulonglong uVar2;
+  ulonglong uVar3;
+  ulonglong uVar4;
+  
+  if (param_1[0xb] == 0) {
+    FUN_0043db70();
+  }
+  else {
+    uVar1 = InterlockedIncrement((LONG *)&lpAddend_01202d9c);
+    __allshr();
+    (**(code **)(*param_1 + 0x2c))();
+    uVar2 = __allshl();
+    uVar3 = __allshl();
+    uVar4 = __allshl();
+    uVar4 = uVar2 | uVar3 | uVar4;
+    param_1[4] = (uint)uVar4 | uVar1 & 0xffff;
+    param_1[5] = (int)(uVar4 >> 0x20);
+  }
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00c3d440 (BSTask packed queue key builder)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0043ca1a (in FUN_0043ca10)
+  DATA @ 0x010167a0 (in ???)
+  DATA @ 0x010169a4 (in ???)
+  DATA @ 0x01016a60 (in ???)
+  DATA @ 0x01016a98 (in ???)
+  DATA @ 0x01016ad8 (in ???)
+  DATA @ 0x01016ddc (in ???)
+  DATA @ 0x01016e34 (in ???)
+  DATA @ 0x0104f130 (in ???)
+  DATA @ 0x0106dc54 (in ???)
+  DATA @ 0x0106dee8 (in ???)
+  DATA @ 0x0106e1f4 (in ???)
+  DATA @ 0x0107cf30 (in ???)
+  DATA @ 0x010885d0 (in ???)
+  DATA @ 0x010a3730 (in ???)
+  DATA @ 0x010ade84 (in ???)
+  DATA @ 0x010c156c (in ???)
+  Total: 17 refs
+
+--- Calls FROM BSTask packed queue key builder (0x00c3d440) ---
+  0x00c3d45d -> 0x00000066 ???
+  0x00c3d472 -> 0x00ec77e0 __allshr
+  0x00c3d4a3 -> 0x00ec7810 __allshl
+  0x00c3d4b3 -> 0x00ec7810 __allshl
+  0x00c3d4c3 -> 0x00ec7810 __allshl
+  0x00c3d4e3 -> 0x0043db70 FUN_0043db70
+  Total: 6 calls
+
+======================================================================
+IOManager task submission @ 0x00c3de80
+======================================================================
+  Function: FUN_00c3de80 @ 0x00c3de80, Size: 183 bytes
+
+undefined4 __thiscall FUN_00c3de80(int param_1,int *param_2)
+
+{
+  ulonglong uVar1;
+  char cVar2;
+  uint uVar3;
+  uint uVar4;
+  longlong lVar5;
+  
+  if (*(int *)(param_1 + 0x68) != 6) {
+    uVar3 = __allshr();
+    if ((int)(uVar3 & 0xff) <= *(int *)(param_1 + 0x68)) {
+      uVar1 = *(ulonglong *)(param_2 + 4);
+      lVar5 = __allshl();
+      *(ulonglong *)(param_2 + 4) = lVar5 + (uVar1 & 0xffffffffff00ffff);
+    }
+  }
+  (**(code **)(*param_2 + 0x18))();
+  while( true ) {
+    cVar2 = FUN_00c3fb50(param_2);
+    if (cVar2 != '\0') break;
+    uVar4 = InterlockedIncrement((LONG *)&lpAddend_01202d9c);
+    uVar3 = param_2[4];
+    param_2[4] = (uVar3 & 0xffff0000) + (uVar4 & 0xffff);
+    param_2[5] = param_2[5] + (uint)CARRY4(uVar3 & 0xffff0000,uVar4 & 0xffff);
+  }
+  return 1;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00c3de80 (IOManager task submission)
+----------------------------------------------------------------------
+  DATA @ 0x010c164c (in ???)
+  Total: 1 refs
+
+--- Calls FROM IOManager task submission (0x00c3de80) ---
+  0x00c3dea5 -> 0x00ec77e0 __allshr
+  0x00c3dec9 -> 0x00ec7810 __allshl
+  0x00c3deef -> 0x00c3fb50 FUN_00c3fb50
+  0x00c3df00 -> 0x00000066 ???
+  Total: 4 calls
+
+======================================================================
+IOManager queued task priority update @ 0x00c3df40
+======================================================================
+  Function: FUN_00c3df40 @ 0x00c3df40, Size: 87 bytes
+
+void FUN_00c3df40(int param_1)
+
+{
+  ulonglong uVar1;
+  longlong lVar2;
+  
+  uVar1 = *(ulonglong *)(param_1 + 0x10);
+  lVar2 = __allshl();
+  FUN_00c3e690(param_1,lVar2 + (uVar1 & 0xffffffffff00ffff));
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00c3df40 (IOManager queued task priority update)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00440675 (in FUN_00440660)
+  UNCONDITIONAL_CALL @ 0x00c3cb59 (in FUN_00c3cae0)
+  Total: 2 refs
+
+--- Calls FROM IOManager queued task priority update (0x00c3df40) ---
+  0x00c3df6c -> 0x00ec7810 __allshl
+  0x00c3df8a -> 0x00c3e690 FUN_00c3e690
+  Total: 2 calls
+
+======================================================================
+IOTask dependency priority propagation @ 0x00c3cae0
+======================================================================
+  Function: FUN_00c3cae0 @ 0x00c3cae0, Size: 132 bytes
+
+void __thiscall FUN_00c3cae0(int param_1,undefined4 param_2)
+
+{
+  uint uVar1;
+  int *piVar2;
+  undefined4 local_c;
+  
+  if (*(int *)(param_1 + 0x20) != 0) {
+    uVar1 = *(uint *)(*(int *)(param_1 + 0x20) + 8);
+    for (local_c = 0; local_c < uVar1; local_c = local_c + 1) {
+      piVar2 = *(int **)(*(int *)(*(int *)(param_1 + 0x20) + 4) + local_c * 4);
+      if (piVar2 != (int *)0x0) {
+        (**(code **)(*piVar2 + 0x1c))(param_2);
+      }
+    }
+  }
+  FUN_00c3df40(param_1,param_2);
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00c3cae0 (IOTask dependency priority propagation)
+----------------------------------------------------------------------
+  DATA @ 0x010167a4 (in ???)
+  DATA @ 0x010168ac (in ???)
+  DATA @ 0x010169a8 (in ???)
+  DATA @ 0x010169f0 (in ???)
+  DATA @ 0x01016a34 (in ???)
+  DATA @ 0x01016a64 (in ???)
+  DATA @ 0x01016a9c (in ???)
+  DATA @ 0x01016adc (in ???)
+  DATA @ 0x01016b20 (in ???)
+  DATA @ 0x01016b68 (in ???)
+  DATA @ 0x01016bc0 (in ???)
+  DATA @ 0x01016c78 (in ???)
+  DATA @ 0x01016cc0 (in ???)
+  DATA @ 0x01016d08 (in ???)
+  DATA @ 0x01016d50 (in ???)
+  DATA @ 0x01016d98 (in ???)
+  DATA @ 0x01016de0 (in ???)
+  DATA @ 0x01016e38 (in ???)
+  DATA @ 0x01016fdc (in ???)
+  DATA @ 0x0104f134 (in ???)
+  DATA @ 0x0106dc58 (in ???)
+  DATA @ 0x0106deec (in ???)
+  DATA @ 0x0106e1f8 (in ???)
+  DATA @ 0x0107cf34 (in ???)
+  DATA @ 0x010885d4 (in ???)
+  DATA @ 0x010a3734 (in ???)
+  DATA @ 0x010ade88 (in ???)
+  DATA @ 0x010c1540 (in ???)
+  DATA @ 0x010c1570 (in ???)
+  Total: 29 refs
+
+--- Calls FROM IOTask dependency priority propagation (0x00c3cae0) ---
+  0x00c3cb59 -> 0x00c3df40 FUN_00c3df40
+  Total: 1 calls
+
+======================================================================
+Instruction window BSTask packed priority read @ 0x0043cc60
+======================================================================
+   0x0043cc3d  JMP 0x0043cbf8
+   0x0043cc3f  PUSH 0x1
+   0x0043cc41  MOV ECX,dword ptr [EBP + -0x1c]
+   0x0043cc44  CALL 0x0043ccc0
+   0x0043cc49  MOV EDX,dword ptr [EBP + -0x1c]
+   0x0043cc4c  MOV EAX,dword ptr [EDX]
+   0x0043cc4e  MOV ECX,dword ptr [EBP + -0x1c]
+   0x0043cc51  MOV EDX,dword ptr [EAX + 0x28]
+   0x0043cc54  CALL EDX
+   0x0043cc56  MOV ESP,EBP
+   0x0043cc58  POP EBP
+   0x0043cc59  RET 0x4
+>> 0x0043cc60  PUSH EBP
+   0x0043cc61  MOV EBP,ESP
+   0x0043cc63  PUSH ECX
+   0x0043cc64  MOV dword ptr [EBP + -0x4],ECX
+   0x0043cc67  MOV ECX,dword ptr [EBP + -0x4]
+   0x0043cc6a  CALL 0x0043cc80
+   0x0043cc6f  MOVZX EAX,AL
+   0x0043cc72  MOV ESP,EBP
+   0x0043cc74  POP EBP
+   0x0043cc75  RET
+   0x0043cc80  PUSH EBP
+   0x0043cc81  MOV EBP,ESP
+   0x0043cc83  PUSH ECX
+   0x0043cc84  MOV dword ptr [EBP + -0x4],ECX
+   0x0043cc87  MOV EAX,dword ptr [EBP + -0x4]
+   0x0043cc8a  ADD EAX,0x10
+   0x0043cc8d  PUSH EAX
+   0x0043cc8e  CALL 0x0043cca0
+   0x0043cc93  ADD ESP,0x4
+   0x0043cc96  MOV ESP,EBP
+   0x0043cc98  POP EBP
+   0x0043cc99  RET
+   0x0043cca0  PUSH EBP
+   0x0043cca1  MOV EBP,ESP
+   0x0043cca3  MOV ECX,dword ptr [EBP + 0x8]
+   0x0043cca6  MOV EAX,dword ptr [ECX]
+   0x0043cca8  MOV EDX,dword ptr [ECX + 0x4]
+   0x0043ccab  MOV CL,0x10
+   0x0043ccad  CALL 0x00ec77e0
+   0x0043ccb2  POP EBP
+   0x0043ccb3  RET
+
+======================================================================
+Instruction window BSTask packed priority byte wrapper @ 0x0043cc80
+======================================================================
+   0x0043cc58  POP EBP
+   0x0043cc59  RET 0x4
+   0x0043cc60  PUSH EBP
+   0x0043cc61  MOV EBP,ESP
+   0x0043cc63  PUSH ECX
+   0x0043cc64  MOV dword ptr [EBP + -0x4],ECX
+   0x0043cc67  MOV ECX,dword ptr [EBP + -0x4]
+   0x0043cc6a  CALL 0x0043cc80
+   0x0043cc6f  MOVZX EAX,AL
+   0x0043cc72  MOV ESP,EBP
+   0x0043cc74  POP EBP
+   0x0043cc75  RET
+>> 0x0043cc80  PUSH EBP
+   0x0043cc81  MOV EBP,ESP
+   0x0043cc83  PUSH ECX
+   0x0043cc84  MOV dword ptr [EBP + -0x4],ECX
+   0x0043cc87  MOV EAX,dword ptr [EBP + -0x4]
+   0x0043cc8a  ADD EAX,0x10
+   0x0043cc8d  PUSH EAX
+   0x0043cc8e  CALL 0x0043cca0
+   0x0043cc93  ADD ESP,0x4
+   0x0043cc96  MOV ESP,EBP
+   0x0043cc98  POP EBP
+   0x0043cc99  RET
+   0x0043cca0  PUSH EBP
+   0x0043cca1  MOV EBP,ESP
+   0x0043cca3  MOV ECX,dword ptr [EBP + 0x8]
+   0x0043cca6  MOV EAX,dword ptr [ECX]
+   0x0043cca8  MOV EDX,dword ptr [ECX + 0x4]
+   0x0043ccab  MOV CL,0x10
+   0x0043ccad  CALL 0x00ec77e0
+   0x0043ccb2  POP EBP
+   0x0043ccb3  RET
+   0x0043ccc0  PUSH EBP
+   0x0043ccc1  MOV EBP,ESP
+   0x0043ccc3  PUSH ECX
+   0x0043ccc4  MOV dword ptr [EBP + -0x4],ECX
+   0x0043ccc7  MOV EAX,dword ptr [EBP + -0x4]
+   0x0043ccca  ADD EAX,0x3c
+   0x0043cccd  PUSH EAX
+   0x0043ccce  MOVZX ECX,byte ptr [EBP + 0x8]
+   0x0043ccd2  PUSH ECX
+   0x0043ccd3  CALL 0x0044aea0
+
+======================================================================
+Instruction window BSTask packed priority shift helper @ 0x0043cca0
+======================================================================
+   0x0043cc80  PUSH EBP
+   0x0043cc81  MOV EBP,ESP
+   0x0043cc83  PUSH ECX
+   0x0043cc84  MOV dword ptr [EBP + -0x4],ECX
+   0x0043cc87  MOV EAX,dword ptr [EBP + -0x4]
+   0x0043cc8a  ADD EAX,0x10
+   0x0043cc8d  PUSH EAX
+   0x0043cc8e  CALL 0x0043cca0
+   0x0043cc93  ADD ESP,0x4
+   0x0043cc96  MOV ESP,EBP
+   0x0043cc98  POP EBP
+   0x0043cc99  RET
+>> 0x0043cca0  PUSH EBP
+   0x0043cca1  MOV EBP,ESP
+   0x0043cca3  MOV ECX,dword ptr [EBP + 0x8]
+   0x0043cca6  MOV EAX,dword ptr [ECX]
+   0x0043cca8  MOV EDX,dword ptr [ECX + 0x4]
+   0x0043ccab  MOV CL,0x10
+   0x0043ccad  CALL 0x00ec77e0
+   0x0043ccb2  POP EBP
+   0x0043ccb3  RET
+   0x0043ccc0  PUSH EBP
+   0x0043ccc1  MOV EBP,ESP
+   0x0043ccc3  PUSH ECX
+   0x0043ccc4  MOV dword ptr [EBP + -0x4],ECX
+   0x0043ccc7  MOV EAX,dword ptr [EBP + -0x4]
+   0x0043ccca  ADD EAX,0x3c
+   0x0043cccd  PUSH EAX
+   0x0043ccce  MOVZX ECX,byte ptr [EBP + 0x8]
+   0x0043ccd2  PUSH ECX
+   0x0043ccd3  CALL 0x0044aea0
+   0x0043ccd8  ADD ESP,0x8
+   0x0043ccdb  MOV ESP,EBP
+   0x0043ccdd  POP EBP
+   0x0043ccde  RET 0x4
+   0x0043ccf0  PUSH EBP
+   0x0043ccf1  MOV EBP,ESP
+   0x0043ccf3  PUSH -0x1
+   0x0043ccf5  PUSH 0xeebef1
+   0x0043ccfa  MOV EAX,FS:[0x0]
+   0x0043cd00  PUSH EAX
+   0x0043cd01  SUB ESP,0x5f4
+   0x0043cd07  MOV EAX,[0x011c16bc]
+
+======================================================================
+Instruction window BSTask packed queue key builder @ 0x00c3d440
+======================================================================
+   0x00c3d40b  RET 0x4
+   0x00c3d410  PUSH EBP
+   0x00c3d411  MOV EBP,ESP
+   0x00c3d413  PUSH ECX
+   0x00c3d414  MOV dword ptr [EBP + -0x4],ECX
+   0x00c3d417  MOV ECX,dword ptr [EBP + -0x4]
+   0x00c3d41a  CALL 0x00c3cea0
+   0x00c3d41f  MOV EAX,dword ptr [EBP + 0x8]
+   0x00c3d422  AND EAX,0x1
+   0x00c3d425  JZ 0x00c3d435
+   0x00c3d427  MOV ECX,dword ptr [EBP + -0x4]
+   0x00c3d42a  PUSH ECX
+   0x00c3d42b  MOV ECX,0x11f6238
+   0x00c3d430  CALL 0x00aa4060
+   0x00c3d435  MOV EAX,dword ptr [EBP + -0x4]
+   0x00c3d438  MOV ESP,EBP
+   0x00c3d43a  POP EBP
+   0x00c3d43b  RET 0x4
+>> 0x00c3d440  PUSH EBP
+   0x00c3d441  MOV EBP,ESP
+   0x00c3d443  SUB ESP,0x18
+   0x00c3d446  PUSH ESI
+   0x00c3d447  PUSH EDI
+   0x00c3d448  MOV dword ptr [EBP + -0x18],ECX
+   0x00c3d44b  MOV EAX,dword ptr [EBP + -0x18]
+   0x00c3d44e  CMP dword ptr [EAX + 0x2c],0x0
+   0x00c3d452  JZ 0x00c3d4e0
+   0x00c3d458  PUSH 0x1202d9c
+   0x00c3d45d  CALL dword ptr [0x00fdf1c0]
+   0x00c3d463  MOV word ptr [EBP + -0x2],AX
+   0x00c3d467  MOV ECX,dword ptr [EBP + -0x18]
+   0x00c3d46a  MOV EAX,dword ptr [ECX + 0x10]
+   0x00c3d46d  MOV EDX,dword ptr [ECX + 0x14]
+   0x00c3d470  MOV CL,0x10
+   0x00c3d472  CALL 0x00ec77e0
+   0x00c3d477  MOV byte ptr [EBP + -0x3],AL
+   0x00c3d47a  MOV EDX,dword ptr [EBP + -0x18]
+   0x00c3d47d  MOV EAX,dword ptr [EDX + 0x2c]
+   0x00c3d480  MOV ECX,dword ptr [EAX + 0xc]
+   0x00c3d483  AND ECX,0x7fffffff
+   0x00c3d489  MOV dword ptr [EBP + -0x8],ECX
+   0x00c3d48c  MOV EDX,dword ptr [EBP + -0x18]
+   0x00c3d48f  MOV EAX,dword ptr [EDX]
+   0x00c3d491  MOV ECX,dword ptr [EBP + -0x18]
+   0x00c3d494  MOV EDX,dword ptr [EAX + 0x2c]
+   0x00c3d497  CALL EDX
+   0x00c3d499  MOV byte ptr [EBP + -0x9],AL
+   0x00c3d49c  MOVSX EAX,byte ptr [EBP + -0x9]
+   0x00c3d4a0  CDQ
+   0x00c3d4a1  MOV CL,0x38
+   0x00c3d4a3  CALL 0x00ec7810
+   0x00c3d4a8  MOV ESI,EAX
+   0x00c3d4aa  MOV EDI,EDX
+   0x00c3d4ac  MOV EAX,dword ptr [EBP + -0x8]
+   0x00c3d4af  XOR EDX,EDX
+   0x00c3d4b1  MOV CL,0x18
+   0x00c3d4b3  CALL 0x00ec7810
+   0x00c3d4b8  OR ESI,EAX
+   0x00c3d4ba  OR EDI,EDX
+   0x00c3d4bc  MOVZX EAX,byte ptr [EBP + -0x3]
+   0x00c3d4c0  CDQ
+   0x00c3d4c1  MOV CL,0x10
+   0x00c3d4c3  CALL 0x00ec7810
+   0x00c3d4c8  OR ESI,EAX
+   0x00c3d4ca  OR EDI,EDX
+   0x00c3d4cc  MOVZX EAX,word ptr [EBP + -0x2]
+   0x00c3d4d0  CDQ
+   0x00c3d4d1  OR ESI,EAX
+   0x00c3d4d3  OR EDI,EDX
+   0x00c3d4d5  MOV EAX,dword ptr [EBP + -0x18]
+   0x00c3d4d8  MOV dword ptr [EAX + 0x10],ESI
+   0x00c3d4db  MOV dword ptr [EAX + 0x14],EDI
+   0x00c3d4de  JMP 0x00c3d4e8
+   0x00c3d4e0  MOV ECX,dword ptr [EBP + -0x18]
+   0x00c3d4e3  CALL 0x0043db70
+   0x00c3d4e8  POP EDI
+   0x00c3d4e9  POP ESI
+   0x00c3d4ea  MOV ESP,EBP
+   0x00c3d4ec  POP EBP
+   0x00c3d4ed  RET
+   0x00c3d4f0  PUSH EBP
+   0x00c3d4f1  MOV EBP,ESP
+   0x00c3d4f3  SUB ESP,0x34
+   0x00c3d4f6  MOV dword ptr [EBP + -0x30],ECX
+   0x00c3d4f9  MOV ECX,dword ptr [EBP + -0x30]
+   0x00c3d4fc  CALL 0x00c3d6c0
+   0x00c3d501  MOV dword ptr [EBP + -0x4],EAX
+   0x00c3d504  MOV EAX,dword ptr [EBP + -0x30]
+   0x00c3d507  MOV ECX,dword ptr [EAX + 0x4]
+   0x00c3d50a  MOV EDX,dword ptr [EBP + -0x4]
+   0x00c3d50d  LEA EAX,[ECX + EDX*0x4]
+   0x00c3d510  MOV dword ptr [EBP + -0x18],EAX
+   0x00c3d513  MOV dword ptr [EBP + -0x8],0x0
+   0x00c3d51a  JMP 0x00c3d525
+   0x00c3d51c  MOV ECX,dword ptr [EBP + -0x8]
+   0x00c3d51f  ADD ECX,0x1
+   0x00c3d522  MOV dword ptr [EBP + -0x8],ECX
+   0x00c3d525  CMP dword ptr [EBP + -0x8],0x1
+   0x00c3d529  JNC 0x00c3d57a
+   0x00c3d52b  MOV EDX,dword ptr [EBP + -0x8]
+   0x00c3d52e  MOV EAX,dword ptr [EBP + -0x18]
+   0x00c3d531  LEA ECX,[EAX + EDX*0x4]
+   0x00c3d534  MOV dword ptr [EBP + -0x10],ECX
+   0x00c3d537  CMP dword ptr [EBP + -0x10],0x0
+   0x00c3d53b  JZ 0x00c3d56b
+   0x00c3d53d  MOV EDX,dword ptr [EBP + -0x10]
+   0x00c3d540  MOV dword ptr [EDX],0x0
+   0x00c3d546  MOV EAX,dword ptr [EBP + -0x10]
+   0x00c3d549  CMP dword ptr [EAX],0x0
+
+======================================================================
+Instruction window IOManager queued task priority update @ 0x00c3df40
+======================================================================
+   0x00c3df1e  ADD ECX,EAX
+   0x00c3df20  ADC ESI,EDX
+   0x00c3df22  MOV EDX,dword ptr [EBP + -0x4]
+   0x00c3df25  MOV dword ptr [EDX + 0x10],ECX
+   0x00c3df28  MOV dword ptr [EDX + 0x14],ESI
+   0x00c3df2b  JMP 0x00c3dee8
+   0x00c3df2d  MOV AL,0x1
+   0x00c3df2f  POP EDI
+   0x00c3df30  POP ESI
+   0x00c3df31  MOV ESP,EBP
+   0x00c3df33  POP EBP
+   0x00c3df34  RET 0x4
+>> 0x00c3df40  PUSH EBP
+   0x00c3df41  MOV EBP,ESP
+   0x00c3df43  SUB ESP,0xc
+   0x00c3df46  PUSH ESI
+   0x00c3df47  PUSH EDI
+   0x00c3df48  MOV dword ptr [EBP + -0xc],ECX
+   0x00c3df4b  MOV EAX,dword ptr [EBP + 0x8]
+   0x00c3df4e  MOV ECX,dword ptr [EAX + 0x10]
+   0x00c3df51  MOV dword ptr [EBP + -0x8],ECX
+   0x00c3df54  MOV EDX,dword ptr [EAX + 0x14]
+   0x00c3df57  MOV dword ptr [EBP + -0x4],EDX
+   0x00c3df5a  MOV ESI,dword ptr [EBP + -0x8]
+   0x00c3df5d  AND ESI,0xff00ffff
+   0x00c3df63  MOV EDI,dword ptr [EBP + -0x4]
+   0x00c3df66  MOV EAX,dword ptr [EBP + 0xc]
+   0x00c3df69  CDQ
+   0x00c3df6a  MOV CL,0x10
+   0x00c3df6c  CALL 0x00ec7810
+   0x00c3df71  ADD ESI,EAX
+   0x00c3df73  ADC EDI,EDX
+   0x00c3df75  MOV dword ptr [EBP + -0x8],ESI
+   0x00c3df78  MOV dword ptr [EBP + -0x4],EDI
+   0x00c3df7b  MOV EAX,dword ptr [EBP + -0x4]
+   0x00c3df7e  PUSH EAX
+   0x00c3df7f  MOV ECX,dword ptr [EBP + -0x8]
+   0x00c3df82  PUSH ECX
+   0x00c3df83  MOV EDX,dword ptr [EBP + 0x8]
+   0x00c3df86  PUSH EDX
+   0x00c3df87  MOV ECX,dword ptr [EBP + -0xc]
+   0x00c3df8a  CALL 0x00c3e690
+   0x00c3df8f  POP EDI
+   0x00c3df90  POP ESI
+   0x00c3df91  MOV ESP,EBP
+   0x00c3df93  POP EBP
+   0x00c3df94  RET 0x8
+   0x00c3dfa0  PUSH EBP
+   0x00c3dfa1  MOV EBP,ESP
+   0x00c3dfa3  SUB ESP,0x3c
+   0x00c3dfa6  MOV dword ptr [EBP + -0x20],ECX
+   0x00c3dfa9  MOV EAX,dword ptr [EBP + -0x20]
+   0x00c3dfac  CMP dword ptr [EAX + 0x68],0x7
+   0x00c3dfb0  JNZ 0x00c3dfb7
+   0x00c3dfb2  JMP 0x00c3e19b
+   0x00c3dfb7  MOV byte ptr [0x011af70c],0x0
+   0x00c3dfbe  MOV ECX,dword ptr [EBP + -0x20]
+   0x00c3dfc1  CMP dword ptr [ECX + 0x18],0x0
+   0x00c3dfc5  JNZ 0x00c3e017
+   0x00c3dfc7  MOV EDX,dword ptr [EBP + -0x20]
+   0x00c3dfca  MOV ECX,dword ptr [EDX + 0x64]
+   0x00c3dfcd  MOV EAX,dword ptr [EBP + -0x20]
+   0x00c3dfd0  MOV EDX,dword ptr [EAX + 0x64]
+
+======================================================================
+Object LOD task producer @ 0x006f6d10
+======================================================================
+  Function: FUN_006f6d10 @ 0x006f6d10, Size: 657 bytes
+
+void __thiscall
+FUN_006f6d10(undefined4 *param_1,undefined4 param_2,undefined4 param_3,uint param_4,uint param_5,
+            undefined4 param_6,char param_7,char param_8,char param_9)
+
+{
+  char cVar1;
+  uint uVar2;
+  int iVar3;
+  int *unaff_FS_OFFSET;
+  undefined1 local_120 [5];
+  undefined1 local_11b [263];
+  uint local_14;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00f06e37;
+  local_10 = *unaff_FS_OFFSET;
+  uVar2 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  local_14 = uVar2;
+  FUN_00c3ce60(3);
+  local_8 = 0;
+  *param_1 = &PTR_FUN_0106dc3c;
+  *(undefined1 *)(param_1 + 0xc) = 0;
+  param_1[0xd] = param_4;
+  param_1[0xe] = param_5;
+  param_1[0xf] = param_6;
+  param_1[0x10] = param_2;
+  param_1[0x11] = param_3;
+  FUN_00633c90(0);
+  local_8._0_1_ = 1;
+  FUN_00633c90(0);
+  local_8 = CONCAT31(local_8._1_3_,2);
+  *(undefined1 *)(param_1 + 0x14) = 0;
+  *(char *)((int)param_1 + 0x51) = param_9;
+  if (param_9 == '\0') {
+    if ((param_7 == '\0') && (cVar1 = FUN_006f6520(), cVar1 == '\0')) {
+      if (param_8 == '\0') {
+        FUN_006f55f0(local_120,param_1[0x11],param_6,param_4 & 0xffff,param_5 & 0xffff);
+      }
+      else {
+        FUN_006f5640(local_120,param_1[0x11],param_6,param_4 & 0xffff,param_5 & 0xffff);
+      }
+    }
+    else if (param_8 == '\0') {
+      FUN_006f5690(local_120,param_1[0x11],param_6,param_4 & 0xffff,param_5 & 0xffff);
+      iVar3 = FUN_00456a20(local_120,0,0,0xffffffff);
+      if (iVar3 == 0) {
+        FUN_006f55f0(local_120,param_1[0x11],param_6,param_4 & 0xffff,param_5 & 0xffff);
+      }
+    }
+    else {
+      FUN_006f5640(local_120,param_1[0x11],param_6,param_4 & 0xffff,param_5 & 0xffff);
+    }
+  }
+  else if (param_8 == '\0') {
+    FUN_006f56e0(local_120,param_1[0x11],param_6,param_4 & 0xffff,param_5 & 0xffff,uVar2);
+  }
+  else {
+    FUN_006f5730(local_120,param_1[0x11],param_6,param_4 & 0xffff,param_5 & 0xffff);
+  }
+  FUN_00c3cee0(local_11b);
+  FUN_00c3cf60(0);
+  local_8 = 0xffffffff;
+  *unaff_FS_OFFSET = local_10;
+  __security_check_cookie(local_14 ^ (uint)&stack0xfffffffc);
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x006f6d10 (Object LOD task producer)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x006f52ec (in FUN_006f5160)
+  UNCONDITIONAL_CALL @ 0x006f6486 (in FUN_006f6370)
+  UNCONDITIONAL_CALL @ 0x006f6649 (in FUN_006f6540)
+  UNCONDITIONAL_CALL @ 0x006f62fd (in FUN_006f6270)
+  Total: 4 refs
+
+--- Calls FROM Object LOD task producer (0x006f6d10) ---
+  0x006f6d49 -> 0x00c3ce60 FUN_00c3ce60
+  0x006f6db2 -> 0x00633c90 FUN_00633c90
+  0x006f6dc6 -> 0x00633c90 FUN_00633c90
+  0x006f6dff -> 0x006f6520 FUN_006f6520
+  0x006f6e32 -> 0x006f5640 FUN_006f5640
+  0x006f6e5b -> 0x006f55f0 FUN_006f55f0
+  0x006f6e8f -> 0x006f5640 FUN_006f5640
+  0x006f6eb8 -> 0x006f5690 FUN_006f5690
+  0x006f6ecd -> 0x00456a20 FUN_00456a20
+  0x006f6ef8 -> 0x006f55f0 FUN_006f55f0
+  0x006f6f29 -> 0x006f5730 FUN_006f5730
+  0x006f6f52 -> 0x006f56e0 FUN_006f56e0
+  0x006f6f67 -> 0x00c3cee0 FUN_00c3cee0
+  0x006f6f74 -> 0x00c3cf60 FUN_00c3cf60
+  0x006f6f96 -> 0x00ec408c __security_check_cookie
+  Total: 15 calls
+
+======================================================================
+Object LOD task constructor @ 0x006f6fe0
+======================================================================
+  Function: FUN_006f6fe0 @ 0x006f6fe0, Size: 140 bytes
+
+void __fastcall FUN_006f6fe0(undefined4 *param_1)
+
+{
+  uint uVar1;
+  int *unaff_FS_OFFSET;
+  int local_10;
+  undefined1 *puStack_c;
+  int local_8;
+  
+  puStack_c = &LAB_00f06e7e;
+  local_10 = *unaff_FS_OFFSET;
+  uVar1 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  *param_1 = &PTR_FUN_0106dc3c;
+  local_8 = 2;
+  FUN_0066b0d0(0);
+  FUN_0066b0d0(0);
+  local_8._0_1_ = 1;
+  Concurrency::cancellation_token_source::~cancellation_token_source
+            ((cancellation_token_source *)(param_1 + 0x13));
+  local_8 = (uint)local_8._1_3_ << 8;
+  Concurrency::cancellation_token_source::~cancellation_token_source
+            ((cancellation_token_source *)(param_1 + 0x12));
+  local_8 = 0xffffffff;
+  FUN_00c3cea0(uVar1);
+  *unaff_FS_OFFSET = local_10;
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x006f6fe0 (Object LOD task constructor)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x006f6fba (in FUN_006f6fb0)
+  Total: 1 refs
+
+--- Calls FROM Object LOD task constructor (0x006f6fe0) ---
+  0x006f701e -> 0x0066b0d0 FUN_0066b0d0
+  0x006f702b -> 0x0066b0d0 FUN_0066b0d0
+  0x006f703a -> 0x0045cec0 ~cancellation_token_source
+  0x006f7049 -> 0x0045cec0 ~cancellation_token_source
+  0x006f7058 -> 0x00c3cea0 FUN_00c3cea0
+  Total: 5 calls
+
+======================================================================
+Tree LOD task producer @ 0x006f9360
+======================================================================
+  Function: FUN_006f9360 @ 0x006f9360, Size: 263 bytes
+
+void __thiscall
+FUN_006f9360(undefined4 *param_1,undefined4 param_2,undefined4 param_3,uint param_4,uint param_5,
+            undefined4 param_6)
+
+{
+  uint uVar1;
+  int *unaff_FS_OFFSET;
+  undefined1 local_120 [5];
+  undefined1 local_11b [263];
+  uint local_14;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00f0715b;
+  local_10 = *unaff_FS_OFFSET;
+  uVar1 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  local_14 = uVar1;
+  FUN_00c3ce60(3);
+  local_8 = 0;
+  *param_1 = &PTR_FUN_0106ded0;
+  param_1[0xc] = param_2;
+  *(undefined1 *)(param_1 + 0xd) = 0;
+  param_1[0xe] = param_4;
+  param_1[0xf] = param_5;
+  param_1[0x10] = param_6;
+  *(undefined1 *)(param_1 + 0x11) = 0;
+  FUN_006f8890(local_120,param_3,param_6,param_4 & 0xffff,param_5 & 0xffff,uVar1);
+  FUN_00c3cee0(local_11b);
+  FUN_00c3cf60(0);
+  *(undefined1 *)((int)param_1 + 0x45) = 0;
+  local_8 = 0xffffffff;
+  *unaff_FS_OFFSET = local_10;
+  __security_check_cookie(local_14 ^ (uint)&stack0xfffffffc);
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x006f9360 (Tree LOD task producer)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x006f7642 (in FUN_006f7540)
+  Total: 1 refs
+
+--- Calls FROM Tree LOD task producer (0x006f9360) ---
+  0x006f9399 -> 0x00c3ce60 FUN_00c3ce60
+  0x006f940e -> 0x006f8890 FUN_006f8890
+  0x006f9423 -> 0x00c3cee0 FUN_00c3cee0
+  0x006f9430 -> 0x00c3cf60 FUN_00c3cf60
+  0x006f945c -> 0x00ec408c __security_check_cookie
+  Total: 5 calls
+
+======================================================================
+Tree LOD task constructor @ 0x006f94a0
+======================================================================
+  Function: FUN_006f94a0 @ 0x006f94a0, Size: 28 bytes
+
+void __fastcall FUN_006f94a0(undefined4 *param_1)
+
+{
+  *param_1 = &PTR_FUN_0106ded0;
+  FUN_00c3cea0();
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x006f94a0 (Tree LOD task constructor)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x006f947a (in FUN_006f9470)
+  Total: 1 refs
+
+--- Calls FROM Tree LOD task constructor (0x006f94a0) ---
+  0x006f94b3 -> 0x00c3cea0 FUN_00c3cea0
+  Total: 1 calls
+
+======================================================================
+Terrain LOD task producer @ 0x006fb980
+======================================================================
+  Function: FUN_006fb980 @ 0x006fb980, Size: 351 bytes
+
+void __thiscall
+FUN_006fb980(undefined4 *param_1,undefined4 param_2,undefined4 param_3,uint param_4,uint param_5,
+            undefined4 param_6)
+
+{
+  int *unaff_FS_OFFSET;
+  undefined1 local_120 [5];
+  undefined1 local_11b [263];
+  uint local_14;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00f073c3;
+  local_10 = *unaff_FS_OFFSET;
+  local_14 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  FUN_00c3ce60(3);
+  local_8 = 0;
+  *param_1 = &PTR_FUN_0106e1dc;
+  *(undefined1 *)(param_1 + 0xc) = 0;
+  param_1[0xd] = param_4;
+  param_1[0xe] = param_5;
+  param_1[0xf] = param_6;
+  param_1[0x10] = param_2;
+  param_1[0x11] = param_3;
+  FUN_00633c90(0);
+  local_8._0_1_ = 1;
+  FUN_00633c90(0);
+  local_8._0_1_ = 2;
+  FUN_00633c90(0);
+  local_8._0_1_ = 3;
+  FUN_00633c90(0);
+  local_8 = CONCAT31(local_8._1_3_,4);
+  *(undefined1 *)(param_1 + 0x16) = 0;
+  FUN_006faad0(local_120,param_1[0x11],param_6,param_4 & 0xffff,param_5 & 0xffff);
+  FUN_00c3cee0(local_11b);
+  FUN_00c3cf60(0);
+  local_8 = 0xffffffff;
+  *unaff_FS_OFFSET = local_10;
+  __security_check_cookie(local_14 ^ (uint)&stack0xfffffffc);
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x006fb980 (Terrain LOD task producer)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x006fa324 (in FUN_006fa210)
+  Total: 1 refs
+
+--- Calls FROM Terrain LOD task producer (0x006fb980) ---
+  0x006fb9b9 -> 0x00c3ce60 FUN_00c3ce60
+  0x006fba22 -> 0x00633c90 FUN_00633c90
+  0x006fba36 -> 0x00633c90 FUN_00633c90
+  0x006fba4a -> 0x00633c90 FUN_00633c90
+  0x006fba5e -> 0x00633c90 FUN_00633c90
+  0x006fba90 -> 0x006faad0 FUN_006faad0
+  0x006fbaa5 -> 0x00c3cee0 FUN_00c3cee0
+  0x006fbab2 -> 0x00c3cf60 FUN_00c3cf60
+  0x006fbad4 -> 0x00ec408c __security_check_cookie
+  Total: 9 calls
+
+======================================================================
+Terrain LOD task constructor @ 0x006fbb10
+======================================================================
+  Function: FUN_006fbb10 @ 0x006fbb10, Size: 183 bytes
+
+void __fastcall FUN_006fbb10(undefined4 *param_1)
+
+{
+  int *unaff_FS_OFFSET;
+  int local_10;
+  undefined1 *puStack_c;
+  int local_8;
+  
+  puStack_c = &LAB_00f07424;
+  local_10 = *unaff_FS_OFFSET;
+  *unaff_FS_OFFSET = (int)&local_10;
+  *param_1 = &PTR_FUN_0106e1dc;
+  local_8 = 4;
+  FUN_0066b0d0(0);
+  FUN_0066b0d0(0);
+  FUN_0066b0d0(0);
+  local_8._0_1_ = 3;
+  Concurrency::cancellation_token_source::~cancellation_token_source
+            ((cancellation_token_source *)(param_1 + 0x15));
+  local_8._0_1_ = 2;
+  Concurrency::cancellation_token_source::~cancellation_token_source
+            ((cancellation_token_source *)(param_1 + 0x14));
+  local_8._0_1_ = 1;
+  Concurrency::cancellation_token_source::~cancellation_token_source
+            ((cancellation_token_source *)(param_1 + 0x13));
+  local_8 = (uint)local_8._1_3_ << 8;
+  Concurrency::cancellation_token_source::~cancellation_token_source
+            ((cancellation_token_source *)(param_1 + 0x12));
+  local_8 = 0xffffffff;
+  FUN_00c3cea0();
+  *unaff_FS_OFFSET = local_10;
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x006fbb10 (Terrain LOD task constructor)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x006fbaea (in FUN_006fbae0)
+  Total: 1 refs
+
+--- Calls FROM Terrain LOD task constructor (0x006fbb10) ---
+  0x006fbb4e -> 0x0066b0d0 FUN_0066b0d0
+  0x006fbb5b -> 0x0066b0d0 FUN_0066b0d0
+  0x006fbb68 -> 0x0066b0d0 FUN_0066b0d0
+  0x006fbb77 -> 0x0045cec0 ~cancellation_token_source
+  0x006fbb86 -> 0x0045cec0 ~cancellation_token_source
+  0x006fbb95 -> 0x0045cec0 ~cancellation_token_source
+  0x006fbba4 -> 0x0045cec0 ~cancellation_token_source
+  0x006fbbb3 -> 0x00c3cea0 FUN_00c3cea0
+  Total: 8 calls
+
+======================================================================
+Dependency task constructor A @ 0x0043bd10
+======================================================================
+  Function: FUN_0043bd10 @ 0x0043bd10, Size: 208 bytes
+
+void __thiscall FUN_0043bd10(undefined4 *param_1,undefined4 param_2,undefined4 param_3)
+
+{
+  uint uVar1;
+  int *unaff_FS_OFFSET;
+  undefined1 local_120 [268];
+  uint local_14;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00eebe09;
+  local_10 = *unaff_FS_OFFSET;
+  uVar1 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  local_14 = uVar1;
+  FUN_00c3ce60(param_3);
+  local_8 = 0;
+  *param_1 = &PTR_FUN_01016788;
+  FUN_00633c90(0);
+  local_8 = CONCAT31(local_8._1_3_,1);
+  *(undefined1 *)(param_1 + 0xd) = 0;
+  FUN_00af4200(param_2,local_120,0x104,uVar1);
+  FUN_00c3cee0(local_120);
+  FUN_00c3cf60(1);
+  local_8 = 0xffffffff;
+  *unaff_FS_OFFSET = local_10;
+  __security_check_cookie(local_14 ^ (uint)&stack0xfffffffc);
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x0043bd10 (Dependency task constructor A)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0043d552 (in FUN_0043d540)
+  UNCONDITIONAL_CALL @ 0x004439ef (in FUN_004436c0)
+  Total: 2 refs
+
+--- Calls FROM Dependency task constructor A (0x0043bd10) ---
+  0x0043bd4b -> 0x00c3ce60 FUN_00c3ce60
+  0x0043bd6e -> 0x00633c90 FUN_00633c90
+  0x0043bd91 -> 0x00af4200 FUN_00af4200
+  0x0043bda6 -> 0x00c3cee0 FUN_00c3cee0
+  0x0043bdb3 -> 0x00c3cf60 FUN_00c3cf60
+  0x0043bdd5 -> 0x00ec408c __security_check_cookie
+  Total: 6 calls
+
+======================================================================
+Dependency task constructor B @ 0x0043be60
+======================================================================
+  Function: FUN_0043be60 @ 0x0043be60, Size: 129 bytes
+
+undefined4 * __thiscall FUN_0043be60(undefined4 *param_1,undefined4 param_2,undefined4 param_3)
+
+{
+  int *unaff_FS_OFFSET;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00eebe53;
+  local_10 = *unaff_FS_OFFSET;
+  *unaff_FS_OFFSET = (int)&local_10;
+  FUN_00c3ce60(param_3);
+  local_8 = 0;
+  *param_1 = &PTR_FUN_01016788;
+  FUN_00633c90(0);
+  local_8 = CONCAT31(local_8._1_3_,1);
+  *(undefined1 *)(param_1 + 0xd) = 0;
+  FUN_00c3cf40(param_2);
+  *unaff_FS_OFFSET = local_10;
+  return param_1;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x0043be60 (Dependency task constructor B)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00443ca1 (in FUN_00443af0)
+  UNCONDITIONAL_CALL @ 0x00443976 (in FUN_004436c0)
+  Total: 2 refs
+
+--- Calls FROM Dependency task constructor B (0x0043be60) ---
+  0x0043be8d -> 0x00c3ce60 FUN_00c3ce60
+  0x0043beaa -> 0x00633c90 FUN_00633c90
+  0x0043bec1 -> 0x00c3cf40 FUN_00c3cf40
+  Total: 3 calls
+
+======================================================================
+Cached dependency task constructor @ 0x0043bef0
+======================================================================
+  Function: FUN_0043bef0 @ 0x0043bef0, Size: 140 bytes
+
+undefined4 * __thiscall FUN_0043bef0(undefined4 *param_1,undefined4 param_2,undefined4 param_3)
+
+{
+  uint uVar1;
+  int *unaff_FS_OFFSET;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00eebe53;
+  local_10 = *unaff_FS_OFFSET;
+  uVar1 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  FUN_00c3ce60(param_3);
+  local_8 = 0;
+  *param_1 = &PTR_FUN_01016788;
+  FUN_00633c90(0);
+  local_8 = CONCAT31(local_8._1_3_,1);
+  *(undefined1 *)(param_1 + 0xd) = 0;
+  FUN_0066b0d0(param_2);
+  FUN_00449150(uVar1);
+  *unaff_FS_OFFSET = local_10;
+  return param_1;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x0043bef0 (Cached dependency task constructor)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00443bb1 (in FUN_00443af0)
+  UNCONDITIONAL_CALL @ 0x004437ae (in FUN_004436c0)
+  Total: 2 refs
+
+--- Calls FROM Cached dependency task constructor (0x0043bef0) ---
+  0x0043bf1d -> 0x00c3ce60 FUN_00c3ce60
+  0x0043bf3a -> 0x00633c90 FUN_00633c90
+  0x0043bf54 -> 0x0066b0d0 FUN_0066b0d0
+  0x0043bf5c -> 0x00449150 FUN_00449150
+  Total: 4 calls
+
+======================================================================
+IOTask base constructor with inherited key @ 0x00c3ce60
+======================================================================
+  Function: FUN_00c3ce60 @ 0x00c3ce60, Size: 57 bytes
+
+undefined4 * __thiscall FUN_00c3ce60(undefined4 *param_1,undefined4 param_2)
+
+{
+  FUN_00c3c590(param_2);
+  *param_1 = &PTR_FUN_010c1554;
+  param_1[10] = 0;
+  param_1[0xb] = 0;
+  return param_1;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00c3ce60 (IOTask base constructor with inherited key)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0063fa3b (in FUN_0063fa10)
+  UNCONDITIONAL_CALL @ 0x0083725c (in CPrintDialog)
+  UNCONDITIONAL_CALL @ 0x0043c70d (in FUN_0043c6e0)
+  UNCONDITIONAL_CALL @ 0x0043e11d (in FUN_0043e0f0)
+  UNCONDITIONAL_CALL @ 0x0043c8bd (in FUN_0043c890)
+  UNCONDITIONAL_CALL @ 0x0043c98d (in FUN_0043c960)
+  UNCONDITIONAL_CALL @ 0x0043be8d (in FUN_0043be60)
+  UNCONDITIONAL_CALL @ 0x0043bf1d (in FUN_0043bef0)
+  UNCONDITIONAL_CALL @ 0x006fb9b9 (in FUN_006fb980)
+  UNCONDITIONAL_CALL @ 0x006f6d49 (in FUN_006f6d10)
+  UNCONDITIONAL_CALL @ 0x006f9399 (in FUN_006f9360)
+  UNCONDITIONAL_CALL @ 0x00ae6f89 (in FUN_00ae6f50)
+  UNCONDITIONAL_CALL @ 0x00b6066b (in FUN_00b60640)
+  UNCONDITIONAL_CALL @ 0x0043bd4b (in FUN_0043bd10)
+  UNCONDITIONAL_CALL @ 0x0043e23d (in FUN_0043e210)
+  UNCONDITIONAL_CALL @ 0x00441dad (in FUN_00441d80)
+  UNCONDITIONAL_CALL @ 0x00441c7d (in FUN_00441c50)
+  UNCONDITIONAL_CALL @ 0x00905bcb (in FUN_00905ba0)
+  Total: 18 refs
+
+--- Calls FROM IOTask base constructor with inherited key (0x00c3ce60) ---
+  0x00c3ce6e -> 0x00c3c590 FUN_00c3c590
+  Total: 1 calls
+
+# GENERIC LOCK-FREE MAP TLS CAPACITY
+
+======================================================================
+LockFreeMap base constructor candidate @ 0x00449090
+======================================================================
+  Function: FUN_00449090 @ 0x00449090, Size: 73 bytes
+
+undefined4 * __fastcall FUN_00449090(undefined4 *param_1)
+
+{
+  *param_1 = &PTR_FUN_01017138;
+  param_1[2] = 0;
+  param_1[3] = 0;
+  param_1[4] = 0;
+  param_1[5] = 0;
+  FUN_0040b460(&DAT_011c3b38);
+  return param_1;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00449090 (LockFreeMap base constructor candidate)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00440569 (in FUN_00440540)
+  Total: 1 refs
+
+--- Calls FROM LockFreeMap base constructor candidate (0x00449090) ---
+  0x004490ca -> 0x0040b460 FUN_0040b460
+  Total: 1 calls
+
+======================================================================
+LockFreeMap constructor @ 0x0044c270
+======================================================================
+  Function: FUN_0044c270 @ 0x0044c270, Size: 381 bytes
+
+undefined4 * __thiscall
+FUN_0044c270(undefined4 *param_1,int param_2,undefined4 param_3,undefined4 param_4)
+
+{
+  longlong lVar1;
+  uint uVar2;
+  undefined4 uVar3;
+  int iVar4;
+  int *unaff_FS_OFFSET;
+  undefined4 local_38;
+  void *local_34;
+  int local_10;
+  undefined1 *puStack_c;
+  int local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00eecf76;
+  local_10 = *unaff_FS_OFFSET;
+  uVar2 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  FUN_0044d7f0(uVar2);
+  local_8 = 0;
+  *param_1 = &PTR_FUN_0101760c;
+  Concurrency::details::QuickBitSet::QuickBitSet((QuickBitSet *)(param_1 + 8));
+  FUN_00404eb0(6,1,"d:\\_fallout3\\platforms\\common\\code\\bsmain\\ThreadSafeStructures.inl",0x390)
+  ;
+  local_8._0_1_ = 1;
+  param_1[6] = 0;
+  param_1[2] = param_3;
+  uVar2 = param_1[2];
+  lVar1 = (ulonglong)uVar2 * 4;
+  local_34 = (void *)FUN_00401000(-(uint)((int)((ulonglong)lVar1 >> 0x20) != 0) | (uint)lVar1);
+  local_8._0_1_ = 2;
+  if (local_34 == (void *)0x0) {
+    local_34 = (void *)0x0;
+  }
+  else {
+    _vector_constructor_iterator_(local_34,4,uVar2,FUN_0044dee0);
+  }
+  local_8._0_1_ = 1;
+  param_1[3] = local_34;
+  lVar1 = (ulonglong)(uint)(param_2 * 3) * 4;
+  uVar3 = FUN_00401000(-(uint)((int)((ulonglong)lVar1 >> 0x20) != 0) | (uint)lVar1);
+  param_1[1] = uVar3;
+  param_1[4] = param_4;
+  iVar4 = FUN_00401000(0x10);
+  local_8._0_1_ = 3;
+  if (iVar4 == 0) {
+    local_38 = 0;
+  }
+  else {
+    local_38 = FUN_006c73b0(param_2);
+  }
+  param_1[5] = local_38;
+  local_8 = (uint)local_8._1_3_ << 8;
+  FUN_00404ee0();
+  *unaff_FS_OFFSET = local_10;
+  return param_1;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x0044c270 (LockFreeMap constructor)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00449fb6 (in FUN_00449fa0)
+  Total: 1 refs
+
+--- Calls FROM LockFreeMap constructor (0x0044c270) ---
+  0x0044c29b -> 0x0044d7f0 FUN_0044d7f0
+  0x0044c2b6 -> 0x0096a2d0 QuickBitSet
+  0x0044c2cc -> 0x00404eb0 FUN_00404eb0
+  0x0044c305 -> 0x00401000 FUN_00401000
+  0x0044c329 -> 0x00401050 `vector_constructor_iterator'
+  0x0044c367 -> 0x00401000 FUN_00401000
+  0x0044c386 -> 0x00401000 FUN_00401000
+  0x0044c3a2 -> 0x006c73b0 FUN_006c73b0
+  0x0044c3cd -> 0x00404ee0 FUN_00404ee0
+  Total: 9 calls
+
+======================================================================
+LockFreeMap destructor @ 0x0044cb70
+======================================================================
+  Function: TaskStack @ 0x0044cb70, Size: 50 bytes
+
+/* Library Function - Single Match
+    public: __thiscall Concurrency::details::TaskStack::TaskStack(void)
+   
+   Library: Visual Studio */
+
+TaskStack * __thiscall Concurrency::details::TaskStack::TaskStack(TaskStack *this)
+
+{
+  *(undefined ***)this = &PTR_FUN_01017294;
+  *(undefined4 *)(this + 4) = 0;
+  *(undefined4 *)(this + 8) = 0;
+  this[0xc] = (TaskStack)0x0;
+  return this;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x0044cb70 (LockFreeMap destructor)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x004498ea (in FUN_004498e0)
+  Total: 1 refs
+
+--- Calls FROM LockFreeMap destructor (0x0044cb70) ---
+  Total: 0 calls
+
+======================================================================
+LockFreeMap TLS value constructor @ 0x0044cd00
+======================================================================
+  Function: FUN_0044cd00 @ 0x0044cd00, Size: 62 bytes
+
+undefined4 * __thiscall
+FUN_0044cd00(undefined4 *param_1,undefined4 param_2,undefined4 param_3,undefined4 param_4)
+
+{
+  *param_1 = param_2;
+  param_1[1] = param_3;
+  param_1[2] = param_4;
+  param_1[3] = 0;
+  param_1[4] = 0;
+  return param_1;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x0044cd00 (LockFreeMap TLS value constructor)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0044b6e2 (in FUN_0044b660)
+  UNCONDITIONAL_CALL @ 0x006c6632 (in FUN_006c65b0)
+  UNCONDITIONAL_CALL @ 0x00c3f845 (in FUN_00c3f7a0)
+  Total: 3 refs
+
+--- Calls FROM LockFreeMap TLS value constructor (0x0044cd00) ---
+  Total: 0 calls
+
+======================================================================
+LockFreeMap current thread TLS lookup @ 0x0044d5b0
+======================================================================
+  Function: FUN_0044d5b0 @ 0x0044d5b0, Size: 15 bytes
+
+void FUN_0044d5b0(DWORD param_1)
+
+{
+  TlsGetValue(param_1);
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x0044d5b0 (LockFreeMap current thread TLS lookup)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0044d5d0 (in FUN_0044d5c0)
+  Total: 1 refs
+
+--- Calls FROM LockFreeMap current thread TLS lookup (0x0044d5b0) ---
+  0x0044d5b7 -> 0x00000007 ???
+  Total: 1 calls
+
+======================================================================
+LockFreeMap TLS lookup with allocation @ 0x0044d5c0
+======================================================================
+  Function: FUN_0044d5c0 @ 0x0044d5c0, Size: 56 bytes
+
+int __thiscall FUN_0044d5c0(int param_1,undefined4 param_2)
+
+{
+  int iVar1;
+  
+  iVar1 = FUN_0044d5b0(*(undefined4 *)(param_1 + 4));
+  if (iVar1 == 0) {
+    iVar1 = FUN_0044e3a0(param_2);
+  }
+  return iVar1;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x0044d5c0 (LockFreeMap TLS lookup with allocation)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00449f91 (in FUN_00449f80)
+  Total: 1 refs
+
+--- Calls FROM LockFreeMap TLS lookup with allocation (0x0044d5c0) ---
+  0x0044d5d0 -> 0x0044d5b0 FUN_0044d5b0
+  0x0044d5ed -> 0x0044e3a0 FUN_0044e3a0
+  Total: 2 calls
+
+======================================================================
+LockFreeMap TLS registration @ 0x0044e340
+======================================================================
+  Function: FUN_0044e340 @ 0x0044e340, Size: 19 bytes
+
+void FUN_0044e340(DWORD param_1,LPVOID param_2)
+
+{
+  TlsSetValue(param_1,param_2);
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x0044e340 (LockFreeMap TLS registration)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0044e40f (in FUN_0044e3a0)
+  Total: 1 refs
+
+--- Calls FROM LockFreeMap TLS registration (0x0044e340) ---
+  0x0044e34b -> 0x00000009 ???
+  Total: 1 calls
+
+======================================================================
+LockFreeMap TLS slot allocation and capacity gate @ 0x0044e3a0
+======================================================================
+  Function: FUN_0044e3a0 @ 0x0044e3a0, Size: 128 bytes
+
+undefined4 __thiscall FUN_0044e3a0(uint *param_1,int *param_2)
+
+{
+  int iVar1;
+  uint uVar2;
+  undefined4 uVar3;
+  undefined4 local_8;
+  
+  local_8 = 0;
+  iVar1 = FUN_0040b460(param_1 + 3);
+  uVar2 = iVar1 - 1;
+  if (uVar2 < *param_1) {
+    local_8 = (**(code **)(*param_2 + 4))(uVar2);
+    *(undefined4 *)(param_1[2] + 4 + uVar2 * 8) = local_8;
+    uVar3 = FUN_0040fc90();
+    *(undefined4 *)(param_1[2] + uVar2 * 8) = uVar3;
+    FUN_0044e340(param_1[1],local_8);
+  }
+  return local_8;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x0044e3a0 (LockFreeMap TLS slot allocation and capacity gate)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0044d5ed (in FUN_0044d5c0)
+  Total: 1 refs
+
+--- Calls FROM LockFreeMap TLS slot allocation and capacity gate (0x0044e3a0) ---
+  0x0044e3b7 -> 0x0040b460 FUN_0040b460
+  0x0044e3f3 -> 0x0040fc90 FUN_0040fc90
+  0x0044e40f -> 0x0044e340 FUN_0044e340
+  Total: 3 calls
+
+======================================================================
+Direct callees of LockFreeMap constructor @ 0x0044c270
+======================================================================
+
+======================================================================
+LockFreeMap constructor direct callee @ 0x0044d7f0
+======================================================================
+  Function: FUN_0044d7f0 @ 0x0044d7f0, Size: 23 bytes
+
+undefined4 * __fastcall FUN_0044d7f0(undefined4 *param_1)
+
+{
+  *param_1 = &PTR_FUN_01017458;
+  return param_1;
+}
+
+
+
+======================================================================
+LockFreeMap constructor direct callee @ 0x0096a2d0
+======================================================================
+  Function: QuickBitSet @ 0x0096a2d0, Size: 33 bytes
+
+/* Library Function - Single Match
+    public: __thiscall Concurrency::details::QuickBitSet::QuickBitSet(void)
+   
+   Libraries: Visual Studio 2012, Visual Studio 2015, Visual Studio 2017, Visual Studio 2019 */
+
+QuickBitSet * __thiscall Concurrency::details::QuickBitSet::QuickBitSet(QuickBitSet *this)
+
+{
+  *(undefined4 *)this = 0;
+  *(undefined4 *)(this + 4) = 0;
+  return this;
+}
+
+
+
+======================================================================
+LockFreeMap constructor direct callee @ 0x00404eb0
+======================================================================
+  Function: FUN_00404eb0 @ 0x00404eb0, Size: 41 bytes
+
+undefined4 __thiscall
+FUN_00404eb0(undefined4 param_1,undefined4 param_2,undefined1 param_3,undefined4 param_4,
+            undefined4 param_5)
+
+{
+  FUN_00404f00(param_2,param_3,param_4,param_5);
+  return param_1;
+}
+
+
+
+======================================================================
+LockFreeMap constructor direct callee @ 0x00401000
+======================================================================
+  Function: FUN_00401000 @ 0x00401000, Size: 21 bytes
+
+void FUN_00401000(undefined4 param_1)
+
+{
+  FUN_00401020(param_1);
+  FUN_00aa3e40(param_1);
+  return;
+}
+
+
+
+======================================================================
+LockFreeMap constructor direct callee @ 0x00401050
+======================================================================
+  Function: `vector_constructor_iterator' @ 0x00401050, Size: 35 bytes
+
+/* Library Function - Single Match
+    void __stdcall `vector constructor iterator'(void *,unsigned int,int,void * (__thiscall*)(void
+   *))
+   
+   Library: Visual Studio */
+
+void _vector_constructor_iterator_
+               (void *param_1,uint param_2,int param_3,_func_void_ptr_void_ptr *param_4)
+
+{
+  void *unaff_EBP;
+  
+  while( true ) {
+    param_3 = param_3 + -1;
+    if (param_3 < 0) break;
+    (*param_4)(unaff_EBP);
+  }
+  return;
+}
+
+
+
+======================================================================
+LockFreeMap constructor direct callee @ 0x006c73b0
+======================================================================
+  Function: FUN_006c73b0 @ 0x006c73b0, Size: 233 bytes
+
+uint * __thiscall FUN_006c73b0(uint *param_1,uint param_2)
+
+{
+  longlong lVar1;
+  uint uVar2;
+  uint uVar3;
+  int *unaff_FS_OFFSET;
+  void *local_28;
+  int local_10;
+  undefined1 *puStack_c;
+  int local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00f16bc3;
+  local_10 = *unaff_FS_OFFSET;
+  uVar2 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  FUN_00404eb0(6,1,"d:\\_fallout3\\platforms\\common\\code\\bsmain\\ThreadSafeStructures.inl",0x14);
+  local_8 = 0;
+  param_1[3] = 0;
+  *param_1 = param_2;
+  uVar3 = *param_1;
+  lVar1 = (ulonglong)uVar3 * 8;
+  local_28 = (void *)FUN_00401000(-(uint)((int)((ulonglong)lVar1 >> 0x20) != 0) | (uint)lVar1,uVar2)
+  ;
+  local_8._0_1_ = 1;
+  if (local_28 == (void *)0x0) {
+    local_28 = (void *)0x0;
+  }
+  else {
+    _vector_constructor_iterator_(local_28,8,uVar3,Concurrency::details::QuickBitSet::QuickBitSet);
+  }
+  local_8 = (uint)local_8._1_3_ << 8;
+  param_1[2] = (uint)local_28;
+  uVar3 = FUN_0044e330();
+  param_1[1] = uVar3;
+  local_8 = 0xffffffff;
+  FUN_00404ee0();
+  *unaff_FS_OFFSET = local_10;
+  return param_1;
+}
+
+
+
+======================================================================
+LockFreeMap constructor direct callee @ 0x00404ee0
+======================================================================
+  Function: FUN_00404ee0 @ 0x00404ee0, Size: 19 bytes
+
+void __fastcall FUN_00404ee0(undefined4 param_1)
+
+{
+  FUN_00404f70(param_1);
+  return;
+}
+
+
+
+======================================================================
+Decompiled callers of LockFreeMap constructor @ 0x0044c270
+======================================================================
+
+======================================================================
+LockFreeMap constructor caller @ 0x00449fa0
+======================================================================
+  Function: FUN_00449fa0 @ 0x00449fa0, Size: 45 bytes
+
+undefined4 * __thiscall
+FUN_00449fa0(undefined4 *param_1,undefined4 param_2,undefined4 param_3,undefined4 param_4)
+
+{
+  FUN_0044c270(param_2,param_3,param_4);
+  *param_1 = &PTR_FUN_0101732c;
+  return param_1;
+}
+
+
+
+--- Calls FROM LockFreeMap constructor caller (0x00449fa0) ---
+  0x00449fb6 -> 0x0044c270 FUN_0044c270
+  Total: 1 calls
+
+======================================================================
+Decompiled callers of LockFreeMap base constructor candidate @ 0x00449090
+======================================================================
+
+======================================================================
+LockFreeMap base constructor candidate caller @ 0x00440540
+======================================================================
+  Function: FUN_00440540 @ 0x00440540, Size: 101 bytes
+
+undefined4 * __thiscall FUN_00440540(undefined4 *param_1,undefined4 param_2)
+
+{
+  uint uVar1;
+  int *unaff_FS_OFFSET;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00eec248;
+  local_10 = *unaff_FS_OFFSET;
+  uVar1 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  FUN_00449090(uVar1);
+  local_8 = 0;
+  *param_1 = &PTR_FUN_01016c10;
+  FUN_004405b0(param_2);
+  *unaff_FS_OFFSET = local_10;
+  return param_1;
+}
+
+
+
+--- Calls FROM LockFreeMap base constructor candidate caller (0x00440540) ---
+  0x00440569 -> 0x00449090 FUN_00449090
+  0x00440585 -> 0x004405b0 FUN_004405b0
+  Total: 2 calls
+
+======================================================================
+Code-reference windows to LockFreeMap constructor @ 0x0044c270
+======================================================================
+
+----------------------------------------------------------------------
+Reference 0x00449fb6 in FUN_00449fa0
+   0x00449f8a  PUSH EAX
+   0x00449f8b  MOV ECX,dword ptr [EBP + -0x4]
+   0x00449f8e  MOV ECX,dword ptr [ECX + 0x14]
+   0x00449f91  CALL 0x0044d5c0
+   0x00449f96  MOV ESP,EBP
+   0x00449f98  POP EBP
+   0x00449f99  RET
+   0x00449fa0  PUSH EBP
+   0x00449fa1  MOV EBP,ESP
+   0x00449fa3  PUSH ECX
+   0x00449fa4  MOV dword ptr [EBP + -0x4],ECX
+   0x00449fa7  MOV EAX,dword ptr [EBP + 0x10]
+   0x00449faa  PUSH EAX
+   0x00449fab  MOV ECX,dword ptr [EBP + 0xc]
+   0x00449fae  PUSH ECX
+   0x00449faf  MOV EDX,dword ptr [EBP + 0x8]
+   0x00449fb2  PUSH EDX
+   0x00449fb3  MOV ECX,dword ptr [EBP + -0x4]
+>> 0x00449fb6  CALL 0x0044c270
+   0x00449fbb  MOV EAX,dword ptr [EBP + -0x4]
+   0x00449fbe  MOV dword ptr [EAX],0x101732c
+   0x00449fc4  MOV EAX,dword ptr [EBP + -0x4]
+   0x00449fc7  MOV ESP,EBP
+   0x00449fc9  POP EBP
+   0x00449fca  RET 0xc
+   0x00449fd0  PUSH EBP
+   0x00449fd1  MOV EBP,ESP
+   0x00449fd3  PUSH -0x1
+   0x00449fd5  PUSH 0xeff1f8
+   0x00449fda  MOV EAX,FS:[0x0]
+   0x00449fe0  PUSH EAX
+   0x00449fe1  SUB ESP,0x8
+   0x00449fe4  MOV EAX,[0x011c16bc]
+   0x00449fe9  XOR EAX,EBP
+   0x00449feb  PUSH EAX
+   0x00449fec  LEA EAX,[EBP + -0xc]
+   0x00449fef  MOV FS:[0x0],EAX
+   0x00449ff5  MOV dword ptr [EBP + -0x14],ECX
+   0x00449ff8  PUSH ECX
+   0x00449ff9  MOV ECX,ESP
+   0x00449ffb  MOV dword ptr [EBP + -0x10],ESP
+   0x00449ffe  CALL 0x006815c0
+   0x0044a003  MOV ECX,dword ptr [EBP + -0x14]
+   0x0044a006  CALL 0x0065d3a0
+   0x0044a00b  MOV dword ptr [EBP + -0x4],0x0
+   0x0044a012  PUSH 0x0
+   0x0044a014  MOV ECX,dword ptr [EBP + -0x14]
+   0x0044a017  CALL 0x0044a240
+   0x0044a01c  MOV dword ptr [EBP + -0x4],0xffffffff
+   0x0044a023  MOV EAX,dword ptr [EBP + -0x14]
+   0x0044a026  MOV ECX,dword ptr [EBP + -0xc]
+   0x0044a029  MOV dword ptr FS:[0x0],ECX
+   0x0044a030  POP ECX
+   0x0044a031  MOV ESP,EBP
+   0x0044a033  POP EBP
+   0x0044a034  RET
+   0x0044a040  PUSH EBP
+   0x0044a041  MOV EBP,ESP
+   0x0044a043  PUSH -0x1
+   0x0044a045  PUSH 0xeff1c8
+   0x0044a04a  MOV EAX,FS:[0x0]
+
+======================================================================
+Code-reference windows to LockFreeMap TLS capacity gate @ 0x0044e3a0
+======================================================================
+
+----------------------------------------------------------------------
+Reference 0x0044d5ed in FUN_0044d5c0
+   0x0044d5be  RET
+   0x0044d5c0  PUSH EBP
+   0x0044d5c1  MOV EBP,ESP
+   0x0044d5c3  SUB ESP,0x8
+   0x0044d5c6  MOV dword ptr [EBP + -0x8],ECX
+   0x0044d5c9  MOV EAX,dword ptr [EBP + -0x8]
+   0x0044d5cc  MOV ECX,dword ptr [EAX + 0x4]
+   0x0044d5cf  PUSH ECX
+   0x0044d5d0  CALL 0x0044d5b0
+   0x0044d5d5  ADD ESP,0x4
+   0x0044d5d8  MOV dword ptr [EBP + -0x4],EAX
+   0x0044d5db  CMP dword ptr [EBP + -0x4],0x0
+   0x0044d5df  JZ 0x0044d5e6
+   0x0044d5e1  MOV EAX,dword ptr [EBP + -0x4]
+   0x0044d5e4  JMP 0x0044d5f2
+   0x0044d5e6  MOV EDX,dword ptr [EBP + 0x8]
+   0x0044d5e9  PUSH EDX
+   0x0044d5ea  MOV ECX,dword ptr [EBP + -0x8]
+>> 0x0044d5ed  CALL 0x0044e3a0
+   0x0044d5f2  MOV ESP,EBP
+   0x0044d5f4  POP EBP
+   0x0044d5f5  RET 0x4
+   0x0044d600  PUSH EBP
+   0x0044d601  MOV EBP,ESP
+   0x0044d603  PUSH ECX
+   0x0044d604  XOR EAX,EAX
+   0x0044d606  MOV byte ptr [EBP + -0x1],AL
+   0x0044d609  LEA ECX,[EBP + 0x10]
+   0x0044d60c  PUSH ECX
+   0x0044d60d  LEA EDX,[EBP + 0x8]
+   0x0044d610  PUSH EDX
+   0x0044d611  CALL 0x0065e750
+   0x0044d616  ADD ESP,0x8
+   0x0044d619  MOV byte ptr [EBP + -0x2],AL
+   0x0044d61c  MOVZX EAX,byte ptr [EBP + -0x1]
+   0x0044d620  PUSH EAX
+   0x0044d621  MOVZX ECX,byte ptr [EBP + -0x2]
+   0x0044d625  PUSH ECX
+   0x0044d626  LEA EDX,[EBP + 0x10]
+   0x0044d629  PUSH EDX
+   0x0044d62a  LEA EAX,[EBP + 0x8]
+   0x0044d62d  PUSH EAX
+   0x0044d62e  LEA ECX,[EBP + -0x3]
+   0x0044d631  PUSH ECX
+   0x0044d632  CALL 0x0065fd70
+   0x0044d637  ADD ESP,0xc
+   0x0044d63a  MOVZX EDX,byte ptr [EAX]
+   0x0044d63d  PUSH EDX
+   0x0044d63e  MOV EAX,dword ptr [EBP + 0x10]
+   0x0044d641  PUSH EAX
+   0x0044d642  LEA ECX,[EBP + 0xc]
+   0x0044d645  PUSH ECX
+   0x0044d646  CALL 0x0065fe40
+   0x0044d64b  ADD ESP,0x4
+   0x0044d64e  PUSH EAX
+   0x0044d64f  LEA EDX,[EBP + 0x8]
+   0x0044d652  PUSH EDX
+   0x0044d653  CALL 0x0065fe40
+   0x0044d658  ADD ESP,0x4
+   0x0044d65b  PUSH EAX
+   0x0044d65c  CALL 0x0044e4a0
+   0x0044d661  ADD ESP,0x18
+   0x0044d664  MOV ESP,EBP
+   0x0044d666  POP EBP
+   0x0044d667  RET
+   0x0044d670  PUSH EBP
+   0x0044d671  MOV EBP,ESP
+   0x0044d673  SUB ESP,0xc
+   0x0044d676  CMP dword ptr [EBP + 0x8],0x0
+
+# IO MANAGER SPECIALIZATION AND FAILED CALLER FAMILIES
+
+======================================================================
+IOManager LockFreeMap constructor specialization @ 0x00c3ec80
+======================================================================
+  Function: FUN_00c3ec80 @ 0x00c3ec80, Size: 495 bytes
+
+undefined4 * __thiscall
+FUN_00c3ec80(undefined4 *param_1,int param_2,undefined4 param_3,undefined4 param_4)
+
+{
+  undefined4 uVar1;
+  longlong lVar2;
+  undefined4 uVar3;
+  int iVar4;
+  int *unaff_FS_OFFSET;
+  undefined4 local_58;
+  undefined4 *local_54;
+  uint local_44;
+  undefined4 *local_40;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined1 local_8;
+  undefined3 uStack_7;
+  
+  puStack_c = &LAB_00f2de5b;
+  local_10 = *unaff_FS_OFFSET;
+  *unaff_FS_OFFSET = (int)&local_10;
+  *param_1 = &PTR_FUN_01017458;
+  *param_1 = &PTR_FUN_010c16f4;
+  param_1[8] = 0;
+  param_1[9] = 0;
+  uVar1 = *(undefined4 *)(*(int *)(unaff_FS_OFFSET[0xb] + _tls_index * 4) + 0x2b4);
+  *(undefined4 *)(*(int *)(unaff_FS_OFFSET[0xb] + _tls_index * 4) + 0x2b4) = 6;
+  local_8 = 1;
+  uStack_7 = 0;
+  param_1[6] = 0;
+  param_1[2] = param_3;
+  local_44 = param_1[2];
+  local_54 = (undefined4 *)
+             FUN_00aa3e40(-(uint)((int)((ulonglong)local_44 * 4 >> 0x20) != 0) |
+                          (uint)((ulonglong)local_44 * 4));
+  local_40 = local_54;
+  if (local_54 == (undefined4 *)0x0) {
+    local_54 = (undefined4 *)0x0;
+  }
+  else {
+    while (local_44 = local_44 - 1, -1 < (int)local_44) {
+      *local_40 = 0;
+      local_40 = local_40 + 1;
+    }
+  }
+  param_1[3] = local_54;
+  lVar2 = (ulonglong)(uint)(param_2 * 3) * 4;
+  uVar3 = FUN_00aa3e40(-(uint)((int)((ulonglong)lVar2 >> 0x20) != 0) | (uint)lVar2);
+  param_1[1] = uVar3;
+  param_1[4] = param_4;
+  iVar4 = FUN_00aa3e40(0x10);
+  _local_8 = CONCAT31(uStack_7,2);
+  if (iVar4 == 0) {
+    local_58 = 0;
+  }
+  else {
+    local_58 = FUN_00c42180(param_2);
+  }
+  param_1[5] = local_58;
+  *(undefined4 *)(*(int *)(unaff_FS_OFFSET[0xb] + _tls_index * 4) + 0x2b4) = uVar1;
+  *unaff_FS_OFFSET = local_10;
+  return param_1;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00c3ec80 (IOManager LockFreeMap constructor specialization)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00c3e528 (in FUN_00c3e4f0)
+  Total: 1 refs
+
+--- Calls FROM IOManager LockFreeMap constructor specialization (0x00c3ec80) ---
+  0x00c3ed54 -> 0x00aa3e40 FUN_00aa3e40
+  0x00c3edd3 -> 0x00aa3e40 FUN_00aa3e40
+  0x00c3edf4 -> 0x00aa3e40 FUN_00aa3e40
+  0x00c3ee0d -> 0x00c42180 FUN_00c42180
+  Total: 4 calls
+
+======================================================================
+BSTaskManager constructor deriving TLS slots from worker count @ 0x00c3e4f0
+======================================================================
+  Function: FUN_00c3e4f0 @ 0x00c3e4f0, Size: 408 bytes
+
+undefined4 * __thiscall FUN_00c3e4f0(undefined4 *param_1,int param_2,int param_3,uint param_4)
+
+{
+  undefined4 uVar1;
+  int iVar2;
+  int *unaff_FS_OFFSET;
+  undefined4 local_38;
+  uint local_14;
+  int local_10;
+  undefined1 *puStack_c;
+  int local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00f2ddf3;
+  local_10 = *unaff_FS_OFFSET;
+  *unaff_FS_OFFSET = (int)&local_10;
+  FUN_00c3ec80(param_2 + param_3,param_4,0xc);
+  local_8 = 0;
+  *param_1 = &PTR_FUN_010c167c;
+  *(undefined1 *)(param_1 + 0x10) = 0;
+  param_1[0x11] = 0;
+  param_1[0x12] = 0;
+  param_1[0x13] = param_3;
+  uVar1 = FUN_00aa3e40(-(uint)((int)((ulonglong)param_4 * 4 >> 0x20) != 0) |
+                       (uint)((ulonglong)param_4 * 4));
+  param_1[0x15] = uVar1;
+  _memset((void *)param_1[0x15],0,param_4 << 2);
+  param_1[0x16] = 0;
+  uVar1 = FUN_00aa3e40(-(uint)((int)((ulonglong)(uint)param_1[0x13] * 4 >> 0x20) != 0) |
+                       (uint)((ulonglong)(uint)param_1[0x13] * 4));
+  param_1[0x14] = uVar1;
+  for (local_14 = 0; local_14 < (uint)param_1[0x13]; local_14 = local_14 + 1) {
+    iVar2 = FUN_00aa3e40(0x34);
+    local_8._0_1_ = 1;
+    if (iVar2 == 0) {
+      local_38 = 0;
+    }
+    else {
+      local_38 = FUN_00c3ee70(param_1,local_14 + 2);
+    }
+    local_8 = (uint)local_8._1_3_ << 8;
+    *(undefined4 *)(param_1[0x14] + local_14 * 4) = local_38;
+    FUN_00c42f50();
+  }
+  *unaff_FS_OFFSET = local_10;
+  return param_1;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00c3e4f0 (BSTaskManager constructor deriving TLS slots from worker count)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00c3da81 (in FUN_00c3da50)
+  Total: 1 refs
+
+--- Calls FROM BSTaskManager constructor deriving TLS slots from worker count (0x00c3e4f0) ---
+  0x00c3e528 -> 0x00c3ec80 FUN_00c3ec80
+  0x00c3e580 -> 0x00aa3e40 FUN_00aa3e40
+  0x00c3e5a7 -> 0x00ec61c0 _memset
+  0x00c3e5db -> 0x00aa3e40 FUN_00aa3e40
+  0x00c3e610 -> 0x00aa3e40 FUN_00aa3e40
+  0x00c3e630 -> 0x00c3ee70 FUN_00c3ee70
+  0x00c3e666 -> 0x00c42f50 FUN_00c42f50
+  Total: 7 calls
+
+======================================================================
+IOManager constructor worker count @ 0x00c3da50
+======================================================================
+  Function: FUN_00c3da50 @ 0x00c3da50, Size: 257 bytes
+
+undefined4 * __fastcall FUN_00c3da50(undefined4 *param_1)
+
+{
+  int iVar1;
+  int *unaff_FS_OFFSET;
+  undefined4 local_24;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00f2dd43;
+  local_10 = *unaff_FS_OFFSET;
+  *unaff_FS_OFFSET = (int)&local_10;
+  FUN_00c3e4f0(10,1,0x78);
+  local_8 = 0;
+  *param_1 = &PTR_FUN_010c1604;
+  param_1[0x1c] = 0;
+  param_1[0x1e] = 0;
+  param_1[0x1b] = 0;
+  param_1[0x1f] = 0;
+  param_1[0x20] = 0;
+  param_1[0x1a] = 6;
+  iVar1 = FUN_00aa3e40(0x10);
+  local_8 = CONCAT31(local_8._1_3_,1);
+  if (iVar1 == 0) {
+    local_24 = 0;
+  }
+  else {
+    local_24 = FUN_00c3e8b0(6,7,8);
+  }
+  param_1[0x19] = local_24;
+  param_1[0x18] = *(undefined4 *)(*(int *)param_1[0x14] + 8);
+  *unaff_FS_OFFSET = local_10;
+  return param_1;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00c3da50 (IOManager constructor worker count)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0044febe (in FUN_0044fb20)
+  Total: 1 refs
+
+--- Calls FROM IOManager constructor worker count (0x00c3da50) ---
+  0x00c3da81 -> 0x00c3e4f0 FUN_00c3e4f0
+  0x00c3dadc -> 0x00aa3e40 FUN_00aa3e40
+  0x00c3daf7 -> 0x00c3e8b0 FUN_00c3e8b0
+  Total: 3 calls
+
+======================================================================
+Direct callees of IOManager LockFreeMap constructor specialization @ 0x00c3ec80
+======================================================================
+
+======================================================================
+IOManager LockFreeMap constructor specialization direct callee @ 0x00aa3e40
+======================================================================
+  Function: FUN_00aa3e40 @ 0x00aa3e40, Size: 486 bytes
+
+int __thiscall FUN_00aa3e40(char *param_1,uint param_2)
+
+{
+  int *piVar1;
+  int iVar2;
+  int *piVar3;
+  int unaff_FS_OFFSET;
+  int *local_40;
+  int *local_3c;
+  int local_38;
+  int local_2c;
+  undefined4 local_28;
+  char local_d;
+  uint local_c;
+  int local_8;
+  
+  if (*param_1 == '\0') {
+    local_8 = FUN_00aa4290(param_2,0);
+  }
+  else {
+    piVar1 = *(int **)(param_1 + 0x110);
+    if (piVar1 == (int *)0x0) {
+      local_8 = FUN_00aa4290(param_2,0);
+    }
+    else {
+      local_c = param_2;
+      local_8 = 0;
+      if (param_2 < 9) {
+        param_2 = 8;
+      }
+      else {
+        param_2 = param_2 + 3 & 0xfffffffc;
+      }
+      iVar2 = *(int *)(*(int *)(*(int *)(unaff_FS_OFFSET + 0x2c) + _tls_index * 4) + 0x2b4);
+      if (param_1[0x129] != '\0') {
+        if (param_2 < 0x3fd) {
+          local_38 = *(int *)(&DAT_011f67b8 + param_2);
+        }
+        else {
+          local_38 = 0;
+        }
+        local_2c = local_38;
+        if (local_38 == 0) {
+          local_2c = FUN_00aa4960(param_2);
+        }
+        if ((local_2c != 0) && (local_8 = FUN_00aa6aa0(local_c), local_8 != 0)) {
+          return local_8;
+        }
+      }
+      local_d = '\0';
+      local_28 = 0;
+      piVar3 = *(int **)(param_1 + iVar2 * 4 + 0xc);
+      do {
+        local_3c = piVar1;
+        if (piVar3 != (int *)0x0) {
+          local_3c = piVar3;
+        }
+        local_8 = (**(code **)(*local_3c + 8))(param_2,0);
+        if ((local_8 == 0) && (local_3c != piVar1)) {
+          local_8 = (**(code **)(*piVar1 + 8))(param_2,0);
+        }
+        if (local_8 == 0) {
+          local_40 = piVar1;
+          if (piVar3 != (int *)0x0) {
+            local_40 = piVar3;
+          }
+          local_28 = FUN_00866a90(local_40,local_28,&local_d);
+          if (local_d != '\0') {
+            local_8 = FUN_00aa4290(param_2,0);
+          }
+        }
+      } while (local_8 == 0);
+    }
+  }
+  return local_8;
+}
+
+
+
+======================================================================
+IOManager LockFreeMap constructor specialization direct callee @ 0x00c42180
+======================================================================
+  Function: FUN_00c42180 @ 0x00c42180, Size: 331 bytes
+
+uint * __thiscall FUN_00c42180(uint *param_1,uint param_2)
+
+{
+  undefined4 uVar1;
+  DWORD DVar2;
+  int *unaff_FS_OFFSET;
+  undefined4 *local_40;
+  uint local_34;
+  undefined4 *local_30;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  puStack_c = &LAB_00f2e128;
+  local_10 = *unaff_FS_OFFSET;
+  *unaff_FS_OFFSET = (int)&local_10;
+  uVar1 = *(undefined4 *)(*(int *)(unaff_FS_OFFSET[0xb] + _tls_index * 4) + 0x2b4);
+  *(undefined4 *)(*(int *)(unaff_FS_OFFSET[0xb] + _tls_index * 4) + 0x2b4) = 6;
+  local_8 = 0;
+  param_1[3] = 0;
+  *param_1 = param_2;
+  local_34 = *param_1;
+  local_40 = (undefined4 *)
+             FUN_00aa3e40(-(uint)((int)((ulonglong)local_34 * 8 >> 0x20) != 0) |
+                          (uint)((ulonglong)local_34 * 8));
+  local_30 = local_40;
+  if (local_40 == (undefined4 *)0x0) {
+    local_40 = (undefined4 *)0x0;
+  }
+  else {
+    while (local_34 = local_34 - 1, -1 < (int)local_34) {
+      *local_30 = 0;
+      local_30[1] = 0;
+      local_30 = local_30 + 2;
+    }
+  }
+  param_1[2] = (uint)local_40;
+  DVar2 = TlsAlloc();
+  param_1[1] = DVar2;
+  *(undefined4 *)(*(int *)(unaff_FS_OFFSET[0xb] + _tls_index * 4) + 0x2b4) = uVar1;
+  *unaff_FS_OFFSET = local_10;
+  return param_1;
+}
+
+
+
+======================================================================
+Code-reference windows to IOManager LockFreeMap constructor specialization @ 0x00c3ec80
+======================================================================
+
+----------------------------------------------------------------------
+Reference 0x00c3e528 in FUN_00c3e4f0
+   0x00c3e4f3  PUSH -0x1
+   0x00c3e4f5  PUSH 0xf2ddf3
+   0x00c3e4fa  MOV EAX,FS:[0x0]
+   0x00c3e500  PUSH EAX
+   0x00c3e501  SUB ESP,0x28
+   0x00c3e504  MOV EAX,[0x011c16bc]
+   0x00c3e509  XOR EAX,EBP
+   0x00c3e50b  PUSH EAX
+   0x00c3e50c  LEA EAX,[EBP + -0xc]
+   0x00c3e50f  MOV FS:[0x0],EAX
+   0x00c3e515  MOV dword ptr [EBP + -0x30],ECX
+   0x00c3e518  PUSH 0xc
+   0x00c3e51a  MOV EAX,dword ptr [EBP + 0x10]
+   0x00c3e51d  PUSH EAX
+   0x00c3e51e  MOV ECX,dword ptr [EBP + 0x8]
+   0x00c3e521  ADD ECX,dword ptr [EBP + 0xc]
+   0x00c3e524  PUSH ECX
+   0x00c3e525  MOV ECX,dword ptr [EBP + -0x30]
+>> 0x00c3e528  CALL 0x00c3ec80
+   0x00c3e52d  MOV dword ptr [EBP + -0x4],0x0
+   0x00c3e534  MOV EDX,dword ptr [EBP + -0x30]
+   0x00c3e537  MOV dword ptr [EDX],0x10c167c
+   0x00c3e53d  MOV EAX,dword ptr [EBP + -0x30]
+   0x00c3e540  MOV byte ptr [EAX + 0x40],0x0
+   0x00c3e544  MOV ECX,dword ptr [EBP + -0x30]
+   0x00c3e547  MOV dword ptr [ECX + 0x44],0x0
+   0x00c3e54e  MOV EDX,dword ptr [EBP + -0x30]
+   0x00c3e551  MOV dword ptr [EDX + 0x48],0x0
+   0x00c3e558  MOV EAX,dword ptr [EBP + -0x30]
+   0x00c3e55b  MOV ECX,dword ptr [EBP + 0xc]
+   0x00c3e55e  MOV dword ptr [EAX + 0x4c],ECX
+   0x00c3e561  XOR ECX,ECX
+   0x00c3e563  MOV EAX,dword ptr [EBP + 0x10]
+   0x00c3e566  MOV EDX,0x4
+   0x00c3e56b  MUL EDX
+   0x00c3e56d  SETO CL
+   0x00c3e570  NEG ECX
+   0x00c3e572  OR ECX,EAX
+   0x00c3e574  MOV dword ptr [EBP + -0x24],ECX
+   0x00c3e577  MOV EAX,dword ptr [EBP + -0x24]
+   0x00c3e57a  PUSH EAX
+   0x00c3e57b  MOV ECX,0x11f6238
+   0x00c3e580  CALL 0x00aa3e40
+   0x00c3e585  MOV dword ptr [EBP + -0x14],EAX
+   0x00c3e588  MOV ECX,dword ptr [EBP + -0x30]
+   0x00c3e58b  MOV EDX,dword ptr [EBP + -0x14]
+   0x00c3e58e  MOV dword ptr [ECX + 0x54],EDX
+   0x00c3e591  MOV EAX,dword ptr [EBP + -0x30]
+   0x00c3e594  MOV ECX,dword ptr [EAX + 0x54]
+   0x00c3e597  MOV dword ptr [EBP + -0x28],ECX
+   0x00c3e59a  MOV EDX,dword ptr [EBP + 0x10]
+   0x00c3e59d  SHL EDX,0x2
+   0x00c3e5a0  PUSH EDX
+   0x00c3e5a1  PUSH 0x0
+   0x00c3e5a3  MOV EAX,dword ptr [EBP + -0x28]
+   0x00c3e5a6  PUSH EAX
+   0x00c3e5a7  CALL 0x00ec61c0
+   0x00c3e5ac  ADD ESP,0xc
+   0x00c3e5af  MOV ECX,dword ptr [EBP + -0x30]
+   0x00c3e5b2  MOV dword ptr [ECX + 0x58],0x0
+   0x00c3e5b9  XOR ECX,ECX
+   0x00c3e5bb  MOV EDX,dword ptr [EBP + -0x30]
+   0x00c3e5be  MOV EAX,dword ptr [EDX + 0x4c]
+   0x00c3e5c1  MOV EDX,0x4
+   0x00c3e5c6  MUL EDX
+   0x00c3e5c8  SETO CL
+   0x00c3e5cb  NEG ECX
+   0x00c3e5cd  OR ECX,EAX
+   0x00c3e5cf  MOV dword ptr [EBP + -0x2c],ECX
+
+======================================================================
+LockFreeMap public TLS getter @ 0x00449f80
+======================================================================
+  Function: FUN_00449f80 @ 0x00449f80, Size: 26 bytes
+
+void __fastcall FUN_00449f80(undefined4 param_1)
+
+{
+  FUN_0044d5c0(param_1);
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00449f80 (LockFreeMap public TLS getter)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0044c6a3 (in FUN_0044c640)
+  UNCONDITIONAL_CALL @ 0x0044c6d3 (in FUN_0044c640)
+  UNCONDITIONAL_CALL @ 0x006c600b (in FUN_006c5ff0)
+  UNCONDITIONAL_CALL @ 0x006c604d (in FUN_006c6030)
+  UNCONDITIONAL_CALL @ 0x009065d3 (in FUN_00906570)
+  UNCONDITIONAL_CALL @ 0x00906603 (in FUN_00906570)
+  UNCONDITIONAL_CALL @ 0x00c3e4ad (in FUN_00c3e490)
+  UNCONDITIONAL_CALL @ 0x0044925b (in FUN_00449240)
+  UNCONDITIONAL_CALL @ 0x0044929d (in FUN_00449280)
+  UNCONDITIONAL_CALL @ 0x0044b933 (in FUN_0044b8d0)
+  UNCONDITIONAL_CALL @ 0x0044b963 (in FUN_0044b8d0)
+  UNCONDITIONAL_CALL @ 0x0044b9e1 (in FUN_0044b8d0)
+  UNCONDITIONAL_CALL @ 0x00449551 (in FUN_00449530)
+  UNCONDITIONAL_CALL @ 0x004495a6 (in FUN_00449580)
+  UNCONDITIONAL_CALL @ 0x004495ed (in FUN_004495d0)
+  UNCONDITIONAL_CALL @ 0x00449721 (in FUN_00449700)
+  UNCONDITIONAL_CALL @ 0x004498c4 (in FUN_004498b0)
+  UNCONDITIONAL_CALL @ 0x0044bba4 (in FUN_0044bb90)
+  UNCONDITIONAL_CALL @ 0x0044bd81 (in FUN_0044bd60)
+  UNCONDITIONAL_CALL @ 0x00528b86 (in FUN_00528b60)
+  UNCONDITIONAL_CALL @ 0x006ec80a (in FUN_006ec7e0)
+  UNCONDITIONAL_CALL @ 0x009062fd (in FUN_009062e0)
+  UNCONDITIONAL_CALL @ 0x00906367 (in FUN_00906320)
+  UNCONDITIONAL_CALL @ 0x009063da (in FUN_009063b0)
+  Total: 24 refs
+
+--- Calls FROM LockFreeMap public TLS getter (0x00449f80) ---
+  0x00449f91 -> 0x0044d5c0 FUN_0044d5c0
+  Total: 1 calls
+
+======================================================================
+Decompiled callers of LockFreeMap public TLS getter @ 0x00449f80
+======================================================================
+
+======================================================================
+LockFreeMap public TLS getter caller @ 0x0044c640
+======================================================================
+  Function: FUN_0044c640 @ 0x0044c640, Size: 271 bytes
+
+char FUN_0044c640(int param_1,undefined4 *param_2,undefined4 param_3,char param_4)
+
+{
+  char cVar1;
+  uint uVar2;
+  int iVar3;
+  undefined4 uVar4;
+  undefined4 uVar5;
+  undefined4 extraout_var;
+  char local_5;
+  
+  FUN_0040fbf0(0);
+  cVar1 = FUN_006ebde0(extraout_var);
+  if (cVar1 == '\0') {
+    while( true ) {
+      cVar1 = FUN_0044de20();
+      if (cVar1 == '\0') {
+        iVar3 = param_1 + 8;
+        uVar4 = *(undefined4 *)(param_1 + 4);
+        uVar5 = param_3;
+        FUN_00449f80(uVar4,iVar3,param_3);
+        local_5 = FUN_0044ea60(uVar4,iVar3,uVar5);
+        FUN_0044de40(1);
+      }
+      else {
+        iVar3 = param_1 + 8;
+        uVar4 = *(undefined4 *)(param_1 + 4);
+        uVar5 = param_3;
+        FUN_00449f80(uVar4,iVar3,param_3);
+        local_5 = FUN_0044eb80(uVar4,iVar3,uVar5);
+      }
+      if (local_5 != '\0') break;
+      *(int *)(param_1 + 4) = *(int *)(param_1 + 4) + 1;
+      uVar2 = FUN_0044ddc0();
+      if (uVar2 <= *(uint *)(param_1 + 4)) {
+        FUN_0044de80(1);
+        goto LAB_0044c740;
+      }
+      if (param_4 == '\0') goto LAB_0044c740;
+      FUN_0044de40(0);
+    }
+    *param_2 = *(undefined4 *)(param_1 + 8);
+  }
+  else {
+    local_5 = '\0';
+  }
+LAB_0044c740:
+  FUN_0040fba0();
+  return local_5;
+}
+
+
+
+--- Calls FROM LockFreeMap public TLS getter caller (0x0044c640) ---
+  0x0044c651 -> 0x0040fbf0 FUN_0040fbf0
+  0x0044c65d -> 0x006ebde0 FUN_006ebde0
+  0x0044c682 -> 0x0044de20 FUN_0044de20
+  0x0044c6a3 -> 0x00449f80 FUN_00449f80
+  0x0044c6aa -> 0x0044ea60 FUN_0044ea60
+  0x0044c6b7 -> 0x0044de40 FUN_0044de40
+  0x0044c6d3 -> 0x00449f80 FUN_00449f80
+  0x0044c6da -> 0x0044eb80 FUN_0044eb80
+  0x0044c6fc -> 0x0044ddc0 FUN_0044ddc0
+  0x0044c70e -> 0x0044de80 FUN_0044de80
+  0x0044c722 -> 0x0044de40 FUN_0044de40
+  0x0044c746 -> 0x0040fba0 FUN_0040fba0
+  Total: 12 calls
+
+======================================================================
+LockFreeMap public TLS getter caller @ 0x006c5ff0
+======================================================================
+  Function: FUN_006c5ff0 @ 0x006c5ff0, Size: 56 bytes
+
+void FUN_006c5ff0(undefined4 param_1)
+
+{
+  undefined4 extraout_var;
+  
+  FUN_0040fbf0(0);
+  FUN_00449f80(param_1,extraout_var);
+  FUN_006c6e60(param_1);
+  FUN_0040fba0();
+  return;
+}
+
+
+
+--- Calls FROM LockFreeMap public TLS getter caller (0x006c5ff0) ---
+  0x006c5fff -> 0x0040fbf0 FUN_0040fbf0
+  0x006c600b -> 0x00449f80 FUN_00449f80
+  0x006c6012 -> 0x006c6e60 FUN_006c6e60
+  0x006c601d -> 0x0040fba0 FUN_0040fba0
+  Total: 4 calls
+
+======================================================================
+LockFreeMap public TLS getter caller @ 0x006c6030
+======================================================================
+  Function: FUN_006c6030 @ 0x006c6030, Size: 64 bytes
+
+undefined1 FUN_006c6030(undefined4 param_1)
+
+{
+  undefined1 uVar1;
+  undefined4 extraout_var;
+  
+  FUN_0040fbf0(0);
+  FUN_00449f80(param_1,extraout_var);
+  uVar1 = FUN_006c6fe0(param_1);
+  FUN_0040fba0();
+  return uVar1;
+}
+
+
+
+--- Calls FROM LockFreeMap public TLS getter caller (0x006c6030) ---
+  0x006c6041 -> 0x0040fbf0 FUN_0040fbf0
+  0x006c604d -> 0x00449f80 FUN_00449f80
+  0x006c6054 -> 0x006c6fe0 FUN_006c6fe0
+  0x006c6062 -> 0x0040fba0 FUN_0040fba0
+  Total: 4 calls
+
+======================================================================
+LockFreeMap public TLS getter caller @ 0x00906570
+======================================================================
+  Function: FUN_00906570 @ 0x00906570, Size: 271 bytes
+
+char FUN_00906570(int param_1,undefined4 *param_2,undefined4 param_3,char param_4)
+
+{
+  char cVar1;
+  uint uVar2;
+  int iVar3;
+  undefined4 uVar4;
+  undefined4 uVar5;
+  undefined4 extraout_var;
+  char local_5;
+  
+  FUN_0040fbf0(0);
+  cVar1 = FUN_006ebde0(extraout_var);
+  if (cVar1 == '\0') {
+    while( true ) {
+      cVar1 = FUN_0044de20();
+      if (cVar1 == '\0') {
+        iVar3 = param_1 + 8;
+        uVar4 = *(undefined4 *)(param_1 + 4);
+        uVar5 = param_3;
+        FUN_00449f80(uVar4,iVar3,param_3);
+        local_5 = FUN_00906af0(uVar4,iVar3,uVar5);
+        FUN_0044de40(1);
+      }
+      else {
+        iVar3 = param_1 + 8;
+        uVar4 = *(undefined4 *)(param_1 + 4);
+        uVar5 = param_3;
+        FUN_00449f80(uVar4,iVar3,param_3);
+        local_5 = FUN_00906c10(uVar4,iVar3,uVar5);
+      }
+      if (local_5 != '\0') break;
+      *(int *)(param_1 + 4) = *(int *)(param_1 + 4) + 1;
+      uVar2 = FUN_0044ddc0();
+      if (uVar2 <= *(uint *)(param_1 + 4)) {
+        FUN_0044de80(1);
+        goto LAB_00906670;
+      }
+      if (param_4 == '\0') goto LAB_00906670;
+      FUN_0044de40(0);
+    }
+    *param_2 = *(undefined4 *)(param_1 + 8);
+  }
+  else {
+    local_5 = '\0';
+  }
+LAB_00906670:
+  FUN_0040fba0();
+  return local_5;
+}
+
+
+
+--- Calls FROM LockFreeMap public TLS getter caller (0x00906570) ---
+  0x00906581 -> 0x0040fbf0 FUN_0040fbf0
+  0x0090658d -> 0x006ebde0 FUN_006ebde0
+  0x009065b2 -> 0x0044de20 FUN_0044de20
+  0x009065d3 -> 0x00449f80 FUN_00449f80
+  0x009065da -> 0x00906af0 FUN_00906af0
+  0x009065e7 -> 0x0044de40 FUN_0044de40
+  0x00906603 -> 0x00449f80 FUN_00449f80
+  0x0090660a -> 0x00906c10 FUN_00906c10
+  0x0090662c -> 0x0044ddc0 FUN_0044ddc0
+  0x0090663e -> 0x0044de80 FUN_0044de80
+  0x00906652 -> 0x0044de40 FUN_0044de40
+  0x00906676 -> 0x0040fba0 FUN_0040fba0
+  Total: 12 calls
+
+======================================================================
+LockFreeMap public TLS getter caller @ 0x00c3e490
+======================================================================
+  Function: FUN_00c3e490 @ 0x00c3e490, Size: 95 bytes
+
+undefined4 __thiscall FUN_00c3e490(int param_1,undefined4 param_2)
+
+{
+  undefined1 uVar1;
+  undefined4 *puVar2;
+  
+  FUN_0040fbf0(0);
+  FUN_00449f80(param_2);
+  uVar1 = FUN_00c3ea60(param_2);
+  puVar2 = (undefined4 *)(*(int *)(param_1 + 0x24) + -1);
+  *(undefined4 **)(param_1 + 0x24) = puVar2;
+  if (*(int *)(param_1 + 0x24) == 0) {
+    *(undefined4 *)(param_1 + 0x20) = 0;
+    puVar2 = (undefined4 *)(param_1 + 0x20);
+  }
+  return CONCAT31((int3)((uint)puVar2 >> 8),uVar1);
+}
+
+
+
+--- Calls FROM LockFreeMap public TLS getter caller (0x00c3e490) ---
+  0x00c3e4a1 -> 0x0040fbf0 FUN_0040fbf0
+  0x00c3e4ad -> 0x00449f80 FUN_00449f80
+  0x00c3e4b4 -> 0x00c3ea60 FUN_00c3ea60
+  Total: 3 calls
+
+======================================================================
+LockFreeMap public TLS getter caller @ 0x00449240
+======================================================================
+  Function: FUN_00449240 @ 0x00449240, Size: 56 bytes
+
+void FUN_00449240(undefined4 param_1)
+
+{
+  undefined4 extraout_var;
+  
+  FUN_0040fbf0(0);
+  FUN_00449f80(param_1,extraout_var);
+  FUN_0044cd40(param_1);
+  FUN_0040fba0();
+  return;
+}
+
+
+
+--- Calls FROM LockFreeMap public TLS getter caller (0x00449240) ---
+  0x0044924f -> 0x0040fbf0 FUN_0040fbf0
+  0x0044925b -> 0x00449f80 FUN_00449f80
+  0x00449262 -> 0x0044cd40 FUN_0044cd40
+  0x0044926d -> 0x0040fba0 FUN_0040fba0
+  Total: 4 calls
+
+======================================================================
+LockFreeMap public TLS getter caller @ 0x00449280
+======================================================================
+  Function: FUN_00449280 @ 0x00449280, Size: 64 bytes
+
+undefined1 FUN_00449280(undefined4 param_1)
+
+{
+  undefined1 uVar1;
+  undefined4 extraout_var;
+  
+  FUN_0040fbf0(0);
+  FUN_00449f80(param_1,extraout_var);
+  uVar1 = FUN_0044cec0(param_1);
+  FUN_0040fba0();
+  return uVar1;
+}
+
+
+
+--- Calls FROM LockFreeMap public TLS getter caller (0x00449280) ---
+  0x00449291 -> 0x0040fbf0 FUN_0040fbf0
+  0x0044929d -> 0x00449f80 FUN_00449f80
+  0x004492a4 -> 0x0044cec0 FUN_0044cec0
+  0x004492b2 -> 0x0040fba0 FUN_0040fba0
+  Total: 4 calls
+
+======================================================================
+LockFreeMap public TLS getter caller @ 0x0044b8d0
+======================================================================
+  Function: FUN_0044b8d0 @ 0x0044b8d0, Size: 303 bytes
+
+char FUN_0044b8d0(int param_1,undefined4 *param_2,undefined4 param_3,char param_4)
+
+{
+  char cVar1;
+  uint uVar2;
+  int iVar3;
+  undefined4 uVar4;
+  undefined4 uVar5;
+  undefined4 extraout_var;
+  char local_5;
+  
+  FUN_0040fbf0(0);
+  cVar1 = FUN_006ebde0(extraout_var);
+  if (cVar1 == '\0') {
+    while( true ) {
+      cVar1 = FUN_0044de20();
+      if (cVar1 == '\0') {
+        iVar3 = param_1 + 8;
+        uVar4 = *(undefined4 *)(param_1 + 4);
+        uVar5 = param_3;
+        FUN_00449f80(uVar4,iVar3,param_3);
+        local_5 = FUN_0044e550(uVar4,iVar3,uVar5);
+        FUN_0044de40(1);
+      }
+      else {
+        iVar3 = param_1 + 8;
+        uVar4 = *(undefined4 *)(param_1 + 4);
+        uVar5 = param_3;
+        FUN_00449f80(uVar4,iVar3,param_3);
+        local_5 = FUN_0044e680(uVar4,iVar3,uVar5);
+      }
+      if (local_5 != '\0') break;
+      *(int *)(param_1 + 4) = *(int *)(param_1 + 4) + 1;
+      uVar2 = FUN_0044ddc0();
+      if (uVar2 <= *(uint *)(param_1 + 4)) {
+        FUN_0044de80(1);
+        goto LAB_0044b9d0;
+      }
+      if (param_4 == '\0') goto LAB_0044b9d0;
+      FUN_0044de40(0);
+    }
+    *param_2 = *(undefined4 *)(param_1 + 8);
+  }
+  else {
+    local_5 = '\0';
+  }
+LAB_0044b9d0:
+  if (local_5 != '\0') {
+    uVar4 = *param_2;
+    FUN_00449f80(uVar4);
+    local_5 = FUN_00528bb0(uVar4);
+  }
+  FUN_0040fba0();
+  return local_5;
+}
+
+
+
+--- Calls FROM LockFreeMap public TLS getter caller (0x0044b8d0) ---
+  0x0044b8e1 -> 0x0040fbf0 FUN_0040fbf0
+  0x0044b8ed -> 0x006ebde0 FUN_006ebde0
+  0x0044b912 -> 0x0044de20 FUN_0044de20
+  0x0044b933 -> 0x00449f80 FUN_00449f80
+  0x0044b93a -> 0x0044e550 FUN_0044e550
+  0x0044b947 -> 0x0044de40 FUN_0044de40
+  0x0044b963 -> 0x00449f80 FUN_00449f80
+  0x0044b96a -> 0x0044e680 FUN_0044e680
+  0x0044b98c -> 0x0044ddc0 FUN_0044ddc0
+  0x0044b99e -> 0x0044de80 FUN_0044de80
+  0x0044b9b2 -> 0x0044de40 FUN_0044de40
+  0x0044b9e1 -> 0x00449f80 FUN_00449f80
+  0x0044b9e8 -> 0x00528bb0 FUN_00528bb0
+  0x0044b9f6 -> 0x0040fba0 FUN_0040fba0
+  Total: 14 calls
+
+======================================================================
+LockFreeMap public TLS getter caller @ 0x00449530
+======================================================================
+  Function: FUN_00449530 @ 0x00449530, Size: 68 bytes
+
+undefined1 FUN_00449530(undefined4 param_1,undefined4 param_2)
+
+{
+  undefined1 uVar1;
+  undefined4 extraout_var;
+  
+  FUN_0040fbf0(0);
+  FUN_00449f80(param_1,param_2,extraout_var);
+  uVar1 = FUN_006ec830(param_1,param_2);
+  FUN_0040fba0();
+  return uVar1;
+}
+
+
+
+--- Calls FROM LockFreeMap public TLS getter caller (0x00449530) ---
+  0x00449541 -> 0x0040fbf0 FUN_0040fbf0
+  0x00449551 -> 0x00449f80 FUN_00449f80
+  0x00449558 -> 0x006ec830 FUN_006ec830
+  0x00449566 -> 0x0040fba0 FUN_0040fba0
+  Total: 4 calls
+
+======================================================================
+LockFreeMap public TLS getter caller @ 0x00449580
+======================================================================
+  Function: FUN_00449580 @ 0x00449580, Size: 73 bytes
+
+undefined1 FUN_00449580(undefined4 param_1,undefined4 param_2,byte param_3)
+
+{
+  undefined1 uVar1;
+  uint uVar2;
+  undefined4 extraout_var;
+  
+  FUN_0040fbf0(0);
+  uVar2 = (uint)param_3;
+  FUN_00449f80(param_1,param_2,uVar2,extraout_var);
+  uVar1 = FUN_0044a130(param_1,param_2,uVar2);
+  FUN_0040fba0();
+  return uVar1;
+}
+
+
+
+--- Calls FROM LockFreeMap public TLS getter caller (0x00449580) ---
+  0x00449591 -> 0x0040fbf0 FUN_0040fbf0
+  0x004495a6 -> 0x00449f80 FUN_00449f80
+  0x004495ad -> 0x0044a130 FUN_0044a130
+  0x004495bb -> 0x0040fba0 FUN_0040fba0
+  Total: 4 calls
+
+======================================================================
+LockFreeMap public TLS getter caller @ 0x004495d0
+======================================================================
+  Function: FUN_004495d0 @ 0x004495d0, Size: 64 bytes
+
+undefined1 FUN_004495d0(undefined4 param_1)
+
+{
+  undefined1 uVar1;
+  undefined4 extraout_var;
+  
+  FUN_0040fbf0(0);
+  FUN_00449f80(param_1,extraout_var);
+  uVar1 = FUN_00665f20(param_1);
+  FUN_0040fba0();
+  return uVar1;
+}
+
+
+
+--- Calls FROM LockFreeMap public TLS getter caller (0x004495d0) ---
+  0x004495e1 -> 0x0040fbf0 FUN_0040fbf0
+  0x004495ed -> 0x00449f80 FUN_00449f80
+  0x004495f4 -> 0x00665f20 FUN_00665f20
+  0x00449602 -> 0x0040fba0 FUN_0040fba0
+  Total: 4 calls
+
+======================================================================
+LockFreeMap public TLS getter caller @ 0x00449700
+======================================================================
+  Function: FUN_00449700 @ 0x00449700, Size: 68 bytes
+
+undefined1 FUN_00449700(undefined4 param_1)
+
+{
+  undefined1 uVar1;
+  undefined1 *puVar2;
+  undefined4 extraout_var;
+  
+  FUN_0040fbf0(0);
+  puVar2 = &stack0x00000008;
+  FUN_00449f80(param_1,puVar2,extraout_var);
+  uVar1 = FUN_0044d3f0(param_1,puVar2);
+  FUN_0040fba0();
+  return uVar1;
+}
+
+
+
+--- Calls FROM LockFreeMap public TLS getter caller (0x00449700) ---
+  0x00449711 -> 0x0040fbf0 FUN_0040fbf0
+  0x00449721 -> 0x00449f80 FUN_00449f80
+  0x00449728 -> 0x0044d3f0 FUN_0044d3f0
+  0x00449736 -> 0x0040fba0 FUN_0040fba0
+  Total: 4 calls
+
+======================================================================
+LockFreeMap public TLS getter caller @ 0x004498b0
+======================================================================
+  Function: FUN_004498b0 @ 0x004498b0, Size: 44 bytes
+
+undefined4 __thiscall FUN_004498b0(undefined4 param_1,undefined4 param_2,undefined4 param_3)
+
+{
+  undefined4 uVar1;
+  
+  FUN_00449f80(param_2,param_3,param_1);
+  uVar1 = FUN_006ec830(param_2,param_3);
+  return uVar1;
+}
+
+
+
+--- Calls FROM LockFreeMap public TLS getter caller (0x004498b0) ---
+  0x004498c4 -> 0x00449f80 FUN_00449f80
+  0x004498cb -> 0x006ec830 FUN_006ec830
+  Total: 2 calls
+
+======================================================================
+LockFreeMap public TLS getter caller @ 0x0044bb90
+======================================================================
+  Function: FUN_0044bb90 @ 0x0044bb90, Size: 44 bytes
+
+undefined4 __thiscall FUN_0044bb90(undefined4 param_1,undefined4 param_2,undefined4 param_3)
+
+{
+  undefined4 uVar1;
+  
+  FUN_00449f80(param_2,param_3,param_1);
+  uVar1 = FUN_0044c8e0(param_2,param_3);
+  return uVar1;
+}
+
+
+
+--- Calls FROM LockFreeMap public TLS getter caller (0x0044bb90) ---
+  0x0044bba4 -> 0x00449f80 FUN_00449f80
+  0x0044bbab -> 0x0044c8e0 FUN_0044c8e0
+  Total: 2 calls
+
+======================================================================
+LockFreeMap public TLS getter caller @ 0x0044bd60
+======================================================================
+  Function: FUN_0044bd60 @ 0x0044bd60, Size: 68 bytes
+
+undefined1 FUN_0044bd60(undefined4 param_1,undefined4 param_2)
+
+{
+  undefined1 uVar1;
+  undefined4 extraout_var;
+  
+  FUN_0040fbf0(0);
+  FUN_00449f80(param_1,param_2,extraout_var);
+  uVar1 = FUN_0044c8e0(param_1,param_2);
+  FUN_0040fba0();
+  return uVar1;
+}
+
+
+
+--- Calls FROM LockFreeMap public TLS getter caller (0x0044bd60) ---
+  0x0044bd71 -> 0x0040fbf0 FUN_0040fbf0
+  0x0044bd81 -> 0x00449f80 FUN_00449f80
+  0x0044bd88 -> 0x0044c8e0 FUN_0044c8e0
+  0x0044bd96 -> 0x0040fba0 FUN_0040fba0
+  Total: 4 calls
+
+======================================================================
+LockFreeMap public TLS getter caller @ 0x00528b60
+======================================================================
+  Function: FUN_00528b60 @ 0x00528b60, Size: 73 bytes
+
+undefined1 FUN_00528b60(undefined4 param_1,undefined4 param_2,byte param_3)
+
+{
+  undefined1 uVar1;
+  uint uVar2;
+  undefined4 extraout_var;
+  
+  FUN_0040fbf0(0);
+  uVar2 = (uint)param_3;
+  FUN_00449f80(param_1,param_2,uVar2,extraout_var);
+  uVar1 = FUN_0044c000(param_1,param_2,uVar2);
+  FUN_0040fba0();
+  return uVar1;
+}
+
+
+
+--- Calls FROM LockFreeMap public TLS getter caller (0x00528b60) ---
+  0x00528b71 -> 0x0040fbf0 FUN_0040fbf0
+  0x00528b86 -> 0x00449f80 FUN_00449f80
+  0x00528b8d -> 0x0044c000 FUN_0044c000
+  0x00528b9b -> 0x0040fba0 FUN_0040fba0
+  Total: 4 calls
+
+======================================================================
+LockFreeMap public TLS getter caller @ 0x006ec7e0
+======================================================================
+  Function: FUN_006ec7e0 @ 0x006ec7e0, Size: 77 bytes
+
+undefined1 FUN_006ec7e0(undefined4 param_1,undefined4 param_2,undefined4 param_3,byte param_4)
+
+{
+  undefined1 uVar1;
+  uint uVar2;
+  undefined4 extraout_var;
+  
+  FUN_0040fbf0(0);
+  uVar2 = (uint)param_4;
+  FUN_00449f80(param_1,param_2,param_3,uVar2,extraout_var);
+  uVar1 = FUN_0044d240(param_1,param_2,param_3,uVar2);
+  FUN_0040fba0();
+  return uVar1;
+}
+
+
+
+--- Calls FROM LockFreeMap public TLS getter caller (0x006ec7e0) ---
+  0x006ec7f1 -> 0x0040fbf0 FUN_0040fbf0
+  0x006ec80a -> 0x00449f80 FUN_00449f80
+  0x006ec811 -> 0x0044d240 FUN_0044d240
+  0x006ec81f -> 0x0040fba0 FUN_0040fba0
+  Total: 4 calls
+
+======================================================================
+LockFreeMap public TLS getter caller @ 0x009062e0
+======================================================================
+  Function: FUN_009062e0 @ 0x009062e0, Size: 64 bytes
+
+undefined1 FUN_009062e0(undefined4 param_1)
+
+{
+  undefined1 uVar1;
+  undefined4 extraout_var;
+  
+  FUN_0040fbf0(0);
+  FUN_00449f80(param_1,extraout_var);
+  uVar1 = FUN_00528bb0(param_1);
+  FUN_0040fba0();
+  return uVar1;
+}
+
+
+
+--- Calls FROM LockFreeMap public TLS getter caller (0x009062e0) ---
+  0x009062f1 -> 0x0040fbf0 FUN_0040fbf0
+  0x009062fd -> 0x00449f80 FUN_00449f80
+  0x00906304 -> 0x00528bb0 FUN_00528bb0
+  0x00906312 -> 0x0040fba0 FUN_0040fba0
+  Total: 4 calls
+
+======================================================================
+LockFreeMap public TLS getter caller @ 0x00906320
+======================================================================
+  Function: FUN_00906320 @ 0x00906320, Size: 138 bytes
+
+undefined1 FUN_00906320(undefined4 param_1)
+
+{
+  undefined1 uVar1;
+  uint uVar2;
+  int *unaff_FS_OFFSET;
+  undefined1 *puVar3;
+  undefined4 extraout_var;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  puStack_c = &LAB_00f16b88;
+  local_10 = *unaff_FS_OFFSET;
+  uVar2 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  local_8 = 0;
+  FUN_0040fbf0(0);
+  puVar3 = &stack0x00000008;
+  FUN_00449f80(param_1,puVar3,uVar2,extraout_var);
+  uVar1 = FUN_009066d0(param_1,puVar3);
+  FUN_0040fba0();
+  local_8 = 0xffffffff;
+  FUN_0044cbf0();
+  *unaff_FS_OFFSET = local_10;
+  return uVar1;
+}
+
+
+
+--- Calls FROM LockFreeMap public TLS getter caller (0x00906320) ---
+  0x00906357 -> 0x0040fbf0 FUN_0040fbf0
+  0x00906367 -> 0x00449f80 FUN_00449f80
+  0x0090636e -> 0x009066d0 FUN_009066d0
+  0x0090637c -> 0x0040fba0 FUN_0040fba0
+  0x00906391 -> 0x0044cbf0 FUN_0044cbf0
+  Total: 5 calls
+
+======================================================================
+LockFreeMap public TLS getter caller @ 0x009063b0
+======================================================================
+  Function: FUN_009063b0 @ 0x009063b0, Size: 77 bytes
+
+undefined1 FUN_009063b0(undefined4 param_1,undefined4 param_2,undefined4 param_3,byte param_4)
+
+{
+  undefined1 uVar1;
+  uint uVar2;
+  undefined4 extraout_var;
+  
+  FUN_0040fbf0(0);
+  uVar2 = (uint)param_4;
+  FUN_00449f80(param_1,param_2,param_3,uVar2,extraout_var);
+  uVar1 = FUN_0044d070(param_1,param_2,param_3,uVar2);
+  FUN_0040fba0();
+  return uVar1;
+}
+
+
+
+--- Calls FROM LockFreeMap public TLS getter caller (0x009063b0) ---
+  0x009063c1 -> 0x0040fbf0 FUN_0040fbf0
+  0x009063da -> 0x00449f80 FUN_00449f80
+  0x009063e1 -> 0x0044d070 FUN_0044d070
+  0x009063ef -> 0x0040fba0 FUN_0040fba0
+  Total: 4 calls
+
+======================================================================
+Data-reference neighborhoods to Known crashing LockFreeMap consumer method @ 0x00449530
+======================================================================
+
+----------------------------------------------------------------------
+Data reference at 0x010172e4
+   0x0101729c: 0x011061ec ???
+   0x010172a0: 0x00449b40 FUN_00449b40
+   0x010172a4: 0x00449920 FUN_00449920
+   0x010172a8: 0x0110626c ???
+   0x010172ac: 0x00449b70 FUN_00449b70
+   0x010172b0: 0x00528820 FUN_00528820
+   0x010172b4: 0x01106280 ???
+   0x010172b8: 0x00449ba0 FUN_00449ba0
+   0x010172bc: 0x00528820 FUN_00528820
+   0x010172c0: 0x011062c8 ???
+   0x010172c4: 0x00449bd0 FUN_00449bd0
+   0x010172c8: 0x00528820 FUN_00528820
+   0x010172cc: 0x01106310 ???
+   0x010172d0: 0x00449c00 FUN_00449c00
+   0x010172d4: 0x00528820 FUN_00528820
+   0x010172d8: 0x01106358 ???
+   0x010172dc: 0x00449d10 FUN_00449d10
+   0x010172e0: 0x00906400 FUN_00906400
+>> 0x010172e4: 0x00449530 FUN_00449530
+   0x010172e8: 0x006ec7e0 FUN_006ec7e0
+   0x010172ec: 0x00449580 FUN_00449580
+   0x010172f0: 0x004495d0 FUN_004495d0
+   0x010172f4: 0x00449700 FUN_00449700
+   0x010172f8: 0x006ec900 FUN_006ec900
+   0x010172fc: 0x004498b0 FUN_004498b0
+   0x01017300: 0x00449cb0 FUN_00449cb0
+   0x01017304: 0x006b8310 FUN_006b8310
+   0x01017308: 0x00449dc0 FUN_00449dc0
+   0x0101730c: 0x00449500 FUN_00449500
+   0x01017310: 0x004496d0 FUN_004496d0
+   0x01017314: 0x00449880 operator!=
+
+----------------------------------------------------------------------
+Data reference at 0x01017334
+   0x010172ec: 0x00449580 FUN_00449580
+   0x010172f0: 0x004495d0 FUN_004495d0
+   0x010172f4: 0x00449700 FUN_00449700
+   0x010172f8: 0x006ec900 FUN_006ec900
+   0x010172fc: 0x004498b0 FUN_004498b0
+   0x01017300: 0x00449cb0 FUN_00449cb0
+   0x01017304: 0x006b8310 FUN_006b8310
+   0x01017308: 0x00449dc0 FUN_00449dc0
+   0x0101730c: 0x00449500 FUN_00449500
+   0x01017310: 0x004496d0 FUN_004496d0
+   0x01017314: 0x00449880 operator!=
+   0x01017318: 0x0044bbc0 FUN_0044bbc0
+   0x0101731c: 0x0044b730 FUN_0044b730
+   0x01017320: 0x009611e0 FUN_009611e0
+   0x01017324: 0x00000000 ???
+   0x01017328: 0x0110636c ???
+   0x0101732c: 0x00449e70 FUN_00449e70
+   0x01017330: 0x00906400 FUN_00906400
+>> 0x01017334: 0x00449530 FUN_00449530
+   0x01017338: 0x006ec7e0 FUN_006ec7e0
+   0x0101733c: 0x00449580 FUN_00449580
+   0x01017340: 0x004495d0 FUN_004495d0
+   0x01017344: 0x00449700 FUN_00449700
+   0x01017348: 0x006ec900 FUN_006ec900
+   0x0101734c: 0x004498b0 FUN_004498b0
+   0x01017350: 0x00449cb0 FUN_00449cb0
+   0x01017354: 0x006b8310 FUN_006b8310
+   0x01017358: 0x00449dc0 FUN_00449dc0
+   0x0101735c: 0x00449500 FUN_00449500
+   0x01017360: 0x004496d0 FUN_004496d0
+   0x01017364: 0x00449880 operator!=
+
+----------------------------------------------------------------------
+Data reference at 0x01017384
+   0x0101733c: 0x00449580 FUN_00449580
+   0x01017340: 0x004495d0 FUN_004495d0
+   0x01017344: 0x00449700 FUN_00449700
+   0x01017348: 0x006ec900 FUN_006ec900
+   0x0101734c: 0x004498b0 FUN_004498b0
+   0x01017350: 0x00449cb0 FUN_00449cb0
+   0x01017354: 0x006b8310 FUN_006b8310
+   0x01017358: 0x00449dc0 FUN_00449dc0
+   0x0101735c: 0x00449500 FUN_00449500
+   0x01017360: 0x004496d0 FUN_004496d0
+   0x01017364: 0x00449880 operator!=
+   0x01017368: 0x0044bbc0 FUN_0044bbc0
+   0x0101736c: 0x0044b730 FUN_0044b730
+   0x01017370: 0x009611e0 FUN_009611e0
+   0x01017374: 0x00000000 ???
+   0x01017378: 0x01106380 ???
+   0x0101737c: 0x00449f20 FUN_00449f20
+   0x01017380: 0x00906400 FUN_00906400
+>> 0x01017384: 0x00449530 FUN_00449530
+   0x01017388: 0x006ec7e0 FUN_006ec7e0
+   0x0101738c: 0x00449580 FUN_00449580
+   0x01017390: 0x004495d0 FUN_004495d0
+   0x01017394: 0x00449700 FUN_00449700
+   0x01017398: 0x006ec900 FUN_006ec900
+   0x0101739c: 0x004498b0 FUN_004498b0
+   0x010173a0: 0x00449cb0 FUN_00449cb0
+   0x010173a4: 0x006b8310 FUN_006b8310
+   0x010173a8: 0x00449dc0 FUN_00449dc0
+   0x010173ac: 0x00449500 FUN_00449500
+   0x010173b0: 0x004496d0 FUN_004496d0
+   0x010173b4: 0x00449880 operator!=
+
+----------------------------------------------------------------------
+Data reference at 0x010175c4
+   0x0101757c: 0x00528b60 FUN_00528b60
+   0x01017580: 0x009062e0 FUN_009062e0
+   0x01017584: 0x00906320 FUN_00906320
+   0x01017588: 0x0044bdb0 FUN_0044bdb0
+   0x0101758c: 0x0044bb90 FUN_0044bb90
+   0x01017590: 0x0044caa0 FUN_0044caa0
+   0x01017594: 0x004534f0 FUN_004534f0
+   0x01017598: 0x00665f10 FUN_00665f10
+   0x0101759c: 0x0044cac0 FUN_0044cac0
+   0x010175a0: 0x0044c1c0 FUN_0044c1c0
+   0x010175a4: 0x006b81d0 FUN_006b81d0
+   0x010175a8: 0x0044bbc0 FUN_0044bbc0
+   0x010175ac: 0x0044b730 FUN_0044b730
+   0x010175b0: 0x009611e0 FUN_009611e0
+   0x010175b4: 0x00000000 ???
+   0x010175b8: 0x01106640 ???
+   0x010175bc: 0x0044dbc0 FUN_0044dbc0
+   0x010175c0: 0x00906400 FUN_00906400
+>> 0x010175c4: 0x00449530 FUN_00449530
+   0x010175c8: 0x006ec7e0 FUN_006ec7e0
+   0x010175cc: 0x00449580 FUN_00449580
+   0x010175d0: 0x004495d0 FUN_004495d0
+   0x010175d4: 0x00449700 FUN_00449700
+   0x010175d8: 0x006ec900 FUN_006ec900
+   0x010175dc: 0x004498b0 FUN_004498b0
+   0x010175e0: 0x0044caa0 FUN_0044caa0
+   0x010175e4: 0x004534f0 FUN_004534f0
+   0x010175e8: 0x00665f10 FUN_00665f10
+   0x010175ec: 0x0044cac0 FUN_0044cac0
+   0x010175f0: 0x0044c1c0 FUN_0044c1c0
+   0x010175f4: 0x006b81d0 FUN_006b81d0
+
+----------------------------------------------------------------------
+Data reference at 0x01017614
+   0x010175cc: 0x00449580 FUN_00449580
+   0x010175d0: 0x004495d0 FUN_004495d0
+   0x010175d4: 0x00449700 FUN_00449700
+   0x010175d8: 0x006ec900 FUN_006ec900
+   0x010175dc: 0x004498b0 FUN_004498b0
+   0x010175e0: 0x0044caa0 FUN_0044caa0
+   0x010175e4: 0x004534f0 FUN_004534f0
+   0x010175e8: 0x00665f10 FUN_00665f10
+   0x010175ec: 0x0044cac0 FUN_0044cac0
+   0x010175f0: 0x0044c1c0 FUN_0044c1c0
+   0x010175f4: 0x006b81d0 FUN_006b81d0
+   0x010175f8: 0x0044bbc0 FUN_0044bbc0
+   0x010175fc: 0x0044b730 FUN_0044b730
+   0x01017600: 0x009611e0 FUN_009611e0
+   0x01017604: 0x00000000 ???
+   0x01017608: 0x01106654 ???
+   0x0101760c: 0x0044dbf0 FUN_0044dbf0
+   0x01017610: 0x00906400 FUN_00906400
+>> 0x01017614: 0x00449530 FUN_00449530
+   0x01017618: 0x006ec7e0 FUN_006ec7e0
+   0x0101761c: 0x00449580 FUN_00449580
+   0x01017620: 0x004495d0 FUN_004495d0
+   0x01017624: 0x00449700 FUN_00449700
+   0x01017628: 0x006ec900 FUN_006ec900
+   0x0101762c: 0x004498b0 FUN_004498b0
+   0x01017630: 0x0044caa0 FUN_0044caa0
+   0x01017634: 0x004534f0 FUN_004534f0
+   0x01017638: 0x00665f10 FUN_00665f10
+   0x0101763c: 0x0044cac0 FUN_0044cac0
+   0x01017640: 0x0044c1c0 FUN_0044c1c0
+   0x01017644: 0x006b81d0 FUN_006b81d0
+
+----------------------------------------------------------------------
+Data reference at 0x010176b4
+   0x0101766c: 0x00528b60 FUN_00528b60
+   0x01017670: 0x009062e0 FUN_009062e0
+   0x01017674: 0x00906320 FUN_00906320
+   0x01017678: 0x0044bdb0 FUN_0044bdb0
+   0x0101767c: 0x0044bb90 FUN_0044bb90
+   0x01017680: 0x0044caa0 FUN_0044caa0
+   0x01017684: 0x004534f0 FUN_004534f0
+   0x01017688: 0x00665f10 FUN_00665f10
+   0x0101768c: 0x0044cac0 FUN_0044cac0
+   0x01017690: 0x0044c1c0 FUN_0044c1c0
+   0x01017694: 0x006b81d0 FUN_006b81d0
+   0x01017698: 0x0044bbc0 FUN_0044bbc0
+   0x0101769c: 0x0044b730 FUN_0044b730
+   0x010176a0: 0x009611e0 FUN_009611e0
+   0x010176a4: 0x00000000 ???
+   0x010176a8: 0x011066b4 ???
+   0x010176ac: 0x0044dce0 FUN_0044dce0
+   0x010176b0: 0x00906400 FUN_00906400
+>> 0x010176b4: 0x00449530 FUN_00449530
+   0x010176b8: 0x006ec7e0 FUN_006ec7e0
+   0x010176bc: 0x00449580 FUN_00449580
+   0x010176c0: 0x004495d0 FUN_004495d0
+   0x010176c4: 0x00449700 FUN_00449700
+   0x010176c8: 0x006ec900 FUN_006ec900
+   0x010176cc: 0x004498b0 FUN_004498b0
+   0x010176d0: 0x0044caa0 FUN_0044caa0
+   0x010176d4: 0x004534f0 FUN_004534f0
+   0x010176d8: 0x00665f10 FUN_00665f10
+   0x010176dc: 0x0044cac0 FUN_0044cac0
+   0x010176e0: 0x0044c1c0 FUN_0044c1c0
+   0x010176e4: 0x006b81d0 FUN_006b81d0
+
+----------------------------------------------------------------------
+Data reference at 0x0106645c
+   0x01066414: 0x68537970 ???
+   0x01066418: 0x776f6461 ???
+   0x0106641c: 0x7364642e ???
+   0x01066420: 0x00000000 ???
+   0x01066424: 0x00000000 ???
+   0x01066428: 0xc0000000 ???
+   0x0106642c: 0x3fe3851e ???
+   0x01066430: 0x011138ac ???
+   0x01066434: 0x00665c80 FUN_00665c80
+   0x01066438: 0x006c6a60 FUN_006c6a60
+   0x0106643c: 0x006b81d0 FUN_006b81d0
+   0x01066440: 0x00863840 FUN_00863840
+   0x01066444: 0x004534f0 FUN_004534f0
+   0x01066448: 0x00486a90 FUN_00486a90
+   0x0106644c: 0x00666050 FUN_00666050
+   0x01066450: 0x0111392c ???
+   0x01066454: 0x006661b0 FUN_006661b0
+   0x01066458: 0x00665e30 FUN_00665e30
+>> 0x0106645c: 0x00449530 FUN_00449530
+   0x01066460: 0x006ec7e0 FUN_006ec7e0
+   0x01066464: 0x00449580 FUN_00449580
+   0x01066468: 0x004495d0 FUN_004495d0
+   0x0106646c: 0x00449700 FUN_00449700
+   0x01066470: 0x006ec900 FUN_006ec900
+   0x01066474: 0x004498b0 FUN_004498b0
+   0x01066478: 0x0044caa0 FUN_0044caa0
+   0x0106647c: 0x004534f0 FUN_004534f0
+   0x01066480: 0x00665f10 FUN_00665f10
+   0x01066484: 0x0044cac0 FUN_0044cac0
+   0x01066488: 0x0044c1c0 FUN_0044c1c0
+   0x0106648c: 0x006b81d0 FUN_006b81d0
+
+----------------------------------------------------------------------
+Data reference at 0x0106d734
+   0x0106d6ec: 0x0111755c ???
+   0x0106d6f0: 0x006ec450 FUN_006ec450
+   0x0106d6f4: 0x009054a0 FUN_009054a0
+   0x0106d6f8: 0x006ec0d0 FUN_006ec0d0
+   0x0106d6fc: 0x00905510 FUN_00905510
+   0x0106d700: 0x006ec390 FUN_006ec390
+   0x0106d704: 0x008d0370 FUN_008d0370
+   0x0106d708: 0x008d0370 FUN_008d0370
+   0x0106d70c: 0x01117570 ???
+   0x0106d710: 0x006ec480 FUN_006ec480
+   0x0106d714: 0x00ec60fa ???
+   0x0106d718: 0x00ec60fa ???
+   0x0106d71c: 0x00ec60fa ???
+   0x0106d720: 0x00ec60fa ???
+   0x0106d724: 0x00000000 ???
+   0x0106d728: 0x01117584 ???
+   0x0106d72c: 0x006ecae0 FUN_006ecae0
+   0x0106d730: 0x00906400 FUN_00906400
+>> 0x0106d734: 0x00449530 FUN_00449530
+   0x0106d738: 0x006ec7e0 FUN_006ec7e0
+   0x0106d73c: 0x00449580 FUN_00449580
+   0x0106d740: 0x004495d0 FUN_004495d0
+   0x0106d744: 0x00449700 FUN_00449700
+   0x0106d748: 0x006ec900 FUN_006ec900
+   0x0106d74c: 0x004498b0 FUN_004498b0
+   0x0106d750: 0x0044caa0 FUN_0044caa0
+   0x0106d754: 0x004534f0 FUN_004534f0
+   0x0106d758: 0x00665f10 FUN_00665f10
+   0x0106d75c: 0x0044cac0 FUN_0044cac0
+   0x0106d760: 0x0044c1c0 FUN_0044c1c0
+   0x0106d764: 0x006b81d0 FUN_006b81d0
+  Total data references: 8
+
+======================================================================
+Data-reference neighborhoods to Adjacent LockFreeMap consumer method @ 0x00449580
+======================================================================
+
+----------------------------------------------------------------------
+Data reference at 0x010172ec
+   0x010172a4: 0x00449920 FUN_00449920
+   0x010172a8: 0x0110626c ???
+   0x010172ac: 0x00449b70 FUN_00449b70
+   0x010172b0: 0x00528820 FUN_00528820
+   0x010172b4: 0x01106280 ???
+   0x010172b8: 0x00449ba0 FUN_00449ba0
+   0x010172bc: 0x00528820 FUN_00528820
+   0x010172c0: 0x011062c8 ???
+   0x010172c4: 0x00449bd0 FUN_00449bd0
+   0x010172c8: 0x00528820 FUN_00528820
+   0x010172cc: 0x01106310 ???
+   0x010172d0: 0x00449c00 FUN_00449c00
+   0x010172d4: 0x00528820 FUN_00528820
+   0x010172d8: 0x01106358 ???
+   0x010172dc: 0x00449d10 FUN_00449d10
+   0x010172e0: 0x00906400 FUN_00906400
+   0x010172e4: 0x00449530 FUN_00449530
+   0x010172e8: 0x006ec7e0 FUN_006ec7e0
+>> 0x010172ec: 0x00449580 FUN_00449580
+   0x010172f0: 0x004495d0 FUN_004495d0
+   0x010172f4: 0x00449700 FUN_00449700
+   0x010172f8: 0x006ec900 FUN_006ec900
+   0x010172fc: 0x004498b0 FUN_004498b0
+   0x01017300: 0x00449cb0 FUN_00449cb0
+   0x01017304: 0x006b8310 FUN_006b8310
+   0x01017308: 0x00449dc0 FUN_00449dc0
+   0x0101730c: 0x00449500 FUN_00449500
+   0x01017310: 0x004496d0 FUN_004496d0
+   0x01017314: 0x00449880 operator!=
+   0x01017318: 0x0044bbc0 FUN_0044bbc0
+   0x0101731c: 0x0044b730 FUN_0044b730
+
+----------------------------------------------------------------------
+Data reference at 0x0101733c
+   0x010172f4: 0x00449700 FUN_00449700
+   0x010172f8: 0x006ec900 FUN_006ec900
+   0x010172fc: 0x004498b0 FUN_004498b0
+   0x01017300: 0x00449cb0 FUN_00449cb0
+   0x01017304: 0x006b8310 FUN_006b8310
+   0x01017308: 0x00449dc0 FUN_00449dc0
+   0x0101730c: 0x00449500 FUN_00449500
+   0x01017310: 0x004496d0 FUN_004496d0
+   0x01017314: 0x00449880 operator!=
+   0x01017318: 0x0044bbc0 FUN_0044bbc0
+   0x0101731c: 0x0044b730 FUN_0044b730
+   0x01017320: 0x009611e0 FUN_009611e0
+   0x01017324: 0x00000000 ???
+   0x01017328: 0x0110636c ???
+   0x0101732c: 0x00449e70 FUN_00449e70
+   0x01017330: 0x00906400 FUN_00906400
+   0x01017334: 0x00449530 FUN_00449530
+   0x01017338: 0x006ec7e0 FUN_006ec7e0
+>> 0x0101733c: 0x00449580 FUN_00449580
+   0x01017340: 0x004495d0 FUN_004495d0
+   0x01017344: 0x00449700 FUN_00449700
+   0x01017348: 0x006ec900 FUN_006ec900
+   0x0101734c: 0x004498b0 FUN_004498b0
+   0x01017350: 0x00449cb0 FUN_00449cb0
+   0x01017354: 0x006b8310 FUN_006b8310
+   0x01017358: 0x00449dc0 FUN_00449dc0
+   0x0101735c: 0x00449500 FUN_00449500
+   0x01017360: 0x004496d0 FUN_004496d0
+   0x01017364: 0x00449880 operator!=
+   0x01017368: 0x0044bbc0 FUN_0044bbc0
+   0x0101736c: 0x0044b730 FUN_0044b730
+
+----------------------------------------------------------------------
+Data reference at 0x0101738c
+   0x01017344: 0x00449700 FUN_00449700
+   0x01017348: 0x006ec900 FUN_006ec900
+   0x0101734c: 0x004498b0 FUN_004498b0
+   0x01017350: 0x00449cb0 FUN_00449cb0
+   0x01017354: 0x006b8310 FUN_006b8310
+   0x01017358: 0x00449dc0 FUN_00449dc0
+   0x0101735c: 0x00449500 FUN_00449500
+   0x01017360: 0x004496d0 FUN_004496d0
+   0x01017364: 0x00449880 operator!=
+   0x01017368: 0x0044bbc0 FUN_0044bbc0
+   0x0101736c: 0x0044b730 FUN_0044b730
+   0x01017370: 0x009611e0 FUN_009611e0
+   0x01017374: 0x00000000 ???
+   0x01017378: 0x01106380 ???
+   0x0101737c: 0x00449f20 FUN_00449f20
+   0x01017380: 0x00906400 FUN_00906400
+   0x01017384: 0x00449530 FUN_00449530
+   0x01017388: 0x006ec7e0 FUN_006ec7e0
+>> 0x0101738c: 0x00449580 FUN_00449580
+   0x01017390: 0x004495d0 FUN_004495d0
+   0x01017394: 0x00449700 FUN_00449700
+   0x01017398: 0x006ec900 FUN_006ec900
+   0x0101739c: 0x004498b0 FUN_004498b0
+   0x010173a0: 0x00449cb0 FUN_00449cb0
+   0x010173a4: 0x006b8310 FUN_006b8310
+   0x010173a8: 0x00449dc0 FUN_00449dc0
+   0x010173ac: 0x00449500 FUN_00449500
+   0x010173b0: 0x004496d0 FUN_004496d0
+   0x010173b4: 0x00449880 operator!=
+   0x010173b8: 0x0044bbc0 FUN_0044bbc0
+   0x010173bc: 0x0044b730 FUN_0044b730
+
+----------------------------------------------------------------------
+Data reference at 0x010175cc
+   0x01017584: 0x00906320 FUN_00906320
+   0x01017588: 0x0044bdb0 FUN_0044bdb0
+   0x0101758c: 0x0044bb90 FUN_0044bb90
+   0x01017590: 0x0044caa0 FUN_0044caa0
+   0x01017594: 0x004534f0 FUN_004534f0
+   0x01017598: 0x00665f10 FUN_00665f10
+   0x0101759c: 0x0044cac0 FUN_0044cac0
+   0x010175a0: 0x0044c1c0 FUN_0044c1c0
+   0x010175a4: 0x006b81d0 FUN_006b81d0
+   0x010175a8: 0x0044bbc0 FUN_0044bbc0
+   0x010175ac: 0x0044b730 FUN_0044b730
+   0x010175b0: 0x009611e0 FUN_009611e0
+   0x010175b4: 0x00000000 ???
+   0x010175b8: 0x01106640 ???
+   0x010175bc: 0x0044dbc0 FUN_0044dbc0
+   0x010175c0: 0x00906400 FUN_00906400
+   0x010175c4: 0x00449530 FUN_00449530
+   0x010175c8: 0x006ec7e0 FUN_006ec7e0
+>> 0x010175cc: 0x00449580 FUN_00449580
+   0x010175d0: 0x004495d0 FUN_004495d0
+   0x010175d4: 0x00449700 FUN_00449700
+   0x010175d8: 0x006ec900 FUN_006ec900
+   0x010175dc: 0x004498b0 FUN_004498b0
+   0x010175e0: 0x0044caa0 FUN_0044caa0
+   0x010175e4: 0x004534f0 FUN_004534f0
+   0x010175e8: 0x00665f10 FUN_00665f10
+   0x010175ec: 0x0044cac0 FUN_0044cac0
+   0x010175f0: 0x0044c1c0 FUN_0044c1c0
+   0x010175f4: 0x006b81d0 FUN_006b81d0
+   0x010175f8: 0x0044bbc0 FUN_0044bbc0
+   0x010175fc: 0x0044b730 FUN_0044b730
+
+----------------------------------------------------------------------
+Data reference at 0x0101761c
+   0x010175d4: 0x00449700 FUN_00449700
+   0x010175d8: 0x006ec900 FUN_006ec900
+   0x010175dc: 0x004498b0 FUN_004498b0
+   0x010175e0: 0x0044caa0 FUN_0044caa0
+   0x010175e4: 0x004534f0 FUN_004534f0
+   0x010175e8: 0x00665f10 FUN_00665f10
+   0x010175ec: 0x0044cac0 FUN_0044cac0
+   0x010175f0: 0x0044c1c0 FUN_0044c1c0
+   0x010175f4: 0x006b81d0 FUN_006b81d0
+   0x010175f8: 0x0044bbc0 FUN_0044bbc0
+   0x010175fc: 0x0044b730 FUN_0044b730
+   0x01017600: 0x009611e0 FUN_009611e0
+   0x01017604: 0x00000000 ???
+   0x01017608: 0x01106654 ???
+   0x0101760c: 0x0044dbf0 FUN_0044dbf0
+   0x01017610: 0x00906400 FUN_00906400
+   0x01017614: 0x00449530 FUN_00449530
+   0x01017618: 0x006ec7e0 FUN_006ec7e0
+>> 0x0101761c: 0x00449580 FUN_00449580
+   0x01017620: 0x004495d0 FUN_004495d0
+   0x01017624: 0x00449700 FUN_00449700
+   0x01017628: 0x006ec900 FUN_006ec900
+   0x0101762c: 0x004498b0 FUN_004498b0
+   0x01017630: 0x0044caa0 FUN_0044caa0
+   0x01017634: 0x004534f0 FUN_004534f0
+   0x01017638: 0x00665f10 FUN_00665f10
+   0x0101763c: 0x0044cac0 FUN_0044cac0
+   0x01017640: 0x0044c1c0 FUN_0044c1c0
+   0x01017644: 0x006b81d0 FUN_006b81d0
+   0x01017648: 0x0044bbc0 FUN_0044bbc0
+   0x0101764c: 0x0044b730 FUN_0044b730
+
+----------------------------------------------------------------------
+Data reference at 0x010176bc
+   0x01017674: 0x00906320 FUN_00906320
+   0x01017678: 0x0044bdb0 FUN_0044bdb0
+   0x0101767c: 0x0044bb90 FUN_0044bb90
+   0x01017680: 0x0044caa0 FUN_0044caa0
+   0x01017684: 0x004534f0 FUN_004534f0
+   0x01017688: 0x00665f10 FUN_00665f10
+   0x0101768c: 0x0044cac0 FUN_0044cac0
+   0x01017690: 0x0044c1c0 FUN_0044c1c0
+   0x01017694: 0x006b81d0 FUN_006b81d0
+   0x01017698: 0x0044bbc0 FUN_0044bbc0
+   0x0101769c: 0x0044b730 FUN_0044b730
+   0x010176a0: 0x009611e0 FUN_009611e0
+   0x010176a4: 0x00000000 ???
+   0x010176a8: 0x011066b4 ???
+   0x010176ac: 0x0044dce0 FUN_0044dce0
+   0x010176b0: 0x00906400 FUN_00906400
+   0x010176b4: 0x00449530 FUN_00449530
+   0x010176b8: 0x006ec7e0 FUN_006ec7e0
+>> 0x010176bc: 0x00449580 FUN_00449580
+   0x010176c0: 0x004495d0 FUN_004495d0
+   0x010176c4: 0x00449700 FUN_00449700
+   0x010176c8: 0x006ec900 FUN_006ec900
+   0x010176cc: 0x004498b0 FUN_004498b0
+   0x010176d0: 0x0044caa0 FUN_0044caa0
+   0x010176d4: 0x004534f0 FUN_004534f0
+   0x010176d8: 0x00665f10 FUN_00665f10
+   0x010176dc: 0x0044cac0 FUN_0044cac0
+   0x010176e0: 0x0044c1c0 FUN_0044c1c0
+   0x010176e4: 0x006b81d0 FUN_006b81d0
+   0x010176e8: 0x0044bbc0 FUN_0044bbc0
+   0x010176ec: 0x0044b730 FUN_0044b730
+
+----------------------------------------------------------------------
+Data reference at 0x01066464
+   0x0106641c: 0x7364642e ???
+   0x01066420: 0x00000000 ???
+   0x01066424: 0x00000000 ???
+   0x01066428: 0xc0000000 ???
+   0x0106642c: 0x3fe3851e ???
+   0x01066430: 0x011138ac ???
+   0x01066434: 0x00665c80 FUN_00665c80
+   0x01066438: 0x006c6a60 FUN_006c6a60
+   0x0106643c: 0x006b81d0 FUN_006b81d0
+   0x01066440: 0x00863840 FUN_00863840
+   0x01066444: 0x004534f0 FUN_004534f0
+   0x01066448: 0x00486a90 FUN_00486a90
+   0x0106644c: 0x00666050 FUN_00666050
+   0x01066450: 0x0111392c ???
+   0x01066454: 0x006661b0 FUN_006661b0
+   0x01066458: 0x00665e30 FUN_00665e30
+   0x0106645c: 0x00449530 FUN_00449530
+   0x01066460: 0x006ec7e0 FUN_006ec7e0
+>> 0x01066464: 0x00449580 FUN_00449580
+   0x01066468: 0x004495d0 FUN_004495d0
+   0x0106646c: 0x00449700 FUN_00449700
+   0x01066470: 0x006ec900 FUN_006ec900
+   0x01066474: 0x004498b0 FUN_004498b0
+   0x01066478: 0x0044caa0 FUN_0044caa0
+   0x0106647c: 0x004534f0 FUN_004534f0
+   0x01066480: 0x00665f10 FUN_00665f10
+   0x01066484: 0x0044cac0 FUN_0044cac0
+   0x01066488: 0x0044c1c0 FUN_0044c1c0
+   0x0106648c: 0x006b81d0 FUN_006b81d0
+   0x01066490: 0x0044bbc0 FUN_0044bbc0
+   0x01066494: 0x0044b730 FUN_0044b730
+
+----------------------------------------------------------------------
+Data reference at 0x0106d73c
+   0x0106d6f4: 0x009054a0 FUN_009054a0
+   0x0106d6f8: 0x006ec0d0 FUN_006ec0d0
+   0x0106d6fc: 0x00905510 FUN_00905510
+   0x0106d700: 0x006ec390 FUN_006ec390
+   0x0106d704: 0x008d0370 FUN_008d0370
+   0x0106d708: 0x008d0370 FUN_008d0370
+   0x0106d70c: 0x01117570 ???
+   0x0106d710: 0x006ec480 FUN_006ec480
+   0x0106d714: 0x00ec60fa ???
+   0x0106d718: 0x00ec60fa ???
+   0x0106d71c: 0x00ec60fa ???
+   0x0106d720: 0x00ec60fa ???
+   0x0106d724: 0x00000000 ???
+   0x0106d728: 0x01117584 ???
+   0x0106d72c: 0x006ecae0 FUN_006ecae0
+   0x0106d730: 0x00906400 FUN_00906400
+   0x0106d734: 0x00449530 FUN_00449530
+   0x0106d738: 0x006ec7e0 FUN_006ec7e0
+>> 0x0106d73c: 0x00449580 FUN_00449580
+   0x0106d740: 0x004495d0 FUN_004495d0
+   0x0106d744: 0x00449700 FUN_00449700
+   0x0106d748: 0x006ec900 FUN_006ec900
+   0x0106d74c: 0x004498b0 FUN_004498b0
+   0x0106d750: 0x0044caa0 FUN_0044caa0
+   0x0106d754: 0x004534f0 FUN_004534f0
+   0x0106d758: 0x00665f10 FUN_00665f10
+   0x0106d75c: 0x0044cac0 FUN_0044cac0
+   0x0106d760: 0x0044c1c0 FUN_0044c1c0
+   0x0106d764: 0x006b81d0 FUN_006b81d0
+   0x0106d768: 0x0044bbc0 FUN_0044bbc0
+   0x0106d76c: 0x0044b730 FUN_0044b730
+  Total data references: 8
+
+======================================================================
+Data-reference neighborhoods to Adjacent LockFreeMap consumer method @ 0x004495d0
+======================================================================
+
+----------------------------------------------------------------------
+Data reference at 0x010172f0
+   0x010172a8: 0x0110626c ???
+   0x010172ac: 0x00449b70 FUN_00449b70
+   0x010172b0: 0x00528820 FUN_00528820
+   0x010172b4: 0x01106280 ???
+   0x010172b8: 0x00449ba0 FUN_00449ba0
+   0x010172bc: 0x00528820 FUN_00528820
+   0x010172c0: 0x011062c8 ???
+   0x010172c4: 0x00449bd0 FUN_00449bd0
+   0x010172c8: 0x00528820 FUN_00528820
+   0x010172cc: 0x01106310 ???
+   0x010172d0: 0x00449c00 FUN_00449c00
+   0x010172d4: 0x00528820 FUN_00528820
+   0x010172d8: 0x01106358 ???
+   0x010172dc: 0x00449d10 FUN_00449d10
+   0x010172e0: 0x00906400 FUN_00906400
+   0x010172e4: 0x00449530 FUN_00449530
+   0x010172e8: 0x006ec7e0 FUN_006ec7e0
+   0x010172ec: 0x00449580 FUN_00449580
+>> 0x010172f0: 0x004495d0 FUN_004495d0
+   0x010172f4: 0x00449700 FUN_00449700
+   0x010172f8: 0x006ec900 FUN_006ec900
+   0x010172fc: 0x004498b0 FUN_004498b0
+   0x01017300: 0x00449cb0 FUN_00449cb0
+   0x01017304: 0x006b8310 FUN_006b8310
+   0x01017308: 0x00449dc0 FUN_00449dc0
+   0x0101730c: 0x00449500 FUN_00449500
+   0x01017310: 0x004496d0 FUN_004496d0
+   0x01017314: 0x00449880 operator!=
+   0x01017318: 0x0044bbc0 FUN_0044bbc0
+   0x0101731c: 0x0044b730 FUN_0044b730
+   0x01017320: 0x009611e0 FUN_009611e0
+
+----------------------------------------------------------------------
+Data reference at 0x01017340
+   0x010172f8: 0x006ec900 FUN_006ec900
+   0x010172fc: 0x004498b0 FUN_004498b0
+   0x01017300: 0x00449cb0 FUN_00449cb0
+   0x01017304: 0x006b8310 FUN_006b8310
+   0x01017308: 0x00449dc0 FUN_00449dc0
+   0x0101730c: 0x00449500 FUN_00449500
+   0x01017310: 0x004496d0 FUN_004496d0
+   0x01017314: 0x00449880 operator!=
+   0x01017318: 0x0044bbc0 FUN_0044bbc0
+   0x0101731c: 0x0044b730 FUN_0044b730
+   0x01017320: 0x009611e0 FUN_009611e0
+   0x01017324: 0x00000000 ???
+   0x01017328: 0x0110636c ???
+   0x0101732c: 0x00449e70 FUN_00449e70
+   0x01017330: 0x00906400 FUN_00906400
+   0x01017334: 0x00449530 FUN_00449530
+   0x01017338: 0x006ec7e0 FUN_006ec7e0
+   0x0101733c: 0x00449580 FUN_00449580
+>> 0x01017340: 0x004495d0 FUN_004495d0
+   0x01017344: 0x00449700 FUN_00449700
+   0x01017348: 0x006ec900 FUN_006ec900
+   0x0101734c: 0x004498b0 FUN_004498b0
+   0x01017350: 0x00449cb0 FUN_00449cb0
+   0x01017354: 0x006b8310 FUN_006b8310
+   0x01017358: 0x00449dc0 FUN_00449dc0
+   0x0101735c: 0x00449500 FUN_00449500
+   0x01017360: 0x004496d0 FUN_004496d0
+   0x01017364: 0x00449880 operator!=
+   0x01017368: 0x0044bbc0 FUN_0044bbc0
+   0x0101736c: 0x0044b730 FUN_0044b730
+   0x01017370: 0x009611e0 FUN_009611e0
+
+----------------------------------------------------------------------
+Data reference at 0x01017390
+   0x01017348: 0x006ec900 FUN_006ec900
+   0x0101734c: 0x004498b0 FUN_004498b0
+   0x01017350: 0x00449cb0 FUN_00449cb0
+   0x01017354: 0x006b8310 FUN_006b8310
+   0x01017358: 0x00449dc0 FUN_00449dc0
+   0x0101735c: 0x00449500 FUN_00449500
+   0x01017360: 0x004496d0 FUN_004496d0
+   0x01017364: 0x00449880 operator!=
+   0x01017368: 0x0044bbc0 FUN_0044bbc0
+   0x0101736c: 0x0044b730 FUN_0044b730
+   0x01017370: 0x009611e0 FUN_009611e0
+   0x01017374: 0x00000000 ???
+   0x01017378: 0x01106380 ???
+   0x0101737c: 0x00449f20 FUN_00449f20
+   0x01017380: 0x00906400 FUN_00906400
+   0x01017384: 0x00449530 FUN_00449530
+   0x01017388: 0x006ec7e0 FUN_006ec7e0
+   0x0101738c: 0x00449580 FUN_00449580
+>> 0x01017390: 0x004495d0 FUN_004495d0
+   0x01017394: 0x00449700 FUN_00449700
+   0x01017398: 0x006ec900 FUN_006ec900
+   0x0101739c: 0x004498b0 FUN_004498b0
+   0x010173a0: 0x00449cb0 FUN_00449cb0
+   0x010173a4: 0x006b8310 FUN_006b8310
+   0x010173a8: 0x00449dc0 FUN_00449dc0
+   0x010173ac: 0x00449500 FUN_00449500
+   0x010173b0: 0x004496d0 FUN_004496d0
+   0x010173b4: 0x00449880 operator!=
+   0x010173b8: 0x0044bbc0 FUN_0044bbc0
+   0x010173bc: 0x0044b730 FUN_0044b730
+   0x010173c0: 0x009611e0 FUN_009611e0
+
+----------------------------------------------------------------------
+Data reference at 0x010175d0
+   0x01017588: 0x0044bdb0 FUN_0044bdb0
+   0x0101758c: 0x0044bb90 FUN_0044bb90
+   0x01017590: 0x0044caa0 FUN_0044caa0
+   0x01017594: 0x004534f0 FUN_004534f0
+   0x01017598: 0x00665f10 FUN_00665f10
+   0x0101759c: 0x0044cac0 FUN_0044cac0
+   0x010175a0: 0x0044c1c0 FUN_0044c1c0
+   0x010175a4: 0x006b81d0 FUN_006b81d0
+   0x010175a8: 0x0044bbc0 FUN_0044bbc0
+   0x010175ac: 0x0044b730 FUN_0044b730
+   0x010175b0: 0x009611e0 FUN_009611e0
+   0x010175b4: 0x00000000 ???
+   0x010175b8: 0x01106640 ???
+   0x010175bc: 0x0044dbc0 FUN_0044dbc0
+   0x010175c0: 0x00906400 FUN_00906400
+   0x010175c4: 0x00449530 FUN_00449530
+   0x010175c8: 0x006ec7e0 FUN_006ec7e0
+   0x010175cc: 0x00449580 FUN_00449580
+>> 0x010175d0: 0x004495d0 FUN_004495d0
+   0x010175d4: 0x00449700 FUN_00449700
+   0x010175d8: 0x006ec900 FUN_006ec900
+   0x010175dc: 0x004498b0 FUN_004498b0
+   0x010175e0: 0x0044caa0 FUN_0044caa0
+   0x010175e4: 0x004534f0 FUN_004534f0
+   0x010175e8: 0x00665f10 FUN_00665f10
+   0x010175ec: 0x0044cac0 FUN_0044cac0
+   0x010175f0: 0x0044c1c0 FUN_0044c1c0
+   0x010175f4: 0x006b81d0 FUN_006b81d0
+   0x010175f8: 0x0044bbc0 FUN_0044bbc0
+   0x010175fc: 0x0044b730 FUN_0044b730
+   0x01017600: 0x009611e0 FUN_009611e0
+
+----------------------------------------------------------------------
+Data reference at 0x01017620
+   0x010175d8: 0x006ec900 FUN_006ec900
+   0x010175dc: 0x004498b0 FUN_004498b0
+   0x010175e0: 0x0044caa0 FUN_0044caa0
+   0x010175e4: 0x004534f0 FUN_004534f0
+   0x010175e8: 0x00665f10 FUN_00665f10
+   0x010175ec: 0x0044cac0 FUN_0044cac0
+   0x010175f0: 0x0044c1c0 FUN_0044c1c0
+   0x010175f4: 0x006b81d0 FUN_006b81d0
+   0x010175f8: 0x0044bbc0 FUN_0044bbc0
+   0x010175fc: 0x0044b730 FUN_0044b730
+   0x01017600: 0x009611e0 FUN_009611e0
+   0x01017604: 0x00000000 ???
+   0x01017608: 0x01106654 ???
+   0x0101760c: 0x0044dbf0 FUN_0044dbf0
+   0x01017610: 0x00906400 FUN_00906400
+   0x01017614: 0x00449530 FUN_00449530
+   0x01017618: 0x006ec7e0 FUN_006ec7e0
+   0x0101761c: 0x00449580 FUN_00449580
+>> 0x01017620: 0x004495d0 FUN_004495d0
+   0x01017624: 0x00449700 FUN_00449700
+   0x01017628: 0x006ec900 FUN_006ec900
+   0x0101762c: 0x004498b0 FUN_004498b0
+   0x01017630: 0x0044caa0 FUN_0044caa0
+   0x01017634: 0x004534f0 FUN_004534f0
+   0x01017638: 0x00665f10 FUN_00665f10
+   0x0101763c: 0x0044cac0 FUN_0044cac0
+   0x01017640: 0x0044c1c0 FUN_0044c1c0
+   0x01017644: 0x006b81d0 FUN_006b81d0
+   0x01017648: 0x0044bbc0 FUN_0044bbc0
+   0x0101764c: 0x0044b730 FUN_0044b730
+   0x01017650: 0x009611e0 FUN_009611e0
+
+----------------------------------------------------------------------
+Data reference at 0x010176c0
+   0x01017678: 0x0044bdb0 FUN_0044bdb0
+   0x0101767c: 0x0044bb90 FUN_0044bb90
+   0x01017680: 0x0044caa0 FUN_0044caa0
+   0x01017684: 0x004534f0 FUN_004534f0
+   0x01017688: 0x00665f10 FUN_00665f10
+   0x0101768c: 0x0044cac0 FUN_0044cac0
+   0x01017690: 0x0044c1c0 FUN_0044c1c0
+   0x01017694: 0x006b81d0 FUN_006b81d0
+   0x01017698: 0x0044bbc0 FUN_0044bbc0
+   0x0101769c: 0x0044b730 FUN_0044b730
+   0x010176a0: 0x009611e0 FUN_009611e0
+   0x010176a4: 0x00000000 ???
+   0x010176a8: 0x011066b4 ???
+   0x010176ac: 0x0044dce0 FUN_0044dce0
+   0x010176b0: 0x00906400 FUN_00906400
+   0x010176b4: 0x00449530 FUN_00449530
+   0x010176b8: 0x006ec7e0 FUN_006ec7e0
+   0x010176bc: 0x00449580 FUN_00449580
+>> 0x010176c0: 0x004495d0 FUN_004495d0
+   0x010176c4: 0x00449700 FUN_00449700
+   0x010176c8: 0x006ec900 FUN_006ec900
+   0x010176cc: 0x004498b0 FUN_004498b0
+   0x010176d0: 0x0044caa0 FUN_0044caa0
+   0x010176d4: 0x004534f0 FUN_004534f0
+   0x010176d8: 0x00665f10 FUN_00665f10
+   0x010176dc: 0x0044cac0 FUN_0044cac0
+   0x010176e0: 0x0044c1c0 FUN_0044c1c0
+   0x010176e4: 0x006b81d0 FUN_006b81d0
+   0x010176e8: 0x0044bbc0 FUN_0044bbc0
+   0x010176ec: 0x0044b730 FUN_0044b730
+   0x010176f0: 0x009611e0 FUN_009611e0
+
+----------------------------------------------------------------------
+Data reference at 0x01066468
+   0x01066420: 0x00000000 ???
+   0x01066424: 0x00000000 ???
+   0x01066428: 0xc0000000 ???
+   0x0106642c: 0x3fe3851e ???
+   0x01066430: 0x011138ac ???
+   0x01066434: 0x00665c80 FUN_00665c80
+   0x01066438: 0x006c6a60 FUN_006c6a60
+   0x0106643c: 0x006b81d0 FUN_006b81d0
+   0x01066440: 0x00863840 FUN_00863840
+   0x01066444: 0x004534f0 FUN_004534f0
+   0x01066448: 0x00486a90 FUN_00486a90
+   0x0106644c: 0x00666050 FUN_00666050
+   0x01066450: 0x0111392c ???
+   0x01066454: 0x006661b0 FUN_006661b0
+   0x01066458: 0x00665e30 FUN_00665e30
+   0x0106645c: 0x00449530 FUN_00449530
+   0x01066460: 0x006ec7e0 FUN_006ec7e0
+   0x01066464: 0x00449580 FUN_00449580
+>> 0x01066468: 0x004495d0 FUN_004495d0
+   0x0106646c: 0x00449700 FUN_00449700
+   0x01066470: 0x006ec900 FUN_006ec900
+   0x01066474: 0x004498b0 FUN_004498b0
+   0x01066478: 0x0044caa0 FUN_0044caa0
+   0x0106647c: 0x004534f0 FUN_004534f0
+   0x01066480: 0x00665f10 FUN_00665f10
+   0x01066484: 0x0044cac0 FUN_0044cac0
+   0x01066488: 0x0044c1c0 FUN_0044c1c0
+   0x0106648c: 0x006b81d0 FUN_006b81d0
+   0x01066490: 0x0044bbc0 FUN_0044bbc0
+   0x01066494: 0x0044b730 FUN_0044b730
+   0x01066498: 0x009611e0 FUN_009611e0
+
+----------------------------------------------------------------------
+Data reference at 0x0106d740
+   0x0106d6f8: 0x006ec0d0 FUN_006ec0d0
+   0x0106d6fc: 0x00905510 FUN_00905510
+   0x0106d700: 0x006ec390 FUN_006ec390
+   0x0106d704: 0x008d0370 FUN_008d0370
+   0x0106d708: 0x008d0370 FUN_008d0370
+   0x0106d70c: 0x01117570 ???
+   0x0106d710: 0x006ec480 FUN_006ec480
+   0x0106d714: 0x00ec60fa ???
+   0x0106d718: 0x00ec60fa ???
+   0x0106d71c: 0x00ec60fa ???
+   0x0106d720: 0x00ec60fa ???
+   0x0106d724: 0x00000000 ???
+   0x0106d728: 0x01117584 ???
+   0x0106d72c: 0x006ecae0 FUN_006ecae0
+   0x0106d730: 0x00906400 FUN_00906400
+   0x0106d734: 0x00449530 FUN_00449530
+   0x0106d738: 0x006ec7e0 FUN_006ec7e0
+   0x0106d73c: 0x00449580 FUN_00449580
+>> 0x0106d740: 0x004495d0 FUN_004495d0
+   0x0106d744: 0x00449700 FUN_00449700
+   0x0106d748: 0x006ec900 FUN_006ec900
+   0x0106d74c: 0x004498b0 FUN_004498b0
+   0x0106d750: 0x0044caa0 FUN_0044caa0
+   0x0106d754: 0x004534f0 FUN_004534f0
+   0x0106d758: 0x00665f10 FUN_00665f10
+   0x0106d75c: 0x0044cac0 FUN_0044cac0
+   0x0106d760: 0x0044c1c0 FUN_0044c1c0
+   0x0106d764: 0x006b81d0 FUN_006b81d0
+   0x0106d768: 0x0044bbc0 FUN_0044bbc0
+   0x0106d76c: 0x0044b730 FUN_0044b730
+   0x0106d770: 0x009611e0 FUN_009611e0
+  Total data references: 8
+
+======================================================================
+Data-reference neighborhoods to Second known null consumer wrapper @ 0x004498b0
+======================================================================
+
+----------------------------------------------------------------------
+Data reference at 0x01017174
+   0x0101712c: 0x40a00000 ???
+   0x01017130: 0x47c35000 ???
+   0x01017134: 0x01105eb8 ???
+   0x01017138: 0x00449a20 FUN_00449a20
+   0x0101713c: 0x00ec60fa ???
+   0x01017140: 0x00ec60fa ???
+   0x01017144: 0x008d0600 FUN_008d0600
+   0x01017148: 0x008d0300 FUN_008d0300
+   0x0101714c: 0x00000000 ???
+   0x01017150: 0x01105ecc ???
+   0x01017154: 0x00449a50 FUN_00449a50
+   0x01017158: 0x00906400 FUN_00906400
+   0x0101715c: 0x004493d0 FUN_004493d0
+   0x01017160: 0x006ec7e0 FUN_006ec7e0
+   0x01017164: 0x00449460 FUN_00449460
+   0x01017168: 0x004497f0 FUN_004497f0
+   0x0101716c: 0x00449700 FUN_00449700
+   0x01017170: 0x006ec900 FUN_006ec900
+>> 0x01017174: 0x004498b0 FUN_004498b0
+   0x01017178: 0x00449750 FUN_00449750
+   0x0101717c: 0x006b8310 FUN_006b8310
+   0x01017180: 0x004492f0 FUN_004492f0
+   0x01017184: 0x00449500 FUN_00449500
+   0x01017188: 0x004496d0 FUN_004496d0
+   0x0101718c: 0x00449880 operator!=
+   0x01017190: 0x0044bbc0 FUN_0044bbc0
+   0x01017194: 0x0044b730 FUN_0044b730
+   0x01017198: 0x009611e0 FUN_009611e0
+   0x0101719c: 0x00000000 ???
+   0x010171a0: 0x5f5c3a64 ???
+   0x010171a4: 0x6c6c6166 ???
+
+----------------------------------------------------------------------
+Data reference at 0x0101720c
+   0x010171c4: 0x69616d73 ???
+   0x010171c8: 0x68545c6e ???
+   0x010171cc: 0x64616572 ???
+   0x010171d0: 0x65666153 ???
+   0x010171d4: 0x75727453 ???
+   0x010171d8: 0x72757463 ???
+   0x010171dc: 0x682e7365 ???
+   0x010171e0: 0x00000000 ???
+   0x010171e4: 0x00000000 ???
+   0x010171e8: 0x01105fc8 ???
+   0x010171ec: 0x00449a80 FUN_00449a80
+   0x010171f0: 0x00906400 FUN_00906400
+   0x010171f4: 0x004493d0 FUN_004493d0
+   0x010171f8: 0x006ec7e0 FUN_006ec7e0
+   0x010171fc: 0x00449460 FUN_00449460
+   0x01017200: 0x004497f0 FUN_004497f0
+   0x01017204: 0x00449700 FUN_00449700
+   0x01017208: 0x006ec900 FUN_006ec900
+>> 0x0101720c: 0x004498b0 FUN_004498b0
+   0x01017210: 0x00449750 FUN_00449750
+   0x01017214: 0x006b8310 FUN_006b8310
+   0x01017218: 0x004492f0 FUN_004492f0
+   0x0101721c: 0x00449500 FUN_00449500
+   0x01017220: 0x004496d0 FUN_004496d0
+   0x01017224: 0x00449880 operator!=
+   0x01017228: 0x0044bbc0 FUN_0044bbc0
+   0x0101722c: 0x0044b730 FUN_0044b730
+   0x01017230: 0x009611e0 FUN_009611e0
+   0x01017234: 0x00000000 ???
+   0x01017238: 0x01106090 ???
+   0x0101723c: 0x00449ab0 FUN_00449ab0
+
+----------------------------------------------------------------------
+Data reference at 0x0101725c
+   0x01017214: 0x006b8310 FUN_006b8310
+   0x01017218: 0x004492f0 FUN_004492f0
+   0x0101721c: 0x00449500 FUN_00449500
+   0x01017220: 0x004496d0 FUN_004496d0
+   0x01017224: 0x00449880 operator!=
+   0x01017228: 0x0044bbc0 FUN_0044bbc0
+   0x0101722c: 0x0044b730 FUN_0044b730
+   0x01017230: 0x009611e0 FUN_009611e0
+   0x01017234: 0x00000000 ???
+   0x01017238: 0x01106090 ???
+   0x0101723c: 0x00449ab0 FUN_00449ab0
+   0x01017240: 0x00906400 FUN_00906400
+   0x01017244: 0x004493d0 FUN_004493d0
+   0x01017248: 0x006ec7e0 FUN_006ec7e0
+   0x0101724c: 0x00449460 FUN_00449460
+   0x01017250: 0x004497f0 FUN_004497f0
+   0x01017254: 0x00449700 FUN_00449700
+   0x01017258: 0x006ec900 FUN_006ec900
+>> 0x0101725c: 0x004498b0 FUN_004498b0
+   0x01017260: 0x00449750 FUN_00449750
+   0x01017264: 0x006b8310 FUN_006b8310
+   0x01017268: 0x004492f0 FUN_004492f0
+   0x0101726c: 0x00449500 FUN_00449500
+   0x01017270: 0x004496d0 FUN_004496d0
+   0x01017274: 0x00449880 operator!=
+   0x01017278: 0x0044bbc0 FUN_0044bbc0
+   0x0101727c: 0x0044b730 FUN_0044b730
+   0x01017280: 0x009611e0 FUN_009611e0
+   0x01017284: 0x01106158 ???
+   0x01017288: 0x00449ae0 FUN_00449ae0
+   0x0101728c: 0x00449920 FUN_00449920
+
+----------------------------------------------------------------------
+Data reference at 0x010172fc
+   0x010172b4: 0x01106280 ???
+   0x010172b8: 0x00449ba0 FUN_00449ba0
+   0x010172bc: 0x00528820 FUN_00528820
+   0x010172c0: 0x011062c8 ???
+   0x010172c4: 0x00449bd0 FUN_00449bd0
+   0x010172c8: 0x00528820 FUN_00528820
+   0x010172cc: 0x01106310 ???
+   0x010172d0: 0x00449c00 FUN_00449c00
+   0x010172d4: 0x00528820 FUN_00528820
+   0x010172d8: 0x01106358 ???
+   0x010172dc: 0x00449d10 FUN_00449d10
+   0x010172e0: 0x00906400 FUN_00906400
+   0x010172e4: 0x00449530 FUN_00449530
+   0x010172e8: 0x006ec7e0 FUN_006ec7e0
+   0x010172ec: 0x00449580 FUN_00449580
+   0x010172f0: 0x004495d0 FUN_004495d0
+   0x010172f4: 0x00449700 FUN_00449700
+   0x010172f8: 0x006ec900 FUN_006ec900
+>> 0x010172fc: 0x004498b0 FUN_004498b0
+   0x01017300: 0x00449cb0 FUN_00449cb0
+   0x01017304: 0x006b8310 FUN_006b8310
+   0x01017308: 0x00449dc0 FUN_00449dc0
+   0x0101730c: 0x00449500 FUN_00449500
+   0x01017310: 0x004496d0 FUN_004496d0
+   0x01017314: 0x00449880 operator!=
+   0x01017318: 0x0044bbc0 FUN_0044bbc0
+   0x0101731c: 0x0044b730 FUN_0044b730
+   0x01017320: 0x009611e0 FUN_009611e0
+   0x01017324: 0x00000000 ???
+   0x01017328: 0x0110636c ???
+   0x0101732c: 0x00449e70 FUN_00449e70
+
+----------------------------------------------------------------------
+Data reference at 0x0101734c
+   0x01017304: 0x006b8310 FUN_006b8310
+   0x01017308: 0x00449dc0 FUN_00449dc0
+   0x0101730c: 0x00449500 FUN_00449500
+   0x01017310: 0x004496d0 FUN_004496d0
+   0x01017314: 0x00449880 operator!=
+   0x01017318: 0x0044bbc0 FUN_0044bbc0
+   0x0101731c: 0x0044b730 FUN_0044b730
+   0x01017320: 0x009611e0 FUN_009611e0
+   0x01017324: 0x00000000 ???
+   0x01017328: 0x0110636c ???
+   0x0101732c: 0x00449e70 FUN_00449e70
+   0x01017330: 0x00906400 FUN_00906400
+   0x01017334: 0x00449530 FUN_00449530
+   0x01017338: 0x006ec7e0 FUN_006ec7e0
+   0x0101733c: 0x00449580 FUN_00449580
+   0x01017340: 0x004495d0 FUN_004495d0
+   0x01017344: 0x00449700 FUN_00449700
+   0x01017348: 0x006ec900 FUN_006ec900
+>> 0x0101734c: 0x004498b0 FUN_004498b0
+   0x01017350: 0x00449cb0 FUN_00449cb0
+   0x01017354: 0x006b8310 FUN_006b8310
+   0x01017358: 0x00449dc0 FUN_00449dc0
+   0x0101735c: 0x00449500 FUN_00449500
+   0x01017360: 0x004496d0 FUN_004496d0
+   0x01017364: 0x00449880 operator!=
+   0x01017368: 0x0044bbc0 FUN_0044bbc0
+   0x0101736c: 0x0044b730 FUN_0044b730
+   0x01017370: 0x009611e0 FUN_009611e0
+   0x01017374: 0x00000000 ???
+   0x01017378: 0x01106380 ???
+   0x0101737c: 0x00449f20 FUN_00449f20
+
+----------------------------------------------------------------------
+Data reference at 0x0101739c
+   0x01017354: 0x006b8310 FUN_006b8310
+   0x01017358: 0x00449dc0 FUN_00449dc0
+   0x0101735c: 0x00449500 FUN_00449500
+   0x01017360: 0x004496d0 FUN_004496d0
+   0x01017364: 0x00449880 operator!=
+   0x01017368: 0x0044bbc0 FUN_0044bbc0
+   0x0101736c: 0x0044b730 FUN_0044b730
+   0x01017370: 0x009611e0 FUN_009611e0
+   0x01017374: 0x00000000 ???
+   0x01017378: 0x01106380 ???
+   0x0101737c: 0x00449f20 FUN_00449f20
+   0x01017380: 0x00906400 FUN_00906400
+   0x01017384: 0x00449530 FUN_00449530
+   0x01017388: 0x006ec7e0 FUN_006ec7e0
+   0x0101738c: 0x00449580 FUN_00449580
+   0x01017390: 0x004495d0 FUN_004495d0
+   0x01017394: 0x00449700 FUN_00449700
+   0x01017398: 0x006ec900 FUN_006ec900
+>> 0x0101739c: 0x004498b0 FUN_004498b0
+   0x010173a0: 0x00449cb0 FUN_00449cb0
+   0x010173a4: 0x006b8310 FUN_006b8310
+   0x010173a8: 0x00449dc0 FUN_00449dc0
+   0x010173ac: 0x00449500 FUN_00449500
+   0x010173b0: 0x004496d0 FUN_004496d0
+   0x010173b4: 0x00449880 operator!=
+   0x010173b8: 0x0044bbc0 FUN_0044bbc0
+   0x010173bc: 0x0044b730 FUN_0044b730
+   0x010173c0: 0x009611e0 FUN_009611e0
+   0x010173c4: 0x74636576 ???
+   0x010173c8: 0x543c726f ???
+   0x010173cc: 0x6f74203e ???
+
+----------------------------------------------------------------------
+Data reference at 0x010175dc
+   0x01017594: 0x004534f0 FUN_004534f0
+   0x01017598: 0x00665f10 FUN_00665f10
+   0x0101759c: 0x0044cac0 FUN_0044cac0
+   0x010175a0: 0x0044c1c0 FUN_0044c1c0
+   0x010175a4: 0x006b81d0 FUN_006b81d0
+   0x010175a8: 0x0044bbc0 FUN_0044bbc0
+   0x010175ac: 0x0044b730 FUN_0044b730
+   0x010175b0: 0x009611e0 FUN_009611e0
+   0x010175b4: 0x00000000 ???
+   0x010175b8: 0x01106640 ???
+   0x010175bc: 0x0044dbc0 FUN_0044dbc0
+   0x010175c0: 0x00906400 FUN_00906400
+   0x010175c4: 0x00449530 FUN_00449530
+   0x010175c8: 0x006ec7e0 FUN_006ec7e0
+   0x010175cc: 0x00449580 FUN_00449580
+   0x010175d0: 0x004495d0 FUN_004495d0
+   0x010175d4: 0x00449700 FUN_00449700
+   0x010175d8: 0x006ec900 FUN_006ec900
+>> 0x010175dc: 0x004498b0 FUN_004498b0
+   0x010175e0: 0x0044caa0 FUN_0044caa0
+   0x010175e4: 0x004534f0 FUN_004534f0
+   0x010175e8: 0x00665f10 FUN_00665f10
+   0x010175ec: 0x0044cac0 FUN_0044cac0
+   0x010175f0: 0x0044c1c0 FUN_0044c1c0
+   0x010175f4: 0x006b81d0 FUN_006b81d0
+   0x010175f8: 0x0044bbc0 FUN_0044bbc0
+   0x010175fc: 0x0044b730 FUN_0044b730
+   0x01017600: 0x009611e0 FUN_009611e0
+   0x01017604: 0x00000000 ???
+   0x01017608: 0x01106654 ???
+   0x0101760c: 0x0044dbf0 FUN_0044dbf0
+
+----------------------------------------------------------------------
+Data reference at 0x0101762c
+   0x010175e4: 0x004534f0 FUN_004534f0
+   0x010175e8: 0x00665f10 FUN_00665f10
+   0x010175ec: 0x0044cac0 FUN_0044cac0
+   0x010175f0: 0x0044c1c0 FUN_0044c1c0
+   0x010175f4: 0x006b81d0 FUN_006b81d0
+   0x010175f8: 0x0044bbc0 FUN_0044bbc0
+   0x010175fc: 0x0044b730 FUN_0044b730
+   0x01017600: 0x009611e0 FUN_009611e0
+   0x01017604: 0x00000000 ???
+   0x01017608: 0x01106654 ???
+   0x0101760c: 0x0044dbf0 FUN_0044dbf0
+   0x01017610: 0x00906400 FUN_00906400
+   0x01017614: 0x00449530 FUN_00449530
+   0x01017618: 0x006ec7e0 FUN_006ec7e0
+   0x0101761c: 0x00449580 FUN_00449580
+   0x01017620: 0x004495d0 FUN_004495d0
+   0x01017624: 0x00449700 FUN_00449700
+   0x01017628: 0x006ec900 FUN_006ec900
+>> 0x0101762c: 0x004498b0 FUN_004498b0
+   0x01017630: 0x0044caa0 FUN_0044caa0
+   0x01017634: 0x004534f0 FUN_004534f0
+   0x01017638: 0x00665f10 FUN_00665f10
+   0x0101763c: 0x0044cac0 FUN_0044cac0
+   0x01017640: 0x0044c1c0 FUN_0044c1c0
+   0x01017644: 0x006b81d0 FUN_006b81d0
+   0x01017648: 0x0044bbc0 FUN_0044bbc0
+   0x0101764c: 0x0044b730 FUN_0044b730
+   0x01017650: 0x009611e0 FUN_009611e0
+   0x01017654: 0x00000000 ???
+   0x01017658: 0x01106668 ???
+   0x0101765c: 0x0044dc20 FUN_0044dc20
+
+----------------------------------------------------------------------
+Data reference at 0x010176cc
+   0x01017684: 0x004534f0 FUN_004534f0
+   0x01017688: 0x00665f10 FUN_00665f10
+   0x0101768c: 0x0044cac0 FUN_0044cac0
+   0x01017690: 0x0044c1c0 FUN_0044c1c0
+   0x01017694: 0x006b81d0 FUN_006b81d0
+   0x01017698: 0x0044bbc0 FUN_0044bbc0
+   0x0101769c: 0x0044b730 FUN_0044b730
+   0x010176a0: 0x009611e0 FUN_009611e0
+   0x010176a4: 0x00000000 ???
+   0x010176a8: 0x011066b4 ???
+   0x010176ac: 0x0044dce0 FUN_0044dce0
+   0x010176b0: 0x00906400 FUN_00906400
+   0x010176b4: 0x00449530 FUN_00449530
+   0x010176b8: 0x006ec7e0 FUN_006ec7e0
+   0x010176bc: 0x00449580 FUN_00449580
+   0x010176c0: 0x004495d0 FUN_004495d0
+   0x010176c4: 0x00449700 FUN_00449700
+   0x010176c8: 0x006ec900 FUN_006ec900
+>> 0x010176cc: 0x004498b0 FUN_004498b0
+   0x010176d0: 0x0044caa0 FUN_0044caa0
+   0x010176d4: 0x004534f0 FUN_004534f0
+   0x010176d8: 0x00665f10 FUN_00665f10
+   0x010176dc: 0x0044cac0 FUN_0044cac0
+   0x010176e0: 0x0044c1c0 FUN_0044c1c0
+   0x010176e4: 0x006b81d0 FUN_006b81d0
+   0x010176e8: 0x0044bbc0 FUN_0044bbc0
+   0x010176ec: 0x0044b730 FUN_0044b730
+   0x010176f0: 0x009611e0 FUN_009611e0
+   0x010176f4: 0x011066c8 ???
+   0x010176f8: 0x0044d710 FUN_0044d710
+   0x010176fc: 0x00ec79b7 ???
+
+----------------------------------------------------------------------
+Data reference at 0x01066474
+   0x0106642c: 0x3fe3851e ???
+   0x01066430: 0x011138ac ???
+   0x01066434: 0x00665c80 FUN_00665c80
+   0x01066438: 0x006c6a60 FUN_006c6a60
+   0x0106643c: 0x006b81d0 FUN_006b81d0
+   0x01066440: 0x00863840 FUN_00863840
+   0x01066444: 0x004534f0 FUN_004534f0
+   0x01066448: 0x00486a90 FUN_00486a90
+   0x0106644c: 0x00666050 FUN_00666050
+   0x01066450: 0x0111392c ???
+   0x01066454: 0x006661b0 FUN_006661b0
+   0x01066458: 0x00665e30 FUN_00665e30
+   0x0106645c: 0x00449530 FUN_00449530
+   0x01066460: 0x006ec7e0 FUN_006ec7e0
+   0x01066464: 0x00449580 FUN_00449580
+   0x01066468: 0x004495d0 FUN_004495d0
+   0x0106646c: 0x00449700 FUN_00449700
+   0x01066470: 0x006ec900 FUN_006ec900
+>> 0x01066474: 0x004498b0 FUN_004498b0
+   0x01066478: 0x0044caa0 FUN_0044caa0
+   0x0106647c: 0x004534f0 FUN_004534f0
+   0x01066480: 0x00665f10 FUN_00665f10
+   0x01066484: 0x0044cac0 FUN_0044cac0
+   0x01066488: 0x0044c1c0 FUN_0044c1c0
+   0x0106648c: 0x006b81d0 FUN_006b81d0
+   0x01066490: 0x0044bbc0 FUN_0044bbc0
+   0x01066494: 0x0044b730 FUN_0044b730
+   0x01066498: 0x009611e0 FUN_009611e0
+   0x0106649c: 0x425c2e2e ???
+   0x010664a0: 0x69614d53 ???
+   0x010664a4: 0x68545c6e ???
+
+----------------------------------------------------------------------
+Data reference at 0x0106d74c
+   0x0106d704: 0x008d0370 FUN_008d0370
+   0x0106d708: 0x008d0370 FUN_008d0370
+   0x0106d70c: 0x01117570 ???
+   0x0106d710: 0x006ec480 FUN_006ec480
+   0x0106d714: 0x00ec60fa ???
+   0x0106d718: 0x00ec60fa ???
+   0x0106d71c: 0x00ec60fa ???
+   0x0106d720: 0x00ec60fa ???
+   0x0106d724: 0x00000000 ???
+   0x0106d728: 0x01117584 ???
+   0x0106d72c: 0x006ecae0 FUN_006ecae0
+   0x0106d730: 0x00906400 FUN_00906400
+   0x0106d734: 0x00449530 FUN_00449530
+   0x0106d738: 0x006ec7e0 FUN_006ec7e0
+   0x0106d73c: 0x00449580 FUN_00449580
+   0x0106d740: 0x004495d0 FUN_004495d0
+   0x0106d744: 0x00449700 FUN_00449700
+   0x0106d748: 0x006ec900 FUN_006ec900
+>> 0x0106d74c: 0x004498b0 FUN_004498b0
+   0x0106d750: 0x0044caa0 FUN_0044caa0
+   0x0106d754: 0x004534f0 FUN_004534f0
+   0x0106d758: 0x00665f10 FUN_00665f10
+   0x0106d75c: 0x0044cac0 FUN_0044cac0
+   0x0106d760: 0x0044c1c0 FUN_0044c1c0
+   0x0106d764: 0x006b81d0 FUN_006b81d0
+   0x0106d768: 0x0044bbc0 FUN_0044bbc0
+   0x0106d76c: 0x0044b730 FUN_0044b730
+   0x0106d770: 0x009611e0 FUN_009611e0
+   0x0106d774: 0x63614262 ???
+   0x0106d778: 0x6f72676b ???
+   0x0106d77c: 0x50646e75 ???
+  Total data references: 11
+
+END OF AUDIT

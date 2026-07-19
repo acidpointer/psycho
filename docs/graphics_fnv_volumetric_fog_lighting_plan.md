@@ -381,7 +381,9 @@ cannot own OMV's light epoch.
 
 Phase 6 now hooks the complete `0x00871290` transaction, copies and ranks up to
 16 positional-light value records from `+0xB4`, and publishes at most four
-draws. Native `0x00B9F780` completion remains an optional enrichment producer:
+visible volumes. Their shadowless integration is batched into one near/far draw
+pair while retaining the full per-light sample budget. Native `0x00B9F780`
+completion remains an optional enrichment producer:
 its retained texture and matrices are joined by copied native-light identity
 inside the same synchronous transaction. No node, native light pointer, camera,
 or manager owner survives publication. A missing or busy shadow producer yields
@@ -700,8 +702,9 @@ contract:
 
 ### Phase 6: local volumetric lights
 
-Status: scene-wide zero-shadow ownership correction implemented and statically
-validated with 111 i686 tests on 2026-07-19; runtime acceptance remains pending.
+Status: scene-wide zero-shadow ownership accepted in game; scalable shadowless
+batching is statically validated with 115 i686 tests on 2026-07-19 and awaits
+runtime performance acceptance.
 
 The complete implementation, performance, ownership, failure, and test
 contract is in

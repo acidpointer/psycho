@@ -147,6 +147,10 @@
     #define NO_VERTEX_COLOR
 #endif
 
+#if defined(ONLY_LIGHT) && !defined(ONLY_SPECULAR)
+    #define NATIVE_ATTENUATION
+#endif
+
 #include "includes/Helpers.hlsl"
 #include "includes/Object.hlsl"
 
@@ -159,6 +163,11 @@
 #define useFog Toggles.y
 #define glossPower Toggles.z
 #define alphaTestRef Toggles.w
+
+float4 objectAttenuationCoords(float3 lightVector, float radius) {
+    float inverseRadius = rsqrt(max(radius * radius, 1e-8));
+    return float4(lightVector * inverseRadius * 0.5 + 0.5, 0.5);
+}
 
 struct VS_INPUT {
     float4 position : POSITION;
@@ -195,11 +204,29 @@ struct VS_OUTPUT {
 #if LIGHTS > 2 || NUM_PT_LIGHTS > 2
     float4 light3Dir : TEXCOORD3;
 #endif
-    
+
+#ifdef DIFFUSE
+    float4 lightAttenuation : TEXCOORD4;
+    #if LIGHTS > 1
+        float4 light2Attenuation : TEXCOORD5;
+    #endif
+    #if LIGHTS > 2
+        float4 light3Attenuation : TEXCOORD6;
+    #endif
+    float3 viewDir : TEXCOORD7;
+#else
+    #ifdef NATIVE_ATTENUATION
+        #if LIGHTS > 1
+            float4 light2Attenuation : TEXCOORD4;
+        #endif
+        #if LIGHTS > 2
+            float4 light3Attenuation : TEXCOORD5;
+        #endif
+    #endif
     float3 viewDir : TEXCOORD6;
-    
-#ifdef PROJ_SHADOW
-    float4 shadowUVs : TEXCOORD7;
+    #ifdef PROJ_SHADOW
+        float4 shadowUVs : TEXCOORD7;
+    #endif
 #endif
 };
 
@@ -258,6 +285,10 @@ VS_OUTPUT main(VS_INPUT IN) {
     
     OUT.lightDir.w = LightData[0].w;
     OUT.lightDir.xyz = mul(tbn, light);
+
+    #ifdef DIFFUSE
+        OUT.lightAttenuation = objectAttenuationCoords(light, LightData[0].w);
+    #endif
     
     OUT.viewDir.xyz = mul(tbn, EyePosition.xyz - position.xyz);
     
@@ -265,12 +296,18 @@ VS_OUTPUT main(VS_INPUT IN) {
         light = LightData[1].xyz - position.xyz;
         OUT.light2Dir.w = LightData[1].w;
         OUT.light2Dir.xyz = mul(tbn, light);
+        #ifdef NATIVE_ATTENUATION
+            OUT.light2Attenuation = objectAttenuationCoords(light, LightData[1].w);
+        #endif
     #endif
     
     #if LIGHTS > 2 || NUM_PT_LIGHTS > 2
         light = LightData[2].xyz - position.xyz;
         OUT.light3Dir.w = LightData[2].w;
         OUT.light3Dir.xyz = mul(tbn, light);
+        #ifdef NATIVE_ATTENUATION
+            OUT.light3Attenuation = objectAttenuationCoords(light, LightData[2].w);
+        #endif
     #endif
     
     #ifndef NO_VERTEX_COLOR
@@ -451,9 +488,28 @@ struct PS_INPUT {
 #if LIGHTS > 2 || NUM_PT_LIGHTS > 2
     float4 light3Dir : TEXCOORD3_centroid;
 #endif
+#ifdef DIFFUSE
+    float4 lightAttenuation : TEXCOORD4;
+    #if LIGHTS > 1
+        float4 light2Attenuation : TEXCOORD5;
+    #endif
+    #if LIGHTS > 2
+        float4 light3Attenuation : TEXCOORD6;
+    #endif
+    float3 viewDir : TEXCOORD7_centroid;
+#else
+    #ifdef NATIVE_ATTENUATION
+        #if LIGHTS > 1
+            float4 light2Attenuation : TEXCOORD4;
+        #endif
+        #if LIGHTS > 2
+            float4 light3Attenuation : TEXCOORD5;
+        #endif
+    #endif
     float3 viewDir : TEXCOORD6_centroid;
-#ifdef PROJ_SHADOW
-    float4 shadowUVs : TEXCOORD7;
+    #ifdef PROJ_SHADOW
+        float4 shadowUVs : TEXCOORD7;
+    #endif
 #endif
 };
 
@@ -481,6 +537,20 @@ float4 PSLightColor[10] : register(c3);
         sampler2D GlowMap : register(s4);
     #endif
     float4 EmittanceColor : register(c2);
+#endif
+
+#ifdef NATIVE_ATTENUATION
+    #ifdef DIFFUSE
+        sampler2D AttenuationMap : register(s3);
+    #else
+        sampler2D AttenuationMap : register(s4);
+    #endif
+
+    float sampleObjectAttenuation(float4 coordinates) {
+        float xy = tex2D(AttenuationMap, coordinates.xy).r;
+        float zw = tex2D(AttenuationMap, coordinates.zw).r;
+        return saturate(1.0 - xy - zw);
+    }
 #endif
 
 #ifdef PROJ_SHADOW
@@ -567,11 +637,13 @@ PS_OUTPUT main(PS_INPUT IN) {
         shadowMultiplier = lerp(1, shadow, shadowMask);
     #endif
     
-    #if !defined(DIFFUSE) && !defined(POINT)
-        float3 lighting = getSunLighting(IN.lightDir.xyz, PSLightColor[0].rgb * shadowMultiplier, viewDir, normal.xyz, materialAlbedo, materialResponse, normal.a, nativeSpecularFade);
-    #else
-        // Pointlights only.
+    #if defined(DIFFUSE)
+        float attenuation = sampleObjectAttenuation(IN.lightAttenuation);
+        float3 lighting = getPointLightLightingAtt(IN.lightDir.xyz, attenuation, PSLightColor[0].rgb * shadowMultiplier, viewDir, normal.xyz, materialAlbedo, materialResponse, normal.a, nativeSpecularFade);
+    #elif defined(POINT)
         float3 lighting = getPointLightLighting(IN.lightDir.xyz, IN.lightDir.w, PSLightColor[0].rgb * shadowMultiplier, viewDir, normal.xyz, materialAlbedo, materialResponse, normal.a, nativeSpecularFade);
+    #else
+        float3 lighting = getSunLighting(IN.lightDir.xyz, PSLightColor[0].rgb * shadowMultiplier, viewDir, normal.xyz, materialAlbedo, materialResponse, normal.a, nativeSpecularFade);
     #endif
     
     // Self emmitance.
@@ -586,11 +658,19 @@ PS_OUTPUT main(PS_INPUT IN) {
     
     // Other light sources.
     #if LIGHTS > 1 || NUM_PT_LIGHTS > 1
-        lighting += getPointLightLighting(IN.light2Dir.xyz, IN.light2Dir.w, PSLightColor[1].rgb, viewDir, normal.xyz, materialAlbedo, materialResponse, normal.a, nativeSpecularFade);
+        #ifdef NATIVE_ATTENUATION
+            lighting += getPointLightLightingAtt(IN.light2Dir.xyz, sampleObjectAttenuation(IN.light2Attenuation), PSLightColor[1].rgb, viewDir, normal.xyz, materialAlbedo, materialResponse, normal.a, nativeSpecularFade);
+        #else
+            lighting += getPointLightLighting(IN.light2Dir.xyz, IN.light2Dir.w, PSLightColor[1].rgb, viewDir, normal.xyz, materialAlbedo, materialResponse, normal.a, nativeSpecularFade);
+        #endif
     #endif
     
     #if LIGHTS > 2 || NUM_PT_LIGHTS > 2
-        lighting += getPointLightLighting(IN.light3Dir.xyz, IN.light3Dir.w, PSLightColor[2].rgb, viewDir, normal.xyz, materialAlbedo, materialResponse, normal.a, nativeSpecularFade);
+        #ifdef NATIVE_ATTENUATION
+            lighting += getPointLightLightingAtt(IN.light3Dir.xyz, sampleObjectAttenuation(IN.light3Attenuation), PSLightColor[2].rgb, viewDir, normal.xyz, materialAlbedo, materialResponse, normal.a, nativeSpecularFade);
+        #else
+            lighting += getPointLightLighting(IN.light3Dir.xyz, IN.light3Dir.w, PSLightColor[2].rgb, viewDir, normal.xyz, materialAlbedo, materialResponse, normal.a, nativeSpecularFade);
+        #endif
     #endif
     
     float3 finalColor = lighting.rgb;
@@ -716,23 +796,33 @@ PS_OUTPUT main(PS_INPUT IN) {
         float3 lighting = getPointLightLightingAtt(IN.lightDir.xyz, att, PSLightColor[0].rgb, viewDir, normal.xyz, materialAlbedo, materialResponse, normal.a, nativeSpecularFade);
     #endif
     
-    att = vanillaAtt(PSLightPosition[lightOffset + 0].xyz - IN.lPosition.xyz, PSLightPosition[lightOffset + 0].w);
-    lighting += (1 >= lightsUsed ? 0.0 : 1.0) * getPointLightLightingAtt(IN.light2.xyz, att, PSLightColor[1].rgb, viewDir, normal.xyz, materialAlbedo, materialResponse, normal.a, nativeSpecularFade);
+    [branch] if (lightsUsed > 1) {
+        att = vanillaAtt(PSLightPosition[lightOffset + 0].xyz - IN.lPosition.xyz, PSLightPosition[lightOffset + 0].w);
+        lighting += getPointLightLightingAtt(IN.light2.xyz, att, PSLightColor[1].rgb, viewDir, normal.xyz, materialAlbedo, materialResponse, normal.a, nativeSpecularFade);
+    }
     
-    att = vanillaAtt(PSLightPosition[lightOffset + 1].xyz - IN.lPosition.xyz, PSLightPosition[lightOffset + 1].w);
-    lighting += (2 >= lightsUsed ? 0.0 : 1.0) * getPointLightLightingAtt(IN.light3.xyz, att, PSLightColor[2].rgb, viewDir, normal.xyz, materialAlbedo, materialResponse, normal.a, nativeSpecularFade);
+    [branch] if (lightsUsed > 2) {
+        att = vanillaAtt(PSLightPosition[lightOffset + 1].xyz - IN.lPosition.xyz, PSLightPosition[lightOffset + 1].w);
+        lighting += getPointLightLightingAtt(IN.light3.xyz, att, PSLightColor[2].rgb, viewDir, normal.xyz, materialAlbedo, materialResponse, normal.a, nativeSpecularFade);
+    }
     
     #if MAX_LIGHTS > 3
-        att = vanillaAtt(PSLightPosition[lightOffset + 2].xyz - IN.lPosition.xyz, PSLightPosition[lightOffset + 2].w);
-        lighting += (3 >= lightsUsed ? 0.0 : 1.0) * getPointLightLightingAtt(IN.light4.xyz, att, PSLightColor[3].rgb, viewDir, normal.xyz, materialAlbedo, materialResponse, normal.a, nativeSpecularFade);
+        [branch] if (lightsUsed > 3) {
+            att = vanillaAtt(PSLightPosition[lightOffset + 2].xyz - IN.lPosition.xyz, PSLightPosition[lightOffset + 2].w);
+            lighting += getPointLightLightingAtt(IN.light4.xyz, att, PSLightColor[3].rgb, viewDir, normal.xyz, materialAlbedo, materialResponse, normal.a, nativeSpecularFade);
+        }
     #endif
     
     #if MAX_LIGHTS > 4
-        att = vanillaAtt(PSLightPosition[3].xyz - IN.lPosition.xyz, PSLightPosition[3].w);
-        lighting += (4 >= lightsUsed ? 0.0 : 1.0) * getPointLightLightingAtt(IN.light5.xyz, att, PSLightColor[4].rgb, viewDir, normal.xyz, materialAlbedo, materialResponse, normal.a, nativeSpecularFade);
-    
-        att = vanillaAtt(PSLightPosition[4].xyz - IN.lPosition.xyz, PSLightPosition[4].w);
-        lighting += (5 >= lightsUsed ? 0.0 : 1.0) * getPointLightLightingAtt(IN.light6.xyz, att, PSLightColor[5].rgb, viewDir, normal.xyz, materialAlbedo, materialResponse, normal.a, nativeSpecularFade);
+        [branch] if (lightsUsed > 4) {
+            att = vanillaAtt(PSLightPosition[3].xyz - IN.lPosition.xyz, PSLightPosition[3].w);
+            lighting += getPointLightLightingAtt(IN.light5.xyz, att, PSLightColor[4].rgb, viewDir, normal.xyz, materialAlbedo, materialResponse, normal.a, nativeSpecularFade);
+        }
+
+        [branch] if (lightsUsed > 5) {
+            att = vanillaAtt(PSLightPosition[4].xyz - IN.lPosition.xyz, PSLightPosition[4].w);
+            lighting += getPointLightLightingAtt(IN.light6.xyz, att, PSLightColor[5].rgb, viewDir, normal.xyz, materialAlbedo, materialResponse, normal.a, nativeSpecularFade);
+        }
     #endif
 
     lighting += getAmbientLighting(AmbientColor.rgb, materialAlbedo);

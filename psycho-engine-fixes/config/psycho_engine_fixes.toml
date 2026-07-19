@@ -222,6 +222,15 @@ prefetch_enabled = true
 # identity. Keep ON: removed references must not authorize later retirement.
 handoff_fix_enabled = true
 
+# Raises native LOD tasks and their dependencies to native priority 0, the
+# highest scheduling priority. Task classes and their ordering remain unchanged.
+priority_boost_enabled = true
+
+# Uses exactly two native IOManager workers. Psycho expands the engine's
+# per-thread map capacity before the second worker can be created. Disable this
+# only to compare against vanilla one-worker streaming.
+parallel_io_enabled = true
+
 # Request object and tree blocks 35 percent earlier, then retain them to 150
 # percent of their original distance to prevent boundary churn.
 object_prefetch_multiplier = 1.35

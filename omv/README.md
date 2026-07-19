@@ -181,13 +181,17 @@ shadow texture, when the engine already produced one, is matched by light
 identity and enriches only that volume; OMV never enables or requests an extra
 native shadow draw.
 
-Each draw clips integration to the light sphere, opaque scene depth, and a
-conservative scissor, then adds scattering to the same FP16 atmosphere result
-without changing coverage alpha. Performance, High, and Ultra use deterministic
-fixed 4/6/10 sample budgets; the path has no temporal jitter, history texture,
-per-frame allocation, additional render target, or scene-color copy. A busy
-optional-shadow owner, unsupported shadow resource, or absent shadow hook falls
-back to the cheaper shadowless volume and cannot erase the scene-light epoch.
+The renderer batches every shadowless light into one conservative scissor and
+one near/far draw pair. Depth decode, world-ray reconstruction, shader setup,
+and FP16 render-target traffic are shared, so one to four shadowless lights use
+two draws. Each light keeps its own sphere/depth interval and full 4/6/10
+Performance/High/Ultra sample budget; batching does not reduce spatial or
+integration quality. Native-shadow-enriched lights remain separate because
+each owns a different native texture. The path has no temporal jitter, history
+texture, per-frame allocation, additional render target, or scene-color copy.
+A busy optional-shadow owner, unsupported shadow resource, or absent shadow
+hook falls back to the faster shadowless batch and cannot erase the scene-light
+epoch.
 
 Fog debug views cover reduced nearest depth, depth span, reconstructed
 world-height bands, source alpha, negative/overbright HDR range, optical
@@ -267,6 +271,10 @@ The ports place especially strong focus on performance:
 - replacement resources are prepared before they become visible;
 - draw selection uses explicit shader records instead of broad per-frame
   guessing;
+- object special-light rows retain the vanilla attenuation textures and
+  interpolators instead of approximating their falloff;
+- every object shader has static bytecode, instruction, and texture-sample
+  budgets, and inactive high-light slots skip their BRDF work;
 - state changes are kept narrow and unsupported draws stay on the original
   game path;
 - expensive contract telemetry is disabled during normal gameplay;

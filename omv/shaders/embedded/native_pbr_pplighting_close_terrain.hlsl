@@ -15,6 +15,8 @@ float4 FogParam : register(c36);
 float4 FogColor : register(c37);
 float4 TESR_TerrainData : register(c89);
 float4 TESR_TerrainExtraData : register(c90);
+float OMV_SupplementalPointLightCount : register(c91);
+float4 OMV_SupplementalPointLightData[48] : register(c92);
 
 sampler2D BaseMap[7] : register(s0);
 sampler2D NormalMap[7] : register(s7);
@@ -316,18 +318,38 @@ PixelOutput Main(PixelInput input)
     float3 light_ts = mul(tbn, SunDir.xyz);
     float3 lighting = SunLighting(light_ts, SunColor.rgb, view_dir, normal, AmbientColor.rgb, albedo, gloss, spec_exponent, roughness, 1.0f);
 
+    int native_point_count = 0;
 #if PBR_TERRAIN_POINT_LIGHTS > 0
-    int point_count = min((int)PointLightCount, PBR_TERRAIN_POINT_LIGHTS);
-    [loop] for (int point_index = 0; point_index < point_count; point_index++)
+    native_point_count = min((int)PointLightCount, PBR_TERRAIN_POINT_LIGHTS);
+#endif
+    int supplemental_point_count = min((int)OMV_SupplementalPointLightCount, 24 - native_point_count);
+    int total_point_count = native_point_count + supplemental_point_count;
+    [loop] for (int point_index = 0; point_index < total_point_count; point_index++)
     {
-        float3 light_vector = PointLightPosition[point_index].xyz - input.local_position;
-        float attenuation = VanillaAtt(light_vector, PointLightPosition[point_index].w);
+        float4 light_position;
+        float4 light_color;
+#if PBR_TERRAIN_POINT_LIGHTS > 0
+        [branch] if (point_index < native_point_count)
+        {
+            light_position = PointLightPosition[point_index];
+            light_color = PointLightColor[point_index];
+        }
+        else
+#endif
+        {
+            int supplemental_index = point_index - native_point_count;
+            light_position = OMV_SupplementalPointLightData[supplemental_index * 2];
+            light_color = OMV_SupplementalPointLightData[supplemental_index * 2 + 1];
+        }
+
+        float3 light_vector = light_position.xyz - input.local_position;
+        float attenuation = VanillaAtt(light_vector, light_position.w);
         [branch] if (attenuation > 0.001f)
         {
             lighting += PointLighting(
                 mul(tbn, light_vector),
                 attenuation,
-                PointLightColor[point_index].rgb * saturate(PointLightColor[point_index].a),
+                light_color.rgb * saturate(light_color.a),
                 view_dir,
                 normal,
                 albedo,
@@ -337,7 +359,6 @@ PixelOutput Main(PixelInput input)
             );
         }
     }
-#endif
 
     float3 fog_position = input.projection_position.xyz;
     fog_position.z = input.projection_position.w - input.projection_position.z;

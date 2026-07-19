@@ -96,6 +96,26 @@ pub type LodReadyIncrementFn = unsafe extern "fastcall" fn(*mut c_void);
 /// Game setting float accessor at 0x00403E20.
 pub type GameSettingFloatFn = unsafe extern "thiscall" fn(*mut c_void) -> *const f32;
 
+/// LockFreeMap constructors. The first stack argument is the number of
+/// per-thread scratch slots used by both native backing allocations.
+pub type LockFreeMapConstructorFn =
+    unsafe extern "thiscall" fn(*mut c_void, i32, u32, u32) -> *mut c_void;
+
+/// BSFile open-state initializer. It opens the stream's optional cache and
+/// publishes the final open flag at `this + 0x2C`.
+pub type BsFileOpenStateFn = unsafe extern "fastcall" fn(*mut c_void);
+
+/// Native IOTask dependency-priority propagation and queue reordering.
+pub type IoTaskPriorityFn = unsafe extern "thiscall" fn(*mut c_void, u32);
+
+/// Object LOD producer constructor at 0x006F6D10.
+pub type LodObjectTaskProducerFn =
+    unsafe extern "thiscall" fn(*mut c_void, u32, u32, u32, u32, u32, u8, u8, u8) -> *mut c_void;
+
+/// Tree and terrain LOD producer constructors.
+pub type LodBlockTaskProducerFn =
+    unsafe extern "thiscall" fn(*mut c_void, u32, u32, u32, u32, u32) -> *mut c_void;
+
 /// SpeedTree core clone constructor. The new clone is in ECX and the source
 /// core object is the only stack argument.
 pub type SpeedTreeCloneConstructorFn =

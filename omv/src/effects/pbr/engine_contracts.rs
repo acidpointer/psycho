@@ -191,11 +191,9 @@ pub(super) fn service_frame() {
     }
 }
 
-pub(super) fn current_pass_shaders() -> Option<(*mut c_void, *mut c_void)> {
-    let pass = read_ptr(CURRENT_PASS_GLOBAL_ADDR as *const c_void)?;
-    let pixel = read_ptr_offset(pass, PASS_PIXEL_SHADER_OFFSET)?;
-    let vertex = read_ptr_offset(pass, PASS_VERTEX_SHADER_OFFSET)?;
-    Some((vertex, pixel))
+pub(super) fn current_pass_shaders_fast() -> Option<(*mut c_void, *mut c_void)> {
+    let pass = live_pointer_at(CURRENT_PASS_GLOBAL_ADDR)?;
+    pass_shaders_from_live_pass(pass)
 }
 
 pub(super) fn pass_constant_flags(pass_index: u32) -> Option<(u32, u32)> {
@@ -395,6 +393,26 @@ mod tests {
             1.0
         );
     }
+
+    #[test]
+    fn object_specular_fade_is_finite_monotonic_and_reaches_the_row_handoff() {
+        let mut previous = 1.0;
+        for distance in 0..=300 {
+            let fade = object_specular_fade_weight(1, 0, distance as f32, 100.0, 200.0);
+            assert!(fade.is_finite());
+            assert!((0.0..=1.0).contains(&fade));
+            assert!(fade <= previous);
+            previous = fade;
+        }
+
+        assert_eq!(previous, 0.0);
+        assert!(object_specular_fade_weight(1, 0, f32::NAN, 100.0, 200.0).is_nan());
+        assert!(object_specular_fade_weight(1, 0, 150.0, f32::NAN, 200.0).is_nan());
+        assert_eq!(
+            object_specular_fade_weight(1, 0, 150.0, 100.0, f32::NAN),
+            1.0
+        );
+    }
 }
 
 pub(super) fn geometry_name(geometry: usize) -> Option<String> {
@@ -422,6 +440,18 @@ pub(super) fn shader_handle(shader: *mut c_void, stage: ShaderStage) -> Option<*
     let handle_offset = shader_handle_offset(stage);
     read_shader_handle(shader, expected_vtable, handle_offset).or_else(|| {
         read_shader_handle(shader, expected_vtable, SHADER_PROGRAM_BACKUP_HANDLE_OFFSET)
+    })
+}
+
+pub(super) fn shader_handle_fast(shader: *mut c_void, stage: ShaderStage) -> Option<*mut c_void> {
+    let shader = live_pointer(shader as usize)?;
+    let vtable = live_pointer_at(shader as usize)?;
+    if vtable as usize != shader_vtable(stage) {
+        return None;
+    }
+
+    live_pointer_at((shader as usize).checked_add(shader_handle_offset(stage))?).or_else(|| {
+        live_pointer_at((shader as usize).checked_add(SHADER_PROGRAM_BACKUP_HANDLE_OFFSET)?)
     })
 }
 
@@ -503,6 +533,24 @@ fn force_nvr_shader_package() {
 fn current_geometry() -> Option<*mut c_void> {
     let draw_slot = read_ptr(CURRENT_GEOMETRY_SLOT_ADDR as *const c_void)?;
     read_ptr(draw_slot.cast_const())
+}
+
+pub(super) fn current_geometry_fast() -> Option<*mut c_void> {
+    const MIN_ENGINE_PTR: usize = 0x10000;
+
+    let draw_slot = unsafe { (CURRENT_GEOMETRY_SLOT_ADDR as *const usize).read() };
+    if draw_slot < MIN_ENGINE_PTR {
+        return None;
+    }
+    let geometry = unsafe { (draw_slot as *const usize).read() };
+    (geometry >= MIN_ENGINE_PTR).then_some(geometry as *mut c_void)
+}
+
+pub(super) fn current_pass_fast() -> Option<*mut c_void> {
+    const MIN_ENGINE_PTR: usize = 0x10000;
+
+    let pass = unsafe { (CURRENT_PASS_GLOBAL_ADDR as *const usize).read() };
+    (pass >= MIN_ENGINE_PTR).then_some(pass as *mut c_void)
 }
 
 fn scan_pass_entries_for_object_rejection(
@@ -621,6 +669,24 @@ fn shader_handle_offset(stage: ShaderStage) -> usize {
     }
 }
 
+fn pass_shaders_from_live_pass(pass: *mut c_void) -> Option<(*mut c_void, *mut c_void)> {
+    let pass = live_pointer(pass as usize)?;
+    let pixel = live_pointer_at((pass as usize).checked_add(PASS_PIXEL_SHADER_OFFSET)?)?;
+    let vertex = live_pointer_at((pass as usize).checked_add(PASS_VERTEX_SHADER_OFFSET)?)?;
+    Some((vertex, pixel))
+}
+
+fn live_pointer_at(address: usize) -> Option<*mut c_void> {
+    live_pointer(address)?;
+    live_pointer(unsafe { (address as *const usize).read() })
+}
+
+fn live_pointer(address: usize) -> Option<*mut c_void> {
+    const MIN_USER_ADDRESS: usize = 0x1_0000;
+
+    (address >= MIN_USER_ADDRESS).then_some(address as *mut c_void)
+}
+
 fn write_u32(address: usize, value: u32) -> bool {
     let ptr = address as *mut c_void;
     if !readable_range(ptr.cast_const(), size_of::<u32>()) {
@@ -717,4 +783,77 @@ fn readable_range(address: *const c_void, size: usize) -> bool {
     address as usize >= MIN_USER_ADDRESS
         && size != 0
         && validate_memory_range(address, size).is_ok()
+}
+
+#[cfg(test)]
+mod fast_read_tests {
+    use super::{
+        NID3D_PIXEL_SHADER_VTABLE_ADDR, NID3D_VERTEX_SHADER_VTABLE_ADDR, PASS_PIXEL_SHADER_OFFSET,
+        PASS_VERTEX_SHADER_OFFSET, PIXEL_SHADER_NATIVE_HANDLE_OFFSET,
+        SHADER_PROGRAM_BACKUP_HANDLE_OFFSET, VERTEX_SHADER_NATIVE_HANDLE_OFFSET,
+        pass_shaders_from_live_pass, shader_handle_fast,
+    };
+    use crate::effects::pbr::shader_registry::ShaderStage;
+    use std::ffi::c_void;
+
+    fn write_pointer(storage: &mut [usize], offset: usize, value: usize) {
+        storage[offset / size_of::<usize>()] = value;
+    }
+
+    #[test]
+    fn draw_hot_path_reads_only_live_proven_shader_layouts() {
+        let vertex_handle = Box::into_raw(Box::new(1u32)) as *mut c_void;
+        let pixel_handle = Box::into_raw(Box::new(2u32)) as *mut c_void;
+
+        let mut vertex = vec![0usize; VERTEX_SHADER_NATIVE_HANDLE_OFFSET / size_of::<usize>() + 1];
+        write_pointer(&mut vertex, 0, NID3D_VERTEX_SHADER_VTABLE_ADDR);
+        write_pointer(
+            &mut vertex,
+            VERTEX_SHADER_NATIVE_HANDLE_OFFSET,
+            vertex_handle as usize,
+        );
+
+        let mut pixel = vec![0usize; PIXEL_SHADER_NATIVE_HANDLE_OFFSET / size_of::<usize>() + 1];
+        write_pointer(&mut pixel, 0, NID3D_PIXEL_SHADER_VTABLE_ADDR);
+        write_pointer(
+            &mut pixel,
+            SHADER_PROGRAM_BACKUP_HANDLE_OFFSET,
+            pixel_handle as usize,
+        );
+
+        assert_eq!(
+            shader_handle_fast(vertex.as_mut_ptr().cast(), ShaderStage::Vertex),
+            Some(vertex_handle)
+        );
+        assert_eq!(
+            shader_handle_fast(pixel.as_mut_ptr().cast(), ShaderStage::Pixel),
+            Some(pixel_handle)
+        );
+        assert_eq!(
+            shader_handle_fast(vertex.as_mut_ptr().cast(), ShaderStage::Pixel),
+            None
+        );
+
+        let pass_size = PASS_VERTEX_SHADER_OFFSET.max(PASS_PIXEL_SHADER_OFFSET);
+        let mut pass = vec![0usize; pass_size / size_of::<usize>() + 1];
+        write_pointer(
+            &mut pass,
+            PASS_VERTEX_SHADER_OFFSET,
+            vertex.as_mut_ptr() as usize,
+        );
+        write_pointer(
+            &mut pass,
+            PASS_PIXEL_SHADER_OFFSET,
+            pixel.as_mut_ptr() as usize,
+        );
+        assert_eq!(
+            pass_shaders_from_live_pass(pass.as_mut_ptr().cast()),
+            Some((vertex.as_mut_ptr().cast(), pixel.as_mut_ptr().cast()))
+        );
+
+        unsafe {
+            drop(Box::from_raw(vertex_handle.cast::<u32>()));
+            drop(Box::from_raw(pixel_handle.cast::<u32>()));
+        }
+    }
 }

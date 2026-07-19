@@ -12,6 +12,16 @@ Close terrain PBR is still experimental. OMV may replace the VPT close-terrain e
 
 The last close-terrain runtime gate attempt was a failed fix: it caused about `-40 FPS` and produced no useful visual improvement.
 
+The current portable point-light correction uses an OMV-only static-proof
+deployment model. At an admitted OMV close-terrain draw, it merges eligible
+general active lights that are absent from the current pass, deduplicates by
+native `NiLight*`, and uploads them through disjoint OMV constants. It does not
+patch, compile, version-check, or mutate VPT.
+No PBR continuity capture subsystem, diagnostic-only game build, per-draw D3D
+readback, or engine-list telemetry is part of this correction. One ordinary
+playtest still validates final pixels and the dynamic multibound result; static
+tests must not be described as proof of runtime pixels.
+
 ## Ground Truth
 
 Use these sources before making terrain or lighting changes:
@@ -27,6 +37,7 @@ Use these sources before making terrain or lighting changes:
 - `analysis/ghidra/output/perf/graphics_fnv_pbr_close_terrain_pass_entry_runtime_contract.txt`
 - `analysis/ghidra/output/perf/graphics_fnv_pbr_close_terrain_vertex_abi_contract.txt`
 - `analysis/ghidra/output/perf/graphics_fnv_pbr_close_terrain_vertex_declaration_contract.txt`
+- `analysis/ghidra/output/perf/graphics_fnv_close_terrain_portable_light_classification_audit.txt`
 - `analysis/ghidra/output/perf/graphics_fnv_pbr_object_distance_specular_transition_contract_audit.txt`
 - `analysis/ghidra/output/perf/graphics_fnv_pbr_object_specular_fade_formula_followup.txt`
 - `analysis/ghidra/output/perf/graphics_fnv_pbr_object_lighting_transition_ownership_audit.txt`
@@ -271,6 +282,14 @@ Correct fix path:
 - Keep these rows vanilla until proven.
 - If PBR needs light integration, derive it from the proven NVR shader contract, not from shader name similarity.
 - For proven VPT point-light landscape rows, preserve both the RGB light color and the alpha fade contract.
+- For missing portable close-terrain illumination in OMV PBR, enumerate the
+  proven general active list only at OMV's admitted replacement draw,
+  explicitly accept point/non-ambient candidates, preserve `IsLit()` plus
+  multibound filters, and deduplicate against the current pass by `NiLight*`.
+- Keep the sun separate and preserve native sorted order under a combined
+  24-point-light cap. Do not change `+0xEC`, mutate the render pass, or overwrite
+  native terrain light constants; stage only missing entries in OMV-owned
+  `c91..c139`.
 
 ### 7. Object Distance PBR Blink
 
@@ -299,6 +318,40 @@ The lighting-transition ownership audit closes the remaining row-handoff contrac
 
 The ADTS10 high-light path had a separate source-level count mismatch inherited from NVR. Native pixel bytecode retains the previous lighting sum when `lightCount <= threshold`; the replacement source used that correct inclusive comparison only for the second light and strict comparisons for lights three through six. At an exact integer count, the pixel shader therefore evaluated one more light than the vertex shader exposed. The unavailable interpolator was zero, and the PBR helper normalized that zero direction before multiplying the contribution by its mask. Camera-driven light-list rebuilds could consequently turn an ordinary count transition into undefined lighting for only the objects using the high-light rows.
 
+The material-faithful follow-up exposed another camera-dependent discontinuity
+shared by every object-light family. The zero-length guard for
+`eyeDir + lightDir` used the surface normal as its fallback half-vector. When
+view and light become opposed, the physical limit is `LdotH -> 0`, but that
+fallback changes it to `LdotN` for the exact guarded interval. A light aligned
+with the normal therefore changes dielectric Fresnel from approximately `1` to
+`0.04` at the boundary, which can restore roughly 96 percent of direct diffuse
+lighting in one step and can also create a false specular half-vector. Replacing
+the normal with a hard zero removed that exact spike but left a second step at
+the epsilon cutoff: the result still jumped from zero to a unit half-vector.
+OMV now uses branchless soft normalization. It is zero at exact opposition and
+converges continuously to the normalized half-vector, preserving the Fresnel
+limit and suppressing the undefined specular lobe across base, specular,
+high-light, only-light, diffuse-point, and only-specular object rows.
+
+The vanilla package-19 disassembly exposed a separate ABI omission in the
+ported special object rows. `SLS2037..2044` sample the engine attenuation lookup
+texture at `s4`, while `SLS2045/2046` sample it at `s3`. Their paired vertex
+rows generate two lookup coordinates per point light in `TEXCOORD4..6`. The
+NVR-derived replacement omitted those interpolators and samplers and used an
+analytic radial approximation instead. OMV now reproduces the native lookup
+coordinates and `saturate(1 - sample(xy) - sample(zw))` equation, and rejects a
+replacement draw if that native attenuation texture is absent. This preserves
+the engine-authored light falloff and remains compatible with future upstream
+changes because OMV consumes the current draw's native resource rather than
+identifying a dependency version.
+
+The analytic attenuation retained by ordinary and ADTS10 rows also divided the
+light vector by radius. An inactive or stale zero-radius slot could therefore
+create a NaN before its contribution was masked. OMV uses the equivalent finite
+form `1 - dot(L,L) / max(radius^2, epsilon)`. ADTS10 pixel rows now place uniform
+branches around inactive light slots, matching the native inclusive light-count
+contract and avoiding both undefined arithmetic and unnecessary BRDF work.
+
 See `docs/graphics_fnv_pbr_object_temporal_instability_audit.md` for the complete source, bytecode, formula, and fix audit.
 
 Do not repeat:
@@ -312,6 +365,10 @@ Do not repeat:
 - Do not reinterpret `c25.w` globally. Alternate PPLighting paths can store point-light radius data there; the specular fade contract applies only to the proven combined-specular object pairs.
 - Do not use strict `N > lightsUsed` exclusion tests in the high-light pixel path. Native excludes the next slot when `lightsUsed <= N`, matching the vertex shader's `N < lightsThreshold` activation rule.
 - Do not rely on multiplying an invalid light calculation by zero. Inactive light directions must remain finite before PBR evaluation.
+- Do not use the surface normal as the fallback for an undefined BRDF half-vector. It is finite but discontinuous when view and light become opposed.
+- Do not replace the normal fallback with a hard epsilon branch. That moves the half-vector step to the cutoff instead of removing it.
+- Do not replace the native only-light/diffuse-point attenuation lookup with an analytic radius approximation.
+- Do not evaluate inactive ADTS10 light slots and multiply the result by zero afterward.
 - Do not feed EnvMap rows through the ordinary object PBR template; their sampler, vertex, constant, and additive-output ABIs are different.
 - Do not invent roughness LOD or Fresnel for the native cube. No prefiltered mip-chain, BRDF lookup, or material roughness contract has been proven for this pass.
 
@@ -333,7 +390,22 @@ Current material-faithful implementation (2026-07-16):
 - Only combined-specular object rows consume the proven native fade. Diffuse and ambient are not attenuated by it.
 - Combined and non-specular rows use the same direct diffuse equation, so the result converges before `FUN_00BB4740` changes rows.
 - Normal/view normalization and albedo preparation are performed once per pixel, not once per light.
-- Representative bytecode size is guarded in the shader compile tests.
+- Every registered object shader is compiled and guarded by family-specific
+  bytecode and instruction-count budgets; pixel rows also have a texture-sample
+  ceiling. The current maxima are 520 instructions for the source-equivalent
+  skinned high-light vertex row, 328 for the high-light pixel row, and nine
+  texture samples for the native three-light SI projected-shadow row.
+- Inactive ADTS10 lights are skipped with uniform branches, so their attenuation
+  and BRDF are not evaluated.
+- Normal runtime mode performs no PBR diagnostic counter updates, draw-trace
+  hashing, state readback, or periodic contract logging. Detailed telemetry is
+  opt-in. Live draw-boundary shader pointers use the proven fixed layouts
+  directly; validated pointer readers remain in capture/adoption/setup paths.
+- The opposed view/light boundary is numerically swept by a source-linked
+  regression. A full bounded-BRDF sweep covers zero/opposed directions, native
+  gloss exponents, attenuation, strength, and fade monotonicity. Registry,
+  native attenuation ABI, sampler masks, finite attenuation, light-count gates,
+  shader compilation, and GPU budgets are all exhaustive static gates.
 
 ### 8. Vertex Shader Replacement Must Match the Pixel Path
 
@@ -487,3 +559,9 @@ A future close terrain fix must prove all of this first:
 - If Ghidra output does not explain ownership, lifetime, and the safe intervention point, write more Ghidra scripts instead of patching.
 - Do not broaden close terrain PBR beyond the VPT exterior row family until this errata's proof requirements are satisfied.
 - A patch that costs FPS and does not visibly improve the target scene is a regression.
+- When a source-proven defect can be expressed and exhausted through pure
+  production helpers, static ABI tests, real shader compilation, and bytecode
+  budgets, use that path before deployment. Do not add an in-game diagnostic
+  subsystem merely to reconfirm the same source error.
+- Static validation is a deployment gate, not proof of final pixels. Finish a
+  statically validated graphics change with an ordinary feature-first playtest.

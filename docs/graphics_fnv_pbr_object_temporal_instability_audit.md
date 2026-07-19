@@ -192,24 +192,26 @@ PBR shader variant compiles through the runtime D3D compiler. In-game motion
 validation remains required because static and compiler checks cannot reproduce
 the reported scene transitions.
 
-### Phase 2: bounded runtime validation
+### Phase 2: ordinary playtest validation
 
-Test the same identified rocks/statics with four motions:
+Static closure now covers the complete object registry, native special-row
+attenuation ABI, sampler masks, light-count gates, finite/continuous vector and
+attenuation math, bounded-BRDF fade behavior, every real shader compilation,
+and family-specific GPU budgets. No diagnostic gameplay run is required.
+
+Test the same identified rocks/statics with four motions in one ordinary
+playtest:
 
 1. rotate in place while keeping the object visible;
 2. walk directly toward and away from it;
 3. strafe at approximately constant distance;
 4. cross the native specular-fade range and object LOD boundary.
 
-Run with detailed PBR draw telemetry enabled. Verify:
-
-- the pair remains an implemented replacement pair;
-- replacement D3D pointers do not alternate with vanilla pointers;
-- selector identity and row do not change during pure rotation;
-- `GetSpecularFade` is stable during pure rotation and changes only with the
-  engine's distance basis;
-- no missing sampler/resource fallback occurs;
-- visual response is continuous across all four motions.
+Keep detailed PBR draw telemetry disabled. Verify that visual response remains
+continuous across all four motions, projected shadows remain native, the
+special point-light falloff matches vanilla geometry, and frame rate does not
+regress materially. Static tests prove the row/resource/equation contracts;
+this playtest is only the final pixel and driver acceptance gate.
 
 ### Phase 3: material-faithful enhanced PBR, only if still needed
 
@@ -241,3 +243,25 @@ Implementation status (2026-07-16): complete in source after the lighting-transi
 - Do not treat an unused NVR object metallicness constant as a metalness map.
 - Do not share object and terrain material assumptions.
 - Do not globally disable PBR or reduce object coverage as the fix.
+- Do not require a diagnostic-only gameplay run after the static contracts are
+  executable tests. Detailed telemetry remains an opt-in fallback, not an
+  acceptance dependency.
+
+## 2026-07-19 Static Closure
+
+The later audit found three additional defects beyond the original GGX/fade
+hybrid:
+
+- the hard zero half-vector fix still stepped at its epsilon boundary, so it was
+  replaced by branchless soft normalization and a numerical camera sweep;
+- only-light and diffuse-point replacements had dropped vanilla's attenuation
+  lookup sampler/interpolator ABI, now restored exactly from package-19
+  disassembly;
+- high-light pixel rows evaluated inactive slots, allowing zero-radius NaNs and
+  wasting BRDF work, now prevented by finite attenuation and uniform branches.
+
+The static suite now compiles every registered variant, verifies the complete
+source-derived row list and implemented pair ABI, checks exact special sampler
+masks, sweeps the bounded BRDF and fade, and enforces bytecode, instruction, and
+texture-sample budgets for every object shader. Normal runtime mode also avoids
+per-draw diagnostic work and page-query pointer validation.

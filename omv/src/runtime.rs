@@ -3303,9 +3303,9 @@ fn draw_shader_details(ui: &mut psycho_imgui::Ui<'_>, source: &mut ScreenShaderS
                 })
                 .unwrap_or(1);
             let budget = match local_quality {
-                0 => "Performance: quarter resolution, 2 lights, 4 samples, <=4 draws",
-                2 => "Ultra: half resolution, 4 lights, 10 samples, <=8 draws",
-                _ => "High: half resolution, 4 lights, 6 samples, <=8 draws",
+                0 => "Performance: quarter resolution, 2 lights, 4 samples, 2 shadowless draws",
+                2 => "Ultra: half resolution, 4 lights, 10 samples, 2 shadowless draws",
+                _ => "High: half resolution, 4 lights, 6 samples, 2 shadowless draws",
             };
             ui.text_colored(MENU_MUTED_TEXT, &cstring(budget));
         }

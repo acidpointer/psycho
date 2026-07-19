@@ -40,6 +40,48 @@ destructor, including physical free, if the object is already corrupt. Hook
 installation is transactional and prefetch remains vanilla if the lifetime
 hooks cannot be owned. The supported i686 release build passes.
 
+The later priority and two-worker performance extension exposed a separate
+constructor ABI defect in Psycho's hooks during save-load terrain creation.
+The native object, tree, and terrain task constructors return the constructed
+task in `EAX`; their callers publish that exact return value into an intrusive
+holder and immediately increment `task + 0x08`. Psycho originally declared
+the three detours as returning `void`, so the priority call was allowed to
+replace `EAX` with an incidental value. The save-load crash at `0x0040B467`
+was the holder attempting `InterlockedIncrement` through that corrupted
+return value. The hook types and implementations now preserve and return the
+constructor result after applying priority. Priority remains enabled at the
+proven state-zero key-update point, and both IO workers remain enabled.
+
+The next save-load stress crash is a distinct `C0000417` contract failure.
+The final coverage audit proves that no SpeedTree constructor, scalar
+destructor, owner insertion, or owner erase path remains outside the lifetime
+lock. The remaining historical worker signature reaches the secure CRT read
+at `0x00ECB144` from `BSFile` open-state initialization at `0x00AFF490`.
+That initializer allocates an optional file cache and passes it to the raw
+read at `0x00AA1570` without checking for a null allocation. The two-worker
+configuration raises concurrent cache pressure but does not invalidate file
+ownership.
+
+The parallel-IO transaction now replaces that initializer with the same
+native state machine plus the missing allocation branch. Successful caches
+and whole-file preloads are unchanged. If only the optional cache allocation
+fails, the hook sets cache capacity to zero and retains the valid `FILE*`;
+the audited native buffered-read path then performs direct reads. Loading,
+priority, and both workers remain active. The transaction will not publish
+the worker-count patch unless this fallback and all three TLS-capacity hooks
+are owned together.
+
+The first non-crashing two-worker build exposed a distant-geometry regression:
+terrain, object, and tree LOD tasks were assigned priority `255`. The final
+queue audit proves that the engine orders each native task chain in ascending
+packed-key order and workers consume the first entry, so lower numeric
+priority values execute first. Blocking load drains also partition the queue
+into four buckets per priority and reject a task whose decoded priority lies
+above the active load boundary. `255` was therefore an out-of-contract
+deprioritization, not a boost. Psycho now assigns native priority `0`, keeping
+the priority feature and dependency propagation active while restoring LOD
+eligibility during load and normal worker service.
+
 Release acceptance remains blocked on runtime stress validation and the
 separate handoff-ledger resynchronization work. Runtime tuning is no longer
 the only remaining work.
@@ -687,6 +729,174 @@ reused live clone.
    lock. Lock contention must remain negligible outside load bursts, and no
    render callback may block on this critical section.
 
+## Save-load cache-allocation follow-up: 2026-07-19
+
+### Proven contract
+
+- `0x00AFF300` successfully opens the CRT `FILE*` at `BSFile + 0x24` before
+  calling the open-state initializer at `0x00AFF490`.
+- A cache capacity of `0xFFFFFFFF` requests a whole-file cache. The initializer
+  obtains the concrete file size through vtable slot `+0x1C`, allocates that
+  size through `GameHeap::Allocate`, and stores the result at `BSFile + 0x20`.
+- Vanilla does not test that result before calling `0x00AA1570`. A null cache
+  becomes a null `_DstBuf` in `_fread_s`, whose invalid-parameter path raises
+  `C0000417` at `0x00ECB144`.
+- The object is still inside its open transaction, so its `FILE*` has not been
+  published to another task and cannot be concurrently closed. With element
+  size one, multiplication overflow is also excluded. The missing allocation
+  check is the failing contract.
+- The native read function at `0x00AA1750` explicitly uses direct `fread` when
+  the cache capacity at `+0x10` is smaller than the requested transfer. A zero
+  capacity with null cache is therefore the class's supported unbuffered mode,
+  not a skipped model or failed task.
+
+### Implemented fix
+
+1. Hook `0x00AFF490` in the same transaction as all three LockFreeMap capacity
+   hooks and the exact two-worker instruction patch.
+2. Preserve native open-state, dynamic file-size resolution, cache allocation,
+   whole-file preload, short-read rejection, and game-heap ownership.
+3. On cache allocation failure only, clear cache capacity/fill/cursor while
+   keeping the open flag and `FILE*`. Later reads continue through the native
+   direct-IO branch.
+4. Count direct-cache fallbacks in `PsychoInfo`. Do not log or allocate on the
+   allocation-failure branch.
+5. Keep two workers, LOD task priority, prefetch, handoff, and SpeedTree
+   lifetime synchronization enabled.
+
+### Engineering balance
+
+- OOM recovery improves: an optional read cache no longer converts recoverable
+  pressure into a fatal CRT exception.
+- UAF protection is unchanged: the fix neither extends object lifetime nor
+  changes publication or destruction ownership.
+- Performance is unchanged while cache allocation succeeds. Under allocation
+  pressure only, the affected file uses slower direct reads instead of losing
+  the task or process. No generic allocation or steady-state read hook is
+  added.
+
+### Runtime acceptance
+
+1. Repeatedly load saves while traversing LOD-heavy exterior cells with both
+   workers active. Require no `C0000417` and no task-constructor ABI crash.
+2. Verify `PsychoInfo` reports two active workers and file-cache fallback `ON`.
+3. If the fallback counter rises, require successful completion of the same
+   save load and continued LOD publication. A rising counter without memory
+   pressure requires a fresh allocation-size audit.
+4. Repeat with allocator modes `0`, `1`, and `2`. The fallback must remain
+   allocator-domain independent and every successful cache must still be
+   freed by the game heap.
+
+## BSTree TLS-slot exhaustion follow-up: 2026-07-19
+
+### Proven contract
+
+- The crash at `0x006EC846` is a null scratch-map dereference reached from
+  `0x00449530` after `0x00449F80` fails to register the calling thread.
+- `BSTreeManager` constructs its map at `BSTreeManager + 0x1C` through the
+  private constructor at `0x00665CB0`, passing a per-thread capacity of two.
+  This specialization does not call either generic LockFreeMap constructor
+  already hooked by the parallel-IO transaction.
+- The only two direct callers of the tree find/load owner at `0x00664F50` are
+  queued tree execution at `0x0043DA00` and main-thread QueuedReference
+  completion at `0x0050F810`.
+- With two IO workers, both workers can occupy the two native slots before
+  main-thread save-load completion registers. The third registration returns
+  null and the native caller dereferences it. This is capacity exhaustion,
+  not a missing tree key, stale model, or allocator ownership failure.
+
+### Implemented fix
+
+1. Hook private constructor `0x00665CB0` and expand its per-thread capacity by
+   exactly one, changing the native BSTree map from two slots to three.
+2. Own this hook in the same transaction as both generic capacity hooks, the
+   BSFile fallback, and the exact two-worker instruction patch. Any failure
+   rolls the complete parallel extension back to the native one-worker path.
+3. Refuse installation if either IOManager at `0x01202D98` or BSTreeManager at
+   `0x011D5C48` already exists. Recheck both owners immediately before commit
+   so no manager can publish a map built with old capacity.
+4. Expose private BSTree-map expansions separately in `PsychoInfo`. Do not add
+   a null guard at the crash site, skip tree loads, or disable a worker.
+
+### Engineering balance
+
+- UAF protection is unchanged: no object lifetime, reuse, or free edge moves.
+- OOM cost is bounded to one additional 12-byte BSTree scratch record and its
+  constructor-owned slot metadata. No allocator-wide retention is added.
+- Performance keeps both IO workers and removes the failed-registration path.
+  Constructor interception has no per-load overhead after the map is built.
+
+### Runtime acceptance
+
+1. Start a fresh process and verify `PsychoInfo` reports two active workers,
+   one Tree TLS map expansion, and zero capacity failures.
+2. Repeatedly load saves while both worker threads process exterior tree LOD.
+   Require no `0x006EC846` crash and continued real-tree publication.
+3. Stress cell transitions and rapid save-load cycles longer than the prior
+   failing runs. Require stable queue drain, no SpeedTree ownership rejects,
+   and no growth in scheduler failures.
+4. Repeat with allocator modes `0`, `1`, and `2`; the result must be independent
+   of allocator domain and preserve the two-worker throughput improvement.
+
+## Missing distant-geometry priority regression: 2026-07-19
+
+### Proven contract
+
+- The task key stores priority as an unsigned byte at bits 16-23. Runtime
+  priority replacement at `0x00C3DF40` updates that exact field and preserves
+  the task class, secondary key, and sequence.
+- The queue comparator at `0x00C3F6B0` reports the first existing key greater
+  than or equal to the requested key. Insertion at `0x00C3FFB0` places the new
+  node at that predecessor edge, producing ascending key order.
+- Worker traversal at `0x00C40E70` begins at the first queue bucket, and
+  `0x00C42380` returns the first live node. Smaller numeric priority values are
+  therefore serviced before larger values when the surrounding key fields
+  match.
+- Blocking load ownership at `0x00C3E1B0` starts after `state * 4 + 3` and
+  stops when a decoded task priority exceeds the active load state. The
+  companion count at `0x00C3E860` covers exactly the buckets through that
+  boundary.
+- Native LOD priority is normally `1` or a bounded dynamic archive priority
+  plus four. Psycho's value `255` was outside the scheduler's active priority
+  contract and could leave all three LOD task types unserviced across load.
+- Terrain, object, and tree demand predicates, resource lookup, worker loads,
+  completed-task drain, and main-thread publication remain intact. The
+  regression is shared scheduler eligibility, not missing LOD data or a
+  publication hook failure.
+
+### Implemented fix
+
+1. Change the LOD boost from priority `255` to native priority `0`.
+2. Continue calling the engine's dependency-aware update at `0x00C3CAE0`, so
+   the task and its dependencies move together and queued state still uses the
+   native remove-and-requeue transaction.
+3. Preserve both IO workers, all three TLS-capacity expansions, the BSFile
+   fallback, early demand, handoff state, and SpeedTree lifetime locking.
+4. Report the installed numeric priority in the startup log and retain the
+   per-type boost counters in `PsychoInfo`.
+
+### Engineering balance
+
+- Performance is corrected: LOD work receives the engine's actual highest
+  scheduling priority instead of being placed behind eligible native work.
+- UAF protection is unchanged: no task, model, tree clone, or scene object
+  lifetime edge moves.
+- OOM behavior is unchanged: queue nodes, cache allocation, direct-read
+  fallback, and allocator ownership are untouched.
+
+### Runtime acceptance
+
+1. Start a new process and require the log to report priority `0`, two workers,
+   three TLS capacity families, and the BSFile fallback installed.
+2. Load the save that showed flying grass. Require distant terrain first, then
+   object and tree LOD, without waiting for a cell reload or console command.
+3. Traverse exterior cells at speed and repeat save-load cycles. Require rising
+   terrain/object/tree boost counters, continued publication, and no scheduler
+   or capacity failures.
+4. Repeat the prior crash stress route. Acceptance requires both corrected LOD
+   visibility and no return of the constructor ABI, `C0000417`, or BSTree TLS
+   crashes.
+
 ## Research authority
 
 - `analysis/ghidra/output/perf/lod_streaming_pipeline_contract_audit.txt`
@@ -695,6 +905,11 @@ reused live clone.
 - `analysis/ghidra/output/crash/lod_bstree_crash_ownership_audit.txt`
 - `analysis/ghidra/output/crash/bstree_speedtree_owner_registration_followup_audit.txt`
 - `analysis/ghidra/output/crash/bstree_speedtree_clone_registration_final_audit.txt`
+- `analysis/ghidra/output/crash/lod_multiworker_save_load_ownership_final_audit.txt`
+- `analysis/ghidra/output/crash/lod_save_load_c0000417_origin_and_coverage_audit.txt`
+- `analysis/ghidra/output/crash/lod_bstree_tls_slot_exhaustion_root_cause_audit.txt`
+- `analysis/ghidra/output/perf/lod_missing_distant_geometry_regression_audit.txt`
+- `analysis/ghidra/output/perf/lod_priority_queue_boundary_final_audit.txt`
 
 The matching source scripts are:
 
@@ -704,3 +919,8 @@ The matching source scripts are:
 - `analysis/ghidra/scripts/lod_bstree_crash_ownership_audit.py`
 - `analysis/ghidra/scripts/bstree_speedtree_owner_registration_followup_audit.py`
 - `analysis/ghidra/scripts/bstree_speedtree_clone_registration_final_audit.py`
+- `analysis/ghidra/scripts/lod_multiworker_save_load_ownership_final_audit.py`
+- `analysis/ghidra/scripts/lod_save_load_c0000417_origin_and_coverage_audit.py`
+- `analysis/ghidra/scripts/lod_bstree_tls_slot_exhaustion_root_cause_audit.py`
+- `analysis/ghidra/scripts/lod_missing_distant_geometry_regression_audit.py`
+- `analysis/ghidra/scripts/lod_priority_queue_boundary_final_audit.py`

@@ -1,0 +1,3437 @@
+LOD STREAMING PRIORITY AND MULTI-WORKER CONTRACT FOLLOW-UP
+Program: FalloutNV.exe
+Image base: 00400000
+
+# PRIORITY ABI AND CLASS RANGE
+
+======================================================================
+BSTask priority getter @ 0x0043cca0
+======================================================================
+  Function: FUN_0043cca0 @ 0x0043cca0, Size: 20 bytes
+
+void FUN_0043cca0(void)
+
+{
+  __allshr();
+  return;
+}
+
+
+
+--- Calls FROM BSTask priority getter (0x0043cca0) ---
+  0x0043ccad -> 0x00ec77e0 __allshr
+  Total: 1 calls
+
+----------------------------------------------------------------------
+References TO 0x0043cca0 (BSTask priority getter)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0043cc8e (in FUN_0043cc80)
+  Total: 1 refs
+
+======================================================================
+BSTask priority getter wrapper @ 0x0043cc80
+======================================================================
+  Function: FUN_0043cc80 @ 0x0043cc80, Size: 26 bytes
+
+void __fastcall FUN_0043cc80(int param_1)
+
+{
+  FUN_0043cca0(param_1 + 0x10);
+  return;
+}
+
+
+
+--- Calls FROM BSTask priority getter wrapper (0x0043cc80) ---
+  0x0043cc8e -> 0x0043cca0 FUN_0043cca0
+  Total: 1 calls
+
+----------------------------------------------------------------------
+References TO 0x0043cc80 (BSTask priority getter wrapper)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0043cc6a (in FUN_0043cc60)
+  UNCONDITIONAL_CALL @ 0x0043db86 (in FUN_0043db70)
+  UNCONDITIONAL_CALL @ 0x0043d6f2 (in FUN_0043d6b0)
+  UNCONDITIONAL_CALL @ 0x0043ffdf (in FUN_0043fed0)
+  Total: 4 refs
+
+======================================================================
+Task priority related helper @ 0x00440540
+======================================================================
+  Function: FUN_00440540 @ 0x00440540, Size: 101 bytes
+
+undefined4 * __thiscall FUN_00440540(undefined4 *param_1,undefined4 param_2)
+
+{
+  uint uVar1;
+  int *unaff_FS_OFFSET;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00eec248;
+  local_10 = *unaff_FS_OFFSET;
+  uVar1 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  FUN_00449090(uVar1);
+  local_8 = 0;
+  *param_1 = &PTR_FUN_01016c10;
+  FUN_004405b0(param_2);
+  *unaff_FS_OFFSET = local_10;
+  return param_1;
+}
+
+
+
+--- Calls FROM Task priority related helper (0x00440540) ---
+  0x00440569 -> 0x00449090 FUN_00449090
+  0x00440585 -> 0x004405b0 FUN_004405b0
+  Total: 2 calls
+
+----------------------------------------------------------------------
+References TO 0x00440540 (Task priority related helper)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0054aaab (in FUN_0054aa80)
+  UNCONDITIONAL_CALL @ 0x00527c0c (in FUN_00527c00)
+  UNCONDITIONAL_CALL @ 0x00c3c5a0 (in FUN_00c3c590)
+  UNCONDITIONAL_CALL @ 0x004404eb (in FUN_004404c0)
+  Total: 4 refs
+
+======================================================================
+Task submit or priority init @ 0x0043db70
+======================================================================
+  Function: FUN_0043db70 @ 0x0043db70, Size: 54 bytes
+
+void __fastcall FUN_0043db70(undefined4 param_1)
+
+{
+  uint uVar1;
+  uint uVar2;
+  undefined4 uVar3;
+  
+  uVar1 = FUN_0043dc10(param_1);
+  uVar1 = uVar1 & 0xffff;
+  uVar2 = FUN_0043cc80(uVar1);
+  uVar2 = uVar2 & 0xff;
+  uVar3 = FUN_0043dc30(uVar2);
+  FUN_0043dbb0(3,uVar3,uVar2,uVar1);
+  return;
+}
+
+
+
+--- Calls FROM Task submit or priority init (0x0043db70) ---
+  0x0043db7a -> 0x0043dc10 FUN_0043dc10
+  0x0043db86 -> 0x0043cc80 FUN_0043cc80
+  0x0043db92 -> 0x0043dc30 FUN_0043dc30
+  0x0043db9d -> 0x0043dbb0 FUN_0043dbb0
+  Total: 4 calls
+
+----------------------------------------------------------------------
+References TO 0x0043db70 (Task submit or priority init)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00c3d4e3 (in FUN_00c3d440)
+  DATA @ 0x01016a30 (in ???)
+  DATA @ 0x01016b1c (in ???)
+  DATA @ 0x01016b64 (in ???)
+  DATA @ 0x01016bbc (in ???)
+  DATA @ 0x01016c04 (in ???)
+  DATA @ 0x01016c28 (in ???)
+  DATA @ 0x01016c74 (in ???)
+  DATA @ 0x01016cbc (in ???)
+  DATA @ 0x01016d04 (in ???)
+  DATA @ 0x01016d4c (in ???)
+  DATA @ 0x01016d94 (in ???)
+  DATA @ 0x01016fd8 (in ???)
+  DATA @ 0x0102d040 (in ???)
+  DATA @ 0x0102ee60 (in ???)
+  DATA @ 0x010c153c (in ???)
+  Total: 16 refs
+
+======================================================================
+Task priority init helper 1 @ 0x0043dbb0
+======================================================================
+  Function: FUN_0043dbb0 @ 0x0043dbb0, Size: 83 bytes
+
+void __thiscall FUN_0043dbb0(int param_1)
+
+{
+  ulonglong uVar1;
+  ulonglong uVar2;
+  ulonglong uVar3;
+  ushort in_stack_00000010;
+  
+  uVar1 = __allshl();
+  uVar2 = __allshl();
+  uVar3 = __allshl();
+  uVar3 = uVar1 | uVar2 | uVar3;
+  *(uint *)(param_1 + 0x10) = (uint)uVar3 | (uint)in_stack_00000010;
+  *(int *)(param_1 + 0x14) = (int)(uVar3 >> 0x20);
+  return;
+}
+
+
+
+--- Calls FROM Task priority init helper 1 (0x0043dbb0) ---
+  0x0043dbc0 -> 0x00ec7810 __allshl
+  0x0043dbd0 -> 0x00ec7810 __allshl
+  0x0043dbe0 -> 0x00ec7810 __allshl
+  Total: 3 calls
+
+----------------------------------------------------------------------
+References TO 0x0043dbb0 (Task priority init helper 1)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0043db9d (in FUN_0043db70)
+  Total: 1 refs
+
+======================================================================
+Task priority init helper 2 @ 0x0043dc10
+======================================================================
+  Function: FUN_0043dc10 @ 0x0043dc10, Size: 24 bytes
+
+void __fastcall FUN_0043dc10(undefined4 param_1)
+
+{
+  FUN_0040b460(&lpAddend_01202d9c,param_1);
+  return;
+}
+
+
+
+--- Calls FROM Task priority init helper 2 (0x0043dc10) ---
+  0x0043dc1c -> 0x0040b460 FUN_0040b460
+  Total: 1 calls
+
+----------------------------------------------------------------------
+References TO 0x0043dc10 (Task priority init helper 2)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0043db7a (in FUN_0043db70)
+  Total: 1 refs
+
+======================================================================
+Task priority init helper 3 @ 0x0043dc30
+======================================================================
+  Function: FUN_0043dc30 @ 0x0043dc30, Size: 24 bytes
+
+void __fastcall FUN_0043dc30(undefined4 param_1)
+
+{
+  FUN_0040b460(&DAT_01202da0,param_1);
+  return;
+}
+
+
+
+--- Calls FROM Task priority init helper 3 (0x0043dc30) ---
+  0x0043dc3c -> 0x0040b460 FUN_0040b460
+  Total: 1 calls
+
+----------------------------------------------------------------------
+References TO 0x0043dc30 (Task priority init helper 3)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0043db92 (in FUN_0043db70)
+  Total: 1 refs
+
+======================================================================
+BSTask build packed queue key @ 0x00c3d440
+======================================================================
+  Function: FUN_00c3d440 @ 0x00c3d440, Size: 174 bytes
+
+void __fastcall FUN_00c3d440(int *param_1)
+
+{
+  uint uVar1;
+  ulonglong uVar2;
+  ulonglong uVar3;
+  ulonglong uVar4;
+  
+  if (param_1[0xb] == 0) {
+    FUN_0043db70();
+  }
+  else {
+    uVar1 = InterlockedIncrement((LONG *)&lpAddend_01202d9c);
+    __allshr();
+    (**(code **)(*param_1 + 0x2c))();
+    uVar2 = __allshl();
+    uVar3 = __allshl();
+    uVar4 = __allshl();
+    uVar4 = uVar2 | uVar3 | uVar4;
+    param_1[4] = (uint)uVar4 | uVar1 & 0xffff;
+    param_1[5] = (int)(uVar4 >> 0x20);
+  }
+  return;
+}
+
+
+
+--- Calls FROM BSTask build packed queue key (0x00c3d440) ---
+  0x00c3d45d -> 0x00000066 ???
+  0x00c3d472 -> 0x00ec77e0 __allshr
+  0x00c3d4a3 -> 0x00ec7810 __allshl
+  0x00c3d4b3 -> 0x00ec7810 __allshl
+  0x00c3d4c3 -> 0x00ec7810 __allshl
+  0x00c3d4e3 -> 0x0043db70 FUN_0043db70
+  Total: 6 calls
+
+----------------------------------------------------------------------
+References TO 0x00c3d440 (BSTask build packed queue key)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0043ca1a (in FUN_0043ca10)
+  DATA @ 0x010167a0 (in ???)
+  DATA @ 0x010169a4 (in ???)
+  DATA @ 0x01016a60 (in ???)
+  DATA @ 0x01016a98 (in ???)
+  DATA @ 0x01016ad8 (in ???)
+  DATA @ 0x01016ddc (in ???)
+  DATA @ 0x01016e34 (in ???)
+  DATA @ 0x0104f130 (in ???)
+  DATA @ 0x0106dc54 (in ???)
+  DATA @ 0x0106dee8 (in ???)
+  DATA @ 0x0106e1f4 (in ???)
+  DATA @ 0x0107cf30 (in ???)
+  DATA @ 0x010885d0 (in ???)
+  DATA @ 0x010a3730 (in ???)
+  DATA @ 0x010ade84 (in ???)
+  DATA @ 0x010c156c (in ???)
+  Total: 17 refs
+
+======================================================================
+BSTaskManager change priority @ 0x00c3df40
+======================================================================
+  Function: FUN_00c3df40 @ 0x00c3df40, Size: 87 bytes
+
+void FUN_00c3df40(int param_1)
+
+{
+  ulonglong uVar1;
+  longlong lVar2;
+  
+  uVar1 = *(ulonglong *)(param_1 + 0x10);
+  lVar2 = __allshl();
+  FUN_00c3e690(param_1,lVar2 + (uVar1 & 0xffffffffff00ffff));
+  return;
+}
+
+
+
+--- Calls FROM BSTaskManager change priority (0x00c3df40) ---
+  0x00c3df6c -> 0x00ec7810 __allshl
+  0x00c3df8a -> 0x00c3e690 FUN_00c3e690
+  Total: 2 calls
+
+----------------------------------------------------------------------
+References TO 0x00c3df40 (BSTaskManager change priority)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00440675 (in FUN_00440660)
+  UNCONDITIONAL_CALL @ 0x00c3cb59 (in FUN_00c3cae0)
+  Total: 2 refs
+
+======================================================================
+Priority change known caller @ 0x00c3cae0
+======================================================================
+  Function: FUN_00c3cae0 @ 0x00c3cae0, Size: 132 bytes
+
+void __thiscall FUN_00c3cae0(int param_1,undefined4 param_2)
+
+{
+  uint uVar1;
+  int *piVar2;
+  undefined4 local_c;
+  
+  if (*(int *)(param_1 + 0x20) != 0) {
+    uVar1 = *(uint *)(*(int *)(param_1 + 0x20) + 8);
+    for (local_c = 0; local_c < uVar1; local_c = local_c + 1) {
+      piVar2 = *(int **)(*(int *)(*(int *)(param_1 + 0x20) + 4) + local_c * 4);
+      if (piVar2 != (int *)0x0) {
+        (**(code **)(*piVar2 + 0x1c))(param_2);
+      }
+    }
+  }
+  FUN_00c3df40(param_1,param_2);
+  return;
+}
+
+
+
+--- Calls FROM Priority change known caller (0x00c3cae0) ---
+  0x00c3cb59 -> 0x00c3df40 FUN_00c3df40
+  Total: 1 calls
+
+----------------------------------------------------------------------
+References TO 0x00c3cae0 (Priority change known caller)
+----------------------------------------------------------------------
+  DATA @ 0x010167a4 (in ???)
+  DATA @ 0x010168ac (in ???)
+  DATA @ 0x010169a8 (in ???)
+  DATA @ 0x010169f0 (in ???)
+  DATA @ 0x01016a34 (in ???)
+  DATA @ 0x01016a64 (in ???)
+  DATA @ 0x01016a9c (in ???)
+  DATA @ 0x01016adc (in ???)
+  DATA @ 0x01016b20 (in ???)
+  DATA @ 0x01016b68 (in ???)
+  DATA @ 0x01016bc0 (in ???)
+  DATA @ 0x01016c78 (in ???)
+  DATA @ 0x01016cc0 (in ???)
+  DATA @ 0x01016d08 (in ???)
+  DATA @ 0x01016d50 (in ???)
+  DATA @ 0x01016d98 (in ???)
+  DATA @ 0x01016de0 (in ???)
+  DATA @ 0x01016e38 (in ???)
+  DATA @ 0x01016fdc (in ???)
+  DATA @ 0x0104f134 (in ???)
+  DATA @ 0x0106dc58 (in ???)
+  DATA @ 0x0106deec (in ???)
+  DATA @ 0x0106e1f8 (in ???)
+  DATA @ 0x0107cf34 (in ???)
+  DATA @ 0x010885d4 (in ???)
+  DATA @ 0x010a3734 (in ???)
+  DATA @ 0x010ade88 (in ???)
+  DATA @ 0x010c1540 (in ???)
+  DATA @ 0x010c1570 (in ???)
+  Total: 29 refs
+
+======================================================================
+BSTaskManager remove and requeue @ 0x00c3e690
+======================================================================
+  Function: FUN_00c3e690 @ 0x00c3e690, Size: 182 bytes
+
+undefined4 __thiscall FUN_00c3e690(int *param_1,int param_2,undefined4 param_3,undefined4 param_4)
+
+{
+  int Comperand;
+  undefined4 uVar1;
+  LONG LVar2;
+  
+  Comperand = *(int *)(param_2 + 0xc);
+  if (Comperand == 0) {
+    *(undefined4 *)(param_2 + 0x10) = param_3;
+    *(undefined4 *)(param_2 + 0x14) = param_4;
+    uVar1 = 1;
+  }
+  else {
+    if ((Comperand < 3) &&
+       (LVar2 = InterlockedCompareExchange((LONG *)(param_2 + 0xc),2,Comperand), LVar2 == Comperand)
+       ) {
+      FUN_0044e050(param_2);
+      *(undefined4 *)(param_2 + 0x10) = param_3;
+      *(undefined4 *)(param_2 + 0x14) = param_4;
+      LVar2 = InterlockedCompareExchange((LONG *)(param_2 + 0xc),0,2);
+      if (LVar2 == 2) {
+        (**(code **)(*param_1 + 0x48))(param_2);
+      }
+      return 1;
+    }
+    uVar1 = 0;
+  }
+  return uVar1;
+}
+
+
+
+--- Calls FROM BSTaskManager remove and requeue (0x00c3e690) ---
+  0x00c3e6d6 -> 0x00000065 ???
+  0x00c3e6f6 -> 0x0044e050 FUN_0044e050
+  0x00c3e715 -> 0x00000065 ???
+  Total: 3 calls
+
+----------------------------------------------------------------------
+References TO 0x00c3e690 (BSTaskManager remove and requeue)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00c3df8a (in FUN_00c3df40)
+  Total: 1 refs
+
+======================================================================
+Instruction window BSTaskManager change priority entry @ 0x00c3df40
+======================================================================
+   0x00c3df28  MOV dword ptr [EDX + 0x14],ESI
+   0x00c3df2b  JMP 0x00c3dee8
+   0x00c3df2d  MOV AL,0x1
+   0x00c3df2f  POP EDI
+   0x00c3df30  POP ESI
+   0x00c3df31  MOV ESP,EBP
+   0x00c3df33  POP EBP
+   0x00c3df34  RET 0x4
+>> 0x00c3df40  PUSH EBP
+   0x00c3df41  MOV EBP,ESP
+   0x00c3df43  SUB ESP,0xc
+   0x00c3df46  PUSH ESI
+   0x00c3df47  PUSH EDI
+   0x00c3df48  MOV dword ptr [EBP + -0xc],ECX
+   0x00c3df4b  MOV EAX,dword ptr [EBP + 0x8]
+   0x00c3df4e  MOV ECX,dword ptr [EAX + 0x10]
+   0x00c3df51  MOV dword ptr [EBP + -0x8],ECX
+   0x00c3df54  MOV EDX,dword ptr [EAX + 0x14]
+   0x00c3df57  MOV dword ptr [EBP + -0x4],EDX
+   0x00c3df5a  MOV ESI,dword ptr [EBP + -0x8]
+   0x00c3df5d  AND ESI,0xff00ffff
+   0x00c3df63  MOV EDI,dword ptr [EBP + -0x4]
+   0x00c3df66  MOV EAX,dword ptr [EBP + 0xc]
+   0x00c3df69  CDQ
+   0x00c3df6a  MOV CL,0x10
+   0x00c3df6c  CALL 0x00ec7810
+   0x00c3df71  ADD ESI,EAX
+   0x00c3df73  ADC EDI,EDX
+   0x00c3df75  MOV dword ptr [EBP + -0x8],ESI
+   0x00c3df78  MOV dword ptr [EBP + -0x4],EDI
+   0x00c3df7b  MOV EAX,dword ptr [EBP + -0x4]
+   0x00c3df7e  PUSH EAX
+   0x00c3df7f  MOV ECX,dword ptr [EBP + -0x8]
+   0x00c3df82  PUSH ECX
+   0x00c3df83  MOV EDX,dword ptr [EBP + 0x8]
+   0x00c3df86  PUSH EDX
+   0x00c3df87  MOV ECX,dword ptr [EBP + -0xc]
+   0x00c3df8a  CALL 0x00c3e690
+   0x00c3df8f  POP EDI
+   0x00c3df90  POP ESI
+   0x00c3df91  MOV ESP,EBP
+   0x00c3df93  POP EBP
+   0x00c3df94  RET 0x8
+   0x00c3dfa0  PUSH EBP
+   0x00c3dfa1  MOV EBP,ESP
+   0x00c3dfa3  SUB ESP,0x3c
+   0x00c3dfa6  MOV dword ptr [EBP + -0x20],ECX
+   0x00c3dfa9  MOV EAX,dword ptr [EBP + -0x20]
+   0x00c3dfac  CMP dword ptr [EAX + 0x68],0x7
+
+======================================================================
+Code-reference windows to BSTaskManager change priority @ 0x00c3df40
+======================================================================
+
+----------------------------------------------------------------------
+Reference 0x00440675 in FUN_00440660
+   0x00440652  RET
+   0x00440660  PUSH EBP
+   0x00440661  MOV EBP,ESP
+   0x00440663  PUSH ECX
+   0x00440664  MOV dword ptr [EBP + -0x4],ECX
+   0x00440667  MOV EAX,dword ptr [EBP + 0x8]
+   0x0044066a  PUSH EAX
+   0x0044066b  MOV ECX,dword ptr [EBP + -0x4]
+   0x0044066e  PUSH ECX
+   0x0044066f  MOV ECX,dword ptr [0x01202d98]
+>> 0x00440675  CALL 0x00c3df40
+   0x0044067a  MOV ESP,EBP
+   0x0044067c  POP EBP
+   0x0044067d  RET 0x4
+   0x00440680  PUSH EBP
+   0x00440681  MOV EBP,ESP
+   0x00440683  PUSH ECX
+   0x00440684  MOV dword ptr [EBP + -0x4],ECX
+   0x00440687  MOV ECX,dword ptr [EBP + -0x4]
+   0x0044068a  CALL 0x004406b0
+   0x0044068f  MOV EAX,dword ptr [EBP + 0x8]
+   0x00440692  AND EAX,0x1
+   0x00440695  JZ 0x004406a3
+   0x00440697  MOV ECX,dword ptr [EBP + -0x4]
+   0x0044069a  PUSH ECX
+   0x0044069b  CALL 0x00401030
+   0x004406a0  ADD ESP,0x4
+   0x004406a3  MOV EAX,dword ptr [EBP + -0x4]
+   0x004406a6  MOV ESP,EBP
+   0x004406a8  POP EBP
+   0x004406a9  RET 0x4
+   0x004406b0  PUSH EBP
+   0x004406b1  MOV EBP,ESP
+   0x004406b3  PUSH -0x1
+   0x004406b5  PUSH 0xeec278
+
+----------------------------------------------------------------------
+Reference 0x00c3cb59 in FUN_00c3cae0
+   0x00c3cb3f  MOV EAX,dword ptr [EDX]
+   0x00c3cb41  MOV ECX,dword ptr [EBP + -0xc]
+   0x00c3cb44  MOV EDX,dword ptr [EAX + 0x1c]
+   0x00c3cb47  CALL EDX
+   0x00c3cb49  JMP 0x00c3cb07
+   0x00c3cb4b  MOV EAX,dword ptr [EBP + 0x8]
+   0x00c3cb4e  PUSH EAX
+   0x00c3cb4f  MOV ECX,dword ptr [EBP + -0x14]
+   0x00c3cb52  PUSH ECX
+   0x00c3cb53  MOV ECX,dword ptr [0x01202d98]
+>> 0x00c3cb59  CALL 0x00c3df40
+   0x00c3cb5e  MOV ESP,EBP
+   0x00c3cb60  POP EBP
+   0x00c3cb61  RET 0x4
+   0x00c3cb70  PUSH EBP
+   0x00c3cb71  MOV EBP,ESP
+   0x00c3cb73  SUB ESP,0xb0
+   0x00c3cb79  MOV dword ptr [EBP + 0xffffff58],ECX
+   0x00c3cb7f  MOV EAX,dword ptr [EBP + 0xffffff58]
+   0x00c3cb85  ADD EAX,0x8
+   0x00c3cb88  PUSH EAX
+   0x00c3cb89  CALL dword ptr [0x00fdf1c0]
+   0x00c3cb8f  CMP dword ptr [EBP + 0xc],0x0
+   0x00c3cb93  JZ 0x00c3ccd3
+   0x00c3cb99  MOV ECX,dword ptr [EBP + 0xffffff58]
+   0x00c3cb9f  MOV EDX,dword ptr [ECX + 0x1c]
+   0x00c3cba2  MOV dword ptr [EBP + -0x24],EDX
+   0x00c3cba5  MOV EAX,dword ptr [EBP + -0x24]
+   0x00c3cba8  CMP EAX,dword ptr [EBP + 0xc]
+   0x00c3cbab  JNZ 0x00c3cbfe
+   0x00c3cbad  MOV ECX,dword ptr [EBP + 0xffffff58]
+   0x00c3cbb3  ADD ECX,0x1c
+   0x00c3cbb6  MOV dword ptr [EBP + -0x38],ECX
+   0x00c3cbb9  MOV EDX,dword ptr [EBP + -0x38]
+   0x00c3cbbc  CMP dword ptr [EDX],0x0
+
+======================================================================
+Task vtables whose slot 6 targets 0x00c3d440
+======================================================================
+  slot6 ref 0x010167a0 -> vtable 0x01016788, slot11=4440032
+  slot6 ref 0x010169a4 -> vtable 0x0101698c, slot11=4440032
+  slot6 ref 0x01016a60 -> vtable 0x01016a48, slot11=7324736
+  slot6 ref 0x01016a98 -> vtable 0x01016a80, slot11=7324736
+  slot6 ref 0x01016ad8 -> vtable 0x01016ac0, slot11=7324736
+  slot6 ref 0x01016ddc -> vtable 0x01016dc4, slot11=7414656
+  slot6 ref 0x01016e34 -> vtable 0x01016e1c, slot11=7414656
+  slot6 ref 0x0104f130 -> vtable 0x0104f118, slot11=4704336
+  slot6 ref 0x0106dc54 -> vtable 0x0106dc3c, slot11=7324736
+  slot6 ref 0x0106dee8 -> vtable 0x0106ded0, slot11=7324736
+  slot6 ref 0x0106e1f4 -> vtable 0x0106e1dc, slot11=7324736
+  slot6 ref 0x0107cf30 -> vtable 0x0107cf18, slot11=8614528
+  slot6 ref 0x010885d0 -> vtable 0x010885b8, slot11=8614528
+  slot6 ref 0x010a3730 -> vtable 0x010a3718, slot11=11438976
+  slot6 ref 0x010ade84 -> vtable 0x010ade6c, slot11=11929312
+  slot6 ref 0x010c156c -> vtable 0x010c1554, slot11=15491322
+
+======================================================================
+Vtable BSTask-derived candidate @ 0x01016788
+======================================================================
+  slot 00 +0x00 -> 0x0043be30 FUN_0043be30
+  slot 01 +0x04 -> 0x0043c150 FUN_0043c150
+  slot 02 +0x08 -> 0x0043c550 FUN_0043c550
+  slot 03 +0x0c -> 0x0043c650 FUN_0043c650
+  slot 04 +0x10 -> 0x0043c6b0 FUN_0043c6b0
+  slot 05 +0x14 -> 0x00483710 FUN_00483710
+  slot 06 +0x18 -> 0x00c3d440 FUN_00c3d440
+  slot 07 +0x1c -> 0x00c3cae0 FUN_00c3cae0
+  slot 08 +0x20 -> 0x0043c050 FUN_0043c050
+  slot 09 +0x24 -> 0x0043bde0 FUN_0043bde0
+  slot 10 +0x28 -> 0x00c3c930 FUN_00c3c930
+  slot 11 +0x2c -> 0x0043bfe0 FUN_0043bfe0
+  slot 12 +0x30 -> 0x45444f4d ???
+  slot 13 +0x34 -> 0x203a534c ???
+  slot 14 +0x38 -> 0x6c756f43 ???
+  slot 15 +0x3c -> 0x6f6e2064 ???
+
+======================================================================
+Vtable BSTask-derived candidate @ 0x0101698c
+======================================================================
+  slot 00 +0x00 -> 0x0043d580 FUN_0043d580
+  slot 01 +0x04 -> 0x0043c150 FUN_0043c150
+  slot 02 +0x08 -> 0x0043d670 FUN_0043d670
+  slot 03 +0x0c -> 0x0043c650 FUN_0043c650
+  slot 04 +0x10 -> 0x0043d820 FUN_0043d820
+  slot 05 +0x14 -> 0x0043d730 FUN_0043d730
+  slot 06 +0x18 -> 0x00c3d440 FUN_00c3d440
+  slot 07 +0x1c -> 0x00c3cae0 FUN_00c3cae0
+  slot 08 +0x20 -> 0x0043c050 FUN_0043c050
+  slot 09 +0x24 -> 0x0043bde0 FUN_0043bde0
+  slot 10 +0x28 -> 0x00c3c930 FUN_00c3c930
+  slot 11 +0x2c -> 0x0043bfe0 FUN_0043bfe0
+  slot 12 +0x30 -> 0x0043d750 FUN_0043d750
+  slot 13 +0x34 -> 0x65657254 ???
+  slot 14 +0x38 -> 0x6c694220 ???
+  slot 15 +0x3c -> 0x616f626c ???
+
+======================================================================
+Vtable BSTask-derived candidate @ 0x01016a48
+======================================================================
+  slot 00 +0x00 -> 0x0043e180 FUN_0043e180
+  slot 01 +0x04 -> 0x0043e2a0 FUN_0043e2a0
+  slot 02 +0x08 -> 0x0043e4b0 FUN_0043e4b0
+  slot 03 +0x0c -> 0x00c3cb70 FUN_00c3cb70
+  slot 04 +0x10 -> 0x0043e550 FUN_0043e550
+  slot 05 +0x14 -> 0x00483710 FUN_00483710
+  slot 06 +0x18 -> 0x00c3d440 FUN_00c3d440
+  slot 07 +0x1c -> 0x00c3cae0 FUN_00c3cae0
+  slot 08 +0x20 -> 0x00441e10 FUN_00441e10
+  slot 09 +0x24 -> 0x0043bde0 FUN_0043bde0
+  slot 10 +0x28 -> 0x00c3c930 FUN_00c3c930
+  slot 11 +0x2c -> 0x006fc440 FUN_006fc440
+  slot 12 +0x30 -> 0x0000464b ???
+  slot 13 +0x34 -> 0x01105950 ???
+  slot 14 +0x38 -> 0x0043e600 FUN_0043e600
+  slot 15 +0x3c -> 0x0043e2a0 FUN_0043e2a0
+
+======================================================================
+Vtable BSTask-derived candidate @ 0x01016a80
+======================================================================
+  slot 00 +0x00 -> 0x0043e600 FUN_0043e600
+  slot 01 +0x04 -> 0x0043e2a0 FUN_0043e2a0
+  slot 02 +0x08 -> 0x0043e4b0 FUN_0043e4b0
+  slot 03 +0x0c -> 0x0043e840 FUN_0043e840
+  slot 04 +0x10 -> 0x0043e880 FUN_0043e880
+  slot 05 +0x14 -> 0x0043e7b0 FUN_0043e7b0
+  slot 06 +0x18 -> 0x00c3d440 FUN_00c3d440
+  slot 07 +0x1c -> 0x00c3cae0 FUN_00c3cae0
+  slot 08 +0x20 -> 0x0043e690 FUN_0043e690
+  slot 09 +0x24 -> 0x0043bde0 FUN_0043bde0
+  slot 10 +0x28 -> 0x0043e770 FUN_0043e770
+  slot 11 +0x2c -> 0x006fc440 FUN_006fc440
+  slot 12 +0x30 -> 0x6d696e41 ???
+  slot 13 +0x34 -> 0x656c6449 ???
+  slot 14 +0x38 -> 0x00000000 ???
+  slot 15 +0x3c -> 0x011059ac ???
+
+======================================================================
+Vtable BSTask-derived candidate @ 0x01016ac0
+======================================================================
+  slot 00 +0x00 -> 0x0043e8f0 FUN_0043e8f0
+  slot 01 +0x04 -> 0x0043e2a0 FUN_0043e2a0
+  slot 02 +0x08 -> 0x0043e940 FUN_0043e940
+  slot 03 +0x0c -> 0x00c3cb70 FUN_00c3cb70
+  slot 04 +0x10 -> 0x0043ea00 FUN_0043ea00
+  slot 05 +0x14 -> 0x0043e9b0 FUN_0043e9b0
+  slot 06 +0x18 -> 0x00c3d440 FUN_00c3d440
+  slot 07 +0x1c -> 0x00c3cae0 FUN_00c3cae0
+  slot 08 +0x20 -> 0x00441e10 FUN_00441e10
+  slot 09 +0x24 -> 0x0043bde0 FUN_0043bde0
+  slot 10 +0x28 -> 0x00c3c930 FUN_00c3c930
+  slot 11 +0x2c -> 0x006fc440 FUN_006fc440
+  slot 12 +0x30 -> 0x6c706552 ???
+  slot 13 +0x34 -> 0x6d656361 ???
+  slot 14 +0x38 -> 0x20746e65 ???
+  slot 15 +0x3c -> 0x0000464b ???
+
+======================================================================
+Vtable BSTask-derived candidate @ 0x01016dc4
+======================================================================
+  slot 00 +0x00 -> 0x00441cf0 FUN_00441cf0
+  slot 01 +0x04 -> 0x00441e40 FUN_00441e40
+  slot 02 +0x08 -> 0x0043daa0 FUN_0043daa0
+  slot 03 +0x0c -> 0x00c3cb70 FUN_00c3cb70
+  slot 04 +0x10 -> 0x008d0300 FUN_008d0300
+  slot 05 +0x14 -> 0x00483710 FUN_00483710
+  slot 06 +0x18 -> 0x00c3d440 FUN_00c3d440
+  slot 07 +0x1c -> 0x00c3cae0 FUN_00c3cae0
+  slot 08 +0x20 -> 0x00441e10 FUN_00441e10
+  slot 09 +0x24 -> 0x0043bde0 FUN_0043bde0
+  slot 10 +0x28 -> 0x00c3c930 FUN_00c3c930
+  slot 11 +0x2c -> 0x00712380 FUN_00712380
+  slot 12 +0x30 -> 0x45444f4d ???
+  slot 13 +0x34 -> 0x203a534c ???
+  slot 14 +0x38 -> 0x6c756f43 ???
+  slot 15 +0x3c -> 0x6f6e2064 ???
+
+======================================================================
+Vtable BSTask-derived candidate @ 0x01016e1c
+======================================================================
+  slot 00 +0x00 -> 0x00442010 FUN_00442010
+  slot 01 +0x04 -> 0x00441e40 FUN_00441e40
+  slot 02 +0x08 -> 0x0043daa0 FUN_0043daa0
+  slot 03 +0x0c -> 0x00c3cb70 FUN_00c3cb70
+  slot 04 +0x10 -> 0x008d0300 FUN_008d0300
+  slot 05 +0x14 -> 0x00483710 FUN_00483710
+  slot 06 +0x18 -> 0x00c3d440 FUN_00c3d440
+  slot 07 +0x1c -> 0x00c3cae0 FUN_00c3cae0
+  slot 08 +0x20 -> 0x00441e10 FUN_00441e10
+  slot 09 +0x24 -> 0x0043bde0 FUN_0043bde0
+  slot 10 +0x28 -> 0x00c3c930 FUN_00c3c930
+  slot 11 +0x2c -> 0x00712380 FUN_00712380
+  slot 12 +0x30 -> 0x01105de4 ???
+  slot 13 +0x34 -> 0x00442290 FUN_00442290
+  slot 14 +0x38 -> 0x00442350 FUN_00442350
+  slot 15 +0x3c -> 0x6b636142 ???
+
+======================================================================
+Vtable BSTask-derived candidate @ 0x0104f118
+======================================================================
+  slot 00 +0x00 -> 0x0063fa90 FUN_0063fa90
+  slot 01 +0x04 -> 0x0063fac0 FUN_0063fac0
+  slot 02 +0x08 -> 0x0043c610 FUN_0043c610
+  slot 03 +0x0c -> 0x00c3cb70 FUN_00c3cb70
+  slot 04 +0x10 -> 0x0063fb40 FUN_0063fb40
+  slot 05 +0x14 -> 0x00483710 FUN_00483710
+  slot 06 +0x18 -> 0x00c3d440 FUN_00c3d440
+  slot 07 +0x1c -> 0x00c3cae0 FUN_00c3cae0
+  slot 08 +0x20 -> 0x00483710 FUN_00483710
+  slot 09 +0x24 -> 0x0043bde0 FUN_0043bde0
+  slot 10 +0x28 -> 0x00c3c930 FUN_00c3c930
+  slot 11 +0x2c -> 0x0047c850 FUN_0047c850
+  slot 12 +0x30 -> 0x5f5c3a44 ???
+  slot 13 +0x34 -> 0x6c6c6146 ???
+  slot 14 +0x38 -> 0x3374756f ???
+  slot 15 +0x3c -> 0x616c505c ???
+
+======================================================================
+Vtable BSTask-derived candidate @ 0x0106dc3c
+======================================================================
+  slot 00 +0x00 -> 0x006f6fb0 FUN_006f6fb0
+  slot 01 +0x04 -> 0x006f71e0 FUN_006f71e0
+  slot 02 +0x08 -> 0x006f73d0 FUN_006f73d0
+  slot 03 +0x0c -> 0x006f71a0 FUN_006f71a0
+  slot 04 +0x10 -> 0x006f74b0 FUN_006f74b0
+  slot 05 +0x14 -> 0x00483710 FUN_00483710
+  slot 06 +0x18 -> 0x00c3d440 FUN_00c3d440
+  slot 07 +0x1c -> 0x00c3cae0 FUN_00c3cae0
+  slot 08 +0x20 -> 0x006f7070 FUN_006f7070
+  slot 09 +0x24 -> 0x0043bde0 FUN_0043bde0
+  slot 10 +0x28 -> 0x006f7140 FUN_006f7140
+  slot 11 +0x2c -> 0x006fc440 FUN_006fc440
+  slot 12 +0x30 -> 0x00000000 ???
+  slot 13 +0x34 -> 0x45444f4d ???
+  slot 14 +0x38 -> 0x203a534c ???
+  slot 15 +0x3c -> 0x6e756f46 ???
+
+======================================================================
+Vtable BSTask-derived candidate @ 0x0106ded0
+======================================================================
+  slot 00 +0x00 -> 0x006f9470 FUN_006f9470
+  slot 01 +0x04 -> 0x006f9570 FUN_006f9570
+  slot 02 +0x08 -> 0x006f9610 FUN_006f9610
+  slot 03 +0x0c -> 0x006f9540 FUN_006f9540
+  slot 04 +0x10 -> 0x006f9640 FUN_006f9640
+  slot 05 +0x14 -> 0x00483710 FUN_00483710
+  slot 06 +0x18 -> 0x00c3d440 FUN_00c3d440
+  slot 07 +0x1c -> 0x00c3cae0 FUN_00c3cae0
+  slot 08 +0x20 -> 0x006f94c0 FUN_006f94c0
+  slot 09 +0x24 -> 0x0043bde0 FUN_0043bde0
+  slot 10 +0x28 -> 0x006f94e0 FUN_006f94e0
+  slot 11 +0x2c -> 0x006fc440 FUN_006fc440
+  slot 12 +0x30 -> 0x65657254 ???
+  slot 13 +0x34 -> 0x444f4c20 ???
+  slot 14 +0x38 -> 0x73615420 ???
+  slot 15 +0x3c -> 0x6f66206b ???
+
+======================================================================
+Vtable BSTask-derived candidate @ 0x0106e1dc
+======================================================================
+  slot 00 +0x00 -> 0x006fbae0 FUN_006fbae0
+  slot 01 +0x04 -> 0x006fbd00 FUN_006fbd00
+  slot 02 +0x08 -> 0x006fc020 FUN_006fc020
+  slot 03 +0x0c -> 0x006fbcd0 FUN_006fbcd0
+  slot 04 +0x10 -> 0x006fc400 FUN_006fc400
+  slot 05 +0x14 -> 0x00483710 FUN_00483710
+  slot 06 +0x18 -> 0x00c3d440 FUN_00c3d440
+  slot 07 +0x1c -> 0x00c3cae0 FUN_00c3cae0
+  slot 08 +0x20 -> 0x006fbbd0 FUN_006fbbd0
+  slot 09 +0x24 -> 0x0043bde0 FUN_0043bde0
+  slot 10 +0x28 -> 0x006f7140 FUN_006f7140
+  slot 11 +0x2c -> 0x006fc440 FUN_006fc440
+  slot 12 +0x30 -> 0x65746157 ???
+  slot 13 +0x34 -> 0x4f4c2072 ???
+  slot 14 +0x38 -> 0x2f772044 ???
+  slot 15 +0x3c -> 0x66657220 ???
+
+======================================================================
+Vtable BSTask-derived candidate @ 0x0107cf18
+======================================================================
+  slot 00 +0x00 -> 0x00837290 FUN_00837290
+  slot 01 +0x04 -> 0x008372e0 FUN_008372e0
+  slot 02 +0x08 -> 0x00483710 FUN_00483710
+  slot 03 +0x0c -> 0x00c3cb70 FUN_00c3cb70
+  slot 04 +0x10 -> 0x008373a0 FUN_008373a0
+  slot 05 +0x14 -> 0x00483710 FUN_00483710
+  slot 06 +0x18 -> 0x00c3d440 FUN_00c3d440
+  slot 07 +0x1c -> 0x00c3cae0 FUN_00c3cae0
+  slot 08 +0x20 -> 0x00483710 FUN_00483710
+  slot 09 +0x24 -> 0x0043bde0 FUN_0043bde0
+  slot 10 +0x28 -> 0x00c3c930 FUN_00c3c930
+  slot 11 +0x2c -> 0x00837280 FUN_00837280
+  slot 12 +0x30 -> 0x00483710 FUN_00483710
+  slot 13 +0x34 -> 0x69646152 ???
+  slot 14 +0x38 -> 0x6f63206f ???
+  slot 15 +0x3c -> 0x7265766e ???
+
+======================================================================
+Vtable BSTask-derived candidate @ 0x010885b8
+======================================================================
+  slot 00 +0x00 -> 0x0063fa90 FUN_0063fa90
+  slot 01 +0x04 -> 0x00905c50 FUN_00905c50
+  slot 02 +0x08 -> 0x00905d20 FUN_00905d20
+  slot 03 +0x0c -> 0x00905dc0 FUN_00905dc0
+  slot 04 +0x10 -> 0x00905e00 FUN_00905e00
+  slot 05 +0x14 -> 0x00483710 FUN_00483710
+  slot 06 +0x18 -> 0x00c3d440 FUN_00c3d440
+  slot 07 +0x1c -> 0x00c3cae0 FUN_00c3cae0
+  slot 08 +0x20 -> 0x00483710 FUN_00483710
+  slot 09 +0x24 -> 0x0043bde0 FUN_0043bde0
+  slot 10 +0x28 -> 0x00c3c930 FUN_00c3c930
+  slot 11 +0x2c -> 0x00837280 FUN_00837280
+  slot 12 +0x30 -> 0x5f5c3a44 ???
+  slot 13 +0x34 -> 0x6c6c6146 ???
+  slot 14 +0x38 -> 0x3374756f ???
+  slot 15 +0x3c -> 0x616c505c ???
+
+======================================================================
+Vtable BSTask-derived candidate @ 0x010a3718
+======================================================================
+  slot 00 +0x00 -> 0x00ae7b10 FUN_00ae7b10
+  slot 01 +0x04 -> 0x00ae7050 FUN_00ae7050
+  slot 02 +0x08 -> 0x00ae7360 FUN_00ae7360
+  slot 03 +0x0c -> 0x00ae7390 FUN_00ae7390
+  slot 04 +0x10 -> 0x00ae7480 FUN_00ae7480
+  slot 05 +0x14 -> 0x00483710 FUN_00483710
+  slot 06 +0x18 -> 0x00c3d440 FUN_00c3d440
+  slot 07 +0x1c -> 0x00c3cae0 FUN_00c3cae0
+  slot 08 +0x20 -> 0x00483710 FUN_00483710
+  slot 09 +0x24 -> 0x0043bde0 FUN_0043bde0
+  slot 10 +0x28 -> 0x00c3c930 FUN_00c3c930
+  slot 11 +0x2c -> 0x00ae8b80 FUN_00ae8b80
+  slot 12 +0x30 -> 0x69647561 ???
+  slot 13 +0x34 -> 0x6f6c206f ???
+  slot 14 +0x38 -> 0x74206461 ???
+  slot 15 +0x3c -> 0x006b7361 ???
+
+======================================================================
+Vtable BSTask-derived candidate @ 0x010ade6c
+======================================================================
+  slot 00 +0x00 -> 0x00b60c90 FUN_00b60c90
+  slot 01 +0x04 -> 0x00b60060 ???
+  slot 02 +0x08 -> 0x00a29680 FUN_00a29680
+  slot 03 +0x0c -> 0x00c3cb70 FUN_00c3cb70
+  slot 04 +0x10 -> 0x00b600c0 ???
+  slot 05 +0x14 -> 0x00483710 FUN_00483710
+  slot 06 +0x18 -> 0x00c3d440 FUN_00c3d440
+  slot 07 +0x1c -> 0x00c3cae0 FUN_00c3cae0
+  slot 08 +0x20 -> 0x00483710 FUN_00483710
+  slot 09 +0x24 -> 0x0043bde0 FUN_0043bde0
+  slot 10 +0x28 -> 0x00c3c930 FUN_00c3c930
+  slot 11 +0x2c -> 0x00b606e0 ???
+  slot 12 +0x30 -> 0x00b60f30 FUN_00b60f30
+  slot 13 +0x34 -> 0x00cfcc20 FUN_00cfcc20
+  slot 14 +0x38 -> 0x00000000 ???
+  slot 15 +0x3c -> 0x00b61220 FUN_00b61220
+
+======================================================================
+Vtable BSTask-derived candidate @ 0x010c1554
+======================================================================
+  slot 00 +0x00 -> 0x00c3d410 FUN_00c3d410
+  slot 01 +0x04 -> 0x00483710 FUN_00483710
+  slot 02 +0x08 -> 0x0043c610 FUN_0043c610
+  slot 03 +0x0c -> 0x00c3cb70 FUN_00c3cb70
+  slot 04 +0x10 -> 0x008d0300 FUN_008d0300
+  slot 05 +0x14 -> 0x00483710 FUN_00483710
+  slot 06 +0x18 -> 0x00c3d440 FUN_00c3d440
+  slot 07 +0x1c -> 0x00c3cae0 FUN_00c3cae0
+  slot 08 +0x20 -> 0x00483710 FUN_00483710
+  slot 09 +0x24 -> 0x0043bde0 FUN_0043bde0
+  slot 10 +0x28 -> 0x00c3c930 FUN_00c3c930
+  slot 11 +0x2c -> 0x00ec60fa ???
+  slot 12 +0x30 -> 0x202a200a ???
+  slot 13 +0x34 -> 0x00000000 ???
+  slot 14 +0x38 -> 0x75657551 ???
+  slot 15 +0x3c -> 0x25206465 ???
+
+======================================================================
+task slot11 priority @ 0x0043bfe0
+======================================================================
+  Function: FUN_0043bfe0 @ 0x0043bfe0, Size: 68 bytes
+
+int __fastcall FUN_0043bfe0(undefined4 param_1)
+
+{
+  int iVar1;
+  undefined4 uVar2;
+  
+  iVar1 = FUN_0055b980(param_1);
+  if (iVar1 != 0) {
+    uVar2 = FUN_0055b980(2);
+    iVar1 = FUN_00af6910(uVar2);
+    if (iVar1 != 0) {
+      iVar1 = FUN_0043c030();
+      return iVar1 + 4;
+    }
+  }
+  return 0;
+}
+
+
+  [already decompiled 0x0043bfe0 as task slot11 priority]
+
+======================================================================
+task slot11 priority @ 0x006fc440
+======================================================================
+  Function: FUN_006fc440 @ 0x006fc440, Size: 68 bytes
+
+int __fastcall FUN_006fc440(undefined4 param_1)
+
+{
+  int iVar1;
+  undefined4 uVar2;
+  
+  iVar1 = FUN_0055b980(param_1);
+  if (iVar1 != 0) {
+    uVar2 = FUN_0055b980(1);
+    iVar1 = FUN_00af6910(uVar2);
+    if (iVar1 != 0) {
+      iVar1 = FUN_0043c030();
+      return iVar1 + 4;
+    }
+  }
+  return 1;
+}
+
+
+  [already decompiled 0x006fc440 as task slot11 priority]
+  [already decompiled 0x006fc440 as task slot11 priority]
+
+======================================================================
+task slot11 priority @ 0x00712380
+======================================================================
+  Function: FUN_00712380 @ 0x00712380, Size: 17 bytes
+
+undefined1 __fastcall FUN_00712380(int param_1)
+
+{
+  return *(undefined1 *)(param_1 + 0x34);
+}
+
+
+  [already decompiled 0x00712380 as task slot11 priority]
+
+======================================================================
+task slot11 priority @ 0x0047c850
+======================================================================
+  Function: FUN_0047c850 @ 0x0047c850, Size: 13 bytes
+
+undefined1 FUN_0047c850(void)
+
+{
+  return 0;
+}
+
+
+  [already decompiled 0x006fc440 as task slot11 priority]
+  [already decompiled 0x006fc440 as task slot11 priority]
+  [already decompiled 0x006fc440 as task slot11 priority]
+
+======================================================================
+task slot11 priority @ 0x00837280
+======================================================================
+  Function: FUN_00837280 @ 0x00837280, Size: 13 bytes
+
+undefined1 FUN_00837280(void)
+
+{
+  return 3;
+}
+
+
+  [already decompiled 0x00837280 as task slot11 priority]
+
+======================================================================
+task slot11 priority @ 0x00ae8b80
+======================================================================
+  Function: FUN_00ae8b80 @ 0x00ae8b80, Size: 13 bytes
+
+undefined1 FUN_00ae8b80(void)
+
+{
+  return 2;
+}
+
+
+
+======================================================================
+task slot11 priority @ 0x00b606e0
+======================================================================
+  [function not found]
+
+======================================================================
+task slot11 priority @ 0x00ec60fa
+======================================================================
+  [function not found]
+
+======================================================================
+Vtable Dependency task candidate @ 0x01016788
+======================================================================
+  slot 00 +0x00 -> 0x0043be30 FUN_0043be30
+  slot 01 +0x04 -> 0x0043c150 FUN_0043c150
+  slot 02 +0x08 -> 0x0043c550 FUN_0043c550
+  slot 03 +0x0c -> 0x0043c650 FUN_0043c650
+  slot 04 +0x10 -> 0x0043c6b0 FUN_0043c6b0
+  slot 05 +0x14 -> 0x00483710 FUN_00483710
+  slot 06 +0x18 -> 0x00c3d440 FUN_00c3d440
+  slot 07 +0x1c -> 0x00c3cae0 FUN_00c3cae0
+  slot 08 +0x20 -> 0x0043c050 FUN_0043c050
+  slot 09 +0x24 -> 0x0043bde0 FUN_0043bde0
+  slot 10 +0x28 -> 0x00c3c930 FUN_00c3c930
+  slot 11 +0x2c -> 0x0043bfe0 FUN_0043bfe0
+  slot 12 +0x30 -> 0x45444f4d ???
+  slot 13 +0x34 -> 0x203a534c ???
+  slot 14 +0x38 -> 0x6c756f43 ???
+  slot 15 +0x3c -> 0x6f6e2064 ???
+  slot 16 +0x40 -> 0x65672074 ???
+  slot 17 +0x44 -> 0x69662074 ???
+  slot 18 +0x48 -> 0x6620656c ???
+  slot 19 +0x4c -> 0x7420726f ???
+
+======================================================================
+Vtable Object LOD block task @ 0x0106dc3c
+======================================================================
+  slot 00 +0x00 -> 0x006f6fb0 FUN_006f6fb0
+  slot 01 +0x04 -> 0x006f71e0 FUN_006f71e0
+  slot 02 +0x08 -> 0x006f73d0 FUN_006f73d0
+  slot 03 +0x0c -> 0x006f71a0 FUN_006f71a0
+  slot 04 +0x10 -> 0x006f74b0 FUN_006f74b0
+  slot 05 +0x14 -> 0x00483710 FUN_00483710
+  slot 06 +0x18 -> 0x00c3d440 FUN_00c3d440
+  slot 07 +0x1c -> 0x00c3cae0 FUN_00c3cae0
+  slot 08 +0x20 -> 0x006f7070 FUN_006f7070
+  slot 09 +0x24 -> 0x0043bde0 FUN_0043bde0
+  slot 10 +0x28 -> 0x006f7140 FUN_006f7140
+  slot 11 +0x2c -> 0x006fc440 FUN_006fc440
+  slot 12 +0x30 -> 0x00000000 ???
+  slot 13 +0x34 -> 0x45444f4d ???
+  slot 14 +0x38 -> 0x203a534c ???
+  slot 15 +0x3c -> 0x6e756f46 ???
+  slot 16 +0x40 -> 0x20612064 ???
+  slot 17 +0x44 -> 0x74736964 ???
+  slot 18 +0x48 -> 0x20746e61 ???
+  slot 19 +0x4c -> 0x656a626f ???
+
+======================================================================
+Vtable Tree LOD block task @ 0x0106ded0
+======================================================================
+  slot 00 +0x00 -> 0x006f9470 FUN_006f9470
+  slot 01 +0x04 -> 0x006f9570 FUN_006f9570
+  slot 02 +0x08 -> 0x006f9610 FUN_006f9610
+  slot 03 +0x0c -> 0x006f9540 FUN_006f9540
+  slot 04 +0x10 -> 0x006f9640 FUN_006f9640
+  slot 05 +0x14 -> 0x00483710 FUN_00483710
+  slot 06 +0x18 -> 0x00c3d440 FUN_00c3d440
+  slot 07 +0x1c -> 0x00c3cae0 FUN_00c3cae0
+  slot 08 +0x20 -> 0x006f94c0 FUN_006f94c0
+  slot 09 +0x24 -> 0x0043bde0 FUN_0043bde0
+  slot 10 +0x28 -> 0x006f94e0 FUN_006f94e0
+  slot 11 +0x2c -> 0x006fc440 FUN_006fc440
+  slot 12 +0x30 -> 0x65657254 ???
+  slot 13 +0x34 -> 0x444f4c20 ???
+  slot 14 +0x38 -> 0x73615420 ???
+  slot 15 +0x3c -> 0x6f66206b ???
+  slot 16 +0x40 -> 0x6c622072 ???
+  slot 17 +0x44 -> 0x206b636f ???
+  slot 18 +0x48 -> 0x69252028 ???
+  slot 19 +0x4c -> 0x6925202c ???
+
+======================================================================
+Vtable Terrain LOD block task @ 0x0106e1dc
+======================================================================
+  slot 00 +0x00 -> 0x006fbae0 FUN_006fbae0
+  slot 01 +0x04 -> 0x006fbd00 FUN_006fbd00
+  slot 02 +0x08 -> 0x006fc020 FUN_006fc020
+  slot 03 +0x0c -> 0x006fbcd0 FUN_006fbcd0
+  slot 04 +0x10 -> 0x006fc400 FUN_006fc400
+  slot 05 +0x14 -> 0x00483710 FUN_00483710
+  slot 06 +0x18 -> 0x00c3d440 FUN_00c3d440
+  slot 07 +0x1c -> 0x00c3cae0 FUN_00c3cae0
+  slot 08 +0x20 -> 0x006fbbd0 FUN_006fbbd0
+  slot 09 +0x24 -> 0x0043bde0 FUN_0043bde0
+  slot 10 +0x28 -> 0x006f7140 FUN_006f7140
+  slot 11 +0x2c -> 0x006fc440 FUN_006fc440
+  slot 12 +0x30 -> 0x65746157 ???
+  slot 13 +0x34 -> 0x4f4c2072 ???
+  slot 14 +0x38 -> 0x2f772044 ???
+  slot 15 +0x3c -> 0x66657220 ???
+  slot 16 +0x40 -> 0x20292e6c ???
+  slot 17 +0x44 -> 0x654c207c ???
+  slot 18 +0x48 -> 0x206c6576 ???
+  slot 19 +0x4c -> 0x7c206925 ???
+
+# MULTI-WORKER CREATION, TLS, COMPLETION, AND NULLABILITY
+
+======================================================================
+IOManager constructor with one worker @ 0x00c3da50
+======================================================================
+  Function: FUN_00c3da50 @ 0x00c3da50, Size: 257 bytes
+
+undefined4 * __fastcall FUN_00c3da50(undefined4 *param_1)
+
+{
+  int iVar1;
+  int *unaff_FS_OFFSET;
+  undefined4 local_24;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00f2dd43;
+  local_10 = *unaff_FS_OFFSET;
+  *unaff_FS_OFFSET = (int)&local_10;
+  FUN_00c3e4f0(10,1,0x78);
+  local_8 = 0;
+  *param_1 = &PTR_FUN_010c1604;
+  param_1[0x1c] = 0;
+  param_1[0x1e] = 0;
+  param_1[0x1b] = 0;
+  param_1[0x1f] = 0;
+  param_1[0x20] = 0;
+  param_1[0x1a] = 6;
+  iVar1 = FUN_00aa3e40(0x10);
+  local_8 = CONCAT31(local_8._1_3_,1);
+  if (iVar1 == 0) {
+    local_24 = 0;
+  }
+  else {
+    local_24 = FUN_00c3e8b0(6,7,8);
+  }
+  param_1[0x19] = local_24;
+  param_1[0x18] = *(undefined4 *)(*(int *)param_1[0x14] + 8);
+  *unaff_FS_OFFSET = local_10;
+  return param_1;
+}
+
+
+
+--- Calls FROM IOManager constructor with one worker (0x00c3da50) ---
+  0x00c3da81 -> 0x00c3e4f0 FUN_00c3e4f0
+  0x00c3dadc -> 0x00aa3e40 FUN_00aa3e40
+  0x00c3daf7 -> 0x00c3e8b0 FUN_00c3e8b0
+  Total: 3 calls
+
+----------------------------------------------------------------------
+References TO 0x00c3da50 (IOManager constructor with one worker)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0044febe (in FUN_0044fb20)
+  Total: 1 refs
+
+======================================================================
+BSTaskManager constructor worker count @ 0x00c3e4f0
+======================================================================
+  Function: FUN_00c3e4f0 @ 0x00c3e4f0, Size: 408 bytes
+
+undefined4 * __thiscall FUN_00c3e4f0(undefined4 *param_1,int param_2,int param_3,uint param_4)
+
+{
+  undefined4 uVar1;
+  int iVar2;
+  int *unaff_FS_OFFSET;
+  undefined4 local_38;
+  uint local_14;
+  int local_10;
+  undefined1 *puStack_c;
+  int local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00f2ddf3;
+  local_10 = *unaff_FS_OFFSET;
+  *unaff_FS_OFFSET = (int)&local_10;
+  FUN_00c3ec80(param_2 + param_3,param_4,0xc);
+  local_8 = 0;
+  *param_1 = &PTR_FUN_010c167c;
+  *(undefined1 *)(param_1 + 0x10) = 0;
+  param_1[0x11] = 0;
+  param_1[0x12] = 0;
+  param_1[0x13] = param_3;
+  uVar1 = FUN_00aa3e40(-(uint)((int)((ulonglong)param_4 * 4 >> 0x20) != 0) |
+                       (uint)((ulonglong)param_4 * 4));
+  param_1[0x15] = uVar1;
+  _memset((void *)param_1[0x15],0,param_4 << 2);
+  param_1[0x16] = 0;
+  uVar1 = FUN_00aa3e40(-(uint)((int)((ulonglong)(uint)param_1[0x13] * 4 >> 0x20) != 0) |
+                       (uint)((ulonglong)(uint)param_1[0x13] * 4));
+  param_1[0x14] = uVar1;
+  for (local_14 = 0; local_14 < (uint)param_1[0x13]; local_14 = local_14 + 1) {
+    iVar2 = FUN_00aa3e40(0x34);
+    local_8._0_1_ = 1;
+    if (iVar2 == 0) {
+      local_38 = 0;
+    }
+    else {
+      local_38 = FUN_00c3ee70(param_1,local_14 + 2);
+    }
+    local_8 = (uint)local_8._1_3_ << 8;
+    *(undefined4 *)(param_1[0x14] + local_14 * 4) = local_38;
+    FUN_00c42f50();
+  }
+  *unaff_FS_OFFSET = local_10;
+  return param_1;
+}
+
+
+
+--- Calls FROM BSTaskManager constructor worker count (0x00c3e4f0) ---
+  0x00c3e528 -> 0x00c3ec80 FUN_00c3ec80
+  0x00c3e580 -> 0x00aa3e40 FUN_00aa3e40
+  0x00c3e5a7 -> 0x00ec61c0 _memset
+  0x00c3e5db -> 0x00aa3e40 FUN_00aa3e40
+  0x00c3e610 -> 0x00aa3e40 FUN_00aa3e40
+  0x00c3e630 -> 0x00c3ee70 FUN_00c3ee70
+  0x00c3e666 -> 0x00c42f50 FUN_00c42f50
+  Total: 7 calls
+
+----------------------------------------------------------------------
+References TO 0x00c3e4f0 (BSTaskManager constructor worker count)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00c3da81 (in FUN_00c3da50)
+  Total: 1 refs
+
+======================================================================
+BSTaskManagerThread constructor @ 0x00c3ee70
+======================================================================
+  Function: FUN_00c3ee70 @ 0x00c3ee70, Size: 51 bytes
+
+undefined4 * __thiscall FUN_00c3ee70(undefined4 *param_1,undefined4 param_2,undefined4 param_3)
+
+{
+  FUN_00c42dd0(param_3,"BSTaskManagerThread");
+  *param_1 = &PTR_FUN_010c1740;
+  param_1[0xc] = param_2;
+  return param_1;
+}
+
+
+
+--- Calls FROM BSTaskManagerThread constructor (0x00c3ee70) ---
+  0x00c3ee83 -> 0x00c42dd0 FUN_00c42dd0
+  Total: 1 calls
+
+----------------------------------------------------------------------
+References TO 0x00c3ee70 (BSTaskManagerThread constructor)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00c3e630 (in FUN_00c3e4f0)
+  Total: 1 refs
+
+======================================================================
+BSThread start @ 0x00c42dd0
+======================================================================
+  Function: FUN_00c42dd0 @ 0x00c42dd0, Size: 292 bytes
+
+undefined4 * __thiscall FUN_00c42dd0(undefined4 *param_1,undefined4 param_2,int param_3)
+
+{
+  uint uVar1;
+  HANDLE pvVar2;
+  int *unaff_FS_OFFSET;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00f2e346;
+  local_10 = *unaff_FS_OFFSET;
+  uVar1 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  *param_1 = &PTR_FUN_010c1844;
+  param_1[3] = 0;
+  param_1[5] = 0x7fffffff;
+  pvVar2 = CreateSemaphoreA((LPSECURITY_ATTRIBUTES)0x0,param_1[3],param_1[5],(LPCSTR)0x0);
+  param_1[4] = pvVar2;
+  local_8 = 0;
+  param_1[6] = 1;
+  param_1[8] = 1;
+  pvVar2 = CreateSemaphoreA((LPSECURITY_ATTRIBUTES)0x0,param_1[6],param_1[8],(LPCSTR)0x0);
+  param_1[7] = pvVar2;
+  local_8 = CONCAT31(local_8._1_3_,1);
+  pvVar2 = CreateThread((LPSECURITY_ATTRIBUTES)0x0,0,lpStartAddress_00c42da0,param_1,4,param_1 + 2);
+  param_1[1] = pvVar2;
+  if (param_3 != 0) {
+    FUN_00aa2740(param_1[2],param_3,uVar1);
+  }
+  param_1[9] = 0;
+  param_1[10] = 0;
+  param_1[0xb] = param_1[2];
+  *unaff_FS_OFFSET = local_10;
+  return param_1;
+}
+
+
+
+--- Calls FROM BSThread start (0x00c42dd0) ---
+  0x00c42e2e -> 0x00000023 ???
+  0x00c42e6e -> 0x00000023 ???
+  0x00c42e94 -> 0x0000003f ???
+  0x00c42eb1 -> 0x00aa2740 FUN_00aa2740
+  Total: 4 calls
+
+----------------------------------------------------------------------
+References TO 0x00c42dd0 (BSThread start)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00442202 (in FUN_004421d0)
+  UNCONDITIONAL_CALL @ 0x00c3ee83 (in FUN_00c3ee70)
+  Total: 2 refs
+
+======================================================================
+BSThread entry @ 0x00c42da0
+======================================================================
+  Function: lpStartAddress_00c42da0 @ 0x00c42da0, Size: 37 bytes
+
+/* lpStartAddress parameter of CreateThread
+    */
+
+undefined4 lpStartAddress_00c42da0(int *param_1)
+
+{
+  FUN_00c80130(param_1 + 9);
+  (**(code **)(*param_1 + 4))();
+  return 0;
+}
+
+
+
+--- Calls FROM BSThread entry (0x00c42da0) ---
+  0x00c42daa -> 0x00c80130 FUN_00c80130
+  Total: 1 calls
+
+----------------------------------------------------------------------
+References TO 0x00c42da0 (BSThread entry)
+----------------------------------------------------------------------
+  DATA @ 0x00c42e8b (in FUN_00c42dd0)
+  Total: 1 refs
+
+======================================================================
+BSTaskManagerThread worker loop @ 0x00c410b0
+======================================================================
+  Function: FUN_00c410b0 @ 0x00c410b0, Size: 633 bytes
+
+/* WARNING: Removing unreachable block (ram,0x00c411bc) */
+/* WARNING: Removing unreachable block (ram,0x00c412b6) */
+
+void __fastcall FUN_00c410b0(int param_1)
+
+{
+  char cVar1;
+  DWORD DVar2;
+  LONG LVar3;
+  int *unaff_FS_OFFSET;
+  undefined1 local_40 [8];
+  int local_38;
+  char local_31;
+  undefined **local_30 [2];
+  undefined4 local_28;
+  undefined4 local_20;
+  undefined4 local_1c;
+  byte local_18;
+  int local_10;
+  undefined1 *puStack_c;
+  uint local_8;
+  
+  puStack_c = &LAB_00f2e0a0;
+  local_10 = *unaff_FS_OFFSET;
+  *unaff_FS_OFFSET = (int)&local_10;
+  while (local_8 = 0xffffffff, *(char *)(*(int *)(param_1 + 0x30) + 0x40) != '\x01') {
+    WaitForSingleObject(*(HANDLE *)(param_1 + 0x10),0xffffffff);
+    InterlockedDecrement((LONG *)(param_1 + 0xc));
+    local_28 = 0;
+    local_20 = 0;
+    local_1c = 0;
+    local_18 = 0;
+    local_30[0] = &PTR_FUN_010c1664;
+    local_8 = 0;
+    local_31 = '\0';
+    while ((local_18 & 2) == 0) {
+      DVar2 = WaitForSingleObject(*(HANDLE *)(param_1 + 0x1c),0);
+      if (DVar2 == 0x102) {
+        WaitForSingleObject(*(HANDLE *)(param_1 + 0x1c),0xffffffff);
+        InterlockedDecrement((LONG *)(param_1 + 0x18));
+        FUN_00c42060(0);
+      }
+      local_38 = 0;
+      local_8 = CONCAT31(local_8._1_3_,1);
+      cVar1 = FUN_00c40e70(local_30,local_40,&local_38,local_31 == '\0');
+      if (cVar1 == '\0') {
+        if ((local_18 & 2) == 0) {
+          FUN_00c42060(0);
+          local_31 = '\0';
+        }
+      }
+      else if ((*(int *)(local_38 + 0xc) == 1) &&
+              (LVar3 = InterlockedCompareExchange((LONG *)(local_38 + 0xc),3,1), LVar3 == 1)) {
+        local_31 = '\x01';
+        (**(code **)(**(int **)(param_1 + 0x30) + 0x4c))(local_38);
+        (**(code **)(**(int **)(param_1 + 0x30) + 0x50))(local_38);
+      }
+      if (local_38 != 0) {
+        if (local_38 != 0) {
+          FUN_0044dd60();
+        }
+        local_38 = 0;
+      }
+      ReleaseSemaphore(*(HANDLE *)(param_1 + 0x1c),1,(LPLONG)0x0);
+      InterlockedIncrement((LONG *)(param_1 + 0x18));
+      local_8 = local_8 & 0xffffff00;
+      if (local_38 != 0) {
+        FUN_0044dd60();
+      }
+    }
+    local_30[0] = &PTR_FUN_010c1670;
+  }
+  *unaff_FS_OFFSET = local_10;
+  return;
+}
+
+
+
+--- Calls FROM BSTaskManagerThread worker loop (0x00c410b0) ---
+  0x00c41106 -> 0x00000068 ???
+  0x00c41110 -> 0x00000067 ???
+  0x00c41169 -> 0x00000068 ???
+  0x00c41195 -> 0x00000068 ???
+  0x00c4119f -> 0x00000067 ???
+  0x00c411aa -> 0x00c42060 FUN_00c42060
+  0x00c411c9 -> 0x00000066 ???
+  0x00c411f5 -> 0x00c40e70 FUN_00c40e70
+  0x00c4121b -> 0x00000065 ???
+  0x00c4128c -> 0x00c42060 FUN_00c42060
+  0x00c412a4 -> 0x0044dd60 FUN_0044dd60
+  0x00c412c3 -> 0x00000066 ???
+  0x00c412e0 -> 0x00000063 ???
+  0x00c412ea -> 0x00000066 ???
+  0x00c412fd -> 0x0044dd60 FUN_0044dd60
+  Total: 15 calls
+
+----------------------------------------------------------------------
+References TO 0x00c410b0 (BSTaskManagerThread worker loop)
+----------------------------------------------------------------------
+  Total: 0 refs
+
+======================================================================
+Task manager thread index or hash @ 0x00c3e3a0
+======================================================================
+  Function: FUN_00c3e3a0 @ 0x00c3e3a0, Size: 69 bytes
+
+int FUN_00c3e3a0(void)
+
+{
+  byte bVar1;
+  uint uVar2;
+  
+  bVar1 = __allshr();
+  uVar2 = __allshr();
+  return (uint)bVar1 * (((uVar2 & 0xff) + 4) % 0x14);
+}
+
+
+
+--- Calls FROM Task manager thread index or hash (0x00c3e3a0) ---
+  0x00c3e3b2 -> 0x00ec77e0 __allshr
+  0x00c3e3c6 -> 0x00ec77e0 __allshr
+  Total: 2 calls
+
+----------------------------------------------------------------------
+References TO 0x00c3e3a0 (Task manager thread index or hash)
+----------------------------------------------------------------------
+  DATA @ 0x010c1628 (in ???)
+  Total: 1 refs
+
+======================================================================
+Task TLS accessor @ 0x00c3f750
+======================================================================
+  Function: FUN_00c3f750 @ 0x00c3f750, Size: 76 bytes
+
+LPVOID __fastcall FUN_00c3f750(int param_1)
+
+{
+  undefined4 local_24;
+  
+  local_24 = TlsGetValue(*(DWORD *)(*(int *)(param_1 + 0x14) + 4));
+  if (local_24 == (LPVOID)0x0) {
+    local_24 = (LPVOID)FUN_00c41610(param_1);
+  }
+  return local_24;
+}
+
+
+
+--- Calls FROM Task TLS accessor (0x00c3f750) ---
+  0x00c3f76f -> 0x00000007 ???
+  0x00c3f78d -> 0x00c41610 FUN_00c41610
+  Total: 2 calls
+
+----------------------------------------------------------------------
+References TO 0x00c3f750 (Task TLS accessor)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00c40ee9 (in FUN_00c40e70)
+  UNCONDITIONAL_CALL @ 0x00c40f3d (in FUN_00c40e70)
+  UNCONDITIONAL_CALL @ 0x00c3f179 (in FUN_00c3f160)
+  UNCONDITIONAL_CALL @ 0x00c3f215 (in FUN_00c3f1f0)
+  UNCONDITIONAL_CALL @ 0x00c3f2d5 (in FUN_00c3f2b0)
+  UNCONDITIONAL_CALL @ 0x00c3f3b3 (in FUN_00c3f360)
+  UNCONDITIONAL_CALL @ 0x00c3f46a (in FUN_00c3f430)
+  UNCONDITIONAL_CALL @ 0x00c3f4d5 (in FUN_00c3f4c0)
+  Total: 8 refs
+
+======================================================================
+Task TLS queue accessor @ 0x00c3f7a0
+======================================================================
+  Function: FUN_00c3f7a0 @ 0x00c3f7a0, Size: 255 bytes
+
+undefined4 __thiscall FUN_00c3f7a0(int param_1,int param_2)
+
+{
+  undefined4 uVar1;
+  int iVar2;
+  int *unaff_FS_OFFSET;
+  undefined4 local_30;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  puStack_c = &LAB_00f2df03;
+  local_10 = *unaff_FS_OFFSET;
+  *unaff_FS_OFFSET = (int)&local_10;
+  uVar1 = *(undefined4 *)(*(int *)(unaff_FS_OFFSET[0xb] + _tls_index * 4) + 0x2b4);
+  *(undefined4 *)(*(int *)(unaff_FS_OFFSET[0xb] + _tls_index * 4) + 0x2b4) = 6;
+  local_8 = 0;
+  iVar2 = FUN_00aa3e40(0x14);
+  local_8 = CONCAT31(local_8._1_3_,1);
+  if (iVar2 == 0) {
+    local_30 = 0;
+  }
+  else {
+    local_30 = FUN_0044cd00(param_1,*(int *)(param_1 + 0x10) + param_2 * 8,
+                            *(int *)(param_1 + 0x10) + 4 + param_2 * 8);
+  }
+  *(undefined4 *)(*(int *)(unaff_FS_OFFSET[0xb] + _tls_index * 4) + 0x2b4) = uVar1;
+  *unaff_FS_OFFSET = local_10;
+  return local_30;
+}
+
+
+
+--- Calls FROM Task TLS queue accessor (0x00c3f7a0) ---
+  0x00c3f80d -> 0x00aa3e40 FUN_00aa3e40
+  0x00c3f845 -> 0x0044cd00 FUN_0044cd00
+  Total: 2 calls
+
+----------------------------------------------------------------------
+References TO 0x00c3f7a0 (Task TLS queue accessor)
+----------------------------------------------------------------------
+  DATA @ 0x010c1764 (in ???)
+  Total: 1 refs
+
+======================================================================
+Completion queue handle acquire @ 0x00c3f530
+======================================================================
+  Function: FUN_00c3f530 @ 0x00c3f530, Size: 274 bytes
+
+undefined4 __thiscall FUN_00c3f530(int param_1,int param_2)
+
+{
+  undefined4 uVar1;
+  int iVar2;
+  int *unaff_FS_OFFSET;
+  undefined4 local_30;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  puStack_c = &LAB_00f2df03;
+  local_10 = *unaff_FS_OFFSET;
+  *unaff_FS_OFFSET = (int)&local_10;
+  uVar1 = *(undefined4 *)(*(int *)(unaff_FS_OFFSET[0xb] + _tls_index * 4) + 0x2b4);
+  *(undefined4 *)(*(int *)(unaff_FS_OFFSET[0xb] + _tls_index * 4) + 0x2b4) = 6;
+  local_8 = 0;
+  iVar2 = FUN_00aa3e40(0x24);
+  local_8 = CONCAT31(local_8._1_3_,1);
+  if (iVar2 == 0) {
+    local_30 = 0;
+  }
+  else {
+    local_30 = FUN_00c3fe00(param_1,*(int *)(param_1 + 4) + param_2 * 0xc,
+                            *(int *)(param_1 + 4) + 4 + param_2 * 0xc,
+                            *(int *)(param_1 + 4) + 8 + param_2 * 0xc);
+  }
+  *(undefined4 *)(*(int *)(unaff_FS_OFFSET[0xb] + _tls_index * 4) + 0x2b4) = uVar1;
+  *unaff_FS_OFFSET = local_10;
+  return local_30;
+}
+
+
+
+--- Calls FROM Completion queue handle acquire (0x00c3f530) ---
+  0x00c3f59d -> 0x00aa3e40 FUN_00aa3e40
+  0x00c3f5e8 -> 0x00c3fe00 FUN_00c3fe00
+  Total: 2 calls
+
+----------------------------------------------------------------------
+References TO 0x00c3f530 (Completion queue handle acquire)
+----------------------------------------------------------------------
+  DATA @ 0x010c1608 (in ???)
+  DATA @ 0x010c1680 (in ???)
+  DATA @ 0x010c16f8 (in ???)
+  Total: 3 refs
+
+======================================================================
+Completion pool constructor @ 0x00c3e8b0
+======================================================================
+  Function: FUN_00c3e8b0 @ 0x00c3e8b0, Size: 348 bytes
+
+undefined4 * __thiscall
+FUN_00c3e8b0(undefined4 *param_1,undefined4 param_2,undefined4 param_3,undefined4 param_4)
+
+{
+  undefined4 uVar1;
+  undefined4 uVar2;
+  int iVar3;
+  int *unaff_FS_OFFSET;
+  undefined4 local_38;
+  uint local_18;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined1 local_8;
+  undefined3 uStack_7;
+  
+  puStack_c = &LAB_00f2de23;
+  local_10 = *unaff_FS_OFFSET;
+  *unaff_FS_OFFSET = (int)&local_10;
+  *param_1 = &PTR_FUN_010c16dc;
+  uVar1 = *(undefined4 *)(*(int *)(unaff_FS_OFFSET[0xb] + _tls_index * 4) + 0x2b4);
+  *(undefined4 *)(*(int *)(unaff_FS_OFFSET[0xb] + _tls_index * 4) + 0x2b4) = 6;
+  local_8 = 0;
+  uStack_7 = 0;
+  param_1[3] = 0;
+  param_1[2] = param_2;
+  uVar2 = FUN_00aa3e40(-(uint)((int)((ulonglong)(uint)param_1[2] * 4 >> 0x20) != 0) |
+                       (uint)((ulonglong)(uint)param_1[2] * 4));
+  param_1[1] = uVar2;
+  for (local_18 = 0; local_18 < (uint)param_1[2]; local_18 = local_18 + 1) {
+    iVar3 = FUN_00aa3e40(0x40);
+    local_8 = 1;
+    if (iVar3 == 0) {
+      local_38 = 0;
+    }
+    else {
+      local_38 = FUN_00c3eeb0(param_3,param_4);
+    }
+    local_8 = 0;
+    *(undefined4 *)(param_1[1] + local_18 * 4) = local_38;
+  }
+  *(undefined4 *)(*(int *)(unaff_FS_OFFSET[0xb] + _tls_index * 4) + 0x2b4) = uVar1;
+  *unaff_FS_OFFSET = local_10;
+  return param_1;
+}
+
+
+
+--- Calls FROM Completion pool constructor (0x00c3e8b0) ---
+  0x00c3e955 -> 0x00aa3e40 FUN_00aa3e40
+  0x00c3e98a -> 0x00aa3e40 FUN_00aa3e40
+  0x00c3e9a7 -> 0x00c3eeb0 FUN_00c3eeb0
+  Total: 3 calls
+
+----------------------------------------------------------------------
+References TO 0x00c3e8b0 (Completion pool constructor)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00c3daf7 (in FUN_00c3da50)
+  Total: 1 refs
+
+======================================================================
+Completion pool entry constructor @ 0x00c3eeb0
+======================================================================
+  Function: FUN_00c3eeb0 @ 0x00c3eeb0, Size: 470 bytes
+
+undefined4 * __thiscall FUN_00c3eeb0(undefined4 *param_1,int param_2,undefined4 param_3)
+
+{
+  undefined4 uVar1;
+  longlong lVar2;
+  int *piVar3;
+  undefined4 uVar4;
+  int iVar5;
+  int *unaff_FS_OFFSET;
+  undefined4 local_4c;
+  undefined4 *local_48;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  puStack_c = &LAB_00f2de9b;
+  local_10 = *unaff_FS_OFFSET;
+  *unaff_FS_OFFSET = (int)&local_10;
+  *param_1 = &PTR_FUN_01017458;
+  *param_1 = &PTR_FUN_010c1760;
+  param_1[8] = 0;
+  param_1[9] = 0;
+  uVar1 = *(undefined4 *)(*(int *)(unaff_FS_OFFSET[0xb] + _tls_index * 4) + 0x2b4);
+  *(undefined4 *)(*(int *)(unaff_FS_OFFSET[0xb] + _tls_index * 4) + 0x2b4) = 6;
+  local_8 = 1;
+  param_1[6] = 0;
+  local_48 = (undefined4 *)FUN_00aa3e40(8);
+  if (local_48 == (undefined4 *)0x0) {
+    local_48 = (undefined4 *)0x0;
+  }
+  else {
+    *local_48 = 0;
+    piVar3 = local_48 + 1;
+    *piVar3 = 0;
+    if (*piVar3 != 0) {
+      InterlockedIncrement((LONG *)(*piVar3 + 8));
+    }
+  }
+  param_1[1] = local_48;
+  param_1[2] = param_1[1];
+  param_1[3] = param_3;
+  lVar2 = (ulonglong)(uint)(param_2 << 1) * 4;
+  uVar4 = FUN_00aa3e40(-(uint)((int)((ulonglong)lVar2 >> 0x20) != 0) | (uint)lVar2);
+  param_1[4] = uVar4;
+  iVar5 = FUN_00aa3e40(0x10);
+  local_8 = CONCAT31(local_8._1_3_,2);
+  if (iVar5 == 0) {
+    local_4c = 0;
+  }
+  else {
+    local_4c = FUN_00c42180(param_2);
+  }
+  param_1[5] = local_4c;
+  *(undefined4 *)(*(int *)(unaff_FS_OFFSET[0xb] + _tls_index * 4) + 0x2b4) = uVar1;
+  *unaff_FS_OFFSET = local_10;
+  return param_1;
+}
+
+
+
+--- Calls FROM Completion pool entry constructor (0x00c3eeb0) ---
+  0x00c3ef5a -> 0x00aa3e40 FUN_00aa3e40
+  0x00c3ef9a -> 0x00000066 ???
+  0x00c3eff4 -> 0x00aa3e40 FUN_00aa3e40
+  0x00c3f00c -> 0x00aa3e40 FUN_00aa3e40
+  0x00c3f025 -> 0x00c42180 FUN_00c42180
+  Total: 5 calls
+
+----------------------------------------------------------------------
+References TO 0x00c3eeb0 (Completion pool entry constructor)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00c3e9a7 (in FUN_00c3e8b0)
+  Total: 1 refs
+
+======================================================================
+Completion queue public getter @ 0x00449f80
+======================================================================
+  Function: FUN_00449f80 @ 0x00449f80, Size: 26 bytes
+
+void __fastcall FUN_00449f80(undefined4 param_1)
+
+{
+  FUN_0044d5c0(param_1);
+  return;
+}
+
+
+
+--- Calls FROM Completion queue public getter (0x00449f80) ---
+  0x00449f91 -> 0x0044d5c0 FUN_0044d5c0
+  Total: 1 calls
+
+----------------------------------------------------------------------
+References TO 0x00449f80 (Completion queue public getter)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0044c6a3 (in FUN_0044c640)
+  UNCONDITIONAL_CALL @ 0x0044c6d3 (in FUN_0044c640)
+  UNCONDITIONAL_CALL @ 0x006c600b (in FUN_006c5ff0)
+  UNCONDITIONAL_CALL @ 0x006c604d (in FUN_006c6030)
+  UNCONDITIONAL_CALL @ 0x009065d3 (in FUN_00906570)
+  UNCONDITIONAL_CALL @ 0x00906603 (in FUN_00906570)
+  UNCONDITIONAL_CALL @ 0x00c3e4ad (in FUN_00c3e490)
+  UNCONDITIONAL_CALL @ 0x0044925b (in FUN_00449240)
+  UNCONDITIONAL_CALL @ 0x0044929d (in FUN_00449280)
+  UNCONDITIONAL_CALL @ 0x0044b933 (in FUN_0044b8d0)
+  UNCONDITIONAL_CALL @ 0x0044b963 (in FUN_0044b8d0)
+  UNCONDITIONAL_CALL @ 0x0044b9e1 (in FUN_0044b8d0)
+  UNCONDITIONAL_CALL @ 0x00449551 (in FUN_00449530)
+  UNCONDITIONAL_CALL @ 0x004495a6 (in FUN_00449580)
+  UNCONDITIONAL_CALL @ 0x004495ed (in FUN_004495d0)
+  UNCONDITIONAL_CALL @ 0x00449721 (in FUN_00449700)
+  UNCONDITIONAL_CALL @ 0x004498c4 (in FUN_004498b0)
+  UNCONDITIONAL_CALL @ 0x0044bba4 (in FUN_0044bb90)
+  UNCONDITIONAL_CALL @ 0x0044bd81 (in FUN_0044bd60)
+  UNCONDITIONAL_CALL @ 0x00528b86 (in FUN_00528b60)
+  UNCONDITIONAL_CALL @ 0x006ec80a (in FUN_006ec7e0)
+  UNCONDITIONAL_CALL @ 0x009062fd (in FUN_009062e0)
+  UNCONDITIONAL_CALL @ 0x00906367 (in FUN_00906320)
+  UNCONDITIONAL_CALL @ 0x009063da (in FUN_009063b0)
+  Total: 24 refs
+
+======================================================================
+Completion queue lookup @ 0x0044d5c0
+======================================================================
+  Function: FUN_0044d5c0 @ 0x0044d5c0, Size: 56 bytes
+
+int __thiscall FUN_0044d5c0(int param_1,undefined4 param_2)
+
+{
+  int iVar1;
+  
+  iVar1 = FUN_0044d5b0(*(undefined4 *)(param_1 + 4));
+  if (iVar1 == 0) {
+    iVar1 = FUN_0044e3a0(param_2);
+  }
+  return iVar1;
+}
+
+
+
+--- Calls FROM Completion queue lookup (0x0044d5c0) ---
+  0x0044d5d0 -> 0x0044d5b0 FUN_0044d5b0
+  0x0044d5ed -> 0x0044e3a0 FUN_0044e3a0
+  Total: 2 calls
+
+----------------------------------------------------------------------
+References TO 0x0044d5c0 (Completion queue lookup)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00449f91 (in FUN_00449f80)
+  Total: 1 refs
+
+======================================================================
+Completion queue adjacent lookup @ 0x0044d5b0
+======================================================================
+  Function: FUN_0044d5b0 @ 0x0044d5b0, Size: 15 bytes
+
+void FUN_0044d5b0(DWORD param_1)
+
+{
+  TlsGetValue(param_1);
+  return;
+}
+
+
+
+--- Calls FROM Completion queue adjacent lookup (0x0044d5b0) ---
+  0x0044d5b7 -> 0x00000007 ???
+  Total: 1 calls
+
+----------------------------------------------------------------------
+References TO 0x0044d5b0 (Completion queue adjacent lookup)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0044d5d0 (in FUN_0044d5c0)
+  Total: 1 refs
+
+======================================================================
+Completion queue or TLS owner @ 0x0044e3a0
+======================================================================
+  Function: FUN_0044e3a0 @ 0x0044e3a0, Size: 128 bytes
+
+undefined4 __thiscall FUN_0044e3a0(uint *param_1,int *param_2)
+
+{
+  int iVar1;
+  uint uVar2;
+  undefined4 uVar3;
+  undefined4 local_8;
+  
+  local_8 = 0;
+  iVar1 = FUN_0040b460(param_1 + 3);
+  uVar2 = iVar1 - 1;
+  if (uVar2 < *param_1) {
+    local_8 = (**(code **)(*param_2 + 4))(uVar2);
+    *(undefined4 *)(param_1[2] + 4 + uVar2 * 8) = local_8;
+    uVar3 = FUN_0040fc90();
+    *(undefined4 *)(param_1[2] + uVar2 * 8) = uVar3;
+    FUN_0044e340(param_1[1],local_8);
+  }
+  return local_8;
+}
+
+
+
+--- Calls FROM Completion queue or TLS owner (0x0044e3a0) ---
+  0x0044e3b7 -> 0x0040b460 FUN_0040b460
+  0x0044e3f3 -> 0x0040fc90 FUN_0040fc90
+  0x0044e40f -> 0x0044e340 FUN_0044e340
+  Total: 3 calls
+
+----------------------------------------------------------------------
+References TO 0x0044e3a0 (Completion queue or TLS owner)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0044d5ed (in FUN_0044d5c0)
+  Total: 1 refs
+
+======================================================================
+Known crash wrapper @ 0x00449530
+======================================================================
+  Function: FUN_00449530 @ 0x00449530, Size: 68 bytes
+
+undefined1 FUN_00449530(undefined4 param_1,undefined4 param_2)
+
+{
+  undefined1 uVar1;
+  undefined4 extraout_var;
+  
+  FUN_0040fbf0(0);
+  FUN_00449f80(param_1,param_2,extraout_var);
+  uVar1 = FUN_006ec830(param_1,param_2);
+  FUN_0040fba0();
+  return uVar1;
+}
+
+
+
+--- Calls FROM Known crash wrapper (0x00449530) ---
+  0x00449541 -> 0x0040fbf0 FUN_0040fbf0
+  0x00449551 -> 0x00449f80 FUN_00449f80
+  0x00449558 -> 0x006ec830 FUN_006ec830
+  0x00449566 -> 0x0040fba0 FUN_0040fba0
+  Total: 4 calls
+
+----------------------------------------------------------------------
+References TO 0x00449530 (Known crash wrapper)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00449447 (in FUN_004493d0)
+  DATA @ 0x010172e4 (in ???)
+  DATA @ 0x01017334 (in ???)
+  DATA @ 0x01017384 (in ???)
+  DATA @ 0x010175c4 (in ???)
+  DATA @ 0x01017614 (in ???)
+  DATA @ 0x010176b4 (in ???)
+  DATA @ 0x0106645c (in ???)
+  DATA @ 0x0106d734 (in ???)
+  Total: 9 refs
+
+======================================================================
+Known null consumer @ 0x006ec830
+======================================================================
+  Function: FUN_006ec830 @ 0x006ec830, Size: 53 bytes
+
+void __thiscall FUN_006ec830(undefined4 *param_1,undefined4 param_2,undefined4 param_3)
+
+{
+  undefined4 uVar1;
+  undefined4 uVar2;
+  
+  uVar2 = param_2;
+  uVar1 = (**(code **)(*(int *)*param_1 + 0x24))(param_2,param_2,param_3);
+  FUN_006ec9b0(uVar1,param_2,uVar2);
+  return;
+}
+
+
+
+--- Calls FROM Known null consumer (0x006ec830) ---
+  0x006ec85a -> 0x006ec9b0 FUN_006ec9b0
+  Total: 1 calls
+
+----------------------------------------------------------------------
+References TO 0x006ec830 (Known null consumer)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00449558 (in FUN_00449530)
+  UNCONDITIONAL_CALL @ 0x004498cb (in FUN_004498b0)
+  Total: 2 refs
+
+======================================================================
+Known null consumer adjacent @ 0x006ec9b0
+======================================================================
+  Function: FUN_006ec9b0 @ 0x006ec9b0, Size: 106 bytes
+
+char FUN_006ec9b0(undefined4 param_1,undefined4 param_2,undefined4 *param_3)
+
+{
+  char cVar1;
+  int iVar2;
+  undefined4 extraout_var;
+  char local_5;
+  
+  local_5 = FUN_006662a0(param_1,param_2);
+  if (local_5 != '\0') {
+    iVar2 = FUN_0044df00(extraout_var);
+    *param_3 = *(undefined4 *)(iVar2 + 4);
+    FUN_0040fbe0();
+    FUN_0044df00();
+    cVar1 = FUN_0044df20();
+    if (cVar1 != '\0') {
+      local_5 = '\0';
+    }
+  }
+  FUN_00529000();
+  return local_5;
+}
+
+
+
+--- Calls FROM Known null consumer adjacent (0x006ec9b0) ---
+  0x006ec9c4 -> 0x006662a0 FUN_006662a0
+  0x006ec9da -> 0x0044df00 FUN_0044df00
+  0x006ec9e7 -> 0x0040fbe0 FUN_0040fbe0
+  0x006ec9f2 -> 0x0044df00 FUN_0044df00
+  0x006ec9f9 -> 0x0044df20 FUN_0044df20
+  0x006eca0c -> 0x00529000 FUN_00529000
+  Total: 6 calls
+
+----------------------------------------------------------------------
+References TO 0x006ec9b0 (Known null consumer adjacent)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x006ec85a (in FUN_006ec830)
+  Total: 1 refs
+
+======================================================================
+Code-reference windows to Completion queue public getter @ 0x00449f80
+======================================================================
+
+----------------------------------------------------------------------
+Reference 0x0044c6a3 in FUN_0044c640
+   0x0044c67f  MOV ECX,dword ptr [EBP + 0x8]
+   0x0044c682  CALL 0x0044de20
+   0x0044c687  MOVZX EDX,AL
+   0x0044c68a  TEST EDX,EDX
+   0x0044c68c  JNZ 0x0044c6be
+   0x0044c68e  MOV EAX,dword ptr [EBP + 0x10]
+   0x0044c691  PUSH EAX
+   0x0044c692  MOV ECX,dword ptr [EBP + 0x8]
+   0x0044c695  ADD ECX,0x8
+   0x0044c698  PUSH ECX
+   0x0044c699  MOV EDX,dword ptr [EBP + 0x8]
+   0x0044c69c  MOV EAX,dword ptr [EDX + 0x4]
+   0x0044c69f  PUSH EAX
+   0x0044c6a0  MOV ECX,dword ptr [EBP + -0x8]
+>> 0x0044c6a3  CALL 0x00449f80
+   0x0044c6a8  MOV ECX,EAX
+   0x0044c6aa  CALL 0x0044ea60
+   0x0044c6af  MOV byte ptr [EBP + -0x1],AL
+   0x0044c6b2  PUSH 0x1
+   0x0044c6b4  MOV ECX,dword ptr [EBP + 0x8]
+   0x0044c6b7  CALL 0x0044de40
+   0x0044c6bc  JMP 0x0044c6e2
+   0x0044c6be  MOV ECX,dword ptr [EBP + 0x10]
+   0x0044c6c1  PUSH ECX
+   0x0044c6c2  MOV EDX,dword ptr [EBP + 0x8]
+   0x0044c6c5  ADD EDX,0x8
+   0x0044c6c8  PUSH EDX
+   0x0044c6c9  MOV EAX,dword ptr [EBP + 0x8]
+   0x0044c6cc  MOV ECX,dword ptr [EAX + 0x4]
+   0x0044c6cf  PUSH ECX
+   0x0044c6d0  MOV ECX,dword ptr [EBP + -0x8]
+   0x0044c6d3  CALL 0x00449f80
+   0x0044c6d8  MOV ECX,EAX
+   0x0044c6da  CALL 0x0044eb80
+   0x0044c6df  MOV byte ptr [EBP + -0x1],AL
+   0x0044c6e2  MOVZX EDX,byte ptr [EBP + -0x1]
+   0x0044c6e6  TEST EDX,EDX
+   0x0044c6e8  JNZ 0x0044c72e
+   0x0044c6ea  MOV EAX,dword ptr [EBP + 0x8]
+   0x0044c6ed  MOV ECX,dword ptr [EAX + 0x4]
+   0x0044c6f0  ADD ECX,0x1
+   0x0044c6f3  MOV EDX,dword ptr [EBP + 0x8]
+   0x0044c6f6  MOV dword ptr [EDX + 0x4],ECX
+   0x0044c6f9  MOV ECX,dword ptr [EBP + -0x8]
+   0x0044c6fc  CALL 0x0044ddc0
+
+----------------------------------------------------------------------
+Reference 0x0044c6d3 in FUN_0044c640
+   0x0044c6af  MOV byte ptr [EBP + -0x1],AL
+   0x0044c6b2  PUSH 0x1
+   0x0044c6b4  MOV ECX,dword ptr [EBP + 0x8]
+   0x0044c6b7  CALL 0x0044de40
+   0x0044c6bc  JMP 0x0044c6e2
+   0x0044c6be  MOV ECX,dword ptr [EBP + 0x10]
+   0x0044c6c1  PUSH ECX
+   0x0044c6c2  MOV EDX,dword ptr [EBP + 0x8]
+   0x0044c6c5  ADD EDX,0x8
+   0x0044c6c8  PUSH EDX
+   0x0044c6c9  MOV EAX,dword ptr [EBP + 0x8]
+   0x0044c6cc  MOV ECX,dword ptr [EAX + 0x4]
+   0x0044c6cf  PUSH ECX
+   0x0044c6d0  MOV ECX,dword ptr [EBP + -0x8]
+>> 0x0044c6d3  CALL 0x00449f80
+   0x0044c6d8  MOV ECX,EAX
+   0x0044c6da  CALL 0x0044eb80
+   0x0044c6df  MOV byte ptr [EBP + -0x1],AL
+   0x0044c6e2  MOVZX EDX,byte ptr [EBP + -0x1]
+   0x0044c6e6  TEST EDX,EDX
+   0x0044c6e8  JNZ 0x0044c72e
+   0x0044c6ea  MOV EAX,dword ptr [EBP + 0x8]
+   0x0044c6ed  MOV ECX,dword ptr [EAX + 0x4]
+   0x0044c6f0  ADD ECX,0x1
+   0x0044c6f3  MOV EDX,dword ptr [EBP + 0x8]
+   0x0044c6f6  MOV dword ptr [EDX + 0x4],ECX
+   0x0044c6f9  MOV ECX,dword ptr [EBP + -0x8]
+   0x0044c6fc  CALL 0x0044ddc0
+   0x0044c701  MOV ECX,dword ptr [EBP + 0x8]
+   0x0044c704  CMP dword ptr [ECX + 0x4],EAX
+   0x0044c707  JC 0x0044c715
+   0x0044c709  PUSH 0x1
+   0x0044c70b  MOV ECX,dword ptr [EBP + 0x8]
+   0x0044c70e  CALL 0x0044de80
+   0x0044c713  JMP 0x0044c72c
+   0x0044c715  MOVZX EDX,byte ptr [EBP + 0x14]
+   0x0044c719  TEST EDX,EDX
+   0x0044c71b  JZ 0x0044c72c
+   0x0044c71d  PUSH 0x0
+   0x0044c71f  MOV ECX,dword ptr [EBP + 0x8]
+   0x0044c722  CALL 0x0044de40
+   0x0044c727  JMP 0x0044c672
+   0x0044c72c  JMP 0x0044c739
+   0x0044c72e  MOV EAX,dword ptr [EBP + 0xc]
+   0x0044c731  MOV ECX,dword ptr [EBP + 0x8]
+
+----------------------------------------------------------------------
+Reference 0x006c600b in FUN_006c5ff0
+   0x006c5fdf  MOV ESP,EBP
+   0x006c5fe1  POP EBP
+   0x006c5fe2  RET 0x4
+   0x006c5ff0  PUSH EBP
+   0x006c5ff1  MOV EBP,ESP
+   0x006c5ff3  PUSH ECX
+   0x006c5ff4  MOV dword ptr [EBP + -0x4],ECX
+   0x006c5ff7  PUSH 0x0
+   0x006c5ff9  MOV ECX,dword ptr [EBP + -0x4]
+   0x006c5ffc  ADD ECX,0x20
+   0x006c5fff  CALL 0x0040fbf0
+   0x006c6004  MOV EAX,dword ptr [EBP + 0x8]
+   0x006c6007  PUSH EAX
+   0x006c6008  MOV ECX,dword ptr [EBP + -0x4]
+>> 0x006c600b  CALL 0x00449f80
+   0x006c6010  MOV ECX,EAX
+   0x006c6012  CALL 0x006c6e60
+   0x006c6017  MOV ECX,dword ptr [EBP + -0x4]
+   0x006c601a  ADD ECX,0x20
+   0x006c601d  CALL 0x0040fba0
+   0x006c6022  MOV ESP,EBP
+   0x006c6024  POP EBP
+   0x006c6025  RET 0x4
+   0x006c6030  PUSH EBP
+   0x006c6031  MOV EBP,ESP
+   0x006c6033  SUB ESP,0x8
+   0x006c6036  MOV dword ptr [EBP + -0x8],ECX
+   0x006c6039  PUSH 0x0
+   0x006c603b  MOV ECX,dword ptr [EBP + -0x8]
+   0x006c603e  ADD ECX,0x20
+   0x006c6041  CALL 0x0040fbf0
+   0x006c6046  MOV EAX,dword ptr [EBP + 0x8]
+   0x006c6049  PUSH EAX
+   0x006c604a  MOV ECX,dword ptr [EBP + -0x8]
+   0x006c604d  CALL 0x00449f80
+   0x006c6052  MOV ECX,EAX
+   0x006c6054  CALL 0x006c6fe0
+   0x006c6059  MOV byte ptr [EBP + -0x1],AL
+   0x006c605c  MOV ECX,dword ptr [EBP + -0x8]
+   0x006c605f  ADD ECX,0x20
+   0x006c6062  CALL 0x0040fba0
+   0x006c6067  MOV AL,byte ptr [EBP + -0x1]
+   0x006c606a  MOV ESP,EBP
+   0x006c606c  POP EBP
+   0x006c606d  RET 0x4
+
+----------------------------------------------------------------------
+Reference 0x006c604d in FUN_006c6030
+   0x006c6022  MOV ESP,EBP
+   0x006c6024  POP EBP
+   0x006c6025  RET 0x4
+   0x006c6030  PUSH EBP
+   0x006c6031  MOV EBP,ESP
+   0x006c6033  SUB ESP,0x8
+   0x006c6036  MOV dword ptr [EBP + -0x8],ECX
+   0x006c6039  PUSH 0x0
+   0x006c603b  MOV ECX,dword ptr [EBP + -0x8]
+   0x006c603e  ADD ECX,0x20
+   0x006c6041  CALL 0x0040fbf0
+   0x006c6046  MOV EAX,dword ptr [EBP + 0x8]
+   0x006c6049  PUSH EAX
+   0x006c604a  MOV ECX,dword ptr [EBP + -0x8]
+>> 0x006c604d  CALL 0x00449f80
+   0x006c6052  MOV ECX,EAX
+   0x006c6054  CALL 0x006c6fe0
+   0x006c6059  MOV byte ptr [EBP + -0x1],AL
+   0x006c605c  MOV ECX,dword ptr [EBP + -0x8]
+   0x006c605f  ADD ECX,0x20
+   0x006c6062  CALL 0x0040fba0
+   0x006c6067  MOV AL,byte ptr [EBP + -0x1]
+   0x006c606a  MOV ESP,EBP
+   0x006c606c  POP EBP
+   0x006c606d  RET 0x4
+   0x006c6070  PUSH EBP
+   0x006c6071  MOV EBP,ESP
+   0x006c6073  PUSH ECX
+   0x006c6074  MOV dword ptr [EBP + -0x4],ECX
+   0x006c6077  MOV EAX,dword ptr [EBP + 0x8]
+   0x006c607a  PUSH EAX
+   0x006c607b  MOV ECX,dword ptr [EBP + -0x4]
+   0x006c607e  CALL 0x006c68b0
+   0x006c6083  MOV ECX,dword ptr [EBP + -0x4]
+   0x006c6086  MOV dword ptr [ECX],0x106c600
+   0x006c608c  MOV EAX,dword ptr [EBP + -0x4]
+   0x006c608f  MOV ESP,EBP
+   0x006c6091  POP EBP
+   0x006c6092  RET 0x4
+   0x006c60a0  PUSH EBP
+   0x006c60a1  MOV EBP,ESP
+   0x006c60a3  PUSH ECX
+   0x006c60a4  MOV dword ptr [EBP + -0x4],ECX
+   0x006c60a7  MOV EAX,dword ptr [EBP + 0x8]
+   0x006c60aa  PUSH EAX
+
+----------------------------------------------------------------------
+Reference 0x009065d3 in FUN_00906570
+   0x009065af  MOV ECX,dword ptr [EBP + 0x8]
+   0x009065b2  CALL 0x0044de20
+   0x009065b7  MOVZX EDX,AL
+   0x009065ba  TEST EDX,EDX
+   0x009065bc  JNZ 0x009065ee
+   0x009065be  MOV EAX,dword ptr [EBP + 0x10]
+   0x009065c1  PUSH EAX
+   0x009065c2  MOV ECX,dword ptr [EBP + 0x8]
+   0x009065c5  ADD ECX,0x8
+   0x009065c8  PUSH ECX
+   0x009065c9  MOV EDX,dword ptr [EBP + 0x8]
+   0x009065cc  MOV EAX,dword ptr [EDX + 0x4]
+   0x009065cf  PUSH EAX
+   0x009065d0  MOV ECX,dword ptr [EBP + -0x8]
+>> 0x009065d3  CALL 0x00449f80
+   0x009065d8  MOV ECX,EAX
+   0x009065da  CALL 0x00906af0
+   0x009065df  MOV byte ptr [EBP + -0x1],AL
+   0x009065e2  PUSH 0x1
+   0x009065e4  MOV ECX,dword ptr [EBP + 0x8]
+   0x009065e7  CALL 0x0044de40
+   0x009065ec  JMP 0x00906612
+   0x009065ee  MOV ECX,dword ptr [EBP + 0x10]
+   0x009065f1  PUSH ECX
+   0x009065f2  MOV EDX,dword ptr [EBP + 0x8]
+   0x009065f5  ADD EDX,0x8
+   0x009065f8  PUSH EDX
+   0x009065f9  MOV EAX,dword ptr [EBP + 0x8]
+   0x009065fc  MOV ECX,dword ptr [EAX + 0x4]
+   0x009065ff  PUSH ECX
+   0x00906600  MOV ECX,dword ptr [EBP + -0x8]
+   0x00906603  CALL 0x00449f80
+   0x00906608  MOV ECX,EAX
+   0x0090660a  CALL 0x00906c10
+   0x0090660f  MOV byte ptr [EBP + -0x1],AL
+   0x00906612  MOVZX EDX,byte ptr [EBP + -0x1]
+   0x00906616  TEST EDX,EDX
+   0x00906618  JNZ 0x0090665e
+   0x0090661a  MOV EAX,dword ptr [EBP + 0x8]
+   0x0090661d  MOV ECX,dword ptr [EAX + 0x4]
+   0x00906620  ADD ECX,0x1
+   0x00906623  MOV EDX,dword ptr [EBP + 0x8]
+   0x00906626  MOV dword ptr [EDX + 0x4],ECX
+   0x00906629  MOV ECX,dword ptr [EBP + -0x8]
+   0x0090662c  CALL 0x0044ddc0
+
+----------------------------------------------------------------------
+Reference 0x00906603 in FUN_00906570
+   0x009065df  MOV byte ptr [EBP + -0x1],AL
+   0x009065e2  PUSH 0x1
+   0x009065e4  MOV ECX,dword ptr [EBP + 0x8]
+   0x009065e7  CALL 0x0044de40
+   0x009065ec  JMP 0x00906612
+   0x009065ee  MOV ECX,dword ptr [EBP + 0x10]
+   0x009065f1  PUSH ECX
+   0x009065f2  MOV EDX,dword ptr [EBP + 0x8]
+   0x009065f5  ADD EDX,0x8
+   0x009065f8  PUSH EDX
+   0x009065f9  MOV EAX,dword ptr [EBP + 0x8]
+   0x009065fc  MOV ECX,dword ptr [EAX + 0x4]
+   0x009065ff  PUSH ECX
+   0x00906600  MOV ECX,dword ptr [EBP + -0x8]
+>> 0x00906603  CALL 0x00449f80
+   0x00906608  MOV ECX,EAX
+   0x0090660a  CALL 0x00906c10
+   0x0090660f  MOV byte ptr [EBP + -0x1],AL
+   0x00906612  MOVZX EDX,byte ptr [EBP + -0x1]
+   0x00906616  TEST EDX,EDX
+   0x00906618  JNZ 0x0090665e
+   0x0090661a  MOV EAX,dword ptr [EBP + 0x8]
+   0x0090661d  MOV ECX,dword ptr [EAX + 0x4]
+   0x00906620  ADD ECX,0x1
+   0x00906623  MOV EDX,dword ptr [EBP + 0x8]
+   0x00906626  MOV dword ptr [EDX + 0x4],ECX
+   0x00906629  MOV ECX,dword ptr [EBP + -0x8]
+   0x0090662c  CALL 0x0044ddc0
+   0x00906631  MOV ECX,dword ptr [EBP + 0x8]
+   0x00906634  CMP dword ptr [ECX + 0x4],EAX
+   0x00906637  JC 0x00906645
+   0x00906639  PUSH 0x1
+   0x0090663b  MOV ECX,dword ptr [EBP + 0x8]
+   0x0090663e  CALL 0x0044de80
+   0x00906643  JMP 0x0090665c
+   0x00906645  MOVZX EDX,byte ptr [EBP + 0x14]
+   0x00906649  TEST EDX,EDX
+   0x0090664b  JZ 0x0090665c
+   0x0090664d  PUSH 0x0
+   0x0090664f  MOV ECX,dword ptr [EBP + 0x8]
+   0x00906652  CALL 0x0044de40
+   0x00906657  JMP 0x009065a2
+   0x0090665c  JMP 0x00906669
+   0x0090665e  MOV EAX,dword ptr [EBP + 0xc]
+   0x00906661  MOV ECX,dword ptr [EBP + 0x8]
+
+----------------------------------------------------------------------
+Reference 0x00c3e4ad in FUN_00c3e490
+   0x00c3e47b  MOV ESP,EBP
+   0x00c3e47d  POP EBP
+   0x00c3e47e  RET 0x4
+   0x00c3e490  PUSH EBP
+   0x00c3e491  MOV EBP,ESP
+   0x00c3e493  SUB ESP,0x34
+   0x00c3e496  MOV dword ptr [EBP + -0x34],ECX
+   0x00c3e499  PUSH 0x0
+   0x00c3e49b  MOV ECX,dword ptr [EBP + -0x34]
+   0x00c3e49e  ADD ECX,0x20
+   0x00c3e4a1  CALL 0x0040fbf0
+   0x00c3e4a6  MOV EAX,dword ptr [EBP + 0x8]
+   0x00c3e4a9  PUSH EAX
+   0x00c3e4aa  MOV ECX,dword ptr [EBP + -0x34]
+>> 0x00c3e4ad  CALL 0x00449f80
+   0x00c3e4b2  MOV ECX,EAX
+   0x00c3e4b4  CALL 0x00c3ea60
+   0x00c3e4b9  MOV byte ptr [EBP + -0x1],AL
+   0x00c3e4bc  MOV ECX,dword ptr [EBP + -0x34]
+   0x00c3e4bf  ADD ECX,0x20
+   0x00c3e4c2  MOV dword ptr [EBP + -0x30],ECX
+   0x00c3e4c5  MOV EDX,dword ptr [EBP + -0x30]
+   0x00c3e4c8  MOV EAX,dword ptr [EDX + 0x4]
+   0x00c3e4cb  SUB EAX,0x1
+   0x00c3e4ce  MOV ECX,dword ptr [EBP + -0x30]
+   0x00c3e4d1  MOV dword ptr [ECX + 0x4],EAX
+   0x00c3e4d4  MOV EDX,dword ptr [EBP + -0x30]
+   0x00c3e4d7  CMP dword ptr [EDX + 0x4],0x0
+   0x00c3e4db  JNZ 0x00c3e4e6
+   0x00c3e4dd  MOV EAX,dword ptr [EBP + -0x30]
+   0x00c3e4e0  MOV dword ptr [EAX],0x0
+   0x00c3e4e6  MOV AL,byte ptr [EBP + -0x1]
+   0x00c3e4e9  MOV ESP,EBP
+   0x00c3e4eb  POP EBP
+   0x00c3e4ec  RET 0x4
+   0x00c3e4f0  PUSH EBP
+   0x00c3e4f1  MOV EBP,ESP
+   0x00c3e4f3  PUSH -0x1
+   0x00c3e4f5  PUSH 0xf2ddf3
+   0x00c3e4fa  MOV EAX,FS:[0x0]
+   0x00c3e500  PUSH EAX
+   0x00c3e501  SUB ESP,0x28
+   0x00c3e504  MOV EAX,[0x011c16bc]
+   0x00c3e509  XOR EAX,EBP
+   0x00c3e50b  PUSH EAX
+
+----------------------------------------------------------------------
+Reference 0x0044925b in FUN_00449240
+   0x00449239  MOV ESP,EBP
+   0x0044923b  POP EBP
+   0x0044923c  RET 0x8
+   0x00449240  PUSH EBP
+   0x00449241  MOV EBP,ESP
+   0x00449243  PUSH ECX
+   0x00449244  MOV dword ptr [EBP + -0x4],ECX
+   0x00449247  PUSH 0x0
+   0x00449249  MOV ECX,dword ptr [EBP + -0x4]
+   0x0044924c  ADD ECX,0x20
+   0x0044924f  CALL 0x0040fbf0
+   0x00449254  MOV EAX,dword ptr [EBP + 0x8]
+   0x00449257  PUSH EAX
+   0x00449258  MOV ECX,dword ptr [EBP + -0x4]
+>> 0x0044925b  CALL 0x00449f80
+   0x00449260  MOV ECX,EAX
+   0x00449262  CALL 0x0044cd40
+   0x00449267  MOV ECX,dword ptr [EBP + -0x4]
+   0x0044926a  ADD ECX,0x20
+   0x0044926d  CALL 0x0040fba0
+   0x00449272  MOV ESP,EBP
+   0x00449274  POP EBP
+   0x00449275  RET 0x4
+   0x00449280  PUSH EBP
+   0x00449281  MOV EBP,ESP
+   0x00449283  SUB ESP,0x8
+   0x00449286  MOV dword ptr [EBP + -0x8],ECX
+   0x00449289  PUSH 0x0
+   0x0044928b  MOV ECX,dword ptr [EBP + -0x8]
+   0x0044928e  ADD ECX,0x20
+   0x00449291  CALL 0x0040fbf0
+   0x00449296  MOV EAX,dword ptr [EBP + 0x8]
+   0x00449299  PUSH EAX
+   0x0044929a  MOV ECX,dword ptr [EBP + -0x8]
+   0x0044929d  CALL 0x00449f80
+   0x004492a2  MOV ECX,EAX
+   0x004492a4  CALL 0x0044cec0
+   0x004492a9  MOV byte ptr [EBP + -0x1],AL
+   0x004492ac  MOV ECX,dword ptr [EBP + -0x8]
+   0x004492af  ADD ECX,0x20
+   0x004492b2  CALL 0x0040fba0
+   0x004492b7  MOV AL,byte ptr [EBP + -0x1]
+   0x004492ba  MOV ESP,EBP
+   0x004492bc  POP EBP
+   0x004492bd  RET 0x4
+
+----------------------------------------------------------------------
+Reference 0x0044929d in FUN_00449280
+   0x00449272  MOV ESP,EBP
+   0x00449274  POP EBP
+   0x00449275  RET 0x4
+   0x00449280  PUSH EBP
+   0x00449281  MOV EBP,ESP
+   0x00449283  SUB ESP,0x8
+   0x00449286  MOV dword ptr [EBP + -0x8],ECX
+   0x00449289  PUSH 0x0
+   0x0044928b  MOV ECX,dword ptr [EBP + -0x8]
+   0x0044928e  ADD ECX,0x20
+   0x00449291  CALL 0x0040fbf0
+   0x00449296  MOV EAX,dword ptr [EBP + 0x8]
+   0x00449299  PUSH EAX
+   0x0044929a  MOV ECX,dword ptr [EBP + -0x8]
+>> 0x0044929d  CALL 0x00449f80
+   0x004492a2  MOV ECX,EAX
+   0x004492a4  CALL 0x0044cec0
+   0x004492a9  MOV byte ptr [EBP + -0x1],AL
+   0x004492ac  MOV ECX,dword ptr [EBP + -0x8]
+   0x004492af  ADD ECX,0x20
+   0x004492b2  CALL 0x0040fba0
+   0x004492b7  MOV AL,byte ptr [EBP + -0x1]
+   0x004492ba  MOV ESP,EBP
+   0x004492bc  POP EBP
+   0x004492bd  RET 0x4
+   0x004492c0  PUSH EBP
+   0x004492c1  MOV EBP,ESP
+   0x004492c3  PUSH ECX
+   0x004492c4  MOV dword ptr [EBP + -0x4],ECX
+   0x004492c7  MOV EAX,dword ptr [EBP + 0x10]
+   0x004492ca  PUSH EAX
+   0x004492cb  MOV ECX,dword ptr [EBP + 0xc]
+   0x004492ce  PUSH ECX
+   0x004492cf  MOV EDX,dword ptr [EBP + 0x8]
+   0x004492d2  PUSH EDX
+   0x004492d3  MOV ECX,dword ptr [EBP + -0x4]
+   0x004492d6  CALL 0x00449f50
+   0x004492db  MOV EAX,dword ptr [EBP + -0x4]
+   0x004492de  MOV dword ptr [EAX],0x1017154
+   0x004492e4  MOV EAX,dword ptr [EBP + -0x4]
+   0x004492e7  MOV ESP,EBP
+   0x004492e9  POP EBP
+   0x004492ea  RET 0xc
+   0x004492f0  PUSH EBP
+   0x004492f1  MOV EBP,ESP
+
+----------------------------------------------------------------------
+Reference 0x0044b933 in FUN_0044b8d0
+   0x0044b90f  MOV ECX,dword ptr [EBP + 0x8]
+   0x0044b912  CALL 0x0044de20
+   0x0044b917  MOVZX EDX,AL
+   0x0044b91a  TEST EDX,EDX
+   0x0044b91c  JNZ 0x0044b94e
+   0x0044b91e  MOV EAX,dword ptr [EBP + 0x10]
+   0x0044b921  PUSH EAX
+   0x0044b922  MOV ECX,dword ptr [EBP + 0x8]
+   0x0044b925  ADD ECX,0x8
+   0x0044b928  PUSH ECX
+   0x0044b929  MOV EDX,dword ptr [EBP + 0x8]
+   0x0044b92c  MOV EAX,dword ptr [EDX + 0x4]
+   0x0044b92f  PUSH EAX
+   0x0044b930  MOV ECX,dword ptr [EBP + -0x8]
+>> 0x0044b933  CALL 0x00449f80
+   0x0044b938  MOV ECX,EAX
+   0x0044b93a  CALL 0x0044e550
+   0x0044b93f  MOV byte ptr [EBP + -0x1],AL
+   0x0044b942  PUSH 0x1
+   0x0044b944  MOV ECX,dword ptr [EBP + 0x8]
+   0x0044b947  CALL 0x0044de40
+   0x0044b94c  JMP 0x0044b972
+   0x0044b94e  MOV ECX,dword ptr [EBP + 0x10]
+   0x0044b951  PUSH ECX
+   0x0044b952  MOV EDX,dword ptr [EBP + 0x8]
+   0x0044b955  ADD EDX,0x8
+   0x0044b958  PUSH EDX
+   0x0044b959  MOV EAX,dword ptr [EBP + 0x8]
+   0x0044b95c  MOV ECX,dword ptr [EAX + 0x4]
+   0x0044b95f  PUSH ECX
+   0x0044b960  MOV ECX,dword ptr [EBP + -0x8]
+   0x0044b963  CALL 0x00449f80
+   0x0044b968  MOV ECX,EAX
+   0x0044b96a  CALL 0x0044e680
+   0x0044b96f  MOV byte ptr [EBP + -0x1],AL
+   0x0044b972  MOVZX EDX,byte ptr [EBP + -0x1]
+   0x0044b976  TEST EDX,EDX
+   0x0044b978  JNZ 0x0044b9be
+   0x0044b97a  MOV EAX,dword ptr [EBP + 0x8]
+   0x0044b97d  MOV ECX,dword ptr [EAX + 0x4]
+   0x0044b980  ADD ECX,0x1
+   0x0044b983  MOV EDX,dword ptr [EBP + 0x8]
+   0x0044b986  MOV dword ptr [EDX + 0x4],ECX
+   0x0044b989  MOV ECX,dword ptr [EBP + -0x8]
+   0x0044b98c  CALL 0x0044ddc0
+
+----------------------------------------------------------------------
+Reference 0x0044b963 in FUN_0044b8d0
+   0x0044b93f  MOV byte ptr [EBP + -0x1],AL
+   0x0044b942  PUSH 0x1
+   0x0044b944  MOV ECX,dword ptr [EBP + 0x8]
+   0x0044b947  CALL 0x0044de40
+   0x0044b94c  JMP 0x0044b972
+   0x0044b94e  MOV ECX,dword ptr [EBP + 0x10]
+   0x0044b951  PUSH ECX
+   0x0044b952  MOV EDX,dword ptr [EBP + 0x8]
+   0x0044b955  ADD EDX,0x8
+   0x0044b958  PUSH EDX
+   0x0044b959  MOV EAX,dword ptr [EBP + 0x8]
+   0x0044b95c  MOV ECX,dword ptr [EAX + 0x4]
+   0x0044b95f  PUSH ECX
+   0x0044b960  MOV ECX,dword ptr [EBP + -0x8]
+>> 0x0044b963  CALL 0x00449f80
+   0x0044b968  MOV ECX,EAX
+   0x0044b96a  CALL 0x0044e680
+   0x0044b96f  MOV byte ptr [EBP + -0x1],AL
+   0x0044b972  MOVZX EDX,byte ptr [EBP + -0x1]
+   0x0044b976  TEST EDX,EDX
+   0x0044b978  JNZ 0x0044b9be
+   0x0044b97a  MOV EAX,dword ptr [EBP + 0x8]
+   0x0044b97d  MOV ECX,dword ptr [EAX + 0x4]
+   0x0044b980  ADD ECX,0x1
+   0x0044b983  MOV EDX,dword ptr [EBP + 0x8]
+   0x0044b986  MOV dword ptr [EDX + 0x4],ECX
+   0x0044b989  MOV ECX,dword ptr [EBP + -0x8]
+   0x0044b98c  CALL 0x0044ddc0
+   0x0044b991  MOV ECX,dword ptr [EBP + 0x8]
+   0x0044b994  CMP dword ptr [ECX + 0x4],EAX
+   0x0044b997  JC 0x0044b9a5
+   0x0044b999  PUSH 0x1
+   0x0044b99b  MOV ECX,dword ptr [EBP + 0x8]
+   0x0044b99e  CALL 0x0044de80
+   0x0044b9a3  JMP 0x0044b9bc
+   0x0044b9a5  MOVZX EDX,byte ptr [EBP + 0x14]
+   0x0044b9a9  TEST EDX,EDX
+   0x0044b9ab  JZ 0x0044b9bc
+   0x0044b9ad  PUSH 0x0
+   0x0044b9af  MOV ECX,dword ptr [EBP + 0x8]
+   0x0044b9b2  CALL 0x0044de40
+   0x0044b9b7  JMP 0x0044b902
+   0x0044b9bc  JMP 0x0044b9c9
+   0x0044b9be  MOV EAX,dword ptr [EBP + 0xc]
+   0x0044b9c1  MOV ECX,dword ptr [EBP + 0x8]
+
+----------------------------------------------------------------------
+Reference 0x0044b9e1 in FUN_0044b8d0
+   0x0044b9b7  JMP 0x0044b902
+   0x0044b9bc  JMP 0x0044b9c9
+   0x0044b9be  MOV EAX,dword ptr [EBP + 0xc]
+   0x0044b9c1  MOV ECX,dword ptr [EBP + 0x8]
+   0x0044b9c4  MOV EDX,dword ptr [ECX + 0x8]
+   0x0044b9c7  MOV dword ptr [EAX],EDX
+   0x0044b9c9  JMP 0x0044b9d0
+   0x0044b9d0  MOVZX EAX,byte ptr [EBP + -0x1]
+   0x0044b9d4  TEST EAX,EAX
+   0x0044b9d6  JZ 0x0044b9f0
+   0x0044b9d8  MOV ECX,dword ptr [EBP + 0xc]
+   0x0044b9db  MOV EDX,dword ptr [ECX]
+   0x0044b9dd  PUSH EDX
+   0x0044b9de  MOV ECX,dword ptr [EBP + -0x8]
+>> 0x0044b9e1  CALL 0x00449f80
+   0x0044b9e6  MOV ECX,EAX
+   0x0044b9e8  CALL 0x00528bb0
+   0x0044b9ed  MOV byte ptr [EBP + -0x1],AL
+   0x0044b9f0  MOV ECX,dword ptr [EBP + -0x8]
+   0x0044b9f3  ADD ECX,0x20
+   0x0044b9f6  CALL 0x0040fba0
+   0x0044b9fb  MOV AL,byte ptr [EBP + -0x1]
+   0x0044b9fe  MOV ESP,EBP
+   0x0044ba00  POP EBP
+   0x0044ba01  RET 0x10
+   0x0044ba10  PUSH EBP
+   0x0044ba11  MOV EBP,ESP
+   0x0044ba13  PUSH -0x1
+   0x0044ba15  PUSH 0xeecf76
+   0x0044ba1a  MOV EAX,FS:[0x0]
+   0x0044ba20  PUSH EAX
+   0x0044ba21  SUB ESP,0x28
+   0x0044ba24  MOV EAX,[0x011c16bc]
+   0x0044ba29  XOR EAX,EBP
+   0x0044ba2b  PUSH EAX
+   0x0044ba2c  LEA EAX,[EBP + -0xc]
+   0x0044ba2f  MOV FS:[0x0],EAX
+   0x0044ba35  MOV dword ptr [EBP + -0x2c],ECX
+   0x0044ba38  MOV ECX,dword ptr [EBP + -0x2c]
+   0x0044ba3b  CALL 0x0044d7f0
+   0x0044ba40  MOV dword ptr [EBP + -0x4],0x0
+   0x0044ba47  MOV EAX,dword ptr [EBP + -0x2c]
+   0x0044ba4a  MOV dword ptr [EAX],0x10174cc
+   0x0044ba50  MOV ECX,dword ptr [EBP + -0x2c]
+   0x0044ba53  ADD ECX,0x20
+
+----------------------------------------------------------------------
+Reference 0x00449551 in FUN_00449530
+   0x00449521  RET 0x8
+   0x00449530  PUSH EBP
+   0x00449531  MOV EBP,ESP
+   0x00449533  SUB ESP,0x8
+   0x00449536  MOV dword ptr [EBP + -0x8],ECX
+   0x00449539  PUSH 0x0
+   0x0044953b  MOV ECX,dword ptr [EBP + -0x8]
+   0x0044953e  ADD ECX,0x20
+   0x00449541  CALL 0x0040fbf0
+   0x00449546  MOV EAX,dword ptr [EBP + 0xc]
+   0x00449549  PUSH EAX
+   0x0044954a  MOV ECX,dword ptr [EBP + 0x8]
+   0x0044954d  PUSH ECX
+   0x0044954e  MOV ECX,dword ptr [EBP + -0x8]
+>> 0x00449551  CALL 0x00449f80
+   0x00449556  MOV ECX,EAX
+   0x00449558  CALL 0x006ec830
+   0x0044955d  MOV byte ptr [EBP + -0x1],AL
+   0x00449560  MOV ECX,dword ptr [EBP + -0x8]
+   0x00449563  ADD ECX,0x20
+   0x00449566  CALL 0x0040fba0
+   0x0044956b  MOV AL,byte ptr [EBP + -0x1]
+   0x0044956e  MOV ESP,EBP
+   0x00449570  POP EBP
+   0x00449571  RET 0x8
+   0x00449580  PUSH EBP
+   0x00449581  MOV EBP,ESP
+   0x00449583  SUB ESP,0x8
+   0x00449586  MOV dword ptr [EBP + -0x8],ECX
+   0x00449589  PUSH 0x0
+   0x0044958b  MOV ECX,dword ptr [EBP + -0x8]
+   0x0044958e  ADD ECX,0x20
+   0x00449591  CALL 0x0040fbf0
+   0x00449596  MOVZX EAX,byte ptr [EBP + 0x10]
+   0x0044959a  PUSH EAX
+   0x0044959b  MOV ECX,dword ptr [EBP + 0xc]
+   0x0044959e  PUSH ECX
+   0x0044959f  MOV EDX,dword ptr [EBP + 0x8]
+   0x004495a2  PUSH EDX
+   0x004495a3  MOV ECX,dword ptr [EBP + -0x8]
+   0x004495a6  CALL 0x00449f80
+   0x004495ab  MOV ECX,EAX
+   0x004495ad  CALL 0x0044a130
+   0x004495b2  MOV byte ptr [EBP + -0x1],AL
+   0x004495b5  MOV ECX,dword ptr [EBP + -0x8]
+
+----------------------------------------------------------------------
+Reference 0x004495a6 in FUN_00449580
+   0x00449581  MOV EBP,ESP
+   0x00449583  SUB ESP,0x8
+   0x00449586  MOV dword ptr [EBP + -0x8],ECX
+   0x00449589  PUSH 0x0
+   0x0044958b  MOV ECX,dword ptr [EBP + -0x8]
+   0x0044958e  ADD ECX,0x20
+   0x00449591  CALL 0x0040fbf0
+   0x00449596  MOVZX EAX,byte ptr [EBP + 0x10]
+   0x0044959a  PUSH EAX
+   0x0044959b  MOV ECX,dword ptr [EBP + 0xc]
+   0x0044959e  PUSH ECX
+   0x0044959f  MOV EDX,dword ptr [EBP + 0x8]
+   0x004495a2  PUSH EDX
+   0x004495a3  MOV ECX,dword ptr [EBP + -0x8]
+>> 0x004495a6  CALL 0x00449f80
+   0x004495ab  MOV ECX,EAX
+   0x004495ad  CALL 0x0044a130
+   0x004495b2  MOV byte ptr [EBP + -0x1],AL
+   0x004495b5  MOV ECX,dword ptr [EBP + -0x8]
+   0x004495b8  ADD ECX,0x20
+   0x004495bb  CALL 0x0040fba0
+   0x004495c0  MOV AL,byte ptr [EBP + -0x1]
+   0x004495c3  MOV ESP,EBP
+   0x004495c5  POP EBP
+   0x004495c6  RET 0xc
+   0x004495d0  PUSH EBP
+   0x004495d1  MOV EBP,ESP
+   0x004495d3  SUB ESP,0x8
+   0x004495d6  MOV dword ptr [EBP + -0x8],ECX
+   0x004495d9  PUSH 0x0
+   0x004495db  MOV ECX,dword ptr [EBP + -0x8]
+   0x004495de  ADD ECX,0x20
+   0x004495e1  CALL 0x0040fbf0
+   0x004495e6  MOV EAX,dword ptr [EBP + 0x8]
+   0x004495e9  PUSH EAX
+   0x004495ea  MOV ECX,dword ptr [EBP + -0x8]
+   0x004495ed  CALL 0x00449f80
+   0x004495f2  MOV ECX,EAX
+   0x004495f4  CALL 0x00665f20
+   0x004495f9  MOV byte ptr [EBP + -0x1],AL
+   0x004495fc  MOV ECX,dword ptr [EBP + -0x8]
+   0x004495ff  ADD ECX,0x20
+   0x00449602  CALL 0x0040fba0
+   0x00449607  MOV AL,byte ptr [EBP + -0x1]
+   0x0044960a  MOV ESP,EBP
+
+----------------------------------------------------------------------
+Reference 0x004495ed in FUN_004495d0
+   0x004495c3  MOV ESP,EBP
+   0x004495c5  POP EBP
+   0x004495c6  RET 0xc
+   0x004495d0  PUSH EBP
+   0x004495d1  MOV EBP,ESP
+   0x004495d3  SUB ESP,0x8
+   0x004495d6  MOV dword ptr [EBP + -0x8],ECX
+   0x004495d9  PUSH 0x0
+   0x004495db  MOV ECX,dword ptr [EBP + -0x8]
+   0x004495de  ADD ECX,0x20
+   0x004495e1  CALL 0x0040fbf0
+   0x004495e6  MOV EAX,dword ptr [EBP + 0x8]
+   0x004495e9  PUSH EAX
+   0x004495ea  MOV ECX,dword ptr [EBP + -0x8]
+>> 0x004495ed  CALL 0x00449f80
+   0x004495f2  MOV ECX,EAX
+   0x004495f4  CALL 0x00665f20
+   0x004495f9  MOV byte ptr [EBP + -0x1],AL
+   0x004495fc  MOV ECX,dword ptr [EBP + -0x8]
+   0x004495ff  ADD ECX,0x20
+   0x00449602  CALL 0x0040fba0
+   0x00449607  MOV AL,byte ptr [EBP + -0x1]
+   0x0044960a  MOV ESP,EBP
+   0x0044960c  POP EBP
+   0x0044960d  RET 0x4
+   0x00449610  PUSH EBP
+   0x00449611  MOV EBP,ESP
+   0x00449613  PUSH -0x1
+   0x00449615  PUSH 0xeecdc8
+   0x0044961a  MOV EAX,FS:[0x0]
+   0x00449620  PUSH EAX
+   0x00449621  PUSH ECX
+   0x00449622  MOV EAX,[0x011c16bc]
+   0x00449627  XOR EAX,EBP
+   0x00449629  PUSH EAX
+   0x0044962a  LEA EAX,[EBP + -0xc]
+   0x0044962d  MOV FS:[0x0],EAX
+   0x00449633  MOV dword ptr [EBP + -0x10],ECX
+   0x00449636  MOV ECX,dword ptr [EBP + -0x10]
+   0x00449639  CALL 0x00449fd0
+   0x0044963e  MOV dword ptr [EBP + -0x4],0x0
+   0x00449645  MOV EAX,dword ptr [EBP + -0x10]
+   0x00449648  MOV dword ptr [EAX + 0x18],0x0
+   0x0044964f  MOV ECX,dword ptr [EBP + -0x10]
+   0x00449652  MOV dword ptr [ECX + 0x1c],0x0
+
+----------------------------------------------------------------------
+Reference 0x00449721 in FUN_00449700
+   0x004496f3  RET 0x8
+   0x00449700  PUSH EBP
+   0x00449701  MOV EBP,ESP
+   0x00449703  SUB ESP,0x8
+   0x00449706  MOV dword ptr [EBP + -0x8],ECX
+   0x00449709  PUSH 0x0
+   0x0044970b  MOV ECX,dword ptr [EBP + -0x8]
+   0x0044970e  ADD ECX,0x20
+   0x00449711  CALL 0x0040fbf0
+   0x00449716  LEA EAX,[EBP + 0xc]
+   0x00449719  PUSH EAX
+   0x0044971a  MOV ECX,dword ptr [EBP + 0x8]
+   0x0044971d  PUSH ECX
+   0x0044971e  MOV ECX,dword ptr [EBP + -0x8]
+>> 0x00449721  CALL 0x00449f80
+   0x00449726  MOV ECX,EAX
+   0x00449728  CALL 0x0044d3f0
+   0x0044972d  MOV byte ptr [EBP + -0x1],AL
+   0x00449730  MOV ECX,dword ptr [EBP + -0x8]
+   0x00449733  ADD ECX,0x20
+   0x00449736  CALL 0x0040fba0
+   0x0044973b  MOV AL,byte ptr [EBP + -0x1]
+   0x0044973e  MOV ESP,EBP
+   0x00449740  POP EBP
+   0x00449741  RET 0x8
+   0x00449750  PUSH EBP
+   0x00449751  MOV EBP,ESP
+   0x00449753  SUB ESP,0xc
+   0x00449756  MOV dword ptr [EBP + -0x8],ECX
+   0x00449759  MOV dword ptr [EBP + -0x4],0x0
+   0x00449760  MOV EAX,dword ptr [EBP + 0x8]
+   0x00449763  MOVSX ECX,byte ptr [EAX]
+   0x00449766  TEST ECX,ECX
+   0x00449768  JZ 0x00449798
+   0x0044976a  MOV EDX,dword ptr [EBP + 0x8]
+   0x0044976d  MOVSX EAX,byte ptr [EDX]
+   0x00449770  MOV dword ptr [EBP + -0xc],EAX
+   0x00449773  MOV ECX,dword ptr [EBP + -0xc]
+   0x00449776  PUSH ECX
+   0x00449777  CALL 0x00ec67aa
+   0x0044977c  ADD ESP,0x4
+   0x0044977f  MOV EDX,dword ptr [EBP + -0x4]
+   0x00449782  SHL EDX,0x5
+   0x00449785  ADD EDX,dword ptr [EBP + -0x4]
+   0x00449788  ADD EDX,EAX
+
+----------------------------------------------------------------------
+Reference 0x004498c4 in FUN_004498b0
+   0x00449899  SBB EAX,EAX
+   0x0044989b  ADD EAX,0x1
+   0x0044989e  MOV ESP,EBP
+   0x004498a0  POP EBP
+   0x004498a1  RET 0x8
+   0x004498b0  PUSH EBP
+   0x004498b1  MOV EBP,ESP
+   0x004498b3  SUB ESP,0x8
+   0x004498b6  MOV dword ptr [EBP + -0x8],ECX
+   0x004498b9  MOV EAX,dword ptr [EBP + 0xc]
+   0x004498bc  PUSH EAX
+   0x004498bd  MOV ECX,dword ptr [EBP + 0x8]
+   0x004498c0  PUSH ECX
+   0x004498c1  MOV ECX,dword ptr [EBP + -0x8]
+>> 0x004498c4  CALL 0x00449f80
+   0x004498c9  MOV ECX,EAX
+   0x004498cb  CALL 0x006ec830
+   0x004498d0  MOV byte ptr [EBP + -0x1],AL
+   0x004498d3  MOV AL,byte ptr [EBP + -0x1]
+   0x004498d6  MOV ESP,EBP
+   0x004498d8  POP EBP
+   0x004498d9  RET 0x8
+   0x004498e0  PUSH EBP
+   0x004498e1  MOV EBP,ESP
+   0x004498e3  PUSH ECX
+   0x004498e4  MOV dword ptr [EBP + -0x4],ECX
+   0x004498e7  MOV ECX,dword ptr [EBP + -0x4]
+   0x004498ea  CALL 0x0044cb70
+   0x004498ef  MOV EAX,dword ptr [EBP + -0x4]
+   0x004498f2  MOV dword ptr [EAX],0x1017288
+   0x004498f8  MOV ECX,dword ptr [EBP + -0x4]
+   0x004498fb  ADD ECX,0x10
+   0x004498fe  MOV EDX,dword ptr [EBP + -0x4]
+   0x00449901  MOV dword ptr [EDX + 0x8],ECX
+   0x00449904  MOV EAX,dword ptr [EBP + -0x4]
+   0x00449907  MOV byte ptr [EAX + 0x10],0x0
+   0x0044990b  MOV EAX,dword ptr [EBP + -0x4]
+   0x0044990e  MOV ESP,EBP
+   0x00449910  POP EBP
+   0x00449911  RET
+   0x00449920  PUSH EBP
+   0x00449921  MOV EBP,ESP
+   0x00449923  PUSH ECX
+   0x00449924  MOV dword ptr [EBP + -0x4],ECX
+   0x00449927  MOV EAX,dword ptr [EBP + -0x4]
+
+----------------------------------------------------------------------
+Reference 0x0044bba4 in FUN_0044bb90
+   0x0044bb7f  MOV dword ptr FS:[0x0],ECX
+   0x0044bb86  POP ECX
+   0x0044bb87  MOV ESP,EBP
+   0x0044bb89  POP EBP
+   0x0044bb8a  RET 0xc
+   0x0044bb90  PUSH EBP
+   0x0044bb91  MOV EBP,ESP
+   0x0044bb93  SUB ESP,0x8
+   0x0044bb96  MOV dword ptr [EBP + -0x8],ECX
+   0x0044bb99  MOV EAX,dword ptr [EBP + 0xc]
+   0x0044bb9c  PUSH EAX
+   0x0044bb9d  MOV ECX,dword ptr [EBP + 0x8]
+   0x0044bba0  PUSH ECX
+   0x0044bba1  MOV ECX,dword ptr [EBP + -0x8]
+>> 0x0044bba4  CALL 0x00449f80
+   0x0044bba9  MOV ECX,EAX
+   0x0044bbab  CALL 0x0044c8e0
+   0x0044bbb0  MOV byte ptr [EBP + -0x1],AL
+   0x0044bbb3  MOV AL,byte ptr [EBP + -0x1]
+   0x0044bbb6  MOV ESP,EBP
+   0x0044bbb8  POP EBP
+   0x0044bbb9  RET 0x8
+   0x0044bbc0  PUSH EBP
+   0x0044bbc1  MOV EBP,ESP
+   0x0044bbc3  PUSH ECX
+   0x0044bbc4  MOV dword ptr [EBP + -0x4],ECX
+   0x0044bbc7  MOV EAX,dword ptr [EBP + -0x4]
+   0x0044bbca  ADD EAX,0x18
+   0x0044bbcd  PUSH EAX
+   0x0044bbce  CALL 0x0040b460
+   0x0044bbd3  ADD ESP,0x4
+   0x0044bbd6  MOV ESP,EBP
+   0x0044bbd8  POP EBP
+   0x0044bbd9  RET
+   0x0044bbe0  PUSH EBP
+   0x0044bbe1  MOV EBP,ESP
+   0x0044bbe3  PUSH -0x1
+   0x0044bbe5  PUSH 0xeecf76
+   0x0044bbea  MOV EAX,FS:[0x0]
+   0x0044bbf0  PUSH EAX
+   0x0044bbf1  SUB ESP,0x28
+   0x0044bbf4  MOV EAX,[0x011c16bc]
+   0x0044bbf9  XOR EAX,EBP
+   0x0044bbfb  PUSH EAX
+   0x0044bbfc  LEA EAX,[EBP + -0xc]
+
+----------------------------------------------------------------------
+Reference 0x0044bd81 in FUN_0044bd60
+   0x0044bd5a  RET 0xc
+   0x0044bd60  PUSH EBP
+   0x0044bd61  MOV EBP,ESP
+   0x0044bd63  SUB ESP,0x8
+   0x0044bd66  MOV dword ptr [EBP + -0x8],ECX
+   0x0044bd69  PUSH 0x0
+   0x0044bd6b  MOV ECX,dword ptr [EBP + -0x8]
+   0x0044bd6e  ADD ECX,0x20
+   0x0044bd71  CALL 0x0040fbf0
+   0x0044bd76  MOV EAX,dword ptr [EBP + 0xc]
+   0x0044bd79  PUSH EAX
+   0x0044bd7a  MOV ECX,dword ptr [EBP + 0x8]
+   0x0044bd7d  PUSH ECX
+   0x0044bd7e  MOV ECX,dword ptr [EBP + -0x8]
+>> 0x0044bd81  CALL 0x00449f80
+   0x0044bd86  MOV ECX,EAX
+   0x0044bd88  CALL 0x0044c8e0
+   0x0044bd8d  MOV byte ptr [EBP + -0x1],AL
+   0x0044bd90  MOV ECX,dword ptr [EBP + -0x8]
+   0x0044bd93  ADD ECX,0x20
+   0x0044bd96  CALL 0x0040fba0
+   0x0044bd9b  MOV AL,byte ptr [EBP + -0x1]
+   0x0044bd9e  MOV ESP,EBP
+   0x0044bda0  POP EBP
+   0x0044bda1  RET 0x8
+   0x0044bdb0  PUSH EBP
+   0x0044bdb1  MOV EBP,ESP
+   0x0044bdb3  PUSH -0x1
+   0x0044bdb5  PUSH 0xeecf28
+   0x0044bdba  MOV EAX,FS:[0x0]
+   0x0044bdc0  PUSH EAX
+   0x0044bdc1  SUB ESP,0x1c
+   0x0044bdc4  MOV EAX,[0x011c16bc]
+   0x0044bdc9  XOR EAX,EBP
+   0x0044bdcb  PUSH EAX
+   0x0044bdcc  LEA EAX,[EBP + -0xc]
+   0x0044bdcf  MOV FS:[0x0],EAX
+   0x0044bdd5  MOV dword ptr [EBP + -0x20],ECX
+   0x0044bdd8  MOV dword ptr [EBP + -0x4],0x0
+   0x0044bddf  MOV byte ptr [EBP + -0xd],0x0
+   0x0044bde3  PUSH 0x0
+   0x0044bde5  MOV ECX,dword ptr [EBP + -0x20]
+   0x0044bde8  ADD ECX,0x20
+   0x0044bdeb  CALL 0x0040fbf0
+   0x0044bdf0  MOV dword ptr [EBP + -0x14],0x0
+
+----------------------------------------------------------------------
+Reference 0x00528b86 in FUN_00528b60
+   0x00528b61  MOV EBP,ESP
+   0x00528b63  SUB ESP,0x8
+   0x00528b66  MOV dword ptr [EBP + -0x8],ECX
+   0x00528b69  PUSH 0x0
+   0x00528b6b  MOV ECX,dword ptr [EBP + -0x8]
+   0x00528b6e  ADD ECX,0x20
+   0x00528b71  CALL 0x0040fbf0
+   0x00528b76  MOVZX EAX,byte ptr [EBP + 0x10]
+   0x00528b7a  PUSH EAX
+   0x00528b7b  MOV ECX,dword ptr [EBP + 0xc]
+   0x00528b7e  PUSH ECX
+   0x00528b7f  MOV EDX,dword ptr [EBP + 0x8]
+   0x00528b82  PUSH EDX
+   0x00528b83  MOV ECX,dword ptr [EBP + -0x8]
+>> 0x00528b86  CALL 0x00449f80
+   0x00528b8b  MOV ECX,EAX
+   0x00528b8d  CALL 0x0044c000
+   0x00528b92  MOV byte ptr [EBP + -0x1],AL
+   0x00528b95  MOV ECX,dword ptr [EBP + -0x8]
+   0x00528b98  ADD ECX,0x20
+   0x00528b9b  CALL 0x0040fba0
+   0x00528ba0  MOV AL,byte ptr [EBP + -0x1]
+   0x00528ba3  MOV ESP,EBP
+   0x00528ba5  POP EBP
+   0x00528ba6  RET 0xc
+   0x00528bb0  PUSH EBP
+   0x00528bb1  MOV EBP,ESP
+   0x00528bb3  PUSH ECX
+   0x00528bb4  MOV dword ptr [EBP + -0x4],ECX
+   0x00528bb7  MOV EAX,dword ptr [EBP + 0x8]
+   0x00528bba  PUSH EAX
+   0x00528bbb  MOV ECX,dword ptr [EBP + 0x8]
+   0x00528bbe  PUSH ECX
+   0x00528bbf  MOV EDX,dword ptr [EBP + -0x4]
+   0x00528bc2  MOV EAX,dword ptr [EDX]
+   0x00528bc4  MOV ECX,dword ptr [EBP + -0x4]
+   0x00528bc7  MOV ECX,dword ptr [ECX]
+   0x00528bc9  MOV EDX,dword ptr [EAX]
+   0x00528bcb  MOV EAX,dword ptr [EDX + 0x24]
+   0x00528bce  CALL EAX
+   0x00528bd0  PUSH EAX
+   0x00528bd1  MOV ECX,dword ptr [EBP + -0x4]
+   0x00528bd4  CALL 0x00528ce0
+   0x00528bd9  MOV ESP,EBP
+   0x00528bdb  POP EBP
+
+----------------------------------------------------------------------
+Reference 0x006ec80a in FUN_006ec7e0
+   0x006ec7e6  MOV dword ptr [EBP + -0x8],ECX
+   0x006ec7e9  PUSH 0x0
+   0x006ec7eb  MOV ECX,dword ptr [EBP + -0x8]
+   0x006ec7ee  ADD ECX,0x20
+   0x006ec7f1  CALL 0x0040fbf0
+   0x006ec7f6  MOVZX EAX,byte ptr [EBP + 0x14]
+   0x006ec7fa  PUSH EAX
+   0x006ec7fb  MOV ECX,dword ptr [EBP + 0x10]
+   0x006ec7fe  PUSH ECX
+   0x006ec7ff  MOV EDX,dword ptr [EBP + 0xc]
+   0x006ec802  PUSH EDX
+   0x006ec803  MOV EAX,dword ptr [EBP + 0x8]
+   0x006ec806  PUSH EAX
+   0x006ec807  MOV ECX,dword ptr [EBP + -0x8]
+>> 0x006ec80a  CALL 0x00449f80
+   0x006ec80f  MOV ECX,EAX
+   0x006ec811  CALL 0x0044d240
+   0x006ec816  MOV byte ptr [EBP + -0x1],AL
+   0x006ec819  MOV ECX,dword ptr [EBP + -0x8]
+   0x006ec81c  ADD ECX,0x20
+   0x006ec81f  CALL 0x0040fba0
+   0x006ec824  MOV AL,byte ptr [EBP + -0x1]
+   0x006ec827  MOV ESP,EBP
+   0x006ec829  POP EBP
+   0x006ec82a  RET 0x10
+   0x006ec830  PUSH EBP
+   0x006ec831  MOV EBP,ESP
+   0x006ec833  PUSH ECX
+   0x006ec834  MOV dword ptr [EBP + -0x4],ECX
+   0x006ec837  MOV EAX,dword ptr [EBP + 0xc]
+   0x006ec83a  PUSH EAX
+   0x006ec83b  MOV ECX,dword ptr [EBP + 0x8]
+   0x006ec83e  PUSH ECX
+   0x006ec83f  MOV EDX,dword ptr [EBP + 0x8]
+   0x006ec842  PUSH EDX
+   0x006ec843  MOV EAX,dword ptr [EBP + -0x4]
+   0x006ec846  MOV ECX,dword ptr [EAX]
+   0x006ec848  MOV EDX,dword ptr [EBP + -0x4]
+   0x006ec84b  MOV EAX,dword ptr [EDX]
+   0x006ec84d  MOV EDX,dword ptr [ECX]
+   0x006ec84f  MOV ECX,EAX
+   0x006ec851  MOV EAX,dword ptr [EDX + 0x24]
+   0x006ec854  CALL EAX
+   0x006ec856  PUSH EAX
+   0x006ec857  MOV ECX,dword ptr [EBP + -0x4]
+
+----------------------------------------------------------------------
+Reference 0x009062fd in FUN_009062e0
+   0x009062d7  MOV ESP,EBP
+   0x009062d9  POP EBP
+   0x009062da  RET 0xc
+   0x009062e0  PUSH EBP
+   0x009062e1  MOV EBP,ESP
+   0x009062e3  SUB ESP,0x8
+   0x009062e6  MOV dword ptr [EBP + -0x8],ECX
+   0x009062e9  PUSH 0x0
+   0x009062eb  MOV ECX,dword ptr [EBP + -0x8]
+   0x009062ee  ADD ECX,0x20
+   0x009062f1  CALL 0x0040fbf0
+   0x009062f6  MOV EAX,dword ptr [EBP + 0x8]
+   0x009062f9  PUSH EAX
+   0x009062fa  MOV ECX,dword ptr [EBP + -0x8]
+>> 0x009062fd  CALL 0x00449f80
+   0x00906302  MOV ECX,EAX
+   0x00906304  CALL 0x00528bb0
+   0x00906309  MOV byte ptr [EBP + -0x1],AL
+   0x0090630c  MOV ECX,dword ptr [EBP + -0x8]
+   0x0090630f  ADD ECX,0x20
+   0x00906312  CALL 0x0040fba0
+   0x00906317  MOV AL,byte ptr [EBP + -0x1]
+   0x0090631a  MOV ESP,EBP
+   0x0090631c  POP EBP
+   0x0090631d  RET 0x4
+   0x00906320  PUSH EBP
+   0x00906321  MOV EBP,ESP
+   0x00906323  PUSH -0x1
+   0x00906325  PUSH 0xf16b88
+   0x0090632a  MOV EAX,FS:[0x0]
+   0x00906330  PUSH EAX
+   0x00906331  SUB ESP,0x8
+   0x00906334  MOV EAX,[0x011c16bc]
+   0x00906339  XOR EAX,EBP
+   0x0090633b  PUSH EAX
+   0x0090633c  LEA EAX,[EBP + -0xc]
+   0x0090633f  MOV FS:[0x0],EAX
+   0x00906345  MOV dword ptr [EBP + -0x14],ECX
+   0x00906348  MOV dword ptr [EBP + -0x4],0x0
+   0x0090634f  PUSH 0x0
+   0x00906351  MOV ECX,dword ptr [EBP + -0x14]
+   0x00906354  ADD ECX,0x20
+   0x00906357  CALL 0x0040fbf0
+   0x0090635c  LEA EAX,[EBP + 0xc]
+   0x0090635f  PUSH EAX
+
+----------------------------------------------------------------------
+Reference 0x00906367 in FUN_00906320
+   0x0090633b  PUSH EAX
+   0x0090633c  LEA EAX,[EBP + -0xc]
+   0x0090633f  MOV FS:[0x0],EAX
+   0x00906345  MOV dword ptr [EBP + -0x14],ECX
+   0x00906348  MOV dword ptr [EBP + -0x4],0x0
+   0x0090634f  PUSH 0x0
+   0x00906351  MOV ECX,dword ptr [EBP + -0x14]
+   0x00906354  ADD ECX,0x20
+   0x00906357  CALL 0x0040fbf0
+   0x0090635c  LEA EAX,[EBP + 0xc]
+   0x0090635f  PUSH EAX
+   0x00906360  MOV ECX,dword ptr [EBP + 0x8]
+   0x00906363  PUSH ECX
+   0x00906364  MOV ECX,dword ptr [EBP + -0x14]
+>> 0x00906367  CALL 0x00449f80
+   0x0090636c  MOV ECX,EAX
+   0x0090636e  CALL 0x009066d0
+   0x00906373  MOV byte ptr [EBP + -0xd],AL
+   0x00906376  MOV ECX,dword ptr [EBP + -0x14]
+   0x00906379  ADD ECX,0x20
+   0x0090637c  CALL 0x0040fba0
+   0x00906381  MOV DL,byte ptr [EBP + -0xd]
+   0x00906384  MOV byte ptr [EBP + -0xe],DL
+   0x00906387  MOV dword ptr [EBP + -0x4],0xffffffff
+   0x0090638e  LEA ECX,[EBP + 0xc]
+   0x00906391  CALL 0x0044cbf0
+   0x00906396  MOV AL,byte ptr [EBP + -0xe]
+   0x00906399  MOV ECX,dword ptr [EBP + -0xc]
+   0x0090639c  MOV dword ptr FS:[0x0],ECX
+   0x009063a3  POP ECX
+   0x009063a4  MOV ESP,EBP
+   0x009063a6  POP EBP
+   0x009063a7  RET 0x8
+   0x009063b0  PUSH EBP
+   0x009063b1  MOV EBP,ESP
+   0x009063b3  SUB ESP,0x8
+   0x009063b6  MOV dword ptr [EBP + -0x8],ECX
+   0x009063b9  PUSH 0x0
+   0x009063bb  MOV ECX,dword ptr [EBP + -0x8]
+   0x009063be  ADD ECX,0x20
+   0x009063c1  CALL 0x0040fbf0
+   0x009063c6  MOVZX EAX,byte ptr [EBP + 0x14]
+   0x009063ca  PUSH EAX
+   0x009063cb  MOV ECX,dword ptr [EBP + 0x10]
+   0x009063ce  PUSH ECX
+
+----------------------------------------------------------------------
+Reference 0x009063da in FUN_009063b0
+   0x009063b6  MOV dword ptr [EBP + -0x8],ECX
+   0x009063b9  PUSH 0x0
+   0x009063bb  MOV ECX,dword ptr [EBP + -0x8]
+   0x009063be  ADD ECX,0x20
+   0x009063c1  CALL 0x0040fbf0
+   0x009063c6  MOVZX EAX,byte ptr [EBP + 0x14]
+   0x009063ca  PUSH EAX
+   0x009063cb  MOV ECX,dword ptr [EBP + 0x10]
+   0x009063ce  PUSH ECX
+   0x009063cf  MOV EDX,dword ptr [EBP + 0xc]
+   0x009063d2  PUSH EDX
+   0x009063d3  MOV EAX,dword ptr [EBP + 0x8]
+   0x009063d6  PUSH EAX
+   0x009063d7  MOV ECX,dword ptr [EBP + -0x8]
+>> 0x009063da  CALL 0x00449f80
+   0x009063df  MOV ECX,EAX
+   0x009063e1  CALL 0x0044d070
+   0x009063e6  MOV byte ptr [EBP + -0x1],AL
+   0x009063e9  MOV ECX,dword ptr [EBP + -0x8]
+   0x009063ec  ADD ECX,0x20
+   0x009063ef  CALL 0x0040fba0
+   0x009063f4  MOV AL,byte ptr [EBP + -0x1]
+   0x009063f7  MOV ESP,EBP
+   0x009063f9  POP EBP
+   0x009063fa  RET 0x10
+   0x00906400  PUSH EBP
+   0x00906401  MOV EBP,ESP
+   0x00906403  PUSH -0x1
+   0x00906405  PUSH 0xf16bc3
+   0x0090640a  MOV EAX,FS:[0x0]
+   0x00906410  PUSH EAX
+   0x00906411  SUB ESP,0x18
+   0x00906414  MOV EAX,[0x011c16bc]
+   0x00906419  XOR EAX,EBP
+   0x0090641b  PUSH EAX
+   0x0090641c  LEA EAX,[EBP + -0xc]
+   0x0090641f  MOV FS:[0x0],EAX
+   0x00906425  MOV dword ptr [EBP + -0x20],ECX
+   0x00906428  PUSH 0x18e
+   0x0090642d  PUSH 0x10171a0
+   0x00906432  PUSH 0x1
+   0x00906434  PUSH 0x6
+   0x00906436  LEA ECX,[EBP + -0x10]
+   0x00906439  CALL 0x00404eb0
+   0x0090643e  MOV dword ptr [EBP + -0x4],0x0
+
+======================================================================
+Code-reference windows to Completion queue lookup @ 0x0044d5c0
+======================================================================
+
+----------------------------------------------------------------------
+Reference 0x00449f91 in FUN_00449f80
+   0x00449f6b  MOV EAX,dword ptr [EBP + -0x4]
+   0x00449f6e  MOV dword ptr [EAX],0x10172dc
+   0x00449f74  MOV EAX,dword ptr [EBP + -0x4]
+   0x00449f77  MOV ESP,EBP
+   0x00449f79  POP EBP
+   0x00449f7a  RET 0xc
+   0x00449f80  PUSH EBP
+   0x00449f81  MOV EBP,ESP
+   0x00449f83  PUSH ECX
+   0x00449f84  MOV dword ptr [EBP + -0x4],ECX
+   0x00449f87  MOV EAX,dword ptr [EBP + -0x4]
+   0x00449f8a  PUSH EAX
+   0x00449f8b  MOV ECX,dword ptr [EBP + -0x4]
+   0x00449f8e  MOV ECX,dword ptr [ECX + 0x14]
+>> 0x00449f91  CALL 0x0044d5c0
+   0x00449f96  MOV ESP,EBP
+   0x00449f98  POP EBP
+   0x00449f99  RET
+   0x00449fa0  PUSH EBP
+   0x00449fa1  MOV EBP,ESP
+   0x00449fa3  PUSH ECX
+   0x00449fa4  MOV dword ptr [EBP + -0x4],ECX
+   0x00449fa7  MOV EAX,dword ptr [EBP + 0x10]
+   0x00449faa  PUSH EAX
+   0x00449fab  MOV ECX,dword ptr [EBP + 0xc]
+   0x00449fae  PUSH ECX
+   0x00449faf  MOV EDX,dword ptr [EBP + 0x8]
+   0x00449fb2  PUSH EDX
+   0x00449fb3  MOV ECX,dword ptr [EBP + -0x4]
+   0x00449fb6  CALL 0x0044c270
+   0x00449fbb  MOV EAX,dword ptr [EBP + -0x4]
+   0x00449fbe  MOV dword ptr [EAX],0x101732c
+   0x00449fc4  MOV EAX,dword ptr [EBP + -0x4]
+   0x00449fc7  MOV ESP,EBP
+   0x00449fc9  POP EBP
+   0x00449fca  RET 0xc
+   0x00449fd0  PUSH EBP
+   0x00449fd1  MOV EBP,ESP
+   0x00449fd3  PUSH -0x1
+   0x00449fd5  PUSH 0xeff1f8
+   0x00449fda  MOV EAX,FS:[0x0]
+   0x00449fe0  PUSH EAX
+   0x00449fe1  SUB ESP,0x8
+   0x00449fe4  MOV EAX,[0x011c16bc]
+   0x00449fe9  XOR EAX,EBP
+
+======================================================================
+Code-reference windows to Known null consumer @ 0x006ec830
+======================================================================
+
+----------------------------------------------------------------------
+Reference 0x00449558 in FUN_00449530
+   0x00449531  MOV EBP,ESP
+   0x00449533  SUB ESP,0x8
+   0x00449536  MOV dword ptr [EBP + -0x8],ECX
+   0x00449539  PUSH 0x0
+   0x0044953b  MOV ECX,dword ptr [EBP + -0x8]
+   0x0044953e  ADD ECX,0x20
+   0x00449541  CALL 0x0040fbf0
+   0x00449546  MOV EAX,dword ptr [EBP + 0xc]
+   0x00449549  PUSH EAX
+   0x0044954a  MOV ECX,dword ptr [EBP + 0x8]
+   0x0044954d  PUSH ECX
+   0x0044954e  MOV ECX,dword ptr [EBP + -0x8]
+   0x00449551  CALL 0x00449f80
+   0x00449556  MOV ECX,EAX
+>> 0x00449558  CALL 0x006ec830
+   0x0044955d  MOV byte ptr [EBP + -0x1],AL
+   0x00449560  MOV ECX,dword ptr [EBP + -0x8]
+   0x00449563  ADD ECX,0x20
+   0x00449566  CALL 0x0040fba0
+   0x0044956b  MOV AL,byte ptr [EBP + -0x1]
+   0x0044956e  MOV ESP,EBP
+   0x00449570  POP EBP
+   0x00449571  RET 0x8
+   0x00449580  PUSH EBP
+   0x00449581  MOV EBP,ESP
+   0x00449583  SUB ESP,0x8
+   0x00449586  MOV dword ptr [EBP + -0x8],ECX
+   0x00449589  PUSH 0x0
+   0x0044958b  MOV ECX,dword ptr [EBP + -0x8]
+   0x0044958e  ADD ECX,0x20
+   0x00449591  CALL 0x0040fbf0
+   0x00449596  MOVZX EAX,byte ptr [EBP + 0x10]
+   0x0044959a  PUSH EAX
+   0x0044959b  MOV ECX,dword ptr [EBP + 0xc]
+   0x0044959e  PUSH ECX
+   0x0044959f  MOV EDX,dword ptr [EBP + 0x8]
+   0x004495a2  PUSH EDX
+   0x004495a3  MOV ECX,dword ptr [EBP + -0x8]
+   0x004495a6  CALL 0x00449f80
+   0x004495ab  MOV ECX,EAX
+   0x004495ad  CALL 0x0044a130
+   0x004495b2  MOV byte ptr [EBP + -0x1],AL
+   0x004495b5  MOV ECX,dword ptr [EBP + -0x8]
+   0x004495b8  ADD ECX,0x20
+   0x004495bb  CALL 0x0040fba0
+
+----------------------------------------------------------------------
+Reference 0x004498cb in FUN_004498b0
+   0x0044989e  MOV ESP,EBP
+   0x004498a0  POP EBP
+   0x004498a1  RET 0x8
+   0x004498b0  PUSH EBP
+   0x004498b1  MOV EBP,ESP
+   0x004498b3  SUB ESP,0x8
+   0x004498b6  MOV dword ptr [EBP + -0x8],ECX
+   0x004498b9  MOV EAX,dword ptr [EBP + 0xc]
+   0x004498bc  PUSH EAX
+   0x004498bd  MOV ECX,dword ptr [EBP + 0x8]
+   0x004498c0  PUSH ECX
+   0x004498c1  MOV ECX,dword ptr [EBP + -0x8]
+   0x004498c4  CALL 0x00449f80
+   0x004498c9  MOV ECX,EAX
+>> 0x004498cb  CALL 0x006ec830
+   0x004498d0  MOV byte ptr [EBP + -0x1],AL
+   0x004498d3  MOV AL,byte ptr [EBP + -0x1]
+   0x004498d6  MOV ESP,EBP
+   0x004498d8  POP EBP
+   0x004498d9  RET 0x8
+   0x004498e0  PUSH EBP
+   0x004498e1  MOV EBP,ESP
+   0x004498e3  PUSH ECX
+   0x004498e4  MOV dword ptr [EBP + -0x4],ECX
+   0x004498e7  MOV ECX,dword ptr [EBP + -0x4]
+   0x004498ea  CALL 0x0044cb70
+   0x004498ef  MOV EAX,dword ptr [EBP + -0x4]
+   0x004498f2  MOV dword ptr [EAX],0x1017288
+   0x004498f8  MOV ECX,dword ptr [EBP + -0x4]
+   0x004498fb  ADD ECX,0x10
+   0x004498fe  MOV EDX,dword ptr [EBP + -0x4]
+   0x00449901  MOV dword ptr [EDX + 0x8],ECX
+   0x00449904  MOV EAX,dword ptr [EBP + -0x4]
+   0x00449907  MOV byte ptr [EAX + 0x10],0x0
+   0x0044990b  MOV EAX,dword ptr [EBP + -0x4]
+   0x0044990e  MOV ESP,EBP
+   0x00449910  POP EBP
+   0x00449911  RET
+   0x00449920  PUSH EBP
+   0x00449921  MOV EBP,ESP
+   0x00449923  PUSH ECX
+   0x00449924  MOV dword ptr [EBP + -0x4],ECX
+   0x00449927  MOV EAX,dword ptr [EBP + -0x4]
+   0x0044992a  MOV byte ptr [EAX + 0x10],0x0
+   0x0044992e  MOV ESP,EBP
+
+======================================================================
+Vtable BSTaskManager @ 0x010c167c
+======================================================================
+  slot 00 +0x00 -> 0x00c40960 FUN_00c40960
+  slot 01 +0x04 -> 0x00c3f530 FUN_00c3f530
+  slot 02 +0x08 -> 0x00c3f160 FUN_00c3f160
+  slot 03 +0x0c -> 0x00c3f430 FUN_00c3f430
+  slot 04 +0x10 -> 0x00c3f1f0 FUN_00c3f1f0
+  slot 05 +0x14 -> 0x00c3f2b0 FUN_00c3f2b0
+  slot 06 +0x18 -> 0x00c3f360 FUN_00c3f360
+  slot 07 +0x1c -> 0x00c3f960 FUN_00c3f960
+  slot 08 +0x20 -> 0x00c3f4c0 FUN_00c3f4c0
+  slot 09 +0x24 -> 0x00c3f650 FUN_00c3f650
+  slot 10 +0x28 -> 0x008d0600 FUN_008d0600
+  slot 11 +0x2c -> 0x00c3f670 FUN_00c3f670
+  slot 12 +0x30 -> 0x00c3f690 FUN_00c3f690
+  slot 13 +0x34 -> 0x00c3f6b0 FUN_00c3f6b0
+  slot 14 +0x38 -> 0x0084b950 FUN_0084b950
+  slot 15 +0x3c -> 0x00c3f6f0 FUN_00c3f6f0
+  slot 16 +0x40 -> 0x00c3f8a0 FUN_00c3f8a0
+  slot 17 +0x44 -> 0x009611e0 FUN_009611e0
+  slot 18 +0x48 -> 0x00c3fb50 FUN_00c3fb50
+  slot 19 +0x4c -> 0x00c3fc80 FUN_00c3fc80
+  slot 20 +0x50 -> 0x00c3fca0 FUN_00c3fca0
+  slot 21 +0x54 -> 0x00c3fce0 FUN_00c3fce0
+  slot 22 +0x58 -> 0x008d0560 FUN_008d0560
+  slot 23 +0x5c -> 0x0112b554 ???
+  slot 24 +0x60 -> 0x00c409b0 FUN_00c409b0
+  slot 25 +0x64 -> 0x00c3f710 FUN_00c3f710
+  slot 26 +0x68 -> 0x00c3f730 FUN_00c3f730
+  slot 27 +0x6c -> 0x0084e3a0 FUN_0084e3a0
+
+======================================================================
+Vtable BSTaskManagerThread @ 0x010c1740
+======================================================================
+  slot 00 +0x00 -> 0x00c3f130 FUN_00c3f130
+  slot 01 +0x04 -> 0x00c410b0 FUN_00c410b0
+  slot 02 +0x08 -> 0x61545342 ???
+  slot 03 +0x0c -> 0x614d6b73 ???
+  slot 04 +0x10 -> 0x6567616e ???
+  slot 05 +0x14 -> 0x72685472 ???
+  slot 06 +0x18 -> 0x00646165 ???
+  slot 07 +0x1c -> 0x0112b5fc ???
+  slot 08 +0x20 -> 0x00c40a70 FUN_00c40a70
+  slot 09 +0x24 -> 0x00c3f7a0 FUN_00c3f7a0
+  slot 10 +0x28 -> 0x00c3f6f0 FUN_00c3f6f0
+  slot 11 +0x2c -> 0x00c3f8a0 FUN_00c3f8a0
+  slot 12 +0x30 -> 0x009611e0 FUN_009611e0
+  slot 13 +0x34 -> 0x736f5069 ???
+  slot 14 +0x38 -> 0x6f725074 ???
+  slot 15 +0x3c -> 0x73736563 ???
+  slot 16 +0x40 -> 0x6c6c694d ???
+  slot 17 +0x44 -> 0x63657369 ???
+  slot 18 +0x48 -> 0x73646e6f ???
+  slot 19 +0x4c -> 0x6361423a ???
+
+======================================================================
+Vtable Completion pool candidate @ 0x010c16dc
+======================================================================
+  slot 00 +0x00 -> 0x00c409b0 FUN_00c409b0
+  slot 01 +0x04 -> 0x00c3f710 FUN_00c3f710
+  slot 02 +0x08 -> 0x00c3f730 FUN_00c3f730
+  slot 03 +0x0c -> 0x0084e3a0 FUN_0084e3a0
+  slot 04 +0x10 -> 0x00000000 ???
+  slot 05 +0x14 -> 0x0112b59c ???
+  slot 06 +0x18 -> 0x00c40930 FUN_00c40930
+  slot 07 +0x1c -> 0x00c3f530 FUN_00c3f530
+  slot 08 +0x20 -> 0x00c3f160 FUN_00c3f160
+  slot 09 +0x24 -> 0x00c3f430 FUN_00c3f430
+  slot 10 +0x28 -> 0x00c3f1f0 FUN_00c3f1f0
+  slot 11 +0x2c -> 0x00c3f2b0 FUN_00c3f2b0
+  slot 12 +0x30 -> 0x00c3f360 FUN_00c3f360
+  slot 13 +0x34 -> 0x00c3f960 FUN_00c3f960
+  slot 14 +0x38 -> 0x00c3f4c0 FUN_00c3f4c0
+  slot 15 +0x3c -> 0x00c3f650 FUN_00c3f650
+  slot 16 +0x40 -> 0x008d0600 FUN_008d0600
+  slot 17 +0x44 -> 0x00c3f670 FUN_00c3f670
+  slot 18 +0x48 -> 0x00c3f690 FUN_00c3f690
+  slot 19 +0x4c -> 0x00c3f6b0 FUN_00c3f6b0
+
+END OF AUDIT

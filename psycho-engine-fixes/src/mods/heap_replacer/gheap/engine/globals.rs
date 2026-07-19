@@ -9,6 +9,8 @@
 
 #![allow(dead_code)]
 
+use std::sync::atomic::{AtomicU32, Ordering};
+
 use libc::c_void;
 
 use libpsycho::ffi::fnptr::FnPtr;
@@ -16,6 +18,9 @@ use libpsycho::os::windows::winapi::{self, BorrowedHandle, WaitResult};
 
 use super::super::types;
 use super::addr;
+
+static IO_BARRIER_LAYOUT_FAILURES: AtomicU32 = AtomicU32::new(0);
+static IO_BARRIER_TIMEOUTS: AtomicU32 = AtomicU32::new(0);
 
 // ---------------------------------------------------------------------------
 // Game state reads (all safe -- reading from known static addresses)
@@ -482,87 +487,104 @@ pub unsafe fn wait_for_io_idle() {
         return;
     }
 
-    // IOManager+0x50 = pointer to BSTaskManagerThread array
-    let threads_ptr = unsafe { *((io_mgr as usize + 0x50) as *const *mut c_void) };
-    if threads_ptr.is_null() {
+    let thread_count =
+        unsafe { *((io_mgr as *const u8).add(addr::IO_THREAD_COUNT_OFFSET) as *const u32) };
+    if !(1..=8).contains(&thread_count) {
+        IO_BARRIER_LAYOUT_FAILURES.fetch_add(1, Ordering::Relaxed);
+        log::error!(
+            "[IO_BARRIER] Implausible IO worker count {}, skipping worker barrier",
+            thread_count
+        );
+        unsafe { wait_for_background_clone_thread() };
         return;
     }
 
-    // game has 2 BSTaskManagerThreads (indices 0 and 1)
-    for idx in 0..2u32 {
-        // each BSTaskManagerThread is 0x30 bytes, iter_sem HANDLE at +0x1C
-        let thread_base = threads_ptr as usize + idx as usize * 0x30;
-        let sem_raw = unsafe { *((thread_base + 0x1C) as *const *mut c_void) };
-        if sem_raw.is_null() {
-            continue;
-        }
-        let Ok(sem) = (unsafe { BorrowedHandle::from_raw(sem_raw) }) else {
-            continue;
-        };
+    let thread_array = unsafe {
+        *((io_mgr as *const u8).add(addr::IO_THREAD_ARRAY_OFFSET) as *const *const *mut c_void)
+    };
+    if thread_array.is_null() {
+        IO_BARRIER_LAYOUT_FAILURES.fetch_add(1, Ordering::Relaxed);
+        log::error!("[IO_BARRIER] IO worker array is null, skipping worker barrier");
+        unsafe { wait_for_background_clone_thread() };
+        return;
+    }
 
-        let mut waited = 0u32;
-        loop {
-            match winapi::wait_for_single_object(sem, 0) {
-                WaitResult::Signaled => {
-                    // thread is idle. restore the signal we consumed.
-                    let _ = winapi::release_semaphore(sem, 1);
+    for index in 0..thread_count {
+        let thread = unsafe { *thread_array.add(index as usize) };
+        if !thread.is_null() {
+            unsafe { wait_for_bstask_thread(thread, Some(index)) };
+        }
+    }
+
+    unsafe { wait_for_background_clone_thread() };
+}
+
+unsafe fn wait_for_background_clone_thread() {
+    let model_loader = unsafe { *(addr::MODEL_LOADER as *const *mut c_void) };
+    if model_loader.is_null() {
+        return;
+    }
+    let thread = unsafe { *((model_loader as *const u8).add(0x28) as *const *mut c_void) };
+    if !thread.is_null() {
+        unsafe { wait_for_bstask_thread(thread, None) };
+    }
+}
+
+unsafe fn wait_for_bstask_thread(thread: *mut c_void, index: Option<u32>) {
+    let sem_raw = unsafe {
+        *((thread as *const u8).add(addr::BST_ITER_SEM_HANDLE_OFFSET) as *const *mut c_void)
+    };
+    if sem_raw.is_null() {
+        return;
+    }
+    let Ok(sem) = (unsafe { BorrowedHandle::from_raw(sem_raw) }) else {
+        return;
+    };
+
+    let mut waited = 0u32;
+    loop {
+        match winapi::wait_for_single_object(sem, 0) {
+            WaitResult::Signaled => {
+                let _ = winapi::release_semaphore(sem, 1);
+                break;
+            }
+            WaitResult::Timeout => {
+                waited += 1;
+                if waited >= 500 {
+                    IO_BARRIER_TIMEOUTS.fetch_add(1, Ordering::Relaxed);
+                    match index {
+                        Some(index) => log::warn!(
+                            "[IO_BARRIER] Worker {} still busy after 500ms, proceeding",
+                            index
+                        ),
+                        None => log::warn!(
+                            "[IO_BARRIER] Background clone thread still busy after 500ms"
+                        ),
+                    }
                     break;
                 }
-                WaitResult::Timeout => {
-                    // thread is busy processing a task
-                    waited += 1;
-                    if waited >= 500 {
-                        log::warn!(
-                            "[IO_BARRIER] Thread {} still busy after 500ms, proceeding",
-                            idx
-                        );
-                        break;
-                    }
-                    winapi::sleep(1);
-                }
-                _ => break, // abandoned or error, don't block
+                winapi::sleep(1);
             }
-        }
-
-        if waited > 0 {
-            log::debug!("[IO_BARRIER] Thread {} idle after {}ms", idx, waited);
+            _ => break,
         }
     }
 
-    // BackgroundCloneThread: NOT in IOManager, lives in ModelLoader+0x28.
-    // Uses same BSTaskManagerThread loop with iter_sem at +0x1C.
-    // Clones NiNode/animation trees — crashes if cell data is freed mid-clone.
-    let model_loader = unsafe { *(addr::MODEL_LOADER as *const *mut c_void) };
-    if !model_loader.is_null() {
-        let bg_clone = unsafe { *((model_loader as usize + 0x28) as *const *mut c_void) };
-        if !bg_clone.is_null() {
-            let sem_raw = unsafe { *((bg_clone as usize + 0x1C) as *const *mut c_void) };
-            if !sem_raw.is_null() {
-                let Ok(sem) = (unsafe { BorrowedHandle::from_raw(sem_raw) }) else {
-                    return;
-                };
-                let mut waited = 0u32;
-                loop {
-                    match winapi::wait_for_single_object(sem, 0) {
-                        WaitResult::Signaled => {
-                            let _ = winapi::release_semaphore(sem, 1);
-                            break;
-                        }
-                        WaitResult::Timeout => {
-                            waited += 1;
-                            if waited >= 500 {
-                                log::warn!("[IO_BARRIER] bgCloneThread still busy after 500ms");
-                                break;
-                            }
-                            winapi::sleep(1);
-                        }
-                        _ => break,
-                    }
-                }
-                if waited > 0 {
-                    log::debug!("[IO_BARRIER] bgCloneThread idle after {}ms", waited);
-                }
+    if waited > 0 && waited < 500 {
+        match index {
+            Some(index) => {
+                log::debug!("[IO_BARRIER] Worker {} idle after {}ms", index, waited)
             }
+            None => log::debug!(
+                "[IO_BARRIER] Background clone thread idle after {}ms",
+                waited
+            ),
         }
     }
+}
+
+pub fn io_barrier_diagnostic_counts() -> (u64, u64) {
+    (
+        u64::from(IO_BARRIER_LAYOUT_FAILURES.load(Ordering::Relaxed)),
+        u64::from(IO_BARRIER_TIMEOUTS.load(Ordering::Relaxed)),
+    )
 }

@@ -12,7 +12,10 @@ use std::{
     },
 };
 
-use super::{NativePbrSettings, OBJECT_PBR_PROFILE_VALUE_COUNT, TERRAIN_PBR_PROFILE_VALUE_COUNT};
+use super::{
+    NativePbrSettings, OBJECT_PBR_PROFILE_VALUE_COUNT, TERRAIN_PBR_PROFILE_VALUE_COUNT,
+    terrain_lights::{MAX_SUPPLEMENTAL_CONSTANTS, SupplementalTerrainLights},
+};
 use libpsycho::os::windows::directx9::Device9Ref;
 
 static OBJECT_PROFILE_BITS: LazyLock<[AtomicU32; OBJECT_PBR_PROFILE_VALUE_COUNT]> =
@@ -68,7 +71,10 @@ fn object_constants(profile: [f32; OBJECT_PBR_PROFILE_VALUE_COUNT]) -> [[f32; 4]
     ]
 }
 
-pub(super) fn upload_terrain_constants(device: &Device9Ref<'_>) -> Option<[[f32; 4]; 2]> {
+pub(super) fn upload_terrain_constants(
+    device: &Device9Ref<'_>,
+    supplemental_lights: Option<&SupplementalTerrainLights>,
+) -> Option<[[f32; 4]; 2]> {
     let profile = load_terrain_profile();
     let requested = [
         [profile[0], profile[1], profile[2], profile[3]],
@@ -79,8 +85,22 @@ pub(super) fn upload_terrain_constants(device: &Device9Ref<'_>) -> Option<[[f32;
             f32::from_bits(TERRAIN_LOD_NOISE_TILE.load(Ordering::Acquire)),
         ],
     ];
+    let Some(supplemental_lights) = supplemental_lights else {
+        if device
+            .set_pixel_shader_constant_f(TERRAIN_DATA_REGISTER, &requested)
+            .is_err()
+        {
+            return None;
+        }
+        return Some(requested);
+    };
+
+    let mut upload = [[0.0; 4]; 2 + MAX_SUPPLEMENTAL_CONSTANTS];
+    upload[..2].copy_from_slice(&requested);
+    let supplemental_count = supplemental_lights.write_shader_constants(&mut upload[2..]);
+    let upload_count = 2 + supplemental_count;
     if device
-        .set_pixel_shader_constant_f(TERRAIN_DATA_REGISTER, &requested)
+        .set_pixel_shader_constant_f(TERRAIN_DATA_REGISTER, &upload[..upload_count])
         .is_err()
     {
         return None;

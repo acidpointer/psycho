@@ -22,6 +22,7 @@ use crate::{
 
 use super::{patching, statics, types::GameSettingFloatFn};
 
+mod scheduler;
 mod speedtree_lifetime;
 mod state;
 
@@ -77,6 +78,7 @@ pub(super) struct DiagnosticSnapshot {
     pub extended_demands: [u64; 3],
     pub retained_demands: [u64; 3],
     pub release_passthroughs: [u64; 3],
+    pub scheduler: scheduler::Snapshot,
     pub speedtree: speedtree_lifetime::Snapshot,
     pub state: state::Snapshot,
 }
@@ -112,6 +114,10 @@ static READY_CALL_PATCH: LazyLock<OwnedCodePatch> = LazyLock::new(|| {
 });
 
 pub(super) fn install(config: &LodConfig, diagnostics: &DiagnosticsConfig) {
+    scheduler::configure(
+        config.enabled && config.priority_boost_enabled,
+        config.enabled && config.parallel_io_enabled,
+    );
     if !config.enabled {
         log::info!("[LOD] Streaming and handoff fixes disabled by config");
         return;
@@ -128,22 +134,21 @@ pub(super) fn install(config: &LodConfig, diagnostics: &DiagnosticsConfig) {
     }
     state::configure_trace(diagnostics.lod_streaming_trace);
 
-    if !config.prefetch_enabled && !config.handoff_fix_enabled {
-        log::info!("[LOD] Prefetch and handoff subfeatures disabled by config");
+    if !config.prefetch_enabled
+        && !config.handoff_fix_enabled
+        && !config.priority_boost_enabled
+        && !config.parallel_io_enabled
+    {
+        log::info!("[LOD] All LOD subfeatures disabled by config");
         return;
     }
 
-    if let Err(error) = prepare_worldspace_reset_hook() {
-        log::warn!("[LOD] All LOD changes disabled: worldspace reset hook unavailable: {error:#}");
-        return;
-    }
-
-    let speedtree_ready = if config.prefetch_enabled {
-        match speedtree_lifetime::install(diagnostics.lod_streaming_trace) {
+    let reset_ready = if config.prefetch_enabled || config.handoff_fix_enabled {
+        match prepare_worldspace_reset_hook() {
             Ok(()) => true,
             Err(error) => {
                 log::warn!(
-                    "[LOD] Native prefetch disabled: SpeedTree lifetime hooks unavailable: {error:#}"
+                    "[LOD] Prefetch and handoff disabled: worldspace reset hook unavailable: {error:#}"
                 );
                 false
             }
@@ -152,7 +157,41 @@ pub(super) fn install(config: &LodConfig, diagnostics: &DiagnosticsConfig) {
         false
     };
 
-    if config.prefetch_enabled && speedtree_ready {
+    let speedtree_ready = if config.prefetch_enabled || config.parallel_io_enabled {
+        match speedtree_lifetime::install(diagnostics.lod_streaming_trace) {
+            Ok(()) => true,
+            Err(error) => {
+                log::warn!(
+                    "[LOD] Native prefetch and parallel IO disabled: SpeedTree lifetime hooks unavailable: {error:#}"
+                );
+                false
+            }
+        }
+    } else {
+        false
+    };
+
+    if config.priority_boost_enabled {
+        if let Err(error) = scheduler::install_priority() {
+            log::warn!(
+                "[LOD] Priority boost transaction rolled back; native priority retained: {error:#}"
+            );
+        }
+    } else {
+        log::info!("[LOD] Native priority boost disabled by config");
+    }
+
+    if config.parallel_io_enabled && speedtree_ready {
+        if let Err(error) = scheduler::install_parallel_io() {
+            log::warn!(
+                "[LOD] Parallel IO transaction rolled back; one native worker retained: {error:#}"
+            );
+        }
+    } else if !config.parallel_io_enabled {
+        log::info!("[LOD] Parallel IO disabled by config");
+    }
+
+    if config.prefetch_enabled && speedtree_ready && reset_ready {
         match install_streaming_hooks() {
             Ok(()) => STREAMING_INSTALLED.store(true, Ordering::Release),
             Err(error) => log::warn!(
@@ -163,22 +202,25 @@ pub(super) fn install(config: &LodConfig, diagnostics: &DiagnosticsConfig) {
         log::info!("[LOD] Native prefetch disabled by config");
     }
 
-    if config.handoff_fix_enabled {
+    if config.handoff_fix_enabled && reset_ready {
         match install_handoff_hooks() {
             Ok(()) => HANDOFF_INSTALLED.store(true, Ordering::Release),
             Err(error) => log::warn!(
                 "[LOD] Identity handoff transaction rolled back; vanilla counters retained: {error:#}"
             ),
         }
-    } else {
+    } else if !config.handoff_fix_enabled {
         log::info!("[LOD] Identity handoff fix disabled by config");
     }
 
     let runtime = CONFIG.get().expect("LOD configuration was published");
+    let scheduler = scheduler::snapshot();
     log::info!(
-        "[LOD] Active streaming={} handoff={} trace={} object={:.2}/{:.2} tree={:.2}/{:.2} terrain={:.2}/{:.2}",
+        "[LOD] Active streaming={} handoff={} priority={} parallel={} trace={} object={:.2}/{:.2} tree={:.2}/{:.2} terrain={:.2}/{:.2}",
         STREAMING_INSTALLED.load(Ordering::Acquire),
         HANDOFF_INSTALLED.load(Ordering::Acquire),
+        scheduler.priority_installed,
+        scheduler.parallel_installed,
         diagnostics.lod_streaming_trace,
         runtime.object_prefetch,
         runtime.object_retention,
@@ -662,6 +704,7 @@ pub(super) fn diagnostic_snapshot() -> DiagnosticSnapshot {
         release_passthroughs: std::array::from_fn(|index| {
             u64::from(RELEASE_PASSTHROUGHS[index].load(Ordering::Relaxed))
         }),
+        scheduler: scheduler::snapshot(),
         speedtree: speedtree_lifetime::snapshot(),
         state: state::snapshot(),
     }
