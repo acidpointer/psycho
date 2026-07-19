@@ -22,15 +22,18 @@ Implementable after Phase 0 closes the listed composition contract:
 - half-resolution integration, temporal reprojection, and bilateral upsampling;
 - world-only composition before first-person and UI rendering.
 
-Not yet implementable honestly:
+The completed Phase 6 audits prove a bounded scene-wide local-light path:
+`ShadowSceneNode +0xB4` is stable across the world light/shadow transaction and
+remains available when native shadow drawing and both native shadow counts are
+disabled. OMV copies and ranks positional-light scalars there. Completed native
+shadow textures are optional per-light enrichment, never enumeration ownership.
+
+Still not implementable honestly:
 
 - true shadow-map-marched directional volumetric lighting;
-- shadowed point/spot volumetric lights;
+- cookies, inferred spot-light cones, or cubemap point-shadow ownership;
 - complete replacement of native fog on every opaque, transparent, water, sky,
   and forward-rendered path.
-
-Those require engine resource and ownership contracts that are not currently
-proven. They are later phases, not shader guesses.
 
 ## What Anomaly SSS actually provides
 
@@ -263,42 +266,75 @@ texture type `0x2B`. `0x00B9F780` waits for the queued shadow render, renders
 offscreen into `+0x10C`, applies image-space effect `0x11` in place, and can
 publish the resulting texture through shader-interface selector 9. Type `0x2B`
 resolves to a 1024x1024 texture. Its default format value is `0x72`
-(`D3DFMT_D24X8`); `SetShaderPackage @ 0x00B4F710` changes it to `0x15`
-(`D3DFMT_A8R8G8B8`) for the ATI compatibility path, so depth representation and
-sampling cannot be assumed portable across renderer modes. The paired
+(`D3DFMT_R32F`); `SetShaderPackage @ 0x00B4F710` changes it to `0x15`
+(`D3DFMT_A8R8G8B8`) for the ATI compatibility path. The former D24X8
+classification was an enum error: D24X8 is `0x4D`. The paired
 `0x00BA30F0`/`0x00BA3130` calls are semaphore signal/wait operations for queued
 render work, not texture-slot bindings. This proves a retained per-local-light
-rendered texture, not a directional sun shadow texture. Selector 9 builds an
-image-space copy shader (`base_old.v.hlsl` plus `copy.p.hlsl`), and the
-`+0x124` branch that publishes through it defaults off; it is not proof of the
-normal local-shadow sampler. The normal shader consumer, depth comparison
-semantics, projection pairing, and safe cross-plugin lifetime still require
-closure before OMV consumes the resource.
+rendered texture, not a directional sun shadow texture. More importantly,
+`0x00B9F780` copies the completed light view and projection state into the same
+object at `+0x50`, `+0x90`, and composed `+0x10` before it returns. The texture
+assignment at `0x00B5AEE0` is explicitly refcounted. A producer-boundary hook
+can therefore retain the texture, copy the matrices and scalar light values,
+and release the texture explicitly after use or epoch replacement without
+depending on the native PPLighting sampler path. `0x00B9CFD0` is only a
+refcounted setter for the
+render accumulator's `+0x1A0` owner. It does not publish a shadow constant or
+encode shadow depth.
 
-The `SimpleShadow` sampling audit identifies the native shader packages without
-closing that resource link. `PPLighting` vertex group C entries 89-91 are three
+The installed shader packages close the native writer and reader ABI. Selector
+7 renders the local shadow caster groups. Its DepthMap packages pair vertex
+group C entries 92-95 (`SLS2092.vso` through `SLS2095.vso`) with pixel group B
+entries 90-91 (`SLS2090.pso` and the alpha-textured `SLS2091.pso`). The writer's
+red channel is the scalar consumed by lighting. In shader notation it is:
+
+`D = length(-t0) * (1 - c16.w / dot(-t0, normalize(c16.xyz))) / c14.x`
+
+The alpha-textured variant writes the same `D` to red and preserves sampled
+alpha in the output alpha channel. `SLS2090.pso`, all four DepthMap vertex
+variants, and this red-channel formula are identical across all 16 installed
+shader packages. `SLS2091.pso` has two compiler schedules, but both retain the
+same red-channel formula and alpha result. Consequently the ATI
+`D3DFMT_A8R8G8B8` path is not a multi-channel packed-depth encoding: it stores
+the same scalar in red at 8-bit precision. OMV may sample `.r` for both formats,
+with a format-appropriate bias floor for the quantized compatibility path.
+
+The `SimpleShadow` sampling audit identifies the native reader. `PPLighting`
+vertex group C entries 89-91 are three
 `lighting\2x\v\SimpleShadow.v.hlsl` variants. `FUN_00BF0720` installs each one
 through the refcounted vertex-shader setter `0x00B79950` and pairs each with the
 pixel family rooted at group B entry 152 through the refcounted pixel-shader
 setter `0x00B80600`. When shader mode `0x011F91B0` is 3, the observed pixel
 lookup is `0x011FDD68 + 0x011F948C * 8`; otherwise it uses entry 152 directly.
-The other five `SimpleShadow.p.hlsl` descriptors have no direct code references
-in the audit, so descriptor construction alone does not establish that every
-variant is reachable.
+The compiled reader variants are `SLS2152s3.pso` and `SLS2153.pso` through
+`SLS2157.pso`. They sample a normal 2D texture at `s6`, read `.r`, and perform a
+manual comparison rather than using a D3D comparison sampler. The projected
+coordinates and comparison are:
 
-This is shader-package setup, not texture binding. `0x00B80600` only updates the
-package pixel-shader pointer at `+0x44`; it never calls D3D `SetTexture`.
-`PROJ_SHADOW` is a shader compile define, while `ShadowProj` backing
-`0x011FD968` is populated separately by the per-draw matrix writer
-`0x00B7B930`. The diagnostic current-shadow global `0x011F9174` has one write
-from the selected-light render loop and no read references. No audited path
-therefore carries the selected object's `+0x10C` type `0x2B` texture into a
-`SimpleShadow` sampler. Texture stage, sampler/comparison state, projection
-pairing, and safe lifetime remain unproven.
+- `uv.x = 0.5 * shadow.x / shadow.w + 0.5`;
+- `uv.y = 0.5 - 0.5 * shadow.y / shadow.w`;
+- lit when `shadow.z < texture.r + bias`, shadowed otherwise.
 
-The runtime-consumer follow-up provides negative closure for reusing these
-resources in OMV. The descriptors resolve `SHADOWMAP` as the entry point and
-compile `SimpleShadow.p.hlsl` variants with `DEPTHBIAS=-0.1`, `SAMPLE`,
+The shader family contains 2-, 5-, and 9-tap PCF variants. All 16 installed
+packages preserve this projection, red-channel read, and compare direction.
+They contain two native bias families: `0.000195312503` and `0.00117187505`;
+the active high-quality package 019 uses `0.00117187505`. The native bytecode
+saturates sample coordinates to the texture edge. OMV must instead reject
+`shadow.w <= 0` and coordinates outside `[0,1]` as unshadowed before sampling,
+so an out-of-projection ray step cannot smear the edge texel across a volume.
+
+This is shader-package setup, not a useful cross-plugin texture binding ABI.
+`0x00B80600` only updates the package pixel-shader pointer at `+0x44`; it never
+calls D3D `SetTexture`. `PROJ_SHADOW` is a shader compile define, while
+`ShadowProj` backing `0x011FD968` is populated separately by the per-draw matrix
+writer `0x00B7B930`. The diagnostic current-shadow global `0x011F9174` has one
+write from the selected-light render loop and no read references. OMV does not
+need to recover this indirect native sampler path now that the producer object
+itself provides the refcounted texture and finalized matrices.
+
+The runtime-consumer follow-up explains why the native draw package must not be
+used as OMV's ownership boundary. The descriptors resolve `SHADOWMAP` as the
+entry point and compile `SimpleShadow.p.hlsl` variants with `DEPTHBIAS=-0.1`, `SAMPLE`,
 `PASSES`, `SHADOWMODE`, and optional `ALPHATEST` controls. The three configured
 shader-interface pointers are consecutive globals `0x011FE8BC`, `0x011FE8C0`,
 and `0x011FE8C4`. `0x00BA53C0` merely copies one of those refcounted pointers
@@ -315,15 +351,49 @@ selector-9 publication, invalidation, or destruction code. The apparent
 for example, `0x00B7C120` binds the current rendered texture returned by
 `0x004BC320`, and the already rejected `0x00B7CB14` hit is a vtable method call.
 
-`ShadowProj` is also not the missing pair. `0x00B7E430` registers it as four
-vertex constant vectors at register `0x12`, backed by `0x011FD968`, and
+`ShadowProj` is also not the producer-boundary pair. `0x00B7E430` registers it
+as four vertex constant vectors at register `0x12`, backed by `0x011FD968`, and
 `0x00B7B930` is the only writer. No path copies the local-shadow object's
 matrices at `+0x10`, `+0x50`, or `+0x90` into that backing block. The native
 engine may complete an indirect internal sampling path that static references
-do not expose, but no stable texture-plus-projection ABI is available to OMV.
-Accordingly, OMV must not retain or sample type `0x2B`; Phase 6 remains blocked
-until OMV owns explicit local-light shadow resources or a later audit proves a
-complete native draw-scoped value-copy contract.
+do not expose, but that draw-scoped path is unnecessary for OMV. The stable ABI
+is instead the selected `ShadowSceneLight` at the end of `0x00B9F780`, where
+`+0x10C` and its matrices coexist and the texture can be retained explicitly.
+
+The extended bind/lifetime audit also rejects PPLighting `+0x60` as the global
+enumeration source. It is an embedded list in each `BSShaderPPLightingProperty`,
+populated and sorted for individual object/material draw paths. The actual
+manager-wide list is `ShadowSceneNode +0xB4`: `0x00B5C450` walks that list,
+matches each `ShadowSceneLight +0xF8` native light pointer, and updates its
+shadow classification. `+0xC0` remains the narrower shadow-candidate list.
+The new audit also shows that `0x00B5B880` walks `+0xC0`, skips invalid or
+disabled entries, and calls `0x00B9F780` once for each completed native shadow
+slot. That callback already has the `ShadowSceneLight`, its retained native
+light at `+0xF8`, the completed `+0x10C` texture, and the finalized matrices.
+
+The manager-epoch follow-up proves `+0xB4` is a conventional scene-wide node
+chain (`next +0`, `ShadowSceneLight +8`) with count at manager `+0xBC`. Its
+insert/remove lifecycle is owned by the scene manager, and it is stable during
+the synchronous world transaction at `0x00871290`. The zero-shadow branch
+clears `+0xC0` shadow candidates and their resources, not `+0xB4`. In contrast,
+`0x00B5B880` is called only inside the nonzero native-shadow path and therefore
+cannot own OMV's light epoch.
+
+Phase 6 now hooks the complete `0x00871290` transaction, copies and ranks up to
+16 positional-light value records from `+0xB4`, and publishes at most four
+draws. Native `0x00B9F780` completion remains an optional enrichment producer:
+its retained texture and matrices are joined by copied native-light identity
+inside the same synchronous transaction. No node, native light pointer, camera,
+or manager owner survives publication. A missing or busy shadow producer yields
+a shadowless volume instead of suppressing the light. OMV never changes native
+shadow settings or asks the engine to render an additional shadow map.
+
+The native point-light values used by `0x00B70820` are also concrete: the
+retained native light at `+0xF8` supplies world position at `+0x8C..+0x94`,
+RGB at `+0xD4..+0xDC`, and radius at `+0xE0`; `ShadowSceneLight +0xD0` is the
+per-shadow-light intensity multiplier. These values must be copied at the same
+`0x00B9F780` return boundary. Draw/material-specific multipliers passed into
+`UpdateLights` are deliberately excluded from the scene-wide volumetric value.
 
 Rendered-texture type `0x2D` in the `RenderShadowMaps` tail is a separate
 borrow passed into a refcounted global/member setter at `0x0066B0D0`. It does
@@ -630,15 +700,48 @@ contract:
 
 ### Phase 6: local volumetric lights
 
-Only after stable light-list and light-visibility contracts exist:
+Status: scene-wide zero-shadow ownership correction implemented and statically
+validated with 111 i686 tests on 2026-07-19; runtime acceptance remains pending.
 
-1. Copy a bounded list of visible light values; never retain raw engine pointers.
-2. Prove shadow-map/cookie ownership or another conservative occlusion source;
-   camera depth alone does not prevent light leaking through walls.
-3. Integrate shadow-aware point/spot ray-sphere/cone volumes at half/quarter
-   resolution.
-4. Cull by screen bounds, distance, intensity, and contribution.
-5. Cap light count and expose overflow telemetry.
+The complete implementation, performance, ownership, failure, and test
+contract is in
+`docs/graphics_fnv_atmosphere_phase6_local_lighting_plan.md`. That document is
+authoritative when this summary omits detail.
+
+The initial production contract is the engine's completed, shadow-selected
+local-light subset:
+
+1. Detour `0x00B9F780`, call the original first, then copy position, RGB,
+   radius, intensity multiplier, `+0x10`, `+0x50`, and `+0x90` matrices.
+2. AddRef the completed `+0x10C` rendered texture. Never retain
+   `ShadowSceneLight`, its native light, camera, accumulator, or list nodes.
+3. Build a fixed-capacity four-entry staging epoch from native priority indices
+   `0..=3` (queued slots `0x11..0x14`); reject null textures, invalid radii,
+   non-finite values, and unsupported formats. The native loop can continue
+   beyond four when actor-shadow counts are higher. Count and ignore those
+   later slots without tainting the coherent first four.
+4. Publish the immutable epoch after `0x00B5B880` returns. If any render-path
+   owner is busy, keep the last complete immutable epoch unchanged; never
+   publish a partial list. Explicit empty publication, disable, reset, or
+   device change clears it on the render/reset path.
+5. Integrate each retained light with an analytic ray-sphere bound at half or
+   quarter resolution. Clip the march by opaque scene depth and the sphere
+   interval before taking samples.
+6. Transform each ray sample with copied `+0x10`, reject invalid/out-of-range
+   projections, sample shadow `.r`, and apply the proven native comparison.
+   Start with one shadow tap per march step; spatial/temporal reconstruction is
+   cheaper than native 5/9-tap PCF inside every step.
+7. Use R32F directly. Support A8R8G8B8 as the same red scalar with an explicit
+   quantization bias floor; fail closed for every other format.
+8. Cull by projected bounds, distance, intensity, and estimated contribution.
+   Expose captured, rendered, rejected, and overflow counts in telemetry.
+9. Keep at most one complete four-light epoch. Release replaced, explicitly
+   emptied, disabled, reset, or device-changed resources on the render/reset
+   path, never while a shadow texture is bound. A missing epoch bypasses local
+   volumetrics without altering native lighting.
+10. Add static shader tests for projection math, compare direction, both native
+    bias families, R32F and quantized-red sampling, behind-light/out-of-atlas
+    rejection, finite output, zero-radius rejection, and bounded loop counts.
 
 An unshadowed implementation is permitted only as an explicitly labelled debug
 view for contract validation, not as the shipped local-light quality path.

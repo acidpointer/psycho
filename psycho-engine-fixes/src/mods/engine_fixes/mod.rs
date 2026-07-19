@@ -4,15 +4,18 @@
 //! which heap allocator is active. Allocator mechanics and allocator-only
 //! safety still live under `heap_replacer`.
 
+use std::fmt::Write as _;
+
 use libc::c_void;
 
-use crate::config::{DiagnosticsConfig, EngineFixesConfig};
+use crate::config::{DiagnosticsConfig, EngineFixesConfig, LodConfig};
 
 mod display;
 mod entrydata;
 mod extraownership;
 mod havok;
 mod linkedrefs;
+mod lod;
 mod lowprocess;
 mod memset;
 mod navmesh;
@@ -41,7 +44,11 @@ pub(crate) fn display_diagnostic_snapshot() -> display::DiagnosticSnapshot {
     display::diagnostic_snapshot()
 }
 
-pub fn install(config: &EngineFixesConfig, diagnostics: &DiagnosticsConfig) -> anyhow::Result<()> {
+pub fn install(
+    config: &EngineFixesConfig,
+    lod_config: &LodConfig,
+    diagnostics: &DiagnosticsConfig,
+) -> anyhow::Result<()> {
     install_save_integrity(config)?;
     install_navmesh_low_pointer(config)?;
     install_entrydata_invalid_form(config)?;
@@ -54,6 +61,7 @@ pub fn install(config: &EngineFixesConfig, diagnostics: &DiagnosticsConfig) -> a
     install_memset_null_dst(config)?;
     install_lowprocess_fix(config)?;
     install_queued_task_guard(config, diagnostics)?;
+    lod::install(lod_config, diagnostics);
 
     Ok(())
 }
@@ -100,104 +108,453 @@ pub(crate) fn append_diagnostic_report(out: &mut String) {
     let low = lowprocess::diagnostic_snapshot();
     let task = queued_tasks::diagnostic_snapshot();
     let save = save_integrity::diagnostic_snapshot();
-    out.push_str("\n==== Engine fixes ====\n");
-    out.push_str(&format!(
-        "  Display: create=installed:{} predecessor:0x{:08X} vanilla:{} site:{} calls:{}/{}/{} setpos=installed:{} predecessor:0x{:08X} vanilla:{} sites:{}/{}/{}/{}/{}/{} windowed:{} reset:{}/{} child:{} loss:{} regain:{} lifecycle:{} catchup:{}/{}/{} mismatches:{} failures:{} monitors:{}/{}/{} restores:{} last_tick:{} result:{} error:{}\n",
-        display.create_window_installed,
-        display.create_window_predecessor,
-        display.create_window_predecessor_vanilla,
-        display::site_state_name(display.bootstrap_create_state),
-        display.bootstrap_create_observations,
-        display.bootstrap_create_corrections,
-        display.bootstrap_create_failures,
-        display.installed,
-        display.predecessor,
-        display.predecessor_vanilla,
-        display::site_state_name(display.site_states[0]),
-        display::site_state_name(display.site_states[1]),
-        display::site_state_name(display.site_states[2]),
-        display::site_state_name(display.site_states[3]),
-        display::site_state_name(display.site_states[4]),
-        display::site_state_name(display.site_states[5]),
-        display.windowed_parent_passthroughs,
-        display.device_reset_observations,
-        display.device_reset_corrections,
-        display.child_resize_passthroughs,
-        display.loss_suppressions,
-        display.regain_normalizations,
-        display.lifecycle_normalizations,
-        display.catch_up_attempts,
-        display.catch_up_successes,
-        display.catch_up_failures,
-        display.contract_mismatches,
-        display.predecessor_failures,
-        display.monitor_point_selections,
-        display.monitor_window_selections,
-        display.monitor_fallbacks,
-        display.restore_attempts,
-        display.last_transition_ms,
-        display.last_result,
-        display.last_error,
-    ));
-    out.push_str(&format!(
-        "  LowProcess: enabled={} observations={} slots={}/{}/{}/{} predecessors={:08X?} wraps={} rewraps={} unsupported={} cleanup=removed:{} invalid:{} truncated:{} predecessor:{}/{} save=owner:{} nulls:{} invalid_nodes:{} invalid_links:{} cycles:{} limits:{} observer=restored:{} restores:{} failures:{} patch_failures={}\n",
+    let lod = lod::diagnostic_snapshot();
+
+    push_report_section(out, "Runtime fixes");
+    push_feature_pair(
+        out,
+        "Display",
+        display.create_window_installed || display.installed,
+        "LowProcess",
         low.enabled,
-        low.observations,
-        lowprocess::slot_state_name(low.slot_states[0]),
-        lowprocess::slot_state_name(low.slot_states[1]),
-        lowprocess::slot_state_name(low.slot_states[2]),
-        lowprocess::slot_state_name(low.slot_states[3]),
-        low.predecessors,
-        low.wraps,
-        low.rewraps,
-        low.unsupported,
-        low.sanitized_entries,
-        low.invalid_cleanup_forms,
-        low.truncated_cleanup_links,
-        low.predecessor_calls,
-        low.predecessor_fallbacks,
-        low.save_owner_hook,
-        low.invalid_save_forms,
-        low.invalid_save_nodes,
-        low.invalid_save_links,
-        low.save_cycles,
-        low.save_traversal_limits,
-        low.main_boundary_restored,
-        low.main_boundary_restores,
-        low.main_boundary_restore_failures,
-        low.patch_failures,
-    ));
-    out.push_str(&format!(
-        "  Save integrity: attempts={} commits={} aborts={} short_writes={} close_failures={} malformed_loads={} unavailable_records={} hooks=factory:{} owner:{} activation:{} fclose:{} load_owner:{} result_predecessor:0x{:08X}\n",
-        save.save_attempts,
-        save.save_commits,
-        save.save_aborts,
-        save.short_writes,
-        save.close_failures,
-        save.load_rejections,
-        save.unresolved_records,
-        save.factory_hook,
-        save.owner_hook,
-        save.activation_hook,
-        save.fclose_hook,
-        save.load_owner_hook,
-        save.result_predecessor,
-    ));
-    out.push_str(&format!(
-        "  queued tasks: release={} dispatch_guard={} predecessor=0x{:08X} dispatch={}/{} pin_fail={} invalid={} base_vt={} releases_guarded={} qt_finals={} tombstones={} trace_dumps={}\n",
-        task.release_enabled,
-        task.dispatch_enabled,
-        task.release_predecessor,
-        task.dispatch_calls,
-        task.dispatch_attempts,
-        task.pin_failures,
-        task.invalid_dispatches,
-        task.base_vtable_rejections,
-        task.release_guards,
-        task.queued_texture_finals,
-        task.tombstones,
-        task.trace_dumps,
-    ));
+    );
+    push_feature_pair(
+        out,
+        "Save integrity",
+        save.factory_hook
+            || save.owner_hook
+            || save.activation_hook
+            || save.fclose_hook
+            || save.load_owner_hook,
+        "Task guard",
+        task.release_enabled || task.dispatch_enabled,
+    );
+    push_feature_pair(
+        out,
+        "LOD prefetch",
+        lod.streaming_installed,
+        "LOD handoff",
+        lod.handoff_installed,
+    );
+    push_feature_pair(
+        out,
+        "Tree lifetime",
+        lod.speedtree.installed,
+        "LOD reset",
+        lod.worldspace_reset_installed,
+    );
+
+    let covered_move_sites = display
+        .site_states
+        .iter()
+        .filter(|state| display::site_state_name(**state) == "covered")
+        .count();
+    let display_events = u64::from(display.bootstrap_create_observations)
+        .saturating_add(u64::from(display.windowed_parent_passthroughs))
+        .saturating_add(u64::from(display.device_reset_observations))
+        .saturating_add(u64::from(display.child_resize_passthroughs));
+    let display_repairs = u64::from(display.bootstrap_create_corrections)
+        .saturating_add(u64::from(display.device_reset_corrections))
+        .saturating_add(u64::from(display.loss_suppressions))
+        .saturating_add(u64::from(display.regain_normalizations))
+        .saturating_add(u64::from(display.lifecycle_normalizations))
+        .saturating_add(u64::from(display.catch_up_successes));
+    let monitor_picks = u64::from(display.monitor_point_selections)
+        .saturating_add(u64::from(display.monitor_window_selections))
+        .saturating_add(u64::from(display.monitor_fallbacks));
+    let low_repairs = u64::from(low.wraps)
+        .saturating_add(u64::from(low.rewraps))
+        .saturating_add(u64::from(low.sanitized_entries))
+        .saturating_add(u64::from(low.main_boundary_restores));
+    let low_slots = low
+        .slot_states
+        .iter()
+        .filter(|state| matches!(lowprocess::slot_state_name(**state), "wrapped" | "chained"))
+        .count();
+    let low_owners = low.predecessors.iter().filter(|owner| **owner != 0).count();
+
+    push_report_section(out, "Engine activity");
+    push_report_value(
+        out,
+        "Display hooks",
+        format!(
+            "create {}/{} / move {}/{}",
+            on_off(display.create_window_installed),
+            native_owner(display.create_window_predecessor_vanilla),
+            on_off(display.installed),
+            native_owner(display.predecessor_vanilla),
+        ),
+    );
+    push_report_value(
+        out,
+        "Display owners",
+        format!(
+            "{:08X} / {:08X}",
+            display.create_window_predecessor, display.predecessor,
+        ),
+    );
+    push_report_value(
+        out,
+        "Display sites",
+        format!(
+            "create {} / move {covered_move_sites}/6",
+            display::site_state_name(display.bootstrap_create_state),
+        ),
+    );
+    push_report_value(
+        out,
+        "Display work",
+        format!("{display_events} events / {display_repairs} repairs"),
+    );
+    push_report_value(
+        out,
+        "Display recovery",
+        format!(
+            "{} tried / {} restore / {} picks",
+            display.catch_up_attempts, display.restore_attempts, monitor_picks,
+        ),
+    );
+    push_report_value(
+        out,
+        "Last display",
+        format!(
+            "{} ms / {} / err {}",
+            display.last_transition_ms,
+            result_name(display.last_result),
+            display.last_error,
+        ),
+    );
+    push_report_value(
+        out,
+        "Saves",
+        format!(
+            "{} tried / {} good / {} aborted",
+            save.save_attempts, save.save_commits, save.save_aborts,
+        ),
+    );
+    push_report_value(
+        out,
+        "Save rejects",
+        format!(
+            "{} I/O / {} load / {} missing",
+            save.short_writes.saturating_add(save.close_failures),
+            save.load_rejections,
+            save.unresolved_records,
+        ),
+    );
+    push_report_value(
+        out,
+        "Save hooks",
+        format!(
+            "{}/5 / owner {:08X}",
+            [
+                save.factory_hook,
+                save.owner_hook,
+                save.activation_hook,
+                save.fclose_hook,
+                save.load_owner_hook,
+            ]
+            .into_iter()
+            .filter(|active| *active)
+            .count(),
+            save.result_predecessor,
+        ),
+    );
+    push_report_value(
+        out,
+        "Task hooks",
+        format!(
+            "release {} / dispatch {}",
+            on_off(task.release_enabled),
+            on_off(task.dispatch_enabled),
+        ),
+    );
+    push_report_value(
+        out,
+        "Task dispatch",
+        format!(
+            "{} good / {} tried / owner {:08X}",
+            task.dispatch_calls, task.dispatch_attempts, task.release_predecessor,
+        ),
+    );
+    push_report_value(
+        out,
+        "Task rejects",
+        format!(
+            "{} pin / {} invalid / {} base",
+            task.pin_failures, task.invalid_dispatches, task.base_vtable_rejections,
+        ),
+    );
+    push_report_value(
+        out,
+        "Task cleanup",
+        format!(
+            "{} held / {} finals / {} tombstones",
+            task.release_guards, task.queued_texture_finals, task.tombstones,
+        ),
+    );
+    push_report_value(out, "Task trace dumps", task.trace_dumps);
+    push_report_value(
+        out,
+        "LowProcess slots",
+        format!("{low_slots}/4 active / {low_owners} owners"),
+    );
+    push_report_value(
+        out,
+        "LowProcess work",
+        format!("{} seen / {low_repairs} repairs", low.observations,),
+    );
+    push_report_value(
+        out,
+        "LowProcess chain",
+        format!(
+            "{} calls / {} fallback / save {} / main {}",
+            low.predecessor_calls,
+            low.predecessor_fallbacks,
+            on_off(low.save_owner_hook),
+            on_off(low.main_boundary_restored),
+        ),
+    );
+
+    push_report_section(out, "LOD streaming");
+    push_report_value(
+        out,
+        "Ready owner",
+        format!(
+            "{:08X} / {} mismatch",
+            lod.ready_predecessor, lod.ready_predecessor_mismatches,
+        ),
+    );
+    for (label, index) in [("Terrain", 0), ("Objects", 1), ("Trees", 2)] {
+        push_report_value(
+            out,
+            label,
+            format!(
+                "{} demand / {} early / {} held / {} release",
+                lod.demand_calls[index],
+                lod.extended_demands[index],
+                lod.retained_demands[index],
+                lod.release_passthroughs[index],
+            ),
+        );
+    }
+    push_report_value(
+        out,
+        "Tracked",
+        format!(
+            "{} cells ({} peak) / {} refs ({} peak)",
+            lod.state.current_cells,
+            lod.state.peak_cells,
+            lod.state.current_references,
+            lod.state.peak_references,
+        ),
+    );
+    push_report_value(
+        out,
+        "Membership",
+        format!(
+            "{} in / {} out / {} mismatch",
+            lod.state.membership_inserts,
+            lod.state.membership_removals,
+            lod.state.membership_mismatches,
+        ),
+    );
+    push_report_value(
+        out,
+        "Ready events",
+        format!(
+            "{} good / {} duplicate / {} stale",
+            lod.state.ready_publications,
+            lod.state.duplicate_publications,
+            lod.state.stale_publications,
+        ),
+    );
+    push_report_value(
+        out,
+        "Handoff gates",
+        format!(
+            "{} open / {} held / {} differ",
+            lod.state.gates_allowed, lod.state.gates_blocked, lod.state.gate_disagreements,
+        ),
+    );
+    push_report_value(
+        out,
+        "Stale retires stop",
+        lod.state.stale_retirements_prevented,
+    );
+    push_report_value(
+        out,
+        "Transitions",
+        format!(
+            "{} uncertain / {} reload / {} teardown / {} world",
+            lod.state.uncertain_cells,
+            lod.state.cell_reloads,
+            lod.state.cell_teardowns,
+            lod.state.worldspace_resets,
+        ),
+    );
+    push_report_value(
+        out,
+        "LOD timing",
+        format!(
+            "{} ms pending / {} us lock / trace {}",
+            lod.state.oldest_pending_ms,
+            lod.state.max_lock_us,
+            on_off(lod.state.trace_enabled),
+        ),
+    );
+
+    push_report_section(out, "SpeedTree lifetime");
+    push_report_value(
+        out,
+        "Clone activity",
+        format!(
+            "{} made / {} destroyed",
+            lod.speedtree.clone_constructs, lod.speedtree.clone_destroys,
+        ),
+    );
+    push_report_value(
+        out,
+        "Live clones",
+        format!(
+            "{} current / {} peak / {} owner peak",
+            lod.speedtree.current_clones, lod.speedtree.peak_clones, lod.speedtree.max_owner_clones,
+        ),
+    );
+    push_report_value(
+        out,
+        "Rejects",
+        format!(
+            "{} missing / {} duplicate / {} bounds",
+            lod.speedtree.missing_member_rejects,
+            lod.speedtree.duplicate_member_rejects,
+            lod.speedtree.invalid_bounds_rejects,
+        ),
+    );
+    push_report_value(
+        out,
+        "Pointer rejects",
+        format!(
+            "{} stale / {} refcount",
+            lod.speedtree.stale_pointer_rejects, lod.speedtree.invalid_refcount_rejects,
+        ),
+    );
+    push_report_value(
+        out,
+        "Constructor faults",
+        lod.speedtree.constructor_postcondition_failures,
+    );
+    push_report_value(
+        out,
+        "Tree timing",
+        format!(
+            "{} us lock / trace {}",
+            lod.speedtree.max_lock_wait_us,
+            on_off(lod.speedtree.trace_enabled),
+        ),
+    );
+
+    let display_alerts = u64::from(display.bootstrap_create_failures)
+        .saturating_add(u64::from(display.catch_up_failures))
+        .saturating_add(u64::from(display.contract_mismatches))
+        .saturating_add(u64::from(display.predecessor_failures));
+    let save_alerts = u64::from(save.save_aborts)
+        .saturating_add(u64::from(save.short_writes))
+        .saturating_add(u64::from(save.close_failures))
+        .saturating_add(u64::from(save.load_rejections))
+        .saturating_add(u64::from(save.unresolved_records));
+    let task_alerts = task
+        .pin_failures
+        .saturating_add(task.invalid_dispatches)
+        .saturating_add(task.base_vtable_rejections);
+    let low_alerts = u64::from(low.unsupported)
+        .saturating_add(u64::from(low.invalid_cleanup_forms))
+        .saturating_add(u64::from(low.truncated_cleanup_links))
+        .saturating_add(u64::from(low.invalid_save_forms))
+        .saturating_add(u64::from(low.invalid_save_nodes))
+        .saturating_add(u64::from(low.invalid_save_links))
+        .saturating_add(u64::from(low.save_cycles))
+        .saturating_add(u64::from(low.save_traversal_limits))
+        .saturating_add(u64::from(low.main_boundary_restore_failures))
+        .saturating_add(u64::from(low.patch_failures));
+    let lod_alerts = lod
+        .ready_predecessor_mismatches
+        .saturating_add(lod.state.membership_mismatches)
+        .saturating_add(lod.state.stale_publications)
+        .saturating_add(lod.state.uncertain_cells);
+    let tree_alerts = lod
+        .speedtree
+        .missing_member_rejects
+        .saturating_add(lod.speedtree.duplicate_member_rejects)
+        .saturating_add(lod.speedtree.invalid_bounds_rejects)
+        .saturating_add(lod.speedtree.stale_pointer_rejects)
+        .saturating_add(lod.speedtree.invalid_refcount_rejects)
+        .saturating_add(lod.speedtree.constructor_postcondition_failures);
+
+    push_report_section(out, "Warnings");
+    let alert_total = display_alerts
+        .saturating_add(save_alerts)
+        .saturating_add(task_alerts)
+        .saturating_add(low_alerts)
+        .saturating_add(lod_alerts)
+        .saturating_add(tree_alerts);
+    if alert_total == 0 {
+        out.push_str("  No runtime warnings.\n");
+    } else {
+        push_nonzero(out, "Display", display_alerts);
+        push_nonzero(out, "Save system", save_alerts);
+        push_nonzero(out, "Queued tasks", task_alerts);
+        push_nonzero(out, "LowProcess", low_alerts);
+        push_nonzero(out, "LOD handoff", lod_alerts);
+        push_nonzero(out, "SpeedTree", tree_alerts);
+        out.push_str("  Handled events are listed above.\n");
+    }
+
+    lod::append_trace_report(out);
+}
+
+fn push_report_section(out: &mut String, title: &str) {
+    out.push('\n');
+    out.push_str(title);
+    out.push('\n');
+    out.push_str("--------------------------------------------\n");
+}
+
+fn push_report_value(out: &mut String, label: &str, value: impl std::fmt::Display) {
+    let _ = writeln!(out, "  {label:<18}{value}");
+}
+
+fn push_feature_pair(
+    out: &mut String,
+    left: &str,
+    left_enabled: bool,
+    right: &str,
+    right_enabled: bool,
+) {
+    let _ = writeln!(
+        out,
+        "  {left:<15}{:<5}{right:<15}{}",
+        on_off(left_enabled),
+        on_off(right_enabled),
+    );
+}
+
+fn push_nonzero(out: &mut String, label: &str, value: u64) {
+    if value != 0 {
+        push_report_value(out, label, value);
+    }
+}
+
+fn on_off(enabled: bool) -> &'static str {
+    if enabled { "ON" } else { "OFF" }
+}
+
+fn native_owner(native: bool) -> &'static str {
+    if native { "native" } else { "chained" }
+}
+
+fn result_name(success: bool) -> &'static str {
+    if success { "OK" } else { "failed" }
 }
 
 fn install_save_integrity(config: &EngineFixesConfig) -> anyhow::Result<()> {

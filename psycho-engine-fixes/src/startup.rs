@@ -40,7 +40,7 @@ pub(crate) fn initialize() -> anyhow::Result<()> {
     install_display(&cfg.engine_fixes)?;
     initialize_diagnostics(&cfg.diagnostics)?;
     initialize_memory(&cfg.memory)?;
-    install_engine_fix_hooks(&cfg.engine_fixes, &cfg.diagnostics)?;
+    install_engine_fix_hooks(&cfg.engine_fixes, &cfg.lod, &cfg.diagnostics)?;
     install_runtime_hooks(&cfg.performance)?;
 
     log_runtime();
@@ -161,9 +161,10 @@ fn initialize_scrap_heap() -> anyhow::Result<()> {
 
 fn install_engine_fix_hooks(
     engine_fixes: &EngineFixesConfig,
+    lod: &crate::config::LodConfig,
     diagnostics: &DiagnosticsConfig,
 ) -> anyhow::Result<()> {
-    install_engine_fixes(engine_fixes, diagnostics)
+    install_engine_fixes(engine_fixes, lod, diagnostics)
 }
 
 fn install_runtime_hooks(performance: &PerformanceConfig) -> anyhow::Result<()> {

@@ -203,7 +203,9 @@ pub(crate) unsafe fn try_release_device_resources(device_ptr: *mut c_void) -> bo
         return false;
     };
     if !crate::fnv_world_pipeline::try_release_device_resources_after(device_ptr, || {
-        backend::try_reset_depth_resources()
+        crate::fnv_local_lights::try_release_device_resources_after(device_ptr as usize, || {
+            backend::try_reset_depth_resources()
+        })
     }) {
         RESET_BUSY.fetch_add(1, Ordering::Relaxed);
         return false;
@@ -3091,7 +3093,13 @@ fn draw_shader_details(ui: &mut psycho_imgui::Ui<'_>, source: &mut ScreenShaderS
     }
 
     let mut enabled = source.enabled;
-    let enabled_label = cstring(format!("Enabled##{}.enabled", source.name));
+    let enabled_name =
+        if source.embedded_effect_kind() == Some(EmbeddedEffectKind::VolumetricLighting) {
+            "Directional sun lighting"
+        } else {
+            "Enabled"
+        };
+    let enabled_label = cstring(format!("{enabled_name}##{}.enabled", source.name));
     if ui.checkbox(&enabled_label, &mut enabled) {
         if let Err(err) = source.set_enabled(enabled) {
             source.config_error = Some(format!("{err:#}"));
@@ -3236,6 +3244,71 @@ fn draw_shader_details(ui: &mut psycho_imgui::Ui<'_>, source: &mut ScreenShaderS
 
     for option_index in 0..source.options.len() {
         let option = source.options[option_index].clone();
+        if source.embedded_effect_kind() == Some(EmbeddedEffectKind::VolumetricLighting)
+            && option.key == "local_lights_enabled"
+        {
+            ui.spacing();
+            let heading = cstring("LOCAL LIGHTS");
+            ui.separator_text(&heading);
+            let telemetry = crate::fnv_local_lights::telemetry();
+            let hook_status = if !telemetry.hooks_ready {
+                "capture hooks unavailable"
+            } else if telemetry.capture_enabled {
+                if telemetry.shadow_hook_ready {
+                    "scene capture active; native shadows optional"
+                } else {
+                    "scene capture active; shadowless fallback"
+                }
+            } else {
+                "capture disabled by local toggle or global graphics switch"
+            };
+            let status = cstring(format!(
+                "{} // epochs={} scene={} rendered={} shadowed={} // shadow_slots={} accepted={} rejected={} overflow={} // R32F={} A8={} bad_format={}",
+                hook_status,
+                telemetry.traversals,
+                telemetry.scene_lights,
+                telemetry.rendered,
+                telemetry.shadowed_lights,
+                telemetry.captured,
+                telemetry.accepted,
+                telemetry.rejected,
+                telemetry.overflow,
+                telemetry.r32f,
+                telemetry.a8r8g8b8,
+                telemetry.rejected_formats,
+            ));
+            ui.text_colored(
+                if telemetry.hooks_ready && telemetry.capture_enabled {
+                    MENU_GOOD_TEXT
+                } else {
+                    MENU_WARN_TEXT
+                },
+                &status,
+            );
+            let lock_status = cstring(format!(
+                "Nonblocking misses: capture={} publish={} consume={} reset={}",
+                telemetry.staging_busy,
+                telemetry.publish_busy,
+                telemetry.consume_busy,
+                telemetry.reset_busy,
+            ));
+            ui.text_colored(MENU_MUTED_TEXT, &lock_status);
+            let local_quality = source
+                .options
+                .iter()
+                .find(|option| option.key == "local_lights_quality")
+                .and_then(|option| match option.value {
+                    ShaderOptionValue::Integer(value) => Some(value),
+                    _ => None,
+                })
+                .unwrap_or(1);
+            let budget = match local_quality {
+                0 => "Performance: quarter resolution, 2 lights, 4 samples, <=4 draws",
+                2 => "Ultra: half resolution, 4 lights, 10 samples, <=8 draws",
+                _ => "High: half resolution, 4 lights, 6 samples, <=8 draws",
+            };
+            ui.text_colored(MENU_MUTED_TEXT, &cstring(budget));
+        }
         if source.embedded_effect_kind() == Some(EmbeddedEffectKind::DepthOfField) {
             if !depth_of_field_option_visible(source, option.key.as_str()) {
                 continue;

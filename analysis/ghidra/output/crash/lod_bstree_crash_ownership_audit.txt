@@ -1,0 +1,2370 @@
+LOD BSTree crash ownership audit
+======================================================================
+Crash signature: C0000417 at 0x00EC7C62 while destroying WastelandUndergrowth01.spt
+Goal: identify the exact invalid SpeedTree registration erase, its owner, and whether the DTL task path shares that ownership.
+
+# PART 1: Exact crash instruction and completed-task release chain
+
+----------------------------------------------------------------------
+Disassembly around 0x00b03e48 (SpeedTree destructor return site before CRT invalid parameter)
+----------------------------------------------------------------------
+  0x00b03dbc: JMP 0x00b03dcd                                  
+  0x00b03dbe: MOV ECX,dword ptr [EBP + 0xfffffeb8]            
+  0x00b03dc4: ADD ECX,0x4                                     
+  0x00b03dc7: MOV dword ptr [EBP + 0xfffffeb8],ECX            
+  0x00b03dcd: MOV EDX,dword ptr [EBP + 0xfffffeb8]            
+  0x00b03dd3: CMP EDX,dword ptr [EBP + 0xfffffec4]            
+  0x00b03dd9: JZ 0x00b03dec                                   
+  0x00b03ddb: MOV EAX,dword ptr [EBP + 0xfffffeb8]            
+  0x00b03de1: MOV ECX,dword ptr [EAX]                         
+  0x00b03de3: CMP ECX,dword ptr [EBP + -0x4c]                 
+  0x00b03de6: JNZ 0x00b03dea                                  
+  0x00b03de8: JMP 0x00b03dec                                  
+  0x00b03dea: JMP 0x00b03dbe                                  
+  0x00b03dec: MOV EDX,dword ptr [EBP + 0xfffffeb8]            
+  0x00b03df2: MOV dword ptr [EBP + 0xfffffecc],EDX            
+  0x00b03df8: MOV EAX,dword ptr [EBP + 0xfffffecc]            
+  0x00b03dfe: MOV dword ptr [EBP + 0xfffffeb4],EAX            
+  0x00b03e04: MOV ECX,dword ptr [EBP + 0xfffffeb4]            
+  0x00b03e0a: MOV dword ptr [EBP + 0xfffffeb0],ECX            
+  0x00b03e10: MOV EDX,dword ptr [EBP + 0xfffffeac]            
+  0x00b03e16: MOV dword ptr [EBP + -0x1c],EDX                 
+  0x00b03e19: MOV EAX,dword ptr [EBP + 0xfffffeb0]            
+  0x00b03e1f: MOV dword ptr [EBP + -0x18],EAX                 
+  0x00b03e22: MOV ECX,dword ptr [EBP + -0x1c]                 
+  0x00b03e25: MOV dword ptr [EBP + -0x64],ECX                 
+  0x00b03e28: MOV EDX,dword ptr [EBP + -0x18]                 
+  0x00b03e2b: MOV dword ptr [EBP + -0x60],EDX                 
+  0x00b03e2e: MOV EAX,dword ptr [EBP + -0x60]                 
+  0x00b03e31: PUSH EAX                                        
+  0x00b03e32: MOV ECX,dword ptr [EBP + -0x64]                 
+  0x00b03e35: PUSH ECX                                        
+  0x00b03e36: LEA EDX,[EBP + -0x6c]                           
+  0x00b03e39: PUSH EDX                                        
+  0x00b03e3a: MOV EAX,dword ptr [EBP + 0xfffffe64]            
+  0x00b03e40: MOV ECX,dword ptr [EAX + 0x38]                  
+  0x00b03e43: CALL 0x00b0df00                                 
+      call -> 0x00b0df00 FUN_00b0df00 @ 0x00b0df00
+  0x00b03e48: MOV ECX,dword ptr [EBP + 0xfffffe64]             << FOCUS
+  0x00b03e4e: MOV EDX,dword ptr [ECX + 0x34]                  
+  0x00b03e51: MOV dword ptr [EBP + -0x70],EDX                 
+  0x00b03e54: MOV EAX,dword ptr [EBP + -0x70]                 
+  0x00b03e57: PUSH EAX                                        
+  0x00b03e58: MOV ECX,0x11f6238                               
+  0x00b03e5d: CALL 0x00aa4060                                 
+      call -> 0x00aa4060 FUN_00aa4060 @ 0x00aa4060
+  0x00b03e62: MOV ECX,dword ptr [EBP + 0xfffffe64]            
+  0x00b03e68: MOV dword ptr [ECX + 0x34],0x0                  
+  0x00b03e6f: MOV EDX,dword ptr [EBP + 0xfffffe64]            
+  0x00b03e75: MOV EAX,dword ptr [EDX + 0x30]                  
+  0x00b03e78: CMP dword ptr [EAX],0x0                         
+  0x00b03e7b: JNZ 0x00b04321                                  
+  0x00b03e81: MOV ECX,dword ptr [EBP + 0xfffffe64]            
+  0x00b03e87: CALL 0x00b053e0                                 
+      call -> 0x00b053e0 FUN_00b053e0 @ 0x00b053e0
+  0x00b03e8c: MOV ECX,dword ptr [EBP + 0xfffffe64]            
+  0x00b03e92: MOV EDX,dword ptr [ECX + 0x4]                   
+  0x00b03e95: MOV dword ptr [EBP + -0x78],EDX                 
+  0x00b03e98: MOV EAX,dword ptr [EBP + -0x78]                 
+  0x00b03e9b: MOV dword ptr [EBP + -0x74],EAX                 
+  0x00b03e9e: CMP dword ptr [EBP + -0x74],0x0                 
+  0x00b03ea2: JZ 0x00b03ecf                                   
+  0x00b03ea4: MOV ECX,dword ptr [EBP + -0x74]                 
+  0x00b03ea7: CALL 0x00b2e9c0                                 
+      call -> 0x00b2e9c0 FUN_00b2e9c0 @ 0x00b2e9c0
+  0x00b03eac: MOV ECX,0x1                                     
+  0x00b03eb1: AND ECX,0x1                                     
+  0x00b03eb4: JZ 0x00b03ec4                                   
+  0x00b03eb6: MOV EDX,dword ptr [EBP + -0x74]                 
+  0x00b03eb9: PUSH EDX                                        
+  0x00b03eba: MOV ECX,0x11f6238                               
+  0x00b03ebf: CALL 0x00aa4060                                 
+      call -> 0x00aa4060 FUN_00aa4060 @ 0x00aa4060
+  0x00b03ec4: MOV EAX,dword ptr [EBP + -0x74]                 
+  0x00b03ec7: MOV dword ptr [EBP + 0xfffffe60],EAX            
+  0x00b03ecd: JMP 0x00b03ed9                                  
+  0x00b03ecf: MOV dword ptr [EBP + 0xfffffe60],0x0            
+  0x00b03ed9: MOV ECX,dword ptr [EBP + 0xfffffe64]            
+  0x00b03edf: MOV EDX,dword ptr [ECX + 0xc]                   
+  0x00b03ee2: MOV dword ptr [EBP + -0x7c],EDX                 
+  0x00b03ee5: MOV EAX,dword ptr [EBP + -0x7c]                 
+  0x00b03ee8: PUSH EAX                                        
+  0x00b03ee9: MOV ECX,0x11f6238                               
+  0x00b03eee: CALL 0x00aa4060                                 
+      call -> 0x00aa4060 FUN_00aa4060 @ 0x00aa4060
+  0x00b03ef3: MOV ECX,dword ptr [EBP + 0xfffffe64]            
+  0x00b03ef9: MOV EDX,dword ptr [ECX + 0x10]                  
+  0x00b03efc: MOV dword ptr [EBP + -0x80],EDX                 
+
+======================================================================
+SpeedTree core destructor @ 0x00b03e48
+======================================================================
+  Function: FUN_00b03b30 @ 0x00b03b30, Size: 2277 bytes
+  NOTE: Requested 0x00b03e48 is inside FUN_00b03b30 (entry at 0x00b03b30)
+
+void __fastcall FUN_00b03b30(int *param_1)
+
+{
+  int iVar1;
+  undefined4 *puVar2;
+  char cVar3;
+  uint uVar4;
+  int *unaff_FS_OFFSET;
+  undefined4 *local_14c;
+  undefined4 *local_f8;
+  undefined1 local_70 [8];
+  undefined4 local_68;
+  undefined4 *local_64;
+  undefined4 local_60;
+  undefined4 *local_5c;
+  undefined4 *local_54;
+  int *local_50;
+  undefined1 local_4c [8];
+  undefined4 local_44;
+  undefined4 *local_40;
+  undefined1 local_3c [8];
+  undefined4 local_34;
+  undefined4 *local_30;
+  undefined4 *local_28;
+  int *local_24;
+  undefined4 local_20;
+  undefined4 *local_1c;
+  undefined4 local_18;
+  undefined4 *local_14;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00f23adc;
+  local_10 = *unaff_FS_OFFSET;
+  uVar4 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  if (param_1[0xd] == 0) {
+    EnterCriticalSection((LPCRITICAL_SECTION)&lpCriticalSection_011f8bc4);
+    local_24 = param_1;
+    FUN_00b10430(DAT_011f8bec,&DAT_011f8bdc);
+    FUN_00b10430(DAT_011f8be8,&DAT_011f8bdc);
+    for (local_f8 = local_30; (local_f8 != local_28 && ((int *)*local_f8 != local_24));
+        local_f8 = local_f8 + 1) {
+    }
+    local_18 = local_34;
+    local_14 = local_f8;
+    FUN_00b10430(DAT_011f8bec,&DAT_011f8bdc);
+    cVar3 = FUN_00b0eca0(local_3c);
+    if (cVar3 == '\0') {
+      local_44 = local_18;
+      local_40 = local_14;
+      FUN_00b0df00(local_4c,local_18,local_14);
+    }
+    LeaveCriticalSection((LPCRITICAL_SECTION)&lpCriticalSection_011f8bc4);
+  }
+  *(int *)param_1[0xc] = *(int *)param_1[0xc] + -1;
+  if (param_1[0xd] != 0) {
+    local_50 = param_1;
+    FUN_00b10430(*(undefined4 *)(param_1[0xe] + 0x10),param_1[0xe]);
+    FUN_00b10430(*(undefined4 *)(param_1[0xe] + 0xc),param_1[0xe]);
+    for (local_14c = local_5c; (local_14c != local_54 && ((int *)*local_14c != local_50));
+        local_14c = local_14c + 1) {
+    }
+    local_20 = local_60;
+    local_1c = local_14c;
+    local_68 = local_60;
+    local_64 = local_14c;
+    FUN_00b0df00(local_70,local_60,local_14c);
+    FUN_00aa4060(param_1[0xd]);
+    param_1[0xd] = 0;
+  }
+  if (*(int *)param_1[0xc] == 0) {
+    FUN_00b053e0(uVar4);
+    iVar1 = param_1[1];
+    if (iVar1 != 0) {
+      FUN_00b2e9c0();
+      FUN_00aa4060(iVar1);
+    }
+    FUN_00aa4060(param_1[3]);
+    FUN_00aa4060(param_1[4]);
+    iVar1 = param_1[2];
+    if (iVar1 != 0) {
+      FUN_00b276f0();
+      FUN_00aa4060(iVar1);
+    }
+    FUN_00aa4060(param_1[5]);
+    if ((undefined4 *)*param_1 != (undefined4 *)0x0) {
+      (*(code *)**(undefined4 **)*param_1)(1);
+    }
+    FUN_00aa4060(param_1[0xc]);
+    puVar2 = (undefined4 *)param_1[0xe];
+    if (puVar2 != (undefined4 *)0x0) {
+      local_8 = 0;
+      FUN_00b0e7f0();
+      local_8 = 1;
+      FUN_00aa4060(*puVar2);
+      local_8 = 0xffffffff;
+      FUN_00aa4060(puVar2);
+    }
+    FUN_00aa4060(param_1[0x10]);
+    puVar2 = (undefined4 *)param_1[0x16];
+    if (puVar2 != (undefined4 *)0x0) {
+      local_8 = 2;
+      FUN_00b0ea80();
+      local_8 = 3;
+      FUN_00aa4060(*puVar2);
+      local_8 = 0xffffffff;
+      FUN_00aa4060(puVar2);
+    }
+    iVar1 = param_1[0x13];
+    if (iVar1 != 0) {
+      FUN_00b04420();
+      FUN_00aa4060(iVar1);
+    }
+    iVar1 = param_1[0x17];
+    if (iVar1 != 0) {
+      FUN_00b181b0();
+      FUN_00aa4060(iVar1);
+    }
+    iVar1 = param_1[0x18];
+    if (iVar1 != 0) {
+      FUN_00b2e9c0();
+      FUN_00aa4060(iVar1);
+    }
+    FUN_00aa4060(param_1[0xb]);
+    iVar1 = param_1[0x14];
+    if (iVar1 != 0) {
+      FUN_0044a730(1,0);
+      FUN_00aa4060(iVar1);
+    }
+    FUN_00aa4060(param_1[0x1a]);
+  }
+  param_1[1] = 0;
+  param_1[3] = 0;
+  param_1[4] = 0;
+  param_1[2] = 0;
+  param_1[5] = 0;
+  *param_1 = 0;
+  param_1[0xc] = 0;
+  param_1[0x10] = 0;
+  param_1[0xe] = 0;
+  param_1[0x16] = 0;
+  param_1[0x13] = 0;
+  param_1[0x17] = 0;
+  param_1[0x18] = 0;
+  param_1[0xb] = 0;
+  param_1[0x14] = 0;
+  param_1[0x1a] = 0;
+  DAT_011f8b7c = DAT_011f8b7c + -1;
+  if (DAT_011f8b7c == 0) {
+    FUN_00b37a00();
+  }
+  *unaff_FS_OFFSET = local_10;
+  return;
+}
+
+
+
+--- Calls FROM SpeedTree core destructor (0x00b03e48) ---
+  0x00b03b73 -> 0x0000000d ???
+  0x00b03b9d -> 0x00b10430 FUN_00b10430
+  0x00b03bbd -> 0x00b10430 FUN_00b10430
+  0x00b03c8b -> 0x00b10430 FUN_00b10430
+  0x00b03c97 -> 0x00b0eca0 FUN_00b0eca0
+  0x00b03cca -> 0x00b0df00 FUN_00b0df00
+  0x00b03cd4 -> 0x00000036 ???
+  0x00b03d3b -> 0x00b10430 FUN_00b10430
+  0x00b03d6f -> 0x00b10430 FUN_00b10430
+  0x00b03e43 -> 0x00b0df00 FUN_00b0df00
+  0x00b03e5d -> 0x00aa4060 FUN_00aa4060
+  0x00b03e87 -> 0x00b053e0 FUN_00b053e0
+  0x00b03ea7 -> 0x00b2e9c0 FUN_00b2e9c0
+  0x00b03ebf -> 0x00aa4060 FUN_00aa4060
+  0x00b03eee -> 0x00aa4060 FUN_00aa4060
+  0x00b03f08 -> 0x00aa4060 FUN_00aa4060
+  0x00b03f37 -> 0x00b276f0 FUN_00b276f0
+  0x00b03f52 -> 0x00aa4060 FUN_00aa4060
+  0x00b03f8a -> 0x00aa4060 FUN_00aa4060
+  0x00b03ff3 -> 0x00aa4060 FUN_00aa4060
+  0x00b04029 -> 0x00b0e7f0 FUN_00b0e7f0
+  0x00b04056 -> 0x00aa4060 FUN_00aa4060
+  0x00b04078 -> 0x00aa4060 FUN_00aa4060
+  0x00b040b0 -> 0x00aa4060 FUN_00aa4060
+  0x00b040e6 -> 0x00b0ea80 FUN_00b0ea80
+  0x00b04113 -> 0x00aa4060 FUN_00aa4060
+  0x00b04135 -> 0x00aa4060 FUN_00aa4060
+  0x00b0417c -> 0x00b04420 FUN_00b04420
+  0x00b04197 -> 0x00aa4060 FUN_00aa4060
+  0x00b041de -> 0x00b181b0 FUN_00b181b0
+  0x00b041f9 -> 0x00aa4060 FUN_00aa4060
+  0x00b04240 -> 0x00b2e9c0 FUN_00b2e9c0
+  0x00b0425b -> 0x00aa4060 FUN_00aa4060
+  0x00b04293 -> 0x00aa4060 FUN_00aa4060
+  0x00b042c9 -> 0x0044a730 FUN_0044a730
+  0x00b042e4 -> 0x00aa4060 FUN_00aa4060
+  0x00b0431c -> 0x00aa4060 FUN_00aa4060
+  0x00b04401 -> 0x00b37a00 FUN_00b37a00
+  Total: 38 calls
+
+----------------------------------------------------------------------
+References TO 0x00b03b30 (SpeedTree core destructor entry)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0066691a (in FUN_00666910)
+  Total: 1 refs
+
+======================================================================
+SpeedTree registration container erase helper @ 0x00b0df00
+======================================================================
+  Function: FUN_00b0df00 @ 0x00b0df00, Size: 163 bytes
+
+undefined4 * __thiscall
+FUN_00b0df00(undefined4 *param_1,undefined4 *param_2,undefined4 param_3,uint param_4)
+
+{
+  FUN_00b42e50(param_4 + 4,param_1[4],param_4);
+  param_1[4] = param_1[4] + -4;
+  *param_2 = 0;
+  if (((param_1 == (undefined4 *)0x0) || (param_4 < (uint)param_1[3])) ||
+     ((uint)param_1[4] < param_4)) {
+    FUN_00ec7c56();
+  }
+  *param_2 = *param_1;
+  param_2[1] = param_4;
+  return param_2;
+}
+
+
+
+--- Calls FROM SpeedTree registration container erase helper (0x00b0df00) ---
+  0x00b0df1b -> 0x00b42e50 FUN_00b42e50
+  0x00b0df7e -> 0x00ec7c56 FUN_00ec7c56
+  Total: 2 calls
+
+----------------------------------------------------------------------
+References TO 0x00b0df00 (SpeedTree registration container erase helper)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00b03cca (in FUN_00b03b30)
+  UNCONDITIONAL_CALL @ 0x00b03e43 (in FUN_00b03b30)
+  Total: 2 refs
+
+======================================================================
+SpeedTree registration iterator constructor @ 0x00b10430
+======================================================================
+  Function: FUN_00b10430 @ 0x00b10430, Size: 81 bytes
+
+undefined4 * __thiscall FUN_00b10430(undefined4 *param_1,uint param_2,undefined4 *param_3)
+
+{
+  *param_1 = 0;
+  if (((param_3 == (undefined4 *)0x0) || (param_2 < (uint)param_3[3])) ||
+     ((uint)param_3[4] < param_2)) {
+    FUN_00ec7c56();
+  }
+  *param_1 = *param_3;
+  param_1[1] = param_2;
+  return param_1;
+}
+
+
+
+======================================================================
+SpeedTree iterator comparison used before one erase @ 0x00b0eca0
+======================================================================
+  Function: FUN_00b0eca0 @ 0x00b0eca0, Size: 79 bytes
+
+bool __thiscall FUN_00b0eca0(int *param_1,int *param_2)
+
+{
+  if ((*param_1 == 0) || (*param_1 != *param_2)) {
+    FUN_00ec7c56();
+  }
+  return param_1[1] == param_2[1];
+}
+
+
+
+======================================================================
+CRT invalid-parameter wrapper @ 0x00ec7c56
+======================================================================
+  Function: FUN_00ec7c56 @ 0x00ec7c56, Size: 16 bytes
+
+void FUN_00ec7c56(void)
+
+{
+  __invalid_parameter(0,0,0,0,0);
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+Disassembly around 0x00c459ab (completed-task processor)
+----------------------------------------------------------------------
+  0x00c45960: PUSH EAX                                        
+  0x00c45961: MOV ECX,0x1202e20                               
+  0x00c45966: CALL 0x00c45e50                                 
+      call -> 0x00c45e50 FUN_00c45e50 @ 0x00c45e50
+  0x00c4596b: CMP dword ptr [EBP + -0x10],0x0                 
+  0x00c4596f: JZ 0x00c45995                                   
+  0x00c45971: MOV ECX,dword ptr [EBP + -0x10]                 
+  0x00c45974: MOV dword ptr [EBP + -0x20],ECX                 
+  0x00c45977: MOV EDX,dword ptr [EBP + -0x20]                 
+  0x00c4597a: ADD EDX,0x4                                     
+  0x00c4597d: PUSH EDX                                        
+  0x00c4597e: CALL dword ptr [0x00fdf1c4]                     
+      call -> 0x00000067 ???
+  0x00c45984: TEST EAX,EAX                                    
+  0x00c45986: JNZ 0x00c45995                                  
+  0x00c45988: MOV EAX,dword ptr [EBP + -0x20]                 
+  0x00c4598b: MOV EDX,dword ptr [EAX]                         
+  0x00c4598d: MOV ECX,dword ptr [EBP + -0x20]                 
+  0x00c45990: MOV EAX,dword ptr [EDX + 0x4]                   
+  0x00c45993: CALL EAX                                        
+  0x00c45995: CALL dword ptr [0x00fdf060]                     
+      call -> 0x0000000e ???
+  0x00c4599b: MOV dword ptr [EBP + -0x8],EAX                  
+  0x00c4599e: JMP 0x00c4593f                                  
+  0x00c459a0: CMP dword ptr [EBP + -0x4],0x0                  
+  0x00c459a4: JNZ 0x00c459ab                                  
+  0x00c459a6: CALL 0x00c45a80                                 
+      call -> 0x00c45a80 FUN_00c45a80 @ 0x00c45a80
+  0x00c459ab: MOV ECX,dword ptr [0x01202e44]                   << FOCUS
+  0x00c459b1: SUB ECX,0x1                                     
+  0x00c459b4: MOV dword ptr [0x01202e44],ECX                  
+  0x00c459ba: JNZ 0x00c459c6                                  
+  0x00c459bc: MOV dword ptr [0x01202e40],0x0                  
+  0x00c459c6: MOV ESP,EBP                                     
+  0x00c459c8: POP EBP                                         
+  0x00c459c9: RET                                             
+  0x00c459d0: PUSH EBP                                        
+  0x00c459d1: MOV EBP,ESP                                     
+  0x00c459d3: SUB ESP,0x28                                    
+  0x00c459d6: MOV byte ptr [EBP + -0x1],0x1                   
+  0x00c459da: MOVZX EAX,byte ptr [EBP + 0x8]                  
+  0x00c459de: TEST EAX,EAX                                    
+  0x00c459e0: JZ 0x00c459f1                                   
+  0x00c459e2: MOV ECX,0x1202e40                               
+  0x00c459e7: CALL 0x0078d200                                 
+      call -> 0x0078d200 FUN_0078d200 @ 0x0078d200
+  0x00c459ec: MOV byte ptr [EBP + -0x1],AL                    
+  0x00c459ef: JMP 0x00c459fd                                  
+  0x00c459f1: PUSH 0x0                                        
+  0x00c459f3: MOV ECX,0x1202e40                               
+  0x00c459f8: CALL 0x0040fbf0                                 
+      call -> 0x0040fbf0 FUN_0040fbf0 @ 0x0040fbf0
+  0x00c459fd: MOVZX ECX,byte ptr [EBP + -0x1]                 
+  0x00c45a01: TEST ECX,ECX                                    
+  0x00c45a03: JZ 0x00c45a3d                                   
+
+----------------------------------------------------------------------
+Disassembly around 0x00c45a9e (completed-task array cleanup)
+----------------------------------------------------------------------
+  0x00c45a41: TEST EDX,EDX                                    
+  0x00c45a43: JZ 0x00c45a78                                   
+  0x00c45a45: MOV ECX,0x1202e20                               
+  0x00c45a4a: CALL 0x00c46080                                 
+      call -> 0x00c46080 FUN_00c46080 @ 0x00c46080
+  0x00c45a4f: CALL 0x00c45a80                                 
+      call -> 0x00c45a80 FUN_00c45a80 @ 0x00c45a80
+  0x00c45a54: PUSH 0x11f4380                                  
+  0x00c45a59: CALL dword ptr [0x00fdf100]                     
+      call -> 0x00000036 ???
+  0x00c45a5f: MOV EAX,[0x01202e44]                            
+  0x00c45a64: SUB EAX,0x1                                     
+  0x00c45a67: MOV [0x01202e44],EAX                            
+  0x00c45a6c: JNZ 0x00c45a78                                  
+  0x00c45a6e: MOV dword ptr [0x01202e40],0x0                  
+  0x00c45a78: MOV ESP,EBP                                     
+  0x00c45a7a: POP EBP                                         
+  0x00c45a7b: RET                                             
+  0x00c45a80: PUSH EBP                                        
+  0x00c45a81: MOV EBP,ESP                                     
+  0x00c45a83: SUB ESP,0x68                                    
+  0x00c45a86: MOVZX EAX,word ptr [0x01202e2a]                 
+  0x00c45a8d: CMP EAX,0x64                                    
+  0x00c45a90: JBE 0x00c45a9e                                  
+  0x00c45a92: PUSH 0x64                                       
+  0x00c45a94: MOV ECX,0x1202e20                               
+  0x00c45a99: CALL 0x00c45b20                                 
+      call -> 0x00c45b20 FUN_00c45b20 @ 0x00c45b20
+  0x00c45a9e: MOV ESP,EBP                                      << FOCUS
+  0x00c45aa0: POP EBP                                         
+  0x00c45aa1: RET                                             
+  0x00c45ab0: PUSH EBP                                        
+  0x00c45ab1: MOV EBP,ESP                                     
+  0x00c45ab3: MOVZX EAX,word ptr [0x01202e2c]                 
+  0x00c45aba: TEST EAX,EAX                                    
+  0x00c45abc: JZ 0x00c45ac2                                   
+  0x00c45abe: XOR AL,AL                                       
+  0x00c45ac0: JMP 0x00c45ac4                                  
+  0x00c45ac2: MOV AL,0x1                                      
+  0x00c45ac4: POP EBP                                         
+  0x00c45ac5: RET                                             
+  0x00c45ad0: PUSH EBP                                        
+  0x00c45ad1: MOV EBP,ESP                                     
+  0x00c45ad3: MOVZX EAX,word ptr [0x01202e2c]                 
+  0x00c45ada: POP EBP                                         
+  0x00c45adb: RET                                             
+  0x00c45ae0: PUSH EBP                                        
+  0x00c45ae1: MOV EBP,ESP                                     
+  0x00c45ae3: SUB ESP,0x68                                    
+  0x00c45ae6: MOVZX EAX,word ptr [0x01202e2a]                 
+  0x00c45aed: CMP EAX,dword ptr [EBP + 0x8]                   
+  0x00c45af0: JNC 0x00c45b00                                  
+  0x00c45af2: MOV ECX,dword ptr [EBP + 0x8]                   
+
+----------------------------------------------------------------------
+Disassembly around 0x00c45c4b (completed-task element release)
+----------------------------------------------------------------------
+  0x00c45bf7: MOV EAX,dword ptr [EDX + 0x4]                   
+  0x00c45bfa: CALL EAX                                        
+  0x00c45bfc: MOVZX ECX,byte ptr [EBP + -0x15]                
+  0x00c45c00: TEST ECX,ECX                                    
+  0x00c45c02: JZ 0x00c45c8e                                   
+  0x00c45c08: MOV dword ptr [EBP + -0x20],0x0                 
+  0x00c45c0f: CMP dword ptr [EBP + -0x20],0x0                 
+  0x00c45c13: JZ 0x00c45c28                                   
+  0x00c45c15: MOV EDX,dword ptr [EBP + -0x20]                 
+  0x00c45c18: MOV dword ptr [EBP + -0x34],EDX                 
+  0x00c45c1b: MOV EAX,dword ptr [EBP + -0x34]                 
+  0x00c45c1e: ADD EAX,0x4                                     
+  0x00c45c21: PUSH EAX                                        
+  0x00c45c22: CALL dword ptr [0x00fdf1c0]                     
+      call -> 0x00000066 ???
+  0x00c45c28: LEA ECX,[EBP + -0x20]                           
+  0x00c45c2b: MOV dword ptr [EBP + -0x7c],ECX                 
+  0x00c45c2e: MOV dword ptr [EBP + -0x4],0x0                  
+  0x00c45c35: MOV EDX,dword ptr [EBP + -0x7c]                 
+  0x00c45c38: PUSH EDX                                        
+  0x00c45c39: MOVZX EAX,word ptr [EBP + -0x10]                
+  0x00c45c3d: MOV ECX,dword ptr [EBP + -0x78]                 
+  0x00c45c40: MOV EDX,dword ptr [ECX + 0x4]                   
+  0x00c45c43: LEA ECX,[EDX + EAX*0x4]                         
+  0x00c45c46: CALL 0x00c46270                                 
+      call -> 0x00c46270 FUN_00c46270 @ 0x00c46270
+  0x00c45c4b: MOV dword ptr [EBP + -0x4],0xffffffff            << FOCUS
+  0x00c45c52: CMP dword ptr [EBP + -0x20],0x0                 
+  0x00c45c56: JZ 0x00c45c7c                                   
+  0x00c45c58: MOV EAX,dword ptr [EBP + -0x20]                 
+  0x00c45c5b: MOV dword ptr [EBP + -0x40],EAX                 
+  0x00c45c5e: MOV ECX,dword ptr [EBP + -0x40]                 
+  0x00c45c61: ADD ECX,0x4                                     
+  0x00c45c64: PUSH ECX                                        
+  0x00c45c65: CALL dword ptr [0x00fdf1c4]                     
+      call -> 0x00000067 ???
+  0x00c45c6b: TEST EAX,EAX                                    
+  0x00c45c6d: JNZ 0x00c45c7c                                  
+  0x00c45c6f: MOV EDX,dword ptr [EBP + -0x40]                 
+  0x00c45c72: MOV EAX,dword ptr [EDX]                         
+  0x00c45c74: MOV ECX,dword ptr [EBP + -0x40]                 
+  0x00c45c77: MOV EDX,dword ptr [EAX + 0x4]                   
+  0x00c45c7a: CALL EDX                                        
+  0x00c45c7c: MOV EAX,dword ptr [EBP + -0x78]                 
+  0x00c45c7f: MOV CX,word ptr [EAX + 0xc]                     
+  0x00c45c83: SUB CX,0x1                                      
+  0x00c45c87: MOV EDX,dword ptr [EBP + -0x78]                 
+  0x00c45c8a: MOV word ptr [EDX + 0xc],CX                     
+  0x00c45c8e: JMP 0x00c45b73                                  
+  0x00c45c93: MOV EAX,dword ptr [EBP + -0x78]                 
+  0x00c45c96: MOV CX,word ptr [EBP + 0x8]                     
+  0x00c45c9a: MOV word ptr [EAX + 0xa],CX                     
+
+======================================================================
+per-frame completed-task processor @ 0x00c458f0
+======================================================================
+  Function: FUN_00c458f0 @ 0x00c458f0, Size: 218 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+void FUN_00c458f0(void)
+
+{
+  int *piVar1;
+  DWORD DVar2;
+  LONG LVar3;
+  int *local_14;
+  uint local_10;
+  uint local_c;
+  uint local_8;
+  
+  FUN_0040fbf0(0);
+  DVar2 = GetTickCount();
+  local_10 = DVar2 + _DAT_011af758;
+  local_c = 0;
+  local_8 = (uint)DAT_01202e2c;
+  if (200 < local_8) {
+    local_10 = local_10 + 1000;
+  }
+  while ((local_8 != 0 && (local_c < local_10))) {
+    FUN_00c45e50(&local_14,local_8 - 1);
+    piVar1 = local_14;
+    if ((local_14 != (int *)0x0) && (LVar3 = InterlockedDecrement(local_14 + 1), LVar3 == 0)) {
+      (**(code **)(*piVar1 + 4))();
+    }
+    local_c = GetTickCount();
+    local_8 = local_8 - 1;
+  }
+  if (local_8 == 0) {
+    FUN_00c45a80();
+  }
+  DAT_01202e44 = DAT_01202e44 + -1;
+  if (DAT_01202e44 == 0) {
+    _DAT_01202e40 = 0;
+  }
+  return;
+}
+
+
+
+======================================================================
+completed-task array cleanup @ 0x00c45a80
+======================================================================
+  Function: FUN_00c45a80 @ 0x00c45a80, Size: 34 bytes
+
+void FUN_00c45a80(void)
+
+{
+  if (100 < DAT_01202e2a) {
+    FUN_00c45b20(100);
+  }
+  return;
+}
+
+
+
+======================================================================
+completed-task container resize and release @ 0x00c45b20
+======================================================================
+  Function: FUN_00c45b20 @ 0x00c45b20, Size: 736 bytes
+
+/* WARNING: Removing unreachable block (ram,0x00c45d49) */
+/* WARNING: Removing unreachable block (ram,0x00c45b9f) */
+/* WARNING: Removing unreachable block (ram,0x00c45c15) */
+/* WARNING: Removing unreachable block (ram,0x00c45bd8) */
+/* WARNING: Removing unreachable block (ram,0x00c45bef) */
+/* WARNING: Restarted to delay deadcode elimination for space: stack */
+
+void __thiscall FUN_00c45b20(int param_1,uint param_2)
+
+{
+  int *piVar1;
+  uint uVar2;
+  LONG LVar3;
+  undefined4 uVar4;
+  int *unaff_FS_OFFSET;
+  int *local_28;
+  int *local_24;
+  undefined4 local_20;
+  undefined1 local_19;
+  int local_18;
+  ushort local_14;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00f2e5a0;
+  local_10 = *unaff_FS_OFFSET;
+  uVar2 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  if (param_2 != *(ushort *)(param_1 + 8)) {
+    if (param_2 < *(ushort *)(param_1 + 10)) {
+      for (local_14 = (ushort)param_2; local_14 < *(ushort *)(param_1 + 10); local_14 = local_14 + 1
+          ) {
+        local_20 = 0;
+        uVar4 = local_20;
+        local_19 = *(int *)(*(int *)(param_1 + 4) + (uint)local_14 * 4) != 0;
+        local_20 = 0;
+        if ((bool)local_19) {
+          local_24 = (int *)0x0;
+          local_8 = 0;
+          FUN_00c46270(&local_24);
+          piVar1 = local_24;
+          local_8 = 0xffffffff;
+          if ((local_24 != (int *)0x0) && (LVar3 = InterlockedDecrement(local_24 + 1), LVar3 == 0))
+          {
+            (**(code **)(*piVar1 + 4))();
+          }
+          *(short *)(param_1 + 0xc) = *(short *)(param_1 + 0xc) + -1;
+          uVar4 = local_20;
+        }
+        local_20 = uVar4;
+      }
+      *(ushort *)(param_1 + 10) = (ushort)param_2;
+    }
+    local_18 = *(int *)(param_1 + 4);
+    *(ushort *)(param_1 + 8) = (ushort)param_2;
+    if (param_2 == 0) {
+      *(undefined4 *)(param_1 + 4) = 0;
+    }
+    else {
+      uVar4 = FUN_00c46170(*(undefined2 *)(param_1 + 8),uVar2);
+      *(undefined4 *)(param_1 + 4) = uVar4;
+      for (local_14 = 0; local_14 < *(ushort *)(param_1 + 10); local_14 = local_14 + 1) {
+        FUN_00c46270(local_18 + (uint)local_14 * 4);
+      }
+      for (local_14 = *(ushort *)(param_1 + 10); local_14 < *(ushort *)(param_1 + 8);
+          local_14 = local_14 + 1) {
+        local_28 = (int *)0x0;
+        local_8 = 1;
+        FUN_00c46270(&local_28);
+        piVar1 = local_28;
+        local_8 = 0xffffffff;
+        if ((local_28 != (int *)0x0) && (LVar3 = InterlockedDecrement(local_28 + 1), LVar3 == 0)) {
+          (**(code **)(*piVar1 + 4))();
+        }
+      }
+    }
+    if (local_18 != 0) {
+      FUN_00c46420(3);
+    }
+  }
+  *unaff_FS_OFFSET = local_10;
+  return;
+}
+
+
+
+======================================================================
+virtual deleting-destructor dispatch @ 0x00cfcc20
+======================================================================
+  Function: FUN_00cfcc20 @ 0x00cfcc20, Size: 13 bytes
+
+void __fastcall FUN_00cfcc20(undefined4 *param_1)
+
+{
+  if (param_1 != (undefined4 *)0x0) {
+    (**(code **)*param_1)(1);
+  }
+  return;
+}
+
+
+
+# PART 2: BSTreeNode, BSTreeModel, and core SpeedTree ownership
+
+----------------------------------------------------------------------
+Disassembly around 0x0066b68f (BSTreeNode scalar destructor)
+----------------------------------------------------------------------
+  0x0066b66a: ADD ESP,0x4                                     
+  0x0066b66d: ADD EAX,0x10                                    
+  0x0066b670: MOV ECX,EAX                                     
+  0x0066b672: CALL 0x00559450                                 
+      call -> 0x00559450 FUN_00559450 @ 0x00559450
+  0x0066b677: POP EBP                                         
+  0x0066b678: RET                                             
+  0x0066b680: PUSH EBP                                        
+  0x0066b681: MOV EBP,ESP                                     
+  0x0066b683: PUSH ECX                                        
+  0x0066b684: MOV dword ptr [EBP + -0x4],ECX                  
+  0x0066b687: MOV ECX,dword ptr [EBP + -0x4]                  
+  0x0066b68a: CALL 0x0066b6c0                                 
+      call -> 0x0066b6c0 FUN_0066b6c0 @ 0x0066b6c0
+  0x0066b68f: MOV EAX,dword ptr [EBP + 0x8]                    << FOCUS
+  0x0066b692: AND EAX,0x1                                     
+  0x0066b695: JZ 0x0066b6a8                                   
+  0x0066b697: PUSH 0xf8                                       
+  0x0066b69c: MOV ECX,dword ptr [EBP + -0x4]                  
+  0x0066b69f: PUSH ECX                                        
+  0x0066b6a0: CALL 0x00aa1460                                 
+      call -> 0x00aa1460 FUN_00aa1460 @ 0x00aa1460
+  0x0066b6a5: ADD ESP,0x8                                     
+  0x0066b6a8: MOV EAX,dword ptr [EBP + -0x4]                  
+  0x0066b6ab: MOV ESP,EBP                                     
+  0x0066b6ad: POP EBP                                         
+  0x0066b6ae: RET 0x4                                         
+  0x0066b6c0: PUSH EBP                                        
+  0x0066b6c1: MOV EBP,ESP                                     
+  0x0066b6c3: PUSH -0x1                                       
+  0x0066b6c5: PUSH 0xf00404                                   
+  0x0066b6ca: MOV EAX,FS:[0x0]                                
+  0x0066b6d0: PUSH EAX                                        
+  0x0066b6d1: SUB ESP,0x1c                                    
+  0x0066b6d4: MOV EAX,[0x011c16bc]                            
+  0x0066b6d9: XOR EAX,EBP                                     
+
+----------------------------------------------------------------------
+Disassembly around 0x006667df (BSTreeModel scalar destructor)
+----------------------------------------------------------------------
+  0x006667b5: MOV ECX,dword ptr [EBP + -0xc]                  
+  0x006667b8: MOV dword ptr FS:[0x0],ECX                      
+  0x006667bf: POP ECX                                         
+  0x006667c0: MOV ESP,EBP                                     
+  0x006667c2: POP EBP                                         
+  0x006667c3: RET                                             
+  0x006667d0: PUSH EBP                                        
+  0x006667d1: MOV EBP,ESP                                     
+  0x006667d3: PUSH ECX                                        
+  0x006667d4: MOV dword ptr [EBP + -0x4],ECX                  
+  0x006667d7: MOV ECX,dword ptr [EBP + -0x4]                  
+  0x006667da: CALL 0x00666800                                 
+      call -> 0x00666800 FUN_00666800 @ 0x00666800
+  0x006667df: MOV EAX,dword ptr [EBP + 0x8]                    << FOCUS
+  0x006667e2: AND EAX,0x1                                     
+  0x006667e5: JZ 0x006667f5                                   
+  0x006667e7: PUSH 0x50                                       
+  0x006667e9: MOV ECX,dword ptr [EBP + -0x4]                  
+  0x006667ec: PUSH ECX                                        
+  0x006667ed: CALL 0x00aa1460                                 
+      call -> 0x00aa1460 FUN_00aa1460 @ 0x00aa1460
+  0x006667f2: ADD ESP,0x8                                     
+  0x006667f5: MOV EAX,dword ptr [EBP + -0x4]                  
+  0x006667f8: MOV ESP,EBP                                     
+  0x006667fa: POP EBP                                         
+  0x006667fb: RET 0x4                                         
+  0x00666800: PUSH EBP                                        
+  0x00666801: MOV EBP,ESP                                     
+  0x00666803: PUSH -0x1                                       
+  0x00666805: PUSH 0xeffec5                                   
+  0x0066680a: MOV EAX,FS:[0x0]                                
+  0x00666810: PUSH EAX                                        
+  0x00666811: SUB ESP,0x10                                    
+  0x00666814: MOV EAX,[0x011c16bc]                            
+  0x00666819: XOR EAX,EBP                                     
+
+----------------------------------------------------------------------
+Disassembly around 0x00666868 (BSTreeModel destructor releases core object)
+----------------------------------------------------------------------
+  0x00666828: MOV EAX,dword ptr [EBP + -0x18]                 
+  0x0066682b: MOV dword ptr [EAX],0x1066768                   
+  0x00666831: MOV dword ptr [EBP + -0x4],0x7                  
+  0x00666838: MOV ECX,dword ptr [EBP + -0x18]                 
+  0x0066683b: CALL 0x00666fc0                                 
+      call -> 0x00666fc0 FUN_00666fc0 @ 0x00666fc0
+  0x00666840: MOV ECX,dword ptr [EBP + -0x18]                 
+  0x00666843: CMP dword ptr [ECX + 0xc],0x0                   
+  0x00666847: JZ 0x0066687e                                   
+  0x00666849: MOV EDX,dword ptr [EBP + -0x18]                 
+  0x0066684c: MOV EAX,dword ptr [EDX + 0xc]                   
+  0x0066684f: MOV dword ptr [EBP + -0x14],EAX                 
+  0x00666852: MOV ECX,dword ptr [EBP + -0x14]                 
+  0x00666855: MOV dword ptr [EBP + -0x10],ECX                 
+  0x00666858: CMP dword ptr [EBP + -0x10],0x0                 
+  0x0066685c: JZ 0x0066686d                                   
+  0x0066685e: PUSH 0x1                                        
+  0x00666860: MOV ECX,dword ptr [EBP + -0x10]                 
+  0x00666863: CALL 0x00666910                                 
+      call -> 0x00666910 FUN_00666910 @ 0x00666910
+  0x00666868: MOV dword ptr [EBP + -0x1c],EAX                  << FOCUS
+  0x0066686b: JMP 0x00666874                                  
+  0x0066686d: MOV dword ptr [EBP + -0x1c],0x0                 
+  0x00666874: MOV EDX,dword ptr [EBP + -0x18]                 
+  0x00666877: MOV dword ptr [EDX + 0xc],0x0                   
+  0x0066687e: MOV byte ptr [EBP + -0x4],0x6                   
+  0x00666882: MOV ECX,dword ptr [EBP + -0x18]                 
+  0x00666885: ADD ECX,0x38                                    
+  0x00666888: CALL 0x0045cec0                                 
+      call -> 0x0045cec0 ~cancellation_token_source @ 0x0045cec0
+  0x0066688d: MOV byte ptr [EBP + -0x4],0x5                   
+  0x00666891: MOV ECX,dword ptr [EBP + -0x18]                 
+  0x00666894: ADD ECX,0x34                                    
+  0x00666897: CALL 0x0045cec0                                 
+      call -> 0x0045cec0 ~cancellation_token_source @ 0x0045cec0
+  0x0066689c: MOV byte ptr [EBP + -0x4],0x4                   
+  0x006668a0: MOV ECX,dword ptr [EBP + -0x18]                 
+  0x006668a3: ADD ECX,0x30                                    
+  0x006668a6: CALL 0x0045cec0                                 
+      call -> 0x0045cec0 ~cancellation_token_source @ 0x0045cec0
+  0x006668ab: MOV byte ptr [EBP + -0x4],0x3                   
+  0x006668af: MOV ECX,dword ptr [EBP + -0x18]                 
+  0x006668b2: ADD ECX,0x2c                                    
+  0x006668b5: CALL 0x0045cec0                                 
+      call -> 0x0045cec0 ~cancellation_token_source @ 0x0045cec0
+  0x006668ba: MOV byte ptr [EBP + -0x4],0x2                   
+  0x006668be: MOV ECX,dword ptr [EBP + -0x18]                 
+  0x006668c1: ADD ECX,0x20                                    
+  0x006668c4: CALL 0x0045cec0                                 
+      call -> 0x0045cec0 ~cancellation_token_source @ 0x0045cec0
+  0x006668c9: MOV byte ptr [EBP + -0x4],0x1                   
+  0x006668cd: MOV ECX,dword ptr [EBP + -0x18]                 
+
+----------------------------------------------------------------------
+Disassembly around 0x0066691f (core SpeedTree scalar destructor)
+----------------------------------------------------------------------
+  0x00666900: POP ECX                                         
+  0x00666901: MOV ESP,EBP                                     
+  0x00666903: POP EBP                                         
+  0x00666904: RET                                             
+  0x00666910: PUSH EBP                                        
+  0x00666911: MOV EBP,ESP                                     
+  0x00666913: PUSH ECX                                        
+  0x00666914: MOV dword ptr [EBP + -0x4],ECX                  
+  0x00666917: MOV ECX,dword ptr [EBP + -0x4]                  
+  0x0066691a: CALL 0x00b03b30                                 
+      call -> 0x00b03b30 FUN_00b03b30 @ 0x00b03b30
+  0x0066691f: MOV EAX,dword ptr [EBP + 0x8]                    << FOCUS
+  0x00666922: AND EAX,0x1                                     
+  0x00666925: JZ 0x00666933                                   
+  0x00666927: MOV ECX,dword ptr [EBP + -0x4]                  
+  0x0066692a: PUSH ECX                                        
+  0x0066692b: CALL 0x00401030                                 
+      call -> 0x00401030 FUN_00401030 @ 0x00401030
+  0x00666930: ADD ESP,0x4                                     
+  0x00666933: MOV EAX,dword ptr [EBP + -0x4]                  
+  0x00666936: MOV ESP,EBP                                     
+  0x00666938: POP EBP                                         
+  0x00666939: RET 0x4                                         
+  0x00666940: PUSH EBP                                        
+  0x00666941: MOV EBP,ESP                                     
+  0x00666943: PUSH -0x1                                       
+  0x00666945: PUSH 0xefff1c                                   
+  0x0066694a: MOV EAX,FS:[0x0]                                
+  0x00666950: PUSH EAX                                        
+  0x00666951: SUB ESP,0x488                                   
+  0x00666957: MOV EAX,[0x011c16bc]                            
+
+======================================================================
+BSTreeNode constructor @ 0x0066b120
+======================================================================
+  Function: FUN_0066b120 @ 0x0066b120, Size: 1161 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+undefined4 * __thiscall FUN_0066b120(undefined4 *param_1,undefined4 param_2,int param_3)
+
+{
+  ushort uVar1;
+  uint uVar2;
+  int iVar3;
+  undefined4 uVar4;
+  int *unaff_FS_OFFSET;
+  int local_84;
+  int *local_80;
+  int local_7c;
+  uint *local_78;
+  uint *local_74;
+  undefined4 local_70;
+  undefined4 local_6c;
+  undefined4 local_68;
+  ushort local_14;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00f003bf;
+  local_10 = *unaff_FS_OFFSET;
+  uVar2 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  FUN_00b4e150(uVar2);
+  local_8 = 0;
+  *param_1 = &PTR_FUN_010668e4;
+  FUN_00633c90(0);
+  local_8._0_1_ = 1;
+  FUN_00633c90(0);
+  local_8._0_1_ = 2;
+  FUN_00b4dec0(6);
+  FUN_0066b0d0(param_2);
+  FUN_004902f0(1);
+  iVar3 = FUN_00aa13e0(0xac);
+  local_8._0_1_ = 3;
+  if (iVar3 == 0) {
+    local_68 = 0;
+  }
+  else {
+    local_68 = FUN_00a5ecb0(0);
+  }
+  local_8._0_1_ = 2;
+  FUN_00a93ea0(0,local_68);
+  iVar3 = FUN_00aa13e0(0xac);
+  local_8._0_1_ = 4;
+  if (iVar3 == 0) {
+    local_6c = 0;
+  }
+  else {
+    local_6c = FUN_00a5ecb0(0);
+  }
+  local_8._0_1_ = 2;
+  FUN_00a93ea0(1,local_6c);
+  iVar3 = FUN_00aa13e0(0xb4);
+  local_8._0_1_ = 5;
+  if (iVar3 == 0) {
+    local_70 = 0;
+  }
+  else {
+    local_70 = FUN_0051cf00();
+  }
+  local_8._0_1_ = 2;
+  FUN_0051d000(1);
+  FUN_006404b0(_DAT_01016b78,0x3f800000,0,0);
+  FUN_00a93ea0(2,local_70);
+  FUN_00559450();
+  uVar1 = FUN_00669990();
+  if (uVar1 == 0) {
+    param_1[0x3a] = 0;
+  }
+  else {
+    uVar2 = (uint)uVar1;
+    local_74 = (uint *)FUN_00401000(-(uint)(0xfffffffb < uVar2 * 4) | uVar2 * 4 + 4);
+    local_8._0_1_ = 6;
+    if (local_74 == (uint *)0x0) {
+      local_74 = (uint *)0x0;
+    }
+    else {
+      *local_74 = uVar2;
+      _eh_vector_constructor_iterator_
+                (local_74 + 1,4,uVar2,FUN_006694e0,
+                 Concurrency::cancellation_token_source::~cancellation_token_source);
+      local_74 = local_74 + 1;
+    }
+    local_8._0_1_ = 2;
+    param_1[0x3a] = local_74;
+    for (local_14 = 0; local_14 < uVar1; local_14 = local_14 + 1) {
+      FUN_0066b0d0(0);
+    }
+  }
+  FUN_00559450();
+  uVar1 = FUN_006699d0();
+  if (uVar1 == 0) {
+    param_1[0x3b] = 0;
+  }
+  else {
+    uVar2 = (uint)uVar1;
+    local_78 = (uint *)FUN_00401000(-(uint)(0xfffffffb < uVar2 * 4) | uVar2 * 4 + 4);
+    local_8._0_1_ = 7;
+    if (local_78 == (uint *)0x0) {
+      local_78 = (uint *)0x0;
+    }
+    else {
+      *local_78 = uVar2;
+      _eh_vector_constructor_iterator_
+                (local_78 + 1,4,uVar2,FUN_006694e0,
+                 Concurrency::cancellation_token_source::~cancellation_token_source);
+      local_78 = local_78 + 1;
+    }
+    local_8._0_1_ = 2;
+    param_1[0x3b] = local_78;
+    for (local_14 = 0; local_14 < uVar1; local_14 = local_14 + 1) {
+      FUN_0066b0d0(0);
+    }
+  }
+  FUN_0066b0d0(0);
+  uVar4 = FUN_0066b660();
+  FUN_00a5bca0(uVar4);
+  if (param_3 == 0) {
+    FUN_00559450();
+    local_7c = FUN_0066a630();
+  }
+  else {
+    local_7c = param_3;
+  }
+  if (local_7c != 0) {
+    iVar3 = FUN_00aa13e0(0x14);
+    local_8._0_1_ = 8;
+    if (iVar3 == 0) {
+      local_80 = (int *)0x0;
+    }
+    else {
+      local_80 = (int *)FUN_0066b640();
+    }
+    local_8 = CONCAT31(local_8._1_3_,2);
+    if (param_3 == 0) {
+      FUN_00559450();
+      local_84 = FUN_0066a630();
+    }
+    else {
+      local_84 = param_3;
+    }
+    FUN_00c6b980(local_84);
+    (**(code **)(*local_80 + 0x8c))(param_1);
+  }
+  param_1[0x3d] = 0;
+  *unaff_FS_OFFSET = local_10;
+  return param_1;
+}
+
+
+
+======================================================================
+BSTreeNode destructor body @ 0x0066b6c0
+======================================================================
+  Function: FUN_0066b6c0 @ 0x0066b6c0, Size: 264 bytes
+
+void __fastcall FUN_0066b6c0(undefined4 *param_1)
+
+{
+  uint uVar1;
+  int *unaff_FS_OFFSET;
+  int local_10;
+  undefined1 *puStack_c;
+  int local_8;
+  
+  puStack_c = &LAB_00f00404;
+  local_10 = *unaff_FS_OFFSET;
+  uVar1 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  *param_1 = &PTR_FUN_010668e4;
+  local_8 = 2;
+  if (param_1[0x3a] != 0) {
+    if (param_1[0x3a] != 0) {
+      FID_conflict__vector_deleting_destructor_(3);
+    }
+    param_1[0x3a] = 0;
+  }
+  if (param_1[0x3b] != 0) {
+    if (param_1[0x3b] != 0) {
+      FID_conflict__vector_deleting_destructor_(3);
+    }
+    param_1[0x3b] = 0;
+  }
+  local_8._0_1_ = 1;
+  Concurrency::cancellation_token_source::~cancellation_token_source
+            ((cancellation_token_source *)(param_1 + 0x3c));
+  local_8 = (uint)local_8._1_3_ << 8;
+  Concurrency::cancellation_token_source::~cancellation_token_source
+            ((cancellation_token_source *)(param_1 + 0x39));
+  local_8 = 0xffffffff;
+  FUN_00b4e1e0(uVar1);
+  *unaff_FS_OFFSET = local_10;
+  return;
+}
+
+
+
+======================================================================
+BSTreeModel constructor @ 0x00666650
+======================================================================
+  Function: FUN_00666650 @ 0x00666650, Size: 372 bytes
+
+undefined4 * __fastcall FUN_00666650(undefined4 *param_1)
+
+{
+  uint uVar1;
+  int *unaff_FS_OFFSET;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00effe55;
+  local_10 = *unaff_FS_OFFSET;
+  uVar1 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  FUN_004968b0(uVar1);
+  local_8 = 0;
+  *param_1 = &PTR__scalar_deleting_destructor__01066768;
+  FUN_00633c90(0);
+  local_8._0_1_ = 1;
+  FUN_00633c90(0);
+  local_8._0_1_ = 2;
+  FUN_00633c90(0);
+  local_8._0_1_ = 3;
+  FUN_00633c90(0);
+  local_8._0_1_ = 4;
+  FUN_00633c90(0);
+  local_8._0_1_ = 5;
+  FUN_00633c90(0);
+  local_8._0_1_ = 6;
+  FUN_00633c90(0);
+  local_8 = CONCAT31(local_8._1_3_,7);
+  param_1[3] = 0;
+  param_1[2] = 0;
+  param_1[5] = 0;
+  param_1[6] = 0;
+  FUN_0066b0d0(0);
+  FUN_0066b0d0(0);
+  param_1[9] = 0;
+  param_1[10] = 0;
+  FUN_0066b0d0(0);
+  FUN_0066b0d0(0);
+  FUN_0066b0d0(0);
+  param_1[0xf] = 0;
+  param_1[0x10] = 1;
+  *(undefined1 *)(param_1 + 0x11) = 0;
+  param_1[0x12] = 0;
+  param_1[0x13] = 0;
+  *unaff_FS_OFFSET = local_10;
+  return param_1;
+}
+
+
+
+======================================================================
+BSTreeModel destructor body @ 0x00666800
+======================================================================
+  Function: FUN_00666800 @ 0x00666800, Size: 261 bytes
+
+void __fastcall FUN_00666800(undefined4 *param_1)
+
+{
+  uint uVar1;
+  int *unaff_FS_OFFSET;
+  int local_10;
+  undefined1 *puStack_c;
+  int local_8;
+  
+  puStack_c = &LAB_00effec5;
+  local_10 = *unaff_FS_OFFSET;
+  uVar1 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  *param_1 = &PTR__scalar_deleting_destructor__01066768;
+  local_8 = 7;
+  FUN_00666fc0(uVar1);
+  if (param_1[3] != 0) {
+    if (param_1[3] != 0) {
+      FUN_00666910(1);
+    }
+    param_1[3] = 0;
+  }
+  local_8._0_1_ = 6;
+  Concurrency::cancellation_token_source::~cancellation_token_source
+            ((cancellation_token_source *)(param_1 + 0xe));
+  local_8._0_1_ = 5;
+  Concurrency::cancellation_token_source::~cancellation_token_source
+            ((cancellation_token_source *)(param_1 + 0xd));
+  local_8._0_1_ = 4;
+  Concurrency::cancellation_token_source::~cancellation_token_source
+            ((cancellation_token_source *)(param_1 + 0xc));
+  local_8._0_1_ = 3;
+  Concurrency::cancellation_token_source::~cancellation_token_source
+            ((cancellation_token_source *)(param_1 + 0xb));
+  local_8._0_1_ = 2;
+  Concurrency::cancellation_token_source::~cancellation_token_source
+            ((cancellation_token_source *)(param_1 + 8));
+  local_8._0_1_ = 1;
+  Concurrency::cancellation_token_source::~cancellation_token_source
+            ((cancellation_token_source *)(param_1 + 7));
+  local_8 = (uint)local_8._1_3_ << 8;
+  Concurrency::cancellation_token_source::~cancellation_token_source
+            ((cancellation_token_source *)(param_1 + 4));
+  local_8 = 0xffffffff;
+  FUN_00496910();
+  *unaff_FS_OFFSET = local_10;
+  return;
+}
+
+
+
+======================================================================
+BSTreeModel pre-destruction cleanup @ 0x00666fc0
+======================================================================
+  Function: FUN_00666fc0 @ 0x00666fc0, Size: 347 bytes
+
+void __fastcall FUN_00666fc0(int param_1)
+
+{
+  if (*(int *)(param_1 + 0x14) != 0) {
+    FUN_00666f00();
+    if (*(int *)(param_1 + 0x14) != 0) {
+      FID_conflict__vector_deleting_destructor_(3);
+    }
+    *(undefined4 *)(param_1 + 0x14) = 0;
+  }
+  if (*(int *)(param_1 + 0x18) != 0) {
+    if (*(int *)(param_1 + 0x18) != 0) {
+      FID_conflict__vector_deleting_destructor_(3);
+    }
+    *(undefined4 *)(param_1 + 0x18) = 0;
+  }
+  FUN_0066b0d0(0);
+  FUN_0066b0d0(0);
+  if (*(int *)(param_1 + 0x24) != 0) {
+    if (*(int *)(param_1 + 0x24) != 0) {
+      FID_conflict__vector_deleting_destructor_(3);
+    }
+    *(undefined4 *)(param_1 + 0x24) = 0;
+  }
+  if (*(int *)(param_1 + 0x28) != 0) {
+    if (*(int *)(param_1 + 0x28) != 0) {
+      FID_conflict__vector_deleting_destructor_(3);
+    }
+    *(undefined4 *)(param_1 + 0x28) = 0;
+  }
+  FUN_0066b0d0(0);
+  FUN_0066b0d0(0);
+  FUN_0066b0d0(0);
+  FUN_0066b0d0(0);
+  return;
+}
+
+
+
+======================================================================
+core SpeedTree scalar destructor @ 0x00666910
+======================================================================
+  Function: FUN_00666910 @ 0x00666910, Size: 44 bytes
+
+undefined4 __thiscall FUN_00666910(undefined4 param_1,uint param_2)
+
+{
+  FUN_00b03b30();
+  if ((param_2 & 1) != 0) {
+    FUN_00401030(param_1);
+  }
+  return param_1;
+}
+
+
+
+======================================================================
+intrusive pointer assignment helper @ 0x0066b0d0
+======================================================================
+  Function: FUN_0066b0d0 @ 0x0066b0d0, Size: 70 bytes
+
+int * __thiscall FUN_0066b0d0(int *param_1,int param_2)
+
+{
+  if (*param_1 != param_2) {
+    if (*param_1 != 0) {
+      FUN_00401970();
+    }
+    *param_1 = param_2;
+    if (*param_1 != 0) {
+      FUN_0040f6e0();
+    }
+  }
+  return param_1;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00666650 (BSTreeModel constructor)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00665125 (in FUN_00664f50)
+  UNCONDITIONAL_CALL @ 0x00664c59 (in FUN_00664b50)
+  Total: 2 refs
+
+----------------------------------------------------------------------
+References TO 0x006667d0 (BSTreeModel scalar destructor)
+----------------------------------------------------------------------
+  DATA @ 0x01066768 (in ???)
+  Total: 1 refs
+
+----------------------------------------------------------------------
+References TO 0x00666910 (core SpeedTree scalar destructor)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0066af52 (in FUN_0066ac40)
+  UNCONDITIONAL_CALL @ 0x00666863 (in FUN_00666800)
+  Total: 2 refs
+
+======================================================================
+BSTreeNode vtable @ 0x010668e4
+======================================================================
+  [00] +0x00 -> 0x0066b680 FUN_0066b680 @ 0x0066b680
+  [01] +0x04 -> 0x00cfcc20 FUN_00cfcc20 @ 0x00cfcc20
+  [02] +0x08 -> 0x0066b5b0 FUN_0066b5b0 @ 0x0066b5b0
+  [03] +0x0c -> 0x006815c0 FUN_006815c0 @ 0x006815c0
+  [04] +0x10 -> 0x006815c0 FUN_006815c0 @ 0x006815c0
+  [05] +0x14 -> 0x00acbb70 FUN_00acbb70 @ 0x00acbb70
+  [06] +0x18 -> 0x00acbb70 FUN_00acbb70 @ 0x00acbb70
+  [07] +0x1c -> 0x00acbb70 FUN_00acbb70 @ 0x00acbb70
+  [08] +0x20 -> 0x00acbb70 FUN_00acbb70 @ 0x00acbb70
+  [09] +0x24 -> 0x00acbb70 FUN_00acbb70 @ 0x00acbb70
+  [10] +0x28 -> 0x00acbb70 FUN_00acbb70 @ 0x00acbb70
+  [11] +0x2c -> 0x00acbb70 FUN_00acbb70 @ 0x00acbb70
+
+======================================================================
+BSTreeModel vtable @ 0x01066768
+======================================================================
+  [00] +0x00 -> 0x006667d0 `scalar_deleting_destructor' @ 0x006667d0
+  [01] +0x04 -> 0x00cfcc20 FUN_00cfcc20 @ 0x00cfcc20
+  [02] +0x08 -> 0x00669a10 FUN_00669a10 @ 0x00669a10
+  [03] +0x0c -> 0x00669fd0 FUN_00669fd0 @ 0x00669fd0
+  [04] +0x10 -> 0x00666940 FUN_00666940 @ 0x00666940
+  [05] +0x14 -> 0x00666fc0 FUN_00666fc0 @ 0x00666fc0
+  [06] +0x18 -> 0x00667190 FUN_00667190 @ 0x00667190
+  [07] +0x1c -> 0x74786554 ???
+  [08] +0x20 -> 0x73657275 ???
+  [09] +0x24 -> 0x6572545c ???
+  [10] +0x28 -> 0x4c5c7365 ???
+  [11] +0x2c -> 0x65766165 ???
+
+# PART 3: BSTreeManager registration and teardown ordering
+
+======================================================================
+BSTreeManager update and registration reader @ 0x006649d0
+======================================================================
+  Function: FUN_006649c0 @ 0x006649c0, Size: 388 bytes
+  NOTE: Requested 0x006649d0 is inside FUN_006649c0 (entry at 0x006649c0)
+
+undefined4 * __thiscall FUN_006649c0(int *param_1,int param_2)
+
+{
+  char cVar1;
+  uint uVar2;
+  int iVar3;
+  undefined4 *puVar4;
+  int *unaff_FS_OFFSET;
+  undefined4 *local_40;
+  int local_3c;
+  undefined4 *local_18 [2];
+  int local_10;
+  undefined1 *puStack_c;
+  int local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00effcde;
+  local_10 = *unaff_FS_OFFSET;
+  uVar2 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  FUN_00404eb0(0x1e,1,
+               "D:\\_Fallout3\\Platforms\\Common\\Code\\Fallout Shared\\SpeedTree\\BSTreeManager.cpp"
+               ,0xd8);
+  local_8._0_1_ = 0;
+  local_8._1_3_ = 0;
+  local_18[0] = (undefined4 *)0x0;
+  if (param_2 == 0) {
+    local_8 = 0xffffffff;
+    FUN_00404ee0();
+    puVar4 = (undefined4 *)0x0;
+  }
+  else {
+    if (*param_1 == 0) {
+      iVar3 = FUN_00401000(0x10,uVar2);
+      local_8._0_1_ = 1;
+      if (iVar3 == 0) {
+        local_3c = 0;
+      }
+      else {
+        local_3c = FUN_00665c50(0x25);
+      }
+      *param_1 = local_3c;
+    }
+    local_8._0_1_ = 0;
+    cVar1 = FUN_00853130(param_2,local_18);
+    puVar4 = local_18[0];
+    if (cVar1 == '\0') {
+      local_40 = (undefined4 *)FUN_00401000(8,uVar2);
+      local_8._0_1_ = 2;
+      if (local_40 == (undefined4 *)0x0) {
+        local_40 = (undefined4 *)0x0;
+      }
+      else {
+        *local_40 = 1;
+        _eh_vector_constructor_iterator_
+                  (local_40 + 1,4,1,FUN_006694e0,
+                   Concurrency::cancellation_token_source::~cancellation_token_source);
+        local_40 = local_40 + 1;
+      }
+      local_8 = (uint)local_8._1_3_ << 8;
+      local_18[0] = local_40;
+      FUN_00844700(param_2,local_40);
+      puVar4 = local_18[0];
+      local_8 = 0xffffffff;
+      FUN_00404ee0();
+    }
+    else {
+      local_8 = 0xffffffff;
+      FUN_00404ee0();
+    }
+  }
+  *unaff_FS_OFFSET = local_10;
+  return puVar4;
+}
+
+
+
+======================================================================
+BSTreeManager cleanup @ 0x00664cd0
+======================================================================
+  Function: FUN_00664cd0 @ 0x00664cd0, Size: 628 bytes
+
+void FUN_00664cd0(char param_1)
+
+{
+  char cVar1;
+  int *piVar2;
+  int iVar3;
+  uint uVar4;
+  undefined4 *puVar5;
+  undefined4 uVar6;
+  int *piVar7;
+  undefined1 *puVar8;
+  undefined1 local_24 [4];
+  int local_20;
+  int local_1c;
+  int local_18;
+  char local_11;
+  undefined4 local_10;
+  int local_c;
+  int local_8;
+  
+  piVar2 = (int *)FUN_00664840(1);
+  if (*piVar2 != 0) {
+    FUN_004538a0(0);
+    if (param_1 == '\0') {
+      FUN_00664840(1);
+      local_1c = FUN_004b9ba0();
+      while (local_1c != 0) {
+        piVar2 = &local_20;
+        puVar8 = local_24;
+        piVar7 = &local_1c;
+        FUN_00664840(1,piVar7,puVar8,piVar2);
+        FUN_006b7f20(piVar7,puVar8,piVar2);
+        if (local_20 != 0) {
+          FID_conflict__vector_deleting_destructor_(3);
+        }
+      }
+      FUN_00664840(1);
+      FUN_00438af0();
+      piVar2 = (int *)FUN_00664840(1);
+      if ((undefined4 *)*piVar2 == (undefined4 *)0x0) {
+        uVar6 = 0;
+      }
+      else {
+        uVar6 = (*(code *)**(undefined4 **)*piVar2)(1);
+      }
+      puVar5 = (undefined4 *)FUN_00664840(1,uVar6);
+      *puVar5 = 0;
+    }
+    else {
+      FUN_00664840(1);
+      local_c = FUN_004b9ba0();
+      while (local_c != 0) {
+        piVar2 = &local_8;
+        puVar5 = &local_10;
+        piVar7 = &local_c;
+        FUN_00664840(1,piVar7,puVar5,piVar2);
+        FUN_006b7f20(piVar7,puVar5,piVar2);
+        if (local_8 != 0) {
+          local_11 = '\x01';
+          for (local_18 = 0; local_18 < 1; local_18 = local_18 + 1) {
+            iVar3 = FUN_00559450();
+            if (iVar3 != 0) {
+              FUN_00559450();
+              uVar4 = FUN_00726070();
+              if (uVar4 < 2) {
+                FUN_0066b0d0(0);
+              }
+              else {
+                local_11 = '\0';
+              }
+            }
+          }
+          if (local_11 != '\0') {
+            if (local_8 != 0) {
+              FID_conflict__vector_deleting_destructor_(3);
+            }
+            local_8 = 0;
+            uVar6 = local_10;
+            FUN_00664840(1,local_10);
+            FUN_00405430(uVar6);
+            FUN_00664840(1);
+            local_c = FUN_004b9ba0();
+          }
+        }
+      }
+      FUN_00664840(1);
+      cVar1 = IsEnd();
+      if (cVar1 != '\0') {
+        FUN_00664840(1);
+        FUN_00438af0();
+        piVar2 = (int *)FUN_00664840(1);
+        if ((undefined4 *)*piVar2 != (undefined4 *)0x0) {
+          (*(code *)**(undefined4 **)*piVar2)(1);
+        }
+        puVar5 = (undefined4 *)FUN_00664840(1);
+        *puVar5 = 0;
+      }
+    }
+    FUN_004538c0();
+  }
+  return;
+}
+
+
+
+======================================================================
+BSTreeManager remove by key @ 0x00665be0
+======================================================================
+  Function: FUN_00665be0 @ 0x00665be0, Size: 99 bytes
+
+void __thiscall FUN_00665be0(int param_1,undefined4 param_2)
+
+{
+  char cVar1;
+  int local_8;
+  
+  local_8 = 0;
+  cVar1 = (**(code **)(**(int **)(param_1 + 0x1c) + 8))(param_2,&local_8);
+  if (cVar1 != '\0') {
+    (**(code **)(**(int **)(param_1 + 0x1c) + 0x14))(param_2);
+    if (local_8 != 0) {
+      FUN_00c45830(local_8);
+    }
+  }
+  return;
+}
+
+
+
+======================================================================
+BSTreeManager add tree @ 0x0043da00
+======================================================================
+  Function: FUN_0043da00 @ 0x0043da00, Size: 149 bytes
+
+void __fastcall FUN_0043da00(int param_1)
+
+{
+  uint uVar1;
+  undefined4 uVar2;
+  int *unaff_FS_OFFSET;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00ef9b98;
+  local_10 = *unaff_FS_OFFSET;
+  uVar1 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  FUN_00404eb0(0x1e,1,"D:\\_Fallout3\\Platforms\\Common\\Code\\Fallout Shared\\ModelLoader.cpp",
+               0x476);
+  local_8 = 0;
+  uVar2 = FUN_00664f50(*(undefined4 *)(param_1 + 0x48),*(undefined4 *)(param_1 + 0x4c));
+  FUN_00665b80(*(undefined4 *)(param_1 + 0x48),uVar2);
+  local_8 = 0xffffffff;
+  FUN_00404ee0(uVar1);
+  *unaff_FS_OFFSET = local_10;
+  return;
+}
+
+
+
+======================================================================
+BSTreeManager remove tree @ 0x0043dac0
+======================================================================
+  Function: FUN_0043dac0 @ 0x0043dac0, Size: 53 bytes
+
+void __thiscall FUN_0043dac0(int param_1,int param_2,undefined4 param_3)
+
+{
+  FUN_00c3cb70(param_2,param_3);
+  if (3 < param_2) {
+    FUN_00665be0(*(undefined4 *)(param_1 + 0x48));
+  }
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00664cd0 (BSTreeManager cleanup)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x004524ac (in FUN_00452490)
+  UNCONDITIONAL_CALL @ 0x004524d2 (in FUN_00452490)
+  UNCONDITIONAL_CALL @ 0x00664771 (in FUN_00664740)
+  UNCONDITIONAL_CALL @ 0x00450840 (in FUN_00450770)
+  Total: 4 refs
+
+----------------------------------------------------------------------
+References TO 0x0043da00 (BSTreeManager add tree)
+----------------------------------------------------------------------
+  DATA @ 0x010169d8 (in ???)
+  Total: 1 refs
+
+----------------------------------------------------------------------
+References TO 0x0043dac0 (BSTreeManager remove tree)
+----------------------------------------------------------------------
+  DATA @ 0x010169e0 (in ???)
+  Total: 1 refs
+
+# PART 4: Distant-tree LOD block and task lifetime
+
+======================================================================
+distant-tree block demand and retirement owner @ 0x006fe330
+======================================================================
+  Function: FUN_006fe330 @ 0x006fe330, Size: 477 bytes
+
+void __thiscall FUN_006fe330(int param_1,undefined4 param_2)
+
+{
+  char cVar1;
+  uint uVar2;
+  int iVar3;
+  int iVar4;
+  undefined4 uVar5;
+  uint uVar6;
+  int *unaff_FS_OFFSET;
+  undefined4 local_30;
+  int local_18;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00f07713;
+  local_10 = *unaff_FS_OFFSET;
+  uVar2 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  FUN_00404eb0(0x25,1,
+               "D:\\_Fallout3\\Platforms\\Common\\Code\\Fallout Shared\\Distant Terrain System\\BGSTerrainNode.cpp"
+               ,0x1ed);
+  local_8 = 0;
+  iVar3 = FUN_00726070(uVar2);
+  iVar4 = FUN_006fe510();
+  if (iVar3 == iVar4) {
+    cVar1 = FUN_006fe540();
+    if (cVar1 == '\0') {
+      FUN_00559450();
+      uVar5 = FUN_00559450();
+      FUN_006f77a0(uVar5);
+    }
+    cVar1 = FUN_006fe780(param_2);
+    if (cVar1 == '\0') {
+      if (*(int *)(param_1 + 0x18) != 0) {
+        if (*(int *)(param_1 + 0x18) != 0) {
+          FUN_006fd950(1);
+        }
+        *(undefined4 *)(param_1 + 0x18) = 0;
+      }
+    }
+    else if (*(int *)(param_1 + 0x18) == 0) {
+      iVar3 = FUN_00401000(0x4c);
+      local_8 = CONCAT31(local_8._1_3_,1);
+      if (iVar3 == 0) {
+        local_30 = 0;
+      }
+      else {
+        local_30 = FUN_006f7540(param_1,*(undefined4 *)(param_1 + 4),*(undefined2 *)(param_1 + 8),
+                                *(undefined2 *)(param_1 + 10));
+      }
+      *(undefined4 *)(param_1 + 0x18) = local_30;
+    }
+    else if ((*(int *)(param_1 + 0x18) != 0) && (cVar1 = FUN_006fe520(), cVar1 != '\0')) {
+      FUN_006f8c40();
+      FUN_006f91a0();
+    }
+  }
+  else {
+    uVar2 = FUN_00726070(uVar2);
+    uVar6 = FUN_006fe510();
+    if (uVar6 < uVar2) {
+      for (local_18 = 0; local_18 < 4; local_18 = local_18 + 1) {
+        if (*(int *)(param_1 + 0x20 + local_18 * 4) != 0) {
+          FUN_006fe330(param_2);
+        }
+      }
+    }
+  }
+  local_8 = 0xffffffff;
+  FUN_00404ee0();
+  *unaff_FS_OFFSET = local_10;
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+Disassembly around 0x006fe3b8 (tree demand predicate and create or retire branches)
+----------------------------------------------------------------------
+  0x006fe385: CMP ESI,EAX                                     
+  0x006fe387: JNZ 0x006fe49f                                  
+  0x006fe38d: CALL 0x006fe540                                 
+      call -> 0x006fe540 FUN_006fe540 @ 0x006fe540
+  0x006fe392: MOVZX EAX,AL                                    
+  0x006fe395: TEST EAX,EAX                                    
+  0x006fe397: JNZ 0x006fe3b1                                  
+  0x006fe399: MOV ECX,dword ptr [EBP + -0x28]                 
+  0x006fe39c: CALL 0x00559450                                 
+      call -> 0x00559450 FUN_00559450 @ 0x00559450
+  0x006fe3a1: MOV ECX,EAX                                     
+  0x006fe3a3: CALL 0x00559450                                 
+      call -> 0x00559450 FUN_00559450 @ 0x00559450
+  0x006fe3a8: PUSH EAX                                        
+  0x006fe3a9: CALL 0x006f77a0                                 
+      call -> 0x006f77a0 FUN_006f77a0 @ 0x006f77a0
+  0x006fe3ae: ADD ESP,0x4                                     
+  0x006fe3b1: MOV ECX,dword ptr [EBP + 0x8]                   
+  0x006fe3b4: PUSH ECX                                        
+  0x006fe3b5: MOV ECX,dword ptr [EBP + -0x28]                 
+  0x006fe3b8: CALL 0x006fe780                                  << FOCUS
+      call -> 0x006fe780 FUN_006fe780 @ 0x006fe780
+  0x006fe3bd: MOVZX EDX,AL                                    
+  0x006fe3c0: TEST EDX,EDX                                    
+  0x006fe3c2: JZ 0x006fe45f                                   
+  0x006fe3c8: MOV EAX,dword ptr [EBP + -0x28]                 
+  0x006fe3cb: CMP dword ptr [EAX + 0x18],0x0                  
+  0x006fe3cf: JNZ 0x006fe42c                                  
+  0x006fe3d1: PUSH 0x4c                                       
+  0x006fe3d3: CALL 0x00401000                                 
+      call -> 0x00401000 FUN_00401000 @ 0x00401000
+  0x006fe3d8: ADD ESP,0x4                                     
+  0x006fe3db: MOV dword ptr [EBP + -0x1c],EAX                 
+  0x006fe3de: MOV byte ptr [EBP + -0x4],0x1                   
+  0x006fe3e2: CMP dword ptr [EBP + -0x1c],0x0                 
+  0x006fe3e6: JZ 0x006fe410                                   
+  0x006fe3e8: MOV ECX,dword ptr [EBP + -0x28]                 
+  0x006fe3eb: MOVZX EDX,word ptr [ECX + 0xa]                  
+  0x006fe3ef: PUSH EDX                                        
+  0x006fe3f0: MOV EAX,dword ptr [EBP + -0x28]                 
+  0x006fe3f3: MOVZX ECX,word ptr [EAX + 0x8]                  
+  0x006fe3f7: PUSH ECX                                        
+  0x006fe3f8: MOV EDX,dword ptr [EBP + -0x28]                 
+  0x006fe3fb: MOV EAX,dword ptr [EDX + 0x4]                   
+  0x006fe3fe: PUSH EAX                                        
+  0x006fe3ff: MOV ECX,dword ptr [EBP + -0x28]                 
+  0x006fe402: PUSH ECX                                        
+  0x006fe403: MOV ECX,dword ptr [EBP + -0x1c]                 
+  0x006fe406: CALL 0x006f7540                                 
+      call -> 0x006f7540 FUN_006f7540 @ 0x006f7540
+  0x006fe40b: MOV dword ptr [EBP + -0x2c],EAX                 
+  0x006fe40e: JMP 0x006fe417                                  
+  0x006fe410: MOV dword ptr [EBP + -0x2c],0x0                 
+  0x006fe417: MOV EDX,dword ptr [EBP + -0x2c]                 
+  0x006fe41a: MOV dword ptr [EBP + -0x18],EDX                 
+  0x006fe41d: MOV byte ptr [EBP + -0x4],0x0                   
+
+======================================================================
+distant-tree demand predicate @ 0x006fe780
+======================================================================
+  Function: FUN_006fe780 @ 0x006fe780, Size: 162 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+int __thiscall FUN_006fe780(int param_1,undefined4 *param_2)
+
+{
+  float fVar1;
+  float fVar2;
+  float *pfVar3;
+  uint3 uVar5;
+  int iVar4;
+  float10 fVar6;
+  undefined4 local_18;
+  undefined4 local_14;
+  undefined4 local_c;
+  undefined4 local_8;
+  
+  FUN_00452dc0(*param_2,param_2[1]);
+  FUN_00452dc0(*(undefined4 *)(param_1 + 0x34),*(undefined4 *)(param_1 + 0x38));
+  fVar6 = (float10)FUN_006fe830(local_18,local_14,
+                                (float)((float10)*(uint *)(param_1 + 4) * (float10)_DAT_01017a10),
+                                local_c,local_8);
+  fVar1 = (float)fVar6;
+  pfVar3 = (float *)FUN_00403e20();
+  fVar2 = *pfVar3;
+  uVar5 = (uint3)(CONCAT22((short)((uint)pfVar3 >> 0x10),
+                           (ushort)(fVar2 < fVar1) << 8 | (ushort)(NAN(fVar2) || NAN(fVar1)) << 10 |
+                           (ushort)(fVar2 == fVar1) << 0xe) >> 8);
+  if (fVar2 < fVar1 || (fVar2 == fVar1) != 0) {
+    iVar4 = (uint)uVar5 << 8;
+  }
+  else {
+    iVar4 = CONCAT31(uVar5,1);
+  }
+  return iVar4;
+}
+
+
+
+======================================================================
+distant-tree block constructor and task submission @ 0x006f7540
+======================================================================
+  Function: FUN_006f7540 @ 0x006f7540, Size: 360 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+int __thiscall
+FUN_006f7540(int param_1,undefined4 param_2,undefined4 param_3,short param_4,short param_5)
+
+{
+  uint uVar1;
+  undefined4 uVar2;
+  int iVar3;
+  int *piVar4;
+  int *unaff_FS_OFFSET;
+  undefined4 local_28;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00f06f27;
+  local_10 = *unaff_FS_OFFSET;
+  uVar1 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  FUN_00528cb0(0);
+  local_8 = 0;
+  FUN_006f9870(uVar1);
+  local_8._0_1_ = 1;
+  FUN_006f9680(0x25);
+  local_8._0_1_ = 2;
+  FUN_006f96b0(0x25);
+  local_8._0_1_ = 3;
+  FUN_00438660();
+  local_8._0_1_ = 4;
+  FUN_00404eb0(0x25,1,
+               "D:\\_Fallout3\\Platforms\\Common\\Code\\Fallout Shared\\Distant Terrain System\\BGSDistantTreeBlock.cpp"
+               ,0x2e);
+  local_8._0_1_ = 5;
+  _DAT_011d859c = param_3;
+  DAT_011d8598 = DAT_011d8598 + 1;
+  *(undefined4 *)(param_1 + 0x44) = param_2;
+  *(undefined1 *)(param_1 + 0x48) = 0;
+  *(undefined1 *)(param_1 + 0x49) = 0;
+  FUN_00559450();
+  uVar2 = FUN_00559450();
+  iVar3 = FUN_00401000(0x48);
+  local_8._0_1_ = 6;
+  if (iVar3 == 0) {
+    local_28 = 0;
+  }
+  else {
+    local_28 = FUN_006f9360(param_1,uVar2,(int)param_4,(int)param_5,param_3,0);
+  }
+  local_8._0_1_ = 5;
+  FUN_006f74f0(local_28);
+  piVar4 = (int *)FUN_00559450();
+  (**(code **)(*piVar4 + 0x20))();
+  local_8 = CONCAT31(local_8._1_3_,4);
+  FUN_00404ee0();
+  *unaff_FS_OFFSET = local_10;
+  return param_1;
+}
+
+
+
+======================================================================
+distant-tree task submission or owner publication @ 0x006f74f0
+======================================================================
+  Function: FUN_006f74f0 @ 0x006f74f0, Size: 70 bytes
+
+int * __thiscall FUN_006f74f0(int *param_1,int param_2)
+
+{
+  if (*param_1 != param_2) {
+    if (*param_1 != 0) {
+      FUN_0044dd60();
+    }
+    *param_1 = param_2;
+    if (*param_1 != 0) {
+      FUN_0092c870();
+    }
+  }
+  return param_1;
+}
+
+
+
+======================================================================
+distant-tree block destructor body @ 0x006f76b0
+======================================================================
+  Function: FUN_006f76b0 @ 0x006f76b0, Size: 208 bytes
+
+void __fastcall FUN_006f76b0(undefined4 param_1)
+
+{
+  uint uVar1;
+  int iVar2;
+  undefined4 uVar3;
+  int *unaff_FS_OFFSET;
+  undefined4 uVar4;
+  int local_10;
+  undefined1 *puStack_c;
+  int local_8;
+  
+  puStack_c = &LAB_00f06f84;
+  local_10 = *unaff_FS_OFFSET;
+  uVar1 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  local_8 = 4;
+  DAT_011d8598 = DAT_011d8598 + -1;
+  FUN_006f86e0(uVar1,param_1);
+  FUN_006f7780();
+  iVar2 = FUN_00559450();
+  if (iVar2 != 0) {
+    uVar4 = 0;
+    uVar3 = FUN_00559450(0);
+    FUN_0044ac40(uVar3,uVar4);
+  }
+  FUN_006f74f0(0);
+  local_8._0_1_ = 3;
+  FUN_00438690();
+  local_8._0_1_ = 2;
+  FID_conflict__ctype<char>();
+  local_8._0_1_ = 1;
+  FID_conflict__ctype<char>();
+  local_8 = (uint)local_8._1_3_ << 8;
+  FUN_006f98a0();
+  local_8 = 0xffffffff;
+  FUN_0044cbf0();
+  *unaff_FS_OFFSET = local_10;
+  return;
+}
+
+
+
+======================================================================
+distant-tree block scalar destructor @ 0x006fd950
+======================================================================
+  Function: FUN_006fd950 @ 0x006fd950, Size: 44 bytes
+
+undefined4 __thiscall FUN_006fd950(undefined4 param_1,uint param_2)
+
+{
+  FUN_006f76b0();
+  if ((param_2 & 1) != 0) {
+    FUN_00401030(param_1);
+  }
+  return param_1;
+}
+
+
+
+======================================================================
+distant-tree load-task constructor @ 0x006f9360
+======================================================================
+  Function: FUN_006f9360 @ 0x006f9360, Size: 263 bytes
+
+void __thiscall
+FUN_006f9360(undefined4 *param_1,undefined4 param_2,undefined4 param_3,uint param_4,uint param_5,
+            undefined4 param_6)
+
+{
+  uint uVar1;
+  int *unaff_FS_OFFSET;
+  undefined1 local_120 [5];
+  undefined1 local_11b [263];
+  uint local_14;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00f0715b;
+  local_10 = *unaff_FS_OFFSET;
+  uVar1 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  local_14 = uVar1;
+  FUN_00c3ce60(3);
+  local_8 = 0;
+  *param_1 = &PTR_FUN_0106ded0;
+  param_1[0xc] = param_2;
+  *(undefined1 *)(param_1 + 0xd) = 0;
+  param_1[0xe] = param_4;
+  param_1[0xf] = param_5;
+  param_1[0x10] = param_6;
+  *(undefined1 *)(param_1 + 0x11) = 0;
+  FUN_006f8890(local_120,param_3,param_6,param_4 & 0xffff,param_5 & 0xffff,uVar1);
+  FUN_00c3cee0(local_11b);
+  FUN_00c3cf60(0);
+  *(undefined1 *)((int)param_1 + 0x45) = 0;
+  local_8 = 0xffffffff;
+  *unaff_FS_OFFSET = local_10;
+  __security_check_cookie(local_14 ^ (uint)&stack0xfffffffc);
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x006f74f0 (distant-tree task submission or owner publication)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00528f65 (in FUN_00528e40)
+  UNCONDITIONAL_CALL @ 0x00537ec1 (in FUN_00537eb0)
+  UNCONDITIONAL_CALL @ 0x004449ea (in FUN_00444850)
+  UNCONDITIONAL_CALL @ 0x00444a71 (in FUN_00444850)
+  UNCONDITIONAL_CALL @ 0x00444ad9 (in FUN_00444850)
+  UNCONDITIONAL_CALL @ 0x00444b4d (in FUN_00444850)
+  UNCONDITIONAL_CALL @ 0x00444ba4 (in FUN_00444850)
+  UNCONDITIONAL_CALL @ 0x00444c82 (in FUN_00444850)
+  UNCONDITIONAL_CALL @ 0x006fa56f (in FUN_006fa420)
+  UNCONDITIONAL_CALL @ 0x006f5500 (in FUN_006f5370)
+  UNCONDITIONAL_CALL @ 0x006f5534 (in FUN_006f5370)
+  UNCONDITIONAL_CALL @ 0x006f7721 (in FUN_006f76b0)
+  UNCONDITIONAL_CALL @ 0x004452c9 (in FUN_00445200)
+  UNCONDITIONAL_CALL @ 0x0045a1d2 (in FUN_0045a1c0)
+  UNCONDITIONAL_CALL @ 0x0045a362 (in FUN_0045a350)
+  UNCONDITIONAL_CALL @ 0x0068b4aa (in FUN_0068b4a0)
+  UNCONDITIONAL_CALL @ 0x00459fb0 (in FUN_00459f10)
+  UNCONDITIONAL_CALL @ 0x00443ef3 (in FUN_00443dc0)
+  UNCONDITIONAL_CALL @ 0x00443ab1 (in FUN_00443aa0)
+  UNCONDITIONAL_CALL @ 0x0045a280 (in FUN_0045a1e0)
+  UNCONDITIONAL_CALL @ 0x004441e3 (in FUN_004440d0)
+  UNCONDITIONAL_CALL @ 0x0068b472 (in FUN_0068b3e0)
+  UNCONDITIONAL_CALL @ 0x00536942 (in FUN_00535d00)
+  UNCONDITIONAL_CALL @ 0x00536b52 (in FUN_00535d00)
+  UNCONDITIONAL_CALL @ 0x006fa349 (in FUN_006fa210)
+  UNCONDITIONAL_CALL @ 0x006f5311 (in FUN_006f5160)
+  UNCONDITIONAL_CALL @ 0x006f5c1c (in FUN_006f5af0)
+  UNCONDITIONAL_CALL @ 0x006f5c82 (in FUN_006f5af0)
+  UNCONDITIONAL_CALL @ 0x006f6409 (in FUN_006f6370)
+  UNCONDITIONAL_CALL @ 0x006f643e (in FUN_006f6370)
+  UNCONDITIONAL_CALL @ 0x006f64ab (in FUN_006f6370)
+  UNCONDITIONAL_CALL @ 0x006f65d9 (in FUN_006f6540)
+  UNCONDITIONAL_CALL @ 0x006f660e (in FUN_006f6540)
+  UNCONDITIONAL_CALL @ 0x006f666e (in FUN_006f6540)
+  UNCONDITIONAL_CALL @ 0x006f7664 (in FUN_006f7540)
+  UNCONDITIONAL_CALL @ 0x004aeebb (in FUN_004aee60)
+  UNCONDITIONAL_CALL @ 0x0044516f (in FUN_004450c0)
+  UNCONDITIONAL_CALL @ 0x004451cf (in FUN_004450c0)
+  UNCONDITIONAL_CALL @ 0x00906cda (in FUN_00906c10)
+  UNCONDITIONAL_CALL @ 0x00906d8b (in FUN_00906c10)
+  UNCONDITIONAL_CALL @ 0x005292af (in FUN_005292a0)
+  ... (truncated)
+  Total: 41 refs
+
+----------------------------------------------------------------------
+References TO 0x006f76b0 (distant-tree block destructor body)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x006fd95a (in FUN_006fd950)
+  Total: 1 refs
+
+======================================================================
+distant-tree load task vtable @ 0x0106ded0
+======================================================================
+  [00] +0x00 -> 0x006f9470 FUN_006f9470 @ 0x006f9470
+  [01] +0x04 -> 0x006f9570 FUN_006f9570 @ 0x006f9570
+  [02] +0x08 -> 0x006f9610 FUN_006f9610 @ 0x006f9610
+  [03] +0x0c -> 0x006f9540 FUN_006f9540 @ 0x006f9540
+  [04] +0x10 -> 0x006f9640 FUN_006f9640 @ 0x006f9640
+  [05] +0x14 -> 0x00483710 FUN_00483710 @ 0x00483710
+  [06] +0x18 -> 0x00c3d440 FUN_00c3d440 @ 0x00c3d440
+  [07] +0x1c -> 0x00c3cae0 FUN_00c3cae0 @ 0x00c3cae0
+  [08] +0x20 -> 0x006f94c0 FUN_006f94c0 @ 0x006f94c0
+  [09] +0x24 -> 0x0043bde0 FUN_0043bde0 @ 0x0043bde0
+  [10] +0x28 -> 0x006f94e0 FUN_006f94e0 @ 0x006f94e0
+  [11] +0x2c -> 0x006fc440 FUN_006fc440 @ 0x006fc440
+
+======================================================================
+distant-tree load task vtable slot 0 (+0x00) @ 0x006f9470
+======================================================================
+  Function: FUN_006f9470 @ 0x006f9470, Size: 44 bytes
+
+undefined4 __thiscall FUN_006f9470(undefined4 param_1,uint param_2)
+
+{
+  FUN_006f94a0();
+  if ((param_2 & 1) != 0) {
+    FUN_00401030(param_1);
+  }
+  return param_1;
+}
+
+
+
+--- Calls FROM distant-tree load task vtable slot 0 (0x006f9470) ---
+  0x006f947a -> 0x006f94a0 FUN_006f94a0
+  0x006f948b -> 0x00401030 FUN_00401030
+  Total: 2 calls
+
+======================================================================
+distant-tree load task vtable slot 1 (+0x04) @ 0x006f9570
+======================================================================
+  Function: FUN_006f9570 @ 0x006f9570, Size: 145 bytes
+
+void __fastcall FUN_006f9570(int param_1)
+
+{
+  undefined4 uVar1;
+  undefined4 *puVar2;
+  
+  uVar1 = FUN_0045cd60(0,0x800,1);
+  puVar2 = (undefined4 *)FUN_00afdf20(uVar1);
+  if ((puVar2 == (undefined4 *)0x0) || (*(char *)(param_1 + 0x44) != '\0')) {
+    *(undefined1 *)(param_1 + 0x45) = 0;
+  }
+  else {
+    FUN_006f8b40(puVar2);
+    if (puVar2 == (undefined4 *)0x0) {
+      uVar1 = 0;
+    }
+    else {
+      uVar1 = (**(code **)*puVar2)(1);
+    }
+    *(undefined1 *)(param_1 + 0x45) = 1;
+    FUN_006f9300(uVar1);
+  }
+  return;
+}
+
+
+
+--- Calls FROM distant-tree load task vtable slot 1 (0x006f9570) ---
+  0x006f9585 -> 0x0045cd60 FUN_0045cd60
+  0x006f958b -> 0x00afdf20 FUN_00afdf20
+  0x006f95b1 -> 0x006f8b40 FUN_006f8b40
+  0x006f95ef -> 0x006f9300 FUN_006f9300
+  Total: 4 calls
+
+======================================================================
+distant-tree load task vtable slot 2 (+0x08) @ 0x006f9610
+======================================================================
+  Function: FUN_006f9610 @ 0x006f9610, Size: 44 bytes
+
+void __fastcall FUN_006f9610(int param_1)
+
+{
+  if ((*(char *)(param_1 + 0x45) != '\0') && (*(char *)(param_1 + 0x44) == '\0')) {
+    FUN_006f88e0();
+  }
+  return;
+}
+
+
+
+--- Calls FROM distant-tree load task vtable slot 2 (0x006f9610) ---
+  0x006f9633 -> 0x006f88e0 FUN_006f88e0
+  Total: 1 calls
+
+======================================================================
+distant-tree load task vtable slot 3 (+0x0c) @ 0x006f9540
+======================================================================
+  Function: FUN_006f9540 @ 0x006f9540, Size: 36 bytes
+
+void __thiscall FUN_006f9540(int param_1,undefined4 param_2,undefined4 param_3)
+
+{
+  *(undefined1 *)(param_1 + 0x44) = 1;
+  FUN_00c3cb70(param_2,param_3);
+  return;
+}
+
+
+
+--- Calls FROM distant-tree load task vtable slot 3 (0x006f9540) ---
+  0x006f9559 -> 0x00c3cb70 FUN_00c3cb70
+  Total: 1 calls
+
+======================================================================
+distant-tree load task vtable slot 4 (+0x10) @ 0x006f9640
+======================================================================
+  Function: FUN_006f9640 @ 0x006f9640, Size: 57 bytes
+
+undefined4 __thiscall FUN_006f9640(int param_1,undefined4 param_2,undefined4 param_3)
+
+{
+  FUN_00406d00(param_2,param_3,"Tree LOD Task for block ( %i, %i ) at level ( %i )",
+               *(undefined4 *)(param_1 + 0x38),*(undefined4 *)(param_1 + 0x3c),
+               *(undefined4 *)(param_1 + 0x40));
+  return 1;
+}
+
+
+
+--- Calls FROM distant-tree load task vtable slot 4 (0x006f9640) ---
+  0x006f9669 -> 0x00406d00 FUN_00406d00
+  Total: 1 calls
+
+======================================================================
+distant-tree load task vtable slot 5 (+0x14) @ 0x00483710
+======================================================================
+  Function: FUN_00483710 @ 0x00483710, Size: 11 bytes
+
+void FUN_00483710(void)
+
+{
+  return;
+}
+
+
+
+--- Calls FROM distant-tree load task vtable slot 5 (0x00483710) ---
+  Total: 0 calls
+
+# PART 5: Allocation and physical-reuse boundaries
+
+======================================================================
+GameHeap allocation wrapper used by DTL and tree internals @ 0x00401000
+======================================================================
+  Function: FUN_00401000 @ 0x00401000, Size: 21 bytes
+
+void FUN_00401000(undefined4 param_1)
+
+{
+  FUN_00401020(param_1);
+  FUN_00aa3e40(param_1);
+  return;
+}
+
+
+
+======================================================================
+GameHeap free wrapper used by tree destructors @ 0x00401030
+======================================================================
+  Function: FUN_00401030 @ 0x00401030, Size: 21 bytes
+
+void FUN_00401030(undefined4 param_1)
+
+{
+  FUN_00401020(param_1);
+  FUN_00aa4060(param_1);
+  return;
+}
+
+
+
+======================================================================
+sized GameHeap allocation wrapper @ 0x00aa13e0
+======================================================================
+  Function: FUN_00aa13e0 @ 0x00aa13e0, Size: 62 bytes
+
+void FUN_00aa13e0(int param_1)
+
+{
+  int local_4;
+  
+  local_4 = param_1;
+  if (param_1 == 0) {
+    local_4 = 1;
+  }
+  param_1 = 4;
+  (**(code **)(*(int *)*DAT_011f6080 + 4))(&local_4,&param_1,1,1,0,0xffffffff,0);
+  return;
+}
+
+
+
+======================================================================
+sized GameHeap free wrapper @ 0x00aa1460
+======================================================================
+  Function: FUN_00aa1460 @ 0x00aa1460, Size: 34 bytes
+
+void FUN_00aa1460(int param_1,undefined4 param_2)
+
+{
+  if (param_1 != 0) {
+    (**(code **)(*(int *)*DAT_011f6080 + 8))(param_1,3,param_2);
+  }
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00aa4060 (GameHeap free owner)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0040103e (in FUN_00401030)
+  UNCONDITIONAL_CALL @ 0x005533aa (in FUN_00553380)
+  UNCONDITIONAL_CALL @ 0x00a00ac4 (in FUN_00a00a30)
+  UNCONDITIONAL_CALL @ 0x00a00b15 (in FUN_00a00a30)
+  UNCONDITIONAL_CALL @ 0x00a01d79 (in FUN_00a01b00)
+  UNCONDITIONAL_CALL @ 0x00a02f8b (in FUN_00a02d40)
+  UNCONDITIONAL_CALL @ 0x00a0305d (in FUN_00a02d40)
+  UNCONDITIONAL_CALL @ 0x00a03171 (in FUN_00a02d40)
+  UNCONDITIONAL_CALL @ 0x00a07e92 (in FUN_00a07dc0)
+  UNCONDITIONAL_CALL @ 0x00a086d7 (in FUN_00a080d0)
+  UNCONDITIONAL_CALL @ 0x00a092b2 (in FUN_00a09200)
+  UNCONDITIONAL_CALL @ 0x00a09317 (in FUN_00a09200)
+  UNCONDITIONAL_CALL @ 0x00a09ef9 (in FUN_00a09410)
+  UNCONDITIONAL_CALL @ 0x00a0a1f7 (in FUN_00a0a130)
+  UNCONDITIONAL_CALL @ 0x00a0a2ce (in FUN_00a0a270)
+  UNCONDITIONAL_CALL @ 0x00a0a384 (in FUN_00a0a300)
+  UNCONDITIONAL_CALL @ 0x00a0ada6 (in FUN_00a0ad40)
+  UNCONDITIONAL_CALL @ 0x00a0ae19 (in FUN_00a0ad40)
+  UNCONDITIONAL_CALL @ 0x00a0b933 (in FUN_00a0b8d0)
+  UNCONDITIONAL_CALL @ 0x00a0be34 (in FUN_00a0be10)
+  UNCONDITIONAL_CALL @ 0x00a0be54 (in FUN_00a0be10)
+  UNCONDITIONAL_CALL @ 0x00a0be94 (in FUN_00a0be70)
+  UNCONDITIONAL_CALL @ 0x00a0abc4 (in FUN_00a0ab70)
+  UNCONDITIONAL_CALL @ 0x00a0ccc3 (in FUN_00a0cbe0)
+  UNCONDITIONAL_CALL @ 0x00a0cd27 (in FUN_00a0cbe0)
+  UNCONDITIONAL_CALL @ 0x00a0db1e (in FUN_00a0dae0)
+  UNCONDITIONAL_CALL @ 0x00a0ddee (in FUN_00a0dcc0)
+  UNCONDITIONAL_CALL @ 0x00a0e181 (in FUN_00a0df80)
+  UNCONDITIONAL_CALL @ 0x00a0e27a (in FUN_00a0df80)
+  UNCONDITIONAL_CALL @ 0x00a0f6c0 (in FUN_00a0e770)
+  UNCONDITIONAL_CALL @ 0x00a0f6f8 (in FUN_00a0e770)
+  UNCONDITIONAL_CALL @ 0x00a11eb8 (in FUN_00a11e10)
+  UNCONDITIONAL_CALL @ 0x00a12003 (in FUN_00a11fa0)
+  UNCONDITIONAL_CALL @ 0x00a1688e (in FUN_00a16850)
+  UNCONDITIONAL_CALL @ 0x00a16d74 (in FUN_00a16d20)
+  UNCONDITIONAL_CALL @ 0x00a12220 (in FUN_00a121e0)
+  UNCONDITIONAL_CALL @ 0x00a12253 (in FUN_00a121e0)
+  UNCONDITIONAL_CALL @ 0x00a12357 (in FUN_00a12300)
+  UNCONDITIONAL_CALL @ 0x00a1c0df (in FUN_00a1c080)
+  UNCONDITIONAL_CALL @ 0x00a1c30e (in FUN_00a1c2d0)
+  UNCONDITIONAL_CALL @ 0x00a1c7e1 (in FUN_00a1c790)
+  ... (truncated)
+  Total: 41 refs
+
+ANALYSIS COMPLETE

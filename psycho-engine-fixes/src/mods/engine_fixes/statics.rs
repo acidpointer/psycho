@@ -101,3 +101,63 @@ pub const TASK_DISPATCH_ADDR: usize = 0x00446C48;
 pub const TASK_DISPATCH_BYTES: [u8; 13] = [
     0x8B, 0x55, 0xC8, 0x8B, 0x02, 0x8B, 0x4D, 0xC8, 0x8B, 0x50, 0x1C, 0xFF, 0xD2,
 ];
+
+// ---- LOD streaming and distant-to-real handoff ----
+
+pub const LOD_TERRAIN_DEMAND_ADDR: usize = 0x006F_E550;
+pub const LOD_OBJECT_DEMAND_ADDR: usize = 0x006F_E620;
+pub const LOD_TREE_DEMAND_ADDR: usize = 0x006F_E780;
+pub const LOD_WORLDSPACE_RESET_ADDR: usize = 0x006F_CE00;
+
+pub const LOD_CELL_INSERT_ADDR: usize = 0x0054_8230;
+pub const LOD_CELL_REMOVE_ADDR: usize = 0x0054_CA90;
+pub const LOD_CELL_ALTERNATE_DECREMENT_ADDR: usize = 0x0055_E1D0;
+pub const LOD_CELL_READY_GATE_ADDR: usize = 0x0054_95A0;
+pub const LOD_CELL_RELOAD_RESET_ADDR: usize = 0x0055_08B0;
+pub const LOD_CELL_TEARDOWN_ADDR: usize = 0x0054_CD20;
+
+pub const LOD_READY_INCREMENT_ADDR: usize = 0x0045_2390;
+pub const LOD_READY_INCREMENT_CALL_ADDR: usize = 0x0045_20C4;
+pub const LOD_READY_CALL_PREFIX_ADDR: usize = 0x0045_20C1;
+pub const LOD_READY_CALL_PREFIX_BYTES: [u8; 3] = [0x8B, 0x4D, 0x0C];
+pub const LOD_READY_CALL_SUFFIX_ADDR: usize = 0x0045_20C9;
+pub const LOD_READY_CALL_SUFFIX_BYTES: [u8; 4] = [0xC6, 0x45, 0xEB, 0x01];
+
+pub const FLOAT_SETTING_ACCESSOR_ADDR: usize = 0x0040_3E20;
+pub const BLOCK_LOAD_DISTANCE_SETTING: usize = 0x011D_877C;
+pub const TREE_LOAD_DISTANCE_SETTING: usize = 0x011D_8788;
+
+pub static LOD_TERRAIN_DEMAND_HOOK: LazyLock<InlineHookContainer<LodDemandFn>> =
+    LazyLock::new(InlineHookContainer::new);
+pub static LOD_OBJECT_DEMAND_HOOK: LazyLock<InlineHookContainer<LodDemandFn>> =
+    LazyLock::new(InlineHookContainer::new);
+pub static LOD_TREE_DEMAND_HOOK: LazyLock<InlineHookContainer<LodDemandFn>> =
+    LazyLock::new(InlineHookContainer::new);
+pub static LOD_WORLDSPACE_RESET_HOOK: LazyLock<InlineHookContainer<LodWorldspaceResetFn>> =
+    LazyLock::new(InlineHookContainer::new);
+
+pub static LOD_CELL_INSERT_HOOK: LazyLock<InlineHookContainer<LodCellInsertFn>> =
+    LazyLock::new(InlineHookContainer::new);
+pub static LOD_CELL_REMOVE_HOOK: LazyLock<InlineHookContainer<LodCellRemoveFn>> =
+    LazyLock::new(InlineHookContainer::new);
+pub static LOD_CELL_ALTERNATE_DECREMENT_HOOK: LazyLock<InlineHookContainer<LodCellOwnerFn>> =
+    LazyLock::new(InlineHookContainer::new);
+pub static LOD_CELL_READY_GATE_HOOK: LazyLock<InlineHookContainer<LodCellReadyGateFn>> =
+    LazyLock::new(InlineHookContainer::new);
+pub static LOD_CELL_RELOAD_RESET_HOOK: LazyLock<InlineHookContainer<LodCellOwnerFn>> =
+    LazyLock::new(InlineHookContainer::new);
+pub static LOD_CELL_TEARDOWN_HOOK: LazyLock<InlineHookContainer<LodCellOwnerFn>> =
+    LazyLock::new(InlineHookContainer::new);
+
+// ---- SpeedTree clone lifetime ----
+
+pub const SPEEDTREE_CLONE_CONSTRUCTOR_ADDR: usize = 0x00B0_36D0;
+pub const SPEEDTREE_SCALAR_DESTRUCTOR_ADDR: usize = 0x0066_6910;
+pub const SPEEDTREE_REGISTRY_CRITICAL_SECTION_ADDR: usize = 0x011F_8BC4;
+
+pub static SPEEDTREE_CLONE_CONSTRUCTOR_HOOK: LazyLock<
+    InlineHookContainer<SpeedTreeCloneConstructorFn>,
+> = LazyLock::new(InlineHookContainer::new);
+pub static SPEEDTREE_SCALAR_DESTRUCTOR_HOOK: LazyLock<
+    InlineHookContainer<SpeedTreeScalarDestructorFn>,
+> = LazyLock::new(InlineHookContainer::new);

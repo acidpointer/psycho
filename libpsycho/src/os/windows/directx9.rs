@@ -18,23 +18,24 @@ use windows::Win32::Graphics::Direct3D::ID3DBlob;
 use windows::Win32::Graphics::Direct3D9::{
     D3DADAPTER_DEFAULT, D3DBACKBUFFER_TYPE, D3DBACKBUFFER_TYPE_MONO, D3DCLEAR_ZBUFFER, D3DDEVTYPE,
     D3DDEVTYPE_HAL, D3DDISPLAYMODE, D3DLOCKED_RECT, D3DPOOL, D3DPRESENT_PARAMETERS,
-    D3DPRIMITIVETYPE, D3DRENDERSTATETYPE, D3DRESOURCETYPE, D3DRTYPE_SURFACE, D3DRTYPE_TEXTURE,
-    D3DSAMPLERSTATETYPE, D3DSTATEBLOCKTYPE, D3DTEXTUREFILTERTYPE, D3DTEXTURESTAGESTATETYPE,
-    D3DUSAGE_DEPTHSTENCIL, D3DUSAGE_RENDERTARGET, D3DVERTEXELEMENT9, IDirect3D9,
+    D3DPRIMITIVETYPE, D3DRENDERSTATETYPE, D3DRESOURCETYPE, D3DRTYPE_SURFACE, D3DSAMPLERSTATETYPE,
+    D3DSTATEBLOCKTYPE, D3DTEXTUREFILTERTYPE, D3DTEXTURESTAGESTATETYPE, D3DUSAGE_DEPTHSTENCIL,
+    D3DUSAGE_QUERY_POSTPIXELSHADER_BLENDING, D3DUSAGE_RENDERTARGET, D3DVERTEXELEMENT9, IDirect3D9,
     IDirect3DBaseTexture9, IDirect3DDevice9, IDirect3DPixelShader9, IDirect3DStateBlock9,
     IDirect3DSurface9, IDirect3DTexture9, IDirect3DVertexBuffer9, IDirect3DVertexShader9,
 };
 pub use windows::Win32::Graphics::Direct3D9::{
-    D3DCULL, D3DCULL_CCW, D3DCULL_CW, D3DCULL_NONE, D3DFMT_A8R8G8B8, D3DFORMAT, D3DFVF_DIFFUSE,
-    D3DFVF_TEX1, D3DFVF_XYZ, D3DFVF_XYZRHW, D3DPOOL_DEFAULT, D3DPOOL_MANAGED, D3DPT_POINTLIST,
-    D3DPT_TRIANGLESTRIP, D3DRS_ADAPTIVETESS_Y, D3DRS_ALPHABLENDENABLE, D3DRS_ALPHATESTENABLE,
-    D3DRS_COLORWRITEENABLE, D3DRS_CULLMODE, D3DRS_MULTISAMPLEANTIALIAS, D3DRS_MULTISAMPLEMASK,
-    D3DRS_POINTSIZE, D3DRS_SCISSORTESTENABLE, D3DRS_SRGBWRITEENABLE, D3DRS_STENCILENABLE,
-    D3DRS_ZENABLE, D3DRS_ZFUNC, D3DRS_ZWRITEENABLE, D3DSAMP_ADDRESSU, D3DSAMP_ADDRESSV,
-    D3DSAMP_MAGFILTER, D3DSAMP_MINFILTER, D3DSAMP_MIPFILTER, D3DSAMP_SRGBTEXTURE, D3DSBT_ALL,
-    D3DSURFACE_DESC, D3DTA_TEXTURE, D3DTADDRESS_CLAMP, D3DTADDRESS_WRAP, D3DTEXF_LINEAR,
-    D3DTEXF_NONE, D3DTEXF_POINT, D3DTOP_SELECTARG1, D3DTSS_ALPHAARG1, D3DTSS_ALPHAOP,
-    D3DTSS_COLORARG1, D3DTSS_COLOROP, D3DVIEWPORT9,
+    D3DBLEND_ONE, D3DBLENDOP_ADD, D3DCULL, D3DCULL_CCW, D3DCULL_CW, D3DCULL_NONE, D3DFMT_A8R8G8B8,
+    D3DFMT_R32F, D3DFORMAT, D3DFVF_DIFFUSE, D3DFVF_TEX1, D3DFVF_XYZ, D3DFVF_XYZRHW,
+    D3DPOOL_DEFAULT, D3DPOOL_MANAGED, D3DPT_POINTLIST, D3DPT_TRIANGLESTRIP, D3DRS_ADAPTIVETESS_Y,
+    D3DRS_ALPHABLENDENABLE, D3DRS_ALPHATESTENABLE, D3DRS_BLENDOP, D3DRS_COLORWRITEENABLE,
+    D3DRS_CULLMODE, D3DRS_DESTBLEND, D3DRS_MULTISAMPLEANTIALIAS, D3DRS_MULTISAMPLEMASK,
+    D3DRS_POINTSIZE, D3DRS_SCISSORTESTENABLE, D3DRS_SRCBLEND, D3DRS_SRGBWRITEENABLE,
+    D3DRS_STENCILENABLE, D3DRS_ZENABLE, D3DRS_ZFUNC, D3DRS_ZWRITEENABLE, D3DRTYPE_TEXTURE,
+    D3DSAMP_ADDRESSU, D3DSAMP_ADDRESSV, D3DSAMP_MAGFILTER, D3DSAMP_MINFILTER, D3DSAMP_MIPFILTER,
+    D3DSAMP_SRGBTEXTURE, D3DSBT_ALL, D3DSURFACE_DESC, D3DTA_TEXTURE, D3DTADDRESS_CLAMP,
+    D3DTADDRESS_WRAP, D3DTEXF_LINEAR, D3DTEXF_NONE, D3DTEXF_POINT, D3DTOP_SELECTARG1,
+    D3DTSS_ALPHAARG1, D3DTSS_ALPHAOP, D3DTSS_COLORARG1, D3DTSS_COLOROP, D3DVIEWPORT9,
 };
 pub use windows::core::Error as Direct3DError;
 use windows::core::{HRESULT, Interface, InterfaceRef, PCSTR, Result as WindowsResult};
@@ -416,6 +417,23 @@ impl<'a> Device9Ref<'a> {
         unsafe { self.inner.SetViewport(viewport) }
     }
 
+    /// Set the rasterizer scissor rectangle.
+    pub fn set_scissor_rect(
+        &self,
+        left: i32,
+        top: i32,
+        right: i32,
+        bottom: i32,
+    ) -> Direct3DResult<()> {
+        let rect = RECT {
+            left,
+            top,
+            right,
+            bottom,
+        };
+        unsafe { self.inner.SetScissorRect(&rect) }
+    }
+
     /// Get the current viewport.
     pub fn viewport(&self) -> Direct3DResult<D3DVIEWPORT9> {
         let mut viewport = D3DVIEWPORT9::default();
@@ -793,6 +811,54 @@ impl Direct3D9 {
             format,
         )
     }
+
+    /// Check whether the default HAL can blend into a render-target texture.
+    pub fn check_default_render_target_blending_support(
+        &self,
+        format: D3DFORMAT,
+    ) -> Direct3DResult<()> {
+        let mode = self.adapter_display_mode(D3DADAPTER_DEFAULT)?;
+        self.check_device_format(
+            D3DADAPTER_DEFAULT,
+            D3DDEVTYPE_HAL,
+            mode.Format,
+            (D3DUSAGE_RENDERTARGET | D3DUSAGE_QUERY_POSTPIXELSHADER_BLENDING) as u32,
+            D3DRTYPE_TEXTURE,
+            format,
+        )
+    }
+}
+
+/// Description of a borrowed raw two-dimensional D3D texture.
+#[derive(Clone, Copy, Debug)]
+pub struct RawTexture9Description {
+    pub level_zero: D3DSURFACE_DESC,
+    pub level_count: u32,
+    pub device_identity: usize,
+}
+
+/// Inspect an engine-owned `IDirect3DBaseTexture9` without retaining it.
+///
+/// # Safety
+///
+/// `texture` must remain a live COM object for the duration of this call.
+pub unsafe fn raw_texture_2d_description(
+    texture: *mut c_void,
+) -> Direct3DResult<RawTexture9Description> {
+    let ptr = NonNull::new(texture).ok_or_else(|| WindowsError::from_hresult(E_POINTER))?;
+    let base = unsafe { InterfaceRef::<IDirect3DBaseTexture9>::from_raw(ptr) };
+    if unsafe { base.GetType() } != D3DRTYPE_TEXTURE {
+        return Err(direct3d_failure());
+    }
+    let texture = unsafe { InterfaceRef::<IDirect3DTexture9>::from_raw(ptr) };
+    let mut level_zero = D3DSURFACE_DESC::default();
+    unsafe { texture.GetLevelDesc(0, &mut level_zero)? };
+    let device = unsafe { texture.GetDevice()? };
+    Ok(RawTexture9Description {
+        level_zero,
+        level_count: unsafe { texture.GetLevelCount() },
+        device_identity: device.as_raw() as usize,
+    })
 }
 
 /// Owned `IDirect3DSurface9` reference.

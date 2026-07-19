@@ -205,6 +205,36 @@ lowprocess_generic_locations_fix = true
 queued_task_lifetime_guard = true
 
 # =============================================================================
+# LOD STREAMING
+# =============================================================================
+[lod]
+
+# Improves terrain, distant-object, and distant-tree loading while correcting
+# the cell-wide handoff from distant geometry to real reference 3D.
+enabled = true
+
+# Requests native LOD work before the vanilla visibility boundary. This moves
+# existing IO and main-thread completion work earlier; it does not add a new
+# worker, queue, or scene publication path.
+prefetch_enabled = true
+
+# Replaces vanilla lifetime-total readiness with current cell/reference
+# identity. Keep ON: removed references must not authorize later retirement.
+handoff_fix_enabled = true
+
+# Request object and tree blocks 35 percent earlier, then retain them to 150
+# percent of their original distance to prevent boundary churn.
+object_prefetch_multiplier = 1.35
+object_retention_multiplier = 1.50
+tree_prefetch_multiplier = 1.35
+tree_retention_multiplier = 1.50
+
+# Terrain uses smaller margins because recursive quadtree expansion grows work
+# and memory more quickly than object or tree blocks.
+terrain_prefetch_multiplier = 1.10
+terrain_retention_multiplier = 1.20
+
+# =============================================================================
 # PERFORMANCE
 # =============================================================================
 [performance]
@@ -269,3 +299,8 @@ hitch_profiling = false
 # Enable only when requested. It requires queued_task_lifetime_guard = true;
 # keep debug_log = true so a triggered trace can be written to the log.
 task_lifetime_trace = false
+
+# Records the last 256 meaningful LOD membership, readiness, gate, and reset
+# events. Enable only while investigating LOD behavior; aggregate streaming
+# demand counters remain available without it.
+lod_streaming_trace = false

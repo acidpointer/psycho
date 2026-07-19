@@ -172,6 +172,23 @@ native renderer's active vendor alpha-to-coverage mode (`ATOC` or `A2M1`) while
 their captured D3D9 state blocks are active. Restoring the state block returns
 ownership to the native late-alpha pipeline after the OMV draw.
 
+Local volumetric lighting enumerates the engine's scene-wide positional-light
+list in interiors and exteriors. It therefore remains functional when native
+shadow drawing and both native shadow counts are disabled. OMV ranks and copies
+up to 16 scalar-only candidates at the world light/shadow transaction, then
+renders at most two lights on Performance or four on High/Ultra. A native
+shadow texture, when the engine already produced one, is matched by light
+identity and enriches only that volume; OMV never enables or requests an extra
+native shadow draw.
+
+Each draw clips integration to the light sphere, opaque scene depth, and a
+conservative scissor, then adds scattering to the same FP16 atmosphere result
+without changing coverage alpha. Performance, High, and Ultra use deterministic
+fixed 4/6/10 sample budgets; the path has no temporal jitter, history texture,
+per-frame allocation, additional render target, or scene-color copy. A busy
+optional-shadow owner, unsupported shadow resource, or absent shadow hook falls
+back to the cheaper shadowless volume and cannot erase the scene-light epoch.
+
 Fog debug views cover reduced nearest depth, depth span, reconstructed
 world-height bands, source alpha, negative/overbright HDR range, optical
 depth/transmittance, integrated scattering, and production bilateral
@@ -181,8 +198,8 @@ enabled. Atmosphere temporal history remains a later motion-aware phase; the
 serialized stability value is compatibility-reserved and is not presented as
 an active control.
 
-The calibrated clear-weather defaults use zero uniform density and
-`0.000002` height density. The fog menu keeps exact zero as a distinct value,
+The production wasteland defaults use zero uniform density and `0.0000025`
+height density. The fog menu keeps exact zero as a distinct value,
 uses logarithmic nonzero density controls, shows the current effective distance
 bound and estimated horizontal transmission, and provides a fog-only reset to
 the calibrated profile. Higher user values remain available for intentional

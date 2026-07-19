@@ -605,6 +605,30 @@ fn volumetric_lighting_source(config: &VolumetricLightingConfig) -> ScreenShader
                 4,
                 2,
             ),
+            bool_option(
+                "local_lights_enabled",
+                "Enable shadowed local lights",
+                config.local_lights_enabled,
+                5,
+                0,
+            ),
+            float_option(
+                "local_lights_intensity",
+                "Local-light intensity",
+                config.local_lights_intensity,
+                0.0,
+                4.0,
+                5,
+                1,
+            ),
+            integer_choice_option(
+                "local_lights_quality",
+                "Local-light quality",
+                config.local_lights_quality.index(),
+                &["Performance", "High", "Ultra"],
+                5,
+                2,
+            ),
             integer_choice_option(
                 "debug_view",
                 "Debug view",
@@ -616,8 +640,11 @@ fn volumetric_lighting_source(config: &VolumetricLightingConfig) -> ScreenShader
                     "Phase response",
                     "Directional scattering",
                     "Combined acceptance",
+                    "Local-light bounds",
+                    "Local shadow visibility",
+                    "Local scattering",
                 ],
-                4,
+                5,
                 3,
             ),
         ],
@@ -1513,6 +1540,11 @@ fn sync_volumetric_lighting_config(
             "sun_disk_boost" => config.sun_disk_boost = option_float(option),
             "shaft_quality" => {
                 config.shaft_quality = AtmosphereQuality::from_index(option_integer(option));
+            }
+            "local_lights_enabled" => config.local_lights_enabled = option_bool(option),
+            "local_lights_intensity" => config.local_lights_intensity = option_float(option),
+            "local_lights_quality" => {
+                config.local_lights_quality = AtmosphereQuality::from_index(option_integer(option));
             }
             "debug_view" => config.debug_view = option_integer(option),
             _ => {}

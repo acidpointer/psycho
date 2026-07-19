@@ -70,3 +70,37 @@ pub type TaskReleaseFn = unsafe extern "fastcall" fn(*mut c_void);
 
 /// Queued-task vtable slot +0x1C.
 pub type TaskCallbackFn = unsafe extern "thiscall" fn(*mut c_void, usize);
+
+/// Terrain/object/tree LOD demand predicates. ECX owns the terrain node and
+/// the stack argument points to the camera XY(Z) vector.
+pub type LodDemandFn = unsafe extern "thiscall" fn(*mut c_void, *const f32) -> i32;
+
+/// BGSTerrainManager::ResetDistantLOD.
+pub type LodWorldspaceResetFn = unsafe extern "fastcall" fn(*mut c_void);
+
+/// TESObjectCELL reference insertion and VWD-total update.
+pub type LodCellInsertFn = unsafe extern "thiscall" fn(*mut c_void, *mut c_void, u8);
+
+/// TESObjectCELL reference removal and VWD-total update.
+pub type LodCellRemoveFn = unsafe extern "thiscall" fn(*mut c_void, *mut c_void);
+
+/// Cell-only counter/reset/teardown helpers with their owner in ECX.
+pub type LodCellOwnerFn = unsafe extern "fastcall" fn(*mut c_void);
+
+/// TESObjectCELL distant-to-real readiness gate. Callers consume AL.
+pub type LodCellReadyGateFn = unsafe extern "fastcall" fn(*mut c_void) -> u8;
+
+/// TESObjectCELL +0xAA successful real-3D counter increment.
+pub type LodReadyIncrementFn = unsafe extern "fastcall" fn(*mut c_void);
+
+/// Game setting float accessor at 0x00403E20.
+pub type GameSettingFloatFn = unsafe extern "thiscall" fn(*mut c_void) -> *const f32;
+
+/// SpeedTree core clone constructor. The new clone is in ECX and the source
+/// core object is the only stack argument.
+pub type SpeedTreeCloneConstructorFn =
+    unsafe extern "thiscall" fn(*mut c_void, *mut c_void) -> *mut c_void;
+
+/// SpeedTree core scalar deleting destructor. Bit zero in `flags` requests
+/// physical deletion after the destructor body.
+pub type SpeedTreeScalarDestructorFn = unsafe extern "thiscall" fn(*mut c_void, u32) -> *mut c_void;

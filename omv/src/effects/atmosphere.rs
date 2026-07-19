@@ -1,10 +1,11 @@
 //! World-only volumetric atmosphere foundation.
 
 use libpsycho::os::windows::directx9::{
-    D3DCULL_NONE, D3DFMT_A8R8G8B8, D3DFMT_A16B16G16R16F, D3DFMT_G16R16F, D3DFORMAT,
-    D3DPOOL_MANAGED, D3DPT_TRIANGLESTRIP, D3DRS_ADAPTIVETESS_Y, D3DRS_ALPHABLENDENABLE,
-    D3DRS_ALPHATESTENABLE, D3DRS_COLORWRITEENABLE, D3DRS_CULLMODE, D3DRS_MULTISAMPLEANTIALIAS,
-    D3DRS_MULTISAMPLEMASK, D3DRS_POINTSIZE, D3DRS_SCISSORTESTENABLE, D3DRS_SRGBWRITEENABLE,
+    D3DBLEND_ONE, D3DBLENDOP_ADD, D3DCULL_NONE, D3DFMT_A8R8G8B8, D3DFMT_A16B16G16R16F,
+    D3DFMT_G16R16F, D3DFORMAT, D3DPOOL_MANAGED, D3DPT_TRIANGLESTRIP, D3DRS_ADAPTIVETESS_Y,
+    D3DRS_ALPHABLENDENABLE, D3DRS_ALPHATESTENABLE, D3DRS_BLENDOP, D3DRS_COLORWRITEENABLE,
+    D3DRS_CULLMODE, D3DRS_DESTBLEND, D3DRS_MULTISAMPLEANTIALIAS, D3DRS_MULTISAMPLEMASK,
+    D3DRS_POINTSIZE, D3DRS_SCISSORTESTENABLE, D3DRS_SRCBLEND, D3DRS_SRGBWRITEENABLE,
     D3DRS_STENCILENABLE, D3DRS_ZENABLE, D3DRS_ZWRITEENABLE, D3DSAMP_ADDRESSU, D3DSAMP_ADDRESSV,
     D3DSAMP_MAGFILTER, D3DSAMP_MINFILTER, D3DSAMP_MIPFILTER, D3DSAMP_SRGBTEXTURE, D3DSURFACE_DESC,
     D3DTA_TEXTURE, D3DTADDRESS_CLAMP, D3DTADDRESS_WRAP, D3DTEXF_LINEAR, D3DTEXF_NONE,
@@ -31,6 +32,8 @@ const SHAFT_MASK_SHADER: &[u8] =
     include_bytes!("../../shaders/embedded/atmosphere_shaft_mask.hlsl");
 const SHAFT_RADIAL_SHADER: &[u8] =
     include_bytes!("../../shaders/embedded/atmosphere_shaft_radial.hlsl");
+const LOCAL_LIGHT_SHADER: &[u8] =
+    include_bytes!("../../shaders/embedded/atmosphere_local_light.hlsl");
 const DENSITY_NOISE_SIZE: u32 = 64;
 const DENSITY_NOISE_SEED: u32 = 0xA7F4_31D9;
 const LIGHTING_DEBUG_BASE: i32 = 8;
@@ -58,6 +61,9 @@ pub(crate) struct AtmosphereSettings {
     shaft_strength: f32,
     sun_disk_boost: f32,
     shaft_quality: AtmosphereQuality,
+    pub(crate) local_lights_enabled: bool,
+    local_lights_intensity: f32,
+    local_lights_quality: AtmosphereQuality,
 }
 
 impl AtmosphereSettings {
@@ -69,17 +75,17 @@ impl AtmosphereSettings {
             fog_enabled: fog.enabled,
             lighting_enabled: lighting.enabled,
             density: finite(fog.density, 0.0).clamp(0.0, 0.001),
-            height_density: finite(fog.height_density, 0.000002).clamp(0.0, 0.001),
-            height_falloff: finite(fog.height_falloff, 0.0001).clamp(0.000001, 0.01),
+            height_density: finite(fog.height_density, 0.0000025).clamp(0.0, 0.001),
+            height_falloff: finite(fog.height_falloff, 0.00008).clamp(0.000001, 0.01),
             base_height: finite(fog.base_height, 0.0).clamp(-100_000.0, 100_000.0),
             max_distance: if fog.enabled {
                 finite(fog.max_distance, 120_000.0).clamp(1_000.0, 250_000.0)
             } else {
                 finite(lighting.max_distance, 120_000.0).clamp(1_000.0, 250_000.0)
             },
-            scattering_albedo: finite(fog.scattering_albedo, 0.9).clamp(0.0, 1.0),
-            noise_amount: finite(fog.noise_amount, 0.25).clamp(0.0, 1.0),
-            noise_scale: finite(fog.noise_scale, 0.0005).clamp(0.000001, 0.05),
+            scattering_albedo: finite(fog.scattering_albedo, 0.88).clamp(0.0, 1.0),
+            noise_amount: finite(fog.noise_amount, 0.18).clamp(0.0, 1.0),
+            noise_scale: finite(fog.noise_scale, 0.00035).clamp(0.000001, 0.05),
             noise_speed: finite(fog.noise_speed, 0.02).clamp(0.0, 1.0),
             temporal_stability: finite(fog.temporal_stability, 0.9).clamp(0.0, 0.98),
             debug_view: selected_debug_view(fog.debug_view, lighting.debug_view),
@@ -88,12 +94,15 @@ impl AtmosphereSettings {
             } else {
                 lighting.shaft_quality
             },
-            lighting_intensity: finite(lighting.intensity, 1.0).clamp(0.0, 8.0),
-            lighting_medium_density: finite(lighting.medium_density, 0.000002).clamp(0.0, 0.001),
-            anisotropy: finite(lighting.anisotropy, 0.65).clamp(-0.8, 0.9),
-            shaft_strength: finite(lighting.shaft_strength, 1.0).clamp(0.0, 1.0),
+            lighting_intensity: finite(lighting.intensity, 0.95).clamp(0.0, 8.0),
+            lighting_medium_density: finite(lighting.medium_density, 0.0000025).clamp(0.0, 0.001),
+            anisotropy: finite(lighting.anisotropy, 0.58).clamp(-0.8, 0.9),
+            shaft_strength: finite(lighting.shaft_strength, 0.72).clamp(0.0, 1.0),
             sun_disk_boost: finite(lighting.sun_disk_boost, 1.0).clamp(0.0, 8.0),
             shaft_quality: lighting.shaft_quality,
+            local_lights_enabled: lighting.local_lights_enabled,
+            local_lights_intensity: finite(lighting.local_lights_intensity, 1.5).clamp(0.0, 4.0),
+            local_lights_quality: lighting.local_lights_quality,
         }
     }
 
@@ -106,26 +115,26 @@ impl AtmosphereSettings {
         let fog_enabled = fog.is_some();
         let lighting_enabled = lighting.is_some();
         let density = option_component(fog_constants, 0, 0, 0.0);
-        let height_density = option_component(fog_constants, 0, 1, 0.000002);
-        let height_falloff = option_component(fog_constants, 0, 2, 0.0001);
+        let height_density = option_component(fog_constants, 0, 1, 0.0000025);
+        let height_falloff = option_component(fog_constants, 0, 2, 0.00008);
         let base_height = option_component(fog_constants, 0, 3, 0.0);
         let max_distance = option_component(fog_constants, 1, 0, 120_000.0);
-        let scattering_albedo = option_component(fog_constants, 1, 1, 0.9);
-        let noise_amount = option_component(fog_constants, 1, 2, 0.25);
-        let noise_scale = option_component(fog_constants, 1, 3, 0.0005);
+        let scattering_albedo = option_component(fog_constants, 1, 1, 0.88);
+        let noise_amount = option_component(fog_constants, 1, 2, 0.18);
+        let noise_scale = option_component(fog_constants, 1, 3, 0.00035);
         let noise_speed = option_component(fog_constants, 2, 0, 0.02);
         let temporal_stability = option_component(fog_constants, 2, 1, 0.9);
         let fog_debug = fog_constants
             .and_then(|constants| constants.get(2))
             .map_or(0, |value| finite_i32(value[3]));
-        let lighting_intensity = option_component(lighting_constants, 0, 0, 1.0);
-        let lighting_medium_density = option_component(lighting_constants, 0, 1, 0.000002);
+        let lighting_intensity = option_component(lighting_constants, 0, 0, 0.95);
+        let lighting_medium_density = option_component(lighting_constants, 0, 1, 0.0000025);
         let lighting_max_distance = option_component(lighting_constants, 0, 2, 120_000.0);
-        let anisotropy = option_component(lighting_constants, 0, 3, 0.65);
-        let shaft_strength = option_component(lighting_constants, 1, 0, 1.0);
+        let anisotropy = option_component(lighting_constants, 0, 3, 0.58);
+        let shaft_strength = option_component(lighting_constants, 1, 0, 0.72);
         let sun_disk_boost = option_component(lighting_constants, 1, 1, 1.0);
         let lighting_debug = lighting_constants
-            .and_then(|constants| constants.get(1))
+            .and_then(|constants| constants.get(2))
             .map_or(0, |value| finite_i32(value[3]));
         let fog_quality = fog_constants
             .and_then(|constants| constants.get(2))
@@ -133,33 +142,45 @@ impl AtmosphereSettings {
         let lighting_quality = lighting_constants
             .and_then(|constants| constants.get(1))
             .map(|value| AtmosphereQuality::from_index(finite_i32(value[2])));
+        let local_lights_enabled = lighting_constants
+            .and_then(|constants| constants.get(2))
+            .is_some_and(|value| value[0] >= 0.5);
+        let local_lights_intensity = option_component(lighting_constants, 2, 1, 1.5);
+        let local_lights_quality = lighting_constants
+            .and_then(|constants| constants.get(2))
+            .map_or(AtmosphereQuality::High, |value| {
+                AtmosphereQuality::from_index(finite_i32(value[2]))
+            });
         let quality = fog_quality.or(lighting_quality).unwrap_or_default();
 
         Self {
             fog_enabled,
             lighting_enabled,
             density: finite(density, 0.0).clamp(0.0, 0.001),
-            height_density: finite(height_density, 0.000002).clamp(0.0, 0.001),
-            height_falloff: finite(height_falloff, 0.0001).clamp(0.000001, 0.01),
+            height_density: finite(height_density, 0.0000025).clamp(0.0, 0.001),
+            height_falloff: finite(height_falloff, 0.00008).clamp(0.000001, 0.01),
             base_height: finite(base_height, 0.0).clamp(-100_000.0, 100_000.0),
             max_distance: if fog_enabled {
                 finite(max_distance, 120_000.0).clamp(1_000.0, 250_000.0)
             } else {
                 finite(lighting_max_distance, 120_000.0).clamp(1_000.0, 250_000.0)
             },
-            scattering_albedo: finite(scattering_albedo, 0.9).clamp(0.0, 1.0),
-            noise_amount: finite(noise_amount, 0.25).clamp(0.0, 1.0),
-            noise_scale: finite(noise_scale, 0.0005).clamp(0.000001, 0.05),
+            scattering_albedo: finite(scattering_albedo, 0.88).clamp(0.0, 1.0),
+            noise_amount: finite(noise_amount, 0.18).clamp(0.0, 1.0),
+            noise_scale: finite(noise_scale, 0.00035).clamp(0.000001, 0.05),
             noise_speed: finite(noise_speed, 0.02).clamp(0.0, 1.0),
             temporal_stability: finite(temporal_stability, 0.9).clamp(0.0, 0.98),
             debug_view: selected_debug_view(fog_debug, lighting_debug),
             quality,
-            lighting_intensity: finite(lighting_intensity, 1.0).clamp(0.0, 8.0),
-            lighting_medium_density: finite(lighting_medium_density, 0.000002).clamp(0.0, 0.001),
-            anisotropy: finite(anisotropy, 0.65).clamp(-0.8, 0.9),
-            shaft_strength: finite(shaft_strength, 1.0).clamp(0.0, 1.0),
+            lighting_intensity: finite(lighting_intensity, 0.95).clamp(0.0, 8.0),
+            lighting_medium_density: finite(lighting_medium_density, 0.0000025).clamp(0.0, 0.001),
+            anisotropy: finite(anisotropy, 0.58).clamp(-0.8, 0.9),
+            shaft_strength: finite(shaft_strength, 0.72).clamp(0.0, 1.0),
             sun_disk_boost: finite(sun_disk_boost, 1.0).clamp(0.0, 8.0),
             shaft_quality: lighting_quality.unwrap_or_default(),
+            local_lights_enabled,
+            local_lights_intensity: finite(local_lights_intensity, 1.5).clamp(0.0, 4.0),
+            local_lights_quality,
         }
     }
 
@@ -174,6 +195,9 @@ impl AtmosphereSettings {
     pub(crate) fn requires_integration(self) -> bool {
         (self.fog_enabled && (self.density > 0.0 || self.height_density > 0.0))
             || (self.lighting_enabled && self.lighting_medium_density > 0.0)
+            || (self.local_lights_enabled
+                && self.local_lights_intensity > 0.0
+                && self.lighting_medium_density > 0.0)
     }
 
     pub(crate) fn estimated_horizontal_transmittance(self, frame: AtmosphereFrame) -> f32 {
@@ -193,7 +217,14 @@ impl AtmosphereSettings {
     }
 
     fn target_scale(self) -> u32 {
-        match self.quality {
+        let quality = if self.local_lights_enabled
+            && self.local_lights_quality.index() > self.quality.index()
+        {
+            self.local_lights_quality
+        } else {
+            self.quality
+        };
+        match quality {
             AtmosphereQuality::Performance => 4,
             AtmosphereQuality::High | AtmosphereQuality::Ultra => 2,
         }
@@ -223,6 +254,25 @@ impl AtmosphereSettings {
         self.shaft_quality.index() as usize
     }
 
+    fn local_sample_count(self) -> u32 {
+        match self.local_lights_quality {
+            AtmosphereQuality::Performance => 4,
+            AtmosphereQuality::High => 6,
+            AtmosphereQuality::Ultra => 10,
+        }
+    }
+
+    fn local_max_lights(self) -> usize {
+        match self.local_lights_quality {
+            AtmosphereQuality::Performance => 2,
+            AtmosphereQuality::High | AtmosphereQuality::Ultra => 4,
+        }
+    }
+
+    fn local_shader_index(self) -> usize {
+        self.local_lights_quality.index() as usize
+    }
+
     fn lighting_debug_view(self) -> i32 {
         (self.debug_view - LIGHTING_DEBUG_BASE).max(0)
     }
@@ -235,16 +285,16 @@ impl AtmosphereSettings {
         }
     }
 
-    fn effective_uniform_density(self) -> f32 {
-        if self.fog_enabled {
+    fn effective_uniform_density(self, fog_active: bool) -> f32 {
+        if fog_active {
             self.density
         } else {
             self.lighting_medium_density
         }
     }
 
-    fn effective_scattering_albedo(self) -> f32 {
-        if self.fog_enabled {
+    fn effective_scattering_albedo(self, fog_active: bool) -> f32 {
+        if fog_active {
             self.scattering_albedo
         } else {
             1.0
@@ -253,7 +303,7 @@ impl AtmosphereSettings {
 }
 
 fn selected_debug_view(fog: i32, lighting: i32) -> i32 {
-    let lighting = lighting.clamp(0, 5);
+    let lighting = lighting.clamp(0, 8);
     if lighting != 0 {
         LIGHTING_DEBUG_BASE + lighting
     } else {
@@ -438,10 +488,78 @@ fn dot3(a: [f32; 3], b: [f32; 3]) -> f32 {
     a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
 }
 
+#[cfg(test)]
+fn ray_sphere_interval(
+    origin: [f32; 3],
+    direction: [f32; 3],
+    center: [f32; 3],
+    radius: f32,
+    depth_distance: f32,
+    max_distance: f32,
+) -> Option<(f32, f32)> {
+    if !origin.into_iter().all(f32::is_finite)
+        || !direction.into_iter().all(f32::is_finite)
+        || !center.into_iter().all(f32::is_finite)
+        || !radius.is_finite()
+        || radius <= 0.0
+    {
+        return None;
+    }
+    let to_center = [
+        center[0] - origin[0],
+        center[1] - origin[1],
+        center[2] - origin[2],
+    ];
+    let projected_center = dot3(to_center, direction);
+    let discriminant =
+        projected_center * projected_center - (dot3(to_center, to_center) - radius * radius);
+    if !discriminant.is_finite() || discriminant <= 0.0 {
+        return None;
+    }
+    let root = discriminant.sqrt();
+    let entry = (projected_center - root).max(0.0);
+    let exit = (projected_center + root)
+        .min(depth_distance)
+        .min(max_distance);
+    (exit - entry > 0.0001).then_some((entry, exit))
+}
+
+#[cfg(test)]
+fn project_native_shadow(matrix: [[f32; 4]; 4], position: [f32; 3]) -> Option<([f32; 2], f32)> {
+    let homogeneous = [position[0], position[1], position[2], 1.0];
+    let shadow = matrix.map(|row| {
+        row[0] * homogeneous[0] + row[1] * homogeneous[1] + row[2] * homogeneous[2] + row[3]
+    });
+    if !shadow.into_iter().all(f32::is_finite) || shadow[3] <= 0.000001 {
+        return None;
+    }
+    let uv = [
+        0.5 * shadow[0] / shadow[3] + 0.5,
+        0.5 - 0.5 * shadow[1] / shadow[3],
+    ];
+    (uv.into_iter()
+        .all(|value| value.is_finite() && (0.0..=1.0).contains(&value)))
+    .then_some((uv, shadow[2]))
+}
+
+#[cfg(test)]
+fn integrated_uniform_scatter(density: f32, distance: f32, samples: u32) -> f32 {
+    let step = distance / samples.max(1) as f32;
+    let step_transmittance = (-density.max(0.0) * step).exp();
+    let mut transmittance = 1.0;
+    let mut result = 0.0;
+    for _ in 0..samples.max(1) {
+        result += transmittance * (1.0 - step_transmittance);
+        transmittance *= step_transmittance;
+    }
+    result
+}
+
 pub(crate) struct AtmosphereEffect {
     depth_reduce_half_shader: PixelShader9,
     depth_reduce_quarter_shader: PixelShader9,
     shaft_pipeline: Option<ShaftPipeline>,
+    local_light_pipeline: Option<LocalLightPipeline>,
     integrate_shaders: [PixelShader9; 3],
     compose_shader: PixelShader9,
     debug_shader: PixelShader9,
@@ -460,6 +578,7 @@ pub(crate) struct AtmosphereEffect {
     composition_gate_logs: u32,
     integration_draws: u64,
     shaft_draws: u64,
+    local_light_draws: u64,
     composition_draws: u64,
     debug_draws: u64,
 }
@@ -508,6 +627,15 @@ impl AtmosphereEffect {
                 None
             }
         };
+        let local_light_pipeline = match LocalLightPipeline::create(device) {
+            Ok(pipeline) => Some(pipeline),
+            Err(err) => {
+                log::warn!(
+                    "[ATMOSPHERE LOCAL] Optional FP16 additive pipeline unavailable; fog and directional lighting remain active: {err}"
+                );
+                None
+            }
+        };
         Ok(Self {
             depth_reduce_half_shader: compile_shader(
                 device,
@@ -520,6 +648,7 @@ impl AtmosphereEffect {
                 &quarter_source,
             )?,
             shaft_pipeline,
+            local_light_pipeline,
             integrate_shaders: [
                 compile_shader(
                     device,
@@ -554,6 +683,7 @@ impl AtmosphereEffect {
             composition_gate_logs: 0,
             integration_draws: 0,
             shaft_draws: 0,
+            local_light_draws: 0,
             composition_draws: 0,
             debug_draws: 0,
         })
@@ -569,6 +699,7 @@ impl AtmosphereEffect {
         settings: AtmosphereSettings,
         taa_enabled: bool,
         taa_alpha_ready: bool,
+        local_epoch: Option<&crate::fnv_local_lights::LocalLightEpoch>,
     ) -> Direct3DResult<AtmosphereDrawOutcome> {
         self.log_contract(
             desc,
@@ -577,7 +708,46 @@ impl AtmosphereEffect {
             taa_enabled,
             taa_alpha_ready,
         );
-        let integration_gate = fog_integration_gate(frame, settings);
+        let mut usable_local_lights = [None; 4];
+        let mut usable_local_count = 0usize;
+        let mut captured_local_count = 0usize;
+        let mut captured_local_age = 0u32;
+        if settings.local_lights_enabled
+            && settings.local_lights_intensity > 0.0
+            && self.local_light_pipeline.is_some()
+            && frame.material_state.exterior_known
+            && frame.underwater_contract_ready()
+            && !frame.underwater.underwater
+            && let Some(epoch) = local_epoch
+            && epoch.device_identity == device.as_raw() as usize
+        {
+            captured_local_count = epoch.light_count();
+            captured_local_age = crate::hooks::render_epoch().wrapping_sub(epoch.render_epoch);
+            for light in epoch.lights() {
+                if usable_local_count >= settings.local_max_lights() {
+                    break;
+                }
+                if local_light_scissor(
+                    frame.camera,
+                    desc.Width,
+                    desc.Height,
+                    light.values.position,
+                    light.values.radius,
+                    settings.max_distance,
+                )
+                .is_none()
+                {
+                    continue;
+                }
+                usable_local_lights[usable_local_count] = Some(UsableLocalLight {
+                    light,
+                    shadow: light.shadow_binding(device.as_raw() as usize),
+                });
+                usable_local_count += 1;
+            }
+        }
+        let local_ready = usable_local_count != 0;
+        let integration_gate = fog_integration_gate(frame, settings, local_ready);
         self.log_integration_gate(integration_gate, settings);
         if settings.debug_view == 0
             && matches!(
@@ -697,6 +867,38 @@ impl AtmosphereEffect {
                     targets.height,
                 );
             }
+            if local_ready && let Some(local_pipeline) = self.local_light_pipeline.as_ref() {
+                let draws = draw_local_lights(
+                    device,
+                    local_pipeline,
+                    targets,
+                    &self.density_noise,
+                    frame,
+                    settings,
+                    &usable_local_lights,
+                )?;
+                bind_pipeline_state(device)?;
+                self.local_light_draws = self.local_light_draws.saturating_add(draws as u64);
+                crate::fnv_local_lights::record_rendered_lights(draws / 2);
+                if draws != 0 && self.local_light_draws == draws as u64 {
+                    log::info!(
+                        "[ATMOSPHERE LOCAL] Scissored scene-wide integration active: quality={:?}, scale={}, samples={}, captured={}, usable={}, shadowed={}, capture_age={}, max_lights={}, draw_ceiling={}",
+                        settings.local_lights_quality,
+                        targets.scale,
+                        settings.local_sample_count(),
+                        captured_local_count,
+                        usable_local_count,
+                        usable_local_lights
+                            .iter()
+                            .flatten()
+                            .filter(|light| light.shadow.is_some())
+                            .count(),
+                        captured_local_age,
+                        settings.local_max_lights(),
+                        settings.local_max_lights() * 2,
+                    );
+                }
+            }
             true
         } else {
             false
@@ -719,7 +921,8 @@ impl AtmosphereEffect {
             self.debug_draws,
         );
 
-        if settings.debug_view == 0 {
+        let local_debug = settings.lighting_debug_view() >= 6;
+        if settings.debug_view == 0 || local_debug {
             if composition_gate != FogCompositionGate::Ready {
                 return Ok(AtmosphereDrawOutcome::Skipped);
             }
@@ -751,7 +954,7 @@ impl AtmosphereEffect {
                     SOURCE_TRANSFER.label(),
                 );
             }
-            return Ok(if contributions.lighting_ready() {
+            return Ok(if contributions.lighting_ready() || local_ready {
                 AtmosphereDrawOutcome::ComposedWithLighting
             } else {
                 AtmosphereDrawOutcome::Composed
@@ -1183,15 +1386,15 @@ fn draw_integration(
             view_to_world[1],
             view_to_world[2],
             [
-                settings.effective_uniform_density(),
-                fog_density,
+                base_medium_density(settings, contributions),
+                if contributions.fog { fog_density } else { 0.0 },
                 settings.height_falloff,
                 settings.base_height,
             ],
             [
                 settings.max_distance,
-                settings.effective_scattering_albedo(),
-                noise_amount,
+                settings.effective_scattering_albedo(contributions.fog),
+                if contributions.fog { noise_amount } else { 0.0 },
                 settings.noise_scale,
             ],
             [
@@ -1224,6 +1427,287 @@ fn draw_integration(
     )?;
     device.set_pixel_shader(shader)?;
     draw_quad(device, targets.width, targets.height)
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct ScissorRect {
+    left: i32,
+    top: i32,
+    right: i32,
+    bottom: i32,
+}
+
+#[derive(Clone, Copy)]
+struct UsableLocalLight<'a> {
+    light: &'a crate::fnv_local_lights::LocalVolumetricLight,
+    shadow: Option<crate::fnv_local_lights::LocalShadowBinding>,
+}
+
+fn local_light_scissor(
+    camera: crate::backend::CameraFrame,
+    width: u32,
+    height: u32,
+    world_position: [f32; 3],
+    radius: f32,
+    max_distance: f32,
+) -> Option<ScissorRect> {
+    if !camera.available
+        || !camera.world_transform.available
+        || width == 0
+        || height == 0
+        || !world_position.into_iter().all(f32::is_finite)
+        || !radius.is_finite()
+        || radius <= 0.0
+        || !max_distance.is_finite()
+        || max_distance <= 0.0
+    {
+        return None;
+    }
+    let transform = camera.world_transform;
+    if !transform.scale.is_finite() || transform.scale.abs() <= 0.000001 {
+        return None;
+    }
+    let delta = [
+        world_position[0] - transform.translation[0],
+        world_position[1] - transform.translation[1],
+        world_position[2] - transform.translation[2],
+    ];
+    let center_distance = dot3(delta, delta).sqrt();
+    if !center_distance.is_finite() || center_distance - radius >= max_distance {
+        return None;
+    }
+    let inverse_scale = transform.scale.recip();
+    let forward = [
+        transform.rotation[0][0],
+        transform.rotation[1][0],
+        transform.rotation[2][0],
+    ];
+    let up = [
+        transform.rotation[0][1],
+        transform.rotation[1][1],
+        transform.rotation[2][1],
+    ];
+    let right = [
+        transform.rotation[0][2],
+        transform.rotation[1][2],
+        transform.rotation[2][2],
+    ];
+    let center = [
+        dot3(delta, right) * inverse_scale,
+        dot3(delta, up) * inverse_scale,
+        dot3(delta, forward) * inverse_scale,
+    ];
+    let view_radius = radius * inverse_scale.abs();
+    if !center.into_iter().all(f32::is_finite)
+        || !view_radius.is_finite()
+        || center[2] + view_radius <= 0.0
+    {
+        return None;
+    }
+    if center[2] - view_radius <= camera.near_z.max(0.0) {
+        return Some(ScissorRect {
+            left: 0,
+            top: 0,
+            right: width as i32,
+            bottom: height as i32,
+        });
+    }
+
+    let frustum_width = camera.frustum_right - camera.frustum_left;
+    let frustum_height = camera.frustum_top - camera.frustum_bottom;
+    if !frustum_width.is_finite()
+        || !frustum_height.is_finite()
+        || frustum_width <= 0.000001
+        || frustum_height <= 0.000001
+    {
+        return None;
+    }
+    let mut min_uv = [f32::INFINITY; 2];
+    let mut max_uv = [f32::NEG_INFINITY; 2];
+    for x_sign in [-1.0f32, 1.0] {
+        for y_sign in [-1.0f32, 1.0] {
+            for z_sign in [-1.0f32, 1.0] {
+                let z = center[2] + z_sign * view_radius;
+                let projected_x = (center[0] + x_sign * view_radius) / z;
+                let projected_y = (center[1] + y_sign * view_radius) / z;
+                let uv = [
+                    (projected_x - camera.frustum_left) / frustum_width,
+                    (camera.frustum_top - projected_y) / frustum_height,
+                ];
+                if !uv.into_iter().all(f32::is_finite) {
+                    return None;
+                }
+                min_uv[0] = min_uv[0].min(uv[0]);
+                min_uv[1] = min_uv[1].min(uv[1]);
+                max_uv[0] = max_uv[0].max(uv[0]);
+                max_uv[1] = max_uv[1].max(uv[1]);
+            }
+        }
+    }
+    if max_uv[0] < 0.0 || max_uv[1] < 0.0 || min_uv[0] > 1.0 || min_uv[1] > 1.0 {
+        return None;
+    }
+    let left = (min_uv[0].clamp(0.0, 1.0) * width as f32).floor() as i32 - 1;
+    let top = (min_uv[1].clamp(0.0, 1.0) * height as f32).floor() as i32 - 1;
+    let right = (max_uv[0].clamp(0.0, 1.0) * width as f32).ceil() as i32 + 1;
+    let bottom = (max_uv[1].clamp(0.0, 1.0) * height as f32).ceil() as i32 + 1;
+    let rect = ScissorRect {
+        left: left.clamp(0, width as i32),
+        top: top.clamp(0, height as i32),
+        right: right.clamp(0, width as i32),
+        bottom: bottom.clamp(0, height as i32),
+    };
+    (rect.left < rect.right && rect.top < rect.bottom).then_some(rect)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn draw_local_lights(
+    device: &Device9Ref<'_>,
+    pipeline: &LocalLightPipeline,
+    targets: &AtmosphereTargets,
+    density_noise: &Texture9,
+    frame: AtmosphereFrame,
+    settings: AtmosphereSettings,
+    lights: &[Option<UsableLocalLight<'_>>; 4],
+) -> Direct3DResult<u32> {
+    let contributions = resolve_contributions(frame, settings);
+    let fog_active = contributions.fog;
+    let view_to_world = view_to_world_rows(frame.camera);
+    let debug_mode = match settings.lighting_debug_view() {
+        6 => 1.0,
+        7 => 2.0,
+        8 => 3.0,
+        _ => 0.0,
+    };
+    let mut draws = 0u32;
+    for usable in lights.iter().flatten().copied() {
+        let light = usable.light;
+        let Some(scissor) = local_light_scissor(
+            frame.camera,
+            targets.width,
+            targets.height,
+            light.values.position,
+            light.values.radius,
+            settings.max_distance,
+        ) else {
+            continue;
+        };
+        for far_layer in [false, true] {
+            bind_target(
+                device,
+                if far_layer {
+                    &targets.far_atmosphere.surface
+                } else {
+                    &targets.near_atmosphere.surface
+                },
+                targets.width,
+                targets.height,
+            )?;
+            device.set_texture(0, &targets.depth.texture)?;
+            device.set_texture(1, density_noise)?;
+            if let Some(shadow) = usable.shadow {
+                unsafe { device.set_raw_base_texture(2, shadow.texture)? };
+            } else {
+                device.clear_texture(2)?;
+            }
+            set_sampler_filter(device, 0, D3DTEXF_POINT.0 as u32)?;
+            set_sampler_filter(device, 1, D3DTEXF_LINEAR.0 as u32)?;
+            if usable.shadow.is_some() {
+                set_sampler_filter(device, 2, D3DTEXF_POINT.0 as u32)?;
+            }
+            device.set_sampler_state(1, D3DSAMP_ADDRESSU, D3DTADDRESS_WRAP.0 as u32)?;
+            device.set_sampler_state(1, D3DSAMP_ADDRESSV, D3DTADDRESS_WRAP.0 as u32)?;
+            device.set_render_state(D3DRS_ALPHABLENDENABLE, 1)?;
+            device.set_render_state(D3DRS_SRCBLEND, D3DBLEND_ONE.0 as u32)?;
+            device.set_render_state(D3DRS_DESTBLEND, D3DBLEND_ONE.0 as u32)?;
+            device.set_render_state(D3DRS_BLENDOP, D3DBLENDOP_ADD.0 as u32)?;
+            device.set_render_state(D3DRS_COLORWRITEENABLE, 0x07)?;
+            device.set_render_state(D3DRS_SCISSORTESTENABLE, 1)?;
+            device.set_scissor_rect(scissor.left, scissor.top, scissor.right, scissor.bottom)?;
+            let height_density = if fog_active {
+                settings.height_density
+            } else {
+                0.0
+            };
+            let noise_amount = if fog_active {
+                settings.noise_amount
+            } else {
+                0.0
+            };
+            let shadow_matrix = usable
+                .shadow
+                .map_or([[0.0; 4]; 4], |shadow| shadow.values.shadow_matrix);
+            let shadow_bias = usable
+                .shadow
+                .map_or(0.0, |shadow| shadow.values.format.bias());
+            device.set_pixel_shader_constant_f(
+                0,
+                &[
+                    [
+                        targets.width as f32,
+                        targets.height as f32,
+                        targets.inv_width,
+                        targets.inv_height,
+                    ],
+                    [
+                        frame.camera.near_z,
+                        frame.camera.far_z,
+                        frame.depth.world_projection.reversed_depth_f32(),
+                        frame.distance_bound,
+                    ],
+                    [
+                        frame.camera.frustum_left,
+                        frame.camera.frustum_right,
+                        frame.camera.frustum_bottom,
+                        frame.camera.frustum_top,
+                    ],
+                    view_to_world[0],
+                    view_to_world[1],
+                    view_to_world[2],
+                    [
+                        settings.effective_uniform_density(fog_active),
+                        height_density,
+                        settings.height_falloff,
+                        settings.base_height,
+                    ],
+                    [
+                        settings.max_distance,
+                        settings.effective_scattering_albedo(fog_active),
+                        noise_amount,
+                        settings.noise_scale,
+                    ],
+                    [
+                        light.values.position[0],
+                        light.values.position[1],
+                        light.values.position[2],
+                        light.values.radius,
+                    ],
+                    [
+                        light.values.color[0],
+                        light.values.color[1],
+                        light.values.color[2],
+                        settings.local_lights_intensity,
+                    ],
+                    shadow_matrix[0],
+                    shadow_matrix[1],
+                    shadow_matrix[2],
+                    shadow_matrix[3],
+                    [
+                        shadow_bias,
+                        if far_layer { 1.0 } else { 0.0 },
+                        settings.anisotropy,
+                        debug_mode,
+                    ],
+                ],
+            )?;
+            device.set_pixel_shader(
+                pipeline.shader(settings.local_shader_index(), usable.shadow.is_some()),
+            )?;
+            draw_quad(device, targets.width, targets.height)?;
+            draws += 1;
+        }
+    }
+    Ok(draws)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1417,8 +1901,9 @@ fn view_to_world_rows(camera: crate::backend::CameraFrame) -> [[f32; 4]; 3] {
 fn fog_integration_gate(
     frame: AtmosphereFrame,
     settings: AtmosphereSettings,
+    local_ready: bool,
 ) -> FogIntegrationGate {
-    if !settings.fog_enabled && !settings.lighting_enabled {
+    if !settings.fog_enabled && !settings.lighting_enabled && !settings.local_lights_enabled {
         return FogIntegrationGate::Disabled;
     }
     if !settings.requires_integration() {
@@ -1433,7 +1918,7 @@ fn fog_integration_gate(
     if !frame.material_state.exterior_known {
         return FogIntegrationGate::ExteriorUnknown;
     }
-    if !frame.material_state.is_exterior {
+    if !frame.material_state.is_exterior && !local_ready {
         return FogIntegrationGate::Interior;
     }
     if !frame.underwater_contract_ready() {
@@ -1442,7 +1927,7 @@ fn fog_integration_gate(
     if frame.underwater.underwater {
         return FogIntegrationGate::Underwater;
     }
-    if !resolve_contributions(frame, settings).any() {
+    if !resolve_contributions(frame, settings).any() && !local_ready {
         return FogIntegrationGate::NoReadyContribution;
     }
     FogIntegrationGate::Ready
@@ -1457,7 +1942,7 @@ fn fog_composition_gate(
     taa_enabled: bool,
     taa_alpha_ready: bool,
 ) -> FogCompositionGate {
-    if settings.debug_view != 0 {
+    if settings.debug_view != 0 && settings.lighting_debug_view() < 6 {
         return FogCompositionGate::DebugView;
     }
     if integration_gate != FogIntegrationGate::Ready || !integration_ready {
@@ -1476,14 +1961,16 @@ fn fog_composition_gate(
 }
 
 fn resolve_medium_color(frame: AtmosphereFrame) -> Option<MediumColor> {
+    if !frame.material_state.exterior_known || !frame.material_state.is_exterior {
+        return None;
+    }
     if frame.environment.fog_available
         && let Some(linear_rgb) = linearize_native_color(frame.environment.fog_color)
     {
         return Some(MediumColor { linear_rgb });
     }
     let sky = frame.sky?;
-    if !frame.material_state.exterior_known || !frame.material_state.is_exterior || !sky.is_exterior
-    {
+    if !sky.is_exterior {
         return None;
     }
     linearize_native_color(sky.horizon).map(|linear_rgb| MediumColor { linear_rgb })
@@ -1504,6 +1991,17 @@ fn resolve_contributions(
             .lighting_enabled
             .then(|| resolve_directional_light(frame))
             .flatten(),
+    }
+}
+
+fn base_medium_density(
+    settings: AtmosphereSettings,
+    contributions: AtmosphereContributions,
+) -> f32 {
+    if contributions.fog || contributions.lighting_ready() {
+        settings.effective_uniform_density(contributions.fog)
+    } else {
+        0.0
     }
 }
 
@@ -1626,6 +2124,21 @@ fn shaft_radial_shader_source(sample_count: u32) -> Vec<u8> {
     let mut variant =
         format!("#define ATMOSPHERE_SHAFT_SAMPLE_COUNT {sample_count}\n").into_bytes();
     variant.extend_from_slice(SHAFT_RADIAL_SHADER);
+    variant
+}
+
+fn local_light_shader_source(
+    sample_count: u32,
+    use_noise: bool,
+    use_native_shadow: bool,
+) -> Vec<u8> {
+    let mut variant = format!(
+        "#define LOCAL_LIGHT_SAMPLE_COUNT {sample_count}\n#define LOCAL_LIGHT_USE_NOISE {}\n#define LOCAL_LIGHT_USE_NATIVE_SHADOW {}\n",
+        u8::from(use_noise),
+        u8::from(use_native_shadow),
+    )
+    .into_bytes();
+    variant.extend_from_slice(LOCAL_LIGHT_SHADER);
     variant
 }
 
@@ -1821,6 +2334,63 @@ struct EffectTarget {
     surface: Surface9,
 }
 
+struct LocalLightPipeline {
+    shadowless_shaders: [PixelShader9; 3],
+    shadowed_shaders: [PixelShader9; 3],
+}
+
+impl LocalLightPipeline {
+    fn create(device: &Device9Ref<'_>) -> Direct3DResult<Self> {
+        device
+            .direct3d()?
+            .check_default_render_target_blending_support(D3DFMT_A16B16G16R16F)?;
+        Ok(Self {
+            shadowless_shaders: [
+                compile_shader(
+                    device,
+                    "atmosphere_local_light.hlsl:performance:shadowless",
+                    &local_light_shader_source(4, false, false),
+                )?,
+                compile_shader(
+                    device,
+                    "atmosphere_local_light.hlsl:high:shadowless",
+                    &local_light_shader_source(6, true, false),
+                )?,
+                compile_shader(
+                    device,
+                    "atmosphere_local_light.hlsl:ultra:shadowless",
+                    &local_light_shader_source(10, true, false),
+                )?,
+            ],
+            shadowed_shaders: [
+                compile_shader(
+                    device,
+                    "atmosphere_local_light.hlsl:performance:shadowed",
+                    &local_light_shader_source(4, false, true),
+                )?,
+                compile_shader(
+                    device,
+                    "atmosphere_local_light.hlsl:high:shadowed",
+                    &local_light_shader_source(6, true, true),
+                )?,
+                compile_shader(
+                    device,
+                    "atmosphere_local_light.hlsl:ultra:shadowed",
+                    &local_light_shader_source(10, true, true),
+                )?,
+            ],
+        })
+    }
+
+    fn shader(&self, quality_index: usize, shadowed: bool) -> &PixelShader9 {
+        if shadowed {
+            &self.shadowed_shaders[quality_index]
+        } else {
+            &self.shadowless_shaders[quality_index]
+        }
+    }
+}
+
 struct ShaftPipeline {
     mask_shader: PixelShader9,
     radial_shaders: [PixelShader9; 3],
@@ -1896,13 +2466,14 @@ mod feature_tests {
 
     use super::{
         AtmosphereDrawOutcome, AtmosphereSettings, FogCompositionGate, FogIntegrationGate,
-        atmosphere_layer_blend, bounded_shaft_visibility, decode_extended_srgb,
-        density_noise_pixels, directional_phase_response, directional_radiance,
-        directional_scatter_amount, encode_extended_srgb, fog_composition_gate,
-        fog_integration_gate, henyey_greenstein, layered_tap_weight, linearize_native_color,
-        option_component, project_sun_from_captured_camera, resolve_contributions,
-        resolve_directional_light, resolve_medium_color, selected_debug_view,
-        shaft_visibility_from_blocked_fraction,
+        atmosphere_layer_blend, base_medium_density, bounded_shaft_visibility,
+        decode_extended_srgb, density_noise_pixels, directional_phase_response,
+        directional_radiance, directional_scatter_amount, encode_extended_srgb,
+        fog_composition_gate, fog_integration_gate, henyey_greenstein, integrated_uniform_scatter,
+        layered_tap_weight, linearize_native_color, local_light_scissor, option_component,
+        project_native_shadow, project_sun_from_captured_camera, ray_sphere_interval,
+        resolve_contributions, resolve_directional_light, resolve_medium_color,
+        selected_debug_view, shaft_visibility_from_blocked_fraction,
     };
     use crate::{
         backend::{
@@ -1936,6 +2507,9 @@ mod feature_tests {
             shaft_strength: 1.0,
             sun_disk_boost: 1.0,
             shaft_quality: AtmosphereQuality::High,
+            local_lights_enabled: false,
+            local_lights_intensity: 1.0,
+            local_lights_quality: AtmosphereQuality::High,
         }
     }
 
@@ -2055,19 +2629,20 @@ mod feature_tests {
         frame.distance_bound = 10_240.0;
 
         let transmittance = settings.estimated_horizontal_transmittance(frame);
-        assert!((0.979..0.981).contains(&transmittance));
+        assert!((0.974..0.976).contains(&transmittance));
     }
 
     #[test]
     fn lighting_default_keeps_distant_extinction_bounded() {
         let mut config = EmbeddedEffectsConfig::default();
+        config.volumetric_fog.enabled = false;
         config.volumetric_lighting.enabled = true;
         let settings =
             AtmosphereSettings::from_config(config.volumetric_fog, config.volumetric_lighting);
         let frame = valid_frame();
 
-        assert_eq!(settings.lighting_medium_density, 0.000002);
-        assert!((0.786..0.788).contains(&settings.estimated_horizontal_transmittance(frame)));
+        assert_eq!(settings.lighting_medium_density, 0.0000025);
+        assert!((0.740..0.742).contains(&settings.estimated_horizontal_transmittance(frame)));
     }
 
     #[test]
@@ -2124,6 +2699,7 @@ mod feature_tests {
     #[test]
     fn lighting_options_map_to_the_fixed_atmosphere_abi() {
         let mut config = EmbeddedEffectsConfig::default();
+        config.volumetric_fog.enabled = false;
         config.volumetric_lighting.enabled = true;
         config.volumetric_lighting.intensity = 2.5;
         config.volumetric_lighting.medium_density = 0.00004;
@@ -2132,7 +2708,10 @@ mod feature_tests {
         config.volumetric_lighting.shaft_strength = 0.7;
         config.volumetric_lighting.sun_disk_boost = 3.0;
         config.volumetric_lighting.shaft_quality = AtmosphereQuality::Ultra;
-        config.volumetric_lighting.debug_view = 5;
+        config.volumetric_lighting.local_lights_enabled = true;
+        config.volumetric_lighting.local_lights_intensity = 1.75;
+        config.volumetric_lighting.local_lights_quality = AtmosphereQuality::Performance;
+        config.volumetric_lighting.debug_view = 8;
         let sources = shaders::merge_embedded_sources(&config, Vec::new());
         let source = sources
             .iter()
@@ -2152,7 +2731,13 @@ mod feature_tests {
         assert_eq!(settings.sun_disk_boost, 3.0);
         assert_eq!(settings.shaft_quality, AtmosphereQuality::Ultra);
         assert_eq!(settings.quality, AtmosphereQuality::Ultra);
-        assert_eq!(settings.lighting_debug_view(), 5);
+        assert!(settings.local_lights_enabled);
+        assert_eq!(settings.local_lights_intensity, 1.75);
+        assert_eq!(
+            settings.local_lights_quality,
+            AtmosphereQuality::Performance
+        );
+        assert_eq!(settings.lighting_debug_view(), 8);
         assert!(settings.requires_depth());
         assert!(settings.requires_world_color());
 
@@ -2162,9 +2747,49 @@ mod feature_tests {
             .find(|option| option.key == "debug_view")
             .and_then(|option| option.choices)
             .expect("lighting debug choices");
-        assert_eq!(choices.len(), 6);
+        assert_eq!(choices.len(), 9);
         assert_eq!(choices[1], "Shaft mask");
         assert_eq!(choices[5], "Combined acceptance");
+        assert_eq!(choices[6], "Local-light bounds");
+        assert_eq!(choices[7], "Local shadow visibility");
+        assert_eq!(choices[8], "Local scattering");
+    }
+
+    #[test]
+    fn local_lights_are_independent_from_directional_sun_lighting() {
+        let mut config = EmbeddedEffectsConfig::default();
+        config.volumetric_fog.enabled = false;
+        config.volumetric_lighting.enabled = false;
+        config.volumetric_lighting.local_lights_enabled = true;
+        config.volumetric_lighting.local_lights_intensity = 1.0;
+        let settings =
+            AtmosphereSettings::from_config(config.volumetric_fog, config.volumetric_lighting);
+
+        assert!(!settings.lighting_enabled);
+        assert!(settings.local_lights_enabled);
+        assert!(settings.requires_depth());
+        assert!(settings.requires_world_color());
+        assert_eq!(
+            fog_integration_gate(valid_frame(), settings, false),
+            FogIntegrationGate::NoReadyContribution,
+        );
+        assert_eq!(
+            fog_integration_gate(valid_frame(), settings, true),
+            FogIntegrationGate::Ready,
+        );
+    }
+
+    #[test]
+    fn local_only_base_pass_preserves_identity_transmittance() {
+        let mut local = settings();
+        local.fog_enabled = false;
+        local.lighting_enabled = false;
+        local.local_lights_enabled = true;
+        let contributions = resolve_contributions(valid_frame(), local);
+
+        assert!(!contributions.fog);
+        assert!(!contributions.lighting_ready());
+        assert_eq!(base_medium_density(local, contributions), 0.0);
     }
 
     #[test]
@@ -2172,7 +2797,7 @@ mod feature_tests {
         assert_eq!(selected_debug_view(0, 0), 0);
         assert_eq!(selected_debug_view(7, 0), 7);
         assert_eq!(selected_debug_view(7, 2), 10);
-        assert_eq!(selected_debug_view(99, 99), 13);
+        assert_eq!(selected_debug_view(99, 99), 16);
     }
 
     #[test]
@@ -2328,7 +2953,7 @@ mod feature_tests {
         assert!(contributions.fog);
         assert!(!contributions.lighting_ready());
         assert_eq!(
-            fog_integration_gate(frame, fog_only),
+            fog_integration_gate(frame, fog_only, false),
             FogIntegrationGate::Ready
         );
 
@@ -2336,7 +2961,7 @@ mod feature_tests {
         lighting_only.fog_enabled = false;
         lighting_only.lighting_enabled = true;
         assert_eq!(
-            fog_integration_gate(frame, lighting_only),
+            fog_integration_gate(frame, lighting_only, false),
             FogIntegrationGate::NoReadyContribution
         );
         let mut sun_frame = frame;
@@ -2345,28 +2970,28 @@ mod feature_tests {
         assert!(!contributions.fog);
         assert!(contributions.lighting_ready());
         assert_eq!(
-            fog_integration_gate(sun_frame, lighting_only),
+            fog_integration_gate(sun_frame, lighting_only, false),
             FogIntegrationGate::Ready
         );
         assert_eq!(
-            lighting_only.effective_uniform_density(),
+            lighting_only.effective_uniform_density(false),
             lighting_only.lighting_medium_density
         );
-        assert_eq!(lighting_only.effective_scattering_albedo(), 1.0);
+        assert_eq!(lighting_only.effective_scattering_albedo(false), 1.0);
 
         let mut combined = settings();
         combined.lighting_enabled = true;
         combined.lighting_medium_density = 0.0009;
-        assert_eq!(combined.effective_uniform_density(), combined.density);
+        assert_eq!(combined.effective_uniform_density(true), combined.density);
         assert_eq!(
-            combined.effective_scattering_albedo(),
+            combined.effective_scattering_albedo(true),
             combined.scattering_albedo
         );
         let missing_sun = resolve_contributions(frame, combined);
         assert!(missing_sun.fog);
         assert!(!missing_sun.lighting_ready());
         assert_eq!(
-            fog_integration_gate(frame, combined),
+            fog_integration_gate(frame, combined, false),
             FogIntegrationGate::Ready
         );
         let ready = resolve_contributions(sun_frame, combined);
@@ -2390,25 +3015,25 @@ mod feature_tests {
         let settings = settings();
         let mut frame = valid_frame();
         assert_eq!(
-            fog_integration_gate(frame, settings),
+            fog_integration_gate(frame, settings, false),
             FogIntegrationGate::Ready
         );
 
         frame.underwater.frame_epoch = 6;
         assert_eq!(
-            fog_integration_gate(frame, settings),
+            fog_integration_gate(frame, settings, false),
             FogIntegrationGate::UnderwaterUnknown
         );
         frame.underwater.frame_epoch = 7;
         frame.underwater.underwater = true;
         assert_eq!(
-            fog_integration_gate(frame, settings),
+            fog_integration_gate(frame, settings, false),
             FogIntegrationGate::Underwater
         );
         frame.underwater.underwater = false;
         frame.material_state.is_exterior = false;
         assert_eq!(
-            fog_integration_gate(frame, settings),
+            fog_integration_gate(frame, settings, false),
             FogIntegrationGate::Interior
         );
     }
@@ -2420,39 +3045,39 @@ mod feature_tests {
 
         settings.fog_enabled = false;
         assert_eq!(
-            fog_integration_gate(frame, settings),
+            fog_integration_gate(frame, settings, false),
             FogIntegrationGate::Disabled
         );
         settings.fog_enabled = true;
         settings.density = 0.0;
         settings.height_density = 0.0;
         assert_eq!(
-            fog_integration_gate(frame, settings),
+            fog_integration_gate(frame, settings, false),
             FogIntegrationGate::EmptyMedium
         );
         settings.height_density = 0.00002;
 
         frame.depth = DepthFrame::none();
         assert_eq!(
-            fog_integration_gate(frame, settings),
+            fog_integration_gate(frame, settings, false),
             FogIntegrationGate::MissingDepthContract
         );
         frame = valid_frame();
         frame.camera.world_transform.available = false;
         assert_eq!(
-            fog_integration_gate(frame, settings),
+            fog_integration_gate(frame, settings, false),
             FogIntegrationGate::MissingWorldTransform
         );
         frame = valid_frame();
         frame.material_state.exterior_known = false;
         assert_eq!(
-            fog_integration_gate(frame, settings),
+            fog_integration_gate(frame, settings, false),
             FogIntegrationGate::ExteriorUnknown
         );
         frame = valid_frame();
         frame.environment.fog_available = false;
         assert_eq!(
-            fog_integration_gate(frame, settings),
+            fog_integration_gate(frame, settings, false),
             FogIntegrationGate::NoReadyContribution
         );
     }
@@ -2628,14 +3253,126 @@ mod feature_tests {
         assert_eq!(option_component(Some(&constants), 1, 2, 9.0), 7.0);
         assert_eq!(option_component(Some(&constants), 3, 0, 9.0), 9.0);
     }
+
+    #[test]
+    fn local_ray_sphere_interval_handles_miss_inside_behind_and_clipping_edges() {
+        let origin = [0.0, 0.0, 0.0];
+        let forward = [1.0, 0.0, 0.0];
+        assert_eq!(
+            ray_sphere_interval(origin, forward, [100.0, 0.0, 0.0], 10.0, 1_000.0, 1_000.0),
+            Some((90.0, 110.0)),
+        );
+        assert_eq!(
+            ray_sphere_interval(origin, forward, [0.0, 0.0, 0.0], 10.0, 1_000.0, 1_000.0),
+            Some((0.0, 10.0)),
+        );
+        assert!(
+            ray_sphere_interval(origin, forward, [-100.0, 0.0, 0.0], 10.0, 1_000.0, 1_000.0)
+                .is_none()
+        );
+        assert!(
+            ray_sphere_interval(origin, forward, [100.0, 20.0, 0.0], 10.0, 1_000.0, 1_000.0)
+                .is_none()
+        );
+        assert_eq!(
+            ray_sphere_interval(origin, forward, [100.0, 0.0, 0.0], 10.0, 95.0, 1_000.0),
+            Some((90.0, 95.0)),
+        );
+        assert!(
+            ray_sphere_interval(origin, forward, [100.0, 0.0, 0.0], 0.0, 1_000.0, 1_000.0)
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn local_scissor_is_conservative_and_fails_closed_offscreen() {
+        let camera = valid_frame().camera;
+        let centered = local_light_scissor(camera, 960, 540, [100.0, 0.0, 0.0], 10.0, 10_000.0)
+            .expect("centered sphere");
+        assert!(centered.left < 480 && centered.right > 480);
+        assert!(centered.top < 270 && centered.bottom > 270);
+
+        let near = local_light_scissor(camera, 960, 540, [5.0, 0.0, 0.0], 10.0, 10_000.0)
+            .expect("near-plane sphere");
+        assert_eq!(
+            (near.left, near.top, near.right, near.bottom),
+            (0, 0, 960, 540)
+        );
+        assert!(
+            local_light_scissor(camera, 960, 540, [-100.0, 0.0, 0.0], 10.0, 10_000.0).is_none()
+        );
+        assert!(
+            local_light_scissor(camera, 960, 540, [100.0, 0.0, 500.0], 10.0, 10_000.0).is_none()
+        );
+        assert!(
+            local_light_scissor(camera, 960, 540, [20_000.0, 0.0, 0.0], 10.0, 1_000.0).is_none()
+        );
+    }
+
+    #[test]
+    fn native_shadow_projection_preserves_row_dots_y_flip_and_compare_direction() {
+        let matrix = [
+            [1.0, 0.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0, 0.0],
+            [0.0, 0.0, 0.0, 2.0],
+        ];
+        let (uv, depth) = project_native_shadow(matrix, [0.5, -0.5, 0.25]).expect("projection");
+        assert_eq!(uv, [0.625, 0.625]);
+        assert_eq!(depth, 0.25);
+        let r32_bias = crate::fnv_local_lights::ShadowTextureFormat::R32F.bias();
+        let a8_bias = crate::fnv_local_lights::ShadowTextureFormat::A8R8G8B8.bias();
+        assert!(depth < (depth - r32_bias * 0.5) + r32_bias);
+        assert!(!(depth < (depth - r32_bias * 2.0) + r32_bias));
+        assert!(a8_bias >= 1.0 / 255.0);
+        assert!(project_native_shadow(matrix, [f32::NAN, 0.0, 0.0]).is_none());
+        let behind = [matrix[0], matrix[1], matrix[2], [0.0, 0.0, 0.0, -1.0]];
+        assert!(project_native_shadow(behind, [0.0; 3]).is_none());
+    }
+
+    #[test]
+    fn deterministic_local_integration_is_energy_stable_across_quality_tiers() {
+        let analytic = 1.0 - (-0.0002_f32 * 2_000.0).exp();
+        for samples in [4, 6, 10] {
+            let integrated = integrated_uniform_scatter(0.0002, 2_000.0, samples);
+            assert!((integrated - analytic).abs() < 0.00001, "samples={samples}");
+            assert!(integrated.is_finite() && integrated >= 0.0 && integrated <= 1.0);
+        }
+    }
+
+    #[test]
+    fn interior_medium_is_enabled_only_by_a_ready_local_light() {
+        let mut frame = valid_frame();
+        frame.material_state.is_exterior = false;
+        frame.environment.fog_available = false;
+        frame.sky = None;
+        let mut local = settings();
+        local.fog_enabled = false;
+        local.lighting_enabled = false;
+        local.local_lights_enabled = true;
+        assert_eq!(
+            fog_integration_gate(frame, local, false),
+            FogIntegrationGate::Interior,
+        );
+        assert_eq!(
+            fog_integration_gate(frame, local, true),
+            FogIntegrationGate::Ready,
+        );
+        frame.underwater.underwater = true;
+        assert_eq!(
+            fog_integration_gate(frame, local, true),
+            FogIntegrationGate::Underwater,
+        );
+    }
 }
 
 #[cfg(test)]
 mod shader_compile_tests {
     use super::{
-        COMPOSE_SHADER, DEBUG_SHADER, DEPTH_REDUCE_SHADER, INTEGRATE_SHADER, SHAFT_MASK_SHADER,
-        SHAFT_RADIAL_SHADER, depth_reduce_shader_source, integration_shader_source,
-        shaft_radial_shader_source, view_to_world_rows,
+        COMPOSE_SHADER, DEBUG_SHADER, DEPTH_REDUCE_SHADER, INTEGRATE_SHADER, LOCAL_LIGHT_SHADER,
+        SHAFT_MASK_SHADER, SHAFT_RADIAL_SHADER, depth_reduce_shader_source,
+        integration_shader_source, local_light_shader_source, shaft_radial_shader_source,
+        view_to_world_rows,
     };
     use crate::backend::{CameraFrame, CameraTransformFrame};
 
@@ -2671,6 +3408,15 @@ mod shader_compile_tests {
                 &shaft_radial_shader_source(samples),
                 "ps_3_0",
             );
+        }
+        for (samples, noise) in [(4, false), (6, true), (10, true)] {
+            for shadowed in [false, true] {
+                crate::shaders::assert_hlsl_compiles(
+                    &format!("atmosphere_local_light.hlsl:{samples}:shadowed={shadowed}"),
+                    &local_light_shader_source(samples, noise, shadowed),
+                    "ps_3_0",
+                );
+            }
         }
         crate::shaders::assert_hlsl_compiles("atmosphere_compose.hlsl", COMPOSE_SHADER, "ps_3_0");
         crate::shaders::assert_hlsl_compiles("atmosphere_debug.hlsl", DEBUG_SHADER, "ps_3_0");
@@ -2719,6 +3465,40 @@ mod shader_compile_tests {
         assert!(!radial.contains("Frame"));
         assert!(!mask.contains("frame"));
         assert!(!mask.contains("Frame"));
+    }
+
+    #[test]
+    fn local_light_shader_has_independent_shadowless_and_native_shadow_contracts() {
+        let source = std::str::from_utf8(LOCAL_LIGHT_SHADER).expect("local-light shader source");
+        assert!(source.contains("ReducedDepth : register(s0)"));
+        assert!(source.contains("DensityNoise : register(s1)"));
+        assert!(source.contains("NativeShadow : register(s2)"));
+        assert!(source.contains("#if LOCAL_LIGHT_USE_NATIVE_SHADOW"));
+        assert!(source.contains("ShadowMatrix0 : register(c10)"));
+        assert!(source.contains("ShadowMatrix3 : register(c13)"));
+        assert!(source.contains("dot(ShadowMatrix0, homogeneous)"));
+        assert!(source.contains("0.5f * shadowPosition.x / shadowPosition.w + 0.5f"));
+        assert!(source.contains("0.5f - 0.5f * shadowPosition.y / shadowPosition.w"));
+        assert!(source.contains("shadowPosition.z < shadowDepth + LocalControl.x"));
+        assert!(source.contains("#else\n\treturn 1.0f;\n#endif"));
+        assert!(source.contains("sampleIndex < LOCAL_LIGHT_SAMPLE_COUNT"));
+        assert!(source.contains("float4(0.10f, 0.55f, 1.0f, 0.0f)"));
+        assert!(source.contains("lerp(shadowed, visible, visibility)"));
+        assert!(source.contains("scattering / (scattering + 0.01f)"));
+        assert!(!source.contains("frameIndex"));
+        assert!(!source.contains("FrameIndex"));
+        for (samples, noise) in [(4, false), (6, true), (10, true)] {
+            for shadowed in [false, true] {
+                let variant =
+                    String::from_utf8(local_light_shader_source(samples, noise, shadowed))
+                        .expect("local-light variant");
+                assert!(variant.starts_with(&format!(
+                    "#define LOCAL_LIGHT_SAMPLE_COUNT {samples}\n#define LOCAL_LIGHT_USE_NOISE {}\n#define LOCAL_LIGHT_USE_NATIVE_SHADOW {}\n",
+                    u8::from(noise),
+                    u8::from(shadowed),
+                )));
+            }
+        }
     }
 
     #[test]

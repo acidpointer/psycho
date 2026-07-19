@@ -165,6 +165,11 @@ pub(crate) fn publish_config(config: GraphicsMenuConfig) -> bool {
         config: world_config,
     };
     REQUIREMENTS.store(world_config.requirements(), Ordering::Release);
+    crate::fnv_local_lights::configure(
+        world_config.screen_space_shaders
+            && world_config.depth_provider == DepthProvider::FalloutNewVegas
+            && world_config.lighting.local_lights_enabled,
+    );
     LAST_ESTIMATE_EPOCH.store(0, Ordering::Release);
     CONFIG_GENERATION.store(generation, Ordering::Release);
     CONFIG_PUBLISH_PENDING.store(false, Ordering::Release);
@@ -345,6 +350,11 @@ pub(crate) fn close_deadline(source_rendered_texture: *mut c_void) {
 }
 
 pub(crate) fn finish_present(epoch: u32) {
+    if !crate::fnv_local_lights::capture_enabled()
+        && let Some(mut runtime) = WORLD_PIPELINE.try_lock()
+    {
+        runtime.local_lights = None;
+    }
     if PENDING_EPOCH.load(Ordering::Acquire) == epoch {
         PENDING_EPOCH.store(0, Ordering::Release);
         PENDING_TARGET.store(0, Ordering::Release);
@@ -474,6 +484,7 @@ struct FnvWorldPipelineRuntime {
     temporal_aa_creation_failed: bool,
     atmosphere: Option<AtmosphereEffect>,
     atmosphere_creation_failed: bool,
+    local_lights: Option<crate::fnv_local_lights::LocalLightEpoch>,
     world_color: Option<WorldColorCopy>,
     state_block: Option<StateBlock9>,
     runtime_logs: u32,
@@ -717,6 +728,14 @@ impl FnvWorldPipelineRuntime {
         taa_alpha_ready: bool,
         epoch: u32,
     ) -> Direct3DResult<AtmosphereDrawOutcome> {
+        if settings.local_lights_enabled {
+            let _ = crate::fnv_local_lights::try_take_published(
+                &mut self.local_lights,
+                device.as_raw() as usize,
+            );
+        } else {
+            self.local_lights = None;
+        }
         self.capture_world_color(device, world_target, desc)?;
         self.ensure_atmosphere(device)?;
         self.ensure_state_block(device)?;
@@ -747,6 +766,7 @@ impl FnvWorldPipelineRuntime {
                         settings,
                         self.config.temporal_aa_enabled(),
                         taa_alpha_ready,
+                        self.local_lights.as_ref(),
                     )
                 });
         let mut restore = attachments.restore(device);
@@ -899,6 +919,7 @@ impl FnvWorldPipelineRuntime {
         self.temporal_aa_creation_failed = false;
         self.atmosphere = None;
         self.atmosphere_creation_failed = false;
+        self.local_lights = None;
         self.world_color = None;
         self.state_block = None;
         self.epoch = EpochState::default();
@@ -1031,9 +1052,10 @@ mod tests {
     use std::sync::atomic::Ordering;
 
     #[test]
-    fn disabled_defaults_request_no_world_inputs() {
+    fn production_atmosphere_defaults_request_coherent_world_inputs() {
         let config = WorldEffectsConfig::from_menu(GraphicsMenuConfig::default());
-        assert_eq!(config.requirements(), 0);
+        assert!(config.requires_world_depth());
+        assert!(config.requires_world_color());
     }
 
     #[test]
@@ -1051,9 +1073,24 @@ mod tests {
     fn production_lighting_requests_coherent_depth_and_color() {
         let mut menu = GraphicsMenuConfig::default();
         menu.depth_provider = crate::config::DepthProviderConfig::FalloutNewVegas;
+        menu.embedded_effects.volumetric_fog.enabled = false;
         menu.embedded_effects.volumetric_lighting.enabled = true;
         let config = WorldEffectsConfig::from_menu(menu);
         assert_eq!(config.depth_provider, DepthProvider::FalloutNewVegas);
+        assert!(config.requires_world_depth());
+        assert!(config.requires_world_color());
+    }
+
+    #[test]
+    fn local_lights_request_world_inputs_without_directional_sun_lighting() {
+        let mut menu = GraphicsMenuConfig::default();
+        menu.depth_provider = crate::config::DepthProviderConfig::FalloutNewVegas;
+        menu.embedded_effects.volumetric_lighting.enabled = false;
+        menu.embedded_effects
+            .volumetric_lighting
+            .local_lights_enabled = true;
+        let config = WorldEffectsConfig::from_menu(menu);
+
         assert!(config.requires_world_depth());
         assert!(config.requires_world_color());
     }

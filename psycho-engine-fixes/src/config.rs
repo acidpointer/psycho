@@ -22,6 +22,7 @@ static CONFIG: OnceLock<PsychoConfig> = OnceLock::new();
 pub struct PsychoConfig {
     pub memory: MemoryConfig,
     pub engine_fixes: EngineFixesConfig,
+    pub lod: LodConfig,
     pub performance: PerformanceConfig,
     pub diagnostics: DiagnosticsConfig,
 }
@@ -45,6 +46,7 @@ impl<'de> Deserialize<'de> for PsychoConfig {
                 raw.display,
                 legacy_task_safety,
             ),
+            lod: LodConfig::from_raw(raw.lod),
             performance: PerformanceConfig::from_raw(raw.performance, raw.perf, raw.zlib),
             diagnostics: DiagnosticsConfig::from_raw(raw.diagnostics, raw.general, raw.logger),
         })
@@ -94,6 +96,126 @@ impl MemoryConfig {
                 .or(raw.legacy_gheap_periodic_full_pdd)
                 .unwrap_or(default.gheap_periodic_pdd_purge),
         }
+    }
+}
+
+#[derive(Debug, Serialize)]
+pub struct LodConfig {
+    /// Enable the complete LOD engine improvement.
+    pub enabled: bool,
+    /// Request native LOD blocks before vanilla demand.
+    pub prefetch_enabled: bool,
+    /// Replace lifetime-total distant handoff readiness.
+    pub handoff_fix_enabled: bool,
+    pub object_prefetch_multiplier: f32,
+    pub object_retention_multiplier: f32,
+    pub tree_prefetch_multiplier: f32,
+    pub tree_retention_multiplier: f32,
+    pub terrain_prefetch_multiplier: f32,
+    pub terrain_retention_multiplier: f32,
+    #[serde(skip)]
+    pub validation_adjusted: bool,
+}
+
+impl Default for LodConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            prefetch_enabled: true,
+            handoff_fix_enabled: true,
+            object_prefetch_multiplier: 1.35,
+            object_retention_multiplier: 1.50,
+            tree_prefetch_multiplier: 1.35,
+            tree_retention_multiplier: 1.50,
+            terrain_prefetch_multiplier: 1.10,
+            terrain_retention_multiplier: 1.20,
+            validation_adjusted: false,
+        }
+    }
+}
+
+impl LodConfig {
+    fn from_raw(raw: Option<RawLodConfig>) -> Self {
+        let raw = raw.unwrap_or_default();
+        let default = Self::default();
+        let mut adjusted = false;
+
+        let object_prefetch_multiplier = validate_lod_multiplier(
+            raw.object_prefetch_multiplier,
+            default.object_prefetch_multiplier,
+            &mut adjusted,
+        );
+        let object_retention_multiplier = validate_lod_retention(
+            raw.object_retention_multiplier,
+            default.object_retention_multiplier,
+            object_prefetch_multiplier,
+            &mut adjusted,
+        );
+        let tree_prefetch_multiplier = validate_lod_multiplier(
+            raw.tree_prefetch_multiplier,
+            default.tree_prefetch_multiplier,
+            &mut adjusted,
+        );
+        let tree_retention_multiplier = validate_lod_retention(
+            raw.tree_retention_multiplier,
+            default.tree_retention_multiplier,
+            tree_prefetch_multiplier,
+            &mut adjusted,
+        );
+        let terrain_prefetch_multiplier = validate_lod_multiplier(
+            raw.terrain_prefetch_multiplier,
+            default.terrain_prefetch_multiplier,
+            &mut adjusted,
+        );
+        let terrain_retention_multiplier = validate_lod_retention(
+            raw.terrain_retention_multiplier,
+            default.terrain_retention_multiplier,
+            terrain_prefetch_multiplier,
+            &mut adjusted,
+        );
+
+        Self {
+            enabled: raw.enabled.unwrap_or(default.enabled),
+            prefetch_enabled: raw.prefetch_enabled.unwrap_or(default.prefetch_enabled),
+            handoff_fix_enabled: raw
+                .handoff_fix_enabled
+                .unwrap_or(default.handoff_fix_enabled),
+            object_prefetch_multiplier,
+            object_retention_multiplier,
+            tree_prefetch_multiplier,
+            tree_retention_multiplier,
+            terrain_prefetch_multiplier,
+            terrain_retention_multiplier,
+            validation_adjusted: adjusted,
+        }
+    }
+}
+
+fn validate_lod_multiplier(value: Option<f32>, default: f32, adjusted: &mut bool) -> f32 {
+    let Some(value) = value else {
+        return default;
+    };
+    if !value.is_finite() {
+        *adjusted = true;
+        return default;
+    }
+    let clamped = value.clamp(1.0, 2.0);
+    *adjusted |= clamped != value;
+    clamped
+}
+
+fn validate_lod_retention(
+    value: Option<f32>,
+    default: f32,
+    prefetch: f32,
+    adjusted: &mut bool,
+) -> f32 {
+    let retention = validate_lod_multiplier(value, default, adjusted);
+    if retention < prefetch {
+        *adjusted = true;
+        prefetch
+    } else {
+        retention
     }
 }
 
@@ -285,6 +407,8 @@ pub struct DiagnosticsConfig {
     pub hitch_profiling: bool,
     /// Record fixed-ring queued-task lifetime provenance.
     pub task_lifetime_trace: bool,
+    /// Record fixed-ring LOD handoff transitions.
+    pub lod_streaming_trace: bool,
 }
 
 impl DiagnosticsConfig {
@@ -302,6 +426,7 @@ impl DiagnosticsConfig {
             debug_log: raw.debug_log.or(legacy_logger.debug).unwrap_or_default(),
             hitch_profiling: raw.hitch_profiling.unwrap_or_default(),
             task_lifetime_trace: raw.task_lifetime_trace.unwrap_or_default(),
+            lod_streaming_trace: raw.lod_streaming_trace.unwrap_or_default(),
         }
     }
 }
@@ -311,6 +436,7 @@ impl DiagnosticsConfig {
 struct RawPsychoConfig {
     memory: RawMemoryConfig,
     engine_fixes: Option<RawEngineFixesConfig>,
+    lod: Option<RawLodConfig>,
     performance: Option<RawPerformanceConfig>,
     diagnostics: Option<RawDiagnosticsConfig>,
 
@@ -376,11 +502,26 @@ struct RawEngineFixesConfig {
 
 #[derive(Default, Deserialize)]
 #[serde(default)]
+struct RawLodConfig {
+    enabled: Option<bool>,
+    prefetch_enabled: Option<bool>,
+    handoff_fix_enabled: Option<bool>,
+    object_prefetch_multiplier: Option<f32>,
+    object_retention_multiplier: Option<f32>,
+    tree_prefetch_multiplier: Option<f32>,
+    tree_retention_multiplier: Option<f32>,
+    terrain_prefetch_multiplier: Option<f32>,
+    terrain_retention_multiplier: Option<f32>,
+}
+
+#[derive(Default, Deserialize)]
+#[serde(default)]
 struct RawDiagnosticsConfig {
     console: Option<bool>,
     debug_log: Option<bool>,
     hitch_profiling: Option<bool>,
     task_lifetime_trace: Option<bool>,
+    lod_streaming_trace: Option<bool>,
 }
 
 #[derive(Default, Deserialize)]

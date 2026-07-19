@@ -10,6 +10,8 @@ use libnvse::plugin::PluginContext;
 use crate::engine_fixes;
 
 const COMMAND_BUFFER_SIZE: usize = 64 * 1024;
+const CONSOLE_LINE_WIDTH: usize = 52;
+const CONTINUATION_INDENT: &str = "  ";
 
 // Keep command metadata static and registration direct. The helper is loaded
 // during xNVSE plugin startup, so unnecessary discovery or dynamic command-table
@@ -61,10 +63,49 @@ fn run_text_command(cmd: &CommandContext, command: u32) -> bool {
     };
 
     for line in text.lines() {
-        cmd.print(line);
+        print_console_line(cmd, line);
     }
 
     true
+}
+
+fn print_console_line(cmd: &CommandContext, line: &str) {
+    let mut remaining = line.trim_end();
+    if remaining.is_empty() {
+        cmd.print("");
+        return;
+    }
+
+    let mut continuation = false;
+    while !remaining.is_empty() {
+        let prefix = if continuation {
+            CONTINUATION_INDENT
+        } else {
+            ""
+        };
+        let width = CONSOLE_LINE_WIDTH.saturating_sub(prefix.len());
+        let split = wrap_index(remaining, width);
+        let chunk = remaining[..split].trim_end();
+        if prefix.is_empty() {
+            cmd.print(chunk);
+        } else {
+            cmd.print(&format!("{prefix}{chunk}"));
+        }
+        remaining = remaining[split..].trim_start();
+        continuation = true;
+    }
+}
+
+fn wrap_index(text: &str, width: usize) -> usize {
+    let Some(boundary) = text.char_indices().nth(width).map(|item| item.0) else {
+        return text.len();
+    };
+    text[..boundary]
+        .char_indices()
+        .rev()
+        .find(|item| item.1.is_whitespace() && item.0 >= width / 2)
+        .map(|item| item.0)
+        .unwrap_or(boundary)
 }
 
 fn command_text(command: u32) -> Option<String> {

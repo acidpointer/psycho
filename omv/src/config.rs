@@ -250,16 +250,16 @@ pub(crate) struct VolumetricFogConfig {
 impl Default for VolumetricFogConfig {
     fn default() -> Self {
         Self {
-            enabled: false,
+            enabled: true,
             quality: AtmosphereQuality::High,
             density: 0.0,
-            height_density: 0.000002,
-            height_falloff: 0.0001,
+            height_density: 0.0000025,
+            height_falloff: 0.00008,
             base_height: 0.0,
             max_distance: 120_000.0,
-            scattering_albedo: 0.9,
-            noise_amount: 0.25,
-            noise_scale: 0.0005,
+            scattering_albedo: 0.88,
+            noise_amount: 0.18,
+            noise_scale: 0.00035,
             noise_speed: 0.02,
             temporal_stability: 0.9,
             debug_view: 0,
@@ -270,13 +270,13 @@ impl Default for VolumetricFogConfig {
 impl VolumetricFogConfig {
     fn sanitized(mut self) -> Self {
         self.density = finite_clamp(self.density, 0.0, 0.0, 0.001);
-        self.height_density = finite_clamp(self.height_density, 0.000002, 0.0, 0.001);
-        self.height_falloff = finite_clamp(self.height_falloff, 0.0001, 0.000001, 0.01);
+        self.height_density = finite_clamp(self.height_density, 0.0000025, 0.0, 0.001);
+        self.height_falloff = finite_clamp(self.height_falloff, 0.00008, 0.000001, 0.01);
         self.base_height = finite_clamp(self.base_height, 0.0, -100_000.0, 100_000.0);
         self.max_distance = finite_clamp(self.max_distance, 120_000.0, 1_000.0, 250_000.0);
-        self.scattering_albedo = finite_clamp(self.scattering_albedo, 0.9, 0.0, 1.0);
-        self.noise_amount = finite_clamp(self.noise_amount, 0.25, 0.0, 1.0);
-        self.noise_scale = finite_clamp(self.noise_scale, 0.0005, 0.000001, 0.05);
+        self.scattering_albedo = finite_clamp(self.scattering_albedo, 0.88, 0.0, 1.0);
+        self.noise_amount = finite_clamp(self.noise_amount, 0.18, 0.0, 1.0);
+        self.noise_scale = finite_clamp(self.noise_scale, 0.00035, 0.000001, 0.05);
         self.noise_speed = finite_clamp(self.noise_speed, 0.02, 0.0, 1.0);
         self.temporal_stability = finite_clamp(self.temporal_stability, 0.9, 0.0, 0.98);
         self.debug_view = self.debug_view.clamp(0, 8);
@@ -295,6 +295,9 @@ pub(crate) struct VolumetricLightingConfig {
     pub(crate) shaft_strength: f32,
     pub(crate) sun_disk_boost: f32,
     pub(crate) shaft_quality: AtmosphereQuality,
+    pub(crate) local_lights_enabled: bool,
+    pub(crate) local_lights_intensity: f32,
+    pub(crate) local_lights_quality: AtmosphereQuality,
     pub(crate) temporal_stability: f32,
     pub(crate) debug_view: i32,
 }
@@ -302,14 +305,17 @@ pub(crate) struct VolumetricLightingConfig {
 impl Default for VolumetricLightingConfig {
     fn default() -> Self {
         Self {
-            enabled: false,
-            intensity: 1.0,
-            medium_density: 0.000002,
+            enabled: true,
+            intensity: 0.95,
+            medium_density: 0.0000025,
             max_distance: 120_000.0,
-            anisotropy: 0.65,
-            shaft_strength: 1.0,
+            anisotropy: 0.58,
+            shaft_strength: 0.72,
             sun_disk_boost: 1.0,
             shaft_quality: AtmosphereQuality::High,
+            local_lights_enabled: true,
+            local_lights_intensity: 1.5,
+            local_lights_quality: AtmosphereQuality::High,
             temporal_stability: 0.9,
             debug_view: 0,
         }
@@ -318,14 +324,15 @@ impl Default for VolumetricLightingConfig {
 
 impl VolumetricLightingConfig {
     fn sanitized(mut self) -> Self {
-        self.intensity = finite_clamp(self.intensity, 1.0, 0.0, 8.0);
-        self.medium_density = finite_clamp(self.medium_density, 0.000002, 0.0, 0.001);
+        self.intensity = finite_clamp(self.intensity, 0.95, 0.0, 8.0);
+        self.medium_density = finite_clamp(self.medium_density, 0.0000025, 0.0, 0.001);
         self.max_distance = finite_clamp(self.max_distance, 120_000.0, 1_000.0, 250_000.0);
-        self.anisotropy = finite_clamp(self.anisotropy, 0.65, -0.8, 0.9);
-        self.shaft_strength = finite_clamp(self.shaft_strength, 1.0, 0.0, 1.0);
+        self.anisotropy = finite_clamp(self.anisotropy, 0.58, -0.8, 0.9);
+        self.shaft_strength = finite_clamp(self.shaft_strength, 0.72, 0.0, 1.0);
         self.sun_disk_boost = finite_clamp(self.sun_disk_boost, 1.0, 0.0, 8.0);
+        self.local_lights_intensity = finite_clamp(self.local_lights_intensity, 1.5, 0.0, 4.0);
         self.temporal_stability = finite_clamp(self.temporal_stability, 0.9, 0.0, 0.98);
-        self.debug_view = self.debug_view.clamp(0, 5);
+        self.debug_view = self.debug_view.clamp(0, 8);
         self
     }
 }
@@ -1025,6 +1032,12 @@ fn save_embedded_effect_config(doc: &mut DocumentMut, config: &EmbeddedEffectsCo
         value(lighting.sun_disk_boost as f64);
     doc["graphics"]["embedded_effects"]["volumetric_lighting"]["shaft_quality"] =
         value(lighting.shaft_quality.config_value());
+    doc["graphics"]["embedded_effects"]["volumetric_lighting"]["local_lights_enabled"] =
+        value(lighting.local_lights_enabled);
+    doc["graphics"]["embedded_effects"]["volumetric_lighting"]["local_lights_intensity"] =
+        value(lighting.local_lights_intensity as f64);
+    doc["graphics"]["embedded_effects"]["volumetric_lighting"]["local_lights_quality"] =
+        value(lighting.local_lights_quality.config_value());
     doc["graphics"]["embedded_effects"]["volumetric_lighting"]["temporal_stability"] =
         value(lighting.temporal_stability as f64);
     doc["graphics"]["embedded_effects"]["volumetric_lighting"]["debug_view"] =
@@ -1204,7 +1217,10 @@ fn save_embedded_effect_config(doc: &mut DocumentMut, config: &EmbeddedEffectsCo
 
 #[cfg(test)]
 mod tests {
-    use super::{EmbeddedEffectsConfig, NativePbrConfig, VolumetricFogConfig};
+    use super::{
+        AtmosphereQuality, EmbeddedEffectsConfig, NativePbrConfig, VolumetricFogConfig,
+        VolumetricLightingConfig,
+    };
 
     #[test]
     fn legacy_pbr_profile_migrates_to_terrain_only() {
@@ -1250,6 +1266,7 @@ albedo_saturation = 1.02
         config.volumetric_lighting.anisotropy = -5.0;
         config.volumetric_lighting.max_distance = f32::INFINITY;
         config.volumetric_lighting.shaft_strength = 9.0;
+        config.volumetric_lighting.local_lights_intensity = f32::INFINITY;
         config.volumetric_lighting.debug_view = 99;
         config.volumetric_lighting.temporal_stability = f32::NAN;
         config.sunshafts.medium_response = f32::NAN;
@@ -1263,7 +1280,8 @@ albedo_saturation = 1.02
         assert_eq!(config.volumetric_lighting.anisotropy, -0.8);
         assert_eq!(config.volumetric_lighting.max_distance, 120_000.0);
         assert_eq!(config.volumetric_lighting.shaft_strength, 1.0);
-        assert_eq!(config.volumetric_lighting.debug_view, 5);
+        assert_eq!(config.volumetric_lighting.local_lights_intensity, 1.5);
+        assert_eq!(config.volumetric_lighting.debug_view, 8);
         assert_eq!(config.volumetric_lighting.temporal_stability, 0.9);
         assert_eq!(config.sunshafts.medium_response, 1.0);
         assert_eq!(config.sunshafts.sun_sample_px, 48);
@@ -1273,13 +1291,35 @@ albedo_saturation = 1.02
     fn calibrated_fog_default_is_subtle_and_explicit_values_are_preserved() {
         let defaults = VolumetricFogConfig::default();
         assert_eq!(defaults.density, 0.0);
-        assert_eq!(defaults.height_density, 0.000002);
+        assert_eq!(defaults.height_density, 0.0000025);
 
         let mut explicit = defaults;
         explicit.height_density = 0.00002;
         assert_eq!(explicit.sanitized().height_density, 0.00002);
 
         explicit.height_density = f32::NAN;
-        assert_eq!(explicit.sanitized().height_density, 0.000002);
+        assert_eq!(explicit.sanitized().height_density, 0.0000025);
+    }
+
+    #[test]
+    fn local_volumetric_light_options_round_trip_and_keep_low_end_quality_explicit() {
+        let config = VolumetricLightingConfig {
+            local_lights_enabled: false,
+            local_lights_intensity: 3.25,
+            local_lights_quality: AtmosphereQuality::Performance,
+            ..VolumetricLightingConfig::default()
+        };
+        let encoded = toml::to_string(&config).expect("serialize local volumetric lighting");
+        let decoded: VolumetricLightingConfig =
+            toml::from_str(&encoded).expect("deserialize local volumetric lighting");
+        assert!(!decoded.local_lights_enabled);
+        assert_eq!(decoded.local_lights_intensity, 3.25);
+        assert_eq!(decoded.local_lights_quality, AtmosphereQuality::Performance);
+
+        let defaults: VolumetricLightingConfig =
+            toml::from_str("").expect("legacy config defaults");
+        assert!(defaults.local_lights_enabled);
+        assert_eq!(defaults.local_lights_intensity, 1.5);
+        assert_eq!(defaults.local_lights_quality, AtmosphereQuality::High);
     }
 }

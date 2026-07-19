@@ -115,17 +115,19 @@ fog_fade = 1.0
 # Shared world-only atmosphere pipeline before first-person and native image
 # space. Fog and native-sun directional lighting share one extinction and
 # composition path; the lighting shaft field is deterministic and quarter-res.
+# Production wasteland preset: restrained ground haze with exact-zero uniform
+# density, dusty scattering, and stronger lighting instead of blanket gray fog.
 [graphics.embedded_effects.volumetric_fog]
-enabled = false
+enabled = true
 quality = "high"
 density = 0.0
-height_density = 0.000002
-height_falloff = 0.0001
+height_density = 0.0000025
+height_falloff = 0.00008
 base_height = 0.0
 max_distance = 120000.0
-scattering_albedo = 0.9
-noise_amount = 0.25
-noise_scale = 0.0005
+scattering_albedo = 0.88
+noise_amount = 0.18
+noise_scale = 0.00035
 noise_speed = 0.02
 temporal_stability = 0.9
 # 0 = off, 1 = nearest reduced depth, 2 = reduced depth span,
@@ -135,19 +137,23 @@ temporal_stability = 0.9
 debug_view = 0
 
 [graphics.embedded_effects.volumetric_lighting]
-enabled = false
-intensity = 1.0
-medium_density = 0.000002
+enabled = true
+intensity = 0.95
+medium_density = 0.0000025
 max_distance = 120000.0
-anisotropy = 0.65
-shaft_strength = 1.0
+anisotropy = 0.58
+shaft_strength = 0.72
 sun_disk_boost = 1.0
 shaft_quality = "high"
+local_lights_enabled = true
+local_lights_intensity = 1.5
+local_lights_quality = "high"
 temporal_stability = 0.9
 # Reserved for a future motion-aware atmosphere history. It is not exposed as
 # an active control until that contract exists.
 # 0 = off, 1 = shaft mask, 2 = shaft visibility, 3 = phase response,
-# 4 = directional scattering, 5 = combined atmosphere acceptance
+# 4 = directional scattering, 5 = combined atmosphere acceptance,
+# 6 = local-light bounds, 7 = local shadow visibility, 8 = local scattering
 debug_view = 0
 
 [graphics.embedded_effects.blooming_hdr]

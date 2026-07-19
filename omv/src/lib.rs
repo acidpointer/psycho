@@ -8,6 +8,7 @@ mod backend;
 mod compat;
 mod config;
 mod effects;
+mod fnv_local_lights;
 mod fnv_render;
 mod fnv_world_pipeline;
 mod hooks;

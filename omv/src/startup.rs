@@ -107,6 +107,7 @@ pub(crate) fn install_deferred_hooks() -> Result<()> {
     if settings.screen_space_shaders
         && settings.depth_provider != crate::backend::DepthProvider::None
     {
+        crate::fnv_local_lights::install_hooks();
         crate::fnv_render::install_scene_boundary_hook();
     }
 
