@@ -11,6 +11,7 @@ use libpsycho::{
     ffi::fnptr::FnPtr,
     os::windows::{hook::transaction::ModificationTransaction, patch::OwnedCodePatch},
 };
+use parking_lot::Mutex;
 
 use crate::mods::diagnostics::should_log_power_of_two;
 
@@ -54,12 +55,16 @@ static PRIORITY_INSTALLED: AtomicBool = AtomicBool::new(false);
 static PARALLEL_REQUESTED: AtomicBool = AtomicBool::new(false);
 static PARALLEL_INSTALLED: AtomicBool = AtomicBool::new(false);
 static CACHE_FALLBACK_INSTALLED: AtomicBool = AtomicBool::new(false);
+static CELL_LOADER_SERIALIZATION_INSTALLED: AtomicBool = AtomicBool::new(false);
 static PRIORITY_INSTALL_FAILURES: AtomicU32 = AtomicU32::new(0);
 static PARALLEL_FALLBACKS: AtomicU32 = AtomicU32::new(0);
 static CAPACITY_FAILURES: AtomicU32 = AtomicU32::new(0);
 static CACHE_FALLBACKS: AtomicU32 = AtomicU32::new(0);
+static CELL_LOADER_EXECUTIONS: AtomicU32 = AtomicU32::new(0);
+static CELL_LOADER_CONTENTIONS: AtomicU32 = AtomicU32::new(0);
 static PRIORITY_BOOSTS: [AtomicU32; 3] = [const { AtomicU32::new(0) }; 3];
 static MAP_EXPANSIONS: [AtomicU32; 3] = [const { AtomicU32::new(0) }; 3];
+static CELL_LOADER_LOCK: Mutex<()> = Mutex::new(());
 
 pub(in crate::mods::engine_fixes) struct Snapshot {
     pub priority_requested: bool,
@@ -67,11 +72,14 @@ pub(in crate::mods::engine_fixes) struct Snapshot {
     pub parallel_requested: bool,
     pub parallel_installed: bool,
     pub cache_fallback_installed: bool,
+    pub cell_loader_serialization_installed: bool,
     pub observed_workers: u32,
     pub priority_install_failures: u64,
     pub parallel_fallbacks: u64,
     pub capacity_failures: u64,
     pub cache_fallbacks: u64,
+    pub cell_loader_executions: u64,
+    pub cell_loader_contentions: u64,
     pub priority_boosts: [u64; 3],
     pub map_expansions: [u64; 3],
 }
@@ -156,6 +164,11 @@ fn install_parallel_io_inner() -> anyhow::Result<()> {
             statics::BSFILE_OPEN_STATE_ADDR as *mut c_void,
             hook_bsfile_open_state,
         )?;
+        statics::EXTERIOR_CELL_LOADER_TASK_EXECUTE_HOOK.init(
+            "exterior_cell_loader_task_serialization",
+            statics::EXTERIOR_CELL_LOADER_TASK_EXECUTE_ADDR as *mut c_void,
+            hook_exterior_cell_loader_task_execute,
+        )?;
     }
 
     let mut transaction = ModificationTransaction::new();
@@ -163,16 +176,37 @@ fn install_parallel_io_inner() -> anyhow::Result<()> {
     transaction.enable_inline(&statics::LOCK_FREE_MAP_CONSTRUCTOR_B_HOOK)?;
     transaction.enable_inline(&statics::BSTREE_LOCK_FREE_MAP_CONSTRUCTOR_HOOK)?;
     transaction.enable_inline(&statics::BSFILE_OPEN_STATE_HOOK)?;
+    transaction.enable_inline(&statics::EXTERIOR_CELL_LOADER_TASK_EXECUTE_HOOK)?;
     transaction.apply_patch(&IO_WORKER_PATCH)?;
     ensure_parallel_owners_unconstructed()?;
     transaction.commit();
 
     PARALLEL_INSTALLED.store(true, Ordering::Release);
     CACHE_FALLBACK_INSTALLED.store(true, Ordering::Release);
+    CELL_LOADER_SERIALIZATION_INSTALLED.store(true, Ordering::Release);
     log::info!(
-        "[LOD] Native IOManager configured for exactly two workers with three-thread BSTree TLS and BSFile cache fallback"
+        "[LOD] Native IOManager configured for exactly two workers with serialized exterior-cell loading, three-thread BSTree TLS, and BSFile cache fallback"
     );
     Ok(())
+}
+
+unsafe extern "fastcall" fn hook_exterior_cell_loader_task_execute(task: *mut c_void) {
+    let original = match statics::EXTERIOR_CELL_LOADER_TASK_EXECUTE_HOOK.original() {
+        Ok(original) => original,
+        Err(error) => {
+            log::error!("[LOD] Exterior cell loader task trampoline missing: {error:?}");
+            return;
+        }
+    };
+
+    CELL_LOADER_EXECUTIONS.fetch_add(1, Ordering::Relaxed);
+    let _guard = if let Some(guard) = CELL_LOADER_LOCK.try_lock() {
+        guard
+    } else {
+        CELL_LOADER_CONTENTIONS.fetch_add(1, Ordering::Relaxed);
+        CELL_LOADER_LOCK.lock()
+    };
+    unsafe { original(task) };
 }
 
 fn ensure_parallel_owners_unconstructed() -> anyhow::Result<()> {
@@ -484,11 +518,15 @@ pub(super) fn snapshot() -> Snapshot {
         parallel_requested: PARALLEL_REQUESTED.load(Ordering::Acquire),
         parallel_installed: PARALLEL_INSTALLED.load(Ordering::Acquire),
         cache_fallback_installed: CACHE_FALLBACK_INSTALLED.load(Ordering::Acquire),
+        cell_loader_serialization_installed: CELL_LOADER_SERIALIZATION_INSTALLED
+            .load(Ordering::Acquire),
         observed_workers: observed_worker_count(),
         priority_install_failures: u64::from(PRIORITY_INSTALL_FAILURES.load(Ordering::Relaxed)),
         parallel_fallbacks: u64::from(PARALLEL_FALLBACKS.load(Ordering::Relaxed)),
         capacity_failures: u64::from(CAPACITY_FAILURES.load(Ordering::Relaxed)),
         cache_fallbacks: u64::from(CACHE_FALLBACKS.load(Ordering::Relaxed)),
+        cell_loader_executions: u64::from(CELL_LOADER_EXECUTIONS.load(Ordering::Relaxed)),
+        cell_loader_contentions: u64::from(CELL_LOADER_CONTENTIONS.load(Ordering::Relaxed)),
         priority_boosts: std::array::from_fn(|index| {
             u64::from(PRIORITY_BOOSTS[index].load(Ordering::Relaxed))
         }),

@@ -1,0 +1,849 @@
+LOD STATIC VERTEX-BUFFER ALLOCATION FAILURE FINAL AUDIT
+Program: FalloutNV.exe
+Image base: 00400000
+
+Prior audits prove LandLOD static geometry receives a non-null NiVBChip whose +0x08 VB is null.
+This audit resolves only the remaining static VB block allocator and retirement leaf.
+
+# STATIC VB BLOCK CREATION AND CHIP ACQUISITION
+
+======================================================================
+Static NiVBBlock creation and D3D vertex-buffer allocation @ 0x00e94b80
+======================================================================
+  Function: FUN_00e94b80 @ 0x00e94b80, Size: 114 bytes
+
+undefined4 *
+FUN_00e94b80(undefined4 param_1,int *param_2,undefined4 param_3,undefined4 param_4,
+            undefined4 param_5)
+
+{
+  int *piVar1;
+  int iVar2;
+  undefined4 *puVar3;
+  
+  iVar2 = FUN_00aa13e0(0x34);
+  if (iVar2 != 0) {
+    puVar3 = (undefined4 *)FUN_00e94b00();
+    if (puVar3 != (undefined4 *)0x0) {
+      puVar3[3] = param_1;
+      if (param_2 == (int *)0x0) {
+        piVar1 = (int *)puVar3[4];
+        if (piVar1 != (int *)0x0) {
+          (**(code **)(*piVar1 + 8))(piVar1);
+        }
+        puVar3[4] = 0;
+      }
+      else {
+        puVar3[4] = param_2;
+        (**(code **)(*param_2 + 4))(param_2);
+      }
+      puVar3[1] = param_3;
+      puVar3[2] = param_4;
+      *puVar3 = param_5;
+      FUN_00e941a0(puVar3);
+    }
+    return puVar3;
+  }
+  return (undefined4 *)0x0;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00e94b80 (Static NiVBBlock creation and D3D vertex-buffer allocation)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00e94ca9 (in FUN_00e94c20)
+  Total: 1 refs
+
+--- Calls FROM Static NiVBBlock creation and D3D vertex-buffer allocation (0x00e94b80) ---
+  0x00e94b82 -> 0x00aa13e0 FUN_00aa13e0
+  0x00e94b91 -> 0x00e94b00 FUN_00e94b00
+  0x00e94be6 -> 0x00e941a0 FUN_00e941a0
+  Total: 3 calls
+
+======================================================================
+Static NiVBBlock chip acquisition and NiVBChip construction @ 0x00e94650
+======================================================================
+  Function: FUN_00e94650 @ 0x00e94650, Size: 89 bytes
+
+undefined4 __thiscall FUN_00e94650(int param_1,undefined4 param_2,char param_3)
+
+{
+  int iVar1;
+  undefined4 uVar2;
+  
+  if (param_3 == '\0') {
+    iVar1 = FUN_00e941d0(param_2);
+    if (iVar1 != 0) goto LAB_00e9467d;
+  }
+  iVar1 = FUN_00e94580(param_2);
+  if (iVar1 == 0) {
+    return 0;
+  }
+LAB_00e9467d:
+  uVar2 = FUN_00e98660(param_2);
+  if (*(uint *)(param_1 + 0x30) < *(uint *)(iVar1 + 0x24)) {
+    FUN_00e94220(iVar1);
+  }
+  return uVar2;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00e94650 (Static NiVBBlock chip acquisition and NiVBChip construction)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00e94cd6 (in FUN_00e94c20)
+  Total: 1 refs
+
+--- Calls FROM Static NiVBBlock chip acquisition and NiVBChip construction (0x00e94650) ---
+  0x00e94664 -> 0x00e941d0 FUN_00e941d0
+  0x00e94672 -> 0x00e94580 FUN_00e94580
+  0x00e94680 -> 0x00e98660 FUN_00e98660
+  0x00e94692 -> 0x00e94220 FUN_00e94220
+  Total: 4 calls
+
+======================================================================
+Static geometry group allocation owner @ 0x00e94c20
+======================================================================
+  Function: FUN_00e94c20 @ 0x00e94c20, Size: 211 bytes
+
+int __thiscall FUN_00e94c20(int param_1,uint param_2,uint param_3)
+
+{
+  int iVar1;
+  char cVar2;
+  undefined4 uVar3;
+  int iVar4;
+  uint uVar5;
+  int local_8;
+  int local_4;
+  
+  iVar1 = param_2;
+  uVar5 = *(uint *)(param_2 + 0xc);
+  local_8 = 0;
+  if (param_3 < *(uint *)(param_2 + 0x20)) {
+    param_2 = *(uint *)(*(int *)(param_2 + 0x24) + param_3 * 4);
+  }
+  else {
+    param_2 = 0;
+  }
+  if (uVar5 == 0) {
+    uVar5 = param_2 | 0x80000000;
+  }
+  param_3 = 0;
+  if (*(char *)(iVar1 + 0x14) != '\0') {
+    uVar5 = uVar5 | 0x40000000;
+    param_3 = 0x80000000;
+  }
+  local_4 = param_1;
+  cVar2 = FUN_00a53c30(uVar5,&local_8);
+  if ((cVar2 == '\0') || (param_1 = local_4, local_8 == 0)) {
+    uVar3 = FUN_00e94b80(0x10000,*(undefined4 *)(param_1 + 8),uVar5,param_3,0);
+    FUN_00b57ea0(uVar5,uVar3);
+  }
+  iVar4 = FUN_00e94650(*(int *)(iVar1 + 0x1c) * param_2,1 < *(uint *)(iVar1 + 0x20));
+  *(uint *)(iVar1 + 0x38) = *(uint *)(iVar4 + 0xc) / param_2;
+  return iVar4;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00e94c20 (Static geometry group allocation owner)
+----------------------------------------------------------------------
+  DATA @ 0x010f0fec (in ???)
+  Total: 1 refs
+
+--- Calls FROM Static geometry group allocation owner (0x00e94c20) ---
+  0x00e94c83 -> 0x00a53c30 FUN_00a53c30
+  0x00e94ca9 -> 0x00e94b80 FUN_00e94b80
+  0x00e94cb7 -> 0x00b57ea0 FUN_00b57ea0
+  0x00e94cd6 -> 0x00e94650 FUN_00e94650
+  Total: 4 calls
+
+======================================================================
+Instruction window Static VB block creation raw entry @ 0x00e94b80
+======================================================================
+   0x00e94b61  XOR ECX,ECX
+   0x00e94b63  MOV word ptr [EAX + 0x26],CX
+   0x00e94b67  MOV word ptr [EAX + 0x28],CX
+   0x00e94b6b  MOV dword ptr [EAX + 0x2c],EDX
+   0x00e94b6e  MOV EDX,dword ptr [0x011c0ce4]
+   0x00e94b74  MOV dword ptr [EAX + 0x30],EDX
+   0x00e94b77  POP ESI
+   0x00e94b78  RET
+>> 0x00e94b80  PUSH 0x34
+   0x00e94b82  CALL 0x00aa13e0
+   0x00e94b87  ADD ESP,0x4
+   0x00e94b8a  TEST EAX,EAX
+   0x00e94b8c  JZ 0x00e94bb8
+   0x00e94b8e  PUSH ESI
+   0x00e94b8f  MOV ECX,EAX
+   0x00e94b91  CALL 0x00e94b00
+   0x00e94b96  MOV ESI,EAX
+   0x00e94b98  TEST ESI,ESI
+   0x00e94b9a  JZ 0x00e94bf0
+   0x00e94b9c  MOV EAX,dword ptr [ESP + 0x8]
+   0x00e94ba0  MOV dword ptr [ESI + 0xc],EAX
+   0x00e94ba3  MOV EAX,dword ptr [ESP + 0xc]
+   0x00e94ba7  TEST EAX,EAX
+   0x00e94ba9  JZ 0x00e94bbb
+   0x00e94bab  MOV dword ptr [ESI + 0x10],EAX
+   0x00e94bae  MOV ECX,dword ptr [EAX]
+   0x00e94bb0  MOV EDX,dword ptr [ECX + 0x4]
+   0x00e94bb3  PUSH EAX
+   0x00e94bb4  CALL EDX
+   0x00e94bb6  JMP 0x00e94bd1
+   0x00e94bb8  XOR EAX,EAX
+   0x00e94bba  RET
+   0x00e94bbb  MOV EAX,dword ptr [ESI + 0x10]
+   0x00e94bbe  TEST EAX,EAX
+   0x00e94bc0  JZ 0x00e94bca
+   0x00e94bc2  MOV ECX,dword ptr [EAX]
+   0x00e94bc4  MOV EDX,dword ptr [ECX + 0x8]
+   0x00e94bc7  PUSH EAX
+   0x00e94bc8  CALL EDX
+   0x00e94bca  MOV dword ptr [ESI + 0x10],0x0
+   0x00e94bd1  MOV EAX,dword ptr [ESP + 0x10]
+   0x00e94bd5  MOV ECX,dword ptr [ESP + 0x14]
+   0x00e94bd9  MOV EDX,dword ptr [ESP + 0x18]
+   0x00e94bdd  PUSH ESI
+   0x00e94bde  MOV dword ptr [ESI + 0x4],EAX
+   0x00e94be1  MOV dword ptr [ESI + 0x8],ECX
+   0x00e94be4  MOV dword ptr [ESI],EDX
+   0x00e94be6  CALL 0x00e941a0
+   0x00e94beb  ADD ESP,0x4
+   0x00e94bee  MOV EAX,ESI
+   0x00e94bf0  POP ESI
+   0x00e94bf1  RET
+   0x00e94c00  PUSH 0x1c
+   0x00e94c02  CALL 0x00aa13e0
+   0x00e94c07  ADD ESP,0x4
+   0x00e94c0a  TEST EAX,EAX
+   0x00e94c0c  JZ 0x00e94c15
+   0x00e94c0e  MOV ECX,EAX
+   0x00e94c10  JMP 0x00e94ab0
+   0x00e94c15  XOR EAX,EAX
+   0x00e94c17  RET
+   0x00e94c20  SUB ESP,0x8
+   0x00e94c23  MOV EAX,dword ptr [ESP + 0x10]
+   0x00e94c27  PUSH EBX
+   0x00e94c28  PUSH EBP
+   0x00e94c29  PUSH ESI
+   0x00e94c2a  PUSH EDI
+   0x00e94c2b  MOV EDI,dword ptr [ESP + 0x1c]
+   0x00e94c2f  MOV ESI,dword ptr [EDI + 0xc]
+   0x00e94c32  MOV EBX,ECX
+   0x00e94c34  XOR ECX,ECX
+   0x00e94c36  MOV dword ptr [ESP + 0x14],EBX
+   0x00e94c3a  MOV dword ptr [ESP + 0x10],ECX
+   0x00e94c3e  CMP EAX,dword ptr [EDI + 0x20]
+   0x00e94c41  JNC 0x00e94c4f
+   0x00e94c43  MOV EDX,dword ptr [EDI + 0x24]
+   0x00e94c46  MOV EAX,dword ptr [EDX + EAX*0x4]
+   0x00e94c49  MOV dword ptr [ESP + 0x1c],EAX
+   0x00e94c4d  JMP 0x00e94c53
+   0x00e94c4f  MOV dword ptr [ESP + 0x1c],ECX
+   0x00e94c53  CMP ESI,ECX
+   0x00e94c55  JNZ 0x00e94c61
+   0x00e94c57  MOV ESI,dword ptr [ESP + 0x1c]
+   0x00e94c5b  OR ESI,0x80000000
+   0x00e94c61  MOV dword ptr [ESP + 0x20],ECX
+   0x00e94c65  CMP byte ptr [EDI + 0x14],CL
+   0x00e94c68  JZ 0x00e94c78
+   0x00e94c6a  OR ESI,0x40000000
+   0x00e94c70  MOV dword ptr [ESP + 0x20],0x80000000
+
+======================================================================
+Instruction window Static chip acquisition raw entry @ 0x00e94650
+======================================================================
+   0x00e9463e  CALL 0x00a64330
+   0x00e94643  MOV dword ptr [ESI + 0x4],EAX
+   0x00e94646  MOV EAX,ESI
+   0x00e94648  POP ESI
+   0x00e94649  POP EDI
+   0x00e9464a  POP EBX
+   0x00e9464b  POP ECX
+   0x00e9464c  RET 0x4
+>> 0x00e94650  PUSH EBX
+   0x00e94651  MOV EBX,dword ptr [ESP + 0x8]
+   0x00e94655  PUSH EBP
+   0x00e94656  PUSH ESI
+   0x00e94657  XOR EBP,EBP
+   0x00e94659  CMP byte ptr [ESP + 0x14],0x0
+   0x00e9465e  PUSH EDI
+   0x00e9465f  MOV EDI,ECX
+   0x00e94661  JNZ 0x00e9466f
+   0x00e94663  PUSH EBX
+   0x00e94664  CALL 0x00e941d0
+   0x00e94669  MOV ESI,EAX
+   0x00e9466b  TEST ESI,ESI
+   0x00e9466d  JNZ 0x00e9467d
+   0x00e9466f  PUSH EBX
+   0x00e94670  MOV ECX,EDI
+   0x00e94672  CALL 0x00e94580
+   0x00e94677  MOV ESI,EAX
+   0x00e94679  TEST ESI,ESI
+   0x00e9467b  JZ 0x00e946a0
+   0x00e9467d  PUSH EBX
+   0x00e9467e  MOV ECX,ESI
+   0x00e94680  CALL 0x00e98660
+   0x00e94685  MOV EBX,EAX
+   0x00e94687  MOV EAX,dword ptr [ESI + 0x24]
+   0x00e9468a  CMP EAX,dword ptr [EDI + 0x30]
+   0x00e9468d  JBE 0x00e94697
+   0x00e9468f  PUSH ESI
+   0x00e94690  MOV ECX,EDI
+   0x00e94692  CALL 0x00e94220
+   0x00e94697  POP EDI
+   0x00e94698  POP ESI
+   0x00e94699  POP EBP
+   0x00e9469a  MOV EAX,EBX
+   0x00e9469c  POP EBX
+   0x00e9469d  RET 0x8
+   0x00e946a0  POP EDI
+   0x00e946a1  POP ESI
+   0x00e946a2  MOV EAX,EBP
+   0x00e946a4  POP EBP
+   0x00e946a5  POP EBX
+   0x00e946a6  RET 0x8
+   0x00e946b0  PUSH ESI
+   0x00e946b1  PUSH EDI
+   0x00e946b2  LEA EDI,[ECX + 0xc]
+   0x00e946b5  MOV ECX,dword ptr [EDI + 0x4]
+   0x00e946b8  XOR EAX,EAX
+   0x00e946ba  TEST ECX,ECX
+   0x00e946bc  JBE 0x00e946d0
+   0x00e946be  MOV ESI,dword ptr [EDI + 0x8]
+   0x00e946c1  MOV EDX,ESI
+   0x00e946c3  CMP dword ptr [EDX],0x0
+   0x00e946c6  JNZ 0x00e9473b
+   0x00e946c8  INC EAX
+   0x00e946c9  ADD EDX,0x4
+   0x00e946cc  CMP EAX,ECX
+   0x00e946ce  JC 0x00e946c3
+   0x00e946d0  XOR EAX,EAX
+   0x00e946d2  MOV ESI,EAX
+   0x00e946d4  TEST EAX,EAX
+   0x00e946d6  JZ 0x00e94738
+   0x00e946d8  PUSH EBX
+   0x00e946d9  PUSH EBP
+   0x00e946da  LEA EBX,[EBX]
+   0x00e946e0  MOV EBX,dword ptr [ESI + 0x4]
+   0x00e946e3  MOV EBP,dword ptr [ESI + 0x8]
+   0x00e946e6  MOV ESI,dword ptr [ESI]
+   0x00e946e8  TEST ESI,ESI
+   0x00e946ea  JNZ 0x00e94714
+   0x00e946ec  MOV EAX,dword ptr [EDI]
+   0x00e946ee  MOV EDX,dword ptr [EAX + 0x4]
+   0x00e946f1  PUSH EBX
+   0x00e946f2  MOV ECX,EDI
+   0x00e946f4  CALL EDX
+   0x00e946f6  MOV EDX,dword ptr [EDI + 0x4]
+   0x00e946f9  INC EAX
+   0x00e946fa  CMP EAX,EDX
+   0x00e946fc  JNC 0x00e94712
+   0x00e946fe  MOV ECX,dword ptr [EDI + 0x8]
+   0x00e94701  LEA ECX,[ECX + EAX*0x4]
+   0x00e94704  MOV ESI,dword ptr [ECX]
+   0x00e94706  TEST ESI,ESI
+   0x00e94708  JNZ 0x00e94714
+   0x00e9470a  INC EAX
+   0x00e9470b  ADD ECX,0x4
+   0x00e9470e  CMP EAX,EDX
+   0x00e94710  JC 0x00e94704
+   0x00e94712  XOR ESI,ESI
+   0x00e94714  PUSH EBX
+   0x00e94715  MOV ECX,EDI
+   0x00e94717  CALL 0x00e91fd0
+   0x00e9471c  TEST EBP,EBP
+   0x00e9471e  JZ 0x00e94732
+   0x00e94720  MOV ECX,EBP
+   0x00e94722  CALL 0x00e943c0
+   0x00e94727  PUSH 0x34
+   0x00e94729  PUSH EBP
+   0x00e9472a  CALL 0x00aa1460
+   0x00e9472f  ADD ESP,0x8
+   0x00e94732  TEST ESI,ESI
+   0x00e94734  JNZ 0x00e946e0
+
+# STATIC CHIP RETIREMENT, BLOCK REUSE, AND DESTRUCTION
+
+======================================================================
+Static NiVBChip retirement into block @ 0x00e94490
+======================================================================
+  Function: FUN_00e94490 @ 0x00e94490, Size: 92 bytes
+
+void __thiscall FUN_00e94490(int param_1,int param_2,undefined4 param_3)
+
+{
+  int iVar1;
+  int iVar2;
+  
+  iVar1 = *(int *)(*(int *)(param_1 + 0x20) + param_2 * 4);
+  if (iVar1 != 0) {
+    iVar2 = *(int *)(iVar1 + 0x24);
+    FUN_00e98500(param_3);
+    if (iVar2 != *(int *)(iVar1 + 0x24)) {
+      FUN_00e94150(iVar1);
+      if (*(int *)(iVar1 + 0x28) == *(int *)(iVar1 + 0xc)) {
+        FUN_00a93c50(param_2);
+        FUN_00e94330(iVar1);
+        return;
+      }
+      FUN_00e94220(iVar1);
+    }
+  }
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00e94490 (Static NiVBChip retirement into block)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00e9479b (in FUN_00e94770)
+  Total: 1 refs
+
+--- Calls FROM Static NiVBChip retirement into block (0x00e94490) ---
+  0x00e944ae -> 0x00e98500 FUN_00e98500
+  0x00e944bc -> 0x00e94150 FUN_00e94150
+  0x00e944cd -> 0x00a93c50 FUN_00a93c50
+  0x00e944d5 -> 0x00e94330 FUN_00e94330
+  0x00e944e1 -> 0x00e94220 FUN_00e94220
+  Total: 5 calls
+
+======================================================================
+Static geometry group destructor @ 0x00e946b0
+======================================================================
+  Function: FUN_00e946b0 @ 0x00e946b0, Size: 144 bytes
+
+void __fastcall FUN_00e946b0(int param_1)
+
+{
+  int iVar1;
+  int iVar2;
+  uint uVar3;
+  int *piVar4;
+  int iVar5;
+  undefined4 *puVar6;
+  
+  uVar3 = 0;
+  if (*(uint *)(param_1 + 0x10) != 0) {
+    piVar4 = *(int **)(param_1 + 0x14);
+    do {
+      if (*piVar4 != 0) {
+        piVar4 = (int *)(*(int **)(param_1 + 0x14))[uVar3];
+        goto joined_r0x00e946d6;
+      }
+      uVar3 = uVar3 + 1;
+      piVar4 = piVar4 + 1;
+    } while (uVar3 < *(uint *)(param_1 + 0x10));
+  }
+  piVar4 = (int *)0x0;
+joined_r0x00e946d6:
+  do {
+    if (piVar4 == (int *)0x0) {
+      return;
+    }
+    iVar1 = piVar4[1];
+    iVar2 = piVar4[2];
+    piVar4 = (int *)*piVar4;
+    if (piVar4 == (int *)0x0) {
+      iVar5 = (**(code **)(*(int *)(param_1 + 0xc) + 4))(iVar1);
+      uVar3 = iVar5 + 1;
+      if (uVar3 < *(uint *)(param_1 + 0x10)) {
+        puVar6 = (undefined4 *)(*(int *)(param_1 + 0x14) + uVar3 * 4);
+        do {
+          piVar4 = (int *)*puVar6;
+          if (piVar4 != (int *)0x0) goto LAB_00e94714;
+          uVar3 = uVar3 + 1;
+          puVar6 = puVar6 + 1;
+        } while (uVar3 < *(uint *)(param_1 + 0x10));
+      }
+      piVar4 = (int *)0x0;
+    }
+LAB_00e94714:
+    FUN_00e91fd0(iVar1);
+    if (iVar2 != 0) {
+      FUN_00e943c0();
+      FUN_00aa1460(iVar2,0x34);
+    }
+  } while( true );
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00e946b0 (Static geometry group destructor)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00e9489a (in FUN_00e94890)
+  DATA @ 0x010f0fd4 (in ???)
+  Total: 2 refs
+
+--- Calls FROM Static geometry group destructor (0x00e946b0) ---
+  0x00e94717 -> 0x00e91fd0 FUN_00e91fd0
+  0x00e94722 -> 0x00e943c0 FUN_00e943c0
+  0x00e9472a -> 0x00aa1460 FUN_00aa1460
+  Total: 3 calls
+
+======================================================================
+Static geometry group buffer purge or reset @ 0x00e948f0
+======================================================================
+  [function not found]
+
+----------------------------------------------------------------------
+References TO 0x00e948f0 (Static geometry group buffer purge or reset)
+----------------------------------------------------------------------
+  DATA @ 0x010f0fdc (in ???)
+  DATA @ 0x010f1010 (in ???)
+  Total: 2 refs
+  [function not found at 0x00e948f0]
+
+======================================================================
+Shared geometry group purge or reset @ 0x00e94db0
+======================================================================
+  [function not found]
+
+----------------------------------------------------------------------
+References TO 0x00e94db0 (Shared geometry group purge or reset)
+----------------------------------------------------------------------
+  DATA @ 0x010f0fe0 (in ???)
+  DATA @ 0x010f1014 (in ???)
+  Total: 2 refs
+  [function not found at 0x00e94db0]
+
+======================================================================
+Shared geometry group adjacent lifecycle owner @ 0x00e94d00
+======================================================================
+  [function not found]
+
+----------------------------------------------------------------------
+References TO 0x00e94d00 (Shared geometry group adjacent lifecycle owner)
+----------------------------------------------------------------------
+  DATA @ 0x010f0fe4 (in ???)
+  DATA @ 0x010f1018 (in ???)
+  Total: 2 refs
+  [function not found at 0x00e94d00]
+
+# UNIVERSAL CREATE-FAILURE COMPARISON
+
+======================================================================
+Dynamic VB block creation @ 0x00e95230
+======================================================================
+  Function: FUN_00e95230 @ 0x00e95230, Size: 129 bytes
+
+undefined4 * FUN_00e95230(uint param_1,int *param_2,undefined4 param_3,undefined4 param_4)
+
+{
+  int *piVar1;
+  undefined4 *puVar2;
+  
+  puVar2 = (undefined4 *)FUN_00aa13e0(0x18);
+  if (puVar2 == (undefined4 *)0x0) {
+    return (undefined4 *)0x0;
+  }
+  *puVar2 = 0;
+  puVar2[1] = 0;
+  puVar2[2] = 0;
+  puVar2[3] = 0;
+  puVar2[4] = 0;
+  if ((param_1 & 0xf) != 0) {
+    param_1 = (param_1 & 0xfffffff0) + 0x20;
+  }
+  puVar2[2] = param_1;
+  piVar1 = (int *)puVar2[3];
+  if (piVar1 != (int *)0x0) {
+    (**(code **)(*piVar1 + 8))(piVar1);
+  }
+  if (param_2 != (int *)0x0) {
+    puVar2[3] = param_2;
+    (**(code **)(*param_2 + 4))(param_2);
+    puVar2[1] = param_2;
+    *puVar2 = param_3;
+    return puVar2;
+  }
+  puVar2[3] = 0;
+  puVar2[1] = param_3;
+  *puVar2 = param_4;
+  return puVar2;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00e95230 (Dynamic VB block creation)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00e955e2 (in FUN_00e95550)
+  UNCONDITIONAL_CALL @ 0x00e956c6 (in FUN_00e95550)
+  Total: 2 refs
+
+--- Calls FROM Dynamic VB block creation (0x00e95230) ---
+  0x00e95234 -> 0x00aa13e0 FUN_00aa13e0
+  Total: 1 calls
+
+======================================================================
+Dynamic vertex-buffer allocation helper @ 0x00e987c0
+======================================================================
+  Function: FUN_00e987c0 @ 0x00e987c0, Size: 198 bytes
+
+undefined4 __thiscall
+FUN_00e987c0(int param_1,uint param_2,int *param_3,undefined4 *param_4,char param_5,char param_6)
+
+{
+  int *piVar1;
+  uint uVar2;
+  int iVar3;
+  undefined4 uVar4;
+  
+  if (*(uint *)(param_1 + 8) < param_2) {
+    piVar1 = *(int **)(param_1 + 0x10);
+    if (piVar1 != (int *)0x0) {
+      (**(code **)(*piVar1 + 8))(piVar1);
+    }
+    *(undefined4 *)(param_1 + 0x10) = 0;
+    uVar2 = param_2;
+    if ((param_2 & 0xf) != 0) {
+      uVar2 = (param_2 & 0xfffffff0) + 0x20;
+    }
+    *(uint *)(param_1 + 8) = uVar2;
+  }
+  if (*(int *)(param_1 + 0x10) == 0) {
+    uVar4 = 0x208;
+    if (param_6 != '\0') {
+      uVar4 = 0x218;
+    }
+    iVar3 = (**(code **)(**(int **)(param_1 + 0xc) + 0x68))
+                      (*(int **)(param_1 + 0xc),*(undefined4 *)(param_1 + 8),uVar4,
+                       *(undefined4 *)(param_1 + 4),0,(undefined4 *)(param_1 + 0x10),0);
+    if (-1 < iVar3) {
+      *(undefined4 *)(param_1 + 0x14) = 0;
+    }
+  }
+  if ((param_5 == '\0') && (param_2 <= (uint)(*(int *)(param_1 + 8) - *(int *)(param_1 + 0x14)))) {
+    *param_3 = *(int *)(param_1 + 0x14);
+    *(int *)(param_1 + 0x14) = *(int *)(param_1 + 0x14) + param_2;
+    *param_4 = 0x1000;
+  }
+  else {
+    *param_3 = 0;
+    *(uint *)(param_1 + 0x14) = param_2;
+    *param_4 = 0x2000;
+  }
+  if (*param_3 == 0) {
+    *param_4 = 0x2000;
+  }
+  return *(undefined4 *)(param_1 + 0x10);
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00e987c0 (Dynamic vertex-buffer allocation helper)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00e9561c (in FUN_00e95550)
+  UNCONDITIONAL_CALL @ 0x00e956f9 (in FUN_00e95550)
+  Total: 2 refs
+
+--- Calls FROM Dynamic vertex-buffer allocation helper (0x00e987c0) ---
+  Total: 0 calls
+
+======================================================================
+Dynamic NiVBChip constructor @ 0x00537d60
+======================================================================
+  Function: FUN_00537d60 @ 0x00537d60, Size: 196 bytes
+
+int FUN_00537d60(undefined4 param_1,undefined4 param_2,undefined4 param_3,undefined4 param_4,
+                undefined4 param_5)
+
+{
+  uint uVar1;
+  int iVar2;
+  int *unaff_FS_OFFSET;
+  int local_20;
+  int local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_00ef5a1f;
+  local_10 = *unaff_FS_OFFSET;
+  uVar1 = DAT_011c16bc ^ (uint)&stack0xfffffffc;
+  *unaff_FS_OFFSET = (int)&local_10;
+  iVar2 = FUN_00aa13e0(0x20,uVar1);
+  local_8 = 0;
+  if (iVar2 == 0) {
+    local_20 = 0;
+  }
+  else {
+    local_20 = FUN_00537e30();
+  }
+  local_8 = 0xffffffff;
+  if (local_20 != 0) {
+    FUN_00537e90(param_5);
+    FUN_006ecd40(param_1);
+    FUN_00403550(param_2);
+    FUN_0041fd00(param_3);
+    FUN_00600ab0(param_4);
+    FUN_00437730(0);
+  }
+  *unaff_FS_OFFSET = local_10;
+  return local_20;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00537d60 (Dynamic NiVBChip constructor)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00e95637 (in FUN_00e95550)
+  UNCONDITIONAL_CALL @ 0x00e95727 (in FUN_00e95550)
+  Total: 2 refs
+
+--- Calls FROM Dynamic NiVBChip constructor (0x00537d60) ---
+  0x00537d87 -> 0x00aa13e0 FUN_00aa13e0
+  0x00537da2 -> 0x00537e30 FUN_00537e30
+  0x00537dd3 -> 0x00537e90 FUN_00537e90
+  0x00537ddf -> 0x006ecd40 FUN_006ecd40
+  0x00537deb -> 0x00403550 FUN_00403550
+  0x00537df7 -> 0x0041fd00 FUN_0041fd00
+  0x00537e03 -> 0x00600ab0 FUN_00600ab0
+  0x00537e0d -> 0x00437730 FUN_00437730
+  Total: 8 calls
+
+======================================================================
+Unshared geometry direct VB allocation raw target @ 0x00e94e30
+======================================================================
+  [function not found]
+
+----------------------------------------------------------------------
+References TO 0x00e94e30 (Unshared geometry direct VB allocation raw target)
+----------------------------------------------------------------------
+  DATA @ 0x010f1020 (in ???)
+  Total: 1 refs
+  [function not found at 0x00e94e30]
+
+======================================================================
+Instruction window Unshared direct VB allocation raw entry @ 0x00e94e30
+======================================================================
+   0x00e94e10  MOV dword ptr [EDI + 0x1c],EAX
+   0x00e94e13  PUSH EAX
+   0x00e94e14  MOV ECX,ESI
+   0x00e94e16  MOV dword ptr [EAX + 0x4],0x1400000
+   0x00e94e1d  CALL 0x00e98730
+   0x00e94e22  POP EDI
+   0x00e94e23  POP ESI
+   0x00e94e24  RET 0x4
+>> 0x00e94e30  MOV EAX,dword ptr [ESP + 0x4]
+   0x00e94e34  MOV EDX,dword ptr [ESP + 0x8]
+   0x00e94e38  PUSH EBX
+   0x00e94e39  PUSH ESI
+   0x00e94e3a  MOV ESI,dword ptr [EAX + 0x1c]
+   0x00e94e3d  XOR EBX,EBX
+   0x00e94e3f  PUSH EDI
+   0x00e94e40  CMP EDX,dword ptr [EAX + 0x20]
+   0x00e94e43  JNC 0x00e94e4d
+   0x00e94e45  MOV EDI,dword ptr [EAX + 0x24]
+   0x00e94e48  MOV EDX,dword ptr [EDI + EDX*0x4]
+   0x00e94e4b  JMP 0x00e94e4f
+   0x00e94e4d  XOR EDX,EDX
+   0x00e94e4f  IMUL EDX,ESI
+   0x00e94e52  MOV ESI,EDX
+   0x00e94e54  MOV EDI,0x8
+   0x00e94e59  CMP byte ptr [EAX + 0x14],BL
+   0x00e94e5c  JZ 0x00e94e63
+   0x00e94e5e  MOV EDI,0x18
+   0x00e94e63  MOV ECX,dword ptr [ECX + 0x8]
+   0x00e94e66  MOV EDX,dword ptr [ECX]
+   0x00e94e68  MOV EAX,dword ptr [EAX + 0xc]
+   0x00e94e6b  MOV dword ptr [ESP + 0x10],EDX
+   0x00e94e6f  XOR EDX,EDX
+   0x00e94e71  CMP byte ptr [0x0126f0d0],BL
+   0x00e94e77  PUSH EBP
+   0x00e94e78  PUSH EBX
+   0x00e94e79  SETZ DL
+   0x00e94e7c  LEA EBP,[ESP + 0x18]
+   0x00e94e80  PUSH EBP
+   0x00e94e81  PUSH EDX
+   0x00e94e82  MOV EDX,dword ptr [ESP + 0x20]
+   0x00e94e86  PUSH EAX
+   0x00e94e87  MOV EAX,dword ptr [EDX + 0x68]
+   0x00e94e8a  PUSH EDI
+   0x00e94e8b  PUSH ESI
+   0x00e94e8c  PUSH ECX
+   0x00e94e8d  CALL EAX
+   0x00e94e8f  MOV EDI,dword ptr [ESP + 0x14]
+   0x00e94e93  PUSH 0x20
+   0x00e94e95  CALL 0x00aa13e0
+   0x00e94e9a  ADD ESP,0x4
+   0x00e94e9d  POP EBP
+   0x00e94e9e  CMP EAX,EBX
+   0x00e94ea0  JZ 0x00e94ed0
+   0x00e94ea2  MOV dword ptr [EAX],EBX
+   0x00e94ea4  MOV dword ptr [EAX + 0x4],EBX
+   0x00e94ea7  MOV dword ptr [EAX + 0x8],EBX
+   0x00e94eaa  MOV dword ptr [EAX + 0xc],EBX
+   0x00e94ead  MOV dword ptr [EAX + 0x14],EBX
+   0x00e94eb0  MOV dword ptr [EAX + 0x10],EBX
+   0x00e94eb3  MOV dword ptr [EAX + 0x18],EBX
+   0x00e94eb6  MOV dword ptr [EAX + 0x1c],EBX
+   0x00e94eb9  MOV dword ptr [EAX + 0x8],EDI
+   0x00e94ebc  POP EDI
+   0x00e94ebd  MOV dword ptr [EAX + 0x14],ESI
+   0x00e94ec0  POP ESI
+   0x00e94ec1  MOV dword ptr [EAX],EBX
+   0x00e94ec3  MOV dword ptr [EAX + 0x4],EBX
+   0x00e94ec6  MOV dword ptr [EAX + 0xc],EBX
+   0x00e94ec9  MOV dword ptr [EAX + 0x10],EBX
+   0x00e94ecc  POP EBX
+   0x00e94ecd  RET 0x8
+   0x00e94ed0  POP EDI
+   0x00e94ed1  POP ESI
+   0x00e94ed2  XOR EAX,EAX
+   0x00e94ed4  POP EBX
+   0x00e94ed5  RET 0x8
+   0x00e94ee0  PUSH EBX
+   0x00e94ee1  MOV EBX,dword ptr [ESP + 0xc]
+   0x00e94ee5  PUSH EDI
+   0x00e94ee6  MOV EDI,dword ptr [ESP + 0xc]
+   0x00e94eea  CMP EBX,dword ptr [EDI + 0x20]
+   0x00e94eed  JNC 0x00e94f2b
+   0x00e94eef  MOV EAX,dword ptr [EDI + 0x28]
+   0x00e94ef2  PUSH ESI
+   0x00e94ef3  MOV ESI,dword ptr [EAX + EBX*0x4]
+   0x00e94ef6  TEST ESI,ESI
+   0x00e94ef8  JZ 0x00e94f2a
+   0x00e94efa  MOV EAX,dword ptr [ESI + 0x8]
+   0x00e94efd  TEST EAX,EAX
+   0x00e94eff  JZ 0x00e94f09
+   0x00e94f01  MOV ECX,dword ptr [EAX]
+   0x00e94f03  MOV EDX,dword ptr [ECX + 0x8]
+   0x00e94f06  PUSH EAX
+   0x00e94f07  CALL EDX
+   0x00e94f09  CMP EBX,dword ptr [EDI + 0x20]
+   0x00e94f0c  JNC 0x00e94f18
+   0x00e94f0e  MOV EAX,dword ptr [EDI + 0x28]
+   0x00e94f11  MOV dword ptr [EAX + EBX*0x4],0x0
+   0x00e94f18  PUSH 0x20
+   0x00e94f1a  PUSH ESI
+   0x00e94f1b  MOV dword ptr [ESI + 0x8],0x0
+   0x00e94f22  CALL 0x00aa1460
+   0x00e94f27  ADD ESP,0x8
+   0x00e94f2a  POP ESI
+   0x00e94f2b  POP EDI
+   0x00e94f2c  POP EBX
+   0x00e94f2d  RET 0x8
+   0x00e94f30  PUSH ECX
+   0x00e94f31  PUSH EBX
+
+# REQUIRED FIX CONTRACT
+The output must establish:
+  1. The exact CreateVertexBuffer HRESULT/null handling in the static block creator.
+  2. Whether a failed block retains a null D3D VB and remains discoverable in the block map.
+  3. Whether chip acquisition copies a null block VB into NiVBChip +0x08 and still returns success.
+  4. Whether retirement can clear chip +0x08 concurrently or only detaches the stream slot.
+  5. Which synchronization protects static block maps, chip lists, and COM Release.
+  6. Whether a post-allocation chip+VB validation at 0x00E8BFA0 is sufficient and retryable.
+  7. Whether the weaker Stewie stream-0-only predicate must be restored to the vanilla all-stream contract.
+  8. The smallest fix preserving LOD visibility, two workers, and transient allocation retry.

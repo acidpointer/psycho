@@ -1,0 +1,2542 @@
+LOD VERTEX-BUFFER GEOMETRY-GROUP ALLOCATION FOLLOWUP AUDIT
+Program: FalloutNV.exe
+Image base: 00400000
+
+Proven input from the prior audit:
+  0x00E8C00D faults on MOV ECX,[EAX] with EAX=0
+  EAX is the NiVBChip +0x08 IDirect3DVertexBuffer9 pointer
+  0x00E8BFA0 first calls GeometryGroup slot +0x1C, then slot +0x18
+  It reports success when slot +0x18 returns any non-null NiVBChip
+  The caller then fetches that chip and dereferences chip +0x08 without another guard
+
+# CONCRETE GEOMETRY GROUP VTABLES
+
+======================================================================
+Pointer table NiStaticGeometryGroup @ 0x010f0fd4
+======================================================================
+  [00] +0x00 -> 0x00e946b0 FUN_00e946b0
+  [01] +0x04 -> 0x00e94a30 ???
+  [02] +0x08 -> 0x00e948f0 ???
+  [03] +0x0c -> 0x00e94db0 ???
+  [04] +0x10 -> 0x00e94d00 ???
+  [05] +0x14 -> 0x00e94740 ???
+  [06] +0x18 -> 0x00e94c20 FUN_00e94c20
+  [07] +0x1c -> 0x00e94770 FUN_00e94770
+  [08] +0x20 -> 0x00ee8990 FUN_00ee8990
+  [09] +0x24 -> 0x00e94890 FUN_00e94890
+  [10] +0x28 -> 0x0113dbc8 ???
+  [11] +0x2c -> 0x00e94a80 FUN_00e94a80
+  [12] +0x30 -> 0x0113dc14 ???
+
+----------------------------------------------------------------------
+References TO 0x010f0fd4 (NiStaticGeometryGroup vtable)
+----------------------------------------------------------------------
+  DATA @ 0x00e94894 (in FUN_00e94890)
+  DATA @ 0x00e94ab8 (in FUN_00e94ab0)
+  Total: 2 refs
+
+======================================================================
+Pointer table NiUnsharedGeometryGroup @ 0x010f1008
+======================================================================
+  [00] +0x00 -> 0x00a29680 FUN_00a29680
+  [01] +0x04 -> 0x00e94de0 ???
+  [02] +0x08 -> 0x00e948f0 ???
+  [03] +0x0c -> 0x00e94db0 ???
+  [04] +0x10 -> 0x00e94d00 ???
+  [05] +0x14 -> 0x00e94740 ???
+  [06] +0x18 -> 0x00e94e30 ???
+  [07] +0x1c -> 0x00e94ee0 FUN_00e94ee0
+  [08] +0x20 -> 0x00ee8990 FUN_00ee8990
+  [09] +0x24 -> 0x00e94d30 FUN_00e94d30
+  [10] +0x28 -> 0x0113dc64 ???
+  [11] +0x2c -> 0x00e95780 FUN_00e95780
+  [12] +0x30 -> 0x0113dcac ???
+
+----------------------------------------------------------------------
+References TO 0x010f1008 (NiUnsharedGeometryGroup vtable)
+----------------------------------------------------------------------
+  DATA @ 0x00e94d93 (in FUN_00e94d70)
+  DATA @ 0x00e94d33 (in FUN_00e94d30)
+  Total: 2 refs
+
+======================================================================
+Pointer table NiDynamicGeometryGroup @ 0x010f10c4
+======================================================================
+  [00] +0x00 -> 0x00e94f30 ???
+  [01] +0x04 -> 0x00e95500 FUN_00e95500
+  [02] +0x08 -> 0x00e953c0 ???
+  [03] +0x0c -> 0x00e95190 ???
+  [04] +0x10 -> 0x00e95140 ???
+  [05] +0x14 -> 0x00e950f0 ???
+  [06] +0x18 -> 0x00e95550 FUN_00e95550
+  [07] +0x1c -> 0x00e951e0 FUN_00e951e0
+  [08] +0x20 -> 0x00b606e0 ???
+  [09] +0x24 -> 0x00e95b40 FUN_00e95b40
+  [10] +0x28 -> 0x00000000 ???
+  [11] +0x2c -> 0x0113de70 ???
+  [12] +0x30 -> 0x00e95cd0 FUN_00e95cd0
+
+----------------------------------------------------------------------
+References TO 0x010f10c4 (NiDynamicGeometryGroup vtable)
+----------------------------------------------------------------------
+  DATA @ 0x00e95884 (in FUN_00e95880)
+  DATA @ 0x00e957b9 (in FUN_00e957b0)
+  Total: 2 refs
+
+======================================================================
+Pointer table NiGeometryGroup base @ 0x010f1644
+======================================================================
+  [00] +0x00 -> 0x00ec60fa ???
+  [01] +0x04 -> 0x00ec60fa ???
+  [02] +0x08 -> 0x00ec60fa ???
+  [03] +0x0c -> 0x00ec60fa ???
+  [04] +0x10 -> 0x00ec60fa ???
+  [05] +0x14 -> 0x00ec60fa ???
+  [06] +0x18 -> 0x00ec60fa ???
+  [07] +0x1c -> 0x00ec60fa ???
+  [08] +0x20 -> 0x00ec60fa ???
+  [09] +0x24 -> 0x00e98790 FUN_00e98790
+  [10] +0x28 -> 0x6c696146 ???
+  [11] +0x2c -> 0x74206465 ???
+  [12] +0x30 -> 0x7263206f ???
+
+----------------------------------------------------------------------
+References TO 0x010f1644 (NiGeometryGroup base vtable)
+----------------------------------------------------------------------
+  DATA @ 0x00e986f9 (in FUN_00e986f0)
+  DATA @ 0x00e98796 (in FUN_00e98790)
+  DATA @ 0x00e98710 (in FUN_00e98710)
+  Total: 3 refs
+
+======================================================================
+Pointer table NiD3DGeometryGroupManager @ 0x010ef718
+======================================================================
+  [00] +0x00 -> 0x00e88e90 FUN_00e88e90
+  [01] +0x04 -> 0x00e88f10 FUN_00e88f10
+  [02] +0x08 -> 0x00e88c30 ???
+  [03] +0x0c -> 0x00e88c90 ???
+  [04] +0x10 -> 0x00e88ca0 ???
+  [05] +0x14 -> 0x00e88fa0 ???
+  [06] +0x18 -> 0x00e88cc0 ???
+  [07] +0x1c -> 0x00e88e40 ???
+  [08] +0x20 -> 0x0113c8dc ???
+  [09] +0x24 -> 0x00e898a0 FUN_00e898a0
+  [10] +0x28 -> 0x00cfcc20 FUN_00cfcc20
+  [11] +0x2c -> 0x00e89830 ???
+  [12] +0x30 -> 0x00e7cd40 FUN_00e7cd40
+  [13] +0x34 -> 0x00e7cd40 FUN_00e7cd40
+  [14] +0x38 -> 0x00e7cd40 FUN_00e7cd40
+  [15] +0x3c -> 0x00e7cd40 FUN_00e7cd40
+
+----------------------------------------------------------------------
+References TO 0x010ef718 (NiD3DGeometryGroupManager vtable)
+----------------------------------------------------------------------
+  DATA @ 0x00e88d6a (in FUN_00e88d60)
+  DATA @ 0x00e88ecb (in FUN_00e88eb0)
+  Total: 2 refs
+
+# SLOT +0X18 CHIP ALLOCATION AND +0X1C RETIREMENT
+
+Resolved NiStaticGeometryGroup slot 6 +0x18 allocate or acquire NiVBChip -> 0x00e94c20
+
+======================================================================
+NiStaticGeometryGroup slot 6 +0x18 allocate or acquire NiVBChip @ 0x00e94c20
+======================================================================
+  Function: FUN_00e94c20 @ 0x00e94c20, Size: 211 bytes
+
+int __thiscall FUN_00e94c20(int param_1,uint param_2,uint param_3)
+
+{
+  int iVar1;
+  char cVar2;
+  undefined4 uVar3;
+  int iVar4;
+  uint uVar5;
+  int local_8;
+  int local_4;
+  
+  iVar1 = param_2;
+  uVar5 = *(uint *)(param_2 + 0xc);
+  local_8 = 0;
+  if (param_3 < *(uint *)(param_2 + 0x20)) {
+    param_2 = *(uint *)(*(int *)(param_2 + 0x24) + param_3 * 4);
+  }
+  else {
+    param_2 = 0;
+  }
+  if (uVar5 == 0) {
+    uVar5 = param_2 | 0x80000000;
+  }
+  param_3 = 0;
+  if (*(char *)(iVar1 + 0x14) != '\0') {
+    uVar5 = uVar5 | 0x40000000;
+    param_3 = 0x80000000;
+  }
+  local_4 = param_1;
+  cVar2 = FUN_00a53c30(uVar5,&local_8);
+  if ((cVar2 == '\0') || (param_1 = local_4, local_8 == 0)) {
+    uVar3 = FUN_00e94b80(0x10000,*(undefined4 *)(param_1 + 8),uVar5,param_3,0);
+    FUN_00b57ea0(uVar5,uVar3);
+  }
+  iVar4 = FUN_00e94650(*(int *)(iVar1 + 0x1c) * param_2,1 < *(uint *)(iVar1 + 0x20));
+  *(uint *)(iVar1 + 0x38) = *(uint *)(iVar4 + 0xc) / param_2;
+  return iVar4;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00e94c20 (NiStaticGeometryGroup slot 6 +0x18 allocate or acquire NiVBChip)
+----------------------------------------------------------------------
+  DATA @ 0x010f0fec (in ???)
+  Total: 1 refs
+
+--- Calls FROM NiStaticGeometryGroup slot 6 +0x18 allocate or acquire NiVBChip (0x00e94c20) ---
+  0x00e94c83 -> 0x00a53c30 FUN_00a53c30
+  0x00e94ca9 -> 0x00e94b80 FUN_00e94b80
+  0x00e94cb7 -> 0x00b57ea0 FUN_00b57ea0
+  0x00e94cd6 -> 0x00e94650 FUN_00e94650
+  Total: 4 calls
+
+Resolved NiStaticGeometryGroup slot 7 +0x1c retire or release NiVBChip -> 0x00e94770
+
+======================================================================
+NiStaticGeometryGroup slot 7 +0x1c retire or release NiVBChip @ 0x00e94770
+======================================================================
+  Function: FUN_00e94770 @ 0x00e94770, Size: 68 bytes
+
+void FUN_00e94770(int param_1,uint param_2)
+
+{
+  undefined4 *puVar1;
+  
+  if ((param_2 < *(uint *)(param_1 + 0x20)) &&
+     (puVar1 = *(undefined4 **)(*(int *)(param_1 + 0x28) + param_2 * 4), puVar1 != (undefined4 *)0x0
+     )) {
+    if (puVar1[2] != 0) {
+      FUN_00e94490(*(undefined4 *)(puVar1[1] + 4),*puVar1);
+    }
+    if (param_2 < *(uint *)(param_1 + 0x20)) {
+      *(undefined4 *)(*(int *)(param_1 + 0x28) + param_2 * 4) = 0;
+    }
+  }
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00e94770 (NiStaticGeometryGroup slot 7 +0x1c retire or release NiVBChip)
+----------------------------------------------------------------------
+  DATA @ 0x010f0ff0 (in ???)
+  Total: 1 refs
+
+--- Calls FROM NiStaticGeometryGroup slot 7 +0x1c retire or release NiVBChip (0x00e94770) ---
+  0x00e9479b -> 0x00e94490 FUN_00e94490
+  Total: 1 calls
+
+Resolved NiStaticGeometryGroup slot 8 +0x20 post-allocation validity or mode -> 0x00ee8990
+
+======================================================================
+NiStaticGeometryGroup slot 8 +0x20 post-allocation validity or mode @ 0x00ee8990
+======================================================================
+  Function: FUN_00ee8990 @ 0x00ee8990, Size: 3 bytes
+
+undefined1 FUN_00ee8990(void)
+
+{
+  return 0;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00ee8990 (NiStaticGeometryGroup slot 8 +0x20 post-allocation validity or mode)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0081320c (in FUN_00812b60)
+  UNCONDITIONAL_CALL @ 0x008151da (in FUN_00814d40)
+  DATA @ 0x0101634c (in ???)
+  DATA @ 0x010163e4 (in ???)
+  DATA @ 0x0101792c (in ???)
+  DATA @ 0x01017d94 (in ???)
+  DATA @ 0x0101deac (in ???)
+  DATA @ 0x0101e0ec (in ???)
+  DATA @ 0x0101e804 (in ???)
+  DATA @ 0x0101e89c (in ???)
+  DATA @ 0x0101e954 (in ???)
+  DATA @ 0x0101ea14 (in ???)
+  DATA @ 0x0101eafc (in ???)
+  DATA @ 0x0102003c (in ???)
+  DATA @ 0x0102010c (in ???)
+  DATA @ 0x010201dc (in ???)
+  DATA @ 0x010202ac (in ???)
+  DATA @ 0x01022934 (in ???)
+  DATA @ 0x01022a94 (in ???)
+  DATA @ 0x010237a4 (in ???)
+  DATA @ 0x01024444 (in ???)
+  DATA @ 0x0102bfb4 (in ???)
+  DATA @ 0x0102c0bc (in ???)
+  DATA @ 0x0102c15c (in ???)
+  DATA @ 0x0102d19c (in ???)
+  DATA @ 0x0102d23c (in ???)
+  DATA @ 0x0102d314 (in ???)
+  DATA @ 0x0102d3dc (in ???)
+  DATA @ 0x0102d4c4 (in ???)
+  DATA @ 0x0102d57c (in ???)
+  DATA @ 0x0102db2c (in ???)
+  DATA @ 0x0102dbbc (in ???)
+  DATA @ 0x0102e2e4 (in ???)
+  DATA @ 0x0102e24c (in ???)
+  DATA @ 0x0102e404 (in ???)
+  DATA @ 0x01030224 (in ???)
+  DATA @ 0x0103032c (in ???)
+  DATA @ 0x01030404 (in ???)
+  DATA @ 0x010304dc (in ???)
+  DATA @ 0x0103064c (in ???)
+  DATA @ 0x01030724 (in ???)
+  DATA @ 0x010307fc (in ???)
+  DATA @ 0x010308d4 (in ???)
+  DATA @ 0x010309ac (in ???)
+  DATA @ 0x01030a94 (in ???)
+  DATA @ 0x01030b7c (in ???)
+  DATA @ 0x01030c64 (in ???)
+  DATA @ 0x01030d4c (in ???)
+  DATA @ 0x01033cec (in ???)
+  DATA @ 0x0104db34 (in ???)
+  DATA @ 0x0104dc1c (in ???)
+  DATA @ 0x01064e8c (in ???)
+  DATA @ 0x01065c64 (in ???)
+  DATA @ 0x0106601c (in ???)
+  DATA @ 0x0106614c (in ???)
+  DATA @ 0x01066954 (in ???)
+  DATA @ 0x01066b3c (in ???)
+  DATA @ 0x01066c04 (in ???)
+  DATA @ 0x01066ccc (in ???)
+  DATA @ 0x01066db4 (in ???)
+  DATA @ 0x01066e9c (in ???)
+  ... (truncated)
+  Total: 61 refs
+
+--- Calls FROM NiStaticGeometryGroup slot 8 +0x20 post-allocation validity or mode (0x00ee8990) ---
+  Total: 0 calls
+
+Resolved NiUnsharedGeometryGroup slot 6 +0x18 allocate or acquire NiVBChip -> 0x00e94e30
+
+======================================================================
+NiUnsharedGeometryGroup slot 6 +0x18 allocate or acquire NiVBChip @ 0x00e94e30
+======================================================================
+  [function not found]
+
+----------------------------------------------------------------------
+References TO 0x00e94e30 (NiUnsharedGeometryGroup slot 6 +0x18 allocate or acquire NiVBChip)
+----------------------------------------------------------------------
+  DATA @ 0x010f1020 (in ???)
+  Total: 1 refs
+  [function not found at 0x00e94e30]
+
+Resolved NiUnsharedGeometryGroup slot 7 +0x1c retire or release NiVBChip -> 0x00e94ee0
+
+======================================================================
+NiUnsharedGeometryGroup slot 7 +0x1c retire or release NiVBChip @ 0x00e94ee0
+======================================================================
+  Function: FUN_00e94ee0 @ 0x00e94ee0, Size: 80 bytes
+
+void FUN_00e94ee0(int param_1,uint param_2)
+
+{
+  int iVar1;
+  int *piVar2;
+  
+  if ((param_2 < *(uint *)(param_1 + 0x20)) &&
+     (iVar1 = *(int *)(*(int *)(param_1 + 0x28) + param_2 * 4), iVar1 != 0)) {
+    piVar2 = *(int **)(iVar1 + 8);
+    if (piVar2 != (int *)0x0) {
+      (**(code **)(*piVar2 + 8))(piVar2);
+    }
+    if (param_2 < *(uint *)(param_1 + 0x20)) {
+      *(undefined4 *)(*(int *)(param_1 + 0x28) + param_2 * 4) = 0;
+    }
+    *(undefined4 *)(iVar1 + 8) = 0;
+    FUN_00aa1460(iVar1,0x20);
+  }
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00e94ee0 (NiUnsharedGeometryGroup slot 7 +0x1c retire or release NiVBChip)
+----------------------------------------------------------------------
+  DATA @ 0x010f1024 (in ???)
+  Total: 1 refs
+
+--- Calls FROM NiUnsharedGeometryGroup slot 7 +0x1c retire or release NiVBChip (0x00e94ee0) ---
+  0x00e94f22 -> 0x00aa1460 FUN_00aa1460
+  Total: 1 calls
+
+Resolved NiUnsharedGeometryGroup slot 8 +0x20 post-allocation validity or mode -> 0x00ee8990
+  [already decompiled 0x00ee8990 as NiStaticGeometryGroup slot 8 +0x20 post-allocation validity or mode]
+
+----------------------------------------------------------------------
+References TO 0x00ee8990 (NiUnsharedGeometryGroup slot 8 +0x20 post-allocation validity or mode)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0081320c (in FUN_00812b60)
+  UNCONDITIONAL_CALL @ 0x008151da (in FUN_00814d40)
+  DATA @ 0x0101634c (in ???)
+  DATA @ 0x010163e4 (in ???)
+  DATA @ 0x0101792c (in ???)
+  DATA @ 0x01017d94 (in ???)
+  DATA @ 0x0101deac (in ???)
+  DATA @ 0x0101e0ec (in ???)
+  DATA @ 0x0101e804 (in ???)
+  DATA @ 0x0101e89c (in ???)
+  DATA @ 0x0101e954 (in ???)
+  DATA @ 0x0101ea14 (in ???)
+  DATA @ 0x0101eafc (in ???)
+  DATA @ 0x0102003c (in ???)
+  DATA @ 0x0102010c (in ???)
+  DATA @ 0x010201dc (in ???)
+  DATA @ 0x010202ac (in ???)
+  DATA @ 0x01022934 (in ???)
+  DATA @ 0x01022a94 (in ???)
+  DATA @ 0x010237a4 (in ???)
+  DATA @ 0x01024444 (in ???)
+  DATA @ 0x0102bfb4 (in ???)
+  DATA @ 0x0102c0bc (in ???)
+  DATA @ 0x0102c15c (in ???)
+  DATA @ 0x0102d19c (in ???)
+  DATA @ 0x0102d23c (in ???)
+  DATA @ 0x0102d314 (in ???)
+  DATA @ 0x0102d3dc (in ???)
+  DATA @ 0x0102d4c4 (in ???)
+  DATA @ 0x0102d57c (in ???)
+  DATA @ 0x0102db2c (in ???)
+  DATA @ 0x0102dbbc (in ???)
+  DATA @ 0x0102e2e4 (in ???)
+  DATA @ 0x0102e24c (in ???)
+  DATA @ 0x0102e404 (in ???)
+  DATA @ 0x01030224 (in ???)
+  DATA @ 0x0103032c (in ???)
+  DATA @ 0x01030404 (in ???)
+  DATA @ 0x010304dc (in ???)
+  DATA @ 0x0103064c (in ???)
+  DATA @ 0x01030724 (in ???)
+  DATA @ 0x010307fc (in ???)
+  DATA @ 0x010308d4 (in ???)
+  DATA @ 0x010309ac (in ???)
+  DATA @ 0x01030a94 (in ???)
+  DATA @ 0x01030b7c (in ???)
+  DATA @ 0x01030c64 (in ???)
+  DATA @ 0x01030d4c (in ???)
+  DATA @ 0x01033cec (in ???)
+  DATA @ 0x0104db34 (in ???)
+  DATA @ 0x0104dc1c (in ???)
+  DATA @ 0x01064e8c (in ???)
+  DATA @ 0x01065c64 (in ???)
+  DATA @ 0x0106601c (in ???)
+  DATA @ 0x0106614c (in ???)
+  DATA @ 0x01066954 (in ???)
+  DATA @ 0x01066b3c (in ???)
+  DATA @ 0x01066c04 (in ???)
+  DATA @ 0x01066ccc (in ???)
+  DATA @ 0x01066db4 (in ???)
+  DATA @ 0x01066e9c (in ???)
+  ... (truncated)
+  Total: 61 refs
+
+--- Calls FROM NiUnsharedGeometryGroup slot 8 +0x20 post-allocation validity or mode (0x00ee8990) ---
+  Total: 0 calls
+
+Resolved NiDynamicGeometryGroup slot 6 +0x18 allocate or acquire NiVBChip -> 0x00e95550
+
+======================================================================
+NiDynamicGeometryGroup slot 6 +0x18 allocate or acquire NiVBChip @ 0x00e95550
+======================================================================
+  Function: FUN_00e95550 @ 0x00e95550, Size: 552 bytes
+
+int __thiscall FUN_00e95550(int param_1,int param_2,uint param_3)
+
+{
+  char cVar1;
+  undefined4 uVar2;
+  int iVar3;
+  int iVar4;
+  int iVar5;
+  uint uVar6;
+  int local_14;
+  int local_10;
+  undefined4 local_c;
+  uint local_8;
+  uint local_4;
+  
+  iVar4 = param_2;
+  uVar6 = *(uint *)(param_2 + 0x20);
+  local_4 = *(uint *)(param_2 + 0xc);
+  local_10 = 0;
+  if (param_3 < uVar6) {
+    local_8 = *(uint *)(*(int *)(param_2 + 0x24) + param_3 * 4);
+  }
+  else {
+    local_8 = 0;
+  }
+  iVar5 = *(int *)(param_2 + 0x1c) * local_8;
+  param_3 = 0;
+  local_c = 0;
+  if (uVar6 < 2) {
+    local_14 = 0;
+    uVar6 = local_4;
+    if (local_4 == 0) {
+      uVar6 = local_8 | 0x80000000;
+    }
+    cVar1 = FUN_00a53c30(uVar6,&local_14);
+    if ((cVar1 == '\0') || (local_14 == 0)) {
+      local_14 = FUN_00e95230(0x800,*(undefined4 *)(param_1 + 8),local_4,0);
+      FUN_00b57ea0(uVar6,local_14);
+    }
+    local_4 = CONCAT31(local_4._1_3_,*(undefined1 *)(iVar4 + 0x14));
+    local_4 = FUN_00e987c0(iVar5,&param_3,&local_c,0,local_4);
+    FUN_00a53c30(uVar6,&local_10);
+    if (local_10 == 0) {
+      iVar4 = FUN_00537d60(0,local_4,param_3,iVar5,0);
+      FUN_00b57ea0(uVar6,iVar4);
+      local_10 = iVar4;
+    }
+    else {
+      *(uint *)(local_10 + 8) = local_4;
+      *(uint *)(local_10 + 0xc) = param_3;
+      *(int *)(local_10 + 0x14) = iVar5;
+    }
+    *(int *)(local_10 + 4) = local_14;
+    *(undefined4 *)(local_10 + 0x10) = local_c;
+    *(uint *)(param_2 + 0x38) = param_3 / local_8;
+    return local_10;
+  }
+  if (*(ushort *)(param_1 + 0x34) < uVar6) {
+    FUN_00a90180(uVar6);
+    FUN_00a90180(uVar6);
+  }
+  if ((uint)*(ushort *)(param_1 + 0x34) <= *(uint *)(param_1 + 0x4c)) {
+    *(undefined4 *)(param_1 + 0x4c) = 0;
+  }
+  param_2 = *(int *)(*(int *)(param_1 + 0x30) + *(int *)(param_1 + 0x4c) * 4);
+  if (param_2 == 0) {
+    param_2 = FUN_00e95230(0x800,*(undefined4 *)(param_1 + 8),0,0);
+    FUN_00ba3aa0(*(undefined4 *)(param_1 + 0x4c),&param_2);
+  }
+  local_4 = CONCAT31(local_4._1_3_,*(undefined1 *)(iVar4 + 0x14));
+  uVar2 = FUN_00e987c0(iVar5,&param_3,&local_c,1,local_4);
+  iVar3 = *(int *)(*(int *)(param_1 + 0x40) + *(int *)(param_1 + 0x4c) * 4);
+  if (iVar3 == 0) {
+    iVar3 = FUN_00537d60(0,uVar2,param_3,iVar5,0);
+    local_10 = iVar3;
+    FUN_00ba3aa0(*(undefined4 *)(param_1 + 0x4c),&local_10);
+  }
+  else {
+    *(undefined4 *)(iVar3 + 8) = uVar2;
+    *(uint *)(iVar3 + 0xc) = param_3;
+    *(int *)(iVar3 + 0x14) = iVar5;
+  }
+  *(int *)(iVar3 + 4) = param_2;
+  *(undefined4 *)(iVar3 + 0x10) = local_c;
+  *(undefined4 *)(iVar4 + 0x38) = 0;
+  *(int *)(param_1 + 0x4c) = *(int *)(param_1 + 0x4c) + 1;
+  return iVar3;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00e95550 (NiDynamicGeometryGroup slot 6 +0x18 allocate or acquire NiVBChip)
+----------------------------------------------------------------------
+  DATA @ 0x010f10dc (in ???)
+  Total: 1 refs
+
+--- Calls FROM NiDynamicGeometryGroup slot 6 +0x18 allocate or acquire NiVBChip (0x00e95550) ---
+  0x00e955aa -> 0x00a90180 FUN_00a90180
+  0x00e955b3 -> 0x00a90180 FUN_00a90180
+  0x00e955e2 -> 0x00e95230 FUN_00e95230
+  0x00e955fa -> 0x00ba3aa0 FUN_00ba3aa0
+  0x00e9561c -> 0x00e987c0 FUN_00e987c0
+  0x00e95637 -> 0x00537d60 FUN_00537d60
+  0x00e95651 -> 0x00ba3aa0 FUN_00ba3aa0
+  0x00e956a6 -> 0x00a53c30 FUN_00a53c30
+  0x00e956c6 -> 0x00e95230 FUN_00e95230
+  0x00e956d7 -> 0x00b57ea0 FUN_00b57ea0
+  0x00e956f9 -> 0x00e987c0 FUN_00e987c0
+  0x00e9570d -> 0x00a53c30 FUN_00a53c30
+  0x00e95727 -> 0x00537d60 FUN_00537d60
+  0x00e95735 -> 0x00b57ea0 FUN_00b57ea0
+  Total: 14 calls
+
+Resolved NiDynamicGeometryGroup slot 7 +0x1c retire or release NiVBChip -> 0x00e951e0
+
+======================================================================
+NiDynamicGeometryGroup slot 7 +0x1c retire or release NiVBChip @ 0x00e951e0
+======================================================================
+  Function: FUN_00e951e0 @ 0x00e951e0, Size: 70 bytes
+
+void FUN_00e951e0(int param_1,uint param_2)
+
+{
+  int iVar1;
+  
+  if ((param_2 < *(uint *)(param_1 + 0x20)) &&
+     (iVar1 = *(int *)(*(int *)(param_1 + 0x28) + param_2 * 4), iVar1 != 0)) {
+    if (*(int *)(iVar1 + 8) != 0) {
+      FUN_00a89af0(*(int *)(iVar1 + 8));
+      *(undefined4 *)(iVar1 + 8) = 0;
+    }
+    if (param_2 < *(uint *)(param_1 + 0x20)) {
+      *(undefined4 *)(*(int *)(param_1 + 0x28) + param_2 * 4) = 0;
+    }
+  }
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00e951e0 (NiDynamicGeometryGroup slot 7 +0x1c retire or release NiVBChip)
+----------------------------------------------------------------------
+  DATA @ 0x010f10e0 (in ???)
+  Total: 1 refs
+
+--- Calls FROM NiDynamicGeometryGroup slot 7 +0x1c retire or release NiVBChip (0x00e951e0) ---
+  0x00e95205 -> 0x00a89af0 FUN_00a89af0
+  Total: 1 calls
+
+Resolved NiDynamicGeometryGroup slot 8 +0x20 post-allocation validity or mode -> 0x00b606e0
+
+======================================================================
+NiDynamicGeometryGroup slot 8 +0x20 post-allocation validity or mode @ 0x00b606e0
+======================================================================
+  [function not found]
+
+----------------------------------------------------------------------
+References TO 0x00b606e0 (NiDynamicGeometryGroup slot 8 +0x20 post-allocation validity or mode)
+----------------------------------------------------------------------
+  DATA @ 0x00b576e0 (in FUN_00b57420)
+  DATA @ 0x01022950 (in ???)
+  DATA @ 0x01022954 (in ???)
+  DATA @ 0x01022ab0 (in ???)
+  DATA @ 0x01022ab4 (in ???)
+  DATA @ 0x01024460 (in ???)
+  DATA @ 0x01024464 (in ???)
+  DATA @ 0x0102e420 (in ???)
+  DATA @ 0x0102e424 (in ???)
+  DATA @ 0x01064ea8 (in ???)
+  DATA @ 0x01064eac (in ???)
+  DATA @ 0x01065c80 (in ???)
+  DATA @ 0x01065c84 (in ???)
+  DATA @ 0x01066038 (in ???)
+  DATA @ 0x0106603c (in ???)
+  DATA @ 0x01066b80 (in ???)
+  DATA @ 0x01066c48 (in ???)
+  DATA @ 0x01094d88 (in ???)
+  DATA @ 0x01094d8c (in ???)
+  DATA @ 0x01095040 (in ???)
+  DATA @ 0x01095044 (in ???)
+  DATA @ 0x01096918 (in ???)
+  DATA @ 0x01096a4c (in ???)
+  DATA @ 0x0109683c (in ???)
+  DATA @ 0x01096854 (in ???)
+  DATA @ 0x01096d8c (in ???)
+  DATA @ 0x01096ec8 (in ???)
+  DATA @ 0x01096ee4 (in ???)
+  DATA @ 0x01096fdc (in ???)
+  DATA @ 0x01097004 (in ???)
+  DATA @ 0x01097124 (in ???)
+  DATA @ 0x010972c4 (in ???)
+  DATA @ 0x010972dc (in ???)
+  DATA @ 0x010973cc (in ???)
+  DATA @ 0x010973e4 (in ???)
+  DATA @ 0x010975c4 (in ???)
+  DATA @ 0x010975dc (in ???)
+  DATA @ 0x010979d4 (in ???)
+  DATA @ 0x01097aac (in ???)
+  DATA @ 0x01097ac4 (in ???)
+  DATA @ 0x01097bac (in ???)
+  DATA @ 0x01097bc4 (in ???)
+  DATA @ 0x01098104 (in ???)
+  DATA @ 0x01098308 (in ???)
+  DATA @ 0x0109830c (in ???)
+  DATA @ 0x010988cc (in ???)
+  DATA @ 0x010988ec (in ???)
+  DATA @ 0x010989d8 (in ???)
+  DATA @ 0x01098bc4 (in ???)
+  DATA @ 0x01098be0 (in ???)
+  DATA @ 0x01099634 (in ???)
+  DATA @ 0x0109964c (in ???)
+  DATA @ 0x0109a058 (in ???)
+  DATA @ 0x0109a084 (in ???)
+  DATA @ 0x0109a158 (in ???)
+  DATA @ 0x0109a184 (in ???)
+  DATA @ 0x0109a9f4 (in ???)
+  DATA @ 0x010986d0 (in ???)
+  DATA @ 0x0109af5c (in ???)
+  DATA @ 0x0109d428 (in ???)
+  DATA @ 0x0109d42c (in ???)
+  ... (truncated)
+  Total: 61 refs
+  [function not found at 0x00b606e0]
+
+Resolved NiGeometryGroup base slot 6 +0x18 allocate or acquire NiVBChip -> 0x00ec60fa
+
+======================================================================
+NiGeometryGroup base slot 6 +0x18 allocate or acquire NiVBChip @ 0x00ec60fa
+======================================================================
+  [function not found]
+
+----------------------------------------------------------------------
+References TO 0x00ec60fa (NiGeometryGroup base slot 6 +0x18 allocate or acquire NiVBChip)
+----------------------------------------------------------------------
+  DATA @ 0x01011c90 (in ???)
+  DATA @ 0x01011c94 (in ???)
+  DATA @ 0x01011ccc (in ???)
+  DATA @ 0x01011b14 (in ???)
+  DATA @ 0x01011b18 (in ???)
+  DATA @ 0x01011b1c (in ???)
+  DATA @ 0x01011b28 (in ???)
+  DATA @ 0x01011b2c (in ???)
+  DATA @ 0x01011b30 (in ???)
+  DATA @ 0x01011b34 (in ???)
+  DATA @ 0x01011b38 (in ???)
+  DATA @ 0x01011b40 (in ???)
+  DATA @ 0x01011d1c (in ???)
+  DATA @ 0x01011d20 (in ???)
+  DATA @ 0x01011d24 (in ???)
+  DATA @ 0x01011d30 (in ???)
+  DATA @ 0x01011d34 (in ???)
+  DATA @ 0x01011d38 (in ???)
+  DATA @ 0x01011d3c (in ???)
+  DATA @ 0x01011d40 (in ???)
+  DATA @ 0x01011d48 (in ???)
+  DATA @ 0x01011d68 (in ???)
+  DATA @ 0x01011d6c (in ???)
+  DATA @ 0x01011d70 (in ???)
+  DATA @ 0x01011d74 (in ???)
+  DATA @ 0x0101216c (in ???)
+  DATA @ 0x01012170 (in ???)
+  DATA @ 0x0101218c (in ???)
+  DATA @ 0x01012190 (in ???)
+  DATA @ 0x01012194 (in ???)
+  DATA @ 0x01012198 (in ???)
+  DATA @ 0x0101219c (in ???)
+  DATA @ 0x0101228c (in ???)
+  DATA @ 0x01012290 (in ???)
+  DATA @ 0x0101317c (in ???)
+  DATA @ 0x0101300c (in ???)
+  DATA @ 0x01013010 (in ???)
+  DATA @ 0x01013014 (in ???)
+  DATA @ 0x01013020 (in ???)
+  DATA @ 0x01013024 (in ???)
+  DATA @ 0x01013028 (in ???)
+  DATA @ 0x0101302c (in ???)
+  DATA @ 0x01013030 (in ???)
+  DATA @ 0x01013038 (in ???)
+  DATA @ 0x01015a30 (in ???)
+  DATA @ 0x01015a34 (in ???)
+  DATA @ 0x0101604c (in ???)
+  DATA @ 0x01016050 (in ???)
+  DATA @ 0x0101606c (in ???)
+  DATA @ 0x01016070 (in ???)
+  DATA @ 0x01016400 (in ???)
+  DATA @ 0x01016c14 (in ???)
+  DATA @ 0x01016c18 (in ???)
+  DATA @ 0x0101713c (in ???)
+  DATA @ 0x01017140 (in ???)
+  DATA @ 0x01017768 (in ???)
+  DATA @ 0x0101776c (in ???)
+  DATA @ 0x0101a378 (in ???)
+  DATA @ 0x0101a37c (in ???)
+  DATA @ 0x0101a398 (in ???)
+  DATA @ 0x0101a39c (in ???)
+  ... (truncated)
+  Total: 61 refs
+  [function not found at 0x00ec60fa]
+
+Resolved NiGeometryGroup base slot 7 +0x1c retire or release NiVBChip -> 0x00ec60fa
+
+======================================================================
+NiGeometryGroup base slot 7 +0x1c retire or release NiVBChip @ 0x00ec60fa
+======================================================================
+  [function not found]
+
+----------------------------------------------------------------------
+References TO 0x00ec60fa (NiGeometryGroup base slot 7 +0x1c retire or release NiVBChip)
+----------------------------------------------------------------------
+  DATA @ 0x01011c90 (in ???)
+  DATA @ 0x01011c94 (in ???)
+  DATA @ 0x01011ccc (in ???)
+  DATA @ 0x01011b14 (in ???)
+  DATA @ 0x01011b18 (in ???)
+  DATA @ 0x01011b1c (in ???)
+  DATA @ 0x01011b28 (in ???)
+  DATA @ 0x01011b2c (in ???)
+  DATA @ 0x01011b30 (in ???)
+  DATA @ 0x01011b34 (in ???)
+  DATA @ 0x01011b38 (in ???)
+  DATA @ 0x01011b40 (in ???)
+  DATA @ 0x01011d1c (in ???)
+  DATA @ 0x01011d20 (in ???)
+  DATA @ 0x01011d24 (in ???)
+  DATA @ 0x01011d30 (in ???)
+  DATA @ 0x01011d34 (in ???)
+  DATA @ 0x01011d38 (in ???)
+  DATA @ 0x01011d3c (in ???)
+  DATA @ 0x01011d40 (in ???)
+  DATA @ 0x01011d48 (in ???)
+  DATA @ 0x01011d68 (in ???)
+  DATA @ 0x01011d6c (in ???)
+  DATA @ 0x01011d70 (in ???)
+  DATA @ 0x01011d74 (in ???)
+  DATA @ 0x0101216c (in ???)
+  DATA @ 0x01012170 (in ???)
+  DATA @ 0x0101218c (in ???)
+  DATA @ 0x01012190 (in ???)
+  DATA @ 0x01012194 (in ???)
+  DATA @ 0x01012198 (in ???)
+  DATA @ 0x0101219c (in ???)
+  DATA @ 0x0101228c (in ???)
+  DATA @ 0x01012290 (in ???)
+  DATA @ 0x0101317c (in ???)
+  DATA @ 0x0101300c (in ???)
+  DATA @ 0x01013010 (in ???)
+  DATA @ 0x01013014 (in ???)
+  DATA @ 0x01013020 (in ???)
+  DATA @ 0x01013024 (in ???)
+  DATA @ 0x01013028 (in ???)
+  DATA @ 0x0101302c (in ???)
+  DATA @ 0x01013030 (in ???)
+  DATA @ 0x01013038 (in ???)
+  DATA @ 0x01015a30 (in ???)
+  DATA @ 0x01015a34 (in ???)
+  DATA @ 0x0101604c (in ???)
+  DATA @ 0x01016050 (in ???)
+  DATA @ 0x0101606c (in ???)
+  DATA @ 0x01016070 (in ???)
+  DATA @ 0x01016400 (in ???)
+  DATA @ 0x01016c14 (in ???)
+  DATA @ 0x01016c18 (in ???)
+  DATA @ 0x0101713c (in ???)
+  DATA @ 0x01017140 (in ???)
+  DATA @ 0x01017768 (in ???)
+  DATA @ 0x0101776c (in ???)
+  DATA @ 0x0101a378 (in ???)
+  DATA @ 0x0101a37c (in ???)
+  DATA @ 0x0101a398 (in ???)
+  DATA @ 0x0101a39c (in ???)
+  ... (truncated)
+  Total: 61 refs
+  [function not found at 0x00ec60fa]
+
+Resolved NiGeometryGroup base slot 8 +0x20 post-allocation validity or mode -> 0x00ec60fa
+
+======================================================================
+NiGeometryGroup base slot 8 +0x20 post-allocation validity or mode @ 0x00ec60fa
+======================================================================
+  [function not found]
+
+----------------------------------------------------------------------
+References TO 0x00ec60fa (NiGeometryGroup base slot 8 +0x20 post-allocation validity or mode)
+----------------------------------------------------------------------
+  DATA @ 0x01011c90 (in ???)
+  DATA @ 0x01011c94 (in ???)
+  DATA @ 0x01011ccc (in ???)
+  DATA @ 0x01011b14 (in ???)
+  DATA @ 0x01011b18 (in ???)
+  DATA @ 0x01011b1c (in ???)
+  DATA @ 0x01011b28 (in ???)
+  DATA @ 0x01011b2c (in ???)
+  DATA @ 0x01011b30 (in ???)
+  DATA @ 0x01011b34 (in ???)
+  DATA @ 0x01011b38 (in ???)
+  DATA @ 0x01011b40 (in ???)
+  DATA @ 0x01011d1c (in ???)
+  DATA @ 0x01011d20 (in ???)
+  DATA @ 0x01011d24 (in ???)
+  DATA @ 0x01011d30 (in ???)
+  DATA @ 0x01011d34 (in ???)
+  DATA @ 0x01011d38 (in ???)
+  DATA @ 0x01011d3c (in ???)
+  DATA @ 0x01011d40 (in ???)
+  DATA @ 0x01011d48 (in ???)
+  DATA @ 0x01011d68 (in ???)
+  DATA @ 0x01011d6c (in ???)
+  DATA @ 0x01011d70 (in ???)
+  DATA @ 0x01011d74 (in ???)
+  DATA @ 0x0101216c (in ???)
+  DATA @ 0x01012170 (in ???)
+  DATA @ 0x0101218c (in ???)
+  DATA @ 0x01012190 (in ???)
+  DATA @ 0x01012194 (in ???)
+  DATA @ 0x01012198 (in ???)
+  DATA @ 0x0101219c (in ???)
+  DATA @ 0x0101228c (in ???)
+  DATA @ 0x01012290 (in ???)
+  DATA @ 0x0101317c (in ???)
+  DATA @ 0x0101300c (in ???)
+  DATA @ 0x01013010 (in ???)
+  DATA @ 0x01013014 (in ???)
+  DATA @ 0x01013020 (in ???)
+  DATA @ 0x01013024 (in ???)
+  DATA @ 0x01013028 (in ???)
+  DATA @ 0x0101302c (in ???)
+  DATA @ 0x01013030 (in ???)
+  DATA @ 0x01013038 (in ???)
+  DATA @ 0x01015a30 (in ???)
+  DATA @ 0x01015a34 (in ???)
+  DATA @ 0x0101604c (in ???)
+  DATA @ 0x01016050 (in ???)
+  DATA @ 0x0101606c (in ???)
+  DATA @ 0x01016070 (in ???)
+  DATA @ 0x01016400 (in ???)
+  DATA @ 0x01016c14 (in ???)
+  DATA @ 0x01016c18 (in ???)
+  DATA @ 0x0101713c (in ???)
+  DATA @ 0x01017140 (in ???)
+  DATA @ 0x01017768 (in ???)
+  DATA @ 0x0101776c (in ???)
+  DATA @ 0x0101a378 (in ???)
+  DATA @ 0x0101a37c (in ???)
+  DATA @ 0x0101a398 (in ???)
+  DATA @ 0x0101a39c (in ???)
+  ... (truncated)
+  Total: 61 refs
+  [function not found at 0x00ec60fa]
+
+# CHIP STORAGE, FETCH, CONSTRUCTION, AND DESTRUCTION
+
+======================================================================
+Common release-then-allocate wrapper @ 0x00e8bfa0
+======================================================================
+  Function: FUN_00e8bfa0 @ 0x00e8bfa0, Size: 67 bytes
+
+undefined4 FUN_00e8bfa0(int param_1,uint param_2)
+
+{
+  int *piVar1;
+  int iVar2;
+  
+  piVar1 = *(int **)(param_1 + 8);
+  (**(code **)(*piVar1 + 0x1c))(param_1,param_2);
+  iVar2 = (**(code **)(*piVar1 + 0x18))(param_1,param_2);
+  if (iVar2 != 0) {
+    if (param_2 < *(uint *)(param_1 + 0x20)) {
+      *(int *)(*(int *)(param_1 + 0x28) + param_2 * 4) = iVar2;
+    }
+    return 1;
+  }
+  return 0;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00e8bfa0 (Common release-then-allocate wrapper)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00e8c2fe (in FUN_00e8c1e0)
+  UNCONDITIONAL_CALL @ 0x00e8c958 (in FUN_00e8c820)
+  UNCONDITIONAL_CALL @ 0x00e6dbfa (in FUN_00e6da60)
+  UNCONDITIONAL_CALL @ 0x00e704ea (in FUN_00e70140)
+  UNCONDITIONAL_CALL @ 0x00e7058f (in FUN_00e70140)
+  UNCONDITIONAL_CALL @ 0x00e709a1 (in FUN_00e70720)
+  UNCONDITIONAL_CALL @ 0x00e70d49 (in FUN_00e70be0)
+  UNCONDITIONAL_CALL @ 0x00e8c641 (in FUN_00e8c570)
+  UNCONDITIONAL_CALL @ 0x00e7689f (in FUN_00e76770)
+  Total: 9 refs
+
+--- Calls FROM Common release-then-allocate wrapper (0x00e8bfa0) ---
+  Total: 0 calls
+
+======================================================================
+Geometry-buffer stream chip getter @ 0x00e69b40
+======================================================================
+  Function: FUN_00e69b40 @ 0x00e69b40, Size: 23 bytes
+
+undefined4 __thiscall FUN_00e69b40(int param_1,uint param_2)
+
+{
+  if (param_2 < *(uint *)(param_1 + 0x20)) {
+    return *(undefined4 *)(*(int *)(param_1 + 0x28) + param_2 * 4);
+  }
+  return 0;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00e69b40 (Geometry-buffer stream chip getter)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00e8c652 (in FUN_00e8c570)
+  UNCONDITIONAL_CALL @ 0x00e768af (in FUN_00e76770)
+  Total: 2 refs
+
+--- Calls FROM Geometry-buffer stream chip getter (0x00e69b40) ---
+  Total: 0 calls
+
+======================================================================
+Geometry-buffer stream stride setter @ 0x00e8f010
+======================================================================
+  Function: FUN_00e8f010 @ 0x00e8f010, Size: 36 bytes
+
+void __thiscall FUN_00e8f010(int param_1,undefined4 param_2)
+
+{
+  int *piVar1;
+  
+  *(undefined4 *)(param_1 + 0xc) = param_2;
+  piVar1 = *(int **)(param_1 + 0x10);
+  if (piVar1 != (int *)0x0) {
+    (**(code **)(*piVar1 + 8))(piVar1);
+    *(undefined4 *)(param_1 + 0x10) = 0;
+  }
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00e8f010 (Geometry-buffer stream stride setter)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00e8c280 (in FUN_00e8c1e0)
+  UNCONDITIONAL_CALL @ 0x00e8c8e2 (in FUN_00e8c820)
+  UNCONDITIONAL_CALL @ 0x00e6db13 (in FUN_00e6da60)
+  UNCONDITIONAL_CALL @ 0x00e70d28 (in FUN_00e70be0)
+  UNCONDITIONAL_CALL @ 0x00e8c5c7 (in FUN_00e8c570)
+  Total: 5 refs
+
+--- Calls FROM Geometry-buffer stream stride setter (0x00e8f010) ---
+  Total: 0 calls
+
+======================================================================
+NiGeometryBufferData constructor @ 0x00e947c0
+======================================================================
+  Function: FUN_00e947c0 @ 0x00e947c0, Size: 75 bytes
+
+void __fastcall FUN_00e947c0(undefined4 *param_1)
+
+{
+  *param_1 = &PTR_FUN_010f017c;
+  param_1[1] = 0;
+  param_1[2] = 0;
+  param_1[3] = 0;
+  param_1[4] = 0;
+  *(undefined1 *)(param_1 + 5) = 0;
+  param_1[6] = 0;
+  param_1[7] = 0;
+  param_1[8] = 0;
+  param_1[9] = 0;
+  param_1[10] = 0;
+  param_1[0xb] = 0;
+  param_1[0xc] = 0;
+  param_1[0xd] = 0;
+  param_1[0xe] = 0;
+  param_1[0xf] = 4;
+  param_1[0x10] = 0;
+  param_1[0x11] = 0;
+  param_1[0x12] = 0;
+  param_1[0x13] = 0;
+  param_1[0x14] = 0;
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00e947c0 (NiGeometryBufferData constructor)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00e94920 (in ???)
+  UNCONDITIONAL_CALL @ 0x00e9495b (in ???)
+  UNCONDITIONAL_CALL @ 0x00e94a4f (in ???)
+  UNCONDITIONAL_CALL @ 0x00e94e00 (in ???)
+  UNCONDITIONAL_CALL @ 0x00e953f0 (in ???)
+  UNCONDITIONAL_CALL @ 0x00e9542b (in ???)
+  UNCONDITIONAL_CALL @ 0x00e95520 (in FUN_00e95500)
+  Total: 7 refs
+
+--- Calls FROM NiGeometryBufferData constructor (0x00e947c0) ---
+  Total: 0 calls
+
+======================================================================
+NiVBBlock or chip destruction helper @ 0x00e95b80
+======================================================================
+  Function: FUN_00e95b80 @ 0x00e95b80, Size: 27 bytes
+
+void __fastcall FUN_00e95b80(int param_1)
+
+{
+  int *piVar1;
+  
+  piVar1 = *(int **)(param_1 + 0x10);
+  if (piVar1 != (int *)0x0) {
+    (**(code **)(*piVar1 + 8))(piVar1);
+    *(undefined4 *)(param_1 + 0x10) = 0;
+  }
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00e95b80 (NiVBBlock or chip destruction helper)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00e8cddd (in FUN_00e8cd60)
+  UNCONDITIONAL_CALL @ 0x00e8f74e (in FUN_00e8f6d0)
+  UNCONDITIONAL_CALL @ 0x00e8cfa9 (in FUN_00e8ceb0)
+  UNCONDITIONAL_CALL @ 0x00e8f937 (in FUN_00e8f840)
+  Total: 4 refs
+
+--- Calls FROM NiVBBlock or chip destruction helper (0x00e95b80) ---
+  Total: 0 calls
+
+======================================================================
+Reference owners for NiStaticGeometryGroup vtable @ 0x010f0fd4
+======================================================================
+
+======================================================================
+NiStaticGeometryGroup vtable reference owner @ 0x00e94890
+======================================================================
+  Function: FUN_00e94890 @ 0x00e94890, Size: 88 bytes
+
+undefined4 * __thiscall FUN_00e94890(undefined4 *param_1,byte param_2)
+
+{
+  *param_1 = &PTR_FUN_010f0fd4;
+  FUN_00e946b0();
+  param_1[3] = &PTR_FUN_010f0fb4;
+  FUN_00b601a0();
+  param_1[3] = &PTR_FUN_010f0f94;
+  FUN_00b601a0();
+  FUN_00aa10f0(param_1[5]);
+  FUN_00e98710();
+  if ((param_2 & 1) != 0) {
+    FUN_00aa1460(param_1,0x1c);
+  }
+  return param_1;
+}
+
+
+
+--- Calls FROM NiStaticGeometryGroup vtable reference owner (0x00e94890) ---
+  0x00e9489a -> 0x00e946b0 FUN_00e946b0
+  0x00e948aa -> 0x00b601a0 FUN_00b601a0
+  0x00e948b7 -> 0x00b601a0 FUN_00b601a0
+  0x00e948c0 -> 0x00aa10f0 FUN_00aa10f0
+  0x00e948ca -> 0x00e98710 FUN_00e98710
+  0x00e948d9 -> 0x00aa1460 FUN_00aa1460
+  Total: 6 calls
+
+======================================================================
+NiStaticGeometryGroup vtable reference owner @ 0x00e94ab0
+======================================================================
+  Function: FUN_00e94ab0 @ 0x00e94ab0, Size: 78 bytes
+
+undefined4 * __fastcall FUN_00e94ab0(undefined4 *param_1)
+
+{
+  void *_Dst;
+  
+  FUN_00e986f0();
+  *param_1 = &PTR_FUN_010f0fd4;
+  param_1[3] = &PTR_FUN_010f0f94;
+  param_1[4] = 0x25;
+  param_1[6] = 0;
+  _Dst = (void *)FUN_00aa1070(0x94);
+  param_1[5] = _Dst;
+  _memset(_Dst,0,param_1[4] * 4);
+  param_1[3] = &PTR_FUN_010f0fb4;
+  return param_1;
+}
+
+
+
+--- Calls FROM NiStaticGeometryGroup vtable reference owner (0x00e94ab0) ---
+  0x00e94ab3 -> 0x00e986f0 FUN_00e986f0
+  0x00e94ad8 -> 0x00aa1070 FUN_00aa1070
+  0x00e94aeb -> 0x00ec61c0 _memset
+  Total: 3 calls
+  Total unique reference owners: 2
+
+======================================================================
+Reference owners for NiUnsharedGeometryGroup vtable @ 0x010f1008
+======================================================================
+
+======================================================================
+NiUnsharedGeometryGroup vtable reference owner @ 0x00e94d70
+======================================================================
+  Function: FUN_00e94d70 @ 0x00e94d70, Size: 57 bytes
+
+void FUN_00e94d70(void)
+
+{
+  undefined4 *puVar1;
+  
+  if (DAT_0126fa34 == (undefined4 *)0x0) {
+    puVar1 = (undefined4 *)FUN_00aa13e0(0xc);
+    if (puVar1 != (undefined4 *)0x0) {
+      FUN_00e986f0();
+      *puVar1 = &PTR_FUN_010f1008;
+      DAT_0126fa34 = puVar1;
+      return;
+    }
+    DAT_0126fa34 = (undefined4 *)0x0;
+  }
+  return;
+}
+
+
+
+--- Calls FROM NiUnsharedGeometryGroup vtable reference owner (0x00e94d70) ---
+  0x00e94d7c -> 0x00aa13e0 FUN_00aa13e0
+  0x00e94d8c -> 0x00e986f0 FUN_00e986f0
+  Total: 2 calls
+
+======================================================================
+NiUnsharedGeometryGroup vtable reference owner @ 0x00e94d30
+======================================================================
+  Function: FUN_00e94d30 @ 0x00e94d30, Size: 56 bytes
+
+undefined4 * __thiscall FUN_00e94d30(undefined4 *param_1,byte param_2)
+
+{
+  *param_1 = &PTR_FUN_010f1008;
+  if (param_1 == DAT_0126fa34) {
+    DAT_0126fa34 = (undefined4 *)0x0;
+  }
+  FUN_00e98710();
+  if ((param_2 & 1) != 0) {
+    FUN_00aa1460(param_1,0xc);
+  }
+  return param_1;
+}
+
+
+
+--- Calls FROM NiUnsharedGeometryGroup vtable reference owner (0x00e94d30) ---
+  0x00e94d4b -> 0x00e98710 FUN_00e98710
+  0x00e94d5a -> 0x00aa1460 FUN_00aa1460
+  Total: 2 calls
+  Total unique reference owners: 2
+
+======================================================================
+Reference owners for NiDynamicGeometryGroup vtable @ 0x010f10c4
+======================================================================
+
+======================================================================
+NiDynamicGeometryGroup vtable reference owner @ 0x00e95880
+======================================================================
+  Function: FUN_00e95880 @ 0x00e95880, Size: 655 bytes
+
+void __fastcall FUN_00e95880(undefined4 *param_1)
+
+{
+  int iVar1;
+  int *piVar2;
+  ushort uVar3;
+  uint uVar4;
+  int *piVar5;
+  int iVar6;
+  int iVar7;
+  undefined4 *puVar8;
+  
+  *param_1 = &PTR_LAB_010f10c4;
+  uVar4 = 0;
+  if (param_1[4] != 0) {
+    piVar5 = (int *)param_1[5];
+    do {
+      if (*piVar5 != 0) {
+        piVar5 = (int *)((int *)param_1[5])[uVar4];
+        goto joined_r0x00e958b7;
+      }
+      uVar4 = uVar4 + 1;
+      piVar5 = piVar5 + 1;
+    } while (uVar4 < (uint)param_1[4]);
+  }
+  piVar5 = (int *)0x0;
+joined_r0x00e958b7:
+  while (piVar5 != (int *)0x0) {
+    iVar7 = piVar5[1];
+    iVar1 = piVar5[2];
+    piVar5 = (int *)*piVar5;
+    if (piVar5 == (int *)0x0) {
+      iVar6 = (**(code **)(param_1[3] + 4))(iVar7);
+      uVar4 = iVar6 + 1;
+      if (uVar4 < (uint)param_1[4]) {
+        puVar8 = (undefined4 *)(param_1[5] + uVar4 * 4);
+        do {
+          piVar5 = (int *)*puVar8;
+          if (piVar5 != (int *)0x0) goto LAB_00e958f8;
+          uVar4 = uVar4 + 1;
+          puVar8 = puVar8 + 1;
+        } while (uVar4 < (uint)param_1[4]);
+      }
+      piVar5 = (int *)0x0;
+    }
+LAB_00e958f8:
+    FUN_00e91fd0(iVar7);
+    if (iVar1 != 0) {
+      piVar2 = *(int **)(iVar1 + 0x10);
+      if (piVar2 != (int *)0x0) {
+        (**(code **)(*piVar2 + 8))(piVar2);
+      }
+      piVar2 = *(int **)(iVar1 + 0xc);
+      if (piVar2 != (int *)0x0) {
+        (**(code **)(*piVar2 + 8))(piVar2);
+      }
+      FUN_00aa1460(iVar1,0x18);
+    }
+  }
+  uVar4 = 0;
+  if (param_1[8] != 0) {
+    piVar5 = (int *)param_1[9];
+    do {
+      if (*piVar5 != 0) {
+        piVar5 = (int *)((int *)param_1[9])[uVar4];
+        goto joined_r0x00e95958;
+      }
+      uVar4 = uVar4 + 1;
+      piVar5 = piVar5 + 1;
+    } while (uVar4 < (uint)param_1[8]);
+  }
+  piVar5 = (int *)0x0;
+joined_r0x00e95958:
+  do {
+    if (piVar5 == (int *)0x0) {
+      uVar4 = 0;
+      if (*(short *)(param_1 + 0xd) != 0) {
+        do {
+          if (uVar4 < *(ushort *)((int)param_1 + 0x36)) {
+            iVar7 = *(int *)(param_1[0xc] + uVar4 * 4);
+            *(undefined4 *)(param_1[0xc] + uVar4 * 4) = 0;
+            if (iVar7 != 0) {
+              *(short *)(param_1 + 0xe) = *(short *)(param_1 + 0xe) + -1;
+            }
+            uVar3 = *(short *)((int)param_1 + 0x36) - 1;
+            if (uVar4 == uVar3) {
+              *(ushort *)((int)param_1 + 0x36) = uVar3;
+            }
+            if (iVar7 != 0) {
+              piVar5 = *(int **)(iVar7 + 0x10);
+              if (piVar5 != (int *)0x0) {
+                (**(code **)(*piVar5 + 8))(piVar5);
+              }
+              piVar5 = *(int **)(iVar7 + 0xc);
+              if (piVar5 != (int *)0x0) {
+                (**(code **)(*piVar5 + 8))(piVar5);
+              }
+              FUN_00aa1460(iVar7,0x18);
+            }
+          }
+          if (uVar4 < *(ushort *)((int)param_1 + 0x46)) {
+            iVar7 = *(int *)(param_1[0x10] + uVar4 * 4);
+            *(undefined4 *)(param_1[0x10] + uVar4 * 4) = 0;
+            if (iVar7 != 0) {
+              *(short *)(param_1 + 0x12) = *(short *)(param_1 + 0x12) + -1;
+            }
+            uVar3 = *(short *)((int)param_1 + 0x46) - 1;
+            if (uVar4 == uVar3) {
+              *(ushort *)((int)param_1 + 0x46) = uVar3;
+            }
+          }
+          else {
+            iVar7 = 0;
+          }
+          *(undefined4 *)(iVar7 + 8) = 0;
+          FUN_00aa1460(iVar7,0x20);
+          uVar4 = uVar4 + 1;
+        } while (uVar4 < *(ushort *)(param_1 + 0xd));
+      }
+      if (param_1 == DAT_0126fa38) {
+        DAT_0126fa38 = (undefined4 *)0x0;
+      }
+      param_1[0xf] = &PTR_FUN_010f0f7c;
+      FUN_00aa10f0(param_1[0x10]);
+      param_1[0xb] = &PTR_FUN_010f1034;
+      FUN_00aa10f0(param_1[0xc]);
+      param_1[7] = &PTR_FUN_010f109c;
+      FUN_00b601a0();
+      param_1[7] = &PTR_FUN_010f105c;
+      FUN_00b601a0();
+      FUN_00aa10f0(param_1[9]);
+      param_1[3] = &PTR_FUN_010f107c;
+      FUN_00b601a0();
+      param_1[3] = &PTR_FUN_010f103c;
+      FUN_00b601a0();
+      FUN_00aa10f0(param_1[5]);
+      FUN_00e98710();
+      return;
+    }
+    iVar7 = piVar5[1];
+    iVar1 = piVar5[2];
+    piVar5 = (int *)*piVar5;
+    if (piVar5 == (int *)0x0) {
+      iVar6 = (**(code **)(param_1[7] + 4))(iVar7);
+      uVar4 = iVar6 + 1;
+      if (uVar4 < (uint)param_1[8]) {
+        puVar8 = (undefined4 *)(param_1[9] + uVar4 * 4);
+        do {
+          piVar5 = (int *)*puVar8;
+          if (piVar5 != (int *)0x0) goto LAB_00e95998;
+          uVar4 = uVar4 + 1;
+          puVar8 = puVar8 + 1;
+        } while (uVar4 < (uint)param_1[8]);
+      }
+      piVar5 = (int *)0x0;
+    }
+LAB_00e95998:
+    FUN_00e91fd0(iVar7);
+    *(undefined4 *)(iVar1 + 8) = 0;
+    FUN_00aa1460(iVar1,0x20);
+  } while( true );
+}
+
+
+
+--- Calls FROM NiDynamicGeometryGroup vtable reference owner (0x00e95880) ---
+  0x00e958fc -> 0x00e91fd0 FUN_00e91fd0
+  0x00e95926 -> 0x00aa1460 FUN_00aa1460
+  0x00e9599c -> 0x00e91fd0 FUN_00e91fd0
+  0x00e959a9 -> 0x00aa1460 FUN_00aa1460
+  0x00e95a19 -> 0x00aa1460 FUN_00aa1460
+  0x00e95a6c -> 0x00aa1460 FUN_00aa1460
+  0x00e95a9b -> 0x00aa10f0 FUN_00aa10f0
+  0x00e95aab -> 0x00aa10f0 FUN_00aa10f0
+  0x00e95abe -> 0x00b601a0 FUN_00b601a0
+  0x00e95acb -> 0x00b601a0 FUN_00b601a0
+  0x00e95ad4 -> 0x00aa10f0 FUN_00aa10f0
+  0x00e95ae7 -> 0x00b601a0 FUN_00b601a0
+  0x00e95af4 -> 0x00b601a0 FUN_00b601a0
+  0x00e95afd -> 0x00aa10f0 FUN_00aa10f0
+  0x00e95b0a -> 0x00e98710 FUN_00e98710
+  Total: 15 calls
+
+======================================================================
+NiDynamicGeometryGroup vtable reference owner @ 0x00e957b0
+======================================================================
+  Function: FUN_00e957b0 @ 0x00e957b0, Size: 200 bytes
+
+undefined4 * __fastcall FUN_00e957b0(undefined4 *param_1)
+
+{
+  void *pvVar1;
+  
+  FUN_00e986f0();
+  *param_1 = &PTR_LAB_010f10c4;
+  param_1[3] = &PTR_FUN_010f103c;
+  param_1[4] = 0x25;
+  param_1[6] = 0;
+  pvVar1 = (void *)FUN_00aa1070(0x94);
+  param_1[5] = pvVar1;
+  _memset(pvVar1,0,param_1[4] * 4);
+  param_1[3] = &PTR_FUN_010f107c;
+  param_1[7] = &PTR_FUN_010f105c;
+  param_1[8] = 0x25;
+  param_1[10] = 0;
+  pvVar1 = (void *)FUN_00aa1070(0x94);
+  param_1[9] = pvVar1;
+  _memset(pvVar1,0,param_1[8] * 4);
+  param_1[7] = &PTR_FUN_010f109c;
+  param_1[0xc] = 0;
+  param_1[0xb] = &PTR_FUN_010f10bc;
+  *(undefined2 *)(param_1 + 0xd) = 0;
+  *(undefined2 *)(param_1 + 0xe) = 0;
+  *(undefined2 *)((int)param_1 + 0x3a) = 1;
+  *(undefined2 *)((int)param_1 + 0x36) = 0;
+  *(undefined2 *)((int)param_1 + 0x46) = 0;
+  param_1[0x10] = 0;
+  *(undefined2 *)(param_1 + 0x11) = 0;
+  *(undefined2 *)((int)param_1 + 0x4a) = 1;
+  *(undefined2 *)(param_1 + 0x12) = 0;
+  param_1[0xf] = &PTR_FUN_010f0f8c;
+  param_1[0x13] = 0;
+  return param_1;
+}
+
+
+
+--- Calls FROM NiDynamicGeometryGroup vtable reference owner (0x00e957b0) ---
+  0x00e957b4 -> 0x00e986f0 FUN_00e986f0
+  0x00e957d7 -> 0x00aa1070 FUN_00aa1070
+  0x00e957e9 -> 0x00ec61c0 _memset
+  0x00e9580b -> 0x00aa1070 FUN_00aa1070
+  0x00e9581d -> 0x00ec61c0 _memset
+  Total: 5 calls
+  Total unique reference owners: 2
+
+# DEVICE CREATION, LOSS, RESET, AND RESOURCE RELEASE
+
+======================================================================
+Renderer vertex-buffer manager teardown caller @ 0x00e736b0
+======================================================================
+  Function: FUN_00e736b0 @ 0x00e736b0, Size: 2015 bytes
+
+undefined4 __fastcall FUN_00e736b0(int *param_1)
+
+{
+  code *pcVar1;
+  byte bVar2;
+  int *piVar3;
+  char cVar4;
+  uint uVar5;
+  int iVar6;
+  undefined *puVar7;
+  LONG LVar8;
+  int iVar9;
+  int *piVar10;
+  undefined4 *puVar11;
+  undefined4 *puVar12;
+  uint unaff_EBX;
+  uint uVar13;
+  int local_10;
+  int *local_c;
+  uint local_8 [2];
+  
+  FUN_00e8be20();
+  FUN_00e8f6d0();
+  FUN_00e8cd60();
+  FUN_00e7cc50(param_1[0xa2],1);
+  FUN_00e7cc50(param_1[0xa2],2);
+  FUN_00e7cc50(param_1[0xa2],3);
+  uVar5 = 0;
+  if (param_1[0x225] != 0) {
+    piVar10 = (int *)param_1[0x226];
+    do {
+      if (*piVar10 != 0) {
+        local_10 = ((int *)param_1[0x226])[uVar5];
+        goto joined_r0x00e7373b;
+      }
+      uVar5 = uVar5 + 1;
+      piVar10 = piVar10 + 1;
+    } while (uVar5 < (uint)param_1[0x225]);
+  }
+  local_10 = 0;
+joined_r0x00e7373b:
+  while (local_10 != 0) {
+    local_c = (int *)0x0;
+    FUN_00e6e630(&local_10,local_8,&local_c);
+    piVar3 = local_c;
+    iVar6 = (**(code **)(*local_c + 0xb0))(0);
+    piVar10 = *(int **)(iVar6 + 0x10);
+    if (piVar10 == (int *)0x0) {
+      piVar10 = (int *)0x0;
+    }
+    else {
+      for (puVar7 = (undefined *)(**(code **)(*piVar10 + 0xc))(); puVar7 != (undefined *)0x0;
+          puVar7 = *(undefined **)(puVar7 + 4)) {
+        if (puVar7 == &DAT_0126f5d8) {
+          bVar2 = 1;
+          goto LAB_00e737a6;
+        }
+      }
+      bVar2 = 0;
+LAB_00e737a6:
+      piVar10 = (int *)(-(uint)bVar2 & (uint)piVar10);
+    }
+    (**(code **)(*piVar10 + 0x54))();
+    iVar6 = (**(code **)(*piVar3 + 0xb4))();
+    if ((iVar6 != 0) && (piVar10 = *(int **)(iVar6 + 0x10), piVar10 != (int *)0x0)) {
+      for (puVar7 = (undefined *)(**(code **)(*piVar10 + 0xc))(); puVar7 != (undefined *)0x0;
+          puVar7 = *(undefined **)(puVar7 + 4)) {
+        if (puVar7 == &DAT_0126f5ac) {
+          bVar2 = 1;
+          goto LAB_00e737f4;
+        }
+      }
+      bVar2 = 0;
+LAB_00e737f4:
+      if ((int *)(-(uint)bVar2 & (uint)piVar10) != (int *)0x0) {
+        (**(code **)(*(int *)(-(uint)bVar2 & (uint)piVar10) + 0x54))();
+      }
+    }
+    LVar8 = InterlockedDecrement(piVar3 + 1);
+    if (LVar8 == 0) {
+      (**(code **)(*piVar3 + 4))();
+    }
+  }
+  uVar5 = 0;
+  if (param_1[0x234] != 0) {
+    piVar10 = (int *)param_1[0x235];
+    do {
+      if (*piVar10 != 0) {
+        piVar10 = (int *)((int *)param_1[0x235])[uVar5];
+        goto LAB_00e73853;
+      }
+      uVar5 = uVar5 + 1;
+      piVar10 = piVar10 + 1;
+    } while (uVar5 < (uint)param_1[0x234]);
+  }
+  piVar10 = (int *)0x0;
+LAB_00e73853:
+  local_10 = 0;
+  while (piVar10 != (int *)0x0) {
+    iVar6 = piVar10[1];
+    piVar10 = (int *)*piVar10;
+    if (piVar10 == (int *)0x0) {
+      iVar9 = (**(code **)(param_1[0x233] + 4))(iVar6);
+      uVar5 = iVar9 + 1;
+      if (uVar5 < (uint)param_1[0x234]) {
+        puVar12 = (undefined4 *)(param_1[0x235] + uVar5 * 4);
+        do {
+          piVar10 = (int *)*puVar12;
+          if (piVar10 != (int *)0x0) goto LAB_00e738a0;
+          uVar5 = uVar5 + 1;
+          puVar12 = puVar12 + 1;
+        } while (uVar5 < (uint)param_1[0x234]);
+      }
+      piVar10 = (int *)0x0;
+    }
+LAB_00e738a0:
+    (**(code **)(*param_1 + 0x108))(iVar6);
+    FUN_00b57ea0(iVar6,0);
+  }
+  uVar5 = 0;
+  if (param_1[0x238] != 0) {
+    piVar10 = (int *)param_1[0x239];
+    do {
+      if (*piVar10 != 0) {
+        piVar10 = (int *)((int *)param_1[0x239])[uVar5];
+        goto joined_r0x00e738ea;
+      }
+      uVar5 = uVar5 + 1;
+      piVar10 = piVar10 + 1;
+    } while (uVar5 < (uint)param_1[0x238]);
+  }
+  piVar10 = (int *)0x0;
+joined_r0x00e738ea:
+  while (piVar10 != (int *)0x0) {
+    iVar6 = piVar10[1];
+    piVar10 = (int *)*piVar10;
+    if (piVar10 == (int *)0x0) {
+      iVar9 = (**(code **)(param_1[0x237] + 4))(iVar6);
+      uVar5 = iVar9 + 1;
+      if (uVar5 < (uint)param_1[0x238]) {
+        puVar12 = (undefined4 *)(param_1[0x239] + uVar5 * 4);
+        do {
+          piVar10 = (int *)*puVar12;
+          if (piVar10 != (int *)0x0) goto LAB_00e73930;
+          uVar5 = uVar5 + 1;
+          puVar12 = puVar12 + 1;
+        } while (uVar5 < (uint)param_1[0x238]);
+      }
+      piVar10 = (int *)0x0;
+    }
+LAB_00e73930:
+    (**(code **)(*param_1 + 0x108))(iVar6);
+    FUN_00b57ea0(iVar6,0);
+  }
+  uVar5 = 0;
+  if (param_1[0x23c] != 0) {
+    piVar10 = (int *)param_1[0x23d];
+    do {
+      if (*piVar10 != 0) {
+        piVar10 = (int *)((int *)param_1[0x23d])[uVar5];
+        goto joined_r0x00e7397a;
+      }
+      uVar5 = uVar5 + 1;
+      piVar10 = piVar10 + 1;
+    } while (uVar5 < (uint)param_1[0x23c]);
+  }
+  piVar10 = (int *)0x0;
+joined_r0x00e7397a:
+  while (piVar10 != (int *)0x0) {
+    iVar6 = piVar10[1];
+    puVar12 = (undefined4 *)piVar10[2];
+    piVar10 = (int *)*piVar10;
+    if (piVar10 == (int *)0x0) {
+      iVar9 = (**(code **)(param_1[0x23b] + 4))(iVar6);
+      uVar5 = iVar9 + 1;
+      if (uVar5 < (uint)param_1[0x23c]) {
+        puVar11 = (undefined4 *)(param_1[0x23d] + uVar5 * 4);
+        do {
+          piVar10 = (int *)*puVar11;
+          if (piVar10 != (int *)0x0) goto LAB_00e739c0;
+          uVar5 = uVar5 + 1;
+          puVar11 = puVar11 + 1;
+        } while (uVar5 < (uint)param_1[0x23c]);
+      }
+      piVar10 = (int *)0x0;
+    }
+LAB_00e739c0:
+    *(undefined4 *)(iVar6 + 0x24) = 0;
+    if (puVar12 != (undefined4 *)0x0) {
+      (**(code **)*puVar12)(1);
+    }
+    FUN_00b57ea0(iVar6,0);
+  }
+  FUN_00e7cec0();
+  puVar12 = (undefined4 *)param_1[0x243];
+  while (puVar12 != (undefined4 *)0x0) {
+    puVar11 = puVar12 + 2;
+    puVar12 = (undefined4 *)*puVar12;
+    (**(code **)(*(int *)*puVar11 + 0xc4))();
+  }
+  (*(code *)**(undefined4 **)param_1[0x22d])();
+  uVar13 = (uint)*(ushort *)((int)param_1 + 0xade);
+  uVar5 = 0;
+  local_8[0] = uVar13;
+  if (uVar13 != 0) {
+    do {
+      pcVar1 = *(code **)(param_1[0x2b6] + uVar5 * 4);
+      if ((pcVar1 != (code *)0x0) &&
+         (cVar4 = (*pcVar1)(1,*(undefined4 *)(param_1[0x2ba] + uVar5 * 4)), cVar4 == '\0')) {
+        FUN_00a29680(
+                    "NiDX9Renderer::Recreate> Reset notification function failed before device reset - FAILING\n"
+                    );
+        return 0;
+      }
+      uVar5 = uVar5 + 1;
+    } while (uVar5 < uVar13);
+  }
+  iVar6 = (**(code **)(*(int *)param_1[0x221] + 0xb0))(0);
+  piVar10 = *(int **)(iVar6 + 0x10);
+  if (piVar10 == (int *)0x0) {
+    uVar5 = 0;
+  }
+  else {
+    for (puVar7 = (undefined *)(**(code **)(*piVar10 + 0xc))(); puVar7 != (undefined *)0x0;
+        puVar7 = *(undefined **)(puVar7 + 4)) {
+      if (puVar7 == &DAT_0126f5d8) {
+        bVar2 = 1;
+        goto LAB_00e73ad4;
+      }
+    }
+    bVar2 = 0;
+LAB_00e73ad4:
+    uVar5 = -(uint)bVar2 & (uint)piVar10;
+  }
+  iVar6 = (**(code **)(*(int *)param_1[0xa2] + 0x40))((int *)param_1[0xa2],uVar5 + 0x20);
+  if (iVar6 < 0) {
+    return 0;
+  }
+  param_1[0x1be] = param_1[0x1be] + 1;
+  *(undefined1 *)(param_1 + 0x1bf) = 0;
+  uVar5 = 0;
+  if (param_1[0x225] != 0) {
+    piVar10 = (int *)param_1[0x226];
+    do {
+      if (*piVar10 != 0) {
+        iVar6 = ((int *)param_1[0x226])[uVar5];
+        goto joined_r0x00e73b29;
+      }
+      uVar5 = uVar5 + 1;
+      piVar10 = piVar10 + 1;
+    } while (uVar5 < (uint)param_1[0x225]);
+  }
+  iVar6 = 0;
+joined_r0x00e73b29:
+  while (iVar6 != 0) {
+    FUN_00e6e630(&stack0xffffffe4,&local_10,&stack0xffffffe8);
+    iVar9 = (**(code **)(iRam00000000 + 0xb0))(0);
+    piVar10 = *(int **)(iVar9 + 0x10);
+    if (piVar10 == (int *)0x0) {
+      piVar10 = (int *)0x0;
+    }
+    else {
+      for (puVar7 = (undefined *)(**(code **)(*piVar10 + 0xc))(); puVar7 != (undefined *)0x0;
+          puVar7 = *(undefined **)(puVar7 + 4)) {
+        if (puVar7 == &DAT_0126f5d8) {
+          bVar2 = 1;
+          goto LAB_00e73ba4;
+        }
+      }
+      bVar2 = 0;
+LAB_00e73ba4:
+      piVar10 = (int *)(-(uint)bVar2 & (uint)piVar10);
+    }
+    (**(code **)(*piVar10 + 0x58))(param_1[0xa2]);
+    piVar10 = (int *)(**(code **)(iRam00000000 + 0xcc))();
+    if (piVar10 != (int *)0x0) {
+      for (puVar7 = (undefined *)(**(code **)(*piVar10 + 0xc))(); puVar7 != (undefined *)0x0;
+          puVar7 = *(undefined **)(puVar7 + 4)) {
+        if (puVar7 == &DAT_0126f5ac) {
+          bVar2 = 1;
+          goto LAB_00e73bf0;
+        }
+      }
+      bVar2 = 0;
+LAB_00e73bf0:
+      if ((int *)(-(uint)bVar2 & (uint)piVar10) != (int *)0x0) {
+        (**(code **)(*(int *)(-(uint)bVar2 & (uint)piVar10) + 0x58))(param_1[0xa2]);
+      }
+    }
+    LVar8 = InterlockedDecrement((LONG *)0x4);
+    if (LVar8 == 0) {
+      (**(code **)(iRam00000000 + 4))();
+    }
+  }
+  cVar4 = FUN_00e6ec90();
+  if (cVar4 == '\0') {
+    FUN_00a29680("NiDX9Renderer::Recreate> Could not initialize texture defaults - FAILING\n");
+    return 0;
+  }
+  uVar5 = 0;
+  if (param_1[0x234] != 0) {
+    piVar10 = (int *)param_1[0x235];
+    do {
+      if (*piVar10 != 0) {
+        piVar10 = (int *)((int *)param_1[0x235])[uVar5];
+        goto joined_r0x00e73c87;
+      }
+      uVar5 = uVar5 + 1;
+      piVar10 = piVar10 + 1;
+    } while (uVar5 < (uint)param_1[0x234]);
+  }
+  piVar10 = (int *)0x0;
+joined_r0x00e73c87:
+  while (piVar10 != (int *)0x0) {
+    iVar6 = piVar10[1];
+    piVar10 = (int *)*piVar10;
+    if (piVar10 == (int *)0x0) {
+      iVar9 = (**(code **)(param_1[0x233] + 4))(iVar6);
+      uVar5 = iVar9 + 1;
+      if (uVar5 < (uint)param_1[0x234]) {
+        puVar12 = (undefined4 *)(param_1[0x235] + uVar5 * 4);
+        do {
+          piVar10 = (int *)*puVar12;
+          if (piVar10 != (int *)0x0) goto LAB_00e73cd0;
+          uVar5 = uVar5 + 1;
+          puVar12 = puVar12 + 1;
+        } while (uVar5 < (uint)param_1[0x234]);
+      }
+      piVar10 = (int *)0x0;
+    }
+LAB_00e73cd0:
+    (**(code **)(*param_1 + 0x140))(iVar6,*(undefined4 *)(iVar6 + 0x3c));
+  }
+  uVar5 = 0;
+  if (param_1[0x238] != 0) {
+    piVar10 = (int *)param_1[0x239];
+    do {
+      if (*piVar10 != 0) {
+        piVar10 = (int *)((int *)param_1[0x239])[uVar5];
+        goto joined_r0x00e73d17;
+      }
+      uVar5 = uVar5 + 1;
+      piVar10 = piVar10 + 1;
+    } while (uVar5 < (uint)param_1[0x238]);
+  }
+  piVar10 = (int *)0x0;
+joined_r0x00e73d17:
+  while (piVar10 != (int *)0x0) {
+    iVar6 = piVar10[1];
+    piVar10 = (int *)*piVar10;
+    if (piVar10 == (int *)0x0) {
+      iVar9 = (**(code **)(param_1[0x237] + 4))(iVar6);
+      uVar5 = iVar9 + 1;
+      if (uVar5 < (uint)param_1[0x238]) {
+        puVar12 = (undefined4 *)(param_1[0x239] + uVar5 * 4);
+        do {
+          piVar10 = (int *)*puVar12;
+          if (piVar10 != (int *)0x0) goto LAB_00e73d60;
+          uVar5 = uVar5 + 1;
+          puVar12 = puVar12 + 1;
+        } while (uVar5 < (uint)param_1[0x238]);
+      }
+      piVar10 = (int *)0x0;
+    }
+LAB_00e73d60:
+    (**(code **)(*param_1 + 0x148))(iVar6);
+  }
+  uVar5 = 0;
+  if (param_1[0x23c] != 0) {
+    piVar10 = (int *)param_1[0x23d];
+    do {
+      if (*piVar10 != 0) {
+        piVar10 = (int *)((int *)param_1[0x23d])[uVar5];
+        goto joined_r0x00e73d9c;
+      }
+      uVar5 = uVar5 + 1;
+      piVar10 = piVar10 + 1;
+    } while (uVar5 < (uint)param_1[0x23c]);
+  }
+  piVar10 = (int *)0x0;
+joined_r0x00e73d9c:
+  do {
+    if (piVar10 == (int *)0x0) {
+      FUN_00e7cf00(param_1[0xa2]);
+      puVar12 = (undefined4 *)param_1[0x243];
+      while (puVar12 != (undefined4 *)0x0) {
+        puVar11 = puVar12 + 2;
+        puVar12 = (undefined4 *)*puVar12;
+        (**(code **)(*(int *)*puVar11 + 200))();
+      }
+      (**(code **)(*(int *)param_1[0x22e] + 0x100))();
+      FUN_00e8b170();
+      uVar5 = 0;
+      if (unaff_EBX != 0) {
+        do {
+          pcVar1 = *(code **)(param_1[0x2b6] + uVar5 * 4);
+          if ((pcVar1 != (code *)0x0) &&
+             (cVar4 = (*pcVar1)(0,*(undefined4 *)(param_1[0x2ba] + uVar5 * 4)), cVar4 == '\0')) {
+            FUN_00a29680(
+                        "NiDX9Renderer::Recreate> Reset notification function failed after device reset - FAILING\n"
+                        );
+            return 0;
+          }
+          uVar5 = uVar5 + 1;
+        } while (uVar5 < unaff_EBX);
+      }
+      return 1;
+    }
+    iVar6 = piVar10[1];
+    piVar10 = (int *)*piVar10;
+    if (piVar10 == (int *)0x0) {
+      iVar9 = (**(code **)(param_1[0x23b] + 4))(iVar6);
+      uVar5 = iVar9 + 1;
+      if (uVar5 < (uint)param_1[0x23c]) {
+        puVar12 = (undefined4 *)(param_1[0x23d] + uVar5 * 4);
+        do {
+          piVar10 = (int *)*puVar12;
+          if (piVar10 != (int *)0x0) goto LAB_00e73de0;
+          uVar5 = uVar5 + 1;
+          puVar12 = puVar12 + 1;
+        } while (uVar5 < (uint)param_1[0x23c]);
+      }
+      piVar10 = (int *)0x0;
+    }
+LAB_00e73de0:
+    (**(code **)(*param_1 + 0x14c))(iVar6);
+  } while( true );
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00e736b0 (Renderer vertex-buffer manager teardown caller)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00e73f00 (in FUN_00e73eb0)
+  UNCONDITIONAL_CALL @ 0x00e73f25 (in FUN_00e73eb0)
+  UNCONDITIONAL_CALL @ 0x00e74c3c (in FUN_00e74c00)
+  Total: 3 refs
+
+--- Calls FROM Renderer vertex-buffer manager teardown caller (0x00e736b0) ---
+  0x00e736bf -> 0x00e8be20 FUN_00e8be20
+  0x00e736ca -> 0x00e8f6d0 FUN_00e8f6d0
+  0x00e736d5 -> 0x00e8cd60 FUN_00e8cd60
+  0x00e736e3 -> 0x00e7cc50 FUN_00e7cc50
+  0x00e736f1 -> 0x00e7cc50 FUN_00e7cc50
+  0x00e736ff -> 0x00e7cc50 FUN_00e7cc50
+  0x00e7375e -> 0x00e6e630 FUN_00e6e630
+  0x00e7380a -> 0x00000067 ???
+  0x00e738b6 -> 0x00b57ea0 FUN_00b57ea0
+  0x00e73946 -> 0x00b57ea0 FUN_00b57ea0
+  0x00e739df -> 0x00b57ea0 FUN_00b57ea0
+  0x00e739e8 -> 0x00e7cec0 FUN_00e7cec0
+  0x00e73a9f -> 0x00a29680 FUN_00a29680
+  0x00e73b52 -> 0x00e6e630 FUN_00e6e630
+  0x00e73c0d -> 0x00000067 ???
+  0x00e73c29 -> 0x00e6ec90 FUN_00e6ec90
+  0x00e73c37 -> 0x00a29680 FUN_00a29680
+  0x00e73df8 -> 0x00e7cf00 FUN_00e7cf00
+  0x00e73e3c -> 0x00e8b170 FUN_00e8b170
+  0x00e73e9e -> 0x00a29680 FUN_00a29680
+  Total: 20 calls
+
+======================================================================
+D3D device creation or reset owner @ 0x00e72e60
+======================================================================
+  Function: FUN_00e72e60 @ 0x00e72e60, Size: 2116 bytes
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+undefined4 __thiscall
+FUN_00e72e60(int *param_1,int param_2,int param_3,uint param_4,int param_5,int param_6,int param_7,
+            int param_8,int param_9,int param_10,int param_11,int param_12,int param_13,int param_14
+            ,int param_15)
+
+{
+  uint *puVar1;
+  float fVar2;
+  float fVar3;
+  char cVar4;
+  uint uVar5;
+  int iVar6;
+  int iVar7;
+  int *piVar8;
+  undefined4 uVar9;
+  undefined4 extraout_ECX;
+  undefined4 unaff_EBX;
+  int *piVar10;
+  char *pcVar11;
+  undefined4 uStack_80;
+  undefined4 uStack_7c;
+  int local_78;
+  int aiStack_74 [2];
+  undefined4 local_6c;
+  int local_68;
+  int local_64;
+  int local_60;
+  undefined4 local_5c;
+  undefined4 local_58;
+  int local_38;
+  int iStack_34;
+  undefined4 local_30;
+  int local_2c;
+  int local_18;
+  int iStack_14;
+  
+  param_1[0x2a6] = param_2;
+  param_1[0x2a7] = param_3;
+  param_1[0x2a8] = param_4;
+  param_1[0x2ac] = param_8;
+  param_1[0x2ad] = param_9;
+  param_1[0x2ae] = param_10;
+  param_1[0x2af] = param_11;
+  param_1[0x2b0] = param_12;
+  param_1[0x2a9] = param_5;
+  param_1[0x2aa] = param_6;
+  param_1[0x2ab] = param_7;
+  param_1[0x2b1] = param_13;
+  param_1[0x2b2] = param_14;
+  param_1[0x2b3] = param_15;
+  _DAT_0126efd4 = 0;
+  DAT_0126efd1 = 0;
+  FUN_00e69a60();
+  param_1[0x171] = param_7;
+  param_1[0xef] = param_5;
+  puVar1 = (uint *)(param_1 + 0x173);
+  param_1[0xf0] = param_6;
+  cVar4 = FUN_00e69510(param_8,param_1 + 0x172,puVar1);
+  if (cVar4 != '\0') {
+    if ((param_4 & 0x40) != 0) {
+      *puVar1 = *puVar1 | 2;
+    }
+    if ((param_4 & 0x20) != 0) {
+      *puVar1 = *puVar1 | 4;
+    }
+    if ((uint)param_1[0x171] < (uint)*(ushort *)(DAT_0126f0e8 + 0xe)) {
+      iVar7 = *(int *)(*(int *)(DAT_0126f0e8 + 8) + param_1[0x171] * 4);
+    }
+    else {
+      iVar7 = 0;
+    }
+    param_1[0x176] = iVar7;
+    if (iVar7 == 0) {
+      _strncpy_s(&DAT_011f4648,0x100,"Creation failed: Invalid Adapter",0xff);
+      FUN_00a29680("NiDX9Renderer::Initialize> Invalid Adapter specified - FAILING\n");
+      return 0;
+    }
+    if (param_1[0x172] == 1) {
+      uVar5 = *(uint *)(iVar7 + 0x460);
+    }
+    else {
+      uVar5 = *(uint *)(iVar7 + 0x464);
+    }
+    uVar5 = -(uint)(*(int *)(uVar5 + 4) != 0) & uVar5;
+    param_1[0x177] = uVar5;
+    if (uVar5 != 0) {
+      _memset(&local_38,0,0x38);
+      do {
+        piVar10 = param_1 + 0x172;
+        FUN_00a29680("NiDX9Renderer::Initialize> Attempting to create rendering device\n");
+        if ((uint)param_1[0x171] < (uint)*(ushort *)(DAT_0126f0e8 + 0xe)) {
+          iVar7 = *(int *)(*(int *)(DAT_0126f0e8 + 8) + param_1[0x171] * 4);
+        }
+        else {
+          iVar7 = 0;
+        }
+        if (*piVar10 == 1) {
+          iVar7 = *(int *)(iVar7 + 0x460);
+        }
+        else {
+          iVar7 = *(int *)(iVar7 + 0x464);
+        }
+        if ((*(int *)(iVar7 + 4) == 0) || (iVar7 == 0)) {
+          _strncpy_s(&DAT_011f4648,0x100,"Creation failed: Requested device not valid",0xff);
+          FUN_00a29680("NiDX9Renderer::Initialize> No device of specified type \n");
+        }
+        else {
+          cVar4 = FUN_00e6bf50(param_1[0xef],param_2,param_3,param_4,param_13,param_9,param_10,
+                               param_14,param_12,param_15,param_11,&local_38);
+          iVar7 = local_2c;
+          if (cVar4 != '\0') {
+            param_14 = local_2c;
+            local_60 = param_15;
+            local_6c = 0x18;
+            local_64 = param_3;
+            local_68 = param_2;
+            local_58 = 1;
+            local_5c = local_30;
+            if (DAT_0126f0d0 == '\0') {
+              iVar6 = (**(code **)(*DAT_0126f0d8 + 0x40))
+                                (DAT_0126f0d8,param_1[0x171],*piVar10,param_1[0xf0],*puVar1,
+                                 &local_38,param_1 + 0xa2);
+            }
+            else {
+              iVar6 = (**(code **)(*DAT_0126f0d8 + 0x50))
+                                (DAT_0126f0d8,param_1[0x171],*piVar10,param_1[0xf0],*puVar1,
+                                 &local_38,~-(uint)(local_18 != 0) & (uint)&local_6c,&local_78);
+              param_1[0xa2] = local_78;
+            }
+            fVar2 = (float)iStack_34;
+            if (iStack_34 < 0) {
+              fVar2 = fVar2 + _DAT_01099378;
+            }
+            fVar3 = (float)local_38;
+            if (local_38 < 0) {
+              fVar3 = fVar3 + _DAT_01099378;
+            }
+            *(bool *)(param_1 + 0x2b4) = fVar2 / fVar3 < (float)_DAT_0101de30;
+            if (-1 < iVar6) {
+LAB_00e73353:
+              if (param_1[0xa2] != 0) {
+                cVar4 = FUN_00e6c240(&local_38);
+                if (cVar4 == '\0') {
+                  return 0;
+                }
+                *(byte *)(param_1 + 0x175) = ~(byte)(*puVar1 >> 6) & 1;
+                *(byte *)((int)param_1 + 0x5d5) = (byte)(*puVar1 >> 7) & 1;
+                piVar10 = (int *)0x0;
+                uStack_80 = 0;
+                uStack_7c = 0;
+                iVar7 = FUN_00e7d6b0(param_1[0xa2],&local_38,&uStack_80);
+                if (iStack_14 != 0) {
+                  FUN_00e7d850(param_1[0xa2],&uStack_7c);
+                }
+                piVar8 = (int *)FUN_00ee8710(1,param_1);
+                param_1[0x221] = (int)piVar8;
+                (**(code **)(*piVar8 + 0xa8))(uStack_80,0);
+                (**(code **)(*(int *)param_1[0x221] + 0xac))(unaff_EBX);
+                uVar9 = extraout_ECX;
+                FUN_00b6aed0(param_1[0x221]);
+                FUN_00e72cf0(param_2,uVar9);
+                iVar6 = (**(code **)(*(int *)param_1[0x221] + 0x9c))(0);
+                uVar9 = FUN_00e69d00(*(undefined4 *)(iVar6 + 0xc));
+                iVar6 = FUN_00e69c90(uVar9);
+                param_1[0x174] = iVar6;
+                cVar4 = FUN_00e6ec90();
+                if (cVar4 != '\0') {
+                  iVar6 = FUN_00e91590(param_1,param_1 + 0xa3,1);
+                  param_1[0x22e] = iVar6;
+                  FUN_00e81940(param_1);
+                  iVar6 = FUN_00aa13e0(0x100);
+                  if (iVar6 == 0) {
+                    iVar6 = 0;
+                  }
+                  else {
+                    iVar6 = FUN_00e8d0e0(param_1[0xa2]);
+                  }
+                  param_1[0x22f] = iVar6;
+                  iVar6 = FUN_00aa13e0(0x4c);
+                  if (iVar6 == 0) {
+                    iVar6 = 0;
+                  }
+                  else {
+                    iVar6 = FUN_00e8fb20(param_1[0xa2]);
+                  }
+                  param_1[0x230] = iVar6;
+                  iVar6 = FUN_00aa13e0(0x10);
+                  if (iVar6 == 0) {
+                    iVar6 = 0;
+                  }
+                  else {
+                    iVar6 = FUN_00e90a80(param_1);
+                  }
+                  param_1[0x231] = iVar6;
+                  iVar6 = FUN_00e88eb0(param_1[0xa2],param_1[0x22f]);
+                  param_1[0x22b] = iVar6;
+                  uVar5 = (**(code **)(*param_1 + 0xa0))();
+                  FUN_00e88c20((byte)(uVar5 >> 1) & 1);
+                  iVar6 = (**(code **)(*(int *)param_1[0x22b] + 4))(1);
+                  param_1[0x22c] = iVar6;
+                  iVar6 = (**(code **)(*(int *)param_1[0x22b] + 4))(2);
+                  param_1[0x22d] = iVar6;
+                  iVar6 = FUN_00aa13e0(0x23c);
+                  if (iVar6 == 0) {
+                    iVar6 = 0;
+                  }
+                  else {
+                    iVar6 = FUN_00e8bae0(param_1[0x22e],param_1[0xa2]);
+                  }
+                  param_1[0x232] = iVar6;
+                  if (*(int *)(iVar7 + 0x30) != 0) {
+                    (**(code **)(*(int *)param_1[0x22e] + 0x34))(1);
+                  }
+                  param_1[0x222] = param_1[0x221];
+                  FUN_00a71b70(0);
+                  local_60 = DAT_01012054;
+                  local_6c = DAT_01012054;
+                  local_64 = 0x3f800000;
+                  local_68 = 0x3f800000;
+                  local_5c = _DAT_0101e2bc;
+                  local_58 = 0x3f800000;
+                  local_78 = 0;
+                  uStack_80 = 0x3f800000;
+                  uStack_7c = 0x3f800000;
+                  (**(code **)(*param_1 + 0x18c))
+                            (&DAT_011f426c,&DAT_011a946c,&DAT_011a9478,&DAT_011a9484,&local_6c,
+                             &stack0xffffff7c);
+                  param_1[0x222] = 0;
+                  param_1[0x223] = 0;
+                  FUN_00a9fff0();
+                  iVar7 = FUN_00aa13e0(0x40);
+                  if (iVar7 != 0) {
+                    piVar10 = (int *)FUN_00e909e0();
+                  }
+                  (**(code **)(*piVar10 + 0x4c))();
+                  FUN_00e6e6e0(piVar10);
+                  return 1;
+                }
+                FUN_00a29680(
+                            "NiDX9Renderer::Initialize> Could not initialize texture defaults - FAILING\n"
+                            );
+                return 0;
+              }
+              FUN_00e69ad0("Creation failed: Could not create hardware device");
+              pcVar11 = "NiDX9Renderer::Initialize> Could not create device of any type - FAILING\n"
+              ;
+              goto LAB_00e7333c;
+            }
+            *(undefined1 *)(param_1 + 0x1bf) = 0;
+            if (iVar7 != local_2c) {
+              FUN_00a29680(
+                          "NiDX9Renderer::Initialize> Specified number of backbuffers was invalid - trying fewer backbuffers\n"
+                          );
+              if (DAT_0126f0d0 == '\0') {
+                iVar7 = (**(code **)(*DAT_0126f0d8 + 0x40))
+                                  (DAT_0126f0d8,param_1[0x171],*piVar10,param_1[0xf0],*puVar1,
+                                   &local_38,param_1 + 0xa2);
+              }
+              else {
+                iVar7 = (**(code **)(*DAT_0126f0d8 + 0x50))
+                                  (DAT_0126f0d8,param_1[0x171],param_1[0x172],param_1[0xf0],*puVar1,
+                                   &local_38,~-(uint)(local_18 != 0) & (uint)&local_6c,aiStack_74);
+                param_1[0xa2] = aiStack_74[0];
+              }
+              if (-1 < iVar7) goto LAB_00e73353;
+            }
+          }
+        }
+        if (param_8 == 4) {
+          FUN_00e69ad0("Creation failed: Could not create reference device");
+          pcVar11 = 
+          "NiDX9Renderer::Initialize> Could not create requested reference device - FAILING\n";
+          goto LAB_00e7333c;
+        }
+        param_8 = param_8 + 1;
+        if (param_8 == 4) {
+          FUN_00a29680(
+                      "NiDX9Renderer::Initialize> Could not create hardware device of any type - FAILING\n"
+                      );
+          return 0;
+        }
+        FUN_00a29680(
+                    "NiDX9Renderer::Initialize> Could not create device of desired type - trying next-lower device type\n"
+                    );
+        cVar4 = FUN_00e69510(param_8,param_1 + 0x172,puVar1);
+      } while (cVar4 != '\0');
+      FUN_00e69ad0("Creation failed: Invalid 3D device type");
+      pcVar11 = "NiDX9Renderer::Initialize> Invalid device ID specified - FAILING\n";
+LAB_00e7333c:
+      FUN_00a29680(pcVar11);
+      return 0;
+    }
+  }
+  _strncpy_s(&DAT_011f4648,0x100,"Creation failed: Invalid 3D device type",0xff);
+  FUN_00a29680("NiDX9Renderer::Initialize> Invalid device ID specified - FAILING\n");
+  return 0;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00e72e60 (D3D device creation or reset owner)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00e762b2 (in FUN_00e76210)
+  Total: 1 refs
+
+--- Calls FROM D3D device creation or reset owner (0x00e72e60) ---
+  0x00e72f2b -> 0x00e69a60 FUN_00e69a60
+  0x00e72f58 -> 0x00e69510 FUN_00e69510
+  0x00e72f78 -> 0x00ec8d5f _strncpy_s
+  0x00e72f82 -> 0x00a29680 FUN_00a29680
+  0x00e72fec -> 0x00ec8d5f _strncpy_s
+  0x00e72ff6 -> 0x00a29680 FUN_00a29680
+  0x00e73040 -> 0x00ec61c0 _memset
+  0x00e73055 -> 0x00a29680 FUN_00a29680
+  0x00e730ac -> 0x00ec8d5f _strncpy_s
+  0x00e730b6 -> 0x00a29680 FUN_00a29680
+  0x00e73121 -> 0x00e6bf50 FUN_00e6bf50
+  0x00e7326a -> 0x00a29680 FUN_00a29680
+  0x00e73315 -> 0x00a29680 FUN_00a29680
+  0x00e7331d -> 0x00e69510 FUN_00e69510
+  0x00e73332 -> 0x00e69ad0 FUN_00e69ad0
+  0x00e7333c -> 0x00a29680 FUN_00a29680
+  0x00e73361 -> 0x00e69ad0 FUN_00e69ad0
+  0x00e73374 -> 0x00e6c240 FUN_00e6c240
+  0x00e733b9 -> 0x00e7d6b0 FUN_00e7d6b0
+  0x00e733d5 -> 0x00e7d850 FUN_00e7d850
+  0x00e733e0 -> 0x00ee8710 FUN_00ee8710
+  0x00e7341f -> 0x00b6aed0 FUN_00b6aed0
+  0x00e73432 -> 0x00e72cf0 FUN_00e72cf0
+  0x00e7344c -> 0x00e69d00 FUN_00e69d00
+  0x00e73452 -> 0x00e69c90 FUN_00e69c90
+  0x00e73462 -> 0x00e6ec90 FUN_00e6ec90
+  0x00e73470 -> 0x00a29680 FUN_00a29680
+  0x00e73491 -> 0x00e91590 FUN_00e91590
+  0x00e7349d -> 0x00e81940 FUN_00e81940
+  0x00e734a7 -> 0x00aa13e0 FUN_00aa13e0
+  0x00e734bc -> 0x00e8d0e0 FUN_00e8d0e0
+  0x00e734cd -> 0x00aa13e0 FUN_00aa13e0
+  0x00e734e2 -> 0x00e8fb20 FUN_00e8fb20
+  0x00e734f3 -> 0x00aa13e0 FUN_00aa13e0
+  0x00e73502 -> 0x00e90a80 FUN_00e90a80
+  0x00e7351f -> 0x00e88eb0 FUN_00e88eb0
+  0x00e73547 -> 0x00e88c20 FUN_00e88c20
+  0x00e7357b -> 0x00aa13e0 FUN_00aa13e0
+  0x00e73597 -> 0x00e8bae0 FUN_00e8bae0
+  0x00e735cb -> 0x00a71b70 FUN_00a71b70
+  0x00e7363e -> 0x00a9fff0 FUN_00a9fff0
+  0x00e73645 -> 0x00aa13e0 FUN_00aa13e0
+  0x00e73653 -> 0x00e909e0 FUN_00e909e0
+  0x00e73666 -> 0x00e6e6e0 FUN_00e6e6e0
+  0x00e7367f -> 0x00e69ad0 FUN_00e69ad0
+  0x00e73693 -> 0x00a29680 FUN_00a29680
+  Total: 46 calls
+
+======================================================================
+Renderer geometry prepack owner @ 0x00e74120
+======================================================================
+  Function: FUN_00e74120 @ 0x00e74120, Size: 906 bytes
+
+void __fastcall FUN_00e74120(int param_1)
+
+{
+  int *piVar1;
+  LPCRITICAL_SECTION lpCriticalSection;
+  int *piVar2;
+  uint uVar3;
+  int *piVar4;
+  uint uVar5;
+  int iVar6;
+  int iVar7;
+  undefined4 uVar8;
+  undefined4 *puVar9;
+  int iVar10;
+  uint uVar11;
+  int iVar12;
+  int *local_24;
+  int *local_1c;
+  int local_18;
+  undefined4 uStack_14;
+  int local_10;
+  int *local_c;
+  LPCRITICAL_SECTION local_8;
+  LPCRITICAL_SECTION local_4;
+  
+  lpCriticalSection = (LPCRITICAL_SECTION)(param_1 + 0x80);
+  local_8 = lpCriticalSection;
+  EnterCriticalSection(lpCriticalSection);
+  local_4 = (LPCRITICAL_SECTION)(param_1 + 0x100);
+  EnterCriticalSection(local_4);
+  uVar3 = 0;
+  if (*(uint *)(param_1 + 0x614) != 0) {
+    piVar4 = *(int **)(param_1 + 0x618);
+    do {
+      if (*piVar4 != 0) {
+        local_1c = (int *)(*(int **)(param_1 + 0x618))[uVar3];
+        goto LAB_00e74170;
+      }
+      uVar3 = uVar3 + 1;
+      piVar4 = piVar4 + 1;
+    } while (uVar3 < *(uint *)(param_1 + 0x614));
+  }
+  local_1c = (int *)0x0;
+LAB_00e74170:
+  local_24 = (int *)0x0;
+  piVar4 = (int *)0x0;
+  do {
+    if (local_1c == (int *)0x0) {
+      FUN_00b601a0();
+      while (piVar4 != (int *)0x0) {
+        iVar10 = *piVar4;
+        piVar2 = (int *)piVar4[8];
+        if (((*(ushort *)(iVar10 + 0xe) & 0x7000) == 0x4000) && (piVar4[7] == 0)) {
+          *(ushort *)(iVar10 + 0xe) = *(ushort *)(iVar10 + 0xe) & 0xf000;
+          FUN_00e6fa90(iVar10,piVar4[1],piVar4[2]);
+        }
+        FUN_00aa1460(piVar4,0x24);
+        piVar4 = piVar2;
+      }
+      LeaveCriticalSection(local_4);
+      LeaveCriticalSection(lpCriticalSection);
+      return;
+    }
+    iVar10 = local_1c[1];
+    piVar2 = (int *)local_1c[2];
+    local_1c = (int *)*local_1c;
+    if (local_1c == (int *)0x0) {
+      iVar12 = (**(code **)(*(int *)(param_1 + 0x610) + 4))(iVar10);
+      uVar3 = iVar12 + 1;
+      if (uVar3 < *(uint *)(param_1 + 0x614)) {
+        puVar9 = (undefined4 *)(*(int *)(param_1 + 0x618) + uVar3 * 4);
+        do {
+          local_1c = (int *)*puVar9;
+          piVar4 = local_24;
+          if (local_1c != (int *)0x0) goto LAB_00e741da;
+          uVar3 = uVar3 + 1;
+          puVar9 = puVar9 + 1;
+        } while (uVar3 < *(uint *)(param_1 + 0x614));
+      }
+      local_1c = (int *)0x0;
+      piVar4 = local_24;
+    }
+LAB_00e741da:
+    lpCriticalSection = local_8;
+    if (piVar2 != (int *)0x0) {
+      if (iVar10 == 0) {
+        do {
+          local_24 = piVar2;
+          piVar2 = (int *)local_24[8];
+          if (local_24[7] == 0) {
+            if (local_24[2] == 0) {
+              FUN_00e71fe0(local_24[6],*local_24,local_24[1],local_24[3],1);
+            }
+            else {
+              FUN_00e6d780(local_24[6],*local_24,local_24[1],local_24[2],local_24[3],1);
+            }
+          }
+          local_24[8] = (int)piVar4;
+          piVar4 = local_24;
+          lpCriticalSection = local_8;
+        } while (piVar2 != (int *)0x0);
+      }
+      else {
+        uVar11 = 0xffffffff;
+        uVar3 = 0;
+        piVar4 = piVar2;
+        do {
+          piVar1 = piVar4 + 8;
+          if ((uint)piVar4[7] < *(uint *)(piVar4[6] + 0x20)) {
+            iVar10 = *(int *)(*(int *)(piVar4[6] + 0x28) + piVar4[7] * 4);
+          }
+          else {
+            iVar10 = 0;
+          }
+          uVar5 = *(uint *)(iVar10 + 0xc);
+          if (uVar5 < uVar11) {
+            uVar11 = uVar5;
+          }
+          uVar5 = uVar5 + *(int *)(iVar10 + 0x14);
+          if (uVar3 < uVar5) {
+            uVar3 = uVar5;
+          }
+          piVar4 = (int *)*piVar1;
+        } while ((int *)*piVar1 != (int *)0x0);
+        piVar4 = local_24;
+        if (uVar11 < uVar3) {
+          local_10 = FUN_00e8bff0(*(undefined4 *)(iVar10 + 8),uVar11,uVar3 - uVar11,
+                                  *(undefined4 *)(iVar10 + 0x10));
+          do {
+            piVar4 = piVar2;
+            iVar10 = piVar4[6];
+            uVar3 = piVar4[7];
+            local_c = (int *)piVar4[8];
+            if (uVar3 < *(uint *)(iVar10 + 0x20)) {
+              local_18 = *(int *)(*(int *)(iVar10 + 0x28) + uVar3 * 4);
+            }
+            else {
+              local_18 = 0;
+            }
+            iVar12 = *(int *)(local_18 + 0xc) + local_10;
+            if (((int *)piVar4[3] == (int *)0x0) ||
+               (iVar6 = (**(code **)(*(int *)piVar4[3] + 0xac))
+                                  (*piVar4,piVar4[1],piVar4[2],0xfff,local_18,uVar3,iVar12,0,0),
+               iVar6 == 0)) {
+              if (piVar4[2] == 0) {
+                FUN_00e8c1e0(*piVar4,piVar4[1],0xfff,local_18,iVar12);
+              }
+              else {
+                FUN_00e8c820(*piVar4,piVar4[1],piVar4[2],0xfff,local_18,iVar12);
+              }
+            }
+            if ((piVar4[7] == 0) && (*(int *)(iVar10 + 0x50) != 0)) {
+              iVar12 = 0;
+              if (*(int *)(iVar10 + 0x4c) == 0) {
+                if (*(int *)(iVar10 + 0x3c) == 4) {
+                  iVar12 = *(int *)(iVar10 + 0x44) * 3;
+                  iVar6 = *(int *)(iVar10 + 0x40) * 3;
+                }
+                else {
+                  iVar6 = 0;
+                  if (*(int *)(iVar10 + 0x3c) == 5) {
+                    iVar12 = *(int *)(iVar10 + 0x44) + 2;
+                    iVar6 = *(int *)(iVar10 + 0x40) + 2;
+                  }
+                }
+              }
+              else {
+                iVar12 = 0;
+                for (iVar7 = *(int *)(iVar10 + 0x48); iVar6 = iVar12, iVar7 != 0; iVar7 = iVar7 + -1
+                    ) {
+                  iVar12 = iVar12 + (uint)*(ushort *)(*(int *)(iVar10 + 0x4c) + -2 + iVar7 * 2);
+                }
+              }
+              uStack_14 = *(undefined4 *)(iVar10 + 0x30);
+              uVar8 = FUN_00e8f200(*(int *)(iVar10 + 0x50),iVar6,iVar12,
+                                   *(undefined4 *)(iVar10 + 0x34),&uStack_14,DAT_0126f0d0 == '\0',
+                                   -(*(char *)(iVar10 + 0x14) != '\0') & 0x10);
+              *(undefined4 *)(iVar10 + 0x34) = uVar8;
+              *(int *)(iVar10 + 0x2c) = iVar6;
+              *(undefined4 *)(iVar10 + 0x30) = uStack_14;
+            }
+            piVar4[8] = (int)local_24;
+            piVar2 = local_c;
+            local_24 = piVar4;
+          } while (local_c != (int *)0x0);
+          FUN_00e8c0d0(*(undefined4 *)(local_18 + 8));
+          lpCriticalSection = local_8;
+        }
+      }
+    }
+  } while( true );
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00e74120 (Renderer geometry prepack owner)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x0053798e (in FUN_005374f0)
+  UNCONDITIONAL_CALL @ 0x006fb92c (in FUN_006fb7e0)
+  UNCONDITIONAL_CALL @ 0x006f6a2c (in FUN_006f66e0)
+  UNCONDITIONAL_CALL @ 0x006f6a6a (in FUN_006f66e0)
+  UNCONDITIONAL_CALL @ 0x006570d2 (in FUN_00657010)
+  UNCONDITIONAL_CALL @ 0x00669878 (in FUN_00669500)
+  UNCONDITIONAL_CALL @ 0x00e74f57 (in ???)
+  Total: 7 refs
+
+--- Calls FROM Renderer geometry prepack owner (0x00e74120) ---
+  0x00e7413e -> 0x0000000d ???
+  0x00e7414b -> 0x0000000d ???
+  0x00e74247 -> 0x00e8bff0 FUN_00e8bff0
+  0x00e742cd -> 0x00e8c820 FUN_00e8c820
+  0x00e742df -> 0x00e8c1e0 FUN_00e8c1e0
+  0x00e7437e -> 0x00e8f200 FUN_00e8f200
+  0x00e743b9 -> 0x00e8c0d0 FUN_00e8c0d0
+  0x00e743db -> 0x00b601a0 FUN_00b601a0
+  0x00e74414 -> 0x00e6d780 FUN_00e6d780
+  0x00e7442c -> 0x00e71fe0 FUN_00e71fe0
+  0x00e7447d -> 0x00e6fa90 FUN_00e6fa90
+  0x00e74485 -> 0x00aa1460 FUN_00aa1460
+  0x00e744a0 -> 0x00000036 ???
+  0x00e744a3 -> 0x00000036 ???
+  Total: 14 calls
+
+----------------------------------------------------------------------
+References TO 0x00e8cd60 (Vertex-buffer manager global teardown)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00e736d5 (in FUN_00e736b0)
+  Total: 1 refs
+
+# REQUIRED DECISION CONTRACT
+The output must establish:
+  1. Which concrete slot +0x18 implementation produced the crash chip.
+  2. Whether CreateVertexBuffer failure returns null or a chip whose +0x08 field is null.
+  3. Whether slot +0x1C may clear or destroy a chip concurrently with another packer.
+  4. Which critical section or thread-affinity rule protects allocation and retirement.
+  5. Whether device-loss/reset paths clear chip +0x08 while geometry remains publishable.
+  6. Whether validating chip +0x08 in 0x00E8BFA0 is race-free and makes callers fail safely.
+  7. If validation is racy, which full pack operation is the narrow serialization boundary.
+  8. The fix that preserves two IO workers, LandLOD visibility, and retry after transient failure.

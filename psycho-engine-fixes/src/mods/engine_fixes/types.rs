@@ -105,6 +105,10 @@ pub type LockFreeMapConstructorFn =
 /// publishes the final open flag at `this + 0x2C`.
 pub type BsFileOpenStateFn = unsafe extern "fastcall" fn(*mut c_void);
 
+/// ExteriorCellLoaderTask vtable slot +0x04. The task owns its cell-load
+/// payload at +0x1C and executes on a BSTaskManagerThread.
+pub type ExteriorCellLoaderTaskExecuteFn = unsafe extern "fastcall" fn(*mut c_void);
+
 /// Native IOTask dependency-priority propagation and queue reordering.
 pub type IoTaskPriorityFn = unsafe extern "thiscall" fn(*mut c_void, u32);
 
@@ -115,6 +119,17 @@ pub type LodObjectTaskProducerFn =
 /// Tree and terrain LOD producer constructors.
 pub type LodBlockTaskProducerFn =
     unsafe extern "thiscall" fn(*mut c_void, u32, u32, u32, u32, u32) -> *mut c_void;
+
+/// NiDX9VertexBufferManager release-then-allocate wrapper. Both arguments are
+/// stack-owned and the native function returns with `ret 8`.
+pub type GeometryStreamAllocateFn = unsafe extern "stdcall" fn(*mut c_void, u32) -> u8;
+
+/// NiStaticGeometryGroup slot +0x18.
+pub type StaticGeometryAllocateFn =
+    unsafe extern "thiscall" fn(*mut c_void, *mut c_void, u32) -> *mut c_void;
+
+/// NiStaticGeometryGroup slot +0x1C.
+pub type StaticGeometryRetireFn = unsafe extern "thiscall" fn(*mut c_void, *mut c_void, u32);
 
 /// SpeedTree core clone constructor. The new clone is in ECX and the source
 /// core object is the only stack argument.

@@ -1,0 +1,1083 @@
+LOD STATIC VERTEX-BUFFER CREATION LEAF AND RETRY AUDIT
+Program: FalloutNV.exe
+Image base: 00400000
+
+The prior final audit called 0x00E941A0 but never audited it.
+This script closes only that missing CreateVertexBuffer, publication, and retry leaf.
+
+# DIRECT3D STATIC VERTEX-BUFFER CREATION FAILURE
+
+======================================================================
+Static NiVBBlock Direct3D vertex-buffer creator @ 0x00e941a0
+======================================================================
+  Function: FUN_00e941a0 @ 0x00e941a0, Size: 42 bytes
+
+void FUN_00e941a0(int param_1)
+
+{
+  *(undefined4 *)(param_1 + 0x14) = 8;
+  if ((*(uint *)(param_1 + 8) & 0x80000000) != 0) {
+    *(undefined4 *)(param_1 + 0x14) = 0x18;
+  }
+  *(uint *)(param_1 + 0x18) = (uint)(DAT_0126f0d0 == '\0');
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00e941a0 (Static NiVBBlock Direct3D vertex-buffer creator)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00e94be6 (in FUN_00e94b80)
+  Total: 1 refs
+
+--- Calls FROM Static NiVBBlock Direct3D vertex-buffer creator (0x00e941a0) ---
+  Total: 0 calls
+
+======================================================================
+Instruction window Static Direct3D vertex-buffer creator @ 0x00e941a0
+======================================================================
+   0x00e94179  MOV dword ptr [EDX + 0x40],ESI
+   0x00e9417c  MOV EDX,dword ptr [EAX + 0x40]
+   0x00e9417f  TEST EDX,EDX
+   0x00e94181  JZ 0x00e94189
+   0x00e94183  MOV ESI,dword ptr [EAX + 0x3c]
+   0x00e94186  MOV dword ptr [EDX + 0x3c],ESI
+   0x00e94189  POP ESI
+   0x00e9418a  CMP EAX,dword ptr [ECX + 0x2c]
+   0x00e9418d  JNZ 0x00e94195
+   0x00e9418f  MOV EAX,dword ptr [EAX + 0x3c]
+   0x00e94192  MOV dword ptr [ECX + 0x2c],EAX
+   0x00e94195  RET 0x4
+>> 0x00e941a0  MOV EAX,dword ptr [ESP + 0x4]
+   0x00e941a4  TEST dword ptr [EAX + 0x8],0x80000000
+   0x00e941ab  MOV dword ptr [EAX + 0x14],0x8
+   0x00e941b2  JZ 0x00e941bb
+   0x00e941b4  MOV dword ptr [EAX + 0x14],0x18
+   0x00e941bb  XOR ECX,ECX
+   0x00e941bd  CMP byte ptr [0x0126f0d0],CL
+   0x00e941c3  SETZ CL
+   0x00e941c6  MOV dword ptr [EAX + 0x18],ECX
+   0x00e941c9  RET
+   0x00e941d0  MOV EAX,dword ptr [ECX + 0x2c]
+   0x00e941d3  PUSH ESI
+   0x00e941d4  XOR ESI,ESI
+   0x00e941d6  TEST EAX,EAX
+   0x00e941d8  JZ 0x00e941ec
+   0x00e941da  MOV EDX,dword ptr [ESP + 0x8]
+   0x00e941de  MOV EDI,EDI
+   0x00e941e0  CMP dword ptr [EAX + 0x24],EDX
+   0x00e941e3  JNC 0x00e941f2
+   0x00e941e5  MOV EAX,dword ptr [EAX + 0x3c]
+   0x00e941e8  TEST EAX,EAX
+   0x00e941ea  JNZ 0x00e941e0
+   0x00e941ec  MOV EAX,ESI
+   0x00e941ee  POP ESI
+   0x00e941ef  RET 0x4
+   0x00e941f2  MOV EDX,dword ptr [EAX + 0x3c]
+   0x00e941f5  TEST EDX,EDX
+   0x00e941f7  JZ 0x00e941ff
+   0x00e941f9  MOV ESI,dword ptr [EAX + 0x40]
+   0x00e941fc  MOV dword ptr [EDX + 0x40],ESI
+   0x00e941ff  MOV EDX,dword ptr [EAX + 0x40]
+   0x00e94202  TEST EDX,EDX
+   0x00e94204  JZ 0x00e9420c
+   0x00e94206  MOV ESI,dword ptr [EAX + 0x3c]
+   0x00e94209  MOV dword ptr [EDX + 0x3c],ESI
+   0x00e9420c  CMP EAX,dword ptr [ECX + 0x2c]
+   0x00e9420f  JNZ 0x00e941ee
+   0x00e94211  MOV EDX,dword ptr [EAX + 0x3c]
+   0x00e94214  MOV dword ptr [ECX + 0x2c],EDX
+   0x00e94217  POP ESI
+   0x00e94218  RET 0x4
+   0x00e94220  MOV EAX,dword ptr [ECX + 0x2c]
+   0x00e94223  TEST EAX,EAX
+   0x00e94225  JZ 0x00e9426b
+   0x00e94227  MOV EDX,dword ptr [ESP + 0x4]
+   0x00e9422b  PUSH ESI
+   0x00e9422c  PUSH EDI
+   0x00e9422d  MOV EDI,dword ptr [EDX + 0x24]
+   0x00e94230  XOR ESI,ESI
+   0x00e94232  CMP dword ptr [EAX + 0x24],EDI
+   0x00e94235  JA 0x00e9424e
+   0x00e94237  MOV ESI,EAX
+   0x00e94239  MOV EAX,dword ptr [EAX + 0x3c]
+   0x00e9423c  TEST EAX,EAX
+   0x00e9423e  JNZ 0x00e94232
+   0x00e94240  MOV dword ptr [ESI + 0x3c],EDX
+   0x00e94243  MOV dword ptr [EDX + 0x40],ESI
+   0x00e94246  MOV dword ptr [EDX + 0x3c],EAX
+   0x00e94249  POP EDI
+   0x00e9424a  POP ESI
+   0x00e9424b  RET 0x4
+   0x00e9424e  TEST ESI,ESI
+   0x00e94250  JZ 0x00e94255
+   0x00e94252  MOV dword ptr [ESI + 0x3c],EDX
+   0x00e94255  MOV dword ptr [EAX + 0x40],EDX
+   0x00e94258  MOV dword ptr [EDX + 0x3c],EAX
+   0x00e9425b  MOV dword ptr [EDX + 0x40],ESI
+   0x00e9425e  CMP EAX,dword ptr [ECX + 0x2c]
+   0x00e94261  JNZ 0x00e94249
+   0x00e94263  POP EDI
+   0x00e94264  MOV dword ptr [ECX + 0x2c],EDX
+   0x00e94267  POP ESI
+   0x00e94268  RET 0x4
+   0x00e9426b  MOV EAX,dword ptr [ESP + 0x4]
+   0x00e9426f  MOV dword ptr [ECX + 0x2c],EAX
+   0x00e94272  MOV dword ptr [EAX + 0x3c],0x0
+   0x00e94279  MOV EAX,dword ptr [ECX + 0x2c]
+   0x00e9427c  MOV dword ptr [EAX + 0x40],0x0
+   0x00e94283  RET 0x4
+   0x00e94290  PUSH ESI
+   0x00e94291  CALL 0x00e98610
+   0x00e94296  MOV ESI,dword ptr [0x0126fa30]
+   0x00e9429c  TEST ESI,ESI
+   0x00e9429e  JZ 0x00e942bd
+   0x00e942a0  PUSH EDI
+   0x00e942a1  MOV EDI,dword ptr [ESI + 0x3c]
+   0x00e942a4  MOV ECX,ESI
+   0x00e942a6  CALL 0x00e98640
+   0x00e942ab  PUSH 0x44
+   0x00e942ad  PUSH ESI
+   0x00e942ae  CALL 0x00aa1460
+   0x00e942b3  ADD ESP,0x8
+   0x00e942b6  MOV ESI,EDI
+   0x00e942b8  TEST EDI,EDI
+   0x00e942ba  JNZ 0x00e942a1
+   0x00e942bc  POP EDI
+   0x00e942bd  MOV dword ptr [0x0126fa30],0x0
+   0x00e942c7  POP ESI
+   0x00e942c8  RET
+   0x00e942d0  XOR EDX,EDX
+   0x00e942d2  PUSH ESI
+
+# STATIC BLOCK LOOKUP, CREATION, AND MAP PUBLICATION
+
+======================================================================
+Static reusable NiVBBlock lookup @ 0x00e941d0
+======================================================================
+  Function: FUN_00e941d0 @ 0x00e941d0, Size: 75 bytes
+
+int __thiscall FUN_00e941d0(int param_1,uint param_2)
+
+{
+  int iVar1;
+  
+  iVar1 = *(int *)(param_1 + 0x2c);
+  while( true ) {
+    if (iVar1 == 0) {
+      return 0;
+    }
+    if (param_2 <= *(uint *)(iVar1 + 0x24)) break;
+    iVar1 = *(int *)(iVar1 + 0x3c);
+  }
+  if (*(int *)(iVar1 + 0x3c) != 0) {
+    *(undefined4 *)(*(int *)(iVar1 + 0x3c) + 0x40) = *(undefined4 *)(iVar1 + 0x40);
+  }
+  if (*(int *)(iVar1 + 0x40) != 0) {
+    *(undefined4 *)(*(int *)(iVar1 + 0x40) + 0x3c) = *(undefined4 *)(iVar1 + 0x3c);
+  }
+  if (iVar1 != *(int *)(param_1 + 0x2c)) {
+    return iVar1;
+  }
+  *(undefined4 *)(param_1 + 0x2c) = *(undefined4 *)(iVar1 + 0x3c);
+  return iVar1;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00e941d0 (Static reusable NiVBBlock lookup)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00e94664 (in FUN_00e94650)
+  Total: 1 refs
+
+--- Calls FROM Static reusable NiVBBlock lookup (0x00e941d0) ---
+  Total: 0 calls
+
+======================================================================
+Static NiVBBlock selection or creation owner @ 0x00e94580
+======================================================================
+  Function: FUN_00e94580 @ 0x00e94580, Size: 207 bytes
+
+int * __thiscall FUN_00e94580(int param_1,uint param_2)
+
+{
+  int iVar1;
+  uint uVar2;
+  int *piVar3;
+  int *piStack_20;
+  undefined4 uStack_1c;
+  int iStack_18;
+  undefined4 *puStack_14;
+  undefined4 uStack_10;
+  
+  uVar2 = param_2;
+  if (((*(uint *)(param_1 + 8) & 0x10000000) == 0) && (param_2 <= *(uint *)(param_1 + 0xc))) {
+    uVar2 = *(uint *)(param_1 + 0xc);
+  }
+  uStack_10 = 0;
+  puStack_14 = &param_2;
+  iStack_18 = *(int *)(param_1 + 0x18);
+  uStack_1c = *(undefined4 *)(param_1 + 4);
+  piStack_20 = *(int **)(param_1 + 0x14);
+  param_2 = 0;
+  iVar1 = (**(code **)(**(int **)(param_1 + 0x10) + 0x68))(*(int **)(param_1 + 0x10),uVar2);
+  if (iVar1 < 0) {
+    return (int *)0x0;
+  }
+  piVar3 = DAT_0126fa30;
+  if (DAT_0126fa30 == (int *)0x0) {
+    FUN_00e944f0();
+    piVar3 = DAT_0126fa30;
+  }
+  DAT_0126fa30 = (int *)piVar3[0xf];
+  if (DAT_0126fa30 != (int *)0x0) {
+    *(undefined4 *)((int)DAT_0126fa30 + 0x40) = 0;
+  }
+  piVar3[0xf] = 0;
+  piVar3[0x10] = 0;
+  *piVar3 = param_1;
+  piVar3[2] = iStack_18;
+  piVar3[3] = uVar2;
+  piVar3[9] = uVar2;
+  piVar3[10] = uVar2;
+  piVar3[4] = *(int *)(param_1 + 4);
+  piVar3[5] = *(int *)(param_1 + 8);
+  piVar3[7] = *(int *)(param_1 + 0x18);
+  piVar3[6] = *(int *)(param_1 + 0x14);
+  piStack_20 = piVar3;
+  iVar1 = FUN_00a64330(&piStack_20);
+  piVar3[1] = iVar1;
+  return piVar3;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00e94580 (Static NiVBBlock selection or creation owner)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00e94672 (in FUN_00e94650)
+  Total: 1 refs
+
+--- Calls FROM Static NiVBBlock selection or creation owner (0x00e94580) ---
+  0x00e945d9 -> 0x00e944f0 FUN_00e944f0
+  0x00e9463e -> 0x00a64330 FUN_00a64330
+  Total: 2 calls
+
+======================================================================
+Static NiVBBlock free-list or map publication @ 0x00e94220
+======================================================================
+  Function: FUN_00e94220 @ 0x00e94220, Size: 102 bytes
+
+void __thiscall FUN_00e94220(int param_1,int param_2)
+
+{
+  int iVar1;
+  int iVar2;
+  int iVar3;
+  
+  if (*(int *)(param_1 + 0x2c) == 0) {
+    *(int *)(param_1 + 0x2c) = param_2;
+    *(undefined4 *)(param_2 + 0x3c) = 0;
+    *(undefined4 *)(*(int *)(param_1 + 0x2c) + 0x40) = 0;
+    return;
+  }
+  iVar1 = *(int *)(param_1 + 0x2c);
+  iVar3 = 0;
+  while (iVar2 = iVar1, *(uint *)(iVar2 + 0x24) <= *(uint *)(param_2 + 0x24)) {
+    iVar1 = *(int *)(iVar2 + 0x3c);
+    iVar3 = iVar2;
+    if (*(int *)(iVar2 + 0x3c) == 0) {
+      *(int *)(iVar2 + 0x3c) = param_2;
+      *(int *)(param_2 + 0x40) = iVar2;
+      *(undefined4 *)(param_2 + 0x3c) = 0;
+      return;
+    }
+  }
+  if (iVar3 != 0) {
+    *(int *)(iVar3 + 0x3c) = param_2;
+  }
+  *(int *)(iVar2 + 0x40) = param_2;
+  *(int *)(param_2 + 0x3c) = iVar2;
+  *(int *)(param_2 + 0x40) = iVar3;
+  if (iVar2 != *(int *)(param_1 + 0x2c)) {
+    return;
+  }
+  *(int *)(param_1 + 0x2c) = param_2;
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00e94220 (Static NiVBBlock free-list or map publication)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00e94692 (in FUN_00e94650)
+  UNCONDITIONAL_CALL @ 0x00e944e1 (in FUN_00e94490)
+  Total: 2 refs
+
+--- Calls FROM Static NiVBBlock free-list or map publication (0x00e94220) ---
+  Total: 0 calls
+
+======================================================================
+Static NiVBBlock destructor @ 0x00e94330
+======================================================================
+  Function: FUN_00e94330 @ 0x00e94330, Size: 95 bytes
+
+void FUN_00e94330(int param_1)
+
+{
+  int *piVar1;
+  int iVar2;
+  int iVar3;
+  
+  if (param_1 != 0) {
+    piVar1 = *(int **)(param_1 + 8);
+    if (piVar1 != (int *)0x0) {
+      (**(code **)(*piVar1 + 8))(piVar1);
+      *(undefined4 *)(param_1 + 8) = 0;
+    }
+    FUN_00e942d0();
+    iVar2 = *(int *)(param_1 + 0x3c);
+    iVar3 = *(int *)(param_1 + 0x40);
+    if (iVar2 != 0) {
+      *(int *)(iVar2 + 0x40) = iVar3;
+    }
+    if (iVar3 != 0) {
+      *(int *)(iVar3 + 0x3c) = iVar2;
+    }
+    if (DAT_0126fa30 != 0) {
+      *(int *)(DAT_0126fa30 + 0x40) = param_1;
+    }
+    *(int *)(param_1 + 0x3c) = DAT_0126fa30;
+    *(undefined4 *)(param_1 + 0x40) = 0;
+    DAT_0126fa30 = param_1;
+  }
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00e94330 (Static NiVBBlock destructor)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00e944d5 (in FUN_00e94490)
+  Total: 1 refs
+
+--- Calls FROM Static NiVBBlock destructor (0x00e94330) ---
+  0x00e94351 -> 0x00e942d0 FUN_00e942d0
+  Total: 1 calls
+
+======================================================================
+Engine pointer-map lookup used by static geometry @ 0x00a53c30
+======================================================================
+  Function: FUN_00a53c30 @ 0x00a53c30, Size: 78 bytes
+
+uint __thiscall FUN_00a53c30(int *param_1,undefined4 *param_2)
+
+{
+  undefined4 *puVar1;
+  undefined4 uVar2;
+  uint uVar3;
+  
+  uVar3 = (**(code **)(*param_1 + 4))(param_2);
+  puVar1 = *(undefined4 **)(param_1[2] + uVar3 * 4);
+  while( true ) {
+    if (puVar1 == (undefined4 *)0x0) {
+      return uVar3 & 0xffffff00;
+    }
+    uVar3 = (**(code **)(*param_1 + 8))(param_2,puVar1[1]);
+    if ((char)uVar3 != '\0') break;
+    puVar1 = (undefined4 *)*puVar1;
+  }
+  uVar2 = puVar1[2];
+  *param_2 = uVar2;
+  return CONCAT31((int3)((uint)uVar2 >> 8),1);
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00a53c30 (Engine pointer-map lookup used by static geometry)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00a5d400 (in FUN_00a5d3f0)
+  UNCONDITIONAL_CALL @ 0x00b61450 (in FUN_00b61370)
+  UNCONDITIONAL_CALL @ 0x00b617c9 (in FUN_00b617b0)
+  UNCONDITIONAL_CALL @ 0x00b617e3 (in FUN_00b617b0)
+  UNCONDITIONAL_CALL @ 0x00b6195c (in FUN_00b61940)
+  UNCONDITIONAL_CALL @ 0x00b61977 (in FUN_00b61940)
+  UNCONDITIONAL_CALL @ 0x00b63019 (in FUN_00b62de0)
+  UNCONDITIONAL_CALL @ 0x00b62c73 (in FUN_00b62bd0)
+  UNCONDITIONAL_CALL @ 0x00b7fad5 (in FUN_00b7fac0)
+  UNCONDITIONAL_CALL @ 0x00e7adf7 (in FUN_00e7ade0)
+  UNCONDITIONAL_CALL @ 0x00b59bc6 (in FUN_00b59ae0)
+  UNCONDITIONAL_CALL @ 0x00b59751 (in FUN_00b596a0)
+  UNCONDITIONAL_CALL @ 0x00a84467 (in FUN_00a84310)
+  UNCONDITIONAL_CALL @ 0x00a6d036 (in FUN_00a6cfe0)
+  UNCONDITIONAL_CALL @ 0x00cbcc3a (in FUN_00cbcbd0)
+  UNCONDITIONAL_CALL @ 0x00cbc99c (in FUN_00cbc920)
+  UNCONDITIONAL_CALL @ 0x00a2f477 (in FUN_00a2f420)
+  UNCONDITIONAL_CALL @ 0x00a32492 (in FUN_00a32470)
+  UNCONDITIONAL_CALL @ 0x00a32509 (in FUN_00a32470)
+  UNCONDITIONAL_CALL @ 0x00a3253e (in FUN_00a32470)
+  UNCONDITIONAL_CALL @ 0x00a325fc (in FUN_00a32470)
+  UNCONDITIONAL_CALL @ 0x00a3264d (in FUN_00a32470)
+  UNCONDITIONAL_CALL @ 0x00a32671 (in FUN_00a32470)
+  UNCONDITIONAL_CALL @ 0x00a32695 (in FUN_00a32470)
+  UNCONDITIONAL_CALL @ 0x00a36ea0 (in FUN_00a36e80)
+  UNCONDITIONAL_CALL @ 0x00a36ede (in FUN_00a36e80)
+  UNCONDITIONAL_CALL @ 0x00a4bb9f (in FUN_00a4bb80)
+  UNCONDITIONAL_CALL @ 0x00a4bbb3 (in FUN_00a4bb80)
+  UNCONDITIONAL_CALL @ 0x00a5445f (in FUN_00a54440)
+  UNCONDITIONAL_CALL @ 0x00a634c0 (in FUN_00a634b0)
+  UNCONDITIONAL_CALL @ 0x00a65911 (in FUN_00a65800)
+  UNCONDITIONAL_CALL @ 0x00a6e5d2 (in FUN_00a6e5b0)
+  UNCONDITIONAL_CALL @ 0x00a6e5ea (in FUN_00a6e5b0)
+  UNCONDITIONAL_CALL @ 0x00a6e669 (in FUN_00a6e5b0)
+  UNCONDITIONAL_CALL @ 0x00c1b077 (in FUN_00c1b060)
+  UNCONDITIONAL_CALL @ 0x00a80a2f (in FUN_00a80a10)
+  UNCONDITIONAL_CALL @ 0x00a80a4b (in FUN_00a80a10)
+  UNCONDITIONAL_CALL @ 0x00c2946f (in FUN_00c29450)
+  UNCONDITIONAL_CALL @ 0x00c29487 (in FUN_00c29450)
+  UNCONDITIONAL_CALL @ 0x00c3259f (in FUN_00c32580)
+  UNCONDITIONAL_CALL @ 0x00c325b7 (in FUN_00c32580)
+  ... (truncated)
+  Total: 41 refs
+
+--- Calls FROM Engine pointer-map lookup used by static geometry (0x00a53c30) ---
+  Total: 0 calls
+
+======================================================================
+Engine pointer-map publication used by static geometry @ 0x00b57ea0
+======================================================================
+  Function: FUN_00b57ea0 @ 0x00b57ea0, Size: 121 bytes
+
+void __thiscall FUN_00b57ea0(int *param_1,undefined4 param_2)
+
+{
+  char cVar1;
+  int iVar2;
+  undefined4 *puVar3;
+  
+  iVar2 = (**(code **)(*param_1 + 4))(param_2);
+  puVar3 = *(undefined4 **)(param_1[2] + iVar2 * 4);
+  while( true ) {
+    if (puVar3 == (undefined4 *)0x0) {
+      puVar3 = (undefined4 *)(**(code **)(*param_1 + 0x14))();
+      (**(code **)(*param_1 + 0xc))(puVar3,param_2,param_2);
+      *puVar3 = *(undefined4 *)(param_1[2] + iVar2 * 4);
+      *(undefined4 **)(param_1[2] + iVar2 * 4) = puVar3;
+      param_1[3] = param_1[3] + 1;
+      return;
+    }
+    cVar1 = (**(code **)(*param_1 + 8))(param_2,puVar3[1]);
+    if (cVar1 != '\0') break;
+    puVar3 = (undefined4 *)*puVar3;
+  }
+  puVar3[2] = param_2;
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00b57ea0 (Engine pointer-map publication used by static geometry)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00a5d45c (in FUN_00a5d450)
+  UNCONDITIONAL_CALL @ 0x00b6302b (in FUN_00b62de0)
+  UNCONDITIONAL_CALL @ 0x00b62ccb (in FUN_00b62bd0)
+  UNCONDITIONAL_CALL @ 0x00e738b6 (in FUN_00e736b0)
+  UNCONDITIONAL_CALL @ 0x00e73946 (in FUN_00e736b0)
+  UNCONDITIONAL_CALL @ 0x00e739df (in FUN_00e736b0)
+  UNCONDITIONAL_CALL @ 0x00e7b50c (in FUN_00e7b260)
+  UNCONDITIONAL_CALL @ 0x00b597ba (in FUN_00b596a0)
+  UNCONDITIONAL_CALL @ 0x00a843ee (in FUN_00a84310)
+  UNCONDITIONAL_CALL @ 0x00cbcc68 (in FUN_00cbcbd0)
+  UNCONDITIONAL_CALL @ 0x00c3b175 (in FUN_00c3afc0)
+  UNCONDITIONAL_CALL @ 0x00a66412 (in FUN_00a663e0)
+  UNCONDITIONAL_CALL @ 0x00c531db (in FUN_00c53030)
+  UNCONDITIONAL_CALL @ 0x00c5334f (in FUN_00c53280)
+  UNCONDITIONAL_CALL @ 0x00e6ee8c (in FUN_00e6ee00)
+  UNCONDITIONAL_CALL @ 0x00e8faf1 (in FUN_00e8fa80)
+  UNCONDITIONAL_CALL @ 0x00e71dbe (in FUN_00e71cf0)
+  UNCONDITIONAL_CALL @ 0x00e72bd6 (in FUN_00e72aa0)
+  UNCONDITIONAL_CALL @ 0x00e75c63 (in FUN_00e75a70)
+  UNCONDITIONAL_CALL @ 0x00e8b916 (in FUN_00e8b740)
+  UNCONDITIONAL_CALL @ 0x00e94cb7 (in FUN_00e94c20)
+  UNCONDITIONAL_CALL @ 0x00e956d7 (in FUN_00e95550)
+  UNCONDITIONAL_CALL @ 0x00e95735 (in FUN_00e95550)
+  UNCONDITIONAL_CALL @ 0x00e6dcb0 (in ???)
+  UNCONDITIONAL_CALL @ 0x00e6dd2b (in ???)
+  UNCONDITIONAL_CALL @ 0x00e6dd79 (in FUN_00e6dd40)
+  UNCONDITIONAL_CALL @ 0x00e71f3f (in ???)
+  UNCONDITIONAL_CALL @ 0x00e72a7a (in FUN_00e72980)
+  Total: 28 refs
+
+--- Calls FROM Engine pointer-map publication used by static geometry (0x00b57ea0) ---
+  Total: 0 calls
+
+======================================================================
+Instruction window Static geometry group allocation and map owner @ 0x00e94c20
+======================================================================
+   0x00e94c02  CALL 0x00aa13e0
+   0x00e94c07  ADD ESP,0x4
+   0x00e94c0a  TEST EAX,EAX
+   0x00e94c0c  JZ 0x00e94c15
+   0x00e94c0e  MOV ECX,EAX
+   0x00e94c10  JMP 0x00e94ab0
+   0x00e94c15  XOR EAX,EAX
+   0x00e94c17  RET
+>> 0x00e94c20  SUB ESP,0x8
+   0x00e94c23  MOV EAX,dword ptr [ESP + 0x10]
+   0x00e94c27  PUSH EBX
+   0x00e94c28  PUSH EBP
+   0x00e94c29  PUSH ESI
+   0x00e94c2a  PUSH EDI
+   0x00e94c2b  MOV EDI,dword ptr [ESP + 0x1c]
+   0x00e94c2f  MOV ESI,dword ptr [EDI + 0xc]
+   0x00e94c32  MOV EBX,ECX
+   0x00e94c34  XOR ECX,ECX
+   0x00e94c36  MOV dword ptr [ESP + 0x14],EBX
+   0x00e94c3a  MOV dword ptr [ESP + 0x10],ECX
+   0x00e94c3e  CMP EAX,dword ptr [EDI + 0x20]
+   0x00e94c41  JNC 0x00e94c4f
+   0x00e94c43  MOV EDX,dword ptr [EDI + 0x24]
+   0x00e94c46  MOV EAX,dword ptr [EDX + EAX*0x4]
+   0x00e94c49  MOV dword ptr [ESP + 0x1c],EAX
+   0x00e94c4d  JMP 0x00e94c53
+   0x00e94c4f  MOV dword ptr [ESP + 0x1c],ECX
+   0x00e94c53  CMP ESI,ECX
+   0x00e94c55  JNZ 0x00e94c61
+   0x00e94c57  MOV ESI,dword ptr [ESP + 0x1c]
+   0x00e94c5b  OR ESI,0x80000000
+   0x00e94c61  MOV dword ptr [ESP + 0x20],ECX
+   0x00e94c65  CMP byte ptr [EDI + 0x14],CL
+   0x00e94c68  JZ 0x00e94c78
+   0x00e94c6a  OR ESI,0x40000000
+   0x00e94c70  MOV dword ptr [ESP + 0x20],0x80000000
+   0x00e94c78  LEA ECX,[ESP + 0x10]
+   0x00e94c7c  PUSH ECX
+   0x00e94c7d  LEA EBP,[EBX + 0xc]
+   0x00e94c80  PUSH ESI
+   0x00e94c81  MOV ECX,EBP
+   0x00e94c83  CALL 0x00a53c30
+   0x00e94c88  TEST AL,AL
+   0x00e94c8a  JZ 0x00e94c98
+   0x00e94c8c  MOV EBX,dword ptr [ESP + 0x10]
+   0x00e94c90  TEST EBX,EBX
+   0x00e94c92  JNZ 0x00e94cbc
+   0x00e94c94  MOV EBX,dword ptr [ESP + 0x14]
+   0x00e94c98  MOV EDX,dword ptr [ESP + 0x20]
+   0x00e94c9c  MOV EAX,dword ptr [EBX + 0x8]
+   0x00e94c9f  PUSH 0x0
+   0x00e94ca1  PUSH EDX
+   0x00e94ca2  PUSH ESI
+   0x00e94ca3  PUSH EAX
+   0x00e94ca4  PUSH 0x10000
+   0x00e94ca9  CALL 0x00e94b80
+   0x00e94cae  ADD ESP,0x14
+   0x00e94cb1  MOV EBX,EAX
+   0x00e94cb3  PUSH EBX
+   0x00e94cb4  PUSH ESI
+   0x00e94cb5  MOV ECX,EBP
+   0x00e94cb7  CALL 0x00b57ea0
+   0x00e94cbc  MOV ECX,dword ptr [EDI + 0x20]
+   0x00e94cbf  MOV EAX,dword ptr [EDI + 0x1c]
+   0x00e94cc2  MOV ESI,dword ptr [ESP + 0x1c]
+   0x00e94cc6  CMP ECX,0x1
+   0x00e94cc9  SETA CL
+   0x00e94ccc  IMUL EAX,ESI
+   0x00e94ccf  MOVZX EDX,CL
+   0x00e94cd2  PUSH EDX
+   0x00e94cd3  PUSH EAX
+   0x00e94cd4  MOV ECX,EBX
+   0x00e94cd6  CALL 0x00e94650
+   0x00e94cdb  MOV ECX,EAX
+   0x00e94cdd  MOV EAX,dword ptr [ECX + 0xc]
+   0x00e94ce0  XOR EDX,EDX
+   0x00e94ce2  DIV ESI
+   0x00e94ce4  MOV dword ptr [EDI + 0x38],EAX
+   0x00e94ce7  POP EDI
+   0x00e94ce8  POP ESI
+   0x00e94ce9  POP EBP
+   0x00e94cea  MOV EAX,ECX
+   0x00e94cec  POP EBX
+   0x00e94ced  ADD ESP,0x8
+   0x00e94cf0  RET 0x8
+   0x00e94d00  PUSH ESI
+   0x00e94d01  PUSH EDI
+   0x00e94d02  MOV EDI,dword ptr [ESP + 0xc]
+   0x00e94d06  MOV ESI,dword ptr [EDI + 0x28]
+   0x00e94d09  TEST ESI,ESI
+   0x00e94d0b  JZ 0x00e94d24
+   0x00e94d0d  PUSH ESI
+   0x00e94d0e  CALL 0x00e98750
+   0x00e94d13  MOV EAX,dword ptr [ESI]
+   0x00e94d15  MOV EDX,dword ptr [EAX]
+   0x00e94d17  PUSH 0x1
+   0x00e94d19  MOV ECX,ESI
+   0x00e94d1b  CALL EDX
+   0x00e94d1d  MOV dword ptr [EDI + 0x28],0x0
+   0x00e94d24  POP EDI
+   0x00e94d25  POP ESI
+   0x00e94d26  RET 0x4
+   0x00e94d30  PUSH ESI
+   0x00e94d31  MOV ESI,ECX
+   0x00e94d33  MOV dword ptr [ESI],0x10f1008
+   0x00e94d39  CMP ESI,dword ptr [0x0126fa34]
+   0x00e94d3f  JNZ 0x00e94d4b
+   0x00e94d41  MOV dword ptr [0x0126fa34],0x0
+   0x00e94d4b  CALL 0x00e98710
+
+# CHIP CONSTRUCTION, RETIREMENT, AND NULL-VB PROPAGATION
+
+======================================================================
+NiVBChip construction from static NiVBBlock @ 0x00e98660
+======================================================================
+  Function: FUN_00e98660 @ 0x00e98660, Size: 132 bytes
+
+undefined4 * __thiscall FUN_00e98660(int param_1,undefined4 *param_2)
+
+{
+  uint uVar1;
+  undefined4 uVar2;
+  undefined4 *puVar3;
+  
+  uVar1 = (uint)param_2;
+  if (*(uint *)(param_1 + 0x24) < param_2) {
+    return (undefined4 *)0x0;
+  }
+  puVar3 = DAT_0126fa58;
+  if (DAT_0126fa58 == (undefined4 *)0x0) {
+    FUN_00e985a0();
+    puVar3 = DAT_0126fa58;
+  }
+  DAT_0126fa58 = (undefined4 *)puVar3[6];
+  if (DAT_0126fa58 != (undefined4 *)0x0) {
+    *(undefined4 *)((int)DAT_0126fa58 + 0x1c) = 0;
+  }
+  puVar3[6] = 0;
+  puVar3[7] = 0;
+  puVar3[1] = param_1;
+  puVar3[2] = *(undefined4 *)(param_1 + 8);
+  puVar3[3] = *(undefined4 *)(param_1 + 0x20);
+  puVar3[5] = uVar1;
+  *(int *)(param_1 + 0x20) = *(int *)(param_1 + 0x20) + uVar1;
+  *(int *)(param_1 + 0x24) = *(int *)(param_1 + 0x24) - uVar1;
+  *(int *)(param_1 + 0x28) = *(int *)(param_1 + 0x28) - uVar1;
+  param_2 = puVar3;
+  uVar2 = FUN_00a64330(&param_2);
+  *puVar3 = uVar2;
+  return puVar3;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00e98660 (NiVBChip construction from static NiVBBlock)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00e94680 (in FUN_00e94650)
+  Total: 1 refs
+
+--- Calls FROM NiVBChip construction from static NiVBBlock (0x00e98660) ---
+  0x00e9867f -> 0x00e985a0 FUN_00e985a0
+  0x00e986d5 -> 0x00a64330 FUN_00a64330
+  Total: 2 calls
+
+======================================================================
+Static NiVBBlock chip retirement accounting @ 0x00e94150
+======================================================================
+  Function: FUN_00e94150 @ 0x00e94150, Size: 69 bytes
+
+void __thiscall FUN_00e94150(int param_1,int param_2)
+
+{
+  int iVar1;
+  
+  iVar1 = *(int *)(param_1 + 0x2c);
+  if (iVar1 != 0) {
+    while (iVar1 != param_2) {
+      iVar1 = *(int *)(iVar1 + 0x3c);
+      if (iVar1 == 0) {
+        return;
+      }
+    }
+    if (*(int *)(iVar1 + 0x3c) != 0) {
+      *(undefined4 *)(*(int *)(iVar1 + 0x3c) + 0x40) = *(undefined4 *)(iVar1 + 0x40);
+    }
+    if (*(int *)(iVar1 + 0x40) != 0) {
+      *(undefined4 *)(*(int *)(iVar1 + 0x40) + 0x3c) = *(undefined4 *)(iVar1 + 0x3c);
+    }
+    if (iVar1 == *(int *)(param_1 + 0x2c)) {
+      *(undefined4 *)(param_1 + 0x2c) = *(undefined4 *)(iVar1 + 0x3c);
+    }
+  }
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00e94150 (Static NiVBBlock chip retirement accounting)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00e944bc (in FUN_00e94490)
+  Total: 1 refs
+
+--- Calls FROM Static NiVBBlock chip retirement accounting (0x00e94150) ---
+  Total: 0 calls
+
+======================================================================
+Static NiVBChip retirement owner @ 0x00e94490
+======================================================================
+  Function: FUN_00e94490 @ 0x00e94490, Size: 92 bytes
+
+void __thiscall FUN_00e94490(int param_1,int param_2,undefined4 param_3)
+
+{
+  int iVar1;
+  int iVar2;
+  
+  iVar1 = *(int *)(*(int *)(param_1 + 0x20) + param_2 * 4);
+  if (iVar1 != 0) {
+    iVar2 = *(int *)(iVar1 + 0x24);
+    FUN_00e98500(param_3);
+    if (iVar2 != *(int *)(iVar1 + 0x24)) {
+      FUN_00e94150(iVar1);
+      if (*(int *)(iVar1 + 0x28) == *(int *)(iVar1 + 0xc)) {
+        FUN_00a93c50(param_2);
+        FUN_00e94330(iVar1);
+        return;
+      }
+      FUN_00e94220(iVar1);
+    }
+  }
+  return;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00e94490 (Static NiVBChip retirement owner)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00e9479b (in FUN_00e94770)
+  Total: 1 refs
+
+--- Calls FROM Static NiVBChip retirement owner (0x00e94490) ---
+  0x00e944ae -> 0x00e98500 FUN_00e98500
+  0x00e944bc -> 0x00e94150 FUN_00e94150
+  0x00e944cd -> 0x00a93c50 FUN_00a93c50
+  0x00e944d5 -> 0x00e94330 FUN_00e94330
+  0x00e944e1 -> 0x00e94220 FUN_00e94220
+  Total: 5 calls
+
+======================================================================
+Instruction window NiVBChip construction from block @ 0x00e98660
+======================================================================
+   0x00e98637  POP ESI
+   0x00e98638  MOV dword ptr [0x0126fa58],EDI
+   0x00e9863e  POP EDI
+   0x00e9863f  RET
+   0x00e98640  MOV EAX,dword ptr [ECX + 0x30]
+   0x00e98643  PUSH EAX
+   0x00e98644  MOV dword ptr [ECX + 0x2c],0x10f0f7c
+   0x00e9864b  CALL 0x00aa10f0
+   0x00e98650  POP ECX
+   0x00e98651  RET
+>> 0x00e98660  PUSH EBX
+   0x00e98661  MOV EBX,dword ptr [ESP + 0x8]
+   0x00e98665  PUSH ESI
+   0x00e98666  MOV ESI,ECX
+   0x00e98668  CMP dword ptr [ESI + 0x24],EBX
+   0x00e9866b  JNC 0x00e98674
+   0x00e9866d  POP ESI
+   0x00e9866e  XOR EAX,EAX
+   0x00e98670  POP EBX
+   0x00e98671  RET 0x4
+   0x00e98674  PUSH EDI
+   0x00e98675  MOV EDI,dword ptr [0x0126fa58]
+   0x00e9867b  TEST EDI,EDI
+   0x00e9867d  JNZ 0x00e9868a
+   0x00e9867f  CALL 0x00e985a0
+   0x00e98684  MOV EDI,dword ptr [0x0126fa58]
+   0x00e9868a  MOV ECX,dword ptr [EDI + 0x18]
+   0x00e9868d  LEA EAX,[EDI + 0x18]
+   0x00e98690  MOV dword ptr [0x0126fa58],ECX
+   0x00e98696  TEST ECX,ECX
+   0x00e98698  JZ 0x00e986a1
+   0x00e9869a  MOV dword ptr [ECX + 0x1c],0x0
+   0x00e986a1  MOV dword ptr [EAX],0x0
+   0x00e986a7  MOV dword ptr [EDI + 0x1c],0x0
+   0x00e986ae  MOV dword ptr [EDI + 0x4],ESI
+   0x00e986b1  MOV EAX,dword ptr [ESI + 0x8]
+   0x00e986b4  MOV dword ptr [EDI + 0x8],EAX
+   0x00e986b7  MOV ECX,dword ptr [ESI + 0x20]
+   0x00e986ba  MOV dword ptr [EDI + 0xc],ECX
+   0x00e986bd  MOV dword ptr [EDI + 0x14],EBX
+   0x00e986c0  ADD dword ptr [ESI + 0x20],EBX
+   0x00e986c3  SUB dword ptr [ESI + 0x24],EBX
+   0x00e986c6  SUB dword ptr [ESI + 0x28],EBX
+   0x00e986c9  LEA EDX,[ESP + 0x10]
+   0x00e986cd  PUSH EDX
+   0x00e986ce  LEA ECX,[ESI + 0x2c]
+   0x00e986d1  MOV dword ptr [ESP + 0x14],EDI
+   0x00e986d5  CALL 0x00a64330
+   0x00e986da  MOV dword ptr [EDI],EAX
+   0x00e986dc  MOV EAX,EDI
+   0x00e986de  POP EDI
+   0x00e986df  POP ESI
+   0x00e986e0  POP EBX
+   0x00e986e1  RET 0x4
+   0x00e986f0  PUSH ESI
+   0x00e986f1  MOV ESI,ECX
+   0x00e986f3  PUSH 0x0
+   0x00e986f5  LEA EAX,[ESI + 0x4]
+   0x00e986f8  PUSH EAX
+   0x00e986f9  MOV dword ptr [ESI],0x10f1644
+   0x00e986ff  CALL dword ptr [0x00fdf0e4]
+   0x00e98705  MOV dword ptr [ESI + 0x8],0x0
+   0x00e9870c  MOV EAX,ESI
+   0x00e9870e  POP ESI
+   0x00e9870f  RET
+   0x00e98710  MOV dword ptr [ECX],0x10f1644
+   0x00e98716  MOV ECX,dword ptr [ECX + 0x8]
+   0x00e98719  TEST ECX,ECX
+   0x00e9871b  JZ 0x00e98725
+   0x00e9871d  MOV EAX,dword ptr [ECX]
+   0x00e9871f  PUSH ECX
+   0x00e98720  MOV ECX,dword ptr [EAX + 0x8]
+   0x00e98723  CALL ECX
+   0x00e98725  RET
+   0x00e98730  PUSH ESI
+   0x00e98731  MOV ESI,ECX
+   0x00e98733  LEA EAX,[ESI + 0x4]
+   0x00e98736  PUSH EAX
+   0x00e98737  CALL dword ptr [0x00fdf1c0]
+   0x00e9873d  MOV ECX,dword ptr [ESP + 0x8]
+   0x00e98741  MOV dword ptr [ECX + 0x8],ESI
+   0x00e98744  POP ESI
+   0x00e98745  RET 0x4
+   0x00e98750  PUSH EBX
+   0x00e98751  PUSH EBP
+   0x00e98752  PUSH ESI
+   0x00e98753  PUSH EDI
+   0x00e98754  MOV EDI,ECX
+   0x00e98756  LEA EAX,[EDI + 0x4]
+   0x00e98759  PUSH EAX
+   0x00e9875a  CALL dword ptr [0x00fdf1c4]
+   0x00e98760  MOV EBX,dword ptr [ESP + 0x14]
+   0x00e98764  MOV EBP,dword ptr [EBX + 0x20]
+   0x00e98767  XOR ESI,ESI
+   0x00e98769  MOV dword ptr [EBX + 0x8],ESI
+   0x00e9876c  CMP EBP,ESI
+   0x00e9876e  JBE 0x00e98780
+   0x00e98770  MOV EDX,dword ptr [EDI]
+   0x00e98772  MOV EAX,dword ptr [EDX + 0x1c]
+   0x00e98775  PUSH ESI
+   0x00e98776  PUSH EBX
+   0x00e98777  MOV ECX,EDI
+   0x00e98779  CALL EAX
+   0x00e9877b  INC ESI
+   0x00e9877c  CMP ESI,EBP
+   0x00e9877e  JC 0x00e98770
+   0x00e98780  MOV ECX,EBX
+   0x00e98782  CALL 0x00e8eee0
+   0x00e98787  POP EDI
+   0x00e98788  POP ESI
+   0x00e98789  POP EBP
+
+# COMMON PUBLICATION AND RETRY BOUNDARY
+
+======================================================================
+Common release-then-allocate stream wrapper @ 0x00e8bfa0
+======================================================================
+  Function: FUN_00e8bfa0 @ 0x00e8bfa0, Size: 67 bytes
+
+undefined4 FUN_00e8bfa0(int param_1,uint param_2)
+
+{
+  int *piVar1;
+  int iVar2;
+  
+  piVar1 = *(int **)(param_1 + 8);
+  (**(code **)(*piVar1 + 0x1c))(param_1,param_2);
+  iVar2 = (**(code **)(*piVar1 + 0x18))(param_1,param_2);
+  if (iVar2 != 0) {
+    if (param_2 < *(uint *)(param_1 + 0x20)) {
+      *(int *)(*(int *)(param_1 + 0x28) + param_2 * 4) = iVar2;
+    }
+    return 1;
+  }
+  return 0;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00e8bfa0 (Common release-then-allocate stream wrapper)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00e8c2fe (in FUN_00e8c1e0)
+  UNCONDITIONAL_CALL @ 0x00e8c958 (in FUN_00e8c820)
+  UNCONDITIONAL_CALL @ 0x00e6dbfa (in FUN_00e6da60)
+  UNCONDITIONAL_CALL @ 0x00e704ea (in FUN_00e70140)
+  UNCONDITIONAL_CALL @ 0x00e7058f (in FUN_00e70140)
+  UNCONDITIONAL_CALL @ 0x00e709a1 (in FUN_00e70720)
+  UNCONDITIONAL_CALL @ 0x00e70d49 (in FUN_00e70be0)
+  UNCONDITIONAL_CALL @ 0x00e8c641 (in FUN_00e8c570)
+  UNCONDITIONAL_CALL @ 0x00e7689f (in FUN_00e76770)
+  Total: 9 refs
+
+--- Calls FROM Common release-then-allocate stream wrapper (0x00e8bfa0) ---
+  Total: 0 calls
+
+======================================================================
+Vanilla all-stream NiVBChip validity predicate @ 0x00e8eeb0
+======================================================================
+  Function: FUN_00e8eeb0 @ 0x00e8eeb0, Size: 46 bytes
+
+undefined4 __fastcall FUN_00e8eeb0(int param_1)
+
+{
+  uint uVar1;
+  int *piVar2;
+  uint uVar3;
+  
+  uVar1 = *(uint *)(param_1 + 0x20);
+  if (uVar1 == 0) {
+    return 0;
+  }
+  uVar3 = 0;
+  if (uVar1 != 0) {
+    piVar2 = *(int **)(param_1 + 0x28);
+    do {
+      if (*piVar2 == 0) {
+        return 0;
+      }
+      if (*(int *)(*piVar2 + 8) == 0) {
+        return 0;
+      }
+      uVar3 = uVar3 + 1;
+      piVar2 = piVar2 + 1;
+    } while (uVar3 < uVar1);
+  }
+  return 1;
+}
+
+
+
+----------------------------------------------------------------------
+References TO 0x00e8eeb0 (Vanilla all-stream NiVBChip validity predicate)
+----------------------------------------------------------------------
+  UNCONDITIONAL_CALL @ 0x00e6d7a3 (in FUN_00e6d780)
+  UNCONDITIONAL_CALL @ 0x00e72003 (in FUN_00e71fe0)
+  UNCONDITIONAL_CALL @ 0x00e72ad6 (in FUN_00e72aa0)
+  UNCONDITIONAL_CALL @ 0x00e7cadc (in FUN_00e7cac0)
+  UNCONDITIONAL_CALL @ 0x00e7298e (in FUN_00e72980)
+  UNCONDITIONAL_CALL @ 0x00e74cd6 (in FUN_00e74cc0)
+  Total: 6 refs
+
+--- Calls FROM Vanilla all-stream NiVBChip validity predicate (0x00e8eeb0) ---
+  Total: 0 calls
+
+======================================================================
+Instruction window Common release-then-allocate stream wrapper @ 0x00e8bfa0
+======================================================================
+   0x00e8bf72  POP ESI
+   0x00e8bf73  POP EBP
+   0x00e8bf74  ADD ESP,0x8
+   0x00e8bf77  RET
+   0x00e8bf80  INC dword ptr [ECX + 0x3c]
+   0x00e8bf83  RET
+   0x00e8bf90  MOV EAX,dword ptr [ECX + 0x3c]
+   0x00e8bf93  RET
+>> 0x00e8bfa0  PUSH EBX
+   0x00e8bfa1  MOV EBX,dword ptr [ESP + 0xc]
+   0x00e8bfa5  PUSH ESI
+   0x00e8bfa6  PUSH EDI
+   0x00e8bfa7  MOV EDI,dword ptr [ESP + 0x10]
+   0x00e8bfab  MOV ESI,dword ptr [EDI + 0x8]
+   0x00e8bfae  MOV EAX,dword ptr [ESI]
+   0x00e8bfb0  MOV EDX,dword ptr [EAX + 0x1c]
+   0x00e8bfb3  PUSH EBX
+   0x00e8bfb4  PUSH EDI
+   0x00e8bfb5  MOV ECX,ESI
+   0x00e8bfb7  CALL EDX
+   0x00e8bfb9  MOV EAX,dword ptr [ESI]
+   0x00e8bfbb  MOV EDX,dword ptr [EAX + 0x18]
+   0x00e8bfbe  PUSH EBX
+   0x00e8bfbf  PUSH EDI
+   0x00e8bfc0  MOV ECX,ESI
+   0x00e8bfc2  CALL EDX
+   0x00e8bfc4  TEST EAX,EAX
+   0x00e8bfc6  JZ 0x00e8bfdb
+   0x00e8bfc8  CMP EBX,dword ptr [EDI + 0x20]
+   0x00e8bfcb  JNC 0x00e8bfd3
+   0x00e8bfcd  MOV ECX,dword ptr [EDI + 0x28]
+   0x00e8bfd0  MOV dword ptr [ECX + EBX*0x4],EAX
+   0x00e8bfd3  POP EDI
+   0x00e8bfd4  POP ESI
+   0x00e8bfd5  MOV AL,0x1
+   0x00e8bfd7  POP EBX
+   0x00e8bfd8  RET 0x8
+   0x00e8bfdb  POP EDI
+   0x00e8bfdc  POP ESI
+   0x00e8bfdd  XOR AL,AL
+   0x00e8bfdf  POP EBX
+   0x00e8bfe0  RET 0x8
+   0x00e8bff0  PUSH ECX
+   0x00e8bff1  MOV EAX,dword ptr [ESP + 0x8]
+   0x00e8bff5  PUSH EBX
+   0x00e8bff6  MOV EBX,dword ptr [ESP + 0x18]
+   0x00e8bffa  PUSH ESI
+   0x00e8bffb  PUSH EDI
+   0x00e8bffc  MOV EDI,dword ptr [ESP + 0x1c]
+   0x00e8c000  PUSH EBX
+   0x00e8c001  LEA EDX,[ESP + 0x10]
+   0x00e8c005  PUSH EDX
+   0x00e8c006  MOV EDX,dword ptr [ESP + 0x20]
+   0x00e8c00a  PUSH EDI
+   0x00e8c00b  MOV ESI,ECX
+   0x00e8c00d  MOV ECX,dword ptr [EAX]
+   0x00e8c00f  PUSH EDX
+   0x00e8c010  PUSH EAX
+   0x00e8c011  MOV EAX,dword ptr [ECX + 0x2c]
+   0x00e8c014  MOV dword ptr [ESP + 0x20],0x0
+   0x00e8c01c  CALL EAX
+   0x00e8c01e  TEST EAX,EAX
+   0x00e8c020  JGE 0x00e8c02b
+   0x00e8c022  POP EDI
+   0x00e8c023  POP ESI
+   0x00e8c024  XOR EAX,EAX
+   0x00e8c026  POP EBX
+   0x00e8c027  POP ECX
+   0x00e8c028  RET 0x10
+   0x00e8c02b  LEA ECX,[ESI + 0x80]
+   0x00e8c031  PUSH ECX
+   0x00e8c032  CALL dword ptr [0x00fdf05c]
+   0x00e8c038  MOV EDX,dword ptr [ESP + 0xc]
+   0x00e8c03c  MOV dword ptr [ESI + 0x48],EDX
+   0x00e8c03f  MOV dword ptr [ESI + 0x4c],EDI
+   0x00e8c042  CMP dword ptr [ESI + 0x44],EDI
+   0x00e8c045  JNC 0x00e8c05f
+   0x00e8c047  MOV EAX,dword ptr [ESI + 0x40]
+   0x00e8c04a  PUSH EAX
+   0x00e8c04b  CALL 0x00aa10f0
+   0x00e8c050  PUSH EDI
+   0x00e8c051  CALL 0x00aa1070
+   0x00e8c056  ADD ESP,0x8
+   0x00e8c059  MOV dword ptr [ESI + 0x40],EAX
+   0x00e8c05c  MOV dword ptr [ESI + 0x44],EDI
+   0x00e8c05f  TEST EBX,0x3000
+   0x00e8c065  JNZ 0x00e8c079
+   0x00e8c067  MOV ECX,dword ptr [ESP + 0xc]
+   0x00e8c06b  MOV EDX,dword ptr [ESI + 0x40]
+
+# REQUIRED FIX CONTRACT
+The output must establish:
+  1. The exact Direct3D CreateVertexBuffer HRESULT and output-pointer handling at 0x00E941A0.
+  2. Whether a failed block remains in the static map or free list and can be selected again.
+  3. Whether 0x00E98660 copies a null block VB into NiVBChip +0x08 and returns a non-null chip.
+  4. Whether any static allocation, map, chip, or COM lifetime operation owns synchronization.
+  5. Whether returning false after chip +0x08 validation at 0x00E8BFA0 leaves a retryable state.
+  6. Whether retry must retire the just-published invalid chip immediately or on the next attempt.
+  7. The smallest safe hook boundary preserving two workers, full LOD visibility, and transient retry.

@@ -131,6 +131,7 @@ pub const LOCK_FREE_MAP_CONSTRUCTOR_A_ADDR: usize = 0x0044_C040;
 pub const LOCK_FREE_MAP_CONSTRUCTOR_B_ADDR: usize = 0x0044_C270;
 pub const BSTREE_LOCK_FREE_MAP_CONSTRUCTOR_ADDR: usize = 0x0066_5CB0;
 pub const BSFILE_OPEN_STATE_ADDR: usize = 0x00AF_F490;
+pub const EXTERIOR_CELL_LOADER_TASK_EXECUTE_ADDR: usize = 0x0052_7CB0;
 pub const IO_MANAGER_WORKER_PATCH_ADDR: usize = 0x00C3_DA7A;
 pub const IO_MANAGER_SINGLETON_ADDR: usize = 0x0120_2D98;
 pub const BSTREE_MANAGER_SINGLETON_ADDR: usize = 0x011D_5C48;
@@ -173,12 +174,38 @@ pub static BSTREE_LOCK_FREE_MAP_CONSTRUCTOR_HOOK: LazyLock<
 > = LazyLock::new(InlineHookContainer::new);
 pub static BSFILE_OPEN_STATE_HOOK: LazyLock<InlineHookContainer<BsFileOpenStateFn>> =
     LazyLock::new(InlineHookContainer::new);
+pub static EXTERIOR_CELL_LOADER_TASK_EXECUTE_HOOK: LazyLock<
+    InlineHookContainer<ExteriorCellLoaderTaskExecuteFn>,
+> = LazyLock::new(InlineHookContainer::new);
 
 pub static LOD_OBJECT_TASK_PRODUCER_HOOK: LazyLock<InlineHookContainer<LodObjectTaskProducerFn>> =
     LazyLock::new(InlineHookContainer::new);
 pub static LOD_TREE_TASK_PRODUCER_HOOK: LazyLock<InlineHookContainer<LodBlockTaskProducerFn>> =
     LazyLock::new(InlineHookContainer::new);
 pub static LOD_TERRAIN_TASK_PRODUCER_HOOK: LazyLock<InlineHookContainer<LodBlockTaskProducerFn>> =
+    LazyLock::new(InlineHookContainer::new);
+
+// ---- Static vertex-buffer lifetime ----
+
+pub const GEOMETRY_STREAM_ALLOCATE_ADDR: usize = 0x00E8_BFA0;
+pub const STATIC_GEOMETRY_ALLOCATE_ADDR: usize = 0x00E9_4C20;
+pub const STATIC_GEOMETRY_RETIRE_ADDR: usize = 0x00E9_4770;
+pub const STATIC_GEOMETRY_NULL_CHIP_GUARD_ADDR: usize = 0x00E9_4CDB;
+pub const STATIC_GEOMETRY_NULL_CHIP_RESUME_ADDR: usize = 0x00E9_4CE0;
+pub const GEOMETRY_CHIP_VALID_CALL_ADDRS: [usize; 6] = [
+    0x00E6_D7A3,
+    0x00E7_2003,
+    0x00E7_298E,
+    0x00E7_2AD6,
+    0x00E7_4CD6,
+    0x00E7_CADC,
+];
+
+pub static GEOMETRY_STREAM_ALLOCATE_HOOK: LazyLock<InlineHookContainer<GeometryStreamAllocateFn>> =
+    LazyLock::new(InlineHookContainer::new);
+pub static STATIC_GEOMETRY_ALLOCATE_HOOK: LazyLock<InlineHookContainer<StaticGeometryAllocateFn>> =
+    LazyLock::new(InlineHookContainer::new);
+pub static STATIC_GEOMETRY_RETIRE_HOOK: LazyLock<InlineHookContainer<StaticGeometryRetireFn>> =
     LazyLock::new(InlineHookContainer::new);
 
 // ---- SpeedTree clone lifetime ----

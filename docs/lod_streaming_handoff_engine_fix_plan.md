@@ -82,6 +82,14 @@ deprioritization, not a boost. Psycho now assigns native priority `0`, keeping
 the priority feature and dependency propagation active while restoring LOD
 eligibility during load and normal worker service.
 
+The following exterior stress crash exposed the remaining generic-worker
+contract. `ExteriorCellLoaderTask` publishes its active cell through the
+process-global pointer at `0x011C3F30`. Two instances could overlap on the two
+workers, allowing one task to clear that pointer after another task's null
+check but before its reload at `0x004686F4`. Psycho now serializes only the
+`ExteriorCellLoaderTask` execute method at `0x00527CB0`. Terrain, object, tree,
+and other safe IO work still use both workers.
+
 Release acceptance remains blocked on runtime stress validation and the
 separate handoff-ledger resynchronization work. Runtime tuning is no longer
 the only remaining work.
@@ -897,6 +905,138 @@ reused live clone.
    visibility and no return of the constructor ABI, `C0000417`, or BSTree TLS
    crashes.
 
+## Exterior-cell global-owner stress crash: 2026-07-19
+
+### Proven contract
+
+- The crash is `C0000005` on a `BSTaskManagerThread` executing an
+  `ExteriorCellLoaderTask`. The chain ends at `0x0044DDC0`, which reads
+  `ECX + 8`, with `ECX = 0`.
+- `0x005516C0` forwards its own `this` pointer unchanged to that leaf. At the
+  crashing call site, `0x004686F4` loads `this` from global `0x011C3F30` and
+  `0x004686FA` calls `0x005516C0`.
+- The same caller checks `0x011C3F30` for null at `0x004686D3`, but reloads it
+  later. This is a concrete check/reload race, not a corrupt task pointer or
+  allocator failure.
+- Per-form loader `0x00550500` writes the current cell to `0x011C3F30` at
+  `0x0055065D`, performs form construction, then clears the global at
+  `0x00550862`. The owner is process-global, not TLS or task-local, and the
+  audited call path has no enclosing lock.
+- Exterior demand owner `0x00452580` may submit multiple cell tasks while
+  crossing a grid edge. Generic dispatch at `0x00C3FC80` sends independently
+  dequeued tasks to either worker, so two execute bodies can overlap.
+- Vanilla passes exactly one worker at `0x00C3DA7A`. The execute method at
+  `0x00527CB0` is the only vtable entry that reaches the shared form-loading
+  path, and it performs no wait on another IO task. Serializing this method
+  restores the native ordering without changing task creation, queue
+  ownership, completion, or destruction.
+
+### Implemented fix
+
+1. Hook `ExteriorCellLoaderTask::execute` at `0x00527CB0` and hold one blocking
+   worker mutex across the complete original method.
+2. Keep the task payload processing and its final native release in the
+   original method. Do not replace, cancel, delay-publish, or destroy a task.
+3. Own the serialization hook in the same all-or-nothing transaction as the
+   three TLS-capacity hooks, BSFile fallback, and two-worker patch. Failure to
+   own any contract retains vanilla one-worker IO.
+4. Report installation, executed cell tasks, and contended entries in
+   `PsychoInfo`.
+5. Preserve priority `0`, both workers, early LOD demand, identity handoff,
+   SpeedTree lifetime locking, and direct-read fallback.
+
+### Engineering balance
+
+- UAF protection improves because two cell loaders can no longer overwrite or
+  clear each other's process-global form owner.
+- OOM behavior is unchanged. The mutex has no per-task allocation and no
+  queue, payload, cache, or allocator ownership changes.
+- Performance retains two workers. Exterior-cell form parsing runs at its
+  vanilla concurrency of one, while terrain, object, tree, model, and safe file
+  tasks remain eligible on the other worker.
+
+### Runtime acceptance
+
+1. Start a new process and require the startup log to include serialized
+   exterior-cell loading with two workers and priority `0`.
+2. Repeat the exact exterior stress route. Require rising cell-loader runs;
+   waits may rise during grid transitions and are expected.
+3. Require no `0x0044DDC0` crash, no `0x011C3F30` null-owner signature, and no
+   return of the prior save-load or BSTree failures.
+4. Confirm distant terrain, objects, and trees remain visible and all three
+   priority counters continue rising.
+
+## LandLOD static vertex-buffer lifetime crash: 2026-07-19
+
+### Proven contract
+
+- The crash at `0x00E8C00D` occurs before Direct3D `Lock`. The instruction
+  dereferences the first argument passed to `0x00E8BFF0`; that argument is
+  `NiVBChip + 0x08`, and it is null while the `NiVBChip` itself is non-null.
+- `0x00E941A0` does not allocate a Direct3D resource. It only initializes the
+  static block usage and mode fields. The actual `CreateVertexBuffer` call is
+  in `0x00E94580`, which returns null when the HRESULT reports failure.
+- `0x00E98660` constructs a non-null chip by copying the parent block's
+  Direct3D buffer from block `+0x08` to chip `+0x08`. It does not validate the
+  copied pointer.
+- `NiStaticGeometryGroup` allocation at `0x00E94C20`, retirement at
+  `0x00E94770`, its block map, sorted free list, chip pool, accounting, and COM
+  release path own no lock. Terrain worker execution can enter renderer
+  prepacking, so two IO workers expose this shared lifetime race.
+- The common wrapper at `0x00E8BFA0` retires the old stream, allocates a new
+  chip, publishes it, and returns success based only on the chip pointer. The
+  shader-declaration caller then reads chip `+0x08` without another guard.
+- A genuine `CreateVertexBuffer` failure has a second native bug:
+  `0x00E94C20` dereferences the null chip at `0x00E94CDD` instead of returning
+  allocation failure to `0x00E8BFA0`.
+- Vanilla `NiGeometryBufferData::IsVBChipValid` at `0x00E8EEB0` checks every
+  stream and requires both a chip and chip `+0x08`. Stewie's rendering inline
+  checks only stream zero, so it can admit partially invalid multi-stream
+  geometry.
+
+### Implemented fix
+
+1. Serialize `NiStaticGeometryGroup` allocation and retirement with one
+   reentrant lock. The outer `0x00E8BFA0` transaction holds the same lock for
+   static geometry, while direct slot calls are also covered.
+2. Patch the null return at `0x00E94CDB` to unwind the existing stack frame and
+   return null. The common wrapper and all audited callers then use their
+   native deferred-pack path, so the next request retries allocation.
+3. Validate the published stream chip and chip `+0x08` before reporting
+   success. Retire an invalid publication immediately while the static
+   lifetime lock is still held, then return false for a clean retry.
+4. Restore all six audited call sites to vanilla `0x00E8EEB0` all-stream
+   validation, including when Stewie's weaker rendering inline is active.
+5. Keep two IO workers, priority zero, all terrain/object/tree tasks, early
+   demand, handoff, and renderer features enabled. Only the unsafe shared
+   static vertex-buffer allocator is serialized.
+6. Report lifetime-guard state, transactions, allocations, retirements, and
+   safe create/publication retries in the compact `PsychoInfo` report.
+
+### Engineering balance
+
+- UAF/race protection improves because static block, free-list, chip, and COM
+  lifetime transitions are one transaction and invalid resources are never
+  exposed to pack callers.
+- OOM behavior improves because Direct3D allocation failure becomes a
+  retryable deferred pack instead of a null dereference. No geometry or LOD
+  category is removed.
+- Performance retains both IO workers. Safe file, model, cell, object, tree,
+  and terrain work remains parallel; only the proven non-thread-safe static VB
+  ownership path is serialized.
+
+### Runtime acceptance
+
+1. Start a new process and require the LOD startup line to report `vb=true`,
+   priority zero, and two workers. `PsychoInfo` must show the lifetime guard ON.
+2. Repeat the long exterior stress route beyond the prior crash time. Require
+   no `0x00E8C00D` null-VB fault and no `0x00E94CDD` null-chip fault.
+3. Require distant terrain, objects, and trees throughout the run. A rising
+   safe-retry counter is acceptable; missing distant geometry is not.
+4. Repeat save-load and rapid cell-transition stress. Require stable worker
+   counts, continued LOD priority activity, and no return of the prior
+   exterior-owner, BSTree TLS, or SpeedTree failures.
+
 ## Research authority
 
 - `analysis/ghidra/output/perf/lod_streaming_pipeline_contract_audit.txt`
@@ -910,6 +1050,11 @@ reused live clone.
 - `analysis/ghidra/output/crash/lod_bstree_tls_slot_exhaustion_root_cause_audit.txt`
 - `analysis/ghidra/output/perf/lod_missing_distant_geometry_regression_audit.txt`
 - `analysis/ghidra/output/perf/lod_priority_queue_boundary_final_audit.txt`
+- `analysis/ghidra/output/crash/lod_exterior_cell_multiworker_null_owner_crash_audit.txt`
+- `analysis/ghidra/output/crash/lod_landlod_vertex_buffer_lifetime_crash_audit.txt`
+- `analysis/ghidra/output/crash/lod_vertex_buffer_geometry_group_allocation_followup_audit.txt`
+- `analysis/ghidra/output/crash/lod_static_vertex_buffer_allocation_failure_final_audit.txt`
+- `analysis/ghidra/output/crash/lod_static_vertex_buffer_creation_leaf_retry_audit.txt`
 
 The matching source scripts are:
 
@@ -924,3 +1069,8 @@ The matching source scripts are:
 - `analysis/ghidra/scripts/lod_bstree_tls_slot_exhaustion_root_cause_audit.py`
 - `analysis/ghidra/scripts/lod_missing_distant_geometry_regression_audit.py`
 - `analysis/ghidra/scripts/lod_priority_queue_boundary_final_audit.py`
+- `analysis/ghidra/scripts/lod_exterior_cell_multiworker_null_owner_crash_audit.py`
+- `analysis/ghidra/scripts/lod_landlod_vertex_buffer_lifetime_crash_audit.py`
+- `analysis/ghidra/scripts/lod_vertex_buffer_geometry_group_allocation_followup_audit.py`
+- `analysis/ghidra/scripts/lod_static_vertex_buffer_allocation_failure_final_audit.py`
+- `analysis/ghidra/scripts/lod_static_vertex_buffer_creation_leaf_retry_audit.py`

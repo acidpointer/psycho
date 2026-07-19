@@ -344,9 +344,19 @@ pub(crate) fn append_diagnostic_report(out: &mut String) {
         out,
         "Priority",
         format!(
-            "{} / req {} / max 255",
+            "{} / req {} / native 0",
             on_off(lod.scheduler.priority_installed),
             on_off(lod.scheduler.priority_requested),
+        ),
+    );
+    push_report_value(
+        out,
+        "Cell loading",
+        format!(
+            "{} / {} runs / {} waits",
+            on_off(lod.scheduler.cell_loader_serialization_installed),
+            lod.scheduler.cell_loader_executions,
+            lod.scheduler.cell_loader_contentions,
         ),
     );
     push_report_value(
@@ -373,6 +383,33 @@ pub(crate) fn append_diagnostic_report(out: &mut String) {
     push_report_value(out, "Capacity failures", lod.scheduler.capacity_failures);
     push_report_value(out, "Barrier layouts", barrier_layout_failures);
     push_report_value(out, "Barrier timeouts", barrier_timeouts);
+
+    push_report_section(out, "LOD vertex buffers");
+    push_report_value(
+        out,
+        "Lifetime guard",
+        format!(
+            "{} / {} transactions",
+            on_off(lod.vertex_buffers.installed),
+            lod.vertex_buffers.stream_transactions,
+        ),
+    );
+    push_report_value(
+        out,
+        "Static blocks",
+        format!(
+            "{} allocated / {} retired",
+            lod.vertex_buffers.static_allocations, lod.vertex_buffers.static_retirements,
+        ),
+    );
+    push_report_value(
+        out,
+        "Safe retries",
+        format!(
+            "{} create / {} publish",
+            lod.vertex_buffers.null_allocation_failures, lod.vertex_buffers.invalid_publications,
+        ),
+    );
 
     push_report_section(out, "LOD streaming");
     push_report_value(
@@ -556,6 +593,10 @@ pub(crate) fn append_diagnostic_report(out: &mut String) {
         .saturating_add(lod.scheduler.cache_fallbacks)
         .saturating_add(barrier_layout_failures)
         .saturating_add(barrier_timeouts);
+    let vertex_buffer_alerts = lod
+        .vertex_buffers
+        .null_allocation_failures
+        .saturating_add(lod.vertex_buffers.invalid_publications);
 
     push_report_section(out, "Warnings");
     let alert_total = display_alerts
@@ -564,7 +605,8 @@ pub(crate) fn append_diagnostic_report(out: &mut String) {
         .saturating_add(low_alerts)
         .saturating_add(lod_alerts)
         .saturating_add(tree_alerts)
-        .saturating_add(scheduler_alerts);
+        .saturating_add(scheduler_alerts)
+        .saturating_add(vertex_buffer_alerts);
     if alert_total == 0 {
         out.push_str("  No runtime warnings.\n");
     } else {
@@ -575,6 +617,7 @@ pub(crate) fn append_diagnostic_report(out: &mut String) {
         push_nonzero(out, "LOD handoff", lod_alerts);
         push_nonzero(out, "SpeedTree", tree_alerts);
         push_nonzero(out, "LOD scheduler", scheduler_alerts);
+        push_nonzero(out, "Vertex buffers", vertex_buffer_alerts);
         out.push_str("  Handled events are listed above.\n");
     }
 

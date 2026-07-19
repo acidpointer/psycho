@@ -226,9 +226,9 @@ handoff_fix_enabled = true
 # highest scheduling priority. Task classes and their ordering remain unchanged.
 priority_boost_enabled = true
 
-# Uses exactly two native IOManager workers. Psycho expands the engine's
-# per-thread map capacity before the second worker can be created. Disable this
-# only to compare against vanilla one-worker streaming.
+# Uses exactly two native IOManager workers. Psycho expands per-thread map
+# capacity and serializes only process-global exterior-cell form parsing.
+# Terrain, object, tree, and other safe IO tasks remain parallel.
 parallel_io_enabled = true
 
 # Request object and tree blocks 35 percent earlier, then retain them to 150
