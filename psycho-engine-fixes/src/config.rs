@@ -22,6 +22,7 @@ static CONFIG: OnceLock<PsychoConfig> = OnceLock::new();
 pub struct PsychoConfig {
     pub memory: MemoryConfig,
     pub engine_fixes: EngineFixesConfig,
+    pub io: IoConfig,
     pub lod: LodConfig,
     pub performance: PerformanceConfig,
     pub diagnostics: DiagnosticsConfig,
@@ -46,6 +47,7 @@ impl<'de> Deserialize<'de> for PsychoConfig {
                 raw.display,
                 legacy_task_safety,
             ),
+            io: IoConfig::from_raw(raw.io),
             lod: LodConfig::from_raw(raw.lod),
             performance: PerformanceConfig::from_raw(raw.performance, raw.perf, raw.zlib),
             diagnostics: DiagnosticsConfig::from_raw(raw.diagnostics, raw.general, raw.logger),
@@ -100,6 +102,30 @@ impl MemoryConfig {
 }
 
 #[derive(Debug, Serialize)]
+pub struct IoConfig {
+    /// Use exactly two native IOManager workers with audited shared-state guards.
+    pub parallel_enabled: bool,
+}
+
+impl Default for IoConfig {
+    fn default() -> Self {
+        Self {
+            parallel_enabled: true,
+        }
+    }
+}
+
+impl IoConfig {
+    fn from_raw(raw: Option<RawIoConfig>) -> Self {
+        let raw = raw.unwrap_or_default();
+        let default = Self::default();
+        Self {
+            parallel_enabled: raw.parallel_enabled.unwrap_or(default.parallel_enabled),
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
 pub struct LodConfig {
     /// Enable the complete LOD engine improvement.
     pub enabled: bool,
@@ -109,8 +135,6 @@ pub struct LodConfig {
     pub handoff_fix_enabled: bool,
     /// Raise native LOD task priority without changing task classes.
     pub priority_boost_enabled: bool,
-    /// Use the audited two-worker native IOManager configuration.
-    pub parallel_io_enabled: bool,
     pub object_prefetch_multiplier: f32,
     pub object_retention_multiplier: f32,
     pub tree_prefetch_multiplier: f32,
@@ -128,7 +152,6 @@ impl Default for LodConfig {
             prefetch_enabled: true,
             handoff_fix_enabled: true,
             priority_boost_enabled: true,
-            parallel_io_enabled: true,
             object_prefetch_multiplier: 1.35,
             object_retention_multiplier: 1.50,
             tree_prefetch_multiplier: 1.35,
@@ -189,9 +212,6 @@ impl LodConfig {
             priority_boost_enabled: raw
                 .priority_boost_enabled
                 .unwrap_or(default.priority_boost_enabled),
-            parallel_io_enabled: raw
-                .parallel_io_enabled
-                .unwrap_or(default.parallel_io_enabled),
             object_prefetch_multiplier,
             object_retention_multiplier,
             tree_prefetch_multiplier,
@@ -448,6 +468,7 @@ impl DiagnosticsConfig {
 struct RawPsychoConfig {
     memory: RawMemoryConfig,
     engine_fixes: Option<RawEngineFixesConfig>,
+    io: Option<RawIoConfig>,
     lod: Option<RawLodConfig>,
     performance: Option<RawPerformanceConfig>,
     diagnostics: Option<RawDiagnosticsConfig>,
@@ -514,12 +535,17 @@ struct RawEngineFixesConfig {
 
 #[derive(Default, Deserialize)]
 #[serde(default)]
+struct RawIoConfig {
+    parallel_enabled: Option<bool>,
+}
+
+#[derive(Default, Deserialize)]
+#[serde(default)]
 struct RawLodConfig {
     enabled: Option<bool>,
     prefetch_enabled: Option<bool>,
     handoff_fix_enabled: Option<bool>,
     priority_boost_enabled: Option<bool>,
-    parallel_io_enabled: Option<bool>,
     object_prefetch_multiplier: Option<f32>,
     object_retention_multiplier: Option<f32>,
     tree_prefetch_multiplier: Option<f32>,
@@ -599,4 +625,33 @@ pub fn get_config() -> anyhow::Result<&'static PsychoConfig> {
     CONFIG
         .get()
         .ok_or_else(|| anyhow::anyhow!("Config not loaded - call load_config() first"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::PsychoConfig;
+
+    #[test]
+    fn io_parallelism_is_owned_by_io_section() {
+        let config: PsychoConfig = toml::from_str(
+            r#"
+[io]
+parallel_enabled = false
+
+[lod]
+enabled = true
+"#,
+        )
+        .expect("parse IO configuration");
+
+        assert!(!config.io.parallel_enabled);
+        assert!(config.lod.enabled);
+    }
+
+    #[test]
+    fn io_parallelism_defaults_on_without_an_io_section() {
+        let config: PsychoConfig = toml::from_str("").expect("parse default configuration");
+
+        assert!(config.io.parallel_enabled);
+    }
 }

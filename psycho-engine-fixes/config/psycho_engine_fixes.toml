@@ -205,6 +205,16 @@ lowprocess_generic_locations_fix = true
 queued_task_lifetime_guard = true
 
 # =============================================================================
+# NATIVE IO
+# =============================================================================
+[io]
+
+# Uses exactly two native IOManager workers. Psycho expands per-thread map
+# capacity and serializes process-global exterior-cell, SpeedTree Compute, and
+# static vertex-buffer state while unrelated IO tasks remain parallel.
+parallel_enabled = true
+
+# =============================================================================
 # LOD STREAMING
 # =============================================================================
 [lod]
@@ -225,11 +235,6 @@ handoff_fix_enabled = true
 # Raises native LOD tasks and their dependencies to native priority 0, the
 # highest scheduling priority. Task classes and their ordering remain unchanged.
 priority_boost_enabled = true
-
-# Uses exactly two native IOManager workers. Psycho expands per-thread map
-# capacity and serializes only process-global exterior-cell form parsing.
-# Terrain, object, tree, and other safe IO tasks remain parallel.
-parallel_io_enabled = true
 
 # Request object and tree blocks 35 percent earlier, then retain them to 150
 # percent of their original distance to prevent boundary churn.

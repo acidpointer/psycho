@@ -1,4 +1,4 @@
-//! Static vertex-buffer allocation and lifetime repair.
+//! Static vertex-buffer allocation and lifetime repair for parallel IO.
 //!
 //! Terrain workers can enter NiStaticGeometryGroup concurrently. Its block
 //! map, free list, chip pool, and COM lifetime have no native synchronization.
@@ -154,7 +154,7 @@ pub(super) fn install() -> anyhow::Result<()> {
 
     INSTALLED.store(true, Ordering::Release);
     log::info!(
-        "[LOD] Static vertex-buffer lifetime serialized; null allocation unwind and 6 all-stream validity calls installed"
+        "[IO] Static vertex-buffer lifetime serialized; null allocation unwind and 6 all-stream validity calls installed"
     );
     Ok(())
 }
@@ -163,7 +163,7 @@ unsafe extern "stdcall" fn hook_geometry_stream_allocate(geometry: *mut c_void, 
     let original = match statics::GEOMETRY_STREAM_ALLOCATE_HOOK.original() {
         Ok(original) => original,
         Err(error) => {
-            log::error!("[LOD] Geometry stream allocation trampoline missing: {error:?}");
+            log::error!("[IO] Geometry stream allocation trampoline missing: {error:?}");
             return 0;
         }
     };
@@ -183,7 +183,7 @@ unsafe extern "stdcall" fn hook_geometry_stream_allocate(geometry: *mut c_void, 
     unsafe { retire_static_stream(geometry, stream) };
     if should_log_power_of_two(count) {
         log::warn!(
-            "[LOD] Rejected static VB chip without a Direct3D buffer geometry=0x{:08X} stream={} count={count}",
+            "[IO] Rejected static VB chip without a Direct3D buffer geometry=0x{:08X} stream={} count={count}",
             geometry as usize,
             stream,
         );
@@ -199,7 +199,7 @@ unsafe extern "thiscall" fn hook_static_geometry_allocate(
     let original = match statics::STATIC_GEOMETRY_ALLOCATE_HOOK.original() {
         Ok(original) => original,
         Err(error) => {
-            log::error!("[LOD] Static geometry allocation trampoline missing: {error:?}");
+            log::error!("[IO] Static geometry allocation trampoline missing: {error:?}");
             return ptr::null_mut();
         }
     };
@@ -217,7 +217,7 @@ unsafe extern "thiscall" fn hook_static_geometry_retire(
     let original = match statics::STATIC_GEOMETRY_RETIRE_HOOK.original() {
         Ok(original) => original,
         Err(error) => {
-            log::error!("[LOD] Static geometry retirement trampoline missing: {error:?}");
+            log::error!("[IO] Static geometry retirement trampoline missing: {error:?}");
             return;
         }
     };

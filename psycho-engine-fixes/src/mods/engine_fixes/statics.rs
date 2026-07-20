@@ -127,6 +127,8 @@ pub const FLOAT_SETTING_ACCESSOR_ADDR: usize = 0x0040_3E20;
 pub const BLOCK_LOAD_DISTANCE_SETTING: usize = 0x011D_877C;
 pub const TREE_LOAD_DISTANCE_SETTING: usize = 0x011D_8788;
 
+// ---- IOManager parallelism ----
+
 pub const LOCK_FREE_MAP_CONSTRUCTOR_A_ADDR: usize = 0x0044_C040;
 pub const LOCK_FREE_MAP_CONSTRUCTOR_B_ADDR: usize = 0x0044_C270;
 pub const BSTREE_LOCK_FREE_MAP_CONSTRUCTOR_ADDR: usize = 0x0066_5CB0;
@@ -135,6 +137,8 @@ pub const EXTERIOR_CELL_LOADER_TASK_EXECUTE_ADDR: usize = 0x0052_7CB0;
 pub const IO_MANAGER_WORKER_PATCH_ADDR: usize = 0x00C3_DA7A;
 pub const IO_MANAGER_SINGLETON_ADDR: usize = 0x0120_2D98;
 pub const BSTREE_MANAGER_SINGLETON_ADDR: usize = 0x011D_5C48;
+
+// ---- LOD task priority ----
 
 pub const LOD_OBJECT_TASK_PRODUCER_ADDR: usize = 0x006F_6D10;
 pub const LOD_TREE_TASK_PRODUCER_ADDR: usize = 0x006F_9360;
@@ -163,6 +167,8 @@ pub static LOD_CELL_RELOAD_RESET_HOOK: LazyLock<InlineHookContainer<LodCellOwner
 pub static LOD_CELL_TEARDOWN_HOOK: LazyLock<InlineHookContainer<LodCellOwnerFn>> =
     LazyLock::new(InlineHookContainer::new);
 
+// ---- IOManager parallelism ----
+
 pub static LOCK_FREE_MAP_CONSTRUCTOR_A_HOOK: LazyLock<
     InlineHookContainer<LockFreeMapConstructorFn>,
 > = LazyLock::new(InlineHookContainer::new);
@@ -178,6 +184,8 @@ pub static EXTERIOR_CELL_LOADER_TASK_EXECUTE_HOOK: LazyLock<
     InlineHookContainer<ExteriorCellLoaderTaskExecuteFn>,
 > = LazyLock::new(InlineHookContainer::new);
 
+// ---- LOD task priority ----
+
 pub static LOD_OBJECT_TASK_PRODUCER_HOOK: LazyLock<InlineHookContainer<LodObjectTaskProducerFn>> =
     LazyLock::new(InlineHookContainer::new);
 pub static LOD_TREE_TASK_PRODUCER_HOOK: LazyLock<InlineHookContainer<LodBlockTaskProducerFn>> =
@@ -185,7 +193,7 @@ pub static LOD_TREE_TASK_PRODUCER_HOOK: LazyLock<InlineHookContainer<LodBlockTas
 pub static LOD_TERRAIN_TASK_PRODUCER_HOOK: LazyLock<InlineHookContainer<LodBlockTaskProducerFn>> =
     LazyLock::new(InlineHookContainer::new);
 
-// ---- Static vertex-buffer lifetime ----
+// ---- IO static vertex-buffer lifetime ----
 
 pub const GEOMETRY_STREAM_ALLOCATE_ADDR: usize = 0x00E8_BFA0;
 pub const STATIC_GEOMETRY_ALLOCATE_ADDR: usize = 0x00E9_4C20;
@@ -208,15 +216,18 @@ pub static STATIC_GEOMETRY_ALLOCATE_HOOK: LazyLock<InlineHookContainer<StaticGeo
 pub static STATIC_GEOMETRY_RETIRE_HOOK: LazyLock<InlineHookContainer<StaticGeometryRetireFn>> =
     LazyLock::new(InlineHookContainer::new);
 
-// ---- SpeedTree clone lifetime ----
+// ---- IO SpeedTree shared-state safety ----
 
 pub const SPEEDTREE_CLONE_CONSTRUCTOR_ADDR: usize = 0x00B0_36D0;
+pub const SPEEDTREE_COMPUTE_ADDR: usize = 0x00B0_44A0;
 pub const SPEEDTREE_SCALAR_DESTRUCTOR_ADDR: usize = 0x0066_6910;
 pub const SPEEDTREE_REGISTRY_CRITICAL_SECTION_ADDR: usize = 0x011F_8BC4;
 
 pub static SPEEDTREE_CLONE_CONSTRUCTOR_HOOK: LazyLock<
     InlineHookContainer<SpeedTreeCloneConstructorFn>,
 > = LazyLock::new(InlineHookContainer::new);
+pub static SPEEDTREE_COMPUTE_HOOK: LazyLock<InlineHookContainer<SpeedTreeComputeFn>> =
+    LazyLock::new(InlineHookContainer::new);
 pub static SPEEDTREE_SCALAR_DESTRUCTOR_HOOK: LazyLock<
     InlineHookContainer<SpeedTreeScalarDestructorFn>,
 > = LazyLock::new(InlineHookContainer::new);

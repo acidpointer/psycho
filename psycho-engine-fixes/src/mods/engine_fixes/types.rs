@@ -136,6 +136,11 @@ pub type StaticGeometryRetireFn = unsafe extern "thiscall" fn(*mut c_void, *mut 
 pub type SpeedTreeCloneConstructorFn =
     unsafe extern "thiscall" fn(*mut c_void, *mut c_void) -> *mut c_void;
 
+/// SpeedTreeRT Compute entry. This call owns the process-global generation
+/// scratch state from initialization through final model publication.
+pub type SpeedTreeComputeFn =
+    unsafe extern "thiscall" fn(*mut c_void, *const c_void, u32, u8) -> u8;
+
 /// SpeedTree core scalar deleting destructor. Bit zero in `flags` requests
 /// physical deletion after the destructor body.
 pub type SpeedTreeScalarDestructorFn = unsafe extern "thiscall" fn(*mut c_void, u32) -> *mut c_void;

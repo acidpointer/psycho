@@ -20,12 +20,10 @@ use crate::{
     mods::diagnostics::should_log_power_of_two,
 };
 
-use super::{patching, statics, types::GameSettingFloatFn};
+use super::{io::SafetyStatus, patching, statics, types::GameSettingFloatFn};
 
 mod scheduler;
-mod speedtree_lifetime;
 mod state;
-mod vertex_buffers;
 
 const NODE_LEVEL_OFFSET: usize = 0x04;
 const TERRAIN_BLOCK_OFFSET: usize = 0x10;
@@ -80,8 +78,6 @@ pub(super) struct DiagnosticSnapshot {
     pub retained_demands: [u64; 3],
     pub release_passthroughs: [u64; 3],
     pub scheduler: scheduler::Snapshot,
-    pub speedtree: speedtree_lifetime::Snapshot,
-    pub vertex_buffers: vertex_buffers::Snapshot,
     pub state: state::Snapshot,
 }
 
@@ -115,11 +111,8 @@ static READY_CALL_PATCH: LazyLock<OwnedCodePatch> = LazyLock::new(|| {
     )
 });
 
-pub(super) fn install(config: &LodConfig, diagnostics: &DiagnosticsConfig) {
-    scheduler::configure(
-        config.enabled && config.priority_boost_enabled,
-        config.enabled && config.parallel_io_enabled,
-    );
+pub(super) fn install(config: &LodConfig, diagnostics: &DiagnosticsConfig, safety: SafetyStatus) {
+    scheduler::configure(config.enabled && config.priority_boost_enabled);
     if !config.enabled {
         log::info!("[LOD] Streaming and handoff fixes disabled by config");
         return;
@@ -136,11 +129,7 @@ pub(super) fn install(config: &LodConfig, diagnostics: &DiagnosticsConfig) {
     }
     state::configure_trace(diagnostics.lod_streaming_trace);
 
-    if !config.prefetch_enabled
-        && !config.handoff_fix_enabled
-        && !config.priority_boost_enabled
-        && !config.parallel_io_enabled
-    {
+    if !config.prefetch_enabled && !config.handoff_fix_enabled && !config.priority_boost_enabled {
         log::info!("[LOD] All LOD subfeatures disabled by config");
         return;
     }
@@ -159,36 +148,8 @@ pub(super) fn install(config: &LodConfig, diagnostics: &DiagnosticsConfig) {
         false
     };
 
-    let speedtree_ready = if config.prefetch_enabled || config.parallel_io_enabled {
-        match speedtree_lifetime::install(diagnostics.lod_streaming_trace) {
-            Ok(()) => true,
-            Err(error) => {
-                log::warn!(
-                    "[LOD] Native prefetch and parallel IO disabled: SpeedTree lifetime hooks unavailable: {error:#}"
-                );
-                false
-            }
-        }
-    } else {
-        false
-    };
-
-    let vertex_buffers_ready = if config.prefetch_enabled || config.parallel_io_enabled {
-        match vertex_buffers::install() {
-            Ok(()) => true,
-            Err(error) => {
-                log::warn!(
-                    "[LOD] Native prefetch and parallel IO unavailable: static vertex-buffer lifetime hooks failed: {error:#}"
-                );
-                false
-            }
-        }
-    } else {
-        false
-    };
-
     if config.priority_boost_enabled {
-        if let Err(error) = scheduler::install_priority() {
+        if let Err(error) = scheduler::install() {
             log::warn!(
                 "[LOD] Priority boost transaction rolled back; native priority retained: {error:#}"
             );
@@ -197,17 +158,11 @@ pub(super) fn install(config: &LodConfig, diagnostics: &DiagnosticsConfig) {
         log::info!("[LOD] Native priority boost disabled by config");
     }
 
-    if config.parallel_io_enabled && speedtree_ready && vertex_buffers_ready {
-        if let Err(error) = scheduler::install_parallel_io() {
-            log::warn!(
-                "[LOD] Parallel IO transaction rolled back; one native worker retained: {error:#}"
-            );
-        }
-    } else if !config.parallel_io_enabled {
-        log::info!("[LOD] Parallel IO disabled by config");
-    }
-
-    if config.prefetch_enabled && speedtree_ready && vertex_buffers_ready && reset_ready {
+    if config.prefetch_enabled
+        && safety.speedtree_ready
+        && safety.vertex_buffers_ready
+        && reset_ready
+    {
         match install_streaming_hooks() {
             Ok(()) => STREAMING_INSTALLED.store(true, Ordering::Release),
             Err(error) => log::warn!(
@@ -232,12 +187,10 @@ pub(super) fn install(config: &LodConfig, diagnostics: &DiagnosticsConfig) {
     let runtime = CONFIG.get().expect("LOD configuration was published");
     let scheduler = scheduler::snapshot();
     log::info!(
-        "[LOD] Active streaming={} handoff={} priority={} parallel={} vb={} trace={} object={:.2}/{:.2} tree={:.2}/{:.2} terrain={:.2}/{:.2}",
+        "[LOD] Active streaming={} handoff={} priority={} trace={} object={:.2}/{:.2} tree={:.2}/{:.2} terrain={:.2}/{:.2}",
         STREAMING_INSTALLED.load(Ordering::Acquire),
         HANDOFF_INSTALLED.load(Ordering::Acquire),
         scheduler.priority_installed,
-        scheduler.parallel_installed,
-        vertex_buffers_ready,
         diagnostics.lod_streaming_trace,
         runtime.object_prefetch,
         runtime.object_retention,
@@ -722,8 +675,6 @@ pub(super) fn diagnostic_snapshot() -> DiagnosticSnapshot {
             u64::from(RELEASE_PASSTHROUGHS[index].load(Ordering::Relaxed))
         }),
         scheduler: scheduler::snapshot(),
-        speedtree: speedtree_lifetime::snapshot(),
-        vertex_buffers: vertex_buffers::snapshot(),
         state: state::snapshot(),
     }
 }

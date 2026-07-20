@@ -8,12 +8,13 @@ use std::fmt::Write as _;
 
 use libc::c_void;
 
-use crate::config::{DiagnosticsConfig, EngineFixesConfig, LodConfig};
+use crate::config::{DiagnosticsConfig, EngineFixesConfig, IoConfig, LodConfig};
 
 mod display;
 mod entrydata;
 mod extraownership;
 mod havok;
+mod io;
 mod linkedrefs;
 mod lod;
 mod lowprocess;
@@ -46,6 +47,7 @@ pub(crate) fn display_diagnostic_snapshot() -> display::DiagnosticSnapshot {
 
 pub fn install(
     config: &EngineFixesConfig,
+    io_config: &IoConfig,
     lod_config: &LodConfig,
     diagnostics: &DiagnosticsConfig,
 ) -> anyhow::Result<()> {
@@ -61,7 +63,12 @@ pub fn install(
     install_memset_null_dst(config)?;
     install_lowprocess_fix(config)?;
     install_queued_task_guard(config, diagnostics)?;
-    lod::install(lod_config, diagnostics);
+    let io_safety = io::install(
+        io_config,
+        diagnostics,
+        lod_config.enabled && lod_config.prefetch_enabled,
+    );
+    lod::install(lod_config, diagnostics, io_safety);
 
     Ok(())
 }
@@ -108,6 +115,7 @@ pub(crate) fn append_diagnostic_report(out: &mut String) {
     let low = lowprocess::diagnostic_snapshot();
     let task = queued_tasks::diagnostic_snapshot();
     let save = save_integrity::diagnostic_snapshot();
+    let io = io::diagnostic_snapshot();
     let lod = lod::diagnostic_snapshot();
 
     push_report_section(out, "Runtime fixes");
@@ -139,7 +147,7 @@ pub(crate) fn append_diagnostic_report(out: &mut String) {
     push_feature_pair(
         out,
         "Tree lifetime",
-        lod.speedtree.installed,
+        io.speedtree.installed,
         "LOD reset",
         lod.worldspace_reset_installed,
     );
@@ -148,7 +156,7 @@ pub(crate) fn append_diagnostic_report(out: &mut String) {
         "LOD priority",
         lod.scheduler.priority_installed,
         "Parallel IO",
-        lod.scheduler.parallel_installed,
+        io.scheduler.parallel_installed,
     );
 
     let covered_move_sites = display
@@ -323,7 +331,7 @@ pub(crate) fn append_diagnostic_report(out: &mut String) {
         ),
     );
 
-    let requested_workers = if lod.scheduler.parallel_requested {
+    let requested_workers = if io.scheduler.parallel_requested {
         2
     } else {
         1
@@ -331,15 +339,43 @@ pub(crate) fn append_diagnostic_report(out: &mut String) {
     let (barrier_layout_failures, barrier_timeouts) =
         crate::mods::heap_replacer::gheap::engine::globals::io_barrier_diagnostic_counts();
 
-    push_report_section(out, "LOD scheduler");
+    push_report_section(out, "IOManager");
     push_report_value(
         out,
         "IO workers",
         format!(
             "{} active / {} requested",
-            lod.scheduler.observed_workers, requested_workers,
+            io.scheduler.observed_workers, requested_workers,
         ),
     );
+    push_report_value(
+        out,
+        "Cell loading",
+        format!(
+            "{} / {} runs / {} waits",
+            on_off(io.scheduler.cell_loader_serialization_installed),
+            io.scheduler.cell_loader_executions,
+            io.scheduler.cell_loader_contentions,
+        ),
+    );
+    push_report_value(
+        out,
+        "File cache",
+        format!(
+            "{} / {} fallback",
+            on_off(io.scheduler.cache_fallback_installed),
+            io.scheduler.cache_fallbacks,
+        ),
+    );
+    push_report_value(out, "TLS maps A", io.scheduler.map_expansions[0]);
+    push_report_value(out, "TLS maps B", io.scheduler.map_expansions[1]);
+    push_report_value(out, "Tree TLS maps", io.scheduler.map_expansions[2]);
+    push_report_value(out, "IO fallbacks", io.scheduler.parallel_fallbacks);
+    push_report_value(out, "Capacity failures", io.scheduler.capacity_failures);
+    push_report_value(out, "Barrier layouts", barrier_layout_failures);
+    push_report_value(out, "Barrier timeouts", barrier_timeouts);
+
+    push_report_section(out, "LOD scheduler");
     push_report_value(
         out,
         "Priority",
@@ -349,49 +385,23 @@ pub(crate) fn append_diagnostic_report(out: &mut String) {
             on_off(lod.scheduler.priority_requested),
         ),
     );
-    push_report_value(
-        out,
-        "Cell loading",
-        format!(
-            "{} / {} runs / {} waits",
-            on_off(lod.scheduler.cell_loader_serialization_installed),
-            lod.scheduler.cell_loader_executions,
-            lod.scheduler.cell_loader_contentions,
-        ),
-    );
-    push_report_value(
-        out,
-        "File cache",
-        format!(
-            "{} / {} fallback",
-            on_off(lod.scheduler.cache_fallback_installed),
-            lod.scheduler.cache_fallbacks,
-        ),
-    );
     push_report_value(out, "Terrain boosts", lod.scheduler.priority_boosts[0]);
     push_report_value(out, "Object boosts", lod.scheduler.priority_boosts[1]);
     push_report_value(out, "Tree boosts", lod.scheduler.priority_boosts[2]);
-    push_report_value(out, "TLS maps A", lod.scheduler.map_expansions[0]);
-    push_report_value(out, "TLS maps B", lod.scheduler.map_expansions[1]);
-    push_report_value(out, "Tree TLS maps", lod.scheduler.map_expansions[2]);
-    push_report_value(out, "IO fallbacks", lod.scheduler.parallel_fallbacks);
     push_report_value(
         out,
         "Priority failures",
         lod.scheduler.priority_install_failures,
     );
-    push_report_value(out, "Capacity failures", lod.scheduler.capacity_failures);
-    push_report_value(out, "Barrier layouts", barrier_layout_failures);
-    push_report_value(out, "Barrier timeouts", barrier_timeouts);
 
-    push_report_section(out, "LOD vertex buffers");
+    push_report_section(out, "IO vertex buffers");
     push_report_value(
         out,
         "Lifetime guard",
         format!(
             "{} / {} transactions",
-            on_off(lod.vertex_buffers.installed),
-            lod.vertex_buffers.stream_transactions,
+            on_off(io.vertex_buffers.installed),
+            io.vertex_buffers.stream_transactions,
         ),
     );
     push_report_value(
@@ -399,7 +409,7 @@ pub(crate) fn append_diagnostic_report(out: &mut String) {
         "Static blocks",
         format!(
             "{} allocated / {} retired",
-            lod.vertex_buffers.static_allocations, lod.vertex_buffers.static_retirements,
+            io.vertex_buffers.static_allocations, io.vertex_buffers.static_retirements,
         ),
     );
     push_report_value(
@@ -407,7 +417,7 @@ pub(crate) fn append_diagnostic_report(out: &mut String) {
         "Safe retries",
         format!(
             "{} create / {} publish",
-            lod.vertex_buffers.null_allocation_failures, lod.vertex_buffers.invalid_publications,
+            io.vertex_buffers.null_allocation_failures, io.vertex_buffers.invalid_publications,
         ),
     );
 
@@ -499,13 +509,21 @@ pub(crate) fn append_diagnostic_report(out: &mut String) {
         ),
     );
 
-    push_report_section(out, "SpeedTree lifetime");
+    push_report_section(out, "SpeedTree IO safety");
+    push_report_value(
+        out,
+        "Compute",
+        format!(
+            "{} runs / {} waits",
+            io.speedtree.compute_transactions, io.speedtree.compute_contentions,
+        ),
+    );
     push_report_value(
         out,
         "Clone activity",
         format!(
             "{} made / {} destroyed",
-            lod.speedtree.clone_constructs, lod.speedtree.clone_destroys,
+            io.speedtree.clone_constructs, io.speedtree.clone_destroys,
         ),
     );
     push_report_value(
@@ -513,7 +531,7 @@ pub(crate) fn append_diagnostic_report(out: &mut String) {
         "Live clones",
         format!(
             "{} current / {} peak / {} owner peak",
-            lod.speedtree.current_clones, lod.speedtree.peak_clones, lod.speedtree.max_owner_clones,
+            io.speedtree.current_clones, io.speedtree.peak_clones, io.speedtree.max_owner_clones,
         ),
     );
     push_report_value(
@@ -521,9 +539,9 @@ pub(crate) fn append_diagnostic_report(out: &mut String) {
         "Rejects",
         format!(
             "{} missing / {} duplicate / {} bounds",
-            lod.speedtree.missing_member_rejects,
-            lod.speedtree.duplicate_member_rejects,
-            lod.speedtree.invalid_bounds_rejects,
+            io.speedtree.missing_member_rejects,
+            io.speedtree.duplicate_member_rejects,
+            io.speedtree.invalid_bounds_rejects,
         ),
     );
     push_report_value(
@@ -531,21 +549,22 @@ pub(crate) fn append_diagnostic_report(out: &mut String) {
         "Pointer rejects",
         format!(
             "{} stale / {} refcount",
-            lod.speedtree.stale_pointer_rejects, lod.speedtree.invalid_refcount_rejects,
+            io.speedtree.stale_pointer_rejects, io.speedtree.invalid_refcount_rejects,
         ),
     );
     push_report_value(
         out,
         "Constructor faults",
-        lod.speedtree.constructor_postcondition_failures,
+        io.speedtree.constructor_postcondition_failures,
     );
     push_report_value(
         out,
         "Tree timing",
         format!(
-            "{} us lock / trace {}",
-            lod.speedtree.max_lock_wait_us,
-            on_off(lod.speedtree.trace_enabled),
+            "{} us Compute / {} us registry / trace {}",
+            io.speedtree.max_compute_wait_us,
+            io.speedtree.max_lock_wait_us,
+            on_off(io.speedtree.trace_enabled),
         ),
     );
 
@@ -577,26 +596,26 @@ pub(crate) fn append_diagnostic_report(out: &mut String) {
         .saturating_add(lod.state.membership_mismatches)
         .saturating_add(lod.state.stale_publications)
         .saturating_add(lod.state.uncertain_cells);
-    let tree_alerts = lod
+    let tree_alerts = io
         .speedtree
         .missing_member_rejects
-        .saturating_add(lod.speedtree.duplicate_member_rejects)
-        .saturating_add(lod.speedtree.invalid_bounds_rejects)
-        .saturating_add(lod.speedtree.stale_pointer_rejects)
-        .saturating_add(lod.speedtree.invalid_refcount_rejects)
-        .saturating_add(lod.speedtree.constructor_postcondition_failures);
-    let scheduler_alerts = lod
+        .saturating_add(io.speedtree.duplicate_member_rejects)
+        .saturating_add(io.speedtree.invalid_bounds_rejects)
+        .saturating_add(io.speedtree.stale_pointer_rejects)
+        .saturating_add(io.speedtree.invalid_refcount_rejects)
+        .saturating_add(io.speedtree.constructor_postcondition_failures);
+    let scheduler_alerts = io
         .scheduler
         .parallel_fallbacks
         .saturating_add(lod.scheduler.priority_install_failures)
-        .saturating_add(lod.scheduler.capacity_failures)
-        .saturating_add(lod.scheduler.cache_fallbacks)
+        .saturating_add(io.scheduler.capacity_failures)
+        .saturating_add(io.scheduler.cache_fallbacks)
         .saturating_add(barrier_layout_failures)
         .saturating_add(barrier_timeouts);
-    let vertex_buffer_alerts = lod
+    let vertex_buffer_alerts = io
         .vertex_buffers
         .null_allocation_failures
-        .saturating_add(lod.vertex_buffers.invalid_publications);
+        .saturating_add(io.vertex_buffers.invalid_publications);
 
     push_report_section(out, "Warnings");
     let alert_total = display_alerts

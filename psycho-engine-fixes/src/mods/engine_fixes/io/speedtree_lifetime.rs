@@ -1,4 +1,4 @@
-//! Serializes SpeedTree clone publication and destruction.
+//! Serializes SpeedTree shared state used by parallel IO workers.
 //!
 //! Vanilla protects the base-object registry with its critical section at
 //! `0x011F8BC4`, but clone construction and destruction mutate the shared
@@ -6,12 +6,19 @@
 //! worker while main-thread completed-task processing destroys another clone.
 //! The losing destructor then passes `end` to the vector erase helper and
 //! reaches the CRT invalid-parameter fast-fail.
+//!
+//! SpeedTreeRT Compute also publishes its active model through process-global
+//! scratch pointers. Two IO workers can otherwise select an index from one
+//! model and validate it against another model's record table.
 
 use std::{
     ffi::c_void,
     mem::size_of,
     ptr,
-    sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
+    sync::{
+        LazyLock,
+        atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
+    },
 };
 
 use anyhow::Context;
@@ -19,6 +26,7 @@ use libpsycho::os::windows::{
     hook::transaction::ModificationTransaction,
     winapi::{BorrowedCriticalSection, virtual_query},
 };
+use parking_lot::ReentrantMutex;
 
 use crate::mods::{
     diagnostics::{Stopwatch, should_log_power_of_two, update_max_u64},
@@ -41,6 +49,10 @@ const MAX_OWNER_CLONES: usize = 65_536;
 
 static INSTALLED: AtomicBool = AtomicBool::new(false);
 static TRACE_ENABLED: AtomicBool = AtomicBool::new(false);
+static COMPUTE_LOCK: LazyLock<ReentrantMutex<()>> = LazyLock::new(|| ReentrantMutex::new(()));
+static COMPUTE_TRANSACTIONS: AtomicU64 = AtomicU64::new(0);
+static COMPUTE_CONTENTIONS: AtomicU64 = AtomicU64::new(0);
+static MAX_COMPUTE_WAIT_US: AtomicU64 = AtomicU64::new(0);
 static CLONE_CONSTRUCTS: AtomicU64 = AtomicU64::new(0);
 static CLONE_DESTROYS: AtomicU64 = AtomicU64::new(0);
 static CURRENT_CLONES: AtomicUsize = AtomicUsize::new(0);
@@ -58,6 +70,9 @@ static MAX_LOCK_WAIT_US: AtomicU64 = AtomicU64::new(0);
 pub(in crate::mods::engine_fixes) struct Snapshot {
     pub installed: bool,
     pub trace_enabled: bool,
+    pub compute_transactions: u64,
+    pub compute_contentions: u64,
+    pub max_compute_wait_us: u64,
     pub clone_constructs: u64,
     pub clone_destroys: u64,
     pub current_clones: usize,
@@ -120,6 +135,11 @@ pub(super) fn install(trace_enabled: bool) -> anyhow::Result<()> {
             statics::SPEEDTREE_CLONE_CONSTRUCTOR_ADDR as *mut c_void,
             hook_clone_constructor,
         )?;
+        statics::SPEEDTREE_COMPUTE_HOOK.init(
+            "speedtree_compute_serialization",
+            statics::SPEEDTREE_COMPUTE_ADDR as *mut c_void,
+            hook_compute,
+        )?;
         statics::SPEEDTREE_SCALAR_DESTRUCTOR_HOOK.init(
             "speedtree_scalar_lifetime",
             statics::SPEEDTREE_SCALAR_DESTRUCTOR_ADDR as *mut c_void,
@@ -129,14 +149,49 @@ pub(super) fn install(trace_enabled: bool) -> anyhow::Result<()> {
 
     let mut transaction = ModificationTransaction::new();
     transaction.enable_inline(&statics::SPEEDTREE_CLONE_CONSTRUCTOR_HOOK)?;
+    transaction.enable_inline(&statics::SPEEDTREE_COMPUTE_HOOK)?;
     transaction.enable_inline(&statics::SPEEDTREE_SCALAR_DESTRUCTOR_HOOK)?;
     transaction.commit();
     INSTALLED.store(true, Ordering::Release);
     log::info!(
-        "[LOD] SpeedTree clone lifetime serialized by native lock 0x{:08X}",
+        "[IO] SpeedTree Compute and clone lifetime serialized; native registry lock 0x{:08X}",
         statics::SPEEDTREE_REGISTRY_CRITICAL_SECTION_ADDR,
     );
     Ok(())
+}
+
+unsafe extern "thiscall" fn hook_compute(
+    this: *mut c_void,
+    transform: *const c_void,
+    seed: u32,
+    final_pass: u8,
+) -> u8 {
+    let original = match statics::SPEEDTREE_COMPUTE_HOOK.original() {
+        Ok(original) => original,
+        Err(error) => {
+            log::error!("[IO] SpeedTree Compute trampoline missing: {error:?}");
+            return 0;
+        }
+    };
+
+    with_compute_lock(|| unsafe { original(this, transform, seed, final_pass) })
+}
+
+fn with_compute_lock<T>(operation: impl FnOnce() -> T) -> T {
+    let timer = lock_timer();
+    let guard = if let Some(guard) = COMPUTE_LOCK.try_lock() {
+        guard
+    } else {
+        COMPUTE_CONTENTIONS.fetch_add(1, Ordering::Relaxed);
+        COMPUTE_LOCK.lock()
+    };
+    if let Some(elapsed) = timer.and_then(Stopwatch::elapsed_us) {
+        update_max_u64(&MAX_COMPUTE_WAIT_US, elapsed);
+    }
+    COMPUTE_TRANSACTIONS.fetch_add(1, Ordering::Relaxed);
+    let result = operation();
+    drop(guard);
+    result
 }
 
 unsafe extern "thiscall" fn hook_clone_constructor(
@@ -146,7 +201,7 @@ unsafe extern "thiscall" fn hook_clone_constructor(
     let original = match statics::SPEEDTREE_CLONE_CONSTRUCTOR_HOOK.original() {
         Ok(original) => original,
         Err(error) => {
-            log::error!("[LOD] SpeedTree clone constructor trampoline missing: {error:?}");
+            log::error!("[IO] SpeedTree clone constructor trampoline missing: {error:?}");
             return ptr::null_mut();
         }
     };
@@ -154,7 +209,7 @@ unsafe extern "thiscall" fn hook_clone_constructor(
     let timer = lock_timer();
     let lock = speedtree_lock().context("borrow SpeedTree registry critical section");
     let Ok(lock) = lock else {
-        log::error!("[LOD] SpeedTree registry critical section unavailable");
+        log::error!("[IO] SpeedTree registry critical section unavailable");
         return ptr::null_mut();
     };
     let guard = lock.enter();
@@ -182,7 +237,7 @@ unsafe extern "thiscall" fn hook_scalar_destructor(this: *mut c_void, flags: u32
     let original = match statics::SPEEDTREE_SCALAR_DESTRUCTOR_HOOK.original() {
         Ok(original) => original,
         Err(error) => {
-            log::error!("[LOD] SpeedTree scalar destructor trampoline missing: {error:?}");
+            log::error!("[IO] SpeedTree scalar destructor trampoline missing: {error:?}");
             return this;
         }
     };
@@ -190,7 +245,7 @@ unsafe extern "thiscall" fn hook_scalar_destructor(this: *mut c_void, flags: u32
     let timer = lock_timer();
     let lock = speedtree_lock().context("borrow SpeedTree registry critical section");
     let Ok(lock) = lock else {
-        log::error!("[LOD] SpeedTree registry critical section unavailable");
+        log::error!("[IO] SpeedTree registry critical section unavailable");
         return this;
     };
     let guard = lock.enter();
@@ -331,7 +386,7 @@ fn log_constructor_failure(core: *mut c_void, reason: RejectReason) {
     let count = CONSTRUCTOR_POSTCONDITION_FAILURES.load(Ordering::Relaxed);
     if should_log_power_of_two(count) {
         log::error!(
-            "[LOD] SpeedTree clone constructor violated postcondition core=0x{:08X} reason={} count={count}",
+            "[IO] SpeedTree clone constructor violated postcondition core=0x{:08X} reason={} count={count}",
             core as usize,
             reason.name(),
         );
@@ -350,7 +405,7 @@ fn log_rejected_destructor(
     }
     match gheap {
         Some(state) => log::error!(
-            "[LOD] Rejected corrupt SpeedTree destructor core=0x{:08X} flags=0x{flags:X} reason={} gheap=size:{} offset:{} committed:{} issued:{} free:{} count={count}",
+            "[IO] Rejected corrupt SpeedTree destructor core=0x{:08X} flags=0x{flags:X} reason={} gheap=size:{} offset:{} committed:{} issued:{} free:{} count={count}",
             core as usize,
             reason.name(),
             state.item_size,
@@ -360,7 +415,7 @@ fn log_rejected_destructor(
             state.free,
         ),
         None => log::error!(
-            "[LOD] Rejected corrupt SpeedTree destructor core=0x{:08X} flags=0x{flags:X} reason={} allocator=non-gheap count={count}",
+            "[IO] Rejected corrupt SpeedTree destructor core=0x{:08X} flags=0x{flags:X} reason={} allocator=non-gheap count={count}",
             core as usize,
             reason.name(),
         ),
@@ -408,6 +463,9 @@ pub(super) fn snapshot() -> Snapshot {
     Snapshot {
         installed: INSTALLED.load(Ordering::Acquire),
         trace_enabled: TRACE_ENABLED.load(Ordering::Acquire),
+        compute_transactions: COMPUTE_TRANSACTIONS.load(Ordering::Relaxed),
+        compute_contentions: COMPUTE_CONTENTIONS.load(Ordering::Relaxed),
+        max_compute_wait_us: MAX_COMPUTE_WAIT_US.load(Ordering::Relaxed),
         clone_constructs: CLONE_CONSTRUCTS.load(Ordering::Relaxed),
         clone_destroys: CLONE_DESTROYS.load(Ordering::Relaxed),
         current_clones: CURRENT_CLONES.load(Ordering::Relaxed),
@@ -421,5 +479,56 @@ pub(super) fn snapshot() -> Snapshot {
         constructor_postcondition_failures: CONSTRUCTOR_POSTCONDITION_FAILURES
             .load(Ordering::Relaxed),
         max_lock_wait_us: MAX_LOCK_WAIT_US.load(Ordering::Relaxed),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{
+        sync::{
+            Arc, Barrier,
+            atomic::{AtomicBool, Ordering},
+            mpsc,
+        },
+        thread,
+        time::{Duration, Instant},
+    };
+
+    use super::{COMPUTE_CONTENTIONS, with_compute_lock};
+
+    #[test]
+    fn compute_transactions_cannot_overlap_across_workers() {
+        let release_first = Arc::new(Barrier::new(2));
+        let second_entered = Arc::new(AtomicBool::new(false));
+        let (first_entered_tx, first_entered_rx) = mpsc::channel();
+
+        let first_release = Arc::clone(&release_first);
+        let first = thread::spawn(move || {
+            with_compute_lock(|| {
+                first_entered_tx.send(()).expect("signal first Compute");
+                first_release.wait();
+            });
+        });
+        first_entered_rx
+            .recv_timeout(Duration::from_secs(2))
+            .expect("first Compute entered");
+
+        let contentions_before = COMPUTE_CONTENTIONS.load(Ordering::Relaxed);
+        let second_state = Arc::clone(&second_entered);
+        let second = thread::spawn(move || {
+            with_compute_lock(|| second_state.store(true, Ordering::Release));
+        });
+
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while COMPUTE_CONTENTIONS.load(Ordering::Relaxed) == contentions_before {
+            assert!(Instant::now() < deadline, "second worker did not contend");
+            thread::yield_now();
+        }
+        assert!(!second_entered.load(Ordering::Acquire));
+
+        release_first.wait();
+        first.join().expect("join first worker");
+        second.join().expect("join second worker");
+        assert!(second_entered.load(Ordering::Acquire));
     }
 }

@@ -6,7 +6,10 @@
 use shadow_rs::shadow;
 
 use crate::{
-    config::{DiagnosticsConfig, EngineFixesConfig, MemoryConfig, PerformanceConfig, load_config},
+    config::{
+        DiagnosticsConfig, EngineFixesConfig, IoConfig, MemoryConfig, PerformanceConfig,
+        load_config,
+    },
     mods::{
         engine_fixes::{install as install_engine_fixes, install_display},
         heap_replacer::{
@@ -40,7 +43,7 @@ pub(crate) fn initialize() -> anyhow::Result<()> {
     install_display(&cfg.engine_fixes)?;
     initialize_diagnostics(&cfg.diagnostics)?;
     initialize_memory(&cfg.memory)?;
-    install_engine_fix_hooks(&cfg.engine_fixes, &cfg.lod, &cfg.diagnostics)?;
+    install_engine_fix_hooks(&cfg.engine_fixes, &cfg.io, &cfg.lod, &cfg.diagnostics)?;
     install_runtime_hooks(&cfg.performance)?;
 
     log_runtime();
@@ -161,10 +164,11 @@ fn initialize_scrap_heap() -> anyhow::Result<()> {
 
 fn install_engine_fix_hooks(
     engine_fixes: &EngineFixesConfig,
+    io: &IoConfig,
     lod: &crate::config::LodConfig,
     diagnostics: &DiagnosticsConfig,
 ) -> anyhow::Result<()> {
-    install_engine_fixes(engine_fixes, lod, diagnostics)
+    install_engine_fixes(engine_fixes, io, lod, diagnostics)
 }
 
 fn install_runtime_hooks(performance: &PerformanceConfig) -> anyhow::Result<()> {
