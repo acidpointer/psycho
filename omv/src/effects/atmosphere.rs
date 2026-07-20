@@ -3045,6 +3045,38 @@ mod feature_tests {
     }
 
     #[test]
+    fn directional_lighting_entrance_spans_meaningful_viewport_distance() {
+        let mut frame = valid_frame();
+        let normalize = |direction: [f32; 3]| {
+            let length = direction
+                .into_iter()
+                .map(|value| value * value)
+                .sum::<f32>()
+                .sqrt();
+            direction.map(|value| value / length)
+        };
+        let daylight_at = |frame: &mut AtmosphereFrame, edge: f32| {
+            let vertical = (1.0 - 2.0 * edge) * frame.camera.frustum_top;
+            frame.sky = Some(valid_sky(normalize([1.0, vertical, 0.0])));
+            resolve_directional_light(*frame).map_or(0.0, |light| light.daylight)
+        };
+
+        let first_visible = daylight_at(&mut frame, 0.01);
+        let four_percent_inside = daylight_at(&mut frame, 0.04);
+        let fully_inside = daylight_at(&mut frame, 0.15);
+        let legacy_four_percent_fade = {
+            let value = (0.04_f32 / 0.035).clamp(0.0, 1.0);
+            value * value * (3.0 - 2.0 * value)
+        };
+
+        assert_eq!(legacy_four_percent_fade, 1.0);
+        assert!(first_visible > 0.0);
+        assert!(first_visible < four_percent_inside);
+        assert!(four_percent_inside < fully_inside * 0.4);
+        assert!((fully_inside - 0.85).abs() < 0.000001);
+    }
+
+    #[test]
     fn shaft_modulation_and_disk_boost_are_bounded_and_local() {
         for strength in [0.0, 0.25, 0.5, 1.0] {
             for field in [0.0, 0.3, 1.0] {

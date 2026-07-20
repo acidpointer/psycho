@@ -233,7 +233,11 @@ fn log_diagnostics(poll_count: u32, info: &MiMallocProcessInfo) {
 
     super::hang::log_if_main_stale();
 
-    log_pressure(info.get_current_commit());
+    let vas = super::vas::sample();
+    log_pressure(
+        info.get_current_commit(),
+        vas.map(|summary| summary.total_free),
+    );
 
     log::debug!(
         "[MEM] RSS: {} | Peak: {} | Commit: {} | PeakCommit: {} | Faults: {:.1}/s | CPU eff: {:.0}%",
@@ -255,8 +259,10 @@ fn log_diagnostics(poll_count: u32, info: &MiMallocProcessInfo) {
     let pool_overflow_metadata_mb = super::pool::overflow_metadata_reserved_bytes() / 1024 / 1024;
     let blocks = super::block::snapshot();
     let va_live = super::va_alloc::live_bytes() / 1024 / 1024;
+    let va_peak = super::va_alloc::peak_live_bytes() / 1024 / 1024;
+    let va_max = super::va_alloc::max_allocation_bytes() / 1024 / 1024;
     log::debug!(
-        "[MEM] Pool: {}MB cells + {}/{}MB metadata / {}MB user reserved (overflow={}/{}MB user/meta, {} live) | Blocks: {} slots, {}MB/{} live | VA: {}MB | Rate: {}/s",
+        "[MEM] Pool: {}MB cells + {}/{}MB metadata / {}MB user reserved (overflow={}/{}MB user/meta, {} live) | Blocks: {} slots, {}/{}MB live/committed, {} allocs | VA: {}/{}MB live/peak, {}MB max | Rate: {}/s",
         pool_mb,
         pool_metadata_mb,
         pool_metadata_reserved_mb,
@@ -266,8 +272,11 @@ fn log_diagnostics(poll_count: u32, info: &MiMallocProcessInfo) {
         pool_live,
         blocks.slots,
         blocks.live_bytes / 1024 / 1024,
+        blocks.committed_bytes / 1024 / 1024,
         blocks.live_allocations,
         va_live,
+        va_peak,
+        va_max,
         format_rate(rate),
     );
     let mut class_usage = super::pool::class_usage();
@@ -297,7 +306,7 @@ fn log_diagnostics(poll_count: u32, info: &MiMallocProcessInfo) {
     );
     log_allocator_events();
 
-    if let Some(vas) = super::vas::sample() {
+    if let Some(vas) = vas {
         log::debug!(
             "[VAS watchdog] free={}MB largest=0x{:08x}+{}MB second=0x{:08x}+{}MB reserve={}MB commit={}MB regions={} holes={}",
             vas.total_free / super::vas::MB,
@@ -329,7 +338,7 @@ fn log_diagnostics(poll_count: u32, info: &MiMallocProcessInfo) {
     }
 }
 
-fn log_pressure(commit: usize) {
+fn log_pressure(commit: usize, free_vas: Option<usize>) {
     let Some(pr) = PressureRelief::instance() else {
         return;
     };
@@ -337,7 +346,6 @@ fn log_pressure(commit: usize) {
     let baseline = pr.baseline_commit();
     let loading = globals::is_loading();
     let headroom = super::allocator::get_headroom();
-    let free_vas = super::allocator::current_free_vas();
 
     let (growth, normal_thresh, high_thresh) = if baseline > 0 && headroom > 0 {
         let reduction = if loading {
@@ -370,24 +378,26 @@ fn log_pressure(commit: usize) {
         (commit, normal_abs, normal_abs + 500 * 1024 * 1024)
     };
 
-    let free_state = classify_free_vas(free_vas);
-    log_state_change(
-        &FREE_VAS_STATE,
-        free_state,
-        || {
-            log::info!(
-                "[MEM] Free VAS recovered: free={}MB",
-                free_vas / 1024 / 1024,
-            )
-        },
-        || log::info!("[MEM] Free VAS watch: free={}MB", free_vas / 1024 / 1024,),
-        || {
-            log::warn!(
-                "[MEM] Free VAS low: free={}MB. Heavy texture or cell streaming allocations may fail.",
-                free_vas / 1024 / 1024,
-            )
-        },
-    );
+    if let Some(free_vas) = free_vas {
+        let free_state = classify_free_vas(free_vas);
+        log_state_change(
+            &FREE_VAS_STATE,
+            free_state,
+            || {
+                log::info!(
+                    "[MEM] Free VAS recovered: free={}MB",
+                    free_vas / 1024 / 1024,
+                )
+            },
+            || log::info!("[MEM] Free VAS watch: free={}MB", free_vas / 1024 / 1024,),
+            || {
+                log::warn!(
+                    "[MEM] Free VAS low: free={}MB. Heavy texture or cell streaming allocations may fail.",
+                    free_vas / 1024 / 1024,
+                )
+            },
+        );
+    }
 
     let commit_state = classify_commit_growth(growth, normal_thresh, high_thresh);
     let rate = GROWTH_RATE.load(Ordering::Relaxed);

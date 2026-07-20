@@ -428,9 +428,17 @@ Current Blooming HDR runtime finding:
   midtone atmosphere term. This is intentionally not physically strict: for
   Fallout NV, the goal is dusty post-apocalyptic mood and retro cinematic glow,
   not modern camera realism.
-- The compose pass applies exposure bias, shadow lift, warm/cool tint,
-  saturation, highlight shoulder, mild ACES-style rolloff, and dithering. It
-  attenuates bloom over first-person pixels to avoid weapon/hand halos.
+- Bloom exposure, lift, warm/cool tint, saturation, and blend controls shape
+  only the Bloom branch. They do not grade the untouched scene base. The
+  separate `Color Grade and Film` config owns full-frame exposure/color/film
+  response and is fused into this compose draw when enabled.
+- The fused compose attenuates Bloom over first-person pixels, preserves source
+  alpha, applies the selected original OMV 32-cube LUT with display-referred
+  trilinear sampling, and optionally adds flat-region debanding, grain,
+  vignette, and Bloom-derived halation. It does not add adaptive exposure or a
+  second tonemapper after vanilla image-space processing. See
+  `docs/graphics_fnv_color_grading.md` for the exact phase, ABI, LUT,
+  redistribution, quality, and performance contract.
 - This is still intentionally cheap: the expensive blur work happens at
   quarter resolution with two separable 9-tap passes, instead of full-screen
   wide sampling or a deep bloom mip chain.

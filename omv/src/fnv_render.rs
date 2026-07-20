@@ -236,20 +236,37 @@ unsafe extern "cdecl" fn hook_process_image_space_shaders(
                 false
             };
 
-        if outer_image_space_call {
-            crate::fnv_world_pipeline::close_deadline(rendered_texture_1);
-            apply_scene_pre_image_space(
-                "FNV before vanilla image-space shaders",
-                rendered_texture_1,
-            );
-        }
+        run_image_space_phase_order(
+            outer_image_space_call,
+            || {
+                crate::fnv_world_pipeline::close_deadline(rendered_texture_1);
+                apply_scene_pre_image_space(
+                    "FNV before vanilla image-space shaders",
+                    rendered_texture_1,
+                );
+            },
+            || original(renderer, rendered_texture_1, rendered_texture_2),
+            || apply_scene_post_image_space("FNV after image-space shaders", native_dof_active),
+            || apply_final_image_space("FNV final image-space"),
+        );
+    }
+}
 
-        original(renderer, rendered_texture_1, rendered_texture_2);
-
-        if outer_image_space_call {
-            apply_scene_post_image_space("FNV after image-space shaders", native_dof_active);
-            apply_final_image_space("FNV final image-space");
-        }
+#[inline]
+fn run_image_space_phase_order(
+    outer_image_space_call: bool,
+    scene_pre: impl FnOnce(),
+    original: impl FnOnce(),
+    scene_post: impl FnOnce(),
+    final_image: impl FnOnce(),
+) {
+    if outer_image_space_call {
+        scene_pre();
+    }
+    original();
+    if outer_image_space_call {
+        scene_post();
+        final_image();
     }
 }
 
@@ -547,5 +564,46 @@ fn log_depth_capture_skip(
 fn log_shader_apply(reason: &'static str) {
     if SHADER_APPLY_LOGS.fetch_add(1, Ordering::AcqRel) < MAX_SHADER_APPLY_LOGS {
         log::debug!("[FNV] Screen-space shader trigger: {reason}");
+    }
+}
+
+#[cfg(test)]
+mod final_color_phase_contract_tests {
+    use std::{cell::RefCell, mem::size_of};
+
+    use super::{
+        PROCESS_IMAGE_SPACE_SHADERS_ADDR, ProcessImageSpaceShadersFn, run_image_space_phase_order,
+    };
+
+    #[test]
+    fn supported_engine_entry_and_callback_abi_are_exact() {
+        assert_eq!(PROCESS_IMAGE_SPACE_SHADERS_ADDR, 0x00B5_5AC0);
+        assert_eq!(size_of::<ProcessImageSpaceShadersFn>(), 4);
+    }
+
+    #[test]
+    fn outer_image_space_orders_grade_after_vanilla_and_nested_calls_do_not_grade() {
+        let events = RefCell::new(Vec::new());
+        run_image_space_phase_order(
+            true,
+            || events.borrow_mut().push("scene_pre"),
+            || events.borrow_mut().push("vanilla"),
+            || events.borrow_mut().push("scene_post"),
+            || events.borrow_mut().push("final_color"),
+        );
+        assert_eq!(
+            events.into_inner(),
+            ["scene_pre", "vanilla", "scene_post", "final_color"]
+        );
+
+        let events = RefCell::new(Vec::new());
+        run_image_space_phase_order(
+            false,
+            || events.borrow_mut().push("scene_pre"),
+            || events.borrow_mut().push("vanilla"),
+            || events.borrow_mut().push("scene_post"),
+            || events.borrow_mut().push("final_color"),
+        );
+        assert_eq!(events.into_inner(), ["vanilla"]);
     }
 }

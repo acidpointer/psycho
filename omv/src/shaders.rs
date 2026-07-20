@@ -19,9 +19,10 @@ use libpsycho::os::windows::directx9::{
 use serde::{Deserialize, Serialize};
 
 use crate::config::{
-    AtmosphereQuality, AxaaConfig, BloomingHdrConfig, ContactAoConfig, DepthOfFieldConfig,
-    DlaaConfig, EmbeddedEffectsConfig, FastAoConfig, FastFxaaConfig, NfaaConfig, SmaaConfig,
-    SunshaftsConfig, TemporalAaConfig, VolumetricFogConfig, VolumetricLightingConfig,
+    AtmosphereQuality, AxaaConfig, BloomingHdrConfig, ColorGradeConfig, ContactAoConfig,
+    DepthOfFieldConfig, DlaaConfig, EmbeddedEffectsConfig, FastAoConfig, FastFxaaConfig,
+    NfaaConfig, SmaaConfig, SunshaftsConfig, TemporalAaConfig, VolumetricFogConfig,
+    VolumetricLightingConfig,
 };
 
 pub(crate) const SHADER_DIR: &str = "./Data/NVSE/plugins/omv/shaders";
@@ -249,6 +250,7 @@ pub(crate) enum EmbeddedEffectKind {
     VolumetricFog,
     VolumetricLighting,
     BloomingHdr,
+    ColorGrade,
     Sunshafts,
     DepthOfField,
     FastFxaa,
@@ -266,6 +268,10 @@ impl EmbeddedEffectKind {
 
     pub(crate) fn owns_world_boundary(self) -> bool {
         self == Self::TemporalAa || self.is_atmosphere()
+    }
+
+    pub(crate) fn is_final_color(self) -> bool {
+        matches!(self, Self::BloomingHdr | Self::ColorGrade)
     }
 }
 
@@ -414,6 +420,9 @@ pub(crate) fn sync_embedded_effect_config(
             Some(EmbeddedEffectKind::BloomingHdr) => {
                 sync_blooming_hdr_config(source, &mut config.blooming_hdr);
             }
+            Some(EmbeddedEffectKind::ColorGrade) => {
+                sync_color_grade_config(source, &mut config.color_grade);
+            }
             Some(EmbeddedEffectKind::Sunshafts) => {
                 sync_sunshafts_config(source, &mut config.sunshafts);
             }
@@ -442,6 +451,7 @@ fn embedded_effect_sources(config: &EmbeddedEffectsConfig) -> Vec<ScreenShaderSo
         volumetric_fog_source(&config.volumetric_fog),
         volumetric_lighting_source(&config.volumetric_lighting),
         blooming_hdr_source(&config.blooming_hdr),
+        color_grade_source(&config.color_grade),
         temporal_aa_source(&config.temporal_aa),
         sunshafts_source(&config.sunshafts),
         depth_of_field_source(&config.depth_of_field),
@@ -1097,6 +1107,119 @@ fn blooming_hdr_source(config: &BloomingHdrConfig) -> ScreenShaderSource {
     )
 }
 
+const COLOR_GRADE_LUT_CHOICES: &[&str] = &[
+    "Neutral",
+    "Mojave Natural",
+    "Dusty Western",
+    "Bleached Wasteland",
+    "Neon Nights",
+];
+
+fn color_grade_source(config: &ColorGradeConfig) -> ScreenShaderSource {
+    embedded_source(
+        EmbeddedEffectKind::ColorGrade,
+        "Color Grade and Film",
+        config.enabled,
+        EmbeddedEffectsConfig::phase_for_kind(EmbeddedEffectKind::ColorGrade),
+        vec![
+            float_option(
+                "strength",
+                "Master strength",
+                config.strength,
+                0.0,
+                1.0,
+                10,
+                0,
+            ),
+            float_option("exposure", "Exposure EV", config.exposure, -1.5, 1.5, 10, 1),
+            float_option("contrast", "Contrast", config.contrast, -0.5, 0.5, 10, 2),
+            float_option(
+                "saturation",
+                "Saturation",
+                config.saturation,
+                0.0,
+                2.0,
+                10,
+                3,
+            ),
+            float_option("vibrance", "Vibrance", config.vibrance, -1.0, 1.0, 11, 0),
+            float_option(
+                "temperature",
+                "Temperature",
+                config.temperature,
+                -1.0,
+                1.0,
+                11,
+                1,
+            ),
+            float_option("tint", "Green / magenta", config.tint, -1.0, 1.0, 11, 2),
+            float_option(
+                "black_fade",
+                "Black fade",
+                config.black_fade,
+                0.0,
+                1.0,
+                11,
+                3,
+            ),
+            float_option(
+                "highlight_rolloff",
+                "Highlight rolloff",
+                config.highlight_rolloff,
+                0.0,
+                1.0,
+                12,
+                0,
+            ),
+            integer_choice_option(
+                "lut_preset",
+                "Bundled LUT",
+                config.lut_preset,
+                COLOR_GRADE_LUT_CHOICES,
+                12,
+                1,
+            ),
+            float_option(
+                "lut_strength",
+                "LUT strength",
+                config.lut_strength,
+                0.0,
+                1.0,
+                12,
+                2,
+            ),
+            float_option(
+                "environment_response",
+                "Native environment response",
+                config.environment_response,
+                0.0,
+                1.0,
+                12,
+                3,
+            ),
+            float_option("deband", "Debanding", config.deband, 0.0, 1.0, 13, 0),
+            float_option(
+                "film_grain",
+                "Film grain",
+                config.film_grain,
+                0.0,
+                1.0,
+                13,
+                1,
+            ),
+            float_option("vignette", "Vignette", config.vignette, 0.0, 1.0, 13, 2),
+            float_option("halation", "Halation", config.halation, 0.0, 1.0, 13, 3),
+            bool_option(
+                "debug_split",
+                "Before / after split",
+                config.debug_split,
+                14,
+                0,
+            ),
+        ],
+    )
+}
+
 fn sunshafts_source(config: &SunshaftsConfig) -> ScreenShaderSource {
     embedded_source(
         EmbeddedEffectKind::Sunshafts,
@@ -1694,6 +1817,32 @@ fn sync_blooming_hdr_config(source: &ScreenShaderSource, config: &mut BloomingHd
             "dither" => config.dither = option_float(option),
             "debug_bloom" => config.debug_bloom = option_bool(option),
             "atmosphere" => config.atmosphere = option_float(option),
+            _ => {}
+        }
+    }
+}
+
+fn sync_color_grade_config(source: &ScreenShaderSource, config: &mut ColorGradeConfig) {
+    config.enabled = source.enabled;
+    for option in &source.options {
+        match option.key.as_str() {
+            "strength" => config.strength = option_float(option),
+            "exposure" => config.exposure = option_float(option),
+            "contrast" => config.contrast = option_float(option),
+            "saturation" => config.saturation = option_float(option),
+            "vibrance" => config.vibrance = option_float(option),
+            "temperature" => config.temperature = option_float(option),
+            "tint" => config.tint = option_float(option),
+            "black_fade" => config.black_fade = option_float(option),
+            "highlight_rolloff" => config.highlight_rolloff = option_float(option),
+            "lut_preset" => config.lut_preset = option_integer(option),
+            "lut_strength" => config.lut_strength = option_float(option),
+            "environment_response" => config.environment_response = option_float(option),
+            "deband" => config.deband = option_float(option),
+            "film_grain" => config.film_grain = option_float(option),
+            "vignette" => config.vignette = option_float(option),
+            "halation" => config.halation = option_float(option),
+            "debug_split" => config.debug_split = option_bool(option),
             _ => {}
         }
     }
@@ -2585,6 +2734,136 @@ fn shader_cache_temp_is_stale(metadata: &fs::Metadata) -> bool {
         .ok()
         .and_then(|modified| SystemTime::now().duration_since(modified).ok())
         .is_some_and(|age| age.as_secs() >= HLSL_CACHE_STALE_TEMP_SECONDS)
+}
+
+#[cfg(test)]
+mod embedded_color_grade_tests {
+    use super::{
+        COLOR_GRADE_LUT_CHOICES, EmbeddedEffectKind, ShaderOptionValue, ShaderPhase,
+        color_grade_source, embedded_effect_sources, sync_color_grade_config,
+    };
+    use crate::config::{ColorGradeConfig, EmbeddedEffectsConfig};
+
+    #[test]
+    fn color_grade_menu_schema_covers_every_config_field_and_lut_name() {
+        let source = color_grade_source(&ColorGradeConfig::default());
+        let keys: Vec<&str> = source
+            .options
+            .iter()
+            .map(|option| option.key.as_str())
+            .collect();
+        assert_eq!(
+            keys,
+            [
+                "strength",
+                "exposure",
+                "contrast",
+                "saturation",
+                "vibrance",
+                "temperature",
+                "tint",
+                "black_fade",
+                "highlight_rolloff",
+                "lut_preset",
+                "lut_strength",
+                "environment_response",
+                "deband",
+                "film_grain",
+                "vignette",
+                "halation",
+                "debug_split",
+            ]
+        );
+        let lut = source
+            .options
+            .iter()
+            .find(|option| option.key == "lut_preset")
+            .expect("LUT selector");
+        assert_eq!(lut.choices, Some(COLOR_GRADE_LUT_CHOICES));
+        assert_eq!(lut.min, 0.0);
+        assert_eq!(lut.max, 4.0);
+        assert!(matches!(lut.value, ShaderOptionValue::Integer(1)));
+        assert_eq!(
+            COLOR_GRADE_LUT_CHOICES,
+            [
+                "Neutral",
+                "Mojave Natural",
+                "Dusty Western",
+                "Bleached Wasteland",
+                "Neon Nights",
+            ]
+        );
+    }
+
+    #[test]
+    fn color_grade_menu_sync_round_trips_every_setting() {
+        let expected = ColorGradeConfig {
+            enabled: false,
+            strength: 0.01,
+            exposure: -1.25,
+            contrast: -0.35,
+            saturation: 1.77,
+            vibrance: -0.42,
+            temperature: -0.67,
+            tint: 0.31,
+            black_fade: 0.91,
+            highlight_rolloff: 0.83,
+            lut_preset: 4,
+            lut_strength: 0.73,
+            environment_response: 0.62,
+            deband: 0.51,
+            film_grain: 0.44,
+            vignette: 0.36,
+            halation: 0.28,
+            debug_split: true,
+        };
+        let source = color_grade_source(&expected);
+        let mut actual = ColorGradeConfig::default();
+        sync_color_grade_config(&source, &mut actual);
+        assert_eq!(actual.enabled, expected.enabled);
+        assert_eq!(actual.strength, expected.strength);
+        assert_eq!(actual.exposure, expected.exposure);
+        assert_eq!(actual.contrast, expected.contrast);
+        assert_eq!(actual.saturation, expected.saturation);
+        assert_eq!(actual.vibrance, expected.vibrance);
+        assert_eq!(actual.temperature, expected.temperature);
+        assert_eq!(actual.tint, expected.tint);
+        assert_eq!(actual.black_fade, expected.black_fade);
+        assert_eq!(actual.highlight_rolloff, expected.highlight_rolloff);
+        assert_eq!(actual.lut_preset, expected.lut_preset);
+        assert_eq!(actual.lut_strength, expected.lut_strength);
+        assert_eq!(actual.environment_response, expected.environment_response);
+        assert_eq!(actual.deband, expected.deband);
+        assert_eq!(actual.film_grain, expected.film_grain);
+        assert_eq!(actual.vignette, expected.vignette);
+        assert_eq!(actual.halation, expected.halation);
+        assert_eq!(actual.debug_split, expected.debug_split);
+    }
+
+    #[test]
+    fn final_color_phase_and_order_put_grade_after_bloom_before_spatial_aa() {
+        let sources = embedded_effect_sources(&EmbeddedEffectsConfig::default());
+        let final_kinds: Vec<EmbeddedEffectKind> = sources
+            .iter()
+            .filter(|source| source.phase() == ShaderPhase::FinalImageSpace)
+            .filter_map(|source| source.embedded_effect_kind())
+            .collect();
+        assert_eq!(
+            final_kinds,
+            [
+                EmbeddedEffectKind::BloomingHdr,
+                EmbeddedEffectKind::ColorGrade,
+                EmbeddedEffectKind::FastFxaa,
+                EmbeddedEffectKind::Nfaa,
+                EmbeddedEffectKind::Axaa,
+                EmbeddedEffectKind::Dlaa,
+                EmbeddedEffectKind::Smaa,
+            ]
+        );
+        assert!(EmbeddedEffectKind::BloomingHdr.is_final_color());
+        assert!(EmbeddedEffectKind::ColorGrade.is_final_color());
+        assert!(!EmbeddedEffectKind::FastFxaa.is_final_color());
+    }
 }
 
 #[cfg(test)]

@@ -900,3 +900,64 @@ fn log_commit_failure(base: usize, offset: usize, size: usize) {
         );
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const TEST_BLOCK_SIZE: usize = 64 * 1024;
+
+    fn test_block(storage: &mut [u8]) -> Block {
+        Block::new(
+            storage.as_mut_ptr(),
+            TEST_BLOCK_SIZE as u32,
+            BlockBacking::VirtualAlloc,
+            TEST_BLOCK_SIZE,
+        )
+    }
+
+    #[test]
+    fn split_free_and_coalesce_restore_the_complete_block() {
+        let mut storage = vec![0u8; TEST_BLOCK_SIZE];
+        let mut block = test_block(&mut storage);
+
+        let first = block.alloc(8 * 1024).expect("first allocation");
+        let second = block.alloc(12 * 1024).expect("second allocation");
+        let third = block.alloc(4 * 1024).expect("third allocation");
+        let first_offset = block.cells[first as usize].offset;
+        let second_offset = block.cells[second as usize].offset;
+        let third_offset = block.cells[third as usize].offset;
+
+        assert!(block.free(second_offset));
+        assert!(block.free(first_offset));
+        assert!(block.free(third_offset));
+        assert!(!block.free(first_offset));
+        assert!(block.used_by_offset.is_empty());
+        assert_eq!(block.live_bytes, 0);
+        assert_eq!(block.free_by_size.len(), 1);
+        assert_eq!(
+            block
+                .free_by_size
+                .get(&(TEST_BLOCK_SIZE as u32))
+                .map(Vec::len),
+            Some(1),
+        );
+    }
+
+    #[test]
+    fn free_does_not_overwrite_zombie_payload() {
+        let mut storage = vec![0u8; TEST_BLOCK_SIZE];
+        let mut block = test_block(&mut storage);
+        let cell = block.alloc(8 * 1024).expect("allocation");
+        let offset = block.cells[cell as usize].offset as usize;
+        let size = block.cells[cell as usize].size as usize;
+        storage[offset..offset + size].fill(0xa5);
+
+        assert!(block.free(offset as u32));
+        assert!(
+            storage[offset..offset + size]
+                .iter()
+                .all(|byte| *byte == 0xa5)
+        );
+    }
+}

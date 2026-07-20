@@ -9,7 +9,10 @@
 //!
 //! SpeedTreeRT Compute also publishes its active model through process-global
 //! scratch pointers. Two IO workers can otherwise select an index from one
-//! model and validate it against another model's record table.
+//! model and validate it against another model's record table. The complete
+//! BSTree find/load owner is serialized so initial clone, reload, destruction,
+//! Compute, and publication cannot interleave across workers or the main
+//! completion path. The leaf hooks reuse the same reentrant transaction lock.
 
 use std::{
     ffi::c_void,
@@ -17,7 +20,7 @@ use std::{
     ptr,
     sync::{
         LazyLock,
-        atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
+        atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering},
     },
 };
 
@@ -49,7 +52,16 @@ const MAX_OWNER_CLONES: usize = 65_536;
 
 static INSTALLED: AtomicBool = AtomicBool::new(false);
 static TRACE_ENABLED: AtomicBool = AtomicBool::new(false);
-static COMPUTE_LOCK: LazyLock<ReentrantMutex<()>> = LazyLock::new(|| ReentrantMutex::new(()));
+static TRANSACTION_LOCK: LazyLock<ReentrantMutex<()>> = LazyLock::new(|| ReentrantMutex::new(()));
+static TRANSACTION_CONTENTIONS: AtomicU64 = AtomicU64::new(0);
+static TRANSACTION_WAITERS: AtomicU32 = AtomicU32::new(0);
+static ACTIVE_TRANSACTION_SCOPE: AtomicU32 = AtomicU32::new(0);
+static ACTIVE_TRANSACTION_THREAD: AtomicU32 = AtomicU32::new(0);
+static MAX_TRANSACTION_WAIT_US: AtomicU64 = AtomicU64::new(0);
+static TREE_TRANSACTIONS: AtomicU64 = AtomicU64::new(0);
+static TREE_COMPLETIONS: AtomicU64 = AtomicU64::new(0);
+static TREE_CONTENTIONS: AtomicU64 = AtomicU64::new(0);
+static MAX_TREE_WAIT_US: AtomicU64 = AtomicU64::new(0);
 static COMPUTE_TRANSACTIONS: AtomicU64 = AtomicU64::new(0);
 static COMPUTE_CONTENTIONS: AtomicU64 = AtomicU64::new(0);
 static MAX_COMPUTE_WAIT_US: AtomicU64 = AtomicU64::new(0);
@@ -70,6 +82,15 @@ static MAX_LOCK_WAIT_US: AtomicU64 = AtomicU64::new(0);
 pub(in crate::mods::engine_fixes) struct Snapshot {
     pub installed: bool,
     pub trace_enabled: bool,
+    pub transaction_contentions: u64,
+    pub transaction_waiters: u32,
+    pub active_transaction_scope: &'static str,
+    pub active_transaction_thread: u32,
+    pub max_transaction_wait_us: u64,
+    pub tree_transactions: u64,
+    pub tree_completions: u64,
+    pub tree_contentions: u64,
+    pub max_tree_wait_us: u64,
     pub compute_transactions: u64,
     pub compute_contentions: u64,
     pub max_compute_wait_us: u64,
@@ -85,6 +106,15 @@ pub(in crate::mods::engine_fixes) struct Snapshot {
     pub invalid_refcount_rejects: u64,
     pub constructor_postcondition_failures: u64,
     pub max_lock_wait_us: u64,
+}
+
+#[derive(Clone, Copy)]
+#[repr(u32)]
+enum TransactionScope {
+    TreeLoad = 1,
+    Compute,
+    Clone,
+    Destructor,
 }
 
 #[derive(Clone, Copy)]
@@ -130,6 +160,11 @@ pub(super) fn install(trace_enabled: bool) -> anyhow::Result<()> {
     }
 
     unsafe {
+        statics::BSTREE_FIND_OR_LOAD_HOOK.init(
+            "bstree_find_or_load_serialization",
+            statics::BSTREE_FIND_OR_LOAD_ADDR as *mut c_void,
+            hook_bstree_find_or_load,
+        )?;
         statics::SPEEDTREE_CLONE_CONSTRUCTOR_HOOK.init(
             "speedtree_clone_lifetime",
             statics::SPEEDTREE_CLONE_CONSTRUCTOR_ADDR as *mut c_void,
@@ -148,16 +183,38 @@ pub(super) fn install(trace_enabled: bool) -> anyhow::Result<()> {
     }
 
     let mut transaction = ModificationTransaction::new();
+    transaction.enable_inline(&statics::BSTREE_FIND_OR_LOAD_HOOK)?;
     transaction.enable_inline(&statics::SPEEDTREE_CLONE_CONSTRUCTOR_HOOK)?;
     transaction.enable_inline(&statics::SPEEDTREE_COMPUTE_HOOK)?;
     transaction.enable_inline(&statics::SPEEDTREE_SCALAR_DESTRUCTOR_HOOK)?;
     transaction.commit();
     INSTALLED.store(true, Ordering::Release);
     log::info!(
-        "[IO] SpeedTree Compute and clone lifetime serialized; native registry lock 0x{:08X}",
+        "[IO] Complete BSTree load, SpeedTree Compute, and clone lifetime serialized; native registry lock 0x{:08X}",
         statics::SPEEDTREE_REGISTRY_CRITICAL_SECTION_ADDR,
     );
     Ok(())
+}
+
+unsafe extern "thiscall" fn hook_bstree_find_or_load(
+    manager: *mut c_void,
+    existing_model: *mut c_void,
+    reference: *mut c_void,
+) -> *mut c_void {
+    let original = match statics::BSTREE_FIND_OR_LOAD_HOOK.original() {
+        Ok(original) => original,
+        Err(error) => {
+            log::error!("[IO] BSTree find/load trampoline missing: {error:?}");
+            return ptr::null_mut();
+        }
+    };
+
+    TREE_TRANSACTIONS.fetch_add(1, Ordering::Relaxed);
+    let result = with_transaction(TransactionScope::TreeLoad, || unsafe {
+        original(manager, existing_model, reference)
+    });
+    TREE_COMPLETIONS.fetch_add(1, Ordering::Release);
+    result
 }
 
 unsafe extern "thiscall" fn hook_compute(
@@ -178,20 +235,72 @@ unsafe extern "thiscall" fn hook_compute(
 }
 
 fn with_compute_lock<T>(operation: impl FnOnce() -> T) -> T {
+    COMPUTE_TRANSACTIONS.fetch_add(1, Ordering::Relaxed);
+    with_transaction(TransactionScope::Compute, operation)
+}
+
+fn with_transaction<T>(scope: TransactionScope, operation: impl FnOnce() -> T) -> T {
+    let nested = TRANSACTION_LOCK.is_owned_by_current_thread();
     let timer = lock_timer();
-    let guard = if let Some(guard) = COMPUTE_LOCK.try_lock() {
+    let guard = if let Some(guard) = TRANSACTION_LOCK.try_lock() {
         guard
     } else {
-        COMPUTE_CONTENTIONS.fetch_add(1, Ordering::Relaxed);
-        COMPUTE_LOCK.lock()
+        TRANSACTION_CONTENTIONS.fetch_add(1, Ordering::Relaxed);
+        if let Some(counter) = scope_contentions(scope) {
+            counter.fetch_add(1, Ordering::Relaxed);
+        }
+        TRANSACTION_WAITERS.fetch_add(1, Ordering::AcqRel);
+        let guard = TRANSACTION_LOCK.lock();
+        TRANSACTION_WAITERS.fetch_sub(1, Ordering::AcqRel);
+        guard
     };
     if let Some(elapsed) = timer.and_then(Stopwatch::elapsed_us) {
-        update_max_u64(&MAX_COMPUTE_WAIT_US, elapsed);
+        update_max_u64(&MAX_TRANSACTION_WAIT_US, elapsed);
+        if let Some(max_wait) = scope_max_wait(scope) {
+            update_max_u64(max_wait, elapsed);
+        }
     }
-    COMPUTE_TRANSACTIONS.fetch_add(1, Ordering::Relaxed);
+    if !nested {
+        ACTIVE_TRANSACTION_THREAD.store(
+            libpsycho::os::windows::winapi::get_current_thread_id(),
+            Ordering::Release,
+        );
+        ACTIVE_TRANSACTION_SCOPE.store(scope as u32, Ordering::Release);
+    }
+
     let result = operation();
+    if !nested {
+        ACTIVE_TRANSACTION_SCOPE.store(0, Ordering::Release);
+        ACTIVE_TRANSACTION_THREAD.store(0, Ordering::Release);
+    }
     drop(guard);
     result
+}
+
+fn scope_contentions(scope: TransactionScope) -> Option<&'static AtomicU64> {
+    match scope {
+        TransactionScope::TreeLoad => Some(&TREE_CONTENTIONS),
+        TransactionScope::Compute => Some(&COMPUTE_CONTENTIONS),
+        TransactionScope::Clone | TransactionScope::Destructor => None,
+    }
+}
+
+fn scope_max_wait(scope: TransactionScope) -> Option<&'static AtomicU64> {
+    match scope {
+        TransactionScope::TreeLoad => Some(&MAX_TREE_WAIT_US),
+        TransactionScope::Compute => Some(&MAX_COMPUTE_WAIT_US),
+        TransactionScope::Clone | TransactionScope::Destructor => None,
+    }
+}
+
+fn transaction_scope_name(scope: u32) -> &'static str {
+    match scope {
+        x if x == TransactionScope::TreeLoad as u32 => "tree-load",
+        x if x == TransactionScope::Compute as u32 => "compute",
+        x if x == TransactionScope::Clone as u32 => "clone",
+        x if x == TransactionScope::Destructor as u32 => "destructor",
+        _ => "none",
+    }
 }
 
 unsafe extern "thiscall" fn hook_clone_constructor(
@@ -206,31 +315,33 @@ unsafe extern "thiscall" fn hook_clone_constructor(
         }
     };
 
-    let timer = lock_timer();
-    let lock = speedtree_lock().context("borrow SpeedTree registry critical section");
-    let Ok(lock) = lock else {
-        log::error!("[IO] SpeedTree registry critical section unavailable");
-        return ptr::null_mut();
-    };
-    let guard = lock.enter();
-    finish_lock_timer(timer);
+    with_transaction(TransactionScope::Clone, || {
+        let timer = lock_timer();
+        let lock = speedtree_lock().context("borrow SpeedTree registry critical section");
+        let Ok(lock) = lock else {
+            log::error!("[IO] SpeedTree registry critical section unavailable");
+            return ptr::null_mut();
+        };
+        let guard = lock.enter();
+        finish_lock_timer(timer);
 
-    let result = unsafe { original(this, source) };
-    let postcondition = inspect_core(result);
-    if let Ok(CoreState::Clone { owner_len }) = postcondition {
-        let current = CURRENT_CLONES.fetch_add(1, Ordering::Relaxed) + 1;
-        raise_max_usize(&PEAK_CLONES, current);
-        update_max_u64(&MAX_OWNER_CLONES_OBSERVED, owner_len as u64);
-        CLONE_CONSTRUCTS.fetch_add(1, Ordering::Relaxed);
-    } else {
-        CONSTRUCTOR_POSTCONDITION_FAILURES.fetch_add(1, Ordering::Relaxed);
-    }
+        let result = unsafe { original(this, source) };
+        let postcondition = inspect_core(result);
+        if let Ok(CoreState::Clone { owner_len }) = postcondition {
+            let current = CURRENT_CLONES.fetch_add(1, Ordering::Relaxed) + 1;
+            raise_max_usize(&PEAK_CLONES, current);
+            update_max_u64(&MAX_OWNER_CLONES_OBSERVED, owner_len as u64);
+            CLONE_CONSTRUCTS.fetch_add(1, Ordering::Relaxed);
+        } else {
+            CONSTRUCTOR_POSTCONDITION_FAILURES.fetch_add(1, Ordering::Relaxed);
+        }
 
-    drop(guard);
-    if let Err(reason) = postcondition {
-        log_constructor_failure(result, reason);
-    }
-    result
+        drop(guard);
+        if let Err(reason) = postcondition {
+            log_constructor_failure(result, reason);
+        }
+        result
+    })
 }
 
 unsafe extern "thiscall" fn hook_scalar_destructor(this: *mut c_void, flags: u32) -> *mut c_void {
@@ -242,34 +353,36 @@ unsafe extern "thiscall" fn hook_scalar_destructor(this: *mut c_void, flags: u32
         }
     };
 
-    let timer = lock_timer();
-    let lock = speedtree_lock().context("borrow SpeedTree registry critical section");
-    let Ok(lock) = lock else {
-        log::error!("[IO] SpeedTree registry critical section unavailable");
-        return this;
-    };
-    let guard = lock.enter();
-    finish_lock_timer(timer);
-
-    let state = inspect_core(this);
-    let owner_len = match state {
-        Ok(CoreState::Base) => None,
-        Ok(CoreState::Clone { owner_len }) => Some(owner_len),
-        Err(reason) => {
-            let gheap = gheap_state(this);
-            drop(guard);
-            log_rejected_destructor(this, flags, reason, gheap);
+    with_transaction(TransactionScope::Destructor, || {
+        let timer = lock_timer();
+        let lock = speedtree_lock().context("borrow SpeedTree registry critical section");
+        let Ok(lock) = lock else {
+            log::error!("[IO] SpeedTree registry critical section unavailable");
             return this;
+        };
+        let guard = lock.enter();
+        finish_lock_timer(timer);
+
+        let state = inspect_core(this);
+        let owner_len = match state {
+            Ok(CoreState::Base) => None,
+            Ok(CoreState::Clone { owner_len }) => Some(owner_len),
+            Err(reason) => {
+                let gheap = gheap_state(this);
+                drop(guard);
+                log_rejected_destructor(this, flags, reason, gheap);
+                return this;
+            }
+        };
+
+        if let Some(owner_len) = owner_len {
+            CLONE_DESTROYS.fetch_add(1, Ordering::Relaxed);
+            update_max_u64(&MAX_OWNER_CLONES_OBSERVED, owner_len as u64);
+            decrement_current_clones();
         }
-    };
 
-    if let Some(owner_len) = owner_len {
-        CLONE_DESTROYS.fetch_add(1, Ordering::Relaxed);
-        update_max_u64(&MAX_OWNER_CLONES_OBSERVED, owner_len as u64);
-        decrement_current_clones();
-    }
-
-    unsafe { original(this, flags) }
+        unsafe { original(this, flags) }
+    })
 }
 
 fn speedtree_lock() -> anyhow::Result<BorrowedCriticalSection> {
@@ -463,6 +576,17 @@ pub(super) fn snapshot() -> Snapshot {
     Snapshot {
         installed: INSTALLED.load(Ordering::Acquire),
         trace_enabled: TRACE_ENABLED.load(Ordering::Acquire),
+        transaction_contentions: TRANSACTION_CONTENTIONS.load(Ordering::Relaxed),
+        transaction_waiters: TRANSACTION_WAITERS.load(Ordering::Acquire),
+        active_transaction_scope: transaction_scope_name(
+            ACTIVE_TRANSACTION_SCOPE.load(Ordering::Acquire),
+        ),
+        active_transaction_thread: ACTIVE_TRANSACTION_THREAD.load(Ordering::Acquire),
+        max_transaction_wait_us: MAX_TRANSACTION_WAIT_US.load(Ordering::Relaxed),
+        tree_transactions: TREE_TRANSACTIONS.load(Ordering::Relaxed),
+        tree_completions: TREE_COMPLETIONS.load(Ordering::Acquire),
+        tree_contentions: TREE_CONTENTIONS.load(Ordering::Relaxed),
+        max_tree_wait_us: MAX_TREE_WAIT_US.load(Ordering::Relaxed),
         compute_transactions: COMPUTE_TRANSACTIONS.load(Ordering::Relaxed),
         compute_contentions: COMPUTE_CONTENTIONS.load(Ordering::Relaxed),
         max_compute_wait_us: MAX_COMPUTE_WAIT_US.load(Ordering::Relaxed),
@@ -486,7 +610,7 @@ pub(super) fn snapshot() -> Snapshot {
 mod tests {
     use std::{
         sync::{
-            Arc, Barrier,
+            Arc, Barrier, Mutex,
             atomic::{AtomicBool, Ordering},
             mpsc,
         },
@@ -494,10 +618,16 @@ mod tests {
         time::{Duration, Instant},
     };
 
-    use super::{COMPUTE_CONTENTIONS, with_compute_lock};
+    use super::{
+        ACTIVE_TRANSACTION_SCOPE, COMPUTE_CONTENTIONS, TransactionScope, transaction_scope_name,
+        with_compute_lock, with_transaction,
+    };
+
+    static TEST_LOCK: Mutex<()> = Mutex::new(());
 
     #[test]
     fn compute_transactions_cannot_overlap_across_workers() {
+        let _test = TEST_LOCK.lock().expect("serialize SpeedTree lock tests");
         let release_first = Arc::new(Barrier::new(2));
         let second_entered = Arc::new(AtomicBool::new(false));
         let (first_entered_tx, first_entered_rx) = mpsc::channel();
@@ -530,5 +660,66 @@ mod tests {
         first.join().expect("join first worker");
         second.join().expect("join second worker");
         assert!(second_entered.load(Ordering::Acquire));
+    }
+
+    #[test]
+    fn tree_transaction_blocks_independent_compute() {
+        let _test = TEST_LOCK.lock().expect("serialize SpeedTree lock tests");
+        let release_tree = Arc::new(Barrier::new(2));
+        let compute_entered = Arc::new(AtomicBool::new(false));
+        let (tree_entered_tx, tree_entered_rx) = mpsc::channel();
+
+        let tree_release = Arc::clone(&release_tree);
+        let tree = thread::spawn(move || {
+            with_transaction(TransactionScope::TreeLoad, || {
+                tree_entered_tx.send(()).expect("signal tree transaction");
+                tree_release.wait();
+            });
+        });
+        tree_entered_rx
+            .recv_timeout(Duration::from_secs(2))
+            .expect("tree transaction entered");
+
+        let contentions_before = COMPUTE_CONTENTIONS.load(Ordering::Relaxed);
+        let compute_state = Arc::clone(&compute_entered);
+        let compute = thread::spawn(move || {
+            with_compute_lock(|| compute_state.store(true, Ordering::Release));
+        });
+
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while COMPUTE_CONTENTIONS.load(Ordering::Relaxed) == contentions_before {
+            assert!(
+                Instant::now() < deadline,
+                "Compute did not wait for tree owner"
+            );
+            thread::yield_now();
+        }
+        assert!(!compute_entered.load(Ordering::Acquire));
+
+        release_tree.wait();
+        tree.join().expect("join tree transaction");
+        compute.join().expect("join Compute transaction");
+        assert!(compute_entered.load(Ordering::Acquire));
+    }
+
+    #[test]
+    fn nested_speedtree_hooks_preserve_outer_scope() {
+        let _test = TEST_LOCK.lock().expect("serialize SpeedTree lock tests");
+        with_transaction(TransactionScope::TreeLoad, || {
+            assert_eq!(
+                transaction_scope_name(ACTIVE_TRANSACTION_SCOPE.load(Ordering::Acquire)),
+                "tree-load"
+            );
+            with_compute_lock(|| {
+                assert_eq!(
+                    transaction_scope_name(ACTIVE_TRANSACTION_SCOPE.load(Ordering::Acquire)),
+                    "tree-load"
+                );
+            });
+        });
+        assert_eq!(
+            transaction_scope_name(ACTIVE_TRANSACTION_SCOPE.load(Ordering::Acquire)),
+            "none"
+        );
     }
 }

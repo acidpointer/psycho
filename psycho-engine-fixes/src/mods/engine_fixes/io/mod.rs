@@ -80,3 +80,7 @@ pub(super) fn diagnostic_snapshot() -> DiagnosticSnapshot {
         vertex_buffers: vertex_buffers::snapshot(),
     }
 }
+
+pub(super) fn speedtree_diagnostic_snapshot() -> speedtree_lifetime::Snapshot {
+    speedtree_lifetime::snapshot()
+}

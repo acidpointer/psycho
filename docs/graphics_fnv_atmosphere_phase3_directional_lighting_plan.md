@@ -7,6 +7,33 @@ OMV unit/static tests pass, including every fixed `ps_3_0` variant under the
 real D3D compiler in the i686 Wine test run. The corrected feature-first runtime
 playtest remains the final acceptance gate.
 
+Screen-entrance correction on 2026-07-20: ordinary camera motion could move the
+projected sun through the old 3.5% viewport-edge ramp in one or two frames.
+Although that mapping was mathematically continuous, directional scattering,
+the disk lobe, and both shaft pipelines consequently looked as if they switched
+on when the sun entered the screen. The shared `project_world_direction` edge
+weight now uses a smooth 12% viewport ramp. At 4% inside the viewport the new
+weight is about 0.26 instead of the old 1.0, and it remains exactly zero on and
+beyond the edge. This preserves the accepted protection against off-screen,
+unoccluded yellow wash while giving normal head movement enough screen distance
+to reveal the sun progressively.
+
+The correction is owned by `omv/src/backend/mod.rs`; atmosphere and legacy
+Sunshafts consume the same copied projection weight, so the disk lighting and
+both ray systems cannot disagree at the boundary. It adds no render pass,
+texture, allocation, lock, history, or per-pixel work. The deterministic
+`directional_lighting_entrance_spans_meaningful_viewport_distance` regression
+includes the old 3.5% mapping as a negative control, proves monotonic bounded
+growth, and proves full native daylight is recovered away from the edge. Static
+validation cannot prove the perceived timing under a player's mouse/controller;
+the final runtime acceptance is a normal slow and fast look through each screen
+edge with Volumetric Lighting and optional legacy Sunshafts enabled.
+
+Static validation on 2026-07-20 passed all 179 OMV tests under
+`i686-pc-windows-gnu`, including the real HLSL compiler tests, and the explicit
+optimized `i686-pc-windows-gnu` OMV release build. Perceived entrance timing and
+final pixels remain the ordinary in-game acceptance gate described above.
+
 Runtime correction on 2026-07-19: the first deployed build completed its draw
 but was visually ineffective. It applied a normalized per-steradian phase
 directly to FNV's irradiance-scale direct-light RGB, reducing isotropic response

@@ -178,6 +178,7 @@ pub fn log_if_main_stale() {
         now.wrapping_sub(event_tick)
     };
     let display = engine_fixes::display_diagnostic_snapshot();
+    let io = engine_fixes::io_hang_snapshot();
     let load = diagnostics::load_snapshot();
     let display_age = if display.last_transition_ms != 0 {
         now.wrapping_sub(display.last_transition_ms)
@@ -244,7 +245,7 @@ pub fn log_if_main_stale() {
         && let Some(model) = model_loader_snapshot()
     {
         log::warn!(
-            "[HANG_LOAD] manager=0x{:08X} state={} active={} accepted_total={} counts={:?} completed_queues=0x{:08X} external_count=0x{:08X} completion_gate=0x{:08X} progress=0x{:08X} drain_complete={} completion_active={}",
+            "[HANG_LOAD] manager=0x{:08X} state={} active={} accepted_total={} counts={:?} completed_queues=0x{:08X} external_count=0x{:08X} completion_gate=0x{:08X} progress=0x{:08X} drain_complete={} completion_active={} tree={}/{} speedtree_waiters={} speedtree_scope={} speedtree_tid={}",
             model.manager,
             model.state,
             model.active,
@@ -256,6 +257,11 @@ pub fn log_if_main_stale() {
             model.progress_callback,
             model.drain_complete,
             model.completion_active,
+            io.tree_started,
+            io.tree_completed,
+            io.transaction_waiters,
+            io.active_scope,
+            io.active_thread,
         );
     }
 }

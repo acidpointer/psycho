@@ -164,6 +164,7 @@ pub(crate) struct EmbeddedEffectsConfig {
     pub(crate) volumetric_fog: VolumetricFogConfig,
     pub(crate) volumetric_lighting: VolumetricLightingConfig,
     pub(crate) blooming_hdr: BloomingHdrConfig,
+    pub(crate) color_grade: ColorGradeConfig,
     pub(crate) sunshafts: SunshaftsConfig,
     pub(crate) depth_of_field: DepthOfFieldConfig,
     pub(crate) temporal_aa: TemporalAaConfig,
@@ -182,6 +183,7 @@ impl Default for EmbeddedEffectsConfig {
             volumetric_fog: VolumetricFogConfig::default(),
             volumetric_lighting: VolumetricLightingConfig::default(),
             blooming_hdr: BloomingHdrConfig::default(),
+            color_grade: ColorGradeConfig::default(),
             sunshafts: SunshaftsConfig::default(),
             depth_of_field: DepthOfFieldConfig::default(),
             temporal_aa: TemporalAaConfig::default(),
@@ -341,6 +343,7 @@ impl EmbeddedEffectsConfig {
     fn sanitized(mut self) -> Self {
         self.volumetric_fog = self.volumetric_fog.sanitized();
         self.volumetric_lighting = self.volumetric_lighting.sanitized();
+        self.color_grade = self.color_grade.sanitized();
         self.sunshafts = self.sunshafts.sanitized();
         self
     }
@@ -548,6 +551,78 @@ impl Default for BloomingHdrConfig {
             debug_bloom: false,
             atmosphere: 0.38,
         }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
+#[serde(default)]
+pub(crate) struct ColorGradeConfig {
+    pub(crate) enabled: bool,
+    pub(crate) strength: f32,
+    pub(crate) exposure: f32,
+    pub(crate) contrast: f32,
+    pub(crate) saturation: f32,
+    pub(crate) vibrance: f32,
+    pub(crate) temperature: f32,
+    pub(crate) tint: f32,
+    pub(crate) black_fade: f32,
+    pub(crate) highlight_rolloff: f32,
+    pub(crate) lut_preset: i32,
+    pub(crate) lut_strength: f32,
+    pub(crate) environment_response: f32,
+    pub(crate) deband: f32,
+    pub(crate) film_grain: f32,
+    pub(crate) vignette: f32,
+    pub(crate) halation: f32,
+    pub(crate) debug_split: bool,
+}
+
+impl Default for ColorGradeConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            strength: 0.72,
+            exposure: 0.0,
+            contrast: 0.06,
+            saturation: 1.0,
+            vibrance: 0.10,
+            temperature: 0.03,
+            tint: 0.0,
+            black_fade: 0.025,
+            highlight_rolloff: 0.08,
+            lut_preset: 1,
+            lut_strength: 0.58,
+            environment_response: 0.35,
+            deband: 0.35,
+            film_grain: 0.08,
+            vignette: 0.06,
+            halation: 0.04,
+            debug_split: false,
+        }
+    }
+}
+
+impl ColorGradeConfig {
+    fn sanitized(mut self) -> Self {
+        self.strength = finite_clamp(self.strength, 0.72, 0.0, 1.0);
+        self.exposure = finite_clamp(self.exposure, 0.0, -1.5, 1.5);
+        self.contrast = finite_clamp(self.contrast, 0.06, -0.5, 0.5);
+        self.saturation = finite_clamp(self.saturation, 1.0, 0.0, 2.0);
+        self.vibrance = finite_clamp(self.vibrance, 0.10, -1.0, 1.0);
+        self.temperature = finite_clamp(self.temperature, 0.03, -1.0, 1.0);
+        self.tint = finite_clamp(self.tint, 0.0, -1.0, 1.0);
+        self.black_fade = finite_clamp(self.black_fade, 0.025, 0.0, 1.0);
+        self.highlight_rolloff = finite_clamp(self.highlight_rolloff, 0.08, 0.0, 1.0);
+        if !(0..=4).contains(&self.lut_preset) {
+            self.lut_preset = 0;
+        }
+        self.lut_strength = finite_clamp(self.lut_strength, 0.58, 0.0, 1.0);
+        self.environment_response = finite_clamp(self.environment_response, 0.35, 0.0, 1.0);
+        self.deband = finite_clamp(self.deband, 0.35, 0.0, 1.0);
+        self.film_grain = finite_clamp(self.film_grain, 0.08, 0.0, 1.0);
+        self.vignette = finite_clamp(self.vignette, 0.06, 0.0, 1.0);
+        self.halation = finite_clamp(self.halation, 0.04, 0.0, 1.0);
+        self
     }
 }
 
@@ -873,7 +948,8 @@ impl EmbeddedEffectsConfig {
             | crate::shaders::EmbeddedEffectKind::VolumetricLighting => {
                 ShaderPhase::ScenePostImageSpace
             }
-            crate::shaders::EmbeddedEffectKind::BloomingHdr => ShaderPhase::FinalImageSpace,
+            crate::shaders::EmbeddedEffectKind::BloomingHdr
+            | crate::shaders::EmbeddedEffectKind::ColorGrade => ShaderPhase::FinalImageSpace,
             crate::shaders::EmbeddedEffectKind::FastFxaa
             | crate::shaders::EmbeddedEffectKind::Nfaa
             | crate::shaders::EmbeddedEffectKind::Axaa
@@ -1144,6 +1220,8 @@ fn save_embedded_effect_config(doc: &mut DocumentMut, config: &EmbeddedEffectsCo
     doc["graphics"]["embedded_effects"]["blooming_hdr"]["atmosphere"] =
         value(bloom.atmosphere as f64);
 
+    save_color_grade_config(doc, &config.color_grade);
+
     let sun = &config.sunshafts;
     doc["graphics"]["embedded_effects"]["sunshafts"]["enabled"] = value(sun.enabled);
     doc["graphics"]["embedded_effects"]["sunshafts"]["intensity"] = value(sun.intensity as f64);
@@ -1215,12 +1293,43 @@ fn save_embedded_effect_config(doc: &mut DocumentMut, config: &EmbeddedEffectsCo
     doc["graphics"]["embedded_effects"]["depth_of_field"]["softness"] = value(dof.softness as f64);
 }
 
+fn save_color_grade_config(doc: &mut DocumentMut, grade: &ColorGradeConfig) {
+    doc["graphics"]["embedded_effects"]["color_grade"]["enabled"] = value(grade.enabled);
+    doc["graphics"]["embedded_effects"]["color_grade"]["strength"] = value(grade.strength as f64);
+    doc["graphics"]["embedded_effects"]["color_grade"]["exposure"] = value(grade.exposure as f64);
+    doc["graphics"]["embedded_effects"]["color_grade"]["contrast"] = value(grade.contrast as f64);
+    doc["graphics"]["embedded_effects"]["color_grade"]["saturation"] =
+        value(grade.saturation as f64);
+    doc["graphics"]["embedded_effects"]["color_grade"]["vibrance"] = value(grade.vibrance as f64);
+    doc["graphics"]["embedded_effects"]["color_grade"]["temperature"] =
+        value(grade.temperature as f64);
+    doc["graphics"]["embedded_effects"]["color_grade"]["tint"] = value(grade.tint as f64);
+    doc["graphics"]["embedded_effects"]["color_grade"]["black_fade"] =
+        value(grade.black_fade as f64);
+    doc["graphics"]["embedded_effects"]["color_grade"]["highlight_rolloff"] =
+        value(grade.highlight_rolloff as f64);
+    doc["graphics"]["embedded_effects"]["color_grade"]["lut_preset"] =
+        value(grade.lut_preset as i64);
+    doc["graphics"]["embedded_effects"]["color_grade"]["lut_strength"] =
+        value(grade.lut_strength as f64);
+    doc["graphics"]["embedded_effects"]["color_grade"]["environment_response"] =
+        value(grade.environment_response as f64);
+    doc["graphics"]["embedded_effects"]["color_grade"]["deband"] = value(grade.deband as f64);
+    doc["graphics"]["embedded_effects"]["color_grade"]["film_grain"] =
+        value(grade.film_grain as f64);
+    doc["graphics"]["embedded_effects"]["color_grade"]["vignette"] = value(grade.vignette as f64);
+    doc["graphics"]["embedded_effects"]["color_grade"]["halation"] = value(grade.halation as f64);
+    doc["graphics"]["embedded_effects"]["color_grade"]["debug_split"] = value(grade.debug_split);
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        AtmosphereQuality, EmbeddedEffectsConfig, NativePbrConfig, VolumetricFogConfig,
-        VolumetricLightingConfig,
+        AtmosphereQuality, ColorGradeConfig, EmbeddedEffectsConfig, NativePbrConfig,
+        PsychoGraphicsConfig, VolumetricFogConfig, VolumetricLightingConfig,
+        save_color_grade_config,
     };
+    use toml_edit::DocumentMut;
 
     #[test]
     fn legacy_pbr_profile_migrates_to_terrain_only() {
@@ -1269,6 +1378,10 @@ albedo_saturation = 1.02
         config.volumetric_lighting.local_lights_intensity = f32::INFINITY;
         config.volumetric_lighting.debug_view = 99;
         config.volumetric_lighting.temporal_stability = f32::NAN;
+        config.color_grade.exposure = f32::INFINITY;
+        config.color_grade.saturation = -3.0;
+        config.color_grade.lut_preset = 99;
+        config.color_grade.deband = f32::NAN;
         config.sunshafts.medium_response = f32::NAN;
         config.sunshafts.sun_sample_px = 99;
 
@@ -1283,8 +1396,153 @@ albedo_saturation = 1.02
         assert_eq!(config.volumetric_lighting.local_lights_intensity, 1.5);
         assert_eq!(config.volumetric_lighting.debug_view, 8);
         assert_eq!(config.volumetric_lighting.temporal_stability, 0.9);
+        assert_eq!(config.color_grade.exposure, 0.0);
+        assert_eq!(config.color_grade.saturation, 0.0);
+        assert_eq!(config.color_grade.lut_preset, 0);
+        assert_eq!(config.color_grade.deband, 0.35);
         assert_eq!(config.sunshafts.medium_response, 1.0);
         assert_eq!(config.sunshafts.sun_sample_px, 48);
+    }
+
+    #[test]
+    fn every_color_grade_value_is_sanitized_and_legacy_configs_default() {
+        let config = ColorGradeConfig {
+            enabled: false,
+            strength: f32::NAN,
+            exposure: -99.0,
+            contrast: 99.0,
+            saturation: f32::NAN,
+            vibrance: -99.0,
+            temperature: f32::INFINITY,
+            tint: -99.0,
+            black_fade: 99.0,
+            highlight_rolloff: f32::NAN,
+            lut_preset: -9,
+            lut_strength: 99.0,
+            environment_response: -99.0,
+            deband: f32::NAN,
+            film_grain: 99.0,
+            vignette: -99.0,
+            halation: f32::INFINITY,
+            debug_split: true,
+        }
+        .sanitized();
+        assert!(!config.enabled);
+        assert_eq!(config.strength, 0.72);
+        assert_eq!(config.exposure, -1.5);
+        assert_eq!(config.contrast, 0.5);
+        assert_eq!(config.saturation, 1.0);
+        assert_eq!(config.vibrance, -1.0);
+        assert_eq!(config.temperature, 0.03);
+        assert_eq!(config.tint, -1.0);
+        assert_eq!(config.black_fade, 1.0);
+        assert_eq!(config.highlight_rolloff, 0.08);
+        assert_eq!(config.lut_preset, 0);
+        assert_eq!(config.lut_strength, 1.0);
+        assert_eq!(config.environment_response, 0.0);
+        assert_eq!(config.deband, 0.35);
+        assert_eq!(config.film_grain, 1.0);
+        assert_eq!(config.vignette, 0.0);
+        assert_eq!(config.halation, 0.04);
+        assert!(config.debug_split);
+
+        let defaults: ColorGradeConfig = toml::from_str("").expect("legacy color config");
+        assert_eq!(defaults.strength, ColorGradeConfig::default().strength);
+        assert_eq!(defaults.lut_preset, 1);
+    }
+
+    #[test]
+    fn color_grade_config_round_trips_every_field() {
+        let expected = ColorGradeConfig {
+            enabled: false,
+            strength: 0.11,
+            exposure: -0.22,
+            contrast: 0.33,
+            saturation: 1.44,
+            vibrance: -0.55,
+            temperature: 0.66,
+            tint: -0.77,
+            black_fade: 0.88,
+            highlight_rolloff: 0.99,
+            lut_preset: 4,
+            lut_strength: 0.12,
+            environment_response: 0.23,
+            deband: 0.34,
+            film_grain: 0.45,
+            vignette: 0.56,
+            halation: 0.67,
+            debug_split: true,
+        };
+        let encoded = toml::to_string(&expected).expect("serialize color grade");
+        let actual: ColorGradeConfig = toml::from_str(&encoded).expect("deserialize color grade");
+        assert_eq!(actual.enabled, expected.enabled);
+        assert_eq!(actual.strength, expected.strength);
+        assert_eq!(actual.exposure, expected.exposure);
+        assert_eq!(actual.contrast, expected.contrast);
+        assert_eq!(actual.saturation, expected.saturation);
+        assert_eq!(actual.vibrance, expected.vibrance);
+        assert_eq!(actual.temperature, expected.temperature);
+        assert_eq!(actual.tint, expected.tint);
+        assert_eq!(actual.black_fade, expected.black_fade);
+        assert_eq!(actual.highlight_rolloff, expected.highlight_rolloff);
+        assert_eq!(actual.lut_preset, expected.lut_preset);
+        assert_eq!(actual.lut_strength, expected.lut_strength);
+        assert_eq!(actual.environment_response, expected.environment_response);
+        assert_eq!(actual.deband, expected.deband);
+        assert_eq!(actual.film_grain, expected.film_grain);
+        assert_eq!(actual.vignette, expected.vignette);
+        assert_eq!(actual.halation, expected.halation);
+        assert_eq!(actual.debug_split, expected.debug_split);
+    }
+
+    #[test]
+    fn color_grade_disk_document_persists_every_field() {
+        let expected = ColorGradeConfig {
+            enabled: false,
+            strength: 0.11,
+            exposure: -0.22,
+            contrast: 0.33,
+            saturation: 1.44,
+            vibrance: -0.55,
+            temperature: 0.66,
+            tint: -0.77,
+            black_fade: 0.88,
+            highlight_rolloff: 0.99,
+            lut_preset: 4,
+            lut_strength: 0.12,
+            environment_response: 0.23,
+            deband: 0.34,
+            film_grain: 0.45,
+            vignette: 0.56,
+            halation: 0.67,
+            debug_split: true,
+        };
+        let mut document = DocumentMut::new();
+        save_color_grade_config(&mut document, &expected);
+        let text = document.to_string();
+        let value: toml::Value = toml::from_str(&text).expect("saved TOML value");
+        let table = value["graphics"]["embedded_effects"]["color_grade"]
+            .as_table()
+            .expect("color-grade table");
+        assert_eq!(table.len(), 18);
+
+        let decoded: PsychoGraphicsConfig = toml::from_str(&text).expect("saved menu document");
+        assert_eq!(
+            toml::to_string(&decoded.graphics.embedded_effects.color_grade)
+                .expect("serialize decoded grade"),
+            toml::to_string(&expected).expect("serialize expected grade")
+        );
+    }
+
+    #[test]
+    fn shipped_color_grade_values_match_rust_defaults() {
+        let shipped: PsychoGraphicsConfig =
+            toml::from_str(include_str!("../config/omv.toml")).expect("shipped OMV config");
+        assert_eq!(
+            toml::to_string(&shipped.graphics.embedded_effects.color_grade)
+                .expect("serialize shipped grade"),
+            toml::to_string(&ColorGradeConfig::default()).expect("serialize default grade")
+        );
     }
 
     #[test]

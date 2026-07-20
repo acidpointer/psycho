@@ -384,6 +384,8 @@ pub(crate) struct SunProjectionFrame {
     pub(crate) on_screen: bool,
 }
 
+const SUN_EDGE_FADE_VIEWPORT_FRACTION: f32 = 0.12;
+
 pub(crate) fn project_world_direction(
     camera: CameraFrame,
     world_direction: [f32; 3],
@@ -443,7 +445,7 @@ pub(crate) fn project_world_direction(
     SunProjectionFrame {
         uv,
         facing,
-        edge_fade: smooth01((edge / 0.035).clamp(0.0, 1.0)),
+        edge_fade: smooth01((edge / SUN_EDGE_FADE_VIEWPORT_FRACTION).clamp(0.0, 1.0)),
         on_screen: edge >= 0.0,
     }
 }

@@ -1345,14 +1345,12 @@ impl PoolHeap {
             }
 
             let free_vas = super::allocator::current_free_vas();
-            if free_vas
-                <= super::allocator::VAS_CRITICAL_REMAINING.saturating_add(reservation_bytes)
-            {
+            if !super::allocator::overflow_reservation_allowed(free_vas, reservation_bytes) {
                 log_overflow_refusal(
                     class_index,
                     item_size,
                     "vas_pressure",
-                    free_vas / 1024 / 1024,
+                    free_vas.unwrap_or(0) / 1024 / 1024,
                 );
                 return ReserveResult::Retryable;
             }

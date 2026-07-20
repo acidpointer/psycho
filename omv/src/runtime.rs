@@ -318,6 +318,8 @@ struct ScreenShaderRuntime {
     ambient_occlusion: Option<ambient_occlusion::AmbientOcclusionEffect>,
     anti_aliasing: Option<anti_aliasing::AntiAliasingEffect>,
     blooming_hdr: Option<blooming_hdr::BloomingHdrEffect>,
+    final_color_shaders: Option<blooming_hdr::FinalColorShaderBytecode>,
+    builtin_color_luts: Vec<Vec<u32>>,
     sunshafts: Option<sunshafts::SunshaftsEffect>,
     depth_of_field: Option<depth_of_field::DepthOfFieldEffect>,
     depth_of_field_creation_failed: bool,
@@ -354,6 +356,13 @@ struct ScreenShaderRuntime {
 
 impl Default for ScreenShaderRuntime {
     fn default() -> Self {
+        let final_color_shaders = match blooming_hdr::FinalColorShaderBytecode::prepare() {
+            Ok(shaders) => Some(shaders),
+            Err(err) => {
+                log::warn!("[FINAL_COLOR] Startup shader preparation failed: {err:#}");
+                None
+            }
+        };
         Self {
             settings: RuntimeSettings::default(),
             sources: Vec::new(),
@@ -362,6 +371,8 @@ impl Default for ScreenShaderRuntime {
             ambient_occlusion: None,
             anti_aliasing: None,
             blooming_hdr: None,
+            final_color_shaders,
+            builtin_color_luts: blooming_hdr::generate_builtin_lut_pack(),
             sunshafts: None,
             depth_of_field: None,
             depth_of_field_creation_failed: false,
@@ -954,6 +965,7 @@ impl ScreenShaderRuntime {
         };
         let mut pass_index = 0u32;
         let mut ambient_occlusion_drawn = false;
+        let mut final_color_drawn = false;
 
         let compiled_len = self.compiled.as_ref().map_or(0, Vec::len);
         for pass_position in 0..compiled_len {
@@ -1015,21 +1027,33 @@ impl ScreenShaderRuntime {
                 continue;
             }
 
-            if source.embedded_effect_kind() == Some(EmbeddedEffectKind::BloomingHdr) {
-                let rebind_common_state = self.has_enabled_pass_after(phase, pass_position);
-                let source = source.clone();
-                self.draw_blooming_hdr_pipeline(
-                    device,
-                    backbuffer,
-                    desc,
-                    &frame_inputs,
-                    &copy,
-                    &source,
-                )?;
-                if rebind_common_state {
-                    self.bind_common_state(device, backbuffer, desc, &frame_inputs, &copy)?;
+            if matches!(
+                source.embedded_effect_kind(),
+                Some(kind) if kind.is_final_color()
+            ) {
+                let source_pass_count = source.pass_count.max(1);
+                if !final_color_drawn {
+                    let rebind_common_state =
+                        self.has_enabled_non_final_color_pass_after(phase, pass_position);
+                    let bloom_source =
+                        self.find_enabled_embedded_source(EmbeddedEffectKind::BloomingHdr, phase);
+                    let color_grade_source =
+                        self.find_enabled_embedded_source(EmbeddedEffectKind::ColorGrade, phase);
+                    self.draw_final_color_pipeline(
+                        device,
+                        backbuffer,
+                        desc,
+                        &frame_inputs,
+                        &copy,
+                        bloom_source.as_ref(),
+                        color_grade_source.as_ref(),
+                    )?;
+                    if rebind_common_state {
+                        self.bind_common_state(device, backbuffer, desc, &frame_inputs, &copy)?;
+                    }
+                    final_color_drawn = true;
                 }
-                pass_index = pass_index.saturating_add(source.pass_count.max(1));
+                pass_index = pass_index.saturating_add(source_pass_count);
                 continue;
             }
 
@@ -1251,18 +1275,30 @@ impl ScreenShaderRuntime {
         )
     }
 
-    fn draw_blooming_hdr_pipeline(
+    fn draw_final_color_pipeline(
         &mut self,
         device: &Device9Ref<'_>,
         backbuffer: &Surface9,
         desc: &D3DSURFACE_DESC,
         frame_inputs: &backend::FrameInputs,
         current_color_copy: &BackbufferCopy,
-        source: &ScreenShaderSource,
+        bloom_source: Option<&ScreenShaderSource>,
+        color_grade_source: Option<&ScreenShaderSource>,
     ) -> Direct3DResult<()> {
+        let work = blooming_hdr::FinalColorWorkPlan::from_sources(bloom_source, color_grade_source);
+        if !work.has_work() {
+            return Ok(());
+        }
         if self.blooming_hdr.is_none() {
-            self.blooming_hdr = Some(blooming_hdr::BloomingHdrEffect::create(device)?);
-            log::info!("[BLOOM_HDR] Engine-side pipeline initialized");
+            let Some(shaders) = self.final_color_shaders.as_ref() else {
+                return Ok(());
+            };
+            self.blooming_hdr = Some(blooming_hdr::BloomingHdrEffect::create(
+                device,
+                shaders,
+                &self.builtin_color_luts,
+            )?);
+            log::info!("[FINAL_COLOR] Bloom/color-grade pipeline initialized");
         }
 
         let Some(effect) = self.blooming_hdr.as_mut() else {
@@ -1282,7 +1318,8 @@ impl ScreenShaderRuntime {
             backbuffer,
             desc,
             frame_inputs,
-            source,
+            bloom_source,
+            color_grade_source,
             &current_color_copy.texture,
             self.frame_index,
         )
@@ -1687,6 +1724,27 @@ impl ScreenShaderRuntime {
     }
 
     fn has_enabled_pass_after(&self, phase: ShaderPhase, pass_position: usize) -> bool {
+        self.has_enabled_pass_after_matching(phase, pass_position, |_| true)
+    }
+
+    fn has_enabled_non_final_color_pass_after(
+        &self,
+        phase: ShaderPhase,
+        pass_position: usize,
+    ) -> bool {
+        self.has_enabled_pass_after_matching(phase, pass_position, |source| {
+            !source
+                .embedded_effect_kind()
+                .is_some_and(EmbeddedEffectKind::is_final_color)
+        })
+    }
+
+    fn has_enabled_pass_after_matching(
+        &self,
+        phase: ShaderPhase,
+        pass_position: usize,
+        include: impl Fn(&ScreenShaderSource) -> bool,
+    ) -> bool {
         self.compiled.as_ref().is_some_and(|passes| {
             passes.iter().skip(pass_position + 1).any(|pass| {
                 let source = &self.sources[pass.source_index];
@@ -1695,6 +1753,7 @@ impl ScreenShaderRuntime {
                     && !source
                         .embedded_effect_kind()
                         .is_some_and(EmbeddedEffectKind::owns_world_boundary)
+                    && include(source)
                     && (source.is_embedded_effect() || pass.shader.is_some())
             })
         })
@@ -1853,6 +1912,11 @@ impl SceneInputRequirements {
                 first_person_depth: true,
                 world_color: false,
             },
+            EmbeddedEffectKind::ColorGrade => Self {
+                world_depth: false,
+                first_person_depth: false,
+                world_color: false,
+            },
             EmbeddedEffectKind::TemporalAa => Self {
                 world_depth: true,
                 first_person_depth: false,
@@ -1903,7 +1967,7 @@ impl SceneInputRequirements {
 
 #[cfg(test)]
 mod scene_input_requirement_tests {
-    use super::{EmbeddedEffectKind, SceneInputRequirements, ScreenShaderRuntime};
+    use super::{CompiledPass, EmbeddedEffectKind, SceneInputRequirements, ScreenShaderRuntime};
     use crate::{config::EmbeddedEffectsConfig, shaders};
 
     #[test]
@@ -1925,6 +1989,10 @@ mod scene_input_requirement_tests {
     #[test]
     fn lazy_render_epoch_reconciliation_clears_stale_frame_state() {
         let mut runtime = ScreenShaderRuntime::default();
+        assert!(runtime.final_color_shaders.is_some());
+        assert!(crate::effects::blooming_hdr::valid_builtin_lut_pack(
+            &runtime.builtin_color_luts
+        ));
         runtime.render_epoch = 4;
         runtime.frame_index = 9;
         runtime.world_color_captured_this_frame = true;
@@ -1940,6 +2008,19 @@ mod scene_input_requirement_tests {
         assert_eq!(runtime.world_color_source_target, 0);
         assert!(!runtime.native_dof_active_this_frame);
         assert_eq!(runtime.frame_index, 10);
+
+        let lut_lengths: Vec<usize> = runtime.builtin_color_luts.iter().map(Vec::len).collect();
+        runtime.release_device_resources();
+        assert!(runtime.final_color_shaders.is_some());
+        assert_eq!(
+            runtime
+                .builtin_color_luts
+                .iter()
+                .map(Vec::len)
+                .collect::<Vec<_>>(),
+            lut_lengths
+        );
+        assert!(runtime.blooming_hdr.is_none());
     }
 
     #[test]
@@ -2013,6 +2094,65 @@ mod scene_input_requirement_tests {
                 world_color: false,
             }
         );
+        assert_eq!(
+            SceneInputRequirements::for_embedded(EmbeddedEffectKind::ColorGrade),
+            SceneInputRequirements::default()
+        );
+    }
+
+    #[test]
+    fn grade_collects_native_environment_without_requesting_scene_captures() {
+        let mut config = EmbeddedEffectsConfig::default();
+        config.blooming_hdr.enabled = false;
+        config.color_grade.enabled = true;
+        let mut runtime = ScreenShaderRuntime::default();
+        runtime.sources = shaders::merge_embedded_sources(&config, Vec::new());
+        assert!(runtime.phase_needs_frame_inputs(crate::shaders::ShaderPhase::FinalImageSpace));
+
+        config.color_grade.enabled = false;
+        runtime.sources = shaders::merge_embedded_sources(&config, Vec::new());
+        assert!(!runtime.phase_needs_frame_inputs(crate::shaders::ShaderPhase::FinalImageSpace));
+    }
+
+    #[test]
+    fn fused_color_sources_do_not_trigger_a_redundant_state_rebind() {
+        let mut config = EmbeddedEffectsConfig::default();
+        config.blooming_hdr.enabled = true;
+        config.color_grade.enabled = true;
+        config.fast_fxaa.enabled = false;
+        config.nfaa.enabled = false;
+        config.axaa.enabled = false;
+        config.dlaa.enabled = false;
+        config.smaa.enabled = false;
+
+        let mut runtime = ScreenShaderRuntime::default();
+        runtime.sources = shaders::merge_embedded_sources(&config, Vec::new());
+        runtime.compiled = Some(
+            (0..runtime.sources.len())
+                .map(|source_index| CompiledPass {
+                    source_index,
+                    shader: None,
+                })
+                .collect(),
+        );
+        let bloom_position = runtime
+            .sources
+            .iter()
+            .position(|source| {
+                source.embedded_effect_kind() == Some(EmbeddedEffectKind::BloomingHdr)
+            })
+            .expect("Bloom position");
+        assert!(!runtime.has_enabled_non_final_color_pass_after(
+            crate::shaders::ShaderPhase::FinalImageSpace,
+            bloom_position,
+        ));
+
+        config.fast_fxaa.enabled = true;
+        runtime.sources = shaders::merge_embedded_sources(&config, Vec::new());
+        assert!(runtime.has_enabled_non_final_color_pass_after(
+            crate::shaders::ShaderPhase::FinalImageSpace,
+            bloom_position,
+        ));
     }
 
     #[test]
@@ -3679,7 +3819,10 @@ fn embedded_effect_description(kind: Option<EmbeddedEffectKind>) -> Option<&'sta
             "World-only native-sun single scattering with deterministic depth-occluded shafts; lighting-only and shared-fog media use one dual-layer composition, while legacy Sunshafts remain independent.",
         ),
         Some(EmbeddedEffectKind::BloomingHdr) => {
-            Some("Highlight bloom, exposure shaping, color response, and atmosphere.")
+            Some("Quarter-resolution atmospheric highlight bloom fused with final color output.")
+        }
+        Some(EmbeddedEffectKind::ColorGrade) => {
+            Some("Display-referred grading, bundled OMV LUTs, debanding, grain, and film finish.")
         }
         Some(EmbeddedEffectKind::Sunshafts) => {
             Some("Depth-aware exterior god rays driven by the native sun contract.")

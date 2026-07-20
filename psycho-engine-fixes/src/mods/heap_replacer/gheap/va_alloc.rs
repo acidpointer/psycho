@@ -1,34 +1,27 @@
-//! Direct OS allocator tier for allocations too large for slab or
-//! mimalloc.
+//! Direct OS allocator tier for allocations larger than the block tier.
 //!
-//! Slab handles `size <= 256 KB` with zombie-safe bitmap free tracking.
-//! Mimalloc handles everything in between. This module handles
-//! allocations above `slab::MAX_SLAB_SIZE`, which under the current
-//! dispatch is everything >= 2 MB + 1. These allocations would otherwise
-//! have gone through mimalloc's internal huge-object path, or worse,
-//! failed with no fallback.
+//! Pools handle requests through 3584 bytes and 16 MB blocks handle medium
+//! requests. This module handles requests above 16 MB, including transient
+//! texture-file and decompression buffers. CRT entrypoints use the same size
+//! dispatch; mimalloc is only an ownership fallback for pointers created
+//! before the hooks became active.
 //!
 //! The rationale is straightforward. On 32-bit with LAA we have ~4 GB
 //! of user VA, most of which is already reserved by the game image,
 //! loaded DLLs, and the baseline runtime before our code even starts.
-//! Mimalloc takes a fixed chunk of that for its arena during configure. A
-//! legitimate multi-megabyte allocation request (texture, mesh,
-//! audio, BSA decompression buffer) may not fit inside mimalloc's
-//! reserved arena because of internal fragmentation, and mimalloc's
-//! own huge-object direct-VA path may fail because the free VA the
-//! OS can satisfy is fragmented below the request size.
+//! A legitimate multi-megabyte allocation request (texture, mesh, audio, or
+//! BSA decompression buffer) can fail even while total free VAS is substantial
+//! when no single free hole is large enough.
 //!
 //! Previous crash traces confirm this: worker-thread allocations of
 //! 5.6 MB and 21 MB (both legitimate texture loads) failed after
 //! engine init fragmented VA, our allocator returned NULL, and the
 //! game's internal calloc wrapper dereferenced NULL.
 //!
-//! Routing huge allocations through a direct `VirtualAlloc` side
-//! table gives them a clean separate lane: mimalloc's arena stays
-//! unpolluted by huge-object metadata, `free` / `msize` / `realloc`
-//! route through a tiny side table (typical steady-state ≤ 20
-//! entries), and failure is clearly OS-level ("kernel refused fresh
-//! VA") instead of mimalloc-internal.
+//! Routing huge allocations through a direct `VirtualAlloc` side table gives
+//! them an exact-size lane. `free`, `msize`, and `realloc` route through a
+//! small side table, and failure is clearly OS-level rather than internal
+//! block fragmentation.
 //!
 //! ## Ownership
 //!
@@ -47,10 +40,9 @@
 //!
 //! ## Dispatch cost
 //!
-//! `free` / `msize` / `realloc` check slab range and mimalloc region
-//! first -- both ~2 cycles each, fully inlined. Only pointers that
-//! fall outside both regions reach the `va_alloc` side table lookup,
-//! which is one `Mutex` + a linear scan over a small `Vec`.
+//! `free`, `msize`, and `realloc` check pool and block ownership first. Only
+//! pointers outside those tiers reach this side table, which is one `Mutex`
+//! and a linear scan over a small `Vec`.
 //!
 //! ## Logging
 //!
@@ -83,6 +75,8 @@ static ALLOC_COUNT: AtomicU64 = AtomicU64::new(0);
 static FREE_COUNT: AtomicU64 = AtomicU64::new(0);
 static ALLOC_FAIL_COUNT: AtomicU64 = AtomicU64::new(0);
 static TOTAL_VAS_BYTES: AtomicU64 = AtomicU64::new(0);
+static PEAK_VAS_BYTES: AtomicU64 = AtomicU64::new(0);
+static MAX_ALLOCATION_BYTES: AtomicU64 = AtomicU64::new(0);
 
 /// Allocate `size` bytes via the arena's large-alloc range (if available)
 /// or direct `VirtualAlloc`. Returns NULL on failure.
@@ -193,7 +187,9 @@ pub fn alloc(size: usize) -> *mut c_void {
         return null_mut();
     }
     ALLOC_COUNT.fetch_add(1, Ordering::Relaxed);
-    TOTAL_VAS_BYTES.fetch_add(rounded as u64, Ordering::Relaxed);
+    let total = TOTAL_VAS_BYTES.fetch_add(rounded as u64, Ordering::Relaxed) + rounded as u64;
+    PEAK_VAS_BYTES.fetch_max(total, Ordering::Relaxed);
+    MAX_ALLOCATION_BYTES.fetch_max(rounded as u64, Ordering::Relaxed);
     ptr
 }
 
@@ -265,6 +261,14 @@ pub fn live_count() -> usize {
 /// Total bytes currently held by live blocks.
 pub fn live_bytes() -> u64 {
     TOTAL_VAS_BYTES.load(Ordering::Relaxed)
+}
+
+pub fn peak_live_bytes() -> u64 {
+    PEAK_VAS_BYTES.load(Ordering::Relaxed)
+}
+
+pub fn max_allocation_bytes() -> u64 {
+    MAX_ALLOCATION_BYTES.load(Ordering::Relaxed)
 }
 
 pub fn alloc_count() -> u64 {

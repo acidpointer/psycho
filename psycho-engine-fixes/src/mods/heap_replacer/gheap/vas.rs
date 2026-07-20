@@ -1,9 +1,10 @@
 //! Runtime VAS telemetry for gheap.
 //!
-//! GlobalMemoryStatusEx tells us total available virtual memory, but the
-//! crashes we care about are usually fragmentation failures: DirectX or
-//! a texture load needs one large contiguous hole. This module samples
-//! that largest-hole signal with VirtualQuery.
+//! `GlobalMemoryStatusEx` nominally reports process VAS, but under Proton/Wine
+//! it can disagree with the regions that `VirtualAlloc` can actually use. The
+//! crashes we care about are also often fragmentation failures: DirectX or a
+//! texture load needs one large contiguous hole. This module walks the process
+//! with `VirtualQuery` to measure both total free VAS and the largest holes.
 
 use libc::c_void;
 

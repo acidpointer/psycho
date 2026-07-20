@@ -45,6 +45,25 @@ pub(crate) fn display_diagnostic_snapshot() -> display::DiagnosticSnapshot {
     display::diagnostic_snapshot()
 }
 
+pub(crate) struct IoHangSnapshot {
+    pub(crate) tree_started: u64,
+    pub(crate) tree_completed: u64,
+    pub(crate) transaction_waiters: u32,
+    pub(crate) active_scope: &'static str,
+    pub(crate) active_thread: u32,
+}
+
+pub(crate) fn io_hang_snapshot() -> IoHangSnapshot {
+    let speedtree = io::speedtree_diagnostic_snapshot();
+    IoHangSnapshot {
+        tree_started: speedtree.tree_transactions,
+        tree_completed: speedtree.tree_completions,
+        transaction_waiters: speedtree.transaction_waiters,
+        active_scope: speedtree.active_transaction_scope,
+        active_thread: speedtree.active_transaction_thread,
+    }
+}
+
 pub fn install(
     config: &EngineFixesConfig,
     io_config: &IoConfig,
@@ -512,6 +531,16 @@ pub(crate) fn append_diagnostic_report(out: &mut String) {
     push_report_section(out, "SpeedTree IO safety");
     push_report_value(
         out,
+        "Tree transactions",
+        format!(
+            "{} started / {} completed / {} waits",
+            io.speedtree.tree_transactions,
+            io.speedtree.tree_completions,
+            io.speedtree.tree_contentions,
+        ),
+    );
+    push_report_value(
+        out,
         "Compute",
         format!(
             "{} runs / {} waits",
@@ -561,10 +590,23 @@ pub(crate) fn append_diagnostic_report(out: &mut String) {
         out,
         "Tree timing",
         format!(
-            "{} us Compute / {} us registry / trace {}",
+            "{} us owner / {} us Compute / {} us registry / {} us any / trace {}",
+            io.speedtree.max_tree_wait_us,
             io.speedtree.max_compute_wait_us,
             io.speedtree.max_lock_wait_us,
+            io.speedtree.max_transaction_wait_us,
             on_off(io.speedtree.trace_enabled),
+        ),
+    );
+    push_report_value(
+        out,
+        "Tree lock",
+        format!(
+            "{} waits / {} queued / {} on thread {}",
+            io.speedtree.transaction_contentions,
+            io.speedtree.transaction_waiters,
+            io.speedtree.active_transaction_scope,
+            io.speedtree.active_transaction_thread,
         ),
     );
 

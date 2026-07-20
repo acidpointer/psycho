@@ -1,9 +1,10 @@
-//! Game heap replacement: two-tier zombie-safe allocator.
+//! Game heap replacement: size-dispatched allocator.
 //!
 //! Primary tier: `pool` (fixed-size cells, NVHR-style mheap port).
 //! Secondary tier: `block` (variable-size cells, NVHR-style dheap port).
 //! Huge allocations: `va_alloc` (direct VirtualAlloc).
-//! Fallback: original SBM trampoline (never-NULL contract).
+//! Exhaustion: return NULL after every owned tier fails; re-entering the
+//! original SBM would recurse through the hooked CRT allocation path.
 
 pub mod allocator;
 pub mod block;

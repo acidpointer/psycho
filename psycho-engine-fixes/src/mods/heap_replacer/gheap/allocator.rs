@@ -49,15 +49,28 @@ pub const VAS_EMERGENCY_REMAINING: usize = 200 * 1024 * 1024;
 
 static HEADROOM: AtomicUsize = AtomicUsize::new(0);
 
-pub fn current_free_vas() -> usize {
-    libpsycho::os::windows::winapi::available_virtual_memory().unwrap_or(usize::MAX)
+/// Sum the process's actual free address-space holes.
+///
+/// `GlobalMemoryStatusEx::ullAvailVirtual` is documented as process VAS, but
+/// Proton/Wine can report a value that diverges by gigabytes from the regions
+/// VirtualAlloc can actually use. Reservation policy must use the same
+/// VirtualQuery walk that diagnoses fragmentation.
+pub fn current_free_vas() -> Option<usize> {
+    super::vas::sample().map(|summary| summary.total_free)
+}
+
+pub fn overflow_reservation_allowed(free_vas: Option<usize>, reservation_bytes: usize) -> bool {
+    free_vas.is_none_or(|free| free > VAS_CRITICAL_REMAINING.saturating_add(reservation_bytes))
 }
 
 pub fn calibrate_thresholds(baseline: usize) {
     if baseline == 0 {
         return;
     }
-    let free_vas = current_free_vas();
+    let Some(free_vas) = current_free_vas() else {
+        log::warn!("[VAS] Baseline calibration skipped: VirtualQuery walk failed");
+        return;
+    };
     HEADROOM.store(free_vas, Ordering::Release);
     log::info!(
         "[VAS] Baseline calibrated: commit={}MB free={}MB (watch below {}MB, high below {}MB)",
@@ -70,6 +83,32 @@ pub fn calibrate_thresholds(baseline: usize) {
 
 pub fn get_headroom() -> usize {
     HEADROOM.load(Ordering::Acquire)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const MB: usize = 1024 * 1024;
+
+    #[test]
+    fn overflow_reservation_preserves_process_vas_headroom() {
+        let reservation = 12 * MB;
+
+        assert!(!overflow_reservation_allowed(
+            Some(VAS_CRITICAL_REMAINING + reservation),
+            reservation,
+        ));
+        assert!(overflow_reservation_allowed(
+            Some(VAS_CRITICAL_REMAINING + reservation + 1),
+            reservation,
+        ));
+    }
+
+    #[test]
+    fn unavailable_vas_sample_does_not_create_a_false_oom() {
+        assert!(overflow_reservation_allowed(None, 12 * MB));
+    }
 }
 
 // ---------------------------------------------------------------------------

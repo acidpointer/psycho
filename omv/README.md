@@ -39,15 +39,33 @@ not guarantee safe co-installation with `NewVegasReloaded.dll`.
 
 - In-game OMV graphics menu, toggled with `Insert` by default.
 - Loose screen-space shader loading from `Data/NVSE/plugins/omv/shaders`.
-- Embedded ambient occlusion, contact AO, bloom/HDR, sunshafts, depth of field,
-  world-only temporal AA, and selectable Fast FXAA, NFAA, AXAA, DLAA, and SMAA
-  spatial anti-aliasing.
+- Embedded ambient occlusion, contact AO, bloom/HDR, final color grading with
+  five original redistributable LUT looks, sunshafts, depth of field, world-only
+  temporal AA, and selectable Fast FXAA, NFAA, AXAA, DLAA, and SMAA spatial
+  anti-aliasing.
 - Native PBR and Sky shader ports derived from New Vegas Reloaded, then
   refactored and optimized substantially for OMV.
 - Dependency logging for VPT, Fallout Shader Loader, and LOD Flicker Fix.
 
 OMV expects to own its installed graphics hooks. Co-installation with another
 native graphics overhaul is not supported unless documented explicitly.
+
+## Color Grade and Film
+
+The final-image color pipeline adds bounded analytic grading, five bundled
+32-cube LUTs (`Neutral`, `Mojave Natural`, `Dusty Western`, `Bleached
+Wasteland`, and `Neon Nights`), native day/night/interior response, flat-region
+debanding, grain, vignette, and Bloom-derived halation. The LUTs are original
+OMV recipes generated into managed textures; no GShade texture is packaged.
+When Bloom and grading are both enabled, they share one final compose draw.
+Use the before/after split in the in-game workbench to tune a look, and set
+master strength to zero for an exact grade-only skip.
+
+The final buffer is treated as display-referred code values with D3D9 sRGB
+conversion disabled. OMV deliberately does not add adaptive exposure or a
+second filmic tonemapper on top of Fallout's image-space processing. The full
+resource, ordering, color, performance, and redistribution contract is in
+[`graphics_fnv_color_grading.md`](../docs/graphics_fnv_color_grading.md).
 
 ## Depth of Field
 

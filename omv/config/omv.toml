@@ -172,6 +172,30 @@ dither = 0.459
 debug_bloom = false
 atmosphere = 0.38
 
+[graphics.embedded_effects.color_grade]
+# OMV-authored display-referred grade. Fixed phase: final_image_space, fused
+# into Bloom's compose draw when both effects are enabled.
+enabled = true
+strength = 0.72
+exposure = 0.0
+contrast = 0.06
+saturation = 1.0
+vibrance = 0.1
+temperature = 0.03
+tint = 0.0
+black_fade = 0.025
+highlight_rolloff = 0.08
+# 0 Neutral, 1 Mojave Natural, 2 Dusty Western, 3 Bleached Wasteland,
+# 4 Neon Nights. These original LUT recipes are packed into omv.dll.
+lut_preset = 1
+lut_strength = 0.58
+environment_response = 0.35
+deband = 0.35
+film_grain = 0.08
+vignette = 0.06
+halation = 0.04
+debug_split = false
+
 [graphics.embedded_effects.sunshafts]
 # Engine-owned sunshafts pass. Fixed phase: scene_post_image_space.
 enabled = true

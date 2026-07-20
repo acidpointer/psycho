@@ -4,7 +4,8 @@
 #
 # QUICK SETUP
 #
-# 1. Keep memory.allocator = 2 for the complete, recommended experience.
+# 1. Mode 2 is the performance-first complete allocator. Validate it on very
+#    large modlists; mode 1 is the broad-compatibility choice.
 # 2. Keep all engine fixes and performance options enabled.
 # 3. Keep the console and focused profiling tools disabled during normal play.
 #
@@ -37,7 +38,7 @@
 # The main user choice. This controls how much of the game's old memory system
 # Psycho replaces.
 #
-# 2 = FULL GHEAP + SCRAP HEAP - RECOMMENDED
+# 2 = FULL GHEAP + SCRAP HEAP - PERFORMANCE FIRST
 #     Best performance and the complete Psycho allocator design. Syringe
 #     activates gheap at a proven pre-CRT startup boundary, before the game and
 #     later plugin systems begin normal initialization. Gheap owns the main
@@ -46,9 +47,9 @@
 #
 # 1 = SCRAP HEAP ONLY - COMPATIBILITY FALLBACK
 #     Replaces temporary scratch heaps but leaves the game's main object heap
-#     unchanged. Use this when support asks you to isolate gheap, or when a
-#     specific setup has a confirmed incompatibility with mode 2. The
-#     performance improvement is smaller.
+#     unchanged. Use this when support asks you to isolate gheap, when a setup
+#     has a confirmed incompatibility with mode 2, or for an unfamiliar extreme
+#     texture/content setup. The performance improvement is smaller.
 #
 # 0 = VANILLA ALLOCATORS - DIAGNOSTIC ONLY
 #     Disables both allocator replacements. Other engine fixes still work.
@@ -64,9 +65,12 @@
 # for game and Direct3D allocations without surrendering early allocator
 # control. Out-of-band free metadata does not overwrite freed game-object bytes;
 # they remain readable until the cell is reused. Targeted lifetime guards cover
-# proven stale-reader failures, while pressure monitoring and staged cleanup
-# provide OOM recovery. The design balances performance, UAF protection, and
-# address-space pressure rather than optimizing one by sacrificing the others.
+# proven stale-reader failures. Pressure monitoring uses a VirtualQuery walk of
+# the actual process holes, and a failed huge allocation may retire fully empty
+# medium blocks before one retry. Final exhaustion still returns NULL; a 32-bit
+# process cannot support an unbounded content working set. The design balances
+# performance, UAF protection, and address-space pressure rather than optimizing
+# one by sacrificing the others.
 #
 # If mode 2 appears involved in a crash, test mode 1 and then mode 0. Keep the
 # Psycho and CrashLogger logs from every test; the difference between these

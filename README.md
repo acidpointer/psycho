@@ -394,26 +394,30 @@ therefore smaller than with the complete mode.
 
 This is the complete heap-replacement solution and gives the best performance.
 `scrap_heap` handles temporary work while `gheap` replaces the game's main SBM
-object allocator with sharded slab size classes, compact free tracking and
-cache-friendly reuse. Common allocation sizes avoid one global bottleneck, so
-busy loading, AI and gameplay threads spend less time waiting on allocator
-bookkeeping.
+object allocator. Exact small-object pools serve requests through 3584 bytes,
+independent 16 MB blocks serve medium allocations, and larger requests use
+exact page-rounded `VirtualAlloc` reservations. The small-object path avoids
+one global allocator bottleneck during busy loading, AI and gameplay work.
 
 It is also the most complex mode because New Vegas does not always respect
 normal object lifetimes. IO, AI and Havok code can read pointers after an object
 was logically freed. Reusing that address immediately may turn a harmless stale
 read into corruption or a crash. `gheap` therefore includes:
 
-- delayed block reuse so recently freed objects remain readable for a time;
+- out-of-band pool and block metadata so freeing does not overwrite object
+  bytes before the address is reused;
 - Havok and IO coordination around cleanup;
-- pressure monitoring and staged out-of-memory recovery;
-- commit tracking and quarantine rules for zombie-safe memory;
-- low-overhead sharding suitable for allocation hot paths.
+- targeted guards for statically proven stale-reader families;
+- process-VAS and largest-hole monitoring, progressive commit, and one
+  empty-block retirement retry after a huge direct allocation fails;
+- a lock-free common small-allocation path and bounded cold-path reservation
+  work.
 
 These protections are exactly why full `gheap` is not just “use another malloc”.
-They also create its main tradeoff: keeping old memory readable costs virtual
-address space. Huge modlists can place enough pressure on the 32-bit process to
-reach VAS exhaustion, even when the computer has plenty of physical RAM.
+They also create its main tradeoff: independently reserved pools and blocks use
+finite 32-bit address space, while immediate reuse still exposes engine code
+that retained an invalid pointer. Huge modlists can reach VAS exhaustion even
+when the computer has plenty of physical RAM and VRAM.
 
 Use mode `2` when maximum performance is the priority and the modlist is stable
 with it. Use mode `1` when broad compatibility and lower address-space pressure
@@ -439,6 +443,10 @@ the main technical feature of Psycho Engine Fixes. Full `gheap` is necessarily
 more sensitive to extreme VAS pressure and unusual lifetime conflicts, so it is
 not claimed as universal for every huge modlist. Mode `1` exists as a clean,
 useful fallback rather than a disguised “off” switch.
+
+The [large-modlist gheap compatibility contract](docs/gheap_large_modlist_compatibility.md)
+documents the texture path, hard limits, allocator evidence, and required
+stress matrix.
 
 ### Oh My Vegas!
 
