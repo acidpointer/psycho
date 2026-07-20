@@ -27,4 +27,4 @@ Every decision must account for:
 
 State explicitly which dimension a change improves and its cost or risk to the other two. Do not call a gheap change complete if it silently worsens one dimension.
 
-For crash fixes, follow the root Ghidra evidence rule: prove the exact caller, ownership, layout, lifetime, and intervention point before patching. Validate focused allocator behavior first, then the supported 32-bit release build.
+For crash fixes, follow the root engine-research rule: search durable feature documents and existing analysis first, use the radare2 MCP as the mandatory primary tool, and use Ghidra only when that MCP is unavailable. Prove the exact caller, ownership, layout, lifetime, concurrency, ABI, and intervention point before patching. Create or update the detailed feature document under `docs/`, including the three-way acceptance tradeoff and evidence paths. Validate focused allocator behavior first, then the supported 32-bit release build.

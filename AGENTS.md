@@ -106,18 +106,39 @@ Before any OMV graphics implementation or material shader change, read and follo
 
 Before changing `psycho-engine-fixes/src/mods/heap_replacer/gheap/`, read its local `AGENTS.md`. Its OOM recovery, zombie/UAF protection, and allocator hot-path performance constraints are all mandatory.
 
+### Native IO and SpeedTree
+
+Before changing IOManager worker topology, per-thread task maps, BSFile recovery, exterior-cell loading, SpeedTree ownership/Compute, or static vertex-buffer safety, read `docs/parallel_io_engine_contract.md`. Reuse its proven ownership and concurrency contracts, and reconfirm its executable identity before reusing an address.
+
 ## Engine research
 
 Use research only to close a material knowledge gap.
 
 - `.research/` contains optional third-party source for comparison. Treat it as read-only. Never patch or build another mod as the fix; implement fixes in this repository and keep compatibility capability-based and version-agnostic.
-- For native game behavior, current `.txt` output in `analysis/ghidra/output/` is authoritative. Ignore outdated `.md` prose under `analysis/` unless the user explicitly requests it.
-- Before a crash or engine-contract patch, prove the failing function, caller ownership, layout, lifetime, and safe intervention point. If existing output cannot do so, prepare a focused script in `analysis/ghidra/scripts/` instead of guessing.
-- Do not run Ghidra, `analyzeHeadless`, or `ghidraRun`. Ask the user to run the prepared script, then analyze its output.
-- Before editing a Ghidra script, read `analysis/ghidra/scripts/SCRIPT_RULES.md` completely. Every rule is mandatory, including tabs-only indentation, no top-level loops or tuple unpacking, standard helpers, correct output directory, and `decomp.dispose()`.
+- Before new native research, search `docs/` for the subsystem, address, symbol, crash signature, and engine concept. Reuse a documented contract when it covers the current executable, and verify address-sensitive assumptions against the current binary before patching.
+- Existing `.txt` output in `analysis/ghidra/output/` stays in place and remains authoritative evidence for the facts it covers. Do not delete, rewrite, or regenerate it merely because the primary research tool changed. Ignore outdated `.md` prose under `analysis/` unless the user explicitly requests it.
+- When the radare2 MCP is available, it is the mandatory primary interface for new static engine research. Open the current `fnv_reverse/FalloutNV.exe`, analyze only to the depth needed, and use its disassembly, decompilation, xrefs, strings, symbols, and binary metadata to close the contract. Do not create or edit a Ghidra script, ask the user to run Ghidra, or substitute Ghidra output while the radare2 MCP is available.
+- Ghidra is fallback-only and may be used only when the radare2 MCP is unavailable. Unavailable means the MCP tools cannot be invoked, not that a particular query is incomplete or inconvenient. In that fallback, use existing output first; if it is insufficient, prepare a focused script in `analysis/ghidra/scripts/` instead of guessing. Do not run Ghidra, `analyzeHeadless`, or `ghidraRun`; ask the user to run the script and return its output.
+- Before editing a fallback Ghidra script, read `analysis/ghidra/scripts/SCRIPT_RULES.md` completely. Every rule is mandatory, including tabs-only indentation, no top-level loops or tuple unpacking, standard helpers, correct output directory, and `decomp.dispose()`.
+- Before a crash or engine-contract patch, prove the failing function, caller ownership, layout, lifetime, concurrency, ABI, and safe intervention point. Distinguish direct binary or crash evidence from inference.
 - The user runs through Proton/Wine. Prefer static research, logs, crash reports, minidumps, and targeted telemetry; do not depend on native Windows debuggers.
 
-Do not invoke Ghidra research for a straightforward repository-local change whose contract is already proven.
+Do not invoke static engine research for a straightforward repository-local change whose contract is already proven.
+
+## Feature documentation
+
+Every implemented feature must create or update a durable Markdown document under `docs/` in the same change. Extend the existing subsystem document when one already owns the feature; do not leave the only explanation in chat, a tool session, source comments, or a transient plan.
+
+Document enough detail for a later agent to reuse the work without repeating the investigation:
+
+- purpose, user-visible behavior, scope, and configuration ownership;
+- architecture and source-file ownership, startup/install ordering, and interaction with adjacent systems;
+- invariants, failure behavior, performance and memory costs, and compatibility boundaries;
+- tests, build evidence, runtime acceptance criteria, and anything still awaiting playtest;
+- for reverse-engineered behavior, the executable identity, exact addresses/symbols, function and caller chains, layouts/offsets, ownership and lifetime, threading, ABI, safe intervention point, and the evidence paths that establish each conclusion;
+- a clear separation between proven facts, reasoned inference, and runtime observations.
+
+Treat `docs/` as the reusable engine-knowledge index: search it before new analysis and cite or update the relevant document when an established contract is used. Keep raw generated analysis in its existing location; feature documents should explain the derived contract and link to the supporting output rather than duplicate tool dumps.
 
 ## Code and review standards
 

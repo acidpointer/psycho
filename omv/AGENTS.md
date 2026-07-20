@@ -17,7 +17,7 @@ Before implementation, define the applicable contract in code and tests:
 - ownership and safe fallback when dependencies, capabilities, resources, or variants are absent;
 - disabled/zero-strength behavior, which should skip resource work and draws when safe.
 
-If a required engine fact is unknown, use existing Ghidra evidence or prepare focused research. A plausible frame is not proof of the contract.
+If a required engine fact is unknown, first search `docs/` and existing analysis for a solved contract, then use the radare2 MCP against the current executable. Ghidra may be used only under the root fallback rule when the radare2 MCP is unavailable. A plausible frame is not proof of the contract. Every implemented effect or graphics integration change must also create or update its detailed feature document under `docs/`, including the native phase, resource, ownership, ABI, quality, and performance contracts it depends on.
 
 Third-party graphics source under `.research/` is reference-only. OMV fixes must be OMV-side, capability-based, mod-agnostic, and safe if future dependency versions change or already correct the behavior.
 
