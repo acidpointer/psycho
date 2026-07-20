@@ -1,152 +1,138 @@
-# AGENTS.md
+# Agent operating guide
 
-## Build
+Use this file for repository-wide rules. Before editing a subtree, also read its nearest `AGENTS.md`. Keep work evidence-driven, scoped, and economical.
 
-Only supported target: `i686-pc-windows-gnu` (32-bit, FNV/xNVSE requirement).
+## Priorities
 
-```
-cargo build --release --target i686-pc-windows-gnu -p syringe -p psycho-engine-fixes -p psycho-engine-fixes-helper
-```
+In order:
 
-Requires `mingw-w64` (`i686-w64-mingw32-gcc`) on `$PATH` and `rustup target add i686-pc-windows-gnu`.
+1. Correctness and user safety.
+2. Preserve requested behavior and existing user changes.
+3. Prove the result with the smallest sufficient validation.
+4. Minimize implementation time, runtime cost, and agent context.
 
-**Warning:** `.cargo/config.toml` sets `target = "x86_64-pc-windows-gnu"` which is wrong. Always pass `--target i686-pc-windows-gnu` explicitly. The `libnvse/build.rs` will `panic!` if compiled for a non-i686 target.
+Do not trade correctness for speed. Do not add process, diagnostics, or abstraction without a concrete need.
 
-## Git submodules
+## Default workflow
 
-Two submodules must be initialized before building:
+1. Restate the outcome internally; identify files, invariants, and explicit constraints.
+2. Inspect only relevant code, tests, docs, and `git status`. Use `rg`/`rg --files`; batch independent reads.
+3. Resolve material unknowns from code or authoritative research. Make reversible assumptions; ask only when a choice is blocking, destructive, or changes scope.
+4. For a bug, first add or identify a regression test that can reject the defect. For a feature, define observable acceptance criteria.
+5. Make the smallest coherent change. Avoid opportunistic refactors and unrelated formatting.
+6. Validate in layers: focused check, affected suite, then one release build when required.
+7. Inspect the final diff for accidental changes. Report the outcome, evidence, and any remaining playtest need concisely.
 
-```
+Stop when the requested outcome is proven. Do not continue speculative cleanup or research.
+
+## Context and communication economy
+
+- Do not scan the whole repository when targeted search can answer the question.
+- Read detailed plans, errata, generated output, or third-party sources only when the task touches them.
+- Use a written plan only for multi-stage, high-risk, or unclear work. Keep it outcome-based and update it at milestones, not after every command.
+- Do not repeat unchanged context in progress updates or final reports. Communicate at meaningful milestones.
+- Do not rerun an unchanged expensive test or build. Run narrow checks while iterating and the required broad check once at the end.
+- Prefer existing helpers, patterns, fixtures, and test infrastructure over new frameworks.
+- Preserve a dirty worktree. User changes are not cleanup targets.
+
+## Definition of done
+
+A change is done only when:
+
+- the requested behavior is implemented without narrowing scope;
+- a regression or acceptance test covers the important behavior when practical;
+- applicable focused tests and the affected suite pass;
+- the supported release target builds when code or build inputs changed;
+- `git diff --check` passes and the diff contains no unintended edits;
+- unsupported claims and unverified runtime behavior are identified honestly.
+
+Documentation-only changes require document checks and diff inspection, not a Rust rebuild. Compilation alone is never proof of runtime or image correctness.
+
+## Build and test
+
+The only supported target is 32-bit `i686-pc-windows-gnu` for FNV/xNVSE. Always write the target explicitly even though `.cargo/config.toml` currently selects it. Requires `i686-w64-mingw32-gcc`, the Rust target, and initialized submodules.
+
+```bash
 git submodule update --init --recursive
+cargo build --release --target i686-pc-windows-gnu -p syringe -p psycho-engine-fixes -p psycho-engine-fixes-helper -p omv
 ```
 
-- `libmimalloc/c_src/mimalloc` -- upstream mimalloc C source
-- `libnvse/xnvse` -- xNVSE C++ headers (bindgen input)
+OMV validation:
 
-`libnvse/build.rs` patches `xnvse/nvse/nvse/PluginAPI.h` at build time (strips `[[nodiscard]]`). Don't commit submodule changes unless intentional.
+```bash
+cargo test --target i686-pc-windows-gnu -p omv
+cargo build --release --target i686-pc-windows-gnu -p omv
+```
 
-## Workspace structure
+Cargo runs Windows tests through Wine. For non-OMV work, run available tests for affected crates, then the affected release build. Use formatting or linting when relevant; neither replaces tests or building.
 
-| Crate | Role |
+Submodules:
+
+- `libmimalloc/c_src/mimalloc`: upstream mimalloc C source.
+- `libnvse/xnvse`: xNVSE headers used by bindgen.
+
+`libnvse/build.rs` removes `[[nodiscard]]` from the xNVSE header during builds. Do not commit submodule changes unless intentional.
+
+## Architecture boundaries
+
+| Area | Ownership |
 |---|---|
-| `psycho-engine-fixes` | Core DLL (`psycho_engine_fixes.dll`). Loaded early by `syringe` from `<game root>/syringe/psycho_engine_fixes.dll`; owns engine patches and shared state. |
-| `psycho-engine-fixes-helper` | Thin xNVSE plugin (`psycho_engine_fixes_helper.dll`, plugin name `psycho-nvse-helper`). Registers console commands/messages and lazily resolves exact named exports from `psycho_engine_fixes.dll` only if it is already loaded. It must never load or initialize the core DLL. |
-| `syringe` | Generic early `dinput8.dll` proxy. Uses a pre-CRT startup barrier to load every `<game root>/syringe/*.dll`; a non-blocking worker is the compatibility fallback. Must stay mod/plugin agnostic, `no_std`, and independent of `libpsycho`. |
-| `syringe-api` | Tiny generic ABI for DLLs loaded by `syringe`. Loaded DLLs may export `Syringe_ModInit` and `Syringe_ModActivate`; real startup belongs in those callbacks, not DllMain/TLS callbacks. |
-| `libpsycho` | WinAPI wrappers, IAT/inline/VMT hooking, logging. |
-| `libnvse` | Rust bindings to xNVSE via `bindgen`. |
-| `libmimalloc` | Fork of mimalloc sys crate. Builds C source via `cc`. |
-| `libf4se` | Deprecated F4SE bindings. Not maintained. |
+| `psycho-engine-fixes` | Early-loaded core DLL; engine patches and shared state. |
+| `psycho-engine-fixes-helper` | Thin xNVSE service/command forwarder. Must never load or initialize the core DLL. |
+| `syringe` | Generic, mod-agnostic, `no_std` `dinput8.dll` proxy. Must stay independent of `libpsycho`. |
+| `syringe-api` | Small callback ABI for early-loaded DLLs. |
+| `omv` | xNVSE graphics plugin; owns its D3D9 stages, resources, shaders, and graphics tests. |
+| `libpsycho` | Shared WinAPI, hooking, and logging abstractions. |
+| `libnvse` | xNVSE bindings. |
+| `libmimalloc` | CRT-only mimalloc build. |
+| `libf4se` | Deprecated; do not extend without explicit request. |
 
-Plugin entry flow: `dinput8.dll` `DllMain` installs a pre-CRT startup barrier -> the barrier runs outside loader lock after xNVSE preload callbacks -> Syringe loads real system `dinput8.dll` and every `<game root>/syringe/*.dll` -> all optional `Syringe_ModInit` callbacks run -> all optional `Syringe_ModActivate` callbacks run -> `psycho_engine_fixes.dll` performs final ownership checks and setup from activation -> `psycho_engine_fixes_helper.dll` `NVSEPlugin_*` only registers helper services and forwards optional messages/commands through `PsychoEngineFixes_RunCommand` / `PsychoEngineFixes_NotifyEvent` if the core DLL is already available. A non-blocking worker remains only as a generic compatibility fallback; the core engine-fixes DLL refuses activation unless the pre-CRT barrier was actually reached.
+Startup order: Syringe's pre-CRT barrier runs outside loader lock after xNVSE preload callbacks, loads the real `dinput8.dll` and `syringe/*.dll`, then calls all `Syringe_ModInit` callbacks followed by all `Syringe_ModActivate` callbacks. Core startup belongs there, not in `DllMain` or TLS. The non-blocking worker is compatibility fallback only. The core refuses activation if the pre-CRT barrier was not reached.
 
-## WinAPI usage
+Engine behavior fixes belong in `psycho-engine-fixes`, not the helper. The helper may register xNVSE services and lazily forward through exact exports only when the core is already loaded.
 
-Do not call WinAPI directly outside allocator hot paths. Use `libpsycho::os::windows::winapi` wrappers instead.
+Do not call WinAPI directly outside allocator hot paths. Use `libpsycho::os::windows::winapi`; add a safe wrapper when missing. Direct calls are allowed only where wrapper overhead is material per allocation.
 
-If a wrapper is missing, add it to `libpsycho` and make it as safe/idiomatic as practical. Direct WinAPI calls are allowed only in allocator code where per-allocation performance is critical and wrapper checks would be too expensive.
+## Subsystem gates
 
-## Testing
+### OMV graphics
 
-No test suite exists. No `tests/` directories. Verify changes by building: `cargo build --release --target i686-pc-windows-gnu`. Linting: check for `cargo clippy` or `rustfmt` if needed (no CI config found).
+Before any OMV graphics implementation or material shader change, read and follow `omv/AGENTS.md`.
 
-## Graphics feature rule
+- Native PBR: also read `docs/graphics_fnv_pbr_errata.md`; do not repeat its prohibited patterns.
+- Atmosphere startup/ownership: also read `docs/graphics_fnv_atmosphere_startup_crash_errata.md`. Never initialize or first-publish the focused world pipeline from `NVSEPlugin_Load`; publish staged config from `DeferredInit` before render hooks. Startup/config locks may block; render callbacks remain `try_lock`-only.
 
-Do not implement graphics effects as shader-only guesses when the effect needs engine data, intermediate buffers, masks, or render-stage control. Implement and prove the engine-side contract first: required textures, depth/color sources, constants, phase ownership, lifetime, compatibility behavior, and failure fallback. If the engine-side contract is missing or unproven, the correct next step is engine research/instrumentation or runtime buffer implementation, not another shader tweak.
+### gheap
 
-Do not "fix" a broken graphics feature by globally disabling that target feature, removing it from the default runtime path, or narrowing user-facing coverage just to avoid the bug. Temporary disables are allowed only as explicitly labeled diagnostics or emergency safety switches, and must not be presented as the fix. The fix must preserve the intended feature and correct its engine contract, draw selection, resource binding, shader ABI, or performance behavior.
+Before changing `psycho-engine-fixes/src/mods/heap_replacer/gheap/`, read its local `AGENTS.md`. Its OOM recovery, zombie/UAF protection, and allocator hot-path performance constraints are all mandatory.
 
-Before changing Fallout NV native PBR, read `docs/graphics_fnv_pbr_errata.md`. It records known PBR terrain/object/light regressions, including the close-terrain `-40 FPS` failure, broken terrain colors, interior wall/floor corruption, and light/shadow blinking. Do not repeat any "do not repeat" pattern from that document.
+## Engine research
 
-Before changing OMV atmosphere startup or ownership, read `docs/graphics_fnv_atmosphere_startup_crash_errata.md`. The focused FNV world pipeline must not be initialized or receive its first config publication from `NVSEPlugin_Load`; stage config with the existing startup/runtime lock and publish it from `DeferredInit` before installing render hooks. Blocking locks are valid for startup/configuration. Render callbacks remain `try_lock`-only.
+Use research only to close a material knowledge gap.
 
-## Config
+- `.research/` contains optional third-party source for comparison. Treat it as read-only. Never patch or build another mod as the fix; implement fixes in this repository and keep compatibility capability-based and version-agnostic.
+- For native game behavior, current `.txt` output in `analysis/ghidra/output/` is authoritative. Ignore outdated `.md` prose under `analysis/` unless the user explicitly requests it.
+- Before a crash or engine-contract patch, prove the failing function, caller ownership, layout, lifetime, and safe intervention point. If existing output cannot do so, prepare a focused script in `analysis/ghidra/scripts/` instead of guessing.
+- Do not run Ghidra, `analyzeHeadless`, or `ghidraRun`. Ask the user to run the prepared script, then analyze its output.
+- Before editing a Ghidra script, read `analysis/ghidra/scripts/SCRIPT_RULES.md` completely. Every rule is mandatory, including tabs-only indentation, no top-level loops or tuple unpacking, standard helpers, correct output directory, and `decomp.dispose()`.
+- The user runs through Proton/Wine. Prefer static research, logs, crash reports, minidumps, and targeted telemetry; do not depend on native Windows debuggers.
 
-Plugin runtime config: `psycho-engine-fixes/config/psycho_engine_fixes.toml`, deployed beside the core DLL as `<game root>/syringe/psycho_engine_fixes.toml`. Important memory setting: `memory.allocator` (`0` = off, `1` = scrap_heap, `2` = gheap + scrap_heap). It also controls zlib, display tweaks, logging, and debug probes.
+Do not invoke Ghidra research for a straightforward repository-local change whose contract is already proven.
 
-## Key subsystem: gheap
+## Code and review standards
 
-`psycho-engine-fixes/src/mods/heap_replacer/gheap/` replaces the game's SBM allocator with a zombie-safe slab allocator.
+- Use simple, direct designs and clear names. Comments explain why, not what.
+- Preserve local style; Rust uses edition 2024. Comments and docstrings must be ASCII.
+- Prefer editing existing files and reusing existing abstractions.
+- Never hide uncertainty. Distinguish code evidence, static proof, inference, and playtest results.
+- Do not present disabling a feature, reducing supported coverage, or weakening a test as a fix.
+- Avoid routine allocations, blocking locks, file I/O, shader compilation, and diagnostics in hot paths.
 
-Current project state:
-- The project works and all features have been tested.
-- `memory.allocator = 1` runs scrap_heap only. It gives less performance improvement than gheap + scrap_heap and can still have some random-user stability issues, but it is the safest practical allocator mode today.
-- Full gheap can run on lightweight modpacks, but huge modpacks usually hit instant crashes or delayed VAS exhaustion/OOM crashes.
-- Full gheap has location-specific crashes whose root cause is still unknown. Treat OOM/VAS exhaustion and UAF/reuse races as both plausible until proven otherwise.
-- Full gheap is not broadly stable for other users. It is only known to be stable-ish on the user's own modpack.
-- Potential rendering/texture memory issue: Fallout NV may duplicate textures or GPU-related data in both VRAM and RAM. This could explain some VAS/OOM behavior, but it is unproven and needs Ghidra/source/log-based research before relying on it.
+## Repository aids
 
-Critical constraints:
-- Mimalloc is CRT-only (third-party libs). Game objects go through slab.
-- Havok Lock MUST be acquired before cleanup stages 0-6. AI threads access freed Havok objects without it.
-- IO barrier wired into all OOM stage paths (stages 0, 4, 5).
-
-## Research: `.research` directory
-
-`.research/` is optional -- it may be empty or contain source code of other NVSE plugins (CrashLogger, JohnnyGuitar, JIP-LN, Tick Fix, etc.). When present, check it during crash investigation if a plugin involved in the crash has source here. Compare their hooking patterns, crash sites, and interactions with gheap to find conflicts.
-
-## Research: Ghidra is ground truth
-
-When investigating any game behavior, crash, or engine mechanism, Ghidra output is the authoritative reference. Pre-existing research lives in `analysis/ghidra/output/` (subdirs: `crash/`, `disasm/`, `memory/`, `perf/`). Each `.txt` file there maps to a source Ghidra script in `analysis/ghidra/scripts/`. Ignore `.md` files in `analysis/` -- they are outdated prose. Only trust the `.txt` Ghidra output unless user explicitly requests otherwise.
-
-If a knowledge gap exists (unknown function behavior, unclear call paths, missing data flow), immediately prepare a Ghidra script to investigate and fill the gap with correct knowledge. Do not guess or reason from assumptions when a script can give a concrete answer.
-
-No guessing rule: never implement a crash fix from an inferred model when the exact game contract is still unknown. If the current Ghidra output does not explain the failing function, caller ownership, data layout, lifetime, and safe intervention point, the next action is more research scripts -- not a patch. Partial research is not enough.
-
-Architecture rule: do not place engine-fix crash patches in `psycho-engine-fixes-helper`. The helper exists for xNVSE commands/messages and optional access to data exported by the core DLL. Engine behavior fixes belong in `psycho-engine-fixes`, loaded by `syringe`, unless the user explicitly asks for a helper-side compatibility shim.
-
-Operational rule: do not run Ghidra, `analyzeHeadless`, or `ghidraRun` yourself. Prepare scripts in `analysis/ghidra/scripts/`, ask the user to run them, and analyze the resulting `.txt` output after the user provides it.
-
-## Runtime debugging constraints
-
-The user runs the game on Linux through Proton/Wine and cannot use native Windows debuggers such as WinDbg, x32dbg, or Visual Studio debugger. Do not propose debugger-dependent workflows as primary solutions. Prefer static Ghidra research, instrumented plugin logging, crash logs, minidumps if available, Wine/Proton logs, and targeted in-game repro telemetry.
-
-## Ghidra scripts: mandatory rules
-
-All Ghidra scripts live in `analysis/ghidra/scripts/`. Rules are in `analysis/ghidra/scripts/SCRIPT_RULES.md`. Every rule is critical -- Jython (Python 2.7) has quirks that silently break standard patterns.
-
-Key constraints (non-negotiable):
-- **TABS ONLY.** No spaces indentation, no mixed tabs/spaces.
-- **No top-level loops.** Any `for` or `while` loop at module scope breaks the Jython parser. Wrap all loops in helper functions.
-- **No top-level tuple unpacking.** `for src, tgt in calls:` breaks at top level. Use `item[0]`, `item[1]` or wrap in a function.
-- **No top-level `while hasNext/next`.** Same parser bug. Wrap in function.
-- **Always `decomp.dispose()`** at script end. Ghidra leaks memory otherwise.
-- **Output to `analysis/ghidra/output/`** subdirectory matching the topic.
-- **Copy the standard helpers** (`decompile_at`, `find_refs_to`, `find_and_print_calls_from`) into every script. Do not reinvent.
-- **Standard script header:** `# @category Analysis` / `# @description ...`
-
-## Engineering balance: OOM vs UAF vs performance
-
-Every gheap decision lives in a permanent three-way tension. All three requirements are critical and non-negotiable, but they conflict:
-
-1. **OOM recovery** -- the game must not crash from out-of-memory. Requires cleanup stages, commit tracking, pressure monitoring, quarantine.
-2. **UAF protection** -- freed memory must remain readable ("zombie-safe") because the game accesses freed pointers on IO threads, AI threads, and after cell transitions. Requires slab reuse cooldown, Havok lock, IO barrier.
-3. **Performance** -- this replaces the game's allocator in every hot path. Cannot add overhead per-allocation. Requires sharded size classes, bitmap free tracking, minimal synchronization.
-
-When a change touches gheap, explicitly state which of the three it optimizes for and how it affects the others. Example: "This adds a 15s reuse cooldown to slab blocks (costs memory, helps UAF)."
-
-## Honesty
-
-Never tell the user what they want to hear if it is wrong. If an idea, assumption, or instruction is incorrect, say so directly. Explain the reason and reference sources (code, Ghidra output, docs) so the user can verify. Polite lies waste time; blunt correctness builds trust.
-
-## Style
-
-- KISS principle. No over-engineering, no clever tricks. Simple, direct solutions.
-- Clean code. Clear naming that explains intent without comments. A developer unfamiliar with the code should understand context within minutes, not hours.
-- Self-documenting code over docstrings. Names carry meaning; comments explain why, not what.
-- No non-ASCII in comments/docstrings.
-- Comments should read like a human wrote them, not LLM.
-- Prefer editing existing files over rewriting.
-- Code uses edition 2024.
-
-## Logs
-
-- **Fresh logs** -- symlinks created by `ln_logs.sh` in `psycho-engine-fixes/`: `psycho-engine-fixes-latest.log`, `CrashLogger.log`. Always point to the game directory.
-- **User reports** -- put problem report logs into `.reports/` for analysis.
-
-## Shell scripts
-
-- `build_fnv.sh` -- builds and installs the full FNV set: `FalloutNV/dinput8.dll`, `FalloutNV/syringe/psycho_engine_fixes.dll`, `FalloutNV/syringe/psycho_engine_fixes.toml`, and helper DLL to the legacy xNVSE mod path `mods/psycho_nvse/nvse/plugins/psycho_engine_fixes_helper.dll` (edit `TARGET_DIR` at top). It also removes exact stale Psycho configs/DLLs from old install layouts.
-- `psycho-engine-fixes/build.sh` -- compatibility wrapper that calls `../build_fnv.sh`
-- `psycho-engine-fixes/release.sh` -- builds release and packages zips in `.release/`
-- `psycho-engine-fixes/ln_logs.sh` -- symlinks game log files into repo for inspection
+- Runtime config: `psycho-engine-fixes/config/psycho_engine_fixes.toml`, deployed to `FalloutNV/syringe/psycho_engine_fixes.toml`. `memory.allocator`: `0` off, `1` scrap heap, `2` gheap plus scrap heap.
+- Fresh symlinked logs under `psycho-engine-fixes/`: `psycho-engine-fixes-latest.log`, `CrashLogger.log`. Store supplied problem logs in `.reports/`.
+- `build_fnv.sh`: build and install the complete FNV set, including OMV; edit `TARGET_DIR` first.
+- `psycho-engine-fixes/build.sh`: compatibility wrapper for `../build_fnv.sh`.
+- `psycho-engine-fixes/release.sh`: build and package releases in `.release/`.
+- `psycho-engine-fixes/ln_logs.sh`: create game-log symlinks.

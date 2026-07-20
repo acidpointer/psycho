@@ -66,11 +66,6 @@ float3 Luma(float3 value)
     return float3(lum, lum, lum);
 }
 
-float3 ExpandNormal(float3 value)
-{
-    return SafeNormalize(value * 2.0f - 1.0f, float3(0.0f, 0.0f, 1.0f));
-}
-
 bool TerrainPbrEnabled()
 {
     return TESR_TerrainExtraData.x > 0.5f;
@@ -244,13 +239,13 @@ float3 BlendNormalMaps(float2 uv, float blends[7], float spec[7], out float glos
     {
         float blend = blends[i];
         float4 normal_sample = tex2D(NormalMap[i], uv);
-        blended_normal += normal_sample.rgb * blend;
+        blended_normal += (normal_sample.rgb - 0.5f) * blend;
         gloss += normal_sample.a * blend * ((spec[i] > 0.0f) ? 1.0f : 0.0f);
         spec_exponent += spec[i] * blend;
     }
 
     gloss = saturate(gloss);
-    return ExpandNormal(blended_normal);
+    return SafeNormalize(blended_normal, float3(0.0f, 0.0f, 1.0f));
 }
 
 float3 SunLighting(float3 light_dir, float3 sun_color, float3 view_dir, float3 normal, float3 ambient_color, float3 albedo, float gloss, float gloss_power, float roughness, float parallax_multiplier)

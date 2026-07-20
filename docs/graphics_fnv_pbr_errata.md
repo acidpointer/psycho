@@ -15,8 +15,10 @@ The last close-terrain runtime gate attempt was a failed fix: it caused about `-
 The current portable point-light correction uses an OMV-only static-proof
 deployment model. At an admitted OMV close-terrain draw, it merges eligible
 general active lights that are absent from the current pass, deduplicates by
-native `NiLight*`, and uploads them through disjoint OMV constants. It does not
-patch, compile, version-check, or mutate VPT.
+native `NiLight*`, and uploads them through disjoint OMV constants. If a
+zero-native-point row also produces no property-local supplement, a bounded
+fallback scans the engine's manager-wide list for active shadow-classified
+candidates. It does not patch, compile, version-check, or mutate VPT.
 No PBR continuity capture subsystem, diagnostic-only game build, per-draw D3D
 readback, or engine-list telemetry is part of this correction. One ordinary
 playtest still validates final pixels and the dynamic multibound result; static
@@ -38,6 +40,11 @@ Use these sources before making terrain or lighting changes:
 - `analysis/ghidra/output/perf/graphics_fnv_pbr_close_terrain_vertex_abi_contract.txt`
 - `analysis/ghidra/output/perf/graphics_fnv_pbr_close_terrain_vertex_declaration_contract.txt`
 - `analysis/ghidra/output/perf/graphics_fnv_close_terrain_portable_light_classification_audit.txt`
+- `analysis/ghidra/output/perf/graphics_fnv_close_terrain_pipboy_light_0147_shadow_path_audit.txt`
+- `analysis/ghidra/output/perf/graphics_fnv_volumetric_local_light_value_copy_contract_audit.txt`
+- `analysis/shaders_disasm/shaderpackage019/SLS2092.pso.dis`
+- `analysis/shaders_disasm/shaderpackage019/SLS2100.pso.dis`
+- `analysis/shaders_disasm/shaderpackage019/SLS2140.pso.dis`
 - `analysis/ghidra/output/perf/graphics_fnv_pbr_object_distance_specular_transition_contract_audit.txt`
 - `analysis/ghidra/output/perf/graphics_fnv_pbr_object_specular_fade_formula_followup.txt`
 - `analysis/ghidra/output/perf/graphics_fnv_pbr_object_lighting_transition_ownership_audit.txt`
@@ -265,6 +272,28 @@ Projected-shadow, point-light, SI, LandO, and landlo-fog rows were treated as if
 
 For the separately proven VPT point-light landscape rows, `PointLightColor.a` carries the scene light's runtime fade. Using only `.rgb`, as the NVR reference shader does, turns cell/light-list transitions into visible chunk-shaped steps. OMV must multiply each point-light contribution by the saturated alpha fade.
 
+The vanilla package-19 terrain shaders expose a separate normal-blending
+contract. `SLS2092`, `SLS2100`, and `SLS2140` subtract `0.5` from every encoded
+normal sample before applying that layer's blend weight, then normalize the
+sum. OMV previously blended encoded RGB first and decoded the final value once.
+Those equations agree only when the active weights sum to exactly one. With a
+partial terrain weight, even a flat upward normal can decode as a downward
+normal, making an overhead local light contribute zero. This is especially
+visible at night as black dirt beside correctly lit asphalt. OMV now implements
+the vanilla center-before-weight equation directly.
+
+The property-local general iterator is not sufficient for every admitted
+terrain draw. Ghidra proves that `ShadowSceneNode+0xB4` is the manager-wide
+`ShadowSceneLight` list, with linked-list next at `+0x00`, value at `+0x08`, and
+native `NiLight*` identity at scene-light `+0xF8`. The non-shadow iterator
+explicitly excludes scene lights whose shadow class at `+0xEC` equals one,
+while active state at `+0x110` rejects `0x00FF`. When a zero-native-point row's
+property-local scan finds no missing candidate, OMV therefore performs one
+bounded manager scan for active shadow-classified lights and applies the same
+identity, `IsLit`, point, ambient, multibound, finite-value, capacity,
+transform, and fade filters. This is capability-based and contains no Pip-Boy
+form ID or VPT version dependency.
+
 The final light/shadow continuity closure separates two native systems that must not be conflated. `FUN_00B70390` stable-sorts each PPLighting property's light list by the normalized camera-relative sphere-separation metric from `FUN_00B9DBE0`; equal metrics keep the existing order, while a real crossing reorders the list and invalidates cached pass state. This general light-list truncation has no outgoing-light cross-fade. In contrast, shadow candidates use target direction `+0xD8` and elapsed transition time `+0xDC`: `FUN_00B9BB10` preserves the current fade when direction reverses, and `FUN_00B9E970` advances and applies that fade before dirtying attached PPLighting properties at membership boundaries. `FUN_00B717A0` removes a rejected candidate from an eligible property's light list and marks that property dirty.
 
 This evidence does not justify adding hysteresis to the native light comparator or a second shadow fade. Either change would alter vanilla selection without proving a PBR contract failure. A residual PBR-only blink must first identify the changing replacement row and staged light/resource values against the same native draw; preserve the existing shadow transition and the VPT point-light alpha fade.
@@ -274,7 +303,12 @@ Do not repeat:
 - Do not replace projected-shadow, point-light, SI, LandO, or landlo-fog rows until independently proven.
 - Do not bind terrain samplers onto light-resource rows.
 - Do not discard the proven VPT point-light alpha fade after a point-light row is admitted.
+- Do not decode one final encoded terrain-normal blend unless the engine
+  contract proves the layer weights sum to one. Center every sample before its
+  weight, as the vanilla bytecode does.
 - Do not add comparator hysteresis or an independent shadow fade to hide an unidentified PBR-only transition.
+- Do not special-case the Pip-Boy form or a VPT version. Recover missing lights
+  through proven engine classification and native identity.
 
 Correct fix path:
 
@@ -290,6 +324,13 @@ Correct fix path:
   24-point-light cap. Do not change `+0xEC`, mutate the render pass, or overwrite
   native terrain light constants; stage only missing entries in OMV-owned
   `c91..c139`.
+- Keep the manager fallback allocation-free and bounded. Run it only when the
+  current pass has zero native point lights and the property-local scan
+  produced no supplement, accept only active shadow-classified entries, and
+  reuse every normal candidate filter.
+- Compile every registered close-terrain variant and retain tight bytecode,
+  instruction-count, and exact texture-sample budgets for representative
+  one-layer/seven-layer and zero-light/24-light extremes.
 
 ### 7. Object Distance PBR Blink
 

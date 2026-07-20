@@ -1019,6 +1019,12 @@ mod shader_compile_tests {
         include_str!("../../../../analysis/shaders_disasm/shaderpackage019/SLS2045.pso.dis");
     const VANILLA_DIFFUSE_POINT_VERTEX: &str =
         include_str!("../../../../analysis/shaders_disasm/shaderpackage019/SLS2036.vso.dis");
+    const VANILLA_TERRAIN_1_PIXEL: &str =
+        include_str!("../../../../analysis/shaders_disasm/shaderpackage019/SLS2092.pso.dis");
+    const VANILLA_TERRAIN_2_PIXEL: &str =
+        include_str!("../../../../analysis/shaders_disasm/shaderpackage019/SLS2100.pso.dis");
+    const VANILLA_TERRAIN_7_PIXEL: &str =
+        include_str!("../../../../analysis/shaders_disasm/shaderpackage019/SLS2140.pso.dis");
 
     fn dot(left: [f32; 3], right: [f32; 3]) -> f32 {
         left[0] * right[0] + left[1] * right[1] + left[2] * right[2]
@@ -1031,6 +1037,56 @@ mod shader_compile_tests {
             value[1] * inverse_length,
             value[2] * inverse_length,
         ]
+    }
+
+    fn centered_weighted_normal(samples: &[[f32; 3]], weights: &[f32]) -> [f32; 3] {
+        let mut normal = [0.0; 3];
+        for (sample, weight) in samples.iter().zip(weights) {
+            for component in 0..3 {
+                normal[component] += (sample[component] - 0.5) * weight;
+            }
+        }
+        stable_vector(normal)
+    }
+
+    fn legacy_encoded_weighted_normal(samples: &[[f32; 3]], weights: &[f32]) -> [f32; 3] {
+        let mut encoded = [0.0; 3];
+        for (sample, weight) in samples.iter().zip(weights) {
+            for component in 0..3 {
+                encoded[component] += sample[component] * weight;
+            }
+        }
+        stable_vector(encoded.map(|component| component * 2.0 - 1.0))
+    }
+
+    fn assert_vector_near(left: [f32; 3], right: [f32; 3]) {
+        for component in 0..3 {
+            assert!((left[component] - right[component]).abs() <= 1.0e-5);
+        }
+    }
+
+    fn terrain_diffuse_luminance(
+        albedo: [f32; 3],
+        metallic: f32,
+        normal: [f32; 3],
+        light_direction: [f32; 3],
+        attenuation: f32,
+    ) -> f32 {
+        let ndotl = dot(normal, stable_vector(light_direction)).clamp(0.0, 1.0);
+        let diffuse =
+            albedo.map(|component| component * 0.96 * (1.0 - metallic) * ndotl * attenuation);
+        dot(diffuse, [0.299, 0.587, 0.114])
+    }
+
+    fn assert_vanilla_centered_normal_contract(source: &str, texture_count: usize) {
+        assert!(source.contains("def c0 = -5.00000000e-01"));
+        let center_count = source
+            .lines()
+            .filter(|line| line.starts_with("add ") && line.ends_with(", c0.x"))
+            .count();
+        assert_eq!(center_count, texture_count);
+        assert!(source.find(", c0.x").unwrap() < source.find("mul_pp r0.xyz").unwrap());
+        assert!(source.find("mul_pp r0.xyz").unwrap() < source.find("nrm_pp").unwrap());
     }
 
     fn bounded_object_light(
@@ -1489,6 +1545,78 @@ mod shader_compile_tests {
     }
 
     #[test]
+    fn close_terrain_normal_blending_matches_vanilla_center_before_weight_contract() {
+        assert_vanilla_centered_normal_contract(VANILLA_TERRAIN_1_PIXEL, 1);
+        assert_vanilla_centered_normal_contract(VANILLA_TERRAIN_2_PIXEL, 2);
+        assert_vanilla_centered_normal_contract(VANILLA_TERRAIN_7_PIXEL, 7);
+
+        assert!(
+            CLOSE_TERRAIN_PIXEL_SOURCE
+                .contains("blended_normal += (normal_sample.rgb - 0.5f) * blend;")
+        );
+        assert!(!CLOSE_TERRAIN_PIXEL_SOURCE.contains("ExpandNormal(blended_normal)"));
+
+        let samples = [[0.75, 0.30, 0.95], [0.20, 0.80, 0.70]];
+        let normalized_weights = [0.35, 0.65];
+        assert_vector_near(
+            centered_weighted_normal(&samples, &normalized_weights),
+            legacy_encoded_weighted_normal(&samples, &normalized_weights),
+        );
+
+        let unnormalized_weights = [0.10, 0.15];
+        let corrected = centered_weighted_normal(&samples, &unnormalized_weights);
+        let explicit_vanilla = stable_vector([
+            (samples[0][0] - 0.5) * unnormalized_weights[0]
+                + (samples[1][0] - 0.5) * unnormalized_weights[1],
+            (samples[0][1] - 0.5) * unnormalized_weights[0]
+                + (samples[1][1] - 0.5) * unnormalized_weights[1],
+            (samples[0][2] - 0.5) * unnormalized_weights[0]
+                + (samples[1][2] - 0.5) * unnormalized_weights[1],
+        ]);
+        assert_vector_near(corrected, explicit_vanilla);
+        assert!(
+            dot(
+                corrected,
+                legacy_encoded_weighted_normal(&samples, &unnormalized_weights)
+            ) < 0.0
+        );
+    }
+
+    #[test]
+    fn zero_native_light_night_terrain_still_receives_local_pbr_diffuse() {
+        let flat_normal_sample = [[0.5, 0.5, 1.0]];
+        let partial_weight = [0.25];
+        let corrected = centered_weighted_normal(&flat_normal_sample, &partial_weight);
+        let legacy = legacy_encoded_weighted_normal(&flat_normal_sample, &partial_weight);
+
+        assert_vector_near(corrected, [0.0, 0.0, 1.0]);
+        assert!(dot(legacy, [0.0, 0.0, 1.0]) < 0.0);
+        for metallic in [0.0, 0.3143275] {
+            let corrected_light = terrain_diffuse_luminance(
+                [0.18, 0.12, 0.08],
+                metallic,
+                corrected,
+                [0.0, 0.0, 1.0],
+                0.75,
+            );
+            let legacy_light = terrain_diffuse_luminance(
+                [0.18, 0.12, 0.08],
+                metallic,
+                legacy,
+                [0.0, 0.0, 1.0],
+                0.75,
+            );
+            assert!(corrected_light > 0.05);
+            assert_eq!(legacy_light, 0.0);
+        }
+
+        assert!(CLOSE_TERRAIN_PIXEL_SOURCE.contains("int native_point_count = 0;"));
+        assert!(CLOSE_TERRAIN_PIXEL_SOURCE.contains("supplemental_point_count"));
+        assert!(CLOSE_TERRAIN_PIXEL_SOURCE.contains("lighting += PointLighting("));
+        assert!(CLOSE_TERRAIN_PIXEL_SOURCE.contains("PbrDirect("));
+    }
+
+    #[test]
     fn close_terrain_registry_matches_every_vpt_non_canopy_row() {
         for texture_count in 1..=7u16 {
             for (row_offset, point_light_capacity) in [(0u16, 0u16), (2, 6), (4, 12), (6, 24)] {
@@ -1672,16 +1800,17 @@ mod shader_compile_tests {
 
     #[test]
     fn representative_close_terrain_bytecode_stays_bounded() {
-        const CLOSE_TERRAIN_BYTECODE_LIMIT: usize = 25_600;
-        let labels = [
-            "SLS2092_p_terrain_t1_l0",
-            "SLS2098_p_terrain_t1_l24",
-            "SLS2140_p_terrain_t7_l0",
-            "SLS2146_p_terrain_t7_l24",
+        let limits = [
+            ("SLS2092_p_terrain_t1_l0", 18_800, 1_130, 2),
+            ("SLS2098_p_terrain_t1_l24", 24_100, 1_450, 2),
+            ("SLS2140_p_terrain_t7_l0", 20_400, 1_240, 14),
+            ("SLS2146_p_terrain_t7_l24", 25_600, 1_550, 14),
         ];
         for template_id in 0..template_count() {
             let template = template_at(template_id as u16).unwrap();
-            if labels.contains(&template.label) {
+            if let Some((_, byte_limit, instruction_limit, texture_limit)) =
+                limits.iter().find(|(label, ..)| *label == template.label)
+            {
                 let source = template_source(template_id as u16, template);
                 let bytecode = crate::shaders::compile_hlsl_source_target(
                     template.label,
@@ -1689,12 +1818,26 @@ mod shader_compile_tests {
                     shader_profile(template.stage),
                 )
                 .unwrap();
+                let opcodes = compiled_instruction_opcodes(&bytecode);
+                let texture_count = opcodes.iter().filter(|opcode| **opcode == 66).count();
                 assert!(
-                    bytecode.len() * 4 <= CLOSE_TERRAIN_BYTECODE_LIMIT,
+                    bytecode.len() * 4 <= *byte_limit,
                     "{} grew to {} bytes (limit {})",
                     template.label,
                     bytecode.len() * 4,
-                    CLOSE_TERRAIN_BYTECODE_LIMIT
+                    byte_limit
+                );
+                assert!(
+                    opcodes.len() <= *instruction_limit,
+                    "{} grew to {} instructions (limit {})",
+                    template.label,
+                    opcodes.len(),
+                    instruction_limit
+                );
+                assert_eq!(
+                    texture_count, *texture_limit,
+                    "{} texture samples",
+                    template.label
                 );
             }
         }

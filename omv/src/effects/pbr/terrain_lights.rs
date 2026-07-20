@@ -36,6 +36,8 @@ const SCENE_LIGHT_FADE_OFFSET: usize = 0xD4;
 const SCENE_LIGHT_POINT_OFFSET: usize = 0xF4;
 const SCENE_LIGHT_AMBIENT_OFFSET: usize = 0xF5;
 const SCENE_LIGHT_NATIVE_LIGHT_OFFSET: usize = 0xF8;
+const SCENE_LIGHT_SHADOW_CLASS_OFFSET: usize = 0xEC;
+const SCENE_LIGHT_ACTIVE_STATE_OFFSET: usize = 0x110;
 
 const NATIVE_LIGHT_POSITION_OFFSET: usize = 0x8C;
 const NATIVE_LIGHT_DIMMER_OFFSET: usize = 0xC4;
@@ -43,13 +45,18 @@ const NATIVE_LIGHT_DIFFUSE_OFFSET: usize = 0xD4;
 const NATIVE_LIGHT_RADIUS_OFFSET: usize = 0xE0;
 const NATIVE_LIGHT_DISABLED_FLAGS_OFFSET: usize = 0x30;
 
+const SHADOW_SCENE_NODE_LIGHT_LIST_OFFSET: usize = 0xB4;
 const SHADOW_SCENE_NODE_LIGHTING_OFFSET: usize = 0x1E4;
+const LIGHT_LIST_NODE_NEXT_OFFSET: usize = 0x00;
+const LIGHT_LIST_NODE_VALUE_OFFSET: usize = 0x08;
 const NIOBJECT_IS_MULTIBOUND_NODE_VTABLE_OFFSET: usize = 0x14;
 const MULTIBOUND_NODE_MULTIBOUND_OFFSET: usize = 0xAC;
 const MULTIBOUND_SHAPE_OFFSET: usize = 0x0C;
 const MAX_GENERAL_LIGHT_SCAN: usize = 64;
+const MAX_MANAGER_LIGHT_SCAN: usize = 64;
 const MIN_ENGINE_PTR: usize = 0x10000;
 const LIGHT_COMPONENT_MIN: f32 = 1.0 / 255.0;
+const SCENE_LIGHT_INACTIVE_STATE: u16 = 0x00FF;
 
 type GeneralLightFirstFn =
     unsafe extern "thiscall" fn(*mut c_void, *mut *mut c_void) -> *mut c_void;
@@ -205,9 +212,10 @@ unsafe fn capture_current_unchecked() -> Option<SupplementalTerrainLights> {
     if !forced_darkness.is_finite() || forced_darkness < 1.0 {
         return Some(SupplementalTerrainLights::default());
     }
+    let scene_node = unsafe { read_shadow_scene_node() }?;
     let context = TerrainLightContext {
         transform: unsafe { read_geometry_transform(geometry) }?,
-        lighting_offset: unsafe { read_lighting_offset() }?,
+        lighting_offset: unsafe { read_vec3(scene_node, SHADOW_SCENE_NODE_LIGHTING_OFFSET) },
         forced_darkness,
         hdr: unsafe { (HDR_ENABLED_ADDR as *const u8).read() != 0 },
     };
@@ -245,7 +253,49 @@ unsafe fn capture_current_unchecked() -> Option<SupplementalTerrainLights> {
         scene_light = unsafe { next(property, &mut iterator) };
     }
 
+    // A zero-point row can expose no general candidate even though the scene
+    // manager owns an active shadow-classified portable light.
+    if manager_fallback_needed(native_point_count, merge.output.count) && !merge.is_full() {
+        unsafe { supplement_manager_shadow_lights(scene_node, multibound_shape, &mut merge) };
+    }
+
     Some(merge.finish())
+}
+
+unsafe fn supplement_manager_shadow_lights(
+    scene_node: *mut c_void,
+    multibound_shape: Option<*mut c_void>,
+    merge: &mut TerrainLightMerge<'_>,
+) {
+    let mut list_node = unsafe { read_ptr_offset(scene_node, SHADOW_SCENE_NODE_LIGHT_LIST_OFFSET) };
+    let mut scanned = 0usize;
+    while let Some(node) = list_node {
+        if scanned >= MAX_MANAGER_LIGHT_SCAN || merge.is_full() {
+            break;
+        }
+        scanned += 1;
+
+        if let Some(scene_light) = unsafe { read_ptr_offset(node, LIGHT_LIST_NODE_VALUE_OFFSET) } {
+            let shadow_class =
+                unsafe { read_copy::<u8>(scene_light, SCENE_LIGHT_SHADOW_CLASS_OFFSET) };
+            let active_state =
+                unsafe { read_copy::<u16>(scene_light, SCENE_LIGHT_ACTIVE_STATE_OFFSET) };
+            if manager_shadow_light_is_active(shadow_class, active_state)
+                && let Some(candidate) = unsafe { read_candidate(scene_light, multibound_shape) }
+            {
+                merge.consider(candidate);
+            }
+        }
+        list_node = unsafe { read_ptr_offset(node, LIGHT_LIST_NODE_NEXT_OFFSET) };
+    }
+}
+
+fn manager_shadow_light_is_active(shadow_class: u8, active_state: u16) -> bool {
+    shadow_class == 1 && active_state != SCENE_LIGHT_INACTIVE_STATE
+}
+
+fn manager_fallback_needed(native_point_count: usize, supplemental_point_count: usize) -> bool {
+    native_point_count == 0 && supplemental_point_count == 0
 }
 
 fn shader_light(
@@ -466,12 +516,12 @@ unsafe fn read_geometry_transform(geometry: *mut c_void) -> Option<GeometryTrans
         .then_some(transform)
 }
 
-unsafe fn read_lighting_offset() -> Option<[f32; 3]> {
+unsafe fn read_shadow_scene_node() -> Option<*mut c_void> {
     let node = unsafe { (SHADOW_SCENE_NODE_SLOT_ADDR as *const usize).read() };
     if node < MIN_ENGINE_PTR {
         return None;
     }
-    Some(unsafe { read_vec3(node as *mut c_void, SHADOW_SCENE_NODE_LIGHTING_OFFSET) })
+    Some(node as *mut c_void)
 }
 
 unsafe fn read_ptr_offset(base: *mut c_void, offset: usize) -> Option<*mut c_void> {
@@ -500,11 +550,23 @@ fn add3(left: [f32; 3], right: [f32; 3]) -> [f32; 3] {
 
 #[cfg(test)]
 mod tests {
+    use std::mem::{size_of, size_of_val};
+
     use super::{
         GeometryTransform, MAX_SUPPLEMENTAL_CONSTANTS, MAX_TERRAIN_POINT_LIGHTS,
+        SCENE_LIGHT_ACTIVE_STATE_OFFSET, SCENE_LIGHT_INACTIVE_STATE,
+        SCENE_LIGHT_SHADOW_CLASS_OFFSET, SHADOW_SCENE_NODE_LIGHT_LIST_OFFSET,
         SupplementalTerrainLights, TerrainLightCandidate, TerrainLightContext, TerrainLightMerge,
-        inverse_transform_point,
+        inverse_transform_point, manager_fallback_needed, manager_shadow_light_is_active,
+        supplement_manager_shadow_lights,
     };
+
+    const MANAGER_LIGHT_AUDIT: &str = include_str!(
+        "../../../../analysis/ghidra/output/perf/graphics_fnv_volumetric_local_light_value_copy_contract_audit.txt"
+    );
+    const PIPBOY_LIGHT_AUDIT: &str = include_str!(
+        "../../../../analysis/ghidra/output/perf/graphics_fnv_close_terrain_pipboy_light_0147_shadow_path_audit.txt"
+    );
 
     fn context() -> TerrainLightContext {
         TerrainLightContext {
@@ -538,6 +600,18 @@ mod tests {
         }
     }
 
+    unsafe fn write_buffer<T>(buffer: &mut [usize], offset: usize, value: T) {
+        assert!(offset + size_of::<T>() <= size_of_val(buffer));
+        unsafe {
+            buffer
+                .as_mut_ptr()
+                .cast::<u8>()
+                .add(offset)
+                .cast::<T>()
+                .write_unaligned(value);
+        }
+    }
+
     #[test]
     fn old_non_shadow_pass_gets_the_missing_general_light() {
         let mut merge = TerrainLightMerge::new(&[0x11000], 1, context());
@@ -546,6 +620,99 @@ mod tests {
 
         assert_eq!(output.identities[0], 0x22000);
         assert_eq!(output.lights().len(), 1);
+    }
+
+    #[test]
+    fn zero_native_row_accepts_an_active_manager_shadow_light() {
+        let mut merge = TerrainLightMerge::new(&[], 0, context());
+        if manager_shadow_light_is_active(1, 0) {
+            merge.consider(candidate(0x22000));
+        }
+
+        let output = merge.finish();
+        assert_eq!(&output.identities[..output.count], &[0x22000]);
+    }
+
+    #[test]
+    fn zero_native_row_walks_the_production_manager_list() {
+        let mut scene_node = Box::new([0usize; 128]);
+        let mut list_node = Box::new([0usize; 4]);
+        let mut scene_light = Box::new([0usize; 80]);
+        let mut native_light = Box::new([0usize; 64]);
+        let scene_light_ptr = scene_light.as_mut_ptr().cast::<std::ffi::c_void>();
+        let native_light_ptr = native_light.as_mut_ptr().cast::<std::ffi::c_void>();
+
+        unsafe {
+            write_buffer(
+                &mut scene_node[..],
+                SHADOW_SCENE_NODE_LIGHT_LIST_OFFSET,
+                list_node.as_mut_ptr() as usize,
+            );
+            write_buffer(&mut list_node[..], 0x08, scene_light_ptr as usize);
+            write_buffer(&mut scene_light[..], 0xF8, native_light_ptr as usize);
+            write_buffer(&mut scene_light[..], 0xEC, 1u8);
+            write_buffer(&mut scene_light[..], 0x110, 0u16);
+            write_buffer(&mut scene_light[..], 0xF4, 1u8);
+            write_buffer(&mut scene_light[..], 0xF5, 0u8);
+            write_buffer(&mut scene_light[..], 0xD0, 0.5f32);
+            write_buffer(&mut scene_light[..], 0xD4, 0.75f32);
+
+            write_buffer(&mut native_light[..], 0x30, 0u8);
+            write_buffer(&mut native_light[..], 0x8C, 102.0f32);
+            write_buffer(&mut native_light[..], 0x90, 204.0f32);
+            write_buffer(&mut native_light[..], 0x94, 306.0f32);
+            write_buffer(&mut native_light[..], 0xC4, 2.0f32);
+            write_buffer(&mut native_light[..], 0xD4, 0.5f32);
+            write_buffer(&mut native_light[..], 0xD8, 0.25f32);
+            write_buffer(&mut native_light[..], 0xDC, 0.125f32);
+            write_buffer(&mut native_light[..], 0xE0, 80.0f32);
+        }
+
+        let mut merge = TerrainLightMerge::new(&[], 0, context());
+        unsafe {
+            supplement_manager_shadow_lights(scene_node.as_mut_ptr().cast(), None, &mut merge);
+        }
+        let output = merge.finish();
+
+        assert_eq!(output.count, 1);
+        assert_eq!(output.identities[0], native_light_ptr as usize);
+        assert_eq!(
+            output.lights()[0].position_radius,
+            [501.0, 1002.0, 1503.0, 40.0]
+        );
+        assert_eq!(output.lights()[0].color_fade, [0.5, 0.25, 0.125, 0.75]);
+    }
+
+    #[test]
+    fn manager_fallback_rejects_nonshadow_and_inactive_lights() {
+        assert!(manager_shadow_light_is_active(1, 0));
+        assert!(manager_shadow_light_is_active(1, 1));
+        assert!(!manager_shadow_light_is_active(0, 0));
+        assert!(!manager_shadow_light_is_active(1, 0x00FF));
+    }
+
+    #[test]
+    fn manager_scan_is_limited_to_unlit_zero_point_rows() {
+        assert!(manager_fallback_needed(0, 0));
+        assert!(!manager_fallback_needed(1, 0));
+        assert!(!manager_fallback_needed(0, 1));
+        assert!(!manager_fallback_needed(24, 0));
+    }
+
+    #[test]
+    fn manager_fallback_offsets_match_ghidra_engine_contracts() {
+        assert_eq!(SHADOW_SCENE_NODE_LIGHT_LIST_OFFSET, 0xB4);
+        assert_eq!(SCENE_LIGHT_SHADOW_CLASS_OFFSET, 0xEC);
+        assert_eq!(SCENE_LIGHT_ACTIVE_STATE_OFFSET, 0x110);
+        assert_eq!(SCENE_LIGHT_INACTIVE_STATE, 0x00FF);
+
+        assert!(MANAGER_LIGHT_AUDIT.contains("ShadowSceneNode +0xB4 is a manager-wide"));
+        assert!(MANAGER_LIGHT_AUDIT.contains("piVar2 = *(int **)(param_1 + 0xb4);"));
+        assert!(MANAGER_LIGHT_AUDIT.contains("piVar1 = piVar2 + 2;"));
+        assert!(MANAGER_LIGHT_AUDIT.contains("piVar2 = (int *)*piVar2;"));
+        assert!(MANAGER_LIGHT_AUDIT.contains("*(int *)(*piVar1 + 0xf8) == param_2"));
+        assert!(PIPBOY_LIGHT_AUDIT.contains("*(short *)(iVar3 + 0x110) != 0xff"));
+        assert!(PIPBOY_LIGHT_AUDIT.contains("*(char *)(iVar3 + 0xec) != '\\x01'"));
     }
 
     #[test]

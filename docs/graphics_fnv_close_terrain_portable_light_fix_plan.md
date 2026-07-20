@@ -1,6 +1,6 @@
 # FNV Close-Terrain Portable Point-Light Static Fix Plan
 
-Date: 2026-07-19
+Date: 2026-07-20
 
 Status: OMV-side implementation and static validation.
 
@@ -29,8 +29,13 @@ The merge is idempotent by native `NiLight*` identity:
 Authoritative inputs:
 
 - `analysis/ghidra/output/perf/graphics_fnv_close_terrain_portable_light_classification_audit.txt`
+- `analysis/ghidra/output/perf/graphics_fnv_close_terrain_pipboy_light_0147_shadow_path_audit.txt`
+- `analysis/ghidra/output/perf/graphics_fnv_volumetric_local_light_value_copy_contract_audit.txt`
 - `analysis/ghidra/output/perf/graphics_fnv_pbr_shader_virtual_interface_followup_audit.txt`
 - `analysis/ghidra/output/perf/graphics_fnv_ao_temporal_basis_handedness_followup.txt`
+- `analysis/shaders_disasm/shaderpackage019/SLS2092.pso.dis`
+- `analysis/shaders_disasm/shaderpackage019/SLS2100.pso.dis`
+- `analysis/shaders_disasm/shaderpackage019/SLS2140.pso.dis`
 - `.research/fnv-vanilla-plus-terrain-main/VanillaPlusTerrain/main.cpp`
 
 The static evidence proves:
@@ -54,6 +59,12 @@ The static evidence proves:
   shape `+0x0C`, and AABB `CheckBound @ 0x00C382B0`;
 - native terrain lighting caps point lights at 24 and stages light fade in color
   alpha.
+- `ShadowSceneNode+0xB4` is a manager-wide linked list with next at node `+0x00`
+  and `ShadowSceneLight*` at node `+0x08`;
+- active state `+0x110 == 0x00FF` rejects a light, while shadow class `+0xEC == 1`
+  is exactly the class excluded by the non-shadow iterator;
+- vanilla terrain pixel shaders center every encoded normal sample by `-0.5`
+  before applying its blend weight and normalizing the combined result.
 
 This evidence identifies a safe downstream intervention: the OMV replacement
 draw after native state is staged and before OMV uploads its own constants.
@@ -110,6 +121,13 @@ Invalid inputs reject only that supplemental candidate. Failure to capture the
 engine context produces an empty supplemental set and leaves native OMV terrain
 lighting intact.
 
+If a zero-native-point row's property-local iterator yields no missing light,
+walk at most 64 entries from the proven manager-wide
+`ShadowSceneNode+0xB4` list. Accept only active shadow-classified entries and
+feed them through the exact same candidate filters and identity merge. Do not
+run this second scan when the native pass or normal supplement path already
+owns a point light.
+
 ### 5. OMV-only shader ABI
 
 Keep upstream terrain constants unchanged:
@@ -133,6 +151,11 @@ separately with the same attenuation and PBR point-light function. Supplemental
 evaluation is unconditional across the `0/6/12/24` native row families, so an
 old pass that selected its zero-point-light row can still receive a genuinely
 missing portable light.
+
+Blend terrain normals with the vanilla center-before-weight equation. Decoding
+one final encoded sum is forbidden because it is equivalent only when active
+blend weights total exactly one; partial weights can invert an upward normal
+and erase overhead point-light response.
 
 ## Mod-Agnostic Compatibility Rule
 
@@ -174,6 +197,10 @@ Required pure tests:
    radius produce exact expected constants.
 9. Constant payload is `count + interleaved pairs`, and an empty payload resets
    count to zero.
+10. A zero-native-light row accepts an active manager shadow light, while
+    non-shadow and inactive manager entries are rejected.
+11. Production offsets and list-node layout remain linked to their Ghidra
+    source contract.
 
 Required row and shader tests:
 
@@ -185,7 +212,14 @@ Required row and shader tests:
    alpha use.
 5. Every registered PBR shader permutation compiles with the real D3D compiler.
 6. Representative 1-layer and 7-layer, zero-light and 24-light bytecode remains
-   under the terrain-specific budget.
+   under per-variant bytecode and instruction budgets with exact texture-sample
+   counts.
+7. A source-linked normal test proves the shader matches the vanilla
+   center-before-weight equation and includes the old equation as a negative
+   control.
+8. A zero-native-light night test proves partial flat-normal weights retain
+   positive overhead PBR diffuse response for both ordinary and configured
+   metallic terrain, while the old equation produces zero.
 
 Build and test only the supported target:
 
@@ -206,10 +240,17 @@ Per admitted close-terrain draw it performs:
 
 - one bounded current-pass identity scan;
 - one bounded engine iterator walk that stops at remaining capacity;
+- only for a zero-native-point row when that walk finds no missing light, one
+  bounded 64-entry manager shadow-light scan;
 - one multibound lookup and candidate bound checks;
 - one engine matrix build;
 - one fixed-size stack merge;
 - the existing OMV constant upload extended only through active pairs.
+
+The corrected normal blend changes no texture count or dynamic light-loop
+bound. The representative compiler gates cap both bytecode and instruction
+count, and require exactly 2 samples for one-layer rows and 14 for seven-layer
+rows.
 
 The implementation must not reintroduce the previous broad terrain diagnostic
 or 14-texture hot-path work that caused the recorded large FPS loss.
