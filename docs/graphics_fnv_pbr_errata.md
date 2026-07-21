@@ -346,6 +346,12 @@ serializer, then evaluates the shader's attenuation, normal incidence, and
 alpha gate. It failed before the fix with alpha and luminance both zero and
 passes only when the uploaded supplemental light remains positive.
 
+Runtime acceptance on 2026-07-21 confirmed the closure: after deploying the
+corrected release DLL, the user reported that the Pip-Boy light now illuminates
+the previously dark close terrain. Treat explicit supplemental visibility as a
+locked compatibility invariant. Do not restore `ShadowSceneLight+0xD4` as the
+alpha of a light recovered from the native zero-point row.
+
 Native position staging also calls
 `0x00C4C2D0(geometry+0x68, *(geometry+0xBC), output)` at
 `0x00B7DB43..0x00B7DB48`. The second argument selects a meaningful non-null

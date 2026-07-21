@@ -2,8 +2,8 @@
 
 Date: 2026-07-20
 
-Status: corrected OMV-side implementation with a production-path regression;
-final runtime pixel acceptance is pending.
+Status: closed. The corrected implementation, production-path regression, and
+runtime pixel acceptance all passed.
 
 ## Decision
 
@@ -286,7 +286,10 @@ Validation evidence on 2026-07-21:
 - complete OMV suite: 234 passed, 0 failed, including registered PBR shader
   compilation and representative close-terrain bytecode budgets;
 - `cargo build --release --target i686-pc-windows-gnu -p omv`: passed;
-- final runtime pixel acceptance remains the playtest below.
+- runtime acceptance: the user confirmed that the previously unaffected dark
+  terrain now responds to the Pip-Boy light with the corrected release DLL,
+  SHA-256
+  `fccfa48f6f1b67726dc0c24b0fb915bc3ebd112e6bf2724baa59e76439d15840`.
 
 ## Performance Contract
 
@@ -335,10 +338,12 @@ or 14-texture hot-path work that caused the recorded large FPS loss.
 `.research/fnv-vanilla-plus-terrain-main/` is explicitly out of scope for
 changes and builds.
 
-## One Ordinary Playtest
+## Runtime Acceptance and Regression Checklist
 
-Static validation is the deployment gate. The only requested runtime check is
-an ordinary feature-first playtest:
+The user completed the feature-first runtime acceptance on 2026-07-21 and
+confirmed the issue fixed: close terrain that remained dark while objects were
+lit now responds to the Pip-Boy light. Preserve the following as the regression
+checklist for any future change to terrain light selection or constants:
 
 1. Use the exterior location where the player/portable light illuminates
    objects but previously not close terrain.
@@ -347,9 +352,10 @@ an ordinary feature-first playtest:
 4. Confirm terrain illumination follows the light without duplicate brightness,
    chunk blinking, color corruption, interior leakage, or a material FPS loss.
 
-No diagnostic build or telemetry session precedes this playtest. Static tests
-cannot prove final pixels, driver behavior, or the live multibound result; the
-playtest checks only those remaining runtime facts.
+Static tests do not replace this recorded pixel result. A future change that
+makes supplemental visibility inherit `ShadowSceneLight+0xD4`, removes the
+zero-native-row regression, or again leaves terrain dark is a regression of
+this closed contract, not a new design question.
 
 ## Acceptance Criteria
 
