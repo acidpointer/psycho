@@ -170,6 +170,9 @@ mod shader_compile_tests {
         shaders::{self, EmbeddedEffectKind},
     };
 
+    const FILM_GRAIN_NOISE_CODES: f32 = 24.0;
+    const DEBAND_DITHER_NOISE_CODES: f32 = 4.0;
+
     fn compiled_instruction_opcodes(bytecode: &[u32]) -> Vec<u16> {
         const COMMENT: u16 = 0xfffe;
         const END: u16 = 0xffff;
@@ -490,6 +493,48 @@ mod shader_compile_tests {
     fn golden_noise(pixel: [f32; 2], frame: f32) -> f32 {
         let seed = pixel[0] * 0.06711056 + pixel[1] * 0.00583715 + frame * 0.000731;
         (52.9829189 * seed.fract()).fract()
+    }
+
+    fn unorm8_code(value: f32) -> u8 {
+        (value.clamp(0.0, 1.0) * 255.0).round() as u8
+    }
+
+    fn film_grain_reference(
+        input: [f32; 3],
+        pixel: [f32; 2],
+        dimensions: [f32; 2],
+        frame: f32,
+        amount: f32,
+        master: f32,
+    ) -> [f32; 3] {
+        let uv = [pixel[0] / dimensions[0], pixel[1] / dimensions[1]];
+        let grain_pixel = [
+            (uv[0] + 0.173) * dimensions[0],
+            (uv[1] + 0.173) * dimensions[1],
+        ];
+        let grain_mask = 1.0 - (luma(input) * 0.65).clamp(0.0, 1.0);
+        let grain = (golden_noise(grain_pixel, frame + 19.0) - 0.5)
+            * amount.clamp(0.0, 1.0)
+            * master.clamp(0.0, 1.0)
+            * grain_mask
+            * FILM_GRAIN_NOISE_CODES
+            / 255.0;
+        input.map(|channel| (channel + grain).clamp(0.0, 1.0))
+    }
+
+    fn finishing_dither_reference(
+        input: [f32; 3],
+        pixel: [f32; 2],
+        frame: f32,
+        deband_strength: f32,
+        flat_weight: f32,
+    ) -> [f32; 3] {
+        let noise = (golden_noise(pixel, frame) - 0.5)
+            * deband_strength.clamp(0.0, 1.0)
+            * flat_weight.clamp(0.0, 1.0)
+            * DEBAND_DITHER_NOISE_CODES
+            / 255.0;
+        input.map(|channel| (channel + noise).clamp(0.0, 1.0))
     }
 
     fn compose_bloom_reference(
@@ -1150,14 +1195,8 @@ mod shader_compile_tests {
     }
 
     #[test]
-    fn reported_finishing_controls_have_visible_default_response() {
+    fn remaining_finishing_controls_have_visible_default_response() {
         let defaults = crate::config::ColorGradeConfig::default();
-
-        let grain_peak_code_values = defaults.film_grain * defaults.strength * 6.0;
-        assert!(
-            grain_peak_code_values >= 0.5,
-            "default grain peaks at only {grain_peak_code_values:.3} code values"
-        );
 
         let mut halation = neutral_grade();
         halation.strength = defaults.strength;
@@ -1182,27 +1221,223 @@ mod shader_compile_tests {
             chromatic_edge_shift >= 0.5,
             "default chromatic shift is only {chromatic_edge_shift:.3} px"
         );
+    }
 
-        let width = 1025usize;
-        let banded: Vec<[f32; 3]> = (0..width)
-            .map(|x| {
-                let band = ((x * 255 / (width - 1)) as f32) / 255.0;
-                [band; 3]
+    #[test]
+    fn every_other_default_finishing_family_survives_unorm8_output() {
+        let defaults = crate::config::ColorGradeConfig::default();
+        let identity_lut = identity_lut_pixels(32);
+        let shipped_luts = crate::luts::shipped_luts_for_test();
+        let probes = [
+            [31.0 / 255.0, 74.0 / 255.0, 169.0 / 255.0],
+            [92.0 / 255.0, 131.0 / 255.0, 48.0 / 255.0],
+            [193.0 / 255.0, 142.0 / 255.0, 67.0 / 255.0],
+            [224.0 / 255.0, 209.0 / 255.0, 187.0 / 255.0],
+        ];
+        let code_distance = |left: [f32; 3], right: [f32; 3]| -> u32 {
+            (0..3)
+                .map(|channel| {
+                    (unorm8_code(left[channel]) as i16 - unorm8_code(right[channel]) as i16)
+                        .unsigned_abs() as u32
+                })
+                .sum()
+        };
+
+        let neutral = neutral_grade();
+        let mut analytic = neutral;
+        analytic.strength = defaults.strength;
+        analytic.exposure = defaults.exposure;
+        analytic.contrast = defaults.contrast;
+        analytic.saturation = defaults.saturation;
+        analytic.vibrance = defaults.vibrance;
+        analytic.temperature = defaults.temperature;
+        analytic.tint = defaults.tint;
+        analytic.black_fade = defaults.black_fade;
+        analytic.highlight_rolloff = defaults.highlight_rolloff;
+        let analytic_delta: u32 = probes
+            .iter()
+            .map(|input| {
+                code_distance(
+                    grade_reference(
+                        *input,
+                        [0.0; 3],
+                        [0.5; 2],
+                        [1920.0, 1080.0],
+                        analytic,
+                        &identity_lut,
+                    ),
+                    grade_reference(
+                        *input,
+                        [0.0; 3],
+                        [0.5; 2],
+                        [1920.0, 1080.0],
+                        neutral,
+                        &identity_lut,
+                    ),
+                )
+            })
+            .sum();
+        assert!(
+            analytic_delta >= 8,
+            "default analytic grade changes the probe set by only {analytic_delta} code values"
+        );
+
+        let mut lut = neutral;
+        lut.strength = defaults.strength;
+        lut.lut_strength = defaults.lut_strength;
+        let lut_delta: u32 = probes
+            .iter()
+            .map(|input| {
+                code_distance(
+                    grade_reference(
+                        *input,
+                        [0.0; 3],
+                        [0.5; 2],
+                        [1920.0, 1080.0],
+                        lut,
+                        &shipped_luts[1].pixels,
+                    ),
+                    grade_reference(
+                        *input,
+                        [0.0; 3],
+                        [0.5; 2],
+                        [1920.0, 1080.0],
+                        neutral,
+                        &identity_lut,
+                    ),
+                )
+            })
+            .sum();
+        assert!(
+            lut_delta >= 12,
+            "default LUT changes the probe set by only {lut_delta} code values"
+        );
+
+        let input = [128.0 / 255.0; 3];
+        let mut vignette = neutral;
+        vignette.strength = defaults.strength;
+        vignette.vignette = defaults.vignette;
+        let vignette_output = grade_reference(
+            input,
+            [0.0; 3],
+            [0.0, 0.5],
+            [1920.0, 1080.0],
+            vignette,
+            &identity_lut,
+        );
+        assert!(
+            code_distance(vignette_output, input) >= 3,
+            "default vignette disappears at the quantized screen edge"
+        );
+
+        let mut halation = neutral;
+        halation.strength = defaults.strength;
+        halation.halation = defaults.halation;
+        let halation_input = [51.0 / 255.0; 3];
+        let halation_output = grade_reference(
+            halation_input,
+            [0.5; 3],
+            [0.5; 2],
+            [1920.0, 1080.0],
+            halation,
+            &identity_lut,
+        );
+        assert!(
+            code_distance(halation_output, halation_input) >= 10,
+            "default halation disappears at the quantized output"
+        );
+
+        let width = 64usize;
+        let height = 36usize;
+        let image: Vec<[f32; 4]> = (0..height)
+            .flat_map(|_| {
+                (0..width).map(|x| {
+                    let value = x as f32 / (width - 1) as f32;
+                    [value, 0.37, 1.0 - value, 0.61]
+                })
             })
             .collect();
-        let deband_strength = defaults.deband * defaults.strength;
-        let changed = (0..width)
-            .filter(|&x| {
-                color_distance(
-                    deband_reference(&banded, width, 1, x, 0, deband_strength),
-                    banded[x],
-                ) > 1.0e-6
+        let chromatic_amount = defaults.chromatic_aberration * defaults.strength;
+        let chromatic_changed = (0..height)
+            .flat_map(|y| (0..width).map(move |x| (x, y)))
+            .filter(|&(x, y)| {
+                let output = chromatic_reference(&image, width, height, x, y, chromatic_amount);
+                let center = image[y * width + x];
+                unorm8_code(output[0]) != unorm8_code(center[0])
+                    || unorm8_code(output[2]) != unorm8_code(center[2])
             })
             .count();
         assert!(
-            changed > width / 2,
-            "debanding touched only {changed}/{width} pixels in broad quantized bands"
+            chromatic_changed >= width * height / 4,
+            "enabled default chromatic response changes only {chromatic_changed} quantized pixels"
         );
+    }
+
+    #[test]
+    fn default_film_grain_survives_the_unorm8_output_boundary() {
+        let defaults = crate::config::ColorGradeConfig::default();
+        let width = 4096usize;
+        let input = [128.0 / 255.0; 3];
+        let input_code = unorm8_code(input[0]) as i16;
+        let deltas: Vec<i16> = (0..width)
+            .map(|x| {
+                let output = film_grain_reference(
+                    input,
+                    [x as f32 + 0.5, 37.5],
+                    [width as f32, 64.0],
+                    41.0,
+                    defaults.film_grain,
+                    defaults.strength,
+                );
+                unorm8_code(output[0]) as i16 - input_code
+            })
+            .collect();
+        let changed = deltas.iter().filter(|delta| **delta != 0).count();
+        let rms = (deltas
+            .iter()
+            .map(|delta| (*delta as f32).powi(2))
+            .sum::<f32>()
+            / width as f32)
+            .sqrt();
+        assert!(
+            changed >= width * 3 / 10,
+            "default grain changed only {changed}/{width} quantized midtone pixels"
+        );
+        assert!(
+            rms >= 0.55,
+            "default grain reaches only {rms:.3} code-value RMS after quantization"
+        );
+    }
+
+    #[test]
+    fn default_deband_dither_survives_unorm8_and_stays_edge_gated() {
+        let defaults = crate::config::ColorGradeConfig::default();
+        let width = 8192usize;
+        let input = [128.0 / 255.0; 3];
+        let input_code = unorm8_code(input[0]) as i16;
+        let strength = defaults.deband * defaults.strength;
+        let deltas: Vec<i16> = (0..width)
+            .map(|x| {
+                let output =
+                    finishing_dither_reference(input, [x as f32 + 0.5, 23.5], 41.0, strength, 1.0);
+                unorm8_code(output[0]) as i16 - input_code
+            })
+            .collect();
+        let changed = deltas.iter().filter(|delta| **delta != 0).count();
+        let mean = deltas.iter().map(|delta| *delta as f32).sum::<f32>() / width as f32;
+        assert!(
+            changed >= width / 4,
+            "default deband changed only {changed}/{width} quantized flat pixels"
+        );
+        assert!(
+            mean.abs() <= 0.05,
+            "default deband dither has a {mean:.3}-code bias"
+        );
+
+        for x in 0..256 {
+            let output = finishing_dither_reference(input, [x as f32 + 0.5, 23.5], 41.0, 1.0, 0.0);
+            assert_eq!(output, input, "edge rejection leaked dither at pixel {x}");
+        }
     }
 
     #[test]
@@ -1296,10 +1531,10 @@ mod shader_compile_tests {
             assert_eq!(first, golden_noise(pixel, 41.0));
             assert!((0.0..1.0).contains(&first));
             assert_ne!(first, golden_noise(pixel, 42.0));
-            let maximum_grain = (first - 0.5).abs() * 12.0 / 255.0;
-            let maximum_dither = (first - 0.5).abs() / 255.0;
-            assert!(maximum_grain <= 6.0 / 255.0 + 1.0e-7);
-            assert!(maximum_dither <= 0.5 / 255.0 + 1.0e-7);
+            let maximum_grain = (first - 0.5).abs() * FILM_GRAIN_NOISE_CODES / 255.0;
+            let maximum_dither = (first - 0.5).abs() * DEBAND_DITHER_NOISE_CODES / 255.0;
+            assert!(maximum_grain <= 12.0 / 255.0 + 1.0e-7);
+            assert!(maximum_dither <= 2.0 / 255.0 + 1.0e-7);
         }
 
         let defaults = crate::config::ColorGradeConfig::default();
@@ -1307,7 +1542,11 @@ mod shader_compile_tests {
         let mean_square_codes = (0..1024)
             .map(|index| {
                 let noise = golden_noise([index as f32 + 0.5, 37.5], 41.0) - 0.5;
-                let codes = noise * 12.0 * defaults.film_grain * defaults.strength * midtone_mask;
+                let codes = noise
+                    * FILM_GRAIN_NOISE_CODES
+                    * defaults.film_grain
+                    * defaults.strength
+                    * midtone_mask;
                 codes * codes
             })
             .sum::<f32>()
@@ -1587,7 +1826,11 @@ mod shader_compile_tests {
             "color *= 1.0f - vignette * GradeData3.x * master * 0.32f;",
             "return lerp(inputColor, color, master);",
             "return lerp(center, average, strength * flatWeight * 0.85f);",
-            "* grainMask * 12.0f / 255.0f;",
+            "base = DebandScene(input.uv, base, debandFlatWeight);",
+            "static const float FilmGrainNoiseScaleCodes = 24.0f;",
+            "static const float DebandDitherNoiseScaleCodes = 4.0f;",
+            "? GradeData2.z * GradeData0.x * debandFlatWeight * DebandDitherNoiseScaleCodes",
+            "* grainMask * FilmGrainNoiseScaleCodes / 255.0f;",
         ] {
             assert!(
                 source.contains(equation),

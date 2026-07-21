@@ -44,9 +44,11 @@ at `lut_strength 0.42`; environment response is `0.45`. Debanding is `0.55`,
 grain `0.16`, vignette `0.035`, and halation `0.12`. Chromatic strength is
 staged at `0.85` pixels but its switch defaults off. These revised response
 curves make every enabled default objectively non-zero at display precision:
-grain has at least a `0.20` code-value RMS on midtones, halation adds at least
-two code values to a representative bright-halo probe, and chromatic shift is
-at least half a pixel after master strength.
+grain changes about 43% of exact eight-bit midtone samples at a `0.656`
+code-value RMS, flat-region deband dither changes about 33% with effectively
+zero mean, halation adds at least two code values to a representative
+bright-halo probe, and chromatic shift is at least half a pixel after master
+strength.
 
 Bloom was recalibrated with the grade rather than treated as an independent
 orange glow: intensity `0.34`, threshold `0.62`, radius `2.8`, knee `0.28`,
@@ -55,6 +57,38 @@ exposure `0.02`, shoulder `0.58`, saturation `0.92`, warmth `0.18`, shadow lift
 lower warmth preserve bright signage, sunsets, skin, and pale interiors without
 washing the entire frame. These are authored defaults and deterministic static
 quality targets; artistic acceptance still requires playtesting.
+
+## Eight-bit response correction
+
+The 2026-07-21 deband/film-grain report exposed a validation gap: the original
+tests measured floating-point shader changes before the final UNORM8 write. On
+an exact midtone code value, the shipped grain settings reached only about
+`0.44` code values after their luminance mask. Deband's final dither reached
+only `0.234` code values. Both were below the half-code rounding boundary, so a
+large class of source pixels could be written back unchanged even though the
+float-space tests reported a non-zero effect.
+
+The film-grain noise scale is now `24` code values peak-to-peak. Noise remains
+zero-centered, frame-varying, master/amount scaled, and attenuated toward
+highlights. Its maximum shadow excursion is bounded to 12 code values; at the
+shipped midtone settings its peak is about `0.88` code values. The deband
+dither scale is now `4` code values peak-to-peak. Its shipped flat-region peak
+is `0.748` code values and its full-strength peak is bounded to two code
+values. The existing spatial averaging and discontinuity rejection are
+unchanged. The discontinuity-derived flat weight is carried to the final
+dither, so the stronger dither is applied to candidate banding regions and not
+to rejected real edges or thin features. This mask placement also follows the
+useful contract in the read-only GShade `Deband.fx` reference, without copying
+its implementation.
+
+New deterministic tests quantize CPU reference output to UNORM8 and first
+proved the old defect: both default probes changed zero output samples. With
+the corrected response, grain changes about `1762/4096` midtone samples at a
+`0.656` code-value RMS, and deband changes about `2711/8192` flat samples with
+a `0.0004` code mean. The same audit isolates analytic grading, the selected
+LUT, vignette, halation, and the staged chromatic response; all already survive
+the eight-bit boundary, so their curves were not changed. Chromatic remains
+disabled by default.
 
 ## Ownership, phase, and ordering
 
@@ -212,9 +246,11 @@ value before constants are bound.
 
 Debanding uses center plus four cross neighbors six pixels away, which reaches
 through broad one-code-value bands; local RGB discontinuity rejection preserves
-real edges and thin features. Deband dither remains below one code value. Film
-grain has a bounded six-code-value peak at maximum strength, is weighted away
-from highlights, and changes with frame index. Vignette is aspect corrected.
+real edges and thin features. Its zero-mean final dither is multiplied by the
+same flat-region weight, reaches about `0.748` code values at shipped settings,
+and remains bounded to two code values at maximum strength. Film grain has a
+bounded 12-code-value peak at maximum shadow strength, is weighted away from
+highlights, and changes with frame index. Vignette is aspect corrected.
 Halation schedules highlight extraction and blur independently of visible
 Bloom, then adds only a warm red-biased halo. Each family has an independent
 dynamic shader gate; its disabled path performs no texture sampling specific to
@@ -262,9 +298,12 @@ The supported `i686-pc-windows-gnu` tests cover:
 - exact `c10..c18`, `s5`, chromatic `c0/c3/s0`, alpha, half-pixel, sampler,
   render-target hazard, and explicit D3D state contracts;
 - deterministic CPU images for analytic grading, actual shipped LUTs,
-  six-pixel debanding, visible/bounded grain and dither, vignette, independent
-  halation, Bloom composition, and radial
-  chromatic sampling at borders, centers, odd/even sizes, and constant inputs;
+  six-pixel debanding, visible/bounded grain and flat-gated dither, vignette,
+  independent halation, Bloom composition, and radial chromatic sampling at
+  borders, centers, odd/even sizes, and constant inputs;
+- per-family UNORM8 output probes for analytic grade, LUT, deband, grain,
+  vignette, halation, and enabled chromatic response, including changed-sample,
+  RMS, mean-bias, maximum-excursion, and rejected-edge checks;
 - negative controls rejecting LUT seams/non-monotonic neutral ramps, banding
   no-op implementations, chromatic center-only sampling, edge softening,
   disabled-family work, missing-LUT work, and over-budget fused shaders;
@@ -292,7 +331,8 @@ fringing stays edge-local, and later AA/external shaders retain order.
 
 Final command evidence on 2026-07-21:
 
-- `cargo test --target i686-pc-windows-gnu -p omv`: 230 passed, 0 failed;
+- `cargo test --target i686-pc-windows-gnu -p omv`: 237 passed, 0 failed,
+  including 29 focused final-color tests;
 - `cargo build --release --target i686-pc-windows-gnu -p omv`: succeeded
   without warnings;
 - the standalone LUT generator reproduced all fourteen shipped files

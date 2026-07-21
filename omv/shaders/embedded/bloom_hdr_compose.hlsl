@@ -22,6 +22,8 @@ static const float DepthEndpointEpsilon = 0.000001f;
 static const float3 LumaFactors = float3(0.2126f, 0.7152f, 0.0722f);
 static const float3 WarmTint = float3(1.08f, 1.02f, 0.90f);
 static const float3 CoolTint = float3(0.94f, 0.99f, 1.08f);
+static const float FilmGrainNoiseScaleCodes = 24.0f;
+static const float DebandDitherNoiseScaleCodes = 4.0f;
 
 struct PixelInput {
     float2 uv : TEXCOORD0;
@@ -82,7 +84,7 @@ float GoldenNoise(float2 uv, float frameIndex) {
     return frac(52.9829189f * frac(seed));
 }
 
-float3 DebandScene(float2 uv, float3 center) {
+float3 DebandScene(float2 uv, float3 center, out float flatWeight) {
     float2 texel = ScreenData.zw;
     float strength = GradeData2.z * GradeData0.x;
     float2 offset = texel * 6.0f;
@@ -93,7 +95,7 @@ float3 DebandScene(float2 uv, float3 center) {
     float3 average = (center + left + right + up + down) * 0.2f;
     float3 delta = max(max(abs(left - right), abs(up - down)), abs(center - average));
     float edge = max(delta.r, max(delta.g, delta.b));
-    float flatWeight = 1.0f - Smooth01(edge * 42.5f);
+    flatWeight = 1.0f - Smooth01(edge * 42.5f);
     return lerp(center, average, strength * flatWeight * 0.85f);
 }
 
@@ -173,8 +175,9 @@ float3 ComposeBloom(float3 base, float3 bloomContribution, float shoulder) {
 float4 Main(PixelInput input) : COLOR0 {
     float4 baseSample = SampleScene(input.uv);
     float3 base = baseSample.rgb;
+    float debandFlatWeight = 0.0f;
     if (GradeData4.x > 0.5f && GradeData5.z > 0.5f && GradeData2.z > 0.00001f) {
-        base = DebandScene(input.uv, base);
+        base = DebandScene(input.uv, base, debandFlatWeight);
     }
 
     float3 highlightBlur = 0.0f;
@@ -207,7 +210,7 @@ float4 Main(PixelInput input) : COLOR0 {
             float grainMask = 1.0f - saturate(Luma(color) * 0.65f);
             float grainNoise = GoldenNoise(input.uv + 0.173f, FrameData.x + 19.0f) - 0.5f;
             float grain = grainNoise * GradeData2.w * GradeData0.x
-                * grainMask * 12.0f / 255.0f;
+                * grainMask * FilmGrainNoiseScaleCodes / 255.0f;
             color += grain;
         }
         if (GradeData3.z > 0.5f) {
@@ -218,7 +221,7 @@ float4 Main(PixelInput input) : COLOR0 {
     float ditherStrength = max(
         GradeData4.y > 0.5f ? OptionData2.y : 0.0f,
         GradeData4.x > 0.5f && GradeData5.z > 0.5f
-            ? GradeData2.z * GradeData0.x * 1.25f
+            ? GradeData2.z * GradeData0.x * debandFlatWeight * DebandDitherNoiseScaleCodes
             : 0.0f
     );
     float noise = (GoldenNoise(input.uv, FrameData.x) - 0.5f) * ditherStrength / 255.0f;
