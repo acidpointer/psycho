@@ -69,12 +69,12 @@ jobs:
             <(printf '%s\n' \
               "dinput8.dll" \
               "syringe/psycho_engine_fixes.dll" \
-              "syringe/psycho_engine_fixes.toml") \
+              "syringe/psycho_engine_fixes.toml" | sort) \
             <(zipinfo -1 "$core_archive" | grep -v '/$' | sort)
 
           diff -u \
             <(printf '%s\n' \
-              "Data/NVSE/plugins/psycho_engine_fixes_helper.dll") \
+              "Data/NVSE/plugins/psycho_engine_fixes_helper.dll" | sort) \
             <(zipinfo -1 "$helper_archive" | grep -v '/$' | sort)
 
           diff -u \
@@ -96,7 +96,7 @@ jobs:
               "Data/NVSE/plugins/omv/luts/10_sierra_sunset.cube" \
               "Data/NVSE/plugins/omv/luts/11_zion_canyon.cube" \
               "Data/NVSE/plugins/omv/luts/12_divide_duststorm.cube" \
-              "Data/NVSE/plugins/omv/luts/13_wasteland_noir.cube") \
+              "Data/NVSE/plugins/omv/luts/13_wasteland_noir.cube" | sort) \
             <(zipinfo -1 "$omv_archive" | grep -v '/$' | sort)
 
       - name: Publish GitHub release
