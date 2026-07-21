@@ -6,14 +6,19 @@
 
 use libnvse::api::messaging::{NVSEMessage, NVSEMessageType};
 
+use crate::dashboard;
 use crate::engine_fixes;
 
 pub(crate) fn forward_to_engine_fixes(msg: &NVSEMessage) {
-    let Some(kind) = event_kind(msg.get_type()) else {
-        return;
-    };
+    if let Some(kind) = event_kind(msg.get_type()) {
+        let _ = engine_fixes::notify_event(kind, core::ptr::null(), 0, -1);
+    }
 
-    let _ = engine_fixes::notify_event(kind, core::ptr::null(), 0, -1);
+    match msg.get_type() {
+        NVSEMessageType::DeferredInit => dashboard::deferred_init(),
+        NVSEMessageType::OnFramePresent => dashboard::on_frame_present(),
+        _ => {}
+    }
 }
 
 fn event_kind(kind: NVSEMessageType) -> Option<u32> {

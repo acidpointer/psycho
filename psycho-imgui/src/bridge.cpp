@@ -17,6 +17,24 @@ struct PsychoImguiIoState {
 	bool want_capture_keyboard;
 };
 
+struct PsychoImguiTelemetryChart {
+	const float* values;
+	int32_t count;
+	float scale_min;
+	float scale_max;
+	float width;
+	float height;
+	float warning_threshold;
+	float critical_threshold;
+	int32_t danger_below;
+	float sample_interval_seconds;
+	float line_color[4];
+	float fill_color[4];
+	const char* warning_label;
+	const char* critical_label;
+	const char* value_suffix;
+};
+
 static HWND g_hwnd = nullptr;
 static volatile LONG g_pending_mouse_wheel_y = 0;
 static volatile LONG g_pending_mouse_wheel_x = 0;
@@ -340,6 +358,14 @@ bool psycho_imgui_begin_child(const char* id, float width, float height, bool bo
 	return ImGui::BeginChild(id, ImVec2(width, height), border);
 }
 
+bool psycho_imgui_begin_child_horizontal(const char* id, float width, float height, bool border) {
+	return ImGui::BeginChild(
+		id,
+		ImVec2(width, height),
+		border,
+		ImGuiWindowFlags_HorizontalScrollbar);
+}
+
 void psycho_imgui_end_child() {
 	ImGui::EndChild();
 }
@@ -354,6 +380,23 @@ void psycho_imgui_text_wrapped(const char* text) {
 
 void psycho_imgui_text_colored(float r, float g, float b, float a, const char* text) {
 	ImGui::TextColored(ImVec4(r, g, b, a), "%s", text);
+}
+
+void psycho_imgui_label_value(
+	const char* label,
+	const char* value,
+	float r,
+	float g,
+	float b,
+	float a) {
+	ImGui::TextDisabled("%s", label);
+	ImGui::SameLine();
+	const float value_width = ImGui::CalcTextSize(value).x;
+	const float target_x = ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x - value_width;
+	if (target_x > ImGui::GetCursorPosX()) {
+		ImGui::SetCursorPosX(target_x);
+	}
+	ImGui::TextColored(ImVec4(r, g, b, a), "%s", value);
 }
 
 void psycho_imgui_separator() {
@@ -523,6 +566,14 @@ bool psycho_imgui_selectable(const char* label, bool selected) {
 	return ImGui::Selectable(label, selected);
 }
 
+bool psycho_imgui_begin_combo(const char* label, const char* preview) {
+	return ImGui::BeginCombo(label, preview);
+}
+
+void psycho_imgui_end_combo() {
+	ImGui::EndCombo();
+}
+
 bool psycho_imgui_button(const char* label) {
 	return ImGui::Button(label);
 }
@@ -563,6 +614,257 @@ void psycho_imgui_plot_lines(
 	ImGui::PlotLines(label, values, count, 0, nullptr, scale_min, scale_max, ImVec2(width, height));
 }
 
+static ImU32 telemetry_color(const float color[4]) {
+	return ImGui::ColorConvertFloat4ToU32(ImVec4(color[0], color[1], color[2], color[3]));
+}
+
+static float telemetry_y(float value, float scale_min, float scale_max, float top, float bottom) {
+	const float normalized = clamp_float((value - scale_min) / (scale_max - scale_min), 0.0f, 1.0f);
+	return bottom - normalized * (bottom - top);
+}
+
+static void telemetry_dashed_line(
+	ImDrawList* draw_list,
+	float left,
+	float right,
+	float y,
+	ImU32 color) {
+	const float dash = 5.0f;
+	const float gap = 4.0f;
+	for (float x = left; x < right; x += dash + gap) {
+		const float end = x + dash < right ? x + dash : right;
+		draw_list->AddLine(ImVec2(x, y), ImVec2(end, y), color, 1.0f);
+	}
+}
+
+static void telemetry_threshold_label(
+	ImDrawList* draw_list,
+	const char* label,
+	float right,
+	float y,
+	ImU32 color) {
+	if (label == nullptr || label[0] == '\0') {
+		return;
+	}
+
+	const ImVec2 size = ImGui::CalcTextSize(label);
+	const ImVec2 text_pos(right - size.x - 4.0f, y - size.y - 2.0f);
+	draw_list->AddRectFilled(
+		ImVec2(text_pos.x - 3.0f, text_pos.y - 1.0f),
+		ImVec2(text_pos.x + size.x + 3.0f, text_pos.y + size.y + 1.0f),
+		IM_COL32(8, 13, 12, 218),
+		3.0f);
+	draw_list->AddText(text_pos, color, label);
+}
+
+void psycho_imgui_telemetry_chart(const char* id, const PsychoImguiTelemetryChart* chart) {
+	if (id == nullptr || chart == nullptr || chart->values == nullptr || chart->count <= 0) {
+		return;
+	}
+
+	const float width = chart->width > 0.0f
+		? chart->width
+		: ImGui::GetContentRegionAvail().x;
+	const float height = chart->height > 0.0f ? chart->height : 112.0f;
+	if (width <= 1.0f || height <= 1.0f || chart->scale_max <= chart->scale_min) {
+		return;
+	}
+
+	ImGui::InvisibleButton(id, ImVec2(width, height));
+	const ImVec2 frame_min = ImGui::GetItemRectMin();
+	const ImVec2 frame_max = ImGui::GetItemRectMax();
+	const ImVec2 plot_min(frame_min.x + 9.0f, frame_min.y + 8.0f);
+	const ImVec2 plot_max(frame_max.x - 9.0f, frame_max.y - 23.0f);
+	ImDrawList* draw_list = ImGui::GetWindowDrawList();
+
+	draw_list->AddRectFilled(frame_min, frame_max, IM_COL32(5, 13, 11, 235), 5.0f);
+	draw_list->AddRect(frame_min, frame_max, IM_COL32(34, 83, 68, 180), 5.0f);
+
+	const float elapsed_seconds = static_cast<float>(chart->count - 1)
+		* chart->sample_interval_seconds;
+	char elapsed_label[32] = {};
+	if (elapsed_seconds >= 60.0f) {
+		std::snprintf(
+			elapsed_label,
+			sizeof(elapsed_label),
+			"%d MIN AGO",
+			static_cast<int32_t>((elapsed_seconds + 30.0f) / 60.0f));
+	} else {
+		std::snprintf(
+			elapsed_label,
+			sizeof(elapsed_label),
+			"%d SEC AGO",
+			static_cast<int32_t>(elapsed_seconds + 0.5f));
+	}
+	const ImU32 axis_color = IM_COL32(115, 144, 132, 170);
+	const ImVec2 elapsed_size = ImGui::CalcTextSize(elapsed_label);
+	const ImVec2 now_size = ImGui::CalcTextSize("NOW");
+	const float axis_y = frame_max.y - elapsed_size.y - 3.0f;
+	draw_list->AddText(ImVec2(plot_min.x, axis_y), axis_color, elapsed_label);
+	draw_list->AddText(ImVec2(plot_max.x - now_size.x, axis_y), axis_color, "NOW");
+
+	for (int32_t row = 1; row < 4; ++row) {
+		const float y = plot_min.y + (plot_max.y - plot_min.y) * static_cast<float>(row) / 4.0f;
+		draw_list->AddLine(
+			ImVec2(plot_min.x, y),
+			ImVec2(plot_max.x, y),
+			IM_COL32(75, 111, 98, 34));
+	}
+	for (int32_t column = 1; column < 6; ++column) {
+		const float x = plot_min.x
+			+ (plot_max.x - plot_min.x) * static_cast<float>(column) / 6.0f;
+		draw_list->AddLine(
+			ImVec2(x, plot_min.y),
+			ImVec2(x, plot_max.y),
+			IM_COL32(75, 111, 98, 24));
+	}
+
+	const bool has_warning = std::isfinite(chart->warning_threshold);
+	const bool has_critical = std::isfinite(chart->critical_threshold);
+	const float warning_y = has_warning
+		? telemetry_y(
+			chart->warning_threshold,
+			chart->scale_min,
+			chart->scale_max,
+			plot_min.y,
+			plot_max.y)
+		: plot_max.y;
+	const float critical_y = has_critical
+		? telemetry_y(
+			chart->critical_threshold,
+			chart->scale_min,
+			chart->scale_max,
+			plot_min.y,
+			plot_max.y)
+		: plot_max.y;
+
+	if (has_warning && has_critical) {
+		if (chart->danger_below != 0) {
+			draw_list->AddRectFilled(
+				ImVec2(plot_min.x, warning_y),
+				ImVec2(plot_max.x, critical_y),
+				IM_COL32(255, 174, 54, 18));
+			draw_list->AddRectFilled(
+				ImVec2(plot_min.x, critical_y),
+				plot_max,
+				IM_COL32(255, 68, 63, 22));
+		} else {
+			draw_list->AddRectFilled(
+				ImVec2(plot_min.x, critical_y),
+				ImVec2(plot_max.x, warning_y),
+				IM_COL32(255, 174, 54, 18));
+			draw_list->AddRectFilled(
+				plot_min,
+				ImVec2(plot_max.x, critical_y),
+				IM_COL32(255, 68, 63, 22));
+		}
+	}
+
+	if (has_warning) {
+		telemetry_dashed_line(
+			draw_list,
+			plot_min.x,
+			plot_max.x,
+			warning_y,
+			IM_COL32(255, 181, 69, 130));
+		telemetry_threshold_label(
+			draw_list,
+			chart->warning_label,
+			plot_max.x,
+			warning_y,
+			IM_COL32(255, 191, 90, 220));
+	}
+	if (has_critical) {
+		telemetry_dashed_line(
+			draw_list,
+			plot_min.x,
+			plot_max.x,
+			critical_y,
+			IM_COL32(255, 83, 78, 145));
+		telemetry_threshold_label(
+			draw_list,
+			chart->critical_label,
+			plot_max.x,
+			critical_y,
+			IM_COL32(255, 108, 103, 230));
+	}
+
+	const ImU32 line_color = telemetry_color(chart->line_color);
+	const ImU32 fill_color = telemetry_color(chart->fill_color);
+	const float denominator = static_cast<float>(chart->count > 1 ? chart->count - 1 : 1);
+	for (int32_t index = 1; index < chart->count; ++index) {
+		const float x0 = plot_min.x
+			+ (plot_max.x - plot_min.x) * static_cast<float>(index - 1) / denominator;
+		const float x1 = plot_min.x
+			+ (plot_max.x - plot_min.x) * static_cast<float>(index) / denominator;
+		const float y0 = telemetry_y(
+			chart->values[index - 1],
+			chart->scale_min,
+			chart->scale_max,
+			plot_min.y,
+			plot_max.y);
+		const float y1 = telemetry_y(
+			chart->values[index],
+			chart->scale_min,
+			chart->scale_max,
+			plot_min.y,
+			plot_max.y);
+		draw_list->AddQuadFilled(
+			ImVec2(x0, y0),
+			ImVec2(x1, y1),
+			ImVec2(x1, plot_max.y),
+			ImVec2(x0, plot_max.y),
+			fill_color);
+		draw_list->AddLine(ImVec2(x0, y0), ImVec2(x1, y1), line_color, 2.0f);
+	}
+
+	const float last_y = telemetry_y(
+		chart->values[chart->count - 1],
+		chart->scale_min,
+		chart->scale_max,
+		plot_min.y,
+		plot_max.y);
+	draw_list->AddCircleFilled(ImVec2(plot_max.x, last_y), 3.2f, line_color);
+
+	if (ImGui::IsItemHovered()) {
+		const float mouse_fraction = clamp_float(
+			(ImGui::GetIO().MousePos.x - plot_min.x) / (plot_max.x - plot_min.x),
+			0.0f,
+			1.0f);
+		const int32_t index = static_cast<int32_t>(
+			mouse_fraction * static_cast<float>(chart->count - 1) + 0.5f);
+		const float x = plot_min.x
+			+ (plot_max.x - plot_min.x) * static_cast<float>(index) / denominator;
+		const float y = telemetry_y(
+			chart->values[index],
+			chart->scale_min,
+			chart->scale_max,
+			plot_min.y,
+			plot_max.y);
+		draw_list->AddLine(
+			ImVec2(x, plot_min.y),
+			ImVec2(x, plot_max.y),
+			IM_COL32(185, 229, 207, 95));
+		draw_list->AddCircleFilled(ImVec2(x, y), 4.0f, line_color);
+		ImGui::BeginTooltip();
+		const float seconds_ago = static_cast<float>(chart->count - 1 - index)
+			* chart->sample_interval_seconds;
+		if (seconds_ago >= 0.5f) {
+			ImGui::Text(
+				"%.0f sec ago  %.1f%s",
+				seconds_ago,
+				chart->values[index],
+				chart->value_suffix != nullptr ? chart->value_suffix : "");
+		} else {
+			ImGui::Text(
+				"Now  %.1f%s",
+				chart->values[index],
+				chart->value_suffix != nullptr ? chart->value_suffix : "");
+		}
+		ImGui::EndTooltip();
+	}
+}
+
 void psycho_imgui_push_item_width(float width) {
 	ImGui::PushItemWidth(width);
 }
@@ -573,6 +875,10 @@ void psycho_imgui_pop_item_width() {
 
 void psycho_imgui_same_line() {
 	ImGui::SameLine();
+}
+
+void psycho_imgui_scroll_to_bottom() {
+	ImGui::SetScrollHereY(1.0f);
 }
 
 } // extern "C"

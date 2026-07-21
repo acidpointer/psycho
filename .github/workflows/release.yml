@@ -82,7 +82,21 @@ jobs:
               "Data/NVSE/plugins/omv.dll" \
               "Data/NVSE/plugins/omv/omv.toml" \
               "Data/NVSE/plugins/omv/shaders/01_depth_aware_cas.hlsl" \
-              "Data/NVSE/plugins/omv/shaders/01_depth_aware_cas.toml") \
+              "Data/NVSE/plugins/omv/shaders/01_depth_aware_cas.toml" \
+              "Data/NVSE/plugins/omv/luts/00_neutral.cube" \
+              "Data/NVSE/plugins/omv/luts/01_mojave_natural.cube" \
+              "Data/NVSE/plugins/omv/luts/02_dusty_western.cube" \
+              "Data/NVSE/plugins/omv/luts/03_bleached_wasteland.cube" \
+              "Data/NVSE/plugins/omv/luts/04_neon_nights.cube" \
+              "Data/NVSE/plugins/omv/luts/05_high_desert_clarity.cube" \
+              "Data/NVSE/plugins/omv/luts/06_atomic_amber.cube" \
+              "Data/NVSE/plugins/omv/luts/07_frontier_cinema.cube" \
+              "Data/NVSE/plugins/omv/luts/08_old_world_film.cube" \
+              "Data/NVSE/plugins/omv/luts/09_vault_fluorescent.cube" \
+              "Data/NVSE/plugins/omv/luts/10_sierra_sunset.cube" \
+              "Data/NVSE/plugins/omv/luts/11_zion_canyon.cube" \
+              "Data/NVSE/plugins/omv/luts/12_divide_duststorm.cube" \
+              "Data/NVSE/plugins/omv/luts/13_wasteland_noir.cube") \
             <(zipinfo -1 "$omv_archive" | grep -v '/$' | sort)
 
       - name: Publish GitHub release

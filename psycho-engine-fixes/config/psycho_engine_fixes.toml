@@ -17,7 +17,10 @@
 #
 # - true means ON; false means OFF.
 # - memory.allocator uses the numbered modes explained below.
+# - With the companion plugin installed, press F10 to inspect telemetry or edit
+#   these values through the in-game control deck.
 # - Save this file and fully restart the game after a change.
+#   Dashboard saves also require the same full restart.
 # - For troubleshooting, change one setting at a time. Restore it after the
 #   test so the result is clear.
 #

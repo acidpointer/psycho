@@ -429,13 +429,13 @@ unsafe fn begin_temporal_aa_jitter() -> Option<crate::backend::WorldCameraJitter
     let device = unsafe { Device9Ref::from_raw_void(device_ptr) }?;
     let render_target = device.render_target(0).ok()?;
     let desc = render_target.desc().ok()?;
-    let jitter = unsafe {
+    unsafe {
         crate::fnv_world_pipeline::begin_temporal_aa_jitter(
             device_ptr,
+            render_target.as_raw() as usize,
             crate::effects::temporal_aa::TargetDescription::from(&desc),
-        )?
-    };
-    unsafe { crate::backend::jitter_fnv_world_camera(jitter, desc.Width, desc.Height) }
+        )
+    }
 }
 
 unsafe extern "thiscall" fn hook_render_first_person(
@@ -488,6 +488,7 @@ unsafe fn capture_depth(
             device_ptr,
             source_rendered_texture,
             slot,
+            None,
             reason,
             crate::hooks::render_epoch(),
         )

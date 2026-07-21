@@ -1583,7 +1583,7 @@ mod shader_compile_tests {
     }
 
     #[test]
-    fn zero_native_light_night_terrain_still_receives_local_pbr_diffuse() {
+    fn partial_terrain_weights_preserve_overhead_pbr_response() {
         let flat_normal_sample = [[0.5, 0.5, 1.0]];
         let partial_weight = [0.25];
         let corrected = centered_weighted_normal(&flat_normal_sample, &partial_weight);
@@ -1609,9 +1609,6 @@ mod shader_compile_tests {
             assert!(corrected_light > 0.05);
             assert_eq!(legacy_light, 0.0);
         }
-
-        assert!(CLOSE_TERRAIN_PIXEL_SOURCE.contains("int native_point_count = 0;"));
-        assert!(CLOSE_TERRAIN_PIXEL_SOURCE.contains("supplemental_point_count"));
         assert!(CLOSE_TERRAIN_PIXEL_SOURCE.contains("lighting += PointLighting("));
         assert!(CLOSE_TERRAIN_PIXEL_SOURCE.contains("PbrDirect("));
     }

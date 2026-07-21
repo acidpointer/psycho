@@ -159,41 +159,49 @@ debug_view = 0
 [graphics.embedded_effects.blooming_hdr]
 # Engine-owned bloom/HDR pass. Fixed phase: final_image_space.
 enabled = true
-bloom_intensity = 0.444
-bright_threshold = 0.457
-radius_pixels = 3.354
-soft_knee = 0.219
-exposure_bias = 0.055
-highlight_shoulder = 0.682
-saturation = 1.249
-warmth = 0.543
-shadow_lift = 0.228
-dither = 0.459
+bloom_intensity = 0.34
+bright_threshold = 0.62
+radius_pixels = 2.8
+soft_knee = 0.28
+exposure_bias = 0.02
+highlight_shoulder = 0.58
+saturation = 0.92
+warmth = 0.18
+shadow_lift = 0.10
+dither = 0.32
 debug_bloom = false
-atmosphere = 0.38
+atmosphere = 0.24
 
 [graphics.embedded_effects.color_grade]
 # OMV-authored display-referred grade. Fixed phase: final_image_space, fused
 # into Bloom's compose draw when both effects are enabled.
 enabled = true
-strength = 0.72
+strength = 0.68
+color_grading_enabled = true
 exposure = 0.0
-contrast = 0.06
-saturation = 1.0
-vibrance = 0.1
-temperature = 0.03
-tint = 0.0
-black_fade = 0.025
-highlight_rolloff = 0.08
-# 0 Neutral, 1 Mojave Natural, 2 Dusty Western, 3 Bleached Wasteland,
-# 4 Neon Nights. These original LUT recipes are packed into omv.dll.
-lut_preset = 1
-lut_strength = 0.58
-environment_response = 0.35
-deband = 0.35
-film_grain = 0.08
-vignette = 0.06
-halation = 0.04
+contrast = 0.045
+saturation = 0.98
+vibrance = 0.075
+temperature = 0.015
+tint = 0.006
+black_fade = 0.012
+highlight_rolloff = 0.16
+# Stable ID of 01_mojave_natural.cube. The menu resolves this to the dynamic
+# LUT-file selector; adding other .cube files does not change the saved look.
+lut_enabled = true
+lut_file_id = 97154384
+lut_strength = 0.42
+environment_response = 0.45
+deband_enabled = true
+deband = 0.55
+film_grain_enabled = true
+film_grain = 0.16
+vignette_enabled = true
+vignette = 0.035
+halation_enabled = true
+halation = 0.12
+chromatic_aberration_enabled = false
+chromatic_aberration = 0.85
 debug_split = false
 
 [graphics.embedded_effects.sunshafts]
@@ -249,9 +257,9 @@ softness = 0.9517241
 # It primes the proven depth/camera contract for one unjittered frame before use.
 [graphics.embedded_effects.temporal_aa]
 enabled = true
-history_weight = 0.6678948
-clamp_strength = 1.028143
-sharpness = 0.724269
+history_weight = 0.90
+clamp_strength = 1.0
+sharpness = 0.10
 jitter_scale = 1.0
 
 # Embedded spatial AA runs after bloom and before loose final-image shaders.

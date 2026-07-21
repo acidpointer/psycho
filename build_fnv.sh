@@ -32,6 +32,7 @@ ENGINE_CFG="$DIR/psycho-engine-fixes/config/$ENGINE_CFGNAME"
 OMV_CFG="$DIR/omv/config/$OMV_CFGNAME"
 OMV_NOTICE="$DIR/omv/$OMV_NOTICENAME"
 OMV_SHADER_SRC_DIR="$DIR/omv/shaders/runtime"
+OMV_LUT_SRC_DIR="$DIR/omv/luts"
 STALE_OMV_SHADER_FILES=(
     "00_fast_ao.hlsl"
     "00_fast_ao.toml"
@@ -58,6 +59,7 @@ OMV_MOD_DIR="$MO2_MODS_DIR/omv"
 OMV_PLUGIN_DIR="$OMV_MOD_DIR/NVSE/plugins"
 OMV_DATA_DIR="$OMV_PLUGIN_DIR/omv"
 OMV_SHADER_DIR="$OMV_DATA_DIR/shaders"
+OMV_LUT_DIR="$OMV_DATA_DIR/luts"
 OMV_LEGACY_PLUGIN_DIR="$OMV_MOD_DIR/nvse/plugins"
 OMV_LEGACY_DATA_DIR="$OMV_MOD_DIR/omv"
 OMV_LEGACY_SHADER_DIR="$OMV_LEGACY_DATA_DIR/shaders"
@@ -120,6 +122,7 @@ function install_files() {
     mkdir -p "$NVSE_PLUGIN_DIR"
     mkdir -p "$OMV_PLUGIN_DIR"
     mkdir -p "$OMV_SHADER_DIR"
+    mkdir -p "$OMV_LUT_DIR"
 
     cp "$LOADER_BIN" "$LOADER_PATH"
     cp "$CORE_BIN" "$CORE_PATH"
@@ -139,6 +142,14 @@ function install_files() {
             -type f \
             \( -iname '*.hlsl' -o -iname '*.pso' -o -iname '*.cso' -o -iname '*.toml' \) \
             -exec cp '{}' "$OMV_SHADER_DIR/" \;
+    fi
+
+    if [[ -d "$OMV_LUT_SRC_DIR" ]]; then
+        find "$OMV_LUT_SRC_DIR" \
+            -maxdepth 1 \
+            -type f \
+            -iname '*.cube' \
+            -exec cp '{}' "$OMV_LUT_DIR/" \;
     fi
 }
 
@@ -188,5 +199,6 @@ echo "Engine config copied to '$ENGINE_CFG_PATH'"
 echo "OMV config copied to '$OMV_CFG_PATH'"
 echo "OMV third-party notices copied to '$OMV_NOTICE_PATH'"
 echo "OMV shader directory ready at '$OMV_SHADER_DIR'"
+echo "OMV LUT directory ready at '$OMV_LUT_DIR'"
 echo "Build type: $BUILD_TYPE"
 echo "Target:     $TARGET"

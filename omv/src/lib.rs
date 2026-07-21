@@ -13,6 +13,7 @@ mod fnv_render;
 mod fnv_world_pipeline;
 mod hooks;
 mod input;
+mod luts;
 mod nvse_plugin;
 mod plugininfo;
 mod runtime;

@@ -9,8 +9,9 @@ workspace where several concrete modifications are built together on a common
 foundation:
 
 - **psycho-engine-fixes** is an early-loaded engine, memory and performance mod.
-- **psycho-engine-fixes-helper** is a companion xNVSE modification with console
-  commands and event forwarding for Psycho Engine Fixes.
+- **psycho-engine-fixes-helper** is a companion xNVSE modification with an
+  in-game diagnostics/configuration dashboard and event forwarding for Psycho
+  Engine Fixes.
 - **Oh My Vegas! (OMV)** is a separate, full graphics modification.
 - **libpsycho** is the shared Rust library which makes these projects possible.
 
@@ -27,7 +28,7 @@ developed and tested through Wine/Proton without depending on a Windows IDE.
 | Project | Kind | Purpose |
 |---|---|---|
 | **psycho-engine-fixes** | Modification | Memory, loading, display, performance and targeted engine fixes |
-| **psycho-engine-fixes-helper** | Companion modification | `PsychoInfo` console command and xNVSE event bridge |
+| **psycho-engine-fixes-helper** | Companion modification | ImGui diagnostics dashboard, restart config editor and xNVSE event bridge |
 | **Oh My Vegas!** | Modification | Screen-space effects and optimized native PBR/Sky shader ports |
 | **libpsycho** | Shared library | WinAPI, D3D9, hooks, patching, PE inspection, logging and FFI |
 | **psycho-imgui** | Shared library | Rust-facing ImGui integration used by complex in-game interfaces |
@@ -207,8 +208,13 @@ Data/NVSE/plugins/psycho_engine_fixes_helper.dll
 ```
 
 The companion does not load or initialize Psycho Engine Fixes. It connects only
-after Syringe has already activated the engine mod. Open the console and run
-`PsychoInfo` to print a detailed status report.
+after Syringe has already activated the engine mod. Press `F10` to open its
+in-game control deck. `PsychoInfo` (alias `psyinfo`) opens the same dashboard
+when a hotkey is inconvenient. It includes memory/VAS trends, allocator and
+engine-fix counters, recent Psycho logs, and a configuration editor whose saved
+changes apply only after a full game restart. See
+[`docs/psycho_dashboard.md`](docs/psycho_dashboard.md) for its contracts and
+runtime acceptance checklist.
 
 ### 4. Start the game
 

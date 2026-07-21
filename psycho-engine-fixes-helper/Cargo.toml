@@ -13,3 +13,6 @@ libc = { workspace = true }
 libnvse = { path = "../libnvse" }
 libpsycho = { path = "../libpsycho" }
 log = { workspace = true }
+parking_lot = { workspace = true }
+psycho-imgui = { path = "../psycho-imgui" }
+toml_edit = "0.22"

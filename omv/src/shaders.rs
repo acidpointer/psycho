@@ -289,7 +289,8 @@ pub(crate) struct ShaderOption {
     pub(crate) value: ShaderOptionValue,
     pub(crate) min: f32,
     pub(crate) max: f32,
-    pub(crate) choices: Option<&'static [&'static str]>,
+    pub(crate) choices: Option<Vec<String>>,
+    pub(crate) choice_ids: Option<Vec<u32>>,
     binding: Option<ConstantBinding>,
     constant: Option<String>,
 }
@@ -390,11 +391,21 @@ pub(crate) fn reload_external_shader_configs(sources: &mut [ScreenShaderSource])
     Ok(())
 }
 
+#[cfg(test)]
 pub(crate) fn merge_embedded_sources(
     embedded_config: &EmbeddedEffectsConfig,
     external_sources: Vec<ScreenShaderSource>,
 ) -> Vec<ScreenShaderSource> {
-    let mut sources = embedded_effect_sources(embedded_config);
+    merge_embedded_sources_with_luts(embedded_config, &[], &[], external_sources)
+}
+
+pub(crate) fn merge_embedded_sources_with_luts(
+    embedded_config: &EmbeddedEffectsConfig,
+    lut_names: &[String],
+    lut_ids: &[u32],
+    external_sources: Vec<ScreenShaderSource>,
+) -> Vec<ScreenShaderSource> {
+    let mut sources = embedded_effect_sources_with_luts(embedded_config, lut_names, lut_ids);
     sources.extend(external_sources);
     sources
 }
@@ -444,14 +455,23 @@ pub(crate) fn sync_embedded_effect_config(
     }
 }
 
+#[cfg(test)]
 fn embedded_effect_sources(config: &EmbeddedEffectsConfig) -> Vec<ScreenShaderSource> {
+    embedded_effect_sources_with_luts(config, &[], &[])
+}
+
+fn embedded_effect_sources_with_luts(
+    config: &EmbeddedEffectsConfig,
+    lut_names: &[String],
+    lut_ids: &[u32],
+) -> Vec<ScreenShaderSource> {
     vec![
         fast_ao_source(&config.fast_ao),
         contact_ao_source(&config.contact_ao),
         volumetric_fog_source(&config.volumetric_fog),
         volumetric_lighting_source(&config.volumetric_lighting),
         blooming_hdr_source(&config.blooming_hdr),
-        color_grade_source(&config.color_grade),
+        color_grade_source(&config.color_grade, lut_names, lut_ids),
         temporal_aa_source(&config.temporal_aa),
         sunshafts_source(&config.sunshafts),
         depth_of_field_source(&config.depth_of_field),
@@ -1107,15 +1127,15 @@ fn blooming_hdr_source(config: &BloomingHdrConfig) -> ScreenShaderSource {
     )
 }
 
-const COLOR_GRADE_LUT_CHOICES: &[&str] = &[
-    "Neutral",
-    "Mojave Natural",
-    "Dusty Western",
-    "Bleached Wasteland",
-    "Neon Nights",
-];
-
-fn color_grade_source(config: &ColorGradeConfig) -> ScreenShaderSource {
+fn color_grade_source(
+    config: &ColorGradeConfig,
+    lut_names: &[String],
+    lut_ids: &[u32],
+) -> ScreenShaderSource {
+    let selected_lut = lut_ids
+        .iter()
+        .position(|id| *id == config.lut_file_id)
+        .unwrap_or(0) as i32;
     embedded_source(
         EmbeddedEffectKind::ColorGrade,
         "Color Grade and Film",
@@ -1129,6 +1149,13 @@ fn color_grade_source(config: &ColorGradeConfig) -> ScreenShaderSource {
                 0.0,
                 1.0,
                 10,
+                0,
+            ),
+            bool_option(
+                "color_grading_enabled",
+                "Color grading",
+                config.color_grading_enabled,
+                15,
                 0,
             ),
             float_option("exposure", "Exposure EV", config.exposure, -1.5, 1.5, 10, 1),
@@ -1171,11 +1198,13 @@ fn color_grade_source(config: &ColorGradeConfig) -> ScreenShaderSource {
                 12,
                 0,
             ),
-            integer_choice_option(
-                "lut_preset",
-                "Bundled LUT",
-                config.lut_preset,
-                COLOR_GRADE_LUT_CHOICES,
+            bool_option("lut_enabled", "LUT", config.lut_enabled, 15, 1),
+            integer_choice_option_owned(
+                "lut_file",
+                "LUT file",
+                selected_lut,
+                lut_names,
+                lut_ids,
                 12,
                 1,
             ),
@@ -1197,18 +1226,80 @@ fn color_grade_source(config: &ColorGradeConfig) -> ScreenShaderSource {
                 12,
                 3,
             ),
-            float_option("deband", "Debanding", config.deband, 0.0, 1.0, 13, 0),
+            bool_option("deband_enabled", "Debanding", config.deband_enabled, 15, 2),
+            float_option(
+                "deband",
+                "Debanding strength",
+                config.deband,
+                0.0,
+                1.0,
+                13,
+                0,
+            ),
+            bool_option(
+                "film_grain_enabled",
+                "Film grain",
+                config.film_grain_enabled,
+                15,
+                3,
+            ),
             float_option(
                 "film_grain",
-                "Film grain",
+                "Film grain strength",
                 config.film_grain,
                 0.0,
                 1.0,
                 13,
                 1,
             ),
-            float_option("vignette", "Vignette", config.vignette, 0.0, 1.0, 13, 2),
-            float_option("halation", "Halation", config.halation, 0.0, 1.0, 13, 3),
+            bool_option(
+                "vignette_enabled",
+                "Vignette",
+                config.vignette_enabled,
+                16,
+                0,
+            ),
+            float_option(
+                "vignette",
+                "Vignette strength",
+                config.vignette,
+                0.0,
+                1.0,
+                13,
+                2,
+            ),
+            bool_option(
+                "halation_enabled",
+                "Halation",
+                config.halation_enabled,
+                16,
+                1,
+            ),
+            float_option(
+                "halation",
+                "Halation strength",
+                config.halation,
+                0.0,
+                1.0,
+                13,
+                3,
+            ),
+            bool_option(
+                "chromatic_aberration_enabled",
+                "Chromatic aberration",
+                config.chromatic_aberration_enabled,
+                16,
+                2,
+            ),
+            float_option(
+                "chromatic_aberration",
+                "Chromatic aberration pixels",
+                config.chromatic_aberration,
+                0.0,
+                4.0,
+                16,
+                3,
+            ),
             bool_option(
                 "debug_split",
                 "Before / after split",
@@ -1609,7 +1700,31 @@ fn integer_choice_option(
         register,
         component,
     );
-    option.choices = Some(choices);
+    option.choices = Some(choices.iter().map(|choice| (*choice).to_owned()).collect());
+    option
+}
+
+fn integer_choice_option_owned(
+    key: &str,
+    label: &str,
+    value: i32,
+    choices: &[String],
+    choice_ids: &[u32],
+    register: u32,
+    component: usize,
+) -> ShaderOption {
+    debug_assert_eq!(choices.len(), choice_ids.len());
+    let mut option = integer_option(
+        key,
+        label,
+        value,
+        0,
+        choices.len().saturating_sub(1) as i32,
+        register,
+        component,
+    );
+    option.choices = Some(choices.to_vec());
+    option.choice_ids = Some(choice_ids.to_vec());
     option
 }
 
@@ -1647,6 +1762,7 @@ fn option(
         min,
         max,
         choices: None,
+        choice_ids: None,
         binding: Some(ConstantBinding {
             register,
             component,
@@ -1827,6 +1943,7 @@ fn sync_color_grade_config(source: &ScreenShaderSource, config: &mut ColorGradeC
     for option in &source.options {
         match option.key.as_str() {
             "strength" => config.strength = option_float(option),
+            "color_grading_enabled" => config.color_grading_enabled = option_bool(option),
             "exposure" => config.exposure = option_float(option),
             "contrast" => config.contrast = option_float(option),
             "saturation" => config.saturation = option_float(option),
@@ -1835,13 +1952,27 @@ fn sync_color_grade_config(source: &ScreenShaderSource, config: &mut ColorGradeC
             "tint" => config.tint = option_float(option),
             "black_fade" => config.black_fade = option_float(option),
             "highlight_rolloff" => config.highlight_rolloff = option_float(option),
-            "lut_preset" => config.lut_preset = option_integer(option),
+            "lut_enabled" => config.lut_enabled = option_bool(option),
+            "lut_file" => {
+                let index = option_integer(option).max(0) as usize;
+                if let Some(id) = option.choice_ids.as_ref().and_then(|ids| ids.get(index)) {
+                    config.lut_file_id = *id;
+                }
+            }
             "lut_strength" => config.lut_strength = option_float(option),
             "environment_response" => config.environment_response = option_float(option),
+            "deband_enabled" => config.deband_enabled = option_bool(option),
             "deband" => config.deband = option_float(option),
+            "film_grain_enabled" => config.film_grain_enabled = option_bool(option),
             "film_grain" => config.film_grain = option_float(option),
+            "vignette_enabled" => config.vignette_enabled = option_bool(option),
             "vignette" => config.vignette = option_float(option),
+            "halation_enabled" => config.halation_enabled = option_bool(option),
             "halation" => config.halation = option_float(option),
+            "chromatic_aberration_enabled" => {
+                config.chromatic_aberration_enabled = option_bool(option);
+            }
+            "chromatic_aberration" => config.chromatic_aberration = option_float(option),
             "debug_split" => config.debug_split = option_bool(option),
             _ => {}
         }
@@ -2739,14 +2870,16 @@ fn shader_cache_temp_is_stale(metadata: &fs::Metadata) -> bool {
 #[cfg(test)]
 mod embedded_color_grade_tests {
     use super::{
-        COLOR_GRADE_LUT_CHOICES, EmbeddedEffectKind, ShaderOptionValue, ShaderPhase,
-        color_grade_source, embedded_effect_sources, sync_color_grade_config,
+        EmbeddedEffectKind, ShaderOptionValue, ShaderPhase, color_grade_source,
+        embedded_effect_sources, sync_color_grade_config,
     };
     use crate::config::{ColorGradeConfig, EmbeddedEffectsConfig};
 
     #[test]
     fn color_grade_menu_schema_covers_every_config_field_and_lut_name() {
-        let source = color_grade_source(&ColorGradeConfig::default());
+        let names = ["Neutral", "Mojave Natural", "User Look"].map(str::to_owned);
+        let ids = [11, ColorGradeConfig::default().lut_file_id, 33];
+        let source = color_grade_source(&ColorGradeConfig::default(), &names, &ids);
         let keys: Vec<&str> = source
             .options
             .iter()
@@ -2756,6 +2889,7 @@ mod embedded_color_grade_tests {
             keys,
             [
                 "strength",
+                "color_grading_enabled",
                 "exposure",
                 "contrast",
                 "saturation",
@@ -2764,35 +2898,40 @@ mod embedded_color_grade_tests {
                 "tint",
                 "black_fade",
                 "highlight_rolloff",
-                "lut_preset",
+                "lut_enabled",
+                "lut_file",
                 "lut_strength",
                 "environment_response",
+                "deband_enabled",
                 "deband",
+                "film_grain_enabled",
                 "film_grain",
+                "vignette_enabled",
                 "vignette",
+                "halation_enabled",
                 "halation",
+                "chromatic_aberration_enabled",
+                "chromatic_aberration",
                 "debug_split",
             ]
         );
         let lut = source
             .options
             .iter()
-            .find(|option| option.key == "lut_preset")
+            .find(|option| option.key == "lut_file")
             .expect("LUT selector");
-        assert_eq!(lut.choices, Some(COLOR_GRADE_LUT_CHOICES));
+        assert_eq!(lut.choices.as_deref(), Some(names.as_slice()));
+        assert_eq!(lut.choice_ids.as_deref(), Some(ids.as_slice()));
         assert_eq!(lut.min, 0.0);
-        assert_eq!(lut.max, 4.0);
+        assert_eq!(lut.max, 2.0);
         assert!(matches!(lut.value, ShaderOptionValue::Integer(1)));
-        assert_eq!(
-            COLOR_GRADE_LUT_CHOICES,
-            [
-                "Neutral",
-                "Mojave Natural",
-                "Dusty Western",
-                "Bleached Wasteland",
-                "Neon Nights",
-            ]
-        );
+        let chromatic = source
+            .options
+            .iter()
+            .find(|option| option.key == "chromatic_aberration")
+            .expect("chromatic strength");
+        assert_eq!(chromatic.min, 0.0);
+        assert_eq!(chromatic.max, 4.0);
     }
 
     #[test]
@@ -2800,6 +2939,7 @@ mod embedded_color_grade_tests {
         let expected = ColorGradeConfig {
             enabled: false,
             strength: 0.01,
+            color_grading_enabled: false,
             exposure: -1.25,
             contrast: -0.35,
             saturation: 1.77,
@@ -2808,20 +2948,30 @@ mod embedded_color_grade_tests {
             tint: 0.31,
             black_fade: 0.91,
             highlight_rolloff: 0.83,
-            lut_preset: 4,
+            lut_enabled: false,
+            lut_file_id: 44,
             lut_strength: 0.73,
             environment_response: 0.62,
+            deband_enabled: false,
             deband: 0.51,
+            film_grain_enabled: false,
             film_grain: 0.44,
+            vignette_enabled: false,
             vignette: 0.36,
+            halation_enabled: false,
             halation: 0.28,
+            chromatic_aberration_enabled: false,
+            chromatic_aberration: 0.19,
             debug_split: true,
         };
-        let source = color_grade_source(&expected);
+        let names = ["A", "B", "C", "D", "E"].map(str::to_owned);
+        let ids = [40, 41, 42, 43, 44];
+        let source = color_grade_source(&expected, &names, &ids);
         let mut actual = ColorGradeConfig::default();
         sync_color_grade_config(&source, &mut actual);
         assert_eq!(actual.enabled, expected.enabled);
         assert_eq!(actual.strength, expected.strength);
+        assert_eq!(actual.color_grading_enabled, expected.color_grading_enabled);
         assert_eq!(actual.exposure, expected.exposure);
         assert_eq!(actual.contrast, expected.contrast);
         assert_eq!(actual.saturation, expected.saturation);
@@ -2830,14 +2980,74 @@ mod embedded_color_grade_tests {
         assert_eq!(actual.tint, expected.tint);
         assert_eq!(actual.black_fade, expected.black_fade);
         assert_eq!(actual.highlight_rolloff, expected.highlight_rolloff);
-        assert_eq!(actual.lut_preset, expected.lut_preset);
+        assert_eq!(actual.lut_enabled, expected.lut_enabled);
+        assert_eq!(actual.lut_file_id, expected.lut_file_id);
         assert_eq!(actual.lut_strength, expected.lut_strength);
         assert_eq!(actual.environment_response, expected.environment_response);
+        assert_eq!(actual.deband_enabled, expected.deband_enabled);
         assert_eq!(actual.deband, expected.deband);
+        assert_eq!(actual.film_grain_enabled, expected.film_grain_enabled);
         assert_eq!(actual.film_grain, expected.film_grain);
+        assert_eq!(actual.vignette_enabled, expected.vignette_enabled);
         assert_eq!(actual.vignette, expected.vignette);
+        assert_eq!(actual.halation_enabled, expected.halation_enabled);
         assert_eq!(actual.halation, expected.halation);
+        assert_eq!(
+            actual.chromatic_aberration_enabled,
+            expected.chromatic_aberration_enabled
+        );
+        assert_eq!(actual.chromatic_aberration, expected.chromatic_aberration);
         assert_eq!(actual.debug_split, expected.debug_split);
+    }
+
+    #[test]
+    fn lut_selector_tracks_stable_file_id_across_catalog_reordering() {
+        let mut config = ColorGradeConfig {
+            lut_file_id: 300,
+            ..ColorGradeConfig::default()
+        };
+        let names = ["Alpha", "Bravo", "Charlie"].map(str::to_owned);
+        let source = color_grade_source(&config, &names, &[100, 200, 300]);
+        let selector = source
+            .options
+            .iter()
+            .find(|option| option.key == "lut_file")
+            .expect("LUT selector");
+        assert!(matches!(selector.value, ShaderOptionValue::Integer(2)));
+
+        let reordered_names = ["Charlie", "Alpha", "Bravo"].map(str::to_owned);
+        let mut reordered = color_grade_source(&config, &reordered_names, &[300, 100, 200]);
+        let selector_index = reordered
+            .options
+            .iter()
+            .position(|option| option.key == "lut_file")
+            .expect("reordered LUT selector");
+        assert!(matches!(
+            reordered.options[selector_index].value,
+            ShaderOptionValue::Integer(0)
+        ));
+        reordered
+            .set_option_integer(selector_index, 2)
+            .expect("select Bravo");
+        sync_color_grade_config(&reordered, &mut config);
+        assert_eq!(config.lut_file_id, 200);
+    }
+
+    #[test]
+    fn choice_options_render_as_a_dropdown_instead_of_radio_buttons() {
+        let runtime = include_str!("runtime.rs");
+        let start = runtime
+            .find("ShaderOptionValue::Integer(value) => {")
+            .expect("integer menu branch");
+        let end = runtime[start..]
+            .find("ShaderOptionValue::Bool(value) => {")
+            .map(|offset| start + offset)
+            .expect("bool menu branch");
+        let branch = &runtime[start..end];
+        assert!(branch.contains("ui.begin_combo(&label, &preview)"));
+        assert!(branch.contains("ui.selectable(&choice_label"));
+        assert!(branch.contains("ui.end_combo()"));
+        assert!(!branch.contains("radio_button"));
     }
 
     #[test]
@@ -3192,6 +3402,7 @@ impl From<ShaderOptionConfig> for ShaderOption {
             min,
             max,
             choices: None,
+            choice_ids: None,
             binding,
             constant: config.constant,
         }

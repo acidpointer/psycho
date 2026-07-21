@@ -343,6 +343,7 @@ impl EmbeddedEffectsConfig {
     fn sanitized(mut self) -> Self {
         self.volumetric_fog = self.volumetric_fog.sanitized();
         self.volumetric_lighting = self.volumetric_lighting.sanitized();
+        self.blooming_hdr = self.blooming_hdr.sanitized();
         self.color_grade = self.color_grade.sanitized();
         self.sunshafts = self.sunshafts.sanitized();
         self
@@ -538,19 +539,36 @@ impl Default for BloomingHdrConfig {
     fn default() -> Self {
         Self {
             enabled: true,
-            bloom_intensity: 0.444,
-            bright_threshold: 0.457,
-            radius_pixels: 3.354,
-            soft_knee: 0.219,
-            exposure_bias: 0.055,
-            highlight_shoulder: 0.682,
-            saturation: 1.249,
-            warmth: 0.543,
-            shadow_lift: 0.228,
-            dither: 0.459,
+            bloom_intensity: 0.34,
+            bright_threshold: 0.62,
+            radius_pixels: 2.8,
+            soft_knee: 0.28,
+            exposure_bias: 0.02,
+            highlight_shoulder: 0.58,
+            saturation: 0.92,
+            warmth: 0.18,
+            shadow_lift: 0.10,
+            dither: 0.32,
             debug_bloom: false,
-            atmosphere: 0.38,
+            atmosphere: 0.24,
         }
+    }
+}
+
+impl BloomingHdrConfig {
+    fn sanitized(mut self) -> Self {
+        self.bloom_intensity = finite_clamp(self.bloom_intensity, 0.34, 0.0, 1.5);
+        self.bright_threshold = finite_clamp(self.bright_threshold, 0.62, 0.25, 0.95);
+        self.radius_pixels = finite_clamp(self.radius_pixels, 2.8, 0.5, 7.0);
+        self.soft_knee = finite_clamp(self.soft_knee, 0.28, 0.02, 0.65);
+        self.exposure_bias = finite_clamp(self.exposure_bias, 0.02, -0.5, 0.5);
+        self.highlight_shoulder = finite_clamp(self.highlight_shoulder, 0.58, 0.0, 1.0);
+        self.saturation = finite_clamp(self.saturation, 0.92, 0.0, 1.5);
+        self.warmth = finite_clamp(self.warmth, 0.18, -1.0, 1.0);
+        self.shadow_lift = finite_clamp(self.shadow_lift, 0.10, 0.0, 1.0);
+        self.dither = finite_clamp(self.dither, 0.32, 0.0, 1.0);
+        self.atmosphere = finite_clamp(self.atmosphere, 0.24, 0.0, 1.0);
+        self
     }
 }
 
@@ -559,6 +577,7 @@ impl Default for BloomingHdrConfig {
 pub(crate) struct ColorGradeConfig {
     pub(crate) enabled: bool,
     pub(crate) strength: f32,
+    pub(crate) color_grading_enabled: bool,
     pub(crate) exposure: f32,
     pub(crate) contrast: f32,
     pub(crate) saturation: f32,
@@ -567,13 +586,20 @@ pub(crate) struct ColorGradeConfig {
     pub(crate) tint: f32,
     pub(crate) black_fade: f32,
     pub(crate) highlight_rolloff: f32,
-    pub(crate) lut_preset: i32,
+    pub(crate) lut_enabled: bool,
+    pub(crate) lut_file_id: u32,
     pub(crate) lut_strength: f32,
     pub(crate) environment_response: f32,
+    pub(crate) deband_enabled: bool,
     pub(crate) deband: f32,
+    pub(crate) film_grain_enabled: bool,
     pub(crate) film_grain: f32,
+    pub(crate) vignette_enabled: bool,
     pub(crate) vignette: f32,
+    pub(crate) halation_enabled: bool,
     pub(crate) halation: f32,
+    pub(crate) chromatic_aberration_enabled: bool,
+    pub(crate) chromatic_aberration: f32,
     pub(crate) debug_split: bool,
 }
 
@@ -581,22 +607,30 @@ impl Default for ColorGradeConfig {
     fn default() -> Self {
         Self {
             enabled: true,
-            strength: 0.72,
+            strength: 0.68,
+            color_grading_enabled: true,
             exposure: 0.0,
-            contrast: 0.06,
-            saturation: 1.0,
-            vibrance: 0.10,
-            temperature: 0.03,
-            tint: 0.0,
-            black_fade: 0.025,
-            highlight_rolloff: 0.08,
-            lut_preset: 1,
-            lut_strength: 0.58,
-            environment_response: 0.35,
-            deband: 0.35,
-            film_grain: 0.08,
-            vignette: 0.06,
-            halation: 0.04,
+            contrast: 0.045,
+            saturation: 0.98,
+            vibrance: 0.075,
+            temperature: 0.015,
+            tint: 0.006,
+            black_fade: 0.012,
+            highlight_rolloff: 0.16,
+            lut_enabled: true,
+            lut_file_id: 97_154_384,
+            lut_strength: 0.42,
+            environment_response: 0.45,
+            deband_enabled: true,
+            deband: 0.55,
+            film_grain_enabled: true,
+            film_grain: 0.16,
+            vignette_enabled: true,
+            vignette: 0.035,
+            halation_enabled: true,
+            halation: 0.12,
+            chromatic_aberration_enabled: false,
+            chromatic_aberration: 0.85,
             debug_split: false,
         }
     }
@@ -604,24 +638,22 @@ impl Default for ColorGradeConfig {
 
 impl ColorGradeConfig {
     fn sanitized(mut self) -> Self {
-        self.strength = finite_clamp(self.strength, 0.72, 0.0, 1.0);
+        self.strength = finite_clamp(self.strength, 0.68, 0.0, 1.0);
         self.exposure = finite_clamp(self.exposure, 0.0, -1.5, 1.5);
-        self.contrast = finite_clamp(self.contrast, 0.06, -0.5, 0.5);
-        self.saturation = finite_clamp(self.saturation, 1.0, 0.0, 2.0);
-        self.vibrance = finite_clamp(self.vibrance, 0.10, -1.0, 1.0);
-        self.temperature = finite_clamp(self.temperature, 0.03, -1.0, 1.0);
-        self.tint = finite_clamp(self.tint, 0.0, -1.0, 1.0);
-        self.black_fade = finite_clamp(self.black_fade, 0.025, 0.0, 1.0);
-        self.highlight_rolloff = finite_clamp(self.highlight_rolloff, 0.08, 0.0, 1.0);
-        if !(0..=4).contains(&self.lut_preset) {
-            self.lut_preset = 0;
-        }
-        self.lut_strength = finite_clamp(self.lut_strength, 0.58, 0.0, 1.0);
-        self.environment_response = finite_clamp(self.environment_response, 0.35, 0.0, 1.0);
-        self.deband = finite_clamp(self.deband, 0.35, 0.0, 1.0);
-        self.film_grain = finite_clamp(self.film_grain, 0.08, 0.0, 1.0);
-        self.vignette = finite_clamp(self.vignette, 0.06, 0.0, 1.0);
-        self.halation = finite_clamp(self.halation, 0.04, 0.0, 1.0);
+        self.contrast = finite_clamp(self.contrast, 0.045, -0.5, 0.5);
+        self.saturation = finite_clamp(self.saturation, 0.98, 0.0, 2.0);
+        self.vibrance = finite_clamp(self.vibrance, 0.075, -1.0, 1.0);
+        self.temperature = finite_clamp(self.temperature, 0.015, -1.0, 1.0);
+        self.tint = finite_clamp(self.tint, 0.006, -1.0, 1.0);
+        self.black_fade = finite_clamp(self.black_fade, 0.012, 0.0, 1.0);
+        self.highlight_rolloff = finite_clamp(self.highlight_rolloff, 0.16, 0.0, 1.0);
+        self.lut_strength = finite_clamp(self.lut_strength, 0.42, 0.0, 1.0);
+        self.environment_response = finite_clamp(self.environment_response, 0.45, 0.0, 1.0);
+        self.deband = finite_clamp(self.deband, 0.55, 0.0, 1.0);
+        self.film_grain = finite_clamp(self.film_grain, 0.16, 0.0, 1.0);
+        self.vignette = finite_clamp(self.vignette, 0.035, 0.0, 1.0);
+        self.halation = finite_clamp(self.halation, 0.12, 0.0, 1.0);
+        self.chromatic_aberration = finite_clamp(self.chromatic_aberration, 0.85, 0.0, 4.0);
         self
     }
 }
@@ -1294,8 +1326,13 @@ fn save_embedded_effect_config(doc: &mut DocumentMut, config: &EmbeddedEffectsCo
 }
 
 fn save_color_grade_config(doc: &mut DocumentMut, grade: &ColorGradeConfig) {
+    if let Some(table) = doc["graphics"]["embedded_effects"]["color_grade"].as_table_mut() {
+        table.remove("lut_preset");
+    }
     doc["graphics"]["embedded_effects"]["color_grade"]["enabled"] = value(grade.enabled);
     doc["graphics"]["embedded_effects"]["color_grade"]["strength"] = value(grade.strength as f64);
+    doc["graphics"]["embedded_effects"]["color_grade"]["color_grading_enabled"] =
+        value(grade.color_grading_enabled);
     doc["graphics"]["embedded_effects"]["color_grade"]["exposure"] = value(grade.exposure as f64);
     doc["graphics"]["embedded_effects"]["color_grade"]["contrast"] = value(grade.contrast as f64);
     doc["graphics"]["embedded_effects"]["color_grade"]["saturation"] =
@@ -1308,25 +1345,38 @@ fn save_color_grade_config(doc: &mut DocumentMut, grade: &ColorGradeConfig) {
         value(grade.black_fade as f64);
     doc["graphics"]["embedded_effects"]["color_grade"]["highlight_rolloff"] =
         value(grade.highlight_rolloff as f64);
-    doc["graphics"]["embedded_effects"]["color_grade"]["lut_preset"] =
-        value(grade.lut_preset as i64);
+    doc["graphics"]["embedded_effects"]["color_grade"]["lut_enabled"] = value(grade.lut_enabled);
+    doc["graphics"]["embedded_effects"]["color_grade"]["lut_file_id"] =
+        value(grade.lut_file_id as i64);
     doc["graphics"]["embedded_effects"]["color_grade"]["lut_strength"] =
         value(grade.lut_strength as f64);
     doc["graphics"]["embedded_effects"]["color_grade"]["environment_response"] =
         value(grade.environment_response as f64);
+    doc["graphics"]["embedded_effects"]["color_grade"]["deband_enabled"] =
+        value(grade.deband_enabled);
     doc["graphics"]["embedded_effects"]["color_grade"]["deband"] = value(grade.deband as f64);
+    doc["graphics"]["embedded_effects"]["color_grade"]["film_grain_enabled"] =
+        value(grade.film_grain_enabled);
     doc["graphics"]["embedded_effects"]["color_grade"]["film_grain"] =
         value(grade.film_grain as f64);
+    doc["graphics"]["embedded_effects"]["color_grade"]["vignette_enabled"] =
+        value(grade.vignette_enabled);
     doc["graphics"]["embedded_effects"]["color_grade"]["vignette"] = value(grade.vignette as f64);
+    doc["graphics"]["embedded_effects"]["color_grade"]["halation_enabled"] =
+        value(grade.halation_enabled);
     doc["graphics"]["embedded_effects"]["color_grade"]["halation"] = value(grade.halation as f64);
+    doc["graphics"]["embedded_effects"]["color_grade"]["chromatic_aberration_enabled"] =
+        value(grade.chromatic_aberration_enabled);
+    doc["graphics"]["embedded_effects"]["color_grade"]["chromatic_aberration"] =
+        value(grade.chromatic_aberration as f64);
     doc["graphics"]["embedded_effects"]["color_grade"]["debug_split"] = value(grade.debug_split);
 }
 
 #[cfg(test)]
 mod tests {
     use super::{
-        AtmosphereQuality, ColorGradeConfig, EmbeddedEffectsConfig, NativePbrConfig,
-        PsychoGraphicsConfig, VolumetricFogConfig, VolumetricLightingConfig,
+        AtmosphereQuality, BloomingHdrConfig, ColorGradeConfig, EmbeddedEffectsConfig,
+        NativePbrConfig, PsychoGraphicsConfig, VolumetricFogConfig, VolumetricLightingConfig,
         save_color_grade_config,
     };
     use toml_edit::DocumentMut;
@@ -1378,10 +1428,13 @@ albedo_saturation = 1.02
         config.volumetric_lighting.local_lights_intensity = f32::INFINITY;
         config.volumetric_lighting.debug_view = 99;
         config.volumetric_lighting.temporal_stability = f32::NAN;
+        config.blooming_hdr.bloom_intensity = f32::INFINITY;
+        config.blooming_hdr.bright_threshold = -5.0;
+        config.blooming_hdr.saturation = f32::NAN;
         config.color_grade.exposure = f32::INFINITY;
         config.color_grade.saturation = -3.0;
-        config.color_grade.lut_preset = 99;
         config.color_grade.deband = f32::NAN;
+        config.color_grade.chromatic_aberration = f32::NAN;
         config.sunshafts.medium_response = f32::NAN;
         config.sunshafts.sun_sample_px = 99;
 
@@ -1396,10 +1449,13 @@ albedo_saturation = 1.02
         assert_eq!(config.volumetric_lighting.local_lights_intensity, 1.5);
         assert_eq!(config.volumetric_lighting.debug_view, 8);
         assert_eq!(config.volumetric_lighting.temporal_stability, 0.9);
+        assert_eq!(config.blooming_hdr.bloom_intensity, 0.34);
+        assert_eq!(config.blooming_hdr.bright_threshold, 0.25);
+        assert_eq!(config.blooming_hdr.saturation, 0.92);
         assert_eq!(config.color_grade.exposure, 0.0);
         assert_eq!(config.color_grade.saturation, 0.0);
-        assert_eq!(config.color_grade.lut_preset, 0);
-        assert_eq!(config.color_grade.deband, 0.35);
+        assert_eq!(config.color_grade.deband, 0.55);
+        assert_eq!(config.color_grade.chromatic_aberration, 0.85);
         assert_eq!(config.sunshafts.medium_response, 1.0);
         assert_eq!(config.sunshafts.sun_sample_px, 48);
     }
@@ -1409,6 +1465,7 @@ albedo_saturation = 1.02
         let config = ColorGradeConfig {
             enabled: false,
             strength: f32::NAN,
+            color_grading_enabled: false,
             exposure: -99.0,
             contrast: 99.0,
             saturation: f32::NAN,
@@ -1417,38 +1474,46 @@ albedo_saturation = 1.02
             tint: -99.0,
             black_fade: 99.0,
             highlight_rolloff: f32::NAN,
-            lut_preset: -9,
+            lut_enabled: false,
+            lut_file_id: 42,
             lut_strength: 99.0,
             environment_response: -99.0,
+            deband_enabled: false,
             deband: f32::NAN,
+            film_grain_enabled: false,
             film_grain: 99.0,
+            vignette_enabled: false,
             vignette: -99.0,
+            halation_enabled: false,
             halation: f32::INFINITY,
+            chromatic_aberration_enabled: false,
+            chromatic_aberration: f32::INFINITY,
             debug_split: true,
         }
         .sanitized();
         assert!(!config.enabled);
-        assert_eq!(config.strength, 0.72);
+        assert_eq!(config.strength, 0.68);
         assert_eq!(config.exposure, -1.5);
         assert_eq!(config.contrast, 0.5);
-        assert_eq!(config.saturation, 1.0);
+        assert_eq!(config.saturation, 0.98);
         assert_eq!(config.vibrance, -1.0);
-        assert_eq!(config.temperature, 0.03);
+        assert_eq!(config.temperature, 0.015);
         assert_eq!(config.tint, -1.0);
         assert_eq!(config.black_fade, 1.0);
-        assert_eq!(config.highlight_rolloff, 0.08);
-        assert_eq!(config.lut_preset, 0);
+        assert_eq!(config.highlight_rolloff, 0.16);
+        assert_eq!(config.lut_file_id, 42);
         assert_eq!(config.lut_strength, 1.0);
         assert_eq!(config.environment_response, 0.0);
-        assert_eq!(config.deband, 0.35);
+        assert_eq!(config.deband, 0.55);
         assert_eq!(config.film_grain, 1.0);
         assert_eq!(config.vignette, 0.0);
-        assert_eq!(config.halation, 0.04);
+        assert_eq!(config.halation, 0.12);
+        assert_eq!(config.chromatic_aberration, 0.85);
         assert!(config.debug_split);
 
         let defaults: ColorGradeConfig = toml::from_str("").expect("legacy color config");
         assert_eq!(defaults.strength, ColorGradeConfig::default().strength);
-        assert_eq!(defaults.lut_preset, 1);
+        assert_eq!(defaults.lut_file_id, 97_154_384);
     }
 
     #[test]
@@ -1456,6 +1521,7 @@ albedo_saturation = 1.02
         let expected = ColorGradeConfig {
             enabled: false,
             strength: 0.11,
+            color_grading_enabled: false,
             exposure: -0.22,
             contrast: 0.33,
             saturation: 1.44,
@@ -1464,19 +1530,27 @@ albedo_saturation = 1.02
             tint: -0.77,
             black_fade: 0.88,
             highlight_rolloff: 0.99,
-            lut_preset: 4,
+            lut_enabled: false,
+            lut_file_id: 4,
             lut_strength: 0.12,
             environment_response: 0.23,
+            deband_enabled: false,
             deband: 0.34,
+            film_grain_enabled: false,
             film_grain: 0.45,
+            vignette_enabled: false,
             vignette: 0.56,
+            halation_enabled: false,
             halation: 0.67,
+            chromatic_aberration_enabled: false,
+            chromatic_aberration: 0.78,
             debug_split: true,
         };
         let encoded = toml::to_string(&expected).expect("serialize color grade");
         let actual: ColorGradeConfig = toml::from_str(&encoded).expect("deserialize color grade");
         assert_eq!(actual.enabled, expected.enabled);
         assert_eq!(actual.strength, expected.strength);
+        assert_eq!(actual.color_grading_enabled, expected.color_grading_enabled);
         assert_eq!(actual.exposure, expected.exposure);
         assert_eq!(actual.contrast, expected.contrast);
         assert_eq!(actual.saturation, expected.saturation);
@@ -1485,13 +1559,23 @@ albedo_saturation = 1.02
         assert_eq!(actual.tint, expected.tint);
         assert_eq!(actual.black_fade, expected.black_fade);
         assert_eq!(actual.highlight_rolloff, expected.highlight_rolloff);
-        assert_eq!(actual.lut_preset, expected.lut_preset);
+        assert_eq!(actual.lut_enabled, expected.lut_enabled);
+        assert_eq!(actual.lut_file_id, expected.lut_file_id);
         assert_eq!(actual.lut_strength, expected.lut_strength);
         assert_eq!(actual.environment_response, expected.environment_response);
+        assert_eq!(actual.deband_enabled, expected.deband_enabled);
         assert_eq!(actual.deband, expected.deband);
+        assert_eq!(actual.film_grain_enabled, expected.film_grain_enabled);
         assert_eq!(actual.film_grain, expected.film_grain);
+        assert_eq!(actual.vignette_enabled, expected.vignette_enabled);
         assert_eq!(actual.vignette, expected.vignette);
+        assert_eq!(actual.halation_enabled, expected.halation_enabled);
         assert_eq!(actual.halation, expected.halation);
+        assert_eq!(
+            actual.chromatic_aberration_enabled,
+            expected.chromatic_aberration_enabled
+        );
+        assert_eq!(actual.chromatic_aberration, expected.chromatic_aberration);
         assert_eq!(actual.debug_split, expected.debug_split);
     }
 
@@ -1500,6 +1584,7 @@ albedo_saturation = 1.02
         let expected = ColorGradeConfig {
             enabled: false,
             strength: 0.11,
+            color_grading_enabled: false,
             exposure: -0.22,
             contrast: 0.33,
             saturation: 1.44,
@@ -1508,23 +1593,33 @@ albedo_saturation = 1.02
             tint: -0.77,
             black_fade: 0.88,
             highlight_rolloff: 0.99,
-            lut_preset: 4,
+            lut_enabled: false,
+            lut_file_id: 4,
             lut_strength: 0.12,
             environment_response: 0.23,
+            deband_enabled: false,
             deband: 0.34,
+            film_grain_enabled: false,
             film_grain: 0.45,
+            vignette_enabled: false,
             vignette: 0.56,
+            halation_enabled: false,
             halation: 0.67,
+            chromatic_aberration_enabled: false,
+            chromatic_aberration: 0.78,
             debug_split: true,
         };
-        let mut document = DocumentMut::new();
+        let mut document: DocumentMut = "[graphics.embedded_effects.color_grade]\nlut_preset = 4\n"
+            .parse()
+            .expect("legacy document");
         save_color_grade_config(&mut document, &expected);
         let text = document.to_string();
         let value: toml::Value = toml::from_str(&text).expect("saved TOML value");
         let table = value["graphics"]["embedded_effects"]["color_grade"]
             .as_table()
             .expect("color-grade table");
-        assert_eq!(table.len(), 18);
+        assert_eq!(table.len(), 26);
+        assert!(!table.contains_key("lut_preset"));
 
         let decoded: PsychoGraphicsConfig = toml::from_str(&text).expect("saved menu document");
         assert_eq!(
@@ -1543,6 +1638,31 @@ albedo_saturation = 1.02
                 .expect("serialize shipped grade"),
             toml::to_string(&ColorGradeConfig::default()).expect("serialize default grade")
         );
+    }
+
+    #[test]
+    fn shipped_bloom_values_match_the_subtle_mojave_tuning_contract() {
+        let shipped: PsychoGraphicsConfig =
+            toml::from_str(include_str!("../config/omv.toml")).expect("shipped OMV config");
+        let actual = shipped.graphics.embedded_effects.blooming_hdr;
+        let expected = BloomingHdrConfig::default();
+        assert_eq!(actual.bloom_intensity, expected.bloom_intensity);
+        assert_eq!(actual.bright_threshold, expected.bright_threshold);
+        assert_eq!(actual.radius_pixels, expected.radius_pixels);
+        assert_eq!(actual.soft_knee, expected.soft_knee);
+        assert_eq!(actual.exposure_bias, expected.exposure_bias);
+        assert_eq!(actual.highlight_shoulder, expected.highlight_shoulder);
+        assert_eq!(actual.saturation, expected.saturation);
+        assert_eq!(actual.warmth, expected.warmth);
+        assert_eq!(actual.shadow_lift, expected.shadow_lift);
+        assert_eq!(actual.dither, expected.dither);
+        assert_eq!(actual.atmosphere, expected.atmosphere);
+        assert!(actual.bright_threshold >= 0.60);
+        assert!(actual.bloom_intensity <= 0.40);
+        assert!((0.85..=1.0).contains(&actual.saturation));
+        assert!(actual.warmth <= 0.20);
+        assert!(ColorGradeConfig::default().lut_strength <= 0.45);
+        assert!(!ColorGradeConfig::default().chromatic_aberration_enabled);
     }
 
     #[test]

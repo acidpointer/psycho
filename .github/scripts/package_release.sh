@@ -26,6 +26,7 @@ OMV_PATH="$WORKSPACE_DIR/target/$TARGET/release/$OMV_DLL"
 CONFIG_PATH="$WORKSPACE_DIR/psycho-engine-fixes/config/$CONFIG_FILE"
 OMV_CONFIG_PATH="$WORKSPACE_DIR/omv/config/$OMV_CONFIG_FILE"
 OMV_SHADER_SOURCE_DIR="$WORKSPACE_DIR/omv/shaders/runtime"
+OMV_LUT_SOURCE_DIR="$WORKSPACE_DIR/omv/luts"
 
 CORE_ARCHIVE="psycho-engine-fixes-$VERSION.zip"
 HELPER_ARCHIVE="psycho-engine-fixes-nvse-helper-$VERSION.zip"
@@ -42,6 +43,10 @@ for path in "$LOADER_PATH" "$CORE_PATH" "$HELPER_PATH" "$OMV_PATH" "$CONFIG_PATH
 done
 if [[ ! -d "$OMV_SHADER_SOURCE_DIR" ]]; then
     echo "ERROR: missing release input directory: $OMV_SHADER_SOURCE_DIR" >&2
+    exit 1
+fi
+if [[ ! -d "$OMV_LUT_SOURCE_DIR" ]]; then
+    echo "ERROR: missing release input directory: $OMV_LUT_SOURCE_DIR" >&2
     exit 1
 fi
 
@@ -77,6 +82,7 @@ pack_dir "$STAGING/helper" "$HELPER_ARCHIVE"
 
 # OMV xNVSE plugin, configuration, and loose runtime shaders.
 mkdir -p "$STAGING/omv/Data/NVSE/plugins/omv/shaders"
+mkdir -p "$STAGING/omv/Data/NVSE/plugins/omv/luts"
 cp "$OMV_PATH" "$STAGING/omv/Data/NVSE/plugins/$OMV_DLL"
 cp "$OMV_CONFIG_PATH" "$STAGING/omv/Data/NVSE/plugins/omv/$OMV_CONFIG_FILE"
 find "$OMV_SHADER_SOURCE_DIR" \
@@ -84,6 +90,11 @@ find "$OMV_SHADER_SOURCE_DIR" \
     -type f \
     \( -iname '*.hlsl' -o -iname '*.pso' -o -iname '*.cso' -o -iname '*.toml' \) \
     -exec cp '{}' "$STAGING/omv/Data/NVSE/plugins/omv/shaders/" \;
+find "$OMV_LUT_SOURCE_DIR" \
+    -maxdepth 1 \
+    -type f \
+    -iname '*.cube' \
+    -exec cp '{}' "$STAGING/omv/Data/NVSE/plugins/omv/luts/" \;
 pack_dir "$STAGING/omv" "$OMV_ARCHIVE"
 
 echo "Release archives:"

@@ -12,17 +12,23 @@ Close terrain PBR is still experimental. OMV may replace the VPT close-terrain e
 
 The last close-terrain runtime gate attempt was a failed fix: it caused about `-40 FPS` and produced no useful visual improvement.
 
-The current portable point-light correction uses an OMV-only static-proof
-deployment model. At an admitted OMV close-terrain draw, it merges eligible
-general active lights that are absent from the current pass, deduplicates by
-native `NiLight*`, and uploads them through disjoint OMV constants. If a
-zero-native-point row also produces no property-local supplement, a bounded
-fallback scans the engine's manager-wide list for active shadow-classified
-candidates. It does not patch, compile, version-check, or mutate VPT.
-No PBR continuity capture subsystem, diagnostic-only game build, per-draw D3D
-readback, or engine-list telemetry is part of this correction. One ordinary
-playtest still validates final pixels and the dynamic multibound result; static
-tests must not be described as proof of runtime pixels.
+The current portable point-light correction uses an OMV-only implementation.
+At an admitted OMV close-terrain draw, it merges eligible general active lights
+that are absent from the current pass, deduplicates by native `NiLight*`, and
+uploads them through disjoint OMV constants. A zero-native-point fallback reads
+only copied scalar values published from the stable world-light transaction;
+it never walks or retains the manager list during a terrain draw.
+
+The previous manager-only correction was disproven by runtime observation: a
+deployed build still produced zero terrain response while the same Pip-Boy
+light illuminated objects. Static reinspection found two independent native
+contract violations in the draw path: property `+0x6C < 1` was incorrectly
+treated as light suppression, and OMV called the native geometry-matrix builder
+with a null second argument instead of `geometry+0xBC`. Both are corrected and
+covered by source-linked regression tests. No diagnostic game build, per-draw
+D3D readback, allocation, blocking lock, or raw manager-list traversal is part
+of the correction. One ordinary playtest still must validate final pixels and
+the live multibound result; static tests are not proof of runtime pixels.
 
 ## Ground Truth
 
@@ -42,6 +48,8 @@ Use these sources before making terrain or lighting changes:
 - `analysis/ghidra/output/perf/graphics_fnv_close_terrain_portable_light_classification_audit.txt`
 - `analysis/ghidra/output/perf/graphics_fnv_close_terrain_pipboy_light_0147_shadow_path_audit.txt`
 - `analysis/ghidra/output/perf/graphics_fnv_volumetric_local_light_value_copy_contract_audit.txt`
+- `analysis/ghidra/output/perf/graphics_fnv_volumetric_local_manager_epoch_contract_followup.txt`
+- `analysis/ghidra/output/perf/graphics_fnv_pbr_light_selection_continuity_closure.txt`
 - `analysis/shaders_disasm/shaderpackage019/SLS2092.pso.dis`
 - `analysis/shaders_disasm/shaderpackage019/SLS2100.pso.dis`
 - `analysis/shaders_disasm/shaderpackage019/SLS2140.pso.dis`
@@ -270,7 +278,7 @@ Cause:
 
 Projected-shadow, point-light, SI, LandO, and landlo-fog rows were treated as if they owned the same texture-array contract as base landscape. These rows can change with distance and active lights.
 
-For the separately proven VPT point-light landscape rows, `PointLightColor.a` carries the scene light's runtime fade. Using only `.rgb`, as the NVR reference shader does, turns cell/light-list transitions into visible chunk-shaped steps. OMV must multiply each point-light contribution by the saturated alpha fade.
+For the separately proven VPT point-light landscape rows, `PointLightColor.a` carries the scene light's runtime fade. OMV preserves that saturated alpha fade for lights already admitted by the native VPT pass. This rule does not extend to an OMV supplemental light that the VPT non-shadow iterator omitted: the VPT terrain shader consumes staged point-light RGB without alpha, and applying the omitted light's shadow/pass fade a second time can make valid illumination permanently black.
 
 The vanilla package-19 terrain shaders expose a separate normal-blending
 contract. `SLS2092`, `SLS2100`, and `SLS2140` subtract `0.5` from every encoded
@@ -283,39 +291,96 @@ visible at night as black dirt beside correctly lit asphalt. OMV now implements
 the vanilla center-before-weight equation directly.
 
 The property-local general iterator is not sufficient for every admitted
-terrain draw. Ghidra proves that `ShadowSceneNode+0xB4` is the manager-wide
-`ShadowSceneLight` list, with linked-list next at `+0x00`, value at `+0x08`, and
-native `NiLight*` identity at scene-light `+0xF8`. The non-shadow iterator
-explicitly excludes scene lights whose shadow class at `+0xEC` equals one,
-while active state at `+0x110` rejects `0x00FF`. When a zero-native-point row's
-property-local scan finds no missing candidate, OMV therefore performs one
-bounded manager scan for active shadow-classified lights and applies the same
-identity, `IsLit`, point, ambient, multibound, finite-value, capacity,
-transform, and fade filters. This is capability-based and contains no Pip-Boy
-form ID or VPT version dependency.
+terrain draw. Static analysis proves that `ShadowSceneNode+0xB4` is the
+manager-wide `ShadowSceneLight` list, with linked-list next at `+0x00`, value at
+`+0x08`, and native `NiLight*` identity at scene-light `+0xF8`. Active state at
+`+0x110` rejects `0x00FF`. Scene-light `+0xEC` instead owns mutable
+shadow-casting state: the setter at `0x00B9DCB0` accepts both zero and one, and
+the non-shadow iterator merely excludes the value one. The first portable-light
+correction incorrectly required `+0xEC == 1`; removing that gate was correct,
+but runtime observation proved it was not the cause of the zero-response bug.
+
+The list is safe to inspect only while the engine owns the synchronous world
+light/shadow transaction at `0x00871290`. OMV now copies at most the first 64
+manager entries there into a fixed scalar epoch. It publishes only native
+identity, class flags, relative position, radius, diffuse RGB, dimmer, LOD
+dimmer, and fade, tagged with the current render epoch and D3D device. The
+terrain draw consumes the epoch through `try_lock` only when both tags match;
+no manager node, `ShadowSceneLight*`, or `NiLight*` is dereferenced after
+publication. A busy, stale, reset, or foreign-device epoch fails closed to no
+manager supplement.
+
+The zero terrain response came from later value staging. At `0x00B78A9E`, the
+engine loads `BSLightingShaderProperty+0x6C` and passes it to `0x00B70820`. For
+a point light, a value below one does not suppress illumination:
+`0x00B70C89..0x00B70CAD` substitutes RGB globals
+`0x011F4998/0x011F499C/0x011F49A0`, while `ShadowSceneLight+0xD4` remains the
+fade alpha. OMV previously rejected the candidate at this exact boundary, so a
+valid Pip-Boy light could reach the merge and still yield an empty constant
+payload. OMV now reproduces the native override-color branch.
+
+A subsequent 2026-07-21 runtime rejection exposed another independent staging
+defect. `omv-latest.log` proved that the replacement was active on the exact
+two-texture, zero-native-point row (`vertex=C[100]`, `pixel=B[100]`) while the
+scene-wide capture later reported one usable local light. The existing test
+named `zero_native_light_night_terrain_still_receives_local_pbr_diffuse` did
+not exercise that handoff: it tested only the terrain normal equation and
+source strings, without producing a manager light, writing `c91..c93`, or
+applying color alpha as the shader does.
+
+Static code and executable evidence close that gap. `FUN_00B9E970` can write
+zero to `ShadowSceneLight+0xD4`; this value owns native light/shadow transition
+state, not whether an omitted manager light physically exists. VPT's
+`TerrainTemplate.hlsl` consumes `PointLightColor[i].rgb` and never consumes
+`.a`. OMV instead copied `+0xD4` into every supplemental color and its unified
+loop multiplied RGB by that alpha. A shadow-classified Pip-Boy light omitted by
+the non-shadow landscape builder could therefore be recovered correctly and
+then be turned back into black by OMV itself.
+
+Supplemental terrain constants now carry explicit visibility `1.0` in color
+alpha. Native pass lights still use their saturated native alpha, so this does
+not remove the admitted-row transition behavior or invent a second fade. The
+regression test starts with a zero-native row and a copied manager Pip-Boy-like
+point light whose native fade is zero, runs the production merge and constant
+serializer, then evaluates the shader's attenuation, normal incidence, and
+alpha gate. It failed before the fix with alpha and luminance both zero and
+passes only when the uploaded supplemental light remains positive.
+
+Native position staging also calls
+`0x00C4C2D0(geometry+0x68, *(geometry+0xBC), output)` at
+`0x00B7DB43..0x00B7DB48`. The second argument selects a meaningful non-null
+branch beginning at `0x00C4C4A8`; passing null, as the prior OMV code did,
+builds a different transform and can move the light out of the terrain's local
+space. OMV now passes the exact `geometry+0xBC` context pointer.
 
 The final light/shadow continuity closure separates two native systems that must not be conflated. `FUN_00B70390` stable-sorts each PPLighting property's light list by the normalized camera-relative sphere-separation metric from `FUN_00B9DBE0`; equal metrics keep the existing order, while a real crossing reorders the list and invalidates cached pass state. This general light-list truncation has no outgoing-light cross-fade. In contrast, shadow candidates use target direction `+0xD8` and elapsed transition time `+0xDC`: `FUN_00B9BB10` preserves the current fade when direction reverses, and `FUN_00B9E970` advances and applies that fade before dirtying attached PPLighting properties at membership boundaries. `FUN_00B717A0` removes a rejected candidate from an eligible property's light list and marks that property dirty.
 
-This evidence does not justify adding hysteresis to the native light comparator or a second shadow fade. Either change would alter vanilla selection without proving a PBR contract failure. A residual PBR-only blink must first identify the changing replacement row and staged light/resource values against the same native draw; preserve the existing shadow transition and the VPT point-light alpha fade.
+This evidence does not justify adding hysteresis to the native light comparator or a second shadow fade. Either change would alter vanilla selection without proving a PBR contract failure. A residual PBR-only blink must first identify the changing replacement row and staged light/resource values against the same native draw; preserve the existing shadow transition for native pass lights, but do not reuse it as visibility for an OMV-recovered light that the native pass omitted.
 
 Do not repeat:
 
 - Do not replace projected-shadow, point-light, SI, LandO, or landlo-fog rows until independently proven.
 - Do not bind terrain samplers onto light-resource rows.
-- Do not discard the proven VPT point-light alpha fade after a point-light row is admitted.
+- Do not discard the proven VPT point-light alpha fade after a point-light row is admitted, and do not apply an omitted light's native shadow/pass fade as supplemental visibility.
 - Do not decode one final encoded terrain-normal blend unless the engine
   contract proves the layer weights sum to one. Center every sample before its
   weight, as the vanilla bytecode does.
 - Do not add comparator hysteresis or an independent shadow fade to hide an unidentified PBR-only transition.
 - Do not special-case the Pip-Boy form or a VPT version. Recover missing lights
   through proven engine classification and native identity.
+- Do not interpret `BSLightingShaderProperty+0x6C < 1` as darkness. Preserve
+  the native point-light override RGB branch and its independent fade alpha.
+- Do not call `0x00C4C2D0` with a guessed null context. Pass
+  `geometry+0x68` and the pointer stored at `geometry+0xBC`.
+- Do not walk `ShadowSceneNode+0xB4` from a terrain draw. Copy bounded scalar
+  values at the proven `0x00871290` transaction and reject stale epochs.
 
 Correct fix path:
 
 - Prove each light/shadow row independently: resources, constants, samplers, fallback, and pass ownership.
 - Keep these rows vanilla until proven.
 - If PBR needs light integration, derive it from the proven NVR shader contract, not from shader name similarity.
-- For proven VPT point-light landscape rows, preserve both the RGB light color and the alpha fade contract.
+- For proven VPT point-light landscape rows, preserve both the RGB light color and the alpha fade contract for native pass lights. Give OMV-only supplemental lights explicit visibility rather than inheriting the fade of the path that omitted them.
 - For missing portable close-terrain illumination in OMV PBR, enumerate the
   proven general active list only at OMV's admitted replacement draw,
   explicitly accept point/non-ambient candidates, preserve `IsLit()` plus
@@ -326,8 +391,10 @@ Correct fix path:
   `c91..c139`.
 - Keep the manager fallback allocation-free and bounded. Run it only when the
   current pass has zero native point lights and the property-local scan
-  produced no supplement, accept only active shadow-classified entries, and
-  reuse every normal candidate filter.
+  produced no supplement, accept every active copied manager entry regardless
+  of mutable shadow-casting state, and reuse every normal candidate filter.
+- Preserve the native property-scalar and matrix-call ABI with tests tied to
+  the static evidence, not merely self-consistent math fixtures.
 - Compile every registered close-terrain variant and retain tight bytecode,
   instruction-count, and exact texture-sample budgets for representative
   one-layer/seven-layer and zero-light/24-light extremes.

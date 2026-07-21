@@ -934,6 +934,9 @@ dependencies = [
  "libnvse",
  "libpsycho",
  "log",
+ "parking_lot",
+ "psycho-imgui",
+ "toml_edit",
 ]
 
 [[package]]

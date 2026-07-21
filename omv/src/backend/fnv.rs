@@ -190,6 +190,18 @@ pub(super) fn world_camera_frame(width: u32, height: u32) -> Option<CameraFrame>
 pub(crate) struct WorldCameraJitter {
     camera: *mut u8,
     frustum: [f32; 4],
+    projection: CameraFrame,
+    unjittered_projection: CameraFrame,
+}
+
+impl WorldCameraJitter {
+    pub(crate) fn projection(&self) -> CameraFrame {
+        self.projection
+    }
+
+    pub(crate) fn unjittered_projection(&self) -> CameraFrame {
+        self.unjittered_projection
+    }
 }
 
 impl Drop for WorldCameraJitter {
@@ -238,56 +250,44 @@ pub(super) unsafe fn jitter_world_camera(
     )
     .ok()?;
 
+    let desc = D3DSURFACE_DESC {
+        Width: width,
+        Height: height,
+        ..D3DSURFACE_DESC::default()
+    };
+    let original = unsafe { read_camera_frame_from_ptr(camera, &desc)? };
+    let projection = original.with_pixel_jitter(jitter_pixels, width, height)?;
     let frustum = [
-        unsafe {
-            camera
-                .add(NICAMERA_FRUSTUM_LEFT_OFFSET)
-                .cast::<f32>()
-                .read()
-        },
-        unsafe {
-            camera
-                .add(NICAMERA_FRUSTUM_RIGHT_OFFSET)
-                .cast::<f32>()
-                .read()
-        },
-        unsafe { camera.add(NICAMERA_FRUSTUM_TOP_OFFSET).cast::<f32>().read() },
-        unsafe {
-            camera
-                .add(NICAMERA_FRUSTUM_BOTTOM_OFFSET)
-                .cast::<f32>()
-                .read()
-        },
+        original.frustum_left,
+        original.frustum_right,
+        original.frustum_top,
+        original.frustum_bottom,
     ];
-    if !frustum.iter().all(|value| value.is_finite())
-        || frustum[1] <= frustum[0]
-        || frustum[2] <= frustum[3]
-    {
-        return None;
-    }
-
-    let offset_x = (frustum[1] - frustum[0]) * jitter_pixels[0] / width as f32;
-    let offset_y = (frustum[2] - frustum[3]) * jitter_pixels[1] / height as f32;
     unsafe {
         camera
             .add(NICAMERA_FRUSTUM_LEFT_OFFSET)
             .cast::<f32>()
-            .write(frustum[0] + offset_x);
+            .write(projection.frustum_left);
         camera
             .add(NICAMERA_FRUSTUM_RIGHT_OFFSET)
             .cast::<f32>()
-            .write(frustum[1] + offset_x);
+            .write(projection.frustum_right);
         camera
             .add(NICAMERA_FRUSTUM_TOP_OFFSET)
             .cast::<f32>()
-            .write(frustum[2] - offset_y);
+            .write(projection.frustum_top);
         camera
             .add(NICAMERA_FRUSTUM_BOTTOM_OFFSET)
             .cast::<f32>()
-            .write(frustum[3] - offset_y);
+            .write(projection.frustum_bottom);
     }
 
-    Some(WorldCameraJitter { camera, frustum })
+    Some(WorldCameraJitter {
+        camera,
+        frustum,
+        projection,
+        unjittered_projection: original,
+    })
 }
 
 pub(super) fn rendered_texture_color_surface(rendered_texture: *mut c_void) -> Option<*mut c_void> {
@@ -298,6 +298,7 @@ pub(super) unsafe fn resolve_scene_depth(
     device_ptr: *mut c_void,
     source_rendered_texture: Option<*mut c_void>,
     slot: DepthResolveSlot,
+    world_projection_override: Option<CameraFrame>,
     reason: &'static str,
     render_epoch: u32,
 ) -> DepthResolveOutcome {
@@ -305,7 +306,15 @@ pub(super) unsafe fn resolve_scene_depth(
         return DepthResolveOutcome::Busy;
     };
     resolve.begin_epoch(render_epoch);
-    match unsafe { resolve.resolve(device_ptr, source_rendered_texture, slot, reason) } {
+    match unsafe {
+        resolve.resolve(
+            device_ptr,
+            source_rendered_texture,
+            slot,
+            world_projection_override,
+            reason,
+        )
+    } {
         Ok(()) => DepthResolveOutcome::Resolved {
             depth: resolve.depth_frame(),
             underwater: published_underwater_frame(resolve.frame_epoch),
@@ -480,6 +489,26 @@ unsafe fn read_camera_frame_from_ptr(
         world_transform,
         available: true,
     })
+}
+
+fn projection_matches_surface(camera: CameraFrame, desc: &D3DSURFACE_DESC) -> bool {
+    if !camera.available || desc.Width == 0 || desc.Height == 0 {
+        return false;
+    }
+    let expected_aspect = desc.Width as f32 / desc.Height as f32;
+    let aspect_tolerance = expected_aspect.abs().max(1.0) * 0.001;
+    camera.near_z.is_finite()
+        && camera.far_z.is_finite()
+        && camera.near_z > 0.0
+        && camera.far_z > camera.near_z
+        && camera.aspect_ratio.is_finite()
+        && (camera.aspect_ratio - expected_aspect).abs() <= aspect_tolerance
+        && camera.frustum_left.is_finite()
+        && camera.frustum_right.is_finite()
+        && camera.frustum_bottom.is_finite()
+        && camera.frustum_top.is_finite()
+        && camera.frustum_right > camera.frustum_left
+        && camera.frustum_top > camera.frustum_bottom
 }
 
 unsafe fn read_camera_world_transform_unchecked(camera: *mut u8) -> CameraTransformFrame {
@@ -1144,6 +1173,7 @@ impl FnvDepthResolve {
         device_ptr: *mut c_void,
         source_rendered_texture: Option<*mut c_void>,
         slot: DepthResolveSlot,
+        world_projection_override: Option<CameraFrame>,
         reason: &'static str,
     ) -> Result<(), FnvDepthResolveError> {
         let Some(device) = (unsafe { Device9Ref::from_raw_void(device_ptr) }) else {
@@ -1173,6 +1203,7 @@ impl FnvDepthResolve {
                 device_ptr,
                 source_surface,
                 slot,
+                world_projection_override,
                 reason,
                 source_label,
             )
@@ -1185,6 +1216,7 @@ impl FnvDepthResolve {
         device_ptr: *mut c_void,
         source_surface: *mut c_void,
         slot: DepthResolveSlot,
+        world_projection_override: Option<CameraFrame>,
         reason: &'static str,
         source_label: &'static str,
     ) -> Result<(), FnvDepthResolveError> {
@@ -1202,14 +1234,22 @@ impl FnvDepthResolve {
             return Err(FnvDepthResolveError::Static("empty depth surface"));
         }
         let depth_function = device.render_state(D3DRS_ZFUNC).ok();
-        let camera = match slot {
-            DepthResolveSlot::World => unsafe { read_world_camera_frame(&desc) },
-            DepthResolveSlot::FirstPerson => unsafe { read_camera_frame(&desc) },
-        }
-        .ok_or(FnvDepthResolveError::Static(match slot {
-            DepthResolveSlot::World => "missing persistent world camera projection",
-            DepthResolveSlot::FirstPerson => "missing first-person camera projection",
-        }))?;
+        let camera = match (slot, world_projection_override) {
+            (DepthResolveSlot::World, Some(camera)) => {
+                if !projection_matches_surface(camera, &desc) {
+                    return Err(FnvDepthResolveError::Static(
+                        "invalid world camera projection override",
+                    ));
+                }
+                camera
+            }
+            (DepthResolveSlot::World, None) => unsafe { read_world_camera_frame(&desc) }.ok_or(
+                FnvDepthResolveError::Static("missing persistent world camera projection"),
+            )?,
+            (DepthResolveSlot::FirstPerson, _) => unsafe { read_camera_frame(&desc) }.ok_or(
+                FnvDepthResolveError::Static("missing first-person camera projection"),
+            )?,
+        };
         let projection = DepthProjectionFrame {
             camera,
             reversed_depth: depth_convention(depth_function),

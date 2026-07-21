@@ -102,6 +102,24 @@ pub enum Condition {
     Appearing = 1 << 3,
 }
 
+/// Presentation data for the compact diagnostics timeline component.
+pub struct TelemetryChart<'a> {
+    pub values: &'a [f32],
+    pub scale_min: f32,
+    pub scale_max: f32,
+    pub width: f32,
+    pub height: f32,
+    pub warning_threshold: f32,
+    pub critical_threshold: f32,
+    pub danger_below: bool,
+    pub sample_interval_seconds: f32,
+    pub line_color: [f32; 4],
+    pub fill_color: [f32; 4],
+    pub warning_label: &'a CStr,
+    pub critical_label: &'a CStr,
+    pub value_suffix: &'a CStr,
+}
+
 impl Ui<'_> {
     pub fn set_next_window_size(&mut self, width: f32, height: f32, condition: Condition) {
         unsafe {
@@ -155,6 +173,12 @@ impl Ui<'_> {
         Child { visible }
     }
 
+    pub fn child_horizontal(&mut self, id: &CStr, width: f32, height: f32, border: bool) -> Child {
+        let visible =
+            unsafe { ffi::psycho_imgui_begin_child_horizontal(id.as_ptr(), width, height, border) };
+        Child { visible }
+    }
+
     pub fn text(&mut self, text: &CStr) {
         unsafe { ffi::psycho_imgui_text_unformatted(text.as_ptr()) };
     }
@@ -166,6 +190,19 @@ impl Ui<'_> {
     pub fn text_colored(&mut self, rgba: [f32; 4], text: &CStr) {
         unsafe {
             ffi::psycho_imgui_text_colored(rgba[0], rgba[1], rgba[2], rgba[3], text.as_ptr())
+        };
+    }
+
+    pub fn label_value(&mut self, label: &CStr, value: &CStr, rgba: [f32; 4]) {
+        unsafe {
+            ffi::psycho_imgui_label_value(
+                label.as_ptr(),
+                value.as_ptr(),
+                rgba[0],
+                rgba[1],
+                rgba[2],
+                rgba[3],
+            )
         };
     }
 
@@ -261,6 +298,14 @@ impl Ui<'_> {
         unsafe { ffi::psycho_imgui_selectable(label.as_ptr(), selected) }
     }
 
+    pub fn begin_combo(&mut self, label: &CStr, preview: &CStr) -> bool {
+        unsafe { ffi::psycho_imgui_begin_combo(label.as_ptr(), preview.as_ptr()) }
+    }
+
+    pub fn end_combo(&mut self) {
+        unsafe { ffi::psycho_imgui_end_combo() };
+    }
+
     pub fn button(&mut self, label: &CStr) -> bool {
         unsafe { ffi::psycho_imgui_button(label.as_ptr()) }
     }
@@ -317,6 +362,27 @@ impl Ui<'_> {
         };
     }
 
+    pub fn telemetry_chart(&mut self, id: &CStr, chart: &TelemetryChart<'_>) {
+        let raw = RawTelemetryChart {
+            values: chart.values.as_ptr(),
+            count: chart.values.len() as i32,
+            scale_min: chart.scale_min,
+            scale_max: chart.scale_max,
+            width: chart.width,
+            height: chart.height,
+            warning_threshold: chart.warning_threshold,
+            critical_threshold: chart.critical_threshold,
+            danger_below: i32::from(chart.danger_below),
+            sample_interval_seconds: chart.sample_interval_seconds,
+            line_color: chart.line_color,
+            fill_color: chart.fill_color,
+            warning_label: chart.warning_label.as_ptr(),
+            critical_label: chart.critical_label.as_ptr(),
+            value_suffix: chart.value_suffix.as_ptr(),
+        };
+        unsafe { ffi::psycho_imgui_telemetry_chart(id.as_ptr(), &raw) };
+    }
+
     pub fn push_item_width(&mut self, width: f32) -> ItemWidth {
         unsafe { ffi::psycho_imgui_push_item_width(width) };
         ItemWidth {
@@ -326,6 +392,11 @@ impl Ui<'_> {
 
     pub fn same_line(&mut self) {
         unsafe { ffi::psycho_imgui_same_line() };
+    }
+
+    /// Scroll the current window/child to its bottom edge.
+    pub fn scroll_to_bottom(&mut self) {
+        unsafe { ffi::psycho_imgui_scroll_to_bottom() };
     }
 }
 
@@ -394,6 +465,25 @@ struct RawIoState {
     want_capture_keyboard: bool,
 }
 
+#[repr(C)]
+struct RawTelemetryChart {
+    values: *const f32,
+    count: i32,
+    scale_min: f32,
+    scale_max: f32,
+    width: f32,
+    height: f32,
+    warning_threshold: f32,
+    critical_threshold: f32,
+    danger_below: i32,
+    sample_interval_seconds: f32,
+    line_color: [f32; 4],
+    fill_color: [f32; 4],
+    warning_label: *const c_char,
+    critical_label: *const c_char,
+    value_suffix: *const c_char,
+}
+
 impl From<RawIoState> for IoState {
     fn from(value: RawIoState) -> Self {
         Self {
@@ -404,7 +494,7 @@ impl From<RawIoState> for IoState {
 }
 
 mod ffi {
-    use super::{RawIoState, c_char, c_void};
+    use super::{RawIoState, RawTelemetryChart, c_char, c_void};
 
     unsafe extern "C" {
         pub fn psycho_imgui_init_dx9(hwnd: *mut c_void, device: *mut c_void) -> bool;
@@ -440,10 +530,24 @@ mod ffi {
             height: f32,
             border: bool,
         ) -> bool;
+        pub fn psycho_imgui_begin_child_horizontal(
+            id: *const c_char,
+            width: f32,
+            height: f32,
+            border: bool,
+        ) -> bool;
         pub fn psycho_imgui_end_child();
         pub fn psycho_imgui_text_unformatted(text: *const c_char);
         pub fn psycho_imgui_text_wrapped(text: *const c_char);
         pub fn psycho_imgui_text_colored(r: f32, g: f32, b: f32, a: f32, text: *const c_char);
+        pub fn psycho_imgui_label_value(
+            label: *const c_char,
+            value: *const c_char,
+            r: f32,
+            g: f32,
+            b: f32,
+            a: f32,
+        );
         pub fn psycho_imgui_separator();
         pub fn psycho_imgui_separator_text(label: *const c_char);
         pub fn psycho_imgui_spacing();
@@ -486,6 +590,8 @@ mod ffi {
             fast_step: i32,
         ) -> bool;
         pub fn psycho_imgui_selectable(label: *const c_char, selected: bool) -> bool;
+        pub fn psycho_imgui_begin_combo(label: *const c_char, preview: *const c_char) -> bool;
+        pub fn psycho_imgui_end_combo();
         pub fn psycho_imgui_button(label: *const c_char) -> bool;
         pub fn psycho_imgui_button_colored(
             label: *const c_char,
@@ -517,8 +623,10 @@ mod ffi {
             width: f32,
             height: f32,
         );
+        pub fn psycho_imgui_telemetry_chart(id: *const c_char, chart: *const RawTelemetryChart);
         pub fn psycho_imgui_push_item_width(width: f32);
         pub fn psycho_imgui_pop_item_width();
         pub fn psycho_imgui_same_line();
+        pub fn psycho_imgui_scroll_to_bottom();
     }
 }

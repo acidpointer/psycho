@@ -109,15 +109,18 @@ enclosed by OMV's D3D9 state block.
 
 Temporal AA uses the engine-side contract proven from the FNV render path. OMV
 jitters the active world `NiCamera` frustum, captures the matching world depth,
-and resolves history before the first-person scene and UI are rendered. It owns
-a current-color copy, two full-resolution FP16 color histories, and two paired
-R16F depth-key histories. Depth rejection never borrows the engine-owned scene
-alpha channel. Capture gaps, large camera cuts, resize, and resource failure
-invalidate color and depth-key history together. A newly enabled or resized
-pipeline renders an unjittered priming frame; jitter starts only after the depth
-convention, camera transform, and temporal shader have all succeeded. The
-GShade shader named TAA is a work-in-progress temporal blur, so OMV does not use
-it as the temporal implementation.
+and resolves history before the first-person scene and UI are rendered. Depth
+reconstruction retains that sampled projection, while temporal reprojection
+uses the paired unjittered output projection so a stationary camera always has
+zero screen motion across Halton phases. It owns a current-color copy, two
+full-resolution FP16 color histories, and two paired R16F depth-key histories.
+Depth rejection never borrows the engine-owned scene alpha channel. Capture
+gaps, large camera cuts, resize, and resource failure invalidate color and
+depth-key history together. A newly enabled or resized pipeline renders an
+unjittered priming frame; jitter starts only after the depth convention, camera
+transform, and temporal shader have all succeeded. The GShade shader named TAA
+is a work-in-progress temporal blur, so OMV does not use it as the temporal
+implementation.
 
 ## Volumetric Atmosphere
 

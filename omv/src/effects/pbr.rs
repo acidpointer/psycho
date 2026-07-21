@@ -628,6 +628,7 @@ fn store_terrain_options(settings: NativePbrSettings) {
     CLOSE_TERRAIN_ENABLED.store(settings.enabled, Ordering::Release);
     TERRAIN_FADE_ENABLED.store(settings.enabled, Ordering::Release);
     TERRAIN_LOD_ENABLED.store(settings.enabled, Ordering::Release);
+    crate::fnv_local_lights::configure_terrain(settings.enabled);
 }
 
 fn sanitize_scale(value: f32, fallback: f32, min: f32, max: f32) -> f32 {

@@ -9,11 +9,12 @@ use libpsycho::os::windows::directx9::{
     D3DSAMP_MIPFILTER, D3DSAMP_SRGBTEXTURE, D3DSURFACE_DESC, D3DTA_TEXTURE, D3DTADDRESS_CLAMP,
     D3DTEXF_LINEAR, D3DTEXF_NONE, D3DTEXF_POINT, D3DTOP_SELECTARG1, D3DTSS_ALPHAARG1,
     D3DTSS_ALPHAOP, D3DTSS_COLORARG1, D3DTSS_COLOROP, D3DVIEWPORT9, Device9Ref, Direct3DResult,
-    PixelShader9, ScreenVertex, Surface9, Texture9, direct3d_failure,
+    PixelShader9, ScreenVertex, Surface9, Texture9,
 };
 
 use crate::{
     backend::{DepthTexture, FrameInputs},
+    luts::LutAsset,
     shaders::{self, ScreenShaderSource, ShaderOptionValue},
 };
 
@@ -21,53 +22,104 @@ const COLOR_WRITE_ALL: u32 = 0x0F;
 const EFFECT_CONSTANT_REGISTER: u32 = 9;
 const BLOOM_SCALE: u32 = 4;
 const COLOR_GRADE_CONSTANT_REGISTER: u32 = 10;
+#[cfg(test)]
 const LUT_SIZE: u32 = 32;
+#[cfg(test)]
 const LUT_COUNT: usize = 5;
 const AMD_ALPHA_TO_COVERAGE_OFF: u32 = 0x4143_5446;
 
 const EXTRACT_SHADER: &[u8] = include_bytes!("../../shaders/embedded/bloom_hdr_extract.hlsl");
 const BLUR_SHADER: &[u8] = include_bytes!("../../shaders/embedded/bloom_hdr_blur.hlsl");
 const COMPOSE_SHADER: &[u8] = include_bytes!("../../shaders/embedded/bloom_hdr_compose.hlsl");
+const CHROMATIC_SHADER: &[u8] = include_bytes!("../../shaders/embedded/chromatic_aberration.hlsl");
 
+fn chromatic_aberration_active(source: &ScreenShaderSource) -> bool {
+    source.enabled
+        && source_option_float(source, "strength", 0.0) > 1.0e-5
+        && source_option_bool(source, "chromatic_aberration_enabled", false)
+        && source_option_float(source, "chromatic_aberration", 0.0) > 1.0e-5
+}
+
+#[cfg(test)]
 pub(crate) fn color_grade_source_active(source: &ScreenShaderSource) -> bool {
-    source.enabled && source_option_float(source, "strength", 0.0) > 1.0e-5
+    color_grade_source_active_with_lut(source, true)
+}
+
+fn color_grade_source_active_with_lut(source: &ScreenShaderSource, lut_available: bool) -> bool {
+    if !source.enabled || source_option_float(source, "strength", 0.0) <= 1.0e-5 {
+        return false;
+    }
+    source_option_bool(source, "color_grading_enabled", false)
+        || (lut_available
+            && source_option_bool(source, "lut_enabled", false)
+            && source_option_float(source, "lut_strength", 0.0) > 1.0e-5)
+        || (source_option_bool(source, "deband_enabled", false)
+            && source_option_float(source, "deband", 0.0) > 1.0e-5)
+        || (source_option_bool(source, "film_grain_enabled", false)
+            && source_option_float(source, "film_grain", 0.0) > 1.0e-5)
+        || (source_option_bool(source, "vignette_enabled", false)
+            && source_option_float(source, "vignette", 0.0) > 1.0e-5)
+        || (source_option_bool(source, "halation_enabled", false)
+            && source_option_float(source, "halation", 0.0) > 1.0e-5)
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct FinalColorWorkPlan {
     bloom: bool,
+    bloom_intermediate: bool,
     color_grade: bool,
+    chromatic_aberration: bool,
 }
 
 impl FinalColorWorkPlan {
+    #[cfg(test)]
     pub(crate) fn from_sources(
         bloom_source: Option<&ScreenShaderSource>,
         color_grade_source: Option<&ScreenShaderSource>,
     ) -> Self {
+        Self::from_sources_with_lut_available(bloom_source, color_grade_source, true)
+    }
+
+    pub(crate) fn from_sources_with_lut_available(
+        bloom_source: Option<&ScreenShaderSource>,
+        color_grade_source: Option<&ScreenShaderSource>,
+        lut_available: bool,
+    ) -> Self {
+        let bloom = bloom_source.is_some_and(|source| source.enabled);
+        let halation = color_grade_source.is_some_and(|source| {
+            source.enabled
+                && source_option_float(source, "strength", 0.0) > 1.0e-5
+                && source_option_bool(source, "halation_enabled", false)
+                && source_option_float(source, "halation", 0.0) > 1.0e-5
+        });
         Self {
-            bloom: bloom_source.is_some_and(|source| source.enabled),
-            color_grade: color_grade_source.is_some_and(color_grade_source_active),
+            bloom,
+            bloom_intermediate: bloom || halation,
+            color_grade: color_grade_source
+                .is_some_and(|source| color_grade_source_active_with_lut(source, lut_available)),
+            chromatic_aberration: color_grade_source.is_some_and(chromatic_aberration_active),
         }
     }
 
     pub(crate) const fn has_work(self) -> bool {
-        self.bloom || self.color_grade
+        self.bloom || self.color_grade || self.chromatic_aberration
     }
 
     #[cfg(test)]
     const fn effect_draw_count(self) -> u32 {
-        if self.bloom {
+        let base = if self.bloom_intermediate {
             4
         } else if self.color_grade {
             1
         } else {
             0
-        }
+        };
+        base + self.chromatic_aberration as u32
     }
 
     #[cfg(test)]
     const fn quarter_resolution_draw_count(self) -> u32 {
-        if self.bloom { 3 } else { 0 }
+        if self.bloom_intermediate { 3 } else { 0 }
     }
 }
 
@@ -75,18 +127,11 @@ fn bloom_target_dimensions(width: u32, height: u32) -> (u32, u32) {
     ((width / BLOOM_SCALE).max(1), (height / BLOOM_SCALE).max(1))
 }
 
-pub(crate) fn valid_builtin_lut_pack(builtin_luts: &[Vec<u32>]) -> bool {
-    let expected_texels = (LUT_SIZE * LUT_SIZE * LUT_SIZE) as usize;
-    builtin_luts.len() == LUT_COUNT
-        && builtin_luts
-            .iter()
-            .all(|pixels| pixels.len() == expected_texels)
-}
-
 pub(crate) struct FinalColorShaderBytecode {
     extract: Vec<u32>,
     blur: Vec<u32>,
     compose: Vec<u32>,
+    chromatic: Vec<u32>,
 }
 
 impl FinalColorShaderBytecode {
@@ -95,6 +140,7 @@ impl FinalColorShaderBytecode {
             extract: prepare_shader("bloom_hdr_extract.hlsl", EXTRACT_SHADER)?,
             blur: prepare_shader("bloom_hdr_blur.hlsl", BLUR_SHADER)?,
             compose: prepare_shader("bloom_hdr_compose.hlsl", COMPOSE_SHADER)?,
+            chromatic: prepare_shader("chromatic_aberration.hlsl", CHROMATIC_SHADER)?,
         })
     }
 }
@@ -113,10 +159,10 @@ fn prepare_shader(source_name: &str, source: &[u8]) -> anyhow::Result<Vec<u32>> 
 #[cfg(test)]
 mod shader_compile_tests {
     use super::{
-        BLUR_SHADER, COMPOSE_SHADER, ColorGradeSettings, EXTRACT_SHADER, FinalColorShaderBytecode,
-        FinalColorWorkPlan, LUT_COUNT, LUT_SIZE, apply_lut_recipe, bloom_target_dimensions,
-        color_grade_source_active, fullscreen_quad, generate_builtin_lut,
-        generate_builtin_lut_pack, native_environment_weight, valid_builtin_lut_pack,
+        BLUR_SHADER, CHROMATIC_SHADER, COMPOSE_SHADER, ColorGradeSettings, EXTRACT_SHADER,
+        FinalColorShaderBytecode, FinalColorWorkPlan, LUT_COUNT, LUT_SIZE, apply_lut_recipe,
+        bloom_target_dimensions, color_grade_source_active, fullscreen_quad, generate_builtin_lut,
+        identity_lut_pixels, native_environment_weight,
     };
     use crate::{
         backend::{FrameInputs, MaterialStateFrame, NativeSkyFrame},
@@ -222,16 +268,35 @@ mod shader_compile_tests {
         y: usize,
         strength: f32,
     ) -> [f32; 3] {
-        let sample = |x: isize, y: isize| {
-            let x = x.clamp(0, width as isize - 1) as usize;
-            let y = y.clamp(0, height as isize - 1) as usize;
-            image[y * width + x]
+        let sample = |x: f32, y: f32| {
+            let low_x = x.floor() as isize;
+            let low_y = y.floor() as isize;
+            let fraction_x = x - low_x as f32;
+            let fraction_y = y - low_y as f32;
+            let texel = |x: isize, y: isize| {
+                image[y.clamp(0, height as isize - 1) as usize * width
+                    + x.clamp(0, width as isize - 1) as usize]
+            };
+            let top: [f32; 3] = std::array::from_fn(|channel| {
+                texel(low_x, low_y)[channel]
+                    + (texel(low_x + 1, low_y)[channel] - texel(low_x, low_y)[channel]) * fraction_x
+            });
+            let bottom: [f32; 3] = std::array::from_fn(|channel| {
+                texel(low_x, low_y + 1)[channel]
+                    + (texel(low_x + 1, low_y + 1)[channel] - texel(low_x, low_y + 1)[channel])
+                        * fraction_x
+            });
+            std::array::from_fn::<_, 3, _>(|channel| {
+                top[channel] + (bottom[channel] - top[channel]) * fraction_y
+            })
         };
-        let center = sample(x as isize, y as isize);
-        let left = sample(x as isize - 1, y as isize);
-        let right = sample(x as isize + 1, y as isize);
-        let up = sample(x as isize, y as isize - 1);
-        let down = sample(x as isize, y as isize + 1);
+        let strength = strength.clamp(0.0, 1.0);
+        let radius = 6.0;
+        let center = sample(x as f32, y as f32);
+        let left = sample(x as f32 - radius, y as f32);
+        let right = sample(x as f32 + radius, y as f32);
+        let up = sample(x as f32, y as f32 - radius);
+        let down = sample(x as f32, y as f32 + radius);
         let average: [f32; 3] = std::array::from_fn(|channel| {
             (center[channel] + left[channel] + right[channel] + up[channel] + down[channel]) * 0.2
         });
@@ -246,7 +311,7 @@ mod shader_compile_tests {
         let value = (edge * 42.5).clamp(0.0, 1.0);
         let flat_weight = 1.0 - value * value * (3.0 - 2.0 * value);
         std::array::from_fn(|channel| {
-            center[channel] + (average[channel] - center[channel]) * strength * flat_weight
+            center[channel] + (average[channel] - center[channel]) * strength * flat_weight * 0.85
         })
     }
 
@@ -267,6 +332,7 @@ mod shader_compile_tests {
         ColorGradeSettings {
             enabled: true,
             strength: 1.0,
+            color_grading_enabled: true,
             exposure: 0.0,
             contrast: 0.0,
             saturation: 1.0,
@@ -275,14 +341,23 @@ mod shader_compile_tests {
             tint: 0.0,
             black_fade: 0.0,
             highlight_rolloff: 0.0,
-            lut_preset: 0,
+            lut_enabled: true,
             lut_strength: 0.0,
+            deband_enabled: true,
             deband: 0.0,
+            film_grain_enabled: true,
             film_grain: 0.0,
+            vignette_enabled: true,
             vignette: 0.0,
+            halation_enabled: true,
             halation: 0.0,
+            chromatic_aberration_enabled: true,
+            chromatic_aberration: 0.0,
             debug_split: false,
             environment_weight: 1.0,
+            lut_size: 32.0,
+            lut_domain_min: [0.0; 3],
+            lut_domain_max: [1.0; 3],
         }
     }
 
@@ -306,12 +381,10 @@ mod shader_compile_tests {
             color[channel] *= white_balance[channel];
         }
 
-        let mut color_luma = luma(color);
-        let target_luma = 0.5 + (color_luma - 0.5) * (1.0 + settings.contrast.clamp(-0.5, 0.5));
         for channel in &mut color {
-            *channel += target_luma - color_luma;
+            *channel = 0.5 + (*channel - 0.5) * (1.0 + settings.contrast.clamp(-0.5, 0.5));
         }
-        color_luma = luma(color);
+        let color_luma = luma(color);
         let maximum = color.into_iter().fold(f32::NEG_INFINITY, f32::max);
         let minimum = color.into_iter().fold(f32::INFINITY, f32::min);
         let adaptive_vibrance =
@@ -334,7 +407,7 @@ mod shader_compile_tests {
             color[channel] += bloom[channel]
                 * [1.0, 0.28, 0.10][channel]
                 * settings.halation.clamp(0.0, 1.0)
-                * 0.22;
+                * 0.85;
         }
         let mut centered = [uv[0] * 2.0 - 1.0, uv[1] * 2.0 - 1.0];
         centered[0] *= dimensions[0] / dimensions[1].max(1.0);
@@ -344,6 +417,63 @@ mod shader_compile_tests {
         let vignette_scale = 1.0 - vignette * settings.vignette.clamp(0.0, 1.0) * 0.32;
         color = color.map(|channel| (channel * vignette_scale).clamp(0.0, 1.0));
         lerp3(input, color, settings.strength.clamp(0.0, 1.0))
+    }
+
+    fn chromatic_reference(
+        image: &[[f32; 4]],
+        width: usize,
+        height: usize,
+        x: usize,
+        y: usize,
+        amount_pixels: f32,
+    ) -> [f32; 4] {
+        let sample = |uv: [f32; 2]| {
+            let position = [
+                uv[0].clamp(0.0, 1.0) * width as f32 - 0.5,
+                uv[1].clamp(0.0, 1.0) * height as f32 - 0.5,
+            ];
+            let low = [position[0].floor() as isize, position[1].floor() as isize];
+            let fraction = [position[0] - low[0] as f32, position[1] - low[1] as f32];
+            let texel = |x: isize, y: isize| {
+                image[y.clamp(0, height as isize - 1) as usize * width
+                    + x.clamp(0, width as isize - 1) as usize]
+            };
+            let top = std::array::from_fn::<_, 4, _>(|channel| {
+                texel(low[0], low[1])[channel]
+                    + (texel(low[0] + 1, low[1])[channel] - texel(low[0], low[1])[channel])
+                        * fraction[0]
+            });
+            let bottom = std::array::from_fn::<_, 4, _>(|channel| {
+                texel(low[0], low[1] + 1)[channel]
+                    + (texel(low[0] + 1, low[1] + 1)[channel] - texel(low[0], low[1] + 1)[channel])
+                        * fraction[0]
+            });
+            std::array::from_fn::<_, 4, _>(|channel| {
+                top[channel] + (bottom[channel] - top[channel]) * fraction[1]
+            })
+        };
+        let uv = [
+            (x as f32 + 0.5) / width as f32,
+            (y as f32 + 0.5) / height as f32,
+        ];
+        let center = sample(uv);
+        let pixel_vector = [(uv[0] - 0.5) * width as f32, (uv[1] - 0.5) * height as f32];
+        let radius_squared = pixel_vector[0] * pixel_vector[0] + pixel_vector[1] * pixel_vector[1];
+        let inverse_radius = 1.0 / radius_squared.max(0.000001).sqrt();
+        let normalized_radius =
+            (((uv[0] - 0.5) * 2.0).powi(2) + ((uv[1] - 0.5) * 2.0).powi(2)).sqrt();
+        let radial_weight = smooth01(normalized_radius);
+        let radial = [
+            pixel_vector[0] * inverse_radius,
+            pixel_vector[1] * inverse_radius,
+        ];
+        let offset = [
+            radial[0] * amount_pixels * radial_weight / width as f32,
+            radial[1] * amount_pixels * radial_weight / height as f32,
+        ];
+        let positive = sample([uv[0] + offset[0], uv[1] + offset[1]]);
+        let negative = sample([uv[0] - offset[0], uv[1] - offset[1]]);
+        [positive[0], center[1], negative[2], center[3]]
     }
 
     fn color_distance(left: [f32; 3], right: [f32; 3]) -> f32 {
@@ -395,6 +525,7 @@ mod shader_compile_tests {
             ("bloom_hdr_extract_budget.hlsl", EXTRACT_SHADER, 220, 10),
             ("bloom_hdr_blur_budget.hlsl", BLUR_SHADER, 80, 9),
             ("bloom_hdr_compose_budget.hlsl", COMPOSE_SHADER, 500, 13),
+            ("chromatic_aberration_budget.hlsl", CHROMATIC_SHADER, 70, 3),
         ] {
             let (instructions, texture_samples) = shader_budget(name, source);
             assert!(
@@ -451,7 +582,14 @@ mod shader_compile_tests {
 
         let neither = FinalColorWorkPlan::from_sources(None, None);
         let bloom_only = FinalColorWorkPlan::from_sources(bloom, None);
-        let grade_only = FinalColorWorkPlan::from_sources(None, grade);
+        let mut no_halation_config = config;
+        no_halation_config.color_grade.halation_enabled = false;
+        let no_halation_sources = shaders::merge_embedded_sources(&no_halation_config, Vec::new());
+        let grade_without_halation = no_halation_sources
+            .iter()
+            .find(|source| source.embedded_effect_kind() == Some(EmbeddedEffectKind::ColorGrade));
+        let grade_only = FinalColorWorkPlan::from_sources(None, grade_without_halation);
+        let halation_grade = FinalColorWorkPlan::from_sources(None, grade);
         let fused = FinalColorWorkPlan::from_sources(bloom, grade);
         assert_eq!(neither.effect_draw_count(), 0);
         assert!(!neither.has_work());
@@ -459,21 +597,93 @@ mod shader_compile_tests {
         assert_eq!(bloom_only.quarter_resolution_draw_count(), 3);
         assert_eq!(grade_only.effect_draw_count(), 1);
         assert_eq!(grade_only.quarter_resolution_draw_count(), 0);
+        assert_eq!(halation_grade.effect_draw_count(), 4);
+        assert_eq!(halation_grade.quarter_resolution_draw_count(), 3);
         assert_eq!(fused.effect_draw_count(), 4);
         assert_eq!(fused.quarter_resolution_draw_count(), 3);
 
-        let pack = generate_builtin_lut_pack();
-        assert!(valid_builtin_lut_pack(&pack));
-        let lut_bytes: usize = pack
+        let shipped = crate::luts::shipped_luts_for_test();
+        let catalog_bytes: usize = shipped
             .iter()
-            .map(|lut| lut.len() * std::mem::size_of::<u32>())
+            .map(|lut| lut.pixels.len() * std::mem::size_of::<u32>())
             .sum();
-        assert_eq!(lut_bytes, 655_360);
-        assert_eq!(LUT_SIZE * LUT_SIZE, 1024);
-        assert!(!valid_builtin_lut_pack(&pack[..LUT_COUNT - 1]));
-        let mut malformed = pack;
-        malformed[2].pop();
-        assert!(!valid_builtin_lut_pack(&malformed));
+        assert_eq!(catalog_bytes, 1_835_008);
+        assert_eq!(
+            shipped[0].pixels.len() * std::mem::size_of::<u32>(),
+            131_072
+        );
+    }
+
+    #[test]
+    fn every_finishing_family_switch_independently_controls_work() {
+        fn disabled_config() -> EmbeddedEffectsConfig {
+            let mut config = EmbeddedEffectsConfig::default();
+            config.blooming_hdr.enabled = false;
+            config.color_grade.color_grading_enabled = false;
+            config.color_grade.lut_enabled = false;
+            config.color_grade.deband_enabled = false;
+            config.color_grade.film_grain_enabled = false;
+            config.color_grade.vignette_enabled = false;
+            config.color_grade.halation_enabled = false;
+            config.color_grade.chromatic_aberration_enabled = false;
+            config
+        }
+
+        let source_for = |config: &EmbeddedEffectsConfig| {
+            shaders::merge_embedded_sources(config, Vec::new())
+                .into_iter()
+                .find(|source| {
+                    source.embedded_effect_kind() == Some(EmbeddedEffectKind::ColorGrade)
+                })
+                .expect("color grade source")
+        };
+        let disabled = source_for(&disabled_config());
+        assert!(!FinalColorWorkPlan::from_sources(None, Some(&disabled)).has_work());
+
+        let families: [(&str, fn(&mut crate::config::ColorGradeConfig)); 6] = [
+            ("analytic", |grade| grade.color_grading_enabled = true),
+            ("lut", |grade| grade.lut_enabled = true),
+            ("deband", |grade| grade.deband_enabled = true),
+            ("grain", |grade| grade.film_grain_enabled = true),
+            ("vignette", |grade| grade.vignette_enabled = true),
+            ("halation", |grade| grade.halation_enabled = true),
+        ];
+        for (name, enable) in families {
+            let mut config = disabled_config();
+            enable(&mut config.color_grade);
+            let source = source_for(&config);
+            let plan =
+                FinalColorWorkPlan::from_sources_with_lut_available(None, Some(&source), true);
+            assert!(plan.color_grade, "{name} switch did not schedule compose");
+            assert_eq!(
+                plan.effect_draw_count(),
+                if name == "halation" { 4 } else { 1 }
+            );
+            assert_eq!(
+                plan.quarter_resolution_draw_count(),
+                if name == "halation" { 3 } else { 0 }
+            );
+            if name == "lut" {
+                assert!(
+                    !FinalColorWorkPlan::from_sources_with_lut_available(
+                        None,
+                        Some(&source),
+                        false,
+                    )
+                    .has_work(),
+                    "missing LUT scheduled hidden work"
+                );
+            }
+        }
+
+        let mut config = disabled_config();
+        config.color_grade.chromatic_aberration_enabled = true;
+        config.color_grade.chromatic_aberration = 0.5;
+        let source = source_for(&config);
+        let plan = FinalColorWorkPlan::from_sources(None, Some(&source));
+        assert!(!plan.color_grade);
+        assert!(plan.chromatic_aberration);
+        assert_eq!(plan.effect_draw_count(), 1);
     }
 
     #[test]
@@ -545,7 +755,12 @@ mod shader_compile_tests {
     #[test]
     fn shaders_and_luts_are_staged_outside_the_render_path() {
         let prepared = FinalColorShaderBytecode::prepare().expect("prepared final-color shaders");
-        for bytecode in [&prepared.extract, &prepared.blur, &prepared.compose] {
+        for bytecode in [
+            &prepared.extract,
+            &prepared.blur,
+            &prepared.compose,
+            &prepared.chromatic,
+        ] {
             assert_eq!(bytecode.first().copied(), Some(0xffff_0300));
             assert_eq!(bytecode.last().copied(), Some(0x0000_ffff));
         }
@@ -818,18 +1033,23 @@ mod shader_compile_tests {
 
     #[test]
     fn full_reference_frames_are_finite_bounded_and_default_grade_changes_the_scene() {
-        let neutral_lut = generate_builtin_lut(0);
-        let default_lut = generate_builtin_lut(1);
+        let shipped_luts = crate::luts::shipped_luts_for_test();
+        let neutral_lut = &shipped_luts[0].pixels;
+        let default_lut = &shipped_luts[1].pixels;
+        let config = crate::config::ColorGradeConfig::default();
         let mut defaults = neutral_grade();
-        defaults.strength = 0.72;
-        defaults.contrast = 0.06;
-        defaults.vibrance = 0.10;
-        defaults.temperature = 0.03;
-        defaults.black_fade = 0.025;
-        defaults.highlight_rolloff = 0.08;
-        defaults.lut_strength = 0.58;
-        defaults.vignette = 0.06;
-        defaults.halation = 0.04;
+        defaults.strength = config.strength;
+        defaults.exposure = config.exposure;
+        defaults.contrast = config.contrast;
+        defaults.saturation = config.saturation;
+        defaults.vibrance = config.vibrance;
+        defaults.temperature = config.temperature;
+        defaults.tint = config.tint;
+        defaults.black_fade = config.black_fade;
+        defaults.highlight_rolloff = config.highlight_rolloff;
+        defaults.lut_strength = config.lut_strength;
+        defaults.vignette = config.vignette;
+        defaults.halation = config.halation;
 
         let mut changed = 0usize;
         for &(width, height) in &[(63usize, 35usize), (64, 36)] {
@@ -850,7 +1070,7 @@ mod shader_compile_tests {
                         uv,
                         [width as f32, height as f32],
                         defaults,
-                        &default_lut,
+                        default_lut,
                     );
                     assert!(
                         output
@@ -865,7 +1085,7 @@ mod shader_compile_tests {
                         uv,
                         [width as f32, height as f32],
                         neutral_grade(),
-                        &neutral_lut,
+                        neutral_lut,
                     );
                     assert!(color_distance(identity, input) <= 3.0 / 255.0);
                 }
@@ -874,6 +1094,114 @@ mod shader_compile_tests {
         assert!(
             changed > 3_500,
             "default grade did not materially affect enough pixels"
+        );
+    }
+
+    #[test]
+    fn chromatic_reference_is_radial_subpixel_bounded_and_rejects_center_sample_bug() {
+        for &(width, height) in &[(63usize, 35usize), (64, 36)] {
+            let constant = vec![[0.31, 0.47, 0.73, 0.29]; width * height];
+            for &(x, y) in &[(0, 0), (width / 2, height / 2), (width - 1, height - 1)] {
+                assert_eq!(
+                    chromatic_reference(&constant, width, height, x, y, 1.0),
+                    constant[y * width + x]
+                );
+            }
+
+            let image: Vec<[f32; 4]> = (0..height)
+                .flat_map(|y| {
+                    (0..width).map(move |x| {
+                        [
+                            x as f32 / (width - 1) as f32,
+                            y as f32 / (height - 1) as f32,
+                            1.0 - x as f32 / (width - 1) as f32,
+                            0.37,
+                        ]
+                    })
+                })
+                .collect();
+            let mut changed = 0usize;
+            for y in 0..height {
+                for x in 0..width {
+                    let output = chromatic_reference(&image, width, height, x, y, 0.75);
+                    assert!(
+                        output
+                            .iter()
+                            .all(|value| value.is_finite() && (0.0..=1.0).contains(value))
+                    );
+                    assert!((output[3] - 0.37).abs() < 1.0e-6);
+                    let center = image[y * width + x];
+                    changed += ((output[0] - center[0]).abs() > 1.0e-5
+                        || (output[2] - center[2]).abs() > 1.0e-5)
+                        as usize;
+                    let central = (x as isize - width as isize / 2).abs() <= 1
+                        && (y as isize - height as isize / 2).abs() <= 1;
+                    if central {
+                        assert!((output[0] - center[0]).abs() < 0.001);
+                        assert!((output[2] - center[2]).abs() < 0.001);
+                    }
+                }
+            }
+            assert!(
+                changed > width * height / 2,
+                "center-only negative control was not rejected"
+            );
+        }
+    }
+
+    #[test]
+    fn reported_finishing_controls_have_visible_default_response() {
+        let defaults = crate::config::ColorGradeConfig::default();
+
+        let grain_peak_code_values = defaults.film_grain * defaults.strength * 6.0;
+        assert!(
+            grain_peak_code_values >= 0.5,
+            "default grain peaks at only {grain_peak_code_values:.3} code values"
+        );
+
+        let mut halation = neutral_grade();
+        halation.strength = defaults.strength;
+        halation.halation = defaults.halation;
+        let input = [0.20, 0.20, 0.20];
+        let output = grade_reference(
+            input,
+            [0.50, 0.50, 0.50],
+            [0.5; 2],
+            [16.0, 9.0],
+            halation,
+            &identity_lut_pixels(32),
+        );
+        assert!(
+            output[0] - input[0] >= 2.0 / 255.0,
+            "default halation changes red by only {:.3} code values",
+            (output[0] - input[0]) * 255.0
+        );
+
+        let chromatic_edge_shift = defaults.chromatic_aberration * defaults.strength;
+        assert!(
+            chromatic_edge_shift >= 0.5,
+            "default chromatic shift is only {chromatic_edge_shift:.3} px"
+        );
+
+        let width = 1025usize;
+        let banded: Vec<[f32; 3]> = (0..width)
+            .map(|x| {
+                let band = ((x * 255 / (width - 1)) as f32) / 255.0;
+                [band; 3]
+            })
+            .collect();
+        let deband_strength = defaults.deband * defaults.strength;
+        let changed = (0..width)
+            .filter(|&x| {
+                color_distance(
+                    deband_reference(&banded, width, 1, x, 0, deband_strength),
+                    banded[x],
+                ) > 1.0e-6
+            })
+            .count();
+        assert!(
+            changed > width / 2,
+            "debanding touched only {changed}/{width} pixels in broad quantized bands"
         );
     }
 
@@ -968,11 +1296,26 @@ mod shader_compile_tests {
             assert_eq!(first, golden_noise(pixel, 41.0));
             assert!((0.0..1.0).contains(&first));
             assert_ne!(first, golden_noise(pixel, 42.0));
-            let maximum_grain = (first - 0.5).abs() * 1.4 / 255.0;
+            let maximum_grain = (first - 0.5).abs() * 12.0 / 255.0;
             let maximum_dither = (first - 0.5).abs() / 255.0;
-            assert!(maximum_grain <= 0.7 / 255.0 + 1.0e-7);
+            assert!(maximum_grain <= 6.0 / 255.0 + 1.0e-7);
             assert!(maximum_dither <= 0.5 / 255.0 + 1.0e-7);
         }
+
+        let defaults = crate::config::ColorGradeConfig::default();
+        let midtone_mask = 1.0 - 0.5 * 0.65;
+        let mean_square_codes = (0..1024)
+            .map(|index| {
+                let noise = golden_noise([index as f32 + 0.5, 37.5], 41.0) - 0.5;
+                let codes = noise * 12.0 * defaults.film_grain * defaults.strength * midtone_mask;
+                codes * codes
+            })
+            .sum::<f32>()
+            / 1024.0;
+        assert!(
+            mean_square_codes.sqrt() >= 0.20,
+            "default grain RMS is still visually inert"
+        );
     }
 
     #[test]
@@ -1005,17 +1348,25 @@ mod shader_compile_tests {
 
     #[test]
     fn environment_response_modulates_only_stylized_lut_strength() {
+        let lut = crate::luts::shipped_luts_for_test().swap_remove(1);
+        let lut_names = vec![lut.display_name.clone()];
+        let lut_ids = vec![lut.id];
         let mut config = EmbeddedEffectsConfig::default();
-        config.color_grade.lut_preset = 2;
+        config.color_grade.lut_file_id = lut.id;
         config.color_grade.lut_strength = 0.8;
         config.color_grade.environment_response = 1.0;
-        let sources = shaders::merge_embedded_sources(&config, Vec::new());
+        let sources =
+            shaders::merge_embedded_sources_with_luts(&config, &lut_names, &lut_ids, Vec::new());
         let source = sources
             .iter()
             .find(|source| source.embedded_effect_kind() == Some(EmbeddedEffectKind::ColorGrade))
             .expect("color grade source");
 
-        let unknown = ColorGradeSettings::from_source(Some(source), &FrameInputs::default());
+        let unknown = ColorGradeSettings::from_source_with_lut(
+            Some(source),
+            &FrameInputs::default(),
+            Some(&lut),
+        );
         assert!((unknown.lut_strength - 0.8).abs() < 1.0e-6);
 
         let mut interior = FrameInputs::default();
@@ -1023,17 +1374,23 @@ mod shader_compile_tests {
             exterior_known: true,
             is_exterior: false,
         };
-        let interior = ColorGradeSettings::from_source(Some(source), &interior);
+        let interior =
+            ColorGradeSettings::from_source_with_lut(Some(source), &interior, Some(&lut));
         assert!((interior.lut_strength - 0.56).abs() < 1.0e-6);
 
         let mut no_response = config;
         no_response.color_grade.environment_response = 0.0;
-        let sources = shaders::merge_embedded_sources(&no_response, Vec::new());
+        let sources = shaders::merge_embedded_sources_with_luts(
+            &no_response,
+            &lut_names,
+            &lut_ids,
+            Vec::new(),
+        );
         let source = sources
             .iter()
             .find(|source| source.embedded_effect_kind() == Some(EmbeddedEffectKind::ColorGrade))
             .expect("color grade source");
-        let interior = ColorGradeSettings::from_source(
+        let interior = ColorGradeSettings::from_source_with_lut(
             Some(source),
             &FrameInputs {
                 material_state: MaterialStateFrame {
@@ -1042,12 +1399,18 @@ mod shader_compile_tests {
                 },
                 ..FrameInputs::default()
             },
+            Some(&lut),
         );
         assert!((interior.lut_strength - 0.8).abs() < 1.0e-6);
 
-        no_response.color_grade.lut_preset = 0;
+        no_response.color_grade.lut_enabled = false;
         no_response.color_grade.lut_strength = 1.0;
-        let sources = shaders::merge_embedded_sources(&no_response, Vec::new());
+        let sources = shaders::merge_embedded_sources_with_luts(
+            &no_response,
+            &lut_names,
+            &lut_ids,
+            Vec::new(),
+        );
         let source = sources
             .iter()
             .find(|source| source.embedded_effect_kind() == Some(EmbeddedEffectKind::ColorGrade))
@@ -1094,12 +1457,12 @@ mod shader_compile_tests {
         config.color_grade.tint = 99.0;
         config.color_grade.black_fade = 99.0;
         config.color_grade.highlight_rolloff = 99.0;
-        config.color_grade.lut_preset = 99;
         config.color_grade.lut_strength = 99.0;
         config.color_grade.deband = 99.0;
         config.color_grade.film_grain = 99.0;
         config.color_grade.vignette = 99.0;
         config.color_grade.halation = 99.0;
+        config.color_grade.chromatic_aberration = 99.0;
         let sources = shaders::merge_embedded_sources(&config, Vec::new());
         let source = sources
             .iter()
@@ -1115,18 +1478,18 @@ mod shader_compile_tests {
         assert_eq!(settings.tint, 1.0);
         assert_eq!(settings.black_fade, 1.0);
         assert_eq!(settings.highlight_rolloff, 1.0);
-        assert_eq!(settings.lut_preset, 0);
-        assert_eq!(settings.lut_strength, 0.0);
+        assert_eq!(settings.lut_strength, 1.0);
         assert_eq!(settings.deband, 1.0);
         assert_eq!(settings.film_grain, 1.0);
         assert_eq!(settings.vignette, 1.0);
         assert_eq!(settings.halation, 1.0);
+        assert_eq!(settings.chromatic_aberration, 4.0);
     }
 
     #[test]
-    fn neutral_lut_selector_is_an_exact_shader_bypass() {
+    fn lut_switch_or_missing_catalog_is_an_exact_shader_bypass() {
         let mut config = EmbeddedEffectsConfig::default();
-        config.color_grade.lut_preset = 0;
+        config.color_grade.lut_enabled = false;
         config.color_grade.lut_strength = 1.0;
         let sources = shaders::merge_embedded_sources(&config, Vec::new());
         let source = sources
@@ -1134,17 +1497,16 @@ mod shader_compile_tests {
             .find(|source| source.embedded_effect_kind() == Some(EmbeddedEffectKind::ColorGrade))
             .expect("color grade source");
         let settings = ColorGradeSettings::from_source(Some(source), &FrameInputs::default());
-        assert_eq!(settings.lut_preset, 0);
         assert_eq!(settings.lut_strength, 0.0);
 
-        config.color_grade.lut_preset = 99;
+        config.color_grade.lut_enabled = true;
         let sources = shaders::merge_embedded_sources(&config, Vec::new());
         let source = sources
             .iter()
             .find(|source| source.embedded_effect_kind() == Some(EmbeddedEffectKind::ColorGrade))
             .expect("color grade source");
-        let settings = ColorGradeSettings::from_source(Some(source), &FrameInputs::default());
-        assert_eq!(settings.lut_preset, 0);
+        let settings =
+            ColorGradeSettings::from_source_with_lut(Some(source), &FrameInputs::default(), None);
         assert_eq!(settings.lut_strength, 0.0);
     }
 
@@ -1153,6 +1515,7 @@ mod shader_compile_tests {
         let settings = ColorGradeSettings {
             enabled: true,
             strength: 0.11,
+            color_grading_enabled: true,
             exposure: 0.22,
             contrast: 0.33,
             saturation: 0.44,
@@ -1161,14 +1524,23 @@ mod shader_compile_tests {
             tint: 0.77,
             black_fade: 0.88,
             highlight_rolloff: 0.99,
-            lut_preset: 3,
+            lut_enabled: true,
             lut_strength: 0.12,
+            deband_enabled: true,
             deband: 0.23,
+            film_grain_enabled: true,
             film_grain: 0.34,
+            vignette_enabled: true,
             vignette: 0.45,
+            halation_enabled: true,
             halation: 0.56,
+            chromatic_aberration_enabled: true,
+            chromatic_aberration: 0.78,
             debug_split: true,
             environment_weight: 0.67,
+            lut_size: 17.0,
+            lut_domain_min: [0.0, 0.0, 0.0],
+            lut_domain_max: [2.0, 4.0, 0.5],
         };
         assert_eq!(
             settings.constants(true),
@@ -1176,8 +1548,12 @@ mod shader_compile_tests {
                 [0.11, 0.22, 0.33, 0.44],
                 [0.55, 0.66, 0.77, 0.88],
                 [0.99, 0.12, 0.23, 0.34],
-                [0.45, 0.56, 1.0, 32.0],
+                [0.45, 0.56, 1.0, 0.78],
                 [1.0, 1.0, 0.67, 0.0],
+                [1.0, 1.0, 1.0, 1.0],
+                [1.0, 1.0, 1.0, 0.0],
+                [0.5, 0.25, 2.0, 17.0],
+                [0.0, 0.0, 0.0, 0.0],
             ]
         );
 
@@ -1188,6 +1564,10 @@ mod shader_compile_tests {
             "float4 GradeData2 : register(c12);",
             "float4 GradeData3 : register(c13);",
             "float4 GradeData4 : register(c14);",
+            "float4 GradeData5 : register(c15);",
+            "float4 GradeData6 : register(c16);",
+            "float4 LutDomainScale : register(c17);",
+            "float4 LutDomainBias : register(c18);",
             "sampler2D ColorLut : register(s5);",
         ] {
             assert!(
@@ -1195,19 +1575,19 @@ mod shader_compile_tests {
                 "missing ABI declaration {declaration}"
             );
         }
-        assert!(source.contains("GradeData0.y, -1.5f, 1.5f"));
         for equation in [
-            "float targetLuma = 0.5f + (luma - 0.5f) * (1.0f + clamp(GradeData0.z, -0.5f, 0.5f));",
-            "float adaptiveVibrance = 1.0f + clamp(GradeData1.x, -1.0f, 1.0f) * (1.0f - saturate(chromaRange));",
-            "float saturation = max(GradeData0.w, 0.0f) * max(adaptiveVibrance, 0.0f);",
-            "float blackFade = saturate(GradeData1.w) * 0.06f;",
+            "float3 color = inputColor * exp2(GradeData0.y);",
+            "color = 0.5f.xxx + (color - 0.5f.xxx) * (1.0f + GradeData0.z);",
+            "float adaptiveVibrance = 1.0f + GradeData1.x * (1.0f - saturate(chromaRange));",
+            "float saturation = GradeData0.w * adaptiveVibrance;",
+            "float blackFade = GradeData1.w * 0.06f;",
             "color = color * (1.0f + shoulder) / (1.0f + shoulder * color);",
-            "color = lerp(color, lutColor, saturate(GradeData2.y));",
-            "* saturate(GradeData3.y) * 0.22f;",
-            "color *= 1.0f - vignette * saturate(GradeData3.x) * 0.32f;",
-            "return lerp(inputColor, saturate(color), master);",
-            "return lerp(center, average, saturate(GradeData2.z) * GradeData0.x * flatWeight);",
-            "* saturate(GradeData2.w) * GradeData0.x * grainMask * 1.4f / 255.0f;",
+            "color = lerp(color, lutColor, GradeData2.y * master);",
+            "* GradeData3.y * master * 0.85f;",
+            "color *= 1.0f - vignette * GradeData3.x * master * 0.32f;",
+            "return lerp(inputColor, color, master);",
+            "return lerp(center, average, strength * flatWeight * 0.85f);",
+            "* grainMask * 12.0f / 255.0f;",
         ] {
             assert!(
                 source.contains(equation),
@@ -1229,8 +1609,25 @@ mod shader_compile_tests {
         assert!(!source.contains("AutoExposure"));
         assert!(!source.contains("ddx("));
         assert!(!source.contains("ddy("));
-        assert!(source.contains("float3 beforeGrade = ComposeBloom(baseSample.rgb"));
-        assert!(source.contains("color = input.uv.x < 0.5f ? beforeGrade : color"));
+        assert!(source.contains("color = input.uv.x < 0.5f ? ungraded : color"));
+
+        let chromatic = std::str::from_utf8(CHROMATIC_SHADER).expect("chromatic UTF-8");
+        assert_eq!(chromatic.matches("SampleScene(").count(), 4);
+        assert!(chromatic.contains("radialDirection * ScreenData.zw * ChromaticData.x"));
+        assert!(chromatic.contains("length((input.uv - 0.5f) * 2.0f)"));
+        assert!(chromatic.contains("return float4(red, center.g, blue, center.a);"));
+        assert!(!chromatic.contains("ddx("));
+        assert!(!chromatic.contains("ddy("));
+
+        let implementation = include_str!("blooming_hdr.rs");
+        assert!(implementation.contains("if composed {"));
+        assert!(implementation.contains("if work.bloom_intermediate {"));
+        assert!(implementation.contains("bind_bloom_effect_constants"));
+        assert!(implementation.contains("&grade.constants(bloom_enabled)"));
+        assert!(implementation.contains(
+            "device.stretch_rect(backbuffer, None, scene_copy_surface, None, D3DTEXF_POINT)?"
+        ));
+        assert!(implementation.contains("self.draw_chromatic_aberration("));
     }
 }
 
@@ -1238,8 +1635,10 @@ pub(crate) struct BloomingHdrEffect {
     extract_shader: PixelShader9,
     blur_shader: PixelShader9,
     compose_shader: PixelShader9,
+    chromatic_shader: PixelShader9,
     neutral_bloom: Texture9,
-    lut_textures: Vec<Texture9>,
+    lut_texture: Texture9,
+    lut_revision: Option<(u32, u64)>,
     targets: Option<BloomTargets>,
 }
 
@@ -1247,14 +1646,15 @@ impl BloomingHdrEffect {
     pub(crate) fn create(
         device: &Device9Ref<'_>,
         shaders: &FinalColorShaderBytecode,
-        builtin_luts: &[Vec<u32>],
     ) -> Direct3DResult<Self> {
         Ok(Self {
             extract_shader: device.create_pixel_shader(&shaders.extract)?,
             blur_shader: device.create_pixel_shader(&shaders.blur)?,
             compose_shader: device.create_pixel_shader(&shaders.compose)?,
+            chromatic_shader: device.create_pixel_shader(&shaders.chromatic)?,
             neutral_bloom: create_argb_texture(device, 1, 1, &[0xFF00_0000])?,
-            lut_textures: create_builtin_lut_textures(device, builtin_luts)?,
+            lut_texture: create_argb_texture(device, 4, 2, &identity_lut_pixels(2))?,
+            lut_revision: None,
             targets: None,
         })
     }
@@ -1267,20 +1667,33 @@ impl BloomingHdrEffect {
         frame_inputs: &FrameInputs,
         bloom_source: Option<&ScreenShaderSource>,
         color_grade_source: Option<&ScreenShaderSource>,
+        selected_lut: Option<&LutAsset>,
+        scene_copy_surface: &Surface9,
         scene_color: &Texture9,
         frame_index: u32,
     ) -> Direct3DResult<()> {
         let bloom_source = bloom_source.filter(|source| source.enabled);
-        let work = FinalColorWorkPlan::from_sources(bloom_source, color_grade_source);
-        let grade = ColorGradeSettings::from_source(color_grade_source, frame_inputs);
+        let work = FinalColorWorkPlan::from_sources_with_lut_available(
+            bloom_source,
+            color_grade_source,
+            selected_lut.is_some(),
+        );
+        let grade = ColorGradeSettings::from_source_with_lut(
+            color_grade_source,
+            frame_inputs,
+            selected_lut,
+        );
         if !work.has_work() {
             return Ok(());
         }
 
+        if grade.lut_enabled {
+            self.ensure_lut(device, selected_lut)?;
+        }
         bind_pipeline_state(device)?;
         bind_depth_inputs(device, &frame_inputs.depth.first_person_texture)?;
 
-        if let Some(source) = bloom_source {
+        if work.bloom_intermediate {
             self.ensure_targets(device, desc)?;
             let Some(targets) = self.targets.as_ref() else {
                 return Ok(());
@@ -1290,7 +1703,7 @@ impl BloomingHdrEffect {
                 targets,
                 desc,
                 frame_inputs,
-                source,
+                bloom_source,
                 scene_color,
                 frame_index,
             )?;
@@ -1298,7 +1711,7 @@ impl BloomingHdrEffect {
                 device,
                 targets,
                 frame_inputs,
-                source,
+                bloom_source,
                 frame_index,
                 [targets.inv_width, 0.0],
             )?;
@@ -1306,22 +1719,61 @@ impl BloomingHdrEffect {
                 device,
                 targets,
                 frame_inputs,
-                source,
+                bloom_source,
                 frame_index,
                 [0.0, targets.inv_height],
             )?;
         }
 
-        self.draw_compose(
-            device,
-            backbuffer,
-            desc,
-            frame_inputs,
-            bloom_source,
-            &grade,
-            scene_color,
-            frame_index,
-        )
+        let composed = work.bloom || grade.is_active();
+        if composed {
+            self.draw_compose(
+                device,
+                backbuffer,
+                desc,
+                frame_inputs,
+                bloom_source,
+                &grade,
+                work.bloom_intermediate,
+                work.bloom,
+                scene_color,
+                frame_index,
+            )?;
+        }
+        if work.chromatic_aberration {
+            if composed {
+                device.clear_texture(0)?;
+                device.stretch_rect(backbuffer, None, scene_copy_surface, None, D3DTEXF_POINT)?;
+            }
+            self.draw_chromatic_aberration(
+                device,
+                backbuffer,
+                desc,
+                scene_color,
+                grade.chromatic_aberration * grade.strength,
+            )?;
+        }
+        Ok(())
+    }
+
+    fn ensure_lut(
+        &mut self,
+        device: &Device9Ref<'_>,
+        selected_lut: Option<&LutAsset>,
+    ) -> Direct3DResult<()> {
+        let Some(asset) = selected_lut else {
+            return Ok(());
+        };
+        let revision = (asset.id, asset.revision);
+        if self.lut_revision == Some(revision) {
+            return Ok(());
+        }
+        let texture =
+            create_argb_texture(device, asset.size * asset.size, asset.size, &asset.pixels)?;
+        self.lut_texture = texture;
+        self.lut_revision = Some(revision);
+        log::info!("[LUT] Uploaded {} ({}^3)", asset.file_name, asset.size);
+        Ok(())
     }
 
     fn ensure_targets(
@@ -1350,7 +1802,7 @@ impl BloomingHdrEffect {
         targets: &BloomTargets,
         desc: &D3DSURFACE_DESC,
         frame_inputs: &FrameInputs,
-        source: &ScreenShaderSource,
+        source: Option<&ScreenShaderSource>,
         scene_color: &Texture9,
         frame_index: u32,
     ) -> Direct3DResult<()> {
@@ -1371,7 +1823,7 @@ impl BloomingHdrEffect {
         device: &Device9Ref<'_>,
         targets: &BloomTargets,
         frame_inputs: &FrameInputs,
-        source: &ScreenShaderSource,
+        source: Option<&ScreenShaderSource>,
         frame_index: u32,
         direction: [f32; 2],
     ) -> Direct3DResult<()> {
@@ -1400,26 +1852,33 @@ impl BloomingHdrEffect {
         frame_inputs: &FrameInputs,
         bloom_source: Option<&ScreenShaderSource>,
         grade: &ColorGradeSettings,
+        bloom_texture_ready: bool,
+        bloom_enabled: bool,
         scene_color: &Texture9,
         frame_index: u32,
     ) -> Direct3DResult<()> {
         bind_target(device, backbuffer, desc.Width, desc.Height)?;
         device.set_texture(0, scene_color)?;
         bind_depth_inputs(device, &frame_inputs.depth.first_person_texture)?;
-        let bloom_texture = bloom_source
-            .and_then(|_| {
-                self.targets
-                    .as_ref()
-                    .map(|targets| &targets.extract.texture)
-            })
-            .unwrap_or(&self.neutral_bloom);
+        let bloom_texture = if bloom_texture_ready {
+            self.targets
+                .as_ref()
+                .map(|targets| &targets.extract.texture)
+                .unwrap_or(&self.neutral_bloom)
+        } else {
+            &self.neutral_bloom
+        };
         device.set_texture(4, bloom_texture)?;
-        let lut = self
-            .lut_textures
-            .get(grade.lut_preset)
-            .unwrap_or(&self.lut_textures[0]);
-        device.set_texture(5, lut)?;
-        bind_compose_constants(device, desc, frame_inputs, bloom_source, grade, frame_index)?;
+        device.set_texture(5, &self.lut_texture)?;
+        bind_compose_constants(
+            device,
+            desc,
+            frame_inputs,
+            bloom_source,
+            grade,
+            bloom_enabled,
+            frame_index,
+        )?;
         let target_data = self
             .targets
             .as_ref()
@@ -1433,6 +1892,30 @@ impl BloomingHdrEffect {
             });
         device.set_pixel_shader_constant_f(EFFECT_CONSTANT_REGISTER, &[target_data])?;
         device.set_pixel_shader(&self.compose_shader)?;
+        draw_quad(device, desc.Width, desc.Height)
+    }
+
+    fn draw_chromatic_aberration(
+        &self,
+        device: &Device9Ref<'_>,
+        backbuffer: &Surface9,
+        desc: &D3DSURFACE_DESC,
+        scene_color: &Texture9,
+        amount_pixels: f32,
+    ) -> Direct3DResult<()> {
+        bind_target(device, backbuffer, desc.Width, desc.Height)?;
+        device.set_texture(0, scene_color)?;
+        device.set_pixel_shader_constant_f(
+            0,
+            &[[
+                desc.Width as f32,
+                desc.Height as f32,
+                1.0 / desc.Width as f32,
+                1.0 / desc.Height as f32,
+            ]],
+        )?;
+        device.set_pixel_shader_constant_f(3, &[[amount_pixels, 0.0, 0.0, 0.0]])?;
+        device.set_pixel_shader(&self.chromatic_shader)?;
         draw_quad(device, desc.Width, desc.Height)
     }
 }
@@ -1524,7 +2007,7 @@ fn bind_common_constants(
     device: &Device9Ref<'_>,
     desc: &D3DSURFACE_DESC,
     frame_inputs: &FrameInputs,
-    source: &ScreenShaderSource,
+    source: Option<&ScreenShaderSource>,
     frame_index: u32,
     pass_index: f32,
 ) -> Direct3DResult<()> {
@@ -1551,14 +2034,14 @@ fn bind_common_constants(
             ],
         ],
     )?;
-    bind_effect_constants(device, frame_inputs, source)
+    bind_bloom_effect_constants(device, frame_inputs, source)
 }
 
 fn bind_lowres_constants(
     device: &Device9Ref<'_>,
     targets: &BloomTargets,
     frame_inputs: &FrameInputs,
-    source: &ScreenShaderSource,
+    source: Option<&ScreenShaderSource>,
     frame_index: u32,
     pass_index: f32,
 ) -> Direct3DResult<()> {
@@ -1585,7 +2068,7 @@ fn bind_lowres_constants(
             ],
         ],
     )?;
-    bind_effect_constants(device, frame_inputs, source)
+    bind_bloom_effect_constants(device, frame_inputs, source)
 }
 
 fn bind_compose_constants(
@@ -1594,6 +2077,7 @@ fn bind_compose_constants(
     frame_inputs: &FrameInputs,
     bloom_source: Option<&ScreenShaderSource>,
     grade: &ColorGradeSettings,
+    bloom_enabled: bool,
     frame_index: u32,
 ) -> Direct3DResult<()> {
     device.set_pixel_shader_constant_f(
@@ -1619,14 +2103,32 @@ fn bind_compose_constants(
             ],
         ],
     )?;
-    if let Some(source) = bloom_source {
-        bind_effect_constants(device, frame_inputs, source)?;
-    } else {
-        device.set_pixel_shader_constant_f(3, &[[0.0; 4]; 3])?;
-    }
+    bind_bloom_effect_constants(device, frame_inputs, bloom_source)?;
     device.set_pixel_shader_constant_f(
         COLOR_GRADE_CONSTANT_REGISTER,
-        &grade.constants(bloom_source.is_some()),
+        &grade.constants(bloom_enabled),
+    )
+}
+
+fn bind_bloom_effect_constants(
+    device: &Device9Ref<'_>,
+    frame_inputs: &FrameInputs,
+    source: Option<&ScreenShaderSource>,
+) -> Direct3DResult<()> {
+    if let Some(source) = source {
+        return bind_effect_constants(device, frame_inputs, source);
+    }
+
+    // Halation owns a highlight blur even when user-facing Bloom is disabled.
+    // These restrained fallback values isolate bright material without adding
+    // the atmosphere lift or visible Bloom composition.
+    device.set_pixel_shader_constant_f(
+        3,
+        &[
+            [0.0, 0.58, 3.2, 0.25],
+            [0.0, 0.0, 0.82, 0.12],
+            [0.0, 0.0, 0.0, 0.0],
+        ],
     )
 }
 
@@ -1662,6 +2164,7 @@ fn bind_effect_constants(
 struct ColorGradeSettings {
     enabled: bool,
     strength: f32,
+    color_grading_enabled: bool,
     exposure: f32,
     contrast: f32,
     saturation: f32,
@@ -1670,18 +2173,48 @@ struct ColorGradeSettings {
     tint: f32,
     black_fade: f32,
     highlight_rolloff: f32,
-    lut_preset: usize,
+    lut_enabled: bool,
     lut_strength: f32,
+    deband_enabled: bool,
     deband: f32,
+    film_grain_enabled: bool,
     film_grain: f32,
+    vignette_enabled: bool,
     vignette: f32,
+    halation_enabled: bool,
     halation: f32,
+    chromatic_aberration_enabled: bool,
+    chromatic_aberration: f32,
     debug_split: bool,
     environment_weight: f32,
+    lut_size: f32,
+    lut_domain_min: [f32; 3],
+    lut_domain_max: [f32; 3],
 }
 
 impl ColorGradeSettings {
+    #[cfg(test)]
     fn from_source(source: Option<&ScreenShaderSource>, frame_inputs: &FrameInputs) -> Self {
+        Self::from_source_with_metadata(source, frame_inputs, Some((32.0, [0.0; 3], [1.0; 3])))
+    }
+
+    fn from_source_with_lut(
+        source: Option<&ScreenShaderSource>,
+        frame_inputs: &FrameInputs,
+        selected_lut: Option<&LutAsset>,
+    ) -> Self {
+        Self::from_source_with_metadata(
+            source,
+            frame_inputs,
+            selected_lut.map(|lut| (lut.size as f32, lut.domain_min, lut.domain_max)),
+        )
+    }
+
+    fn from_source_with_metadata(
+        source: Option<&ScreenShaderSource>,
+        frame_inputs: &FrameInputs,
+        lut_metadata: Option<(f32, [f32; 3], [f32; 3])>,
+    ) -> Self {
         let Some(source) = source else {
             return Self::disabled();
         };
@@ -1689,23 +2222,23 @@ impl ColorGradeSettings {
         let environment_response =
             source_option_float(source, "environment_response", 0.0).clamp(0.0, 1.0);
         let environment_weight = native_environment_weight(frame_inputs);
-        let lut_preset = source_option_integer(source, "lut_preset", 0);
-        let lut_preset = if (0..LUT_COUNT as i32).contains(&lut_preset) {
-            lut_preset as usize
-        } else {
-            0
-        };
         let configured_lut_strength =
             source_option_float(source, "lut_strength", 0.0).clamp(0.0, 1.0);
-        let lut_strength = if lut_preset == 0 {
-            0.0
-        } else {
+        let lut_enabled = source_option_bool(source, "lut_enabled", false)
+            && lut_metadata.is_some()
+            && configured_lut_strength > 1.0e-5;
+        let lut_strength = if lut_enabled {
             configured_lut_strength * (1.0 + (environment_weight - 1.0) * environment_response)
+        } else {
+            0.0
         };
+        let (lut_size, lut_domain_min, lut_domain_max) =
+            lut_metadata.unwrap_or((2.0, [0.0; 3], [1.0; 3]));
 
         Self {
             enabled: source.enabled,
             strength: source_option_float(source, "strength", 0.0).clamp(0.0, 1.0),
+            color_grading_enabled: source_option_bool(source, "color_grading_enabled", false),
             exposure: source_option_float(source, "exposure", 0.0).clamp(-1.5, 1.5),
             contrast: source_option_float(source, "contrast", 0.0).clamp(-0.5, 0.5),
             saturation: source_option_float(source, "saturation", 1.0).clamp(0.0, 2.0),
@@ -1715,14 +2248,28 @@ impl ColorGradeSettings {
             black_fade: source_option_float(source, "black_fade", 0.0).clamp(0.0, 1.0),
             highlight_rolloff: source_option_float(source, "highlight_rolloff", 0.0)
                 .clamp(0.0, 1.0),
-            lut_preset,
+            lut_enabled,
             lut_strength,
+            deband_enabled: source_option_bool(source, "deband_enabled", false),
             deband: source_option_float(source, "deband", 0.0).clamp(0.0, 1.0),
+            film_grain_enabled: source_option_bool(source, "film_grain_enabled", false),
             film_grain: source_option_float(source, "film_grain", 0.0).clamp(0.0, 1.0),
+            vignette_enabled: source_option_bool(source, "vignette_enabled", false),
             vignette: source_option_float(source, "vignette", 0.0).clamp(0.0, 1.0),
+            halation_enabled: source_option_bool(source, "halation_enabled", false),
             halation: source_option_float(source, "halation", 0.0).clamp(0.0, 1.0),
+            chromatic_aberration_enabled: source_option_bool(
+                source,
+                "chromatic_aberration_enabled",
+                false,
+            ),
+            chromatic_aberration: source_option_float(source, "chromatic_aberration", 0.0)
+                .clamp(0.0, 4.0),
             debug_split: source_option_bool(source, "debug_split", false),
             environment_weight,
+            lut_size,
+            lut_domain_min,
+            lut_domain_max,
         }
     }
 
@@ -1730,6 +2277,7 @@ impl ColorGradeSettings {
         Self {
             enabled: false,
             strength: 0.0,
+            color_grading_enabled: false,
             exposure: 0.0,
             contrast: 0.0,
             saturation: 1.0,
@@ -1738,22 +2286,38 @@ impl ColorGradeSettings {
             tint: 0.0,
             black_fade: 0.0,
             highlight_rolloff: 0.0,
-            lut_preset: 0,
+            lut_enabled: false,
             lut_strength: 0.0,
+            deband_enabled: false,
             deband: 0.0,
+            film_grain_enabled: false,
             film_grain: 0.0,
+            vignette_enabled: false,
             vignette: 0.0,
+            halation_enabled: false,
             halation: 0.0,
+            chromatic_aberration_enabled: false,
+            chromatic_aberration: 0.0,
             debug_split: false,
             environment_weight: 1.0,
+            lut_size: 2.0,
+            lut_domain_min: [0.0; 3],
+            lut_domain_max: [1.0; 3],
         }
     }
 
     fn is_active(self) -> bool {
-        self.enabled && self.strength > 1.0e-5
+        self.enabled
+            && self.strength > 1.0e-5
+            && (self.color_grading_enabled
+                || self.lut_enabled
+                || (self.deband_enabled && self.deband > 1.0e-5)
+                || (self.film_grain_enabled && self.film_grain > 1.0e-5)
+                || (self.vignette_enabled && self.vignette > 1.0e-5)
+                || (self.halation_enabled && self.halation > 1.0e-5))
     }
 
-    fn constants(self, bloom_enabled: bool) -> [[f32; 4]; 5] {
+    fn constants(self, bloom_enabled: bool) -> [[f32; 4]; 9] {
         [
             [self.strength, self.exposure, self.contrast, self.saturation],
             [self.vibrance, self.temperature, self.tint, self.black_fade],
@@ -1767,12 +2331,36 @@ impl ColorGradeSettings {
                 self.vignette,
                 self.halation,
                 self.debug_split as u8 as f32,
-                LUT_SIZE as f32,
+                self.chromatic_aberration,
             ],
             [
                 self.is_active() as u8 as f32,
                 bloom_enabled as u8 as f32,
                 self.environment_weight,
+                0.0,
+            ],
+            [
+                self.color_grading_enabled as u8 as f32,
+                self.lut_enabled as u8 as f32,
+                self.deband_enabled as u8 as f32,
+                self.film_grain_enabled as u8 as f32,
+            ],
+            [
+                self.vignette_enabled as u8 as f32,
+                self.halation_enabled as u8 as f32,
+                self.chromatic_aberration_enabled as u8 as f32,
+                0.0,
+            ],
+            [
+                1.0 / (self.lut_domain_max[0] - self.lut_domain_min[0]),
+                1.0 / (self.lut_domain_max[1] - self.lut_domain_min[1]),
+                1.0 / (self.lut_domain_max[2] - self.lut_domain_min[2]),
+                self.lut_size,
+            ],
+            [
+                -self.lut_domain_min[0] / (self.lut_domain_max[0] - self.lut_domain_min[0]),
+                -self.lut_domain_min[1] / (self.lut_domain_max[1] - self.lut_domain_min[1]),
+                -self.lut_domain_min[2] / (self.lut_domain_max[2] - self.lut_domain_min[2]),
                 0.0,
             ],
         ]
@@ -1786,18 +2374,6 @@ fn source_option_float(source: &ScreenShaderSource, key: &str, fallback: f32) ->
         .find(|option| option.key == key)
         .and_then(|option| match option.value {
             ShaderOptionValue::Float(value) if value.is_finite() => Some(value),
-            _ => None,
-        })
-        .unwrap_or(fallback)
-}
-
-fn source_option_integer(source: &ScreenShaderSource, key: &str, fallback: i32) -> i32 {
-    source
-        .options
-        .iter()
-        .find(|option| option.key == key)
-        .and_then(|option| match option.value {
-            ShaderOptionValue::Integer(value) => Some(value),
             _ => None,
         })
         .unwrap_or(fallback)
@@ -1848,23 +2424,21 @@ fn fullscreen_quad(width: u32, height: u32) -> [ScreenVertex; 4] {
     ]
 }
 
-fn create_builtin_lut_textures(
-    device: &Device9Ref<'_>,
-    builtin_luts: &[Vec<u32>],
-) -> Direct3DResult<Vec<Texture9>> {
-    if !valid_builtin_lut_pack(builtin_luts) {
-        return Err(direct3d_failure());
+fn identity_lut_pixels(size: u32) -> Vec<u32> {
+    let mut pixels = Vec::with_capacity((size * size * size) as usize);
+    let denominator = (size - 1) as f32;
+    for green in 0..size {
+        for blue in 0..size {
+            for red in 0..size {
+                pixels.push(pack_argb([
+                    red as f32 / denominator,
+                    green as f32 / denominator,
+                    blue as f32 / denominator,
+                ]));
+            }
+        }
     }
-    let mut textures = Vec::with_capacity(LUT_COUNT);
-    for pixels in builtin_luts {
-        textures.push(create_argb_texture(
-            device,
-            LUT_SIZE * LUT_SIZE,
-            LUT_SIZE,
-            pixels,
-        )?);
-    }
-    Ok(textures)
+    pixels
 }
 
 fn create_argb_texture(
@@ -1878,6 +2452,8 @@ fn create_argb_texture(
     Ok(texture)
 }
 
+#[cfg(test)]
+#[cfg(test)]
 #[derive(Clone, Copy)]
 struct LutRecipe {
     contrast: f32,
@@ -1889,6 +2465,8 @@ struct LutRecipe {
     highlight_tint: [f32; 3],
 }
 
+#[cfg(test)]
+#[cfg(test)]
 fn lut_recipe(preset: usize) -> Option<LutRecipe> {
     match preset {
         1 => Some(LutRecipe {
@@ -1931,6 +2509,8 @@ fn lut_recipe(preset: usize) -> Option<LutRecipe> {
     }
 }
 
+#[cfg(test)]
+#[cfg(test)]
 fn generate_builtin_lut(preset: usize) -> Vec<u32> {
     let texel_count = (LUT_SIZE * LUT_SIZE * LUT_SIZE) as usize;
     let mut pixels = Vec::with_capacity(texel_count);
@@ -1950,10 +2530,9 @@ fn generate_builtin_lut(preset: usize) -> Vec<u32> {
     pixels
 }
 
-pub(crate) fn generate_builtin_lut_pack() -> Vec<Vec<u32>> {
-    (0..LUT_COUNT).map(generate_builtin_lut).collect()
-}
-
+#[cfg(test)]
+#[cfg(test)]
+#[cfg(test)]
 fn apply_lut_recipe(preset: usize, input: [f32; 3]) -> [f32; 3] {
     let Some(recipe) = lut_recipe(preset) else {
         return input.map(|value| value.clamp(0.0, 1.0));
@@ -1981,6 +2560,8 @@ fn apply_lut_recipe(preset: usize, input: [f32; 3]) -> [f32; 3] {
     color
 }
 
+#[cfg(test)]
+#[cfg(test)]
 fn smooth_step(edge0: f32, edge1: f32, value: f32) -> f32 {
     let value = ((value - edge0) / (edge1 - edge0)).clamp(0.0, 1.0);
     value * value * (3.0 - 2.0 * value)

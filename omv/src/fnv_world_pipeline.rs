@@ -165,7 +165,7 @@ pub(crate) fn publish_config(config: GraphicsMenuConfig) -> bool {
         config: world_config,
     };
     REQUIREMENTS.store(world_config.requirements(), Ordering::Release);
-    crate::fnv_local_lights::configure(
+    crate::fnv_local_lights::configure_atmosphere(
         world_config.screen_space_shaders
             && world_config.depth_provider == DepthProvider::FalloutNewVegas
             && world_config.lighting.local_lights_enabled,
@@ -211,8 +211,9 @@ pub(crate) fn atmosphere_visibility() -> Option<f32> {
 
 pub(crate) unsafe fn begin_temporal_aa_jitter(
     device_ptr: *mut c_void,
+    target_surface: usize,
     target: TargetDescription,
-) -> Option<[f32; 2]> {
+) -> Option<backend::WorldCameraJitter> {
     if !needs_temporal_aa() {
         return None;
     }
@@ -220,7 +221,7 @@ pub(crate) unsafe fn begin_temporal_aa_jitter(
         JITTER_LOCK_BUSY.fetch_add(1, Ordering::Relaxed);
         return None;
     };
-    unsafe { runtime.temporal_aa_jitter(device_ptr, target) }
+    unsafe { runtime.temporal_aa_jitter(device_ptr, target_surface, target) }
 }
 
 pub(crate) unsafe fn apply_primary(device_ptr: *mut c_void) {
@@ -350,7 +351,7 @@ pub(crate) fn close_deadline(source_rendered_texture: *mut c_void) {
 }
 
 pub(crate) fn finish_present(epoch: u32) {
-    if !crate::fnv_local_lights::capture_enabled()
+    if !crate::fnv_local_lights::atmosphere_capture_enabled()
         && let Some(mut runtime) = WORLD_PIPELINE.try_lock()
     {
         runtime.local_lights = None;
@@ -455,6 +456,39 @@ struct EpochState {
     atmosphere_drew: bool,
 }
 
+#[derive(Clone, Copy)]
+struct TemporalProjectionOverride {
+    epoch: u32,
+    target_surface: usize,
+    target: TargetDescription,
+    rendered_camera: backend::CameraFrame,
+    output_camera: backend::CameraFrame,
+}
+
+impl TemporalProjectionOverride {
+    fn cameras_for(
+        self,
+        epoch: u32,
+        target_surface: usize,
+        target: TargetDescription,
+    ) -> Option<TemporalProjectionCameras> {
+        (self.epoch == epoch
+            && self.target_surface != 0
+            && self.target_surface == target_surface
+            && self.target == target)
+            .then_some(TemporalProjectionCameras {
+                rendered: self.rendered_camera,
+                output: self.output_camera,
+            })
+    }
+}
+
+#[derive(Clone, Copy)]
+struct TemporalProjectionCameras {
+    rendered: backend::CameraFrame,
+    output: backend::CameraFrame,
+}
+
 fn record_pre_alpha_outcome(epoch: &mut EpochState, outcome: AtmosphereDrawOutcome) {
     let drew = outcome.drew();
     epoch.atmosphere_complete = outcome.completes_pre_alpha();
@@ -482,6 +516,7 @@ struct FnvWorldPipelineRuntime {
     frame_index: u64,
     temporal_aa: Option<TemporalAaEffect>,
     temporal_aa_creation_failed: bool,
+    temporal_projection_override: Option<TemporalProjectionOverride>,
     atmosphere: Option<AtmosphereEffect>,
     atmosphere_creation_failed: bool,
     local_lights: Option<crate::fnv_local_lights::LocalLightEpoch>,
@@ -518,12 +553,19 @@ impl FnvWorldPipelineRuntime {
         if desc.Width == 0 || desc.Height == 0 {
             return Ok(());
         }
+        let projection_override = self
+            .temporal_projection_override
+            .and_then(|projection| {
+                projection.cameras_for(epoch, target, TargetDescription::from(&desc))
+            })
+            .map(|projection| projection.rendered);
         let depth = match unsafe {
             backend::resolve_scene_depth(
                 self.config.depth_provider,
                 device_ptr,
                 None,
                 DepthResolveSlot::World,
+                projection_override,
                 "FNV atmosphere before alpha coverage",
                 epoch,
             )
@@ -545,10 +587,15 @@ impl FnvWorldPipelineRuntime {
     unsafe fn temporal_aa_jitter(
         &mut self,
         device_ptr: *mut c_void,
+        target_surface: usize,
         target: TargetDescription,
-    ) -> Option<[f32; 2]> {
+    ) -> Option<backend::WorldCameraJitter> {
+        self.temporal_projection_override = None;
         self.refresh_config();
-        if !self.config.temporal_aa_enabled() || self.temporal_aa_creation_failed {
+        if target_surface == 0
+            || !self.config.temporal_aa_enabled()
+            || self.temporal_aa_creation_failed
+        {
             return None;
         }
         let device = unsafe { Device9Ref::from_raw_void(device_ptr) }?;
@@ -585,10 +632,25 @@ impl FnvWorldPipelineRuntime {
 
         let config = TemporalAaConfig::from_config(self.config.temporal_aa);
         let sample_index = self.frame_index.wrapping_add(1);
-        Some([
+        let jitter_pixels = [
             (halton(sample_index, 2) - 0.5) * config.jitter_scale(),
             (halton(sample_index, 3) - 0.5) * config.jitter_scale(),
-        ])
+        ];
+        let camera_jitter = unsafe {
+            backend::jitter_fnv_world_camera(jitter_pixels, target.width, target.height)?
+        };
+        // The live camera is restored before a nonblocking retry. Retain both
+        // the projection that sampled depth and the fixed output projection:
+        // reconstruction needs the former, while temporal motion must exclude
+        // Halton jitter so a still camera remains a null motion vector.
+        self.temporal_projection_override = Some(TemporalProjectionOverride {
+            epoch,
+            target_surface,
+            target,
+            rendered_camera: camera_jitter.projection(),
+            output_camera: camera_jitter.unjittered_projection(),
+        });
+        Some(camera_jitter)
     }
 
     unsafe fn apply(
@@ -634,6 +696,10 @@ impl FnvWorldPipelineRuntime {
             self.epoch.outcome = EpochOutcome::Rejected;
             return Ok(());
         }
+        let temporal_projection = self.temporal_projection_override.and_then(|projection| {
+            projection.cameras_for(epoch, target, TargetDescription::from(&desc))
+        });
+        let projection_override = temporal_projection.map(|projection| projection.rendered);
 
         let settings = self.config.atmosphere_settings();
         let atmosphere_remaining =
@@ -648,6 +714,7 @@ impl FnvWorldPipelineRuntime {
                 device_ptr,
                 None,
                 DepthResolveSlot::World,
+                projection_override,
                 match origin {
                     ApplyOrigin::Primary => "FNV coherent world transaction",
                     ApplyOrigin::BeforeFirstPerson => "FNV world transaction retry",
@@ -681,11 +748,16 @@ impl FnvWorldPipelineRuntime {
                 .ok_or_else(|| runtime_error("missing TAA state block"))?;
             state_block.capture()?;
             let mut result = self.temporal_aa.as_mut().map_or(Ok(()), |effect| {
+                let output_camera = temporal_projection
+                    .map_or(depth.0.world_projection.camera, |projection| {
+                        projection.output
+                    });
                 effect.draw(
                     &device,
                     &world_target,
                     &desc,
                     depth.0,
+                    output_camera,
                     TemporalAaConfig::from_config(self.config.temporal_aa),
                 )
             });
@@ -917,6 +989,7 @@ impl FnvWorldPipelineRuntime {
         self.device_ptr = 0;
         self.temporal_aa = None;
         self.temporal_aa_creation_failed = false;
+        self.temporal_projection_override = None;
         self.atmosphere = None;
         self.atmosphere_creation_failed = false;
         self.local_lights = None;
@@ -1042,13 +1115,15 @@ fn halton(mut index: u64, base: u64) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::{
-        CONFIG_GENERATION, CONFIG_MAILBOX, EpochState, WorldEffectsConfig, halton, publish_config,
-        record_pre_alpha_outcome, retry_target_matches,
+        CONFIG_GENERATION, CONFIG_MAILBOX, EpochState, TemporalProjectionOverride,
+        WorldEffectsConfig, halton, publish_config, record_pre_alpha_outcome, retry_target_matches,
     };
     use crate::{
-        backend::DepthProvider, config::GraphicsMenuConfig,
-        effects::atmosphere::AtmosphereDrawOutcome,
+        backend::{CameraFrame, CameraTransformFrame, DepthProvider},
+        config::GraphicsMenuConfig,
+        effects::{atmosphere::AtmosphereDrawOutcome, temporal_aa::TargetDescription},
     };
+    use libpsycho::os::windows::directx9::D3DFMT_A8R8G8B8;
     use std::sync::atomic::Ordering;
 
     #[test]
@@ -1120,6 +1195,71 @@ mod tests {
         assert!(!retry_target_matches(7, 7, 0x1234, 0x5678, 0x1234));
         assert!(!retry_target_matches(7, 7, 0x1234, 0x1234, 0x5678));
         assert!(!retry_target_matches(7, 7, 0, 0, 0));
+    }
+
+    #[test]
+    fn jittered_projection_survives_camera_restore_for_the_exact_retry_transaction() {
+        let target = TargetDescription {
+            width: 1920,
+            height: 1080,
+            format: D3DFMT_A8R8G8B8,
+        };
+        let restored_camera = CameraFrame {
+            near_z: 5.0,
+            far_z: 1000.0,
+            aspect_ratio: 16.0 / 9.0,
+            frustum_left: -1.0,
+            frustum_right: 1.0,
+            frustum_bottom: -0.5,
+            frustum_top: 0.5,
+            world_transform: CameraTransformFrame {
+                rotation: [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
+                translation: [0.0; 3],
+                scale: 1.0,
+                available: true,
+            },
+            available: true,
+        };
+        let jittered_camera = restored_camera
+            .with_pixel_jitter([0.5, -0.25], target.width, target.height)
+            .expect("valid jittered projection");
+        let projection = TemporalProjectionOverride {
+            epoch: 7,
+            target_surface: 0x1234,
+            target,
+            rendered_camera: jittered_camera,
+            output_camera: restored_camera,
+        };
+
+        let retry_cameras = projection
+            .cameras_for(7, 0x1234, target)
+            .expect("matching retry projection");
+        assert_eq!(
+            retry_cameras.rendered.frustum_left,
+            jittered_camera.frustum_left
+        );
+        assert_eq!(
+            retry_cameras.output.frustum_left,
+            restored_camera.frustum_left
+        );
+        assert_ne!(
+            retry_cameras.rendered.frustum_left,
+            retry_cameras.output.frustum_left
+        );
+        assert!(projection.cameras_for(8, 0x1234, target).is_none());
+        assert!(projection.cameras_for(7, 0x5678, target).is_none());
+        assert!(
+            projection
+                .cameras_for(
+                    7,
+                    0x1234,
+                    TargetDescription {
+                        width: 1280,
+                        ..target
+                    },
+                )
+                .is_none()
+        );
     }
 
     #[test]

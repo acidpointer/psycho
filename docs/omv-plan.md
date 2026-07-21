@@ -433,10 +433,15 @@ Current Blooming HDR runtime finding:
   separate `Color Grade and Film` config owns full-frame exposure/color/film
   response and is fused into this compose draw when enabled.
 - The fused compose attenuates Bloom over first-person pixels, preserves source
-  alpha, applies the selected original OMV 32-cube LUT with display-referred
-  trilinear sampling, and optionally adds flat-region debanding, grain,
-  vignette, and Bloom-derived halation. It does not add adaptive exposure or a
-  second tonemapper after vanilla image-space processing. See
+  alpha, applies the selected loose `.cube` LUT from
+  `Data/NVSE/plugins/omv/luts` with display-referred trilinear sampling, and
+  independently gates analytic grading, LUT, flat-region debanding, grain,
+  vignette, and independently extracted halation. Optional chromatic aberration
+  follows in a separately budgeted pass. OMV ships fourteen original
+  redistributable LUT
+  files and discovers arbitrary user additions in the live shader-scan
+  transaction. It does not add adaptive exposure or a second tonemapper after
+  vanilla image-space processing. See
   `docs/graphics_fnv_color_grading.md` for the exact phase, ABI, LUT,
   redistribution, quality, and performance contract.
 - This is still intentionally cheap: the expensive blur work happens at

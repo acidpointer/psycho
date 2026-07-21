@@ -41,6 +41,114 @@ pub(crate) struct DiagnosticCounters {
     pub(crate) task_tombstones: u64,
 }
 
+pub(crate) const DASHBOARD_FEATURE_DISPLAY: u64 = 1 << 0;
+pub(crate) const DASHBOARD_FEATURE_SAVE_INTEGRITY: u64 = 1 << 1;
+pub(crate) const DASHBOARD_FEATURE_TASK_GUARD: u64 = 1 << 2;
+pub(crate) const DASHBOARD_FEATURE_PARALLEL_IO: u64 = 1 << 3;
+pub(crate) const DASHBOARD_FEATURE_LOD_PREFETCH: u64 = 1 << 4;
+pub(crate) const DASHBOARD_FEATURE_LOD_HANDOFF: u64 = 1 << 5;
+pub(crate) const DASHBOARD_FEATURE_TREE_LIFETIME: u64 = 1 << 6;
+pub(crate) const DASHBOARD_FEATURE_VERTEX_BUFFERS: u64 = 1 << 7;
+
+#[derive(Clone, Copy, Default)]
+pub(crate) struct DashboardCounters {
+    pub active_features: u64,
+    pub save_attempts: u64,
+    pub save_commits: u64,
+    pub save_aborts: u64,
+    pub save_rejections: u64,
+    pub task_dispatches: u64,
+    pub task_rejections: u64,
+    pub task_release_guards: u64,
+    pub task_tombstones: u64,
+    pub io_workers: u64,
+    pub io_transactions: u64,
+    pub io_contentions: u64,
+    pub io_fallbacks: u64,
+    pub lod_demands: u64,
+    pub lod_early_demands: u64,
+    pub lod_retained_demands: u64,
+    pub lod_current_cells: u64,
+    pub lod_current_references: u64,
+    pub lod_stale_retirements_prevented: u64,
+}
+
+/// Cumulative, read-only counters for the late-bound helper dashboard.
+///
+/// Unlike the hitch profiler's interval counters, this snapshot never drains
+/// producer state. Every source below is atomic and safe to query from the
+/// dashboard sampling worker.
+pub(crate) fn dashboard_counters() -> DashboardCounters {
+    let display = display::diagnostic_snapshot();
+    let save = save_integrity::diagnostic_snapshot();
+    let task = queued_tasks::diagnostic_snapshot();
+    let io = io::diagnostic_snapshot();
+    let lod = lod::diagnostic_snapshot();
+
+    let mut active_features = 0;
+    if display.create_window_installed || display.installed {
+        active_features |= DASHBOARD_FEATURE_DISPLAY;
+    }
+    if save.factory_hook
+        || save.owner_hook
+        || save.activation_hook
+        || save.fclose_hook
+        || save.load_owner_hook
+    {
+        active_features |= DASHBOARD_FEATURE_SAVE_INTEGRITY;
+    }
+    if task.release_enabled || task.dispatch_enabled {
+        active_features |= DASHBOARD_FEATURE_TASK_GUARD;
+    }
+    if io.scheduler.parallel_installed {
+        active_features |= DASHBOARD_FEATURE_PARALLEL_IO;
+    }
+    if lod.streaming_installed {
+        active_features |= DASHBOARD_FEATURE_LOD_PREFETCH;
+    }
+    if lod.handoff_installed {
+        active_features |= DASHBOARD_FEATURE_LOD_HANDOFF;
+    }
+    if io.speedtree.installed {
+        active_features |= DASHBOARD_FEATURE_TREE_LIFETIME;
+    }
+    if io.vertex_buffers.installed {
+        active_features |= DASHBOARD_FEATURE_VERTEX_BUFFERS;
+    }
+
+    DashboardCounters {
+        active_features,
+        save_attempts: u64::from(save.save_attempts),
+        save_commits: u64::from(save.save_commits),
+        save_aborts: u64::from(save.save_aborts),
+        save_rejections: u64::from(save.short_writes)
+            .saturating_add(u64::from(save.close_failures))
+            .saturating_add(u64::from(save.load_rejections))
+            .saturating_add(u64::from(save.unresolved_records)),
+        task_dispatches: task.dispatch_calls,
+        task_rejections: task
+            .pin_failures
+            .saturating_add(task.invalid_dispatches)
+            .saturating_add(task.base_vtable_rejections),
+        task_release_guards: task.release_guards,
+        task_tombstones: task.tombstones,
+        io_workers: u64::from(io.scheduler.observed_workers),
+        io_transactions: io.scheduler.cell_loader_executions,
+        io_contentions: io.scheduler.cell_loader_contentions,
+        io_fallbacks: io
+            .scheduler
+            .parallel_fallbacks
+            .saturating_add(io.scheduler.cache_fallbacks)
+            .saturating_add(io.scheduler.capacity_failures),
+        lod_demands: lod.demand_calls.into_iter().sum(),
+        lod_early_demands: lod.extended_demands.into_iter().sum(),
+        lod_retained_demands: lod.retained_demands.into_iter().sum(),
+        lod_current_cells: lod.state.current_cells as u64,
+        lod_current_references: lod.state.current_references as u64,
+        lod_stale_retirements_prevented: lod.state.stale_retirements_prevented,
+    }
+}
+
 pub(crate) fn display_diagnostic_snapshot() -> display::DiagnosticSnapshot {
     display::diagnostic_snapshot()
 }

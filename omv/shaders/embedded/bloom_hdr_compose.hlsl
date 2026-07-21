@@ -13,6 +13,10 @@ float4 GradeData1 : register(c11);
 float4 GradeData2 : register(c12);
 float4 GradeData3 : register(c13);
 float4 GradeData4 : register(c14);
+float4 GradeData5 : register(c15);
+float4 GradeData6 : register(c16);
+float4 LutDomainScale : register(c17);
+float4 LutDomainBias : register(c18);
 
 static const float DepthEndpointEpsilon = 0.000001f;
 static const float3 LumaFactors = float3(0.2126f, 0.7152f, 0.0722f);
@@ -80,20 +84,23 @@ float GoldenNoise(float2 uv, float frameIndex) {
 
 float3 DebandScene(float2 uv, float3 center) {
     float2 texel = ScreenData.zw;
-    float3 left = SampleScene(uv + float2(-texel.x, 0.0f)).rgb;
-    float3 right = SampleScene(uv + float2(texel.x, 0.0f)).rgb;
-    float3 up = SampleScene(uv + float2(0.0f, -texel.y)).rgb;
-    float3 down = SampleScene(uv + float2(0.0f, texel.y)).rgb;
+    float strength = GradeData2.z * GradeData0.x;
+    float2 offset = texel * 6.0f;
+    float3 left = SampleScene(uv - float2(offset.x, 0.0f)).rgb;
+    float3 right = SampleScene(uv + float2(offset.x, 0.0f)).rgb;
+    float3 up = SampleScene(uv - float2(0.0f, offset.y)).rgb;
+    float3 down = SampleScene(uv + float2(0.0f, offset.y)).rgb;
     float3 average = (center + left + right + up + down) * 0.2f;
     float3 delta = max(max(abs(left - right), abs(up - down)), abs(center - average));
     float edge = max(delta.r, max(delta.g, delta.b));
     float flatWeight = 1.0f - Smooth01(edge * 42.5f);
-    return lerp(center, average, saturate(GradeData2.z) * GradeData0.x * flatWeight);
+    return lerp(center, average, strength * flatWeight * 0.85f);
 }
 
 float3 SampleColorLut(float3 color) {
-    float size = max(GradeData3.w, 2.0f);
-    float3 position = saturate(color) * (size - 1.0f);
+    float size = LutDomainScale.w;
+    float3 domainColor = saturate(color * LutDomainScale.xyz + LutDomainBias.xyz);
+    float3 position = domainColor * (size - 1.0f);
     float blue0 = floor(position.b);
     float blue1 = min(blue0 + 1.0f, size - 1.0f);
     float2 dimensions = float2(size * size, size);
@@ -104,12 +111,12 @@ float3 SampleColorLut(float3 color) {
     return lerp(low, high, position.b - blue0);
 }
 
-float3 ApplyColorGrade(float3 inputColor, float3 bloomContribution, float2 uv) {
-    float master = saturate(GradeData0.x);
-    float3 color = inputColor * exp2(clamp(GradeData0.y, -1.5f, 1.5f));
+float3 ApplyAnalyticGrade(float3 inputColor) {
+    float master = GradeData0.x;
+    float3 color = inputColor * exp2(GradeData0.y);
 
-    float temperature = clamp(GradeData1.y, -1.0f, 1.0f);
-    float tint = clamp(GradeData1.z, -1.0f, 1.0f);
+    float temperature = GradeData1.y;
+    float tint = GradeData1.z;
     float3 whiteBalance = float3(
         1.0f + temperature * 0.10f + tint * 0.025f,
         1.0f - tint * 0.055f,
@@ -117,31 +124,44 @@ float3 ApplyColorGrade(float3 inputColor, float3 bloomContribution, float2 uv) {
     );
     color *= whiteBalance;
 
+    color = 0.5f.xxx + (color - 0.5f.xxx) * (1.0f + GradeData0.z);
     float luma = Luma(color);
-    float targetLuma = 0.5f + (luma - 0.5f) * (1.0f + clamp(GradeData0.z, -0.5f, 0.5f));
-    color += targetLuma - luma;
-    luma = Luma(color);
     float chromaRange = max(color.r, max(color.g, color.b)) - min(color.r, min(color.g, color.b));
-    float adaptiveVibrance = 1.0f + clamp(GradeData1.x, -1.0f, 1.0f) * (1.0f - saturate(chromaRange));
-    float saturation = max(GradeData0.w, 0.0f) * max(adaptiveVibrance, 0.0f);
+    float adaptiveVibrance = 1.0f + GradeData1.x * (1.0f - saturate(chromaRange));
+    float saturation = GradeData0.w * adaptiveVibrance;
     color = luma.xxx + (color - luma.xxx) * saturation;
 
-    float blackFade = saturate(GradeData1.w) * 0.06f;
+    float blackFade = GradeData1.w * 0.06f;
     color = blackFade.xxx + color * (1.0f - blackFade);
-    float shoulder = saturate(GradeData2.x) * 0.65f;
+    float shoulder = GradeData2.x * 0.65f;
     color = saturate(color);
     color = color * (1.0f + shoulder) / (1.0f + shoulder * color);
 
-    float3 lutColor = SampleColorLut(color);
-    color = lerp(color, lutColor, saturate(GradeData2.y));
-    color += bloomContribution * float3(1.0f, 0.28f, 0.10f)
-        * saturate(GradeData3.y) * 0.22f;
+    return lerp(inputColor, color, master);
+}
 
-    float2 centered = uv * 2.0f - 1.0f;
-    centered.x *= ScreenData.x / max(ScreenData.y, 1.0f);
-    float vignette = Smooth01(saturate(dot(centered, centered) * 0.42f));
-    color *= 1.0f - vignette * saturate(GradeData3.x) * 0.32f;
-    return lerp(inputColor, saturate(color), master);
+float3 ApplyFinishing(float3 inputColor, float3 halationBlur, float2 uv) {
+    float master = GradeData0.x;
+    float3 color = inputColor;
+    if (GradeData5.x > 0.5f) {
+        color = ApplyAnalyticGrade(color);
+    }
+    if (GradeData5.y > 0.5f) {
+        float3 lutColor = SampleColorLut(color);
+        color = lerp(color, lutColor, GradeData2.y * master);
+    }
+    if (GradeData6.y > 0.5f) {
+        color += halationBlur * float3(1.0f, 0.28f, 0.10f)
+            * GradeData3.y * master * 0.85f;
+    }
+
+    if (GradeData6.x > 0.5f) {
+        float2 centered = uv * 2.0f - 1.0f;
+        centered.x *= ScreenData.x / max(ScreenData.y, 1.0f);
+        float vignette = Smooth01(dot(centered, centered) * 0.42f);
+        color *= 1.0f - vignette * GradeData3.x * master * 0.32f;
+    }
+    return color;
 }
 
 float3 ComposeBloom(float3 base, float3 bloomContribution, float shoulder) {
@@ -153,47 +173,53 @@ float3 ComposeBloom(float3 base, float3 bloomContribution, float shoulder) {
 float4 Main(PixelInput input) : COLOR0 {
     float4 baseSample = SampleScene(input.uv);
     float3 base = baseSample.rgb;
-    if (GradeData4.x > 0.5f && GradeData2.z > 0.00001f) {
+    if (GradeData4.x > 0.5f && GradeData5.z > 0.5f && GradeData2.z > 0.00001f) {
         base = DebandScene(input.uv, base);
+    }
+
+    float3 highlightBlur = 0.0f;
+    if (max(GradeData4.y, GradeData6.y) > 0.5f) {
+        float exposure = exp2(clamp(OptionData1.x, -0.5f, 0.5f));
+        highlightBlur = ApplySaturation(SampleBloom(input.uv), OptionData1.z);
+        highlightBlur = ApplyWarmth(highlightBlur) * exposure;
+        if (TouchesFirstPerson(input.uv)) {
+            highlightBlur *= 0.28f;
+        }
     }
 
     float3 bloom = 0.0f;
     if (GradeData4.y > 0.5f) {
-        float exposure = exp2(clamp(OptionData1.x, -0.5f, 0.5f));
-        bloom = ApplySaturation(SampleBloom(input.uv), OptionData1.z);
-        bloom = ApplyWarmth(bloom) * exposure;
+        bloom = highlightBlur;
         if (OptionData2.z > 0.5f) {
             return float4(saturate(bloom * 4.0f), baseSample.a);
         }
-        if (TouchesFirstPerson(input.uv)) {
-            bloom *= 0.28f;
-        }
     }
 
-    float bloomLift = 1.0f + saturate(OptionData2.x) * 0.25f;
+    float bloomLift = 1.0f + OptionData2.x * 0.25f;
     float3 bloomContribution = bloom * max(OptionData0.x, 0.0f) * bloomLift;
-    float shoulder = saturate(OptionData1.y);
+    float shoulder = OptionData1.y;
     float3 ungraded = ComposeBloom(base, bloomContribution, shoulder);
     float3 color = ungraded;
 
     if (GradeData4.x > 0.5f) {
-        color = ApplyColorGrade(color, bloomContribution, input.uv);
-        float grainMask = 0.30f + 0.70f * (1.0f - Smooth01(Luma(color)));
-        float grain = (GoldenNoise(input.uv + 0.173f, FrameData.x + 19.0f) - 0.5f)
-            * saturate(GradeData2.w) * GradeData0.x * grainMask * 1.4f / 255.0f;
-        color += grain;
+        color = ApplyFinishing(color, highlightBlur, input.uv);
+        if (GradeData5.w > 0.5f) {
+            float grainMask = 1.0f - saturate(Luma(color) * 0.65f);
+            float grainNoise = GoldenNoise(input.uv + 0.173f, FrameData.x + 19.0f) - 0.5f;
+            float grain = grainNoise * GradeData2.w * GradeData0.x
+                * grainMask * 12.0f / 255.0f;
+            color += grain;
+        }
         if (GradeData3.z > 0.5f) {
-            float3 beforeGrade = ComposeBloom(baseSample.rgb, bloomContribution, shoulder);
-            color = input.uv.x < 0.5f ? beforeGrade : color;
-            if (abs(input.uv.x - 0.5f) < ScreenData.z) {
-                color = 1.0f;
-            }
+            color = input.uv.x < 0.5f ? ungraded : color;
         }
     }
 
     float ditherStrength = max(
-        GradeData4.y > 0.5f ? saturate(OptionData2.y) : 0.0f,
-        GradeData4.x > 0.5f ? saturate(GradeData2.z) * GradeData0.x * 0.35f : 0.0f
+        GradeData4.y > 0.5f ? OptionData2.y : 0.0f,
+        GradeData4.x > 0.5f && GradeData5.z > 0.5f
+            ? GradeData2.z * GradeData0.x * 1.25f
+            : 0.0f
     );
     float noise = (GoldenNoise(input.uv, FrameData.x) - 0.5f) * ditherStrength / 255.0f;
     return float4(saturate(color + noise), baseSample.a);

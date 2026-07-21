@@ -20,24 +20,23 @@ const AABB_CHECK_BOUND_ADDR: usize = 0x00C382B0;
 const BUILD_GEOMETRY_MATRIX_ADDR: usize = 0x00C4C2D0;
 const SHADOW_SCENE_NODE_SLOT_ADDR: usize = 0x011F91C8;
 const HDR_ENABLED_ADDR: usize = 0x011F941E;
+const POINT_LIGHT_OVERRIDE_COLOR_ADDR: usize = 0x011F4998;
 
 const GEOMETRY_PARENT_OFFSET: usize = 0x18;
 const GEOMETRY_WORLD_TRANSFORM_OFFSET: usize = 0x68;
 const GEOMETRY_WORLD_SCALE_OFFSET: usize = 0x98;
 const GEOMETRY_LIGHTING_PROPERTY_OFFSET: usize = 0xA8;
-const LIGHTING_PROPERTY_FORCED_DARKNESS_OFFSET: usize = 0x6C;
+const GEOMETRY_MATRIX_CONTEXT_OFFSET: usize = 0xBC;
+const LIGHTING_PROPERTY_LIGHT_SCALE_OFFSET: usize = 0x6C;
 
 const RENDER_PASS_LIGHT_COUNT_OFFSET: usize = 0x09;
 const RENDER_PASS_LIGHT_ARRAY_OFFSET: usize = 0x0C;
 const MAX_RENDER_PASS_LIGHTS: usize = MAX_TERRAIN_POINT_LIGHTS + 1;
 
 const SCENE_LIGHT_LOD_DIMMER_OFFSET: usize = 0xD0;
-const SCENE_LIGHT_FADE_OFFSET: usize = 0xD4;
 const SCENE_LIGHT_POINT_OFFSET: usize = 0xF4;
 const SCENE_LIGHT_AMBIENT_OFFSET: usize = 0xF5;
 const SCENE_LIGHT_NATIVE_LIGHT_OFFSET: usize = 0xF8;
-const SCENE_LIGHT_SHADOW_CLASS_OFFSET: usize = 0xEC;
-const SCENE_LIGHT_ACTIVE_STATE_OFFSET: usize = 0x110;
 
 const NATIVE_LIGHT_POSITION_OFFSET: usize = 0x8C;
 const NATIVE_LIGHT_DIMMER_OFFSET: usize = 0xC4;
@@ -45,18 +44,13 @@ const NATIVE_LIGHT_DIFFUSE_OFFSET: usize = 0xD4;
 const NATIVE_LIGHT_RADIUS_OFFSET: usize = 0xE0;
 const NATIVE_LIGHT_DISABLED_FLAGS_OFFSET: usize = 0x30;
 
-const SHADOW_SCENE_NODE_LIGHT_LIST_OFFSET: usize = 0xB4;
 const SHADOW_SCENE_NODE_LIGHTING_OFFSET: usize = 0x1E4;
-const LIGHT_LIST_NODE_NEXT_OFFSET: usize = 0x00;
-const LIGHT_LIST_NODE_VALUE_OFFSET: usize = 0x08;
 const NIOBJECT_IS_MULTIBOUND_NODE_VTABLE_OFFSET: usize = 0x14;
 const MULTIBOUND_NODE_MULTIBOUND_OFFSET: usize = 0xAC;
 const MULTIBOUND_SHAPE_OFFSET: usize = 0x0C;
 const MAX_GENERAL_LIGHT_SCAN: usize = 64;
-const MAX_MANAGER_LIGHT_SCAN: usize = 64;
 const MIN_ENGINE_PTR: usize = 0x10000;
 const LIGHT_COMPONENT_MIN: f32 = 1.0 / 255.0;
-const SCENE_LIGHT_INACTIVE_STATE: u16 = 0x00FF;
 
 type GeneralLightFirstFn =
     unsafe extern "thiscall" fn(*mut c_void, *mut *mut c_void) -> *mut c_void;
@@ -88,21 +82,21 @@ struct TerrainLightCandidate {
     diffuse: [f32; 3],
     dimmer: f32,
     lod_dimmer: f32,
-    fade: f32,
     in_multibound: bool,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 struct ShaderTerrainLight {
     position_radius: [f32; 4],
-    color_fade: [f32; 4],
+    color_visibility: [f32; 4],
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct TerrainLightContext {
     transform: GeometryTransform,
     lighting_offset: [f32; 3],
-    forced_darkness: f32,
+    property_light_scale: f32,
+    point_light_override_color: [f32; 3],
     hdr: bool,
 }
 
@@ -129,7 +123,7 @@ impl SupplementalTerrainLights {
         output[0] = [self.count as f32, 0.0, 0.0, 0.0];
         for (index, light) in self.lights[..self.count].iter().enumerate() {
             output[1 + index * 2] = light.position_radius;
-            output[2 + index * 2] = light.color_fade;
+            output[2 + index * 2] = light.color_visibility;
         }
         1 + self.count * 2
     }
@@ -162,18 +156,19 @@ impl<'a> TerrainLightMerge<'a> {
         }
     }
 
-    fn consider(&mut self, candidate: TerrainLightCandidate) {
+    fn consider(&mut self, candidate: TerrainLightCandidate) -> bool {
         if !self.needs_identity(candidate.identity) {
-            return;
+            return false;
         }
         let Some(light) = shader_light(candidate, self.context) else {
-            return;
+            return false;
         };
 
         let index = self.output.count;
         self.output.identities[index] = candidate.identity;
         self.output.lights[index] = light;
         self.output.count += 1;
+        true
     }
 
     fn finish(self) -> SupplementalTerrainLights {
@@ -207,16 +202,19 @@ unsafe fn capture_current_unchecked() -> Option<SupplementalTerrainLights> {
         return Some(SupplementalTerrainLights::default());
     }
 
-    let forced_darkness =
-        unsafe { read_copy::<f32>(property, LIGHTING_PROPERTY_FORCED_DARKNESS_OFFSET) };
-    if !forced_darkness.is_finite() || forced_darkness < 1.0 {
+    let property_light_scale =
+        unsafe { read_copy::<f32>(property, LIGHTING_PROPERTY_LIGHT_SCALE_OFFSET) };
+    if !property_light_scale.is_finite() {
         return Some(SupplementalTerrainLights::default());
     }
     let scene_node = unsafe { read_shadow_scene_node() }?;
     let context = TerrainLightContext {
         transform: unsafe { read_geometry_transform(geometry) }?,
         lighting_offset: unsafe { read_vec3(scene_node, SHADOW_SCENE_NODE_LIGHTING_OFFSET) },
-        forced_darkness,
+        property_light_scale,
+        point_light_override_color: unsafe {
+            read_vec3(POINT_LIGHT_OVERRIDE_COLOR_ADDR as *mut c_void, 0)
+        },
         hdr: unsafe { (HDR_ENABLED_ADDR as *const u8).read() != 0 },
     };
 
@@ -253,45 +251,48 @@ unsafe fn capture_current_unchecked() -> Option<SupplementalTerrainLights> {
         scene_light = unsafe { next(property, &mut iterator) };
     }
 
-    // A zero-point row can expose no general candidate even though the scene
-    // manager owns an active shadow-classified portable light.
+    // A zero-point row can expose no property-local candidate even though the
+    // scene manager owns an active portable light.
     if manager_fallback_needed(native_point_count, merge.output.count) && !merge.is_full() {
-        unsafe { supplement_manager_shadow_lights(scene_node, multibound_shape, &mut merge) };
+        supplement_manager_lights(multibound_shape, &mut merge);
     }
 
     Some(merge.finish())
 }
 
-unsafe fn supplement_manager_shadow_lights(
-    scene_node: *mut c_void,
+fn supplement_manager_lights(
     multibound_shape: Option<*mut c_void>,
     merge: &mut TerrainLightMerge<'_>,
 ) {
-    let mut list_node = unsafe { read_ptr_offset(scene_node, SHADOW_SCENE_NODE_LIGHT_LIST_OFFSET) };
-    let mut scanned = 0usize;
-    while let Some(node) = list_node {
-        if scanned >= MAX_MANAGER_LIGHT_SCAN || merge.is_full() {
-            break;
-        }
-        scanned += 1;
-
-        if let Some(scene_light) = unsafe { read_ptr_offset(node, LIGHT_LIST_NODE_VALUE_OFFSET) } {
-            let shadow_class =
-                unsafe { read_copy::<u8>(scene_light, SCENE_LIGHT_SHADOW_CLASS_OFFSET) };
-            let active_state =
-                unsafe { read_copy::<u16>(scene_light, SCENE_LIGHT_ACTIVE_STATE_OFFSET) };
-            if manager_shadow_light_is_active(shadow_class, active_state)
-                && let Some(candidate) = unsafe { read_candidate(scene_light, multibound_shape) }
-            {
-                merge.consider(candidate);
-            }
-        }
-        list_node = unsafe { read_ptr_offset(node, LIGHT_LIST_NODE_NEXT_OFFSET) };
-    }
+    let _ = crate::fnv_local_lights::try_with_current_terrain_lights(|lights| {
+        supplement_captured_manager_lights(lights, multibound_shape, merge);
+    });
 }
 
-fn manager_shadow_light_is_active(shadow_class: u8, active_state: u16) -> bool {
-    shadow_class == 1 && active_state != SCENE_LIGHT_INACTIVE_STATE
+fn supplement_captured_manager_lights(
+    lights: &[crate::fnv_local_lights::TerrainSceneLight],
+    multibound_shape: Option<*mut c_void>,
+    merge: &mut TerrainLightMerge<'_>,
+) {
+    for light in lights {
+        if merge.is_full() {
+            break;
+        }
+        let candidate = TerrainLightCandidate {
+            identity: light.native_light_identity,
+            point: light.point,
+            ambient: light.ambient,
+            relative_position: light.relative_position,
+            radius: light.radius,
+            diffuse: light.diffuse,
+            dimmer: light.dimmer,
+            lod_dimmer: light.lod_dimmer,
+            in_multibound: unsafe {
+                light_intersects_multibound(light.relative_position, light.radius, multibound_shape)
+            },
+        };
+        merge.consider(candidate);
+    }
 }
 
 fn manager_fallback_needed(native_point_count: usize, supplemental_point_count: usize) -> bool {
@@ -305,7 +306,6 @@ fn shader_light(
     if !candidate.point
         || candidate.ambient
         || !candidate.in_multibound
-        || context.forced_darkness < 1.0
         || context.transform.scale <= f32::EPSILON
     {
         return None;
@@ -319,41 +319,42 @@ fn shader_light(
                 candidate.radius,
                 candidate.dimmer,
                 candidate.lod_dimmer,
-                candidate.fade,
-                context.forced_darkness,
+                context.property_light_scale,
                 context.transform.scale,
             ]
             .iter(),
         )
+        .chain(context.point_light_override_color.iter())
         .chain(context.lighting_offset.iter())
         .chain(context.transform.world_to_local.iter().flatten())
         .all(|value| value.is_finite())
-        || candidate.radius <= 0.0
-        || candidate.dimmer < 0.0
-        || candidate.lod_dimmer < 0.0
     {
         return None;
     }
-    if !candidate
-        .diffuse
-        .iter()
-        .map(|component| component * candidate.dimmer)
-        .any(|component| component > LIGHT_COMPONENT_MIN)
-    {
+    if candidate.radius <= 0.0 || candidate.dimmer < 0.0 || candidate.lod_dimmer < 0.0 {
         return None;
     }
 
     let world_position = add3(candidate.relative_position, context.lighting_offset);
     let local_position = inverse_transform_point(world_position, context.transform)?;
     let radius = candidate.radius / context.transform.scale;
-    let dimmer = if !context.hdr && candidate.dimmer > 1.0 {
-        1.0
+    let color = if context.property_light_scale < 1.0 {
+        context.point_light_override_color
     } else {
-        candidate.dimmer
-    } * context.forced_darkness
-        * candidate.lod_dimmer;
-    let color = candidate.diffuse.map(|component| component * dimmer);
-    if !radius.is_finite() || radius <= 0.0 || !color.iter().all(|component| component.is_finite())
+        let dimmer = if !context.hdr && candidate.dimmer > 1.0 {
+            1.0
+        } else {
+            candidate.dimmer
+        } * context.property_light_scale
+            * candidate.lod_dimmer;
+        candidate.diffuse.map(|component| component * dimmer)
+    };
+    if !radius.is_finite()
+        || radius <= 0.0
+        || !color.iter().all(|component| component.is_finite())
+        || !color
+            .iter()
+            .any(|component| *component > LIGHT_COMPONENT_MIN)
     {
         return None;
     }
@@ -365,7 +366,12 @@ fn shader_light(
             local_position[2],
             radius,
         ],
-        color_fade: [color[0], color[1], color[2], candidate.fade],
+        // This path exists only for a point light omitted by the native
+        // non-shadow terrain pass. ShadowSceneLight+0xD4 can be zero while
+        // that light remains valid illumination, and VPT terrain consumes
+        // the staged RGB without using alpha. Keep native-row alpha fading in
+        // the shader, but make OMV-owned supplemental visibility explicit.
+        color_visibility: [color[0], color[1], color[2], 1.0],
     })
 }
 
@@ -457,7 +463,6 @@ unsafe fn read_candidate(
         diffuse: unsafe { read_vec3(native_light, NATIVE_LIGHT_DIFFUSE_OFFSET) },
         dimmer: unsafe { read_copy::<f32>(native_light, NATIVE_LIGHT_DIMMER_OFFSET) },
         lod_dimmer: unsafe { read_copy::<f32>(scene_light, SCENE_LIGHT_LOD_DIMMER_OFFSET) },
-        fade: unsafe { read_copy::<f32>(scene_light, SCENE_LIGHT_FADE_OFFSET) },
         in_multibound: unsafe {
             light_intersects_multibound(relative_position, radius, multibound_shape)
         },
@@ -496,12 +501,9 @@ unsafe fn read_geometry_transform(geometry: *mut c_void) -> Option<GeometryTrans
         FnPtr::<BuildGeometryMatrixFn>::from_address_unchecked(BUILD_GEOMETRY_MATRIX_ADDR).as_fn()
     };
     let mut world_to_local = [[0.0; 4]; 4];
+    let (world_transform, matrix_context) = unsafe { geometry_matrix_inputs(geometry) };
     unsafe {
-        build_matrix(
-            (geometry as usize + GEOMETRY_WORLD_TRANSFORM_OFFSET) as *const c_void,
-            std::ptr::null(),
-            &mut world_to_local,
-        );
+        build_matrix(world_transform, matrix_context, &mut world_to_local);
     }
     let transform = GeometryTransform {
         world_to_local,
@@ -514,6 +516,15 @@ unsafe fn read_geometry_transform(geometry: *mut c_void) -> Option<GeometryTrans
         .chain([transform.scale].iter())
         .all(|value| value.is_finite())
         .then_some(transform)
+}
+
+unsafe fn geometry_matrix_inputs(geometry: *mut c_void) -> (*const c_void, *const c_void) {
+    let world_transform = (geometry as usize + GEOMETRY_WORLD_TRANSFORM_OFFSET) as *const c_void;
+    let matrix_context = unsafe {
+        ((geometry as usize + GEOMETRY_MATRIX_CONTEXT_OFFSET) as *const *const c_void)
+            .read_unaligned()
+    };
+    (world_transform, matrix_context)
 }
 
 unsafe fn read_shadow_scene_node() -> Option<*mut c_void> {
@@ -553,16 +564,20 @@ mod tests {
     use std::mem::{size_of, size_of_val};
 
     use super::{
-        GeometryTransform, MAX_SUPPLEMENTAL_CONSTANTS, MAX_TERRAIN_POINT_LIGHTS,
-        SCENE_LIGHT_ACTIVE_STATE_OFFSET, SCENE_LIGHT_INACTIVE_STATE,
-        SCENE_LIGHT_SHADOW_CLASS_OFFSET, SHADOW_SCENE_NODE_LIGHT_LIST_OFFSET,
-        SupplementalTerrainLights, TerrainLightCandidate, TerrainLightContext, TerrainLightMerge,
-        inverse_transform_point, manager_fallback_needed, manager_shadow_light_is_active,
-        supplement_manager_shadow_lights,
+        GEOMETRY_MATRIX_CONTEXT_OFFSET, GEOMETRY_WORLD_TRANSFORM_OFFSET, GeometryTransform,
+        MAX_SUPPLEMENTAL_CONSTANTS, MAX_TERRAIN_POINT_LIGHTS, SupplementalTerrainLights,
+        TerrainLightCandidate, TerrainLightContext, TerrainLightMerge, geometry_matrix_inputs,
+        inverse_transform_point, manager_fallback_needed, supplement_captured_manager_lights,
     };
+    use crate::fnv_local_lights::TerrainSceneLight;
 
-    const MANAGER_LIGHT_AUDIT: &str = include_str!(
-        "../../../../analysis/ghidra/output/perf/graphics_fnv_volumetric_local_light_value_copy_contract_audit.txt"
+    const MANAGER_EPOCH_AUDIT: &str = include_str!(
+        "../../../../analysis/ghidra/output/perf/graphics_fnv_volumetric_local_manager_epoch_contract_followup.txt"
+    );
+    const MANAGER_EPOCH_CONTRACT: &str =
+        include_str!("../../../../docs/graphics_fnv_volumetric_fog_lighting_plan.md");
+    const LIGHT_STAGING_AUDIT: &str = include_str!(
+        "../../../../analysis/ghidra/output/perf/graphics_fnv_pbr_light_selection_continuity_closure.txt"
     );
     const PIPBOY_LIGHT_AUDIT: &str = include_str!(
         "../../../../analysis/ghidra/output/perf/graphics_fnv_close_terrain_pipboy_light_0147_shadow_path_audit.txt"
@@ -580,8 +595,24 @@ mod tests {
                 scale: 2.0,
             },
             lighting_offset: [1000.0, 2000.0, 3000.0],
-            forced_darkness: 1.0,
+            property_light_scale: 1.0,
+            point_light_override_color: [0.2, 0.4, 0.6],
             hdr: true,
+        }
+    }
+
+    fn captured_manager_light(identity: usize) -> TerrainSceneLight {
+        let candidate = candidate(identity);
+        TerrainSceneLight {
+            native_light_identity: candidate.identity,
+            point: candidate.point,
+            ambient: candidate.ambient,
+            relative_position: candidate.relative_position,
+            radius: candidate.radius,
+            diffuse: candidate.diffuse,
+            dimmer: candidate.dimmer,
+            lod_dimmer: candidate.lod_dimmer,
+            fade: 0.75,
         }
     }
 
@@ -595,9 +626,37 @@ mod tests {
             diffuse: [0.5, 0.25, 0.125],
             dimmer: 2.0,
             lod_dimmer: 0.5,
-            fade: 0.75,
             in_multibound: true,
         }
+    }
+
+    fn payload_light_input_luminance(
+        constants: &[[f32; 4]],
+        fragment_position: [f32; 3],
+        normal: [f32; 3],
+    ) -> f32 {
+        assert_eq!(constants[0][0], 1.0);
+        let position_radius = constants[1];
+        let color_visibility = constants[2];
+        let light_vector = [
+            position_radius[0] - fragment_position[0],
+            position_radius[1] - fragment_position[1],
+            position_radius[2] - fragment_position[2],
+        ];
+        let distance_squared = light_vector.iter().map(|value| value * value).sum::<f32>();
+        let distance = distance_squared.sqrt();
+        let attenuation = (1.0 - distance_squared / position_radius[3].powi(2)).clamp(0.0, 1.0);
+        let light_direction = light_vector.map(|value| value / distance);
+        let ndotl = light_direction
+            .iter()
+            .zip(normal)
+            .map(|(light, normal)| light * normal)
+            .sum::<f32>()
+            .clamp(0.0, 1.0);
+        let visibility = color_visibility[3].clamp(0.0, 1.0);
+        let luminance =
+            color_visibility[0] * 0.299 + color_visibility[1] * 0.587 + color_visibility[2] * 0.114;
+        luminance * visibility * attenuation * ndotl
     }
 
     unsafe fn write_buffer<T>(buffer: &mut [usize], offset: usize, value: T) {
@@ -615,7 +674,7 @@ mod tests {
     #[test]
     fn old_non_shadow_pass_gets_the_missing_general_light() {
         let mut merge = TerrainLightMerge::new(&[0x11000], 1, context());
-        merge.consider(candidate(0x22000));
+        assert!(merge.consider(candidate(0x22000)));
         let output = merge.finish();
 
         assert_eq!(output.identities[0], 0x22000);
@@ -623,72 +682,68 @@ mod tests {
     }
 
     #[test]
-    fn zero_native_row_accepts_an_active_manager_shadow_light() {
+    fn captured_manager_light_reaches_the_production_merge_without_engine_pointers() {
         let mut merge = TerrainLightMerge::new(&[], 0, context());
-        if manager_shadow_light_is_active(1, 0) {
-            merge.consider(candidate(0x22000));
-        }
+        supplement_captured_manager_lights(&[captured_manager_light(0x22000)], None, &mut merge);
 
         let output = merge.finish();
         assert_eq!(&output.identities[..output.count], &[0x22000]);
+        assert_eq!(output.lights()[0].color_visibility, [0.5, 0.25, 0.125, 1.0]);
     }
 
     #[test]
-    fn zero_native_row_walks_the_production_manager_list() {
-        let mut scene_node = Box::new([0usize; 128]);
-        let mut list_node = Box::new([0usize; 4]);
-        let mut scene_light = Box::new([0usize; 80]);
-        let mut native_light = Box::new([0usize; 64]);
-        let scene_light_ptr = scene_light.as_mut_ptr().cast::<std::ffi::c_void>();
-        let native_light_ptr = native_light.as_mut_ptr().cast::<std::ffi::c_void>();
-
-        unsafe {
-            write_buffer(
-                &mut scene_node[..],
-                SHADOW_SCENE_NODE_LIGHT_LIST_OFFSET,
-                list_node.as_mut_ptr() as usize,
-            );
-            write_buffer(&mut list_node[..], 0x08, scene_light_ptr as usize);
-            write_buffer(&mut scene_light[..], 0xF8, native_light_ptr as usize);
-            write_buffer(&mut scene_light[..], 0xEC, 1u8);
-            write_buffer(&mut scene_light[..], 0x110, 0u16);
-            write_buffer(&mut scene_light[..], 0xF4, 1u8);
-            write_buffer(&mut scene_light[..], 0xF5, 0u8);
-            write_buffer(&mut scene_light[..], 0xD0, 0.5f32);
-            write_buffer(&mut scene_light[..], 0xD4, 0.75f32);
-
-            write_buffer(&mut native_light[..], 0x30, 0u8);
-            write_buffer(&mut native_light[..], 0x8C, 102.0f32);
-            write_buffer(&mut native_light[..], 0x90, 204.0f32);
-            write_buffer(&mut native_light[..], 0x94, 306.0f32);
-            write_buffer(&mut native_light[..], 0xC4, 2.0f32);
-            write_buffer(&mut native_light[..], 0xD4, 0.5f32);
-            write_buffer(&mut native_light[..], 0xD8, 0.25f32);
-            write_buffer(&mut native_light[..], 0xDC, 0.125f32);
-            write_buffer(&mut native_light[..], 0xE0, 80.0f32);
-        }
-
+    fn zero_native_row_manager_pipboy_light_survives_zero_shadow_fade() {
+        let mut pipboy = captured_manager_light(0x22000);
+        pipboy.fade = 0.0;
         let mut merge = TerrainLightMerge::new(&[], 0, context());
-        unsafe {
-            supplement_manager_shadow_lights(scene_node.as_mut_ptr().cast(), None, &mut merge);
-        }
+        supplement_captured_manager_lights(&[pipboy], None, &mut merge);
+        let output = merge.finish();
+        let mut constants = [[0.0; 4]; MAX_SUPPLEMENTAL_CONSTANTS];
+        let constant_count = output.write_shader_constants(&mut constants);
+
+        assert_eq!(constant_count, 3);
+        assert_eq!(constants[0], [1.0, 0.0, 0.0, 0.0]);
+        assert_eq!(constants[2][3], 1.0);
+        assert!(
+            payload_light_input_luminance(
+                &constants[..constant_count],
+                [501.0, 1002.0, 1483.0],
+                [0.0, 0.0, 1.0],
+            ) > 0.1
+        );
+
+        assert!(PIPBOY_LIGHT_AUDIT.contains("local_98 = 0.0;"));
+        assert!(PIPBOY_LIGHT_AUDIT.contains("*(float *)(param_1 + 0xd4) = local_98;"));
+    }
+
+    #[test]
+    fn captured_manager_order_and_identity_deduplication_are_preserved() {
+        let mut merge = TerrainLightMerge::new(&[], 0, context());
+        supplement_captured_manager_lights(
+            &[
+                captured_manager_light(0x33000),
+                captured_manager_light(0x22000),
+                captured_manager_light(0x33000),
+            ],
+            None,
+            &mut merge,
+        );
         let output = merge.finish();
 
-        assert_eq!(output.count, 1);
-        assert_eq!(output.identities[0], native_light_ptr as usize);
-        assert_eq!(
-            output.lights()[0].position_radius,
-            [501.0, 1002.0, 1503.0, 40.0]
-        );
-        assert_eq!(output.lights()[0].color_fade, [0.5, 0.25, 0.125, 0.75]);
+        assert_eq!(output.count, 2);
+        assert_eq!(&output.identities[..2], &[0x33000, 0x22000]);
     }
 
     #[test]
-    fn manager_fallback_rejects_nonshadow_and_inactive_lights() {
-        assert!(manager_shadow_light_is_active(1, 0));
-        assert!(manager_shadow_light_is_active(1, 1));
-        assert!(!manager_shadow_light_is_active(0, 0));
-        assert!(!manager_shadow_light_is_active(1, 0x00FF));
+    fn captured_manager_filter_rejects_non_point_and_ambient_entries() {
+        let mut not_point = captured_manager_light(0x22000);
+        not_point.point = false;
+        let mut ambient = captured_manager_light(0x33000);
+        ambient.ambient = true;
+        let mut merge = TerrainLightMerge::new(&[], 0, context());
+        supplement_captured_manager_lights(&[not_point, ambient], None, &mut merge);
+
+        assert!(merge.finish().lights().is_empty());
     }
 
     #[test]
@@ -700,25 +755,22 @@ mod tests {
     }
 
     #[test]
-    fn manager_fallback_offsets_match_ghidra_engine_contracts() {
-        assert_eq!(SHADOW_SCENE_NODE_LIGHT_LIST_OFFSET, 0xB4);
-        assert_eq!(SCENE_LIGHT_SHADOW_CLASS_OFFSET, 0xEC);
-        assert_eq!(SCENE_LIGHT_ACTIVE_STATE_OFFSET, 0x110);
-        assert_eq!(SCENE_LIGHT_INACTIVE_STATE, 0x00FF);
-
-        assert!(MANAGER_LIGHT_AUDIT.contains("ShadowSceneNode +0xB4 is a manager-wide"));
-        assert!(MANAGER_LIGHT_AUDIT.contains("piVar2 = *(int **)(param_1 + 0xb4);"));
-        assert!(MANAGER_LIGHT_AUDIT.contains("piVar1 = piVar2 + 2;"));
-        assert!(MANAGER_LIGHT_AUDIT.contains("piVar2 = (int *)*piVar2;"));
-        assert!(MANAGER_LIGHT_AUDIT.contains("*(int *)(*piVar1 + 0xf8) == param_2"));
-        assert!(PIPBOY_LIGHT_AUDIT.contains("*(short *)(iVar3 + 0x110) != 0xff"));
-        assert!(PIPBOY_LIGHT_AUDIT.contains("*(char *)(iVar3 + 0xec) != '\\x01'"));
+    fn manager_fallback_uses_the_proven_copied_world_epoch() {
+        let source = include_str!("terrain_lights.rs");
+        let production = source.split("#[cfg(test)]\nmod tests").next().unwrap();
+        assert!(production.contains("try_with_current_terrain_lights"));
+        assert!(!production.contains("SHADOW_SCENE_NODE_LIGHT_LIST_OFFSET"));
+        assert!(MANAGER_EPOCH_AUDIT.contains("never retains a manager list node"));
+        assert!(MANAGER_EPOCH_AUDIT.contains("scene-wide light removal candidate @ 0x00b5d180"));
+        assert!(
+            MANAGER_EPOCH_CONTRACT.contains("stable across the world light/shadow transaction")
+        );
     }
 
     #[test]
     fn future_pass_that_already_contains_the_light_gets_no_supplement() {
         let mut merge = TerrainLightMerge::new(&[0x22000], 1, context());
-        merge.consider(candidate(0x22000));
+        let _ = merge.consider(candidate(0x22000));
 
         assert!(merge.finish().lights().is_empty());
     }
@@ -726,9 +778,9 @@ mod tests {
     #[test]
     fn merge_deduplicates_candidates_and_preserves_iterator_order() {
         let mut merge = TerrainLightMerge::new(&[], 0, context());
-        merge.consider(candidate(0x33000));
-        merge.consider(candidate(0x22000));
-        merge.consider(candidate(0x33000));
+        assert!(merge.consider(candidate(0x33000)));
+        assert!(merge.consider(candidate(0x22000)));
+        let _ = merge.consider(candidate(0x33000));
         let output = merge.finish();
 
         assert_eq!(&output.identities[..2], &[0x33000, 0x22000]);
@@ -738,8 +790,8 @@ mod tests {
     #[test]
     fn native_and_supplemental_lights_share_the_24_light_cap() {
         let mut merge = TerrainLightMerge::new(&[], 23, context());
-        merge.consider(candidate(0x20000));
-        merge.consider(candidate(0x20004));
+        assert!(merge.consider(candidate(0x20000)));
+        let _ = merge.consider(candidate(0x20004));
 
         assert_eq!(merge.finish().lights().len(), 1);
     }
@@ -758,29 +810,41 @@ mod tests {
 
         for (index, case) in cases.into_iter().enumerate() {
             let mut merge = TerrainLightMerge::new(&[], 0, context());
-            merge.consider(case);
+            let _ = merge.consider(case);
             assert!(merge.finish().lights().is_empty(), "case {index}");
         }
     }
 
     #[test]
-    fn forced_darkness_suppresses_portable_lights_like_native_terrain_staging() {
-        let mut dark = context();
-        dark.forced_darkness = 0.999;
-        let mut merge = TerrainLightMerge::new(&[], 0, dark);
-        merge.consider(candidate(0x20000));
+    fn property_scale_below_one_uses_the_native_point_light_override_color() {
+        let mut native_dark_path = context();
+        native_dark_path.property_light_scale = 0.999;
+        native_dark_path.point_light_override_color = [0.125, 0.25, 0.5];
+        let mut dark_candidate = candidate(0x20000);
+        dark_candidate.diffuse = [0.0; 3];
+        dark_candidate.dimmer = 0.0;
+        dark_candidate.lod_dimmer = 0.0;
+        let mut merge = TerrainLightMerge::new(&[], 0, native_dark_path);
 
-        assert!(merge.finish().lights().is_empty());
+        assert!(merge.consider(dark_candidate));
+        assert_eq!(
+            merge.finish().lights()[0].color_visibility,
+            [0.125, 0.25, 0.5, 1.0]
+        );
+        assert!(LIGHT_STAGING_AUDIT.contains("else if (param_3 < 1.0)"));
+        assert!(LIGHT_STAGING_AUDIT.contains("local_20 = DAT_011f4998"));
+        assert!(LIGHT_STAGING_AUDIT.contains("local_1c = DAT_011f499c"));
+        assert!(LIGHT_STAGING_AUDIT.contains("local_18 = DAT_011f49a0"));
     }
 
     #[test]
     fn transform_matches_inverse_nitransform_and_camera_relative_offset() {
         let mut merge = TerrainLightMerge::new(&[], 0, context());
-        merge.consider(candidate(0x20000));
+        assert!(merge.consider(candidate(0x20000)));
         let light = merge.finish().lights()[0];
 
         assert_eq!(light.position_radius, [501.0, 1002.0, 1503.0, 40.0]);
-        assert_eq!(light.color_fade, [0.5, 0.25, 0.125, 0.75]);
+        assert_eq!(light.color_visibility, [0.5, 0.25, 0.125, 1.0]);
     }
 
     #[test]
@@ -802,30 +866,51 @@ mod tests {
     }
 
     #[test]
+    fn geometry_matrix_builder_receives_the_native_geometry_context_argument() {
+        let mut geometry = [0usize; 64];
+        let expected_context = 0x22000usize;
+        unsafe {
+            write_buffer(
+                &mut geometry,
+                GEOMETRY_MATRIX_CONTEXT_OFFSET,
+                expected_context,
+            );
+        }
+        let geometry_ptr = geometry.as_mut_ptr().cast::<std::ffi::c_void>();
+        let (world_transform, matrix_context) = unsafe { geometry_matrix_inputs(geometry_ptr) };
+
+        assert_eq!(
+            world_transform as usize,
+            geometry_ptr as usize + GEOMETRY_WORLD_TRANSFORM_OFFSET
+        );
+        assert_eq!(matrix_context as usize, expected_context);
+    }
+
+    #[test]
     fn non_hdr_dimmer_is_clamped_before_native_multipliers() {
         let mut non_hdr = context();
         non_hdr.hdr = false;
-        non_hdr.forced_darkness = 1.5;
+        non_hdr.property_light_scale = 1.5;
         let mut merge = TerrainLightMerge::new(&[], 0, non_hdr);
-        merge.consider(candidate(0x20000));
+        assert!(merge.consider(candidate(0x20000)));
 
         assert_eq!(
-            merge.finish().lights()[0].color_fade,
-            [0.375, 0.1875, 0.09375, 0.75]
+            merge.finish().lights()[0].color_visibility,
+            [0.375, 0.1875, 0.09375, 1.0]
         );
     }
 
     #[test]
     fn shader_payload_is_count_followed_by_interleaved_pairs() {
         let mut merge = TerrainLightMerge::new(&[], 0, context());
-        merge.consider(candidate(0x20000));
+        assert!(merge.consider(candidate(0x20000)));
         let output = merge.finish();
         let mut constants = [[0.0; 4]; MAX_SUPPLEMENTAL_CONSTANTS];
 
         assert_eq!(output.write_shader_constants(&mut constants), 3);
         assert_eq!(constants[0], [1.0, 0.0, 0.0, 0.0]);
         assert_eq!(constants[1], output.lights()[0].position_radius);
-        assert_eq!(constants[2], output.lights()[0].color_fade);
+        assert_eq!(constants[2], output.lights()[0].color_visibility);
         assert_eq!(MAX_SUPPLEMENTAL_CONSTANTS, MAX_TERRAIN_POINT_LIGHTS * 2 + 1);
     }
 

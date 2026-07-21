@@ -43,6 +43,152 @@ finished. DLAA computes "luma" from green only, TAA overwrites world-target
 alpha with private depth metadata, and SMAA's `corner_rounding` option globally
 attenuates all weights rather than detecting corners.
 
+## 2026-07-21 stationary-world jitter correction
+
+Tester observation: a stationary metallic roof at night visibly jittered rather
+than blinking, with the motion especially painful on a VRR display. No runtime
+capture or retest is currently available, so the diagnosis below separates
+direct code/static evidence from inference.
+
+### Root cause
+
+The TAA frame previously violated its own projection contract on every normal
+jittered frame:
+
+1. `hook_render_world_scene_graph` installed `WorldCameraJitter` before the
+   original world renderer. The renderer therefore produced color and depth
+   with the jittered `NiCamera +0xDC` frustum.
+2. Immediately after the original returned, the hook dropped the guard and
+   restored the unjittered frustum.
+3. `apply_primary` then called `FNVDepthResolve::resolve_from_surface`, which
+   reread the now-restored world camera and published it in
+   `DepthFrame.world_projection.camera`.
+4. `TemporalAaEffect::draw` used that published camera for current-position
+   reconstruction and saved it as the previous-frame projection.
+
+Thus the color/depth samples moved by the Halton offset while both current and
+history reprojection metadata said they did not. A pre-alpha atmosphere resolve
+did not make the frame safe: that earlier resolve read the camera while jitter
+was active, but the primary resolve repeated the capture after restoration and
+overwrote the projection in the same epoch. These facts are direct consequences
+of the render-hook and depth-resolver source paths.
+
+The material and display observations are consistent supporting inference, not
+separate root-cause proof. A sharp night-time specular highlight amplifies a
+subpixel coordinate error. Irregular VRR cadence makes deterministic positional
+motion perceptually less uniform. Embedded AO does not animate its sampling
+rotation across frames, and the current object PBR shaders no longer contain
+the derivative-based specular-AA roughness term documented in
+`graphics_fnv_pbr_object_temporal_instability_audit.md`; neither supplies a
+better repository-local source for this exact frame-to-frame translation.
+
+### Corrected transaction
+
+The applied jitter now owns an exact `CameraFrame` snapshot. The world pipeline
+publishes that snapshot as compact transaction state keyed by all of:
+
+- render epoch;
+- exact world color-target surface identity;
+- target width, height, and format.
+
+Both the pre-alpha and primary world-depth resolves pass the matching snapshot
+to the backend. The existing pre-first-person nonblocking retry uses the same
+snapshot even though the RAII guard has already restored the live engine camera.
+The backend accepts an override only for world depth, validates its finite near,
+far, frustum, and surface aspect contract, and rejects invalid metadata instead
+of silently substituting the live unjittered camera. First-person depth retains
+its independent live-camera path.
+
+This closes both the ordinary restore-before-resolve defect and the lock-busy
+retry variant without holding a mutex across engine rendering. It adds no
+render-path allocation, blocking lock, texture work, or shader instruction.
+The only steady-state work is copying and comparing one small camera snapshot.
+All later consumers of the captured world `DepthFrame`, including TAA, AO, and
+atmosphere reconstruction, receive the projection that actually generated the
+depth surface.
+
+The outer `NiCamera` jitter scope still reaches the engine's culling and LOD
+setup. Existing static evidence for a narrower projection-upload intervention
+is in
+`analysis/ghidra/output/perf/graphics_fnv_taa_projection_only_upload_contract_followup.txt`.
+That is a separate potential architecture improvement, not evidence that the
+fixed projection/depth mismatch remains.
+
+### Follow-up: fixed output grid, not jitter-following history
+
+The first correction made the sampled depth projection exact, but a subsequent
+tester report proved that exact metadata alone was not a complete TAA output
+contract. `TemporalAaEffect` also used that jittered camera as its current and
+previous temporal camera. With a stationary transform and different Halton
+samples, the shader therefore generated a nonzero history offset equal to the
+jitter-phase difference. It aligned the same geometric sample, but dragged the
+resolved image through the sampling sequence instead of accumulating different
+subpixel samples into a fixed output pixel. This is direct CPU/shader-math
+evidence for the reported whole-image jitter.
+
+The required distinction is now explicit:
+
+- **rendered camera:** the jittered projection that generated color and depth;
+  it remains the authoritative geometric/depth reconstruction contract;
+- **output camera:** the paired unjittered projection for the same epoch and
+  render target; current/previous temporal motion and history sampling use it.
+
+AMD's temporal-upscaling guidance independently specifies the same invariant:
+motion vectors must have projection jitter cancelled so a still scene produces
+null vectors. See [Temporal Upscaling - Past, Present, and Future, slide
+19](https://gpuopen.com/gdc-presentations/2023/GDC-2023-Temporal-Upscaling.pdf)
+and the [FidelityFX temporal super-resolution
+manual](https://gpuopen.com/manuals/fsr_sdk/techniques/super-resolution-temporal/).
+OMV has no engine motion buffer, but its camera reprojection is the equivalent
+producer and must follow that output-grid convention.
+
+`WorldCameraJitter` now captures both cameras before mutating/restoring engine
+memory. The existing epoch/surface/description transaction carries the pair
+through the primary and pre-first-person retry paths. `DepthFrame` publication
+still receives the rendered camera; `TemporalAaEffect` separately receives the
+output camera for current-position/history reprojection. A deterministic CPU
+reference evaluates the production frustum and reprojection equations: paired
+output cameras produce less than `0.0001` pixel stationary motion, while the old
+jitter-following negative control produces more than `0.25` pixel on both axes.
+
+The deployed configuration also amplified the defect. It used history weight
+`0.6678948` and sharpness `0.724269`, making the shifting current frame contribute
+about one third of the result and applying a strong high-frequency boost. The
+shipped profile now uses the existing balanced defaults: history weight `0.90`,
+clamp strength `1.0`, sharpness `0.10`, and full one-pixel Halton coverage
+(`jitter_scale = 1.0`). Jitter coverage is intentionally not reduced: after
+de-jittered reprojection, reducing it would sacrifice subpixel coverage instead
+of correcting instability.
+
+### Regression and validation status
+
+Three CPU regressions encode the contract, including negative controls:
+
+- pixel-space jitter must move a stationary projection by exactly the requested
+  subpixel sample while preserving the camera transform, and invalid dimensions
+  or non-finite samples must fail closed;
+- the jittered projection must survive live-camera restoration for the exact
+  retry epoch/target/description, while stale epochs, different surface
+  identities, and resized targets must not match;
+- stationary temporal reprojection must remain on the fixed output pixel across
+  different Halton phases; feeding rendered/jittered cameras is retained as the
+  negative control and must produce visible subpixel motion.
+
+`cargo build --release --target i686-pc-windows-gnu -p omv` passed on
+2026-07-21 after the output-grid correction. The stationary output-grid
+regression, exact retry-transaction regression, and embedded TAA shader compile
+test all passed on the supported target under Wine. The full OMV suite completed
+with 229 passed and one unrelated failure: concurrent color-grade work grew
+`bloom_hdr_compose_budget.hlsl` to 507 instructions beyond its existing static
+budget. No TAA shader instruction or texture operation changed in this fix.
+
+Runtime acceptance still awaits the unavailable playtest: with a stationary
+camera, inspect high-contrast specular roofs at night with TAA alone and with
+the full AO/atmosphere/PBR stack, at fixed refresh and VRR. The roof may retain
+ordinary subpixel specular aliasing, but it must not translate with the Halton
+sequence. Also exercise a forced primary-lock/depth-lock retry and confirm the
+same result before first-person rendering.
+
 ## Compiled shader cost
 
 The table counts legacy D3D9 bytecode instruction tokens and texture-instruction
@@ -269,15 +415,17 @@ References: `aa_dlaa_prefilter.hlsl:7-9` and
 
 ### Make jitter/resolve success transactional
 
-Jitter, depth capture, resolve, world-color capture, and Present completion use
-separate `try_lock` acquisitions. If jitter succeeds and a later acquisition or
-D3D operation fails, the frame can remain jittered without temporal resolve.
-That is a quality failure.
+Implemented on 2026-07-21 for the projection/depth contract. Jitter, depth
+capture, resolve, and the pre-first-person retry still use separate `try_lock`
+acquisitions, but the exact applied camera projection is now compact transaction
+state keyed to the epoch and render target. A retry cannot reread the restored
+live camera and mislabel jittered depth. The runtime mutex is not held across
+the original world render.
 
-Use render-thread-owned compact state or a configuration mailbox so jitter is
-only armed when the full resolve path is ready. Do not hold the current runtime
-mutex across the original world render; that would create an unbounded engine
-lock scope.
+A D3D failure or repeated lock contention through the final image-space
+deadline can still prevent the effect from resolving that frame. That broader
+availability problem is fail-safe scheduling work; it must not be "fixed" by
+holding the mutex across the engine call.
 
 ### Preserve FP16 history quality
 

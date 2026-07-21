@@ -105,8 +105,8 @@ pub(crate) fn install_deferred_hooks() -> Result<()> {
     crate::effects::pbr::install(settings.native_pbr)?;
     crate::effects::sky::install(settings.native_sky)?;
 
+    crate::fnv_local_lights::install_hooks();
     if settings.depth_provider != crate::backend::DepthProvider::None {
-        crate::fnv_local_lights::install_hooks();
         crate::fnv_render::install_scene_boundary_hook();
     }
 

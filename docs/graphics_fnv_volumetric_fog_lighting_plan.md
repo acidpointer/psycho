@@ -390,6 +390,15 @@ or manager owner survives publication. A missing or busy shadow producer yields
 a shadowless volume instead of suppressing the light. OMV never changes native
 shadow settings or asks the engine to render an additional shadow map.
 
+The same proven transaction now has a second, scalar-only consumer for native
+close-terrain PBR. When terrain PBR is enabled, the shared traversal also copies
+at most the first 64 active/enabled manager entries into a separate fixed
+mailbox tagged with render epoch and D3D device identity. Terrain draws use
+`try_lock`, reject stale or foreign-device publications, and retain no engine
+pointer. This consumer does not enable `0x00B9F780` shadow capture, retain a
+texture, change atmosphere ranking, or keep atmosphere publications alive when
+volumetric local lighting is disabled.
+
 The native point-light values used by `0x00B70820` are also concrete: the
 retained native light at `+0xF8` supplies world position at `+0x8C..+0x94`,
 RGB at `+0xD4..+0xDC`, and radius at `+0xE0`; `ShadowSceneLight +0xD0` is the

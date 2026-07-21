@@ -13,8 +13,12 @@
 //! simple load order below unless a test explicitly proves a new shape is safe.
 
 mod commands;
+mod dashboard;
+mod dashboard_config;
 mod engine_fixes;
 mod events;
+mod hooks;
+mod input;
 mod plugininfo;
 
 use libnvse::plugin::PluginContext;

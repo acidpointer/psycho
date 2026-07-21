@@ -31,6 +31,7 @@ use crate::{
         ambient_occlusion, anti_aliasing, atmosphere, blooming_hdr, depth_of_field, pbr, sky,
         sunshafts,
     },
+    luts,
     shaders::{self, EmbeddedEffectKind, ScreenShaderSource, ShaderOptionValue, ShaderPhase},
 };
 
@@ -319,7 +320,7 @@ struct ScreenShaderRuntime {
     anti_aliasing: Option<anti_aliasing::AntiAliasingEffect>,
     blooming_hdr: Option<blooming_hdr::BloomingHdrEffect>,
     final_color_shaders: Option<blooming_hdr::FinalColorShaderBytecode>,
-    builtin_color_luts: Vec<Vec<u32>>,
+    color_luts: luts::LutCatalog,
     sunshafts: Option<sunshafts::SunshaftsEffect>,
     depth_of_field: Option<depth_of_field::DepthOfFieldEffect>,
     depth_of_field_creation_failed: bool,
@@ -372,7 +373,7 @@ impl Default for ScreenShaderRuntime {
             anti_aliasing: None,
             blooming_hdr: None,
             final_color_shaders,
-            builtin_color_luts: blooming_hdr::generate_builtin_lut_pack(),
+            color_luts: luts::LutCatalog::default(),
             sunshafts: None,
             depth_of_field: None,
             depth_of_field_creation_failed: false,
@@ -726,16 +727,55 @@ impl ScreenShaderRuntime {
         let interval_ms = self.settings.shader_scan_interval_ms.max(50);
         self.next_scan = Some(now + Duration::from_millis(interval_ms));
 
+        // Preserve unsaved embedded menu edits before rebuilding dynamic source
+        // options. LUT and shader catalogs are then committed in one scan tick.
+        shaders::sync_embedded_effect_config(
+            &self.sources,
+            &mut self.settings.menu_config.embedded_effects,
+        );
+        let lut_scan = match luts::scan_luts(&self.color_luts) {
+            Ok(scan) => Some(scan),
+            Err(err) => {
+                if self.scan_error_logs < 8 {
+                    log::warn!("[LUT] Live LUT scan failed: {err:#}");
+                    self.scan_error_logs += 1;
+                }
+                None
+            }
+        };
+
         match shaders::scan_screen_shaders(&self.sources) {
             Ok(scan) => {
                 let old_count = self.sources.len();
-                let sources = shaders::merge_embedded_sources(
+                let lut_resources_changed =
+                    lut_scan.as_ref().is_some_and(|scan| scan.resources_changed);
+                if let Some(lut_scan) = lut_scan {
+                    for warning in lut_scan.warnings {
+                        if self.scan_error_logs >= 8 {
+                            break;
+                        }
+                        log::warn!("[LUT] {warning}");
+                        self.scan_error_logs += 1;
+                    }
+                    self.color_luts = lut_scan.catalog;
+                }
+                let (lut_names, lut_ids) = self.color_luts.choices();
+                let sources = shaders::merge_embedded_sources_with_luts(
                     &self.settings.menu_config.embedded_effects,
+                    &lut_names,
+                    &lut_ids,
                     scan.sources,
                 );
                 let new_count = sources.len();
                 if scan.shader_resources_changed {
                     self.compiled = None;
+                }
+                if lut_resources_changed {
+                    self.blooming_hdr = None;
+                    log::info!(
+                        "[LUT] Live LUT catalog: {} file(s)",
+                        self.color_luts.assets.len()
+                    );
                 }
                 self.sources = sources;
                 self.publish_fnv_scene_requirements();
@@ -1285,7 +1325,24 @@ impl ScreenShaderRuntime {
         bloom_source: Option<&ScreenShaderSource>,
         color_grade_source: Option<&ScreenShaderSource>,
     ) -> Direct3DResult<()> {
-        let work = blooming_hdr::FinalColorWorkPlan::from_sources(bloom_source, color_grade_source);
+        let selected_lut_index = color_grade_source.and_then(|source| {
+            source.options.iter().find_map(|option| {
+                if option.key == "lut_file" {
+                    match option.value {
+                        ShaderOptionValue::Integer(index) => Some(index),
+                        _ => None,
+                    }
+                } else {
+                    None
+                }
+            })
+        });
+        let selected_lut = selected_lut_index.and_then(|index| self.color_luts.selected(index));
+        let work = blooming_hdr::FinalColorWorkPlan::from_sources_with_lut_available(
+            bloom_source,
+            color_grade_source,
+            selected_lut.is_some(),
+        );
         if !work.has_work() {
             return Ok(());
         }
@@ -1293,11 +1350,7 @@ impl ScreenShaderRuntime {
             let Some(shaders) = self.final_color_shaders.as_ref() else {
                 return Ok(());
             };
-            self.blooming_hdr = Some(blooming_hdr::BloomingHdrEffect::create(
-                device,
-                shaders,
-                &self.builtin_color_luts,
-            )?);
+            self.blooming_hdr = Some(blooming_hdr::BloomingHdrEffect::create(device, shaders)?);
             log::info!("[FINAL_COLOR] Bloom/color-grade pipeline initialized");
         }
 
@@ -1320,6 +1373,8 @@ impl ScreenShaderRuntime {
             frame_inputs,
             bloom_source,
             color_grade_source,
+            selected_lut,
+            &current_color_copy.surface,
             &current_color_copy.texture,
             self.frame_index,
         )
@@ -1566,8 +1621,11 @@ impl ScreenShaderRuntime {
                 .collect();
 
             self.settings.menu_config = menu_config;
-            self.sources = shaders::merge_embedded_sources(
+            let (lut_names, lut_ids) = self.color_luts.choices();
+            self.sources = shaders::merge_embedded_sources_with_luts(
                 &self.settings.menu_config.embedded_effects,
+                &lut_names,
+                &lut_ids,
                 external_sources,
             );
             self.compiled = None;
@@ -1990,9 +2048,7 @@ mod scene_input_requirement_tests {
     fn lazy_render_epoch_reconciliation_clears_stale_frame_state() {
         let mut runtime = ScreenShaderRuntime::default();
         assert!(runtime.final_color_shaders.is_some());
-        assert!(crate::effects::blooming_hdr::valid_builtin_lut_pack(
-            &runtime.builtin_color_luts
-        ));
+        assert!(runtime.color_luts.assets.is_empty());
         runtime.render_epoch = 4;
         runtime.frame_index = 9;
         runtime.world_color_captured_this_frame = true;
@@ -2009,17 +2065,9 @@ mod scene_input_requirement_tests {
         assert!(!runtime.native_dof_active_this_frame);
         assert_eq!(runtime.frame_index, 10);
 
-        let lut_lengths: Vec<usize> = runtime.builtin_color_luts.iter().map(Vec::len).collect();
         runtime.release_device_resources();
         assert!(runtime.final_color_shaders.is_some());
-        assert_eq!(
-            runtime
-                .builtin_color_luts
-                .iter()
-                .map(Vec::len)
-                .collect::<Vec<_>>(),
-            lut_lengths
-        );
+        assert!(runtime.color_luts.assets.is_empty());
         assert!(runtime.blooming_hdr.is_none());
     }
 
@@ -3520,22 +3568,26 @@ fn draw_shader_details(ui: &mut psycho_imgui::Ui<'_>, source: &mut ScreenShaderS
                 }
             }
             ShaderOptionValue::Integer(value) => {
-                let selected = if let Some(choices) = option.choices {
-                    let heading = cstring(option.label.as_str());
-                    ui.text(&heading);
+                let selected = if let Some(choices) = option.choices.as_ref() {
+                    let label =
+                        cstring(format!("{}##{}.{}", option.label, source.name, option.key));
+                    let preview = choices
+                        .get(value.max(0) as usize)
+                        .map(String::as_str)
+                        .unwrap_or("No LUT files found");
+                    let preview = cstring(preview);
                     let mut selected = None;
-                    for (choice_index, choice) in choices.iter().enumerate() {
-                        let label = cstring(format!(
-                            "{}##{}.{}.{}",
-                            choice, source.name, option.key, choice_index
-                        ));
-                        if ui.radio_button_wrapped(
-                            &label,
-                            value == choice_index as i32,
-                            choice_index == 0,
-                        ) {
-                            selected = Some(choice_index as i32);
+                    if ui.begin_combo(&label, &preview) {
+                        for (choice_index, choice) in choices.iter().enumerate() {
+                            let choice_label = cstring(format!(
+                                "{}##{}.{}.{}",
+                                choice, source.name, option.key, choice_index
+                            ));
+                            if ui.selectable(&choice_label, value == choice_index as i32) {
+                                selected = Some(choice_index as i32);
+                            }
                         }
+                        ui.end_combo();
                     }
                     selected
                 } else {

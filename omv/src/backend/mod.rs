@@ -137,6 +137,7 @@ pub(crate) unsafe fn resolve_scene_depth(
     device_ptr: *mut c_void,
     source_rendered_texture: Option<*mut c_void>,
     slot: DepthResolveSlot,
+    world_projection_override: Option<CameraFrame>,
     reason: &'static str,
     render_epoch: u32,
 ) -> DepthResolveOutcome {
@@ -147,6 +148,7 @@ pub(crate) unsafe fn resolve_scene_depth(
                 device_ptr,
                 source_rendered_texture,
                 slot,
+                world_projection_override,
                 reason,
                 render_epoch,
             )
@@ -357,6 +359,48 @@ impl CameraFrame {
 
     pub(crate) fn available_f32(self) -> f32 {
         if self.available { 1.0 } else { 0.0 }
+    }
+
+    pub(crate) fn with_pixel_jitter(
+        self,
+        jitter_pixels: [f32; 2],
+        width: u32,
+        height: u32,
+    ) -> Option<Self> {
+        if !self.available
+            || width == 0
+            || height == 0
+            || !jitter_pixels.iter().all(|value| value.is_finite())
+        {
+            return None;
+        }
+
+        let frustum_width = self.frustum_right - self.frustum_left;
+        let frustum_height = self.frustum_top - self.frustum_bottom;
+        if !frustum_width.is_finite()
+            || !frustum_height.is_finite()
+            || frustum_width <= f32::EPSILON
+            || frustum_height <= f32::EPSILON
+        {
+            return None;
+        }
+
+        let offset_x = frustum_width * jitter_pixels[0] / width as f32;
+        let offset_y = frustum_height * jitter_pixels[1] / height as f32;
+        let mut jittered = self;
+        jittered.frustum_left += offset_x;
+        jittered.frustum_right += offset_x;
+        jittered.frustum_top -= offset_y;
+        jittered.frustum_bottom -= offset_y;
+        [
+            jittered.frustum_left,
+            jittered.frustum_right,
+            jittered.frustum_bottom,
+            jittered.frustum_top,
+        ]
+        .iter()
+        .all(|value| value.is_finite())
+        .then_some(jittered)
     }
 }
 
@@ -617,6 +661,75 @@ impl Default for SunFrame {
             available: false,
             daylight: 0.0,
         }
+    }
+}
+
+#[cfg(test)]
+mod camera_projection_tests {
+    use super::{CameraFrame, CameraTransformFrame};
+
+    fn camera() -> CameraFrame {
+        CameraFrame {
+            near_z: 5.0,
+            far_z: 1000.0,
+            aspect_ratio: 16.0 / 9.0,
+            frustum_left: -1.0,
+            frustum_right: 1.0,
+            frustum_bottom: -0.5,
+            frustum_top: 0.5,
+            world_transform: CameraTransformFrame {
+                rotation: [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
+                translation: [0.0; 3],
+                scale: 1.0,
+                available: true,
+            },
+            available: true,
+        }
+    }
+
+    fn center_projection_pixels(camera: CameraFrame, width: u32, height: u32) -> [f32; 2] {
+        let ndc_x = -(camera.frustum_right + camera.frustum_left)
+            / (camera.frustum_right - camera.frustum_left);
+        let ndc_y = -(camera.frustum_top + camera.frustum_bottom)
+            / (camera.frustum_top - camera.frustum_bottom);
+        [
+            (ndc_x * 0.5 + 0.5) * width as f32,
+            (0.5 - ndc_y * 0.5) * height as f32,
+        ]
+    }
+
+    #[test]
+    fn pixel_jitter_projection_moves_stationary_geometry_by_the_requested_sample() {
+        let width = 1920;
+        let height = 1080;
+        let original = camera();
+        let jitter = [0.5, -0.25];
+        let projected = original
+            .with_pixel_jitter(jitter, width, height)
+            .expect("valid jittered projection");
+        let original_pixel = center_projection_pixels(original, width, height);
+        let projected_pixel = center_projection_pixels(projected, width, height);
+
+        assert!((projected_pixel[0] - original_pixel[0] + jitter[0]).abs() < 0.0002);
+        assert!((projected_pixel[1] - original_pixel[1] + jitter[1]).abs() < 0.0002);
+        assert_eq!(
+            projected.world_transform.rotation,
+            original.world_transform.rotation
+        );
+        assert_eq!(
+            projected.world_transform.translation,
+            original.world_transform.translation
+        );
+    }
+
+    #[test]
+    fn pixel_jitter_rejects_invalid_inputs_instead_of_publishing_bad_metadata() {
+        assert!(camera().with_pixel_jitter([0.5, 0.5], 0, 1080).is_none());
+        assert!(
+            camera()
+                .with_pixel_jitter([f32::NAN, 0.5], 1920, 1080)
+                .is_none()
+        );
     }
 }
 

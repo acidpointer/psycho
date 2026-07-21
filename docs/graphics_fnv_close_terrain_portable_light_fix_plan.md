@@ -2,7 +2,8 @@
 
 Date: 2026-07-20
 
-Status: OMV-side implementation and static validation.
+Status: corrected OMV-side implementation with a production-path regression;
+final runtime pixel acceptance is pending.
 
 ## Decision
 
@@ -26,17 +27,27 @@ The merge is idempotent by native `NiLight*` identity:
 
 ## Proven Defect and Engine Contract
 
+Executable researched: `FalloutNV.exe`, PE32 x86, image base `0x00400000`,
+SHA-256
+`42fee7d6cd74e801372aa89c8f71c974cebd3c20ec9ad43d1465b8fa9646b49c`.
+Address-sensitive conclusions below apply to this executable identity. Direct
+radare2 inspection was cross-checked against the existing authoritative static
+outputs listed here.
+
 Authoritative inputs:
 
 - `analysis/ghidra/output/perf/graphics_fnv_close_terrain_portable_light_classification_audit.txt`
 - `analysis/ghidra/output/perf/graphics_fnv_close_terrain_pipboy_light_0147_shadow_path_audit.txt`
 - `analysis/ghidra/output/perf/graphics_fnv_volumetric_local_light_value_copy_contract_audit.txt`
+- `analysis/ghidra/output/perf/graphics_fnv_volumetric_local_manager_epoch_contract_followup.txt`
+- `analysis/ghidra/output/perf/graphics_fnv_pbr_light_selection_continuity_closure.txt`
 - `analysis/ghidra/output/perf/graphics_fnv_pbr_shader_virtual_interface_followup_audit.txt`
 - `analysis/ghidra/output/perf/graphics_fnv_ao_temporal_basis_handedness_followup.txt`
 - `analysis/shaders_disasm/shaderpackage019/SLS2092.pso.dis`
 - `analysis/shaders_disasm/shaderpackage019/SLS2100.pso.dis`
 - `analysis/shaders_disasm/shaderpackage019/SLS2140.pso.dis`
 - `.research/fnv-vanilla-plus-terrain-main/VanillaPlusTerrain/main.cpp`
+- `.research/fnv-vanilla-plus-terrain-main/shaders/TerrainTemplate.hlsl`
 
 The static evidence proves:
 
@@ -54,15 +65,30 @@ The static evidence proves:
   `+0x8C/+0xC4/+0xD4/+0xE0`;
 - the renderer adds `ShadowSceneNode[0]+0x1E4` to the camera-relative light
   position before applying the geometry matrix;
-- `0x00C4C2D0` builds the exact geometry matrix passed to native light staging;
+- native staging calls
+  `0x00C4C2D0(geometry+0x68, *(geometry+0xBC), output)`; its non-null context
+  branch is not equivalent to passing null;
 - terrain multibound eligibility uses parent `IsMultiBoundNode`, node `+0xAC`,
   shape `+0x0C`, and AABB `CheckBound @ 0x00C382B0`;
 - native terrain lighting caps point lights at 24 and stages light fade in color
   alpha.
+- `FUN_00B9E970` can drive `ShadowSceneLight+0xD4` to zero as part of native
+  light/shadow transition state;
+- the VPT close-terrain pixel source consumes `PointLightColor[i].rgb` and not
+  `.a`, so native fade alpha is not proof that an omitted light is physically
+  invisible;
 - `ShadowSceneNode+0xB4` is a manager-wide linked list with next at node `+0x00`
   and `ShadowSceneLight*` at node `+0x08`;
 - active state `+0x110 == 0x00FF` rejects a light, while shadow class `+0xEC == 1`
   is exactly the class excluded by the non-shadow iterator;
+- `BSLightingShaderProperty+0x6C` is the scalar passed to native light staging,
+  not a darkness Boolean. For point lights and values below one,
+  `0x00B70820` substitutes RGB at
+  `0x011F4998/0x011F499C/0x011F49A0` and still stages fade from
+  `ShadowSceneLight+0xD4`;
+- the manager `+0xB4` chain is stable during the synchronous world-light
+  transaction at `0x00871290`; its pointers are not proven safe at an
+  arbitrary later terrain draw;
 - vanilla terrain pixel shaders center every encoded normal sample by `-0.5`
   before applying its blend weight and normalizing the combined result.
 
@@ -95,8 +121,9 @@ Each candidate must satisfy the source-equivalent contract:
 - point light and not ambient;
 - enabled native light;
 - at least one `diffuse * dimmer` component greater than `1/255`;
-- positive finite radius and finite color/dimmer/fade data;
-- valid current forced-darkness behavior;
+- positive finite radius and finite color/dimmer data; native fade is not a
+  supplemental admission input;
+- valid current property-light scalar behavior;
 - intersection with the geometry multibound when one exists;
 - identity absent from both the native pass and prior supplemental output.
 
@@ -108,25 +135,32 @@ ID, form ID, owner name, or module origin.
 For each selected supplemental light:
 
 - add the active shadow-scene lighting offset to its camera-relative position;
-- apply the exact matrix produced by `0x00C4C2D0`;
+- call `0x00C4C2D0` with `geometry+0x68` and the context stored at
+  `geometry+0xBC`, then apply the resulting matrix;
 - divide radius by geometry world scale;
 - clamp dimmer to 1 only in non-HDR mode;
-- multiply diffuse RGB by dimmer, property forced darkness, and scene-light LOD
-  dimmer;
-- keep scene-light fade in alpha for saturated shader consumption;
-- suppress the point light when forced darkness is below 1, matching the
-  terrain staging contract.
+- for property scalar values at least one, multiply diffuse RGB by dimmer, the
+  property scalar, and scene-light LOD dimmer;
+- for property scalar values below one, use the native point-light override RGB
+  at `0x011F4998/0x011F499C/0x011F49A0` instead of suppressing the light;
+- keep native-row scene-light fade in its native alpha path;
+- write explicit visibility `1.0` for an OMV supplemental light, because
+  reusing the fade from the native path that omitted it can erase valid
+  illumination;
 
 Invalid inputs reject only that supplemental candidate. Failure to capture the
 engine context produces an empty supplemental set and leaves native OMV terrain
 lighting intact.
 
 If a zero-native-point row's property-local iterator yields no missing light,
-walk at most 64 entries from the proven manager-wide
-`ShadowSceneNode+0xB4` list. Accept only active shadow-classified entries and
-feed them through the exact same candidate filters and identity merge. Do not
-run this second scan when the native pass or normal supplement path already
-owns a point light.
+consume at most 64 copied entries from the manager-wide scalar epoch. The
+epoch is produced after the proven `0x00871290` world transaction and tagged
+with render epoch and D3D device identity. A terrain draw uses `try_lock` and
+requires both tags to match. Accept active copied entries regardless of mutable
+shadow-casting state at `ShadowSceneLight+0xEC`, then feed them through the
+same candidate filters and identity merge. Active state at `+0x110`, not
+shadow ownership, controls capture eligibility. No manager node or engine
+object pointer survives publication.
 
 ### 5. OMV-only shader ABI
 
@@ -140,17 +174,18 @@ Keep upstream terrain constants unchanged:
 Add a disjoint OMV ABI:
 
 - `c91.x`: supplemental point-light count;
-- `c92..c139`: up to 24 interleaved position/radius and color/fade pairs.
+- `c92..c139`: up to 24 interleaved position/radius and color/visibility pairs.
 
 Upload `c89` through the last active supplemental pair in one OMV setter call.
 An empty set still uploads `c91 = 0`, preventing stale supplemental lights from
 leaking into a later draw.
 
-The replacement pixel shader evaluates native and supplemental loops
-separately with the same attenuation and PBR point-light function. Supplemental
+The replacement pixel shader evaluates native and supplemental entries through
+the same bounded loop, attenuation, and PBR point-light function. Supplemental
 evaluation is unconditional across the `0/6/12/24` native row families, so an
 old pass that selected its zero-point-light row can still receive a genuinely
-missing portable light.
+missing portable light. Native entries retain saturated native alpha;
+supplemental entries arrive with explicit visibility one.
 
 Blend terrain normals with the vanilla center-before-weight equation. Decoding
 one final encoded sum is forbidden because it is equivalent only when active
@@ -192,15 +227,24 @@ Required pure tests:
 5. Native plus supplemental point lights never exceed 24.
 6. Directional, ambient, disabled, black, out-of-bound, invalid, and non-finite
    candidates are rejected.
-7. Forced-darkness and HDR/non-HDR dimmer behavior match native terrain staging.
-8. Camera-relative offset, engine D3D matrix convention, and scale-adjusted
-   radius produce exact expected constants.
+7. Property scalar values below one use the source-proven native point-light
+   override RGB instead of suppressing the candidate; ordinary scalar and
+   HDR/non-HDR dimmer behavior still match native staging.
+8. Camera-relative offset, engine D3D matrix convention, exact
+   `geometry+0x68`/`geometry+0xBC` arguments, and scale-adjusted radius produce
+   the expected constants.
 9. Constant payload is `count + interleaved pairs`, and an empty payload resets
    count to zero.
-10. A zero-native-light row accepts an active manager shadow light, while
-    non-shadow and inactive manager entries are rejected.
-11. Production offsets and list-node layout remain linked to their Ghidra
-    source contract.
+10. A zero-native-light row accepts active point lights from a current copied
+    manager epoch, while inactive or disabled entries are rejected at capture.
+11. Stale-frame and foreign-device epochs are rejected, and production terrain
+    code contains no raw manager-list walk.
+12. Production offsets, native override behavior, matrix-call provenance, and
+    manager snapshot ownership remain linked to their static source contracts.
+13. A zero-native row plus a copied manager Pip-Boy-like light with zero native
+    shadow/pass fade reaches the production merge, serializes through
+    `c91..c93` with visibility one, and produces positive attenuated overhead
+    light input. The pre-fix alpha-zero behavior is the negative control.
 
 Required row and shader tests:
 
@@ -217,9 +261,10 @@ Required row and shader tests:
 7. A source-linked normal test proves the shader matches the vanilla
    center-before-weight equation and includes the old equation as a negative
    control.
-8. A zero-native-light night test proves partial flat-normal weights retain
-   positive overhead PBR diffuse response for both ordinary and configured
-   metallic terrain, while the old equation produces zero.
+8. A partial-weight night test proves flat terrain normals retain positive
+   overhead PBR diffuse response for both ordinary and configured metallic
+   terrain, while the old normal equation produces zero. It intentionally does
+   not claim to cover light capture or payload delivery.
 
 Build and test only the supported target:
 
@@ -231,17 +276,34 @@ cargo build --release --target i686-pc-windows-gnu -p omv
 The workspace release build remains a separate regression gate for the shipped
 FNV components. No external terrain project is built.
 
+Validation evidence on 2026-07-21:
+
+- the new zero-native/zero-fade production-path regression failed before the
+  correction (`c93.w == 0`) and passed after it (`c93.w == 1` with positive
+  attenuated overhead light input);
+- focused terrain staging: 18 passed, 0 failed;
+- focused shared light-epoch ownership: 11 passed, 0 failed;
+- complete OMV suite: 234 passed, 0 failed, including registered PBR shader
+  compilation and representative close-terrain bytecode budgets;
+- `cargo build --release --target i686-pc-windows-gnu -p omv`: passed;
+- final runtime pixel acceptance remains the playtest below.
+
 ## Performance Contract
 
-This correction adds no logs, counters, status UI, D3D getters, per-frame
-history, allocations, locks, material scans, or texture work.
+This correction adds no per-draw logs, counters, status UI, D3D getters,
+allocations, blocking locks, material scans, or texture work.
+
+Once per world-light epoch, the shared `0x00871290` hook performs one existing
+bounded manager traversal. When terrain PBR is enabled it copies at most the
+first 64 active/enabled scalar records into a fixed mailbox. Terrain-only use
+does not start or retain the atmosphere shadow-texture capture path.
 
 Per admitted close-terrain draw it performs:
 
 - one bounded current-pass identity scan;
 - one bounded engine iterator walk that stops at remaining capacity;
 - only for a zero-native-point row when that walk finds no missing light, one
-  bounded 64-entry manager shadow-light scan;
+  `try_lock` and a bounded scan of copied scalar records;
 - one multibound lookup and candidate bound checks;
 - one engine matrix build;
 - one fixed-size stack merge;
@@ -258,6 +320,8 @@ or 14-texture hot-path work that caused the recorded large FPS loss.
 ## Files in Scope
 
 - `omv/src/effects/pbr/terrain_lights.rs`
+- `omv/src/fnv_local_lights.rs`
+- `omv/src/startup.rs`
 - `omv/src/effects/pbr/engine_contracts.rs`
 - `omv/src/effects/pbr/constants.rs`
 - `omv/src/effects/pbr/hooks.rs`
@@ -294,7 +358,7 @@ playtest checks only those remaining runtime facts.
 - A pass that already owns the light receives no duplicate contribution.
 - Native pass membership and native constants remain untouched.
 - Supplemental constants are OMV-owned, bounded, reset every close-terrain
-  draw, and alpha-aware.
+  draw, and use explicit visibility independent of native shadow/pass fade.
 - Static merge, transform, mapping, ABI, compiler, bytecode, and i686 build
   gates pass.
 - The ordinary playtest shows correct illumination without the known terrain

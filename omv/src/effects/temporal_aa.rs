@@ -68,6 +68,30 @@ mod shader_compile_tests {
         }
     }
 
+    fn history_uv(
+        current: CameraFrame,
+        reprojection: TemporalReprojection,
+        uv: [f32; 2],
+        depth: f32,
+    ) -> [f32; 2] {
+        let position = [
+            (current.frustum_left + (current.frustum_right - current.frustum_left) * uv[0]) * depth,
+            (current.frustum_top + (current.frustum_bottom - current.frustum_top) * uv[1]) * depth,
+            depth,
+        ];
+        let previous = reprojection
+            .rows
+            .map(|row| row[0] * position[0] + row[1] * position[1] + row[2] * position[2] + row[3]);
+        let view_x = previous[0] / previous[2];
+        let view_y = previous[1] / previous[2];
+        [
+            (view_x - reprojection.previous_frustum[0])
+                / (reprojection.previous_frustum[1] - reprojection.previous_frustum[0]),
+            (reprojection.previous_frustum[3] - view_y)
+                / (reprojection.previous_frustum[3] - reprojection.previous_frustum[2]),
+        ]
+    }
+
     #[test]
     fn embedded_temporal_aa_shader_compiles() {
         crate::shaders::assert_hlsl_compiles("aa_temporal.hlsl", TAA_SHADER, "ps_3_0");
@@ -142,6 +166,58 @@ mod shader_compile_tests {
             .is_none()
         );
     }
+
+    #[test]
+    fn stationary_history_is_output_grid_locked_across_jitter_phases() {
+        let identity = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
+        let output_camera = camera(identity, [0.0; 3]);
+        let target = [1920, 1080];
+        let previous_rendered = output_camera
+            .with_pixel_jitter([-0.25, 1.0 / 6.0], target[0], target[1])
+            .expect("previous rendered projection");
+        let current_rendered = output_camera
+            .with_pixel_jitter([0.25, -7.0 / 18.0], target[0], target[1])
+            .expect("current rendered projection");
+
+        let stable = TemporalReprojection::between(
+            TemporalCameraState {
+                camera: output_camera,
+                epoch: 4,
+            },
+            TemporalCameraState {
+                camera: output_camera,
+                epoch: 5,
+            },
+        )
+        .expect("stable output reprojection");
+        let uv = [0.5, 0.5];
+        let stable_history_uv = history_uv(output_camera, stable, uv, 100.0);
+        let stable_motion_pixels = [
+            (stable_history_uv[0] - uv[0]) * target[0] as f32,
+            (stable_history_uv[1] - uv[1]) * target[1] as f32,
+        ];
+        assert!(stable_motion_pixels[0].abs() < 0.0001);
+        assert!(stable_motion_pixels[1].abs() < 0.0001);
+
+        let jitter_following = TemporalReprojection::between(
+            TemporalCameraState {
+                camera: previous_rendered,
+                epoch: 4,
+            },
+            TemporalCameraState {
+                camera: current_rendered,
+                epoch: 5,
+            },
+        )
+        .expect("negative-control reprojection");
+        let jittered_history_uv = history_uv(current_rendered, jitter_following, uv, 100.0);
+        let jitter_motion_pixels = [
+            (jittered_history_uv[0] - uv[0]) * target[0] as f32,
+            (jittered_history_uv[1] - uv[1]) * target[1] as f32,
+        ];
+        assert!(jitter_motion_pixels[0].abs() > 0.25);
+        assert!(jitter_motion_pixels[1].abs() > 0.25);
+    }
 }
 
 pub(crate) struct TemporalAaEffect {
@@ -209,6 +285,7 @@ impl TemporalAaEffect {
         render_target: &Surface9,
         desc: &D3DSURFACE_DESC,
         depth: DepthFrame,
+        output_camera: CameraFrame,
         config: TemporalAaConfig,
     ) -> Direct3DResult<()> {
         let Some(depth_texture) = depth.texture else {
@@ -217,6 +294,7 @@ impl TemporalAaEffect {
         };
         if depth.world_projection.reversed_depth.is_none()
             || !camera_supports_reprojection(depth.world_projection.camera)
+            || !camera_supports_reprojection(output_camera)
         {
             self.invalidate_history();
             return Ok(());
@@ -245,8 +323,13 @@ impl TemporalAaEffect {
         if targets_changed {
             self.invalidate_history();
         }
+        // Temporal motion is defined on the fixed output grid. The depth
+        // texture was sampled with the jittered camera, but carrying that
+        // jitter into current/previous frusta makes a still camera produce a
+        // nonzero motion vector and visibly drags history through the Halton
+        // sequence.
         let current_camera = TemporalCameraState {
-            camera: depth.world_projection.camera,
+            camera: output_camera,
             epoch: depth.capture_epoch,
         };
         let reprojection = self
@@ -275,7 +358,15 @@ impl TemporalAaEffect {
         }
         device.set_texture(2, &targets.color_history[read_index].texture)?;
         device.set_texture(3, &targets.depth_key_history[read_index].texture)?;
-        bind_constants(device, desc, depth, config, reprojection, history_available)?;
+        bind_constants(
+            device,
+            desc,
+            depth,
+            output_camera,
+            config,
+            reprojection,
+            history_available,
+        )?;
         device.set_pixel_shader(&self.shader)?;
         draw_quad(device, desc)?;
 
@@ -452,11 +543,12 @@ fn bind_constants(
     device: &Device9Ref<'_>,
     desc: &D3DSURFACE_DESC,
     depth: DepthFrame,
+    output_camera: CameraFrame,
     config: TemporalAaConfig,
     reprojection: Option<TemporalReprojection>,
     history_available: bool,
 ) -> Direct3DResult<()> {
-    let camera = depth.world_projection.camera;
+    let camera = output_camera;
     device.set_pixel_shader_constant_f(
         0,
         &[

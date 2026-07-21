@@ -847,15 +847,25 @@ pub fn size_of(ptr: *const c_void) -> Option<usize> {
 }
 
 pub fn snapshot() -> BlockSnapshot {
-    with_heap(|h| {
-        let slots = h.block_count();
-        BlockSnapshot {
-            slots,
-            live_allocations: h.live_allocations(),
-            live_bytes: h.live_bytes(),
-            committed_bytes: h.committed_bytes(),
-        }
-    })
+    with_heap(|h| block_snapshot(h))
+}
+
+/// Read diagnostics without waiting behind an active block allocation.
+///
+/// Dashboard sampling runs off the render thread, but it still must not add a
+/// periodic contender to the variable-size allocator's global lock. A missed
+/// sample is preferable to perturbing allocation latency.
+pub fn try_snapshot() -> Option<BlockSnapshot> {
+    HEAP.try_lock().map(|heap| block_snapshot(&heap))
+}
+
+fn block_snapshot(heap: &BlockHeap) -> BlockSnapshot {
+    BlockSnapshot {
+        slots: heap.block_count(),
+        live_allocations: heap.live_allocations(),
+        live_bytes: heap.live_bytes(),
+        committed_bytes: heap.committed_bytes(),
+    }
 }
 
 /// Release block slots with no live user allocations. Called by

@@ -2842,7 +2842,7 @@ mod feature_tests {
             .options
             .iter()
             .find(|option| option.key == "debug_view")
-            .and_then(|option| option.choices)
+            .and_then(|option| option.choices.as_ref())
             .expect("debug choices");
         assert_eq!(choices.len(), 9);
         assert_eq!(choices[6], "Optical depth / transmittance");
@@ -2899,7 +2899,7 @@ mod feature_tests {
             .options
             .iter()
             .find(|option| option.key == "debug_view")
-            .and_then(|option| option.choices)
+            .and_then(|option| option.choices.as_ref())
             .expect("lighting debug choices");
         assert_eq!(choices.len(), 9);
         assert_eq!(choices[1], "Shaft mask");

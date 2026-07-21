@@ -380,11 +380,12 @@ Startup must include lines equivalent to:
 [IO] Active parallel=true speedtree=true vertex_buffers=true
 ```
 
-`PsychoInfo` exposes scheduler, cache, cell-loader, SpeedTree, and vertex-buffer
-state. The SpeedTree fields include find/load starts and completions, Compute
-transactions, current waiters, active transaction scope/thread, contended
-entries, and maximum lock waits. Contention is expected under simultaneous
-tree loads; failures, missing publication, or permanent queue stalls are not.
+The helper dashboard's Runtime Fixes page exposes the active IO, SpeedTree, and
+vertex-buffer contracts plus cumulative worker, cell-load, contention, and
+fallback counters. Detailed SpeedTree find/load/Compute scope and wait timing
+remain in the core diagnostic report and Psycho log. Contention is expected
+under simultaneous tree loads; failures, missing publication, or permanent
+queue stalls are not. See `docs/psycho_dashboard.md` for the UI/ABI contract.
 
 ## Static validation
 
