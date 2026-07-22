@@ -33,6 +33,10 @@ static ORIGINAL_WNDPROC: AtomicUsize = AtomicUsize::new(0);
 static WNDPROC_HWND: AtomicUsize = AtomicUsize::new(0);
 static RESET_HOOK: LazyLock<Mutex<Option<VmtHook<ResetFn>>>> = LazyLock::new(|| Mutex::new(None));
 
+pub(crate) fn window_proc_installed() -> bool {
+    WNDPROC_HWND.load(Ordering::Acquire) != 0
+}
+
 pub(crate) fn ensure_window_proc(hwnd: *mut c_void) -> Result<()> {
     if hwnd.is_null() {
         anyhow::bail!("null dashboard HWND");

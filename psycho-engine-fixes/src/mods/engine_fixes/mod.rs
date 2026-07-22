@@ -71,6 +71,14 @@ pub(crate) struct DashboardCounters {
     pub lod_current_cells: u64,
     pub lod_current_references: u64,
     pub lod_stale_retirements_prevented: u64,
+    pub speedtree_materializations: u64,
+    pub speedtree_completions: u64,
+    pub speedtree_materialization_contentions: u64,
+    pub speedtree_compute_transactions: u64,
+    pub speedtree_compute_contentions: u64,
+    pub speedtree_waiters: u64,
+    pub speedtree_max_materialization_wait_us: u64,
+    pub speedtree_max_compute_wait_us: u64,
 }
 
 /// Cumulative, read-only counters for the late-bound helper dashboard.
@@ -83,7 +91,7 @@ pub(crate) fn dashboard_counters() -> DashboardCounters {
     let save = save_integrity::diagnostic_snapshot();
     let task = queued_tasks::diagnostic_snapshot();
     let io = io::diagnostic_snapshot();
-    let lod = lod::diagnostic_snapshot();
+    let lod = lod::dashboard_snapshot();
 
     let mut active_features = 0;
     if display.create_window_installed || display.installed {
@@ -146,6 +154,14 @@ pub(crate) fn dashboard_counters() -> DashboardCounters {
         lod_current_cells: lod.state.current_cells as u64,
         lod_current_references: lod.state.current_references as u64,
         lod_stale_retirements_prevented: lod.state.stale_retirements_prevented,
+        speedtree_materializations: io.speedtree.tree_transactions,
+        speedtree_completions: io.speedtree.tree_completions,
+        speedtree_materialization_contentions: io.speedtree.tree_contentions,
+        speedtree_compute_transactions: io.speedtree.compute_transactions,
+        speedtree_compute_contentions: io.speedtree.compute_contentions,
+        speedtree_waiters: u64::from(io.speedtree.transaction_waiters),
+        speedtree_max_materialization_wait_us: io.speedtree.max_tree_wait_us,
+        speedtree_max_compute_wait_us: io.speedtree.max_compute_wait_us,
     }
 }
 

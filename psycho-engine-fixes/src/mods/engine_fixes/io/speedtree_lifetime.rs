@@ -9,10 +9,9 @@
 //!
 //! SpeedTreeRT Compute also publishes its active model through process-global
 //! scratch pointers. Two IO workers can otherwise select an index from one
-//! model and validate it against another model's record table. The complete
-//! BSTree find/load owner is serialized so initial clone, reload, destruction,
-//! Compute, and publication cannot interleave across workers or the main
-//! completion path. The leaf hooks reuse the same reentrant transaction lock.
+//! model and validate it against another model's record table. The two slow
+//! BSTree materialization branches are serialized with clone destruction and
+//! Compute. Cache-hit lookup and per-reference finalization remain concurrent.
 
 use std::{
     ffi::c_void,
@@ -111,7 +110,7 @@ pub(in crate::mods::engine_fixes) struct Snapshot {
 #[derive(Clone, Copy)]
 #[repr(u32)]
 enum TransactionScope {
-    TreeLoad = 1,
+    TreeMaterialization = 1,
     Compute,
     Clone,
     Destructor,
@@ -160,10 +159,15 @@ pub(super) fn install(trace_enabled: bool) -> anyhow::Result<()> {
     }
 
     unsafe {
-        statics::BSTREE_FIND_OR_LOAD_HOOK.init(
-            "bstree_find_or_load_serialization",
-            statics::BSTREE_FIND_OR_LOAD_ADDR as *mut c_void,
-            hook_bstree_find_or_load,
+        statics::BSTREE_CLONE_MODEL_HOOK.init(
+            "bstree_clone_model_serialization",
+            statics::BSTREE_CLONE_MODEL_ADDR as *mut c_void,
+            hook_bstree_clone_model,
+        )?;
+        statics::BSTREE_RELOAD_MODEL_HOOK.init(
+            "bstree_reload_model_serialization",
+            statics::BSTREE_RELOAD_MODEL_ADDR as *mut c_void,
+            hook_bstree_reload_model,
         )?;
         statics::SPEEDTREE_CLONE_CONSTRUCTOR_HOOK.init(
             "speedtree_clone_lifetime",
@@ -183,36 +187,51 @@ pub(super) fn install(trace_enabled: bool) -> anyhow::Result<()> {
     }
 
     let mut transaction = ModificationTransaction::new();
-    transaction.enable_inline(&statics::BSTREE_FIND_OR_LOAD_HOOK)?;
+    transaction.enable_inline(&statics::BSTREE_CLONE_MODEL_HOOK)?;
+    transaction.enable_inline(&statics::BSTREE_RELOAD_MODEL_HOOK)?;
     transaction.enable_inline(&statics::SPEEDTREE_CLONE_CONSTRUCTOR_HOOK)?;
     transaction.enable_inline(&statics::SPEEDTREE_COMPUTE_HOOK)?;
     transaction.enable_inline(&statics::SPEEDTREE_SCALAR_DESTRUCTOR_HOOK)?;
     transaction.commit();
     INSTALLED.store(true, Ordering::Release);
     log::info!(
-        "[IO] Complete BSTree load, SpeedTree Compute, and clone lifetime serialized; native registry lock 0x{:08X}",
+        "[IO] BSTree materialization, SpeedTree Compute, and clone lifetime serialized; cache-hit lookup remains concurrent; native registry lock 0x{:08X}",
         statics::SPEEDTREE_REGISTRY_CRITICAL_SECTION_ADDR,
     );
     Ok(())
 }
 
-unsafe extern "thiscall" fn hook_bstree_find_or_load(
-    manager: *mut c_void,
-    existing_model: *mut c_void,
-    reference: *mut c_void,
-) -> *mut c_void {
-    let original = match statics::BSTREE_FIND_OR_LOAD_HOOK.original() {
+unsafe extern "thiscall" fn hook_bstree_clone_model(this: *mut c_void, source: *mut c_void) -> u8 {
+    let original = match statics::BSTREE_CLONE_MODEL_HOOK.original() {
         Ok(original) => original,
         Err(error) => {
-            log::error!("[IO] BSTree find/load trampoline missing: {error:?}");
-            return ptr::null_mut();
+            log::error!("[IO] BSTree clone-model trampoline missing: {error:?}");
+            return 0;
         }
     };
 
+    with_tree_materialization(|| unsafe { original(this, source) })
+}
+
+unsafe extern "thiscall" fn hook_bstree_reload_model(
+    this: *mut c_void,
+    reference: *mut c_void,
+    mode: u32,
+) -> u8 {
+    let original = match statics::BSTREE_RELOAD_MODEL_HOOK.original() {
+        Ok(original) => original,
+        Err(error) => {
+            log::error!("[IO] BSTree reload-model trampoline missing: {error:?}");
+            return 0;
+        }
+    };
+
+    with_tree_materialization(|| unsafe { original(this, reference, mode) })
+}
+
+fn with_tree_materialization<T>(operation: impl FnOnce() -> T) -> T {
     TREE_TRANSACTIONS.fetch_add(1, Ordering::Relaxed);
-    let result = with_transaction(TransactionScope::TreeLoad, || unsafe {
-        original(manager, existing_model, reference)
-    });
+    let result = with_transaction(TransactionScope::TreeMaterialization, operation);
     TREE_COMPLETIONS.fetch_add(1, Ordering::Release);
     result
 }
@@ -279,7 +298,7 @@ fn with_transaction<T>(scope: TransactionScope, operation: impl FnOnce() -> T) -
 
 fn scope_contentions(scope: TransactionScope) -> Option<&'static AtomicU64> {
     match scope {
-        TransactionScope::TreeLoad => Some(&TREE_CONTENTIONS),
+        TransactionScope::TreeMaterialization => Some(&TREE_CONTENTIONS),
         TransactionScope::Compute => Some(&COMPUTE_CONTENTIONS),
         TransactionScope::Clone | TransactionScope::Destructor => None,
     }
@@ -287,7 +306,7 @@ fn scope_contentions(scope: TransactionScope) -> Option<&'static AtomicU64> {
 
 fn scope_max_wait(scope: TransactionScope) -> Option<&'static AtomicU64> {
     match scope {
-        TransactionScope::TreeLoad => Some(&MAX_TREE_WAIT_US),
+        TransactionScope::TreeMaterialization => Some(&MAX_TREE_WAIT_US),
         TransactionScope::Compute => Some(&MAX_COMPUTE_WAIT_US),
         TransactionScope::Clone | TransactionScope::Destructor => None,
     }
@@ -295,7 +314,7 @@ fn scope_max_wait(scope: TransactionScope) -> Option<&'static AtomicU64> {
 
 fn transaction_scope_name(scope: u32) -> &'static str {
     match scope {
-        x if x == TransactionScope::TreeLoad as u32 => "tree-load",
+        x if x == TransactionScope::TreeMaterialization as u32 => "tree-materialize",
         x if x == TransactionScope::Compute as u32 => "compute",
         x if x == TransactionScope::Clone as u32 => "clone",
         x if x == TransactionScope::Destructor as u32 => "destructor",
@@ -619,8 +638,8 @@ mod tests {
     };
 
     use super::{
-        ACTIVE_TRANSACTION_SCOPE, COMPUTE_CONTENTIONS, TransactionScope, transaction_scope_name,
-        with_compute_lock, with_transaction,
+        ACTIVE_TRANSACTION_SCOPE, COMPUTE_CONTENTIONS, transaction_scope_name, with_compute_lock,
+        with_tree_materialization,
     };
 
     static TEST_LOCK: Mutex<()> = Mutex::new(());
@@ -663,7 +682,7 @@ mod tests {
     }
 
     #[test]
-    fn tree_transaction_blocks_independent_compute() {
+    fn tree_materialization_blocks_independent_compute() {
         let _test = TEST_LOCK.lock().expect("serialize SpeedTree lock tests");
         let release_tree = Arc::new(Barrier::new(2));
         let compute_entered = Arc::new(AtomicBool::new(false));
@@ -671,7 +690,7 @@ mod tests {
 
         let tree_release = Arc::clone(&release_tree);
         let tree = thread::spawn(move || {
-            with_transaction(TransactionScope::TreeLoad, || {
+            with_tree_materialization(|| {
                 tree_entered_tx.send(()).expect("signal tree transaction");
                 tree_release.wait();
             });
@@ -703,17 +722,17 @@ mod tests {
     }
 
     #[test]
-    fn nested_speedtree_hooks_preserve_outer_scope() {
+    fn nested_speedtree_hooks_preserve_materialization_scope() {
         let _test = TEST_LOCK.lock().expect("serialize SpeedTree lock tests");
-        with_transaction(TransactionScope::TreeLoad, || {
+        with_tree_materialization(|| {
             assert_eq!(
                 transaction_scope_name(ACTIVE_TRANSACTION_SCOPE.load(Ordering::Acquire)),
-                "tree-load"
+                "tree-materialize"
             );
             with_compute_lock(|| {
                 assert_eq!(
                     transaction_scope_name(ACTIVE_TRANSACTION_SCOPE.load(Ordering::Acquire)),
-                    "tree-load"
+                    "tree-materialize"
                 );
             });
         });

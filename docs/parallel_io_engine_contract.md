@@ -1,7 +1,8 @@
 # Native parallel IO and SpeedTree engine contract
 
-Status: implemented and statically validated on 2026-07-20. The supplied hang
-cannot currently be replayed, so runtime acceptance remains outstanding.
+Status: implemented and statically validated through 2026-07-22. The supplied
+hang cannot currently be replayed, and the corrected materialization lock scope
+still requires the runtime acceptance matrix below.
 
 This document is the durable contract for Psycho's native IOManager
 parallelism. It owns the two-worker scheduler extension and every shared-state
@@ -47,7 +48,7 @@ being duplicated. The implementation is likewise owned by
 |---|---|
 | `io/mod.rs` | Installs shared-state safety before enabling parallel scheduling and publishes subsystem status. |
 | `io/scheduler.rs` | Owns worker count, per-thread map capacity, BSFile recovery, and exterior-cell serialization. |
-| `io/speedtree_lifetime.rs` | Owns complete BSTree find/load transaction serialization, including SpeedTree clone lifetime and Compute. |
+| `io/speedtree_lifetime.rs` | Serializes the two slow BSTree materializers, SpeedTree clone lifetime, and process-global Compute state while leaving published-tree lookup concurrent. |
 | `io/vertex_buffers.rs` | Owns static vertex-buffer allocation, retirement, and publication safety. |
 
 `engine_fixes::install` installs IO safety before LOD. It passes the resulting
@@ -264,20 +265,21 @@ lock begins before any model/scratch publication and ends only after the
 original returns, so every global read and write in one Compute transaction is
 atomic with respect to the other worker.
 
-The mutex is reentrant because the complete tree owner has nested clone and
-Compute calls and must not self-deadlock. It is created once, performs no
+The mutex is reentrant because a tree materializer has nested clone and Compute
+calls and must not self-deadlock. It is created once, performs no
 routine allocation, and is not taken from a render callback. Independent
 file, terrain, object, and cell tasks can still run on the other worker.
 
-The find/load, Compute, clone-construction, and scalar-destruction hooks are
-enabled in one SpeedTree modification transaction and reuse the same reentrant
-lock. IOManager is changed to two workers only after both SpeedTree and static
-vertex-buffer safety report ready. This preserves the feature and fixes its
-shared-state contract; rejected approaches include using one worker, disabling
-tree or LOD tasks, swallowing the invalid-parameter exception, or clamping an
-index after the global model has already changed.
+The clone-model materializer, reload-model materializer, Compute,
+clone-construction, and scalar-destruction hooks are enabled in one SpeedTree
+modification transaction and reuse the same reentrant lock. IOManager is
+changed to two workers only after both SpeedTree and static vertex-buffer
+safety report ready. This preserves the feature and fixes its shared-state
+contract; rejected approaches include using one worker, disabling tree or LOD
+tasks, swallowing the invalid-parameter exception, or clamping an index after
+the global model has already changed.
 
-## Infinite save-load report and whole-transaction hardening
+## Infinite save-load report and materialization-boundary hardening
 
 ### Runtime evidence
 
@@ -322,7 +324,7 @@ lifetime only; a later crash from the same topology proved unguarded
 process-global Compute state; and tree find/load is reachable on both workers
 and the main completion path.
 
-### Complete native ownership boundary
+### Native lookup and materialization boundary
 
 Radare2 reconfirmed that `0x00664F50` has exactly two direct callers:
 
@@ -330,62 +332,71 @@ Radare2 reconfirmed that `0x00664F50` has exactly two direct callers:
 - main-thread QueuedReference completion at `0x0050F810`, call site
   `0x0050F856`.
 
-The complete `__thiscall` owner takes the manager in `ECX`, an optional
-existing model, and the requesting reference. It either returns an already
-published tree or owns the full model-materialization path through
-`0x0066A650`/`0x0066AC40`, including base construction, clone construction,
-scalar destruction, SpeedTreeRT Compute, and final publication. It performs no
-IOManager queue drain or wait for a second tree transaction. This is the
-narrowest outer boundary that prevents one tree load from observing another
-load's partial lifetime or global scratch state.
+The `__thiscall` owner takes the manager in `ECX`, an optional existing model,
+and the requesting reference. Radare2 proves that it first performs a published
+model lookup: the successful branch at `0x00665046` retrieves the model and
+returns through `0x00665083`. That path does not enter either slow
+materializer. Only a miss continues to the sole direct calls of clone-model
+materialization at `0x00665152 -> 0x0066A650` or file/reload materialization at
+`0x006651C8 -> 0x0066AC40`. The latter is the sole owner of the proven
+`0x0066AFCE -> 0x00B044A0` Compute call.
 
-Psycho now hooks `0x00664F50` and holds the shared reentrant SpeedTree
-transaction lock for the complete original call. The inner Compute, clone,
-and scalar-destructor hooks take the same lock, so direct calls outside the
-owner remain protected while nested calls are reentrant. This closes
-interleaving before construction begins and through publication, rather than
-protecting Compute and clone-vector mutations as separate islands. Failure to
-prepare or enable any of the four hooks leaves SpeedTree safety unavailable,
-so the scheduler retains the native one-worker topology.
+The first whole-transaction implementation locked `0x00664F50`. A deployed
+playtest then reproduced a severe location-dependent FPS regression: a
+main-thread published-tree lookup could wait behind a worker doing slow tree
+file/model construction. That runtime result invalidated the broad scope as an
+acceptable performance contract. It did not invalidate the proven need to
+serialize materialization, Compute, and clone lifetime.
+
+Psycho now hooks both slow materializers, `0x0066A650` and `0x0066AC40`, and
+holds the shared reentrant transaction lock across each complete original
+call. The inner Compute, clone, and scalar-destructor hooks take the same lock,
+so nested calls are reentrant and direct leaf calls remain protected. The
+lookup/cache-hit prefix and per-reference finalization after materialization no
+longer take that lock. Failure to prepare or enable any of the five hooks
+leaves SpeedTree safety unavailable, so the scheduler retains the native
+one-worker topology. Raw address, xref, branch, and ABI evidence is recorded in
+`analysis/radare2/output/perf/speedtree_find_load_lock_scope_audit.txt`.
 
 This hardening does not add cancellation or a timeout. No safe generic
 recovery exists once an opaque engine task is executing: retiring it early can
 cause UAF, double completion, or partial save publication. Instead, aggregate
-telemetry records tree transactions started/completed, transaction waiters,
-the active scope and thread, contention, and maximum waits. `[HANG_LOAD]`
-includes those atomic fields, making a future unretestable report distinguish
-an active tree owner from threads merely queued behind it.
+telemetry records materializations started/completed, transaction waiters, the
+active scope and thread, contention, and maximum waits. `[HANG_LOAD]` includes
+those atomic fields, making a future unretestable report distinguish an active
+materializer from threads merely queued behind it.
 
 ### Safety and cost balance
 
-- UAF protection is strengthened: clone construction, replacement,
-  destruction, Compute, and publication cannot interleave across two workers
+- UAF protection is preserved: clone/reload materialization, clone-vector
+  construction/destruction, and Compute cannot interleave across two workers
   or main-thread completion. Existing corrupt-object rejection remains
   unchanged.
 - OOM behavior is unchanged. The lock and counters are static; the watchdog
   reads atomics only, and no allocation, retention, or cleanup edge was added
   to gheap.
-- Parallelism remains for all unrelated IO. Tree find/load transactions are
-  serialized because their native state is process-global. Lock timing is
-  optional trace telemetry; routine protected operations perform no logging or
-  file IO.
+- Published-tree lookup and per-reference finalization remain concurrent.
+  Clone/reload materialization stays serialized because it reaches the proven
+  process-global Compute and shared lifetime state. Lock timing is optional
+  trace telemetry; routine protected operations perform no logging or file IO.
 
 ## Diagnostics
 
 Startup must include lines equivalent to:
 
 ```text
-[IO] Complete BSTree load, SpeedTree Compute, and clone lifetime serialized; native registry lock 0x011F8BC4
+[IO] BSTree materialization, SpeedTree Compute, and clone lifetime serialized; cache-hit lookup remains concurrent; native registry lock 0x011F8BC4
 [IO] Native IOManager configured for exactly two workers with serialized exterior-cell loading, three-thread BSTree TLS, and BSFile cache fallback
 [IO] Active parallel=true speedtree=true vertex_buffers=true
 ```
 
 The helper dashboard's Runtime Fixes page exposes the active IO, SpeedTree, and
-vertex-buffer contracts plus cumulative worker, cell-load, contention, and
-fallback counters. Detailed SpeedTree find/load/Compute scope and wait timing
-remain in the core diagnostic report and Psycho log. Contention is expected
-under simultaneous tree loads; failures, missing publication, or permanent
-queue stalls are not. See `docs/psycho_dashboard.md` for the UI/ABI contract.
+vertex-buffer contracts plus cumulative worker, cell-load, materialization,
+Compute, contention, wait, and fallback counters. The active scope/thread and
+clone-lifetime details remain in the core diagnostic report and Psycho log.
+Contention is expected under simultaneous materialization; failures, missing
+publication, or permanent queue stalls are not. See
+`docs/psycho_dashboard.md` for the UI/ABI contract.
 
 ## Static validation
 
@@ -398,10 +409,10 @@ cargo fmt -p psycho-engine-fixes -- --check
 git diff --check
 ```
 
-The library suite passed all five tests. The concurrency regressions prove
-that two Compute operations cannot overlap, an independent Compute blocks
-behind a complete tree transaction, and nested SpeedTree hooks preserve the
-outer scope without self-deadlocking. Configuration tests prove
+The concurrency regressions prove that two Compute operations cannot overlap,
+an independent Compute blocks behind a tree materializer, and nested SpeedTree
+hooks preserve the materialization scope without self-deadlocking.
+Configuration tests prove
 `[io].parallel_enabled` ownership and the enabled default without retaining
 the removed LOD key.
 
@@ -414,10 +425,10 @@ mutual exclusion. They do not prove that the complete game workload is fixed.
    two observed workers, and no hook-installation failure.
 2. Load the exact autosave that produced the 2026-07-20 crash, then repeat save
    loads and exterior traversal beyond the prior 72-second failure window.
-3. Require tree starts and completions to converge after loading. Contention
-   may rise; waiters must return to zero, the active scope must return to
-   `none`, maximum wait must remain bounded, and IO queues must continue
-   draining.
+3. Require materialization starts and completions to converge after loading.
+   Contention may rise; waiters must return to zero, the active scope must
+   return to `none`, maximum wait must remain bounded, and IO queues must
+   continue draining.
 4. Require no `C0000417` at `0x00EC7C62`, no `0x00B142E7` checked-record
    signature, and no recurrence of the earlier BSTree, exterior-owner, clone,
    or static vertex-buffer signatures.
@@ -425,6 +436,11 @@ mutual exclusion. They do not prove that the complete game workload is fixed.
    Missing content, a worker-count reduction, or disabled work is a failure.
 6. Repeat under allocator modes `0`, `1`, and `2`; Compute serialization and
    native IO ownership must not depend on allocator mode.
+7. At the reported tree-heavy regression location, compare a warm stationary
+   view and a repeatable traversal against the prior whole-owner build. Require
+   recovery of sustained FPS and frame pacing without reducing the two-worker
+   count or hiding trees. The dashboard's materialization/Compute counters must
+   keep advancing and waiters must return to zero.
 
 ## Evidence and reuse index
 
@@ -460,6 +476,10 @@ Existing generated engine evidence, retained unchanged:
 - `analysis/ghidra/output/crash/lod_bstree_tls_slot_exhaustion_root_cause_audit.txt`
 - `analysis/ghidra/output/perf/startup_loading_pipeline_deep_audit.txt`
 - `analysis/ghidra/output/perf/graphics_fnv_close_terrain_portable_light_classification_audit.txt`
+
+Current radare2 lock-scope evidence:
+
+- `analysis/radare2/output/perf/speedtree_find_load_lock_scope_audit.txt`
 
 Related feature history and earlier contracts:
 

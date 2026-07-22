@@ -218,13 +218,16 @@ pub static STATIC_GEOMETRY_RETIRE_HOOK: LazyLock<InlineHookContainer<StaticGeome
 
 // ---- IO SpeedTree shared-state safety ----
 
-pub const BSTREE_FIND_OR_LOAD_ADDR: usize = 0x0066_4F50;
+pub const BSTREE_CLONE_MODEL_ADDR: usize = 0x0066_A650;
+pub const BSTREE_RELOAD_MODEL_ADDR: usize = 0x0066_AC40;
 pub const SPEEDTREE_CLONE_CONSTRUCTOR_ADDR: usize = 0x00B0_36D0;
 pub const SPEEDTREE_COMPUTE_ADDR: usize = 0x00B0_44A0;
 pub const SPEEDTREE_SCALAR_DESTRUCTOR_ADDR: usize = 0x0066_6910;
 pub const SPEEDTREE_REGISTRY_CRITICAL_SECTION_ADDR: usize = 0x011F_8BC4;
 
-pub static BSTREE_FIND_OR_LOAD_HOOK: LazyLock<InlineHookContainer<BsTreeFindOrLoadFn>> =
+pub static BSTREE_CLONE_MODEL_HOOK: LazyLock<InlineHookContainer<BsTreeCloneModelFn>> =
+    LazyLock::new(InlineHookContainer::new);
+pub static BSTREE_RELOAD_MODEL_HOOK: LazyLock<InlineHookContainer<BsTreeReloadModelFn>> =
     LazyLock::new(InlineHookContainer::new);
 pub static SPEEDTREE_CLONE_CONSTRUCTOR_HOOK: LazyLock<
     InlineHookContainer<SpeedTreeCloneConstructorFn>,

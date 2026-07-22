@@ -279,12 +279,25 @@ block has no live allocations; it does not make zombie pointers valid.
 ### Performance
 
 There is no new routine per-allocation scan, allocation, log, or lock. The
-`VirtualQuery` walk runs on the watchdog cadence, baseline calibration, or a
-lazy overflow reservation attempt. The watchdog now performs one walk instead
-of two counters from different sources. Peak/max telemetry adds relaxed atomics
-only to allocations larger than 16 MB. The block allocator remains a global
-mutex and is an emergency path for small pool failures, not a scalable steady
-state for millions of small objects.
+watchdog retains a light five-second process-accounting poll for commit growth
+and failed-reservation retry state. Full `VirtualQuery` enumeration, allocator
+snapshots, class sorting, and detailed log writes run once per 60 seconds,
+during baseline calibration, on an explicit dashboard request whose cache has
+expired, or on a lazy overflow reservation attempt. Pressure-state output is
+diagnostic only; allocator admission still samples actual VAS when it needs a
+decision. Peak/max telemetry adds relaxed atomics only to allocations larger
+than 16 MB. The block allocator remains a global mutex and is an emergency path
+for small pool failures, not a scalable steady state for millions of small
+objects.
+
+When opt-in hitch profiling is enabled at process startup, its existing compact
+span report also measures the active portions of the five-second light memory
+poll (`memWd`, including the detailed work on each twelfth poll) and scrap-heap
+reclamation cycle (`scrapGc`). The sleep intervals are excluded. These counters
+establish temporal correlation with a reported frame-hitch window; because the
+jobs run on background threads, they do not by themselves prove that either job
+blocked the main thread. With hitch profiling disabled, each cycle pays only
+the existing configuration check and does not query the performance counter.
 
 ## Validation matrix for an extreme setup
 

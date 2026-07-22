@@ -14,7 +14,7 @@ use std::{
 };
 
 use libpsycho::{common::helpers::format_bytes, os::windows::directx9::Device9Ref};
-use parking_lot::RwLock;
+use parking_lot::{Condvar, Mutex, RwLock};
 use psycho_imgui::{Condition, Dx9Context, TelemetryChart, Ui};
 
 use crate::{dashboard_config::ConfigEditor, engine_fixes, hooks, input};
@@ -62,7 +62,9 @@ const RELOAD_ACTIVE: [f32; 4] = [0.82, 0.51, 0.12, 1.0];
 
 static READY: AtomicBool = AtomicBool::new(false);
 static OPEN_REQUESTED: AtomicBool = AtomicBool::new(false);
+static OPEN: AtomicBool = AtomicBool::new(false);
 static SHARED: OnceLock<Arc<RwLock<SharedData>>> = OnceLock::new();
+static SAMPLING: OnceLock<Arc<SamplingControl>> = OnceLock::new();
 
 thread_local! {
     static RUNTIME: RefCell<DashboardRuntime> = RefCell::new(DashboardRuntime::new());
@@ -92,6 +94,77 @@ struct SharedData {
     logs: Vec<LogLine>,
     log_generation: u64,
     log_error: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+struct SamplingState {
+    active: bool,
+    logs: bool,
+    generation: u64,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct SamplingRequest {
+    logs: bool,
+    generation: u64,
+}
+
+impl SamplingState {
+    fn request(self) -> Option<SamplingRequest> {
+        self.active.then_some(SamplingRequest {
+            logs: self.logs,
+            generation: self.generation,
+        })
+    }
+}
+
+#[derive(Default)]
+struct SamplingControl {
+    state: Mutex<SamplingState>,
+    changed: Condvar,
+}
+
+impl SamplingControl {
+    fn set(&self, active: bool, logs: bool) {
+        let mut state = self.state.lock();
+        let logs = active && logs;
+        if state.active == active && state.logs == logs {
+            return;
+        }
+        state.active = active;
+        state.logs = logs;
+        state.generation = state.generation.wrapping_add(1);
+        self.changed.notify_one();
+    }
+
+    fn wait_for_request(&self) -> SamplingRequest {
+        let mut state = self.state.lock();
+        loop {
+            if let Some(request) = state.request() {
+                return request;
+            }
+            self.changed.wait(&mut state);
+        }
+    }
+
+    fn wait_for_next(&self, request: SamplingRequest) {
+        let mut state = self.state.lock();
+        if state.active && state.generation == request.generation {
+            self.changed.wait_for(&mut state, SAMPLE_INTERVAL);
+        }
+    }
+}
+
+#[derive(Default)]
+struct LogTailReader {
+    offset: u64,
+    pending: Vec<u8>,
+    initialized: bool,
+}
+
+struct LogRefresh {
+    reset: bool,
+    lines: Vec<LogLine>,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -216,7 +289,15 @@ impl DashboardRuntime {
             return;
         }
         self.open = open;
+        OPEN.store(open, Ordering::Release);
         input::set_blocked(open);
+        self.publish_sampling_state();
+    }
+
+    fn publish_sampling_state(&self) {
+        if let Some(control) = SAMPLING.get() {
+            control.set(self.open, self.page == Page::Logs);
+        }
     }
 
     fn render_present(&mut self, device_ptr: *mut c_void, hwnd: *mut c_void) {
@@ -372,6 +453,7 @@ impl DashboardRuntime {
     fn draw_navigation(&mut self, ui: &mut Ui<'_>) {
         ui.text_colored(MUTED, &cstring("DASHBOARD"));
         ui.spacing();
+        let previous_page = self.page;
         for (page, label) in [
             (Page::Overview, "Overview"),
             (Page::Memory, "Memory dashboard"),
@@ -382,6 +464,9 @@ impl DashboardRuntime {
             if ui.selectable(&cstring(label), self.page == page) {
                 self.page = page;
             }
+        }
+        if self.page != previous_page {
+            self.publish_sampling_state();
         }
         ui.spacing();
         ui.separator_text(&cstring("Session"));
@@ -723,7 +808,7 @@ impl DashboardRuntime {
             (
                 "SpeedTree lifetime",
                 engine_fixes::DASHBOARD_FEATURE_TREE_LIFETIME,
-                "Serialized process-global tree ownership",
+                "Serialized materialization and process-global Compute state",
             ),
             (
                 "Static vertex buffers",
@@ -786,6 +871,45 @@ impl DashboardRuntime {
             "IO fallbacks",
             core.io_fallbacks,
             counter_color(core.io_fallbacks),
+        );
+        draw_value(
+            ui,
+            "Tree materializations",
+            format!(
+                "{} completed / {} started",
+                core.speedtree_completions, core.speedtree_materializations
+            ),
+            BLUE,
+        );
+        draw_value(
+            ui,
+            "Tree materialization contentions",
+            core.speedtree_materialization_contentions,
+            BLUE,
+        );
+        draw_value(
+            ui,
+            "SpeedTree Compute",
+            format!(
+                "{} runs / {} contentions",
+                core.speedtree_compute_transactions, core.speedtree_compute_contentions
+            ),
+            BLUE,
+        );
+        draw_value(
+            ui,
+            "SpeedTree waiters / max waits",
+            format!(
+                "{} / {} us materialize / {} us Compute",
+                core.speedtree_waiters,
+                core.speedtree_max_materialization_wait_us,
+                core.speedtree_max_compute_wait_us
+            ),
+            if core.speedtree_waiters == 0 {
+                GOOD
+            } else {
+                WARN
+            },
         );
         draw_value(
             ui,
@@ -1004,10 +1128,12 @@ pub(crate) fn deferred_init() {
     }
 
     let shared = Arc::new(RwLock::new(SharedData::default()));
+    let sampling = Arc::new(SamplingControl::default());
     let _ = SHARED.set(shared.clone());
+    let _ = SAMPLING.set(sampling.clone());
     if let Err(error) = thread::Builder::new()
         .name("psycho-dashboard".to_owned())
-        .spawn(move || sampling_worker(shared))
+        .spawn(move || sampling_worker(shared, sampling))
     {
         log::warn!("[DASHBOARD] Sampling worker unavailable: {error}");
     }
@@ -1027,6 +1153,12 @@ pub(crate) fn request_open() -> bool {
 
 pub(crate) fn on_frame_present() {
     if !READY.load(Ordering::Acquire) {
+        return;
+    }
+    if hooks::window_proc_installed()
+        && !OPEN.load(Ordering::Acquire)
+        && !OPEN_REQUESTED.load(Ordering::Acquire)
+    {
         return;
     }
     let Some((device, hwnd)) = game_render_handles() else {
@@ -1125,10 +1257,12 @@ fn game_render_handles() -> Option<(*mut c_void, *mut c_void)> {
     }
 }
 
-fn sampling_worker(shared: Arc<RwLock<SharedData>>) {
+fn sampling_worker(shared: Arc<RwLock<SharedData>>, control: Arc<SamplingControl>) {
+    let mut log_reader = LogTailReader::default();
     loop {
+        let request = control.wait_for_request();
         let core = engine_fixes::query_dashboard();
-        let logs = read_recent_log();
+        let logs = request.logs.then(|| log_reader.refresh());
         {
             let mut output = shared.write();
             if core.is_some() {
@@ -1140,36 +1274,90 @@ fn sampling_worker(shared: Arc<RwLock<SharedData>>) {
                     output.core = None;
                 }
             }
-            match logs {
-                Ok(lines) => {
-                    output.logs = lines;
-                    output.log_generation = output.log_generation.wrapping_add(1);
-                    output.log_error = None;
+            if let Some(logs) = logs {
+                match logs {
+                    Ok(refresh) => {
+                        let changed = refresh.reset || !refresh.lines.is_empty();
+                        if refresh.reset {
+                            output.logs.clear();
+                        }
+                        output.logs.extend(refresh.lines);
+                        if output.logs.len() > MAX_LOG_LINES {
+                            let excess = output.logs.len() - MAX_LOG_LINES;
+                            output.logs.drain(..excess);
+                        }
+                        if changed {
+                            output.log_generation = output.log_generation.wrapping_add(1);
+                        }
+                        output.log_error = None;
+                    }
+                    Err(error) => {
+                        output.log_error = Some(format!("Log tail unavailable: {error:#}"));
+                    }
                 }
-                Err(error) => output.log_error = Some(format!("Log tail unavailable: {error:#}")),
             }
         }
-        thread::sleep(SAMPLE_INTERVAL);
+        control.wait_for_next(request);
     }
 }
 
-fn read_recent_log() -> anyhow::Result<Vec<LogLine>> {
-    let mut file = File::open(LOG_PATH)?;
-    let length = file.metadata()?.len();
-    let offset = length.saturating_sub(LOG_TAIL_BYTES);
-    file.seek(SeekFrom::Start(offset))?;
-    let mut bytes = Vec::with_capacity((length - offset).min(LOG_TAIL_BYTES) as usize);
-    file.read_to_end(&mut bytes)?;
-    let text = String::from_utf8_lossy(&bytes);
-    let mut lines = text.lines();
-    if offset != 0 {
-        let _ = lines.next();
+impl LogTailReader {
+    fn refresh(&mut self) -> anyhow::Result<LogRefresh> {
+        let mut file = File::open(LOG_PATH)?;
+        let length = file.metadata()?.len();
+        let reset = !self.initialized
+            || length < self.offset
+            || length.saturating_sub(self.offset) > LOG_TAIL_BYTES;
+        let start = if reset {
+            length.saturating_sub(LOG_TAIL_BYTES)
+        } else {
+            self.offset
+        };
+
+        if reset {
+            self.pending.clear();
+        }
+        file.seek(SeekFrom::Start(start))?;
+        let read_limit = (length - start).min(LOG_TAIL_BYTES);
+        let mut bytes = Vec::with_capacity(read_limit as usize);
+        file.take(read_limit).read_to_end(&mut bytes)?;
+        self.offset = start.saturating_add(bytes.len() as u64);
+        self.initialized = true;
+
+        let mut lines = self.ingest(&bytes, reset && start != 0);
+        if lines.len() > MAX_LOG_LINES {
+            lines.drain(..lines.len() - MAX_LOG_LINES);
+        }
+        Ok(LogRefresh { reset, lines })
     }
-    let mut output: Vec<LogLine> = lines.map(parse_log_line).collect();
-    if output.len() > MAX_LOG_LINES {
-        output.drain(..output.len() - MAX_LOG_LINES);
+
+    fn ingest(&mut self, bytes: &[u8], skip_partial_prefix: bool) -> Vec<LogLine> {
+        let bytes = if skip_partial_prefix {
+            bytes
+                .iter()
+                .position(|byte| *byte == b'\n')
+                .map_or(&[][..], |index| &bytes[index + 1..])
+        } else {
+            bytes
+        };
+
+        self.pending.extend_from_slice(bytes);
+        let Some(complete_len) = self
+            .pending
+            .iter()
+            .rposition(|byte| *byte == b'\n')
+            .map(|index| index + 1)
+        else {
+            return Vec::new();
+        };
+
+        let remainder = self.pending.split_off(complete_len);
+        let complete = std::mem::replace(&mut self.pending, remainder);
+        String::from_utf8_lossy(&complete)
+            .lines()
+            .map(parse_log_line)
+            .collect()
     }
-    Ok(output)
 }
 
 fn parse_log_line(line: &str) -> LogLine {
@@ -1708,7 +1896,7 @@ fn cstring(text: impl AsRef<str>) -> CString {
 
 #[cfg(test)]
 mod tests {
-    use super::{LogFilters, LogLevel, MemoryHealth, parse_log_line};
+    use super::{LogFilters, LogLevel, LogTailReader, MemoryHealth, SamplingState, parse_log_line};
     use crate::engine_fixes::{DASHBOARD_FLAG_VAS_VALID, DashboardSnapshot};
 
     #[test]
@@ -1761,5 +1949,46 @@ mod tests {
         assert!(!important.accepts(LogLevel::Trace));
 
         assert!(LogFilters::all().accepts(LogLevel::Trace));
+    }
+
+    #[test]
+    fn closed_dashboard_has_no_sampling_request() {
+        let closed = SamplingState::default();
+        assert_eq!(closed.request(), None);
+
+        let telemetry = SamplingState {
+            active: true,
+            logs: false,
+            generation: 1,
+        }
+        .request()
+        .expect("open dashboard requests telemetry");
+        assert!(!telemetry.logs);
+
+        let logs = SamplingState {
+            active: true,
+            logs: true,
+            generation: 2,
+        }
+        .request()
+        .expect("log page requests telemetry");
+        assert!(logs.logs);
+    }
+
+    #[test]
+    fn log_tail_parses_only_complete_incremental_lines() {
+        let mut reader = LogTailReader::default();
+        let first = reader.ingest(b"first\npart", false);
+        assert_eq!(first.len(), 1);
+        assert_eq!(first[0].text, "first");
+
+        let second = reader.ingest(b"ial\nsecond\n", false);
+        assert_eq!(second.len(), 2);
+        assert_eq!(second[0].text, "partial");
+        assert_eq!(second[1].text, "second");
+
+        let tailed = reader.ingest(b"discarded prefix\nkept\n", true);
+        assert_eq!(tailed.len(), 1);
+        assert_eq!(tailed[0].text, "kept");
     }
 }

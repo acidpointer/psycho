@@ -16,7 +16,7 @@ use super::{block, pool, va_alloc};
 const REPORT_MS: u32 = 1_000;
 const ABSOLUTE_HITCH_US: u64 = 20_000;
 const RELATIVE_HITCH_US: u64 = 2_000;
-const SPAN_COUNT: usize = 20;
+const SPAN_COUNT: usize = 22;
 
 #[derive(Clone, Copy)]
 #[repr(usize)]
@@ -41,6 +41,8 @@ pub enum Span {
     HavokStopStartOriginal,
     HavokLockOriginal,
     HavokUnlockOriginal,
+    MemoryWatchdog,
+    ScrapGc,
 }
 
 static LAST_PHASE10_TICKS: AtomicU64 = AtomicU64::new(0);
@@ -146,6 +148,14 @@ const SPAN_DESCRIPTORS: [SpanDescriptor; SPAN_COUNT] = [
     SpanDescriptor {
         span: Span::HavokUnlockOriginal,
         name: "hkU",
+    },
+    SpanDescriptor {
+        span: Span::MemoryWatchdog,
+        name: "memWd",
+    },
+    SpanDescriptor {
+        span: Span::ScrapGc,
+        name: "scrapGc",
     },
 ];
 

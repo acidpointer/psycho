@@ -81,6 +81,15 @@ pub(super) struct DiagnosticSnapshot {
     pub state: state::Snapshot,
 }
 
+pub(super) struct DashboardSnapshot {
+    pub streaming_installed: bool,
+    pub handoff_installed: bool,
+    pub demand_calls: [u64; 3],
+    pub extended_demands: [u64; 3],
+    pub retained_demands: [u64; 3],
+    pub state: state::DashboardCounters,
+}
+
 static CONFIG: OnceLock<RuntimeConfig> = OnceLock::new();
 static STREAMING_INSTALLED: AtomicBool = AtomicBool::new(false);
 static HANDOFF_INSTALLED: AtomicBool = AtomicBool::new(false);
@@ -676,6 +685,23 @@ pub(super) fn diagnostic_snapshot() -> DiagnosticSnapshot {
         }),
         scheduler: scheduler::snapshot(),
         state: state::snapshot(),
+    }
+}
+
+pub(super) fn dashboard_snapshot() -> DashboardSnapshot {
+    DashboardSnapshot {
+        streaming_installed: STREAMING_INSTALLED.load(Ordering::Acquire),
+        handoff_installed: HANDOFF_INSTALLED.load(Ordering::Acquire),
+        demand_calls: std::array::from_fn(|index| {
+            u64::from(DEMAND_CALLS[index].load(Ordering::Relaxed))
+        }),
+        extended_demands: std::array::from_fn(|index| {
+            u64::from(EXTENDED_DEMANDS[index].load(Ordering::Relaxed))
+        }),
+        retained_demands: std::array::from_fn(|index| {
+            u64::from(RETAINED_DEMANDS[index].load(Ordering::Relaxed))
+        }),
+        state: state::dashboard_counters(),
     }
 }
 

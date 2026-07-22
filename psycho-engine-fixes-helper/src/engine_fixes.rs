@@ -102,7 +102,14 @@ pub(crate) struct DashboardSnapshot {
     pub lod_current_cells: u64,
     pub lod_current_references: u64,
     pub lod_stale_retirements_prevented: u64,
-    pub reserved: [u64; 8],
+    pub speedtree_materializations: u64,
+    pub speedtree_completions: u64,
+    pub speedtree_materialization_contentions: u64,
+    pub speedtree_compute_transactions: u64,
+    pub speedtree_compute_contentions: u64,
+    pub speedtree_waiters: u64,
+    pub speedtree_max_materialization_wait_us: u64,
+    pub speedtree_max_compute_wait_us: u64,
 }
 
 const _: () = assert!(size_of::<DashboardSnapshot>() == 472);

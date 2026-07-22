@@ -80,6 +80,8 @@ pub const DASHBOARD_FLAG_PRE_CRT_BOUNDARY: u32 = 1 << 1;
 pub const DASHBOARD_FLAG_VAS_VALID: u32 = 1 << 2;
 pub const DASHBOARD_FLAG_BLOCK_SAMPLE_VALID: u32 = 1 << 3;
 
+const DASHBOARD_VAS_MAX_AGE_MS: u32 = 10_000;
+
 #[repr(C)]
 #[derive(Clone, Copy)]
 struct DashboardHeader {
@@ -147,7 +149,14 @@ pub struct DashboardSnapshot {
     pub lod_current_cells: u64,
     pub lod_current_references: u64,
     pub lod_stale_retirements_prevented: u64,
-    pub reserved: [u64; 8],
+    pub speedtree_materializations: u64,
+    pub speedtree_completions: u64,
+    pub speedtree_materialization_contentions: u64,
+    pub speedtree_compute_transactions: u64,
+    pub speedtree_compute_contentions: u64,
+    pub speedtree_waiters: u64,
+    pub speedtree_max_materialization_wait_us: u64,
+    pub speedtree_max_compute_wait_us: u64,
 }
 
 const _: () = assert!(size_of::<DashboardSnapshot>() == 472);
@@ -208,7 +217,14 @@ impl Default for DashboardSnapshot {
             lod_current_cells: 0,
             lod_current_references: 0,
             lod_stale_retirements_prevented: 0,
-            reserved: [0; 8],
+            speedtree_materializations: 0,
+            speedtree_completions: 0,
+            speedtree_materialization_contentions: 0,
+            speedtree_compute_transactions: 0,
+            speedtree_compute_contentions: 0,
+            speedtree_waiters: 0,
+            speedtree_max_materialization_wait_us: 0,
+            speedtree_max_compute_wait_us: 0,
         }
     }
 }
@@ -304,13 +320,21 @@ pub unsafe extern "system" fn PsychoEngineFixes_QueryDashboard(
         lod_current_cells: engine.lod_current_cells,
         lod_current_references: engine.lod_current_references,
         lod_stale_retirements_prevented: engine.lod_stale_retirements_prevented,
+        speedtree_materializations: engine.speedtree_materializations,
+        speedtree_completions: engine.speedtree_completions,
+        speedtree_materialization_contentions: engine.speedtree_materialization_contentions,
+        speedtree_compute_transactions: engine.speedtree_compute_transactions,
+        speedtree_compute_contentions: engine.speedtree_compute_contentions,
+        speedtree_waiters: engine.speedtree_waiters,
+        speedtree_max_materialization_wait_us: engine.speedtree_max_materialization_wait_us,
+        speedtree_max_compute_wait_us: engine.speedtree_max_compute_wait_us,
         ..DashboardSnapshot::default()
     };
 
     if crate::entry::has_pre_crt_startup_boundary() {
         snapshot.flags |= DASHBOARD_FLAG_PRE_CRT_BOUNDARY;
     }
-    if let Some(summary) = vas::sample() {
+    if let Some(summary) = vas::cached_or_sample(DASHBOARD_VAS_MAX_AGE_MS) {
         snapshot.flags |= DASHBOARD_FLAG_VAS_VALID;
         snapshot.vas_free_bytes = summary.total_free as u64;
         snapshot.vas_largest_hole_bytes = summary.largest_free as u64;

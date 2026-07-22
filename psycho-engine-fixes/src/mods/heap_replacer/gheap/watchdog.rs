@@ -39,11 +39,15 @@ use super::pressure::PressureRelief;
 /// cadence.
 const POLL_MS: u32 = 5_000;
 
-/// Diagnostic logging interval (every N polls = every N*POLL_MS ms).
-const LOG_INTERVAL: u32 = 1;
+/// Detailed allocator/VAS diagnostics interval (every N polls).
+///
+/// The five-second poll keeps growth tracking and failed-reservation retry
+/// state responsive. Full process-map walks, allocator snapshots, sorting, and
+/// log writes are support telemetry and stay off the frame-pacing cadence.
+const DETAIL_INTERVAL: u32 = 12;
 
-/// Human-facing summary interval. Detailed watchdog samples stay in DEBUG.
-const INFO_SUMMARY_INTERVAL: u32 = LOG_INTERVAL * 12;
+/// Human-facing summary interval. One summary accompanies each detailed poll.
+const INFO_SUMMARY_INTERVAL: u32 = DETAIL_INTERVAL;
 
 /// Growth thresholds as fraction of headroom (available_vas - baseline).
 /// Proportional thresholds adapt to any modpack size:
@@ -135,8 +139,9 @@ impl Watchdog {
             log::info!("[MEM] Watchdog started");
         }
         log::debug!(
-            "[MEM] Watchdog config: poll={}ms, growth thresholds={}%/{}%/{}% of headroom",
+            "[MEM] Watchdog config: poll={}ms detail={}ms, growth thresholds={}%/{}%/{}% of headroom",
             POLL_MS,
+            POLL_MS * DETAIL_INTERVAL,
             (NORMAL_GROWTH_PCT * 100.0) as u32,
             (AGGRESSIVE_GROWTH_PCT * 100.0) as u32,
             (CRITICAL_GROWTH_PCT * 100.0) as u32,
@@ -200,34 +205,36 @@ fn watchdog_loop(run: Arc<AtomicBool>) {
         }
 
         libpsycho::os::windows::winapi::sleep(POLL_MS);
-        poll_count = poll_count.wrapping_add(1);
-        super::pool::allow_reservation_retries();
+        super::hitch::measure_span(super::hitch::Span::MemoryWatchdog, || {
+            poll_count = poll_count.wrapping_add(1);
+            super::pool::allow_reservation_retries();
 
-        let info = MiMallocProcessInfo::get();
-        let commit = info.get_current_commit();
+            let info = MiMallocProcessInfo::get();
+            let commit = info.get_current_commit();
 
-        // --- Rate tracking ---
-        let prev_commit = LAST_COMMIT.swap(commit, Ordering::Relaxed);
-        let first_sample = prev_commit == 0;
-        let rate_sample = if !first_sample {
-            let delta = commit as i64 - prev_commit as i64;
-            (delta * 1000 / POLL_MS as i64) as i32
-        } else {
-            0
-        };
+            // --- Rate tracking ---
+            let prev_commit = LAST_COMMIT.swap(commit, Ordering::Relaxed);
+            let first_sample = prev_commit == 0;
+            let rate_sample = if !first_sample {
+                let delta = commit as i64 - prev_commit as i64;
+                (delta * 1000 / POLL_MS as i64) as i32
+            } else {
+                0
+            };
 
-        // Integer EMA: rate = (3 * sample + 7 * prev) / 10
-        let smoothed = (3i64 * rate_sample as i64 + 7i64 * prev_rate as i64) / 10;
-        prev_rate = smoothed as i32;
-        GROWTH_RATE.store(prev_rate, Ordering::Relaxed);
+            // Integer EMA: rate = (3 * sample + 7 * prev) / 10
+            let smoothed = (3i64 * rate_sample as i64 + 7i64 * prev_rate as i64) / 10;
+            prev_rate = smoothed as i32;
+            GROWTH_RATE.store(prev_rate, Ordering::Relaxed);
 
-        // --- Diagnostic logging ---
-        log_diagnostics(poll_count, &info);
+            // --- Diagnostic logging ---
+            log_diagnostics(poll_count, &info);
+        });
     }
 }
 
 fn log_diagnostics(poll_count: u32, info: &MiMallocProcessInfo) {
-    if !poll_count.is_multiple_of(LOG_INTERVAL) {
+    if !poll_count.is_multiple_of(DETAIL_INTERVAL) {
         return;
     }
 

@@ -8,13 +8,19 @@
 
 use libc::c_void;
 
-use libpsycho::os::windows::winapi::{MemoryState, virtual_query};
+use std::sync::atomic::{AtomicBool, Ordering};
+
+use libpsycho::os::windows::winapi::{MemoryState, get_tick_count, virtual_query};
+use parking_lot::RwLock;
 
 pub const MB: usize = 1024 * 1024;
 pub const CRITICAL_LARGEST_HOLE: usize = 128 * MB;
 
 const VA_START: usize = 0x0001_0000;
 const VA_LIMIT: usize = 0xffff_0000;
+
+static LAST_SAMPLE: RwLock<Option<CachedSummary>> = RwLock::new(None);
+static DASHBOARD_REFRESHING: AtomicBool = AtomicBool::new(false);
 
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Summary {
@@ -27,6 +33,12 @@ pub struct Summary {
     pub second_free: usize,
     pub regions: u32,
     pub holes: u32,
+}
+
+#[derive(Clone, Copy)]
+struct CachedSummary {
+    summary: Summary,
+    sampled_at_ms: u32,
 }
 
 pub fn sample() -> Option<Summary> {
@@ -69,5 +81,34 @@ pub fn sample() -> Option<Summary> {
         addr = next;
     }
 
+    *LAST_SAMPLE.write() = Some(CachedSummary {
+        summary,
+        sampled_at_ms: get_tick_count(),
+    });
     Some(summary)
+}
+
+/// Return a recent VAS walk, refreshing it only when the shared cache is old.
+///
+/// The gheap watchdog already walks VAS every five seconds. Dashboard queries
+/// reuse that result instead of multiplying `VirtualQuery` traffic at the UI's
+/// 1.5-second chart cadence. Allocator modes without the watchdog retain full
+/// dashboard coverage through this slower on-demand refresh.
+pub fn cached_or_sample(max_age_ms: u32) -> Option<Summary> {
+    let now = get_tick_count();
+    let cached = *LAST_SAMPLE.read();
+    if cached.is_some_and(|sample| now.wrapping_sub(sample.sampled_at_ms) < max_age_ms) {
+        return cached.map(|sample| sample.summary);
+    }
+
+    if DASHBOARD_REFRESHING
+        .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+        .is_err()
+    {
+        return cached.map(|sample| sample.summary);
+    }
+
+    let refreshed = sample();
+    DASHBOARD_REFRESHING.store(false, Ordering::Release);
+    refreshed.or_else(|| cached.map(|sample| sample.summary))
 }

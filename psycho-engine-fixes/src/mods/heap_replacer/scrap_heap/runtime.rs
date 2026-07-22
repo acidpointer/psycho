@@ -12,6 +12,8 @@ use libpsycho::common::helpers::format_bytes;
 use parking_lot::{Mutex, RwLock};
 use rustc_hash::FxBuildHasher;
 
+use crate::mods::heap_replacer::gheap::hitch::{self, Span};
+
 use super::heap::Heap;
 use super::heap::REGION_SIZE;
 use super::region::Region;
@@ -214,21 +216,23 @@ impl Runtime {
 
                 thread::sleep(GC_DURATION);
 
-                let mut gc = GcCycle::default();
-                while let Some(sheap_id) = gc_queue.pop() {
-                    gc.queued += 1;
-                    let heap = pool.read().get(&sheap_id).cloned();
-                    if let Some(heap) = heap {
-                        let purged = heap.checked_purge();
-                        if purged > 0 {
-                            gc.purged_identities += 1;
-                            gc.purged_regions += purged;
+                hitch::measure_span(Span::ScrapGc, || {
+                    let mut gc = GcCycle::default();
+                    while let Some(sheap_id) = gc_queue.pop() {
+                        gc.queued += 1;
+                        let heap = pool.read().get(&sheap_id).cloned();
+                        if let Some(heap) = heap {
+                            let purged = heap.checked_purge();
+                            if purged > 0 {
+                                gc.purged_identities += 1;
+                                gc.purged_regions += purged;
+                            }
                         }
                     }
-                }
 
-                let snapshot = Self::snapshot(&pool);
-                log_state.observe(&snapshot, &gc);
+                    let snapshot = Self::snapshot(&pool);
+                    log_state.observe(&snapshot, &gc);
+                });
             }
         });
 

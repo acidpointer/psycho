@@ -1,0 +1,84 @@
+SpeedTree find/load lock-scope audit
+====================================
+
+Research date: 2026-07-22
+Primary tool: radare2 MCP
+
+Executable identity
+-------------------
+
+Path: fnv_reverse/FalloutNV.exe
+SHA-256: 42fee7d6cd74e801372aa89c8f71c974cebd3c20ec9ad43d1465b8fa9646b49c
+Format: PE32 i386
+Image base: 0x00400000
+File size: 16,084,808 bytes
+
+Question
+--------
+
+Does parallel-IO safety require holding Psycho's SpeedTree transaction mutex
+across the complete BSTreeManager find/load owner at 0x00664F50, including
+published-tree cache hits, or can the lock cover only slow materialization?
+
+Direct binary evidence
+----------------------
+
+1. 0x00664F50 has exactly two direct callers:
+   - worker tree task 0x0043DA00, call at 0x0043DA59;
+   - main-thread QueuedReference completion 0x0050F810, call at 0x0050F856.
+
+2. The owner performs lookup before materialization. At 0x0066503D it calls
+   the manager lookup virtual. A true result branches through 0x00665046,
+   retrieves the published model through the manager virtual at 0x0066505D,
+   and returns through 0x00665083. Neither materializer is called on this path.
+
+3. Only a lookup miss reaches model construction. The two branches are:
+   - 0x00665152 -> 0x0066A650, clone-model materializer;
+   - 0x006651C8 -> 0x0066AC40, file/reload materializer.
+   Radare2 xrefs show 0x00664F50 as the only direct caller of each materializer.
+
+4. The file/reload materializer is the sole direct caller of SpeedTreeRT
+   Compute: 0x0066AFCE -> 0x00B044A0. Existing analysis proves that Compute
+   publishes and consumes process-global model/scratch state.
+
+5. Recovered ABIs from prologues, call sites, and callee returns:
+   - 0x0066A650: thiscall u8(destination_model, parsed_source_model), ret 4;
+   - 0x0066AC40: thiscall u8(destination_model, requesting_reference, u32 mode),
+     ret 8;
+   - 0x00B044A0: thiscall u8(core, transform, u32 seed, u8 final_pass).
+
+Runtime evidence and inference
+------------------------------
+
+The first hardening build wrapped 0x00664F50 in a blocking process-wide mutex.
+A deployed playtest still reproduced a location-dependent fall from about
+100-110 FPS to 60-70 FPS. The exact blocking stack was not captured, so
+attributing the complete loss to SpeedTree remains an inference. The static
+branch proof nevertheless establishes a concrete regression mechanism: a
+main-thread cache hit is forced to wait while a worker performs slow file/model
+materialization, despite the cache-hit path not touching either materializer.
+
+Safe intervention
+-----------------
+
+Do not lock 0x00664F50. Hook and serialize the complete originals at 0x0066A650
+and 0x0066AC40 with the existing reentrant SpeedTree transaction mutex. Keep
+the existing nested locks around Compute, clone construction, and scalar
+destruction. This preserves serialization across both slow construction
+branches and their nested process-global/lifetime mutations while restoring
+concurrent published-tree lookup and per-reference finalization.
+
+All five hooks must prepare and enable transactionally before two-worker IO is
+published. If any hook is unavailable, retain the native one-worker topology.
+Do not skip a tree task, reduce tree/LOD coverage, swallow Compute failure, or
+remove the dashboard.
+
+Limits and runtime acceptance
+-----------------------------
+
+Static proof establishes control flow, xrefs, ABI, and the narrower lock
+boundary. It does not prove the reported FPS recovery or rule out radio,
+rendering, scrap GC, and memory telemetry as additional contributors. Re-run
+the exact location and save-load crash route. Require two workers, visible
+trees, converging materialization start/completion counts, zero steady waiters,
+no 0x00EC7C62/0x00B142E7 recurrence, and recovered frame pacing.

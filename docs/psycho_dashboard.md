@@ -18,7 +18,7 @@ The control deck has five pages:
   includes explicit watch and critical pressure bands; the commit timeline uses
   a padded scale because it has no honest universal failure threshold.
 - **Runtime Fixes** identifies active patch families and exposes cumulative
-  save, task, native IO, and LOD counters.
+  save, task, native IO, SpeedTree materialization/Compute, and LOD counters.
 - **Configuration** edits the complete supported Psycho TOML surface. Saving is
   explicitly labelled **Save for next launch**; it never changes live core
   state.
@@ -119,7 +119,8 @@ The snapshot groups are:
 - allocator fallback/failure counts;
 - save-integrity and queued-task lifetime counters;
 - native IO and LOD streaming counters;
-- eight reserved 64-bit fields for compatible version-1 growth.
+- eight SpeedTree materialization/Compute activity, contention, waiter, and
+  maximum-wait counters, published in the version-1 growth tail.
 
 All engine counters are cumulative and read-only. Dashboard sampling does not
 drain the hitch profiler's interval counters. Missing optional samples are
@@ -127,28 +128,76 @@ marked invalid instead of being presented as zero.
 
 ## Sampling, memory meaning, and cost
 
-A helper worker samples the core and log every 1.5 seconds. VAS enumeration,
-process accounting, file open/seek/read, UTF-8 repair, line truncation, and log
-allocation therefore never run in a render callback or allocator hot path. The
+The helper worker is demand-driven. While the dashboard is closed it waits on
+a condition variable and performs no core query, VAS request, or log access.
+Opening the dashboard wakes it immediately; while open it samples core
+telemetry every 1.5 seconds. Switching to the Log browser also wakes it and
+enables log refreshes, while switching away stops log access. The closed
+`OnFramePresent` path reduces to readiness/open atomics after the process-
+lifetime WndProc bridge has been installed.
+
+The worker remains outside render callbacks and allocator hot paths. The
 render callback uses `try_read`; if the worker is publishing, the dashboard
-keeps the prior frame rather than waiting.
+keeps the prior frame rather than waiting. Closing the dashboard wakes a timed
+worker wait so it becomes idle promptly instead of completing the remaining
+1.5-second interval repeatedly.
+
+Full VAS enumeration is cached in the core. Every successful engine VAS walk
+publishes one timestamped summary. Dashboard queries reuse a summary for up to
+10 seconds and perform an on-demand walk when the cache expires. The mode-2
+gheap watchdog also publishes its 60-second support sample into the same cache;
+modes 0 and 1 retain identical dashboard coverage through the on-demand path.
+A concurrent refresh returns the prior summary rather than starting another
+walk.
+
+The Runtime Fixes page reads LOD counts from the atomics already published by
+the ledger. It does not acquire or scan the LOD ledger. The complete diagnostic
+report still calculates oldest-pending age by scanning that ledger when the
+report is explicitly requested.
 
 Block-heap telemetry uses `try_lock`. A busy allocator causes a missing block
 sample, visibly labelled in Memory dashboard, instead of adding periodic
 contention to the variable-size allocator. Other allocator values are
 maintained counters or lock-free snapshots.
 
-The log reader limits work to the newest 160 KiB, keeps at most 320 lines, and
+The log reader opens the file only while the Log browser is selected. It keeps
+an offset plus an incomplete-line buffer and parses only newly appended,
+complete lines. Initial load, truncation, rollover, or a gap larger than 160
+KiB resets the view to the newest 160 KiB. The UI keeps at most 320 lines and
 caps an individual line at 8,192 Unicode scalar values. The log view keeps long
 messages on one line and provides a horizontal scrollbar rather than wrapping
-them into hard-to-scan blocks. While the dashboard is open, history storage is
-fixed at 120 `f32` values per chart (about three minutes at the 1.5-second
-sampling cadence). The ImGui context and its resources exist only after the
-dashboard has first been opened; no dashboard draw work occurs while it is
-closed. One `GetAvailableTextureMem` query runs every 60 open frames. That value
-is labelled a **driver texture estimate**, not real VRAM usage: D3D9 drivers
-commonly report a budget-like estimate and texture content may also consume
-system memory and 32-bit VAS.
+them into hard-to-scan blocks.
+
+While the dashboard is open, history storage is fixed at 120 `f32` values per
+chart (about three minutes at the 1.5-second sampling cadence). The ImGui
+context and its resources exist only after the dashboard has first been
+opened; no dashboard draw work occurs while it is closed. One
+`GetAvailableTextureMem` query runs every 60 open frames. That value is labelled
+a **driver texture estimate**, not real VRAM usage: D3D9 drivers commonly report
+a budget-like estimate and texture content may also consume system memory and
+32-bit VAS.
+
+### Periodic-performance regression
+
+The reported runtime symptom was a location-dependent fall from roughly
+100--110 FPS to 60--70 FPS with a periodic frame-pacing pattern. Repository
+code proved that the first dashboard version ran an unconditional 1.5-second
+worker cycle even while closed; each cycle queried process accounting, walked
+the process VAS, locked and scanned the LOD pending-reference ledger, and
+reopened and reparsed the bounded log tail. The fixed contract removes that
+closed-dashboard cycle and bounds each remaining open-dashboard cost as
+described above. It does not disable a page, counter, chart, filter, or
+configuration control.
+
+A deployment-confirmed playtest with the fixed core and helper still reproduced
+the FPS loss. That rejects the dashboard worker as a complete explanation. In
+that run the dashboard worker was idle, but hitch profiling was disabled; the
+log therefore could not attribute bad frames among the existing radio, engine,
+render, watchdog, and scrap-reclamation paths. The opt-in hitch report now
+includes `memWd` and `scrapGc` background spans so the next same-location
+capture can distinguish periodic background correlation from sustained
+main-thread work. This instrumentation does not change dashboard availability
+or normal-play sampling behavior.
 
 Memory health intentionally emphasizes contiguous VAS:
 
@@ -169,10 +218,12 @@ alignment, driver behavior, asset lifetime, and other mappings remain relevant.
   and IO barriers are unchanged.
 - **UAF protection:** sampling does not free, reuse, compact, or accelerate
   reclamation. Zombie readability and safe-reuse timing are unchanged.
-- **Performance:** the only gheap code change is a nonblocking block snapshot
-  over already-maintained counters. The cost is a best-effort lock attempt
-  every 1.5 seconds from the helper worker; contention produces an invalid
-  sample rather than blocking either side.
+- **Performance:** no dashboard work enters allocation/free hot paths. Full VAS
+  walks publish a cold-path cache entry after sampling; the open dashboard
+  reuses that entry and refreshes it no more often than every 10 seconds. Block
+  telemetry remains a best-effort `try_lock` every 1.5 open seconds;
+  contention produces an invalid sample rather than blocking either side. A
+  closed dashboard performs neither operation.
 
 ## Configuration safety
 
@@ -219,6 +270,8 @@ startup.
 Automated coverage includes:
 
 - strict dashboard ABI version/size requests in both DLLs;
+- closed dashboard state producing no sampling request;
+- complete-line incremental log-tail parsing across reads;
 - contiguous-VAS health classification;
 - structured log parsing, compact context extraction, and five-level filtering;
 - config dirty-state tracking;
@@ -250,7 +303,11 @@ claim, playtest at least:
 6. allocator modes 0, 1, and 2, including a texture-heavy traversal that drives
    VAS fragmentation and confirms the dashboard remains responsive;
 7. log rollover/growth, all five severity filters, context toggle, long-line
-   horizontal scrolling, and behavior when the log is missing.
+   horizontal scrolling, and behavior when the log is missing;
+8. at the same reported regression location, compare at least 60 seconds with
+   the dashboard closed, open on Overview, and open on Log browser; confirm the
+   closed frame-time chart no longer has a 1.5-second periodic disturbance and
+   that every page continues updating when selected.
 
 The implementation establishes a bounded and composable design. “Works on any
 modlist” remains an acceptance target, not a proven universal fact, until this

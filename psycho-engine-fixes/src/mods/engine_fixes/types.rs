@@ -136,10 +136,13 @@ pub type StaticGeometryRetireFn = unsafe extern "thiscall" fn(*mut c_void, *mut 
 pub type SpeedTreeCloneConstructorFn =
     unsafe extern "thiscall" fn(*mut c_void, *mut c_void) -> *mut c_void;
 
-/// BSTreeManager find/load owner. The manager is in ECX; the stack arguments
-/// identify an optional existing model and the reference requesting the tree.
-pub type BsTreeFindOrLoadFn =
-    unsafe extern "thiscall" fn(*mut c_void, *mut c_void, *mut c_void) -> *mut c_void;
+/// BSTreeModel clone materializer. The destination model is in ECX and the
+/// parsed source model is the only stack argument.
+pub type BsTreeCloneModelFn = unsafe extern "thiscall" fn(*mut c_void, *mut c_void) -> u8;
+
+/// BSTreeModel file/reload materializer. The destination model is in ECX; the
+/// stack arguments identify the requesting reference and native load mode.
+pub type BsTreeReloadModelFn = unsafe extern "thiscall" fn(*mut c_void, *mut c_void, u32) -> u8;
 
 /// SpeedTreeRT Compute entry. This call owns the process-global generation
 /// scratch state from initialization through final model publication.

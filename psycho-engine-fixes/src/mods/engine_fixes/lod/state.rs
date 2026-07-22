@@ -130,6 +130,13 @@ pub(crate) struct Snapshot {
     pub max_lock_us: u64,
 }
 
+#[derive(Clone, Copy, Default)]
+pub(crate) struct DashboardCounters {
+    pub current_cells: usize,
+    pub current_references: usize,
+    pub stale_retirements_prevented: u64,
+}
+
 pub(super) fn configure_trace(enabled: bool) {
     TRACE_ENABLED.store(enabled, Ordering::Release);
 }
@@ -654,6 +661,14 @@ pub(super) fn snapshot() -> Snapshot {
         peak_references: PEAK_REFERENCES.load(Ordering::Relaxed),
         oldest_pending_ms,
         max_lock_us: MAX_LOCK_US.load(Ordering::Relaxed),
+    }
+}
+
+pub(super) fn dashboard_counters() -> DashboardCounters {
+    DashboardCounters {
+        current_cells: CURRENT_CELLS.load(Ordering::Relaxed),
+        current_references: CURRENT_REFERENCES.load(Ordering::Relaxed),
+        stale_retirements_prevented: STALE_RETIREMENTS_PREVENTED.load(Ordering::Relaxed),
     }
 }
 
