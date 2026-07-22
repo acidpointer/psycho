@@ -682,8 +682,15 @@ void psycho_imgui_telemetry_chart(const char* id, const PsychoImguiTelemetryChar
 
 	const float elapsed_seconds = static_cast<float>(chart->count - 1)
 		* chart->sample_interval_seconds;
+	const bool frame_timeline = chart->sample_interval_seconds <= 0.0f;
 	char elapsed_label[32] = {};
-	if (elapsed_seconds >= 60.0f) {
+	if (frame_timeline) {
+		std::snprintf(
+			elapsed_label,
+			sizeof(elapsed_label),
+			"%d FRAMES AGO",
+			chart->count - 1);
+	} else if (elapsed_seconds >= 60.0f) {
 		std::snprintf(
 			elapsed_label,
 			sizeof(elapsed_label),
@@ -826,6 +833,25 @@ void psycho_imgui_telemetry_chart(const char* id, const PsychoImguiTelemetryChar
 		plot_max.y);
 	draw_list->AddCircleFilled(ImVec2(plot_max.x, last_y), 3.2f, line_color);
 
+	const ImU32 overflow_color = IM_COL32(255, 101, 91, 235);
+	for (int32_t index = 0; index < chart->count; ++index) {
+		const float x = plot_min.x
+			+ (plot_max.x - plot_min.x) * static_cast<float>(index) / denominator;
+		if (chart->values[index] > chart->scale_max) {
+			draw_list->AddTriangleFilled(
+				ImVec2(x, plot_min.y + 1.0f),
+				ImVec2(x - 4.0f, plot_min.y + 8.0f),
+				ImVec2(x + 4.0f, plot_min.y + 8.0f),
+				overflow_color);
+		} else if (chart->values[index] < chart->scale_min) {
+			draw_list->AddTriangleFilled(
+				ImVec2(x, plot_max.y - 1.0f),
+				ImVec2(x - 4.0f, plot_max.y - 8.0f),
+				ImVec2(x + 4.0f, plot_max.y - 8.0f),
+				overflow_color);
+		}
+	}
+
 	if (ImGui::IsItemHovered()) {
 		const float mouse_fraction = clamp_float(
 			(ImGui::GetIO().MousePos.x - plot_min.x) / (plot_max.x - plot_min.x),
@@ -847,9 +873,17 @@ void psycho_imgui_telemetry_chart(const char* id, const PsychoImguiTelemetryChar
 			IM_COL32(185, 229, 207, 95));
 		draw_list->AddCircleFilled(ImVec2(x, y), 4.0f, line_color);
 		ImGui::BeginTooltip();
-		const float seconds_ago = static_cast<float>(chart->count - 1 - index)
+		const int32_t frames_ago = chart->count - 1 - index;
+		const float seconds_ago = static_cast<float>(frames_ago)
 			* chart->sample_interval_seconds;
-		if (seconds_ago >= 0.5f) {
+		if (frame_timeline && frames_ago > 0) {
+			ImGui::Text(
+				"%d frame%s ago  %.1f%s",
+				frames_ago,
+				frames_ago == 1 ? "" : "s",
+				chart->values[index],
+				chart->value_suffix != nullptr ? chart->value_suffix : "");
+		} else if (!frame_timeline && seconds_ago >= 0.5f) {
 			ImGui::Text(
 				"%.0f sec ago  %.1f%s",
 				seconds_ago,

@@ -2289,7 +2289,11 @@ impl BackbufferCopy {
 }
 
 const FRAME_PACING_HISTORY: usize = 180;
-const FRAME_PACING_MAX_MS: f32 = 100.0;
+const FRAME_PACING_LIVE_SAMPLE_MAX_MS: f32 = 100.0;
+const FRAME_PACING_CHART_MIN_MS: f32 = 1_000.0 / 24.0;
+const FRAME_PACING_CHART_MAX_MS: f32 = 100.0;
+const FRAME_BUDGET_60_MS: f32 = 1_000.0 / 60.0;
+const FRAME_BUDGET_30_MS: f32 = 1_000.0 / 30.0;
 
 #[derive(Clone)]
 struct FramePacing {
@@ -2319,45 +2323,121 @@ impl FramePacing {
             let frame_ms = now
                 .duration_since(last_present)
                 .as_secs_f32()
-                .mul_add(1000.0, 0.0)
-                .clamp(0.0, FRAME_PACING_MAX_MS);
-            self.samples[self.next_index] = frame_ms;
-            self.next_index = (self.next_index + 1) % FRAME_PACING_HISTORY;
-            self.count = (self.count + 1).min(FRAME_PACING_HISTORY);
-            self.smoothed_ms = if self.smoothed_ms <= f32::EPSILON {
-                frame_ms
-            } else {
-                self.smoothed_ms * 0.92 + frame_ms * 0.08
-            };
+                .mul_add(1000.0, 0.0);
+            self.record_sample(frame_ms);
         }
         self.last_present = Some(now);
     }
 
-    fn snapshot(&self) -> FramePacingSnapshot {
-        let mut samples = Vec::with_capacity(self.count);
-        if self.count == FRAME_PACING_HISTORY {
-            samples.extend_from_slice(&self.samples[self.next_index..]);
-            samples.extend_from_slice(&self.samples[..self.next_index]);
-        } else {
-            samples.extend_from_slice(&self.samples[..self.count]);
+    fn record_sample(&mut self, frame_ms: f32) {
+        if !frame_ms.is_finite() || frame_ms < 0.0 {
+            return;
         }
 
-        let last_ms = samples.last().copied().unwrap_or(0.0);
-        let fps = if self.smoothed_ms > 0.001 {
-            1000.0 / self.smoothed_ms
+        self.samples[self.next_index] = frame_ms;
+        self.next_index = (self.next_index + 1) % FRAME_PACING_HISTORY;
+        self.count = (self.count + 1).min(FRAME_PACING_HISTORY);
+
+        // Preserve the full sample in history, but bound a suspended process or
+        // loading pause so the responsive live-FPS readout recovers promptly.
+        let live_sample = frame_ms.min(FRAME_PACING_LIVE_SAMPLE_MAX_MS);
+        self.smoothed_ms = if self.smoothed_ms <= f32::EPSILON {
+            live_sample
+        } else {
+            self.smoothed_ms * 0.92 + live_sample * 0.08
+        };
+    }
+
+    fn snapshot(&self) -> FramePacingSnapshot {
+        let mut samples = [0.0; FRAME_PACING_HISTORY];
+        if self.count == FRAME_PACING_HISTORY {
+            let tail_count = FRAME_PACING_HISTORY - self.next_index;
+            samples[..tail_count].copy_from_slice(&self.samples[self.next_index..]);
+            samples[tail_count..].copy_from_slice(&self.samples[..self.next_index]);
+        } else {
+            samples[..self.count].copy_from_slice(&self.samples[..self.count]);
+        }
+
+        let active_samples = &samples[..self.count];
+        let last_ms = active_samples.last().copied().unwrap_or(0.0);
+        let average_ms = if self.count == 0 {
+            0.0
+        } else {
+            (active_samples
+                .iter()
+                .map(|sample| f64::from(*sample))
+                .sum::<f64>()
+                / self.count as f64) as f32
+        };
+        let history_seconds = active_samples
+            .iter()
+            .map(|sample| f64::from(*sample) * 0.001)
+            .sum::<f64>() as f32;
+
+        let mut sorted_samples = samples;
+        sorted_samples[..self.count].sort_by(f32::total_cmp);
+        let p50_ms = nearest_rank(&sorted_samples[..self.count], 0.50);
+        let p95_ms = nearest_rank(&sorted_samples[..self.count], 0.95);
+        let p99_ms = nearest_rank(&sorted_samples[..self.count], 0.99);
+        let worst_ms = sorted_samples
+            .get(self.count.saturating_sub(1))
+            .copied()
+            .filter(|_| self.count > 0)
+            .unwrap_or(0.0);
+
+        let jitter_ms = if self.count > 1 {
+            let squared_delta_sum = active_samples
+                .windows(2)
+                .map(|pair| {
+                    let delta = f64::from(pair[1]) - f64::from(pair[0]);
+                    delta * delta
+                })
+                .sum::<f64>();
+            (squared_delta_sum / (self.count - 1) as f64).sqrt() as f32
         } else {
             0.0
         };
-        let scale_max = samples
+        let budget_60_hits = active_samples
             .iter()
-            .copied()
-            .fold(33.3_f32, f32::max)
-            .clamp(16.7, FRAME_PACING_MAX_MS);
+            .filter(|sample| **sample <= FRAME_BUDGET_60_MS)
+            .count();
+        let budget_30_hits = active_samples
+            .iter()
+            .filter(|sample| **sample <= FRAME_BUDGET_30_MS)
+            .count();
+        let budget_percent = |hits: usize| {
+            if self.count == 0 {
+                0.0
+            } else {
+                hits as f32 * 100.0 / self.count as f32
+            }
+        };
+        let scale_max = (p99_ms * 1.25)
+            .max(FRAME_PACING_CHART_MIN_MS)
+            .min(FRAME_PACING_CHART_MAX_MS);
+        let off_scale_samples = active_samples
+            .iter()
+            .filter(|sample| **sample > scale_max)
+            .count();
 
         FramePacingSnapshot {
-            fps,
+            fps: fps_from_ms(self.smoothed_ms),
+            live_ms: self.smoothed_ms,
             last_ms,
+            average_ms,
+            average_fps: fps_from_ms(average_ms),
+            one_percent_low_fps: fps_from_ms(p99_ms),
+            p50_ms,
+            p95_ms,
+            p99_ms,
+            worst_ms,
+            jitter_ms,
+            history_seconds,
+            budget_60_hit_percent: budget_percent(budget_60_hits),
+            budget_30_hit_percent: budget_percent(budget_30_hits),
             scale_max,
+            off_scale_samples,
+            count: self.count,
             samples,
         }
     }
@@ -2371,11 +2451,140 @@ impl FramePacing {
     }
 }
 
+fn nearest_rank(sorted_samples: &[f32], percentile: f32) -> f32 {
+    if sorted_samples.is_empty() {
+        return 0.0;
+    }
+    let rank = (percentile.clamp(0.0, 1.0) * sorted_samples.len() as f32)
+        .ceil()
+        .max(1.0) as usize;
+    sorted_samples[rank - 1]
+}
+
+fn fps_from_ms(frame_ms: f32) -> f32 {
+    if frame_ms > 0.001 {
+        1_000.0 / frame_ms
+    } else {
+        0.0
+    }
+}
+
 struct FramePacingSnapshot {
     fps: f32,
+    live_ms: f32,
     last_ms: f32,
+    average_ms: f32,
+    average_fps: f32,
+    one_percent_low_fps: f32,
+    p50_ms: f32,
+    p95_ms: f32,
+    p99_ms: f32,
+    worst_ms: f32,
+    jitter_ms: f32,
+    history_seconds: f32,
+    budget_60_hit_percent: f32,
+    budget_30_hit_percent: f32,
     scale_max: f32,
-    samples: Vec<f32>,
+    off_scale_samples: usize,
+    count: usize,
+    samples: [f32; FRAME_PACING_HISTORY],
+}
+
+impl FramePacingSnapshot {
+    fn samples(&self) -> &[f32] {
+        &self.samples[..self.count]
+    }
+}
+
+#[cfg(test)]
+mod frame_pacing_tests {
+    use super::{FRAME_BUDGET_30_MS, FRAME_BUDGET_60_MS, FRAME_PACING_HISTORY, FramePacing};
+
+    fn assert_close(actual: f32, expected: f32) {
+        assert!(
+            (actual - expected).abs() < 0.001,
+            "expected {expected}, got {actual}"
+        );
+    }
+
+    #[test]
+    fn snapshot_reports_developer_facing_distribution_and_budget_metrics() {
+        let mut pacing = FramePacing::default();
+        for frame_ms in 1..=100 {
+            pacing.record_sample(frame_ms as f32);
+        }
+
+        let snapshot = pacing.snapshot();
+        assert_eq!(
+            snapshot.samples(),
+            &(1..=100).map(|value| value as f32).collect::<Vec<_>>()
+        );
+        assert_close(snapshot.average_ms, 50.5);
+        assert_close(snapshot.p50_ms, 50.0);
+        assert_close(snapshot.p95_ms, 95.0);
+        assert_close(snapshot.p99_ms, 99.0);
+        assert_close(snapshot.worst_ms, 100.0);
+        assert_close(snapshot.jitter_ms, 1.0);
+        assert_close(snapshot.average_fps, 1000.0 / 50.5);
+        assert_close(snapshot.one_percent_low_fps, 1000.0 / 99.0);
+        assert_close(snapshot.budget_60_hit_percent, 16.0);
+        assert_close(snapshot.budget_30_hit_percent, 33.0);
+        assert!(snapshot.scale_max >= FRAME_BUDGET_30_MS);
+        assert_eq!(snapshot.off_scale_samples, 0);
+    }
+
+    #[test]
+    fn adaptive_scale_preserves_normal_detail_and_exposes_an_isolated_hitch() {
+        let mut pacing = FramePacing::default();
+        for _ in 0..(FRAME_PACING_HISTORY - 1) {
+            pacing.record_sample(10.0);
+        }
+        pacing.record_sample(250.0);
+
+        let snapshot = pacing.snapshot();
+        assert_close(snapshot.p50_ms, 10.0);
+        assert_close(snapshot.p99_ms, 10.0);
+        assert_close(snapshot.worst_ms, 250.0);
+        assert!(snapshot.scale_max > FRAME_BUDGET_30_MS);
+        assert!(snapshot.scale_max < snapshot.worst_ms);
+        assert_eq!(snapshot.off_scale_samples, 1);
+        assert!(snapshot.jitter_ms > 17.0);
+        assert!(snapshot.budget_60_hit_percent > 99.0);
+        assert!(snapshot.budget_30_hit_percent > 99.0);
+    }
+
+    #[test]
+    fn ring_snapshot_is_chronological_and_fixed_to_the_latest_frames() {
+        let mut pacing = FramePacing::default();
+        for frame_ms in 1..=(FRAME_PACING_HISTORY + 2) {
+            pacing.record_sample(frame_ms as f32);
+        }
+
+        let snapshot = pacing.snapshot();
+        assert_eq!(snapshot.samples().len(), FRAME_PACING_HISTORY);
+        assert_close(snapshot.samples()[0], 3.0);
+        assert_close(
+            *snapshot.samples().last().expect("latest frame"),
+            (FRAME_PACING_HISTORY + 2) as f32,
+        );
+    }
+
+    #[test]
+    fn invalid_samples_cannot_poison_the_timeline() {
+        let mut pacing = FramePacing::default();
+        pacing.record_sample(f32::NAN);
+        pacing.record_sample(f32::INFINITY);
+        pacing.record_sample(-1.0);
+        pacing.record_sample(10.0);
+
+        let snapshot = pacing.snapshot();
+        assert_eq!(snapshot.samples(), &[10.0]);
+        assert!(snapshot.fps.is_finite());
+        assert!(snapshot.live_ms.is_finite());
+        assert!(snapshot.average_ms.is_finite());
+        assert!(snapshot.jitter_ms.is_finite());
+        assert!(FRAME_BUDGET_60_MS < FRAME_BUDGET_30_MS);
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -2640,22 +2849,124 @@ fn draw_shader_menu_header(
 }
 
 fn draw_frame_pacing_panel(ui: &mut psycho_imgui::Ui<'_>, frame_pacing: &FramePacingSnapshot) {
-    let summary = cstring(format!(
-        "FPS {:>5.1} | {:>5.2} ms",
-        frame_pacing.fps, frame_pacing.last_ms
+    let heading = cstring(format!(
+        "FRAME PACING // {} FRAMES // {:.2} S WINDOW",
+        frame_pacing.samples().len(),
+        frame_pacing.history_seconds
     ));
-    ui.text_colored(MENU_GOOD_TEXT, &summary);
+    ui.text_colored(MENU_ACCENT_TEXT, &heading);
 
-    if frame_pacing.samples.len() > 1 {
+    let live = cstring(format!("LIVE {:>5.1} FPS (EMA)", frame_pacing.fps));
+    ui.text_colored(frame_time_color(frame_pacing.live_ms), &live);
+    ui.same_line();
+    let last = cstring(format!("LAST {:>6.2} ms", frame_pacing.last_ms));
+    ui.text_colored(frame_time_color(frame_pacing.last_ms), &last);
+    ui.same_line();
+    let average = cstring(format!(
+        "AVG {:>5.1} FPS / {:>5.2} ms",
+        frame_pacing.average_fps, frame_pacing.average_ms
+    ));
+    ui.text_colored(MENU_MUTED_TEXT, &average);
+    ui.same_line();
+    let one_percent_low = cstring(format!(
+        "1% LOW {:>5.1} FPS",
+        frame_pacing.one_percent_low_fps
+    ));
+    ui.text_colored(frame_time_color(frame_pacing.p99_ms), &one_percent_low);
+
+    let distribution = cstring(format!(
+        "P50 {:>5.2} | P95 {:>5.2} | P99 {:>5.2} | WORST {:>6.2} | JITTER {:>5.2} ms RMS delta",
+        frame_pacing.p50_ms,
+        frame_pacing.p95_ms,
+        frame_pacing.p99_ms,
+        frame_pacing.worst_ms,
+        frame_pacing.jitter_ms
+    ));
+    ui.text_colored(MENU_MUTED_TEXT, &distribution);
+
+    ui.text_colored(MENU_MUTED_TEXT, &cstring("BUDGET HIT //"));
+    ui.same_line();
+    let budget_60 = cstring(format!(
+        "60 FPS {:>5.1}%",
+        frame_pacing.budget_60_hit_percent
+    ));
+    ui.text_colored(
+        budget_hit_color(frame_pacing.budget_60_hit_percent),
+        &budget_60,
+    );
+    ui.same_line();
+    ui.text_colored(MENU_MUTED_TEXT, &cstring("|"));
+    ui.same_line();
+    let budget_30 = cstring(format!(
+        "30 FPS {:>5.1}%",
+        frame_pacing.budget_30_hit_percent
+    ));
+    ui.text_colored(
+        budget_hit_color(frame_pacing.budget_30_hit_percent),
+        &budget_30,
+    );
+    ui.same_line();
+    let graph_scale = cstring(format!("| GRAPH 0-{:.1} ms", frame_pacing.scale_max));
+    ui.text_colored(MENU_MUTED_TEXT, &graph_scale);
+    if frame_pacing.off_scale_samples > 0 {
+        ui.same_line();
+        let off_scale = cstring(format!(
+            "| {} OFF-SCALE SPIKE{}",
+            frame_pacing.off_scale_samples,
+            if frame_pacing.off_scale_samples == 1 {
+                ""
+            } else {
+                "S"
+            }
+        ));
+        ui.text_colored(MENU_ERROR_TEXT, &off_scale);
+    }
+
+    if frame_pacing.samples().len() > 1 {
         let label = cstring("##frame_pacing");
-        ui.plot_lines(
-            &label,
-            &frame_pacing.samples,
-            0.0,
-            frame_pacing.scale_max,
-            300.0,
-            42.0,
-        );
+        let warning_label = cstring("60 FPS // 16.7 ms");
+        let critical_label = cstring("30 FPS // 33.3 ms");
+        let suffix = cstring(" ms");
+        let chart = psycho_imgui::TelemetryChart {
+            values: frame_pacing.samples(),
+            scale_min: 0.0,
+            scale_max: frame_pacing.scale_max,
+            width: 0.0,
+            height: 104.0,
+            warning_threshold: FRAME_BUDGET_60_MS,
+            critical_threshold: FRAME_BUDGET_30_MS,
+            danger_below: false,
+            sample_interval_seconds: 0.0,
+            line_color: MENU_ACCENT_TEXT,
+            fill_color: [0.20, 0.66, 0.78, 0.16],
+            warning_label: &warning_label,
+            critical_label: &critical_label,
+            value_suffix: &suffix,
+        };
+        ui.telemetry_chart(&label, &chart);
+    } else {
+        let collecting = cstring("Collecting frame history...");
+        ui.text_colored(MENU_MUTED_TEXT, &collecting);
+    }
+}
+
+fn frame_time_color(frame_ms: f32) -> [f32; 4] {
+    if frame_ms > FRAME_BUDGET_30_MS {
+        MENU_ERROR_TEXT
+    } else if frame_ms > FRAME_BUDGET_60_MS {
+        MENU_WARN_TEXT
+    } else {
+        MENU_GOOD_TEXT
+    }
+}
+
+fn budget_hit_color(hit_percent: f32) -> [f32; 4] {
+    if hit_percent >= 99.0 {
+        MENU_GOOD_TEXT
+    } else if hit_percent >= 90.0 {
+        MENU_WARN_TEXT
+    } else {
+        MENU_ERROR_TEXT
     }
 }
 

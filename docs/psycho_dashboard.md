@@ -101,8 +101,8 @@ Evidence:
 
 ## Core/helper diagnostics ABI
 
-`PsychoEngineFixes_QueryDashboard` is export ordinal 5. ABI version 1 is a
-472-byte `repr(C)` caller-owned structure made only of fixed-width integers.
+`PsychoEngineFixes_QueryDashboard` is export ordinal 5. ABI version 2 is a
+536-byte `repr(C)` caller-owned structure made only of fixed-width integers.
 Both DLLs have a compile-time size assertion. The request begins with
 `struct_size` and `abi_version`; the core reads only that mandatory prefix,
 rejects an undersized or mismatched request, fills a local snapshot, and then
@@ -111,7 +111,8 @@ reference, or ownership crosses the DLL boundary.
 
 The snapshot groups are:
 
-- readiness, pre-CRT, VAS-valid, and block-sample-valid flags;
+- readiness, pre-CRT, process-sample-valid, VAS-valid, and
+  block-sample-valid flags;
 - allocator mode and active engine-fix families;
 - RSS, process commit, peak values, and page faults;
 - total free/committed/reserved VAS, largest free opening, and free-region count;
@@ -120,7 +121,14 @@ The snapshot groups are:
 - save-integrity and queued-task lifetime counters;
 - native IO and LOD streaming counters;
 - eight SpeedTree materialization/Compute activity, contention, waiter, and
-  maximum-wait counters, published in the version-1 growth tail.
+  maximum-wait counters;
+- process/VAS sample timestamps plus fast-query and explicit-VAS-refresh
+  counts and last/maximum durations.
+
+`PsychoEngineFixes_RequestDashboardRefresh` is export ordinal 6. It accepts a
+fixed refresh kind and runs on the helper's sampling worker. Version 2 requires
+both exports, preventing a new helper from silently applying old periodic
+sampling behavior to an older core.
 
 All engine counters are cumulative and read-only. Dashboard sampling does not
 drain the hitch profiler's interval counters. Missing optional samples are
@@ -143,12 +151,18 @@ worker wait so it becomes idle promptly instead of completing the remaining
 1.5-second interval repeatedly.
 
 Full VAS enumeration is cached in the core. Every successful engine VAS walk
-publishes one timestamped summary. Dashboard queries reuse a summary for up to
-10 seconds and perform an on-demand walk when the cache expires. The mode-2
-gheap watchdog also publishes its 60-second support sample into the same cache;
-modes 0 and 1 retain identical dashboard coverage through the on-demand path.
-A concurrent refresh returns the prior summary rather than starting another
-walk.
+publishes one timestamped summary. The normal 1.5-second dashboard query only
+uses `try_read` on that cache: it never starts a `VirtualQuery` walk and never
+waits behind one. The mode-2 watchdog publishes its existing 60-second support
+sample. The Overview and Memory pages expose an explicit **Refresh VAS map**
+action; ordinal 6 performs that walk on the sampling worker and the UI keeps
+the previous value, visibly aged, until the refresh completes.
+
+In mode 2, process RSS/commit/fault values come from the watchdog's existing
+five-second process-accounting result through an atomic publication sequence.
+The dashboard does not make a duplicate process query. Modes 0 and 1 retain
+their existing process sampling until their allocator telemetry is audited
+separately; this change does not alter scrap-heap or mimalloc behavior.
 
 The Runtime Fixes page reads LOD counts from the atomics already published by
 the ledger. It does not acquire or scan the LOD ledger. The complete diagnostic
@@ -171,11 +185,12 @@ them into hard-to-scan blocks.
 While the dashboard is open, history storage is fixed at 120 `f32` values per
 chart (about three minutes at the 1.5-second sampling cadence). The ImGui
 context and its resources exist only after the dashboard has first been
-opened; no dashboard draw work occurs while it is closed. One
-`GetAvailableTextureMem` query runs every 60 open frames. That value is labelled
-a **driver texture estimate**, not real VRAM usage: D3D9 drivers commonly report
-a budget-like estimate and texture content may also consume system memory and
-32-bit VAS.
+opened; no dashboard draw work occurs while it is closed.
+`GetAvailableTextureMem` runs only when Overview opens on a device, after a
+successful device reset/change, or when the user presses **Refresh driver
+estimate**. It has no frame-count interval and never runs on another page. The
+value is labelled a **driver texture estimate**, timestamped, and accompanied
+by last/maximum query duration; it is not presented as real VRAM usage.
 
 ### Periodic-performance regression
 
@@ -193,11 +208,12 @@ A deployment-confirmed playtest with the fixed core and helper still reproduced
 the FPS loss. That rejects the dashboard worker as a complete explanation. In
 that run the dashboard worker was idle, but hitch profiling was disabled; the
 log therefore could not attribute bad frames among the existing radio, engine,
-render, watchdog, and scrap-reclamation paths. The opt-in hitch report now
-includes `memWd` and `scrapGc` background spans so the next same-location
-capture can distinguish periodic background correlation from sustained
-main-thread work. This instrumentation does not change dashboard availability
-or normal-play sampling behavior.
+render, watchdog, and reclamation paths. The current fix additionally parks the
+logger while idle, removes automatic VAS and driver-estimate queries, reuses the
+watchdog process sample in mode 2, and makes block diagnostics `try_lock`-only.
+The Runtime page publishes the cost of the remaining fast snapshot and
+requested expensive operations. Runtime playtesting is still required; source
+and automated checks cannot prove the final frame-time chart.
 
 Memory health intentionally emphasizes contiguous VAS:
 
@@ -220,8 +236,8 @@ alignment, driver behavior, asset lifetime, and other mappings remain relevant.
   reclamation. Zombie readability and safe-reuse timing are unchanged.
 - **Performance:** no dashboard work enters allocation/free hot paths. Full VAS
   walks publish a cold-path cache entry after sampling; the open dashboard
-  reuses that entry and refreshes it no more often than every 10 seconds. Block
-  telemetry remains a best-effort `try_lock` every 1.5 open seconds;
+  reads it without waiting and refreshes it only after an explicit request.
+  Block telemetry remains a best-effort `try_lock` every 1.5 open seconds;
   contention produces an invalid sample rather than blocking either side. A
   closed dashboard performs neither operation.
 
@@ -271,6 +287,9 @@ Automated coverage includes:
 
 - strict dashboard ABI version/size requests in both DLLs;
 - closed dashboard state producing no sampling request;
+- VAS refresh represented as a one-shot sampling request;
+- driver estimate sampling requiring both Overview and an explicit pending
+  request, with no frame-counter path;
 - complete-line incremental log-tail parsing across reads;
 - contiguous-VAS health classification;
 - structured log parsing, compact context extraction, and five-level filtering;
@@ -306,8 +325,10 @@ claim, playtest at least:
    horizontal scrolling, and behavior when the log is missing;
 8. at the same reported regression location, compare at least 60 seconds with
    the dashboard closed, open on Overview, and open on Log browser; confirm the
-   closed frame-time chart no longer has a 1.5-second periodic disturbance and
-   that every page continues updating when selected.
+   frame-time chart has no cadence tied to 60 frames, 1.5 seconds, 5 seconds,
+   10.5 seconds, or 60 seconds, and that every page continues updating when
+   selected; record the Dashboard overhead values before and after manual VAS
+   and driver refreshes.
 
 The implementation establishes a bounded and composable design. “Works on any
 modlist” remains an acceptance target, not a proven universal fact, until this

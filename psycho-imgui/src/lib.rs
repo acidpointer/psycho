@@ -112,6 +112,8 @@ pub struct TelemetryChart<'a> {
     pub warning_threshold: f32,
     pub critical_threshold: f32,
     pub danger_below: bool,
+    /// Seconds represented by one sample. Values at or below zero select a
+    /// frame-index axis and frame-relative hover labels.
     pub sample_interval_seconds: f32,
     pub line_color: [f32; 4],
     pub fill_color: [f32; 4],

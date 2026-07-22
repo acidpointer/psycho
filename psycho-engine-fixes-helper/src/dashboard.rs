@@ -10,7 +10,7 @@ use std::{
         atomic::{AtomicBool, Ordering},
     },
     thread,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use libpsycho::{common::helpers::format_bytes, os::windows::directx9::Device9Ref};
@@ -100,12 +100,14 @@ struct SharedData {
 struct SamplingState {
     active: bool,
     logs: bool,
+    refresh_vas: bool,
     generation: u64,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct SamplingRequest {
     logs: bool,
+    refresh_vas: bool,
     generation: u64,
 }
 
@@ -113,6 +115,7 @@ impl SamplingState {
     fn request(self) -> Option<SamplingRequest> {
         self.active.then_some(SamplingRequest {
             logs: self.logs,
+            refresh_vas: self.refresh_vas,
             generation: self.generation,
         })
     }
@@ -133,6 +136,19 @@ impl SamplingControl {
         }
         state.active = active;
         state.logs = logs;
+        if !active {
+            state.refresh_vas = false;
+        }
+        state.generation = state.generation.wrapping_add(1);
+        self.changed.notify_one();
+    }
+
+    fn request_vas_refresh(&self) {
+        let mut state = self.state.lock();
+        if !state.active {
+            return;
+        }
+        state.refresh_vas = true;
         state.generation = state.generation.wrapping_add(1);
         self.changed.notify_one();
     }
@@ -147,8 +163,11 @@ impl SamplingControl {
         }
     }
 
-    fn wait_for_next(&self, request: SamplingRequest) {
+    fn complete_and_wait(&self, request: SamplingRequest) {
         let mut state = self.state.lock();
+        if state.generation == request.generation {
+            state.refresh_vas = false;
+        }
         if state.active && state.generation == request.generation {
             self.changed.wait_for(&mut state, SAMPLE_INTERVAL);
         }
@@ -253,7 +272,10 @@ struct DashboardRuntime {
     hole_history: History,
     last_core_sample_ms: u64,
     texture_memory_estimate: u64,
-    texture_sample_frame: u32,
+    texture_sample_time_ms: u32,
+    texture_query_last_us: u64,
+    texture_query_max_us: u64,
+    texture_refresh_requested: bool,
     log_filters: LogFilters,
     log_show_context: bool,
     log_auto_follow: bool,
@@ -275,7 +297,10 @@ impl DashboardRuntime {
             hole_history: History::default(),
             last_core_sample_ms: 0,
             texture_memory_estimate: 0,
-            texture_sample_frame: 0,
+            texture_sample_time_ms: 0,
+            texture_query_last_us: 0,
+            texture_query_max_us: 0,
+            texture_refresh_requested: false,
             log_filters: LogFilters::default(),
             log_show_context: false,
             log_auto_follow: true,
@@ -289,6 +314,9 @@ impl DashboardRuntime {
             return;
         }
         self.open = open;
+        if open && self.page == Page::Overview {
+            self.texture_refresh_requested = true;
+        }
         OPEN.store(open, Ordering::Release);
         input::set_blocked(open);
         self.publish_sampling_state();
@@ -297,6 +325,12 @@ impl DashboardRuntime {
     fn publish_sampling_state(&self) {
         if let Some(control) = SAMPLING.get() {
             control.set(self.open, self.page == Page::Logs);
+        }
+    }
+
+    fn request_vas_refresh(&self) {
+        if let Some(control) = SAMPLING.get() {
+            control.request_vas_refresh();
         }
     }
 
@@ -317,6 +351,9 @@ impl DashboardRuntime {
             self.imgui_device = device_ptr as usize;
             self.imgui_hwnd = hwnd as usize;
             self.needs_device_objects = false;
+            if self.page == Page::Overview {
+                self.texture_refresh_requested = true;
+            }
         }
         if self.imgui.is_none() {
             if let Err(error) = hooks::ensure_reset_hook(device_ptr) {
@@ -345,9 +382,12 @@ impl DashboardRuntime {
             self.needs_device_objects = false;
         }
 
-        self.texture_sample_frame = self.texture_sample_frame.wrapping_add(1);
-        if self.texture_sample_frame == 1 || self.texture_sample_frame.is_multiple_of(60) {
+        if take_driver_refresh(self.page, &mut self.texture_refresh_requested) {
+            let started = Instant::now();
             self.texture_memory_estimate = u64::from(device.available_texture_mem());
+            self.texture_sample_time_ms = libpsycho::os::windows::winapi::get_tick_count();
+            self.texture_query_last_us = started.elapsed().as_micros() as u64;
+            self.texture_query_max_us = self.texture_query_max_us.max(self.texture_query_last_us);
         }
 
         let Some(mut imgui) = self.imgui.take() else {
@@ -368,8 +408,10 @@ impl DashboardRuntime {
             return;
         }
         self.last_core_sample_ms = core.sample_time_ms;
-        self.commit_history
-            .push(core.process_commit_bytes as f32 / (1024.0 * 1024.0));
+        if core.flags & engine_fixes::DASHBOARD_FLAG_PROCESS_SAMPLE_VALID != 0 {
+            self.commit_history
+                .push(core.process_commit_bytes as f32 / (1024.0 * 1024.0));
+        }
         if core.flags & engine_fixes::DASHBOARD_FLAG_VAS_VALID != 0 {
             self.hole_history
                 .push(core.vas_largest_hole_bytes as f32 / (1024.0 * 1024.0));
@@ -466,6 +508,9 @@ impl DashboardRuntime {
             }
         }
         if self.page != previous_page {
+            if self.page == Page::Overview {
+                self.texture_refresh_requested = true;
+            }
             self.publish_sampling_state();
         }
         ui.spacing();
@@ -542,12 +587,16 @@ impl DashboardRuntime {
             health.color(),
         );
         draw_value(ui, "Current RSS", bytes(core.process_rss_bytes), BLUE);
-        draw_value(
-            ui,
-            "Driver texture estimate",
-            bytes(self.texture_memory_estimate),
-            WARN,
-        );
+        let texture_estimate = if self.texture_sample_time_ms == 0 {
+            "Not sampled".to_owned()
+        } else {
+            format!(
+                "{} ({}s old)",
+                bytes(self.texture_memory_estimate),
+                sample_age_seconds(u64::from(self.texture_sample_time_ms)),
+            )
+        };
+        draw_value(ui, "Driver texture estimate", texture_estimate, WARN);
         draw_value(
             ui,
             "Early startup boundary",
@@ -562,6 +611,14 @@ impl DashboardRuntime {
                 ERROR
             },
         );
+
+        if ui.button(&cstring("Refresh driver estimate")) {
+            self.texture_refresh_requested = true;
+        }
+        ui.same_line();
+        if ui.button(&cstring("Refresh VAS map")) {
+            self.request_vas_refresh();
+        }
 
         ui.spacing();
         let explanation = match health {
@@ -581,7 +638,7 @@ impl DashboardRuntime {
         notice_card(ui, "overview_memory_note", explanation, health.color());
     }
 
-    fn draw_memory(&self, ui: &mut Ui<'_>, core: Option<engine_fixes::DashboardSnapshot>) {
+    fn draw_memory(&mut self, ui: &mut Ui<'_>, core: Option<engine_fixes::DashboardSnapshot>) {
         page_heading(
             ui,
             "Memory dashboard",
@@ -621,6 +678,19 @@ impl DashboardRuntime {
             MUTED,
         );
         draw_value(ui, "Free-region count", core.vas_holes, MUTED);
+        draw_value(
+            ui,
+            "VAS sample age",
+            if core.flags & engine_fixes::DASHBOARD_FLAG_VAS_VALID != 0 {
+                format!("{}s", sample_age_seconds(core.vas_sample_time_ms))
+            } else {
+                "Unavailable".to_owned()
+            },
+            MUTED,
+        );
+        if ui.button(&cstring("Refresh VAS map")) {
+            self.request_vas_refresh();
+        }
         ui.text_colored(MUTED, &cstring("Largest opening predicts big texture/model allocation viability better than total free bytes."));
 
         ui.spacing();
@@ -935,6 +1005,38 @@ impl DashboardRuntime {
             core.lod_stale_retirements_prevented,
             GOOD,
         );
+
+        ui.spacing();
+        ui.separator_text(&cstring("Dashboard overhead"));
+        draw_value(
+            ui,
+            "Fast snapshots",
+            format!(
+                "{} calls, {} us last / {} us max",
+                core.dashboard_queries, core.dashboard_query_last_us, core.dashboard_query_max_us,
+            ),
+            GOOD,
+        );
+        draw_value(
+            ui,
+            "VAS refreshes",
+            format!(
+                "{} calls, {} us last / {} us max",
+                core.dashboard_vas_refreshes,
+                core.dashboard_vas_refresh_last_us,
+                core.dashboard_vas_refresh_max_us,
+            ),
+            WARN,
+        );
+        draw_value(
+            ui,
+            "Driver estimate queries",
+            format!(
+                "{} us last / {} us max",
+                self.texture_query_last_us, self.texture_query_max_us,
+            ),
+            WARN,
+        );
     }
 
     fn draw_logs(&mut self, ui: &mut Ui<'_>, shared: Option<&SharedData>) {
@@ -1199,6 +1301,9 @@ pub(crate) fn after_device_reset(device: *mut c_void, succeeded: bool) {
         };
         if runtime.imgui_device == device as usize {
             runtime.needs_device_objects = true;
+            if runtime.page == Page::Overview {
+                runtime.texture_refresh_requested = true;
+            }
         }
     });
 }
@@ -1261,6 +1366,9 @@ fn sampling_worker(shared: Arc<RwLock<SharedData>>, control: Arc<SamplingControl
     let mut log_reader = LogTailReader::default();
     loop {
         let request = control.wait_for_request();
+        if request.refresh_vas {
+            let _ = engine_fixes::request_dashboard_refresh(engine_fixes::DASHBOARD_REFRESH_VAS);
+        }
         let core = engine_fixes::query_dashboard();
         let logs = request.logs.then(|| log_reader.refresh());
         {
@@ -1297,7 +1405,7 @@ fn sampling_worker(shared: Arc<RwLock<SharedData>>, control: Arc<SamplingControl
                 }
             }
         }
-        control.wait_for_next(request);
+        control.complete_and_wait(request);
     }
 }
 
@@ -1829,6 +1937,22 @@ fn bytes(value: u64) -> String {
     format_bytes(value.min(usize::MAX as u64) as usize)
 }
 
+fn sample_age_seconds(sample_time_ms: u64) -> u64 {
+    if sample_time_ms == 0 {
+        return 0;
+    }
+    u64::from(libpsycho::os::windows::winapi::get_tick_count().wrapping_sub(sample_time_ms as u32))
+        / 1_000
+}
+
+fn take_driver_refresh(page: Page, requested: &mut bool) -> bool {
+    if page != Page::Overview || !*requested {
+        return false;
+    }
+    *requested = false;
+    true
+}
+
 fn compact_count(value: u64) -> String {
     if value >= 1_000_000 {
         format!("{:.1}M", value as f64 / 1_000_000.0)
@@ -1896,7 +2020,10 @@ fn cstring(text: impl AsRef<str>) -> CString {
 
 #[cfg(test)]
 mod tests {
-    use super::{LogFilters, LogLevel, LogTailReader, MemoryHealth, SamplingState, parse_log_line};
+    use super::{
+        LogFilters, LogLevel, LogTailReader, MemoryHealth, Page, SamplingState, parse_log_line,
+        take_driver_refresh,
+    };
     use crate::engine_fixes::{DASHBOARD_FLAG_VAS_VALID, DashboardSnapshot};
 
     #[test]
@@ -1959,6 +2086,7 @@ mod tests {
         let telemetry = SamplingState {
             active: true,
             logs: false,
+            refresh_vas: false,
             generation: 1,
         }
         .request()
@@ -1968,11 +2096,32 @@ mod tests {
         let logs = SamplingState {
             active: true,
             logs: true,
+            refresh_vas: false,
             generation: 2,
         }
         .request()
         .expect("log page requests telemetry");
         assert!(logs.logs);
+
+        let refresh = SamplingState {
+            active: true,
+            logs: false,
+            refresh_vas: true,
+            generation: 3,
+        }
+        .request()
+        .expect("manual VAS refresh wakes the sampler");
+        assert!(refresh.refresh_vas);
+    }
+
+    #[test]
+    fn driver_estimate_is_page_and_request_driven() {
+        let mut requested = true;
+        assert!(!take_driver_refresh(Page::Memory, &mut requested));
+        assert!(requested);
+        assert!(take_driver_refresh(Page::Overview, &mut requested));
+        assert!(!requested);
+        assert!(!take_driver_refresh(Page::Overview, &mut requested));
     }
 
     #[test]

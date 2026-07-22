@@ -274,30 +274,48 @@ No reuse timing or cleanup stage changed. Pool/block metadata remains outside
 user bytes, and a focused regression test proves block free does not overwrite
 payload. Immediate address reuse still exists and requires the established
 targeted engine guards. Empty-block emergency retirement applies only when the
-block has no live allocations; it does not make zombie pointers valid.
+block has no live allocations; it does not make zombie pointers valid. The
+atomic address-page directory publishes a slot only after the block is fully
+initialized and locked consumers revalidate every possibly owned pointer, so
+lock-free rejection does not weaken retirement safety.
 
 ### Performance
 
-There is no new routine per-allocation scan, allocation, log, or lock. The
+There is no new routine per-allocation scan, allocation, log, or lock. A free
+or size query for a page definitely outside the medium tier now returns after
+one atomic directory load instead of acquiring the medium heap mutex. Owned or
+ambiguous pages still take the mutex and revalidate against the live slot;
+medium allocation behavior is unchanged. The
 watchdog retains a light five-second process-accounting poll for commit growth
 and failed-reservation retry state. Full `VirtualQuery` enumeration, allocator
 snapshots, class sorting, and detailed log writes run once per 60 seconds,
-during baseline calibration, on an explicit dashboard request whose cache has
-expired, or on a lazy overflow reservation attempt. Pressure-state output is
+during baseline calibration, on an explicit dashboard request, or on a lazy
+overflow reservation attempt. Normal dashboard chart sampling reads the
+published VAS and process caches without starting either operation.
+Pressure-state output is
 diagnostic only; allocator admission still samples actual VAS when it needs a
 decision. Peak/max telemetry adds relaxed atomics only to allocations larger
 than 16 MB. The block allocator remains a global mutex and is an emergency path
 for small pool failures, not a scalable steady state for millions of small
 objects.
 
-When opt-in hitch profiling is enabled at process startup, its existing compact
-span report also measures the active portions of the five-second light memory
-poll (`memWd`, including the detailed work on each twelfth poll) and scrap-heap
-reclamation cycle (`scrapGc`). The sleep intervals are excluded. These counters
-establish temporal correlation with a reported frame-hitch window; because the
-jobs run on background threads, they do not by themselves prove that either job
-blocked the main thread. With hitch profiling disabled, each cycle pays only
-the existing configuration check and does not query the performance counter.
+When opt-in hitch profiling is enabled at process startup, its compact span
+report measures the active portion of the five-second light memory poll
+(`memWd`, including detailed work on each twelfth poll). It also records medium
+heap alloc/free/size call counts, mutex wait and operation duration, reservation
+attempts/failures, commits/failures, and new blocks. Timers aggregate through
+atomics and are drained once per hitch window; there is no per-allocation log or
+allocation. Hitch and watchdog block snapshots use `try_lock`, marking a miss
+instead of waiting behind allocation. The profiled mutex wrapper is a cold,
+non-inlined path. With profiling disabled, each medium operation takes one flag
+branch directly into the original lean mutex path; QPC calls, 64-bit timing
+atomics, and their error handling are absent from the normal i686 code path.
+
+These changes improve contention and attribution without altering OOM cleanup,
+VAS placement, commit policy, emergency retirement, or freed-byte readability.
+Runtime evidence must still select any larger synchronization redesign; the
+global medium-heap mutex is intentionally retained until its measured wait time
+justifies the additional lifetime risk.
 
 ## Validation matrix for an extreme setup
 

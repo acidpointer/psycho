@@ -31,13 +31,15 @@
 
 use std::collections::{BTreeMap, HashMap};
 use std::ptr::null_mut;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU8, AtomicU64, Ordering};
 
 use rustc_hash::FxBuildHasher;
 
 use libc::c_void;
 use libpsycho::os::windows::winapi::{virtual_commit, virtual_release, virtual_reserve};
 use parking_lot::Mutex;
+
+use crate::mods::diagnostics;
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -80,6 +82,12 @@ const BLOCK_ADDRESS_SLOTS: usize = 1 << (32 - BLOCK_ADDRESS_SHIFT);
 const NO_BLOCK: u8 = u8::MAX;
 const AMBIGUOUS_BLOCK: u8 = u8::MAX - 1;
 const _: () = assert!(BLOCK_COUNT < AMBIGUOUS_BLOCK as usize);
+
+/// Published after a block slot is initialized and cleared after retirement.
+/// A `NO_BLOCK` load is sufficient to reject foreign pointers without taking
+/// the global heap lock. All other values require locked revalidation.
+static ADDRESS_TO_BLOCK: [AtomicU8; BLOCK_ADDRESS_SLOTS] =
+    [const { AtomicU8::new(NO_BLOCK) }; BLOCK_ADDRESS_SLOTS];
 
 /// Sentinel "no cell" index inside a block's cell array.
 const NO_CELL: u32 = u32::MAX;
@@ -349,8 +357,12 @@ impl Block {
         let target = round_up_usize(end, COMMIT_CHUNK).min(BLOCK_SIZE);
         let commit_len = target - self.committed;
         let commit_base = unsafe { self.base.add(self.committed) };
-        let committed = unsafe { virtual_commit(commit_base.cast(), commit_len) };
-        if committed != commit_base.cast() {
+        let success = if diagnostics::hitch_profiling_enabled() {
+            commit_profiled(commit_base, commit_len)
+        } else {
+            unsafe { virtual_commit(commit_base.cast(), commit_len) == commit_base.cast() }
+        };
+        if !success {
             return false;
         }
         self.committed = target;
@@ -368,7 +380,6 @@ struct BlockHeap {
     /// VirtualAlloc blocks can retire only during a failed large-allocation
     /// recovery. The slot index is an internal handle, not an address.
     blocks: [Option<Block>; BLOCK_COUNT],
-    address_to_block: [u8; BLOCK_ADDRESS_SLOTS],
     alloc_hint: u8,
     high_scan_hint: usize,
 }
@@ -381,7 +392,6 @@ impl BlockHeap {
     const fn empty() -> Self {
         Self {
             blocks: [const { None }; BLOCK_COUNT],
-            address_to_block: [NO_BLOCK; BLOCK_ADDRESS_SLOTS],
             alloc_hint: 0,
             high_scan_hint: BLOCK_HIGH_SCAN_START,
         }
@@ -458,12 +468,12 @@ impl BlockHeap {
         if ptr.is_null()
             && let Some(hint) = self.preferred_next_address()
         {
-            ptr = unsafe { virtual_reserve(Some(hint as *const c_void), BLOCK_SIZE) };
+            ptr = reserve_block(Some(hint as *const c_void));
         }
 
         // Fallback: OS picks placement anywhere.
         if ptr.is_null() {
-            ptr = unsafe { virtual_reserve(None, BLOCK_SIZE) };
+            ptr = reserve_block(None);
         }
 
         if ptr.is_null() {
@@ -497,6 +507,9 @@ impl BlockHeap {
         self.blocks[idx] = Some(Block::new(addr, BLOCK_SIZE as u32, backing, committed));
         self.map_block_address(idx, addr);
         self.alloc_hint = idx as u8;
+        if diagnostics::hitch_profiling_enabled() {
+            record_new_block_profiled();
+        }
         log::debug!(
             "[BLOCK] slot {} allocated at 0x{:08x} source={} (live={})",
             idx,
@@ -511,11 +524,11 @@ impl BlockHeap {
         let start = (base as usize) >> BLOCK_ADDRESS_SHIFT;
         let end = (base as usize).saturating_add(BLOCK_SIZE - 1) >> BLOCK_ADDRESS_SHIFT;
         for slot in start..=end.min(BLOCK_ADDRESS_SLOTS - 1) {
-            let mapped = self.address_to_block[slot];
+            let mapped = ADDRESS_TO_BLOCK[slot].load(Ordering::Relaxed);
             if mapped == NO_BLOCK {
-                self.address_to_block[slot] = block_idx as u8;
+                ADDRESS_TO_BLOCK[slot].store(block_idx as u8, Ordering::Release);
             } else if mapped != block_idx as u8 {
-                self.address_to_block[slot] = AMBIGUOUS_BLOCK;
+                ADDRESS_TO_BLOCK[slot].store(AMBIGUOUS_BLOCK, Ordering::Release);
             }
         }
     }
@@ -539,7 +552,7 @@ impl BlockHeap {
             }
             mapped = idx as u8;
         }
-        self.address_to_block[slot] = mapped;
+        ADDRESS_TO_BLOCK[slot].store(mapped, Ordering::Release);
     }
 
     fn unmap_block_address(&mut self, base: *mut u8) {
@@ -557,7 +570,7 @@ impl BlockHeap {
                 .checked_sub(BLOCK_SIZE)
                 .filter(|next| *next >= BLOCK_HIGH_SCAN_MIN)
                 .unwrap_or(0);
-            let ptr = unsafe { virtual_reserve(Some(hint as *const c_void), BLOCK_SIZE) };
+            let ptr = reserve_block(Some(hint as *const c_void));
             if !ptr.is_null() {
                 if ptr as usize == hint {
                     return ptr;
@@ -582,7 +595,7 @@ impl BlockHeap {
         let a = ptr as usize;
         let slot = a >> BLOCK_ADDRESS_SHIFT;
         if slot < BLOCK_ADDRESS_SLOTS {
-            let block_idx = self.address_to_block[slot];
+            let block_idx = ADDRESS_TO_BLOCK[slot].load(Ordering::Acquire);
             if block_idx == NO_BLOCK {
                 return None;
             }
@@ -799,11 +812,57 @@ pub struct BlockSnapshot {
     pub committed_bytes: usize,
 }
 
+#[derive(Clone, Copy, Default)]
+pub struct BlockTimingSnapshot {
+    pub alloc_calls: u64,
+    pub free_calls: u64,
+    pub size_calls: u64,
+    pub lock_wait_total_us: u64,
+    pub lock_wait_max_us: u64,
+    pub operation_total_us: u64,
+    pub operation_max_us: u64,
+    pub reserve_calls: u64,
+    pub reserve_failures: u64,
+    pub reserve_total_us: u64,
+    pub reserve_max_us: u64,
+    pub commit_calls: u64,
+    pub commit_failures: u64,
+    pub commit_total_us: u64,
+    pub commit_max_us: u64,
+    pub new_blocks: u64,
+}
+
+#[derive(Clone, Copy)]
+#[repr(usize)]
+enum TimedOperation {
+    Alloc = 0,
+    Free = 1,
+    Size = 2,
+}
+
+const TIMED_OPERATION_COUNT: usize = 3;
+
 // ---------------------------------------------------------------------------
 // Global singleton
 // ---------------------------------------------------------------------------
 
 static HEAP: Mutex<BlockHeap> = Mutex::new(BlockHeap::empty());
+
+static TIMED_OPERATION_CALLS: [AtomicU64; TIMED_OPERATION_COUNT] =
+    [const { AtomicU64::new(0) }; TIMED_OPERATION_COUNT];
+static TIMED_LOCK_WAIT_TOTAL_US: AtomicU64 = AtomicU64::new(0);
+static TIMED_LOCK_WAIT_MAX_US: AtomicU64 = AtomicU64::new(0);
+static TIMED_OPERATION_TOTAL_US: AtomicU64 = AtomicU64::new(0);
+static TIMED_OPERATION_MAX_US: AtomicU64 = AtomicU64::new(0);
+static TIMED_RESERVE_CALLS: AtomicU64 = AtomicU64::new(0);
+static TIMED_RESERVE_FAILURES: AtomicU64 = AtomicU64::new(0);
+static TIMED_RESERVE_TOTAL_US: AtomicU64 = AtomicU64::new(0);
+static TIMED_RESERVE_MAX_US: AtomicU64 = AtomicU64::new(0);
+static TIMED_COMMIT_CALLS: AtomicU64 = AtomicU64::new(0);
+static TIMED_COMMIT_FAILURES: AtomicU64 = AtomicU64::new(0);
+static TIMED_COMMIT_TOTAL_US: AtomicU64 = AtomicU64::new(0);
+static TIMED_COMMIT_MAX_US: AtomicU64 = AtomicU64::new(0);
+static TIMED_NEW_BLOCKS: AtomicU64 = AtomicU64::new(0);
 
 /// Running count of tier-commit failures. Used to power-of-two gate
 /// the error log so OOM recovery retry storms do not flood the file.
@@ -813,6 +872,24 @@ static FAIL_COUNT: AtomicU64 = AtomicU64::new(0);
 fn with_heap<R>(f: impl FnOnce(&mut BlockHeap) -> R) -> R {
     let mut guard = HEAP.lock();
     f(&mut guard)
+}
+
+#[cold]
+#[inline(never)]
+fn with_heap_profiled<R>(operation: TimedOperation, f: impl FnOnce(&mut BlockHeap) -> R) -> R {
+    let wait_timer = diagnostics::Stopwatch::start();
+    let mut guard = HEAP.lock();
+    let wait_us = wait_timer.elapsed_us().unwrap_or(0);
+    TIMED_OPERATION_CALLS[operation as usize].fetch_add(1, Ordering::Relaxed);
+    TIMED_LOCK_WAIT_TOTAL_US.fetch_add(wait_us, Ordering::Relaxed);
+    diagnostics::update_max_u64(&TIMED_LOCK_WAIT_MAX_US, wait_us);
+
+    let operation_timer = diagnostics::Stopwatch::start();
+    let result = f(&mut guard);
+    let operation_us = operation_timer.elapsed_us().unwrap_or(0);
+    TIMED_OPERATION_TOTAL_US.fetch_add(operation_us, Ordering::Relaxed);
+    diagnostics::update_max_u64(&TIMED_OPERATION_MAX_US, operation_us);
+    result
 }
 
 /// Initialize the lazy block tier. This does not reserve address space.
@@ -825,6 +902,9 @@ pub fn alloc(size: usize) -> *mut c_void {
     if size == 0 || size > BLOCK_MAX_ALLOC {
         return null_mut();
     }
+    if diagnostics::hitch_profiling_enabled() {
+        return with_heap_profiled(TimedOperation::Alloc, |h| h.alloc(size));
+    }
     with_heap(|h| h.alloc(size))
 }
 
@@ -835,6 +915,12 @@ pub fn free_if_owned(ptr: *mut c_void) -> Option<bool> {
     if ptr.is_null() {
         return None;
     }
+    if !address_maybe_owned(ptr.cast_const()) {
+        return None;
+    }
+    if diagnostics::hitch_profiling_enabled() {
+        return with_heap_profiled(TimedOperation::Free, |h| h.free_if_owned(ptr));
+    }
     with_heap(|h| h.free_if_owned(ptr))
 }
 
@@ -843,7 +929,19 @@ pub fn size_of(ptr: *const c_void) -> Option<usize> {
     if ptr.is_null() {
         return None;
     }
+    if !address_maybe_owned(ptr) {
+        return None;
+    }
+    if diagnostics::hitch_profiling_enabled() {
+        return with_heap_profiled(TimedOperation::Size, |h| h.size_of(ptr));
+    }
     with_heap(|h| h.size_of(ptr))
+}
+
+#[inline]
+fn address_maybe_owned(ptr: *const c_void) -> bool {
+    let slot = (ptr as usize) >> BLOCK_ADDRESS_SHIFT;
+    slot < BLOCK_ADDRESS_SLOTS && ADDRESS_TO_BLOCK[slot].load(Ordering::Acquire) != NO_BLOCK
 }
 
 pub fn snapshot() -> BlockSnapshot {
@@ -857,6 +955,28 @@ pub fn snapshot() -> BlockSnapshot {
 /// sample is preferable to perturbing allocation latency.
 pub fn try_snapshot() -> Option<BlockSnapshot> {
     HEAP.try_lock().map(|heap| block_snapshot(&heap))
+}
+
+pub fn take_timing_snapshot() -> BlockTimingSnapshot {
+    BlockTimingSnapshot {
+        alloc_calls: TIMED_OPERATION_CALLS[TimedOperation::Alloc as usize]
+            .swap(0, Ordering::AcqRel),
+        free_calls: TIMED_OPERATION_CALLS[TimedOperation::Free as usize].swap(0, Ordering::AcqRel),
+        size_calls: TIMED_OPERATION_CALLS[TimedOperation::Size as usize].swap(0, Ordering::AcqRel),
+        lock_wait_total_us: TIMED_LOCK_WAIT_TOTAL_US.swap(0, Ordering::AcqRel),
+        lock_wait_max_us: TIMED_LOCK_WAIT_MAX_US.swap(0, Ordering::AcqRel),
+        operation_total_us: TIMED_OPERATION_TOTAL_US.swap(0, Ordering::AcqRel),
+        operation_max_us: TIMED_OPERATION_MAX_US.swap(0, Ordering::AcqRel),
+        reserve_calls: TIMED_RESERVE_CALLS.swap(0, Ordering::AcqRel),
+        reserve_failures: TIMED_RESERVE_FAILURES.swap(0, Ordering::AcqRel),
+        reserve_total_us: TIMED_RESERVE_TOTAL_US.swap(0, Ordering::AcqRel),
+        reserve_max_us: TIMED_RESERVE_MAX_US.swap(0, Ordering::AcqRel),
+        commit_calls: TIMED_COMMIT_CALLS.swap(0, Ordering::AcqRel),
+        commit_failures: TIMED_COMMIT_FAILURES.swap(0, Ordering::AcqRel),
+        commit_total_us: TIMED_COMMIT_TOTAL_US.swap(0, Ordering::AcqRel),
+        commit_max_us: TIMED_COMMIT_MAX_US.swap(0, Ordering::AcqRel),
+        new_blocks: TIMED_NEW_BLOCKS.swap(0, Ordering::AcqRel),
+    }
 }
 
 fn block_snapshot(heap: &BlockHeap) -> BlockSnapshot {
@@ -895,6 +1015,52 @@ fn round_up(v: u32, align: u32) -> u32 {
 #[inline]
 fn round_up_usize(v: usize, align: usize) -> usize {
     (v + align - 1) & !(align - 1)
+}
+
+fn reserve_block(address: Option<*const c_void>) -> *mut c_void {
+    if diagnostics::hitch_profiling_enabled() {
+        return reserve_block_profiled(address);
+    }
+    unsafe { virtual_reserve(address, BLOCK_SIZE) }
+}
+
+#[cold]
+#[inline(never)]
+fn reserve_block_profiled(address: Option<*const c_void>) -> *mut c_void {
+    let timer = diagnostics::Stopwatch::start();
+    let result = unsafe { virtual_reserve(address, BLOCK_SIZE) };
+    TIMED_RESERVE_CALLS.fetch_add(1, Ordering::Relaxed);
+    if result.is_null() {
+        TIMED_RESERVE_FAILURES.fetch_add(1, Ordering::Relaxed);
+    }
+    if let Some(elapsed_us) = timer.elapsed_us() {
+        TIMED_RESERVE_TOTAL_US.fetch_add(elapsed_us, Ordering::Relaxed);
+        diagnostics::update_max_u64(&TIMED_RESERVE_MAX_US, elapsed_us);
+    }
+    result
+}
+
+#[cold]
+#[inline(never)]
+fn commit_profiled(commit_base: *mut u8, commit_len: usize) -> bool {
+    let timer = diagnostics::Stopwatch::start();
+    let committed = unsafe { virtual_commit(commit_base.cast(), commit_len) };
+    let success = committed == commit_base.cast();
+    TIMED_COMMIT_CALLS.fetch_add(1, Ordering::Relaxed);
+    if !success {
+        TIMED_COMMIT_FAILURES.fetch_add(1, Ordering::Relaxed);
+    }
+    if let Some(elapsed_us) = timer.elapsed_us() {
+        TIMED_COMMIT_TOTAL_US.fetch_add(elapsed_us, Ordering::Relaxed);
+        diagnostics::update_max_u64(&TIMED_COMMIT_MAX_US, elapsed_us);
+    }
+    success
+}
+
+#[cold]
+#[inline(never)]
+fn record_new_block_profiled() {
+    TIMED_NEW_BLOCKS.fetch_add(1, Ordering::Relaxed);
 }
 
 fn log_commit_failure(base: usize, offset: usize, size: usize) {
@@ -969,5 +1135,31 @@ mod tests {
                 .iter()
                 .all(|byte| *byte == 0xa5)
         );
+    }
+
+    #[test]
+    fn definitely_foreign_page_does_not_require_heap_lock() {
+        assert!(!address_maybe_owned(0x0001_0000usize as *const c_void));
+    }
+
+    #[test]
+    fn timing_snapshot_drains_aggregates() {
+        TIMED_OPERATION_CALLS[TimedOperation::Alloc as usize].store(3, Ordering::Relaxed);
+        TIMED_LOCK_WAIT_TOTAL_US.store(17, Ordering::Relaxed);
+        TIMED_LOCK_WAIT_MAX_US.store(11, Ordering::Relaxed);
+        TIMED_RESERVE_CALLS.store(2, Ordering::Relaxed);
+        TIMED_RESERVE_FAILURES.store(1, Ordering::Relaxed);
+
+        let snapshot = take_timing_snapshot();
+        assert_eq!(snapshot.alloc_calls, 3);
+        assert_eq!(snapshot.lock_wait_total_us, 17);
+        assert_eq!(snapshot.lock_wait_max_us, 11);
+        assert_eq!(snapshot.reserve_calls, 2);
+        assert_eq!(snapshot.reserve_failures, 1);
+
+        let drained = take_timing_snapshot();
+        assert_eq!(drained.alloc_calls, 0);
+        assert_eq!(drained.lock_wait_total_us, 0);
+        assert_eq!(drained.reserve_calls, 0);
     }
 }

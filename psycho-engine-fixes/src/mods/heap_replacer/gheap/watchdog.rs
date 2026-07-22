@@ -18,7 +18,7 @@
 //! path is needed here.
 
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, AtomicU64, AtomicUsize, Ordering};
 use std::thread::{self, JoinHandle};
 
 use libmimalloc::process_info::MiMallocProcessInfo;
@@ -97,6 +97,59 @@ static LAST_POOL_EXHAUST: AtomicU64 = AtomicU64::new(0);
 static LAST_BLOCK_OVERFLOW: AtomicU64 = AtomicU64::new(0);
 static LAST_BLOCK_FAILURE: AtomicU64 = AtomicU64::new(0);
 static LAST_VA_FAILURE: AtomicU64 = AtomicU64::new(0);
+
+static PROCESS_SAMPLE_GENERATION: AtomicU32 = AtomicU32::new(0);
+static PROCESS_SAMPLE_TIME_MS: AtomicU64 = AtomicU64::new(0);
+static PROCESS_RSS: AtomicU64 = AtomicU64::new(0);
+static PROCESS_PEAK_RSS: AtomicU64 = AtomicU64::new(0);
+static PROCESS_COMMIT: AtomicU64 = AtomicU64::new(0);
+static PROCESS_PEAK_COMMIT: AtomicU64 = AtomicU64::new(0);
+static PROCESS_PAGE_FAULTS: AtomicU64 = AtomicU64::new(0);
+
+#[derive(Clone, Copy, Default)]
+pub(crate) struct ProcessSnapshot {
+    pub sample_time_ms: u64,
+    pub rss: u64,
+    pub peak_rss: u64,
+    pub commit: u64,
+    pub peak_commit: u64,
+    pub page_faults: u64,
+}
+
+pub(crate) fn process_snapshot() -> Option<ProcessSnapshot> {
+    for _ in 0..3 {
+        let before = PROCESS_SAMPLE_GENERATION.load(Ordering::Acquire);
+        if before == 0 || before & 1 != 0 {
+            continue;
+        }
+        let snapshot = ProcessSnapshot {
+            sample_time_ms: PROCESS_SAMPLE_TIME_MS.load(Ordering::Relaxed),
+            rss: PROCESS_RSS.load(Ordering::Relaxed),
+            peak_rss: PROCESS_PEAK_RSS.load(Ordering::Relaxed),
+            commit: PROCESS_COMMIT.load(Ordering::Relaxed),
+            peak_commit: PROCESS_PEAK_COMMIT.load(Ordering::Relaxed),
+            page_faults: PROCESS_PAGE_FAULTS.load(Ordering::Relaxed),
+        };
+        if PROCESS_SAMPLE_GENERATION.load(Ordering::Acquire) == before {
+            return Some(snapshot);
+        }
+    }
+    None
+}
+
+pub(crate) fn publish_process_snapshot(info: &MiMallocProcessInfo) {
+    PROCESS_SAMPLE_GENERATION.fetch_add(1, Ordering::AcqRel);
+    PROCESS_SAMPLE_TIME_MS.store(
+        u64::from(libpsycho::os::windows::winapi::get_tick_count()),
+        Ordering::Relaxed,
+    );
+    PROCESS_RSS.store(info.get_current_rss() as u64, Ordering::Relaxed);
+    PROCESS_PEAK_RSS.store(info.get_peak_rss() as u64, Ordering::Relaxed);
+    PROCESS_COMMIT.store(info.get_current_commit() as u64, Ordering::Relaxed);
+    PROCESS_PEAK_COMMIT.store(info.get_peak_commit() as u64, Ordering::Relaxed);
+    PROCESS_PAGE_FAULTS.store(info.get_page_faults() as u64, Ordering::Relaxed);
+    PROCESS_SAMPLE_GENERATION.fetch_add(1, Ordering::Release);
+}
 
 // ---------------------------------------------------------------------------
 // Public API (called from main thread)
@@ -210,6 +263,7 @@ fn watchdog_loop(run: Arc<AtomicBool>) {
             super::pool::allow_reservation_retries();
 
             let info = MiMallocProcessInfo::get();
+            publish_process_snapshot(&info);
             let commit = info.get_current_commit();
 
             // --- Rate tracking ---
@@ -264,12 +318,14 @@ fn log_diagnostics(poll_count: u32, info: &MiMallocProcessInfo) {
     let pool_live = super::pool::live_cells();
     let pool_overflow_user_mb = super::pool::overflow_user_reserved_bytes() / 1024 / 1024;
     let pool_overflow_metadata_mb = super::pool::overflow_metadata_reserved_bytes() / 1024 / 1024;
-    let blocks = super::block::snapshot();
+    let blocks = super::block::try_snapshot();
+    let block_sample = if blocks.is_some() { "fresh" } else { "miss" };
+    let blocks = blocks.unwrap_or_default();
     let va_live = super::va_alloc::live_bytes() / 1024 / 1024;
     let va_peak = super::va_alloc::peak_live_bytes() / 1024 / 1024;
     let va_max = super::va_alloc::max_allocation_bytes() / 1024 / 1024;
     log::debug!(
-        "[MEM] Pool: {}MB cells + {}/{}MB metadata / {}MB user reserved (overflow={}/{}MB user/meta, {} live) | Blocks: {} slots, {}/{}MB live/committed, {} allocs | VA: {}/{}MB live/peak, {}MB max | Rate: {}/s",
+        "[MEM] Pool: {}MB cells + {}/{}MB metadata / {}MB user reserved (overflow={}/{}MB user/meta, {} live) | Blocks: {} slots, {}/{}MB live/committed, {} allocs, sample={} | VA: {}/{}MB live/peak, {}MB max | Rate: {}/s",
         pool_mb,
         pool_metadata_mb,
         pool_metadata_reserved_mb,
@@ -281,6 +337,7 @@ fn log_diagnostics(poll_count: u32, info: &MiMallocProcessInfo) {
         blocks.live_bytes / 1024 / 1024,
         blocks.committed_bytes / 1024 / 1024,
         blocks.live_allocations,
+        block_sample,
         va_live,
         va_peak,
         va_max,

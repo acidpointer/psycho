@@ -78,6 +78,7 @@ struct CloseTerrainVariant {
     pixel_sls: u16,
     texture_count: u32,
     point_light_capacity: u32,
+    native_canopy_row: bool,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -168,6 +169,7 @@ static LAND_LOD_FAILURE_LOGGED: AtomicBool = AtomicBool::new(false);
 static TERRAIN_FADE_FIRST_BIND_LOGGED: AtomicBool = AtomicBool::new(false);
 static TERRAIN_FADE_FAILURE_LOGGED: AtomicBool = AtomicBool::new(false);
 static CLOSE_TERRAIN_FIRST_BIND_LOGGED: AtomicBool = AtomicBool::new(false);
+static CLOSE_TERRAIN_FIRST_CANOPY_BIND_LOGGED: AtomicBool = AtomicBool::new(false);
 static CLOSE_TERRAIN_WARMING_LOGGED: AtomicBool = AtomicBool::new(false);
 static CLOSE_TERRAIN_FAILURE_LOGGED: AtomicBool = AtomicBool::new(false);
 static DIRECT_RESTORE_FAILURE_LOGGED: AtomicBool = AtomicBool::new(false);
@@ -277,6 +279,7 @@ pub(super) fn reset() {
     TERRAIN_FADE_FIRST_BIND_LOGGED.store(false, Ordering::Release);
     TERRAIN_FADE_FAILURE_LOGGED.store(false, Ordering::Release);
     CLOSE_TERRAIN_FIRST_BIND_LOGGED.store(false, Ordering::Release);
+    CLOSE_TERRAIN_FIRST_CANOPY_BIND_LOGGED.store(false, Ordering::Release);
     CLOSE_TERRAIN_WARMING_LOGGED.store(false, Ordering::Release);
     CLOSE_TERRAIN_FAILURE_LOGGED.store(false, Ordering::Release);
     DIRECT_RESTORE_FAILURE_LOGGED.store(false, Ordering::Release);
@@ -692,12 +695,13 @@ fn close_terrain_variant(pass_index: u32, pixel_index: usize) -> Option<CloseTer
     }
 
     let family_index = pixel_index - CLOSE_TERRAIN_FIRST_PIXEL_INDEX;
-    let point_light_capacity = match family_index % 8 {
-        0 => 0,
-        2 => 6,
-        4 => 12,
-        6 => 24,
-        _ => return None,
+    let row_kind = family_index % 8;
+    let point_light_capacity = match row_kind {
+        0 | 1 => 0,
+        2 | 3 => 6,
+        4 | 5 => 12,
+        6 | 7 => 24,
+        _ => unreachable!(),
     };
 
     Some(CloseTerrainVariant {
@@ -705,7 +709,14 @@ fn close_terrain_variant(pass_index: u32, pixel_index: usize) -> Option<CloseTer
         pixel_sls: 2000u16 + pixel_index as u16,
         texture_count: (family_index / 8 + 1) as u32,
         point_light_capacity,
+        native_canopy_row: row_kind % 2 != 0,
     })
+}
+
+fn close_terrain_required_sampler_mask(variant: CloseTerrainVariant) -> u16 {
+    (0..variant.texture_count)
+        .chain(7..7 + variant.texture_count)
+        .fold(0u16, |mask, stage| mask | (1u16 << stage))
 }
 
 fn bind_land_lod_replacement() {
@@ -872,9 +883,11 @@ fn bind_close_terrain_replacement(pass_index: u32, pixel_index: usize) {
         log_close_terrain_failure("engine did not bind the proven VPT pair");
         return;
     };
-    let missing_sampler_mask = (0..variant.texture_count)
-        .chain(7..7 + variant.texture_count)
-        .filter(|stage| device.texture_raw(*stage).is_none())
+    let required_sampler_mask = close_terrain_required_sampler_mask(variant);
+    let missing_sampler_mask = (0..16)
+        .filter(|stage| {
+            required_sampler_mask & (1u16 << stage) != 0 && device.texture_raw(*stage).is_none()
+        })
         .fold(0u16, |mask, stage| mask | (1u16 << stage));
     if missing_sampler_mask != 0 {
         log_close_terrain_missing_samplers(
@@ -915,9 +928,17 @@ fn bind_close_terrain_replacement(pass_index: u32, pixel_index: usize) {
 
     if !CLOSE_TERRAIN_FIRST_BIND_LOGGED.swap(true, Ordering::AcqRel) {
         log::info!(
-            "[PBR] CloseTerrain PBR active vertex=C[{CLOSE_TERRAIN_VERTEX_INDEX}] pixel=B[{pixel_index}] textures={} point_lights={}",
+            "[PBR] CloseTerrain PBR active vertex=C[{CLOSE_TERRAIN_VERTEX_INDEX}] pixel=B[{pixel_index}] textures={} point_lights={} native_canopy_row={}",
             variant.texture_count,
-            variant.point_light_capacity
+            variant.point_light_capacity,
+            variant.native_canopy_row
+        );
+    }
+    if variant.native_canopy_row
+        && !CLOSE_TERRAIN_FIRST_CANOPY_BIND_LOGGED.swap(true, Ordering::AcqRel)
+    {
+        log::info!(
+            "[PBR] CloseTerrain canopy companion active pixel=B[{pixel_index}] object_shadow_sampling=false"
         );
     }
     diagnostics::record_terrain_replacement(diagnostics::TerrainDrawFamily::CloseTerrain);
@@ -1723,7 +1744,8 @@ fn object_draw_key(
 mod tests {
     use super::{
         CLOSE_TERRAIN_FIRST_PIXEL_INDEX, CLOSE_TERRAIN_PASS_TO_PIXEL_OFFSET, close_terrain_draw,
-        close_terrain_variant, hash_light_data, object_draw_key,
+        close_terrain_required_sampler_mask, close_terrain_variant, hash_light_data,
+        object_draw_key,
     };
     use crate::effects::pbr::engine_contracts::DrawSnapshot;
     use crate::effects::pbr::shader_registry::{self, ShaderStage};
@@ -1807,6 +1829,7 @@ mod tests {
                 assert_eq!(variant.pixel_sls, 2000 + pixel_index as u16);
                 assert_eq!(variant.texture_count, texture_count);
                 assert_eq!(variant.point_light_capacity, point_light_capacity);
+                assert!(!variant.native_canopy_row);
                 assert_eq!(
                     close_terrain_draw(pass_index, pixel_index)
                         .unwrap()
@@ -1825,19 +1848,43 @@ mod tests {
     }
 
     #[test]
-    fn close_terrain_canopy_rows_stay_classified_but_use_vanilla_shaders() {
-        for texture_count in 1..=7usize {
-            for row_offset in [1usize, 3, 5, 7] {
+    fn canopy_companions_cover_every_texture_and_point_light_bucket() {
+        for texture_count in 1..=7u32 {
+            for (row_offset, point_light_capacity) in [(1usize, 0), (3, 6), (5, 12), (7, 24)] {
                 let pixel_index =
-                    CLOSE_TERRAIN_FIRST_PIXEL_INDEX + (texture_count - 1) * 8 + row_offset;
+                    CLOSE_TERRAIN_FIRST_PIXEL_INDEX + (texture_count as usize - 1) * 8 + row_offset;
                 let pass_index = pixel_index as u32 + CLOSE_TERRAIN_PASS_TO_PIXEL_OFFSET;
-                let draw = close_terrain_draw(pass_index, pixel_index).unwrap();
+                let variant = close_terrain_variant(pass_index, pixel_index).unwrap();
 
-                assert_eq!(draw.pixel_index, pixel_index);
-                assert_eq!(draw.replacement, None);
-                assert_eq!(close_terrain_variant(pass_index, pixel_index), None);
+                assert_eq!(variant.pixel_index, pixel_index);
+                assert_eq!(variant.pixel_sls, 2000 + pixel_index as u16);
+                assert_eq!(variant.texture_count, texture_count);
+                assert_eq!(variant.point_light_capacity, point_light_capacity);
+                assert!(variant.native_canopy_row);
+                assert!(
+                    shader_registry::close_terrain_template_id(
+                        ShaderStage::Pixel,
+                        variant.pixel_sls
+                    )
+                    .is_some()
+                );
             }
         }
+    }
+
+    #[test]
+    fn canopy_companions_ignore_camera_projected_shadow_samplers() {
+        let base = close_terrain_variant(503, CLOSE_TERRAIN_FIRST_PIXEL_INDEX).unwrap();
+        let canopy = close_terrain_variant(504, CLOSE_TERRAIN_FIRST_PIXEL_INDEX + 1).unwrap();
+        let seven_layer_canopy =
+            close_terrain_variant(558, CLOSE_TERRAIN_FIRST_PIXEL_INDEX + 55).unwrap();
+
+        assert_eq!(close_terrain_required_sampler_mask(base), 0x0081);
+        assert_eq!(close_terrain_required_sampler_mask(canopy), 0x0081);
+        assert_eq!(
+            close_terrain_required_sampler_mask(seven_layer_canopy),
+            0x3FFF
+        );
     }
 
     #[test]

@@ -262,6 +262,7 @@ fn maybe_log_window() {
     let engine = engine_fixes::take_diagnostic_counters();
     let spans = take_span_snapshot();
     let pool_timing = pool::take_timing_snapshot();
+    let block_timing = block::take_timing_snapshot();
     let hitches = WINDOW_HITCHES.swap(0, Ordering::AcqRel);
     let total_us = WINDOW_TOTAL_US.swap(0, Ordering::AcqRel);
     let max_us = WINDOW_MAX_US.swap(0, Ordering::AcqRel);
@@ -270,9 +271,11 @@ fn maybe_log_window() {
     }
 
     let scrap = scrap_heap::snapshot();
-    let blocks = block::snapshot();
+    let blocks = block::try_snapshot();
+    let block_sample = if blocks.is_some() { "fresh" } else { "miss" };
+    let blocks = blocks.unwrap_or_default();
     log::debug!(
-        "[HITCH] events={} max_us={} avg_us={} ema_us={} loading={} pddq={}/{}/{}/{}/{} ragdoll={}/{} extra_owner=load:{} access:{} unreadable:{} task=dispatch:{}/{} pin_fail:{} invalid:{} guard:{} tombstone:{} pool={}+{}/{}/{}MB live={} pgrow={}/{} max/total={}/{}us user/meta={}/{}KB slow={}:{}B pinit={} max/total={}/{}us slow={}:{}B blocks={} block_mb={} va={}MB scrap={}KB ids={} active_ids={} regions={} allocs={} spans=calls/max/total {}",
+        "[HITCH] events={} max_us={} avg_us={} ema_us={} loading={} pddq={}/{}/{}/{}/{} ragdoll={}/{} extra_owner=load:{} access:{} unreadable:{} task=dispatch:{}/{} pin_fail:{} invalid:{} guard:{} tombstone:{} pool={}+{}/{}/{}MB live={} pgrow={}/{} max/total={}/{}us user/meta={}/{}KB slow={}:{}B pinit={} max/total={}/{}us slow={}:{}B blocks={} block_mb={} sample={} block_ops={}/{}/{} wait={}/{}us op={}/{}us reserve={} fail={} max/total={}/{}us commit={} fail={} max/total={}/{}us new={} va={}MB scrap={}KB ids={} active_ids={} regions={} allocs={} spans=calls/max/total {}",
         hitches,
         max_us,
         total_us / hitches.max(1),
@@ -314,6 +317,23 @@ fn maybe_log_window() {
         pool_timing.init_slowest_item_size,
         blocks.slots,
         blocks.committed_bytes / 1024 / 1024,
+        block_sample,
+        block_timing.alloc_calls,
+        block_timing.free_calls,
+        block_timing.size_calls,
+        block_timing.lock_wait_max_us,
+        block_timing.lock_wait_total_us,
+        block_timing.operation_max_us,
+        block_timing.operation_total_us,
+        block_timing.reserve_calls,
+        block_timing.reserve_failures,
+        block_timing.reserve_max_us,
+        block_timing.reserve_total_us,
+        block_timing.commit_calls,
+        block_timing.commit_failures,
+        block_timing.commit_max_us,
+        block_timing.commit_total_us,
+        block_timing.new_blocks,
         va_alloc::live_bytes() / 1024 / 1024,
         scrap.live_bytes / 1024,
         scrap.identities,
@@ -328,6 +348,7 @@ fn drain_external_counters() {
     let _ = engine_fixes::take_diagnostic_counters();
     let _ = take_span_snapshot();
     let _ = pool::take_timing_snapshot();
+    let _ = block::take_timing_snapshot();
 }
 
 fn record_span(span: Span, timer: diagnostics::Stopwatch) {

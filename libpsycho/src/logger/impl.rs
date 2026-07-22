@@ -200,7 +200,7 @@
 //! Logger::shutdown();
 //! ```
 
-use crossfire::flavor::{List, Queue};
+use crossfire::{MTx, Rx, mpsc};
 use log::{Level, LevelFilter, Log, Metadata, Record, SetLoggerError};
 use std::{
     collections::HashMap,
@@ -210,6 +210,7 @@ use std::{
     sync::{
         LazyLock, Mutex,
         atomic::{AtomicBool, Ordering},
+        mpsc::{SyncSender, sync_channel},
     },
     thread::{self, JoinHandle},
 };
@@ -220,12 +221,29 @@ struct LogMessage {
     text: String,
 }
 
-/// Queue of log messages
-/// Logger will fill queue with messages, while separate thread
-/// pop messages from queue one-by-one and print, thus saving IO time.
-static MSG_QUEUE: LazyLock<List<LogMessage>> = LazyLock::new(List::new);
+enum LogCommand {
+    Message(LogMessage),
+    Flush(SyncSender<()>),
+    Shutdown,
+}
 
-static SHUTDOWN: AtomicBool = AtomicBool::new(false);
+type LogSender = MTx<mpsc::List<LogCommand>>;
+type LogReceiver = Rx<mpsc::List<LogCommand>>;
+
+struct LogRuntime {
+    sender: LogSender,
+    receiver: Mutex<Option<LogReceiver>>,
+    lifecycle: Mutex<()>,
+}
+
+static LOG_RUNTIME: LazyLock<LogRuntime> = LazyLock::new(|| {
+    let (sender, receiver) = mpsc::unbounded_blocking();
+    LogRuntime {
+        sender,
+        receiver: Mutex::new(Some(receiver)),
+        lifecycle: Mutex::new(()),
+    }
+});
 
 static LOGGER_THREAD: LazyLock<Mutex<Option<JoinHandle<()>>>> = LazyLock::new(|| Mutex::new(None));
 
@@ -655,55 +673,7 @@ impl Logger {
         // Mark as started so start_deferred() is a no-op if called later.
         DEFERRED_STARTED.store(true, Ordering::Release);
 
-        let mut log_file = create_log_file(&self.file_output);
-
-        let handle = thread::spawn(move || {
-            let mut idle_count = 0u32;
-            let mut stdout = std::io::stdout();
-            loop {
-                if SHUTDOWN.load(Ordering::Acquire) {
-                    while let Some(msg) = MSG_QUEUE.pop() {
-                        let _ = stdout.write_all(msg.text.as_bytes());
-                        if let Some(file) = &mut log_file {
-                            let _ = file.write_all(msg.text.as_bytes());
-                        }
-                    }
-                    let _ = stdout.flush();
-                    if let Some(file) = &mut log_file {
-                        let _ = file.flush();
-                    }
-                    break;
-                }
-
-                if let Some(msg) = MSG_QUEUE.pop() {
-                    idle_count = 0;
-
-                    if stdout.write_all(msg.text.as_bytes()).is_err() {
-                        continue;
-                    }
-
-                    if let Some(file) = &mut log_file {
-                        let _ = file.write_all(msg.text.as_bytes());
-                        let _ = file.flush(); // Immediate flush for crash safety
-                    }
-                } else {
-                    idle_count = idle_count.saturating_add(1);
-
-                    if idle_count < 10 {
-                        thread::yield_now();
-                    } else if idle_count < 100 {
-                        thread::sleep(std::time::Duration::from_micros(10));
-                    } else {
-                        thread::sleep(std::time::Duration::from_millis(1));
-                    }
-                }
-            }
-        });
-
-        match LOGGER_THREAD.lock() {
-            Ok(mut guard) => *guard = Some(handle),
-            Err(poisoned) => *poisoned.into_inner() = Some(handle),
-        }
+        start_consumer(create_log_file(&self.file_output));
 
         log::set_max_level(self.max_level());
         log::set_boxed_logger(Box::new(self))
@@ -753,55 +723,7 @@ impl Logger {
             guard.take().unwrap_or(FileOutput::None)
         };
 
-        let mut log_file = create_log_file(&file_output);
-
-        let handle = thread::spawn(move || {
-            let mut idle_count = 0u32;
-            let mut stdout = std::io::stdout();
-            loop {
-                if SHUTDOWN.load(Ordering::Acquire) {
-                    while let Some(msg) = MSG_QUEUE.pop() {
-                        let _ = stdout.write_all(msg.text.as_bytes());
-                        if let Some(file) = &mut log_file {
-                            let _ = file.write_all(msg.text.as_bytes());
-                        }
-                    }
-                    let _ = stdout.flush();
-                    if let Some(file) = &mut log_file {
-                        let _ = file.flush();
-                    }
-                    break;
-                }
-
-                if let Some(msg) = MSG_QUEUE.pop() {
-                    idle_count = 0;
-
-                    if stdout.write_all(msg.text.as_bytes()).is_err() {
-                        continue;
-                    }
-
-                    if let Some(file) = &mut log_file {
-                        let _ = file.write_all(msg.text.as_bytes());
-                        let _ = file.flush();
-                    }
-                } else {
-                    idle_count = idle_count.saturating_add(1);
-
-                    if idle_count < 10 {
-                        thread::yield_now();
-                    } else if idle_count < 100 {
-                        thread::sleep(std::time::Duration::from_micros(10));
-                    } else {
-                        thread::sleep(std::time::Duration::from_millis(1));
-                    }
-                }
-            }
-        });
-
-        match LOGGER_THREAD.lock() {
-            Ok(mut guard) => *guard = Some(handle),
-            Err(poisoned) => *poisoned.into_inner() = Some(handle),
-        }
+        start_consumer(create_log_file(&file_output));
     }
 
     /// Shutdown the logger thread gracefully and flush all pending messages.
@@ -851,12 +773,10 @@ impl Logger {
     /// }
     /// ```
     pub fn shutdown() {
-        SHUTDOWN.store(true, Ordering::Release);
+        let _lifecycle = lock_unpoisoned(&LOG_RUNTIME.lifecycle);
+        let _ = LOG_RUNTIME.sender.try_send(LogCommand::Shutdown);
 
-        let handle = match LOGGER_THREAD.lock() {
-            Ok(mut guard) => guard.take(),
-            Err(poisoned) => poisoned.into_inner().take(),
-        };
+        let handle = lock_unpoisoned(&LOGGER_THREAD).take();
         if let Some(handle) = handle {
             let _ = handle.join();
         }
@@ -965,15 +885,82 @@ impl Log for Logger {
                 record.args()
             );
 
-            let _ = MSG_QUEUE.push(LogMessage { text: message });
+            let _ = LOG_RUNTIME
+                .sender
+                .try_send(LogCommand::Message(LogMessage { text: message }));
         }
     }
 
     fn flush(&self) {
-        while MSG_QUEUE.pop().is_some() {}
-
-        let _ = std::io::stdout().flush();
+        flush_consumer();
     }
+}
+
+fn lock_unpoisoned<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    mutex
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+fn start_consumer(log_file: Option<File>) {
+    let _lifecycle = lock_unpoisoned(&LOG_RUNTIME.lifecycle);
+    let Some(receiver) = lock_unpoisoned(&LOG_RUNTIME.receiver).take() else {
+        return;
+    };
+    let handle = thread::spawn(move || {
+        let _ = run_consumer(receiver, std::io::stdout(), log_file);
+    });
+    *lock_unpoisoned(&LOGGER_THREAD) = Some(handle);
+}
+
+fn flush_consumer() {
+    let _lifecycle = lock_unpoisoned(&LOG_RUNTIME.lifecycle);
+    if lock_unpoisoned(&LOGGER_THREAD).is_none() {
+        let _ = std::io::stdout().flush();
+        return;
+    }
+
+    let (ack_tx, ack_rx) = sync_channel(0);
+    if LOG_RUNTIME
+        .sender
+        .try_send(LogCommand::Flush(ack_tx))
+        .is_ok()
+    {
+        let _ = ack_rx.recv();
+    }
+}
+
+fn run_consumer<W: Write, F: Write>(
+    receiver: LogReceiver,
+    mut stdout: W,
+    mut log_file: Option<F>,
+) -> (W, Option<F>) {
+    while let Ok(command) = receiver.recv() {
+        match command {
+            LogCommand::Message(message) => {
+                let _ = stdout.write_all(message.text.as_bytes());
+                if let Some(file) = &mut log_file {
+                    let _ = file.write_all(message.text.as_bytes());
+                    let _ = file.flush();
+                }
+            }
+            LogCommand::Flush(ack) => {
+                let _ = stdout.flush();
+                if let Some(file) = &mut log_file {
+                    let _ = file.flush();
+                }
+                let _ = ack.send(());
+            }
+            LogCommand::Shutdown => {
+                let _ = stdout.flush();
+                if let Some(file) = &mut log_file {
+                    let _ = file.flush();
+                }
+                break;
+            }
+        }
+    }
+    (stdout, log_file)
 }
 
 fn create_log_file(file_output: &FileOutput) -> Option<File> {
@@ -1074,5 +1061,96 @@ fn cleanup_old_logs(dir: &PathBuf, prefix: &str, max_files: usize) {
         for path in log_files.iter().skip(max_files) {
             let _ = fs::remove_file(path);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::{sync::Arc, time::Duration};
+
+    fn message(text: impl Into<String>) -> LogCommand {
+        LogCommand::Message(LogMessage { text: text.into() })
+    }
+
+    #[test]
+    fn queued_messages_are_written_in_order_after_consumer_starts() {
+        let (sender, receiver) = mpsc::unbounded_blocking();
+        sender.try_send(message("first\n")).unwrap();
+        sender.try_send(message("second\n")).unwrap();
+        sender.try_send(LogCommand::Shutdown).unwrap();
+
+        let (stdout, _file) = run_consumer(receiver, Vec::new(), None::<Vec<u8>>);
+
+        assert_eq!(stdout, b"first\nsecond\n");
+    }
+
+    #[test]
+    fn flush_is_an_ordered_barrier_and_does_not_discard_messages() {
+        let (sender, receiver) = mpsc::unbounded_blocking();
+        let handle = thread::spawn(move || run_consumer(receiver, Vec::new(), None::<Vec<u8>>));
+
+        sender.try_send(message("before flush\n")).unwrap();
+        let (ack_tx, ack_rx) = sync_channel(0);
+        sender.try_send(LogCommand::Flush(ack_tx)).unwrap();
+        ack_rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("consumer acknowledged flush");
+        sender.try_send(message("after flush\n")).unwrap();
+        sender.try_send(LogCommand::Shutdown).unwrap();
+
+        let (stdout, _file) = handle.join().unwrap();
+        assert_eq!(stdout, b"before flush\nafter flush\n");
+    }
+
+    #[test]
+    fn idle_consumer_parks_and_wakes_for_work_and_shutdown() {
+        let (sender, receiver) = mpsc::unbounded_blocking();
+        let handle = thread::spawn(move || run_consumer(receiver, Vec::new(), None::<Vec<u8>>));
+
+        thread::sleep(Duration::from_millis(20));
+        sender.try_send(message("wake\n")).unwrap();
+        sender.try_send(LogCommand::Shutdown).unwrap();
+
+        let (stdout, _file) = handle.join().unwrap();
+        assert_eq!(stdout, b"wake\n");
+    }
+
+    #[test]
+    fn concurrent_producers_deliver_every_message_once() {
+        const PRODUCERS: usize = 4;
+        const MESSAGES: usize = 128;
+
+        let (sender, receiver) = mpsc::unbounded_blocking();
+        let consumer = thread::spawn(move || run_consumer(receiver, Vec::new(), None::<Vec<u8>>));
+        let sender = Arc::new(sender);
+        let mut producers = Vec::new();
+        for producer in 0..PRODUCERS {
+            let sender = Arc::clone(&sender);
+            producers.push(thread::spawn(move || {
+                for sequence in 0..MESSAGES {
+                    sender
+                        .try_send(message(format!("{producer}:{sequence}\n")))
+                        .unwrap();
+                }
+            }));
+        }
+        for producer in producers {
+            producer.join().unwrap();
+        }
+        sender.try_send(LogCommand::Shutdown).unwrap();
+
+        let (stdout, _file) = consumer.join().unwrap();
+        let output = String::from_utf8(stdout).unwrap();
+        let mut seen = vec![false; PRODUCERS * MESSAGES];
+        for line in output.lines() {
+            let (producer, sequence) = line.split_once(':').unwrap();
+            let producer = producer.parse::<usize>().unwrap();
+            let sequence = sequence.parse::<usize>().unwrap();
+            let index = producer * MESSAGES + sequence;
+            assert!(!seen[index], "duplicate {line}");
+            seen[index] = true;
+        }
+        assert!(seen.into_iter().all(|item| item));
     }
 }

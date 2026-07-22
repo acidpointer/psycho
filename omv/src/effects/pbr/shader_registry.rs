@@ -584,8 +584,18 @@ const CLOSE_TERRAIN_TEMPLATES: &[ShaderTemplate] = &[
         "#define PBR_TERRAIN_TEX_COUNT 1",
     ),
     pixel(
+        2093,
+        "SLS2093_p_terrain_t1_l0_canopy",
+        "#define PBR_TERRAIN_TEX_COUNT 1",
+    ),
+    pixel(
         2094,
         "SLS2094_p_terrain_t1_l6",
+        "#define PBR_TERRAIN_TEX_COUNT 1\n#define PBR_TERRAIN_POINT_LIGHTS 6",
+    ),
+    pixel(
+        2095,
+        "SLS2095_p_terrain_t1_l6_canopy",
         "#define PBR_TERRAIN_TEX_COUNT 1\n#define PBR_TERRAIN_POINT_LIGHTS 6",
     ),
     pixel(
@@ -594,8 +604,18 @@ const CLOSE_TERRAIN_TEMPLATES: &[ShaderTemplate] = &[
         "#define PBR_TERRAIN_TEX_COUNT 1\n#define PBR_TERRAIN_POINT_LIGHTS 12",
     ),
     pixel(
+        2097,
+        "SLS2097_p_terrain_t1_l12_canopy",
+        "#define PBR_TERRAIN_TEX_COUNT 1\n#define PBR_TERRAIN_POINT_LIGHTS 12",
+    ),
+    pixel(
         2098,
         "SLS2098_p_terrain_t1_l24",
+        "#define PBR_TERRAIN_TEX_COUNT 1\n#define PBR_TERRAIN_POINT_LIGHTS 24",
+    ),
+    pixel(
+        2099,
+        "SLS2099_p_terrain_t1_l24_canopy",
         "#define PBR_TERRAIN_TEX_COUNT 1\n#define PBR_TERRAIN_POINT_LIGHTS 24",
     ),
     pixel(
@@ -604,8 +624,18 @@ const CLOSE_TERRAIN_TEMPLATES: &[ShaderTemplate] = &[
         "#define PBR_TERRAIN_TEX_COUNT 2",
     ),
     pixel(
+        2101,
+        "SLS2101_p_terrain_t2_l0_canopy",
+        "#define PBR_TERRAIN_TEX_COUNT 2",
+    ),
+    pixel(
         2102,
         "SLS2102_p_terrain_t2_l6",
+        "#define PBR_TERRAIN_TEX_COUNT 2\n#define PBR_TERRAIN_POINT_LIGHTS 6",
+    ),
+    pixel(
+        2103,
+        "SLS2103_p_terrain_t2_l6_canopy",
         "#define PBR_TERRAIN_TEX_COUNT 2\n#define PBR_TERRAIN_POINT_LIGHTS 6",
     ),
     pixel(
@@ -614,8 +644,18 @@ const CLOSE_TERRAIN_TEMPLATES: &[ShaderTemplate] = &[
         "#define PBR_TERRAIN_TEX_COUNT 2\n#define PBR_TERRAIN_POINT_LIGHTS 12",
     ),
     pixel(
+        2105,
+        "SLS2105_p_terrain_t2_l12_canopy",
+        "#define PBR_TERRAIN_TEX_COUNT 2\n#define PBR_TERRAIN_POINT_LIGHTS 12",
+    ),
+    pixel(
         2106,
         "SLS2106_p_terrain_t2_l24",
+        "#define PBR_TERRAIN_TEX_COUNT 2\n#define PBR_TERRAIN_POINT_LIGHTS 24",
+    ),
+    pixel(
+        2107,
+        "SLS2107_p_terrain_t2_l24_canopy",
         "#define PBR_TERRAIN_TEX_COUNT 2\n#define PBR_TERRAIN_POINT_LIGHTS 24",
     ),
     pixel(
@@ -624,8 +664,18 @@ const CLOSE_TERRAIN_TEMPLATES: &[ShaderTemplate] = &[
         "#define PBR_TERRAIN_TEX_COUNT 3",
     ),
     pixel(
+        2109,
+        "SLS2109_p_terrain_t3_l0_canopy",
+        "#define PBR_TERRAIN_TEX_COUNT 3",
+    ),
+    pixel(
         2110,
         "SLS2110_p_terrain_t3_l6",
+        "#define PBR_TERRAIN_TEX_COUNT 3\n#define PBR_TERRAIN_POINT_LIGHTS 6",
+    ),
+    pixel(
+        2111,
+        "SLS2111_p_terrain_t3_l6_canopy",
         "#define PBR_TERRAIN_TEX_COUNT 3\n#define PBR_TERRAIN_POINT_LIGHTS 6",
     ),
     pixel(
@@ -634,8 +684,18 @@ const CLOSE_TERRAIN_TEMPLATES: &[ShaderTemplate] = &[
         "#define PBR_TERRAIN_TEX_COUNT 3\n#define PBR_TERRAIN_POINT_LIGHTS 12",
     ),
     pixel(
+        2113,
+        "SLS2113_p_terrain_t3_l12_canopy",
+        "#define PBR_TERRAIN_TEX_COUNT 3\n#define PBR_TERRAIN_POINT_LIGHTS 12",
+    ),
+    pixel(
         2114,
         "SLS2114_p_terrain_t3_l24",
+        "#define PBR_TERRAIN_TEX_COUNT 3\n#define PBR_TERRAIN_POINT_LIGHTS 24",
+    ),
+    pixel(
+        2115,
+        "SLS2115_p_terrain_t3_l24_canopy",
         "#define PBR_TERRAIN_TEX_COUNT 3\n#define PBR_TERRAIN_POINT_LIGHTS 24",
     ),
     pixel(
@@ -644,8 +704,18 @@ const CLOSE_TERRAIN_TEMPLATES: &[ShaderTemplate] = &[
         "#define PBR_TERRAIN_TEX_COUNT 4",
     ),
     pixel(
+        2117,
+        "SLS2117_p_terrain_t4_l0_canopy",
+        "#define PBR_TERRAIN_TEX_COUNT 4",
+    ),
+    pixel(
         2118,
         "SLS2118_p_terrain_t4_l6",
+        "#define PBR_TERRAIN_TEX_COUNT 4\n#define PBR_TERRAIN_POINT_LIGHTS 6",
+    ),
+    pixel(
+        2119,
+        "SLS2119_p_terrain_t4_l6_canopy",
         "#define PBR_TERRAIN_TEX_COUNT 4\n#define PBR_TERRAIN_POINT_LIGHTS 6",
     ),
     pixel(
@@ -654,8 +724,18 @@ const CLOSE_TERRAIN_TEMPLATES: &[ShaderTemplate] = &[
         "#define PBR_TERRAIN_TEX_COUNT 4\n#define PBR_TERRAIN_POINT_LIGHTS 12",
     ),
     pixel(
+        2121,
+        "SLS2121_p_terrain_t4_l12_canopy",
+        "#define PBR_TERRAIN_TEX_COUNT 4\n#define PBR_TERRAIN_POINT_LIGHTS 12",
+    ),
+    pixel(
         2122,
         "SLS2122_p_terrain_t4_l24",
+        "#define PBR_TERRAIN_TEX_COUNT 4\n#define PBR_TERRAIN_POINT_LIGHTS 24",
+    ),
+    pixel(
+        2123,
+        "SLS2123_p_terrain_t4_l24_canopy",
         "#define PBR_TERRAIN_TEX_COUNT 4\n#define PBR_TERRAIN_POINT_LIGHTS 24",
     ),
     pixel(
@@ -664,8 +744,18 @@ const CLOSE_TERRAIN_TEMPLATES: &[ShaderTemplate] = &[
         "#define PBR_TERRAIN_TEX_COUNT 5",
     ),
     pixel(
+        2125,
+        "SLS2125_p_terrain_t5_l0_canopy",
+        "#define PBR_TERRAIN_TEX_COUNT 5",
+    ),
+    pixel(
         2126,
         "SLS2126_p_terrain_t5_l6",
+        "#define PBR_TERRAIN_TEX_COUNT 5\n#define PBR_TERRAIN_POINT_LIGHTS 6",
+    ),
+    pixel(
+        2127,
+        "SLS2127_p_terrain_t5_l6_canopy",
         "#define PBR_TERRAIN_TEX_COUNT 5\n#define PBR_TERRAIN_POINT_LIGHTS 6",
     ),
     pixel(
@@ -674,8 +764,18 @@ const CLOSE_TERRAIN_TEMPLATES: &[ShaderTemplate] = &[
         "#define PBR_TERRAIN_TEX_COUNT 5\n#define PBR_TERRAIN_POINT_LIGHTS 12",
     ),
     pixel(
+        2129,
+        "SLS2129_p_terrain_t5_l12_canopy",
+        "#define PBR_TERRAIN_TEX_COUNT 5\n#define PBR_TERRAIN_POINT_LIGHTS 12",
+    ),
+    pixel(
         2130,
         "SLS2130_p_terrain_t5_l24",
+        "#define PBR_TERRAIN_TEX_COUNT 5\n#define PBR_TERRAIN_POINT_LIGHTS 24",
+    ),
+    pixel(
+        2131,
+        "SLS2131_p_terrain_t5_l24_canopy",
         "#define PBR_TERRAIN_TEX_COUNT 5\n#define PBR_TERRAIN_POINT_LIGHTS 24",
     ),
     pixel(
@@ -684,8 +784,18 @@ const CLOSE_TERRAIN_TEMPLATES: &[ShaderTemplate] = &[
         "#define PBR_TERRAIN_TEX_COUNT 6",
     ),
     pixel(
+        2133,
+        "SLS2133_p_terrain_t6_l0_canopy",
+        "#define PBR_TERRAIN_TEX_COUNT 6",
+    ),
+    pixel(
         2134,
         "SLS2134_p_terrain_t6_l6",
+        "#define PBR_TERRAIN_TEX_COUNT 6\n#define PBR_TERRAIN_POINT_LIGHTS 6",
+    ),
+    pixel(
+        2135,
+        "SLS2135_p_terrain_t6_l6_canopy",
         "#define PBR_TERRAIN_TEX_COUNT 6\n#define PBR_TERRAIN_POINT_LIGHTS 6",
     ),
     pixel(
@@ -694,8 +804,18 @@ const CLOSE_TERRAIN_TEMPLATES: &[ShaderTemplate] = &[
         "#define PBR_TERRAIN_TEX_COUNT 6\n#define PBR_TERRAIN_POINT_LIGHTS 12",
     ),
     pixel(
+        2137,
+        "SLS2137_p_terrain_t6_l12_canopy",
+        "#define PBR_TERRAIN_TEX_COUNT 6\n#define PBR_TERRAIN_POINT_LIGHTS 12",
+    ),
+    pixel(
         2138,
         "SLS2138_p_terrain_t6_l24",
+        "#define PBR_TERRAIN_TEX_COUNT 6\n#define PBR_TERRAIN_POINT_LIGHTS 24",
+    ),
+    pixel(
+        2139,
+        "SLS2139_p_terrain_t6_l24_canopy",
         "#define PBR_TERRAIN_TEX_COUNT 6\n#define PBR_TERRAIN_POINT_LIGHTS 24",
     ),
     pixel(
@@ -704,8 +824,18 @@ const CLOSE_TERRAIN_TEMPLATES: &[ShaderTemplate] = &[
         "#define PBR_TERRAIN_TEX_COUNT 7",
     ),
     pixel(
+        2141,
+        "SLS2141_p_terrain_t7_l0_canopy",
+        "#define PBR_TERRAIN_TEX_COUNT 7",
+    ),
+    pixel(
         2142,
         "SLS2142_p_terrain_t7_l6",
+        "#define PBR_TERRAIN_TEX_COUNT 7\n#define PBR_TERRAIN_POINT_LIGHTS 6",
+    ),
+    pixel(
+        2143,
+        "SLS2143_p_terrain_t7_l6_canopy",
         "#define PBR_TERRAIN_TEX_COUNT 7\n#define PBR_TERRAIN_POINT_LIGHTS 6",
     ),
     pixel(
@@ -714,8 +844,18 @@ const CLOSE_TERRAIN_TEMPLATES: &[ShaderTemplate] = &[
         "#define PBR_TERRAIN_TEX_COUNT 7\n#define PBR_TERRAIN_POINT_LIGHTS 12",
     ),
     pixel(
+        2145,
+        "SLS2145_p_terrain_t7_l12_canopy",
+        "#define PBR_TERRAIN_TEX_COUNT 7\n#define PBR_TERRAIN_POINT_LIGHTS 12",
+    ),
+    pixel(
         2146,
         "SLS2146_p_terrain_t7_l24",
+        "#define PBR_TERRAIN_TEX_COUNT 7\n#define PBR_TERRAIN_POINT_LIGHTS 24",
+    ),
+    pixel(
+        2147,
+        "SLS2147_p_terrain_t7_l24_canopy",
         "#define PBR_TERRAIN_TEX_COUNT 7\n#define PBR_TERRAIN_POINT_LIGHTS 24",
     ),
 ];
@@ -1021,6 +1161,8 @@ mod shader_compile_tests {
         include_str!("../../../../analysis/shaders_disasm/shaderpackage019/SLS2036.vso.dis");
     const VANILLA_TERRAIN_1_PIXEL: &str =
         include_str!("../../../../analysis/shaders_disasm/shaderpackage019/SLS2092.pso.dis");
+    const VANILLA_TERRAIN_1_CANOPY_PIXEL: &str =
+        include_str!("../../../../analysis/shaders_disasm/shaderpackage019/SLS2093.pso.dis");
     const VANILLA_TERRAIN_2_PIXEL: &str =
         include_str!("../../../../analysis/shaders_disasm/shaderpackage019/SLS2100.pso.dis");
     const VANILLA_TERRAIN_7_PIXEL: &str =
@@ -1614,9 +1756,59 @@ mod shader_compile_tests {
     }
 
     #[test]
-    fn close_terrain_registry_matches_every_vpt_non_canopy_row() {
+    fn canopy_companions_neutralize_camera_projected_object_shadows() {
+        assert!(VANILLA_TERRAIN_1_CANOPY_PIXEL.contains("dcl_2d s14"));
+        assert!(VANILLA_TERRAIN_1_CANOPY_PIXEL.contains("dcl_2d s15"));
+        assert!(VANILLA_TERRAIN_1_CANOPY_PIXEL.contains("texld_pp r1.xyzw, r1.xyzw, s15"));
+        assert!(VANILLA_TERRAIN_1_CANOPY_PIXEL.contains("texld_pp r2.xyzw, t6.xyzw, s14"));
+        assert!(!CLOSE_TERRAIN_PIXEL_SOURCE.contains("CanopyShadowMap"));
+        assert!(!CLOSE_TERRAIN_PIXEL_SOURCE.contains("CanopyShadowMask"));
+        assert!(!CLOSE_TERRAIN_PIXEL_SOURCE.contains("CanopyVisibility"));
+
         for texture_count in 1..=7u16 {
-            for (row_offset, point_light_capacity) in [(0u16, 0u16), (2, 6), (4, 12), (6, 24)] {
+            for row_offset in [0u16, 2, 4, 6] {
+                let base_sls = 2092 + (texture_count - 1) * 8 + row_offset;
+                let canopy_sls = base_sls + 1;
+                let base_id = close_terrain_template_id(ShaderStage::Pixel, base_sls).unwrap();
+                let canopy_id = close_terrain_template_id(ShaderStage::Pixel, canopy_sls).unwrap();
+                let base = template_at(base_id).unwrap();
+                let canopy = template_at(canopy_id).unwrap();
+                let base_source = template_source(base_id, base);
+                let canopy_source = template_source(canopy_id, canopy);
+                let base_bytecode = crate::shaders::compile_hlsl_source_target(
+                    base.label,
+                    base_source.as_ref(),
+                    shader_profile(base.stage),
+                )
+                .unwrap();
+                let canopy_bytecode = crate::shaders::compile_hlsl_source_target(
+                    canopy.label,
+                    canopy_source.as_ref(),
+                    shader_profile(canopy.stage),
+                )
+                .unwrap();
+
+                assert_eq!(
+                    canopy_bytecode, base_bytecode,
+                    "SLS{canopy_sls} reintroduced camera-dependent lighting absent from SLS{base_sls}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn close_terrain_registry_matches_every_vpt_row() {
+        for texture_count in 1..=7u16 {
+            for (row_offset, point_light_capacity) in [
+                (0u16, 0u16),
+                (1, 0),
+                (2, 6),
+                (3, 6),
+                (4, 12),
+                (5, 12),
+                (6, 24),
+                (7, 24),
+            ] {
                 let sls_number = 2092 + (texture_count - 1) * 8 + row_offset;
                 let template_id = close_terrain_template_id(ShaderStage::Pixel, sls_number)
                     .unwrap_or_else(|| panic!("missing close-terrain SLS{sls_number}"));
@@ -1639,6 +1831,7 @@ mod shader_compile_tests {
                         "#define PBR_TERRAIN_POINT_LIGHTS {point_light_capacity}"
                     )));
                 }
+                assert!(!template.defines.contains("PBR_TERRAIN_CANOPY_SHADOWS"));
             }
         }
     }
@@ -1799,9 +1992,13 @@ mod shader_compile_tests {
     fn representative_close_terrain_bytecode_stays_bounded() {
         let limits = [
             ("SLS2092_p_terrain_t1_l0", 18_800, 1_130, 2),
+            ("SLS2093_p_terrain_t1_l0_canopy", 18_800, 1_130, 2),
             ("SLS2098_p_terrain_t1_l24", 24_100, 1_450, 2),
+            ("SLS2099_p_terrain_t1_l24_canopy", 24_100, 1_450, 2),
             ("SLS2140_p_terrain_t7_l0", 20_400, 1_240, 14),
+            ("SLS2141_p_terrain_t7_l0_canopy", 20_400, 1_240, 14),
             ("SLS2146_p_terrain_t7_l24", 25_600, 1_550, 14),
+            ("SLS2147_p_terrain_t7_l24_canopy", 25_600, 1_550, 14),
         ];
         for template_id in 0..template_count() {
             let template = template_at(template_id as u16).unwrap();

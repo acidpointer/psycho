@@ -19,6 +19,11 @@ uploads them through disjoint OMV constants. A zero-native-point fallback reads
 only copied scalar values published from the stable world-light transaction;
 it never walks or retains the manager list during a terrain draw.
 
+The replacement now covers all 56 VPT close-terrain pixel rows, including the
+28 odd canopy-shadow companions. An odd row uses the same compiled material and
+light program as its even companion. OMV does not sample the native `s14/s15`
+camera-projected exterior-shadow inputs through VPT's replacement vertex ABI.
+
 The previous manager-only correction was disproven by runtime observation: a
 deployed build still produced zero terrain response while the same Pip-Boy
 light illuminated objects. Static reinspection found two independent native
@@ -359,6 +364,95 @@ branch beginning at `0x00C4C4A8`; passing null, as the prior OMV code did,
 builds a different transform and can move the light out of the terrain's local
 space. OMV now passes the exact `geometry+0xBC` context pointer.
 
+#### Exterior canopy companions and dark night squares
+
+A runtime report on 2026-07-22 disproved the first canopy closure. With the
+deployed all-row build and the Pip-Boy light on at night, close terrain still
+showed dark rectangular regions associated with exterior geometry. The regions
+could appear or disappear as the camera rotated or approached them. The
+deployed DLL matched the current release artifact, all 57 close-terrain shader
+resources were created, and the log contained no close-terrain missing-sampler
+or fallback error. The user's profile had `bDoCanopyShadowPass=1`,
+`TTW Canopy Shadows Restoration.esm`, and `canopyshadowpatch.esp` enabled.
+
+The camera dependence rejects fixed terrain texture or normal data as the
+primary cause. The recovered Pip-Boy candidate is tested against a world-space
+geometry multibound; rotating the camera does not change that intersection.
+The odd landscape row, however, is selected for exterior canopy/object-shadow
+state and consumes camera-relative projected resources. This evidence changes
+the closure from "preserve native canopy sampling" to "keep odd-row PBR
+coverage but neutralize the unproven projected-shadow inputs."
+
+The executable researched for this closure is the 32-bit PE at
+`fnv_reverse/FalloutNV.exe`, SHA-256
+`42fee7d6cd74e801372aa89c8f71c974cebd3c20ec9ad43d1465b8fa9646b49c`.
+Radare2 analysis of `0x00BDF3E0` confirms that the native landscape builder
+adds one to the selected row when its canopy-shadow argument is set. VPT's
+source preserves the same `+1` rule in both its zero-point and point-light
+branches. Consequently, each texture/light row has an odd canopy companion:
+`504/506/.../558` beside the non-canopy `503/505/.../557` row.
+
+OMV previously registered and replaced only the 28 even SLS pixels
+`SLS2092/SLS2094/.../SLS2146`. It recognized the 28 odd companions but
+deliberately returned no replacement, leaving them on native shaders. That
+made neighboring terrain use different material and light paths. In
+particular, an odd zero-point row had no access to OMV's recovered Pip-Boy
+light at `c91..c139`, so a night scene could alternate between positive PBR
+local-light response and zero response at terrain/canopy boundaries.
+
+The installed shader archives prove only the native pixel side. All 448 odd
+companion shaders across the 16 archived packages declare `s14` and `s15`.
+Package 19 `SLS2093.pso` samples shadow color from `s14` with `TEXCOORD6.xy`
+and strength from `s15` with `TEXCOORD6.zw`. VPT's `TerrainTemplate.hlsl`
+replacement vertex shader instead writes clip position to `TEXCOORD6` for its
+per-pixel fog path and VPT provides no odd companion pixel source. NVR avoids
+this unresolved composition entirely by forcing
+`bDoCanopyShadowPass:Display` to zero. Therefore native pixel disassembly was
+insufficient evidence that OMV could safely compose those resources with the
+VPT vertex replacement. Runtime behavior rejected that inference.
+
+OMV now registers the full odd family `SLS2093..SLS2147`, specialized for
+one through seven material layers and native point capacities `0/6/12/24`.
+The draw classifier preserves the exact pass-to-pixel identity and marks the
+odd rows as native canopy companions for diagnostics. Each odd shader is now a
+logical alias of its even PBR companion: it uses the same diffuse/normal
+samplers, native and supplemental point-light ABI, and compiled bytecode. Its
+bind gate does not require `s14/s15`, and the HLSL declares or samples neither.
+This leaves the user's global canopy-shadow setting and non-OMV render paths
+untouched while preventing camera-projected exterior masks from entering close
+terrain PBR.
+
+The production regression has two parts. Native package-19 disassembly is the
+negative control and proves that the rejected path reads `s14/s15`. Then all 28
+production odd templates are compiled and their bytecode must equal the paired
+even template exactly. Separate mapping tests prove all 56 rows and sampler
+masks: a one-layer base or companion requires `0x0081`; a seven-layer companion
+requires `0x3FFF`, never `0xC000`. Representative bytecode tests require the
+same exact texture counts and ceilings for each pair. The 28 companion resource
+slots remain cached because the engine uses distinct SLS identities, but they
+add no texture fetch or point-loop work over the base family. The draw path adds
+one one-time activation log and no per-draw allocation, lock, file I/O, state
+readback, or diagnostic work.
+
+Static validation proves row coverage, resource exclusion, production-bytecode
+identity, compilation, and bounded work; it does not prove final runtime
+pixels. Ordinary acceptance must check the original exterior at night with
+Pip-Boy off/on while rotating and approaching the affected geometry, plus a
+daylight check. Native canopy appearance under OMV PBR is intentionally not
+claimed; restoring it requires a separately proven VPT-compatible projection
+contract and a runtime image regression.
+
+Static validation on 2026-07-22:
+
+- the new focused sampler/source tests failed against the first canopy closure
+  because it required `s14/s15` and declared both projected resources;
+- focused canopy classification, sampler, and production-bytecode tests passed;
+- every registered PBR production variant compiled as shader model 3;
+- representative base/canopy, one/seven-layer, zero/24-light bytecode budgets
+  passed with exact texture counts;
+- `cargo test --target i686-pc-windows-gnu -p omv`: 243 passed;
+- `cargo build --release --target i686-pc-windows-gnu -p omv`: passed.
+
 The final light/shadow continuity closure separates two native systems that must not be conflated. `FUN_00B70390` stable-sorts each PPLighting property's light list by the normalized camera-relative sphere-separation metric from `FUN_00B9DBE0`; equal metrics keep the existing order, while a real crossing reorders the list and invalidates cached pass state. This general light-list truncation has no outgoing-light cross-fade. In contrast, shadow candidates use target direction `+0xD8` and elapsed transition time `+0xDC`: `FUN_00B9BB10` preserves the current fade when direction reverses, and `FUN_00B9E970` advances and applies that fade before dirtying attached PPLighting properties at membership boundaries. `FUN_00B717A0` removes a rejected candidate from an eligible property's light list and marks that property dirty.
 
 This evidence does not justify adding hysteresis to the native light comparator or a second shadow fade. Either change would alter vanilla selection without proving a PBR contract failure. A residual PBR-only blink must first identify the changing replacement row and staged light/resource values against the same native draw; preserve the existing shadow transition for native pass lights, but do not reuse it as visibility for an OMV-recovered light that the native pass omitted.
@@ -367,6 +461,10 @@ Do not repeat:
 
 - Do not replace projected-shadow, point-light, SI, LandO, or landlo-fog rows until independently proven.
 - Do not bind terrain samplers onto light-resource rows.
+- Do not leave an admitted VPT canopy companion on the native material/light
+  path. Pair it with the corresponding PBR variant, but do not sample native
+  `s14/s15` until both sides of the VPT-compatible projection ABI and runtime
+  pixels are proven.
 - Do not discard the proven VPT point-light alpha fade after a point-light row is admitted, and do not apply an omitted light's native shadow/pass fade as supplemental visibility.
 - Do not decode one final encoded terrain-normal blend unless the engine
   contract proves the layer weights sum to one. Center every sample before its
@@ -403,7 +501,7 @@ Correct fix path:
   the static evidence, not merely self-consistent math fixtures.
 - Compile every registered close-terrain variant and retain tight bytecode,
   instruction-count, and exact texture-sample budgets for representative
-  one-layer/seven-layer and zero-light/24-light extremes.
+  one-layer/seven-layer, base/canopy, and zero-light/24-light extremes.
 
 ### 7. Object Distance PBR Blink
 
@@ -613,7 +711,16 @@ Symptom:
 
 Cause:
 
-Close terrain has one vertex shader and 28 pixel variants across texture counts and `0/6/12/24` point-light buckets. A shared HLSL edit invalidates the cache for the whole family. The broken readiness gate required every variant to finish compiling and creating before it admitted any close-terrain draw. On the measured runtime, useful zero-light variants were ready early, while high-light variants were still compiling more than two minutes later. The game exited before the family-wide gate could open. The object path had the same structural mistake across 101 variants: one failed or warming pair could block every otherwise-ready object pair.
+Close terrain originally had one vertex shader and 28 base pixel variants
+across texture counts and `0/6/12/24` point-light buckets; complete canopy
+coverage now makes that 56 pixel variants. A shared HLSL edit invalidates the
+cache for the whole family. The broken readiness gate required every variant to
+finish compiling and creating before it admitted any close-terrain draw. On the
+measured runtime, useful zero-light variants were ready early, while high-light
+variants were still compiling more than two minutes later. The game exited
+before the family-wide gate could open. The object path had the same structural
+mistake across 101 variants: one failed or warming pair could block every
+otherwise-ready object pair.
 
 Do not repeat:
 

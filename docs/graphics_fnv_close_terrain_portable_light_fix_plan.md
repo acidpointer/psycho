@@ -101,7 +101,12 @@ draw after native state is staged and before OMV uploads its own constants.
 
 Run supplementation only inside the already-admitted close-terrain replacement
 path. Keep all existing pass/pixel-row, shader-pair, sampler, exterior, and
-resource gates. Canopy rows and foreign/mismatched rows remain native.
+resource gates. Foreign and mismatched rows remain native. The original
+portable-light deployment kept canopy companions native; the later dark-square
+regression proved that policy incomplete. All 28 canopy companions now use
+their own PBR identities but compile to the same material/light bytecode as
+their paired base rows. They do not consume native `s14/s15`, as documented in
+`graphics_fnv_pbr_errata.md`.
 
 ### 2. Read current native membership
 
@@ -248,9 +253,11 @@ Required pure tests:
 
 Required row and shader tests:
 
-1. All 28 non-canopy close-terrain variants map exactly across 1..7 textures
-   and native capacities 0/6/12/24.
-2. All 28 canopy companions remain classified but native.
+1. All 56 close-terrain variants map exactly across 1..7 textures, native
+   capacities 0/6/12/24, and base/canopy companions.
+2. All 28 canopy companions exclude `s14/s15`; each production-compiled shader
+   is byte-identical to its paired base row so projected object-shadow data
+   cannot make local-light response camera-dependent.
 3. Mismatched and foreign pass/pixel pairs are rejected.
 4. HLSL source asserts native `c39/c63/c88`, OMV `c91/c92..c139`, and saturated
    alpha use.
@@ -379,5 +386,6 @@ this closed contract, not a new design question.
 - identifying the portable light by name or form;
 - mutating another owner's render pass or `c39/c63/c88` data;
 - broadening close-terrain draw admission;
-- enabling canopy replacement;
+- changing the user's global canopy-shadow setting or sampling projected
+  canopy resources without a proven VPT-compatible vertex/pixel ABI;
 - claiming that static tests prove runtime pixels.

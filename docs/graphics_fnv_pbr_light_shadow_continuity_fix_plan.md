@@ -62,7 +62,8 @@ supplemental ABI is not uploaded to or consumed by these families.
 ## Contracts Preserved
 
 - Existing close-terrain pass/pixel mapping and exterior/resource gates.
-- Canopy rows remain native.
+- Canopy rows keep dedicated engine identities but compile to their paired base
+  PBR material/light program; native `s14/s15` projected inputs are excluded.
 - Native render-pass light array is read-only.
 - Native point-light `c39/c63/c88` is read-only.
 - OMV terrain configuration remains `c89/c90`.
@@ -92,8 +93,9 @@ Pure merge tests cover:
   radius;
 - count/interleaved constant layout and zero-count reset.
 
-Row tests cover all 28 non-canopy variants, 28 canopy companions, and foreign
-or mismatched pairs.
+Row tests cover all 28 base variants, all 28 canopy companions, projected
+sampler exclusion, paired production-bytecode identity, and foreign or
+mismatched pairs.
 
 Shader tests cover:
 

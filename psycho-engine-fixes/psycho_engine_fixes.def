@@ -6,3 +6,4 @@ EXPORTS
     PsychoEngineFixes_NotifyEvent @3
     Syringe_ModActivate @4
     PsychoEngineFixes_QueryDashboard @5
+    PsychoEngineFixes_RequestDashboardRefresh @6

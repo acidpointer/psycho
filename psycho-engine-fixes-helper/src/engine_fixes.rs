@@ -18,16 +18,19 @@ use libpsycho::{
 const CORE_DLL: &str = "psycho_engine_fixes.dll";
 const NOTIFY_EVENT_EXPORT: &str = "PsychoEngineFixes_NotifyEvent";
 const QUERY_DASHBOARD_EXPORT: &str = "PsychoEngineFixes_QueryDashboard";
+const REQUEST_DASHBOARD_REFRESH_EXPORT: &str = "PsychoEngineFixes_RequestDashboardRefresh";
 
 // These ids mirror `psycho-engine-fixes/src/events.rs`.
 pub(crate) const EVENT_DEFERRED_INIT: u32 = 1;
 pub(crate) const EVENT_ON_FRAME_PRESENT: u32 = 6;
 
-pub(crate) const DASHBOARD_ABI_VERSION: u32 = 1;
+pub(crate) const DASHBOARD_ABI_VERSION: u32 = 2;
 pub(crate) const DASHBOARD_FLAG_CORE_READY: u32 = 1 << 0;
 pub(crate) const DASHBOARD_FLAG_PRE_CRT_BOUNDARY: u32 = 1 << 1;
 pub(crate) const DASHBOARD_FLAG_VAS_VALID: u32 = 1 << 2;
 pub(crate) const DASHBOARD_FLAG_BLOCK_SAMPLE_VALID: u32 = 1 << 3;
+pub(crate) const DASHBOARD_FLAG_PROCESS_SAMPLE_VALID: u32 = 1 << 4;
+pub(crate) const DASHBOARD_REFRESH_VAS: u32 = 1;
 
 pub(crate) const DASHBOARD_FEATURE_DISPLAY: u64 = 1 << 0;
 pub(crate) const DASHBOARD_FEATURE_SAVE_INTEGRITY: u64 = 1 << 1;
@@ -41,11 +44,13 @@ pub(crate) const DASHBOARD_FEATURE_VERTEX_BUFFERS: u64 = 1 << 7;
 type NotifyEventFn =
     unsafe extern "system" fn(kind: u32, data: *const u8, data_len: usize, bool_value: i32) -> i32;
 type QueryDashboardFn = unsafe extern "system" fn(output: *mut DashboardSnapshot) -> i32;
+type RequestDashboardRefreshFn = unsafe extern "system" fn(kind: u32) -> i32;
 
 static NOTIFY_EVENT: AtomicUsize = AtomicUsize::new(0);
 static QUERY_DASHBOARD: AtomicUsize = AtomicUsize::new(0);
+static REQUEST_DASHBOARD_REFRESH: AtomicUsize = AtomicUsize::new(0);
 
-/// Exact mirror of the core's version-1 plain-data dashboard ABI.
+/// Exact mirror of the core's version-2 plain-data dashboard ABI.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
 pub(crate) struct DashboardSnapshot {
@@ -54,6 +59,8 @@ pub(crate) struct DashboardSnapshot {
     pub flags: u32,
     pub allocator_mode: u32,
     pub sample_time_ms: u64,
+    pub process_sample_time_ms: u64,
+    pub vas_sample_time_ms: u64,
     pub active_features: u64,
     pub process_rss_bytes: u64,
     pub process_peak_rss_bytes: u64,
@@ -110,9 +117,15 @@ pub(crate) struct DashboardSnapshot {
     pub speedtree_waiters: u64,
     pub speedtree_max_materialization_wait_us: u64,
     pub speedtree_max_compute_wait_us: u64,
+    pub dashboard_queries: u64,
+    pub dashboard_query_last_us: u64,
+    pub dashboard_query_max_us: u64,
+    pub dashboard_vas_refreshes: u64,
+    pub dashboard_vas_refresh_last_us: u64,
+    pub dashboard_vas_refresh_max_us: u64,
 }
 
-const _: () = assert!(size_of::<DashboardSnapshot>() == 472);
+const _: () = assert!(size_of::<DashboardSnapshot>() == 536);
 
 impl DashboardSnapshot {
     fn request() -> Self {
@@ -147,7 +160,14 @@ pub(crate) fn query_dashboard() -> Option<DashboardSnapshot> {
 }
 
 pub(crate) fn has_dashboard_api() -> bool {
-    resolve_query_dashboard().is_some()
+    resolve_query_dashboard().is_some() && resolve_request_dashboard_refresh().is_some()
+}
+
+pub(crate) fn request_dashboard_refresh(kind: u32) -> bool {
+    let Some(function) = resolve_request_dashboard_refresh() else {
+        return false;
+    };
+    unsafe { function(kind) != 0 }
 }
 
 fn resolve_notify_event() -> Option<NotifyEventFn> {
@@ -163,6 +183,14 @@ fn resolve_query_dashboard() -> Option<QueryDashboardFn> {
     let ptr = resolve_cached(&QUERY_DASHBOARD, QUERY_DASHBOARD_EXPORT)?;
 
     unsafe { FnPtr::<QueryDashboardFn>::from_raw(ptr as *mut c_void) }
+        .ok()
+        .map(|function| function.as_fn())
+}
+
+fn resolve_request_dashboard_refresh() -> Option<RequestDashboardRefreshFn> {
+    let ptr = resolve_cached(&REQUEST_DASHBOARD_REFRESH, REQUEST_DASHBOARD_REFRESH_EXPORT)?;
+
+    unsafe { FnPtr::<RequestDashboardRefreshFn>::from_raw(ptr as *mut c_void) }
         .ok()
         .map(|function| function.as_fn())
 }

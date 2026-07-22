@@ -88,27 +88,22 @@ pub fn sample() -> Option<Summary> {
     Some(summary)
 }
 
-/// Return a recent VAS walk, refreshing it only when the shared cache is old.
-///
-/// The gheap watchdog already walks VAS every five seconds. Dashboard queries
-/// reuse that result instead of multiplying `VirtualQuery` traffic at the UI's
-/// 1.5-second chart cadence. Allocator modes without the watchdog retain full
-/// dashboard coverage through this slower on-demand refresh.
-pub fn cached_or_sample(max_age_ms: u32) -> Option<Summary> {
-    let now = get_tick_count();
-    let cached = *LAST_SAMPLE.read();
-    if cached.is_some_and(|sample| now.wrapping_sub(sample.sampled_at_ms) < max_age_ms) {
-        return cached.map(|sample| sample.summary);
-    }
+/// Return the latest completed VAS walk without waiting or refreshing it.
+pub fn cached() -> Option<(Summary, u32)> {
+    let cached = *LAST_SAMPLE.try_read()?;
+    cached.map(|sample| (sample.summary, sample.sampled_at_ms))
+}
 
+/// Perform the dashboard's explicitly requested VAS refresh.
+pub fn refresh_for_dashboard() -> Option<Summary> {
     if DASHBOARD_REFRESHING
         .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
         .is_err()
     {
-        return cached.map(|sample| sample.summary);
+        return cached().map(|(summary, _)| summary);
     }
 
     let refreshed = sample();
     DASHBOARD_REFRESHING.store(false, Ordering::Release);
-    refreshed.or_else(|| cached.map(|sample| sample.summary))
+    refreshed.or_else(|| cached().map(|(summary, _)| summary))
 }

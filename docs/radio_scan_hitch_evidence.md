@@ -2,15 +2,150 @@
 
 ## Status
 
-This report records the radio hitch investigation on 2026-07-16. Runtime has
-now disproved both the scheduler-yield and candidate-enumeration fixes. The
-current root cause is repeated door-policy work inside Stewie Tweaks' active
-teleport-door provider. Runtime validation confirms the replacement reduced
-the scan from a 42.756 ms baseline average to 5.202 ms without changing the
-observed station/path result distribution.
+This report records the radio hitch investigation begun on 2026-07-16 and the
+provider-agnostic cooperative scheduling change implemented on 2026-07-22.
+Runtime proved that repeated door-policy work in the installed Stewie Tweaks
+provider caused the original 42.756 ms burst. The exact policy optimization
+reduced that installed-provider case to 5.202 ms, but it cannot be the general
+frame-pacing fix because an arbitrary provider or future provider build may
+occupy the same engine vtable slot.
+
+The general fix now intercepts the game-owned mode-0 distance wrapper call at
+`0x004FF397`, independently of the vtable provider. A periodic scan consumes
+the last complete distance generation while the next generation is recomputed
+cooperatively, at most one opaque provider query per presented frame. The
+provider still runs on the game thread and through the original engine wrapper.
+No provider module name, address, version, or byte signature participates in
+the cooperative path.
+
+The code and 32-bit regression tests are validated; gameplay/frame-time
+acceptance is still awaiting playtest. The earlier 5.202 ms result applies to
+the exact policy optimization, not yet to the cooperative implementation.
+
+The first corrected-resolver playtest remained stable but did not materially
+change the reported sawtooth. That run had hitch profiling disabled, and its
+startup record proved only that the callsite patches installed. It did not
+prove that the frame event and radio scan shared a thread, that a generation
+was collected and published, or how much one scheduled provider call cost.
+The implementation therefore emits bounded first-use evidence: one delayed
+fallback record if scheduling is unavailable, one collection record, and one
+publication record containing the first generation's job count and total/max
+query time. There is no interval logger. Query timing stops permanently after
+the first successful publication.
+
+That evidence proved the cooperative path was active on the same thread and
+did not fall back: 12 requests were collected in 51 us and all 12 provider
+calls completed in 5.929 ms total, with a 1.293 ms maximum individual call.
+However, those calls occupied 12 consecutive presented frames over 156 ms.
+The resulting loaded-frame block followed by an idle block explains why a
+rolling frame-time graph could retain a sawtooth despite removal of the old
+single 42-45 ms scan burst.
+
+The scheduler now measures the preceding radio-scan interval and releases the
+same jobs uniformly across that interval. The first scan and intervals outside
+16-500 ms use the proven 250 ms engine cadence so startup/loading gaps cannot
+poison pacing. A delayed frame may leave multiple nominal slots overdue, but
+each frame callback still executes at most one job; subsequent frames catch up
+one job at a time. Provider ABI, thread ownership, request count, query order,
+complete-generation publication, and scan behavior are unchanged.
+
+## 2026-07-22 Save-Load Crash and Resolver Correction
+
+The first cooperative runtime crashed immediately after the save finished
+loading. `CrashLogger.log` proves this was introduced by the cooperative frame
+callback:
+
+```text
+falloutnv                 0x004F9620
+psycho_engine_fixes       0x100BE4B0
+psycho_engine_fixes_helper
+nvse_1_4 DisplayFrameHook<0>
+ECX = 0
+```
+
+The initial implementation incorrectly treated `0x004F9620` as runtime
+`LookupFormByID`. Radare2 proves `0x004F9620` is actually an instruction inside
+the thiscall constructible-object method beginning at `0x004F95A0`; it reads
+the object through `ECX`. The cooperative code passed a FormID on the cdecl
+stack and left `ECX` null, causing the observed access violation before any
+path-provider query ran.
+
+The bad address came from reading the `#elif EDITOR` definition in xNVSE's
+`GameAPI.cpp` as though it applied to the runtime build. The runtime section
+implements `LookupFormByID` against the live forms map instead. The equivalent
+game-owned runtime resolver is `0x004839C0`, already used by
+`engine_fixes/extraownership.rs` and documented by
+`analysis/ghidra/output/crash/entrydata_formref_resolver_contract_audit.txt`.
+
+Radare2 reconfirmed the runtime resolver contract in the current executable:
+
+- cdecl one-argument ABI: reads the FormID at `[EBP+8]` and returns with plain
+  `RET`;
+- returns the resolved TESForm in `EAX` or null;
+- reads live map owner `0x011C54C0` and supplies it as `ECX` to the map lookup;
+- has 974 static call references in the executable.
+
+The cooperative implementation now calls `0x004839C0` and verifies its exact
+18-byte entry signature before installing either radio callsite patch. A
+signature mismatch fails closed at startup. Because the crash occurred inside
+the first resolver call, it supplies no evidence of a path-provider or
+`OnFramePresent` phase failure; those paths were never reached in the crashed
+run.
 
 The latest branch telemetry disproved the proposed mode-0 immediate-goal fast
 path. Do not implement that fast path from the earlier Ghidra audit hypothesis.
+
+## Cooperative Scheduling Contract
+
+`FUN_00833D00` calls the periodic scanner at `0x00833D86` and immediately
+iterates its returned station list after the call. Its caller-owned output
+containers cannot survive a return, so the whole scanner cannot simply resume
+on a worker or later frame. `FUN_004FF1A0`, however, has one independently
+replaceable expensive boundary: the mode-0 call at `0x004FF397` to
+`FUN_006D4EB0`.
+
+The cooperative implementation has three phases:
+
+1. During a periodic scan, each mode-0 call returns the matching result from
+   the last fully published generation, or the engine's exact failure sentinel
+   when no prior result exists. The scan records only the station FormID,
+   current-reference FormID, radius, and query key.
+2. `OnFramePresent` event 6 executes at most one recorded request when its
+   thread ID matches the periodic scanner's thread. Both references are
+   re-resolved by FormID, and fresh 0x28-byte `PathingLocation` objects are
+   constructed immediately before calling the original `0x006D4EB0` wrapper.
+3. Results remain private until every request succeeds. Publication replaces
+   the complete prior array in one state transition. The next periodic scan
+   then consumes that coherent generation.
+
+This is asynchronous with respect to the radio refresh, not concurrent engine
+pathing. Calling an unknown provider from a worker would assume undocumented
+thread safety for its globals, locks, allocators, navmesh state, references,
+and any future implementation. Keeping each provider call on the proven game
+thread makes the mechanism work with vanilla, with any Stewie Tweaks build,
+and with unrelated replacement providers.
+
+Only plain FormIDs, radius values, and completed floats persist across frames.
+No engine pointer, iterator, `PathingLocation`, provider object, stack frame,
+or caller-owned output list crosses the boundary. A load/menu state clears the
+pipeline. An unresolved FormID aborts the building generation and retains the
+last complete snapshot. Missing, stale, or foreign-thread frame events cause
+the scanner to use the original synchronous wrapper. The same fallback is
+retained after the fixed 512-query safety capacity is exceeded.
+
+The normal station refresh cadence remains unchanged. A newly computed
+generation becomes visible on the following radio refresh, normally about
+250 ms later. At 60 FPS, the observed 12-query generation takes about 200 ms
+to compute; at lower frame rates it may require another refresh. The first
+cooperative scan deliberately reports no mode-0 station until its first full
+generation completes. This bounded detection latency is the tradeoff that
+removes the single multi-query burst without changing provider semantics.
+
+The exact disposition-3 door-policy bypass remains a capability-gated optional
+fast path for the already-proven vanilla/Stewie layouts. It reduces total CPU
+work when its signatures match, but cooperative scheduling does not depend on
+it. Unknown or updated providers retain their behavior and are merely spread
+across presentation frames.
 
 ## Root Cause
 
@@ -67,19 +202,23 @@ analysis/ghidra/output/perf/radio_vanilla_provider_independence_audit.txt
 .research/ROOGNVSE/ttw_nvse/ttw_nvse.h
 ```
 
-## Implemented Fix and Single-Run Validation
+## Prior Exact Policy Optimization and Single-Run Validation
 
-`psycho-engine-fixes/src/mods/perf/radio.rs` now scopes the bypass through the
-actual traversal query. It activates only while the periodic radio scan is
-running and the query vtable and three fields match the tuple above. It supports
-both the original game provider and Stewie 9.95 after exact provider, branch,
-setup, cleanup, and game-function signatures match. It has no ROOG dependency.
+`psycho-engine-fixes/src/mods/perf/radio.rs` also scopes an optional bypass
+through the actual traversal query. It activates only while a periodic or
+cooperatively scheduled radio query is running and the query vtable and three
+fields match the tuple above. It supports both the original game provider and
+the analyzed Stewie 9.95 provider after exact provider, branch, setup, cleanup,
+and game-function signatures match. It has no ROOG dependency and is not a
+prerequisite for cooperative scheduling.
 
 Each skipped setup is paired to the immediately following accessibility call
 using both the stack-data pointer and door pointer. The accessibility hook
 writes the same successful/no-flag result that reaches disposition 3's
 zero-penalty continuation. All nonmatching calls execute the original code.
-No path result, door list, node, or game state is cached.
+That optional policy optimization caches no path result, door list, node, or
+game state. The separate cooperative layer retains only complete float result
+generations and stable scalar query keys as described above.
 
 The affected-save validation recorded 134 scans:
 
@@ -106,13 +245,14 @@ modified providers fail signature checks and retain their original behavior.
 Any final fix must preserve all of these properties:
 
 - Every vanilla radio refresh still runs at the original cadence.
-- Station availability is recomputed from current game state.
-- Mode-0 path distance and failure behavior remain exact.
+- Station availability is recomputed continuously and a result set is exposed
+  only after its complete cooperative generation finishes.
+- Every mode-0 path distance and failure result comes from the original active
+  provider; only its consumption is delayed by one coherent generation.
 - Modes 2 and 3 retain their path-chain filtering semantics.
-- No result is reused across scans without a complete engine invalidation
-  contract.
-- No global feature disable, station exclusion, refresh throttle, or stale
-  result fallback is acceptable as the fix.
+- No engine pointer or partial result generation is reused across scans.
+- No global feature disable, station exclusion, or refresh throttle is
+  acceptable as the fix.
 - The active runtime path provider must be respected rather than bypassed with
   an assumed vanilla implementation.
 
@@ -464,11 +604,14 @@ Source: `radio_mode0_immediate_goal_scope_cost_audit.txt:1364-1427`.
 
 ## Rejected Approaches
 
-### Cross-scan result cache
+### Unbounded or TTL result cache
 
 Rejected and removed. The engine graph identity, generation, and invalidation
-contract is incomplete. A TTL still serves stale gameplay state and can alter
-station availability or distance.
+contract is incomplete. An arbitrary TTL can serve multiple stale refreshes
+and alter station availability or distance without a bounded recomputation
+contract. This is distinct from the implemented double buffer: every radio
+refresh either collects a fresh full generation or allows one already in
+flight to finish, and only a complete generation is published.
 
 Removed elements included whole-result TTL caching, pointer snapshots, replay,
 loading suppression, and related configuration.
@@ -603,6 +746,83 @@ cargo build --release --target i686-pc-windows-gnu \
   -p syringe -p psycho-engine-fixes -p psycho-engine-fixes-helper
 ```
 
+## Current Implementation Ownership and Validation
+
+The executable contract was reconfirmed against `FalloutNV.exe` with SHA-256
+`42fee7d6cd74e801372aa89c8f71c974cebd3c20ec9ad43d1465b8fa9646b49c`.
+The existing focused output under `analysis/ghidra/output/perf/` remains the
+durable disassembly/decompilation evidence; the 2026-07-22 radare2 session
+reconfirmed the same addresses and call shapes in the current executable.
+
+Static proof:
+
+- `0x00833D86 -> 0x004FF1A0` owns caller-local output lists which
+  `FUN_00833D00` iterates immediately after return.
+- At `0x004FF397`, outer `EBP-0x24` is the station reference and `EBP+0x08`
+  is the current reference. The cdecl argument stack is station location,
+  current location, radius, null actor data, and disposition 3.
+- `0x006D4EB0` returns a float in x87 `ST(0)` and uses the value at
+  `0x01016970` on failure.
+- `0x006DCD70` constructs a 0x28-byte `PathingLocation` from a live reference;
+  `0x004FF7E0` is its destructor. TESForm FormID is at `+0x0C`, and the cdecl
+  runtime helper `0x004839C0` resolves a FormID back to a live form.
+- `0x006D4EB0` dispatches through the current path-query provider, so calling
+  that original wrapper preserves provider replacement rather than assuming
+  vanilla `0x006F36D0`.
+
+Source ownership:
+
+- `psycho-engine-fixes/src/mods/perf/radio.rs` owns the verified callsite
+  bridge, generation state machine, reference reconstruction, main-thread
+  guard, original fallback, optional exact policy fast path, and tests.
+- `psycho-engine-fixes/src/events.rs` owns the core event ID 6 definition.
+- `psycho-engine-fixes-helper/src/events.rs` already forwards xNVSE
+  `OnFramePresent` through the late-bound core ABI. No dashboard refresh or
+  rendering functionality was removed or reduced.
+
+Startup first verifies the periodic and mode-0 relative call targets plus the
+surrounding mode-0 bytes. The mode-0 bridge is installed before the periodic
+scope hook; if the latter cannot install, the bridge sees no cooperative scope
+and calls the original wrapper. Deferred initialization may later install the
+optional exact policy hooks after their independent capability checks.
+
+The bridge's release codegen was inspected in the i686 DLL. It copies the five
+original cdecl arguments, adds outer `EBP` as a sixth internal argument, calls
+the Rust body, removes exactly 24 bytes, and returns without disturbing the
+x87 float. The original game caller still removes its own 20 argument bytes.
+
+Validation completed on 2026-07-22:
+
+```text
+cargo test --target i686-pc-windows-gnu -p psycho-engine-fixes radio::tests
+  5 passed
+cargo test --target i686-pc-windows-gnu -p psycho-engine-fixes --lib
+  17 passed
+cargo build --release --target i686-pc-windows-gnu \
+  -p psycho-engine-fixes -p psycho-engine-fixes-helper
+  passed
+```
+
+The unfiltered crate command also invokes three unrelated pre-existing
+doctests whose assembly listings in `havok.rs` and `navmesh.rs` are marked as
+Rust; those doctests fail to parse. All 17 executable unit tests pass, and
+neither unrelated source file was changed.
+
+The tests reject partial publication, loss of a prior snapshot after a failed
+generation, duplicate work, the wrong `PathingLocation` layout, and diagnostic
+aggregation regressions. Required gameplay acceptance remains:
+
+1. Startup reports `Cooperative main-thread radio queries active`.
+2. Existing and newly entered radio stations appear and disappear correctly,
+   allowing for one refresh of detection latency.
+3. Loading, fast travel, save load, interiors/exteriors, and menu transitions
+   do not retain invalid results or crash.
+4. Frame-time telemetry no longer shows one aggregate radio spike at roughly
+   250 ms intervals. An individual opaque provider query may still be visible;
+   this layer cannot preempt inside third-party provider code.
+5. Validate once with the installed provider and once without it. No source
+   change or provider-version signature should be needed for cooperative mode.
+
 ## Crash Logger Note
 
 The latest `CrashLogger.log` contains only:
@@ -631,9 +851,10 @@ The earlier report required at least one of these contracts to be proven:
    domain with exactly the same semantics as mode-0 traversal.
 
 The provider-boundary follow-up resolved items 1 and 2, but runtime proved item
-2 is not a useful performance boundary. The current implementation instead
-uses the exact disposition-3 dead-policy contract and does not depend on the
-still-unproven broader contracts in items 3-5.
+2 is not a useful performance boundary. The optional CPU optimization uses the
+exact disposition-3 dead-policy contract. Cooperative scheduling treats the
+provider as opaque and does not depend on the still-unproven broader contracts
+in items 3-5.
 
 ## Previous Next Research Direction
 
@@ -657,6 +878,21 @@ Steps 1-5 were completed at the candidate boundary, and runtime disproved that
 optimization. The discarded-policy audit then identified the next exact
 boundary. Runtime validation still must confirm unchanged station counts and
 success/failure distribution while measuring whether scan time drops.
+
+## Profiling output cost
+
+Hitch profiling still records every slow scan in TLS, but it no longer submits
+one file-flushed log record per scan. Slow scans are accumulated into a
+one-second window and one `[RADIO_SCAN]` record reports the window's count,
+average/maximum total and residual time, summed branch/provider counters, and
+summed/max query and traversal timings. The first slow scan starts the window;
+no timer or aggregation runs when hitch profiling is disabled.
+
+This changes diagnostics only. Scan cadence, query inputs, station results,
+door-policy guards, and fallback behavior are untouched. The aggregation is
+important because the crash-safe logger flushes every record and the observed
+radio cadence can otherwise create up to four diagnostic file flushes per
+second while investigating a frame-pacing problem.
 
 ## Evidence Inventory
 

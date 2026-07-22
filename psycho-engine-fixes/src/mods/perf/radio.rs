@@ -1,19 +1,21 @@
-//! Radio scan dead door-policy bypass and hot-path attribution.
+//! Cooperative radio path queries and hot-path attribution.
 //!
-//! TTW's cross-worldspace mode-0 radio fix runs synchronous teleport-door
-//! searches. Radio queries use disposition 3 without actor data, making the
-//! provider's door-policy setup and accessibility result irrelevant.
+//! The periodic scan consumes a complete prior distance generation while one
+//! opaque mode-0 provider query is recomputed per presented frame. Provider
+//! calls remain on the engine thread and use freshly reconstructed locations.
+//! The exact disposition-3 door-policy bypass remains an optional fast path.
 
 use std::{
     cell::{Cell, RefCell},
     sync::{
         LazyLock,
-        atomic::{AtomicBool, AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
     },
 };
 
 use anyhow::{Context, ensure};
 use libc::c_void;
+use parking_lot::Mutex;
 
 use libpsycho::{
     ffi::fnptr::FnPtr,
@@ -29,6 +31,13 @@ use crate::mods::diagnostics;
 
 const PERIODIC_RADIO_SCAN_CALL_ADDR: usize = 0x00833D86;
 const RADIO_SIGNAL_SCAN_ADDR: usize = 0x004FF1A0;
+const MODE0_RADIO_DISTANCE_CALL_ADDR: usize = 0x004FF397;
+const MODE0_RADIO_DISTANCE_ADDR: usize = 0x006D4EB0;
+const PATHING_LOCATION_INIT_ADDR: usize = 0x006DCD70;
+const PATHING_LOCATION_DESTROY_ADDR: usize = 0x004FF7E0;
+const LOOKUP_FORM_BY_ID_ADDR: usize = 0x004839C0;
+const PATH_FAILURE_DISTANCE_ADDR: usize = 0x01016970;
+const LOADING_FLAG_ADDR: usize = 0x011DEA2B;
 const PATH_QUERY_ADDR: usize = 0x006D4D20;
 const PATH_TRAVERSAL_ADDR: usize = 0x006F3FB0;
 const STATION_MODE_ADDR: usize = 0x0056B210;
@@ -54,6 +63,20 @@ const STEWIE_MIN_USE_BRANCH_OFFSET: usize = 0x199;
 const STEWIE_LOCK_CLEANUP_OFFSET: usize = 0x2C4;
 const PRIORITY_BUCKET_COUNT: usize = 20;
 const SLOW_SCAN_US: u64 = 5_000;
+const SCAN_REPORT_MS: u32 = 1_000;
+const FRAME_EVENT_TIMEOUT_MS: u32 = 1_000;
+const FALLBACK_REPORT_DELAY_MS: u32 = 2_000;
+const DEFAULT_SCAN_CADENCE_MS: u32 = 250;
+const MIN_SCAN_CADENCE_MS: u32 = 16;
+const MAX_SCAN_CADENCE_MS: u32 = 500;
+const MAX_COOPERATIVE_QUERIES: usize = 512;
+
+const MODE0_CALL_PREFIX_SIGNATURE: &[u8] = &[0x8B, 0x85, 0x3C, 0xFE, 0xFF, 0xFF, 0x50, 0xE8];
+const MODE0_CALL_SUFFIX_SIGNATURE: &[u8] = &[0x83, 0xC4, 0x14, 0xD9, 0x5D, 0xEC];
+const LOOKUP_FORM_BY_ID_SIGNATURE: &[u8] = &[
+    0x55, 0x8B, 0xEC, 0x51, 0xC7, 0x45, 0xFC, 0x00, 0x00, 0x00, 0x00, 0x83, 0x3D, 0xC0, 0x54, 0x1C,
+    0x01, 0x00,
+];
 
 const VANILLA_PROVIDER_SIGNATURE: &[u8] = &[
     0x55, 0x8B, 0xEC, 0x6A, 0xFF, 0x68, 0xA8, 0x6B, 0xF0, 0x00, 0x64, 0xA1, 0x00, 0x00, 0x00, 0x00,
@@ -123,6 +146,12 @@ const DOOR_ACCESSIBILITY_SIGNATURE: &[u8] = &[
 ];
 
 type RadioSignalScanFn = unsafe extern "C" fn(*mut c_void, *mut c_void, *mut c_void);
+type Mode0RadioDistanceFn =
+    unsafe extern "C" fn(*mut PathingLocation, *mut PathingLocation, f32, *mut c_void, u32) -> f32;
+type PathingLocationInitFn =
+    unsafe extern "thiscall" fn(*mut PathingLocation, *mut c_void) -> *mut PathingLocation;
+type PathingLocationDestroyFn = unsafe extern "thiscall" fn(*mut PathingLocation);
+type LookupFormByIdFn = unsafe extern "C" fn(u32) -> *mut c_void;
 type PathQueryFn = unsafe extern "C" fn(usize, usize, *mut c_void, u32, u32, u32, u32) -> u8;
 type PathTraversalFn = unsafe extern "fastcall" fn(*mut c_void) -> usize;
 type StationModeFn = unsafe extern "fastcall" fn(*mut c_void) -> u32;
@@ -142,6 +171,235 @@ static DOOR_ACCESSIBILITY_HOOK: LazyLock<InlineHookContainer<DoorAccessibilityFn
     LazyLock::new(InlineHookContainer::new);
 static SCAN_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 static POLICY_INSTALL_ATTEMPTED: AtomicBool = AtomicBool::new(false);
+static COOPERATIVE_CAPACITY_EXCEEDED: AtomicBool = AtomicBool::new(false);
+static RADIO_THREAD_ID: AtomicU32 = AtomicU32::new(0);
+static FRAME_THREAD_ID: AtomicU32 = AtomicU32::new(0);
+static LAST_FRAME_EVENT_MS: AtomicU32 = AtomicU32::new(0);
+static DEFERRED_INIT_MS: AtomicU32 = AtomicU32::new(0);
+static COOPERATIVE_FALLBACK_REPORTED: AtomicBool = AtomicBool::new(false);
+static COOPERATIVE_COLLECTION_REPORTED: AtomicBool = AtomicBool::new(false);
+static COOPERATIVE_PUBLICATION_REPORTED: AtomicBool = AtomicBool::new(false);
+static COOPERATIVE_TIMED_JOBS: AtomicU32 = AtomicU32::new(0);
+static COOPERATIVE_TIMED_TOTAL_US: AtomicU64 = AtomicU64::new(0);
+static COOPERATIVE_TIMED_MAX_US: AtomicU64 = AtomicU64::new(0);
+static COOPERATIVE_COLLECTION_MS: AtomicU32 = AtomicU32::new(0);
+static LAST_RADIO_SCAN_MS: AtomicU32 = AtomicU32::new(0);
+static QUERY_PIPELINE: LazyLock<Mutex<QueryPipeline>> =
+    LazyLock::new(|| Mutex::new(QueryPipeline::new()));
+
+#[repr(C, align(4))]
+struct PathingLocation {
+    bytes: [u8; 0x28],
+}
+
+impl PathingLocation {
+    const fn uninit_storage() -> Self {
+        Self { bytes: [0; 0x28] }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct QueryKey {
+    station_form_id: u32,
+    current_ref_form_id: u32,
+    radius_bits: u32,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+struct QueryRequest {
+    key: QueryKey,
+    radius: f32,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+struct PublishedResult {
+    key: QueryKey,
+    distance: f32,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+enum PipelineState {
+    #[default]
+    Idle,
+    Collecting,
+    Executing,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct QueryWork {
+    generation: u32,
+    index: usize,
+    request: QueryRequest,
+}
+
+struct QueryPipeline {
+    state: PipelineState,
+    generation: u32,
+    published_count: usize,
+    build_count: usize,
+    next_index: usize,
+    completed_count: usize,
+    collection_failed: bool,
+    scan_cadence_ms: u32,
+    next_job_due_ms: u32,
+    job_spacing_ms: u32,
+    published: [PublishedResult; MAX_COOPERATIVE_QUERIES],
+    requests: [QueryRequest; MAX_COOPERATIVE_QUERIES],
+    results: [PublishedResult; MAX_COOPERATIVE_QUERIES],
+}
+
+impl QueryPipeline {
+    fn new() -> Self {
+        Self {
+            state: PipelineState::Idle,
+            generation: 0,
+            published_count: 0,
+            build_count: 0,
+            next_index: 0,
+            completed_count: 0,
+            collection_failed: false,
+            scan_cadence_ms: DEFAULT_SCAN_CADENCE_MS,
+            next_job_due_ms: 0,
+            job_spacing_ms: 0,
+            published: [PublishedResult::default(); MAX_COOPERATIVE_QUERIES],
+            requests: [QueryRequest::default(); MAX_COOPERATIVE_QUERIES],
+            results: [PublishedResult::default(); MAX_COOPERATIVE_QUERIES],
+        }
+    }
+
+    fn begin_scan(&mut self, now_ms: u32, scan_cadence_ms: u32) {
+        if self.state != PipelineState::Idle {
+            return;
+        }
+
+        self.generation = self.generation.wrapping_add(1).max(1);
+        self.state = PipelineState::Collecting;
+        self.build_count = 0;
+        self.next_index = 0;
+        self.completed_count = 0;
+        self.collection_failed = false;
+        self.scan_cadence_ms = scan_cadence_ms;
+        self.next_job_due_ms = now_ms;
+        self.job_spacing_ms = 0;
+    }
+
+    fn end_scan(&mut self) -> bool {
+        if self.state != PipelineState::Collecting {
+            return false;
+        }
+        if self.collection_failed {
+            self.state = PipelineState::Idle;
+            self.build_count = 0;
+            return false;
+        }
+        if self.build_count == 0 {
+            self.published_count = 0;
+            self.state = PipelineState::Idle;
+            return false;
+        }
+
+        self.job_spacing_ms = (self.scan_cadence_ms / self.build_count as u32).max(1);
+        self.state = PipelineState::Executing;
+        true
+    }
+
+    fn observe_query(&mut self, request: QueryRequest) -> Option<f32> {
+        let published = self.lookup_published(request.key);
+        if self.state != PipelineState::Collecting {
+            return published;
+        }
+
+        if self.requests[..self.build_count]
+            .iter()
+            .any(|candidate| candidate.key == request.key)
+        {
+            return published;
+        }
+        if self.build_count == MAX_COOPERATIVE_QUERIES {
+            self.collection_failed = true;
+            return published;
+        }
+
+        self.requests[self.build_count] = request;
+        self.build_count += 1;
+        published
+    }
+
+    fn take_next(&mut self, now_ms: u32) -> Option<QueryWork> {
+        if self.state != PipelineState::Executing
+            || self.next_index == self.build_count
+            || !tick_reached(now_ms, self.next_job_due_ms)
+        {
+            return None;
+        }
+
+        let index = self.next_index;
+        self.next_index += 1;
+        self.next_job_due_ms = self.next_job_due_ms.wrapping_add(self.job_spacing_ms);
+        Some(QueryWork {
+            generation: self.generation,
+            index,
+            request: self.requests[index],
+        })
+    }
+
+    fn complete(&mut self, work: QueryWork, distance: Option<f32>) -> bool {
+        if self.state != PipelineState::Executing
+            || work.generation != self.generation
+            || work.index != self.completed_count
+            || work.index >= self.build_count
+        {
+            return false;
+        }
+
+        let Some(distance) = distance else {
+            self.abort_build();
+            return false;
+        };
+        self.results[work.index] = PublishedResult {
+            key: work.request.key,
+            distance,
+        };
+        self.completed_count += 1;
+        if self.completed_count != self.build_count {
+            return false;
+        }
+
+        self.published[..self.build_count].copy_from_slice(&self.results[..self.build_count]);
+        self.published_count = self.build_count;
+        self.state = PipelineState::Idle;
+        self.build_count = 0;
+        true
+    }
+
+    fn reset(&mut self) {
+        self.state = PipelineState::Idle;
+        self.published_count = 0;
+        self.build_count = 0;
+        self.next_index = 0;
+        self.completed_count = 0;
+        self.collection_failed = false;
+        self.next_job_due_ms = 0;
+        self.job_spacing_ms = 0;
+    }
+
+    fn abort_build(&mut self) {
+        self.state = PipelineState::Idle;
+        self.build_count = 0;
+        self.next_index = 0;
+        self.completed_count = 0;
+        self.collection_failed = false;
+        self.next_job_due_ms = 0;
+        self.job_spacing_ms = 0;
+    }
+
+    fn lookup_published(&self, key: QueryKey) -> Option<f32> {
+        self.published[..self.published_count]
+            .iter()
+            .find(|candidate| candidate.key == key)
+            .map(|candidate| candidate.distance)
+    }
+}
 
 #[derive(Clone, Copy, Default)]
 struct Timing {
@@ -158,6 +416,12 @@ impl Timing {
         };
         self.total_us = self.total_us.saturating_add(elapsed_us);
         self.max_us = self.max_us.max(elapsed_us);
+    }
+
+    fn merge(&mut self, other: Self) {
+        self.calls = self.calls.saturating_add(other.calls);
+        self.total_us = self.total_us.saturating_add(other.total_us);
+        self.max_us = self.max_us.max(other.max_us);
     }
 }
 
@@ -208,22 +472,116 @@ impl Default for ScanStats {
     }
 }
 
+impl ScanStats {
+    fn merge(&mut self, other: Self) {
+        for (timing, other) in self.mode_queries.iter_mut().zip(other.mode_queries) {
+            timing.merge(other);
+        }
+        self.other_queries.merge(other.other_queries);
+        self.traversals.merge(other.traversals);
+        for (count, other) in self.station_modes.iter_mut().zip(other.station_modes) {
+            *count = count.saturating_add(other);
+        }
+        self.other_station_modes = self
+            .other_station_modes
+            .saturating_add(other.other_station_modes);
+        self.mode0_traversals = self.mode0_traversals.saturating_add(other.mode0_traversals);
+        self.expected_query_vtable = self
+            .expected_query_vtable
+            .saturating_add(other.expected_query_vtable);
+        self.queue_empty_before_traversal = self
+            .queue_empty_before_traversal
+            .saturating_add(other.queue_empty_before_traversal);
+        self.source_missing = self.source_missing.saturating_add(other.source_missing);
+        self.source_first = self.source_first.saturating_add(other.source_first);
+        self.source_goal_match = self
+            .source_goal_match
+            .saturating_add(other.source_goal_match);
+        self.source_parent_null = self
+            .source_parent_null
+            .saturating_add(other.source_parent_null);
+        self.result_null = self.result_null.saturating_add(other.result_null);
+        self.result_source = self.result_source.saturating_add(other.result_source);
+        self.result_other = self.result_other.saturating_add(other.result_other);
+        self.policy_queries = self.policy_queries.saturating_add(other.policy_queries);
+        self.policy_setup_bypasses = self
+            .policy_setup_bypasses
+            .saturating_add(other.policy_setup_bypasses);
+        self.policy_access_bypasses = self
+            .policy_access_bypasses
+            .saturating_add(other.policy_access_bypasses);
+    }
+}
+
+#[derive(Clone, Copy, Default)]
+struct ScanAggregate {
+    slow_scans: u32,
+    total_us: u64,
+    max_us: u64,
+    residual_us: u64,
+    residual_max_us: u64,
+    stats: ScanStats,
+}
+
+#[derive(Default)]
+struct ScanReporter {
+    aggregate: ScanAggregate,
+    last_report_ms: Option<u32>,
+}
+
+impl ScanReporter {
+    fn observe(
+        &mut self,
+        now_ms: u32,
+        slow_sample: Option<(u64, u64, ScanStats)>,
+    ) -> Option<ScanAggregate> {
+        if let Some((elapsed_us, residual_us, stats)) = slow_sample {
+            self.aggregate.slow_scans = self.aggregate.slow_scans.saturating_add(1);
+            self.aggregate.total_us = self.aggregate.total_us.saturating_add(elapsed_us);
+            self.aggregate.max_us = self.aggregate.max_us.max(elapsed_us);
+            self.aggregate.residual_us = self.aggregate.residual_us.saturating_add(residual_us);
+            self.aggregate.residual_max_us = self.aggregate.residual_max_us.max(residual_us);
+            self.aggregate.stats.merge(stats);
+        }
+
+        if self.aggregate.slow_scans == 0 {
+            return None;
+        }
+
+        let Some(last_report_ms) = self.last_report_ms else {
+            self.last_report_ms = Some(now_ms);
+            return None;
+        };
+        if now_ms.wrapping_sub(last_report_ms) < SCAN_REPORT_MS {
+            return None;
+        }
+
+        self.last_report_ms = Some(now_ms);
+        Some(std::mem::take(&mut self.aggregate))
+    }
+}
+
 #[derive(Default)]
 struct RadioScanState {
     stats: ScanStats,
+    reporter: ScanReporter,
 }
 
 thread_local! {
     static RADIO_SCAN_DEPTH: Cell<u32> = const { Cell::new(0) };
+    static COOPERATIVE_SCAN_ACTIVE: Cell<bool> = const { Cell::new(false) };
     static POLICY_BYPASS_DEPTH: Cell<u32> = const { Cell::new(0) };
     static PENDING_POLICY_ACCESS: Cell<(usize, usize)> = const { Cell::new((0, 0)) };
     static RADIO_SCAN_STATE: RefCell<RadioScanState> = RefCell::new(RadioScanState::default());
 }
 
-struct RadioScanScope;
+struct RadioScanScope {
+    outermost: bool,
+    cooperative: bool,
+}
 
 impl RadioScanScope {
-    fn enter() -> Self {
+    fn enter(now_ms: u32, scan_cadence_ms: u32) -> Self {
         let outermost = RADIO_SCAN_DEPTH.with(|depth| {
             let current = depth.get();
             depth.set(current.saturating_add(1));
@@ -235,20 +593,54 @@ impl RadioScanScope {
                 state.stats = ScanStats::default();
             });
         }
-        Self
+
+        let loading = game_is_loading();
+        let cooperative = outermost && cooperative_scheduler_available() && !loading;
+        if cooperative {
+            QUERY_PIPELINE.lock().begin_scan(now_ms, scan_cadence_ms);
+            COOPERATIVE_SCAN_ACTIVE.with(|active| active.set(true));
+        } else if outermost {
+            QUERY_PIPELINE.lock().reset();
+            if !loading {
+                report_cooperative_fallback_once();
+            }
+        }
+        Self {
+            outermost,
+            cooperative,
+        }
     }
 }
 
 impl Drop for RadioScanScope {
     fn drop(&mut self) {
-        let outermost = RADIO_SCAN_DEPTH.with(|depth| {
+        RADIO_SCAN_DEPTH.with(|depth| {
             let current = depth.get();
             depth.set(current.saturating_sub(1));
-            current == 1
         });
-        if outermost {
+        if self.outermost {
+            if self.cooperative {
+                QUERY_PIPELINE.lock().end_scan();
+                COOPERATIVE_SCAN_ACTIVE.with(|active| active.set(false));
+            }
             PENDING_POLICY_ACCESS.with(|pending| pending.set((0, 0)));
         }
+    }
+}
+
+struct RadioPathQueryScope;
+
+impl RadioPathQueryScope {
+    fn enter() -> Self {
+        RADIO_SCAN_DEPTH.with(|depth| depth.set(depth.get().saturating_add(1)));
+        Self
+    }
+}
+
+impl Drop for RadioPathQueryScope {
+    fn drop(&mut self) {
+        RADIO_SCAN_DEPTH.with(|depth| depth.set(depth.get().saturating_sub(1)));
+        PENDING_POLICY_ACCESS.with(|pending| pending.set((0, 0)));
     }
 }
 
@@ -282,7 +674,27 @@ impl Drop for DoorPolicyBypassScope {
 
 pub fn install_radio_scan_fix() -> anyhow::Result<()> {
     verify_rel_call(PERIODIC_RADIO_SCAN_CALL_ADDR, RADIO_SIGNAL_SCAN_ADDR)?;
+    verify_rel_call(MODE0_RADIO_DISTANCE_CALL_ADDR, MODE0_RADIO_DISTANCE_ADDR)?;
+    verify_signature(
+        MODE0_RADIO_DISTANCE_CALL_ADDR - 7,
+        MODE0_CALL_PREFIX_SIGNATURE,
+        "mode-0 radio distance call prefix",
+    )?;
+    verify_signature(
+        MODE0_RADIO_DISTANCE_CALL_ADDR + 5,
+        MODE0_CALL_SUFFIX_SIGNATURE,
+        "mode-0 radio distance call suffix",
+    )?;
+    verify_signature(
+        LOOKUP_FORM_BY_ID_ADDR,
+        LOOKUP_FORM_BY_ID_SIGNATURE,
+        "loaded FormID resolver",
+    )?;
     unsafe {
+        replace_call(
+            MODE0_RADIO_DISTANCE_CALL_ADDR as *mut c_void,
+            cooperative_distance_entry as *mut c_void,
+        )?;
         replace_call(
             PERIODIC_RADIO_SCAN_CALL_ADDR as *mut c_void,
             hook_periodic_radio_signal_scan as *mut c_void,
@@ -290,8 +702,10 @@ pub fn install_radio_scan_fix() -> anyhow::Result<()> {
     }
 
     log::info!(
-        "[RADIO] Exact radio door-policy scope active: scan=0x{:08X}",
+        "[RADIO] Cooperative main-thread radio queries active: scan=0x{:08X} query=0x{:08X} capacity={}",
         PERIODIC_RADIO_SCAN_CALL_ADDR,
+        MODE0_RADIO_DISTANCE_CALL_ADDR,
+        MAX_COOPERATIVE_QUERIES,
     );
 
     let profiling = diagnostics::hitch_profiling_enabled();
@@ -336,10 +750,18 @@ pub fn install_radio_scan_fix() -> anyhow::Result<()> {
 }
 
 pub(crate) fn observe_event(kind: u32) {
+    if kind == crate::events::ON_FRAME_PRESENT {
+        observe_frame_present();
+        return;
+    }
     if kind != crate::events::DEFERRED_INIT || POLICY_INSTALL_ATTEMPTED.swap(true, Ordering::AcqRel)
     {
         return;
     }
+    DEFERRED_INIT_MS.store(
+        libpsycho::os::windows::winapi::get_tick_count(),
+        Ordering::Release,
+    );
 
     if let Err(error) = install_door_policy_bypass_hooks() {
         log::warn!(
@@ -508,32 +930,376 @@ fn verify_stewie_policy_provider(provider: usize) -> anyhow::Result<usize> {
     Ok(setup_target)
 }
 
+#[unsafe(naked)]
+unsafe extern "C" fn cooperative_distance_entry(
+    _station: *mut PathingLocation,
+    _current_ref: *mut PathingLocation,
+    _radius: f32,
+    _actor_data: *mut c_void,
+    _disposition: u32,
+) -> f32 {
+    core::arch::naked_asm!(
+        "mov eax, esp",
+        "push dword ptr [eax + 20]",
+        "push dword ptr [eax + 16]",
+        "push dword ptr [eax + 12]",
+        "push dword ptr [eax + 8]",
+        "push dword ptr [eax + 4]",
+        "push ebp",
+        "call {}",
+        "add esp, 24",
+        "ret",
+        sym cooperative_distance_body,
+    );
+}
+
+unsafe extern "C" fn cooperative_distance_body(
+    caller_ebp: usize,
+    station: *mut PathingLocation,
+    current_location: *mut PathingLocation,
+    radius: f32,
+    actor_data: *mut c_void,
+    disposition: u32,
+) -> f32 {
+    if !cooperative_scan_active() || caller_ebp == 0 || !actor_data.is_null() || disposition != 3 {
+        return unsafe {
+            call_mode0_distance(station, current_location, radius, actor_data, disposition)
+        };
+    }
+
+    let station_ref =
+        unsafe { core::ptr::read_unaligned(caller_ebp.wrapping_sub(0x24) as *const *mut c_void) };
+    let current_ref =
+        unsafe { core::ptr::read_unaligned(caller_ebp.wrapping_add(8) as *const *mut c_void) };
+    let Some(station_form_id) = (unsafe { reference_form_id(station_ref) }) else {
+        return unsafe {
+            call_mode0_distance(station, current_location, radius, actor_data, disposition)
+        };
+    };
+    let Some(current_ref_form_id) = (unsafe { reference_form_id(current_ref) }) else {
+        return unsafe {
+            call_mode0_distance(station, current_location, radius, actor_data, disposition)
+        };
+    };
+
+    let request = QueryRequest {
+        key: QueryKey {
+            station_form_id,
+            current_ref_form_id,
+            radius_bits: radius.to_bits(),
+        },
+        radius,
+    };
+    let (distance, collection_failed) = {
+        let mut pipeline = QUERY_PIPELINE.lock();
+        let distance = pipeline.observe_query(request);
+        (distance, pipeline.collection_failed)
+    };
+    if collection_failed && !COOPERATIVE_CAPACITY_EXCEEDED.swap(true, Ordering::AcqRel) {
+        COOPERATIVE_SCAN_ACTIVE.with(|active| active.set(false));
+        log::error!(
+            "[RADIO] Cooperative query capacity exceeded ({}); future scans retain the original synchronous path",
+            MAX_COOPERATIVE_QUERIES,
+        );
+    }
+    distance.unwrap_or_else(path_failure_distance)
+}
+
+fn observe_frame_present() {
+    let thread_id = libpsycho::os::windows::winapi::get_current_thread_id();
+    let now_ms = libpsycho::os::windows::winapi::get_tick_count();
+    FRAME_THREAD_ID.store(thread_id, Ordering::Release);
+    LAST_FRAME_EVENT_MS.store(now_ms, Ordering::Release);
+
+    if RADIO_THREAD_ID.load(Ordering::Acquire) != thread_id {
+        return;
+    }
+    if game_is_loading() {
+        QUERY_PIPELINE.lock().reset();
+        return;
+    }
+
+    let Some(work) = QUERY_PIPELINE.lock().take_next(now_ms) else {
+        return;
+    };
+    let timer = (!COOPERATIVE_PUBLICATION_REPORTED.load(Ordering::Acquire))
+        .then(diagnostics::Stopwatch::start);
+    let distance = unsafe { execute_query_work(work) };
+    if let Some(elapsed_us) = timer.and_then(diagnostics::Stopwatch::elapsed_us) {
+        COOPERATIVE_TIMED_JOBS.fetch_add(1, Ordering::Relaxed);
+        COOPERATIVE_TIMED_TOTAL_US.fetch_add(elapsed_us, Ordering::Relaxed);
+        diagnostics::update_max_u64(&COOPERATIVE_TIMED_MAX_US, elapsed_us);
+    }
+
+    let (published, published_count) = {
+        let mut pipeline = QUERY_PIPELINE.lock();
+        let published = pipeline.complete(work, distance);
+        (published, pipeline.published_count)
+    };
+    if published && !COOPERATIVE_PUBLICATION_REPORTED.swap(true, Ordering::AcqRel) {
+        log::info!(
+            "[RADIO] Cooperative generation verified: results={} jobs={} total/max={}/{}us spread_ms={:?} thread=0x{:08X}",
+            published_count,
+            COOPERATIVE_TIMED_JOBS.load(Ordering::Relaxed),
+            COOPERATIVE_TIMED_TOTAL_US.load(Ordering::Relaxed),
+            COOPERATIVE_TIMED_MAX_US.load(Ordering::Relaxed),
+            (COOPERATIVE_COLLECTION_MS.load(Ordering::Acquire) != 0)
+                .then(|| now_ms.wrapping_sub(COOPERATIVE_COLLECTION_MS.load(Ordering::Relaxed))),
+            libpsycho::os::windows::winapi::get_current_thread_id(),
+        );
+    }
+}
+
+unsafe fn execute_query_work(work: QueryWork) -> Option<f32> {
+    let lookup =
+        unsafe { FnPtr::<LookupFormByIdFn>::from_address_unchecked(LOOKUP_FORM_BY_ID_ADDR) }
+            .as_fn();
+    let station_ref = unsafe { lookup(work.request.key.station_form_id) };
+    let current_ref = unsafe { lookup(work.request.key.current_ref_form_id) };
+    if station_ref.is_null() || current_ref.is_null() {
+        return None;
+    }
+
+    let init = unsafe {
+        FnPtr::<PathingLocationInitFn>::from_address_unchecked(PATHING_LOCATION_INIT_ADDR)
+    }
+    .as_fn();
+    let destroy = unsafe {
+        FnPtr::<PathingLocationDestroyFn>::from_address_unchecked(PATHING_LOCATION_DESTROY_ADDR)
+    }
+    .as_fn();
+    let mut station = PathingLocation::uninit_storage();
+    let mut current = PathingLocation::uninit_storage();
+    unsafe {
+        init(&mut station, station_ref);
+        init(&mut current, current_ref);
+    }
+
+    let scope = RadioPathQueryScope::enter();
+    let distance = unsafe {
+        call_mode0_distance(
+            &mut station,
+            &mut current,
+            work.request.radius,
+            core::ptr::null_mut(),
+            3,
+        )
+    };
+    drop(scope);
+    unsafe {
+        destroy(&mut station);
+        destroy(&mut current);
+    }
+    Some(distance)
+}
+
+unsafe fn call_mode0_distance(
+    station: *mut PathingLocation,
+    current_ref: *mut PathingLocation,
+    radius: f32,
+    actor_data: *mut c_void,
+    disposition: u32,
+) -> f32 {
+    let original =
+        unsafe { FnPtr::<Mode0RadioDistanceFn>::from_address_unchecked(MODE0_RADIO_DISTANCE_ADDR) }
+            .as_fn();
+    unsafe { original(station, current_ref, radius, actor_data, disposition) }
+}
+
+unsafe fn reference_form_id(reference: *mut c_void) -> Option<u32> {
+    if reference.is_null() {
+        return None;
+    }
+    let form_id = unsafe { core::ptr::read_unaligned(reference.cast::<u8>().add(0x0C).cast()) };
+    (form_id != 0).then_some(form_id)
+}
+
+fn path_failure_distance() -> f32 {
+    unsafe { core::ptr::read_volatile(PATH_FAILURE_DISTANCE_ADDR as *const f32) }
+}
+
+fn register_radio_thread() {
+    let thread_id = libpsycho::os::windows::winapi::get_current_thread_id();
+    let _ = RADIO_THREAD_ID.compare_exchange(0, thread_id, Ordering::AcqRel, Ordering::Acquire);
+}
+
+fn cooperative_scheduler_available() -> bool {
+    if COOPERATIVE_CAPACITY_EXCEEDED.load(Ordering::Acquire) {
+        return false;
+    }
+    let thread_id = libpsycho::os::windows::winapi::get_current_thread_id();
+    if RADIO_THREAD_ID.load(Ordering::Acquire) != thread_id
+        || FRAME_THREAD_ID.load(Ordering::Acquire) != thread_id
+    {
+        return false;
+    }
+
+    let last_frame_ms = LAST_FRAME_EVENT_MS.load(Ordering::Acquire);
+    last_frame_ms != 0
+        && libpsycho::os::windows::winapi::get_tick_count().wrapping_sub(last_frame_ms)
+            <= FRAME_EVENT_TIMEOUT_MS
+}
+
+fn observe_scan_cadence(now_ms: u32) -> u32 {
+    let previous_ms = LAST_RADIO_SCAN_MS.swap(now_ms, Ordering::AcqRel);
+    let elapsed_ms = (previous_ms != 0).then(|| now_ms.wrapping_sub(previous_ms));
+    normalize_scan_cadence(elapsed_ms)
+}
+
+fn normalize_scan_cadence(elapsed_ms: Option<u32>) -> u32 {
+    elapsed_ms
+        .filter(|elapsed_ms| (MIN_SCAN_CADENCE_MS..=MAX_SCAN_CADENCE_MS).contains(elapsed_ms))
+        .unwrap_or(DEFAULT_SCAN_CADENCE_MS)
+}
+
+fn tick_reached(now_ms: u32, due_ms: u32) -> bool {
+    now_ms.wrapping_sub(due_ms) < 0x8000_0000
+}
+
+fn report_cooperative_fallback_once() {
+    if COOPERATIVE_FALLBACK_REPORTED.load(Ordering::Acquire) {
+        return;
+    }
+
+    let deferred_init_ms = DEFERRED_INIT_MS.load(Ordering::Acquire);
+    if deferred_init_ms == 0 {
+        return;
+    }
+    let now_ms = libpsycho::os::windows::winapi::get_tick_count();
+    if now_ms.wrapping_sub(deferred_init_ms) < FALLBACK_REPORT_DELAY_MS {
+        return;
+    }
+    if COOPERATIVE_FALLBACK_REPORTED.swap(true, Ordering::AcqRel) {
+        return;
+    }
+
+    let radio_thread = RADIO_THREAD_ID.load(Ordering::Acquire);
+    let frame_thread = FRAME_THREAD_ID.load(Ordering::Acquire);
+    let last_frame_ms = LAST_FRAME_EVENT_MS.load(Ordering::Acquire);
+    let frame_age_ms = (last_frame_ms != 0).then(|| now_ms.wrapping_sub(last_frame_ms));
+    let reason = cooperative_fallback_reason(
+        COOPERATIVE_CAPACITY_EXCEEDED.load(Ordering::Acquire),
+        radio_thread,
+        frame_thread,
+        frame_age_ms,
+    );
+    log::warn!(
+        "[RADIO] Cooperative scheduler fallback: reason={} radio_thread=0x{:08X} frame_thread=0x{:08X} frame_age_ms={:?}",
+        reason,
+        radio_thread,
+        frame_thread,
+        frame_age_ms,
+    );
+}
+
+fn cooperative_fallback_reason(
+    capacity_exceeded: bool,
+    radio_thread: u32,
+    frame_thread: u32,
+    frame_age_ms: Option<u32>,
+) -> &'static str {
+    if capacity_exceeded {
+        return "capacity-exceeded";
+    }
+    if radio_thread == 0 {
+        return "radio-thread-missing";
+    }
+    if frame_thread == 0 || frame_age_ms.is_none() {
+        return "frame-event-missing";
+    }
+    if radio_thread != frame_thread {
+        return "thread-mismatch";
+    }
+    if frame_age_ms.is_some_and(|age_ms| age_ms > FRAME_EVENT_TIMEOUT_MS) {
+        return "frame-event-stale";
+    }
+    "unknown"
+}
+
+fn cooperative_scan_active() -> bool {
+    COOPERATIVE_SCAN_ACTIVE.with(|active| active.get())
+}
+
+fn game_is_loading() -> bool {
+    unsafe { core::ptr::read_volatile(LOADING_FLAG_ADDR as *const u8) != 0 }
+}
+
 unsafe extern "C" fn hook_periodic_radio_signal_scan(
     current_ref: *mut c_void,
     out_stations: *mut c_void,
     out_meta: *mut c_void,
 ) {
+    register_radio_thread();
+    let scan_started_ms = libpsycho::os::windows::winapi::get_tick_count();
+    let scan_cadence_ms = observe_scan_cadence(scan_started_ms);
     let timer = diagnostics::Stopwatch::start_if_hitch_profiling();
-    let scope = RadioScanScope::enter();
+    let scope = RadioScanScope::enter(scan_started_ms, scan_cadence_ms);
+    let first_collection_timer = (scope.cooperative
+        && !COOPERATIVE_COLLECTION_REPORTED.load(Ordering::Acquire))
+    .then(diagnostics::Stopwatch::start);
+    let cooperative = scope.cooperative;
     let scan =
         unsafe { FnPtr::<RadioSignalScanFn>::from_address_unchecked(RADIO_SIGNAL_SCAN_ADDR) }
             .as_fn();
     unsafe { scan(current_ref, out_stations, out_meta) };
     drop(scope);
 
+    if cooperative && !COOPERATIVE_COLLECTION_REPORTED.swap(true, Ordering::AcqRel) {
+        let (requests, spacing_ms, state) = {
+            let pipeline = QUERY_PIPELINE.lock();
+            (
+                pipeline.build_count,
+                pipeline.job_spacing_ms,
+                pipeline.state,
+            )
+        };
+        COOPERATIVE_COLLECTION_MS.store(scan_started_ms, Ordering::Release);
+        log::info!(
+            "[RADIO] Cooperative collection verified: requests={} cadence/spacing={}/{}ms scan_us={:?} state={:?} thread=0x{:08X}",
+            requests,
+            scan_cadence_ms,
+            spacing_ms,
+            first_collection_timer.and_then(diagnostics::Stopwatch::elapsed_us),
+            state,
+            libpsycho::os::windows::winapi::get_current_thread_id(),
+        );
+    }
+
     let Some(elapsed_us) = timer.elapsed_us() else {
         return;
     };
-    if elapsed_us < SLOW_SCAN_US || !log::log_enabled!(log::Level::Debug) {
+    if !log::log_enabled!(log::Level::Debug) {
         return;
     }
 
-    let sequence = SCAN_SEQUENCE.fetch_add(1, Ordering::Relaxed) + 1;
-    let stats = RADIO_SCAN_STATE.with(|state| state.borrow().stats);
+    let slow_sample = (elapsed_us >= SLOW_SCAN_US).then(|| {
+        let stats = RADIO_SCAN_STATE.with(|state| state.borrow().stats);
+        let residual_us = elapsed_us.saturating_sub(
+            stats
+                .mode_queries
+                .iter()
+                .map(|timing| timing.total_us)
+                .sum(),
+        );
+        SCAN_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+        (elapsed_us, residual_us, stats)
+    });
+    let Some(aggregate) = RADIO_SCAN_STATE.with(|state| {
+        state.borrow_mut().reporter.observe(
+            libpsycho::os::windows::winapi::get_tick_count(),
+            slow_sample,
+        )
+    }) else {
+        return;
+    };
+    let sequence = SCAN_SEQUENCE.load(Ordering::Relaxed);
+    let stats = aggregate.stats;
     log::debug!(
-        "[RADIO_SCAN] seq={} total_us={} station_modes={}/{}/{}/{}/{}+{} query0={}/{}/{} query1={}/{}/{} query2={}/{}/{} other={}/{}/{} traversal={}/{}/{} branch=m0:{}/vtable:{}/empty:{}/missing:{}/first:{}/goal:{}/parent0:{}/result0:{}/source:{}/other:{} policy=query:{}/setup:{}/access:{} residual_us={}",
+        "[RADIO_SCAN] seq={} slow={} total_avg/max={}/{}us station_modes={}/{}/{}/{}/{}+{} query0={}/{}/{} query1={}/{}/{} query2={}/{}/{} other={}/{}/{} traversal={}/{}/{} branch=m0:{}/vtable:{}/empty:{}/missing:{}/first:{}/goal:{}/parent0:{}/result0:{}/source:{}/other:{} policy=query:{}/setup:{}/access:{} residual_avg/max={}/{}us",
         sequence,
-        elapsed_us,
+        aggregate.slow_scans,
+        aggregate.total_us / u64::from(aggregate.slow_scans.max(1)),
+        aggregate.max_us,
         stats.station_modes[0],
         stats.station_modes[1],
         stats.station_modes[2],
@@ -568,13 +1334,8 @@ unsafe extern "C" fn hook_periodic_radio_signal_scan(
         stats.policy_queries,
         stats.policy_setup_bypasses,
         stats.policy_access_bypasses,
-        elapsed_us.saturating_sub(
-            stats
-                .mode_queries
-                .iter()
-                .map(|timing| timing.total_us)
-                .sum()
-        ),
+        aggregate.residual_us / u64::from(aggregate.slow_scans.max(1)),
+        aggregate.residual_max_us,
     );
 }
 
@@ -869,4 +1630,207 @@ fn verify_rel_call(call_addr: usize, expected_target: usize) -> anyhow::Result<(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn request(station_form_id: u32, radius: f32) -> QueryRequest {
+        QueryRequest {
+            key: QueryKey {
+                station_form_id,
+                current_ref_form_id: 0x14,
+                radius_bits: radius.to_bits(),
+            },
+            radius,
+        }
+    }
+
+    #[test]
+    fn cooperative_generation_is_published_only_when_complete() {
+        let mut pipeline = QueryPipeline::new();
+        let first = request(0x0100_0001, 10_000.0);
+        let second = request(0x0100_0002, 20_000.0);
+
+        pipeline.begin_scan(1_000, 250);
+        assert_eq!(pipeline.observe_query(first), None);
+        assert_eq!(pipeline.observe_query(second), None);
+        assert!(pipeline.end_scan());
+
+        let first_work = pipeline.take_next(1_000).expect("first frame work");
+        assert!(!pipeline.complete(first_work, Some(1_500.0)));
+        assert_eq!(pipeline.lookup_published(first.key), None);
+        assert_eq!(pipeline.lookup_published(second.key), None);
+
+        let second_work = pipeline.take_next(1_125).expect("second frame work");
+        assert!(pipeline.complete(second_work, Some(2_500.0)));
+        assert_eq!(pipeline.lookup_published(first.key), Some(1_500.0));
+        assert_eq!(pipeline.lookup_published(second.key), Some(2_500.0));
+    }
+
+    #[test]
+    fn failed_generation_preserves_the_last_complete_snapshot() {
+        let mut pipeline = QueryPipeline::new();
+        let old = request(0x0100_0001, 10_000.0);
+
+        pipeline.begin_scan(1_000, 250);
+        pipeline.observe_query(old);
+        pipeline.end_scan();
+        let work = pipeline.take_next(1_000).expect("seed work");
+        assert!(pipeline.complete(work, Some(1_500.0)));
+
+        pipeline.begin_scan(2_000, 250);
+        assert_eq!(pipeline.observe_query(old), Some(1_500.0));
+        let added = request(0x0100_0002, 20_000.0);
+        assert_eq!(pipeline.observe_query(added), None);
+        pipeline.end_scan();
+        let work = pipeline.take_next(2_000).expect("failed work");
+        assert!(!pipeline.complete(work, None));
+
+        assert_eq!(pipeline.lookup_published(old.key), Some(1_500.0));
+        assert_eq!(pipeline.lookup_published(added.key), None);
+    }
+
+    #[test]
+    fn duplicate_queries_share_one_frame_job() {
+        let mut pipeline = QueryPipeline::new();
+        let request = request(0x0100_0001, 10_000.0);
+
+        pipeline.begin_scan(1_000, 250);
+        pipeline.observe_query(request);
+        pipeline.observe_query(request);
+        assert_eq!(pipeline.build_count, 1);
+        pipeline.end_scan();
+        let work = pipeline.take_next(1_000).expect("deduplicated work");
+        assert!(pipeline.complete(work, Some(1_500.0)));
+        assert!(pipeline.take_next(1_001).is_none());
+    }
+
+    #[test]
+    fn cooperative_jobs_are_evenly_released_across_the_scan_cadence() {
+        let mut pipeline = QueryPipeline::new();
+        let first = request(0x0100_0001, 10_000.0);
+        let second = request(0x0100_0002, 20_000.0);
+        let third = request(0x0100_0003, 30_000.0);
+
+        pipeline.begin_scan(1_000, 240);
+        pipeline.observe_query(first);
+        pipeline.observe_query(second);
+        pipeline.observe_query(third);
+        assert!(pipeline.end_scan());
+        assert_eq!(pipeline.job_spacing_ms, 80);
+
+        let work = pipeline.take_next(1_000).expect("first paced work");
+        assert!(!pipeline.complete(work, Some(1_000.0)));
+        assert!(pipeline.take_next(1_079).is_none());
+
+        let work = pipeline.take_next(1_080).expect("second paced work");
+        assert!(!pipeline.complete(work, Some(2_000.0)));
+        assert!(pipeline.take_next(1_159).is_none());
+
+        let work = pipeline.take_next(1_160).expect("third paced work");
+        assert!(pipeline.complete(work, Some(3_000.0)));
+    }
+
+    #[test]
+    fn delayed_frames_catch_up_without_releasing_more_than_one_job_per_call() {
+        let mut pipeline = QueryPipeline::new();
+        pipeline.begin_scan(1_000, 200);
+        for form_id in 1..=4 {
+            pipeline.observe_query(request(form_id, 10_000.0));
+        }
+        assert!(pipeline.end_scan());
+        assert_eq!(pipeline.job_spacing_ms, 50);
+
+        let first = pipeline.take_next(1_000).expect("first work");
+        assert_eq!(first.index, 0);
+        assert!(!pipeline.complete(first, Some(1_000.0)));
+
+        let second = pipeline.take_next(1_125).expect("delayed second work");
+        assert_eq!(second.index, 1);
+        assert!(!pipeline.complete(second, Some(2_000.0)));
+
+        let third = pipeline.take_next(1_140).expect("catch-up third work");
+        assert_eq!(third.index, 2);
+    }
+
+    #[test]
+    fn scan_cadence_rejects_startup_and_loading_gaps() {
+        assert_eq!(normalize_scan_cadence(None), DEFAULT_SCAN_CADENCE_MS);
+        assert_eq!(normalize_scan_cadence(Some(15)), DEFAULT_SCAN_CADENCE_MS);
+        assert_eq!(normalize_scan_cadence(Some(250)), 250);
+        assert_eq!(
+            normalize_scan_cadence(Some(MAX_SCAN_CADENCE_MS + 1)),
+            DEFAULT_SCAN_CADENCE_MS
+        );
+    }
+
+    #[test]
+    fn pathing_location_layout_matches_the_engine_contract() {
+        assert_eq!(core::mem::size_of::<PathingLocation>(), 0x28);
+        assert_eq!(core::mem::align_of::<PathingLocation>(), 4);
+    }
+
+    #[test]
+    fn slow_scan_reports_are_aggregated_to_one_second_windows() {
+        let mut reporter = ScanReporter::default();
+        let mut first = ScanStats::default();
+        first.mode_queries[0] = Timing {
+            calls: 2,
+            total_us: 3_000,
+            max_us: 2_000,
+        };
+        assert!(reporter.observe(100, Some((6_000, 3_000, first))).is_none());
+
+        let mut second = ScanStats::default();
+        second.mode_queries[0] = Timing {
+            calls: 1,
+            total_us: 2_000,
+            max_us: 2_000,
+        };
+        assert!(
+            reporter
+                .observe(900, Some((7_000, 5_000, second)))
+                .is_none()
+        );
+
+        let report = reporter
+            .observe(1_100, None)
+            .expect("one report after a complete window");
+        assert_eq!(report.slow_scans, 2);
+        assert_eq!(report.total_us, 13_000);
+        assert_eq!(report.max_us, 7_000);
+        assert_eq!(report.residual_us, 8_000);
+        assert_eq!(report.stats.mode_queries[0].calls, 3);
+        assert_eq!(report.stats.mode_queries[0].total_us, 5_000);
+    }
+
+    #[test]
+    fn cooperative_fallback_reason_preserves_the_first_failed_guard() {
+        assert_eq!(
+            cooperative_fallback_reason(true, 1, 1, Some(0)),
+            "capacity-exceeded"
+        );
+        assert_eq!(
+            cooperative_fallback_reason(false, 0, 1, Some(0)),
+            "radio-thread-missing"
+        );
+        assert_eq!(
+            cooperative_fallback_reason(false, 1, 0, None),
+            "frame-event-missing"
+        );
+        assert_eq!(
+            cooperative_fallback_reason(false, 1, 2, Some(0)),
+            "thread-mismatch"
+        );
+        assert_eq!(
+            cooperative_fallback_reason(false, 1, 1, Some(FRAME_EVENT_TIMEOUT_MS + 1)),
+            "frame-event-stale"
+        );
+        assert_eq!(
+            cooperative_fallback_reason(false, 1, 1, Some(FRAME_EVENT_TIMEOUT_MS)),
+            "unknown"
+        );
+    }
 }

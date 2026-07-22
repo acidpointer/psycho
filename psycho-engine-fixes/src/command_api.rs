@@ -3,15 +3,19 @@
 //! The xNVSE helper owns command registration. The core owns command behavior
 //! and returns text through a caller-owned buffer so no allocation crosses DLLs.
 
-use std::{mem::size_of, ptr};
+use std::{
+    mem::size_of,
+    ptr,
+    sync::atomic::{AtomicU64, Ordering},
+};
 
 use libmimalloc::process_info::MiMallocProcessInfo;
 
 use crate::mods::{
-    engine_fixes,
+    diagnostics, engine_fixes,
     heap_replacer::{
         AllocatorMode, current_mode,
-        gheap::{allocator, block, pool, va_alloc, vas},
+        gheap::{allocator, block, pool, va_alloc, vas, watchdog},
         mem_stats,
     },
 };
@@ -73,14 +77,22 @@ pub struct CommandOutput {
     pub flags: u32,
 }
 
-pub const DASHBOARD_ABI_VERSION: u32 = 1;
+pub const DASHBOARD_ABI_VERSION: u32 = 2;
 
 pub const DASHBOARD_FLAG_CORE_READY: u32 = 1 << 0;
 pub const DASHBOARD_FLAG_PRE_CRT_BOUNDARY: u32 = 1 << 1;
 pub const DASHBOARD_FLAG_VAS_VALID: u32 = 1 << 2;
 pub const DASHBOARD_FLAG_BLOCK_SAMPLE_VALID: u32 = 1 << 3;
+pub const DASHBOARD_FLAG_PROCESS_SAMPLE_VALID: u32 = 1 << 4;
 
-const DASHBOARD_VAS_MAX_AGE_MS: u32 = 10_000;
+const DASHBOARD_REFRESH_VAS: u32 = 1;
+
+static DASHBOARD_QUERY_COUNT: AtomicU64 = AtomicU64::new(0);
+static DASHBOARD_QUERY_LAST_US: AtomicU64 = AtomicU64::new(0);
+static DASHBOARD_QUERY_MAX_US: AtomicU64 = AtomicU64::new(0);
+static DASHBOARD_VAS_REFRESH_COUNT: AtomicU64 = AtomicU64::new(0);
+static DASHBOARD_VAS_REFRESH_LAST_US: AtomicU64 = AtomicU64::new(0);
+static DASHBOARD_VAS_REFRESH_MAX_US: AtomicU64 = AtomicU64::new(0);
 
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -101,6 +113,8 @@ pub struct DashboardSnapshot {
     pub flags: u32,
     pub allocator_mode: u32,
     pub sample_time_ms: u64,
+    pub process_sample_time_ms: u64,
+    pub vas_sample_time_ms: u64,
     pub active_features: u64,
     pub process_rss_bytes: u64,
     pub process_peak_rss_bytes: u64,
@@ -157,9 +171,15 @@ pub struct DashboardSnapshot {
     pub speedtree_waiters: u64,
     pub speedtree_max_materialization_wait_us: u64,
     pub speedtree_max_compute_wait_us: u64,
+    pub dashboard_queries: u64,
+    pub dashboard_query_last_us: u64,
+    pub dashboard_query_max_us: u64,
+    pub dashboard_vas_refreshes: u64,
+    pub dashboard_vas_refresh_last_us: u64,
+    pub dashboard_vas_refresh_max_us: u64,
 }
 
-const _: () = assert!(size_of::<DashboardSnapshot>() == 472);
+const _: () = assert!(size_of::<DashboardSnapshot>() == 536);
 
 impl Default for DashboardSnapshot {
     fn default() -> Self {
@@ -169,6 +189,8 @@ impl Default for DashboardSnapshot {
             flags: 0,
             allocator_mode: u32::MAX,
             sample_time_ms: 0,
+            process_sample_time_ms: 0,
+            vas_sample_time_ms: 0,
             active_features: 0,
             process_rss_bytes: 0,
             process_peak_rss_bytes: 0,
@@ -225,6 +247,12 @@ impl Default for DashboardSnapshot {
             speedtree_waiters: 0,
             speedtree_max_materialization_wait_us: 0,
             speedtree_max_compute_wait_us: 0,
+            dashboard_queries: 0,
+            dashboard_query_last_us: 0,
+            dashboard_query_max_us: 0,
+            dashboard_vas_refreshes: 0,
+            dashboard_vas_refresh_last_us: 0,
+            dashboard_vas_refresh_max_us: 0,
         }
     }
 }
@@ -271,22 +299,19 @@ pub unsafe extern "system" fn PsychoEngineFixes_QueryDashboard(
         return 0;
     }
 
-    let process = MiMallocProcessInfo::get();
+    let timer = diagnostics::Stopwatch::start();
+    let mode = current_mode();
+    let process = dashboard_process_snapshot(mode);
     let engine = engine_fixes::dashboard_counters();
     let mut snapshot = DashboardSnapshot {
         flags: DASHBOARD_FLAG_CORE_READY,
-        allocator_mode: current_mode().map_or(u32::MAX, |mode| match mode {
+        allocator_mode: mode.map_or(u32::MAX, |mode| match mode {
             AllocatorMode::Disabled => 0,
             AllocatorMode::ScrapHeap => 1,
             AllocatorMode::GheapAndScrapHeap => 2,
         }),
         sample_time_ms: u64::from(libpsycho::os::windows::winapi::get_tick_count()),
         active_features: engine.active_features,
-        process_rss_bytes: process.get_current_rss() as u64,
-        process_peak_rss_bytes: process.get_peak_rss() as u64,
-        process_commit_bytes: process.get_current_commit() as u64,
-        process_peak_commit_bytes: process.get_peak_commit() as u64,
-        process_page_faults: process.get_page_faults() as u64,
         pool_live_cells: pool::live_cells() as u64,
         pool_committed_bytes: pool::committed_bytes() as u64,
         pool_reserved_bytes: pool::reserved_bytes() as u64,
@@ -328,14 +353,31 @@ pub unsafe extern "system" fn PsychoEngineFixes_QueryDashboard(
         speedtree_waiters: engine.speedtree_waiters,
         speedtree_max_materialization_wait_us: engine.speedtree_max_materialization_wait_us,
         speedtree_max_compute_wait_us: engine.speedtree_max_compute_wait_us,
+        dashboard_queries: DASHBOARD_QUERY_COUNT.load(Ordering::Relaxed),
+        dashboard_query_last_us: DASHBOARD_QUERY_LAST_US.load(Ordering::Relaxed),
+        dashboard_query_max_us: DASHBOARD_QUERY_MAX_US.load(Ordering::Relaxed),
+        dashboard_vas_refreshes: DASHBOARD_VAS_REFRESH_COUNT.load(Ordering::Relaxed),
+        dashboard_vas_refresh_last_us: DASHBOARD_VAS_REFRESH_LAST_US.load(Ordering::Relaxed),
+        dashboard_vas_refresh_max_us: DASHBOARD_VAS_REFRESH_MAX_US.load(Ordering::Relaxed),
         ..DashboardSnapshot::default()
     };
+
+    if let Some(process) = process {
+        snapshot.flags |= DASHBOARD_FLAG_PROCESS_SAMPLE_VALID;
+        snapshot.process_sample_time_ms = process.sample_time_ms;
+        snapshot.process_rss_bytes = process.rss;
+        snapshot.process_peak_rss_bytes = process.peak_rss;
+        snapshot.process_commit_bytes = process.commit;
+        snapshot.process_peak_commit_bytes = process.peak_commit;
+        snapshot.process_page_faults = process.page_faults;
+    }
 
     if crate::entry::has_pre_crt_startup_boundary() {
         snapshot.flags |= DASHBOARD_FLAG_PRE_CRT_BOUNDARY;
     }
-    if let Some(summary) = vas::cached_or_sample(DASHBOARD_VAS_MAX_AGE_MS) {
+    if let Some((summary, sampled_at_ms)) = vas::cached() {
         snapshot.flags |= DASHBOARD_FLAG_VAS_VALID;
+        snapshot.vas_sample_time_ms = u64::from(sampled_at_ms);
         snapshot.vas_free_bytes = summary.total_free as u64;
         snapshot.vas_largest_hole_bytes = summary.largest_free as u64;
         snapshot.vas_committed_bytes = summary.total_commit as u64;
@@ -350,8 +392,60 @@ pub unsafe extern "system" fn PsychoEngineFixes_QueryDashboard(
         snapshot.block_committed_bytes = blocks.committed_bytes as u64;
     }
 
+    record_dashboard_timing(
+        timer,
+        &DASHBOARD_QUERY_COUNT,
+        &DASHBOARD_QUERY_LAST_US,
+        &DASHBOARD_QUERY_MAX_US,
+    );
     unsafe { ptr::write(output, snapshot) };
     1
+}
+
+/// Run an expensive dashboard refresh on the helper's sampling worker.
+#[unsafe(no_mangle)]
+pub unsafe extern "system" fn PsychoEngineFixes_RequestDashboardRefresh(kind: u32) -> i32 {
+    if !crate::entry::is_initialized() || kind != DASHBOARD_REFRESH_VAS {
+        return 0;
+    }
+
+    let timer = diagnostics::Stopwatch::start();
+    let success = vas::refresh_for_dashboard().is_some();
+    record_dashboard_timing(
+        timer,
+        &DASHBOARD_VAS_REFRESH_COUNT,
+        &DASHBOARD_VAS_REFRESH_LAST_US,
+        &DASHBOARD_VAS_REFRESH_MAX_US,
+    );
+    i32::from(success)
+}
+
+fn dashboard_process_snapshot(mode: Option<AllocatorMode>) -> Option<watchdog::ProcessSnapshot> {
+    if mode == Some(AllocatorMode::GheapAndScrapHeap) {
+        return watchdog::process_snapshot();
+    }
+
+    let process = MiMallocProcessInfo::get();
+    Some(watchdog::ProcessSnapshot {
+        sample_time_ms: u64::from(libpsycho::os::windows::winapi::get_tick_count()),
+        rss: process.get_current_rss() as u64,
+        peak_rss: process.get_peak_rss() as u64,
+        commit: process.get_current_commit() as u64,
+        peak_commit: process.get_peak_commit() as u64,
+        page_faults: process.get_page_faults() as u64,
+    })
+}
+
+fn record_dashboard_timing(
+    timer: diagnostics::Stopwatch,
+    count: &AtomicU64,
+    last: &AtomicU64,
+    max: &AtomicU64,
+) {
+    count.fetch_add(1, Ordering::Relaxed);
+    let elapsed_us = timer.elapsed_us().unwrap_or(0);
+    last.store(elapsed_us, Ordering::Relaxed);
+    diagnostics::update_max_u64(max, elapsed_us);
 }
 
 fn dashboard_header_supported(header: &DashboardHeader) -> bool {
