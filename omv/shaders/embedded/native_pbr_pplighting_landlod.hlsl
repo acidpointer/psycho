@@ -116,10 +116,6 @@ float3 PbrSun(float roughness, float3 albedo, float3 normal, float3 eye_dir, flo
     float metallic = PbrMetallicness();
     float3 reflectance = lerp(float3(0.04f, 0.04f, 0.04f), albedo, metallic);
 
-    normal = SafeNormalize(normal, float3(0.0f, 0.0f, 1.0f));
-    eye_dir = SafeNormalize(eye_dir, light_dir);
-    light_dir = SafeNormalize(light_dir, float3(0.0f, 0.0f, 1.0f));
-
     float3 reflect_dir = reflect(light_dir, normal);
     float radius = sin(SUN_RADIUS);
     float dist = cos(SUN_RADIUS);

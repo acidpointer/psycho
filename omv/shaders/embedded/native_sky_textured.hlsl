@@ -78,20 +78,27 @@ float4 SampleWeatherTextures(float2 uv, float2 blendUv) {
 #if OMV_CELESTIAL
 float4 Main(PixelInput input) : COLOR0 {
     float4 textureColor = Linearize4(tex2D(SkyTexture, input.uv));
+#if !defined(OMV_CELESTIAL_SUN)
     float4 vertexColor = Linearize4(input.color);
+#endif
     float sunHeight = SunData.w;
     float3 sunColor = SunLightColor.rgb;
-    float isSun = 1.0 - step(0.5, abs(ObjectData.x));
-    float isMoon = 1.0 - step(0.5, abs(ObjectData.x - 6.0));
+#if defined(OMV_CELESTIAL_SUN)
     float daylightGate = smoothstep(0.498, 0.502, SunData.x);
-
-    float3 nonSunColor = textureColor.rgb * vertexColor.rgb * Params.y * lerp(SunData.y, 1.0, isMoon);
-    float nonSunAlpha = textureColor.a * vertexColor.a;
     float sunsetWeight = smoothstep(0.3, 0.0, sunHeight);
     float3 sunResult = textureColor.rgb + sunColor * (sunsetWeight + SunData.y);
     float sunAlpha = textureColor.a * daylightGate;
-    float4 result = float4(lerp(nonSunColor, sunResult, isSun), lerp(nonSunAlpha, sunAlpha, isSun));
-    return float4(Delinearize3(result.rgb), result.a);
+    return float4(Delinearize3(sunResult), sunAlpha);
+#else
+#if defined(OMV_CELESTIAL_MOON)
+    float celestialBrightness = 1.0;
+#else
+    float celestialBrightness = SunData.y;
+#endif
+    float3 nonSunColor = textureColor.rgb * vertexColor.rgb * Params.y * celestialBrightness;
+    float nonSunAlpha = textureColor.a * vertexColor.a;
+    return float4(Delinearize3(nonSunColor), nonSunAlpha);
+#endif
 }
 #else
 #if OMV_CLOUD_NORMALS

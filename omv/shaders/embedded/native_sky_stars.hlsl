@@ -61,8 +61,8 @@ float4 Main(PixelInput input) : COLOR0 {
     float3 direction = normalize(input.location);
     float noiseScale = 4.0;
     float twinkleSpeed = 0.1 * CloudData.y;
-    float twinkle = ValueNoise(noiseScale * direction);
-    twinkle *= ValueNoise((SunData.z * twinkleSpeed).xxx + noiseScale * direction) * 2.0;
+    float twinkle = ValueNoise((SunData.z * twinkleSpeed).xxx + noiseScale * direction);
+    twinkle *= twinkle * 1.5;
     float brightness = 1.0 + twinkle * 100.0 * brightStar;
     float alpha = stars.a * input.color.a * input.horizonFade * SkyData.w;
     return float4(Delinearize(starLinear * tint * brightness), alpha);

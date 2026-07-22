@@ -1505,15 +1505,17 @@ mod shader_compile_tests {
     #[test]
     fn combined_specular_handoff_converges_to_the_non_specular_equation() {
         assert!(NVR_PBR_INCLUDE_SOURCE.contains(
-            "const float3 diffuse = LambertianDiffuse(albedo, fresnel) * radiance * PI;"
+            "const float3 diffuse = (1 - fresnel) * surface.diffuseColor * radiance * PI;"
         ));
         assert!(NVR_PBR_INCLUDE_SOURCE.contains(
-            "return diffuse + saturate(specular * saturate(specularStrength)) * saturate(specularFade);"
+            "return diffuse + saturate(specular * surface.specularStrength) * surface.specularFade;"
         ));
         assert!(NVR_PBR_INCLUDE_SOURCE.contains("return diffuse * NdotL * lightColor * PI;"));
-        assert!(NVR_OBJECT_INCLUDE_SOURCE.contains(
-            "return att * PBRDiffuse(0, materialResponse, albedo, normal, viewDir, lightDir, lightColor);"
-        ));
+        assert!(
+            NVR_OBJECT_INCLUDE_SOURCE.contains(
+                "return att * PBRDiffuse(surface, normal, viewDir, lightDir, lightColor);"
+            )
+        );
         assert!(
             NVR_OBJECT_TEMPLATE_SOURCE
                 .contains("lighting += getAmbientLighting(AmbientColor.rgb, materialAlbedo);")
@@ -1536,10 +1538,10 @@ mod shader_compile_tests {
     #[test]
     fn bounded_object_brdf_is_finite_bounded_and_fade_monotonic() {
         assert!(NVR_PBR_INCLUDE_SOURCE.contains(
-            "return saturate(specular * saturate(specularStrength)) * saturate(specularFade);"
+            "return saturate(specular * surface.specularStrength) * surface.specularFade;"
         ));
         assert!(NVR_PBR_INCLUDE_SOURCE.contains(
-            "return diffuse + saturate(specular * saturate(specularStrength)) * saturate(specularFade);"
+            "return diffuse + saturate(specular * surface.specularStrength) * surface.specularFade;"
         ));
 
         let normals = [[0.0, 0.0, 1.0], [0.6, 0.0, 0.8], [-0.8, 0.2, 0.565_685_45]];
@@ -1893,9 +1895,9 @@ mod shader_compile_tests {
     #[test]
     fn every_object_shader_stays_within_static_gpu_budget() {
         let representative_limits = [
-            ("SLS2017_p_specular", 2_400),
-            ("SLS2034_p_specular_lights4", 4_400),
-            ("SLS2035_p_specular_lights4_opt", 4_200),
+            ("SLS2017_p_specular", 2_204, 115, 2),
+            ("SLS2034_p_specular_lights4", 4_020, 235, 2),
+            ("SLS2035_p_specular_lights4_opt", 3_860, 231, 2),
         ];
         for template_id in 0..object_template_count() {
             let template = object_template_at(template_id as u16).unwrap();
@@ -1951,16 +1953,28 @@ mod shader_compile_tests {
                 );
             }
 
-            if let Some((_, limit)) = representative_limits
+            if let Some((_, byte_limit, instruction_limit, texture_limit)) = representative_limits
                 .iter()
-                .find(|(label, _)| *label == template.label)
+                .find(|(label, ..)| *label == template.label)
             {
                 assert!(
-                    byte_size <= *limit,
+                    byte_size <= *byte_limit,
                     "{} grew to {} bytes (limit {})",
                     template.label,
                     byte_size,
-                    limit
+                    byte_limit
+                );
+                assert!(
+                    opcodes.len() <= *instruction_limit,
+                    "{} grew to {} instructions (limit {})",
+                    template.label,
+                    opcodes.len(),
+                    instruction_limit
+                );
+                assert_eq!(
+                    texture_count, *texture_limit,
+                    "{} texture samples",
+                    template.label
                 );
             }
 
@@ -1989,16 +2003,103 @@ mod shader_compile_tests {
     }
 
     #[test]
-    fn representative_close_terrain_bytecode_stays_bounded() {
+    fn object_lights_reuse_prepared_material_terms() {
+        assert!(NVR_PBR_INCLUDE_SOURCE.contains("struct PbrObjectSurface"));
+        assert!(NVR_PBR_INCLUDE_SOURCE.contains("PreparePbrObjectSurface("));
+        assert_eq!(
+            NVR_OBJECT_TEMPLATE_SOURCE
+                .matches("PreparePbrObjectSurface(")
+                .count(),
+            2,
+            "each mutually exclusive object pixel-shader family must prepare material terms once"
+        );
+        assert_eq!(
+            NVR_PBR_INCLUDE_SOURCE
+                .matches("saturate(specularStrength)")
+                .count(),
+            1
+        );
+        assert_eq!(
+            NVR_PBR_INCLUDE_SOURCE
+                .matches("saturate(specularFade)")
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn prepared_object_material_terms_match_the_original_equation() {
+        const PI: f32 = std::f32::consts::PI;
+        for albedo in [0.02f32, 0.18, 0.8] {
+            for fresnel in [0.04f32, 0.35, 0.95] {
+                for gloss_power in [1.0f32, 16.0, 128.0] {
+                    for ndoth in [0.0f32, 0.25, 0.75, 1.0] {
+                        for ndotl in [0.0f32, 0.1, 0.6, 1.0] {
+                            for attenuation in [0.0f32, 0.3, 1.0] {
+                                for specular_strength in [0.0f32, 0.5, 1.25] {
+                                    for specular_fade in [0.0f32, 0.7, 1.5] {
+                                        let radiance = ndotl * attenuation;
+                                        let distribution =
+                                            ndoth.powf(gloss_power) * (gloss_power + 2.0) * 0.125;
+                                        let original_diffuse =
+                                            (1.0 - fresnel) * albedo / PI * radiance * PI;
+                                        let original_specular = (fresnel
+                                            * distribution
+                                            * radiance
+                                            * specular_strength.clamp(0.0, 1.0))
+                                        .clamp(0.0, 1.0)
+                                            * specular_fade.clamp(0.0, 1.0);
+
+                                        let diffuse_color = albedo / PI;
+                                        let distribution_scale = (gloss_power + 2.0) * 0.125;
+                                        let prepared_distribution =
+                                            ndoth.powf(gloss_power) * distribution_scale;
+                                        let prepared_diffuse =
+                                            (1.0 - fresnel) * diffuse_color * radiance * PI;
+                                        let prepared_specular = (fresnel
+                                            * prepared_distribution
+                                            * radiance
+                                            * specular_strength.clamp(0.0, 1.0))
+                                        .clamp(0.0, 1.0)
+                                            * specular_fade.clamp(0.0, 1.0);
+
+                                        let diffuse_tolerance =
+                                            original_diffuse.abs().max(1.0) * 0.000_001;
+                                        let specular_tolerance =
+                                            original_specular.abs().max(1.0) * 0.000_001;
+                                        assert!(
+                                            (prepared_diffuse - original_diffuse).abs()
+                                                <= diffuse_tolerance
+                                        );
+                                        assert!(
+                                            (prepared_specular - original_specular).abs()
+                                                <= specular_tolerance
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn representative_terrain_bytecode_stays_bounded() {
         let limits = [
-            ("SLS2092_p_terrain_t1_l0", 18_800, 1_130, 2),
-            ("SLS2093_p_terrain_t1_l0_canopy", 18_800, 1_130, 2),
-            ("SLS2098_p_terrain_t1_l24", 24_100, 1_450, 2),
-            ("SLS2099_p_terrain_t1_l24_canopy", 24_100, 1_450, 2),
-            ("SLS2140_p_terrain_t7_l0", 20_400, 1_240, 14),
-            ("SLS2141_p_terrain_t7_l0_canopy", 20_400, 1_240, 14),
-            ("SLS2146_p_terrain_t7_l24", 25_600, 1_550, 14),
-            ("SLS2147_p_terrain_t7_l24_canopy", 25_600, 1_550, 14),
+            ("SLS2002_v_landlod", 1_708, 90, 0),
+            ("SLS2003_p_landlod", 3_996, 211, 5),
+            ("SLS2080_v_terrain_fade", 1_584, 87, 0),
+            ("SLS2082_p_terrain_fade", 3_520, 192, 3),
+            ("SLS2092_p_terrain_t1_l0", 16_224, 962, 2),
+            ("SLS2093_p_terrain_t1_l0_canopy", 16_224, 962, 2),
+            ("SLS2098_p_terrain_t1_l24", 21_472, 1_273, 2),
+            ("SLS2099_p_terrain_t1_l24_canopy", 21_472, 1_273, 2),
+            ("SLS2140_p_terrain_t7_l0", 17_580, 1_047, 14),
+            ("SLS2141_p_terrain_t7_l0_canopy", 17_580, 1_047, 14),
+            ("SLS2146_p_terrain_t7_l24", 22_828, 1_358, 14),
+            ("SLS2147_p_terrain_t7_l24_canopy", 22_828, 1_358, 14),
         ];
         for template_id in 0..template_count() {
             let template = template_at(template_id as u16).unwrap();
@@ -2033,6 +2134,124 @@ mod shader_compile_tests {
                     "{} texture samples",
                     template.label
                 );
+            }
+        }
+    }
+
+    #[test]
+    fn terrain_pbr_normalizes_surface_inputs_once_per_pixel() {
+        for (label, source) in [
+            ("close terrain", CLOSE_TERRAIN_PIXEL_SOURCE),
+            ("terrain fade", TERRAIN_FADE_PIXEL_SOURCE),
+            ("land LOD", LAND_LOD_PIXEL_SOURCE),
+        ] {
+            assert!(
+                !source.contains("normal = SafeNormalize(normal"),
+                "{label} repeats invariant normal normalization inside its BRDF"
+            );
+            assert!(
+                !source.contains("view_dir = SafeNormalize(view_dir"),
+                "{label} repeats invariant view normalization inside its BRDF"
+            );
+        }
+    }
+
+    #[test]
+    fn terrain_replacements_do_not_carry_an_unreachable_vanilla_brdf() {
+        for (label, source) in [
+            ("close terrain", CLOSE_TERRAIN_PIXEL_SOURCE),
+            ("terrain fade", TERRAIN_FADE_PIXEL_SOURCE),
+        ] {
+            assert!(
+                !source.contains("TerrainPbrEnabled"),
+                "{label} still branches on the replacement-only PBR marker"
+            );
+            assert!(
+                !source.contains("VanillaDirect"),
+                "{label} still compiles the unreachable vanilla BRDF"
+            );
+        }
+        assert!(
+            !CLOSE_TERRAIN_PIXEL_SOURCE.contains("spec_exponent"),
+            "close terrain still computes vanilla-only weighted gloss exponents"
+        );
+        assert!(!CLOSE_TERRAIN_PIXEL_SOURCE.contains("CopyTerrainWeights"));
+        assert!(!CLOSE_TERRAIN_PIXEL_SOURCE.contains("float weights[7]"));
+    }
+
+    #[test]
+    fn close_terrain_prepares_loop_invariant_brdf_state_once() {
+        assert_eq!(
+            CLOSE_TERRAIN_PIXEL_SOURCE
+                .matches("PreparePbrSurface(")
+                .count(),
+            2
+        );
+        let prepare = CLOSE_TERRAIN_PIXEL_SOURCE
+            .rfind("PreparePbrSurface(")
+            .expect("missing prepared terrain BRDF state call");
+        let point_loop = CLOSE_TERRAIN_PIXEL_SOURCE.find("[loop]").unwrap();
+        assert!(prepare < point_loop);
+        assert_eq!(
+            CLOSE_TERRAIN_PIXEL_SOURCE
+                .matches("PbrMetallicness()")
+                .count(),
+            2
+        );
+        assert_eq!(
+            CLOSE_TERRAIN_PIXEL_SOURCE
+                .matches("PbrRoughnessScale()")
+                .count(),
+            2
+        );
+    }
+
+    #[test]
+    fn prepared_terrain_brdf_matches_the_original_equation() {
+        const PI: f32 = std::f32::consts::PI;
+        for roughness in [0.043f32, 0.2, 0.55, 1.0] {
+            for metallic in [0.0f32, 0.35, 1.0] {
+                for albedo in [0.02f32, 0.18, 0.8] {
+                    for ndotv in [0.000_01f32, 0.1, 0.6, 1.0] {
+                        for ndotl in [0.000_01f32, 0.05, 0.5, 1.0] {
+                            for ndoth in [0.0f32, 0.25, 0.75, 1.0] {
+                                let ldoth = (0.35f32 + ndoth * 0.5).clamp(0.0, 1.0);
+                                let reflectance = 0.04 + (albedo - 0.04) * metallic;
+                                let fresnel =
+                                    reflectance + (1.0 - reflectance) * (1.0 - ldoth).powi(5);
+
+                                let alpha2 = roughness.powi(4);
+                                let distribution_denominator =
+                                    (ndoth * alpha2 - ndoth) * ndoth + 1.0;
+                                let distribution =
+                                    alpha2 / (PI * distribution_denominator.powi(2)).max(0.000_01);
+                                let geometry_k = (roughness + 1.0).powi(2) * 0.125;
+                                let view_shadowing = ndotv
+                                    / (ndotv * (1.0 - geometry_k) + geometry_k).max(0.000_000_01);
+                                let light_shadowing = ndotl
+                                    / (ndotl * (1.0 - geometry_k) + geometry_k).max(0.000_000_01);
+
+                                let original_geometry = view_shadowing * light_shadowing;
+                                let original_specular = distribution * original_geometry * fresnel
+                                    / (4.0 * ndotv * ndotl).max(0.000_01);
+                                let original_diffuse =
+                                    (1.0 - fresnel) * albedo / PI * (1.0 - metallic);
+                                let original = (original_diffuse + original_specular) * ndotl * PI;
+
+                                let prepared_diffuse_color = albedo * (1.0 - metallic) / PI;
+                                let prepared_specular =
+                                    distribution * view_shadowing * light_shadowing * fresnel
+                                        / (4.0 * ndotv * ndotl).max(0.000_01);
+                                let prepared = ((1.0 - fresnel) * prepared_diffuse_color
+                                    + prepared_specular)
+                                    * ndotl
+                                    * PI;
+                                let tolerance = original.abs().max(1.0) * 0.000_001;
+                                assert!((prepared - original).abs() <= tolerance);
+                            }
+                        }
+                    }
+                }
             }
         }
     }

@@ -786,3 +786,75 @@ A future close terrain fix must prove all of this first:
   subsystem merely to reconfirm the same source error.
 - Static validation is a deployment gate, not proof of final pixels. Finish a
   statically validated graphics change with an ordinary feature-first playtest.
+
+## Performance Contract (2026-07-22)
+
+A runtime report attributed a 7-10 FPS loss, and sometimes more, to native PBR.
+That observation establishes the severity and the scenes to retest; it is not a
+reproducible benchmark result in the repository. The optimization must retain
+the complete material, light, row, and fallback contracts above.
+
+The close-terrain pixel family had three avoidable costs:
+
+- surface normal and view direction were normalized again inside the sun BRDF
+  and inside every point-light iteration even though `Main` already produces
+  finite normalized values;
+- the shader compiled a vanilla BRDF and selected it through
+  `TESR_TerrainExtraData.x`, although OMV binds a replacement only while native
+  PBR is enabled and always uploads `c90.x = 1`; a disabled, warming, or failed
+  replacement draw already remains on the native engine pair;
+- metallic reflectance, diffuse color, roughness alpha, `NdotV`, and the
+  view-side geometry term were rebuilt for the sun and for every point light.
+
+The active NVR-derived object family also rebuilt invariant material terms for
+every admitted sun or point light: diffuse albedo divided by PI, the bounded
+specular normalization, and saturated native strength/fade controls.
+
+`native_pbr_pplighting_close_terrain.hlsl` now normalizes surface inputs once,
+prepares those loop-invariant BRDF terms once per pixel, and reuses them across
+the unchanged sun and combined native/supplemental point-light loop. It also no
+longer copies the seven terrain weights or accumulates the vanilla-only weighted
+gloss exponent. TerrainFade uses the same replacement-only rule and performs
+light/view normalization once in `Main`; LandLOD likewise no longer repeats its
+already-completed surface normalization inside `PbrSun`.
+
+Object shaders now prepare those material terms once per pixel and pass the
+prepared surface through the unchanged sun/point-light paths. Light direction,
+Fresnel, attenuation, radiance, and highlight evaluation remain per light as
+required. The three representative object ceilings are now 115 instructions for
+the one-light specular row and 235/231 instructions for the four-light normal
+and optimized rows, all with their original two texture samples.
+
+This does not change any quality dimension:
+
+- close terrain still samples exactly two textures per active material layer;
+- the one-through-seven-layer and `0/6/12/24` native-light variants remain;
+- the total native plus supplemental point-light cap remains 24;
+- native light alpha and explicit supplemental visibility remain separate;
+- corrected center-before-weight normal blending remains unchanged;
+- canopy companions remain byte-identical to their paired base variants; and
+- every object row, native light count, attenuation mode, projected-shadow
+  path, specular-strength control, and native specular fade remains enabled; and
+- disabling PBR still bypasses the replacement and uses the native shader, not
+  an approximation embedded in the replacement.
+
+The tests now sweep the prepared BRDF against the prior equation, prove the
+replacement marker, reject repeated surface normalization and unreachable
+vanilla work, sweep the prepared object equation against its prior form, compile
+every registered PBR shader, and impose tight bytecode, instruction, and
+texture-sample ceilings on representative object rows, LandLOD, TerrainFade,
+and the close-terrain extremes. Current maximum representative close-terrain
+costs are 1,358 compiled instruction tokens and 14 texture samples for the
+seven-layer/24-light row. These are static workload gates, not an FPS claim.
+
+Runtime acceptance must compare the same save, camera, resolution, weather, and
+scene with PBR off/on. Include daylight and the original night exterior with the
+Pip-Boy light while rotating and approaching canopy geometry. Confirm both frame
+time and the absence of returning dark/blinking rectangles. A GPU capture or
+repeatable frame-time trace is still required before assigning an FPS delta to
+this change.
+
+Repository validation on 2026-07-22 passed all 254 OMV tests and the supported
+release build for `i686-pc-windows-gnu`. The tests exercise shader compilation
+through Wine; the scene-level visual and frame-time acceptance above still
+requires the game runtime.

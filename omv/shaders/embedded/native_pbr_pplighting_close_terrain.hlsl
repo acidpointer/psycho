@@ -66,11 +66,6 @@ float3 Luma(float3 value)
     return float3(lum, lum, lum);
 }
 
-bool TerrainPbrEnabled()
-{
-    return TESR_TerrainExtraData.x > 0.5f;
-}
-
 float PbrRoughnessScale()
 {
     return (TESR_TerrainData.y > 0.0f) ? TESR_TerrainData.y : 1.0f;
@@ -108,64 +103,66 @@ float3 Fresnel(float3 f0, float3 f90, float cosine)
     return f0 + (f90 - f0) * (f2 * f2 * f);
 }
 
-float3 LambertianDiffuse(float3 albedo, float3 fresnel)
+struct PbrSurface
 {
-    return (1.0f - fresnel) * albedo / PI;
-}
+    float3 reflectance;
+    float3 diffuse_color;
+    float ndotv;
+    float alpha2;
+    float geometry_k;
+    float view_shadowing;
+};
 
-float GGX(float ndoth, float roughness)
+PbrSurface PreparePbrSurface(float roughness, float3 albedo, float3 normal, float3 view_dir)
 {
-    float a = roughness * roughness;
-    float a2 = a * a;
-    float d = (ndoth * a2 - ndoth) * ndoth + 1.0f;
-    return a2 / max(PI * d * d, 0.00001f);
-}
-
-float SchlickBeckmann(float ndotx, float roughness)
-{
-    float k = (roughness + 1.0f) * (roughness + 1.0f) * 0.125f;
-    return ndotx / max(ndotx * (1.0f - k) + k, 0.00000001f);
-}
-
-float GeometryShadowing(float roughness, float ndotv, float ndotl)
-{
-    return SchlickBeckmann(ndotv, roughness) * SchlickBeckmann(ndotl, roughness);
-}
-
-float3 Brdf(float roughness, float3 fresnel, float ndotv, float ndotl, float ndoth)
-{
-    float3 numerator = GGX(ndoth, roughness) * GeometryShadowing(roughness, ndotv, ndotl) * fresnel;
-    return numerator / max(4.0f * ndotv * ndotl, 0.00001f);
-}
-
-float3 PbrDirect(float roughness, float3 albedo, float3 normal, float3 view_dir, float3 light_dir, float3 light_color)
-{
+    PbrSurface surface;
     float metallic = PbrMetallicness();
-    float3 reflectance = lerp(float3(0.04f, 0.04f, 0.04f), albedo, metallic);
+    surface.reflectance = lerp(float3(0.04f, 0.04f, 0.04f), albedo, metallic);
+    surface.diffuse_color = albedo * (1.0f - metallic) / PI;
+    surface.ndotv = max(Shades(normal, view_dir), 0.00001f);
+    float alpha = roughness * roughness;
+    surface.alpha2 = alpha * alpha;
+    surface.geometry_k = (roughness + 1.0f) * (roughness + 1.0f) * 0.125f;
+    surface.view_shadowing = surface.ndotv / max(
+        surface.ndotv * (1.0f - surface.geometry_k) + surface.geometry_k,
+        0.00000001f
+    );
+    return surface;
+}
 
-    normal = SafeNormalize(normal, float3(0.0f, 0.0f, 1.0f));
-    view_dir = SafeNormalize(view_dir, float3(0.0f, 0.0f, 1.0f));
+float3 PreparedBrdf(PbrSurface surface, float3 fresnel, float ndotl, float ndoth)
+{
+    float distribution_denominator = (ndoth * surface.alpha2 - ndoth) * ndoth + 1.0f;
+    float distribution = surface.alpha2 / max(
+        PI * distribution_denominator * distribution_denominator,
+        0.00001f
+    );
+    float light_shadowing = ndotl / max(
+        ndotl * (1.0f - surface.geometry_k) + surface.geometry_k,
+        0.00000001f
+    );
+    float3 numerator = distribution * surface.view_shadowing * light_shadowing * fresnel;
+    return numerator / max(4.0f * surface.ndotv * ndotl, 0.00001f);
+}
+
+float3 PbrDirect(PbrSurface surface, float3 normal, float3 view_dir, float3 light_dir, float3 light_color)
+{
+
     light_dir = SafeNormalize(light_dir, float3(0.0f, 0.0f, 1.0f));
 
     float3 halfway = SafeNormalize(view_dir + light_dir, normal);
     float ndotl = max(Shades(normal, light_dir), 0.00001f);
-    float ndotv = max(Shades(normal, view_dir), 0.00001f);
     float ndoth = Shades(normal, halfway);
     float ldoth = Shades(light_dir, halfway);
-    float3 fresnel = Fresnel(reflectance, float3(1.0f, 1.0f, 1.0f), ldoth);
-    float3 diffuse = LambertianDiffuse(albedo, fresnel) * (1.0f - metallic);
-    float3 specular = Brdf(roughness, fresnel, ndotv, ndotl, ndoth);
+    float3 fresnel = Fresnel(surface.reflectance, float3(1.0f, 1.0f, 1.0f), ldoth);
+    float3 diffuse = (1.0f - fresnel) * surface.diffuse_color;
+    float3 specular = PreparedBrdf(surface, fresnel, ndotl, ndoth);
 
     return (diffuse + specular) * ndotl * light_color * PI;
 }
 
-float3 PbrSun(float roughness, float3 albedo, float3 normal, float3 view_dir, float3 light_dir, float3 light_color)
+float3 PbrSun(PbrSurface surface, float3 normal, float3 view_dir, float3 light_dir, float3 light_color)
 {
-    float metallic = PbrMetallicness();
-    float3 reflectance = lerp(float3(0.04f, 0.04f, 0.04f), albedo, metallic);
-
-    normal = SafeNormalize(normal, float3(0.0f, 0.0f, 1.0f));
-    view_dir = SafeNormalize(view_dir, light_dir);
     light_dir = SafeNormalize(light_dir, float3(0.0f, 0.0f, 1.0f));
 
     float3 reflect_dir = reflect(light_dir, normal);
@@ -179,28 +176,14 @@ float3 PbrSun(float roughness, float3 albedo, float3 normal, float3 view_dir, fl
 
     float3 halfway = SafeNormalize(view_dir + sun_dir, normal);
     float ndots = max(Shades(normal, sun_dir), 0.00001f);
-    float ndotv = max(Shades(normal, view_dir), 0.00001f);
     float ndoth = Shades(normal, halfway);
     float ndotl = Shades(normal, light_dir);
     float ldoth = Shades(light_dir, halfway);
-    float3 fresnel = Fresnel(reflectance, float3(1.0f, 1.0f, 1.0f), ldoth);
-    float3 diffuse = LambertianDiffuse(albedo, fresnel) * (1.0f - metallic);
-    float3 specular = Brdf(roughness, fresnel, ndotv, ndots, ndoth);
+    float3 fresnel = Fresnel(surface.reflectance, float3(1.0f, 1.0f, 1.0f), ldoth);
+    float3 diffuse = (1.0f - fresnel) * surface.diffuse_color;
+    float3 specular = PreparedBrdf(surface, fresnel, ndots, ndoth);
 
     return (diffuse * ndotl + specular * ndots) * light_color * PI;
-}
-
-float3 VanillaDirect(float3 light_dir, float attenuation, float3 light_color, float3 view_dir, float3 normal, float3 albedo, float gloss, float gloss_power)
-{
-    light_dir = SafeNormalize(light_dir, float3(0.0f, 0.0f, 1.0f));
-    view_dir = SafeNormalize(view_dir, float3(0.0f, 0.0f, 1.0f));
-
-    float3 halfway = SafeNormalize(light_dir + view_dir, normal);
-    float ndotl = Shades(normal, light_dir);
-    float spec_strength = gloss * pow(abs(Shades(normal, halfway)), gloss_power);
-    float3 lighting = albedo * ndotl * light_color * attenuation;
-    lighting += saturate(((0.2f >= ndotl ? (spec_strength * saturate(ndotl + 0.5f)) : spec_strength) * light_color) * attenuation);
-    return lighting;
 }
 
 float VanillaAtt(float3 light_vector, float radius)
@@ -208,14 +191,6 @@ float VanillaAtt(float3 light_vector, float radius)
     float safe_radius = max(radius, 0.001f);
     float3 att = light_vector / safe_radius;
     return saturate(1.0f - Shades(att, att));
-}
-
-void CopyTerrainWeights(float blends[7], out float weights[7])
-{
-    [unroll] for (int i = 0; i < 7; i++)
-    {
-        weights[i] = blends[i];
-    }
 }
 
 float3 BlendDiffuseMaps(float3 vertex_color, float2 uv, float blends[7])
@@ -229,10 +204,9 @@ float3 BlendDiffuseMaps(float3 vertex_color, float2 uv, float blends[7])
     return color * vertex_color;
 }
 
-float3 BlendNormalMaps(float2 uv, float blends[7], float spec[7], out float gloss, out float spec_exponent)
+float3 BlendNormalMaps(float2 uv, float blends[7], float spec[7], out float gloss)
 {
     gloss = 0.0f;
-    spec_exponent = 0.0f;
 
     float3 blended_normal = float3(0.0f, 0.0f, 0.0f);
     [unroll] for (int i = 0; i < PBR_TERRAIN_TEX_COUNT; i++)
@@ -241,34 +215,22 @@ float3 BlendNormalMaps(float2 uv, float blends[7], float spec[7], out float glos
         float4 normal_sample = tex2D(NormalMap[i], uv);
         blended_normal += (normal_sample.rgb - 0.5f) * blend;
         gloss += normal_sample.a * blend * ((spec[i] > 0.0f) ? 1.0f : 0.0f);
-        spec_exponent += spec[i] * blend;
     }
 
     gloss = saturate(gloss);
     return SafeNormalize(blended_normal, float3(0.0f, 0.0f, 1.0f));
 }
 
-float3 SunLighting(float3 light_dir, float3 sun_color, float3 view_dir, float3 normal, float3 ambient_color, float3 albedo, float gloss, float gloss_power, float roughness, float parallax_multiplier)
+float3 SunLighting(PbrSurface surface, float3 light_dir, float3 sun_color, float3 view_dir, float3 normal, float3 ambient_color, float3 albedo, float parallax_multiplier)
 {
     float3 light_color = sun_color * PbrLightMultiplier() * parallax_multiplier;
     float3 ambient = ambient_color * PbrAmbientMultiplier() * albedo;
-
-    if (TerrainPbrEnabled())
-    {
-        return max(float3(0.0f, 0.0f, 0.0f), PbrSun(roughness, albedo, normal, view_dir, light_dir, light_color) + ambient);
-    }
-
-    return VanillaDirect(light_dir, 1.0f, sun_color, view_dir, normal, albedo, gloss, gloss_power) + ambient;
+    return max(float3(0.0f, 0.0f, 0.0f), PbrSun(surface, normal, view_dir, light_dir, light_color) + ambient);
 }
 
-float3 PointLighting(float3 light_dir, float attenuation, float3 light_color, float3 view_dir, float3 normal, float3 albedo, float gloss, float gloss_power, float roughness)
+float3 PointLighting(PbrSurface surface, float3 light_dir, float attenuation, float3 light_color, float3 view_dir, float3 normal)
 {
-    if (TerrainPbrEnabled())
-    {
-        return max(float3(0.0f, 0.0f, 0.0f), PbrDirect(roughness, albedo, normal, view_dir, light_dir, light_color * PbrLightMultiplier()) * attenuation);
-    }
-
-    return VanillaDirect(light_dir, attenuation, light_color, view_dir, normal, albedo, gloss, gloss_power);
+    return max(float3(0.0f, 0.0f, 0.0f), PbrDirect(surface, normal, view_dir, light_dir, light_color * PbrLightMultiplier()) * attenuation);
 }
 
 PixelOutput Main(PixelInput input)
@@ -299,19 +261,17 @@ PixelOutput Main(PixelInput input)
         LandSpec[1].y,
         LandSpec[1].z
     };
-    float weights[7] = { 0, 0, 0, 0, 0, 0, 0 };
-    CopyTerrainWeights(blends, weights);
     float2 terrain_uv = input.uv.xy;
 
     float gloss = 0.0f;
-    float spec_exponent = 0.0f;
-    float3 albedo = BlendDiffuseMaps(input.vertex_color, terrain_uv, weights);
+    float3 albedo = BlendDiffuseMaps(input.vertex_color, terrain_uv, blends);
     albedo = lerp(Luma(albedo), albedo, PbrAlbedoSaturation());
-    float3 normal = BlendNormalMaps(terrain_uv, weights, spec, gloss, spec_exponent);
+    float3 normal = BlendNormalMaps(terrain_uv, blends, spec, gloss);
     float roughness = RoughnessFromGloss(gloss);
+    PbrSurface pbr_surface = PreparePbrSurface(roughness, albedo, normal, view_dir);
 
     float3 light_ts = mul(tbn, SunDir.xyz);
-    float3 lighting = SunLighting(light_ts, SunColor.rgb, view_dir, normal, AmbientColor.rgb, albedo, gloss, spec_exponent, roughness, 1.0f);
+    float3 lighting = SunLighting(pbr_surface, light_ts, SunColor.rgb, view_dir, normal, AmbientColor.rgb, albedo, 1.0f);
 
     int native_point_count = 0;
 #if PBR_TERRAIN_POINT_LIGHTS > 0
@@ -342,15 +302,12 @@ PixelOutput Main(PixelInput input)
         [branch] if (attenuation > 0.001f)
         {
             lighting += PointLighting(
+                pbr_surface,
                 mul(tbn, light_vector),
                 attenuation,
                 light_color.rgb * saturate(light_color.a),
                 view_dir,
-                normal,
-                albedo,
-                gloss,
-                spec_exponent,
-                roughness
+                normal
             );
         }
     }

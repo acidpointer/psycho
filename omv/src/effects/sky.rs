@@ -56,11 +56,13 @@ const VS_STARS: usize = 3;
 const VS_CLOUDS: usize = 4;
 const VS_FORWARD_OFFSET: usize = 5;
 const PS_ATMOSPHERE: usize = 10;
-const PS_CELESTIAL: usize = 11;
-const PS_CLOUDS: usize = 12;
-const PS_CLOUD_NORMALS: usize = 13;
-const PS_STARS: usize = 14;
-const SHADER_COUNT: usize = 15;
+const PS_CELESTIAL_OTHER: usize = 11;
+const PS_CELESTIAL_SUN: usize = 12;
+const PS_CELESTIAL_MOON: usize = 13;
+const PS_CLOUDS: usize = 14;
+const PS_CLOUD_NORMALS: usize = 15;
+const PS_STARS: usize = 16;
+const SHADER_COUNT: usize = 17;
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct NativeSkySettings {
@@ -202,10 +204,22 @@ const TEMPLATES: [ShaderTemplate; SHADER_COUNT] = [
         prefix: b"",
     },
     ShaderTemplate {
-        label: "sky_celestial_ps",
+        label: "sky_celestial_other_ps",
         stage: Stage::Pixel,
         source: TEXTURED_PS,
         prefix: b"#define OMV_CELESTIAL 1\n",
+    },
+    ShaderTemplate {
+        label: "sky_celestial_sun_ps",
+        stage: Stage::Pixel,
+        source: TEXTURED_PS,
+        prefix: b"#define OMV_CELESTIAL 1\n#define OMV_CELESTIAL_SUN 1\n",
+    },
+    ShaderTemplate {
+        label: "sky_celestial_moon_ps",
+        stage: Stage::Pixel,
+        source: TEXTURED_PS,
+        prefix: b"#define OMV_CELESTIAL 1\n#define OMV_CELESTIAL_MOON 1\n",
     },
     ShaderTemplate {
         label: "sky_clouds_ps",
@@ -239,6 +253,7 @@ static DRAW_BOUNDARY_READY: AtomicBool = AtomicBool::new(false);
 static COMPILE_STARTED: AtomicBool = AtomicBool::new(false);
 static COMPILE_FINISHED: AtomicBool = AtomicBool::new(false);
 static COMPILE_FAILED: AtomicBool = AtomicBool::new(false);
+static FRAME_EPOCH: AtomicU32 = AtomicU32::new(1);
 static BYTECODE: LazyLock<Mutex<Vec<Option<Vec<u32>>>>> =
     LazyLock::new(|| Mutex::new((0..SHADER_COUNT).map(|_| None).collect()));
 static RESOURCES: LazyLock<Mutex<ResourceState>> =
@@ -268,23 +283,37 @@ struct ResourceState {
 
 #[derive(Default)]
 struct FrameState {
+    epoch: u32,
     resolved: bool,
-    sky: Option<crate::backend::NativeSkyFrame>,
+    prepared: Option<PreparedSkyFrame>,
 }
 
 impl FrameState {
     fn clear(&mut self) {
+        self.epoch = 0;
         self.resolved = false;
-        self.sky = None;
+        self.prepared = None;
     }
 
-    fn sky(&mut self) -> Option<crate::backend::NativeSkyFrame> {
+    fn prepared(&mut self, epoch: u32, settings: NativeSkySettings) -> Option<PreparedSkyFrame> {
+        if self.epoch != epoch {
+            self.epoch = epoch;
+            self.resolved = false;
+            self.prepared = None;
+        }
         if !self.resolved {
-            self.sky = crate::backend::native_sky_frame();
+            self.prepared =
+                crate::backend::native_sky_frame().map(|frame| prepare_sky_frame(frame, settings));
             self.resolved = true;
         }
-        self.sky
+        self.prepared
     }
+}
+
+#[derive(Clone, Copy)]
+struct PreparedSkyFrame {
+    reversed_depth: bool,
+    constants: [[f32; 4]; 11],
 }
 
 impl ResourceState {
@@ -346,7 +375,7 @@ pub(crate) fn install(settings: NativeSkySettings) -> Result<()> {
 
 pub(crate) fn configure_runtime_options(settings: NativeSkySettings) {
     *SETTINGS.lock() = settings;
-    FRAME_STATE.lock().clear();
+    FRAME_EPOCH.fetch_add(1, Ordering::AcqRel);
     ENABLED.store(settings.enabled, Ordering::Release);
     if settings.enabled && INSTALLED.load(Ordering::Acquire) {
         start_compile_worker();
@@ -377,7 +406,7 @@ pub(crate) fn runtime_status() -> NativeSkyStatus {
 }
 
 pub(crate) fn service_present_frame() {
-    FRAME_STATE.lock().clear();
+    FRAME_EPOCH.fetch_add(1, Ordering::AcqRel);
     if ENABLED.load(Ordering::Acquire) {
         start_compile_worker();
         create_ready_resources();
@@ -411,6 +440,7 @@ pub(crate) fn reset_runtime_state() {
     clear_handles();
     *RESOURCES.lock() = ResourceState::new();
     FRAME_STATE.lock().clear();
+    FRAME_EPOCH.fetch_add(1, Ordering::AcqRel);
     clear_pending();
     FIRST_BIND_LOGGED.store(false, Ordering::Release);
     FALLBACK_LOGGED.store(false, Ordering::Release);
@@ -465,7 +495,34 @@ fn template_profile(template: &ShaderTemplate) -> &'static str {
 
 #[cfg(test)]
 mod shader_compile_tests {
-    use super::{NativeSkySettings, TEMPLATES, template_profile, template_source};
+    use super::{
+        NativeSkySettings, PS_CELESTIAL_MOON, PS_CELESTIAL_OTHER, PS_CELESTIAL_SUN, STARS_PS,
+        TEMPLATES, TEXTURED_PS, VS_CELESTIAL, draw_constants, prepare_sky_frame,
+        replacement_templates, template_profile, template_source,
+    };
+
+    fn compiled_instruction_opcodes(bytecode: &[u32]) -> Vec<u16> {
+        const COMMENT: u16 = 0xfffe;
+        const END: u16 = 0xffff;
+
+        let mut opcodes = Vec::new();
+        let mut offset = 1usize;
+        while offset < bytecode.len() {
+            let token = bytecode[offset];
+            let opcode = token as u16;
+            if opcode == END {
+                break;
+            }
+            if opcode == COMMENT {
+                offset += 1 + ((token >> 16) & 0x7fff) as usize;
+                continue;
+            }
+            opcodes.push(opcode);
+            offset += 1 + ((token >> 24) & 0x0f) as usize;
+        }
+        assert!(offset < bytecode.len(), "shader bytecode has no END token");
+        opcodes
+    }
 
     #[test]
     fn all_native_sky_shader_variants_compile() {
@@ -477,6 +534,176 @@ mod shader_compile_tests {
                 template_profile(template),
             );
         }
+    }
+
+    #[test]
+    fn native_sky_shaders_stay_within_static_gpu_budget() {
+        for template in &TEMPLATES {
+            let source = template_source(template);
+            let bytecode = crate::shaders::compile_hlsl_source_target(
+                template.label,
+                &source,
+                template_profile(template),
+            )
+            .unwrap();
+            let opcodes = compiled_instruction_opcodes(&bytecode);
+            let texture_count = opcodes.iter().filter(|opcode| **opcode == 66).count();
+            let (instruction_limit, texture_limit, byte_limit) = match template.label {
+                "sky_atmosphere_vs" | "sky_atmosphere_forward_vs" => (51, 0, 944),
+                "sky_celestial_vs"
+                | "sky_moon_mask_vs"
+                | "sky_celestial_forward_vs"
+                | "sky_moon_mask_forward_vs" => (59, 0, 1_052),
+                "sky_stars_vs" => (58, 0, 1_128),
+                "sky_stars_forward_vs" => (56, 0, 1_104),
+                "sky_clouds_vs" | "sky_clouds_forward_vs" => (64, 0, 1_172),
+                "sky_atmosphere_ps" => (81, 0, 1_660),
+                "sky_celestial_other_ps" => (66, 1, 1_288),
+                "sky_celestial_sun_ps" => (65, 1, 1_276),
+                "sky_celestial_moon_ps" => (65, 1, 1_228),
+                "sky_clouds_ps" => (193, 2, 3_484),
+                "sky_cloud_normals_ps" => (254, 2, 4_524),
+                "sky_stars_ps" => (188, 1, 3_204),
+                label => panic!("missing native-sky GPU budget for {label}"),
+            };
+            assert!(
+                opcodes.len() <= instruction_limit,
+                "{} grew to {} instructions (limit {})",
+                template.label,
+                opcodes.len(),
+                instruction_limit
+            );
+            assert_eq!(
+                texture_count, texture_limit,
+                "{} texture sample count",
+                template.label
+            );
+            assert!(
+                bytecode.len() * 4 <= byte_limit,
+                "{} grew to {} bytes (limit {})",
+                template.label,
+                bytecode.len() * 4,
+                byte_limit
+            );
+        }
+    }
+
+    #[test]
+    fn star_twinkle_uses_one_temporally_smooth_noise_field() {
+        let source = std::str::from_utf8(STARS_PS).unwrap();
+        assert_eq!(source.matches("ValueNoise(").count(), 2);
+        assert!(source.contains("twinkle *= twinkle * 1.5"));
+
+        let samples = 65_536u32;
+        let mut old_mean = 0.0f64;
+        let mut new_mean = 0.0f64;
+        for index in 0..samples {
+            let value = (f64::from(index) + 0.5) / f64::from(samples);
+            old_mean += 2.0 * value * 0.5;
+            new_mean += 1.5 * value * value;
+        }
+        old_mean /= f64::from(samples);
+        new_mean /= f64::from(samples);
+        assert!((new_mean - old_mean).abs() <= 0.000_001);
+        assert!(1.5 < 2.0, "the new field must cap pathological star spikes");
+    }
+
+    #[test]
+    fn celestial_object_kinds_are_compile_time_specialized() {
+        let labels = TEMPLATES
+            .iter()
+            .map(|template| template.label)
+            .collect::<Vec<_>>();
+        assert!(labels.contains(&"sky_celestial_sun_ps"));
+        assert!(labels.contains(&"sky_celestial_moon_ps"));
+        assert!(labels.contains(&"sky_celestial_other_ps"));
+
+        let source = std::str::from_utf8(TEXTURED_PS).unwrap();
+        assert!(source.contains("OMV_CELESTIAL_SUN"));
+        assert!(source.contains("OMV_CELESTIAL_MOON"));
+        assert!(!source.contains("float isSun"));
+        assert!(!source.contains("float isMoon"));
+
+        let texture = [0.7f32, 0.5, 0.25, 0.8];
+        let vertex = [0.6f32, 0.8, 1.0, 0.75];
+        let sun_color = [1.0f32, 0.7, 0.4];
+        let params_y = 1.2f32;
+        let sun_data_y = 0.35f32;
+        let sunset_weight = 0.4f32;
+        let daylight_gate = 0.9f32;
+        for object_type in [0u32, 6, 4] {
+            let is_sun = if object_type == 0 { 1.0 } else { 0.0 };
+            let is_moon = if object_type == 6 { 1.0 } else { 0.0 };
+            let non_sun = std::array::from_fn::<_, 3, _>(|index| {
+                texture[index]
+                    * vertex[index]
+                    * params_y
+                    * (sun_data_y + (1.0 - sun_data_y) * is_moon)
+            });
+            let sun = std::array::from_fn::<_, 3, _>(|index| {
+                texture[index] + sun_color[index] * (sunset_weight + sun_data_y)
+            });
+            let old_rgb = std::array::from_fn::<_, 3, _>(|index| {
+                non_sun[index] + (sun[index] - non_sun[index]) * is_sun
+            });
+            let old_alpha = texture[3] * vertex[3]
+                + (texture[3] * daylight_gate - texture[3] * vertex[3]) * is_sun;
+
+            let (specialized_rgb, specialized_alpha) = match object_type {
+                0 => (sun, texture[3] * daylight_gate),
+                6 => (
+                    std::array::from_fn(|index| texture[index] * vertex[index] * params_y),
+                    texture[3] * vertex[3],
+                ),
+                _ => (
+                    std::array::from_fn(|index| {
+                        texture[index] * vertex[index] * params_y * sun_data_y
+                    }),
+                    texture[3] * vertex[3],
+                ),
+            };
+            assert_eq!(specialized_rgb, old_rgb);
+            assert_eq!(specialized_alpha, old_alpha);
+        }
+
+        assert_eq!(
+            replacement_templates(1, 1, 0, false, true),
+            Some((VS_CELESTIAL, PS_CELESTIAL_SUN))
+        );
+        assert_eq!(
+            replacement_templates(1, 1, 6, false, true),
+            Some((VS_CELESTIAL, PS_CELESTIAL_MOON))
+        );
+        assert_eq!(
+            replacement_templates(1, 1, 4, false, true),
+            Some((VS_CELESTIAL, PS_CELESTIAL_OTHER))
+        );
+    }
+
+    #[test]
+    fn native_sky_frame_math_is_prepared_once_for_every_object_kind() {
+        let settings = NativeSkySettings::from(crate::config::NativeSkyConfig::default());
+        let frame = crate::backend::NativeSkyFrame {
+            sky_upper: [0.25, 0.5, 0.75],
+            sky_lower: [0.1, 0.2, 0.3],
+            horizon: [0.4, 0.3, 0.2],
+            sun_light: [1.0, 0.8, 0.6],
+            sun_disk: [1.0, 0.9, 0.7],
+            sun_direction: [0.0, 0.6, 0.8],
+            daylight: 0.9,
+            game_hour: 17.5,
+            is_exterior: true,
+            reversed_depth: true,
+        };
+        let prepared = prepare_sky_frame(frame, settings);
+        let atmosphere = draw_constants(prepared.constants, 2);
+        let clouds = draw_constants(prepared.constants, 3);
+
+        assert!(prepared.reversed_depth);
+        assert_eq!(atmosphere[..10], clouds[..10]);
+        assert_eq!(atmosphere[10][1..], clouds[10][1..]);
+        assert_eq!(atmosphere[10][0], 2.0);
+        assert_eq!(clouds[10][0], 3.0);
     }
 
     #[test]
@@ -630,13 +857,21 @@ fn try_bind_pending_draw() -> bool {
     let vertex_index = PENDING_VERTEX_INDEX.load(Ordering::Acquire) as usize;
     let pixel_index = PENDING_PIXEL_INDEX.load(Ordering::Acquire) as usize;
     let object_type = PENDING_OBJECT_TYPE.load(Ordering::Acquire);
-    let settings = *SETTINGS.lock();
-    let Some(frame) = FRAME_STATE.lock().sky() else {
+    let Some(settings) = SETTINGS.try_lock().map(|settings| *settings) else {
         return false;
     };
+    let Some(mut frame_state) = FRAME_STATE.try_lock() else {
+        return false;
+    };
+    let frame_epoch = FRAME_EPOCH.load(Ordering::Acquire);
+    let Some(frame) = frame_state.prepared(frame_epoch, settings) else {
+        return false;
+    };
+    drop(frame_state);
     let Some((vertex_template, pixel_template)) = replacement_templates(
         vertex_index,
         pixel_index,
+        object_type,
         settings.cloud_normals,
         frame.reversed_depth,
     ) else {
@@ -670,7 +905,7 @@ fn try_bind_pending_draw() -> bool {
         return false;
     }
 
-    if upload_constants(&device, frame, settings, object_type).is_none() {
+    if upload_constants(&device, frame.constants, object_type).is_none() {
         return false;
     }
     if unsafe { device.set_raw_vertex_shader(replacement_vertex) }.is_err()
@@ -697,13 +932,19 @@ fn try_bind_pending_draw() -> bool {
 fn replacement_templates(
     vertex_index: usize,
     pixel_index: usize,
+    object_type: u32,
     cloud_normals: bool,
     reversed_depth: bool,
 ) -> Option<(usize, usize)> {
+    let celestial_pixel = match object_type {
+        0 => PS_CELESTIAL_SUN,
+        6 => PS_CELESTIAL_MOON,
+        _ => PS_CELESTIAL_OTHER,
+    };
     let (vertex, pixel) = match (vertex_index, pixel_index) {
         (0, 0) => Some((VS_ATMOSPHERE, PS_ATMOSPHERE)),
-        (1, 1) => Some((VS_CELESTIAL, PS_CELESTIAL)),
-        (2, 1) => Some((VS_MOON_MASK, PS_CELESTIAL)),
+        (1, 1) => Some((VS_CELESTIAL, celestial_pixel)),
+        (2, 1) => Some((VS_MOON_MASK, celestial_pixel)),
         (4, 4) => Some((VS_STARS, PS_STARS)),
         (6, 1) => Some((
             VS_CLOUDS,
@@ -739,12 +980,10 @@ fn pair_supported_for_object(object_type: u32, vertex_index: usize, pixel_index:
         }
 }
 
-fn upload_constants(
-    device: &Device9Ref<'_>,
+fn prepare_sky_frame(
     frame: crate::backend::NativeSkyFrame,
     settings: NativeSkySettings,
-    object_type: u32,
-) -> Option<()> {
+) -> PreparedSkyFrame {
     let sun_disk_source = if settings.use_sun_disk_color {
         frame.sun_disk
     } else {
@@ -775,49 +1014,65 @@ fn upload_constants(
         frame.daylight,
         settings.atmosphere_thickness,
     );
-    let constants = [
-        color4(linearize_color(frame.sky_upper)),
-        color4(linearize_color(frame.sky_lower)),
-        color4(linearize_color(frame.horizon)),
-        color4(linear_sun_light),
-        [
-            sky_sun_direction[0],
-            sky_sun_direction[1],
-            sky_sun_direction[2],
-            settings.sun_influence.recip(),
+    PreparedSkyFrame {
+        reversed_depth: frame.reversed_depth,
+        constants: [
+            color4(linearize_color(frame.sky_upper)),
+            color4(linearize_color(frame.sky_lower)),
+            color4(linearize_color(frame.horizon)),
+            color4(linear_sun_light),
+            [
+                sky_sun_direction[0],
+                sky_sun_direction[1],
+                sky_sun_direction[2],
+                settings.sun_influence.recip(),
+            ],
+            [
+                settings.atmosphere_thickness,
+                settings.sun_influence,
+                settings.sun_strength,
+                settings.star_strength,
+            ],
+            [
+                if settings.cloud_normals { 1.0 } else { 0.0 },
+                settings.star_twinkle,
+                settings.cloud_transparency,
+                settings.cloud_brightness,
+            ],
+            [
+                frame.daylight,
+                settings.glare_strength,
+                frame.game_hour * 3600.0,
+                sun_height,
+            ],
+            [
+                linear_sunset[0],
+                linear_sunset[1],
+                linear_sunset[2],
+                settings.sky_multiplier,
+            ],
+            color4(linear_sun_disk),
+            [
+                0.0,
+                frame.horizon[0].max(0.0).powf(2.2),
+                frame.horizon[1].max(0.0).powf(2.2),
+                frame.horizon[2].max(0.0).powf(2.2),
+            ],
         ],
-        [
-            settings.atmosphere_thickness,
-            settings.sun_influence,
-            settings.sun_strength,
-            settings.star_strength,
-        ],
-        [
-            if settings.cloud_normals { 1.0 } else { 0.0 },
-            settings.star_twinkle,
-            settings.cloud_transparency,
-            settings.cloud_brightness,
-        ],
-        [
-            frame.daylight,
-            settings.glare_strength,
-            frame.game_hour * 3600.0,
-            sun_height,
-        ],
-        [
-            linear_sunset[0],
-            linear_sunset[1],
-            linear_sunset[2],
-            settings.sky_multiplier,
-        ],
-        color4(linear_sun_disk),
-        [
-            object_type as f32,
-            frame.horizon[0].max(0.0).powf(2.2),
-            frame.horizon[1].max(0.0).powf(2.2),
-            frame.horizon[2].max(0.0).powf(2.2),
-        ],
-    ];
+    }
+}
+
+fn draw_constants(mut constants: [[f32; 4]; 11], object_type: u32) -> [[f32; 4]; 11] {
+    constants[10][0] = object_type as f32;
+    constants
+}
+
+fn upload_constants(
+    device: &Device9Ref<'_>,
+    constants: [[f32; 4]; 11],
+    object_type: u32,
+) -> Option<()> {
+    let constants = draw_constants(constants, object_type);
     device
         .set_pixel_shader_constant_f(CONSTANT_FIRST_REGISTER, &constants)
         .ok()

@@ -48,11 +48,6 @@ float3 ExpandNormal(float3 value)
     return SafeNormalize(value * 2.0f - 1.0f, float3(0.0f, 0.0f, 1.0f));
 }
 
-bool TerrainPbrEnabled()
-{
-    return TESR_TerrainExtraData.x > 0.5f;
-}
-
 float PbrRoughnessScale()
 {
     return (TESR_TerrainData.y > 0.0f) ? TESR_TerrainData.y : 1.0f;
@@ -124,10 +119,6 @@ float3 PbrSun(float roughness, float3 albedo, float3 normal, float3 view_dir, fl
     float metallic = PbrMetallicness();
     float3 reflectance = lerp(float3(0.04f, 0.04f, 0.04f), albedo, metallic);
 
-    normal = SafeNormalize(normal, float3(0.0f, 0.0f, 1.0f));
-    view_dir = SafeNormalize(view_dir, light_dir);
-    light_dir = SafeNormalize(light_dir, float3(0.0f, 0.0f, 1.0f));
-
     float3 reflect_dir = reflect(light_dir, normal);
     float radius = sin(SUN_RADIUS);
     float dist = cos(SUN_RADIUS);
@@ -150,36 +141,18 @@ float3 PbrSun(float roughness, float3 albedo, float3 normal, float3 view_dir, fl
     return (diffuse * ndotl + specular * ndots) * light_color * PI;
 }
 
-float3 VanillaDirect(float3 light_dir, float3 light_color, float3 view_dir, float3 normal, float3 albedo, float gloss, float gloss_power)
-{
-    light_dir = SafeNormalize(light_dir, float3(0.0f, 0.0f, 1.0f));
-    view_dir = SafeNormalize(view_dir, float3(0.0f, 0.0f, 1.0f));
-
-    float3 halfway = SafeNormalize(light_dir + view_dir, normal);
-    float ndotl = Shades(normal, light_dir);
-    float spec_strength = gloss * pow(abs(Shades(normal, halfway)), gloss_power);
-    float3 lighting = albedo * ndotl * light_color;
-    lighting += saturate((0.2f >= ndotl ? spec_strength * saturate(ndotl + 0.5f) : spec_strength) * light_color);
-    return lighting;
-}
-
 float3 SunLighting(float3 light_dir, float3 sun_color, float3 view_dir, float3 normal, float3 ambient_color, float3 albedo, float gloss, float gloss_power, float roughness)
 {
     float3 ambient = ambient_color * PbrAmbientMultiplier() * albedo;
-
-    if (TerrainPbrEnabled())
-    {
-        return max(float3(0.0f, 0.0f, 0.0f), PbrSun(roughness, albedo, normal, view_dir, light_dir, sun_color * PbrLightMultiplier()) + ambient);
-    }
-
-    return VanillaDirect(light_dir, sun_color, view_dir, normal, albedo, gloss, gloss_power) + ambient;
+    return max(float3(0.0f, 0.0f, 0.0f), PbrSun(roughness, albedo, normal, view_dir, light_dir, sun_color * PbrLightMultiplier()) + ambient);
 }
 
 PixelOutput Main(PixelInput input)
 {
     PixelOutput output;
 
-    float3 view_dir = SafeNormalize(input.eye_position - input.local_position, input.light_dir);
+    float3 light_dir = SafeNormalize(input.light_dir, float3(0.0f, 0.0f, 1.0f));
+    float3 view_dir = SafeNormalize(input.eye_position - input.local_position, light_dir);
     float4 normal_sample = tex2D(NormalMap, input.uv);
     float3 normal = ExpandNormal(normal_sample.rgb);
     float gloss = normal_sample.a * ((LandLODSpec.x > 0.0f) ? 1.0f : 0.0f);
@@ -192,7 +165,7 @@ PixelOutput Main(PixelInput input)
     float noise = tex2D(LODLandNoise, input.uv * noise_tile).r;
 
     float3 lighting = SunLighting(
-        input.light_dir,
+        light_dir,
         PSLightColor.rgb,
         view_dir,
         normal,

@@ -75,16 +75,7 @@ pub(super) fn upload_terrain_constants(
     device: &Device9Ref<'_>,
     supplemental_lights: Option<&SupplementalTerrainLights>,
 ) -> Option<[[f32; 4]; 2]> {
-    let profile = load_terrain_profile();
-    let requested = [
-        [profile[0], profile[1], profile[2], profile[3]],
-        [
-            1.0,
-            profile[4],
-            f32::from_bits(TERRAIN_LOD_NOISE_SCALE.load(Ordering::Acquire)),
-            f32::from_bits(TERRAIN_LOD_NOISE_TILE.load(Ordering::Acquire)),
-        ],
-    ];
+    let requested = terrain_constants();
     let Some(supplemental_lights) = supplemental_lights else {
         if device
             .set_pixel_shader_constant_f(TERRAIN_DATA_REGISTER, &requested)
@@ -107,6 +98,19 @@ pub(super) fn upload_terrain_constants(
     }
 
     Some(requested)
+}
+
+fn terrain_constants() -> [[f32; 4]; 2] {
+    let profile = load_terrain_profile();
+    [
+        [profile[0], profile[1], profile[2], profile[3]],
+        [
+            1.0,
+            profile[4],
+            f32::from_bits(TERRAIN_LOD_NOISE_SCALE.load(Ordering::Acquire)),
+            f32::from_bits(TERRAIN_LOD_NOISE_TILE.load(Ordering::Acquire)),
+        ],
+    ]
 }
 
 pub(super) fn read_terrain_constants(device: &Device9Ref<'_>) -> Option<[[f32; 4]; 2]> {
@@ -147,7 +151,7 @@ fn sanitize(value: f32, fallback: f32, min: f32, max: f32) -> f32 {
 
 #[cfg(test)]
 mod tests {
-    use super::{object_constants, sanitize};
+    use super::{object_constants, sanitize, terrain_constants};
 
     #[test]
     fn object_constant_layout_keeps_metallicness_dielectric() {
@@ -168,5 +172,10 @@ mod tests {
         assert_eq!(sanitize(4.0, 1.0, 0.0, 1.0), 1.0);
         assert_eq!(sanitize(0.25, 1.0, 0.0, 1.0), 0.25);
         assert_eq!(sanitize(f32::NAN, 1.0, 0.0, 1.0), 1.0);
+    }
+
+    #[test]
+    fn terrain_replacement_constants_always_select_pbr() {
+        assert_eq!(terrain_constants()[1][0], 1.0);
     }
 }

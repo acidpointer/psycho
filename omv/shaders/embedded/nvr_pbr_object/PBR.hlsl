@@ -19,6 +19,24 @@ float3 StableHalfway(float3 eyeDir, float3 lightDir) {
     return halfway * rsqrt(max(lengthSquared, 1e-8));
 }
 
+struct PbrObjectSurface {
+    float3 diffuseColor;
+    float materialResponse;
+    float distributionScale;
+    float specularStrength;
+    float specularFade;
+};
+
+PbrObjectSurface PreparePbrObjectSurface(float3 albedo, float materialResponse, float specularStrength, float specularFade) {
+    PbrObjectSurface surface;
+    surface.diffuseColor = albedo / PI;
+    surface.materialResponse = materialResponse;
+    surface.distributionScale = (materialResponse + 2.0) * 0.125;
+    surface.specularStrength = saturate(specularStrength);
+    surface.specularFade = saturate(specularFade);
+    return surface;
+}
+
 // Fresnel
 // Schlick approximation
 float3 Fresnel(float3 f0, float3 f90, float cosine) {
@@ -79,8 +97,8 @@ float3 BRDF(float roughness, float3 fresnel, float NdotV, float NdotL, float Ndo
     return num/denom;
 }
 
-float3 PBRDiffuse(float metallicness, float roughness, float3 albedo, float3 normal, float3 eyeDir, float3 lightDir, float3 lightColor) {
-    const float3 reflectance = lerp(float(0.04).rrr, albedo, metallicness);
+float3 PBRDiffuse(PbrObjectSurface surface, float3 normal, float3 eyeDir, float3 lightDir, float3 lightColor) {
+    const float3 reflectance = float(0.04).rrr;
 
     lightDir = StableNormalize(lightDir);
 
@@ -90,7 +108,7 @@ float3 PBRDiffuse(float metallicness, float roughness, float3 albedo, float3 nor
 
     const float3 fresnel = Fresnel(reflectance, (1.0).xxx, LdotH);
 
-    const float3 diffuse = (1 - metallicness) * LambertianDiffuse(albedo, fresnel);
+    const float3 diffuse = (1 - fresnel) * surface.diffuseColor;
 
     return diffuse * NdotL * lightColor * PI;
 }
@@ -113,7 +131,7 @@ float3 PBRSpecular(float metallicness, float roughness, float3 albedo, float3 no
     return spec * NdotL * lightColor * PI;
 }
 
-float3 PBRBoundedSpecular(float glossPower, float specularStrength, float specularFade, float attenuation, float3 normal, float3 eyeDir, float3 lightDir, float3 lightColor) {
+float3 PBRBoundedSpecular(PbrObjectSurface surface, float attenuation, float3 normal, float3 eyeDir, float3 lightDir, float3 lightColor) {
     const float3 reflectance = float(0.04).rrr;
 
     lightDir = StableNormalize(lightDir);
@@ -123,13 +141,13 @@ float3 PBRBoundedSpecular(float glossPower, float specularStrength, float specul
     const float NdotH = shades(normal, halfway);
     const float LdotH = shades(lightDir, halfway);
     const float3 fresnel = Fresnel(reflectance, (1.0).xxx, LdotH);
-    const float distribution = pow(NdotH, glossPower) * (glossPower + 2.0) * 0.125;
+    const float distribution = pow(NdotH, surface.materialResponse) * surface.distributionScale;
     const float3 radiance = NdotL * lightColor * attenuation;
     const float3 specular = fresnel * distribution * radiance;
-    return saturate(specular * saturate(specularStrength)) * saturate(specularFade);
+    return saturate(specular * surface.specularStrength) * surface.specularFade;
 }
 
-float3 PBRBounded(float glossPower, float specularStrength, float specularFade, float attenuation, float3 albedo, float3 normal, float3 eyeDir, float3 lightDir, float3 lightColor) {
+float3 PBRBounded(PbrObjectSurface surface, float attenuation, float3 normal, float3 eyeDir, float3 lightDir, float3 lightColor) {
     const float3 reflectance = float(0.04).rrr;
 
     lightDir = StableNormalize(lightDir);
@@ -139,11 +157,11 @@ float3 PBRBounded(float glossPower, float specularStrength, float specularFade, 
     const float NdotH = shades(normal, halfway);
     const float LdotH = shades(lightDir, halfway);
     const float3 fresnel = Fresnel(reflectance, (1.0).xxx, LdotH);
-    const float distribution = pow(NdotH, glossPower) * (glossPower + 2.0) * 0.125;
+    const float distribution = pow(NdotH, surface.materialResponse) * surface.distributionScale;
     const float3 radiance = NdotL * lightColor * attenuation;
-    const float3 diffuse = LambertianDiffuse(albedo, fresnel) * radiance * PI;
+    const float3 diffuse = (1 - fresnel) * surface.diffuseColor * radiance * PI;
     const float3 specular = fresnel * distribution * radiance;
-    return diffuse + saturate(specular * saturate(specularStrength)) * saturate(specularFade);
+    return diffuse + saturate(specular * surface.specularStrength) * surface.specularFade;
 }
 
 float3 PBR(float metallicness, float roughness, float3 albedo, float3 normal, float3 eyeDir, float3 lightDir, float3 lightColor) {
