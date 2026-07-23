@@ -115,6 +115,8 @@ pub struct TelemetryChart<'a> {
     /// Seconds represented by one sample. Values at or below zero select a
     /// frame-index axis and frame-relative hover labels.
     pub sample_interval_seconds: f32,
+    /// Draw independent impulses from zero instead of connecting samples.
+    pub impulse_from_zero: bool,
     pub line_color: [f32; 4],
     pub fill_color: [f32; 4],
     pub warning_label: &'a CStr,
@@ -376,6 +378,7 @@ impl Ui<'_> {
             critical_threshold: chart.critical_threshold,
             danger_below: i32::from(chart.danger_below),
             sample_interval_seconds: chart.sample_interval_seconds,
+            impulse_from_zero: i32::from(chart.impulse_from_zero),
             line_color: chart.line_color,
             fill_color: chart.fill_color,
             warning_label: chart.warning_label.as_ptr(),
@@ -479,6 +482,7 @@ struct RawTelemetryChart {
     critical_threshold: f32,
     danger_below: i32,
     sample_interval_seconds: f32,
+    impulse_from_zero: i32,
     line_color: [f32; 4],
     fill_color: [f32; 4],
     warning_label: *const c_char,

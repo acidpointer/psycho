@@ -353,6 +353,11 @@ sunset_blue = 0.03
 sky_multiplier = 2.043103
 
 [diagnostics]
+# Visible frame-pacing counters and charts update at this cadence while the
+# workbench is open. 0 restores per-frame instant updates; timed values are
+# clamped to 50-2000 ms. Raw frame capture remains per frame in every mode.
+frame_pacing_update_interval_ms = 500
+
 # Enable verbose graphics-module logging.
 #
 # Log file:

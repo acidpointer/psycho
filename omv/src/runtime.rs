@@ -60,30 +60,81 @@ static RUNTIME: LazyLock<Mutex<ScreenShaderRuntime>> =
     LazyLock::new(|| Mutex::new(ScreenShaderRuntime::default()));
 static MENU_OPEN: AtomicBool = AtomicBool::new(false);
 static IMGUI_READY: AtomicBool = AtomicBool::new(false);
-static MENU_DIAGNOSTICS_ACTIVE: AtomicBool = AtomicBool::new(false);
+static MENU_DIAGNOSTICS_STATE: AtomicU32 = AtomicU32::new(0);
 static MENU_TOGGLE_KEY: AtomicU32 = AtomicU32::new(DEFAULT_MENU_TOGGLE_KEY);
 static MENU_KEY_CAPTURE_ACTIVE: AtomicBool = AtomicBool::new(false);
 static PENDING_MENU_TOGGLE_KEY: AtomicU32 = AtomicU32::new(0);
 static NATIVE_DOF_QUERY_NEEDED: AtomicBool = AtomicBool::new(false);
+static PRESENT_FRAME_TIMING_NEEDED: AtomicBool = AtomicBool::new(false);
 static FNV_SCENE_REQUIREMENTS: AtomicU32 = AtomicU32::new(0);
 static PRESENT_APPLY_BUSY: AtomicU32 = AtomicU32::new(0);
 static PRESENT_FINISH_BUSY: AtomicU32 = AtomicU32::new(0);
+static PRESENT_FAILED: AtomicU32 = AtomicU32::new(0);
 static SCENE_PHASE_BUSY: AtomicU32 = AtomicU32::new(0);
 static WORLD_COLOR_BUSY: AtomicU32 = AtomicU32::new(0);
 static RESET_BUSY: AtomicU32 = AtomicU32::new(0);
 const FNV_REQUIRE_WORLD_DEPTH: u32 = 1 << 0;
 const FNV_REQUIRE_FIRST_PERSON_DEPTH: u32 = 1 << 1;
 const FNV_REQUIRE_WORLD_COLOR: u32 = 1 << 2;
+const MENU_DIAGNOSTICS_ACTIVE_BIT: u32 = 1;
+const MENU_DIAGNOSTICS_SESSION_INCREMENT: u32 = 2;
+
+#[derive(Clone, Copy, Default)]
+struct RuntimeLockTelemetry {
+    present_apply: u32,
+    present_finish: u32,
+    failed_present: u32,
+    scene_phase: u32,
+    world_color: u32,
+    reset: u32,
+}
+
+impl RuntimeLockTelemetry {
+    fn has_rejections(self) -> bool {
+        self.present_apply
+            | self.present_finish
+            | self.failed_present
+            | self.scene_phase
+            | self.world_color
+            | self.reset
+            != 0
+    }
+}
 
 pub(crate) fn menu_diagnostics_active() -> bool {
-    MENU_DIAGNOSTICS_ACTIVE.load(Ordering::Relaxed)
+    MENU_DIAGNOSTICS_STATE.load(Ordering::Relaxed) & MENU_DIAGNOSTICS_ACTIVE_BIT != 0
+}
+
+fn menu_diagnostics_session() -> u32 {
+    MENU_DIAGNOSTICS_STATE.load(Ordering::Acquire) / MENU_DIAGNOSTICS_SESSION_INCREMENT
+}
+
+fn diagnostics_state_transition(state: u32, active: bool) -> Option<u32> {
+    if (state & MENU_DIAGNOSTICS_ACTIVE_BIT != 0) == active {
+        return None;
+    }
+    Some(if active {
+        state.wrapping_add(MENU_DIAGNOSTICS_SESSION_INCREMENT) | MENU_DIAGNOSTICS_ACTIVE_BIT
+    } else {
+        state & !MENU_DIAGNOSTICS_ACTIVE_BIT
+    })
 }
 
 fn set_menu_diagnostics_active(active: bool) {
-    if MENU_DIAGNOSTICS_ACTIVE.load(Ordering::Relaxed) == active
-        || MENU_DIAGNOSTICS_ACTIVE.swap(active, Ordering::AcqRel) == active
-    {
-        return;
+    let mut state = MENU_DIAGNOSTICS_STATE.load(Ordering::Acquire);
+    loop {
+        let Some(next) = diagnostics_state_transition(state, active) else {
+            return;
+        };
+        match MENU_DIAGNOSTICS_STATE.compare_exchange_weak(
+            state,
+            next,
+            Ordering::AcqRel,
+            Ordering::Acquire,
+        ) {
+            Ok(_) => break,
+            Err(current) => state = current,
+        }
     }
     pbr::set_menu_diagnostics_active(active);
     crate::fnv_local_lights::set_diagnostics_active(active);
@@ -265,34 +316,47 @@ pub(crate) unsafe fn try_release_device_resources(device_ptr: *mut c_void) -> bo
     true
 }
 
-pub(crate) unsafe fn finish_present_frame(device_ptr: *mut c_void) {
+pub(crate) fn present_frame_started_at() -> Option<Instant> {
+    let diagnostics_active =
+        MENU_DIAGNOSTICS_STATE.load(Ordering::Acquire) & MENU_DIAGNOSTICS_ACTIVE_BIT != 0;
+    (diagnostics_active || PRESENT_FRAME_TIMING_NEEDED.load(Ordering::Acquire)).then(Instant::now)
+}
+
+pub(crate) unsafe fn finish_present_frame(
+    render_epoch: u32,
+    present_started_at: Option<Instant>,
+    present_succeeded: bool,
+) {
+    if !present_succeeded {
+        PRESENT_FAILED.fetch_add(1, Ordering::Relaxed);
+    }
+    let diagnostics_state = MENU_DIAGNOSTICS_STATE.load(Ordering::Acquire);
+    let diagnostics_session = (diagnostics_state & MENU_DIAGNOSTICS_ACTIVE_BIT != 0)
+        .then_some(diagnostics_state / MENU_DIAGNOSTICS_SESSION_INCREMENT);
+    if diagnostics_session.is_none() && !PRESENT_FRAME_TIMING_NEEDED.load(Ordering::Acquire) {
+        return;
+    }
     let Some(mut runtime) = RUNTIME.try_lock() else {
         PRESENT_FINISH_BUSY.fetch_add(1, Ordering::Relaxed);
         return;
     };
 
-    runtime.begin_render_epoch(crate::hooks::render_epoch());
-    runtime.finish_present_frame(device_ptr);
+    runtime.begin_render_epoch(render_epoch);
+    runtime.finish_present_frame(
+        render_epoch,
+        present_succeeded.then_some(present_started_at).flatten(),
+        diagnostics_session,
+    );
 }
 
-pub(crate) fn service_lock_telemetry(render_epoch: u32) {
-    if render_epoch % 600 != 0 {
-        return;
-    }
-    let present_apply = PRESENT_APPLY_BUSY.load(Ordering::Relaxed);
-    let present_finish = PRESENT_FINISH_BUSY.load(Ordering::Relaxed);
-    let scene_phase = SCENE_PHASE_BUSY.load(Ordering::Relaxed);
-    let world_color = WORLD_COLOR_BUSY.load(Ordering::Relaxed);
-    let reset = RESET_BUSY.load(Ordering::Relaxed);
-    if present_apply | present_finish | scene_phase | world_color | reset != 0 {
-        log::info!(
-            "[SHADERS] Nonblocking owner contention: present_apply={}, present_finish={}, scene_phase={}, world_color={}, reset={}",
-            present_apply,
-            present_finish,
-            scene_phase,
-            world_color,
-            reset,
-        );
+fn runtime_lock_telemetry() -> RuntimeLockTelemetry {
+    RuntimeLockTelemetry {
+        present_apply: PRESENT_APPLY_BUSY.load(Ordering::Relaxed),
+        present_finish: PRESENT_FINISH_BUSY.load(Ordering::Relaxed),
+        failed_present: PRESENT_FAILED.load(Ordering::Relaxed),
+        scene_phase: SCENE_PHASE_BUSY.load(Ordering::Relaxed),
+        world_color: WORLD_COLOR_BUSY.load(Ordering::Relaxed),
+        reset: RESET_BUSY.load(Ordering::Relaxed),
     }
 }
 
@@ -1583,7 +1647,7 @@ impl ScreenShaderRuntime {
         };
 
         set_menu_diagnostics_active(true);
-        self.frame_pacing.begin_session();
+        self.frame_pacing.begin_session(menu_diagnostics_session());
 
         if self.imgui_needs_device_objects && imgui.create_device_objects() {
             self.imgui_needs_device_objects = false;
@@ -1930,9 +1994,13 @@ impl ScreenShaderRuntime {
         }
     }
 
-    fn finish_present_frame(&mut self, device_ptr: *mut c_void) {
-        let _ = device_ptr;
-        let diagnostics_active = menu_diagnostics_active();
+    fn finish_present_frame(
+        &mut self,
+        render_epoch: u32,
+        present_started_at: Option<Instant>,
+        diagnostics_session: Option<u32>,
+    ) {
+        let diagnostics_active = diagnostics_session.is_some();
         let depth_of_field_active = self.settings.menu_config.screen_space_shaders
             && self
                 .settings
@@ -1946,10 +2014,27 @@ impl ScreenShaderRuntime {
             return;
         }
 
-        let now = Instant::now();
+        if let Some(session) = diagnostics_session {
+            self.frame_pacing.begin_session(session);
+        }
+        let Some(now) = present_started_at else {
+            self.present_timing.invalidate_origin();
+            if diagnostics_active {
+                self.frame_pacing.reject_current_present();
+            } else {
+                self.frame_pacing.invalidate_origin();
+            }
+            return;
+        };
+
         self.present_timing
-            .record_frame_at(now, depth_of_field_active);
-        self.frame_pacing.record_frame_at(now, diagnostics_active);
+            .record_frame_at(now, render_epoch, depth_of_field_active);
+        self.frame_pacing.record_frame_at(
+            now,
+            render_epoch,
+            diagnostics_active,
+            self.settings.menu_config.frame_pacing_update_interval_ms,
+        );
     }
 
     fn release_for_new_device(&mut self) {
@@ -2294,10 +2379,9 @@ mod scene_input_requirement_tests {
 
 fn update_native_dof_query_needed(config: &GraphicsMenuConfig) {
     let dof = config.embedded_effects.depth_of_field;
-    NATIVE_DOF_QUERY_NEEDED.store(
-        config.screen_space_shaders && dof.enabled && dof.respect_vanilla_dof,
-        Ordering::Release,
-    );
+    let dof_active = config.screen_space_shaders && dof.enabled;
+    NATIVE_DOF_QUERY_NEEDED.store(dof_active && dof.respect_vanilla_dof, Ordering::Release);
+    PRESENT_FRAME_TIMING_NEEDED.store(dof_active, Ordering::Release);
 }
 
 struct CompiledPass {
@@ -2368,38 +2452,68 @@ const FRAME_PACING_HISTORY: usize = 2_048;
 const FRAME_PACING_CHART_POINTS: usize = 100;
 const FRAME_PACING_WINDOW_MS: f32 = 10_000.0;
 const FRAME_PACING_CHART_INTERVAL_MS: f32 = 100.0;
-const FRAME_PACING_DISPLAY_INTERVAL_MS: f32 = 500.0;
+const FRAME_PACING_DEFAULT_UPDATE_INTERVAL_MS: u32 = 500;
 const FRAME_PACING_EMA_TIME_CONSTANT_MS: f32 = 1_000.0;
 const FRAME_PACING_LIVE_SAMPLE_MAX_MS: f32 = 100.0;
 const FRAME_PACING_CHART_MAX_MS: f32 = 50.0;
+const FRAME_PACING_CHART_PRESERVED_HITCH_MS: f32 = 100.0;
+const FRAME_PACING_SPIKE_CHART_MAX_MS: f32 = 50.0;
+const FRAME_PACING_HISTOGRAM_BINS: usize = 4_096;
+const FRAME_PACING_HISTOGRAM_BIN_MS: f32 = 0.125;
+const FRAME_PACING_SPIKE_MEMORY: usize = 64;
+const FRAME_PACING_SPIKE_WARMUP_SAMPLES: u32 = 30;
+const FRAME_PACING_SPIKE_MIN_DELTA_MS: f32 = 2.0;
+const FRAME_PACING_SPIKE_RELATIVE_DELTA: f32 = 0.25;
+const FRAME_PACING_SPIKE_NOISE_MULTIPLIER: f32 = 6.0;
+const FRAME_PACING_SPIKE_BASELINE_TIME_MS: f32 = 2_000.0;
 const FRAME_BUDGET_60_MS: f32 = 1_000.0 / 60.0;
 const FRAME_BUDGET_30_MS: f32 = 1_000.0 / 30.0;
+
+fn consecutive_render_epochs(previous: u32, current: u32) -> bool {
+    previous.wrapping_add(1) == current
+}
 
 #[derive(Clone, Default)]
 struct PresentFrameTiming {
     last_present: Option<Instant>,
+    last_present_epoch: Option<u32>,
     frame_seconds: f32,
 }
 
 impl PresentFrameTiming {
-    fn record_frame_at(&mut self, now: Instant, active: bool) {
+    fn record_frame_at(&mut self, now: Instant, render_epoch: u32, active: bool) {
         if !active {
             self.pause();
             return;
         }
-        if let Some(last_present) = self.last_present {
-            self.frame_seconds = now
-                .duration_since(last_present)
-                .as_secs_f32()
-                .clamp(1.0 / 240.0, 0.1);
+        if let (Some(last_present), Some(last_epoch)) = (self.last_present, self.last_present_epoch)
+        {
+            if consecutive_render_epochs(last_epoch, render_epoch) {
+                if let Some(frame_time) = now.checked_duration_since(last_present) {
+                    self.frame_seconds = frame_time.as_secs_f32().clamp(1.0 / 240.0, 0.1);
+                } else {
+                    self.frame_seconds = 0.0;
+                }
+            } else {
+                self.frame_seconds = 0.0;
+            }
         }
         self.last_present = Some(now);
+        self.last_present_epoch = Some(render_epoch);
     }
 
     fn pause(&mut self) {
-        if self.last_present.take().is_some() {
+        let had_present = self.last_present.take().is_some();
+        let had_epoch = self.last_present_epoch.take().is_some();
+        if had_present || had_epoch {
             self.frame_seconds = 0.0;
         }
+    }
+
+    fn invalidate_origin(&mut self) {
+        self.last_present = None;
+        self.last_present_epoch = None;
+        self.frame_seconds = 0.0;
     }
 
     fn frame_seconds(&self) -> f32 {
@@ -2417,10 +2531,26 @@ struct FramePacing {
     next_index: usize,
     count: usize,
     last_present: Option<Instant>,
+    last_present_epoch: Option<u32>,
     smoothed_ms: f32,
     display_elapsed_ms: f32,
     published: FramePacingSnapshot,
     active: bool,
+    session: u32,
+    update_interval_ms: u32,
+    session_elapsed_ms: f64,
+    baseline_ms: f32,
+    baseline_noise_ms: f32,
+    baseline_samples: u32,
+    spike_events: [FrameSpikeEvent; FRAME_PACING_SPIKE_MEMORY],
+    spike_next_index: usize,
+    spike_count: usize,
+    rejected_intervals: u32,
+    total_slow_spikes: u32,
+    total_fast_spikes: u32,
+    largest_slow_spike: Option<FrameSpikeEvent>,
+    largest_fast_spike: Option<FrameSpikeEvent>,
+    last_spike_direction: Option<SpikeDirection>,
 }
 
 impl Default for FramePacing {
@@ -2430,22 +2560,45 @@ impl Default for FramePacing {
             next_index: 0,
             count: 0,
             last_present: None,
+            last_present_epoch: None,
             smoothed_ms: 0.0,
             display_elapsed_ms: 0.0,
             published: FramePacingSnapshot::default(),
             active: false,
+            session: 0,
+            update_interval_ms: FRAME_PACING_DEFAULT_UPDATE_INTERVAL_MS,
+            session_elapsed_ms: 0.0,
+            baseline_ms: 0.0,
+            baseline_noise_ms: 0.0,
+            baseline_samples: 0,
+            spike_events: [FrameSpikeEvent::default(); FRAME_PACING_SPIKE_MEMORY],
+            spike_next_index: 0,
+            spike_count: 0,
+            rejected_intervals: 0,
+            total_slow_spikes: 0,
+            total_fast_spikes: 0,
+            largest_slow_spike: None,
+            largest_fast_spike: None,
+            last_spike_direction: None,
         }
     }
 }
 
 impl FramePacing {
-    fn begin_session(&mut self) {
-        if !self.active {
+    fn begin_session(&mut self, session: u32) {
+        if self.session != session {
+            self.session = session;
             self.reset_samples();
         }
     }
 
-    fn record_frame_at(&mut self, now: Instant, active: bool) {
+    fn record_frame_at(
+        &mut self,
+        now: Instant,
+        render_epoch: u32,
+        active: bool,
+        update_interval_ms: u32,
+    ) {
         if !active {
             self.pause();
             return;
@@ -2453,43 +2606,89 @@ impl FramePacing {
         if !self.active {
             self.reset_samples();
             self.last_present = Some(now);
+            self.last_present_epoch = Some(render_epoch);
             self.active = true;
             return;
         }
-        if let Some(last_present) = self.last_present {
-            let frame_ms = now
-                .duration_since(last_present)
-                .as_secs_f32()
-                .mul_add(1000.0, 0.0);
-            self.record_sample(frame_ms);
+        if let (Some(last_present), Some(last_epoch)) = (self.last_present, self.last_present_epoch)
+        {
+            if let Some(frame_time) = now.checked_duration_since(last_present) {
+                if consecutive_render_epochs(last_epoch, render_epoch) {
+                    let frame_ms = frame_time.as_secs_f32().mul_add(1000.0, 0.0);
+                    self.record_sample_with_interval(frame_ms, update_interval_ms);
+                } else {
+                    // Keep spike episode ages on wall time without treating an
+                    // unknown number of Presents as one measured frame.
+                    self.session_elapsed_ms += frame_time.as_secs_f64() * 1_000.0;
+                    self.rejected_intervals = self.rejected_intervals.saturating_add(1);
+                }
+            } else {
+                self.rejected_intervals = self.rejected_intervals.saturating_add(1);
+            }
         }
         self.last_present = Some(now);
+        self.last_present_epoch = Some(render_epoch);
     }
 
     fn pause(&mut self) {
         if self.active {
             self.last_present = None;
+            self.last_present_epoch = None;
             self.active = false;
         }
+    }
+
+    fn invalidate_origin(&mut self) {
+        self.last_present = None;
+        self.last_present_epoch = None;
+    }
+
+    fn reject_current_present(&mut self) {
+        self.rejected_intervals = self.rejected_intervals.saturating_add(1);
+        self.invalidate_origin();
     }
 
     fn reset_samples(&mut self) {
         self.samples.fill(0.0);
         self.next_index = 0;
         self.count = 0;
+        self.last_present = None;
+        self.last_present_epoch = None;
         self.smoothed_ms = 0.0;
         self.display_elapsed_ms = 0.0;
         self.published = FramePacingSnapshot::default();
+        self.active = false;
+        self.session_elapsed_ms = 0.0;
+        self.baseline_ms = 0.0;
+        self.baseline_noise_ms = 0.0;
+        self.baseline_samples = 0;
+        self.spike_events.fill(FrameSpikeEvent::default());
+        self.spike_next_index = 0;
+        self.spike_count = 0;
+        self.rejected_intervals = 0;
+        self.total_slow_spikes = 0;
+        self.total_fast_spikes = 0;
+        self.largest_slow_spike = None;
+        self.largest_fast_spike = None;
+        self.last_spike_direction = None;
     }
 
+    #[cfg(test)]
     fn record_sample(&mut self, frame_ms: f32) {
+        self.record_sample_with_interval(frame_ms, FRAME_PACING_DEFAULT_UPDATE_INTERVAL_MS);
+    }
+
+    fn record_sample_with_interval(&mut self, frame_ms: f32, update_interval_ms: u32) {
         if !frame_ms.is_finite() || frame_ms <= 0.0 {
             return;
         }
 
+        self.update_interval_ms =
+            crate::config::sanitize_frame_pacing_update_interval_ms(update_interval_ms);
         self.samples[self.next_index] = frame_ms;
         self.next_index = (self.next_index + 1) % FRAME_PACING_HISTORY;
         self.count = (self.count + 1).min(FRAME_PACING_HISTORY);
+        self.observe_spike(frame_ms);
 
         // Preserve the full sample in history, but bound a suspended process or
         // loading pause so the responsive live-FPS readout recovers promptly.
@@ -2497,12 +2696,15 @@ impl FramePacing {
         self.smoothed_ms = if self.smoothed_ms <= f32::EPSILON {
             live_sample
         } else {
-            let alpha = 1.0 - (-live_sample / FRAME_PACING_EMA_TIME_CONSTANT_MS).exp();
+            let alpha = live_sample / (FRAME_PACING_EMA_TIME_CONSTANT_MS + live_sample);
             self.smoothed_ms + (live_sample - self.smoothed_ms) * alpha
         };
 
         self.display_elapsed_ms += frame_ms;
-        if self.count <= 2 || self.display_elapsed_ms >= FRAME_PACING_DISPLAY_INTERVAL_MS {
+        if self.count <= 2
+            || self.update_interval_ms == 0
+            || self.display_elapsed_ms >= self.update_interval_ms as f32
+        {
             self.publish_snapshot();
         }
     }
@@ -2510,6 +2712,106 @@ impl FramePacing {
     fn publish_snapshot(&mut self) {
         self.published = self.calculate_snapshot();
         self.display_elapsed_ms = 0.0;
+    }
+
+    #[cfg(test)]
+    fn update_interval_ms(&self) -> u32 {
+        self.update_interval_ms
+    }
+
+    fn observe_spike(&mut self, frame_ms: f32) {
+        self.session_elapsed_ms += f64::from(frame_ms);
+        if self.baseline_samples == 0 {
+            self.baseline_ms = frame_ms;
+            self.baseline_samples = 1;
+            return;
+        }
+
+        if self.baseline_samples < FRAME_PACING_SPIKE_WARMUP_SAMPLES {
+            self.baseline_samples += 1;
+            let alpha = 1.0 / self.baseline_samples as f32;
+            let residual = frame_ms - self.baseline_ms;
+            self.baseline_ms += residual * alpha;
+            self.baseline_noise_ms += (residual.abs() - self.baseline_noise_ms) * alpha;
+            return;
+        }
+
+        let residual = frame_ms - self.baseline_ms;
+        let threshold_ms = frame_spike_threshold_ms(self.baseline_ms, self.baseline_noise_ms);
+        if residual.abs() >= threshold_ms {
+            self.record_spike_event(frame_ms, residual);
+            self.last_spike_direction = Some(if residual >= 0.0 {
+                SpikeDirection::Slow
+            } else {
+                SpikeDirection::Fast
+            });
+        } else {
+            self.last_spike_direction = None;
+        }
+
+        let bounded_residual = residual.clamp(-threshold_ms, threshold_ms);
+        let alpha = frame_ms.min(FRAME_PACING_LIVE_SAMPLE_MAX_MS)
+            / (FRAME_PACING_SPIKE_BASELINE_TIME_MS + frame_ms.min(FRAME_PACING_LIVE_SAMPLE_MAX_MS));
+        self.baseline_ms += bounded_residual * alpha;
+        let bounded_noise = residual.abs().min(threshold_ms);
+        self.baseline_noise_ms += (bounded_noise - self.baseline_noise_ms) * alpha;
+        self.baseline_samples = self.baseline_samples.saturating_add(1);
+    }
+
+    fn record_spike_event(&mut self, frame_ms: f32, delta_ms: f32) {
+        let direction = if delta_ms >= 0.0 {
+            SpikeDirection::Slow
+        } else {
+            SpikeDirection::Fast
+        };
+        let severity = SpikeSeverity::from_excursion(delta_ms.abs(), self.baseline_ms);
+        let mut event = FrameSpikeEvent {
+            session_time_ms: self.session_elapsed_ms,
+            age_ms: 0.0,
+            frame_ms,
+            baseline_ms: self.baseline_ms,
+            delta_ms,
+            direction,
+            severity,
+        };
+        if self.last_spike_direction == Some(direction) && self.spike_count > 0 {
+            let last_index =
+                (self.spike_next_index + FRAME_PACING_SPIKE_MEMORY - 1) % FRAME_PACING_SPIKE_MEMORY;
+            let previous = self.spike_events[last_index];
+            if previous.delta_ms.abs() > event.delta_ms.abs() {
+                event.frame_ms = previous.frame_ms;
+                event.baseline_ms = previous.baseline_ms;
+                event.delta_ms = previous.delta_ms;
+                event.severity = previous.severity;
+            }
+            self.spike_events[last_index] = event;
+            self.update_session_spike_extreme(event);
+            return;
+        }
+
+        match direction {
+            SpikeDirection::Slow => {
+                self.total_slow_spikes = self.total_slow_spikes.saturating_add(1);
+            }
+            SpikeDirection::Fast => {
+                self.total_fast_spikes = self.total_fast_spikes.saturating_add(1);
+            }
+        }
+        self.update_session_spike_extreme(event);
+        self.spike_events[self.spike_next_index] = event;
+        self.spike_next_index = (self.spike_next_index + 1) % FRAME_PACING_SPIKE_MEMORY;
+        self.spike_count = (self.spike_count + 1).min(FRAME_PACING_SPIKE_MEMORY);
+    }
+
+    fn update_session_spike_extreme(&mut self, event: FrameSpikeEvent) {
+        let direction = event.direction;
+        let session_largest = match direction {
+            SpikeDirection::Slow => &mut self.largest_slow_spike,
+            SpikeDirection::Fast => &mut self.largest_fast_spike,
+        };
+        if session_largest.is_none_or(|largest| event.delta_ms.abs() > largest.delta_ms.abs()) {
+            *session_largest = Some(event);
+        }
     }
 
     fn copy_chronological_samples(&self, output: &mut [f32; FRAME_PACING_HISTORY]) -> usize {
@@ -2560,26 +2862,36 @@ impl FramePacing {
             .map(|sample| f64::from(*sample) * 0.001)
             .sum::<f64>() as f32;
 
-        let mut sorted_samples = [0.0; FRAME_PACING_HISTORY];
-        sorted_samples[..sample_count].copy_from_slice(active_samples);
-        sorted_samples[..sample_count].sort_by(f32::total_cmp);
-        let p50_ms = nearest_rank(&sorted_samples[..sample_count], 0.50);
-        let p95_ms = nearest_rank(&sorted_samples[..sample_count], 0.95);
-        let p99_ms = nearest_rank(&sorted_samples[..sample_count], 0.99);
-        let worst_ms = sorted_samples
-            .get(sample_count.saturating_sub(1))
+        let mut histogram = [0u16; FRAME_PACING_HISTOGRAM_BINS];
+        fill_frame_time_histogram(active_samples, &mut histogram);
+        let p50_ms = histogram_percentile(active_samples, &histogram, 0.50);
+        let p95_ms = histogram_percentile(active_samples, &histogram, 0.95);
+        let p99_ms = histogram_percentile(active_samples, &histogram, 0.99);
+        let worst_ms = active_samples
+            .iter()
             .copied()
-            .filter(|_| sample_count > 0)
+            .max_by(f32::total_cmp)
             .unwrap_or(0.0);
 
+        let mut derived_samples = [0.0f32; FRAME_PACING_HISTORY];
+        histogram.fill(0);
+        for (index, sample) in active_samples.iter().enumerate() {
+            derived_samples[index] = (*sample - p50_ms).abs();
+        }
+        let active_deviations = &derived_samples[..sample_count];
+        fill_frame_time_histogram(active_deviations, &mut histogram);
+        let median_absolute_deviation_ms =
+            histogram_percentile(active_deviations, &histogram, 0.50);
+
         let jitter_ms = if sample_count > 1 {
-            let mut deltas = [0.0; FRAME_PACING_HISTORY];
+            histogram.fill(0);
             for (index, pair) in active_samples.windows(2).enumerate() {
-                deltas[index] = (pair[1] - pair[0]).abs();
+                derived_samples[index] = (pair[1] - pair[0]).abs();
             }
             let delta_count = sample_count - 1;
-            deltas[..delta_count].sort_by(f32::total_cmp);
-            nearest_rank(&deltas[..delta_count], 0.95)
+            let active_deltas = &derived_samples[..delta_count];
+            fill_frame_time_histogram(active_deltas, &mut histogram);
+            histogram_percentile(active_deltas, &histogram, 0.95)
         } else {
             0.0
         };
@@ -2603,7 +2915,14 @@ impl FramePacing {
             .filter(|sample| **sample > FRAME_PACING_CHART_MAX_MS)
             .count();
         let mut chart_samples = [0.0; FRAME_PACING_CHART_POINTS];
-        let chart_count = build_frame_time_chart(active_samples, &mut chart_samples);
+        let chart_count = build_frame_time_cadence_chart(active_samples, &mut chart_samples);
+        let mut spike_chart_samples = [0.0; FRAME_PACING_CHART_POINTS];
+        let spike_chart_count = build_spike_excursion_chart(
+            active_samples,
+            self.baseline_ms,
+            frame_spike_threshold_ms(self.baseline_ms, self.baseline_noise_ms),
+            &mut spike_chart_samples,
+        );
 
         FramePacingSnapshot {
             fps: fps_from_ms(self.smoothed_ms),
@@ -2616,57 +2935,157 @@ impl FramePacing {
             p99_ms,
             worst_ms,
             jitter_ms,
+            median_absolute_deviation_ms,
+            baseline_ms: self.baseline_ms,
             history_seconds,
             budget_60_hit_percent: budget_percent(budget_60_hits),
             budget_30_hit_percent: budget_percent(budget_30_hits),
             scale_max: FRAME_PACING_CHART_MAX_MS,
             off_scale_samples,
             sample_count,
+            rejected_intervals: self.rejected_intervals,
             chart_count,
             chart_samples,
+            spike_chart_count,
+            spike_chart_samples,
+            spikes: self.spike_summary(),
         }
     }
 
     fn snapshot(&self) -> FramePacingSnapshot {
         self.published.clone()
     }
+
+    fn copy_spike_events(
+        &self,
+        output: &mut [FrameSpikeEvent; FRAME_PACING_SPIKE_MEMORY],
+    ) -> usize {
+        if self.spike_count == FRAME_PACING_SPIKE_MEMORY {
+            let tail_count = FRAME_PACING_SPIKE_MEMORY - self.spike_next_index;
+            output[..tail_count].copy_from_slice(&self.spike_events[self.spike_next_index..]);
+            output[tail_count..].copy_from_slice(&self.spike_events[..self.spike_next_index]);
+        } else {
+            output[..self.spike_count].copy_from_slice(&self.spike_events[..self.spike_count]);
+        }
+        self.spike_count
+    }
+
+    fn spike_summary(&self) -> FrameSpikeSummary {
+        let mut events = [FrameSpikeEvent::default(); FRAME_PACING_SPIKE_MEMORY];
+        let event_count = self.copy_spike_events(&mut events);
+        let retained = &events[..event_count];
+        let latest = retained.last().copied().map(|event| {
+            event.with_age((self.session_elapsed_ms - event.session_time_ms).max(0.0) as f32)
+        });
+        let with_current_age = |event: FrameSpikeEvent| {
+            event.with_age((self.session_elapsed_ms - event.session_time_ms).max(0.0) as f32)
+        };
+        let slow_period = detect_spike_periodicity(retained, SpikeDirection::Slow);
+        let fast_period = detect_spike_periodicity(retained, SpikeDirection::Fast);
+        let periodic = match (slow_period, fast_period) {
+            (Some(slow), Some(fast)) => {
+                Some(if slow.confidence_percent >= fast.confidence_percent {
+                    slow
+                } else {
+                    fast
+                })
+            }
+            (Some(period), None) | (None, Some(period)) => Some(period),
+            (None, None) => None,
+        };
+
+        FrameSpikeSummary {
+            retained: event_count,
+            total_slow: self.total_slow_spikes,
+            total_fast: self.total_fast_spikes,
+            latest,
+            largest_slow: self.largest_slow_spike.map(with_current_age),
+            largest_fast: self.largest_fast_spike.map(with_current_age),
+            periodic,
+        }
+    }
 }
 
-fn build_frame_time_chart(samples: &[f32], output: &mut [f32; FRAME_PACING_CHART_POINTS]) -> usize {
+fn build_frame_time_cadence_chart(
+    samples: &[f32],
+    output: &mut [f32; FRAME_PACING_CHART_POINTS],
+) -> usize {
     if samples.is_empty() {
         return 0;
     }
 
-    let mut weighted_sum = [0.0f64; FRAME_PACING_CHART_POINTS];
-    let mut weight_ms = [0.0f64; FRAME_PACING_CHART_POINTS];
+    let mut bucket_sum_ms = [0.0f32; FRAME_PACING_CHART_POINTS];
+    let mut bucket_count = [0u16; FRAME_PACING_CHART_POINTS];
+    let mut bucket_hitch_ms = [0.0f32; FRAME_PACING_CHART_POINTS];
     let interval_ms = f64::from(FRAME_PACING_CHART_INTERVAL_MS);
     let mut age_ms = 0.0f64;
-    for sample in samples.iter().rev() {
-        let sample_ms = f64::from(*sample);
-        let end_age_ms = age_ms + sample_ms;
-        let mut cursor_ms = age_ms;
-        while cursor_ms < end_age_ms {
-            let bucket = (cursor_ms / interval_ms) as usize;
+    let mut oldest_bucket = 0usize;
+
+    let mut index = samples.len();
+    while index > 0 {
+        let newer = samples[index - 1];
+        if newer >= FRAME_PACING_CHART_PRESERVED_HITCH_MS {
+            let bucket = (age_ms / interval_ms) as usize;
             if bucket >= FRAME_PACING_CHART_POINTS {
                 break;
             }
-            let bucket_end_ms = (bucket + 1) as f64 * interval_ms;
-            let overlap_ms = (end_age_ms.min(bucket_end_ms) - cursor_ms).max(0.0);
-            weighted_sum[bucket] += sample_ms * overlap_ms;
-            weight_ms[bucket] += overlap_ms;
-            cursor_ms += overlap_ms;
+            bucket_hitch_ms[bucket] = bucket_hitch_ms[bucket].max(newer);
+            oldest_bucket = oldest_bucket.max(bucket);
+            age_ms += f64::from(newer);
+            index -= 1;
+            continue;
         }
-        age_ms = end_age_ms;
-        if age_ms >= f64::from(FRAME_PACING_WINDOW_MS) {
+
+        let (cadence_ms, elapsed_ms, consumed) = if index >= 2 {
+            let older = samples[index - 2];
+            if older < FRAME_PACING_CHART_PRESERVED_HITCH_MS {
+                ((older + newer) * 0.5, older + newer, 2)
+            } else {
+                (newer, newer, 1)
+            }
+        } else {
+            (newer, newer, 1)
+        };
+        let bucket = (age_ms / interval_ms) as usize;
+        if bucket >= FRAME_PACING_CHART_POINTS {
             break;
         }
+        bucket_sum_ms[bucket] += cadence_ms;
+        bucket_count[bucket] = bucket_count[bucket].saturating_add(1);
+        oldest_bucket = oldest_bucket.max(bucket);
+        age_ms += f64::from(elapsed_ms);
+        index -= consumed;
     }
 
-    let chart_count = ((age_ms / interval_ms).ceil() as usize).clamp(1, FRAME_PACING_CHART_POINTS);
+    let chart_count = (oldest_bucket + 1).min(FRAME_PACING_CHART_POINTS);
+    let mut last_observed_ms = 0.0f32;
     for index in 0..chart_count {
         let bucket = chart_count - 1 - index;
-        output[index] = if weight_ms[bucket] > 0.0 {
-            (weighted_sum[bucket] / weight_ms[bucket]) as f32
+        if bucket_hitch_ms[bucket] > 0.0 {
+            last_observed_ms = bucket_hitch_ms[bucket];
+        } else if bucket_count[bucket] > 0 {
+            last_observed_ms = bucket_sum_ms[bucket] / f32::from(bucket_count[bucket]);
+        }
+        output[index] = last_observed_ms;
+    }
+    chart_count
+}
+
+fn build_spike_excursion_chart(
+    samples: &[f32],
+    baseline_ms: f32,
+    threshold_ms: f32,
+    output: &mut [f32; FRAME_PACING_CHART_POINTS],
+) -> usize {
+    let chart_count = samples.len().min(FRAME_PACING_CHART_POINTS);
+    if chart_count == 0 {
+        return 0;
+    }
+    let start = samples.len() - chart_count;
+    for (output_sample, frame_ms) in output[..chart_count].iter_mut().zip(&samples[start..]) {
+        let excursion_ms = *frame_ms - baseline_ms;
+        *output_sample = if excursion_ms.abs() >= threshold_ms {
+            excursion_ms
         } else {
             0.0
         };
@@ -2674,14 +3093,60 @@ fn build_frame_time_chart(samples: &[f32], output: &mut [f32; FRAME_PACING_CHART
     chart_count
 }
 
-fn nearest_rank(sorted_samples: &[f32], percentile: f32) -> f32 {
-    if sorted_samples.is_empty() {
+fn frame_spike_threshold_ms(baseline_ms: f32, baseline_noise_ms: f32) -> f32 {
+    FRAME_PACING_SPIKE_MIN_DELTA_MS
+        .max(baseline_ms * FRAME_PACING_SPIKE_RELATIVE_DELTA)
+        .max(baseline_noise_ms * FRAME_PACING_SPIKE_NOISE_MULTIPLIER)
+}
+
+fn fill_frame_time_histogram(samples: &[f32], histogram: &mut [u16; FRAME_PACING_HISTOGRAM_BINS]) {
+    for sample in samples {
+        increment_histogram(histogram, *sample);
+    }
+}
+
+fn increment_histogram(histogram: &mut [u16; FRAME_PACING_HISTOGRAM_BINS], value_ms: f32) {
+    let index = ((value_ms.max(0.0) / FRAME_PACING_HISTOGRAM_BIN_MS) as usize)
+        .min(FRAME_PACING_HISTOGRAM_BINS - 1);
+    histogram[index] = histogram[index].saturating_add(1);
+}
+
+fn histogram_percentile(
+    samples: &[f32],
+    histogram: &[u16; FRAME_PACING_HISTOGRAM_BINS],
+    percentile: f32,
+) -> f32 {
+    let sample_count = samples.len();
+    if sample_count == 0 {
         return 0.0;
     }
-    let rank = (percentile.clamp(0.0, 1.0) * sorted_samples.len() as f32)
+    let rank = (percentile.clamp(0.0, 1.0) * sample_count as f32)
         .ceil()
         .max(1.0) as usize;
-    sorted_samples[rank - 1]
+    let mut cumulative = 0usize;
+    for (index, count) in histogram.iter().enumerate() {
+        cumulative += usize::from(*count);
+        if cumulative >= rank {
+            if index == FRAME_PACING_HISTOGRAM_BINS - 1 {
+                let before_overflow = cumulative - usize::from(*count);
+                let overflow_rank = rank - before_overflow - 1;
+                let overflow_start_ms = index as f32 * FRAME_PACING_HISTOGRAM_BIN_MS;
+                let mut overflow = [0.0f32; FRAME_PACING_HISTORY];
+                let mut overflow_count = 0usize;
+                for sample in samples {
+                    if *sample >= overflow_start_ms {
+                        overflow[overflow_count] = *sample;
+                        overflow_count += 1;
+                    }
+                }
+                let (_, selected, _) = overflow[..overflow_count]
+                    .select_nth_unstable_by(overflow_rank, f32::total_cmp);
+                return *selected;
+            }
+            return index as f32 * FRAME_PACING_HISTOGRAM_BIN_MS;
+        }
+    }
+    (FRAME_PACING_HISTOGRAM_BINS - 1) as f32 * FRAME_PACING_HISTOGRAM_BIN_MS
 }
 
 fn fps_from_ms(frame_ms: f32) -> f32 {
@@ -2690,6 +3155,166 @@ fn fps_from_ms(frame_ms: f32) -> f32 {
     } else {
         0.0
     }
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+enum SpikeDirection {
+    #[default]
+    Slow,
+    Fast,
+}
+
+impl SpikeDirection {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Slow => "SLOW",
+            Self::Fast => "FAST",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+enum SpikeSeverity {
+    #[default]
+    Notice,
+    Major,
+    Severe,
+}
+
+impl SpikeSeverity {
+    fn from_excursion(delta_ms: f32, baseline_ms: f32) -> Self {
+        let relative = if baseline_ms > f32::EPSILON {
+            delta_ms / baseline_ms
+        } else {
+            0.0
+        };
+        if delta_ms >= 50.0 || relative >= 2.0 {
+            Self::Severe
+        } else if delta_ms >= FRAME_BUDGET_60_MS || relative >= 0.75 {
+            Self::Major
+        } else {
+            Self::Notice
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::Notice => "NOTICE",
+            Self::Major => "MAJOR",
+            Self::Severe => "SEVERE",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+struct FrameSpikeEvent {
+    session_time_ms: f64,
+    age_ms: f32,
+    frame_ms: f32,
+    baseline_ms: f32,
+    delta_ms: f32,
+    direction: SpikeDirection,
+    severity: SpikeSeverity,
+}
+
+impl FrameSpikeEvent {
+    fn with_age(mut self, age_ms: f32) -> Self {
+        self.age_ms = age_ms;
+        self
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+struct SpikePeriodicity {
+    direction: SpikeDirection,
+    interval_ms: f32,
+    spread_ms: f32,
+    confidence_percent: f32,
+    repeats: usize,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+struct FrameSpikeSummary {
+    retained: usize,
+    total_slow: u32,
+    total_fast: u32,
+    latest: Option<FrameSpikeEvent>,
+    largest_slow: Option<FrameSpikeEvent>,
+    largest_fast: Option<FrameSpikeEvent>,
+    periodic: Option<SpikePeriodicity>,
+}
+
+fn detect_spike_periodicity(
+    events: &[FrameSpikeEvent],
+    direction: SpikeDirection,
+) -> Option<SpikePeriodicity> {
+    let mut times = [0.0f64; 17];
+    let mut time_count = 0usize;
+    for event in events
+        .iter()
+        .rev()
+        .filter(|event| event.direction == direction)
+        .take(times.len())
+    {
+        times[time_count] = event.session_time_ms;
+        time_count += 1;
+    }
+    if time_count < 4 {
+        return None;
+    }
+    times[..time_count].reverse();
+
+    let mut intervals = [0.0f32; 16];
+    let interval_count = time_count - 1;
+    for index in 0..interval_count {
+        intervals[index] = (times[index + 1] - times[index]) as f32;
+    }
+    let median = median_in_place(&mut intervals, interval_count);
+    if median < 100.0 {
+        return None;
+    }
+
+    let tolerance_ms = (median * 0.15).max(25.0);
+    let mut inlier_count = 0usize;
+    let mut sum = 0.0f64;
+    for interval in &intervals[..interval_count] {
+        if (*interval - median).abs() <= tolerance_ms {
+            inlier_count += 1;
+            sum += f64::from(*interval);
+        }
+    }
+    if inlier_count < 3 || inlier_count * 4 < interval_count * 3 {
+        return None;
+    }
+
+    let mean = (sum / inlier_count as f64) as f32;
+    let mut variance = 0.0f64;
+    for interval in &intervals[..interval_count] {
+        if (*interval - median).abs() <= tolerance_ms {
+            let delta = f64::from(*interval - mean);
+            variance += delta * delta;
+        }
+    }
+    let spread_ms = (variance / inlier_count as f64).sqrt() as f32;
+    let regularity = (1.0 - spread_ms / mean.max(1.0)).clamp(0.0, 1.0);
+    let coverage = inlier_count as f32 / interval_count as f32;
+
+    Some(SpikePeriodicity {
+        direction,
+        interval_ms: mean,
+        spread_ms,
+        confidence_percent: regularity * coverage * 100.0,
+        repeats: inlier_count + 1,
+    })
+}
+
+fn median_in_place(values: &mut [f32], count: usize) -> f32 {
+    if count == 0 {
+        return 0.0;
+    }
+    let middle = count / 2;
+    let (_, median, _) = values[..count].select_nth_unstable_by(middle, f32::total_cmp);
+    *median
 }
 
 #[derive(Clone)]
@@ -2704,14 +3329,20 @@ struct FramePacingSnapshot {
     p99_ms: f32,
     worst_ms: f32,
     jitter_ms: f32,
+    median_absolute_deviation_ms: f32,
+    baseline_ms: f32,
     history_seconds: f32,
     budget_60_hit_percent: f32,
     budget_30_hit_percent: f32,
     scale_max: f32,
     off_scale_samples: usize,
     sample_count: usize,
+    rejected_intervals: u32,
     chart_count: usize,
     chart_samples: [f32; FRAME_PACING_CHART_POINTS],
+    spike_chart_count: usize,
+    spike_chart_samples: [f32; FRAME_PACING_CHART_POINTS],
+    spikes: FrameSpikeSummary,
 }
 
 impl Default for FramePacingSnapshot {
@@ -2727,14 +3358,20 @@ impl Default for FramePacingSnapshot {
             p99_ms: 0.0,
             worst_ms: 0.0,
             jitter_ms: 0.0,
+            median_absolute_deviation_ms: 0.0,
+            baseline_ms: 0.0,
             history_seconds: 0.0,
             budget_60_hit_percent: 0.0,
             budget_30_hit_percent: 0.0,
             scale_max: FRAME_PACING_CHART_MAX_MS,
             off_scale_samples: 0,
             sample_count: 0,
+            rejected_intervals: 0,
             chart_count: 0,
             chart_samples: [0.0; FRAME_PACING_CHART_POINTS],
+            spike_chart_count: 0,
+            spike_chart_samples: [0.0; FRAME_PACING_CHART_POINTS],
+            spikes: FrameSpikeSummary::default(),
         }
     }
 }
@@ -2743,13 +3380,20 @@ impl FramePacingSnapshot {
     fn samples(&self) -> &[f32] {
         &self.chart_samples[..self.chart_count]
     }
+
+    fn spike_samples(&self) -> &[f32] {
+        &self.spike_chart_samples[..self.spike_chart_count]
+    }
 }
 
 #[cfg(test)]
 mod frame_pacing_tests {
     use super::{
-        FRAME_BUDGET_30_MS, FRAME_BUDGET_60_MS, FRAME_PACING_CHART_POINTS, FRAME_PACING_HISTORY,
-        FramePacing, PresentFrameTiming,
+        FRAME_BUDGET_30_MS, FRAME_BUDGET_60_MS, FRAME_PACING_CHART_POINTS,
+        FRAME_PACING_DEFAULT_UPDATE_INTERVAL_MS, FRAME_PACING_HISTORY, FRAME_PACING_SPIKE_MEMORY,
+        FRAME_PACING_SPIKE_WARMUP_SAMPLES, FramePacing, MENU_DIAGNOSTICS_ACTIVE_BIT,
+        MENU_DIAGNOSTICS_SESSION_INCREMENT, PresentFrameTiming, SpikeDirection,
+        build_frame_time_cadence_chart, diagnostics_state_transition,
     };
     use std::time::{Duration, Instant};
 
@@ -2784,6 +3428,22 @@ mod frame_pacing_tests {
         assert_close(snapshot.budget_30_hit_percent, 33.0);
         assert!(snapshot.scale_max >= FRAME_BUDGET_30_MS);
         assert_eq!(snapshot.off_scale_samples, 50);
+    }
+
+    #[test]
+    fn histogram_overflow_does_not_clip_reported_percentiles() {
+        let mut pacing = FramePacing::default();
+        for _ in 0..100 {
+            pacing.record_sample(1_000.0);
+        }
+        pacing.publish_snapshot();
+
+        let snapshot = pacing.snapshot();
+        assert_close(snapshot.p50_ms, 1_000.0);
+        assert_close(snapshot.p95_ms, 1_000.0);
+        assert_close(snapshot.p99_ms, 1_000.0);
+        assert_close(snapshot.worst_ms, 1_000.0);
+        assert_close(snapshot.jitter_ms, 0.0);
     }
 
     #[test]
@@ -2830,6 +3490,27 @@ mod frame_pacing_tests {
     }
 
     #[test]
+    fn configurable_update_cadence_includes_true_per_frame_publication() {
+        let mut pacing = FramePacing::default();
+        pacing.record_sample_with_interval(10.0, 1_000);
+        pacing.record_sample_with_interval(10.0, 1_000);
+        let held = pacing.snapshot();
+
+        pacing.record_sample_with_interval(30.0, 1_000);
+        assert_close(pacing.snapshot().average_ms, held.average_ms);
+
+        pacing.record_sample_with_interval(40.0, 0);
+        assert!(pacing.snapshot().average_ms > held.average_ms);
+
+        pacing.record_sample_with_interval(50.0, 99_999);
+        assert_eq!(
+            pacing.update_interval_ms(),
+            crate::config::sanitize_frame_pacing_update_interval_ms(99_999)
+        );
+        assert_eq!(FRAME_PACING_DEFAULT_UPDATE_INTERVAL_MS, 500);
+    }
+
+    #[test]
     fn chart_reduces_per_frame_zigzag_without_hiding_persistent_jitter() {
         let mut pacing = FramePacing::default();
         for _ in 0..50 {
@@ -2850,8 +3531,177 @@ mod frame_pacing_tests {
             .copied()
             .max_by(f32::total_cmp)
             .expect("chart maximum");
-        assert!(chart_max - chart_min < 5.0);
+        assert_close(chart_min, 15.0);
+        assert_close(chart_max, 15.0);
         assert_close(snapshot.jitter_ms, 10.0);
+    }
+
+    #[test]
+    fn stable_batched_present_submissions_do_not_form_a_cadence_sawtooth() {
+        let mut samples = [0.0f32; 240];
+        for (index, sample) in samples.iter_mut().enumerate() {
+            *sample = if index % 2 == 0 { 1.0 } else { 32.0 };
+        }
+        let mut chart = [0.0f32; FRAME_PACING_CHART_POINTS];
+        let chart_count = build_frame_time_cadence_chart(&samples, &mut chart);
+        let chart = &chart[..chart_count];
+        let chart_min = chart
+            .iter()
+            .copied()
+            .min_by(f32::total_cmp)
+            .expect("chart minimum");
+        let chart_max = chart
+            .iter()
+            .copied()
+            .max_by(f32::total_cmp)
+            .expect("chart maximum");
+
+        assert_close(chart_min, 16.5);
+        assert_close(chart_max, 16.5);
+    }
+
+    #[test]
+    fn a_single_long_hitch_is_one_cadence_bucket_event() {
+        let mut pacing = FramePacing::default();
+        for _ in 0..20 {
+            pacing.record_sample(10.0);
+        }
+        pacing.record_sample(250.0);
+        pacing.publish_snapshot();
+
+        let chart = pacing.snapshot();
+        assert_eq!(
+            chart
+                .samples()
+                .iter()
+                .filter(|frame_ms| **frame_ms >= 250.0)
+                .count(),
+            1,
+            "one long frame must not be drawn as several separate hitches"
+        );
+        assert!(
+            chart.samples().iter().all(|frame_ms| *frame_ms > 0.0),
+            "time buckets without a completed frame must retain the last observed cadence"
+        );
+    }
+
+    #[test]
+    fn spike_chart_preserves_short_slow_and_fast_excursions() {
+        let mut pacing = FramePacing::default();
+        for _ in 0..40 {
+            pacing.record_sample(16.0);
+        }
+        pacing.record_sample(48.0);
+        pacing.record_sample(7.0);
+        pacing.publish_snapshot();
+
+        let snapshot = pacing.snapshot();
+        assert!(
+            snapshot
+                .spike_samples()
+                .iter()
+                .any(|deviation| *deviation >= 30.0)
+        );
+        assert!(
+            snapshot
+                .spike_samples()
+                .iter()
+                .any(|deviation| *deviation <= -8.0)
+        );
+        assert_close(snapshot.worst_ms, 48.0);
+    }
+
+    #[test]
+    fn stable_quantized_cadence_does_not_draw_a_spike_sawtooth() {
+        let mut pacing = FramePacing::default();
+        for _ in 0..80 {
+            pacing.record_sample(16.0);
+            pacing.record_sample(17.0);
+        }
+        pacing.publish_snapshot();
+
+        assert!(
+            pacing
+                .snapshot()
+                .spike_samples()
+                .iter()
+                .all(|excursion| excursion.abs() <= f32::EPSILON),
+            "normal whole-millisecond timer quantization is not a pacing spike"
+        );
+    }
+
+    #[test]
+    fn retained_spike_analysis_separates_direction_severity_and_periodicity() {
+        let mut pacing = FramePacing::default();
+        for _ in 0..40 {
+            pacing.record_sample(16.0);
+        }
+        for _ in 0..6 {
+            for _ in 0..59 {
+                pacing.record_sample(16.0);
+            }
+            pacing.record_sample(52.0);
+        }
+        pacing.record_sample(6.0);
+        pacing.record_sample(90.0);
+        pacing.publish_snapshot();
+
+        let spikes = pacing.snapshot().spikes;
+        assert!(spikes.total_slow >= 7);
+        assert!(spikes.total_fast >= 1);
+        assert_eq!(
+            spikes.latest.expect("latest spike").direction,
+            SpikeDirection::Slow
+        );
+        assert!(spikes.largest_slow.expect("largest slow spike").frame_ms >= 90.0);
+        assert!(spikes.largest_fast.expect("largest fast spike").frame_ms <= 6.0);
+        let periodic = spikes.periodic.expect("periodic slow spikes");
+        assert_eq!(periodic.direction, SpikeDirection::Slow);
+        assert!((900.0..=1_100.0).contains(&periodic.interval_ms));
+        assert!(periodic.repeats >= 5);
+    }
+
+    #[test]
+    fn sustained_frame_rate_shift_is_one_episode_not_one_spike_per_frame() {
+        let mut pacing = FramePacing::default();
+        for _ in 0..60 {
+            pacing.record_sample(16.0);
+        }
+        for _ in 0..60 {
+            pacing.record_sample(33.0);
+        }
+        pacing.publish_snapshot();
+
+        let spikes = pacing.snapshot().spikes;
+        assert_eq!(spikes.total_slow, 1);
+        assert_eq!(spikes.retained, 1);
+        assert!(spikes.periodic.is_none());
+    }
+
+    #[test]
+    fn rare_session_extreme_survives_spike_ring_rollover() {
+        let mut pacing = FramePacing {
+            baseline_ms: 16.0,
+            baseline_samples: FRAME_PACING_SPIKE_WARMUP_SAMPLES,
+            ..FramePacing::default()
+        };
+        pacing.session_elapsed_ms = 1_000.0;
+        pacing.record_spike_event(90.0, 74.0);
+        pacing.last_spike_direction = None;
+
+        for index in 0..FRAME_PACING_SPIKE_MEMORY {
+            pacing.session_elapsed_ms = 2_000.0 + index as f64 * 1_000.0;
+            pacing.record_spike_event(30.0, 14.0);
+            pacing.last_spike_direction = None;
+        }
+
+        let spikes = pacing.spike_summary();
+        assert_eq!(spikes.retained, FRAME_PACING_SPIKE_MEMORY);
+        assert!(spikes.total_slow as usize > spikes.retained);
+        assert_eq!(
+            spikes.largest_slow.expect("session slow extreme").frame_ms,
+            90.0
+        );
     }
 
     #[test]
@@ -2901,34 +3751,236 @@ mod frame_pacing_tests {
     }
 
     #[test]
+    fn diagnostics_state_advances_session_only_on_reactivation() {
+        assert_eq!(diagnostics_state_transition(0, false), None);
+        let first_active = diagnostics_state_transition(0, true).expect("first activation");
+        assert_eq!(first_active & MENU_DIAGNOSTICS_ACTIVE_BIT, 1);
+        assert_eq!(first_active / MENU_DIAGNOSTICS_SESSION_INCREMENT, 1);
+        assert_eq!(diagnostics_state_transition(first_active, true), None);
+
+        let inactive = diagnostics_state_transition(first_active, false).expect("deactivation");
+        assert_eq!(inactive & MENU_DIAGNOSTICS_ACTIVE_BIT, 0);
+        let second_active =
+            diagnostics_state_transition(inactive, true).expect("second activation");
+        assert_eq!(second_active / MENU_DIAGNOSTICS_SESSION_INCREMENT, 2);
+    }
+
+    #[test]
     fn closed_menu_does_not_collect_frame_pacing() {
         let mut pacing = FramePacing::default();
         let start = Instant::now();
-        pacing.record_frame_at(start, false);
-        pacing.record_frame_at(start + Duration::from_millis(10), false);
+        pacing.record_frame_at(start, 1, false, FRAME_PACING_DEFAULT_UPDATE_INTERVAL_MS);
+        pacing.record_frame_at(
+            start + Duration::from_millis(10),
+            2,
+            false,
+            FRAME_PACING_DEFAULT_UPDATE_INTERVAL_MS,
+        );
         assert!(pacing.snapshot().samples().is_empty());
 
-        pacing.record_frame_at(start + Duration::from_millis(20), true);
-        pacing.record_frame_at(start + Duration::from_millis(30), true);
+        pacing.begin_session(1);
+        pacing.record_frame_at(
+            start + Duration::from_millis(20),
+            3,
+            true,
+            FRAME_PACING_DEFAULT_UPDATE_INTERVAL_MS,
+        );
+        pacing.record_frame_at(
+            start + Duration::from_millis(30),
+            4,
+            true,
+            FRAME_PACING_DEFAULT_UPDATE_INTERVAL_MS,
+        );
         assert_eq!(pacing.snapshot().samples(), &[10.0]);
 
-        pacing.record_frame_at(start + Duration::from_millis(40), false);
-        pacing.begin_session();
+        pacing.begin_session(1);
+        assert_eq!(pacing.snapshot().samples(), &[10.0]);
+
+        // The production fast gate makes no collector call while closed. A
+        // new session token must still discard the old time origin/history.
+        pacing.begin_session(2);
         assert!(pacing.snapshot().samples().is_empty());
-        pacing.record_frame_at(start + Duration::from_millis(50), true);
+        pacing.record_frame_at(
+            start + Duration::from_millis(50),
+            6,
+            true,
+            FRAME_PACING_DEFAULT_UPDATE_INTERVAL_MS,
+        );
         assert!(pacing.snapshot().samples().is_empty());
+    }
+
+    #[test]
+    fn skipped_present_callback_cannot_become_a_fake_long_frame() {
+        let mut pacing = FramePacing::default();
+        let start = Instant::now();
+        pacing.begin_session(1);
+        pacing.record_frame_at(start, 10, true, 0);
+        pacing.record_frame_at(start + Duration::from_millis(16), 11, true, 0);
+        pacing.record_frame_at(start + Duration::from_millis(48), 13, true, 0);
+        pacing.record_frame_at(start + Duration::from_millis(64), 14, true, 0);
+
+        let snapshot = pacing.snapshot();
+        assert_eq!(snapshot.sample_count, 2);
+        assert_eq!(snapshot.rejected_intervals, 1);
+        assert_close(snapshot.worst_ms, 16.0);
+        assert_close(snapshot.average_ms, 16.0);
+    }
+
+    #[test]
+    fn successful_present_timeline_reconstructs_exact_interval_metrics() {
+        let mut pacing = FramePacing::default();
+        let start = Instant::now();
+        pacing.begin_session(1);
+        pacing.record_frame_at(start, 30, true, 0);
+        pacing.record_frame_at(start + Duration::from_millis(10), 31, true, 0);
+        pacing.record_frame_at(start + Duration::from_millis(30), 32, true, 0);
+        pacing.record_frame_at(start + Duration::from_millis(35), 33, true, 0);
+
+        let mut raw = [0.0; FRAME_PACING_HISTORY];
+        let raw_count = pacing.copy_chronological_samples(&mut raw);
+        assert_eq!(raw_count, 3);
+        for (actual, expected) in raw[..raw_count].iter().zip([10.0, 20.0, 5.0]) {
+            assert_close(*actual, expected);
+        }
+
+        let snapshot = pacing.snapshot();
+        assert_eq!(snapshot.sample_count, 3);
+        assert_eq!(snapshot.rejected_intervals, 0);
+        assert_close(snapshot.average_ms, 35.0 / 3.0);
+        assert_close(snapshot.p50_ms, 10.0);
+        assert_close(snapshot.p95_ms, 20.0);
+        assert_close(snapshot.p99_ms, 20.0);
+        assert_close(snapshot.worst_ms, 20.0);
+        assert_close(snapshot.jitter_ms, 15.0);
+    }
+
+    #[test]
+    fn a_failed_present_origin_cannot_leak_into_the_next_interval() {
+        let mut pacing = FramePacing::default();
+        let start = Instant::now();
+        pacing.begin_session(1);
+        pacing.record_frame_at(start, 20, true, 0);
+        pacing.record_frame_at(start + Duration::from_millis(16), 21, true, 0);
+        pacing.reject_current_present();
+        pacing.record_frame_at(start + Duration::from_millis(80), 23, true, 0);
+        pacing.record_frame_at(start + Duration::from_millis(96), 24, true, 0);
+
+        let snapshot = pacing.snapshot();
+        assert_eq!(snapshot.sample_count, 2);
+        assert_eq!(snapshot.rejected_intervals, 1);
+        assert_close(snapshot.worst_ms, 16.0);
+    }
+
+    #[test]
+    fn diagnostics_hot_path_has_no_allocation_sort_logging_or_locking() {
+        let source = include_str!("runtime.rs");
+        let start = source
+            .find("fn record_sample_with_interval")
+            .expect("frame-pacing capture");
+        let end = source[start..]
+            .find("fn publish_snapshot")
+            .map(|offset| start + offset)
+            .expect("snapshot publication");
+        let capture = &source[start..end];
+
+        for forbidden in [
+            "Vec<",
+            "vec![",
+            "format!(",
+            "sort_by",
+            "Instant::now",
+            "log::",
+            ".lock(",
+        ] {
+            assert!(
+                !capture.contains(forbidden),
+                "capture hot path contains {forbidden}"
+            );
+        }
+
+        let finish_start = source
+            .find("    fn finish_present_frame(\n        &mut self,")
+            .expect("finish-present callback");
+        let finish_end = source[finish_start..]
+            .find("fn release_for_new_device")
+            .map(|offset| finish_start + offset)
+            .expect("finish-present boundary");
+        let finish = &source[finish_start..finish_end];
+        let disabled_return = finish
+            .find("if !diagnostics_active && !depth_of_field_active")
+            .expect("disabled diagnostics early return");
+        let failed_present = finish
+            .find("let Some(now) = present_started_at")
+            .expect("successful-present gate");
+        assert!(disabled_return < failed_present);
+
+        let capture_start = source
+            .find("pub(crate) fn present_frame_started_at")
+            .expect("present-start capture");
+        let public_start = source[capture_start..]
+            .find("pub(crate) unsafe fn finish_present_frame")
+            .map(|offset| capture_start + offset)
+            .expect("public finish-present callback");
+        let capture = &source[capture_start..public_start];
+        let diagnostics_gate = capture
+            .find("diagnostics_active || PRESENT_FRAME_TIMING_NEEDED")
+            .expect("top-level diagnostics gate");
+        let timestamp = capture
+            .find(".then(Instant::now)")
+            .expect("present-start timestamp");
+        assert!(diagnostics_gate < timestamp);
+
+        let public_end = source[public_start..]
+            .find("fn runtime_lock_telemetry")
+            .map(|offset| public_start + offset)
+            .expect("public finish-present boundary");
+        let public_finish = &source[public_start..public_end];
+        let runtime_lock = public_finish
+            .find("RUNTIME.try_lock")
+            .expect("runtime acquisition");
+        assert!(!public_finish.contains("Instant::now"));
+        assert!(
+            public_finish
+                .find("if diagnostics_session.is_none()")
+                .unwrap()
+                < runtime_lock
+        );
+    }
+
+    #[test]
+    fn diagnostics_storage_and_snapshot_work_have_fixed_small_bounds() {
+        assert_eq!(FRAME_PACING_HISTORY, 2_048);
+        assert_eq!(FRAME_PACING_CHART_POINTS, 100);
+        assert_eq!(super::FRAME_PACING_SPIKE_MEMORY, 64);
+        assert_eq!(super::FRAME_PACING_HISTOGRAM_BINS, 4_096);
+        assert!(std::mem::size_of::<FramePacing>() <= 16 * 1024);
     }
 
     #[test]
     fn production_frame_delta_is_independent_of_menu_diagnostics() {
         let mut timing = PresentFrameTiming::default();
         let start = Instant::now();
-        timing.record_frame_at(start, true);
-        timing.record_frame_at(start + Duration::from_millis(20), true);
+        timing.record_frame_at(start, 40, true);
+        timing.record_frame_at(start + Duration::from_millis(20), 41, true);
         assert_close(timing.frame_seconds(), 0.020);
 
-        timing.record_frame_at(start + Duration::from_millis(30), false);
+        timing.record_frame_at(start + Duration::from_millis(30), 42, false);
         assert_close(timing.frame_seconds(), 1.0 / 60.0);
+    }
+
+    #[test]
+    fn production_frame_delta_rejects_a_missing_present_callback() {
+        let mut timing = PresentFrameTiming::default();
+        let start = Instant::now();
+        timing.record_frame_at(start, 100, true);
+        timing.record_frame_at(start + Duration::from_millis(20), 101, true);
+        assert_close(timing.frame_seconds(), 0.020);
+
+        timing.record_frame_at(start + Duration::from_millis(70), 103, true);
+        assert_close(timing.frame_seconds(), 1.0 / 60.0);
+
+        timing.record_frame_at(start + Duration::from_millis(90), 104, true);
+        assert_close(timing.frame_seconds(), 0.020);
     }
 }
 
@@ -2968,6 +4020,7 @@ struct MenuFrameResult {
 #[derive(Clone, Copy, Debug, Default)]
 struct MenuHeaderResult {
     sources_changed: bool,
+    settings_changed: bool,
     action: MenuAction,
 }
 
@@ -3016,6 +4069,7 @@ fn draw_shader_menu(
 
     let header = draw_shader_menu_header(
         ui,
+        menu_config,
         sources,
         frame_pacing,
         persistence.dirty,
@@ -3023,7 +4077,7 @@ fn draw_shader_menu(
         persistence.notice,
     );
     let mut result = MenuFrameResult {
-        changed: header.sources_changed,
+        changed: header.sources_changed || header.settings_changed,
         action: header.action,
     };
     if header.sources_changed {
@@ -3091,6 +4145,7 @@ fn draw_shader_menu(
 
 fn draw_shader_menu_header(
     ui: &mut psycho_imgui::Ui<'_>,
+    menu_config: &mut GraphicsMenuConfig,
     sources: &mut [ScreenShaderSource],
     frame_pacing: &FramePacingSnapshot,
     menu_config_dirty: bool,
@@ -3188,17 +4243,52 @@ fn draw_shader_menu_header(
     }
 
     ui.spacing();
-    draw_frame_pacing_panel(ui, frame_pacing);
+    result.settings_changed |= draw_frame_pacing_panel(
+        ui,
+        frame_pacing,
+        &mut menu_config.frame_pacing_update_interval_ms,
+    );
 
     result
 }
 
-fn draw_frame_pacing_panel(ui: &mut psycho_imgui::Ui<'_>, frame_pacing: &FramePacingSnapshot) {
+fn draw_frame_pacing_panel(
+    ui: &mut psycho_imgui::Ui<'_>,
+    frame_pacing: &FramePacingSnapshot,
+    update_interval_ms: &mut u32,
+) -> bool {
+    let mut changed = false;
     let heading = cstring(format!(
-        "FRAME PACING // {:.2} S ROLLING WINDOW // 0.5 S REFRESH",
+        "FRAME PACING // {:.2} S ROLLING WINDOW",
         frame_pacing.history_seconds
     ));
     ui.text_colored(MENU_ACCENT_TEXT, &heading);
+    ui.same_line();
+    ui.text_colored(MENU_MUTED_TEXT, &cstring("// UPDATE"));
+    ui.same_line();
+    let preview = frame_pacing_update_label(*update_interval_ms);
+    let combo_label = cstring("##frame_pacing_update_interval");
+    {
+        let _width = ui.push_item_width(182.0);
+        if ui.begin_combo(&combo_label, &preview) {
+            for (interval_ms, label) in [
+                (0, "Every frame // instant"),
+                (50, "50 ms // 20 Hz"),
+                (100, "100 ms // 10 Hz"),
+                (250, "250 ms // 4 Hz"),
+                (500, "500 ms // 2 Hz"),
+                (1_000, "1 second"),
+                (2_000, "2 seconds"),
+            ] {
+                let choice = cstring(format!("{label}##frame_pacing_update_{interval_ms}"));
+                if ui.selectable(&choice, *update_interval_ms == interval_ms) {
+                    *update_interval_ms = interval_ms;
+                    changed = true;
+                }
+            }
+            ui.end_combo();
+        }
+    }
 
     let live = cstring(format!(
         "LIVE {:>5.1} FPS / {:>5.2} ms (1 S EMA)",
@@ -3213,25 +4303,55 @@ fn draw_frame_pacing_panel(ui: &mut psycho_imgui::Ui<'_>, frame_pacing: &FramePa
     ui.text_colored(MENU_MUTED_TEXT, &average);
     ui.same_line();
     let one_percent_low = cstring(format!(
-        "1% LOW {:>5.1} FPS",
+        "1% LOW (P99) {:>5.1} FPS",
         frame_pacing.one_percent_low_fps
     ));
     ui.text_colored(frame_time_color(frame_pacing.p99_ms), &one_percent_low);
 
     let distribution = cstring(format!(
-        "P50 {:>5.2} | P95 {:>5.2} | P99 {:>5.2} | WORST {:>6.2} | JITTER P95 DELTA {:>5.2} ms",
+        "RAW P50 {:>5.2} | P95 {:>5.2} | P99 {:>5.2} | WORST {:>6.2} | JITTER {:>5.2} | MAD {:>5.2} ms",
         frame_pacing.p50_ms,
         frame_pacing.p95_ms,
         frame_pacing.p99_ms,
         frame_pacing.worst_ms,
-        frame_pacing.jitter_ms
+        frame_pacing.jitter_ms,
+        frame_pacing.median_absolute_deviation_ms
     ));
     ui.text_colored(MENU_MUTED_TEXT, &distribution);
     let chart_contract = cstring(format!(
-        "{} RAW FRAMES // CHART = 100 MS TIME-WEIGHTED MEAN",
+        "{} RAW CPU PRESENT INTERVALS // CHART = PAIR-NORMALIZED 100 MS TREND // SPIKES = FILTERED RAW IMPULSES",
         frame_pacing.sample_count
     ));
     ui.text_colored(MENU_MUTED_TEXT, &chart_contract);
+    let quality_color = if frame_pacing.rejected_intervals == 0 {
+        MENU_GOOD_TEXT
+    } else {
+        MENU_WARN_TEXT
+    };
+    let quality = cstring(format!(
+        "DATA QUALITY // {} REJECTED INTERVAL{} THIS SESSION",
+        frame_pacing.rejected_intervals,
+        if frame_pacing.rejected_intervals == 1 {
+            ""
+        } else {
+            "S"
+        }
+    ));
+    ui.text_colored(quality_color, &quality);
+
+    let contention = runtime_lock_telemetry();
+    if contention.has_rejections() {
+        let contention_text = cstring(format!(
+            "PROCESS REJECTIONS // APPLY {} | FINISH {} | FAILED PRESENT {} | SCENE {} | COLOR {} | RESET {}",
+            contention.present_apply,
+            contention.present_finish,
+            contention.failed_present,
+            contention.scene_phase,
+            contention.world_color,
+            contention.reset,
+        ));
+        ui.text_colored(MENU_WARN_TEXT, &contention_text);
+    }
 
     ui.text_colored(MENU_MUTED_TEXT, &cstring("BUDGET HIT //"));
     ui.same_line();
@@ -3271,6 +4391,8 @@ fn draw_frame_pacing_panel(ui: &mut psycho_imgui::Ui<'_>, frame_pacing: &FramePa
         ui.text_colored(MENU_ERROR_TEXT, &off_scale);
     }
 
+    draw_spike_summary(ui, frame_pacing);
+
     if frame_pacing.samples().len() > 1 {
         let label = cstring("##frame_pacing");
         let warning_label = cstring("60 FPS // 16.7 ms");
@@ -3286,6 +4408,7 @@ fn draw_frame_pacing_panel(ui: &mut psycho_imgui::Ui<'_>, frame_pacing: &FramePa
             critical_threshold: FRAME_BUDGET_30_MS,
             danger_below: false,
             sample_interval_seconds: FRAME_PACING_CHART_INTERVAL_MS * 0.001,
+            impulse_from_zero: false,
             line_color: MENU_ACCENT_TEXT,
             fill_color: [0.20, 0.66, 0.78, 0.16],
             warning_label: &warning_label,
@@ -3293,9 +4416,111 @@ fn draw_frame_pacing_panel(ui: &mut psycho_imgui::Ui<'_>, frame_pacing: &FramePa
             value_suffix: &suffix,
         };
         ui.telemetry_chart(&label, &chart);
+
+        let spike_label = cstring("##frame_pacing_spikes");
+        let baseline_label = cstring("BASELINE // 0 ms");
+        let no_label = cstring("");
+        let spike_suffix = cstring(" ms vs baseline");
+        let spike_chart = psycho_imgui::TelemetryChart {
+            values: frame_pacing.spike_samples(),
+            scale_min: -FRAME_PACING_SPIKE_CHART_MAX_MS,
+            scale_max: FRAME_PACING_SPIKE_CHART_MAX_MS,
+            width: 0.0,
+            height: 70.0,
+            warning_threshold: 0.0,
+            critical_threshold: f32::NAN,
+            danger_below: false,
+            sample_interval_seconds: 0.0,
+            impulse_from_zero: true,
+            line_color: MENU_WARN_TEXT,
+            fill_color: [0.95, 0.70, 0.30, 0.0],
+            warning_label: &baseline_label,
+            critical_label: &no_label,
+            value_suffix: &spike_suffix,
+        };
+        ui.telemetry_chart(&spike_label, &spike_chart);
     } else {
         let collecting = cstring("Collecting frame history...");
         ui.text_colored(MENU_MUTED_TEXT, &collecting);
+    }
+
+    changed
+}
+
+fn frame_pacing_update_label(interval_ms: u32) -> CString {
+    match interval_ms {
+        0 => cstring("Every frame // instant"),
+        50 => cstring("50 ms // 20 Hz"),
+        100 => cstring("100 ms // 10 Hz"),
+        250 => cstring("250 ms // 4 Hz"),
+        500 => cstring("500 ms // 2 Hz"),
+        1_000 => cstring("1 second"),
+        2_000 => cstring("2 seconds"),
+        custom => cstring(format!("{custom} ms // custom")),
+    }
+}
+
+fn draw_spike_summary(ui: &mut psycho_imgui::Ui<'_>, frame_pacing: &FramePacingSnapshot) {
+    let spikes = frame_pacing.spikes;
+    let count = cstring(format!(
+        "SPIKES // {} SLOW + {} FAST // {} RETAINED // BASELINE {:.2} ms",
+        spikes.total_slow, spikes.total_fast, spikes.retained, frame_pacing.baseline_ms
+    ));
+    let count_color = if spikes.total_slow == 0 && spikes.total_fast == 0 {
+        MENU_GOOD_TEXT
+    } else {
+        MENU_WARN_TEXT
+    };
+    ui.text_colored(count_color, &count);
+
+    if let Some(periodic) = spikes.periodic {
+        let periodic_text = cstring(format!(
+            "PERIODIC {} // {:.2} s +/- {:.0} ms // {} repeats // {:.0}% confidence",
+            periodic.direction.label(),
+            periodic.interval_ms * 0.001,
+            periodic.spread_ms,
+            periodic.repeats,
+            periodic.confidence_percent
+        ));
+        ui.text_colored(MENU_ERROR_TEXT, &periodic_text);
+    } else {
+        ui.text_colored(
+            MENU_MUTED_TEXT,
+            &cstring("PERIODICITY // no repeatable cadence detected"),
+        );
+    }
+
+    if let Some(latest) = spikes.latest {
+        let latest_text = cstring(format!(
+            "LATEST {} / {} // {:.2} ms ({:+.2} from {:.2}) // {:.2} s ago",
+            latest.direction.label(),
+            latest.severity.label(),
+            latest.frame_ms,
+            latest.delta_ms,
+            latest.baseline_ms,
+            latest.age_ms * 0.001
+        ));
+        ui.text_colored(spike_severity_color(latest.severity), &latest_text);
+    }
+
+    let slow = spikes
+        .largest_slow
+        .map(|event| format!("SLOW {:.2} ms ({:+.2})", event.frame_ms, event.delta_ms))
+        .unwrap_or_else(|| "SLOW --".to_owned());
+    let fast = spikes
+        .largest_fast
+        .map(|event| format!("FAST {:.2} ms ({:+.2})", event.frame_ms, event.delta_ms))
+        .unwrap_or_else(|| "FAST --".to_owned());
+    ui.text_colored(
+        MENU_MUTED_TEXT,
+        &cstring(format!("LARGEST SESSION // {slow} // {fast}")),
+    );
+}
+
+fn spike_severity_color(severity: SpikeSeverity) -> [f32; 4] {
+    match severity {
+        SpikeSeverity::Notice => MENU_WARN_TEXT,
+        SpikeSeverity::Major | SpikeSeverity::Severe => MENU_ERROR_TEXT,
     }
 }
 

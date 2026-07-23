@@ -247,6 +247,7 @@ unsafe extern "system" fn present_detour(
         sky::finish_direct_draw();
         sky::service_present_frame();
         runtime::apply_present_frame(device_ptr, dest_window);
+        let present_started_at = runtime::present_frame_started_at();
         let result = call_original_present(
             device_ptr,
             source_rect,
@@ -254,17 +255,21 @@ unsafe extern "system" fn present_detour(
             dest_window,
             dirty_region,
         );
-        runtime::finish_present_frame(device_ptr);
+        runtime::finish_present_frame(render_epoch, present_started_at, present_succeeded(result));
         crate::fnv_world_pipeline::finish_present(render_epoch);
-        runtime::service_lock_telemetry(render_epoch);
         advance_render_epoch(&RENDER_EPOCH);
         result
     }
 }
 
+fn present_succeeded(result: i32) -> bool {
+    result >= 0
+}
+
 #[cfg(test)]
 mod tests {
-    use super::advance_render_epoch;
+    use super::{advance_render_epoch, present_succeeded};
+    use libpsycho::os::windows::directx9::{D3D_DEVICE_LOST_CODE, D3D_FAILURE_CODE};
     use std::sync::atomic::{AtomicU32, Ordering};
 
     #[test]
@@ -272,6 +277,55 @@ mod tests {
         let epoch = AtomicU32::new(41);
         advance_render_epoch(&epoch);
         assert_eq!(epoch.load(Ordering::Acquire), 42);
+    }
+
+    #[test]
+    fn only_successful_present_results_are_timing_samples() {
+        assert!(present_succeeded(0));
+        assert!(present_succeeded(1));
+        assert!(!present_succeeded(D3D_DEVICE_LOST_CODE));
+        assert!(!present_succeeded(D3D_FAILURE_CODE));
+    }
+
+    #[test]
+    fn present_hot_path_never_services_logging_telemetry() {
+        let source = include_str!("hooks.rs");
+        let start = source
+            .find("unsafe extern \"system\" fn present_detour")
+            .expect("present detour");
+        let end = source[start..]
+            .find("#[cfg(test)]")
+            .map(|offset| start + offset)
+            .expect("present detour test boundary");
+        let present_path = &source[start..end];
+
+        assert!(!present_path.contains("service_lock_telemetry"));
+        assert!(!present_path.contains("log::"));
+    }
+
+    #[test]
+    fn frame_timestamp_is_captured_before_native_present() {
+        let source = include_str!("hooks.rs");
+        let start = source
+            .find("unsafe extern \"system\" fn present_detour")
+            .expect("present detour");
+        let end = source[start..]
+            .find("fn present_succeeded")
+            .map(|offset| start + offset)
+            .expect("present detour boundary");
+        let present_path = &source[start..end];
+
+        let timestamp = present_path
+            .find("runtime::present_frame_started_at()")
+            .expect("present-start timestamp");
+        let native_present = present_path
+            .find("call_original_present(")
+            .expect("native Present call");
+        let finish = present_path
+            .find("runtime::finish_present_frame(")
+            .expect("frame timing consumer");
+        assert!(timestamp < native_present);
+        assert!(native_present < finish);
     }
 }
 

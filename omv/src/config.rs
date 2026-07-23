@@ -901,11 +901,15 @@ pub(crate) enum DepthProviderConfig {
 #[serde(default)]
 pub(crate) struct DiagnosticsConfig {
     pub(crate) debug_log: bool,
+    pub(crate) frame_pacing_update_interval_ms: u32,
 }
 
 impl Default for DiagnosticsConfig {
     fn default() -> Self {
-        Self { debug_log: false }
+        Self {
+            debug_log: false,
+            frame_pacing_update_interval_ms: 500,
+        }
     }
 }
 
@@ -929,6 +933,7 @@ pub(crate) struct GraphicsMenuConfig {
     pub(crate) menu_toggle_key: u32,
     pub(crate) shader_scan_interval_ms: u64,
     pub(crate) debug_log: bool,
+    pub(crate) frame_pacing_update_interval_ms: u32,
 }
 
 impl Default for GraphicsMenuConfig {
@@ -944,6 +949,7 @@ impl Default for GraphicsMenuConfig {
             menu_toggle_key: graphics.menu_toggle_key,
             shader_scan_interval_ms: graphics.shader_scan_interval_ms,
             debug_log: diagnostics.debug_log,
+            frame_pacing_update_interval_ms: diagnostics.frame_pacing_update_interval_ms,
         }
     }
 }
@@ -959,7 +965,18 @@ impl From<&PsychoGraphicsConfig> for GraphicsMenuConfig {
             menu_toggle_key: value.graphics.menu_toggle_key,
             shader_scan_interval_ms: value.graphics.shader_scan_interval_ms,
             debug_log: value.diagnostics.debug_log,
+            frame_pacing_update_interval_ms: sanitize_frame_pacing_update_interval_ms(
+                value.diagnostics.frame_pacing_update_interval_ms,
+            ),
         }
+    }
+}
+
+pub(crate) fn sanitize_frame_pacing_update_interval_ms(interval_ms: u32) -> u32 {
+    if interval_ms == 0 {
+        0
+    } else {
+        interval_ms.clamp(50, 2_000)
     }
 }
 
@@ -1066,7 +1083,7 @@ pub(crate) fn save_menu_config(config: &GraphicsMenuConfig) -> Result<()> {
         native_pbr.remove("ambient_scale");
         native_pbr.remove("albedo_saturation");
     }
-    doc["diagnostics"]["debug_log"] = value(config.debug_log);
+    save_diagnostics_config(&mut doc, config);
 
     let updated = doc.to_string();
     if updated == content {
@@ -1079,6 +1096,13 @@ pub(crate) fn save_menu_config(config: &GraphicsMenuConfig) -> Result<()> {
     }
     fs::write(path, updated).with_context(|| format!("failed to write {}", path.display()))?;
     Ok(())
+}
+
+fn save_diagnostics_config(doc: &mut DocumentMut, config: &GraphicsMenuConfig) {
+    doc["diagnostics"]["debug_log"] = value(config.debug_log);
+    doc["diagnostics"]["frame_pacing_update_interval_ms"] = value(i64::from(
+        sanitize_frame_pacing_update_interval_ms(config.frame_pacing_update_interval_ms),
+    ));
 }
 
 fn save_native_sky_config(doc: &mut DocumentMut, config: &NativeSkyConfig) {
@@ -1380,9 +1404,10 @@ fn save_color_grade_config(doc: &mut DocumentMut, grade: &ColorGradeConfig) {
 #[cfg(test)]
 mod tests {
     use super::{
-        AtmosphereQuality, BloomingHdrConfig, ColorGradeConfig, EmbeddedEffectsConfig,
-        NativePbrConfig, PsychoGraphicsConfig, VolumetricFogConfig, VolumetricLightingConfig,
-        save_color_grade_config,
+        AtmosphereQuality, BloomingHdrConfig, ColorGradeConfig, DiagnosticsConfig,
+        EmbeddedEffectsConfig, GraphicsMenuConfig, NativePbrConfig, PsychoGraphicsConfig,
+        VolumetricFogConfig, VolumetricLightingConfig, sanitize_frame_pacing_update_interval_ms,
+        save_color_grade_config, save_diagnostics_config,
     };
     use toml_edit::DocumentMut;
 
@@ -1654,6 +1679,45 @@ albedo_saturation = 1.02
         assert_eq!(expected.halation, 0.209_262_6);
         assert!(expected.chromatic_aberration_enabled);
         assert_eq!(expected.chromatic_aberration, 3.038_874);
+    }
+
+    #[test]
+    fn frame_pacing_update_cadence_defaults_and_preserves_instant_mode() {
+        let legacy: DiagnosticsConfig =
+            toml::from_str("").expect("legacy diagnostics config must remain readable");
+        assert_eq!(legacy.frame_pacing_update_interval_ms, 500);
+
+        let instant: DiagnosticsConfig =
+            toml::from_str("frame_pacing_update_interval_ms = 0").expect("instant diagnostics");
+        assert_eq!(instant.frame_pacing_update_interval_ms, 0);
+
+        let shipped: PsychoGraphicsConfig =
+            toml::from_str(include_str!("../config/omv.toml")).expect("shipped OMV config");
+        assert_eq!(
+            shipped.diagnostics.frame_pacing_update_interval_ms,
+            DiagnosticsConfig::default().frame_pacing_update_interval_ms
+        );
+        assert_eq!(sanitize_frame_pacing_update_interval_ms(1), 50);
+        assert_eq!(sanitize_frame_pacing_update_interval_ms(99_999), 2_000);
+    }
+
+    #[test]
+    fn frame_pacing_update_cadence_is_saved_with_menu_settings() {
+        let mut menu = GraphicsMenuConfig::default();
+        menu.frame_pacing_update_interval_ms = 0;
+        let mut document = DocumentMut::new();
+        save_diagnostics_config(&mut document, &menu);
+        assert_eq!(
+            document["diagnostics"]["frame_pacing_update_interval_ms"].as_integer(),
+            Some(0)
+        );
+
+        menu.frame_pacing_update_interval_ms = 99_999;
+        save_diagnostics_config(&mut document, &menu);
+        assert_eq!(
+            document["diagnostics"]["frame_pacing_update_interval_ms"].as_integer(),
+            Some(2_000)
+        );
     }
 
     #[test]

@@ -28,6 +28,7 @@ struct PsychoImguiTelemetryChart {
 	float critical_threshold;
 	int32_t danger_below;
 	float sample_interval_seconds;
+	int32_t impulse_from_zero;
 	float line_color[4];
 	float fill_color[4];
 	const char* warning_label;
@@ -799,39 +800,63 @@ void psycho_imgui_telemetry_chart(const char* id, const PsychoImguiTelemetryChar
 	const ImU32 line_color = telemetry_color(chart->line_color);
 	const ImU32 fill_color = telemetry_color(chart->fill_color);
 	const float denominator = static_cast<float>(chart->count > 1 ? chart->count - 1 : 1);
-	for (int32_t index = 1; index < chart->count; ++index) {
-		const float x0 = plot_min.x
-			+ (plot_max.x - plot_min.x) * static_cast<float>(index - 1) / denominator;
-		const float x1 = plot_min.x
-			+ (plot_max.x - plot_min.x) * static_cast<float>(index) / denominator;
-		const float y0 = telemetry_y(
-			chart->values[index - 1],
+	if (chart->impulse_from_zero != 0) {
+		const float zero_y = telemetry_y(
+			0.0f,
 			chart->scale_min,
 			chart->scale_max,
 			plot_min.y,
 			plot_max.y);
-		const float y1 = telemetry_y(
-			chart->values[index],
-			chart->scale_min,
-			chart->scale_max,
-			plot_min.y,
-			plot_max.y);
-		draw_list->AddQuadFilled(
-			ImVec2(x0, y0),
-			ImVec2(x1, y1),
-			ImVec2(x1, plot_max.y),
-			ImVec2(x0, plot_max.y),
-			fill_color);
-		draw_list->AddLine(ImVec2(x0, y0), ImVec2(x1, y1), line_color, 2.0f);
-	}
+		for (int32_t index = 0; index < chart->count; ++index) {
+			if (std::fabs(chart->values[index]) <= 0.0001f) {
+				continue;
+			}
+			const float x = plot_min.x
+				+ (plot_max.x - plot_min.x) * static_cast<float>(index) / denominator;
+			const float y = telemetry_y(
+				chart->values[index],
+				chart->scale_min,
+				chart->scale_max,
+				plot_min.y,
+				plot_max.y);
+			draw_list->AddLine(ImVec2(x, zero_y), ImVec2(x, y), line_color, 2.0f);
+			draw_list->AddCircleFilled(ImVec2(x, y), 2.4f, line_color);
+		}
+	} else {
+		for (int32_t index = 1; index < chart->count; ++index) {
+			const float x0 = plot_min.x
+				+ (plot_max.x - plot_min.x) * static_cast<float>(index - 1) / denominator;
+			const float x1 = plot_min.x
+				+ (plot_max.x - plot_min.x) * static_cast<float>(index) / denominator;
+			const float y0 = telemetry_y(
+				chart->values[index - 1],
+				chart->scale_min,
+				chart->scale_max,
+				plot_min.y,
+				plot_max.y);
+			const float y1 = telemetry_y(
+				chart->values[index],
+				chart->scale_min,
+				chart->scale_max,
+				plot_min.y,
+				plot_max.y);
+			draw_list->AddQuadFilled(
+				ImVec2(x0, y0),
+				ImVec2(x1, y1),
+				ImVec2(x1, plot_max.y),
+				ImVec2(x0, plot_max.y),
+				fill_color);
+			draw_list->AddLine(ImVec2(x0, y0), ImVec2(x1, y1), line_color, 2.0f);
+		}
 
-	const float last_y = telemetry_y(
-		chart->values[chart->count - 1],
-		chart->scale_min,
-		chart->scale_max,
-		plot_min.y,
-		plot_max.y);
-	draw_list->AddCircleFilled(ImVec2(plot_max.x, last_y), 3.2f, line_color);
+		const float last_y = telemetry_y(
+			chart->values[chart->count - 1],
+			chart->scale_min,
+			chart->scale_max,
+			plot_min.y,
+			plot_max.y);
+		draw_list->AddCircleFilled(ImVec2(plot_max.x, last_y), 3.2f, line_color);
+	}
 
 	const ImU32 overflow_color = IM_COL32(255, 101, 91, 235);
 	for (int32_t index = 0; index < chart->count; ++index) {
