@@ -580,12 +580,12 @@ unsafe extern "thiscall" fn hook_set_shaders(shader: *mut c_void, pass_index: u3
                 );
             } else {
                 diagnostics::record_terrain_fallback(diagnostics::TerrainDrawFamily::CloseTerrain);
-                if super::close_terrain_contract_available()
+                if super::terrain_engine_contract_ready()
                     && !CLOSE_TERRAIN_WARMING_LOGGED.swap(true, Ordering::AcqRel)
                 {
                     log::info!(
-                        "[PBR] CloseTerrain draw remains vanilla while selected variant SLS{} warms",
-                        variant.pixel_sls
+                        "[PBR] CloseTerrain remains vanilla until the complete shader family is ready (selected SLS{})",
+                        variant.pixel_sls,
                     );
                 }
             }

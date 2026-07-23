@@ -43,9 +43,9 @@ use windows::Win32::System::SystemInformation::{
 };
 use windows::Win32::System::SystemServices::MEM_TOP_DOWN;
 use windows::Win32::System::Threading::{
-    CRITICAL_SECTION, CreateThread, EnterCriticalSection,
+    CRITICAL_SECTION, CreateThread, EnterCriticalSection, GetCurrentThread,
     GetCurrentThreadId as WinGetCurrentThreadId, GetExitCodeThread, GetProcessTimes,
-    InitializeCriticalSection, LeaveCriticalSection, OpenThread,
+    GetThreadPriority, InitializeCriticalSection, LeaveCriticalSection, OpenThread,
     ReleaseSemaphore as WinReleaseSemaphore, SetThreadPriority, Sleep as WinSleep,
     THREAD_CREATION_FLAGS, THREAD_PRIORITY, THREAD_PRIORITY_ABOVE_NORMAL,
     THREAD_PRIORITY_BELOW_NORMAL, THREAD_PRIORITY_HIGHEST, THREAD_PRIORITY_IDLE,
@@ -553,7 +553,7 @@ impl Drop for CriticalSectionGuard {
 ///
 /// Actually, not really better than `THREAD_PRIORITY`, but
 /// implements `Debug`, `Display`, `Hash` and easier to use in Rust.
-#[derive(Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
 pub enum ThreadPriority {
     AboveNormal,
     BelowNormal,
@@ -602,6 +602,65 @@ pub fn set_thread_priority(thread_handle: Handle, priority: ThreadPriority) -> W
     unsafe { SetThreadPriority(thread_handle.into(), priority.into())? };
 
     Ok(())
+}
+
+/// Restores a temporary priority change on the current thread.
+///
+/// The Win32 pseudo-handle stored here is valid only on the creating thread,
+/// so the guard must not cross a thread boundary.
+#[must_use]
+pub struct CurrentThreadPriorityGuard {
+    thread: HANDLE,
+    original: i32,
+    active: bool,
+    not_send: std::marker::PhantomData<std::rc::Rc<()>>,
+}
+
+impl CurrentThreadPriorityGuard {
+    /// Restore the priority immediately and report a WinAPI failure.
+    pub fn restore(&mut self) -> WinapiResult<()> {
+        if !self.active {
+            return Ok(());
+        }
+        unsafe { SetThreadPriority(self.thread, THREAD_PRIORITY(self.original))? };
+        self.active = false;
+        Ok(())
+    }
+}
+
+impl Drop for CurrentThreadPriorityGuard {
+    fn drop(&mut self) {
+        if self.active
+            && unsafe { SetThreadPriority(self.thread, THREAD_PRIORITY(self.original)) }.is_ok()
+        {
+            self.active = false;
+        }
+    }
+}
+
+/// Temporarily cap the calling thread's base priority.
+///
+/// A thread already below the requested ceiling is never raised. The returned
+/// guard restores the exact preceding priority. Call
+/// [`CurrentThreadPriorityGuard::restore`] when restoration failure must be
+/// surfaced; `Drop` makes one final best-effort restoration attempt.
+pub fn lower_current_thread_priority_scoped(
+    ceiling: ThreadPriority,
+) -> WinapiResult<CurrentThreadPriorityGuard> {
+    let thread = unsafe { GetCurrentThread() };
+    unsafe { SetLastError(WIN32_ERROR(0)) };
+    let original = unsafe { GetThreadPriority(thread) };
+    if original == i32::MAX {
+        return Err(WinapiError::WindowsCore(windows::core::Error::from_win32()));
+    }
+    let ceiling = THREAD_PRIORITY::from(ceiling).0;
+    unsafe { SetThreadPriority(thread, THREAD_PRIORITY(original.min(ceiling)))? };
+    Ok(CurrentThreadPriorityGuard {
+        thread,
+        original,
+        active: true,
+        not_send: std::marker::PhantomData,
+    })
 }
 
 /// WinAPI: VirtualProtect(...)

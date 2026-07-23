@@ -30,10 +30,11 @@ from the current render pass to OMV-owned shader constants.
 
 ### Point-light alpha continuity
 
-Actionable inside OMV. Native terrain staging carries `ShadowSceneLight::fFade`
-in point-light color alpha. Both native point-light constants consumed by OMV
-and OMV supplemental constants must multiply RGB by saturated alpha in the
-replacement shader.
+Native terrain staging carries `ShadowSceneLight::fFade` in point-light color
+alpha, but VPT and NVR `TerrainTemplate.hlsl` consume only RGB. OMV must do the
+same for both native and supplemental close-terrain lights. Multiplying only
+the replacement by alpha makes the same light change visibility when a
+cell/pass admits or omits its native identity.
 
 This does not claim to fix an external mod's native fallback shader.
 
@@ -101,7 +102,8 @@ Shader tests cover:
 
 - native `c39/c63/c88` ABI;
 - OMV `c91/c92..c139` ABI;
-- saturated alpha in both native and supplemental loops;
+- RGB-only native and supplemental terrain inputs, with no alpha visibility
+  gate;
 - real compilation of every registered PBR shader permutation;
 - complete object row coverage and implemented-pair light ABI;
 - exact native object attenuation samplers/interpolators;

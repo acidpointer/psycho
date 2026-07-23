@@ -44,6 +44,8 @@ static APPLIED_TARGET: AtomicUsize = AtomicUsize::new(0);
 static LAST_DISTANCE_BOUND: AtomicU32 = AtomicU32::new(0);
 static LAST_TRANSMITTANCE: AtomicU32 = AtomicU32::new(0);
 static LAST_ESTIMATE_EPOCH: AtomicU32 = AtomicU32::new(0);
+static LAST_DIAGNOSTIC_ESTIMATE_EPOCH: AtomicU32 = AtomicU32::new(0);
+static DIAGNOSTICS_ACTIVE: AtomicBool = AtomicBool::new(false);
 static PRESENTS: AtomicU32 = AtomicU32::new(0);
 static CONFIG_PUBLISH_BUSY: AtomicU32 = AtomicU32::new(0);
 static CONFIG_READ_BUSY: AtomicU32 = AtomicU32::new(0);
@@ -171,6 +173,7 @@ pub(crate) fn publish_config(config: GraphicsMenuConfig) -> bool {
             && world_config.lighting.local_lights_enabled,
     );
     LAST_ESTIMATE_EPOCH.store(0, Ordering::Release);
+    LAST_DIAGNOSTIC_ESTIMATE_EPOCH.store(0, Ordering::Release);
     CONFIG_GENERATION.store(generation, Ordering::Release);
     CONFIG_PUBLISH_PENDING.store(false, Ordering::Release);
     true
@@ -196,12 +199,18 @@ pub(crate) fn needs_atmosphere() -> bool {
 }
 
 pub(crate) fn fog_estimate() -> Option<(f32, f32)> {
-    (LAST_ESTIMATE_EPOCH.load(Ordering::Acquire) != 0).then(|| {
+    (LAST_DIAGNOSTIC_ESTIMATE_EPOCH.load(Ordering::Acquire) != 0).then(|| {
         (
             f32::from_bits(LAST_DISTANCE_BOUND.load(Ordering::Acquire)),
             f32::from_bits(LAST_TRANSMITTANCE.load(Ordering::Acquire)),
         )
     })
+}
+
+pub(crate) fn set_diagnostics_active(active: bool) {
+    if DIAGNOSTICS_ACTIVE.swap(active, Ordering::AcqRel) != active {
+        LAST_DIAGNOSTIC_ESTIMATE_EPOCH.store(0, Ordering::Release);
+    }
 }
 
 pub(crate) fn atmosphere_visibility() -> Option<f32> {
@@ -848,12 +857,15 @@ impl FnvWorldPipelineRuntime {
         }
         let outcome = result?;
         if outcome.drew() {
-            LAST_DISTANCE_BOUND.store(frame.distance_bound.to_bits(), Ordering::Release);
             LAST_TRANSMITTANCE.store(
                 settings.estimated_horizontal_transmittance(frame).to_bits(),
                 Ordering::Release,
             );
             LAST_ESTIMATE_EPOCH.store(epoch, Ordering::Release);
+            if DIAGNOSTICS_ACTIVE.load(Ordering::Relaxed) {
+                LAST_DISTANCE_BOUND.store(frame.distance_bound.to_bits(), Ordering::Release);
+                LAST_DIAGNOSTIC_ESTIMATE_EPOCH.store(epoch, Ordering::Release);
+            }
         }
         Ok(outcome)
     }

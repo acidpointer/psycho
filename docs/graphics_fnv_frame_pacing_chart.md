@@ -14,8 +14,8 @@ DXVK, or another plugin.
 
 ## User-visible contract
 
-The panel presents the latest 180 completed present intervals in chronological
-order and reports:
+The panel presents up to 180 completed present intervals collected during the
+current open-workbench session in chronological order and reports:
 
 - live FPS from OMV's existing exponential moving average;
 - arithmetic-average FPS and frame time over the visible window;
@@ -52,9 +52,15 @@ to the current test.
 
 `omv/src/runtime.rs` owns capture, fixed history, summary statistics, and panel
 composition. `ScreenShaderRuntime::finish_present_frame` records the interval
-between successive successful finish-present callbacks. The first callback
-only establishes the time origin. Invalid synthetic values are rejected; real
+between successive successful finish-present callbacks only while the ImGui
+context is ready and the workbench is open. The first callback after opening
+only establishes the time origin. Closing the workbench stops capture;
+reopening starts a fresh history. Invalid synthetic values are rejected; real
 finite intervals are retained in full.
+
+Depth of field still needs a production frame delta while its pipeline is
+enabled. That timing has separate `PresentFrameTiming` ownership and does not
+populate the diagnostic ring or its aggregates.
 
 The live FPS EMA bounds its input to `100 ms` so an Alt-Tab, loading pause, or
 suspended process does not leave the live readout stale for many seconds. This
@@ -74,10 +80,12 @@ value for hover inspection.
 
 ## Performance, memory, and failure behavior
 
-Capture writes one `f32` into a 180-entry ring and updates one EMA per completed
-frame. It performs no allocation, I/O, logging, D3D work, or blocking operation.
-OMV's existing top-level runtime acquisition remains `try_lock`-only; if that
-owner is busy, the finish callback still skips rather than waits.
+While the workbench is open, capture writes one `f32` into a 180-entry ring and
+updates one EMA per completed frame. With the workbench closed, the frame-pacing
+collector performs no diagnostic timestamp query, ring write, EMA update, or
+aggregate work. It performs no allocation, I/O, logging, D3D work, or blocking
+operation. OMV's existing top-level runtime acquisition remains `try_lock`-only;
+if that owner is busy, the finish callback still skips rather than waits.
 
 The detailed snapshot is produced only while the workbench is open. It copies
 the ring into a fixed stack array, sorts a second fixed 180-value array for
@@ -89,14 +97,18 @@ segments, fills, and overflow markers through the existing ImGui frame.
 With fewer than two intervals the panel displays its available scalar values
 and a collecting-state message. Empty histories produce finite zero metrics.
 NaN, infinity, and negative samples cannot enter the timeline. Device loss and
-reset retain the CPU history and use the existing ImGui device-object recovery
-path.
+reset stop collection until the ImGui device objects recover; the next rendered
+workbench session starts a fresh CPU history.
 
 ## Automated validation
 
 The focused tests in `omv/src/runtime.rs` prove:
 
 - chronological fixed-capacity ring behavior after wraparound;
+- no frame-pacing samples while the workbench diagnostic gate is closed and a
+  fresh history after it reopens;
+- production depth-of-field frame delta remains independent from the diagnostic
+  ring;
 - average, percentile, 1% low, worst, jitter, and budget-hit calculations;
 - a single 250 ms hitch remains exact while the adaptive graph preserves the
   normal 10 ms signal and reports one off-scale sample;

@@ -23,6 +23,9 @@ const REQUEST_DASHBOARD_REFRESH_EXPORT: &str = "PsychoEngineFixes_RequestDashboa
 // These ids mirror `psycho-engine-fixes/src/events.rs`.
 pub(crate) const EVENT_DEFERRED_INIT: u32 = 1;
 pub(crate) const EVENT_ON_FRAME_PRESENT: u32 = 6;
+pub(crate) const EVENT_PRE_LOAD_GAME: u32 = 7;
+pub(crate) const EVENT_EXIT_TO_MAIN_MENU: u32 = 8;
+pub(crate) const EVENT_NEW_GAME: u32 = 9;
 
 pub(crate) const DASHBOARD_ABI_VERSION: u32 = 2;
 pub(crate) const DASHBOARD_FLAG_CORE_READY: u32 = 1 << 0;

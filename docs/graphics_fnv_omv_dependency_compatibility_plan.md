@@ -107,7 +107,7 @@ Portable-light correction is OMV-owned and downstream:
 - deduplicate by `NiLight*` against the current pass;
 - preserve general-list order and the combined 24-light cap;
 - upload only missing entries through disjoint OMV constants;
-- consume native and supplemental fade alpha in the OMV shader.
+- consume native and supplemental terrain RGB without alpha, matching VPT.
 
 This makes an upstream fix self-disabling: once the current pass already owns
 the identity, OMV supplies no duplicate. An incompatible future pass/shader ABI

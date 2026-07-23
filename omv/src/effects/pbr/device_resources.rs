@@ -28,6 +28,7 @@ static TERRAIN_FADE_CREATE_FAILED: AtomicBool = AtomicBool::new(false);
 static CLOSE_TERRAIN_CREATE_FAILED: AtomicBool = AtomicBool::new(false);
 static LAND_LOD_RESOURCES_READY: AtomicBool = AtomicBool::new(false);
 static TERRAIN_FADE_RESOURCES_READY: AtomicBool = AtomicBool::new(false);
+static CLOSE_TERRAIN_RESOURCES_READY: AtomicBool = AtomicBool::new(false);
 static RESOURCES: LazyLock<Mutex<ResourceState>> = LazyLock::new(|| {
     Mutex::new(ResourceState {
         device: 0,
@@ -82,6 +83,7 @@ pub(super) fn service_frame() {
     let device_key = device_ptr as usize;
     if state.device != device_key {
         clear_published_handles();
+        CLOSE_TERRAIN_RESOURCES_READY.store(false, Ordering::Release);
         state.device = device_key;
         for slot in &mut state.slots {
             slot.clear_shader();
@@ -274,6 +276,10 @@ pub(super) fn close_terrain_create_failed() -> bool {
     CLOSE_TERRAIN_CREATE_FAILED.load(Ordering::Acquire)
 }
 
+pub(super) fn close_terrain_resources_ready() -> bool {
+    CLOSE_TERRAIN_RESOURCES_READY.load(Ordering::Acquire)
+}
+
 pub(super) fn close_terrain_created_count() -> usize {
     family_created_count(close_terrain_range())
 }
@@ -299,6 +305,7 @@ pub(super) fn reset() {
     CLOSE_TERRAIN_CREATE_FAILED.store(false, Ordering::Release);
     LAND_LOD_RESOURCES_READY.store(false, Ordering::Release);
     TERRAIN_FADE_RESOURCES_READY.store(false, Ordering::Release);
+    CLOSE_TERRAIN_RESOURCES_READY.store(false, Ordering::Release);
 }
 
 fn publish_handle(template_id: usize, handle: *mut c_void) {
@@ -350,6 +357,12 @@ fn update_failure_state(state: &ResourceState) {
 
     let close_terrain_first =
         shader_registry::terrain_fade_template_id(shader_registry::ShaderStage::Pixel) as usize + 1;
+    CLOSE_TERRAIN_RESOURCES_READY.store(
+        state.slots[close_terrain_first..]
+            .iter()
+            .all(ResourceSlot::has_shader),
+        Ordering::Release,
+    );
     CLOSE_TERRAIN_CREATE_FAILED.store(
         state.slots[close_terrain_first..]
             .iter()

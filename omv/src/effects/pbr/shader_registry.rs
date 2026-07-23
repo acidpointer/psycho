@@ -1167,6 +1167,9 @@ mod shader_compile_tests {
         include_str!("../../../../analysis/shaders_disasm/shaderpackage019/SLS2100.pso.dis");
     const VANILLA_TERRAIN_7_PIXEL: &str =
         include_str!("../../../../analysis/shaders_disasm/shaderpackage019/SLS2140.pso.dis");
+    const VPT_TERRAIN_PIXEL_SOURCE: &str = include_str!(
+        "../../../../.research/fnv-vanilla-plus-terrain-main/shaders/TerrainTemplate.hlsl"
+    );
 
     fn dot(left: [f32; 3], right: [f32; 3]) -> f32 {
         left[0] * right[0] + left[1] * right[1] + left[2] * right[2]
@@ -1371,6 +1374,63 @@ mod shader_compile_tests {
         assert!(
             maximum_step < 0.011,
             "half-vector cutoff introduced a {maximum_step} camera step"
+        );
+    }
+
+    #[test]
+    fn close_terrain_halfway_vector_is_continuous_across_camera_motion() {
+        assert!(CLOSE_TERRAIN_PIXEL_SOURCE.contains("float3 StableHalfway("));
+        assert_eq!(
+            CLOSE_TERRAIN_PIXEL_SOURCE.matches("StableHalfway(").count(),
+            3
+        );
+        assert!(
+            CLOSE_TERRAIN_PIXEL_SOURCE
+                .contains("return halfway * rsqrt(max(length_squared, 1.0e-8f));")
+        );
+        assert!(
+            !CLOSE_TERRAIN_PIXEL_SOURCE.contains("SafeNormalize(view_dir + light_dir, normal)")
+        );
+        assert!(!CLOSE_TERRAIN_PIXEL_SOURCE.contains("SafeNormalize(view_dir + sun_dir, normal)"));
+
+        fn dielectric_diffuse_response(halfway_cosine: f32) -> f32 {
+            let fresnel = 0.04 + 0.96 * (1.0 - halfway_cosine.clamp(0.0, 1.0)).powi(5);
+            1.0 - fresnel
+        }
+
+        fn camera_view(tangent: f32) -> [f32; 3] {
+            [tangent, 0.0, -(1.0 - tangent * tangent).sqrt()]
+        }
+
+        fn legacy_response(view: [f32; 3]) -> f32 {
+            let light = [0.0, 0.0, 1.0];
+            let halfway = [view[0], view[1], view[2] + light[2]];
+            let halfway = if dot(halfway, halfway) > 1.0e-6 {
+                stable_vector(halfway)
+            } else {
+                light
+            };
+            dielectric_diffuse_response(dot(light, halfway))
+        }
+
+        fn stable_response(view: [f32; 3]) -> f32 {
+            let light = [0.0, 0.0, 1.0];
+            let halfway = stable_vector([view[0], view[1], view[2] + light[2]]);
+            dielectric_diffuse_response(dot(light, halfway))
+        }
+
+        let inside_cutoff = camera_view(0.0009);
+        let outside_cutoff = camera_view(0.0011);
+        let legacy_step = (legacy_response(inside_cutoff) - legacy_response(outside_cutoff)).abs();
+        let stable_step = (stable_response(inside_cutoff) - stable_response(outside_cutoff)).abs();
+
+        assert!(
+            legacy_step > 0.9,
+            "negative control no longer reproduces the terrain brightness blink"
+        );
+        assert!(
+            stable_step < 0.001,
+            "camera motion still changes terrain diffuse response by {stable_step}"
         );
     }
 
@@ -1664,12 +1724,7 @@ mod shader_compile_tests {
                 "native_point_count = min((int)PointLightCount, PBR_TERRAIN_POINT_LIGHTS);"
             )
         );
-        assert_eq!(
-            CLOSE_TERRAIN_PIXEL_SOURCE
-                .matches("light_color.rgb * saturate(light_color.a)")
-                .count(),
-            1
-        );
+        assert!(!CLOSE_TERRAIN_PIXEL_SOURCE.contains("light_color.rgb * saturate(light_color.a)"));
         assert!(CLOSE_TERRAIN_PIXEL_SOURCE.contains(
             "int supplemental_point_count = min((int)OMV_SupplementalPointLightCount, 24 - native_point_count);"
         ));
@@ -1686,6 +1741,24 @@ mod shader_compile_tests {
                 .contains("OMV_SupplementalPointLightData[supplemental_index * 2 + 1]")
         );
         assert!(CLOSE_TERRAIN_PIXEL_SOURCE.contains("light_color = PointLightColor[point_index];"));
+    }
+
+    #[test]
+    fn close_terrain_native_light_membership_does_not_change_visibility() {
+        assert!(
+            VPT_TERRAIN_PIXEL_SOURCE
+                .contains("getPointLightingAtt(pointlightDir, att, PointLightColor[i].rgb,")
+        );
+        assert!(!VPT_TERRAIN_PIXEL_SOURCE.contains("PointLightColor[i].a"));
+
+        assert!(CLOSE_TERRAIN_PIXEL_SOURCE.contains("light_color.rgb,"));
+        assert!(!CLOSE_TERRAIN_PIXEL_SOURCE.contains("light_color.rgb * saturate(light_color.a)"));
+
+        let staged_rgb_luminance = 0.25f32 * 0.299 + 0.5 * 0.587 + 1.0 * 0.114;
+        let legacy_native_luminance = staged_rgb_luminance * 0.0;
+        let supplemental_luminance = staged_rgb_luminance * 1.0;
+        assert_eq!(legacy_native_luminance, 0.0);
+        assert!(supplemental_luminance > 0.0);
     }
 
     #[test]

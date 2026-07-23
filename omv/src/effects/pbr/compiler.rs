@@ -30,6 +30,8 @@ const SHADER_CONTRACT_REVISION: &[u8] = b"native-pbr-object-lighting-contract-v5
 static STARTED: AtomicBool = AtomicBool::new(false);
 static FINISHED: AtomicBool = AtomicBool::new(false);
 static FAILED: AtomicBool = AtomicBool::new(false);
+static CLOSE_TERRAIN_READY: AtomicBool = AtomicBool::new(false);
+static CLOSE_TERRAIN_FAILED: AtomicBool = AtomicBool::new(false);
 static LAST_FAILED_TEMPLATE_ID: AtomicU32 = AtomicU32::new(TEMPLATE_ID_NONE);
 static STATES: LazyLock<Vec<AtomicU32>> = LazyLock::new(|| {
     (0..shader_registry::template_count())
@@ -160,8 +162,11 @@ pub(super) fn terrain_fade_compile_failed() -> bool {
 }
 
 pub(super) fn close_terrain_compile_failed() -> bool {
-    family_states(close_terrain_range())
-        .any(|state| state.load(Ordering::Acquire) == BYTECODE_FAILED)
+    CLOSE_TERRAIN_FAILED.load(Ordering::Acquire)
+}
+
+pub(super) fn close_terrain_compile_ready() -> bool {
+    CLOSE_TERRAIN_READY.load(Ordering::Acquire)
 }
 
 pub(super) fn close_terrain_ready_count() -> usize {
@@ -180,6 +185,8 @@ pub(super) fn reset() {
     STARTED.store(false, Ordering::Release);
     FINISHED.store(false, Ordering::Release);
     FAILED.store(false, Ordering::Release);
+    CLOSE_TERRAIN_READY.store(false, Ordering::Release);
+    CLOSE_TERRAIN_FAILED.store(false, Ordering::Release);
     LAST_FAILED_TEMPLATE_ID.store(TEMPLATE_ID_NONE, Ordering::Release);
     for state in STATES.iter() {
         state.store(BYTECODE_MISSING, Ordering::Release);
@@ -269,6 +276,12 @@ fn compile_job(worker_index: usize, job: CompileJob) {
                 bytecode,
             });
             STATES[job.template_id as usize].store(BYTECODE_READY, Ordering::Release);
+            if shader_registry::template_is_close_terrain(job.template_id)
+                && family_states(close_terrain_range())
+                    .all(|state| state.load(Ordering::Acquire) == BYTECODE_READY)
+            {
+                CLOSE_TERRAIN_READY.store(true, Ordering::Release);
+            }
             if let Some(template) = shader_registry::template_at(job.template_id) {
                 log::info!(
                     "[PBR] PBR compile worker={} shader={} stage={:?} source={} ms={}",
@@ -289,6 +302,9 @@ fn compile_job(worker_index: usize, job: CompileJob) {
         Err(err) => {
             STATES[job.template_id as usize].store(BYTECODE_FAILED, Ordering::Release);
             FAILED.store(true, Ordering::Release);
+            if shader_registry::template_is_close_terrain(job.template_id) {
+                CLOSE_TERRAIN_FAILED.store(true, Ordering::Release);
+            }
             LAST_FAILED_TEMPLATE_ID.store(u32::from(job.template_id), Ordering::Release);
             let label = shader_registry::template_at(job.template_id)
                 .map(|template| template.label)

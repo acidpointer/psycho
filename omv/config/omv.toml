@@ -330,7 +330,7 @@ terrain_albedo_saturation = 0.7071348
 terrain_lod_noise_scale = 1.0
 terrain_lod_noise_tile = 3.19576
 
-# Enable detailed per-draw contract telemetry. Keep this off during normal play.
+# Enable detailed per-draw contract telemetry while the ImGui workbench is open.
 debug_log_draws = false
 
 [graphics.native_sky]

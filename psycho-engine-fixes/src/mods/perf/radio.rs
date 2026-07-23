@@ -1,15 +1,16 @@
-//! Cooperative radio path queries and hot-path attribution.
+//! Worker-backed radio path queries and hot-path attribution.
 //!
 //! The periodic scan consumes a complete prior distance generation while one
-//! opaque mode-0 provider query is recomputed per presented frame. Provider
-//! calls remain on the engine thread and use freshly reconstructed locations.
+//! opaque mode-0 provider generation is recomputed on the engine's native
+//! tasklet workers. Endpoint locations are prepared and released on the game
+//! thread, and unknown providers retain the cooperative main-thread fallback.
 //! The exact disposition-3 door-policy bypass remains an optional fast path.
 
 use std::{
-    cell::{Cell, RefCell},
+    cell::{Cell, RefCell, UnsafeCell},
     sync::{
         LazyLock,
-        atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering},
     },
 };
 
@@ -23,7 +24,7 @@ use libpsycho::{
         hook::{inline::inlinehook::InlineHookContainer, transaction::ModificationTransaction},
         memory::read_bytes,
         patch::module_address,
-        winapi::replace_call,
+        winapi::{ThreadPriority, lower_current_thread_priority_scoped, replace_call},
     },
 };
 
@@ -38,6 +39,20 @@ const PATHING_LOCATION_DESTROY_ADDR: usize = 0x004FF7E0;
 const LOOKUP_FORM_BY_ID_ADDR: usize = 0x004839C0;
 const PATH_FAILURE_DISTANCE_ADDR: usize = 0x01016970;
 const LOADING_FLAG_ADDR: usize = 0x011DEA2B;
+const TASKLET_MANAGER_ADDR: usize = 0x00B00A00;
+const TASKLET_GROUP_CREATE_ADDR: usize = 0x00B00A80;
+const TASKLET_GROUP_ACTIVATE_ADDR: usize = 0x00B00AE0;
+const TASKLET_SUBMIT_ADDR: usize = 0x00B00B40;
+const TASKLET_GROUP_CLOSE_ADDR: usize = 0x00B00BC0;
+const TASKLET_GROUP_WAIT_ADDR: usize = 0x00B02920;
+const TASKLET_PRIORITY_ENQUEUE_ADDR: usize = 0x00B02159;
+const TASKLET_PRIORITY_DISPATCH_ADDR: usize = 0x00B024C7;
+const TASKLET_GROUP_LAYOUT_ADDR: usize = 0x00B02833;
+const TASKLET_GROUP_PRIORITY_OFFSET: usize = 0x30;
+const TASKLET_GROUP_SUBMITTED_OFFSET: usize = 0x34;
+const TASKLET_GROUP_COMPLETED_OFFSET: usize = 0x38;
+const TASKLET_LOWEST_QUEUE_PRIORITY: u32 = 0x3F;
+const BSTASKLET_VTABLE: usize = 0x0106C5D8;
 const PATH_QUERY_ADDR: usize = 0x006D4D20;
 const PATH_TRAVERSAL_ADDR: usize = 0x006F3FB0;
 const STATION_MODE_ADDR: usize = 0x0056B210;
@@ -70,12 +85,37 @@ const DEFAULT_SCAN_CADENCE_MS: u32 = 250;
 const MIN_SCAN_CADENCE_MS: u32 = 16;
 const MAX_SCAN_CADENCE_MS: u32 = 500;
 const MAX_COOPERATIVE_QUERIES: usize = 512;
+const TASKLET_QUERIES_PER_SUBMISSION: usize = 1;
 
 const MODE0_CALL_PREFIX_SIGNATURE: &[u8] = &[0x8B, 0x85, 0x3C, 0xFE, 0xFF, 0xFF, 0x50, 0xE8];
 const MODE0_CALL_SUFFIX_SIGNATURE: &[u8] = &[0x83, 0xC4, 0x14, 0xD9, 0x5D, 0xEC];
 const LOOKUP_FORM_BY_ID_SIGNATURE: &[u8] = &[
     0x55, 0x8B, 0xEC, 0x51, 0xC7, 0x45, 0xFC, 0x00, 0x00, 0x00, 0x00, 0x83, 0x3D, 0xC0, 0x54, 0x1C,
     0x01, 0x00,
+];
+const TASKLET_MANAGER_SIGNATURE: &[u8] =
+    &[0x55, 0x8B, 0xEC, 0x6A, 0xFF, 0x68, 0x9E, 0x38, 0xF2, 0x00];
+const TASKLET_GROUP_CREATE_SIGNATURE: &[u8] =
+    &[0x55, 0x8B, 0xEC, 0x83, 0xEC, 0x14, 0x89, 0x4D, 0xEC];
+const TASKLET_GROUP_ACTIVATE_SIGNATURE: &[u8] =
+    &[0x55, 0x8B, 0xEC, 0x83, 0xEC, 0x14, 0x89, 0x4D, 0xF0];
+const TASKLET_SUBMIT_SIGNATURE: &[u8] = &[0x55, 0x8B, 0xEC, 0x83, 0xEC, 0x1C, 0x89, 0x4D, 0xE8];
+const TASKLET_GROUP_CLOSE_SIGNATURE: &[u8] =
+    &[0x55, 0x8B, 0xEC, 0x83, 0xEC, 0x14, 0x89, 0x4D, 0xF0];
+const TASKLET_GROUP_WAIT_SIGNATURE: &[u8] = &[0x55, 0x8B, 0xEC, 0x83, 0xEC, 0x08, 0x89, 0x4D, 0xF8];
+const TASKLET_PRIORITY_ENQUEUE_SIGNATURE: &[u8] = &[
+    0x8B, 0x45, 0x08, 0x8B, 0x48, 0x08, 0x89, 0x4D, 0xF0, 0x8B, 0x55, 0xF0, 0x8B, 0x42, 0x30, 0x89,
+    0x45, 0xFC, 0x83, 0x7D, 0xFC, 0x40, 0x72, 0x07, 0xC7, 0x45, 0xFC, 0x3F, 0x00, 0x00, 0x00, 0x8B,
+    0x4D, 0xFC, 0x8B, 0x55, 0xE8, 0x83, 0x7C, 0x8A, 0x6C, 0x00,
+];
+const TASKLET_PRIORITY_DISPATCH_SIGNATURE: &[u8] = &[
+    0xC7, 0x45, 0xF4, 0x00, 0x00, 0x00, 0x00, 0x8B, 0x45, 0xDC, 0x83, 0xC0, 0x6C, 0x89, 0x45, 0xF0,
+    0xEB, 0x12, 0x8B, 0x4D, 0xF4, 0x83, 0xC1, 0x01, 0x89, 0x4D, 0xF4, 0x8B, 0x55, 0xF0, 0x83, 0xC2,
+    0x04, 0x89, 0x55, 0xF0, 0x83, 0x7D, 0xF4, 0x40, 0x73, 0x26, 0x8B, 0x45, 0xF0, 0x8B, 0x08,
+];
+const TASKLET_GROUP_LAYOUT_SIGNATURE: &[u8] = &[
+    0x8B, 0x45, 0xF4, 0xC6, 0x40, 0x2E, 0x00, 0x8B, 0x4D, 0xF4, 0xC7, 0x41, 0x30, 0x00, 0x00, 0x00,
+    0x00, 0x8B, 0x55, 0xF4, 0xC7, 0x42, 0x34, 0x00, 0x00, 0x00, 0x00, 0x8B, 0x45, 0xF4, 0xC7, 0x40,
 ];
 
 const VANILLA_PROVIDER_SIGNATURE: &[u8] = &[
@@ -152,6 +192,13 @@ type PathingLocationInitFn =
     unsafe extern "thiscall" fn(*mut PathingLocation, *mut c_void) -> *mut PathingLocation;
 type PathingLocationDestroyFn = unsafe extern "thiscall" fn(*mut PathingLocation);
 type LookupFormByIdFn = unsafe extern "C" fn(u32) -> *mut c_void;
+type TaskletManagerFn = unsafe extern "C" fn() -> *mut c_void;
+type TaskletGroupCreateFn = unsafe extern "thiscall" fn(*mut c_void, *mut *mut c_void) -> u8;
+type TaskletGroupActivateFn = unsafe extern "thiscall" fn(*mut c_void, *mut *mut c_void) -> u8;
+type TaskletSubmitFn =
+    unsafe extern "thiscall" fn(*mut c_void, *mut *mut c_void, *mut TaskletHandle, u8) -> u8;
+type TaskletGroupCloseFn = unsafe extern "thiscall" fn(*mut c_void, *mut *mut c_void) -> u8;
+type TaskletGroupWaitFn = unsafe extern "thiscall" fn(*mut c_void, u32);
 type PathQueryFn = unsafe extern "C" fn(usize, usize, *mut c_void, u32, u32, u32, u32) -> u8;
 type PathTraversalFn = unsafe extern "fastcall" fn(*mut c_void) -> usize;
 type StationModeFn = unsafe extern "fastcall" fn(*mut c_void) -> u32;
@@ -179,13 +226,24 @@ static DEFERRED_INIT_MS: AtomicU32 = AtomicU32::new(0);
 static COOPERATIVE_FALLBACK_REPORTED: AtomicBool = AtomicBool::new(false);
 static COOPERATIVE_COLLECTION_REPORTED: AtomicBool = AtomicBool::new(false);
 static COOPERATIVE_PUBLICATION_REPORTED: AtomicBool = AtomicBool::new(false);
+static TASKLET_BACKEND_AVAILABLE: AtomicBool = AtomicBool::new(false);
+static TASKLET_BACKEND_FAILURE_REPORTED: AtomicBool = AtomicBool::new(false);
+static TASKLET_PRIORITY_FAILED: AtomicBool = AtomicBool::new(false);
+static RADIO_DEFERRED_READY: AtomicBool = AtomicBool::new(false);
+static TASKLET_BATCH_ABORTED: AtomicBool = AtomicBool::new(false);
+static TASKLET_WORKER_THREAD_ID: AtomicU32 = AtomicU32::new(0);
+static TASKLET_PROVIDER: AtomicUsize = AtomicUsize::new(0);
 static COOPERATIVE_TIMED_JOBS: AtomicU32 = AtomicU32::new(0);
 static COOPERATIVE_TIMED_TOTAL_US: AtomicU64 = AtomicU64::new(0);
 static COOPERATIVE_TIMED_MAX_US: AtomicU64 = AtomicU64::new(0);
+static TASKLET_PREP_TOTAL_US: AtomicU64 = AtomicU64::new(0);
+static TASKLET_PREP_MAX_US: AtomicU64 = AtomicU64::new(0);
 static COOPERATIVE_COLLECTION_MS: AtomicU32 = AtomicU32::new(0);
 static LAST_RADIO_SCAN_MS: AtomicU32 = AtomicU32::new(0);
 static QUERY_PIPELINE: LazyLock<Mutex<QueryPipeline>> =
     LazyLock::new(|| Mutex::new(QueryPipeline::new()));
+static TASKLET_BACKEND: LazyLock<Mutex<TaskletBackend>> =
+    LazyLock::new(|| Mutex::new(TaskletBackend::new()));
 
 #[repr(C, align(4))]
 struct PathingLocation {
@@ -195,6 +253,141 @@ struct PathingLocation {
 impl PathingLocation {
     const fn uninit_storage() -> Self {
         Self { bytes: [0; 0x28] }
+    }
+}
+
+#[repr(C)]
+struct TaskletVtable {
+    finish: unsafe extern "thiscall" fn(*mut EngineTasklet),
+    ready: unsafe extern "thiscall" fn(*mut EngineTasklet) -> u8,
+    execute: unsafe extern "thiscall" fn(*mut EngineTasklet),
+    reserved: unsafe extern "thiscall" fn(*mut EngineTasklet),
+}
+
+#[repr(C)]
+struct EngineTasklet {
+    // BSWin32TaskletManager reads these fields directly while the group owns
+    // the task; keep the verified 0x18-byte FalloutNV.exe layout exact.
+    vtable: *const TaskletVtable,
+    requeue: u8,
+    _pad_05: [u8; 3],
+    group: *mut c_void,
+    check_ready: u8,
+    _pad_0d: [u8; 3],
+    claimed: u32,
+    next: *mut EngineTasklet,
+}
+
+#[repr(C)]
+struct TaskletHandle {
+    vtable: usize,
+    task: *mut EngineTasklet,
+}
+
+#[repr(C)]
+struct PreparedQuery {
+    work: QueryWork,
+    station: PathingLocation,
+    current: PathingLocation,
+    distance: f32,
+    initialized: bool,
+}
+
+impl PreparedQuery {
+    const fn empty() -> Self {
+        Self {
+            work: QueryWork {
+                generation: 0,
+                index: 0,
+                request: QueryRequest {
+                    key: QueryKey {
+                        station_form_id: 0,
+                        current_ref_form_id: 0,
+                        radius_bits: 0,
+                    },
+                    radius: 0.0,
+                },
+            },
+            station: PathingLocation::uninit_storage(),
+            current: PathingLocation::uninit_storage(),
+            distance: 0.0,
+            initialized: false,
+        }
+    }
+}
+
+#[repr(C)]
+struct PreparedBatch {
+    count: usize,
+    queries: [PreparedQuery; TASKLET_QUERIES_PER_SUBMISSION],
+}
+
+impl PreparedBatch {
+    const fn new() -> Self {
+        Self {
+            count: 0,
+            queries: [const { PreparedQuery::empty() }; TASKLET_QUERIES_PER_SUBMISSION],
+        }
+    }
+}
+
+#[repr(C)]
+struct RadioTasklet {
+    engine: EngineTasklet,
+    batch: PreparedBatch,
+}
+
+impl RadioTasklet {
+    const fn new() -> Self {
+        Self {
+            engine: EngineTasklet {
+                vtable: &RADIO_TASKLET_VTABLE,
+                requeue: 0,
+                _pad_05: [0; 3],
+                group: core::ptr::null_mut(),
+                check_ready: 1,
+                _pad_0d: [0; 3],
+                claimed: 0,
+                next: core::ptr::null_mut(),
+            },
+            batch: PreparedBatch::new(),
+        }
+    }
+}
+
+struct SharedRadioTasklet(UnsafeCell<RadioTasklet>);
+
+// The game thread alone prepares and destroys the batch outside an active
+// group. The tasklet worker owns it until the native group's completed count
+// reaches its submitted count and the nonblocking group wait transfers
+// ownership back.
+unsafe impl Send for SharedRadioTasklet {}
+unsafe impl Sync for SharedRadioTasklet {}
+
+static RADIO_TASKLET_VTABLE: TaskletVtable = TaskletVtable {
+    finish: radio_tasklet_finish,
+    ready: radio_tasklet_ready,
+    execute: radio_tasklet_execute,
+    reserved: radio_tasklet_finish,
+};
+static RADIO_TASKLET: LazyLock<Box<SharedRadioTasklet>> =
+    LazyLock::new(|| Box::new(SharedRadioTasklet(UnsafeCell::new(RadioTasklet::new()))));
+
+struct TaskletBackend {
+    group: usize,
+    group_active: bool,
+    group_closed: bool,
+    in_flight: bool,
+}
+
+impl TaskletBackend {
+    const fn new() -> Self {
+        Self {
+            group: 0,
+            group_active: false,
+            group_closed: false,
+            in_flight: false,
+        }
     }
 }
 
@@ -702,7 +895,7 @@ pub fn install_radio_scan_fix() -> anyhow::Result<()> {
     }
 
     log::info!(
-        "[RADIO] Cooperative main-thread radio queries active: scan=0x{:08X} query=0x{:08X} capacity={}",
+        "[RADIO] Radio query generation bridge active: scan=0x{:08X} query=0x{:08X} capacity={}",
         PERIODIC_RADIO_SCAN_CALL_ADDR,
         MODE0_RADIO_DISTANCE_CALL_ADDR,
         MAX_COOPERATIVE_QUERIES,
@@ -754,6 +947,16 @@ pub(crate) fn observe_event(kind: u32) {
         observe_frame_present();
         return;
     }
+    if is_world_lifetime_event(kind) {
+        if !world_lifetime_barrier_ready(kind, RADIO_DEFERRED_READY.load(Ordering::Acquire)) {
+            return;
+        }
+        if TASKLET_BACKEND_AVAILABLE.load(Ordering::Acquire) {
+            quiesce_tasklet_queries();
+        }
+        QUERY_PIPELINE.lock().reset();
+        return;
+    }
     if kind != crate::events::DEFERRED_INIT || POLICY_INSTALL_ATTEMPTED.swap(true, Ordering::AcqRel)
     {
         return;
@@ -763,11 +966,28 @@ pub(crate) fn observe_event(kind: u32) {
         Ordering::Release,
     );
 
+    if let Err(error) = enable_tasklet_backend() {
+        log::warn!(
+            "[RADIO] Native tasklet radio queries unavailable; cooperative main-thread fallback retained: {error:#}"
+        );
+    }
     if let Err(error) = install_door_policy_bypass_hooks() {
         log::warn!(
             "[RADIO] Dead door-policy bypass unavailable; original provider retained: {error:#}"
         );
     }
+    RADIO_DEFERRED_READY.store(true, Ordering::Release);
+}
+
+fn is_world_lifetime_event(kind: u32) -> bool {
+    matches!(
+        kind,
+        crate::events::PRE_LOAD_GAME | crate::events::EXIT_TO_MAIN_MENU | crate::events::NEW_GAME
+    )
+}
+
+fn world_lifetime_barrier_ready(kind: u32, deferred_ready: bool) -> bool {
+    deferred_ready && is_world_lifetime_event(kind)
 }
 
 fn install_door_policy_bypass_hooks() -> anyhow::Result<()> {
@@ -930,6 +1150,441 @@ fn verify_stewie_policy_provider(provider: usize) -> anyhow::Result<usize> {
     Ok(setup_target)
 }
 
+fn enable_tasklet_backend() -> anyhow::Result<()> {
+    let provider = unsafe { read_u32(TELEPORT_DOOR_PROVIDER_SLOT as *const u8, 0) } as usize;
+    let provider_label =
+        module_address(provider).unwrap_or_else(|| format!("unknown!0x{provider:08X}"));
+    resolve_policy_setup_target(provider, &provider_label)
+        .context("verify worker-safe teleport-door provider")?;
+    verify_signature(
+        DOOR_ACCESSIBILITY_ADDR,
+        DOOR_ACCESSIBILITY_SIGNATURE,
+        "worker-safe teleport-door accessibility predicate",
+    )?;
+
+    verify_signature(
+        TASKLET_MANAGER_ADDR,
+        TASKLET_MANAGER_SIGNATURE,
+        "tasklet manager singleton",
+    )?;
+    verify_signature(
+        TASKLET_GROUP_CREATE_ADDR,
+        TASKLET_GROUP_CREATE_SIGNATURE,
+        "tasklet group creation wrapper",
+    )?;
+    verify_signature(
+        TASKLET_GROUP_ACTIVATE_ADDR,
+        TASKLET_GROUP_ACTIVATE_SIGNATURE,
+        "tasklet group activation wrapper",
+    )?;
+    verify_signature(
+        TASKLET_SUBMIT_ADDR,
+        TASKLET_SUBMIT_SIGNATURE,
+        "tasklet submission wrapper",
+    )?;
+    verify_signature(
+        TASKLET_GROUP_CLOSE_ADDR,
+        TASKLET_GROUP_CLOSE_SIGNATURE,
+        "tasklet group close wrapper",
+    )?;
+    verify_signature(
+        TASKLET_GROUP_WAIT_ADDR,
+        TASKLET_GROUP_WAIT_SIGNATURE,
+        "tasklet group completion wait",
+    )?;
+    verify_signature(
+        TASKLET_PRIORITY_ENQUEUE_ADDR,
+        TASKLET_PRIORITY_ENQUEUE_SIGNATURE,
+        "tasklet priority enqueue buckets",
+    )?;
+    verify_signature(
+        TASKLET_PRIORITY_DISPATCH_ADDR,
+        TASKLET_PRIORITY_DISPATCH_SIGNATURE,
+        "tasklet ascending-priority dispatcher",
+    )?;
+    verify_signature(
+        TASKLET_GROUP_LAYOUT_ADDR,
+        TASKLET_GROUP_LAYOUT_SIGNATURE,
+        "tasklet group priority layout",
+    )?;
+
+    // Keep tasklet state out of the eagerly mapped DLL image and do not
+    // allocate it while xNVSE and other plugins are still loading.
+    LazyLock::force(&RADIO_TASKLET);
+    TASKLET_PROVIDER.store(provider, Ordering::Release);
+    TASKLET_BACKEND_AVAILABLE.store(true, Ordering::Release);
+    log::info!(
+        "[RADIO] Native tasklet query backend active: provider={} manager=0x{:08X} queue_priority={} worker_priority=below-normal endpoint_ownership=game-thread",
+        provider_label,
+        TASKLET_MANAGER_ADDR,
+        TASKLET_LOWEST_QUEUE_PRIORITY,
+    );
+    Ok(())
+}
+
+unsafe fn tasklet_manager() -> *mut c_void {
+    let get_manager =
+        unsafe { FnPtr::<TaskletManagerFn>::from_address_unchecked(TASKLET_MANAGER_ADDR) }.as_fn();
+    unsafe { get_manager() }
+}
+
+unsafe fn ensure_tasklet_group(backend: &mut TaskletBackend) -> anyhow::Result<()> {
+    if backend.group != 0 {
+        return Ok(());
+    }
+
+    let manager = unsafe { tasklet_manager() };
+    ensure!(!manager.is_null(), "tasklet manager is null");
+    let create =
+        unsafe { FnPtr::<TaskletGroupCreateFn>::from_address_unchecked(TASKLET_GROUP_CREATE_ADDR) }
+            .as_fn();
+    let mut group = core::ptr::null_mut();
+    ensure!(
+        unsafe { create(manager, &mut group) } != 0 && !group.is_null(),
+        "tasklet group creation failed"
+    );
+    backend.group = group as usize;
+    Ok(())
+}
+
+unsafe fn set_tasklet_group_priority(group: *mut u8, priority: u32) {
+    debug_assert!(!group.is_null());
+    debug_assert!(priority <= TASKLET_LOWEST_QUEUE_PRIORITY);
+    unsafe {
+        core::ptr::write_volatile(
+            group.add(TASKLET_GROUP_PRIORITY_OFFSET).cast::<u32>(),
+            priority,
+        );
+    }
+}
+
+unsafe fn activate_tasklet_group(backend: &mut TaskletBackend) -> anyhow::Result<()> {
+    unsafe { ensure_tasklet_group(backend) }?;
+    if backend.group_active {
+        return Ok(());
+    }
+
+    let manager = unsafe { tasklet_manager() };
+    let activate = unsafe {
+        FnPtr::<TaskletGroupActivateFn>::from_address_unchecked(TASKLET_GROUP_ACTIVATE_ADDR)
+    }
+    .as_fn();
+    let mut group = backend.group as *mut c_void;
+    ensure!(
+        unsafe { activate(manager, &mut group) } != 0,
+        "tasklet group activation failed"
+    );
+    ensure!(
+        group as usize == backend.group,
+        "tasklet group identity changed during activation"
+    );
+    // The manager scans queue 0 first. Radio work must yield every queue slot
+    // to frame-critical engine tasklets even though group construction uses 0.
+    unsafe {
+        set_tasklet_group_priority(group.cast(), TASKLET_LOWEST_QUEUE_PRIORITY);
+    }
+    backend.group_active = true;
+    backend.group_closed = false;
+    Ok(())
+}
+
+unsafe fn close_tasklet_group(backend: &mut TaskletBackend) -> bool {
+    if !backend.group_active || backend.group_closed {
+        return true;
+    }
+
+    let manager = unsafe { tasklet_manager() };
+    let close =
+        unsafe { FnPtr::<TaskletGroupCloseFn>::from_address_unchecked(TASKLET_GROUP_CLOSE_ADDR) }
+            .as_fn();
+    let mut group = backend.group as *mut c_void;
+    let closed = unsafe { close(manager, &mut group) } != 0;
+    if closed {
+        backend.group_closed = true;
+    }
+    closed
+}
+
+unsafe fn wait_tasklet_group(backend: &mut TaskletBackend) {
+    if !backend.group_active {
+        return;
+    }
+
+    let group = backend.group as *mut c_void;
+    let wait =
+        unsafe { FnPtr::<TaskletGroupWaitFn>::from_address_unchecked(TASKLET_GROUP_WAIT_ADDR) }
+            .as_fn();
+    unsafe { wait(group, 0) };
+    backend.group_active = false;
+    backend.group_closed = false;
+    backend.in_flight = false;
+}
+
+unsafe fn prepare_tasklet_work(work: QueryWork) -> bool {
+    let lookup =
+        unsafe { FnPtr::<LookupFormByIdFn>::from_address_unchecked(LOOKUP_FORM_BY_ID_ADDR) }
+            .as_fn();
+    let init = unsafe {
+        FnPtr::<PathingLocationInitFn>::from_address_unchecked(PATHING_LOCATION_INIT_ADDR)
+    }
+    .as_fn();
+    let tasklet = unsafe { &mut *RADIO_TASKLET.0.get() };
+    debug_assert_eq!(tasklet.batch.count, 0);
+    let station_ref = unsafe { lookup(work.request.key.station_form_id) };
+    let current_ref = unsafe { lookup(work.request.key.current_ref_form_id) };
+    if station_ref.is_null() || current_ref.is_null() {
+        return false;
+    }
+
+    let prepared = &mut tasklet.batch.queries[0];
+    prepared.work = work;
+    unsafe {
+        init(&mut prepared.station, station_ref);
+        init(&mut prepared.current, current_ref);
+    }
+    prepared.initialized = true;
+    tasklet.batch.count = 1;
+    true
+}
+
+unsafe fn cleanup_prepared_batch() {
+    let tasklet = unsafe { &mut *RADIO_TASKLET.0.get() };
+    if tasklet.batch.count == 0 {
+        return;
+    }
+
+    let destroy = unsafe {
+        FnPtr::<PathingLocationDestroyFn>::from_address_unchecked(PATHING_LOCATION_DESTROY_ADDR)
+    }
+    .as_fn();
+    for prepared in &mut tasklet.batch.queries[..tasklet.batch.count] {
+        if prepared.initialized {
+            unsafe {
+                destroy(&mut prepared.station);
+                destroy(&mut prepared.current);
+            }
+            prepared.initialized = false;
+        }
+    }
+    tasklet.batch.count = 0;
+}
+
+unsafe fn submit_tasklet_batch(backend: &mut TaskletBackend) -> anyhow::Result<()> {
+    let manager = unsafe { tasklet_manager() };
+    let submit =
+        unsafe { FnPtr::<TaskletSubmitFn>::from_address_unchecked(TASKLET_SUBMIT_ADDR) }.as_fn();
+    let tasklet = unsafe { &mut *RADIO_TASKLET.0.get() };
+    let mut group = backend.group as *mut c_void;
+    let mut handle = TaskletHandle {
+        vtable: BSTASKLET_VTABLE,
+        task: &mut tasklet.engine,
+    };
+    TASKLET_BATCH_ABORTED.store(false, Ordering::Release);
+    ensure!(
+        unsafe { submit(manager, &mut group, &mut handle, 0) } != 0,
+        "tasklet submission failed"
+    );
+    backend.in_flight = true;
+    Ok(())
+}
+
+fn finish_completed_tasklet(backend: &mut TaskletBackend, now_ms: u32) -> bool {
+    if !backend.in_flight {
+        return false;
+    }
+    if !unsafe { close_tasklet_group(backend) } {
+        return false;
+    }
+    if !unsafe { tasklet_group_completion_observed(backend.group as *const u8) } {
+        return false;
+    }
+    unsafe {
+        wait_tasklet_group(backend);
+    }
+    let published = unsafe { publish_prepared_batch() };
+    unsafe {
+        cleanup_prepared_batch();
+    }
+    if published {
+        report_tasklet_publication(now_ms);
+    }
+    true
+}
+
+unsafe fn tasklet_group_completion_observed(group: *const u8) -> bool {
+    if group.is_null() {
+        return false;
+    }
+    let submitted = unsafe {
+        core::ptr::read_volatile(group.add(TASKLET_GROUP_SUBMITTED_OFFSET).cast::<u32>())
+    };
+    let completed = unsafe {
+        core::ptr::read_volatile(group.add(TASKLET_GROUP_COMPLETED_OFFSET).cast::<u32>())
+    };
+    tasklet_group_counts_complete(submitted, completed)
+}
+
+fn tasklet_group_counts_complete(submitted: u32, completed: u32) -> bool {
+    submitted != 0 && submitted == completed
+}
+
+fn schedule_tasklet_generation(now_ms: u32) -> anyhow::Result<()> {
+    ensure!(
+        !TASKLET_PRIORITY_FAILED.load(Ordering::Acquire),
+        "radio tasklet worker priority isolation failed"
+    );
+    let provider = unsafe { read_u32(TELEPORT_DOOR_PROVIDER_SLOT as *const u8, 0) } as usize;
+    ensure!(
+        provider == TASKLET_PROVIDER.load(Ordering::Acquire),
+        "teleport-door provider changed after tasklet capability verification"
+    );
+    let mut backend = TASKLET_BACKEND.lock();
+    if backend.in_flight {
+        finish_completed_tasklet(&mut backend, now_ms);
+        if backend.in_flight {
+            return Ok(());
+        }
+    }
+    let Some(work) = QUERY_PIPELINE.lock().take_next(now_ms) else {
+        return Ok(());
+    };
+
+    unsafe { activate_tasklet_group(&mut backend) }?;
+    let prep_timer = (!COOPERATIVE_PUBLICATION_REPORTED.load(Ordering::Acquire))
+        .then(diagnostics::Stopwatch::start);
+    if !unsafe { prepare_tasklet_work(work) } {
+        QUERY_PIPELINE.lock().abort_build();
+        ensure!(
+            unsafe { close_tasklet_group(&mut backend) },
+            "empty tasklet group could not be closed"
+        );
+        unsafe { wait_tasklet_group(&mut backend) };
+        return Ok(());
+    }
+    if let Some(elapsed_us) = prep_timer.and_then(diagnostics::Stopwatch::elapsed_us) {
+        TASKLET_PREP_TOTAL_US.fetch_add(elapsed_us, Ordering::Relaxed);
+        diagnostics::update_max_u64(&TASKLET_PREP_MAX_US, elapsed_us);
+    }
+    if let Err(error) = unsafe { submit_tasklet_batch(&mut backend) } {
+        let _ = unsafe { close_tasklet_group(&mut backend) };
+        unsafe {
+            wait_tasklet_group(&mut backend);
+            cleanup_prepared_batch();
+        }
+        QUERY_PIPELINE.lock().abort_build();
+        return Err(error);
+    }
+    if !unsafe { close_tasklet_group(&mut backend) } {
+        log::error!("[RADIO] Submitted tasklet group could not be closed; completion retry armed");
+    }
+    Ok(())
+}
+
+fn quiesce_tasklet_queries() {
+    let mut backend = TASKLET_BACKEND.lock();
+    if backend.group_active {
+        // World teardown cannot outlive query endpoints. Closing prevents new
+        // group work and the native wait joins any callback already running.
+        if !unsafe { close_tasklet_group(&mut backend) } {
+            log::error!("[RADIO] Tasklet group close failed at world-lifetime barrier");
+            return;
+        }
+        unsafe { wait_tasklet_group(&mut backend) };
+    }
+    unsafe { cleanup_prepared_batch() };
+    QUERY_PIPELINE.lock().abort_build();
+}
+
+fn report_tasklet_publication(now_ms: u32) {
+    if COOPERATIVE_PUBLICATION_REPORTED.swap(true, Ordering::AcqRel) {
+        return;
+    }
+    let published_count = QUERY_PIPELINE.lock().published_count;
+    log::info!(
+        "[RADIO] Native paced tasklet generation verified: results={} jobs={} worker_total/max={}/{}us game_thread_prep_total/max={}/{}us latency_ms={:?} worker_thread=0x{:08X}",
+        published_count,
+        COOPERATIVE_TIMED_JOBS.load(Ordering::Relaxed),
+        COOPERATIVE_TIMED_TOTAL_US.load(Ordering::Relaxed),
+        COOPERATIVE_TIMED_MAX_US.load(Ordering::Relaxed),
+        TASKLET_PREP_TOTAL_US.load(Ordering::Relaxed),
+        TASKLET_PREP_MAX_US.load(Ordering::Relaxed),
+        (COOPERATIVE_COLLECTION_MS.load(Ordering::Acquire) != 0)
+            .then(|| now_ms.wrapping_sub(COOPERATIVE_COLLECTION_MS.load(Ordering::Relaxed))),
+        TASKLET_WORKER_THREAD_ID.load(Ordering::Acquire),
+    );
+}
+
+unsafe extern "thiscall" fn radio_tasklet_finish(_tasklet: *mut EngineTasklet) {}
+
+unsafe extern "thiscall" fn radio_tasklet_ready(_tasklet: *mut EngineTasklet) -> u8 {
+    1
+}
+
+unsafe extern "thiscall" fn radio_tasklet_execute(tasklet: *mut EngineTasklet) {
+    TASKLET_WORKER_THREAD_ID.store(
+        libpsycho::os::windows::winapi::get_current_thread_id(),
+        Ordering::Release,
+    );
+    // Queue priority orders engine tasklets; OS priority also prevents the
+    // running path query from competing equally with the game/render threads.
+    let mut priority_guard = match lower_current_thread_priority_scoped(ThreadPriority::BelowNormal)
+    {
+        Ok(guard) => guard,
+        Err(_) => {
+            TASKLET_PRIORITY_FAILED.store(true, Ordering::Release);
+            TASKLET_BATCH_ABORTED.store(true, Ordering::Release);
+            return;
+        }
+    };
+    let tasklet = unsafe { &mut *tasklet.cast::<RadioTasklet>() };
+    for prepared in &mut tasklet.batch.queries[..tasklet.batch.count] {
+        if game_is_loading() {
+            TASKLET_BATCH_ABORTED.store(true, Ordering::Release);
+            break;
+        }
+
+        let timer = (!COOPERATIVE_PUBLICATION_REPORTED.load(Ordering::Acquire))
+            .then(diagnostics::Stopwatch::start);
+        let distance = unsafe { execute_prepared_query(prepared) };
+        if let Some(elapsed_us) = timer.and_then(diagnostics::Stopwatch::elapsed_us) {
+            COOPERATIVE_TIMED_JOBS.fetch_add(1, Ordering::Relaxed);
+            COOPERATIVE_TIMED_TOTAL_US.fetch_add(elapsed_us, Ordering::Relaxed);
+            diagnostics::update_max_u64(&COOPERATIVE_TIMED_MAX_US, elapsed_us);
+        }
+        prepared.distance = distance;
+    }
+    if priority_guard.restore().is_err() {
+        TASKLET_PRIORITY_FAILED.store(true, Ordering::Release);
+        TASKLET_BATCH_ABORTED.store(true, Ordering::Release);
+    }
+}
+
+unsafe fn publish_prepared_batch() -> bool {
+    let tasklet = unsafe { &*RADIO_TASKLET.0.get() };
+    let mut pipeline = QUERY_PIPELINE.lock();
+    if TASKLET_BATCH_ABORTED.load(Ordering::Acquire) || tasklet.batch.count != 1 {
+        pipeline.abort_build();
+        return false;
+    }
+    let prepared = &tasklet.batch.queries[0];
+    pipeline.complete(prepared.work, Some(prepared.distance))
+}
+
+unsafe fn execute_prepared_query(prepared: &mut PreparedQuery) -> f32 {
+    let scope = RadioPathQueryScope::enter();
+    let distance = unsafe {
+        call_mode0_distance(
+            &mut prepared.station,
+            &mut prepared.current,
+            prepared.work.request.radius,
+            core::ptr::null_mut(),
+            3,
+        )
+    };
+    drop(scope);
+    distance
+}
+
 #[unsafe(naked)]
 unsafe extern "C" fn cooperative_distance_entry(
     _station: *mut PathingLocation,
@@ -1015,8 +1670,25 @@ fn observe_frame_present() {
         return;
     }
     if game_is_loading() {
+        if TASKLET_BACKEND_AVAILABLE.load(Ordering::Acquire) {
+            quiesce_tasklet_queries();
+        }
         QUERY_PIPELINE.lock().reset();
         return;
+    }
+    if TASKLET_BACKEND_AVAILABLE.load(Ordering::Acquire) {
+        match schedule_tasklet_generation(now_ms) {
+            Ok(()) => return,
+            Err(error) => {
+                TASKLET_BACKEND_AVAILABLE.store(false, Ordering::Release);
+                quiesce_tasklet_queries();
+                if !TASKLET_BACKEND_FAILURE_REPORTED.swap(true, Ordering::AcqRel) {
+                    log::error!(
+                        "[RADIO] Native tasklet backend failed; cooperative main-thread fallback restored: {error:#}"
+                    );
+                }
+            }
+        }
     }
 
     let Some(work) = QUERY_PIPELINE.lock().take_next(now_ms) else {
@@ -1756,6 +2428,33 @@ mod tests {
     }
 
     #[test]
+    fn worker_queries_follow_the_same_serial_cadence_as_the_fallback() {
+        let mut pipeline = QueryPipeline::new();
+        pipeline.begin_scan(1_000, 240);
+        for form_id in 1..=3 {
+            pipeline.observe_query(request(form_id, 10_000.0));
+        }
+        assert!(pipeline.end_scan());
+
+        let first = pipeline.take_next(1_000).expect("first worker job");
+        assert!(pipeline.take_next(1_079).is_none());
+        assert!(!pipeline.complete(first, Some(1_000.0)));
+
+        let second = pipeline.take_next(1_080).expect("second worker job");
+        assert!(pipeline.take_next(1_159).is_none());
+        assert!(!pipeline.complete(second, Some(2_000.0)));
+
+        let third = pipeline.take_next(1_160).expect("third worker job");
+        assert_eq!(first.generation, second.generation);
+        assert_eq!(second.generation, third.generation);
+        assert_eq!([first.index, second.index, third.index], [0, 1, 2]);
+        assert!(pipeline.complete(third, Some(3_000.0)));
+        assert_eq!(pipeline.lookup_published(first.request.key), Some(1_000.0));
+        assert_eq!(pipeline.lookup_published(second.request.key), Some(2_000.0));
+        assert_eq!(pipeline.lookup_published(third.request.key), Some(3_000.0));
+    }
+
+    #[test]
     fn scan_cadence_rejects_startup_and_loading_gaps() {
         assert_eq!(normalize_scan_cadence(None), DEFAULT_SCAN_CADENCE_MS);
         assert_eq!(normalize_scan_cadence(Some(15)), DEFAULT_SCAN_CADENCE_MS);
@@ -1770,6 +2469,77 @@ mod tests {
     fn pathing_location_layout_matches_the_engine_contract() {
         assert_eq!(core::mem::size_of::<PathingLocation>(), 0x28);
         assert_eq!(core::mem::align_of::<PathingLocation>(), 4);
+    }
+
+    #[test]
+    fn tasklet_layout_matches_the_engine_queue_contract() {
+        assert_eq!(core::mem::size_of::<EngineTasklet>(), 0x18);
+        assert_eq!(core::mem::align_of::<EngineTasklet>(), 4);
+        assert_eq!(core::mem::offset_of!(EngineTasklet, group), 0x08);
+        assert_eq!(core::mem::offset_of!(EngineTasklet, check_ready), 0x0C);
+        assert_eq!(core::mem::offset_of!(EngineTasklet, claimed), 0x10);
+        assert_eq!(core::mem::offset_of!(EngineTasklet, next), 0x14);
+        assert_eq!(core::mem::size_of::<TaskletHandle>(), 0x08);
+        assert_eq!(core::mem::offset_of!(RadioTasklet, engine), 0);
+        assert_eq!(core::mem::offset_of!(RadioTasklet, batch), 0x18);
+        assert_eq!(core::mem::size_of::<PreparedQuery>(), 0x70);
+        assert_eq!(core::mem::size_of::<PreparedBatch>(), 0x74);
+        assert_eq!(core::mem::size_of::<RadioTasklet>(), 0x8C);
+    }
+
+    #[test]
+    fn radio_tasklet_group_uses_the_dispatchers_lowest_priority_bucket() {
+        let mut group = [0u8; 0x3C];
+        unsafe {
+            set_tasklet_group_priority(group.as_mut_ptr(), TASKLET_LOWEST_QUEUE_PRIORITY);
+        }
+        assert_eq!(
+            unsafe {
+                core::ptr::read_unaligned(
+                    group
+                        .as_ptr()
+                        .add(TASKLET_GROUP_PRIORITY_OFFSET)
+                        .cast::<u32>(),
+                )
+            },
+            0x3F
+        );
+    }
+
+    #[test]
+    fn radio_worker_priority_change_is_restorable() {
+        let mut guard = lower_current_thread_priority_scoped(ThreadPriority::BelowNormal)
+            .expect("lower current test-thread priority");
+        guard
+            .restore()
+            .expect("restore current test-thread priority");
+    }
+
+    #[test]
+    fn tasklet_callback_return_is_not_native_group_completion() {
+        assert!(!tasklet_group_counts_complete(1, 0));
+        assert!(tasklet_group_counts_complete(1, 1));
+        assert!(!tasklet_group_counts_complete(0, 0));
+    }
+
+    #[test]
+    fn tasklet_storage_is_not_embedded_in_the_eager_dll_image() {
+        assert!(
+            core::mem::size_of_val(&RADIO_TASKLET) <= 2 * core::mem::size_of::<usize>(),
+            "tasklet state must be allocated only after DeferredInit"
+        );
+    }
+
+    #[test]
+    fn world_lifetime_barrier_remains_dormant_before_deferred_init() {
+        assert!(!world_lifetime_barrier_ready(
+            crate::events::PRE_LOAD_GAME,
+            false
+        ));
+        assert!(world_lifetime_barrier_ready(
+            crate::events::PRE_LOAD_GAME,
+            true
+        ));
     }
 
     #[test]

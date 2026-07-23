@@ -55,6 +55,13 @@ float3 SafeNormalize(float3 value, float3 fallback)
     return (len_sq > 0.000001f) ? value * rsqrt(len_sq) : fallback;
 }
 
+float3 StableHalfway(float3 view_dir, float3 light_dir)
+{
+    float3 halfway = view_dir + light_dir;
+    float length_squared = dot(halfway, halfway);
+    return halfway * rsqrt(max(length_squared, 1.0e-8f));
+}
+
 float Shades(float3 a, float3 b)
 {
     return saturate(dot(a, b));
@@ -150,7 +157,7 @@ float3 PbrDirect(PbrSurface surface, float3 normal, float3 view_dir, float3 ligh
 
     light_dir = SafeNormalize(light_dir, float3(0.0f, 0.0f, 1.0f));
 
-    float3 halfway = SafeNormalize(view_dir + light_dir, normal);
+    float3 halfway = StableHalfway(view_dir, light_dir);
     float ndotl = max(Shades(normal, light_dir), 0.00001f);
     float ndoth = Shades(normal, halfway);
     float ldoth = Shades(light_dir, halfway);
@@ -174,7 +181,7 @@ float3 PbrSun(PbrSurface surface, float3 normal, float3 view_dir, float3 light_d
         ? SafeNormalize(dist * light_dir + SafeNormalize(closest_point, reflect_dir) * radius, reflect_dir)
         : reflect_dir;
 
-    float3 halfway = SafeNormalize(view_dir + sun_dir, normal);
+    float3 halfway = StableHalfway(view_dir, sun_dir);
     float ndots = max(Shades(normal, sun_dir), 0.00001f);
     float ndoth = Shades(normal, halfway);
     float ndotl = Shades(normal, light_dir);
@@ -305,7 +312,7 @@ PixelOutput Main(PixelInput input)
                 pbr_surface,
                 mul(tbn, light_vector),
                 attenuation,
-                light_color.rgb * saturate(light_color.a),
+                light_color.rgb,
                 view_dir,
                 normal
             );

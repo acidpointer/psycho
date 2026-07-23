@@ -3,24 +3,49 @@
 ## Status
 
 This report records the radio hitch investigation begun on 2026-07-16 and the
-provider-agnostic cooperative scheduling change implemented on 2026-07-22.
+cooperative and native-tasklet scheduling changes implemented on 2026-07-22
+and 2026-07-23.
 Runtime proved that repeated door-policy work in the installed Stewie Tweaks
 provider caused the original 42.756 ms burst. The exact policy optimization
-reduced that installed-provider case to 5.202 ms, but it cannot be the general
-frame-pacing fix because an arbitrary provider or future provider build may
-occupy the same engine vtable slot.
+reduced that installed-provider case to about 5-7 ms.
 
-The general fix now intercepts the game-owned mode-0 distance wrapper call at
+The radio bridge intercepts the game-owned mode-0 distance wrapper call at
 `0x004FF397`, independently of the vtable provider. A periodic scan consumes
 the last complete distance generation while the next generation is recomputed
-cooperatively, at most one opaque provider query per presented frame. The
-provider still runs on the game thread and through the original engine wrapper.
-No provider module name, address, version, or byte signature participates in
-the cooperative path.
+through the original engine wrapper. The first implementation ran at most one
+opaque query per presented frame on the game thread. Runtime proved all 12
+queries still consumed 6.870 ms total and produced the reported 250 ms
+frame-pacing sawtooth.
 
-The code and 32-bit regression tests are validated; gameplay/frame-time
-acceptance is still awaiting playtest. The earlier 5.202 ms result applies to
-the exact policy optimization, not yet to the cooperative implementation.
+The first 2026-07-23 native implementation removed those provider calls from
+the presentation thread for the exactly verified vanilla and Stewie 9.95
+providers, but submitted the entire generation as one worker task. Runtime
+proved that this merely moved the periodic burst: 12 queries still executed
+back-to-back for 5.840 ms on a tasklet worker. The user's frame-pacing chart
+remained unchanged.
+
+The paced revision submitted exactly one query per cadence slot. Runtime then
+proved that all 12 calls were spread over 231 ms with a 1.351 ms maximum
+worker call, but the user's chart was still unchanged. This disproves the
+worker-burst explanation for the remaining sawtooth.
+
+The current revision preserves that pacing, corrects a separate native
+completion race, and fixes the worker scheduler class. An ordinary frame polls
+the tasklet group's engine-owned submitted/completed counters and cannot enter
+the native infinite wait before the manager has completed the task. More
+importantly, Psycho no longer leaves its group at the constructor's priority
+zero. Disassembly proves that zero is the first tasklet bucket examined, while
+63 is the last. Every activated radio group is now assigned priority 63 before
+submission. The radio callback also caps only its current worker at Win32
+below-normal priority without raising an already-lower worker, then restores
+the exact preceding priority before returning to the engine.
+
+Worker use is capability-gated. Startup verifies the active provider,
+accessibility predicate, tasklet entry points, and provider slot. Unknown,
+updated, or subsequently replaced providers retain the preceding cooperative
+main-thread scheduler. The fallback is deliberately slower; calling arbitrary
+third-party code on a worker would assume thread safety that has not been
+proved.
 
 The first corrected-resolver playtest remained stable but did not materially
 change the reported sawtooth. That run had hitch profiling disabled, and its
@@ -46,8 +71,286 @@ same jobs uniformly across that interval. The first scan and intervals outside
 16-500 ms use the proven 250 ms engine cadence so startup/loading gaps cannot
 poison pacing. A delayed frame may leave multiple nominal slots overdue, but
 each frame callback still executes at most one job; subsequent frames catch up
-one job at a time. Provider ABI, thread ownership, request count, query order,
-complete-generation publication, and scan behavior are unchanged.
+one job at a time. Both the native tasklet path and the compatibility fallback
+use this release schedule; only the execution thread differs.
+
+The focused 32-bit tasklet-layout, cadence, native-completion, tasklet-priority,
+and Win32 priority-restoration regressions pass. Full suite and release
+validation are recorded below. The scheduler correction is statically proven
+and fail-closed; final frame-time and gameplay acceptance still requires one
+runtime pass of this corrected build.
+
+## 2026-07-23 Unchanged-Chart Runtime Correction
+
+The startup-corrected native build reached gameplay and supplied the evidence
+that the initial worker design was still bursty:
+
+```text
+[RADIO] Native tasklet query backend active:
+  provider=nvse_stewie_tweaks.dll!0x066FADB0
+[EVENT] Game engine ready
+[RADIO] Cooperative collection verified:
+  requests=12 cadence/spacing=250/20ms scan_us=Some(61)
+  thread=0x00000640
+[RADIO] Native tasklet generation verified:
+  results=12 jobs=12 worker_total/max=5840/1619us
+  game_thread_prep=29us latency_ms=Some(80)
+  worker_thread=0x00000614
+```
+
+Direct conclusions:
+
+- startup passed the former pre-Deferred crash point;
+- the verified Stewie native backend was active;
+- endpoint preparation cost only 29 us on the game thread;
+- provider execution occurred on a different thread;
+- all 12 calls still formed one 5.840 ms worker callback, completing only
+  80 ms after collection despite the measured 20 ms release spacing.
+
+The unchanged chart proves that moving the 5.840 ms block to one worker
+callback was insufficient. It does not by itself prove whether the visible
+stall was CPU competition, contention on the provider's per-cell reference
+locks, or both. The provider's proven lock scope makes lock pressure a credible
+mechanism, but that attribution remains inference.
+
+The corrective intervention is therefore scheduling, not another hook:
+
+- task storage contains exactly one prepared query;
+- `QueryPipeline::take_next` is the sole release path for both native and
+  fallback work, so the measured cadence is enforced rather than diagnostic;
+- a native group is closed and completed before its endpoint objects are
+  destroyed or another query is submitted;
+- results remain private until all requests in the generation complete.
+
+This structurally removes the 12-query worker burst while retaining the
+already-proven native ABI and ownership boundaries.
+
+The next runtime used that paced implementation:
+
+```text
+[RADIO] Cooperative collection verified:
+  requests=12 cadence/spacing=250/20ms scan_us=Some(59)
+  thread=0x000001CC
+[RADIO] Native paced tasklet generation verified:
+  results=12 jobs=12 worker_total/max=7266/1351us
+  game_thread_prep_total/max=37/4us latency_ms=Some(231)
+  worker_thread=0x00000384
+```
+
+Direct conclusions:
+
+- the installed build was the paced build;
+- all 12 provider calls were released across nearly the full 250 ms cadence;
+- no individual first-generation worker call approached the reported 6 ms
+  chart spike;
+- the first collection scan occupied only 59 us;
+- the user's chart remained unchanged.
+
+That result rejects both the single worker burst and the first collection scan
+as the remaining cause. A later fresh run reconfirmed that conclusion over a
+longer measured cadence:
+
+```text
+[RADIO] Cooperative collection verified:
+  requests=12 cadence/spacing=493/41ms scan_us=Some(52)
+  thread=0x00000770
+[RADIO] Native paced tasklet generation verified:
+  results=12 jobs=12 worker_total/max=8211/1651us
+  game_thread_prep_total/max=41/5us latency_ms=Some(472)
+  worker_thread=0x000007D4
+```
+
+The user's chart was still unchanged. The log proves that the bridge was
+active, the scanner itself occupied only 52 us, no single provider call
+approached the roughly 6 ms spike, and the calls were spread across 472 ms.
+It therefore rules out another query-burst or scan-body change as the
+corrective direction.
+
+Static research found one real main-thread blocking hazard in Psycho's native
+adapter:
+
+- worker dispatch calls task execution at `0x00B02588`;
+- only after execution returns does it call the task finish slot, clear task
+  group/claim ownership at `0x00B025D0` and `0x00B025DA`, and call group
+  completion at `0x00B025E4`;
+- `0x00B02670` increments completed count `+0x38` under the group critical
+  section, compares it with submitted count `+0x34`, and signals completion;
+- `0x00B02920` compares those counters and performs an infinite semaphore wait
+  while they differ;
+- Psycho previously set its callback-done atomic inside task execution, before
+  every native completion step above. An ordinary frame could therefore enter
+  the infinite wait during that gap.
+
+The current implementation mirrors the engine's own unlocked counter check and
+calls `0x00B02920` on ordinary frames only after nonzero submitted/completed
+counts are equal. World-lifetime barriers retain the intentional blocking wait.
+Whether this race caused the observed Proton frame spike is a reasoned
+hypothesis, not yet runtime proof.
+
+New radare2 analysis then exposed the remaining scheduler error:
+
+- the group constructor at `0x00B0283D` initializes group `+0x30` to zero;
+- enqueue at `0x00B02159` reads that field, clamps values at or above 64 to
+  63, and selects manager queue `+0x6C + priority * 4`;
+- worker dispatch at `0x00B024C7` starts with bucket zero and advances by one
+  until the first nonempty queue is found;
+- Psycho never changed the constructor value, so every paced radio query was
+  still inserted into the engine's first, highest-service bucket.
+
+This explains why spreading the calls did not isolate frame-critical engine
+work: the radio callback remained eligible ahead of every lower-service
+tasklet on each release. The actual correction assigns group priority 63 after
+every successful activation and before submission. In addition, the callback
+temporarily caps the worker at Win32 below-normal thread priority, allowing the
+normal game/render threads to preempt its CPU work without ever raising a
+worker that was already lower. The exact previous tasklet-worker priority is
+restored before the callback returns.
+
+Startup verifies the constructor layout, enqueue calculation, and ascending
+dispatcher bytes before enabling the native backend. Failure to lower or
+restore the worker priority aborts that result, disables the native backend,
+quiesces the group, and restores the already-correct cooperative fallback.
+No new periodic diagnostic hook is installed.
+
+## 2026-07-23 Pre-Deferred Startup Crash Correction
+
+The first worker-backed build crashed during game-data startup at
+2026-07-23 14:10:20. The new native tasklet path did not execute.
+
+Direct runtime evidence:
+
+- `psycho-engine-fixes-latest.log` records the early radio bridge installation
+  at 14:10:10 but contains neither `[EVENT] Game engine ready` nor
+  `Native tasklet query backend active`.
+- `nvse.log` reaches `init complete` but contains no later DeferredInit
+  activity.
+- `CrashLogger.log` faults at BaseObjectSwapper
+  `ConditionalInput::IsValid + 0x88` (`0x0BFC4990`) and reports corrupt
+  stack/heap-shaped return entries immediately below the two external-plugin
+  frames.
+- Tasklet API verification, tasklet allocation, group creation, submission,
+  and the new policy-hook installation all begin only from radio DeferredInit.
+  None could have run in the observed process.
+
+This is the same external fault signature and startup phase recorded in
+`docs/graphics_fnv_atmosphere_startup_crash_errata.md`. That erratum proves
+that this modpack is sensitive to new owner initialization during plugin/data
+loading; BaseObjectSwapper also contains an independent uninitialized-member
+hazard. It does not prove that Psycho wrote into BaseObjectSwapper.
+
+The worker implementation had nevertheless introduced two pre-Deferred
+perturbations: its 0xE01C-byte tasklet/batch object was embedded eagerly in the
+DLL image, and newly forwarded world-lifetime messages could initialize radio
+`LazyLock` owners before DeferredInit. Those are the only worker-branch changes
+that could precede the missing DeferredInit record. Treating them as the
+trigger is a reasoned inference from phase and A/B scope, not a direct
+attribution of the external fault.
+
+The correction restored the established startup phase boundary:
+
+- the DLL embeds only a two-word lazy owner; tasklet state is allocated once
+  after DeferredInit and after every tasklet capability signature succeeds;
+- the helper does not forward the newly added `PreLoadGame`,
+  `ExitToMainMenu`, or `NewGame` messages until it has forwarded DeferredInit;
+- the core independently ignores those barriers until radio DeferredInit has
+  completed;
+- the already-tested early radio callsite hooks are unchanged.
+
+Focused tests reject both an eagerly embedded batch and a pre-Deferred
+world-lifetime barrier. The subsequent run passed the former BaseObjectSwapper
+crash point, logged `[EVENT] Game engine ready`, and enabled the native tasklet
+backend. Transition and frame-time acceptance remain required below.
+
+## 2026-07-23 Native Tasklet Contract
+
+New radare2 research against the current executable closed the earlier
+parallel-traversal knowledge gap.
+
+Direct static proof:
+
+- `0x006D4D20` builds the 0x2058-byte A* query on the calling thread.
+  `0x006F3D90` asks `BSWin32TaskletManager` whether the current thread is one
+  of its workers and stores the result at query `+0x2054`. Traversal therefore
+  has an explicit native tasklet execution mode; it is not main-thread-only
+  code.
+- The existing tasklet crash audit proves real engine navmesh/path work runs
+  through `0x00B023F0 -> 0x00B02460 -> 0x00B02588` on
+  `[FNV] BSWin32TaskletManager - Tasklet N`. The same path calls the loaded
+  FormID resolver `0x004839C0`.
+- `0x00B00A00` returns the manager singleton at `0x011F8270`.
+  `0x00B00A80`, `0x00B00AE0`, `0x00B00B40`, and `0x00B00BC0` are the
+  game-owned group create, activate, submit, and close wrappers.
+- Group creation reaches manager virtual `0x00B02010`, allocates the exact
+  0x3c-byte `BSWin32TaskletGroupData`, and constructs its critical section and
+  completion semaphore. Activation reaches `0x00B020A0`; submission reaches
+  `0x00B02220`; close reaches `0x00B02310`.
+- The group constructor at `0x00B027C0` writes priority zero at group `+0x30`
+  (`0x00B0283D`), submitted count zero at `+0x34`, and completed count zero at
+  `+0x38`.
+- Enqueue at `0x00B02159` reads group `+0x30`, clamps values at or above 64 to
+  63, and uses manager bucket `+0x6C + priority * 4`. Dispatcher
+  `0x00B024C7` scans those 64 buckets in ascending order beginning with zero.
+  Bucket zero therefore has first service and bucket 63 has last service.
+- Worker completion at `0x00B02670` increments the group's completed count and
+  signals its semaphore after submissions are closed. Group virtual
+  `0x00B02920` waits when submitted and completed counts differ, consumes the
+  signal, and makes the group reusable.
+- The manager-owned task layout is 0x18 bytes: vptr `+0x00`, requeue byte
+  `+0x04`, group `+0x08`, readiness byte `+0x0C`, claim word `+0x10`, and
+  queue link `+0x14`. Worker dispatch optionally calls vtable `+0x04`, calls
+  execution at `+0x08`, then calls completion at `+0x00` before clearing the
+  group and claim fields.
+
+Provider boundary and reasoned inference:
+
+- Vanilla and Stewie's verified provider both build query-private nodes and
+  hold each cell's reference lock while enumerating teleport doors.
+- Psycho permits worker execution only after the existing exact vanilla or
+  Stewie provider proof succeeds and the unmodified game accessibility
+  predicate matches. DeferredInit then installs Psycho's TLS-scoped policy
+  hooks.
+- No live reference pointer crosses to the worker. The game thread resolves
+  the station and current-reference FormIDs, constructs both 0x28-byte
+  `PathingLocation`s, and retains them until native group completion. The
+  worker receives only those owned endpoint values, the radius, and the scalar
+  generation key.
+- The worker runs every request through the original `0x006D4EB0` wrapper.
+  It neither replaces the A* algorithm nor shares query-owned nodes.
+
+No static callsite in vanilla submits the radio wrapper itself as a tasklet.
+Worker safety for the exact providers is therefore a reasoned inference from
+the query's explicit tasklet mode, existing path/navmesh tasklet execution,
+provider cell locking, tasklet-aware scrap allocation, and the absence of
+cross-thread live-reference ownership. Runtime stability across transitions is
+still required acceptance evidence; it is not claimed as already observed.
+
+World lifetime:
+
+- xNVSE `PreLoadGame` is dispatched immediately before Fallout reads the new
+  save. `ExitToMainMenu` is dispatched before the game processes the exit
+  flag. Both now reach the core, close the radio group, wait for completion,
+  destroy endpoints on the game thread, and reset the result pipeline.
+- `NewGame` also resets through that barrier. Loading-frame observation
+  quiesces any remaining task, and the worker checks the engine loading flag
+  before its single query so it does not begin provider work during a
+  transition.
+- Waiting can consume the remaining worker time only at a world-lifetime or
+  loading boundary. Normal presented frames poll the native group's
+  submitted/completed counters and call the group wait only when the counts
+  are already equal, so the native infinite-wait branch cannot execute.
+
+The fixed Rust task storage is 0x8c bytes after DeferredInit: one 0x18-byte
+engine task header, a count, and one 0x70-byte prepared query. The generation
+pipeline still has fixed capacity for 512 scalar requests and results. The
+native manager additionally owns one 60-byte tasklet group. The path performs
+no routine Rust heap allocation, file I/O, overlapping provider call, or wait
+for provider work on the render path. The provider's existing query
+allocations occur on an engine-initialized tasklet worker and are freed before
+that worker callback returns. Each activation sets the group to the verified
+last-service bucket 63 before submission. Only the duration of Psycho's
+callback is capped at Win32 below-normal priority; a non-send scoped guard
+restores the worker's exact prior priority before control returns to the
+engine.
 
 ## 2026-07-22 Save-Load Crash and Resolver Correction
 
@@ -95,7 +398,7 @@ run.
 The latest branch telemetry disproved the proposed mode-0 immediate-goal fast
 path. Do not implement that fast path from the earlier Ghidra audit hypothesis.
 
-## Cooperative Scheduling Contract
+## Generation Scheduling Contract
 
 `FUN_00833D00` calls the periodic scanner at `0x00833D86` and immediately
 iterates its returned station list after the call. Its caller-owned output
@@ -104,48 +407,51 @@ on a worker or later frame. `FUN_004FF1A0`, however, has one independently
 replaceable expensive boundary: the mode-0 call at `0x004FF397` to
 `FUN_006D4EB0`.
 
-The cooperative implementation has three phases:
+The implementation has three phases:
 
 1. During a periodic scan, each mode-0 call returns the matching result from
    the last fully published generation, or the engine's exact failure sentinel
    when no prior result exists. The scan records only the station FormID,
    current-reference FormID, radius, and query key.
-2. `OnFramePresent` event 6 executes at most one recorded request when its
-   thread ID matches the periodic scanner's thread. Both references are
-   re-resolved by FormID, and fresh 0x28-byte `PathingLocation` objects are
-   constructed immediately before calling the original `0x006D4EB0` wrapper.
-3. Results remain private until every request succeeds. Publication replaces
-   the complete prior array in one state transition. The next periodic scan
-   then consumes that coherent generation.
+2. `OnFramePresent` event 6 first proves it is on the periodic scanner's game
+   thread. When the next cadence slot is due, a verified provider resolves
+   both references and constructs one fresh endpoint pair on that thread,
+   activates a native tasklet group, writes its priority to bucket 63, and
+   submits one query. The worker temporarily caps only itself at below-normal
+   priority, calls the original `0x006D4EB0` wrapper once, then restores its
+   exact prior priority. No second query can overlap it. An unsupported
+   provider executes the same one released query directly on the game thread.
+3. The worker writes only its one-query task storage and completion atomics; it
+   never locks or mutates the generation pipeline. After native group
+   completion, the game thread records that result and destroys its endpoints.
+   The complete result array is published in one state transition only after
+   the last serial request completes. The next periodic scan consumes that
+   coherent generation.
 
-This is asynchronous with respect to the radio refresh, not concurrent engine
-pathing. Calling an unknown provider from a worker would assume undocumented
-thread safety for its globals, locks, allocators, navmesh state, references,
-and any future implementation. Keeping each provider call on the proven game
-thread makes the mechanism work with vanilla, with any Stewie Tweaks build,
-and with unrelated replacement providers.
+No reference, iterator, provider object, stack frame, query node, or
+caller-owned output list survives without a proven owner. Plain FormIDs,
+radius values, and completed floats persist in the generation pipeline.
+Prepared `PathingLocation`s persist only inside fixed task storage while the
+native group owns the worker task. An unresolved FormID aborts the building
+generation and retains the last complete snapshot.
 
-Only plain FormIDs, radius values, and completed floats persist across frames.
-No engine pointer, iterator, `PathingLocation`, provider object, stack frame,
-or caller-owned output list crosses the boundary. A load/menu state clears the
-pipeline. An unresolved FormID aborts the building generation and retains the
-last complete snapshot. Missing, stale, or foreign-thread frame events cause
-the scanner to use the original synchronous wrapper. The same fallback is
-retained after the fixed 512-query safety capacity is exceeded.
+Missing, stale, or foreign-thread frame events cause the scanner to use the
+original synchronous wrapper. Capacity overflow also restores that exact
+fallback. A provider capability mismatch retains the cooperative game-thread
+path instead of moving unknown code to a worker.
 
 The normal station refresh cadence remains unchanged. A newly computed
-generation becomes visible on the following radio refresh, normally about
-250 ms later. At 60 FPS, the observed 12-query generation takes about 200 ms
-to compute; at lower frame rates it may require another refresh. The first
-cooperative scan deliberately reports no mode-0 station until its first full
-generation completes. This bounded detection latency is the tradeoff that
-removes the single multi-query burst without changing provider semantics.
+generation becomes visible on a following radio refresh. With 12 requests and
+the observed 250 ms cadence, nominal release spacing is 20 ms and the final
+query becomes eligible around 220 ms after collection. A slow or delayed frame
+can defer completion to the next refresh. The first asynchronous scan
+deliberately reports no mode-0 station until its first full generation
+completes.
 
 The exact disposition-3 door-policy bypass remains a capability-gated optional
 fast path for the already-proven vanilla/Stewie layouts. It reduces total CPU
-work when its signatures match, but cooperative scheduling does not depend on
-it. Unknown or updated providers retain their behavior and are merely spread
-across presentation frames.
+work when its signatures match. Unknown or updated providers retain their
+behavior and are merely spread across presentation frames.
 
 ## Root Cause
 
@@ -667,8 +973,13 @@ have no proven complete reset contract.
 
 ### Parallel traversal
 
-Rejected. Engine thread safety, shared candidate state, TLS/scrap state, and
-query provider reentrancy are unproven.
+The earlier generic proposal was rejected because engine thread safety,
+shared candidate state, TLS/scrap state, and arbitrary provider reentrancy were
+unproven. The 2026-07-23 tasklet research resolves this only for the exact
+vanilla and Stewie provider contracts: it uses the engine's initialized
+tasklet threads, provider cell locks, thread-aware query path, native group
+completion, and game-thread endpoint ownership. Generic parallel traversal
+remains rejected and falls back to the cooperative game-thread scheduler.
 
 ### Failed-result extraction micro-optimization
 
@@ -752,7 +1063,10 @@ The executable contract was reconfirmed against `FalloutNV.exe` with SHA-256
 `42fee7d6cd74e801372aa89c8f71c974cebd3c20ec9ad43d1465b8fa9646b49c`.
 The existing focused output under `analysis/ghidra/output/perf/` remains the
 durable disassembly/decompilation evidence; the 2026-07-22 radare2 session
-reconfirmed the same addresses and call shapes in the current executable.
+reconfirmed the same addresses and call shapes in the current executable. The
+2026-07-23 radare2 session additionally proved the group priority layout,
+enqueue bucket selection, and ascending dispatcher order used by the final
+scheduler correction.
 
 Static proof:
 
@@ -773,55 +1087,96 @@ Static proof:
 Source ownership:
 
 - `psycho-engine-fixes/src/mods/perf/radio.rs` owns the verified callsite
-  bridge, generation state machine, reference reconstruction, main-thread
-  guard, original fallback, optional exact policy fast path, and tests.
-- `psycho-engine-fixes/src/events.rs` owns the core event ID 6 definition.
-- `psycho-engine-fixes-helper/src/events.rs` already forwards xNVSE
-  `OnFramePresent` through the late-bound core ABI. No dashboard refresh or
-  rendering functionality was removed or reduced.
+  bridge, generation state machine, endpoint preparation, native tasklet
+  adapter, group lifetime, original fallbacks, optional exact policy fast
+  path, and tests.
+- `psycho-engine-fixes/src/events.rs` owns the core event IDs for
+  `DeferredInit`, `OnFramePresent`, `PreLoadGame`, `ExitToMainMenu`, and
+  `NewGame`.
+- `psycho-engine-fixes-helper/src/events.rs` forwards those xNVSE messages
+  through the late-bound core ABI. The helper never loads or initializes the
+  core DLL.
+- `libpsycho/src/os/windows/winapi.rs` owns the non-send scoped current-thread
+  priority guard. It records the exact prior Win32 priority and supports
+  explicit checked restoration plus a final best-effort restoration in
+  `Drop`.
 
 Startup first verifies the periodic and mode-0 relative call targets plus the
 surrounding mode-0 bytes. The mode-0 bridge is installed before the periodic
 scope hook; if the latter cannot install, the bridge sees no cooperative scope
-and calls the original wrapper. Deferred initialization may later install the
-optional exact policy hooks after their independent capability checks.
+and calls the original wrapper. Deferred initialization separately verifies
+the current provider, tasklet API, group priority layout, enqueue bucket
+calculation, and dispatcher scan order before enabling worker submission, then
+installs the optional exact policy hooks. A provider mismatch does not prevent
+the radio fix from using its cooperative game-thread fallback.
 
 The bridge's release codegen was inspected in the i686 DLL. It copies the five
 original cdecl arguments, adds outer `EBP` as a sixth internal argument, calls
 the Rust body, removes exactly 24 bytes, and returns without disturbing the
 x87 float. The original game caller still removes its own 20 argument bytes.
 
-Validation completed on 2026-07-22:
+Focused validation completed on 2026-07-23:
 
 ```text
 cargo test --target i686-pc-windows-gnu -p psycho-engine-fixes radio::tests
-  5 passed
-cargo test --target i686-pc-windows-gnu -p psycho-engine-fixes --lib
-  17 passed
-cargo build --release --target i686-pc-windows-gnu \
-  -p psycho-engine-fixes -p psycho-engine-fixes-helper
-  passed
+  16 passed
+cargo test --target i686-pc-windows-gnu -p psycho-engine-fixes-helper \
+  world_lifetime_messages_reach_the_core_barrier
+  1 passed
 ```
 
-The unfiltered crate command also invokes three unrelated pre-existing
-doctests whose assembly listings in `havok.rs` and `navmesh.rs` are marked as
-Rust; those doctests fail to parse. All 17 executable unit tests pass, and
-neither unrelated source file was changed.
+The complete affected suites and supported release build also passed:
+
+```text
+cargo test --target i686-pc-windows-gnu -p libpsycho --lib
+  9 passed
+cargo test --target i686-pc-windows-gnu -p psycho-engine-fixes --lib
+  28 passed
+cargo test --target i686-pc-windows-gnu -p psycho-engine-fixes-helper --lib
+  12 passed
+cargo build --release --target i686-pc-windows-gnu \
+  -p syringe -p psycho-engine-fixes -p psycho-engine-fixes-helper -p omv
+  finished release profile
+```
+
+Post-build i686 disassembly confirms that the tasklet `ready`, `execute`, and
+`finish` callbacks return with plain `RET`, `execute` receives the task pointer
+in `ECX`, and the emitted four-entry vtable points to those callbacks in the
+verified order. The release PE contains only the two-word `RADIO_TASKLET` lazy
+owner rather than eager task storage. The layout test confirms that the
+deferred constructor produces the verified task header, zeroed queue/group
+fields, readiness byte 1 at `+0x0C`, one 0x70-byte prepared-query slot, and a
+total 0x8c-byte task object. The final release PE also contains the direct
+`mov dword [group + 0x30], 0x3f` after successful activation, calls the scoped
+priority setter before `0x006D4EB0`, and calls checked priority restoration
+before the tasklet callback's plain `RET`.
 
 The tests reject partial publication, loss of a prior snapshot after a failed
-generation, duplicate work, the wrong `PathingLocation` layout, and diagnostic
-aggregation regressions. Required gameplay acceptance remains:
+generation, duplicate work, release of more than one overdue query per frame,
+native worker work before its cadence slot, burst-sized task storage,
+incorrect `PathingLocation` or tasklet layouts, missing world-lifetime event
+forwarding, eager tasklet storage, pre-Deferred lifetime handling, use of any
+tasklet bucket other than 63, failure to restore the worker's prior Win32
+priority, and diagnostic aggregation regressions. Required gameplay acceptance
+remains:
 
-1. Startup reports `Cooperative main-thread radio queries active`.
+1. Startup reports `Native tasklet query backend active` for vanilla or the
+   installed verified Stewie provider, followed by
+   `Native paced tasklet generation verified` with a non-main worker thread
+   ID.
 2. Existing and newly entered radio stations appear and disappear correctly,
    allowing for one refresh of detection latency.
 3. Loading, fast travel, save load, interiors/exteriors, and menu transitions
    do not retain invalid results or crash.
-4. Frame-time telemetry no longer shows one aggregate radio spike at roughly
-   250 ms intervals. An individual opaque provider query may still be visible;
-   this layer cannot preempt inside third-party provider code.
-5. Validate once with the installed provider and once without it. No source
-   change or provider-version signature should be needed for cooperative mode.
+4. Frame-time telemetry no longer shows the roughly 6 ms / 250 ms radio
+   sawtooth. The first tasklet report should retain the expected query count,
+   approximately the same aggregate provider CPU time off-thread, and a
+   generation latency near the cadence rather than the prior 80 ms burst.
+5. Station count and the success/failure distribution match the preceding
+   exact-policy run.
+6. Validate the main-thread fallback once with an unsupported or modified
+   provider and confirm it logs the capability failure rather than submitting
+   that provider to a worker.
 
 ## Crash Logger Note
 
@@ -915,7 +1270,15 @@ analysis/ghidra/output/perf/radio_path_component_identity_contract.txt
 analysis/ghidra/output/perf/radio_geometry_cache_contract_audit.txt
 analysis/ghidra/output/perf/radio_signal_scan_fix_surface_audit.txt
 analysis/ghidra/output/perf/radio_geometry_invalidation_followup.txt
+analysis/ghidra/output/crash/crash_0069083a_navmesh_tasklet_audit.txt
+analysis/ghidra/output/memory/scrap_heap_shared_identity_worker_audit.txt
 ```
+
+The 2026-07-23 radare2 MCP session reconfirmed the tasklet manager call chain,
+group lifecycle, callback layout, and query tasklet-awareness directly in the
+current executable. The Ghidra files above remain the durable raw evidence for
+the already-established pathing and worker call chains; they were not
+regenerated or rewritten.
 
 Related post-load evidence:
 
@@ -930,7 +1293,7 @@ Focused Ghidra script that generated the latest static audit:
 analysis/ghidra/scripts/radio_mode0_immediate_goal_scope_cost_audit.py
 ```
 
-Current runtime instrumentation:
+Current implementation:
 
 ```text
 psycho-engine-fixes/src/mods/perf/radio.rs

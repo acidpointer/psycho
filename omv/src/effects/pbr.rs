@@ -285,7 +285,7 @@ impl TerrainPbrProfileSettings {
 pub(crate) fn install(settings: NativePbrSettings) -> Result<()> {
     constants::store_settings(settings);
     DEBUG_LOG_DRAWS.store(settings.debug_log_draws, Ordering::Release);
-    diagnostics::set_detailed_enabled(settings.debug_log_draws);
+    set_menu_diagnostics_active(crate::runtime::menu_diagnostics_active());
     store_terrain_options(settings);
     INSTALL_BOUNDARY_REACHED.store(true, Ordering::Release);
     if !settings.enabled {
@@ -320,7 +320,7 @@ pub(crate) fn configure_runtime_options(settings: NativePbrSettings) {
     constants::store_settings(settings);
     store_terrain_options(settings);
     DEBUG_LOG_DRAWS.store(settings.debug_log_draws, Ordering::Release);
-    diagnostics::set_detailed_enabled(settings.debug_log_draws);
+    set_menu_diagnostics_active(crate::runtime::menu_diagnostics_active());
     if !INSTALL_BOUNDARY_REACHED.load(Ordering::Acquire) {
         SHADER_ENABLED.store(settings.enabled, Ordering::Release);
         refresh_block_reason();
@@ -344,6 +344,18 @@ pub(crate) fn configure_runtime_options(settings: NativePbrSettings) {
         ENABLE_PENDING.store(false, Ordering::Release);
     }
     refresh_block_reason();
+}
+
+pub(crate) fn set_menu_diagnostics_active(active: bool) {
+    let enabled = detailed_diagnostics_enabled(active, DEBUG_LOG_DRAWS.load(Ordering::Acquire));
+    if enabled && !diagnostics::detailed_enabled() {
+        diagnostics::reset();
+    }
+    diagnostics::set_detailed_enabled(enabled);
+}
+
+fn detailed_diagnostics_enabled(menu_open: bool, configured: bool) -> bool {
+    menu_open && configured
 }
 
 pub(crate) fn runtime_status() -> NativePbrRuntimeStatus {
@@ -519,8 +531,10 @@ pub(crate) fn service_present_frame() {
     }
 
     refresh_block_reason();
-    samplers::service_frame();
-    diagnostics::service_frame(enabled, DEBUG_LOG_DRAWS.load(Ordering::Acquire));
+    if diagnostics::detailed_enabled() {
+        samplers::service_frame();
+        diagnostics::service_frame(enabled, DEBUG_LOG_DRAWS.load(Ordering::Acquire));
+    }
 }
 
 fn activate() -> Result<()> {
@@ -549,7 +563,7 @@ pub(crate) fn reset_runtime_state() {
     samplers::reset();
     samplers::set_texture_tracking_ready(hooks::hooks_ready());
     diagnostics::reset();
-    diagnostics::set_detailed_enabled(DEBUG_LOG_DRAWS.load(Ordering::Acquire));
+    set_menu_diagnostics_active(crate::runtime::menu_diagnostics_active());
     ACTIVE_CONTRACTS_READY.store(false, Ordering::Release);
     ACTIVE_CONTRACTS_FAILED.store(false, Ordering::Release);
     refresh_block_reason();
@@ -618,9 +632,29 @@ fn terrain_fade_contracts_ready() -> bool {
 }
 
 fn close_terrain_contract_available() -> bool {
-    hooks::hooks_ready()
-        && DRAW_BOUNDARY_READY.load(Ordering::Acquire)
-        && engine_contracts::terrain_contract_available()
+    close_terrain_activation_gate(
+        hooks::hooks_ready()
+            && DRAW_BOUNDARY_READY.load(Ordering::Acquire)
+            && engine_contracts::terrain_contract_available(),
+        compiler::close_terrain_compile_ready(),
+        compiler::close_terrain_compile_failed(),
+        device_resources::close_terrain_resources_ready(),
+        device_resources::close_terrain_create_failed(),
+    )
+}
+
+fn close_terrain_activation_gate(
+    engine_contract_ready: bool,
+    family_bytecode_ready: bool,
+    compile_failed: bool,
+    family_resources_ready: bool,
+    create_failed: bool,
+) -> bool {
+    engine_contract_ready
+        && family_bytecode_ready
+        && !compile_failed
+        && family_resources_ready
+        && !create_failed
 }
 
 fn store_terrain_options(settings: NativePbrSettings) {
@@ -641,7 +675,46 @@ fn sanitize_scale(value: f32, fallback: f32, min: f32, max: f32) -> f32 {
 
 #[cfg(test)]
 mod master_setting_tests {
-    use super::NativePbrSettings;
+    use super::{NativePbrSettings, close_terrain_activation_gate, detailed_diagnostics_enabled};
+
+    #[test]
+    fn one_ready_variant_cannot_activate_the_close_terrain_family() {
+        let engine_contract_ready = true;
+        let selected_variant_ready = true;
+        let family_bytecode_ready = false;
+        let family_resources_ready = false;
+
+        let legacy_partial_family_gate = engine_contract_ready && selected_variant_ready;
+        assert!(legacy_partial_family_gate);
+        assert!(!close_terrain_activation_gate(
+            engine_contract_ready,
+            family_bytecode_ready,
+            false,
+            family_resources_ready,
+            false,
+        ));
+        assert!(close_terrain_activation_gate(
+            engine_contract_ready,
+            true,
+            false,
+            true,
+            false,
+        ));
+        assert!(!close_terrain_activation_gate(
+            engine_contract_ready,
+            true,
+            true,
+            true,
+            false,
+        ));
+        assert!(!close_terrain_activation_gate(
+            engine_contract_ready,
+            true,
+            false,
+            true,
+            true,
+        ));
+    }
 
     #[test]
     fn master_switch_is_a_runtime_override_not_a_config_mutation() {
@@ -649,5 +722,13 @@ mod master_setting_tests {
         assert!(configured.enabled);
         assert!(!configured.with_master_enabled(false).enabled);
         assert!(configured.with_master_enabled(true).enabled);
+    }
+
+    #[test]
+    fn detailed_diagnostics_require_an_open_menu_and_explicit_configuration() {
+        assert!(!detailed_diagnostics_enabled(false, false));
+        assert!(!detailed_diagnostics_enabled(false, true));
+        assert!(!detailed_diagnostics_enabled(true, false));
+        assert!(detailed_diagnostics_enabled(true, true));
     }
 }

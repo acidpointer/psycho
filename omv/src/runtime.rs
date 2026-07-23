@@ -60,6 +60,7 @@ static RUNTIME: LazyLock<Mutex<ScreenShaderRuntime>> =
     LazyLock::new(|| Mutex::new(ScreenShaderRuntime::default()));
 static MENU_OPEN: AtomicBool = AtomicBool::new(false);
 static IMGUI_READY: AtomicBool = AtomicBool::new(false);
+static MENU_DIAGNOSTICS_ACTIVE: AtomicBool = AtomicBool::new(false);
 static MENU_TOGGLE_KEY: AtomicU32 = AtomicU32::new(DEFAULT_MENU_TOGGLE_KEY);
 static MENU_KEY_CAPTURE_ACTIVE: AtomicBool = AtomicBool::new(false);
 static PENDING_MENU_TOGGLE_KEY: AtomicU32 = AtomicU32::new(0);
@@ -73,6 +74,21 @@ static RESET_BUSY: AtomicU32 = AtomicU32::new(0);
 const FNV_REQUIRE_WORLD_DEPTH: u32 = 1 << 0;
 const FNV_REQUIRE_FIRST_PERSON_DEPTH: u32 = 1 << 1;
 const FNV_REQUIRE_WORLD_COLOR: u32 = 1 << 2;
+
+pub(crate) fn menu_diagnostics_active() -> bool {
+    MENU_DIAGNOSTICS_ACTIVE.load(Ordering::Relaxed)
+}
+
+fn set_menu_diagnostics_active(active: bool) {
+    if MENU_DIAGNOSTICS_ACTIVE.load(Ordering::Relaxed) == active
+        || MENU_DIAGNOSTICS_ACTIVE.swap(active, Ordering::AcqRel) == active
+    {
+        return;
+    }
+    pbr::set_menu_diagnostics_active(active);
+    crate::fnv_local_lights::set_diagnostics_active(active);
+    crate::fnv_world_pipeline::set_diagnostics_active(active);
+}
 
 pub(crate) fn configure(settings: RuntimeSettings) {
     // This runs from NVSEPlugin_Load. Keep the focused FNV world owner dormant
@@ -270,6 +286,7 @@ pub(crate) fn handle_window_message(
     if (msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN) && wparam == toggle_key {
         let open = !menu_open;
         MENU_OPEN.store(open, Ordering::Release);
+        set_menu_diagnostics_active(open && IMGUI_READY.load(Ordering::Acquire));
         crate::input::set_menu_input_blocked(open);
         if !open {
             MENU_KEY_CAPTURE_ACTIVE.store(false, Ordering::Release);
@@ -334,6 +351,7 @@ struct ScreenShaderRuntime {
     imgui_hwnd: usize,
     imgui_needs_device_objects: bool,
     selected_menu_item: MenuSelection,
+    present_timing: PresentFrameTiming,
     frame_pacing: FramePacing,
     next_scan: Option<Instant>,
     render_epoch: u32,
@@ -387,6 +405,7 @@ impl Default for ScreenShaderRuntime {
             imgui_hwnd: 0,
             imgui_needs_device_objects: false,
             selected_menu_item: MenuSelection::default(),
+            present_timing: PresentFrameTiming::default(),
             frame_pacing: FramePacing::default(),
             next_scan: None,
             render_epoch: 0,
@@ -815,6 +834,7 @@ impl ScreenShaderRuntime {
                 self.imgui = Some(imgui);
                 self.imgui_needs_device_objects = false;
                 IMGUI_READY.store(true, Ordering::Release);
+                set_menu_diagnostics_active(MENU_OPEN.load(Ordering::Acquire));
                 log::info!("[IMGUI] In-game shader menu initialized");
             }
             Err(err) => {
@@ -1443,7 +1463,7 @@ impl ScreenShaderRuntime {
         }
 
         let config = self.settings.menu_config.embedded_effects.depth_of_field;
-        let frame_seconds = self.frame_pacing.frame_seconds();
+        let frame_seconds = self.present_timing.frame_seconds();
         let native_dof_active = self.native_dof_active_this_frame;
         let frame_index = self.frame_index;
         let Some(effect) = self.depth_of_field.as_mut() else {
@@ -1527,6 +1547,9 @@ impl ScreenShaderRuntime {
         let Some(imgui) = self.imgui.as_mut() else {
             return Ok(());
         };
+
+        set_menu_diagnostics_active(true);
+        self.frame_pacing.begin_session();
 
         if self.imgui_needs_device_objects && imgui.create_device_objects() {
             self.imgui_needs_device_objects = false;
@@ -1875,10 +1898,28 @@ impl ScreenShaderRuntime {
 
     fn finish_present_frame(&mut self, device_ptr: *mut c_void) {
         let _ = device_ptr;
-        self.frame_pacing.record_frame();
+        let diagnostics_active = menu_diagnostics_active();
+        let depth_of_field_active = self.settings.menu_config.screen_space_shaders
+            && self
+                .settings
+                .menu_config
+                .embedded_effects
+                .depth_of_field
+                .enabled;
+        if !diagnostics_active && !depth_of_field_active {
+            self.present_timing.pause();
+            self.frame_pacing.pause();
+            return;
+        }
+
+        let now = Instant::now();
+        self.present_timing
+            .record_frame_at(now, depth_of_field_active);
+        self.frame_pacing.record_frame_at(now, diagnostics_active);
     }
 
     fn release_for_new_device(&mut self) {
+        set_menu_diagnostics_active(false);
         self.release_device_resources();
         self.imgui = None;
         self.imgui_hwnd = 0;
@@ -1887,6 +1928,7 @@ impl ScreenShaderRuntime {
     }
 
     fn release_device_resources(&mut self) {
+        set_menu_diagnostics_active(false);
         self.compiled = None;
         self.ambient_occlusion = None;
         self.anti_aliasing = None;
@@ -2295,6 +2337,42 @@ const FRAME_PACING_CHART_MAX_MS: f32 = 100.0;
 const FRAME_BUDGET_60_MS: f32 = 1_000.0 / 60.0;
 const FRAME_BUDGET_30_MS: f32 = 1_000.0 / 30.0;
 
+#[derive(Clone, Default)]
+struct PresentFrameTiming {
+    last_present: Option<Instant>,
+    frame_seconds: f32,
+}
+
+impl PresentFrameTiming {
+    fn record_frame_at(&mut self, now: Instant, active: bool) {
+        if !active {
+            self.pause();
+            return;
+        }
+        if let Some(last_present) = self.last_present {
+            self.frame_seconds = now
+                .duration_since(last_present)
+                .as_secs_f32()
+                .clamp(1.0 / 240.0, 0.1);
+        }
+        self.last_present = Some(now);
+    }
+
+    fn pause(&mut self) {
+        if self.last_present.take().is_some() {
+            self.frame_seconds = 0.0;
+        }
+    }
+
+    fn frame_seconds(&self) -> f32 {
+        if self.frame_seconds > 0.0 {
+            self.frame_seconds
+        } else {
+            1.0 / 60.0
+        }
+    }
+}
+
 #[derive(Clone)]
 struct FramePacing {
     samples: [f32; FRAME_PACING_HISTORY],
@@ -2302,6 +2380,7 @@ struct FramePacing {
     count: usize,
     last_present: Option<Instant>,
     smoothed_ms: f32,
+    active: bool,
 }
 
 impl Default for FramePacing {
@@ -2312,13 +2391,29 @@ impl Default for FramePacing {
             count: 0,
             last_present: None,
             smoothed_ms: 0.0,
+            active: false,
         }
     }
 }
 
 impl FramePacing {
-    fn record_frame(&mut self) {
-        let now = Instant::now();
+    fn begin_session(&mut self) {
+        if !self.active {
+            self.reset_samples();
+        }
+    }
+
+    fn record_frame_at(&mut self, now: Instant, active: bool) {
+        if !active {
+            self.pause();
+            return;
+        }
+        if !self.active {
+            self.reset_samples();
+            self.last_present = Some(now);
+            self.active = true;
+            return;
+        }
         if let Some(last_present) = self.last_present {
             let frame_ms = now
                 .duration_since(last_present)
@@ -2327,6 +2422,20 @@ impl FramePacing {
             self.record_sample(frame_ms);
         }
         self.last_present = Some(now);
+    }
+
+    fn pause(&mut self) {
+        if self.active {
+            self.last_present = None;
+            self.active = false;
+        }
+    }
+
+    fn reset_samples(&mut self) {
+        self.samples.fill(0.0);
+        self.next_index = 0;
+        self.count = 0;
+        self.smoothed_ms = 0.0;
     }
 
     fn record_sample(&mut self, frame_ms: f32) {
@@ -2441,14 +2550,6 @@ impl FramePacing {
             samples,
         }
     }
-
-    fn frame_seconds(&self) -> f32 {
-        if self.count == 0 {
-            return 1.0 / 60.0;
-        }
-        let index = (self.next_index + FRAME_PACING_HISTORY - 1) % FRAME_PACING_HISTORY;
-        (self.samples[index] * 0.001).clamp(1.0 / 240.0, 0.1)
-    }
 }
 
 fn nearest_rank(sorted_samples: &[f32], percentile: f32) -> f32 {
@@ -2498,7 +2599,11 @@ impl FramePacingSnapshot {
 
 #[cfg(test)]
 mod frame_pacing_tests {
-    use super::{FRAME_BUDGET_30_MS, FRAME_BUDGET_60_MS, FRAME_PACING_HISTORY, FramePacing};
+    use super::{
+        FRAME_BUDGET_30_MS, FRAME_BUDGET_60_MS, FRAME_PACING_HISTORY, FramePacing,
+        PresentFrameTiming,
+    };
+    use std::time::{Duration, Instant};
 
     fn assert_close(actual: f32, expected: f32) {
         assert!(
@@ -2584,6 +2689,37 @@ mod frame_pacing_tests {
         assert!(snapshot.average_ms.is_finite());
         assert!(snapshot.jitter_ms.is_finite());
         assert!(FRAME_BUDGET_60_MS < FRAME_BUDGET_30_MS);
+    }
+
+    #[test]
+    fn closed_menu_does_not_collect_frame_pacing() {
+        let mut pacing = FramePacing::default();
+        let start = Instant::now();
+        pacing.record_frame_at(start, false);
+        pacing.record_frame_at(start + Duration::from_millis(10), false);
+        assert!(pacing.snapshot().samples().is_empty());
+
+        pacing.record_frame_at(start + Duration::from_millis(20), true);
+        pacing.record_frame_at(start + Duration::from_millis(30), true);
+        assert_eq!(pacing.snapshot().samples(), &[10.0]);
+
+        pacing.record_frame_at(start + Duration::from_millis(40), false);
+        pacing.begin_session();
+        assert!(pacing.snapshot().samples().is_empty());
+        pacing.record_frame_at(start + Duration::from_millis(50), true);
+        assert!(pacing.snapshot().samples().is_empty());
+    }
+
+    #[test]
+    fn production_frame_delta_is_independent_of_menu_diagnostics() {
+        let mut timing = PresentFrameTiming::default();
+        let start = Instant::now();
+        timing.record_frame_at(start, true);
+        timing.record_frame_at(start + Duration::from_millis(20), true);
+        assert_close(timing.frame_seconds(), 0.020);
+
+        timing.record_frame_at(start + Duration::from_millis(30), false);
+        assert_close(timing.frame_seconds(), 1.0 / 60.0);
     }
 }
 
@@ -3289,7 +3425,7 @@ fn draw_native_pbr_config(
             &mut config.debug_log_draws,
         );
         let diagnostic_cost = cstring(
-            "Development aid: reads draw identity and native fade state only while enabled; logs state changes, not every draw.",
+            "Development aid: collected only while this menu is open; logs state changes, not every draw.",
         );
         ui.text_colored(MENU_MUTED_TEXT, &diagnostic_cost);
         if config.debug_log_draws {

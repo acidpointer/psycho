@@ -20,7 +20,7 @@ const AABB_CHECK_BOUND_ADDR: usize = 0x00C382B0;
 const BUILD_GEOMETRY_MATRIX_ADDR: usize = 0x00C4C2D0;
 const SHADOW_SCENE_NODE_SLOT_ADDR: usize = 0x011F91C8;
 const HDR_ENABLED_ADDR: usize = 0x011F941E;
-const POINT_LIGHT_OVERRIDE_COLOR_ADDR: usize = 0x011F4998;
+const NATIVE_BLACK_COLOR_ADDR: usize = 0x011F4998;
 
 const GEOMETRY_PARENT_OFFSET: usize = 0x18;
 const GEOMETRY_WORLD_TRANSFORM_OFFSET: usize = 0x68;
@@ -96,7 +96,7 @@ struct TerrainLightContext {
     transform: GeometryTransform,
     lighting_offset: [f32; 3],
     property_light_scale: f32,
-    point_light_override_color: [f32; 3],
+    native_black_color: [f32; 3],
     hdr: bool,
 }
 
@@ -207,14 +207,13 @@ unsafe fn capture_current_unchecked() -> Option<SupplementalTerrainLights> {
     if !property_light_scale.is_finite() {
         return Some(SupplementalTerrainLights::default());
     }
+    let native_black_color = unsafe { read_vec3(NATIVE_BLACK_COLOR_ADDR as *mut c_void, 0) };
     let scene_node = unsafe { read_shadow_scene_node() }?;
     let context = TerrainLightContext {
         transform: unsafe { read_geometry_transform(geometry) }?,
         lighting_offset: unsafe { read_vec3(scene_node, SHADOW_SCENE_NODE_LIGHTING_OFFSET) },
         property_light_scale,
-        point_light_override_color: unsafe {
-            read_vec3(POINT_LIGHT_OVERRIDE_COLOR_ADDR as *mut c_void, 0)
-        },
+        native_black_color,
         hdr: unsafe { (HDR_ENABLED_ADDR as *const u8).read() != 0 },
     };
 
@@ -251,9 +250,9 @@ unsafe fn capture_current_unchecked() -> Option<SupplementalTerrainLights> {
         scene_light = unsafe { next(property, &mut iterator) };
     }
 
-    // A zero-point row can expose no property-local candidate even though the
-    // scene manager owns an active portable light.
-    if manager_fallback_needed(native_point_count, merge.output.count) && !merge.is_full() {
+    // Property-local membership is not authoritative: any row can omit an
+    // active portable light even when it already contains unrelated lights.
+    if manager_supplement_needed(native_point_count, merge.output.count) {
         supplement_manager_lights(multibound_shape, &mut merge);
     }
 
@@ -278,6 +277,9 @@ fn supplement_captured_manager_lights(
         if merge.is_full() {
             break;
         }
+        if !merge.needs_identity(light.native_light_identity) {
+            continue;
+        }
         let candidate = TerrainLightCandidate {
             identity: light.native_light_identity,
             point: light.point,
@@ -295,8 +297,8 @@ fn supplement_captured_manager_lights(
     }
 }
 
-fn manager_fallback_needed(native_point_count: usize, supplemental_point_count: usize) -> bool {
-    native_point_count == 0 && supplemental_point_count == 0
+fn manager_supplement_needed(native_point_count: usize, supplemental_point_count: usize) -> bool {
+    native_point_count.saturating_add(supplemental_point_count) < MAX_TERRAIN_POINT_LIGHTS
 }
 
 fn shader_light(
@@ -324,7 +326,7 @@ fn shader_light(
             ]
             .iter(),
         )
-        .chain(context.point_light_override_color.iter())
+        .chain(context.native_black_color.iter())
         .chain(context.lighting_offset.iter())
         .chain(context.transform.world_to_local.iter().flatten())
         .all(|value| value.is_finite())
@@ -339,7 +341,7 @@ fn shader_light(
     let local_position = inverse_transform_point(world_position, context.transform)?;
     let radius = candidate.radius / context.transform.scale;
     let color = if context.property_light_scale < 1.0 {
-        context.point_light_override_color
+        context.native_black_color
     } else {
         let dimmer = if !context.hdr && candidate.dimmer > 1.0 {
             1.0
@@ -366,11 +368,9 @@ fn shader_light(
             local_position[2],
             radius,
         ],
-        // This path exists only for a point light omitted by the native
-        // non-shadow terrain pass. ShadowSceneLight+0xD4 can be zero while
-        // that light remains valid illumination, and VPT terrain consumes
-        // the staged RGB without using alpha. Keep native-row alpha fading in
-        // the shader, but make OMV-owned supplemental visibility explicit.
+        // VPT terrain consumes point-light RGB without alpha. Keep a neutral
+        // fourth component so native and recovered membership remain
+        // equivalent if the supplemental ABI is inspected independently.
         color_visibility: [color[0], color[1], color[2], 1.0],
     })
 }
@@ -567,7 +567,7 @@ mod tests {
         GEOMETRY_MATRIX_CONTEXT_OFFSET, GEOMETRY_WORLD_TRANSFORM_OFFSET, GeometryTransform,
         MAX_SUPPLEMENTAL_CONSTANTS, MAX_TERRAIN_POINT_LIGHTS, SupplementalTerrainLights,
         TerrainLightCandidate, TerrainLightContext, TerrainLightMerge, geometry_matrix_inputs,
-        inverse_transform_point, manager_fallback_needed, supplement_captured_manager_lights,
+        inverse_transform_point, manager_supplement_needed, supplement_captured_manager_lights,
     };
     use crate::fnv_local_lights::TerrainSceneLight;
 
@@ -596,7 +596,7 @@ mod tests {
             },
             lighting_offset: [1000.0, 2000.0, 3000.0],
             property_light_scale: 1.0,
-            point_light_override_color: [0.2, 0.4, 0.6],
+            native_black_color: [0.0; 3],
             hdr: true,
         }
     }
@@ -747,11 +747,20 @@ mod tests {
     }
 
     #[test]
-    fn manager_scan_is_limited_to_unlit_zero_point_rows() {
-        assert!(manager_fallback_needed(0, 0));
-        assert!(!manager_fallback_needed(1, 0));
-        assert!(!manager_fallback_needed(0, 1));
-        assert!(!manager_fallback_needed(24, 0));
+    fn manager_scan_is_used_whenever_point_light_capacity_remains() {
+        assert!(manager_supplement_needed(0, 0));
+        assert!(manager_supplement_needed(1, 0));
+        assert!(manager_supplement_needed(0, 1));
+        assert!(!manager_supplement_needed(24, 0));
+    }
+
+    #[test]
+    fn unrelated_native_light_does_not_hide_a_missing_manager_light() {
+        let mut merge = TerrainLightMerge::new(&[0x11000], 1, context());
+        supplement_captured_manager_lights(&[captured_manager_light(0x22000)], None, &mut merge);
+
+        let output = merge.finish();
+        assert_eq!(&output.identities[..output.count], &[0x22000]);
     }
 
     #[test]
@@ -816,21 +825,14 @@ mod tests {
     }
 
     #[test]
-    fn property_scale_below_one_uses_the_native_point_light_override_color() {
+    fn property_scale_below_one_reproduces_the_native_black_point_color() {
         let mut native_dark_path = context();
         native_dark_path.property_light_scale = 0.999;
-        native_dark_path.point_light_override_color = [0.125, 0.25, 0.5];
-        let mut dark_candidate = candidate(0x20000);
-        dark_candidate.diffuse = [0.0; 3];
-        dark_candidate.dimmer = 0.0;
-        dark_candidate.lod_dimmer = 0.0;
+        let dark_candidate = candidate(0x20000);
         let mut merge = TerrainLightMerge::new(&[], 0, native_dark_path);
 
-        assert!(merge.consider(dark_candidate));
-        assert_eq!(
-            merge.finish().lights()[0].color_visibility,
-            [0.125, 0.25, 0.5, 1.0]
-        );
+        assert!(!merge.consider(dark_candidate));
+        assert!(merge.finish().lights().is_empty());
         assert!(LIGHT_STAGING_AUDIT.contains("else if (param_3 < 1.0)"));
         assert!(LIGHT_STAGING_AUDIT.contains("local_20 = DAT_011f4998"));
         assert!(LIGHT_STAGING_AUDIT.contains("local_1c = DAT_011f499c"));
