@@ -579,6 +579,16 @@ pub(crate) fn append_diagnostic_report(out: &mut String) {
     push_report_section(out, "LOD streaming");
     push_report_value(
         out,
+        "Remove owner",
+        format!(
+            "{:08X} / {} exact / {} mismatch",
+            lod.alternate_remove_predecessor,
+            lod.alternate_removals,
+            lod.alternate_remove_mismatches,
+        ),
+    );
+    push_report_value(
+        out,
         "Ready owner",
         format!(
             "{:08X} / {} mismatch",
@@ -646,8 +656,9 @@ pub(crate) fn append_diagnostic_report(out: &mut String) {
         out,
         "Transitions",
         format!(
-            "{} uncertain / {} reload / {} teardown / {} world",
+            "{} uncertain events / {} current / {} reload / {} teardown / {} world",
             lod.state.uncertain_cells,
+            lod.state.current_uncertain_cells,
             lod.state.cell_reloads,
             lod.state.cell_teardowns,
             lod.state.worldspace_resets,
@@ -657,8 +668,9 @@ pub(crate) fn append_diagnostic_report(out: &mut String) {
         out,
         "LOD timing",
         format!(
-            "{} ms pending / {} us lock / trace {}",
+            "{} ms pending / {} ms uncertain / {} us lock / trace {}",
             lod.state.oldest_pending_ms,
+            lod.state.oldest_uncertain_ms,
             lod.state.max_lock_us,
             on_off(lod.state.trace_enabled),
         ),
@@ -773,9 +785,10 @@ pub(crate) fn append_diagnostic_report(out: &mut String) {
         .saturating_add(u64::from(low.patch_failures));
     let lod_alerts = lod
         .ready_predecessor_mismatches
+        .saturating_add(lod.alternate_remove_mismatches)
         .saturating_add(lod.state.membership_mismatches)
         .saturating_add(lod.state.stale_publications)
-        .saturating_add(lod.state.uncertain_cells);
+        .saturating_add(lod.state.current_uncertain_cells as u64);
     let tree_alerts = io
         .speedtree
         .missing_member_rejects

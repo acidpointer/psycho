@@ -37,6 +37,8 @@ const LOD_BLOCK_WORLD_SIZE_ADDR: usize = 0x0101_7A10;
 const CELL_VWD_TOTAL_OFFSET: usize = 0xA8;
 const CELL_VWD_READY_OFFSET: usize = 0xAA;
 
+const ALTERNATE_REMOVE_CALL_ORIGINAL: [u8; 5] = [0xE8, 0x99, 0x03, 0x00, 0x00];
+const ALTERNATE_REMOVE_CALL_MASK: [u8; 5] = [0xFF, 0x00, 0x00, 0x00, 0x00];
 const READY_CALL_ORIGINAL: [u8; 5] = [0xE8, 0xC7, 0x02, 0x00, 0x00];
 const READY_CALL_MASK: [u8; 5] = [0xFF, 0x00, 0x00, 0x00, 0x00];
 
@@ -71,6 +73,9 @@ pub(super) struct DiagnosticSnapshot {
     pub streaming_installed: bool,
     pub handoff_installed: bool,
     pub worldspace_reset_installed: bool,
+    pub alternate_remove_predecessor: usize,
+    pub alternate_removals: u64,
+    pub alternate_remove_mismatches: u64,
     pub ready_predecessor: usize,
     pub ready_predecessor_mismatches: u64,
     pub demand_calls: [u64; 3],
@@ -93,6 +98,10 @@ pub(super) struct DashboardSnapshot {
 static CONFIG: OnceLock<RuntimeConfig> = OnceLock::new();
 static STREAMING_INSTALLED: AtomicBool = AtomicBool::new(false);
 static HANDOFF_INSTALLED: AtomicBool = AtomicBool::new(false);
+static ALTERNATE_REMOVE_PREDECESSOR: AtomicUsize =
+    AtomicUsize::new(statics::LOD_CELL_ALTERNATE_DECREMENT_ADDR);
+static ALTERNATE_REMOVALS: AtomicU32 = AtomicU32::new(0);
+static ALTERNATE_REMOVE_MISMATCHES: AtomicU32 = AtomicU32::new(0);
 static READY_PREDECESSOR: AtomicUsize = AtomicUsize::new(statics::LOD_READY_INCREMENT_ADDR);
 static READY_PREDECESSOR_MISMATCHES: AtomicU32 = AtomicU32::new(0);
 
@@ -100,6 +109,25 @@ static DEMAND_CALLS: [AtomicU32; 3] = [const { AtomicU32::new(0) }; 3];
 static EXTENDED_DEMANDS: [AtomicU32; 3] = [const { AtomicU32::new(0) }; 3];
 static RETAINED_DEMANDS: [AtomicU32; 3] = [const { AtomicU32::new(0) }; 3];
 static RELEASE_PASSTHROUGHS: [AtomicU32; 3] = [const { AtomicU32::new(0) }; 3];
+
+static ALTERNATE_REMOVE_CALL_REPLACEMENT: LazyLock<[u8; 5]> = LazyLock::new(|| {
+    let displacement = (alternate_remove_entry as *const () as usize)
+        .wrapping_sub(statics::LOD_ALTERNATE_REMOVE_CALL_ADDR + 5) as i32;
+    let mut replacement = [0u8; 5];
+    replacement[0] = 0xE8;
+    replacement[1..].copy_from_slice(&displacement.to_le_bytes());
+    replacement
+});
+
+static ALTERNATE_REMOVE_CALL_PATCH: LazyLock<OwnedCodePatch> = LazyLock::new(|| {
+    OwnedCodePatch::masked(
+        "lod_alternate_remove_call",
+        statics::LOD_ALTERNATE_REMOVE_CALL_ADDR,
+        &ALTERNATE_REMOVE_CALL_ORIGINAL,
+        &ALTERNATE_REMOVE_CALL_MASK,
+        &*ALTERNATE_REMOVE_CALL_REPLACEMENT,
+    )
+});
 
 static READY_CALL_REPLACEMENT: LazyLock<[u8; 5]> = LazyLock::new(|| {
     let displacement = (ready_publication_entry as *const () as usize)
@@ -255,6 +283,7 @@ fn install_streaming_hooks() -> anyhow::Result<()> {
 }
 
 fn install_handoff_hooks() -> anyhow::Result<()> {
+    prepare_alternate_remove_callsite()?;
     prepare_ready_callsite()?;
     unsafe {
         statics::LOD_CELL_INSERT_HOOK.init(
@@ -266,11 +295,6 @@ fn install_handoff_hooks() -> anyhow::Result<()> {
             "lod_cell_membership_remove",
             statics::LOD_CELL_REMOVE_ADDR as *mut c_void,
             hook_cell_remove,
-        )?;
-        statics::LOD_CELL_ALTERNATE_DECREMENT_HOOK.init(
-            "lod_cell_identityless_decrement",
-            statics::LOD_CELL_ALTERNATE_DECREMENT_ADDR as *mut c_void,
-            hook_cell_alternate_decrement,
         )?;
         statics::LOD_CELL_READY_GATE_HOOK.init(
             "lod_cell_ready_gate",
@@ -295,12 +319,39 @@ fn install_handoff_hooks() -> anyhow::Result<()> {
     }
     transaction.enable_inline(&statics::LOD_CELL_INSERT_HOOK)?;
     transaction.enable_inline(&statics::LOD_CELL_REMOVE_HOOK)?;
-    transaction.enable_inline(&statics::LOD_CELL_ALTERNATE_DECREMENT_HOOK)?;
     transaction.enable_inline(&statics::LOD_CELL_RELOAD_RESET_HOOK)?;
     transaction.enable_inline(&statics::LOD_CELL_TEARDOWN_HOOK)?;
     transaction.enable_inline(&statics::LOD_CELL_READY_GATE_HOOK)?;
+    transaction.apply_patch(&ALTERNATE_REMOVE_CALL_PATCH)?;
     transaction.apply_patch(&READY_CALL_PATCH)?;
     transaction.commit();
+    Ok(())
+}
+
+fn prepare_alternate_remove_callsite() -> anyhow::Result<()> {
+    unsafe {
+        patching::verify_bytes(
+            statics::LOD_ALTERNATE_REMOVE_CALL_PREFIX_ADDR,
+            &statics::LOD_ALTERNATE_REMOVE_CALL_PREFIX_BYTES,
+        )?;
+        patching::verify_bytes(
+            statics::LOD_ALTERNATE_REMOVE_CALL_SUFFIX_ADDR,
+            &statics::LOD_ALTERNATE_REMOVE_CALL_SUFFIX_BYTES,
+        )?;
+    }
+    let predecessor =
+        unsafe { patching::relative_call_target(statics::LOD_ALTERNATE_REMOVE_CALL_ADDR) }
+            .context("read LOD alternate removal predecessor")?;
+    ensure!(
+        predecessor != alternate_remove_entry as *const () as usize,
+        "LOD alternate removal call already points to Psycho"
+    );
+    ensure!(
+        is_executable(predecessor),
+        "LOD alternate removal predecessor 0x{predecessor:08X} is not executable"
+    );
+    ALTERNATE_REMOVE_PREDECESSOR.store(predecessor, Ordering::Release);
+    ALTERNATE_REMOVE_CALL_PATCH.verify()?;
     Ok(())
 }
 
@@ -529,17 +580,6 @@ unsafe extern "thiscall" fn hook_cell_remove(cell: *mut c_void, reference: *mut 
     }
 }
 
-unsafe extern "fastcall" fn hook_cell_alternate_decrement(cell: *mut c_void) {
-    state::mark_uncertain(
-        cell,
-        read_cell_counter(cell, CELL_VWD_TOTAL_OFFSET).unwrap_or(i16::MIN),
-        read_cell_counter(cell, CELL_VWD_READY_OFFSET).unwrap_or(i16::MIN),
-    );
-    if let Ok(original) = statics::LOD_CELL_ALTERNATE_DECREMENT_HOOK.original() {
-        unsafe { original(cell) };
-    }
-}
-
 unsafe extern "fastcall" fn hook_cell_reload_reset(cell: *mut c_void) {
     state::reset_cell(
         cell,
@@ -570,6 +610,51 @@ unsafe extern "fastcall" fn hook_cell_ready_gate(cell: *mut c_void) -> u8 {
     let native_total = read_cell_counter(cell, CELL_VWD_TOTAL_OFFSET).unwrap_or(i16::MIN);
     let native_ready = read_cell_counter(cell, CELL_VWD_READY_OFFSET).unwrap_or(i16::MIN);
     u8::from(state::ready_gate(cell, native_total, native_ready, vanilla))
+}
+
+#[unsafe(naked)]
+unsafe extern "fastcall" fn alternate_remove_entry(_cell: *mut c_void) {
+    core::arch::naked_asm!(
+        "mov edx, [ebp - 0x68]",
+        "jmp {}",
+        sym alternate_remove_body,
+    );
+}
+
+unsafe extern "fastcall" fn alternate_remove_body(cell: *mut c_void, reference: *mut c_void) {
+    let total_before = read_cell_counter(cell, CELL_VWD_TOTAL_OFFSET);
+    let predecessor = ALTERNATE_REMOVE_PREDECESSOR.load(Ordering::Acquire);
+    if predecessor != 0 && predecessor != alternate_remove_entry as *const () as usize {
+        let function =
+            unsafe { FnPtr::<super::types::LodCellOwnerFn>::from_address_unchecked(predecessor) }
+                .as_fn();
+        unsafe { function(cell) };
+    }
+
+    let total_after = read_cell_counter(cell, CELL_VWD_TOTAL_OFFSET);
+    let ready_after = read_cell_counter(cell, CELL_VWD_READY_OFFSET).unwrap_or(i16::MIN);
+    if counter_decreased(total_before, total_after) && !reference.is_null() {
+        ALTERNATE_REMOVALS.fetch_add(1, Ordering::Relaxed);
+        state::observe_remove(
+            cell,
+            reference,
+            total_after.unwrap_or(i16::MIN),
+            ready_after,
+        );
+        return;
+    }
+
+    let count = ALTERNATE_REMOVE_MISMATCHES.fetch_add(1, Ordering::Relaxed) + 1;
+    if should_log_power_of_two(u64::from(count)) {
+        log::warn!(
+            "[LOD] Alternate removal predecessor did not preserve the exact transaction cell=0x{:08X} ref=0x{:08X} before={:?} after={:?} count={count}",
+            cell as usize,
+            reference as usize,
+            total_before,
+            total_after,
+        );
+    }
+    state::mark_uncertain(cell, total_after.unwrap_or(i16::MIN), ready_after);
 }
 
 #[unsafe(naked)]
@@ -667,6 +752,9 @@ pub(super) fn diagnostic_snapshot() -> DiagnosticSnapshot {
         streaming_installed: STREAMING_INSTALLED.load(Ordering::Acquire),
         handoff_installed: HANDOFF_INSTALLED.load(Ordering::Acquire),
         worldspace_reset_installed: statics::LOD_WORLDSPACE_RESET_HOOK.is_enabled(),
+        alternate_remove_predecessor: ALTERNATE_REMOVE_PREDECESSOR.load(Ordering::Acquire),
+        alternate_removals: u64::from(ALTERNATE_REMOVALS.load(Ordering::Relaxed)),
+        alternate_remove_mismatches: u64::from(ALTERNATE_REMOVE_MISMATCHES.load(Ordering::Relaxed)),
         ready_predecessor: READY_PREDECESSOR.load(Ordering::Acquire),
         ready_predecessor_mismatches: u64::from(
             READY_PREDECESSOR_MISMATCHES.load(Ordering::Relaxed),
@@ -707,4 +795,18 @@ pub(super) fn dashboard_snapshot() -> DashboardSnapshot {
 
 pub(super) fn append_trace_report(out: &mut String) {
     state::append_trace_report(out);
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn alternate_removal_keeps_reference_identity_at_the_callsite() {
+        let source = include_str!("mod.rs");
+
+        assert!(source.contains("fn alternate_remove_entry"));
+        assert!(source.contains("\"mov edx, [ebp - 0x68]\""));
+        assert!(source.contains("state::observe_remove("));
+        let obsolete_hook = ["fn hook_cell_", "alternate_decrement"].concat();
+        assert!(!source.contains(&obsolete_hook));
+    }
 }

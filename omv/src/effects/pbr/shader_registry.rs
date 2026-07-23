@@ -1435,6 +1435,68 @@ mod shader_compile_tests {
     }
 
     #[test]
+    fn terrain_lod_halfway_vectors_are_continuous_across_camera_motion() {
+        for (label, source) in [
+            ("land LOD", LAND_LOD_PIXEL_SOURCE),
+            ("terrain fade", TERRAIN_FADE_PIXEL_SOURCE),
+        ] {
+            assert!(
+                source.contains("float3 StableHalfway("),
+                "{label} has no continuous half-vector helper"
+            );
+            assert!(
+                source.contains("return halfway * rsqrt(max(length_squared, 1.0e-8f));"),
+                "{label} does not use the proven zero-safe normalization"
+            );
+            assert!(
+                !source.contains("SafeNormalize(eye_dir + sun_dir, normal)")
+                    && !source.contains("SafeNormalize(view_dir + sun_dir, normal)"),
+                "{label} still falls back discontinuously to the surface normal"
+            );
+        }
+
+        fn dielectric_diffuse_response(halfway_cosine: f32) -> f32 {
+            let fresnel = 0.04 + 0.96 * (1.0 - halfway_cosine.clamp(0.0, 1.0)).powi(5);
+            1.0 - fresnel
+        }
+
+        fn camera_view(tangent: f32) -> [f32; 3] {
+            [tangent, 0.0, -(1.0 - tangent * tangent).sqrt()]
+        }
+
+        fn legacy_response(view: [f32; 3]) -> f32 {
+            let light = [0.0, 0.0, 1.0];
+            let halfway = [view[0], view[1], view[2] + light[2]];
+            let halfway = if dot(halfway, halfway) > 1.0e-6 {
+                stable_vector(halfway)
+            } else {
+                light
+            };
+            dielectric_diffuse_response(dot(light, halfway))
+        }
+
+        fn stable_response(view: [f32; 3]) -> f32 {
+            let light = [0.0, 0.0, 1.0];
+            let halfway = stable_vector([view[0], view[1], view[2] + light[2]]);
+            dielectric_diffuse_response(dot(light, halfway))
+        }
+
+        let inside_cutoff = camera_view(0.0009);
+        let outside_cutoff = camera_view(0.0011);
+        let legacy_step = (legacy_response(inside_cutoff) - legacy_response(outside_cutoff)).abs();
+        let stable_step = (stable_response(inside_cutoff) - stable_response(outside_cutoff)).abs();
+
+        assert!(
+            legacy_step > 0.9,
+            "negative control no longer reproduces the terrain LOD lighting blink"
+        );
+        assert!(
+            stable_step < 0.001,
+            "camera motion still changes terrain LOD diffuse response by {stable_step}"
+        );
+    }
+
+    #[test]
     fn point_light_attenuation_is_finite_and_matches_vanilla_inside_valid_radii() {
         assert!(
             NVR_POINTLIGHTS_INCLUDE_SOURCE

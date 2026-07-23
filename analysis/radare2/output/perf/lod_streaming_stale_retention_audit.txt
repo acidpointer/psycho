@@ -1,0 +1,160 @@
+FNV LOD STALE-RETENTION CALLSITE AUDIT
+Date: 2026-07-23
+
+Question
+========
+
+Determine whether the cell-total decrement at 0x0055E1D0 is intrinsically
+identity-less, whether Psycho must permanently invalidate the handoff ledger
+when it runs, and whether native object LOD release is delayed after demand
+becomes false.
+
+Executable
+==========
+
+Path:
+  fnv_reverse/FalloutNV.exe
+
+Identity:
+  PE32 i386
+  image base 0x00400000
+  file size 16,084,808 bytes (0x00F56F48)
+  SHA-256 42fee7d6cd74e801372aa89c8f71c974cebd3c20ec9ad43d1465b8fa9646b49c
+
+Tool:
+  radare2 MCP, analysis level 2
+
+Proven facts
+============
+
+1. The decrement helper is cell-only, but its sole direct caller still owns
+   the exact reference identity.
+
+0x0055E1D0 is a 35-byte fastcall helper. ECX is the cell and the only state
+change is:
+
+  0x0055E1DA  mov cx, word [eax + 0xA8]
+  0x0055E1E1  sub cx, 1
+  0x0055E1E8  mov word [edx + 0xA8], cx
+
+The helper has one direct call xref, at 0x0055DE32 in the TESObjectREFR-family
+virtual function at 0x0055D760.
+
+That caller saves its incoming ECX at EBP-0x68:
+
+  0x0055D788  mov dword [ebp - 0x68], ecx
+
+The callsite then obtains the reference's current cell twice and calls the
+decrement helper:
+
+  0x0055DE1C  mov ecx, dword [ebp - 0x68]
+  0x0055DE1F  call 0x008D6F30
+  0x0055DE24  test eax, eax
+  0x0055DE26  je 0x0055DE37
+  0x0055DE28  mov ecx, dword [ebp - 0x68]
+  0x0055DE2B  call 0x008D6F30
+  0x0055DE30  mov ecx, eax
+  0x0055DE32  call 0x0055E1D0
+
+At 0x0055DE32:
+
+  ECX = current cell
+  [EBP-0x68] = exact TESObjectREFR being processed
+
+The identity is lost only after entering 0x0055E1D0. A function-entry hook at
+0x0055E1D0 cannot recover it because that helper establishes its own EBP frame.
+
+2. The current native executable has no second direct caller that would need a
+   separate identity contract.
+
+radare2 reports only the 0x0055DE32 call xref to 0x0055E1D0. This fact is
+specific to the executable identity above.
+
+3. Native distant-object release is immediate once demand is false.
+
+The object manager function at 0x006FDFC0 calls the object demand predicate:
+
+  0x006FE026  mov ecx, dword [ebp - 0x2C]
+  0x006FE029  call 0x006FE620
+  0x006FE031  test edx, edx
+  0x006FE033  je 0x006FE1C0
+
+On that false branch, a non-null node +0x14 object block is released and the
+slot is cleared in the same update:
+
+  0x006FE1C3  cmp dword [ecx + 0x14], 0
+  0x006FE1C7  je 0x006FE1FE
+  0x006FE1E0  mov ecx, dword [ebp - 0x24]
+  0x006FE1E3  call 0x006FD920
+  0x006FE1F4  mov edx, dword [ebp - 0x2C]
+  0x006FE1F7  mov dword [edx + 0x14], 0
+
+There is no native grace timer after Psycho's demand predicate returns false.
+Survival inside Psycho's configured retention band is intentional hysteresis;
+survival beyond it must come from another owner, including the handoff gate.
+
+Safe intervention point
+=======================
+
+Patch the relative call at 0x0055DE32, not the entry of 0x0055E1D0.
+
+A naked fastcall bridge can preserve the caller's existing ECX cell argument,
+load EDX from [EBP-0x68] as the exact reference, and enter a Rust
+fastcall(cell, reference) body. The body should:
+
+1. read cell +0xA8 before the predecessor;
+2. call the captured executable predecessor with the original cell ABI;
+3. read cell +0xA8 and +0xAA afterward;
+4. publish observe_remove(cell, reference, ...) only when +0xA8 changed by
+   exactly minus one;
+5. retain fail-closed mismatch handling when the predecessor or counter delta
+   is not the proven transaction.
+
+The patch must validate fixed surrounding callsite bytes, decode and retain the
+current relative-call predecessor for compatible chaining, reject a
+non-executable predecessor, and participate in the existing transactional
+handoff install. The current ready-publication call patch at 0x004520C4 is the
+local ABI and compatibility pattern.
+
+The function-entry inline hook and unconditional mark_uncertain transaction at
+0x0055E1D0 should then be removed. A native-total-zero recovery may safely
+reconstruct a certain empty cell as defense against a foreign mismatch, but it
+is not the primary repair and must not replace exact identity tracking.
+
+Runtime corroboration
+=====================
+
+The current Psycho log contains:
+
+  2026-07-23T14:42:52.572Z WARN ... [LOD] Cell membership became uncertain
+  after identity-less decrement cell=0xF1CC3180 generation=52 count=1
+
+Current source clears that cell's tracked membership, sets certain=false, and
+makes ready_gate return false until a proven reload, teardown, or worldspace
+reset. This is a direct mechanism for indefinitely retaining the distant
+representation. The log proves that mechanism executed in the observed runtime;
+it does not by itself identify which visible stale block the user noticed.
+
+Conclusions
+===========
+
+Proven:
+
+- The decrement is not identity-less at its only current callsite.
+- Psycho hooks one function too late and discards recoverable identity.
+- The resulting uncertain cell is intentionally unable to retire distant
+  coverage and can persist until a later reset transition.
+- Native object-block release itself has no post-demand delay.
+
+Inference requiring runtime correlation:
+
+- The user's exact stale visible LOD was the cell reported by the warning.
+  The mechanism and a live occurrence are proven, but no frame capture maps the
+  visible block to cell 0xF1CC3180.
+
+Do not:
+
+- force retirement of uncertain cells;
+- add a timeout that can create near/distant holes;
+- reduce retention multipliers as a substitute for repairing identity;
+- patch the 0x0055E1D0 prologue and attempt to read its caller's EBP.

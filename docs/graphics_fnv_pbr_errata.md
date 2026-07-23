@@ -8,7 +8,12 @@ Before touching native PBR, read this together with `AGENTS.md` and the relevant
 
 Object PBR and LandLOD PBR are separate paths and should not be blocked solely by close-terrain failures.
 
-Close terrain PBR is still experimental. OMV may replace the VPT close-terrain exterior shader-row family when VPT/FSL/LODFF are available, the material state is known exterior, and all active diffuse/normal samplers are already bound by the engine. Broad vanilla close terrain, interior terrain, and terrain fade remain blocked until their full draw and constant contracts are proven.
+Close terrain PBR is still experimental. OMV may replace the VPT close-terrain
+exterior shader-row family when VPT/FSL/LODFF are available, the material state
+is known exterior, and all active diffuse/normal samplers are already bound by
+the engine. Broad vanilla close terrain and interior terrain remain blocked
+until their full draw and constant contracts are proven. The separately proven
+TerrainFade and LandLOD pairs use their own strict draw and sampler gates.
 
 The last close-terrain runtime gate attempt was a failed fix: it caused about `-40 FPS` and produced no useful visual improvement.
 
@@ -880,6 +885,84 @@ Correct fix path:
 - At each proven close-terrain draw, require only the common vertex shader and the exact selected pixel variant.
 - At each proven object draw, require only its exact replacement vertex/pixel pair.
 - Leave that one draw vanilla while its variant is unavailable; admit it immediately once both handles exist.
+
+### 12. LandLOD Draws Switched Between PBR and Vanilla
+
+Symptom:
+
+- Distant-land lighting or a shadow-like shape blinks while the camera moves.
+- The same runtime first logs `LandLOD PBR active` and then
+  `LandLOD PBR kept vanilla: required native sampler is unbound`.
+
+Proven causes and limits:
+
+- The 2026-07-23 runtime activated LandLOD PBR at `14:43:54.293` and rejected a
+  later LandLOD draw at `14:43:54.721`. This proves draw-to-draw equation
+  switching, though it does not prove that this was the user's exact visible
+  event.
+- Admission runs from the Direct3D draw detour, after native texture setup, not
+  from the earlier `SetShaders` call.
+- Every installed `SLS2003.pso` quality-package variant declares and samples
+  `s0/s1/s4/s6/s7`. The OMV sampler gate matches native bytecode; there is no
+  proven reduced layout.
+- The old warning did not identify which stage was absent. The repaired build
+  reports exact missing and required sampler masks; the native binding owner
+  remains unresolved until that mask is reproduced.
+- LandLOD and TerrainFade production PBR used
+  `SafeNormalize(view + sun, normal)`. Near opposite view and sun vectors, that
+  fallback jumped to the surface normal. Both shaders now use the zero-safe
+  `StableHalfway` equation, with a numerical camera-sweep regression that also
+  preserves the old discontinuity as a negative control.
+- Base LandLOD and TerrainFade PBR do not sample a shadow texture. Native
+  projected LandLOD shadows are a separate shader family, so these facts prove
+  material/lighting instability rather than a shadow-map mutation.
+- OMV previously validated samplers only on the first intercepted draw after
+  `SetShaders`, then kept its replacement pair active until the next
+  `SetShaders` or present. The repaired path tracks required and missing masks
+  only for LandLOD and TerrainFade. A required stage becoming null restores
+  the native pair once; a later non-null bind of that missing stage schedules
+  one retry. Valid non-null swaps keep the active replacement pair. If texture
+  interception is unavailable, the compatibility path revalidates every draw.
+
+The first attempted ownership repair used one global wrapping texture
+generation. Every intercepted `SetTexture` performed an atomic increment, and
+the next draw restored the native vertex/pixel pair, repeated ownership and
+sampler checks, and rebound the replacement pair. It also applied this work to
+object and close-terrain draws. The user measured a 20 FPS regression. The
+generation and its unconditional draw invalidation were removed. A regression
+test now proves object/close-terrain masks are zero, valid texture swaps keep
+the current pair, and the `SetTexture` hook contains no atomic increment.
+
+Do not repeat:
+
+- Do not remove a required sampler from the gate because one draw arrives
+  incomplete.
+- Do not invent a white, flat-normal, child-as-parent, or other fallback
+  texture without proving that native ownership contract.
+- Do not call a camera-dependent lighting discontinuity a projected-shadow
+  defect without an A/B capture.
+- Do not assume one `SetShaders` call proves texture stability for every later
+  draw in that batch.
+
+Implemented fix and remaining closure:
+
+1. The build records bounded missing and required sampler masks independently
+   for LandLOD and TerrainFade while retaining vanilla fallback.
+2. `StableHalfway`, its source/numerical sweep regression, complete shader
+   compilation, and existing bytecode budgets are active for both families.
+3. Required/missing transition masks restore or retry only when a required
+   LandLOD/TerrainFade stage becomes null or recovers. The normal hot path adds
+   one relaxed mask load and no atomic read-modify-write, allocation, lock,
+   file I/O, shader compilation, or shader rebinding.
+4. Reproduce one missing mask, trace the native owner of that exact stage, and
+   repair that contract without weakening the sampler gate.
+5. If the artifact remains with PBR disabled, move the investigation to native
+   projected-shadow and geometry-handoff ownership.
+
+Validation on 2026-07-23: all 282 OMV tests passed on
+`i686-pc-windows-gnu`, including all registered shader compilation,
+half-vector continuity, exact sampler-mask ABI, and bounded sampler-transition
+ownership. The optimized OMV release build also passed.
 
 ## Required Proof Before Broadening Close Terrain PBR
 

@@ -313,10 +313,14 @@ only if vanilla decremented `+0xA8`. Measuring the native counter transition
 preserves vanilla VWD and exclusion semantics without duplicating hidden
 eligibility predicates.
 
-The alternate decrement at `0x0055E1D0` supplies a cell but no reference
-identity. It occurs on an InitItem/error path. Increment that cell's
-generation, clear its membership, mark it uncertain, and keep its distant
-representation. Do not guess which identity disappeared.
+The initial implementation intercepted the cell-only decrement helper at
+`0x0055E1D0` and treated the transition as identity-less. It increments that
+cell's generation, clears membership, marks it uncertain, and keeps distant
+coverage. The 2026-07-23 follow-up audit below supersedes that intervention:
+the helper's sole caller still owns the exact reference at `0x0055DE32`.
+Patch that callsite and remove the exact identity instead. Continue to mark a
+cell uncertain only when a real identity or counter mismatch remains; never
+guess which reference disappeared.
 
 ### Successful ready publication
 
@@ -383,7 +387,7 @@ in `engine_fixes/statics.rs`. Keep exact function signatures in
 | Worldspace LOD reset | `0x006FCE00` | clear sidecar, then chain |
 | Cell reference insertion | `0x00548230` | observe native counter delta |
 | Cell reference removal | `0x0054CA90` | observe native counter delta |
-| Identity-less decrement | `0x0055E1D0` | mark cell uncertain, then chain |
+| Alternate reference removal | current `0x0055E1D0`; repair `0x0055DE32` | replace function hook with exact-identity call thunk |
 | Ready publication call | `0x004520C4` | exact `E8 rel32` thunk patch |
 | Readiness gate | `0x005495A0` | sidecar decision hook |
 | Cell reload reset | `0x005508B0` | advance generation, then chain |
@@ -495,7 +499,7 @@ frame pacing.
 5. Add terrain prefetch with its smaller independent limits.
 6. Implement the generation/membership ledger without engine calls under its
    lock.
-7. Add insertion, removal, alternate decrement, reset, and teardown tracking.
+7. Add insertion, exact alternate removal, reset, and teardown tracking.
 8. Add the ready-publication thunk and predecessor chaining.
 9. Replace the readiness gate and add vanilla/sidecar disagreement counters.
 10. Add aggregate diagnostics and the optional trace ring.
@@ -524,8 +528,10 @@ Run runtime validation in this order.
    completion must be ignored.
 4. Reload a save, fast travel, cross worldspaces, and revisit unloaded cells.
    No generation may inherit state.
-5. Exercise an InitItem/error decrement. The cell must become uncertain and
-   retain distant coverage.
+5. Exercise the InitItem/error decrement through `0x0055DE32`. The exact
+   reference must be removed while the cell remains certain. A deliberately
+   invalid identity or counter delta must still become uncertain and retain
+   distant coverage.
 6. Confirm a fully ready current population arms the native transition no
    later than the next normal cell update.
 
@@ -694,11 +700,11 @@ reused live clone.
    reused gheap cell, design a second, tree-provenance quarantine around the
    exact 80-byte `BSTreeModel` and 160-byte core clone lifetimes. Do not add a
    size-class-wide cooldown, global quarantine, or PDD freeze.
-7. Repair the separate handoff resynchronization gap. An identity-less
-   decrement currently makes a cell uncertain and later produces stale-ready
-   and removal-mismatch bursts. Re-establish certainty only at a proven full
-   membership rebuild boundary; never guess a missing reference identity or
-   fall back to lifetime totals.
+7. Repair the separate handoff resynchronization gap at the exact
+   `0x0055DE32` callsite. The caller retains the reference at `[EBP-0x68]` and
+   the cell in `ECX`; route both through a predecessor-chaining thunk and
+   publish an exact removal only after the native minus-one counter delta.
+   Keep genuine mismatches fail-closed and never fall back to lifetime totals.
 8. Remove proof-only verbose telemetry after the lifetime assertion stays
    clean, retaining aggregate and power-of-two diagnostics.
 
@@ -1037,6 +1043,220 @@ reused live clone.
    counts, continued LOD priority activity, and no return of the prior
    exterior-owner, BSTree TLS, or SpeedTree failures.
 
+## Stale-retention and lighting-continuity audit: 2026-07-23
+
+### Outcome
+
+This audit found a real stale-LOD root cause and separated it from two
+independent OMV LandLOD lighting defects. The exact handoff repair, continuous
+half-vector math, and draw-scope texture revalidation were implemented on
+2026-07-23.
+
+| Observation | Status | Owner |
+|---|---|---|
+| Distant representation survives indefinitely | Fixed at the identity-preserving callsite | Psycho handoff ledger |
+| Survival within configured retention distance | Intentional | Psycho demand hysteresis |
+| Object block remains after demand becomes false | Rejected for the native manager | Native release is immediate |
+| LandLOD switches between OMV PBR and vanilla | Proven in the current runtime | OMV draw admission |
+| LandLOD/TerrainFade BRDF can jump near opposite view/light vectors | Fixed with continuous half-vector math | OMV shader math |
+| The user's visible shape change is an actual projected-shadow defect | Not proven | Needs visual A/B or capture |
+
+The stale-retention defect is not a native unload delay. The current runtime
+log records a cell becoming uncertain after the hook at `0x0055E1D0`.
+`mark_uncertain` clears every reference identity and sets `certain=false`.
+`ready_gate` then blocks distant-representation retirement until a cell reload,
+teardown, or worldspace reset. This fail-closed behavior prevents holes when
+identity truly is unknowable, but the new executable audit proves identity is
+available at the only callsite and Psycho discards it by hooking too late.
+
+### Alternate-decrement root cause and repair
+
+The current executable is PE32 i386, image base `0x00400000`, file size
+`16,084,808`, SHA-256
+`42fee7d6cd74e801372aa89c8f71c974cebd3c20ec9ad43d1465b8fa9646b49c`.
+The radare2 evidence is preserved in
+`analysis/radare2/output/perf/lod_streaming_stale_retention_audit.txt`.
+
+`0x0055E1D0` receives only the cell in `ECX` and decrements cell `+0xA8`.
+Its sole direct call is `0x0055DE32` inside the TESObjectREFR-family function
+at `0x0055D760`. That caller saved the exact reference at `[EBP-0x68]`, obtains
+its current cell through `0x008D6F30`, leaves the cell in `ECX`, and then calls
+the decrement. The information contract at the callsite is therefore:
+
+```text
+ECX         current cell
+[EBP-0x68] exact TESObjectREFR
+```
+
+The function-entry hook cannot recover the caller's frame after `0x0055E1D0`
+creates its own `EBP`. The implemented repair is an exact callsite patch:
+
+1. Replace the relative call at `0x0055DE32` with a naked fastcall bridge.
+2. Preserve `ECX`, load `EDX = [EBP-0x68]`, and enter a
+   `fastcall(cell, reference)` body.
+3. Capture and chain the current executable predecessor, as the existing ready
+   publication call patch does.
+4. Observe the native total before and after the predecessor. Publish
+   `observe_remove` only for an exact minus-one transition.
+5. Validate the fixed prefix and suffix, the relative-call encoding, and an
+   executable predecessor; include the patch in the handoff transaction.
+6. Remove the `0x0055E1D0` function-entry hook and its unconditional
+   `mark_uncertain` path.
+7. Keep fail-closed behavior for an absent identity, an untracked reference, or
+   an invalid predecessor/counter delta. Never guess which reference left.
+
+`alternate_remove_entry` is a naked fastcall bridge. Release disassembly
+proves its complete ABI boundary is `mov edx,[ebp-0x68]` followed by a direct
+jump to `alternate_remove_body`; no compiler prologue changes the caller frame.
+The body chains the captured predecessor and publishes the reference removal
+only when the native counter changes by exactly minus one. Every other outcome
+marks that cell uncertain and remains fail-closed.
+
+The current warning at
+`psycho-engine-fixes/psycho-engine-fixes-latest.log:309` proves the broken path
+ran for cell `0xF1CC3180`. It does not prove that this address owned the exact
+visible stale block reported by the user; correlating geometry to the cell
+still requires trace or a frame capture.
+
+### Native unloading and retention
+
+The object manager at `0x006FDFC0` calls demand predicate `0x006FE620`. When
+demand is false, `0x006FE1C0..0x006FE1F7` releases a non-null object block
+through `0x006FD920` and clears node `+0x14` in the same manager update. There
+is no native post-demand grace timer to shorten.
+
+The configured `1.35` object/tree prefetch and `1.50` retention multipliers are
+therefore doing the intended work. In area-order terms they can expose about
+`1.35^2 = 1.82` times the vanilla request footprint and retain up to
+`1.50^2 = 2.25` times it; hierarchical overlap means those are not measured
+memory multipliers. Terrain remains narrower at `1.10/1.20`. Final defaults
+still require a long traversal showing a resident-memory and 32-bit-VAS
+plateau. Reducing these values would hide load, not fix indefinite retention.
+
+### LandLOD lighting evidence
+
+The current OMV log provides two direct facts:
+
+- LandLOD PBR became active at `14:43:54.293`.
+- At `14:43:54.721`, OMV kept a LandLOD draw vanilla because a required native
+  sampler was unbound.
+
+OMV performs this check from the intercepted Direct3D draw call, after the
+engine has had the opportunity to bind textures, so this is not merely
+`SetShaders` running before texture setup. The native `SLS2003.pso` bytecode in
+every one of the 16 installed shader packages declares and samples
+`s0/s1/s4/s6/s7`. OMV's five-stage requirement exactly matches that ABI.
+There is no proven reduced native variant to emulate. The old warning did not
+report the missing stage, so whether the bad state originates in base, normal,
+parent diffuse, parent normal, or noise ownership remains open. The repaired
+build logs a bounded missing-stage bitmask and the full required mask on the
+first failure of each terrain family.
+
+This produces a visible continuity hazard: nearby draws can use materially
+different OMV PBR and vanilla equations. The safe next investigation is to
+record the missing sampler mask and pass/draw identity, then prove the engine
+owner that should bind that exact stage. Do not invent a white, flat-normal,
+child-as-parent, or other fallback texture before that ownership is closed.
+
+There was a second source-proven defect. Both production shaders
+`native_pbr_pplighting_landlod.hlsl` and
+`native_pbr_pplighting_terrainfade.hlsl` used:
+
+```hlsl
+SafeNormalize(view_dir + sun_dir, normal)
+```
+
+When the view nearly opposes the sun, this switched discontinuously from the
+normalized half-vector to the surface normal. LandLOD and TerrainFade now use
+the same zero-safe `StableHalfway` equation as object and close terrain. A
+numerical negative-control test reproduces the old step and proves the new
+camera sweep remains continuous; the complete OMV shader suite compiles the
+affected programs.
+
+Neither base LandLOD nor TerrainFade PBR samples a shadow texture. Native
+LandLOD projected-shadow rendering is a separate shader family and native
+transition owner. Consequently the current evidence proves lighting/material
+instability, not that OMV is changing a projected shadow map. Stale overlap
+from the handoff defect can also change silhouettes and native shadow coverage,
+but linking either mechanism to the user's exact visual symptom remains an
+inference until an A/B capture.
+
+### Implemented repair and remaining runtime closure
+
+1. **Exact handoff identity: implemented.** The transaction patches
+   `0x0055DE32`, chains the current predecessor, removes the identity-losing
+   function-entry hook, and preserves fail-closed mismatch handling.
+2. **Ledger regression tests: implemented.** Pure state tests cover exact
+   removal, duplicate insertion/publication, missing identity, native-count
+   agreement, and retirement gating. Existing reload, teardown, and world
+   reset paths remain the only recovery boundary for genuinely uncertain
+   cells.
+3. **Uncertainty telemetry: implemented.** `PsychoInfo` reports exact and
+   mismatched alternate removals, current uncertain-cell count, and oldest
+   uncertainty age separately from lifetime event totals.
+4. **Half-vector continuity: implemented.** LandLOD and TerrainFade use
+   `StableHalfway`; the source/numerical regression covers both shaders, and
+   all registered variants compile within the existing suite.
+5. **Missing-stage isolation: implemented; native-owner repair awaits one
+   runtime mask.** The fallback now reports exact missing and required sampler
+   masks independently for LandLOD and TerrainFade. The gate remains strict;
+   the next reproduced mask identifies the engine binding owner to trace.
+6. **Draw-scope ownership: implemented without shader churn.** Only LandLOD
+   and TerrainFade publish required-sampler masks. A non-null replacement on a
+   required stage keeps the active shader pair unchanged. A required stage
+   becoming null restores the native pair once; rebinding is retried only when
+   a recorded missing stage becomes non-null. Object and close-terrain draws
+   publish no direct-transition mask. If the texture hook is unavailable, the
+   safe compatibility path re-evaluates every draw.
+   The normal `SetTexture` path adds one relaxed mask load and an immediate
+   zero-mask exit for unrelated families. It performs no atomic
+   read-modify-write, allocation, lock, file I/O, or shader rebinding for a
+   valid texture swap.
+7. **Measure before scheduler retuning.** Priority `0` is the proven highest
+   valid native priority and fixes the earlier `255` starvation. It also
+   applies to speculative prefetch because constructors do not currently carry
+   demand provenance. Capture queue wait/completion latency and non-LOD
+   starvation before proposing a tiered priority; keep `0` until evidence
+   rejects it.
+
+Do not add a timeout-based forced handoff, uncap the completed-task drain,
+increase worker count, or remove object/tree/terrain coverage. Those changes do
+not repair either proven defect and can reintroduce holes, races, or 32-bit
+address pressure.
+
+### Runtime acceptance
+
+1. Run a clean process with LOD trace enabled. Exercise the former alternate
+   decrement path. Exact alternate-removal counters must rise while current
+   uncertain cells remain zero.
+2. Cross the object/tree retention boundary and remain outside it. The native
+   block pointers and distant representations must retire without requiring a
+   cell reload; memory and VAS must plateau over a long route.
+3. Reverse direction repeatedly across prefetch and retention bands. Require
+   no holes, stale-ready publication, or unbounded request/release oscillation.
+4. Rotate and approach the reported LandLOD/TerrainFade scene. Require no
+   missing-sampler fallback, no PBR/vanilla style switch, and no half-vector
+   brightness/shape jump.
+5. If a true cast-shadow edge still changes with PBR disabled and the handoff
+   ledger certain, capture the draw. That result belongs to native projected
+   shadow/geometry handoff research, not another speculative streaming patch.
+
+### Validation evidence
+
+- `cargo test --target i686-pc-windows-gnu -p psycho-engine-fixes`: 41 unit
+  tests and doctests passed.
+- `cargo test --target i686-pc-windows-gnu -p omv`: 292 tests passed,
+  including all registered shader compilation, half-vector continuity,
+  sampler-mask ABI, and bounded sampler-transition ownership regressions.
+- The complete supported release command for `syringe`,
+  `psycho-engine-fixes`, `psycho-engine-fixes-helper`, and `omv` passed for
+  `i686-pc-windows-gnu`.
+- Release PE32 disassembly of `alternate_remove_entry` is exactly
+  `mov edx,[ebp-0x68]` then `jmp alternate_remove_body`.
+
+Runtime traversal and the next missing-sampler mask remain playtest evidence,
+not static proof.
+
 ## Research authority
 
 - `analysis/ghidra/output/perf/lod_streaming_pipeline_contract_audit.txt`
@@ -1055,6 +1275,7 @@ reused live clone.
 - `analysis/ghidra/output/crash/lod_vertex_buffer_geometry_group_allocation_followup_audit.txt`
 - `analysis/ghidra/output/crash/lod_static_vertex_buffer_allocation_failure_final_audit.txt`
 - `analysis/ghidra/output/crash/lod_static_vertex_buffer_creation_leaf_retry_audit.txt`
+- `analysis/radare2/output/perf/lod_streaming_stale_retention_audit.txt`
 
 The matching source scripts are:
 

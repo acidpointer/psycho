@@ -32,6 +32,13 @@ float3 SafeNormalize(float3 value, float3 fallback)
     return (len_sq > 0.000001f) ? value * rsqrt(len_sq) : fallback;
 }
 
+float3 StableHalfway(float3 view_dir, float3 light_dir)
+{
+    float3 halfway = view_dir + light_dir;
+    float length_squared = dot(halfway, halfway);
+    return halfway * rsqrt(max(length_squared, 1.0e-8f));
+}
+
 float Shades(float3 a, float3 b)
 {
     return saturate(dot(a, b));
@@ -128,7 +135,7 @@ float3 PbrSun(float roughness, float3 albedo, float3 normal, float3 view_dir, fl
         ? SafeNormalize(dist * light_dir + SafeNormalize(closest_point, reflect_dir) * radius, reflect_dir)
         : reflect_dir;
 
-    float3 halfway = SafeNormalize(view_dir + sun_dir, normal);
+    float3 halfway = StableHalfway(view_dir, sun_dir);
     float ndots = max(Shades(normal, sun_dir), 0.00001f);
     float ndotv = max(Shades(normal, view_dir), 0.00001f);
     float ndoth = Shades(normal, halfway);

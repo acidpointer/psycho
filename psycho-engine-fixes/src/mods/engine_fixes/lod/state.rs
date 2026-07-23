@@ -46,8 +46,16 @@ struct TransitionCounts {
 struct CellState {
     generation: u64,
     certain: bool,
+    uncertain_since: u32,
     ready_count: usize,
     references: FxHashMap<usize, ReferenceState>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ReadyResult {
+    Published,
+    Duplicate,
+    Stale,
 }
 
 impl CellState {
@@ -55,9 +63,72 @@ impl CellState {
         Self {
             generation,
             certain: true,
+            uncertain_since: 0,
             ready_count: 0,
             references: FxHashMap::default(),
         }
+    }
+
+    fn mark_uncertain(&mut self, now: u32) {
+        if self.certain {
+            self.uncertain_since = now;
+        }
+        self.certain = false;
+    }
+
+    fn insert_reference(&mut self, reference: usize, now: u32) -> bool {
+        let previous = self.references.insert(
+            reference,
+            ReferenceState {
+                ready: false,
+                pending_since: now,
+            },
+        );
+        if let Some(previous) = previous {
+            self.mark_uncertain(now);
+            if previous.ready {
+                self.ready_count = self.ready_count.saturating_sub(1);
+            }
+            false
+        } else {
+            true
+        }
+    }
+
+    fn remove_reference(&mut self, reference: usize, now: u32) -> bool {
+        match self.references.remove(&reference) {
+            Some(reference) => {
+                if reference.ready {
+                    self.ready_count = self.ready_count.saturating_sub(1);
+                }
+                true
+            }
+            None => {
+                self.mark_uncertain(now);
+                false
+            }
+        }
+    }
+
+    fn publish_ready(&mut self, reference: usize) -> ReadyResult {
+        if !self.certain {
+            return ReadyResult::Stale;
+        }
+        let Some(reference) = self.references.get_mut(&reference) else {
+            return ReadyResult::Stale;
+        };
+        if reference.ready {
+            return ReadyResult::Duplicate;
+        }
+        reference.ready = true;
+        self.ready_count += 1;
+        ReadyResult::Published
+    }
+
+    fn allows_retirement(&self, native_total: i16) -> bool {
+        let tracked = self.references.len();
+        let native_matches = native_total >= 0 && usize::from(native_total as u16) == tracked;
+        self.certain && native_matches && tracked != 0 && tracked == self.ready_count
     }
 }
 
@@ -119,6 +190,8 @@ pub(crate) struct Snapshot {
     pub gate_disagreements: u64,
     pub stale_retirements_prevented: u64,
     pub uncertain_cells: u64,
+    pub current_uncertain_cells: usize,
+    pub oldest_uncertain_ms: u32,
     pub cell_reloads: u64,
     pub cell_teardowns: u64,
     pub worldspace_resets: u64,
@@ -159,20 +232,9 @@ pub(super) fn observe_insert(
         let mut ledger = LEDGER.lock();
         let (generation, tracked, ready, inserted) = {
             let state = ledger.cell_mut(cell_address);
-            let previous = state.references.insert(
-                reference_address,
-                ReferenceState {
-                    ready: false,
-                    pending_since: now,
-                },
-            );
-            let inserted = previous.is_none();
-            if let Some(previous) = previous {
+            let inserted = state.insert_reference(reference_address, now);
+            if !inserted {
                 MEMBERSHIP_MISMATCHES.fetch_add(1, Ordering::Relaxed);
-                state.certain = false;
-                if previous.ready {
-                    state.ready_count = state.ready_count.saturating_sub(1);
-                }
             }
             let ready = state.ready_count;
             (state.generation, state.references.len(), ready, inserted)
@@ -217,31 +279,16 @@ pub(super) fn observe_remove(
     }
 
     let timer = lock_timer();
+    let now = libpsycho::os::windows::winapi::get_tick_count();
     let cell_address = cell as usize;
     let reference_address = reference as usize;
-    let mut mismatch = false;
-    let (generation, tracked, ready, cells, references) = {
+    let (generation, tracked, ready, removed, cells, references) = {
         let mut ledger = LEDGER.lock();
         let (generation, tracked, ready, removed) = {
             let state = ledger.cell_mut(cell_address);
-            let removed = state.references.remove(&reference_address);
-            match removed {
-                Some(reference) if reference.ready => {
-                    state.ready_count = state.ready_count.saturating_sub(1);
-                }
-                Some(_) => {}
-                None => {
-                    state.certain = false;
-                    mismatch = true;
-                }
-            }
+            let removed = state.remove_reference(reference_address, now);
             let ready = state.ready_count;
-            (
-                state.generation,
-                state.references.len(),
-                ready,
-                removed.is_some(),
-            )
+            (state.generation, state.references.len(), ready, removed)
         };
         if removed {
             ledger.reference_count = ledger.reference_count.saturating_sub(1);
@@ -250,6 +297,7 @@ pub(super) fn observe_remove(
             generation,
             tracked,
             ready,
+            removed,
             ledger.cells.len(),
             ledger.reference_count,
         )
@@ -257,7 +305,7 @@ pub(super) fn observe_remove(
     finish_lock_timer(timer);
 
     MEMBERSHIP_REMOVALS.fetch_add(1, Ordering::Relaxed);
-    if mismatch {
+    if !removed {
         let count = MEMBERSHIP_MISMATCHES.fetch_add(1, Ordering::Relaxed) + 1;
         log_sampled(
             count,
@@ -314,17 +362,10 @@ pub(super) fn observe_ready(
             );
             return;
         };
-        if !state.certain {
-            stale = true;
-        } else if let Some(reference_state) = state.references.get_mut(&reference_address) {
-            if reference_state.ready {
-                duplicate = true;
-            } else {
-                reference_state.ready = true;
-                state.ready_count += 1;
-            }
-        } else {
-            stale = true;
+        match state.publish_ready(reference_address) {
+            ReadyResult::Published => {}
+            ReadyResult::Duplicate => duplicate = true,
+            ReadyResult::Stale => stale = true,
         }
         let ready = state.ready_count;
         (state.generation, state.references.len(), ready)
@@ -420,8 +461,7 @@ pub(super) fn ready_gate(
         };
         let tracked = state.references.len();
         let ready = state.ready_count;
-        let native_matches = native_total >= 0 && usize::from(native_total as u16) == tracked;
-        let allowed = state.certain && native_matches && tracked != 0 && tracked == ready;
+        let allowed = state.allows_retirement(native_total);
         (allowed, state.generation, tracked, ready)
     };
     finish_lock_timer(timer);
@@ -478,6 +518,7 @@ pub(super) fn mark_uncertain(cell: *mut libc::c_void, native_total: i16, native_
     }
 
     let timer = lock_timer();
+    let now = libpsycho::os::windows::winapi::get_tick_count();
     let cell_address = cell as usize;
     let (generation, tracked, ready, cells, references) = {
         let mut ledger = LEDGER.lock();
@@ -489,7 +530,7 @@ pub(super) fn mark_uncertain(cell: *mut libc::c_void, native_total: i16, native_
                 .or_insert_with(|| CellState::new(generation));
             let removed = state.references.len();
             state.generation = generation;
-            state.certain = false;
+            state.mark_uncertain(now);
             state.ready_count = 0;
             state.references.clear();
             removed
@@ -503,7 +544,7 @@ pub(super) fn mark_uncertain(cell: *mut libc::c_void, native_total: i16, native_
     log_sampled(
         count,
         format_args!(
-            "[LOD] Cell membership became uncertain after identity-less decrement cell=0x{cell_address:08X} generation={generation} count={count}"
+            "[LOD] Cell membership became uncertain after an unprovable transition cell=0x{cell_address:08X} generation={generation} count={count}"
         ),
     );
     publish_sizes(cells, references);
@@ -627,16 +668,27 @@ pub(super) fn reset_worldspace() {
 
 pub(super) fn snapshot() -> Snapshot {
     let now = libpsycho::os::windows::winapi::get_tick_count();
-    let oldest_pending_ms = {
+    let (oldest_pending_ms, current_uncertain_cells, oldest_uncertain_ms) = {
         let ledger = LEDGER.lock();
-        ledger
+        let oldest_pending_ms = ledger
             .cells
             .values()
             .flat_map(|cell| cell.references.values())
             .filter(|reference| !reference.ready)
             .map(|reference| now.wrapping_sub(reference.pending_since))
             .max()
-            .unwrap_or(0)
+            .unwrap_or(0);
+        let mut current_uncertain_cells = 0usize;
+        let mut oldest_uncertain_ms = 0u32;
+        for cell in ledger.cells.values().filter(|cell| !cell.certain) {
+            current_uncertain_cells += 1;
+            oldest_uncertain_ms = oldest_uncertain_ms.max(now.wrapping_sub(cell.uncertain_since));
+        }
+        (
+            oldest_pending_ms,
+            current_uncertain_cells,
+            oldest_uncertain_ms,
+        )
     };
 
     Snapshot {
@@ -652,6 +704,8 @@ pub(super) fn snapshot() -> Snapshot {
         gate_disagreements: GATE_DISAGREEMENTS.load(Ordering::Relaxed),
         stale_retirements_prevented: STALE_RETIREMENTS_PREVENTED.load(Ordering::Relaxed),
         uncertain_cells: UNCERTAIN_CELLS.load(Ordering::Relaxed),
+        current_uncertain_cells,
+        oldest_uncertain_ms,
         cell_reloads: CELL_RELOADS.load(Ordering::Relaxed),
         cell_teardowns: CELL_TEARDOWNS.load(Ordering::Relaxed),
         worldspace_resets: WORLDSPACE_RESETS.load(Ordering::Relaxed),
@@ -837,5 +891,61 @@ fn event_name(event: u32) -> &'static str {
         EVENT_TEARDOWN => "teardown",
         EVENT_WORLDSPACE_RESET => "worldspace-reset",
         _ => "unknown",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{CellState, ReadyResult};
+
+    #[test]
+    fn exact_removal_preserves_certainty_and_ready_count() {
+        let mut cell = CellState::new(7);
+        assert!(cell.insert_reference(0x1000, 10));
+        assert!(cell.insert_reference(0x2000, 11));
+        assert_eq!(cell.publish_ready(0x1000), ReadyResult::Published);
+        assert_eq!(cell.publish_ready(0x2000), ReadyResult::Published);
+        assert!(cell.allows_retirement(2));
+
+        assert!(cell.remove_reference(0x1000, 20));
+        assert!(cell.certain);
+        assert_eq!(cell.references.len(), 1);
+        assert_eq!(cell.ready_count, 1);
+        assert!(cell.allows_retirement(1));
+    }
+
+    #[test]
+    fn missing_removal_fails_closed_and_records_uncertainty_age() {
+        let mut cell = CellState::new(9);
+        assert!(cell.insert_reference(0x1000, 10));
+        assert!(!cell.remove_reference(0x2000, 25));
+        assert!(!cell.certain);
+        assert_eq!(cell.uncertain_since, 25);
+        assert!(!cell.allows_retirement(1));
+        assert_eq!(cell.publish_ready(0x1000), ReadyResult::Stale);
+    }
+
+    #[test]
+    fn duplicate_insert_and_ready_publication_fail_closed() {
+        let mut cell = CellState::new(11);
+        assert!(cell.insert_reference(0x1000, 10));
+        assert_eq!(cell.publish_ready(0x1000), ReadyResult::Published);
+        assert_eq!(cell.publish_ready(0x1000), ReadyResult::Duplicate);
+        assert!(!cell.insert_reference(0x1000, 30));
+        assert!(!cell.certain);
+        assert_eq!(cell.ready_count, 0);
+        assert!(!cell.allows_retirement(1));
+    }
+
+    #[test]
+    fn retirement_requires_exact_native_total_and_nonempty_ready_membership() {
+        let mut cell = CellState::new(13);
+        assert!(!cell.allows_retirement(0));
+        assert!(cell.insert_reference(0x1000, 10));
+        assert!(!cell.allows_retirement(1));
+        assert_eq!(cell.publish_ready(0x1000), ReadyResult::Published);
+        assert!(!cell.allows_retirement(0));
+        assert!(!cell.allows_retirement(2));
+        assert!(cell.allows_retirement(1));
     }
 }
