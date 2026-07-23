@@ -50,9 +50,8 @@ enum BlockedDeviceKind {
 }
 
 pub(crate) fn set_menu_input_blocked(blocked: bool) {
-    refresh_devices();
-
     if blocked {
+        refresh_devices();
         ensure_hooks_installed();
     }
 
@@ -63,6 +62,16 @@ pub(crate) fn set_menu_input_blocked(blocked: bool) {
             if blocked { "blocked" } else { "restored" }
         );
     }
+}
+
+#[cfg(test)]
+pub(crate) fn set_menu_input_blocked_for_test(blocked: bool) {
+    MENU_INPUT_BLOCKED.store(blocked, Ordering::Release);
+}
+
+#[cfg(test)]
+pub(crate) fn menu_input_blocked_for_test() -> bool {
+    MENU_INPUT_BLOCKED.load(Ordering::Acquire)
 }
 
 fn ensure_hooks_installed() {

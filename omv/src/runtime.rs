@@ -102,6 +102,40 @@ pub(crate) fn configure(settings: RuntimeSettings) {
     runtime.configure(settings);
 }
 
+pub(crate) fn prepare_for_game_load() {
+    MENU_OPEN.store(false, Ordering::Release);
+    MENU_KEY_CAPTURE_ACTIVE.store(false, Ordering::Release);
+    PENDING_MENU_TOGGLE_KEY.store(0, Ordering::Release);
+    set_menu_diagnostics_active(false);
+    crate::input::set_menu_input_blocked(false);
+}
+
+#[cfg(test)]
+mod load_transition_tests {
+    use super::{
+        MENU_KEY_CAPTURE_ACTIVE, MENU_OPEN, PENDING_MENU_TOGGLE_KEY, menu_diagnostics_active,
+        prepare_for_game_load, set_menu_diagnostics_active,
+    };
+    use std::sync::atomic::Ordering;
+
+    #[test]
+    fn game_load_releases_all_workbench_input_ownership() {
+        MENU_OPEN.store(true, Ordering::Release);
+        MENU_KEY_CAPTURE_ACTIVE.store(true, Ordering::Release);
+        PENDING_MENU_TOGGLE_KEY.store(0x41, Ordering::Release);
+        set_menu_diagnostics_active(true);
+        crate::input::set_menu_input_blocked_for_test(true);
+
+        prepare_for_game_load();
+
+        assert!(!MENU_OPEN.load(Ordering::Acquire));
+        assert!(!MENU_KEY_CAPTURE_ACTIVE.load(Ordering::Acquire));
+        assert_eq!(PENDING_MENU_TOGGLE_KEY.load(Ordering::Acquire), 0);
+        assert!(!menu_diagnostics_active());
+        assert!(!crate::input::menu_input_blocked_for_test());
+    }
+}
+
 pub(crate) fn needs_native_dof_query() -> bool {
     NATIVE_DOF_QUERY_NEEDED.load(Ordering::Acquire)
 }

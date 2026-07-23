@@ -74,11 +74,25 @@ fn plugin_load(nvse: *const NVSEInterfaceFFI) -> anyhow::Result<()> {
 fn handle_message(msg: &NVSEMessage) {
     match msg.get_type() {
         NVSEMessageType::PostLoad => crate::startup::observe_post_load(),
+        NVSEMessageType::PreLoadGame => crate::runtime::prepare_for_game_load(),
         NVSEMessageType::DeferredInit => {
             if let Err(err) = crate::startup::install_deferred_hooks() {
                 log::error!("[XNVSE] Deferred graphics hook install failed: {err:#}");
             }
         }
         _ => {}
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn preload_message_releases_workbench_ownership_before_native_load() {
+        let source = include_str!("nvse_plugin.rs");
+        assert!(
+            source.contains(
+                "NVSEMessageType::PreLoadGame => crate::runtime::prepare_for_game_load()"
+            )
+        );
     }
 }
