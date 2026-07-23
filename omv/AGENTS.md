@@ -2,6 +2,11 @@
 
 These rules apply to all files under `omv/`. They extend the repository root rules. For graphics work, quality and performance are independent release gates: both must pass.
 
+The root commit-creation prohibition applies here without exception.
+`docs/commit-rules.md` remains mandatory, and no OMV change may be committed or
+amended without the user's explicit request and strict approval for that
+commit.
+
 The ambient-occlusion suite in `src/effects/ambient_occlusion.rs` is the minimum pattern for shader compilation, bytecode inspection, deterministic reference rendering, regression power, and static work budgets. Reuse its infrastructure; never weaken or bypass it to land a change.
 
 ## Effect contract

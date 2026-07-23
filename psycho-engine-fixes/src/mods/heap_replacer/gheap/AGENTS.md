@@ -2,6 +2,11 @@
 
 These rules extend the repository root rules for all gheap changes.
 
+The root commit-creation prohibition applies here without exception.
+`docs/commit-rules.md` remains mandatory, and no gheap change may be committed
+or amended without the user's explicit request and strict approval for that
+commit.
+
 ## Current risk model
 
 - `memory.allocator = 1` uses only scrap heap. It has less performance benefit but is the safest practical mode for broad use.

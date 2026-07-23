@@ -48,6 +48,25 @@ A change is done only when:
 
 Documentation-only changes require document checks and diff inspection, not a Rust rebuild. Compilation alone is never proof of runtime or image correctness.
 
+## Commit creation
+
+`docs/commit-rules.md` is the mandatory authority for every commit message and
+commit grouping in this repository. Read it completely immediately before
+creating any commit.
+
+Never create or rewrite a commit unless the user explicitly requests the
+commit and gives strict approval for that commit. Do not infer authorization
+from a request to implement, fix, finish, prepare, package, release, stage,
+push, open a pull request, or follow a plan. If the current user request does
+not explicitly authorize commit creation, stop after validation and report the
+uncommitted changes.
+
+This prohibition includes `git commit`, `git commit --amend`, merge commits,
+fixup/squash commits, cherry-picks, rebases that rewrite commits, and any tool
+or API that creates or rewrites commit objects. Approval to create one commit
+does not authorize another commit or an amend. Never commit merely to make the
+worktree clean.
+
 ## Build and test
 
 The only supported target is 32-bit `i686-pc-windows-gnu` for FNV/xNVSE. Always write the target explicitly even though `.cargo/config.toml` currently selects it. Requires `i686-w64-mingw32-gcc`, the Rust target, and initialized submodules.
