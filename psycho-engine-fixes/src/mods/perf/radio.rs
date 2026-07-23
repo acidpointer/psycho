@@ -3,8 +3,8 @@
 //! The periodic scan consumes a complete prior distance generation while one
 //! opaque mode-0 provider generation is recomputed on the engine's native
 //! tasklet workers. Endpoint locations are prepared and released on the game
-//! thread, and unknown providers retain the cooperative main-thread fallback.
-//! The exact disposition-3 door-policy bypass remains an optional fast path.
+//! thread. Provider replacement is handled at the game-owned virtual ABI
+//! boundary; the exact disposition-3 door-policy bypass remains optional.
 
 use std::{
     cell::{Cell, RefCell, UnsafeCell},
@@ -24,7 +24,9 @@ use libpsycho::{
         hook::{inline::inlinehook::InlineHookContainer, transaction::ModificationTransaction},
         memory::read_bytes,
         patch::module_address,
-        winapi::{ThreadPriority, lower_current_thread_priority_scoped, replace_call},
+        winapi::{
+            ThreadPriority, lower_current_thread_priority_scoped, replace_call, virtual_query,
+        },
     },
 };
 
@@ -32,6 +34,8 @@ use crate::mods::diagnostics;
 
 const PERIODIC_RADIO_SCAN_CALL_ADDR: usize = 0x00833D86;
 const RADIO_SIGNAL_SCAN_ADDR: usize = 0x004FF1A0;
+const PERIODIC_RADIO_STATION_UPDATE_CALL_ADDR: usize = 0x008341B4;
+const RADIO_STATION_UPDATE_ADDR: usize = 0x00834260;
 const MODE0_RADIO_DISTANCE_CALL_ADDR: usize = 0x004FF397;
 const MODE0_RADIO_DISTANCE_ADDR: usize = 0x006D4EB0;
 const PATHING_LOCATION_INIT_ADDR: usize = 0x006DCD70;
@@ -39,6 +43,10 @@ const PATHING_LOCATION_DESTROY_ADDR: usize = 0x004FF7E0;
 const LOOKUP_FORM_BY_ID_ADDR: usize = 0x004839C0;
 const PATH_FAILURE_DISTANCE_ADDR: usize = 0x01016970;
 const LOADING_FLAG_ADDR: usize = 0x011DEA2B;
+const CURRENT_RADIO_STATION_ADDR: usize = 0x011DD42C;
+const RADIO_LIST_RESETTING_ADDR: usize = 0x011DD436;
+const RADIO_ENTRY_AUDIO_LIST_HEAD_OFFSET: usize = 0x1C;
+const RADIO_ENTRY_AUDIO_LIST_NEXT_OFFSET: usize = 0x20;
 const TASKLET_MANAGER_ADDR: usize = 0x00B00A00;
 const TASKLET_GROUP_CREATE_ADDR: usize = 0x00B00A80;
 const TASKLET_GROUP_ACTIVATE_ADDR: usize = 0x00B00AE0;
@@ -69,13 +77,13 @@ const VANILLA_ACCESSIBILITY_RESULT_OFFSET: usize = 0x1CF;
 const VANILLA_DISPOSITION_BRANCH_OFFSET: usize = 0x1E7;
 const VANILLA_MIN_USE_BRANCH_OFFSET: usize = 0x22B;
 const VANILLA_POLICY_CLEANUP_CALL_OFFSETS: [usize; 3] = [0x221, 0x307, 0x412];
-const STEWIE_POLICY_SETUP_CALL_OFFSET: usize = 0x12B;
-const STEWIE_POLICY_BLOCK_OFFSET: usize = 0x118;
-const STEWIE_ACCESSIBILITY_CALL_OFFSET: usize = 0x140;
-const STEWIE_ACCESSIBILITY_RESULT_OFFSET: usize = 0x153;
-const STEWIE_DISPOSITION_BRANCH_OFFSET: usize = 0x174;
-const STEWIE_MIN_USE_BRANCH_OFFSET: usize = 0x199;
-const STEWIE_LOCK_CLEANUP_OFFSET: usize = 0x2C4;
+const INLINED_POLICY_SETUP_CALL_OFFSET: usize = 0x12B;
+const INLINED_POLICY_BLOCK_OFFSET: usize = 0x118;
+const INLINED_ACCESSIBILITY_CALL_OFFSET: usize = 0x140;
+const INLINED_ACCESSIBILITY_RESULT_OFFSET: usize = 0x153;
+const INLINED_DISPOSITION_BRANCH_OFFSET: usize = 0x174;
+const INLINED_MIN_USE_BRANCH_OFFSET: usize = 0x199;
+const INLINED_LOCK_CLEANUP_OFFSET: usize = 0x2C4;
 const PRIORITY_BUCKET_COUNT: usize = 20;
 const SLOW_SCAN_US: u64 = 5_000;
 const SCAN_REPORT_MS: u32 = 1_000;
@@ -89,6 +97,8 @@ const TASKLET_QUERIES_PER_SUBMISSION: usize = 1;
 
 const MODE0_CALL_PREFIX_SIGNATURE: &[u8] = &[0x8B, 0x85, 0x3C, 0xFE, 0xFF, 0xFF, 0x50, 0xE8];
 const MODE0_CALL_SUFFIX_SIGNATURE: &[u8] = &[0x83, 0xC4, 0x14, 0xD9, 0x5D, 0xEC];
+const STATION_UPDATE_CALL_PREFIX_SIGNATURE: &[u8] = &[0x8B, 0x4D, 0xA4, 0x51, 0xE8];
+const STATION_UPDATE_CALL_SUFFIX_SIGNATURE: &[u8] = &[0x83, 0xC4, 0x04, 0x8B, 0x4D, 0xC4, 0xE8];
 const LOOKUP_FORM_BY_ID_SIGNATURE: &[u8] = &[
     0x55, 0x8B, 0xEC, 0x51, 0xC7, 0x45, 0xFC, 0x00, 0x00, 0x00, 0x00, 0x83, 0x3D, 0xC0, 0x54, 0x1C,
     0x01, 0x00,
@@ -149,34 +159,34 @@ const VANILLA_POLICY_CLEANUP_SIGNATURE: &[u8] = &[
     0x55, 0x8B, 0xEC, 0x83, 0xEC, 0x08, 0x89, 0x4D, 0xF8, 0x8B, 0x45, 0xF8, 0x83, 0x78, 0x08, 0x00,
     0x74, 0x15, 0x8B, 0x4D, 0xF8, 0x8B, 0x51, 0x08, 0x89, 0x55, 0xFC, 0x8B, 0x45, 0xFC, 0x50,
 ];
-const STEWIE_PROVIDER_SIGNATURE: &[u8] = &[
+const INLINED_PROVIDER_SIGNATURE: &[u8] = &[
     0x55, 0x8B, 0xEC, 0x83, 0xE4, 0xF8, 0x83, 0xEC, 0x34, 0x53, 0x56, 0x57, 0x8B, 0xF9, 0x8B, 0x4D,
     0x08,
 ];
-const STEWIE_POLICY_BLOCK_SIGNATURE: &[u8] = &[
+const INLINED_POLICY_BLOCK_SIGNATURE: &[u8] = &[
     0x8B, 0x4C, 0x24, 0x18, 0x33, 0xD2, 0x51, 0x8D, 0x4C, 0x24, 0x2C, 0xC7, 0x44, 0x24, 0x34, 0x00,
     0x00, 0x00, 0x00, 0xE8,
 ];
-const STEWIE_ACCESSIBILITY_CALL_SIGNATURE: &[u8] = &[
+const INLINED_ACCESSIBILITY_CALL_SIGNATURE: &[u8] = &[
     0xF3, 0x0F, 0x11, 0x44, 0x24, 0x24, 0xFF, 0xB7, 0xA0, 0x20, 0x00, 0x00, 0xB8, 0x50, 0x24, 0x50,
     0x00, 0xFF, 0xD0,
 ];
-const STEWIE_ACCESSIBILITY_RESULT_SIGNATURE: &[u8] = &[
+const INLINED_ACCESSIBILITY_RESULT_SIGNATURE: &[u8] = &[
     0x84, 0xC0, 0x74, 0x07, 0x80, 0x7C, 0x24, 0x13, 0x00, 0x74, 0x23, 0x8B, 0x87, 0xB4, 0x20, 0x00,
     0x00, 0x85, 0xC0, 0x0F, 0x84, 0x58, 0x01, 0x00, 0x00,
 ];
-const STEWIE_DISPOSITION_BRANCH_SIGNATURE: &[u8] = &[
+const INLINED_DISPOSITION_BRANCH_SIGNATURE: &[u8] = &[
     0x83, 0xF8, 0x02, 0x75, 0x10, 0xF3, 0x0F, 0x11, 0x44, 0x24, 0x1C, 0xEB, 0x08,
 ];
-const STEWIE_MIN_USE_BRANCH_SIGNATURE: &[u8] = &[
+const INLINED_MIN_USE_BRANCH_SIGNATURE: &[u8] = &[
     0xA8, 0x01, 0x74, 0x0F, 0x83, 0xBF, 0xB4, 0x20, 0x00, 0x00, 0x03, 0x74, 0x06, 0xF3, 0x0F, 0x11,
     0x44, 0x24, 0x1C,
 ];
-const STEWIE_LOCK_CLEANUP_SIGNATURE: &[u8] = &[
+const INLINED_LOCK_CLEANUP_SIGNATURE: &[u8] = &[
     0x8B, 0x44, 0x24, 0x30, 0x85, 0xC0, 0x74, 0x0D, 0x50, 0xB9, 0x38, 0x62, 0x1F, 0x01, 0xB8, 0x60,
     0x40, 0xAA, 0x00, 0xFF, 0xD0,
 ];
-const STEWIE_POLICY_SETUP_SIGNATURE: &[u8] = &[
+const INLINED_POLICY_SETUP_SIGNATURE: &[u8] = &[
     0x53, 0x55, 0x8B, 0x6C, 0x24, 0x0C, 0xBA, 0x20, 0x02, 0x41, 0x00, 0x56, 0x57, 0x8B, 0xF9, 0x33,
     0xF6, 0x8B, 0x45, 0x40,
 ];
@@ -186,6 +196,7 @@ const DOOR_ACCESSIBILITY_SIGNATURE: &[u8] = &[
 ];
 
 type RadioSignalScanFn = unsafe extern "C" fn(*mut c_void, *mut c_void, *mut c_void);
+type RadioStationUpdateFn = unsafe extern "C" fn(*mut c_void);
 type Mode0RadioDistanceFn =
     unsafe extern "C" fn(*mut PathingLocation, *mut PathingLocation, f32, *mut c_void, u32) -> f32;
 type PathingLocationInitFn =
@@ -867,6 +878,10 @@ impl Drop for DoorPolicyBypassScope {
 
 pub fn install_radio_scan_fix() -> anyhow::Result<()> {
     verify_rel_call(PERIODIC_RADIO_SCAN_CALL_ADDR, RADIO_SIGNAL_SCAN_ADDR)?;
+    verify_rel_call(
+        PERIODIC_RADIO_STATION_UPDATE_CALL_ADDR,
+        RADIO_STATION_UPDATE_ADDR,
+    )?;
     verify_rel_call(MODE0_RADIO_DISTANCE_CALL_ADDR, MODE0_RADIO_DISTANCE_ADDR)?;
     verify_signature(
         MODE0_RADIO_DISTANCE_CALL_ADDR - 7,
@@ -877,6 +892,16 @@ pub fn install_radio_scan_fix() -> anyhow::Result<()> {
         MODE0_RADIO_DISTANCE_CALL_ADDR + 5,
         MODE0_CALL_SUFFIX_SIGNATURE,
         "mode-0 radio distance call suffix",
+    )?;
+    verify_signature(
+        PERIODIC_RADIO_STATION_UPDATE_CALL_ADDR - 4,
+        STATION_UPDATE_CALL_PREFIX_SIGNATURE,
+        "periodic radio station update call prefix",
+    )?;
+    verify_signature(
+        PERIODIC_RADIO_STATION_UPDATE_CALL_ADDR + 5,
+        STATION_UPDATE_CALL_SUFFIX_SIGNATURE,
+        "periodic radio station update call suffix",
     )?;
     verify_signature(
         LOOKUP_FORM_BY_ID_ADDR,
@@ -892,12 +917,17 @@ pub fn install_radio_scan_fix() -> anyhow::Result<()> {
             PERIODIC_RADIO_SCAN_CALL_ADDR as *mut c_void,
             hook_periodic_radio_signal_scan as *mut c_void,
         )?;
+        replace_call(
+            PERIODIC_RADIO_STATION_UPDATE_CALL_ADDR as *mut c_void,
+            skip_empty_inactive_station_update as *mut c_void,
+        )?;
     }
 
     log::info!(
-        "[RADIO] Radio query generation bridge active: scan=0x{:08X} query=0x{:08X} capacity={}",
+        "[RADIO] Game-owned radio bridge active: scan=0x{:08X} query=0x{:08X} station_update=0x{:08X} capacity={}",
         PERIODIC_RADIO_SCAN_CALL_ADDR,
         MODE0_RADIO_DISTANCE_CALL_ADDR,
+        PERIODIC_RADIO_STATION_UPDATE_CALL_ADDR,
         MAX_COOPERATIVE_QUERIES,
     );
 
@@ -994,7 +1024,7 @@ fn install_door_policy_bypass_hooks() -> anyhow::Result<()> {
     let provider = unsafe { read_u32(TELEPORT_DOOR_PROVIDER_SLOT as *const u8, 0) } as usize;
     let provider_label =
         module_address(provider).unwrap_or_else(|| format!("unknown!0x{provider:08X}"));
-    let setup_target = resolve_policy_setup_target(provider, &provider_label)?;
+    let setup_target = resolve_policy_setup_target(provider)?;
     verify_signature(
         DOOR_ACCESSIBILITY_ADDR,
         DOOR_ACCESSIBILITY_SIGNATURE,
@@ -1027,18 +1057,13 @@ fn install_door_policy_bypass_hooks() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn resolve_policy_setup_target(provider: usize, provider_label: &str) -> anyhow::Result<usize> {
+fn resolve_policy_setup_target(provider: usize) -> anyhow::Result<usize> {
     if provider == VANILLA_PROVIDER_ADDR {
         verify_vanilla_policy_provider()?;
         return Ok(VANILLA_POLICY_SETUP_ADDR);
     }
 
-    ensure!(
-        module_name(provider)
-            .is_some_and(|name| name.eq_ignore_ascii_case("nvse_stewie_tweaks.dll")),
-        "unsupported teleport-door provider {provider_label}"
-    );
-    verify_stewie_policy_provider(provider)
+    verify_inlined_policy_provider(provider)
 }
 
 fn verify_vanilla_policy_provider() -> anyhow::Result<()> {
@@ -1097,55 +1122,58 @@ fn verify_vanilla_policy_provider() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn verify_stewie_policy_provider(provider: usize) -> anyhow::Result<usize> {
+fn verify_inlined_policy_provider(provider: usize) -> anyhow::Result<usize> {
     verify_signature(
         provider,
-        STEWIE_PROVIDER_SIGNATURE,
-        "Stewie TeleportDoorSearch provider",
+        INLINED_PROVIDER_SIGNATURE,
+        "inlined TeleportDoorSearch provider",
     )?;
     verify_signature(
-        provider + STEWIE_POLICY_BLOCK_OFFSET,
-        STEWIE_POLICY_BLOCK_SIGNATURE,
-        "Stewie door-policy block",
+        provider + INLINED_POLICY_BLOCK_OFFSET,
+        INLINED_POLICY_BLOCK_SIGNATURE,
+        "inlined door-policy block",
     )?;
     verify_signature(
-        provider + STEWIE_ACCESSIBILITY_CALL_OFFSET,
-        STEWIE_ACCESSIBILITY_CALL_SIGNATURE,
-        "Stewie accessibility call",
+        provider + INLINED_ACCESSIBILITY_CALL_OFFSET,
+        INLINED_ACCESSIBILITY_CALL_SIGNATURE,
+        "inlined accessibility call",
     )?;
     verify_signature(
-        provider + STEWIE_ACCESSIBILITY_RESULT_OFFSET,
-        STEWIE_ACCESSIBILITY_RESULT_SIGNATURE,
-        "Stewie accessibility result branch",
+        provider + INLINED_ACCESSIBILITY_RESULT_OFFSET,
+        INLINED_ACCESSIBILITY_RESULT_SIGNATURE,
+        "inlined accessibility result branch",
     )?;
     verify_signature(
-        provider + STEWIE_DISPOSITION_BRANCH_OFFSET,
-        STEWIE_DISPOSITION_BRANCH_SIGNATURE,
-        "Stewie disposition penalty branch",
+        provider + INLINED_DISPOSITION_BRANCH_OFFSET,
+        INLINED_DISPOSITION_BRANCH_SIGNATURE,
+        "inlined disposition penalty branch",
     )?;
     verify_signature(
-        provider + STEWIE_MIN_USE_BRANCH_OFFSET,
-        STEWIE_MIN_USE_BRANCH_SIGNATURE,
-        "Stewie minimum-use penalty branch",
+        provider + INLINED_MIN_USE_BRANCH_OFFSET,
+        INLINED_MIN_USE_BRANCH_SIGNATURE,
+        "inlined minimum-use penalty branch",
     )?;
     verify_signature(
-        provider + STEWIE_LOCK_CLEANUP_OFFSET,
-        STEWIE_LOCK_CLEANUP_SIGNATURE,
-        "Stewie temporary lock-data cleanup",
+        provider + INLINED_LOCK_CLEANUP_OFFSET,
+        INLINED_LOCK_CLEANUP_SIGNATURE,
+        "inlined temporary lock-data cleanup",
     )?;
 
-    let setup_target = relative_call_target(provider + STEWIE_POLICY_SETUP_CALL_OFFSET)
-        .context("resolve Stewie door-policy setup call")?;
+    let setup_target = relative_call_target(provider + INLINED_POLICY_SETUP_CALL_OFFSET)
+        .context("resolve inlined door-policy setup call")?;
+    let provider_info = virtual_query(provider as *mut c_void)
+        .context("query inlined provider allocation owner")?;
+    let setup_info = virtual_query(setup_target as *mut c_void)
+        .context("query inlined setup allocation owner")?;
     ensure!(
-        module_name(setup_target)
-            .is_some_and(|name| name.eq_ignore_ascii_case("nvse_stewie_tweaks.dll")),
-        "unsupported Stewie door-policy setup target {}",
+        provider_info.allocation_base == setup_info.allocation_base,
+        "inlined door-policy setup target belongs to a different allocation: {}",
         module_address(setup_target).unwrap_or_else(|| format!("unknown!0x{setup_target:08X}"))
     );
     verify_signature(
         setup_target,
-        STEWIE_POLICY_SETUP_SIGNATURE,
-        "Stewie TeleportDoorData setup",
+        INLINED_POLICY_SETUP_SIGNATURE,
+        "inlined TeleportDoorData setup",
     )?;
     Ok(setup_target)
 }
@@ -1154,13 +1182,7 @@ fn enable_tasklet_backend() -> anyhow::Result<()> {
     let provider = unsafe { read_u32(TELEPORT_DOOR_PROVIDER_SLOT as *const u8, 0) } as usize;
     let provider_label =
         module_address(provider).unwrap_or_else(|| format!("unknown!0x{provider:08X}"));
-    resolve_policy_setup_target(provider, &provider_label)
-        .context("verify worker-safe teleport-door provider")?;
-    verify_signature(
-        DOOR_ACCESSIBILITY_ADDR,
-        DOOR_ACCESSIBILITY_SIGNATURE,
-        "worker-safe teleport-door accessibility predicate",
-    )?;
+    verify_tasklet_provider_target(provider)?;
 
     verify_signature(
         TASKLET_MANAGER_ADDR,
@@ -1214,7 +1236,7 @@ fn enable_tasklet_backend() -> anyhow::Result<()> {
     TASKLET_PROVIDER.store(provider, Ordering::Release);
     TASKLET_BACKEND_AVAILABLE.store(true, Ordering::Release);
     log::info!(
-        "[RADIO] Native tasklet query backend active: provider={} manager=0x{:08X} queue_priority={} worker_priority=below-normal endpoint_ownership=game-thread",
+        "[RADIO] Native tasklet query backend active: provider={} manager=0x{:08X} queue_priority={} worker_priority=idle endpoint_ownership=game-thread",
         provider_label,
         TASKLET_MANAGER_ADDR,
         TASKLET_LOWEST_QUEUE_PRIORITY,
@@ -1434,10 +1456,11 @@ fn schedule_tasklet_generation(now_ms: u32) -> anyhow::Result<()> {
         "radio tasklet worker priority isolation failed"
     );
     let provider = unsafe { read_u32(TELEPORT_DOOR_PROVIDER_SLOT as *const u8, 0) } as usize;
-    ensure!(
-        provider == TASKLET_PROVIDER.load(Ordering::Acquire),
-        "teleport-door provider changed after tasklet capability verification"
-    );
+    if provider != TASKLET_PROVIDER.load(Ordering::Acquire) {
+        verify_tasklet_provider_target(provider)
+            .context("teleport-door provider changed to a non-callable target")?;
+        TASKLET_PROVIDER.store(provider, Ordering::Release);
+    }
     let mut backend = TASKLET_BACKEND.lock();
     if backend.in_flight {
         finish_completed_tasklet(&mut backend, now_ms);
@@ -1501,7 +1524,7 @@ fn report_tasklet_publication(now_ms: u32) {
     }
     let published_count = QUERY_PIPELINE.lock().published_count;
     log::info!(
-        "[RADIO] Native paced tasklet generation verified: results={} jobs={} worker_total/max={}/{}us game_thread_prep_total/max={}/{}us latency_ms={:?} worker_thread=0x{:08X}",
+        "[RADIO] Native paced tasklet generation verified: results={} jobs={} worker_wall_total/max={}/{}us game_thread_prep_total/max={}/{}us latency_ms={:?} worker_thread=0x{:08X}",
         published_count,
         COOPERATIVE_TIMED_JOBS.load(Ordering::Relaxed),
         COOPERATIVE_TIMED_TOTAL_US.load(Ordering::Relaxed),
@@ -1527,8 +1550,7 @@ unsafe extern "thiscall" fn radio_tasklet_execute(tasklet: *mut EngineTasklet) {
     );
     // Queue priority orders engine tasklets; OS priority also prevents the
     // running path query from competing equally with the game/render threads.
-    let mut priority_guard = match lower_current_thread_priority_scoped(ThreadPriority::BelowNormal)
-    {
+    let mut priority_guard = match lower_current_thread_priority_scoped(ThreadPriority::Idle) {
         Ok(guard) => guard,
         Err(_) => {
             TASKLET_PRIORITY_FAILED.store(true, Ordering::Release);
@@ -1776,6 +1798,61 @@ unsafe fn call_mode0_distance(
         unsafe { FnPtr::<Mode0RadioDistanceFn>::from_address_unchecked(MODE0_RADIO_DISTANCE_ADDR) }
             .as_fn();
     unsafe { original(station, current_ref, radius, actor_data, disposition) }
+}
+
+unsafe extern "C" fn skip_empty_inactive_station_update(station: *mut c_void) {
+    if station.is_null() {
+        return;
+    }
+    let station_form = unsafe { core::ptr::read_unaligned(station.cast::<u32>()) };
+    if station_form == 0 {
+        return;
+    }
+
+    let current =
+        unsafe { core::ptr::read_volatile(CURRENT_RADIO_STATION_ADDR as *const u32) } as usize;
+    let resetting =
+        unsafe { core::ptr::read_volatile(RADIO_LIST_RESETTING_ADDR as *const u8) } != 0;
+    let audio_list_head = unsafe {
+        core::ptr::read_unaligned(
+            station
+                .cast::<u8>()
+                .add(RADIO_ENTRY_AUDIO_LIST_HEAD_OFFSET)
+                .cast::<u32>(),
+        )
+    };
+    let audio_list_next = unsafe {
+        core::ptr::read_unaligned(
+            station
+                .cast::<u8>()
+                .add(RADIO_ENTRY_AUDIO_LIST_NEXT_OFFSET)
+                .cast::<u32>(),
+        )
+    };
+    if should_skip_empty_inactive_station_update(
+        station as usize,
+        current,
+        resetting,
+        audio_list_head,
+        audio_list_next,
+    ) {
+        return;
+    }
+
+    let original =
+        unsafe { FnPtr::<RadioStationUpdateFn>::from_address_unchecked(RADIO_STATION_UPDATE_ADDR) }
+            .as_fn();
+    unsafe { original(station) };
+}
+
+fn should_skip_empty_inactive_station_update(
+    station: usize,
+    current: usize,
+    resetting: bool,
+    audio_list_head: u32,
+    audio_list_next: u32,
+) -> bool {
+    station != current && !resetting && audio_list_head == 0 && audio_list_next == 0
 }
 
 unsafe fn reference_form_id(reference: *mut c_void) -> Option<u32> {
@@ -2265,8 +2342,18 @@ fn verify_signature(address: usize, expected: &[u8], label: &str) -> anyhow::Res
     Ok(())
 }
 
-fn module_name(address: usize) -> Option<String> {
-    module_address(address).and_then(|label| label.split_once('!').map(|item| item.0.to_owned()))
+fn verify_tasklet_provider_target(provider: usize) -> anyhow::Result<()> {
+    ensure!(
+        provider >= 0x10000,
+        "teleport-door provider target 0x{provider:08X} is invalid"
+    );
+    let info = virtual_query(provider as *mut c_void)
+        .with_context(|| format!("query teleport-door provider target 0x{provider:08X}"))?;
+    ensure!(
+        info.is_executable(),
+        "teleport-door provider target 0x{provider:08X} is not executable"
+    );
+    Ok(())
 }
 
 unsafe fn first_queued_node(query: *const u8) -> usize {
@@ -2508,11 +2595,40 @@ mod tests {
 
     #[test]
     fn radio_worker_priority_change_is_restorable() {
-        let mut guard = lower_current_thread_priority_scoped(ThreadPriority::BelowNormal)
+        let mut guard = lower_current_thread_priority_scoped(ThreadPriority::Idle)
             .expect("lower current test-thread priority");
         guard
             .restore()
             .expect("restore current test-thread priority");
+    }
+
+    #[test]
+    fn periodic_station_update_skips_only_the_original_empty_inactive_branch() {
+        let station = 0x1234;
+        assert!(should_skip_empty_inactive_station_update(
+            station, 0x5678, false, 0, 0
+        ));
+        assert!(!should_skip_empty_inactive_station_update(
+            station, station, false, 0, 0
+        ));
+        assert!(!should_skip_empty_inactive_station_update(
+            station, 0x5678, true, 0, 0
+        ));
+        assert!(!should_skip_empty_inactive_station_update(
+            station, 0x5678, false, 1, 0
+        ));
+        assert!(!should_skip_empty_inactive_station_update(
+            station, 0x5678, false, 0, 1
+        ));
+    }
+
+    #[test]
+    fn tasklet_provider_capability_is_not_tied_to_a_module_or_version() {
+        unsafe extern "C" fn arbitrary_provider_target() {}
+
+        verify_tasklet_provider_target(arbitrary_provider_target as *const () as usize)
+            .expect("an executable provider target satisfies the game-owned virtual ABI");
+        assert!(verify_tasklet_provider_target(0).is_err());
     }
 
     #[test]

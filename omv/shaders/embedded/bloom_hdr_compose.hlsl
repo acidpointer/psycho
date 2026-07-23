@@ -78,10 +78,24 @@ float3 ApplyWarmth(float3 color) {
     return color * tint;
 }
 
-float GoldenNoise(float2 uv, float frameIndex) {
-    float2 pixel = uv * ScreenData.xy;
+float GoldenNoisePixel(float2 pixel, float frameIndex) {
     float seed = dot(pixel, float2(0.06711056f, 0.00583715f)) + frameIndex * 0.000731f;
     return frac(52.9829189f * frac(seed));
+}
+
+float GoldenNoise(float2 uv, float frameIndex) {
+    return GoldenNoisePixel(uv * ScreenData.xy, frameIndex);
+}
+
+float FilmGrainResponse(float luma) {
+    return saturate(min(luma * 8.0f, (1.0f - luma) * 4.0f));
+}
+
+float FilmGrainNoise(float2 uv, float frameIndex, float fineNoise) {
+    float clusterScale = min(ScreenData.w * 540.0f, 0.5f);
+    float2 clusterPixel = floor(uv * ScreenData.xy * clusterScale);
+    float clusterNoise = GoldenNoisePixel(clusterPixel, frameIndex) - 0.5f;
+    return fineNoise * 0.90f + clusterNoise * 1.10f;
 }
 
 float3 DebandScene(float2 uv, float3 center, out float flatWeight) {
@@ -203,14 +217,14 @@ float4 Main(PixelInput input) : COLOR0 {
     float shoulder = OptionData1.y;
     float3 ungraded = ComposeBloom(base, bloomContribution, shoulder);
     float3 color = ungraded;
+    float finishingNoise = GoldenNoise(input.uv, FrameData.x) - 0.5f;
 
     if (GradeData4.x > 0.5f) {
         color = ApplyFinishing(color, highlightBlur, input.uv);
         if (GradeData5.w > 0.5f) {
-            float grainMask = 1.0f - saturate(Luma(color) * 0.65f);
-            float grainNoise = GoldenNoise(input.uv + 0.173f, FrameData.x + 19.0f) - 0.5f;
-            float grain = grainNoise * GradeData2.w * GradeData0.x
-                * grainMask * FilmGrainNoiseScaleCodes / 255.0f;
+            float grain = FilmGrainNoise(input.uv, FrameData.x, finishingNoise)
+                * GradeData2.w * GradeData0.x
+                * FilmGrainResponse(Luma(color)) * FilmGrainNoiseScaleCodes / 255.0f;
             color += grain;
         }
         if (GradeData3.z > 0.5f) {
@@ -224,6 +238,6 @@ float4 Main(PixelInput input) : COLOR0 {
             ? GradeData2.z * GradeData0.x * debandFlatWeight * DebandDitherNoiseScaleCodes
             : 0.0f
     );
-    float noise = (GoldenNoise(input.uv, FrameData.x) - 0.5f) * ditherStrength / 255.0f;
+    float noise = finishingNoise * ditherStrength / 255.0f;
     return float4(saturate(color + noise), baseSample.a);
 }

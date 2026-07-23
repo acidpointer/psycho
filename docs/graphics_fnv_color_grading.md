@@ -1,8 +1,10 @@
 # OMV final color, external LUT, Bloom, and chromatic contract
 
-Status: implemented on 2026-07-21. Deterministic repository, parser, menu,
-resource-planning, CPU image-reference, shader compilation, bytecode-budget, and
-packaging coverage is complete. Ordinary in-game visual acceptance remains.
+Status: implemented on 2026-07-21; film-grain response and creative ranges
+revised on 2026-07-23. Deterministic repository, parser, menu,
+resource-planning, CPU image-reference, shader compilation, bytecode-budget,
+and packaging coverage is complete. Ordinary in-game visual acceptance
+remains.
 
 ## Purpose and visible behavior
 
@@ -15,7 +17,7 @@ independent switch for every family:
   temperature/tint, black fade, and highlight rolloff;
 - external 3D LUT and LUT strength;
 - flat-region debanding;
-- luminance-weighted film grain;
+- two-scale, luminance-gated monochrome film grain;
 - vignette;
 - independent bright-highlight halation using the shared Bloom blur resources;
 - radial chromatic aberration.
@@ -41,14 +43,14 @@ ReShade preset. Analytic grading uses `strength 0.68`, `contrast 0.045`,
 `saturation 0.98`, `vibrance 0.075`, `temperature 0.015`, `tint 0.006`,
 `black_fade 0.012`, and `highlight_rolloff 0.16`. `Mojave Natural` is selected
 at `lut_strength 0.42`; environment response is `0.45`. Debanding is `0.55`,
-grain `0.16`, vignette `0.035`, and halation `0.12`. Chromatic strength is
+grain `0.32`, vignette `0.035`, and halation `0.12`. Chromatic strength is
 staged at `0.85` pixels but its switch defaults off. These revised response
 curves make every enabled default objectively non-zero at display precision:
-grain changes about 43% of exact eight-bit midtone samples at a `0.656`
-code-value RMS, flat-region deband dither changes about 33% with effectively
-zero mean, halation adds at least two code values to a representative
-bright-halo probe, and chromatic shift is at least half a pixel after master
-strength.
+grain changes `3339/4096` exact eight-bit midtone samples at a `2.060`
+code-value RMS and `-0.0132` code mean, flat-region deband dither changes about
+33% with effectively zero mean, halation adds at least two code values to a
+representative bright-halo probe, and chromatic shift is at least half a pixel
+after master strength.
 
 Bloom was recalibrated with the grade rather than treated as an independent
 orange glow: intensity `0.34`, threshold `0.62`, radius `2.8`, knee `0.28`,
@@ -68,27 +70,59 @@ only `0.234` code values. Both were below the half-code rounding boundary, so a
 large class of source pixels could be written back unchanged even though the
 float-space tests reported a non-zero effect.
 
-The film-grain noise scale is now `24` code values peak-to-peak. Noise remains
-zero-centered, frame-varying, master/amount scaled, and attenuated toward
-highlights. Its maximum shadow excursion is bounded to 12 code values; at the
-shipped midtone settings its peak is about `0.88` code values. The deband
-dither scale is now `4` code values peak-to-peak. Its shipped flat-region peak
-is `0.748` code values and its full-strength peak is bounded to two code
-values. The existing spatial averaging and discontinuity rejection are
-unchanged. The discontinuity-derived flat weight is carried to the final
+The 2026-07-23 revision replaces the single-scale digital grain with two
+procedural spatial bands. A fine one-pixel band preserves texture while a
+two-reference-pixel cluster band gives the image emulsion-like density instead
+of independent television static. Cluster size is normalized to 1080p:
+outputs above 1080p enlarge the cluster cells proportionally, while lower
+resolutions retain a two-pixel minimum because subpixel grain cannot survive
+the output boundary. The fine band reuses the already-required finishing-noise
+value; the cluster band replaces the old independent grain hash. The pass
+therefore keeps two hashes total, adds no texture sample or resource, and does
+not increase the draw count.
+
+The two bands are weighted `0.90` fine and `1.10` cluster. Their combined
+zero-centered range is bounded to `-1..1`. The amount range is `0..2`, so the
+`24`-code scale produces at most a 48-code excursion at full amount and master
+strength. The shipped `0.32` amount and `0.68` master are deliberately visible
+without resembling a damaged-film preset. The luminance gate ramps from zero
+at exact black to full response at luma `0.125`, stays full through luma
+`0.75`, then falls to zero at exact white. This protects black floors and white
+clipping from one-sided saturation bias while keeping Fallout's shadow and
+midtone surfaces tactile. Noise is monochrome, deterministic for a pixel and
+frame, and changes with frame index.
+
+The deband dither scale remains `4` code values peak-to-peak. Its shipped
+flat-region peak is `0.748` code values and its full-strength peak is bounded
+to two code values. The existing spatial averaging and discontinuity rejection
+are unchanged. The discontinuity-derived flat weight is carried to the final
 dither, so the stronger dither is applied to candidate banding regions and not
 to rejected real edges or thin features. This mask placement also follows the
 useful contract in the read-only GShade `Deband.fx` reference, without copying
 its implementation.
 
-New deterministic tests quantize CPU reference output to UNORM8 and first
-proved the old defect: both default probes changed zero output samples. With
-the corrected response, grain changes about `1762/4096` midtone samples at a
-`0.656` code-value RMS, and deband changes about `2711/8192` flat samples with
-a `0.0004` code mean. The same audit isolates analytic grading, the selected
-LUT, vignette, halation, and the staged chromatic response; all already survive
-the eight-bit boundary, so their curves were not changed. Chromatic remains
-disabled by default.
+Deterministic tests quantize CPU reference output to UNORM8. The earlier
+correction changed about `1762/4096` midtone samples at `0.656` code RMS; the
+new default changes `3339/4096` at `2.060` code RMS while holding mean bias to
+`-0.0132` code. Deband changes about `2711/8192` flat samples with a `0.0004`
+code mean. The same audit isolates analytic grading, the selected LUT,
+vignette, halation, and the staged chromatic response; their curves were not
+changed. Chromatic remains disabled by default.
+
+## Creative ranges
+
+Persisted configuration, menu metadata, and render-boundary sanitization agree
+on `film_grain 0..2` and `chromatic_aberration 0..12` pixels. The former allows
+subtle grain below the new default and intentionally rough high-speed-film
+looks above `1`. The latter yields up to `8.16` effective edge pixels at the
+shipped `0.68` master strength instead of the former `2.72`; it remains opt-in
+because the separate pass has a real full-resolution cost.
+
+The other grading ranges were audited but not widened: exposure already spans
+`-1.5..1.5` stops, contrast `-0.5..0.5`, saturation `0..2`, and the remaining
+signed or normalized controls already reach their complete authored response
+at `-1` or `1`. Increasing those numeric ceilings without redesigning their
+curves would only create clipping or redundant slider travel.
 
 ## Ownership, phase, and ordering
 
@@ -249,8 +283,9 @@ through broad one-code-value bands; local RGB discontinuity rejection preserves
 real edges and thin features. Its zero-mean final dither is multiplied by the
 same flat-region weight, reaches about `0.748` code values at shipped settings,
 and remains bounded to two code values at maximum strength. Film grain has a
-bounded 12-code-value peak at maximum shadow strength, is weighted away from
-highlights, and changes with frame index. Vignette is aspect corrected.
+bounded 48-code-value peak at maximum amount/master strength, uses protected
+black and white endpoints, and changes with frame index. Vignette is aspect
+corrected.
 Halation schedules highlight extraction and blur independently of visible
 Bloom, then adds only a warm red-biased halo. Each family has an independent
 dynamic shader gate; its disabled path performs no texture sampling specific to
@@ -298,12 +333,13 @@ The supported `i686-pc-windows-gnu` tests cover:
 - exact `c10..c18`, `s5`, chromatic `c0/c3/s0`, alpha, half-pixel, sampler,
   render-target hazard, and explicit D3D state contracts;
 - deterministic CPU images for analytic grading, actual shipped LUTs,
-  six-pixel debanding, visible/bounded grain and flat-gated dither, vignette,
-  independent halation, Bloom composition, and radial chromatic sampling at
-  borders, centers, odd/even sizes, and constant inputs;
+  six-pixel debanding, visible/bounded two-scale grain and flat-gated dither,
+  vignette, independent halation, Bloom composition, and radial chromatic
+  sampling at borders, centers, odd/even sizes, and constant inputs;
 - per-family UNORM8 output probes for analytic grade, LUT, deband, grain,
   vignette, halation, and enabled chromatic response, including changed-sample,
-  RMS, mean-bias, maximum-excursion, and rejected-edge checks;
+  RMS, mean-bias, maximum-excursion, black/white endpoints, resolution-stable
+  grain clusters, and rejected-edge checks;
 - negative controls rejecting LUT seams/non-monotonic neutral ramps, banding
   no-op implementations, chromatic center-only sampling, edge softening,
   disabled-family work, missing-LUT work, and over-budget fused shaders;
@@ -322,20 +358,19 @@ The supported `i686-pc-windows-gnu` tests cover:
   draw method and bounded CPU/GPU memory accounting.
 
 Static validation cannot prove subjective atmosphere or real GPU frame time.
-An ordinary Fallout NV playtest should compare noon, sunset, night, representative
-interiors, skin/dialogue, iron sights, menus, and 16:9/ultrawide output; enable
-each family alone; add/edit/remove a user `.cube` while the menu is open; and
-exercise alt-tab/device reset. It should confirm that the default is restrained,
-the LUT dropdown refreshes, invalid edits preserve the prior look, chromatic
-fringing stays edge-local, and later AA/external shaders retain order.
+An ordinary Fallout NV playtest should compare noon, sunset, night,
+representative interiors, skin/dialogue, iron sights, menus, 1080p and a
+higher-resolution output, and 16:9/ultrawide output; enable each family alone;
+add/edit/remove a user `.cube` while the menu is open; and exercise
+alt-tab/device reset. It should confirm that grain is clearly present but does
+not sparkle in black or white regions, cluster size remains visually
+consistent across resolutions, the LUT dropdown refreshes, invalid edits
+preserve the prior look, chromatic fringing stays edge-local, and later
+AA/external shaders retain order.
 
-Final command evidence on 2026-07-21:
+Final command evidence on 2026-07-23:
 
-- `cargo test --target i686-pc-windows-gnu -p omv`: 237 passed, 0 failed,
-  including 29 focused final-color tests;
+- `cargo test --target i686-pc-windows-gnu -p omv`: 268 passed, 0 failed;
 - `cargo build --release --target i686-pc-windows-gnu -p omv`: succeeded
   without warnings;
-- the standalone LUT generator reproduced all fourteen shipped files
-  byte-for-byte;
-- `cargo fmt --all -- --check`, shell syntax validation for the modified build
-  and packaging scripts, and `git diff --check`: passed.
+- `cargo fmt -p omv -- --check` and `git diff --check`: passed.

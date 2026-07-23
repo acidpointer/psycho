@@ -624,7 +624,7 @@ impl Default for ColorGradeConfig {
             deband_enabled: true,
             deband: 0.55,
             film_grain_enabled: true,
-            film_grain: 0.16,
+            film_grain: 0.32,
             vignette_enabled: true,
             vignette: 0.035,
             halation_enabled: true,
@@ -650,10 +650,10 @@ impl ColorGradeConfig {
         self.lut_strength = finite_clamp(self.lut_strength, 0.42, 0.0, 1.0);
         self.environment_response = finite_clamp(self.environment_response, 0.45, 0.0, 1.0);
         self.deband = finite_clamp(self.deband, 0.55, 0.0, 1.0);
-        self.film_grain = finite_clamp(self.film_grain, 0.16, 0.0, 1.0);
+        self.film_grain = finite_clamp(self.film_grain, 0.32, 0.0, 2.0);
         self.vignette = finite_clamp(self.vignette, 0.035, 0.0, 1.0);
         self.halation = finite_clamp(self.halation, 0.12, 0.0, 1.0);
-        self.chromatic_aberration = finite_clamp(self.chromatic_aberration, 0.85, 0.0, 4.0);
+        self.chromatic_aberration = finite_clamp(self.chromatic_aberration, 0.85, 0.0, 12.0);
         self
     }
 }
@@ -1505,7 +1505,7 @@ albedo_saturation = 1.02
         assert_eq!(config.lut_strength, 1.0);
         assert_eq!(config.environment_response, 0.0);
         assert_eq!(config.deband, 0.55);
-        assert_eq!(config.film_grain, 1.0);
+        assert_eq!(config.film_grain, 2.0);
         assert_eq!(config.vignette, 0.0);
         assert_eq!(config.halation, 0.12);
         assert_eq!(config.chromatic_aberration, 0.85);

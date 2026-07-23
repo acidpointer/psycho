@@ -32,7 +32,7 @@ use anyhow::{Context, anyhow, ensure};
 use libpsycho::{
     ffi::fnptr::FnPtr,
     os::windows::{
-        hook::inline::inlinehook::InlineHookContainer,
+        hook::{inline::inlinehook::InlineHookContainer, transaction::ModificationTransaction},
         memory::validate_memory_range,
         winapi::{
             delete_file_if_exists, file_exists, flush_instructions_cache, get_current_thread_id,
@@ -41,6 +41,7 @@ use libpsycho::{
         },
     },
 };
+use parking_lot::Mutex;
 
 use super::patching;
 
@@ -63,6 +64,9 @@ const LOAD_OWNER_ADDR: usize = 0x0084_7DF0;
 const LOAD_APPLY_ADDR: usize = 0x0084_9D00;
 const BUFFER_READ_ADDR: usize = 0x0086_4820;
 const BUFFER_PEEK_ADDR: usize = 0x0086_4A60;
+const PLAYER_LOAD_ADDR: usize = 0x0095_6F70;
+const SAVE_VERSION_ADDR: usize = 0x008D_F040;
+const SAVELOAD_SINGLETON: usize = 0x011D_E45C;
 const CHANGED_RECORD_VTABLE: usize = 0x0108_2028;
 const LOAD_BASE_FORM_GUARD_ADDR: usize = 0x0084_9DE6;
 const LOAD_BASE_FORM_ID_ADDR: usize = 0x0084_E3A0;
@@ -78,6 +82,19 @@ const SAVELOAD_ERROR_FLAGS_OFFSET: usize = 0x244;
 const LOAD_ERROR_FLAG: u32 = 0x80;
 const CHANGED_RECORD_REJECTED_FLAG: u32 = 1;
 const MAX_ENGINE_PATH: usize = 260;
+const SAVE_HEADER_CAPTURE_SIZE: usize = 2048;
+const SAVE_MAGIC: &[u8; 11] = b"FO3SAVEGAME";
+const CURRENT_SAVE_VERSION: u32 = 0x30;
+const MAX_SCREENSHOT_BYTES: u64 = 64 * 1024 * 1024;
+
+const PLAYER_SINGLETON: usize = 0x011D_EA3C;
+const PLAYER_SPEED_VALUE_INDEX: usize = 21;
+const PLAYER_VALUE_ARRAY_OFFSETS: [usize; 3] = [0x244, 0x378, 0x4B0];
+const PLAYER_SPEED_VALUE_OFFSETS: [usize; 3] = [
+    PLAYER_VALUE_ARRAY_OFFSETS[0] + PLAYER_SPEED_VALUE_INDEX * size_of::<f32>(),
+    PLAYER_VALUE_ARRAY_OFFSETS[1] + PLAYER_SPEED_VALUE_INDEX * size_of::<f32>(),
+    PLAYER_VALUE_ARRAY_OFFSETS[2] + PLAYER_SPEED_VALUE_INDEX * size_of::<f32>(),
+];
 
 const FAILURE_SHORT_WRITE: u32 = 1 << 0;
 const FAILURE_BUFFER_FLUSH: u32 = 1 << 1;
@@ -85,17 +102,19 @@ const FAILURE_CLOSE: u32 = 1 << 2;
 const FAILURE_DURABLE_FLUSH: u32 = 1 << 3;
 const FAILURE_PROMOTION: u32 = 1 << 4;
 const FAILURE_TRACKING: u32 = 1 << 5;
+const FAILURE_STRUCTURE: u32 = 1 << 6;
+const FAILURE_STATE_MUTATION: u32 = 1 << 7;
 
 type SaveFactoryFn =
     unsafe extern "thiscall" fn(*mut c_void, *const i8, u8, i32, u32) -> *mut c_void;
 type SaveOwnerFn = unsafe extern "thiscall" fn(*mut c_void, *const i8, u32, u8) -> u8;
 type SaveActivationFn = unsafe extern "thiscall" fn(*mut c_void, *mut c_void);
-type SaveStatusFn = unsafe extern "fastcall" fn(*mut c_void) -> u32;
+type SaveStatusFn = unsafe extern "fastcall" fn(*mut c_void) -> u8;
 type SaveDestroyFn = unsafe extern "thiscall" fn(*mut c_void, u32) -> *mut c_void;
 type SaveWriteFn = unsafe extern "thiscall" fn(*mut c_void, *const c_void, u32) -> u32;
 type SaveResultFn = unsafe extern "fastcall" fn(*mut c_void) -> u8;
 type SaveReleaseFn = unsafe extern "thiscall" fn(*mut c_void, *mut c_void, u8);
-type BsFileFinalizeFn = unsafe extern "fastcall" fn(*mut c_void) -> u32;
+type BsFileFinalizeFn = unsafe extern "fastcall" fn(*mut c_void) -> u8;
 type FcloseFn = unsafe extern "cdecl" fn(*mut c_void) -> i32;
 type SettingValueFn = unsafe extern "thiscall" fn(*mut c_void) -> *const i32;
 
@@ -103,6 +122,8 @@ type LoadOwnerFn = unsafe extern "thiscall" fn(*mut c_void, *mut c_void, u8) -> 
 type LoadApplyFn = unsafe extern "thiscall" fn(*mut c_void, u32, *mut c_void, u32) -> u32;
 type BufferReadFn = unsafe extern "thiscall" fn(*mut RecordBuffer, *mut c_void, i32);
 type BufferPeekFn = unsafe extern "fastcall" fn(*mut RecordBuffer) -> u32;
+type PlayerLoadFn = unsafe extern "thiscall" fn(*mut c_void, u32, u32);
+type SaveVersionFn = unsafe extern "fastcall" fn(*mut c_void) -> u8;
 
 #[repr(C)]
 struct RecordBuffer {
@@ -127,6 +148,33 @@ struct ChangedRecord {
     flags: u32,
 }
 
+struct SaveHeaderCapture {
+    bytes: [u8; SAVE_HEADER_CAPTURE_SIZE],
+    length: usize,
+    complete: bool,
+}
+
+impl SaveHeaderCapture {
+    const fn new() -> Self {
+        Self {
+            bytes: [0; SAVE_HEADER_CAPTURE_SIZE],
+            length: 0,
+            complete: false,
+        }
+    }
+
+    fn clear(&mut self) {
+        self.length = 0;
+        self.complete = false;
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct PlayerSpeedSnapshot {
+    player: usize,
+    values: [u32; 3],
+}
+
 static SAVE_WRITE_HOOK: LazyLock<InlineHookContainer<SaveWriteFn>> =
     LazyLock::new(InlineHookContainer::new);
 static SAVE_FACTORY_HOOK: LazyLock<InlineHookContainer<SaveFactoryFn>> =
@@ -147,6 +195,8 @@ static BUFFER_READ_HOOK: LazyLock<InlineHookContainer<BufferReadFn>> =
     LazyLock::new(InlineHookContainer::new);
 static BUFFER_PEEK_HOOK: LazyLock<InlineHookContainer<BufferPeekFn>> =
     LazyLock::new(InlineHookContainer::new);
+static PLAYER_LOAD_HOOK: LazyLock<InlineHookContainer<PlayerLoadFn>> =
+    LazyLock::new(InlineHookContainer::new);
 static FCLOSE_HOOK: LazyLock<InlineHookContainer<FcloseFn>> =
     LazyLock::new(InlineHookContainer::new);
 
@@ -159,9 +209,11 @@ static SAVE_OWNER_THREAD: AtomicU32 = AtomicU32::new(0);
 static SAVE_FAILURES: AtomicU32 = AtomicU32::new(0);
 static RELEASE_ALREADY_DONE: AtomicUsize = AtomicUsize::new(0);
 static SAVE_RESULT_PREDECESSOR: AtomicUsize = AtomicUsize::new(0);
+static SAVE_HEADER_CAPTURE: Mutex<SaveHeaderCapture> = Mutex::new(SaveHeaderCapture::new());
+static SAVE_SPEED_SNAPSHOT: Mutex<Option<PlayerSpeedSnapshot>> = Mutex::new(None);
 
 static ACTIVE_LOAD_OWNER: AtomicUsize = AtomicUsize::new(0);
-static LOAD_ERROR_WAS_SET: AtomicBool = AtomicBool::new(false);
+static ACTIVE_CHANGED_RECORD: AtomicUsize = AtomicUsize::new(0);
 static LOAD_REJECTED: AtomicBool = AtomicBool::new(false);
 
 static SAVE_ATTEMPTS: AtomicU32 = AtomicU32::new(0);
@@ -169,7 +221,10 @@ static SAVE_COMMITS: AtomicU32 = AtomicU32::new(0);
 static SAVE_ABORTS: AtomicU32 = AtomicU32::new(0);
 static SHORT_WRITES: AtomicU32 = AtomicU32::new(0);
 static CLOSE_FAILURES: AtomicU32 = AtomicU32::new(0);
+static STRUCTURE_REJECTIONS: AtomicU32 = AtomicU32::new(0);
+static STATE_MUTATIONS: AtomicU32 = AtomicU32::new(0);
 static LOAD_REJECTIONS: AtomicU32 = AtomicU32::new(0);
+static PLAYER_LOAD_REJECTIONS: AtomicU32 = AtomicU32::new(0);
 static UNRESOLVED_RECORDS: AtomicU32 = AtomicU32::new(0);
 static MISSING_BASE_FORM_RECORDS: AtomicU32 = AtomicU32::new(0);
 
@@ -179,13 +234,17 @@ pub(super) struct DiagnosticSnapshot {
     pub save_aborts: u32,
     pub short_writes: u32,
     pub close_failures: u32,
+    pub structure_rejections: u32,
+    pub state_mutations: u32,
     pub load_rejections: u32,
+    pub player_load_rejections: u32,
     pub unresolved_records: u32,
     pub factory_hook: bool,
     pub owner_hook: bool,
     pub activation_hook: bool,
     pub fclose_hook: bool,
     pub load_owner_hook: bool,
+    pub player_load_hook: bool,
     pub result_predecessor: usize,
 }
 
@@ -196,62 +255,73 @@ pub(super) fn diagnostic_snapshot() -> DiagnosticSnapshot {
         save_aborts: SAVE_ABORTS.load(Ordering::Relaxed),
         short_writes: SHORT_WRITES.load(Ordering::Relaxed),
         close_failures: CLOSE_FAILURES.load(Ordering::Relaxed),
+        structure_rejections: STRUCTURE_REJECTIONS.load(Ordering::Relaxed),
+        state_mutations: STATE_MUTATIONS.load(Ordering::Relaxed),
         load_rejections: LOAD_REJECTIONS.load(Ordering::Relaxed),
+        player_load_rejections: PLAYER_LOAD_REJECTIONS.load(Ordering::Relaxed),
         unresolved_records: UNRESOLVED_RECORDS.load(Ordering::Relaxed),
         factory_hook: SAVE_FACTORY_HOOK.is_enabled(),
         owner_hook: SAVE_OWNER_HOOK.is_enabled(),
         activation_hook: SAVE_ACTIVATION_HOOK.is_enabled(),
         fclose_hook: FCLOSE_HOOK.is_enabled(),
         load_owner_hook: LOAD_OWNER_HOOK.is_enabled(),
+        player_load_hook: PLAYER_LOAD_HOOK.is_enabled(),
         result_predecessor: SAVE_RESULT_PREDECESSOR.load(Ordering::Relaxed),
     }
 }
 
-/// Install save commits and safe changed-record loading independently.
+/// Install the complete save-integrity boundary as one owned transaction.
 ///
-/// Save support hooks are installed before the transaction activation hook.
-/// The load hooks are individually safe: bounded readers reject only malformed
-/// buffers, and the apply hook rejects only records the engine cannot resolve.
+/// No transaction-producing owner is enabled until every supporting hook and
+/// fixed patch site has been prepared. A failure restores every activation
+/// that this module still owns instead of leaving a partial integrity policy.
 pub(super) fn install() -> anyhow::Result<()> {
-    let save_commit = match install_save_commit_hooks() {
-        Ok(()) => true,
+    initialize_hooks()?;
+
+    let result_predecessor = install_save_result_call()?;
+    let base_form_guard = match install_missing_base_form_guard() {
+        Ok(replacement) => replacement,
         Err(error) => {
-            log::warn!("[SAVE] Durable commit unavailable: {error:#}");
-            false
-        }
-    };
-    let safe_load = match install_load_containment_hooks() {
-        Ok(()) => true,
-        Err(error) => {
-            log::warn!("[SAVE] Safe changed-record loading is incomplete: {error:#}");
-            false
-        }
-    };
-    let factory_validation = match install_factory_validation_hooks() {
-        Ok(()) => {
-            install_failure_ui_branch();
-            true
-        }
-        Err(error) => {
-            log::warn!("[SAVE] Temporary-file factory validation unavailable: {error:#}");
-            false
+            rollback_save_result_call(result_predecessor);
+            return Err(error);
         }
     };
 
-    ensure!(
-        save_commit || safe_load || factory_validation,
-        "no save-integrity hook group could be activated"
-    );
-    log::info!(
-        "[SAVE] Integrity hooks active: durable_commit={} safe_changed_record_load={} factory_validation={}",
-        save_commit,
-        safe_load,
-        factory_validation
-    );
+    let mut transaction = ModificationTransaction::new();
+    let activation = (|| -> anyhow::Result<()> {
+        transaction.enable_inline(&SAVE_WRITE_HOOK)?;
+        transaction.enable_inline(&SAVE_RELEASE_HOOK)?;
+        transaction.enable_inline(&BSFILE_FINALIZE_HOOK)?;
+        transaction.enable_inline(&FCLOSE_HOOK)?;
+
+        transaction.enable_inline(&LOAD_APPLY_HOOK)?;
+        transaction.enable_inline(&BUFFER_READ_HOOK)?;
+        transaction.enable_inline(&BUFFER_PEEK_HOOK)?;
+        transaction.enable_inline(&PLAYER_LOAD_HOOK)?;
+
+        transaction.enable_inline(&SAVE_FACTORY_HOOK)?;
+
+        // Owner hooks are last. Their complete support graph is active before
+        // a save or load can enter the integrity boundary.
+        transaction.enable_inline(&SAVE_ACTIVATION_HOOK)?;
+        transaction.enable_inline(&LOAD_OWNER_HOOK)?;
+        transaction.enable_inline(&SAVE_OWNER_HOOK)?;
+        Ok(())
+    })();
+    if let Err(error) = activation {
+        drop(transaction);
+        rollback_missing_base_form_guard(&base_form_guard);
+        rollback_save_result_call(result_predecessor);
+        return Err(error).context("activate complete save-integrity transaction");
+    }
+    transaction.commit();
+
+    install_failure_ui_branch();
+    log::info!("[SAVE] Complete save/write/load integrity transaction active");
     Ok(())
 }
 
-fn install_save_commit_hooks() -> anyhow::Result<()> {
+fn initialize_hooks() -> anyhow::Result<()> {
     unsafe {
         SAVE_WRITE_HOOK.init(
             "save_integrity_write_result",
@@ -278,44 +348,6 @@ fn install_save_commit_hooks() -> anyhow::Result<()> {
             VANILLA_FCLOSE_ADDR as *mut c_void,
             tracked_fclose,
         )?;
-    }
-
-    install_save_result_call()?;
-    SAVE_WRITE_HOOK.enable()?;
-    SAVE_RELEASE_HOOK.enable()?;
-    BSFILE_FINALIZE_HOOK.enable()?;
-    FCLOSE_HOOK.enable()?;
-
-    // Activation is last: every hook needed to close, reject, or commit the
-    // tracked object is already live when the first transaction can begin.
-    SAVE_ACTIVATION_HOOK.enable()?;
-    Ok(())
-}
-
-fn install_save_result_call() -> anyhow::Result<()> {
-    // The predicate itself has unrelated callers. Wrapping only this audited
-    // CALL preserves its fastcall manager argument and cannot commit early
-    // from another predicate use. A pre-existing direct-call owner is chained.
-    let previous = unsafe { patching::relative_call_target(SAVE_RESULT_CALL_ADDR) }
-        .context("inspect save-result commit call")?;
-    ensure!(
-        previous != hook_save_result as *const () as usize,
-        "save-result commit call already targets Psycho without a known predecessor"
-    );
-    let redirected = unsafe {
-        patching::redirect_relative_call(SAVE_RESULT_CALL_ADDR, hook_save_result as *mut c_void)
-    }
-    .context("install save-result commit boundary")?;
-    ensure!(
-        redirected == previous,
-        "save-result call target changed during install"
-    );
-    SAVE_RESULT_PREDECESSOR.store(previous, Ordering::Release);
-    Ok(())
-}
-
-fn install_load_containment_hooks() -> anyhow::Result<()> {
-    unsafe {
         LOAD_APPLY_HOOK.init(
             "save_integrity_load_apply",
             LOAD_APPLY_ADDR as *mut c_void,
@@ -336,20 +368,81 @@ fn install_load_containment_hooks() -> anyhow::Result<()> {
             LOAD_OWNER_ADDR as *mut c_void,
             hook_load_owner,
         )?;
+        PLAYER_LOAD_HOOK.init(
+            "save_integrity_player_load_preflight",
+            PLAYER_LOAD_ADDR as *mut c_void,
+            hook_player_load,
+        )?;
+        SAVE_FACTORY_HOOK.init(
+            "save_integrity_factory_validation",
+            SAVE_FACTORY_ADDR as *mut c_void,
+            hook_save_factory,
+        )?;
+        SAVE_OWNER_HOOK.init(
+            "save_integrity_owner_scope",
+            SAVE_OWNER_ADDR as *mut c_void,
+            hook_save_owner,
+        )?;
     }
-
-    install_missing_base_form_guard()?;
-    LOAD_APPLY_HOOK.enable()?;
-    BUFFER_READ_HOOK.enable()?;
-    BUFFER_PEEK_HOOK.enable()?;
-
-    // The owner hook scopes the aggregate error state and diagnostics. The
-    // read and apply hooks remain locally safe if another mod owns this entry.
-    LOAD_OWNER_HOOK.enable()?;
     Ok(())
 }
 
-fn install_missing_base_form_guard() -> anyhow::Result<()> {
+fn install_save_result_call() -> anyhow::Result<usize> {
+    // The predicate itself has unrelated callers. Wrapping only this audited
+    // CALL preserves its fastcall manager argument and cannot commit early
+    // from another predicate use. A pre-existing direct-call owner is chained.
+    let previous = unsafe { patching::relative_call_target(SAVE_RESULT_CALL_ADDR) }
+        .context("inspect save-result commit call")?;
+    ensure!(
+        previous != hook_save_result as *const () as usize,
+        "save-result commit call already targets Psycho without a known predecessor"
+    );
+    let redirected = unsafe {
+        patching::redirect_relative_call(SAVE_RESULT_CALL_ADDR, hook_save_result as *mut c_void)
+    }
+    .context("install save-result commit boundary")?;
+    ensure!(
+        redirected == previous,
+        "save-result call target changed during install"
+    );
+    SAVE_RESULT_PREDECESSOR.store(previous, Ordering::Release);
+    Ok(previous)
+}
+
+fn rollback_save_result_call(predecessor: usize) {
+    let wrapper = hook_save_result as *const () as usize;
+    let current = unsafe { patching::relative_call_target(SAVE_RESULT_CALL_ADDR) };
+    let result = match current {
+        Ok(current) if current == wrapper => unsafe {
+            patching::redirect_relative_call(SAVE_RESULT_CALL_ADDR, predecessor as *mut c_void)
+        },
+        Ok(current) => {
+            log::error!(
+                "[SAVE] Cannot restore result call after failed install; ownership moved to 0x{current:08X}"
+            );
+            return;
+        }
+        Err(error) => {
+            log::error!(
+                "[SAVE] Cannot inspect result call during failed-install rollback: {error:#}"
+            );
+            return;
+        }
+    };
+    match result {
+        Ok(previous) if previous == wrapper => {
+            SAVE_RESULT_PREDECESSOR.store(0, Ordering::Release);
+        }
+        Ok(previous) => {
+            log::error!("[SAVE] Result-call rollback displaced unexpected target 0x{previous:08X}");
+        }
+        Err(error) => {
+            log::error!("[SAVE] Result-call rollback failed: {error:#}");
+        }
+    }
+}
+
+fn install_missing_base_form_guard() -> anyhow::Result<[u8; LOAD_BASE_FORM_GUARD_BYTES.len()]> {
     let stub = virtual_alloc_rwx(64).context("allocate changed-record base-form guard")?;
     let stub_addr = stub as usize;
     let mut code = Vec::with_capacity(64);
@@ -409,7 +502,19 @@ fn install_missing_base_form_guard() -> anyhow::Result<()> {
         "[SAVE] Changed-record null base-form guard active at 0x{:08X}",
         LOAD_BASE_FORM_GUARD_ADDR,
     );
-    Ok(())
+    Ok(replacement)
+}
+
+fn rollback_missing_base_form_guard(replacement: &[u8; LOAD_BASE_FORM_GUARD_BYTES.len()]) {
+    if let Err(error) = unsafe {
+        patching::replace_block(
+            LOAD_BASE_FORM_GUARD_ADDR,
+            replacement,
+            &LOAD_BASE_FORM_GUARD_BYTES,
+        )
+    } {
+        log::error!("[SAVE] Changed-record guard rollback failed: {error:#}");
+    }
 }
 
 unsafe extern "cdecl" fn log_missing_base_form(record: *const ChangedRecord, expected: u32) {
@@ -434,26 +539,6 @@ unsafe extern "cdecl" fn log_missing_base_form(record: *const ChangedRecord, exp
 fn rel32(src_after: usize, dst: usize) -> [u8; 4] {
     let displacement = (dst as isize).wrapping_sub(src_after as isize) as i32;
     displacement.to_le_bytes()
-}
-
-fn install_factory_validation_hooks() -> anyhow::Result<()> {
-    unsafe {
-        SAVE_FACTORY_HOOK.init(
-            "save_integrity_factory_validation",
-            SAVE_FACTORY_ADDR as *mut c_void,
-            hook_save_factory,
-        )?;
-        SAVE_OWNER_HOOK.init(
-            "save_integrity_owner_scope",
-            SAVE_OWNER_ADDR as *mut c_void,
-            hook_save_owner,
-        )?;
-    }
-
-    SAVE_FACTORY_HOOK.enable()?;
-    // The factory detour is inert until this outer save scope is active.
-    SAVE_OWNER_HOOK.enable()?;
-    Ok(())
 }
 
 fn install_failure_ui_branch() {
@@ -535,7 +620,10 @@ unsafe extern "thiscall" fn hook_save_owner(
         .compare_exchange(0, thread, Ordering::AcqRel, Ordering::Acquire)
         .is_err()
     {
-        return unsafe { original(manager, name, argument, show_success) };
+        SAVE_ATTEMPTS.fetch_add(1, Ordering::Relaxed);
+        SAVE_ABORTS.fetch_add(1, Ordering::Relaxed);
+        log::error!("[SAVE] Concurrent or reentrant save rejected before serialization");
+        return 0;
     }
     let result = unsafe { original(manager, name, argument, show_success) };
     SAVE_OWNER_THREAD.store(0, Ordering::Release);
@@ -559,14 +647,17 @@ unsafe extern "thiscall" fn hook_save_activation(manager: *mut c_void, file: *mu
         return;
     }
 
+    SAVE_ATTEMPTS.fetch_add(1, Ordering::Relaxed);
     match unsafe { begin_save_tracking(manager, file) } {
-        Ok(()) => {
-            SAVE_ATTEMPTS.fetch_add(1, Ordering::Relaxed);
-        }
+        Ok(()) => {}
         Err(error) => {
             clear_save_tracking();
-            log::warn!(
-                "[SAVE] Durable transaction skipped for an unsupported save-file object: {error:#}"
+            latch_save_failure(FAILURE_TRACKING);
+            ACTIVE_SAVE_MANAGER.store(manager as usize, Ordering::Release);
+            ACTIVE_SAVE_THREAD.store(get_current_thread_id(), Ordering::Release);
+            ACTIVE_SAVE_FILE.store(file as usize, Ordering::Release);
+            log::error!(
+                "[SAVE] Save-file tracking is invalid; transaction will fail closed: {error:#}"
             );
         }
     }
@@ -607,6 +698,16 @@ unsafe fn begin_save_tracking(manager: *mut c_void, file: *mut c_void) -> anyhow
 
     SAVE_FAILURES.store(0, Ordering::Release);
     RELEASE_ALREADY_DONE.store(0, Ordering::Release);
+    SAVE_HEADER_CAPTURE.lock().clear();
+    match capture_player_speed() {
+        Ok(snapshot) => *SAVE_SPEED_SNAPSHOT.lock() = Some(snapshot),
+        Err(error) => {
+            *SAVE_SPEED_SNAPSHOT.lock() = None;
+            STATE_MUTATIONS.fetch_add(1, Ordering::Relaxed);
+            latch_save_failure(FAILURE_STATE_MUTATION);
+            log::error!("[SAVE] Player speed canary is unavailable: {error:#}");
+        }
+    }
     ACTIVE_SAVE_MANAGER.store(manager as usize, Ordering::Release);
     ACTIVE_BSFILE.store(bsfile as usize, Ordering::Release);
     ACTIVE_FILE_STREAM.store(stream as usize, Ordering::Release);
@@ -625,14 +726,100 @@ unsafe extern "thiscall" fn hook_save_write(
         return 0;
     };
     let written = unsafe { original(file, data, requested) };
-    if file as usize == ACTIVE_SAVE_FILE.load(Ordering::Acquire) && written != requested {
-        SHORT_WRITES.fetch_add(1, Ordering::Relaxed);
-        latch_save_failure(FAILURE_SHORT_WRITE);
+    if file as usize == ACTIVE_SAVE_FILE.load(Ordering::Acquire) {
+        if written != requested {
+            SHORT_WRITES.fetch_add(1, Ordering::Relaxed);
+            latch_save_failure(FAILURE_SHORT_WRITE);
+        } else if let Err(reason) = capture_save_header(data, written as usize) {
+            STRUCTURE_REJECTIONS.fetch_add(1, Ordering::Relaxed);
+            latch_save_failure(FAILURE_STRUCTURE);
+            log::error!("[SAVE] Could not capture save envelope: {reason}");
+        }
     }
     written
 }
 
-unsafe extern "fastcall" fn hook_bsfile_finalize(bsfile: *mut c_void) -> u32 {
+fn capture_save_header(data: *const c_void, written: usize) -> Result<(), &'static str> {
+    if written == 0 {
+        return Ok(());
+    }
+
+    let mut capture = SAVE_HEADER_CAPTURE.lock();
+    if capture.complete {
+        return Ok(());
+    }
+    if data.is_null() {
+        capture.complete = true;
+        return Err("null write source");
+    }
+
+    let remaining = SAVE_HEADER_CAPTURE_SIZE - capture.length;
+    let copied = written.min(remaining);
+    if validate_memory_range(data, copied).is_err() {
+        capture.complete = true;
+        return Err("unreadable write source");
+    }
+    unsafe {
+        ptr::copy_nonoverlapping(
+            data.cast::<u8>(),
+            capture.bytes.as_mut_ptr().add(capture.length),
+            copied,
+        )
+    };
+    capture.length += copied;
+    capture.complete = capture.length == SAVE_HEADER_CAPTURE_SIZE;
+    Ok(())
+}
+
+fn capture_player_speed() -> anyhow::Result<PlayerSpeedSnapshot> {
+    let singleton = PLAYER_SINGLETON as *const *mut c_void;
+    validate_memory_range(singleton.cast(), size_of::<usize>())
+        .context("validate PlayerCharacter singleton")?;
+    let player = unsafe { ptr::read_unaligned(singleton) };
+    ensure!(!player.is_null(), "PlayerCharacter singleton is null");
+
+    let required = PLAYER_SPEED_VALUE_OFFSETS[2]
+        .checked_add(size_of::<u32>())
+        .context("PlayerCharacter speed range overflow")?;
+    validate_memory_range(player, required).context("validate PlayerCharacter speed arrays")?;
+
+    let mut values = [0; 3];
+    for (index, offset) in PLAYER_SPEED_VALUE_OFFSETS.iter().copied().enumerate() {
+        let address = unsafe { (player as *const u8).add(offset).cast::<u32>() };
+        let bits = unsafe { ptr::read_unaligned(address) };
+        ensure!(
+            f32::from_bits(bits).is_finite(),
+            "PlayerCharacter SpeedMult slot {index} is not finite"
+        );
+        values[index] = bits;
+    }
+    Ok(PlayerSpeedSnapshot {
+        player: player as usize,
+        values,
+    })
+}
+
+fn validate_player_speed_unchanged() -> anyhow::Result<()> {
+    let expected = SAVE_SPEED_SNAPSHOT
+        .lock()
+        .as_ref()
+        .copied()
+        .context("player speed canary was not captured")?;
+    let observed = capture_player_speed()?;
+    ensure!(
+        observed.player == expected.player,
+        "PlayerCharacter singleton changed during save"
+    );
+    ensure!(
+        observed.values == expected.values,
+        "PlayerCharacter SpeedMult modifiers changed during save: before={:08X?} after={:08X?}",
+        expected.values,
+        observed.values
+    );
+    Ok(())
+}
+
+unsafe extern "fastcall" fn hook_bsfile_finalize(bsfile: *mut c_void) -> u8 {
     let Ok(original) = BSFILE_FINALIZE_HOOK.original() else {
         latch_save_failure(FAILURE_TRACKING);
         return 0;
@@ -668,6 +855,14 @@ unsafe extern "fastcall" fn hook_save_result(manager_state: *mut c_void) -> u8 {
     let file = ACTIVE_SAVE_FILE.load(Ordering::Acquire);
     if file == 0 || ACTIVE_SAVE_THREAD.load(Ordering::Acquire) != get_current_thread_id() {
         return u8::from(vanilla_failure);
+    }
+
+    if SAVE_FAILURES.load(Ordering::Acquire) & FAILURE_STATE_MUTATION == 0
+        && let Err(error) = validate_player_speed_unchanged()
+    {
+        STATE_MUTATIONS.fetch_add(1, Ordering::Relaxed);
+        latch_save_failure(FAILURE_STATE_MUTATION);
+        log::error!("[SAVE] Player state changed inside save transaction: {error:#}");
     }
 
     let manager = ACTIVE_SAVE_MANAGER.load(Ordering::Acquire);
@@ -775,11 +970,130 @@ unsafe fn save_paths(bsfile: *mut c_void) -> anyhow::Result<SavePaths> {
     Ok(SavePaths { temp, final_path })
 }
 
+struct HeaderCursor<'a> {
+    bytes: &'a [u8],
+    position: usize,
+}
+
+impl<'a> HeaderCursor<'a> {
+    fn new(bytes: &'a [u8]) -> Self {
+        Self { bytes, position: 0 }
+    }
+
+    fn take(&mut self, length: usize) -> anyhow::Result<&'a [u8]> {
+        let end = self
+            .position
+            .checked_add(length)
+            .context("save header offset overflow")?;
+        ensure!(end <= self.bytes.len(), "truncated save header");
+        let value = &self.bytes[self.position..end];
+        self.position = end;
+        Ok(value)
+    }
+
+    fn u16(&mut self) -> anyhow::Result<u16> {
+        let bytes: [u8; 2] = self.take(2)?.try_into().expect("fixed-size read");
+        Ok(u16::from_le_bytes(bytes))
+    }
+
+    fn u32(&mut self) -> anyhow::Result<u32> {
+        let bytes: [u8; 4] = self.take(4)?.try_into().expect("fixed-size read");
+        Ok(u32::from_le_bytes(bytes))
+    }
+
+    fn pipe(&mut self) -> anyhow::Result<()> {
+        ensure!(self.take(1)? == b"|", "save header separator mismatch");
+        Ok(())
+    }
+
+    fn string(&mut self) -> anyhow::Result<()> {
+        let length = usize::from(self.u16()?);
+        self.pipe()?;
+        self.take(length)?;
+        self.pipe()
+    }
+}
+
+fn validate_save_envelope(header: &[u8], file_length: u64) -> anyhow::Result<()> {
+    let mut cursor = HeaderCursor::new(header);
+    ensure!(
+        cursor.take(SAVE_MAGIC.len())? == SAVE_MAGIC,
+        "invalid save magic"
+    );
+    let header_size = usize::try_from(cursor.u32()?).context("save header size overflow")?;
+    let header_end = SAVE_MAGIC
+        .len()
+        .checked_add(size_of::<u32>())
+        .and_then(|prefix| prefix.checked_add(header_size))
+        .context("save header end overflow")?;
+    ensure!(
+        header_end <= header.len(),
+        "save header exceeds captured envelope"
+    );
+
+    ensure!(
+        cursor.u32()? == CURRENT_SAVE_VERSION,
+        "unexpected save format version"
+    );
+    cursor.pipe()?;
+    cursor.take(64)?;
+    cursor.pipe()?;
+
+    let width = u64::from(cursor.u32()?);
+    cursor.pipe()?;
+    let height = u64::from(cursor.u32()?);
+    cursor.pipe()?;
+    cursor.u32()?;
+    cursor.pipe()?;
+    cursor.string()?;
+    cursor.string()?;
+    cursor.u32()?;
+    cursor.pipe()?;
+    cursor.string()?;
+    cursor.string()?;
+
+    ensure!(
+        cursor.position == header_end,
+        "save header size does not match encoded fields"
+    );
+    ensure!(
+        width != 0 && height != 0,
+        "empty save screenshot dimensions"
+    );
+    let screenshot_size = width
+        .checked_mul(height)
+        .and_then(|pixels| pixels.checked_mul(3))
+        .context("save screenshot size overflow")?;
+    ensure!(
+        screenshot_size <= MAX_SCREENSHOT_BYTES,
+        "save screenshot exceeds integrity limit"
+    );
+    let body_start = u64::try_from(header_end)
+        .context("save header position overflow")?
+        .checked_add(screenshot_size)
+        .context("save body position overflow")?;
+    ensure!(
+        file_length > body_start,
+        "save ends before its changed-record body"
+    );
+    Ok(())
+}
+
 fn commit_save(paths: &SavePaths) -> anyhow::Result<()> {
     {
         let temp =
             open_existing_file_for_flush(&paths.temp).context("open completed temporary save")?;
-        ensure!(!temp.is_empty()?, "temporary save is empty");
+        let file_length = temp.len().context("read temporary save length")?;
+        ensure!(file_length != 0, "temporary save is empty");
+        let validation = {
+            let capture = SAVE_HEADER_CAPTURE.lock();
+            validate_save_envelope(&capture.bytes[..capture.length], file_length)
+        };
+        if let Err(error) = validation {
+            STRUCTURE_REJECTIONS.fetch_add(1, Ordering::Relaxed);
+            latch_save_failure(FAILURE_STRUCTURE);
+            return Err(error).context("validate completed save envelope");
+        }
         temp.flush().map_err(|error| {
             latch_save_failure(FAILURE_DURABLE_FLUSH);
             anyhow!(error)
@@ -911,6 +1225,8 @@ fn clear_active_save() {
     ACTIVE_BSFILE.store(0, Ordering::Release);
     ACTIVE_FILE_STREAM.store(0, Ordering::Release);
     ACTIVE_SAVE_THREAD.store(0, Ordering::Release);
+    SAVE_HEADER_CAPTURE.lock().clear();
+    *SAVE_SPEED_SNAPSHOT.lock() = None;
 }
 
 fn clear_save_tracking() {
@@ -924,19 +1240,26 @@ unsafe extern "thiscall" fn hook_load_owner(owner: *mut c_void, file: *mut c_voi
         log::error!("[SAVE] Changed-form load owner trampoline is unavailable");
         return 0;
     };
-    if owner.is_null()
-        || ACTIVE_LOAD_OWNER
-            .compare_exchange(0, owner as usize, Ordering::AcqRel, Ordering::Acquire)
-            .is_err()
+    if owner.is_null() {
+        LOAD_REJECTIONS.fetch_add(1, Ordering::Relaxed);
+        log::error!("[SAVE] Load rejected because its owner is null");
+        return 0;
+    }
+    if ACTIVE_LOAD_OWNER
+        .compare_exchange(0, owner as usize, Ordering::AcqRel, Ordering::Acquire)
+        .is_err()
     {
-        return unsafe { original(owner, file, mode) };
+        LOAD_REJECTIONS.fetch_add(1, Ordering::Relaxed);
+        set_load_error_flag(owner, true);
+        log::error!("[SAVE] Concurrent or reentrant load rejected before form mutation");
+        return 0;
     }
 
     crate::mods::diagnostics::mark_load_site(
         crate::mods::diagnostics::LoadSite::ChangedFormOwnerEnter,
     );
+    ACTIVE_CHANGED_RECORD.store(0, Ordering::Release);
     LOAD_REJECTED.store(false, Ordering::Release);
-    LOAD_ERROR_WAS_SET.store(load_error_is_set(owner), Ordering::Release);
     let unresolved_before = UNRESOLVED_RECORDS.load(Ordering::Relaxed);
     let result = unsafe { original(owner, file, mode) };
     crate::mods::diagnostics::mark_load_site(
@@ -945,16 +1268,11 @@ unsafe extern "thiscall" fn hook_load_owner(owner: *mut c_void, file: *mut c_voi
 
     let rejected = LOAD_REJECTED.swap(false, Ordering::AcqRel);
     if rejected {
-        // The engine may already have changed the current form before a nested
-        // read fails. There is no rollback contract. The error bit stops its
-        // second pass, and the apply hook prevents later first-pass mutations.
+        // A rejection is terminal. Clearing this bit here used to erase the
+        // malformed-read decision and allowed the owner to report success.
         LOAD_REJECTIONS.fetch_add(1, Ordering::Relaxed);
-        if !LOAD_ERROR_WAS_SET.load(Ordering::Acquire) {
-            set_load_error_flag(owner, false);
-        }
-        log::error!(
-            "[SAVE] Malformed changed-record data rejected before further record application"
-        );
+        set_load_error_flag(owner, true);
+        log::error!("[SAVE] Malformed save data rejected; load owner forced to failure");
     }
     let unresolved = UNRESOLVED_RECORDS
         .load(Ordering::Relaxed)
@@ -964,14 +1282,147 @@ unsafe extern "thiscall" fn hook_load_owner(owner: *mut c_void, file: *mut c_voi
             "[SAVE] Skipped {unresolved} changed record(s) whose forms belong to unavailable content"
         );
     }
+    ACTIVE_CHANGED_RECORD.store(0, Ordering::Release);
     ACTIVE_LOAD_OWNER.store(0, Ordering::Release);
 
     // The decompiler models this engine function as void, but its only caller
     // consumes AL immediately after the call. Zero means missing masters and
     // opens the confirmation menu; nonzero continues or completes the load.
     // Returning after the atomic cleanup without preserving this byte makes a
-    // valid load look like a new missing-content decision.
-    result
+    // valid load look like a new missing-content decision. A malformed load is
+    // different: the owner must not publish its original success byte.
+    if rejected { 0 } else { result }
+}
+
+unsafe extern "thiscall" fn hook_player_load(player: *mut c_void, argument: u32, mode: u32) {
+    let Ok(original) = PLAYER_LOAD_HOOK.original() else {
+        mark_load_rejected("PlayerCharacter load trampoline unavailable");
+        return;
+    };
+    if ACTIVE_LOAD_OWNER.load(Ordering::Acquire) != 0
+        && let Err(error) = validate_player_load_speed_block(player)
+    {
+        PLAYER_LOAD_REJECTIONS.fetch_add(1, Ordering::Relaxed);
+        log::error!("[SAVE] PlayerCharacter actor-value preflight failed: {error:#}");
+        mark_load_rejected("invalid PlayerCharacter actor-value block");
+        return;
+    }
+    unsafe { original(player, argument, mode) };
+}
+
+fn player_speed_block_layout(version: u8) -> Option<(usize, usize, usize)> {
+    if !(31..90).contains(&version) {
+        return None;
+    }
+    let (array_size, array_count) = if version < 49 {
+        (0x130usize, 2usize)
+    } else if version < 59 {
+        (0x130usize, 3usize)
+    } else {
+        (0x134usize, 3usize)
+    };
+    let minimum_size = size_of::<u16>()
+        .checked_add(array_size.checked_mul(array_count)?)?
+        .checked_add(size_of::<u32>())?;
+    Some((array_size, array_count, minimum_size))
+}
+
+fn player_block_within_record(
+    record_data: usize,
+    record_size: usize,
+    cursor: usize,
+    block_size: usize,
+) -> bool {
+    let Some(record_end) = record_data.checked_add(record_size) else {
+        return false;
+    };
+    let Some(block_end) = cursor
+        .checked_add(4)
+        .and_then(|address| address.checked_add(block_size))
+    else {
+        return false;
+    };
+    cursor >= record_data && block_end <= record_end
+}
+
+fn validate_player_load_speed_block(player: *mut c_void) -> anyhow::Result<()> {
+    ensure!(!player.is_null(), "PlayerCharacter load target is null");
+    let player_singleton = PLAYER_SINGLETON as *const *mut c_void;
+    validate_memory_range(player_singleton.cast(), size_of::<usize>())
+        .context("validate PlayerCharacter singleton")?;
+    ensure!(
+        unsafe { ptr::read_unaligned(player_singleton) } == player,
+        "PlayerCharacter load target does not match singleton"
+    );
+
+    let manager_singleton = SAVELOAD_SINGLETON as *const *mut c_void;
+    validate_memory_range(manager_singleton.cast(), size_of::<usize>())
+        .context("validate TESSaveLoadGame singleton")?;
+    let manager = unsafe { ptr::read_unaligned(manager_singleton) };
+    ensure!(!manager.is_null(), "TESSaveLoadGame singleton is null");
+
+    let version_getter =
+        unsafe { FnPtr::<SaveVersionFn>::from_address_unchecked(SAVE_VERSION_ADDR) };
+    let version = unsafe { version_getter.as_fn()(manager) };
+    let Some((array_size, array_count, minimum_size)) = player_speed_block_layout(version) else {
+        return Ok(());
+    };
+
+    let cursor_slot = unsafe { (manager as *const u8).add(0x14).cast::<*const u8>() };
+    validate_memory_range(cursor_slot.cast(), size_of::<usize>())
+        .context("validate save cursor slot")?;
+    let cursor = unsafe { ptr::read_unaligned(cursor_slot) };
+    ensure!(!cursor.is_null(), "save cursor is null");
+    validate_memory_range(cursor.cast(), 4 + size_of::<u16>())
+        .context("validate PlayerCharacter block prefix")?;
+    ensure!(
+        unsafe { std::slice::from_raw_parts(cursor, 4) } == b"KOLB",
+        "PlayerCharacter block marker mismatch"
+    );
+
+    let size_address = unsafe { cursor.add(4).cast::<u16>() };
+    let block_size = usize::from(unsafe { ptr::read_unaligned(size_address) });
+    ensure!(
+        block_size >= minimum_size,
+        "PlayerCharacter block is too short: {block_size} < {minimum_size}"
+    );
+
+    let record = ACTIVE_CHANGED_RECORD.load(Ordering::Acquire) as *mut ChangedRecord;
+    ensure!(
+        !record.is_null(),
+        "active PlayerCharacter changed record is unavailable"
+    );
+    validate_memory_range(record.cast(), size_of::<ChangedRecord>())
+        .context("validate active PlayerCharacter changed record")?;
+    ensure!(
+        is_changed_record(unsafe { &raw mut (*record).buffer }),
+        "active PlayerCharacter record has an unexpected layout"
+    );
+    let record_data = unsafe { ptr::read_unaligned(&raw const (*record).buffer.data) } as usize;
+    let record_size =
+        usize::try_from(unsafe { ptr::read_unaligned(&raw const (*record).buffer.size) })
+            .context("changed-record size overflow")?;
+    ensure!(record_data != 0, "active changed-record payload is null");
+    ensure!(
+        player_block_within_record(record_data, record_size, cursor as usize, block_size),
+        "PlayerCharacter block exceeds changed-record payload"
+    );
+    validate_memory_range(size_address.cast(), block_size)
+        .context("validate complete PlayerCharacter actor-value block")?;
+
+    let payload = unsafe { cursor.add(4 + size_of::<u16>()) };
+    for array_index in 0..array_count {
+        let speed_offset = array_index
+            .checked_mul(array_size)
+            .and_then(|offset| offset.checked_add(PLAYER_SPEED_VALUE_INDEX * size_of::<f32>()))
+            .context("PlayerCharacter SpeedMult offset overflow")?;
+        let value = unsafe { ptr::read_unaligned(payload.add(speed_offset).cast::<u32>()) };
+        ensure!(
+            f32::from_bits(value).is_finite(),
+            "PlayerCharacter SpeedMult slot {array_index} is not finite"
+        );
+    }
+    Ok(())
 }
 
 unsafe extern "thiscall" fn hook_buffer_read(
@@ -1065,6 +1516,7 @@ unsafe extern "thiscall" fn hook_load_apply(
         mark_load_rejected("record application trampoline unavailable");
         return 0;
     };
+    ACTIVE_CHANGED_RECORD.store(record as usize, Ordering::Release);
     unsafe { original(owner, argument, record.cast(), form_id) }
 }
 
@@ -1162,14 +1614,6 @@ fn mark_load_rejected(reason: &'static str) {
     }
 }
 
-fn load_error_is_set(owner: *mut c_void) -> bool {
-    let flags = unsafe { (owner as *mut u8).add(SAVELOAD_ERROR_FLAGS_OFFSET) as *mut u32 };
-    if validate_memory_range(flags.cast(), 4).is_err() {
-        return false;
-    }
-    unsafe { ptr::read_unaligned(flags) & LOAD_ERROR_FLAG != 0 }
-}
-
 fn set_load_error_flag(owner: *mut c_void, enabled: bool) {
     let flags = unsafe { (owner as *mut u8).add(SAVELOAD_ERROR_FLAGS_OFFSET) as *mut u32 };
     if validate_memory_range(flags.cast(), 4).is_err() {
@@ -1182,4 +1626,95 @@ fn set_load_error_flag(owner: *mut c_void, enabled: bool) {
         current & !LOAD_ERROR_FLAG
     };
     unsafe { ptr::write_unaligned(flags, next) };
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn push_string(fields: &mut Vec<u8>, value: &[u8]) {
+        fields.extend_from_slice(&(value.len() as u16).to_le_bytes());
+        fields.push(b'|');
+        fields.extend_from_slice(value);
+        fields.push(b'|');
+    }
+
+    fn current_header(width: u32, height: u32) -> Vec<u8> {
+        let mut fields = Vec::new();
+        fields.extend_from_slice(&CURRENT_SAVE_VERSION.to_le_bytes());
+        fields.push(b'|');
+        fields.extend_from_slice(&[0; 64]);
+        fields.push(b'|');
+        fields.extend_from_slice(&width.to_le_bytes());
+        fields.push(b'|');
+        fields.extend_from_slice(&height.to_le_bytes());
+        fields.push(b'|');
+        fields.extend_from_slice(&7u32.to_le_bytes());
+        fields.push(b'|');
+        push_string(&mut fields, b"Courier");
+        push_string(&mut fields, b"Mojave");
+        fields.extend_from_slice(&20u32.to_le_bytes());
+        fields.push(b'|');
+        push_string(&mut fields, b"Goodsprings");
+        push_string(&mut fields, b"00.10.00");
+
+        let mut header = Vec::new();
+        header.extend_from_slice(SAVE_MAGIC);
+        header.extend_from_slice(&(fields.len() as u32).to_le_bytes());
+        header.extend_from_slice(&fields);
+        header
+    }
+
+    #[test]
+    fn current_save_envelope_accepts_complete_body() {
+        let header = current_header(320, 180);
+        let file_length = header.len() as u64 + 320 * 180 * 3 + 1;
+        validate_save_envelope(&header, file_length).unwrap();
+    }
+
+    #[test]
+    fn save_envelope_rejects_bad_magic() {
+        let mut header = current_header(320, 180);
+        header[0] = b'X';
+        assert!(validate_save_envelope(&header, u64::MAX).is_err());
+    }
+
+    #[test]
+    fn save_envelope_rejects_inconsistent_header_size() {
+        let mut header = current_header(320, 180);
+        let encoded = u32::from_le_bytes(header[11..15].try_into().unwrap());
+        header[11..15].copy_from_slice(&(encoded + 1).to_le_bytes());
+        header.push(0);
+        assert!(validate_save_envelope(&header, u64::MAX).is_err());
+    }
+
+    #[test]
+    fn save_envelope_rejects_missing_changed_record_body() {
+        let header = current_header(320, 180);
+        let screenshot_end = header.len() as u64 + 320 * 180 * 3;
+        assert!(validate_save_envelope(&header, screenshot_end).is_err());
+    }
+
+    #[test]
+    fn player_speed_layout_matches_versioned_actor_arrays() {
+        assert_eq!(player_speed_block_layout(30), None);
+        assert_eq!(player_speed_block_layout(31), Some((0x130, 2, 614)));
+        assert_eq!(player_speed_block_layout(48), Some((0x130, 2, 614)));
+        assert_eq!(player_speed_block_layout(49), Some((0x130, 3, 918)));
+        assert_eq!(player_speed_block_layout(59), Some((0x134, 3, 930)));
+        assert_eq!(player_speed_block_layout(90), None);
+    }
+
+    #[test]
+    fn player_block_must_fit_changed_record_payload() {
+        assert!(player_block_within_record(0x1000, 1024, 0x1010, 614));
+        assert!(!player_block_within_record(0x1000, 620, 0x1010, 614));
+        assert!(!player_block_within_record(0x1000, 1024, 0x0ff0, 614));
+        assert!(!player_block_within_record(
+            usize::MAX - 4,
+            16,
+            usize::MAX - 4,
+            614,
+        ));
+    }
 }

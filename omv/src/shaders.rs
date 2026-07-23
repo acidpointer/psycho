@@ -1248,7 +1248,7 @@ fn color_grade_source(
                 "Film grain strength",
                 config.film_grain,
                 0.0,
-                1.0,
+                2.0,
                 13,
                 1,
             ),
@@ -1296,7 +1296,7 @@ fn color_grade_source(
                 "Chromatic aberration pixels",
                 config.chromatic_aberration,
                 0.0,
-                4.0,
+                12.0,
                 16,
                 3,
             ),
@@ -2925,13 +2925,20 @@ mod embedded_color_grade_tests {
         assert_eq!(lut.min, 0.0);
         assert_eq!(lut.max, 2.0);
         assert!(matches!(lut.value, ShaderOptionValue::Integer(1)));
+        let grain = source
+            .options
+            .iter()
+            .find(|option| option.key == "film_grain")
+            .expect("film grain strength");
+        assert_eq!(grain.min, 0.0);
+        assert_eq!(grain.max, 2.0);
         let chromatic = source
             .options
             .iter()
             .find(|option| option.key == "chromatic_aberration")
             .expect("chromatic strength");
         assert_eq!(chromatic.min, 0.0);
-        assert_eq!(chromatic.max, 4.0);
+        assert_eq!(chromatic.max, 12.0);
     }
 
     #[test]

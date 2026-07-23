@@ -102,6 +102,7 @@ pub(crate) fn dashboard_counters() -> DashboardCounters {
         || save.activation_hook
         || save.fclose_hook
         || save.load_owner_hook
+        || save.player_load_hook
     {
         active_features |= DASHBOARD_FEATURE_SAVE_INTEGRITY;
     }
@@ -131,6 +132,8 @@ pub(crate) fn dashboard_counters() -> DashboardCounters {
         save_aborts: u64::from(save.save_aborts),
         save_rejections: u64::from(save.short_writes)
             .saturating_add(u64::from(save.close_failures))
+            .saturating_add(u64::from(save.structure_rejections))
+            .saturating_add(u64::from(save.state_mutations))
             .saturating_add(u64::from(save.load_rejections))
             .saturating_add(u64::from(save.unresolved_records)),
         task_dispatches: task.dispatch_calls,
@@ -276,7 +279,8 @@ pub(crate) fn append_diagnostic_report(out: &mut String) {
             || save.owner_hook
             || save.activation_hook
             || save.fclose_hook
-            || save.load_owner_hook,
+            || save.load_owner_hook
+            || save.player_load_hook,
         "Task guard",
         task.release_enabled || task.dispatch_enabled,
     );
@@ -394,23 +398,31 @@ pub(crate) fn append_diagnostic_report(out: &mut String) {
         out,
         "Save rejects",
         format!(
-            "{} I/O / {} load / {} missing",
+            "{} I/O / {} format / {} state / {} load / {} missing",
             save.short_writes.saturating_add(save.close_failures),
+            save.structure_rejections,
+            save.state_mutations,
             save.load_rejections,
             save.unresolved_records,
         ),
     );
     push_report_value(
         out,
+        "Player preflight",
+        format!("{} rejected", save.player_load_rejections),
+    );
+    push_report_value(
+        out,
         "Save hooks",
         format!(
-            "{}/5 / owner {:08X}",
+            "{}/6 / owner {:08X}",
             [
                 save.factory_hook,
                 save.owner_hook,
                 save.activation_hook,
                 save.fclose_hook,
                 save.load_owner_hook,
+                save.player_load_hook,
             ]
             .into_iter()
             .filter(|active| *active)
@@ -741,6 +753,8 @@ pub(crate) fn append_diagnostic_report(out: &mut String) {
     let save_alerts = u64::from(save.save_aborts)
         .saturating_add(u64::from(save.short_writes))
         .saturating_add(u64::from(save.close_failures))
+        .saturating_add(u64::from(save.structure_rejections))
+        .saturating_add(u64::from(save.state_mutations))
         .saturating_add(u64::from(save.load_rejections))
         .saturating_add(u64::from(save.unresolved_records));
     let task_alerts = task

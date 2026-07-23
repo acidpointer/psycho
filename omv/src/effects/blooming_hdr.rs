@@ -495,6 +495,25 @@ mod shader_compile_tests {
         (52.9829189 * seed.fract()).fract()
     }
 
+    fn film_grain_response(value: f32) -> f32 {
+        (value * 8.0).min((1.0 - value) * 4.0).clamp(0.0, 1.0)
+    }
+
+    fn film_grain_cluster_noise(pixel: [f32; 2], dimensions: [f32; 2], frame: f32) -> f32 {
+        let cluster_scale = (540.0 / dimensions[1]).min(0.5);
+        let cluster_pixel = [
+            (pixel[0] * cluster_scale).floor(),
+            (pixel[1] * cluster_scale).floor(),
+        ];
+        golden_noise(cluster_pixel, frame) - 0.5
+    }
+
+    fn film_grain_noise(pixel: [f32; 2], dimensions: [f32; 2], frame: f32) -> f32 {
+        let fine = golden_noise(pixel, frame) - 0.5;
+        let cluster = film_grain_cluster_noise(pixel, dimensions, frame);
+        fine * 0.90 + cluster * 1.10
+    }
+
     fn unorm8_code(value: f32) -> u8 {
         (value.clamp(0.0, 1.0) * 255.0).round() as u8
     }
@@ -507,16 +526,10 @@ mod shader_compile_tests {
         amount: f32,
         master: f32,
     ) -> [f32; 3] {
-        let uv = [pixel[0] / dimensions[0], pixel[1] / dimensions[1]];
-        let grain_pixel = [
-            (uv[0] + 0.173) * dimensions[0],
-            (uv[1] + 0.173) * dimensions[1],
-        ];
-        let grain_mask = 1.0 - (luma(input) * 0.65).clamp(0.0, 1.0);
-        let grain = (golden_noise(grain_pixel, frame + 19.0) - 0.5)
-            * amount.clamp(0.0, 1.0)
+        let grain = film_grain_noise(pixel, dimensions, frame)
+            * amount.clamp(0.0, 2.0)
             * master.clamp(0.0, 1.0)
-            * grain_mask
+            * film_grain_response(luma(input))
             * FILM_GRAIN_NOISE_CODES
             / 255.0;
         input.map(|channel| (channel + grain).clamp(0.0, 1.0))
@@ -1400,12 +1413,17 @@ mod shader_compile_tests {
             / width as f32)
             .sqrt();
         assert!(
-            changed >= width * 3 / 10,
+            changed >= width * 7 / 10,
             "default grain changed only {changed}/{width} quantized midtone pixels"
         );
         assert!(
-            rms >= 0.55,
+            (1.5..=2.1).contains(&rms),
             "default grain reaches only {rms:.3} code-value RMS after quantization"
+        );
+        let mean = deltas.iter().map(|delta| *delta as f32).sum::<f32>() / width as f32;
+        assert!(
+            mean.abs() <= 0.15,
+            "default grain biases the image by {mean:.3} code values"
         );
     }
 
@@ -1524,37 +1542,53 @@ mod shader_compile_tests {
     }
 
     #[test]
-    fn grain_and_dither_noise_is_deterministic_decorrelated_and_strictly_bounded() {
+    fn film_grain_clusters_are_resolution_stable_endpoint_safe_and_strictly_bounded() {
+        let pixels = [[0.5, 0.5], [12.5, 8.5], [1919.5, 1079.5]];
+        for pixel in pixels {
+            let first = film_grain_noise(pixel, [1920.0, 1080.0], 41.0);
+            assert_eq!(first, film_grain_noise(pixel, [1920.0, 1080.0], 41.0));
+            assert!((-1.0..=1.0).contains(&first));
+            assert_ne!(first, film_grain_noise(pixel, [1920.0, 1080.0], 42.0));
+            let doubled_pixel = [pixel[0] * 2.0 + 0.5, pixel[1] * 2.0 + 0.5];
+            assert_eq!(
+                film_grain_cluster_noise(pixel, [1920.0, 1080.0], 41.0),
+                film_grain_cluster_noise(doubled_pixel, [3840.0, 2160.0], 41.0)
+            );
+            let maximum_grain = first.abs() * 2.0 * FILM_GRAIN_NOISE_CODES / 255.0;
+            assert!(maximum_grain <= 48.0 / 255.0 + 1.0e-7);
+        }
+        assert_eq!(
+            film_grain_cluster_noise([12.5, 8.5], [1920.0, 1080.0], 41.0),
+            film_grain_cluster_noise([13.5, 9.5], [1920.0, 1080.0], 41.0)
+        );
+        assert_ne!(
+            film_grain_cluster_noise([12.5, 8.5], [1920.0, 1080.0], 41.0),
+            film_grain_cluster_noise([14.5, 8.5], [1920.0, 1080.0], 41.0)
+        );
+
+        assert_eq!(film_grain_response(0.0), 0.0);
+        assert_eq!(film_grain_response(1.0), 0.0);
+        assert_eq!(
+            film_grain_reference([0.0; 3], [31.5, 17.5], [1920.0, 1080.0], 41.0, 2.0, 1.0,),
+            [0.0; 3]
+        );
+        assert_eq!(
+            film_grain_reference([1.0; 3], [31.5, 17.5], [1920.0, 1080.0], 41.0, 2.0, 1.0,),
+            [1.0; 3]
+        );
+    }
+
+    #[test]
+    fn finishing_dither_noise_remains_deterministic_and_bounded() {
         let pixels = [[0.5, 0.5], [12.5, 8.5], [1919.5, 1079.5]];
         for pixel in pixels {
             let first = golden_noise(pixel, 41.0);
             assert_eq!(first, golden_noise(pixel, 41.0));
             assert!((0.0..1.0).contains(&first));
             assert_ne!(first, golden_noise(pixel, 42.0));
-            let maximum_grain = (first - 0.5).abs() * FILM_GRAIN_NOISE_CODES / 255.0;
             let maximum_dither = (first - 0.5).abs() * DEBAND_DITHER_NOISE_CODES / 255.0;
-            assert!(maximum_grain <= 12.0 / 255.0 + 1.0e-7);
             assert!(maximum_dither <= 2.0 / 255.0 + 1.0e-7);
         }
-
-        let defaults = crate::config::ColorGradeConfig::default();
-        let midtone_mask = 1.0 - 0.5 * 0.65;
-        let mean_square_codes = (0..1024)
-            .map(|index| {
-                let noise = golden_noise([index as f32 + 0.5, 37.5], 41.0) - 0.5;
-                let codes = noise
-                    * FILM_GRAIN_NOISE_CODES
-                    * defaults.film_grain
-                    * defaults.strength
-                    * midtone_mask;
-                codes * codes
-            })
-            .sum::<f32>()
-            / 1024.0;
-        assert!(
-            mean_square_codes.sqrt() >= 0.20,
-            "default grain RMS is still visually inert"
-        );
     }
 
     #[test]
@@ -1719,10 +1753,10 @@ mod shader_compile_tests {
         assert_eq!(settings.highlight_rolloff, 1.0);
         assert_eq!(settings.lut_strength, 1.0);
         assert_eq!(settings.deband, 1.0);
-        assert_eq!(settings.film_grain, 1.0);
+        assert_eq!(settings.film_grain, 2.0);
         assert_eq!(settings.vignette, 1.0);
         assert_eq!(settings.halation, 1.0);
-        assert_eq!(settings.chromatic_aberration, 4.0);
+        assert_eq!(settings.chromatic_aberration, 12.0);
     }
 
     #[test]
@@ -1830,7 +1864,11 @@ mod shader_compile_tests {
             "static const float FilmGrainNoiseScaleCodes = 24.0f;",
             "static const float DebandDitherNoiseScaleCodes = 4.0f;",
             "? GradeData2.z * GradeData0.x * debandFlatWeight * DebandDitherNoiseScaleCodes",
-            "* grainMask * FilmGrainNoiseScaleCodes / 255.0f;",
+            "return saturate(min(luma * 8.0f, (1.0f - luma) * 4.0f));",
+            "float clusterScale = min(ScreenData.w * 540.0f, 0.5f);",
+            "return fineNoise * 0.90f + clusterNoise * 1.10f;",
+            "float finishingNoise = GoldenNoise(input.uv, FrameData.x) - 0.5f;",
+            "* FilmGrainResponse(Luma(color)) * FilmGrainNoiseScaleCodes / 255.0f;",
         ] {
             assert!(
                 source.contains(equation),
@@ -2496,7 +2534,7 @@ impl ColorGradeSettings {
             deband_enabled: source_option_bool(source, "deband_enabled", false),
             deband: source_option_float(source, "deband", 0.0).clamp(0.0, 1.0),
             film_grain_enabled: source_option_bool(source, "film_grain_enabled", false),
-            film_grain: source_option_float(source, "film_grain", 0.0).clamp(0.0, 1.0),
+            film_grain: source_option_float(source, "film_grain", 0.0).clamp(0.0, 2.0),
             vignette_enabled: source_option_bool(source, "vignette_enabled", false),
             vignette: source_option_float(source, "vignette", 0.0).clamp(0.0, 1.0),
             halation_enabled: source_option_bool(source, "halation_enabled", false),
@@ -2507,7 +2545,7 @@ impl ColorGradeSettings {
                 false,
             ),
             chromatic_aberration: source_option_float(source, "chromatic_aberration", 0.0)
-                .clamp(0.0, 4.0),
+                .clamp(0.0, 12.0),
             debug_split: source_option_bool(source, "debug_split", false),
             environment_weight,
             lut_size,

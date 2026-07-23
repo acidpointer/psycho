@@ -23,7 +23,8 @@ frame reactivates the gate if the menu is still open.
 
 The optional producers are:
 
-- `runtime.rs`: the 180-sample frame-pacing ring and EMA;
+- `runtime.rs`: the 2,048-sample frame-pacing ring, one-second EMA, ten-second
+  metric window, and 500 ms published snapshot;
 - `effects/pbr/diagnostics.rs` and `effects/pbr/samplers.rs`: detailed draw,
   transition, rejection, and sampler telemetry;
 - `fnv_local_lights.rs`: traversal, successful capture/format, rendered-light,
@@ -52,19 +53,23 @@ menu cannot hide or reset those errors.
 
 With the menu closed, optional producers reduce to their subsystem gate check;
 they perform no success-counter increments, per-frame counter swaps,
-frame-history timestamp query, ring write, percentile preparation, or ImGui
-work. PBR's configured-off fast path still performs its existing single relaxed
-diagnostic-enable read. Local-light hooks load their gate once per capture stage
-and reuse the result for all optional counters in that stage.
+frame-history timestamp query, ring write, snapshot preparation, or ImGui work.
+PBR's configured-off fast path still performs its existing single relaxed
+diagnostic-enable read. Local-light hooks load their gate once per capture
+stage and reuse the result for all optional counters in that stage.
 
-The frame-pacing ring remains a fixed 180 `f32` array. Diagnostic session reset
-uses existing fixed atomics and arrays and happens only on the user-driven open
-transition, never per draw.
+The frame-pacing ring is a fixed 2,048 `f32` array. Raw capture remains one
+bounded write and one time-based EMA update per valid frame. Sorting,
+percentiles, robust jitter, and the 100-bucket chart are rebuilt at most twice
+per second. Diagnostic session reset uses existing fixed atomics and arrays and
+happens only on the user-driven open transition, never per draw.
 
 ## Validation and runtime acceptance
 
 Unit tests prove that a closed frame-pacing gate records no samples, reopening
-starts a fresh session, production frame delta remains independent, optional
+starts a fresh session, published values hold for 500 ms, the chart removes raw
+per-frame zigzag without hiding persistent jitter, the metric window is bounded
+to ten seconds, production frame delta remains independent, optional
 local-light counters ignore closed-menu events, and detailed PBR diagnostics
 require both configuration and an open menu.
 
@@ -74,6 +79,10 @@ The supported validation commands are:
 cargo test --target i686-pc-windows-gnu -p omv
 cargo build --release --target i686-pc-windows-gnu -p omv
 ```
+
+Validation on 2026-07-23 passed all 267 OMV tests and the supported release
+build. The resulting `omv.dll` SHA-256 was
+`f3becd75325060d0973e81138e94835e4845c8a9668e39ce511e630b21707944`.
 
 A normal Proton/DXVK playtest should compare a stable scene with the workbench
 closed and open, confirm diagnostics begin updating only after opening, and
