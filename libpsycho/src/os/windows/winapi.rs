@@ -17,7 +17,7 @@ use windows::Win32::Storage::FileSystem::{
     CreateFileA, DeleteFileA, FILE_ATTRIBUTE_NORMAL, FILE_GENERIC_READ, FILE_GENERIC_WRITE,
     FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE, FlushFileBuffers, GetFileAttributesA,
     GetFileSizeEx, INVALID_FILE_ATTRIBUTES, MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH,
-    MoveFileExA, OPEN_EXISTING, REPLACE_FILE_FLAGS, ReplaceFileA,
+    MoveFileExA, OPEN_EXISTING, REPLACE_FILE_FLAGS, ReadFile, ReplaceFileA,
 };
 use windows::Win32::System::Console::{
     AllocConsole, CONSOLE_MODE, ENABLE_VIRTUAL_TERMINAL_PROCESSING, GetConsoleMode, GetStdHandle,
@@ -862,6 +862,24 @@ impl DurableFile {
     /// Return whether the file contains no bytes.
     pub fn is_empty(&self) -> WinapiResult<bool> {
         Ok(self.len()? == 0)
+    }
+
+    /// Read up to `buffer.len()` bytes from the start of a newly opened file.
+    pub fn read_prefix(&self, buffer: &mut [u8]) -> WinapiResult<usize> {
+        if buffer.is_empty() {
+            return Ok(0);
+        }
+
+        let mut bytes_read = 0;
+        unsafe {
+            ReadFile(
+                self.raw_handle()?,
+                Some(buffer),
+                Some(&mut bytes_read),
+                None,
+            )?
+        };
+        Ok(bytes_read as usize)
     }
 
     /// Force cached file contents and metadata associated with this handle to

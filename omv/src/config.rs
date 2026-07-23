@@ -594,6 +594,7 @@ pub(crate) struct ColorGradeConfig {
     pub(crate) deband: f32,
     pub(crate) film_grain_enabled: bool,
     pub(crate) film_grain: f32,
+    pub(crate) film_grain_size: f32,
     pub(crate) vignette_enabled: bool,
     pub(crate) vignette: f32,
     pub(crate) halation_enabled: bool,
@@ -624,13 +625,14 @@ impl Default for ColorGradeConfig {
             deband_enabled: true,
             deband: 0.55,
             film_grain_enabled: true,
-            film_grain: 0.32,
+            film_grain: 0.354_463_1,
+            film_grain_size: 1.743_985,
             vignette_enabled: true,
             vignette: 0.035,
             halation_enabled: true,
-            halation: 0.12,
-            chromatic_aberration_enabled: false,
-            chromatic_aberration: 0.85,
+            halation: 0.209_262_6,
+            chromatic_aberration_enabled: true,
+            chromatic_aberration: 3.038_874,
             debug_split: false,
         }
     }
@@ -650,10 +652,11 @@ impl ColorGradeConfig {
         self.lut_strength = finite_clamp(self.lut_strength, 0.42, 0.0, 1.0);
         self.environment_response = finite_clamp(self.environment_response, 0.45, 0.0, 1.0);
         self.deband = finite_clamp(self.deband, 0.55, 0.0, 1.0);
-        self.film_grain = finite_clamp(self.film_grain, 0.32, 0.0, 2.0);
+        self.film_grain = finite_clamp(self.film_grain, 0.354_463_1, 0.0, 2.0);
+        self.film_grain_size = finite_clamp(self.film_grain_size, 1.743_985, 0.3, 3.0);
         self.vignette = finite_clamp(self.vignette, 0.035, 0.0, 1.0);
-        self.halation = finite_clamp(self.halation, 0.12, 0.0, 1.0);
-        self.chromatic_aberration = finite_clamp(self.chromatic_aberration, 0.85, 0.0, 12.0);
+        self.halation = finite_clamp(self.halation, 0.209_262_6, 0.0, 1.0);
+        self.chromatic_aberration = finite_clamp(self.chromatic_aberration, 3.038_874, 0.0, 12.0);
         self
     }
 }
@@ -1359,6 +1362,8 @@ fn save_color_grade_config(doc: &mut DocumentMut, grade: &ColorGradeConfig) {
         value(grade.film_grain_enabled);
     doc["graphics"]["embedded_effects"]["color_grade"]["film_grain"] =
         value(grade.film_grain as f64);
+    doc["graphics"]["embedded_effects"]["color_grade"]["film_grain_size"] =
+        value(grade.film_grain_size as f64);
     doc["graphics"]["embedded_effects"]["color_grade"]["vignette_enabled"] =
         value(grade.vignette_enabled);
     doc["graphics"]["embedded_effects"]["color_grade"]["vignette"] = value(grade.vignette as f64);
@@ -1455,7 +1460,7 @@ albedo_saturation = 1.02
         assert_eq!(config.color_grade.exposure, 0.0);
         assert_eq!(config.color_grade.saturation, 0.0);
         assert_eq!(config.color_grade.deband, 0.55);
-        assert_eq!(config.color_grade.chromatic_aberration, 0.85);
+        assert_eq!(config.color_grade.chromatic_aberration, 3.038_874);
         assert_eq!(config.sunshafts.medium_response, 1.0);
         assert_eq!(config.sunshafts.sun_sample_px, 48);
     }
@@ -1482,6 +1487,7 @@ albedo_saturation = 1.02
             deband: f32::NAN,
             film_grain_enabled: false,
             film_grain: 99.0,
+            film_grain_size: f32::NAN,
             vignette_enabled: false,
             vignette: -99.0,
             halation_enabled: false,
@@ -1506,9 +1512,10 @@ albedo_saturation = 1.02
         assert_eq!(config.environment_response, 0.0);
         assert_eq!(config.deband, 0.55);
         assert_eq!(config.film_grain, 2.0);
+        assert_eq!(config.film_grain_size, 1.743_985);
         assert_eq!(config.vignette, 0.0);
-        assert_eq!(config.halation, 0.12);
-        assert_eq!(config.chromatic_aberration, 0.85);
+        assert_eq!(config.halation, 0.209_262_6);
+        assert_eq!(config.chromatic_aberration, 3.038_874);
         assert!(config.debug_split);
 
         let defaults: ColorGradeConfig = toml::from_str("").expect("legacy color config");
@@ -1538,6 +1545,7 @@ albedo_saturation = 1.02
             deband: 0.34,
             film_grain_enabled: false,
             film_grain: 0.45,
+            film_grain_size: 0.91,
             vignette_enabled: false,
             vignette: 0.56,
             halation_enabled: false,
@@ -1567,6 +1575,7 @@ albedo_saturation = 1.02
         assert_eq!(actual.deband, expected.deband);
         assert_eq!(actual.film_grain_enabled, expected.film_grain_enabled);
         assert_eq!(actual.film_grain, expected.film_grain);
+        assert_eq!(actual.film_grain_size, expected.film_grain_size);
         assert_eq!(actual.vignette_enabled, expected.vignette_enabled);
         assert_eq!(actual.vignette, expected.vignette);
         assert_eq!(actual.halation_enabled, expected.halation_enabled);
@@ -1601,6 +1610,7 @@ albedo_saturation = 1.02
             deband: 0.34,
             film_grain_enabled: false,
             film_grain: 0.45,
+            film_grain_size: 0.91,
             vignette_enabled: false,
             vignette: 0.56,
             halation_enabled: false,
@@ -1618,7 +1628,7 @@ albedo_saturation = 1.02
         let table = value["graphics"]["embedded_effects"]["color_grade"]
             .as_table()
             .expect("color-grade table");
-        assert_eq!(table.len(), 26);
+        assert_eq!(table.len(), 27);
         assert!(!table.contains_key("lut_preset"));
 
         let decoded: PsychoGraphicsConfig = toml::from_str(&text).expect("saved menu document");
@@ -1633,11 +1643,17 @@ albedo_saturation = 1.02
     fn shipped_color_grade_values_match_rust_defaults() {
         let shipped: PsychoGraphicsConfig =
             toml::from_str(include_str!("../config/omv.toml")).expect("shipped OMV config");
+        let expected = ColorGradeConfig::default();
         assert_eq!(
             toml::to_string(&shipped.graphics.embedded_effects.color_grade)
                 .expect("serialize shipped grade"),
-            toml::to_string(&ColorGradeConfig::default()).expect("serialize default grade")
+            toml::to_string(&expected).expect("serialize default grade")
         );
+        assert_eq!(expected.film_grain, 0.354_463_1);
+        assert_eq!(expected.film_grain_size, 1.743_985);
+        assert_eq!(expected.halation, 0.209_262_6);
+        assert!(expected.chromatic_aberration_enabled);
+        assert_eq!(expected.chromatic_aberration, 3.038_874);
     }
 
     #[test]
@@ -1662,7 +1678,7 @@ albedo_saturation = 1.02
         assert!((0.85..=1.0).contains(&actual.saturation));
         assert!(actual.warmth <= 0.20);
         assert!(ColorGradeConfig::default().lut_strength <= 0.45);
-        assert!(!ColorGradeConfig::default().chromatic_aberration_enabled);
+        assert!(ColorGradeConfig::default().chromatic_aberration_enabled);
     }
 
     #[test]

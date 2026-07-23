@@ -82,7 +82,7 @@ const SAVELOAD_ERROR_FLAGS_OFFSET: usize = 0x244;
 const LOAD_ERROR_FLAG: u32 = 0x80;
 const CHANGED_RECORD_REJECTED_FLAG: u32 = 1;
 const MAX_ENGINE_PATH: usize = 260;
-const SAVE_HEADER_CAPTURE_SIZE: usize = 2048;
+const SAVE_HEADER_PREFIX_SIZE: usize = 2048;
 const SAVE_MAGIC: &[u8; 11] = b"FO3SAVEGAME";
 const CURRENT_SAVE_VERSION: u32 = 0x30;
 const MAX_SCREENSHOT_BYTES: u64 = 64 * 1024 * 1024;
@@ -148,27 +148,6 @@ struct ChangedRecord {
     flags: u32,
 }
 
-struct SaveHeaderCapture {
-    bytes: [u8; SAVE_HEADER_CAPTURE_SIZE],
-    length: usize,
-    complete: bool,
-}
-
-impl SaveHeaderCapture {
-    const fn new() -> Self {
-        Self {
-            bytes: [0; SAVE_HEADER_CAPTURE_SIZE],
-            length: 0,
-            complete: false,
-        }
-    }
-
-    fn clear(&mut self) {
-        self.length = 0;
-        self.complete = false;
-    }
-}
-
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct PlayerSpeedSnapshot {
     player: usize,
@@ -209,7 +188,6 @@ static SAVE_OWNER_THREAD: AtomicU32 = AtomicU32::new(0);
 static SAVE_FAILURES: AtomicU32 = AtomicU32::new(0);
 static RELEASE_ALREADY_DONE: AtomicUsize = AtomicUsize::new(0);
 static SAVE_RESULT_PREDECESSOR: AtomicUsize = AtomicUsize::new(0);
-static SAVE_HEADER_CAPTURE: Mutex<SaveHeaderCapture> = Mutex::new(SaveHeaderCapture::new());
 static SAVE_SPEED_SNAPSHOT: Mutex<Option<PlayerSpeedSnapshot>> = Mutex::new(None);
 
 static ACTIVE_LOAD_OWNER: AtomicUsize = AtomicUsize::new(0);
@@ -698,7 +676,6 @@ unsafe fn begin_save_tracking(manager: *mut c_void, file: *mut c_void) -> anyhow
 
     SAVE_FAILURES.store(0, Ordering::Release);
     RELEASE_ALREADY_DONE.store(0, Ordering::Release);
-    SAVE_HEADER_CAPTURE.lock().clear();
     match capture_player_speed() {
         Ok(snapshot) => *SAVE_SPEED_SNAPSHOT.lock() = Some(snapshot),
         Err(error) => {
@@ -730,45 +707,9 @@ unsafe extern "thiscall" fn hook_save_write(
         if written != requested {
             SHORT_WRITES.fetch_add(1, Ordering::Relaxed);
             latch_save_failure(FAILURE_SHORT_WRITE);
-        } else if let Err(reason) = capture_save_header(data, written as usize) {
-            STRUCTURE_REJECTIONS.fetch_add(1, Ordering::Relaxed);
-            latch_save_failure(FAILURE_STRUCTURE);
-            log::error!("[SAVE] Could not capture save envelope: {reason}");
         }
     }
     written
-}
-
-fn capture_save_header(data: *const c_void, written: usize) -> Result<(), &'static str> {
-    if written == 0 {
-        return Ok(());
-    }
-
-    let mut capture = SAVE_HEADER_CAPTURE.lock();
-    if capture.complete {
-        return Ok(());
-    }
-    if data.is_null() {
-        capture.complete = true;
-        return Err("null write source");
-    }
-
-    let remaining = SAVE_HEADER_CAPTURE_SIZE - capture.length;
-    let copied = written.min(remaining);
-    if validate_memory_range(data, copied).is_err() {
-        capture.complete = true;
-        return Err("unreadable write source");
-    }
-    unsafe {
-        ptr::copy_nonoverlapping(
-            data.cast::<u8>(),
-            capture.bytes.as_mut_ptr().add(capture.length),
-            copied,
-        )
-    };
-    capture.length += copied;
-    capture.complete = capture.length == SAVE_HEADER_CAPTURE_SIZE;
-    Ok(())
 }
 
 fn capture_player_speed() -> anyhow::Result<PlayerSpeedSnapshot> {
@@ -1085,11 +1026,11 @@ fn commit_save(paths: &SavePaths) -> anyhow::Result<()> {
             open_existing_file_for_flush(&paths.temp).context("open completed temporary save")?;
         let file_length = temp.len().context("read temporary save length")?;
         ensure!(file_length != 0, "temporary save is empty");
-        let validation = {
-            let capture = SAVE_HEADER_CAPTURE.lock();
-            validate_save_envelope(&capture.bytes[..capture.length], file_length)
-        };
-        if let Err(error) = validation {
+        let mut prefix = [0; SAVE_HEADER_PREFIX_SIZE];
+        let prefix_length = temp
+            .read_prefix(&mut prefix)
+            .context("read temporary save envelope")?;
+        if let Err(error) = validate_save_envelope(&prefix[..prefix_length], file_length) {
             STRUCTURE_REJECTIONS.fetch_add(1, Ordering::Relaxed);
             latch_save_failure(FAILURE_STRUCTURE);
             return Err(error).context("validate completed save envelope");
@@ -1225,7 +1166,6 @@ fn clear_active_save() {
     ACTIVE_BSFILE.store(0, Ordering::Release);
     ACTIVE_FILE_STREAM.store(0, Ordering::Release);
     ACTIVE_SAVE_THREAD.store(0, Ordering::Release);
-    SAVE_HEADER_CAPTURE.lock().clear();
     *SAVE_SPEED_SNAPSHOT.lock() = None;
 }
 

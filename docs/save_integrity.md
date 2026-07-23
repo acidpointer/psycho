@@ -107,12 +107,12 @@ During a save:
 
 - activation binds the exact temporary file, BSFile, stream, thread, and
   manager;
-- the first 2 KiB written are captured without extra file I/O;
 - short writes, buffering failure, close failure, tracking failure, and
   in-transaction PlayerCharacter SpeedMult mutation latch failure bits;
 - the result boundary destroys/closes the engine file without promotion;
-- the completed temporary file must have a current coherent header, bounded
-  screenshot, and a nonempty changed-record body;
+- the first 2 KiB are read from the closed temporary file, and that authoritative
+  image must have a current coherent header, bounded screenshot, and a nonempty
+  changed-record body;
 - the file is flushed to stable storage and atomically replaces the final,
   retaining or recovering the old final according to the configured backup
   policy.
@@ -145,12 +145,14 @@ not masquerade as malformed data.
 - Existing final saves are not deleted on failure. Replacement recovery uses
   an owned backup.
 
-Save-time overhead is a 2 KiB capture, three 32-bit canary reads at each
-boundary, and one header parse before the already-required durable flush. The
-capture and canary use small cold-path mutexes; no lock is added to ordinary
-gameplay. Player load preflight performs one block-range validation and up to
-three float checks. Valid changed-record field reads retain their constant-time
-logical bounds checks and do not perform per-field allocation or file I/O.
+Save-time overhead is one 2 KiB read from the completed temporary file, three
+32-bit canary reads at each boundary, and one header parse before the
+already-required durable flush. The canary uses a small cold-path mutex; no lock
+is added to ordinary gameplay. Reading the closed file avoids assuming that the
+hooked write entry observes the stream from byte zero. Player load preflight
+performs one block-range validation and up to three float checks. Valid
+changed-record field reads retain their constant-time logical bounds checks and
+do not perform per-field allocation or file I/O.
 
 The structural envelope check is not a complete parser for every changed
 record. It proves the outer current-format save framing, while the existing
@@ -186,6 +188,11 @@ Runtime observations:
   byte comparison;
 - available nearby control saves did not reproduce the abnormal SpeedMult
   state;
+- the first integrity build rejected every quicksave with failure bits `0x50`
+  and `truncated save header`: the completed temporary file was present, but
+  the write-entry capture had not observed its initial bytes;
+- envelope validation now reads the completed temporary file directly, so it
+  does not depend on partial write-hook coverage;
 - runtime playtesting is still required to identify which producer, if any,
   first triggers a rejection under the user's full mod list.
 

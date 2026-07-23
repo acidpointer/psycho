@@ -7,9 +7,9 @@ use libpsycho::os::windows::directx9::{
     D3DRS_SCISSORTESTENABLE, D3DRS_SRGBWRITEENABLE, D3DRS_STENCILENABLE, D3DRS_ZENABLE,
     D3DRS_ZWRITEENABLE, D3DSAMP_ADDRESSU, D3DSAMP_ADDRESSV, D3DSAMP_MAGFILTER, D3DSAMP_MINFILTER,
     D3DSAMP_MIPFILTER, D3DSAMP_SRGBTEXTURE, D3DSURFACE_DESC, D3DTA_TEXTURE, D3DTADDRESS_CLAMP,
-    D3DTEXF_LINEAR, D3DTEXF_NONE, D3DTEXF_POINT, D3DTOP_SELECTARG1, D3DTSS_ALPHAARG1,
-    D3DTSS_ALPHAOP, D3DTSS_COLORARG1, D3DTSS_COLOROP, D3DVIEWPORT9, Device9Ref, Direct3DResult,
-    PixelShader9, ScreenVertex, Surface9, Texture9,
+    D3DTADDRESS_WRAP, D3DTEXF_LINEAR, D3DTEXF_NONE, D3DTEXF_POINT, D3DTOP_SELECTARG1,
+    D3DTSS_ALPHAARG1, D3DTSS_ALPHAOP, D3DTSS_COLORARG1, D3DTSS_COLOROP, D3DVIEWPORT9, Device9Ref,
+    Direct3DResult, PixelShader9, ScreenVertex, Surface9, Texture9,
 };
 
 use crate::{
@@ -22,6 +22,8 @@ const COLOR_WRITE_ALL: u32 = 0x0F;
 const EFFECT_CONSTANT_REGISTER: u32 = 9;
 const BLOOM_SCALE: u32 = 4;
 const COLOR_GRADE_CONSTANT_REGISTER: u32 = 10;
+const FILM_GRAIN_TEXTURE_SIZE: u32 = 512;
+const FILM_GRAIN_TEXTURE_SEED: u32 = 0xC0FF_EE11;
 #[cfg(test)]
 const LUT_SIZE: u32 = 32;
 #[cfg(test)]
@@ -160,9 +162,9 @@ fn prepare_shader(source_name: &str, source: &[u8]) -> anyhow::Result<Vec<u32>> 
 mod shader_compile_tests {
     use super::{
         BLUR_SHADER, CHROMATIC_SHADER, COMPOSE_SHADER, ColorGradeSettings, EXTRACT_SHADER,
-        FinalColorShaderBytecode, FinalColorWorkPlan, LUT_COUNT, LUT_SIZE, apply_lut_recipe,
-        bloom_target_dimensions, color_grade_source_active, fullscreen_quad, generate_builtin_lut,
-        identity_lut_pixels, native_environment_weight,
+        FILM_GRAIN_TEXTURE_SIZE, FinalColorShaderBytecode, FinalColorWorkPlan, LUT_COUNT, LUT_SIZE,
+        apply_lut_recipe, bloom_target_dimensions, color_grade_source_active, film_grain_pixels,
+        fullscreen_quad, generate_builtin_lut, identity_lut_pixels, native_environment_weight,
     };
     use crate::{
         backend::{FrameInputs, MaterialStateFrame, NativeSkyFrame},
@@ -170,7 +172,7 @@ mod shader_compile_tests {
         shaders::{self, EmbeddedEffectKind},
     };
 
-    const FILM_GRAIN_NOISE_CODES: f32 = 24.0;
+    const FILM_GRAIN_DEFAULT_SIZE: f32 = 1.743_985;
     const DEBAND_DITHER_NOISE_CODES: f32 = 4.0;
 
     fn compiled_instruction_opcodes(bytecode: &[u32]) -> Vec<u16> {
@@ -350,6 +352,7 @@ mod shader_compile_tests {
             deband: 0.0,
             film_grain_enabled: true,
             film_grain: 0.0,
+            film_grain_size: 1.0,
             vignette_enabled: true,
             vignette: 0.0,
             halation_enabled: true,
@@ -495,23 +498,36 @@ mod shader_compile_tests {
         (52.9829189 * seed.fract()).fract()
     }
 
-    fn film_grain_response(value: f32) -> f32 {
-        (value * 8.0).min((1.0 - value) * 4.0).clamp(0.0, 1.0)
-    }
-
-    fn film_grain_cluster_noise(pixel: [f32; 2], dimensions: [f32; 2], frame: f32) -> f32 {
-        let cluster_scale = (540.0 / dimensions[1]).min(0.5);
-        let cluster_pixel = [
-            (pixel[0] * cluster_scale).floor(),
-            (pixel[1] * cluster_scale).floor(),
+    fn sample_reference_grain(pixels: &[u32], uv: [f32; 2]) -> f32 {
+        let size = FILM_GRAIN_TEXTURE_SIZE as isize;
+        let position = [
+            uv[0] * FILM_GRAIN_TEXTURE_SIZE as f32 - 0.5,
+            uv[1] * FILM_GRAIN_TEXTURE_SIZE as f32 - 0.5,
         ];
-        golden_noise(cluster_pixel, frame) - 0.5
+        let low = [position[0].floor() as isize, position[1].floor() as isize];
+        let fraction = [position[0] - low[0] as f32, position[1] - low[1] as f32];
+        let texel = |x: isize, y: isize| {
+            let index = y.rem_euclid(size) as usize * FILM_GRAIN_TEXTURE_SIZE as usize
+                + x.rem_euclid(size) as usize;
+            (((pixels[index] >> 16) & 0xFF) as f32 / 255.0) * 2.0 - 1.0
+        };
+        let top = texel(low[0], low[1])
+            + (texel(low[0] + 1, low[1]) - texel(low[0], low[1])) * fraction[0];
+        let bottom = texel(low[0], low[1] + 1)
+            + (texel(low[0] + 1, low[1] + 1) - texel(low[0], low[1] + 1)) * fraction[0];
+        top + (bottom - top) * fraction[1]
     }
 
-    fn film_grain_noise(pixel: [f32; 2], dimensions: [f32; 2], frame: f32) -> f32 {
-        let fine = golden_noise(pixel, frame) - 0.5;
-        let cluster = film_grain_cluster_noise(pixel, dimensions, frame);
-        fine * 0.90 + cluster * 1.10
+    fn film_grain_noise(pixels: &[u32], pixel: [f32; 2], frame: f32, grain_size: f32) -> f32 {
+        let grain_size = grain_size.clamp(0.3, 3.0);
+        let offset = [(frame * 0.754_877_7).fract(), (frame * 0.569_840_3).fract()];
+        sample_reference_grain(
+            pixels,
+            [
+                pixel[0] / (grain_size * FILM_GRAIN_TEXTURE_SIZE as f32) + offset[0],
+                pixel[1] / (grain_size * FILM_GRAIN_TEXTURE_SIZE as f32) + offset[1],
+            ],
+        )
     }
 
     fn unorm8_code(value: f32) -> u8 {
@@ -520,19 +536,19 @@ mod shader_compile_tests {
 
     fn film_grain_reference(
         input: [f32; 3],
+        grain_pixels: &[u32],
         pixel: [f32; 2],
-        dimensions: [f32; 2],
         frame: f32,
         amount: f32,
         master: f32,
+        grain_size: f32,
     ) -> [f32; 3] {
-        let grain = film_grain_noise(pixel, dimensions, frame)
+        let response = 1.0 - luma(input).clamp(0.0, 1.0).sqrt();
+        let grain = film_grain_noise(grain_pixels, pixel, frame, grain_size)
             * amount.clamp(0.0, 2.0)
             * master.clamp(0.0, 1.0)
-            * film_grain_response(luma(input))
-            * FILM_GRAIN_NOISE_CODES
-            / 255.0;
-        input.map(|channel| (channel + grain).clamp(0.0, 1.0))
+            * response;
+        input.map(|channel| (channel + channel * grain).clamp(0.0, 1.0))
     }
 
     fn finishing_dither_reference(
@@ -582,7 +598,7 @@ mod shader_compile_tests {
         for (name, source, max_instructions, max_samples) in [
             ("bloom_hdr_extract_budget.hlsl", EXTRACT_SHADER, 220, 10),
             ("bloom_hdr_blur_budget.hlsl", BLUR_SHADER, 80, 9),
-            ("bloom_hdr_compose_budget.hlsl", COMPOSE_SHADER, 500, 13),
+            ("bloom_hdr_compose_budget.hlsl", COMPOSE_SHADER, 500, 14),
             ("chromatic_aberration_budget.hlsl", CHROMATIC_SHADER, 70, 3),
         ] {
             let (instructions, texture_samples) = shader_budget(name, source);
@@ -653,11 +669,11 @@ mod shader_compile_tests {
         assert!(!neither.has_work());
         assert_eq!(bloom_only.effect_draw_count(), 4);
         assert_eq!(bloom_only.quarter_resolution_draw_count(), 3);
-        assert_eq!(grade_only.effect_draw_count(), 1);
+        assert_eq!(grade_only.effect_draw_count(), 2);
         assert_eq!(grade_only.quarter_resolution_draw_count(), 0);
-        assert_eq!(halation_grade.effect_draw_count(), 4);
+        assert_eq!(halation_grade.effect_draw_count(), 5);
         assert_eq!(halation_grade.quarter_resolution_draw_count(), 3);
-        assert_eq!(fused.effect_draw_count(), 4);
+        assert_eq!(fused.effect_draw_count(), 5);
         assert_eq!(fused.quarter_resolution_draw_count(), 3);
 
         let shipped = crate::luts::shipped_luts_for_test();
@@ -669,6 +685,11 @@ mod shader_compile_tests {
         assert_eq!(
             shipped[0].pixels.len() * std::mem::size_of::<u32>(),
             131_072
+        );
+        assert_eq!(
+            (FILM_GRAIN_TEXTURE_SIZE * FILM_GRAIN_TEXTURE_SIZE) as usize
+                * std::mem::size_of::<u32>(),
+            1_048_576
         );
     }
 
@@ -772,7 +793,18 @@ mod shader_compile_tests {
         }
         assert!(source.contains("crate::backend::AlphaCoverageMode::Nvidia"));
         assert!(source.contains("crate::backend::AlphaCoverageMode::Amd"));
-        assert!(source.contains("for sampler in 0..=5"));
+        assert!(source.contains("for sampler in 0..=6"));
+        assert!(
+            source.contains(
+                "device.set_sampler_state(6, D3DSAMP_ADDRESSU, D3DTADDRESS_WRAP.0 as u32)?"
+            )
+        );
+        assert!(
+            source.contains(
+                "device.set_sampler_state(6, D3DSAMP_ADDRESSV, D3DTADDRESS_WRAP.0 as u32)?"
+            )
+        );
+        assert!(source.contains("device.clear_texture(6)?"));
         assert!(source.contains("D3DFMT_A8R8G8B8, D3DPOOL_MANAGED"));
         assert!(source.contains("device.create_render_target_texture(width, height, format)"));
         assert!(
@@ -1389,6 +1421,8 @@ mod shader_compile_tests {
     #[test]
     fn default_film_grain_survives_the_unorm8_output_boundary() {
         let defaults = crate::config::ColorGradeConfig::default();
+        assert_eq!(defaults.film_grain_size, FILM_GRAIN_DEFAULT_SIZE);
+        let grain_pixels = film_grain_pixels();
         let width = 4096usize;
         let input = [128.0 / 255.0; 3];
         let input_code = unorm8_code(input[0]) as i16;
@@ -1396,11 +1430,12 @@ mod shader_compile_tests {
             .map(|x| {
                 let output = film_grain_reference(
                     input,
+                    &grain_pixels,
                     [x as f32 + 0.5, 37.5],
-                    [width as f32, 64.0],
                     41.0,
                     defaults.film_grain,
                     defaults.strength,
+                    FILM_GRAIN_DEFAULT_SIZE,
                 );
                 unorm8_code(output[0]) as i16 - input_code
             })
@@ -1413,11 +1448,11 @@ mod shader_compile_tests {
             / width as f32)
             .sqrt();
         assert!(
-            changed >= width * 7 / 10,
+            changed >= width / 2,
             "default grain changed only {changed}/{width} quantized midtone pixels"
         );
         assert!(
-            (1.5..=2.1).contains(&rms),
+            (1.75..=2.50).contains(&rms),
             "default grain reaches only {rms:.3} code-value RMS after quantization"
         );
         let mean = deltas.iter().map(|delta| *delta as f32).sum::<f32>() / width as f32;
@@ -1542,40 +1577,163 @@ mod shader_compile_tests {
     }
 
     #[test]
-    fn film_grain_clusters_are_resolution_stable_endpoint_safe_and_strictly_bounded() {
-        let pixels = [[0.5, 0.5], [12.5, 8.5], [1919.5, 1079.5]];
-        for pixel in pixels {
-            let first = film_grain_noise(pixel, [1920.0, 1080.0], 41.0);
-            assert_eq!(first, film_grain_noise(pixel, [1920.0, 1080.0], 41.0));
-            assert!((-1.0..=1.0).contains(&first));
-            assert_ne!(first, film_grain_noise(pixel, [1920.0, 1080.0], 42.0));
-            let doubled_pixel = [pixel[0] * 2.0 + 0.5, pixel[1] * 2.0 + 0.5];
-            assert_eq!(
-                film_grain_cluster_noise(pixel, [1920.0, 1080.0], 41.0),
-                film_grain_cluster_noise(doubled_pixel, [3840.0, 2160.0], 41.0)
-            );
-            let maximum_grain = first.abs() * 2.0 * FILM_GRAIN_NOISE_CODES / 255.0;
-            assert!(maximum_grain <= 48.0 / 255.0 + 1.0e-7);
-        }
+    fn film_grain_texture_is_gaussian_balanced_and_deterministic() {
+        let first = film_grain_pixels();
+        let second = film_grain_pixels();
+        assert_eq!(first, second);
         assert_eq!(
-            film_grain_cluster_noise([12.5, 8.5], [1920.0, 1080.0], 41.0),
-            film_grain_cluster_noise([13.5, 9.5], [1920.0, 1080.0], 41.0)
+            first.len(),
+            (FILM_GRAIN_TEXTURE_SIZE * FILM_GRAIN_TEXTURE_SIZE) as usize
         );
-        assert_ne!(
-            film_grain_cluster_noise([12.5, 8.5], [1920.0, 1080.0], 41.0),
-            film_grain_cluster_noise([14.5, 8.5], [1920.0, 1080.0], 41.0)
+        assert!(first.iter().all(|pixel| {
+            let red = (pixel >> 16) & 0xFF;
+            let green = (pixel >> 8) & 0xFF;
+            let blue = pixel & 0xFF;
+            red == green && green == blue && pixel >> 24 == 0xFF
+        }));
+        let values: Vec<f32> = first
+            .iter()
+            .map(|pixel| (((pixel >> 16) & 0xFF) as f32 / 255.0) * 2.0 - 1.0)
+            .collect();
+        let mean = values.iter().sum::<f32>() / values.len() as f32;
+        let rms =
+            (values.iter().map(|value| value * value).sum::<f32>() / values.len() as f32).sqrt();
+        let positive = values.iter().filter(|value| **value > 0.0).count();
+        let tails = values
+            .iter()
+            .filter(|value| value.abs() > 2.0 / 3.0)
+            .count();
+        assert!(mean.abs() <= 0.005, "grain texture mean is {mean:.5}");
+        assert!(
+            (0.30..=0.36).contains(&rms),
+            "grain texture RMS is {rms:.5}"
+        );
+        assert!((49..=51).contains(&(positive * 100 / values.len())));
+        assert!((3..=7).contains(&(tails * 100 / values.len())));
+    }
+
+    #[test]
+    fn film_grain_is_coherent_temporal_endpoint_safe_and_rejects_the_blocky_model() {
+        fn adjacent_correlation(samples: &[f32], width: usize, height: usize) -> f32 {
+            let mut products = 0.0;
+            let mut left_energy = 0.0;
+            let mut right_energy = 0.0;
+            for y in 0..height {
+                for x in 0..width - 1 {
+                    let left = samples[y * width + x];
+                    let right = samples[y * width + x + 1];
+                    products += left * right;
+                    left_energy += left * left;
+                    right_energy += right * right;
+                }
+            }
+            products / (left_energy * right_energy).sqrt()
+        }
+
+        let grain_pixels = film_grain_pixels();
+        let width = 256usize;
+        let height = 64usize;
+        let coherent: Vec<f32> = (0..height)
+            .flat_map(|y| {
+                let grain_pixels = &grain_pixels;
+                (0..width).map(move |x| {
+                    film_grain_noise(
+                        grain_pixels,
+                        [x as f32 + 0.5, y as f32 + 0.5],
+                        41.0,
+                        FILM_GRAIN_DEFAULT_SIZE,
+                    )
+                })
+            })
+            .collect();
+        let legacy: Vec<f32> = (0..height)
+            .flat_map(|y| {
+                (0..width).map(move |x| {
+                    let pixel = [x as f32 + 0.5, y as f32 + 0.5];
+                    let cluster_pixel = [(pixel[0] * 0.5).floor(), (pixel[1] * 0.5).floor()];
+                    golden_noise(cluster_pixel, 41.0) - 0.5
+                })
+            })
+            .collect();
+        let sign_changes = coherent
+            .windows(2)
+            .filter(|pair| pair[0].is_sign_positive() != pair[1].is_sign_positive())
+            .count();
+        let coherent_correlation = adjacent_correlation(&coherent, width, height);
+        let repeated_coherent = coherent
+            .chunks_exact(width)
+            .map(|row| row.windows(2).filter(|pair| pair[0] == pair[1]).count())
+            .sum::<usize>();
+        let repeated_legacy = legacy
+            .chunks_exact(width)
+            .map(|row| row.windows(2).filter(|pair| pair[0] == pair[1]).count())
+            .sum::<usize>();
+        assert!(
+            sign_changes >= coherent.len() / 4,
+            "coherent grain changes sign only {sign_changes}/{} times",
+            coherent.len()
+        );
+        assert!(
+            (0.15..=0.65).contains(&coherent_correlation),
+            "grain has unsuitable adjacent correlation {coherent_correlation:.3}"
+        );
+        assert!(
+            repeated_coherent <= coherent.len() / 100,
+            "coherent grain repeats {repeated_coherent} adjacent samples"
+        );
+        assert!(
+            repeated_legacy >= legacy.len() * 2 / 5,
+            "negative control repeats only {repeated_legacy} adjacent samples"
         );
 
-        assert_eq!(film_grain_response(0.0), 0.0);
-        assert_eq!(film_grain_response(1.0), 0.0);
+        let sample = film_grain_noise(&grain_pixels, [31.5, 17.5], 41.0, FILM_GRAIN_DEFAULT_SIZE);
         assert_eq!(
-            film_grain_reference([0.0; 3], [31.5, 17.5], [1920.0, 1080.0], 41.0, 2.0, 1.0,),
+            sample,
+            film_grain_noise(&grain_pixels, [31.5, 17.5], 41.0, FILM_GRAIN_DEFAULT_SIZE,)
+        );
+        assert_ne!(
+            sample,
+            film_grain_noise(&grain_pixels, [31.5, 17.5], 42.0, FILM_GRAIN_DEFAULT_SIZE,)
+        );
+        assert!((-1.0..=1.0).contains(&sample));
+        assert_eq!(
+            film_grain_reference(
+                [0.0; 3],
+                &grain_pixels,
+                [31.5, 17.5],
+                41.0,
+                2.0,
+                1.0,
+                FILM_GRAIN_DEFAULT_SIZE,
+            ),
             [0.0; 3]
         );
         assert_eq!(
-            film_grain_reference([1.0; 3], [31.5, 17.5], [1920.0, 1080.0], 41.0, 2.0, 1.0,),
+            film_grain_reference(
+                [1.0; 3],
+                &grain_pixels,
+                [31.5, 17.5],
+                41.0,
+                2.0,
+                1.0,
+                FILM_GRAIN_DEFAULT_SIZE,
+            ),
             [1.0; 3]
         );
+
+        let input = [0.2, 0.4, 0.6];
+        let output = film_grain_reference(
+            input,
+            &grain_pixels,
+            [31.5, 17.5],
+            41.0,
+            0.32,
+            0.68,
+            FILM_GRAIN_DEFAULT_SIZE,
+        );
+        let red_scale = output[0] / input[0];
+        assert!((output[1] / input[1] - red_scale).abs() < 1.0e-6);
+        assert!((output[2] / input[2] - red_scale).abs() < 1.0e-6);
     }
 
     #[test]
@@ -1733,6 +1891,7 @@ mod shader_compile_tests {
         config.color_grade.lut_strength = 99.0;
         config.color_grade.deband = 99.0;
         config.color_grade.film_grain = 99.0;
+        config.color_grade.film_grain_size = 99.0;
         config.color_grade.vignette = 99.0;
         config.color_grade.halation = 99.0;
         config.color_grade.chromatic_aberration = 99.0;
@@ -1754,6 +1913,7 @@ mod shader_compile_tests {
         assert_eq!(settings.lut_strength, 1.0);
         assert_eq!(settings.deband, 1.0);
         assert_eq!(settings.film_grain, 2.0);
+        assert_eq!(settings.film_grain_size, 3.0);
         assert_eq!(settings.vignette, 1.0);
         assert_eq!(settings.halation, 1.0);
         assert_eq!(settings.chromatic_aberration, 12.0);
@@ -1803,6 +1963,7 @@ mod shader_compile_tests {
             deband: 0.23,
             film_grain_enabled: true,
             film_grain: 0.34,
+            film_grain_size: 0.71,
             vignette_enabled: true,
             vignette: 0.45,
             halation_enabled: true,
@@ -1824,7 +1985,7 @@ mod shader_compile_tests {
                 [0.45, 0.56, 1.0, 0.78],
                 [1.0, 1.0, 0.67, 0.0],
                 [1.0, 1.0, 1.0, 1.0],
-                [1.0, 1.0, 1.0, 0.0],
+                [1.0, 1.0, 1.0, 0.71],
                 [0.5, 0.25, 2.0, 17.0],
                 [0.0, 0.0, 0.0, 0.0],
             ]
@@ -1842,6 +2003,7 @@ mod shader_compile_tests {
             "float4 LutDomainScale : register(c17);",
             "float4 LutDomainBias : register(c18);",
             "sampler2D ColorLut : register(s5);",
+            "sampler2D FilmGrainTexture : register(s6);",
         ] {
             assert!(
                 source.contains(declaration),
@@ -1861,14 +2023,11 @@ mod shader_compile_tests {
             "return lerp(inputColor, color, master);",
             "return lerp(center, average, strength * flatWeight * 0.85f);",
             "base = DebandScene(input.uv, base, debandFlatWeight);",
-            "static const float FilmGrainNoiseScaleCodes = 24.0f;",
             "static const float DebandDitherNoiseScaleCodes = 4.0f;",
             "? GradeData2.z * GradeData0.x * debandFlatWeight * DebandDitherNoiseScaleCodes",
-            "return saturate(min(luma * 8.0f, (1.0f - luma) * 4.0f));",
-            "float clusterScale = min(ScreenData.w * 540.0f, 0.5f);",
-            "return fineNoise * 0.90f + clusterNoise * 1.10f;",
-            "float finishingNoise = GoldenNoise(input.uv, FrameData.x) - 0.5f;",
-            "* FilmGrainResponse(Luma(color)) * FilmGrainNoiseScaleCodes / 255.0f;",
+            "uv * ScreenData.xy / (GradeData6.w * FilmGrainTextureSize) + frameOffset;",
+            "float grainResponse = 1.0f - sqrt(saturate(Luma(color)));",
+            "color += color * grain;",
         ] {
             assert!(
                 source.contains(equation),
@@ -1878,6 +2037,8 @@ mod shader_compile_tests {
         assert!(source.contains("GradeData3.z > 0.5f"));
         assert!(source.contains("GradeData4.x > 0.5f"));
         assert!(source.contains("GradeData4.y > 0.5f"));
+        assert!(!source.contains("clusterPixel"));
+        assert!(!source.contains("FilmGrainNoiseScaleCodes"));
     }
 
     #[test]
@@ -1919,6 +2080,7 @@ pub(crate) struct BloomingHdrEffect {
     chromatic_shader: PixelShader9,
     neutral_bloom: Texture9,
     lut_texture: Texture9,
+    film_grain_texture: Texture9,
     lut_revision: Option<(u32, u64)>,
     targets: Option<BloomTargets>,
 }
@@ -1935,6 +2097,12 @@ impl BloomingHdrEffect {
             chromatic_shader: device.create_pixel_shader(&shaders.chromatic)?,
             neutral_bloom: create_argb_texture(device, 1, 1, &[0xFF00_0000])?,
             lut_texture: create_argb_texture(device, 4, 2, &identity_lut_pixels(2))?,
+            film_grain_texture: create_argb_texture(
+                device,
+                FILM_GRAIN_TEXTURE_SIZE,
+                FILM_GRAIN_TEXTURE_SIZE,
+                &film_grain_pixels(),
+            )?,
             lut_revision: None,
             targets: None,
         })
@@ -2151,6 +2319,7 @@ impl BloomingHdrEffect {
         };
         device.set_texture(4, bloom_texture)?;
         device.set_texture(5, &self.lut_texture)?;
+        device.set_texture(6, &self.film_grain_texture)?;
         bind_compose_constants(
             device,
             desc,
@@ -2224,7 +2393,7 @@ fn bind_pipeline_state(device: &Device9Ref<'_>) -> Direct3DResult<()> {
     }
     device.set_render_state(D3DRS_SRGBWRITEENABLE, 0)?;
     device.set_render_state(D3DRS_COLORWRITEENABLE, COLOR_WRITE_ALL)?;
-    for sampler in 0..=5 {
+    for sampler in 0..=6 {
         device.set_sampler_state(sampler, D3DSAMP_ADDRESSU, D3DTADDRESS_CLAMP.0 as u32)?;
         device.set_sampler_state(sampler, D3DSAMP_ADDRESSV, D3DTADDRESS_CLAMP.0 as u32)?;
         device.set_sampler_state(sampler, D3DSAMP_MINFILTER, D3DTEXF_LINEAR.0 as u32)?;
@@ -2236,6 +2405,8 @@ fn bind_pipeline_state(device: &Device9Ref<'_>) -> Direct3DResult<()> {
         device.set_sampler_state(sampler, D3DSAMP_MINFILTER, D3DTEXF_POINT.0 as u32)?;
         device.set_sampler_state(sampler, D3DSAMP_MAGFILTER, D3DTEXF_POINT.0 as u32)?;
     }
+    device.set_sampler_state(6, D3DSAMP_ADDRESSU, D3DTADDRESS_WRAP.0 as u32)?;
+    device.set_sampler_state(6, D3DSAMP_ADDRESSV, D3DTADDRESS_WRAP.0 as u32)?;
     device.set_texture_stage_state(0, D3DTSS_COLOROP, D3DTOP_SELECTARG1.0 as u32)?;
     device.set_texture_stage_state(0, D3DTSS_COLORARG1, D3DTA_TEXTURE)?;
     device.set_texture_stage_state(0, D3DTSS_ALPHAOP, D3DTOP_SELECTARG1.0 as u32)?;
@@ -2261,6 +2432,7 @@ fn bind_target(
     device.clear_texture(0)?;
     device.clear_texture(4)?;
     device.clear_texture(5)?;
+    device.clear_texture(6)?;
     device.set_depth_stencil_surface(None)?;
     for index in 1..=3 {
         device.clear_render_target(index)?;
@@ -2460,6 +2632,7 @@ struct ColorGradeSettings {
     deband: f32,
     film_grain_enabled: bool,
     film_grain: f32,
+    film_grain_size: f32,
     vignette_enabled: bool,
     vignette: f32,
     halation_enabled: bool,
@@ -2535,6 +2708,8 @@ impl ColorGradeSettings {
             deband: source_option_float(source, "deband", 0.0).clamp(0.0, 1.0),
             film_grain_enabled: source_option_bool(source, "film_grain_enabled", false),
             film_grain: source_option_float(source, "film_grain", 0.0).clamp(0.0, 2.0),
+            film_grain_size: source_option_float(source, "film_grain_size", 1.743_985)
+                .clamp(0.3, 3.0),
             vignette_enabled: source_option_bool(source, "vignette_enabled", false),
             vignette: source_option_float(source, "vignette", 0.0).clamp(0.0, 1.0),
             halation_enabled: source_option_bool(source, "halation_enabled", false),
@@ -2573,6 +2748,7 @@ impl ColorGradeSettings {
             deband: 0.0,
             film_grain_enabled: false,
             film_grain: 0.0,
+            film_grain_size: 1.743_985,
             vignette_enabled: false,
             vignette: 0.0,
             halation_enabled: false,
@@ -2630,7 +2806,7 @@ impl ColorGradeSettings {
                 self.vignette_enabled as u8 as f32,
                 self.halation_enabled as u8 as f32,
                 self.chromatic_aberration_enabled as u8 as f32,
-                0.0,
+                self.film_grain_size,
             ],
             [
                 1.0 / (self.lut_domain_max[0] - self.lut_domain_min[0]),
@@ -2733,7 +2909,25 @@ fn create_argb_texture(
     Ok(texture)
 }
 
-#[cfg(test)]
+fn film_grain_pixels() -> Vec<u32> {
+    let mut state = FILM_GRAIN_TEXTURE_SEED;
+    (0..FILM_GRAIN_TEXTURE_SIZE * FILM_GRAIN_TEXTURE_SIZE)
+        .map(|_| {
+            let gaussian = (0..12).map(|_| next_grain_random(&mut state)).sum::<f32>() - 6.0;
+            let encoded = (0.5 + gaussian.clamp(-3.0, 3.0) / 6.0).clamp(0.0, 1.0);
+            let code = (encoded * 255.0).round() as u32;
+            0xFF00_0000 | (code << 16) | (code << 8) | code
+        })
+        .collect()
+}
+
+fn next_grain_random(state: &mut u32) -> f32 {
+    *state ^= *state << 13;
+    *state ^= *state >> 17;
+    *state ^= *state << 5;
+    ((*state >> 8) as f32 + 0.5) / 16_777_216.0
+}
+
 #[cfg(test)]
 #[derive(Clone, Copy)]
 struct LutRecipe {
@@ -2746,7 +2940,6 @@ struct LutRecipe {
     highlight_tint: [f32; 3],
 }
 
-#[cfg(test)]
 #[cfg(test)]
 fn lut_recipe(preset: usize) -> Option<LutRecipe> {
     match preset {
@@ -2791,7 +2984,6 @@ fn lut_recipe(preset: usize) -> Option<LutRecipe> {
 }
 
 #[cfg(test)]
-#[cfg(test)]
 fn generate_builtin_lut(preset: usize) -> Vec<u32> {
     let texel_count = (LUT_SIZE * LUT_SIZE * LUT_SIZE) as usize;
     let mut pixels = Vec::with_capacity(texel_count);
@@ -2811,8 +3003,6 @@ fn generate_builtin_lut(preset: usize) -> Vec<u32> {
     pixels
 }
 
-#[cfg(test)]
-#[cfg(test)]
 #[cfg(test)]
 fn apply_lut_recipe(preset: usize, input: [f32; 3]) -> [f32; 3] {
     let Some(recipe) = lut_recipe(preset) else {
@@ -2841,7 +3031,6 @@ fn apply_lut_recipe(preset: usize, input: [f32; 3]) -> [f32; 3] {
     color
 }
 
-#[cfg(test)]
 #[cfg(test)]
 fn smooth_step(edge0: f32, edge1: f32, value: f32) -> f32 {
     let value = ((value - edge0) / (edge1 - edge0)).clamp(0.0, 1.0);

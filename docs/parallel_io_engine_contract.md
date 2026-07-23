@@ -324,6 +324,49 @@ lifetime only; a later crash from the same topology proved unguarded
 process-global Compute state; and tree find/load is reachable on both workers
 and the main completion path.
 
+### July 22 old-build abrupt termination
+
+`.reports/psycho-engine-fixes-latest--unknown_crash.log` does not support the
+tester's description of a literal startup crash. It reports commit metadata
+`cf806c95b2fa8e13b82a4d88c5d327fce46139f0` and establishes this timeline:
+
+- line 259 completes Psycho initialization;
+- line 403 publishes `Game engine ready` after about 46 seconds;
+- lines 480-481 show a later top-level save load in
+  `changed-form-owner-enter`, with ModelLoader state `5` and 4,723 accepted
+  tasks;
+- lines 507-508 show state `6`, zero active tasks, and
+  `drain_complete=1` ten seconds later;
+- line 517 is emitted only after the original changed-form owner returns and
+  reports one locally skipped record for unavailable content;
+- the final sample at line 522 still has 996 MiB free process VAS and an
+  856 MiB largest hole.
+
+There is no Psycho error, allocation failure, exception address, worker stack,
+or shutdown marker. The abrupt end therefore does not by itself prove whether
+the process crashed, was killed, or exited. It does prove that initialization
+succeeded, ordinary frames ran, the ModelLoader drain completed, and execution
+reached the remainder of the top-level load. The contained ExtraOwnership, LOD
+stale-publication, linked-reference, and unavailable-content reports identify
+invalid or stale inputs but none records a terminal failure.
+
+The startup line at 187 says only `SpeedTree Compute and clone lifetime
+serialized`. That deployed contract predates the slow-materializer boundary
+described below. An interleaving elsewhere in BSTree clone/reload
+materialization is consequently the leading repository-local candidate because
+the exact topology and omitted boundary are proven, but the supplied log cannot
+attribute the terminal instruction to it. The remaining evidence window also
+includes the native calls after changed-form return inside `0x00850760` and the
+successful-load reconciliation prepass; neither can be selected without an
+exception context or newer phase telemetry.
+
+This old-build report is not evidence of a current regression. A valid retest
+must use a build whose startup log contains the current `BSTree materialization`
+contract below. Preserve the exact save and cosave. On recurrence, retain the
+Psycho log plus CrashLogger output or a minidump; current `[HANG_LOAD]` tree
+transaction counters can distinguish a materializer still executing from the
+post-drain top-level load window.
+
 ### Native lookup and materialization boundary
 
 Radare2 reconfirmed that `0x00664F50` has exactly two direct callers:

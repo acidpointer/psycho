@@ -195,13 +195,14 @@ environment_response = 0.45
 deband_enabled = true
 deband = 0.55
 film_grain_enabled = true
-film_grain = 0.32
+film_grain = 0.3544631
+film_grain_size = 1.743985
 vignette_enabled = true
 vignette = 0.035
 halation_enabled = true
-halation = 0.12
-chromatic_aberration_enabled = false
-chromatic_aberration = 0.85
+halation = 0.2092626
+chromatic_aberration_enabled = true
+chromatic_aberration = 3.038874
 debug_split = false
 
 [graphics.embedded_effects.sunshafts]

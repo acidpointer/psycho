@@ -1,7 +1,7 @@
 # OMV final color, external LUT, Bloom, and chromatic contract
 
-Status: implemented on 2026-07-21; film-grain response and creative ranges
-revised on 2026-07-23. Deterministic repository, parser, menu,
+Status: implemented on 2026-07-21; film grain completely replaced and creative
+ranges revised on 2026-07-23. Deterministic repository, parser, menu,
 resource-planning, CPU image-reference, shader compilation, bytecode-budget,
 and packaging coverage is complete. Ordinary in-game visual acceptance
 remains.
@@ -17,7 +17,8 @@ independent switch for every family:
   temperature/tint, black fade, and highlight rolloff;
 - external 3D LUT and LUT strength;
 - flat-region debanding;
-- two-scale, luminance-gated monochrome film grain;
+- coherent, luminance-aware monochrome film grain with independent particle
+  size;
 - vignette;
 - independent bright-highlight halation using the shared Bloom blur resources;
 - radial chromatic aberration.
@@ -32,9 +33,9 @@ adding or reordering other files does not change the saved look.
 The master disabled state and master strength zero skip all finishing work.
 Each family disabled or at zero strength skips its applicable contribution.
 LUT-only work also skips when no valid selected file exists. Chromatic
-aberration is a separate opt-in finishing pass and is off by default because it
-adds a full-resolution draw and backbuffer copy when combined with Bloom or
-grading. Source alpha is preserved by every production path.
+aberration is a separate finishing pass. The accepted playtest settings enable
+it by default, adding a full-resolution draw and backbuffer copy when combined
+with Bloom or grading. Source alpha is preserved by every production path.
 
 ## Calibrated default look
 
@@ -43,14 +44,16 @@ ReShade preset. Analytic grading uses `strength 0.68`, `contrast 0.045`,
 `saturation 0.98`, `vibrance 0.075`, `temperature 0.015`, `tint 0.006`,
 `black_fade 0.012`, and `highlight_rolloff 0.16`. `Mojave Natural` is selected
 at `lut_strength 0.42`; environment response is `0.45`. Debanding is `0.55`,
-grain `0.32`, vignette `0.035`, and halation `0.12`. Chromatic strength is
-staged at `0.85` pixels but its switch defaults off. These revised response
-curves make every enabled default objectively non-zero at display precision:
-grain changes `3339/4096` exact eight-bit midtone samples at a `2.060`
-code-value RMS and `-0.0132` code mean, flat-region deband dither changes about
-33% with effectively zero mean, halation adds at least two code values to a
-representative bright-halo probe, and chromatic shift is at least half a pixel
-after master strength.
+grain strength `0.3544631` at particle size `1.743985`, vignette `0.035`, and
+halation `0.2092626`. Chromatic aberration defaults enabled at `3.038874`
+pixels. These four values are the user's accepted 2026-07-23 playtest settings,
+promoted without rounding beyond their stored `f32` values. Quantized acceptance
+requires the default grain to change at least half of exact eight-bit midtone
+samples, remain within `1.75..2.50` code-value RMS, and hold absolute mean bias
+below `0.15` code values. Flat-region deband dither changes about 33% with
+effectively zero mean, halation adds at least two code values to a representative
+bright-halo probe, and the default chromatic edge displacement is about `2.07`
+pixels after master strength.
 
 Bloom was recalibrated with the grade rather than treated as an independent
 orange glow: intensity `0.34`, threshold `0.62`, radius `2.8`, knee `0.28`,
@@ -60,37 +63,55 @@ lower warmth preserve bright signage, sunsets, skin, and pale interiors without
 washing the entire frame. These are authored defaults and deterministic static
 quality targets; artistic acceptance still requires playtesting.
 
-## Eight-bit response correction
+## Film-grain redesign and reference basis
 
-The 2026-07-21 deband/film-grain report exposed a validation gap: the original
-tests measured floating-point shader changes before the final UNORM8 write. On
-an exact midtone code value, the shipped grain settings reached only about
-`0.44` code values after their luminance mask. Deband's final dither reached
-only `0.234` code values. Both were below the half-code rounding boundary, so a
-large class of source pixels could be written back unchanged even though the
-float-space tests reported a non-zero effect.
+The 2026-07-21 report exposed a validation gap: the original tests measured
+floating-point shader changes before the final UNORM8 write. A later procedural
+two-band correction passed those numeric checks but was rejected in playtesting:
+its shared two-pixel cells read as blocky render corruption, its response looked
+too dark, and its particle character was not convincing. That runtime
+observation supersedes the earlier static acceptance; the two-band algorithm
+and its shared-cell path have been removed.
 
-The 2026-07-23 revision replaces the single-scale digital grain with two
-procedural spatial bands. A fine one-pixel band preserves texture while a
-two-reference-pixel cluster band gives the image emulsion-like density instead
-of independent television static. Cluster size is normalized to 1080p:
-outputs above 1080p enlarge the cluster cells proportionally, while lower
-resolutions retain a two-pixel minimum because subpixel grain cannot survive
-the output boundary. The fine band reuses the already-required finishing-noise
-value; the cluster band replaces the old independent grain hash. The pass
-therefore keeps two hashes total, adds no texture sample or resource, and does
-not increase the draw count.
+The replacement follows established grain structure rather than the rejected
+hash pattern. [Unity Post Processing v2 documents](https://docs.unity.cn/Packages/com.unity.postprocessing%402.3/manual/Grain.html)
+film grain as coherent gradient noise with separate intensity, particle size,
+and luminance response. Its published
+[runtime](https://github.com/Unity-Technologies/PostProcessing/blob/v2/PostProcessing/Runtime/Effects/Grain.cs)
+and [shader](https://github.com/Unity-Technologies/PostProcessing/blob/v2/PostProcessing/Shaders/Builtins/Uber.shader)
+use a repeating bilinear grain texture, changing two-dimensional offsets,
+multiplicative color modulation, and a `1 - sqrt(luminance)` response.
+[ITU-T H Supplement 21](https://www.itu.int/epublications/publication/itu-t-h-suppl-21-2025-01-film-grain-synthesis-technology-for-video-applications)
+describes the broader synthesis family in terms of Gaussian noise, spatial
+correlation, and local-intensity adaptation. These are reference facts; OMV's
+texture data and implementation are original.
 
-The two bands are weighted `0.90` fine and `1.10` cluster. Their combined
-zero-centered range is bounded to `-1..1`. The amount range is `0..2`, so the
-`24`-code scale produces at most a 48-code excursion at full amount and master
-strength. The shipped `0.32` amount and `0.68` master are deliberately visible
-without resembling a damaged-film preset. The luminance gate ramps from zero
-at exact black to full response at luma `0.125`, stays full through luma
-`0.75`, then falls to zero at exact white. This protects black floors and white
-clipping from one-sided saturation bias while keeping Fallout's shadow and
-midtone surfaces tactile. Noise is monochrome, deterministic for a pixel and
-frame, and changes with frame index.
+OMV deterministically generates one 512-by-512 monochrome texture when the
+effect object is created. Each texel sums twelve uniform pseudorandom values,
+centers the result, clamps it to three standard deviations, and encodes the
+near-Gaussian sample into `D3DFMT_A8R8G8B8`. A linear, wrapping sampler turns
+the samples into continuous correlated particles without any shared square
+cells. Two irrational frame-offset increments move through the texture every
+frame. The source seed is fixed for reproducible tests and builds; the sampled
+position still changes with frame index.
+
+The shader applies one scalar sample to all RGB channels:
+`color += color * grain * amount * master * (1 - sqrt(luma))`. This makes the
+grain multiplicative rather than a dark overlay. The generated distribution is
+balanced around zero, the same multiplier preserves RGB ratios before final
+clamping, exact black remains black, and exact white is protected by the
+luminance response. Particle size is independent of strength, defaults to
+`1.743985`, and spans `0.3..3.0`; the strength remains `0..2`. The shipped
+`0.3544631` amount with `0.68` master strength is required to survive UNORM8
+while retaining low mean bias.
+
+The local read-only GShade `FilmGrain.fx` was also audited for its Gaussian and
+multiplicative response choices. No GShade texture, shader source, or preset is
+copied. The old two-pixel algorithm remains only as a CPU negative control:
+tests require it to exhibit repeated adjacent samples and require production
+grain not to do so. Production tests also require a balanced near-Gaussian
+distribution, coherent but non-identical neighbors, temporal change, preserved
+black/white endpoints, and quantized default visibility.
 
 The deband dither scale remains `4` code values peak-to-peak. Its shipped
 flat-region peak is `0.748` code values and its full-strength peak is bounded
@@ -101,22 +122,22 @@ to rejected real edges or thin features. This mask placement also follows the
 useful contract in the read-only GShade `Deband.fx` reference, without copying
 its implementation.
 
-Deterministic tests quantize CPU reference output to UNORM8. The earlier
-correction changed about `1762/4096` midtone samples at `0.656` code RMS; the
-new default changes `3339/4096` at `2.060` code RMS while holding mean bias to
-`-0.0132` code. Deband changes about `2711/8192` flat samples with a `0.0004`
-code mean. The same audit isolates analytic grading, the selected LUT,
-vignette, halation, and the staged chromatic response; their curves were not
-changed. Chromatic remains disabled by default.
+Deterministic tests quantize CPU reference output to UNORM8 rather than stopping
+at float-space non-zero checks. Deband still changes about `2711/8192` flat
+samples with a `0.0004` code mean. The same audit isolates analytic grading,
+the selected LUT, vignette, halation, and the selected chromatic response; their
+curves were not changed. Chromatic is enabled by the accepted default settings.
 
 ## Creative ranges
 
 Persisted configuration, menu metadata, and render-boundary sanitization agree
-on `film_grain 0..2` and `chromatic_aberration 0..12` pixels. The former allows
-subtle grain below the new default and intentionally rough high-speed-film
-looks above `1`. The latter yields up to `8.16` effective edge pixels at the
-shipped `0.68` master strength instead of the former `2.72`; it remains opt-in
-because the separate pass has a real full-resolution cost.
+on `film_grain 0..2`, `film_grain_size 0.3..3`, and
+`chromatic_aberration 0..12` pixels. Grain strength and particle size are
+independent, allowing visible fine stock or coarse high-speed-film character
+without changing the effect's brightness response. Chromatic aberration yields
+up to `8.16` effective edge pixels at the shipped `0.68` master strength instead
+of the former `2.72`; the accepted default uses about `2.07` effective edge
+pixels and pays the separate pass's full-resolution cost.
 
 The other grading ranges were audited but not widened: exposure already spans
 `-1.5..1.5` stops, contrast `-0.5..0.5`, saturation `0..2`, and the remaining
@@ -250,11 +271,12 @@ Fused compose bindings:
 | `s2` | Optional first-person depth, point sampled. |
 | `s4` | Quarter-resolution Bloom or managed black fallback. |
 | `s5` | Selected flattened LUT, clamped linear. |
+| `s6` | Generated 512-by-512 monochrome grain, wrapping linear. |
 | `c0..c2` | Screen, frame, and camera data. |
 | `c3..c5` | Bounded Bloom controls or explicit zeros. |
 | `c9` | Bloom target dimensions/texel size. |
 | `c10..c14` | Grade values, strengths, master/debug flags, environment state. |
-| `c15..c16` | Independent family enable flags. |
+| `c15..c16` | Independent family enable flags and grain particle size. |
 | `c17..c18` | LUT input-domain scale/bias and LUT size. |
 
 Chromatic bindings are `s0` scene color, `c0` dimensions/inverse dimensions,
@@ -282,10 +304,10 @@ Debanding uses center plus four cross neighbors six pixels away, which reaches
 through broad one-code-value bands; local RGB discontinuity rejection preserves
 real edges and thin features. Its zero-mean final dither is multiplied by the
 same flat-region weight, reaches about `0.748` code values at shipped settings,
-and remains bounded to two code values at maximum strength. Film grain has a
-bounded 48-code-value peak at maximum amount/master strength, uses protected
-black and white endpoints, and changes with frame index. Vignette is aspect
-corrected.
+and remains bounded to two code values at maximum strength. Film grain uses a
+bounded `-1..1` texture sample, a zero-centered multiplicative response,
+protected black and white endpoints, and changing frame offsets. Vignette is
+aspect corrected.
 Halation schedules highlight extraction and blur independently of visible
 Bloom, then adds only a warm red-biased halo. Each family has an independent
 dynamic shader gate; its disabled path performs no texture sampling specific to
@@ -298,11 +320,15 @@ than only at diagonal corners.
 
 Final shaders compile once during runtime construction, outside normal draw.
 The LUT catalog contains CPU data only. First use uploads the selected managed
-texture; a selection/content revision replaces it transactionally. A catalog
-change releases the effect so removed LUT resources cannot linger. Device loss
-releases the effect and default-pool quarter-resolution Bloom targets; reset
-recreates them lazily. Resize/format changes recreate only the two Bloom
-targets. There is no history or camera-cut state.
+texture; a selection/content revision replaces it transactionally. The grain
+generator and its one-MiB managed texture are created with the effect, never in
+the routine draw path. A catalog change releases the effect so removed LUT and
+grain resources cannot linger. Device loss releases the effect and default-pool
+quarter-resolution Bloom targets; reset recreates them lazily. Resize/format
+changes recreate only the two Bloom targets. There is no history or camera-cut
+state. Grain texture allocation/upload failure aborts effect construction
+through the existing error path, so no partially initialized resource set is
+published.
 
 Static upper bounds enforced from compiled bytecode are:
 
@@ -310,18 +336,20 @@ Static upper bounds enforced from compiled bytecode are:
 |---|---:|---:|
 | Bloom extract | 220 instructions | 10 |
 | Bloom blur | 80 instructions | 9 |
-| Fused compose | 500 instructions | 13 |
+| Fused compose | 500 instructions | 14 |
 | Chromatic aberration | 70 instructions | 3 |
 
 Grade only is one phase copy plus one full-resolution draw. Bloom is one copy,
 three quarter-resolution draws, and one full-resolution compose. Halation alone
 uses the same four-draw shape so it remains functional when visible Bloom is
-disabled; Bloom plus grade remains four draws. Chromatic-only adds one
-full-resolution draw and uses the already captured scene. Chromatic after
-compose adds one backbuffer copy and one full-resolution draw. Its default-off
-state therefore has zero default cost. The unchanged draw path performs no file
-I/O, shader compilation, locks, routine allocation, or routine logging. LUT
-upload is configuration/revision work, not per-frame work.
+disabled; Bloom plus grade without chromatic remains four draws. Chromatic-only
+adds one full-resolution draw and uses the already captured scene. Chromatic
+after compose adds one backbuffer copy and one full-resolution draw. Because
+chromatic aberration now defaults on, the shipped Bloom-plus-grade plan is five
+effect draws and includes that copy. Disabling it returns to the four-draw plan.
+The unchanged draw path performs no file I/O, shader compilation, locks, routine
+allocation, or routine logging. LUT upload is configuration/revision work, not
+per-frame work.
 
 ## Automated validation and remaining acceptance
 
@@ -330,19 +358,20 @@ The supported `i686-pc-windows-gnu` tests cover:
 - compilation and bytecode inspection of extract, blur, compose, and chromatic
   entry points, including instruction/texture ceilings and prohibited
   derivatives;
-- exact `c10..c18`, `s5`, chromatic `c0/c3/s0`, alpha, half-pixel, sampler,
+- exact `c10..c18`, `s5..s6`, chromatic `c0/c3/s0`, alpha, half-pixel, sampler,
   render-target hazard, and explicit D3D state contracts;
 - deterministic CPU images for analytic grading, actual shipped LUTs,
-  six-pixel debanding, visible/bounded two-scale grain and flat-gated dither,
+  six-pixel debanding, coherent Gaussian-texture grain and flat-gated dither,
   vignette, independent halation, Bloom composition, and radial chromatic
   sampling at borders, centers, odd/even sizes, and constant inputs;
 - per-family UNORM8 output probes for analytic grade, LUT, deband, grain,
   vignette, halation, and enabled chromatic response, including changed-sample,
-  RMS, mean-bias, maximum-excursion, black/white endpoints, resolution-stable
-  grain clusters, and rejected-edge checks;
+  RMS, mean-bias, black/white endpoints, temporal change, neighbor correlation,
+  and rejected-edge checks;
 - negative controls rejecting LUT seams/non-monotonic neutral ramps, banding
-  no-op implementations, chromatic center-only sampling, edge softening,
-  disabled-family work, missing-LUT work, and over-budget fused shaders;
+  no-op implementations, the removed shared-cell grain model, chromatic
+  center-only sampling, edge softening, disabled-family work, missing-LUT work,
+  and over-budget fused shaders;
 - every family switch alone, master/zero strength, LUT availability,
   grade-only, Bloom-only, fused, chromatic-only, resize, device release, and
   phase/order planning;
@@ -362,15 +391,15 @@ An ordinary Fallout NV playtest should compare noon, sunset, night,
 representative interiors, skin/dialogue, iron sights, menus, 1080p and a
 higher-resolution output, and 16:9/ultrawide output; enable each family alone;
 add/edit/remove a user `.cube` while the menu is open; and exercise
-alt-tab/device reset. It should confirm that grain is clearly present but does
-not sparkle in black or white regions, cluster size remains visually
-consistent across resolutions, the LUT dropdown refreshes, invalid edits
-preserve the prior look, chromatic fringing stays edge-local, and later
-AA/external shaders retain order.
+alt-tab/device reset. It should confirm that grain is clearly present without
+darkening the frame, does not form square cells or sparkle in black/white
+regions, particle size tracks its independent slider across resolutions, the
+LUT dropdown refreshes, invalid edits preserve the prior look, chromatic
+fringing stays edge-local, and later AA/external shaders retain order.
 
 Final command evidence on 2026-07-23:
 
-- `cargo test --target i686-pc-windows-gnu -p omv`: 268 passed, 0 failed;
+- `cargo test --target i686-pc-windows-gnu -p omv`: 269 passed, 0 failed;
 - `cargo build --release --target i686-pc-windows-gnu -p omv`: succeeded
   without warnings;
 - `cargo fmt -p omv -- --check` and `git diff --check`: passed.

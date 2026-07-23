@@ -1252,6 +1252,15 @@ fn color_grade_source(
                 13,
                 1,
             ),
+            float_option(
+                "film_grain_size",
+                "Film grain size",
+                config.film_grain_size,
+                0.3,
+                3.0,
+                14,
+                1,
+            ),
             bool_option(
                 "vignette_enabled",
                 "Vignette",
@@ -1965,6 +1974,7 @@ fn sync_color_grade_config(source: &ScreenShaderSource, config: &mut ColorGradeC
             "deband" => config.deband = option_float(option),
             "film_grain_enabled" => config.film_grain_enabled = option_bool(option),
             "film_grain" => config.film_grain = option_float(option),
+            "film_grain_size" => config.film_grain_size = option_float(option),
             "vignette_enabled" => config.vignette_enabled = option_bool(option),
             "vignette" => config.vignette = option_float(option),
             "halation_enabled" => config.halation_enabled = option_bool(option),
@@ -2906,6 +2916,7 @@ mod embedded_color_grade_tests {
                 "deband",
                 "film_grain_enabled",
                 "film_grain",
+                "film_grain_size",
                 "vignette_enabled",
                 "vignette",
                 "halation_enabled",
@@ -2932,6 +2943,13 @@ mod embedded_color_grade_tests {
             .expect("film grain strength");
         assert_eq!(grain.min, 0.0);
         assert_eq!(grain.max, 2.0);
+        let grain_size = source
+            .options
+            .iter()
+            .find(|option| option.key == "film_grain_size")
+            .expect("film grain size");
+        assert_eq!(grain_size.min, 0.3);
+        assert_eq!(grain_size.max, 3.0);
         let chromatic = source
             .options
             .iter()
@@ -2963,6 +2981,7 @@ mod embedded_color_grade_tests {
             deband: 0.51,
             film_grain_enabled: false,
             film_grain: 0.44,
+            film_grain_size: 0.66,
             vignette_enabled: false,
             vignette: 0.36,
             halation_enabled: false,
@@ -2995,6 +3014,7 @@ mod embedded_color_grade_tests {
         assert_eq!(actual.deband, expected.deband);
         assert_eq!(actual.film_grain_enabled, expected.film_grain_enabled);
         assert_eq!(actual.film_grain, expected.film_grain);
+        assert_eq!(actual.film_grain_size, expected.film_grain_size);
         assert_eq!(actual.vignette_enabled, expected.vignette_enabled);
         assert_eq!(actual.vignette, expected.vignette);
         assert_eq!(actual.halation_enabled, expected.halation_enabled);
