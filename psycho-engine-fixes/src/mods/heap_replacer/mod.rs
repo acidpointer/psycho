@@ -4,6 +4,7 @@
 //! `memory.allocator` config controls whether this module is disabled,
 //! runs scrap_heap only, or runs gheap plus scrap_heap.
 
+pub(crate) mod allocation_state;
 mod crt_inline;
 pub mod gheap;
 pub mod heap_validate;

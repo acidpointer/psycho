@@ -139,6 +139,26 @@ navmesh_low_pointer_guard = true
 # type form is invalid are dropped before vanilla code dereferences them.
 entrydata_invalid_form_guard = true
 
+# Prevents a load-over-live crash while the game retires a dynamically
+# generated NPC or creature base form. Before vanilla destroys that actor's
+# inventory/container list, Psycho validates every item record and list node.
+#
+# If the list is corrupt, Psycho detaches the complete uncertain list from the
+# actor that is already being destroyed, then lets the original destructor
+# continue. It never dereferences, repairs, or frees a pointer that fails those
+# checks. A valid container is unchanged; a corrupt detached list may leak its
+# remaining small allocations rather than risk a use-after-free or invalid
+# free.
+#
+# Only dynamically generated FF-prefixed actors receive the full validation.
+# It proves list storage through the selected allocator and proves each item
+# form through the engine's live-form registry; it does not guess from page
+# readability. Ordinary actor retirement performs only a direct form-ID check.
+#
+# This guard works with full gheap, scrap_heap only, and vanilla allocators.
+# Leave it ON unless isolating a confirmed hook conflict.
+actor_container_retirement_guard = true
+
 # Prevents corrupt ownership data from crashing the game or xNVSE. An invalid
 # ExtraOwnership owner pointer is converted to "no owner."
 extraownership_invalid_owner_guard = true

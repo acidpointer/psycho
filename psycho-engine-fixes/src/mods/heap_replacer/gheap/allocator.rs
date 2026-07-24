@@ -33,7 +33,10 @@ use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 
 use libmimalloc::{mi_is_in_heap_region, mi_usable_size};
 
-use super::super::heap_validate;
+use super::super::{
+    allocation_state::{AllocationState, AllocationTier, InvalidAllocationReason},
+    heap_validate,
+};
 use super::engine::addr;
 use super::statics;
 
@@ -109,6 +112,48 @@ mod tests {
     fn unavailable_vas_sample_does_not_create_a_false_oom() {
         assert!(overflow_reservation_allowed(None, 12 * MB));
     }
+
+    #[test]
+    fn pool_classifier_distinguishes_exact_live_interior_and_free_cells() {
+        let base = super::super::pool::PoolPtrInfo {
+            pool_index: 1,
+            item_size: 8,
+            cell_index: 0x58001,
+            cell_start: 0xD0AC_0008,
+            offset: 0,
+            committed: true,
+            issued: true,
+            is_free: false,
+        };
+        assert_eq!(
+            classify_pool_info(base),
+            AllocationState::Live {
+                tier: AllocationTier::GheapPool,
+                usable_size: 8,
+            }
+        );
+        assert_eq!(
+            classify_pool_info(super::super::pool::PoolPtrInfo { offset: 5, ..base }),
+            AllocationState::InvalidOwned {
+                tier: AllocationTier::GheapPool,
+                reason: InvalidAllocationReason::Interior {
+                    allocation_start: 0xD0AC_0008,
+                    offset: 5,
+                    usable_size: 8,
+                },
+            }
+        );
+        assert_eq!(
+            classify_pool_info(super::super::pool::PoolPtrInfo {
+                is_free: true,
+                ..base
+            }),
+            AllocationState::InvalidOwned {
+                tier: AllocationTier::GheapPool,
+                reason: InvalidAllocationReason::Free { usable_size: 8 },
+            }
+        );
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -120,6 +165,79 @@ mod tests {
 /// reporting so save-load bursts don't spam the log.
 static BLOCK_OVERFLOW_COUNT: AtomicU64 = AtomicU64::new(0);
 static POOL_FALLBACK_COUNT: AtomicU64 = AtomicU64::new(0);
+
+/// Exact ownership state for cold engine-lifetime guards.
+///
+/// Unlike `msize`, this rejects interior, free, unissued, and uncommitted
+/// pointers. It must not be added to allocator hot paths: pool and owned block
+/// queries acquire allocator locks to read the authoritative side metadata.
+pub(crate) fn allocation_state(ptr: *const c_void) -> AllocationState {
+    if ptr.is_null() {
+        return AllocationState::Unowned;
+    }
+
+    if let Some(info) = super::pool::ptr_info(ptr) {
+        return classify_pool_info(info);
+    }
+
+    if let Some(size) = super::block::live_size_if_owned(ptr) {
+        return match size {
+            Some(usable_size) => AllocationState::Live {
+                tier: AllocationTier::GheapBlock,
+                usable_size,
+            },
+            None => AllocationState::InvalidOwned {
+                tier: AllocationTier::GheapBlock,
+                reason: InvalidAllocationReason::OwnedUnknown,
+            },
+        };
+    }
+
+    if let Some(size) = super::va_alloc::live_size_if_owned(ptr) {
+        return match size {
+            Some(usable_size) => AllocationState::Live {
+                tier: AllocationTier::GheapVirtual,
+                usable_size,
+            },
+            None => AllocationState::InvalidOwned {
+                tier: AllocationTier::GheapVirtual,
+                reason: InvalidAllocationReason::OwnedUnknown,
+            },
+        };
+    }
+
+    AllocationState::Unowned
+}
+
+fn classify_pool_info(info: super::pool::PoolPtrInfo) -> AllocationState {
+    if info.committed && info.issued && info.offset == 0 && !info.is_free {
+        return AllocationState::Live {
+            tier: AllocationTier::GheapPool,
+            usable_size: info.item_size as usize,
+        };
+    }
+    let reason = if !info.committed {
+        InvalidAllocationReason::Uncommitted
+    } else if !info.issued {
+        InvalidAllocationReason::Unissued
+    } else if info.offset != 0 {
+        InvalidAllocationReason::Interior {
+            allocation_start: info.cell_start,
+            offset: info.offset,
+            usable_size: info.item_size as usize,
+        }
+    } else if info.is_free {
+        InvalidAllocationReason::Free {
+            usable_size: info.item_size as usize,
+        }
+    } else {
+        InvalidAllocationReason::OwnedUnknown
+    };
+    AllocationState::InvalidOwned {
+        tier: AllocationTier::GheapPool,
+        reason,
+    }
+}
 
 #[cold]
 fn log_pool_fallback(size: usize) {

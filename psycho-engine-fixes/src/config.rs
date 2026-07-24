@@ -309,6 +309,8 @@ pub struct EngineFixesConfig {
     pub navmesh_low_pointer_guard: bool,
     /// Drop invalid ExtraContainerChanges::EntryData forms during load/save.
     pub entrydata_invalid_form_guard: bool,
+    /// Detach corrupt dynamic-actor containers before retirement destruction.
+    pub actor_container_retirement_guard: bool,
     /// Scrub invalid ExtraOwnership.owner pointers to NULL.
     pub extraownership_invalid_owner_guard: bool,
     /// Ignore stale linked-reference child lists during save-to-save cleanup.
@@ -344,6 +346,7 @@ impl Default for EngineFixesConfig {
             save_integrity_fix: true,
             navmesh_low_pointer_guard: true,
             entrydata_invalid_form_guard: true,
+            actor_container_retirement_guard: true,
             extraownership_invalid_owner_guard: true,
             linked_ref_children_stale_list_guard: true,
             linked_ref_target_base_form_guard: true,
@@ -385,6 +388,9 @@ impl EngineFixesConfig {
             entrydata_invalid_form_guard: raw
                 .entrydata_invalid_form_guard
                 .unwrap_or(default.entrydata_invalid_form_guard),
+            actor_container_retirement_guard: raw
+                .actor_container_retirement_guard
+                .unwrap_or(default.actor_container_retirement_guard),
             extraownership_invalid_owner_guard: raw
                 .extraownership_invalid_owner_guard
                 .unwrap_or(default.extraownership_invalid_owner_guard),
@@ -518,6 +524,7 @@ struct RawEngineFixesConfig {
     save_integrity_fix: Option<bool>,
     navmesh_low_pointer_guard: Option<bool>,
     entrydata_invalid_form_guard: Option<bool>,
+    actor_container_retirement_guard: Option<bool>,
     extraownership_invalid_owner_guard: Option<bool>,
     linked_ref_children_stale_list_guard: Option<bool>,
     linked_ref_target_base_form_guard: Option<bool>,
@@ -653,5 +660,20 @@ enabled = true
         let config: PsychoConfig = toml::from_str("").expect("parse default configuration");
 
         assert!(config.io.parallel_enabled);
+    }
+
+    #[test]
+    fn actor_container_guard_defaults_on_and_honors_explicit_disable() {
+        let default: PsychoConfig = toml::from_str("").expect("parse default configuration");
+        let disabled: PsychoConfig = toml::from_str(
+            r#"
+[engine_fixes]
+actor_container_retirement_guard = false
+"#,
+        )
+        .expect("parse actor-container setting");
+
+        assert!(default.engine_fixes.actor_container_retirement_guard);
+        assert!(!disabled.engine_fixes.actor_container_retirement_guard);
     }
 }

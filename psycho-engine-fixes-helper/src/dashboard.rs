@@ -861,6 +861,11 @@ impl DashboardRuntime {
                 "Dispatch and final-release ownership",
             ),
             (
+                "Dynamic actor container guard",
+                engine_fixes::DASHBOARD_FEATURE_ACTOR_CONTAINER_GUARD,
+                "Validates retiring runtime actor inventory lists",
+            ),
+            (
                 "Parallel native IO",
                 engine_fixes::DASHBOARD_FEATURE_PARALLEL_IO,
                 "Two-worker audited topology",
@@ -1629,6 +1634,10 @@ fn draw_configuration(ui: &mut Ui<'_>, editor: &mut ConfigEditor) {
         (
             "Container EntryData guard",
             &mut config.entrydata_invalid_form_guard,
+        ),
+        (
+            "Dynamic actor container guard",
+            &mut config.actor_container_retirement_guard,
         ),
         (
             "ExtraOwnership guard",

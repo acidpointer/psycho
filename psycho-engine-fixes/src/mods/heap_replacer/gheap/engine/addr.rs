@@ -171,8 +171,8 @@ pub const DEFERRED_CLEANUP_SMALL: usize = 0x00878250;
 // Game functions -- IO synchronization
 // ---------------------------------------------------------------------------
 
-/// FUN_0040FBF0: Bethesda's spin-lock acquire. Non-standard calling convention:
-/// fastcall with ECX = lock ptr, one stack param (timeout=0), RET 0x4.
+/// FUN_0040FBF0: Bethesda's reentrant spin-lock acquire. Non-standard calling
+/// convention: ECX = lock ptr, one stack diagnostic-label param, RET 0x4.
 pub const SPIN_LOCK_ACQUIRE: usize = 0x0040FBF0;
 
 // ---------------------------------------------------------------------------

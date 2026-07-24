@@ -17,8 +17,9 @@ The control deck has five pages:
   purpose-built pressure timelines over the last 120 samples. The VAS timeline
   includes explicit watch and critical pressure bands; the commit timeline uses
   a padded scale because it has no honest universal failure threshold.
-- **Runtime Fixes** identifies active patch families and exposes cumulative
-  save, task, native IO, SpeedTree materialization/Compute, and LOD counters.
+- **Runtime Fixes** identifies active patch families, including the dynamic
+  actor-container retirement guard, and exposes cumulative save, task, native
+  IO, SpeedTree materialization/Compute, and LOD counters.
 - **Configuration** edits the complete supported Psycho TOML surface. Saving is
   explicitly labelled **Save for next launch**; it never changes live core
   state.
@@ -261,6 +262,14 @@ during early startup, so a full process exit and relaunch is always required.
 The UI repeats this rule in the page heading, explanatory text, dirty-state
 indicator, button label, and success notice.
 
+The **Dynamic actor container guard** checkbox owns
+`[engine_fixes].actor_container_retirement_guard`. It defaults on and changes
+only next-launch core activation. The Runtime Fixes page separately reads bit
+8 from the core's `active_features` field, so the UI distinguishes a saved
+preference from a hook that actually installed. The helper does not install,
+load, or initialize the guard. This additive feature bit does not change the
+version-2 structure layout or ownership contract.
+
 ## Failure behavior and compatibility boundary
 
 - Missing core module/export: no dashboard worker or graphics/input hook starts.
@@ -294,6 +303,8 @@ Automated coverage includes:
 - contiguous-VAS health classification;
 - structured log parsing, compact context extraction, and five-level filtering;
 - config dirty-state tracking;
+- actor-container guard default/disable parsing and comment-preserving
+  serialization;
 - exact legacy-key fallback ordering and integer multiplier parsing;
 - leading, inline, and unknown-key comment/data preservation.
 

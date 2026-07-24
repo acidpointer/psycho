@@ -5,6 +5,9 @@
 
 use libc::c_void;
 
+/// TESActorBase::~TESActorBase, shared by TESNPC and TESCreature.
+pub type ActorBaseDtorFn = unsafe extern "thiscall" fn(*mut c_void);
+
 /// FUN_00690830: returns a NavMeshInfo parent/cell identity pointer.
 pub type NavmeshNameHelperFn = unsafe extern "fastcall" fn(*mut c_void) -> *mut c_void;
 

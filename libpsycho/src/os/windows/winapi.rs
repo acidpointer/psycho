@@ -275,8 +275,9 @@ mod sys {
 
 /// Returns `true` if the memory region is readable, `false` if it is bad.
 ///
-/// Wraps WinAPI `IsBadReadPtr`. Note: Microsoft deprecates this function;
-/// prefer `VirtualQuery`-based checks where possible.
+/// Wraps WinAPI `IsBadReadPtr`. Microsoft documents this function as obsolete
+/// and says it should not be used; it is not compiler-deprecated in MinGW.
+/// Prefer ownership metadata, or page queries when only mapping is knowable.
 ///
 /// # Safety
 /// Unsafe WinAPI call.

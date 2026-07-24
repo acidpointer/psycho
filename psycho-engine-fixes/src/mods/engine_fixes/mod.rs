@@ -10,6 +10,7 @@ use libc::c_void;
 
 use crate::config::{DiagnosticsConfig, EngineFixesConfig, IoConfig, LodConfig};
 
+mod actor_container_guard;
 mod display;
 mod entrydata;
 mod extraownership;
@@ -49,6 +50,7 @@ pub(crate) const DASHBOARD_FEATURE_LOD_PREFETCH: u64 = 1 << 4;
 pub(crate) const DASHBOARD_FEATURE_LOD_HANDOFF: u64 = 1 << 5;
 pub(crate) const DASHBOARD_FEATURE_TREE_LIFETIME: u64 = 1 << 6;
 pub(crate) const DASHBOARD_FEATURE_VERTEX_BUFFERS: u64 = 1 << 7;
+pub(crate) const DASHBOARD_FEATURE_ACTOR_CONTAINER_GUARD: u64 = 1 << 8;
 
 #[derive(Clone, Copy, Default)]
 pub(crate) struct DashboardCounters {
@@ -124,6 +126,9 @@ pub(crate) fn dashboard_counters() -> DashboardCounters {
     if io.vertex_buffers.installed {
         active_features |= DASHBOARD_FEATURE_VERTEX_BUFFERS;
     }
+    if actor_container_guard::is_installed() {
+        active_features |= DASHBOARD_FEATURE_ACTOR_CONTAINER_GUARD;
+    }
 
     DashboardCounters {
         active_features,
@@ -197,6 +202,7 @@ pub fn install(
     lod_config: &LodConfig,
     diagnostics: &DiagnosticsConfig,
 ) -> anyhow::Result<()> {
+    install_actor_container_guard(config);
     install_save_integrity(config)?;
     install_navmesh_low_pointer(config)?;
     install_entrydata_invalid_form(config)?;
@@ -217,6 +223,16 @@ pub fn install(
     lod::install(lod_config, diagnostics, io_safety);
 
     Ok(())
+}
+
+fn install_actor_container_guard(config: &EngineFixesConfig) {
+    if !config.actor_container_retirement_guard {
+        log::info!("[ACTOR_CONTAINER] Dynamic actor retirement guard disabled by config");
+        return;
+    }
+    if let Err(error) = actor_container_guard::install() {
+        log::warn!("[ACTOR_CONTAINER] Dynamic actor retirement guard unavailable: {error:#}");
+    }
 }
 
 /// Install the display IAT shim before allocator and other engine hooks.

@@ -775,6 +775,12 @@ impl BlockHeap {
             .map(|size| size as usize)
     }
 
+    fn live_size_if_owned(&self, ptr: *const c_void) -> Option<Option<usize>> {
+        let block_idx = self.find_block(ptr)?;
+        let block = self.blocks.get(block_idx)?.as_ref()?;
+        Some(block.usable_size(ptr).map(|size| size as usize))
+    }
+
     fn block_count(&self) -> usize {
         self.live_count()
     }
@@ -936,6 +942,19 @@ pub fn size_of(ptr: *const c_void) -> Option<usize> {
         return with_heap_profiled(TimedOperation::Size, |h| h.size_of(ptr));
     }
     with_heap(|h| h.size_of(ptr))
+}
+
+/// Return exact live size for a pointer in a block reservation.
+///
+/// `None` means the address is not block-owned. `Some(None)` means the
+/// address is owned but is an interior, free, or otherwise invalid allocation
+/// start. This distinction is reserved for cold lifetime validation.
+#[inline]
+pub fn live_size_if_owned(ptr: *const c_void) -> Option<Option<usize>> {
+    if ptr.is_null() || !address_maybe_owned(ptr) {
+        return None;
+    }
+    with_heap(|h| h.live_size_if_owned(ptr))
 }
 
 #[inline]

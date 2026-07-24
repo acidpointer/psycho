@@ -30,6 +30,7 @@ pub(crate) struct EditableConfig {
     pub save_integrity_fix: bool,
     pub navmesh_low_pointer_guard: bool,
     pub entrydata_invalid_form_guard: bool,
+    pub actor_container_retirement_guard: bool,
     pub extraownership_invalid_owner_guard: bool,
     pub linked_ref_children_stale_list_guard: bool,
     pub linked_ref_target_base_form_guard: bool,
@@ -73,6 +74,7 @@ impl Default for EditableConfig {
             save_integrity_fix: true,
             navmesh_low_pointer_guard: true,
             entrydata_invalid_form_guard: true,
+            actor_container_retirement_guard: true,
             extraownership_invalid_owner_guard: true,
             linked_ref_children_stale_list_guard: true,
             linked_ref_target_base_form_guard: true,
@@ -149,6 +151,12 @@ impl EditableConfig {
                 "engine_fixes",
                 "entrydata_invalid_form_guard",
                 defaults.entrydata_invalid_form_guard,
+            ),
+            actor_container_retirement_guard: bool_or(
+                doc,
+                "engine_fixes",
+                "actor_container_retirement_guard",
+                defaults.actor_container_retirement_guard,
             ),
             extraownership_invalid_owner_guard: bool_or(
                 doc,
@@ -552,6 +560,7 @@ fn write_document(doc: &mut DocumentMut, config: &EditableConfig) {
     engine!(save_integrity_fix);
     engine!(navmesh_low_pointer_guard);
     engine!(entrydata_invalid_form_guard);
+    engine!(actor_container_retirement_guard);
     engine!(extraownership_invalid_owner_guard);
     engine!(linked_ref_children_stale_list_guard);
     engine!(linked_ref_target_base_form_guard);
@@ -678,6 +687,7 @@ mod_owned_key = "untouched"
         let mut document = parse_document(source).expect("parse source");
         let mut config = EditableConfig::from_document(&document);
         config.allocator = 2;
+        config.actor_container_retirement_guard = false;
         write_document(&mut document, &config);
         let saved = document.to_string();
 
@@ -685,6 +695,9 @@ mod_owned_key = "untouched"
         assert!(saved.contains("# keep this inline note"));
         assert!(saved.contains("mod_owned_key = \"untouched\""));
         assert!(saved.contains("allocator = 2"));
+        assert!(saved.contains("actor_container_retirement_guard = false"));
+        let reparsed = parse_document(&saved).expect("parse saved document");
+        assert!(!EditableConfig::from_document(&reparsed).actor_container_retirement_guard);
     }
 
     #[test]
@@ -725,6 +738,7 @@ object_prefetch_multiplier = 1
         assert_eq!(config.allocator, 1);
         assert!(config.gheap_periodic_pdd_purge);
         assert!(!config.queued_task_lifetime_guard);
+        assert!(config.actor_container_retirement_guard);
         assert_eq!(config.object_prefetch_multiplier, 1.0);
         assert!(!config.debug_log);
     }

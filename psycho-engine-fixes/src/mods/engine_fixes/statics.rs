@@ -13,6 +13,13 @@ use super::types::*;
 
 // ---- Navmesh/pathfinding low pointer guard ----
 
+/// TESActorBase::~TESActorBase. This is the common retirement boundary before
+/// its embedded TESContainer is cleared for both TESNPC and TESCreature.
+pub const ACTOR_BASE_DTOR_ADDR: usize = 0x005F77B0;
+
+pub static ACTOR_BASE_DTOR_HOOK: LazyLock<InlineHookContainer<ActorBaseDtorFn>> =
+    LazyLock::new(InlineHookContainer::new);
+
 pub const NAVMESH_NAME_HELPER_ADDR: usize = 0x00690830;
 
 pub static NAVMESH_NAME_HELPER_HOOK: LazyLock<InlineHookContainer<NavmeshNameHelperFn>> =

@@ -250,6 +250,28 @@ pub fn size_of(ptr: *const c_void) -> Option<usize> {
     None
 }
 
+/// Return exact live size for a pointer in a direct-VA allocation.
+///
+/// `None` means the address is not owned. `Some(None)` identifies an interior
+/// address in a live reservation; `Some(Some(size))` identifies its exact
+/// allocation base.
+pub fn live_size_if_owned(ptr: *const c_void) -> Option<Option<usize>> {
+    if ptr.is_null() {
+        return None;
+    }
+    let target = ptr as usize;
+    let blocks = match BLOCKS.lock() {
+        Ok(g) => g,
+        Err(p) => p.into_inner(),
+    };
+    for b in blocks.iter() {
+        if target >= b.base && target < b.base.saturating_add(b.size) {
+            return Some((target == b.base).then_some(b.size));
+        }
+    }
+    None
+}
+
 /// Current count of live blocks.
 pub fn live_count() -> usize {
     match BLOCKS.lock() {

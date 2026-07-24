@@ -43,6 +43,7 @@ pub(crate) const DASHBOARD_FEATURE_LOD_PREFETCH: u64 = 1 << 4;
 pub(crate) const DASHBOARD_FEATURE_LOD_HANDOFF: u64 = 1 << 5;
 pub(crate) const DASHBOARD_FEATURE_TREE_LIFETIME: u64 = 1 << 6;
 pub(crate) const DASHBOARD_FEATURE_VERTEX_BUFFERS: u64 = 1 << 7;
+pub(crate) const DASHBOARD_FEATURE_ACTOR_CONTAINER_GUARD: u64 = 1 << 8;
 
 type NotifyEventFn =
     unsafe extern "system" fn(kind: u32, data: *const u8, data_len: usize, bool_value: i32) -> i32;

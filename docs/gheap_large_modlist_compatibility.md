@@ -4,9 +4,10 @@
 
 This audit covers `psycho-engine-fixes` allocator mode `2` on Fallout: New
 Vegas 1.4.0.525 under Proton/Wine, with emphasis on large texture packs and
-large streamed-content setups. It combines source inspection, existing runtime
-logs, static analysis of the supported executable, and Microsoft D3D9/Win32
-contracts.
+large streamed-content setups. Its dynamic-actor retirement fix applies in
+allocator modes `2`, `1`, and `0`. The audit combines source inspection,
+existing runtime logs, static analysis of the supported executable, and
+Microsoft D3D9/Win32 contracts.
 
 The result is bounded support, not a claim that every possible modlist can
 work. A 32-bit process has finite virtual address space (VAS), D3D9 managed
@@ -218,6 +219,183 @@ Large allocations need one hole at least as large as the request. Conversely,
 falling below the threshold does not prove immediate OOM. Both total and
 largest-hole signals must be inspected.
 
+### Dynamic actor container retirement corruption, July 24
+
+The preserved evidence for this crash is:
+
+- `.reports/CrashLogger-2026-07-24-012706-actor-container.log`, SHA-256
+  `96bbbe1f0fc7a28a2828fc84585403346dd9b7d284aa408fabf1a8f73f50a261`;
+- `.reports/psycho-engine-fixes-2026-07-24-actor-container.log`, SHA-256
+  `cdf5a55d91534ad26bb8eb8913278e791f1957cbe5d5a241c2b6ec9c5290d9a2`;
+- `.reports/nvse-2026-07-24-actor-container.log`, SHA-256
+  `f2b44ff0d1320ec8796c33510b5d478f946c094a5c1b6ea7ae09778d9a3b1022`.
+
+The CrashLogger call chain is
+`0x0063F7B7 -> 0x004816EF -> 0x004816BE -> 0x005F7875 ->
+0x00601556 -> 0x0060137F -> 0x0042B8A7`. The object at `0xCF825D00` is
+a 640-byte, exact-start gheap allocation for runtime TESNPC `FF002E2B`.
+Its `TESContainer` is at `+0x64` and its embedded `tList<FormCount>` head
+is at `+0x68`. That head contains `0x01017720`, an image vtable rather than
+a `FormCount*`. The allocator log from the same failure reports an attempted
+free of `0xD0AC000D`, five bytes into exact 8-byte cell `0xD0AC0008`.
+Subpool 1 is the 8-byte class, which exactly matches a 32-bit `tList` node's
+`{ data, next }` layout.
+
+This was not an OOM boundary. The last complete watchdog sample reported about
+930 MB total free VAS, a 168 MB largest hole, no allocation failure, and about
+2.35 million live 8-byte cells. NVSE recorded `DoPreLoadGameHook:
+autosave.fos` without the corresponding completed-load hook. The autosave had
+completed earlier, so the failure occurred while loading a save over a live
+game, not while writing the file.
+
+Radare2 analysis of the executable identified above proves the following
+native contract:
+
+- `0x0063F7B0` is the generic embedded-head list removal helper. When a
+  successor exists it copies the successor's data and next words into the
+  embedded head, clears the successor's next word, and frees that 8-byte node.
+  It has hundreds of callers and is not a safe global hook point. Existing raw
+  disassembly and decompilation are also recorded in
+  `analysis/ghidra/output/crash/radio_station_reconciliation_contract.txt`
+  and
+  `analysis/ghidra/output/crash/crash_20260712_mod_independent_chain_contract_audit.txt`.
+- `0x00481700` clears a `TESContainer`: it destroys each 12-byte `FormCount`
+  through `0x00481760`, then removes the list head through `0x0063F7B0`.
+  Its ownership callers are the container destructor at `0x004816E0` and
+  copy assignment at `0x00481C80`.
+- A `FormCount` is `{ count +0x00, form +0x04, extra +0x08 }`; clone code at
+  `0x00481A90` allocates 12 bytes. The optional extra allocation at
+  `0x00481540` is also 12 bytes. This binary fact overrides the stale xNVSE
+  header declaration that makes its final field a `double`.
+- Shared `TESActorBase::~TESActorBase` at `0x005F77B0` destroys the
+  `TESContainer` at `+0x64`. Both the TESCreature destructor
+  (`0x005F7900`) and TESNPC destructor (`0x006013C0`) reach this boundary.
+- Changed-form dispatch at `0x00428150` handles ExtraLeveledCreature records
+  as type `0x2E`. It clones a replacement dynamic base at `0x0047D130`,
+  deep-copies the container through `0x00481C80`, and retires the previous
+  `FFxxxxxx` base through its virtual destructor at `0x0042B8A5`. The
+  ExtraLeveledCreature destructor does not own its referenced form pointers.
+
+The vanilla allocator contract needed by modes `0` and `1` is preserved in
+`analysis/ghidra/output/memory/sbm_freelist_byte_layout.txt`. The current
+executable indexes the SBM pool table at `0x011F63B8` by pointer high byte.
+Each pool records its arena base at `+0x04`, free-list head at `+0x08`, cell
+size at `+0x40`, per-page live-count array at `+0x48`, and arena size at
+`+0x50`. Cells begin at exact size-class intervals within each 4 KiB page.
+Free at `0x00AA6C70` reaches `0x00AA6E00`, which overwrites the freed cell's
+first two words with previous/next free-list links and updates the old head's
+backlink. Allocation and free acquire the reentrant pool lock at `+0x20`
+through `0x0040FBF0`; the function takes the lock in `ECX`, one diagnostic
+label on the stack, and returns with `ret 4`. Page purge at `0x00AA6EB0`
+unlinks all cells, calls the decommit helper at `0x00AA6650`, and then writes
+`0xFFFF` to the page count. A zero page count therefore proves every cell on a
+committed page is free, while `0xFFFF` proves that the page cannot be read. On
+a mixed page, matching the pool head or a predecessor's backlink proves an
+individual cell is free. The classifier holds the same native lock across the
+metadata snapshot and all requested field reads, so purge cannot create a
+classification/read race. SBM has no per-cell bitmap, so an exact cell not
+found through those links remains structurally plausible rather than proven
+live. Non-SBM allocations are classified through cached process-heap ownership
+and `HeapValidate`/`HeapSize`.
+
+The direct, proven root cause is therefore a malformed dynamic actor
+`TESContainer` reaching its normal retirement destructor. A stale/reused list
+node propagated by embedded-head promotion explains both captured pointer
+states and is a strong inference. The original writer is not proven: it may be
+an engine stale reference, a reuse race, an overwrite, or an external plugin.
+No evidence justifies calling this a global allocator defect. The reported EIP
+is in the middle of pristine `0x0063F7B0` instructions; without runtime bytes,
+the exact reason CrashLogger selected `0x0063F7B7` also remains unresolved.
+
+The engine-fix installer now installs a targeted hook at `0x005F77B0` after
+allocator selection, independently of `memory.allocator`. The native
+destructor owns a live `this` pointer before any actor subobject is destroyed,
+so the shared rejection path reads only the embedded form ID directly. It
+performs no WinAPI readability probe, allocator lock, allocation, logging, or
+list traversal for ordinary non-runtime forms. This invariant is important
+under Wine: the first vanilla/scrap-heap compatibility implementation routed
+that embedded read through `IsBadReadPtr`, whose Wine implementation installs
+an SEH probe and touches the requested range. That unconditional probe is the
+only compatibility work that ran before allocator-mode dispatch and matches
+the observed drop from more than 100 FPS to about 20 FPS even in mode `2`.
+The code-level regression mechanism and user-reported change boundary agree;
+restoration of the original frame rate still requires playtesting the
+corrected build.
+
+`IsBadReadPtr` is not marked with a compiler deprecation attribute in the
+supported MinGW headers. Microsoft's precise documentation term is
+"obsolete," followed by "should not be used." `VirtualQuery` is not a
+drop-in validity check: it reports page state and protection, not whether an
+address is a live allocation start or whether another thread can retire the
+object after the query. Neither API appears anywhere in this guard or its
+allocator classifier. The replacement is an ownership chain: native
+destructor ownership for embedded actor fields; exact allocator metadata for
+gheap and Windows-heap allocations; one locked geometry/count/free-list
+snapshot for vanilla pools; and engine registry identity for referenced forms.
+This is both cheaper on the ordinary path and stronger than a page-readability
+guess.
+
+The nested form proof uses the supported executable's loaded-form resolver at
+`0x004839C0`. It is a cdecl function taking one 32-bit form ID and returning
+the live pointer from the registry rooted at `0x011C54C0`. The guard first
+proves at least 16 bytes of allocator-owned form storage, reads `refID` at
+`+0x0C` under that allocator/lifetime proof, and accepts the pointer only when
+`LookupFormByID(refID)` returns the same address. Form creation dispatch at
+`0x00465110` allocates its produced TESForm objects through FormHeap. A plugin
+form is therefore compatible when it follows the engine contract: allocate it
+through FormHeap, give it a valid ID, and publish it in the live-form registry.
+An arbitrary foreign-heap object that merely resembles TESForm is rejected;
+page readability alone would not make such an object valid.
+
+For an `FFxxxxxx` actor, the two embedded container-head words use the same
+native-lifetime ownership proof. In mode `2`, the actor must additionally be an
+exact live gheap allocation before the guard reads that head. In modes `0` and
+`1`, the native destructor call supplies actor lifetime ownership and the guard
+classifies every separately allocated container member through the vanilla
+allocator contract before invoking vanilla:
+
+- an empty head requires both words to be zero;
+- every `FormCount`, optional extra, and successor node must be an exact live
+  gheap/Windows-heap allocation or an exact structurally plausible vanilla SBM
+  cell with at least 12, 12, and 8 usable bytes respectively;
+- gheap pool interior, free, unissued, and uncommitted states are distinct from
+  unowned memory; emergency block and direct-VA fallback allocations are also
+  recognized;
+- vanilla SBM interiors, cells on completely free pages, and cells identified
+  by the free-list head or a verified predecessor backlink are rejected; exact
+  remaining cells on mixed pages stay provisional because SBM has no per-cell
+  bitmap;
+- every `FormCount` must contain an aligned, allocator-owned TESForm of at
+  least 16 bytes whose embedded form ID resolves back to that exact pointer in
+  the engine's live-form registry;
+- successor nodes require non-null data, and a bounded allocation-free Brent
+  walk rejects cycles and lists beyond 65,536 entries.
+
+Valid lists pass to vanilla unchanged. If any check fails, the guard logs
+bounded allocation-state evidence, zeros both embedded head words, and then
+calls the original destructor. It does not dereference or free the uncertain
+members, round an interior pointer down, attempt partial repair, or reject the
+save. This intentionally leaks only the detached corrupt list while its actor
+owner is already retiring. A stable free vanilla cell on a mixed page is
+rejected through its free-list head/backlink before its fields are trusted.
+Complete structure validation remains the fail-closed second layer for a
+provisional cell. Hook preparation and activation use one modification
+transaction owned by this engine fix. A hook conflict disables only the guard
+and is logged; it cannot partially publish the guard or alter the selected
+allocator.
+
+Source ownership is
+`engine_fixes/actor_container_guard.rs` for the engine contract, validation,
+and transactional publication; `heap_replacer/allocation_state.rs` for
+mode-independent dispatch and vanilla classification; and
+`gheap/allocator.rs` plus its tier modules for exact gheap classification.
+`[engine_fixes].actor_container_retirement_guard` owns activation and defaults
+to `true`. Disabling it skips only this hook for conflict isolation.
+`memory.allocator` still selects only the classification backend, so an enabled
+guard installs in modes `2`, `1`, and `0`. The xNVSE helper edits this
+restart-only setting and reports the core's installed-state bit; it never
+installs the hook or initializes the core.
+
 ## Compatibility boundaries
 
 ### What is supported by design
@@ -266,7 +444,10 @@ recurses through hooked CRT allocation, and arbitrary cleanup from allocation
 threads violates Havok/IO ownership. Cost: under true low-VAS pressure, an
 overflow class may reach the emergency block fallback sooner. This favors
 address-space reserve over peak small-allocation throughput but cannot by
-itself guarantee later D3D success.
+itself guarantee later D3D success. In all three allocator modes, the
+actor-container guard does not alter allocation, reclamation, routing, or retry
+policy. On the exceptional corrupt-retirement path only, it trades a bounded
+leak of uncertain list members for process safety.
 
 ### UAF protection
 
@@ -277,7 +458,13 @@ targeted engine guards. Empty-block emergency retirement applies only when the
 block has no live allocations; it does not make zombie pointers valid. The
 atomic address-page directory publishes a slot only after the block is fully
 initialized and locked consumers revalidate every possibly owned pointer, so
-lock-free rejection does not weaken retirement safety.
+lock-free rejection does not weaken retirement safety. Dynamic actor
+retirement now validates exact allocation starts against gheap or Windows-heap
+ownership, or exact structurally plausible vanilla SBM cells, and detaches a
+malformed container before vanilla's promotion/free helper can consume it.
+Modes `2`, `1`, and `0` therefore protect the same proven family without
+changing global reuse timing or pretending to identify the original stale
+writer.
 
 ### Performance
 
@@ -317,6 +504,17 @@ Runtime evidence must still select any larger synchronization redesign; the
 global medium-heap mutex is intentionally retained until its measured wait time
 justifies the additional lifetime risk.
 
+The actor guard adds one form-ID read to actor destruction. Only retiring
+`FFxxxxxx` actors walk their containers. One allocator inspection reads all
+needed fields from each FormCount or list node; it does not reclassify the
+allocation once per field. Mode `2` takes the existing gheap metadata locks for
+exact ownership. Modes `0` and `1` take the relevant native SBM pool lock only
+on this cold dynamic-retirement path, read geometry, page state, local
+free-list links, and requested fields in one snapshot, then use cached
+process-heap validation only for non-SBM candidates. It adds no per-frame,
+per-allocation, or ordinary free-path work. The walk is allocation-free and
+bounded. Corruption logging is power-of-two limited.
+
 ## Validation matrix for an extreme setup
 
 Static proof cannot certify runtime resource capacity. Validate a candidate
@@ -324,7 +522,7 @@ modlist with the same save, route, graphics settings, Proton/Wine build, and
 plugin order in allocator modes `2`, `1`, and `0`. Use fresh processes between
 modes.
 
-Minimum mode `2` stress:
+Minimum stress in each allocator mode:
 
 1. Load the heaviest exterior save ten times from a fresh main menu.
 2. Traverse dense exterior cells for at least 60 minutes, including repeated
@@ -339,7 +537,9 @@ Minimum mode `2` stress:
 
 Acceptance requires all of the following:
 
-- transactional allocator startup succeeds with no mandatory hook conflict;
+- selected allocator startup succeeds and the log reports
+  `[ACTOR_CONTAINER] Dynamic actor retirement guard active` with the expected
+  `gheap + scrap_heap`, `scrap_heap`, or `vanilla` backend;
 - no `[VA] alloc failed`, block reserve/commit failure, or monotonically
   cascading block-overflow counter;
 - exact overflow absorbs class growth without the prior six-figure sustained
@@ -351,6 +551,11 @@ Acceptance requires all of the following:
   peaks and do not trend downward each cycle;
 - no `NULL`-consumer, stale-reuse, double-free, SpeedTree, Havok, IO, or texture
   cache crash signature;
+- repeated load-over-live cycles complete without the `0x0063F7B7` actor
+  container signature; a guard warning is acceptable only when the load
+  completes and its counter does not cascade;
+- with the guard enabled, steady-state FPS returns to the pre-compatibility
+  baseline within normal run-to-run variance in modes `2`, `1`, and `0`;
 - mode `2` is not materially slower or hitchier than mode `1` after warm-up;
 - texture appearance is checked in game. Compilation and allocation logs do
   not prove image correctness or that D3DX accepted every asset.
@@ -365,17 +570,31 @@ and do not label every high-memory failure UAF.
 
 Validation completed on `i686-pc-windows-gnu`:
 
-- focused gheap run: 4 passed, covering the overflow reservation boundary,
-  unknown-sample fail-open behavior, medium-block split/free/coalescing, and
-  block free preserving zombie payload bytes;
-- complete `psycho-engine-fixes` library tests: 9 passed;
-- release build: passed for `psycho-engine-fixes`;
+- focused dynamic-actor guard and configuration run: 11 passed, covering
+  direct unaligned reads of destructor-owned actor fields, empty and valid
+  multi-item lists, both captured corruption signatures, free/undersized/nested
+  allocation failures, cycles and bounded walks, exact FF form filtering,
+  live-form registry identity, two-word detachment, acceptance of a
+  structurally valid vanilla list, and structural rejection of a
+  free-list-shaped vanilla cell;
+- exact pool-state regression: passed, proving that live, interior `+5`, and
+  free cells remain distinct;
+- vanilla SBM classifier regressions: 6 passed, proving exact-cell acceptance,
+  observed `+5` interior rejection, completely free-page and `0xFFFF`
+  uncommitted-page rejection, and free-list head/predecessor detection on
+  mixed pages;
+- configuration regression: passed, proving the guard defaults on and honors
+  an explicit `false`;
+- release disassembly of `hook_actor_base_dtor` reads `this + 0x0C`, compares
+  the `FF` prefix, and exits to the original destructor before any function
+  call for ordinary forms; the dynamic head reads are direct `this + 0x68` and
+  `this + 0x6C` loads;
+- complete `psycho-engine-fixes` library tests: 59 passed; doctests: passed;
+- complete `psycho-engine-fixes-helper` library tests: 12 passed, including
+  restart-only setting serialization;
+- release build: passed for `psycho-engine-fixes` and
+  `psycho-engine-fixes-helper`;
 - `git diff --check`: passed.
-
-Cargo's separate doctest phase still fails on three pre-existing assembly
-snippets in untouched `engine_fixes/havok.rs` and `engine_fixes/navmesh.rs`;
-their untyped fences are parsed as Rust. This is unrelated to gheap and was not
-changed in this scoped audit.
 
 Until the runtime matrix completes, the honest status is "statically hardened
 and build-tested, extreme-modlist playtest pending," not "supports any setup."
