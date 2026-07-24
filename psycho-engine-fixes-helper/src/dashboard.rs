@@ -60,6 +60,84 @@ const RELOAD_BUTTON: [f32; 4] = [0.40, 0.25, 0.07, 1.0];
 const RELOAD_HOVERED: [f32; 4] = [0.62, 0.39, 0.10, 1.0];
 const RELOAD_ACTIVE: [f32; 4] = [0.82, 0.51, 0.12, 1.0];
 
+const HOVER_HELP_HINT: &str =
+    "Hover a setting or technical label for a plain-language explanation.";
+
+const ENGINE_FIX_HELP: [(&str, &str); 18] = [
+    (
+        "Display / Alt-Tab repair",
+        "Keeps fullscreen startup, renderer resets, focus changes, and Alt-Tab from using broken window size or placement. Leave it on unless another window mod has a confirmed conflict.",
+    ),
+    (
+        "Durable save integrity",
+        "Replaces the previous save only after the new file is fully written. It also rejects malformed load records before they can overrun memory.",
+    ),
+    (
+        "NavMesh low-pointer guard",
+        "Stops pathfinding from treating a tiny invalid number as a real navigation object. Normal pathfinding is unchanged.",
+    ),
+    (
+        "Container EntryData guard",
+        "Drops only a broken inventory entry when its item form is invalid, preventing that entry from crashing save or load.",
+    ),
+    (
+        "Dynamic actor container guard",
+        "Checks the inventory list of a generated NPC or creature while an old live game is being replaced. A corrupt list is detached instead of followed and freed.",
+    ),
+    (
+        "ExtraOwnership guard",
+        "Treats corrupt item ownership data as 'no owner' instead of letting the game or xNVSE follow an invalid owner pointer.",
+    ),
+    (
+        "Linked-ref stale child guard",
+        "Ignores a stale linked-reference child list left behind by a deleted or unloading object during a save transition.",
+    ),
+    (
+        "Linked-ref target guard",
+        "Skips an optional linked reference when its target has a broken base form, avoiding activation and linked-reference crashes.",
+    ),
+    (
+        "Ragdoll bone-table guard",
+        "Skips one ragdoll update while its bone table is incomplete. A later frame tries again once the skeleton is ready.",
+    ),
+    (
+        "Detached phantom guard",
+        "Returns 'no hit' for one ragdoll raycast when its collision phantom has already left the physics world.",
+    ),
+    (
+        "Havok add-batch guard",
+        "Removes empty entity slots from a Havok add batch while preserving every valid physics entity in that batch.",
+    ),
+    (
+        "Havok pending-add guard",
+        "Removes empty slots before Havok flushes its pending-add list. Valid pending physics objects continue normally.",
+    ),
+    (
+        "Havok narrowphase guard",
+        "Rejects a broken collision pair before Havok chooses a collision handler. Valid collision work is unchanged.",
+    ),
+    (
+        "Havok post-add guard",
+        "Skips the impossible AddedToWorld callback when Havok supplies no entity. Normal post-add callbacks still run.",
+    ),
+    (
+        "Havok remove-agent guard",
+        "Removes an unnecessary second read of a physics slot that may already be empty, while keeping the required unlock operation.",
+    ),
+    (
+        "Allocator NULL memset guard",
+        "Stops two known out-of-memory paths from writing through address zero when an allocation fails. It is not a global memset hook.",
+    ),
+    (
+        "LowProcess ownership repair",
+        "Keeps unloaded-actor location lists from freeing references they only borrow, and contains corrupt entries while saving.",
+    ),
+    (
+        "Queued-task lifetime guard",
+        "Stops a dead texture or background task before the game calls or releases it again. Useful with every allocator mode.",
+    ),
+];
+
 static READY: AtomicBool = AtomicBool::new(false);
 static OPEN_REQUESTED: AtomicBool = AtomicBool::new(false);
 static OPEN: AtomicBool = AtomicBool::new(false);
@@ -528,6 +606,7 @@ impl DashboardRuntime {
             "Overview",
             "A concise health check for the current game session.",
         );
+        ui.text_colored(MUTED, &cstring(HOVER_HELP_HINT));
         ui.separator_text(&cstring("Session status"));
         let Some(core) = core else {
             ui.text_colored(
@@ -546,6 +625,7 @@ impl DashboardRuntime {
             health.color(),
             health.detail(&core),
             width,
+            "A simple rating of the remaining 32-bit address-space headroom. It emphasizes the largest continuous free opening because large assets must fit in one piece.",
         );
         ui.same_line();
         metric_card(
@@ -556,6 +636,7 @@ impl DashboardRuntime {
             ACCENT,
             format!("{} live pool cells", core.pool_live_cells),
             width,
+            "Which main memory allocator Psycho selected at startup. Vanilla uses the original heaps, scrap-only replaces temporary heaps, and full gheap replaces both.",
         );
         ui.same_line();
         metric_card(
@@ -570,23 +651,32 @@ impl DashboardRuntime {
             BLUE,
             "Prevented unsafe lifetime/save paths",
             width,
+            "How many known unsafe task or save situations Psycho stopped this session. A nonzero value means a guard did useful work, not necessarily that the session is unstable.",
         );
 
         ui.spacing();
         ui.separator_text(&cstring("Current memory state"));
-        draw_value(
+        draw_value_help(
             ui,
             "Process commit",
             bytes(core.process_commit_bytes),
             ACCENT,
+            "Memory Windows has promised to back for this game with RAM or the page file. It includes more than what is physically in RAM right now.",
         );
-        draw_value(
+        draw_value_help(
             ui,
             "Largest VAS opening",
             bytes(core.vas_largest_hole_bytes),
             health.color(),
+            "The biggest single unused range in New Vegas' 32-bit virtual address space. Large textures and models need one opening big enough to contain them.",
         );
-        draw_value(ui, "Current RSS", bytes(core.process_rss_bytes), BLUE);
+        draw_value_help(
+            ui,
+            "Current RSS",
+            bytes(core.process_rss_bytes),
+            BLUE,
+            "Resident Set Size: the game's memory currently held in physical RAM. It can be lower than process commit because some committed pages are not resident.",
+        );
         let texture_estimate = if self.texture_sample_time_ms == 0 {
             "Not sampled".to_owned()
         } else {
@@ -596,8 +686,14 @@ impl DashboardRuntime {
                 sample_age_seconds(u64::from(self.texture_sample_time_ms)),
             )
         };
-        draw_value(ui, "Driver texture estimate", texture_estimate, WARN);
-        draw_value(
+        draw_value_help(
+            ui,
+            "Driver texture estimate",
+            texture_estimate,
+            WARN,
+            "The D3D9 driver's estimate of texture memory in use. Treat it as a directional estimate, not an exact VRAM meter.",
+        );
+        draw_value_help(
             ui,
             "Early startup boundary",
             if core.flags & engine_fixes::DASHBOARD_FLAG_PRE_CRT_BOUNDARY != 0 {
@@ -610,15 +706,24 @@ impl DashboardRuntime {
             } else {
                 ERROR
             },
+            "Confirms Psycho loaded before the game's normal C runtime and allocators started. Full gheap requires this early ownership boundary.",
         );
 
         if ui.button(&cstring("Refresh driver estimate")) {
             self.texture_refresh_requested = true;
         }
+        hover_help(
+            ui,
+            "Requests a fresh D3D9 driver estimate. The query runs only on demand because drivers may make it relatively expensive.",
+        );
         ui.same_line();
         if ui.button(&cstring("Refresh VAS map")) {
             self.request_vas_refresh();
         }
+        hover_help(
+            ui,
+            "Walks the game's complete 32-bit address map now. Use it after loading or travelling when you want a current fragmentation reading.",
+        );
 
         ui.spacing();
         let explanation = match health {
@@ -644,6 +749,7 @@ impl DashboardRuntime {
             "Memory dashboard",
             "Address-space headroom and allocator pressure for texture-heavy setups.",
         );
+        ui.text_colored(MUTED, &cstring(HOVER_HELP_HINT));
         ui.separator_text(&cstring("32-bit address space"));
         let Some(core) = core else {
             ui.text_colored(
@@ -653,32 +759,42 @@ impl DashboardRuntime {
             return;
         };
         let health = MemoryHealth::from_snapshot(&core);
-        draw_value(
+        draw_value_help(
             ui,
             "Free address space",
             bytes(core.vas_free_bytes),
             health.color(),
+            "All unused ranges added together inside New Vegas' 32-bit virtual address space. Fragmentation can make this look healthy even when no large opening remains.",
         );
-        draw_value(
+        draw_value_help(
             ui,
             "Largest contiguous opening",
             bytes(core.vas_largest_hole_bytes),
             health.color(),
+            "The largest single unused address range. This is the most useful number for judging whether one large texture or model mapping can still fit.",
         );
-        draw_value(
+        draw_value_help(
             ui,
             "Committed mappings",
             bytes(core.vas_committed_bytes),
             ACCENT,
+            "Address ranges with storage promised by Windows. Committed memory may be in RAM or the page file and is not the same as current physical RAM use.",
         );
-        draw_value(
+        draw_value_help(
             ui,
             "Reserved mappings",
             bytes(core.vas_reserved_bytes),
             MUTED,
+            "Address ranges set aside for future use but not yet backed by RAM or the page file. Reservation consumes address space, not physical memory by itself.",
         );
-        draw_value(ui, "Free-region count", core.vas_holes, MUTED);
-        draw_value(
+        draw_value_help(
+            ui,
+            "Free-region count",
+            core.vas_holes,
+            MUTED,
+            "How many separate free openings exist. More openings can indicate fragmentation; their sizes matter more than the count alone.",
+        );
+        draw_value_help(
             ui,
             "VAS sample age",
             if core.flags & engine_fixes::DASHBOARD_FLAG_VAS_VALID != 0 {
@@ -687,10 +803,15 @@ impl DashboardRuntime {
                 "Unavailable".to_owned()
             },
             MUTED,
+            "How long ago Psycho last walked the full virtual address space. Refresh after a major load when current fragmentation matters.",
         );
         if ui.button(&cstring("Refresh VAS map")) {
             self.request_vas_refresh();
         }
+        hover_help(
+            ui,
+            "Walks the game's complete 32-bit address map now. The normal fast snapshot reuses the last full map to avoid repeated frame stalls.",
+        );
         ui.text_colored(MUTED, &cstring("Largest opening predicts big texture/model allocation viability better than total free bytes."));
 
         ui.spacing();
@@ -699,21 +820,23 @@ impl DashboardRuntime {
 
         ui.spacing();
         ui.separator_text(&cstring("Allocator usage"));
-        tier_bar(
+        tier_bar_help(
             ui,
             "Cell pools",
             core.pool_committed_bytes,
             core.pool_reserved_bytes,
             format!("{} live cells", core.pool_live_cells),
+            "Fixed-size storage for small game objects. Psycho groups equal-size allocations so common object creation and destruction stay fast.",
         );
-        tier_bar(
+        tier_bar_help(
             ui,
             "Pool metadata",
             core.pool_metadata_bytes,
             core.pool_metadata_reserved_bytes,
             "Out-of-band zombie-safe freelists".to_owned(),
+            "Bookkeeping kept outside game objects: which small cells exist, are free, or remain readable for stale-pointer protection.",
         );
-        tier_bar(
+        tier_bar_help(
             ui,
             "Block heap",
             core.block_live_bytes,
@@ -722,6 +845,7 @@ impl DashboardRuntime {
                 "{} allocations across {} slots",
                 core.block_live_allocations, core.block_slots
             ),
+            "Storage for medium-sized allocations that do not fit a small fixed-size pool. Slots are independent 16 MiB regions.",
         );
         if core.flags & engine_fixes::DASHBOARD_FLAG_BLOCK_SAMPLE_VALID == 0 {
             ui.text_colored(
@@ -729,7 +853,7 @@ impl DashboardRuntime {
                 &cstring("Block heap was busy; the cached row is intentionally non-blocking."),
             );
         }
-        tier_bar(
+        tier_bar_help(
             ui,
             "Direct VA",
             core.direct_live_bytes,
@@ -738,36 +862,47 @@ impl DashboardRuntime {
                 "Largest request {}",
                 bytes(core.direct_max_allocation_bytes)
             ),
+            "Very large allocations mapped directly through Windows virtual memory instead of passing through a small or medium heap.",
         );
-        draw_value(ui, "Scrap heap live", bytes(core.scrap_live_bytes), BLUE);
+        draw_value_help(
+            ui,
+            "Scrap heap live",
+            bytes(core.scrap_live_bytes),
+            BLUE,
+            "Short-lived temporary memory used during loading and frame work. Psycho can discard complete retired scrap regions together.",
+        );
 
         ui.spacing();
         ui.separator_text(&cstring("Allocation fallbacks and failures"));
-        draw_value(
+        draw_value_help(
             ui,
             "Pool exhaustion fallbacks",
             core.pool_exhaustions,
             counter_color(core.pool_exhaustions),
+            "A small-object pool had no immediately available cell, so Psycho served the request through a larger fallback tier. Occasional events are recoverable.",
         );
-        draw_value(
+        draw_value_help(
             ui,
             "Block-tier overflows",
             core.block_overflows,
             counter_color(core.block_overflows),
+            "A medium allocation could not fit in the existing block slots and had to use another supported allocation path.",
         );
-        draw_value(
+        draw_value_help(
             ui,
             "Block reserve/commit failures",
             core.block_failures,
             counter_color(core.block_failures),
+            "Windows refused to reserve address space or back pages for a medium block. Any nonzero count is important in a memory-related bug report.",
         );
-        draw_value(
+        draw_value_help(
             ui,
             "Direct VA failures",
             core.direct_failures,
             counter_color(core.direct_failures),
+            "Windows could not map one very large allocation. This usually means insufficient contiguous address space, not simply low free RAM.",
         );
-        draw_value(
+        draw_value_help(
             ui,
             "Direct VA lifecycle",
             format!(
@@ -775,6 +910,7 @@ impl DashboardRuntime {
                 core.direct_allocations, core.direct_frees
             ),
             MUTED,
+            "How many very large direct mappings Psycho created and released this session. The difference is the currently live mapping count.",
         );
     }
 
@@ -839,64 +975,74 @@ impl DashboardRuntime {
             "Runtime fixes",
             "Installed protections and the work they have performed this session.",
         );
+        ui.text_colored(MUTED, &cstring(HOVER_HELP_HINT));
         ui.separator_text(&cstring("Installed protections"));
         let Some(core) = core else {
             ui.text_colored(ERROR, &cstring("Runtime-fix telemetry is unavailable."));
             return;
         };
-        for (name, bit, detail) in [
+        for (name, bit, detail, help) in [
             (
                 "Display transition repair",
                 engine_fixes::DASHBOARD_FEATURE_DISPLAY,
                 "Fullscreen, reset and Alt-Tab ownership",
+                ENGINE_FIX_HELP[0].1,
             ),
             (
                 "Durable save integrity",
                 engine_fixes::DASHBOARD_FEATURE_SAVE_INTEGRITY,
                 "Atomic promotion and malformed-record rejection",
+                ENGINE_FIX_HELP[1].1,
             ),
             (
                 "Queued-task lifetime guard",
                 engine_fixes::DASHBOARD_FEATURE_TASK_GUARD,
                 "Dispatch and final-release ownership",
+                ENGINE_FIX_HELP[17].1,
             ),
             (
                 "Dynamic actor container guard",
                 engine_fixes::DASHBOARD_FEATURE_ACTOR_CONTAINER_GUARD,
                 "Validates retiring runtime actor inventory lists",
+                ENGINE_FIX_HELP[4].1,
             ),
             (
                 "Parallel native IO",
                 engine_fixes::DASHBOARD_FEATURE_PARALLEL_IO,
                 "Two-worker audited topology",
+                "Uses two game-owned loading workers while serializing engine state that is unsafe to build concurrently.",
             ),
             (
                 "LOD prefetch",
                 engine_fixes::DASHBOARD_FEATURE_LOD_PREFETCH,
                 "Early native terrain/object/tree demand",
+                "Requests distant terrain, trees, and objects slightly before visibility to reduce pop-in while moving.",
             ),
             (
                 "LOD handoff",
                 engine_fixes::DASHBOARD_FEATURE_LOD_HANDOFF,
                 "Current identity instead of lifetime totals",
+                "Prevents distant scenery from being retired from stale counters while it switches to the nearby full-detail version.",
             ),
             (
                 "SpeedTree lifetime",
                 engine_fixes::DASHBOARD_FEATURE_TREE_LIFETIME,
                 "Serialized materialization and process-global Compute state",
+                "Coordinates tree creation and SpeedTree's shared compute state so loading workers cannot use it concurrently in an unsafe order.",
             ),
             (
                 "Static vertex buffers",
                 engine_fixes::DASHBOARD_FEATURE_VERTEX_BUFFERS,
                 "Safe allocation/publication lifetime",
+                "Publishes static geometry buffers only after their storage is complete, preventing loading workers from seeing a half-built buffer.",
             ),
         ] {
-            feature_status(ui, name, core.active_features & bit != 0, detail);
+            feature_status(ui, name, core.active_features & bit != 0, detail, help);
         }
 
         ui.spacing();
         ui.separator_text(&cstring("Save and task safety"));
-        draw_value(
+        draw_value_help(
             ui,
             "Saves",
             format!(
@@ -904,50 +1050,75 @@ impl DashboardRuntime {
                 core.save_commits, core.save_attempts
             ),
             GOOD,
+            "How many save attempts reached a durable final file. A commit means the completed temporary save safely replaced the previous save.",
         );
-        draw_value(
+        draw_value_help(
             ui,
             "Save aborts",
             core.save_aborts,
             counter_color(core.save_aborts),
+            "Save attempts stopped because writing, flushing, closing, backup rotation, or final replacement could not complete safely.",
         );
-        draw_value(
+        draw_value_help(
             ui,
             "Rejected unsafe save/load data",
             core.save_rejections,
             counter_color(core.save_rejections),
+            "Malformed or unavailable changed records skipped through the game's supported rejection path instead of being trusted.",
         );
-        draw_value(ui, "Task dispatches", core.task_dispatches, ACCENT);
-        draw_value(
+        draw_value_help(
+            ui,
+            "Task dispatches",
+            core.task_dispatches,
+            ACCENT,
+            "Background game tasks checked at the audited dispatch boundary before their virtual work begins.",
+        );
+        draw_value_help(
             ui,
             "Rejected unsafe tasks",
             core.task_rejections,
             counter_color(core.task_rejections),
+            "Tasks already known to be dead or invalid that Psycho stopped before another callback could run.",
         );
-        draw_value(
+        draw_value_help(
             ui,
             "Release guards / tombstones",
             format!("{} / {}", core.task_release_guards, core.task_tombstones),
             BLUE,
+            "Release guards stop an unsafe final release. Tombstones are compact records of already-dead tasks used to reject later stale references.",
         );
 
         ui.spacing();
         ui.separator_text(&cstring("Streaming activity"));
-        draw_value(ui, "IO workers", core.io_workers, ACCENT);
-        draw_value(ui, "Serialized cell loads", core.io_transactions, BLUE);
-        draw_value(
+        draw_value_help(
+            ui,
+            "IO workers",
+            core.io_workers,
+            ACCENT,
+            "The number of native game loading workers Psycho configured. The supported parallel layout uses exactly two.",
+        );
+        draw_value_help(
+            ui,
+            "Serialized cell loads",
+            core.io_transactions,
+            BLUE,
+            "Exterior-cell loading operations passed through the ownership gate that protects shared engine state.",
+        );
+        draw_value_help(
             ui,
             "Cell-load contentions",
             core.io_contentions,
             counter_color(core.io_contentions),
+            "Times one loading worker briefly waited because another worker owned the protected exterior-cell loading section.",
         );
-        draw_value(
+        draw_value_help(
             ui,
             "IO fallbacks",
             core.io_fallbacks,
             counter_color(core.io_fallbacks),
+            "Times parallel loading could not satisfy its proven safety contract and used the compatible fallback path instead.",
         );
-        draw_value(
+        draw_value_help(
             ui,
             "Tree materializations",
             format!(
@@ -955,14 +1126,16 @@ impl DashboardRuntime {
                 core.speedtree_completions, core.speedtree_materializations
             ),
             BLUE,
+            "Tree resources fully built versus builds started. A short-lived difference is normal while work is still in flight.",
         );
-        draw_value(
+        draw_value_help(
             ui,
             "Tree materialization contentions",
             core.speedtree_materialization_contentions,
             BLUE,
+            "Times tree creation had to wait because another worker owned SpeedTree's process-wide construction state.",
         );
-        draw_value(
+        draw_value_help(
             ui,
             "SpeedTree Compute",
             format!(
@@ -970,8 +1143,9 @@ impl DashboardRuntime {
                 core.speedtree_compute_transactions, core.speedtree_compute_contentions
             ),
             BLUE,
+            "Runs of SpeedTree's shared Compute stage and times another worker found that stage busy.",
         );
-        draw_value(
+        draw_value_help(
             ui,
             "SpeedTree waiters / max waits",
             format!(
@@ -985,8 +1159,9 @@ impl DashboardRuntime {
             } else {
                 WARN
             },
+            "Current waiting workers and the longest observed waits for tree materialization and the shared Compute stage, measured in microseconds.",
         );
-        draw_value(
+        draw_value_help(
             ui,
             "LOD demand / early / retained",
             format!(
@@ -994,8 +1169,9 @@ impl DashboardRuntime {
                 core.lod_demands, core.lod_early_demands, core.lod_retained_demands
             ),
             ACCENT,
+            "Distant-world requests seen, requests issued early by prefetch, and resources deliberately kept a little longer to reduce reload churn.",
         );
-        draw_value(
+        draw_value_help(
             ui,
             "Tracked cells / references",
             format!(
@@ -1003,17 +1179,19 @@ impl DashboardRuntime {
                 core.lod_current_cells, core.lod_current_references
             ),
             BLUE,
+            "Current distant-world cells and object references whose ownership Psycho is tracking for safe handoff and retirement.",
         );
-        draw_value(
+        draw_value_help(
             ui,
             "Stale retirements prevented",
             core.lod_stale_retirements_prevented,
             GOOD,
+            "Distant resources kept alive because an old lifetime counter no longer matched their current ownership.",
         );
 
         ui.spacing();
         ui.separator_text(&cstring("Dashboard overhead"));
-        draw_value(
+        draw_value_help(
             ui,
             "Fast snapshots",
             format!(
@@ -1021,8 +1199,9 @@ impl DashboardRuntime {
                 core.dashboard_queries, core.dashboard_query_last_us, core.dashboard_query_max_us,
             ),
             GOOD,
+            "Cheap dashboard telemetry reads and their last/slowest duration. A microsecond is one millionth of a second.",
         );
-        draw_value(
+        draw_value_help(
             ui,
             "VAS refreshes",
             format!(
@@ -1032,8 +1211,9 @@ impl DashboardRuntime {
                 core.dashboard_vas_refresh_max_us,
             ),
             WARN,
+            "Complete virtual-address-space walks requested by the dashboard and their cost. These are intentionally manual and cached.",
         );
-        draw_value(
+        draw_value_help(
             ui,
             "Driver estimate queries",
             format!(
@@ -1041,6 +1221,7 @@ impl DashboardRuntime {
                 self.texture_query_last_us, self.texture_query_max_us,
             ),
             WARN,
+            "D3D9 texture-memory estimate calls and their cost. The query is manual because driver implementations may make it expensive.",
         );
     }
 
@@ -1601,21 +1782,36 @@ fn draw_configuration(ui: &mut Ui<'_>, editor: &mut ConfigEditor) {
         MUTED,
         &cstring("Takes effect only during the next early startup."),
     );
-    for (index, label) in [
-        (0, "Vanilla allocators"),
-        (1, "Scrap heap only"),
-        (2, "Full gheap + scrap heap"),
+    ui.text_colored(MUTED, &cstring(HOVER_HELP_HINT));
+    for (index, label, help) in [
+        (
+            0,
+            "Vanilla allocators",
+            "Uses the original New Vegas main and temporary heaps. Choose this only for an allocator-free compatibility comparison.",
+        ),
+        (
+            1,
+            "Scrap heap only",
+            "Replaces short-lived temporary allocations but leaves the main game-object heap original. This is the lower-risk compatibility mode.",
+        ),
+        (
+            2,
+            "Full gheap + scrap heap",
+            "Uses Psycho's complete main and temporary heap replacement for the best allocator performance. Validate it with your modlist.",
+        ),
     ] {
         if index != 0 {
             ui.same_line();
         }
-        if ui.radio_button(&cstring(label), config.allocator == index) {
+        if radio_help(ui, label, config.allocator == index, help) {
             config.allocator = index;
         }
     }
-    ui.checkbox(
-        &cstring("Periodic full PDD purge (experimental)"),
+    checkbox_help(
+        ui,
+        "Periodic full PDD purge (experimental)",
         &mut config.gheap_periodic_pdd_purge,
+        "PDD means Process Deferred Destruction: the game's queues for objects waiting to be destroyed. A forced full drain can stall, so keep this experiment off for normal play.",
     );
 
     ui.spacing();
@@ -1624,152 +1820,161 @@ fn draw_configuration(ui: &mut Ui<'_>, editor: &mut ConfigEditor) {
         MUTED,
         &cstring("Keep these enabled unless isolating a confirmed conflict."),
     );
-    for (label, value) in [
-        ("Display / Alt-Tab repair", &mut config.display_alt_tab),
-        ("Durable save integrity", &mut config.save_integrity_fix),
-        (
-            "NavMesh low-pointer guard",
-            &mut config.navmesh_low_pointer_guard,
-        ),
-        (
-            "Container EntryData guard",
-            &mut config.entrydata_invalid_form_guard,
-        ),
-        (
-            "Dynamic actor container guard",
-            &mut config.actor_container_retirement_guard,
-        ),
-        (
-            "ExtraOwnership guard",
-            &mut config.extraownership_invalid_owner_guard,
-        ),
-        (
-            "Linked-ref stale child guard",
-            &mut config.linked_ref_children_stale_list_guard,
-        ),
-        (
-            "Linked-ref target guard",
-            &mut config.linked_ref_target_base_form_guard,
-        ),
-        (
-            "Ragdoll bone-table guard",
-            &mut config.ragdoll_null_bone_guard,
-        ),
-        (
-            "Detached phantom guard",
-            &mut config.ragdoll_detached_phantom_guard,
-        ),
-        (
-            "Havok add-batch guard",
-            &mut config.havok_add_entity_batch_null_guard,
-        ),
-        (
-            "Havok pending-add guard",
-            &mut config.havok_pending_add_null_guard,
-        ),
-        (
-            "Havok narrowphase guard",
-            &mut config.havok_narrowphase_invalid_pair_guard,
-        ),
-        (
-            "Havok post-add guard",
-            &mut config.havok_post_add_null_entity_guard,
-        ),
-        (
-            "Havok remove-agent guard",
-            &mut config.havok_remove_agent_null_reread_guard,
-        ),
-        (
-            "Allocator NULL memset guard",
-            &mut config.memset_null_dst_guard,
-        ),
-        (
-            "LowProcess ownership repair",
-            &mut config.lowprocess_generic_locations_fix,
-        ),
-        (
-            "Queued-task lifetime guard",
-            &mut config.queued_task_lifetime_guard,
-        ),
-    ] {
-        ui.checkbox(&cstring(label), value);
+    let engine_fix_values: [&mut bool; ENGINE_FIX_HELP.len()] = [
+        &mut config.display_alt_tab,
+        &mut config.save_integrity_fix,
+        &mut config.navmesh_low_pointer_guard,
+        &mut config.entrydata_invalid_form_guard,
+        &mut config.actor_container_retirement_guard,
+        &mut config.extraownership_invalid_owner_guard,
+        &mut config.linked_ref_children_stale_list_guard,
+        &mut config.linked_ref_target_base_form_guard,
+        &mut config.ragdoll_null_bone_guard,
+        &mut config.ragdoll_detached_phantom_guard,
+        &mut config.havok_add_entity_batch_null_guard,
+        &mut config.havok_pending_add_null_guard,
+        &mut config.havok_narrowphase_invalid_pair_guard,
+        &mut config.havok_post_add_null_entity_guard,
+        &mut config.havok_remove_agent_null_reread_guard,
+        &mut config.memset_null_dst_guard,
+        &mut config.lowprocess_generic_locations_fix,
+        &mut config.queued_task_lifetime_guard,
+    ];
+    for ((label, help), value) in ENGINE_FIX_HELP.into_iter().zip(engine_fix_values) {
+        checkbox_help(ui, label, value, help);
     }
 
     ui.spacing();
     ui.separator_text(&cstring("IO and LOD streaming"));
-    ui.checkbox(&cstring("Parallel native IO"), &mut config.parallel_io);
-    ui.checkbox(&cstring("LOD system"), &mut config.lod_enabled);
-    ui.checkbox(&cstring("LOD prefetch"), &mut config.lod_prefetch_enabled);
-    ui.checkbox(
-        &cstring("LOD handoff repair"),
-        &mut config.lod_handoff_fix_enabled,
+    checkbox_help(
+        ui,
+        "Parallel native IO",
+        &mut config.parallel_io,
+        "Uses two game-owned loading workers while serializing engine state that is unsafe to build concurrently.",
     );
-    ui.checkbox(
-        &cstring("LOD priority boost"),
+    checkbox_help(
+        ui,
+        "LOD system",
+        &mut config.lod_enabled,
+        "Enables Psycho's distant-world streaming fixes. LOD means the lower-detail terrain, trees, and objects shown far away.",
+    );
+    checkbox_help(
+        ui,
+        "LOD prefetch",
+        &mut config.lod_prefetch_enabled,
+        "Requests distant terrain, trees, and objects slightly before they become visible to reduce pop-in while moving.",
+    );
+    checkbox_help(
+        ui,
+        "LOD handoff repair",
+        &mut config.lod_handoff_fix_enabled,
+        "Prevents stale lifetime counters from retiring distant scenery during its switch to the nearby full-detail version.",
+    );
+    checkbox_help(
+        ui,
+        "LOD priority boost",
         &mut config.lod_priority_boost_enabled,
+        "Raises native distant-world loading tasks within the game's own queue so visible scenery is prepared sooner.",
     );
     precise_multiplier(
         ui,
         "Object prefetch",
         "object_prefetch",
         &mut config.object_prefetch_multiplier,
+        "How early distant buildings and other objects are requested. Higher reduces pop-in but keeps more work in flight.",
     );
     precise_multiplier(
         ui,
         "Object retention",
         "object_retention",
         &mut config.object_retention_multiplier,
+        "How long distant objects remain loaded behind the player. Higher reduces reload churn but uses more memory.",
     );
     precise_multiplier(
         ui,
         "Tree prefetch",
         "tree_prefetch",
         &mut config.tree_prefetch_multiplier,
+        "How early distant trees are requested. Higher reduces tree pop-in but keeps more work in flight.",
     );
     precise_multiplier(
         ui,
         "Tree retention",
         "tree_retention",
         &mut config.tree_retention_multiplier,
+        "How long distant trees remain loaded after leaving view. Higher reduces reload churn but uses more memory.",
     );
     precise_multiplier(
         ui,
         "Terrain prefetch",
         "terrain_prefetch",
         &mut config.terrain_prefetch_multiplier,
+        "How early distant landscape is requested. Higher can smooth fast travel through the world at a memory and loading cost.",
     );
     precise_multiplier(
         ui,
         "Terrain retention",
         "terrain_retention",
         &mut config.terrain_retention_multiplier,
+        "How long distant landscape remains loaded behind the player. Higher reduces reloads but uses more memory.",
     );
 
     ui.spacing();
     ui.separator_text(&cstring("Performance"));
-    ui.checkbox(&cstring("Fast RNG"), &mut config.rng);
-    ui.checkbox(&cstring("Fast zlib"), &mut config.zlib);
-    ui.checkbox(
-        &cstring("Post-load reconciliation prepass"),
+    checkbox_help(
+        ui,
+        "Fast RNG",
+        &mut config.rng,
+        "Uses a faster random-number generator for compatible engine calls. It changes the random sequence, not the intended probability.",
+    );
+    checkbox_help(
+        ui,
+        "Fast zlib",
+        &mut config.zlib,
+        "Uses faster compatible decompression for save and archive data, reducing CPU time while loading compressed content.",
+    );
+    checkbox_help(
+        ui,
+        "Post-load reconciliation prepass",
         &mut config.post_load_reconciliation_prepass,
+        "Performs one focused cleanup pass before normal post-load work so stale references are reconciled in a safer order.",
     );
 
     ui.spacing();
     ui.separator_text(&cstring("Diagnostics"));
-    ui.checkbox(&cstring("Detailed debug log"), &mut config.debug_log);
-    ui.checkbox(&cstring("Separate Windows console"), &mut config.console);
-    ui.checkbox(&cstring("Hitch profiling"), &mut config.hitch_profiling);
-    ui.checkbox(
-        &cstring("Queued-task lifetime trace"),
-        &mut config.task_lifetime_trace,
+    checkbox_help(
+        ui,
+        "Detailed debug log",
+        &mut config.debug_log,
+        "Writes detailed startup, memory, loading, and safety information for troubleshooting. Recommended for useful bug reports.",
     );
-    ui.checkbox(
-        &cstring("LOD streaming trace"),
+    checkbox_help(
+        ui,
+        "Separate Windows console",
+        &mut config.console,
+        "Opens a separate live text console for Psycho logs. It is mainly useful while actively debugging.",
+    );
+    checkbox_help(
+        ui,
+        "Hitch profiling",
+        &mut config.hitch_profiling,
+        "Records timing details for slow frames and allocator waits. Enable only while investigating stutter because it adds diagnostics.",
+    );
+    checkbox_help(
+        ui,
+        "Queued-task lifetime trace",
+        &mut config.task_lifetime_trace,
+        "Adds verbose task ownership events to the log. Enable only when investigating a queued-task crash.",
+    );
+    checkbox_help(
+        ui,
+        "LOD streaming trace",
         &mut config.lod_streaming_trace,
+        "Adds verbose distant-world streaming events to the log. Enable only when investigating LOD pop-in or lifetime issues.",
     );
 }
 
-fn precise_multiplier(ui: &mut Ui<'_>, label: &str, id: &str, value: &mut f32) {
+fn precise_multiplier(ui: &mut Ui<'_>, label: &str, id: &str, value: &mut f32, help: &str) {
     ui.precise_float(
         &cstring(label),
         &cstring(id),
@@ -1780,6 +1985,7 @@ fn precise_multiplier(ui: &mut Ui<'_>, label: &str, id: &str, value: &mut f32) {
         0.1,
         false,
     );
+    hover_help(ui, help);
 }
 
 fn page_heading(ui: &mut Ui<'_>, title: &str, subtitle: &str) {
@@ -1823,6 +2029,7 @@ fn telemetry_card(
     }
 
     ui.text_colored(MUTED, &cstring(title));
+    hover_help(ui, detail);
     ui.text_colored(line_color, &cstring(value));
     ui.same_line();
     ui.text_colored(delta_color, &cstring(delta));
@@ -1890,10 +2097,12 @@ fn metric_card(
     color: [f32; 4],
     detail: impl AsRef<str>,
     width: f32,
+    help: &str,
 ) {
     let child = ui.child(&cstring(id), width, 104.0, true);
     if child.is_visible() {
         ui.text_colored(MUTED, &cstring(label));
+        hover_help(ui, help);
         ui.text_colored(color, &cstring(value));
         ui.text_wrapped(&cstring(detail));
     }
@@ -1903,15 +2112,51 @@ fn draw_value(ui: &mut Ui<'_>, label: &str, value: impl std::fmt::Display, color
     ui.label_value(&cstring(label), &cstring(value.to_string()), color);
 }
 
-fn tier_bar(ui: &mut Ui<'_>, label: &str, live: u64, capacity: u64, detail: String) {
+fn draw_value_help(
+    ui: &mut Ui<'_>,
+    label: &str,
+    value: impl std::fmt::Display,
+    color: [f32; 4],
+    help: &str,
+) {
+    draw_value(ui, label, value, color);
+    hover_help(ui, help);
+}
+
+fn tier_bar_help(
+    ui: &mut Ui<'_>,
+    label: &str,
+    live: u64,
+    capacity: u64,
+    detail: String,
+    help: &str,
+) {
     let fraction = if capacity == 0 {
         0.0
     } else {
         (live as f64 / capacity as f64).clamp(0.0, 1.0) as f32
     };
     ui.label_value(&cstring(label), &cstring(detail), MUTED);
+    hover_help(ui, help);
     let overlay = cstring(format!("{} / {}", bytes(live), bytes(capacity)));
     ui.progress_bar(fraction, ui.content_region_available_width(), 0.0, &overlay);
+    hover_help(ui, help);
+}
+
+fn checkbox_help(ui: &mut Ui<'_>, label: &str, value: &mut bool, help: &str) -> bool {
+    let changed = ui.checkbox(&cstring(label), value);
+    hover_help(ui, help);
+    changed
+}
+
+fn radio_help(ui: &mut Ui<'_>, label: &str, active: bool, help: &str) -> bool {
+    let clicked = ui.radio_button(&cstring(label), active);
+    hover_help(ui, help);
+    clicked
+}
+
+fn hover_help(ui: &mut Ui<'_>, help: &str) {
+    ui.hover_help(&cstring(help));
 }
 
 fn log_context(line: &LogLine) -> String {
@@ -1923,8 +2168,9 @@ fn log_context(line: &LogLine) -> String {
     }
 }
 
-fn feature_status(ui: &mut Ui<'_>, name: &str, active: bool, detail: &str) {
+fn feature_status(ui: &mut Ui<'_>, name: &str, active: bool, detail: &str, help: &str) {
     ui.text_colored(ACCENT, &cstring(name));
+    hover_help(ui, help);
     ui.same_line();
     ui.text_colored(
         if active { GOOD } else { WARN },
@@ -2031,8 +2277,8 @@ fn cstring(text: impl AsRef<str>) -> CString {
 #[cfg(test)]
 mod tests {
     use super::{
-        LogFilters, LogLevel, LogTailReader, MemoryHealth, Page, SamplingState, parse_log_line,
-        take_driver_refresh,
+        ENGINE_FIX_HELP, LogFilters, LogLevel, LogTailReader, MemoryHealth, Page, SamplingState,
+        parse_log_line, take_driver_refresh,
     };
     use crate::engine_fixes::{DASHBOARD_FLAG_VAS_VALID, DashboardSnapshot};
 
@@ -2052,6 +2298,25 @@ mod tests {
         assert_eq!(MemoryHealth::from_snapshot(&snapshot), MemoryHealth::Watch);
         snapshot.vas_largest_hole_bytes = 512 * 1024 * 1024;
         assert_eq!(MemoryHealth::from_snapshot(&snapshot), MemoryHealth::Stable);
+    }
+
+    #[test]
+    fn every_engine_fix_has_concise_unique_hover_help() {
+        assert_eq!(ENGINE_FIX_HELP.len(), 18);
+        let mut labels = std::collections::BTreeSet::new();
+        for (label, help) in ENGINE_FIX_HELP {
+            assert!(!label.trim().is_empty());
+            assert!(labels.insert(label), "duplicate engine-fix label: {label}");
+            assert!(
+                (40..=240).contains(&help.len()),
+                "hover help should be concise and useful: {label} ({})",
+                help.len(),
+            );
+            assert!(
+                help.is_ascii(),
+                "hover help must remain safe for the game UI font: {label}",
+            );
+        }
     }
 
     #[test]

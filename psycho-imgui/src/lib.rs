@@ -210,6 +210,11 @@ impl Ui<'_> {
         };
     }
 
+    /// Show delayed, wrapped help when the most recently drawn item is hovered.
+    pub fn hover_help(&mut self, text: &CStr) {
+        unsafe { ffi::psycho_imgui_hover_help(text.as_ptr()) };
+    }
+
     pub fn separator(&mut self) {
         unsafe { ffi::psycho_imgui_separator() };
     }
@@ -554,6 +559,7 @@ mod ffi {
             b: f32,
             a: f32,
         );
+        pub fn psycho_imgui_hover_help(text: *const c_char);
         pub fn psycho_imgui_separator();
         pub fn psycho_imgui_separator_text(label: *const c_char);
         pub fn psycho_imgui_spacing();

@@ -390,6 +390,7 @@ void psycho_imgui_label_value(
 	float g,
 	float b,
 	float a) {
+	ImGui::BeginGroup();
 	ImGui::TextDisabled("%s", label);
 	ImGui::SameLine();
 	const float value_width = ImGui::CalcTextSize(value).x;
@@ -398,6 +399,19 @@ void psycho_imgui_label_value(
 		ImGui::SetCursorPosX(target_x);
 	}
 	ImGui::TextColored(ImVec4(r, g, b, a), "%s", value);
+	ImGui::EndGroup();
+}
+
+void psycho_imgui_hover_help(const char* text) {
+	if (!ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal | ImGuiHoveredFlags_NoSharedDelay)) {
+		return;
+	}
+
+	ImGui::BeginTooltip();
+	ImGui::PushTextWrapPos(ImGui::GetFontSize() * 32.0f);
+	ImGui::TextUnformatted(text);
+	ImGui::PopTextWrapPos();
+	ImGui::EndTooltip();
 }
 
 void psycho_imgui_separator() {

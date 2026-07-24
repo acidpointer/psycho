@@ -31,12 +31,54 @@ The green-black presentation, status cards, restrained warning colors, and
 charts are deliberate, but decoration does not replace meaning. Every chart
 answers a time-series question. Scalar counters remain scalar.
 
+## Contextual help contract
+
+The dashboard must be usable by a player who has not read the TOML comments or
+engine research. Overview, Memory, Runtime Fixes, and Configuration explicitly
+invite the player to hover settings and technical labels. Hovering waits for
+Dear ImGui's normal tooltip delay, then opens a wrapped, width-limited
+plain-language explanation. The delay prevents popups from flashing while the
+pointer merely crosses the dashboard.
+
+Every one of the 18 `[engine_fixes]` controls has focused hover documentation
+that answers three gamer-facing questions: what broken situation it handles,
+what the enabled fix does, and whether normal valid behavior is preserved. The
+same explanation is reused where that fix appears on the Runtime Fixes page,
+so saved configuration and installed runtime state do not describe one feature
+in conflicting language.
+
+All other supported configuration controls also explain their practical
+effect and tradeoff, including allocator modes, the experimental PDD purge,
+native IO, LOD, multipliers, performance options, and diagnostics. Memory and
+runtime telemetry defines its specialized terms in place. In particular:
+
+- **process commit** is memory Windows has promised to back with RAM or the
+  page file, not current physical-RAM use;
+- **RSS** is the portion currently resident in physical RAM;
+- **VAS** is New Vegas' finite 32-bit virtual address space;
+- **largest VAS opening** is the largest single free range and therefore the
+  useful constraint for one large texture or model mapping;
+- **reserved** address space is set aside without backing storage, while
+  **committed** space has backing promised;
+- cell pools, pool metadata, block heap, direct VA, and scrap heap explain
+  which allocation sizes/lifetimes they serve;
+- fallbacks, failures, contentions, tombstones, LOD, and microsecond timings
+  explain whether the value is normal activity or support evidence.
+
+Tooltip prose stays concise, ASCII, and gamer-facing. It does not expose raw
+addresses, reverse-engineering terminology, or unsupported guarantees.
+
 ## Ownership and startup contract
 
 `psycho-engine-fixes-helper` owns the dashboard, xNVSE command, Win32 input
 bridge, DirectInput suppression, and D3D9 overlay lifecycle. The early-loaded
 `psycho-engine-fixes` DLL owns all engine fixes, allocator state, and diagnostic
 counters. `psycho-imgui` owns the reusable Dear ImGui Win32/DX9 bridge.
+
+`psycho-imgui` exposes one generic hover-help operation. Its bridge treats a
+label/value row as one Dear ImGui item, uses the normal delayed-hover flags,
+and draws wrapped text inside a tooltip. The helper owns all product wording;
+the reusable renderer has no Psycho-specific glossary.
 
 The helper never calls `LoadLibrary` for the core and never initializes it. It
 uses `GetModuleHandle("psycho_engine_fixes.dll")` and exact named exports only
@@ -302,6 +344,8 @@ Automated coverage includes:
 - complete-line incremental log-tail parsing across reads;
 - contiguous-VAS health classification;
 - structured log parsing, compact context extraction, and five-level filtering;
+- the complete 18-entry engine-fix help catalog, including unique labels,
+  concise length bounds, and ASCII font safety;
 - config dirty-state tracking;
 - actor-container guard default/disable parsing and comment-preserving
   serialization;
