@@ -312,6 +312,13 @@ preference from a hook that actually installed. The helper does not install,
 load, or initialize the guard. This additive feature bit does not change the
 version-2 structure layout or ownership contract.
 
+The **Model postprocess serialization** checkbox owns
+`[engine_fixes].model_postprocess_serialization_fix`. It defaults on and
+changes only next-launch core activation. Runtime Fixes reads additive bit 9
+from `active_features`; no version-2 structure field or helper ownership rule
+changes. The helper only displays and edits the contract and never installs or
+initializes the core guard.
+
 ## Failure behavior and compatibility boundary
 
 - Missing core module/export: no dashboard worker or graphics/input hook starts.

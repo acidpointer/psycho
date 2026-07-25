@@ -20,6 +20,7 @@ mod linkedrefs;
 mod lod;
 mod lowprocess;
 mod memset;
+mod model_postprocess;
 mod navmesh;
 mod patching;
 mod queued_tasks;
@@ -51,6 +52,8 @@ pub(crate) const DASHBOARD_FEATURE_LOD_HANDOFF: u64 = 1 << 5;
 pub(crate) const DASHBOARD_FEATURE_TREE_LIFETIME: u64 = 1 << 6;
 pub(crate) const DASHBOARD_FEATURE_VERTEX_BUFFERS: u64 = 1 << 7;
 pub(crate) const DASHBOARD_FEATURE_ACTOR_CONTAINER_GUARD: u64 = 1 << 8;
+/// Dashboard bit proving that model postprocess serialization installed.
+pub(crate) const DASHBOARD_FEATURE_MODEL_POSTPROCESS: u64 = 1 << 9;
 
 #[derive(Clone, Copy, Default)]
 pub(crate) struct DashboardCounters {
@@ -129,6 +132,9 @@ pub(crate) fn dashboard_counters() -> DashboardCounters {
     if actor_container_guard::is_installed() {
         active_features |= DASHBOARD_FEATURE_ACTOR_CONTAINER_GUARD;
     }
+    if model_postprocess::is_ready() {
+        active_features |= DASHBOARD_FEATURE_MODEL_POSTPROCESS;
+    }
 
     DashboardCounters {
         active_features,
@@ -196,6 +202,7 @@ pub(crate) fn io_hang_snapshot() -> IoHangSnapshot {
     }
 }
 
+/// Install allocator-independent engine fixes and their dependent IO/LOD safety.
 pub fn install(
     config: &EngineFixesConfig,
     io_config: &IoConfig,
@@ -214,11 +221,13 @@ pub fn install(
     install_havok_guards(config)?;
     install_memset_null_dst(config)?;
     install_lowprocess_fix(config)?;
+    let model_postprocess_ready = install_model_postprocess_fix(config);
     install_queued_task_guard(config, diagnostics)?;
     let io_safety = io::install(
         io_config,
         diagnostics,
         lod_config.enabled && lod_config.prefetch_enabled,
+        model_postprocess_ready,
     );
     lod::install(lod_config, diagnostics, io_safety);
 
@@ -235,6 +244,20 @@ fn install_actor_container_guard(config: &EngineFixesConfig) {
     }
 }
 
+fn install_model_postprocess_fix(config: &EngineFixesConfig) -> bool {
+    if !config.model_postprocess_serialization_fix {
+        log::info!("[MODEL_POSTPROCESS] EditorMarker transaction guard disabled by config");
+        return false;
+    }
+    match model_postprocess::install() {
+        Ok(()) => true,
+        Err(error) => {
+            log::warn!("[MODEL_POSTPROCESS] EditorMarker transaction guard unavailable: {error:#}");
+            false
+        }
+    }
+}
+
 /// Install the display IAT shim before allocator and other engine hooks.
 pub fn install_display(config: &EngineFixesConfig) -> anyhow::Result<()> {
     if !config.display_alt_tab {
@@ -248,8 +271,10 @@ pub fn install_display(config: &EngineFixesConfig) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Forward a host lifecycle event to fixes that audit late hook ownership.
 pub fn observe_event(kind: u32) {
     lowprocess::observe_event(kind);
+    model_postprocess::observe_event(kind);
 }
 
 pub(crate) fn take_diagnostic_counters() -> DiagnosticCounters {
@@ -275,6 +300,7 @@ pub(crate) fn take_diagnostic_counters() -> DiagnosticCounters {
 pub(crate) fn append_diagnostic_report(out: &mut String) {
     let display = display::diagnostic_snapshot();
     let low = lowprocess::diagnostic_snapshot();
+    let model = model_postprocess::snapshot();
     let task = queued_tasks::diagnostic_snapshot();
     let save = save_integrity::diagnostic_snapshot();
     let io = io::diagnostic_snapshot();
@@ -321,6 +347,13 @@ pub(crate) fn append_diagnostic_report(out: &mut String) {
         "Parallel IO",
         io.scheduler.parallel_installed,
     );
+    push_feature_pair(
+        out,
+        "Model postprocess",
+        model.installed,
+        "Actor lifetime",
+        actor_container_guard::is_installed(),
+    );
 
     let covered_move_sites = display
         .site_states
@@ -342,6 +375,8 @@ pub(crate) fn append_diagnostic_report(out: &mut String) {
         .saturating_add(u64::from(display.monitor_fallbacks));
     let low_repairs = u64::from(low.wraps)
         .saturating_add(u64::from(low.rewraps))
+        .saturating_add(u64::from(low.reference_scan_wraps))
+        .saturating_add(u64::from(low.reference_scan_rewraps))
         .saturating_add(u64::from(low.sanitized_entries))
         .saturating_add(u64::from(low.main_boundary_restores));
     let low_slots = low
@@ -350,6 +385,16 @@ pub(crate) fn append_diagnostic_report(out: &mut String) {
         .filter(|state| matches!(lowprocess::slot_state_name(**state), "wrapped" | "chained"))
         .count();
     let low_owners = low.predecessors.iter().filter(|owner| **owner != 0).count();
+    let low_scan_slots = low
+        .reference_scan_slot_states
+        .iter()
+        .filter(|state| matches!(lowprocess::slot_state_name(**state), "wrapped" | "chained"))
+        .count();
+    let low_scan_owners = low
+        .reference_scan_predecessors
+        .iter()
+        .filter(|owner| **owner != 0)
+        .count();
 
     push_report_section(out, "Engine activity");
     push_report_value(
@@ -483,7 +528,9 @@ pub(crate) fn append_diagnostic_report(out: &mut String) {
     push_report_value(
         out,
         "LowProcess slots",
-        format!("{low_slots}/4 active / {low_owners} owners"),
+        format!(
+            "cleanup {low_slots}/4 ({low_owners} owners) / scan {low_scan_slots}/4 ({low_scan_owners} owners)"
+        ),
     );
     push_report_value(
         out,
@@ -494,13 +541,24 @@ pub(crate) fn append_diagnostic_report(out: &mut String) {
         out,
         "LowProcess chain",
         format!(
-            "{} calls / {} fallback / save {} / main {}",
+            "cleanup {} / scan {} calls / {}+{} fallback / save {} / main {}",
             low.predecessor_calls,
+            low.reference_scan_predecessor_calls,
             low.predecessor_fallbacks,
+            low.reference_scan_predecessor_fallbacks,
             on_off(low.save_owner_hook),
             on_off(low.main_boundary_restored),
         ),
     );
+    push_report_value(
+        out,
+        "Model postprocess",
+        format!(
+            "{} / {} started / {} done / {} waits / {} queued",
+            model.owner, model.transactions, model.completions, model.contentions, model.waiters,
+        ),
+    );
+    push_report_value(out, "Model PP owner", format!("{:08X}", model.predecessor));
 
     let requested_workers = if io.scheduler.parallel_requested {
         2
@@ -790,6 +848,7 @@ pub(crate) fn append_diagnostic_report(out: &mut String) {
         .saturating_add(task.invalid_dispatches)
         .saturating_add(task.base_vtable_rejections);
     let low_alerts = u64::from(low.unsupported)
+        .saturating_add(u64::from(low.reference_scan_unsupported))
         .saturating_add(u64::from(low.invalid_cleanup_forms))
         .saturating_add(u64::from(low.truncated_cleanup_links))
         .saturating_add(u64::from(low.invalid_save_forms))

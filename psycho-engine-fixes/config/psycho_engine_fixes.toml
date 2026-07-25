@@ -216,13 +216,28 @@ havok_remove_agent_null_reread_guard = true
 memset_null_dst_guard = true
 
 # Fixes ownership of LowProcess generic-location lists and contains already-
-# corrupt entries when saving. This prevents non-owned reference payloads from
-# being freed and invalid forms from being serialized as live references.
+# corrupt entries before live reference scans and while saving. This prevents
+# non-owned reference payloads from being freed or dereferenced and invalid
+# forms from being serialized as live references.
 #
 # Technical: list nodes are removed without freeing their TESObjectREFR
-# payloads. The fix remains compatible with mods that replace the cleanup
-# vtable slots by wrapping the current valid owner.
+# payloads. The fix remains compatible with mods that replace the cleanup or
+# reference-scan vtable slots by wrapping the current valid executable owner.
+# The guards do not select or call an allocator and work in memory modes 0-2.
 lowprocess_generic_locations_fix = true
+
+# Serializes the complete native EditorMarker/model post-process transaction.
+# The engine stores its active scene root and current traversal target in
+# process-global slots. Without serialization, the main thread and a native
+# model worker can overlap even when [io].parallel_enabled is false; one
+# traversal may clear the other traversal's target between a check and reload.
+#
+# Technical: Psycho wraps the sole external direct call, captures and chains
+# any executable owner already installed there, and leaves recursive scene-node
+# visits inside one lock acquisition. The guard performs no engine allocation
+# or free and is compatible with vanilla heap, scrap_heap only, and
+# gheap + scrap_heap. Leave it ON unless isolating a confirmed hook conflict.
+model_postprocess_serialization_fix = true
 
 # Prevents queued tasks from reaching virtual callbacks or final-release paths
 # after their intrusive reference count has already reached zero.

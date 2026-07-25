@@ -43,6 +43,8 @@ pub(crate) struct EditableConfig {
     pub havok_remove_agent_null_reread_guard: bool,
     pub memset_null_dst_guard: bool,
     pub lowprocess_generic_locations_fix: bool,
+    /// Restart-only model EditorMarker transaction serialization preference.
+    pub model_postprocess_serialization_fix: bool,
     pub queued_task_lifetime_guard: bool,
     pub parallel_io: bool,
     pub lod_enabled: bool,
@@ -87,6 +89,7 @@ impl Default for EditableConfig {
             havok_remove_agent_null_reread_guard: true,
             memset_null_dst_guard: true,
             lowprocess_generic_locations_fix: true,
+            model_postprocess_serialization_fix: true,
             queued_task_lifetime_guard: true,
             parallel_io: true,
             lod_enabled: true,
@@ -229,6 +232,12 @@ impl EditableConfig {
                 "engine_fixes",
                 "lowprocess_generic_locations_fix",
                 defaults.lowprocess_generic_locations_fix,
+            ),
+            model_postprocess_serialization_fix: bool_or(
+                doc,
+                "engine_fixes",
+                "model_postprocess_serialization_fix",
+                defaults.model_postprocess_serialization_fix,
             ),
             queued_task_lifetime_guard: read_bool(
                 doc,
@@ -573,6 +582,7 @@ fn write_document(doc: &mut DocumentMut, config: &EditableConfig) {
     engine!(havok_remove_agent_null_reread_guard);
     engine!(memset_null_dst_guard);
     engine!(lowprocess_generic_locations_fix);
+    engine!(model_postprocess_serialization_fix);
     engine!(queued_task_lifetime_guard);
 
     macro_rules! setting {
@@ -688,6 +698,7 @@ mod_owned_key = "untouched"
         let mut config = EditableConfig::from_document(&document);
         config.allocator = 2;
         config.actor_container_retirement_guard = false;
+        config.model_postprocess_serialization_fix = false;
         write_document(&mut document, &config);
         let saved = document.to_string();
 
@@ -696,8 +707,10 @@ mod_owned_key = "untouched"
         assert!(saved.contains("mod_owned_key = \"untouched\""));
         assert!(saved.contains("allocator = 2"));
         assert!(saved.contains("actor_container_retirement_guard = false"));
+        assert!(saved.contains("model_postprocess_serialization_fix = false"));
         let reparsed = parse_document(&saved).expect("parse saved document");
         assert!(!EditableConfig::from_document(&reparsed).actor_container_retirement_guard);
+        assert!(!EditableConfig::from_document(&reparsed).model_postprocess_serialization_fix);
     }
 
     #[test]

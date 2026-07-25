@@ -63,7 +63,7 @@ const RELOAD_ACTIVE: [f32; 4] = [0.82, 0.51, 0.12, 1.0];
 const HOVER_HELP_HINT: &str =
     "Hover a setting or technical label for a plain-language explanation.";
 
-const ENGINE_FIX_HELP: [(&str, &str); 18] = [
+const ENGINE_FIX_HELP: [(&str, &str); 19] = [
     (
         "Display / Alt-Tab repair",
         "Keeps fullscreen startup, renderer resets, focus changes, and Alt-Tab from using broken window size or placement. Leave it on unless another window mod has a confirmed conflict.",
@@ -131,6 +131,10 @@ const ENGINE_FIX_HELP: [(&str, &str); 18] = [
     (
         "LowProcess ownership repair",
         "Keeps unloaded-actor location lists from freeing references they only borrow, and contains corrupt entries while saving.",
+    ),
+    (
+        "Model postprocess serialization",
+        "Prevents concurrent model loads from replacing shared EditorMarker traversal state between a safety check and use. It remains active with vanilla IO.",
     ),
     (
         "Queued-task lifetime guard",
@@ -998,13 +1002,19 @@ impl DashboardRuntime {
                 "Queued-task lifetime guard",
                 engine_fixes::DASHBOARD_FEATURE_TASK_GUARD,
                 "Dispatch and final-release ownership",
-                ENGINE_FIX_HELP[17].1,
+                ENGINE_FIX_HELP[18].1,
             ),
             (
                 "Dynamic actor container guard",
                 engine_fixes::DASHBOARD_FEATURE_ACTOR_CONTAINER_GUARD,
                 "Validates retiring runtime actor inventory lists",
                 ENGINE_FIX_HELP[4].1,
+            ),
+            (
+                "Model postprocess serialization",
+                engine_fixes::DASHBOARD_FEATURE_MODEL_POSTPROCESS,
+                "Process-global EditorMarker traversal ownership",
+                ENGINE_FIX_HELP[17].1,
             ),
             (
                 "Parallel native IO",
@@ -1838,6 +1848,7 @@ fn draw_configuration(ui: &mut Ui<'_>, editor: &mut ConfigEditor) {
         &mut config.havok_remove_agent_null_reread_guard,
         &mut config.memset_null_dst_guard,
         &mut config.lowprocess_generic_locations_fix,
+        &mut config.model_postprocess_serialization_fix,
         &mut config.queued_task_lifetime_guard,
     ];
     for ((label, help), value) in ENGINE_FIX_HELP.into_iter().zip(engine_fix_values) {
@@ -2302,7 +2313,7 @@ mod tests {
 
     #[test]
     fn every_engine_fix_has_concise_unique_hover_help() {
-        assert_eq!(ENGINE_FIX_HELP.len(), 18);
+        assert_eq!(ENGINE_FIX_HELP.len(), 19);
         let mut labels = std::collections::BTreeSet::new();
         for (label, help) in ENGINE_FIX_HELP {
             assert!(!label.trim().is_empty());

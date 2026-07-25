@@ -333,8 +333,10 @@ pub struct EngineFixesConfig {
     pub havok_remove_agent_null_reread_guard: bool,
     /// Guard the two allocator consumers that zero unchecked NULL results.
     pub memset_null_dst_guard: bool,
-    /// Enforce LowProcess generic-location ownership and contain corrupt saves.
+    /// Enforce LowProcess generic-location ownership in live scans and saves.
     pub lowprocess_generic_locations_fix: bool,
+    /// Serialize the model EditorMarker post-process transaction.
+    pub model_postprocess_serialization_fix: bool,
     /// Guard queued-task dispatch and release lifetime contracts.
     pub queued_task_lifetime_guard: bool,
 }
@@ -359,6 +361,7 @@ impl Default for EngineFixesConfig {
             havok_remove_agent_null_reread_guard: true,
             memset_null_dst_guard: true,
             lowprocess_generic_locations_fix: true,
+            model_postprocess_serialization_fix: true,
             queued_task_lifetime_guard: true,
         }
     }
@@ -427,6 +430,9 @@ impl EngineFixesConfig {
             lowprocess_generic_locations_fix: raw
                 .lowprocess_generic_locations_fix
                 .unwrap_or(default.lowprocess_generic_locations_fix),
+            model_postprocess_serialization_fix: raw
+                .model_postprocess_serialization_fix
+                .unwrap_or(default.model_postprocess_serialization_fix),
             queued_task_lifetime_guard: raw
                 .queued_task_lifetime_guard
                 .or(legacy_task_safety)
@@ -537,6 +543,7 @@ struct RawEngineFixesConfig {
     havok_remove_agent_null_reread_guard: Option<bool>,
     memset_null_dst_guard: Option<bool>,
     lowprocess_generic_locations_fix: Option<bool>,
+    model_postprocess_serialization_fix: Option<bool>,
     queued_task_lifetime_guard: Option<bool>,
 }
 
@@ -675,5 +682,31 @@ actor_container_retirement_guard = false
 
         assert!(default.engine_fixes.actor_container_retirement_guard);
         assert!(!disabled.engine_fixes.actor_container_retirement_guard);
+    }
+
+    #[test]
+    fn model_postprocess_guard_is_independent_of_parallel_io() {
+        let default: PsychoConfig = toml::from_str(
+            r#"
+[io]
+parallel_enabled = false
+"#,
+        )
+        .expect("parse vanilla-IO configuration");
+        let disabled: PsychoConfig = toml::from_str(
+            r#"
+[engine_fixes]
+model_postprocess_serialization_fix = false
+
+[io]
+parallel_enabled = true
+"#,
+        )
+        .expect("parse explicitly disabled model-postprocess guard");
+
+        assert!(default.engine_fixes.model_postprocess_serialization_fix);
+        assert!(!default.io.parallel_enabled);
+        assert!(!disabled.engine_fixes.model_postprocess_serialization_fix);
+        assert!(disabled.io.parallel_enabled);
     }
 }

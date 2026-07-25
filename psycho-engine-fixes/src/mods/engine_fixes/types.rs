@@ -62,11 +62,20 @@ pub type HavokPendingAddFlushFn = unsafe extern "thiscall" fn(*mut c_void, *mut 
 /// FUN_00865DF0: serializes one optional TESForm reference.
 pub type AppendRefIdFn = unsafe extern "thiscall" fn(*mut c_void, *mut c_void, u32);
 
-/// FUN_00910450: serializes one LowProcess instance.
+/// Native LowProcess serializer at `0x00910450`.
+///
+/// `process` is the live process object in `ECX`; `writer` is the active save
+/// writer passed on the stack. The callee returns with `ret 4`.
 pub type LowProcessSaveFn = unsafe extern "thiscall" fn(*mut c_void, *mut c_void);
 
 /// FUN_00446B50: drains the main-thread queued-task stack.
 pub type MainTaskDrainFn = unsafe extern "thiscall" fn(*mut c_void, u32);
+
+/// Model EditorMarker postprocessor entered through `0x0043AFAC`.
+///
+/// The cdecl function takes the scene root on the stack and returns a byte in
+/// `AL`. The audited native caller discards that return value.
+pub type ModelPostprocessFn = unsafe extern "C" fn(*mut c_void) -> u8;
 
 /// ABI of the current intrusive queued-task release target.
 pub type TaskReleaseFn = unsafe extern "fastcall" fn(*mut c_void);

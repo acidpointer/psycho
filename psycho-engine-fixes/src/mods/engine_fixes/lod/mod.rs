@@ -198,6 +198,7 @@ pub(super) fn install(config: &LodConfig, diagnostics: &DiagnosticsConfig, safet
     if config.prefetch_enabled
         && safety.speedtree_ready
         && safety.vertex_buffers_ready
+        && safety.model_postprocess_ready
         && reset_ready
     {
         match install_streaming_hooks() {

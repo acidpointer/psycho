@@ -1,6 +1,6 @@
 # Native parallel IO and SpeedTree engine contract
 
-Status: implemented and statically validated through 2026-07-22. The supplied
+Status: implemented and statically validated through 2026-07-25. The supplied
 hang cannot currently be replayed, and the corrected materialization lock scope
 still requires the runtime acceptance matrix below.
 
@@ -50,6 +50,7 @@ being duplicated. The implementation is likewise owned by
 | `io/scheduler.rs` | Owns worker count, per-thread map capacity, BSFile recovery, and exterior-cell serialization. |
 | `io/speedtree_lifetime.rs` | Serializes the two slow BSTree materializers, SpeedTree clone lifetime, and process-global Compute state while leaving published-tree lookup concurrent. |
 | `io/vertex_buffers.rs` | Owns static vertex-buffer allocation, retirement, and publication safety. |
+| `../model_postprocess.rs` | Independently serializes process-global EditorMarker traversal for vanilla and parallel I/O. |
 
 `engine_fixes::install` installs IO safety before LOD. It passes the resulting
 `SafetyStatus` to LOD because LOD prefetch uses the same engine paths. The LOD
@@ -72,6 +73,12 @@ The two-worker patch is committed only with all scheduler prerequisites:
 | `0x00AFF490` | BSFile open/cache initialization | Preserve an open stream and use native direct reads if optional whole-file cache allocation fails. |
 | `0x00527CB0` | `ExteriorCellLoaderTask::execute` | Serialize the complete original method because it publishes through a process-global current-cell owner. |
 | `0x00C3DA7A` | IOManager worker-count immediate | Change the verified one-worker instruction to exactly two workers. |
+
+The allocator-independent model postprocess guard at `0x0043AFAC` must also
+report ready. Its process-global state is reachable with vanilla I/O as well
+as two workers, so the guard always installs; readiness is only consumed here
+to prevent the optional second worker from widening an unprotected window.
+See `docs/model_postprocess_serialization_engine_fix.md`.
 
 Both the IOManager singleton at `0x01202D98` and BSTreeManager singleton at
 `0x011D5C48` must still be null before hook preparation and immediately before
@@ -430,7 +437,7 @@ Startup must include lines equivalent to:
 ```text
 [IO] BSTree materialization, SpeedTree Compute, and clone lifetime serialized; cache-hit lookup remains concurrent; native registry lock 0x011F8BC4
 [IO] Native IOManager configured for exactly two workers with serialized exterior-cell loading, three-thread BSTree TLS, and BSFile cache fallback
-[IO] Active parallel=true speedtree=true vertex_buffers=true
+[IO] Active parallel=true speedtree=true vertex_buffers=true model_postprocess=true
 ```
 
 The helper dashboard's Runtime Fixes page exposes the active IO, SpeedTree, and

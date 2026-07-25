@@ -87,19 +87,40 @@ pub static HAVOK_PENDING_ADD_FLUSH_HOOK: LazyLock<InlineHookContainer<HavokPendi
 
 // ---- LowProcess generic-location ownership ----
 
+/// Native `AppendRefID` serializer used as the payload-call fallback.
 pub const APPEND_REF_ID_ADDR: usize = 0x00865DF0;
+/// Entry of the native LowProcess serializer that owns traversal context.
 pub const LOWPROCESS_SAVE_OWNER_ADDR: usize = 0x00910450;
+/// Relative call to the generic-location list-data accessor in the serializer.
 pub const LOWPROCESS_SAVE_DATA_CALL_ADDR: usize = 0x009105A6;
+/// Relative call that serializes one generic-location form payload.
 pub const LOWPROCESS_SAVE_CALL_ADDR: usize = 0x009105BF;
+/// Relative call to the generic-location next-node accessor in the serializer.
 pub const LOWPROCESS_SAVE_NEXT_CALL_ADDR: usize = 0x009105D0;
+/// Native main-thread queued-task drain used as the observation fallback.
 pub const MAIN_TASK_DRAIN_ADDR: usize = 0x00446B50;
+/// Relative main-loop call temporarily redirected for late slot observation.
 pub const MAIN_TASK_DRAIN_CALL_ADDR: usize = 0x0094CFD6;
+/// Vanilla cleanup virtual target for process vtable slot `+0x47C`.
 pub const VANILLA_LOWPROCESS_FUNC011F: usize = 0x0090CC10;
+/// Vanilla form-ID reference-scan target for process vtable slot `+0x480`.
+pub const VANILLA_LOWPROCESS_REFERENCE_SCAN: usize = 0x0090CDC0;
+/// Vtable bases ordered as High, Low, MiddleHigh, and MiddleLow process.
 pub const LOWPROCESS_VTABLE_BASES: [usize; 4] = [0x01087864, 0x010886E4, 0x0108904C, 0x01089BCC];
+/// Cleanup slot addresses corresponding to [`LOWPROCESS_VTABLE_BASES`].
 pub const LOWPROCESS_FUNC011F_SLOTS: [usize; 4] = [0x01087CE0, 0x01088B60, 0x010894C8, 0x0108A048];
+/// Reference-scan slot addresses corresponding to [`LOWPROCESS_VTABLE_BASES`].
+pub const LOWPROCESS_REFERENCE_SCAN_SLOTS: [usize; 4] =
+    [0x01087CE4, 0x01088B64, 0x010894CC, 0x0108A04C];
 
+/// Owner hook that scopes allocation-free save traversal validation.
 pub static LOWPROCESS_SAVE_OWNER_HOOK: LazyLock<InlineHookContainer<LowProcessSaveFn>> =
     LazyLock::new(InlineHookContainer::new);
+
+// ---- Model scene post-process global ownership ----
+
+/// Sole external direct call into the recursive model postprocessor.
+pub const MODEL_POSTPROCESS_CALL_ADDR: usize = 0x0043_AFAC;
 
 // ---- Queued-task lifetime ----
 
