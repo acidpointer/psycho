@@ -36,7 +36,8 @@ struct PsychoImguiTelemetryChart {
 	const char* value_suffix;
 };
 
-static HWND g_hwnd = nullptr;
+static HWND g_render_hwnd = nullptr;
+static HWND g_foreground_hwnd = nullptr;
 static volatile LONG g_pending_mouse_wheel_y = 0;
 static volatile LONG g_pending_mouse_wheel_x = 0;
 
@@ -50,12 +51,18 @@ static bool is_mouse_button_down(int virtual_key) {
 }
 
 static void poll_mouse_state(ImGuiIO& io) {
-	if (g_hwnd == nullptr || ::GetForegroundWindow() != g_hwnd) {
+	// A windowed D3D target can be a child of the foreground game window.
+	// Activation must therefore be checked against the top-level owner, while
+	// cursor coordinates must still be projected into the render child used by
+	// ImGui's display size.
+	if (g_render_hwnd == nullptr ||
+		g_foreground_hwnd == nullptr ||
+		::GetForegroundWindow() != g_foreground_hwnd) {
 		return;
 	}
 
 	POINT pos = {};
-	if (::GetCursorPos(&pos) && ::ScreenToClient(g_hwnd, &pos)) {
+	if (::GetCursorPos(&pos) && ::ScreenToClient(g_render_hwnd, &pos)) {
 		io.AddMousePosEvent(static_cast<float>(pos.x), static_cast<float>(pos.y));
 	}
 
@@ -202,8 +209,8 @@ static void apply_psycho_style() {
 	colors[ImGuiCol_NavCursor] = ImVec4(0.52f, 0.96f, 0.70f, 0.95f);
 }
 
-bool psycho_imgui_init_dx9(void* hwnd, void* device) {
-	if (hwnd == nullptr || device == nullptr) {
+bool psycho_imgui_init_dx9(void* render_hwnd, void* foreground_hwnd, void* device) {
+	if (render_hwnd == nullptr || foreground_hwnd == nullptr || device == nullptr) {
 		return false;
 	}
 
@@ -218,7 +225,7 @@ bool psycho_imgui_init_dx9(void* hwnd, void* device) {
 	configure_font(io);
 	apply_psycho_style();
 
-	if (!ImGui_ImplWin32_Init(hwnd)) {
+	if (!ImGui_ImplWin32_Init(render_hwnd)) {
 		ImGui::DestroyContext();
 		return false;
 	}
@@ -229,7 +236,8 @@ bool psycho_imgui_init_dx9(void* hwnd, void* device) {
 		return false;
 	}
 
-	g_hwnd = static_cast<HWND>(hwnd);
+	g_render_hwnd = static_cast<HWND>(render_hwnd);
+	g_foreground_hwnd = static_cast<HWND>(foreground_hwnd);
 	return true;
 }
 
@@ -241,7 +249,8 @@ void psycho_imgui_shutdown() {
 	ImGui_ImplDX9_Shutdown();
 	ImGui_ImplWin32_Shutdown();
 	ImGui::DestroyContext();
-	g_hwnd = nullptr;
+	g_render_hwnd = nullptr;
+	g_foreground_hwnd = nullptr;
 }
 
 void psycho_imgui_invalidate_device_objects() {

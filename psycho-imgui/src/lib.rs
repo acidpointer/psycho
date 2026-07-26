@@ -13,8 +13,12 @@ use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum Error {
+    /// The D3D render-target window handle was null.
     #[error("invalid null HWND")]
     NullWindow,
+    /// The top-level foreground/input window handle was null.
+    #[error("invalid null foreground HWND")]
+    NullForegroundWindow,
     #[error("invalid null Direct3D9 device")]
     NullDevice,
     #[error("Dear ImGui Direct3D9 backend initialization failed")]
@@ -39,7 +43,7 @@ pub struct Dx9Context {
 unsafe impl Send for Dx9Context {}
 
 impl Dx9Context {
-    /// Initialize Dear ImGui with the Win32 platform backend and D3D9 renderer backend.
+    /// Initialize Dear ImGui when one window owns both rendering and foreground input.
     ///
     /// # Safety
     ///
@@ -47,10 +51,32 @@ impl Dx9Context {
     /// `IDirect3DDevice9*`. All methods on this context must run on the render
     /// thread that owns the D3D device.
     pub unsafe fn new(hwnd: *mut c_void, device: *mut c_void) -> Result<Self> {
-        NonNull::new(hwnd).ok_or(Error::NullWindow)?;
+        unsafe { Self::new_with_foreground_window(hwnd, hwnd, device) }
+    }
+
+    /// Initialize Dear ImGui with separate render-target and foreground windows.
+    ///
+    /// Use this for a child D3D render window whose top-level parent owns
+    /// activation and keyboard input. Dear ImGui sizes and positions the overlay
+    /// in `render_hwnd` client coordinates, while per-frame input polling is
+    /// enabled only while `foreground_hwnd` owns the foreground.
+    ///
+    /// # Safety
+    ///
+    /// Both HWNDs must remain live for the context lifetime and belong to the
+    /// same application window tree. `device` must be the live
+    /// `IDirect3DDevice9*` rendering into `render_hwnd`. All methods on this
+    /// context must run on the render thread that owns the D3D device.
+    pub unsafe fn new_with_foreground_window(
+        render_hwnd: *mut c_void,
+        foreground_hwnd: *mut c_void,
+        device: *mut c_void,
+    ) -> Result<Self> {
+        NonNull::new(render_hwnd).ok_or(Error::NullWindow)?;
+        NonNull::new(foreground_hwnd).ok_or(Error::NullForegroundWindow)?;
         NonNull::new(device).ok_or(Error::NullDevice)?;
 
-        if unsafe { ffi::psycho_imgui_init_dx9(hwnd, device) } {
+        if unsafe { ffi::psycho_imgui_init_dx9(render_hwnd, foreground_hwnd, device) } {
             Ok(Self {
                 _not_send_sync: PhantomData,
             })
@@ -508,7 +534,11 @@ mod ffi {
     use super::{RawIoState, RawTelemetryChart, c_char, c_void};
 
     unsafe extern "C" {
-        pub fn psycho_imgui_init_dx9(hwnd: *mut c_void, device: *mut c_void) -> bool;
+        pub fn psycho_imgui_init_dx9(
+            render_hwnd: *mut c_void,
+            foreground_hwnd: *mut c_void,
+            device: *mut c_void,
+        ) -> bool;
         pub fn psycho_imgui_shutdown();
         pub fn psycho_imgui_invalidate_device_objects();
         pub fn psycho_imgui_create_device_objects() -> bool;

@@ -108,9 +108,19 @@ For that executable:
 - `NiDX9Renderer::singleton` is at `0x011C73B4`;
 - the live `IDirect3DDevice9*` is at renderer offset `+0x288`;
 - the renderer child `HWND` is at `0x011C6FBC`;
+- the stable top-level input/foreground `HWND` is at `0x011C6FC0`;
 - xNVSE dispatches `OnFramePresent` immediately before the final display call
   at `0x00B6B730`, from normal-frame callsite `0x0087055E` and loading-screen
   callsite `0x007147C4`.
+
+At renderer construction, native fullscreen aliases `0x011C6FBC` to the
+top-level HWND. Windowed mode instead creates a separate
+`WS_CHILD | WS_VISIBLE` render target under that top-level window. The helper
+therefore retains both roles: D3D presentation, ImGui display size, and cursor
+coordinates use the renderer target, while WndProc chaining, foreground
+ownership, F10, Esc, keyboard, and text input use the top-level HWND.
+`psycho_imgui::Dx9Context::new_with_foreground_window` publishes that split
+without changing single-window clients.
 
 The dashboard renders only from `OnFramePresent`. It snapshots and restores
 D3D9 state through the shared ImGui backend. Its Reset VMT hook chains the
@@ -118,13 +128,22 @@ current predecessor, invalidates ImGui device objects before Reset, and
 recreates them only after a successful Reset. The hook is process-lifetime; it
 is never removed while another hook might still chain through it.
 
-The helper installs a Win32 WndProc chain after the renderer window exists.
-`F10` toggles the dashboard and `Esc` closes it. While open, it forwards Win32
-messages to ImGui and suppresses the game's DirectInput keyboard/mouse results.
-Mouse-wheel data is forwarded to ImGui before the game-facing data is cleared.
-The DirectInput VMT hooks also chain the predecessor found at installation and
-remain installed for process lifetime. Closing the dashboard immediately
-restores unsuppressed game input.
+The helper installs a Win32 WndProc chain on the top-level input owner after
+both windows exist. `F10` toggles the dashboard and `Esc` closes it. While open,
+it forwards Win32 messages to ImGui and suppresses the game's DirectInput
+keyboard/mouse results. Mouse position and buttons are polled only while the
+top-level window owns the foreground, then converted from screen space into
+renderer-client coordinates. Mouse-wheel data is forwarded to ImGui before the
+game-facing data is cleared. The DirectInput VMT hooks also chain the
+predecessor found at installation and remain installed for process lifetime.
+Closing the dashboard immediately restores unsuppressed game input.
+
+The former single-HWND policy worked accidentally in native fullscreen. In
+windowed and windowed-derived borderless modes, it subclassed the child rather
+than the keyboard owner and required that child to equal `GetForegroundWindow`.
+That could prevent F10 from opening the dashboard or leave an opened dashboard
+without mouse input. Keeping the roles separate removes both failure modes
+without changing display-fix or D3D-reset ownership.
 
 These choices are compatible with other well-behaved process-lifetime WndProc,
 Reset, and DirectInput hook chains regardless of installation order. They
@@ -138,6 +157,8 @@ Evidence:
 
 - `libnvse/xnvse/nvse/nvse/Hooks_Gameplay.cpp`, `DisplayFrameHook` and the two
   `WriteRelCall` sites;
+- `analysis/ghidra/output/perf/display_exclusive_startup_owner_followup.txt`,
+  renderer/top-level aliasing and windowed child creation;
 - `analysis/ghidra/output/perf/display_current_fix_contract_audit.txt`;
 - `analysis/ghidra/output/perf/display_d3d_reset_present_audit.txt`;
 - `docs/omv-plan.md`, established FNV renderer/device ownership.
@@ -329,8 +350,8 @@ initializes the core guard.
   page shows the read error.
 - Invalid or externally changed config: saving is rejected without overwriting
   user data.
-- Missing renderer device/window: no graphics or input hook is installed that
-  frame; xNVSE continues normally.
+- Missing device, renderer window, or top-level input window: no graphics or
+  input hook is installed that frame; xNVSE continues normally.
 - ImGui or Reset-hook failure: the helper logs the failure and does not alter
   core engine-fix behavior.
 
@@ -348,6 +369,7 @@ Automated coverage includes:
 - VAS refresh represented as a one-shot sampling request;
 - driver estimate sampling requiring both Overview and an explicit pending
   request, with no frame-counter path;
+- aliased fullscreen and distinct windowed render/input handle retention;
 - complete-line incremental log-tail parsing across reads;
 - contiguous-VAS health classification;
 - structured log parsing, compact context extraction, and five-level filtering;
@@ -367,6 +389,17 @@ cargo test --target i686-pc-windows-gnu -p psycho-engine-fixes
 cargo build --release --target i686-pc-windows-gnu \
   -p psycho-engine-fixes -p psycho-engine-fixes-helper
 ```
+
+Validation recorded on 2026-07-27:
+
+- `cargo test --target i686-pc-windows-gnu -p
+  psycho-engine-fixes-helper`: 14 passed, 0 failed;
+- `cargo test --target i686-pc-windows-gnu -p psycho-imgui --lib`: passed
+  with no unit tests;
+- the affected release build for `psycho-engine-fixes` and
+  `psycho-engine-fixes-helper` passed;
+- native-fullscreen and windowed input behavior still requires the runtime
+  matrix below.
 
 Static code and build checks cannot prove presentation, device-loss behavior,
 or interaction with every third-party hook. Before a release compatibility

@@ -942,16 +942,35 @@ impl<'a> HeaderCursor<'a> {
         Ok(u32::from_le_bytes(bytes))
     }
 
-    fn pipe(&mut self) -> anyhow::Result<()> {
-        ensure!(self.take(1)? == b"|", "save header separator mismatch");
+    fn pipe(&mut self, field: &'static str) -> anyhow::Result<()> {
+        let offset = self.position;
+        let found = self
+            .take(1)
+            .with_context(|| format!("read separator after {field} at offset {offset}"))?[0];
+        ensure!(
+            found == b'|',
+            "save header separator mismatch after {field} at offset {offset}: expected 0x7C, found 0x{found:02X}"
+        );
         Ok(())
     }
 
-    fn string(&mut self) -> anyhow::Result<()> {
+    fn separator_follows(&self, length: usize, field: &'static str) -> anyhow::Result<bool> {
+        let offset = self
+            .position
+            .checked_add(length)
+            .context("save header lookahead overflow")?;
+        let found = self
+            .bytes
+            .get(offset)
+            .with_context(|| format!("truncated save header while locating {field} separator"))?;
+        Ok(*found == b'|')
+    }
+
+    fn string(&mut self, field: &'static str) -> anyhow::Result<()> {
         let length = usize::from(self.u16()?);
-        self.pipe()?;
+        self.pipe(field)?;
         self.take(length)?;
-        self.pipe()
+        self.pipe(field)
     }
 }
 
@@ -971,27 +990,40 @@ fn validate_save_envelope(header: &[u8], file_length: u64) -> anyhow::Result<()>
         header_end <= header.len(),
         "save header exceeds captured envelope"
     );
+    // Do not let malformed length-prefixed fields consume screenshot bytes
+    // merely because the captured prefix extends beyond the encoded header.
+    cursor.bytes = &header[..header_end];
 
     ensure!(
         cursor.u32()? == CURRENT_SAVE_VERSION,
         "unexpected save format version"
     );
-    cursor.pipe()?;
-    cursor.take(64)?;
-    cursor.pipe()?;
+    cursor.pipe("format version")?;
+
+    // FalloutNV.exe's two physical-file readers at 0x0084D8C0 and 0x0084DAB0
+    // use this exact version-0x30 discriminator. If the next u32 is followed by
+    // a separator, it is screenshot width and the optional 64-byte language
+    // block is absent; otherwise the readers consume that block and one more
+    // separator first. The omitted form defaults to ENGLISH. Mirror the
+    // accepting reader contract rather than assuming every compatible writer
+    // emits the language block.
+    if !cursor.separator_follows(size_of::<u32>(), "screenshot width")? {
+        cursor.take(64)?;
+        cursor.pipe("language block")?;
+    }
 
     let width = u64::from(cursor.u32()?);
-    cursor.pipe()?;
+    cursor.pipe("screenshot width")?;
     let height = u64::from(cursor.u32()?);
-    cursor.pipe()?;
+    cursor.pipe("screenshot height")?;
     cursor.u32()?;
-    cursor.pipe()?;
-    cursor.string()?;
-    cursor.string()?;
+    cursor.pipe("save index")?;
+    cursor.string("player name")?;
+    cursor.string("player karma")?;
     cursor.u32()?;
-    cursor.pipe()?;
-    cursor.string()?;
-    cursor.string()?;
+    cursor.pipe("player level")?;
+    cursor.string("player location")?;
+    cursor.string("play time")?;
 
     ensure!(
         cursor.position == header_end,
@@ -1579,12 +1611,14 @@ mod tests {
         fields.push(b'|');
     }
 
-    fn current_header(width: u32, height: u32) -> Vec<u8> {
+    fn current_header(width: u32, height: u32, language_block: bool) -> Vec<u8> {
         let mut fields = Vec::new();
         fields.extend_from_slice(&CURRENT_SAVE_VERSION.to_le_bytes());
         fields.push(b'|');
-        fields.extend_from_slice(&[0; 64]);
-        fields.push(b'|');
+        if language_block {
+            fields.extend_from_slice(&[0; 64]);
+            fields.push(b'|');
+        }
         fields.extend_from_slice(&width.to_le_bytes());
         fields.push(b'|');
         fields.extend_from_slice(&height.to_le_bytes());
@@ -1606,22 +1640,24 @@ mod tests {
     }
 
     #[test]
-    fn current_save_envelope_accepts_complete_body() {
-        let header = current_header(320, 180);
-        let file_length = header.len() as u64 + 320 * 180 * 3 + 1;
-        validate_save_envelope(&header, file_length).unwrap();
+    fn current_save_envelope_accepts_both_engine_header_layouts() {
+        for language_block in [true, false] {
+            let header = current_header(320, 180, language_block);
+            let file_length = header.len() as u64 + 320 * 180 * 3 + 1;
+            validate_save_envelope(&header, file_length).unwrap();
+        }
     }
 
     #[test]
     fn save_envelope_rejects_bad_magic() {
-        let mut header = current_header(320, 180);
+        let mut header = current_header(320, 180, true);
         header[0] = b'X';
         assert!(validate_save_envelope(&header, u64::MAX).is_err());
     }
 
     #[test]
     fn save_envelope_rejects_inconsistent_header_size() {
-        let mut header = current_header(320, 180);
+        let mut header = current_header(320, 180, true);
         let encoded = u32::from_le_bytes(header[11..15].try_into().unwrap());
         header[11..15].copy_from_slice(&(encoded + 1).to_le_bytes());
         header.push(0);
@@ -1629,8 +1665,22 @@ mod tests {
     }
 
     #[test]
+    fn save_envelope_separator_error_identifies_field_and_offset() {
+        let mut header = current_header(320, 180, false);
+        let height_separator = SAVE_MAGIC.len() + size_of::<u32>() * 4 + 2;
+        header[height_separator] = 0;
+
+        let error = validate_save_envelope(&header, u64::MAX)
+            .expect_err("invalid height separator must reject the envelope")
+            .to_string();
+        assert!(error.contains("screenshot height"));
+        assert!(error.contains(&format!("offset {height_separator}")));
+        assert!(error.contains("found 0x00"));
+    }
+
+    #[test]
     fn save_envelope_rejects_missing_changed_record_body() {
-        let header = current_header(320, 180);
+        let header = current_header(320, 180, true);
         let screenshot_end = header.len() as u64 + 320 * 180 * 3;
         assert!(validate_save_envelope(&header, screenshot_end).is_err());
     }

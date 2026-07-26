@@ -56,6 +56,14 @@ the current version `0x30`, pipe-delimited metadata, and the screenshot
 dimensions. The screenshot consumes `width * height * 3` bytes. The changed
 record body follows it.
 
+The physical-file readers at `0x0084D8C0` and `0x0084DAB0` accept two
+version-`0x30` header layouts. After the version separator they inspect the byte
+following the next four bytes. A pipe means those four bytes are screenshot
+width and the 64-byte language block is absent; any other byte means the reader
+first consumes the language block and its separator. The absent form defaults
+to `ENGLISH`. This is an explicit loader compatibility contract, not a guessed
+format extension, and the integrity validator must accept both forms.
+
 ### PlayerCharacter corruption path
 
 PlayerCharacter load is `0x00956F70`. For framed save versions 31 through 89,
@@ -111,8 +119,8 @@ During a save:
   in-transaction PlayerCharacter SpeedMult mutation latch failure bits;
 - the result boundary destroys/closes the engine file without promotion;
 - the first 2 KiB are read from the closed temporary file, and that authoritative
-  image must have a current coherent header, bounded screenshot, and a nonempty
-  changed-record body;
+  image must have either engine-accepted current header layout, a bounded
+  screenshot, and a nonempty changed-record body;
 - the file is flushed to stable storage and atomically replaces the final,
   retaining or recovering the old final according to the configured backup
   policy.
@@ -173,6 +181,8 @@ Proven by executable disassembly:
 - raw unchecked PlayerCharacter reads before block-boundary diagnostics;
 - actor-array layouts, SpeedMult index/offsets, version gates, marker, and
   minimum block sizes;
+- the two version-`0x30` physical-file header layouts and their exact
+  separator-based discriminator;
 - load error flag, return-byte behavior, and physical commit ABIs.
 
 Reasoned inference:
@@ -193,6 +203,12 @@ Runtime observations:
   the write-entry capture had not observed its initial bytes;
 - envelope validation now reads the completed temporary file directly, so it
   does not depend on partial write-hook coverage;
+- a later tester build completed each quicksave at the engine boundary but
+  rejected promotion with failure bits `0x50` and `save header separator
+  mismatch`; Psycho required the optional 64-byte language block even though
+  the executable's readers accept a version-`0x30` header without it;
+- envelope validation now mirrors the readers and reports the failed metadata
+  field, byte offset, expected separator, and observed byte;
 - runtime playtesting is still required to identify which producer, if any,
   first triggers a rejection under the user's full mod list.
 
@@ -207,9 +223,9 @@ Durable supporting evidence:
 
 ## Validation and playtest acceptance
 
-Pure regression tests construct current-format headers and reject bad magic,
-inconsistent header size, a missing changed-record body, and incorrect
-versioned PlayerCharacter block layouts.
+Pure regression tests construct both engine-accepted current-format header
+layouts and reject bad magic, inconsistent header size, a missing
+changed-record body, and incorrect versioned PlayerCharacter block layouts.
 
 Required runtime acceptance:
 
@@ -237,3 +253,12 @@ Validation recorded on 2026-07-23:
 - the broader unfiltered `cargo test` ran the same unit suite successfully but
   remains nonzero because three pre-existing Havok/navmesh assembly examples
   are marked as Rust doctests.
+
+Validation recorded on 2026-07-27 after adding both accepted header layouts:
+
+- `cargo test --target i686-pc-windows-gnu -p psycho-engine-fixes --lib`:
+  67 passed, 0 failed;
+- `cargo build --release --target i686-pc-windows-gnu -p
+  psycho-engine-fixes -p psycho-engine-fixes-helper`: passed;
+- successful quick, manual, automatic, and scripted saves with the reporter's
+  mod list still require runtime playtesting.

@@ -22,6 +22,7 @@ use crate::{dashboard_config::ConfigEditor, engine_fixes, hooks, input};
 const NIDX9_RENDERER_SINGLETON_PTR: usize = 0x011C73B4;
 const NIDX9_RENDERER_DEVICE_OFFSET: usize = 0x288;
 const RENDERER_CHILD_HWND_PTR: usize = 0x011C6FBC;
+const TOP_LEVEL_HWND_PTR: usize = 0x011C6FC0;
 const DASHBOARD_KEY: usize = 0x79; // F10
 const VK_ESCAPE: usize = 0x1B;
 
@@ -345,7 +346,8 @@ impl History {
 struct DashboardRuntime {
     imgui: Option<Dx9Context>,
     imgui_device: usize,
-    imgui_hwnd: usize,
+    imgui_render_hwnd: usize,
+    imgui_input_hwnd: usize,
     needs_device_objects: bool,
     open: bool,
     page: Page,
@@ -370,7 +372,8 @@ impl DashboardRuntime {
         Self {
             imgui: None,
             imgui_device: 0,
-            imgui_hwnd: 0,
+            imgui_render_hwnd: 0,
+            imgui_input_hwnd: 0,
             needs_device_objects: false,
             open: false,
             page: Page::Overview,
@@ -416,7 +419,7 @@ impl DashboardRuntime {
         }
     }
 
-    fn render_present(&mut self, device_ptr: *mut c_void, hwnd: *mut c_void) {
+    fn render_present(&mut self, handles: GameRenderHandles) {
         if OPEN_REQUESTED.swap(false, Ordering::AcqRel) {
             self.set_open(true);
         }
@@ -424,29 +427,48 @@ impl DashboardRuntime {
             return;
         }
 
-        let Some(device) = (unsafe { Device9Ref::from_raw_void(device_ptr) }) else {
+        let Some(device) = (unsafe { Device9Ref::from_raw_void(handles.device) }) else {
             self.ui_error = Some("The Direct3D9 device is unavailable.".to_owned());
             return;
         };
-        if self.imgui_device != device_ptr as usize || self.imgui_hwnd != hwnd as usize {
+        if self.imgui_device != handles.device as usize
+            || self.imgui_render_hwnd != handles.render_hwnd as usize
+            || self.imgui_input_hwnd != handles.input_hwnd as usize
+        {
             self.imgui = None;
-            self.imgui_device = device_ptr as usize;
-            self.imgui_hwnd = hwnd as usize;
+            self.imgui_device = handles.device as usize;
+            self.imgui_render_hwnd = handles.render_hwnd as usize;
+            self.imgui_input_hwnd = handles.input_hwnd as usize;
             self.needs_device_objects = false;
             if self.page == Page::Overview {
                 self.texture_refresh_requested = true;
             }
         }
         if self.imgui.is_none() {
-            if let Err(error) = hooks::ensure_reset_hook(device_ptr) {
+            if let Err(error) = hooks::ensure_reset_hook(handles.device) {
                 self.ui_error = Some(format!("Device reset bridge failed: {error:#}"));
                 return;
             }
-            match unsafe { Dx9Context::new(hwnd, device_ptr) } {
+            match unsafe {
+                Dx9Context::new_with_foreground_window(
+                    handles.render_hwnd,
+                    handles.input_hwnd,
+                    handles.device,
+                )
+            } {
                 Ok(context) => {
                     self.imgui = Some(context);
                     self.ui_error = None;
-                    log::info!("[DASHBOARD] Psycho control deck initialized");
+                    log::info!(
+                        "[DASHBOARD] Psycho control deck initialized: render_hwnd={:#010X} input_hwnd={:#010X} relation={}",
+                        handles.render_hwnd as usize,
+                        handles.input_hwnd as usize,
+                        if handles.windows_are_aliased() {
+                            "shared"
+                        } else {
+                            "child-render"
+                        }
+                    );
                 }
                 Err(error) => {
                     self.ui_error = Some(format!("ImGui initialization failed: {error}"));
@@ -1459,16 +1481,16 @@ pub(crate) fn on_frame_present() {
     {
         return;
     }
-    let Some((device, hwnd)) = game_render_handles() else {
+    let Some(handles) = game_render_handles() else {
         return;
     };
-    if let Err(error) = hooks::ensure_window_proc(hwnd) {
+    if let Err(error) = hooks::ensure_window_proc(handles.input_hwnd) {
         log::warn!("[DASHBOARD] Input bridge unavailable: {error:#}");
         return;
     }
     RUNTIME.with(|runtime| {
         if let Ok(mut runtime) = runtime.try_borrow_mut() {
-            runtime.render_present(device, hwnd);
+            runtime.render_present(handles);
         }
     });
 }
@@ -1545,7 +1567,32 @@ pub(crate) fn handle_window_message(
     captured
 }
 
-fn game_render_handles() -> Option<(*mut c_void, *mut c_void)> {
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct GameRenderHandles {
+    device: *mut c_void,
+    render_hwnd: *mut c_void,
+    input_hwnd: *mut c_void,
+}
+
+impl GameRenderHandles {
+    fn from_raw(
+        device: *mut c_void,
+        render_hwnd: *mut c_void,
+        input_hwnd: *mut c_void,
+    ) -> Option<Self> {
+        (!device.is_null() && !render_hwnd.is_null() && !input_hwnd.is_null()).then_some(Self {
+            device,
+            render_hwnd,
+            input_hwnd,
+        })
+    }
+
+    fn windows_are_aliased(self) -> bool {
+        self.render_hwnd == self.input_hwnd
+    }
+}
+
+fn game_render_handles() -> Option<GameRenderHandles> {
     unsafe {
         let renderer = (NIDX9_RENDERER_SINGLETON_PTR as *const *mut c_void).read();
         if renderer.is_null() {
@@ -1553,8 +1600,15 @@ fn game_render_handles() -> Option<(*mut c_void, *mut c_void)> {
         }
         let device =
             ((renderer as usize + NIDX9_RENDERER_DEVICE_OFFSET) as *const *mut c_void).read();
-        let hwnd = (RENDERER_CHILD_HWND_PTR as *const *mut c_void).read();
-        (!device.is_null() && !hwnd.is_null()).then_some((device, hwnd))
+        let render_hwnd = (RENDERER_CHILD_HWND_PTR as *const *mut c_void).read();
+        let input_hwnd = (TOP_LEVEL_HWND_PTR as *const *mut c_void).read();
+
+        // Exclusive fullscreen aliases the renderer slot to the top-level
+        // window. Windowed mode instead stores a WS_CHILD render target in the
+        // renderer slot while keyboard/focus messages remain owned by the
+        // top-level HWND. Keep both identities so neither mode accidentally
+        // applies the other's input contract.
+        GameRenderHandles::from_raw(device, render_hwnd, input_hwnd)
     }
 }
 
@@ -2287,9 +2341,11 @@ fn cstring(text: impl AsRef<str>) -> CString {
 
 #[cfg(test)]
 mod tests {
+    use core::ffi::c_void;
+
     use super::{
-        ENGINE_FIX_HELP, LogFilters, LogLevel, LogTailReader, MemoryHealth, Page, SamplingState,
-        parse_log_line, take_driver_refresh,
+        ENGINE_FIX_HELP, GameRenderHandles, LogFilters, LogLevel, LogTailReader, MemoryHealth,
+        Page, SamplingState, parse_log_line, take_driver_refresh,
     };
     use crate::engine_fixes::{DASHBOARD_FLAG_VAS_VALID, DashboardSnapshot};
 
@@ -2309,6 +2365,24 @@ mod tests {
         assert_eq!(MemoryHealth::from_snapshot(&snapshot), MemoryHealth::Watch);
         snapshot.vas_largest_hole_bytes = 512 * 1024 * 1024;
         assert_eq!(MemoryHealth::from_snapshot(&snapshot), MemoryHealth::Stable);
+    }
+
+    #[test]
+    fn windowed_dashboard_retains_distinct_render_and_input_windows() {
+        let device = 0x1000usize as *mut c_void;
+        let render_hwnd = 0x2000usize as *mut c_void;
+        let input_hwnd = 0x3000usize as *mut c_void;
+        let handles = GameRenderHandles::from_raw(device, render_hwnd, input_hwnd)
+            .expect("all live handles form a usable dashboard target");
+
+        assert_eq!(handles.render_hwnd, render_hwnd);
+        assert_eq!(handles.input_hwnd, input_hwnd);
+        assert!(!handles.windows_are_aliased());
+
+        let fullscreen = GameRenderHandles::from_raw(device, input_hwnd, input_hwnd)
+            .expect("fullscreen aliases both window roles");
+        assert!(fullscreen.windows_are_aliased());
+        assert!(GameRenderHandles::from_raw(device, render_hwnd, std::ptr::null_mut()).is_none());
     }
 
     #[test]
