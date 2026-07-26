@@ -534,17 +534,17 @@ unsafe extern "thiscall" fn hook_set_shaders(shader: *mut c_void, pass_index: u3
         return;
     };
 
-    restore_direct_d3d_state();
-    PENDING_DRAW_KIND.store(PENDING_DRAW_NONE, Ordering::Release);
-    PENDING_REQUIRED_SAMPLER_MASK.store(0, Ordering::Release);
-    PENDING_MISSING_SAMPLER_MASK.store(0, Ordering::Release);
-
     if !super::shader_enabled() {
         unsafe {
             original(shader, pass_index);
         }
         return;
     }
+
+    restore_direct_d3d_state();
+    PENDING_DRAW_KIND.store(PENDING_DRAW_NONE, Ordering::Release);
+    PENDING_REQUIRED_SAMPLER_MASK.store(0, Ordering::Release);
+    PENDING_MISSING_SAMPLER_MASK.store(0, Ordering::Release);
 
     if super::terrain_lod_enabled() && current_pass_is_land_lod(pass_index) {
         engine_contracts::enable_fog_for_pass(pass_index);
@@ -1930,6 +1930,20 @@ mod tests {
         assert!(draw_needs_evaluation(false, true));
         assert!(!draw_needs_evaluation(true, true));
         assert!(draw_needs_evaluation(true, false));
+    }
+
+    #[test]
+    fn disabled_set_shaders_calls_native_code_before_tracking_work() {
+        let source = include_str!("hooks.rs");
+        let set_shaders = source
+            .split_once("unsafe extern \"thiscall\" fn hook_set_shaders")
+            .map(|(_, tail)| tail)
+            .and_then(|tail| tail.split_once("fn set_pending_draw"))
+            .map(|(body, _)| body)
+            .expect("SetShaders hook");
+        let disabled_gate = set_shaders.find("if !super::shader_enabled()").unwrap();
+        let restore = set_shaders.find("restore_direct_d3d_state()").unwrap();
+        assert!(disabled_gate < restore);
     }
 
     #[test]

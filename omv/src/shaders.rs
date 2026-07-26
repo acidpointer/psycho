@@ -377,6 +377,31 @@ pub(crate) fn scan_screen_shaders(previous: &[ScreenShaderSource]) -> Result<Sha
     })
 }
 
+pub(crate) fn preserve_external_runtime_config(
+    current: &[ScreenShaderSource],
+    scanned: &mut [ScreenShaderSource],
+) {
+    let current_by_path: HashMap<&Path, &ScreenShaderSource> = current
+        .iter()
+        .filter(|source| source.is_external_file())
+        .map(|source| (source.path.as_path(), source))
+        .collect();
+
+    for source in scanned {
+        let Some(current) = current_by_path.get(source.path.as_path()).copied() else {
+            continue;
+        };
+        source.enabled = current.enabled;
+        source.phase = current.phase;
+        source.pass_count = current.pass_count;
+        source.options.clone_from(&current.options);
+        source
+            .option_constants
+            .clone_from(&current.option_constants);
+        source.config_error.clone_from(&current.config_error);
+    }
+}
+
 pub(crate) fn save_external_shader_configs(sources: &mut [ScreenShaderSource]) -> Result<()> {
     for source in sources {
         source.save_config_to_disk()?;

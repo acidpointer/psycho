@@ -88,6 +88,7 @@ static SHADOW_HOOK_READY: AtomicBool = AtomicBool::new(false);
 static ATMOSPHERE_CAPTURE_ENABLED: AtomicBool = AtomicBool::new(false);
 static TERRAIN_CAPTURE_ENABLED: AtomicBool = AtomicBool::new(false);
 static CAPTURE_ACTIVE: AtomicBool = AtomicBool::new(false);
+static PUBLICATION_DRAIN_PENDING: AtomicBool = AtomicBool::new(true);
 static DIAGNOSTICS_ACTIVE: AtomicBool = AtomicBool::new(false);
 
 static CAPTURED_LIGHTS: AtomicU32 = AtomicU32::new(0);
@@ -447,6 +448,9 @@ pub(crate) fn configure_atmosphere(enabled: bool) {
             if enabled { "enabled" } else { "disabled" },
         );
     }
+    if !capture_enabled() {
+        PUBLICATION_DRAIN_PENDING.store(true, Ordering::Release);
+    }
 }
 
 pub(crate) fn configure_terrain(enabled: bool) {
@@ -456,6 +460,9 @@ pub(crate) fn configure_terrain(enabled: bool) {
             "[PBR TERRAIN LIGHT] Scene-light capture {} by the native-PBR contract",
             if enabled { "enabled" } else { "disabled" },
         );
+    }
+    if !capture_enabled() {
+        PUBLICATION_DRAIN_PENDING.store(true, Ordering::Release);
     }
 }
 
@@ -762,7 +769,7 @@ fn capture_ready() -> bool {
 }
 
 fn try_drain_disabled_publication() {
-    if capture_enabled() {
+    if capture_enabled() || !PUBLICATION_DRAIN_PENDING.load(Ordering::Acquire) {
         return;
     }
     if let Some(mut staging) = STAGING.try_lock() {
@@ -775,10 +782,14 @@ fn try_drain_disabled_publication() {
         *published = None;
     } else {
         PUBLISH_BUSY.fetch_add(1, Ordering::Relaxed);
+        return;
     }
     if let Some(mut published) = PUBLISHED_TERRAIN.try_lock() {
         *published = None;
+    } else {
+        return;
     }
+    PUBLICATION_DRAIN_PENDING.store(false, Ordering::Release);
 }
 
 unsafe fn capture_shadow(

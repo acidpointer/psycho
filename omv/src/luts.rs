@@ -669,28 +669,42 @@ mod tests {
     }
 
     #[test]
-    fn runtime_commits_lut_choices_in_the_shader_scan_transaction() {
+    fn background_scan_and_render_thread_commit_keep_luts_in_one_transaction() {
+        let scanner = include_str!("asset_scanner.rs");
+        let lut_scan = scanner.find("luts::scan_luts").expect("LUT scan");
+        let shader_scan = scanner
+            .find("shaders::scan_screen_shaders")
+            .expect("shader scan");
+        assert!(lut_scan < shader_scan);
+        assert!(scanner.contains("sync_channel(1)"));
+
         let runtime = include_str!("runtime.rs");
         let start = runtime
-            .find("fn scan_shaders_if_due(&mut self)")
-            .expect("scan transaction");
+            .find("fn poll_asset_scanner(&mut self)")
+            .expect("catalog commit");
         let end = runtime[start..]
             .find("fn ensure_imgui")
             .map(|offset| start + offset)
-            .expect("scan transaction end");
-        let scan = &runtime[start..end];
-        let sync = scan.find("sync_embedded_effect_config").expect("menu sync");
-        let lut_scan = scan.find("luts::scan_luts").expect("LUT scan");
-        let shader_scan = scan
-            .find("shaders::scan_screen_shaders")
-            .expect("shader scan");
-        let choices = scan.find("self.color_luts.choices()").expect("LUT choices");
-        let merge = scan
+            .expect("catalog commit end");
+        let commit = &runtime[start..end];
+        let receive = commit
+            .find("scanner.try_take_latest")
+            .expect("snapshot receive");
+        let sync = commit
+            .find("sync_embedded_effect_config")
+            .expect("menu sync");
+        let lut_commit = commit
+            .find("self.color_luts = snapshot.color_luts")
+            .expect("LUT commit");
+        let choices = commit
+            .find("self.color_luts.choices()")
+            .expect("LUT choices");
+        let merge = commit
             .find("merge_embedded_sources_with_luts")
             .expect("joint source merge");
-        assert!(
-            sync < lut_scan && lut_scan < shader_scan && shader_scan < choices && choices < merge
-        );
-        assert!(scan.contains("self.blooming_hdr = None"));
+        assert!(receive < sync && sync < lut_commit && lut_commit < choices && choices < merge);
+        assert!(commit.contains("self.blooming_hdr = None"));
+        assert!(!commit.contains("luts::scan_luts"));
+        assert!(!commit.contains("shaders::scan_screen_shaders"));
     }
 }

@@ -64,6 +64,7 @@ static TARGET_REJECTIONS: AtomicU32 = AtomicU32::new(0);
 static OUTER_TARGET_MISMATCHES: AtomicU32 = AtomicU32::new(0);
 static DEADLINE_MISSES: AtomicU32 = AtomicU32::new(0);
 static TRANSACTION_FAILURES: AtomicU32 = AtomicU32::new(0);
+static LOCAL_LIGHTS_CLEAR_PENDING: AtomicBool = AtomicBool::new(true);
 
 #[derive(Clone, Copy)]
 struct WorldEffectsConfig {
@@ -167,11 +168,11 @@ pub(crate) fn publish_config(config: GraphicsMenuConfig) -> bool {
         config: world_config,
     };
     REQUIREMENTS.store(world_config.requirements(), Ordering::Release);
-    crate::fnv_local_lights::configure_atmosphere(
-        world_config.screen_space_shaders
-            && world_config.depth_provider == DepthProvider::FalloutNewVegas
-            && world_config.lighting.local_lights_enabled,
-    );
+    let local_lights_enabled = world_config.screen_space_shaders
+        && world_config.depth_provider == DepthProvider::FalloutNewVegas
+        && world_config.lighting.local_lights_enabled;
+    crate::fnv_local_lights::configure_atmosphere(local_lights_enabled);
+    LOCAL_LIGHTS_CLEAR_PENDING.store(true, Ordering::Release);
     LAST_ESTIMATE_EPOCH.store(0, Ordering::Release);
     LAST_DIAGNOSTIC_ESTIMATE_EPOCH.store(0, Ordering::Release);
     CONFIG_GENERATION.store(generation, Ordering::Release);
@@ -361,9 +362,11 @@ pub(crate) fn close_deadline(source_rendered_texture: *mut c_void) {
 
 pub(crate) fn finish_present(epoch: u32) {
     if !crate::fnv_local_lights::atmosphere_capture_enabled()
+        && LOCAL_LIGHTS_CLEAR_PENDING.load(Ordering::Acquire)
         && let Some(mut runtime) = WORLD_PIPELINE.try_lock()
     {
         runtime.local_lights = None;
+        LOCAL_LIGHTS_CLEAR_PENDING.store(false, Ordering::Release);
     }
     if PENDING_EPOCH.load(Ordering::Acquire) == epoch {
         PENDING_EPOCH.store(0, Ordering::Release);

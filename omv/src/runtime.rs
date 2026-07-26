@@ -6,7 +6,7 @@ use std::{
         LazyLock,
         atomic::{AtomicBool, AtomicU32, Ordering},
     },
-    time::{Duration, Instant},
+    time::Instant,
 };
 
 use libpsycho::os::windows::{
@@ -25,6 +25,7 @@ use libpsycho::os::windows::{
 use parking_lot::Mutex;
 
 use crate::{
+    asset_scanner::AssetScanner,
     backend::{self, DepthFrame, DepthProvider},
     config::{DepthProviderConfig, GraphicsMenuConfig},
     effects::{
@@ -60,6 +61,7 @@ static RUNTIME: LazyLock<Mutex<ScreenShaderRuntime>> =
     LazyLock::new(|| Mutex::new(ScreenShaderRuntime::default()));
 static MENU_OPEN: AtomicBool = AtomicBool::new(false);
 static IMGUI_READY: AtomicBool = AtomicBool::new(false);
+static MASTER_EFFECTS_ENABLED: AtomicBool = AtomicBool::new(true);
 static MENU_DIAGNOSTICS_STATE: AtomicU32 = AtomicU32::new(0);
 static MENU_TOGGLE_KEY: AtomicU32 = AtomicU32::new(DEFAULT_MENU_TOGGLE_KEY);
 static MENU_KEY_CAPTURE_ACTIVE: AtomicBool = AtomicBool::new(false);
@@ -148,6 +150,7 @@ pub(crate) fn configure(settings: RuntimeSettings) {
         sanitize_menu_toggle_key(settings.menu_toggle_key),
         Ordering::Release,
     );
+    MASTER_EFFECTS_ENABLED.store(settings.menu_config.screen_space_shaders, Ordering::Release);
     update_native_dof_query_needed(&settings.menu_config);
     let mut runtime = RUNTIME.lock();
     runtime.configure(settings);
@@ -187,8 +190,53 @@ mod load_transition_tests {
     }
 }
 
+#[cfg(test)]
+mod render_callback_io_tests {
+    use super::present_services_required_for;
+
+    #[test]
+    fn periodic_asset_scans_never_run_on_the_render_thread() {
+        let source = include_str!("runtime.rs");
+        let lut_scan = ["luts::", "scan_luts("].concat();
+        let shader_scan = ["shaders::", "scan_screen_shaders("].concat();
+
+        assert!(!source.contains(&lut_scan));
+        assert!(!source.contains(&shader_scan));
+    }
+
+    #[test]
+    fn disabled_master_keeps_only_the_live_menu_boundary() {
+        assert!(!present_services_required_for(false, false, true));
+        assert!(present_services_required_for(false, true, true));
+        assert!(present_services_required_for(false, false, false));
+        assert!(present_services_required_for(true, false, true));
+    }
+}
+
 pub(crate) fn needs_native_dof_query() -> bool {
     NATIVE_DOF_QUERY_NEEDED.load(Ordering::Acquire)
+}
+
+#[inline]
+pub(crate) fn effects_enabled() -> bool {
+    MASTER_EFFECTS_ENABLED.load(Ordering::Acquire)
+}
+
+#[inline]
+pub(crate) fn present_services_required() -> bool {
+    present_services_required_for(
+        effects_enabled(),
+        MENU_OPEN.load(Ordering::Acquire),
+        IMGUI_READY.load(Ordering::Acquire),
+    )
+}
+
+fn present_services_required_for(
+    effects_enabled: bool,
+    menu_open: bool,
+    imgui_ready: bool,
+) -> bool {
+    effects_enabled || menu_open || !imgui_ready
 }
 
 pub(crate) unsafe fn apply_present_frame(device_ptr: *mut c_void, hwnd_hint: *mut c_void) {
@@ -212,6 +260,9 @@ pub(crate) unsafe fn apply_fnv_scene_pre_image_space(
     device_ptr: *mut c_void,
     source_rendered_texture: *mut c_void,
 ) {
+    if !effects_enabled() {
+        return;
+    }
     let Some(mut runtime) = RUNTIME.try_lock() else {
         SCENE_PHASE_BUSY.fetch_add(1, Ordering::Relaxed);
         return;
@@ -234,6 +285,9 @@ pub(crate) unsafe fn apply_fnv_scene_post_image_space(
     device_ptr: *mut c_void,
     native_dof_active: bool,
 ) {
+    if !effects_enabled() {
+        return;
+    }
     let Some(mut runtime) = RUNTIME.try_lock() else {
         SCENE_PHASE_BUSY.fetch_add(1, Ordering::Relaxed);
         return;
@@ -254,6 +308,9 @@ pub(crate) unsafe fn apply_fnv_scene_post_image_space(
 }
 
 pub(crate) unsafe fn apply_fnv_final_image_space(device_ptr: *mut c_void) {
+    if !effects_enabled() {
+        return;
+    }
     let Some(mut runtime) = RUNTIME.try_lock() else {
         SCENE_PHASE_BUSY.fetch_add(1, Ordering::Relaxed);
         return;
@@ -451,14 +508,15 @@ struct ScreenShaderRuntime {
     selected_menu_item: MenuSelection,
     present_timing: PresentFrameTiming,
     frame_pacing: FramePacing,
-    next_scan: Option<Instant>,
+    asset_scanner: Option<AssetScanner>,
+    shader_catalog_generation: u64,
+    lut_catalog_generation: u64,
     render_epoch: u32,
     frame_index: u32,
     last_depth_available: Option<bool>,
     last_fog_available: Option<bool>,
     last_sun_available: Option<bool>,
     error_logs: u32,
-    scan_error_logs: u32,
     imgui_error_logs: u32,
     menu_config_error: Option<String>,
     menu_config_notice: Option<String>,
@@ -473,6 +531,7 @@ struct ScreenShaderRuntime {
 
 impl Default for ScreenShaderRuntime {
     fn default() -> Self {
+        let default_settings = RuntimeSettings::default();
         let final_color_shaders = match blooming_hdr::FinalColorShaderBytecode::prepare() {
             Ok(shaders) => Some(shaders),
             Err(err) => {
@@ -481,7 +540,7 @@ impl Default for ScreenShaderRuntime {
             }
         };
         Self {
-            settings: RuntimeSettings::default(),
+            settings: default_settings,
             sources: Vec::new(),
             device_ptr: 0,
             compiled: None,
@@ -505,14 +564,15 @@ impl Default for ScreenShaderRuntime {
             selected_menu_item: MenuSelection::default(),
             present_timing: PresentFrameTiming::default(),
             frame_pacing: FramePacing::default(),
-            next_scan: None,
+            asset_scanner: None,
+            shader_catalog_generation: 0,
+            lut_catalog_generation: 0,
             render_epoch: 0,
             frame_index: 0,
             last_depth_available: None,
             last_fog_available: None,
             last_sun_available: None,
             error_logs: 0,
-            scan_error_logs: 0,
             imgui_error_logs: 0,
             menu_config_error: None,
             menu_config_notice: None,
@@ -550,9 +610,28 @@ impl ScreenShaderRuntime {
             sky::NativeSkySettings::from(settings.menu_config.native_sky)
                 .with_master_enabled(master_enabled),
         );
+        match self.asset_scanner.as_ref() {
+            Some(scanner) => scanner.reconfigure(settings.shader_scan_interval_ms, master_enabled),
+            None => match AssetScanner::start(settings.shader_scan_interval_ms, master_enabled) {
+                Ok(scanner) => self.asset_scanner = Some(scanner),
+                Err(err) => log::warn!("[SHADERS] Live asset scanner unavailable: {err:#}"),
+            },
+        }
+        let external_sources = self
+            .sources
+            .iter()
+            .filter(|source| source.is_external_file())
+            .cloned()
+            .collect();
+        let (lut_names, lut_ids) = self.color_luts.choices();
+        self.sources = shaders::merge_embedded_sources_with_luts(
+            &settings.menu_config.embedded_effects,
+            &lut_names,
+            &lut_ids,
+            external_sources,
+        );
         self.settings = settings;
         self.compiled = None;
-        self.next_scan = None;
         self.menu_config_error = None;
         self.menu_config_notice = None;
         self.menu_config_dirty = false;
@@ -564,7 +643,7 @@ impl ScreenShaderRuntime {
         device_ptr: *mut c_void,
         hwnd_hint: *mut c_void,
     ) -> Direct3DResult<()> {
-        self.scan_shaders_if_due();
+        self.poll_asset_scanner();
 
         let Some(device) = (unsafe { Device9Ref::from_raw_void(device_ptr) }) else {
             return Ok(());
@@ -575,8 +654,20 @@ impl ScreenShaderRuntime {
             self.device_ptr = device_ptr as usize;
         }
 
-        pbr::service_present_frame();
-        depth_of_field::service_present_frame();
+        if self.settings.menu_config.screen_space_shaders {
+            if self.settings.menu_config.native_pbr.enabled {
+                pbr::service_present_frame();
+            }
+            if self
+                .settings
+                .menu_config
+                .embedded_effects
+                .depth_of_field
+                .enabled
+            {
+                depth_of_field::service_present_frame();
+            }
+        }
 
         self.ensure_imgui(&device, hwnd_hint);
 
@@ -663,7 +754,7 @@ impl ScreenShaderRuntime {
             return Ok(());
         }
 
-        self.scan_shaders_if_due();
+        self.poll_asset_scanner();
         if !self.has_enabled_shader_for_phase(phase) {
             return Ok(());
         }
@@ -835,77 +926,54 @@ impl ScreenShaderRuntime {
         Ok(())
     }
 
-    fn scan_shaders_if_due(&mut self) {
-        let now = Instant::now();
-        if self.next_scan.is_some_and(|next| now < next) {
+    fn poll_asset_scanner(&mut self) {
+        let Some(scanner) = self.asset_scanner.as_ref() else {
             return;
-        }
-
-        let interval_ms = self.settings.shader_scan_interval_ms.max(50);
-        self.next_scan = Some(now + Duration::from_millis(interval_ms));
+        };
+        let Some(mut snapshot) = scanner.try_take_latest() else {
+            return;
+        };
 
         // Preserve unsaved embedded menu edits before rebuilding dynamic source
-        // options. LUT and shader catalogs are then committed in one scan tick.
+        // options. Background discoveries are then committed in one render tick
+        // without performing file I/O on this thread.
         shaders::sync_embedded_effect_config(
             &self.sources,
             &mut self.settings.menu_config.embedded_effects,
         );
-        let lut_scan = match luts::scan_luts(&self.color_luts) {
-            Ok(scan) => Some(scan),
-            Err(err) => {
-                if self.scan_error_logs < 8 {
-                    log::warn!("[LUT] Live LUT scan failed: {err:#}");
-                    self.scan_error_logs += 1;
-                }
-                None
-            }
-        };
 
-        match shaders::scan_screen_shaders(&self.sources) {
-            Ok(scan) => {
-                let old_count = self.sources.len();
-                let lut_resources_changed =
-                    lut_scan.as_ref().is_some_and(|scan| scan.resources_changed);
-                if let Some(lut_scan) = lut_scan {
-                    for warning in lut_scan.warnings {
-                        if self.scan_error_logs >= 8 {
-                            break;
-                        }
-                        log::warn!("[LUT] {warning}");
-                        self.scan_error_logs += 1;
-                    }
-                    self.color_luts = lut_scan.catalog;
-                }
-                let (lut_names, lut_ids) = self.color_luts.choices();
-                let sources = shaders::merge_embedded_sources_with_luts(
-                    &self.settings.menu_config.embedded_effects,
-                    &lut_names,
-                    &lut_ids,
-                    scan.sources,
-                );
-                let new_count = sources.len();
-                if scan.shader_resources_changed {
-                    self.compiled = None;
-                }
-                if lut_resources_changed {
-                    self.blooming_hdr = None;
-                    log::info!(
-                        "[LUT] Live LUT catalog: {} file(s)",
-                        self.color_luts.assets.len()
-                    );
-                }
-                self.sources = sources;
-                self.publish_fnv_scene_requirements();
-                if old_count != new_count {
-                    log::info!("[SHADERS] Live shader list: {new_count} shader(s)");
-                }
-            }
-            Err(err) => {
-                if self.scan_error_logs < 8 {
-                    log::warn!("[SHADERS] Live shader scan failed: {err:#}");
-                    self.scan_error_logs += 1;
-                }
-            }
+        let old_count = self.sources.len();
+        let shader_resources_changed = snapshot.shader_generation != self.shader_catalog_generation;
+        let lut_resources_changed = snapshot.lut_generation != self.lut_catalog_generation;
+        if !shader_resources_changed && !lut_resources_changed {
+            return;
+        }
+
+        shaders::preserve_external_runtime_config(&self.sources, &mut snapshot.external_sources);
+        if lut_resources_changed {
+            self.color_luts = snapshot.color_luts;
+            self.blooming_hdr = None;
+            self.lut_catalog_generation = snapshot.lut_generation;
+            log::info!(
+                "[LUT] Live LUT catalog: {} file(s)",
+                self.color_luts.assets.len()
+            );
+        }
+        if shader_resources_changed {
+            self.compiled = None;
+            self.shader_catalog_generation = snapshot.shader_generation;
+        }
+        let (lut_names, lut_ids) = self.color_luts.choices();
+        self.sources = shaders::merge_embedded_sources_with_luts(
+            &self.settings.menu_config.embedded_effects,
+            &lut_names,
+            &lut_ids,
+            snapshot.external_sources,
+        );
+        self.publish_fnv_scene_requirements();
+        let new_count = self.sources.len();
+        if old_count != new_count {
+            log::info!("[SHADERS] Live shader list: {new_count} shader(s)");
         }
     }
 
@@ -1691,11 +1759,21 @@ impl ScreenShaderRuntime {
     }
 
     fn apply_menu_config_change(&mut self) {
+        MASTER_EFFECTS_ENABLED.store(
+            self.settings.menu_config.screen_space_shaders,
+            Ordering::Release,
+        );
         self.settings.depth_provider = self.settings.menu_config.depth_provider.into();
         self.settings.menu_toggle_key =
             sanitize_menu_toggle_key(self.settings.menu_config.menu_toggle_key);
         self.settings.menu_config.menu_toggle_key = self.settings.menu_toggle_key;
         self.settings.shader_scan_interval_ms = self.settings.menu_config.shader_scan_interval_ms;
+        if let Some(scanner) = self.asset_scanner.as_ref() {
+            scanner.reconfigure(
+                self.settings.shader_scan_interval_ms,
+                self.settings.menu_config.screen_space_shaders,
+            );
+        }
         MENU_TOGGLE_KEY.store(self.settings.menu_toggle_key, Ordering::Release);
         update_native_dof_query_needed(&self.settings.menu_config);
         crate::fnv_world_pipeline::publish_config(self.settings.menu_config);
@@ -1750,7 +1828,6 @@ impl ScreenShaderRuntime {
                 external_sources,
             );
             self.compiled = None;
-            self.next_scan = None;
             self.apply_menu_config_change();
             Ok::<(), anyhow::Error>(())
         })();

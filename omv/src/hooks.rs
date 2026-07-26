@@ -243,10 +243,12 @@ unsafe extern "system" fn present_detour(
 ) -> i32 {
     unsafe {
         let render_epoch = render_epoch();
-        pbr::finish_draw_batches();
-        sky::finish_direct_draw();
-        sky::service_present_frame();
-        runtime::apply_present_frame(device_ptr, dest_window);
+        if runtime::present_services_required() {
+            pbr::finish_draw_batches();
+            sky::finish_direct_draw();
+            sky::service_present_frame();
+            runtime::apply_present_frame(device_ptr, dest_window);
+        }
         let present_started_at = runtime::present_frame_started_at();
         let result = call_original_present(
             device_ptr,
@@ -327,6 +329,24 @@ mod tests {
         assert!(timestamp < native_present);
         assert!(native_present < finish);
     }
+
+    #[test]
+    fn disabled_master_bypasses_all_draw_boundary_effect_work() {
+        let source = include_str!("hooks.rs");
+        for detour in [
+            "unsafe extern \"system\" fn draw_primitive_detour",
+            "unsafe extern \"system\" fn draw_indexed_primitive_detour",
+        ] {
+            let body = source
+                .split_once(detour)
+                .map(|(_, tail)| tail)
+                .and_then(|tail| tail.split_once("pbr::prepare_direct_draw()"))
+                .map(|(prefix, _)| prefix)
+                .expect("draw detour master gate");
+            assert!(body.contains("if !runtime::effects_enabled()"));
+            assert!(body.contains("call_original_draw"));
+        }
+    }
 }
 
 unsafe extern "system" fn reset_detour(device_ptr: *mut c_void, params: *mut c_void) -> i32 {
@@ -346,6 +366,11 @@ unsafe extern "system" fn draw_primitive_detour(
     start_vertex: u32,
     primitive_count: u32,
 ) -> i32 {
+    if !runtime::effects_enabled() {
+        return unsafe {
+            call_original_draw_primitive(device_ptr, primitive_type, start_vertex, primitive_count)
+        };
+    }
     pbr::prepare_direct_draw();
     let sky_draw = sky::prepare_direct_draw();
     let result = unsafe {
@@ -366,6 +391,19 @@ unsafe extern "system" fn draw_indexed_primitive_detour(
     start_index: u32,
     primitive_count: u32,
 ) -> i32 {
+    if !runtime::effects_enabled() {
+        return unsafe {
+            call_original_draw_indexed_primitive(
+                device_ptr,
+                primitive_type,
+                base_vertex_index,
+                min_vertex_index,
+                vertex_count,
+                start_index,
+                primitive_count,
+            )
+        };
+    }
     pbr::prepare_direct_draw();
     let sky_draw = sky::prepare_direct_draw();
     let result = unsafe {

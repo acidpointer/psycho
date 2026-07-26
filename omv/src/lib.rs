@@ -4,6 +4,7 @@
 //! hooks and Direct3D state management should be developed and tested without
 //! increasing the blast radius of allocator or engine-fix changes.
 
+mod asset_scanner;
 mod backend;
 mod compat;
 mod config;

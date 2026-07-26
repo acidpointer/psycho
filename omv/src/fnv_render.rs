@@ -226,6 +226,10 @@ unsafe extern "cdecl" fn hook_process_image_space_shaders(
         log_hook_error("[FNV] Missing original ProcessImageSpaceShaders function");
         return;
     };
+    if !crate::runtime::effects_enabled() {
+        unsafe { original(renderer, rendered_texture_1, rendered_texture_2) };
+        return;
+    }
 
     unsafe {
         let outer_image_space_call = rendered_texture_2.is_null();
@@ -337,6 +341,18 @@ unsafe extern "thiscall" fn hook_render_world_scene_graph(
         log_hook_error("[FNV] Missing original RenderWorldSceneGraph function");
         return;
     };
+    if !crate::runtime::effects_enabled() {
+        unsafe {
+            original(
+                main,
+                scene_graph,
+                render_first_person,
+                scene_graph_phase,
+                render_flags,
+            )
+        };
+        return;
+    }
 
     unsafe {
         let world_scene_graph = scene_graph_phase == WORLD_SCENE_GRAPH_PHASE;
@@ -449,6 +465,10 @@ unsafe extern "thiscall" fn hook_render_first_person(
         log_hook_error("[FNV] Missing original RenderFirstPerson function");
         return;
     };
+    if !crate::runtime::effects_enabled() {
+        unsafe { original(main, renderer, geo, sky_sun, rendered_texture) };
+        return;
+    }
 
     unsafe {
         if let Some(device_ptr) = crate::backend::d3d_device_ptr() {
@@ -606,5 +626,33 @@ mod final_color_phase_contract_tests {
             || events.borrow_mut().push("final_color"),
         );
         assert_eq!(events.into_inner(), ["vanilla"]);
+    }
+
+    #[test]
+    fn disabled_master_bypasses_scene_boundary_work() {
+        let source = include_str!("fnv_render.rs");
+        for (detour, first_effect_work) in [
+            (
+                "unsafe extern \"cdecl\" fn hook_process_image_space_shaders",
+                "run_image_space_phase_order(",
+            ),
+            (
+                "unsafe extern \"thiscall\" fn hook_render_world_scene_graph",
+                "begin_temporal_aa_jitter()",
+            ),
+            (
+                "unsafe extern \"thiscall\" fn hook_render_first_person",
+                "fn capture_depth(",
+            ),
+        ] {
+            let prefix = source
+                .split_once(detour)
+                .map(|(_, tail)| tail)
+                .and_then(|tail| tail.split_once(first_effect_work))
+                .map(|(prefix, _)| prefix)
+                .expect("scene hook master gate");
+            assert!(prefix.contains("if !crate::runtime::effects_enabled()"));
+            assert!(prefix.contains("original("));
+        }
     }
 }

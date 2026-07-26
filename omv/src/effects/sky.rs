@@ -786,7 +786,6 @@ unsafe extern "thiscall" fn hook_update_constants(
     sky_shader: *mut c_void,
     property_state: *const c_void,
 ) {
-    clear_pending();
     let Ok(original) = UPDATE_HOOK.original() else {
         return;
     };
@@ -795,6 +794,7 @@ unsafe extern "thiscall" fn hook_update_constants(
     if !ENABLED.load(Ordering::Acquire) || sky_shader.is_null() || property_state.is_null() {
         return;
     }
+    clear_pending();
     let Some(property) = read_ptr_offset(property_state, PROPERTY_STATE_SHADE_PROPERTY_OFFSET)
     else {
         return;
