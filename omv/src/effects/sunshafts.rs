@@ -52,6 +52,13 @@ fn first_person_occlusion_requested(source: &ScreenShaderSource) -> bool {
         .is_some_and(|value| value[0].is_finite() && value[0] > 0.001)
 }
 
+pub(crate) fn should_draw(frame_inputs: &FrameInputs, source: &ScreenShaderSource) -> bool {
+    resolve_native_sun(frame_inputs).is_some()
+        && frame_inputs.depth.texture.is_some()
+        && (!frame_inputs.material_state.exterior_known || frame_inputs.material_state.is_exterior)
+        && (!first_person_occlusion_requested(source) || first_person_occlusion_safe(frame_inputs))
+}
+
 fn first_person_contract_ready(frame_inputs: &FrameInputs) -> bool {
     frame_inputs.depth.first_person_texture.is_some()
 }
@@ -177,13 +184,7 @@ impl SunshaftsEffect {
         scene_color: &Texture9,
         frame_index: u32,
     ) -> Direct3DResult<()> {
-        if resolve_native_sun(frame_inputs).is_none()
-            || frame_inputs.depth.texture.is_none()
-            || (frame_inputs.material_state.exterior_known
-                && !frame_inputs.material_state.is_exterior)
-            || (first_person_occlusion_requested(source)
-                && !first_person_occlusion_safe(frame_inputs))
-        {
+        if !should_draw(frame_inputs, source) {
             return Ok(());
         }
 

@@ -209,6 +209,16 @@ impl Ui<'_> {
         Child { visible }
     }
 
+    pub fn tab_bar(&mut self, id: &CStr) -> TabBar {
+        let visible = unsafe { ffi::psycho_imgui_begin_tab_bar(id.as_ptr()) };
+        TabBar { visible }
+    }
+
+    pub fn tab_item(&mut self, label: &CStr) -> TabItem {
+        let visible = unsafe { ffi::psycho_imgui_begin_tab_item(label.as_ptr()) };
+        TabItem { visible }
+    }
+
     pub fn text(&mut self, text: &CStr) {
         unsafe { ffi::psycho_imgui_text_unformatted(text.as_ptr()) };
     }
@@ -272,6 +282,16 @@ impl Ui<'_> {
 
     pub fn content_region_available_width(&self) -> f32 {
         unsafe { ffi::psycho_imgui_content_region_available_width() }
+    }
+
+    /// Return the vertical space remaining in the current ImGui content region.
+    pub fn content_region_available_height(&self) -> f32 {
+        unsafe { ffi::psycho_imgui_content_region_available_height() }
+    }
+
+    /// Return Dear ImGui's rolling frame-rate estimate for the active context.
+    pub fn frame_rate(&self) -> f32 {
+        unsafe { ffi::psycho_imgui_frame_rate() }
     }
 
     pub fn slider_float(&mut self, label: &CStr, value: &mut f32, min: f32, max: f32) -> bool {
@@ -471,6 +491,44 @@ impl Drop for Child {
 }
 
 #[must_use]
+pub struct TabBar {
+    visible: bool,
+}
+
+impl TabBar {
+    pub fn is_visible(&self) -> bool {
+        self.visible
+    }
+}
+
+impl Drop for TabBar {
+    fn drop(&mut self) {
+        if self.visible {
+            unsafe { ffi::psycho_imgui_end_tab_bar() };
+        }
+    }
+}
+
+#[must_use]
+pub struct TabItem {
+    visible: bool,
+}
+
+impl TabItem {
+    pub fn is_visible(&self) -> bool {
+        self.visible
+    }
+}
+
+impl Drop for TabItem {
+    fn drop(&mut self) {
+        if self.visible {
+            unsafe { ffi::psycho_imgui_end_tab_item() };
+        }
+    }
+}
+
+#[must_use]
 pub struct ItemWidth {
     _context: PhantomData<*mut ()>,
 }
@@ -578,6 +636,10 @@ mod ffi {
             border: bool,
         ) -> bool;
         pub fn psycho_imgui_end_child();
+        pub fn psycho_imgui_begin_tab_bar(id: *const c_char) -> bool;
+        pub fn psycho_imgui_end_tab_bar();
+        pub fn psycho_imgui_begin_tab_item(label: *const c_char) -> bool;
+        pub fn psycho_imgui_end_tab_item();
         pub fn psycho_imgui_text_unformatted(text: *const c_char);
         pub fn psycho_imgui_text_wrapped(text: *const c_char);
         pub fn psycho_imgui_text_colored(r: f32, g: f32, b: f32, a: f32, text: *const c_char);
@@ -601,6 +663,8 @@ mod ffi {
             first_in_group: bool,
         ) -> bool;
         pub fn psycho_imgui_content_region_available_width() -> f32;
+        pub fn psycho_imgui_content_region_available_height() -> f32;
+        pub fn psycho_imgui_frame_rate() -> f32;
         pub fn psycho_imgui_slider_float(
             label: *const c_char,
             value: *mut f32,
@@ -670,5 +734,34 @@ mod ffi {
         pub fn psycho_imgui_pop_item_width();
         pub fn psycho_imgui_same_line();
         pub fn psycho_imgui_scroll_to_bottom();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn psycho_theme_explicitly_colors_every_tab_state() {
+        let bridge = include_str!("bridge.cpp");
+        let style = bridge
+            .split_once("static void apply_psycho_style()")
+            .map(|(_, tail)| tail)
+            .and_then(|tail| tail.split_once("bool psycho_imgui_init_dx9"))
+            .map(|(body, _)| body)
+            .expect("Psycho ImGui style body");
+
+        for color in [
+            "ImGuiCol_Tab]",
+            "ImGuiCol_TabHovered]",
+            "ImGuiCol_TabSelected]",
+            "ImGuiCol_TabSelectedOverline]",
+            "ImGuiCol_TabDimmed]",
+            "ImGuiCol_TabDimmedSelected]",
+            "ImGuiCol_TabDimmedSelectedOverline]",
+        ] {
+            assert!(
+                style.contains(color),
+                "missing explicit theme color {color}"
+            );
+        }
     }
 }

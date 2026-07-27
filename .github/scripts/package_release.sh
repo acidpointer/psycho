@@ -88,7 +88,7 @@ cp "$OMV_CONFIG_PATH" "$STAGING/omv/Data/NVSE/plugins/omv/$OMV_CONFIG_FILE"
 find "$OMV_SHADER_SOURCE_DIR" \
     -maxdepth 1 \
     -type f \
-    \( -iname '*.hlsl' -o -iname '*.pso' -o -iname '*.cso' -o -iname '*.toml' \) \
+    \( -iname '*.hlsl' -o -iname '*.toml' \) \
     -exec cp '{}' "$STAGING/omv/Data/NVSE/plugins/omv/shaders/" \;
 find "$OMV_LUT_SOURCE_DIR" \
     -maxdepth 1 \
@@ -96,6 +96,12 @@ find "$OMV_LUT_SOURCE_DIR" \
     -iname '*.cube' \
     -exec cp '{}' "$STAGING/omv/Data/NVSE/plugins/omv/luts/" \;
 pack_dir "$STAGING/omv" "$OMV_ARCHIVE"
+
+if zipinfo -1 "$RELEASE_DIR/$OMV_ARCHIVE" \
+    | grep -Eiq '(^|/)(cache/|.*\.(cso|pso)$)'; then
+    echo "ERROR: OMV release contains generated shader bytecode or a cache directory" >&2
+    exit 1
+fi
 
 echo "Release archives:"
 for archive in "$CORE_ARCHIVE" "$HELPER_ARCHIVE" "$OMV_ARCHIVE"; do

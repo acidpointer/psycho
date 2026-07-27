@@ -3,11 +3,11 @@
 //! This creates D3D shader handles from prepared bytecode. Creation is
 //! bounded per frame and kept outside `SetShaders`.
 
-use std::ffi::c_void;
 use std::sync::{
     LazyLock,
     atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering},
 };
+use std::{ffi::c_void, sync::Arc};
 
 use libpsycho::os::windows::directx9::{Device9Ref, PixelShader9, VertexShader9};
 use parking_lot::Mutex;
@@ -29,6 +29,7 @@ static CLOSE_TERRAIN_CREATE_FAILED: AtomicBool = AtomicBool::new(false);
 static LAND_LOD_RESOURCES_READY: AtomicBool = AtomicBool::new(false);
 static TERRAIN_FADE_RESOURCES_READY: AtomicBool = AtomicBool::new(false);
 static CLOSE_TERRAIN_RESOURCES_READY: AtomicBool = AtomicBool::new(false);
+static ALL_RESOURCES_READY: AtomicBool = AtomicBool::new(false);
 static RESOURCES: LazyLock<Mutex<ResourceState>> = LazyLock::new(|| {
     Mutex::new(ResourceState {
         device: 0,
@@ -44,7 +45,7 @@ struct ResourceState {
 }
 
 struct ResourceSlot {
-    bytecode: Option<Vec<u32>>,
+    bytecode: Option<Arc<[u32]>>,
     pixel_shader: Option<PixelShader9>,
     vertex_shader: Option<VertexShader9>,
     create_failed: bool,
@@ -84,6 +85,7 @@ pub(super) fn service_frame() {
     if state.device != device_key {
         clear_published_handles();
         CLOSE_TERRAIN_RESOURCES_READY.store(false, Ordering::Release);
+        ALL_RESOURCES_READY.store(false, Ordering::Release);
         state.device = device_key;
         for slot in &mut state.slots {
             slot.clear_shader();
@@ -102,7 +104,7 @@ pub(super) fn service_frame() {
         }
 
         if slot.bytecode.is_none()
-            && let Some(bytecode) = compiler::take_ready_bytecode(template_id as u16)
+            && let Some(bytecode) = compiler::prepared_bytecode(template_id as u16)
         {
             slot.bytecode = Some(bytecode);
         }
@@ -122,7 +124,7 @@ pub(super) fn service_frame() {
                     let handle = shader.as_raw();
                     slot.pixel_shader = Some(shader);
                     publish_handle(template_id, handle);
-                    log::info!(
+                    log::debug!(
                         "[PBR] Pixel shader created {} handle={handle:p}",
                         template.label
                     );
@@ -142,7 +144,7 @@ pub(super) fn service_frame() {
                     let handle = shader.as_raw();
                     slot.vertex_shader = Some(shader);
                     publish_handle(template_id, handle);
-                    log::info!(
+                    log::debug!(
                         "[PBR] Vertex shader created {} handle={handle:p}",
                         template.label
                     );
@@ -213,6 +215,10 @@ pub(super) fn object_resources_ready() -> bool {
         .iter()
         .take(shader_registry::object_template_count())
         .all(ResourceSlot::has_shader)
+}
+
+pub(super) fn all_resources_ready() -> bool {
+    ALL_RESOURCES_READY.load(Ordering::Acquire)
 }
 
 pub(super) fn land_lod_shader_handle(stage: shader_registry::ShaderStage) -> Option<*mut c_void> {
@@ -306,6 +312,7 @@ pub(super) fn reset() {
     LAND_LOD_RESOURCES_READY.store(false, Ordering::Release);
     TERRAIN_FADE_RESOURCES_READY.store(false, Ordering::Release);
     CLOSE_TERRAIN_RESOURCES_READY.store(false, Ordering::Release);
+    ALL_RESOURCES_READY.store(false, Ordering::Release);
 }
 
 fn publish_handle(template_id: usize, handle: *mut c_void) {
@@ -326,6 +333,10 @@ fn clear_published_handles() {
 }
 
 fn update_failure_state(state: &ResourceState) {
+    ALL_RESOURCES_READY.store(
+        state.slots.iter().all(ResourceSlot::has_shader),
+        Ordering::Release,
+    );
     let land_lod_first = shader_registry::object_template_count();
     LAND_LOD_RESOURCES_READY.store(
         state.slots[land_lod_first..land_lod_first + 2]

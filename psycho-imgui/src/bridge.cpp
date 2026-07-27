@@ -195,6 +195,13 @@ static void apply_psycho_style() {
 	colors[ImGuiCol_Header] = ImVec4(0.075f, 0.185f, 0.155f, 0.84f);
 	colors[ImGuiCol_HeaderHovered] = ImVec4(0.110f, 0.340f, 0.260f, 0.94f);
 	colors[ImGuiCol_HeaderActive] = ImVec4(0.140f, 0.470f, 0.340f, 1.00f);
+	colors[ImGuiCol_Tab] = ImVec4(0.055f, 0.135f, 0.115f, 0.96f);
+	colors[ImGuiCol_TabHovered] = ImVec4(0.115f, 0.355f, 0.275f, 1.00f);
+	colors[ImGuiCol_TabSelected] = ImVec4(0.090f, 0.270f, 0.210f, 1.00f);
+	colors[ImGuiCol_TabSelectedOverline] = ImVec4(0.440f, 0.930f, 0.580f, 1.00f);
+	colors[ImGuiCol_TabDimmed] = ImVec4(0.035f, 0.075f, 0.064f, 0.94f);
+	colors[ImGuiCol_TabDimmedSelected] = ImVec4(0.065f, 0.180f, 0.145f, 1.00f);
+	colors[ImGuiCol_TabDimmedSelectedOverline] = ImVec4(0.300f, 0.660f, 0.460f, 0.80f);
 	colors[ImGuiCol_Separator] = ImVec4(0.230f, 0.480f, 0.380f, 0.78f);
 	colors[ImGuiCol_SeparatorHovered] = ImVec4(0.380f, 0.720f, 0.520f, 0.90f);
 	colors[ImGuiCol_SeparatorActive] = ImVec4(0.500f, 0.900f, 0.640f, 1.00f);
@@ -380,6 +387,22 @@ void psycho_imgui_end_child() {
 	ImGui::EndChild();
 }
 
+bool psycho_imgui_begin_tab_bar(const char* id) {
+	return ImGui::BeginTabBar(id);
+}
+
+void psycho_imgui_end_tab_bar() {
+	ImGui::EndTabBar();
+}
+
+bool psycho_imgui_begin_tab_item(const char* label) {
+	return ImGui::BeginTabItem(label);
+}
+
+void psycho_imgui_end_tab_item() {
+	ImGui::EndTabItem();
+}
+
 void psycho_imgui_text_unformatted(const char* text) {
 	ImGui::TextUnformatted(text);
 }
@@ -463,6 +486,14 @@ bool psycho_imgui_radio_button_wrapped(const char* label, bool active, bool firs
 
 float psycho_imgui_content_region_available_width() {
 	return ImGui::GetContentRegionAvail().x;
+}
+
+float psycho_imgui_content_region_available_height() {
+	return ImGui::GetContentRegionAvail().y;
+}
+
+float psycho_imgui_frame_rate() {
+	return ImGui::GetIO().Framerate;
 }
 
 bool psycho_imgui_slider_float(const char* label, float* value, float min, float max) {

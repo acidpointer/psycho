@@ -561,3 +561,51 @@ The next engineering step is contract instrumentation/research:
   - `analysis/ghidra/output/perf/graphics_fnv_pbr_vpt_nvr_contract_gap_audit.txt`
 
 That Ghidra output is already useful, but TESReloaded10/VPT source now supersedes it for the NVR-compatible pass formula. The fix is only ready to start after runtime logs prove a positive terrain key inside OMV and the missing constants/resource binding path is implemented.
+
+## Local preparation and distribution contract
+
+This lifecycle contract is independent of the material/pass coverage mapped
+above. It changes no PBR equation, register assignment, sampler requirement,
+variant key, quality level, or vanilla fallback decision.
+
+OMV distributions are source-only. Release archives may contain the authored
+HLSL sources, configuration, and assets, but must not contain `.cso`, `.pso`,
+or a populated runtime cache. The packaging script enforces that policy after
+archive creation.
+
+When native PBR is enabled, `effects/pbr/compiler.rs` owns an explicit local
+preparation transaction. It inventories the complete expected
+content-addressed cache before compiling misses. Cache identity covers the
+source, target, compiler flags, cache format, logical variant identity, and
+the PBR shader contract revision. A cache entry is usable only after its
+envelope and checksum validate. Missing or corrupt entries compile locally and
+are published with temporary-file write, flush, atomic rename, reopen, and
+verification. Persistence failure is a preparation failure, not an in-memory
+success.
+
+The verified bytecode catalog is process-owned and retained across D3D9 device
+loss. `effects/pbr/device_resources.rs` separately owns device shader handles
+and recreates only those handles after reset. Neither compilation nor cache
+I/O occurs from a render callback; Present only starts the preparation worker
+and creates at most four D3D handles per frame from already prepared memory.
+Draw replacement remains passive until the complete compiler catalog and
+complete device-resource catalog are ready. This whole-catalog gate is
+stricter than, and preserves, the mandatory atomic close-terrain-family gate
+from `docs/graphics_fnv_pbr_errata.md`.
+
+Disabling native PBR cancels the current preparation generation. Work that
+finishes after cancellation cannot publish into the active in-memory catalog;
+an already completed atomic cache commit remains a valid local cache entry for
+a later activation. A failed stage is visible in the workbench and offers an
+explicit retry. The standalone preparation overlay is informational and does
+not capture game input.
+
+Regression coverage proves source-only packaging, cache hash and corruption
+rejection, atomic cache publication, preservation of the process-owned catalog
+across device reset, cancellation on disable, and compilation of every
+registered source variant. Proton/DXVK playtesting must still prove a cold
+first run, an immediate warm-cache launch, and device-reset recreation without
+recompilation.
+
+On 2026-07-27, all 309 OMV tests passed through Wine and the optimized
+`i686-pc-windows-gnu` OMV release build completed successfully.

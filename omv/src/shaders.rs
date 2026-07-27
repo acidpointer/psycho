@@ -3,10 +3,10 @@
 use std::{
     collections::HashMap,
     fs,
-    io::Read,
+    io::{ErrorKind, Read, Write},
     path::{Path, PathBuf},
     sync::{
-        Once,
+        LazyLock, Once,
         atomic::{AtomicU32, Ordering},
     },
     time::SystemTime,
@@ -16,6 +16,7 @@ use anyhow::{Context, Result};
 use libpsycho::os::windows::directx9::{
     HLSL_COMPILER_FLAGS, compile_hlsl, dword_aligned_shader_bytecode,
 };
+use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 
 use crate::config::{
@@ -42,6 +43,7 @@ const HLSL_CACHE_RETAIN_BYTES: u64 = 48 * 1024 * 1024;
 const HLSL_CACHE_STALE_TEMP_SECONDS: u64 = 10 * 60;
 static HLSL_CACHE_CLEANUP: Once = Once::new();
 static HLSL_CACHE_TEMP_ID: AtomicU32 = AtomicU32::new(0);
+static HLSL_CACHE_IO: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum HlslCacheOrigin {
@@ -2537,40 +2539,99 @@ pub(crate) fn load_or_compile_hlsl_cached(
 ) -> Result<CachedHlsl> {
     start_shader_cache_maintenance();
 
-    let hash = hlsl_cache_hash(spec, source);
-    let (path, prefix) = hlsl_cache_path(spec, hash);
-    if let Ok(bytes) = fs::read(&path) {
-        match decode_cached_hlsl(&bytes, spec.target, hash) {
-            Ok(bytecode) => {
-                return Ok(CachedHlsl {
-                    bytecode,
-                    origin: HlslCacheOrigin::Cache,
-                });
-            }
-            Err(err) => {
-                log::warn!(
-                    "[SHADER CACHE] Rejecting invalid cache '{}': {err:#}",
-                    path.display()
-                );
-                let _ = fs::remove_file(&path);
-            }
+    match load_cached_hlsl(spec, source) {
+        Ok(Some(bytecode)) => {
+            return Ok(CachedHlsl {
+                bytecode,
+                origin: HlslCacheOrigin::Cache,
+            });
+        }
+        Ok(None) => {}
+        Err(err) => {
+            let hash = hlsl_cache_hash(spec, source);
+            let (path, _) = hlsl_cache_path(spec, hash);
+            log::warn!(
+                "[SHADER CACHE] Could not use '{}'; compiling in memory: {err:#}",
+                path.display()
+            );
         }
     }
 
-    let bytecode = compile_hlsl_bytes(spec.source_name, source, spec.target)?;
-    validate_shader_bytecode(&bytecode, spec.target)?;
-    if let Err(err) = publish_shader_cache(&path, &bytecode, hash, spec.target) {
-        log::warn!(
-            "[SHADER CACHE] Could not publish '{}': {err:#}",
-            path.display()
-        );
-    } else {
-        cleanup_stale_shader_variants(&path, &prefix);
+    let bytecode = compile_hlsl_uncached(spec.source_name, source, spec.target)?;
+    match commit_hlsl_cache(spec, source, &bytecode) {
+        Ok(bytecode) => Ok(CachedHlsl {
+            bytecode,
+            origin: HlslCacheOrigin::Compiler,
+        }),
+        Err(err) => {
+            let hash = hlsl_cache_hash(spec, source);
+            let (path, _) = hlsl_cache_path(spec, hash);
+            log::warn!(
+                "[SHADER CACHE] Could not persist '{}': {err:#}",
+                path.display()
+            );
+            Ok(CachedHlsl {
+                bytecode,
+                origin: HlslCacheOrigin::Compiler,
+            })
+        }
     }
-    Ok(CachedHlsl {
-        bytecode,
-        origin: HlslCacheOrigin::Compiler,
-    })
+}
+
+pub(crate) fn load_cached_hlsl(spec: HlslCacheSpec<'_>, source: &[u8]) -> Result<Option<Vec<u32>>> {
+    let hash = hlsl_cache_hash(spec, source);
+    let (path, _) = hlsl_cache_path(spec, hash);
+    let _cache_io = HLSL_CACHE_IO.lock();
+    let bytes = match fs::read(&path) {
+        Ok(bytes) => bytes,
+        Err(err) if err.kind() == ErrorKind::NotFound => return Ok(None),
+        Err(err) => {
+            return Err(err)
+                .with_context(|| format!("failed to read shader cache {}", path.display()));
+        }
+    };
+
+    match decode_cached_hlsl(&bytes, spec.target, hash) {
+        Ok(bytecode) => Ok(Some(bytecode)),
+        Err(err) => {
+            log::warn!(
+                "[SHADER CACHE] Rejecting invalid cache '{}': {err:#}",
+                path.display()
+            );
+            fs::remove_file(&path).with_context(|| {
+                format!("failed to remove invalid shader cache {}", path.display())
+            })?;
+            Ok(None)
+        }
+    }
+}
+
+pub(crate) fn compile_hlsl_uncached(
+    source_name: &str,
+    source: &[u8],
+    target: &str,
+) -> Result<Vec<u32>> {
+    let bytecode = compile_hlsl_bytes(source_name, source, target)?;
+    validate_shader_bytecode(&bytecode, target)?;
+    Ok(bytecode)
+}
+
+pub(crate) fn commit_hlsl_cache(
+    spec: HlslCacheSpec<'_>,
+    source: &[u8],
+    bytecode: &[u32],
+) -> Result<Vec<u32>> {
+    validate_shader_bytecode(&bytecode, spec.target)?;
+    let hash = hlsl_cache_hash(spec, source);
+    let (path, prefix) = hlsl_cache_path(spec, hash);
+    let _cache_io = HLSL_CACHE_IO.lock();
+    publish_shader_cache(&path, bytecode, hash, spec.target)?;
+    let persisted = fs::read(&path)
+        .with_context(|| format!("failed to reopen shader cache {}", path.display()))?;
+    let verified = decode_cached_hlsl(&persisted, spec.target, hash)
+        .with_context(|| format!("failed to verify shader cache {}", path.display()))?;
+    cleanup_stale_shader_variants(&path, &prefix);
+    Ok(verified)
 }
 
 pub(crate) fn start_shader_cache_maintenance() {
@@ -2744,8 +2805,13 @@ fn publish_shader_cache(
         .and_then(|name| name.to_str())
         .unwrap_or("shader.cso");
     let temporary = parent.join(format!(".{file_name}.tmp-{}-{temp_id}", std::process::id()));
-    fs::write(&temporary, bytes)
+    let mut file = fs::File::create(&temporary)
+        .with_context(|| format!("failed to create shader cache {}", temporary.display()))?;
+    file.write_all(&bytes)
         .with_context(|| format!("failed to write shader cache {}", temporary.display()))?;
+    file.sync_all()
+        .with_context(|| format!("failed to flush shader cache {}", temporary.display()))?;
+    drop(file);
     if let Err(err) = fs::rename(&temporary, path) {
         if path.exists() {
             let validation = fs::read(path)
@@ -2808,6 +2874,7 @@ fn cleanup_stale_shader_variants(current: &Path, prefix: &str) {
 }
 
 fn cleanup_shader_cache_budget() {
+    let _cache_io = HLSL_CACHE_IO.lock();
     let root = shader_cache_root();
     let mut files = Vec::new();
     let mut obsolete_removed = 0usize;
@@ -2869,11 +2936,13 @@ fn collect_shader_cache_files(
                 }
             } else if name.ends_with(".cso") {
                 if shader_cache_has_current_header(&path) {
-                    files.push((
-                        path,
-                        metadata.len(),
-                        metadata.modified().unwrap_or(SystemTime::UNIX_EPOCH),
-                    ));
+                    if !is_native_pbr_cache_path(&path) {
+                        files.push((
+                            path,
+                            metadata.len(),
+                            metadata.modified().unwrap_or(SystemTime::UNIX_EPOCH),
+                        ));
+                    }
                 } else {
                     if fs::remove_file(path).is_ok() {
                         *obsolete_removed += 1;
@@ -2882,6 +2951,11 @@ fn collect_shader_cache_files(
             }
         }
     }
+}
+
+fn is_native_pbr_cache_path(path: &Path) -> bool {
+    path.components()
+        .any(|component| component.as_os_str() == "native_pbr")
 }
 
 fn shader_cache_has_current_header(path: &Path) -> bool {

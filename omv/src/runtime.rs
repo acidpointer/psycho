@@ -199,9 +199,13 @@ mod render_callback_io_tests {
         let source = include_str!("runtime.rs");
         let lut_scan = ["luts::", "scan_luts("].concat();
         let shader_scan = ["shaders::", "scan_screen_shaders("].concat();
+        let shader_compile = ["compile_hlsl_", "uncached("].concat();
+        let cache_commit = ["commit_hlsl_", "cache("].concat();
 
         assert!(!source.contains(&lut_scan));
         assert!(!source.contains(&shader_scan));
+        assert!(!source.contains(&shader_compile));
+        assert!(!source.contains(&cache_commit));
     }
 
     #[test]
@@ -210,6 +214,65 @@ mod render_callback_io_tests {
         assert!(present_services_required_for(false, true, true));
         assert!(present_services_required_for(false, false, false));
         assert!(present_services_required_for(true, false, true));
+    }
+
+    #[test]
+    fn rejected_depth_effects_exit_before_creation_and_backbuffer_copy() {
+        let source = include_str!("runtime.rs");
+        for (function, predicate) in [
+            (
+                "fn draw_ambient_occlusion_pipeline(",
+                "ambient_occlusion::should_draw",
+            ),
+            ("fn draw_sunshafts_pipeline(", "sunshafts::should_draw"),
+            (
+                "fn draw_depth_of_field_pipeline(",
+                "depth_of_field::should_draw",
+            ),
+        ] {
+            let body = source
+                .split_once(function)
+                .map(|(_, tail)| tail)
+                .and_then(|tail| tail.split_once("\n    fn "))
+                .map(|(body, _)| body)
+                .expect("effect pipeline body");
+            let preflight = body
+                .find(predicate)
+                .expect("effect applicability preflight");
+            let creation = body
+                .find("::create(device)")
+                .expect("effect resource creation");
+            let copy = body.find("device.stretch_rect").expect("backbuffer copy");
+            assert!(preflight < creation);
+            assert!(preflight < copy);
+        }
+    }
+
+    #[test]
+    fn a_phase_with_only_rejected_effects_allocates_no_color_copy() {
+        let source = include_str!("runtime.rs");
+        for function in [
+            "unsafe fn apply_present_frame(",
+            "unsafe fn apply_scene_phase(",
+        ] {
+            let body = source
+                .split_once(function)
+                .map(|(_, tail)| tail)
+                .and_then(|tail| tail.split_once("\n    fn "))
+                .map(|(body, _)| body)
+                .expect("phase body");
+            let preflight = body
+                .find("phase_has_applicable_work")
+                .expect("phase applicability preflight");
+            let allocation = body
+                .find("ensure_phase_color_copy")
+                .expect("phase color-copy allocation");
+            let state_block = body
+                .find("ensure_state_block")
+                .expect("phase D3D state-block preparation");
+            assert!(preflight < allocation);
+            assert!(preflight < state_block);
+        }
     }
 }
 
@@ -441,7 +504,7 @@ pub(crate) fn handle_window_message(
     if (msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN) && wparam == toggle_key {
         let open = !menu_open;
         MENU_OPEN.store(open, Ordering::Release);
-        set_menu_diagnostics_active(open && IMGUI_READY.load(Ordering::Acquire));
+        set_menu_diagnostics_active(false);
         crate::input::set_menu_input_blocked(open);
         if !open {
             MENU_KEY_CAPTURE_ACTIVE.store(false, Ordering::Release);
@@ -505,6 +568,8 @@ struct ScreenShaderRuntime {
     imgui: Option<psycho_imgui::Dx9Context>,
     imgui_hwnd: usize,
     imgui_needs_device_objects: bool,
+    active_menu_tab: MenuTab,
+    menu_diagnostics_visible: bool,
     selected_menu_item: MenuSelection,
     present_timing: PresentFrameTiming,
     frame_pacing: FramePacing,
@@ -561,6 +626,8 @@ impl Default for ScreenShaderRuntime {
             imgui: None,
             imgui_hwnd: 0,
             imgui_needs_device_objects: false,
+            active_menu_tab: MenuTab::default(),
+            menu_diagnostics_visible: false,
             selected_menu_item: MenuSelection::default(),
             present_timing: PresentFrameTiming::default(),
             frame_pacing: FramePacing::default(),
@@ -672,11 +739,13 @@ impl ScreenShaderRuntime {
         self.ensure_imgui(&device, hwnd_hint);
 
         let menu_open = MENU_OPEN.load(Ordering::Acquire);
+        let pbr_preparation = pbr::preparation_status();
+        let preparation_overlay = !menu_open && pbr_preparation.active() && self.imgui.is_some();
         let can_apply_at_present = self.settings.depth_provider == DepthProvider::None;
         let has_shader_work = can_apply_at_present
             && !self.applied_phases.is_applied(ShaderPhase::FinalImageSpace)
             && self.has_enabled_shader_for_phase(ShaderPhase::FinalImageSpace);
-        if !menu_open && !has_shader_work {
+        if !menu_open && !has_shader_work && !preparation_overlay {
             return Ok(());
         }
 
@@ -685,7 +754,7 @@ impl ScreenShaderRuntime {
         }
 
         let has_drawable_shader = self.has_drawable_shader();
-        if !menu_open && !has_drawable_shader {
+        if !menu_open && !has_drawable_shader && !preparation_overlay {
             return Ok(());
         }
 
@@ -701,11 +770,25 @@ impl ScreenShaderRuntime {
             if desc.Width == 0 || desc.Height == 0 {
                 return Ok(());
             }
-            self.ensure_phase_color_copy(&device, &desc, ShaderPhase::FinalImageSpace)?;
-            Some((backbuffer, desc))
+            let frame_inputs = self.build_frame_inputs(&desc, ShaderPhase::FinalImageSpace);
+            if self.phase_has_applicable_work(ShaderPhase::FinalImageSpace, &frame_inputs) {
+                self.ensure_phase_color_copy(&device, &desc, ShaderPhase::FinalImageSpace)?;
+                Some((backbuffer, desc, frame_inputs))
+            } else {
+                self.maintain_rejected_phase_state(ShaderPhase::FinalImageSpace);
+                None
+            }
         } else {
             None
         };
+
+        if shader_target.is_none() && !menu_open && !preparation_overlay {
+            if has_shader_work {
+                self.applied_phases
+                    .mark_applied(ShaderPhase::FinalImageSpace);
+            }
+            return Ok(());
+        }
 
         self.ensure_state_block(&device)?;
 
@@ -717,12 +800,22 @@ impl ScreenShaderRuntime {
         state_block.capture()?;
 
         let draw_result = match shader_target.as_ref() {
-            Some((backbuffer, desc)) => {
-                self.draw_passes(&device, backbuffer, desc, ShaderPhase::FinalImageSpace)
-            }
+            Some((backbuffer, desc, frame_inputs)) => self.draw_passes(
+                &device,
+                backbuffer,
+                desc,
+                ShaderPhase::FinalImageSpace,
+                frame_inputs,
+            ),
             None => Ok(()),
         };
-        let menu_result = if menu_open { self.draw_menu() } else { Ok(()) };
+        let menu_result = if menu_open {
+            self.draw_menu()
+        } else if preparation_overlay {
+            self.draw_pbr_preparation(pbr_preparation)
+        } else {
+            Ok(())
+        };
         let restore_result = if let Some(state_block) = self.state_block.as_ref() {
             state_block.apply()
         } else {
@@ -781,14 +874,6 @@ impl ScreenShaderRuntime {
             }
         };
 
-        self.ensure_state_block(&device)?;
-        let Some(state_block) = self.state_block.as_ref() else {
-            return Err(runtime_error(
-                "[SHADERS] Missing D3D state block before scene capture",
-            ));
-        };
-        state_block.capture()?;
-
         let render_target = match self.scene_phase_render_target(&device, &restore_target, target) {
             Ok(Some(render_target)) => render_target,
             Ok(None) => return Ok(()),
@@ -810,12 +895,36 @@ impl ScreenShaderRuntime {
             return Ok(());
         }
 
+        let frame_inputs = self.build_frame_inputs(&desc, phase);
+        if !self.phase_has_applicable_work(phase, &frame_inputs) {
+            self.maintain_rejected_phase_state(phase);
+            let restore_render_target_result = device.set_render_target(0, &restore_target);
+            restore_render_target_result?;
+            self.applied_phases.mark_applied(phase);
+            return Ok(());
+        }
+
+        if let Err(err) = self.ensure_state_block(&device) {
+            let _ = device.set_render_target(0, &restore_target);
+            return Err(err);
+        }
+        let Some(state_block) = self.state_block.as_ref() else {
+            let _ = device.set_render_target(0, &restore_target);
+            return Err(runtime_error(
+                "[SHADERS] Missing D3D state block before scene capture",
+            ));
+        };
+        if let Err(err) = state_block.capture() {
+            let _ = device.set_render_target(0, &restore_target);
+            return Err(err);
+        }
+
         if let Err(err) = self.ensure_phase_color_copy(&device, &desc, phase) {
             let _ = device.set_render_target(0, &restore_target);
             return Err(err);
         }
 
-        let draw_result = self.draw_passes(&device, &render_target, &desc, phase);
+        let draw_result = self.draw_passes(&device, &render_target, &desc, phase, &frame_inputs);
         let restore_result = if let Some(state_block) = self.state_block.as_ref() {
             state_block.apply()
         } else {
@@ -988,6 +1097,8 @@ impl ScreenShaderRuntime {
 
         self.imgui = None;
         self.imgui_hwnd = hwnd as usize;
+        self.active_menu_tab = MenuTab::default();
+        self.menu_diagnostics_visible = false;
         IMGUI_READY.store(false, Ordering::Release);
 
         if let Err(err) = crate::hooks::install_window_proc(hwnd) {
@@ -1000,7 +1111,7 @@ impl ScreenShaderRuntime {
                 self.imgui = Some(imgui);
                 self.imgui_needs_device_objects = false;
                 IMGUI_READY.store(true, Ordering::Release);
-                set_menu_diagnostics_active(MENU_OPEN.load(Ordering::Acquire));
+                set_menu_diagnostics_active(false);
                 log::info!("[IMGUI] In-game shader menu initialized");
             }
             Err(err) => {
@@ -1121,12 +1232,141 @@ impl ScreenShaderRuntime {
         Ok(())
     }
 
+    fn build_frame_inputs(
+        &mut self,
+        desc: &D3DSURFACE_DESC,
+        phase: ShaderPhase,
+    ) -> backend::FrameInputs {
+        if !self.phase_needs_frame_inputs(phase) {
+            return backend::FrameInputs::default();
+        }
+
+        let depth = self.current_depth_frame();
+        let camera = if depth.world_projection.camera.available {
+            depth.world_projection.camera
+        } else {
+            backend::camera_frame(self.settings.depth_provider, desc)
+        };
+        let atmosphere_visibility = crate::fnv_world_pipeline::atmosphere_visibility();
+        let frame_inputs = backend::FrameInputs {
+            camera,
+            depth,
+            environment: backend::environment_frame(self.settings.depth_provider),
+            sun: backend::sun_frame(self.settings.depth_provider),
+            sky: backend::native_sky_frame(),
+            atmosphere_visibility: atmosphere_visibility.unwrap_or(0.0),
+            atmosphere_available: atmosphere_visibility.is_some(),
+            first_person_rendered: backend::fnv_first_person_rendered(),
+            material_state: backend::material_state_frame(),
+        };
+        self.log_frame_input_state(&frame_inputs);
+        frame_inputs
+    }
+
+    fn phase_has_applicable_work(
+        &self,
+        phase: ShaderPhase,
+        frame_inputs: &backend::FrameInputs,
+    ) -> bool {
+        let Some(compiled) = self.compiled.as_ref() else {
+            return false;
+        };
+        let fast_ao = self.sources.iter().find(|source| {
+            source.enabled
+                && source.phase() == phase
+                && source.embedded_effect_kind() == Some(EmbeddedEffectKind::FastAmbientOcclusion)
+        });
+        let contact_ao = self.sources.iter().find(|source| {
+            source.enabled
+                && source.phase() == phase
+                && source.embedded_effect_kind()
+                    == Some(EmbeddedEffectKind::ContactAmbientOcclusion)
+        });
+        let mut ao_checked = false;
+
+        for pass in compiled {
+            let source = &self.sources[pass.source_index];
+            if !source.enabled || source.phase() != phase {
+                continue;
+            }
+            let Some(kind) = source.embedded_effect_kind() else {
+                return true;
+            };
+            if kind.owns_world_boundary() {
+                continue;
+            }
+            match kind {
+                EmbeddedEffectKind::FastAmbientOcclusion
+                | EmbeddedEffectKind::ContactAmbientOcclusion => {
+                    if !ao_checked {
+                        ao_checked = true;
+                        if ambient_occlusion::should_draw(frame_inputs, fast_ao, contact_ao) {
+                            return true;
+                        }
+                    }
+                }
+                EmbeddedEffectKind::Sunshafts => {
+                    if sunshafts::should_draw(frame_inputs, source) {
+                        return true;
+                    }
+                }
+                EmbeddedEffectKind::DepthOfField => {
+                    if (self.depth_of_field.is_some() || depth_of_field::preparation_ready())
+                        && depth_of_field::should_draw(
+                            frame_inputs,
+                            self.settings.menu_config.embedded_effects.depth_of_field,
+                            self.native_dof_active_this_frame,
+                        )
+                    {
+                        return true;
+                    }
+                }
+                _ => return true,
+            }
+        }
+
+        false
+    }
+
+    fn maintain_rejected_phase_state(&mut self, phase: ShaderPhase) {
+        let fast_ao = self.sources.iter().find(|source| {
+            source.enabled
+                && source.phase() == phase
+                && source.embedded_effect_kind() == Some(EmbeddedEffectKind::FastAmbientOcclusion)
+        });
+        let contact_ao = self.sources.iter().find(|source| {
+            source.enabled
+                && source.phase() == phase
+                && source.embedded_effect_kind()
+                    == Some(EmbeddedEffectKind::ContactAmbientOcclusion)
+        });
+        if (fast_ao.is_some() || contact_ao.is_some())
+            && !ambient_occlusion::family_selected(fast_ao, contact_ao)
+            && let Some(effect) = self.ambient_occlusion.as_mut()
+        {
+            effect.reset_history();
+        }
+
+        let dof_enabled = self.sources.iter().any(|source| {
+            source.enabled
+                && source.phase() == phase
+                && source.embedded_effect_kind() == Some(EmbeddedEffectKind::DepthOfField)
+        });
+        if dof_enabled {
+            let config = self.settings.menu_config.embedded_effects.depth_of_field;
+            if let Some(effect) = self.depth_of_field.as_mut() {
+                effect.note_skipped(config, self.native_dof_active_this_frame);
+            }
+        }
+    }
+
     fn draw_passes(
         &mut self,
         device: &Device9Ref<'_>,
         backbuffer: &Surface9,
         desc: &D3DSURFACE_DESC,
         phase: ShaderPhase,
+        frame_inputs: &backend::FrameInputs,
     ) -> Direct3DResult<()> {
         let enabled_count: u32 = self.compiled.as_ref().map_or(0, |passes| {
             passes
@@ -1146,33 +1386,6 @@ impl ScreenShaderRuntime {
             return Ok(());
         }
 
-        let needs_frame_inputs = self.phase_needs_frame_inputs(phase);
-        let frame_inputs = if needs_frame_inputs {
-            let depth = self.current_depth_frame();
-            let camera = if depth.world_projection.camera.available {
-                depth.world_projection.camera
-            } else {
-                backend::camera_frame(self.settings.depth_provider, desc)
-            };
-            let atmosphere_visibility = crate::fnv_world_pipeline::atmosphere_visibility();
-            backend::FrameInputs {
-                camera,
-                depth,
-                environment: backend::environment_frame(self.settings.depth_provider),
-                sun: backend::sun_frame(self.settings.depth_provider),
-                sky: backend::native_sky_frame(),
-                atmosphere_visibility: atmosphere_visibility.unwrap_or(0.0),
-                atmosphere_available: atmosphere_visibility.is_some(),
-                first_person_rendered: backend::fnv_first_person_rendered(),
-                material_state: backend::material_state_frame(),
-            }
-        } else {
-            backend::FrameInputs::default()
-        };
-        if needs_frame_inputs {
-            self.log_frame_input_state(&frame_inputs);
-        }
-
         let Some(copy) = self.phase_color_copy(phase).cloned() else {
             return Ok(());
         };
@@ -1180,7 +1393,7 @@ impl ScreenShaderRuntime {
             return Ok(());
         }
 
-        self.bind_common_state(device, backbuffer, desc, &frame_inputs, &copy)?;
+        self.bind_common_state(device, backbuffer, desc, frame_inputs, &copy)?;
 
         let pass_count = enabled_count as f32;
         let quad = fullscreen_quad(desc);
@@ -1239,13 +1452,13 @@ impl ScreenShaderRuntime {
                         device,
                         backbuffer,
                         desc,
-                        &frame_inputs,
+                        frame_inputs,
                         &copy,
                         fast_source.as_ref(),
                         contact_source.as_ref(),
                     )?;
                     if rebind_common_state {
-                        self.bind_common_state(device, backbuffer, desc, &frame_inputs, &copy)?;
+                        self.bind_common_state(device, backbuffer, desc, frame_inputs, &copy)?;
                     }
                     ambient_occlusion_drawn = true;
                 }
@@ -1269,13 +1482,13 @@ impl ScreenShaderRuntime {
                         device,
                         backbuffer,
                         desc,
-                        &frame_inputs,
+                        frame_inputs,
                         &copy,
                         bloom_source.as_ref(),
                         color_grade_source.as_ref(),
                     )?;
                     if rebind_common_state {
-                        self.bind_common_state(device, backbuffer, desc, &frame_inputs, &copy)?;
+                        self.bind_common_state(device, backbuffer, desc, frame_inputs, &copy)?;
                     }
                     final_color_drawn = true;
                 }
@@ -1290,12 +1503,12 @@ impl ScreenShaderRuntime {
                     device,
                     backbuffer,
                     desc,
-                    &frame_inputs,
+                    frame_inputs,
                     &copy,
                     &source,
                 )?;
                 if rebind_common_state {
-                    self.bind_common_state(device, backbuffer, desc, &frame_inputs, &copy)?;
+                    self.bind_common_state(device, backbuffer, desc, frame_inputs, &copy)?;
                 }
                 pass_index = pass_index.saturating_add(source.pass_count.max(1));
                 continue;
@@ -1304,9 +1517,9 @@ impl ScreenShaderRuntime {
             if source.embedded_effect_kind() == Some(EmbeddedEffectKind::DepthOfField) {
                 let rebind_common_state = self.has_enabled_pass_after(phase, pass_position);
                 let source_pass_count = source.pass_count.max(1);
-                self.draw_depth_of_field_pipeline(device, backbuffer, desc, &frame_inputs, &copy)?;
+                self.draw_depth_of_field_pipeline(device, backbuffer, desc, frame_inputs, &copy)?;
                 if rebind_common_state {
-                    self.bind_common_state(device, backbuffer, desc, &frame_inputs, &copy)?;
+                    self.bind_common_state(device, backbuffer, desc, frame_inputs, &copy)?;
                 }
                 pass_index = pass_index.saturating_add(source_pass_count);
                 continue;
@@ -1326,7 +1539,7 @@ impl ScreenShaderRuntime {
                 let source = source.clone();
                 self.draw_anti_aliasing_pipeline(device, backbuffer, desc, &copy, &source)?;
                 if rebind_common_state {
-                    self.bind_common_state(device, backbuffer, desc, &frame_inputs, &copy)?;
+                    self.bind_common_state(device, backbuffer, desc, frame_inputs, &copy)?;
                 }
                 pass_index = pass_index.saturating_add(source.pass_count.max(1));
                 continue;
@@ -1393,7 +1606,7 @@ impl ScreenShaderRuntime {
                         frame_inputs.sun.daylight,
                     ]],
                 )?;
-                bind_depth_contract_constants(device, &frame_inputs)?;
+                bind_depth_contract_constants(device, frame_inputs)?;
 
                 log::trace!(
                     "[SHADERS] Drawing '{}' screen pass '{}'",
@@ -1435,6 +1648,14 @@ impl ScreenShaderRuntime {
         fast_source: Option<&ScreenShaderSource>,
         contact_source: Option<&ScreenShaderSource>,
     ) -> Direct3DResult<()> {
+        if !ambient_occlusion::should_draw(frame_inputs, fast_source, contact_source) {
+            if !ambient_occlusion::family_selected(fast_source, contact_source)
+                && let Some(effect) = self.ambient_occlusion.as_mut()
+            {
+                effect.reset_history();
+            }
+            return Ok(());
+        }
         if self.ambient_occlusion.is_none() {
             self.ambient_occlusion =
                 Some(ambient_occlusion::AmbientOcclusionEffect::create(device)?);
@@ -1575,6 +1796,9 @@ impl ScreenShaderRuntime {
         current_color_copy: &BackbufferCopy,
         source: &ScreenShaderSource,
     ) -> Direct3DResult<()> {
+        if !sunshafts::should_draw(frame_inputs, source) {
+            return Ok(());
+        }
         if self.sunshafts.is_none() {
             self.sunshafts = Some(sunshafts::SunshaftsEffect::create(device)?);
             log::info!("[SUNSHAFTS] Engine-side pipeline initialized");
@@ -1611,6 +1835,14 @@ impl ScreenShaderRuntime {
         frame_inputs: &backend::FrameInputs,
         current_color_copy: &BackbufferCopy,
     ) -> Direct3DResult<()> {
+        let config = self.settings.menu_config.embedded_effects.depth_of_field;
+        let native_dof_active = self.native_dof_active_this_frame;
+        if !depth_of_field::should_draw(frame_inputs, config, native_dof_active) {
+            if let Some(effect) = self.depth_of_field.as_mut() {
+                effect.note_skipped(config, native_dof_active);
+            }
+            return Ok(());
+        }
         if self.depth_of_field_creation_failed {
             return Ok(());
         }
@@ -1628,9 +1860,7 @@ impl ScreenShaderRuntime {
             }
         }
 
-        let config = self.settings.menu_config.embedded_effects.depth_of_field;
         let frame_seconds = self.present_timing.frame_seconds();
-        let native_dof_active = self.native_dof_active_this_frame;
         let frame_index = self.frame_index;
         let Some(effect) = self.depth_of_field.as_mut() else {
             return Ok(());
@@ -1714,24 +1944,38 @@ impl ScreenShaderRuntime {
             return Ok(());
         };
 
-        set_menu_diagnostics_active(true);
-        self.frame_pacing.begin_session(menu_diagnostics_session());
+        let diagnostics_active = diagnostics_should_be_active(
+            true,
+            IMGUI_READY.load(Ordering::Acquire),
+            self.active_menu_tab,
+            self.menu_diagnostics_visible,
+        );
+        set_menu_diagnostics_active(diagnostics_active);
+        if diagnostics_active {
+            self.frame_pacing.begin_session(menu_diagnostics_session());
+        }
 
         if self.imgui_needs_device_objects && imgui.create_device_objects() {
             self.imgui_needs_device_objects = false;
         }
 
         let menu_frame = {
-            let frame_pacing = self.frame_pacing.snapshot();
+            let frame_pacing = if diagnostics_active {
+                self.frame_pacing.snapshot()
+            } else {
+                FramePacingSnapshot::default()
+            };
             let feature_status = EngineFeatureStatus {
                 pbr: pbr::runtime_status(),
                 sky: sky::runtime_status(),
+                depth: backend::depth_resolve_status(self.settings.depth_provider),
             };
             let mut ui = imgui.new_frame(true);
             draw_shader_menu(
                 &mut ui,
                 &mut self.settings.menu_config,
                 &mut self.sources,
+                &mut self.active_menu_tab,
                 &mut self.selected_menu_item,
                 &frame_pacing,
                 feature_status,
@@ -1743,6 +1987,13 @@ impl ScreenShaderRuntime {
             )
         };
 
+        self.menu_diagnostics_visible = menu_frame.diagnostics_visible;
+        set_menu_diagnostics_active(diagnostics_should_be_active(
+            true,
+            IMGUI_READY.load(Ordering::Acquire),
+            self.active_menu_tab,
+            self.menu_diagnostics_visible,
+        ));
         imgui.render();
         if menu_frame.changed {
             self.apply_menu_config_change();
@@ -1755,6 +2006,22 @@ impl ScreenShaderRuntime {
             MenuAction::Save => self.save_menu_session(),
             MenuAction::Reload => self.reload_menu_session(),
         }
+        Ok(())
+    }
+
+    fn draw_pbr_preparation(&mut self, status: pbr::PbrPreparationStatus) -> Direct3DResult<()> {
+        let Some(imgui) = self.imgui.as_mut() else {
+            return Ok(());
+        };
+        if self.imgui_needs_device_objects && imgui.create_device_objects() {
+            self.imgui_needs_device_objects = false;
+        }
+
+        {
+            let mut ui = imgui.new_frame(false);
+            draw_pbr_preparation_window(&mut ui, status);
+        }
+        imgui.render();
         Ok(())
     }
 
@@ -3469,8 +3736,8 @@ mod frame_pacing_tests {
         FRAME_BUDGET_30_MS, FRAME_BUDGET_60_MS, FRAME_PACING_CHART_POINTS,
         FRAME_PACING_DEFAULT_UPDATE_INTERVAL_MS, FRAME_PACING_HISTORY, FRAME_PACING_SPIKE_MEMORY,
         FRAME_PACING_SPIKE_WARMUP_SAMPLES, FramePacing, MENU_DIAGNOSTICS_ACTIVE_BIT,
-        MENU_DIAGNOSTICS_SESSION_INCREMENT, PresentFrameTiming, SpikeDirection,
-        build_frame_time_cadence_chart, diagnostics_state_transition,
+        MENU_DIAGNOSTICS_SESSION_INCREMENT, MenuTab, PresentFrameTiming, SpikeDirection,
+        build_frame_time_cadence_chart, diagnostics_should_be_active, diagnostics_state_transition,
     };
     use std::time::{Duration, Instant};
 
@@ -3843,6 +4110,40 @@ mod frame_pacing_tests {
     }
 
     #[test]
+    fn diagnostics_collection_follows_the_diagnostics_tab_only() {
+        assert!(!diagnostics_should_be_active(
+            true,
+            true,
+            MenuTab::Configuration,
+            true,
+        ));
+        assert!(diagnostics_should_be_active(
+            true,
+            true,
+            MenuTab::Diagnostics,
+            true,
+        ));
+        assert!(!diagnostics_should_be_active(
+            false,
+            true,
+            MenuTab::Diagnostics,
+            true,
+        ));
+        assert!(!diagnostics_should_be_active(
+            true,
+            false,
+            MenuTab::Diagnostics,
+            true,
+        ));
+        assert!(!diagnostics_should_be_active(
+            true,
+            true,
+            MenuTab::Diagnostics,
+            false,
+        ));
+    }
+
+    #[test]
     fn closed_menu_does_not_collect_frame_pacing() {
         let mut pacing = FramePacing::default();
         let start = Instant::now();
@@ -4059,10 +4360,94 @@ mod frame_pacing_tests {
         timing.record_frame_at(start + Duration::from_millis(90), 104, true);
         assert_close(timing.frame_seconds(), 0.020);
     }
+
+    #[test]
+    fn workbench_separates_configuration_from_diagnostics() {
+        let source = include_str!("runtime.rs");
+        let menu = source
+            .split_once("\nfn draw_shader_menu(\n    ui:")
+            .map(|(_, tail)| tail)
+            .and_then(|tail| tail.split_once("\nfn draw_shader_menu_toolbar("))
+            .map(|(body, _)| body)
+            .expect("workbench menu body");
+
+        assert!(menu.contains("Configuration##workbench_configuration"));
+        assert!(menu.contains("Diagnostics##workbench_diagnostics"));
+        assert!(menu.contains("result.diagnostics_visible = true"));
+        assert!(!menu.contains("graphics_overview"));
+    }
+
+    #[test]
+    fn workbench_header_contains_realtime_fps_without_diagnostics() {
+        let source = include_str!("runtime.rs");
+        let toolbar = source
+            .split_once("\nfn draw_shader_menu_toolbar(")
+            .map(|(_, tail)| tail)
+            .and_then(|tail| tail.split_once("\nfn draw_configuration_tab("))
+            .map(|(body, _)| body)
+            .expect("workbench toolbar body");
+
+        assert!(toolbar.contains("ui.frame_rate()"));
+        assert!(toolbar.contains("FPS"));
+        assert!(!toolbar.contains("FramePacingSnapshot"));
+    }
+
+    #[test]
+    fn effect_configuration_contains_no_live_diagnostics() {
+        let source = include_str!("runtime.rs");
+        for (function, boundary, forbidden) in [
+            (
+                "fn draw_native_pbr_config(",
+                "\nfn draw_pbr_diagnostics(",
+                &["LIVE PIPELINES", "TRANSITION DIAGNOSTICS"][..],
+            ),
+            (
+                "fn draw_shader_details(",
+                "\nfn depth_of_field_option_visible(",
+                &["fnv_local_lights::telemetry"][..],
+            ),
+        ] {
+            let signature = format!("\n{function}");
+            let body = source
+                .split_once(signature.as_str())
+                .map(|(_, tail)| tail)
+                .and_then(|tail| tail.split_once(boundary))
+                .map(|(body, _)| body)
+                .expect("configuration panel body");
+            for marker in forbidden {
+                assert!(
+                    !body.contains(marker),
+                    "{function} still exposes live diagnostic marker {marker}"
+                );
+            }
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum MenuTab {
+    Configuration,
+    Diagnostics,
+}
+
+impl Default for MenuTab {
+    fn default() -> Self {
+        Self::Configuration
+    }
+}
+
+fn diagnostics_should_be_active(
+    menu_open: bool,
+    imgui_ready: bool,
+    tab: MenuTab,
+    tab_content_visible: bool,
+) -> bool {
+    menu_open && imgui_ready && tab == MenuTab::Diagnostics && tab_content_visible
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum MenuSelection {
+    General,
     NativePbr,
     NativeSky,
     Shader(usize),
@@ -4072,11 +4457,12 @@ enum MenuSelection {
 struct EngineFeatureStatus {
     pbr: pbr::NativePbrRuntimeStatus,
     sky: sky::NativeSkyStatus,
+    depth: backend::DepthResolveStatus,
 }
 
 impl Default for MenuSelection {
     fn default() -> Self {
-        Self::NativePbr
+        Self::General
     }
 }
 
@@ -4092,12 +4478,11 @@ enum MenuAction {
 struct MenuFrameResult {
     changed: bool,
     action: MenuAction,
+    diagnostics_visible: bool,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
-struct MenuHeaderResult {
-    sources_changed: bool,
-    settings_changed: bool,
+struct MenuToolbarResult {
     action: MenuAction,
 }
 
@@ -4119,69 +4504,233 @@ const MENU_SAVE_BUTTON_ACTIVE: [f32; 4] = [0.08, 0.74, 0.44, 1.0];
 const MENU_RELOAD_BUTTON: [f32; 4] = [0.43, 0.27, 0.08, 1.0];
 const MENU_RELOAD_BUTTON_HOVERED: [f32; 4] = [0.67, 0.42, 0.10, 1.0];
 const MENU_RELOAD_BUTTON_ACTIVE: [f32; 4] = [0.86, 0.54, 0.12, 1.0];
+
+fn draw_pbr_preparation_window(ui: &mut psycho_imgui::Ui<'_>, status: pbr::PbrPreparationStatus) {
+    ui.set_next_window_centered(
+        0.42,
+        0.22,
+        460.0,
+        170.0,
+        620.0,
+        240.0,
+        psycho_imgui::Condition::Always,
+    );
+    let title = cstring("OH MY VEGAS // LOCAL SHADER PREPARATION");
+    let window = ui.window(&title, None);
+    if !window.is_visible() {
+        return;
+    }
+
+    let stage = match status.phase {
+        pbr::PbrPreparationPhase::Inventory => "Checking the local shader cache",
+        pbr::PbrPreparationPhase::Compiling => "Compiling missing shaders locally",
+        pbr::PbrPreparationPhase::CreatingResources => "Creating Direct3D shader resources",
+        pbr::PbrPreparationPhase::Ready => "Ready",
+        pbr::PbrPreparationPhase::Failed => "Preparation failed",
+        pbr::PbrPreparationPhase::Disabled => "Disabled",
+    };
+    ui.text_wrapped(&cstring(
+        "OMV ships shader source only. This preparation runs after an install or shader change; later launches reuse the verified local cache.",
+    ));
+    ui.separator();
+    ui.text_colored(MENU_ACCENT_TEXT, &cstring(stage));
+
+    let (completed, total, detail) = match status.phase {
+        pbr::PbrPreparationPhase::Inventory => (
+            status.bytecode_ready,
+            status.total,
+            format!(
+                "{} valid cache entries found",
+                status.cache_hits.max(status.bytecode_ready)
+            ),
+        ),
+        pbr::PbrPreparationPhase::Compiling => (
+            status.compiled,
+            status.cache_misses.max(1),
+            format!(
+                "{} compiled; {} cache hits; {} missing",
+                status.compiled, status.cache_hits, status.cache_misses
+            ),
+        ),
+        pbr::PbrPreparationPhase::CreatingResources => (
+            status.resources_ready,
+            status.total,
+            format!(
+                "{} verified bytecode entries; {} D3D resources",
+                status.bytecode_ready, status.resources_ready
+            ),
+        ),
+        _ => (
+            status.bytecode_ready,
+            status.total,
+            format!("{} ready; {} failed", status.bytecode_ready, status.failed),
+        ),
+    };
+    let fraction = if total == 0 {
+        0.0
+    } else {
+        (completed as f32 / total as f32).clamp(0.0, 1.0)
+    };
+    ui.progress_bar(
+        fraction,
+        ui.content_region_available_width().max(1.0),
+        0.0,
+        &cstring(format!("{completed}/{total}")),
+    );
+    ui.text_colored(MENU_MUTED_TEXT, &cstring(detail));
+}
+
 fn draw_shader_menu(
     ui: &mut psycho_imgui::Ui<'_>,
     menu_config: &mut GraphicsMenuConfig,
     sources: &mut [ScreenShaderSource],
+    active_tab: &mut MenuTab,
     selected_item: &mut MenuSelection,
     frame_pacing: &FramePacingSnapshot,
     feature_status: EngineFeatureStatus,
     persistence: MenuPersistenceView<'_>,
 ) -> MenuFrameResult {
     ui.set_next_window_centered(
-        0.82,
         0.86,
-        840.0,
-        560.0,
-        1180.0,
-        860.0,
+        0.88,
+        780.0,
+        520.0,
+        1280.0,
+        900.0,
         psycho_imgui::Condition::FirstUseEver,
     );
 
-    let title = cstring("OH MY VEGAS // GRAPHICS WORKBENCH");
+    let title = cstring("Oh My Vegas - Graphics");
     let window = ui.window(&title, None);
     if !window.is_visible() {
         return MenuFrameResult::default();
     }
 
-    let header = draw_shader_menu_header(
-        ui,
-        menu_config,
-        sources,
-        frame_pacing,
-        persistence.dirty,
-        persistence.error,
-        persistence.notice,
-    );
-    let mut result = MenuFrameResult {
-        changed: header.sources_changed || header.settings_changed,
-        action: header.action,
-    };
-    if header.sources_changed {
-        shaders::sync_embedded_effect_config(sources, &mut menu_config.embedded_effects);
-    }
-    ui.separator();
-    result.changed |= draw_global_config(ui, menu_config);
-    ui.separator();
+    let mut result = MenuFrameResult::default();
+    result.action =
+        draw_shader_menu_toolbar(ui, persistence.dirty, persistence.error, persistence.notice)
+            .action;
 
+    let tabs = ui.tab_bar(&cstring("graphics_workbench_tabs"));
+    if !tabs.is_visible() {
+        return result;
+    }
+
+    {
+        let configuration = ui.tab_item(&cstring("Configuration##workbench_configuration"));
+        if configuration.is_visible() {
+            *active_tab = MenuTab::Configuration;
+            result.changed |=
+                draw_configuration_tab(ui, menu_config, sources, selected_item, feature_status);
+        }
+    }
+
+    {
+        let diagnostics = ui.tab_item(&cstring("Diagnostics##workbench_diagnostics"));
+        if diagnostics.is_visible() {
+            *active_tab = MenuTab::Diagnostics;
+            result.diagnostics_visible = true;
+            result.changed |=
+                draw_diagnostics_tab(ui, menu_config, sources, frame_pacing, feature_status);
+        }
+    }
+
+    result
+}
+
+fn draw_shader_menu_toolbar(
+    ui: &mut psycho_imgui::Ui<'_>,
+    menu_config_dirty: bool,
+    menu_config_error: Option<&str>,
+    menu_config_notice: Option<&str>,
+) -> MenuToolbarResult {
+    let mut result = MenuToolbarResult::default();
+    ui.text_colored(MENU_ACCENT_TEXT, &cstring("OMV GRAPHICS"));
+    ui.same_line();
+    let frame_rate = ui.frame_rate();
+    let (frame_rate_color, frame_rate_text) = if frame_rate.is_finite() && frame_rate > 0.0 {
+        (
+            frame_time_color(1_000.0 / frame_rate),
+            format!("{frame_rate:.1} FPS"),
+        )
+    } else {
+        (MENU_MUTED_TEXT, "-- FPS".to_owned())
+    };
+    ui.text_colored(frame_rate_color, &cstring(frame_rate_text));
+    ui.same_line();
+    ui.text_colored(
+        if menu_config_dirty {
+            MENU_WARN_TEXT
+        } else {
+            MENU_GOOD_TEXT
+        },
+        &cstring(if menu_config_dirty {
+            "Unsaved changes"
+        } else {
+            "Saved"
+        }),
+    );
+    ui.same_line();
+    let save = cstring("Save##config_save");
+    if ui.button_colored(
+        &save,
+        MENU_SAVE_BUTTON,
+        MENU_SAVE_BUTTON_HOVERED,
+        MENU_SAVE_BUTTON_ACTIVE,
+    ) {
+        result.action = MenuAction::Save;
+    }
+    ui.same_line();
+    let reload = cstring(if menu_config_dirty {
+        "Discard & Reload##config_reload"
+    } else {
+        "Reload##config_reload"
+    });
+    if ui.button_colored(
+        &reload,
+        MENU_RELOAD_BUTTON,
+        MENU_RELOAD_BUTTON_HOVERED,
+        MENU_RELOAD_BUTTON_ACTIVE,
+    ) {
+        result.action = MenuAction::Reload;
+    }
+
+    if let Some(error) = menu_config_error {
+        ui.text_colored(
+            MENU_ERROR_TEXT,
+            &cstring(format!("Could not update the configuration: {error}")),
+        );
+    } else if let Some(notice) = menu_config_notice {
+        ui.text_colored(MENU_GOOD_TEXT, &cstring(notice));
+    } else {
+        ui.text_colored(
+            MENU_MUTED_TEXT,
+            &cstring("Tune effects live, then save when the image feels right."),
+        );
+    }
+
+    result
+}
+
+fn draw_configuration_tab(
+    ui: &mut psycho_imgui::Ui<'_>,
+    menu_config: &mut GraphicsMenuConfig,
+    sources: &mut [ScreenShaderSource],
+    selected_item: &mut MenuSelection,
+    feature_status: EngineFeatureStatus,
+) -> bool {
+    let mut changed = false;
     clamp_menu_selection(sources, selected_item);
     let available_width = ui.content_region_available_width().max(1.0);
-    let list_width = (available_width * 0.28)
-        .clamp(260.0, 380.0)
-        .min((available_width - 320.0).max(180.0));
+    let list_width = (available_width * 0.25)
+        .clamp(230.0, 320.0)
+        .min((available_width - 420.0).max(190.0));
 
     {
         let item_list = cstring("graphics_feature_list");
         let child = ui.child(&item_list, list_width, 0.0, true);
         if child.is_visible() {
-            draw_feature_list(
-                ui,
-                menu_config,
-                sources,
-                selected_item,
-                feature_status.pbr,
-                feature_status.sky,
-            );
+            draw_feature_list(ui, menu_config, sources, selected_item);
         }
     }
 
@@ -4192,12 +4741,23 @@ fn draw_shader_menu(
         let child = ui.child(&item_details, 0.0, 0.0, true);
         if child.is_visible() {
             match *selected_item {
+                MenuSelection::General => {
+                    changed |= draw_global_config(ui, menu_config, feature_status.depth);
+                    let sources_changed = draw_render_stack_config(ui, sources);
+                    if sources_changed {
+                        shaders::sync_embedded_effect_config(
+                            sources,
+                            &mut menu_config.embedded_effects,
+                        );
+                    }
+                    changed |= sources_changed;
+                }
                 MenuSelection::NativePbr => {
-                    result.changed |=
+                    changed |=
                         draw_native_pbr_config(ui, &mut menu_config.native_pbr, feature_status.pbr);
                 }
                 MenuSelection::NativeSky => {
-                    result.changed |=
+                    changed |=
                         draw_native_sky_config(ui, &mut menu_config.native_sky, feature_status.sky);
                 }
                 MenuSelection::Shader(index) => {
@@ -4210,89 +4770,24 @@ fn draw_shader_menu(
                                 &mut menu_config.embedded_effects,
                             );
                         }
-                        result.changed |= source_changed;
+                        changed |= source_changed;
                     }
                 }
             }
         }
     }
 
-    result
+    changed
 }
 
-fn draw_shader_menu_header(
+fn draw_render_stack_config(
     ui: &mut psycho_imgui::Ui<'_>,
-    menu_config: &mut GraphicsMenuConfig,
     sources: &mut [ScreenShaderSource],
-    frame_pacing: &FramePacingSnapshot,
-    menu_config_dirty: bool,
-    menu_config_error: Option<&str>,
-    menu_config_notice: Option<&str>,
-) -> MenuHeaderResult {
-    let mut result = MenuHeaderResult::default();
+) -> bool {
     let (enabled_count, error_count, scene_count, final_count) = shader_counts(sources);
-    let title = cstring("OMV RENDER LAB");
-    ui.text_colored(MENU_ACCENT_TEXT, &title);
-    let session = if menu_config_dirty {
-        cstring("SESSION MODIFIED // NOT SAVED")
-    } else {
-        cstring("SESSION MATCHES DISK")
-    };
-    ui.text_colored(
-        if menu_config_dirty {
-            MENU_WARN_TEXT
-        } else {
-            MENU_GOOD_TEXT
-        },
-        &session,
-    );
-
-    let subtitle =
-        cstring("Live graphics tuning for the Mojave. Changes remain temporary until Save.");
-    ui.text_colored(MENU_MUTED_TEXT, &subtitle);
-    let controls_hint = cstring(
-        "Ctrl-click a slider to type an exact number. Hold -/+ to repeat; Ctrl uses a larger step.",
-    );
-    ui.text_colored(MENU_MUTED_TEXT, &controls_hint);
-
-    let save = cstring("SAVE TO DISK##config_save");
-    if ui.button_colored(
-        &save,
-        MENU_SAVE_BUTTON,
-        MENU_SAVE_BUTTON_HOVERED,
-        MENU_SAVE_BUTTON_ACTIVE,
-    ) {
-        result.action = MenuAction::Save;
-    }
-    ui.same_line();
-    let reload = cstring("RELOAD FROM DISK##config_reload");
-    if ui.button_colored(
-        &reload,
-        MENU_RELOAD_BUTTON,
-        MENU_RELOAD_BUTTON_HOVERED,
-        MENU_RELOAD_BUTTON_ACTIVE,
-    ) {
-        result.action = MenuAction::Reload;
-    }
-    let path = cstring(crate::config::CONFIG_PATH);
-    ui.spacing();
-    ui.text_colored(MENU_MUTED_TEXT, &path);
-
-    if let Some(error) = menu_config_error {
-        let text = cstring(format!("Disk operation failed: {error}"));
-        ui.text_colored(MENU_ERROR_TEXT, &text);
-    } else if let Some(notice) = menu_config_notice {
-        ui.text_colored(MENU_GOOD_TEXT, &cstring(notice));
-    } else if menu_config_dirty {
-        let warning = cstring("Reload discards every unsaved session edit.");
-        ui.text_colored(MENU_WARN_TEXT, &warning);
-    }
-
-    ui.separator();
-    let title = cstring("RENDER STACK");
-    ui.text_colored(MENU_ACCENT_TEXT, &title);
+    ui.separator_text(&cstring("EFFECT STACK"));
     let summary = cstring(format!(
-        "{} effects | {} enabled | {} scene | {} final | {} issue{}",
+        "{} effects, {} enabled, {} scene, {} final, {} issue{}",
         sources.len(),
         enabled_count,
         scene_count,
@@ -4302,31 +4797,122 @@ fn draw_shader_menu_header(
     ));
     ui.text_colored(MENU_MUTED_TEXT, &summary);
 
-    if !sources.is_empty() {
-        let fraction = enabled_count as f32 / sources.len() as f32;
-        let overlay = cstring(format!("{enabled_count}/{} enabled", sources.len()));
-        ui.progress_bar(fraction, 220.0, 0.0, &overlay);
-        ui.same_line();
-    }
-
+    let mut changed = false;
     let enable_all = cstring("Enable all");
     if ui.button(&enable_all) {
-        result.sources_changed |= set_all_sources_enabled(sources, true);
+        changed |= set_all_sources_enabled(sources, true);
     }
     ui.same_line();
     let disable_all = cstring("Disable all");
     if ui.button(&disable_all) {
-        result.sources_changed |= set_all_sources_enabled(sources, false);
+        changed |= set_all_sources_enabled(sources, false);
     }
 
-    ui.spacing();
-    result.settings_changed |= draw_frame_pacing_panel(
+    changed
+}
+
+fn draw_diagnostics_tab(
+    ui: &mut psycho_imgui::Ui<'_>,
+    menu_config: &mut GraphicsMenuConfig,
+    sources: &[ScreenShaderSource],
+    frame_pacing: &FramePacingSnapshot,
+    feature_status: EngineFeatureStatus,
+) -> bool {
+    let diagnostics = ui.child(&cstring("graphics_diagnostics"), 0.0, 0.0, false);
+    if !diagnostics.is_visible() {
+        return false;
+    }
+
+    ui.text_colored(MENU_ACCENT_TEXT, &cstring("LIVE DIAGNOSTICS"));
+    ui.text_colored(
+        MENU_MUTED_TEXT,
+        &cstring("Telemetry is collected only while this tab is visible."),
+    );
+
+    let mut changed = draw_frame_pacing_panel(
         ui,
         frame_pacing,
         &mut menu_config.frame_pacing_update_interval_ms,
     );
+    draw_render_stack_diagnostics(ui, sources);
+    draw_depth_diagnostics(ui, menu_config.depth_provider, feature_status.depth);
+    draw_native_sky_diagnostics(ui, feature_status.sky);
+    changed |= draw_pbr_diagnostics(ui, &mut menu_config.native_pbr, feature_status.pbr);
+    draw_local_lights_diagnostics(ui, sources);
+    draw_world_pipeline_diagnostics(ui);
+    changed
+}
 
-    result
+fn draw_render_stack_diagnostics(ui: &mut psycho_imgui::Ui<'_>, sources: &[ScreenShaderSource]) {
+    let (enabled_count, error_count, scene_count, final_count) = shader_counts(sources);
+    ui.separator_text(&cstring("RENDER STACK"));
+    ui.text_colored(
+        if error_count == 0 {
+            MENU_GOOD_TEXT
+        } else {
+            MENU_WARN_TEXT
+        },
+        &cstring(format!(
+            "{} enabled of {} // {} scene // {} final // {} issue{}",
+            enabled_count,
+            sources.len(),
+            scene_count,
+            final_count,
+            error_count,
+            if error_count == 1 { "" } else { "s" },
+        )),
+    );
+    for source in sources.iter().filter(|source| shader_has_error(source)) {
+        ui.text_colored(
+            MENU_ERROR_TEXT,
+            &cstring(format!(
+                "{}: shader or configuration error",
+                shader_display_name(source)
+            )),
+        );
+    }
+}
+
+fn draw_depth_diagnostics(
+    ui: &mut psycho_imgui::Ui<'_>,
+    configured_provider: DepthProviderConfig,
+    status: backend::DepthResolveStatus,
+) {
+    ui.separator_text(&cstring("DEPTH"));
+    let configured = match configured_provider {
+        DepthProviderConfig::None => "Disabled",
+        DepthProviderConfig::FalloutNewVegas => "Fallout New Vegas native depth",
+    };
+    ui.text_colored(
+        MENU_MUTED_TEXT,
+        &cstring(format!("Configured source: {configured}")),
+    );
+    let (color, route) = match status.route {
+        backend::DepthResolveRouteStatus::Unprobed => (MENU_WARN_TEXT, "Waiting for D3D device"),
+        backend::DepthResolveRouteStatus::Resz => (MENU_GOOD_TEXT, "RESZ"),
+        backend::DepthResolveRouteStatus::Nvapi => (MENU_GOOD_TEXT, "NVIDIA NvAPI"),
+        backend::DepthResolveRouteStatus::Unavailable => (MENU_ERROR_TEXT, "Unavailable"),
+    };
+    ui.text_colored(color, &cstring(format!("Resolve route: {route}")));
+    if status.route == backend::DepthResolveRouteStatus::Unavailable {
+        ui.text_wrapped(&cstring(status.reason));
+    }
+}
+
+fn draw_native_sky_diagnostics(ui: &mut psycho_imgui::Ui<'_>, status: sky::NativeSkyStatus) {
+    ui.separator_text(&cstring("NATIVE SKY"));
+    let (color, text) = native_sky_status_summary(status);
+    ui.text_colored(color, &cstring(text));
+    if status.enabled {
+        ui.text_colored(
+            MENU_MUTED_TEXT,
+            &cstring(format!(
+                "Shader resources: {}/{} ready",
+                status.created.max(status.compiled),
+                status.total
+            )),
+        );
+    }
 }
 
 fn draw_frame_pacing_panel(
@@ -4621,21 +5207,32 @@ fn budget_hit_color(hit_percent: f32) -> [f32; 4] {
     }
 }
 
-fn draw_global_config(ui: &mut psycho_imgui::Ui<'_>, config: &mut GraphicsMenuConfig) -> bool {
+fn draw_global_config(
+    ui: &mut psycho_imgui::Ui<'_>,
+    config: &mut GraphicsMenuConfig,
+    depth_status: backend::DepthResolveStatus,
+) -> bool {
     let mut changed = false;
 
-    let heading = cstring("SESSION CONTROLS");
+    let heading = cstring("GENERAL");
     ui.separator_text(&heading);
+    ui.text_colored(
+        MENU_MUTED_TEXT,
+        &cstring("Workbench access, effect ownership, and asset refresh behavior."),
+    );
 
     changed |= draw_config_checkbox(
         ui,
-        "Master effects switch",
+        "Enable OMV graphics",
         "global.screen_space_shaders",
         &mut config.screen_space_shaders,
     );
 
     changed |= draw_menu_keybind_control(ui, &mut config.menu_toggle_key);
 
+    changed |= draw_depth_provider_config(ui, &mut config.depth_provider, depth_status);
+
+    ui.separator_text(&cstring("ADVANCED"));
     let mut scan_interval = config.shader_scan_interval_ms.clamp(50, 5_000) as i32;
     if draw_int_slider(
         ui,
@@ -4648,8 +5245,6 @@ fn draw_global_config(ui: &mut psycho_imgui::Ui<'_>, config: &mut GraphicsMenuCo
         config.shader_scan_interval_ms = scan_interval.clamp(50, 5_000) as u64;
         changed = true;
     }
-
-    changed |= draw_depth_provider_config(ui, &mut config.depth_provider);
 
     changed
 }
@@ -4717,22 +5312,34 @@ fn draw_menu_keybind_control(ui: &mut psycho_imgui::Ui<'_>, key: &mut u32) -> bo
 fn draw_depth_provider_config(
     ui: &mut psycho_imgui::Ui<'_>,
     depth_provider: &mut DepthProviderConfig,
+    status: backend::DepthResolveStatus,
 ) -> bool {
     let provider_name = match depth_provider {
         DepthProviderConfig::None => "Disabled",
-        DepthProviderConfig::FalloutNewVegas => "Fallout New Vegas native depth",
+        DepthProviderConfig::FalloutNewVegas => "Fallout New Vegas",
     };
-    let text = cstring(format!("Depth source: {provider_name}"));
-    ui.text(&text);
+    ui.separator_text(&cstring("DEPTH SOURCE"));
+    ui.text_colored(
+        MENU_MUTED_TEXT,
+        &cstring(format!("Current: {provider_name}")),
+    );
+    if status.route == backend::DepthResolveRouteStatus::Unavailable
+        && *depth_provider == DepthProviderConfig::FalloutNewVegas
+    {
+        ui.text_colored(
+            MENU_ERROR_TEXT,
+            &cstring("Depth is unavailable. See Diagnostics for the resolver reason."),
+        );
+    }
 
     let mut changed = false;
-    let none = cstring("Disable depth##global.depth_provider.none");
+    let none = cstring("Disabled##global.depth_provider.none");
     if ui.button(&none) && *depth_provider != DepthProviderConfig::None {
         *depth_provider = DepthProviderConfig::None;
         changed = true;
     }
     ui.same_line();
-    let fnv = cstring("Use Fallout NV depth##global.depth_provider.fnv");
+    let fnv = cstring("Fallout New Vegas##global.depth_provider.fnv");
     if ui.button(&fnv) && *depth_provider != DepthProviderConfig::FalloutNewVegas {
         *depth_provider = DepthProviderConfig::FalloutNewVegas;
         changed = true;
@@ -4751,87 +5358,34 @@ fn draw_native_pbr_config(
     let subtitle = cstring("Native material response for terrain, architecture, and objects.");
     ui.text_colored(MENU_MUTED_TEXT, &subtitle);
 
-    let any_shader_failure = status.active_contracts_failed
+    let preparation_active = matches!(
+        status.preparation.phase,
+        pbr::PbrPreparationPhase::Inventory
+            | pbr::PbrPreparationPhase::Compiling
+            | pbr::PbrPreparationPhase::CreatingResources
+            | pbr::PbrPreparationPhase::Failed
+    );
+    let contract_degraded = status.active_contracts_failed
         || status.land_lod_contract_failed
         || status.terrain_fade_contract_failed
         || status.close_terrain_contract_failed;
-    let any_resource_ready = status.object_resources_ready != 0
-        || status.land_lod_resources_ready != 0
-        || status.terrain_fade_resources_ready != 0
-        || status.close_terrain_resources_ready != 0;
-    let (status_color, status_text) = if let Some(reason) = status.block_reason {
-        (MENU_WARN_TEXT, format!("Blocked: {reason}"))
-    } else if status.installed && status.shader_enabled && any_shader_failure {
-        (MENU_WARN_TEXT, "Active with per-draw fallback".to_owned())
-    } else if status.installed && status.shader_enabled && !any_resource_ready {
-        (MENU_WARN_TEXT, "Shader warmup".to_owned())
-    } else if status.installed && status.shader_enabled {
-        (
-            MENU_GOOD_TEXT,
-            "Active - exact pairs replace as soon as ready".to_owned(),
-        )
-    } else {
-        (MENU_MUTED_TEXT, "Disabled".to_owned())
-    };
-    let status_text = cstring(status_text);
-    ui.text_colored(status_color, &status_text);
+    if preparation_active || status.block_reason.is_some() || (config.enabled && contract_degraded)
+    {
+        let (status_color, status_text) = native_pbr_status_summary(status);
+        ui.text_colored(status_color, &cstring(status_text));
+    }
+    if status.preparation.phase == pbr::PbrPreparationPhase::Failed {
+        let retry = cstring("Retry local shader preparation##native_pbr.retry");
+        if ui.button(&retry) {
+            pbr::retry_preparation();
+        }
+    }
     ui.separator();
 
     let mut changed = false;
     changed |= draw_config_checkbox(ui, "Enable PBR", "native_pbr.enabled", &mut config.enabled);
 
     if config.enabled {
-        let section = cstring("LIVE PIPELINES");
-        ui.separator_text(&section);
-        draw_pbr_family_status(
-            ui,
-            "Objects",
-            status.shader_enabled,
-            status.object_contract_ready,
-            status.object_resources_ready,
-            status.object_bytecode_ready,
-            status.object_shader_total,
-            status.object_resources_failed + status.object_bytecode_failed,
-            status.object_replacements_last_frame,
-            status.object_fallbacks_last_frame,
-        );
-        draw_pbr_family_status(
-            ui,
-            "Close terrain",
-            status.close_terrain_enabled,
-            status.terrain_engine_contract_ready,
-            status.close_terrain_resources_ready,
-            status.close_terrain_bytecode_ready,
-            status.close_terrain_shader_total,
-            status.close_terrain_resources_failed + status.close_terrain_bytecode_failed,
-            status.close_terrain_replacements_last_frame,
-            status.close_terrain_fallbacks_last_frame,
-        );
-        draw_pbr_family_status(
-            ui,
-            "Terrain fade",
-            status.terrain_fade_enabled,
-            status.terrain_engine_contract_ready,
-            status.terrain_fade_resources_ready,
-            status.terrain_fade_bytecode_ready,
-            status.terrain_fade_shader_total,
-            status.terrain_fade_resources_failed + status.terrain_fade_bytecode_failed,
-            status.terrain_fade_replacements_last_frame,
-            status.terrain_fade_fallbacks_last_frame,
-        );
-        draw_pbr_family_status(
-            ui,
-            "LandLOD",
-            status.terrain_lod_enabled,
-            status.terrain_engine_contract_ready,
-            status.land_lod_resources_ready,
-            status.land_lod_bytecode_ready,
-            status.land_lod_shader_total,
-            status.land_lod_resources_failed + status.land_lod_bytecode_failed,
-            status.land_lod_replacements_last_frame,
-            status.land_lod_fallbacks_last_frame,
-        );
-
         let section = cstring("OBJECT MATERIAL");
         ui.separator_text(&section);
         changed |= draw_float_slider(
@@ -4930,66 +5484,181 @@ fn draw_native_pbr_config(
             0.05,
             16.0,
         );
+    }
 
-        let section = cstring("TRANSITION DIAGNOSTICS");
-        ui.separator_text(&section);
-        changed |= draw_config_checkbox(
-            ui,
-            "Track object lighting transitions",
-            "native_pbr.debug_log_draws",
-            &mut config.debug_log_draws,
-        );
-        let diagnostic_cost = cstring(
-            "Development aid: collected only while this menu is open; logs state changes, not every draw.",
-        );
-        ui.text_colored(MENU_MUTED_TEXT, &diagnostic_cost);
-        if config.debug_log_draws {
-            let transition = cstring(format!(
-                "Last contract change: {} -> {}  |  changes last frame: {}",
-                status.object_last_contract_transition_from,
-                status.object_last_contract_transition_to,
-                status.object_contract_transitions_last_frame,
-            ));
-            ui.text(&transition);
-            let fallback = cstring(format!(
-                "Last fallback: {}  |  row {}  |  selector 0x{:08X}",
-                status.object_last_reject_reason,
-                status.object_last_reject_row,
-                status.object_last_reject_selector,
-            ));
-            ui.text(&fallback);
-            if status.object_last_fade_geometry != 0 {
-                let fade = cstring(format!(
-                    "Specular fade: distance {:.2}  range {:.2}..{:.2}  expected {:.4}  staged {:.4}  c25.w {:.4}",
-                    status.object_last_fade_distance,
-                    status.object_last_fade_start,
-                    status.object_last_fade_end,
-                    status.object_last_fade_expected,
-                    status.object_last_fade_staged,
-                    status.object_last_fade_c25,
-                ));
-                ui.text(&fade);
-                let identity = cstring(format!(
-                    "Fade object: geometry 0x{:08X}  property 0x{:08X}  light capacity {} / 0x{:08X}",
+    changed
+}
+
+fn draw_pbr_diagnostics(
+    ui: &mut psycho_imgui::Ui<'_>,
+    config: &mut crate::config::NativePbrConfig,
+    status: pbr::NativePbrRuntimeStatus,
+) -> bool {
+    ui.separator_text(&cstring("PBR PIPELINES"));
+    let (status_color, status_text) = native_pbr_status_summary(status);
+    ui.text_colored(status_color, &cstring(status_text));
+    ui.text_colored(
+        MENU_MUTED_TEXT,
+        &cstring(format!(
+            "Local preparation: {} cache hits, {} compiled, {}/{} resources ready, {} failed",
+            status.preparation.cache_hits,
+            status.preparation.compiled,
+            status.preparation.resources_ready,
+            status.preparation.total,
+            status.preparation.failed,
+        )),
+    );
+    draw_pbr_family_status(
+        ui,
+        "Objects",
+        status.shader_enabled,
+        status.object_contract_ready,
+        status.object_resources_ready,
+        status.object_bytecode_ready,
+        status.object_shader_total,
+        status.object_resources_failed + status.object_bytecode_failed,
+        status.object_replacements_last_frame,
+        status.object_fallbacks_last_frame,
+    );
+    draw_pbr_family_status(
+        ui,
+        "Close terrain",
+        status.close_terrain_enabled,
+        status.terrain_engine_contract_ready,
+        status.close_terrain_resources_ready,
+        status.close_terrain_bytecode_ready,
+        status.close_terrain_shader_total,
+        status.close_terrain_resources_failed + status.close_terrain_bytecode_failed,
+        status.close_terrain_replacements_last_frame,
+        status.close_terrain_fallbacks_last_frame,
+    );
+    draw_pbr_family_status(
+        ui,
+        "Terrain fade",
+        status.terrain_fade_enabled,
+        status.terrain_engine_contract_ready,
+        status.terrain_fade_resources_ready,
+        status.terrain_fade_bytecode_ready,
+        status.terrain_fade_shader_total,
+        status.terrain_fade_resources_failed + status.terrain_fade_bytecode_failed,
+        status.terrain_fade_replacements_last_frame,
+        status.terrain_fade_fallbacks_last_frame,
+    );
+    draw_pbr_family_status(
+        ui,
+        "LandLOD",
+        status.terrain_lod_enabled,
+        status.terrain_engine_contract_ready,
+        status.land_lod_resources_ready,
+        status.land_lod_bytecode_ready,
+        status.land_lod_shader_total,
+        status.land_lod_resources_failed + status.land_lod_bytecode_failed,
+        status.land_lod_replacements_last_frame,
+        status.land_lod_fallbacks_last_frame,
+    );
+
+    ui.separator_text(&cstring("OBJECT TRANSITIONS"));
+    let changed = draw_config_checkbox(
+        ui,
+        "Track object lighting transitions",
+        "native_pbr.debug_log_draws",
+        &mut config.debug_log_draws,
+    );
+    ui.text_colored(
+        MENU_MUTED_TEXT,
+        &cstring("Development telemetry is sampled only while Diagnostics is visible."),
+    );
+    if config.debug_log_draws {
+        ui.text(&cstring(format!(
+            "Last contract change: {} -> {} // {} changes last frame",
+            status.object_last_contract_transition_from,
+            status.object_last_contract_transition_to,
+            status.object_contract_transitions_last_frame,
+        )));
+        ui.text(&cstring(format!(
+            "Last fallback: {} // row {} // selector 0x{:08X}",
+            status.object_last_reject_reason,
+            status.object_last_reject_row,
+            status.object_last_reject_selector,
+        )));
+        if status.object_last_fade_geometry != 0 {
+            ui.text(&cstring(format!(
+                "Specular fade: distance {:.2} // range {:.2}..{:.2} // expected {:.4} // staged {:.4} // c25.w {:.4}",
+                status.object_last_fade_distance,
+                status.object_last_fade_start,
+                status.object_last_fade_end,
+                status.object_last_fade_expected,
+                status.object_last_fade_staged,
+                status.object_last_fade_c25,
+            )));
+            ui.text_colored(
+                MENU_MUTED_TEXT,
+                &cstring(format!(
+                    "Geometry 0x{:08X} // property 0x{:08X} // light capacity {} / 0x{:08X}",
                     status.object_last_fade_geometry,
                     status.object_last_fade_property,
                     status.object_last_light_capacity,
                     status.object_last_light_signature,
-                ));
-                ui.text_colored(MENU_MUTED_TEXT, &identity);
-                let material = cstring(format!(
-                    "Material resources: base 0x{:08X}  normal 0x{:08X}",
+                )),
+            );
+            ui.text_colored(
+                MENU_MUTED_TEXT,
+                &cstring(format!(
+                    "Material resources: base 0x{:08X} // normal 0x{:08X}",
                     status.object_last_base_texture, status.object_last_normal_texture,
-                ));
-                ui.text_colored(MENU_MUTED_TEXT, &material);
-            } else {
-                let waiting = cstring("Waiting for a combined-specular object draw.");
-                ui.text_colored(MENU_MUTED_TEXT, &waiting);
-            }
+                )),
+            );
+        } else {
+            ui.text_colored(
+                MENU_MUTED_TEXT,
+                &cstring("Waiting for a combined-specular object draw."),
+            );
         }
     }
 
     changed
+}
+
+fn native_pbr_status_summary(status: pbr::NativePbrRuntimeStatus) -> ([f32; 4], String) {
+    let any_shader_failure = status.active_contracts_failed
+        || status.land_lod_contract_failed
+        || status.terrain_fade_contract_failed
+        || status.close_terrain_contract_failed;
+    let any_resource_ready = status.object_resources_ready != 0
+        || status.land_lod_resources_ready != 0
+        || status.terrain_fade_resources_ready != 0
+        || status.close_terrain_resources_ready != 0;
+    match status.preparation.phase {
+        pbr::PbrPreparationPhase::Inventory => {
+            (MENU_WARN_TEXT, "Checking the local shader cache".to_owned())
+        }
+        pbr::PbrPreparationPhase::Compiling => (
+            MENU_WARN_TEXT,
+            "Compiling missing shaders locally".to_owned(),
+        ),
+        pbr::PbrPreparationPhase::CreatingResources => {
+            (MENU_WARN_TEXT, "Preparing graphics resources".to_owned())
+        }
+        pbr::PbrPreparationPhase::Failed => (
+            MENU_ERROR_TEXT,
+            format!(
+                "Local shader preparation failed for {} variant(s)",
+                status.preparation.failed
+            ),
+        ),
+        _ if status.block_reason.is_some() => (
+            MENU_WARN_TEXT,
+            format!("Blocked: {}", status.block_reason.unwrap_or("unknown")),
+        ),
+        _ if status.installed && status.shader_enabled && any_shader_failure => {
+            (MENU_WARN_TEXT, "Active with fallback".to_owned())
+        }
+        _ if status.installed && status.shader_enabled && !any_resource_ready => {
+            (MENU_WARN_TEXT, "Preparing graphics resources".to_owned())
+        }
+        _ if status.installed && status.shader_enabled => (MENU_GOOD_TEXT, "Active".to_owned()),
+        _ => (MENU_MUTED_TEXT, "Disabled".to_owned()),
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -5047,25 +5716,13 @@ fn draw_native_sky_config(
     ui.separator_text(&heading);
     let subtitle = cstring("Atmosphere, celestial light, clouds, stars, and Mojave sunsets.");
     ui.text_colored(MENU_MUTED_TEXT, &subtitle);
-    let (status_color, status_text) = if status.failed {
-        (MENU_ERROR_TEXT, "Shader error".to_owned())
-    } else if status.enabled && status.created == status.total {
-        (MENU_GOOD_TEXT, "Active".to_owned())
-    } else if status.enabled {
-        (
-            MENU_WARN_TEXT,
-            format!(
-                "Loading {}/{}",
-                status.created.max(status.compiled),
-                status.total
-            ),
-        )
-    } else if status.installed {
-        (MENU_MUTED_TEXT, "Disabled".to_owned())
-    } else {
-        (MENU_WARN_TEXT, "Hook unavailable".to_owned())
-    };
-    ui.text_colored(status_color, &cstring(status_text));
+    if status.failed
+        || !status.installed
+        || (status.enabled && status.created.max(status.compiled) != status.total)
+    {
+        let (status_color, status_text) = native_sky_status_summary(status);
+        ui.text_colored(status_color, &cstring(status_text));
+    }
     ui.separator();
 
     let mut changed = false;
@@ -5191,26 +5848,148 @@ fn draw_native_sky_config(
     changed
 }
 
+fn native_sky_status_summary(status: sky::NativeSkyStatus) -> ([f32; 4], String) {
+    if status.failed {
+        (MENU_ERROR_TEXT, "Shader error".to_owned())
+    } else if status.enabled && status.created == status.total {
+        (MENU_GOOD_TEXT, "Active".to_owned())
+    } else if status.enabled {
+        (MENU_WARN_TEXT, "Preparing graphics resources".to_owned())
+    } else if status.installed {
+        (MENU_MUTED_TEXT, "Disabled".to_owned())
+    } else {
+        (MENU_WARN_TEXT, "Hook unavailable".to_owned())
+    }
+}
+
+fn draw_local_lights_diagnostics(ui: &mut psycho_imgui::Ui<'_>, sources: &[ScreenShaderSource]) {
+    ui.separator_text(&cstring("LOCAL VOLUMETRIC LIGHTS"));
+    let telemetry = crate::fnv_local_lights::telemetry();
+    let hook_status = if !telemetry.hooks_ready {
+        "Capture hooks unavailable"
+    } else if telemetry.capture_enabled {
+        if telemetry.shadow_hook_ready {
+            "Scene capture active; native shadows available"
+        } else {
+            "Scene capture active; using shadowless fallback"
+        }
+    } else {
+        "Capture disabled by configuration"
+    };
+    ui.text_colored(
+        if telemetry.hooks_ready && telemetry.capture_enabled {
+            MENU_GOOD_TEXT
+        } else {
+            MENU_WARN_TEXT
+        },
+        &cstring(hook_status),
+    );
+    ui.text_colored(
+        MENU_MUTED_TEXT,
+        &cstring(format!(
+            "Traversal {} // scene {} // rendered {} // shadowed {}",
+            telemetry.traversals,
+            telemetry.scene_lights,
+            telemetry.rendered,
+            telemetry.shadowed_lights,
+        )),
+    );
+    ui.text_colored(
+        MENU_MUTED_TEXT,
+        &cstring(format!(
+            "Shadow slots {} // accepted {} // rejected {} // overflow {} // R32F {} // A8 {} // bad format {}",
+            telemetry.captured,
+            telemetry.accepted,
+            telemetry.rejected,
+            telemetry.overflow,
+            telemetry.r32f,
+            telemetry.a8r8g8b8,
+            telemetry.rejected_formats,
+        )),
+    );
+    ui.text_colored(
+        MENU_MUTED_TEXT,
+        &cstring(format!(
+            "Nonblocking misses: capture {} // publish {} // consume {} // reset {}",
+            telemetry.staging_busy,
+            telemetry.publish_busy,
+            telemetry.consume_busy,
+            telemetry.reset_busy,
+        )),
+    );
+
+    let quality = sources
+        .iter()
+        .find(|source| {
+            source.embedded_effect_kind() == Some(EmbeddedEffectKind::VolumetricLighting)
+        })
+        .and_then(|source| {
+            source
+                .options
+                .iter()
+                .find(|option| option.key == "local_lights_quality")
+        })
+        .and_then(|option| match option.value {
+            ShaderOptionValue::Integer(value) => Some(value),
+            _ => None,
+        })
+        .unwrap_or(1);
+    let budget = match quality {
+        0 => "Performance: quarter resolution, 2 lights, 4 samples, 2 shadowless draws",
+        2 => "Ultra: half resolution, 4 lights, 10 samples, 2 shadowless draws",
+        _ => "High: half resolution, 4 lights, 6 samples, 2 shadowless draws",
+    };
+    ui.text_colored(MENU_MUTED_TEXT, &cstring(budget));
+}
+
+fn draw_world_pipeline_diagnostics(ui: &mut psycho_imgui::Ui<'_>) {
+    ui.separator_text(&cstring("WORLD FOG"));
+    if let Some((distance_bound, transmittance)) = crate::fnv_world_pipeline::fog_estimate() {
+        ui.text_colored(
+            MENU_GOOD_TEXT,
+            &cstring(format!(
+                "Current bound: {:.0} units // estimated horizontal transmission: {:.1}%",
+                distance_bound,
+                transmittance * 100.0,
+            )),
+        );
+    } else {
+        ui.text_colored(
+            MENU_MUTED_TEXT,
+            &cstring("Waiting for an eligible world frame."),
+        );
+    }
+}
+
 fn draw_feature_list(
     ui: &mut psycho_imgui::Ui<'_>,
     config: &GraphicsMenuConfig,
     sources: &[ScreenShaderSource],
     selected_item: &mut MenuSelection,
-    pbr_status: pbr::NativePbrRuntimeStatus,
-    sky_status: sky::NativeSkyStatus,
 ) {
-    let heading = cstring("ENGINE RENDERING");
+    let heading = cstring("SETTINGS");
     ui.separator_text(&heading);
-    let pbr_label = cstring(native_pbr_list_label(
-        config.screen_space_shaders && config.native_pbr.enabled,
-        pbr_status,
+    if ui.selectable(
+        &cstring("General##general_select"),
+        *selected_item == MenuSelection::General,
+    ) {
+        *selected_item = MenuSelection::General;
+    }
+
+    let heading = cstring("ENGINE FEATURES");
+    ui.separator_text(&heading);
+    let pbr_label = cstring(configured_feature_label(
+        "PBR Materials",
+        "native_pbr_select",
+        config.native_pbr.enabled,
     ));
     if ui.selectable(&pbr_label, *selected_item == MenuSelection::NativePbr) {
         *selected_item = MenuSelection::NativePbr;
     }
-    let sky_label = cstring(native_sky_list_label(
-        config.screen_space_shaders && config.native_sky.enabled,
-        sky_status,
+    let sky_label = cstring(configured_feature_label(
+        "Native Sky",
+        "native_sky_select",
+        config.native_sky.enabled,
     ));
     if ui.selectable(&sky_label, *selected_item == MenuSelection::NativeSky) {
         *selected_item = MenuSelection::NativeSky;
@@ -5253,6 +6032,10 @@ fn draw_feature_list(
     }
 }
 
+fn configured_feature_label(name: &str, id: &str, enabled: bool) -> String {
+    format!("[{}] {name}##{id}", if enabled { "ON" } else { "OFF" })
+}
+
 fn draw_shader_details(ui: &mut psycho_imgui::Ui<'_>, source: &mut ScreenShaderSource) -> bool {
     let mut changed = false;
     let name = cstring(shader_display_name(source));
@@ -5278,34 +6061,10 @@ fn draw_shader_details(ui: &mut psycho_imgui::Ui<'_>, source: &mut ScreenShaderS
         }
     }
 
-    draw_shader_status(ui, source);
-
-    let source_kind = if source.is_embedded_effect() {
-        "Type: embedded engine effect"
-    } else {
-        "Type: external HLSL shader"
-    };
-    let source_kind = cstring(source_kind);
-    ui.text_colored(MENU_MUTED_TEXT, &source_kind);
-
-    let stage = if source
-        .embedded_effect_kind()
-        .is_some_and(EmbeddedEffectKind::owns_world_boundary)
-    {
-        "World / before first-person and UI"
-    } else {
-        shader_phase_display(source.phase())
-    };
-    let phase_text = cstring(format!("Render stage: {stage}"));
-    ui.text_colored(MENU_MUTED_TEXT, &phase_text);
-
     if source.is_external_file() {
-        let path_text = cstring(format!("Shader: {}", source.path.display()));
+        let path_text = cstring(format!("External shader: {}", source.path.display()));
         ui.text_wrapped(&path_text);
         let config_text = cstring(format!("Config: {}", source.config_path.display()));
-        ui.text_wrapped(&config_text);
-    } else {
-        let config_text = cstring(format!("Config: {}", crate::config::CONFIG_PATH));
         ui.text_wrapped(&config_text);
     }
     if matches!(
@@ -5389,18 +6148,6 @@ fn draw_shader_details(ui: &mut psycho_imgui::Ui<'_>, source: &mut ScreenShaderS
         if ui.button(&reset) {
             changed |= shaders::reset_volumetric_fog_defaults(source);
         }
-        if let Some((distance_bound, transmittance)) = crate::fnv_world_pipeline::fog_estimate() {
-            let estimate = cstring(format!(
-                "Current bound: {:.0} units // estimated horizontal transmission: {:.1}%",
-                distance_bound,
-                transmittance * 100.0,
-            ));
-            ui.text_colored(MENU_MUTED_TEXT, &estimate);
-        } else {
-            let estimate =
-                cstring("Fog estimate becomes available after one eligible world frame.");
-            ui.text_colored(MENU_MUTED_TEXT, &estimate);
-        }
     }
 
     ui.spacing();
@@ -5420,64 +6167,10 @@ fn draw_shader_details(ui: &mut psycho_imgui::Ui<'_>, source: &mut ScreenShaderS
             ui.spacing();
             let heading = cstring("LOCAL LIGHTS");
             ui.separator_text(&heading);
-            let telemetry = crate::fnv_local_lights::telemetry();
-            let hook_status = if !telemetry.hooks_ready {
-                "capture hooks unavailable"
-            } else if telemetry.capture_enabled {
-                if telemetry.shadow_hook_ready {
-                    "scene capture active; native shadows optional"
-                } else {
-                    "scene capture active; shadowless fallback"
-                }
-            } else {
-                "capture disabled by local toggle or global graphics switch"
-            };
-            let status = cstring(format!(
-                "{} // epochs={} scene={} rendered={} shadowed={} // shadow_slots={} accepted={} rejected={} overflow={} // R32F={} A8={} bad_format={}",
-                hook_status,
-                telemetry.traversals,
-                telemetry.scene_lights,
-                telemetry.rendered,
-                telemetry.shadowed_lights,
-                telemetry.captured,
-                telemetry.accepted,
-                telemetry.rejected,
-                telemetry.overflow,
-                telemetry.r32f,
-                telemetry.a8r8g8b8,
-                telemetry.rejected_formats,
-            ));
             ui.text_colored(
-                if telemetry.hooks_ready && telemetry.capture_enabled {
-                    MENU_GOOD_TEXT
-                } else {
-                    MENU_WARN_TEXT
-                },
-                &status,
+                MENU_MUTED_TEXT,
+                &cstring("Adds nearby scene lights to volumetric scattering."),
             );
-            let lock_status = cstring(format!(
-                "Nonblocking misses: capture={} publish={} consume={} reset={}",
-                telemetry.staging_busy,
-                telemetry.publish_busy,
-                telemetry.consume_busy,
-                telemetry.reset_busy,
-            ));
-            ui.text_colored(MENU_MUTED_TEXT, &lock_status);
-            let local_quality = source
-                .options
-                .iter()
-                .find(|option| option.key == "local_lights_quality")
-                .and_then(|option| match option.value {
-                    ShaderOptionValue::Integer(value) => Some(value),
-                    _ => None,
-                })
-                .unwrap_or(1);
-            let budget = match local_quality {
-                0 => "Performance: quarter resolution, 2 lights, 4 samples, 2 shadowless draws",
-                2 => "Ultra: half resolution, 4 lights, 10 samples, 2 shadowless draws",
-                _ => "High: half resolution, 4 lights, 6 samples, 2 shadowless draws",
-            };
-            ui.text_colored(MENU_MUTED_TEXT, &cstring(budget));
         }
         if source.embedded_effect_kind() == Some(EmbeddedEffectKind::DepthOfField) {
             if !depth_of_field_option_visible(source, option.key.as_str()) {
@@ -5727,20 +6420,6 @@ fn finite_i32(value: f32) -> i32 {
     value.clamp(i32::MIN as f32, i32::MAX as f32) as i32
 }
 
-fn draw_shader_status(ui: &mut psycho_imgui::Ui<'_>, source: &ScreenShaderSource) {
-    let (color, label) = if shader_has_error(source) {
-        (MENU_ERROR_TEXT, "Status: error")
-    } else if !source.enabled {
-        (MENU_WARN_TEXT, "Status: disabled")
-    } else if source.bytecode.is_none() && source.is_external_file() {
-        (MENU_ERROR_TEXT, "Status: no bytecode")
-    } else {
-        (MENU_GOOD_TEXT, "Status: active")
-    };
-    let text = cstring(label);
-    ui.text_colored(color, &text);
-}
-
 fn shader_counts(sources: &[ScreenShaderSource]) -> (usize, usize, usize, usize) {
     let mut enabled_count = 0usize;
     let mut error_count = 0usize;
@@ -5767,7 +6446,7 @@ fn shader_list_label(source: &ScreenShaderSource, index: usize) -> String {
     let status = if shader_has_error(source) {
         "ERR"
     } else if source.enabled {
-        "LIVE"
+        "ON"
     } else {
         "OFF"
     };
@@ -5810,14 +6489,6 @@ fn shader_display_name(source: &ScreenShaderSource) -> String {
     }
 }
 
-fn shader_phase_display(phase: ShaderPhase) -> &'static str {
-    match phase {
-        ShaderPhase::ScenePreImageSpace => "Scene / before image-space",
-        ShaderPhase::ScenePostImageSpace => "Scene / after image-space",
-        ShaderPhase::FinalImageSpace => "Final image-space",
-    }
-}
-
 fn embedded_effect_description(kind: Option<EmbeddedEffectKind>) -> Option<&'static str> {
     match kind {
         Some(EmbeddedEffectKind::FastAmbientOcclusion) => {
@@ -5826,12 +6497,12 @@ fn embedded_effect_description(kind: Option<EmbeddedEffectKind>) -> Option<&'sta
         Some(EmbeddedEffectKind::ContactAmbientOcclusion) => {
             Some("Fine contact shadows for creases, intersections, and close geometry.")
         }
-        Some(EmbeddedEffectKind::VolumetricFog) => Some(
-            "World-only supplemental exterior height and heterogeneous fog; Off uses production composition, modes 6/7 inspect the reduced medium, and mode 8 shows bilateral acceptance.",
-        ),
-        Some(EmbeddedEffectKind::VolumetricLighting) => Some(
-            "World-only native-sun single scattering with deterministic depth-occluded shafts; lighting-only and shared-fog media use one dual-layer composition, while legacy Sunshafts remain independent.",
-        ),
+        Some(EmbeddedEffectKind::VolumetricFog) => {
+            Some("Depth-aware exterior fog with height and natural local variation.")
+        }
+        Some(EmbeddedEffectKind::VolumetricLighting) => {
+            Some("Depth-aware sun and local-light scattering for exterior scenes.")
+        }
         Some(EmbeddedEffectKind::BloomingHdr) => {
             Some("Quarter-resolution atmospheric highlight bloom fused with final color output.")
         }
@@ -5862,46 +6533,6 @@ fn embedded_effect_description(kind: Option<EmbeddedEffectKind>) -> Option<&'sta
     }
 }
 
-fn native_pbr_list_label(configured_enabled: bool, status: pbr::NativePbrRuntimeStatus) -> String {
-    let any_failure = status.active_contracts_failed
-        || status.land_lod_contract_failed
-        || status.terrain_fade_contract_failed
-        || status.close_terrain_contract_failed;
-    let any_resource_ready = status.object_resources_ready != 0
-        || status.land_lod_resources_ready != 0
-        || status.terrain_fade_resources_ready != 0
-        || status.close_terrain_resources_ready != 0;
-    let status = if status.block_reason.is_some() {
-        "BLOCKED"
-    } else if status.installed && configured_enabled && any_failure {
-        "PARTIAL"
-    } else if status.installed && configured_enabled && !any_resource_ready {
-        "WARMUP"
-    } else if status.installed && configured_enabled {
-        "LIVE"
-    } else if status.installed {
-        "OFF"
-    } else {
-        "UNAVAILABLE"
-    };
-    format!("[{status}]  PBR Materials##native_pbr_select")
-}
-
-fn native_sky_list_label(configured_enabled: bool, status: sky::NativeSkyStatus) -> String {
-    let state = if status.failed {
-        "ERR"
-    } else if !status.installed {
-        "UNAVAILABLE"
-    } else if configured_enabled && status.created == status.total {
-        "LIVE"
-    } else if configured_enabled {
-        "WARMUP"
-    } else {
-        "OFF"
-    };
-    format!("[{state}]  Native Sky##native_sky_select")
-}
-
 fn shader_has_error(source: &ScreenShaderSource) -> bool {
     source.shader_error.is_some()
         || source.config_error.is_some()
@@ -5925,7 +6556,7 @@ fn clamp_menu_selection(sources: &[ScreenShaderSource], selected_item: &mut Menu
     if let MenuSelection::Shader(index) = *selected_item
         && index >= sources.len()
     {
-        *selected_item = MenuSelection::NativePbr;
+        *selected_item = MenuSelection::General;
     }
 }
 

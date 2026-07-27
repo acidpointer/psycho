@@ -1,8 +1,10 @@
 //! Shader bytecode preparation boundary.
 //!
-//! The replacement system must not compile HLSL from the draw path. This module
-//! compiles PBR bytecode asynchronously, writes a small cache, and hands
-//! ready bytecode to the D3D resource owner.
+//! Native PBR source is compiled locally. Preparation inventories the complete
+//! content-addressed cache before invoking D3DCompile, compiles only missing
+//! entries, verifies every committed cache entry, and retains bytecode across
+//! D3D device resets. No render callback performs shader compilation or cache
+//! I/O.
 
 use std::{
     collections::VecDeque,
@@ -17,7 +19,7 @@ use std::{
 use anyhow::Result;
 use parking_lot::Mutex;
 
-use super::shader_registry::{self, ShaderStage};
+use super::shader_registry;
 
 const WORKER_COUNT: usize = 2;
 const BYTECODE_MISSING: u32 = 0;
@@ -30,6 +32,11 @@ const SHADER_CONTRACT_REVISION: &[u8] = b"native-pbr-object-lighting-contract-v5
 static STARTED: AtomicBool = AtomicBool::new(false);
 static FINISHED: AtomicBool = AtomicBool::new(false);
 static FAILED: AtomicBool = AtomicBool::new(false);
+static GENERATION: AtomicU32 = AtomicU32::new(0);
+static PHASE: AtomicU32 = AtomicU32::new(PreparationPhase::Dormant as u32);
+static CACHE_HITS: AtomicU32 = AtomicU32::new(0);
+static CACHE_MISSES: AtomicU32 = AtomicU32::new(0);
+static COMPILED: AtomicU32 = AtomicU32::new(0);
 static CLOSE_TERRAIN_READY: AtomicBool = AtomicBool::new(false);
 static CLOSE_TERRAIN_FAILED: AtomicBool = AtomicBool::new(false);
 static LAST_FAILED_TEMPLATE_ID: AtomicU32 = AtomicU32::new(TEMPLATE_ID_NONE);
@@ -38,17 +45,45 @@ static STATES: LazyLock<Vec<AtomicU32>> = LazyLock::new(|| {
         .map(|_| AtomicU32::new(BYTECODE_MISSING))
         .collect()
 });
-static READY_BYTECODE: LazyLock<Mutex<Vec<CompiledShader>>> =
-    LazyLock::new(|| Mutex::new(Vec::new()));
+static PREPARED_BYTECODE: LazyLock<Mutex<Vec<Option<Arc<[u32]>>>>> =
+    LazyLock::new(|| Mutex::new(vec![None; shader_registry::template_count()]));
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(u32)]
+pub(super) enum PreparationPhase {
+    Dormant = 0,
+    Inventory = 1,
+    Compiling = 2,
+    Ready = 3,
+    Failed = 4,
+}
+
+impl PreparationPhase {
+    fn from_raw(raw: u32) -> Self {
+        match raw {
+            1 => Self::Inventory,
+            2 => Self::Compiling,
+            3 => Self::Ready,
+            4 => Self::Failed,
+            _ => Self::Dormant,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(super) struct PreparationStatus {
+    pub(super) phase: PreparationPhase,
+    pub(super) total: usize,
+    pub(super) cache_hits: usize,
+    pub(super) cache_misses: usize,
+    pub(super) compiled: usize,
+    pub(super) ready: usize,
+    pub(super) failed: usize,
+}
 
 #[derive(Clone, Copy)]
 struct CompileJob {
     template_id: u16,
-}
-
-struct CompiledShader {
-    template_id: u16,
-    bytecode: Vec<u32>,
 }
 
 pub(super) fn ensure_object_prewarm_started() {
@@ -56,44 +91,78 @@ pub(super) fn ensure_object_prewarm_started() {
         return;
     }
 
-    FINISHED.store(false, Ordering::Release);
-    FAILED.store(false, Ordering::Release);
-
-    let jobs = queue_jobs();
-    if jobs.is_empty() {
+    crate::shaders::start_shader_cache_maintenance();
+    if all_bytecode_ready() {
         FINISHED.store(true, Ordering::Release);
+        PHASE.store(PreparationPhase::Ready as u32, Ordering::Release);
         return;
     }
 
-    let job_count = jobs.len();
-    let worker_count = WORKER_COUNT.min(job_count).max(1);
-    let queue = Arc::new(Mutex::new(VecDeque::from(jobs)));
-    let live_workers = Arc::new(AtomicU32::new(worker_count as u32));
+    FINISHED.store(false, Ordering::Release);
+    FAILED.store(false, Ordering::Release);
+    CLOSE_TERRAIN_FAILED.store(false, Ordering::Release);
+    CLOSE_TERRAIN_READY.store(
+        family_states(close_terrain_range())
+            .all(|state| state.load(Ordering::Acquire) == BYTECODE_READY),
+        Ordering::Release,
+    );
+    CACHE_HITS.store(0, Ordering::Release);
+    CACHE_MISSES.store(0, Ordering::Release);
+    COMPILED.store(0, Ordering::Release);
+    LAST_FAILED_TEMPLATE_ID.store(TEMPLATE_ID_NONE, Ordering::Release);
+    PHASE.store(PreparationPhase::Inventory as u32, Ordering::Release);
+    let generation = GENERATION.fetch_add(1, Ordering::AcqRel).wrapping_add(1);
 
-    log::info!("[PBR] PBR compile queued {job_count} shader(s) on {worker_count} worker(s)");
+    if let Err(err) = thread::Builder::new()
+        .name("omv-pbr-prepare".to_owned())
+        .spawn(move || inventory_cache(generation))
+    {
+        log::warn!("[PBR] PBR preparation worker failed to start: {err}");
+        FAILED.store(true, Ordering::Release);
+        FINISHED.store(true, Ordering::Release);
+        PHASE.store(PreparationPhase::Failed as u32, Ordering::Release);
+    }
+}
 
-    for worker_index in 0..worker_count {
-        let queue = Arc::clone(&queue);
-        let worker_live_workers = Arc::clone(&live_workers);
-        if let Err(err) = thread::Builder::new()
-            .name(format!("omv-pbr-compile-{worker_index}"))
-            .spawn(move || compile_worker(worker_index, queue, worker_live_workers))
-        {
-            log::warn!("[PBR] PBR compile worker {worker_index} failed to start: {err}");
-            FAILED.store(true, Ordering::Release);
-            if live_workers.fetch_sub(1, Ordering::AcqRel) == 1 {
-                FINISHED.store(true, Ordering::Release);
-            }
+pub(super) fn cancel_preparation() {
+    GENERATION.fetch_add(1, Ordering::AcqRel);
+    STARTED.store(false, Ordering::Release);
+    FINISHED.store(false, Ordering::Release);
+    PHASE.store(PreparationPhase::Dormant as u32, Ordering::Release);
+    for state in STATES.iter() {
+        if state.load(Ordering::Acquire) != BYTECODE_READY {
+            state.store(BYTECODE_MISSING, Ordering::Release);
         }
     }
 }
 
-pub(super) fn take_ready_bytecode(template_id: u16) -> Option<Vec<u32>> {
-    let mut ready = READY_BYTECODE.lock();
-    let index = ready
-        .iter()
-        .position(|entry| entry.template_id == template_id)?;
-    Some(ready.swap_remove(index).bytecode)
+pub(super) fn prepared_bytecode(template_id: u16) -> Option<Arc<[u32]>> {
+    PREPARED_BYTECODE
+        .lock()
+        .get(template_id as usize)
+        .and_then(Clone::clone)
+}
+
+pub(super) fn preparation_status() -> PreparationStatus {
+    PreparationStatus {
+        phase: PreparationPhase::from_raw(PHASE.load(Ordering::Acquire)),
+        total: shader_registry::template_count(),
+        cache_hits: CACHE_HITS.load(Ordering::Acquire) as usize,
+        cache_misses: CACHE_MISSES.load(Ordering::Acquire) as usize,
+        compiled: COMPILED.load(Ordering::Acquire) as usize,
+        ready: STATES
+            .iter()
+            .filter(|state| state.load(Ordering::Acquire) == BYTECODE_READY)
+            .count(),
+        failed: STATES
+            .iter()
+            .filter(|state| state.load(Ordering::Acquire) == BYTECODE_FAILED)
+            .count(),
+    }
+}
+
+pub(super) fn preparation_ready() -> bool {
+    PHASE.load(Ordering::Acquire) == PreparationPhase::Ready as u32 && all_bytecode_ready()
 }
 
 pub(super) fn object_compile_finished() -> bool {
@@ -112,19 +181,11 @@ pub(super) fn object_compile_failed() -> bool {
 }
 
 pub(super) fn object_ready_count() -> usize {
-    STATES
-        .iter()
-        .take(shader_registry::object_template_count())
-        .filter(|state| state.load(Ordering::Acquire) == BYTECODE_READY)
-        .count()
+    family_ready_count(0..shader_registry::object_template_count())
 }
 
 pub(super) fn object_failed_count() -> usize {
-    STATES
-        .iter()
-        .take(shader_registry::object_template_count())
-        .filter(|state| state.load(Ordering::Acquire) == BYTECODE_FAILED)
-        .count()
+    family_failed_count(0..shader_registry::object_template_count())
 }
 
 pub(super) fn land_lod_compile_ready() -> bool {
@@ -159,6 +220,7 @@ pub(super) fn terrain_fade_failed_count() -> usize {
 pub(super) fn terrain_fade_compile_failed() -> bool {
     family_states(terrain_fade_range())
         .any(|state| state.load(Ordering::Acquire) == BYTECODE_FAILED)
+        || (FINISHED.load(Ordering::Acquire) && !terrain_fade_compile_ready())
 }
 
 pub(super) fn close_terrain_compile_failed() -> bool {
@@ -181,156 +243,233 @@ pub(super) fn object_last_failed_template_label() -> &'static str {
     template_label(LAST_FAILED_TEMPLATE_ID.load(Ordering::Acquire))
 }
 
-pub(super) fn reset() {
-    STARTED.store(false, Ordering::Release);
-    FINISHED.store(false, Ordering::Release);
-    FAILED.store(false, Ordering::Release);
-    CLOSE_TERRAIN_READY.store(false, Ordering::Release);
-    CLOSE_TERRAIN_FAILED.store(false, Ordering::Release);
-    LAST_FAILED_TEMPLATE_ID.store(TEMPLATE_ID_NONE, Ordering::Release);
-    for state in STATES.iter() {
-        state.store(BYTECODE_MISSING, Ordering::Release);
-    }
-    READY_BYTECODE.lock().clear();
-}
+fn inventory_cache(generation: u32) {
+    let mut misses = Vec::new();
+    let mut cache_hits = 0u32;
+    let mut inventory_failed = false;
 
-fn queue_jobs() -> Vec<CompileJob> {
-    let mut jobs = Vec::with_capacity(shader_registry::template_count());
     for template_id in 0..shader_registry::template_count() {
-        if STATES[template_id]
-            .compare_exchange(
-                BYTECODE_MISSING,
-                BYTECODE_QUEUED,
-                Ordering::AcqRel,
-                Ordering::Acquire,
-            )
-            .is_ok()
+        if !generation_is_current(generation) {
+            return;
+        }
+        if STATES[template_id].load(Ordering::Acquire) == BYTECODE_READY
+            && PREPARED_BYTECODE.lock()[template_id].is_some()
         {
-            jobs.push(CompileJob {
-                template_id: template_id as u16,
-            });
+            cache_hits = cache_hits.saturating_add(1);
+            continue;
+        }
+
+        let job = CompileJob {
+            template_id: template_id as u16,
+        };
+        match load_cached(job) {
+            Ok(Some(bytecode)) => {
+                publish_ready(job.template_id, bytecode);
+                cache_hits = cache_hits.saturating_add(1);
+            }
+            Ok(None) => misses.push(job),
+            Err(err) => {
+                mark_failed(job.template_id);
+                inventory_failed = true;
+                log::warn!(
+                    "[PBR] PBR cache inventory failed shader={}: {err:#}",
+                    template_label(u32::from(job.template_id))
+                );
+            }
         }
     }
-    jobs.sort_by_key(|job| compile_priority(job.template_id));
-    jobs
-}
 
-fn compile_priority(template_id: u16) -> (u8, u16) {
-    let Some(template) = shader_registry::template_at(template_id) else {
-        return (u8::MAX, template_id);
-    };
-    if (template_id as usize) < shader_registry::object_template_count() {
-        return (0, template_id);
+    if !generation_is_current(generation) {
+        return;
     }
-    if shader_registry::template_is_land_lod(template_id) {
-        return (1, template_id);
+    CACHE_HITS.store(cache_hits, Ordering::Release);
+    CACHE_MISSES.store(misses.len() as u32, Ordering::Release);
+    log::info!(
+        "[PBR] PBR cache inventory: {} valid, {} missing, {} failed",
+        cache_hits,
+        misses.len(),
+        if inventory_failed { 1 } else { 0 }
+    );
+
+    if inventory_failed {
+        finish_preparation(PreparationPhase::Failed);
+        return;
     }
-    if shader_registry::template_is_terrain_fade(template_id) {
-        return (2, template_id);
-    }
-    if template.stage == ShaderStage::Vertex {
-        return (3, template_id);
+    if misses.is_empty() {
+        finish_preparation(PreparationPhase::Ready);
+        return;
     }
 
-    let light_bucket = template.sls_number.saturating_sub(2092) % 8 / 2;
-    (4 + light_bucket as u8, template.sls_number)
+    for job in &misses {
+        STATES[job.template_id as usize].store(BYTECODE_QUEUED, Ordering::Release);
+    }
+    PHASE.store(PreparationPhase::Compiling as u32, Ordering::Release);
+    let job_count = misses.len();
+    let worker_count = WORKER_COUNT.min(job_count).max(1);
+    let queue = Arc::new(Mutex::new(VecDeque::from(misses)));
+    let live_workers = Arc::new(AtomicU32::new(worker_count as u32));
+    log::info!(
+        "[PBR] PBR local compilation: {job_count} missing shader(s) on {worker_count} worker(s)"
+    );
+
+    for worker_index in 0..worker_count {
+        let queue = Arc::clone(&queue);
+        let worker_live_workers = Arc::clone(&live_workers);
+        if let Err(err) = thread::Builder::new()
+            .name(format!("omv-pbr-compile-{worker_index}"))
+            .spawn(move || compile_worker(generation, worker_index, queue, worker_live_workers))
+        {
+            log::warn!("[PBR] PBR compile worker {worker_index} failed to start: {err}");
+            FAILED.store(true, Ordering::Release);
+            if live_workers.fetch_sub(1, Ordering::AcqRel) == 1 {
+                finish_workers(generation);
+            }
+        }
+    }
 }
 
 fn compile_worker(
+    generation: u32,
     worker_index: usize,
     queue: Arc<Mutex<VecDeque<CompileJob>>>,
     live_workers: Arc<AtomicU32>,
 ) {
-    loop {
-        let job = {
-            let mut queue = queue.lock();
-            if worker_index != 0
-                && queue
-                    .front()
-                    .is_some_and(|job| shader_registry::template_is_close_terrain(job.template_id))
-            {
-                None
-            } else {
-                queue.pop_front()
-            }
+    while generation_is_current(generation) {
+        let Some(job) = queue.lock().pop_front() else {
+            break;
         };
-        let Some(job) = job else {
-            if live_workers.fetch_sub(1, Ordering::AcqRel) == 1 {
-                FINISHED.store(true, Ordering::Release);
-            }
-            log::info!("[PBR] PBR compile worker {worker_index} finished");
-            return;
-        };
+        compile_job(generation, worker_index, job);
+    }
 
-        compile_job(worker_index, job);
+    if live_workers.fetch_sub(1, Ordering::AcqRel) == 1 {
+        finish_workers(generation);
     }
 }
 
-fn compile_job(worker_index: usize, job: CompileJob) {
+fn compile_job(generation: u32, worker_index: usize, job: CompileJob) {
     let started = Instant::now();
-    let result = load_or_compile(job);
+    let result = compile_and_commit(generation, job);
+    if !generation_is_current(generation) {
+        return;
+    }
+
     match result {
-        Ok((bytecode, source)) => {
-            READY_BYTECODE.lock().push(CompiledShader {
-                template_id: job.template_id,
-                bytecode,
-            });
-            STATES[job.template_id as usize].store(BYTECODE_READY, Ordering::Release);
-            if shader_registry::template_is_close_terrain(job.template_id)
-                && family_states(close_terrain_range())
-                    .all(|state| state.load(Ordering::Acquire) == BYTECODE_READY)
-            {
-                CLOSE_TERRAIN_READY.store(true, Ordering::Release);
-            }
-            if let Some(template) = shader_registry::template_at(job.template_id) {
-                log::info!(
-                    "[PBR] PBR compile worker={} shader={} stage={:?} source={} ms={}",
-                    worker_index,
-                    template.label,
-                    template.stage,
-                    source,
-                    started.elapsed().as_millis()
-                );
-            } else {
-                log::error!(
-                    "[PBR] Compiled unknown shader template {} on worker {}",
-                    job.template_id,
-                    worker_index
-                );
-            }
+        Ok(bytecode) => {
+            publish_ready(job.template_id, bytecode);
+            let completed = COMPILED.fetch_add(1, Ordering::AcqRel) + 1;
+            log::debug!(
+                "[PBR] PBR local compile worker={worker_index} shader={} completed={}/{} ms={}",
+                template_label(u32::from(job.template_id)),
+                completed,
+                CACHE_MISSES.load(Ordering::Acquire),
+                started.elapsed().as_millis()
+            );
         }
         Err(err) => {
-            STATES[job.template_id as usize].store(BYTECODE_FAILED, Ordering::Release);
-            FAILED.store(true, Ordering::Release);
-            if shader_registry::template_is_close_terrain(job.template_id) {
-                CLOSE_TERRAIN_FAILED.store(true, Ordering::Release);
-            }
-            LAST_FAILED_TEMPLATE_ID.store(u32::from(job.template_id), Ordering::Release);
-            let label = shader_registry::template_at(job.template_id)
-                .map(|template| template.label)
-                .unwrap_or("unknown");
-            log::warn!("[PBR] PBR compile failed shader={label}: {err:#}");
+            mark_failed(job.template_id);
+            log::warn!(
+                "[PBR] PBR local compile failed shader={}: {err:#}",
+                template_label(u32::from(job.template_id))
+            );
         }
     }
 }
 
-fn load_or_compile(job: CompileJob) -> Result<(Vec<u32>, &'static str)> {
+fn compile_and_commit(generation: u32, job: CompileJob) -> Result<Vec<u32>> {
+    let (template, source, spec) = shader_input(job)?;
+    let bytecode =
+        crate::shaders::compile_hlsl_uncached(template.label, source.as_ref(), spec.target)?;
+    if !generation_is_current(generation) {
+        anyhow::bail!("PBR preparation was cancelled");
+    }
+    crate::shaders::commit_hlsl_cache(spec, source.as_ref(), &bytecode)
+}
+
+fn load_cached(job: CompileJob) -> Result<Option<Vec<u32>>> {
+    let (_, source, spec) = shader_input(job)?;
+    crate::shaders::load_cached_hlsl(spec, source.as_ref())
+}
+
+fn shader_input(
+    job: CompileJob,
+) -> Result<(
+    &'static shader_registry::ShaderTemplate,
+    std::borrow::Cow<'static, [u8]>,
+    crate::shaders::HlslCacheSpec<'static>,
+)> {
     let template = shader_registry::template_at(job.template_id)
         .ok_or_else(|| anyhow::anyhow!("unknown shader template {}", job.template_id))?;
     let source = shader_registry::template_source(job.template_id, template);
-    let cached = crate::shaders::load_or_compile_hlsl_cached(
-        crate::shaders::HlslCacheSpec {
-            namespace: "native_pbr",
-            family: Some(shader_family(job.template_id)),
-            cache_label: template.label,
-            source_name: template.label,
-            target: shader_registry::shader_profile(template.stage),
-            cache_tag: shader_registry::shader_cache_suffix(template.stage),
-            contract_revision: SHADER_CONTRACT_REVISION,
-        },
-        source.as_ref(),
-    )?;
-    Ok((cached.bytecode, cached.origin.label()))
+    let spec = crate::shaders::HlslCacheSpec {
+        namespace: "native_pbr",
+        family: Some(shader_family(job.template_id)),
+        cache_label: template.label,
+        source_name: template.label,
+        target: shader_registry::shader_profile(template.stage),
+        cache_tag: shader_registry::shader_cache_suffix(template.stage),
+        contract_revision: SHADER_CONTRACT_REVISION,
+    };
+    Ok((template, source, spec))
+}
+
+fn publish_ready(template_id: u16, bytecode: Vec<u32>) {
+    PREPARED_BYTECODE.lock()[template_id as usize] = Some(Arc::from(bytecode));
+    STATES[template_id as usize].store(BYTECODE_READY, Ordering::Release);
+    if shader_registry::template_is_close_terrain(template_id)
+        && family_states(close_terrain_range())
+            .all(|state| state.load(Ordering::Acquire) == BYTECODE_READY)
+    {
+        CLOSE_TERRAIN_READY.store(true, Ordering::Release);
+    }
+}
+
+fn mark_failed(template_id: u16) {
+    STATES[template_id as usize].store(BYTECODE_FAILED, Ordering::Release);
+    FAILED.store(true, Ordering::Release);
+    if shader_registry::template_is_close_terrain(template_id) {
+        CLOSE_TERRAIN_FAILED.store(true, Ordering::Release);
+    }
+    LAST_FAILED_TEMPLATE_ID.store(u32::from(template_id), Ordering::Release);
+}
+
+fn finish_workers(generation: u32) {
+    if !generation_is_current(generation) {
+        return;
+    }
+    let phase = if FAILED.load(Ordering::Acquire) || !all_bytecode_ready() {
+        PreparationPhase::Failed
+    } else {
+        PreparationPhase::Ready
+    };
+    finish_preparation(phase);
+}
+
+fn finish_preparation(phase: PreparationPhase) {
+    FINISHED.store(true, Ordering::Release);
+    PHASE.store(phase as u32, Ordering::Release);
+    match phase {
+        PreparationPhase::Ready => log::info!(
+            "[PBR] PBR preparation complete: {}/{} locally cached",
+            preparation_status().ready,
+            shader_registry::template_count()
+        ),
+        PreparationPhase::Failed => log::warn!(
+            "[PBR] PBR preparation failed: ready={}, failed={}",
+            preparation_status().ready,
+            preparation_status().failed
+        ),
+        _ => {}
+    }
+}
+
+fn generation_is_current(generation: u32) -> bool {
+    GENERATION.load(Ordering::Acquire) == generation
+}
+
+fn all_bytecode_ready() -> bool {
+    STATES
+        .iter()
+        .all(|state| state.load(Ordering::Acquire) == BYTECODE_READY)
 }
 
 fn shader_family(template_id: u16) -> &'static str {

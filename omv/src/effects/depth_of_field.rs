@@ -44,6 +44,7 @@ const COMPOSE_SHADER: &[u8] = include_bytes!("../../shaders/embedded/dof_compose
 
 static COMPILE_STARTED: AtomicBool = AtomicBool::new(false);
 static COMPILE_FAILED: AtomicBool = AtomicBool::new(false);
+static COMPILE_READY: AtomicBool = AtomicBool::new(false);
 static BYTECODE: LazyLock<Mutex<Option<DofBytecode>>> = LazyLock::new(|| Mutex::new(None));
 
 struct DofBytecode {
@@ -133,7 +134,10 @@ fn start_compile_worker() {
     if let Err(err) = thread::Builder::new()
         .name("omv-dof-compile".to_owned())
         .spawn(|| match DofBytecode::compile() {
-            Ok(bytecode) => *BYTECODE.lock() = Some(bytecode),
+            Ok(bytecode) => {
+                *BYTECODE.lock() = Some(bytecode);
+                COMPILE_READY.store(true, Ordering::Release);
+            }
             Err(err) => {
                 COMPILE_FAILED.store(true, Ordering::Release);
                 log::warn!("[DOF] Shader preparation failed: {err:#}");
@@ -143,6 +147,10 @@ fn start_compile_worker() {
         COMPILE_FAILED.store(true, Ordering::Release);
         log::warn!("[DOF] Could not start shader preparation: {err}");
     }
+}
+
+pub(crate) fn preparation_ready() -> bool {
+    COMPILE_READY.load(Ordering::Acquire)
 }
 
 pub(crate) struct DepthOfFieldEffect {
@@ -162,6 +170,19 @@ pub(crate) struct DepthOfFieldEffect {
     focus_a_is_current: bool,
     focus_history_valid: bool,
     resume_mix: f32,
+}
+
+pub(crate) fn should_draw(
+    frame_inputs: &FrameInputs,
+    config: DepthOfFieldConfig,
+    native_dof_active: bool,
+) -> bool {
+    let settings = DofSettings::from_config(config);
+    !(settings.respect_vanilla_dof && native_dof_active)
+        && frame_inputs.depth.texture.is_some()
+        && frame_inputs.depth.world_projection.camera.available
+        && frame_inputs.depth.world_projection.reversed_depth.is_some()
+        && (settings.near_enabled() || settings.far_enabled())
 }
 
 impl DepthOfFieldEffect {
@@ -360,6 +381,13 @@ impl DepthOfFieldEffect {
             frame_seconds,
             self.resume_mix,
         )
+    }
+
+    pub(crate) fn note_skipped(&mut self, config: DepthOfFieldConfig, native_dof_active: bool) {
+        let settings = DofSettings::from_config(config);
+        if settings.respect_vanilla_dof && native_dof_active {
+            self.resume_mix = 0.0;
+        }
     }
 
     fn ensure_targets(

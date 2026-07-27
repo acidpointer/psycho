@@ -71,9 +71,43 @@ struct TerrainPbrProfileSettings {
     albedo_saturation: f32,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum PbrPreparationPhase {
+    Disabled,
+    Inventory,
+    Compiling,
+    CreatingResources,
+    Ready,
+    Failed,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct PbrPreparationStatus {
+    pub(crate) phase: PbrPreparationPhase,
+    pub(crate) total: usize,
+    pub(crate) cache_hits: usize,
+    pub(crate) cache_misses: usize,
+    pub(crate) compiled: usize,
+    pub(crate) bytecode_ready: usize,
+    pub(crate) resources_ready: usize,
+    pub(crate) failed: usize,
+}
+
+impl PbrPreparationStatus {
+    pub(crate) fn active(self) -> bool {
+        matches!(
+            self.phase,
+            PbrPreparationPhase::Inventory
+                | PbrPreparationPhase::Compiling
+                | PbrPreparationPhase::CreatingResources
+        )
+    }
+}
+
 #[derive(Clone, Copy, Debug)]
 #[allow(dead_code)]
 pub(crate) struct NativePbrRuntimeStatus {
+    pub(crate) preparation: PbrPreparationStatus,
     pub(crate) installed: bool,
     pub(crate) shader_enabled: bool,
     pub(crate) terrain_enabled: bool,
@@ -331,6 +365,7 @@ pub(crate) fn configure_runtime_options(settings: NativePbrSettings) {
     if was_enabled && !settings.enabled {
         ENABLE_PENDING.store(false, Ordering::Release);
         SHADER_ENABLED.store(false, Ordering::Release);
+        compiler::cancel_preparation();
         ACTIVE_CONTRACTS_READY.store(false, Ordering::Release);
         ACTIVE_CONTRACTS_FAILED.store(false, Ordering::Release);
         log::info!(
@@ -364,8 +399,9 @@ pub(crate) fn runtime_status() -> NativePbrRuntimeStatus {
 
     let registry = shader_registry::summary();
     NativePbrRuntimeStatus {
+        preparation: preparation_status(),
         installed: INSTALLED.load(Ordering::Acquire),
-        shader_enabled: SHADER_ENABLED.load(Ordering::Acquire),
+        shader_enabled: shader_enabled(),
         terrain_enabled: TERRAIN_ENABLED.load(Ordering::Acquire),
         close_terrain_enabled: CLOSE_TERRAIN_ENABLED.load(Ordering::Acquire),
         terrain_fade_enabled: TERRAIN_FADE_ENABLED.load(Ordering::Acquire),
@@ -496,6 +532,50 @@ pub(crate) fn runtime_status() -> NativePbrRuntimeStatus {
     }
 }
 
+pub(crate) fn preparation_status() -> PbrPreparationStatus {
+    let compile = compiler::preparation_status();
+    let configured = SHADER_ENABLED.load(Ordering::Acquire);
+    let resources_ready = device_resources::object_created_count()
+        + device_resources::land_lod_created_count()
+        + device_resources::terrain_fade_created_count()
+        + device_resources::close_terrain_created_count();
+    let phase = if !configured {
+        PbrPreparationPhase::Disabled
+    } else {
+        match compile.phase {
+            compiler::PreparationPhase::Dormant | compiler::PreparationPhase::Inventory => {
+                PbrPreparationPhase::Inventory
+            }
+            compiler::PreparationPhase::Compiling => PbrPreparationPhase::Compiling,
+            compiler::PreparationPhase::Ready if device_resources::all_resources_ready() => {
+                PbrPreparationPhase::Ready
+            }
+            compiler::PreparationPhase::Ready => PbrPreparationPhase::CreatingResources,
+            compiler::PreparationPhase::Failed => PbrPreparationPhase::Failed,
+        }
+    };
+
+    PbrPreparationStatus {
+        phase,
+        total: compile.total,
+        cache_hits: compile.cache_hits,
+        cache_misses: compile.cache_misses,
+        compiled: compile.compiled,
+        bytecode_ready: compile.ready,
+        resources_ready,
+        failed: compile.failed,
+    }
+}
+
+pub(crate) fn retry_preparation() {
+    if !SHADER_ENABLED.load(Ordering::Acquire) {
+        return;
+    }
+    compiler::cancel_preparation();
+    device_resources::reset();
+    compiler::ensure_object_prewarm_started();
+}
+
 fn object_template_label(stage: shader_registry::ShaderStage, sls_number: u32) -> &'static str {
     if sls_number == 0 {
         return "none";
@@ -514,8 +594,8 @@ pub(crate) fn service_present_frame() {
             log::error!("[PBR] Native PBR activation failed: {err:#}");
         }
     }
-    let enabled = SHADER_ENABLED.load(Ordering::Acquire);
-    if enabled {
+    let configured = SHADER_ENABLED.load(Ordering::Acquire);
+    if configured {
         engine_contracts::service_frame();
         compiler::ensure_object_prewarm_started();
         device_resources::service_frame();
@@ -533,7 +613,7 @@ pub(crate) fn service_present_frame() {
     refresh_block_reason();
     if diagnostics::detailed_enabled() {
         samplers::service_frame();
-        diagnostics::service_frame(enabled, DEBUG_LOG_DRAWS.load(Ordering::Acquire));
+        diagnostics::service_frame(shader_enabled(), DEBUG_LOG_DRAWS.load(Ordering::Acquire));
     }
 }
 
@@ -541,6 +621,7 @@ fn activate() -> Result<()> {
     SHADER_ENABLED.store(true, Ordering::Release);
     hooks::install()?;
     INSTALLED.store(true, Ordering::Release);
+    compiler::ensure_object_prewarm_started();
     ACTIVE_CONTRACTS_READY.store(false, Ordering::Release);
     ACTIVE_CONTRACTS_FAILED.store(false, Ordering::Release);
     refresh_block_reason();
@@ -558,7 +639,6 @@ fn activate() -> Result<()> {
 
 pub(crate) fn reset_runtime_state() {
     shader_record::reset();
-    compiler::reset();
     device_resources::reset();
     samplers::reset();
     samplers::set_texture_tracking_ready(hooks::hooks_ready());
@@ -586,6 +666,8 @@ fn refresh_block_reason() {
 
 fn shader_enabled() -> bool {
     SHADER_ENABLED.load(Ordering::Acquire)
+        && compiler::preparation_ready()
+        && device_resources::all_resources_ready()
 }
 
 fn object_contract_available() -> bool {
@@ -730,5 +812,33 @@ mod master_setting_tests {
         assert!(!detailed_diagnostics_enabled(false, true));
         assert!(!detailed_diagnostics_enabled(true, false));
         assert!(detailed_diagnostics_enabled(true, true));
+    }
+
+    #[test]
+    fn device_reset_preserves_the_process_owned_compiler_catalog() {
+        let source = include_str!("pbr.rs");
+        let reset = source
+            .split_once("pub(crate) fn reset_runtime_state()")
+            .and_then(|(_, tail)| tail.split_once("fn refresh_block_reason()"))
+            .map(|(body, _)| body)
+            .expect("reset runtime state body");
+
+        assert!(reset.contains("device_resources::reset()"));
+        assert!(
+            !reset.contains("compiler::reset"),
+            "D3D device reset must not invalidate process-owned shader bytecode"
+        );
+    }
+
+    #[test]
+    fn disabling_native_pbr_cancels_local_preparation() {
+        let source = include_str!("pbr.rs");
+        let configure = source
+            .split_once("pub(crate) fn configure_runtime_options(")
+            .and_then(|(_, tail)| tail.split_once("pub(crate) fn set_menu_diagnostics_active("))
+            .map(|(body, _)| body)
+            .expect("runtime PBR configuration body");
+
+        assert!(configure.contains("compiler::cancel_preparation()"));
     }
 }

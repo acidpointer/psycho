@@ -8,10 +8,20 @@ use crate::config::DepthProviderConfig;
 
 mod fnv;
 
-pub(crate) use fnv::WorldCameraJitter;
+pub(crate) use fnv::{DepthResolveRouteStatus, DepthResolveStatus, WorldCameraJitter};
 
 pub(crate) fn d3d_device_ptr() -> Option<*mut c_void> {
     fnv::d3d_device_ptr()
+}
+
+pub(crate) fn depth_resolve_status(depth_provider: DepthProvider) -> DepthResolveStatus {
+    match depth_provider {
+        DepthProvider::None => DepthResolveStatus {
+            route: DepthResolveRouteStatus::Unavailable,
+            reason: "depth effects are disabled",
+        },
+        DepthProvider::FalloutNewVegas => fnv::depth_resolve_status(),
+    }
 }
 
 pub(crate) fn startup_log(depth_provider: DepthProvider) {

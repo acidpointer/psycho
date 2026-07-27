@@ -964,6 +964,11 @@ impl Texture9 {
         &self.base
     }
 
+    /// Return the underlying `IDirect3DTexture9` resource pointer.
+    pub fn as_raw(&self) -> *mut c_void {
+        self.inner.as_raw()
+    }
+
     /// Return the cached base texture raw pointer.
     pub fn as_raw_base_texture(&self) -> *mut c_void {
         self.base.as_raw()

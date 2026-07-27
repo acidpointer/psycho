@@ -949,6 +949,22 @@ pub(crate) struct AmbientOcclusionEffect {
     previous_camera: Option<TemporalCameraState>,
 }
 
+pub(crate) fn should_draw(
+    frame_inputs: &FrameInputs,
+    fast_source: Option<&ScreenShaderSource>,
+    contact_source: Option<&ScreenShaderSource>,
+) -> bool {
+    ambient_occlusion_family(fast_source, contact_source).is_some()
+        && frame_inputs.depth.texture.is_some()
+}
+
+pub(crate) fn family_selected(
+    fast_source: Option<&ScreenShaderSource>,
+    contact_source: Option<&ScreenShaderSource>,
+) -> bool {
+    ambient_occlusion_family(fast_source, contact_source).is_some()
+}
+
 impl AmbientOcclusionEffect {
     pub(crate) fn create(device: &Device9Ref<'_>) -> Direct3DResult<Self> {
         Ok(Self {
@@ -1094,6 +1110,10 @@ impl AmbientOcclusionEffect {
         )?;
         self.previous_camera = Some(current_camera);
         Ok(())
+    }
+
+    pub(crate) fn reset_history(&mut self) {
+        self.previous_camera = None;
     }
 
     fn ensure_targets(

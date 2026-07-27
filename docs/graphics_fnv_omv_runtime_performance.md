@@ -47,6 +47,25 @@ pass-through:
 These paths are proven by the pre-change source. They can amplify CPU overhead,
 but their individual FPS cost has not been measured.
 
+## Tester-log findings from 2026-07-26
+
+`.reports/omv-latest--performance-bad.log` provides two additional direct
+observations:
+
+- PBR reported 162 queued shaders even though most entries were cache hits.
+  Ten missing close-terrain variants visible before the log ended then
+  compiled individually for about 8.6-11.7 seconds each while the game was
+  already running. Per-entry cache/resource messages also produced hundreds
+  of info-level log records.
+- Every world and first-person depth resolve returned D3D error `0x8876086A`.
+  Depth-dependent work was nevertheless reached and its resources and phase
+  copies were initialized.
+
+The log cannot by itself attribute the tester's sustained frame rate to one
+pass. It does prove an incomplete PBR cache, a long and poorly distinguished
+preparation period, and a device on which the old RESZ-only route did not
+work.
+
 ## Architecture and ownership
 
 `omv/src/asset_scanner.rs` owns live external shader and LUT discovery. Runtime
@@ -76,6 +95,61 @@ The scanner starts during OMV runtime configuration. This does not publish or
 initialize the focused FNV world pipeline. Its first publication remains in
 `DeferredInit`, as required by
 `docs/graphics_fnv_atmosphere_startup_crash_errata.md`.
+
+### Native PBR local preparation
+
+OMV releases contain PBR HLSL source and never contain generated `.cso` or
+`.pso` bytecode or a populated cache directory. The release packager rejects
+an archive that violates that rule.
+
+After native PBR activation, the named `omv-pbr-prepare` worker performs one
+explicit preparation transaction:
+
+1. inventory all expected content-addressed cache entries;
+2. accept only entries whose envelope, source/contract hash, bytecode size,
+   and checksum validate;
+3. compile only missing or invalid entries, using two workers;
+4. write a temporary file, flush it, rename it atomically, reopen it, and
+   verify the committed entry;
+5. retain the complete verified bytecode catalog in process memory.
+
+The hash includes source, shader target, compiler flags, cache format revision,
+logical shader identity, and PBR contract revision. A changed input therefore
+invalidates only its affected logical entry. Invalid entries are removed and
+rebuilt. Compilation or strict cache persistence failure leaves native PBR
+passive and visible as a failed preparation; it is never silently treated as
+ready.
+
+Device-owned shader handles are created from the process-owned bytecode at a
+budget of four per Present. Device loss discards only D3D handles. A reset
+recreates them from memory without rereading or recompiling the cache. Disabling
+native PBR cancels outstanding preparation generations; already verified
+in-memory entries remain reusable. Detailed per-entry cache, compile, and
+resource messages are debug-level, while aggregate completion and failures
+remain visible.
+
+No render callback performs shader compilation or cache I/O. The Present
+service may start the worker and may create the bounded number of required D3D
+resources because D3D9 device ownership is render-thread-bound. Draw
+replacement is atomic at the whole prepared catalog boundary, including the
+mandatory close-terrain family boundary.
+
+### Effect applicability preflight
+
+Each depth-dependent embedded effect now exposes a side-effect-free
+applicability predicate. Ambient occlusion rejects a frame when neither AO
+family is selected or required depth is absent. Sunshafts rejects absent depth
+or an unavailable sun contract. Depth of field rejects absent depth and
+preserves its vanilla-DoF resume state when skipped.
+
+`ScreenShaderRuntime` evaluates those predicates before effect creation and
+before any `StretchRect`. It also evaluates all enabled sources in a phase
+before creating/capturing its D3D state block or allocating/updating the phase
+color-copy target. A phase containing only rejected effects therefore performs
+neither operation. Depth of field also waits for its background shader
+preparation before declaring its phase applicable. This changes no shader
+equation, pass quality, or supported coverage; an applicable effect uses the
+same render path as before.
 
 ## Disabled live-pass-through contract
 
@@ -139,6 +213,15 @@ Static regression coverage establishes:
   retaining the menu boundary;
 - disabled PBR `SetShaders` calls native behavior before tracking work;
 - scan intervals remain bounded to 50-5000 ms.
+- rejected AO, sunshafts, and depth-of-field frames exit before effect
+  resource creation and backbuffer copy;
+- a phase whose enabled effects are all rejected allocates no color-copy
+  target;
+- the native-PBR render boundary contains neither local HLSL compilation nor
+  shader-cache commit calls;
+- release packaging cannot include generated shader bytecode or cache files;
+- device reset preserves the process-owned PBR bytecode catalog, while
+  disabling PBR cancels unfinished preparation.
 
 Required validation is:
 
@@ -150,6 +233,9 @@ git diff --check
 
 On 2026-07-26, the Windows/Wine OMV suite passed all 302 tests and the optimized
 `i686-pc-windows-gnu` OMV release target built successfully.
+
+The 2026-07-27 PBR preparation, depth-route, and applicability update passed
+all 309 OMV tests and the optimized `i686-pc-windows-gnu` OMV release build.
 
 Ordinary gameplay remains the runtime acceptance gate. Test at least one
 previously affected Wine/Proton setup with the master both off and on. With the

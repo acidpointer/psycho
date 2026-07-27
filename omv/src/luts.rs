@@ -646,6 +646,15 @@ mod tests {
         assert!(packager.contains("OMV_LUT_SOURCE_DIR=\"$WORKSPACE_DIR/omv/luts\""));
         assert!(packager.contains("Data/NVSE/plugins/omv/luts"));
         assert!(packager.contains("-iname '*.cube'"));
+        assert!(
+            !packager.contains("-iname '*.cso'"),
+            "OMV releases must not distribute compiled shader bytecode"
+        );
+        assert!(
+            !packager.contains("-iname '*.pso'"),
+            "OMV releases must not distribute compiled shader bytecode"
+        );
+        assert!(packager.contains("cache/|.*\\.(cso|pso)$"));
 
         let workflow = include_str!("../../.github/workflows/release.yml");
         for file_name in [

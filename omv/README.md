@@ -224,17 +224,21 @@ serialized stability value is compatibility-reserved and is not presented as
 an active control.
 
 The production wasteland defaults use zero uniform density and `0.0000025`
-height density. The fog menu keeps exact zero as a distinct value,
-uses logarithmic nonzero density controls, shows the current effective distance
-bound and estimated horizontal transmission, and provides a fog-only reset to
-the calibrated profile. Higher user values remain available for intentional
-heavy-weather presets.
+height density. The fog controls keep exact zero as a distinct value, use
+logarithmic nonzero density controls, and provide a fog-only reset to the
+calibrated profile. The live effective distance bound and estimated horizontal
+transmission are available in Diagnostics. Higher user values remain available
+for intentional heavy-weather presets.
 
-The graphics workbench opens at a compact centered size and can be resized up
-to the current viewport work area. Its feature/details panes adapt to the
-available width, and radio-button choice groups wrap instead of extending
-beyond the details pane. Window size is session-local because OMV does not
-write an ImGui ini file.
+The graphics workbench opens at a centered, resizable size with separate
+Configuration and Diagnostics tabs. Configuration is a two-pane workspace:
+the bounded feature list stays on the left and the independently scrollable
+effect editor takes the remaining width. Diagnostics owns the live graphs,
+pipeline status, and developer counters in one full-height scrollable view.
+Graph history therefore cannot consume or push the effect editor below the
+window at 1920x1080. Optional telemetry collection runs only while Diagnostics
+is selected; opening Configuration does not enable it. Window size is
+session-local because OMV does not write an ImGui ini file.
 
 License and attribution details for the adapted shader sources are in
 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
@@ -246,6 +250,12 @@ Data/NVSE/plugins/omv.dll
 Data/NVSE/plugins/omv/omv.toml
 Data/NVSE/plugins/omv/shaders/*.hlsl|*.pso|*.cso|*.toml
 ```
+
+OMV releases contain shader source, configuration, and authored assets only.
+Native PBR bytecode is compiled locally during an explicit preparation stage
+and retained only in the user's cache. The `.pso` and `.cso` extensions above
+are accepted for user-supplied external screen shaders; OMV does not distribute
+files in either compiled format.
 
 Config and logs:
 
