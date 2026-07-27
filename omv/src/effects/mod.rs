@@ -3,6 +3,7 @@ pub(crate) mod anti_aliasing;
 pub(crate) mod atmosphere;
 pub(crate) mod blooming_hdr;
 pub(crate) mod depth_of_field;
+pub(crate) mod motion_blur;
 pub(crate) mod pbr;
 pub(crate) mod sky;
 pub(crate) mod sunshafts;

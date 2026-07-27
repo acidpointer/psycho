@@ -40,9 +40,9 @@ not guarantee safe co-installation with `NewVegasReloaded.dll`.
 - In-game OMV graphics menu, toggled with `Insert` by default.
 - Loose screen-space shader loading from `Data/NVSE/plugins/omv/shaders`.
 - Embedded ambient occlusion, contact AO, bloom/HDR, final color grading with
-  five original redistributable LUT looks, sunshafts, depth of field, world-only
-  temporal AA, and selectable Fast FXAA, NFAA, AXAA, DLAA, and SMAA spatial
-  anti-aliasing.
+  five original redistributable LUT looks, sunshafts, depth of field,
+  depth-aware camera motion blur, world-only temporal AA, and selectable Fast
+  FXAA, NFAA, AXAA, DLAA, and SMAA spatial anti-aliasing.
 - Native PBR and Sky shader ports derived from New Vegas Reloaded, then
   refactored and optimized substantially for OMV.
 - Dependency logging for VPT, Fallout Shader Loader, and LOD Flicker Fix.
@@ -90,6 +90,33 @@ required; unsupported devices bypass the effect rather than silently using a
 lower-precision path. Shader bytecode is prepared asynchronously and cached by
 source hash. Ordinary effect toggles retain shader objects and targets, so they
 neither compile shaders nor reallocate the pipeline.
+
+## Motion Blur
+
+OMV motion blur runs after vanilla image-space effects and OMV depth of field,
+then before final bloom, grading, anti-aliasing, and UI. It reconstructs
+per-pixel camera velocity from current world or first-person depth and
+consecutive engine camera transforms. Rotation, translation parallax, zoom,
+and infinitely distant sky rotation therefore use one coherent projection
+model. Epoch gaps and camera cuts prime a new pair instead of smearing across a
+load or teleport.
+
+The pass is depth- and layer-aware: samples crossing a real depth discontinuity
+are rejected, and first-person geometry cannot leak into world silhouettes.
+`first_person_strength = 0` keeps weapons sharp; the restrained default uses
+the first-person camera pair rather than borrowing world velocity. FNV exposes
+no proven per-object velocity buffer to OMV, so independently animated objects
+receive camera motion only.
+
+Performance, High, and Ultra use fixed 5, 7, and 9-tap shaders. All tiers keep
+the same cut, edge, sky, and first-person logic. The implementation needs one
+existing phase color copy and one fullscreen draw, with no velocity target,
+history texture, or per-frame allocation. Shader bytecode is prepared
+off-thread. Disabled, zero-shutter, first, cut, stationary, and sub-threshold
+frames skip the color copy and draw. The shipped profile is enabled and tuned
+for a visible full-interval trail; users who prefer a sharp presentation can
+disable it at zero GPU cost. The detailed contract is in
+[`graphics_fnv_motion_blur.md`](../docs/graphics_fnv_motion_blur.md).
 
 ## Anti-Aliasing
 

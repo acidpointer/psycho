@@ -254,6 +254,33 @@ distant_blur_end = 55172.29
 sky_blur_strength = 0.125
 softness = 0.9517241
 
+[graphics.embedded_effects.motion_blur]
+# Engine-owned depth-aware camera motion blur. Fixed phase:
+# scene_post_image_space, after native image-space and OMV DOF but before
+# bloom/color/AA and UI. It uses current depth plus consecutive camera
+# transforms; it allocates no velocity or color-history texture.
+#
+# The tuned profile is enabled by default. Disabling it or selecting a
+# zero-shutter configuration skips preparation, resource work, copies, and
+# draws for this effect.
+enabled = true
+# performance = 5 taps, high = 7 taps, ultra = 9 taps. All tiers retain depth
+# edge rejection, camera-cut handling, sky rotation, and first-person isolation.
+quality = "high"
+# Physical exposure fraction. The default integrates the complete motion
+# between consecutive frames so normal pans remain visible.
+shutter_angle = 360.0
+# Hard safety/performance cap on the complete exposure path, in output pixels.
+# This affects only fast motion and does not change the fixed sample count.
+max_blur_pixels = 36.0
+# Camera intervals whose maximum screen velocity does not exceed this value
+# skip the full-resolution color copy and draw. The shader fades in smoothly
+# above the threshold.
+minimum_velocity_pixels = 0.15
+# Independent camera blur for first-person geometry. The reduced default gives
+# weapons a visible but restrained trail; 0 keeps them perfectly sharp.
+first_person_strength = 0.2
+
 # Temporal AA jitters and resolves the world before first-person/UI rendering.
 # It primes the proven depth/camera contract for one unjittered frame before use.
 [graphics.embedded_effects.temporal_aa]

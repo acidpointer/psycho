@@ -29,8 +29,8 @@ use crate::{
     backend::{self, DepthFrame, DepthProvider},
     config::{DepthProviderConfig, GraphicsMenuConfig},
     effects::{
-        ambient_occlusion, anti_aliasing, atmosphere, blooming_hdr, depth_of_field, pbr, sky,
-        sunshafts,
+        ambient_occlusion, anti_aliasing, atmosphere, blooming_hdr, depth_of_field, motion_blur,
+        pbr, sky, sunshafts,
     },
     luts,
     shaders::{self, EmbeddedEffectKind, ScreenShaderSource, ShaderOptionValue, ShaderPhase},
@@ -246,6 +246,24 @@ mod render_callback_io_tests {
             assert!(preflight < creation);
             assert!(preflight < copy);
         }
+
+        let motion_body = source
+            .split_once("fn draw_motion_blur_pipeline(")
+            .map(|(_, tail)| tail)
+            .and_then(|tail| tail.split_once("\n    fn "))
+            .map(|(body, _)| body)
+            .expect("motion-blur pipeline body");
+        let prepared = motion_body
+            .find("prepared_motion_blur_frame.take()")
+            .expect("motion preflight packet");
+        let creation = motion_body
+            .find("MotionBlurEffect::create(device)")
+            .expect("motion shader creation");
+        let copy = motion_body
+            .find("device.stretch_rect")
+            .expect("motion color copy");
+        assert!(prepared < creation);
+        assert!(prepared < copy);
     }
 
     #[test]
@@ -559,6 +577,10 @@ struct ScreenShaderRuntime {
     sunshafts: Option<sunshafts::SunshaftsEffect>,
     depth_of_field: Option<depth_of_field::DepthOfFieldEffect>,
     depth_of_field_creation_failed: bool,
+    motion_blur: Option<motion_blur::MotionBlurEffect>,
+    motion_blur_creation_failed: bool,
+    motion_blur_temporal: motion_blur::MotionBlurTemporalState,
+    prepared_motion_blur_frame: Option<motion_blur::PreparedMotionBlurFrame>,
     final_color_copy: Option<BackbufferCopy>,
     scene_pre_color_copy: Option<BackbufferCopy>,
     scene_post_color_copy: Option<BackbufferCopy>,
@@ -617,6 +639,10 @@ impl Default for ScreenShaderRuntime {
             sunshafts: None,
             depth_of_field: None,
             depth_of_field_creation_failed: false,
+            motion_blur: None,
+            motion_blur_creation_failed: false,
+            motion_blur_temporal: motion_blur::MotionBlurTemporalState::default(),
+            prepared_motion_blur_frame: None,
             final_color_copy: None,
             scene_pre_color_copy: None,
             scene_post_color_copy: None,
@@ -734,6 +760,10 @@ impl ScreenShaderRuntime {
             {
                 depth_of_field::service_present_frame();
             }
+            let motion_blur_config = self.settings.menu_config.embedded_effects.motion_blur;
+            if motion_blur_config.enabled && motion_blur_config.shutter_angle > f32::EPSILON {
+                motion_blur::service_present_frame();
+            }
         }
 
         self.ensure_imgui(&device, hwnd_hint);
@@ -771,11 +801,11 @@ impl ScreenShaderRuntime {
                 return Ok(());
             }
             let frame_inputs = self.build_frame_inputs(&desc, ShaderPhase::FinalImageSpace);
-            if self.phase_has_applicable_work(ShaderPhase::FinalImageSpace, &frame_inputs) {
+            if self.phase_has_applicable_work(ShaderPhase::FinalImageSpace, &desc, &frame_inputs) {
                 self.ensure_phase_color_copy(&device, &desc, ShaderPhase::FinalImageSpace)?;
                 Some((backbuffer, desc, frame_inputs))
             } else {
-                self.maintain_rejected_phase_state(ShaderPhase::FinalImageSpace);
+                self.maintain_rejected_phase_state(ShaderPhase::FinalImageSpace, &frame_inputs);
                 None
             }
         } else {
@@ -896,8 +926,8 @@ impl ScreenShaderRuntime {
         }
 
         let frame_inputs = self.build_frame_inputs(&desc, phase);
-        if !self.phase_has_applicable_work(phase, &frame_inputs) {
-            self.maintain_rejected_phase_state(phase);
+        if !self.phase_has_applicable_work(phase, &desc, &frame_inputs) {
+            self.maintain_rejected_phase_state(phase, &frame_inputs);
             let restore_render_target_result = device.set_render_target(0, &restore_target);
             restore_render_target_result?;
             self.applied_phases.mark_applied(phase);
@@ -1264,10 +1294,33 @@ impl ScreenShaderRuntime {
     }
 
     fn phase_has_applicable_work(
-        &self,
+        &mut self,
         phase: ShaderPhase,
+        desc: &D3DSURFACE_DESC,
         frame_inputs: &backend::FrameInputs,
     ) -> bool {
+        self.prepared_motion_blur_frame = None;
+        let motion_blur_enabled = self.sources.iter().any(|source| {
+            source.enabled
+                && source.phase() == phase
+                && source.embedded_effect_kind() == Some(EmbeddedEffectKind::MotionBlur)
+        });
+        if motion_blur_enabled {
+            let config = self.settings.menu_config.embedded_effects.motion_blur;
+            if motion_blur::should_prepare(frame_inputs, config) {
+                let prepared = self
+                    .motion_blur_temporal
+                    .prepare_frame(desc, frame_inputs, config);
+                if !self.motion_blur_creation_failed
+                    && (self.motion_blur.is_some() || motion_blur::preparation_ready())
+                {
+                    self.prepared_motion_blur_frame = prepared;
+                }
+            } else {
+                self.motion_blur_temporal.reset();
+            }
+        }
+
         let Some(compiled) = self.compiled.as_ref() else {
             return false;
         };
@@ -1321,6 +1374,11 @@ impl ScreenShaderRuntime {
                         return true;
                     }
                 }
+                EmbeddedEffectKind::MotionBlur => {
+                    if self.prepared_motion_blur_frame.is_some() {
+                        return true;
+                    }
+                }
                 _ => return true,
             }
         }
@@ -1328,7 +1386,11 @@ impl ScreenShaderRuntime {
         false
     }
 
-    fn maintain_rejected_phase_state(&mut self, phase: ShaderPhase) {
+    fn maintain_rejected_phase_state(
+        &mut self,
+        phase: ShaderPhase,
+        frame_inputs: &backend::FrameInputs,
+    ) {
         let fast_ao = self.sources.iter().find(|source| {
             source.enabled
                 && source.phase() == phase
@@ -1357,6 +1419,21 @@ impl ScreenShaderRuntime {
             if let Some(effect) = self.depth_of_field.as_mut() {
                 effect.note_skipped(config, self.native_dof_active_this_frame);
             }
+        }
+
+        let motion_blur_enabled = self.sources.iter().any(|source| {
+            source.enabled
+                && source.phase() == phase
+                && source.embedded_effect_kind() == Some(EmbeddedEffectKind::MotionBlur)
+        });
+        if !motion_blur_enabled
+            || !motion_blur::should_prepare(
+                frame_inputs,
+                self.settings.menu_config.embedded_effects.motion_blur,
+            )
+        {
+            self.motion_blur_temporal.reset();
+            self.prepared_motion_blur_frame = None;
         }
     }
 
@@ -1518,6 +1595,17 @@ impl ScreenShaderRuntime {
                 let rebind_common_state = self.has_enabled_pass_after(phase, pass_position);
                 let source_pass_count = source.pass_count.max(1);
                 self.draw_depth_of_field_pipeline(device, backbuffer, desc, frame_inputs, &copy)?;
+                if rebind_common_state {
+                    self.bind_common_state(device, backbuffer, desc, frame_inputs, &copy)?;
+                }
+                pass_index = pass_index.saturating_add(source_pass_count);
+                continue;
+            }
+
+            if source.embedded_effect_kind() == Some(EmbeddedEffectKind::MotionBlur) {
+                let rebind_common_state = self.has_enabled_pass_after(phase, pass_position);
+                let source_pass_count = source.pass_count.max(1);
+                self.draw_motion_blur_pipeline(device, backbuffer, desc, frame_inputs, &copy)?;
                 if rebind_common_state {
                     self.bind_common_state(device, backbuffer, desc, frame_inputs, &copy)?;
                 }
@@ -1884,6 +1972,56 @@ impl ScreenShaderRuntime {
             frame_index,
             frame_seconds,
             native_dof_active,
+        )
+    }
+
+    fn draw_motion_blur_pipeline(
+        &mut self,
+        device: &Device9Ref<'_>,
+        backbuffer: &Surface9,
+        desc: &D3DSURFACE_DESC,
+        frame_inputs: &backend::FrameInputs,
+        current_color_copy: &BackbufferCopy,
+    ) -> Direct3DResult<()> {
+        let Some(frame) = self.prepared_motion_blur_frame.take() else {
+            return Ok(());
+        };
+        if self.motion_blur_creation_failed {
+            return Ok(());
+        }
+        if self.motion_blur.is_none() {
+            match motion_blur::MotionBlurEffect::create(device) {
+                Ok(Some(effect)) => {
+                    self.motion_blur = Some(effect);
+                    log::info!("[MOTION_BLUR] Camera reprojection pipeline initialized");
+                }
+                Ok(None) => return Ok(()),
+                Err(err) => {
+                    self.motion_blur_creation_failed = true;
+                    return Err(err);
+                }
+            }
+        }
+
+        let Some(effect) = self.motion_blur.as_mut() else {
+            return Ok(());
+        };
+
+        device.clear_texture(0)?;
+        device.stretch_rect(
+            backbuffer,
+            None,
+            &current_color_copy.surface,
+            None,
+            D3DTEXF_POINT,
+        )?;
+        effect.draw(
+            device,
+            backbuffer,
+            desc,
+            frame_inputs,
+            &current_color_copy.texture,
+            frame,
         )
     }
 
@@ -2399,6 +2537,8 @@ impl ScreenShaderRuntime {
         self.sunshafts = None;
         self.depth_of_field = None;
         self.depth_of_field_creation_failed = false;
+        self.motion_blur = None;
+        self.motion_blur_creation_failed = false;
         self.release_default_pool_resources();
         if let Some(imgui) = self.imgui.as_mut() {
             imgui.invalidate_device_objects();
@@ -2418,6 +2558,10 @@ impl ScreenShaderRuntime {
         self.sunshafts = None;
         self.depth_of_field = None;
         self.depth_of_field_creation_failed = false;
+        self.motion_blur = None;
+        self.motion_blur_creation_failed = false;
+        self.motion_blur_temporal.reset();
+        self.prepared_motion_blur_frame = None;
         self.world_color_captured_this_frame = false;
         self.state_block = None;
     }
@@ -2465,7 +2609,8 @@ impl SceneInputRequirements {
             EmbeddedEffectKind::FastAmbientOcclusion
             | EmbeddedEffectKind::ContactAmbientOcclusion
             | EmbeddedEffectKind::Sunshafts
-            | EmbeddedEffectKind::DepthOfField => Self {
+            | EmbeddedEffectKind::DepthOfField
+            | EmbeddedEffectKind::MotionBlur => Self {
                 world_depth: true,
                 first_person_depth: true,
                 world_color: false,
@@ -6515,6 +6660,9 @@ fn embedded_effect_description(kind: Option<EmbeddedEffectKind>) -> Option<&'sta
         Some(EmbeddedEffectKind::DepthOfField) => {
             Some("Optical near focus, cinematic far blur, and soft Souls-style depth.")
         }
+        Some(EmbeddedEffectKind::MotionBlur) => Some(
+            "Depth-aware camera shutter blur with cut rejection and isolated first-person motion.",
+        ),
         Some(EmbeddedEffectKind::FastFxaa) => Some("Low-cost single-pass edge smoothing."),
         Some(EmbeddedEffectKind::Nfaa) => {
             Some("Normal-filter edge smoothing with mask and normal debug views.")

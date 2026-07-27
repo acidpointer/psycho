@@ -22,8 +22,8 @@ use serde::{Deserialize, Serialize};
 use crate::config::{
     AtmosphereQuality, AxaaConfig, BloomingHdrConfig, ColorGradeConfig, ContactAoConfig,
     DepthOfFieldConfig, DlaaConfig, EmbeddedEffectsConfig, FastAoConfig, FastFxaaConfig,
-    NfaaConfig, SmaaConfig, SunshaftsConfig, TemporalAaConfig, VolumetricFogConfig,
-    VolumetricLightingConfig,
+    MotionBlurConfig, NfaaConfig, SmaaConfig, SunshaftsConfig, TemporalAaConfig,
+    VolumetricFogConfig, VolumetricLightingConfig,
 };
 
 pub(crate) const SHADER_DIR: &str = "./Data/NVSE/plugins/omv/shaders";
@@ -255,6 +255,7 @@ pub(crate) enum EmbeddedEffectKind {
     ColorGrade,
     Sunshafts,
     DepthOfField,
+    MotionBlur,
     FastFxaa,
     Nfaa,
     Axaa,
@@ -467,6 +468,9 @@ pub(crate) fn sync_embedded_effect_config(
             Some(EmbeddedEffectKind::DepthOfField) => {
                 sync_depth_of_field_config(source, &mut config.depth_of_field);
             }
+            Some(EmbeddedEffectKind::MotionBlur) => {
+                sync_motion_blur_config(source, &mut config.motion_blur);
+            }
             Some(EmbeddedEffectKind::FastFxaa) => {
                 sync_fast_fxaa_config(source, &mut config.fast_fxaa);
             }
@@ -502,6 +506,7 @@ fn embedded_effect_sources_with_luts(
         temporal_aa_source(&config.temporal_aa),
         sunshafts_source(&config.sunshafts),
         depth_of_field_source(&config.depth_of_field),
+        motion_blur_source(&config.motion_blur),
         fast_fxaa_source(&config.fast_fxaa),
         nfaa_source(&config.nfaa),
         axaa_source(&config.axaa),
@@ -1639,6 +1644,61 @@ fn depth_of_field_source(config: &DepthOfFieldConfig) -> ScreenShaderSource {
     )
 }
 
+fn motion_blur_source(config: &MotionBlurConfig) -> ScreenShaderSource {
+    embedded_source(
+        EmbeddedEffectKind::MotionBlur,
+        "Motion Blur",
+        config.enabled,
+        EmbeddedEffectsConfig::phase_for_kind(EmbeddedEffectKind::MotionBlur),
+        vec![
+            integer_choice_option(
+                "quality",
+                "Quality",
+                config.quality.index(),
+                &["Performance", "High", "Ultra"],
+                21,
+                0,
+            ),
+            float_option(
+                "shutter_angle",
+                "Shutter angle",
+                config.shutter_angle,
+                0.0,
+                360.0,
+                21,
+                1,
+            ),
+            float_option(
+                "max_blur_pixels",
+                "Maximum blur pixels",
+                config.max_blur_pixels,
+                0.0,
+                48.0,
+                21,
+                2,
+            ),
+            float_option(
+                "minimum_velocity_pixels",
+                "Minimum velocity pixels",
+                config.minimum_velocity_pixels,
+                0.0,
+                2.0,
+                21,
+                3,
+            ),
+            float_option(
+                "first_person_strength",
+                "First-person strength",
+                config.first_person_strength,
+                0.0,
+                1.0,
+                22,
+                0,
+            ),
+        ],
+    )
+}
+
 fn embedded_source(
     kind: EmbeddedEffectKind,
     name: &str,
@@ -2072,6 +2132,25 @@ fn sync_depth_of_field_config(source: &ScreenShaderSource, config: &mut DepthOfF
             "distant_blur_end" => config.distant_blur_end = option_float(option),
             "sky_blur_strength" => config.sky_blur_strength = option_float(option),
             "softness" => config.softness = option_float(option),
+            _ => {}
+        }
+    }
+}
+
+fn sync_motion_blur_config(source: &ScreenShaderSource, config: &mut MotionBlurConfig) {
+    config.enabled = source.enabled;
+    for option in &source.options {
+        match option.key.as_str() {
+            "quality" => {
+                config.quality =
+                    crate::config::MotionBlurQuality::from_index(option_integer(option));
+            }
+            "shutter_angle" => config.shutter_angle = option_float(option),
+            "max_blur_pixels" => config.max_blur_pixels = option_float(option),
+            "minimum_velocity_pixels" => {
+                config.minimum_velocity_pixels = option_float(option);
+            }
+            "first_person_strength" => config.first_person_strength = option_float(option),
             _ => {}
         }
     }
@@ -2980,9 +3059,12 @@ fn shader_cache_temp_is_stale(metadata: &fs::Metadata) -> bool {
 mod embedded_color_grade_tests {
     use super::{
         EmbeddedEffectKind, ShaderOptionValue, ShaderPhase, color_grade_source,
-        embedded_effect_sources, sync_color_grade_config,
+        embedded_effect_sources, motion_blur_source, sync_color_grade_config,
+        sync_motion_blur_config,
     };
-    use crate::config::{ColorGradeConfig, EmbeddedEffectsConfig};
+    use crate::config::{
+        ColorGradeConfig, EmbeddedEffectsConfig, MotionBlurConfig, MotionBlurQuality,
+    };
 
     #[test]
     fn color_grade_menu_schema_covers_every_config_field_and_lut_name() {
@@ -3199,6 +3281,77 @@ mod embedded_color_grade_tests {
         assert!(EmbeddedEffectKind::BloomingHdr.is_final_color());
         assert!(EmbeddedEffectKind::ColorGrade.is_final_color());
         assert!(!EmbeddedEffectKind::FastFxaa.is_final_color());
+    }
+
+    #[test]
+    fn motion_blur_menu_schema_round_trips_every_active_control() {
+        let expected = MotionBlurConfig {
+            enabled: true,
+            quality: MotionBlurQuality::Ultra,
+            shutter_angle: 315.0,
+            max_blur_pixels: 42.0,
+            minimum_velocity_pixels: 1.25,
+            first_person_strength: 0.65,
+        };
+        let source = motion_blur_source(&expected);
+        let schema: Vec<(&str, f32, f32)> = source
+            .options
+            .iter()
+            .map(|option| (option.key.as_str(), option.min, option.max))
+            .collect();
+        assert_eq!(
+            schema,
+            [
+                ("quality", 0.0, 2.0),
+                ("shutter_angle", 0.0, 360.0),
+                ("max_blur_pixels", 0.0, 48.0),
+                ("minimum_velocity_pixels", 0.0, 2.0),
+                ("first_person_strength", 0.0, 1.0),
+            ]
+        );
+        assert!(matches!(
+            source.options[0].value,
+            ShaderOptionValue::Integer(2)
+        ));
+        let quality_choices: Vec<&str> = source.options[0]
+            .choices
+            .as_deref()
+            .expect("quality choices")
+            .iter()
+            .map(String::as_str)
+            .collect();
+        assert_eq!(quality_choices, ["Performance", "High", "Ultra"]);
+
+        let mut actual = MotionBlurConfig::default();
+        sync_motion_blur_config(&source, &mut actual);
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn motion_blur_is_ordered_after_dof_and_before_final_color() {
+        let sources = embedded_effect_sources(&EmbeddedEffectsConfig::default());
+        let dof = sources
+            .iter()
+            .position(|source| {
+                source.embedded_effect_kind() == Some(EmbeddedEffectKind::DepthOfField)
+            })
+            .expect("depth of field");
+        let motion_blur = sources
+            .iter()
+            .position(|source| {
+                source.embedded_effect_kind() == Some(EmbeddedEffectKind::MotionBlur)
+            })
+            .expect("motion blur");
+        let final_color = sources
+            .iter()
+            .position(|source| source.embedded_effect_kind() == Some(EmbeddedEffectKind::FastFxaa))
+            .expect("final color phase");
+        assert!(dof < motion_blur);
+        assert_eq!(
+            sources[motion_blur].phase(),
+            ShaderPhase::ScenePostImageSpace
+        );
+        assert_eq!(sources[final_color].phase(), ShaderPhase::FinalImageSpace);
     }
 }
 

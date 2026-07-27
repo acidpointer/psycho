@@ -167,6 +167,7 @@ pub(crate) struct EmbeddedEffectsConfig {
     pub(crate) color_grade: ColorGradeConfig,
     pub(crate) sunshafts: SunshaftsConfig,
     pub(crate) depth_of_field: DepthOfFieldConfig,
+    pub(crate) motion_blur: MotionBlurConfig,
     pub(crate) temporal_aa: TemporalAaConfig,
     pub(crate) fast_fxaa: FastFxaaConfig,
     pub(crate) nfaa: NfaaConfig,
@@ -186,6 +187,7 @@ impl Default for EmbeddedEffectsConfig {
             color_grade: ColorGradeConfig::default(),
             sunshafts: SunshaftsConfig::default(),
             depth_of_field: DepthOfFieldConfig::default(),
+            motion_blur: MotionBlurConfig::default(),
             temporal_aa: TemporalAaConfig::default(),
             fast_fxaa: FastFxaaConfig::default(),
             nfaa: NfaaConfig::default(),
@@ -346,6 +348,7 @@ impl EmbeddedEffectsConfig {
         self.blooming_hdr = self.blooming_hdr.sanitized();
         self.color_grade = self.color_grade.sanitized();
         self.sunshafts = self.sunshafts.sanitized();
+        self.motion_blur = self.motion_blur.sanitized();
         self
     }
 }
@@ -369,6 +372,117 @@ impl Default for TemporalAaConfig {
             sharpness: 0.10,
             jitter_scale: 1.0,
         }
+    }
+}
+
+/// Compile-time motion-blur sample tier.
+///
+/// Every tier keeps the same reconstruction and edge-rejection equations; only
+/// the number of shutter samples changes, so lowering quality does not disable
+/// camera cuts, depth protection, or first-person isolation.
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum MotionBlurQuality {
+    /// Five shutter taps for bandwidth-constrained GPUs.
+    Performance,
+    /// Seven shutter taps for the recommended quality/performance balance.
+    #[default]
+    High,
+    /// Nine shutter taps for the smoothest long exposure paths.
+    Ultra,
+}
+
+impl MotionBlurQuality {
+    /// Returns the in-game menu index for this tier.
+    pub(crate) const fn index(self) -> i32 {
+        match self {
+            Self::Performance => 0,
+            Self::High => 1,
+            Self::Ultra => 2,
+        }
+    }
+
+    /// Decodes a bounded in-game menu index.
+    pub(crate) const fn from_index(value: i32) -> Self {
+        match value {
+            0 => Self::Performance,
+            2 => Self::Ultra,
+            _ => Self::High,
+        }
+    }
+
+    /// Returns the compile-time bounded shutter sample count.
+    pub(crate) const fn sample_count(self) -> u32 {
+        match self {
+            Self::Performance => 5,
+            Self::High => 7,
+            Self::Ultra => 9,
+        }
+    }
+
+    /// Returns the stable TOML spelling for this tier.
+    pub(crate) const fn config_value(self) -> &'static str {
+        match self {
+            Self::Performance => "performance",
+            Self::High => "high",
+            Self::Ultra => "ultra",
+        }
+    }
+}
+
+/// User-facing controls for OMV's camera motion blur.
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(default)]
+pub(crate) struct MotionBlurConfig {
+    /// Master effect switch.
+    pub(crate) enabled: bool,
+    /// Compile-time shutter sample tier.
+    pub(crate) quality: MotionBlurQuality,
+    /// Exposure fraction in physical shutter degrees, from 0 through 360.
+    pub(crate) shutter_angle: f32,
+    /// Maximum complete exposure path in output pixels.
+    pub(crate) max_blur_pixels: f32,
+    /// Camera-velocity threshold below which OMV skips the draw.
+    pub(crate) minimum_velocity_pixels: f32,
+    /// Independent first-person camera blur multiplier.
+    pub(crate) first_person_strength: f32,
+}
+
+impl Default for MotionBlurConfig {
+    fn default() -> Self {
+        Self {
+            // The full shutter interval makes ordinary camera movement
+            // readable without increasing sample count. The bounded path and
+            // reduced first-person multiplier keep fast turns controlled.
+            enabled: true,
+            quality: MotionBlurQuality::High,
+            shutter_angle: 360.0,
+            max_blur_pixels: 36.0,
+            minimum_velocity_pixels: 0.15,
+            first_person_strength: 0.2,
+        }
+    }
+}
+
+impl MotionBlurConfig {
+    fn sanitized(mut self) -> Self {
+        let defaults = Self::default();
+        self.shutter_angle = finite_clamp(self.shutter_angle, defaults.shutter_angle, 0.0, 360.0);
+        self.max_blur_pixels =
+            finite_clamp(self.max_blur_pixels, defaults.max_blur_pixels, 0.0, 48.0);
+        self.minimum_velocity_pixels = finite_clamp(
+            self.minimum_velocity_pixels,
+            defaults.minimum_velocity_pixels,
+            0.0,
+            2.0,
+        );
+        self.first_person_strength = finite_clamp(
+            self.first_person_strength,
+            defaults.first_person_strength,
+            0.0,
+            1.0,
+        );
+        self
     }
 }
 
@@ -1009,6 +1123,7 @@ impl EmbeddedEffectsConfig {
             | crate::shaders::EmbeddedEffectKind::Smaa => ShaderPhase::FinalImageSpace,
             crate::shaders::EmbeddedEffectKind::Sunshafts
             | crate::shaders::EmbeddedEffectKind::DepthOfField
+            | crate::shaders::EmbeddedEffectKind::MotionBlur
             | crate::shaders::EmbeddedEffectKind::TemporalAa => ShaderPhase::ScenePostImageSpace,
         }
     }
@@ -1350,6 +1465,19 @@ fn save_embedded_effect_config(doc: &mut DocumentMut, config: &EmbeddedEffectsCo
     doc["graphics"]["embedded_effects"]["depth_of_field"]["sky_blur_strength"] =
         value(dof.sky_blur_strength as f64);
     doc["graphics"]["embedded_effects"]["depth_of_field"]["softness"] = value(dof.softness as f64);
+
+    let motion_blur = &config.motion_blur;
+    doc["graphics"]["embedded_effects"]["motion_blur"]["enabled"] = value(motion_blur.enabled);
+    doc["graphics"]["embedded_effects"]["motion_blur"]["quality"] =
+        value(motion_blur.quality.config_value());
+    doc["graphics"]["embedded_effects"]["motion_blur"]["shutter_angle"] =
+        value(motion_blur.shutter_angle as f64);
+    doc["graphics"]["embedded_effects"]["motion_blur"]["max_blur_pixels"] =
+        value(motion_blur.max_blur_pixels as f64);
+    doc["graphics"]["embedded_effects"]["motion_blur"]["minimum_velocity_pixels"] =
+        value(motion_blur.minimum_velocity_pixels as f64);
+    doc["graphics"]["embedded_effects"]["motion_blur"]["first_person_strength"] =
+        value(motion_blur.first_person_strength as f64);
 }
 
 fn save_color_grade_config(doc: &mut DocumentMut, grade: &ColorGradeConfig) {
@@ -1405,9 +1533,10 @@ fn save_color_grade_config(doc: &mut DocumentMut, grade: &ColorGradeConfig) {
 mod tests {
     use super::{
         AtmosphereQuality, BloomingHdrConfig, ColorGradeConfig, DiagnosticsConfig,
-        EmbeddedEffectsConfig, GraphicsMenuConfig, NativePbrConfig, PsychoGraphicsConfig,
-        VolumetricFogConfig, VolumetricLightingConfig, sanitize_frame_pacing_update_interval_ms,
-        save_color_grade_config, save_diagnostics_config,
+        EmbeddedEffectsConfig, GraphicsMenuConfig, MotionBlurConfig, MotionBlurQuality,
+        NativePbrConfig, PsychoGraphicsConfig, VolumetricFogConfig, VolumetricLightingConfig,
+        sanitize_frame_pacing_update_interval_ms, save_color_grade_config, save_diagnostics_config,
+        save_embedded_effect_config,
     };
     use toml_edit::DocumentMut;
 
@@ -1779,5 +1908,55 @@ albedo_saturation = 1.02
         assert!(defaults.local_lights_enabled);
         assert_eq!(defaults.local_lights_intensity, 1.5);
         assert_eq!(defaults.local_lights_quality, AtmosphereQuality::High);
+    }
+
+    #[test]
+    fn motion_blur_controls_are_sanitized_defaulted_and_saved_exactly() {
+        let tuned_default = MotionBlurConfig::default();
+        assert!(tuned_default.enabled);
+        assert_eq!(tuned_default.quality, MotionBlurQuality::High);
+        assert_eq!(tuned_default.shutter_angle, 360.0);
+        assert_eq!(tuned_default.max_blur_pixels, 36.0);
+        assert_eq!(tuned_default.minimum_velocity_pixels, 0.15);
+        assert_eq!(tuned_default.first_person_strength, 0.2);
+        let shipped: PsychoGraphicsConfig =
+            toml::from_str(include_str!("../config/omv.toml")).expect("shipped OMV config");
+        assert_eq!(shipped.graphics.embedded_effects.motion_blur, tuned_default);
+
+        let sanitized = MotionBlurConfig {
+            enabled: true,
+            quality: MotionBlurQuality::Ultra,
+            shutter_angle: f32::NAN,
+            max_blur_pixels: 999.0,
+            minimum_velocity_pixels: -4.0,
+            first_person_strength: f32::INFINITY,
+        }
+        .sanitized();
+        assert!(sanitized.enabled);
+        assert_eq!(sanitized.quality, MotionBlurQuality::Ultra);
+        assert_eq!(sanitized.shutter_angle, 360.0);
+        assert_eq!(sanitized.max_blur_pixels, 48.0);
+        assert_eq!(sanitized.minimum_velocity_pixels, 0.0);
+        assert_eq!(sanitized.first_person_strength, 0.2);
+
+        let expected = MotionBlurConfig {
+            enabled: true,
+            quality: MotionBlurQuality::Performance,
+            shutter_angle: 270.0,
+            max_blur_pixels: 31.5,
+            minimum_velocity_pixels: 0.75,
+            first_person_strength: 0.4,
+        };
+        let mut effects = EmbeddedEffectsConfig::default();
+        effects.motion_blur = expected;
+        let mut document = DocumentMut::new();
+        save_embedded_effect_config(&mut document, &effects);
+        let decoded: PsychoGraphicsConfig =
+            toml::from_str(&document.to_string()).expect("saved motion-blur config");
+        assert_eq!(decoded.graphics.embedded_effects.motion_blur, expected);
+
+        let legacy: MotionBlurConfig = toml::from_str("").expect("legacy motion-blur config");
+        assert_eq!(legacy, MotionBlurConfig::default());
+        assert!(legacy.enabled);
     }
 }
