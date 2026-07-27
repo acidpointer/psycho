@@ -14,10 +14,10 @@ use windows::Win32::Foundation::{
     HMODULE, HWND, INVALID_HANDLE_VALUE, STILL_ACTIVE, SetLastError, WIN32_ERROR,
 };
 use windows::Win32::Storage::FileSystem::{
-    CreateFileA, DeleteFileA, FILE_ATTRIBUTE_NORMAL, FILE_GENERIC_READ, FILE_GENERIC_WRITE,
-    FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE, FlushFileBuffers, GetFileAttributesA,
-    GetFileSizeEx, INVALID_FILE_ATTRIBUTES, MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH,
-    MoveFileExA, OPEN_EXISTING, REPLACE_FILE_FLAGS, ReadFile, ReplaceFileA,
+    CreateFileA, DeleteFileA, FILE_ATTRIBUTE_NORMAL, FILE_BEGIN, FILE_GENERIC_READ,
+    FILE_GENERIC_WRITE, FILE_SHARE_READ, FlushFileBuffers, GetFileAttributesA, GetFileSizeEx,
+    INVALID_FILE_ATTRIBUTES, MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH, MoveFileExA,
+    OPEN_EXISTING, REPLACE_FILE_FLAGS, ReadFile, ReplaceFileA, SetFilePointerEx,
 };
 use windows::Win32::System::Console::{
     AllocConsole, CONSOLE_MODE, ENABLE_VIRTUAL_TERMINAL_PROCESSING, GetConsoleMode, GetStdHandle,
@@ -911,22 +911,37 @@ impl DurableFile {
         Ok(self.len()? == 0)
     }
 
-    /// Read up to `buffer.len()` bytes from the start of a newly opened file.
-    pub fn read_prefix(&self, buffer: &mut [u8]) -> WinapiResult<usize> {
+    /// Read up to `buffer.len()` bytes from the start of the file.
+    ///
+    /// Every call seeks back to offset zero and continues across short reads
+    /// until the buffer is full or the file reaches EOF. The exclusive borrow
+    /// prevents another reader from racing the shared Win32 file pointer
+    /// between the seek and reads.
+    pub fn read_prefix(&mut self, buffer: &mut [u8]) -> WinapiResult<usize> {
         if buffer.is_empty() {
             return Ok(0);
         }
 
-        let mut bytes_read = 0;
-        unsafe {
-            ReadFile(
-                self.raw_handle()?,
-                Some(buffer),
-                Some(&mut bytes_read),
-                None,
-            )?
-        };
-        Ok(bytes_read as usize)
+        let handle = self.raw_handle()?;
+        unsafe { SetFilePointerEx(handle, 0, None, FILE_BEGIN)? };
+
+        let mut total = 0;
+        while total < buffer.len() {
+            let mut bytes_read = 0;
+            unsafe {
+                ReadFile(
+                    handle,
+                    Some(&mut buffer[total..]),
+                    Some(&mut bytes_read),
+                    None,
+                )?
+            };
+            if bytes_read == 0 {
+                break;
+            }
+            total += bytes_read as usize;
+        }
+        Ok(total)
     }
 
     /// Force cached file contents and metadata associated with this handle to
@@ -947,14 +962,17 @@ impl Drop for DurableFile {
     }
 }
 
-/// Open an existing file without truncation so its final length can be checked
-/// and its cached contents can be flushed before replacement.
+/// Open an existing file without truncation for stable validation and flushing.
+///
+/// The owned handle permits other readers but denies new writers and delete
+/// access until it is dropped. Callers can therefore validate and flush one
+/// stable file image before performing a later rename or replacement.
 pub fn open_existing_file_for_flush(path: &CStr) -> WinapiResult<DurableFile> {
     let handle = unsafe {
         CreateFileA(
             PCSTR(path.as_ptr().cast()),
             FILE_GENERIC_READ.0 | FILE_GENERIC_WRITE.0,
-            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+            FILE_SHARE_READ,
             None,
             OPEN_EXISTING,
             FILE_ATTRIBUTE_NORMAL,

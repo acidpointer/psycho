@@ -54,7 +54,8 @@ ABIs are byte-returning functions, not 32-bit result functions.
 The on-disk header begins with `FO3SAVEGAME`, a 32-bit encoded header length,
 the current version `0x30`, pipe-delimited metadata, and the screenshot
 dimensions. The screenshot consumes `width * height * 3` bytes. The changed
-record body follows it.
+record body follows it. The physical reader performs that multiplication in
+32-bit registers at `0x0084DA34-0x0084DA45`.
 
 The physical-file readers at `0x0084D8C0` and `0x0084DAB0` accept two
 version-`0x30` header layouts. After the version separator they inspect the byte
@@ -63,6 +64,74 @@ width and the 64-byte language block is absent; any other byte means the reader
 first consumes the language block and its separator. The absent form defaults
 to `ENGLISH`. This is an explicit loader compatibility contract, not a guessed
 format extension, and the integrity validator must accept both forms.
+
+Header strings use a second conditional framing rule. The header writer at
+`0x0084D4B0` delegates string fields to `0x00865E70`. That helper always emits
+the `u16` length as one buffered write, but its zero-length branch at
+`0x00865EBD` skips the payload write at `0x00865ECD`. The matching reader
+`0x008649A0` always reads the length at `0x008649B8`, then branches at
+`0x008649C3` and calls the payload reader at `0x008649F0` only for a nonzero
+length. On this ordinary header path, the low-level writer `0x00865CE0`
+appends one pipe to every performed write, and the reader `0x00864820`
+consumes one pipe after every performed read. Therefore:
+
+- an empty string is encoded as `u16(0), '|'`;
+- a nonempty string is encoded as `u16(length), '|', bytes, '|'`.
+
+The omitted payload write means an empty string has no second pipe. This is not
+a relaxed corruption policy; it is the exact producer/consumer contract used
+by the executable. Nonempty fields still require their payload pipe, and the
+encoded header length must still end exactly after the final field.
+
+### Validator reliability policy
+
+The two July corrections had one common engineering cause: the original
+validator transcribed an inferred header grammar, and its synthetic test
+builder transcribed the same grammar. The builder therefore produced only
+files that agreed with the validator. It could not reveal either engine branch
+that the transcription omitted: the optional language block or the skipped
+empty-string payload operation.
+
+The hardened validator removes that correlated-oracle pattern:
+
+- `HeaderCursor::framed` is the single implementation of the low-level engine
+  rule that every performed read consumes one payload followed by one pipe.
+  Scalars, fixed blocks, string lengths, and nonempty string payloads cannot
+  implement that rule separately.
+- `HeaderCursor::string` contains only the proven high-level branch: read the
+  framed `u16` length, and perform a framed payload read only when it is
+  nonzero.
+- Literal byte fixtures test the empty and nonempty branches without calling
+  the synthetic header builder. Full-envelope tests exhaust all 16 empty/value
+  combinations under both accepted language layouts.
+- The temporary file is opened after the engine file object is closed. Its
+  validation handle permits readers but denies writer and delete sharing, so
+  an existing incompatible handle prevents validation and no new writer or
+  path replacement can change the file image while it is parsed and flushed.
+- Validation first reads the fixed 15-byte magic/length lead, checks the
+  declared length, and then reads exactly that complete header through the
+  same handle. Short Win32 reads are retried until the requested envelope is
+  complete or physical EOF is reached.
+
+For version `0x30`, the largest possible encoded header body is derived from
+the proven schema rather than chosen as a tuning limit:
+
+`5 * (u32 + pipe) + (64-byte language + pipe) + 4 * (u16 + pipe + 65535-byte payload + pipe) = 262246 bytes`.
+
+This admits every value representable by all four on-disk `u16` string lengths
+while bounding the cold-path allocation. A larger declared header, a header
+that extends past physical EOF, a short second read, or any field that does not
+end exactly at the declared boundary fails closed. A future save version must
+first have its writer and reader contract proven and must receive an explicit
+parser; it is not guessed from version `0x30`.
+
+Screenshot validation follows the same rule. The previous 64 MiB ceiling was a
+policy guess and would reject an otherwise coherent high-resolution save; an
+8192 by 4096 RGB image is 96 MiB. The hardened validator instead performs the
+reader's `u32` RGB-size multiplication with checked arithmetic and proves that
+the computed screenshot plus at least one changed-record byte fits inside the
+physical file. Thus it rejects consumer-visible integer wrap and truncation
+without inventing a resolution limit.
 
 ### PlayerCharacter corruption path
 
@@ -118,9 +187,12 @@ During a save:
 - short writes, buffering failure, close failure, tracking failure, and
   in-transaction PlayerCharacter SpeedMult mutation latch failure bits;
 - the result boundary destroys/closes the engine file without promotion;
-- the first 2 KiB are read from the closed temporary file, and that authoritative
-  image must have either engine-accepted current header layout, a bounded
-  screenshot, and a nonempty changed-record body;
+- the closed temporary file is reopened with writer and delete sharing denied,
+  its 15-byte lead is read, and the declared current-format header is bounded
+  by the exact 262,246-byte schema maximum;
+- that exact header is read completely through the same stable handle and must
+  have either engine-accepted layout, a bounded screenshot, and a nonempty
+  changed-record body;
 - the file is flushed to stable storage and atomically replaces the final,
   retaining or recovering the old final according to the configured backup
   policy.
@@ -153,14 +225,15 @@ not masquerade as malformed data.
 - Existing final saves are not deleted on failure. Replacement recovery uses
   an owned backup.
 
-Save-time overhead is one 2 KiB read from the completed temporary file, three
-32-bit canary reads at each boundary, and one header parse before the
-already-required durable flush. The canary uses a small cold-path mutex; no lock
-is added to ordinary gameplay. Reading the closed file avoids assuming that the
-hooked write entry observes the stream from byte zero. Player load preflight
-performs one block-range validation and up to three float checks. Valid
-changed-record field reads retain their constant-time logical bounds checks and
-do not perform per-field allocation or file I/O.
+Save-time overhead is one 15-byte lead read, one exact header read, an allocation
+bounded at 262,261 bytes including the lead, three 32-bit canary reads at each
+boundary, and one header parse before the already-required durable flush. The
+canary uses a small cold-path mutex; no lock is added to ordinary gameplay.
+Reading the closed file avoids assuming that the hooked write entry observes
+the stream from byte zero. Player load preflight performs one block-range
+validation and up to three float checks. Valid changed-record field reads
+retain their constant-time logical bounds checks and do not perform per-field
+allocation or file I/O.
 
 The structural envelope check is not a complete parser for every changed
 record. It proves the outer current-format save framing, while the existing
@@ -209,6 +282,16 @@ Runtime observations:
   the executable's readers accept a version-`0x30` header without it;
 - envelope validation now mirrors the readers and reports the failed metadata
   field, byte offset, expected separator, and observed byte;
+- the next tester build produced the same deterministic rejection for quick,
+  manual, and automatic saves: `vanilla_failure=false`, failure bits `0x50`,
+  and a claimed missing player-name separator at offset 103 where the byte was
+  `0x07`;
+- with the present 64-byte language block, the first string begins at offset
+  100. Its decoded `u16` length was zero, offset 102 was its one valid pipe,
+  and offset 103 was the next string's seven-byte length. Psycho's validator
+  incorrectly demanded an empty-payload pipe that neither the engine writer
+  emits nor its reader consumes. The temporary save was valid under the
+  executable's header contract;
 - runtime playtesting is still required to identify which producer, if any,
   first triggers a rejection under the user's full mod list.
 
@@ -220,12 +303,21 @@ Durable supporting evidence:
 - `analysis/ghidra/output/crash/save_format_integrity_contract_audit.txt`
 - `analysis/ghidra/output/crash/save_final_intervention_contract_audit.txt`
 - `analysis/ghidra/output/crash/save_changed_record_inflate_bounds_followup.txt`
+- `.reports/psycho-engine-fixes-latest--save-still-broken.log`
 
 ## Validation and playtest acceptance
 
 Pure regression tests construct both engine-accepted current-format header
-layouts and reject bad magic, inconsistent header size, a missing
-changed-record body, and incorrect versioned PlayerCharacter block layouts.
+layouts and exhaust every empty/nonempty combination across all four string
+positions. Independent literal fixtures cover the conditional string-read
+branches without using the builder. The suite reproduces the observed
+`00 00 7C 07 00 7C` transition at offset 100, accepts metadata beyond the old
+2 KiB capture and at the exact schema maximum, and rejects the first byte over
+that bound. It also accepts a coherent screenshot above the removed 64 MiB
+policy cap while rejecting dimensions that overflow the reader's 32-bit RGB
+size. It retains rejection coverage for a nonempty string without its payload
+pipe, bad magic, inconsistent header size, a missing changed-record body, and
+incorrect versioned PlayerCharacter block layouts.
 
 Required runtime acceptance:
 
@@ -262,3 +354,30 @@ Validation recorded on 2026-07-27 after adding both accepted header layouts:
   psycho-engine-fixes -p psycho-engine-fixes-helper`: passed;
 - successful quick, manual, automatic, and scripted saves with the reporter's
   mod list still require runtime playtesting.
+
+Validation recorded on 2026-07-27 after matching the engine's empty-string
+framing:
+
+- the regression test reproduced the runtime failure before the code change:
+  offset 103 expected `0x7C`, found `0x07`;
+- focused save-envelope tests: 7 passed, 0 failed;
+- `cargo test --target i686-pc-windows-gnu -p psycho-engine-fixes --lib`:
+  86 passed, 0 failed;
+- `cargo build --release --target i686-pc-windows-gnu -p
+  psycho-engine-fixes`: passed;
+- successful quick, manual, automatic, and scripted saves with the reporter's
+  mod list still require runtime playtesting.
+
+Validation recorded on 2026-07-27 after reliability hardening:
+
+- focused save-integrity tests: 13 passed, 0 failed;
+- `cargo test --target i686-pc-windows-gnu -p psycho-engine-fixes --lib`:
+  90 passed, 0 failed;
+- the `libpsycho` unit-test phase: 9 passed, 0 failed; its package-wide command
+  remains nonzero because the unrelated existing logger example at
+  `libpsycho/src/logger/impl.rs:130` uses the overflowing unsuffixed literal
+  `0xDEADBEEF` (the remaining 15 doctests passed);
+- `cargo build --release --target i686-pc-windows-gnu -p
+  psycho-engine-fixes`: passed;
+- runtime save/load acceptance remains required because Wine unit tests cannot
+  exercise the live engine hook and filesystem-promotion sequence.

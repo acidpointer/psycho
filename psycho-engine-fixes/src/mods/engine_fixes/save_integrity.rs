@@ -6,6 +6,17 @@
 //! into a real commit boundary. A failed transaction follows the game's own
 //! Save Failed branch without publishing an incomplete `.fos`.
 //!
+//! The physical header uses the save buffer's per-write spacer framing. Every
+//! scalar write is followed by `|`. A string is encoded as a `u16` length
+//! write and, only when that length is nonzero, a separate payload write.
+//! Consequently an empty string has one spacer while a nonempty string has
+//! two. One parser primitive owns that framing rule so individual fields
+//! cannot accidentally disagree. Commit validation first reads the fixed
+//! header lead, derives the exact current-format header length, and then reads
+//! that complete bounded envelope from a handle that excludes writers and
+//! deletion. This avoids both guessed prefix limits and path-based races while
+//! the completed file is being validated.
+//!
 //! The factory callsite is intentionally not patched. Other plugins may own
 //! that mutable callsite, and wrapping it again can create a hook cycle. The
 //! stable factory entry validates vanilla-created files while the activation
@@ -35,9 +46,9 @@ use libpsycho::{
         hook::{inline::inlinehook::InlineHookContainer, transaction::ModificationTransaction},
         memory::validate_memory_range,
         winapi::{
-            delete_file_if_exists, file_exists, flush_instructions_cache, get_current_thread_id,
-            move_file_replace_write_through, open_existing_file_for_flush, replace_file_atomic,
-            virtual_alloc_rwx,
+            DurableFile, delete_file_if_exists, file_exists, flush_instructions_cache,
+            get_current_thread_id, move_file_replace_write_through, open_existing_file_for_flush,
+            replace_file_atomic, virtual_alloc_rwx,
         },
     },
 };
@@ -82,10 +93,20 @@ const SAVELOAD_ERROR_FLAGS_OFFSET: usize = 0x244;
 const LOAD_ERROR_FLAG: u32 = 0x80;
 const CHANGED_RECORD_REJECTED_FLAG: u32 = 1;
 const MAX_ENGINE_PATH: usize = 260;
-const SAVE_HEADER_PREFIX_SIZE: usize = 2048;
 const SAVE_MAGIC: &[u8; 11] = b"FO3SAVEGAME";
+const SAVE_HEADER_LEAD_SIZE: usize = SAVE_MAGIC.len() + size_of::<u32>();
 const CURRENT_SAVE_VERSION: u32 = 0x30;
-const MAX_SCREENSHOT_BYTES: u64 = 64 * 1024 * 1024;
+const HEADER_U32_FIELD_COUNT: usize = 5;
+const HEADER_STRING_FIELD_COUNT: usize = 4;
+const FRAMED_U32_SIZE: usize = size_of::<u32>() + 1;
+const FRAMED_LANGUAGE_SIZE: usize = 64 + 1;
+const MAX_FRAMED_STRING_SIZE: usize = size_of::<u16>() + 1 + u16::MAX as usize + 1;
+// Version 0x30 has five framed u32 values, one optional language block, and
+// four u16-length strings. This is the exact largest header its reader can
+// consume, so it bounds cold-path allocation without rejecting a valid field.
+const MAX_CURRENT_SAVE_HEADER_SIZE: usize = HEADER_U32_FIELD_COUNT * FRAMED_U32_SIZE
+    + FRAMED_LANGUAGE_SIZE
+    + HEADER_STRING_FIELD_COUNT * MAX_FRAMED_STRING_SIZE;
 
 const PLAYER_SINGLETON: usize = 0x011D_EA3C;
 const PLAYER_SPEED_VALUE_INDEX: usize = 21;
@@ -206,26 +227,49 @@ static PLAYER_LOAD_REJECTIONS: AtomicU32 = AtomicU32::new(0);
 static UNRESOLVED_RECORDS: AtomicU32 = AtomicU32::new(0);
 static MISSING_BASE_FORM_RECORDS: AtomicU32 = AtomicU32::new(0);
 
+/// Point-in-time counters and hook state consumed by the engine-fix dashboard.
+///
+/// Counters are process-lifetime totals. Hook booleans describe the current
+/// installation state, while `result_predecessor` identifies the callable that
+/// Psycho preserved at the shared save-result callsite.
 pub(super) struct DiagnosticSnapshot {
+    /// Save transactions that reached Psycho's activation boundary.
     pub save_attempts: u32,
+    /// Save transactions durably promoted to their final `.fos` path.
     pub save_commits: u32,
+    /// Save transactions rejected before promotion.
     pub save_aborts: u32,
+    /// Tracked physical writes that returned fewer bytes than requested.
     pub short_writes: u32,
+    /// Tracked CRT close operations that reported failure.
     pub close_failures: u32,
+    /// Completed temporary files rejected by envelope validation.
     pub structure_rejections: u32,
+    /// Save transactions rejected because the PlayerCharacter canary changed.
     pub state_mutations: u32,
+    /// Whole-load transactions rejected as malformed.
     pub load_rejections: u32,
+    /// PlayerCharacter records rejected before their mutation owner ran.
     pub player_load_rejections: u32,
+    /// Changed records skipped because their source content was unavailable.
     pub unresolved_records: u32,
+    /// Whether the stable temporary-file factory hook is active.
     pub factory_hook: bool,
+    /// Whether the outer save-owner scope hook is active.
     pub owner_hook: bool,
+    /// Whether the save activation and tracking hook is active.
     pub activation_hook: bool,
+    /// Whether tracked CRT close results are being observed.
     pub fclose_hook: bool,
+    /// Whether the whole-load transaction owner hook is active.
     pub load_owner_hook: bool,
+    /// Whether PlayerCharacter record preflight is active.
     pub player_load_hook: bool,
+    /// Original target preserved from the shared save-result callsite.
     pub result_predecessor: usize,
 }
 
+/// Capture the current save-integrity diagnostics without resetting counters.
 pub(super) fn diagnostic_snapshot() -> DiagnosticSnapshot {
     DiagnosticSnapshot {
         save_attempts: SAVE_ATTEMPTS.load(Ordering::Relaxed),
@@ -917,11 +961,15 @@ struct HeaderCursor<'a> {
 }
 
 impl<'a> HeaderCursor<'a> {
-    fn new(bytes: &'a [u8]) -> Self {
-        Self { bytes, position: 0 }
+    fn at(bytes: &'a [u8], position: usize) -> anyhow::Result<Self> {
+        ensure!(
+            position <= bytes.len(),
+            "save header cursor begins beyond captured envelope"
+        );
+        Ok(Self { bytes, position })
     }
 
-    fn take(&mut self, length: usize) -> anyhow::Result<&'a [u8]> {
+    fn take_unframed(&mut self, length: usize) -> anyhow::Result<&'a [u8]> {
         let end = self
             .position
             .checked_add(length)
@@ -932,29 +980,45 @@ impl<'a> HeaderCursor<'a> {
         Ok(value)
     }
 
-    fn u16(&mut self) -> anyhow::Result<u16> {
-        let bytes: [u8; 2] = self.take(2)?.try_into().expect("fixed-size read");
-        Ok(u16::from_le_bytes(bytes))
-    }
-
-    fn u32(&mut self) -> anyhow::Result<u32> {
-        let bytes: [u8; 4] = self.take(4)?.try_into().expect("fixed-size read");
-        Ok(u32::from_le_bytes(bytes))
-    }
-
-    fn pipe(&mut self, field: &'static str) -> anyhow::Result<()> {
+    /// Consume one complete low-level read from the physical save buffer.
+    ///
+    /// `0x00864820` advances over the requested payload and exactly one
+    /// trailing spacer for every read operation. Keeping both actions in this
+    /// primitive prevents scalar, block, and string parsing from acquiring
+    /// subtly different framing rules.
+    fn framed(&mut self, length: usize, field: &'static str) -> anyhow::Result<&'a [u8]> {
+        let payload_offset = self.position;
+        let value = self
+            .take_unframed(length)
+            .with_context(|| format!("read {field} payload at offset {payload_offset}"))?;
         let offset = self.position;
         let found = self
-            .take(1)
+            .take_unframed(1)
             .with_context(|| format!("read separator after {field} at offset {offset}"))?[0];
         ensure!(
             found == b'|',
             "save header separator mismatch after {field} at offset {offset}: expected 0x7C, found 0x{found:02X}"
         );
-        Ok(())
+        Ok(value)
     }
 
-    fn separator_follows(&self, length: usize, field: &'static str) -> anyhow::Result<bool> {
+    fn framed_u16(&mut self, field: &'static str) -> anyhow::Result<u16> {
+        let bytes: [u8; 2] = self
+            .framed(size_of::<u16>(), field)?
+            .try_into()
+            .expect("fixed-size read");
+        Ok(u16::from_le_bytes(bytes))
+    }
+
+    fn framed_u32(&mut self, field: &'static str) -> anyhow::Result<u32> {
+        let bytes: [u8; 4] = self
+            .framed(size_of::<u32>(), field)?
+            .try_into()
+            .expect("fixed-size read");
+        Ok(u32::from_le_bytes(bytes))
+    }
+
+    fn spacer_follows(&self, length: usize, field: &'static str) -> anyhow::Result<bool> {
         let offset = self
             .position
             .checked_add(length)
@@ -966,39 +1030,64 @@ impl<'a> HeaderCursor<'a> {
         Ok(*found == b'|')
     }
 
+    /// Consume one string using the engine's compound buffer encoding.
+    ///
+    /// The length and payload are separate buffered writes, and each performed
+    /// write owns one trailing spacer. Both `0x00865E70` (writer) and
+    /// `0x008649A0` (reader) skip the payload operation when the encoded length
+    /// is zero, so an empty string must not consume a second spacer.
     fn string(&mut self, field: &'static str) -> anyhow::Result<()> {
-        let length = usize::from(self.u16()?);
-        self.pipe(field)?;
-        self.take(length)?;
-        self.pipe(field)
+        let length = usize::from(self.framed_u16(field)?);
+        if length == 0 {
+            return Ok(());
+        }
+        self.framed(length, field)?;
+        Ok(())
     }
 }
 
-fn validate_save_envelope(header: &[u8], file_length: u64) -> anyhow::Result<()> {
-    let mut cursor = HeaderCursor::new(header);
+fn current_save_header_end(prefix: &[u8], file_length: u64) -> anyhow::Result<usize> {
     ensure!(
-        cursor.take(SAVE_MAGIC.len())? == SAVE_MAGIC,
+        prefix.len() >= SAVE_HEADER_LEAD_SIZE,
+        "truncated save header lead"
+    );
+    ensure!(
+        &prefix[..SAVE_MAGIC.len()] == SAVE_MAGIC,
         "invalid save magic"
     );
-    let header_size = usize::try_from(cursor.u32()?).context("save header size overflow")?;
-    let header_end = SAVE_MAGIC
-        .len()
-        .checked_add(size_of::<u32>())
-        .and_then(|prefix| prefix.checked_add(header_size))
+    let header_size = u32::from_le_bytes(
+        prefix[SAVE_MAGIC.len()..SAVE_HEADER_LEAD_SIZE]
+            .try_into()
+            .expect("fixed-size header lead"),
+    ) as usize;
+    ensure!(
+        header_size <= MAX_CURRENT_SAVE_HEADER_SIZE,
+        "save header length {header_size} exceeds current-format maximum {MAX_CURRENT_SAVE_HEADER_SIZE}"
+    );
+    let header_end = SAVE_HEADER_LEAD_SIZE
+        .checked_add(header_size)
         .context("save header end overflow")?;
+    ensure!(
+        header_end as u64 <= file_length,
+        "save header extends beyond physical file"
+    );
+    Ok(header_end)
+}
+
+fn validate_save_envelope(header: &[u8], file_length: u64) -> anyhow::Result<()> {
+    let header_end = current_save_header_end(header, file_length)?;
     ensure!(
         header_end <= header.len(),
         "save header exceeds captured envelope"
     );
     // Do not let malformed length-prefixed fields consume screenshot bytes
     // merely because the captured prefix extends beyond the encoded header.
-    cursor.bytes = &header[..header_end];
+    let mut cursor = HeaderCursor::at(&header[..header_end], SAVE_HEADER_LEAD_SIZE)?;
 
     ensure!(
-        cursor.u32()? == CURRENT_SAVE_VERSION,
+        cursor.framed_u32("format version")? == CURRENT_SAVE_VERSION,
         "unexpected save format version"
     );
-    cursor.pipe("format version")?;
 
     // FalloutNV.exe's two physical-file readers at 0x0084D8C0 and 0x0084DAB0
     // use this exact version-0x30 discriminator. If the next u32 is followed by
@@ -1007,21 +1096,16 @@ fn validate_save_envelope(header: &[u8], file_length: u64) -> anyhow::Result<()>
     // separator first. The omitted form defaults to ENGLISH. Mirror the
     // accepting reader contract rather than assuming every compatible writer
     // emits the language block.
-    if !cursor.separator_follows(size_of::<u32>(), "screenshot width")? {
-        cursor.take(64)?;
-        cursor.pipe("language block")?;
+    if !cursor.spacer_follows(size_of::<u32>(), "screenshot width")? {
+        cursor.framed(64, "language block")?;
     }
 
-    let width = u64::from(cursor.u32()?);
-    cursor.pipe("screenshot width")?;
-    let height = u64::from(cursor.u32()?);
-    cursor.pipe("screenshot height")?;
-    cursor.u32()?;
-    cursor.pipe("save index")?;
+    let width = cursor.framed_u32("screenshot width")?;
+    let height = cursor.framed_u32("screenshot height")?;
+    cursor.framed_u32("save index")?;
     cursor.string("player name")?;
     cursor.string("player karma")?;
-    cursor.u32()?;
-    cursor.pipe("player level")?;
+    cursor.framed_u32("player level")?;
     cursor.string("player location")?;
     cursor.string("play time")?;
 
@@ -1033,17 +1117,18 @@ fn validate_save_envelope(header: &[u8], file_length: u64) -> anyhow::Result<()>
         width != 0 && height != 0,
         "empty save screenshot dimensions"
     );
+    // The physical reader multiplies these u32 values in 32-bit registers
+    // before advancing over the RGB image (0x0084DA34-0x0084DA45). Reject
+    // arithmetic that would wrap the consumer to an earlier body boundary.
+    // There is intentionally no policy-sized cap: high-resolution screenshots
+    // are valid when their exact 32-bit size fits inside the physical file.
     let screenshot_size = width
         .checked_mul(height)
         .and_then(|pixels| pixels.checked_mul(3))
         .context("save screenshot size overflow")?;
-    ensure!(
-        screenshot_size <= MAX_SCREENSHOT_BYTES,
-        "save screenshot exceeds integrity limit"
-    );
     let body_start = u64::try_from(header_end)
         .context("save header position overflow")?
-        .checked_add(screenshot_size)
+        .checked_add(u64::from(screenshot_size))
         .context("save body position overflow")?;
     ensure!(
         file_length > body_start,
@@ -1052,17 +1137,44 @@ fn validate_save_envelope(header: &[u8], file_length: u64) -> anyhow::Result<()>
     Ok(())
 }
 
+fn read_completed_save_envelope(
+    temp: &mut DurableFile,
+    file_length: u64,
+) -> anyhow::Result<Vec<u8>> {
+    let mut lead = [0; SAVE_HEADER_LEAD_SIZE];
+    let lead_length = temp
+        .read_prefix(&mut lead)
+        .context("read temporary save header lead")?;
+    ensure!(
+        lead_length == lead.len(),
+        "truncated save header lead: read {lead_length} of {} bytes",
+        lead.len()
+    );
+
+    let header_end = current_save_header_end(&lead, file_length)?;
+    let mut envelope = vec![0; header_end];
+    let envelope_length = temp
+        .read_prefix(&mut envelope)
+        .context("read complete temporary save header")?;
+    ensure!(
+        envelope_length == envelope.len(),
+        "truncated save header: read {envelope_length} of {} bytes",
+        envelope.len()
+    );
+    Ok(envelope)
+}
+
 fn commit_save(paths: &SavePaths) -> anyhow::Result<()> {
     {
-        let temp =
+        let mut temp =
             open_existing_file_for_flush(&paths.temp).context("open completed temporary save")?;
         let file_length = temp.len().context("read temporary save length")?;
-        ensure!(file_length != 0, "temporary save is empty");
-        let mut prefix = [0; SAVE_HEADER_PREFIX_SIZE];
-        let prefix_length = temp
-            .read_prefix(&mut prefix)
-            .context("read temporary save envelope")?;
-        if let Err(error) = validate_save_envelope(&prefix[..prefix_length], file_length) {
+        let validation = (|| {
+            ensure!(file_length != 0, "temporary save is empty");
+            let envelope = read_completed_save_envelope(&mut temp, file_length)?;
+            validate_save_envelope(&envelope, file_length)
+        })();
+        if let Err(error) = validation {
             STRUCTURE_REJECTIONS.fetch_add(1, Ordering::Relaxed);
             latch_save_failure(FAILURE_STRUCTURE);
             return Err(error).context("validate completed save envelope");
@@ -1607,11 +1719,18 @@ mod tests {
     fn push_string(fields: &mut Vec<u8>, value: &[u8]) {
         fields.extend_from_slice(&(value.len() as u16).to_le_bytes());
         fields.push(b'|');
-        fields.extend_from_slice(value);
-        fields.push(b'|');
+        if !value.is_empty() {
+            fields.extend_from_slice(value);
+            fields.push(b'|');
+        }
     }
 
-    fn current_header(width: u32, height: u32, language_block: bool) -> Vec<u8> {
+    fn current_header_with_strings(
+        width: u32,
+        height: u32,
+        language_block: bool,
+        strings: [&[u8]; 4],
+    ) -> Vec<u8> {
         let mut fields = Vec::new();
         fields.extend_from_slice(&CURRENT_SAVE_VERSION.to_le_bytes());
         fields.push(b'|');
@@ -1625,18 +1744,27 @@ mod tests {
         fields.push(b'|');
         fields.extend_from_slice(&7u32.to_le_bytes());
         fields.push(b'|');
-        push_string(&mut fields, b"Courier");
-        push_string(&mut fields, b"Mojave");
+        push_string(&mut fields, strings[0]);
+        push_string(&mut fields, strings[1]);
         fields.extend_from_slice(&20u32.to_le_bytes());
         fields.push(b'|');
-        push_string(&mut fields, b"Goodsprings");
-        push_string(&mut fields, b"00.10.00");
+        push_string(&mut fields, strings[2]);
+        push_string(&mut fields, strings[3]);
 
         let mut header = Vec::new();
         header.extend_from_slice(SAVE_MAGIC);
         header.extend_from_slice(&(fields.len() as u32).to_le_bytes());
         header.extend_from_slice(&fields);
         header
+    }
+
+    fn current_header(width: u32, height: u32, language_block: bool) -> Vec<u8> {
+        current_header_with_strings(
+            width,
+            height,
+            language_block,
+            [b"Courier", b"Mojave", b"Goodsprings", b"00.10.00"],
+        )
     }
 
     #[test]
@@ -1646,6 +1774,132 @@ mod tests {
             let file_length = header.len() as u64 + 320 * 180 * 3 + 1;
             validate_save_envelope(&header, file_length).unwrap();
         }
+    }
+
+    #[test]
+    fn current_save_envelope_accepts_empty_engine_string_fields() {
+        let defaults: [&[u8]; 4] = [b"Courier", b"Neutral", b"Goodsprings", b"00.10.00"];
+        for language_block in [true, false] {
+            for empty_mask in 0..(1 << defaults.len()) {
+                let mut strings = defaults;
+                for (index, string) in strings.iter_mut().enumerate() {
+                    if empty_mask & (1 << index) != 0 {
+                        *string = b"";
+                    }
+                }
+                let header = current_header_with_strings(320, 180, language_block, strings);
+                let file_length = header.len() as u64 + 320 * 180 * 3 + 1;
+
+                if language_block && empty_mask == 1 {
+                    assert_eq!(&header[100..106], &[0, 0, b'|', 7, 0, b'|']);
+                }
+                validate_save_envelope(&header, file_length).unwrap();
+            }
+        }
+    }
+
+    #[test]
+    fn header_cursor_matches_independent_engine_string_branch_fixtures() {
+        // These literal byte fixtures deliberately do not use push_string.
+        // They keep the parser test independent from the convenience builder
+        // used by the full-envelope tests.
+        let empty_then_scalar = [0, 0, b'|', 7, 0, 0, 0, b'|'];
+        let mut cursor = HeaderCursor::at(&empty_then_scalar, 0).unwrap();
+        cursor.string("empty string").unwrap();
+        assert_eq!(cursor.position, 3);
+        assert_eq!(cursor.framed_u32("following scalar").unwrap(), 7);
+        assert_eq!(cursor.position, empty_then_scalar.len());
+
+        let nonempty_then_empty = [3, 0, b'|', b'a', b'b', b'c', b'|', 0, 0, b'|'];
+        let mut cursor = HeaderCursor::at(&nonempty_then_empty, 0).unwrap();
+        cursor.string("nonempty string").unwrap();
+        assert_eq!(cursor.position, 7);
+        cursor.string("following empty string").unwrap();
+        assert_eq!(cursor.position, nonempty_then_empty.len());
+    }
+
+    #[test]
+    fn current_save_envelope_accepts_metadata_larger_than_legacy_prefix() {
+        let large_name = vec![b'X'; 4096];
+        let header = current_header_with_strings(
+            320,
+            180,
+            true,
+            [
+                large_name.as_slice(),
+                b"Neutral",
+                b"Goodsprings",
+                b"00.10.00",
+            ],
+        );
+        let file_length = header.len() as u64 + 320 * 180 * 3 + 1;
+
+        assert!(header.len() > 2048);
+        assert_eq!(
+            current_save_header_end(&header[..SAVE_HEADER_LEAD_SIZE], file_length).unwrap(),
+            header.len()
+        );
+        validate_save_envelope(&header, file_length).unwrap();
+    }
+
+    #[test]
+    fn current_save_header_bound_matches_schema_and_rejects_larger_claims() {
+        assert_eq!(MAX_CURRENT_SAVE_HEADER_SIZE, 262_246);
+        let maximum_string = vec![b'X'; u16::MAX as usize];
+        let maximum_header = current_header_with_strings(
+            1,
+            1,
+            true,
+            [
+                maximum_string.as_slice(),
+                maximum_string.as_slice(),
+                maximum_string.as_slice(),
+                maximum_string.as_slice(),
+            ],
+        );
+        assert_eq!(
+            maximum_header.len(),
+            SAVE_HEADER_LEAD_SIZE + MAX_CURRENT_SAVE_HEADER_SIZE
+        );
+        validate_save_envelope(&maximum_header, maximum_header.len() as u64 + 4).unwrap();
+
+        let mut lead = SAVE_MAGIC.to_vec();
+        lead.extend_from_slice(&((MAX_CURRENT_SAVE_HEADER_SIZE + 1) as u32).to_le_bytes());
+
+        let error = current_save_header_end(&lead, u64::MAX)
+            .expect_err("a header larger than every current-format field must be rejected")
+            .to_string();
+        assert!(error.contains("exceeds current-format maximum"));
+    }
+
+    #[test]
+    fn save_envelope_uses_engine_screenshot_arithmetic_not_policy_cap() {
+        let header = current_header(8192, 4096, true);
+        let screenshot_size = 8192u64 * 4096 * 3;
+        assert!(screenshot_size > 64 * 1024 * 1024);
+        validate_save_envelope(&header, header.len() as u64 + screenshot_size + 1).unwrap();
+
+        let overflowing = current_header(u32::MAX, u32::MAX, true);
+        let error = validate_save_envelope(&overflowing, u64::MAX)
+            .expect_err("dimensions that wrap the engine's u32 RGB size must be rejected")
+            .to_string();
+        assert!(error.contains("screenshot size overflow"));
+    }
+
+    #[test]
+    fn save_envelope_rejects_missing_nonempty_string_payload_separator() {
+        let mut header = current_header(320, 180, true);
+        let separator = header
+            .windows(b"Courier|".len())
+            .position(|window| window == b"Courier|")
+            .expect("player name must be present in the test header")
+            + b"Courier".len();
+        header[separator] = 0;
+
+        let error = validate_save_envelope(&header, u64::MAX)
+            .expect_err("nonempty string without a trailing separator must be rejected")
+            .to_string();
+        assert!(error.contains("player name"));
     }
 
     #[test]
