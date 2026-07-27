@@ -347,6 +347,41 @@ mod tests {
             assert!(body.contains("call_original_draw"));
         }
     }
+
+    #[test]
+    fn pbr_draw_scope_is_closed_after_each_native_draw() {
+        let source = include_str!("hooks.rs");
+        for (detour, boundary) in [
+            (
+                "unsafe extern \"system\" fn draw_primitive_detour",
+                "unsafe extern \"system\" fn draw_indexed_primitive_detour",
+            ),
+            (
+                "unsafe extern \"system\" fn draw_indexed_primitive_detour",
+                "unsafe fn call_original_present",
+            ),
+        ] {
+            let body = source
+                .split_once(detour)
+                .map(|(_, tail)| tail)
+                .and_then(|tail| tail.split_once(boundary))
+                .map(|(body, _)| body)
+                .expect("draw detour body");
+            let prepare = body
+                .find("let pbr_draw = pbr::prepare_direct_draw()")
+                .expect("PBR draw preparation");
+            let native_draw = body[prepare..]
+                .find("call_original_draw")
+                .map(|offset| prepare + offset)
+                .expect("native draw");
+            let finish = body
+                .find("pbr::finish_direct_draw(pbr_draw)")
+                .expect("PBR draw cleanup");
+
+            assert!(prepare < native_draw);
+            assert!(native_draw < finish);
+        }
+    }
 }
 
 unsafe extern "system" fn reset_detour(device_ptr: *mut c_void, params: *mut c_void) -> i32 {
@@ -371,7 +406,7 @@ unsafe extern "system" fn draw_primitive_detour(
             call_original_draw_primitive(device_ptr, primitive_type, start_vertex, primitive_count)
         };
     }
-    pbr::prepare_direct_draw();
+    let pbr_draw = pbr::prepare_direct_draw();
     let sky_draw = sky::prepare_direct_draw();
     let result = unsafe {
         call_original_draw_primitive(device_ptr, primitive_type, start_vertex, primitive_count)
@@ -379,6 +414,7 @@ unsafe extern "system" fn draw_primitive_detour(
     if sky_draw {
         sky::finish_direct_draw();
     }
+    pbr::finish_direct_draw(pbr_draw);
     result
 }
 
@@ -404,7 +440,7 @@ unsafe extern "system" fn draw_indexed_primitive_detour(
             )
         };
     }
-    pbr::prepare_direct_draw();
+    let pbr_draw = pbr::prepare_direct_draw();
     let sky_draw = sky::prepare_direct_draw();
     let result = unsafe {
         call_original_draw_indexed_primitive(
@@ -420,6 +456,7 @@ unsafe extern "system" fn draw_indexed_primitive_detour(
     if sky_draw {
         sky::finish_direct_draw();
     }
+    pbr::finish_direct_draw(pbr_draw);
     result
 }
 

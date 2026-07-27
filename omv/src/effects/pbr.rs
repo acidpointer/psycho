@@ -1,10 +1,17 @@
 //! Native PBR integration.
 //!
-//! This module is intentionally a small facade. The old implementation mixed
-//! hook ownership, shader compilation, terrain probing, draw classification,
-//! constants, diagnostics, and UI state in one file. The replacement follows
-//! NVR's subsystem boundaries while keeping OMV storage independent from NVR's
-//! native object-size patches.
+//! This module owns PBR configuration, preparation state, and the public
+//! boundary used by OMV's D3D hooks. Shader compilation, engine contracts,
+//! device resources, draw classification, constants, diagnostics, and terrain
+//! light capture live in focused child modules. OMV storage remains independent
+//! from NVR's native object-size patches.
+//!
+//! The D3D boundary has two ownership models. Object, LandLOD, and TerrainFade
+//! replacements may remain bound until the native pass changes. Close terrain
+//! is admitted per draw because the engine can submit several geometries after
+//! one `SetShaders` call. Callers therefore keep the token returned by
+//! [`prepare_direct_draw`] and pass it to [`finish_direct_draw`] immediately
+//! after the native DP or DIP returns.
 
 mod compiler;
 mod constants;
@@ -43,6 +50,17 @@ static ACTIVE_CONTRACTS_FAILED: AtomicBool = AtomicBool::new(false);
 static INSTALL_BOUNDARY_REACHED: AtomicBool = AtomicBool::new(false);
 static ENABLE_PENDING: AtomicBool = AtomicBool::new(false);
 static BLOCK_REASON: LazyLock<Mutex<Option<&'static str>>> = LazyLock::new(|| Mutex::new(None));
+
+/// Cleanup token for PBR state acquired at one native D3D draw boundary.
+///
+/// Callers obtain this token from [`prepare_direct_draw`] and must pass it to
+/// [`finish_direct_draw`] after the corresponding draw, regardless of the
+/// draw's HRESULT.
+#[derive(Clone, Copy, Debug)]
+#[must_use]
+pub(crate) struct PbrDirectDrawScope {
+    restore_after_draw: bool,
+}
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct NativePbrSettings {
@@ -342,10 +360,27 @@ pub(crate) fn set_draw_boundary_ready(ready: bool) {
     DRAW_BOUNDARY_READY.store(ready, Ordering::Release);
 }
 
-pub(crate) fn prepare_direct_draw() {
-    hooks::prepare_direct_draw();
+/// Prepares a pending native PBR replacement immediately before a D3D draw.
+///
+/// The returned token must be passed to [`finish_direct_draw`] after the native
+/// draw returns, including on D3D failure.
+#[must_use]
+pub(crate) fn prepare_direct_draw() -> PbrDirectDrawScope {
+    PbrDirectDrawScope {
+        restore_after_draw: hooks::prepare_direct_draw(),
+    }
 }
 
+/// Releases draw-scoped PBR state represented by `scope`.
+///
+/// This function is deliberately cheap when the scope owns no draw-local
+/// state: batch-scoped families remain active until [`finish_draw_batches`] or
+/// another native pass.
+pub(crate) fn finish_direct_draw(scope: PbrDirectDrawScope) {
+    hooks::finish_direct_draw(scope.restore_after_draw);
+}
+
+/// Clears all batch-scoped PBR draw ownership at the frame boundary.
 pub(crate) fn finish_draw_batches() {
     hooks::finish_draw_batches();
 }
@@ -638,6 +673,7 @@ fn activate() -> Result<()> {
 }
 
 pub(crate) fn reset_runtime_state() {
+    terrain_lights::invalidate_draw_cache();
     shader_record::reset();
     device_resources::reset();
     samplers::reset();

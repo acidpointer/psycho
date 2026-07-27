@@ -4,8 +4,22 @@
 //! portable lights. Landscape pass builders based on the non-shadow iterator
 //! can omit those lights. OMV merges only missing native identities into its
 //! replacement shader constants and never mutates the engine render pass.
+//!
+//! Close terrain can submit several DIPs for one geometry. A render-thread
+//! cache avoids repeating the bounded engine-light scan for those DIPs. The
+//! shader constants are still uploaded before every draw, and `SetShaders` or
+//! frame cleanup invalidates the cache before another native pass can reuse the
+//! same geometry address with different light membership. The cache is
+//! statically zero-initialized POD state; it deliberately adds no TLS callback,
+//! lazy owner, lock, allocation, or plugin-load initialization. An even/odd
+//! atomic version publishes complete payload snapshots. Contending callers
+//! bypass the cache instead of waiting on the render path.
 
-use std::{ffi::c_void, mem::size_of};
+use std::{
+    ffi::c_void,
+    mem::size_of,
+    sync::atomic::{AtomicU32, AtomicUsize, Ordering},
+};
 
 use libpsycho::ffi::fnptr::FnPtr;
 
@@ -100,6 +114,7 @@ struct TerrainLightContext {
     hdr: bool,
 }
 
+/// Supplemental point lights encoded for the close-terrain shader ABI.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) struct SupplementalTerrainLights {
     lights: [ShaderTerrainLight; MAX_TERRAIN_POINT_LIGHTS],
@@ -109,15 +124,24 @@ pub(super) struct SupplementalTerrainLights {
 
 impl Default for SupplementalTerrainLights {
     fn default() -> Self {
-        Self {
-            lights: [ShaderTerrainLight::default(); MAX_TERRAIN_POINT_LIGHTS],
-            identities: [0; MAX_TERRAIN_POINT_LIGHTS],
-            count: 0,
-        }
+        Self::EMPTY
     }
 }
 
 impl SupplementalTerrainLights {
+    const EMPTY: Self = Self {
+        lights: [ShaderTerrainLight {
+            position_radius: [0.0; 4],
+            color_visibility: [0.0; 4],
+        }; MAX_TERRAIN_POINT_LIGHTS],
+        identities: [0; MAX_TERRAIN_POINT_LIGHTS],
+        count: 0,
+    };
+
+    /// Writes the count and packed light rows consumed by the replacement shader.
+    ///
+    /// The caller must provide at least [`MAX_SUPPLEMENTAL_CONSTANTS`] rows.
+    /// The return value is the number of initialized rows.
     pub(super) fn write_shader_constants(&self, output: &mut [[f32; 4]]) -> usize {
         debug_assert!(output.len() >= MAX_SUPPLEMENTAL_CONSTANTS);
         output[0] = [self.count as f32, 0.0, 0.0, 0.0];
@@ -133,6 +157,21 @@ impl SupplementalTerrainLights {
         &self.lights[..self.count]
     }
 }
+
+const DRAW_CACHE_COMPONENTS_PER_LIGHT: usize = 8;
+const DRAW_CACHE_COMPONENT_COUNT: usize =
+    MAX_TERRAIN_POINT_LIGHTS * DRAW_CACHE_COMPONENTS_PER_LIGHT;
+// An even version denotes a stable payload; a publisher changes it to odd
+// before writing and publishes the next even value afterward. Every payload
+// word is atomic, so even an unexpected cross-thread D3D call cannot create a
+// Rust data race. A failed compare-exchange simply leaves that draw uncached.
+static DRAW_CACHE_VERSION: AtomicU32 = AtomicU32::new(0);
+static DRAW_CACHE_GEOMETRY: AtomicUsize = AtomicUsize::new(0);
+static DRAW_CACHE_COUNT: AtomicUsize = AtomicUsize::new(0);
+static DRAW_CACHE_IDENTITIES: [AtomicUsize; MAX_TERRAIN_POINT_LIGHTS] =
+    [const { AtomicUsize::new(0) }; MAX_TERRAIN_POINT_LIGHTS];
+static DRAW_CACHE_COMPONENTS: [AtomicU32; DRAW_CACHE_COMPONENT_COUNT] =
+    [const { AtomicU32::new(0) }; DRAW_CACHE_COMPONENT_COUNT];
 
 struct TerrainLightMerge<'a> {
     native_identities: &'a [usize],
@@ -187,7 +226,90 @@ impl<'a> TerrainLightMerge<'a> {
     }
 }
 
-pub(super) fn capture_current() -> SupplementalTerrainLights {
+/// Returns the supplemental lights for the current close-terrain geometry.
+///
+/// `geometry_identity` must be the non-null pointer observed at the same draw
+/// boundary. Repeated DIPs for that geometry reuse the scan result until
+/// [`invalidate_draw_cache`] starts a new native pass.
+pub(super) fn capture_current_for_draw(geometry_identity: usize) -> SupplementalTerrainLights {
+    debug_assert_ne!(geometry_identity, 0);
+    if let Some(lights) = load_draw_cache(geometry_identity) {
+        return lights;
+    }
+
+    let lights = capture_current();
+    publish_draw_cache(geometry_identity, lights);
+    lights
+}
+
+fn load_draw_cache(geometry_identity: usize) -> Option<SupplementalTerrainLights> {
+    let version = DRAW_CACHE_VERSION.load(Ordering::Acquire);
+    if version & 1 != 0 || DRAW_CACHE_GEOMETRY.load(Ordering::Acquire) != geometry_identity {
+        return None;
+    }
+
+    let mut lights = SupplementalTerrainLights::EMPTY;
+    lights.count = DRAW_CACHE_COUNT
+        .load(Ordering::Relaxed)
+        .min(MAX_TERRAIN_POINT_LIGHTS);
+    for (light_index, light) in lights.lights[..lights.count].iter_mut().enumerate() {
+        lights.identities[light_index] = DRAW_CACHE_IDENTITIES[light_index].load(Ordering::Relaxed);
+        let base = light_index * DRAW_CACHE_COMPONENTS_PER_LIGHT;
+        for (component, output) in light.position_radius.iter_mut().enumerate() {
+            *output =
+                f32::from_bits(DRAW_CACHE_COMPONENTS[base + component].load(Ordering::Relaxed));
+        }
+        for (component, output) in light.color_visibility.iter_mut().enumerate() {
+            *output =
+                f32::from_bits(DRAW_CACHE_COMPONENTS[base + 4 + component].load(Ordering::Relaxed));
+        }
+    }
+
+    // A concurrent invalidation or publication makes this snapshot unusable.
+    // Returning None merely repeats the bounded scan; the draw never waits.
+    (DRAW_CACHE_VERSION.load(Ordering::Acquire) == version
+        && DRAW_CACHE_GEOMETRY.load(Ordering::Acquire) == geometry_identity)
+        .then_some(lights)
+}
+
+fn publish_draw_cache(geometry_identity: usize, lights: SupplementalTerrainLights) {
+    let version = DRAW_CACHE_VERSION.load(Ordering::Relaxed);
+    if version & 1 != 0
+        || DRAW_CACHE_VERSION
+            .compare_exchange(
+                version,
+                version.wrapping_add(1),
+                Ordering::Acquire,
+                Ordering::Relaxed,
+            )
+            .is_err()
+    {
+        // Another publisher owns the cache. Do not spin or block a draw.
+        return;
+    }
+
+    DRAW_CACHE_GEOMETRY.store(0, Ordering::Relaxed);
+    for (light_index, light) in lights.lights[..lights.count].iter().enumerate() {
+        DRAW_CACHE_IDENTITIES[light_index].store(lights.identities[light_index], Ordering::Relaxed);
+        let base = light_index * DRAW_CACHE_COMPONENTS_PER_LIGHT;
+        for (component, value) in light.position_radius.iter().enumerate() {
+            DRAW_CACHE_COMPONENTS[base + component].store(value.to_bits(), Ordering::Relaxed);
+        }
+        for (component, value) in light.color_visibility.iter().enumerate() {
+            DRAW_CACHE_COMPONENTS[base + 4 + component].store(value.to_bits(), Ordering::Relaxed);
+        }
+    }
+    DRAW_CACHE_COUNT.store(lights.count, Ordering::Relaxed);
+    DRAW_CACHE_GEOMETRY.store(geometry_identity, Ordering::Release);
+    DRAW_CACHE_VERSION.store(version.wrapping_add(2), Ordering::Release);
+}
+
+/// Invalidates the render-thread close-terrain light cache.
+pub(super) fn invalidate_draw_cache() {
+    DRAW_CACHE_GEOMETRY.store(0, Ordering::Release);
+}
+
+fn capture_current() -> SupplementalTerrainLights {
     unsafe { capture_current_unchecked() }.unwrap_or_default()
 }
 
@@ -567,7 +689,8 @@ mod tests {
         GEOMETRY_MATRIX_CONTEXT_OFFSET, GEOMETRY_WORLD_TRANSFORM_OFFSET, GeometryTransform,
         MAX_SUPPLEMENTAL_CONSTANTS, MAX_TERRAIN_POINT_LIGHTS, SupplementalTerrainLights,
         TerrainLightCandidate, TerrainLightContext, TerrainLightMerge, geometry_matrix_inputs,
-        inverse_transform_point, manager_supplement_needed, supplement_captured_manager_lights,
+        invalidate_draw_cache, inverse_transform_point, load_draw_cache, manager_supplement_needed,
+        publish_draw_cache, supplement_captured_manager_lights,
     };
     use crate::fnv_local_lights::TerrainSceneLight;
 
@@ -774,6 +897,37 @@ mod tests {
         assert!(
             MANAGER_EPOCH_CONTRACT.contains("stable across the world light/shadow transaction")
         );
+    }
+
+    #[test]
+    fn terrain_draw_cache_does_not_add_dll_thread_local_startup() {
+        let source = include_str!("terrain_lights.rs");
+        let production = source.split("#[cfg(test)]\nmod tests").next().unwrap();
+
+        assert!(!production.contains("thread_local!"));
+    }
+
+    #[test]
+    fn terrain_draw_cache_publishes_complete_atomic_snapshots() {
+        let mut merge = TerrainLightMerge::new(&[], 0, context());
+        assert!(merge.consider(candidate(0x22000)));
+        let expected = merge.finish();
+        let geometry = 0x33000;
+
+        invalidate_draw_cache();
+        publish_draw_cache(geometry, expected);
+        let cached = load_draw_cache(geometry).expect("published geometry");
+        assert_eq!(cached, expected);
+        let mut expected_constants = [[0.0; 4]; MAX_SUPPLEMENTAL_CONSTANTS];
+        let mut cached_constants = [[0.0; 4]; MAX_SUPPLEMENTAL_CONSTANTS];
+        assert_eq!(
+            cached.write_shader_constants(&mut cached_constants),
+            expected.write_shader_constants(&mut expected_constants)
+        );
+        assert_eq!(cached_constants, expected_constants);
+
+        invalidate_draw_cache();
+        assert!(load_draw_cache(geometry).is_none());
     }
 
     #[test]

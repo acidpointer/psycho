@@ -56,6 +56,17 @@ warming rows. Close-terrain activation is now family-atomic: every row remains
 native until all bytecode and all current-device resources are ready, and
 device reset clears the family-ready publication.
 
+The family-atomic build did not close the user's later report of random dark
+close-terrain chunks blinking with camera movement. Static engine evidence and
+the OMV draw hook exposed a second, independent ownership defect: one PPLighting
+`SetShaders` setup can cover several geometry draws, while OMV evaluated close
+terrain only for the first D3D draw and kept that replacement pair active until
+another setup or frame cleanup. Close terrain is now admitted and restored per
+DP/DIP, with geometry-scoped sampler validation and light-scan caching. This is
+a code- and binary-proven state correction; attribution of the user's exact
+pixels remains a reasoned inference until the tester repeats the affected
+camera path.
+
 ## Ground Truth
 
 Use these sources before making terrain or lighting changes:
@@ -76,6 +87,7 @@ Use these sources before making terrain or lighting changes:
 - `analysis/ghidra/output/perf/graphics_fnv_volumetric_local_light_value_copy_contract_audit.txt`
 - `analysis/ghidra/output/perf/graphics_fnv_volumetric_local_manager_epoch_contract_followup.txt`
 - `analysis/ghidra/output/perf/graphics_fnv_pbr_light_selection_continuity_closure.txt`
+- `analysis/ghidra/output/perf/graphics_fnv_pbr_pplighting_selector_vtable_draw_identity_bridge_audit.txt`
 - `analysis/shaders_disasm/shaderpackage019/SLS2092.pso.dis`
 - `analysis/shaders_disasm/shaderpackage019/SLS2100.pso.dis`
 - `analysis/shaders_disasm/shaderpackage019/SLS2140.pso.dis`
@@ -835,7 +847,14 @@ Symptom:
 
 Cause:
 
-The current replacement path binds a replacement D3D shader pair only around the draw and restores the native D3D pair afterward. It does not mutate engine shader wrappers. The old disable path nevertheless wrote side-table snapshot handles back into current wrappers and restored global shader-package, EyePosition, and fog contracts. A snapshot can predate a later FSL, VPT, or engine handle update, so this disable transaction could overwrite valid current ownership with stale state.
+The replacement path does not mutate engine shader wrappers. Close terrain now
+binds a replacement D3D shader pair only around one draw and restores the
+native pair afterward; the proven object and distant-terrain families retain
+their batch-scoped behavior. The old disable path nevertheless wrote
+side-table snapshot handles back into current wrappers and restored global
+shader-package, EyePosition, and fog contracts. A snapshot can predate a later
+FSL, VPT, or engine handle update, so this disable transaction could overwrite
+valid current ownership with stale state.
 
 The profile loader had a second state bug: the menu edited one global settings block while hidden object, terrain, time-of-day, and interior profiles could override it. Close terrain could therefore receive neutral values while objects received the visible menu values, making a working terrain renderer appear disabled. This also made an off/on comparison misleading because the UI did not represent the constants used by every family.
 
@@ -919,9 +938,10 @@ Proven causes and limits:
 - OMV previously validated samplers only on the first intercepted draw after
   `SetShaders`, then kept its replacement pair active until the next
   `SetShaders` or present. The repaired path tracks required and missing masks
-  only for LandLOD and TerrainFade. A required stage becoming null restores
-  the native pair once; a later non-null bind of that missing stage schedules
-  one retry. Valid non-null swaps keep the active replacement pair. If texture
+  for LandLOD, TerrainFade, and the exact selected close-terrain layer count.
+  A required stage becoming null restores the native pair once; a later
+  non-null bind clears that stage from the missing mask and schedules one
+  retry. Valid non-null swaps keep batch-scoped families active. If texture
   interception is unavailable, the compatibility path revalidates every draw.
 
 The first attempted ownership repair used one global wrapping texture
@@ -929,9 +949,10 @@ generation. Every intercepted `SetTexture` performed an atomic increment, and
 the next draw restored the native vertex/pixel pair, repeated ownership and
 sampler checks, and rebound the replacement pair. It also applied this work to
 object and close-terrain draws. The user measured a 20 FPS regression. The
-generation and its unconditional draw invalidation were removed. A regression
-test now proves object/close-terrain masks are zero, valid texture swaps keep
-the current pair, and the `SetTexture` hook contains no atomic increment.
+generation and its unconditional draw invalidation were removed. Regression
+tests now prove that object masks remain zero, terrain masks match each shader
+ABI, valid texture swaps keep the current pair, missing-stage recovery clears
+only the recovered bit, and the `SetTexture` hook contains no atomic increment.
 
 Do not repeat:
 
@@ -947,13 +968,14 @@ Do not repeat:
 Implemented fix and remaining closure:
 
 1. The build records bounded missing and required sampler masks independently
-   for LandLOD and TerrainFade while retaining vanilla fallback.
+   for LandLOD, TerrainFade, and the selected close-terrain row while retaining
+   vanilla fallback.
 2. `StableHalfway`, its source/numerical sweep regression, complete shader
    compilation, and existing bytecode budgets are active for both families.
 3. Required/missing transition masks restore or retry only when a required
-   LandLOD/TerrainFade stage becomes null or recovers. The normal hot path adds
-   one relaxed mask load and no atomic read-modify-write, allocation, lock,
-   file I/O, shader compilation, or shader rebinding.
+   stage becomes null or recovers. The normal `SetTexture` path adds one
+   relaxed mask load and no atomic read-modify-write, allocation, lock, file
+   I/O, shader compilation, or unconditional shader rebinding.
 4. Reproduce one missing mask, trace the native owner of that exact stage, and
    repair that contract without weakening the sampler gate.
 5. If the artifact remains with PBR disabled, move the investigation to native
@@ -963,6 +985,120 @@ Validation on 2026-07-23: all 282 OMV tests passed on
 `i686-pc-windows-gnu`, including all registered shader compilation,
 half-vector continuity, exact sampler-mask ABI, and bounded sampler-transition
 ownership. The optimized OMV release build also passed.
+
+### 13. Close Terrain Reused First-Draw State Across Later Geometries
+
+Symptom:
+
+- Random close-terrain chunks become much darker than adjacent chunks.
+- The affected rectangles change or blink while the camera moves.
+- Earlier lighting, half-vector, and family-readiness corrections do not remove
+  the artifact.
+
+Proven facts:
+
+- The audited executable is `fnv_reverse/FalloutNV.exe`, SHA-256
+  `42fee7d6cd74e801372aa89c8f71c974cebd3c20ec9ad43d1465b8fa9646b49c`.
+- `FUN_00B994F0` writes the current draw at `0x011F91E0` for every dispatch. It
+  calls selector setup `FUN_00B99390` only when the pass or selector cache
+  changes, but calls the normal geometry path `FUN_00B98E80` regardless.
+- `FUN_00B99390` invokes selector vtable slots `+0xF0/+0xF4`; the PPLighting
+  selector uses `BSShader::SetShaders @ 0x00BE1F90` in that setup pair. A later
+  geometry can therefore reach the draw path without another `SetShaders`.
+  The raw caller and vtable evidence is in
+  `analysis/ghidra/output/perf/graphics_fnv_pbr_pplighting_selector_vtable_draw_identity_bridge_audit.txt`.
+- Before this correction, `set_pending_draw` gave close terrain a zero sampler
+  tracking mask, `PENDING_DRAW_EVALUATED` suppressed every later draw after the
+  first evaluation, and the replacement D3D pair was restored only by another
+  `SetShaders` call or frame cleanup. These are direct source facts.
+- The runtime log reproduced the same class of transition for LandLOD by
+  showing native `s4` disappear between draws. It does not prove which close
+  sampler, constant, or geometry transition produced the user's exact pixels.
+
+Root-cause conclusion:
+
+The engine owns close-terrain geometry state per draw, while OMV owned its
+replacement state per shader-setup batch. That lifetime mismatch allowed a
+replacement pair and its first geometry's admission decision to cross a later
+geometry boundary. Given the rectangular geometry-aligned symptom and
+camera-dependent handoff, this is the strongest supported explanation for the
+reported artifact, but the exact pixel attribution remains an inference until
+runtime acceptance passes.
+
+Implemented correction:
+
+1. `SetShaders` still performs strict close-row classification, but it now
+   publishes the exact `s0..sN-1` and `s7..s7+N-1` sampler mask for the selected
+   one-through-seven-layer variant.
+2. Every DP/DIP snapshots the current geometry, proves the native shader pair,
+   validates required samplers, uploads OMV terrain and supplemental-light
+   constants, and only then binds the replacement pair.
+3. The draw detour restores the native pair immediately after the native draw,
+   even when the draw returns failure, and re-arms close admission for the next
+   DIP. A failed or incomplete geometry remains vanilla without suppressing a
+   later valid geometry in the same native pass.
+4. A new geometry performs one complete required-sampler query. Repeated DIPs
+   for that geometry use the bounded `SetTexture` missing-stage mask. Restoring
+   a missing texture clears only its bit rather than leaving the fallback
+   latched.
+5. Terrain constants are uploaded for every close draw because native geometry
+   setup may overwrite them without rebinding shaders. The bounded general-light
+   scan is cached only for repeated DIPs of the same geometry and invalidated at
+   `SetShaders` and frame cleanup.
+
+Failure, compatibility, and performance behavior:
+
+- Any missing geometry, native pair, required texture, replacement resource, or
+  constant upload keeps that draw on the native shader pair.
+- Object, LandLOD, and TerrainFade keep their existing batch-scoped fast path.
+  There is no global texture generation and no all-draw invalidation.
+- The close hot path adds one draw-scope token, exact mask loads, and a small
+  constant upload. A new geometry also performs at most 14 `GetTexture` checks.
+  The light cache uses a fixed process-static atomic payload and adds no TLS
+  callback, lazy owner, lock, allocation, file I/O, shader compilation, or
+  per-texture atomic read-modify-write. A contending cache publication is
+  skipped rather than blocking a draw.
+
+Regression and runtime acceptance:
+
+- Source-order tests require PBR prepare -> native DP/DIP -> PBR finish for both
+  draw detours.
+- Sampler tests require exact masks `0x0081` for one layer and `0x3FFF` for
+  seven layers, plus correct missing-stage recovery.
+- The supported 32-bit OMV test suite and release build are the deployment
+  gates. They prove the hook and shader contracts, not final pixels.
+- Runtime acceptance must revisit the original locations and move/rotate the
+  camera across chunk boundaries with close terrain PBR enabled. Confirm no
+  dark or blinking rectangles, then compare frame time in the same scene.
+
+Repository validation on 2026-07-27 passed all 337 OMV tests and the supported
+release build for `i686-pc-windows-gnu`. Runtime pixels and frame time still
+require the tester's original save and camera path.
+
+Startup correction on 2026-07-27:
+
+- The first draw-scope build incorrectly implemented the light cache with
+  Rust `thread_local!`. That introduced a new DLL TLS owner and Windows TLS
+  callback before OMV's deferred graphics phase.
+- The deployed build `unix=1785178325` crashed during game-data loading. Its
+  OMV log stopped before `[INIT] Deferred OMV graphics hooks initialized`, and
+  CrashLogger reported the same BaseObjectSwapper `ConditionalInput::IsValid
+  +0x88` external fault site and corrupt stack/heap signature as the prior OMV
+  startup-phase incident. This evidence rules out terrain draw execution; it
+  does not establish BaseObjectSwapper as the trigger.
+- The TLS cache has been removed. Its replacement is a zero-initialized atomic
+  geometry key and atomic light payload with an even/odd publication version.
+  It performs no plugin-load initialization and never blocks a draw.
+- A regression test now rejects `thread_local!` in the terrain-light production
+  module and verifies complete atomic cache snapshots. Load-to-gameplay
+  playtesting remains required before calling this startup regression closed.
+
+The corrected release artifact has SHA-256
+`80d82b781e1575b76cc1d5ca183d37fc5519bc888931b24a42c4e20a49ffea2b`.
+All 339 OMV tests and the supported `i686-pc-windows-gnu` release build pass.
+Binary symbol inspection places the five terrain draw-cache owners in ordinary
+`.bss` and finds no OMV `TerrainLightDrawCache` TLS symbol. These checks prove
+the unsafe construction is absent; they do not replace the startup playtest.
 
 ## Required Proof Before Broadening Close Terrain PBR
 

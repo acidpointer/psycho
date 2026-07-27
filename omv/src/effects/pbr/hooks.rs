@@ -1,7 +1,17 @@
-//! Hook installation boundary for the NVR-style object PBR rewrite.
+//! Native shader interception and draw-scoped PBR ownership.
 //!
-//! This phase installs only shader creation and `SetShaders` ownership hooks.
-//! Terrain/material-array hooks stay out until terrain contracts are proven.
+//! `SetShaders` classifies the native pass and records the replacement family,
+//! but does not assume that one call owns every following D3D draw. The direct
+//! draw hook validates the current native pair and required samplers immediately
+//! before submission. Close terrain is stricter than the object and distant
+//! terrain paths: the engine may reuse one pass setup for several geometries, so
+//! its replacement pair is restored immediately after every draw and admitted
+//! again for the next geometry.
+//!
+//! The engine `SetTexture` hook maintains a small family-specific missing-stage
+//! mask. This avoids global texture generations and lets repeated draws skip
+//! redundant D3D `GetTexture` calls while still invalidating a prepared draw
+//! whenever a required stage is removed or restored.
 
 use std::{
     ffi::{c_char, c_void},
@@ -166,6 +176,7 @@ static PENDING_CLOSE_TERRAIN_PIXEL_INDEX: AtomicU32 = AtomicU32::new(0);
 static PENDING_DRAW_EVALUATED: AtomicBool = AtomicBool::new(false);
 static PENDING_REQUIRED_SAMPLER_MASK: AtomicU32 = AtomicU32::new(0);
 static PENDING_MISSING_SAMPLER_MASK: AtomicU32 = AtomicU32::new(0);
+static PENDING_CLOSE_TERRAIN_PREPARED_GEOMETRY: AtomicUsize = AtomicUsize::new(0);
 static LAND_LOD_FIRST_BIND_LOGGED: AtomicBool = AtomicBool::new(false);
 static LAND_LOD_FAILURE_LOGGED: AtomicBool = AtomicBool::new(false);
 static LAND_LOD_MISSING_SAMPLER_LOGGED: AtomicBool = AtomicBool::new(false);
@@ -280,6 +291,8 @@ pub(super) fn reset() {
     PENDING_DRAW_EVALUATED.store(false, Ordering::Release);
     PENDING_REQUIRED_SAMPLER_MASK.store(0, Ordering::Release);
     PENDING_MISSING_SAMPLER_MASK.store(0, Ordering::Release);
+    PENDING_CLOSE_TERRAIN_PREPARED_GEOMETRY.store(0, Ordering::Release);
+    super::terrain_lights::invalidate_draw_cache();
     LAND_LOD_FIRST_BIND_LOGGED.store(false, Ordering::Release);
     LAND_LOD_FAILURE_LOGGED.store(false, Ordering::Release);
     LAND_LOD_MISSING_SAMPLER_LOGGED.store(false, Ordering::Release);
@@ -619,10 +632,18 @@ fn set_pending_draw(kind: u32, pass_index: u32, close_terrain_pixel_index: u32) 
     PENDING_DRAW_PASS_INDEX.store(pass_index, Ordering::Release);
     PENDING_CLOSE_TERRAIN_PIXEL_INDEX.store(close_terrain_pixel_index, Ordering::Release);
     PENDING_REQUIRED_SAMPLER_MASK.store(
-        u32::from(direct_required_sampler_mask(kind)),
+        u32::from(direct_required_sampler_mask(
+            kind,
+            pass_index,
+            close_terrain_pixel_index,
+        )),
         Ordering::Release,
     );
     PENDING_MISSING_SAMPLER_MASK.store(0, Ordering::Release);
+    PENDING_CLOSE_TERRAIN_PREPARED_GEOMETRY.store(0, Ordering::Release);
+    if kind == PENDING_DRAW_CLOSE_TERRAIN {
+        super::terrain_lights::invalidate_draw_cache();
+    }
     PENDING_DRAW_EVALUATED.store(false, Ordering::Release);
     PENDING_DRAW_KIND.store(kind, Ordering::Release);
 }
@@ -896,12 +917,23 @@ fn bind_close_terrain_replacement(pass_index: u32, pixel_index: usize) {
         log_close_terrain_failure("engine did not bind the proven VPT pair");
         return;
     };
+    let Some(geometry) = engine_contracts::current_geometry_fast() else {
+        log_close_terrain_failure("current geometry is unavailable at the draw boundary");
+        return;
+    };
+    let geometry_identity = geometry as usize;
+    let geometry_changed =
+        PENDING_CLOSE_TERRAIN_PREPARED_GEOMETRY.load(Ordering::Acquire) != geometry_identity;
     let required_sampler_mask = close_terrain_required_sampler_mask(variant);
-    let missing_sampler_mask = (0..16)
-        .filter(|stage| {
-            required_sampler_mask & (1u16 << stage) != 0 && device.texture_raw(*stage).is_none()
-        })
-        .fold(0u16, |mask, stage| mask | (1u16 << stage));
+    let missing_sampler_mask = if geometry_changed || !SET_TEXTURE_HOOK.is_enabled() {
+        // A new geometry can inherit arbitrary D3D state without another
+        // SetShaders call. Query its complete ABI once; subsequent DIPs for
+        // that geometry use the SetTexture-maintained missing-stage mask.
+        missing_sampler_mask_from_bits(&device, required_sampler_mask)
+    } else {
+        PENDING_MISSING_SAMPLER_MASK.load(Ordering::Acquire) as u16
+    };
+    PENDING_MISSING_SAMPLER_MASK.store(u32::from(missing_sampler_mask), Ordering::Release);
     if missing_sampler_mask != 0 {
         log_close_terrain_missing_samplers(
             pixel_index,
@@ -923,7 +955,10 @@ fn bind_close_terrain_replacement(pass_index: u32, pixel_index: usize) {
         diagnostics::record_terrain_fallback(diagnostics::TerrainDrawFamily::CloseTerrain);
         return;
     };
-    let supplemental_lights = super::terrain_lights::capture_current();
+    let supplemental_lights = super::terrain_lights::capture_current_for_draw(geometry_identity);
+    // Native geometry setup may rewrite pixel constants between DIPs even when
+    // it reuses the same shader pass. Upload the cheap constant block on every
+    // draw; only the expensive engine light scan is cached per geometry.
     if constants::upload_terrain_constants(&device, Some(&supplemental_lights)).is_none() {
         log_close_terrain_failure("terrain constants could not be uploaded");
         return;
@@ -938,6 +973,7 @@ fn bind_close_terrain_replacement(pass_index: u32, pixel_index: usize) {
         log_close_terrain_failure("replacement pair could not be bound");
         return;
     }
+    PENDING_CLOSE_TERRAIN_PREPARED_GEOMETRY.store(geometry_identity, Ordering::Release);
 
     if !CLOSE_TERRAIN_FIRST_BIND_LOGGED.swap(true, Ordering::AcqRel) {
         log::info!(
@@ -998,21 +1034,27 @@ fn restore_direct_d3d_state() {
     }
 }
 
-pub(super) fn prepare_direct_draw() {
+/// Evaluates pending native PBR ownership before one D3D draw.
+///
+/// Returns `true` only for a close-terrain draw boundary that must be passed to
+/// [`finish_direct_draw`] after the native draw, including when replacement
+/// admission fell back.
+#[must_use]
+pub(super) fn prepare_direct_draw() -> bool {
     if !super::shader_enabled() {
         restore_direct_d3d_state();
-        return;
+        return false;
     }
 
     let kind = PENDING_DRAW_KIND.load(Ordering::Acquire);
     if kind == PENDING_DRAW_NONE {
-        return;
+        return false;
     }
     if !draw_needs_evaluation(
         PENDING_DRAW_EVALUATED.load(Ordering::Acquire),
         SET_TEXTURE_HOOK.is_enabled(),
     ) {
-        return;
+        return false;
     }
 
     restore_direct_d3d_state();
@@ -1036,18 +1078,43 @@ pub(super) fn prepare_direct_draw() {
         }
         _ => {}
     }
+
+    // Re-arm close-terrain admission after this DIP even when binding fell
+    // back. A later geometry can be valid without another SetShaders call, so
+    // a failed first draw cannot close the batch.
+    direct_draw_requires_finish(kind)
 }
 
+/// Restores and re-arms state acquired by [`prepare_direct_draw`].
+pub(super) fn finish_direct_draw(restore_after_draw: bool) {
+    if !restore_after_draw {
+        return;
+    }
+
+    // Close terrain is admitted per DIP, not per SetShaders batch. Restoring
+    // here prevents the replacement pair and geometry-specific constants from
+    // leaking into a later geometry which reused the engine pass.
+    restore_direct_d3d_state();
+    PENDING_DRAW_EVALUATED.store(false, Ordering::Release);
+}
+
+/// Clears all pending and active direct-D3D replacement state for the frame.
 pub(super) fn finish_draw_batches() {
     restore_direct_d3d_state();
     PENDING_DRAW_KIND.store(PENDING_DRAW_NONE, Ordering::Release);
     PENDING_DRAW_EVALUATED.store(true, Ordering::Release);
     PENDING_REQUIRED_SAMPLER_MASK.store(0, Ordering::Release);
     PENDING_MISSING_SAMPLER_MASK.store(0, Ordering::Release);
+    PENDING_CLOSE_TERRAIN_PREPARED_GEOMETRY.store(0, Ordering::Release);
+    super::terrain_lights::invalidate_draw_cache();
 }
 
 fn draw_needs_evaluation(evaluated: bool, texture_tracking_ready: bool) -> bool {
     !evaluated || !texture_tracking_ready
+}
+
+fn direct_draw_requires_finish(kind: u32) -> bool {
+    kind == PENDING_DRAW_CLOSE_TERRAIN
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -1055,13 +1122,18 @@ enum DirectSamplerChange {
     Ignore,
     Keep,
     Missing(u16),
-    Retry,
+    Recovered(u16),
 }
 
-fn direct_required_sampler_mask(kind: u32) -> u16 {
+fn direct_required_sampler_mask(kind: u32, pass_index: u32, close_terrain_pixel_index: u32) -> u16 {
     match kind {
         PENDING_DRAW_LAND_LOD => required_sampler_mask(LAND_LOD_SAMPLERS),
         PENDING_DRAW_TERRAIN_FADE => required_sampler_mask(TERRAIN_FADE_SAMPLERS),
+        PENDING_DRAW_CLOSE_TERRAIN => {
+            close_terrain_variant(pass_index, close_terrain_pixel_index as usize)
+                .map(close_terrain_required_sampler_mask)
+                .unwrap_or(0)
+        }
         _ => 0,
     }
 }
@@ -1086,7 +1158,7 @@ fn direct_sampler_change(
         return DirectSamplerChange::Keep;
     }
     if missing_sampler_mask & stage_mask != 0 {
-        return DirectSamplerChange::Retry;
+        return DirectSamplerChange::Recovered(missing_sampler_mask & !stage_mask);
     }
     DirectSamplerChange::Keep
 }
@@ -1104,6 +1176,14 @@ fn missing_sampler_mask(device: &Device9Ref<'_>, stages: &[u32]) -> u16 {
         .iter()
         .copied()
         .filter(|stage| *stage < 16 && device.texture_raw(*stage).is_none())
+        .fold(0u16, |mask, stage| mask | (1u16 << stage))
+}
+
+fn missing_sampler_mask_from_bits(device: &Device9Ref<'_>, required_mask: u16) -> u16 {
+    (0..16)
+        .filter(|stage| {
+            required_mask & (1u16 << stage) != 0 && device.texture_raw(*stage).is_none()
+        })
         .fold(0u16, |mask, stage| mask | (1u16 << stage))
 }
 
@@ -1252,7 +1332,8 @@ unsafe extern "thiscall" fn hook_set_texture(
             restore_direct_d3d_state();
             PENDING_DRAW_EVALUATED.store(false, Ordering::Release);
         }
-        DirectSamplerChange::Retry => {
+        DirectSamplerChange::Recovered(mask) => {
+            PENDING_MISSING_SAMPLER_MASK.store(u32::from(mask), Ordering::Relaxed);
             PENDING_DRAW_EVALUATED.store(false, Ordering::Release);
         }
     }
@@ -1879,9 +1960,9 @@ mod tests {
         CLOSE_TERRAIN_FIRST_PIXEL_INDEX, CLOSE_TERRAIN_PASS_TO_PIXEL_OFFSET, DirectSamplerChange,
         LAND_LOD_SAMPLERS, PENDING_DRAW_CLOSE_TERRAIN, PENDING_DRAW_LAND_LOD, PENDING_DRAW_OBJECT,
         PENDING_DRAW_TERRAIN_FADE, TERRAIN_FADE_SAMPLERS, close_terrain_draw,
-        close_terrain_required_sampler_mask, close_terrain_variant, direct_required_sampler_mask,
-        direct_sampler_change, draw_needs_evaluation, hash_light_data, object_draw_key,
-        required_sampler_mask,
+        close_terrain_required_sampler_mask, close_terrain_variant, direct_draw_requires_finish,
+        direct_required_sampler_mask, direct_sampler_change, draw_needs_evaluation,
+        hash_light_data, object_draw_key, required_sampler_mask,
     };
     use crate::effects::pbr::engine_contracts::DrawSnapshot;
     use crate::effects::pbr::shader_registry::{self, ShaderStage};
@@ -1933,6 +2014,14 @@ mod tests {
     }
 
     #[test]
+    fn only_close_terrain_requires_per_draw_cleanup() {
+        assert!(!direct_draw_requires_finish(PENDING_DRAW_OBJECT));
+        assert!(!direct_draw_requires_finish(PENDING_DRAW_LAND_LOD));
+        assert!(!direct_draw_requires_finish(PENDING_DRAW_TERRAIN_FADE));
+        assert!(direct_draw_requires_finish(PENDING_DRAW_CLOSE_TERRAIN));
+    }
+
+    #[test]
     fn disabled_set_shaders_calls_native_code_before_tracking_work() {
         let source = include_str!("hooks.rs");
         let set_shaders = source
@@ -1947,17 +2036,32 @@ mod tests {
     }
 
     #[test]
-    fn valid_texture_swaps_do_not_force_shader_rebinding() {
+    fn direct_sampler_tracking_uses_exact_family_masks() {
         let required = required_sampler_mask(LAND_LOD_SAMPLERS);
 
-        assert_eq!(direct_required_sampler_mask(PENDING_DRAW_OBJECT), 0);
-        assert_eq!(direct_required_sampler_mask(PENDING_DRAW_CLOSE_TERRAIN), 0);
+        assert_eq!(direct_required_sampler_mask(PENDING_DRAW_OBJECT, 0, 0), 0);
         assert_eq!(
-            direct_required_sampler_mask(PENDING_DRAW_LAND_LOD),
+            direct_required_sampler_mask(
+                PENDING_DRAW_CLOSE_TERRAIN,
+                503,
+                CLOSE_TERRAIN_FIRST_PIXEL_INDEX as u32,
+            ),
+            0x0081
+        );
+        assert_eq!(
+            direct_required_sampler_mask(
+                PENDING_DRAW_CLOSE_TERRAIN,
+                558,
+                (CLOSE_TERRAIN_FIRST_PIXEL_INDEX + 55) as u32,
+            ),
+            0x3FFF
+        );
+        assert_eq!(
+            direct_required_sampler_mask(PENDING_DRAW_LAND_LOD, 0, 0),
             required
         );
         assert_eq!(
-            direct_required_sampler_mask(PENDING_DRAW_TERRAIN_FADE),
+            direct_required_sampler_mask(PENDING_DRAW_TERRAIN_FADE, 0, 0),
             required_sampler_mask(TERRAIN_FADE_SAMPLERS)
         );
         assert_eq!(
@@ -1978,7 +2082,11 @@ mod tests {
         );
         assert_eq!(
             direct_sampler_change(required, 1 << 4, 4, true),
-            DirectSamplerChange::Retry
+            DirectSamplerChange::Recovered(0)
+        );
+        assert_eq!(
+            direct_sampler_change(required, (1 << 4) | (1 << 6), 4, true),
+            DirectSamplerChange::Recovered(1 << 6)
         );
 
         let source = include_str!("hooks.rs");

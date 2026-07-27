@@ -2,6 +2,10 @@
 
 Status: fixed and playtested on 2026-07-18.
 
+The original atmosphere incident is closed. A separate PBR cache regression on
+2026-07-27 reproduced the same pre-DeferredInit crash class and is awaiting the
+load-to-gameplay A/B test described below.
+
 ## Incident
 
 The first Phase 2 reliability build crashed while Fallout NV was loading game
@@ -89,7 +93,57 @@ Do not rewrite this incident as either "BaseObjectSwapper alone caused it" or
 - Every future world-owner/startup change needs a load-to-gameplay smoke test.
   The log must show the DeferredInit publication, hook installation, and live
   Present telemetry.
+- Do not add Rust `thread_local!`, a TLS destructor, or another new DLL TLS
+  owner for an OMV render cache without explicit startup-phase proof and a
+  load-to-gameplay smoke test. Prefer statically initialized POD/atomic state
+  whose first operational access remains behind DeferredInit.
 
 The source comments in `omv/src/runtime.rs` and `omv/src/startup.rs`, this
 erratum, and the root `AGENTS.md` rule are all intentional safeguards. Do not
 remove them without replacing the phase contract with stronger evidence.
+
+## 2026-07-27 PBR TLS regression
+
+The first close-terrain draw-scope correction added a
+`thread_local! Cell<TerrainLightDrawCache>` to `terrain_lights.rs`. Although the
+cache was intended for render callbacks, this changed the injected DLL's TLS
+startup footprint before any render callback ran.
+
+The deployed OMV DLL exactly matched the local release artifact and reported
+`unix=1785178325`. The fresh OMV log stopped after startup configuration,
+compatibility discovery, and the first screen-space shader load. It did not
+reach `[INIT] Deferred OMV graphics hooks initialized`, PBR hook installation,
+or Present telemetry. CrashLogger then reported:
+
+- `EXCEPTION_ACCESS_VIOLATION`;
+- BaseObjectSwapper `ConditionalInput::IsValid +0x88`;
+- corrupt stack/heap entries;
+- about ten seconds of playtime while game data was still loading.
+
+This is the same phase boundary and external fault signature as the 2026-07-18
+incident. It proves that the terrain draw algorithm had not executed. The new
+TLS owner is the only load-time construct introduced by the close-terrain fix
+and is therefore the strongest OMV-side trigger candidate, but only a passing
+replacement build can close that attribution. Do not investigate or patch
+BaseObjectSwapper as the response to this OMV regression.
+
+The correction removes the TLS owner entirely. The light cache now consists of
+fixed zero-initialized atomics: a geometry key, an even/odd publication version,
+a bounded light count, and packed float words. Readers accept a snapshot only
+when its version and geometry remain stable. A concurrent publisher uses one
+compare-exchange; contention bypasses caching instead of spinning or blocking.
+There is no lazy initialization, destructor, lock, allocation, `UnsafeCell`, or
+plugin-load function call.
+
+Repository tests reject `thread_local!` in the production terrain-light module
+and verify that atomic publication reproduces the shader constant payload
+exactly. The required runtime closure is unchanged: the replacement build must
+load into gameplay and log DeferredInit, installed graphics hooks, and live
+Present telemetry before terrain visuals are evaluated.
+
+Static validation passed all 339 OMV tests and the supported release build. The
+corrected DLL SHA-256 is
+`80d82b781e1575b76cc1d5ca183d37fc5519bc888931b24a42c4e20a49ffea2b`.
+Symbol inspection places `DRAW_CACHE_VERSION`, `DRAW_CACHE_GEOMETRY`,
+`DRAW_CACHE_COUNT`, `DRAW_CACHE_IDENTITIES`, and `DRAW_CACHE_COMPONENTS` in
+`.bss`; the removed `TerrainLightDrawCache` TLS symbol is absent.
