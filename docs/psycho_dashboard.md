@@ -18,8 +18,9 @@ The control deck has five pages:
   includes explicit watch and critical pressure bands; the commit timeline uses
   a padded scale because it has no honest universal failure threshold.
 - **Runtime Fixes** identifies active patch families, including the dynamic
-  actor-container retirement guard, and exposes cumulative save, task, native
-  IO, SpeedTree materialization/Compute, and LOD counters.
+  actor-container retirement guard, and exposes cumulative save/task
+  exceptions, rare native IO fallbacks, current LOD ownership, and the bounded
+  native-IO scheduling policy.
 - **Configuration** edits the complete supported Psycho TOML surface. Saving is
   explicitly labelled **Save for next launch**; it never changes live core
   state.
@@ -183,9 +184,11 @@ The snapshot groups are:
 - pool, metadata, block, direct-VA, and scrap-heap live/capacity values;
 - allocator fallback/failure counts;
 - save-integrity and queued-task lifetime counters;
-- native IO and LOD streaming counters;
-- eight SpeedTree materialization/Compute activity, contention, waiter, and
-  maximum-wait counters;
+- active native IO fallbacks and LOD ownership counters, plus reserved routine
+  IO/LOD activity fields that remain zero for ABI compatibility;
+- eight reserved SpeedTree materialization/Compute activity, contention,
+  waiter, and maximum-wait fields. They remain zero for ABI version 2
+  compatibility after release hot-path sampling was removed;
 - process/VAS sample timestamps plus fast-query and explicit-VAS-refresh
   counts and last/maximum durations.
 
@@ -194,9 +197,11 @@ fixed refresh kind and runs on the helper's sampling worker. Version 2 requires
 both exports, preventing a new helper from silently applying old periodic
 sampling behavior to an older core.
 
-All engine counters are cumulative and read-only. Dashboard sampling does not
-drain the hitch profiler's interval counters. Missing optional samples are
-marked invalid instead of being presented as zero.
+Active engine counters are cumulative and read-only. The Runtime Fixes page no
+longer presents the reserved routine LOD, cell, or SpeedTree fields as activity
+measurements. Dashboard sampling does not drain the hitch profiler's interval
+counters. Missing optional samples are marked invalid instead of being
+presented as zero.
 
 ## Sampling, memory meaning, and cost
 

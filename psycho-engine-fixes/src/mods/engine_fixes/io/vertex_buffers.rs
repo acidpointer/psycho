@@ -39,9 +39,6 @@ const VALID_CALL_5: [u8; 5] = [0xE8, 0xCF, 0x23, 0x01, 0x00];
 static STATIC_LIFETIME_LOCK: LazyLock<ReentrantMutex<()>> =
     LazyLock::new(|| ReentrantMutex::new(()));
 static INSTALLED: AtomicBool = AtomicBool::new(false);
-static STREAM_TRANSACTIONS: AtomicU64 = AtomicU64::new(0);
-static STATIC_ALLOCATIONS: AtomicU64 = AtomicU64::new(0);
-static STATIC_RETIREMENTS: AtomicU64 = AtomicU64::new(0);
 static NULL_ALLOCATION_FAILURES: AtomicU64 = AtomicU64::new(0);
 static INVALID_PUBLICATIONS: AtomicU64 = AtomicU64::new(0);
 
@@ -112,9 +109,6 @@ static VALIDITY_PATCHES: [OwnedCodePatch; 6] = [
 #[derive(Clone, Copy)]
 pub(in crate::mods::engine_fixes) struct Snapshot {
     pub installed: bool,
-    pub stream_transactions: u64,
-    pub static_allocations: u64,
-    pub static_retirements: u64,
     pub null_allocation_failures: u64,
     pub invalid_publications: u64,
 }
@@ -172,8 +166,14 @@ unsafe extern "stdcall" fn hook_geometry_stream_allocate(geometry: *mut c_void, 
         return unsafe { original(geometry, stream) };
     }
 
-    let _guard = STATIC_LIFETIME_LOCK.lock();
-    STREAM_TRANSACTIONS.fetch_add(1, Ordering::Relaxed);
+    let _priority = super::scheduler::supplemental_priority_guard();
+    // This outer allocation entry already reports failure to the native
+    // deferred-pack path. Deferring on contention avoids making a render-side
+    // caller wait behind streamed static geometry without weakening lifetime
+    // serialization for a transaction that actually starts.
+    let Some(_guard) = STATIC_LIFETIME_LOCK.try_lock() else {
+        return 0;
+    };
     let allocated = unsafe { original(geometry, stream) };
     if allocated == 0 || stream_chip_is_valid(geometry, stream) {
         return allocated;
@@ -204,8 +204,8 @@ unsafe extern "thiscall" fn hook_static_geometry_allocate(
         }
     };
 
+    let _priority = super::scheduler::supplemental_priority_guard();
     let _guard = STATIC_LIFETIME_LOCK.lock();
-    STATIC_ALLOCATIONS.fetch_add(1, Ordering::Relaxed);
     unsafe { original(group, geometry, stream) }
 }
 
@@ -222,8 +222,8 @@ unsafe extern "thiscall" fn hook_static_geometry_retire(
         }
     };
 
+    let _priority = super::scheduler::supplemental_priority_guard();
     let _guard = STATIC_LIFETIME_LOCK.lock();
-    STATIC_RETIREMENTS.fetch_add(1, Ordering::Relaxed);
     unsafe { original(group, geometry, stream) };
 }
 
@@ -255,7 +255,6 @@ unsafe fn retire_static_stream(geometry: *mut c_void, stream: u32) {
     let Ok(original) = statics::STATIC_GEOMETRY_RETIRE_HOOK.original() else {
         return;
     };
-    STATIC_RETIREMENTS.fetch_add(1, Ordering::Relaxed);
     unsafe { original(group, geometry, stream) };
 }
 
@@ -306,9 +305,6 @@ extern "C" fn observe_null_static_allocation() {
 pub(in crate::mods::engine_fixes) fn snapshot() -> Snapshot {
     Snapshot {
         installed: INSTALLED.load(Ordering::Acquire),
-        stream_transactions: STREAM_TRANSACTIONS.load(Ordering::Relaxed),
-        static_allocations: STATIC_ALLOCATIONS.load(Ordering::Relaxed),
-        static_retirements: STATIC_RETIREMENTS.load(Ordering::Relaxed),
         null_allocation_failures: NULL_ALLOCATION_FAILURES.load(Ordering::Relaxed),
         invalid_publications: INVALID_PUBLICATIONS.load(Ordering::Relaxed),
     }

@@ -87,12 +87,82 @@ contract. `ExteriorCellLoaderTask` publishes its active cell through the
 process-global pointer at `0x011C3F30`. Two instances could overlap on the two
 workers, allowing one task to clear that pointer after another task's null
 check but before its reload at `0x004686F4`. Psycho now serializes only the
-`ExteriorCellLoaderTask` execute method at `0x00527CB0`. Terrain, object, tree,
-and other safe IO work still use both workers.
+per-form publication/clear transaction at `0x00550500`. Terrain, object, tree,
+file, and other safe IO work still use both workers.
+
+The 2026-07-27 Capital Wasteland stress crash then exposed an independent
+AutoWater owner. The worker faulted at `0x0049F24C` while copying a point
+returned from process-global owner `0x011C57AC`. Outer AutoWater function
+`0x0049C860` destroys, initializes, consumes, and publishes that owner plus
+`0x011C57B0`, and is reached by three direct callers including exterior-cell
+loading. Psycho now serializes that exact complete AutoWater transaction in
+the parallel-IO installation transaction. The full proven path, ABI, lifetime,
+and runtime acceptance test are maintained in
+`docs/parallel_io_engine_contract.md`.
 
 Release acceptance remains blocked on runtime stress validation and the
 separate handoff-ledger resynchronization work. Runtime tuning is no longer
 the only remaining work.
+
+## 2026-07-27 bounded-scheduling correction
+
+This section supersedes the earlier implementation descriptions below where
+they say that both workers freely drain at equal priority, that every LOD task
+uses priority zero, that the complete exterior task is locked, or that release
+builds maintain per-operation IO/SpeedTree timing and contention counters.
+Those sections remain as investigation history.
+
+A tester reported traversal stutter that stopped when Parallel IO was
+disabled, with allocator modes `0` and `1` amplifying the FPS loss. Static
+analysis found that the original patch changed only the constructor count
+while the IOManager selector still targeted the vanilla `return 0` stub. That
+build therefore did not prove worker-one execution, and the report remains a
+correlation rather than proof of an allocator or two-worker defect. Before
+explicitly admitting worker one, Psycho nevertheless had to define admission,
+drain quantum, OS priority, speculative LOD priority, and the cost of its
+process-global safety locks and hot-path diagnostics.
+
+The implemented contract is now:
+
+1. Worker zero remains the vanilla primary. Worker one is selected only while
+   the primary is executing, through the IOManager vtable slot at
+   `0x010C165C`.
+2. An atomic idle/reserved/running state prevents double admission. Submission
+   `0x00C3FB50` releases a reservation when native insertion fails.
+3. The supplemental worker returns to cleanup/wait at `0x00C41307` after one
+   task instead of following the vanilla backlog-drain branch at
+   `0x00C41302 -> 0x00C41148`.
+4. Worker constructor `0x00C3EE70` identifies the primary and supplemental
+   Win32 threads. The supplemental thread is below normal priority before its
+   caller resumes it. It is temporarily restored to normal only while owning
+   a Psycho process-global safety lock to avoid priority inversion.
+5. Demand hooks keep a fixed, allocation-free provenance set for unloaded
+   nodes admitted only by Psycho's extended radius. Object block `+0x00`, tree
+   block `+0x44`, and terrain block `+0x00` recover the demand node at task
+   construction. Visible work receives priority zero; speculative work keeps
+   its native priority. Collision/capacity failure deliberately fails
+   visible-safe.
+6. Exterior-owner serialization moved from complete task `0x00527CB0` to the
+   exact per-form publication/clear transaction `0x00550500`.
+7. AutoWater teardown, construction, and publication are serialized across
+   the exact outer transaction `0x0049C860`, covering all three native callers
+   without locking the complete exterior-cell task.
+8. Static geometry's outer allocation entry uses its proven native
+   deferred-pack failure result as a non-blocking retry boundary. Direct
+   allocation and retirement remain serialized.
+9. Routine LOD demand, successful IO, model postprocess, static-geometry,
+   SpeedTree materialization/Compute, contention, waiter, and timing counters
+   were removed from release hot paths. Rare installation, allocation,
+   postcondition, and corruption failures remain observable.
+
+Allocator modes still own their documented allocation domains. They neither
+enable nor bypass this scheduler; mode-dependent severity is expected because
+native heap and scrap contention differ, but scheduling and safety behavior
+are identical in modes `0`, `1`, and `2`.
+
+The complete executable identity, ABI, ownership, failure behavior, tests, and
+runtime acceptance criteria are maintained in
+`docs/parallel_io_engine_contract.md`.
 
 ## Evidence baseline
 

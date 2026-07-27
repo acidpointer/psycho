@@ -605,6 +605,19 @@ pub fn set_thread_priority(thread_handle: Handle, priority: ThreadPriority) -> W
     Ok(())
 }
 
+/// Set the priority of a live thread without taking ownership of its handle.
+///
+/// The caller must keep the host-owned handle valid for the duration of this
+/// call. This is intended for engine thread objects whose destructor, rather
+/// than Rust, closes the underlying handle.
+pub fn set_borrowed_thread_priority(
+    thread_handle: BorrowedHandle,
+    priority: ThreadPriority,
+) -> WinapiResult<()> {
+    unsafe { SetThreadPriority(thread_handle.as_raw(), priority.into())? };
+    Ok(())
+}
+
 /// Restores a temporary priority change on the current thread.
 ///
 /// The Win32 pseudo-handle stored here is valid only on the creating thread,
@@ -656,6 +669,39 @@ pub fn lower_current_thread_priority_scoped(
     }
     let ceiling = THREAD_PRIORITY::from(ceiling).0;
     unsafe { SetThreadPriority(thread, THREAD_PRIORITY(original.min(ceiling)))? };
+    Ok(CurrentThreadPriorityGuard {
+        thread,
+        original,
+        active: true,
+        not_send: std::marker::PhantomData,
+    })
+}
+
+/// Temporarily set the calling thread's exact base priority.
+///
+/// The returned guard restores the preceding priority on the same thread.
+/// This differs from [`lower_current_thread_priority_scoped`]: it may raise a
+/// deliberately backgrounded worker to avoid priority inversion while that
+/// worker enters a process-global engine critical section.
+pub fn set_current_thread_priority_scoped(
+    priority: ThreadPriority,
+) -> WinapiResult<CurrentThreadPriorityGuard> {
+    let thread = unsafe { GetCurrentThread() };
+    unsafe { SetLastError(WIN32_ERROR(0)) };
+    let original = unsafe { GetThreadPriority(thread) };
+    if original == i32::MAX {
+        return Err(WinapiError::WindowsCore(windows::core::Error::from_win32()));
+    }
+    let requested = THREAD_PRIORITY::from(priority).0;
+    if original == requested {
+        return Ok(CurrentThreadPriorityGuard {
+            thread,
+            original,
+            active: false,
+            not_send: std::marker::PhantomData,
+        });
+    }
+    unsafe { SetThreadPriority(thread, THREAD_PRIORITY(requested))? };
     Ok(CurrentThreadPriorityGuard {
         thread,
         original,

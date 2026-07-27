@@ -155,27 +155,33 @@ pub(crate) fn dashboard_counters() -> DashboardCounters {
         task_release_guards: task.release_guards,
         task_tombstones: task.tombstones,
         io_workers: u64::from(io.scheduler.observed_workers),
-        io_transactions: io.scheduler.cell_loader_executions,
-        io_contentions: io.scheduler.cell_loader_contentions,
+        // These fields remain in the helper ABI. Release hooks deliberately
+        // stopped counting successful IO transactions and lock acquisitions.
+        io_transactions: 0,
+        io_contentions: 0,
         io_fallbacks: io
             .scheduler
             .parallel_fallbacks
             .saturating_add(io.scheduler.cache_fallbacks)
             .saturating_add(io.scheduler.capacity_failures),
-        lod_demands: lod.demand_calls.into_iter().sum(),
-        lod_early_demands: lod.extended_demands.into_iter().sum(),
-        lod_retained_demands: lod.retained_demands.into_iter().sum(),
+        // Retained in the helper ABI without updating atomics in every LOD
+        // demand predicate.
+        lod_demands: 0,
+        lod_early_demands: 0,
+        lod_retained_demands: 0,
         lod_current_cells: lod.state.current_cells as u64,
         lod_current_references: lod.state.current_references as u64,
         lod_stale_retirements_prevented: lod.state.stale_retirements_prevented,
-        speedtree_materializations: io.speedtree.tree_transactions,
-        speedtree_completions: io.speedtree.tree_completions,
-        speedtree_materialization_contentions: io.speedtree.tree_contentions,
-        speedtree_compute_transactions: io.speedtree.compute_transactions,
-        speedtree_compute_contentions: io.speedtree.compute_contentions,
-        speedtree_waiters: u64::from(io.speedtree.transaction_waiters),
-        speedtree_max_materialization_wait_us: io.speedtree.max_tree_wait_us,
-        speedtree_max_compute_wait_us: io.speedtree.max_compute_wait_us,
+        // Retained in the helper ABI without imposing counters or timers on
+        // SpeedTree materialization and Compute.
+        speedtree_materializations: 0,
+        speedtree_completions: 0,
+        speedtree_materialization_contentions: 0,
+        speedtree_compute_transactions: 0,
+        speedtree_compute_contentions: 0,
+        speedtree_waiters: 0,
+        speedtree_max_materialization_wait_us: 0,
+        speedtree_max_compute_wait_us: 0,
     }
 }
 
@@ -192,13 +198,12 @@ pub(crate) struct IoHangSnapshot {
 }
 
 pub(crate) fn io_hang_snapshot() -> IoHangSnapshot {
-    let speedtree = io::speedtree_diagnostic_snapshot();
     IoHangSnapshot {
-        tree_started: speedtree.tree_transactions,
-        tree_completed: speedtree.tree_completions,
-        transaction_waiters: speedtree.transaction_waiters,
-        active_scope: speedtree.active_transaction_scope,
-        active_thread: speedtree.active_transaction_thread,
+        tree_started: 0,
+        tree_completed: 0,
+        transaction_waiters: 0,
+        active_scope: "not-instrumented",
+        active_thread: 0,
     }
 }
 
@@ -225,7 +230,6 @@ pub fn install(
     install_queued_task_guard(config, diagnostics)?;
     let io_safety = io::install(
         io_config,
-        diagnostics,
         lod_config.enabled && lod_config.prefetch_enabled,
         model_postprocess_ready,
     );
@@ -553,10 +557,7 @@ pub(crate) fn append_diagnostic_report(out: &mut String) {
     push_report_value(
         out,
         "Model postprocess",
-        format!(
-            "{} / {} started / {} done / {} waits / {} queued",
-            model.owner, model.transactions, model.completions, model.contentions, model.waiters,
-        ),
+        format!("{} / guard {}", model.owner, on_off(model.installed)),
     );
     push_report_value(out, "Model PP owner", format!("{:08X}", model.predecessor));
 
@@ -573,18 +574,19 @@ pub(crate) fn append_diagnostic_report(out: &mut String) {
         out,
         "IO workers",
         format!(
-            "{} active / {} requested",
-            io.scheduler.observed_workers, requested_workers,
+            "{} constructed / {} requested / primary {} / supplemental {}",
+            io.scheduler.observed_workers,
+            requested_workers,
+            on_off(io.scheduler.primary_thread_ready),
+            on_off(io.scheduler.supplemental_thread_ready),
         ),
     );
     push_report_value(
         out,
-        "Cell loading",
+        "Exterior guards",
         format!(
-            "{} / {} runs / {} waits",
+            "{} / per-form owner + AutoWater",
             on_off(io.scheduler.cell_loader_serialization_installed),
-            io.scheduler.cell_loader_executions,
-            io.scheduler.cell_loader_contentions,
         ),
     );
     push_report_value(
@@ -596,9 +598,7 @@ pub(crate) fn append_diagnostic_report(out: &mut String) {
             io.scheduler.cache_fallbacks,
         ),
     );
-    push_report_value(out, "TLS maps A", io.scheduler.map_expansions[0]);
-    push_report_value(out, "TLS maps B", io.scheduler.map_expansions[1]);
-    push_report_value(out, "Tree TLS maps", io.scheduler.map_expansions[2]);
+    push_report_value(out, "TLS capacity", "native slots + 1");
     push_report_value(out, "IO fallbacks", io.scheduler.parallel_fallbacks);
     push_report_value(out, "Capacity failures", io.scheduler.capacity_failures);
     push_report_value(out, "Barrier layouts", barrier_layout_failures);
@@ -609,14 +609,11 @@ pub(crate) fn append_diagnostic_report(out: &mut String) {
         out,
         "Priority",
         format!(
-            "{} / req {} / native 0",
+            "{} / req {} / visible 0 / speculative native",
             on_off(lod.scheduler.priority_installed),
             on_off(lod.scheduler.priority_requested),
         ),
     );
-    push_report_value(out, "Terrain boosts", lod.scheduler.priority_boosts[0]);
-    push_report_value(out, "Object boosts", lod.scheduler.priority_boosts[1]);
-    push_report_value(out, "Tree boosts", lod.scheduler.priority_boosts[2]);
     push_report_value(
         out,
         "Priority failures",
@@ -628,17 +625,8 @@ pub(crate) fn append_diagnostic_report(out: &mut String) {
         out,
         "Lifetime guard",
         format!(
-            "{} / {} transactions",
+            "{} / retryable outer allocation",
             on_off(io.vertex_buffers.installed),
-            io.vertex_buffers.stream_transactions,
-        ),
-    );
-    push_report_value(
-        out,
-        "Static blocks",
-        format!(
-            "{} allocated / {} retired",
-            io.vertex_buffers.static_allocations, io.vertex_buffers.static_retirements,
         ),
     );
     push_report_value(
@@ -669,19 +657,6 @@ pub(crate) fn append_diagnostic_report(out: &mut String) {
             lod.ready_predecessor, lod.ready_predecessor_mismatches,
         ),
     );
-    for (label, index) in [("Terrain", 0), ("Objects", 1), ("Trees", 2)] {
-        push_report_value(
-            out,
-            label,
-            format!(
-                "{} demand / {} early / {} held / {} release",
-                lod.demand_calls[index],
-                lod.extended_demands[index],
-                lod.retained_demands[index],
-                lod.release_passthroughs[index],
-            ),
-        );
-    }
     push_report_value(
         out,
         "Tracked",
@@ -753,36 +728,10 @@ pub(crate) fn append_diagnostic_report(out: &mut String) {
     push_report_section(out, "SpeedTree IO safety");
     push_report_value(
         out,
-        "Tree transactions",
+        "Lifetime guard",
         format!(
-            "{} started / {} completed / {} waits",
-            io.speedtree.tree_transactions,
-            io.speedtree.tree_completions,
-            io.speedtree.tree_contentions,
-        ),
-    );
-    push_report_value(
-        out,
-        "Compute",
-        format!(
-            "{} runs / {} waits",
-            io.speedtree.compute_transactions, io.speedtree.compute_contentions,
-        ),
-    );
-    push_report_value(
-        out,
-        "Clone activity",
-        format!(
-            "{} made / {} destroyed",
-            io.speedtree.clone_constructs, io.speedtree.clone_destroys,
-        ),
-    );
-    push_report_value(
-        out,
-        "Live clones",
-        format!(
-            "{} current / {} peak / {} owner peak",
-            io.speedtree.current_clones, io.speedtree.peak_clones, io.speedtree.max_owner_clones,
+            "{} / global transaction fallback",
+            on_off(io.speedtree.installed),
         ),
     );
     push_report_value(
@@ -808,30 +757,6 @@ pub(crate) fn append_diagnostic_report(out: &mut String) {
         "Constructor faults",
         io.speedtree.constructor_postcondition_failures,
     );
-    push_report_value(
-        out,
-        "Tree timing",
-        format!(
-            "{} us owner / {} us Compute / {} us registry / {} us any / trace {}",
-            io.speedtree.max_tree_wait_us,
-            io.speedtree.max_compute_wait_us,
-            io.speedtree.max_lock_wait_us,
-            io.speedtree.max_transaction_wait_us,
-            on_off(io.speedtree.trace_enabled),
-        ),
-    );
-    push_report_value(
-        out,
-        "Tree lock",
-        format!(
-            "{} waits / {} queued / {} on thread {}",
-            io.speedtree.transaction_contentions,
-            io.speedtree.transaction_waiters,
-            io.speedtree.active_transaction_scope,
-            io.speedtree.active_transaction_thread,
-        ),
-    );
-
     let display_alerts = u64::from(display.bootstrap_create_failures)
         .saturating_add(u64::from(display.catch_up_failures))
         .saturating_add(u64::from(display.contract_mismatches))

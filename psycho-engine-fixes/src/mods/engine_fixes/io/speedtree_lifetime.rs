@@ -19,7 +19,7 @@ use std::{
     ptr,
     sync::{
         LazyLock,
-        atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
     },
 };
 
@@ -31,7 +31,7 @@ use libpsycho::os::windows::{
 use parking_lot::ReentrantMutex;
 
 use crate::mods::{
-    diagnostics::{Stopwatch, should_log_power_of_two, update_max_u64},
+    diagnostics::should_log_power_of_two,
     heap_replacer::{AllocatorMode, current_mode, gheap::pool},
 };
 
@@ -50,65 +50,26 @@ const OWNER_MIN_SIZE: usize = 0x18;
 const MAX_OWNER_CLONES: usize = 65_536;
 
 static INSTALLED: AtomicBool = AtomicBool::new(false);
-static TRACE_ENABLED: AtomicBool = AtomicBool::new(false);
 static TRANSACTION_LOCK: LazyLock<ReentrantMutex<()>> = LazyLock::new(|| ReentrantMutex::new(()));
-static TRANSACTION_CONTENTIONS: AtomicU64 = AtomicU64::new(0);
-static TRANSACTION_WAITERS: AtomicU32 = AtomicU32::new(0);
-static ACTIVE_TRANSACTION_SCOPE: AtomicU32 = AtomicU32::new(0);
-static ACTIVE_TRANSACTION_THREAD: AtomicU32 = AtomicU32::new(0);
-static MAX_TRANSACTION_WAIT_US: AtomicU64 = AtomicU64::new(0);
-static TREE_TRANSACTIONS: AtomicU64 = AtomicU64::new(0);
-static TREE_COMPLETIONS: AtomicU64 = AtomicU64::new(0);
-static TREE_CONTENTIONS: AtomicU64 = AtomicU64::new(0);
-static MAX_TREE_WAIT_US: AtomicU64 = AtomicU64::new(0);
-static COMPUTE_TRANSACTIONS: AtomicU64 = AtomicU64::new(0);
-static COMPUTE_CONTENTIONS: AtomicU64 = AtomicU64::new(0);
-static MAX_COMPUTE_WAIT_US: AtomicU64 = AtomicU64::new(0);
-static CLONE_CONSTRUCTS: AtomicU64 = AtomicU64::new(0);
-static CLONE_DESTROYS: AtomicU64 = AtomicU64::new(0);
-static CURRENT_CLONES: AtomicUsize = AtomicUsize::new(0);
-static PEAK_CLONES: AtomicUsize = AtomicUsize::new(0);
-static MAX_OWNER_CLONES_OBSERVED: AtomicU64 = AtomicU64::new(0);
 static MISSING_MEMBER_REJECTS: AtomicU64 = AtomicU64::new(0);
 static DUPLICATE_MEMBER_REJECTS: AtomicU64 = AtomicU64::new(0);
 static INVALID_BOUNDS_REJECTS: AtomicU64 = AtomicU64::new(0);
 static STALE_POINTER_REJECTS: AtomicU64 = AtomicU64::new(0);
 static INVALID_REFCOUNT_REJECTS: AtomicU64 = AtomicU64::new(0);
 static CONSTRUCTOR_POSTCONDITION_FAILURES: AtomicU64 = AtomicU64::new(0);
-static MAX_LOCK_WAIT_US: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Clone, Copy)]
 pub(in crate::mods::engine_fixes) struct Snapshot {
     pub installed: bool,
-    pub trace_enabled: bool,
-    pub transaction_contentions: u64,
-    pub transaction_waiters: u32,
-    pub active_transaction_scope: &'static str,
-    pub active_transaction_thread: u32,
-    pub max_transaction_wait_us: u64,
-    pub tree_transactions: u64,
-    pub tree_completions: u64,
-    pub tree_contentions: u64,
-    pub max_tree_wait_us: u64,
-    pub compute_transactions: u64,
-    pub compute_contentions: u64,
-    pub max_compute_wait_us: u64,
-    pub clone_constructs: u64,
-    pub clone_destroys: u64,
-    pub current_clones: usize,
-    pub peak_clones: usize,
-    pub max_owner_clones: u64,
     pub missing_member_rejects: u64,
     pub duplicate_member_rejects: u64,
     pub invalid_bounds_rejects: u64,
     pub stale_pointer_rejects: u64,
     pub invalid_refcount_rejects: u64,
     pub constructor_postcondition_failures: u64,
-    pub max_lock_wait_us: u64,
 }
 
 #[derive(Clone, Copy)]
-#[repr(u32)]
 enum TransactionScope {
     TreeMaterialization = 1,
     Compute,
@@ -128,7 +89,7 @@ struct GheapState {
 #[derive(Clone, Copy)]
 enum CoreState {
     Base,
-    Clone { owner_len: usize },
+    Clone,
 }
 
 #[derive(Clone, Copy)]
@@ -152,8 +113,7 @@ impl RejectReason {
     }
 }
 
-pub(super) fn install(trace_enabled: bool) -> anyhow::Result<()> {
-    TRACE_ENABLED.store(trace_enabled, Ordering::Release);
+pub(super) fn install() -> anyhow::Result<()> {
     if INSTALLED.load(Ordering::Acquire) {
         return Ok(());
     }
@@ -230,10 +190,7 @@ unsafe extern "thiscall" fn hook_bstree_reload_model(
 }
 
 fn with_tree_materialization<T>(operation: impl FnOnce() -> T) -> T {
-    TREE_TRANSACTIONS.fetch_add(1, Ordering::Relaxed);
-    let result = with_transaction(TransactionScope::TreeMaterialization, operation);
-    TREE_COMPLETIONS.fetch_add(1, Ordering::Release);
-    result
+    with_transaction(TransactionScope::TreeMaterialization, operation)
 }
 
 unsafe extern "thiscall" fn hook_compute(
@@ -254,72 +211,24 @@ unsafe extern "thiscall" fn hook_compute(
 }
 
 fn with_compute_lock<T>(operation: impl FnOnce() -> T) -> T {
-    COMPUTE_TRANSACTIONS.fetch_add(1, Ordering::Relaxed);
     with_transaction(TransactionScope::Compute, operation)
 }
 
-fn with_transaction<T>(scope: TransactionScope, operation: impl FnOnce() -> T) -> T {
+fn with_transaction<T>(_scope: TransactionScope, operation: impl FnOnce() -> T) -> T {
+    // Compute scratch pointers and clone ownership are process-global, and no
+    // proven native owner pin spans the slow materializers. Keep one reentrant
+    // transaction as the correctness fallback; scheduler admission and
+    // priority elevation bound its impact without weakening lifetime safety.
     let nested = TRANSACTION_LOCK.is_owned_by_current_thread();
-    let timer = lock_timer();
-    let guard = if let Some(guard) = TRANSACTION_LOCK.try_lock() {
-        guard
+    let _priority = if nested {
+        None
     } else {
-        TRANSACTION_CONTENTIONS.fetch_add(1, Ordering::Relaxed);
-        if let Some(counter) = scope_contentions(scope) {
-            counter.fetch_add(1, Ordering::Relaxed);
-        }
-        TRANSACTION_WAITERS.fetch_add(1, Ordering::AcqRel);
-        let guard = TRANSACTION_LOCK.lock();
-        TRANSACTION_WAITERS.fetch_sub(1, Ordering::AcqRel);
-        guard
+        super::scheduler::supplemental_priority_guard()
     };
-    if let Some(elapsed) = timer.and_then(Stopwatch::elapsed_us) {
-        update_max_u64(&MAX_TRANSACTION_WAIT_US, elapsed);
-        if let Some(max_wait) = scope_max_wait(scope) {
-            update_max_u64(max_wait, elapsed);
-        }
-    }
-    if !nested {
-        ACTIVE_TRANSACTION_THREAD.store(
-            libpsycho::os::windows::winapi::get_current_thread_id(),
-            Ordering::Release,
-        );
-        ACTIVE_TRANSACTION_SCOPE.store(scope as u32, Ordering::Release);
-    }
-
+    let guard = TRANSACTION_LOCK.lock();
     let result = operation();
-    if !nested {
-        ACTIVE_TRANSACTION_SCOPE.store(0, Ordering::Release);
-        ACTIVE_TRANSACTION_THREAD.store(0, Ordering::Release);
-    }
     drop(guard);
     result
-}
-
-fn scope_contentions(scope: TransactionScope) -> Option<&'static AtomicU64> {
-    match scope {
-        TransactionScope::TreeMaterialization => Some(&TREE_CONTENTIONS),
-        TransactionScope::Compute => Some(&COMPUTE_CONTENTIONS),
-        TransactionScope::Clone | TransactionScope::Destructor => None,
-    }
-}
-
-fn scope_max_wait(scope: TransactionScope) -> Option<&'static AtomicU64> {
-    match scope {
-        TransactionScope::TreeMaterialization => Some(&MAX_TREE_WAIT_US),
-        TransactionScope::Compute => Some(&MAX_COMPUTE_WAIT_US),
-        TransactionScope::Clone | TransactionScope::Destructor => None,
-    }
-}
-
-fn transaction_scope_name(scope: u32) -> &'static str {
-    match scope {
-        x if x == TransactionScope::TreeMaterialization as u32 => "tree-materialize",
-        x if x == TransactionScope::Compute as u32 => "compute",
-        x if x == TransactionScope::Clone as u32 => "clone",
-        x if x == TransactionScope::Destructor as u32 => "destructor",
-        _ => "none",
-    }
 }
 
 unsafe extern "thiscall" fn hook_clone_constructor(
@@ -335,23 +244,16 @@ unsafe extern "thiscall" fn hook_clone_constructor(
     };
 
     with_transaction(TransactionScope::Clone, || {
-        let timer = lock_timer();
         let lock = speedtree_lock().context("borrow SpeedTree registry critical section");
         let Ok(lock) = lock else {
             log::error!("[IO] SpeedTree registry critical section unavailable");
             return ptr::null_mut();
         };
         let guard = lock.enter();
-        finish_lock_timer(timer);
 
         let result = unsafe { original(this, source) };
         let postcondition = inspect_core(result);
-        if let Ok(CoreState::Clone { owner_len }) = postcondition {
-            let current = CURRENT_CLONES.fetch_add(1, Ordering::Relaxed) + 1;
-            raise_max_usize(&PEAK_CLONES, current);
-            update_max_u64(&MAX_OWNER_CLONES_OBSERVED, owner_len as u64);
-            CLONE_CONSTRUCTS.fetch_add(1, Ordering::Relaxed);
-        } else {
+        if !matches!(postcondition, Ok(CoreState::Clone)) {
             CONSTRUCTOR_POSTCONDITION_FAILURES.fetch_add(1, Ordering::Relaxed);
         }
 
@@ -373,31 +275,22 @@ unsafe extern "thiscall" fn hook_scalar_destructor(this: *mut c_void, flags: u32
     };
 
     with_transaction(TransactionScope::Destructor, || {
-        let timer = lock_timer();
         let lock = speedtree_lock().context("borrow SpeedTree registry critical section");
         let Ok(lock) = lock else {
             log::error!("[IO] SpeedTree registry critical section unavailable");
             return this;
         };
         let guard = lock.enter();
-        finish_lock_timer(timer);
 
         let state = inspect_core(this);
-        let owner_len = match state {
-            Ok(CoreState::Base) => None,
-            Ok(CoreState::Clone { owner_len }) => Some(owner_len),
+        match state {
+            Ok(CoreState::Base | CoreState::Clone) => {}
             Err(reason) => {
                 let gheap = gheap_state(this);
                 drop(guard);
                 log_rejected_destructor(this, flags, reason, gheap);
                 return this;
             }
-        };
-
-        if let Some(owner_len) = owner_len {
-            CLONE_DESTROYS.fetch_add(1, Ordering::Relaxed);
-            update_max_u64(&MAX_OWNER_CLONES_OBSERVED, owner_len as u64);
-            decrement_current_clones();
         }
 
         unsafe { original(this, flags) }
@@ -476,7 +369,7 @@ fn inspect_core(core: *mut c_void) -> Result<CoreState, RejectReason> {
     }
     match matches {
         0 => Err(RejectReason::MissingMember),
-        1 => Ok(CoreState::Clone { owner_len }),
+        1 => Ok(CoreState::Clone),
         _ => Err(RejectReason::DuplicateMember),
     }
 }
@@ -565,55 +458,9 @@ fn record_reject(reason: RejectReason) -> u64 {
     counter.fetch_add(1, Ordering::Relaxed) + 1
 }
 
-fn lock_timer() -> Option<Stopwatch> {
-    TRACE_ENABLED.load(Ordering::Relaxed).then(Stopwatch::start)
-}
-
-fn finish_lock_timer(timer: Option<Stopwatch>) {
-    if let Some(elapsed) = timer.and_then(Stopwatch::elapsed_us) {
-        update_max_u64(&MAX_LOCK_WAIT_US, elapsed);
-    }
-}
-
-fn decrement_current_clones() {
-    let _ = CURRENT_CLONES.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
-        current.checked_sub(1)
-    });
-}
-
-fn raise_max_usize(slot: &AtomicUsize, value: usize) {
-    let mut old = slot.load(Ordering::Relaxed);
-    while value > old {
-        match slot.compare_exchange_weak(old, value, Ordering::Relaxed, Ordering::Relaxed) {
-            Ok(_) => return,
-            Err(next) => old = next,
-        }
-    }
-}
-
 pub(super) fn snapshot() -> Snapshot {
     Snapshot {
         installed: INSTALLED.load(Ordering::Acquire),
-        trace_enabled: TRACE_ENABLED.load(Ordering::Acquire),
-        transaction_contentions: TRANSACTION_CONTENTIONS.load(Ordering::Relaxed),
-        transaction_waiters: TRANSACTION_WAITERS.load(Ordering::Acquire),
-        active_transaction_scope: transaction_scope_name(
-            ACTIVE_TRANSACTION_SCOPE.load(Ordering::Acquire),
-        ),
-        active_transaction_thread: ACTIVE_TRANSACTION_THREAD.load(Ordering::Acquire),
-        max_transaction_wait_us: MAX_TRANSACTION_WAIT_US.load(Ordering::Relaxed),
-        tree_transactions: TREE_TRANSACTIONS.load(Ordering::Relaxed),
-        tree_completions: TREE_COMPLETIONS.load(Ordering::Acquire),
-        tree_contentions: TREE_CONTENTIONS.load(Ordering::Relaxed),
-        max_tree_wait_us: MAX_TREE_WAIT_US.load(Ordering::Relaxed),
-        compute_transactions: COMPUTE_TRANSACTIONS.load(Ordering::Relaxed),
-        compute_contentions: COMPUTE_CONTENTIONS.load(Ordering::Relaxed),
-        max_compute_wait_us: MAX_COMPUTE_WAIT_US.load(Ordering::Relaxed),
-        clone_constructs: CLONE_CONSTRUCTS.load(Ordering::Relaxed),
-        clone_destroys: CLONE_DESTROYS.load(Ordering::Relaxed),
-        current_clones: CURRENT_CLONES.load(Ordering::Relaxed),
-        peak_clones: PEAK_CLONES.load(Ordering::Relaxed),
-        max_owner_clones: MAX_OWNER_CLONES_OBSERVED.load(Ordering::Relaxed),
         missing_member_rejects: MISSING_MEMBER_REJECTS.load(Ordering::Relaxed),
         duplicate_member_rejects: DUPLICATE_MEMBER_REJECTS.load(Ordering::Relaxed),
         invalid_bounds_rejects: INVALID_BOUNDS_REJECTS.load(Ordering::Relaxed),
@@ -621,7 +468,6 @@ pub(super) fn snapshot() -> Snapshot {
         invalid_refcount_rejects: INVALID_REFCOUNT_REJECTS.load(Ordering::Relaxed),
         constructor_postcondition_failures: CONSTRUCTOR_POSTCONDITION_FAILURES
             .load(Ordering::Relaxed),
-        max_lock_wait_us: MAX_LOCK_WAIT_US.load(Ordering::Relaxed),
     }
 }
 
@@ -634,13 +480,10 @@ mod tests {
             mpsc,
         },
         thread,
-        time::{Duration, Instant},
+        time::Duration,
     };
 
-    use super::{
-        ACTIVE_TRANSACTION_SCOPE, COMPUTE_CONTENTIONS, transaction_scope_name, with_compute_lock,
-        with_tree_materialization,
-    };
+    use super::{with_compute_lock, with_tree_materialization};
 
     static TEST_LOCK: Mutex<()> = Mutex::new(());
 
@@ -662,17 +505,24 @@ mod tests {
             .recv_timeout(Duration::from_secs(2))
             .expect("first Compute entered");
 
-        let contentions_before = COMPUTE_CONTENTIONS.load(Ordering::Relaxed);
         let second_state = Arc::clone(&second_entered);
+        let (second_started_tx, second_started_rx) = mpsc::channel();
+        let (second_finished_tx, second_finished_rx) = mpsc::channel();
         let second = thread::spawn(move || {
+            second_started_tx.send(()).expect("signal second attempt");
             with_compute_lock(|| second_state.store(true, Ordering::Release));
+            second_finished_tx
+                .send(())
+                .expect("signal second completion");
         });
-
-        let deadline = Instant::now() + Duration::from_secs(2);
-        while COMPUTE_CONTENTIONS.load(Ordering::Relaxed) == contentions_before {
-            assert!(Instant::now() < deadline, "second worker did not contend");
-            thread::yield_now();
-        }
+        second_started_rx
+            .recv_timeout(Duration::from_secs(2))
+            .expect("second Compute attempted entry");
+        assert!(
+            second_finished_rx
+                .recv_timeout(Duration::from_millis(50))
+                .is_err()
+        );
         assert!(!second_entered.load(Ordering::Acquire));
 
         release_first.wait();
@@ -699,20 +549,24 @@ mod tests {
             .recv_timeout(Duration::from_secs(2))
             .expect("tree transaction entered");
 
-        let contentions_before = COMPUTE_CONTENTIONS.load(Ordering::Relaxed);
         let compute_state = Arc::clone(&compute_entered);
+        let (compute_started_tx, compute_started_rx) = mpsc::channel();
+        let (compute_finished_tx, compute_finished_rx) = mpsc::channel();
         let compute = thread::spawn(move || {
+            compute_started_tx.send(()).expect("signal Compute attempt");
             with_compute_lock(|| compute_state.store(true, Ordering::Release));
+            compute_finished_tx
+                .send(())
+                .expect("signal Compute completion");
         });
-
-        let deadline = Instant::now() + Duration::from_secs(2);
-        while COMPUTE_CONTENTIONS.load(Ordering::Relaxed) == contentions_before {
-            assert!(
-                Instant::now() < deadline,
-                "Compute did not wait for tree owner"
-            );
-            thread::yield_now();
-        }
+        compute_started_rx
+            .recv_timeout(Duration::from_secs(2))
+            .expect("Compute attempted entry");
+        assert!(
+            compute_finished_rx
+                .recv_timeout(Duration::from_millis(50))
+                .is_err()
+        );
         assert!(!compute_entered.load(Ordering::Acquire));
 
         release_tree.wait();
@@ -722,23 +576,9 @@ mod tests {
     }
 
     #[test]
-    fn nested_speedtree_hooks_preserve_materialization_scope() {
+    fn nested_speedtree_hooks_remain_reentrant() {
         let _test = TEST_LOCK.lock().expect("serialize SpeedTree lock tests");
-        with_tree_materialization(|| {
-            assert_eq!(
-                transaction_scope_name(ACTIVE_TRANSACTION_SCOPE.load(Ordering::Acquire)),
-                "tree-materialize"
-            );
-            with_compute_lock(|| {
-                assert_eq!(
-                    transaction_scope_name(ACTIVE_TRANSACTION_SCOPE.load(Ordering::Acquire)),
-                    "tree-materialize"
-                );
-            });
-        });
-        assert_eq!(
-            transaction_scope_name(ACTIVE_TRANSACTION_SCOPE.load(Ordering::Acquire)),
-            "none"
-        );
+        let result = with_tree_materialization(|| with_compute_lock(|| 0x5Au8));
+        assert_eq!(result, 0x5A);
     }
 }

@@ -167,8 +167,17 @@ pub const LOCK_FREE_MAP_CONSTRUCTOR_A_ADDR: usize = 0x0044_C040;
 pub const LOCK_FREE_MAP_CONSTRUCTOR_B_ADDR: usize = 0x0044_C270;
 pub const BSTREE_LOCK_FREE_MAP_CONSTRUCTOR_ADDR: usize = 0x0066_5CB0;
 pub const BSFILE_OPEN_STATE_ADDR: usize = 0x00AF_F490;
-pub const EXTERIOR_CELL_LOADER_TASK_EXECUTE_ADDR: usize = 0x0052_7CB0;
+pub const CELL_FORM_INSERT_ADDR: usize = 0x0055_0500;
+pub const AUTO_WATER_BUILD_ADDR: usize = 0x0049_C860;
 pub const IO_MANAGER_WORKER_PATCH_ADDR: usize = 0x00C3_DA7A;
+pub const IO_MANAGER_SELECT_WORKER_SLOT_ADDR: usize = 0x010C_165C;
+pub const IO_MANAGER_SUBMIT_ADDR: usize = 0x00C3_FB50;
+pub const IO_WORKER_CONSTRUCTOR_ADDR: usize = 0x00C3_EE70;
+pub const IO_TASK_PHASE_ONE_ADDR: usize = 0x00C3_FC80;
+pub const IO_TASK_PHASE_TWO_ADDR: usize = 0x00C3_FCA0;
+pub const IO_WORKER_QUANTUM_BRANCH_ADDR: usize = 0x00C4_1302;
+pub const IO_WORKER_CONTINUE_ADDR: usize = 0x00C4_1148;
+pub const IO_WORKER_WAIT_ADDR: usize = 0x00C4_1307;
 pub const IO_MANAGER_SINGLETON_ADDR: usize = 0x0120_2D98;
 pub const BSTREE_MANAGER_SINGLETON_ADDR: usize = 0x011D_5C48;
 
@@ -212,9 +221,18 @@ pub static BSTREE_LOCK_FREE_MAP_CONSTRUCTOR_HOOK: LazyLock<
 > = LazyLock::new(InlineHookContainer::new);
 pub static BSFILE_OPEN_STATE_HOOK: LazyLock<InlineHookContainer<BsFileOpenStateFn>> =
     LazyLock::new(InlineHookContainer::new);
-pub static EXTERIOR_CELL_LOADER_TASK_EXECUTE_HOOK: LazyLock<
-    InlineHookContainer<ExteriorCellLoaderTaskExecuteFn>,
-> = LazyLock::new(InlineHookContainer::new);
+pub static CELL_FORM_INSERT_HOOK: LazyLock<InlineHookContainer<CellFormInsertFn>> =
+    LazyLock::new(InlineHookContainer::new);
+pub static AUTO_WATER_BUILD_HOOK: LazyLock<InlineHookContainer<AutoWaterBuildFn>> =
+    LazyLock::new(InlineHookContainer::new);
+pub static IO_MANAGER_SUBMIT_HOOK: LazyLock<InlineHookContainer<IoManagerSubmitFn>> =
+    LazyLock::new(InlineHookContainer::new);
+pub static IO_WORKER_CONSTRUCTOR_HOOK: LazyLock<InlineHookContainer<IoWorkerConstructorFn>> =
+    LazyLock::new(InlineHookContainer::new);
+pub static IO_TASK_PHASE_ONE_HOOK: LazyLock<InlineHookContainer<IoTaskPhaseFn>> =
+    LazyLock::new(InlineHookContainer::new);
+pub static IO_TASK_PHASE_TWO_HOOK: LazyLock<InlineHookContainer<IoTaskPhaseFn>> =
+    LazyLock::new(InlineHookContainer::new);
 
 // ---- LOD task priority ----
 

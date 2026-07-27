@@ -1,7 +1,7 @@
 # Model postprocess serialization engine fix
 
-Status: implemented and statically validated on 2026-07-25. Runtime replay of
-the supplied save/modlist is still required.
+Status: implemented and statically validated through 2026-07-27. Runtime
+replay of the supplied save/modlist is still required.
 
 This is the durable engine contract for
 `psycho-engine-fixes/src/mods/engine_fixes/model_postprocess.rs`. It documents
@@ -265,10 +265,10 @@ The protected path:
 - does not free or retain a model object;
 - does not change which thread owns or completes a queued task;
 - performs no file I/O or routine logging;
-- uses static lock/counter storage;
-- performs one lock acquisition and two counter operations per complete
-  uncontended postprocess transaction, with contention/waiter counters only on
-  the blocking path.
+- uses one static reentrant lock and no normal-path counters or timers;
+- temporarily restores Psycho's below-normal supplemental IO worker to normal
+  priority while it can own this process-global lock, then restores the
+  previous priority on scope exit.
 
 The uncontended lock path performs no allocation. Any process-internal parking
 bookkeeping needed by the lock implementation under contention is outside the
@@ -294,12 +294,11 @@ Startup success includes:
 [MODEL_POSTPROCESS] EditorMarker transaction serialized at 0x0043AFAC; predecessor=0x........ (vanilla|chained)
 ```
 
-The core diagnostic report exposes:
-
-- installed state and direct/later/invalid owner classification;
-- captured predecessor address;
-- transactions started and completed;
-- cumulative contentions and current waiters.
+The core diagnostic report exposes installed state,
+direct/later/invalid-owner classification, and the captured predecessor
+address. Routine transaction, contention, and waiter counters were removed
+because updating them on every model postprocess adds cost without enforcing
+the safety contract.
 
 The helper dashboard uses additive `active_features` bit 9 for installed
 status. The config checkbox and active bit are separate: changing config

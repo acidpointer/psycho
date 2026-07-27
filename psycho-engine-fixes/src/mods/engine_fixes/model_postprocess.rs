@@ -61,7 +61,7 @@ use std::{
     ffi::c_void,
     sync::{
         LazyLock,
-        atomic::{AtomicBool, AtomicU8, AtomicU32, AtomicU64, AtomicUsize, Ordering},
+        atomic::{AtomicBool, AtomicU8, AtomicUsize, Ordering},
     },
 };
 
@@ -90,10 +90,6 @@ static INSTALLED: AtomicBool = AtomicBool::new(false);
 static PREDECESSOR: AtomicUsize = AtomicUsize::new(0);
 static CALLSITE_OWNER: AtomicU8 = AtomicU8::new(OWNER_DISABLED);
 static TRANSACTION_LOCK: LazyLock<ReentrantMutex<()>> = LazyLock::new(|| ReentrantMutex::new(()));
-static TRANSACTIONS: AtomicU64 = AtomicU64::new(0);
-static COMPLETIONS: AtomicU64 = AtomicU64::new(0);
-static CONTENTIONS: AtomicU64 = AtomicU64::new(0);
-static WAITERS: AtomicU32 = AtomicU32::new(0);
 
 /// Read-only model postprocess guard state for diagnostics and feature gating.
 #[derive(Clone, Copy)]
@@ -104,14 +100,6 @@ pub(super) struct Snapshot {
     pub owner: &'static str,
     /// Executable call owner captured below Psycho's wrapper.
     pub predecessor: usize,
-    /// Number of protected transactions that started.
-    pub transactions: u64,
-    /// Number of protected transactions that returned.
-    pub completions: u64,
-    /// Number of transactions that had to wait for another thread.
-    pub contentions: u64,
-    /// Number of threads currently waiting for the serialization lock.
-    pub waiters: u32,
 }
 
 /// Install the model postprocess serialization boundary.
@@ -228,10 +216,6 @@ pub(super) fn snapshot() -> Snapshot {
         installed: INSTALLED.load(Ordering::Acquire),
         owner: owner_name(CALLSITE_OWNER.load(Ordering::Acquire)),
         predecessor: PREDECESSOR.load(Ordering::Acquire),
-        transactions: TRANSACTIONS.load(Ordering::Relaxed),
-        completions: COMPLETIONS.load(Ordering::Acquire),
-        contentions: CONTENTIONS.load(Ordering::Relaxed),
-        waiters: WAITERS.load(Ordering::Acquire),
     }
 }
 
@@ -252,19 +236,9 @@ unsafe extern "C" fn serialized_model_postprocess(root: *mut c_void) -> u8 {
 }
 
 fn with_serialized_transaction<T>(operation: impl FnOnce() -> T) -> T {
-    TRANSACTIONS.fetch_add(1, Ordering::Relaxed);
-    let guard = if let Some(guard) = TRANSACTION_LOCK.try_lock() {
-        guard
-    } else {
-        CONTENTIONS.fetch_add(1, Ordering::Relaxed);
-        WAITERS.fetch_add(1, Ordering::AcqRel);
-        let guard = TRANSACTION_LOCK.lock();
-        WAITERS.fetch_sub(1, Ordering::AcqRel);
-        guard
-    };
-
+    let _priority = super::io::supplemental_priority_guard();
+    let guard = TRANSACTION_LOCK.lock();
     let result = operation();
-    COMPLETIONS.fetch_add(1, Ordering::Release);
     drop(guard);
     result
 }
@@ -322,10 +296,10 @@ mod tests {
             mpsc,
         },
         thread,
-        time::{Duration, Instant},
+        time::Duration,
     };
 
-    use super::{CONTENTIONS, with_serialized_transaction};
+    use super::with_serialized_transaction;
 
     static TEST_LOCK: Mutex<()> = Mutex::new(());
 
@@ -351,20 +325,24 @@ mod tests {
             .recv_timeout(Duration::from_secs(2))
             .expect("first model postprocess entered");
 
-        let contentions_before = CONTENTIONS.load(Ordering::Relaxed);
         let second_state = Arc::clone(&second_entered);
+        let (second_started_tx, second_started_rx) = mpsc::channel();
+        let (second_finished_tx, second_finished_rx) = mpsc::channel();
         let second = thread::spawn(move || {
+            second_started_tx.send(()).expect("signal second attempt");
             with_serialized_transaction(|| second_state.store(true, Ordering::Release));
+            second_finished_tx
+                .send(())
+                .expect("signal second completion");
         });
-
-        let deadline = Instant::now() + Duration::from_secs(2);
-        while CONTENTIONS.load(Ordering::Relaxed) == contentions_before {
-            assert!(
-                Instant::now() < deadline,
-                "second model postprocess did not contend"
-            );
-            thread::yield_now();
-        }
+        second_started_rx
+            .recv_timeout(Duration::from_secs(2))
+            .expect("second model postprocess attempted entry");
+        assert!(
+            second_finished_rx
+                .recv_timeout(Duration::from_millis(50))
+                .is_err()
+        );
         assert!(!second_entered.load(Ordering::Acquire));
 
         release_first.wait();

@@ -78,10 +78,6 @@ pub(super) struct DiagnosticSnapshot {
     pub alternate_remove_mismatches: u64,
     pub ready_predecessor: usize,
     pub ready_predecessor_mismatches: u64,
-    pub demand_calls: [u64; 3],
-    pub extended_demands: [u64; 3],
-    pub retained_demands: [u64; 3],
-    pub release_passthroughs: [u64; 3],
     pub scheduler: scheduler::Snapshot,
     pub state: state::Snapshot,
 }
@@ -89,9 +85,6 @@ pub(super) struct DiagnosticSnapshot {
 pub(super) struct DashboardSnapshot {
     pub streaming_installed: bool,
     pub handoff_installed: bool,
-    pub demand_calls: [u64; 3],
-    pub extended_demands: [u64; 3],
-    pub retained_demands: [u64; 3],
     pub state: state::DashboardCounters,
 }
 
@@ -104,11 +97,6 @@ static ALTERNATE_REMOVALS: AtomicU32 = AtomicU32::new(0);
 static ALTERNATE_REMOVE_MISMATCHES: AtomicU32 = AtomicU32::new(0);
 static READY_PREDECESSOR: AtomicUsize = AtomicUsize::new(statics::LOD_READY_INCREMENT_ADDR);
 static READY_PREDECESSOR_MISMATCHES: AtomicU32 = AtomicU32::new(0);
-
-static DEMAND_CALLS: [AtomicU32; 3] = [const { AtomicU32::new(0) }; 3];
-static EXTENDED_DEMANDS: [AtomicU32; 3] = [const { AtomicU32::new(0) }; 3];
-static RETAINED_DEMANDS: [AtomicU32; 3] = [const { AtomicU32::new(0) }; 3];
-static RELEASE_PASSTHROUGHS: [AtomicU32; 3] = [const { AtomicU32::new(0) }; 3];
 
 static ALTERNATE_REMOVE_CALL_REPLACEMENT: LazyLock<[u8; 5]> = LazyLock::new(|| {
     let displacement = (alternate_remove_entry as *const () as usize)
@@ -442,8 +430,8 @@ fn extend_demand(
     block_offset: usize,
     base_distance: Option<f32>,
 ) -> i32 {
-    DEMAND_CALLS[kind].fetch_add(1, Ordering::Relaxed);
     if vanilla != 0 {
+        scheduler::clear_speculative(kind, node);
         return vanilla;
     }
 
@@ -468,15 +456,13 @@ fn extend_demand(
     let multiplier = if loaded { retention } else { prefetch };
     if distance < base_distance * multiplier {
         if loaded {
-            RETAINED_DEMANDS[kind].fetch_add(1, Ordering::Relaxed);
+            scheduler::clear_speculative(kind, node);
         } else {
-            EXTENDED_DEMANDS[kind].fetch_add(1, Ordering::Relaxed);
+            scheduler::mark_speculative(kind, node);
         }
         1
     } else {
-        if loaded {
-            RELEASE_PASSTHROUGHS[kind].fetch_add(1, Ordering::Relaxed);
-        }
+        scheduler::clear_speculative(kind, node);
         vanilla
     }
 }
@@ -539,6 +525,7 @@ fn setting_distance(setting_global: usize) -> Option<f32> {
 }
 
 unsafe extern "fastcall" fn hook_worldspace_reset(owner: *mut c_void) {
+    scheduler::reset_speculative();
     state::reset_worldspace();
     if let Ok(original) = statics::LOD_WORLDSPACE_RESET_HOOK.original() {
         unsafe { original(owner) };
@@ -760,18 +747,6 @@ pub(super) fn diagnostic_snapshot() -> DiagnosticSnapshot {
         ready_predecessor_mismatches: u64::from(
             READY_PREDECESSOR_MISMATCHES.load(Ordering::Relaxed),
         ),
-        demand_calls: std::array::from_fn(|index| {
-            u64::from(DEMAND_CALLS[index].load(Ordering::Relaxed))
-        }),
-        extended_demands: std::array::from_fn(|index| {
-            u64::from(EXTENDED_DEMANDS[index].load(Ordering::Relaxed))
-        }),
-        retained_demands: std::array::from_fn(|index| {
-            u64::from(RETAINED_DEMANDS[index].load(Ordering::Relaxed))
-        }),
-        release_passthroughs: std::array::from_fn(|index| {
-            u64::from(RELEASE_PASSTHROUGHS[index].load(Ordering::Relaxed))
-        }),
         scheduler: scheduler::snapshot(),
         state: state::snapshot(),
     }
@@ -781,15 +756,6 @@ pub(super) fn dashboard_snapshot() -> DashboardSnapshot {
     DashboardSnapshot {
         streaming_installed: STREAMING_INSTALLED.load(Ordering::Acquire),
         handoff_installed: HANDOFF_INSTALLED.load(Ordering::Acquire),
-        demand_calls: std::array::from_fn(|index| {
-            u64::from(DEMAND_CALLS[index].load(Ordering::Relaxed))
-        }),
-        extended_demands: std::array::from_fn(|index| {
-            u64::from(EXTENDED_DEMANDS[index].load(Ordering::Relaxed))
-        }),
-        retained_demands: std::array::from_fn(|index| {
-            u64::from(RETAINED_DEMANDS[index].load(Ordering::Relaxed))
-        }),
         state: state::dashboard_counters(),
     }
 }

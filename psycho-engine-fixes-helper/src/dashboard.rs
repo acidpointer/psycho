@@ -1042,7 +1042,7 @@ impl DashboardRuntime {
                 "Parallel native IO",
                 engine_fixes::DASHBOARD_FEATURE_PARALLEL_IO,
                 "Two-worker audited topology",
-                "Uses two game-owned loading workers while serializing engine state that is unsafe to build concurrently.",
+                "Uses two game-owned loading workers while serializing unsafe per-form, AutoWater, model, tree, and geometry transactions.",
             ),
             (
                 "LOD prefetch",
@@ -1127,21 +1127,14 @@ impl DashboardRuntime {
             "IO workers",
             core.io_workers,
             ACCENT,
-            "The number of native game loading workers Psycho configured. The supported parallel layout uses exactly two.",
+            "The number of native game loading workers Psycho configured. The bounded layout uses one primary worker and one supplemental worker.",
         );
         draw_value_help(
             ui,
-            "Serialized cell loads",
-            core.io_transactions,
+            "IO scheduler",
+            "primary-first / one supplemental task",
             BLUE,
-            "Exterior-cell loading operations passed through the ownership gate that protects shared engine state.",
-        );
-        draw_value_help(
-            ui,
-            "Cell-load contentions",
-            core.io_contentions,
-            counter_color(core.io_contentions),
-            "Times one loading worker briefly waited because another worker owned the protected exterior-cell loading section.",
+            "The supplemental worker is admitted only while the primary is active, runs below normal priority, and returns to wait after one task.",
         );
         draw_value_help(
             ui,
@@ -1149,59 +1142,6 @@ impl DashboardRuntime {
             core.io_fallbacks,
             counter_color(core.io_fallbacks),
             "Times parallel loading could not satisfy its proven safety contract and used the compatible fallback path instead.",
-        );
-        draw_value_help(
-            ui,
-            "Tree materializations",
-            format!(
-                "{} completed / {} started",
-                core.speedtree_completions, core.speedtree_materializations
-            ),
-            BLUE,
-            "Tree resources fully built versus builds started. A short-lived difference is normal while work is still in flight.",
-        );
-        draw_value_help(
-            ui,
-            "Tree materialization contentions",
-            core.speedtree_materialization_contentions,
-            BLUE,
-            "Times tree creation had to wait because another worker owned SpeedTree's process-wide construction state.",
-        );
-        draw_value_help(
-            ui,
-            "SpeedTree Compute",
-            format!(
-                "{} runs / {} contentions",
-                core.speedtree_compute_transactions, core.speedtree_compute_contentions
-            ),
-            BLUE,
-            "Runs of SpeedTree's shared Compute stage and times another worker found that stage busy.",
-        );
-        draw_value_help(
-            ui,
-            "SpeedTree waiters / max waits",
-            format!(
-                "{} / {} us materialize / {} us Compute",
-                core.speedtree_waiters,
-                core.speedtree_max_materialization_wait_us,
-                core.speedtree_max_compute_wait_us
-            ),
-            if core.speedtree_waiters == 0 {
-                GOOD
-            } else {
-                WARN
-            },
-            "Current waiting workers and the longest observed waits for tree materialization and the shared Compute stage, measured in microseconds.",
-        );
-        draw_value_help(
-            ui,
-            "LOD demand / early / retained",
-            format!(
-                "{} / {} / {}",
-                core.lod_demands, core.lod_early_demands, core.lod_retained_demands
-            ),
-            ACCENT,
-            "Distant-world requests seen, requests issued early by prefetch, and resources deliberately kept a little longer to reduce reload churn.",
         );
         draw_value_help(
             ui,
@@ -1915,7 +1855,7 @@ fn draw_configuration(ui: &mut Ui<'_>, editor: &mut ConfigEditor) {
         ui,
         "Parallel native IO",
         &mut config.parallel_io,
-        "Uses two game-owned loading workers while serializing engine state that is unsafe to build concurrently.",
+        "Uses two game-owned loading workers while serializing unsafe per-form, AutoWater, model, tree, and geometry transactions.",
     );
     checkbox_help(
         ui,

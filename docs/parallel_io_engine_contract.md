@@ -1,14 +1,15 @@
 # Native parallel IO and SpeedTree engine contract
 
-Status: implemented and statically validated through 2026-07-25. The supplied
-hang cannot currently be replayed, and the corrected materialization lock scope
-still requires the runtime acceptance matrix below.
+Status: bounded scheduling, contention corrections, and AutoWater transaction
+serialization implemented on 2026-07-27. Static validation is recorded below;
+the tester's exact mod list and traversal still require the runtime acceptance
+matrix.
 
 This document is the durable contract for Psycho's native IOManager
-parallelism. It owns the two-worker scheduler extension and every shared-state
-guard required to keep that extension safe. LOD is one consumer of native IO,
-but parallel IO is not an LOD feature and does not belong to the LOD module or
-configuration section.
+parallelism. It owns the bounded two-worker scheduler extension and every
+shared-state guard required to keep that extension safe. LOD is one consumer
+of native IO, but parallel IO is not an LOD feature and does not belong to the
+LOD module or configuration section.
 
 ## Executable identity
 
@@ -39,15 +40,19 @@ The public switch is:
 parallel_enabled = true
 ```
 
-It uses exactly two native `IOManager` workers. There is intentionally no
-compatibility alias under `[lod]`: configuration ownership moved rather than
-being duplicated. The implementation is likewise owned by
+It creates exactly two native `IOManager` workers, but does not expose both as
+an unrestricted equal-priority drain pool. Worker zero remains the primary.
+Worker one is a below-normal-priority supplemental worker, is selected only
+while the primary is executing a task, and returns to the native wait path
+after one task. There is intentionally no compatibility alias under `[lod]`:
+configuration ownership moved rather than being duplicated. The
+implementation is likewise owned by
 `psycho-engine-fixes/src/mods/engine_fixes/io/`:
 
 | File | Responsibility |
 |---|---|
 | `io/mod.rs` | Installs shared-state safety before enabling parallel scheduling and publishes subsystem status. |
-| `io/scheduler.rs` | Owns worker count, per-thread map capacity, BSFile recovery, and exterior-cell serialization. |
+| `io/scheduler.rs` | Owns worker construction, bounded admission and quantum, priority, per-thread map capacity, BSFile recovery, per-form cell-owner serialization, and the AutoWater build transaction. |
 | `io/speedtree_lifetime.rs` | Serializes the two slow BSTree materializers, SpeedTree clone lifetime, and process-global Compute state while leaving published-tree lookup concurrent. |
 | `io/vertex_buffers.rs` | Owns static vertex-buffer allocation, retirement, and publication safety. |
 | `../model_postprocess.rs` | Independently serializes process-global EditorMarker traversal for vanilla and parallel I/O. |
@@ -57,13 +62,88 @@ being duplicated. The implementation is likewise owned by
 scheduler now owns only native LOD task priority; it does not own the worker
 topology or the shared-state guards.
 
-## Two-worker installation contract
+## Stutter root cause and corrected scheduling contract
+
+### Runtime observation
+
+A tester reported new traversal stutter with Parallel IO enabled and reported
+that allocator modes `0` and `1` made the FPS loss substantially worse.
+Disabling Parallel IO removed the stutter. There is no supplied frame profile,
+so no individual content pack or task body can be selected from runtime
+evidence. The repository and executable nevertheless expose several
+deterministic amplification mechanisms that existed for every workload:
+
+- changing the constructor count to two did not define a second-worker
+  admission policy, drain quantum, or OS priority;
+- the IOManager selector slot still targeted `0x008D0560`, a vanilla
+  `return 0` stub, so the count-only build did not prove that worker one ever
+  received a task; its reported stutter remains a runtime correlation rather
+  than evidence of two workers executing concurrently;
+- once Psycho installed an explicit selector, unrestricted equal-priority
+  draining would have allowed CPU-heavy construction to compete with the game
+  and render threads, so admission, quantum, and priority all had to be
+  bounded before real supplemental execution was enabled;
+- every early-prefetched LOD task was raised to priority zero, allowing
+  speculative terrain, object, and tree bursts to compete with visible work;
+- safety locks were necessarily process-global, and the former exterior-cell
+  boundary covered file reads and an entire cell rather than the exact
+  conflicting per-form transaction;
+- successful operations, lock contention, and wait duration were counted on
+  heavily exercised paths.
+
+These mechanisms define the hazards Psycho must cover, but they do not by
+themselves prove the original tester's content-specific stutter source.
+Allocator modes `0` and `1` retain more native engine-heap and scrap-heap
+contention than mode `2`; that can amplify streamed-object cost, but allocator
+correlation does not establish a scheduler or allocator defect. The bounded
+selector is the first implementation that deliberately admits worker one, so
+its safety contract must stand independently of the earlier report.
+
+### Proven native scheduler path
+
+New radare2 analysis of the executable identified the complete safe
+intervention boundary:
+
+| Address | Proven contract |
+|---|---|
+| `0x00C3DA50` | IOManager constructor. |
+| `0x00C3DA7A` | Verified `push 1` worker-count immediate. |
+| `0x00C3E4F0` | Base manager constructs workers and resumes each only after `0x00C3EE70` returns. |
+| `0x00C3EE70` | Worker constructor; object `+0x04` is its Win32 handle, `+0x08` its thread ID, and `+0x30` its manager. Thread numbers two and three identify primary and supplemental workers. |
+| `0x010C165C` | IOManager vtable worker-selector slot used by submission. |
+| `0x008D0560` | Vanilla selector target returning zero. This is a shared generic stub and must not be hooked globally. |
+| `0x00C3FB50` | Submission calls vtable `+0x58`; successful insertion then increments the queue count and signals `manager + 0x50[index]`. |
+| `0x00C3FC80`, `0x00C3FCA0` | Manager task phases used to observe worker activity without replacing task execution. |
+| `0x00C41302` | Post-task branch in the worker loop. Vanilla jumps to `0x00C41148` and continues draining; `0x00C41307` is cleanup/wait. |
+
+Psycho patches only the IOManager vtable slot, not shared function
+`0x008D0560`. The selector reserves worker one with an atomic
+`idle -> reserved` transition only while worker zero is inside a task phase.
+The submission wrapper returns a reservation to idle if native priority-queue
+insertion fails. Phase hooks publish `running` and `idle`, and the post-task
+branch sends the supplemental worker to cleanup/wait after one task. A
+reservation made after phase two is preserved so an already-signaled next wake
+is not lost.
+
+The supplemental thread is set to Win32 below-normal priority while it is
+still suspended. Around a process-global Psycho safety lock only, it is
+temporarily restored to normal priority and restored by an RAII guard on exit.
+This prevents a normal-priority engine thread from waiting behind a
+deliberately backgrounded lock owner while keeping ordinary supplemental CPU
+and allocation work in the background.
+
+The policy is deliberately work-conserving only up to one supplemental task:
+the primary retains vanilla ownership, the supplemental worker cannot be
+double-selected, and a queue burst cannot turn one wake into an unbounded
+second equal-priority drain loop.
+
+## Atomic installation contract
 
 Vanilla constructs the IOManager with one worker using `push 1` at
 `0x00C3DA7A`. Psycho verifies those exact bytes and transactionally changes the
 instruction to `push 2`.
 
-The two-worker patch is committed only with all scheduler prerequisites:
+The worker-count patch is committed only with all scheduler prerequisites:
 
 | Address | Native owner | Required intervention |
 |---|---|---|
@@ -71,7 +151,13 @@ The two-worker patch is committed only with all scheduler prerequisites:
 | `0x0044C270` | LockFreeMap constructor family B | Expand per-thread capacity for the additional worker. |
 | `0x00665CB0` | BSTree private LockFreeMap constructor | Expand capacity from two participating threads to three: main thread plus two workers. |
 | `0x00AFF490` | BSFile open/cache initialization | Preserve an open stream and use native direct reads if optional whole-file cache allocation fails. |
-| `0x00527CB0` | `ExteriorCellLoaderTask::execute` | Serialize the complete original method because it publishes through a process-global current-cell owner. |
+| `0x00550500` | Per-form cell construction | Serialize the exact transaction that publishes and clears the process-global current-cell owner. |
+| `0x0049C860` | BGSAutoWater cell build | Serialize teardown, initialization, geometry construction, and publication of both process-global AutoWater scratch owners. |
+| `0x00C3EE70` | Worker construction | Capture native identity and establish supplemental priority before resume. |
+| `0x00C3FB50` | IOManager submission | Release an unused supplemental reservation on queue-insertion failure. |
+| `0x00C3FC80`, `0x00C3FCA0` | Task phases | Track primary activity and supplemental reservation state. |
+| `0x010C165C` | IOManager selector slot | Install primary-first, single-owner supplemental admission. |
+| `0x00C41302` | Worker post-task branch | Limit the supplemental worker to one task per wake. |
 | `0x00C3DA7A` | IOManager worker-count immediate | Change the verified one-worker instruction to exactly two workers. |
 
 The allocator-independent model postprocess guard at `0x0043AFAC` must also
@@ -124,11 +210,87 @@ The exterior loader reaches a process-global form owner at `0x011C3F30`.
 clears it. A consumer checks the global for null and reloads it later, so two
 workers can interleave a clear between the check and use.
 
-Psycho holds one blocking worker mutex across the complete original
-`ExteriorCellLoaderTask::execute` at `0x00527CB0`. The task payload, native
-release, queue ownership, and completion remain native. Exterior form parsing
-retains vanilla concurrency of one while the other worker may execute safe
-task classes.
+Psycho holds one reentrant lock only across original per-form transaction
+`0x00550500`. Both known exterior-cell caller paths reach this function, and
+the conflicting global is published and cleared inside it. File reads, task
+setup, iteration between forms, task release, queue ownership, and completion
+remain native and no longer occupy the lock. Reentrancy preserves nested
+same-thread form construction.
+
+### AutoWater cell construction
+
+#### Runtime evidence
+
+The 2026-07-27 exterior traversal stress run crashed after 12 minutes and
+3 seconds in the Capital Wasteland with `C0000005` at `0x0049F24C`.
+`psycho-engine-fixes/CrashLogger.log` recorded `EDX = 0`, an
+`ExteriorCellLoaderTask` object in `EDI`, and this worker call chain:
+
+```text
+0x0049F24C
+  <- 0x0049DC12
+  <- 0x0049C902
+  <- 0x00528768
+  <- 0x00527CC9
+  <- 0x00C3FC94
+  <- psycho_engine_fixes
+  <- 0x00C41257
+  <- 0x00C42DBF
+```
+
+The corresponding engine-fixes log proves that the bounded selector,
+supplemental quantum, two-worker count, and prior shared-state guards were
+active. The crash report used 1.54 GiB of the 4 GiB virtual address space; the
+engine log still reported 894 MiB total free and a 637 MiB largest free
+region. This is not an OOM signature.
+
+#### Proven native ownership and ABI
+
+Radare2 analysis of the executable identity above proves:
+
+- `0x0049F210` appends a 12-byte point copied from its sole stack argument.
+  The faulting `mov eax, [edx]` at `0x0049F24C` dereferenced that null source.
+- BGSAutoWater build child `0x0049DB60` obtains the source by loading global
+  `0x011C57AC`, calling indexed accessor `0x006A7AF0`, and passing the result
+  to `0x0049F210`. The crash return at `0x0049DC12` is immediately after that
+  append.
+- Outer function `0x0049C860` first destroys the existing
+  `0x011C57AC` and `0x011C57B0` owners, then calls initialization
+  `0x0049C930`, build `0x0049DB60`, and final publication/cleanup
+  `0x0049E410`.
+- Those three children are called only by `0x0049C860`. The only code owners
+  of both globals are the outer function and those children.
+- `0x0049C860` has exactly three direct callers at `0x00451C78`,
+  `0x00528763`, and `0x005D3506`. The exterior-cell caller pushes the cell,
+  calls it, and adds four to `ESP`; the function ends in plain `ret` at
+  `0x0049C92E`. Its recovered ABI is therefore
+  `unsafe extern "C" fn(cell: *mut c_void)`.
+
+The dump does not preserve the peer thread at the exact interleaving, so its
+identity is not a directly observed fact. The unprotected lifetime is proven,
+however: one call can destroy or replace the process-global owner while
+another call is between its accessor and point copy. That is the
+high-confidence explanation for a valid native path producing a null point
+at the exact copy. A malformed cell remains a fallback hypothesis only if the
+same signature recurs after serialized transactions.
+
+#### Safe intervention and cost
+
+Psycho hooks the complete outer transaction at `0x0049C860` and holds a
+process-wide `Mutex<()>` through the original call. Hooking the
+faulting append or one child is insufficient because another caller could
+replace the globals before or after that leaf. Hooking the complete
+`ExteriorCellLoaderTask` is unnecessarily broad because it would serialize
+file IO, form iteration, and unrelated cell work.
+
+The AutoWater hook is enabled in the same all-or-nothing scheduler transaction
+as the per-form owner guard, capacity hooks, selector, quantum, and two-worker
+patch. The lock is non-reentrant because a nested build would destroy its
+caller's live globals; the audited call graph contains no recursive owner
+path. It is static and allocation-free. The supplemental worker is temporarily
+raised to normal priority while holding it to avoid priority inversion. No
+task is skipped, no water result is fabricated, and all three native callers
+retain original behavior.
 
 ### Static vertex-buffer lifetime
 
@@ -141,14 +303,17 @@ The IO subsystem therefore owns these interventions:
 
 | Address | Contract |
 |---|---|
-| `0x00E8BFA0` | Serialize the outer geometry-stream allocation/publication transaction. |
+| `0x00E8BFA0` | Attempt the outer geometry-stream allocation/publication transaction; return retryable failure immediately when another transaction owns the lock. |
 | `0x00E94C20` | Serialize direct static allocation and make null Direct3D-buffer creation unwind safely. |
 | `0x00E94770` | Serialize direct retirement under the same reentrant lock. |
 | `0x00E8EEB0` | Restore native all-stream chip validation at six audited call sites. |
 
 A non-null chip whose Direct3D pointer at chip `+0x08` is null is never
-published as success. Allocation failure remains retryable through the native
-deferred-pack path. Both workers and every geometry category remain enabled.
+published as success. The outer caller already treats false as deferred-pack
+retry, so lock contention returns through that native retry boundary instead
+of blocking a render-side caller. Direct allocation and retirement retain the
+blocking lock because they have no independently proven deferral contract.
+Both workers and every geometry category remain enabled.
 
 ### SpeedTree clone ownership
 
@@ -173,6 +338,25 @@ Relevant recovered offsets are:
 These guards close lifetime races between worker-side clone creation and
 main-thread completed-task destruction. They do not, by themselves, protect
 SpeedTreeRT's separate process-global Compute scratch state.
+
+### Demand-aware LOD priority
+
+Native LOD task constructors at `0x006F6D10`, `0x006F9360`, and
+`0x006FB980` receive their owning object, tree, or terrain block as argument
+one. Static analysis proves the demand-node pointer at object block `+0x00`,
+tree block `+0x44`, and terrain block `+0x00`.
+
+The demand hooks record only unloaded nodes admitted by Psycho's extended
+prefetch radius in a fixed 4,096-slot, allocation-free atomic table. Native
+visible demand clears a stale mark. A task constructor consumes a matching
+mark once: speculative work retains its native priority, while unmarked
+visible work and its dependencies use native priority zero. Leaving the
+extended range or resetting the worldspace clears provenance.
+
+The table probes at most 32 slots. Collision or capacity failure deliberately
+fails visible-safe: the eventual task receives priority zero rather than being
+lost or delayed. This avoids speculative priority-zero bursts without
+changing demand, task classes, dependencies, queue ownership, or publication.
 
 ## Save-load crash: SpeedTree Compute
 
@@ -370,9 +554,9 @@ exception context or newer phase telemetry.
 This old-build report is not evidence of a current regression. A valid retest
 must use a build whose startup log contains the current `BSTree materialization`
 contract below. Preserve the exact save and cosave. On recurrence, retain the
-Psycho log plus CrashLogger output or a minidump; current `[HANG_LOAD]` tree
-transaction counters can distinguish a materializer still executing from the
-post-drain top-level load window.
+Psycho log plus CrashLogger output or a minidump. Historical `[HANG_LOAD]`
+transaction counters were useful during contract discovery but were removed
+from release hot paths by the 2026-07-27 scheduling correction.
 
 ### Native lookup and materialization boundary
 
@@ -410,11 +594,11 @@ one-worker topology. Raw address, xref, branch, and ABI evidence is recorded in
 
 This hardening does not add cancellation or a timeout. No safe generic
 recovery exists once an opaque engine task is executing: retiring it early can
-cause UAF, double completion, or partial save publication. Instead, aggregate
-telemetry records materializations started/completed, transaction waiters, the
-active scope and thread, contention, and maximum waits. `[HANG_LOAD]` includes
-those atomic fields, making a future unretestable report distinguish an active
-materializer from threads merely queued behind it.
+cause UAF, double completion, or partial save publication. The 2026-07-27
+correction also removes routine IO and LOD demand totals, transaction,
+contention, waiter, and timing updates from these hot hooks. Existing helper
+ABI fields remain reserved and read as zero. Rare corruption rejects and
+installation failures remain counted because they are not normal-path work.
 
 ### Safety and cost balance
 
@@ -422,13 +606,15 @@ materializer from threads merely queued behind it.
   construction/destruction, and Compute cannot interleave across two workers
   or main-thread completion. Existing corrupt-object rejection remains
   unchanged.
-- OOM behavior is unchanged. The lock and counters are static; the watchdog
-  reads atomics only, and no allocation, retention, or cleanup edge was added
-  to gheap.
+- OOM behavior is unchanged. Locks and admission state are static and
+  allocation-free; no allocation, retention, or cleanup edge was added to
+  gheap.
 - Published-tree lookup and per-reference finalization remain concurrent.
   Clone/reload materialization stays serialized because it reaches the proven
-  process-global Compute and shared lifetime state. Lock timing is optional
-  trace telemetry; routine protected operations perform no logging or file IO.
+  process-global Compute and shared lifetime state. The supplemental worker is
+  temporarily normal priority while it owns this lock, preventing a
+  normal-priority waiter from suffering priority inversion. Routine protected
+  operations perform no counters, timers, logging, or file IO.
 
 ## Diagnostics
 
@@ -436,33 +622,37 @@ Startup must include lines equivalent to:
 
 ```text
 [IO] BSTree materialization, SpeedTree Compute, and clone lifetime serialized; cache-hit lookup remains concurrent; native registry lock 0x011F8BC4
-[IO] Native IOManager configured for exactly two workers with serialized exterior-cell loading, three-thread BSTree TLS, and BSFile cache fallback
+[IO] Bounded two-worker IOManager armed: primary-first selection, one-task supplemental quantum, below-normal supplemental priority, per-form cell-owner and AutoWater transaction serialization, three-thread BSTree TLS, and BSFile cache fallback
+[LOD] Demand-aware task priority installed: visible=0, Psycho-only speculative=native
 [IO] Active parallel=true speedtree=true vertex_buffers=true model_postprocess=true
 ```
 
-The helper dashboard's Runtime Fixes page exposes the active IO, SpeedTree, and
-vertex-buffer contracts plus cumulative worker, cell-load, materialization,
-Compute, contention, wait, and fallback counters. The active scope/thread and
-clone-lifetime details remain in the core diagnostic report and Psycho log.
-Contention is expected under simultaneous materialization; failures, missing
-publication, or permanent queue stalls are not. See
-`docs/psycho_dashboard.md` for the UI/ABI contract.
+The helper dashboard's Runtime Fixes page exposes the observed native worker
+count, bounded scheduling policy, rare fallback counts, current LOD ownership
+state, and guard installation. It intentionally does not sample routine LOD
+demand, successful cell, materialization, Compute, lock, or wait operations.
+The corresponding fields remain in dashboard ABI version 2 for binary
+compatibility and return zero. See `docs/psycho_dashboard.md` for the UI/ABI
+contract.
 
 ## Static validation
 
 The implementation was validated on the supported target with:
 
 ```bash
-cargo test --target i686-pc-windows-gnu -p psycho-engine-fixes --lib
-cargo build --release --target i686-pc-windows-gnu -p psycho-engine-fixes
-cargo fmt -p psycho-engine-fixes -- --check
+cargo test --target i686-pc-windows-gnu -p psycho-engine-fixes -p libpsycho -p psycho-engine-fixes-helper --lib
+cargo build --release --target i686-pc-windows-gnu -p psycho-engine-fixes -p psycho-engine-fixes-helper
+cargo fmt -p libpsycho -p psycho-engine-fixes -p psycho-engine-fixes-helper -- --check
 git diff --check
 ```
 
-The concurrency regressions prove that two Compute operations cannot overlap,
-an independent Compute blocks behind a tree materializer, and nested SpeedTree
-hooks preserve the materialization scope without self-deadlocking.
-Configuration tests prove
+The concurrency regressions prove that two Compute operations and two
+AutoWater build transactions cannot overlap, an independent Compute blocks
+behind a tree materializer, and nested SpeedTree hooks preserve the
+materialization scope without self-deadlocking. Scheduler tests also prove
+single-owner supplemental reservation and exact control-flow patch targets.
+LOD tests prove one-shot speculative provenance, category separation,
+visible-demand cancellation, and worldspace reset. Configuration tests prove
 `[io].parallel_enabled` ownership and the enabled default without retaining
 the removed LOD key.
 
@@ -471,14 +661,13 @@ mutual exclusion. They do not prove that the complete game workload is fixed.
 
 ## Runtime acceptance
 
-1. Start a fresh process and require all three IO startup lines above, exactly
-   two observed workers, and no hook-installation failure.
+1. Start a fresh process and require all startup lines above, exactly two
+   observed workers, primary and supplemental readiness, and no
+   hook-installation or priority failure.
 2. Load the exact autosave that produced the 2026-07-20 crash, then repeat save
    loads and exterior traversal beyond the prior 72-second failure window.
-3. Require materialization starts and completions to converge after loading.
-   Contention may rise; waiters must return to zero, the active scope must
-   return to `none`, maximum wait must remain bounded, and IO queues must
-   continue draining.
+3. Require IO queues to continue draining after loading, with no permanent
+   ModelLoader wait and no repeated priority-guard warning.
 4. Require no `C0000417` at `0x00EC7C62`, no `0x00B142E7` checked-record
    signature, and no recurrence of the earlier BSTree, exterior-owner, clone,
    or static vertex-buffer signatures.
@@ -487,10 +676,16 @@ mutual exclusion. They do not prove that the complete game workload is fixed.
 6. Repeat under allocator modes `0`, `1`, and `2`; Compute serialization and
    native IO ownership must not depend on allocator mode.
 7. At the reported tree-heavy regression location, compare a warm stationary
-   view and a repeatable traversal against the prior whole-owner build. Require
-   recovery of sustained FPS and frame pacing without reducing the two-worker
-   count or hiding trees. The dashboard's materialization/Compute counters must
-   keep advancing and waiters must return to zero.
+   view and a repeatable traversal against the prior unrestricted two-worker
+   build. Require recovery of sustained FPS and frame pacing without reducing
+   the two-worker count or hiding trees.
+8. During rapid movement, require immediately visible LOD to publish ahead of
+   Psycho-only speculative prefetch. A missing LOD category, a supplemental
+   worker draining continuously without returning to wait, or a visible load
+   delayed behind speculative work is a failure.
+9. Repeat the Capital Wasteland exterior stress route beyond 12 minutes and
+   3 seconds. Require no `0x0049F24C <- 0x0049DC12` AutoWater point-copy
+   crash, while exterior water continues to construct and render normally.
 
 ## Evidence and reuse index
 
@@ -506,6 +701,8 @@ Primary implementation:
 
 Runtime evidence:
 
+- `psycho-engine-fixes/CrashLogger.log` (2026-07-27 AutoWater stress crash)
+- `psycho-engine-fixes/psycho-engine-fixes-latest.log` (matching runtime state)
 - `.reports/CrashLogger-2026-07-20-191755.log`
 - `.reports/psycho-engine-fixes-2026-07-20-191754.log`
 - `.reports/psycho-engine-fixes-latest--not-loading.log`

@@ -117,9 +117,41 @@ pub type LockFreeMapConstructorFn =
 /// publishes the final open flag at `this + 0x2C`.
 pub type BsFileOpenStateFn = unsafe extern "fastcall" fn(*mut c_void);
 
-/// ExteriorCellLoaderTask vtable slot +0x04. The task owns its cell-load
-/// payload at +0x1C and executes on a BSTaskManagerThread.
-pub type ExteriorCellLoaderTaskExecuteFn = unsafe extern "fastcall" fn(*mut c_void);
+/// IOManager task submission at `0x00C3FB50`.
+///
+/// The manager is in `ECX`, the queued task is the sole stack argument, and
+/// `AL` reports whether insertion into the native priority queue succeeded.
+pub type IoManagerSubmitFn = unsafe extern "thiscall" fn(*mut c_void, *mut c_void) -> u8;
+
+/// BSTaskManagerThread constructor at `0x00C3EE70`.
+///
+/// `thread_number` is the engine's one-based task-thread number plus one:
+/// IOManager worker indices zero and one are constructed as numbers two and
+/// three. The base constructor has created a suspended Win32 thread before
+/// this function returns.
+pub type IoWorkerConstructorFn =
+    unsafe extern "thiscall" fn(*mut c_void, *mut c_void, u32) -> *mut c_void;
+
+/// IOManager worker task phase callbacks at `0x00C3FC80` and `0x00C3FCA0`.
+///
+/// Both callbacks receive the manager in `ECX` and the current queued task as
+/// their only stack argument.
+pub type IoTaskPhaseFn = unsafe extern "thiscall" fn(*mut c_void, *mut c_void);
+
+/// Per-form cell insertion transaction at `0x00550500`.
+///
+/// The destination cell is in `ECX`, the form is the sole stack argument, and
+/// `AL` reports whether the insertion and its nested form construction
+/// succeeded.
+pub type CellFormInsertFn = unsafe extern "thiscall" fn(*mut c_void, *mut c_void) -> u8;
+
+/// BGSAutoWater cell-build transaction at `0x0049C860`.
+///
+/// The cell is the sole stack argument and the function returns with plain
+/// `ret`, so this is a C-style caller-cleanup ABI. The complete call owns both
+/// process-global AutoWater scratch objects from teardown through final
+/// publication.
+pub type AutoWaterBuildFn = unsafe extern "C" fn(*mut c_void);
 
 /// Native IOTask dependency-priority propagation and queue reordering.
 pub type IoTaskPriorityFn = unsafe extern "thiscall" fn(*mut c_void, u32);

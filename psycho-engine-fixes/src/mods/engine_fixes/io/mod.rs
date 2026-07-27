@@ -1,10 +1,12 @@
 //! Native IOManager parallelism and the shared-state guards it requires.
 
-use crate::config::{DiagnosticsConfig, IoConfig};
+use crate::config::IoConfig;
 
 mod scheduler;
 mod speedtree_lifetime;
 mod vertex_buffers;
+
+pub(in crate::mods::engine_fixes) use scheduler::supplemental_priority_guard;
 
 #[derive(Clone, Copy)]
 pub(super) struct SafetyStatus {
@@ -22,7 +24,6 @@ pub(super) struct DiagnosticSnapshot {
 
 pub(super) fn install(
     config: &IoConfig,
-    diagnostics: &DiagnosticsConfig,
     safety_required_by_lod: bool,
     model_postprocess_ready: bool,
 ) -> SafetyStatus {
@@ -30,7 +31,7 @@ pub(super) fn install(
 
     let safety_required = config.parallel_enabled || safety_required_by_lod;
     let speedtree_ready = if safety_required {
-        match speedtree_lifetime::install(diagnostics.lod_streaming_trace) {
+        match speedtree_lifetime::install() {
             Ok(()) => true,
             Err(error) => {
                 log::warn!("[IO] SpeedTree shared-state guards unavailable: {error:#}");
@@ -102,10 +103,6 @@ pub(super) fn diagnostic_snapshot() -> DiagnosticSnapshot {
         speedtree: speedtree_lifetime::snapshot(),
         vertex_buffers: vertex_buffers::snapshot(),
     }
-}
-
-pub(super) fn speedtree_diagnostic_snapshot() -> speedtree_lifetime::Snapshot {
-    speedtree_lifetime::snapshot()
 }
 
 #[cfg(test)]
