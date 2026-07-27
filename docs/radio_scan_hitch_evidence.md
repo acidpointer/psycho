@@ -81,6 +81,324 @@ validation are recorded below. The scheduler correction is statically proven
 and fail-closed; final frame-time and gameplay acceptance still requires one
 runtime pass of this corrected build.
 
+## 2026-07-27 Interior Connected-Path Coverage Gap
+
+The new report
+`.reports/psycho-engine-fixes-latest--interior-stutters.log` was produced by
+commit `ac99b5de144910aba81e7bc2a97380658319864e`. It identifies a second,
+interior-specific radio hitch surface that the mode-0 cooperative bridge does
+not cover.
+
+### Direct runtime evidence
+
+The report proves that all existing mode-0 safeguards were active:
+
+```text
+[RADIO] Game-owned radio bridge active:
+  scan=0x00833D86 query=0x004FF397 station_update=0x008341B4 capacity=512
+[RADIO] Native tasklet query backend active:
+  provider=nvse_stewie_tweaks.dll!... queue_priority=63 worker_priority=idle
+[RADIO] Exact mode-0 dead door-policy bypass active: ...
+```
+
+The first cooperative scan in the affected interior then reported:
+
+```text
+requests=31 cadence/spacing=250/8ms
+scan_us=Some(112712) state=Executing thread=0x00003700
+results=31 jobs=31 worker_wall_total/max=10504/2340us
+game_thread_prep_total/max=55/3us latency_ms=Some(438)
+worker_thread=0x00003F18
+```
+
+This directly proves:
+
+- the periodic scanner occupied 112.712 ms of wall time on its game thread;
+- the 31 intercepted mode-0 queries ran on a different tasklet worker;
+- all 31 worker calls together occupied 10.504 ms spread over 438 ms, with a
+  2.340 ms maximum call;
+- game-thread endpoint preparation totaled only 55 us;
+- no cooperative fallback, capacity failure, or native-backend failure was
+  logged.
+
+The 112.712 ms scanner interval therefore cannot be the worker-side mode-0
+query generation. It is synchronous work still retained inside
+`FUN_004FF1A0`.
+
+Hitch profiling was disabled in this report, so it does not provide the
+per-mode `query1` and `query2` counters. The exact split of the 112.712 ms
+between the two connected-interior callsites remains to be measured in one
+focused reproduction. That missing split does not change the uncovered
+callsite contract below.
+
+### Current-executable static contract
+
+New static research used radare2 against the repository's current
+`fnv_reverse/FalloutNV.exe`:
+
+```text
+size:   16084808 bytes
+sha256: 42fee7d6cd74e801372aa89c8f71c974cebd3c20ec9ad43d1465b8fa9646b49c
+```
+
+`FUN_004FF1A0` has three path-query callsites:
+
+```text
+0x004FF397 -> 0x006D4EB0  mode-0 distance/range query
+0x004FF4C6 -> 0x006D4D20  mode-1 connected-interior query
+0x004FF645 -> 0x006D4D20  mode-2 connected-interior query
+```
+
+Production code replaces only `0x004FF397`. Radare2 xrefs prove that the two
+generic calls above are the only `0x006D4D20` calls in the radio scanner; the
+other callers are `0x006D4F01` and `0x0079DD11` and are outside this fix.
+
+The mode-1 branch constructs a caller-owned result at `[EBP-0x68]`, constructs
+both `PathingLocation` arguments, and calls `0x006D4D20` at `0x004FF4C6` with
+the seven cdecl arguments `(station, current, result, 1, 0.0, 0, 1)`. It
+destroys both locations before inspecting the result. On query success it sets
+availability `[EBP-0x0D]` and the connected signal value `[EBP-0x14]`, then
+walks every result element. A non-null worldspace at element `+0x04` rejects
+the station unless it is pointer-identical to the station worldspace held at
+`[EBP-0x30]`. The result destructor call is `0x004FF561 -> 0x006F4930`; the
+following five-byte jump reaches the common consumer at `0x004FF77F`.
+
+The mode-2 branch constructs its result at `[EBP-0xAC]`. When both endpoints
+already have the same non-null parent domain, `0x004FF5B3` accepts them without
+calling the generic query. Otherwise `0x004FF645` calls `0x006D4D20` with
+`(station, current, result, 2, 0.0, 0, 1)`. On query success, every result
+element must have a null worldspace. Its result destructor call is
+`0x004FF73D -> 0x006F4930`; its following jump is only the two-byte
+`0x004FF742 -> 0x004FF77F`. The early same-domain path also reaches that
+destructor with no generic call, so it must remain wholly vanilla.
+
+The common consumer at `0x004FF77F` tests availability first. It passes
+`[EBP-0x14]` onward only when availability is true. A cooperative result
+therefore needs to retain only the final accepted boolean; the connected
+signal value needs to be written only for a true result.
+
+The generic result contract is also exact:
+
+- `0x006F48B0` is a thiscall constructor for a 0x38-byte, four-byte-aligned
+  object. It constructs dynamic arrays at `+0x00` and `+0x10` and two
+  12-byte values at `+0x20` and `+0x2C`.
+- `0x006D4D20` is cdecl with seven 32-bit arguments. It clears the supplied
+  result through `0x006F4990`, owns its 0x20C4-byte query object on its own
+  stack, and returns success in `AL`.
+- `0x0044DDC0` returns the first array's count at result `+0x08`.
+  `0x006A7AF0`/`0x006A1440` returns data `+ index * 0x0C`, establishing a
+  12-byte parent-space element whose worldspace field is at `+0x04`.
+- `0x006F4930` destroys the result's two dynamic arrays. The thread that
+  constructs and queries the result must also reduce and destroy it; no array
+  pointer or result storage may be published to the game thread.
+
+These branches explain the location boundary. Entering an interior activates
+two generic path-query paths which are still synchronous, while the mode-0
+work is demonstrably on a tasklet worker. Prior runtime work measured ordinary
+station enumeration and residual scan logic at roughly 57-73 us once query
+cost was removed. The uncovered mode-1/mode-2 calls are therefore the only
+known scanner operations with the contract and scale to account for the
+112.712 ms interval.
+
+The root-cause classification is:
+
+> The cooperative radio implementation has incomplete callsite coverage. It
+> moves mode-0 distance queries off-thread, but leaves the vanilla
+> connected-interior mode-1 and mode-2 queries synchronous. The periodic
+> scanner reaches those branches in interiors and stalls the game thread.
+
+This classification is a reasoned conclusion from the direct runtime timing
+and the static call graph; the supplied run did not enable the per-mode timer,
+so it does not directly assign milliseconds between mode 1 and mode 2.
+Resolving the mode-1 worldspace FormID back to its canonical loaded form on
+the game thread is likewise an implementation inference. The bridge must
+round-trip that FormID through `0x004839C0` and require pointer identity with
+the scanner's `[EBP-0x30]` value before using the cooperative path. A null or
+non-canonical resolution must fall back rather than weaken the engine's
+pointer-identity predicate. No runtime observation of the proposed fix exists
+yet.
+
+This is distinct from the five-second scrap-heap GC and memory-watchdog
+cadences visible in the same log. Both run on background threads, and the
+logger queues records asynchronously. Neither explains the directly measured
+112.712 ms inside the game-thread radio scanner or its interior-only branch
+boundary.
+
+### Safe intervention
+
+Returning cooperative success directly from either generic-query replacement
+is incorrect. The vanilla caller would then inspect the still-empty
+caller-owned result and accept a fabricated path. Replacing a broad branch
+region is also unnecessary, and the mode-2 cleanup tail is too short for a
+five-byte jump without overwriting the next switch case.
+
+The minimal safe surface is four existing five-byte `CALL` instructions:
+
+```text
+0x004FF4C6 -> connected-query bridge       mode 1
+0x004FF561 -> result-destructor bridge      mode 1
+0x004FF645 -> connected-query bridge       mode 2
+0x004FF73D -> result-destructor bridge      mode 2
+```
+
+The query bridge captures the scanner's EBP and the original seven arguments.
+On a normal fallback it clears any pending override, calls `0x006D4D20`, and
+returns its result unchanged; the caller's post-filter and cleanup remain
+vanilla. On a cooperative hit it records a typed request, places the complete
+published boolean in thread-local pending state, and returns false. Returning
+false skips the caller's path-inspection loop without claiming that its empty
+result is valid.
+
+Each destructor bridge receives the result in ECX and captures the scanner's
+EBP. It calls the original `0x006F4930` first. It then consumes only a pending
+override of the matching mode, writes `[EBP-0x0D]`, and writes the vanilla
+value from `0x01012054` to `[EBP-0x14]` only when true. With no matching
+override it is behavior-neutral. The mode-2 early same-domain path therefore
+passes through unchanged.
+
+Pending state is game-thread TLS, is cleared before every bridge decision and
+at outer scan entry/exit, and is consumed once. A mismatch fails closed to the
+false value already returned by the query bridge rather than leaking an
+override into another station.
+
+### Full change plan
+
+All implementation work belongs in
+`psycho-engine-fixes/src/mods/perf/radio.rs`; this document remains the durable
+engine contract. No configuration or helper-DLL change is required.
+
+1. Add exact addresses, function types, layouts, and signatures for
+   `0x006D4D20`, `0x006F48B0`, `0x006F4930`, the two query calls, and the two
+   destructor calls. Define four-byte-aligned 0x38-byte result storage and a
+   12-byte parent-space node. Verify every target and surrounding instruction
+   window before changing any call displacement.
+2. Generalize the fixed-capacity pipeline from distance-only values to typed
+   scalar requests/results. The key contains query kind, station FormID,
+   current-reference FormID, and a kind-specific word: radius bits for mode 0,
+   expected station-worldspace FormID for mode 1, and zero for mode 2. The
+   result tag must match the key so a distance can never alias an availability
+   result. Mode 0, mode 1, and mode 2 publish atomically as one complete
+   generation.
+3. Extend `PreparedQuery` with a transient expected-worldspace pointer and a
+   typed output. Continue resolving endpoint FormIDs and constructing both
+   `PathingLocation` values on the game thread. For mode 1, resolve the
+   expected worldspace FormID there as well and retain that pointer only while
+   the native tasklet group owns the prepared query. The existing pre-load,
+   exit-to-menu, and shutdown barriers must join the group before any prepared
+   pointer or location can outlive the world.
+4. Dispatch by query kind in the existing one-query native tasklet. Mode 0
+   retains `0x006D4EB0`. Modes 1 and 2 construct a fresh result on the worker,
+   call the original `0x006D4D20`, reduce its parent-space array with the exact
+   pointer predicates above, and destroy the result on that same worker before
+   publishing one boolean. Keep bucket 63, scoped Win32 idle priority, serial
+   pacing, the provider capability check, and the current no-overlap rule.
+5. Add one naked seven-argument query thunk and two naked destructor thunks,
+   with small Rust bodies for request extraction, TLS state, fallback, and
+   caller-local updates. Both query callsites may share the query body because
+   the verified mode argument identifies the request; the destructor thunks
+   pass their expected mode to one common body. Validate fixed arguments
+   `(mode, 0.0, 0, 1)`, the mode-specific result-local address, caller EBP,
+   and live FormIDs before using the cooperative path. Mode 1 must also
+   require `LookupFormByID(station_worldspace_form_id) == [EBP-0x30]`.
+6. Install the neutral destructor bridges before their query bridges.
+   Preflight all four target/signature checks and retain original
+   displacements for rollback if a later patch fails. This ordering ensures
+   that even a partial write cannot suppress a vanilla query without its
+   matching completion bridge. Do not patch the short tail jumps or the
+   shared `0x006D4D20` entry.
+7. Preserve existing failure semantics precisely. If cooperative scheduling
+   is unavailable at scan entry, or a query does not match the exact caller
+   contract, call the complete original query and post-filter synchronously.
+   Before the first publication, return conservative unavailable values just
+   as mode 0 currently returns its failure distance. An incomplete/aborted
+   worker generation never publishes; the last complete snapshot survives.
+   World transitions reset the snapshot. Capacity failure disables later
+   cooperative scans and restores the original path; it must never publish a
+   partial generation.
+8. Extend bounded diagnostics rather than adding a hot-path logger. The first
+   collection/publication records should include total and per-kind request
+   counts. Existing `[RADIO_SCAN] query1/query2` timings remain the proof that
+   no generic connected query executed synchronously on the scan thread.
+9. Add focused regressions for typed-key/value separation, per-kind
+   deduplication, atomic mixed-generation publication, aborted-generation
+   retention, capacity handling, mode-1 null-or-expected reduction, mode-2
+   all-null reduction, TLS one-shot/mode matching, the mode-2 early-path
+   pass-through, result/node/tasklet layouts, pacing, and world-lifetime
+   reset. Inspect optimized i686 disassembly for the naked thunks, 32-byte
+   copied-argument cleanup, ECX/EBP capture, caller-owned stack cleanup, and
+   original destructor invocation.
+10. Run the focused radio tests, the affected crate suite, `git diff --check`,
+    and the supported release build:
+    `cargo build --release --target i686-pc-windows-gnu -p psycho-engine-fixes`.
+    Then replay the supplied interior with hitch profiling enabled. Acceptance
+    requires a complete mixed generation, no synchronous `query1`/`query2`
+    calls after warm-up, no recurring scanner-sized frame spike, unchanged
+    station decisions across modes 0-4, and clean interior/exterior,
+    load/save, exit-to-menu, and shutdown transitions.
+
+### Implementation and static validation
+
+The full change above was implemented on 2026-07-27 in
+`psycho-engine-fixes/src/mods/perf/radio.rs`. The forwarding event API in
+`psycho-engine-fixes/src/mods/perf/mod.rs` also received lifecycle
+documentation. No configuration or helper-DLL change was required.
+
+The implementation provides:
+
+- typed `Distance`, `NullOrStationWorldspace`, and `InteriorOnly` keys and
+  scalar values in one fixed-capacity atomic generation;
+- game-thread FormID and canonical worldspace resolution, with live pointers
+  confined to a world-lifetime-protected prepared tasklet;
+- worker-local generic result construction, exact mode-specific parent-space
+  reduction, and same-worker result destruction;
+- verified query and destructor bridges at all four exact radio callsites,
+  installed with complete-call rollback;
+- a one-shot, mode-matched TLS handoff that never presents a fabricated path
+  to vanilla and leaves the mode-2 early same-domain branch unchanged;
+- first-use diagnostics reporting distance/mode-1/mode-2 request counts; and
+- focused regressions for typed alias prevention, mixed-generation
+  publication, failure retention, capacity, result layout/reduction, TLS
+  consumption, pacing, tasklet layout, priority, and world lifetime.
+
+Validation evidence:
+
+```text
+cargo test --target i686-pc-windows-gnu -p psycho-engine-fixes \
+  mods::perf::radio::tests
+25 passed; 0 failed
+
+cargo test --target i686-pc-windows-gnu -p psycho-engine-fixes
+84 passed; 0 failed
+
+cargo build --release --target i686-pc-windows-gnu \
+  -p psycho-engine-fixes
+passed
+
+git diff --check
+passed
+```
+
+The optimized i686 DLL was disassembled after the release build. The generic
+query thunk copies original stack arguments `+0x04` through `+0x1C`, pushes
+scanner EBP, calls the Rust body, adds exactly 32 bytes, and returns so the
+engine still owns its original 28-byte cleanup. The two destructor thunks push
+ECX, EBP, and their constant mode, call the shared body, add 12 bytes, and
+return. The shared body moves the result into ECX and calls `0x006F4930`
+before reading TLS; only a matching handoff writes `[caller_ebp-0x0D]`, and a
+true result also copies `0x01012054` to `[caller_ebp-0x14]`.
+
+This is static and automated validation, not a runtime acceptance result. The
+same interior reproduction and transition matrix below still require a
+playtest.
+
+An optional pre-change profiling replay can quantify the 112.712 ms split
+between mode 1 and mode 2, but it is not an implementation prerequisite: both
+uncovered callsites share the proven ownership defect and both must be fixed.
+
+Do not fix this by throttling radio refreshes, globally caching path results,
+disabling connected-interior radios, returning a fabricated path, patching
+the shared generic-query entry, or widening the hook to unrelated callers.
+
 ## 2026-07-23 Unchanged-Chart Runtime Correction
 
 The startup-corrected native build reached gameplay and supplied the evidence

@@ -1,10 +1,31 @@
-//! Worker-backed radio path queries and hot-path attribution.
+//! Worker-backed radio path queries, station maintenance, and hitch attribution.
 //!
-//! The periodic scan consumes a complete prior distance generation while one
-//! opaque mode-0 provider generation is recomputed on the engine's native
-//! tasklet workers. Endpoint locations are prepared and released on the game
-//! thread. Provider replacement is handled at the game-owned virtual ABI
-//! boundary; the exact disposition-3 door-policy bypass remains optional.
+//! Fallout New Vegas refreshes radio availability in a periodic game-thread
+//! scan. The scanner performs three expensive path operations: a mode-0
+//! distance query and two connected-interior queries whose returned parent
+//! spaces are reduced to booleans. This module collects all three operations
+//! during one scan, consumes only the last complete generation, and recomputes
+//! the next generation as individually paced native tasklets.
+//!
+//! Engine object ownership remains on the threads required by the executable:
+//! reference FormIDs are captured by the scanner, `PathingLocation` values are
+//! constructed and released on the game thread, and each connected-query
+//! result is constructed, reduced, and destroyed entirely on its worker. A
+//! world-lifetime barrier joins the native group before load or menu teardown.
+//! Only typed scalar results cross from the worker back to the scanner.
+//!
+//! The connected-query callsites need an asymmetric bridge. Returning success
+//! directly would make vanilla inspect an empty caller-owned path result. The
+//! query bridge therefore returns false after placing the reduced answer in
+//! thread-local state; a matching result-destructor bridge applies that answer
+//! only after vanilla cleanup. Exact callsite signatures and transactional
+//! rollback keep the original synchronous query and post-filter as the
+//! fail-closed path.
+//!
+//! Provider replacement is handled at the game-owned virtual ABI boundary.
+//! The exact disposition-3 door-policy bypass remains optional and is scoped
+//! only to mode-0 radio traversal. Diagnostics are bounded to first-use proof
+//! and aggregated hitch reports; no logging is performed per query.
 
 use std::{
     cell::{Cell, RefCell, UnsafeCell},
@@ -25,7 +46,8 @@ use libpsycho::{
         memory::read_bytes,
         patch::module_address,
         winapi::{
-            ThreadPriority, lower_current_thread_priority_scoped, replace_call, virtual_query,
+            ThreadPriority, lower_current_thread_priority_scoped, patch_bytes, replace_call,
+            virtual_query,
         },
     },
 };
@@ -38,10 +60,17 @@ const PERIODIC_RADIO_STATION_UPDATE_CALL_ADDR: usize = 0x008341B4;
 const RADIO_STATION_UPDATE_ADDR: usize = 0x00834260;
 const MODE0_RADIO_DISTANCE_CALL_ADDR: usize = 0x004FF397;
 const MODE0_RADIO_DISTANCE_ADDR: usize = 0x006D4EB0;
+const MODE1_CONNECTED_QUERY_CALL_ADDR: usize = 0x004FF4C6;
+const MODE1_RESULT_DESTROY_CALL_ADDR: usize = 0x004FF561;
+const MODE2_CONNECTED_QUERY_CALL_ADDR: usize = 0x004FF645;
+const MODE2_RESULT_DESTROY_CALL_ADDR: usize = 0x004FF73D;
 const PATHING_LOCATION_INIT_ADDR: usize = 0x006DCD70;
 const PATHING_LOCATION_DESTROY_ADDR: usize = 0x004FF7E0;
+const PATH_RESULT_CONSTRUCT_ADDR: usize = 0x006F48B0;
+const PATH_RESULT_DESTROY_ADDR: usize = 0x006F4930;
 const LOOKUP_FORM_BY_ID_ADDR: usize = 0x004839C0;
 const PATH_FAILURE_DISTANCE_ADDR: usize = 0x01016970;
+const CONNECTED_SIGNAL_VALUE_ADDR: usize = 0x01012054;
 const LOADING_FLAG_ADDR: usize = 0x011DEA2B;
 const CURRENT_RADIO_STATION_ADDR: usize = 0x011DD42C;
 const RADIO_LIST_RESETTING_ADDR: usize = 0x011DD436;
@@ -97,8 +126,33 @@ const TASKLET_QUERIES_PER_SUBMISSION: usize = 1;
 
 const MODE0_CALL_PREFIX_SIGNATURE: &[u8] = &[0x8B, 0x85, 0x3C, 0xFE, 0xFF, 0xFF, 0x50, 0xE8];
 const MODE0_CALL_SUFFIX_SIGNATURE: &[u8] = &[0x83, 0xC4, 0x14, 0xD9, 0x5D, 0xEC];
+const MODE1_QUERY_CALL_PREFIX_SIGNATURE: &[u8] = &[0x8B, 0x95, 0x2C, 0xFE, 0xFF, 0xFF, 0x52, 0xE8];
+const MODE1_QUERY_CALL_SUFFIX_SIGNATURE: &[u8] =
+    &[0x83, 0xC4, 0x1C, 0x88, 0x85, 0xFB, 0xFE, 0xFF, 0xFF];
+const MODE1_DESTROY_CALL_PREFIX_SIGNATURE: &[u8] = &[
+    0xC7, 0x45, 0xFC, 0xFF, 0xFF, 0xFF, 0xFF, 0x8D, 0x4D, 0x98, 0xE8,
+];
+const MODE1_DESTROY_CALL_SUFFIX_SIGNATURE: &[u8] = &[0xE9, 0x14, 0x02, 0x00, 0x00];
+const MODE2_QUERY_CALL_PREFIX_SIGNATURE: &[u8] = &[0x8B, 0x95, 0x1C, 0xFE, 0xFF, 0xFF, 0x52, 0xE8];
+const MODE2_QUERY_CALL_SUFFIX_SIGNATURE: &[u8] = &[0x83, 0xC4, 0x1C, 0x0F, 0xB6, 0xC0, 0x85, 0xC0];
+const MODE2_DESTROY_CALL_PREFIX_SIGNATURE: &[u8] = &[
+    0xC7, 0x45, 0xFC, 0xFF, 0xFF, 0xFF, 0xFF, 0x8D, 0x8D, 0x54, 0xFF, 0xFF, 0xFF, 0xE8,
+];
+const MODE2_DESTROY_CALL_SUFFIX_SIGNATURE: &[u8] = &[0xEB, 0x3B];
 const STATION_UPDATE_CALL_PREFIX_SIGNATURE: &[u8] = &[0x8B, 0x4D, 0xA4, 0x51, 0xE8];
 const STATION_UPDATE_CALL_SUFFIX_SIGNATURE: &[u8] = &[0x83, 0xC4, 0x04, 0x8B, 0x4D, 0xC4, 0xE8];
+const PATH_QUERY_SIGNATURE: &[u8] = &[
+    0x55, 0x8B, 0xEC, 0x6A, 0xFF, 0x68, 0xB6, 0x4D, 0xF0, 0x00, 0x64, 0xA1, 0x00, 0x00, 0x00, 0x00,
+    0x50, 0xB8, 0xD8, 0x20, 0x00, 0x00,
+];
+const PATH_RESULT_CONSTRUCT_SIGNATURE: &[u8] = &[
+    0x55, 0x8B, 0xEC, 0x6A, 0xFF, 0x68, 0x43, 0x6C, 0xF0, 0x00, 0x64, 0xA1, 0x00, 0x00, 0x00, 0x00,
+    0x50, 0x51,
+];
+const PATH_RESULT_DESTROY_SIGNATURE: &[u8] = &[
+    0x55, 0x8B, 0xEC, 0x6A, 0xFF, 0x68, 0x68, 0x6C, 0xF0, 0x00, 0x64, 0xA1, 0x00, 0x00, 0x00, 0x00,
+    0x50, 0x51,
+];
 const LOOKUP_FORM_BY_ID_SIGNATURE: &[u8] = &[
     0x55, 0x8B, 0xEC, 0x51, 0xC7, 0x45, 0xFC, 0x00, 0x00, 0x00, 0x00, 0x83, 0x3D, 0xC0, 0x54, 0x1C,
     0x01, 0x00,
@@ -199,9 +253,21 @@ type RadioSignalScanFn = unsafe extern "C" fn(*mut c_void, *mut c_void, *mut c_v
 type RadioStationUpdateFn = unsafe extern "C" fn(*mut c_void);
 type Mode0RadioDistanceFn =
     unsafe extern "C" fn(*mut PathingLocation, *mut PathingLocation, f32, *mut c_void, u32) -> f32;
+type GenericPathQueryFn = unsafe extern "C" fn(
+    *mut PathingLocation,
+    *mut PathingLocation,
+    *mut PathQueryResult,
+    u32,
+    f32,
+    u32,
+    u32,
+) -> u8;
 type PathingLocationInitFn =
     unsafe extern "thiscall" fn(*mut PathingLocation, *mut c_void) -> *mut PathingLocation;
 type PathingLocationDestroyFn = unsafe extern "thiscall" fn(*mut PathingLocation);
+type PathResultConstructFn =
+    unsafe extern "thiscall" fn(*mut PathQueryResult) -> *mut PathQueryResult;
+type PathResultDestroyFn = unsafe extern "thiscall" fn(*mut PathQueryResult);
 type LookupFormByIdFn = unsafe extern "C" fn(u32) -> *mut c_void;
 type TaskletManagerFn = unsafe extern "C" fn() -> *mut c_void;
 type TaskletGroupCreateFn = unsafe extern "thiscall" fn(*mut c_void, *mut *mut c_void) -> u8;
@@ -210,7 +276,7 @@ type TaskletSubmitFn =
     unsafe extern "thiscall" fn(*mut c_void, *mut *mut c_void, *mut TaskletHandle, u8) -> u8;
 type TaskletGroupCloseFn = unsafe extern "thiscall" fn(*mut c_void, *mut *mut c_void) -> u8;
 type TaskletGroupWaitFn = unsafe extern "thiscall" fn(*mut c_void, u32);
-type PathQueryFn = unsafe extern "C" fn(usize, usize, *mut c_void, u32, u32, u32, u32) -> u8;
+type PathQueryFn = unsafe extern "C" fn(usize, usize, *mut c_void, u32, f32, u32, u32) -> u8;
 type PathTraversalFn = unsafe extern "fastcall" fn(*mut c_void) -> usize;
 type StationModeFn = unsafe extern "fastcall" fn(*mut c_void) -> u32;
 type DoorPolicySetupFn = unsafe extern "fastcall" fn(*mut c_void, *mut c_void, *mut c_void);
@@ -267,6 +333,48 @@ impl PathingLocation {
     }
 }
 
+/// Caller-owned output populated by the engine's generic path query.
+///
+/// The engine constructor and destructor are mandatory: the object contains
+/// two dynamic arrays even though this module reads only the first array.
+#[repr(C, align(4))]
+struct PathQueryResult {
+    bytes: [u8; 0x38],
+}
+
+impl PathQueryResult {
+    const fn uninit_storage() -> Self {
+        Self { bytes: [0; 0x38] }
+    }
+
+    unsafe fn parent_space_count(&self) -> u32 {
+        unsafe { core::ptr::read_unaligned(self.bytes.as_ptr().add(0x08).cast()) }
+    }
+
+    unsafe fn parent_space(&self, index: u32) -> *const ParentSpaceNode {
+        let data = unsafe {
+            core::ptr::read_unaligned(
+                self.bytes
+                    .as_ptr()
+                    .add(0x04)
+                    .cast::<*const ParentSpaceNode>(),
+            )
+        };
+        unsafe { data.add(index as usize) }
+    }
+}
+
+/// One element in the result's first `BSSimpleArray`.
+///
+/// Only `worldspace` participates in radio acceptance. The surrounding words
+/// are retained so pointer arithmetic matches the executable's 0x0C stride.
+#[repr(C)]
+struct ParentSpaceNode {
+    _parent: *mut c_void,
+    worldspace: *mut c_void,
+    _teleport: *mut c_void,
+}
+
 #[repr(C)]
 struct TaskletVtable {
     finish: unsafe extern "thiscall" fn(*mut EngineTasklet),
@@ -300,7 +408,11 @@ struct PreparedQuery {
     work: QueryWork,
     station: PathingLocation,
     current: PathingLocation,
-    distance: f32,
+    // This pointer is resolved from a FormID on the game thread and exists
+    // only while a world-lifetime-protected native group owns the batch. It is
+    // never stored in the pipeline or a published generation.
+    expected_worldspace: *mut c_void,
+    output: QueryValue,
     initialized: bool,
 }
 
@@ -314,14 +426,15 @@ impl PreparedQuery {
                     key: QueryKey {
                         station_form_id: 0,
                         current_ref_form_id: 0,
-                        radius_bits: 0,
+                        kind: QueryKind::Distance,
+                        parameter_bits: 0,
                     },
-                    radius: 0.0,
                 },
             },
             station: PathingLocation::uninit_storage(),
             current: PathingLocation::uninit_storage(),
-            distance: 0.0,
+            expected_worldspace: core::ptr::null_mut(),
+            output: QueryValue::distance(0.0),
             initialized: false,
         }
     }
@@ -403,22 +516,144 @@ impl TaskletBackend {
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[repr(u32)]
+enum QueryKind {
+    /// Mode-0 path distance/radius query.
+    #[default]
+    Distance = 0,
+    /// Mode-1 query accepting null or one exact station worldspace.
+    NullOrStationWorldspace = 1,
+    /// Mode-2 query accepting only null worldspaces.
+    InteriorOnly = 2,
+}
+
+impl QueryKind {
+    fn connected_mode(mode: u32) -> Option<Self> {
+        match mode {
+            1 => Some(Self::NullOrStationWorldspace),
+            2 => Some(Self::InteriorOnly),
+            _ => None,
+        }
+    }
+
+    fn is_connected(self) -> bool {
+        self != Self::Distance
+    }
+
+    fn scanner_result_offset(self) -> Option<usize> {
+        match self {
+            Self::NullOrStationWorldspace => Some(0x68),
+            Self::InteriorOnly => Some(0xAC),
+            Self::Distance => None,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 struct QueryKey {
     station_form_id: u32,
     current_ref_form_id: u32,
-    radius_bits: u32,
+    kind: QueryKind,
+    // Radius bits for Distance, expected worldspace FormID for mode 1, and
+    // zero for mode 2. Keeping the discriminator in the key prevents unlike
+    // radio semantics from sharing a cached scalar.
+    parameter_bits: u32,
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 struct QueryRequest {
     key: QueryKey,
-    radius: f32,
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
+impl QueryRequest {
+    fn distance(station_form_id: u32, current_ref_form_id: u32, radius: f32) -> Self {
+        Self {
+            key: QueryKey {
+                station_form_id,
+                current_ref_form_id,
+                kind: QueryKind::Distance,
+                parameter_bits: radius.to_bits(),
+            },
+        }
+    }
+
+    fn connected(
+        station_form_id: u32,
+        current_ref_form_id: u32,
+        kind: QueryKind,
+        expected_worldspace_form_id: u32,
+    ) -> Self {
+        debug_assert!(kind.is_connected());
+        debug_assert!(
+            kind == QueryKind::NullOrStationWorldspace || expected_worldspace_form_id == 0
+        );
+        Self {
+            key: QueryKey {
+                station_form_id,
+                current_ref_form_id,
+                kind,
+                parameter_bits: expected_worldspace_form_id,
+            },
+        }
+    }
+}
+
+/// Tagged scalar crossing the native tasklet ownership boundary.
+///
+/// `bits` contains IEEE-754 distance bits for mode 0 and 0/1 availability for
+/// connected modes. The tag is checked again at publication and consumption.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct QueryValue {
+    kind: QueryKind,
+    bits: u32,
+}
+
+impl QueryValue {
+    const fn distance(distance: f32) -> Self {
+        Self {
+            kind: QueryKind::Distance,
+            bits: distance.to_bits(),
+        }
+    }
+
+    const fn availability(kind: QueryKind, available: bool) -> Self {
+        Self {
+            kind,
+            bits: available as u32,
+        }
+    }
+
+    fn as_distance(self) -> Option<f32> {
+        (self.kind == QueryKind::Distance).then(|| f32::from_bits(self.bits))
+    }
+
+    fn as_availability(self, expected_kind: QueryKind) -> Option<bool> {
+        (self.kind == expected_kind && expected_kind.is_connected() && self.bits <= 1)
+            .then_some(self.bits != 0)
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 struct PublishedResult {
     key: QueryKey,
-    distance: f32,
+    value: QueryValue,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct QueryKindCounts {
+    distance: usize,
+    mode1: usize,
+    mode2: usize,
+}
+
+impl QueryKindCounts {
+    fn observe(&mut self, kind: QueryKind) {
+        match kind {
+            QueryKind::Distance => self.distance += 1,
+            QueryKind::NullOrStationWorldspace => self.mode1 += 1,
+            QueryKind::InteriorOnly => self.mode2 += 1,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -507,7 +742,7 @@ impl QueryPipeline {
         true
     }
 
-    fn observe_query(&mut self, request: QueryRequest) -> Option<f32> {
+    fn observe_query(&mut self, request: QueryRequest) -> Option<QueryValue> {
         let published = self.lookup_published(request.key);
         if self.state != PipelineState::Collecting {
             return published;
@@ -547,7 +782,7 @@ impl QueryPipeline {
         })
     }
 
-    fn complete(&mut self, work: QueryWork, distance: Option<f32>) -> bool {
+    fn complete(&mut self, work: QueryWork, value: Option<QueryValue>) -> bool {
         if self.state != PipelineState::Executing
             || work.generation != self.generation
             || work.index != self.completed_count
@@ -556,13 +791,13 @@ impl QueryPipeline {
             return false;
         }
 
-        let Some(distance) = distance else {
+        let Some(value) = value.filter(|value| value.kind == work.request.key.kind) else {
             self.abort_build();
             return false;
         };
         self.results[work.index] = PublishedResult {
             key: work.request.key,
-            distance,
+            value,
         };
         self.completed_count += 1;
         if self.completed_count != self.build_count {
@@ -597,11 +832,27 @@ impl QueryPipeline {
         self.job_spacing_ms = 0;
     }
 
-    fn lookup_published(&self, key: QueryKey) -> Option<f32> {
+    fn lookup_published(&self, key: QueryKey) -> Option<QueryValue> {
         self.published[..self.published_count]
             .iter()
             .find(|candidate| candidate.key == key)
-            .map(|candidate| candidate.distance)
+            .map(|candidate| candidate.value)
+    }
+
+    fn request_kind_counts(&self) -> QueryKindCounts {
+        let mut counts = QueryKindCounts::default();
+        for request in &self.requests[..self.build_count] {
+            counts.observe(request.key.kind);
+        }
+        counts
+    }
+
+    fn published_kind_counts(&self) -> QueryKindCounts {
+        let mut counts = QueryKindCounts::default();
+        for result in &self.published[..self.published_count] {
+            counts.observe(result.key.kind);
+        }
+        counts
     }
 }
 
@@ -771,9 +1022,40 @@ struct RadioScanState {
     reporter: ScanReporter,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+enum PendingConnectedResult {
+    #[default]
+    None,
+    Mode1(bool),
+    Mode2(bool),
+}
+
+impl PendingConnectedResult {
+    fn new(kind: QueryKind, available: bool) -> Self {
+        match kind {
+            QueryKind::NullOrStationWorldspace => Self::Mode1(available),
+            QueryKind::InteriorOnly => Self::Mode2(available),
+            QueryKind::Distance => Self::None,
+        }
+    }
+
+    fn consume_for(self, kind: QueryKind) -> Option<bool> {
+        match (self, kind) {
+            (Self::Mode1(available), QueryKind::NullOrStationWorldspace)
+            | (Self::Mode2(available), QueryKind::InteriorOnly) => Some(available),
+            _ => None,
+        }
+    }
+}
+
 thread_local! {
     static RADIO_SCAN_DEPTH: Cell<u32> = const { Cell::new(0) };
     static COOPERATIVE_SCAN_ACTIVE: Cell<bool> = const { Cell::new(false) };
+    // A connected query and its branch-specific result destructor are
+    // adjacent on the scanner thread. This one-shot handoff avoids exposing a
+    // fabricated path array to vanilla while preserving its mandatory dtor.
+    static PENDING_CONNECTED_RESULT: Cell<PendingConnectedResult> =
+        const { Cell::new(PendingConnectedResult::None) };
     static POLICY_BYPASS_DEPTH: Cell<u32> = const { Cell::new(0) };
     static PENDING_POLICY_ACCESS: Cell<(usize, usize)> = const { Cell::new((0, 0)) };
     static RADIO_SCAN_STATE: RefCell<RadioScanState> = RefCell::new(RadioScanState::default());
@@ -792,6 +1074,7 @@ impl RadioScanScope {
             current == 0
         });
         if outermost {
+            PENDING_CONNECTED_RESULT.with(|pending| pending.set(PendingConnectedResult::None));
             RADIO_SCAN_STATE.with(|state| {
                 let mut state = state.borrow_mut();
                 state.stats = ScanStats::default();
@@ -827,6 +1110,7 @@ impl Drop for RadioScanScope {
                 QUERY_PIPELINE.lock().end_scan();
                 COOPERATIVE_SCAN_ACTIVE.with(|active| active.set(false));
             }
+            PENDING_CONNECTED_RESULT.with(|pending| pending.set(PendingConnectedResult::None));
             PENDING_POLICY_ACCESS.with(|pending| pending.set((0, 0)));
         }
     }
@@ -876,6 +1160,11 @@ impl Drop for DoorPolicyBypassScope {
     }
 }
 
+/// Installs the verified radio scanner, cooperative query, and profiling hooks.
+///
+/// Installation is fail-closed. Every executable address and surrounding
+/// instruction window is checked before any call is redirected, and callsite
+/// replacements are rolled back as a set if a later write fails.
 pub fn install_radio_scan_fix() -> anyhow::Result<()> {
     verify_rel_call(PERIODIC_RADIO_SCAN_CALL_ADDR, RADIO_SIGNAL_SCAN_ADDR)?;
     verify_rel_call(
@@ -883,6 +1172,10 @@ pub fn install_radio_scan_fix() -> anyhow::Result<()> {
         RADIO_STATION_UPDATE_ADDR,
     )?;
     verify_rel_call(MODE0_RADIO_DISTANCE_CALL_ADDR, MODE0_RADIO_DISTANCE_ADDR)?;
+    verify_rel_call(MODE1_CONNECTED_QUERY_CALL_ADDR, PATH_QUERY_ADDR)?;
+    verify_rel_call(MODE2_CONNECTED_QUERY_CALL_ADDR, PATH_QUERY_ADDR)?;
+    verify_rel_call(MODE1_RESULT_DESTROY_CALL_ADDR, PATH_RESULT_DESTROY_ADDR)?;
+    verify_rel_call(MODE2_RESULT_DESTROY_CALL_ADDR, PATH_RESULT_DESTROY_ADDR)?;
     verify_signature(
         MODE0_RADIO_DISTANCE_CALL_ADDR - 7,
         MODE0_CALL_PREFIX_SIGNATURE,
@@ -892,6 +1185,46 @@ pub fn install_radio_scan_fix() -> anyhow::Result<()> {
         MODE0_RADIO_DISTANCE_CALL_ADDR + 5,
         MODE0_CALL_SUFFIX_SIGNATURE,
         "mode-0 radio distance call suffix",
+    )?;
+    verify_signature(
+        MODE1_CONNECTED_QUERY_CALL_ADDR - 7,
+        MODE1_QUERY_CALL_PREFIX_SIGNATURE,
+        "mode-1 connected-query call prefix",
+    )?;
+    verify_signature(
+        MODE1_CONNECTED_QUERY_CALL_ADDR + 5,
+        MODE1_QUERY_CALL_SUFFIX_SIGNATURE,
+        "mode-1 connected-query call suffix",
+    )?;
+    verify_signature(
+        MODE1_RESULT_DESTROY_CALL_ADDR - 10,
+        MODE1_DESTROY_CALL_PREFIX_SIGNATURE,
+        "mode-1 result-destroy call prefix",
+    )?;
+    verify_signature(
+        MODE1_RESULT_DESTROY_CALL_ADDR + 5,
+        MODE1_DESTROY_CALL_SUFFIX_SIGNATURE,
+        "mode-1 result-destroy call suffix",
+    )?;
+    verify_signature(
+        MODE2_CONNECTED_QUERY_CALL_ADDR - 7,
+        MODE2_QUERY_CALL_PREFIX_SIGNATURE,
+        "mode-2 connected-query call prefix",
+    )?;
+    verify_signature(
+        MODE2_CONNECTED_QUERY_CALL_ADDR + 5,
+        MODE2_QUERY_CALL_SUFFIX_SIGNATURE,
+        "mode-2 connected-query call suffix",
+    )?;
+    verify_signature(
+        MODE2_RESULT_DESTROY_CALL_ADDR - 13,
+        MODE2_DESTROY_CALL_PREFIX_SIGNATURE,
+        "mode-2 result-destroy call prefix",
+    )?;
+    verify_signature(
+        MODE2_RESULT_DESTROY_CALL_ADDR + 5,
+        MODE2_DESTROY_CALL_SUFFIX_SIGNATURE,
+        "mode-2 result-destroy call suffix",
     )?;
     verify_signature(
         PERIODIC_RADIO_STATION_UPDATE_CALL_ADDR - 4,
@@ -908,25 +1241,58 @@ pub fn install_radio_scan_fix() -> anyhow::Result<()> {
         LOOKUP_FORM_BY_ID_SIGNATURE,
         "loaded FormID resolver",
     )?;
+    verify_signature(PATH_QUERY_ADDR, PATH_QUERY_SIGNATURE, "generic path query")?;
+    verify_signature(
+        PATH_RESULT_CONSTRUCT_ADDR,
+        PATH_RESULT_CONSTRUCT_SIGNATURE,
+        "generic path-result constructor",
+    )?;
+    verify_signature(
+        PATH_RESULT_DESTROY_ADDR,
+        PATH_RESULT_DESTROY_SIGNATURE,
+        "generic path-result destructor",
+    )?;
     unsafe {
-        replace_call(
-            MODE0_RADIO_DISTANCE_CALL_ADDR as *mut c_void,
-            cooperative_distance_entry as *mut c_void,
-        )?;
-        replace_call(
-            PERIODIC_RADIO_SCAN_CALL_ADDR as *mut c_void,
-            hook_periodic_radio_signal_scan as *mut c_void,
-        )?;
-        replace_call(
-            PERIODIC_RADIO_STATION_UPDATE_CALL_ADDR as *mut c_void,
-            skip_empty_inactive_station_update as *mut c_void,
-        )?;
+        replace_calls_transactionally(&[
+            // Destructor bridges are behavior-neutral without TLS state. They
+            // must exist before a query bridge can suppress vanilla's loop.
+            (
+                MODE1_RESULT_DESTROY_CALL_ADDR,
+                mode1_result_destroy_entry as *mut c_void,
+            ),
+            (
+                MODE2_RESULT_DESTROY_CALL_ADDR,
+                mode2_result_destroy_entry as *mut c_void,
+            ),
+            (
+                MODE1_CONNECTED_QUERY_CALL_ADDR,
+                cooperative_connected_entry as *mut c_void,
+            ),
+            (
+                MODE2_CONNECTED_QUERY_CALL_ADDR,
+                cooperative_connected_entry as *mut c_void,
+            ),
+            (
+                MODE0_RADIO_DISTANCE_CALL_ADDR,
+                cooperative_distance_entry as *mut c_void,
+            ),
+            (
+                PERIODIC_RADIO_SCAN_CALL_ADDR,
+                hook_periodic_radio_signal_scan as *mut c_void,
+            ),
+            (
+                PERIODIC_RADIO_STATION_UPDATE_CALL_ADDR,
+                skip_empty_inactive_station_update as *mut c_void,
+            ),
+        ])?;
     }
 
     log::info!(
-        "[RADIO] Game-owned radio bridge active: scan=0x{:08X} query=0x{:08X} station_update=0x{:08X} capacity={}",
+        "[RADIO] Game-owned radio bridge active: scan=0x{:08X} query0/1/2=0x{:08X}/0x{:08X}/0x{:08X} station_update=0x{:08X} capacity={}",
         PERIODIC_RADIO_SCAN_CALL_ADDR,
         MODE0_RADIO_DISTANCE_CALL_ADDR,
+        MODE1_CONNECTED_QUERY_CALL_ADDR,
+        MODE2_CONNECTED_QUERY_CALL_ADDR,
         PERIODIC_RADIO_STATION_UPDATE_CALL_ADDR,
         MAX_COOPERATIVE_QUERIES,
     );
@@ -972,6 +1338,11 @@ pub fn install_radio_scan_fix() -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Feeds lifecycle and frame events into the radio tasklet scheduler.
+///
+/// World-lifetime events synchronously join any active native tasklet before
+/// engine forms can be invalidated. `ON_FRAME_PRESENT` performs nonblocking
+/// completion polling and releases at most one paced query per invocation.
 pub(crate) fn observe_event(kind: u32) {
     if kind == crate::events::ON_FRAME_PRESENT {
         observe_frame_present();
@@ -1357,9 +1728,21 @@ unsafe fn prepare_tasklet_work(work: QueryWork) -> bool {
     if station_ref.is_null() || current_ref.is_null() {
         return false;
     }
+    let expected_worldspace = match work.request.key.kind {
+        QueryKind::NullOrStationWorldspace => {
+            let worldspace = unsafe { lookup(work.request.key.parameter_bits) };
+            if worldspace.is_null() {
+                return false;
+            }
+            worldspace
+        }
+        QueryKind::Distance | QueryKind::InteriorOnly => core::ptr::null_mut(),
+    };
 
     let prepared = &mut tasklet.batch.queries[0];
     prepared.work = work;
+    prepared.expected_worldspace = expected_worldspace;
+    prepared.output = QueryValue::default();
     unsafe {
         init(&mut prepared.station, station_ref);
         init(&mut prepared.current, current_ref);
@@ -1386,6 +1769,8 @@ unsafe fn cleanup_prepared_batch() {
                 destroy(&mut prepared.current);
             }
             prepared.initialized = false;
+            prepared.expected_worldspace = core::ptr::null_mut();
+            prepared.output = QueryValue::default();
         }
     }
     tasklet.batch.count = 0;
@@ -1522,10 +1907,16 @@ fn report_tasklet_publication(now_ms: u32) {
     if COOPERATIVE_PUBLICATION_REPORTED.swap(true, Ordering::AcqRel) {
         return;
     }
-    let published_count = QUERY_PIPELINE.lock().published_count;
+    let (published_count, kinds) = {
+        let pipeline = QUERY_PIPELINE.lock();
+        (pipeline.published_count, pipeline.published_kind_counts())
+    };
     log::info!(
-        "[RADIO] Native paced tasklet generation verified: results={} jobs={} worker_wall_total/max={}/{}us game_thread_prep_total/max={}/{}us latency_ms={:?} worker_thread=0x{:08X}",
+        "[RADIO] Native paced tasklet generation verified: results={} kinds=distance:{}/mode1:{}/mode2:{} jobs={} worker_wall_total/max={}/{}us game_thread_prep_total/max={}/{}us latency_ms={:?} worker_thread=0x{:08X}",
         published_count,
+        kinds.distance,
+        kinds.mode1,
+        kinds.mode2,
         COOPERATIVE_TIMED_JOBS.load(Ordering::Relaxed),
         COOPERATIVE_TIMED_TOTAL_US.load(Ordering::Relaxed),
         COOPERATIVE_TIMED_MAX_US.load(Ordering::Relaxed),
@@ -1567,13 +1958,13 @@ unsafe extern "thiscall" fn radio_tasklet_execute(tasklet: *mut EngineTasklet) {
 
         let timer = (!COOPERATIVE_PUBLICATION_REPORTED.load(Ordering::Acquire))
             .then(diagnostics::Stopwatch::start);
-        let distance = unsafe { execute_prepared_query(prepared) };
+        let output = unsafe { execute_prepared_query(prepared) };
         if let Some(elapsed_us) = timer.and_then(diagnostics::Stopwatch::elapsed_us) {
             COOPERATIVE_TIMED_JOBS.fetch_add(1, Ordering::Relaxed);
             COOPERATIVE_TIMED_TOTAL_US.fetch_add(elapsed_us, Ordering::Relaxed);
             diagnostics::update_max_u64(&COOPERATIVE_TIMED_MAX_US, elapsed_us);
         }
-        prepared.distance = distance;
+        prepared.output = output;
     }
     if priority_guard.restore().is_err() {
         TASKLET_PRIORITY_FAILED.store(true, Ordering::Release);
@@ -1589,22 +1980,100 @@ unsafe fn publish_prepared_batch() -> bool {
         return false;
     }
     let prepared = &tasklet.batch.queries[0];
-    pipeline.complete(prepared.work, Some(prepared.distance))
+    pipeline.complete(prepared.work, Some(prepared.output))
 }
 
-unsafe fn execute_prepared_query(prepared: &mut PreparedQuery) -> f32 {
+unsafe fn execute_prepared_query(prepared: &mut PreparedQuery) -> QueryValue {
     let scope = RadioPathQueryScope::enter();
-    let distance = unsafe {
-        call_mode0_distance(
-            &mut prepared.station,
-            &mut prepared.current,
-            prepared.work.request.radius,
-            core::ptr::null_mut(),
-            3,
-        )
+    let value = match prepared.work.request.key.kind {
+        QueryKind::Distance => QueryValue::distance(unsafe {
+            call_mode0_distance(
+                &mut prepared.station,
+                &mut prepared.current,
+                f32::from_bits(prepared.work.request.key.parameter_bits),
+                core::ptr::null_mut(),
+                3,
+            )
+        }),
+        kind @ (QueryKind::NullOrStationWorldspace | QueryKind::InteriorOnly) => {
+            QueryValue::availability(kind, unsafe {
+                execute_connected_query(
+                    &mut prepared.station,
+                    &mut prepared.current,
+                    kind,
+                    prepared.expected_worldspace,
+                )
+            })
+        }
     };
     drop(scope);
-    distance
+    value
+}
+
+unsafe fn execute_connected_query(
+    station: *mut PathingLocation,
+    current: *mut PathingLocation,
+    kind: QueryKind,
+    expected_worldspace: *mut c_void,
+) -> bool {
+    debug_assert!(kind.is_connected());
+    debug_assert!(kind != QueryKind::NullOrStationWorldspace || !expected_worldspace.is_null());
+
+    let construct = unsafe {
+        FnPtr::<PathResultConstructFn>::from_address_unchecked(PATH_RESULT_CONSTRUCT_ADDR)
+    }
+    .as_fn();
+    let destroy =
+        unsafe { FnPtr::<PathResultDestroyFn>::from_address_unchecked(PATH_RESULT_DESTROY_ADDR) }
+            .as_fn();
+    let mut result = PathQueryResult::uninit_storage();
+    unsafe {
+        construct(&mut result);
+    }
+
+    // Once constructed, every exit must run the engine destructor on this
+    // same worker. The query owns its large temporary object on its own stack;
+    // only this small caller result contains dynamic arrays.
+    let query_succeeded =
+        unsafe { call_generic_path_query(station, current, &mut result, kind as u32, 0.0, 0, 1) }
+            != 0;
+    let accepted =
+        query_succeeded && unsafe { connected_result_accepts(&result, kind, expected_worldspace) };
+    unsafe {
+        destroy(&mut result);
+    }
+    accepted
+}
+
+unsafe fn connected_result_accepts(
+    result: &PathQueryResult,
+    kind: QueryKind,
+    expected_worldspace: *mut c_void,
+) -> bool {
+    let count = unsafe { result.parent_space_count() };
+    for index in 0..count {
+        let node = unsafe { result.parent_space(index) };
+        let worldspace =
+            unsafe { core::ptr::read_unaligned(core::ptr::addr_of!((*node).worldspace)) };
+        if !connected_worldspace_is_allowed(kind, expected_worldspace, worldspace) {
+            return false;
+        }
+    }
+    true
+}
+
+fn connected_worldspace_is_allowed(
+    kind: QueryKind,
+    expected_worldspace: *mut c_void,
+    worldspace: *mut c_void,
+) -> bool {
+    match kind {
+        QueryKind::NullOrStationWorldspace => {
+            worldspace.is_null() || worldspace == expected_worldspace
+        }
+        QueryKind::InteriorOnly => worldspace.is_null(),
+        QueryKind::Distance => false,
+    }
 }
 
 #[unsafe(naked)]
@@ -1659,27 +2128,244 @@ unsafe extern "C" fn cooperative_distance_body(
         };
     };
 
-    let request = QueryRequest {
-        key: QueryKey {
-            station_form_id,
-            current_ref_form_id,
-            radius_bits: radius.to_bits(),
-        },
-        radius,
-    };
-    let (distance, collection_failed) = {
+    let request = QueryRequest::distance(station_form_id, current_ref_form_id, radius);
+    let (value, collection_failed) = {
         let mut pipeline = QUERY_PIPELINE.lock();
-        let distance = pipeline.observe_query(request);
-        (distance, pipeline.collection_failed)
+        let value = pipeline.observe_query(request);
+        (value, pipeline.collection_failed)
     };
-    if collection_failed && !COOPERATIVE_CAPACITY_EXCEEDED.swap(true, Ordering::AcqRel) {
-        COOPERATIVE_SCAN_ACTIVE.with(|active| active.set(false));
+    if collection_failed {
+        report_cooperative_capacity_failure();
+    }
+    value
+        .and_then(QueryValue::as_distance)
+        .unwrap_or_else(path_failure_distance)
+}
+
+/// Copies the generic query's caller-owned arguments without consuming them.
+///
+/// `FUN_004FF1A0` removes the original 28 argument bytes after this function
+/// returns. The thunk adds scanner EBP as an eighth argument for the Rust
+/// body, removes only its 32-byte copy, and leaves the engine stack untouched.
+#[unsafe(naked)]
+unsafe extern "C" fn cooperative_connected_entry(
+    _station: *mut PathingLocation,
+    _current: *mut PathingLocation,
+    _result: *mut PathQueryResult,
+    _mode: u32,
+    _max_cost: f32,
+    _filter: u32,
+    _behavior: u32,
+) -> u8 {
+    core::arch::naked_asm!(
+        "mov eax, esp",
+        "push dword ptr [eax + 28]",
+        "push dword ptr [eax + 24]",
+        "push dword ptr [eax + 20]",
+        "push dword ptr [eax + 16]",
+        "push dword ptr [eax + 12]",
+        "push dword ptr [eax + 8]",
+        "push dword ptr [eax + 4]",
+        "push ebp",
+        "call {}",
+        "add esp, 32",
+        "ret",
+        sym cooperative_connected_body,
+    );
+}
+
+unsafe extern "C" fn cooperative_connected_body(
+    caller_ebp: usize,
+    station: *mut PathingLocation,
+    current: *mut PathingLocation,
+    result: *mut PathQueryResult,
+    mode: u32,
+    max_cost: f32,
+    filter: u32,
+    behavior: u32,
+) -> u8 {
+    // Clear first so every fallback path leaves its matching vanilla
+    // destructor behavior-neutral.
+    PENDING_CONNECTED_RESULT.with(|pending| pending.set(PendingConnectedResult::None));
+
+    let Some(kind) = QueryKind::connected_mode(mode) else {
+        return unsafe {
+            call_generic_path_query(station, current, result, mode, max_cost, filter, behavior)
+        };
+    };
+    let Some(result_offset) = kind.scanner_result_offset() else {
+        return unsafe {
+            call_generic_path_query(station, current, result, mode, max_cost, filter, behavior)
+        };
+    };
+    if !cooperative_scan_active()
+        || caller_ebp == 0
+        || station.is_null()
+        || current.is_null()
+        || result.is_null()
+        || result as usize != caller_ebp.wrapping_sub(result_offset)
+        || max_cost.to_bits() != 0
+        || filter != 0
+        || behavior != 1
+    {
+        return unsafe {
+            call_generic_path_query(station, current, result, mode, max_cost, filter, behavior)
+        };
+    }
+
+    let station_ref =
+        unsafe { core::ptr::read_unaligned(caller_ebp.wrapping_sub(0x24) as *const *mut c_void) };
+    let current_ref =
+        unsafe { core::ptr::read_unaligned(caller_ebp.wrapping_add(8) as *const *mut c_void) };
+    let Some(station_form_id) = (unsafe { reference_form_id(station_ref) }) else {
+        return unsafe {
+            call_generic_path_query(station, current, result, mode, max_cost, filter, behavior)
+        };
+    };
+    let Some(current_ref_form_id) = (unsafe { reference_form_id(current_ref) }) else {
+        return unsafe {
+            call_generic_path_query(station, current, result, mode, max_cost, filter, behavior)
+        };
+    };
+
+    let expected_worldspace_form_id = if kind == QueryKind::NullOrStationWorldspace {
+        let expected_worldspace = unsafe {
+            core::ptr::read_unaligned(caller_ebp.wrapping_sub(0x30) as *const *mut c_void)
+        };
+        let Some(form_id) = (unsafe { reference_form_id(expected_worldspace) }) else {
+            return unsafe {
+                call_generic_path_query(station, current, result, mode, max_cost, filter, behavior)
+            };
+        };
+        let lookup =
+            unsafe { FnPtr::<LookupFormByIdFn>::from_address_unchecked(LOOKUP_FORM_BY_ID_ADDR) }
+                .as_fn();
+        // Vanilla compares parent-space pointers, not FormIDs. Round-tripping
+        // here proves that the scalar key can later reconstruct that exact
+        // canonical pointer without carrying a live form through the pipeline.
+        if unsafe { lookup(form_id) } != expected_worldspace {
+            return unsafe {
+                call_generic_path_query(station, current, result, mode, max_cost, filter, behavior)
+            };
+        }
+        form_id
+    } else {
+        0
+    };
+
+    let request = QueryRequest::connected(
+        station_form_id,
+        current_ref_form_id,
+        kind,
+        expected_worldspace_form_id,
+    );
+    let (value, collection_failed) = {
+        let mut pipeline = QUERY_PIPELINE.lock();
+        let value = pipeline.observe_query(request);
+        (value, pipeline.collection_failed)
+    };
+    if collection_failed {
+        report_cooperative_capacity_failure();
+        return unsafe {
+            call_generic_path_query(station, current, result, mode, max_cost, filter, behavior)
+        };
+    }
+
+    let available = value
+        .and_then(|value| value.as_availability(kind))
+        .unwrap_or(false);
+    PENDING_CONNECTED_RESULT
+        .with(|pending| pending.set(PendingConnectedResult::new(kind, available)));
+
+    // False skips vanilla's parent-space loop. The matching destructor bridge
+    // applies the reduced scalar only after the empty caller result is safely
+    // destroyed; returning true here would fabricate an accepted empty path.
+    0
+}
+
+/// Mode-1 result cleanup bridge.
+///
+/// The engine passes the result in ECX and no stack arguments. The thunk
+/// forwards ECX plus the scanner's EBP and a constant mode to the shared body.
+#[unsafe(naked)]
+unsafe extern "C" fn mode1_result_destroy_entry() {
+    core::arch::naked_asm!(
+        "push ecx",
+        "push ebp",
+        "push 1",
+        "call {}",
+        "add esp, 12",
+        "ret",
+        sym connected_result_destroy_body,
+    );
+}
+
+/// Mode-2 result cleanup bridge; see [`mode1_result_destroy_entry`].
+#[unsafe(naked)]
+unsafe extern "C" fn mode2_result_destroy_entry() {
+    core::arch::naked_asm!(
+        "push ecx",
+        "push ebp",
+        "push 2",
+        "call {}",
+        "add esp, 12",
+        "ret",
+        sym connected_result_destroy_body,
+    );
+}
+
+unsafe extern "C" fn connected_result_destroy_body(
+    mode: u32,
+    caller_ebp: usize,
+    result: *mut PathQueryResult,
+) {
+    // Cleanup always happens first. Even a TLS mismatch, invalid caller
+    // frame, or non-cooperative early mode-2 branch must retain vanilla's
+    // dynamic-array destruction exactly once.
+    unsafe { call_path_result_destroy(result) };
+
+    let Some(kind) = QueryKind::connected_mode(mode) else {
+        return;
+    };
+    let Some(available) = take_pending_connected_result(kind) else {
+        return;
+    };
+    let Some(result_offset) = kind.scanner_result_offset() else {
+        return;
+    };
+    if caller_ebp == 0 || result as usize != caller_ebp.wrapping_sub(result_offset) {
+        return;
+    }
+
+    unsafe {
+        core::ptr::write_unaligned(
+            caller_ebp.wrapping_sub(0x0D) as *mut u8,
+            u8::from(available),
+        );
+    }
+    if available {
+        let signal_value =
+            unsafe { core::ptr::read_volatile(CONNECTED_SIGNAL_VALUE_ADDR as *const f32) };
+        unsafe {
+            core::ptr::write_unaligned(caller_ebp.wrapping_sub(0x14) as *mut f32, signal_value);
+        }
+    }
+}
+
+fn take_pending_connected_result(kind: QueryKind) -> Option<bool> {
+    PENDING_CONNECTED_RESULT
+        .with(|pending| pending.replace(PendingConnectedResult::None))
+        .consume_for(kind)
+}
+
+fn report_cooperative_capacity_failure() {
+    COOPERATIVE_SCAN_ACTIVE.with(|active| active.set(false));
+    if !COOPERATIVE_CAPACITY_EXCEEDED.swap(true, Ordering::AcqRel) {
         log::error!(
             "[RADIO] Cooperative query capacity exceeded ({}); future scans retain the original synchronous path",
             MAX_COOPERATIVE_QUERIES,
         );
     }
-    distance.unwrap_or_else(path_failure_distance)
 }
 
 fn observe_frame_present() {
@@ -1718,22 +2404,29 @@ fn observe_frame_present() {
     };
     let timer = (!COOPERATIVE_PUBLICATION_REPORTED.load(Ordering::Acquire))
         .then(diagnostics::Stopwatch::start);
-    let distance = unsafe { execute_query_work(work) };
+    let value = unsafe { execute_query_work(work) };
     if let Some(elapsed_us) = timer.and_then(diagnostics::Stopwatch::elapsed_us) {
         COOPERATIVE_TIMED_JOBS.fetch_add(1, Ordering::Relaxed);
         COOPERATIVE_TIMED_TOTAL_US.fetch_add(elapsed_us, Ordering::Relaxed);
         diagnostics::update_max_u64(&COOPERATIVE_TIMED_MAX_US, elapsed_us);
     }
 
-    let (published, published_count) = {
+    let (published, published_count, kinds) = {
         let mut pipeline = QUERY_PIPELINE.lock();
-        let published = pipeline.complete(work, distance);
-        (published, pipeline.published_count)
+        let published = pipeline.complete(work, value);
+        (
+            published,
+            pipeline.published_count,
+            pipeline.published_kind_counts(),
+        )
     };
     if published && !COOPERATIVE_PUBLICATION_REPORTED.swap(true, Ordering::AcqRel) {
         log::info!(
-            "[RADIO] Cooperative generation verified: results={} jobs={} total/max={}/{}us spread_ms={:?} thread=0x{:08X}",
+            "[RADIO] Cooperative generation verified: results={} kinds=distance:{}/mode1:{}/mode2:{} jobs={} total/max={}/{}us spread_ms={:?} thread=0x{:08X}",
             published_count,
+            kinds.distance,
+            kinds.mode1,
+            kinds.mode2,
             COOPERATIVE_TIMED_JOBS.load(Ordering::Relaxed),
             COOPERATIVE_TIMED_TOTAL_US.load(Ordering::Relaxed),
             COOPERATIVE_TIMED_MAX_US.load(Ordering::Relaxed),
@@ -1744,7 +2437,7 @@ fn observe_frame_present() {
     }
 }
 
-unsafe fn execute_query_work(work: QueryWork) -> Option<f32> {
+unsafe fn execute_query_work(work: QueryWork) -> Option<QueryValue> {
     let lookup =
         unsafe { FnPtr::<LookupFormByIdFn>::from_address_unchecked(LOOKUP_FORM_BY_ID_ADDR) }
             .as_fn();
@@ -1753,6 +2446,16 @@ unsafe fn execute_query_work(work: QueryWork) -> Option<f32> {
     if station_ref.is_null() || current_ref.is_null() {
         return None;
     }
+    let expected_worldspace = match work.request.key.kind {
+        QueryKind::NullOrStationWorldspace => {
+            let worldspace = unsafe { lookup(work.request.key.parameter_bits) };
+            if worldspace.is_null() {
+                return None;
+            }
+            worldspace
+        }
+        QueryKind::Distance | QueryKind::InteriorOnly => core::ptr::null_mut(),
+    };
 
     let init = unsafe {
         FnPtr::<PathingLocationInitFn>::from_address_unchecked(PATHING_LOCATION_INIT_ADDR)
@@ -1762,29 +2465,20 @@ unsafe fn execute_query_work(work: QueryWork) -> Option<f32> {
         FnPtr::<PathingLocationDestroyFn>::from_address_unchecked(PATHING_LOCATION_DESTROY_ADDR)
     }
     .as_fn();
-    let mut station = PathingLocation::uninit_storage();
-    let mut current = PathingLocation::uninit_storage();
+    let mut prepared = PreparedQuery::empty();
+    prepared.work = work;
+    prepared.expected_worldspace = expected_worldspace;
     unsafe {
-        init(&mut station, station_ref);
-        init(&mut current, current_ref);
+        init(&mut prepared.station, station_ref);
+        init(&mut prepared.current, current_ref);
     }
-
-    let scope = RadioPathQueryScope::enter();
-    let distance = unsafe {
-        call_mode0_distance(
-            &mut station,
-            &mut current,
-            work.request.radius,
-            core::ptr::null_mut(),
-            3,
-        )
-    };
-    drop(scope);
+    prepared.initialized = true;
+    let value = unsafe { execute_prepared_query(&mut prepared) };
     unsafe {
-        destroy(&mut station);
-        destroy(&mut current);
+        destroy(&mut prepared.station);
+        destroy(&mut prepared.current);
     }
-    Some(distance)
+    Some(value)
 }
 
 unsafe fn call_mode0_distance(
@@ -1798,6 +2492,27 @@ unsafe fn call_mode0_distance(
         unsafe { FnPtr::<Mode0RadioDistanceFn>::from_address_unchecked(MODE0_RADIO_DISTANCE_ADDR) }
             .as_fn();
     unsafe { original(station, current_ref, radius, actor_data, disposition) }
+}
+
+unsafe fn call_generic_path_query(
+    station: *mut PathingLocation,
+    current: *mut PathingLocation,
+    result: *mut PathQueryResult,
+    mode: u32,
+    max_cost: f32,
+    filter: u32,
+    behavior: u32,
+) -> u8 {
+    let original =
+        unsafe { FnPtr::<GenericPathQueryFn>::from_address_unchecked(PATH_QUERY_ADDR) }.as_fn();
+    unsafe { original(station, current, result, mode, max_cost, filter, behavior) }
+}
+
+unsafe fn call_path_result_destroy(result: *mut PathQueryResult) {
+    let destroy =
+        unsafe { FnPtr::<PathResultDestroyFn>::from_address_unchecked(PATH_RESULT_DESTROY_ADDR) }
+            .as_fn();
+    unsafe { destroy(result) };
 }
 
 unsafe extern "C" fn skip_empty_inactive_station_update(station: *mut c_void) {
@@ -1994,18 +2709,22 @@ unsafe extern "C" fn hook_periodic_radio_signal_scan(
     drop(scope);
 
     if cooperative && !COOPERATIVE_COLLECTION_REPORTED.swap(true, Ordering::AcqRel) {
-        let (requests, spacing_ms, state) = {
+        let (requests, kinds, spacing_ms, state) = {
             let pipeline = QUERY_PIPELINE.lock();
             (
                 pipeline.build_count,
+                pipeline.request_kind_counts(),
                 pipeline.job_spacing_ms,
                 pipeline.state,
             )
         };
         COOPERATIVE_COLLECTION_MS.store(scan_started_ms, Ordering::Release);
         log::info!(
-            "[RADIO] Cooperative collection verified: requests={} cadence/spacing={}/{}ms scan_us={:?} state={:?} thread=0x{:08X}",
+            "[RADIO] Cooperative collection verified: requests={} kinds=distance:{}/mode1:{}/mode2:{} cadence/spacing={}/{}ms scan_us={:?} state={:?} thread=0x{:08X}",
             requests,
+            kinds.distance,
+            kinds.mode1,
+            kinds.mode2,
             scan_cadence_ms,
             spacing_ms,
             first_collection_timer.and_then(diagnostics::Stopwatch::elapsed_us),
@@ -2093,7 +2812,7 @@ unsafe extern "C" fn hook_path_query(
     to: usize,
     result: *mut c_void,
     mode: u32,
-    max_cost: u32,
+    max_cost: f32,
     filter: u32,
     behavior: u32,
 ) -> u8 {
@@ -2342,6 +3061,43 @@ fn verify_signature(address: usize, expected: &[u8], label: &str) -> anyhow::Res
     Ok(())
 }
 
+unsafe fn replace_calls_transactionally(patches: &[(usize, *mut c_void)]) -> anyhow::Result<()> {
+    let originals = patches
+        .iter()
+        .map(|(address, _)| {
+            read_bytes(*address as *const c_void, 5)
+                .with_context(|| format!("snapshot CALL at 0x{address:08X}"))
+        })
+        .collect::<anyhow::Result<Vec<_>>>()?;
+
+    for (applied, (address, target)) in patches.iter().enumerate() {
+        if let Err(error) = unsafe { replace_call(*address as *mut c_void, *target) } {
+            // These patches are installed before gameplay begins, but partial
+            // connected coverage is still unsafe: a query bridge must never
+            // exist without its destructor handoff. Restore complete original
+            // instructions in reverse order and report any rollback failure.
+            let mut rollback_failures = Vec::new();
+            for index in (0..=applied).rev() {
+                if let Err(rollback_error) = unsafe {
+                    patch_bytes(patches[index].0 as *mut c_void, originals[index].as_slice())
+                } {
+                    rollback_failures.push(format!("0x{:08X}: {rollback_error}", patches[index].0));
+                }
+            }
+            if rollback_failures.is_empty() {
+                return Err(error).with_context(|| {
+                    format!("replace CALL at 0x{address:08X}; prior writes rolled back")
+                });
+            }
+            return Err(anyhow::anyhow!(
+                "replace CALL at 0x{address:08X}: {error}; rollback failures: {}",
+                rollback_failures.join(", ")
+            ));
+        }
+    }
+    Ok(())
+}
+
 fn verify_tasklet_provider_target(provider: usize) -> anyhow::Result<()> {
     ensure!(
         provider >= 0x10000,
@@ -2396,14 +3152,19 @@ mod tests {
     use super::*;
 
     fn request(station_form_id: u32, radius: f32) -> QueryRequest {
-        QueryRequest {
-            key: QueryKey {
-                station_form_id,
-                current_ref_form_id: 0x14,
-                radius_bits: radius.to_bits(),
-            },
-            radius,
-        }
+        QueryRequest::distance(station_form_id, 0x14, radius)
+    }
+
+    fn connected_request(
+        station_form_id: u32,
+        kind: QueryKind,
+        expected_worldspace_form_id: u32,
+    ) -> QueryRequest {
+        QueryRequest::connected(station_form_id, 0x14, kind, expected_worldspace_form_id)
+    }
+
+    fn distance(distance: f32) -> Option<QueryValue> {
+        Some(QueryValue::distance(distance))
     }
 
     #[test]
@@ -2418,14 +3179,14 @@ mod tests {
         assert!(pipeline.end_scan());
 
         let first_work = pipeline.take_next(1_000).expect("first frame work");
-        assert!(!pipeline.complete(first_work, Some(1_500.0)));
+        assert!(!pipeline.complete(first_work, distance(1_500.0)));
         assert_eq!(pipeline.lookup_published(first.key), None);
         assert_eq!(pipeline.lookup_published(second.key), None);
 
         let second_work = pipeline.take_next(1_125).expect("second frame work");
-        assert!(pipeline.complete(second_work, Some(2_500.0)));
-        assert_eq!(pipeline.lookup_published(first.key), Some(1_500.0));
-        assert_eq!(pipeline.lookup_published(second.key), Some(2_500.0));
+        assert!(pipeline.complete(second_work, distance(2_500.0)));
+        assert_eq!(pipeline.lookup_published(first.key), distance(1_500.0));
+        assert_eq!(pipeline.lookup_published(second.key), distance(2_500.0));
     }
 
     #[test]
@@ -2437,17 +3198,17 @@ mod tests {
         pipeline.observe_query(old);
         pipeline.end_scan();
         let work = pipeline.take_next(1_000).expect("seed work");
-        assert!(pipeline.complete(work, Some(1_500.0)));
+        assert!(pipeline.complete(work, distance(1_500.0)));
 
         pipeline.begin_scan(2_000, 250);
-        assert_eq!(pipeline.observe_query(old), Some(1_500.0));
+        assert_eq!(pipeline.observe_query(old), distance(1_500.0));
         let added = request(0x0100_0002, 20_000.0);
         assert_eq!(pipeline.observe_query(added), None);
         pipeline.end_scan();
         let work = pipeline.take_next(2_000).expect("failed work");
         assert!(!pipeline.complete(work, None));
 
-        assert_eq!(pipeline.lookup_published(old.key), Some(1_500.0));
+        assert_eq!(pipeline.lookup_published(old.key), distance(1_500.0));
         assert_eq!(pipeline.lookup_published(added.key), None);
     }
 
@@ -2462,8 +3223,197 @@ mod tests {
         assert_eq!(pipeline.build_count, 1);
         pipeline.end_scan();
         let work = pipeline.take_next(1_000).expect("deduplicated work");
-        assert!(pipeline.complete(work, Some(1_500.0)));
+        assert!(pipeline.complete(work, distance(1_500.0)));
         assert!(pipeline.take_next(1_001).is_none());
+    }
+
+    #[test]
+    fn mixed_query_kinds_publish_as_one_complete_generation() {
+        let mut pipeline = QueryPipeline::new();
+        let distance_request = request(0x0100_0001, 10_000.0);
+        let mode1_request =
+            connected_request(0x0100_0002, QueryKind::NullOrStationWorldspace, 0x0000_003C);
+        let mode2_request = connected_request(0x0100_0003, QueryKind::InteriorOnly, 0);
+
+        pipeline.begin_scan(1_000, 240);
+        pipeline.observe_query(distance_request);
+        pipeline.observe_query(mode1_request);
+        pipeline.observe_query(mode2_request);
+        assert_eq!(
+            pipeline.request_kind_counts(),
+            QueryKindCounts {
+                distance: 1,
+                mode1: 1,
+                mode2: 1,
+            }
+        );
+        assert!(pipeline.end_scan());
+
+        let first = pipeline.take_next(1_000).expect("distance work");
+        assert!(!pipeline.complete(first, distance(1_500.0)));
+        let second = pipeline.take_next(1_080).expect("mode-1 work");
+        assert!(!pipeline.complete(
+            second,
+            Some(QueryValue::availability(
+                QueryKind::NullOrStationWorldspace,
+                true,
+            )),
+        ));
+        assert_eq!(pipeline.published_count, 0);
+
+        let third = pipeline.take_next(1_160).expect("mode-2 work");
+        assert!(pipeline.complete(
+            third,
+            Some(QueryValue::availability(QueryKind::InteriorOnly, false)),
+        ));
+        assert_eq!(
+            pipeline.published_kind_counts(),
+            QueryKindCounts {
+                distance: 1,
+                mode1: 1,
+                mode2: 1,
+            }
+        );
+    }
+
+    #[test]
+    fn query_kind_and_kind_specific_parameter_prevent_cache_aliases() {
+        let distance_request = request(0x0100_0001, 60.0);
+        let first_worldspace =
+            connected_request(0x0100_0001, QueryKind::NullOrStationWorldspace, 0x0000_003C);
+        let second_worldspace =
+            connected_request(0x0100_0001, QueryKind::NullOrStationWorldspace, 0x0000_003D);
+        let interior = connected_request(0x0100_0001, QueryKind::InteriorOnly, 0);
+
+        let mut pipeline = QueryPipeline::new();
+        pipeline.begin_scan(1_000, 250);
+        pipeline.observe_query(distance_request);
+        pipeline.observe_query(first_worldspace);
+        pipeline.observe_query(second_worldspace);
+        pipeline.observe_query(interior);
+        assert_eq!(pipeline.build_count, 4);
+    }
+
+    #[test]
+    fn mismatched_result_tag_aborts_without_publishing() {
+        let mut pipeline = QueryPipeline::new();
+        pipeline.begin_scan(1_000, 250);
+        pipeline.observe_query(request(0x0100_0001, 10_000.0));
+        pipeline.end_scan();
+        let work = pipeline.take_next(1_000).expect("distance work");
+
+        assert!(!pipeline.complete(
+            work,
+            Some(QueryValue::availability(QueryKind::InteriorOnly, true)),
+        ));
+        assert_eq!(pipeline.state, PipelineState::Idle);
+        assert_eq!(pipeline.published_count, 0);
+    }
+
+    #[test]
+    fn capacity_failure_rejects_the_generation_and_preserves_snapshot() {
+        let mut pipeline = QueryPipeline::new();
+        let old = request(0x0100_0001, 10_000.0);
+        pipeline.begin_scan(1_000, 250);
+        pipeline.observe_query(old);
+        pipeline.end_scan();
+        let work = pipeline.take_next(1_000).expect("seed work");
+        assert!(pipeline.complete(work, distance(1_500.0)));
+
+        pipeline.begin_scan(2_000, 250);
+        for form_id in 1..=MAX_COOPERATIVE_QUERIES as u32 {
+            pipeline.observe_query(request(form_id, 20_000.0));
+        }
+        pipeline.observe_query(request(u32::MAX, 20_000.0));
+        assert!(pipeline.collection_failed);
+        assert!(!pipeline.end_scan());
+        assert_eq!(pipeline.lookup_published(old.key), distance(1_500.0));
+    }
+
+    #[test]
+    fn connected_parent_space_predicates_match_the_scanner() {
+        let expected = 0x1000usize as *mut c_void;
+        let other = 0x2000usize as *mut c_void;
+
+        assert!(connected_worldspace_is_allowed(
+            QueryKind::NullOrStationWorldspace,
+            expected,
+            core::ptr::null_mut(),
+        ));
+        assert!(connected_worldspace_is_allowed(
+            QueryKind::NullOrStationWorldspace,
+            expected,
+            expected,
+        ));
+        assert!(!connected_worldspace_is_allowed(
+            QueryKind::NullOrStationWorldspace,
+            expected,
+            other,
+        ));
+        assert!(connected_worldspace_is_allowed(
+            QueryKind::InteriorOnly,
+            core::ptr::null_mut(),
+            core::ptr::null_mut(),
+        ));
+        assert!(!connected_worldspace_is_allowed(
+            QueryKind::InteriorOnly,
+            core::ptr::null_mut(),
+            expected,
+        ));
+    }
+
+    #[test]
+    fn result_reduction_uses_the_verified_array_offsets_and_stride() {
+        let expected = 0x1000usize as *mut c_void;
+        let nodes = [
+            ParentSpaceNode {
+                _parent: core::ptr::null_mut(),
+                worldspace: core::ptr::null_mut(),
+                _teleport: core::ptr::null_mut(),
+            },
+            ParentSpaceNode {
+                _parent: core::ptr::null_mut(),
+                worldspace: expected,
+                _teleport: core::ptr::null_mut(),
+            },
+        ];
+        let mut result = PathQueryResult::uninit_storage();
+        unsafe {
+            core::ptr::write_unaligned(
+                result
+                    .bytes
+                    .as_mut_ptr()
+                    .add(0x04)
+                    .cast::<*const ParentSpaceNode>(),
+                nodes.as_ptr(),
+            );
+            core::ptr::write_unaligned(result.bytes.as_mut_ptr().add(0x08).cast::<u32>(), 2);
+        }
+
+        assert!(unsafe {
+            connected_result_accepts(&result, QueryKind::NullOrStationWorldspace, expected)
+        });
+        assert!(!unsafe {
+            connected_result_accepts(&result, QueryKind::InteriorOnly, core::ptr::null_mut())
+        });
+    }
+
+    #[test]
+    fn pending_connected_result_is_mode_matched_and_one_shot() {
+        PENDING_CONNECTED_RESULT.with(|pending| pending.set(PendingConnectedResult::Mode1(true)));
+        assert_eq!(take_pending_connected_result(QueryKind::InteriorOnly), None);
+        assert_eq!(
+            take_pending_connected_result(QueryKind::NullOrStationWorldspace),
+            None,
+            "a mismatched cleanup must consume the stale handoff"
+        );
+
+        PENDING_CONNECTED_RESULT.with(|pending| pending.set(PendingConnectedResult::Mode2(false)));
+        assert_eq!(
+            take_pending_connected_result(QueryKind::InteriorOnly),
+            Some(false)
+        );
+        assert_eq!(take_pending_connected_result(QueryKind::InteriorOnly), None);
     }
 
     #[test]
@@ -2481,15 +3431,15 @@ mod tests {
         assert_eq!(pipeline.job_spacing_ms, 80);
 
         let work = pipeline.take_next(1_000).expect("first paced work");
-        assert!(!pipeline.complete(work, Some(1_000.0)));
+        assert!(!pipeline.complete(work, distance(1_000.0)));
         assert!(pipeline.take_next(1_079).is_none());
 
         let work = pipeline.take_next(1_080).expect("second paced work");
-        assert!(!pipeline.complete(work, Some(2_000.0)));
+        assert!(!pipeline.complete(work, distance(2_000.0)));
         assert!(pipeline.take_next(1_159).is_none());
 
         let work = pipeline.take_next(1_160).expect("third paced work");
-        assert!(pipeline.complete(work, Some(3_000.0)));
+        assert!(pipeline.complete(work, distance(3_000.0)));
     }
 
     #[test]
@@ -2504,11 +3454,11 @@ mod tests {
 
         let first = pipeline.take_next(1_000).expect("first work");
         assert_eq!(first.index, 0);
-        assert!(!pipeline.complete(first, Some(1_000.0)));
+        assert!(!pipeline.complete(first, distance(1_000.0)));
 
         let second = pipeline.take_next(1_125).expect("delayed second work");
         assert_eq!(second.index, 1);
-        assert!(!pipeline.complete(second, Some(2_000.0)));
+        assert!(!pipeline.complete(second, distance(2_000.0)));
 
         let third = pipeline.take_next(1_140).expect("catch-up third work");
         assert_eq!(third.index, 2);
@@ -2525,20 +3475,29 @@ mod tests {
 
         let first = pipeline.take_next(1_000).expect("first worker job");
         assert!(pipeline.take_next(1_079).is_none());
-        assert!(!pipeline.complete(first, Some(1_000.0)));
+        assert!(!pipeline.complete(first, distance(1_000.0)));
 
         let second = pipeline.take_next(1_080).expect("second worker job");
         assert!(pipeline.take_next(1_159).is_none());
-        assert!(!pipeline.complete(second, Some(2_000.0)));
+        assert!(!pipeline.complete(second, distance(2_000.0)));
 
         let third = pipeline.take_next(1_160).expect("third worker job");
         assert_eq!(first.generation, second.generation);
         assert_eq!(second.generation, third.generation);
         assert_eq!([first.index, second.index, third.index], [0, 1, 2]);
-        assert!(pipeline.complete(third, Some(3_000.0)));
-        assert_eq!(pipeline.lookup_published(first.request.key), Some(1_000.0));
-        assert_eq!(pipeline.lookup_published(second.request.key), Some(2_000.0));
-        assert_eq!(pipeline.lookup_published(third.request.key), Some(3_000.0));
+        assert!(pipeline.complete(third, distance(3_000.0)));
+        assert_eq!(
+            pipeline.lookup_published(first.request.key),
+            distance(1_000.0)
+        );
+        assert_eq!(
+            pipeline.lookup_published(second.request.key),
+            distance(2_000.0)
+        );
+        assert_eq!(
+            pipeline.lookup_published(third.request.key),
+            distance(3_000.0)
+        );
     }
 
     #[test]
@@ -2556,6 +3515,10 @@ mod tests {
     fn pathing_location_layout_matches_the_engine_contract() {
         assert_eq!(core::mem::size_of::<PathingLocation>(), 0x28);
         assert_eq!(core::mem::align_of::<PathingLocation>(), 4);
+        assert_eq!(core::mem::size_of::<PathQueryResult>(), 0x38);
+        assert_eq!(core::mem::align_of::<PathQueryResult>(), 4);
+        assert_eq!(core::mem::size_of::<ParentSpaceNode>(), 0x0C);
+        assert_eq!(core::mem::offset_of!(ParentSpaceNode, worldspace), 0x04);
     }
 
     #[test]
@@ -2569,9 +3532,9 @@ mod tests {
         assert_eq!(core::mem::size_of::<TaskletHandle>(), 0x08);
         assert_eq!(core::mem::offset_of!(RadioTasklet, engine), 0);
         assert_eq!(core::mem::offset_of!(RadioTasklet, batch), 0x18);
-        assert_eq!(core::mem::size_of::<PreparedQuery>(), 0x70);
-        assert_eq!(core::mem::size_of::<PreparedBatch>(), 0x74);
-        assert_eq!(core::mem::size_of::<RadioTasklet>(), 0x8C);
+        assert_eq!(core::mem::size_of::<PreparedQuery>(), 0x78);
+        assert_eq!(core::mem::size_of::<PreparedBatch>(), 0x7C);
+        assert_eq!(core::mem::size_of::<RadioTasklet>(), 0x94);
     }
 
     #[test]
