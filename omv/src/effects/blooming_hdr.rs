@@ -15,6 +15,7 @@ use libpsycho::os::windows::directx9::{
 use crate::{
     backend::{DepthTexture, FrameInputs},
     luts::LutAsset,
+    render_state::{RenderTargetSlots, copy_scene_color_for_sampling},
     shaders::{self, ScreenShaderSource, ShaderOptionValue},
 };
 
@@ -783,8 +784,7 @@ mod shader_compile_tests {
             "device.set_render_state(D3DRS_MULTISAMPLEMASK, u32::MAX)?",
             "device.set_render_state(D3DRS_SRGBWRITEENABLE, 0)?",
             "device.set_sampler_state(sampler, D3DSAMP_SRGBTEXTURE, 0)?",
-            "device.set_depth_stencil_surface(None)?",
-            "device.clear_render_target(index)?",
+            "render_target_slots.prepare_target_change(device)?",
         ] {
             assert!(
                 source.contains(required),
@@ -2066,9 +2066,17 @@ mod shader_compile_tests {
         assert!(implementation.contains("if work.bloom_intermediate {"));
         assert!(implementation.contains("bind_bloom_effect_constants"));
         assert!(implementation.contains("&grade.constants(bloom_enabled)"));
-        assert!(implementation.contains(
-            "device.stretch_rect(backbuffer, None, scene_copy_surface, None, D3DTEXF_POINT)?"
+        let draw_signature = ["pub(crate) fn dr", "aw("].concat();
+        let draw_body = implementation
+            .rsplit_once(&draw_signature)
+            .map(|(_, tail)| tail)
+            .and_then(|tail| tail.split_once("\n    fn "))
+            .map(|(body, _)| body)
+            .expect("final-color draw body");
+        assert!(draw_body.contains(
+            "copy_scene_color_for_sampling(device, backbuffer, scene_copy_surface, scene_color)?"
         ));
+        assert!(!draw_body.contains("device.stretch_rect("));
         assert!(implementation.contains("self.draw_chromatic_aberration("));
     }
 }
@@ -2083,12 +2091,14 @@ pub(crate) struct BloomingHdrEffect {
     film_grain_texture: Texture9,
     lut_revision: Option<(u32, u64)>,
     targets: Option<BloomTargets>,
+    render_target_slots: RenderTargetSlots,
 }
 
 impl BloomingHdrEffect {
     pub(crate) fn create(
         device: &Device9Ref<'_>,
         shaders: &FinalColorShaderBytecode,
+        render_target_slots: RenderTargetSlots,
     ) -> Direct3DResult<Self> {
         Ok(Self {
             extract_shader: device.create_pixel_shader(&shaders.extract)?,
@@ -2105,6 +2115,7 @@ impl BloomingHdrEffect {
             )?,
             lut_revision: None,
             targets: None,
+            render_target_slots,
         })
     }
 
@@ -2191,8 +2202,7 @@ impl BloomingHdrEffect {
         }
         if work.chromatic_aberration {
             if composed {
-                device.clear_texture(0)?;
-                device.stretch_rect(backbuffer, None, scene_copy_surface, None, D3DTEXF_POINT)?;
+                copy_scene_color_for_sampling(device, backbuffer, scene_copy_surface, scene_color)?;
             }
             self.draw_chromatic_aberration(
                 device,
@@ -2260,6 +2270,7 @@ impl BloomingHdrEffect {
             &targets.extract.surface,
             targets.width,
             targets.height,
+            self.render_target_slots,
         )?;
         device.set_texture(0, scene_color)?;
         bind_common_constants(device, desc, frame_inputs, source, frame_index, 0.0)?;
@@ -2282,7 +2293,13 @@ impl BloomingHdrEffect {
             (&targets.blur.texture, &targets.extract.surface)
         };
 
-        bind_target(device, output, targets.width, targets.height)?;
+        bind_target(
+            device,
+            output,
+            targets.width,
+            targets.height,
+            self.render_target_slots,
+        )?;
         device.set_texture(0, input)?;
         bind_lowres_constants(device, targets, frame_inputs, source, frame_index, 1.0)?;
         device.set_pixel_shader_constant_f(
@@ -2306,7 +2323,13 @@ impl BloomingHdrEffect {
         scene_color: &Texture9,
         frame_index: u32,
     ) -> Direct3DResult<()> {
-        bind_target(device, backbuffer, desc.Width, desc.Height)?;
+        bind_target(
+            device,
+            backbuffer,
+            desc.Width,
+            desc.Height,
+            self.render_target_slots,
+        )?;
         device.set_texture(0, scene_color)?;
         bind_depth_inputs(device, &frame_inputs.depth.first_person_texture)?;
         let bloom_texture = if bloom_texture_ready {
@@ -2353,7 +2376,13 @@ impl BloomingHdrEffect {
         scene_color: &Texture9,
         amount_pixels: f32,
     ) -> Direct3DResult<()> {
-        bind_target(device, backbuffer, desc.Width, desc.Height)?;
+        bind_target(
+            device,
+            backbuffer,
+            desc.Width,
+            desc.Height,
+            self.render_target_slots,
+        )?;
         device.set_texture(0, scene_color)?;
         device.set_pixel_shader_constant_f(
             0,
@@ -2419,6 +2448,7 @@ fn bind_target(
     surface: &Surface9,
     width: u32,
     height: u32,
+    render_target_slots: RenderTargetSlots,
 ) -> Direct3DResult<()> {
     let viewport = D3DVIEWPORT9 {
         X: 0,
@@ -2433,10 +2463,7 @@ fn bind_target(
     device.clear_texture(4)?;
     device.clear_texture(5)?;
     device.clear_texture(6)?;
-    device.set_depth_stencil_surface(None)?;
-    for index in 1..=3 {
-        device.clear_render_target(index)?;
-    }
+    render_target_slots.prepare_target_change(device)?;
     device.set_render_target(0, surface)?;
     device.set_viewport(&viewport)
 }

@@ -33,6 +33,10 @@ use crate::{
         pbr, sky, sunshafts,
     },
     luts,
+    render_state::{
+        RenderAttachments, RenderTargetSlots, copy_scene_color_for_sampling,
+        finish_render_transaction,
+    },
     shaders::{self, EmbeddedEffectKind, ScreenShaderSource, ShaderOptionValue, ShaderPhase},
 };
 
@@ -219,19 +223,17 @@ mod render_callback_io_tests {
     #[test]
     fn rejected_depth_effects_exit_before_creation_and_backbuffer_copy() {
         let source = include_str!("runtime.rs");
-        for (function, predicate) in [
+        for (suffix, predicate) in [
             (
-                "fn draw_ambient_occlusion_pipeline(",
+                "ambient_occlusion_pipeline(",
                 "ambient_occlusion::should_draw",
             ),
-            ("fn draw_sunshafts_pipeline(", "sunshafts::should_draw"),
-            (
-                "fn draw_depth_of_field_pipeline(",
-                "depth_of_field::should_draw",
-            ),
+            ("sunshafts_pipeline(", "sunshafts::should_draw"),
+            ("depth_of_field_pipeline(", "depth_of_field::should_draw"),
         ] {
+            let function = ["\n    fn draw_", suffix].concat();
             let body = source
-                .split_once(function)
+                .split_once(&function)
                 .map(|(_, tail)| tail)
                 .and_then(|tail| tail.split_once("\n    fn "))
                 .map(|(body, _)| body)
@@ -242,13 +244,16 @@ mod render_callback_io_tests {
             let creation = body
                 .find("::create(device)")
                 .expect("effect resource creation");
-            let copy = body.find("device.stretch_rect").expect("backbuffer copy");
+            let copy = body
+                .find("copy_phase_color_for_sampling")
+                .expect("backbuffer copy");
             assert!(preflight < creation);
             assert!(preflight < copy);
         }
 
+        let motion_function = ["\n    fn draw_motion_", "blur_pipeline("].concat();
         let motion_body = source
-            .split_once("fn draw_motion_blur_pipeline(")
+            .split_once(&motion_function)
             .map(|(_, tail)| tail)
             .and_then(|tail| tail.split_once("\n    fn "))
             .map(|(body, _)| body)
@@ -260,7 +265,7 @@ mod render_callback_io_tests {
             .find("MotionBlurEffect::create(device)")
             .expect("motion shader creation");
         let copy = motion_body
-            .find("device.stretch_rect")
+            .find("copy_phase_color_for_sampling")
             .expect("motion color copy");
         assert!(prepared < creation);
         assert!(prepared < copy);
@@ -269,12 +274,10 @@ mod render_callback_io_tests {
     #[test]
     fn a_phase_with_only_rejected_effects_allocates_no_color_copy() {
         let source = include_str!("runtime.rs");
-        for function in [
-            "unsafe fn apply_present_frame(",
-            "unsafe fn apply_scene_phase(",
-        ] {
+        for suffix in ["present_frame(", "scene_phase("] {
+            let function = ["\n    unsafe fn apply_", suffix].concat();
             let body = source
-                .split_once(function)
+                .split_once(&function)
                 .map(|(_, tail)| tail)
                 .and_then(|tail| tail.split_once("\n    fn "))
                 .map(|(body, _)| body)
@@ -291,6 +294,79 @@ mod render_callback_io_tests {
             assert!(preflight < allocation);
             assert!(preflight < state_block);
         }
+    }
+
+    #[test]
+    fn every_phase_color_write_uses_the_feedback_safe_copy_helper() {
+        let source = include_str!("runtime.rs");
+        for suffix in [
+            "passes(",
+            "ambient_occlusion_pipeline(",
+            "anti_aliasing_pipeline(",
+            "final_color_pipeline(",
+            "sunshafts_pipeline(",
+            "depth_of_field_pipeline(",
+            "motion_blur_pipeline(",
+        ] {
+            let function = ["\n    fn draw_", suffix].concat();
+            let body = source
+                .split_once(&function)
+                .map(|(_, tail)| tail)
+                .and_then(|tail| tail.split_once("\n    fn "))
+                .map(|(body, _)| body)
+                .expect("screen effect pipeline body");
+            assert!(
+                body.contains("copy_phase_color_for_sampling("),
+                "{function} can write the phase copy without unbinding all aliases"
+            );
+            assert!(
+                !body.contains("device.stretch_rect("),
+                "{function} bypasses the phase-copy hazard guard"
+            );
+        }
+    }
+
+    #[test]
+    fn screen_transactions_restore_attachments_before_state_blocks() {
+        let source = include_str!("runtime.rs");
+        for suffix in ["present_frame(", "scene_phase("] {
+            let function = ["\n    unsafe fn apply_", suffix].concat();
+            let body = source
+                .split_once(&function)
+                .map(|(_, tail)| tail)
+                .and_then(|tail| tail.split_once("\n    fn "))
+                .map(|(body, _)| body)
+                .expect("screen transaction body");
+            let capture = body
+                .find("RenderAttachments::capture")
+                .expect("render attachment capture");
+            let draw = body.find("draw_passes").expect("screen draw");
+            let restore = body
+                .find("finish_render_transaction")
+                .expect("ordered render transaction restore");
+
+            assert!(capture < draw);
+            assert!(draw < restore);
+        }
+
+        let transaction = include_str!("render_state.rs");
+        let function = ["pub(crate) fn finish_render_", "transaction("].concat();
+        let body = transaction
+            .split_once(&function)
+            .map(|(_, tail)| tail)
+            .and_then(|tail| tail.split_once("\n}\n"))
+            .map(|(body, _)| body)
+            .expect("render transaction restore body");
+        let attachments = body
+            .find("attachments.restore")
+            .expect("render attachment restore");
+        let state_apply = body
+            .find("StateBlock9::apply")
+            .expect("state-block restore");
+        assert!(
+            attachments < state_apply,
+            "SetRenderTarget must precede viewport/scissor restoration"
+        );
     }
 }
 
@@ -587,6 +663,7 @@ struct ScreenShaderRuntime {
     world_color_copy: Option<BackbufferCopy>,
     world_color_source_target: usize,
     state_block: Option<StateBlock9>,
+    render_target_slots: Option<RenderTargetSlots>,
     imgui: Option<psycho_imgui::Dx9Context>,
     imgui_hwnd: usize,
     imgui_needs_device_objects: bool,
@@ -649,6 +726,7 @@ impl Default for ScreenShaderRuntime {
             world_color_copy: None,
             world_color_source_target: 0,
             state_block: None,
+            render_target_slots: None,
             imgui: None,
             imgui_hwnd: 0,
             imgui_needs_device_objects: false,
@@ -820,6 +898,8 @@ impl ScreenShaderRuntime {
             return Ok(());
         }
 
+        let render_target_slots = self.render_target_slots(&device)?;
+        let attachments = RenderAttachments::capture(&device, render_target_slots)?;
         self.ensure_state_block(&device)?;
 
         let Some(state_block) = self.state_block.as_ref() else {
@@ -830,13 +910,17 @@ impl ScreenShaderRuntime {
         state_block.capture()?;
 
         let draw_result = match shader_target.as_ref() {
-            Some((backbuffer, desc, frame_inputs)) => self.draw_passes(
-                &device,
-                backbuffer,
-                desc,
-                ShaderPhase::FinalImageSpace,
-                frame_inputs,
-            ),
+            Some((backbuffer, desc, frame_inputs)) => render_target_slots
+                .prepare_target_change(&device)
+                .and_then(|()| {
+                    self.draw_passes(
+                        &device,
+                        backbuffer,
+                        desc,
+                        ShaderPhase::FinalImageSpace,
+                        frame_inputs,
+                    )
+                }),
             None => Ok(()),
         };
         let menu_result = if menu_open {
@@ -846,17 +930,12 @@ impl ScreenShaderRuntime {
         } else {
             Ok(())
         };
-        let restore_result = if let Some(state_block) = self.state_block.as_ref() {
-            state_block.apply()
-        } else {
-            Err(runtime_error(
-                "[SHADERS] Missing D3D state block before restore",
-            ))
-        };
-
-        restore_result?;
-        draw_result?;
-        menu_result?;
+        finish_render_transaction(
+            &device,
+            &attachments,
+            self.state_block.as_ref(),
+            draw_result.and(menu_result),
+        )?;
         if has_shader_work {
             self.applied_phases
                 .mark_applied(ShaderPhase::FinalImageSpace);
@@ -896,77 +975,44 @@ impl ScreenShaderRuntime {
             return Ok(());
         }
 
-        let restore_target = match device.render_target(0) {
-            Ok(restore_target) => restore_target,
-            Err(err) => {
-                self.release_default_pool_resources();
-                return Err(err);
-            }
-        };
-
-        let render_target = match self.scene_phase_render_target(&device, &restore_target, target) {
-            Ok(Some(render_target)) => render_target,
-            Ok(None) => return Ok(()),
-            Err(err) => {
-                let _ = device.set_render_target(0, &restore_target);
-                return Err(err);
-            }
-        };
-
-        let desc = match render_target.desc() {
-            Ok(desc) => desc,
-            Err(err) => {
-                let _ = device.set_render_target(0, &restore_target);
-                return Err(err);
-            }
-        };
-        if desc.Width == 0 || desc.Height == 0 {
-            let _ = device.set_render_target(0, &restore_target);
+        let Some(prepared_target) = self.prepare_scene_phase_target(&device, target)? else {
             return Ok(());
-        }
-
+        };
+        let desc = *prepared_target.desc();
         let frame_inputs = self.build_frame_inputs(&desc, phase);
         if !self.phase_has_applicable_work(phase, &desc, &frame_inputs) {
             self.maintain_rejected_phase_state(phase, &frame_inputs);
-            let restore_render_target_result = device.set_render_target(0, &restore_target);
-            restore_render_target_result?;
             self.applied_phases.mark_applied(phase);
             return Ok(());
         }
+        self.ensure_phase_color_copy(&device, &desc, phase)?;
 
-        if let Err(err) = self.ensure_state_block(&device) {
-            let _ = device.set_render_target(0, &restore_target);
-            return Err(err);
-        }
+        let render_target_slots = self.render_target_slots(&device)?;
+        let attachments = RenderAttachments::capture(&device, render_target_slots)?;
+        self.ensure_state_block(&device)?;
         let Some(state_block) = self.state_block.as_ref() else {
-            let _ = device.set_render_target(0, &restore_target);
             return Err(runtime_error(
                 "[SHADERS] Missing D3D state block before scene capture",
             ));
         };
-        if let Err(err) = state_block.capture() {
-            let _ = device.set_render_target(0, &restore_target);
-            return Err(err);
-        }
+        state_block.capture()?;
 
-        if let Err(err) = self.ensure_phase_color_copy(&device, &desc, phase) {
-            let _ = device.set_render_target(0, &restore_target);
-            return Err(err);
-        }
+        let draw_result = (|| {
+            // The engine attachments can differ in size or multisample mode
+            // from the rendered-texture source used by scene-pre effects.
+            // Detach them before switching RT0; the transaction restores the
+            // exact native set even if selection or drawing fails.
+            render_target_slots.prepare_target_change(&device)?;
+            let render_target = unsafe { prepared_target.bind(&device)? };
+            self.draw_passes(&device, &render_target, &desc, phase, &frame_inputs)
+        })();
 
-        let draw_result = self.draw_passes(&device, &render_target, &desc, phase, &frame_inputs);
-        let restore_result = if let Some(state_block) = self.state_block.as_ref() {
-            state_block.apply()
-        } else {
-            Err(runtime_error(
-                "[SHADERS] Missing D3D state block before scene restore",
-            ))
-        };
-        let restore_render_target_result = device.set_render_target(0, &restore_target);
-
-        restore_result?;
-        restore_render_target_result?;
-        draw_result?;
+        finish_render_transaction(
+            &device,
+            &attachments,
+            self.state_block.as_ref(),
+            draw_result,
+        )?;
 
         self.applied_phases.mark_applied(phase);
         if self.scene_apply_logs < 8 {
@@ -979,14 +1025,26 @@ impl ScreenShaderRuntime {
         Ok(())
     }
 
-    fn scene_phase_render_target(
+    fn prepare_scene_phase_target(
         &mut self,
         device: &Device9Ref<'_>,
-        current_target: &Surface9,
         target: ScenePhaseTarget,
-    ) -> Direct3DResult<Option<Surface9>> {
+    ) -> Direct3DResult<Option<PreparedScenePhaseTarget>> {
         match target {
-            ScenePhaseTarget::CurrentRenderTarget => Ok(Some(current_target.clone())),
+            ScenePhaseTarget::CurrentRenderTarget => {
+                let surface = match device.render_target(0) {
+                    Ok(surface) => surface,
+                    Err(err) => {
+                        self.release_default_pool_resources();
+                        return Err(err);
+                    }
+                };
+                let desc = surface.desc()?;
+                if desc.Width == 0 || desc.Height == 0 {
+                    return Ok(None);
+                }
+                Ok(Some(PreparedScenePhaseTarget::Current { surface, desc }))
+            }
             ScenePhaseTarget::RenderedTextureSource(rendered_texture) => {
                 let Some(surface) = backend::rendered_texture_color_surface(
                     self.settings.depth_provider,
@@ -1006,8 +1064,10 @@ impl ScreenShaderRuntime {
                     return Ok(None);
                 }
 
-                unsafe { device.set_raw_render_target(0, surface)? };
-                device.render_target(0).map(Some)
+                Ok(Some(PreparedScenePhaseTarget::RenderedTexture {
+                    surface,
+                    desc,
+                }))
             }
         }
     }
@@ -1260,6 +1320,43 @@ impl ScreenShaderRuntime {
         }
 
         Ok(())
+    }
+
+    fn render_target_slots(
+        &mut self,
+        device: &Device9Ref<'_>,
+    ) -> Direct3DResult<RenderTargetSlots> {
+        if let Some(slots) = self.render_target_slots {
+            return Ok(slots);
+        }
+
+        let slots = RenderTargetSlots::query(device)?;
+        self.render_target_slots = Some(slots);
+        Ok(slots)
+    }
+
+    fn copy_phase_color_for_sampling(
+        &self,
+        device: &Device9Ref<'_>,
+        source: &Surface9,
+        copy: &BackbufferCopy,
+    ) -> Direct3DResult<()> {
+        copy_scene_color_for_sampling(
+            device,
+            source,
+            &copy.surface,
+            self.sampler3_scene_color(&copy.texture),
+        )
+    }
+
+    fn sampler3_scene_color<'a>(&'a self, fallback: &'a Texture9) -> &'a Texture9 {
+        if self.world_color_captured_this_frame {
+            self.world_color_copy
+                .as_ref()
+                .map_or(fallback, |copy| &copy.texture)
+        } else {
+            fallback
+        }
     }
 
     fn build_frame_inputs(
@@ -1643,8 +1740,7 @@ impl ScreenShaderRuntime {
             };
 
             for _ in 0..source.pass_count {
-                device.clear_texture(0)?;
-                device.stretch_rect(backbuffer, None, &copy.surface, None, D3DTEXF_POINT)?;
+                self.copy_phase_color_for_sampling(device, backbuffer, &copy)?;
                 device.set_texture(0, &copy.texture)?;
                 device.set_pixel_shader(shader)?;
                 device.set_pixel_shader_constant_f(
@@ -1750,18 +1846,10 @@ impl ScreenShaderRuntime {
             log::info!("[AO] Engine-side pipeline initialized");
         }
 
+        self.copy_phase_color_for_sampling(device, backbuffer, current_color_copy)?;
         let Some(effect) = self.ambient_occlusion.as_mut() else {
             return Ok(());
         };
-
-        device.clear_texture(0)?;
-        device.stretch_rect(
-            backbuffer,
-            None,
-            &current_color_copy.surface,
-            None,
-            D3DTEXF_POINT,
-        )?;
         effect.draw(
             device,
             backbuffer,
@@ -1787,20 +1875,17 @@ impl ScreenShaderRuntime {
             log::info!("[AA] Embedded spatial AA pipelines initialized");
         }
 
+        let prepared = match self.anti_aliasing.as_mut() {
+            Some(effect) => effect.prepare(device, source)?,
+            None => return Ok(()),
+        };
+        if !prepared {
+            return Ok(());
+        }
+        self.copy_phase_color_for_sampling(device, backbuffer, current_color_copy)?;
         let Some(effect) = self.anti_aliasing.as_mut() else {
             return Ok(());
         };
-        if !effect.prepare(device, source)? {
-            return Ok(());
-        }
-        device.clear_texture(0)?;
-        device.stretch_rect(
-            backbuffer,
-            None,
-            &current_color_copy.surface,
-            None,
-            D3DTEXF_POINT,
-        )?;
         effect.draw(
             device,
             backbuffer,
@@ -1845,22 +1930,21 @@ impl ScreenShaderRuntime {
             let Some(shaders) = self.final_color_shaders.as_ref() else {
                 return Ok(());
             };
-            self.blooming_hdr = Some(blooming_hdr::BloomingHdrEffect::create(device, shaders)?);
+            let render_target_slots = self
+                .render_target_slots
+                .ok_or_else(|| runtime_error("[SHADERS] Missing D3D render-target capabilities"))?;
+            self.blooming_hdr = Some(blooming_hdr::BloomingHdrEffect::create(
+                device,
+                shaders,
+                render_target_slots,
+            )?);
             log::info!("[FINAL_COLOR] Bloom/color-grade pipeline initialized");
         }
 
+        self.copy_phase_color_for_sampling(device, backbuffer, current_color_copy)?;
         let Some(effect) = self.blooming_hdr.as_mut() else {
             return Ok(());
         };
-
-        device.clear_texture(0)?;
-        device.stretch_rect(
-            backbuffer,
-            None,
-            &current_color_copy.surface,
-            None,
-            D3DTEXF_POINT,
-        )?;
         effect.draw(
             device,
             backbuffer,
@@ -1892,18 +1976,10 @@ impl ScreenShaderRuntime {
             log::info!("[SUNSHAFTS] Engine-side pipeline initialized");
         }
 
+        self.copy_phase_color_for_sampling(device, backbuffer, current_color_copy)?;
         let Some(effect) = self.sunshafts.as_mut() else {
             return Ok(());
         };
-
-        device.clear_texture(0)?;
-        device.stretch_rect(
-            backbuffer,
-            None,
-            &current_color_copy.surface,
-            None,
-            D3DTEXF_POINT,
-        )?;
         effect.draw(
             device,
             backbuffer,
@@ -1950,18 +2026,10 @@ impl ScreenShaderRuntime {
 
         let frame_seconds = self.present_timing.frame_seconds();
         let frame_index = self.frame_index;
+        self.copy_phase_color_for_sampling(device, backbuffer, current_color_copy)?;
         let Some(effect) = self.depth_of_field.as_mut() else {
             return Ok(());
         };
-
-        device.clear_texture(0)?;
-        device.stretch_rect(
-            backbuffer,
-            None,
-            &current_color_copy.surface,
-            None,
-            D3DTEXF_POINT,
-        )?;
         effect.draw(
             device,
             backbuffer,
@@ -2003,18 +2071,10 @@ impl ScreenShaderRuntime {
             }
         }
 
+        self.copy_phase_color_for_sampling(device, backbuffer, current_color_copy)?;
         let Some(effect) = self.motion_blur.as_mut() else {
             return Ok(());
         };
-
-        device.clear_texture(0)?;
-        device.stretch_rect(
-            backbuffer,
-            None,
-            &current_color_copy.surface,
-            None,
-            D3DTEXF_POINT,
-        )?;
         effect.draw(
             device,
             backbuffer,
@@ -2304,15 +2364,7 @@ impl ScreenShaderRuntime {
         } else {
             device.clear_texture(2)?;
         }
-        if self.world_color_captured_this_frame {
-            if let Some(world_color) = self.world_color_copy.as_ref() {
-                device.set_texture(3, &world_color.texture)?;
-            } else {
-                device.set_texture(3, &current_color_copy.texture)?;
-            }
-        } else {
-            device.set_texture(3, &current_color_copy.texture)?;
-        }
+        device.set_texture(3, self.sampler3_scene_color(&current_color_copy.texture))?;
         device.set_texture_stage_state(0, D3DTSS_COLOROP, D3DTOP_SELECTARG1.0 as u32)?;
         device.set_texture_stage_state(0, D3DTSS_COLORARG1, D3DTA_TEXTURE)?;
         device.set_texture_stage_state(0, D3DTSS_ALPHAOP, D3DTOP_SELECTARG1.0 as u32)?;
@@ -2524,6 +2576,7 @@ impl ScreenShaderRuntime {
         self.release_device_resources();
         self.imgui = None;
         self.imgui_hwnd = 0;
+        self.render_target_slots = None;
         IMGUI_READY.store(false, Ordering::Release);
         self.device_ptr = 0;
     }
@@ -2882,6 +2935,41 @@ struct CompiledPass {
 enum ScenePhaseTarget {
     CurrentRenderTarget,
     RenderedTextureSource(*mut c_void),
+}
+
+enum PreparedScenePhaseTarget {
+    Current {
+        surface: Surface9,
+        desc: D3DSURFACE_DESC,
+    },
+    RenderedTexture {
+        surface: *mut c_void,
+        desc: D3DSURFACE_DESC,
+    },
+}
+
+impl PreparedScenePhaseTarget {
+    fn desc(&self) -> &D3DSURFACE_DESC {
+        match self {
+            Self::Current { desc, .. } | Self::RenderedTexture { desc, .. } => desc,
+        }
+    }
+
+    /// Bind the validated target and return an owned surface reference.
+    ///
+    /// # Safety
+    ///
+    /// A `RenderedTexture` pointer must remain owned by the engine for the
+    /// duration of the image-space callback.
+    unsafe fn bind(&self, device: &Device9Ref<'_>) -> Direct3DResult<Surface9> {
+        match self {
+            Self::Current { surface, .. } => Ok(surface.clone()),
+            Self::RenderedTexture { surface, .. } => {
+                unsafe { device.set_raw_render_target(0, *surface)? };
+                device.render_target(0)
+            }
+        }
+    }
 }
 
 #[derive(Default)]

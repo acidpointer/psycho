@@ -16,8 +16,8 @@ use thiserror::Error;
 use windows::Win32::Foundation::{E_POINTER, HANDLE, RECT};
 use windows::Win32::Graphics::Direct3D::ID3DBlob;
 use windows::Win32::Graphics::Direct3D9::{
-    D3DADAPTER_DEFAULT, D3DBACKBUFFER_TYPE, D3DBACKBUFFER_TYPE_MONO, D3DCLEAR_ZBUFFER, D3DDEVTYPE,
-    D3DDEVTYPE_HAL, D3DDISPLAYMODE, D3DLOCKED_RECT, D3DPOOL, D3DPRESENT_PARAMETERS,
+    D3DADAPTER_DEFAULT, D3DBACKBUFFER_TYPE, D3DBACKBUFFER_TYPE_MONO, D3DCAPS9, D3DCLEAR_ZBUFFER,
+    D3DDEVTYPE, D3DDEVTYPE_HAL, D3DDISPLAYMODE, D3DLOCKED_RECT, D3DPOOL, D3DPRESENT_PARAMETERS,
     D3DPRIMITIVETYPE, D3DRENDERSTATETYPE, D3DRESOURCETYPE, D3DRTYPE_SURFACE, D3DSAMPLERSTATETYPE,
     D3DSTATEBLOCKTYPE, D3DTEXTUREFILTERTYPE, D3DTEXTURESTAGESTATETYPE, D3DUSAGE_DEPTHSTENCIL,
     D3DUSAGE_QUERY_POSTPIXELSHADER_BLENDING, D3DUSAGE_RENDERTARGET, D3DVERTEXELEMENT9, IDirect3D9,
@@ -346,6 +346,16 @@ impl<'a> Device9Ref<'a> {
         }
     }
 
+    /// Return the number of simultaneous render-target slots exposed by the device.
+    ///
+    /// Direct3D 9 devices always have slot zero. The defensive lower bound keeps
+    /// callers safe if a compatibility layer reports a malformed zero value.
+    pub fn simultaneous_render_target_count(&self) -> Direct3DResult<u32> {
+        let mut caps = D3DCAPS9::default();
+        unsafe { self.inner.GetDeviceCaps(&mut caps)? };
+        Ok(caps.NumSimultaneousRTs.max(1))
+    }
+
     /// Set a render target surface.
     pub fn set_render_target(&self, index: u32, surface: &Surface9) -> Direct3DResult<()> {
         unsafe { self.inner.SetRenderTarget(index, surface.as_inner()) }
@@ -383,11 +393,14 @@ impl<'a> Device9Ref<'a> {
         }
     }
 
-    /// Get the current depth-stencil surface. The returned wrapper owns that COM reference.
+    /// Get the current depth-stencil surface.
+    ///
+    /// The returned wrapper owns its COM reference. `None` means the device has
+    /// no depth-stencil surface bound; other Direct3D failures are preserved.
     pub fn depth_stencil_surface(&self) -> Direct3DResult<Option<Surface9>> {
         match unsafe { self.inner.GetDepthStencilSurface() } {
             Ok(surface) => Ok(Some(Surface9::new(surface))),
-            Err(err) if err.code() == E_POINTER => Ok(None),
+            Err(err) if err.code() == D3DERR_NOTFOUND => Ok(None),
             Err(err) => Err(err),
         }
     }

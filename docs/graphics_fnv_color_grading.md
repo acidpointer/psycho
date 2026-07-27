@@ -1,10 +1,11 @@
 # OMV final color, external LUT, Bloom, and chromatic contract
 
 Status: implemented on 2026-07-21; film grain completely replaced and creative
-ranges revised on 2026-07-23. Deterministic repository, parser, menu,
-resource-planning, CPU image-reference, shader compilation, bytecode-budget,
-and packaging coverage is complete. Ordinary in-game visual acceptance
-remains.
+ranges revised on 2026-07-23; the final-color resource transaction was
+corrected on 2026-07-27 after a real-user terrain-corruption report.
+Deterministic repository, parser, menu, resource-planning, CPU image-reference,
+shader compilation, bytecode-budget, and packaging coverage is complete.
+Ordinary in-game visual acceptance of the transaction fix remains.
 
 ## Purpose and visible behavior
 
@@ -288,8 +289,45 @@ Both shaders use the four-vertex `D3DPT_TRIANGLESTRIP` and exact D3D9
 half-pixel positions. No derivative is used. Viewport, FVF, shaders, RT0,
 unused MRTs, depth-stencil, depth/stencil writes/tests, culling, blending, alpha
 test, scissor, multisample state, vendor alpha coverage, color writes, sRGB,
-and all used sampler states are explicit. Inputs are unbound before a surface
-becomes writable; the outer all-state block restores native state on success or
+and all used sampler states are explicit.
+
+## Render transaction and feedback safety
+
+The 2026-07-27 report supplied `.reports/terrain_artifacts.png`: Bloom alone
+produced large geometry-shaped vertical blocks while the later menu and HUD
+remained intact. The reported configuration disabled the world-color-consuming
+volumetric effects. Static code tracing proved that the phase color-copy texture
+was consequently bound at fallback sampler `s3`; the old copy path cleared only
+`s0` before writing that same texture with `StretchRect`. Chromatic aberration
+repeated the same alias after fused composition. This is direct code evidence;
+the exact driver response that converted the feedback hazard into the pictured
+columns remains a runtime observation.
+
+`omv/src/render_state.rs` now owns the reusable phase-copy transaction. Every
+write to the phase copy unbinds both ABI locations that can reference it, `s0`
+and `s3`, before making its surface writable. Equal-size copies use
+`D3DTEXF_NONE`; no scaling or optional StretchRect filter capability is needed.
+Only after the write completes does the helper rebind `s3` to captured world
+color or the documented current-color fallback. Bloom, grade, chromatic recopy,
+the other embedded effects, and loose shader passes all use this one helper.
+
+D3D9 `D3DSBT_ALL` state blocks do not own render targets or the depth-stencil
+attachment. OMV therefore captures RT0, every supported auxiliary MRT, and the
+optional depth-stencil surface separately before changing any target. It
+detaches depth and supported auxiliary targets before RT0 changes, preventing
+dimension or multisample incompatibility from failing a switch halfway through.
+Restoration rebuilds attachments first and applies the state block last because
+`SetRenderTarget` resets viewport and scissor state. Rejected work and invalid
+source surfaces exit before any device state is changed. Once the transaction
+begins, success, draw failures, and restore failures all run through the same
+restoration path; the first failure is returned after every restore has been
+attempted.
+
+The supported MRT count comes from `D3DCAPS9::NumSimultaneousRTs`, is bounded to
+the D3D9 range of one through four, and is cached once per device. Low-end
+devices running the final-color path are never asked to access unsupported MRT
+indices. A missing depth-stencil attachment is represented by Direct3D's
+documented `D3DERR_NOTFOUND` result rather than being mistaken for a hard
 failure.
 
 ## Image math and family isolation
@@ -348,8 +386,10 @@ after compose adds one backbuffer copy and one full-resolution draw. Because
 chromatic aberration now defaults on, the shipped Bloom-plus-grade plan is five
 effect draws and includes that copy. Disabling it returns to the four-draw plan.
 The unchanged draw path performs no file I/O, shader compilation, locks, routine
-allocation, or routine logging. LUT upload is configuration/revision work, not
-per-frame work.
+allocation, capability queries, or routine logging. The attachment transaction
+adds owned COM references for the active native attachments once per applied
+phase but allocates no Rust heap memory. LUT upload is configuration/revision
+work, not per-frame work.
 
 ## Automated validation and remaining acceptance
 
@@ -360,6 +400,12 @@ The supported `i686-pc-windows-gnu` tests cover:
   derivatives;
 - exact `c10..c18`, `s5..s6`, chromatic `c0/c3/s0`, alpha, half-pixel, sampler,
   render-target hazard, and explicit D3D state contracts;
+- a negative-control resource model proving that clearing only `s0` leaves the
+  reported `s3` phase-copy alias, plus production checks requiring all phase
+  copies and chromatic recopies to use the feedback-safe helper;
+- capability normalization for one-, two-, and four-MRT devices, exact
+  unfiltered phase copies, complete attachment capture, and attachment-before-
+  state-block restoration ordering;
 - deterministic CPU images for analytic grading, actual shipped LUTs,
   six-pixel debanding, coherent Gaussian-texture grain and flat-gated dither,
   vignette, independent halation, Bloom composition, and radial chromatic
@@ -397,9 +443,31 @@ regions, particle size tracks its independent slider across resolutions, the
 LUT dropdown refreshes, invalid edits preserve the prior look, chromatic
 fringing stays edge-local, and later AA/external shaders retain order.
 
+The 2026-07-27 artifact regression additionally requires the reported
+1920-by-1080 configuration: Native PBR and Native Sky on; Volumetric Fog,
+Volumetric Lighting, AO, and other screen effects off. Test Bloom alone, Color
+Grade alone, both together, and grading with chromatic aberration both on and
+off. Terrain, water, first-person geometry, HUD, and the workbench menu must
+remain stable while moving the camera above and below terrain height. Repeat
+after alt-tab and device reset. This ordinary playtest is the remaining evidence
+needed to confirm the driver-visible artifact is gone.
+
 Final command evidence on 2026-07-23:
 
 - `cargo test --target i686-pc-windows-gnu -p omv`: 269 passed, 0 failed;
 - `cargo build --release --target i686-pc-windows-gnu -p omv`: succeeded
   without warnings;
 - `cargo fmt -p omv -- --check` and `git diff --check`: passed.
+
+Transaction-fix command evidence on 2026-07-27:
+
+- `cargo test --target i686-pc-windows-gnu -p omv`: 335 passed, 0 failed;
+- `cargo test --target i686-pc-windows-gnu -p libpsycho --lib`: 11 passed,
+  0 failed;
+- `cargo build --release --target i686-pc-windows-gnu -p omv`: succeeded
+  without warnings.
+
+The broader `libpsycho` command reached 11 passing unit tests, then its
+unrelated existing logger doctest rejected the unsuffixed `0xDEADBEEF` example
+as an overflowing `i32`. This change does not modify that logger documentation;
+the affected library suite above is green.

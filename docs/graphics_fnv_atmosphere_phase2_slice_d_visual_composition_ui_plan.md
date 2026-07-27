@@ -385,6 +385,50 @@ Make the header responsive without a new layout framework:
 Do not convert radio choices to a combo box. The choices should remain visible
 and quickly scannable.
 
+### 2026-07-26 runtime correction: bounded diagnostics overview
+
+The original responsive layout still left the complete header, frame-pacing
+text, and both live graphs in normal flow above two zero-height child panes.
+Dear ImGui therefore gave the feature and details children only the remaining
+height. Once graph history became available, the header grew by both chart
+heights and could reduce the effect workspace to an unusable strip without
+creating a useful parent scroll range.
+
+`omv/src/runtime.rs` now owns a three-pane vertical contract:
+
+- the overview, persistence controls, frame diagnostics, graphs, and global
+  session controls live in a bordered child with its own vertical scrollbar;
+- the overview targets 340 pixels but shrinks as needed to reserve at least
+  260 pixels plus layout spacing for the effect workspace;
+- the feature list and selected-effect details retain their existing
+  side-by-side children and independent scrolling;
+- graph history changes only the overview child's content and scroll range,
+  never its outer height or the lower workspace allocation.
+
+`psycho-imgui` exposes only Dear ImGui's current available content height for
+this calculation. The bridge adds no state, persistence, allocation, or D3D9
+work. On a viewport too small to satisfy every minimum, the overview shrinks
+toward one pixel and yields the remaining space to effect controls; the
+existing viewport-clamped outer window behavior remains the compatibility
+fallback.
+
+The regression test models an 820-pixel window content region, representative
+of the preferred 860-pixel outer window at 1920x1080. It proves that the
+overview cap preserves the lower workspace and that loaded graph content
+overflows inside the overview child, where Dear ImGui provides scrolling. The
+same test fails under the prior consume-all-available-height behavior. Static
+tests cannot prove mouse-wheel feel under Proton/DXVK, so the remaining runtime
+acceptance is to open the menu at 1920x1080, wait for both graphs, scroll the
+upper pane, and configure a long effect panel through the lower details pane.
+
+Static validation completed on 2026-07-26:
+
+- the focused regression failed with the prior consume-all-height model and
+  passed after the bounded overview was implemented;
+- `cargo test --target i686-pc-windows-gnu -p omv` passed all 303 tests;
+- `cargo build --release --target i686-pc-windows-gnu -p omv` completed
+  successfully.
+
 ## Work package 10: tests and static verification
 
 Add or update unit coverage for:

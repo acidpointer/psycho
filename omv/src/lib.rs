@@ -17,6 +17,7 @@ mod input;
 mod luts;
 mod nvse_plugin;
 mod plugininfo;
+mod render_state;
 mod runtime;
 mod shaders;
 mod startup;
