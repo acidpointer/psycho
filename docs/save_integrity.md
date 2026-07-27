@@ -51,6 +51,15 @@ close at `0x00EC9907`, and release/promotion path form the physical commit
 chain. Both `0x008463C0` and `0x00AA15A0` return a Boolean in `AL`; their hook
 ABIs are byte-returning functions, not 32-bit result functions.
 
+Vanilla release/promotion at `0x00850100` does not use `ReplaceFileA`. After
+destroying the save object, it rotates each occupied backup source upward. It
+deletes an occupied backup destination with `DeleteFileA`, then calls the CRT
+rename at `0x00EC862C`. That CRT function is a thin `MoveFileA` wrapper. The
+last two renames are the old final to `.bak` and the temporary file to the now
+vacant final name. Vanilla ignores every delete and rename result, so its
+sequence is not itself an integrity protocol, but the API family is an
+important Proton/MO2 compatibility contract.
+
 The on-disk header begins with `FO3SAVEGAME`, a 32-bit encoded header length,
 the current version `0x30`, pipe-delimited metadata, and the screenshot
 dimensions. The screenshot consumes `width * height * 3` bytes. The changed
@@ -108,6 +117,22 @@ The hardened validator removes that correlated-oracle pattern:
   validation handle permits readers but denies writer and delete sharing, so
   an existing incompatible handle prevents validation and no new writer or
   path replacement can change the file image while it is parsed and flushed.
+- The old final is copied to a recovery path and that copy is independently
+  opened and flushed before the final name can change. Promotion first uses
+  `MoveFileExA` with replace and write-through flags. If destination
+  replacement is unavailable but leaves the final intact, it falls back to
+  the engine-compatible sequence: rename the final to `.txn`, then rename the
+  temporary file to the vacant final path. Both renames are write-through. It
+  does not use the incompatible `ReplaceFileA` metadata transaction.
+- Promotion logic is exercised through fault-injected filesystem operations.
+  Tests remove the final before returning an injected replacement error and
+  prove that recovery republishes the old image. Separate tests prove that a
+  recovery-copy failure cannot remove the final and that an interrupted
+  transaction restores a missing final before the next temporary file is
+  considered. Another test forces destination replacement to fail without
+  changing the final and proves the engine-compatible fallback commits. A
+  pessimistic post-commit error test proves that a consumed temporary source
+  cannot cause the newly published final to be moved back out of place.
 - Validation first reads the fixed 15-byte magic/length lead, checks the
   declared length, and then reads exactly that complete header through the
   same handle. Short Win32 reads are retried until the requested envelope is
@@ -193,9 +218,14 @@ During a save:
 - that exact header is read completely through the same stable handle and must
   have either engine-accepted layout, a bounded screenshot, and a nonempty
   changed-record body;
-- the file is flushed to stable storage and atomically replaces the final,
-  retaining or recovering the old final according to the configured backup
-  policy.
+- the file is flushed to stable storage, then the old final is copied to an
+  independently flushed recovery image before one write-through replacement,
+  with the recoverable two-rename sequence as a compatibility fallback;
+- `.txn` is always the transient recovery copy; after success it becomes
+  `.bak` when backups are configured and is removed when they are disabled;
+- a failed replacement restores the recovery image if the final name is
+  unexpectedly absent, and the next transaction reconciles a surviving `.txn`
+  before it validates or promotes another temporary file.
 
 The PlayerCharacter canary compares raw float bits rather than an arbitrary
 speed range. Finite modded SpeedMult values are permitted. A singleton change,
@@ -222,18 +252,24 @@ not masquerade as malformed data.
   objects.
 - Player actor-value framing is validated before the first actor-value copy.
 - A malformed load decision is terminal for that load-owner invocation.
-- Existing final saves are not deleted on failure. Replacement recovery uses
-  an owned backup.
+- Existing final saves are not deleted in a preparation failure. Replacement
+  recovery uses an independently copied and flushed backup.
+- Failure to create or flush the recovery image aborts before the final name
+  can change.
+- An interrupted replacement cannot make a later malformed temporary file
+  block restoration of an available `.txn` recovery image.
 
 Save-time overhead is one 15-byte lead read, one exact header read, an allocation
 bounded at 262,261 bytes including the lead, three 32-bit canary reads at each
-boundary, and one header parse before the already-required durable flush. The
-canary uses a small cold-path mutex; no lock is added to ordinary gameplay.
-Reading the closed file avoids assuming that the hooked write entry observes
-the stream from byte zero. Player load preflight performs one block-range
-validation and up to three float checks. Valid changed-record field reads
-retain their constant-time logical bounds checks and do not perform per-field
-allocation or file I/O.
+boundary, one header parse, and one copied-and-flushed old-final image before
+the final rename. The copy is cold save-time I/O and is bounded by the previous
+save size; it replaces the implicit old-file backup work previously delegated
+to `ReplaceFileA`. The canary uses a small cold-path mutex; no lock is added to
+ordinary gameplay. Reading the closed file avoids assuming that the hooked
+write entry observes the stream from byte zero. Player load preflight performs
+one block-range validation and up to three float checks. Valid changed-record
+field reads retain their constant-time logical bounds checks and do not
+perform per-field allocation or file I/O.
 
 The structural envelope check is not a complete parser for every changed
 record. It proves the outer current-format save framing, while the existing
@@ -256,7 +292,9 @@ Proven by executable disassembly:
   minimum block sizes;
 - the two version-`0x30` physical-file header layouts and their exact
   separator-based discriminator;
-- load error flag, return-byte behavior, and physical commit ABIs.
+- load error flag, return-byte behavior, and physical commit ABIs;
+- vanilla backup rotation and final promotion through `DeleteFileA` and the
+  `MoveFileA`-backed CRT rename at `0x00EC862C`.
 
 Reasoned inference:
 
@@ -292,6 +330,15 @@ Runtime observations:
   incorrectly demanded an empty-payload pipe that neither the engine writer
   emits nor its reader consumes. The temporary save was valid under the
   executable's header contract;
+- runtime commit `310a920b52ed6e2de5e06871fe8d715e68adc498` accepts the
+  corrected envelope but fails all three observed promotions in
+  `ReplaceFileA`: two quicksaves and one autosave report Win32 error `0x497`,
+  `ERROR_UNABLE_TO_REMOVE_REPLACED`, with failure bits `0x10`. This is a
+  promotion/API-compatibility failure, not another serialized-header
+  rejection;
+- the hardened implementation removes `ReplaceFileA` from the save path. Live
+  MO2/Proton acceptance of the new copy, flush, and `MoveFileExA` sequence is
+  still required and is not claimed from unit tests;
 - runtime playtesting is still required to identify which producer, if any,
   first triggers a rejection under the user's full mod list.
 
@@ -304,6 +351,7 @@ Durable supporting evidence:
 - `analysis/ghidra/output/crash/save_final_intervention_contract_audit.txt`
 - `analysis/ghidra/output/crash/save_changed_record_inflate_bounds_followup.txt`
 - `.reports/psycho-engine-fixes-latest--save-still-broken.log`
+- `.reports/psycho-engine-fixes-latest--saves-again-broken.log`
 
 ## Validation and playtest acceptance
 
@@ -381,3 +429,20 @@ Validation recorded on 2026-07-27 after reliability hardening:
   psycho-engine-fixes`: passed;
 - runtime save/load acceptance remains required because Wine unit tests cannot
   exercise the live engine hook and filesystem-promotion sequence.
+
+Validation recorded on 2026-07-27 after removing `ReplaceFileA` promotion:
+
+- focused save-integrity tests: 22 passed, 0 failed, including injected
+  recovery-copy and replacement failures, interrupted-transaction recovery,
+  post-commit error handling, the engine-compatible fallback, first-save
+  behavior, and complete configured-backup rotation;
+- `cargo test --target i686-pc-windows-gnu -p psycho-engine-fixes --lib`:
+  99 passed, 0 failed;
+- `cargo test --target i686-pc-windows-gnu -p libpsycho --lib`: 11 passed,
+  0 failed; the added Wine filesystem tests executed both the direct
+  copy/flush/replacement sequence and the vacant-destination rename fallback,
+  then verified the resulting file images;
+- `cargo build --release --target i686-pc-windows-gnu -p
+  psycho-engine-fixes -p psycho-engine-fixes-helper`: passed;
+- successful quick, manual, automatic, and scripted saves through the
+  reporter's MO2/Proton virtual save path remain mandatory runtime acceptance.

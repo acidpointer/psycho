@@ -17,6 +17,17 @@
 //! deletion. This avoids both guessed prefix limits and path-based races while
 //! the completed file is being validated.
 //!
+//! Promotion uses a separately flushed copy of the old final as its rollback
+//! image, followed by one same-volume `MoveFileEx` replacement. If a
+//! compatibility layer rejects destination replacement while leaving the
+//! final intact, promotion falls back to the engine's two
+//! vacant-destination rename shape. It does not use `ReplaceFile`: that API
+//! adds a metadata-merge/delete transaction which is absent from the engine
+//! and fails under the reporter's Proton/MO2 path. `.txn` is always the
+//! transient rollback copy; after success it is either deleted or renamed to
+//! `.bak`. A later save first restores it if an interrupted promotion left the
+//! final name absent.
+//!
 //! The factory callsite is intentionally not patched. Other plugins may own
 //! that mutable callsite, and wrapping it again can create a hook cycle. The
 //! stable factory entry validates vanilla-created files while the activation
@@ -46,9 +57,9 @@ use libpsycho::{
         hook::{inline::inlinehook::InlineHookContainer, transaction::ModificationTransaction},
         memory::validate_memory_range,
         winapi::{
-            DurableFile, delete_file_if_exists, file_exists, flush_instructions_cache,
-            get_current_thread_id, move_file_replace_write_through, open_existing_file_for_flush,
-            replace_file_atomic, virtual_alloc_rwx,
+            DurableFile, copy_file_new, delete_file_if_exists, file_exists,
+            flush_instructions_cache, get_current_thread_id, move_file_replace_write_through,
+            move_file_write_through, open_existing_file_for_flush, virtual_alloc_rwx,
         },
     },
 };
@@ -1165,6 +1176,22 @@ fn read_completed_save_envelope(
 }
 
 fn commit_save(paths: &SavePaths) -> anyhow::Result<()> {
+    let backup_count = save_backup_count(paths.final_path.as_bytes().len());
+    let transaction_backup = transaction_backup_path(&paths.final_path);
+
+    // A process can stop after replacement starts but before the transient
+    // rollback copy is cleaned up. Recover a missing final before validating
+    // the next temporary file: even a malformed new save must not prevent
+    // restoration of the previously flushed good save.
+    //
+    // A maximum-length first-save path may have no room for ".txn". No prior
+    // rollback copy can exist in that case, and promotion does not need one
+    // until a final exists, so defer that path-length error to preparation.
+    if let Ok(recovery) = transaction_backup.as_deref() {
+        let mut filesystem = WindowsSavePromotionFileSystem;
+        reconcile_transaction_recovery(&mut filesystem, &paths.final_path, recovery)?;
+    }
+
     {
         let mut temp =
             open_existing_file_for_flush(&paths.temp).context("open completed temporary save")?;
@@ -1185,62 +1212,232 @@ fn commit_save(paths: &SavePaths) -> anyhow::Result<()> {
         })?;
     }
 
-    if !file_exists(&paths.final_path)? {
-        move_file_replace_write_through(&paths.temp, &paths.final_path)
+    let mut filesystem = WindowsSavePromotionFileSystem;
+    promote_save(&mut filesystem, paths, backup_count, transaction_backup)
+}
+
+trait SavePromotionFileSystem {
+    fn exists(&mut self, path: &CStr) -> anyhow::Result<bool>;
+    fn delete_if_exists(&mut self, path: &CStr) -> anyhow::Result<()>;
+    fn move_new_write_through(&mut self, source: &CStr, destination: &CStr) -> anyhow::Result<()>;
+    fn move_replace_write_through(
+        &mut self,
+        source: &CStr,
+        destination: &CStr,
+    ) -> anyhow::Result<()>;
+    fn copy_and_flush(&mut self, source: &CStr, destination: &CStr) -> anyhow::Result<()>;
+}
+
+struct WindowsSavePromotionFileSystem;
+
+impl SavePromotionFileSystem for WindowsSavePromotionFileSystem {
+    fn exists(&mut self, path: &CStr) -> anyhow::Result<bool> {
+        file_exists(path).map_err(Into::into)
+    }
+
+    fn delete_if_exists(&mut self, path: &CStr) -> anyhow::Result<()> {
+        delete_file_if_exists(path).map_err(Into::into)
+    }
+
+    fn move_new_write_through(&mut self, source: &CStr, destination: &CStr) -> anyhow::Result<()> {
+        move_file_write_through(source, destination).map_err(Into::into)
+    }
+
+    fn move_replace_write_through(
+        &mut self,
+        source: &CStr,
+        destination: &CStr,
+    ) -> anyhow::Result<()> {
+        move_file_replace_write_through(source, destination).map_err(Into::into)
+    }
+
+    fn copy_and_flush(&mut self, source: &CStr, destination: &CStr) -> anyhow::Result<()> {
+        copy_file_new(source, destination).context("copy old final to recovery path")?;
+        let recovery =
+            open_existing_file_for_flush(destination).context("open copied save recovery image")?;
+        recovery.flush().context("flush copied save recovery image")
+    }
+}
+
+fn reconcile_transaction_recovery<F: SavePromotionFileSystem>(
+    filesystem: &mut F,
+    final_path: &CStr,
+    recovery: &CStr,
+) -> anyhow::Result<()> {
+    let final_exists = filesystem.exists(final_path)?;
+    if !filesystem.exists(recovery)? {
+        return Ok(());
+    }
+
+    if final_exists {
+        // If replacement committed, final is the new save; if it did not, final
+        // is still the old save. Either image is complete. A transient copy
+        // alongside it is stale, not authoritative.
+        filesystem
+            .delete_if_exists(recovery)
+            .context("remove stale transaction recovery file")
+    } else {
+        filesystem
+            .move_new_write_through(recovery, final_path)
+            .context("restore final save from interrupted transaction")
+    }
+}
+
+fn promote_save<F: SavePromotionFileSystem>(
+    filesystem: &mut F,
+    paths: &SavePaths,
+    backup_count: usize,
+    transaction_backup: anyhow::Result<CString>,
+) -> anyhow::Result<()> {
+    if !filesystem.exists(&paths.final_path)? {
+        filesystem
+            .move_new_write_through(&paths.temp, &paths.final_path)
             .context("promote first save")?;
         return Ok(());
     }
 
-    let backup_count = save_backup_count(paths.final_path.as_bytes().len());
-    // ReplaceFile has documented failure modes where the old final has already
-    // moved even though the call returns failure. Always request a first backup
-    // so that state can be restored. With backups disabled it is transient and
-    // removed after a successful replacement.
-    let first_backup = if backup_count == 0 {
-        let recovery = transaction_backup_path(&paths.final_path)?;
-        delete_file_if_exists(&recovery).context("remove stale transaction recovery file")?;
-        recovery
-    } else {
+    let recovery = transaction_backup?;
+    filesystem
+        .delete_if_exists(&recovery)
+        .context("remove stale transaction recovery file")?;
+
+    if backup_count != 0 {
         let oldest = backup_path(&paths.final_path, backup_count)?;
-        delete_file_if_exists(&oldest).context("remove oldest save backup")?;
+        filesystem
+            .delete_if_exists(&oldest)
+            .context("remove oldest save backup")?;
 
         for index in (1..backup_count).rev() {
             let source = backup_path(&paths.final_path, index)?;
-            if file_exists(&source)? {
+            if filesystem.exists(&source)? {
                 let destination = backup_path(&paths.final_path, index + 1)?;
-                move_file_replace_write_through(&source, &destination)
+                filesystem
+                    .move_new_write_through(&source, &destination)
                     .with_context(|| format!("rotate save backup {index}"))?;
             }
         }
-        backup_path(&paths.final_path, 1)?
-    };
-
-    if let Err(replace_error) =
-        replace_file_atomic(&paths.final_path, &paths.temp, Some(&first_backup))
-    {
-        if let Err(recovery_error) = recover_failed_replace(&paths.final_path, &first_backup) {
-            return Err(anyhow!(
-                "atomic replacement failed: {replace_error}; recovery also failed: {recovery_error:#}"
-            ));
-        }
-        return Err(anyhow!(replace_error)).context("atomically replace save");
     }
-    if backup_count == 0
-        && let Err(error) = delete_file_if_exists(&first_backup)
+
+    // Copying, reopening, and flushing the old final before replacement makes
+    // the rollback image independent from rename behavior. This is the key
+    // distinction from ReplaceFileA: promotion performs only the ordinary
+    // same-volume rename family used by the engine and leaves an
+    // already-durable old image outside that operation.
+    if let Err(error) = filesystem.copy_and_flush(&paths.final_path, &recovery) {
+        let cleanup = filesystem.delete_if_exists(&recovery);
+        return match cleanup {
+            Ok(()) => Err(error).context("prepare durable save recovery image"),
+            Err(cleanup_error) => Err(anyhow!(
+                "prepare durable save recovery image: {error:#}; partial recovery cleanup also failed: {cleanup_error:#}"
+            )),
+        };
+    }
+
+    if let Err(replacement_error) =
+        filesystem.move_replace_write_through(&paths.temp, &paths.final_path)
     {
+        if filesystem.exists(&paths.final_path)? {
+            if !filesystem.exists(&paths.temp)? {
+                // A consumed source plus an extant destination is the
+                // postcondition of a committed rename, even if a compatibility
+                // layer reports an error afterward. Do not run the fallback:
+                // it would move the newly committed final out of place while
+                // looking for a temporary source that no longer exists.
+                log::warn!(
+                    "[SAVE] Replacement reported failure after consuming the temporary file; treating the extant final as committed: {replacement_error:#}"
+                );
+            } else {
+                // Some compatibility layers implement the engine's ordinary
+                // rename path but not destination replacement. Once the direct
+                // atomic form proves unavailable, fall back to the exact two
+                // vacant-destination rename shape used by 0x00850100. The
+                // already flushed `.txn` bounds its crash window: after the
+                // first rename, the old save remains recoverable at that path.
+                if let Err(fallback_error) =
+                    promote_with_vacant_destination(filesystem, paths, &recovery)
+                {
+                    if let Err(recovery_error) =
+                        recover_failed_promotion(filesystem, &paths.final_path, &recovery)
+                    {
+                        return Err(anyhow!(
+                            "direct replacement failed: {replacement_error:#}; compatible rename fallback failed: {fallback_error:#}; recovery also failed: {recovery_error:#}"
+                        ));
+                    }
+                    return Err(anyhow!(
+                        "direct replacement failed: {replacement_error:#}; compatible rename fallback failed: {fallback_error:#}"
+                    ));
+                }
+                log::warn!(
+                    "[SAVE] Direct replacement was unavailable; committed through the recoverable engine-compatible rename sequence: {replacement_error:#}"
+                );
+            }
+        } else {
+            if let Err(recovery_error) =
+                recover_failed_promotion(filesystem, &paths.final_path, &recovery)
+            {
+                return Err(anyhow!(
+                    "save replacement failed: {replacement_error:#}; recovery also failed: {recovery_error:#}"
+                ));
+            }
+            return Err(replacement_error).context("replace final save");
+        }
+    }
+
+    let recovery_cleanup = if backup_count == 0 {
+        filesystem.delete_if_exists(&recovery)
+    } else {
+        let first_backup = backup_path(&paths.final_path, 1)?;
+        filesystem.move_new_write_through(&recovery, &first_backup)
+    };
+    if let Err(error) = recovery_cleanup {
+        // The commit point is the successful temporary-to-final replacement.
+        // Failing the later backup-name cleanup must not report Save Failed
+        // after a new final has already been published. The durable `.txn`
+        // remains recoverable and will be reconciled on the next transaction.
         log::warn!(
-            "[SAVE] Final save committed but transient recovery backup could not be removed: {error}"
+            "[SAVE] Final save committed but its recovery backup could not be finalized: {error:#}"
         );
     }
     Ok(())
 }
 
-fn recover_failed_replace(final_path: &CStr, backup: &CStr) -> anyhow::Result<()> {
-    if file_exists(final_path)? || !file_exists(backup)? {
+fn promote_with_vacant_destination<F: SavePromotionFileSystem>(
+    filesystem: &mut F,
+    paths: &SavePaths,
+    recovery: &CStr,
+) -> anyhow::Result<()> {
+    filesystem
+        .delete_if_exists(recovery)
+        .context("clear copied recovery before compatible rename")?;
+    filesystem
+        .move_new_write_through(&paths.final_path, recovery)
+        .context("move old final to transaction recovery path")?;
+
+    if let Err(promotion_error) = filesystem.move_new_write_through(&paths.temp, &paths.final_path)
+    {
+        if let Err(recovery_error) =
+            recover_failed_promotion(filesystem, &paths.final_path, recovery)
+        {
+            return Err(anyhow!(
+                "move temporary save to vacant final path: {promotion_error:#}; recovery also failed: {recovery_error:#}"
+            ));
+        }
+        return Err(promotion_error).context("move temporary save to vacant final path");
+    }
+    Ok(())
+}
+
+fn recover_failed_promotion<F: SavePromotionFileSystem>(
+    filesystem: &mut F,
+    final_path: &CStr,
+    recovery: &CStr,
+) -> anyhow::Result<()> {
+    if filesystem.exists(final_path)? || !filesystem.exists(recovery)? {
         return Ok(());
     }
-    move_file_replace_write_through(backup, final_path)
-        .context("move transaction backup back to final path")
+    filesystem
+        .move_new_write_through(recovery, final_path)
+        .context("move durable recovery image back to final path")
 }
 
 fn save_backup_count(final_path_length: usize) -> usize {
@@ -1714,7 +1911,327 @@ fn set_load_error_flag(owner: *mut c_void, enabled: bool) {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+
     use super::*;
+
+    #[derive(Default)]
+    struct MockPromotionFileSystem {
+        files: HashMap<Vec<u8>, Vec<u8>>,
+        fail_copy: bool,
+        fail_atomic_replacement_preserving_final: bool,
+        fail_atomic_replacement_after_commit: bool,
+        fail_promotion_after_removing_final: bool,
+    }
+
+    impl MockPromotionFileSystem {
+        fn key(path: &CStr) -> Vec<u8> {
+            path.to_bytes().to_vec()
+        }
+
+        fn put(&mut self, path: &CStr, contents: &[u8]) {
+            self.files.insert(Self::key(path), contents.to_vec());
+        }
+
+        fn contents(&self, path: &CStr) -> Option<&[u8]> {
+            self.files.get(&Self::key(path)).map(Vec::as_slice)
+        }
+
+        fn move_file(&mut self, source: &CStr, destination: &CStr) -> anyhow::Result<()> {
+            let contents = self
+                .files
+                .remove(&Self::key(source))
+                .context("mock move source is missing")?;
+            self.files.insert(Self::key(destination), contents);
+            Ok(())
+        }
+    }
+
+    impl SavePromotionFileSystem for MockPromotionFileSystem {
+        fn exists(&mut self, path: &CStr) -> anyhow::Result<bool> {
+            Ok(self.files.contains_key(&Self::key(path)))
+        }
+
+        fn delete_if_exists(&mut self, path: &CStr) -> anyhow::Result<()> {
+            self.files.remove(&Self::key(path));
+            Ok(())
+        }
+
+        fn move_new_write_through(
+            &mut self,
+            source: &CStr,
+            destination: &CStr,
+        ) -> anyhow::Result<()> {
+            ensure!(
+                !self.files.contains_key(&Self::key(destination)),
+                "mock vacant-destination move found an existing destination"
+            );
+            self.move_file(source, destination)
+        }
+
+        fn move_replace_write_through(
+            &mut self,
+            source: &CStr,
+            destination: &CStr,
+        ) -> anyhow::Result<()> {
+            if self.fail_atomic_replacement_after_commit {
+                self.move_file(source, destination)?;
+                return Err(anyhow!("injected post-commit replacement error"));
+            }
+            if self.fail_atomic_replacement_preserving_final {
+                return Err(anyhow!("injected unsupported atomic replacement"));
+            }
+            if self.fail_promotion_after_removing_final
+                && source.to_bytes().ends_with(b".tmp")
+                && !destination.to_bytes().ends_with(b".tmp")
+            {
+                // Use a deliberately pessimistic failure model: the primitive
+                // has removed the destination but returns failure before
+                // consuming the source. Recovery must republish the old copy
+                // even if a compatibility layer violates normal rename
+                // failure expectations.
+                self.files.remove(&Self::key(destination));
+                return Err(anyhow!("injected promotion failure"));
+            }
+
+            self.move_file(source, destination)
+        }
+
+        fn copy_and_flush(&mut self, source: &CStr, destination: &CStr) -> anyhow::Result<()> {
+            if self.fail_copy {
+                return Err(anyhow!("injected recovery-copy failure"));
+            }
+            ensure!(
+                !self.files.contains_key(&Self::key(destination)),
+                "mock copy destination already exists"
+            );
+            let contents = self
+                .files
+                .get(&Self::key(source))
+                .context("mock copy source is missing")?
+                .clone();
+            self.files.insert(Self::key(destination), contents);
+            Ok(())
+        }
+    }
+
+    fn mock_save_paths() -> SavePaths {
+        SavePaths {
+            temp: CString::new("quicksave.fos.tmp").unwrap(),
+            final_path: CString::new("quicksave.fos").unwrap(),
+        }
+    }
+
+    #[test]
+    fn interrupted_transaction_restores_old_final_before_next_commit() {
+        let paths = mock_save_paths();
+        let recovery = transaction_backup_path(&paths.final_path).unwrap();
+        let mut filesystem = MockPromotionFileSystem::default();
+        filesystem.put(&recovery, b"old-good-save");
+
+        reconcile_transaction_recovery(&mut filesystem, &paths.final_path, &recovery).unwrap();
+
+        assert_eq!(
+            filesystem.contents(&paths.final_path),
+            Some(b"old-good-save".as_slice())
+        );
+        assert_eq!(filesystem.contents(&recovery), None);
+    }
+
+    #[test]
+    fn completed_transaction_discards_stale_recovery_when_final_exists() {
+        let paths = mock_save_paths();
+        let recovery = transaction_backup_path(&paths.final_path).unwrap();
+        let mut filesystem = MockPromotionFileSystem::default();
+        filesystem.put(&paths.final_path, b"new-save");
+        filesystem.put(&recovery, b"old-good-save");
+
+        reconcile_transaction_recovery(&mut filesystem, &paths.final_path, &recovery).unwrap();
+
+        assert_eq!(
+            filesystem.contents(&paths.final_path),
+            Some(b"new-save".as_slice())
+        );
+        assert_eq!(filesystem.contents(&recovery), None);
+    }
+
+    #[test]
+    fn promotion_flushes_old_final_to_configured_backup_before_replacement() {
+        let paths = mock_save_paths();
+        let backup = backup_path(&paths.final_path, 1).unwrap();
+        let mut filesystem = MockPromotionFileSystem::default();
+        filesystem.put(&paths.temp, b"new-save");
+        filesystem.put(&paths.final_path, b"old-good-save");
+        filesystem.put(&backup, b"older-save");
+
+        promote_save(
+            &mut filesystem,
+            &paths,
+            1,
+            transaction_backup_path(&paths.final_path),
+        )
+        .unwrap();
+
+        assert_eq!(
+            filesystem.contents(&paths.final_path),
+            Some(b"new-save".as_slice())
+        );
+        assert_eq!(
+            filesystem.contents(&backup),
+            Some(b"old-good-save".as_slice())
+        );
+    }
+
+    #[test]
+    fn first_save_does_not_require_a_transaction_backup_path() {
+        let paths = mock_save_paths();
+        let mut filesystem = MockPromotionFileSystem::default();
+        filesystem.put(&paths.temp, b"first-save");
+
+        promote_save(
+            &mut filesystem,
+            &paths,
+            0,
+            Err(anyhow!("path has no room for transaction suffix")),
+        )
+        .unwrap();
+
+        assert_eq!(
+            filesystem.contents(&paths.final_path),
+            Some(b"first-save".as_slice())
+        );
+        assert_eq!(filesystem.contents(&paths.temp), None);
+    }
+
+    #[test]
+    fn configured_backup_rotation_preserves_every_available_generation() {
+        let paths = mock_save_paths();
+        let first_backup = backup_path(&paths.final_path, 1).unwrap();
+        let second_backup = backup_path(&paths.final_path, 2).unwrap();
+        let mut filesystem = MockPromotionFileSystem::default();
+        filesystem.put(&paths.temp, b"new-save");
+        filesystem.put(&paths.final_path, b"old-good-save");
+        filesystem.put(&first_backup, b"older-save");
+        filesystem.put(&second_backup, b"oldest-save");
+
+        promote_save(
+            &mut filesystem,
+            &paths,
+            2,
+            transaction_backup_path(&paths.final_path),
+        )
+        .unwrap();
+
+        assert_eq!(
+            filesystem.contents(&paths.final_path),
+            Some(b"new-save".as_slice())
+        );
+        assert_eq!(
+            filesystem.contents(&first_backup),
+            Some(b"old-good-save".as_slice())
+        );
+        assert_eq!(
+            filesystem.contents(&second_backup),
+            Some(b"older-save".as_slice())
+        );
+    }
+
+    #[test]
+    fn promotion_failure_recovers_when_final_name_disappears() {
+        let paths = mock_save_paths();
+        let recovery = transaction_backup_path(&paths.final_path).unwrap();
+        let mut filesystem = MockPromotionFileSystem {
+            fail_promotion_after_removing_final: true,
+            ..Default::default()
+        };
+        filesystem.put(&paths.temp, b"new-save");
+        filesystem.put(&paths.final_path, b"old-good-save");
+
+        let error = promote_save(&mut filesystem, &paths, 0, Ok(recovery.clone()))
+            .expect_err("injected replacement failure must abort the transaction")
+            .to_string();
+
+        assert!(error.contains("replace final save"));
+        assert_eq!(
+            filesystem.contents(&paths.final_path),
+            Some(b"old-good-save".as_slice())
+        );
+        assert_eq!(
+            filesystem.contents(&paths.temp),
+            Some(b"new-save".as_slice())
+        );
+        assert_eq!(filesystem.contents(&recovery), None);
+    }
+
+    #[test]
+    fn unavailable_atomic_replacement_uses_recoverable_engine_rename_sequence() {
+        let paths = mock_save_paths();
+        let recovery = transaction_backup_path(&paths.final_path).unwrap();
+        let mut filesystem = MockPromotionFileSystem {
+            fail_atomic_replacement_preserving_final: true,
+            ..Default::default()
+        };
+        filesystem.put(&paths.temp, b"new-save");
+        filesystem.put(&paths.final_path, b"old-good-save");
+
+        promote_save(&mut filesystem, &paths, 0, Ok(recovery.clone())).unwrap();
+
+        assert_eq!(
+            filesystem.contents(&paths.final_path),
+            Some(b"new-save".as_slice())
+        );
+        assert_eq!(filesystem.contents(&paths.temp), None);
+        assert_eq!(filesystem.contents(&recovery), None);
+    }
+
+    #[test]
+    fn post_commit_error_does_not_move_new_final_back_out_of_place() {
+        let paths = mock_save_paths();
+        let recovery = transaction_backup_path(&paths.final_path).unwrap();
+        let mut filesystem = MockPromotionFileSystem {
+            fail_atomic_replacement_after_commit: true,
+            ..Default::default()
+        };
+        filesystem.put(&paths.temp, b"new-save");
+        filesystem.put(&paths.final_path, b"old-good-save");
+
+        promote_save(&mut filesystem, &paths, 0, Ok(recovery.clone())).unwrap();
+
+        assert_eq!(
+            filesystem.contents(&paths.final_path),
+            Some(b"new-save".as_slice())
+        );
+        assert_eq!(filesystem.contents(&paths.temp), None);
+        assert_eq!(filesystem.contents(&recovery), None);
+    }
+
+    #[test]
+    fn recovery_copy_failure_cannot_remove_existing_final() {
+        let paths = mock_save_paths();
+        let mut filesystem = MockPromotionFileSystem {
+            fail_copy: true,
+            ..Default::default()
+        };
+        filesystem.put(&paths.temp, b"new-save");
+        filesystem.put(&paths.final_path, b"old-good-save");
+
+        promote_save(
+            &mut filesystem,
+            &paths,
+            0,
+            transaction_backup_path(&paths.final_path),
+        )
+        .expect_err("a missing durable rollback image must abort promotion");
+
+        assert_eq!(
+            filesystem.contents(&paths.final_path),
+            Some(b"old-good-save".as_slice())
+        );
+        assert_eq!(
+            filesystem.contents(&paths.temp),
+            Some(b"new-save".as_slice())
+        );
+    }
 
     fn push_string(fields: &mut Vec<u8>, value: &[u8]) {
         fields.extend_from_slice(&(value.len() as u16).to_le_bytes());

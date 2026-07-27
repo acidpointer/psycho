@@ -14,10 +14,10 @@ use windows::Win32::Foundation::{
     HMODULE, HWND, INVALID_HANDLE_VALUE, STILL_ACTIVE, SetLastError, WIN32_ERROR,
 };
 use windows::Win32::Storage::FileSystem::{
-    CreateFileA, DeleteFileA, FILE_ATTRIBUTE_NORMAL, FILE_BEGIN, FILE_GENERIC_READ,
+    CopyFileA, CreateFileA, DeleteFileA, FILE_ATTRIBUTE_NORMAL, FILE_BEGIN, FILE_GENERIC_READ,
     FILE_GENERIC_WRITE, FILE_SHARE_READ, FlushFileBuffers, GetFileAttributesA, GetFileSizeEx,
     INVALID_FILE_ATTRIBUTES, MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH, MoveFileExA,
-    OPEN_EXISTING, REPLACE_FILE_FLAGS, ReadFile, ReplaceFileA, SetFilePointerEx,
+    OPEN_EXISTING, ReadFile, SetFilePointerEx,
 };
 use windows::Win32::System::Console::{
     AllocConsole, CONSOLE_MODE, ENABLE_VIRTUAL_TERMINAL_PROCESSING, GetConsoleMode, GetStdHandle,
@@ -1009,6 +1009,39 @@ pub fn delete_file_if_exists(path: &CStr) -> WinapiResult<()> {
     Ok(())
 }
 
+/// Copy one existing file to a new path without overwriting that path.
+///
+/// This wrapper deliberately exposes the fail-if-exists behavior. Transaction
+/// callers can then distinguish an unexpected stale destination from the
+/// source image they intended to preserve.
+pub fn copy_file_new(source: &CStr, destination: &CStr) -> WinapiResult<()> {
+    unsafe {
+        CopyFileA(
+            PCSTR(source.as_ptr().cast()),
+            PCSTR(destination.as_ptr().cast()),
+            true,
+        )?
+    };
+    Ok(())
+}
+
+/// Move a file to an unoccupied destination and wait for the move to reach
+/// storage.
+///
+/// Unlike [`move_file_replace_write_through`], this fails if the destination
+/// already exists. It is suitable for engine-compatible rename sequences that
+/// have explicitly established a vacant destination.
+pub fn move_file_write_through(source: &CStr, destination: &CStr) -> WinapiResult<()> {
+    unsafe {
+        MoveFileExA(
+            PCSTR(source.as_ptr().cast()),
+            PCSTR(destination.as_ptr().cast()),
+            MOVEFILE_WRITE_THROUGH,
+        )?
+    };
+    Ok(())
+}
+
 /// Move a file and replace an existing destination only after the source is
 /// ready. `MOVEFILE_WRITE_THROUGH` keeps the rename in the durable commit path.
 pub fn move_file_replace_write_through(source: &CStr, destination: &CStr) -> WinapiResult<()> {
@@ -1017,31 +1050,6 @@ pub fn move_file_replace_write_through(source: &CStr, destination: &CStr) -> Win
             PCSTR(source.as_ptr().cast()),
             PCSTR(destination.as_ptr().cast()),
             MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
-        )?
-    };
-    Ok(())
-}
-
-/// Atomically replace an existing file and retain its previous contents at
-/// `backup`.
-///
-/// `REPLACEFILE_WRITE_THROUGH` is deliberately not used because Microsoft
-/// documents that flag as unsupported. Callers that need durable contents
-/// must flush the replacement file before this operation.
-pub fn replace_file_atomic(
-    replaced: &CStr,
-    replacement: &CStr,
-    backup: Option<&CStr>,
-) -> WinapiResult<()> {
-    let backup = backup.map_or(PCSTR::null(), |path| PCSTR(path.as_ptr().cast()));
-    unsafe {
-        ReplaceFileA(
-            PCSTR(replaced.as_ptr().cast()),
-            PCSTR(replacement.as_ptr().cast()),
-            backup,
-            REPLACE_FILE_FLAGS(0),
-            None,
-            None,
         )?
     };
     Ok(())
@@ -1747,6 +1755,96 @@ pub fn alloc_console() -> WinapiResult<()> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{
+        fs,
+        path::{Path, PathBuf},
+        time::{SystemTime, UNIX_EPOCH},
+    };
+
+    use super::*;
+
+    struct TestDirectory(PathBuf);
+
+    impl Drop for TestDirectory {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn ansi_path(path: &Path) -> CString {
+        CString::new(path.to_string_lossy().as_bytes()).expect("test path must not contain NUL")
+    }
+
+    #[test]
+    fn recovery_copy_flush_and_replacement_work_as_one_windows_sequence() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock must be after the Unix epoch")
+            .as_nanos();
+        let directory = std::env::temp_dir().join(format!(
+            "libpsycho-save-promotion-{}-{unique}",
+            std::process::id()
+        ));
+        fs::create_dir(&directory).expect("create isolated save-promotion test directory");
+        let _cleanup = TestDirectory(directory.clone());
+
+        let final_path = directory.join("save.fos");
+        let temp_path = directory.join("save.fos.tmp");
+        let recovery_path = directory.join("save.fos.txn");
+        fs::write(&final_path, b"old-good-save").expect("write old final fixture");
+        fs::write(&temp_path, b"new-save").expect("write temporary fixture");
+
+        let final_path_ansi = ansi_path(&final_path);
+        let temp_path_ansi = ansi_path(&temp_path);
+        let recovery_path_ansi = ansi_path(&recovery_path);
+        copy_file_new(&final_path_ansi, &recovery_path_ansi).expect("copy final to recovery path");
+        open_existing_file_for_flush(&recovery_path_ansi)
+            .expect("open recovery copy")
+            .flush()
+            .expect("flush recovery copy");
+        move_file_replace_write_through(&temp_path_ansi, &final_path_ansi)
+            .expect("replace final with temporary file");
+
+        assert_eq!(fs::read(&final_path).unwrap(), b"new-save");
+        assert_eq!(fs::read(&recovery_path).unwrap(), b"old-good-save");
+        assert!(!temp_path.exists());
+    }
+
+    #[test]
+    fn vacant_destination_rename_sequence_matches_engine_fallback() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock must be after the Unix epoch")
+            .as_nanos();
+        let directory = std::env::temp_dir().join(format!(
+            "libpsycho-save-fallback-{}-{unique}",
+            std::process::id()
+        ));
+        fs::create_dir(&directory).expect("create isolated save-fallback test directory");
+        let _cleanup = TestDirectory(directory.clone());
+
+        let final_path = directory.join("save.fos");
+        let temp_path = directory.join("save.fos.tmp");
+        let recovery_path = directory.join("save.fos.txn");
+        fs::write(&final_path, b"old-good-save").expect("write old final fixture");
+        fs::write(&temp_path, b"new-save").expect("write temporary fixture");
+
+        let final_path_ansi = ansi_path(&final_path);
+        let temp_path_ansi = ansi_path(&temp_path);
+        let recovery_path_ansi = ansi_path(&recovery_path);
+        move_file_write_through(&final_path_ansi, &recovery_path_ansi)
+            .expect("move old final to vacant recovery path");
+        move_file_write_through(&temp_path_ansi, &final_path_ansi)
+            .expect("move temporary file to vacant final path");
+
+        assert_eq!(fs::read(&final_path).unwrap(), b"new-save");
+        assert_eq!(fs::read(&recovery_path).unwrap(), b"old-good-save");
+        assert!(!temp_path.exists());
+    }
 }
 
 /// Configure the console to display colours.
