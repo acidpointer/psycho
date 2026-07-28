@@ -13,7 +13,7 @@ use std::sync::OnceLock;
 
 use thiserror::Error;
 
-use windows::Win32::Foundation::{E_POINTER, HANDLE, RECT};
+use windows::Win32::Foundation::{E_NOINTERFACE, E_POINTER, HANDLE, RECT};
 use windows::Win32::Graphics::Direct3D::ID3DBlob;
 use windows::Win32::Graphics::Direct3D9::{
     D3DADAPTER_DEFAULT, D3DBACKBUFFER_TYPE, D3DBACKBUFFER_TYPE_MONO, D3DCAPS9, D3DCLEAR_ZBUFFER,
@@ -22,7 +22,8 @@ use windows::Win32::Graphics::Direct3D9::{
     D3DSTATEBLOCKTYPE, D3DTEXTUREFILTERTYPE, D3DTEXTURESTAGESTATETYPE, D3DUSAGE_DEPTHSTENCIL,
     D3DUSAGE_QUERY_POSTPIXELSHADER_BLENDING, D3DUSAGE_RENDERTARGET, D3DVERTEXELEMENT9, IDirect3D9,
     IDirect3DBaseTexture9, IDirect3DDevice9, IDirect3DPixelShader9, IDirect3DStateBlock9,
-    IDirect3DSurface9, IDirect3DTexture9, IDirect3DVertexBuffer9, IDirect3DVertexShader9,
+    IDirect3DSurface9, IDirect3DTexture9, IDirect3DVertexBuffer9, IDirect3DVertexDeclaration9,
+    IDirect3DVertexShader9,
 };
 pub use windows::Win32::Graphics::Direct3D9::{
     D3DBLEND_ONE, D3DBLENDOP_ADD, D3DCULL, D3DCULL_CCW, D3DCULL_CW, D3DCULL_NONE, D3DFMT_A8R8G8B8,
@@ -576,6 +577,14 @@ impl<'a> Device9Ref<'a> {
         unsafe { self.inner.CreateStateBlock(kind).map(StateBlock9::new) }
     }
 
+    /// Capture the bounded D3D9 state changed by a RESZ marker transaction.
+    ///
+    /// Unlike `D3DSBT_ALL`, this retains only the bindings and render states
+    /// required by the documented RESZ point-draw sequence.
+    pub fn capture_resz_state(&self) -> Direct3DResult<ReszState9> {
+        ReszState9::capture(self)
+    }
+
     /// Get the current fixed-function vertex format.
     pub fn fvf(&self) -> Direct3DResult<u32> {
         let mut fvf = 0;
@@ -948,6 +957,34 @@ impl Surface9 {
         unsafe { surface.GetDesc(&mut desc)? };
         Ok(desc)
     }
+
+    /// Retain an engine-owned raw surface as an owned COM reference.
+    ///
+    /// # Safety
+    ///
+    /// `surface` must be a live `IDirect3DSurface9*`.
+    pub unsafe fn retain_raw(surface: *mut c_void) -> Direct3DResult<Self> {
+        let ptr = NonNull::new(surface).ok_or_else(|| WindowsError::from_hresult(E_POINTER))?;
+        let surface = unsafe { InterfaceRef::<IDirect3DSurface9>::from_raw(ptr) };
+        surface.cast::<IDirect3DSurface9>().map(Self::new)
+    }
+
+    /// Return the owning texture when this surface is a texture level.
+    pub fn texture_container(&self) -> Direct3DResult<Option<Texture9>> {
+        let mut container = null_mut();
+        match unsafe {
+            self.inner
+                .GetContainer(&IDirect3DTexture9::IID, &mut container)
+        } {
+            Ok(()) if container.is_null() => Ok(None),
+            Ok(()) => {
+                let texture = unsafe { IDirect3DTexture9::from_raw(container) };
+                Texture9::new(texture).map(Some)
+            }
+            Err(err) if err.code() == D3DERR_NOTFOUND || err.code() == E_NOINTERFACE => Ok(None),
+            Err(err) => Err(err),
+        }
+    }
 }
 
 /// Owned `IDirect3DTexture9` reference.
@@ -1056,6 +1093,114 @@ impl Texture9 {
     /// Write one ARGB texel into a lockable 1x1 level-0 texture.
     pub fn write_level0_argb_pixel(&self, pixel: u32) -> Direct3DResult<()> {
         self.write_level0_argb(1, 1, &[pixel])
+    }
+}
+
+/// Owned snapshot of the exact D3D9 state changed by a RESZ marker draw.
+pub struct ReszState9 {
+    fvf: u32,
+    declaration: Option<IDirect3DVertexDeclaration9>,
+    texture0: Option<IDirect3DBaseTexture9>,
+    vertex_shader: Option<IDirect3DVertexShader9>,
+    pixel_shader: Option<IDirect3DPixelShader9>,
+    stream0: Option<IDirect3DVertexBuffer9>,
+    stream0_offset: u32,
+    stream0_stride: u32,
+    z_enable: u32,
+    z_write: u32,
+    color_write: u32,
+    point_size: u32,
+}
+
+impl ReszState9 {
+    fn capture(device: &Device9Ref<'_>) -> Direct3DResult<Self> {
+        let mut fvf = 0;
+        unsafe { device.inner.GetFVF(&mut fvf)? };
+        let declaration = optional_binding(unsafe { device.inner.GetVertexDeclaration() })?;
+        let texture0 = optional_binding(unsafe { device.inner.GetTexture(0) })?;
+        let vertex_shader = optional_binding(unsafe { device.inner.GetVertexShader() })?;
+        let pixel_shader = optional_binding(unsafe { device.inner.GetPixelShader() })?;
+        let mut stream0 = None;
+        let mut stream0_offset = 0;
+        let mut stream0_stride = 0;
+        unsafe {
+            device.inner.GetStreamSource(
+                0,
+                &mut stream0,
+                &mut stream0_offset,
+                &mut stream0_stride,
+            )?;
+        }
+
+        Ok(Self {
+            fvf,
+            declaration,
+            texture0,
+            vertex_shader,
+            pixel_shader,
+            stream0,
+            stream0_offset,
+            stream0_stride,
+            z_enable: device.render_state(D3DRS_ZENABLE)?,
+            z_write: device.render_state(D3DRS_ZWRITEENABLE)?,
+            color_write: device.render_state(D3DRS_COLORWRITEENABLE)?,
+            point_size: device.render_state(D3DRS_POINTSIZE)?,
+        })
+    }
+
+    /// Restore render states before issuing the RESZ marker.
+    pub fn restore_render_states(&self, device: &Device9Ref<'_>) -> Direct3DResult<()> {
+        let mut result = device.set_render_state(D3DRS_ZENABLE, self.z_enable);
+        keep_first_error(
+            &mut result,
+            device.set_render_state(D3DRS_ZWRITEENABLE, self.z_write),
+        );
+        keep_first_error(
+            &mut result,
+            device.set_render_state(D3DRS_COLORWRITEENABLE, self.color_write),
+        );
+        result
+    }
+
+    /// Restore point size and every binding changed by the marker draw.
+    pub fn restore_bindings(&self, device: &Device9Ref<'_>) -> Direct3DResult<()> {
+        let mut result = device.set_render_state(D3DRS_POINTSIZE, self.point_size);
+        keep_first_error(&mut result, unsafe { device.inner.SetFVF(self.fvf) });
+        keep_first_error(&mut result, unsafe {
+            device.inner.SetVertexDeclaration(self.declaration.as_ref())
+        });
+        keep_first_error(&mut result, unsafe {
+            device.inner.SetTexture(0, self.texture0.as_ref())
+        });
+        keep_first_error(&mut result, unsafe {
+            device.inner.SetVertexShader(self.vertex_shader.as_ref())
+        });
+        keep_first_error(&mut result, unsafe {
+            device.inner.SetPixelShader(self.pixel_shader.as_ref())
+        });
+        keep_first_error(&mut result, unsafe {
+            device.inner.SetStreamSource(
+                0,
+                self.stream0.as_ref(),
+                self.stream0_offset,
+                self.stream0_stride,
+            )
+        });
+        result
+    }
+}
+
+fn optional_binding<T>(result: Direct3DResult<T>) -> Direct3DResult<Option<T>> {
+    match result {
+        Ok(binding) => Ok(Some(binding)),
+        Err(err) if err.code() == E_POINTER || err.code() == D3DERR_NOTFOUND => Ok(None),
+        Err(err) => Err(err),
+    }
+}
+
+fn keep_first_error(result: &mut Direct3DResult<()>, next: Direct3DResult<()>) {
+    if result.is_ok() && next.is_err() {
+        *result = next;
     }
 }
 

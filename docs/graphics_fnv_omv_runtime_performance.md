@@ -61,10 +61,53 @@ observations:
   Depth-dependent work was nevertheless reached and its resources and phase
   copies were initialized.
 
-The log cannot by itself attribute the tester's sustained frame rate to one
-pass. It does prove an incomplete PBR cache, a long and poorly distinguished
-preparation period, and a device on which the old RESZ-only route did not
-work.
+The failed route remained selected and attempted up to three full
+state-block-backed RESZ transactions per rendered frame. The log cannot
+identify whether the failure came from the all-state block, a binding, the
+marker draw, or the RESZ trigger. It also cannot by itself attribute the
+tester's sustained frame rate to one pass. It does prove an incomplete PBR
+cache, a long and poorly distinguished preparation period, and a device on
+which the old RESZ-only transaction did not work.
+
+### NVR-derived depth hot path
+
+The working NVR source does not capture/apply `D3DSBT_ALL` for RESZ. It retains
+only FVF, declaration, texture 0, vertex/pixel shaders, stream 0, Z-enable,
+Z-write, and color-write, then resets the point-size trigger. OMV previously
+performed that bounded work plus an all-state capture/apply on every resolve.
+At the active world, coherent-world, and first-person capture points, that
+broad transaction could occur up to three times per frame.
+
+OMV now owns the same bounded state set through
+`libpsycho::os::windows::directx9::ReszState9`. Owned COM references keep every
+saved binding alive until restoration, and OMV preserves the incoming point
+size rather than assuming it was zero. The error path still attempts every
+state and depth-attachment restore. Only the RESZ helper lost its all-state
+block; independent screen/world draw transactions still retain theirs.
+
+NVR also treats an `INTZ` source surface as a texture level on native NVIDIA:
+it obtains the `IDirect3DTexture9` container, registers that texture, and uses
+it as the NvAPI copy source. OMV previously registered and copied the surface
+unconditionally. OMV now retains and prefers the texture container with a
+standalone-surface fallback, matching NVR on native NVIDIA.
+
+These are direct source-contract fixes. Static evidence proves the removed
+calls and corrected resource identity, but only the reported NVIDIA system can
+measure the resulting frame time.
+
+### Operational depth-route circuit breaker
+
+OMV now treats `D3DERR_NOTAVAILABLE` from an advertised RESZ transaction as an
+operational capability rejection. It tries native NvAPI once for the current
+device generation and retries the current capture only if initialization
+succeeds. Otherwise it caches depth as unavailable. This removes the repeated
+marker draw, full-state capture/restore, and target churn from the incompatible
+path. Other D3D failures retain RESZ so transient errors cannot permanently
+reduce effect coverage. Device replacement/reset clears the cached decision
+and probes again. This is secondary failure containment; the bounded NVR state
+transaction and native source-container ownership are the compatibility and
+performance fix. Full evidence is maintained in
+`docs/graphics_fnv_depth_resolve.md`.
 
 ## Architecture and ownership
 
