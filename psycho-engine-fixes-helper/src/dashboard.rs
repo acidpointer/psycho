@@ -2054,6 +2054,7 @@ fn telemetry_card(
             danger_below,
             sample_interval_seconds: SAMPLE_INTERVAL.as_secs_f32(),
             impulse_from_zero: false,
+            color_by_threshold: false,
             line_color,
             fill_color,
             warning_label: &warning_label,
