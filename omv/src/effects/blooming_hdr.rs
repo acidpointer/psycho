@@ -682,7 +682,7 @@ mod shader_compile_tests {
             .iter()
             .map(|lut| lut.pixels.len() * std::mem::size_of::<u32>())
             .sum();
-        assert_eq!(catalog_bytes, 1_835_008);
+        assert_eq!(catalog_bytes, 5_505_024);
         assert_eq!(
             shipped[0].pixels.len() * std::mem::size_of::<u32>(),
             131_072
@@ -1235,6 +1235,93 @@ mod shader_compile_tests {
             assert!(
                 changed > width * height / 2,
                 "center-only negative control was not rejected"
+            );
+        }
+    }
+
+    #[test]
+    fn cinematic_luts_render_bounded_reference_frames_without_erasing_detail() {
+        const WIDTH: usize = 41;
+        const HEIGHT: usize = 23;
+        let shipped_luts = crate::luts::shipped_luts_for_test();
+        for lut in &shipped_luts[14..] {
+            let mut changed = 0usize;
+            let mut input_detail = 0.0f32;
+            let mut output_detail = 0.0f32;
+            let mut luma_bias = 0.0f32;
+            for y in 0..HEIGHT {
+                let vertical = y as f32 / (HEIGHT - 1) as f32;
+                let mut previous = None;
+                for x in 0..WIDTH {
+                    let horizontal = x as f32 / (WIDTH - 1) as f32;
+                    let micro_detail = if (x + y) % 2 == 0 {
+                        1.5 / 255.0
+                    } else {
+                        -1.5 / 255.0
+                    };
+                    let input = if y < HEIGHT / 3 {
+                        [
+                            0.05 + horizontal * 0.42,
+                            0.10 + horizontal * 0.46,
+                            0.20 + horizontal * 0.62,
+                        ]
+                    } else if y < HEIGHT * 2 / 3 {
+                        [
+                            0.16 + horizontal * 0.68,
+                            0.10 + horizontal * 0.50,
+                            0.06 + horizontal * 0.28,
+                        ]
+                    } else {
+                        [
+                            0.08 + horizontal * 0.54,
+                            0.16 + horizontal * 0.45,
+                            0.09 + horizontal * 0.34,
+                        ]
+                    }
+                    .map(|channel| {
+                        (channel + micro_detail * (0.4 + vertical * 0.6)).clamp(0.0, 1.0)
+                    });
+                    let output = sample_lut(&lut.pixels, input);
+                    assert!(
+                        output
+                            .iter()
+                            .all(|value| value.is_finite() && (0.0..=1.0).contains(value)),
+                        "{} produced an invalid reference pixel",
+                        lut.file_name
+                    );
+                    changed += (color_distance(input, output) > 2.0 / 255.0) as usize;
+                    luma_bias += luma(output) - luma(input);
+                    if let Some((previous_input, previous_output)) = previous {
+                        input_detail += (luma(input) - luma(previous_input)).abs();
+                        output_detail += (luma(output) - luma(previous_output)).abs();
+                    }
+                    previous = Some((input, output));
+                }
+            }
+
+            let pixels = (WIDTH * HEIGHT) as f32;
+            assert!(
+                changed >= WIDTH * HEIGHT * 4 / 5,
+                "{} changes only {changed}/{} reference pixels",
+                lut.file_name,
+                WIDTH * HEIGHT
+            );
+            assert!(
+                output_detail >= input_detail * 0.45,
+                "{} retains only {:.1}% of reference detail energy",
+                lut.file_name,
+                output_detail / input_detail * 100.0
+            );
+            assert!(
+                output_detail <= input_detail * 1.8,
+                "{} creates excessive reference edge energy",
+                lut.file_name
+            );
+            assert!(
+                (luma_bias / pixels).abs() <= 0.16,
+                "{} is dominated by a {:.3} global luma shift",
+                lut.file_name,
+                luma_bias / pixels
             );
         }
     }

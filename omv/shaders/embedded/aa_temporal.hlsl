@@ -27,6 +27,12 @@ bool ValidDepth(float depth) {
     return ReversedDepth() ? depth > 0.000001 && depth <= 1.0 : depth > 0.000001 && depth < 0.999999;
 }
 
+bool SkyDepth(float depth) {
+    return ReversedDepth()
+        ? depth >= 0.0 && depth <= 0.000001
+        : depth >= 0.999999 && depth <= 1.0;
+}
+
 float LinearDepth(float depth) {
     float nearZ = max(CameraData.x, 0.01);
     float farZ = max(CameraData.y, nearZ + 1.0);
@@ -54,6 +60,15 @@ float DepthKey(float depth) {
     return saturate(log2(depth + 1.0) / max(log2(PreviousDepth.y + 1.0), 0.001));
 }
 
+float HistoryAgreement(float3 current, float3 history, float skyMask) {
+    float3 magnitude = max(max(abs(current), abs(history)), 0.02);
+    float3 relative = abs(history - current) / magnitude;
+    float difference = max(relative.x, max(relative.y, relative.z));
+    float rejectionStart = lerp(0.20, 0.05, skyMask);
+    float rejectionEnd = lerp(1.00, 0.50, skyMask);
+    return 1.0 - smoothstep(rejectionStart, rejectionEnd, difference);
+}
+
 void Neighborhood(float2 uv, float3 center, out float3 low, out float3 high, out float3 average) {
     float2 t = ScreenData.zw;
     low = center;
@@ -77,25 +92,29 @@ void Neighborhood(float2 uv, float3 center, out float3 low, out float3 high, out
 float4 Main(float2 uv : TEXCOORD0) : COLOR0 {
     float4 current = tex2Dlod(CurrentColor, float4(uv, 0.0, 0.0));
     float rawDepth = tex2Dlod(SceneDepth, float4(uv, 0.0, 0.0)).r;
-    float linearDepth = ValidDepth(rawDepth) ? LinearDepth(rawDepth) : CameraData.y;
-    if (CameraData.w < 0.5 || !ValidDepth(rawDepth)) {
+    bool geometry = ValidDepth(rawDepth);
+    bool sky = SkyDepth(rawDepth);
+    if (CameraData.w < 0.5 || (!geometry && !sky)) {
         return current;
     }
 
+    float skyMask = sky ? 1.0 : 0.0;
+    float linearDepth = geometry ? LinearDepth(rawDepth) : 1.0;
     float3 position = ReconstructCurrent(uv, linearDepth);
     float3 previousPosition = float3(
-        dot(TemporalRow0.xyz, position) + TemporalRow0.w,
-        dot(TemporalRow1.xyz, position) + TemporalRow1.w,
-        dot(TemporalRow2.xyz, position) + TemporalRow2.w
+        dot(TemporalRow0.xyz, position) + TemporalRow0.w * (1.0 - skyMask),
+        dot(TemporalRow1.xyz, position) + TemporalRow1.w * (1.0 - skyMask),
+        dot(TemporalRow2.xyz, position) + TemporalRow2.w * (1.0 - skyMask)
     );
     float2 historyUv = ProjectPrevious(previousPosition);
-    if (previousPosition.z <= max(PreviousDepth.x, 0.001) || !Inside(historyUv)) {
+    float minimumPreviousZ = sky ? 0.001 : max(PreviousDepth.x, 0.001);
+    if (previousPosition.z <= minimumPreviousZ || !Inside(historyUv)) {
         return current;
     }
 
     float4 history = tex2Dlod(HistoryColor, float4(historyUv, 0.0, 0.0));
     float historyKey = tex2Dlod(HistoryDepthKey, float4(historyUv, 0.0, 0.0)).r;
-    float expectedKey = DepthKey(previousPosition.z);
+    float expectedKey = sky ? -1.0 : DepthKey(previousPosition.z);
     float depthWeight = saturate(1.0 - abs(historyKey - expectedKey) * PreviousDepth.z);
     depthWeight *= depthWeight;
     float3 low;
@@ -103,7 +122,8 @@ float4 Main(float2 uv : TEXCOORD0) : COLOR0 {
     float3 average;
     Neighborhood(uv, current.rgb, low, high, average);
     float3 clampedHistory = clamp(history.rgb, low, high);
-    float historyWeight = saturate(Options0.x * depthWeight);
+    float agreement = HistoryAgreement(current.rgb, clampedHistory, skyMask);
+    float historyWeight = saturate(Options0.x * depthWeight * agreement);
     float3 sharpened = max(current.rgb + (current.rgb - average) * Options0.z, 0.0);
     float3 resolved = lerp(sharpened, clampedHistory, historyWeight);
 

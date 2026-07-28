@@ -393,6 +393,118 @@ pub(crate) fn shipped_luts_for_test() -> Vec<LutAsset> {
             "13_wasteland_noir.cube",
             include_str!("../luts/13_wasteland_noir.cube"),
         ),
+        (
+            "14_midnight_mojave.cube",
+            include_str!("../luts/14_midnight_mojave.cube"),
+        ),
+        (
+            "15_desert_noir.cube",
+            include_str!("../luts/15_desert_noir.cube"),
+        ),
+        (
+            "16_vegas_after_dark.cube",
+            include_str!("../luts/16_vegas_after_dark.cube"),
+        ),
+        (
+            "17_rain_on_freeside.cube",
+            include_str!("../luts/17_rain_on_freeside.cube"),
+        ),
+        (
+            "18_sierra_madre_gilded.cube",
+            include_str!("../luts/18_sierra_madre_gilded.cube"),
+        ),
+        (
+            "19_dead_money_poison.cube",
+            include_str!("../luts/19_dead_money_poison.cube"),
+        ),
+        (
+            "20_mojave_blue_hour.cube",
+            include_str!("../luts/20_mojave_blue_hour.cube"),
+        ),
+        (
+            "21_caravan_lantern.cube",
+            include_str!("../luts/21_caravan_lantern.cube"),
+        ),
+        (
+            "22_dust_and_blood.cube",
+            include_str!("../luts/22_dust_and_blood.cube"),
+        ),
+        (
+            "23_atomic_monochrome.cube",
+            include_str!("../luts/23_atomic_monochrome.cube"),
+        ),
+        (
+            "24_vault_noir.cube",
+            include_str!("../luts/24_vault_noir.cube"),
+        ),
+        (
+            "25_lonesome_road_ash.cube",
+            include_str!("../luts/25_lonesome_road_ash.cube"),
+        ),
+        (
+            "26_radioactive_dream.cube",
+            include_str!("../luts/26_radioactive_dream.cube"),
+        ),
+        (
+            "27_old_world_detective.cube",
+            include_str!("../luts/27_old_world_detective.cube"),
+        ),
+        (
+            "28_capital_wasteland_overcast.cube",
+            include_str!("../luts/28_capital_wasteland_overcast.cube"),
+        ),
+        (
+            "29_potomac_fog.cube",
+            include_str!("../luts/29_potomac_fog.cube"),
+        ),
+        (
+            "30_ruined_capitol_dusk.cube",
+            include_str!("../luts/30_ruined_capitol_dusk.cube"),
+        ),
+        (
+            "31_dc_radstorm.cube",
+            include_str!("../luts/31_dc_radstorm.cube"),
+        ),
+        (
+            "32_underworld_embers.cube",
+            include_str!("../luts/32_underworld_embers.cube"),
+        ),
+        (
+            "33_subterranean_survival.cube",
+            include_str!("../luts/33_subterranean_survival.cube"),
+        ),
+        (
+            "34_emergency_red.cube",
+            include_str!("../luts/34_emergency_red.cube"),
+        ),
+        (
+            "35_frozen_platform.cube",
+            include_str!("../luts/35_frozen_platform.cube"),
+        ),
+        (
+            "36_dry_sea_white_sun.cube",
+            include_str!("../luts/36_dry_sea_white_sun.cube"),
+        ),
+        (
+            "37_dead_city_blue.cube",
+            include_str!("../luts/37_dead_city_blue.cube"),
+        ),
+        (
+            "38_exclusion_overcast.cube",
+            include_str!("../luts/38_exclusion_overcast.cube"),
+        ),
+        (
+            "39_emission_warning.cube",
+            include_str!("../luts/39_emission_warning.cube"),
+        ),
+        (
+            "40_rusted_laboratory.cube",
+            include_str!("../luts/40_rusted_laboratory.cube"),
+        ),
+        (
+            "41_pripyat_memory.cube",
+            include_str!("../luts/41_pripyat_memory.cube"),
+        ),
     ]
     .into_iter()
     .map(|(file_name, text)| {
@@ -413,6 +525,27 @@ mod tests {
         FileStamp, LutCatalog, parse_cube, scan_luts_in, shipped_luts_for_test, stable_file_id,
     };
     use std::{fs, path::PathBuf};
+
+    fn unpack(pixel: u32) -> [f32; 3] {
+        [
+            ((pixel >> 16) & 0xff) as f32 / 255.0,
+            ((pixel >> 8) & 0xff) as f32 / 255.0,
+            (pixel & 0xff) as f32 / 255.0,
+        ]
+    }
+
+    fn luma(color: [f32; 3]) -> f32 {
+        color[0] * 0.2126 + color[1] * 0.7152 + color[2] * 0.0722
+    }
+
+    fn chroma(color: [f32; 3]) -> f32 {
+        color.into_iter().fold(f32::MIN, f32::max) - color.into_iter().fold(f32::MAX, f32::min)
+    }
+
+    fn texel(asset: &super::LutAsset, red: usize, green: usize, blue: usize) -> [f32; 3] {
+        let size = asset.size as usize;
+        unpack(asset.pixels[green * size * size + blue * size + red])
+    }
 
     fn cube(size: u32, title: &str, transform: impl Fn([f32; 3]) -> [f32; 3]) -> String {
         let mut text =
@@ -552,7 +685,7 @@ mod tests {
     #[test]
     fn shipped_library_is_original_external_cube_data_with_professional_invariants() {
         let assets = shipped_luts_for_test();
-        assert_eq!(assets.len(), 14);
+        assert_eq!(assets.len(), 42);
         assert_eq!(assets[1].id, 97_154_384);
         assert_eq!(assets[1].file_name, "01_mojave_natural.cube");
         let names: std::collections::HashSet<&str> = assets
@@ -561,13 +694,6 @@ mod tests {
             .collect();
         assert_eq!(names.len(), assets.len());
 
-        let unpack = |pixel: u32| {
-            [
-                ((pixel >> 16) & 0xff) as f32 / 255.0,
-                ((pixel >> 8) & 0xff) as f32 / 255.0,
-                (pixel & 0xff) as f32 / 255.0,
-            ]
-        };
         for asset in &assets {
             assert_eq!(asset.size, 32);
             assert_eq!(asset.pixels.len(), 32usize.pow(3));
@@ -587,9 +713,9 @@ mod tests {
             let mut previous_luma = -1.0f32;
             for step in 0..32usize {
                 let pixel = unpack(asset.pixels[step * 32 * 32 + step * 32 + step]);
-                let luma = pixel[0] * 0.2126 + pixel[1] * 0.7152 + pixel[2] * 0.0722;
-                assert!(luma + 1.0 / 255.0 >= previous_luma);
-                previous_luma = luma;
+                let current_luma = luma(pixel);
+                assert!(current_luma + 1.0 / 255.0 >= previous_luma);
+                previous_luma = current_luma;
             }
         }
         for left in 0..assets.len() {
@@ -631,8 +757,97 @@ mod tests {
             include_str!("../luts/11_zion_canyon.cube"),
             include_str!("../luts/12_divide_duststorm.cube"),
             include_str!("../luts/13_wasteland_noir.cube"),
+            include_str!("../luts/14_midnight_mojave.cube"),
+            include_str!("../luts/15_desert_noir.cube"),
+            include_str!("../luts/16_vegas_after_dark.cube"),
+            include_str!("../luts/17_rain_on_freeside.cube"),
+            include_str!("../luts/18_sierra_madre_gilded.cube"),
+            include_str!("../luts/19_dead_money_poison.cube"),
+            include_str!("../luts/20_mojave_blue_hour.cube"),
+            include_str!("../luts/21_caravan_lantern.cube"),
+            include_str!("../luts/22_dust_and_blood.cube"),
+            include_str!("../luts/23_atomic_monochrome.cube"),
+            include_str!("../luts/24_vault_noir.cube"),
+            include_str!("../luts/25_lonesome_road_ash.cube"),
+            include_str!("../luts/26_radioactive_dream.cube"),
+            include_str!("../luts/27_old_world_detective.cube"),
+            include_str!("../luts/28_capital_wasteland_overcast.cube"),
+            include_str!("../luts/29_potomac_fog.cube"),
+            include_str!("../luts/30_ruined_capitol_dusk.cube"),
+            include_str!("../luts/31_dc_radstorm.cube"),
+            include_str!("../luts/32_underworld_embers.cube"),
+            include_str!("../luts/33_subterranean_survival.cube"),
+            include_str!("../luts/34_emergency_red.cube"),
+            include_str!("../luts/35_frozen_platform.cube"),
+            include_str!("../luts/36_dry_sea_white_sun.cube"),
+            include_str!("../luts/37_dead_city_blue.cube"),
+            include_str!("../luts/38_exclusion_overcast.cube"),
+            include_str!("../luts/39_emission_warning.cube"),
+            include_str!("../luts/40_rusted_laboratory.cube"),
+            include_str!("../luts/41_pripyat_memory.cube"),
         ] {
             assert!(text.starts_with("# Original OMV LUT; redistribution permitted with OMV."));
+        }
+    }
+
+    #[test]
+    fn cinematic_luts_split_tone_without_crushing_tonal_or_color_detail() {
+        let assets = shipped_luts_for_test();
+        for asset in &assets[14..] {
+            let neutral_ramp: Vec<[f32; 3]> =
+                (0..32).map(|step| texel(asset, step, step, step)).collect();
+            let luma_codes: std::collections::HashSet<u8> = neutral_ramp
+                .iter()
+                .map(|color| (luma(*color) * 255.0).round() as u8)
+                .collect();
+            assert!(
+                luma_codes.len() >= 27,
+                "{} preserves only {} of 32 neutral detail levels",
+                asset.file_name,
+                luma_codes.len()
+            );
+            assert!(
+                luma(neutral_ramp[2]) - luma(neutral_ramp[1]) >= 1.0 / 255.0,
+                "{} crushes near-black separation",
+                asset.file_name
+            );
+            assert!(
+                luma(neutral_ramp[30]) - luma(neutral_ramp[29]) >= 1.0 / 255.0,
+                "{} crushes highlight separation",
+                asset.file_name
+            );
+
+            let shadow = neutral_ramp[6];
+            let highlight = neutral_ramp[25];
+            assert!(
+                chroma(shadow).max(chroma(highlight)) >= 2.0 / 255.0,
+                "{} is reducible to a global darken/saturation curve",
+                asset.file_name
+            );
+            let shadow_bias = shadow.map(|channel| channel - luma(shadow));
+            let highlight_bias = highlight.map(|channel| channel - luma(highlight));
+            let tonal_separation: f32 = shadow_bias
+                .into_iter()
+                .zip(highlight_bias)
+                .map(|(shadow, highlight)| (shadow - highlight).abs())
+                .sum();
+            assert!(
+                tonal_separation >= 3.0 / 255.0,
+                "{} does not separate shadow and highlight color",
+                asset.file_name
+            );
+
+            for (label, color) in [
+                ("skin/earth", texel(asset, 24, 17, 11)),
+                ("vegetation", texel(asset, 11, 22, 10)),
+                ("sky/neon", texel(asset, 8, 15, 24)),
+            ] {
+                assert!(
+                    chroma(color) >= 3.0 / 255.0,
+                    "{} collapses {label} color detail",
+                    asset.file_name
+                );
+            }
         }
     }
 
@@ -672,6 +887,34 @@ mod tests {
             "11_zion_canyon.cube",
             "12_divide_duststorm.cube",
             "13_wasteland_noir.cube",
+            "14_midnight_mojave.cube",
+            "15_desert_noir.cube",
+            "16_vegas_after_dark.cube",
+            "17_rain_on_freeside.cube",
+            "18_sierra_madre_gilded.cube",
+            "19_dead_money_poison.cube",
+            "20_mojave_blue_hour.cube",
+            "21_caravan_lantern.cube",
+            "22_dust_and_blood.cube",
+            "23_atomic_monochrome.cube",
+            "24_vault_noir.cube",
+            "25_lonesome_road_ash.cube",
+            "26_radioactive_dream.cube",
+            "27_old_world_detective.cube",
+            "28_capital_wasteland_overcast.cube",
+            "29_potomac_fog.cube",
+            "30_ruined_capitol_dusk.cube",
+            "31_dc_radstorm.cube",
+            "32_underworld_embers.cube",
+            "33_subterranean_survival.cube",
+            "34_emergency_red.cube",
+            "35_frozen_platform.cube",
+            "36_dry_sea_white_sun.cube",
+            "37_dead_city_blue.cube",
+            "38_exclusion_overcast.cube",
+            "39_emission_warning.cube",
+            "40_rusted_laboratory.cube",
+            "41_pripyat_memory.cube",
         ] {
             assert!(workflow.contains(file_name), "release omits {file_name}");
         }

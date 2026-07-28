@@ -17,14 +17,15 @@ CORE_DLL="psycho_engine_fixes.dll"
 HELPER_DLL="psycho_engine_fixes_helper.dll"
 OMV_DLL="omv.dll"
 CONFIG_FILE="psycho_engine_fixes.toml"
-OMV_CONFIG_FILE="omv.toml"
+OMV_CONFIG_SOURCE_FILE="omv.toml"
+OMV_DEFAULT_CONFIG_FILE="omv.default.toml"
 
 LOADER_PATH="$WORKSPACE_DIR/target/$TARGET/release/$LOADER_DLL"
 CORE_PATH="$WORKSPACE_DIR/target/$TARGET/release/$CORE_DLL"
 HELPER_PATH="$WORKSPACE_DIR/target/$TARGET/release/$HELPER_DLL"
 OMV_PATH="$WORKSPACE_DIR/target/$TARGET/release/$OMV_DLL"
 CONFIG_PATH="$WORKSPACE_DIR/psycho-engine-fixes/config/$CONFIG_FILE"
-OMV_CONFIG_PATH="$WORKSPACE_DIR/omv/config/$OMV_CONFIG_FILE"
+OMV_CONFIG_PATH="$WORKSPACE_DIR/omv/config/$OMV_CONFIG_SOURCE_FILE"
 OMV_SHADER_SOURCE_DIR="$WORKSPACE_DIR/omv/shaders/runtime"
 OMV_LUT_SOURCE_DIR="$WORKSPACE_DIR/omv/luts"
 
@@ -84,7 +85,7 @@ pack_dir "$STAGING/helper" "$HELPER_ARCHIVE"
 mkdir -p "$STAGING/omv/Data/NVSE/plugins/omv/shaders"
 mkdir -p "$STAGING/omv/Data/NVSE/plugins/omv/luts"
 cp "$OMV_PATH" "$STAGING/omv/Data/NVSE/plugins/$OMV_DLL"
-cp "$OMV_CONFIG_PATH" "$STAGING/omv/Data/NVSE/plugins/omv/$OMV_CONFIG_FILE"
+cp "$OMV_CONFIG_PATH" "$STAGING/omv/Data/NVSE/plugins/omv/$OMV_DEFAULT_CONFIG_FILE"
 find "$OMV_SHADER_SOURCE_DIR" \
     -maxdepth 1 \
     -type f \

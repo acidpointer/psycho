@@ -2,302 +2,265 @@
 
 ## Status and purpose
 
-OMV's graphics workbench includes a compact frame-pacing diagnostic at the top
-of the menu. It is intended for rapid effect tuning and regression triage: the
-operator can see whether a visual change altered throughput, produced uneven
-delivery, or introduced isolated hitches without leaving the game or inferring
-timing quality from an FPS scalar.
+OMV's Diagnostics tab includes a live frame-time graph for rapid effect tuning
+and regression triage. It shows throughput, uneven delivery, and isolated
+hitches without requiring an external overlay.
 
-The component reports measurement, not attribution. It cannot by itself tell
-whether a bad frame came from CPU work, GPU work, presentation, the game, OMV,
-DXVK, or another plugin.
+The component reports measurement, not attribution. It cannot by itself
+identify whether a bad frame came from CPU work, GPU work, presentation, the
+game, OMV, DXVK, the display driver, or another plugin.
 
 ## User-visible contract
 
-The collector retains up to 2,048 completed present intervals while the
-workbench is open. Published metrics use the newest suffix covering at most ten
-seconds of accepted interval time; rejected holes are excluded and reported
-separately. Raw capture remains per frame. The `UPDATE` selector controls only
-visible publication:
+Frame intervals are captured continuously, including while the workbench is
+closed. Opening Diagnostics immediately shows the newest retained history
+instead of starting from an empty graph. OMV retains at most 2,048 successful,
+consecutive Present intervals. Aggregate metrics use the newest suffix
+covering at most ten seconds of accepted interval time.
 
-- `Every frame // instant` publishes after every valid interval;
-- 50, 100, 250, 500, 1,000, and 2,000 ms timed presets trade response speed for
-  a steadier readout;
-- a non-preset value loaded from TOML is shown as a custom cadence.
+The graph is a raw 240-frame timeline. Every point is one accepted Present
+interval in chronological order; OMV does not average, bucket, or otherwise
+reshape the plotted values. This makes a single hitch and its immediate
+recovery visible and gives the graph the direct response expected from a
+real-time frame-time overlay.
 
-`diagnostics.frame_pacing_update_interval_ms` owns the persisted value. `0`
-means instant mode; nonzero values are clamped to `50..=2000`. The default
-remains 500 ms and legacy configurations receive that default.
+The graph advances every ImGui frame. Aggregate publication uses one fixed
+250 ms cadence (4 Hz): fast enough to follow a tuning change, slow enough for
+the scalar values to remain readable. There is no update-frequency control in
+the workbench.
 
-The panel reports:
+`diagnostics.frame_pacing_update_interval_ms` remains accepted, sanitized, and
+written only as a deprecated working-config compatibility key. Runtime
+diagnostics ignore it. Removing or repurposing the field would make old
+working configurations needlessly incompatible, while leaving it out of the
+UI removes the user-facing complexity.
+
+The panel presents these values as labeled gradient cards rather than dense
+developer strings:
 
 - live FPS from a one-second time-based one-pole;
-- arithmetic-average FPS and frame time over the visible window;
+- arithmetic-average FPS over the metric window;
 - 1% low FPS, defined here as `1000 / P99 frame time`;
 - P50, P95, and P99 frame times at 0.125 ms histogram resolution;
-- the worst unmodified frame time in the window;
-- pacing jitter as P95 of the absolute delta between successive raw frame
-  times;
-- median absolute deviation (MAD) around P50 as the stable-window noise floor;
-- the percentage of samples meeting the 60 FPS (`16.667 ms`) and 30 FPS
-  (`33.333 ms`) budgets.
+- the worst unmodified frame time;
+- pacing jitter as P95 of the absolute delta between successive raw intervals;
+- median absolute deviation (MAD) around P50;
+- percentages meeting the 60 FPS (`16.667 ms`) and 30 FPS (`33.333 ms`)
+  budgets;
+- off-scale samples, timing gaps, and nonblocking runtime-owner misses.
 
-P95 absolute delta measures persistent uneven delivery without allowing one
-isolated loading hitch to dominate the jitter readout. P99, worst, budget-hit,
-and off-scale metrics still use every raw interval, so the robust jitter value
-does not hide a stall. The histogram covers `0..511.875 ms` directly. If a
-requested percentile lands in its final overflow bin, OMV selects the exact
-raw tail value instead of silently clipping the result to 511.875 ms.
+The two target cards explain their frame-time budgets directly. Jitter and MAD
+are labeled as frame-to-frame jitter and stable variation, with short
+descriptions of what they measure. Pacing episodes use normal sentences and
+separate Latest/Largest fields. Measurement-health text appears only when
+intervals or optional runtime samples were skipped and explicitly explains
+that nonblocking skips avoid game stalls.
 
-The primary graph uses a real time axis with one point per 100 ms bucket.
-Before bucketing, OMV averages adjacent accepted Present intervals below
-100 ms. This cancels the common short/long submission pair without changing
-its two-frame arithmetic mean. Pair values are then averaged inside each
-100 ms bucket, and a bucket with no completed pair holds the last older
-observed cadence. Intervals of 100 ms or more bypass pair normalization and
-remain a single peak in their bucket.
+P95 absolute delta detects persistent uneven delivery without allowing one
+isolated loading hitch to dominate the jitter scalar. P99, worst, budget
+percentages, and off-scale counts still use raw intervals. The histogram covers
+`0..511.875 ms` directly. If a percentile lands in its overflow bin, OMV
+selects the exact raw tail value rather than clipping it.
 
-This separation is intentional. The connected primary plot is a cadence trend,
-while P50/P95/P99, worst, jitter, MAD, budget hits, off-scale counts, and the
-impulse plot continue to use the accepted raw CPU Present intervals. The panel
-labels both contracts. The previous whole-frame bucket assignment let the
-phase-dependent number of short and long intervals alternate between buckets;
-a perfectly repeating `1/32 ms` submission pattern consequently produced
-`11.3/19.6 ms` teeth instead of its stable `16.5 ms` pair cadence.
+The Y scale uses stable budget-aware tiers:
 
-A second compact graph shows meaningful excursions among the newest 100 raw
-frames as signed deviation from the adaptive baseline. Positive/up means a
-slower frame; negative/down means a faster frame. Values below the same
-`max(2 ms, 25% of baseline, 6 * adaptive noise)` threshold used by the spike
-detector are plotted at zero. Nonzero samples are drawn as independent
-zero-baseline impulses rather than a connected line. This prevents normal
-timer/VSync quantization and the triangles between isolated events from
-becoming a permanent sawtooth while retaining the unfiltered P95 delta in the
-`JITTER` scalar. A slow frame and its immediate fast rebound remain visible
-even when both occur inside one 100 ms time bucket. The fixed
-`-50..50 ms` scale and overflow markers make direction and magnitude
-comparable between observations.
+| P99 frame time | Graph maximum |
+|---|---:|
+| up to 28 ms | 35 ms |
+| up to 42 ms | 50 ms |
+| up to 65 ms | 75 ms |
+| above 65 ms | 100 ms |
 
-The Y range is fixed at `0..50 ms`; it no longer rescales when P99 changes.
-This keeps the 60 and 30 FPS guides stationary and makes separate observations
-visually comparable. Raw intervals above 50 ms remain exact in P99/worst and
-are counted in the text summary.
+The 60 and 30 FPS guides always fit. A value above the current tier remains
+exact in the metrics and receives an overflow marker at the top of the graph.
+The tiered scale avoids constant small rescaling while retaining useful detail
+for both 60 FPS and 30 FPS workloads.
 
-Color communicates budget position only:
+Graph segments, their translucent fill, and the current-frame marker use frame
+budget color:
 
-- green: at or below the 60 FPS frame budget;
+- green: at or below the 60 FPS budget;
 - amber: above the 60 FPS budget and at or below the 30 FPS budget;
 - red: above the 30 FPS budget.
 
-It does not label a stable 30 FPS workload as an engine failure. The two budget
-hit percentages remain available so the operator can apply the target relevant
-to the current test.
-
-`DATA QUALITY` reports intervals rejected during the current workbench
-session. The panel also exposes process-lifetime nonblocking owner rejections
-and failed Presents. A nonzero rejection count means OMV deliberately left a
-hole rather than converting an unknown number of callbacks into one false long
-frame. It does not mean that neighboring accepted measurements are fabricated.
+The background gradient, subtle grid, guide labels, line glow, fill, current
+point, overflow markers, and frame-relative hover tooltip are emitted as Dear
+ImGui draw-list geometry. They do not add a game render pass.
 
 ## Spike analysis
 
-The spike detector is session-owned and independent from the visible update
-cadence. It warms up for 30 valid intervals, then follows an adaptive baseline
-with a two-second response. A frame becomes an excursion only when its distance
-from the baseline reaches all relevant noise protection through this threshold:
+Raw samples are also fed to a bounded adaptive spike detector when the
+Diagnostics UI consumes them. It warms up for 30 accepted intervals and then
+follows a baseline with a two-second response. A frame becomes an excursion
+when its baseline distance reaches:
 
 ```text
 max(2 ms, 25% of baseline, 6 * adaptive noise)
 ```
 
-Positive excursions are labeled `SLOW`; negative excursions are labeled
-`FAST`. Consecutive same-direction outliers are coalesced into one episode, so
-a sustained switch from 60 to 30 FPS is not reported as one spike per frame.
-The most extreme frame and severity within the episode are retained.
-`NOTICE`, `MAJOR`, and `SEVERE` combine absolute and baseline-relative
-magnitude; they describe the excursion, not its CPU/GPU cause.
+Positive excursions are `SLOW`; negative excursions are `FAST`. Consecutive
+same-direction outliers coalesce into one episode, so a sustained shift from
+60 to 30 FPS is not reported once per frame. The newest 64 episodes are
+retained for periodicity analysis, along with cumulative counts and
+session-wide slow/fast extremes.
 
-The session keeps the newest 64 episodes for cadence analysis, cumulative
-slow/fast counts, the latest episode, and separate session-wide largest slow
-and fast episodes. Session extremes therefore survive rollover of the cadence
-ring. Closing and reopening the workbench deliberately starts a new session.
+Periodicity is evaluated independently by direction. It considers the newest
+17 timestamps, uses the median interval as a candidate period, rejects
+intervals outside `max(25 ms, 15% of period)`, and requires at least three
+inliers plus 75% coverage. The UI reports direction, mean period,
+standard-deviation spread, repeats, and confidence.
 
-Periodicity is evaluated independently for slow and fast episodes. It considers
-the newest 17 timestamps in a direction, uses the median interval as the
-candidate period, rejects intervals outside `max(25 ms, 15% of period)`, and
-requires at least three inlier intervals plus 75% coverage. The panel reports
-direction, mean inlier period, standard-deviation spread, repeat count, and a
-coverage/regularity confidence. Fewer events or an irregular series is
-reported explicitly as no repeatable cadence.
+Because aggregate and spike processing is intentionally absent from the closed
+render path, events older than the retained 2,048-frame continuous ring are not
+reconstructed when Diagnostics is opened. This is the bounded-history
+tradeoff, not silent unbounded collection.
 
 ## Ownership and render ordering
 
-`omv/src/hooks.rs` captures the gated timestamp immediately before calling the
-original D3D9 `Present`. Its return value, timestamp, and current render epoch
-then reach `omv/src/runtime.rs`. The metric is CPU-observed Present-submission
-cadence. Capturing after `Present` was incorrect: completion deltas equal
-submission cadence plus the difference between adjacent Present wait times, so
-alternating wait duration manufactures a sawtooth in an otherwise stable
-stream. This is not a GPU timestamp, scan-out timestamp, or attribution of
-where the submitted frame later waits.
+`omv/src/hooks.rs` calls `runtime::present_frame_started_at` immediately before
+the original D3D9 `Present`. The original return value, captured counter, and
+current render epoch then reach `runtime::finish_present_frame`.
 
-`ScreenShaderRuntime::finish_present_frame` forms an interval only when both
-endpoints are successful and their render epochs are consecutive. A failed
-Present, a nonblocking runtime-owner miss, or a regressing synthetic clock
-invalidates the origin; the next accepted callback establishes a new origin
-without adding an aggregate multi-frame interval. The same continuity rule
-protects the production `PresentFrameTiming` used by depth of field.
+The measurement is CPU-observed Present-submission cadence. Capturing after
+`Present` would mix cadence with differences between adjacent Present wait
+times and can manufacture a sawtooth. It is not a GPU timestamp, scan-out
+timestamp, or timing-source attribution.
 
-`omv/src/runtime.rs` owns capture, fixed history, summary statistics, and panel
-composition. Capture occurs only while the ImGui context is ready and the
-workbench is open. The first callback after opening only establishes the time
-origin. A generation stored with the atomic diagnostics gate makes every
-close/reopen transition a new session even though the closed fast path does
-not acquire the runtime owner. Invalid synthetic values are rejected; real
-finite, consecutive intervals are retained in full.
+`omv/src/runtime.rs` owns:
 
-`FramePacing` separates capture from presentation. Every valid interval performs
-one fixed-ring write, one rational one-pole live update, and bounded adaptive
-spike state work. Timed modes publish after their configured amount of captured
-time; instant mode publishes every frame. The snapshot copies only the newest
-ten-second suffix, builds fixed histograms for distributions, and produces at
-most 100 points in each chart. ImGui frames between timed publications reuse
-the prior snapshot unchanged.
+- the continuous high-resolution-counter origin and atomic sample ring;
+- continuity and failed-Present rejection;
+- the workbench-owned `FramePacing` history and adaptive analysis;
+- aggregate snapshots and panel composition.
 
-Depth of field still needs a production frame delta while its pipeline is
-enabled. That timing has separate `PresentFrameTiming` ownership and does not
-populate the diagnostic ring or its aggregates.
+An interval is published only when both endpoints are successful and their
+render epochs are consecutive. A failed Present, missing callback, invalid or
+regressing counter, or overlapping writer invalidates or rejects the interval.
+The next valid callback establishes a new origin; OMV never converts an
+unknown number of callbacks into one false long frame.
+
+The atomic ring publishes a sample value before publishing its sequence with
+release ordering. The UI acquires the sequence and copies only the retained
+suffix newer than its cursor. If the workbench has been closed longer than the
+ring capacity, it starts from the oldest still-retained sample.
+
+Depth of field has separate `PresentFrameTiming` ownership because it needs a
+production delta while enabled. Its `Instant` timestamp remains gated by the
+depth-of-field requirement and does not populate diagnostic history.
 
 The live FPS one-pole has a one-second time constant and bounds its input to
-`100 ms` so an Alt-Tab, loading pause, or suspended process does not leave the
-live readout stale for many seconds. Unlike the old fixed `0.08` per-frame
-weight, its response does not become faster merely because the frame rate is
-higher. The rational coefficient avoids a per-frame transcendental operation.
-The bound does not alter historical samples or the depth-of-field delta.
+100 ms so a suspended process does not leave the live readout stale for many
+seconds. The bound affects only smoothing; historical metrics retain the full
+accepted interval.
 
-The menu is built during OMV's existing present phase, after any final
-image-space pass and before the captured D3D9 state is restored. The graph is
-Dear ImGui geometry only. It creates no OMV render target, shader, sampler,
-history texture, D3D pass, or engine hook, and does not change effect ordering.
+`psycho-imgui/src/bridge.cpp` owns the reusable telemetry renderer. OMV passes
+a zero sample interval to select frame-relative axis and hover labels. The
+existing impulse style remains reusable by other callers but is not used by
+the frame-pacing panel.
 
-`psycho-imgui/src/bridge.cpp` owns the reusable telemetry drawing primitive.
-OMV supplies a positive `0.1` second interval for the cadence timeline and zero
-for the filtered impulse graph, selecting time-relative and frame-relative
-hover behavior respectively. The chart ABI exposes an explicit
-`impulse_from_zero` style so isolated events are not connected.
+## Performance and memory contract
 
-## Performance, memory, and failure behavior
+The always-on path is deliberately smaller than the old open-menu collector.
+For each Present it performs:
 
-When the workbench is closed and depth-of-field does not need production frame
-delta, the pre-Present capture returns after atomic gate reads and before
-`Instant::now`; the finish callback returns before runtime acquisition. The frame-pacing collector
-therefore performs no timestamp query, lock attempt, ring write, smoothing,
-spike work, snapshot work, allocation, I/O, logging, or D3D work. If
-depth-of-field is enabled, its separate production timer still runs by design
-and never populates diagnostics.
+1. one `QueryPerformanceCounter` call before native Present (its frequency is
+   queried once during OMV configuration, outside the render path);
+2. one nonblocking atomic writer claim after Present;
+3. fixed scalar validation and, when an interval is valid, one atomic `f32`
+   bit-pattern write plus sequence publication.
 
-While the workbench is open, capture writes one `f32`, advances fixed scalar
-state, and may write one fixed spike episode. It allocates nothing, performs no
-sort, logging, I/O, D3D work, or lock, and uses no transcendental math.
-Publication uses a 4,096-bin `u16` histogram instead of sorting the raw and
-delta arrays. All scratch storage is fixed stack memory. This keeps even
-instant publication bounded to linear scans over at most 2,048 samples and
-4,096 bins. Selection is used only when a requested percentile falls in the
-histogram's overflow tail. Timed publication performs the same work only at
-the chosen cadence. Persistent collector storage remains under 16 KiB,
-including raw history, spike memory, and published charts.
+It performs no runtime-owner acquisition, allocation, smoothing, spike
+analysis, histogram work, sort, formatting, logging, file I/O, D3D resource
+operation, or draw submission. Writer overlap is rejected rather than waited
+on. Failed or discontinuous callbacks only update fixed counters and origins.
 
-The Present hook never performs telemetry logging. Earlier code serviced
-cumulative lock-contention logging every 600 render epochs; after the first
-miss that repeated synchronous log work forever at a fixed cadence. The hook
-now only increments a relaxed atomic on an actual rejection. The workbench
-reads and displays those cumulative counters while it is already rendering.
+Opening Diagnostics drains at most 2,048 samples. Live smoothing and bounded
+spike analysis happen during that drain. Aggregate publication uses fixed stack
+storage and a 4,096-bin `u16` histogram, and scans at most the retained
+ten-second suffix. Selection is used only for a requested percentile in the
+histogram overflow tail. The graph copies at most 240 raw values on each
+visible frame. Persistent `FramePacing` storage remains below 16 KiB.
 
-The open ImGui workbench itself necessarily submits UI geometry and therefore
-cannot be literally zero-cost. The contract is that optional counters add no
-unbounded, blocking, allocating, or periodically sorting work and that closing
-the workbench removes their capture cost before runtime acquisition. Runtime
-FPS neutrality still requires an ordinary Proton/DXVK comparison; static tests
-cannot prove a zero timing delta.
+No telemetry can be literally free: continuous history necessarily costs one
+counter query and a small fixed atomic transaction per Present. The static
+contract proves that the path is bounded, nonblocking, allocation-free, and
+independent of OMV's runtime mutex. It cannot prove a zero timing delta on
+every CPU, Wine/Proton version, or driver. Ordinary runtime comparison remains
+the final acceptance gate.
 
-With fewer than two intervals the panel displays its available scalar values
-and a collecting-state message. Empty histories produce finite zero metrics.
-NaN, infinity, and negative samples cannot enter the timeline. Device loss and
-reset stop collection until the ImGui device objects recover; failed Presents
-are rejected and the next rendered workbench session starts a fresh CPU
-history.
+Detailed PBR, world-pipeline, and effect counters remain gated by
+`menu_diagnostics_active` and run only while the Diagnostics tab is visible.
+Continuous frame intervals do not broaden those costs.
+
+## Failure behavior
+
+- The first successful callback establishes an origin and emits no sample.
+- Failed Presents and render-epoch gaps reject the incomplete interval and
+  prevent cross-gap aggregation.
+- Invalid counter values or frequency reject the interval.
+- A simultaneous writer never blocks; it increments the timing-gap counter.
+- If more than 2,048 samples arrive before the UI drains them, only the newest
+  2,048 are available.
+- Empty or one-sample histories show a collecting message and finite zero
+  metrics.
+- Values above the graph scale are clipped only visually and marked; raw
+  aggregates retain them.
 
 ## Automated validation
 
-The focused tests in `omv/src/runtime.rs` prove:
+Focused tests prove:
 
-- chronological fixed-capacity ring behavior after wraparound and a bounded
-  ten-second metric suffix;
-- no frame-pacing samples while the workbench diagnostic gate is closed and a
-  generation-forced fresh history after it reopens without requiring a closed
-  runtime callback;
-- failed Presents and skipped finish callbacks are rejected instead of being
-  merged into false long frames, for both diagnostics and production DoF
-  timing;
-- a synthetic successful Present-submission timeline reconstructs its exact
-  10/20/5 ms raw intervals and their average, percentiles, worst, and jitter;
-- production depth-of-field frame delta remains independent from the diagnostic
-  ring;
-- average, percentile, 1% low, worst, jitter, and budget-hit calculations;
-- percentiles above the fixed histogram range retain their exact raw values;
-- visible metrics honor a custom timed boundary and instant mode publishes each
-  frame;
-- alternating 10/20 ms raw frames become a stable bucketed trend while P95
-  delta jitter remains 10 ms;
-- stable 16/17 ms timer quantization produces no signed-chart sawtooth, while
-  short slow and fast excursions remain visible;
-- stable alternating `1/32 ms` and `10/20 ms` submission pairs produce exactly
-  flat `16.5 ms` and `15 ms` primary trends while raw jitter stays exact;
-- a single 250 ms hitch remains exact in raw worst/off-scale metrics and
-  appears in exactly one cadence bucket;
-- the hook captures its timestamp before the native Present call and consumes
-  it only after the call returns;
-- periodic slow spikes produce the expected period while irregular events are
-  rejected as outliers;
-- a sustained frame-rate transition is one episode rather than one event per
-  frame;
-- session extremes survive the bounded cadence-ring policy;
-- the capture path contains no allocation, sort, logging, lock, or timestamp
-  query and the closed top-level gate precedes runtime acquisition;
-- the Present hook contains no periodic logging/telemetry service;
-- history, chart, histogram, and spike-memory bounds remain fixed;
-- invalid samples cannot poison any visible aggregate.
+- exact QPC interval conversion and rejection of failed, skipped, regressing,
+  and non-consecutive endpoints;
+- synthetic 10/20/5 ms intervals reconstruct exact raw history, average,
+  percentiles, worst, and jitter;
+- continuous capture has no menu-active gate;
+- the capture source contains no allocation, sort, logging, runtime lock, D3D
+  work, or `Instant` call;
+- capture precedes the depth-of-field early return and runtime-owner attempt;
+- chronological 2,048-sample ring behavior and ten-second metric window;
+- a raw 240-frame chart preserves order, adjacent jitter, short slow/fast
+  excursions, and a single long hitch;
+- stable scale tiers always retain both frame-budget guides;
+- distribution, overflow-tail, smoothing, spike episode, periodicity, and
+  invalid-input behavior;
+- fixed storage bounds;
+- fixed 250 ms aggregate publication independent of the deprecated config key;
+- the telemetry renderer uses custom gradient, budget-colored segments, glow,
+  current marker, and frame-relative hover instead of `ImGui::PlotLines`;
+- diagnostics and workbench summary cards use draw-list backgrounds only and
+  add no game render pass or D3D resource.
 
-The supported gates are:
+Supported validation:
 
 ```bash
+cargo test --target i686-pc-windows-gnu -p psycho-imgui
 cargo test --target i686-pc-windows-gnu -p omv
 cargo build --release --target i686-pc-windows-gnu -p omv
 ```
 
-Validation on 2026-07-23 passed all 296 OMV tests and the complete supported
-release build. The local release `omv.dll` SHA-256 is
-`bf12fc28bf98a0716c22585025502bb08b83752fc1566157b675bca173c950c9`.
-
-Compilation and deterministic metric tests cannot prove final legibility,
-hover ergonomics, font scaling, or real timing behavior under Proton/DXVK.
+Validation on 2026-07-28 passed all 5 `psycho-imgui` tests, all 368 OMV tests,
+and the optimized `i686-pc-windows-gnu` OMV release build.
 
 ## Runtime acceptance
 
-Before release, open the workbench at stable 30, 60, and uncapped frame rates
-and confirm:
+Before release:
 
-1. every update preset holds and publishes at the labeled cadence, while
-   `Every frame // instant` visibly responds on the next frame;
-2. 60/30 FPS guides are distinct, labels do not overlap, and ordinary data is
-   legible against the fixed scale;
-3. the cadence chart remains stable, while the impulse chart points up for slow
-   / down for fast with correct hover values and no steady-cadence sawtooth;
-4. repeated induced hitches report a stable period while isolated hitches keep
-   their direction, severity, latest age, and session extreme;
-5. Alt-Tab, loading screens, device reset, resolution change, and menu close /
-   reopen do not corrupt history or input handling;
-6. stable-scene captures at each timed cadence and in instant mode do not show
-   a detector-generated recurring frame-time cadence;
-7. compare the workbench closed/open at a stable scene and confirm no material
-   median or P99 regression beyond the unavoidable ImGui overlay itself.
+1. launch at stable 30, 60, and uncapped rates, leave the workbench closed for
+   several seconds, then confirm Diagnostics opens with recent history;
+2. confirm the raw graph advances every visible frame while scalar cards
+   refresh automatically at 4 Hz and no frequency selector remains;
+3. verify the 60/30 guides, tier transitions, glow/fill, current marker,
+   overflow markers, and hover tooltips remain legible at supported UI scales;
+4. induce isolated and repeating hitches and confirm the exact raw peak,
+   immediate recovery, direction, and periodic summary;
+5. verify Alt-Tab, loading, failed Present, device reset, resolution change,
+   and menu close/reopen do not create an aggregate false hitch;
+6. compare a stable scene with this build against a build with continuous
+   capture compiled out and confirm no material median/P99 regression;
+7. separately compare Diagnostics closed and open; any open-menu cost includes
+   ImGui geometry and aggregate publication and must remain acceptable.
+
+The automated gates cannot prove final legibility or performance neutrality
+under the user's NVIDIA driver and Proton/DXVK stack; those remain ordinary
+playtest observations.

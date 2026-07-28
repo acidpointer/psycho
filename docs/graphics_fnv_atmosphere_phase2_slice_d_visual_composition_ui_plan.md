@@ -23,6 +23,41 @@ removes the single-line radio-button layout. The preferred first-open size
 remains compact, but the user can resize the window up to the current viewport
 work area and long choice groups wrap cleanly.
 
+## 2026-07-28 workbench layout follow-up
+
+The resizable outer window exposed two independent inner-layout defects after
+the preset workbench was added:
+
+- preset text widgets requested the complete remaining row width while also
+  passing a visible ImGui label after the widget; only the first part of that
+  trailing label could fit;
+- the Configuration effect list retained a fixed width even when users needed
+  more room for long shader and effect names.
+
+`omv/src/runtime.rs` now draws each preset field label as its own text row,
+then draws a full-width input with a hidden `##` identity. Search, Name,
+Version, Author, and Description use the same helper contract. A widget no
+longer competes with its visible label for the row, and hidden identities keep
+ImGui state stable.
+
+Configuration now owns a session-persistent `menu_sidebar_width`, initially
+270 pixels. A seven-pixel vertical splitter between the effect list and detail
+pane updates it directly from horizontal mouse movement. The list is clamped
+to at least 190 pixels and cannot grow past the width that reserves 360 pixels
+for details. The preference is deliberately not part of visual configuration
+or a shareable preset; restarting OMV restores the default.
+
+`psycho-imgui/src/bridge.cpp` owns the splitter hit target, east-west cursor,
+clamping, and hover/active feedback. It uses one `InvisibleButton` and draw-list
+line while Configuration is visible. There is no D3D resource, allocation,
+file I/O, or closed-menu work.
+
+Static regression tests reject the original combined visible-label/full-width
+input pattern, require all preset fields to use hidden widget IDs, require the
+bounded runtime sidebar state, and require direct splitter drag/cursor
+feedback. Final acceptance still requires confirming text legibility and drag
+ergonomics at the user's actual resolution and UI scale.
+
 This is the production-composition slice for volumetric fog. It does not
 pretend that directional Volumetric Lighting is already implemented. Lighting
 remains Phase 3 and must stay accurately described as non-production until its
@@ -499,8 +534,13 @@ and resources rebuild without stale fog.
 
 1. Resize from the preferred size to the viewport maximum and back to minimum.
 2. Select Volumetric Fog and inspect all debug choices while resizing.
-3. Confirm radio groups wrap, both child panes remain usable, and the frame
-   graph no longer collides with action controls.
+3. Drag the divider between the effect list and details to both bounds; confirm
+   both child panes remain usable throughout.
+4. Open Presets and confirm Search, Name, Version, Author, and Description
+   labels are complete and sit above their fields at minimum and maximum
+   window widths.
+5. Confirm radio groups wrap and the frame graph no longer collides with
+   action controls.
 
 ## File map
 

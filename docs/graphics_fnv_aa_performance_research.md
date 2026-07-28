@@ -189,6 +189,94 @@ ordinary subpixel specular aliasing, but it must not translate with the Halton
 sequence. Also exercise a forced primary-lock/depth-lock retry and confirm the
 same result before first-person rendering.
 
+## 2026-07-28 night-sky ghost correction
+
+Tester observation: at night, the sky showed persistent ghost-like images even
+with motion blur considered separately. The defect was in TAA's world-history
+application.
+
+### Proven root cause and corrected contract
+
+The world camera is jittered before `RenderWorldSceneGraph`, so native sky color
+is rendered at the current Halton subpixel phase. The previous resolve treated
+both standard-depth clear sky (`1`) and reversed-depth clear sky (`0`) as
+invalid and returned the current jittered color immediately. Thus clear sky
+received projection jitter without the temporal resolve that is supposed to
+accumulate it on the fixed output grid. Separately, any sky fragment carrying
+a valid depth could use the ordinary geometry history path at the configured
+`0.90` weight. Neighborhood clamping limits history to nearby current colors,
+but does not reject stale dark history when a bright star appears or stale
+bright history when it disappears if both values exist in that neighborhood.
+Those statements follow directly from the world-jitter hook and the prior
+shader equations; the reported night-sky appearance is the runtime observation.
+
+The resolve now classifies three depth layers:
+
+- geometry has a logarithmic key in `[0, 1]`;
+- clear sky has the exact R16F key `-1`;
+- invalid non-sky depth has the exact R16F key `2` and does not resolve.
+
+Sky history reconstructs an output-grid view direction and applies only the
+current-to-previous camera rotation. Camera translation is deliberately
+omitted because sky is infinitely distant. A sky pixel can therefore
+accumulate the different jitter samples, rotate correctly with the camera, and
+never drag with player movement. Its visibility check requires a positive
+direction rather than incorrectly applying the geometry near plane to the unit
+direction. The dedicated negative history key prevents far geometry from being
+accepted as sky history at a silhouette.
+
+After ordinary neighborhood clamping, history weight is also multiplied by a
+current/history agreement term. It measures maximum per-channel relative
+difference with a `0.02` low-light floor. Sky begins rejecting at 5% difference
+and fully rejects by 50%; geometry uses a looser 20%-to-100% interval. Stable
+samples keep their configured history weight. A new/disappearing night star,
+animated cloud detail, disocclusion, or independently moving world pixel
+quickly selects current color instead of leaving a stale trail. This does not
+invent an unavailable per-object velocity; it is a bounded reactive fallback
+for the exact information OMV owns.
+
+### Resources, ABI, ordering, and failure behavior
+
+TAA remains a world-only `ps_3_0` resolve after native world rendering and
+before first-person, image-space, and UI rendering. Current color remains
+full-resolution and source-format matched. Color history remains two
+full-resolution `A16B16G16R16F` targets, while layer/depth history remains two
+full-resolution `R16F` targets sampled with point filtering. Current and color
+history use linear filtering; all samplers clamp. Output RGB is written through
+the existing FP16 history target and copied to the world target, while current
+world alpha is preserved by the color resolve. Resize, target-format change,
+device reset, missing depth, unknown depth convention, first frame, epoch gap,
+and camera cut continue to invalidate history and preserve current color.
+
+The correction adds no pass, draw, texture sample, render-target switch,
+allocation, lock, file I/O, or history surface. The current optimized shader
+compiles to 259 static `ps_3_0` instruction tokens and eight texture
+instructions. Tests enforce ceilings of 320 and eight respectively. The added
+cost is arithmetic and control flow within the existing valid-history draw;
+these static counts are not a measured GPU-time claim.
+
+### Regression and acceptance evidence
+
+Deterministic CPU references retain both relevant negative controls:
+
+- geometry-style translation applied to an infinite sky direction moves its
+  history coordinate by more than 0.1 UV in the representative fixture, while
+  rotation-only sky reprojection remains within `0.0001` UV;
+- a `0.90` unqualified history blend reduces a newly visible unit-bright star
+  below `0.11` and leaves a disappeared star above `0.89`; the reactive
+  production equation keeps the appearing star above `0.99`, clears the old
+  star below `0.001`, and leaves stable low-light color unchanged.
+
+Shader compilation, layer-tag ABI checks, fixed-output jitter regression,
+camera-cut/epoch rejection, and compiled work budgets cover the integration
+contract. Runtime acceptance still requires an ordinary NVIDIA/AMD playtest at
+night: stand still, walk without rotating, rotate slowly and rapidly, and
+observe stars, clouds, moon/sky silhouettes, distant geometry, and a moving
+third-person character. There must be no alternating jitter position,
+translation drag, bright/dark trail, persistent double image, silhouette leak,
+or new temporal flicker. This playtest is perceptual confirmation; it is not a
+substitute for the static regressions.
+
 ## Compiled shader cost
 
 The table counts legacy D3D9 bytecode instruction tokens and texture-instruction
@@ -205,13 +293,16 @@ AXAA's loop higher, than the static texture-site count.
 | SMAA edges | 113 | 5 | 3 without an edge, 5 with local contrast |
 | SMAA weights | 210 | 17 | 1 to 17 depending on edge orientation |
 | SMAA blend | 142 | 9 | debug/empty paths are cheaper |
-| Temporal AA | 236 | 8 | 2 on rejected history, 8 on valid history |
-| Temporal AA without duplicate center sample | 233 | 7 | 2 rejected, 7 valid |
+| Temporal AA before center reuse (historical) | 236 | 8 | 2 on rejected history, 8 on valid history |
+| Temporal AA after center reuse (historical) | 233 | 7 | 2 rejected, 7 valid |
+| Temporal AA with sky/anti-ghost resolve (current) | 259 | 8 | 2 without history; valid geometry/sky is bounded at 8 |
 
 The compiled measurements establish several useful facts:
 
-- TAA's duplicate center fetch is not removed by compiler common-subexpression
-  elimination. Removing it is a proven one-fetch saving.
+- TAA's current source passes the already sampled center color into the
+  neighborhood function. Its eight current texture sites are current color,
+  depth, color history, depth/layer history, and four current neighbors; there
+  is no duplicate center expression.
 - DLAA is bandwidth and texture-fetch heavy: its two passes execute 22 texture
   instructions per pixel before accounting for the initial scene-color copy.
 - SMAA has 465 instruction tokens and 31 texture sites across three passes.
@@ -241,16 +332,17 @@ one private full-resolution target. SMAA writes two private full-resolution
 targets. These writes are intrinsic to the current algorithms; the unrelated
 pre-first-person world-color capture is not.
 
-TAA owns one current-color target and two FP16 history targets
-(`omv/src/effects/temporal_aa.rs:468-500`). If the world target is also FP16,
-steady-state fixed copy/write traffic, before shader texture reads, is about 40
-bytes per pixel:
+TAA owns one current-color target, two FP16 color-history targets, and two R16F
+depth/layer-history targets. If the world target is also FP16, steady-state
+fixed copy/write traffic, before shader texture reads, is about 42 bytes per
+pixel:
 
 - current world to current-color target: 16 bytes per pixel read plus write;
 - FP16 history render write: 8 bytes per pixel;
+- R16F depth/layer-history render write: 2 bytes per pixel;
 - FP16 history copied back to world: 16 bytes per pixel read plus write.
 
-That is about 79.1 MiB/frame at 1080p and 316.4 MiB/frame at 4K. The current
+That is about 83.1 MiB/frame at 1080p and 332.2 MiB/frame at 4K. The current
 generic world-color capture adds another full copy after TAA even when no later
 effect consumes it.
 
@@ -478,30 +570,14 @@ validated against the current quad before adoption.
 
 ## Research-gated architecture changes
 
-### MRT TAA output
+### Separate color and depth-key history
 
-TAA stores a logarithmic depth key in history alpha, then copies that FP16
-history surface wholesale back to the world target (`aa_temporal.hlsl:77-110`,
-`temporal_aa.rs:191-197`). Therefore current TAA replaces world-target alpha
-with private temporal metadata. The engine impact is not proven.
-
-An MRT resolve could write:
-
-- RT0: resolved RGB plus original world alpha;
-- RT1: resolved RGB plus temporal depth key.
-
-It would preserve alpha and eliminate the final FP16-history-to-world copy,
-saving 8 bytes per pixel of fixed traffic: 15.8 MiB/frame at 1080p and 63.3
-MiB/frame at 4K. It may also avoid FP16 round-trip quantization of final color.
-
-Do not implement this until all of these are proven:
-
-- two simultaneous render targets are supported;
-- source and history formats satisfy D3D9 mixed-format MRT constraints;
-- multisample type and quality match;
-- RT1 and color-write state are fully restored;
-- vanilla/other plugins' world alpha contract is known;
-- DXVK/Wine behavior is verified.
+Implemented: temporal depth/layer metadata no longer occupies color-history
+alpha. The RGB resolve returns `float4(resolved, current.a)` into the FP16 color
+history, and a second bounded draw writes the R16F depth/layer key. Copying the
+color history back therefore preserves current world alpha. This costs one
+R16F history draw and two R16F surfaces but avoids relying on an unknown
+downstream alpha contract or D3D9 mixed-format MRT support.
 
 ### Merge depth-resolve and TAA state ownership
 
@@ -552,7 +628,6 @@ Other open contracts:
 - projection type at camera `+0xF4` and special/orthographic paths;
 - exact reversed-depth mapping, not only the active Z comparison function;
 - whether phase-zero world rendering can occur more than once per Present;
-- sky depth behavior under projection jitter;
 - D3D9 MRT format/multisample support on the actual DXVK path.
 
 Evidence is in

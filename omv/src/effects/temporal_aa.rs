@@ -73,15 +73,20 @@ mod shader_compile_tests {
         reprojection: TemporalReprojection,
         uv: [f32; 2],
         depth: f32,
+        include_translation: bool,
     ) -> [f32; 2] {
         let position = [
             (current.frustum_left + (current.frustum_right - current.frustum_left) * uv[0]) * depth,
             (current.frustum_top + (current.frustum_bottom - current.frustum_top) * uv[1]) * depth,
             depth,
         ];
-        let previous = reprojection
-            .rows
-            .map(|row| row[0] * position[0] + row[1] * position[1] + row[2] * position[2] + row[3]);
+        let translation_scale = if include_translation { 1.0 } else { 0.0 };
+        let previous = reprojection.rows.map(|row| {
+            row[0] * position[0]
+                + row[1] * position[1]
+                + row[2] * position[2]
+                + row[3] * translation_scale
+        });
         let view_x = previous[0] / previous[2];
         let view_y = previous[1] / previous[2];
         [
@@ -92,6 +97,95 @@ mod shader_compile_tests {
         ]
     }
 
+    fn smoothstep(low: f32, high: f32, value: f32) -> f32 {
+        let value = ((value - low) / (high - low)).clamp(0.0, 1.0);
+        value * value * (3.0 - 2.0 * value)
+    }
+
+    fn history_agreement(current: [f32; 3], history: [f32; 3], sky: bool) -> f32 {
+        let difference = current
+            .into_iter()
+            .zip(history)
+            .map(|(current, history)| {
+                (history - current).abs() / current.abs().max(history.abs()).max(0.02)
+            })
+            .fold(0.0, f32::max);
+        let (rejection_start, rejection_end) = if sky { (0.05, 0.50) } else { (0.20, 1.00) };
+        1.0 - smoothstep(rejection_start, rejection_end, difference)
+    }
+
+    fn resolve_reference(
+        current: [f32; 3],
+        history: [f32; 3],
+        history_weight: f32,
+        sky: bool,
+        reactive: bool,
+    ) -> [f32; 3] {
+        let agreement = if reactive {
+            history_agreement(current, history, sky)
+        } else {
+            1.0
+        };
+        let weight = (history_weight * agreement).clamp(0.0, 1.0);
+        std::array::from_fn(|channel| {
+            current[channel] + (history[channel] - current[channel]) * weight
+        })
+    }
+
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    enum TemporalLayer {
+        Geometry,
+        Sky,
+        Invalid,
+    }
+
+    fn temporal_layer(depth: f32, reversed: bool) -> TemporalLayer {
+        let sky = if reversed {
+            (0.0..=0.000001).contains(&depth)
+        } else {
+            (0.999999..=1.0).contains(&depth)
+        };
+        let geometry = if reversed {
+            depth > 0.000001 && depth <= 1.0
+        } else {
+            depth > 0.000001 && depth < 0.999999
+        };
+        if sky {
+            TemporalLayer::Sky
+        } else if geometry {
+            TemporalLayer::Geometry
+        } else {
+            TemporalLayer::Invalid
+        }
+    }
+
+    fn previous_position_visible(previous_z: f32, previous_near: f32, sky: bool) -> bool {
+        let minimum_z = if sky { 0.001 } else { previous_near.max(0.001) };
+        previous_z > minimum_z
+    }
+
+    fn compiled_instruction_opcodes(bytecode: &[u32]) -> Vec<u16> {
+        const COMMENT: u16 = 0xfffe;
+        const END: u16 = 0xffff;
+        let mut opcodes = Vec::new();
+        let mut offset = 1usize;
+        while offset < bytecode.len() {
+            let token = bytecode[offset];
+            let opcode = token as u16;
+            if opcode == END {
+                break;
+            }
+            if opcode == COMMENT {
+                offset += 1 + ((token >> 16) & 0x7fff) as usize;
+                continue;
+            }
+            opcodes.push(opcode);
+            offset += 1 + ((token >> 24) & 0x0f) as usize;
+        }
+        assert!(offset < bytecode.len(), "shader bytecode has no END token");
+        opcodes
+    }
+
     #[test]
     fn embedded_temporal_aa_shader_compiles() {
         crate::shaders::assert_hlsl_compiles("aa_temporal.hlsl", TAA_SHADER, "ps_3_0");
@@ -99,6 +193,30 @@ mod shader_compile_tests {
             "aa_temporal_depth_key.hlsl",
             DEPTH_KEY_SHADER,
             "ps_3_0",
+        );
+    }
+
+    #[test]
+    fn temporal_aa_shader_keeps_bounded_ps_3_0_work() {
+        const TEXLD: u16 = 66;
+        const TEXLDD: u16 = 93;
+        const TEXLDL: u16 = 95;
+        let bytecode = crate::shaders::compile_hlsl_source("aa_temporal.hlsl", TAA_SHADER)
+            .expect("temporal AA shader");
+        assert_eq!(bytecode[0], 0xffff_0300);
+        let opcodes = compiled_instruction_opcodes(&bytecode);
+        let texture_count = opcodes
+            .iter()
+            .filter(|opcode| matches!(**opcode, TEXLD | TEXLDD | TEXLDL))
+            .count();
+        assert!(
+            opcodes.len() <= 320,
+            "temporal AA grew to {} instructions",
+            opcodes.len()
+        );
+        assert!(
+            texture_count <= 8,
+            "temporal AA grew to {texture_count} texture operations"
         );
     }
 
@@ -118,6 +236,42 @@ mod shader_compile_tests {
         assert!(source.contains("return float4(resolved, current.a)"));
         assert!(!source.contains("history.a - expectedKey"));
         assert!(!source.contains("return float4(current, currentKey)"));
+    }
+
+    #[test]
+    fn temporal_history_uses_distinct_sky_and_invalid_layer_keys() {
+        let resolve = std::str::from_utf8(TAA_SHADER).expect("TAA source is UTF-8");
+        let depth_key = std::str::from_utf8(DEPTH_KEY_SHADER).expect("depth-key source is UTF-8");
+        assert!(resolve.contains("float expectedKey = sky ? -1.0 : DepthKey"));
+        assert!(depth_key.contains("return float4(-1.0, 0.0, 0.0, 1.0)"));
+        assert!(depth_key.contains("return float4(2.0, 0.0, 0.0, 1.0)"));
+    }
+
+    #[test]
+    fn temporal_depth_classifies_standard_reversed_sky_and_invalid_values() {
+        assert_eq!(temporal_layer(0.5, false), TemporalLayer::Geometry);
+        assert_eq!(temporal_layer(1.0, false), TemporalLayer::Sky);
+        assert_eq!(temporal_layer(0.5, true), TemporalLayer::Geometry);
+        assert_eq!(temporal_layer(0.0, true), TemporalLayer::Sky);
+        for invalid in [-1.0, 2.0, f32::NAN, f32::INFINITY] {
+            assert_eq!(temporal_layer(invalid, false), TemporalLayer::Invalid);
+            assert_eq!(temporal_layer(invalid, true), TemporalLayer::Invalid);
+        }
+    }
+
+    #[test]
+    fn unit_sky_direction_does_not_use_the_geometry_near_plane() {
+        assert!(previous_position_visible(1.0, 5.0, true));
+        assert!(
+            !previous_position_visible(1.0, 5.0, false),
+            "negative control must reproduce the shared near-plane rejection"
+        );
+        assert!(previous_position_visible(10.0, 5.0, false));
+        assert!(!previous_position_visible(-1.0, 5.0, true));
+
+        let source = std::str::from_utf8(TAA_SHADER).expect("TAA source is UTF-8");
+        assert!(source.contains("float minimumPreviousZ = sky ? 0.001"));
+        assert!(source.contains("previousPosition.z <= minimumPreviousZ"));
     }
 
     #[test]
@@ -191,7 +345,7 @@ mod shader_compile_tests {
         )
         .expect("stable output reprojection");
         let uv = [0.5, 0.5];
-        let stable_history_uv = history_uv(output_camera, stable, uv, 100.0);
+        let stable_history_uv = history_uv(output_camera, stable, uv, 100.0, true);
         let stable_motion_pixels = [
             (stable_history_uv[0] - uv[0]) * target[0] as f32,
             (stable_history_uv[1] - uv[1]) * target[1] as f32,
@@ -210,13 +364,59 @@ mod shader_compile_tests {
             },
         )
         .expect("negative-control reprojection");
-        let jittered_history_uv = history_uv(current_rendered, jitter_following, uv, 100.0);
+        let jittered_history_uv = history_uv(current_rendered, jitter_following, uv, 100.0, true);
         let jitter_motion_pixels = [
             (jittered_history_uv[0] - uv[0]) * target[0] as f32,
             (jittered_history_uv[1] - uv[1]) * target[1] as f32,
         ];
         assert!(jitter_motion_pixels[0].abs() > 0.25);
         assert!(jitter_motion_pixels[1].abs() > 0.25);
+    }
+
+    #[test]
+    fn sky_reprojection_ignores_camera_translation() {
+        let identity = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
+        let previous = camera(identity, [0.0; 3]);
+        let current = camera(identity, [0.0, 0.0, 10.0]);
+        let reprojection = TemporalReprojection::between(
+            TemporalCameraState {
+                camera: previous,
+                epoch: 2,
+            },
+            TemporalCameraState {
+                camera: current,
+                epoch: 3,
+            },
+        )
+        .expect("translated camera");
+        let uv = [0.4, 0.6];
+        let protected = history_uv(current, reprojection, uv, 1.0, false);
+        let negative_control = history_uv(current, reprojection, uv, 1.0, true);
+        assert!((protected[0] - uv[0]).abs() < 0.0001);
+        assert!((protected[1] - uv[1]).abs() < 0.0001);
+        assert!(
+            (negative_control[0] - uv[0]).abs() > 0.1,
+            "geometry reprojection must reproduce translated-sky ghosting"
+        );
+    }
+
+    #[test]
+    fn reactive_history_rejects_night_sky_trails_but_keeps_stable_color() {
+        let star = [1.0, 0.9, 0.8];
+        let night = [0.0, 0.0, 0.0];
+
+        let stale_dark_negative_control = resolve_reference(star, night, 0.9, true, false);
+        let appearing_star = resolve_reference(star, night, 0.9, true, true);
+        assert!(stale_dark_negative_control[0] < 0.11);
+        assert!(appearing_star[0] > 0.99);
+
+        let stale_star_negative_control = resolve_reference(night, star, 0.9, true, false);
+        let cleared_star = resolve_reference(night, star, 0.9, true, true);
+        assert!(stale_star_negative_control[0] > 0.89);
+        assert!(cleared_star[0] < 0.001);
+
+        let stable = [0.012, 0.018, 0.031];
+        assert_eq!(resolve_reference(stable, stable, 0.9, true, true), stable);
     }
 }
 

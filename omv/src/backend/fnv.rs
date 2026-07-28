@@ -88,6 +88,7 @@ const BSFOGPROPERTY_START_DISTANCE_OFFSET: usize = 0x2C;
 const BSFOGPROPERTY_END_DISTANCE_OFFSET: usize = 0x30;
 const BSFOGPROPERTY_POWER_OFFSET: usize = 0x60;
 const TESOBJECTREFR_PARENT_CELL_OFFSET: usize = 0x40;
+const PLAYER_IS_THIRD_PERSON_OFFSET: usize = 0x64C;
 const TESOBJECTCELL_FLAGS0_OFFSET: usize = 0x24;
 const TESOBJECTCELL_WORLDSPACE_OFFSET: usize = 0xC0;
 const TESOBJECTCELL_FLAGS0_INTERIOR: u8 = 1 << 0;
@@ -209,6 +210,10 @@ pub(super) fn publish_first_person_rendered() {
 
 pub(super) fn first_person_rendered() -> bool {
     FIRST_PERSON_RENDER_EPOCH.load(Ordering::Acquire) == crate::hooks::render_epoch()
+}
+
+pub(super) fn third_person_view() -> Option<bool> {
+    unsafe { read_native_player_third_person_view() }
 }
 
 pub(super) fn world_camera_frame(width: u32, height: u32) -> Option<CameraFrame> {
@@ -921,6 +926,23 @@ unsafe fn read_native_player_is_exterior() -> Option<bool> {
     unsafe { validate_object(cell, NATIVE_CELL_READ_SIZE)? };
     let flags = unsafe { read_prevalidated::<u8>(cell, TESOBJECTCELL_FLAGS0_OFFSET) };
     Some((flags & TESOBJECTCELL_FLAGS0_INTERIOR) == 0)
+}
+
+unsafe fn read_native_player_third_person_view() -> Option<bool> {
+    let player = unsafe { read_ptr(PLAYER_CHARACTER_PTR)? };
+    if player.is_null() {
+        return None;
+    }
+    let raw = unsafe { read_u8(player as usize + PLAYER_IS_THIRD_PERSON_OFFSET)? };
+    decode_third_person_view(raw)
+}
+
+fn decode_third_person_view(raw: u8) -> Option<bool> {
+    match raw {
+        0 => Some(false),
+        1 => Some(true),
+        _ => None,
+    }
 }
 
 unsafe fn project_sun_to_screen(sun_root: *mut u8, camera: *mut u8) -> Option<[f32; 3]> {
@@ -1889,9 +1911,9 @@ mod depth_capture_tests {
     use super::{
         AlphaCoverageMode, D3DERR_NOTAVAILABLE_CODE, DepthProjectionFrame, DepthResolveRouteKind,
         FnvDepthResolve, NVAPI_UNREGISTERED_RESOURCE, ResolvedDepthCapture,
-        alpha_coverage_mode_from_raw, nvapi_depth_copy_needs_registration,
-        resz_failure_requires_fallback, sampled_depth_bits, select_depth_resolve_route,
-        underwater_frame_for_publication,
+        alpha_coverage_mode_from_raw, decode_third_person_view,
+        nvapi_depth_copy_needs_registration, resz_failure_requires_fallback, sampled_depth_bits,
+        select_depth_resolve_route, underwater_frame_for_publication,
     };
 
     fn capture(
@@ -1989,6 +2011,14 @@ mod depth_capture_tests {
         assert_eq!(alpha_coverage_mode_from_raw(1), AlphaCoverageMode::Nvidia);
         assert_eq!(alpha_coverage_mode_from_raw(2), AlphaCoverageMode::Amd);
         assert_eq!(alpha_coverage_mode_from_raw(3), AlphaCoverageMode::None);
+    }
+
+    #[test]
+    fn native_camera_mode_accepts_only_engine_boolean_values() {
+        assert_eq!(decode_third_person_view(0), Some(false));
+        assert_eq!(decode_third_person_view(1), Some(true));
+        assert_eq!(decode_third_person_view(2), None);
+        assert_eq!(decode_third_person_view(u8::MAX), None);
     }
 
     #[test]

@@ -36,8 +36,18 @@ pub(crate) fn initialize_for_nvse() -> Result<()> {
         option_env!("OMV_BUILD_PROFILE").unwrap_or("unknown")
     );
     log::info!(
-        "[CONFIG] Loaded '{}' (read-only)",
-        crate::config::CONFIG_PATH
+        "[INIT] OMV source commit={} branch={} tag={} dirty={}",
+        option_env!("OMV_GIT_COMMIT").unwrap_or("unknown"),
+        option_env!("OMV_GIT_BRANCH").unwrap_or("unknown"),
+        option_env!("OMV_GIT_TAG")
+            .filter(|tag| !tag.is_empty())
+            .unwrap_or("<none>"),
+        option_env!("OMV_GIT_DIRTY").unwrap_or("unknown")
+    );
+    log::info!(
+        "[CONFIG] Working path '{}'; distribution fallback '{}' (read-only startup)",
+        crate::config::CONFIG_PATH,
+        crate::config::DEFAULT_CONFIG_PATH
     );
     crate::shaders::start_shader_cache_maintenance();
 

@@ -30,6 +30,7 @@ pub(crate) struct AssetCatalogSnapshot {
 
 pub(crate) struct AssetScanner {
     enabled: Arc<AtomicBool>,
+    force_scan: Arc<AtomicBool>,
     interval_ms: Arc<AtomicU64>,
     receiver: Receiver<AssetCatalogSnapshot>,
     stop: Arc<AtomicBool>,
@@ -39,20 +40,31 @@ pub(crate) struct AssetScanner {
 impl AssetScanner {
     pub(crate) fn start(interval_ms: u64, enabled: bool) -> Result<Self> {
         let enabled = Arc::new(AtomicBool::new(enabled));
+        let force_scan = Arc::new(AtomicBool::new(true));
         let interval_ms = Arc::new(AtomicU64::new(sanitize_interval(interval_ms)));
         let stop = Arc::new(AtomicBool::new(false));
         let worker_enabled = Arc::clone(&enabled);
+        let worker_force_scan = Arc::clone(&force_scan);
         let worker_interval = Arc::clone(&interval_ms);
         let worker_stop = Arc::clone(&stop);
         let (sender, receiver) = sync_channel(1);
         let worker = thread::Builder::new()
             .name("omv-asset-scan".to_owned())
-            .spawn(move || scan_worker(worker_enabled, worker_interval, worker_stop, sender))
+            .spawn(move || {
+                scan_worker(
+                    worker_enabled,
+                    worker_force_scan,
+                    worker_interval,
+                    worker_stop,
+                    sender,
+                )
+            })
             .context("failed to start shader/LUT asset scanner")?;
         let worker_thread = worker.thread().clone();
         drop(worker);
         Ok(Self {
             enabled,
+            force_scan,
             interval_ms,
             receiver,
             stop,
@@ -64,6 +76,11 @@ impl AssetScanner {
         self.enabled.store(enabled, Ordering::Release);
         self.interval_ms
             .store(sanitize_interval(interval_ms), Ordering::Release);
+        self.worker.unpark();
+    }
+
+    pub(crate) fn request_scan(&self) {
+        self.force_scan.store(true, Ordering::Release);
         self.worker.unpark();
     }
 
@@ -87,6 +104,7 @@ impl Drop for AssetScanner {
 
 fn scan_worker(
     enabled: Arc<AtomicBool>,
+    force_scan: Arc<AtomicBool>,
     interval_ms: Arc<AtomicU64>,
     stop: Arc<AtomicBool>,
     sender: SyncSender<AssetCatalogSnapshot>,
@@ -102,7 +120,9 @@ fn scan_worker(
         if stop.load(Ordering::Acquire) {
             return;
         }
-        if !enabled.load(Ordering::Acquire) {
+        let continuously_enabled = enabled.load(Ordering::Acquire);
+        let scan_requested = force_scan.swap(false, Ordering::AcqRel);
+        if !should_scan(continuously_enabled, scan_requested) {
             thread::park();
             continue;
         }
@@ -164,8 +184,18 @@ fn scan_worker(
             }
         }
 
-        thread::park_timeout(Duration::from_millis(interval_ms.load(Ordering::Acquire)));
+        if continuously_enabled {
+            thread::park_timeout(Duration::from_millis(interval_ms.load(Ordering::Acquire)));
+        } else if force_scan.load(Ordering::Acquire) {
+            continue;
+        } else {
+            thread::park();
+        }
     }
+}
+
+fn should_scan(continuously_enabled: bool, scan_requested: bool) -> bool {
+    continuously_enabled || scan_requested
 }
 
 fn sanitize_interval(interval_ms: u64) -> u64 {
@@ -182,12 +212,19 @@ fn log_scan_warning(error_logs: &mut u32, message: std::fmt::Arguments<'_>) {
 
 #[cfg(test)]
 mod tests {
-    use super::sanitize_interval;
+    use super::{sanitize_interval, should_scan};
 
     #[test]
     fn scan_interval_is_bounded_away_from_busy_polling() {
         assert_eq!(sanitize_interval(0), 50);
         assert_eq!(sanitize_interval(200), 200);
         assert_eq!(sanitize_interval(20_000), 5_000);
+    }
+
+    #[test]
+    fn disabled_effects_allow_explicit_catalog_refresh_without_polling() {
+        assert!(!should_scan(false, false));
+        assert!(should_scan(false, true));
+        assert!(should_scan(true, false));
     }
 }

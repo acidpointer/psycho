@@ -4,7 +4,6 @@ use std::sync::OnceLock;
 use std::{fs, path::Path};
 
 use anyhow::{Context, Result};
-use libpsycho::config::Config;
 use serde::{Deserialize, Serialize};
 use toml_edit::{DocumentMut, value};
 
@@ -19,12 +18,15 @@ fn finite_clamp(value: f32, fallback: f32, min: f32, max: f32) -> f32 {
 }
 
 pub(crate) const CONFIG_PATH: &str = "Data/NVSE/plugins/omv/omv.toml";
+pub(crate) const DEFAULT_CONFIG_PATH: &str = "Data/NVSE/plugins/omv/omv.default.toml";
+pub(crate) const CONFIG_SCHEMA_VERSION: u32 = 1;
 
 static CONFIG: OnceLock<PsychoGraphicsConfig> = OnceLock::new();
 
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(default)]
 pub(crate) struct PsychoGraphicsConfig {
+    pub(crate) config_schema_version: u32,
     pub(crate) graphics: GraphicsConfig,
     pub(crate) diagnostics: DiagnosticsConfig,
 }
@@ -32,6 +34,7 @@ pub(crate) struct PsychoGraphicsConfig {
 impl Default for PsychoGraphicsConfig {
     fn default() -> Self {
         Self {
+            config_schema_version: CONFIG_SCHEMA_VERSION,
             graphics: GraphicsConfig::default(),
             diagnostics: DiagnosticsConfig::default(),
         }
@@ -1015,6 +1018,8 @@ pub(crate) enum DepthProviderConfig {
 #[serde(default)]
 pub(crate) struct DiagnosticsConfig {
     pub(crate) debug_log: bool,
+    // Deprecated compatibility field. Runtime frame summaries use a fixed
+    // cadence, but older working configs must continue to load and round-trip.
     pub(crate) frame_pacing_update_interval_ms: u32,
 }
 
@@ -1028,13 +1033,70 @@ impl Default for DiagnosticsConfig {
 }
 
 pub(crate) fn load_config() -> &'static PsychoGraphicsConfig {
-    CONFIG.get_or_init(|| Config::load_readonly::<PsychoGraphicsConfig>(CONFIG_PATH))
+    CONFIG.get_or_init(load_startup_config)
 }
 
 pub(crate) fn load_menu_config_from_disk() -> Result<GraphicsMenuConfig> {
-    let config = Config::load::<PsychoGraphicsConfig>(CONFIG_PATH)
-        .with_context(|| format!("failed to reload {CONFIG_PATH}"))?;
+    let config =
+        load_working_config().with_context(|| format!("failed to reload {CONFIG_PATH}"))?;
     Ok(GraphicsMenuConfig::from(&config))
+}
+
+fn load_startup_config() -> PsychoGraphicsConfig {
+    load_working_config().unwrap_or_else(|err| {
+        log::error!("[CONFIG] Could not load OMV configuration: {err:#}");
+        shipped_default_config().unwrap_or_else(|default_err| {
+            log::error!("[CONFIG] Embedded default is invalid: {default_err:#}");
+            PsychoGraphicsConfig::default()
+        })
+    })
+}
+
+fn load_working_config() -> Result<PsychoGraphicsConfig> {
+    match fs::read_to_string(CONFIG_PATH) {
+        Ok(content) => parse_versioned_config(&content),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+            match fs::read_to_string(DEFAULT_CONFIG_PATH) {
+                Ok(content) => parse_versioned_config(&content)
+                    .with_context(|| format!("failed to parse {DEFAULT_CONFIG_PATH}")),
+                Err(default_err) if default_err.kind() == std::io::ErrorKind::NotFound => {
+                    shipped_default_config()
+                }
+                Err(default_err) => Err(default_err)
+                    .with_context(|| format!("failed to read {DEFAULT_CONFIG_PATH}")),
+            }
+        }
+        Err(err) => Err(err).with_context(|| format!("failed to read {CONFIG_PATH}")),
+    }
+}
+
+fn shipped_default_config() -> Result<PsychoGraphicsConfig> {
+    parse_versioned_config(include_str!("../config/omv.toml"))
+        .context("failed to parse embedded default configuration")
+}
+
+fn parse_versioned_config(content: &str) -> Result<PsychoGraphicsConfig> {
+    let value = content
+        .parse::<toml::Value>()
+        .context("configuration is not valid TOML")?;
+    let declared_version = value
+        .get("config_schema_version")
+        .and_then(toml::Value::as_integer)
+        .unwrap_or(0);
+    if declared_version < 0 {
+        anyhow::bail!("config_schema_version cannot be negative");
+    }
+    let declared_version = declared_version as u32;
+    match declared_version {
+        0 | CONFIG_SCHEMA_VERSION => {}
+        version if version > CONFIG_SCHEMA_VERSION => anyhow::bail!(
+            "configuration schema {version} is newer than supported schema {CONFIG_SCHEMA_VERSION}"
+        ),
+        version => anyhow::bail!("configuration schema {version} has no registered migration"),
+    }
+    value
+        .try_into::<PsychoGraphicsConfig>()
+        .context("configuration does not match its declared schema")
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -1047,6 +1109,8 @@ pub(crate) struct GraphicsMenuConfig {
     pub(crate) menu_toggle_key: u32,
     pub(crate) shader_scan_interval_ms: u64,
     pub(crate) debug_log: bool,
+    // Retained so Current Look autosave preserves the deprecated working
+    // config field without exposing its old cadence control in the UI.
     pub(crate) frame_pacing_update_interval_ms: u32,
 }
 
@@ -1131,7 +1195,17 @@ impl EmbeddedEffectsConfig {
 
 pub(crate) fn save_menu_config(config: &GraphicsMenuConfig) -> Result<()> {
     let path = Path::new(CONFIG_PATH);
-    let content = fs::read_to_string(path).unwrap_or_default();
+    let (content, working_exists) = match fs::read_to_string(path) {
+        Ok(content) => (content, true),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => (
+            fs::read_to_string(DEFAULT_CONFIG_PATH)
+                .unwrap_or_else(|_| include_str!("../config/omv.toml").to_owned()),
+            false,
+        ),
+        Err(err) => {
+            return Err(err).with_context(|| format!("failed to read {}", path.display()));
+        }
+    };
     let mut doc = if content.trim().is_empty() {
         DocumentMut::new()
     } else {
@@ -1140,6 +1214,7 @@ pub(crate) fn save_menu_config(config: &GraphicsMenuConfig) -> Result<()> {
             .with_context(|| format!("failed to parse {}", path.display()))?
     };
 
+    doc["config_schema_version"] = value(i64::from(CONFIG_SCHEMA_VERSION));
     doc["graphics"]["screen_space_shaders"] = value(config.screen_space_shaders);
     if let Some(graphics) = doc["graphics"].as_table_mut() {
         graphics.remove("imgui_menu");
@@ -1201,16 +1276,11 @@ pub(crate) fn save_menu_config(config: &GraphicsMenuConfig) -> Result<()> {
     save_diagnostics_config(&mut doc, config);
 
     let updated = doc.to_string();
-    if updated == content {
+    if working_exists && updated == content {
         return Ok(());
     }
 
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)
-            .with_context(|| format!("failed to create {}", parent.display()))?;
-    }
-    fs::write(path, updated).with_context(|| format!("failed to write {}", path.display()))?;
-    Ok(())
+    crate::file_io::atomic_write_text(path, &updated)
 }
 
 fn save_diagnostics_config(doc: &mut DocumentMut, config: &GraphicsMenuConfig) {
@@ -1535,10 +1605,31 @@ mod tests {
         AtmosphereQuality, BloomingHdrConfig, ColorGradeConfig, DiagnosticsConfig,
         EmbeddedEffectsConfig, GraphicsMenuConfig, MotionBlurConfig, MotionBlurQuality,
         NativePbrConfig, PsychoGraphicsConfig, VolumetricFogConfig, VolumetricLightingConfig,
-        sanitize_frame_pacing_update_interval_ms, save_color_grade_config, save_diagnostics_config,
-        save_embedded_effect_config,
+        parse_versioned_config, sanitize_frame_pacing_update_interval_ms, save_color_grade_config,
+        save_diagnostics_config, save_embedded_effect_config,
     };
     use toml_edit::DocumentMut;
+
+    #[test]
+    fn unversioned_config_is_permanent_legacy_schema_zero() {
+        let config = parse_versioned_config("[graphics]\nscreen_space_shaders = false\n")
+            .expect("legacy config");
+        assert!(!config.graphics.screen_space_shaders);
+        assert_eq!(config.config_schema_version, super::CONFIG_SCHEMA_VERSION);
+    }
+
+    #[test]
+    fn current_config_schema_loads_and_future_schema_fails_closed() {
+        let current = parse_versioned_config(
+            "config_schema_version = 1\n[graphics]\nscreen_space_shaders = false\n",
+        )
+        .expect("current config");
+        assert_eq!(current.config_schema_version, 1);
+
+        let future = parse_versioned_config("config_schema_version = 999\n")
+            .expect_err("future config must not be guessed");
+        assert!(future.to_string().contains("newer"));
+    }
 
     #[test]
     fn legacy_pbr_profile_migrates_to_terrain_only() {
@@ -1811,7 +1902,7 @@ albedo_saturation = 1.02
     }
 
     #[test]
-    fn frame_pacing_update_cadence_defaults_and_preserves_instant_mode() {
+    fn deprecated_frame_pacing_cadence_key_remains_backward_compatible() {
         let legacy: DiagnosticsConfig =
             toml::from_str("").expect("legacy diagnostics config must remain readable");
         assert_eq!(legacy.frame_pacing_update_interval_ms, 500);
@@ -1831,7 +1922,7 @@ albedo_saturation = 1.02
     }
 
     #[test]
-    fn frame_pacing_update_cadence_is_saved_with_menu_settings() {
+    fn deprecated_frame_pacing_cadence_key_is_preserved_on_save() {
         let mut menu = GraphicsMenuConfig::default();
         menu.frame_pacing_update_interval_ms = 0;
         let mut document = DocumentMut::new();

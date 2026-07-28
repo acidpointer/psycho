@@ -4,7 +4,7 @@ use std::{
     ffi::{CString, c_void},
     sync::{
         LazyLock,
-        atomic::{AtomicBool, AtomicU32, Ordering},
+        atomic::{AtomicBool, AtomicI64, AtomicU32, AtomicU64, Ordering},
     },
     time::Instant,
 };
@@ -20,7 +20,9 @@ use libpsycho::os::windows::{
         Device9Ref, Direct3DError as WindowsError, Direct3DResult, PixelShader9, ScreenVertex,
         StateBlock9, Surface9, Texture9, direct3d_failure,
     },
-    winapi::{get_active_window, is_window},
+    winapi::{
+        get_active_window, is_window, query_performance_counter, query_performance_frequency,
+    },
 };
 use parking_lot::Mutex;
 
@@ -28,11 +30,19 @@ use crate::{
     asset_scanner::AssetScanner,
     backend::{self, DepthFrame, DepthProvider},
     config::{DepthProviderConfig, GraphicsMenuConfig},
+    current_look::{
+        AutosaveCoordinator, CurrentLookEvent, CurrentLookOperation, CurrentLookService,
+        CurrentLookSnapshot,
+    },
     effects::{
         ambient_occlusion, anti_aliasing, atmosphere, blooming_hdr, depth_of_field, motion_blur,
         pbr, sky, sunshafts,
     },
     luts,
+    presets::{
+        PresetActiveState, PresetCatalog, PresetEvent, PresetKey, PresetPublishRequest,
+        PresetService, suggest_next_patch_version,
+    },
     render_state::{
         RenderAttachments, RenderTargetSlots, copy_scene_color_for_sampling,
         finish_render_transaction,
@@ -70,6 +80,7 @@ static MENU_DIAGNOSTICS_STATE: AtomicU32 = AtomicU32::new(0);
 static MENU_TOGGLE_KEY: AtomicU32 = AtomicU32::new(DEFAULT_MENU_TOGGLE_KEY);
 static MENU_KEY_CAPTURE_ACTIVE: AtomicBool = AtomicBool::new(false);
 static PENDING_MENU_TOGGLE_KEY: AtomicU32 = AtomicU32::new(0);
+static CURRENT_LOOK_FLUSH_REQUEST: AtomicBool = AtomicBool::new(false);
 static NATIVE_DOF_QUERY_NEEDED: AtomicBool = AtomicBool::new(false);
 static PRESENT_FRAME_TIMING_NEEDED: AtomicBool = AtomicBool::new(false);
 static FNV_SCENE_REQUIREMENTS: AtomicU32 = AtomicU32::new(0);
@@ -111,10 +122,6 @@ pub(crate) fn menu_diagnostics_active() -> bool {
     MENU_DIAGNOSTICS_STATE.load(Ordering::Relaxed) & MENU_DIAGNOSTICS_ACTIVE_BIT != 0
 }
 
-fn menu_diagnostics_session() -> u32 {
-    MENU_DIAGNOSTICS_STATE.load(Ordering::Acquire) / MENU_DIAGNOSTICS_SESSION_INCREMENT
-}
-
 fn diagnostics_state_transition(state: u32, active: bool) -> Option<u32> {
     if (state & MENU_DIAGNOSTICS_ACTIVE_BIT != 0) == active {
         return None;
@@ -150,6 +157,10 @@ fn set_menu_diagnostics_active(active: bool) {
 pub(crate) fn configure(settings: RuntimeSettings) {
     // This runs from NVSEPlugin_Load. Keep the focused FNV world owner dormant
     // until DeferredInit; see graphics_fnv_atmosphere_startup_crash_errata.md.
+    PERFORMANCE_COUNTER_FREQUENCY.store(
+        query_performance_frequency().unwrap_or(0).max(0),
+        Ordering::Release,
+    );
     MENU_TOGGLE_KEY.store(
         sanitize_menu_toggle_key(settings.menu_toggle_key),
         Ordering::Release,
@@ -164,6 +175,7 @@ pub(crate) fn prepare_for_game_load() {
     MENU_OPEN.store(false, Ordering::Release);
     MENU_KEY_CAPTURE_ACTIVE.store(false, Ordering::Release);
     PENDING_MENU_TOGGLE_KEY.store(0, Ordering::Release);
+    CURRENT_LOOK_FLUSH_REQUEST.store(true, Ordering::Release);
     set_menu_diagnostics_active(false);
     crate::input::set_menu_input_blocked(false);
 }
@@ -205,11 +217,19 @@ mod render_callback_io_tests {
         let shader_scan = ["shaders::", "scan_screen_shaders("].concat();
         let shader_compile = ["compile_hlsl_", "uncached("].concat();
         let cache_commit = ["commit_hlsl_", "cache("].concat();
+        let config_save = ["save_menu_", "config("].concat();
+        let config_reload = ["load_menu_config_", "from_disk("].concat();
+        let sidecar_save = ["save_config_", "to_disk("].concat();
+        let sidecar_reload = ["reload_external_shader_", "configs("].concat();
 
         assert!(!source.contains(&lut_scan));
         assert!(!source.contains(&shader_scan));
         assert!(!source.contains(&shader_compile));
         assert!(!source.contains(&cache_commit));
+        assert!(!source.contains(&config_save));
+        assert!(!source.contains(&config_reload));
+        assert!(!source.contains(&sidecar_save));
+        assert!(!source.contains(&sidecar_reload));
     }
 
     #[test]
@@ -530,24 +550,36 @@ pub(crate) unsafe fn try_release_device_resources(device_ptr: *mut c_void) -> bo
     true
 }
 
-pub(crate) fn present_frame_started_at() -> Option<Instant> {
-    let diagnostics_active =
-        MENU_DIAGNOSTICS_STATE.load(Ordering::Acquire) & MENU_DIAGNOSTICS_ACTIVE_BIT != 0;
-    (diagnostics_active || PRESENT_FRAME_TIMING_NEEDED.load(Ordering::Acquire)).then(Instant::now)
+#[derive(Clone, Copy)]
+pub(crate) struct PresentFrameStart {
+    performance_counter: Option<i64>,
+    production_instant: Option<Instant>,
+}
+
+pub(crate) fn present_frame_started_at() -> PresentFrameStart {
+    PresentFrameStart {
+        performance_counter: query_performance_counter().ok(),
+        production_instant: PRESENT_FRAME_TIMING_NEEDED
+            .load(Ordering::Acquire)
+            .then(Instant::now),
+    }
 }
 
 pub(crate) unsafe fn finish_present_frame(
     render_epoch: u32,
-    present_started_at: Option<Instant>,
+    present_started_at: PresentFrameStart,
     present_succeeded: bool,
 ) {
     if !present_succeeded {
         PRESENT_FAILED.fetch_add(1, Ordering::Relaxed);
     }
-    let diagnostics_state = MENU_DIAGNOSTICS_STATE.load(Ordering::Acquire);
-    let diagnostics_session = (diagnostics_state & MENU_DIAGNOSTICS_ACTIVE_BIT != 0)
-        .then_some(diagnostics_state / MENU_DIAGNOSTICS_SESSION_INCREMENT);
-    if diagnostics_session.is_none() && !PRESENT_FRAME_TIMING_NEEDED.load(Ordering::Acquire) {
+    record_continuous_present_interval(
+        present_started_at.performance_counter,
+        render_epoch,
+        present_succeeded,
+    );
+
+    if !PRESENT_FRAME_TIMING_NEEDED.load(Ordering::Acquire) {
         return;
     }
     let Some(mut runtime) = RUNTIME.try_lock() else {
@@ -558,8 +590,9 @@ pub(crate) unsafe fn finish_present_frame(
     runtime.begin_render_epoch(render_epoch);
     runtime.finish_present_frame(
         render_epoch,
-        present_succeeded.then_some(present_started_at).flatten(),
-        diagnostics_session,
+        present_succeeded
+            .then_some(present_started_at.production_instant)
+            .flatten(),
     );
 }
 
@@ -603,6 +636,7 @@ pub(crate) fn handle_window_message(
         if !open {
             MENU_KEY_CAPTURE_ACTIVE.store(false, Ordering::Release);
             PENDING_MENU_TOGGLE_KEY.store(0, Ordering::Release);
+            CURRENT_LOOK_FLUSH_REQUEST.store(true, Ordering::Release);
         }
         return Some(0);
     }
@@ -640,6 +674,97 @@ impl Default for RuntimeSettings {
     }
 }
 
+struct ActivePreset {
+    key: PresetKey,
+    name: String,
+    version: String,
+    payload_revision: u64,
+    built_in: bool,
+    modified: bool,
+}
+
+#[derive(Clone, Copy, Default, Eq, PartialEq)]
+enum PresetUiView {
+    #[default]
+    Closed,
+    Manager,
+    Update,
+    Create,
+}
+
+struct PresetUiState {
+    service: Option<PresetService>,
+    catalog: PresetCatalog,
+    selected: Option<usize>,
+    pending_published: Option<PresetKey>,
+    pending_saved_state: Option<PresetActiveState>,
+    saved_state_loaded: bool,
+    active: Option<ActivePreset>,
+    catalog_page: usize,
+    filter: [u8; 96],
+    create_name: [u8; 81],
+    create_version: [u8; 65],
+    create_author: [u8; 81],
+    create_description: [u8; 513],
+    update_version: [u8; 65],
+    create_pending: bool,
+    update_pending: bool,
+    view: PresetUiView,
+    show_technical_details: bool,
+    notice: Option<String>,
+    error: Option<String>,
+}
+
+impl Default for PresetUiState {
+    fn default() -> Self {
+        let mut state = Self {
+            service: None,
+            catalog: PresetCatalog::default(),
+            selected: None,
+            pending_published: None,
+            pending_saved_state: None,
+            saved_state_loaded: false,
+            active: None,
+            catalog_page: 0,
+            filter: [0; 96],
+            create_name: [0; 81],
+            create_version: [0; 65],
+            create_author: [0; 81],
+            create_description: [0; 513],
+            update_version: [0; 65],
+            create_pending: false,
+            update_pending: false,
+            view: PresetUiView::Closed,
+            show_technical_details: false,
+            notice: None,
+            error: None,
+        };
+        write_text_buffer(&mut state.create_version, "1.0.0");
+        state
+    }
+}
+
+impl PresetUiState {
+    fn mark_modified(&mut self) {
+        if let Some(active) = self.active.as_mut() {
+            active.modified = true;
+        }
+    }
+
+    fn clear_create_form(&mut self) {
+        self.create_name.fill(0);
+        self.create_author.fill(0);
+        self.create_description.fill(0);
+        self.create_version.fill(0);
+        write_text_buffer(&mut self.create_version, "1.0.0");
+    }
+
+    fn suggest_update_version(&mut self, version: &str) {
+        let next_version = suggest_next_patch_version(version);
+        write_text_buffer(&mut self.update_version, &next_version);
+    }
+}
+
 struct ScreenShaderRuntime {
     settings: RuntimeSettings,
     sources: Vec<ScreenShaderSource>,
@@ -670,9 +795,13 @@ struct ScreenShaderRuntime {
     active_menu_tab: MenuTab,
     menu_diagnostics_visible: bool,
     selected_menu_item: MenuSelection,
+    menu_sidebar_width: f32,
     present_timing: PresentFrameTiming,
     frame_pacing: FramePacing,
     asset_scanner: Option<AssetScanner>,
+    current_look_service: Option<CurrentLookService>,
+    current_look_autosave: AutosaveCoordinator,
+    preset_ui: PresetUiState,
     shader_catalog_generation: u64,
     lut_catalog_generation: u64,
     render_epoch: u32,
@@ -683,8 +812,6 @@ struct ScreenShaderRuntime {
     error_logs: u32,
     imgui_error_logs: u32,
     menu_config_error: Option<String>,
-    menu_config_notice: Option<String>,
-    menu_config_dirty: bool,
     scene_apply_logs: u32,
     scene_target_logs: u32,
     world_color_capture_logs: u32,
@@ -733,9 +860,13 @@ impl Default for ScreenShaderRuntime {
             active_menu_tab: MenuTab::default(),
             menu_diagnostics_visible: false,
             selected_menu_item: MenuSelection::default(),
+            menu_sidebar_width: 270.0,
             present_timing: PresentFrameTiming::default(),
             frame_pacing: FramePacing::default(),
             asset_scanner: None,
+            current_look_service: None,
+            current_look_autosave: AutosaveCoordinator::default(),
+            preset_ui: PresetUiState::default(),
             shader_catalog_generation: 0,
             lut_catalog_generation: 0,
             render_epoch: 0,
@@ -746,8 +877,6 @@ impl Default for ScreenShaderRuntime {
             error_logs: 0,
             imgui_error_logs: 0,
             menu_config_error: None,
-            menu_config_notice: None,
-            menu_config_dirty: false,
             scene_apply_logs: 0,
             scene_target_logs: 0,
             world_color_capture_logs: 0,
@@ -788,6 +917,23 @@ impl ScreenShaderRuntime {
                 Err(err) => log::warn!("[SHADERS] Live asset scanner unavailable: {err:#}"),
             },
         }
+        if self.preset_ui.service.is_none() {
+            match PresetService::start() {
+                Ok(service) => self.preset_ui.service = Some(service),
+                Err(err) => {
+                    self.preset_ui.error = Some(format!("Preset catalog unavailable: {err:#}"))
+                }
+            }
+        }
+        if self.current_look_service.is_none() {
+            match CurrentLookService::start() {
+                Ok(service) => self.current_look_service = Some(service),
+                Err(err) => {
+                    self.menu_config_error =
+                        Some(format!("Current Look autosave unavailable: {err:#}"));
+                }
+            }
+        }
         let external_sources = self
             .sources
             .iter()
@@ -803,9 +949,7 @@ impl ScreenShaderRuntime {
         );
         self.settings = settings;
         self.compiled = None;
-        self.menu_config_error = None;
-        self.menu_config_notice = None;
-        self.menu_config_dirty = false;
+        self.current_look_autosave = AutosaveCoordinator::default();
         self.publish_fnv_scene_requirements();
     }
 
@@ -815,6 +959,8 @@ impl ScreenShaderRuntime {
         hwnd_hint: *mut c_void,
     ) -> Direct3DResult<()> {
         self.poll_asset_scanner();
+        self.poll_preset_service();
+        self.service_current_look();
 
         let Some(device) = (unsafe { Device9Ref::from_raw_void(device_ptr) }) else {
             return Ok(());
@@ -1133,9 +1279,9 @@ impl ScreenShaderRuntime {
             return;
         };
 
-        // Preserve unsaved embedded menu edits before rebuilding dynamic source
-        // options. Background discoveries are then committed in one render tick
-        // without performing file I/O on this thread.
+        // Preserve live embedded edits that may still be inside the autosave
+        // debounce window before rebuilding dynamic source options. Background
+        // discoveries are committed in one render tick without file I/O here.
         shaders::sync_embedded_effect_config(
             &self.sources,
             &mut self.settings.menu_config.embedded_effects,
@@ -1169,11 +1315,310 @@ impl ScreenShaderRuntime {
             &lut_ids,
             snapshot.external_sources,
         );
+        if let Some(service) = self.current_look_service.as_ref()
+            && let Err(err) = service.track_sources(&self.sources)
+        {
+            self.menu_config_error = Some(format!(
+                "Could not monitor external shader settings: {err:#}"
+            ));
+        }
         self.publish_fnv_scene_requirements();
         let new_count = self.sources.len();
         if old_count != new_count {
             log::info!("[SHADERS] Live shader list: {new_count} shader(s)");
         }
+        self.refresh_active_preset_status();
+    }
+
+    fn poll_preset_service(&mut self) {
+        let Some(service) = self.preset_ui.service.as_ref() else {
+            return;
+        };
+        let events = service.try_take_events();
+        for event in events {
+            match event {
+                PresetEvent::Catalog(catalog) => {
+                    let selected_key = self
+                        .preset_ui
+                        .selected
+                        .and_then(|index| self.preset_ui.catalog.entries.get(index))
+                        .and_then(|entry| entry.key());
+                    self.preset_ui.catalog = catalog;
+                    let preferred = self
+                        .preset_ui
+                        .pending_published
+                        .as_ref()
+                        .or(selected_key.as_ref());
+                    self.preset_ui.selected = preferred
+                        .and_then(|key| {
+                            self.preset_ui
+                                .catalog
+                                .entries
+                                .iter()
+                                .position(|entry| entry.key().as_ref() == Some(key))
+                        })
+                        .or_else(|| (!self.preset_ui.catalog.entries.is_empty()).then_some(0));
+
+                    if let Some(created_key) = self.preset_ui.pending_published.take()
+                        && let Some(entry) = self
+                            .preset_ui
+                            .catalog
+                            .entries
+                            .iter()
+                            .find(|entry| entry.key().as_ref() == Some(&created_key))
+                    {
+                        let Some(payload_revision) = entry
+                            .document
+                            .as_ref()
+                            .and_then(|document| document.payload_revision().ok())
+                        else {
+                            self.preset_ui.create_pending = false;
+                            self.preset_ui.update_pending = false;
+                            self.preset_ui.error =
+                                Some("Created preset payload could not be verified".to_owned());
+                            continue;
+                        };
+                        let was_update = self.preset_ui.update_pending;
+                        let created_version = entry.version.clone();
+                        self.preset_ui.active = Some(ActivePreset {
+                            key: created_key,
+                            name: entry.display_name.clone(),
+                            version: created_version.clone(),
+                            payload_revision,
+                            built_in: entry.built_in,
+                            modified: false,
+                        });
+                        self.preset_ui.create_pending = false;
+                        self.preset_ui.update_pending = false;
+                        self.preset_ui.view = PresetUiView::Closed;
+                        self.preset_ui.suggest_update_version(&created_version);
+                        if was_update {
+                            self.preset_ui.notice = Some(format!(
+                                "Updated to version {created_version} and enabled it."
+                            ));
+                        } else {
+                            self.preset_ui.clear_create_form();
+                            self.preset_ui.notice =
+                                Some("New preset created and enabled.".to_owned());
+                        }
+                        self.preset_ui.error = None;
+                        // Publication changes only the preset provenance. The
+                        // Current Look was already autosaved independently, so
+                        // recording this identity must not schedule a redundant
+                        // rewrite of omv.toml or the new preset file.
+                        self.record_active_preset_state();
+                    }
+                }
+                PresetEvent::Published(key) => {
+                    self.preset_ui.pending_published = Some(key);
+                    self.preset_ui.notice =
+                        Some("Preset written; refreshing the catalog".to_owned());
+                    self.preset_ui.error = None;
+                }
+                PresetEvent::ActiveState(state) => {
+                    self.preset_ui.pending_saved_state = state;
+                    self.preset_ui.saved_state_loaded = true;
+                }
+                PresetEvent::Error(error) => {
+                    self.preset_ui.create_pending = false;
+                    self.preset_ui.update_pending = false;
+                    self.preset_ui.error = Some(error);
+                    self.preset_ui.notice = None;
+                }
+            }
+        }
+        self.reconcile_saved_preset_state();
+    }
+
+    /// Services the Current Look worker without performing file I/O or waiting
+    /// on the render thread.
+    ///
+    /// Snapshot cloning happens only after the debounce coordinator grants one
+    /// revision. This keeps slider drags allocation-free between changes and
+    /// prevents a stale worker completion from clearing newer live edits.
+    fn service_current_look(&mut self) {
+        let events = self
+            .current_look_service
+            .as_ref()
+            .map(CurrentLookService::try_take_events)
+            .unwrap_or_default();
+        for event in events {
+            match event {
+                CurrentLookEvent::Saved { revision } => {
+                    self.current_look_autosave
+                        .save_succeeded(revision, Instant::now());
+                    self.menu_config_error = None;
+                    if !self.current_look_autosave.is_dirty() {
+                        self.record_active_preset_state();
+                    }
+                }
+                CurrentLookEvent::Reloaded {
+                    menu_config,
+                    sources,
+                } => {
+                    self.settings.menu_config = menu_config;
+                    let external_sources = sources
+                        .into_iter()
+                        .filter(ScreenShaderSource::is_external_file)
+                        .collect();
+                    let (lut_names, lut_ids) = self.color_luts.choices();
+                    self.sources = shaders::merge_embedded_sources_with_luts(
+                        &self.settings.menu_config.embedded_effects,
+                        &lut_names,
+                        &lut_ids,
+                        external_sources,
+                    );
+                    self.compiled = None;
+                    self.apply_menu_config_change();
+                    self.current_look_autosave.reload_succeeded();
+                    self.refresh_active_preset_status();
+                    self.menu_config_error = None;
+                }
+                CurrentLookEvent::ExternalChange { blocked_revision } => {
+                    self.current_look_autosave
+                        .external_change_detected(blocked_revision);
+                }
+                CurrentLookEvent::Error { operation, message } => match operation {
+                    CurrentLookOperation::Save(revision) => {
+                        self.current_look_autosave
+                            .save_failed(revision, Instant::now());
+                        self.menu_config_error =
+                            Some(format!("Could not autosave Current Look: {message}"));
+                    }
+                    CurrentLookOperation::Reload => {
+                        self.current_look_autosave.reload_failed();
+                        self.menu_config_error =
+                            Some(format!("Could not reload external file changes: {message}"));
+                    }
+                    CurrentLookOperation::Monitor => {
+                        self.menu_config_error =
+                            Some(format!("Could not monitor Current Look files: {message}"));
+                    }
+                },
+            }
+        }
+
+        if CURRENT_LOOK_FLUSH_REQUEST.swap(false, Ordering::AcqRel) {
+            self.current_look_autosave.flush_pending(Instant::now());
+        }
+        if !self.current_look_autosave.has_pending_deadline() {
+            return;
+        }
+        let Some(revision) = self.current_look_autosave.take_due_save(Instant::now()) else {
+            return;
+        };
+        self.queue_current_look_save(revision, false);
+    }
+
+    fn queue_current_look_save(&mut self, revision: u64, overwrite_external: bool) {
+        shaders::sync_embedded_effect_config(
+            &self.sources,
+            &mut self.settings.menu_config.embedded_effects,
+        );
+        let snapshot =
+            CurrentLookSnapshot::capture(revision, self.settings.menu_config, &self.sources);
+        let result = self
+            .current_look_service
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("Current Look worker is unavailable"))
+            .and_then(|service| service.save(snapshot, overwrite_external));
+        if let Err(err) = result {
+            self.current_look_autosave
+                .save_failed(revision, Instant::now());
+            self.menu_config_error =
+                Some(format!("Could not queue Current Look autosave: {err:#}"));
+        }
+    }
+
+    fn reload_current_look_from_disk(&mut self) {
+        if !self.current_look_autosave.begin_reload() {
+            return;
+        }
+        let result = self
+            .current_look_service
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("Current Look worker is unavailable"))
+            .and_then(|service| service.reload(&self.sources));
+        if let Err(err) = result {
+            self.current_look_autosave.reload_failed();
+            self.menu_config_error = Some(format!("Could not queue Current Look reload: {err:#}"));
+        }
+    }
+
+    fn keep_current_look_over_external_files(&mut self) {
+        let Some(revision) = self.current_look_autosave.begin_external_overwrite() else {
+            return;
+        };
+        self.queue_current_look_save(revision, true);
+    }
+
+    fn reconcile_saved_preset_state(&mut self) {
+        if !self.preset_ui.saved_state_loaded
+            || self.shader_catalog_generation == 0
+            || self.lut_catalog_generation == 0
+        {
+            return;
+        }
+        self.preset_ui.saved_state_loaded = false;
+        let Some(state) = self.preset_ui.pending_saved_state.take() else {
+            self.preset_ui.active = None;
+            return;
+        };
+        let key = state.key();
+        let Some(entry) = self
+            .preset_ui
+            .catalog
+            .entries
+            .iter()
+            .find(|entry| entry.key().as_ref() == Some(&key))
+        else {
+            self.preset_ui.active = None;
+            self.preset_ui.error =
+                Some("Previously active preset is no longer installed".to_owned());
+            return;
+        };
+        let entry_name = entry.display_name.clone();
+        let entry_version = entry.version.clone();
+        let entry_built_in = entry.built_in;
+        let Some(document) = entry.document.as_ref() else {
+            self.preset_ui.active = None;
+            self.preset_ui.error = entry.error.clone();
+            return;
+        };
+        let expected_revision = match state.payload_revision() {
+            Ok(revision) => revision,
+            Err(err) => {
+                self.preset_ui.active = None;
+                self.preset_ui.error = Some(format!("{err:#}"));
+                return;
+            }
+        };
+        let document_revision = match document.payload_revision() {
+            Ok(revision) => revision,
+            Err(err) => {
+                self.preset_ui.active = None;
+                self.preset_ui.error = Some(format!("{err:#}"));
+                return;
+            }
+        };
+        if document_revision != expected_revision {
+            self.preset_ui.active = None;
+            self.preset_ui.error =
+                Some("Previously active preset changed without a version change".to_owned());
+            return;
+        }
+        let modified = !document
+            .matches_current(&self.settings.menu_config, &self.sources, &self.color_luts)
+            .unwrap_or(false);
+        self.preset_ui.active = Some(ActivePreset {
+            key,
+            name: entry_name,
+            version: entry_version.clone(),
+            payload_revision: document_revision,
+            built_in: entry_built_in,
+            modified,
+        });
+        self.preset_ui.suggest_update_version(&entry_version);
     }
 
     fn ensure_imgui(&mut self, device: &Device9Ref<'_>, hwnd_hint: *mut c_void) {
@@ -1384,6 +1829,9 @@ impl ScreenShaderRuntime {
             atmosphere_visibility: atmosphere_visibility.unwrap_or(0.0),
             atmosphere_available: atmosphere_visibility.is_some(),
             first_person_rendered: backend::fnv_first_person_rendered(),
+            third_person_view: (phase == ShaderPhase::ScenePostImageSpace)
+                .then(backend::fnv_third_person_view)
+                .flatten(),
             material_state: backend::material_state_frame(),
         };
         self.log_frame_input_state(&frame_inputs);
@@ -1472,7 +1920,11 @@ impl ScreenShaderRuntime {
                     }
                 }
                 EmbeddedEffectKind::MotionBlur => {
-                    if self.prepared_motion_blur_frame.is_some() {
+                    if self.prepared_motion_blur_frame.is_some_and(|frame| {
+                        self.motion_blur
+                            .as_ref()
+                            .is_none_or(|effect| effect.has_applicable_work(frame))
+                    }) {
                         return true;
                     }
                 }
@@ -2071,7 +2523,13 @@ impl ScreenShaderRuntime {
             }
         }
 
-        self.copy_phase_color_for_sampling(device, backbuffer, current_color_copy)?;
+        let Some(effect) = self.motion_blur.as_ref() else {
+            return Ok(());
+        };
+        let requires_color_copy = effect.requires_color_copy(desc, frame);
+        if requires_color_copy {
+            self.copy_phase_color_for_sampling(device, backbuffer, current_color_copy)?;
+        }
         let Some(effect) = self.motion_blur.as_mut() else {
             return Ok(());
         };
@@ -2080,7 +2538,7 @@ impl ScreenShaderRuntime {
             backbuffer,
             desc,
             frame_inputs,
-            &current_color_copy.texture,
+            requires_color_copy.then_some(&current_color_copy.texture),
             frame,
         )
     }
@@ -2149,9 +2607,6 @@ impl ScreenShaderRuntime {
             self.menu_diagnostics_visible,
         );
         set_menu_diagnostics_active(diagnostics_active);
-        if diagnostics_active {
-            self.frame_pacing.begin_session(menu_diagnostics_session());
-        }
 
         if self.imgui_needs_device_objects && imgui.create_device_objects() {
             self.imgui_needs_device_objects = false;
@@ -2159,7 +2614,7 @@ impl ScreenShaderRuntime {
 
         let menu_frame = {
             let frame_pacing = if diagnostics_active {
-                self.frame_pacing.snapshot()
+                self.frame_pacing.snapshot_for_ui()
             } else {
                 FramePacingSnapshot::default()
             };
@@ -2173,14 +2628,15 @@ impl ScreenShaderRuntime {
                 &mut ui,
                 &mut self.settings.menu_config,
                 &mut self.sources,
+                &mut self.preset_ui,
                 &mut self.active_menu_tab,
                 &mut self.selected_menu_item,
+                &mut self.menu_sidebar_width,
                 &frame_pacing,
                 feature_status,
                 MenuPersistenceView {
-                    dirty: self.menu_config_dirty,
+                    external_change: self.current_look_autosave.has_external_change(),
                     error: self.menu_config_error.as_deref(),
-                    notice: self.menu_config_notice.as_deref(),
                 },
             )
         };
@@ -2195,14 +2651,18 @@ impl ScreenShaderRuntime {
         imgui.render();
         if menu_frame.changed {
             self.apply_menu_config_change();
-            self.menu_config_dirty = true;
+            self.current_look_autosave.note_change(Instant::now());
+            self.preset_ui.mark_modified();
             self.menu_config_error = None;
-            self.menu_config_notice = None;
         }
         match menu_frame.action {
             MenuAction::None => {}
-            MenuAction::Save => self.save_menu_session(),
-            MenuAction::Reload => self.reload_menu_session(),
+            MenuAction::ReloadFiles => self.reload_current_look_from_disk(),
+            MenuAction::KeepCurrentLook => self.keep_current_look_over_external_files(),
+            MenuAction::RefreshPresets => self.refresh_presets(),
+            MenuAction::CreatePreset => self.create_preset_from_current(),
+            MenuAction::PublishPresetVersion => self.publish_active_preset_version(),
+            MenuAction::ActivatePreset(index) => self.activate_preset(index),
         }
         Ok(())
     }
@@ -2254,58 +2714,232 @@ impl ScreenShaderRuntime {
         );
     }
 
-    fn save_menu_session(&mut self) {
-        shaders::sync_embedded_effect_config(
-            &self.sources,
-            &mut self.settings.menu_config.embedded_effects,
-        );
-        let result = shaders::save_external_shader_configs(&mut self.sources)
-            .and_then(|()| crate::config::save_menu_config(&self.settings.menu_config));
+    fn record_active_preset_state(&mut self) {
+        let state = self
+            .preset_ui
+            .active
+            .as_ref()
+            .map(|active| PresetActiveState::new(&active.key, active.payload_revision));
+        let result = self
+            .preset_ui
+            .service
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("preset worker is unavailable"))
+            .and_then(|service| service.record_active_state(state));
+        if let Err(err) = result {
+            self.preset_ui.error = Some(format!("Could not record active preset: {err:#}"));
+        }
+    }
+
+    fn refresh_active_preset_status(&mut self) {
+        let Some(active) = self.preset_ui.active.as_ref() else {
+            return;
+        };
+        let key = active.key.clone();
+        let modified = self
+            .preset_ui
+            .catalog
+            .entries
+            .iter()
+            .find(|entry| entry.key().as_ref() == Some(&key))
+            .and_then(|entry| entry.document.as_ref())
+            .and_then(|document| {
+                document
+                    .matches_current(&self.settings.menu_config, &self.sources, &self.color_luts)
+                    .ok()
+            })
+            .is_none_or(|matches| !matches);
+        if let Some(active) = self.preset_ui.active.as_mut() {
+            active.modified = modified;
+        }
+    }
+
+    fn refresh_presets(&mut self) {
+        if let Some(scanner) = self.asset_scanner.as_ref() {
+            scanner.request_scan();
+        }
+        let result = self
+            .preset_ui
+            .service
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("preset worker is unavailable"))
+            .and_then(PresetService::request_refresh);
         match result {
             Ok(()) => {
-                self.menu_config_dirty = false;
-                self.menu_config_error = None;
-                self.menu_config_notice = Some("Configuration saved to disk".to_owned());
+                self.preset_ui.notice = Some("Refreshing preset catalog".to_owned());
+                self.preset_ui.error = None;
             }
             Err(err) => {
-                self.menu_config_error = Some(format!("{err:#}"));
-                self.menu_config_notice = None;
+                self.preset_ui.error = Some(format!("{err:#}"));
+                self.preset_ui.notice = None;
             }
         }
     }
 
-    fn reload_menu_session(&mut self) {
-        let result = (|| {
-            let menu_config = crate::config::load_menu_config_from_disk()?;
-            let mut reloaded_sources = self.sources.clone();
-            shaders::reload_external_shader_configs(&mut reloaded_sources)?;
-            let external_sources = reloaded_sources
-                .into_iter()
-                .filter(ScreenShaderSource::is_external_file)
-                .collect();
-
-            self.settings.menu_config = menu_config;
-            let (lut_names, lut_ids) = self.color_luts.choices();
-            self.sources = shaders::merge_embedded_sources_with_luts(
-                &self.settings.menu_config.embedded_effects,
-                &lut_names,
-                &lut_ids,
-                external_sources,
-            );
-            self.compiled = None;
-            self.apply_menu_config_change();
-            Ok::<(), anyhow::Error>(())
-        })();
-
+    fn create_preset_from_current(&mut self) {
+        shaders::sync_embedded_effect_config(
+            &self.sources,
+            &mut self.settings.menu_config.embedded_effects,
+        );
+        let name = text_buffer(&self.preset_ui.create_name).to_owned();
+        let version = text_buffer(&self.preset_ui.create_version).to_owned();
+        let author = text_buffer(&self.preset_ui.create_author).to_owned();
+        let description = text_buffer(&self.preset_ui.create_description).to_owned();
+        let result = PresetPublishRequest::capture(
+            &name,
+            &version,
+            &author,
+            &description,
+            &self.settings.menu_config,
+            &self.sources,
+            &self.color_luts,
+        )
+        .and_then(|request| {
+            self.preset_ui
+                .service
+                .as_ref()
+                .ok_or_else(|| anyhow::anyhow!("preset worker is unavailable"))?
+                .request_publish(request)
+        });
         match result {
             Ok(()) => {
-                self.menu_config_dirty = false;
-                self.menu_config_error = None;
-                self.menu_config_notice = Some("Configuration reloaded from disk".to_owned());
+                self.preset_ui.create_pending = true;
+                self.preset_ui.notice = Some("Creating preset in the background".to_owned());
+                self.preset_ui.error = None;
             }
             Err(err) => {
-                self.menu_config_error = Some(format!("{err:#}"));
-                self.menu_config_notice = None;
+                self.preset_ui.error = Some(format!("{err:#}"));
+                self.preset_ui.notice = None;
+            }
+        }
+    }
+
+    fn publish_active_preset_version(&mut self) {
+        shaders::sync_embedded_effect_config(
+            &self.sources,
+            &mut self.settings.menu_config.embedded_effects,
+        );
+        let result = (|| {
+            let active =
+                self.preset_ui.active.as_ref().ok_or_else(|| {
+                    anyhow::anyhow!("activate a preset before publishing an update")
+                })?;
+            if active.built_in {
+                anyhow::bail!(
+                    "the built-in preset family is read-only; save the current configuration as a new preset"
+                );
+            }
+            if !active.modified {
+                anyhow::bail!("change the active preset before publishing a new version");
+            }
+            let (source, source_path, source_content_hash) = self
+                .preset_ui
+                .catalog
+                .entries
+                .iter()
+                .find(|entry| entry.key().as_ref() == Some(&active.key))
+                .and_then(|entry| {
+                    Some((
+                        entry.document.as_ref()?.clone(),
+                        entry.path.as_ref()?.clone(),
+                        entry.content_hash,
+                    ))
+                })
+                .ok_or_else(|| anyhow::anyhow!("the active preset is no longer available"))?;
+            let version = text_buffer(&self.preset_ui.update_version);
+            let request = PresetPublishRequest::capture_new_version(
+                &source,
+                &source_path,
+                source_content_hash,
+                version,
+                &self.settings.menu_config,
+                &self.sources,
+                &self.color_luts,
+            )?;
+            self.preset_ui
+                .service
+                .as_ref()
+                .ok_or_else(|| anyhow::anyhow!("preset worker is unavailable"))?
+                .request_publish(request)
+        })();
+        match result {
+            Ok(()) => {
+                self.preset_ui.update_pending = true;
+                self.preset_ui.notice =
+                    Some("Updating the preset file atomically in the background".to_owned());
+                self.preset_ui.error = None;
+            }
+            Err(err) => {
+                self.preset_ui.error = Some(format!("{err:#}"));
+                self.preset_ui.notice = None;
+            }
+        }
+    }
+
+    fn activate_preset(&mut self, index: usize) {
+        let Some(entry) = self.preset_ui.catalog.entries.get(index) else {
+            return;
+        };
+        let Some(document) = entry.document.clone() else {
+            self.preset_ui.error = entry.error.clone();
+            self.preset_ui.notice = None;
+            return;
+        };
+        let name = entry.display_name.clone();
+        let version = entry.version.clone();
+        let built_in = entry.built_in;
+        let key = document.key();
+        let payload_revision = match document.payload_revision() {
+            Ok(revision) => revision,
+            Err(err) => {
+                self.preset_ui.error = Some(format!("Could not activate preset: {err:#}"));
+                self.preset_ui.notice = None;
+                return;
+            }
+        };
+        let result = document.apply(
+            &mut self.settings.menu_config,
+            &mut self.sources,
+            &self.color_luts,
+        );
+        match result {
+            Ok(()) => {
+                let external_sources = self
+                    .sources
+                    .iter()
+                    .filter(|source| source.is_external_file())
+                    .cloned()
+                    .collect();
+                let (lut_names, lut_ids) = self.color_luts.choices();
+                self.sources = shaders::merge_embedded_sources_with_luts(
+                    &self.settings.menu_config.embedded_effects,
+                    &lut_names,
+                    &lut_ids,
+                    external_sources,
+                );
+                self.compiled = None;
+                self.apply_menu_config_change();
+                // A preset is a template copied into the Current Look. Its
+                // file is never mounted as a live layer and activation does
+                // not require a separate user-facing save step.
+                self.current_look_autosave
+                    .note_immediate_change(Instant::now());
+                self.preset_ui.active = Some(ActivePreset {
+                    key,
+                    name: name.clone(),
+                    version: version.clone(),
+                    payload_revision,
+                    built_in,
+                    modified: false,
+                });
+                self.preset_ui.suggest_update_version(&version);
+                self.preset_ui.error = None;
+                self.preset_ui.notice = Some(format!("Using {name} {version} now."));
+                self.menu_config_error = None;
+            }
+            Err(err) => {
+                self.preset_ui.error = Some(format!("Could not activate preset: {err:#}"));
+                self.preset_ui.notice = None;
             }
         }
     }
@@ -2528,13 +3162,7 @@ impl ScreenShaderRuntime {
         }
     }
 
-    fn finish_present_frame(
-        &mut self,
-        render_epoch: u32,
-        present_started_at: Option<Instant>,
-        diagnostics_session: Option<u32>,
-    ) {
-        let diagnostics_active = diagnostics_session.is_some();
+    fn finish_present_frame(&mut self, render_epoch: u32, present_started_at: Option<Instant>) {
         let depth_of_field_active = self.settings.menu_config.screen_space_shaders
             && self
                 .settings
@@ -2542,33 +3170,18 @@ impl ScreenShaderRuntime {
                 .embedded_effects
                 .depth_of_field
                 .enabled;
-        if !diagnostics_active && !depth_of_field_active {
+        if !depth_of_field_active {
             self.present_timing.pause();
-            self.frame_pacing.pause();
             return;
         }
 
-        if let Some(session) = diagnostics_session {
-            self.frame_pacing.begin_session(session);
-        }
         let Some(now) = present_started_at else {
             self.present_timing.invalidate_origin();
-            if diagnostics_active {
-                self.frame_pacing.reject_current_present();
-            } else {
-                self.frame_pacing.invalidate_origin();
-            }
             return;
         };
 
         self.present_timing
             .record_frame_at(now, render_epoch, depth_of_field_active);
-        self.frame_pacing.record_frame_at(
-            now,
-            render_epoch,
-            diagnostics_active,
-            self.settings.menu_config.frame_pacing_update_interval_ms,
-        );
     }
 
     fn release_for_new_device(&mut self) {
@@ -3026,15 +3639,12 @@ impl BackbufferCopy {
 }
 
 const FRAME_PACING_HISTORY: usize = 2_048;
-const FRAME_PACING_CHART_POINTS: usize = 100;
+const FRAME_PACING_CHART_POINTS: usize = 240;
 const FRAME_PACING_WINDOW_MS: f32 = 10_000.0;
-const FRAME_PACING_CHART_INTERVAL_MS: f32 = 100.0;
-const FRAME_PACING_DEFAULT_UPDATE_INTERVAL_MS: u32 = 500;
+const FRAME_PACING_AGGREGATE_UPDATE_INTERVAL_MS: u32 = 250;
 const FRAME_PACING_EMA_TIME_CONSTANT_MS: f32 = 1_000.0;
 const FRAME_PACING_LIVE_SAMPLE_MAX_MS: f32 = 100.0;
-const FRAME_PACING_CHART_MAX_MS: f32 = 50.0;
-const FRAME_PACING_CHART_PRESERVED_HITCH_MS: f32 = 100.0;
-const FRAME_PACING_SPIKE_CHART_MAX_MS: f32 = 50.0;
+const FRAME_PACING_CHART_MIN_SCALE_MS: f32 = 35.0;
 const FRAME_PACING_HISTOGRAM_BINS: usize = 4_096;
 const FRAME_PACING_HISTOGRAM_BIN_MS: f32 = 0.125;
 const FRAME_PACING_SPIKE_MEMORY: usize = 64;
@@ -3046,8 +3656,114 @@ const FRAME_PACING_SPIKE_BASELINE_TIME_MS: f32 = 2_000.0;
 const FRAME_BUDGET_60_MS: f32 = 1_000.0 / 60.0;
 const FRAME_BUDGET_30_MS: f32 = 1_000.0 / 30.0;
 
+static PERFORMANCE_COUNTER_FREQUENCY: AtomicI64 = AtomicI64::new(0);
+static CONTINUOUS_PRESENT_WRITER: AtomicBool = AtomicBool::new(false);
+static CONTINUOUS_PRESENT_LAST_COUNTER: AtomicI64 = AtomicI64::new(0);
+static CONTINUOUS_PRESENT_LAST_EPOCH: AtomicU32 = AtomicU32::new(0);
+static CONTINUOUS_PRESENT_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+static CONTINUOUS_PRESENT_REJECTED: AtomicU32 = AtomicU32::new(0);
+static CONTINUOUS_PRESENT_SAMPLES: [AtomicU32; FRAME_PACING_HISTORY] =
+    [const { AtomicU32::new(0) }; FRAME_PACING_HISTORY];
+
 fn consecutive_render_epochs(previous: u32, current: u32) -> bool {
     previous.wrapping_add(1) == current
+}
+
+fn present_interval_ms(
+    previous_counter: i64,
+    previous_epoch: u32,
+    counter: Option<i64>,
+    render_epoch: u32,
+    present_succeeded: bool,
+    frequency: i64,
+) -> Option<Result<f32, ()>> {
+    if previous_counter <= 0 {
+        return None;
+    }
+    let Some(counter) = counter.filter(|counter| *counter > 0) else {
+        return Some(Err(()));
+    };
+    if !present_succeeded
+        || frequency <= 0
+        || !consecutive_render_epochs(previous_epoch, render_epoch)
+    {
+        return Some(Err(()));
+    }
+
+    let ticks = counter - previous_counter;
+    if ticks <= 0 {
+        return Some(Err(()));
+    }
+    let frame_ms = ticks as f64 * 1_000.0 / frequency as f64;
+    if frame_ms.is_finite() && frame_ms > 0.0 && frame_ms <= f64::from(f32::MAX) {
+        Some(Ok(frame_ms as f32))
+    } else {
+        Some(Err(()))
+    }
+}
+
+fn record_continuous_present_interval(
+    counter: Option<i64>,
+    render_epoch: u32,
+    present_succeeded: bool,
+) {
+    if CONTINUOUS_PRESENT_WRITER
+        .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
+        .is_err()
+    {
+        CONTINUOUS_PRESENT_REJECTED.fetch_add(1, Ordering::Relaxed);
+        return;
+    }
+
+    let previous_counter = CONTINUOUS_PRESENT_LAST_COUNTER.load(Ordering::Relaxed);
+    let previous_epoch = CONTINUOUS_PRESENT_LAST_EPOCH.load(Ordering::Relaxed);
+    let frequency = PERFORMANCE_COUNTER_FREQUENCY.load(Ordering::Relaxed);
+    let observation = present_interval_ms(
+        previous_counter,
+        previous_epoch,
+        counter,
+        render_epoch,
+        present_succeeded,
+        frequency,
+    );
+    let next_counter = if present_succeeded {
+        counter.filter(|counter| *counter > 0).unwrap_or(0)
+    } else {
+        0
+    };
+    CONTINUOUS_PRESENT_LAST_COUNTER.store(next_counter, Ordering::Relaxed);
+    CONTINUOUS_PRESENT_LAST_EPOCH.store(render_epoch, Ordering::Relaxed);
+    match observation {
+        Some(Ok(frame_ms)) => {
+            let sequence = CONTINUOUS_PRESENT_SEQUENCE.load(Ordering::Relaxed);
+            CONTINUOUS_PRESENT_SAMPLES[sequence as usize % CONTINUOUS_PRESENT_SAMPLES.len()]
+                .store(frame_ms.to_bits(), Ordering::Relaxed);
+            CONTINUOUS_PRESENT_SEQUENCE.store(sequence.wrapping_add(1), Ordering::Release);
+        }
+        Some(Err(())) => {
+            CONTINUOUS_PRESENT_REJECTED.fetch_add(1, Ordering::Relaxed);
+        }
+        None => {}
+    }
+    CONTINUOUS_PRESENT_WRITER.store(false, Ordering::Release);
+}
+
+fn copy_continuous_present_samples(
+    cursor: &mut u64,
+    output: &mut [f32; FRAME_PACING_HISTORY],
+) -> usize {
+    let end = CONTINUOUS_PRESENT_SEQUENCE.load(Ordering::Acquire);
+    let oldest = end.saturating_sub(FRAME_PACING_HISTORY as u64);
+    let start = (*cursor).max(oldest).min(end);
+    let count = (end - start) as usize;
+    for (output_index, sequence) in (start..end).enumerate() {
+        output[output_index] = f32::from_bits(
+            CONTINUOUS_PRESENT_SAMPLES[sequence as usize % CONTINUOUS_PRESENT_SAMPLES.len()]
+                .load(Ordering::Relaxed),
+        );
+    }
+    *cursor = end;
+    count
 }
 
 #[derive(Clone, Default)]
@@ -3107,14 +3823,9 @@ struct FramePacing {
     samples: [f32; FRAME_PACING_HISTORY],
     next_index: usize,
     count: usize,
-    last_present: Option<Instant>,
-    last_present_epoch: Option<u32>,
     smoothed_ms: f32,
     display_elapsed_ms: f32,
     published: FramePacingSnapshot,
-    active: bool,
-    session: u32,
-    update_interval_ms: u32,
     session_elapsed_ms: f64,
     baseline_ms: f32,
     baseline_noise_ms: f32,
@@ -3128,6 +3839,7 @@ struct FramePacing {
     largest_slow_spike: Option<FrameSpikeEvent>,
     largest_fast_spike: Option<FrameSpikeEvent>,
     last_spike_direction: Option<SpikeDirection>,
+    continuous_cursor: u64,
 }
 
 impl Default for FramePacing {
@@ -3136,14 +3848,9 @@ impl Default for FramePacing {
             samples: [0.0; FRAME_PACING_HISTORY],
             next_index: 0,
             count: 0,
-            last_present: None,
-            last_present_epoch: None,
             smoothed_ms: 0.0,
             display_elapsed_ms: 0.0,
             published: FramePacingSnapshot::default(),
-            active: false,
-            session: 0,
-            update_interval_ms: FRAME_PACING_DEFAULT_UPDATE_INTERVAL_MS,
             session_elapsed_ms: 0.0,
             baseline_ms: 0.0,
             baseline_noise_ms: 0.0,
@@ -3157,111 +3864,29 @@ impl Default for FramePacing {
             largest_slow_spike: None,
             largest_fast_spike: None,
             last_spike_direction: None,
+            continuous_cursor: 0,
         }
     }
 }
 
 impl FramePacing {
-    fn begin_session(&mut self, session: u32) {
-        if self.session != session {
-            self.session = session;
-            self.reset_samples();
-        }
-    }
-
-    fn record_frame_at(
-        &mut self,
-        now: Instant,
-        render_epoch: u32,
-        active: bool,
-        update_interval_ms: u32,
-    ) {
-        if !active {
-            self.pause();
-            return;
-        }
-        if !self.active {
-            self.reset_samples();
-            self.last_present = Some(now);
-            self.last_present_epoch = Some(render_epoch);
-            self.active = true;
-            return;
-        }
-        if let (Some(last_present), Some(last_epoch)) = (self.last_present, self.last_present_epoch)
-        {
-            if let Some(frame_time) = now.checked_duration_since(last_present) {
-                if consecutive_render_epochs(last_epoch, render_epoch) {
-                    let frame_ms = frame_time.as_secs_f32().mul_add(1000.0, 0.0);
-                    self.record_sample_with_interval(frame_ms, update_interval_ms);
-                } else {
-                    // Keep spike episode ages on wall time without treating an
-                    // unknown number of Presents as one measured frame.
-                    self.session_elapsed_ms += frame_time.as_secs_f64() * 1_000.0;
-                    self.rejected_intervals = self.rejected_intervals.saturating_add(1);
-                }
-            } else {
-                self.rejected_intervals = self.rejected_intervals.saturating_add(1);
-            }
-        }
-        self.last_present = Some(now);
-        self.last_present_epoch = Some(render_epoch);
-    }
-
-    fn pause(&mut self) {
-        if self.active {
-            self.last_present = None;
-            self.last_present_epoch = None;
-            self.active = false;
-        }
-    }
-
-    fn invalidate_origin(&mut self) {
-        self.last_present = None;
-        self.last_present_epoch = None;
-    }
-
-    fn reject_current_present(&mut self) {
-        self.rejected_intervals = self.rejected_intervals.saturating_add(1);
-        self.invalidate_origin();
-    }
-
-    fn reset_samples(&mut self) {
-        self.samples.fill(0.0);
-        self.next_index = 0;
-        self.count = 0;
-        self.last_present = None;
-        self.last_present_epoch = None;
-        self.smoothed_ms = 0.0;
-        self.display_elapsed_ms = 0.0;
-        self.published = FramePacingSnapshot::default();
-        self.active = false;
-        self.session_elapsed_ms = 0.0;
-        self.baseline_ms = 0.0;
-        self.baseline_noise_ms = 0.0;
-        self.baseline_samples = 0;
-        self.spike_events.fill(FrameSpikeEvent::default());
-        self.spike_next_index = 0;
-        self.spike_count = 0;
-        self.rejected_intervals = 0;
-        self.total_slow_spikes = 0;
-        self.total_fast_spikes = 0;
-        self.largest_slow_spike = None;
-        self.largest_fast_spike = None;
-        self.last_spike_direction = None;
-    }
-
     #[cfg(test)]
     fn record_sample(&mut self, frame_ms: f32) {
-        self.record_sample_with_interval(frame_ms, FRAME_PACING_DEFAULT_UPDATE_INTERVAL_MS);
-    }
-
-    fn record_sample_with_interval(&mut self, frame_ms: f32, update_interval_ms: u32) {
-        if !frame_ms.is_finite() || frame_ms <= 0.0 {
+        if !self.capture_sample(frame_ms) {
             return;
         }
+        if self.count <= 2
+            || self.display_elapsed_ms >= FRAME_PACING_AGGREGATE_UPDATE_INTERVAL_MS as f32
+        {
+            self.publish_snapshot();
+        }
+    }
 
-        self.update_interval_ms =
-            crate::config::sanitize_frame_pacing_update_interval_ms(update_interval_ms);
+    fn capture_sample(&mut self, frame_ms: f32) -> bool {
+        if !frame_ms.is_finite() || frame_ms <= 0.0 {
+            return false;
+        }
+
         self.samples[self.next_index] = frame_ms;
         self.next_index = (self.next_index + 1) % FRAME_PACING_HISTORY;
         self.count = (self.count + 1).min(FRAME_PACING_HISTORY);
@@ -3278,22 +3903,12 @@ impl FramePacing {
         };
 
         self.display_elapsed_ms += frame_ms;
-        if self.count <= 2
-            || self.update_interval_ms == 0
-            || self.display_elapsed_ms >= self.update_interval_ms as f32
-        {
-            self.publish_snapshot();
-        }
+        true
     }
 
     fn publish_snapshot(&mut self) {
         self.published = self.calculate_snapshot();
         self.display_elapsed_ms = 0.0;
-    }
-
-    #[cfg(test)]
-    fn update_interval_ms(&self) -> u32 {
-        self.update_interval_ms
     }
 
     fn observe_spike(&mut self, frame_ms: f32) {
@@ -3421,6 +4036,15 @@ impl FramePacing {
         recent_count
     }
 
+    fn copy_latest_chart_samples(&self, output: &mut [f32; FRAME_PACING_CHART_POINTS]) -> usize {
+        let count = self.count.min(FRAME_PACING_CHART_POINTS);
+        let first = (self.next_index + FRAME_PACING_HISTORY - count) % FRAME_PACING_HISTORY;
+        for (index, output_sample) in output[..count].iter_mut().enumerate() {
+            *output_sample = self.samples[(first + index) % FRAME_PACING_HISTORY];
+        }
+        count
+    }
+
     fn calculate_snapshot(&self) -> FramePacingSnapshot {
         let mut samples = [0.0; FRAME_PACING_HISTORY];
         let sample_count = self.copy_recent_samples(&mut samples);
@@ -3487,19 +4111,13 @@ impl FramePacing {
                 hits as f32 * 100.0 / sample_count as f32
             }
         };
+        let scale_max = frame_pacing_chart_scale(p99_ms);
         let off_scale_samples = active_samples
             .iter()
-            .filter(|sample| **sample > FRAME_PACING_CHART_MAX_MS)
+            .filter(|sample| **sample > scale_max)
             .count();
         let mut chart_samples = [0.0; FRAME_PACING_CHART_POINTS];
-        let chart_count = build_frame_time_cadence_chart(active_samples, &mut chart_samples);
-        let mut spike_chart_samples = [0.0; FRAME_PACING_CHART_POINTS];
-        let spike_chart_count = build_spike_excursion_chart(
-            active_samples,
-            self.baseline_ms,
-            frame_spike_threshold_ms(self.baseline_ms, self.baseline_noise_ms),
-            &mut spike_chart_samples,
-        );
+        let chart_count = copy_latest_frame_times(active_samples, &mut chart_samples);
 
         FramePacingSnapshot {
             fps: fps_from_ms(self.smoothed_ms),
@@ -3517,20 +4135,41 @@ impl FramePacing {
             history_seconds,
             budget_60_hit_percent: budget_percent(budget_60_hits),
             budget_30_hit_percent: budget_percent(budget_30_hits),
-            scale_max: FRAME_PACING_CHART_MAX_MS,
+            scale_max,
             off_scale_samples,
             sample_count,
             rejected_intervals: self.rejected_intervals,
             chart_count,
             chart_samples,
-            spike_chart_count,
-            spike_chart_samples,
             spikes: self.spike_summary(),
         }
     }
 
+    #[cfg(test)]
     fn snapshot(&self) -> FramePacingSnapshot {
         self.published.clone()
+    }
+
+    fn snapshot_for_ui(&mut self) -> FramePacingSnapshot {
+        let mut captured = [0.0f32; FRAME_PACING_HISTORY];
+        let captured_count =
+            copy_continuous_present_samples(&mut self.continuous_cursor, &mut captured);
+        for frame_ms in &captured[..captured_count] {
+            self.capture_sample(*frame_ms);
+        }
+        self.rejected_intervals = CONTINUOUS_PRESENT_REJECTED.load(Ordering::Relaxed);
+        if self.count > 0
+            && (self.published.sample_count == 0
+                || self.display_elapsed_ms >= FRAME_PACING_AGGREGATE_UPDATE_INTERVAL_MS as f32)
+        {
+            self.publish_snapshot();
+        }
+
+        let mut snapshot = self.published.clone();
+        snapshot.live_ms = self.smoothed_ms;
+        snapshot.fps = fps_from_ms(self.smoothed_ms);
+        snapshot.replace_chart_with_recent_raw(self);
+        snapshot
     }
 
     fn copy_spike_events(
@@ -3572,7 +4211,6 @@ impl FramePacing {
         };
 
         FrameSpikeSummary {
-            retained: event_count,
             total_slow: self.total_slow_spikes,
             total_fast: self.total_fast_spikes,
             latest,
@@ -3583,91 +4221,25 @@ impl FramePacing {
     }
 }
 
-fn build_frame_time_cadence_chart(
+fn copy_latest_frame_times(
     samples: &[f32],
     output: &mut [f32; FRAME_PACING_CHART_POINTS],
 ) -> usize {
-    if samples.is_empty() {
-        return 0;
-    }
-
-    let mut bucket_sum_ms = [0.0f32; FRAME_PACING_CHART_POINTS];
-    let mut bucket_count = [0u16; FRAME_PACING_CHART_POINTS];
-    let mut bucket_hitch_ms = [0.0f32; FRAME_PACING_CHART_POINTS];
-    let interval_ms = f64::from(FRAME_PACING_CHART_INTERVAL_MS);
-    let mut age_ms = 0.0f64;
-    let mut oldest_bucket = 0usize;
-
-    let mut index = samples.len();
-    while index > 0 {
-        let newer = samples[index - 1];
-        if newer >= FRAME_PACING_CHART_PRESERVED_HITCH_MS {
-            let bucket = (age_ms / interval_ms) as usize;
-            if bucket >= FRAME_PACING_CHART_POINTS {
-                break;
-            }
-            bucket_hitch_ms[bucket] = bucket_hitch_ms[bucket].max(newer);
-            oldest_bucket = oldest_bucket.max(bucket);
-            age_ms += f64::from(newer);
-            index -= 1;
-            continue;
-        }
-
-        let (cadence_ms, elapsed_ms, consumed) = if index >= 2 {
-            let older = samples[index - 2];
-            if older < FRAME_PACING_CHART_PRESERVED_HITCH_MS {
-                ((older + newer) * 0.5, older + newer, 2)
-            } else {
-                (newer, newer, 1)
-            }
-        } else {
-            (newer, newer, 1)
-        };
-        let bucket = (age_ms / interval_ms) as usize;
-        if bucket >= FRAME_PACING_CHART_POINTS {
-            break;
-        }
-        bucket_sum_ms[bucket] += cadence_ms;
-        bucket_count[bucket] = bucket_count[bucket].saturating_add(1);
-        oldest_bucket = oldest_bucket.max(bucket);
-        age_ms += f64::from(elapsed_ms);
-        index -= consumed;
-    }
-
-    let chart_count = (oldest_bucket + 1).min(FRAME_PACING_CHART_POINTS);
-    let mut last_observed_ms = 0.0f32;
-    for index in 0..chart_count {
-        let bucket = chart_count - 1 - index;
-        if bucket_hitch_ms[bucket] > 0.0 {
-            last_observed_ms = bucket_hitch_ms[bucket];
-        } else if bucket_count[bucket] > 0 {
-            last_observed_ms = bucket_sum_ms[bucket] / f32::from(bucket_count[bucket]);
-        }
-        output[index] = last_observed_ms;
-    }
-    chart_count
+    let count = samples.len().min(FRAME_PACING_CHART_POINTS);
+    output[..count].copy_from_slice(&samples[samples.len() - count..]);
+    count
 }
 
-fn build_spike_excursion_chart(
-    samples: &[f32],
-    baseline_ms: f32,
-    threshold_ms: f32,
-    output: &mut [f32; FRAME_PACING_CHART_POINTS],
-) -> usize {
-    let chart_count = samples.len().min(FRAME_PACING_CHART_POINTS);
-    if chart_count == 0 {
-        return 0;
+fn frame_pacing_chart_scale(p99_ms: f32) -> f32 {
+    if p99_ms <= 28.0 {
+        FRAME_PACING_CHART_MIN_SCALE_MS
+    } else if p99_ms <= 42.0 {
+        50.0
+    } else if p99_ms <= 65.0 {
+        75.0
+    } else {
+        100.0
     }
-    let start = samples.len() - chart_count;
-    for (output_sample, frame_ms) in output[..chart_count].iter_mut().zip(&samples[start..]) {
-        let excursion_ms = *frame_ms - baseline_ms;
-        *output_sample = if excursion_ms.abs() >= threshold_ms {
-            excursion_ms
-        } else {
-            0.0
-        };
-    }
-    chart_count
 }
 
 fn frame_spike_threshold_ms(baseline_ms: f32, baseline_noise_ms: f32) -> f32 {
@@ -3773,14 +4345,6 @@ impl SpikeSeverity {
             Self::Notice
         }
     }
-
-    fn label(self) -> &'static str {
-        match self {
-            Self::Notice => "NOTICE",
-            Self::Major => "MAJOR",
-            Self::Severe => "SEVERE",
-        }
-    }
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -3812,7 +4376,6 @@ struct SpikePeriodicity {
 
 #[derive(Clone, Copy, Debug, Default)]
 struct FrameSpikeSummary {
-    retained: usize,
     total_slow: u32,
     total_fast: u32,
     latest: Option<FrameSpikeEvent>,
@@ -3917,8 +4480,6 @@ struct FramePacingSnapshot {
     rejected_intervals: u32,
     chart_count: usize,
     chart_samples: [f32; FRAME_PACING_CHART_POINTS],
-    spike_chart_count: usize,
-    spike_chart_samples: [f32; FRAME_PACING_CHART_POINTS],
     spikes: FrameSpikeSummary,
 }
 
@@ -3940,14 +4501,12 @@ impl Default for FramePacingSnapshot {
             history_seconds: 0.0,
             budget_60_hit_percent: 0.0,
             budget_30_hit_percent: 0.0,
-            scale_max: FRAME_PACING_CHART_MAX_MS,
+            scale_max: FRAME_PACING_CHART_MIN_SCALE_MS,
             off_scale_samples: 0,
             sample_count: 0,
             rejected_intervals: 0,
             chart_count: 0,
             chart_samples: [0.0; FRAME_PACING_CHART_POINTS],
-            spike_chart_count: 0,
-            spike_chart_samples: [0.0; FRAME_PACING_CHART_POINTS],
             spikes: FrameSpikeSummary::default(),
         }
     }
@@ -3958,19 +4517,26 @@ impl FramePacingSnapshot {
         &self.chart_samples[..self.chart_count]
     }
 
-    fn spike_samples(&self) -> &[f32] {
-        &self.spike_chart_samples[..self.spike_chart_count]
+    fn replace_chart_with_recent_raw(&mut self, pacing: &FramePacing) {
+        self.chart_count = pacing.copy_latest_chart_samples(&mut self.chart_samples);
+        self.scale_max = frame_pacing_chart_scale(self.p99_ms);
+        self.off_scale_samples = self
+            .samples()
+            .iter()
+            .filter(|sample| **sample > self.scale_max)
+            .count();
     }
 }
 
 #[cfg(test)]
 mod frame_pacing_tests {
     use super::{
-        FRAME_BUDGET_30_MS, FRAME_BUDGET_60_MS, FRAME_PACING_CHART_POINTS,
-        FRAME_PACING_DEFAULT_UPDATE_INTERVAL_MS, FRAME_PACING_HISTORY, FRAME_PACING_SPIKE_MEMORY,
+        FRAME_BUDGET_30_MS, FRAME_BUDGET_60_MS, FRAME_PACING_AGGREGATE_UPDATE_INTERVAL_MS,
+        FRAME_PACING_CHART_POINTS, FRAME_PACING_HISTORY, FRAME_PACING_SPIKE_MEMORY,
         FRAME_PACING_SPIKE_WARMUP_SAMPLES, FramePacing, MENU_DIAGNOSTICS_ACTIVE_BIT,
         MENU_DIAGNOSTICS_SESSION_INCREMENT, MenuTab, PresentFrameTiming, SpikeDirection,
-        build_frame_time_cadence_chart, diagnostics_should_be_active, diagnostics_state_transition,
+        copy_latest_frame_times, diagnostics_should_be_active, diagnostics_state_transition,
+        frame_pacing_chart_scale, present_interval_ms,
     };
     use std::time::{Duration, Instant};
 
@@ -4004,7 +4570,7 @@ mod frame_pacing_tests {
         assert_close(snapshot.budget_60_hit_percent, 16.0);
         assert_close(snapshot.budget_30_hit_percent, 33.0);
         assert!(snapshot.scale_max >= FRAME_BUDGET_30_MS);
-        assert_eq!(snapshot.off_scale_samples, 50);
+        assert_eq!(snapshot.off_scale_samples, 0);
     }
 
     #[test]
@@ -4024,7 +4590,7 @@ mod frame_pacing_tests {
     }
 
     #[test]
-    fn fixed_scale_preserves_normal_detail_and_exposes_an_isolated_hitch() {
+    fn adaptive_scale_preserves_normal_detail_and_exposes_an_isolated_hitch() {
         let mut pacing = FramePacing::default();
         for _ in 0..(FRAME_PACING_HISTORY - 1) {
             pacing.record_sample(10.0);
@@ -4036,7 +4602,7 @@ mod frame_pacing_tests {
         assert_close(snapshot.p50_ms, 10.0);
         assert_close(snapshot.p99_ms, 10.0);
         assert_close(snapshot.worst_ms, 250.0);
-        assert_close(snapshot.scale_max, 50.0);
+        assert_close(snapshot.scale_max, 35.0);
         assert!(snapshot.scale_max < snapshot.worst_ms);
         assert_eq!(snapshot.off_scale_samples, 1);
         assert_close(snapshot.jitter_ms, 0.0);
@@ -4067,28 +4633,24 @@ mod frame_pacing_tests {
     }
 
     #[test]
-    fn configurable_update_cadence_includes_true_per_frame_publication() {
+    fn aggregate_metrics_use_a_fixed_readable_update_cadence() {
         let mut pacing = FramePacing::default();
-        pacing.record_sample_with_interval(10.0, 1_000);
-        pacing.record_sample_with_interval(10.0, 1_000);
+        pacing.record_sample(10.0);
+        pacing.record_sample(10.0);
         let held = pacing.snapshot();
 
-        pacing.record_sample_with_interval(30.0, 1_000);
+        pacing.record_sample(30.0);
+        for _ in 0..10 {
+            pacing.record_sample(20.0);
+        }
         assert_close(pacing.snapshot().average_ms, held.average_ms);
-
-        pacing.record_sample_with_interval(40.0, 0);
+        pacing.record_sample(20.0);
         assert!(pacing.snapshot().average_ms > held.average_ms);
-
-        pacing.record_sample_with_interval(50.0, 99_999);
-        assert_eq!(
-            pacing.update_interval_ms(),
-            crate::config::sanitize_frame_pacing_update_interval_ms(99_999)
-        );
-        assert_eq!(FRAME_PACING_DEFAULT_UPDATE_INTERVAL_MS, 500);
+        assert_eq!(FRAME_PACING_AGGREGATE_UPDATE_INTERVAL_MS, 250);
     }
 
     #[test]
-    fn chart_reduces_per_frame_zigzag_without_hiding_persistent_jitter() {
+    fn raw_chart_preserves_each_present_interval_and_persistent_jitter() {
         let mut pacing = FramePacing::default();
         for _ in 0..50 {
             pacing.record_sample(10.0);
@@ -4108,33 +4670,32 @@ mod frame_pacing_tests {
             .copied()
             .max_by(f32::total_cmp)
             .expect("chart maximum");
-        assert_close(chart_min, 15.0);
-        assert_close(chart_max, 15.0);
+        assert_close(chart_min, 10.0);
+        assert_close(chart_max, 20.0);
         assert_close(snapshot.jitter_ms, 10.0);
     }
 
     #[test]
-    fn stable_batched_present_submissions_do_not_form_a_cadence_sawtooth() {
-        let mut samples = [0.0f32; 240];
+    fn raw_chart_keeps_the_latest_240_frames_in_order() {
+        let mut samples = [0.0f32; 300];
         for (index, sample) in samples.iter_mut().enumerate() {
-            *sample = if index % 2 == 0 { 1.0 } else { 32.0 };
+            *sample = (index + 1) as f32;
         }
         let mut chart = [0.0f32; FRAME_PACING_CHART_POINTS];
-        let chart_count = build_frame_time_cadence_chart(&samples, &mut chart);
-        let chart = &chart[..chart_count];
-        let chart_min = chart
-            .iter()
-            .copied()
-            .min_by(f32::total_cmp)
-            .expect("chart minimum");
-        let chart_max = chart
-            .iter()
-            .copied()
-            .max_by(f32::total_cmp)
-            .expect("chart maximum");
+        let chart_count = copy_latest_frame_times(&samples, &mut chart);
 
-        assert_close(chart_min, 16.5);
-        assert_close(chart_max, 16.5);
+        assert_eq!(chart_count, FRAME_PACING_CHART_POINTS);
+        assert_close(chart[0], 61.0);
+        assert_close(chart[chart_count - 1], 300.0);
+    }
+
+    #[test]
+    fn chart_scale_has_stable_budget_aware_tiers() {
+        assert_close(frame_pacing_chart_scale(16.0), 35.0);
+        assert_close(frame_pacing_chart_scale(33.0), 50.0);
+        assert_close(frame_pacing_chart_scale(50.0), 75.0);
+        assert_close(frame_pacing_chart_scale(90.0), 100.0);
+        assert!(frame_pacing_chart_scale(0.0) >= FRAME_BUDGET_30_MS);
     }
 
     #[test]
@@ -4163,7 +4724,7 @@ mod frame_pacing_tests {
     }
 
     #[test]
-    fn spike_chart_preserves_short_slow_and_fast_excursions() {
+    fn raw_chart_preserves_short_slow_and_fast_excursions() {
         let mut pacing = FramePacing::default();
         for _ in 0..40 {
             pacing.record_sample(16.0);
@@ -4173,23 +4734,13 @@ mod frame_pacing_tests {
         pacing.publish_snapshot();
 
         let snapshot = pacing.snapshot();
-        assert!(
-            snapshot
-                .spike_samples()
-                .iter()
-                .any(|deviation| *deviation >= 30.0)
-        );
-        assert!(
-            snapshot
-                .spike_samples()
-                .iter()
-                .any(|deviation| *deviation <= -8.0)
-        );
+        assert!(snapshot.samples().contains(&48.0));
+        assert!(snapshot.samples().contains(&7.0));
         assert_close(snapshot.worst_ms, 48.0);
     }
 
     #[test]
-    fn stable_quantized_cadence_does_not_draw_a_spike_sawtooth() {
+    fn stable_quantized_cadence_does_not_create_spike_events() {
         let mut pacing = FramePacing::default();
         for _ in 0..80 {
             pacing.record_sample(16.0);
@@ -4197,14 +4748,9 @@ mod frame_pacing_tests {
         }
         pacing.publish_snapshot();
 
-        assert!(
-            pacing
-                .snapshot()
-                .spike_samples()
-                .iter()
-                .all(|excursion| excursion.abs() <= f32::EPSILON),
-            "normal whole-millisecond timer quantization is not a pacing spike"
-        );
+        let spikes = pacing.snapshot().spikes;
+        assert_eq!(spikes.total_slow, 0);
+        assert_eq!(spikes.total_fast, 0);
     }
 
     #[test]
@@ -4251,7 +4797,7 @@ mod frame_pacing_tests {
 
         let spikes = pacing.snapshot().spikes;
         assert_eq!(spikes.total_slow, 1);
-        assert_eq!(spikes.retained, 1);
+        assert_eq!(pacing.spike_count, 1);
         assert!(spikes.periodic.is_none());
     }
 
@@ -4273,8 +4819,8 @@ mod frame_pacing_tests {
         }
 
         let spikes = pacing.spike_summary();
-        assert_eq!(spikes.retained, FRAME_PACING_SPIKE_MEMORY);
-        assert!(spikes.total_slow as usize > spikes.retained);
+        assert_eq!(pacing.spike_count, FRAME_PACING_SPIKE_MEMORY);
+        assert!(spikes.total_slow as usize > pacing.spike_count);
         assert_eq!(
             spikes.largest_slow.expect("session slow extreme").frame_ms,
             90.0
@@ -4377,75 +4923,58 @@ mod frame_pacing_tests {
     }
 
     #[test]
-    fn closed_menu_does_not_collect_frame_pacing() {
+    fn present_intervals_are_collected_without_a_menu_gate() {
         let mut pacing = FramePacing::default();
-        let start = Instant::now();
-        pacing.record_frame_at(start, 1, false, FRAME_PACING_DEFAULT_UPDATE_INTERVAL_MS);
-        pacing.record_frame_at(
-            start + Duration::from_millis(10),
-            2,
-            false,
-            FRAME_PACING_DEFAULT_UPDATE_INTERVAL_MS,
-        );
-        assert!(pacing.snapshot().samples().is_empty());
+        let frame_ms = present_interval_ms(1_000, 1, Some(1_010), 2, true, 1_000)
+            .expect("interval")
+            .expect("valid interval");
+        pacing.capture_sample(frame_ms);
+        pacing.publish_snapshot();
 
-        pacing.begin_session(1);
-        pacing.record_frame_at(
-            start + Duration::from_millis(20),
-            3,
-            true,
-            FRAME_PACING_DEFAULT_UPDATE_INTERVAL_MS,
-        );
-        pacing.record_frame_at(
-            start + Duration::from_millis(30),
-            4,
-            true,
-            FRAME_PACING_DEFAULT_UPDATE_INTERVAL_MS,
-        );
         assert_eq!(pacing.snapshot().samples(), &[10.0]);
-
-        pacing.begin_session(1);
-        assert_eq!(pacing.snapshot().samples(), &[10.0]);
-
-        // The production fast gate makes no collector call while closed. A
-        // new session token must still discard the old time origin/history.
-        pacing.begin_session(2);
-        assert!(pacing.snapshot().samples().is_empty());
-        pacing.record_frame_at(
-            start + Duration::from_millis(50),
-            6,
-            true,
-            FRAME_PACING_DEFAULT_UPDATE_INTERVAL_MS,
-        );
-        assert!(pacing.snapshot().samples().is_empty());
     }
 
     #[test]
     fn skipped_present_callback_cannot_become_a_fake_long_frame() {
-        let mut pacing = FramePacing::default();
-        let start = Instant::now();
-        pacing.begin_session(1);
-        pacing.record_frame_at(start, 10, true, 0);
-        pacing.record_frame_at(start + Duration::from_millis(16), 11, true, 0);
-        pacing.record_frame_at(start + Duration::from_millis(48), 13, true, 0);
-        pacing.record_frame_at(start + Duration::from_millis(64), 14, true, 0);
-
-        let snapshot = pacing.snapshot();
-        assert_eq!(snapshot.sample_count, 2);
-        assert_eq!(snapshot.rejected_intervals, 1);
-        assert_close(snapshot.worst_ms, 16.0);
-        assert_close(snapshot.average_ms, 16.0);
+        assert_close(
+            present_interval_ms(1_000, 10, Some(1_016), 11, true, 1_000)
+                .expect("interval")
+                .expect("valid interval"),
+            16.0,
+        );
+        assert_eq!(
+            present_interval_ms(1_016, 11, Some(1_048), 13, true, 1_000),
+            Some(Err(()))
+        );
+        assert_close(
+            present_interval_ms(1_048, 13, Some(1_064), 14, true, 1_000)
+                .expect("interval")
+                .expect("valid interval"),
+            16.0,
+        );
     }
 
     #[test]
     fn successful_present_timeline_reconstructs_exact_interval_metrics() {
         let mut pacing = FramePacing::default();
-        let start = Instant::now();
-        pacing.begin_session(1);
-        pacing.record_frame_at(start, 30, true, 0);
-        pacing.record_frame_at(start + Duration::from_millis(10), 31, true, 0);
-        pacing.record_frame_at(start + Duration::from_millis(30), 32, true, 0);
-        pacing.record_frame_at(start + Duration::from_millis(35), 33, true, 0);
+        for (previous, previous_epoch, current, current_epoch) in [
+            (1_000, 30, 1_010, 31),
+            (1_010, 31, 1_030, 32),
+            (1_030, 32, 1_035, 33),
+        ] {
+            let frame_ms = present_interval_ms(
+                previous,
+                previous_epoch,
+                Some(current),
+                current_epoch,
+                true,
+                1_000,
+            )
+            .expect("interval")
+            .expect("valid interval");
+            pacing.record_sample(frame_ms);
+        }
+        pacing.publish_snapshot();
 
         let mut raw = [0.0; FRAME_PACING_HISTORY];
         let raw_count = pacing.copy_chronological_samples(&mut raw);
@@ -4467,31 +4996,33 @@ mod frame_pacing_tests {
 
     #[test]
     fn a_failed_present_origin_cannot_leak_into_the_next_interval() {
-        let mut pacing = FramePacing::default();
-        let start = Instant::now();
-        pacing.begin_session(1);
-        pacing.record_frame_at(start, 20, true, 0);
-        pacing.record_frame_at(start + Duration::from_millis(16), 21, true, 0);
-        pacing.reject_current_present();
-        pacing.record_frame_at(start + Duration::from_millis(80), 23, true, 0);
-        pacing.record_frame_at(start + Duration::from_millis(96), 24, true, 0);
-
-        let snapshot = pacing.snapshot();
-        assert_eq!(snapshot.sample_count, 2);
-        assert_eq!(snapshot.rejected_intervals, 1);
-        assert_close(snapshot.worst_ms, 16.0);
+        assert_eq!(
+            present_interval_ms(1_000, 20, Some(1_016), 21, false, 1_000),
+            Some(Err(()))
+        );
+        assert_eq!(
+            present_interval_ms(0, 21, Some(1_080), 23, true, 1_000),
+            None,
+            "the successful callback after a failure only establishes an origin"
+        );
+        assert_close(
+            present_interval_ms(1_080, 23, Some(1_096), 24, true, 1_000)
+                .expect("interval")
+                .expect("valid interval"),
+            16.0,
+        );
     }
 
     #[test]
-    fn diagnostics_hot_path_has_no_allocation_sort_logging_or_locking() {
+    fn continuous_capture_hot_path_has_no_allocation_sort_logging_or_runtime_lock() {
         let source = include_str!("runtime.rs");
         let start = source
-            .find("fn record_sample_with_interval")
+            .find("fn record_continuous_present_interval")
             .expect("frame-pacing capture");
         let end = source[start..]
-            .find("fn publish_snapshot")
+            .find("fn copy_continuous_present_samples")
             .map(|offset| start + offset)
-            .expect("snapshot publication");
+            .expect("capture boundary");
         let capture = &source[start..end];
 
         for forbidden in [
@@ -4500,30 +5031,27 @@ mod frame_pacing_tests {
             "format!(",
             "sort_by",
             "Instant::now",
+            "query_performance_frequency",
             "log::",
             ".lock(",
+            "RUNTIME",
+            "Direct3D",
         ] {
             assert!(
                 !capture.contains(forbidden),
                 "capture hot path contains {forbidden}"
             );
         }
-
-        let finish_start = source
-            .find("    fn finish_present_frame(\n        &mut self,")
-            .expect("finish-present callback");
-        let finish_end = source[finish_start..]
-            .find("fn release_for_new_device")
-            .map(|offset| finish_start + offset)
-            .expect("finish-present boundary");
-        let finish = &source[finish_start..finish_end];
-        let disabled_return = finish
-            .find("if !diagnostics_active && !depth_of_field_active")
-            .expect("disabled diagnostics early return");
-        let failed_present = finish
-            .find("let Some(now) = present_started_at")
-            .expect("successful-present gate");
-        assert!(disabled_return < failed_present);
+        assert!(
+            source
+                .split_once("pub(crate) fn configure(")
+                .map(|(_, tail)| tail)
+                .and_then(|tail| tail.split_once("pub(crate) fn prepare_for_game_load"))
+                .map(|(body, _)| body)
+                .expect("runtime configuration body")
+                .contains("query_performance_frequency()"),
+            "counter frequency must be initialized outside the render path"
+        );
 
         let capture_start = source
             .find("pub(crate) fn present_frame_started_at")
@@ -4533,35 +5061,47 @@ mod frame_pacing_tests {
             .map(|offset| capture_start + offset)
             .expect("public finish-present callback");
         let capture = &source[capture_start..public_start];
-        let diagnostics_gate = capture
-            .find("diagnostics_active || PRESENT_FRAME_TIMING_NEEDED")
-            .expect("top-level diagnostics gate");
-        let timestamp = capture
+        assert!(
+            capture
+                .find("query_performance_counter()")
+                .expect("continuous QPC capture")
+                < capture
+                    .find("PRESENT_FRAME_TIMING_NEEDED")
+                    .expect("production timer gate")
+        );
+        let production_timestamp = capture
             .find(".then(Instant::now)")
-            .expect("present-start timestamp");
-        assert!(diagnostics_gate < timestamp);
+            .expect("production timestamp");
+        assert!(
+            capture
+                .find("PRESENT_FRAME_TIMING_NEEDED")
+                .expect("production timer gate")
+                < production_timestamp
+        );
 
         let public_end = source[public_start..]
             .find("fn runtime_lock_telemetry")
             .map(|offset| public_start + offset)
             .expect("public finish-present boundary");
         let public_finish = &source[public_start..public_end];
+        let continuous_capture = public_finish
+            .find("record_continuous_present_interval")
+            .expect("continuous interval capture");
+        let production_gate = public_finish
+            .find("if !PRESENT_FRAME_TIMING_NEEDED")
+            .expect("production timer early return");
         let runtime_lock = public_finish
             .find("RUNTIME.try_lock")
             .expect("runtime acquisition");
         assert!(!public_finish.contains("Instant::now"));
-        assert!(
-            public_finish
-                .find("if diagnostics_session.is_none()")
-                .unwrap()
-                < runtime_lock
-        );
+        assert!(continuous_capture < production_gate);
+        assert!(production_gate < runtime_lock);
     }
 
     #[test]
     fn diagnostics_storage_and_snapshot_work_have_fixed_small_bounds() {
         assert_eq!(FRAME_PACING_HISTORY, 2_048);
-        assert_eq!(FRAME_PACING_CHART_POINTS, 100);
+        assert_eq!(FRAME_PACING_CHART_POINTS, 240);
         assert_eq!(super::FRAME_PACING_SPIKE_MEMORY, 64);
         assert_eq!(super::FRAME_PACING_HISTOGRAM_BINS, 4_096);
         assert!(std::mem::size_of::<FramePacing>() <= 16 * 1024);
@@ -4595,7 +5135,7 @@ mod frame_pacing_tests {
     }
 
     #[test]
-    fn workbench_separates_configuration_from_diagnostics() {
+    fn workbench_separates_presets_configuration_and_diagnostics() {
         let source = include_str!("runtime.rs");
         let menu = source
             .split_once("\nfn draw_shader_menu(\n    ui:")
@@ -4604,25 +5144,166 @@ mod frame_pacing_tests {
             .map(|(body, _)| body)
             .expect("workbench menu body");
 
-        assert!(menu.contains("Configuration##workbench_configuration"));
+        assert!(menu.contains("Presets##workbench_presets"));
+        assert!(menu.contains("Customize##workbench_configuration"));
         assert!(menu.contains("Diagnostics##workbench_diagnostics"));
         assert!(menu.contains("result.diagnostics_visible = true"));
         assert!(!menu.contains("graphics_overview"));
     }
 
     #[test]
-    fn workbench_header_contains_realtime_fps_without_diagnostics() {
+    fn every_effect_badge_uses_one_separator_space() {
+        for (status, expected) in [
+            ("ON", "[ON] Effect Name##effect"),
+            ("OFF", "[OFF] Effect Name##effect"),
+            ("ERR", "[ERR] Effect Name##effect"),
+        ] {
+            assert_eq!(
+                super::feature_list_label("  Effect Name  ", "effect", status),
+                expected
+            );
+        }
+    }
+
+    #[test]
+    fn workbench_header_is_compact_and_persistence_is_automatic() {
         let source = include_str!("runtime.rs");
         let toolbar = source
             .split_once("\nfn draw_shader_menu_toolbar(")
             .map(|(_, tail)| tail)
-            .and_then(|tail| tail.split_once("\nfn draw_configuration_tab("))
+            .and_then(|tail| tail.split_once("\nfn draw_external_change_panel("))
             .map(|(body, _)| body)
             .expect("workbench toolbar body");
+        let external = source
+            .split_once("\nfn draw_external_change_panel(")
+            .map(|(_, tail)| tail)
+            .and_then(|tail| tail.split_once("\nfn draw_configuration_tab("))
+            .map(|(body, _)| body)
+            .expect("external-change panel body");
 
         assert!(toolbar.contains("ui.frame_rate()"));
         assert!(toolbar.contains("FPS"));
+        assert!(toolbar.contains("graphics_workbench_header"));
+        assert!(toolbar.contains("ui.child_static"));
+        assert!(toolbar.contains("ui.panel_background"));
+        assert!(toolbar.contains("if external_change"));
+        assert!(!toolbar.contains("active_preset"));
+        assert!(!toolbar.contains("CURRENT LOOK"));
+        assert!(!toolbar.contains("Save for Next Launch"));
+        assert!(!toolbar.contains("Undo Changes"));
+        assert!(!toolbar.contains("//"));
         assert!(!toolbar.contains("FramePacingSnapshot"));
+
+        assert!(external.contains("FILES CHANGED OUTSIDE THE GAME"));
+        assert!(external.contains("Reload Files from Disk"));
+        assert!(external.contains("Keep In-Game Look"));
+        assert!(!external.contains("//"));
+    }
+
+    #[test]
+    fn finishing_families_are_separate_editors_over_one_fused_source() {
+        assert_eq!(super::FinishingPanel::ALL.len(), 8);
+        assert_eq!(
+            super::FinishingPanel::ALL.map(super::FinishingPanel::title),
+            [
+                "Final Output",
+                "Color Grading",
+                "LUT",
+                "Debanding",
+                "Film Grain",
+                "Vignette",
+                "Halation",
+                "Chromatic Aberration",
+            ]
+        );
+
+        let shaders = include_str!("shaders.rs");
+        assert!(shaders.contains("\"Final Color Pipeline\""));
+        assert!(!shaders.contains("\"Color Grade and Film\""));
+        let runtime = include_str!("runtime.rs");
+        assert!(runtime.contains("MenuSelection::Finishing(panel)"));
+        assert!(runtime.contains("draw_shader_details(ui, source, Some(panel))"));
+    }
+
+    #[test]
+    fn frame_pacing_ui_has_fixed_cadence_and_no_frequency_selector() {
+        let source = include_str!("runtime.rs");
+        let panel = source
+            .split_once("\nfn draw_frame_pacing_panel(")
+            .map(|(_, tail)| tail)
+            .and_then(|tail| tail.split_once("\nfn draw_diagnostics_metric_card("))
+            .map(|(body, _)| body)
+            .expect("frame-pacing panel body");
+
+        assert!(panel.contains("automatically four times per second"));
+        assert!(panel.contains("AT A GLANCE"));
+        assert!(panel.contains("FRAME-TIME SHAPE"));
+        assert!(panel.contains("TARGET DELIVERY"));
+        assert!(!panel.contains("begin_combo"));
+        assert!(!panel.contains("frame_pacing_update_interval"));
+    }
+
+    #[test]
+    fn preset_library_hides_management_until_requested() {
+        let source = include_str!("runtime.rs");
+        let library = source
+            .split_once("\nfn draw_preset_library(")
+            .map(|(_, tail)| tail)
+            .and_then(|tail| tail.split_once("\nfn draw_preset_manager("))
+            .map(|(body, _)| body)
+            .expect("preset library body");
+        let manager = source
+            .split_once("\nfn draw_preset_manager(")
+            .map(|(_, tail)| tail)
+            .and_then(|tail| tail.split_once("\nfn draw_labeled_input_text("))
+            .map(|(body, _)| body)
+            .expect("preset manager body");
+
+        assert!(library.contains("Choose a Look"));
+        assert!(library.contains("Manage Presets"));
+        assert!(library.contains("Use This Preset"));
+        assert!(library.contains("Reset to Preset"));
+        assert!(!library.contains("Replace Changes & Use Preset"));
+        assert!(library.contains("Details"));
+        assert!(!library.contains("##preset_update_version"));
+        assert!(!library.contains("Create Preset & Use It"));
+        assert!(!library.contains("//"));
+
+        assert!(manager.contains("Back to Preset Library"));
+        assert!(manager.contains("Update Current Preset"));
+        assert!(manager.contains("Update Preset & Keep Using It"));
+        assert!(manager.contains("##preset_update_version"));
+        assert!(manager.contains("Create a New Preset"));
+        assert!(manager.contains("Create Preset & Use It"));
+        assert!(!manager.contains("//"));
+    }
+
+    #[test]
+    fn current_look_persistence_has_no_manual_save_or_undo_path() {
+        let source = include_str!("runtime.rs");
+        let manual_save = ["fn save_menu_", "session("].concat();
+        let manual_reload = ["fn reload_menu_", "session("].concat();
+        let save_action = ["MenuAction::", "Save"].concat();
+        assert!(!source.contains(&manual_save));
+        assert!(!source.contains(&manual_reload));
+        assert!(!source.contains(&save_action));
+        assert!(source.contains("self.current_look_autosave.note_change(Instant::now())"));
+        assert!(source.contains("CurrentLookSnapshot::capture"));
+    }
+
+    #[test]
+    fn published_preset_identity_is_recorded_without_rewriting_the_current_look() {
+        let source = include_str!("runtime.rs");
+        let events = source
+            .split_once("\n    fn poll_preset_service(")
+            .map(|(_, tail)| tail)
+            .and_then(|tail| tail.split_once("\n    fn reconcile_saved_preset_state("))
+            .map(|(body, _)| body)
+            .expect("preset event handling");
+
+        assert!(!events.contains("note_change"));
+        assert!(events.contains("self.record_active_preset_state();"));
+        assert!(events.contains("New preset created and enabled."));
     }
 
     #[test]
@@ -4655,11 +5336,72 @@ mod frame_pacing_tests {
             }
         }
     }
+
+    #[test]
+    fn preset_text_fields_draw_labels_above_full_width_hidden_id_widgets() {
+        let source = include_str!("runtime.rs");
+        let preset_ui = source
+            .split_once("\nfn draw_presets_tab(")
+            .map(|(_, tail)| tail)
+            .and_then(|tail| tail.split_once("\nfn draw_labeled_input_text("))
+            .map(|(body, _)| body)
+            .expect("preset UI body");
+        for call in [
+            "\"Name\", \"##preset_name\"",
+            "\"Version\", \"##preset_version\"",
+            "\"Author\", \"##preset_author\"",
+            "\"Description\",\n                \"##preset_description\"",
+        ] {
+            assert!(preset_ui.contains(call), "missing labeled input {call}");
+        }
+        for clipped_label in [
+            "Name##preset_name",
+            "Version##preset_version",
+            "Author##preset_author",
+            "Description##preset_description",
+        ] {
+            assert!(
+                !preset_ui.contains(clipped_label),
+                "visible label is still attached after a full-width widget: {clipped_label}"
+            );
+        }
+
+        let helper = source
+            .split_once("\nfn draw_labeled_input_text(")
+            .map(|(_, tail)| tail)
+            .and_then(|tail| tail.split_once("\nfn draw_labeled_input_text_multiline("))
+            .map(|(body, _)| body)
+            .expect("single-line labeled input helper");
+        assert!(
+            helper.find("ui.text_colored").expect("visible label")
+                < helper.find("ui.input_text").expect("text widget")
+        );
+        assert!(helper.contains("ui.push_item_width(-1.0)"));
+    }
+
+    #[test]
+    fn effect_sidebar_is_resizable_with_bounded_persistent_session_width() {
+        let source = include_str!("runtime.rs");
+        let configuration = source
+            .split_once("\nfn draw_configuration_tab(")
+            .map(|(_, tail)| tail)
+            .and_then(|tail| tail.split_once("\nfn draw_presets_tab("))
+            .map(|(body, _)| body)
+            .expect("configuration tab body");
+
+        assert!(source.contains("menu_sidebar_width: f32"));
+        assert!(source.contains("menu_sidebar_width: 270.0"));
+        assert!(configuration.contains("ui.vertical_splitter("));
+        assert!(configuration.contains("min_sidebar_width = 190.0"));
+        assert!(configuration.contains("available_width - 360.0"));
+        assert!(configuration.contains("(*sidebar_width).clamp("));
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum MenuTab {
     Configuration,
+    Presets,
     Diagnostics,
 }
 
@@ -4683,7 +5425,115 @@ enum MenuSelection {
     General,
     NativePbr,
     NativeSky,
+    Finishing(FinishingPanel),
     Shader(usize),
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum FinishingPanel {
+    FinalOutput,
+    ColorGrading,
+    Lut,
+    Debanding,
+    FilmGrain,
+    Vignette,
+    Halation,
+    ChromaticAberration,
+}
+
+impl FinishingPanel {
+    const ALL: [Self; 8] = [
+        Self::FinalOutput,
+        Self::ColorGrading,
+        Self::Lut,
+        Self::Debanding,
+        Self::FilmGrain,
+        Self::Vignette,
+        Self::Halation,
+        Self::ChromaticAberration,
+    ];
+
+    fn title(self) -> &'static str {
+        match self {
+            Self::FinalOutput => "Final Output",
+            Self::ColorGrading => "Color Grading",
+            Self::Lut => "LUT",
+            Self::Debanding => "Debanding",
+            Self::FilmGrain => "Film Grain",
+            Self::Vignette => "Vignette",
+            Self::Halation => "Halation",
+            Self::ChromaticAberration => "Chromatic Aberration",
+        }
+    }
+
+    fn description(self) -> &'static str {
+        match self {
+            Self::FinalOutput => {
+                "Master control and before/after preview for OMV's fused final-color pipeline."
+            }
+            Self::ColorGrading => {
+                "Exposure, contrast, color balance, saturation, and highlight shaping."
+            }
+            Self::Lut => "Creative color transform with bundled or installed LUT assets.",
+            Self::Debanding => "Subtle dithering that smooths visible gradients and color bands.",
+            Self::FilmGrain => "Fine animated texture that reduces sterile digital uniformity.",
+            Self::Vignette => {
+                "Gentle edge darkening that guides attention toward the image center."
+            }
+            Self::Halation => "Warm highlight bloom inspired by light scattering through film.",
+            Self::ChromaticAberration => {
+                "Controlled color separation near the frame edges, measured in pixels."
+            }
+        }
+    }
+
+    fn enabled_key(self) -> Option<&'static str> {
+        match self {
+            Self::FinalOutput => None,
+            Self::ColorGrading => Some("color_grading_enabled"),
+            Self::Lut => Some("lut_enabled"),
+            Self::Debanding => Some("deband_enabled"),
+            Self::FilmGrain => Some("film_grain_enabled"),
+            Self::Vignette => Some("vignette_enabled"),
+            Self::Halation => Some("halation_enabled"),
+            Self::ChromaticAberration => Some("chromatic_aberration_enabled"),
+        }
+    }
+
+    fn owns_option(self, key: &str) -> bool {
+        match self {
+            Self::FinalOutput => matches!(key, "strength" | "debug_split"),
+            Self::ColorGrading => matches!(
+                key,
+                "exposure"
+                    | "contrast"
+                    | "saturation"
+                    | "vibrance"
+                    | "temperature"
+                    | "tint"
+                    | "black_fade"
+                    | "highlight_rolloff"
+            ),
+            Self::Lut => matches!(key, "lut_file" | "lut_strength" | "environment_response"),
+            Self::Debanding => key == "deband",
+            Self::FilmGrain => matches!(key, "film_grain" | "film_grain_size"),
+            Self::Vignette => key == "vignette",
+            Self::Halation => key == "halation",
+            Self::ChromaticAberration => key == "chromatic_aberration",
+        }
+    }
+
+    fn is_enabled(self, source: &ScreenShaderSource) -> bool {
+        if self == Self::FinalOutput {
+            return source.enabled;
+        }
+        source.enabled
+            && self.enabled_key().is_some_and(|key| {
+                source.options.iter().any(|option| {
+                    option.key == key && matches!(option.value, ShaderOptionValue::Bool(true))
+                })
+            })
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -4703,8 +5553,12 @@ impl Default for MenuSelection {
 enum MenuAction {
     #[default]
     None,
-    Save,
-    Reload,
+    ReloadFiles,
+    KeepCurrentLook,
+    RefreshPresets,
+    CreatePreset,
+    PublishPresetVersion,
+    ActivatePreset(usize),
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -4721,9 +5575,8 @@ struct MenuToolbarResult {
 
 #[derive(Clone, Copy)]
 struct MenuPersistenceView<'a> {
-    dirty: bool,
+    external_change: bool,
     error: Option<&'a str>,
-    notice: Option<&'a str>,
 }
 
 const MENU_MUTED_TEXT: [f32; 4] = [0.56, 0.62, 0.67, 1.0];
@@ -4817,8 +5670,10 @@ fn draw_shader_menu(
     ui: &mut psycho_imgui::Ui<'_>,
     menu_config: &mut GraphicsMenuConfig,
     sources: &mut [ScreenShaderSource],
+    preset_ui: &mut PresetUiState,
     active_tab: &mut MenuTab,
     selected_item: &mut MenuSelection,
+    sidebar_width: &mut f32,
     frame_pacing: &FramePacingSnapshot,
     feature_status: EngineFeatureStatus,
     persistence: MenuPersistenceView<'_>,
@@ -4841,8 +5696,7 @@ fn draw_shader_menu(
 
     let mut result = MenuFrameResult::default();
     result.action =
-        draw_shader_menu_toolbar(ui, persistence.dirty, persistence.error, persistence.notice)
-            .action;
+        draw_shader_menu_toolbar(ui, persistence.external_change, persistence.error).action;
 
     let tabs = ui.tab_bar(&cstring("graphics_workbench_tabs"));
     if !tabs.is_visible() {
@@ -4850,11 +5704,27 @@ fn draw_shader_menu(
     }
 
     {
-        let configuration = ui.tab_item(&cstring("Configuration##workbench_configuration"));
+        let presets = ui.tab_item(&cstring("Presets##workbench_presets"));
+        if presets.is_visible() {
+            *active_tab = MenuTab::Presets;
+            if let Some(action) = draw_presets_tab(ui, preset_ui) {
+                result.action = action;
+            }
+        }
+    }
+
+    {
+        let configuration = ui.tab_item(&cstring("Customize##workbench_configuration"));
         if configuration.is_visible() {
             *active_tab = MenuTab::Configuration;
-            result.changed |=
-                draw_configuration_tab(ui, menu_config, sources, selected_item, feature_status);
+            result.changed |= draw_configuration_tab(
+                ui,
+                menu_config,
+                sources,
+                selected_item,
+                sidebar_width,
+                feature_status,
+            );
         }
     }
 
@@ -4873,13 +5743,10 @@ fn draw_shader_menu(
 
 fn draw_shader_menu_toolbar(
     ui: &mut psycho_imgui::Ui<'_>,
-    menu_config_dirty: bool,
+    external_change: bool,
     menu_config_error: Option<&str>,
-    menu_config_notice: Option<&str>,
 ) -> MenuToolbarResult {
     let mut result = MenuToolbarResult::default();
-    ui.text_colored(MENU_ACCENT_TEXT, &cstring("OMV GRAPHICS"));
-    ui.same_line();
     let frame_rate = ui.frame_rate();
     let (frame_rate_color, frame_rate_text) = if frame_rate.is_finite() && frame_rate > 0.0 {
         (
@@ -4889,59 +5756,57 @@ fn draw_shader_menu_toolbar(
     } else {
         (MENU_MUTED_TEXT, "-- FPS".to_owned())
     };
-    ui.text_colored(frame_rate_color, &cstring(frame_rate_text));
-    ui.same_line();
-    ui.text_colored(
-        if menu_config_dirty {
-            MENU_WARN_TEXT
-        } else {
-            MENU_GOOD_TEXT
-        },
-        &cstring(if menu_config_dirty {
-            "Unsaved changes"
-        } else {
-            "Saved"
-        }),
-    );
-    ui.same_line();
-    let save = cstring("Save##config_save");
-    if ui.button_colored(
-        &save,
-        MENU_SAVE_BUTTON,
-        MENU_SAVE_BUTTON_HOVERED,
-        MENU_SAVE_BUTTON_ACTIVE,
-    ) {
-        result.action = MenuAction::Save;
+
+    {
+        let header = ui.child_static(&cstring("graphics_workbench_header"), 0.0, 46.0, true);
+        if header.is_visible() {
+            ui.panel_background([0.22, 0.90, 0.72, 0.82]);
+            ui.text_colored(MENU_ACCENT_TEXT, &cstring("OH MY VEGAS"));
+            ui.same_line();
+            ui.text_colored(MENU_MUTED_TEXT, &cstring("GRAPHICS"));
+            ui.same_line();
+            ui.text_colored(frame_rate_color, &cstring(frame_rate_text));
+        }
     }
-    ui.same_line();
-    let reload = cstring(if menu_config_dirty {
-        "Discard & Reload##config_reload"
-    } else {
-        "Reload##config_reload"
-    });
-    if ui.button_colored(
-        &reload,
-        MENU_RELOAD_BUTTON,
-        MENU_RELOAD_BUTTON_HOVERED,
-        MENU_RELOAD_BUTTON_ACTIVE,
-    ) {
-        result.action = MenuAction::Reload;
+
+    if external_change {
+        result.action = draw_external_change_panel(ui).action;
     }
 
     if let Some(error) = menu_config_error {
-        ui.text_colored(
-            MENU_ERROR_TEXT,
-            &cstring(format!("Could not update the configuration: {error}")),
-        );
-    } else if let Some(notice) = menu_config_notice {
-        ui.text_colored(MENU_GOOD_TEXT, &cstring(notice));
-    } else {
-        ui.text_colored(
-            MENU_MUTED_TEXT,
-            &cstring("Tune effects live, then save when the image feels right."),
-        );
+        ui.text_colored(MENU_ERROR_TEXT, &cstring(error));
     }
 
+    result
+}
+
+fn draw_external_change_panel(ui: &mut psycho_imgui::Ui<'_>) -> MenuToolbarResult {
+    let mut result = MenuToolbarResult::default();
+    let panel = ui.child_static(&cstring("graphics_external_changes"), 0.0, 128.0, true);
+    if panel.is_visible() {
+        ui.panel_background([0.95, 0.70, 0.30, 0.82]);
+        ui.text_colored(MENU_WARN_TEXT, &cstring("FILES CHANGED OUTSIDE THE GAME"));
+        ui.text_wrapped(&cstring(
+            "Automatic saving is paused so OMV cannot overwrite an external edit. Load those files, or explicitly keep the look currently visible in game.",
+        ));
+        if ui.button_colored(
+            &cstring("Reload Files from Disk##config_reload_external"),
+            MENU_RELOAD_BUTTON,
+            MENU_RELOAD_BUTTON_HOVERED,
+            MENU_RELOAD_BUTTON_ACTIVE,
+        ) {
+            result.action = MenuAction::ReloadFiles;
+        }
+        ui.same_line();
+        if ui.button_colored(
+            &cstring("Keep In-Game Look##config_keep_current"),
+            MENU_SAVE_BUTTON,
+            MENU_SAVE_BUTTON_HOVERED,
+            MENU_SAVE_BUTTON_ACTIVE,
+        ) {
+            result.action = MenuAction::KeepCurrentLook;
+        }
+    }
     result
 }
 
@@ -4950,23 +5815,33 @@ fn draw_configuration_tab(
     menu_config: &mut GraphicsMenuConfig,
     sources: &mut [ScreenShaderSource],
     selected_item: &mut MenuSelection,
+    sidebar_width: &mut f32,
     feature_status: EngineFeatureStatus,
 ) -> bool {
     let mut changed = false;
     clamp_menu_selection(sources, selected_item);
     let available_width = ui.content_region_available_width().max(1.0);
-    let list_width = (available_width * 0.25)
-        .clamp(230.0, 320.0)
-        .min((available_width - 420.0).max(190.0));
+    let available_height = ui.content_region_available_height().max(1.0);
+    let min_sidebar_width = 190.0;
+    let max_sidebar_width = (available_width - 360.0).max(min_sidebar_width);
+    *sidebar_width = (*sidebar_width).clamp(min_sidebar_width, max_sidebar_width);
 
     {
         let item_list = cstring("graphics_feature_list");
-        let child = ui.child(&item_list, list_width, 0.0, true);
+        let child = ui.child(&item_list, *sidebar_width, 0.0, true);
         if child.is_visible() {
             draw_feature_list(ui, menu_config, sources, selected_item);
         }
     }
 
+    ui.same_line();
+    ui.vertical_splitter(
+        &cstring("##graphics_feature_splitter"),
+        sidebar_width,
+        min_sidebar_width,
+        max_sidebar_width,
+        available_height,
+    );
     ui.same_line();
 
     {
@@ -4993,10 +5868,24 @@ fn draw_configuration_tab(
                     changed |=
                         draw_native_sky_config(ui, &mut menu_config.native_sky, feature_status.sky);
                 }
+                MenuSelection::Finishing(panel) => {
+                    if let Some(source) = sources.iter_mut().find(|source| {
+                        source.embedded_effect_kind() == Some(EmbeddedEffectKind::ColorGrade)
+                    }) {
+                        let source_changed = draw_shader_details(ui, source, Some(panel));
+                        if source_changed {
+                            shaders::sync_embedded_effect_config(
+                                sources,
+                                &mut menu_config.embedded_effects,
+                            );
+                        }
+                        changed |= source_changed;
+                    }
+                }
                 MenuSelection::Shader(index) => {
                     if let Some(source) = sources.get_mut(index) {
                         let is_embedded = source.is_embedded_effect();
-                        let source_changed = draw_shader_details(ui, source);
+                        let source_changed = draw_shader_details(ui, source, None);
                         if source_changed && is_embedded {
                             shaders::sync_embedded_effect_config(
                                 sources,
@@ -5044,6 +5933,423 @@ fn draw_render_stack_config(
     changed
 }
 
+fn draw_presets_tab(
+    ui: &mut psycho_imgui::Ui<'_>,
+    state: &mut PresetUiState,
+) -> Option<MenuAction> {
+    match state.view {
+        PresetUiView::Closed => draw_preset_library(ui, state),
+        PresetUiView::Manager | PresetUiView::Update | PresetUiView::Create => {
+            draw_preset_manager(ui, state)
+        }
+    }
+}
+
+fn draw_preset_library(
+    ui: &mut psycho_imgui::Ui<'_>,
+    state: &mut PresetUiState,
+) -> Option<MenuAction> {
+    let mut action = None;
+    ui.text_colored(MENU_ACCENT_TEXT, &cstring("Choose a Look"));
+    ui.text_colored(
+        MENU_MUTED_TEXT,
+        &cstring(
+            "Browse installed presets and apply one whenever you want a different atmosphere.",
+        ),
+    );
+    if ui.button(&cstring("Manage Presets##preset_manage")) {
+        state.view = PresetUiView::Manager;
+    }
+    if let Some(error) = state.error.as_deref() {
+        ui.text_colored(MENU_ERROR_TEXT, &cstring(error));
+    } else if let Some(notice) = state.notice.as_deref() {
+        ui.text_colored(MENU_GOOD_TEXT, &cstring(notice));
+    }
+
+    let available_width = ui.content_region_available_width().max(1.0);
+    let list_width = (available_width * 0.38).clamp(280.0, 430.0);
+    {
+        let list = ui.child(&cstring("preset_catalog"), list_width, 0.0, true);
+        if list.is_visible() {
+            if draw_labeled_input_text(ui, "Search presets", "##preset_filter", &mut state.filter) {
+                state.catalog_page = 0;
+            }
+            if ui.button(&cstring("Refresh##preset_refresh")) {
+                action = Some(MenuAction::RefreshPresets);
+            }
+            ui.same_line();
+            ui.text_colored(
+                MENU_MUTED_TEXT,
+                &cstring(format!("{} installed", state.catalog.entries.len())),
+            );
+            ui.separator();
+
+            let filter = text_buffer(&state.filter).to_ascii_lowercase();
+            const PAGE_SIZE: usize = 100;
+            let matching_count = state
+                .catalog
+                .entries
+                .iter()
+                .filter(|entry| filter.is_empty() || entry.search_key.contains(&filter))
+                .count();
+            let page_count = matching_count.div_ceil(PAGE_SIZE).max(1);
+            state.catalog_page = state.catalog_page.min(page_count - 1);
+            if page_count > 1 {
+                if state.catalog_page > 0 && ui.button(&cstring("Previous##preset_page")) {
+                    state.catalog_page -= 1;
+                }
+                if state.catalog_page > 0 {
+                    ui.same_line();
+                }
+                ui.text_colored(
+                    MENU_MUTED_TEXT,
+                    &cstring(format!("Page {} / {}", state.catalog_page + 1, page_count)),
+                );
+                if state.catalog_page + 1 < page_count {
+                    ui.same_line();
+                    if ui.button(&cstring("Next##preset_page")) {
+                        state.catalog_page += 1;
+                    }
+                }
+            } else if matching_count == 0 {
+                ui.text_colored(MENU_MUTED_TEXT, &cstring("No presets match this search."));
+            }
+
+            let first_match = state.catalog_page * PAGE_SIZE;
+            let mut visible_match = 0usize;
+            for (index, entry) in state.catalog.entries.iter().enumerate() {
+                if !filter.is_empty() && !entry.search_key.contains(&filter) {
+                    continue;
+                }
+                if visible_match < first_match {
+                    visible_match += 1;
+                    continue;
+                }
+                if visible_match >= first_match + PAGE_SIZE {
+                    break;
+                }
+                visible_match += 1;
+                let active = state
+                    .active
+                    .as_ref()
+                    .is_some_and(|active| entry.key().as_ref() == Some(&active.key));
+                let status = if active {
+                    "  (In use)"
+                } else if entry.error.is_some() {
+                    "  (Unavailable)"
+                } else if entry.built_in {
+                    "  (Included)"
+                } else {
+                    ""
+                };
+                let label = cstring(format!("{}{status}##preset_{index}", entry.display_name,));
+                if ui.selectable(&label, state.selected == Some(index)) {
+                    state.selected = Some(index);
+                    state.show_technical_details = false;
+                }
+            }
+        }
+    }
+
+    ui.same_line();
+    {
+        let details = ui.child(&cstring("preset_details"), 0.0, 0.0, true);
+        if details.is_visible() {
+            if let Some(index) = state.selected {
+                if let Some(entry) = state.catalog.entries.get(index) {
+                    let display_name = entry.display_name.clone();
+                    let version = entry.version.clone();
+                    let author = entry.author.clone();
+                    let description = entry.description.clone();
+                    let error = entry.error.clone();
+                    let selected_key = entry.key();
+                    let created_with = entry
+                        .document
+                        .as_ref()
+                        .map(|document| document.metadata.created_with.clone());
+                    let source = entry.path.as_ref().map_or_else(
+                        || "Compiled into OMV".to_owned(),
+                        |path| path.display().to_string(),
+                    );
+                    let activatable = entry.document.is_some() && error.is_none();
+                    let selected_is_active = state
+                        .active
+                        .as_ref()
+                        .is_some_and(|active| selected_key.as_ref() == Some(&active.key));
+                    let active_is_modified = selected_is_active
+                        && state.active.as_ref().is_some_and(|active| active.modified);
+
+                    ui.separator_text(&cstring("ABOUT THIS LOOK"));
+                    ui.text_colored(MENU_ACCENT_TEXT, &cstring(&display_name));
+                    ui.label_value(
+                        &cstring("Author"),
+                        &cstring(if author.is_empty() {
+                            "Unknown"
+                        } else {
+                            &author
+                        }),
+                        MENU_MUTED_TEXT,
+                    );
+                    ui.text_wrapped(&cstring(if description.is_empty() {
+                        "No description supplied."
+                    } else {
+                        &description
+                    }));
+
+                    if let Some(error) = error {
+                        ui.text_colored(MENU_ERROR_TEXT, &cstring(error));
+                    } else if selected_is_active && !active_is_modified {
+                        ui.text_colored(MENU_GOOD_TEXT, &cstring("Currently in use"));
+                    } else if activatable {
+                        let use_label = if selected_is_active {
+                            "Reset to Preset##preset_activate"
+                        } else {
+                            "Use This Preset##preset_activate"
+                        };
+                        if active_is_modified {
+                            ui.text_colored(
+                                MENU_WARN_TEXT,
+                                &cstring(
+                                    "Your current look started here, but now contains live changes.",
+                                ),
+                            );
+                        }
+                        if ui.button_colored(
+                            &cstring(use_label),
+                            MENU_SAVE_BUTTON,
+                            MENU_SAVE_BUTTON_HOVERED,
+                            MENU_SAVE_BUTTON_ACTIVE,
+                        ) {
+                            action = Some(MenuAction::ActivatePreset(index));
+                        }
+                    }
+
+                    let technical_details_label = if state.show_technical_details {
+                        "Hide Details##preset_technical_details"
+                    } else {
+                        "Details##preset_technical_details"
+                    };
+                    if ui.button(&cstring(technical_details_label)) {
+                        state.show_technical_details = !state.show_technical_details;
+                    }
+                    if state.show_technical_details {
+                        ui.label_value(
+                            &cstring("Version"),
+                            &cstring(if version.is_empty() { "-" } else { &version }),
+                            MENU_GOOD_TEXT,
+                        );
+                        ui.text_colored(MENU_MUTED_TEXT, &cstring(format!("File: {source}")));
+                        if let Some(created_with) = created_with {
+                            ui.label_value(
+                                &cstring("Created with"),
+                                &cstring(format!("OMV {}", created_with.omv_version)),
+                                MENU_MUTED_TEXT,
+                            );
+                            let dirty = if created_with.git_dirty == Some(true) {
+                                " (dirty working tree)"
+                            } else {
+                                ""
+                            };
+                            ui.label_value(
+                                &cstring("Git commit"),
+                                &cstring(format!("{}{dirty}", created_with.git_commit)),
+                                MENU_MUTED_TEXT,
+                            );
+                            ui.label_value(
+                                &cstring("Git branch"),
+                                &cstring(&created_with.git_branch),
+                                MENU_MUTED_TEXT,
+                            );
+                            ui.label_value(
+                                &cstring("Git tag"),
+                                &cstring(if created_with.git_tag.is_empty() {
+                                    "None"
+                                } else {
+                                    &created_with.git_tag
+                                }),
+                                MENU_MUTED_TEXT,
+                            );
+                        }
+                    }
+                }
+            } else {
+                ui.text_colored(
+                    MENU_MUTED_TEXT,
+                    &cstring("Choose a preset on the left to learn more."),
+                );
+            }
+        }
+    }
+    action
+}
+
+fn draw_preset_manager(
+    ui: &mut psycho_imgui::Ui<'_>,
+    state: &mut PresetUiState,
+) -> Option<MenuAction> {
+    let mut action = None;
+    let active = state.active.as_ref().map(|active| {
+        (
+            active.name.clone(),
+            active.version.clone(),
+            active.built_in,
+            active.modified,
+        )
+    });
+    let can_update = matches!(active, Some((_, _, false, true)));
+    if state.view == PresetUiView::Update && !can_update {
+        state.view = PresetUiView::Manager;
+    }
+
+    if ui.button(&cstring("Back to Preset Library##preset_manager_close")) {
+        state.view = PresetUiView::Closed;
+        return action;
+    }
+    ui.text_colored(MENU_ACCENT_TEXT, &cstring("Manage Presets"));
+    ui.text_colored(
+        MENU_MUTED_TEXT,
+        &cstring(
+            "Create a shareable preset from your current look, or update a preset you already own.",
+        ),
+    );
+    if let Some(error) = state.error.as_deref() {
+        ui.text_colored(MENU_ERROR_TEXT, &cstring(error));
+    } else if let Some(notice) = state.notice.as_deref() {
+        ui.text_colored(MENU_GOOD_TEXT, &cstring(notice));
+    }
+
+    match state.view {
+        PresetUiView::Closed => {}
+        PresetUiView::Manager => {
+            ui.separator_text(&cstring("AVAILABLE ACTIONS"));
+            match active.as_ref() {
+                Some((_, _, false, true)) => {
+                    if ui.button_colored(
+                        &cstring("Update Current Preset##preset_manager_update"),
+                        MENU_SAVE_BUTTON,
+                        MENU_SAVE_BUTTON_HOVERED,
+                        MENU_SAVE_BUTTON_ACTIVE,
+                    ) {
+                        state.view = PresetUiView::Update;
+                    }
+                    ui.text_wrapped(&cstring(
+                        "Store your latest edits as a newer version of the preset you are using.",
+                    ));
+                }
+                Some((name, version, true, _)) => ui.text_wrapped(&cstring(format!(
+                    "{name} {version} is included with OMV and cannot be overwritten. Create your own preset instead."
+                ))),
+                Some((name, version, false, false)) => ui.text_wrapped(&cstring(format!(
+                    "{name} {version} has no new edits. Customize the look first if you want to update it."
+                ))),
+                None => ui.text_wrapped(&cstring(
+                    "Your current look is custom. You can save it as a new preset.",
+                )),
+            }
+            if ui.button(&cstring("Create a New Preset##preset_manager_create")) {
+                state.view = PresetUiView::Create;
+            }
+            ui.text_wrapped(&cstring(
+                "Give the current look its own name, version, author, and description.",
+            ));
+        }
+        PresetUiView::Update => {
+            let Some((name, version, false, true)) = active else {
+                return action;
+            };
+            if ui.button(&cstring("Choose Another Action##preset_manager_home")) {
+                state.view = PresetUiView::Manager;
+                return action;
+            }
+            ui.separator_text(&cstring("UPDATE PRESET"));
+            ui.text_wrapped(&cstring(format!(
+                "Save the current look as the next version of {name}. The preset filename stays the same; its version changes from {version}."
+            )));
+            draw_labeled_input_text(
+                ui,
+                "New version",
+                "##preset_update_version",
+                &mut state.update_version,
+            );
+            if state.update_pending {
+                ui.text_colored(MENU_MUTED_TEXT, &cstring("Updating preset..."));
+            } else if state.create_pending {
+                ui.text_colored(
+                    MENU_MUTED_TEXT,
+                    &cstring("Finish creating the new preset first."),
+                );
+            } else if ui.button_colored(
+                &cstring("Update Preset & Keep Using It##preset_publish_version"),
+                MENU_SAVE_BUTTON,
+                MENU_SAVE_BUTTON_HOVERED,
+                MENU_SAVE_BUTTON_ACTIVE,
+            ) {
+                action = Some(MenuAction::PublishPresetVersion);
+            }
+        }
+        PresetUiView::Create => {
+            if ui.button(&cstring("Choose Another Action##preset_manager_home")) {
+                state.view = PresetUiView::Manager;
+                return action;
+            }
+            ui.separator_text(&cstring("CREATE A NEW PRESET"));
+            ui.text_wrapped(&cstring(
+                "Make a new shareable preset from the current live look. This does not alter the preset you started from.",
+            ));
+            draw_labeled_input_text(ui, "Name", "##preset_name", &mut state.create_name);
+            draw_labeled_input_text(ui, "Version", "##preset_version", &mut state.create_version);
+            draw_labeled_input_text(ui, "Author", "##preset_author", &mut state.create_author);
+            draw_labeled_input_text_multiline(
+                ui,
+                "Description",
+                "##preset_description",
+                &mut state.create_description,
+                72.0,
+            );
+            if state.create_pending {
+                ui.text_colored(MENU_MUTED_TEXT, &cstring("Creating preset..."));
+            } else if state.update_pending {
+                ui.text_colored(
+                    MENU_MUTED_TEXT,
+                    &cstring("Finish updating the active preset first."),
+                );
+            } else if ui.button_colored(
+                &cstring("Create Preset & Use It##preset_create"),
+                MENU_SAVE_BUTTON,
+                MENU_SAVE_BUTTON_HOVERED,
+                MENU_SAVE_BUTTON_ACTIVE,
+            ) {
+                action = Some(MenuAction::CreatePreset);
+            }
+        }
+    }
+
+    action
+}
+
+fn draw_labeled_input_text(
+    ui: &mut psycho_imgui::Ui<'_>,
+    label: &str,
+    id: &str,
+    buffer: &mut [u8],
+) -> bool {
+    ui.text_colored(MENU_MUTED_TEXT, &cstring(label));
+    let _width = ui.push_item_width(-1.0);
+    ui.input_text(&cstring(id), buffer)
+}
+
+fn draw_labeled_input_text_multiline(
+    ui: &mut psycho_imgui::Ui<'_>,
+    label: &str,
+    id: &str,
+    buffer: &mut [u8],
+    height: f32,
+) -> bool {
+    ui.text_colored(MENU_MUTED_TEXT, &cstring(label));
+    let _width = ui.push_item_width(-1.0);
+    ui.input_text_multiline(&cstring(id), buffer, height)
+}
+
 fn draw_diagnostics_tab(
     ui: &mut psycho_imgui::Ui<'_>,
     menu_config: &mut GraphicsMenuConfig,
@@ -5059,14 +6365,13 @@ fn draw_diagnostics_tab(
     ui.text_colored(MENU_ACCENT_TEXT, &cstring("LIVE DIAGNOSTICS"));
     ui.text_colored(
         MENU_MUTED_TEXT,
-        &cstring("Telemetry is collected only while this tab is visible."),
+        &cstring(
+            "Frame intervals are captured continuously. Detailed effect counters run only while this tab is visible.",
+        ),
     );
 
-    let mut changed = draw_frame_pacing_panel(
-        ui,
-        frame_pacing,
-        &mut menu_config.frame_pacing_update_interval_ms,
-    );
+    draw_frame_pacing_panel(ui, frame_pacing);
+    let mut changed = false;
     draw_render_stack_diagnostics(ui, sources);
     draw_depth_diagnostics(ui, menu_config.depth_provider, feature_status.depth);
     draw_native_sky_diagnostics(ui, feature_status.sky);
@@ -5148,275 +6453,296 @@ fn draw_native_sky_diagnostics(ui: &mut psycho_imgui::Ui<'_>, status: sky::Nativ
     }
 }
 
-fn draw_frame_pacing_panel(
-    ui: &mut psycho_imgui::Ui<'_>,
-    frame_pacing: &FramePacingSnapshot,
-    update_interval_ms: &mut u32,
-) -> bool {
-    let mut changed = false;
-    let heading = cstring(format!(
-        "FRAME PACING // {:.2} S ROLLING WINDOW",
-        frame_pacing.history_seconds
-    ));
-    ui.text_colored(MENU_ACCENT_TEXT, &heading);
-    ui.same_line();
-    ui.text_colored(MENU_MUTED_TEXT, &cstring("// UPDATE"));
-    ui.same_line();
-    let preview = frame_pacing_update_label(*update_interval_ms);
-    let combo_label = cstring("##frame_pacing_update_interval");
-    {
-        let _width = ui.push_item_width(182.0);
-        if ui.begin_combo(&combo_label, &preview) {
-            for (interval_ms, label) in [
-                (0, "Every frame // instant"),
-                (50, "50 ms // 20 Hz"),
-                (100, "100 ms // 10 Hz"),
-                (250, "250 ms // 4 Hz"),
-                (500, "500 ms // 2 Hz"),
-                (1_000, "1 second"),
-                (2_000, "2 seconds"),
-            ] {
-                let choice = cstring(format!("{label}##frame_pacing_update_{interval_ms}"));
-                if ui.selectable(&choice, *update_interval_ms == interval_ms) {
-                    *update_interval_ms = interval_ms;
-                    changed = true;
-                }
-            }
-            ui.end_combo();
-        }
-    }
-
-    let live = cstring(format!(
-        "LIVE {:>5.1} FPS / {:>5.2} ms (1 S EMA)",
-        frame_pacing.fps, frame_pacing.live_ms
-    ));
-    ui.text_colored(frame_time_color(frame_pacing.live_ms), &live);
-    ui.same_line();
-    let average = cstring(format!(
-        "AVG {:>5.1} FPS / {:>5.2} ms",
-        frame_pacing.average_fps, frame_pacing.average_ms
-    ));
-    ui.text_colored(MENU_MUTED_TEXT, &average);
-    ui.same_line();
-    let one_percent_low = cstring(format!(
-        "1% LOW (P99) {:>5.1} FPS",
-        frame_pacing.one_percent_low_fps
-    ));
-    ui.text_colored(frame_time_color(frame_pacing.p99_ms), &one_percent_low);
-
-    let distribution = cstring(format!(
-        "RAW P50 {:>5.2} | P95 {:>5.2} | P99 {:>5.2} | WORST {:>6.2} | JITTER {:>5.2} | MAD {:>5.2} ms",
-        frame_pacing.p50_ms,
-        frame_pacing.p95_ms,
-        frame_pacing.p99_ms,
-        frame_pacing.worst_ms,
-        frame_pacing.jitter_ms,
-        frame_pacing.median_absolute_deviation_ms
-    ));
-    ui.text_colored(MENU_MUTED_TEXT, &distribution);
-    let chart_contract = cstring(format!(
-        "{} RAW CPU PRESENT INTERVALS // CHART = PAIR-NORMALIZED 100 MS TREND // SPIKES = FILTERED RAW IMPULSES",
-        frame_pacing.sample_count
-    ));
-    ui.text_colored(MENU_MUTED_TEXT, &chart_contract);
-    let quality_color = if frame_pacing.rejected_intervals == 0 {
-        MENU_GOOD_TEXT
-    } else {
-        MENU_WARN_TEXT
-    };
-    let quality = cstring(format!(
-        "DATA QUALITY // {} REJECTED INTERVAL{} THIS SESSION",
-        frame_pacing.rejected_intervals,
-        if frame_pacing.rejected_intervals == 1 {
-            ""
-        } else {
-            "S"
-        }
-    ));
-    ui.text_colored(quality_color, &quality);
-
-    let contention = runtime_lock_telemetry();
-    if contention.has_rejections() {
-        let contention_text = cstring(format!(
-            "PROCESS REJECTIONS // APPLY {} | FINISH {} | FAILED PRESENT {} | SCENE {} | COLOR {} | RESET {}",
-            contention.present_apply,
-            contention.present_finish,
-            contention.failed_present,
-            contention.scene_phase,
-            contention.world_color,
-            contention.reset,
-        ));
-        ui.text_colored(MENU_WARN_TEXT, &contention_text);
-    }
-
-    ui.text_colored(MENU_MUTED_TEXT, &cstring("BUDGET HIT //"));
-    ui.same_line();
-    let budget_60 = cstring(format!(
-        "60 FPS {:>5.1}%",
-        frame_pacing.budget_60_hit_percent
-    ));
+fn draw_frame_pacing_panel(ui: &mut psycho_imgui::Ui<'_>, frame_pacing: &FramePacingSnapshot) {
+    ui.separator_text(&cstring("FRAME PACING"));
     ui.text_colored(
-        budget_hit_color(frame_pacing.budget_60_hit_percent),
-        &budget_60,
+        MENU_MUTED_TEXT,
+        &cstring(
+            "Every successful Present advances the raw graph. Readable summary metrics refresh automatically four times per second.",
+        ),
     );
-    ui.same_line();
-    ui.text_colored(MENU_MUTED_TEXT, &cstring("|"));
-    ui.same_line();
-    let budget_30 = cstring(format!(
-        "30 FPS {:>5.1}%",
-        frame_pacing.budget_30_hit_percent
-    ));
-    ui.text_colored(
-        budget_hit_color(frame_pacing.budget_30_hit_percent),
-        &budget_30,
-    );
-    ui.same_line();
-    let graph_scale = cstring(format!("| FIXED GRAPH 0-{:.1} ms", frame_pacing.scale_max));
-    ui.text_colored(MENU_MUTED_TEXT, &graph_scale);
-    if frame_pacing.off_scale_samples > 0 {
-        ui.same_line();
-        let off_scale = cstring(format!(
-            "| {} RAW OFF-SCALE FRAME{}",
-            frame_pacing.off_scale_samples,
-            if frame_pacing.off_scale_samples == 1 {
-                ""
-            } else {
-                "S"
-            }
-        ));
-        ui.text_colored(MENU_ERROR_TEXT, &off_scale);
-    }
-
-    draw_spike_summary(ui, frame_pacing);
 
     if frame_pacing.samples().len() > 1 {
         let label = cstring("##frame_pacing");
-        let warning_label = cstring("60 FPS // 16.7 ms");
-        let critical_label = cstring("30 FPS // 33.3 ms");
+        let warning_label = cstring("60 FPS");
+        let critical_label = cstring("30 FPS");
         let suffix = cstring(" ms");
         let chart = psycho_imgui::TelemetryChart {
             values: frame_pacing.samples(),
             scale_min: 0.0,
             scale_max: frame_pacing.scale_max,
             width: 0.0,
-            height: 104.0,
+            height: 190.0,
             warning_threshold: FRAME_BUDGET_60_MS,
             critical_threshold: FRAME_BUDGET_30_MS,
             danger_below: false,
-            sample_interval_seconds: FRAME_PACING_CHART_INTERVAL_MS * 0.001,
+            sample_interval_seconds: 0.0,
             impulse_from_zero: false,
+            color_by_threshold: true,
             line_color: MENU_ACCENT_TEXT,
-            fill_color: [0.20, 0.66, 0.78, 0.16],
+            fill_color: [0.20, 0.78, 0.67, 0.18],
             warning_label: &warning_label,
             critical_label: &critical_label,
             value_suffix: &suffix,
         };
         ui.telemetry_chart(&label, &chart);
-
-        let spike_label = cstring("##frame_pacing_spikes");
-        let baseline_label = cstring("BASELINE // 0 ms");
-        let no_label = cstring("");
-        let spike_suffix = cstring(" ms vs baseline");
-        let spike_chart = psycho_imgui::TelemetryChart {
-            values: frame_pacing.spike_samples(),
-            scale_min: -FRAME_PACING_SPIKE_CHART_MAX_MS,
-            scale_max: FRAME_PACING_SPIKE_CHART_MAX_MS,
-            width: 0.0,
-            height: 70.0,
-            warning_threshold: 0.0,
-            critical_threshold: f32::NAN,
-            danger_below: false,
-            sample_interval_seconds: 0.0,
-            impulse_from_zero: true,
-            line_color: MENU_WARN_TEXT,
-            fill_color: [0.95, 0.70, 0.30, 0.0],
-            warning_label: &baseline_label,
-            critical_label: &no_label,
-            value_suffix: &spike_suffix,
-        };
-        ui.telemetry_chart(&spike_label, &spike_chart);
     } else {
-        let collecting = cstring("Collecting frame history...");
+        let collecting = cstring("Waiting for two successful Present intervals...");
         ui.text_colored(MENU_MUTED_TEXT, &collecting);
     }
+    if frame_pacing.sample_count < 2 {
+        return;
+    }
 
-    changed
+    ui.separator_text(&cstring("AT A GLANCE"));
+    let card_width = ((ui.content_region_available_width() - 16.0) / 3.0).max(150.0);
+    draw_diagnostics_metric_card(
+        ui,
+        "frame_live",
+        "CURRENT",
+        &format!("{:.1} FPS", frame_pacing.fps),
+        &format!("{:.2} ms right now", frame_pacing.live_ms),
+        frame_time_color(frame_pacing.live_ms),
+        card_width,
+    );
+    ui.same_line();
+    draw_diagnostics_metric_card(
+        ui,
+        "frame_average",
+        "AVERAGE",
+        &format!("{:.1} FPS", frame_pacing.average_fps),
+        &format!(
+            "{:.2} ms over {:.1} s",
+            frame_pacing.average_ms, frame_pacing.history_seconds
+        ),
+        frame_time_color(frame_pacing.average_ms),
+        card_width,
+    );
+    ui.same_line();
+    draw_diagnostics_metric_card(
+        ui,
+        "frame_low",
+        "1% LOW",
+        &format!("{:.1} FPS", frame_pacing.one_percent_low_fps),
+        "Slowest one percent of recent frames",
+        frame_time_color(frame_pacing.p99_ms),
+        card_width,
+    );
+
+    ui.separator_text(&cstring("FRAME-TIME SHAPE"));
+    draw_diagnostics_metric_card(
+        ui,
+        "frame_typical",
+        "TYPICAL FRAME",
+        &format!("{:.2} ms", frame_pacing.p50_ms),
+        "Half of recent frames were faster",
+        frame_time_color(frame_pacing.p50_ms),
+        card_width,
+    );
+    ui.same_line();
+    draw_diagnostics_metric_card(
+        ui,
+        "frame_slow_edge",
+        "SLOW EDGE",
+        &format!("P95  {:.2} ms", frame_pacing.p95_ms),
+        &format!("P99  {:.2} ms", frame_pacing.p99_ms),
+        frame_time_color(frame_pacing.p99_ms),
+        card_width,
+    );
+    ui.same_line();
+    draw_diagnostics_metric_card(
+        ui,
+        "frame_worst",
+        "WORST RECENT FRAME",
+        &format!("{:.2} ms", frame_pacing.worst_ms),
+        &format!("Across {} captured frames", frame_pacing.sample_count),
+        frame_time_color(frame_pacing.worst_ms),
+        card_width,
+    );
+
+    let half_width = ((ui.content_region_available_width() - 8.0) / 2.0).max(180.0);
+    draw_diagnostics_metric_card(
+        ui,
+        "frame_jitter",
+        "FRAME-TO-FRAME JITTER",
+        &format!("{:.2} ms", frame_pacing.jitter_ms),
+        "95th percentile change between neighbors",
+        frame_time_color(frame_pacing.jitter_ms),
+        half_width,
+    );
+    ui.same_line();
+    draw_diagnostics_metric_card(
+        ui,
+        "frame_mad",
+        "STABLE VARIATION",
+        &format!("{:.2} ms", frame_pacing.median_absolute_deviation_ms),
+        "Normal spread around the typical frame",
+        frame_time_color(frame_pacing.median_absolute_deviation_ms),
+        half_width,
+    );
+
+    ui.separator_text(&cstring("TARGET DELIVERY"));
+    draw_diagnostics_metric_card(
+        ui,
+        "budget_60",
+        "60 FPS TARGET",
+        &format!("{:.1}% ON TIME", frame_pacing.budget_60_hit_percent),
+        "Frames delivered within 16.67 ms",
+        budget_hit_color(frame_pacing.budget_60_hit_percent),
+        half_width,
+    );
+    ui.same_line();
+    draw_diagnostics_metric_card(
+        ui,
+        "budget_30",
+        "30 FPS TARGET",
+        &format!("{:.1}% ON TIME", frame_pacing.budget_30_hit_percent),
+        "Frames delivered within 33.33 ms",
+        budget_hit_color(frame_pacing.budget_30_hit_percent),
+        half_width,
+    );
+
+    if frame_pacing.off_scale_samples > 0 {
+        ui.text_colored(
+            MENU_ERROR_TEXT,
+            &cstring(format!(
+                "{} recent frame{} exceeded the {:.0} ms chart scale; metrics retain the exact values.",
+                frame_pacing.off_scale_samples,
+                if frame_pacing.off_scale_samples == 1 {
+                    ""
+                } else {
+                    "s"
+                },
+                frame_pacing.scale_max,
+            )),
+        );
+    }
+    draw_spike_summary(ui, frame_pacing);
+
+    let contention = runtime_lock_telemetry();
+    if frame_pacing.rejected_intervals > 0 || contention.has_rejections() {
+        let optional_samples_skipped = contention.present_apply
+            + contention.present_finish
+            + contention.failed_present
+            + contention.scene_phase
+            + contention.world_color
+            + contention.reset;
+        ui.separator_text(&cstring("MEASUREMENT HEALTH"));
+        ui.text_colored(
+            MENU_WARN_TEXT,
+            &cstring(format!(
+                "{} Present interval{} could not be measured cleanly.",
+                frame_pacing.rejected_intervals,
+                if frame_pacing.rejected_intervals == 1 {
+                    ""
+                } else {
+                    "s"
+                },
+            )),
+        );
+        if optional_samples_skipped > 0 {
+            ui.text_wrapped(&cstring(format!(
+                "OMV skipped {optional_samples_skipped} optional diagnostic sample{} because the render state was busy. Skipping avoids stalling the game.",
+                if optional_samples_skipped == 1 { "" } else { "s" },
+            )));
+        }
+    }
 }
 
-fn frame_pacing_update_label(interval_ms: u32) -> CString {
-    match interval_ms {
-        0 => cstring("Every frame // instant"),
-        50 => cstring("50 ms // 20 Hz"),
-        100 => cstring("100 ms // 10 Hz"),
-        250 => cstring("250 ms // 4 Hz"),
-        500 => cstring("500 ms // 2 Hz"),
-        1_000 => cstring("1 second"),
-        2_000 => cstring("2 seconds"),
-        custom => cstring(format!("{custom} ms // custom")),
+fn draw_diagnostics_metric_card(
+    ui: &mut psycho_imgui::Ui<'_>,
+    id: &str,
+    title: &str,
+    value: &str,
+    detail: &str,
+    accent: [f32; 4],
+    width: f32,
+) {
+    let card = ui.child(
+        &cstring(format!("diagnostics_card_{id}")),
+        width,
+        94.0,
+        true,
+    );
+    if card.is_visible() {
+        ui.panel_background(accent);
+        ui.text_colored(MENU_MUTED_TEXT, &cstring(title));
+        ui.text_colored(accent, &cstring(value));
+        ui.text_wrapped(&cstring(detail));
     }
 }
 
 fn draw_spike_summary(ui: &mut psycho_imgui::Ui<'_>, frame_pacing: &FramePacingSnapshot) {
     let spikes = frame_pacing.spikes;
-    let count = cstring(format!(
-        "SPIKES // {} SLOW + {} FAST // {} RETAINED // BASELINE {:.2} ms",
-        spikes.total_slow, spikes.total_fast, spikes.retained, frame_pacing.baseline_ms
-    ));
-    let count_color = if spikes.total_slow == 0 && spikes.total_fast == 0 {
-        MENU_GOOD_TEXT
-    } else {
-        MENU_WARN_TEXT
-    };
-    ui.text_colored(count_color, &count);
-
-    if let Some(periodic) = spikes.periodic {
-        let periodic_text = cstring(format!(
-            "PERIODIC {} // {:.2} s +/- {:.0} ms // {} repeats // {:.0}% confidence",
-            periodic.direction.label(),
-            periodic.interval_ms * 0.001,
-            periodic.spread_ms,
-            periodic.repeats,
-            periodic.confidence_percent
-        ));
-        ui.text_colored(MENU_ERROR_TEXT, &periodic_text);
-    } else {
+    ui.separator_text(&cstring("PACING EVENTS"));
+    if spikes.total_slow == 0 && spikes.total_fast == 0 {
+        ui.text_colored(
+            MENU_GOOD_TEXT,
+            &cstring(format!(
+                "Pacing looks stable around the {:.2} ms adaptive baseline.",
+                frame_pacing.baseline_ms
+            )),
+        );
         ui.text_colored(
             MENU_MUTED_TEXT,
-            &cstring("PERIODICITY // no repeatable cadence detected"),
+            &cstring("No significant slow or unusually fast frame-time excursions detected."),
         );
+        return;
     }
 
-    if let Some(latest) = spikes.latest {
-        let latest_text = cstring(format!(
-            "LATEST {} / {} // {:.2} ms ({:+.2} from {:.2}) // {:.2} s ago",
-            latest.direction.label(),
-            latest.severity.label(),
-            latest.frame_ms,
-            latest.delta_ms,
-            latest.baseline_ms,
-            latest.age_ms * 0.001
-        ));
-        ui.text_colored(spike_severity_color(latest.severity), &latest_text);
-    }
-
-    let slow = spikes
-        .largest_slow
-        .map(|event| format!("SLOW {:.2} ms ({:+.2})", event.frame_ms, event.delta_ms))
-        .unwrap_or_else(|| "SLOW --".to_owned());
-    let fast = spikes
-        .largest_fast
-        .map(|event| format!("FAST {:.2} ms ({:+.2})", event.frame_ms, event.delta_ms))
-        .unwrap_or_else(|| "FAST --".to_owned());
-    ui.text_colored(
-        MENU_MUTED_TEXT,
-        &cstring(format!("LARGEST SESSION // {slow} // {fast}")),
+    let latest = spikes.latest.map_or_else(
+        || "latest unavailable".to_owned(),
+        |event| {
+            format!(
+                "latest {} {:.2} ms ({:+.2}) {:.1} s ago",
+                event.direction.label(),
+                event.frame_ms,
+                event.delta_ms,
+                event.age_ms * 0.001,
+            )
+        },
     );
-}
-
-fn spike_severity_color(severity: SpikeSeverity) -> [f32; 4] {
-    match severity {
-        SpikeSeverity::Notice => MENU_WARN_TEXT,
-        SpikeSeverity::Major | SpikeSeverity::Severe => MENU_ERROR_TEXT,
+    let largest_slow = spikes.largest_slow.map_or_else(
+        || "--".to_owned(),
+        |event| format!("{:+.2} ms", event.delta_ms),
+    );
+    let largest_fast = spikes.largest_fast.map_or_else(
+        || "--".to_owned(),
+        |event| format!("{:+.2} ms", event.delta_ms),
+    );
+    ui.text_colored(
+        MENU_WARN_TEXT,
+        &cstring(format!(
+            "Detected {} slow pacing event{} and {} unusually fast event{}.",
+            spikes.total_slow,
+            if spikes.total_slow == 1 { "" } else { "s" },
+            spikes.total_fast,
+            if spikes.total_fast == 1 { "" } else { "s" },
+        )),
+    );
+    ui.label_value(&cstring("Latest"), &cstring(latest), MENU_MUTED_TEXT);
+    ui.label_value(
+        &cstring("Largest slow excursion"),
+        &cstring(largest_slow),
+        MENU_WARN_TEXT,
+    );
+    ui.label_value(
+        &cstring("Largest fast excursion"),
+        &cstring(largest_fast),
+        MENU_MUTED_TEXT,
+    );
+    if let Some(periodic) = spikes.periodic {
+        ui.text_colored(
+            MENU_ERROR_TEXT,
+            &cstring(format!(
+                "Repeating {} event every {:.2} s (+/- {:.1} ms): {} repeats, {:.0}% confidence.",
+                periodic.direction.label(),
+                periodic.interval_ms * 0.001,
+                periodic.spread_ms,
+                periodic.repeats,
+                periodic.confidence_percent,
+            )),
+        );
     }
 }
 
@@ -6235,6 +7561,20 @@ fn draw_feature_list(
         if !source.is_embedded_effect() {
             continue;
         }
+        if source.embedded_effect_kind() == Some(EmbeddedEffectKind::ColorGrade) {
+            for panel in FinishingPanel::ALL {
+                let label = cstring(configured_feature_label(
+                    panel.title(),
+                    &format!("finishing_{panel:?}"),
+                    panel.is_enabled(source),
+                ));
+                if ui.selectable(&label, *selected_item == MenuSelection::Finishing(panel)) {
+                    *selected_item = MenuSelection::Finishing(panel);
+                }
+            }
+            embedded_count += FinishingPanel::ALL.len();
+            continue;
+        }
         embedded_count += 1;
         let label = cstring(shader_list_label(source, index));
         if ui.selectable(&label, *selected_item == MenuSelection::Shader(index)) {
@@ -6266,31 +7606,68 @@ fn draw_feature_list(
 }
 
 fn configured_feature_label(name: &str, id: &str, enabled: bool) -> String {
-    format!("[{}] {name}##{id}", if enabled { "ON" } else { "OFF" })
+    feature_list_label(name, id, if enabled { "ON" } else { "OFF" })
 }
 
-fn draw_shader_details(ui: &mut psycho_imgui::Ui<'_>, source: &mut ScreenShaderSource) -> bool {
+fn feature_list_label(name: &str, id: impl std::fmt::Display, status: &str) -> String {
+    format!("[{status}] {}##{id}", name.trim())
+}
+
+fn draw_shader_details(
+    ui: &mut psycho_imgui::Ui<'_>,
+    source: &mut ScreenShaderSource,
+    finishing_panel: Option<FinishingPanel>,
+) -> bool {
     let mut changed = false;
-    let name = cstring(shader_display_name(source));
+    let name = cstring(finishing_panel.map_or_else(
+        || shader_display_name(source),
+        |panel| panel.title().to_owned(),
+    ));
     ui.separator_text(&name);
 
-    if let Some(description) = embedded_effect_description(source.embedded_effect_kind()) {
+    if let Some(description) = finishing_panel
+        .map(FinishingPanel::description)
+        .or_else(|| embedded_effect_description(source.embedded_effect_kind()))
+    {
         ui.text_colored(MENU_MUTED_TEXT, &cstring(description));
     }
 
-    let mut enabled = source.enabled;
-    let enabled_name =
-        if source.embedded_effect_kind() == Some(EmbeddedEffectKind::VolumetricLighting) {
-            "Directional sun lighting"
-        } else {
-            "Enabled"
-        };
-    let enabled_label = cstring(format!("{enabled_name}##{}.enabled", source.name));
-    if ui.checkbox(&enabled_label, &mut enabled) {
-        if let Err(err) = source.set_enabled(enabled) {
-            source.config_error = Some(format!("{err:#}"));
-        } else {
-            changed = true;
+    if let Some(key) = finishing_panel.and_then(FinishingPanel::enabled_key) {
+        if let Some(option_index) = source.options.iter().position(|option| option.key == key) {
+            let mut enabled = matches!(
+                source.options[option_index].value,
+                ShaderOptionValue::Bool(true)
+            );
+            let enabled_label = cstring(format!("Enabled##{}.{}", source.name, key));
+            if ui.checkbox(&enabled_label, &mut enabled) {
+                if let Err(err) = source.set_option_bool(option_index, enabled) {
+                    source.config_error = Some(format!("{err:#}"));
+                } else {
+                    changed = true;
+                }
+            }
+            if !source.enabled {
+                ui.text_colored(
+                    MENU_WARN_TEXT,
+                    &cstring("Final Output is disabled, so this effect is currently bypassed."),
+                );
+            }
+        }
+    } else {
+        let mut enabled = source.enabled;
+        let enabled_name =
+            if source.embedded_effect_kind() == Some(EmbeddedEffectKind::VolumetricLighting) {
+                "Directional sun lighting"
+            } else {
+                "Enabled"
+            };
+        let enabled_label = cstring(format!("{enabled_name}##{}.enabled", source.name));
+        if ui.checkbox(&enabled_label, &mut enabled) {
+            if let Err(err) = source.set_enabled(enabled) {
+                source.config_error = Some(format!("{err:#}"));
+            } else {
+                changed = true;
+            }
         }
     }
 
@@ -6394,6 +7771,9 @@ fn draw_shader_details(ui: &mut psycho_imgui::Ui<'_>, source: &mut ScreenShaderS
 
     for option_index in 0..source.options.len() {
         let option = source.options[option_index].clone();
+        if finishing_panel.is_some_and(|panel| !panel.owns_option(option.key.as_str())) {
+            continue;
+        }
         if source.embedded_effect_kind() == Some(EmbeddedEffectKind::VolumetricLighting)
             && option.key == "local_lights_enabled"
         {
@@ -6683,9 +8063,10 @@ fn shader_list_label(source: &ScreenShaderSource, index: usize) -> String {
     } else {
         "OFF"
     };
-    format!(
-        "[{status}]  {}##shader_select_{index}",
-        shader_display_name(source)
+    feature_list_label(
+        &shader_display_name(source),
+        format_args!("shader_select_{index}"),
+        status,
     )
 }
 
@@ -6789,10 +8170,18 @@ fn set_all_sources_enabled(sources: &mut [ScreenShaderSource], enabled: bool) ->
 }
 
 fn clamp_menu_selection(sources: &[ScreenShaderSource], selected_item: &mut MenuSelection) {
-    if let MenuSelection::Shader(index) = *selected_item
-        && index >= sources.len()
-    {
-        *selected_item = MenuSelection::General;
+    match *selected_item {
+        MenuSelection::Shader(index) if index >= sources.len() => {
+            *selected_item = MenuSelection::General;
+        }
+        MenuSelection::Finishing(_)
+            if !sources.iter().any(|source| {
+                source.embedded_effect_kind() == Some(EmbeddedEffectKind::ColorGrade)
+            }) =>
+        {
+            *selected_item = MenuSelection::General;
+        }
+        _ => {}
     }
 }
 
@@ -6888,6 +8277,20 @@ fn is_input_message(msg: u32) -> bool {
             | WM_MOUSEWHEEL
             | WM_MOUSEHWHEEL
     )
+}
+
+fn text_buffer(buffer: &[u8]) -> &str {
+    let length = buffer
+        .iter()
+        .position(|byte| *byte == 0)
+        .unwrap_or(buffer.len());
+    std::str::from_utf8(&buffer[..length]).unwrap_or_default()
+}
+
+fn write_text_buffer(buffer: &mut [u8], text: &str) {
+    buffer.fill(0);
+    let length = text.len().min(buffer.len().saturating_sub(1));
+    buffer[..length].copy_from_slice(&text.as_bytes()[..length]);
 }
 
 fn cstring(text: impl AsRef<str>) -> CString {

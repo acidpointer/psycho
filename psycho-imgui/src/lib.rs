@@ -143,6 +143,9 @@ pub struct TelemetryChart<'a> {
     pub sample_interval_seconds: f32,
     /// Draw independent impulses from zero instead of connecting samples.
     pub impulse_from_zero: bool,
+    /// Color connected segments from the warning and critical thresholds.
+    /// When false, preserve the caller-provided line and fill colors.
+    pub color_by_threshold: bool,
     pub line_color: [f32; 4],
     pub fill_color: [f32; 4],
     pub warning_label: &'a CStr,
@@ -203,10 +206,27 @@ impl Ui<'_> {
         Child { visible }
     }
 
+    /// Begin a fixed card that cannot expose or respond to scrollbars.
+    pub fn child_static(&mut self, id: &CStr, width: f32, height: f32, border: bool) -> Child {
+        let visible =
+            unsafe { ffi::psycho_imgui_begin_static_child(id.as_ptr(), width, height, border) };
+        Child { visible }
+    }
+
     pub fn child_horizontal(&mut self, id: &CStr, width: f32, height: f32, border: bool) -> Child {
         let visible =
             unsafe { ffi::psycho_imgui_begin_child_horizontal(id.as_ptr(), width, height, border) };
         Child { visible }
+    }
+
+    /// Paint the current child as a low-contrast gradient card.
+    ///
+    /// Call immediately after beginning the child so later widgets are drawn
+    /// over the background.
+    pub fn panel_background(&mut self, accent: [f32; 4]) {
+        unsafe {
+            ffi::psycho_imgui_panel_background(accent[0], accent[1], accent[2], accent[3]);
+        }
     }
 
     pub fn tab_bar(&mut self, id: &CStr) -> TabBar {
@@ -289,6 +309,25 @@ impl Ui<'_> {
         unsafe { ffi::psycho_imgui_content_region_available_height() }
     }
 
+    pub fn vertical_splitter(
+        &mut self,
+        id: &CStr,
+        leading_width: &mut f32,
+        min_width: f32,
+        max_width: f32,
+        height: f32,
+    ) -> bool {
+        unsafe {
+            ffi::psycho_imgui_vertical_splitter(
+                id.as_ptr(),
+                leading_width,
+                min_width,
+                max_width,
+                height,
+            )
+        }
+    }
+
     /// Return Dear ImGui's rolling frame-rate estimate for the active context.
     pub fn frame_rate(&self) -> f32 {
         unsafe { ffi::psycho_imgui_frame_rate() }
@@ -300,6 +339,35 @@ impl Ui<'_> {
 
     pub fn slider_int(&mut self, label: &CStr, value: &mut i32, min: i32, max: i32) -> bool {
         unsafe { ffi::psycho_imgui_slider_int(label.as_ptr(), value as *mut i32, min, max) }
+    }
+
+    pub fn input_text(&mut self, label: &CStr, buffer: &mut [u8]) -> bool {
+        if buffer.is_empty() {
+            return false;
+        }
+        buffer[buffer.len() - 1] = 0;
+        unsafe {
+            ffi::psycho_imgui_input_text(
+                label.as_ptr(),
+                buffer.as_mut_ptr().cast::<c_char>(),
+                buffer.len(),
+            )
+        }
+    }
+
+    pub fn input_text_multiline(&mut self, label: &CStr, buffer: &mut [u8], height: f32) -> bool {
+        if buffer.is_empty() {
+            return false;
+        }
+        buffer[buffer.len() - 1] = 0;
+        unsafe {
+            ffi::psycho_imgui_input_text_multiline(
+                label.as_ptr(),
+                buffer.as_mut_ptr().cast::<c_char>(),
+                buffer.len(),
+                height,
+            )
+        }
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -430,6 +498,7 @@ impl Ui<'_> {
             danger_below: i32::from(chart.danger_below),
             sample_interval_seconds: chart.sample_interval_seconds,
             impulse_from_zero: i32::from(chart.impulse_from_zero),
+            color_by_threshold: i32::from(chart.color_by_threshold),
             line_color: chart.line_color,
             fill_color: chart.fill_color,
             warning_label: chart.warning_label.as_ptr(),
@@ -572,6 +641,7 @@ struct RawTelemetryChart {
     danger_below: i32,
     sample_interval_seconds: f32,
     impulse_from_zero: i32,
+    color_by_threshold: i32,
     line_color: [f32; 4],
     fill_color: [f32; 4],
     warning_label: *const c_char,
@@ -629,12 +699,19 @@ mod ffi {
             height: f32,
             border: bool,
         ) -> bool;
+        pub fn psycho_imgui_begin_static_child(
+            id: *const c_char,
+            width: f32,
+            height: f32,
+            border: bool,
+        ) -> bool;
         pub fn psycho_imgui_begin_child_horizontal(
             id: *const c_char,
             width: f32,
             height: f32,
             border: bool,
         ) -> bool;
+        pub fn psycho_imgui_panel_background(r: f32, g: f32, b: f32, a: f32);
         pub fn psycho_imgui_end_child();
         pub fn psycho_imgui_begin_tab_bar(id: *const c_char) -> bool;
         pub fn psycho_imgui_end_tab_bar();
@@ -664,6 +741,13 @@ mod ffi {
         ) -> bool;
         pub fn psycho_imgui_content_region_available_width() -> f32;
         pub fn psycho_imgui_content_region_available_height() -> f32;
+        pub fn psycho_imgui_vertical_splitter(
+            id: *const c_char,
+            leading_width: *mut f32,
+            min_width: f32,
+            max_width: f32,
+            height: f32,
+        ) -> bool;
         pub fn psycho_imgui_frame_rate() -> f32;
         pub fn psycho_imgui_slider_float(
             label: *const c_char,
@@ -676,6 +760,17 @@ mod ffi {
             value: *mut i32,
             min: i32,
             max: i32,
+        ) -> bool;
+        pub fn psycho_imgui_input_text(
+            label: *const c_char,
+            buffer: *mut c_char,
+            buffer_size: usize,
+        ) -> bool;
+        pub fn psycho_imgui_input_text_multiline(
+            label: *const c_char,
+            buffer: *mut c_char,
+            buffer_size: usize,
+            height: f32,
         ) -> bool;
         pub fn psycho_imgui_precise_float(
             label: *const c_char,
@@ -763,5 +858,79 @@ mod tests {
                 "missing explicit theme color {color}"
             );
         }
+    }
+
+    #[test]
+    fn text_entry_bridge_supports_preset_metadata_without_unsafe_sizes() {
+        let bridge = include_str!("bridge.cpp");
+        assert!(bridge.contains("ImGui::InputText(label, buffer, buffer_size)"));
+        assert!(bridge.contains("ImGui::InputTextMultiline("));
+        assert!(bridge.contains("buffer_size < 2"));
+    }
+
+    #[test]
+    fn vertical_splitter_has_direct_resize_feedback_and_clamped_width() {
+        let bridge = include_str!("bridge.cpp");
+        let splitter = bridge
+            .split_once("bool psycho_imgui_vertical_splitter(")
+            .map(|(_, tail)| tail)
+            .and_then(|tail| tail.split_once("float psycho_imgui_frame_rate()"))
+            .map(|(body, _)| body)
+            .expect("vertical splitter body");
+
+        assert!(splitter.contains("ImGui::InvisibleButton"));
+        assert!(splitter.contains("ImGuiMouseCursor_ResizeEW"));
+        assert!(splitter.contains("ImGui::GetIO().MouseDelta.x"));
+        assert!(splitter.contains("clamp_float("));
+    }
+
+    #[test]
+    fn panel_background_is_fixed_draw_list_geometry() {
+        let bridge = include_str!("bridge.cpp");
+        let panel = bridge
+            .split_once("void psycho_imgui_panel_background(")
+            .map(|(_, tail)| tail)
+            .and_then(|tail| tail.split_once("void psycho_imgui_end_child()"))
+            .map(|(body, _)| body)
+            .expect("panel background body");
+
+        assert!(panel.contains("AddRectFilledMultiColor"));
+        assert!(panel.contains("AddLine"));
+        assert!(panel.contains("AddRect"));
+        assert!(!panel.contains("CreateTexture"));
+        assert!(!panel.contains("new "));
+    }
+
+    #[test]
+    fn static_child_explicitly_disables_scrolling() {
+        let bridge = include_str!("bridge.cpp");
+        let child = bridge
+            .split_once("bool psycho_imgui_begin_static_child(")
+            .map(|(_, tail)| tail)
+            .and_then(|tail| tail.split_once("bool psycho_imgui_begin_child_horizontal("))
+            .map(|(body, _)| body)
+            .expect("static child body");
+
+        assert!(child.contains("ImGuiWindowFlags_NoScrollbar"));
+        assert!(child.contains("ImGuiWindowFlags_NoScrollWithMouse"));
+        assert!(!child.contains("ImGuiWindowFlags_HorizontalScrollbar"));
+    }
+
+    #[test]
+    fn telemetry_chart_draws_budget_colored_raw_segments_and_live_marker() {
+        let bridge = include_str!("bridge.cpp");
+        let chart = bridge
+            .split_once("void psycho_imgui_telemetry_chart(")
+            .map(|(_, tail)| tail)
+            .and_then(|tail| tail.split_once("void psycho_imgui_push_item_width"))
+            .map(|(body, _)| body)
+            .expect("telemetry chart body");
+
+        assert!(chart.contains("AddRectFilledMultiColor"));
+        assert!(chart.contains("telemetry_frame_time_color"));
+        assert!(chart.contains("segment_glow"));
+        assert!(chart.contains("last_glow"));
+        assert!(chart.contains("\"%d frame%s ago  %.1f%s\""));
+        assert!(!chart.contains("ImGui::PlotLines"));
     }
 }

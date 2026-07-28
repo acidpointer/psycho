@@ -21,6 +21,7 @@ HELPER_DLL="psycho_engine_fixes_helper.dll"
 OMV_DLL="omv.dll"
 ENGINE_CFGNAME="psycho_engine_fixes.toml"
 OMV_CFGNAME="omv.toml"
+OMV_DEFAULT_CFGNAME="omv.default.toml"
 OMV_NOTICENAME="THIRD_PARTY_NOTICES.md"
 
 BIN_DIR="$DIR/target/$TARGET/$BUILD_TYPE"
@@ -70,6 +71,7 @@ HELPER_PATH="$NVSE_PLUGIN_DIR/$HELPER_DLL"
 OMV_PATH="$OMV_PLUGIN_DIR/$OMV_DLL"
 ENGINE_CFG_PATH="$GAME_SYRINGE_DIR/$ENGINE_CFGNAME"
 OMV_CFG_PATH="$OMV_DATA_DIR/$OMV_CFGNAME"
+OMV_DEFAULT_CFG_PATH="$OMV_DATA_DIR/$OMV_DEFAULT_CFGNAME"
 OMV_NOTICE_PATH="$OMV_DATA_DIR/$OMV_NOTICENAME"
 
 function build_rust() {
@@ -129,7 +131,10 @@ function install_files() {
     cp "$HELPER_BIN" "$HELPER_PATH"
     cp "$OMV_BIN" "$OMV_PATH"
     cp "$ENGINE_CFG" "$ENGINE_CFG_PATH"
-    cp "$OMV_CFG" "$OMV_CFG_PATH"
+    cp "$OMV_CFG" "$OMV_DEFAULT_CFG_PATH"
+    if [[ ! -f "$OMV_CFG_PATH" ]]; then
+        cp "$OMV_CFG" "$OMV_CFG_PATH"
+    fi
     cp "$OMV_NOTICE" "$OMV_NOTICE_PATH"
 
     for stale_shader in "${STALE_OMV_SHADER_FILES[@]}"; do
@@ -196,7 +201,8 @@ echo "'$CORE_DLL' copied to '$CORE_PATH'"
 echo "'$HELPER_DLL' copied to '$HELPER_PATH'"
 echo "'$OMV_DLL' copied to '$OMV_PATH'"
 echo "Engine config copied to '$ENGINE_CFG_PATH'"
-echo "OMV config copied to '$OMV_CFG_PATH'"
+echo "OMV default config copied to '$OMV_DEFAULT_CFG_PATH'"
+echo "OMV working config preserved at '$OMV_CFG_PATH'"
 echo "OMV third-party notices copied to '$OMV_NOTICE_PATH'"
 echo "OMV shader directory ready at '$OMV_SHADER_DIR'"
 echo "OMV LUT directory ready at '$OMV_LUT_DIR'"

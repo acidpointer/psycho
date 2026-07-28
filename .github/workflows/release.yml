@@ -80,7 +80,7 @@ jobs:
           diff -u \
             <(printf '%s\n' \
               "Data/NVSE/plugins/omv.dll" \
-              "Data/NVSE/plugins/omv/omv.toml" \
+              "Data/NVSE/plugins/omv/omv.default.toml" \
               "Data/NVSE/plugins/omv/shaders/01_depth_aware_cas.hlsl" \
               "Data/NVSE/plugins/omv/shaders/01_depth_aware_cas.toml" \
               "Data/NVSE/plugins/omv/luts/00_neutral.cube" \
@@ -96,7 +96,35 @@ jobs:
               "Data/NVSE/plugins/omv/luts/10_sierra_sunset.cube" \
               "Data/NVSE/plugins/omv/luts/11_zion_canyon.cube" \
               "Data/NVSE/plugins/omv/luts/12_divide_duststorm.cube" \
-              "Data/NVSE/plugins/omv/luts/13_wasteland_noir.cube" | sort) \
+              "Data/NVSE/plugins/omv/luts/13_wasteland_noir.cube" \
+              "Data/NVSE/plugins/omv/luts/14_midnight_mojave.cube" \
+              "Data/NVSE/plugins/omv/luts/15_desert_noir.cube" \
+              "Data/NVSE/plugins/omv/luts/16_vegas_after_dark.cube" \
+              "Data/NVSE/plugins/omv/luts/17_rain_on_freeside.cube" \
+              "Data/NVSE/plugins/omv/luts/18_sierra_madre_gilded.cube" \
+              "Data/NVSE/plugins/omv/luts/19_dead_money_poison.cube" \
+              "Data/NVSE/plugins/omv/luts/20_mojave_blue_hour.cube" \
+              "Data/NVSE/plugins/omv/luts/21_caravan_lantern.cube" \
+              "Data/NVSE/plugins/omv/luts/22_dust_and_blood.cube" \
+              "Data/NVSE/plugins/omv/luts/23_atomic_monochrome.cube" \
+              "Data/NVSE/plugins/omv/luts/24_vault_noir.cube" \
+              "Data/NVSE/plugins/omv/luts/25_lonesome_road_ash.cube" \
+              "Data/NVSE/plugins/omv/luts/26_radioactive_dream.cube" \
+              "Data/NVSE/plugins/omv/luts/27_old_world_detective.cube" \
+              "Data/NVSE/plugins/omv/luts/28_capital_wasteland_overcast.cube" \
+              "Data/NVSE/plugins/omv/luts/29_potomac_fog.cube" \
+              "Data/NVSE/plugins/omv/luts/30_ruined_capitol_dusk.cube" \
+              "Data/NVSE/plugins/omv/luts/31_dc_radstorm.cube" \
+              "Data/NVSE/plugins/omv/luts/32_underworld_embers.cube" \
+              "Data/NVSE/plugins/omv/luts/33_subterranean_survival.cube" \
+              "Data/NVSE/plugins/omv/luts/34_emergency_red.cube" \
+              "Data/NVSE/plugins/omv/luts/35_frozen_platform.cube" \
+              "Data/NVSE/plugins/omv/luts/36_dry_sea_white_sun.cube" \
+              "Data/NVSE/plugins/omv/luts/37_dead_city_blue.cube" \
+              "Data/NVSE/plugins/omv/luts/38_exclusion_overcast.cube" \
+              "Data/NVSE/plugins/omv/luts/39_emission_warning.cube" \
+              "Data/NVSE/plugins/omv/luts/40_rusted_laboratory.cube" \
+              "Data/NVSE/plugins/omv/luts/41_pripyat_memory.cube" | sort) \
             <(zipinfo -1 "$omv_archive" | grep -v '/$' | sort)
 
       - name: Publish GitHub release

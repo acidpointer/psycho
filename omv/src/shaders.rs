@@ -81,6 +81,9 @@ pub(crate) struct ScreenShaderSource {
     pub(crate) name: String,
     pub(crate) path: PathBuf,
     pub(crate) config_path: PathBuf,
+    pub(crate) shader_id: Option<String>,
+    pub(crate) shader_version: Option<String>,
+    pub(crate) source_revision: u64,
     pub(crate) bytecode: Option<Vec<u32>>,
     pub(crate) enabled: bool,
     pub(crate) phase: ShaderPhase,
@@ -190,15 +193,18 @@ impl ScreenShaderSource {
         Ok(())
     }
 
-    fn save_config_to_disk(&mut self) -> Result<()> {
+    /// Atomically publishes this external shader's current runtime settings.
+    ///
+    /// Embedded effects are owned by `omv.toml` and intentionally make this a
+    /// no-op. Callers must keep conflict detection outside this primitive.
+    pub(crate) fn save_config_to_disk(&mut self) -> Result<()> {
         if self.is_embedded_effect() {
             return Ok(());
         }
 
         let config = ShaderConfigFile::from_source(self);
         let text = toml::to_string_pretty(&config).context("failed to serialize shader config")?;
-        fs::write(&self.config_path, text)
-            .with_context(|| format!("failed to write {}", self.config_path.display()))?;
+        crate::file_io::atomic_write_text(&self.config_path, &text)?;
         self.config_stamp = file_stamp(&self.config_path).unwrap_or_default();
         self.config_error = None;
         Ok(())
@@ -211,6 +217,8 @@ impl ScreenShaderSource {
 
         let config_stamp = shader_config_stamp(&self.config_path)?;
         let config = load_shader_config_or_default(&self.config_path)?;
+        self.shader_id = config.shader.id;
+        self.shader_version = config.shader.version;
         self.enabled = config.shader.enabled;
         self.phase = config.shader.phase;
         self.pass_count = sanitize_pass_count(config.shader.passes);
@@ -403,13 +411,6 @@ pub(crate) fn preserve_external_runtime_config(
             .clone_from(&current.option_constants);
         source.config_error.clone_from(&current.config_error);
     }
-}
-
-pub(crate) fn save_external_shader_configs(sources: &mut [ScreenShaderSource]) -> Result<()> {
-    for source in sources {
-        source.save_config_to_disk()?;
-    }
-    Ok(())
 }
 
 pub(crate) fn reload_external_shader_configs(sources: &mut [ScreenShaderSource]) -> Result<()> {
@@ -1170,7 +1171,7 @@ fn color_grade_source(
         .unwrap_or(0) as i32;
     embedded_source(
         EmbeddedEffectKind::ColorGrade,
-        "Color Grade and Film",
+        "Final Color Pipeline",
         config.enabled,
         EmbeddedEffectsConfig::phase_for_kind(EmbeddedEffectKind::ColorGrade),
         vec![
@@ -1711,6 +1712,9 @@ fn embedded_source(
         name: name.to_owned(),
         path: PathBuf::from("<embedded>"),
         config_path: PathBuf::from(crate::config::CONFIG_PATH),
+        shader_id: None,
+        shader_version: None,
+        source_revision: 0,
         bytecode: None,
         enabled,
         phase,
@@ -2373,6 +2377,7 @@ fn load_shader_file(
     path: &Path,
     previous: Option<&ScreenShaderSource>,
 ) -> Result<ScreenShaderSource> {
+    let source_revision = file_content_revision(path)?;
     let bytecode = if path
         .extension()
         .and_then(|ext| ext.to_str())
@@ -2392,6 +2397,9 @@ fn load_shader_file(
         name: shader_name(path),
         path: path.to_owned(),
         config_path: shader_config_path(path),
+        shader_id: previous.and_then(|source| source.shader_id.clone()),
+        shader_version: previous.and_then(|source| source.shader_version.clone()),
+        source_revision,
         bytecode: Some(bytecode),
         enabled: previous.is_none_or(|source| source.enabled),
         phase: previous.map_or(ShaderPhase::default(), |source| source.phase),
@@ -2424,6 +2432,12 @@ fn failed_shader_source(
         name: shader_name(path),
         path: path.to_owned(),
         config_path: shader_config_path(path),
+        shader_id: previous.and_then(|source| source.shader_id.clone()),
+        shader_version: previous.and_then(|source| source.shader_version.clone()),
+        source_revision: previous.map_or_else(
+            || file_content_revision(path).unwrap_or(0),
+            |source| source.source_revision,
+        ),
         bytecode: None,
         enabled: true,
         phase: previous.map_or(ShaderPhase::default(), |source| source.phase),
@@ -2443,6 +2457,8 @@ fn apply_config(source: &mut ScreenShaderSource, config_path: &Path, config_stam
 
     match load_shader_config_or_default(config_path) {
         Ok(config) => {
+            source.shader_id = config.shader.id;
+            source.shader_version = config.shader.version;
             source.enabled = config.shader.enabled;
             source.phase = config.shader.phase;
             source.pass_count = sanitize_pass_count(config.shader.passes);
@@ -2461,6 +2477,12 @@ fn apply_config(source: &mut ScreenShaderSource, config_path: &Path, config_stam
             );
         }
     }
+}
+
+fn file_content_revision(path: &Path) -> Result<u64> {
+    let bytes =
+        fs::read(path).with_context(|| format!("failed to fingerprint {}", path.display()))?;
+    Ok(fnv1a_hash_bytes(0xcbf2_9ce4_8422_2325, &bytes))
 }
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
@@ -3562,6 +3584,8 @@ impl ShaderConfigFile {
     fn from_source(source: &ScreenShaderSource) -> Self {
         Self {
             shader: ShaderConfigHeader {
+                id: source.shader_id.clone(),
+                version: source.shader_version.clone(),
                 enabled: source.enabled,
                 phase: source.phase,
                 passes: source.pass_count,
@@ -3578,6 +3602,10 @@ impl ShaderConfigFile {
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(default)]
 struct ShaderConfigHeader {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    version: Option<String>,
     enabled: bool,
     phase: ShaderPhase,
     passes: u32,
@@ -3586,6 +3614,8 @@ struct ShaderConfigHeader {
 impl Default for ShaderConfigHeader {
     fn default() -> Self {
         Self {
+            id: None,
+            version: None,
             enabled: true,
             phase: ShaderPhase::default(),
             passes: MIN_SHADER_PASSES,

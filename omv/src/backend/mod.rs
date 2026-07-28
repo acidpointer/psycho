@@ -94,6 +94,10 @@ pub(crate) fn fnv_first_person_rendered() -> bool {
     fnv::first_person_rendered()
 }
 
+pub(crate) fn fnv_third_person_view() -> Option<bool> {
+    fnv::third_person_view()
+}
+
 pub(crate) fn sun_frame(depth_provider: DepthProvider) -> SunFrame {
     match depth_provider {
         DepthProvider::None => SunFrame::default(),
@@ -263,6 +267,7 @@ pub(crate) struct FrameInputs {
     pub(crate) atmosphere_visibility: f32,
     pub(crate) atmosphere_available: bool,
     pub(crate) first_person_rendered: bool,
+    pub(crate) third_person_view: Option<bool>,
     pub(crate) material_state: MaterialStateFrame,
 }
 

@@ -17,7 +17,7 @@ use windows::Win32::Storage::FileSystem::{
     CopyFileA, CreateFileA, DeleteFileA, FILE_ATTRIBUTE_NORMAL, FILE_BEGIN, FILE_GENERIC_READ,
     FILE_GENERIC_WRITE, FILE_SHARE_READ, FlushFileBuffers, GetFileAttributesA, GetFileSizeEx,
     INVALID_FILE_ATTRIBUTES, MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH, MoveFileExA,
-    OPEN_EXISTING, ReadFile, SetFilePointerEx,
+    MoveFileExW, OPEN_EXISTING, ReadFile, SetFilePointerEx,
 };
 use windows::Win32::System::Console::{
     AllocConsole, CONSOLE_MODE, ENABLE_VIRTUAL_TERMINAL_PROCESSING, GetConsoleMode, GetStdHandle,
@@ -1049,6 +1049,47 @@ pub fn move_file_replace_write_through(source: &CStr, destination: &CStr) -> Win
         MoveFileExA(
             PCSTR(source.as_ptr().cast()),
             PCSTR(destination.as_ptr().cast()),
+            MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
+        )?
+    };
+    Ok(())
+}
+
+/// Wide-path equivalent of [`move_file_write_through`].
+///
+/// This preserves non-ANSI user paths while retaining fail-if-exists and
+/// write-through publication semantics.
+pub fn move_file_write_through_wide(source: &OsStr, destination: &OsStr) -> WinapiResult<()> {
+    let mut source_wide: Vec<u16> = source.encode_wide().collect();
+    let mut destination_wide: Vec<u16> = destination.encode_wide().collect();
+    source_wide.push(0);
+    destination_wide.push(0);
+    unsafe {
+        MoveFileExW(
+            PCWSTR(source_wide.as_ptr()),
+            PCWSTR(destination_wide.as_ptr()),
+            MOVEFILE_WRITE_THROUGH,
+        )?
+    };
+    Ok(())
+}
+
+/// Wide-path equivalent of [`move_file_replace_write_through`].
+///
+/// This preserves non-ANSI user paths while retaining replacement and
+/// write-through publication semantics.
+pub fn move_file_replace_write_through_wide(
+    source: &OsStr,
+    destination: &OsStr,
+) -> WinapiResult<()> {
+    let mut source_wide: Vec<u16> = source.encode_wide().collect();
+    let mut destination_wide: Vec<u16> = destination.encode_wide().collect();
+    source_wide.push(0);
+    destination_wide.push(0);
+    unsafe {
+        MoveFileExW(
+            PCWSTR(source_wide.as_ptr()),
+            PCWSTR(destination_wide.as_ptr()),
             MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
         )?
     };

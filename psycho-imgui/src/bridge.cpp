@@ -1,4 +1,5 @@
 #include <stdint.h>
+#include <cfloat>
 #include <cmath>
 #include <cstdio>
 #include <windows.h>
@@ -29,6 +30,7 @@ struct PsychoImguiTelemetryChart {
 	int32_t danger_below;
 	float sample_interval_seconds;
 	int32_t impulse_from_zero;
+	int32_t color_by_threshold;
 	float line_color[4];
 	float fill_color[4];
 	const char* warning_label;
@@ -375,12 +377,45 @@ bool psycho_imgui_begin_child(const char* id, float width, float height, bool bo
 	return ImGui::BeginChild(id, ImVec2(width, height), border);
 }
 
+bool psycho_imgui_begin_static_child(const char* id, float width, float height, bool border) {
+	return ImGui::BeginChild(
+		id,
+		ImVec2(width, height),
+		border,
+		ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+}
+
 bool psycho_imgui_begin_child_horizontal(const char* id, float width, float height, bool border) {
 	return ImGui::BeginChild(
 		id,
 		ImVec2(width, height),
 		border,
 		ImGuiWindowFlags_HorizontalScrollbar);
+}
+
+void psycho_imgui_panel_background(float r, float g, float b, float a) {
+	ImDrawList* draw_list = ImGui::GetWindowDrawList();
+	const ImVec2 min = ImGui::GetWindowPos();
+	const ImVec2 size = ImGui::GetWindowSize();
+	const ImVec2 max(min.x + size.x, min.y + size.y);
+	const ImU32 accent = ImGui::ColorConvertFloat4ToU32(ImVec4(
+		clamp_float(r, 0.0f, 1.0f),
+		clamp_float(g, 0.0f, 1.0f),
+		clamp_float(b, 0.0f, 1.0f),
+		clamp_float(a, 0.0f, 1.0f)));
+	draw_list->AddRectFilledMultiColor(
+		min,
+		max,
+		IM_COL32(8, 24, 27, 250),
+		IM_COL32(13, 18, 31, 250),
+		IM_COL32(5, 10, 17, 250),
+		IM_COL32(4, 17, 18, 250));
+	draw_list->AddLine(
+		ImVec2(min.x + 1.0f, min.y + 1.0f),
+		ImVec2(max.x - 1.0f, min.y + 1.0f),
+		accent,
+		2.0f);
+	draw_list->AddRect(min, max, IM_COL32(73, 143, 126, 115), 4.0f, 0, 1.0f);
 }
 
 void psycho_imgui_end_child() {
@@ -492,6 +527,50 @@ float psycho_imgui_content_region_available_height() {
 	return ImGui::GetContentRegionAvail().y;
 }
 
+bool psycho_imgui_vertical_splitter(
+	const char* id,
+	float* leading_width,
+	float min_width,
+	float max_width,
+	float height) {
+	if (id == nullptr || leading_width == nullptr || max_width < min_width) {
+		return false;
+	}
+
+	const float splitter_width = 7.0f;
+	const float splitter_height = height > 1.0f
+		? height
+		: ImGui::GetContentRegionAvail().y;
+	const float before = *leading_width;
+	ImGui::InvisibleButton(id, ImVec2(splitter_width, splitter_height));
+	const bool hovered = ImGui::IsItemHovered();
+	const bool active = ImGui::IsItemActive();
+	if (hovered || active) {
+		ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeEW);
+	}
+	if (active) {
+		*leading_width = clamp_float(
+			before + ImGui::GetIO().MouseDelta.x,
+			min_width,
+			max_width);
+	}
+
+	const ImVec2 min = ImGui::GetItemRectMin();
+	const ImVec2 max = ImGui::GetItemRectMax();
+	const float center = (min.x + max.x) * 0.5f;
+	const ImU32 color = active
+		? IM_COL32(102, 235, 194, 230)
+		: hovered
+			? IM_COL32(86, 203, 170, 190)
+			: IM_COL32(52, 104, 86, 105);
+	ImGui::GetWindowDrawList()->AddLine(
+		ImVec2(center, min.y + 3.0f),
+		ImVec2(center, max.y - 3.0f),
+		color,
+		active ? 3.0f : 1.0f);
+	return *leading_width != before;
+}
+
 float psycho_imgui_frame_rate() {
 	return ImGui::GetIO().Framerate;
 }
@@ -502,6 +581,28 @@ bool psycho_imgui_slider_float(const char* label, float* value, float min, float
 
 bool psycho_imgui_slider_int(const char* label, int32_t* value, int32_t min, int32_t max) {
 	return ImGui::SliderInt(label, value, min, max);
+}
+
+bool psycho_imgui_input_text(const char* label, char* buffer, size_t buffer_size) {
+	if (label == nullptr || buffer == nullptr || buffer_size < 2) {
+		return false;
+	}
+	return ImGui::InputText(label, buffer, buffer_size);
+}
+
+bool psycho_imgui_input_text_multiline(
+	const char* label,
+	char* buffer,
+	size_t buffer_size,
+	float height) {
+	if (label == nullptr || buffer == nullptr || buffer_size < 2) {
+		return false;
+	}
+	return ImGui::InputTextMultiline(
+		label,
+		buffer,
+		buffer_size,
+		ImVec2(-FLT_MIN, height > 0.0f ? height : ImGui::GetTextLineHeight() * 4.0f));
 }
 
 bool psycho_imgui_precise_float(
@@ -673,6 +774,24 @@ static ImU32 telemetry_color(const float color[4]) {
 	return ImGui::ColorConvertFloat4ToU32(ImVec4(color[0], color[1], color[2], color[3]));
 }
 
+static ImU32 telemetry_frame_time_color(
+	float value,
+	float warning_threshold,
+	float critical_threshold,
+	uint8_t alpha,
+	ImU32 fallback) {
+	if (!std::isfinite(warning_threshold) || !std::isfinite(critical_threshold)) {
+		return fallback;
+	}
+	if (value > critical_threshold) {
+		return IM_COL32(255, 82, 76, alpha);
+	}
+	if (value > warning_threshold) {
+		return IM_COL32(255, 185, 72, alpha);
+	}
+	return IM_COL32(75, 232, 184, alpha);
+}
+
 static float telemetry_y(float value, float scale_min, float scale_max, float top, float bottom) {
 	const float normalized = clamp_float((value - scale_min) / (scale_max - scale_min), 0.0f, 1.0f);
 	return bottom - normalized * (bottom - top);
@@ -732,8 +851,21 @@ void psycho_imgui_telemetry_chart(const char* id, const PsychoImguiTelemetryChar
 	const ImVec2 plot_max(frame_max.x - 9.0f, frame_max.y - 23.0f);
 	ImDrawList* draw_list = ImGui::GetWindowDrawList();
 
-	draw_list->AddRectFilled(frame_min, frame_max, IM_COL32(5, 13, 11, 235), 5.0f);
-	draw_list->AddRect(frame_min, frame_max, IM_COL32(34, 83, 68, 180), 5.0f);
+	draw_list->AddRectFilledMultiColor(
+		frame_min,
+		frame_max,
+		IM_COL32(7, 20, 22, 248),
+		IM_COL32(10, 15, 27, 248),
+		IM_COL32(4, 9, 15, 248),
+		IM_COL32(4, 15, 15, 248));
+	draw_list->AddRect(frame_min, frame_max, IM_COL32(53, 134, 113, 185), 5.0f, 0, 1.0f);
+	draw_list->AddRect(
+		ImVec2(frame_min.x + 1.0f, frame_min.y + 1.0f),
+		ImVec2(frame_max.x - 1.0f, frame_max.y - 1.0f),
+		IM_COL32(80, 217, 175, 35),
+		4.0f,
+		0,
+		1.0f);
 
 	const float elapsed_seconds = static_cast<float>(chart->count - 1)
 		* chart->sample_interval_seconds;
@@ -894,13 +1026,45 @@ void psycho_imgui_telemetry_chart(const char* id, const PsychoImguiTelemetryChar
 				chart->scale_max,
 				plot_min.y,
 				plot_max.y);
+			const float segment_value = chart->values[index - 1] > chart->values[index]
+				? chart->values[index - 1]
+				: chart->values[index];
+			const ImU32 segment_fill = chart->color_by_threshold != 0
+				? telemetry_frame_time_color(
+					segment_value,
+					chart->warning_threshold,
+					chart->critical_threshold,
+					34,
+					fill_color)
+				: fill_color;
+			const ImU32 segment_glow = chart->color_by_threshold != 0
+				? telemetry_frame_time_color(
+					segment_value,
+					chart->warning_threshold,
+					chart->critical_threshold,
+					42,
+					line_color)
+				: IM_COL32(
+					static_cast<uint8_t>(chart->line_color[0] * 255.0f),
+					static_cast<uint8_t>(chart->line_color[1] * 255.0f),
+					static_cast<uint8_t>(chart->line_color[2] * 255.0f),
+					42);
+			const ImU32 segment_line = chart->color_by_threshold != 0
+				? telemetry_frame_time_color(
+					segment_value,
+					chart->warning_threshold,
+					chart->critical_threshold,
+					245,
+					line_color)
+				: line_color;
 			draw_list->AddQuadFilled(
 				ImVec2(x0, y0),
 				ImVec2(x1, y1),
 				ImVec2(x1, plot_max.y),
 				ImVec2(x0, plot_max.y),
-				fill_color);
-			draw_list->AddLine(ImVec2(x0, y0), ImVec2(x1, y1), line_color, 2.0f);
+				segment_fill);
+			draw_list->AddLine(ImVec2(x0, y0), ImVec2(x1, y1), segment_glow, 6.0f);
+			draw_list->AddLine(ImVec2(x0, y0), ImVec2(x1, y1), segment_line, 2.0f);
 		}
 
 		const float last_y = telemetry_y(
@@ -909,7 +1073,28 @@ void psycho_imgui_telemetry_chart(const char* id, const PsychoImguiTelemetryChar
 			chart->scale_max,
 			plot_min.y,
 			plot_max.y);
-		draw_list->AddCircleFilled(ImVec2(plot_max.x, last_y), 3.2f, line_color);
+		const ImU32 last_color = chart->color_by_threshold != 0
+			? telemetry_frame_time_color(
+				chart->values[chart->count - 1],
+				chart->warning_threshold,
+				chart->critical_threshold,
+				255,
+				line_color)
+			: line_color;
+		const ImU32 last_glow = chart->color_by_threshold != 0
+			? telemetry_frame_time_color(
+				chart->values[chart->count - 1],
+				chart->warning_threshold,
+				chart->critical_threshold,
+				70,
+				line_color)
+			: IM_COL32(
+				static_cast<uint8_t>(chart->line_color[0] * 255.0f),
+				static_cast<uint8_t>(chart->line_color[1] * 255.0f),
+				static_cast<uint8_t>(chart->line_color[2] * 255.0f),
+				70);
+		draw_list->AddCircleFilled(ImVec2(plot_max.x, last_y), 7.0f, last_glow);
+		draw_list->AddCircleFilled(ImVec2(plot_max.x, last_y), 3.4f, last_color);
 	}
 
 	const ImU32 overflow_color = IM_COL32(255, 101, 91, 235);

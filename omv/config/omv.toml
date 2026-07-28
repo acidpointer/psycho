@@ -1,3 +1,5 @@
+config_schema_version = 1
+
 [graphics]
 # Load and apply screen-space effects.
 #
@@ -380,9 +382,9 @@ sunset_blue = 0.03
 sky_multiplier = 2.043103
 
 [diagnostics]
-# Visible frame-pacing counters and charts update at this cadence while the
-# workbench is open. 0 restores per-frame instant updates; timed values are
-# clamped to 50-2000 ms. Raw frame capture remains per frame in every mode.
+# Deprecated compatibility key. OMV accepts and preserves it so older working
+# configs keep loading, but the diagnostics UI no longer exposes or uses it.
+# The raw chart advances every frame and summary metrics refresh at fixed 4 Hz.
 frame_pacing_update_interval_ms = 500
 
 # Enable verbose graphics-module logging.
