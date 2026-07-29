@@ -1,19 +1,41 @@
 //! World-only temporal anti-aliasing resolved before first-person and UI rendering.
+//!
+//! TAA copies the engine world target, resolves color into ping-pong FP16
+//! history, records a logarithmic depth-rejection key, and copies the result
+//! back before first-person/UI rendering. On devices exposing two render
+//! targets plus `MRTINDEPENDENTBITDEPTHS`, color and the R16F key are emitted by
+//! one pixel invocation. The original two-pass path remains the capability
+//! fallback. Both paths preserve engine alpha and are enclosed by the world
+//! pipeline's full state/attachment transaction.
+//!
+//! All three production variants are compiled and cached by a process worker.
+//! World render callbacks only create device objects from published bytecode.
 
+use std::{
+    sync::{
+        LazyLock,
+        atomic::{AtomicBool, Ordering},
+    },
+    thread,
+};
+
+use anyhow::Result;
 use libpsycho::os::windows::directx9::{
-    D3DCULL_NONE, D3DFMT_A16B16G16R16F, D3DFMT_R16F, D3DFORMAT, D3DPT_TRIANGLESTRIP,
-    D3DRS_ALPHABLENDENABLE, D3DRS_ALPHATESTENABLE, D3DRS_COLORWRITEENABLE, D3DRS_CULLMODE,
+    D3DCULL_NONE, D3DFMT_A16B16G16R16F, D3DFMT_R16F, D3DFORMAT, D3DPT_TRIANGLELIST,
+    D3DRS_ALPHABLENDENABLE, D3DRS_ALPHATESTENABLE, D3DRS_COLORWRITEENABLE, D3DRS_COLORWRITEENABLE1,
+    D3DRS_CULLMODE, D3DRS_SCISSORTESTENABLE, D3DRS_SRGBWRITEENABLE, D3DRS_STENCILENABLE,
     D3DRS_ZENABLE, D3DRS_ZWRITEENABLE, D3DSAMP_ADDRESSU, D3DSAMP_ADDRESSV, D3DSAMP_MAGFILTER,
-    D3DSAMP_MINFILTER, D3DSAMP_MIPFILTER, D3DSURFACE_DESC, D3DTA_TEXTURE, D3DTADDRESS_CLAMP,
-    D3DTEXF_LINEAR, D3DTEXF_NONE, D3DTEXF_POINT, D3DTOP_SELECTARG1, D3DTSS_ALPHAARG1,
-    D3DTSS_ALPHAOP, D3DTSS_COLORARG1, D3DTSS_COLOROP, D3DVIEWPORT9, Device9Ref, Direct3DResult,
-    PixelShader9, ScreenVertex, Surface9, Texture9, direct3d_failure,
+    D3DSAMP_MINFILTER, D3DSAMP_MIPFILTER, D3DSAMP_SRGBTEXTURE, D3DSURFACE_DESC, D3DTA_TEXTURE,
+    D3DTADDRESS_CLAMP, D3DTEXF_LINEAR, D3DTEXF_NONE, D3DTEXF_POINT, D3DTOP_SELECTARG1,
+    D3DTSS_ALPHAARG1, D3DTSS_ALPHAOP, D3DTSS_COLORARG1, D3DTSS_COLOROP, D3DVIEWPORT9, Device9Ref,
+    Direct3DResult, PixelShader9, ScreenVertex, Surface9, Texture9, direct3d_failure,
 };
 
 use crate::{
     backend::{CameraFrame, DepthFrame},
     config, shaders,
 };
+use parking_lot::Mutex;
 
 const COLOR_WRITE_ALL: u32 = 0x0F;
 const OPTION_REGISTER: u32 = 3;
@@ -22,12 +44,66 @@ const TARGET_RETRY_FRAMES: u16 = 120;
 const TAA_SHADER: &[u8] = include_bytes!("../../shaders/embedded/aa_temporal.hlsl");
 const DEPTH_KEY_SHADER: &[u8] = include_bytes!("../../shaders/embedded/aa_temporal_depth_key.hlsl");
 
+static COMPILE_STARTED: AtomicBool = AtomicBool::new(false);
+static COMPILE_FAILED: AtomicBool = AtomicBool::new(false);
+static COMPILE_READY: AtomicBool = AtomicBool::new(false);
+static BYTECODE: LazyLock<Mutex<Option<TemporalAaBytecode>>> = LazyLock::new(|| Mutex::new(None));
+
+struct TemporalAaBytecode {
+    resolve: Vec<u32>,
+    resolve_mrt: Vec<u32>,
+    depth_key: Vec<u32>,
+}
+
+impl TemporalAaBytecode {
+    fn compile() -> Result<Self> {
+        Ok(Self {
+            resolve: shaders::compile_hlsl_source("aa_temporal.hlsl", TAA_SHADER)?,
+            resolve_mrt: shaders::compile_hlsl_source(
+                "aa_temporal.hlsl:mrt",
+                &temporal_shader_source(true),
+            )?,
+            depth_key: shaders::compile_hlsl_source(
+                "aa_temporal_depth_key.hlsl",
+                DEPTH_KEY_SHADER,
+            )?,
+        })
+    }
+}
+
+/// Start process-owned TAA shader preparation outside world render callbacks.
+pub(crate) fn service_preparation() {
+    if COMPILE_STARTED.swap(true, Ordering::AcqRel) {
+        return;
+    }
+    if let Err(err) = thread::Builder::new()
+        .name("omv-taa-compile".to_owned())
+        .spawn(
+            || match super::shader_preparation::run_serialized(TemporalAaBytecode::compile) {
+                Ok(bytecode) => {
+                    *BYTECODE.lock() = Some(bytecode);
+                    COMPILE_READY.store(true, Ordering::Release);
+                }
+                Err(err) => {
+                    COMPILE_FAILED.store(true, Ordering::Release);
+                    log::warn!("[TAA] Shader preparation failed: {err:#}");
+                }
+            },
+        )
+    {
+        COMPILE_FAILED.store(true, Ordering::Release);
+        log::warn!("[TAA] Could not start shader preparation: {err}");
+    }
+}
+
 #[derive(Clone, Copy)]
+/// Sanitized temporal-AA constants used by jitter and resolve.
 pub(crate) struct TemporalAaConfig {
     options: [f32; 4],
 }
 
 impl TemporalAaConfig {
+    /// Convert menu configuration into the fixed shader constant payload.
     pub(crate) fn from_config(config: config::TemporalAaConfig) -> Self {
         Self {
             options: [
@@ -39,6 +115,7 @@ impl TemporalAaConfig {
         }
     }
 
+    /// Return the bounded projection-jitter scale in pixel units.
     pub(crate) fn jitter_scale(self) -> f32 {
         self.options[3].clamp(0.0, 1.5)
     }
@@ -46,7 +123,10 @@ impl TemporalAaConfig {
 
 #[cfg(test)]
 mod shader_compile_tests {
-    use super::{DEPTH_KEY_SHADER, TAA_SHADER, TemporalCameraState, TemporalReprojection};
+    use super::{
+        DEPTH_KEY_SHADER, TAA_SHADER, TemporalCameraState, TemporalReprojection,
+        temporal_shader_source,
+    };
     use crate::backend::{CameraFrame, CameraTransformFrame};
 
     fn camera(rotation: [[f32; 3]; 3], translation: [f32; 3]) -> CameraFrame {
@@ -190,9 +270,33 @@ mod shader_compile_tests {
     fn embedded_temporal_aa_shader_compiles() {
         crate::shaders::assert_hlsl_compiles("aa_temporal.hlsl", TAA_SHADER, "ps_3_0");
         crate::shaders::assert_hlsl_compiles(
+            "aa_temporal.hlsl:mrt",
+            &temporal_shader_source(true),
+            "ps_3_0",
+        );
+        crate::shaders::assert_hlsl_compiles(
             "aa_temporal_depth_key.hlsl",
             DEPTH_KEY_SHADER,
             "ps_3_0",
+        );
+    }
+
+    #[test]
+    fn mrt_path_owns_auxiliary_attachments_and_color_write_mask() {
+        let source = include_str!("temporal_aa.rs");
+        let detach_depth = source
+            .find("device.set_depth_stencil_surface(None)?")
+            .expect("depth attachment detach");
+        let detach_auxiliary = source
+            .find("device.clear_render_target(index)?")
+            .expect("auxiliary target detach");
+        let attach_mrt = source
+            .find("device.set_render_target(1, &targets.depth_key_history")
+            .expect("MRT depth-key target");
+        assert!(detach_depth < detach_auxiliary);
+        assert!(detach_auxiliary < attach_mrt);
+        assert!(
+            source.contains("device.set_render_state(D3DRS_COLORWRITEENABLE1, COLOR_WRITE_ALL)?")
         );
     }
 
@@ -201,23 +305,28 @@ mod shader_compile_tests {
         const TEXLD: u16 = 66;
         const TEXLDD: u16 = 93;
         const TEXLDL: u16 = 95;
-        let bytecode = crate::shaders::compile_hlsl_source("aa_temporal.hlsl", TAA_SHADER)
-            .expect("temporal AA shader");
-        assert_eq!(bytecode[0], 0xffff_0300);
-        let opcodes = compiled_instruction_opcodes(&bytecode);
-        let texture_count = opcodes
-            .iter()
-            .filter(|opcode| matches!(**opcode, TEXLD | TEXLDD | TEXLDL))
-            .count();
-        assert!(
-            opcodes.len() <= 320,
-            "temporal AA grew to {} instructions",
-            opcodes.len()
-        );
-        assert!(
-            texture_count <= 8,
-            "temporal AA grew to {texture_count} texture operations"
-        );
+        for (name, source, instruction_budget) in [
+            ("aa_temporal.hlsl", TAA_SHADER.to_vec(), 320),
+            ("aa_temporal.hlsl:mrt", temporal_shader_source(true), 350),
+        ] {
+            let bytecode =
+                crate::shaders::compile_hlsl_source(name, &source).expect("temporal AA shader");
+            assert_eq!(bytecode[0], 0xffff_0300);
+            let opcodes = compiled_instruction_opcodes(&bytecode);
+            let texture_count = opcodes
+                .iter()
+                .filter(|opcode| matches!(**opcode, TEXLD | TEXLDD | TEXLDL))
+                .count();
+            assert!(
+                opcodes.len() <= instruction_budget,
+                "{name} grew to {} instructions",
+                opcodes.len()
+            );
+            assert!(
+                texture_count <= 8,
+                "{name} grew to {texture_count} texture operations"
+            );
+        }
     }
 
     #[test]
@@ -233,7 +342,8 @@ mod shader_compile_tests {
     fn temporal_resolve_keeps_depth_keys_out_of_world_alpha() {
         let source = std::str::from_utf8(TAA_SHADER).expect("TAA source is UTF-8");
         assert!(source.contains("sampler2D HistoryDepthKey : register(s3)"));
-        assert!(source.contains("return float4(resolved, current.a)"));
+        assert!(source.contains("float4 outputColor = float4(resolved, current.a)"));
+        assert!(source.contains("return MakeOutput(outputColor, currentDepthKey)"));
         assert!(!source.contains("history.a - expectedKey"));
         assert!(!source.contains("return float4(current, currentKey)"));
     }
@@ -420,10 +530,13 @@ mod shader_compile_tests {
     }
 }
 
+/// Device-owned TAA shaders, ping-pong histories, and camera history.
 pub(crate) struct TemporalAaEffect {
     shader: PixelShader9,
+    mrt_shader: Option<PixelShader9>,
     depth_key_shader: PixelShader9,
     targets: Option<TemporalTargets>,
+    render_target_count: u32,
     previous_camera: Option<TemporalCameraState>,
     history_index: usize,
     history_valid: bool,
@@ -432,28 +545,70 @@ pub(crate) struct TemporalAaEffect {
 }
 
 impl TemporalAaEffect {
-    pub(crate) fn create(device: &Device9Ref<'_>) -> Direct3DResult<Self> {
-        Ok(Self {
-            shader: compile_shader(device, "aa_temporal.hlsl", TAA_SHADER)?,
-            depth_key_shader: compile_shader(
-                device,
-                "aa_temporal_depth_key.hlsl",
-                DEPTH_KEY_SHADER,
-            )?,
+    /// Create device-owned TAA shaders and select the mixed-format MRT path.
+    ///
+    /// `Ok(None)` is a normal nonblocking result while bytecode preparation is
+    /// still active.
+    pub(crate) fn create(device: &Device9Ref<'_>) -> Direct3DResult<Option<Self>> {
+        service_preparation();
+        if COMPILE_FAILED.load(Ordering::Acquire) {
+            return Err(direct3d_failure());
+        }
+        if !COMPILE_READY.load(Ordering::Acquire) {
+            return Ok(None);
+        }
+        let Some(bytecode) = BYTECODE.try_lock() else {
+            return Ok(None);
+        };
+        let Some(bytecode) = bytecode.as_ref() else {
+            return Ok(None);
+        };
+
+        let render_target_count = device.simultaneous_render_target_count()?.clamp(1, 4);
+        let mrt_supported =
+            render_target_count >= 2 && device.supports_independent_mrt_bit_depths()?;
+        let mrt_shader = if mrt_supported {
+            match device.create_pixel_shader(&bytecode.resolve_mrt) {
+                Ok(shader) => Some(shader),
+                Err(err) => {
+                    log::warn!(
+                        "[TAA] Mixed-format MRT shader unavailable; retaining the two-pass fallback: {err}"
+                    );
+                    None
+                }
+            }
+        } else {
+            None
+        };
+        log::info!(
+            "[TAA] Resolve path: {}",
+            if mrt_shader.is_some() {
+                "single-pass color+depth-key MRT"
+            } else {
+                "two-pass compatibility"
+            }
+        );
+        Ok(Some(Self {
+            shader: device.create_pixel_shader(&bytecode.resolve)?,
+            mrt_shader,
+            depth_key_shader: device.create_pixel_shader(&bytecode.depth_key)?,
             targets: None,
+            render_target_count,
             previous_camera: None,
             history_index: 0,
             history_valid: false,
             failed_target: None,
             target_retry_frames: 0,
-        })
+        }))
     }
 
+    /// Invalidate temporal camera and image history after a discontinuity.
     pub(crate) fn invalidate_history(&mut self) {
         self.previous_camera = None;
         self.history_valid = false;
     }
 
+    /// Return whether the next world render may safely apply projection jitter.
     pub(crate) fn can_jitter(
         &self,
         camera: CameraFrame,
@@ -471,6 +626,7 @@ impl TemporalAaEffect {
             })
     }
 
+    /// Return whether current color history can preserve world-target alpha.
     pub(crate) fn alpha_preserving_history_ready(&self, target: TargetDescription) -> bool {
         self.history_valid
             && self
@@ -479,6 +635,7 @@ impl TemporalAaEffect {
                 .is_some_and(|targets| targets.matches_description(target))
     }
 
+    /// Resolve one world frame into history and copy it back to the engine target.
     pub(crate) fn draw(
         &mut self,
         device: &Device9Ref<'_>,
@@ -550,6 +707,14 @@ impl TemporalAaEffect {
         let read_index = self.history_index;
         let write_index = 1 - read_index;
 
+        // The all-state block does not own render targets or depth/stencil.
+        // Detach the captured engine attachments before binding a non-MSAA
+        // history surface; otherwise an inherited auxiliary target can make
+        // SetRenderTarget or DrawPrimitive fail validation on stricter drivers.
+        device.set_depth_stencil_surface(None)?;
+        for index in 1..self.render_target_count {
+            device.clear_render_target(index)?;
+        }
         bind_pipeline_state(device)?;
         bind_target(device, &targets.color_history[write_index].surface, desc)?;
         device.set_texture(0, &targets.current.texture)?;
@@ -567,28 +732,42 @@ impl TemporalAaEffect {
             reprojection,
             history_available,
         )?;
-        device.set_pixel_shader(&self.shader)?;
+        let use_mrt = self.mrt_shader.is_some();
+        if use_mrt {
+            // COLOR0 is FP16 RGBA while COLOR1 is R16F. Capability selection
+            // in `create` proves this mixed-bit-depth pair before any target is
+            // attached, avoiding a speculative failing draw in the hot path.
+            device.set_render_target(1, &targets.depth_key_history[write_index].surface)?;
+        }
+        device.set_pixel_shader(self.mrt_shader.as_ref().unwrap_or(&self.shader))?;
         draw_quad(device, desc)?;
 
         device.clear_texture(0)?;
         device.clear_texture(1)?;
         device.clear_texture(2)?;
         device.clear_texture(3)?;
-        bind_target(
-            device,
-            &targets.depth_key_history[write_index].surface,
-            desc,
-        )?;
-        unsafe {
-            device.set_raw_base_texture(0, depth_texture.as_ptr())?;
+        if use_mrt {
+            device.clear_render_target(1)?;
+            // StretchRect cannot portably read a surface that is still bound
+            // as RT0. Bind the no-longer-sampled previous depth history as a
+            // harmless placeholder before copying resolved color back.
+            device.set_render_target(0, &targets.depth_key_history[read_index].surface)?;
+        } else {
+            bind_target(
+                device,
+                &targets.depth_key_history[write_index].surface,
+                desc,
+            )?;
+            unsafe {
+                device.set_raw_base_texture(0, depth_texture.as_ptr())?;
+            }
+            device.set_sampler_state(0, D3DSAMP_MINFILTER, D3DTEXF_POINT.0 as u32)?;
+            device.set_sampler_state(0, D3DSAMP_MAGFILTER, D3DTEXF_POINT.0 as u32)?;
+            bind_depth_key_constants(device, depth)?;
+            device.set_pixel_shader(&self.depth_key_shader)?;
+            draw_quad(device, desc)?;
+            device.clear_texture(0)?;
         }
-        device.set_sampler_state(0, D3DSAMP_MINFILTER, D3DTEXF_POINT.0 as u32)?;
-        device.set_sampler_state(0, D3DSAMP_MAGFILTER, D3DTEXF_POINT.0 as u32)?;
-        bind_depth_key_constants(device, depth)?;
-        device.set_pixel_shader(&self.depth_key_shader)?;
-        draw_quad(device, desc)?;
-
-        device.clear_texture(0)?;
         device.stretch_rect(
             &targets.color_history[write_index].surface,
             None,
@@ -814,19 +993,10 @@ fn bind_depth_key_constants(device: &Device9Ref<'_>, depth: DepthFrame) -> Direc
     )
 }
 
-fn compile_shader(
-    device: &Device9Ref<'_>,
-    source_name: &str,
-    source: &[u8],
-) -> Direct3DResult<PixelShader9> {
-    let bytecode = match shaders::compile_hlsl_source(source_name, source) {
-        Ok(bytecode) => bytecode,
-        Err(err) => {
-            log::warn!("[TAA] Failed to compile {source_name}: {err:#}");
-            return Err(direct3d_failure());
-        }
-    };
-    device.create_pixel_shader(&bytecode)
+fn temporal_shader_source(mrt: bool) -> Vec<u8> {
+    let mut source = format!("#define OMV_TAA_MRT {}\n", mrt as u8).into_bytes();
+    source.extend_from_slice(TAA_SHADER);
+    source
 }
 
 fn bind_pipeline_state(device: &Device9Ref<'_>) -> Direct3DResult<()> {
@@ -837,7 +1007,14 @@ fn bind_pipeline_state(device: &Device9Ref<'_>) -> Direct3DResult<()> {
     device.set_render_state(D3DRS_ALPHATESTENABLE, 0)?;
     device.set_render_state(D3DRS_ZENABLE, 0)?;
     device.set_render_state(D3DRS_ZWRITEENABLE, 0)?;
+    device.set_render_state(D3DRS_STENCILENABLE, 0)?;
+    device.set_render_state(D3DRS_SCISSORTESTENABLE, 0)?;
+    device.set_render_state(D3DRS_SRGBWRITEENABLE, 0)?;
     device.set_render_state(D3DRS_COLORWRITEENABLE, COLOR_WRITE_ALL)?;
+    // D3DRS_COLORWRITEENABLE controls only COLOR0. RT1 has an independent
+    // write mask, which the engine is free to leave disabled before OMV's
+    // transaction; explicitly enable it for the MRT depth-key output.
+    device.set_render_state(D3DRS_COLORWRITEENABLE1, COLOR_WRITE_ALL)?;
     for sampler in 0..=3 {
         let filter = if sampler == 1 || sampler == 3 {
             D3DTEXF_POINT
@@ -849,6 +1026,7 @@ fn bind_pipeline_state(device: &Device9Ref<'_>) -> Direct3DResult<()> {
         device.set_sampler_state(sampler, D3DSAMP_MINFILTER, filter.0 as u32)?;
         device.set_sampler_state(sampler, D3DSAMP_MAGFILTER, filter.0 as u32)?;
         device.set_sampler_state(sampler, D3DSAMP_MIPFILTER, D3DTEXF_NONE.0 as u32)?;
+        device.set_sampler_state(sampler, D3DSAMP_SRGBTEXTURE, 0)?;
     }
     device.set_texture_stage_state(0, D3DTSS_COLOROP, D3DTOP_SELECTARG1.0 as u32)?;
     device.set_texture_stage_state(0, D3DTSS_COLORARG1, D3DTA_TEXTURE)?;
@@ -876,13 +1054,14 @@ fn bind_target(
 fn draw_quad(device: &Device9Ref<'_>, desc: &D3DSURFACE_DESC) -> Direct3DResult<()> {
     let width = desc.Width as f32;
     let height = desc.Height as f32;
-    let quad = [
+    // A screen triangle covers the same D3D9 half-pixel rectangle as the old
+    // strip without a diagonal seam or a fourth transformed vertex.
+    let triangle = [
         ScreenVertex::new(-0.5, -0.5, 0.0, 0.0),
-        ScreenVertex::new(width - 0.5, -0.5, 1.0, 0.0),
-        ScreenVertex::new(-0.5, height - 0.5, 0.0, 1.0),
-        ScreenVertex::new(width - 0.5, height - 0.5, 1.0, 1.0),
+        ScreenVertex::new(width * 2.0 - 0.5, -0.5, 2.0, 0.0),
+        ScreenVertex::new(-0.5, height * 2.0 - 0.5, 0.0, 2.0),
     ];
-    unsafe { device.draw_primitive_up(D3DPT_TRIANGLESTRIP, 2, &quad) }
+    unsafe { device.draw_primitive_up(D3DPT_TRIANGLELIST, 1, &triangle) }
 }
 
 struct TemporalTargets {
@@ -922,6 +1101,7 @@ impl TemporalTargets {
 }
 
 #[derive(Clone, Copy, Eq, PartialEq)]
+/// Width, height, and format identity for a temporal world target.
 pub(crate) struct TargetDescription {
     pub(crate) width: u32,
     pub(crate) height: u32,

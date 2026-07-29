@@ -41,12 +41,12 @@ void AccumulateNear(
     float coverage = saturate((sampleRadius - ringDistance + 2.0f) * 0.25f);
     float radiusSquared = dot(diskOffset, diskOffset);
     float roundSpatial = saturate(1.15f - radiusSquared * 0.35f);
+#if DOF_SOFT_SHAPE
     float softSpatial = exp2(-radiusSquared * 1.8f);
-    float spatial = lerp(
-        roundSpatial,
-        softSpatial,
-        (DistantData.z > 0.5f) ? saturate(RadiusData.z) : 0.0f
-    );
+    float spatial = lerp(roundSpatial, softSpatial, saturate(RadiusData.z));
+#else
+    float spatial = roundSpatial;
+#endif
     float weight = coverage * nearCoc * spatial;
     colorSum += tex2Dlod(PrefilterTexture, float4(sampleUv, 0.0f, 0.0f)).rgb * weight;
     nearWeightSum += weight;
@@ -60,7 +60,11 @@ float4 Main(PixelInput input) : COLOR0 {
     }
 
     float2 pixel = floor(input.uv * TargetData.xy);
-    float2 rotation = (DistantData.z > 0.5f) ? float2(1.0f, 0.0f) : PixelRotation(pixel);
+#if DOF_SOFT_SHAPE
+    float2 rotation = float2(1.0f, 0.0f);
+#else
+    float2 rotation = PixelRotation(pixel);
+#endif
     float centerRadius = RadiusData.x * dilatedCoc;
     float centerNear = saturate(-tex2Dlod(FullCoc, float4(input.uv, 0.0f, 0.0f)).r);
     float centerWeight = centerNear * 1.5f;

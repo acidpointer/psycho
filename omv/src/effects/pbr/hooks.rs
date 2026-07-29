@@ -522,6 +522,9 @@ unsafe extern "thiscall" fn hook_create_vertex_shader(
     };
 
     let shader = unsafe { original(shader_owner, file_name, arg2, shader_type, shader_name) };
+    // Shader creation is an initialization-time ownership event, not a
+    // per-draw cost. Observe it even while replacement is disabled so a later
+    // in-game enable can reuse wrappers that the engine will not recreate.
     capture_created_shader(shader, ShaderStage::Vertex, shader_name);
     shader
 }
@@ -538,6 +541,8 @@ unsafe extern "thiscall" fn hook_create_pixel_shader(
     };
 
     let shader = unsafe { original(shader_owner, file_name, arg2, shader_type, shader_name) };
+    // See the vertex path above: retaining this one-time observation is what
+    // makes an initially-disabled PBR configuration safe to enable live.
     capture_created_shader(shader, ShaderStage::Pixel, shader_name);
     shader
 }
@@ -1301,16 +1306,26 @@ unsafe extern "thiscall" fn hook_set_texture(
     stage: u32,
     texture: *mut c_void,
 ) {
+    let Ok(original) = SET_TEXTURE_HOOK.original() else {
+        return;
+    };
+    if !super::replacement_configured() {
+        // The hooks remain resident by the PBR engine-ownership contract, but
+        // disabled frames must not read selectors, update sampler atomics, or
+        // evaluate pending replacement masks. Re-enable clears the sampler
+        // cache, so incomplete post-toggle bindings fail closed to vanilla.
+        unsafe {
+            original(render_state, stage, texture);
+        }
+        return;
+    }
+
     let selector = if diagnostics::detailed_enabled() {
         engine_contracts::current_draw_selector_address_fast()
     } else {
         0
     };
     super::samplers::record_texture_binding(stage, texture, selector);
-
-    let Ok(original) = SET_TEXTURE_HOOK.original() else {
-        return;
-    };
     unsafe {
         original(render_state, stage, texture);
     }
@@ -2033,6 +2048,57 @@ mod tests {
         let disabled_gate = set_shaders.find("if !super::shader_enabled()").unwrap();
         let restore = set_shaders.find("restore_direct_d3d_state()").unwrap();
         assert!(disabled_gate < restore);
+    }
+
+    #[test]
+    fn disabled_set_texture_bypasses_before_sampler_tracking() {
+        let source = include_str!("hooks.rs");
+        let hook = source
+            .split_once("unsafe extern \"thiscall\" fn hook_set_texture")
+            .map(|(_, tail)| tail)
+            .and_then(|tail| tail.split_once("fn capture_created_shader"))
+            .map(|(body, _)| body)
+            .expect("SetTexture hook");
+        let gate = hook
+            .find("if !super::replacement_configured()")
+            .expect("configured-state gate");
+        let native = hook[gate..]
+            .find("original(render_state, stage, texture)")
+            .map(|offset| gate + offset)
+            .expect("native SetTexture");
+        let tracking = hook
+            .find("super::samplers::record_texture_binding")
+            .expect("sampler tracking");
+
+        assert!(gate < native);
+        assert!(native < tracking);
+    }
+
+    #[test]
+    fn shader_creation_remains_observable_while_replacement_is_disabled() {
+        let source = include_str!("hooks.rs");
+        for (start, end) in [
+            (
+                "unsafe extern \"thiscall\" fn hook_create_vertex_shader",
+                "unsafe extern \"thiscall\" fn hook_create_pixel_shader",
+            ),
+            (
+                "unsafe extern \"thiscall\" fn hook_create_pixel_shader",
+                "unsafe extern \"thiscall\" fn hook_set_shaders",
+            ),
+        ] {
+            let body = source
+                .split_once(start)
+                .map(|(_, tail)| tail)
+                .and_then(|tail| tail.split_once(end))
+                .map(|(body, _)| body)
+                .expect("shader creation hook");
+            assert!(body.contains("capture_created_shader"));
+            assert!(
+                !body.contains("replacement_configured"),
+                "one-time engine wrapper observation must survive initial disable"
+            );
+        }
     }
 
     #[test]

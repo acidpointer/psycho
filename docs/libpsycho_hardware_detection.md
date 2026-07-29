@@ -1,7 +1,8 @@
 # libpsycho hardware detection
 
-Status: implemented; automated i686 Windows/Wine validation complete, native
-Windows and live renderer acceptance pending.
+Status: implemented; automated i686 Windows/Wine validation and live RTX 5060
+Proton/DXVK physical-identity acceptance complete. Native-Windows and broader
+multi-vendor runtime coverage remain.
 
 Date: 2026-07-29.
 
@@ -49,6 +50,9 @@ validation, and the runtime acceptance work that still requires real hardware.
 7. Return unknown or a typed component error instead of inventing a value.
    Failure to read SMBIOS or DXGI metadata must not discard valid CPU, memory,
    runtime, or D3D9 results.
+8. Keep physical renderer identity separate from the identity exposed to a
+   D3D9 application. On DXVK, query the live device's Vulkan interop handle;
+   never call a DXVK compatibility identity the physical GPU.
 
 ## Why one monolithic `detect_all` call is wrong
 
@@ -113,7 +117,8 @@ Windows binding types, or references into a temporary API buffer.
 | OS-visible physical/page-file/virtual memory | `GlobalMemoryStatusEx` | Required Windows/Wine view for this process. Dynamic availability is queried live. |
 | Physically installed memory | `GetPhysicallyInstalledSystemMemory` | Optional SMBIOS-derived capacity. It must not replace OS-visible capacity. |
 | DIMM type, size, speed, rank, and ECC | `GetSystemFirmwareTable('RSMB')`, SMBIOS Types 16 and 17 | Optional firmware report. Parse defensively; never infer missing fields. |
-| Active GPU identity | `IDirect3DDevice9::GetCreationParameters`, then the same device's `GetDirect3D` and adapter ordinal | Exact D3D9 device owner. No default-adapter substitution. |
+| Active physical GPU identity | DXVK `ID3D9VkInteropDevice::GetVulkanHandles`, followed by Vulkan physical-device properties; otherwise the live device's owning D3D9 interface and adapter ordinal | The exact physical renderer when DXVK exposes interop. Native D3D9 remains authoritative when interop is absent. No inventory matching or default-adapter substitution. |
+| D3D9 compatibility identity | `IDirect3DDevice9::GetCreationParameters`, then the same device's `GetDirect3D` and adapter ordinal | Exact identity presented to the game. Under DXVK this may intentionally differ from physical hardware. |
 | Active GPU features | `IDirect3DDevice9::GetDeviceCaps` and matching `IDirect3D9::CheckDeviceFormat` probes | Effective features available to the game through the native driver, wined3d, or DXVK. |
 | System graphics inventory and static memory descriptions | Deferred; not part of the implemented D3D9 profile | DXGI cannot identify the active base-D3D9 device reliably and 32-bit `SIZE_T` cannot represent all modern VRAM capacities exactly. |
 | Wine | `ntdll.dll!wine_get_version` | A present Wine-owned export proves Wine. Environment variables alone do not. |
@@ -281,12 +286,24 @@ The precise path starts with the host's `IDirect3DDevice9`:
 3. use the returned object's matching ordinal for `GetAdapterIdentifier`;
 4. call the device's `GetDeviceCaps`;
 5. issue selected `CheckDeviceFormat` probes through the same Direct3D object,
-   ordinal, device type, and adapter display format.
+   ordinal, device type, and adapter display format;
+6. query the live device for DXVK's `ID3D9VkInteropDevice`;
+7. when present, call `GetVulkanHandles` and read properties for that exact
+   `VkPhysicalDevice`.
 
 Microsoft explicitly warns that adapter ordinals are meaningful only inside
-the Direct3D instance that created the device. This sequence also handles
-hybrid laptops, adapter reordering, Wine, DXVK device filtering, and external
-renderer selection without guessing.
+the Direct3D instance that created the device. That rule proves which D3D9
+adapter identity and capabilities belong to the device, but it does not prove
+physical identity under DXVK.
+
+DXVK 2.7.1 enables `d3d9.hideNvidiaGpu=True` for `FalloutNV.exe`. Its adapter
+implementation replaces a hidden NVIDIA adapter's D3D9 description and PCI IDs
+with an AMD RX 6700 XT fallback. Therefore `GetAdapterIdentifier` returning AMD
+on an RTX 5060 is expected DXVK behavior, not evidence that AMD executes the
+work. The DXVK interop device is the safe intervention point: its
+`GetVulkanHandles` implementation returns the physical adapter owned by the
+same DXVK device. This remains exact on multi-GPU systems because no separate
+Vulkan enumeration or name matching occurs.
 
 `GetAdapterIdentifier` must use flags zero. Requesting
 `D3DENUM_WHQL_LEVEL` can initiate a network lookup on affected native Windows
@@ -294,17 +311,34 @@ versions and violates the detector's cost and side-effect contract.
 
 ### D3D9 identity
 
-`D3d9DeviceProfile` exposes the adapter ordinal and device type, while its
-`GpuIdentity` exposes:
+`D3d9DeviceProfile` exposes two deliberately separate identities.
+
+`GpuIdentity` is the D3D9 compatibility identity and exposes:
 
 - description, driver display name, and GDI device name;
 - the packed native driver version;
 - vendor, device, subsystem, and revision IDs;
 - the D3D driver/chip-set GUID.
 
-Strings are presentation metadata. The PCI tuple and device GUID remain
-separate so later policy does not key off a localized or compatibility-layer
-description.
+`DxvkPhysicalDeviceIdentity`, when available, exposes the active Vulkan
+physical-device name, vendor/device IDs, device class, API version,
+vendor-specific driver version, device UUID, and optional Vulkan driver
+name/information. `D3d9DeviceProfile::active_gpu_identity()` always selects
+this physical identity ahead of the D3D9 compatibility identity. On native
+D3D9 or another implementation without DXVK interop, it returns the owning
+D3D9 adapter identity.
+
+Strings are presentation metadata. PCI IDs and UUIDs remain separate so later
+policy does not key off a localized description. The Vulkan path is identity
+only: D3D9 caps and format probes remain authoritative for OMV rendering
+features.
+
+The DXVK query is lazy and bounded. It performs one COM `QueryInterface`, one
+interop handle query, and one or two Vulkan property calls for the cached D3D9
+device. It creates no Vulkan instance or logical device, enumerates no physical
+devices, allocates no GPU resource, and performs no recurring work. `ash` is
+used with default features disabled as an ABI/type definition dependency; it
+does not independently load Vulkan or own the returned handles.
 
 ### Effective GPU features
 
@@ -509,6 +543,93 @@ query, or SMBIOS table is rendered as `unknown` or `unavailable` at INFO level.
 It never changes allocator selection, feature installation, or engine policy.
 It performs no recurring work after startup.
 
+## OMV system diagnostics
+
+OMV consumes `d3d9_device_profile` in its in-game Diagnostics tab. The panel
+describes both the physical renderer and the compatibility identity of Fallout
+New Vegas's live D3D9 device:
+
+- on DXVK, the authoritative Vulkan physical-device name, vendor/device IDs,
+  device class, API and driver versions, UUID, and driver strings;
+- the D3D9 compatibility description and PCI IDs as an explicitly labeled
+  second identity when DXVK interop is active;
+- on native D3D9, the owning adapter description, PCI
+  vendor/device/subsystem/revision IDs, device GUID, and WHQL level;
+- D3D9 driver module, display-device name, and the exact packed driver version;
+- adapter ordinal, device implementation, and creation behavior flags;
+- normalized D3D9 feature flags plus texture, volume, MRT, sampler, anisotropy,
+  stream, stride, blend-stage, shader-model, and constant-register limits;
+- proven RESZ, INTZ, FP16/FP32 render-target, FP16 blending, and sRGB format
+  support;
+- `GetAvailableTextureMem` as an explicitly labeled profile-time driver
+  estimate, never as physical VRAM.
+
+The same view consumes the cached `system_profile().runtime` contract. Its
+environment summary exposes:
+
+- the proven native-Windows, Wine, or Proton classification;
+- Wine version and build identifier when the corresponding ntdll exports are
+  present;
+- Wine's host-system name and release when exported;
+- presence of Steam's compatibility-prefix marker and the Steam application
+  ID when supplied.
+
+The top **System at a Glance** row presents the physical GPU and compatibility
+environment as two gradient cards matching the frame-pacing dashboard. The
+cards stack when the available content width falls below 640 pixels. Detailed
+evidence remains in separate Environment Details, Graphics Device, and D3D9
+Capabilities sections after the complete frame-pacing and Target Delivery
+dashboard, so the performance overview stays adjacent to the summary and the
+summary does not erase the physical-versus-compatibility distinction or hide
+feature evidence.
+
+`omv/src/runtime.rs` owns the presentation and device-scoped cache. Collection
+begins only after the Diagnostics tab is active and uses the exact
+`IDirect3DDevice9` already owned by the OMV runtime. If that device supports
+DXVK interop, the same query resolves its exact Vulkan physical device before
+copying owned properties. The result retains no COM or Vulkan handle. Both
+success and failure are cached, so normal Presents and subsequent diagnostics
+frames perform no repeated capability probes. A new D3D9 device identity
+clears the cache; a same-device reset retains it because adapter identity and
+creation capabilities have not changed.
+
+The environment query begins even later: only after the Diagnostics child is
+actually visible. Its first call initializes libpsycho's process-wide
+`SystemProfile` through bounded CPUID, Win32, environment, and ntdll-export
+queries. Later reads are lock-free. OMV displays runtime-component detection
+issues as an incomplete state rather than treating the fallback
+`NativeWindows` classification as proven. Environment and GPU identity are
+machine-local diagnostics only. They are not configuration fields and are
+never included in presets.
+
+Failure is diagnostic-only. A null device waits for the next eligible frame,
+and a D3D9 query failure is rendered in the panel without substituting adapter
+zero, enumerating unrelated adapters, changing OMV policy, or disabling an
+effect. If DXVK advertises interop but physical-property collection fails, the
+profile fails visibly rather than relabeling the known-spoofable D3D9 identity
+as physical. The profile adds a small bounded set of owned strings for one
+device and no persistent GPU resource.
+
+Automated coverage requires the collector to call
+`libpsycho::hardware::d3d9_device_profile`, rejects
+`d3d9_adapter_profiles`, verifies one-query caching and new-device
+invalidation, and requires the panel to expose identity, driver, capabilities,
+format support, and the texture-memory caveat. A separate regression proves
+that a physical NVIDIA identity wins over a synthetic AMD D3D9 identity, and
+the OMV panel regression requires both identities to be labeled separately.
+The system-summary regression additionally requires the environment query to
+remain behind visible Diagnostics, the two responsive cards to be present, and
+Proton, Wine, and native-Windows profiles to produce distinct labels and
+evidence.
+
+The original 2026-07-29 playtest rejected the D3D9-only identity contract: an
+RTX 5060 renderer was displayed as AMD. The DXVK 2.7.1 source evidence above
+explains that observation and the new physical-device path directly addresses
+it. The subsequent RTX 5060 Proton/DXVK playtest confirmed that the corrected
+panel names the NVIDIA physical renderer instead of the AMD compatibility
+identity. Native-Windows display and hybrid/filtered multi-adapter behavior
+remain runtime acceptance items.
+
 ## Tests and validation
 
 ### Implemented automated coverage
@@ -520,6 +641,8 @@ It performs no recurring work after startup.
 - SMBIOS Type 16 and Type 17 base and extended-size records.
 - Missing double-NUL rejection and KiB/extended module-size decoding.
 - D3D9 caps, shader versions, and unknown device-type normalization.
+- DXVK physical-device precedence over a synthetic AMD D3D9 identity and
+  exact live-device interop selection without adapter/Vulkan enumeration.
 - Native-versus-Proton environment classification and the requirement for
   proven Wine.
 - A real Windows/Wine cached-profile integration test covering CPUID, native
@@ -547,8 +670,14 @@ targeted formatting remain mandatory.
 
 Implementation evidence from 2026-07-29:
 
-- `cargo test --target i686-pc-windows-gnu -p libpsycho --lib`: 24 tests
-  passed under Wine 11.14, including the real cached-profile integration path;
+- `cargo test --target i686-pc-windows-gnu -p libpsycho --lib`: 26 tests
+  passed under Wine 11.14, including the physical-over-compatibility identity
+  regression and exact DXVK interop path check;
+- `cargo test --target i686-pc-windows-gnu -p omv`: all 429 tests and OMV
+  doc-tests passed, including the diagnostics identity-separation regression;
+- `cargo build --release --target i686-pc-windows-gnu -p omv`: passed and
+  produced the supported 32-bit OMV DLL;
+- `cargo fmt -p libpsycho -p omv -- --check` and `git diff --check`: passed;
 - `cargo build --release --target i686-pc-windows-gnu -p libpsycho`: passed;
 - `cargo test --target i686-pc-windows-gnu -p psycho-engine-fixes
   --lib`: 120 tests passed, including the startup-report format fixtures;
@@ -560,12 +689,18 @@ Implementation evidence from 2026-07-29:
   `0xDEADBEEF` example overflows `i32` on the 32-bit target. The hardware
   implementation does not touch that logger example.
 
+The later 2026-07-29 OMV system-summary update passed all 431 OMV tests and the
+supported optimized `i686-pc-windows-gnu` OMV release build. Its regressions
+cover the post-visibility environment query, responsive GPU/environment cards,
+distinct Proton/Wine/native-Windows summaries, and retained
+physical-versus-compatibility GPU evidence.
+
 ### Runtime acceptance
 
 Before a consumer makes policy decisions from this API, capture and compare:
 
 - native Windows on Intel and AMD;
-- Proton/DXVK on Intel, AMD, and NVIDIA where available;
+- Proton/DXVK on Intel and AMD; NVIDIA RTX 5060 physical identity is accepted;
 - a hybrid-GPU system proving that the device-bound profile follows the game
   device rather than adapter zero;
 - missing or synthetic SMBIOS, including Wine behavior;
@@ -588,7 +723,8 @@ Ownership:
 - `libpsycho/src/os/windows/winapi.rs`: small safe wrappers for system topology,
   physical memory, memory status, and raw firmware tables;
 - `libpsycho/src/os/windows/directx9.rs`: creation-parameter, adapter identity,
-  device caps, adapter count, and format-probe wrappers;
+  device caps, adapter count, format-probe wrappers, DXVK D3D9 interop ABI, and
+  Vulkan physical-device property acquisition;
 - `libpsycho/src/lib.rs`: public module export.
 - `psycho-engine-fixes/src/hardware_report.rs`: stable INFO-level formatting
   and startup log publication.
@@ -652,6 +788,16 @@ Primary external sources:
   <https://learn.microsoft.com/en-us/windows/win32/direct3d9/d3dadapter-identifier9>
 - Microsoft `GetAvailableTextureMem`:
   <https://learn.microsoft.com/en-us/windows/win32/api/d3d9/nf-d3d9-idirect3ddevice9-getavailabletexturemem>
+- DXVK 2.7.1 Fallout New Vegas profile (`d3d9.hideNvidiaGpu`):
+  <https://github.com/doitsujin/dxvk/blob/v2.7.1/src/util/config/config.cpp#L930-L937>
+- DXVK 2.7.1 D3D9 identity replacement:
+  <https://github.com/doitsujin/dxvk/blob/v2.7.1/src/d3d9/d3d9_adapter.cpp#L989-L1058>
+- DXVK 2.7.1 `ID3D9VkInteropDevice` ABI:
+  <https://github.com/doitsujin/dxvk/blob/v2.7.1/src/d3d9/d3d9_interfaces.h#L123-L153>
+- DXVK 2.7.1 exact physical-device handle implementation:
+  <https://github.com/doitsujin/dxvk/blob/v2.7.1/src/d3d9/d3d9_interop.cpp#L181-L197>
+- Khronos `vkGetPhysicalDeviceProperties2`:
+  <https://registry.khronos.org/vulkan/specs/latest/man/html/vkGetPhysicalDeviceProperties2.html>
 - Microsoft DXGI adapter description:
   <https://learn.microsoft.com/en-us/windows/win32/api/dxgi/ns-dxgi-dxgi_adapter_desc>
 - Wine `ntdll` version exports:
@@ -671,6 +817,10 @@ Proven by public API or source contracts:
 - Windows exposes OS memory, raw SMBIOS, processor relationships, and D3D9
   device/adapter contracts through the selected APIs;
 - a D3D9 adapter ordinal must be used with the same Direct3D object;
+- DXVK 2.7.1 deliberately hides NVIDIA from Fallout New Vegas's D3D9 view and
+  substitutes the AMD fallback identity;
+- DXVK's live D3D9 interop device returns the Vulkan physical-device handle
+  owned by that exact renderer;
 - `GetAvailableTextureMem` is approximate;
 - Wine exports its version entry points from `ntdll`;
 - current Proton requires `STEAM_COMPAT_DATA_PATH`.
@@ -684,11 +834,14 @@ Reasoned design conclusions:
 - a Wine export plus Proton's required launch marker is the strongest
   low-cost classification available without host file access;
 - DXGI memory cannot always be correlated precisely with a base D3D9 device.
+- Vulkan physical identity and D3D9 effective features must remain separate
+  authorities under a translation layer.
 
 Still awaiting runtime observation:
 
 - actual cold and cached latency;
 - allocation counts;
 - exact SMBIOS behavior in the supported Proton version;
-- active D3D9 identity and feature results under the user's DXVK setup;
+- corrected physical Vulkan identity and D3D9 compatibility/feature results
+  under the user's DXVK setup;
 - native Windows and hybrid-GPU acceptance.

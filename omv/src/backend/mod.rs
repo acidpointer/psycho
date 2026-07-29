@@ -1,6 +1,14 @@
-//! Active game backend for the portable D3D9 renderer.
+//! Provider-neutral ownership for scene inputs used by the D3D9 renderer.
+//!
+//! The backend publishes exactly one machine-local depth producer at a time.
+//! FNV-specific capture code remains private to [`fnv`], while callers use the
+//! common provider, slot, and outcome vocabulary defined here. A provider is
+//! physical ownership; a route describes how that provider exposes a given
+//! snapshot. Keeping those concepts separate prevents an external shared
+//! texture from silently becoming a fallback OMV capture.
 
 use core::ffi::c_void;
+use std::sync::atomic::{AtomicU8, Ordering};
 
 use libpsycho::os::windows::directx9::D3DSURFACE_DESC;
 
@@ -8,7 +16,12 @@ use crate::config::DepthProviderConfig;
 
 mod fnv;
 
-pub(crate) use fnv::{DepthResolveRouteStatus, DepthResolveStatus, WorldCameraJitter};
+pub(crate) use fnv::{
+    DepthCopyCounters, DepthResolveRouteStatus, DepthResolveStatus, ProviderMarkerCounters,
+    WorldCameraJitter,
+};
+
+static ACTIVE_DEPTH_PROVIDER: AtomicU8 = AtomicU8::new(DepthProvider::None as u8);
 
 pub(crate) fn d3d_device_ptr() -> Option<*mut c_void> {
     fnv::d3d_device_ptr()
@@ -21,6 +34,7 @@ pub(crate) fn depth_resolve_status(depth_provider: DepthProvider) -> DepthResolv
             reason: "depth effects are disabled",
         },
         DepthProvider::FalloutNewVegas => fnv::depth_resolve_status(),
+        DepthProvider::DepthResolve => fnv::external_depth_resolve_status(),
     }
 }
 
@@ -29,17 +43,140 @@ pub(crate) fn startup_log(depth_provider: DepthProvider) {
     log::info!("[BACKEND] Depth provider: {}", depth_provider.label());
 }
 
+/// Activate the initial depth producer at xNVSE `DeferredInit`.
+///
+/// Provider validation may inspect the D3D device and loaded Depth Resolve
+/// module, so it must not run from `NVSEPlugin_Load`. The shared texture is
+/// retained lazily on the first render capture because another DeferredInit
+/// listener may still own its creation.
+pub(crate) fn initialize_depth_provider(depth_provider: DepthProvider) -> Result<(), &'static str> {
+    // Another DeferredInit listener may own creation of the shared texture.
+    // Startup validates the module/capability contract but lets the first
+    // render capture retain the resource after all listeners have completed.
+    fnv::validate_initial_depth_provider(depth_provider)?;
+    ACTIVE_DEPTH_PROVIDER.store(depth_provider as u8, Ordering::Release);
+    Ok(())
+}
+
+/// Fail closed if startup cannot establish the selected producer's hook set.
+///
+/// Scene hooks can be individually installed before DeferredInit discovers
+/// that another required boundary is unavailable. Publishing `None` prevents
+/// those resident callbacks from issuing an uncoordinated OMV resolve after
+/// startup returns an error; the user's persisted setting is left untouched
+/// so the next launch can retry after the installation is repaired.
+pub(crate) fn abandon_initial_depth_provider() {
+    ACTIVE_DEPTH_PROVIDER.store(DepthProvider::None as u8, Ordering::Release);
+}
+
+/// Switch physical depth producers at a Present-owned configuration boundary.
+///
+/// The old provider's OMV-owned resources and snapshots are released before
+/// the atomic producer identity changes. A failed validation or busy resource
+/// owner leaves the previous producer active; there is no hybrid fallback.
+pub(crate) fn switch_depth_provider(depth_provider: DepthProvider) -> Result<bool, &'static str> {
+    let current = active_depth_provider();
+    if current == depth_provider {
+        return Ok(false);
+    }
+    if depth_provider == DepthProvider::FalloutNewVegas
+        && fnv::depth_resolve_plugin_available()
+        && (!crate::hooks::resz_interposition_ready()
+            || !crate::fnv_render::shared_depth_service_ready())
+    {
+        return Err("exclusive shared-depth hooks are not ready");
+    }
+    fnv::validate_depth_provider(depth_provider)?;
+    if !fnv::try_reset_depth_resources() {
+        return Err("depth provider resource owner is busy");
+    }
+    // Reset invalidates the shared COM identity used by marker
+    // interposition. Revalidate after release so the first frame under the
+    // new producer is classified correctly instead of entering a hybrid
+    // one-frame warmup.
+    fnv::validate_depth_provider(depth_provider)?;
+    let depth_stage_hooks_were_active = crate::fnv_render::depth_stage_hooks_active();
+    if fnv::depth_resolve_plugin_available()
+        && depth_provider == DepthProvider::FalloutNewVegas
+        && !depth_stage_hooks_were_active
+        && let Err(err) = crate::fnv_render::set_depth_stage_hooks_active(true)
+    {
+        log::warn!("[FNV] Could not attach OMV depth-stage hooks: {err:#}");
+        return Err("OMV depth-stage hook transition failed");
+    }
+    if fnv::depth_resolve_plugin_available() {
+        let interposition_required = depth_provider == DepthProvider::FalloutNewVegas;
+        let interposition_result = if crate::hooks::resz_interposition_ready() {
+            crate::hooks::set_resz_interposition_active(interposition_required)
+        } else if interposition_required {
+            Err("exclusive RESZ interposition is not installed")
+        } else {
+            Ok(())
+        };
+        if let Err(err) = interposition_result {
+            if !depth_stage_hooks_were_active {
+                let _ = crate::fnv_render::set_depth_stage_hooks_active(false);
+            }
+            return Err(err);
+        }
+    }
+    ACTIVE_DEPTH_PROVIDER.store(depth_provider as u8, Ordering::Release);
+    let markers = provider_marker_counters();
+    log::info!(
+        "[FNV] Depth producer switched: {} -> {}; depth_hooks={}, resz_hook={}; counter baseline: omv={}, external={}, external_suppressed={}, external_snapshots={}",
+        current.label(),
+        depth_provider.label(),
+        crate::fnv_render::depth_stage_hooks_status_label(),
+        if crate::hooks::resz_interposition_active() {
+            "attached"
+        } else {
+            "detached"
+        },
+        markers.omv_allowed,
+        markers.external_allowed,
+        markers.external_suppressed,
+        markers.external_publications,
+    );
+    Ok(true)
+}
+
+#[cfg(test)]
+mod provider_switch_contract_tests {
+    #[test]
+    fn physical_resz_transition_precedes_provider_publication() {
+        let source = include_str!("mod.rs");
+        let body = source
+            .split_once("pub(crate) fn switch_depth_provider")
+            .map(|(_, tail)| tail)
+            .and_then(|tail| tail.split_once("pub(crate) fn active_depth_provider"))
+            .map(|(body, _)| body)
+            .expect("provider switch body");
+        let physical_transition = body
+            .find("set_resz_interposition_active")
+            .expect("physical RESZ transition");
+        let provider_publication = body
+            .find("ACTIVE_DEPTH_PROVIDER.store")
+            .expect("provider atomic publication");
+        assert!(physical_transition < provider_publication);
+    }
+}
+
+/// Return the producer selected for the current render epoch.
+pub(crate) fn active_depth_provider() -> DepthProvider {
+    DepthProvider::from_raw(ACTIVE_DEPTH_PROVIDER.load(Ordering::Acquire))
+}
+
 pub(crate) fn camera_frame(depth_provider: DepthProvider, desc: &D3DSURFACE_DESC) -> CameraFrame {
     match depth_provider {
         DepthProvider::None => CameraFrame::fallback(desc),
-        DepthProvider::FalloutNewVegas => fnv::camera_frame(desc),
+        DepthProvider::FalloutNewVegas | DepthProvider::DepthResolve => fnv::camera_frame(desc),
     }
 }
 
 pub(crate) fn environment_frame(depth_provider: DepthProvider) -> EnvironmentFrame {
     match depth_provider {
         DepthProvider::None => EnvironmentFrame::default(),
-        DepthProvider::FalloutNewVegas => fnv::environment_frame(),
+        DepthProvider::FalloutNewVegas | DepthProvider::DepthResolve => fnv::environment_frame(),
     }
 }
 
@@ -82,6 +219,45 @@ pub(crate) fn atmosphere_frame_from_depth(
     }
 }
 
+/// Build the CPU-published atmosphere contract before a depth transaction.
+///
+/// The returned frame intentionally carries `DepthFrame::none()`. It is valid
+/// only for the conservative atmosphere admission test; shader rendering must
+/// use [`atmosphere_frame_from_depth`] so camera projection, depth direction,
+/// and capture epoch stay coherent with the sampled texture.
+pub(crate) fn atmosphere_frame_before_depth(
+    depth_provider: DepthProvider,
+    desc: &D3DSURFACE_DESC,
+    user_max_distance: f32,
+    frame_epoch: u32,
+) -> AtmosphereFrame {
+    let camera = camera_frame(depth_provider, desc);
+    let environment = environment_frame(depth_provider);
+    let mut distance_bound = if user_max_distance.is_finite() {
+        user_max_distance.max(camera.near_z + 1.0)
+    } else {
+        camera.near_z + 1.0
+    };
+    if camera.available {
+        distance_bound = distance_bound.min(camera.far_z);
+    }
+    if environment.fog_available {
+        distance_bound = distance_bound.min(environment.fog_end.max(camera.near_z + 1.0));
+    }
+
+    AtmosphereFrame {
+        camera,
+        depth: DepthFrame::none(),
+        environment,
+        underwater: fnv::underwater_frame(u64::from(frame_epoch)),
+        sun: sun_frame(depth_provider),
+        sky: native_sky_frame(),
+        material_state: material_state_frame(),
+        frame_epoch: u64::from(frame_epoch),
+        distance_bound,
+    }
+}
+
 pub(crate) fn publish_fnv_underwater_classification(underwater: bool) {
     fnv::publish_underwater_classification(underwater);
 }
@@ -101,7 +277,7 @@ pub(crate) fn fnv_third_person_view() -> Option<bool> {
 pub(crate) fn sun_frame(depth_provider: DepthProvider) -> SunFrame {
     match depth_provider {
         DepthProvider::None => SunFrame::default(),
-        DepthProvider::FalloutNewVegas => fnv::sun_frame(),
+        DepthProvider::FalloutNewVegas | DepthProvider::DepthResolve => fnv::sun_frame(),
     }
 }
 
@@ -142,7 +318,9 @@ pub(crate) fn rendered_texture_color_surface(
 ) -> Option<*mut c_void> {
     match depth_provider {
         DepthProvider::None => None,
-        DepthProvider::FalloutNewVegas => fnv::rendered_texture_color_surface(rendered_texture),
+        DepthProvider::FalloutNewVegas | DepthProvider::DepthResolve => {
+            fnv::rendered_texture_color_surface(rendered_texture)
+        }
     }
 }
 
@@ -151,6 +329,7 @@ pub(crate) unsafe fn resolve_scene_depth(
     device_ptr: *mut c_void,
     source_rendered_texture: Option<*mut c_void>,
     slot: DepthResolveSlot,
+    stage: DepthResolveStage,
     world_projection_override: Option<CameraFrame>,
     reason: &'static str,
     render_epoch: u32,
@@ -162,11 +341,13 @@ pub(crate) unsafe fn resolve_scene_depth(
                 device_ptr,
                 source_rendered_texture,
                 slot,
+                stage,
                 world_projection_override,
                 reason,
                 render_epoch,
             )
         },
+        DepthProvider::DepthResolve => fnv::external_depth_outcome(slot, render_epoch),
     }
 }
 
@@ -177,35 +358,111 @@ pub(crate) fn try_depth_frame(
     match depth_provider {
         DepthProvider::None => DepthAccess::Ready(DepthFrame::none()),
         DepthProvider::FalloutNewVegas => fnv::try_depth_frame(render_epoch),
+        DepthProvider::DepthResolve => fnv::try_external_depth_frame(render_epoch),
     }
 }
 
 pub(crate) fn try_temporal_depth_epoch(
+    depth_provider: DepthProvider,
     device_ptr: *mut c_void,
     width: u32,
     height: u32,
     render_epoch: u32,
 ) -> DepthAccess<Option<u64>> {
-    fnv::try_temporal_depth_epoch(device_ptr, width, height, render_epoch)
+    match depth_provider {
+        DepthProvider::None => DepthAccess::Ready(None),
+        DepthProvider::FalloutNewVegas => {
+            fnv::try_temporal_depth_epoch(device_ptr, width, height, render_epoch)
+        }
+        DepthProvider::DepthResolve => {
+            fnv::try_external_temporal_depth_epoch(device_ptr, width, height, render_epoch)
+        }
+    }
 }
 
 pub(crate) fn try_reset_depth_resources() -> bool {
     fnv::try_reset_depth_resources()
 }
 
+/// Publish Depth Resolve's post-world snapshot without issuing a copy.
+pub(crate) unsafe fn publish_external_depth_after_world(
+    device_ptr: *mut c_void,
+    render_epoch: u32,
+) {
+    if active_depth_provider() == DepthProvider::DepthResolve {
+        unsafe { fnv::publish_external_depth_after_world(device_ptr, render_epoch) };
+    }
+}
+
+/// Return whether OMV must refresh the shared pre-alpha depth for external consumers.
+pub(crate) fn needs_shared_pre_alpha_depth() -> bool {
+    active_depth_provider() == DepthProvider::FalloutNewVegas
+        && fnv::depth_resolve_plugin_available()
+}
+
+/// Return whether this process needs the optional RESZ ownership hook.
+pub(crate) fn depth_resolve_interposition_required() -> bool {
+    fnv::depth_resolve_plugin_available()
+}
+
+/// Return whether a D3D9 RESZ trigger belongs to the inactive external producer.
+pub(crate) fn suppress_resz_marker(bound_texture: usize) -> bool {
+    fnv::classify_resz_marker(
+        active_depth_provider(),
+        bound_texture,
+        crate::hooks::render_epoch(),
+    ) == fnv::ReszMarkerDecision::Suppress
+}
+
+/// Return fixed-size marker counters for runtime diagnostics.
+pub(crate) fn provider_marker_counters() -> ProviderMarkerCounters {
+    fnv::provider_marker_counters()
+}
+
+/// Return physical depth-copy and exact-cache counters.
+pub(crate) fn depth_copy_counters() -> DepthCopyCounters {
+    fnv::depth_copy_counters()
+}
+
+/// Machine-local owner of shader-readable scene depth.
+#[repr(u8)]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(crate) enum DepthProvider {
+    /// OMV consumes no depth and issues no depth copy.
     #[default]
-    None,
-    FalloutNewVegas,
+    None = 0,
+    /// OMV resolves world and first-person depth.
+    FalloutNewVegas = 1,
+    /// OMV borrows Depth Resolve's world-only texture without issuing a copy.
+    DepthResolve = 2,
 }
 
 impl DepthProvider {
+    /// Return the stable configuration/diagnostic label.
     pub(crate) fn label(self) -> &'static str {
         match self {
             Self::None => "none",
-            Self::FalloutNewVegas => "fallout_new_vegas",
+            Self::FalloutNewVegas => "omv",
+            Self::DepthResolve => "depth_resolve",
         }
+    }
+
+    fn from_raw(value: u8) -> Self {
+        match value {
+            1 => Self::FalloutNewVegas,
+            2 => Self::DepthResolve,
+            _ => Self::None,
+        }
+    }
+
+    /// Return whether this provider can publish world depth.
+    pub(crate) fn supplies_world_depth(self) -> bool {
+        self != Self::None
+    }
+
+    /// Return whether this provider can publish independent view-model depth.
+    pub(crate) fn supplies_first_person_depth(self) -> bool {
+        self == Self::FalloutNewVegas
     }
 }
 
@@ -214,7 +471,28 @@ impl From<DepthProviderConfig> for DepthProvider {
         match value {
             DepthProviderConfig::None => Self::None,
             DepthProviderConfig::FalloutNewVegas => Self::FalloutNewVegas,
+            DepthProviderConfig::DepthResolve => Self::DepthResolve,
         }
+    }
+}
+
+#[cfg(test)]
+mod depth_provider_tests {
+    use super::DepthProvider;
+    use crate::config::DepthProviderConfig;
+
+    #[test]
+    fn external_provider_is_world_only_and_never_implies_hybrid_viewmodel_depth() {
+        let provider = DepthProvider::from(DepthProviderConfig::DepthResolve);
+        assert!(provider.supplies_world_depth());
+        assert!(!provider.supplies_first_person_depth());
+    }
+
+    #[test]
+    fn omv_provider_owns_both_depth_slots() {
+        let provider = DepthProvider::from(DepthProviderConfig::FalloutNewVegas);
+        assert!(provider.supplies_world_depth());
+        assert!(provider.supplies_first_person_depth());
     }
 }
 
@@ -222,6 +500,30 @@ impl From<DepthProviderConfig> for DepthProvider {
 pub(crate) enum DepthResolveSlot {
     World,
     FirstPerson,
+}
+
+/// Native render boundary that defines the semantic contents of a depth copy.
+///
+/// World pre-alpha and coherent world depth are deliberately different
+/// snapshots even when they share a slot and frame epoch. Cache reuse is valid
+/// only when this stage, the source surface, dimensions, slot, and epoch all
+/// match.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) enum DepthResolveStage {
+    #[default]
+    PreAlphaWorld,
+    CoherentWorld,
+    FirstPerson,
+}
+
+impl DepthResolveStage {
+    /// Return the only depth slot valid for this render boundary.
+    pub(crate) const fn slot(self) -> DepthResolveSlot {
+        match self {
+            Self::PreAlphaWorld | Self::CoherentWorld => DepthResolveSlot::World,
+            Self::FirstPerson => DepthResolveSlot::FirstPerson,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -319,6 +621,7 @@ impl DepthFrame {
         match self.provider {
             DepthProvider::None => 0.0,
             DepthProvider::FalloutNewVegas => 2.0,
+            DepthProvider::DepthResolve => 3.0,
         }
     }
 }

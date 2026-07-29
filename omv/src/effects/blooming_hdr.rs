@@ -1,4 +1,16 @@
 //! Engine-side atmospheric bloom and HDR pipeline.
+//!
+//! Final-color HLSL preparation is process-owned and asynchronous. Device
+//! creation consumes an immutable shared bytecode catalog, so neither startup
+//! configuration nor render callbacks invoke the compiler.
+
+use std::{
+    sync::{
+        Arc, LazyLock,
+        atomic::{AtomicBool, Ordering},
+    },
+    thread,
+};
 
 use libpsycho::os::windows::directx9::{
     D3DCULL_NONE, D3DFMT_A8R8G8B8, D3DFORMAT, D3DPOOL_MANAGED, D3DPT_TRIANGLESTRIP,
@@ -15,9 +27,10 @@ use libpsycho::os::windows::directx9::{
 use crate::{
     backend::{DepthTexture, FrameInputs},
     luts::LutAsset,
-    render_state::{RenderTargetSlots, copy_scene_color_for_sampling},
+    render_state::RenderTargetSlots,
     shaders::{self, ScreenShaderSource, ShaderOptionValue},
 };
+use parking_lot::Mutex;
 
 const COLOR_WRITE_ALL: u32 = 0x0F;
 const EFFECT_CONSTANT_REGISTER: u32 = 9;
@@ -30,6 +43,12 @@ const LUT_SIZE: u32 = 32;
 #[cfg(test)]
 const LUT_COUNT: usize = 5;
 const AMD_ALPHA_TO_COVERAGE_OFF: u32 = 0x4143_5446;
+
+static COMPILE_STARTED: AtomicBool = AtomicBool::new(false);
+static COMPILE_FAILED: AtomicBool = AtomicBool::new(false);
+static COMPILE_READY: AtomicBool = AtomicBool::new(false);
+static BYTECODE: LazyLock<Mutex<Option<Arc<FinalColorShaderBytecode>>>> =
+    LazyLock::new(|| Mutex::new(None));
 
 const EXTRACT_SHADER: &[u8] = include_bytes!("../../shaders/embedded/bloom_hdr_extract.hlsl");
 const BLUR_SHADER: &[u8] = include_bytes!("../../shaders/embedded/bloom_hdr_blur.hlsl");
@@ -124,6 +143,13 @@ impl FinalColorWorkPlan {
     const fn quarter_resolution_draw_count(self) -> u32 {
         if self.bloom_intermediate { 3 } else { 0 }
     }
+
+    #[cfg(test)]
+    const fn internal_full_resolution_copy_count(self) -> u32 {
+        // The phase owner performs the sole initial scene copy. Composition
+        // and chromatic aberration communicate through a renderable texture.
+        0
+    }
 }
 
 fn bloom_target_dimensions(width: u32, height: u32) -> (u32, u32) {
@@ -146,6 +172,45 @@ impl FinalColorShaderBytecode {
             chromatic: prepare_shader("chromatic_aberration.hlsl", CHROMATIC_SHADER)?,
         })
     }
+}
+
+/// Start process-owned final-color shader preparation.
+pub(crate) fn service_preparation() {
+    if COMPILE_STARTED.swap(true, Ordering::AcqRel) {
+        return;
+    }
+    if let Err(err) = thread::Builder::new()
+        .name("omv-final-color-compile".to_owned())
+        .spawn(|| {
+            match super::shader_preparation::run_serialized(FinalColorShaderBytecode::prepare) {
+                Ok(bytecode) => {
+                    *BYTECODE.lock() = Some(Arc::new(bytecode));
+                    COMPILE_READY.store(true, Ordering::Release);
+                }
+                Err(err) => {
+                    COMPILE_FAILED.store(true, Ordering::Release);
+                    log::warn!("[FINAL_COLOR] Shader preparation failed: {err:#}");
+                }
+            }
+        })
+    {
+        COMPILE_FAILED.store(true, Ordering::Release);
+        log::warn!("[FINAL_COLOR] Could not start shader preparation: {err}");
+    }
+}
+
+/// Return whether final-color bytecode is ready for a nonblocking catalog poll.
+pub(crate) fn preparation_ready() -> bool {
+    COMPILE_READY.load(Ordering::Acquire) && !COMPILE_FAILED.load(Ordering::Acquire)
+}
+
+/// Clone the prepared process-owned final-color bytecode catalog without
+/// blocking a render callback.
+pub(crate) fn prepared_bytecode() -> Option<Arc<FinalColorShaderBytecode>> {
+    if !COMPILE_READY.load(Ordering::Acquire) || COMPILE_FAILED.load(Ordering::Acquire) {
+        return None;
+    }
+    BYTECODE.try_lock()?.as_ref().cloned()
 }
 
 fn prepare_shader(source_name: &str, source: &[u8]) -> anyhow::Result<Vec<u32>> {
@@ -676,6 +741,9 @@ mod shader_compile_tests {
         assert_eq!(halation_grade.quarter_resolution_draw_count(), 3);
         assert_eq!(fused.effect_draw_count(), 5);
         assert_eq!(fused.quarter_resolution_draw_count(), 3);
+        for plan in [neither, bloom_only, grade_only, halation_grade, fused] {
+            assert_eq!(plan.internal_full_resolution_copy_count(), 0);
+        }
 
         let shipped = crate::luts::shipped_luts_for_test();
         let catalog_bytes: usize = shipped
@@ -691,6 +759,11 @@ mod shader_compile_tests {
             (FILM_GRAIN_TEXTURE_SIZE * FILM_GRAIN_TEXTURE_SIZE) as usize
                 * std::mem::size_of::<u32>(),
             1_048_576
+        );
+        assert_eq!(
+            3840_u64 * 2160 * std::mem::size_of::<u32>() as u64,
+            33_177_600,
+            "4K chromatic chaining retains one additional ARGB target",
         );
     }
 
@@ -2149,7 +2222,7 @@ mod shader_compile_tests {
         assert!(!chromatic.contains("ddy("));
 
         let implementation = include_str!("blooming_hdr.rs");
-        assert!(implementation.contains("if composed {"));
+        assert!(implementation.contains("if composed && work.chromatic_aberration {"));
         assert!(implementation.contains("if work.bloom_intermediate {"));
         assert!(implementation.contains("bind_bloom_effect_constants"));
         assert!(implementation.contains("&grade.constants(bloom_enabled)"));
@@ -2160,10 +2233,10 @@ mod shader_compile_tests {
             .and_then(|tail| tail.split_once("\n    fn "))
             .map(|(body, _)| body)
             .expect("final-color draw body");
-        assert!(draw_body.contains(
-            "copy_scene_color_for_sampling(device, backbuffer, scene_copy_surface, scene_color)?"
-        ));
+        assert!(!draw_body.contains("copy_scene_color_for_sampling("));
         assert!(!draw_body.contains("device.stretch_rect("));
+        assert!(draw_body.contains("self.ensure_composed_target(device, desc)?"));
+        assert!(draw_body.contains("&composed_target.texture"));
         assert!(implementation.contains("self.draw_chromatic_aberration("));
     }
 }
@@ -2178,6 +2251,7 @@ pub(crate) struct BloomingHdrEffect {
     film_grain_texture: Texture9,
     lut_revision: Option<(u32, u64)>,
     targets: Option<BloomTargets>,
+    composed_target: Option<FullResolutionTarget>,
     render_target_slots: RenderTargetSlots,
 }
 
@@ -2202,6 +2276,7 @@ impl BloomingHdrEffect {
             )?,
             lut_revision: None,
             targets: None,
+            composed_target: None,
             render_target_slots,
         })
     }
@@ -2215,7 +2290,6 @@ impl BloomingHdrEffect {
         bloom_source: Option<&ScreenShaderSource>,
         color_grade_source: Option<&ScreenShaderSource>,
         selected_lut: Option<&LutAsset>,
-        scene_copy_surface: &Surface9,
         scene_color: &Texture9,
         frame_index: u32,
     ) -> Direct3DResult<()> {
@@ -2273,10 +2347,14 @@ impl BloomingHdrEffect {
         }
 
         let composed = work.bloom || grade.is_active();
-        if composed {
+        if composed && work.chromatic_aberration {
+            self.ensure_composed_target(device, desc)?;
+            let Some(composed_target) = self.composed_target.as_ref() else {
+                return Ok(());
+            };
             self.draw_compose(
                 device,
-                backbuffer,
+                &composed_target.surface,
                 desc,
                 frame_inputs,
                 bloom_source,
@@ -2286,18 +2364,59 @@ impl BloomingHdrEffect {
                 scene_color,
                 frame_index,
             )?;
-        }
-        if work.chromatic_aberration {
-            if composed {
-                copy_scene_color_for_sampling(device, backbuffer, scene_copy_surface, scene_color)?;
-            }
             self.draw_chromatic_aberration(
                 device,
                 backbuffer,
                 desc,
-                scene_color,
+                &composed_target.texture,
                 grade.chromatic_aberration * grade.strength,
             )?;
+        } else {
+            if composed {
+                self.draw_compose(
+                    device,
+                    backbuffer,
+                    desc,
+                    frame_inputs,
+                    bloom_source,
+                    &grade,
+                    work.bloom_intermediate,
+                    work.bloom,
+                    scene_color,
+                    frame_index,
+                )?;
+            }
+            if work.chromatic_aberration {
+                self.draw_chromatic_aberration(
+                    device,
+                    backbuffer,
+                    desc,
+                    scene_color,
+                    grade.chromatic_aberration * grade.strength,
+                )?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Ensure the full-resolution composition output used by chromatic
+    /// aberration matches the engine target exactly.
+    ///
+    /// D3D9 forbids sampling a texture while one of its levels is bound for
+    /// rendering. Writing composition into this separate target preserves the
+    /// established two-pass equation while removing the old backbuffer copy
+    /// and its driver synchronization point.
+    fn ensure_composed_target(
+        &mut self,
+        device: &Device9Ref<'_>,
+        desc: &D3DSURFACE_DESC,
+    ) -> Direct3DResult<()> {
+        let needs_target = self
+            .composed_target
+            .as_ref()
+            .is_none_or(|target| !target.matches(desc));
+        if needs_target {
+            self.composed_target = Some(FullResolutionTarget::create(device, desc)?);
         }
         Ok(())
     }
@@ -3192,6 +3311,38 @@ impl BloomTargets {
 struct EffectTarget {
     texture: Texture9,
     surface: Surface9,
+}
+
+/// Full-resolution intermediate used only when one final-color pass feeds a
+/// second pass in the same phase.
+///
+/// Storing the source description prevents reuse across Reset, resolution,
+/// HDR-format, or swap-chain changes. The texture is persistent device-owned
+/// memory; no allocation occurs in the steady-state draw path.
+struct FullResolutionTarget {
+    width: u32,
+    height: u32,
+    format: D3DFORMAT,
+    texture: Texture9,
+    surface: Surface9,
+}
+
+impl FullResolutionTarget {
+    fn create(device: &Device9Ref<'_>, desc: &D3DSURFACE_DESC) -> Direct3DResult<Self> {
+        let texture = device.create_render_target_texture(desc.Width, desc.Height, desc.Format)?;
+        let surface = texture.surface_level(0)?;
+        Ok(Self {
+            width: desc.Width,
+            height: desc.Height,
+            format: desc.Format,
+            texture,
+            surface,
+        })
+    }
+
+    fn matches(&self, desc: &D3DSURFACE_DESC) -> bool {
+        self.width == desc.Width && self.height == desc.Height && self.format == desc.Format
+    }
 }
 
 impl EffectTarget {

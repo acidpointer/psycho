@@ -104,6 +104,9 @@ pub(crate) fn install_deferred_hooks() -> Result<()> {
     let compatibility = crate::compat::GraphicsCompatibility::detect();
     log_compatibility_report(compatibility);
 
+    crate::backend::initialize_depth_provider(settings.depth_provider)
+        .map_err(|reason| anyhow::anyhow!("configured depth producer is unavailable: {reason}"))?;
+
     // This must remain the first world-pipeline config publication. Publishing
     // from NVSEPlugin_Load caused the 2026-07-18 data-loading crash.
     if !crate::fnv_world_pipeline::publish_config(settings.menu_config) {
@@ -116,8 +119,27 @@ pub(crate) fn install_deferred_hooks() -> Result<()> {
     crate::effects::sky::install(settings.native_sky)?;
 
     crate::fnv_local_lights::install_hooks();
-    if settings.depth_provider != crate::backend::DepthProvider::None {
-        crate::fnv_render::install_scene_boundary_hook();
+    // Initialize every scene hook while DeferredInit is quiescent so later
+    // Present-boundary transitions can restore or reattach the already-proven
+    // entry bytes without allocating a new trampoline.
+    crate::fnv_render::install_scene_boundary_hook();
+    crate::fnv_render::reconcile_depth_stage_hooks()
+        .context("could not establish configured depth-stage hook ownership")?;
+    if crate::backend::needs_shared_pre_alpha_depth() {
+        if !crate::fnv_render::shared_depth_service_ready() {
+            // Some inline hooks may already be resident. Publish the inactive
+            // provider before returning so a partial startup cannot add OMV
+            // copies while Depth Resolve remains physically active.
+            crate::backend::abandon_initial_depth_provider();
+            anyhow::bail!("shared-depth scene boundaries could not be installed");
+        }
+        // Exclusive ownership must be physical before any scene callback can
+        // issue OMV's replacement capture. An asynchronous hook-install
+        // window would briefly allow both producers on the same NVIDIA frame.
+        if let Err(err) = crate::hooks::install_current_device_hooks() {
+            crate::backend::abandon_initial_depth_provider();
+            return Err(err).context("could not establish exclusive RESZ ownership");
+        }
     }
 
     crate::hooks::start_install_worker()?;

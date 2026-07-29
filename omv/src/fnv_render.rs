@@ -1,13 +1,26 @@
-//! FalloutNV render-stage hooks.
+//! Native Fallout New Vegas render-stage boundaries used by OMV.
+//!
+//! World-scene entry establishes the destination shared-depth identity,
+//! pre-alpha performs the provider-owned world capture, and post-world
+//! publication marks externally produced depth as observable. Their
+//! trampolines are prepared at DeferredInit, but the native entry jumps are
+//! physically detached when neither OMV visuals nor the OMV shared-depth
+//! service needs them. Render callbacks are nonblocking and never substitute
+//! one provider for another. When the selected provider exposes world depth
+//! but no first-person mask, AO is composed on the completed world target
+//! immediately after `RenderWorldSceneGraph`; hands and weapons later
+//! overwrite AO naturally without reactivating OMV depth capture.
 
 use std::{
     ffi::c_void,
     sync::{
         LazyLock,
-        atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering},
+        atomic::{AtomicBool, AtomicU8, AtomicU32, AtomicUsize, Ordering},
     },
 };
 
+use anyhow::{Result, anyhow};
+use libpsycho::ffi::fnptr::Function;
 use libpsycho::os::windows::{directx9::Device9Ref, hook::inline::inlinehook::InlineHookContainer};
 
 const PROCESS_IMAGE_SPACE_SHADERS_ADDR: usize = 0x00B55AC0;
@@ -48,22 +61,235 @@ static RENDER_PRE_DEPTH_GROUPS_HOOK: LazyLock<InlineHookContainer<RenderPreDepth
 
 static HOOK_ERROR_LOGS: AtomicU32 = AtomicU32::new(0);
 static UNDERWATER_PUBLICATION_HOOK_READY: AtomicBool = AtomicBool::new(false);
+static WORLD_SCENE_HOOK_READY: AtomicBool = AtomicBool::new(false);
+static PRE_ALPHA_HOOK_READY: AtomicBool = AtomicBool::new(false);
+static DEPTH_STAGE_HOOK_MASK: AtomicU8 = AtomicU8::new(0);
 static DEPTH_CAPTURE_LOGS: AtomicU32 = AtomicU32::new(0);
 static DEPTH_CAPTURE_SKIP_LOGS: AtomicU32 = AtomicU32::new(0);
 static SHADER_APPLY_LOGS: AtomicU32 = AtomicU32::new(0);
 static PRE_ALPHA_WORLD_TARGET: AtomicUsize = AtomicUsize::new(0);
 static PRE_ALPHA_WORLD_ARMED: AtomicBool = AtomicBool::new(false);
 
+/// Install every native scene boundary required by live provider switching.
 pub(crate) fn install_scene_boundary_hook() {
     install_process_image_space_shaders_hook();
     install_set_water_shader_underwater_hook();
     install_render_world_scene_graph_hook();
     install_render_first_person_hook();
     install_render_pre_depth_groups_hook();
+    publish_depth_stage_hook_states(depth_stage_hook_states());
 }
 
+/// Return whether native underwater classification can be published safely.
 pub(crate) fn underwater_publication_hook_ready() -> bool {
     UNDERWATER_PUBLICATION_HOOK_READY.load(Ordering::Acquire)
+}
+
+/// Return whether both boundaries required by shared-depth service are prepared.
+///
+/// Prepared hooks retain callable trampolines while their native entry jumps
+/// are detached, allowing a later Present-boundary switch to reattach them.
+pub(crate) fn shared_depth_service_ready() -> bool {
+    shared_depth_service_hooks_ready(
+        WORLD_SCENE_HOOK_READY.load(Ordering::Acquire),
+        PRE_ALPHA_HOOK_READY.load(Ordering::Acquire),
+    )
+}
+
+fn shared_depth_service_hooks_ready(world_scene: bool, pre_alpha: bool) -> bool {
+    world_scene && pre_alpha
+}
+
+#[derive(Clone, Copy)]
+struct DepthStageHookStates {
+    underwater: bool,
+    world: bool,
+    first_person: bool,
+    pre_alpha: bool,
+}
+
+impl DepthStageHookStates {
+    const ALL_MASK: u8 = 0b1111;
+
+    fn all_active(self) -> bool {
+        self.underwater && self.world && self.first_person && self.pre_alpha
+    }
+
+    fn mask(self) -> u8 {
+        u8::from(self.underwater)
+            | (u8::from(self.world) << 1)
+            | (u8::from(self.first_person) << 2)
+            | (u8::from(self.pre_alpha) << 3)
+    }
+}
+
+fn depth_stage_hook_states() -> DepthStageHookStates {
+    DepthStageHookStates {
+        underwater: SET_WATER_SHADER_UNDERWATER_HOOK.is_enabled(),
+        world: RENDER_WORLD_SCENE_GRAPH_HOOK.is_enabled(),
+        first_person: RENDER_FIRST_PERSON_HOOK.is_enabled(),
+        pre_alpha: RENDER_PRE_DEPTH_GROUPS_HOOK.is_enabled(),
+    }
+}
+
+fn publish_depth_stage_hook_states(states: DepthStageHookStates) {
+    DEPTH_STAGE_HOOK_MASK.store(states.mask(), Ordering::Release);
+}
+
+fn set_inline_hook_state<T: Function>(
+    hook: &InlineHookContainer<T>,
+    active: bool,
+    label: &'static str,
+) -> Result<()> {
+    if hook.is_enabled() == active {
+        return Ok(());
+    }
+    let result = if active {
+        hook.enable()
+    } else {
+        hook.disable()
+    };
+    result.map_err(|err| {
+        anyhow!(
+            "{label} could not be {}: {err}",
+            if active { "attached" } else { "detached" }
+        )
+    })
+}
+
+fn restore_depth_stage_hook_states(states: DepthStageHookStates) {
+    // Best-effort rollback uses dependency order: restore metadata/pre-alpha
+    // boundaries before the outer world wrapper when attaching, and restore
+    // the outer wrapper first when detaching. Every failure is visible; a
+    // partial executable patch state must never be silently reported ready.
+    for result in [
+        set_inline_hook_state(
+            &SET_WATER_SHADER_UNDERWATER_HOOK,
+            states.underwater,
+            "underwater publication hook",
+        ),
+        set_inline_hook_state(
+            &RENDER_PRE_DEPTH_GROUPS_HOOK,
+            states.pre_alpha,
+            "pre-alpha hook",
+        ),
+        set_inline_hook_state(
+            &RENDER_FIRST_PERSON_HOOK,
+            states.first_person,
+            "first-person hook",
+        ),
+        set_inline_hook_state(
+            &RENDER_WORLD_SCENE_GRAPH_HOOK,
+            states.world,
+            "world-scene hook",
+        ),
+    ] {
+        if let Err(err) = result {
+            log::error!("[FNV] Depth-stage hook rollback failed: {err:#}");
+        }
+    }
+    let restored = depth_stage_hook_states();
+    publish_depth_stage_hook_states(restored);
+    if restored.mask() != states.mask() {
+        log::error!(
+            "[FNV] Depth-stage hook rollback left a partial state: underwater={}, world={}, first_person={}, pre_alpha={}",
+            restored.underwater,
+            restored.world,
+            restored.first_person,
+            restored.pre_alpha,
+        );
+    }
+}
+
+/// Physically attach or detach OMV's native depth-stage inline hooks.
+///
+/// Callers must use xNVSE DeferredInit or OMV's `Present` detour. Those are
+/// quiescent boundaries for the serialized FNV render functions whose entry
+/// bytes are restored here. Detachment removes OMV's jumps from underwater,
+/// world, first-person, and pre-alpha entry points; it is not a branch inside
+/// resident detours.
+pub(crate) fn set_depth_stage_hooks_active(active: bool) -> Result<()> {
+    let previous = depth_stage_hook_states();
+    if previous.all_active() == active
+        && [
+            previous.underwater,
+            previous.world,
+            previous.first_person,
+            previous.pre_alpha,
+        ]
+        .into_iter()
+        .all(|state| state == active)
+    {
+        publish_depth_stage_hook_states(previous);
+        return Ok(());
+    }
+
+    let transition = if active {
+        set_inline_hook_state(
+            &SET_WATER_SHADER_UNDERWATER_HOOK,
+            true,
+            "underwater publication hook",
+        )
+        .and_then(|_| set_inline_hook_state(&RENDER_PRE_DEPTH_GROUPS_HOOK, true, "pre-alpha hook"))
+        .and_then(|_| set_inline_hook_state(&RENDER_FIRST_PERSON_HOOK, true, "first-person hook"))
+        // Publish the outer world wrapper last so a frame cannot enter before
+        // every boundary it depends on is callable.
+        .and_then(|_| {
+            set_inline_hook_state(&RENDER_WORLD_SCENE_GRAPH_HOOK, true, "world-scene hook")
+        })
+    } else {
+        // Remove the outer wrapper first. Even if a later restoration fails,
+        // native rendering cannot newly enter a partially detached OMV chain.
+        set_inline_hook_state(&RENDER_WORLD_SCENE_GRAPH_HOOK, false, "world-scene hook")
+            .and_then(|_| {
+                set_inline_hook_state(&RENDER_FIRST_PERSON_HOOK, false, "first-person hook")
+            })
+            .and_then(|_| {
+                set_inline_hook_state(&RENDER_PRE_DEPTH_GROUPS_HOOK, false, "pre-alpha hook")
+            })
+            .and_then(|_| {
+                set_inline_hook_state(
+                    &SET_WATER_SHADER_UNDERWATER_HOOK,
+                    false,
+                    "underwater publication hook",
+                )
+            })
+    };
+
+    if let Err(err) = transition {
+        restore_depth_stage_hook_states(previous);
+        return Err(err);
+    }
+    publish_depth_stage_hook_states(depth_stage_hook_states());
+    log::info!(
+        "[FNV] Depth-stage hooks physically {}",
+        if active { "attached" } else { "detached" }
+    );
+    Ok(())
+}
+
+/// Reconcile native depth-stage hooks with current producer/visual ownership.
+pub(crate) fn reconcile_depth_stage_hooks() -> Result<()> {
+    let required = depth_stage_hooks_required(
+        crate::runtime::needs_fnv_scene_hooks(),
+        crate::fnv_world_pipeline::needs_scene_hooks(),
+        crate::backend::needs_shared_pre_alpha_depth(),
+    );
+    set_depth_stage_hooks_active(required)
+}
+
+/// Return whether native depth-stage entries currently point at OMV.
+pub(crate) fn depth_stage_hooks_active() -> bool {
+    DEPTH_STAGE_HOOK_MASK.load(Ordering::Acquire) == DepthStageHookStates::ALL_MASK
+}
+
+/// Return an exact diagnostic label for native depth-stage entry ownership.
+pub(crate) fn depth_stage_hooks_status_label() -> &'static str {
+    match DEPTH_STAGE_HOOK_MASK.load(Ordering::Acquire) {
+        0 => "detached",
+        DepthStageHookStates::ALL_MASK => "attached",
+        _ => "partial",
+    }
 }
 
 fn install_process_image_space_shaders_hook() {
@@ -131,6 +357,7 @@ fn install_set_water_shader_underwater_hook() {
 }
 
 fn install_render_world_scene_graph_hook() {
+    WORLD_SCENE_HOOK_READY.store(false, Ordering::Release);
     match unsafe {
         RENDER_WORLD_SCENE_GRAPH_HOOK.init(
             "FNV RenderWorldSceneGraph",
@@ -149,6 +376,7 @@ fn install_render_world_scene_graph_hook() {
 
     match RENDER_WORLD_SCENE_GRAPH_HOOK.enable() {
         Ok(()) => {
+            WORLD_SCENE_HOOK_READY.store(true, Ordering::Release);
             log::info!(
                 "[FNV] RenderWorldSceneGraph hook installed at 0x{RENDER_WORLD_SCENE_GRAPH_ADDR:08X}"
             )
@@ -191,6 +419,7 @@ fn install_render_first_person_hook() {
 }
 
 fn install_render_pre_depth_groups_hook() {
+    PRE_ALPHA_HOOK_READY.store(false, Ordering::Release);
     match unsafe {
         RENDER_PRE_DEPTH_GROUPS_HOOK.init(
             "FNV RenderPreDepthGroups",
@@ -208,9 +437,12 @@ fn install_render_pre_depth_groups_hook() {
     }
 
     match RENDER_PRE_DEPTH_GROUPS_HOOK.enable() {
-        Ok(()) => log::info!(
-            "[FNV] Pre-alpha atmosphere hook installed at 0x{RENDER_PRE_DEPTH_GROUPS_ADDR:08X}"
-        ),
+        Ok(()) => {
+            PRE_ALPHA_HOOK_READY.store(true, Ordering::Release);
+            log::info!(
+                "[FNV] Pre-alpha atmosphere hook installed at 0x{RENDER_PRE_DEPTH_GROUPS_ADDR:08X}"
+            );
+        }
         Err(err) => log::warn!(
             "[FNV] Pre-alpha atmosphere hook skipped at 0x{RENDER_PRE_DEPTH_GROUPS_ADDR:08X}: {err}"
         ),
@@ -341,7 +573,11 @@ unsafe extern "thiscall" fn hook_render_world_scene_graph(
         log_hook_error("[FNV] Missing original RenderWorldSceneGraph function");
         return;
     };
-    if !crate::runtime::effects_enabled() {
+    if !depth_stage_hooks_required(
+        crate::runtime::needs_fnv_scene_hooks(),
+        crate::fnv_world_pipeline::needs_scene_hooks(),
+        crate::backend::needs_shared_pre_alpha_depth(),
+    ) {
         unsafe {
             original(
                 main,
@@ -364,7 +600,10 @@ unsafe extern "thiscall" fn hook_render_world_scene_graph(
         let pre_alpha_target = world_scene_graph
             .then(current_render_target)
             .flatten()
-            .filter(|_| crate::fnv_world_pipeline::needs_atmosphere())
+            .filter(|_| {
+                crate::fnv_world_pipeline::needs_atmosphere()
+                    || crate::backend::needs_shared_pre_alpha_depth()
+            })
             .unwrap_or(0);
         PRE_ALPHA_WORLD_TARGET.store(pre_alpha_target, Ordering::Release);
         PRE_ALPHA_WORLD_ARMED.store(pre_alpha_target != 0, Ordering::Release);
@@ -384,6 +623,14 @@ unsafe extern "thiscall" fn hook_render_world_scene_graph(
         if world_scene_graph {
             drop(camera_jitter);
             if let Some(device_ptr) = crate::backend::d3d_device_ptr() {
+                // Depth Resolve's post-water texture is fresh only after the
+                // original world renderer returns. Publishing the borrowed
+                // snapshot here lets the external provider feed OMV without
+                // issuing another physical resolve.
+                crate::backend::publish_external_depth_after_world(
+                    device_ptr,
+                    crate::hooks::render_epoch(),
+                );
                 if crate::fnv_world_pipeline::needs_depth(crate::backend::DepthResolveSlot::World) {
                     crate::fnv_world_pipeline::apply_primary(device_ptr);
                 } else {
@@ -396,6 +643,15 @@ unsafe extern "thiscall" fn hook_render_world_scene_graph(
                 if crate::runtime::needs_fnv_world_color_capture() {
                     crate::runtime::capture_fnv_world_color(device_ptr);
                 }
+                if crate::backend::active_depth_provider()
+                    == crate::backend::DepthProvider::DepthResolve
+                {
+                    // RT0 still owns the completed world here. Do not move
+                    // this draw to RenderFirstPerson entry: that function has
+                    // not yet activated its BSRenderedTexture argument, and
+                    // manually binding it violated the engine target lifetime.
+                    crate::runtime::apply_fnv_ao_after_world(device_ptr);
+                }
             }
         } else {
             log_depth_capture_skip(
@@ -405,6 +661,18 @@ unsafe extern "thiscall" fn hook_render_world_scene_graph(
             );
         }
     }
+}
+
+fn depth_stage_hooks_required(
+    scene_inputs: bool,
+    world_pipeline: bool,
+    shared_depth_service: bool,
+) -> bool {
+    // Published consumer requirements, rather than the global master switch,
+    // decide whether OMV needs these entry points. When OMV is the selected
+    // physical producer, the separate shared service still requires one
+    // pre-alpha refresh even if every OMV effect is disabled.
+    scene_inputs || world_pipeline || shared_depth_service
 }
 
 unsafe extern "cdecl" fn hook_render_pre_depth_groups(accumulator: *mut c_void) {
@@ -424,7 +692,32 @@ unsafe extern "cdecl" fn hook_render_pre_depth_groups(accumulator: *mut c_void) 
     let Some(device_ptr) = crate::backend::d3d_device_ptr() else {
         return;
     };
-    unsafe { crate::fnv_world_pipeline::apply_before_alpha(device_ptr) };
+    if crate::backend::needs_shared_pre_alpha_depth()
+        && !crate::fnv_world_pipeline::needs_atmosphere()
+    {
+        unsafe { capture_shared_pre_alpha_depth(device_ptr) };
+    } else {
+        unsafe { crate::fnv_world_pipeline::apply_before_alpha(device_ptr) };
+    }
+}
+
+unsafe fn capture_shared_pre_alpha_depth(device_ptr: *mut c_void) {
+    // Depth Resolve consumers such as Vanilla Plus Particles sample the
+    // shared texture during native alpha rendering even when OMV's master
+    // effects are disabled. In OMV-provider mode one pre-alpha capture keeps
+    // that service fresh while the external pre/post markers are suppressed.
+    let _ = unsafe {
+        crate::backend::resolve_scene_depth(
+            crate::backend::DepthProvider::FalloutNewVegas,
+            device_ptr,
+            None,
+            crate::backend::DepthResolveSlot::World,
+            crate::backend::DepthResolveStage::PreAlphaWorld,
+            None,
+            "OMV shared pre-alpha depth service",
+            crate::hooks::render_epoch(),
+        )
+    };
 }
 
 fn current_render_target() -> Option<usize> {
@@ -501,13 +794,21 @@ unsafe fn capture_depth(
         return;
     };
 
-    let depth_provider = crate::backend::DepthProvider::FalloutNewVegas;
+    let depth_provider = crate::backend::active_depth_provider();
     match unsafe {
         crate::backend::resolve_scene_depth(
             depth_provider,
             device_ptr,
             source_rendered_texture,
             slot,
+            match slot {
+                crate::backend::DepthResolveSlot::World => {
+                    crate::backend::DepthResolveStage::CoherentWorld
+                }
+                crate::backend::DepthResolveSlot::FirstPerson => {
+                    crate::backend::DepthResolveStage::FirstPerson
+                }
+            },
             None,
             reason,
             crate::hooks::render_epoch(),
@@ -593,7 +894,8 @@ mod final_color_phase_contract_tests {
     use std::{cell::RefCell, mem::size_of};
 
     use super::{
-        PROCESS_IMAGE_SPACE_SHADERS_ADDR, ProcessImageSpaceShadersFn, run_image_space_phase_order,
+        PROCESS_IMAGE_SPACE_SHADERS_ADDR, ProcessImageSpaceShadersFn, depth_stage_hooks_required,
+        run_image_space_phase_order, shared_depth_service_hooks_ready,
     };
 
     #[test]
@@ -629,16 +931,67 @@ mod final_color_phase_contract_tests {
     }
 
     #[test]
-    fn disabled_master_bypasses_scene_boundary_work() {
+    fn world_only_ao_uses_the_active_post_world_target_before_first_person() {
+        let source = include_str!("fnv_render.rs");
+        let world_body = source
+            .split_once("unsafe extern \"thiscall\" fn hook_render_world_scene_graph")
+            .map(|(_, tail)| tail)
+            .and_then(|tail| tail.split_once("\nfn depth_stage_hooks_required"))
+            .map(|(body, _)| body)
+            .expect("RenderWorldSceneGraph detour");
+        let publish = world_body
+            .find("publish_external_depth_after_world")
+            .expect("external world-depth publication");
+        let world_color = world_body[publish..]
+            .find("capture_fnv_world_color")
+            .map(|offset| publish + offset)
+            .expect("world-color capture");
+        let world_ao = world_body[world_color..]
+            .find("apply_fnv_ao_after_world")
+            .map(|offset| world_color + offset)
+            .expect("world-only AO boundary");
+
+        // AO must draw while the completed world surface is still RT0. The
+        // BSRenderedTexture argument is not activated by the engine until
+        // inside RenderFirstPerson, so pre-binding it here is not equivalent.
+        assert!(publish < world_color);
+        assert!(world_color < world_ao);
+
+        let first_person_body = source
+            .split_once("unsafe extern \"thiscall\" fn hook_render_first_person")
+            .map(|(_, tail)| tail)
+            .and_then(|tail| tail.split_once("\nunsafe fn capture_depth"))
+            .map(|(body, _)| body)
+            .expect("RenderFirstPerson detour");
+        let world_retry = first_person_body
+            .find("retry_before_first_person")
+            .expect("world-pipeline retry");
+        let original = first_person_body[world_retry..]
+            .find("original(main, renderer, geo, sky_sun, rendered_texture)")
+            .map(|offset| world_retry + offset)
+            .expect("native first-person draw");
+        let publish = first_person_body[original..]
+            .find("publish_fnv_first_person_rendered")
+            .map(|offset| original + offset)
+            .expect("first-person publication");
+        let capture = first_person_body[publish..]
+            .find("capture_depth(")
+            .map(|offset| publish + offset)
+            .expect("OMV-provider first-person capture");
+
+        assert!(!first_person_body.contains("apply_fnv_ao"));
+        assert!(world_retry < original);
+        assert!(original < publish);
+        assert!(publish < capture);
+    }
+
+    #[test]
+    fn disabled_master_bypasses_visual_hooks_but_not_the_shared_depth_service() {
         let source = include_str!("fnv_render.rs");
         for (detour, first_effect_work) in [
             (
                 "unsafe extern \"cdecl\" fn hook_process_image_space_shaders",
                 "run_image_space_phase_order(",
-            ),
-            (
-                "unsafe extern \"thiscall\" fn hook_render_world_scene_graph",
-                "begin_temporal_aa_jitter()",
             ),
             (
                 "unsafe extern \"thiscall\" fn hook_render_first_person",
@@ -654,5 +1007,63 @@ mod final_color_phase_contract_tests {
             assert!(prefix.contains("if !crate::runtime::effects_enabled()"));
             assert!(prefix.contains("original("));
         }
+
+        assert!(!depth_stage_hooks_required(false, false, false));
+        assert!(depth_stage_hooks_required(true, false, false));
+        assert!(depth_stage_hooks_required(false, true, false));
+        assert!(depth_stage_hooks_required(false, false, true));
+    }
+
+    #[test]
+    fn shared_service_capture_is_owned_by_omv_and_does_not_select_a_hybrid_provider() {
+        let source = include_str!("fnv_render.rs");
+        let body = source
+            .split_once("unsafe fn capture_shared_pre_alpha_depth")
+            .map(|(_, tail)| tail)
+            .and_then(|tail| tail.split_once("fn current_render_target()"))
+            .map(|(body, _)| body)
+            .expect("shared pre-alpha capture body");
+        assert!(body.contains("DepthProvider::FalloutNewVegas"));
+        assert!(!body.contains("active_depth_provider"));
+    }
+
+    #[test]
+    fn exclusive_service_requires_both_native_scene_boundaries() {
+        assert!(shared_depth_service_hooks_ready(true, true));
+        assert!(!shared_depth_service_hooks_ready(true, false));
+        assert!(!shared_depth_service_hooks_ready(false, true));
+        assert!(!shared_depth_service_hooks_ready(false, false));
+    }
+
+    #[test]
+    fn inactive_external_policy_reaches_physical_depth_stage_detachment() {
+        assert!(!depth_stage_hooks_required(false, false, false));
+
+        let source = include_str!("fnv_render.rs");
+        let body = source
+            .split_once("pub(crate) fn reconcile_depth_stage_hooks")
+            .map(|(_, tail)| tail)
+            .and_then(|tail| tail.split_once("pub(crate) fn depth_stage_hooks_active"))
+            .map(|(body, _)| body)
+            .expect("depth-stage reconciliation body");
+        assert!(body.contains("depth_stage_hooks_required("));
+        assert!(body.contains("set_depth_stage_hooks_active(required)"));
+
+        let transition = source
+            .split_once("pub(crate) fn set_depth_stage_hooks_active")
+            .map(|(_, tail)| tail)
+            .and_then(|tail| tail.split_once("pub(crate) fn reconcile_depth_stage_hooks"))
+            .map(|(body, _)| body)
+            .expect("physical depth-stage transition body");
+        for hook in [
+            "SET_WATER_SHADER_UNDERWATER_HOOK",
+            "RENDER_WORLD_SCENE_GRAPH_HOOK",
+            "RENDER_FIRST_PERSON_HOOK",
+            "RENDER_PRE_DEPTH_GROUPS_HOOK",
+        ] {
+            assert!(transition.contains(hook));
+        }
+        assert!(transition.contains("set_inline_hook_state"));
+        assert!(transition.contains("false"));
     }
 }

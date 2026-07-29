@@ -5,6 +5,7 @@ pub(crate) mod blooming_hdr;
 pub(crate) mod depth_of_field;
 pub(crate) mod motion_blur;
 pub(crate) mod pbr;
+pub(crate) mod shader_preparation;
 pub(crate) mod sky;
 pub(crate) mod sunshafts;
 pub(crate) mod temporal_aa;

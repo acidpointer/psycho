@@ -26,8 +26,9 @@ use crate::os::windows::winapi;
 
 pub use cpu::{CpuCache, CpuCacheKind, CpuEfficiencyClass, CpuFeatures, CpuInfo, CpuVendor};
 pub use gpu::{
-    D3d9AdapterProfile, D3d9Capabilities, D3d9DeviceKind, D3d9DeviceProfile, D3d9FeatureFlags,
-    D3d9FormatFeatures, GpuIdentity, ShaderModel, d3d9_adapter_profiles, d3d9_device_profile,
+    D3d9ActiveGpuIdentity, D3d9AdapterProfile, D3d9Capabilities, D3d9DeviceKind, D3d9DeviceProfile,
+    D3d9FeatureFlags, D3d9FormatFeatures, DxvkPhysicalDeviceIdentity, GpuIdentity, ShaderModel,
+    VulkanDeviceKind, d3d9_adapter_profiles, d3d9_device_profile,
 };
 pub use memory::{
     MemoryArray, MemoryArrayLocation, MemoryArrayUse, MemoryDevice, MemoryDeviceProfile,

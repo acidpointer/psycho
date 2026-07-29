@@ -1003,15 +1003,20 @@ impl Default for DepthOfFieldConfig {
     }
 }
 
+/// Machine-local depth producer; intentionally excluded from visual presets.
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum DepthProviderConfig {
+    /// Disable OMV depth consumption and production.
     None,
+    /// Select OMV's FNV-native world and first-person producer.
     #[default]
     #[serde(alias = "d3d9_auto")]
     #[serde(alias = "fallout_new_vegas_image_space")]
     #[serde(alias = "fallout_new_vegas_d3d_depth")]
     FalloutNewVegas,
+    /// Borrow Depth Resolve's world-only texture without an OMV copy.
+    DepthResolve,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -1163,6 +1168,7 @@ impl DepthProviderConfig {
         match self {
             Self::None => "none",
             Self::FalloutNewVegas => "fallout_new_vegas",
+            Self::DepthResolve => "depth_resolve",
         }
     }
 }

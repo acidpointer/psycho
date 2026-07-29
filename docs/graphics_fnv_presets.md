@@ -335,7 +335,7 @@ Static tests cover:
 - strict monotonic version publication, family-UUID preservation, and current
   payload capture;
 - conflicting and identical duplicate identities;
-- local-setting preservation;
+- machine-local setting preservation, including depth-provider selection;
 - built-in LUT revision equality;
 - path-safe version-free generated filenames and readable collision suffixes;
 - fail-if-exists atomic creation and no-delete atomic version replacement;

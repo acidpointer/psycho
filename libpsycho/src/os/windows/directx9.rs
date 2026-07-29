@@ -3,50 +3,60 @@
 //! Host applications own their renderer and `IDirect3DDevice9`. Use `Device9Ref`
 //! for borrowed device pointers so Rust does not call `Release` on objects it
 //! does not own. Resource wrappers in this module are owned COM references.
+//! DXVK devices additionally expose their exact Vulkan physical-device handle
+//! through DXVK's documented D3D9 interop interface. That path is required for
+//! physical GPU identity because DXVK may deliberately spoof the D3D9 adapter
+//! description and PCI IDs for application compatibility.
 
-use core::ffi::c_void;
+use core::ffi::{c_char, c_void};
 use core::mem::size_of;
 use core::ptr::{NonNull, addr_of, null, null_mut};
 use core::slice;
 use std::ffi::CString;
 use std::sync::OnceLock;
 
+use ash::vk;
 use thiserror::Error;
 
-use windows::Win32::Foundation::{E_NOINTERFACE, E_POINTER, HANDLE, RECT};
+use windows::Win32::Foundation::{E_FAIL, E_NOINTERFACE, E_POINTER, HANDLE, RECT};
 use windows::Win32::Graphics::Direct3D::ID3DBlob;
 pub use windows::Win32::Graphics::Direct3D9::{
     D3D_SDK_VERSION, D3DBLEND_ONE, D3DBLENDOP_ADD, D3DCAPS9, D3DCULL, D3DCULL_CCW, D3DCULL_CW,
     D3DCULL_NONE, D3DDEVTYPE, D3DDEVTYPE_HAL, D3DDEVTYPE_NULLREF, D3DDEVTYPE_REF, D3DDEVTYPE_SW,
     D3DFMT_A8R8G8B8, D3DFMT_R32F, D3DFORMAT, D3DFVF_DIFFUSE, D3DFVF_TEX1, D3DFVF_XYZ,
-    D3DFVF_XYZRHW, D3DPOOL_DEFAULT, D3DPOOL_MANAGED, D3DPT_POINTLIST, D3DPT_TRIANGLESTRIP,
-    D3DRS_ADAPTIVETESS_Y, D3DRS_ALPHABLENDENABLE, D3DRS_ALPHATESTENABLE, D3DRS_BLENDOP,
-    D3DRS_COLORWRITEENABLE, D3DRS_CULLMODE, D3DRS_DESTBLEND, D3DRS_MULTISAMPLEANTIALIAS,
-    D3DRS_MULTISAMPLEMASK, D3DRS_POINTSIZE, D3DRS_SCISSORTESTENABLE, D3DRS_SRCBLEND,
-    D3DRS_SRGBWRITEENABLE, D3DRS_STENCILENABLE, D3DRS_ZENABLE, D3DRS_ZFUNC, D3DRS_ZWRITEENABLE,
-    D3DRTYPE_SURFACE, D3DRTYPE_TEXTURE, D3DSAMP_ADDRESSU, D3DSAMP_ADDRESSV, D3DSAMP_MAGFILTER,
-    D3DSAMP_MINFILTER, D3DSAMP_MIPFILTER, D3DSAMP_SRGBTEXTURE, D3DSBT_ALL, D3DSURFACE_DESC,
-    D3DTA_TEXTURE, D3DTADDRESS_CLAMP, D3DTADDRESS_WRAP, D3DTEXF_LINEAR, D3DTEXF_NONE,
-    D3DTEXF_POINT, D3DTOP_SELECTARG1, D3DTSS_ALPHAARG1, D3DTSS_ALPHAOP, D3DTSS_COLORARG1,
-    D3DTSS_COLOROP, D3DVIEWPORT9,
+    D3DFVF_XYZRHW, D3DPOOL_DEFAULT, D3DPOOL_MANAGED, D3DPT_POINTLIST, D3DPT_TRIANGLELIST,
+    D3DPT_TRIANGLESTRIP, D3DRS_ADAPTIVETESS_Y, D3DRS_ALPHABLENDENABLE, D3DRS_ALPHATESTENABLE,
+    D3DRS_BLENDOP, D3DRS_COLORWRITEENABLE, D3DRS_COLORWRITEENABLE1, D3DRS_CULLMODE,
+    D3DRS_DESTBLEND, D3DRS_MULTISAMPLEANTIALIAS, D3DRS_MULTISAMPLEMASK, D3DRS_POINTSIZE,
+    D3DRS_SCISSORTESTENABLE, D3DRS_SRCBLEND, D3DRS_SRGBWRITEENABLE, D3DRS_STENCILENABLE,
+    D3DRS_ZENABLE, D3DRS_ZFUNC, D3DRS_ZWRITEENABLE, D3DRTYPE_SURFACE, D3DRTYPE_TEXTURE,
+    D3DSAMP_ADDRESSU, D3DSAMP_ADDRESSV, D3DSAMP_MAGFILTER, D3DSAMP_MINFILTER, D3DSAMP_MIPFILTER,
+    D3DSAMP_SRGBTEXTURE, D3DSBT_ALL, D3DSURFACE_DESC, D3DTA_TEXTURE, D3DTADDRESS_CLAMP,
+    D3DTADDRESS_WRAP, D3DTEXF_LINEAR, D3DTEXF_NONE, D3DTEXF_POINT, D3DTOP_SELECTARG1,
+    D3DTSS_ALPHAARG1, D3DTSS_ALPHAOP, D3DTSS_COLORARG1, D3DTSS_COLOROP, D3DVIEWPORT9,
 };
 use windows::Win32::Graphics::Direct3D9::{
     D3DADAPTER_DEFAULT, D3DADAPTER_IDENTIFIER9, D3DBACKBUFFER_TYPE, D3DBACKBUFFER_TYPE_MONO,
-    D3DCLEAR_ZBUFFER, D3DDEVICE_CREATION_PARAMETERS, D3DDISPLAYMODE, D3DLOCKED_RECT, D3DPOOL,
-    D3DPRESENT_PARAMETERS, D3DPRIMITIVETYPE, D3DRENDERSTATETYPE, D3DRESOURCETYPE,
-    D3DSAMPLERSTATETYPE, D3DSTATEBLOCKTYPE, D3DTEXTUREFILTERTYPE, D3DTEXTURESTAGESTATETYPE,
-    D3DUSAGE_DEPTHSTENCIL, D3DUSAGE_QUERY_POSTPIXELSHADER_BLENDING, D3DUSAGE_RENDERTARGET,
-    D3DVERTEXELEMENT9, Direct3DCreate9, IDirect3D9, IDirect3DBaseTexture9, IDirect3DDevice9,
-    IDirect3DPixelShader9, IDirect3DStateBlock9, IDirect3DSurface9, IDirect3DTexture9,
-    IDirect3DVertexBuffer9, IDirect3DVertexDeclaration9, IDirect3DVertexShader9,
+    D3DCLEAR_ZBUFFER, D3DDEVICE_CREATION_PARAMETERS, D3DDISPLAYMODE, D3DLOCKED_RECT,
+    D3DPMISCCAPS_MRTINDEPENDENTBITDEPTHS, D3DPOOL, D3DPRESENT_PARAMETERS, D3DPRIMITIVETYPE,
+    D3DRENDERSTATETYPE, D3DRESOURCETYPE, D3DSAMPLERSTATETYPE, D3DSTATEBLOCKTYPE,
+    D3DTEXTUREFILTERTYPE, D3DTEXTURESTAGESTATETYPE, D3DUSAGE_DEPTHSTENCIL,
+    D3DUSAGE_QUERY_POSTPIXELSHADER_BLENDING, D3DUSAGE_RENDERTARGET, D3DVERTEXELEMENT9,
+    Direct3DCreate9, IDirect3D9, IDirect3DBaseTexture9, IDirect3DDevice9, IDirect3DPixelShader9,
+    IDirect3DStateBlock9, IDirect3DSurface9, IDirect3DTexture9, IDirect3DVertexBuffer9,
+    IDirect3DVertexDeclaration9, IDirect3DVertexShader9,
 };
 pub use windows::core::Error as Direct3DError;
-use windows::core::{HRESULT, Interface, InterfaceRef, PCSTR, Result as WindowsResult};
+use windows::core::{
+    GUID, HRESULT, IUnknown, IUnknown_Vtbl, Interface, InterfaceRef, PCSTR, Result as WindowsResult,
+};
 
 use Direct3DError as WindowsError;
 
 use crate::ffi::fnptr::FnPtr;
-use crate::os::windows::winapi::{get_proc_address, load_library_a};
+use crate::os::windows::winapi::{
+    get_module_handle_a, get_proc_address, load_library_a, load_system_library_w,
+};
 
 /// Byte offset of `IDirect3DDevice9::TestCooperativeLevel` in the device vtable.
 pub const DEVICE9_VTBL_TEST_COOPERATIVE_LEVEL: usize = 0x0c;
@@ -70,6 +80,8 @@ pub const DEVICE9_VTBL_SET_RENDER_TARGET: usize = 0x94;
 pub const DEVICE9_VTBL_SET_DEPTH_STENCIL_SURFACE: usize = 0x9c;
 /// Byte offset of `IDirect3DDevice9::Clear` in the device vtable.
 pub const DEVICE9_VTBL_CLEAR: usize = 0xac;
+/// Byte offset of `IDirect3DDevice9::SetRenderState` in the device vtable.
+pub const DEVICE9_VTBL_SET_RENDER_STATE: usize = 0xe4;
 /// Byte offset of `IDirect3DDevice9::DrawPrimitive` in the device vtable.
 pub const DEVICE9_VTBL_DRAW_PRIMITIVE: usize = 0x144;
 /// Byte offset of `IDirect3DDevice9::DrawIndexedPrimitive` in the device vtable.
@@ -142,6 +154,58 @@ pub struct DeviceCreationParameters9 {
     pub focus_window: usize,
     /// D3D9 behavior flags used to create the device.
     pub behavior_flags: u32,
+}
+
+/// Physical Vulkan device properties obtained from a DXVK D3D9 device.
+///
+/// These fields come from the Vulkan physical device selected by DXVK rather
+/// than `IDirect3D9::GetAdapterIdentifier`, whose identity may be intentionally
+/// replaced by a DXVK application profile.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DxvkPhysicalDeviceProperties9 {
+    /// Vulkan physical-device name.
+    pub description: String,
+    /// PCI or platform vendor identifier reported by Vulkan.
+    pub vendor_id: u32,
+    /// PCI or platform device identifier reported by Vulkan.
+    pub device_id: u32,
+    /// Raw `VkPhysicalDeviceType`.
+    pub device_type: i32,
+    /// Packed Vulkan API version supported by the physical device.
+    pub api_version: u32,
+    /// Vendor-specific packed Vulkan driver version.
+    pub driver_version: u32,
+    /// Vulkan device UUID encoded in network byte order.
+    ///
+    /// Zero means the optional Vulkan 1.1 properties query was unavailable.
+    pub device_uuid: u128,
+    /// Vulkan driver name, when exposed by Vulkan 1.2 driver properties.
+    pub driver_name: String,
+    /// Vulkan driver information, when exposed by Vulkan 1.2 driver properties.
+    pub driver_info: String,
+}
+
+#[repr(transparent)]
+#[derive(Clone, Eq, PartialEq)]
+struct ID3D9VkInteropDevice(IUnknown);
+
+#[repr(C)]
+struct ID3D9VkInteropDeviceVtbl {
+    base__: IUnknown_Vtbl,
+    get_vulkan_handles: unsafe extern "system" fn(
+        this: *mut c_void,
+        instance: *mut vk::Instance,
+        physical_device: *mut vk::PhysicalDevice,
+        device: *mut vk::Device,
+    ),
+}
+
+// Safety: the IID and vtable layout are the public ID3D9VkInteropDevice ABI
+// shipped by DXVK 2.7.1. The interface begins with IUnknown and its first
+// extension method is GetVulkanHandles.
+unsafe impl Interface for ID3D9VkInteropDevice {
+    type Vtable = ID3D9VkInteropDeviceVtbl;
+    const IID: GUID = GUID::from_u128(0x2eaa4b89_0107_4bdb_87f7_0f541c493ce0);
 }
 
 /// Construct a generic Direct3D failure for higher-level validation errors.
@@ -291,6 +355,14 @@ impl<'a> Device9Ref<'a> {
         Ok(caps)
     }
 
+    /// Query the primary swap chain's current presentation parameters.
+    pub fn presentation_parameters(&self) -> Direct3DResult<D3DPRESENT_PARAMETERS> {
+        let swap_chain = unsafe { self.inner.GetSwapChain(0)? };
+        let mut parameters = D3DPRESENT_PARAMETERS::default();
+        unsafe { swap_chain.GetPresentParameters(&mut parameters)? };
+        Ok(parameters)
+    }
+
     /// Release managed resources held by the driver.
     pub fn evict_managed_resources(&self) -> Direct3DResult<()> {
         unsafe { self.inner.EvictManagedResources() }
@@ -299,6 +371,44 @@ impl<'a> Device9Ref<'a> {
     /// Get the owning Direct3D object. The returned wrapper owns that COM reference.
     pub fn direct3d(&self) -> Direct3DResult<Direct3D9> {
         unsafe { self.inner.GetDirect3D().map(Direct3D9::new) }
+    }
+
+    /// Query the physical Vulkan device selected by DXVK.
+    ///
+    /// Returns `Ok(None)` when the D3D9 device is not implemented by DXVK.
+    /// DXVK exposes the exact physical-device handle through
+    /// `ID3D9VkInteropDevice`; querying Vulkan properties from that handle
+    /// bypasses application-profile vendor spoofing without enumerating or
+    /// guessing among unrelated host GPUs.
+    pub fn dxvk_physical_device_properties(
+        &self,
+    ) -> Direct3DResult<Option<DxvkPhysicalDeviceProperties9>> {
+        let interop = match self.inner.cast::<ID3D9VkInteropDevice>() {
+            Ok(interop) => interop,
+            Err(error) if error.code() == E_NOINTERFACE => return Ok(None),
+            Err(error) => return Err(error),
+        };
+
+        let mut instance = vk::Instance::null();
+        let mut physical_device = vk::PhysicalDevice::null();
+        // The successful QueryInterface fixes the vtable ABI and ties both
+        // returned handles to this D3D9 device. Requesting the logical Vulkan
+        // device is unnecessary for a read-only physical-property query.
+        unsafe {
+            (interop.vtable().get_vulkan_handles)(
+                interop.as_raw(),
+                &mut instance,
+                &mut physical_device,
+                null_mut(),
+            );
+        }
+        if instance == vk::Instance::null() || physical_device == vk::PhysicalDevice::null() {
+            return Err(dxvk_identity_error(
+                "DXVK returned null Vulkan instance or physical-device handle",
+            ));
+        }
+
+        query_vulkan_physical_device_properties(instance, physical_device).map(Some)
     }
 
     /// Reset the device with caller-provided presentation parameters.
@@ -423,6 +533,16 @@ impl<'a> Device9Ref<'a> {
         let mut caps = D3DCAPS9::default();
         unsafe { self.inner.GetDeviceCaps(&mut caps)? };
         Ok(caps.NumSimultaneousRTs.max(1))
+    }
+
+    /// Return whether MRT slots may use render targets with different bit depths.
+    ///
+    /// Direct3D 9 requires this capability when, for example, one pixel shader
+    /// writes FP16 RGBA color and an R16F depth key in the same draw.
+    pub fn supports_independent_mrt_bit_depths(&self) -> Direct3DResult<bool> {
+        let mut caps = D3DCAPS9::default();
+        unsafe { self.inner.GetDeviceCaps(&mut caps)? };
+        Ok(caps.PrimitiveMiscCaps & D3DPMISCCAPS_MRTINDEPENDENTBITDEPTHS as u32 != 0)
     }
 
     /// Set a render target surface.
@@ -848,6 +968,110 @@ impl<'a> Device9Ref<'a> {
     }
 }
 
+type VkGetInstanceProcAddr = unsafe extern "system" fn(
+    instance: vk::Instance,
+    name: *const c_char,
+) -> vk::PFN_vkVoidFunction;
+type VkGetPhysicalDeviceProperties = unsafe extern "system" fn(
+    physical_device: vk::PhysicalDevice,
+    properties: *mut vk::PhysicalDeviceProperties,
+);
+type VkGetPhysicalDeviceProperties2 = unsafe extern "system" fn(
+    physical_device: vk::PhysicalDevice,
+    properties: *mut vk::PhysicalDeviceProperties2<'_>,
+);
+
+fn query_vulkan_physical_device_properties(
+    instance: vk::Instance,
+    physical_device: vk::PhysicalDevice,
+) -> Direct3DResult<DxvkPhysicalDeviceProperties9> {
+    let module = get_module_handle_a(Some("vulkan-1.dll"))
+        .or_else(|_| load_system_library_w("vulkan-1.dll"))
+        .map_err(|error| dxvk_identity_error(format!("failed to load Vulkan loader: {error}")))?;
+    let get_instance_proc_address =
+        get_proc_address(module, "vkGetInstanceProcAddr").map_err(|error| {
+            dxvk_identity_error(format!(
+                "Vulkan loader has no vkGetInstanceProcAddr: {error}"
+            ))
+        })?;
+    let get_instance_proc_address =
+        unsafe { FnPtr::<VkGetInstanceProcAddr>::from_raw(get_instance_proc_address) }
+            .map_err(|error| {
+                dxvk_identity_error(format!("vkGetInstanceProcAddr is invalid: {error}"))
+            })?
+            .as_fn();
+
+    // Resolve commands through DXVK's own VkInstance. This follows the
+    // instance's Vulkan loader dispatch table instead of assuming a separately
+    // exported command belongs to the same loader implementation.
+    let core_properties =
+        unsafe { get_instance_proc_address(instance, c"vkGetPhysicalDeviceProperties".as_ptr()) };
+    let core_properties = core_properties.ok_or_else(|| {
+        dxvk_identity_error("Vulkan loader returned no vkGetPhysicalDeviceProperties")
+    })?;
+    // Safety: vkGetInstanceProcAddr returned a non-null pointer for this exact
+    // core command name. The alias reproduces the Vulkan system-call ABI.
+    let core_properties: VkGetPhysicalDeviceProperties =
+        unsafe { core::mem::transmute(core_properties) };
+    let mut properties = vk::PhysicalDeviceProperties::default();
+    unsafe { core_properties(physical_device, &mut properties) };
+
+    let mut device_uuid = 0;
+    let mut driver_name = String::new();
+    let mut driver_info = String::new();
+    // Core 1.0 properties are sufficient to correct name and PCI identity.
+    // Properties2 is optional so older DXVK/Vulkan combinations still work;
+    // when present, its output chain adds stable UUID and driver strings
+    // without creating a device or enumerating unrelated physical adapters.
+    if let Some(properties2) =
+        unsafe { get_instance_proc_address(instance, c"vkGetPhysicalDeviceProperties2".as_ptr()) }
+    {
+        // Safety: the non-null pointer was resolved for the exact Properties2
+        // command, whose output ABI is represented by the ash Vulkan types.
+        let properties2: VkGetPhysicalDeviceProperties2 =
+            unsafe { core::mem::transmute(properties2) };
+        let mut id_properties = vk::PhysicalDeviceIDProperties::default();
+        let mut driver_properties = vk::PhysicalDeviceDriverProperties::default();
+        id_properties.p_next = core::ptr::from_mut(&mut driver_properties).cast();
+        let mut extended_properties = vk::PhysicalDeviceProperties2 {
+            p_next: core::ptr::from_mut(&mut id_properties).cast(),
+            ..Default::default()
+        };
+        unsafe { properties2(physical_device, &mut extended_properties) };
+        properties = extended_properties.properties;
+        device_uuid = u128::from_be_bytes(id_properties.device_uuid);
+        driver_name = fixed_vk_string(&driver_properties.driver_name);
+        driver_info = fixed_vk_string(&driver_properties.driver_info);
+    }
+
+    Ok(DxvkPhysicalDeviceProperties9 {
+        description: fixed_vk_string(&properties.device_name),
+        vendor_id: properties.vendor_id,
+        device_id: properties.device_id,
+        device_type: properties.device_type.as_raw(),
+        api_version: properties.api_version,
+        driver_version: properties.driver_version,
+        device_uuid,
+        driver_name,
+        driver_info,
+    })
+}
+
+fn fixed_vk_string<const N: usize>(bytes: &[c_char; N]) -> String {
+    let end = bytes.iter().position(|byte| *byte == 0).unwrap_or(N);
+    let bytes = &bytes[..end];
+    // Vulkan device and driver strings are UTF-8. Lossy conversion keeps a
+    // malformed third-party driver string bounded and safe for diagnostics.
+    String::from_utf8_lossy(unsafe {
+        slice::from_raw_parts(bytes.as_ptr().cast::<u8>(), bytes.len())
+    })
+    .into_owned()
+}
+
+fn dxvk_identity_error(message: impl AsRef<str>) -> Direct3DError {
+    Direct3DError::new(E_FAIL, message)
+}
+
 /// Create an owned Direct3D 9 interface for explicit adapter enumeration.
 ///
 /// This loads the platform D3D9 runtime on first use. Renderer integrations
@@ -1157,6 +1381,24 @@ impl Texture9 {
     fn new(inner: IDirect3DTexture9) -> Direct3DResult<Self> {
         let base = inner.cast::<IDirect3DBaseTexture9>()?;
         Ok(Self { inner, base })
+    }
+
+    /// Retain an engine-owned raw texture as an owned COM reference.
+    ///
+    /// The returned wrapper calls `AddRef` through `QueryInterface`, so it may
+    /// outlive the borrowed pointer used to create it. This is intended for
+    /// validated renderer resources exposed by the host or another graphics
+    /// provider.
+    ///
+    /// # Safety
+    ///
+    /// `texture` must point to a live `IDirect3DBaseTexture9` whose concrete
+    /// resource is a two-dimensional `IDirect3DTexture9`. This accepts the
+    /// base-interface pointer commonly stored by game renderers.
+    pub unsafe fn retain_raw(texture: *mut c_void) -> Direct3DResult<Self> {
+        let ptr = NonNull::new(texture).ok_or_else(|| WindowsError::from_hresult(E_POINTER))?;
+        let borrowed = unsafe { InterfaceRef::<IDirect3DBaseTexture9>::from_raw(ptr) };
+        borrowed.cast::<IDirect3DTexture9>().and_then(Self::new)
     }
 
     /// Return the wrapped Windows binding interface.

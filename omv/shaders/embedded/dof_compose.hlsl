@@ -74,16 +74,29 @@ float4 UpsampleFar(float2 uv, float targetCoc) {
 float4 UpsampleNear(float2 uv) {
     float2 texel = EffectData.xy;
 #if DOF_HIGH_QUALITY_UPSAMPLE
-    float4 value = tex2Dlod(NearTexture, float4(uv, 0.0f, 0.0f)) * 4.0f;
-    value += tex2Dlod(NearTexture, float4(uv + float2( texel.x, 0.0f), 0.0f, 0.0f)) * 2.0f;
-    value += tex2Dlod(NearTexture, float4(uv + float2(-texel.x, 0.0f), 0.0f, 0.0f)) * 2.0f;
-    value += tex2Dlod(NearTexture, float4(uv + float2(0.0f,  texel.y), 0.0f, 0.0f)) * 2.0f;
-    value += tex2Dlod(NearTexture, float4(uv + float2(0.0f, -texel.y), 0.0f, 0.0f)) * 2.0f;
-    value += tex2Dlod(NearTexture, float4(uv + float2( texel.x,  texel.y), 0.0f, 0.0f));
-    value += tex2Dlod(NearTexture, float4(uv + float2(-texel.x,  texel.y), 0.0f, 0.0f));
-    value += tex2Dlod(NearTexture, float4(uv + float2( texel.x, -texel.y), 0.0f, 0.0f));
-    value += tex2Dlod(NearTexture, float4(uv + float2(-texel.x, -texel.y), 0.0f, 0.0f));
-    return value * 0.0625f;
+    // Collapse the exact separable [1 2 1]^2/16 kernel into two linear reads
+    // per axis. The offsets account for the full-to-half-resolution subpixel
+    // phase; fixed half-texel offsets would change weights on alternating
+    // full-resolution pixels.
+    float2 pixel = uv / texel - 0.5f;
+    float2 basePixel = floor(pixel);
+    float2 phase = saturate(pixel - basePixel);
+    float2 lowWeight = 0.75f - phase * 0.5f;
+    float2 highWeight = 0.25f + phase * 0.5f;
+    float2 lowBlend = (0.5f - phase * 0.25f) / lowWeight;
+    float2 highBlend = (phase * 0.25f) / highWeight;
+    float2 lowUv = (basePixel - 0.5f + lowBlend) * texel;
+    float2 highUv = (basePixel + 1.5f + highBlend) * texel;
+
+    float4 value = tex2Dlod(NearTexture, float4(lowUv, 0.0f, 0.0f))
+        * lowWeight.x * lowWeight.y;
+    value += tex2Dlod(NearTexture, float4(float2(highUv.x, lowUv.y), 0.0f, 0.0f))
+        * highWeight.x * lowWeight.y;
+    value += tex2Dlod(NearTexture, float4(float2(lowUv.x, highUv.y), 0.0f, 0.0f))
+        * lowWeight.x * highWeight.y;
+    value += tex2Dlod(NearTexture, float4(highUv, 0.0f, 0.0f))
+        * highWeight.x * highWeight.y;
+    return value;
 #else
     float2 pixel = uv / texel - 0.5f;
     float2 basePixel = floor(pixel);

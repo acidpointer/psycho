@@ -27,9 +27,46 @@ The supported `i686-pc-windows-gnu` build and Wine-hosted 32-bit unit/HLSL tests
 In-game validation at the reported locations remains required because static analysis cannot
 reproduce third-party D3D state or judge the visual stability/ghosting tradeoff.
 
+Implemented on 2026-07-29 for the Depth Resolve provider:
+
+- the external provider remains world-only and OMV does not issue a hidden
+  first-person resolve;
+- AO uses the proven post-`RenderWorldSceneGraph` boundary and the active RT0
+  that already contains completed world color;
+- the world AO transaction runs after pending world/TAA/atmosphere work and
+  optional world-color capture but before first-person color, so hands and
+  weapons overwrite AO naturally;
+- later scene-pre AO is suppressed for the world-only provider on every render
+  path, while non-AO scene-pre passes remain at their configured boundary;
+- an unavailable/busy post-world transaction skips AO and invalidates a missed
+  temporal frame instead of applying world depth over first-person pixels.
+
+This route has no additional depth copy, shader variant, AO draw, or persistent
+resource. The normal OMV-provider route is unchanged and continues using the
+post-first-person mask described below.
+
+The initial version incorrectly pre-bound the `BSRenderedTexture*` passed into
+the `RenderFirstPerson` entry detour. The executable proves that native code
+does not acquire and activate that argument until `0x008758AD` and
+`0x008758B5`, after stopping the current offscreen target at `0x0087589A`.
+Therefore the argument is not a proven alias of the completed world target at
+function entry. A follow-up Depth Resolve playtest reported AO as completely
+broken on that route. The correction never binds the callee-owned argument:
+it uses the current D3D RT0 immediately after world rendering.
+
+Static validation includes a phase-order regression, an explicit rejection of
+the former rendered-texture pre-bind, and a deterministic negative control
+that reproduces weapon darkening under post-first-person AO. The missed-frame
+history regression also proves that an unrelated scene-pre pass cannot retain
+stale AO history. All 428 OMV tests passed through Wine and the optimized
+`i686-pc-windows-gnu` OMV release target built successfully. Runtime image
+acceptance remains required.
+
 ## Current pipeline
 
-OMV runs AO at the outer `ImageSpaceManager::ProcessImageSpaceShaders` hook, before vanilla image-space processing:
+With the OMV depth provider, OMV runs AO at the outer
+`ImageSpaceManager::ProcessImageSpaceShaders` hook before vanilla image-space
+processing:
 
 1. Capture world depth after `Main::RenderWorldSceneGraph` phase 0.
 2. Copy the scene color from the rendered-texture source.
@@ -40,6 +77,11 @@ OMV runs AO at the outer `ImageSpaceManager::ProcessImageSpaceShaders` hook, bef
 6. Composite the stabilized AO into the full-resolution scene target.
 7. Publish the stabilized AO/depth-key pair as next-frame history.
 8. Restore the D3D9 state block and continue vanilla image-space processing.
+
+With a world-only provider, steps 2-7 execute instead on current RT0
+immediately after `Main::RenderWorldSceneGraph` returns. The later
+first-person renderer then supplies the exclusion by ordinary color overdraw
+rather than a sampled depth mask.
 
 The pipeline uses:
 

@@ -1,5 +1,17 @@
 //! Engine-side sunshafts pipeline.
+//!
+//! Immutable HLSL bytecode is prepared by a background worker. Render
+//! callbacks create only D3D objects and never invoke the compiler or cache.
 
+use std::{
+    sync::{
+        LazyLock,
+        atomic::{AtomicBool, Ordering},
+    },
+    thread,
+};
+
+use anyhow::Result;
 use libpsycho::os::windows::directx9::{
     D3DCULL_NONE, D3DFORMAT, D3DPT_TRIANGLESTRIP, D3DRS_ADAPTIVETESS_Y, D3DRS_ALPHABLENDENABLE,
     D3DRS_ALPHATESTENABLE, D3DRS_COLORWRITEENABLE, D3DRS_CULLMODE, D3DRS_POINTSIZE, D3DRS_ZENABLE,
@@ -14,6 +26,7 @@ use crate::{
     backend::{DepthTexture, FrameInputs, NativeSkyFrame, SunProjectionFrame},
     shaders::{self, ScreenShaderSource},
 };
+use parking_lot::Mutex;
 
 const COLOR_WRITE_ALL: u32 = 0x0F;
 const AMD_ALPHA_TO_COVERAGE_OFF: u32 = u32::from_le_bytes(*b"A2M0");
@@ -24,6 +37,59 @@ const MASK_SHADER: &[u8] = include_bytes!("../../shaders/embedded/sunshafts_mask
 const RADIAL_SHADER: &[u8] = include_bytes!("../../shaders/embedded/sunshafts_radial.hlsl");
 const BLUR_SHADER: &[u8] = include_bytes!("../../shaders/embedded/sunshafts_blur.hlsl");
 const COMPOSE_SHADER: &[u8] = include_bytes!("../../shaders/embedded/sunshafts_compose.hlsl");
+
+static COMPILE_STARTED: AtomicBool = AtomicBool::new(false);
+static COMPILE_FAILED: AtomicBool = AtomicBool::new(false);
+static COMPILE_READY: AtomicBool = AtomicBool::new(false);
+static BYTECODE: LazyLock<Mutex<Option<SunshaftsBytecode>>> = LazyLock::new(|| Mutex::new(None));
+
+struct SunshaftsBytecode {
+    mask: Vec<u32>,
+    radial: Vec<u32>,
+    blur: Vec<u32>,
+    compose: Vec<u32>,
+}
+
+impl SunshaftsBytecode {
+    fn compile() -> Result<Self> {
+        Ok(Self {
+            mask: shaders::compile_hlsl_source("sunshafts_mask.hlsl", MASK_SHADER)?,
+            radial: shaders::compile_hlsl_source("sunshafts_radial.hlsl", RADIAL_SHADER)?,
+            blur: shaders::compile_hlsl_source("sunshafts_blur.hlsl", BLUR_SHADER)?,
+            compose: shaders::compile_hlsl_source("sunshafts_compose.hlsl", COMPOSE_SHADER)?,
+        })
+    }
+}
+
+/// Start process-owned sunshaft shader preparation outside render callbacks.
+pub(crate) fn service_preparation() {
+    if COMPILE_STARTED.swap(true, Ordering::AcqRel) {
+        return;
+    }
+    if let Err(err) = thread::Builder::new()
+        .name("omv-sunshafts-compile".to_owned())
+        .spawn(
+            || match super::shader_preparation::run_serialized(SunshaftsBytecode::compile) {
+                Ok(bytecode) => {
+                    *BYTECODE.lock() = Some(bytecode);
+                    COMPILE_READY.store(true, Ordering::Release);
+                }
+                Err(err) => {
+                    COMPILE_FAILED.store(true, Ordering::Release);
+                    log::warn!("[SUNSHAFTS] Shader preparation failed: {err:#}");
+                }
+            },
+        )
+    {
+        COMPILE_FAILED.store(true, Ordering::Release);
+        log::warn!("[SUNSHAFTS] Could not start shader preparation: {err}");
+    }
+}
+
+/// Return whether sunshaft bytecode is ready for device-object creation.
+pub(crate) fn preparation_ready() -> bool {
+    COMPILE_READY.load(Ordering::Acquire) && !COMPILE_FAILED.load(Ordering::Acquire)
+}
 
 #[derive(Clone, Copy)]
 struct NativeSunshaftFrame {
@@ -164,14 +230,30 @@ pub(crate) struct SunshaftsEffect {
 }
 
 impl SunshaftsEffect {
-    pub(crate) fn create(device: &Device9Ref<'_>) -> Direct3DResult<Self> {
-        Ok(Self {
-            mask_shader: compile_shader(device, "sunshafts_mask.hlsl", MASK_SHADER)?,
-            radial_shader: compile_shader(device, "sunshafts_radial.hlsl", RADIAL_SHADER)?,
-            blur_shader: compile_shader(device, "sunshafts_blur.hlsl", BLUR_SHADER)?,
-            compose_shader: compile_shader(device, "sunshafts_compose.hlsl", COMPOSE_SHADER)?,
+    /// Create device-owned sunshaft resources from prepared bytecode.
+    ///
+    /// `Ok(None)` is a normal nonblocking result while preparation is active.
+    pub(crate) fn create(device: &Device9Ref<'_>) -> Direct3DResult<Option<Self>> {
+        service_preparation();
+        if COMPILE_FAILED.load(Ordering::Acquire) {
+            return Err(direct3d_failure());
+        }
+        if !COMPILE_READY.load(Ordering::Acquire) {
+            return Ok(None);
+        }
+        let Some(bytecode) = BYTECODE.try_lock() else {
+            return Ok(None);
+        };
+        let Some(bytecode) = bytecode.as_ref() else {
+            return Ok(None);
+        };
+        Ok(Some(Self {
+            mask_shader: device.create_pixel_shader(&bytecode.mask)?,
+            radial_shader: device.create_pixel_shader(&bytecode.radial)?,
+            blur_shader: device.create_pixel_shader(&bytecode.blur)?,
+            compose_shader: device.create_pixel_shader(&bytecode.compose)?,
             targets: None,
-        })
+        }))
     }
 
     pub(crate) fn draw(
@@ -354,22 +436,6 @@ impl SunshaftsEffect {
         device.set_pixel_shader(&self.compose_shader)?;
         draw_quad(device, desc.Width, desc.Height)
     }
-}
-
-fn compile_shader(
-    device: &Device9Ref<'_>,
-    source_name: &str,
-    source: &[u8],
-) -> Direct3DResult<PixelShader9> {
-    let bytecode = match shaders::compile_hlsl_source(source_name, source) {
-        Ok(bytecode) => bytecode,
-        Err(err) => {
-            log::warn!("[SUNSHAFTS] Failed to compile {source_name}: {err:#}");
-            return Err(direct3d_failure());
-        }
-    };
-
-    device.create_pixel_shader(&bytecode)
 }
 
 fn bind_pipeline_state(device: &Device9Ref<'_>) -> Direct3DResult<()> {

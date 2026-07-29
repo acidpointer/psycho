@@ -1,5 +1,17 @@
 //! Embedded spatial anti-aliasing pipelines.
+//!
+//! Every production variant is compiled by a process worker. The render path
+//! creates D3D objects from immutable bytecode and never performs cache I/O.
 
+use std::{
+    sync::{
+        LazyLock,
+        atomic::{AtomicBool, Ordering},
+    },
+    thread,
+};
+
+use anyhow::Result;
 use libpsycho::os::windows::directx9::{
     D3DFMT_A8R8G8B8, D3DPT_TRIANGLESTRIP, D3DSAMP_MAGFILTER, D3DSAMP_MINFILTER, D3DSURFACE_DESC,
     D3DTEXF_LINEAR, Device9Ref, Direct3DResult, PixelShader9, ScreenVertex, Surface9, Texture9,
@@ -7,6 +19,7 @@ use libpsycho::os::windows::directx9::{
 };
 
 use crate::shaders::{self, EmbeddedEffectKind, ScreenShaderSource};
+use parking_lot::Mutex;
 
 const FIRST_OPTION_REGISTER: u32 = 3;
 
@@ -19,6 +32,76 @@ const DLAA_RESOLVE_SHADER: &[u8] = include_bytes!("../../shaders/embedded/aa_dla
 const SMAA_EDGES_SHADER: &[u8] = include_bytes!("../../shaders/embedded/aa_smaa_edges.hlsl");
 const SMAA_WEIGHTS_SHADER: &[u8] = include_bytes!("../../shaders/embedded/aa_smaa_weights.hlsl");
 const SMAA_BLEND_SHADER: &[u8] = include_bytes!("../../shaders/embedded/aa_smaa_blend.hlsl");
+
+static COMPILE_STARTED: AtomicBool = AtomicBool::new(false);
+static COMPILE_FAILED: AtomicBool = AtomicBool::new(false);
+static COMPILE_READY: AtomicBool = AtomicBool::new(false);
+static BYTECODE: LazyLock<Mutex<Option<AntiAliasingBytecode>>> = LazyLock::new(|| Mutex::new(None));
+
+struct AntiAliasingBytecode {
+    fast_fxaa: Vec<u32>,
+    nfaa: Vec<u32>,
+    axaa: Vec<u32>,
+    dlaa_prefilter: Vec<u32>,
+    dlaa_resolve: Vec<u32>,
+    smaa_edges: Vec<u32>,
+    smaa_weights: Vec<u32>,
+    smaa_blend: Vec<u32>,
+}
+
+impl AntiAliasingBytecode {
+    fn compile() -> Result<Self> {
+        Ok(Self {
+            fast_fxaa: shaders::compile_hlsl_source("aa_fast_fxaa.hlsl", FAST_FXAA_SHADER)?,
+            nfaa: shaders::compile_hlsl_source("aa_nfaa.hlsl", NFAA_SHADER)?,
+            axaa: shaders::compile_hlsl_source("aa_axaa.hlsl", AXAA_SHADER)?,
+            dlaa_prefilter: shaders::compile_hlsl_source(
+                "aa_dlaa_prefilter.hlsl",
+                DLAA_PREFILTER_SHADER,
+            )?,
+            dlaa_resolve: shaders::compile_hlsl_source(
+                "aa_dlaa_resolve.hlsl",
+                DLAA_RESOLVE_SHADER,
+            )?,
+            smaa_edges: shaders::compile_hlsl_source("aa_smaa_edges.hlsl", SMAA_EDGES_SHADER)?,
+            smaa_weights: shaders::compile_hlsl_source(
+                "aa_smaa_weights.hlsl",
+                SMAA_WEIGHTS_SHADER,
+            )?,
+            smaa_blend: shaders::compile_hlsl_source("aa_smaa_blend.hlsl", SMAA_BLEND_SHADER)?,
+        })
+    }
+}
+
+/// Start process-owned spatial-AA shader preparation.
+pub(crate) fn service_preparation() {
+    if COMPILE_STARTED.swap(true, Ordering::AcqRel) {
+        return;
+    }
+    if let Err(err) = thread::Builder::new()
+        .name("omv-spatial-aa-compile".to_owned())
+        .spawn(
+            || match super::shader_preparation::run_serialized(AntiAliasingBytecode::compile) {
+                Ok(bytecode) => {
+                    *BYTECODE.lock() = Some(bytecode);
+                    COMPILE_READY.store(true, Ordering::Release);
+                }
+                Err(err) => {
+                    COMPILE_FAILED.store(true, Ordering::Release);
+                    log::warn!("[AA] Shader preparation failed: {err:#}");
+                }
+            },
+        )
+    {
+        COMPILE_FAILED.store(true, Ordering::Release);
+        log::warn!("[AA] Could not start shader preparation: {err}");
+    }
+}
+
+/// Return whether every spatial-AA variant is ready for device creation.
+pub(crate) fn preparation_ready() -> bool {
+    COMPILE_READY.load(Ordering::Acquire) && !COMPILE_FAILED.load(Ordering::Acquire)
+}
 
 #[cfg(test)]
 mod shader_compile_tests {
@@ -59,32 +142,48 @@ mod shader_compile_tests {
 }
 
 pub(crate) struct AntiAliasingEffect {
-    fast_fxaa: ShaderSlot,
-    nfaa: ShaderSlot,
-    axaa: ShaderSlot,
-    dlaa_prefilter: ShaderSlot,
-    dlaa_resolve: ShaderSlot,
-    smaa_edges: ShaderSlot,
-    smaa_weights: ShaderSlot,
-    smaa_blend: ShaderSlot,
+    fast_fxaa: PixelShader9,
+    nfaa: PixelShader9,
+    axaa: PixelShader9,
+    dlaa_prefilter: PixelShader9,
+    dlaa_resolve: PixelShader9,
+    smaa_edges: PixelShader9,
+    smaa_weights: PixelShader9,
+    smaa_blend: PixelShader9,
     scratch_primary: Option<EffectTarget>,
     scratch_secondary: Option<EffectTarget>,
 }
 
 impl AntiAliasingEffect {
-    pub(crate) fn create() -> Self {
-        Self {
-            fast_fxaa: ShaderSlot::new("aa_fast_fxaa.hlsl", FAST_FXAA_SHADER),
-            nfaa: ShaderSlot::new("aa_nfaa.hlsl", NFAA_SHADER),
-            axaa: ShaderSlot::new("aa_axaa.hlsl", AXAA_SHADER),
-            dlaa_prefilter: ShaderSlot::new("aa_dlaa_prefilter.hlsl", DLAA_PREFILTER_SHADER),
-            dlaa_resolve: ShaderSlot::new("aa_dlaa_resolve.hlsl", DLAA_RESOLVE_SHADER),
-            smaa_edges: ShaderSlot::new("aa_smaa_edges.hlsl", SMAA_EDGES_SHADER),
-            smaa_weights: ShaderSlot::new("aa_smaa_weights.hlsl", SMAA_WEIGHTS_SHADER),
-            smaa_blend: ShaderSlot::new("aa_smaa_blend.hlsl", SMAA_BLEND_SHADER),
+    /// Create device-owned AA shaders from prepared process bytecode.
+    ///
+    /// `Ok(None)` is a normal nonblocking result while preparation is active.
+    pub(crate) fn create(device: &Device9Ref<'_>) -> Direct3DResult<Option<Self>> {
+        service_preparation();
+        if COMPILE_FAILED.load(Ordering::Acquire) {
+            return Err(direct3d_failure());
+        }
+        if !COMPILE_READY.load(Ordering::Acquire) {
+            return Ok(None);
+        }
+        let Some(bytecode) = BYTECODE.try_lock() else {
+            return Ok(None);
+        };
+        let Some(bytecode) = bytecode.as_ref() else {
+            return Ok(None);
+        };
+        Ok(Some(Self {
+            fast_fxaa: device.create_pixel_shader(&bytecode.fast_fxaa)?,
+            nfaa: device.create_pixel_shader(&bytecode.nfaa)?,
+            axaa: device.create_pixel_shader(&bytecode.axaa)?,
+            dlaa_prefilter: device.create_pixel_shader(&bytecode.dlaa_prefilter)?,
+            dlaa_resolve: device.create_pixel_shader(&bytecode.dlaa_resolve)?,
+            smaa_edges: device.create_pixel_shader(&bytecode.smaa_edges)?,
+            smaa_weights: device.create_pixel_shader(&bytecode.smaa_weights)?,
+            smaa_blend: device.create_pixel_shader(&bytecode.smaa_blend)?,
             scratch_primary: None,
             scratch_secondary: None,
-        }
+        }))
     }
 
     pub(crate) fn draw(
@@ -102,18 +201,20 @@ impl AntiAliasingEffect {
             }
         }
         match source.embedded_effect_kind() {
-            Some(EmbeddedEffectKind::FastFxaa) => match self.fast_fxaa.get(device)?.cloned() {
-                Some(shader) => draw_single(device, backbuffer, desc, source, scene_color, &shader),
-                None => Ok(()),
-            },
-            Some(EmbeddedEffectKind::Nfaa) => match self.nfaa.get(device)?.cloned() {
-                Some(shader) => draw_single(device, backbuffer, desc, source, scene_color, &shader),
-                None => Ok(()),
-            },
-            Some(EmbeddedEffectKind::Axaa) => match self.axaa.get(device)?.cloned() {
-                Some(shader) => draw_single(device, backbuffer, desc, source, scene_color, &shader),
-                None => Ok(()),
-            },
+            Some(EmbeddedEffectKind::FastFxaa) => draw_single(
+                device,
+                backbuffer,
+                desc,
+                source,
+                scene_color,
+                &self.fast_fxaa,
+            ),
+            Some(EmbeddedEffectKind::Nfaa) => {
+                draw_single(device, backbuffer, desc, source, scene_color, &self.nfaa)
+            }
+            Some(EmbeddedEffectKind::Axaa) => {
+                draw_single(device, backbuffer, desc, source, scene_color, &self.axaa)
+            }
             Some(EmbeddedEffectKind::Dlaa) => {
                 self.draw_dlaa(device, backbuffer, desc, source, scene_color)
             }
@@ -124,29 +225,6 @@ impl AntiAliasingEffect {
         }
     }
 
-    pub(crate) fn prepare(
-        &mut self,
-        device: &Device9Ref<'_>,
-        source: &ScreenShaderSource,
-    ) -> Direct3DResult<bool> {
-        let available = match source.embedded_effect_kind() {
-            Some(EmbeddedEffectKind::FastFxaa) => self.fast_fxaa.get(device)?.is_some(),
-            Some(EmbeddedEffectKind::Nfaa) => self.nfaa.get(device)?.is_some(),
-            Some(EmbeddedEffectKind::Axaa) => self.axaa.get(device)?.is_some(),
-            Some(EmbeddedEffectKind::Dlaa) => {
-                self.dlaa_prefilter.get(device)?.is_some()
-                    && self.dlaa_resolve.get(device)?.is_some()
-            }
-            Some(EmbeddedEffectKind::Smaa) => {
-                self.smaa_edges.get(device)?.is_some()
-                    && (smaa_edge_debug(source) || self.smaa_weights.get(device)?.is_some())
-                    && self.smaa_blend.get(device)?.is_some()
-            }
-            _ => false,
-        };
-        Ok(available)
-    }
-
     fn draw_dlaa(
         &mut self,
         device: &Device9Ref<'_>,
@@ -155,12 +233,8 @@ impl AntiAliasingEffect {
         source: &ScreenShaderSource,
         scene_color: &Texture9,
     ) -> Direct3DResult<()> {
-        let Some(prefilter_shader) = self.dlaa_prefilter.get(device)?.cloned() else {
-            return Ok(());
-        };
-        let Some(resolve_shader) = self.dlaa_resolve.get(device)?.cloned() else {
-            return Ok(());
-        };
+        let prefilter_shader = self.dlaa_prefilter.clone();
+        let resolve_shader = self.dlaa_resolve.clone();
         let needs_target = self
             .scratch_primary
             .as_ref()
@@ -192,20 +266,13 @@ impl AntiAliasingEffect {
         source: &ScreenShaderSource,
         scene_color: &Texture9,
     ) -> Direct3DResult<()> {
-        let Some(edges_shader) = self.smaa_edges.get(device)?.cloned() else {
-            return Ok(());
-        };
-        let Some(blend_shader) = self.smaa_blend.get(device)?.cloned() else {
-            return Ok(());
-        };
+        let edges_shader = self.smaa_edges.clone();
+        let blend_shader = self.smaa_blend.clone();
         let edge_debug = smaa_edge_debug(source);
         let weights_shader = if edge_debug {
             None
         } else {
-            let Some(shader) = self.smaa_weights.get(device)?.cloned() else {
-                return Ok(());
-            };
-            Some(shader)
+            Some(self.smaa_weights.clone())
         };
         let needs_primary = self
             .scratch_primary
@@ -262,55 +329,6 @@ fn smaa_edge_debug(source: &ScreenShaderSource) -> bool {
         .option_constants
         .get(1)
         .is_some_and(|options| options[1] > 0.5 && options[1] < 1.5)
-}
-
-struct ShaderSlot {
-    source_name: &'static str,
-    source: &'static [u8],
-    shader: Option<PixelShader9>,
-    failed: bool,
-}
-
-impl ShaderSlot {
-    const fn new(source_name: &'static str, source: &'static [u8]) -> Self {
-        Self {
-            source_name,
-            source,
-            shader: None,
-            failed: false,
-        }
-    }
-
-    fn get(&mut self, device: &Device9Ref<'_>) -> Direct3DResult<Option<&PixelShader9>> {
-        if self.failed {
-            return Ok(None);
-        }
-        if self.shader.is_none() {
-            match compile_shader(device, self.source_name, self.source) {
-                Ok(shader) => self.shader = Some(shader),
-                Err(err) => {
-                    self.failed = true;
-                    return Err(err);
-                }
-            }
-        }
-        Ok(self.shader.as_ref())
-    }
-}
-
-fn compile_shader(
-    device: &Device9Ref<'_>,
-    source_name: &str,
-    source: &[u8],
-) -> Direct3DResult<PixelShader9> {
-    let bytecode = match shaders::compile_hlsl_source(source_name, source) {
-        Ok(bytecode) => bytecode,
-        Err(err) => {
-            log::warn!("[AA] Failed to compile {source_name}: {err:#}");
-            return Err(direct3d_failure());
-        }
-    };
-    device.create_pixel_shader(&bytecode)
 }
 
 fn draw_single(

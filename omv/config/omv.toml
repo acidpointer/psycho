@@ -70,9 +70,15 @@ shader_scan_interval_ms = 200
 #       "scene_pre_image_space" passes immediately before vanilla
 #       ProcessImageSpaceShaders, then applies "scene_post_image_space" and
 #       "final_image_space" passes after ProcessImageSpaceShaders.
-#       The active D3D9 depth surface is resolved into owned INTZ textures with
-#       RESZ. Does not call or depend on third-party graphics mods, and does
-#       not patch DepthResolve/TESReloaded render callsites.
+#       "fallout_new_vegas" selects OMV as the physical producer. When Depth
+#       Resolve is present, OMV resolves world depth into its shared INTZ
+#       texture and suppresses only Depth Resolve's duplicate RESZ triggers.
+#       "depth_resolve" borrows Depth Resolve's world-only texture and issues
+#       no OMV depth copies. Because it has no first-person mask, AO is applied
+#       before RenderFirstPerson so hands and weapons overwrite world AO.
+#       The provider can be switched live in the workbench.
+#       This is a machine-local hardware/driver choice and is never stored in
+#       or applied by shareable OMV visual presets.
 #       Existing "d3d9_auto" configs are accepted as an alias.
 #
 # Shader constants:
@@ -80,7 +86,7 @@ shader_scan_interval_ms = 200
 #   c2.x = camera near plane
 #   c2.y = camera far plane
 #   c2.z = aspect ratio
-#   c2.w = provider id, 2 for fallout_new_vegas
+#   c2.w = provider id, 2 for fallout_new_vegas, 3 for depth_resolve
 #   s1 = world scene depth
 #   s2 = first-person depth mask
 #   s3 = world color before first-person, or current color if unavailable

@@ -2,10 +2,14 @@
 
 ## Purpose and user-visible behavior
 
-OMV keeps its graphics hooks resident so the in-game master switch can be
-changed without restarting Fallout New Vegas. The disabled state is a live
-pass-through state: the menu remains reachable, native rendering continues,
-and OMV effect work stops at the earliest safe hook boundary.
+OMV keeps only its mandatory Present, Reset, menu, and independently required
+depth-provider infrastructure resident so the in-game master switch can be
+changed without restarting Fallout New Vegas. Optional native draw hooks and
+the sky engine hook are prepared once and physically detached when their
+consumers are disabled. PBR engine hooks remain resident under the mandatory
+stale-wrapper safety contract, but bypass before selector/sampler work. The
+disabled state is a live zero-visual-work state: the menu remains reachable,
+native rendering continues, and visual D3D resources are released.
 
 This contract addresses reports ranging from roughly half the expected frame
 rate to single-digit frame rates. Static code inspection proved a
@@ -46,6 +50,67 @@ pass-through:
 
 These paths are proven by the pre-change source. They can amplify CPU overhead,
 but their individual FPS cost has not been measured.
+
+## RTX 5060 isolation results from 2026-07-29
+
+The tester's controlled in-game comparisons refine the earlier pre-shader
+hypothesis:
+
+- with all OMV effects disabled, performance remains about 67 FPS;
+- changing OMV depth production to external Depth Resolve gains only about
+  1-2 FPS;
+- windowed mode gains about 2-3 FPS over the tested fullscreen path;
+- DOF alone costs about 4-5 FPS;
+- TAA alone costs about 3-4 FPS;
+- all remaining filters together account for roughly the smaller remainder
+  between the disabled and fully enabled states.
+
+These are runtime observations on the affected NVIDIA machine, not static
+proof and not a universal GPU cost model. They establish two distinct
+problems. DOF and TAA have real GPU costs worth optimizing immediately, but
+their shaders cannot explain the approximately 67-FPS disabled ceiling.
+Provider work is also not the dominant disabled ceiling because the true live
+provider switch changed performance only slightly.
+
+The remaining disabled-path candidate was OMV hook/resource residency. The
+previous master-off implementation still routed every DP/DIP through OMV and
+left PBR `SetTexture` sampler tracking plus the sky-constant hook active. Even
+a fast branch at each draw is not the same experiment as restoring the
+original entry, especially under a driver/DXVK stack whose NVIDIA behavior
+differs from the RX 6800 XT reference machine.
+
+The current implementation creates the hook objects once but treats enabled
+state as physical ownership:
+
+1. enabling a native PBR/sky consumer attaches both DP and DIP at the
+   Present-owned quiescent boundary;
+2. sky then attaches its prepared engine hook, while PBR's resident hooks leave
+   their passive early-bypass state;
+3. disabling reverses that order, restores replacement state, detaches the sky
+   hook, makes PBR detours passive, and finally restores both original device
+   draw entries;
+4. pair transitions roll back on the second-entry failure, so DP and DIP can
+   never cover different primitive families;
+5. the reliability record reports `draw_hooks=attached`,
+   `prepared-detached`, or `unavailable`.
+
+Master-off also releases all OMV visual shaders, intermediate targets, temporal
+histories, and state blocks while retaining ImGui and the machine-local depth
+provider. It deliberately does not call `EvictManagedResources`, which would
+affect resources owned by the game and other plugins. Re-enable recreates
+device resources lazily and reuses process-owned shader bytecode.
+
+This physical control is the necessary next root-cause test. Static source
+proves the original entries are restored; only the affected machine can show
+whether the 67-FPS ceiling moves.
+
+OMV now also logs the primary swap-chain parameters at device-hook install and
+after each successful Reset: windowed/fullscreen mode, backbuffer dimensions
+and format, buffer count, MSAA type/quality, swap effect, fullscreen refresh,
+presentation interval, and the driver's approximate available texture memory.
+This makes the observed 2-3 FPS windowed advantage reproducible without
+guessing which presentation contract the game actually created. These are
+diagnostics at lifecycle boundaries, not per-frame queries.
 
 ## Tester-log findings from 2026-07-26
 
@@ -194,37 +259,150 @@ preparation before declaring its phase applicable. This changes no shader
 equation, pass quality, or supported coverage; an applicable effect uses the
 same render path as before.
 
+### The v2.0.6 1-FPS report
+
+`.reports/omv-latest--1fps.log` is a v2.0.6 runtime record at 3840x2160. It is
+not evidence from the implementation documented below, but it exposes three
+old structural defects:
+
+- first use of atmosphere, AO, final color, and motion blur coincides with
+  multi-second initialization gaps; old effect constructors compiled or read
+  cached HLSL from the render callback;
+- `completed_no_draw` rises from 0 to 560 while both `pre_alpha` and `primary`
+  rise by the same 560 transactions; the old world path resolved depth and
+  entered the coherent transaction before discovering that atmosphere had no
+  visible contribution;
+- the screen stack gave each embedded effect its own full-resolution
+  copy-before-draw transaction. Final Output then copied its composed
+  full-resolution result again before chromatic aberration, and the external
+  depth-aware CAS pass began from another phase copy.
+
+The same record contains exact ten-second 600-Present intervals when world
+work is absent, but slower intervals while the no-draw world transactions are
+accumulating. This is correlation rather than a GPU timestamp attribution.
+The source and counters nevertheless prove that expensive work occurred before
+the old no-draw decision.
+
+No effect, effect family, default, user parameter, shader equation, sample
+count, or CAS pass is disabled by the remediation. It changes scheduling,
+resource ownership, and redundant transfer work only.
+
+### Process-owned screen-effect preparation
+
+AO, atmosphere, spatial AA, TAA, sunshafts, Final Output, DOF, and motion blur
+now own immutable process bytecode catalogs. Enabling a configured family
+starts an idempotent worker request. A process-wide background-only gate permits
+one screen-effect compiler/cache transaction at a time, preventing several
+effect workers from saturating the same machine while PBR retains its separate
+preparation contract.
+
+Render callbacks poll readiness and create only D3D9 device objects from
+resident bytecode. They never acquire the compiler gate, invoke the HLSL
+compiler, or read/write the shader cache. Device reset discards device objects
+but retains process bytecode. A failed catalog leaves that effect safely
+unavailable and logs the bounded preparation failure; it does not switch to a
+different quality tier. Phase applicability and the world pipeline verify that
+the selected consumer is ready before full-resolution color allocation or
+physical depth resolve, so queued preparation does not create a copy-only
+frame.
+
+### Phase-local color graph and immutable execution plan
+
+Every native image-space phase now has one color graph:
+
+1. copy the engine target to a persistent primary texture once;
+2. execute intermediate logical writers by alternating primary and scratch
+   targets;
+3. direct the final planned writer to the engine target;
+4. if dynamic admission rejects a planned tail after an earlier writer drew,
+   commit the current graph texture once.
+
+AO and Final Output each expose multiple menu sources but remain one logical
+writer. External `pass_count` values remain distinct ordered writers. Final
+Output writes composition directly into its persistent exact-format
+full-resolution target when chromatic aberration follows, so that second pass
+samples the target directly; there is no internal full-resolution copy.
+
+Configuration, asset, and preset changes build immutable phase plans from the
+compiled source set. Each plan retains allocation-free shared source snapshots,
+the exact compiled-pass positions, AO-present and AO-absent schedules, logical
+writer totals, and source-pass totals. A render callback therefore walks only
+its phase and does not clone source names, option vectors, or other owned
+configuration data per effect.
+
+The reliability line reports cumulative
+`color_copies=phase_initial:<n>/fallback_commit:<n>`. The normal cost is one
+initial full-resolution copy for each phase that actually draws, independent
+of the number of enabled effects in that phase. Fallback commits should be
+rare and correlate with dynamic applicability rejection.
+
+### DOF and TAA GPU work
+
+The RTX 5060 isolation made DOF and TAA immediate work rather than deferred
+research. The quality contract remains strict: no lower resolution, history
+precision, gather tap count, blur radius, or effect coverage was accepted.
+
+DOF now:
+
+- uploads frame/projection constants once per effect transaction and changes
+  only target-size constants between passes;
+- binds and clears only its proven sampler ABI, s0-s4, rather than s0-s9;
+- uses a three-vertex full-screen triangle for every pass;
+- compiles round and soft gather shapes separately, removing the runtime shape
+  branch and unused exponential work from round gathers;
+- compiles near/far soft filters separately, removing a per-tap layer branch;
+- expresses the high-quality near upsample's exact `[1 2 1]^2 / 16` kernel as
+  four phase-correct bilinear samples instead of nine explicit samples.
+
+The pass graph, half/full target dimensions, gather tap counts, FP16 formats,
+focus equations, CoC equations, and alpha composition remain unchanged.
+Detailed ownership and visual acceptance are in
+`docs/graphics_fnv_depth_of_field.md`.
+
+TAA now queries `NumSimultaneousRTs` and
+`D3DPMISCCAPS_MRTINDEPENDENTBITDEPTHS`. When both prove the contract, one
+shader writes FP16 resolved color to COLOR0 and the R16F logarithmic depth key
+to COLOR1. This removes the second full-resolution depth-key draw and its
+duplicate depth sample. Devices without the exact capability retain the
+original two-pass path. Both paths use a three-vertex full-screen triangle,
+preserve engine alpha, maintain the existing temporal rejection equations, and
+remain inside the complete world attachment/state transaction.
+
 ## Disabled live-pass-through contract
 
-The master switch is published as one atomic flag. Hooks remain installed; no
-restart is required.
+The master switch is published as one atomic flag. Prepared hooks remain
+reusable, but optional hot entries are physically restored; no restart is
+required.
 
-- D3D draw detours perform one atomic master check and call the predecessor
-  directly when disabled.
+- DP and DIP detours are attached as an atomic pair only when enabled native
+  PBR or sky requires a draw boundary. Their internal master check remains a
+  defensive transition guard, not the normal disabled path.
 - Present keeps native Present, render-epoch ownership, failure/timing
   accounting when requested, and the menu boundary. PBR, sky, and screen-effect
   services are skipped when the master is off, the menu is closed, and ImGui
   has already initialized.
 - FNV image-space, world-scene, and first-person hooks call their predecessors
   directly when disabled.
-- PBR `SetShaders` and sky constant hooks call native behavior before their
-  enabled checks and do no replacement tracking while disabled.
+- PBR `SetShaders` and `SetTexture` bypass before hot replacement work, and the
+  sky constant hook is detached. PBR shader-creation hooks retain only their
+  one-time wrapper observation so an initially disabled configuration can be
+  enabled live. PBR hooks stay resident because the proven engine contract
+  forbids a runtime teardown that could restore stale wrapper ownership.
 - Local-light and retained world-light publications are cleared once after
   capture is disabled. A busy `try_lock` leaves the one-shot cleanup pending;
   render callbacks never block.
 
-PBR's `SetTexture` hook intentionally continues recording the 16 texture slots.
-This is one atomic slot store per valid engine texture binding and preserves
-the current material state for safe live re-enable. It performs no allocation,
-logging, file I/O, or D3D query in the normal disabled path. Dynamically
-rewriting inline-hook entry bytes is not used because executable patching is
-not safe while render threads may execute the target.
+Inline and vtable bytes are changed only at DeferredInit or Present, the
+serialized render-thread boundaries where no covered native call can be in
+flight. On PBR re-enable, the cleared sampler cache warms from subsequent
+engine texture bindings; an incomplete layout fails closed to the vanilla
+shader.
 
 Switching the master back on first republishes subsystem configuration. The
 scanner is unparked, embedded effects are already available, and native PBR
 activation continues at its existing Present boundary. Hook addresses,
-predecessor chaining, scene phase ordering, shader equations, pass counts, and
-resource formats are unchanged.
+predecessor chaining, scene phase ordering, shader equations, and resource
+formats are unchanged.
 
 ## Performance and memory bounds
 
@@ -234,6 +412,15 @@ non-blocking channel receive and returns immediately when empty. Allocation and
 source-list rebuilding occur only when a changed catalog generation is
 committed, not every frame.
 
+Each active phase retains one additional scratch texture matching that phase's
+exact dimensions and format. At 3840x2160 this is 33,177,600 bytes for a
+four-byte target or 66,355,200 bytes for an eight-byte FP16 target. Final
+Output retains one additional exact-format full-resolution target only when a
+composition pass feeds chromatic aberration. These are persistent device
+resources, replaced only on device/description changes; the steady-state path
+does not allocate them. The memory trade removes one full-resolution transfer
+per additional phase writer and Final Output's former internal transfer.
+
 The worker owns one external source catalog and one LUT catalog. The channel
 holds at most one snapshot and the worker holds at most one newer pending
 snapshot. LUT pixel storage is shared with `Arc`; external shader snapshots
@@ -241,8 +428,11 @@ clone their bounded bytecode and option data. This trades bounded background
 memory for removal of unbounded filesystem latency from the render thread.
 
 When the master switch is off, the scanner is parked and issues no periodic
-filesystem requests. Disabled render overhead is limited to predecessor
-chaining and the atomic state checks or tracking explicitly listed above.
+filesystem requests. OMV visual resources are absent, native draw and sky
+entries point to their predecessors, and resident PBR detours take only their
+early configured-state bypass. Other disabled visual overhead is limited to
+the mandatory Present/menu boundary plus independently selected depth-provider
+service.
 
 ## Validation and acceptance
 
@@ -260,6 +450,18 @@ Static regression coverage establishes:
   resource creation and backbuffer copy;
 - a phase whose enabled effects are all rejected allocates no color-copy
   target;
+- a drawn phase performs one initial color copy, alternates intermediate
+  targets without feedback, preserves reference ordering through dynamic
+  rejection, and performs at most one fallback commit;
+- immutable phase plans collapse AO and Final Output to one logical writer,
+  preserve external pass counts, and avoid whole-source scans and owned source
+  clones in the draw loop;
+- every production screen-effect compiler/cache transaction is reachable only
+  from a background preparation worker;
+- atmosphere admission rejects proven no-contribution frames before pre-alpha
+  or coherent depth resolve while unknown scene/local-light state proceeds;
+- Final Output contains no internal full-resolution copy when chromatic
+  aberration follows composition;
 - the native-PBR render boundary contains neither local HLSL compilation nor
   shader-cache commit calls;
 - release packaging cannot include generated shader bytecode or cache files;
@@ -279,6 +481,30 @@ On 2026-07-26, the Windows/Wine OMV suite passed all 302 tests and the optimized
 
 The 2026-07-27 PBR preparation, depth-route, and applicability update passed
 all 309 OMV tests and the optimized `i686-pc-windows-gnu` OMV release build.
+
+The 2026-07-29 disabled-path lifecycle, DOF, and TAA update passed all 417 OMV
+tests, including shader-variant compilation and the CPU reference proof for the
+four-sample near reconstruction. The optimized `i686-pc-windows-gnu` OMV
+release target also built successfully.
+
+The subsequent world-only-provider AO phase correction passed all 419 OMV
+tests and the same optimized release build. Its regression proves that
+post-first-person world AO darkens a covered weapon pixel and that the
+provider-aware ordering preserves the first-person color.
+
+The structural scheduling update passed all 427 OMV tests. This includes the
+pre-depth admission negative controls, exact-stage depth-cache identity,
+phase-graph ordering through dynamic rejection, Final Output transfer/memory
+budget, background shader-variant compilation, and the existing DOF/TAA image
+and bytecode budgets.
+
+The Depth Resolve AO playtest follow-up corrected the world-only composition
+target without changing shader parameters or adding a depth copy. AO now draws
+on active RT0 immediately after world rendering instead of pre-binding the
+`BSRenderedTexture*` argument at `RenderFirstPerson` entry. The structural
+negative controls reject the old target path and require missed-frame AO
+history invalidation before unrelated scene-pre work; all 428 OMV tests and
+the optimized release build pass.
 
 Ordinary gameplay remains the runtime acceptance gate. Test at least one
 previously affected Wine/Proton setup with the master both off and on. With the

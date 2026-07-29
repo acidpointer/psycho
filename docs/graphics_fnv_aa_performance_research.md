@@ -43,6 +43,50 @@ finished. DLAA computes "luma" from green only, TAA overwrites world-target
 alpha with private depth metadata, and SMAA's `corner_rounding` option globally
 attenuates all weights rather than detecting corners.
 
+## 2026-07-29 TAA implementation
+
+The RTX 5060 tester isolated TAA at approximately 3-4 FPS at 3440x1440. This is
+a runtime observation on the affected machine. It establishes that TAA is a
+material optimization target, while the separate approximately 67-FPS
+all-effects-disabled ceiling remains outside the TAA shader.
+
+The quality-neutral optimization combines resolved color history and the
+current logarithmic depth-rejection key in one draw when the device proves the
+required Direct3D 9 contract. `TemporalAaEffect::create` requires both:
+
+- at least two simultaneous render targets;
+- `D3DPMISCCAPS_MRTINDEPENDENTBITDEPTHS`, because COLOR0 is
+  A16B16G16R16F and COLOR1 is R16F.
+
+On that path the existing temporal shader already samples raw scene depth, so
+it emits the current layer/depth key to COLOR1 while emitting alpha-preserving
+resolved color to COLOR0. This removes the separate full-resolution
+depth-key shader draw and its duplicate scene-depth sample. Both targets have
+identical dimensions and multisample type, blending is disabled, and the world
+pipeline's attachment transaction captures/restores all four MRT slots. Before
+binding history, TAA explicitly detaches the captured depth surface and every
+capability-supported auxiliary render target. The MRT draw then attaches only
+R16F at RT1 and explicitly enables its independent color-write mask; this avoids
+depending on engine state inherited before the transaction.
+
+If either capability is absent or the MRT shader cannot compile, OMV retains
+the original two-pass color then depth-key path. This is a capability fallback,
+not a quality setting: history format, color equation, neighborhood, reactive
+rejection, depth-key encoding, jitter, and world/first-person/UI ordering are
+identical.
+
+Both paths now use a three-vertex full-screen triangle with D3D9 half-pixel
+coordinates and explicitly define s0-s3 filtering/address/mip/sRGB state plus
+blend, depth, stencil, scissor, color-write, and sRGB-write state. Creation logs
+`single-pass color+depth-key MRT` or `two-pass compatibility`, providing a
+direct runtime check of which path the NVIDIA machine selected.
+
+The shader suite compiles both ordinary and MRT `ps_3_0` variants. Runtime
+acceptance must compare the same save/camera with TAA alone, verify the logged
+path, inspect world alpha consumers, sky/geometry disocclusion, camera cuts,
+stationary specular detail, first-person separation, and device reset, and
+record repeatable frame-time distributions before claiming the measured gain.
+
 ## 2026-07-21 stationary-world jitter correction
 
 Tester observation: a stationary metallic roof at night visibly jittered rather
@@ -568,16 +612,17 @@ fullscreen triangle removes one vertex, the internal diagonal, and repeated
 user-memory vertex upload. Its half-pixel coordinates must be derived and
 validated against the current quad before adoption.
 
-## Research-gated architecture changes
+## Historical research gates
 
 ### Separate color and depth-key history
 
 Implemented: temporal depth/layer metadata no longer occupies color-history
 alpha. The RGB resolve returns `float4(resolved, current.a)` into the FP16 color
-history, and a second bounded draw writes the R16F depth/layer key. Copying the
-color history back therefore preserves current world alpha. This costs one
-R16F history draw and two R16F surfaces but avoids relying on an unknown
-downstream alpha contract or D3D9 mixed-format MRT support.
+history, and a distinct R16F history stores the depth/layer key. The initial
+implementation populated that key with a second bounded draw. The 2026-07-29
+implementation emits both targets in one draw when the device exposes the
+mixed-format MRT contract, while retaining that second draw as its exact
+compatibility fallback.
 
 ### Merge depth-resolve and TAA state ownership
 
@@ -618,9 +663,11 @@ jitter and world-depth projection publication.
 
 The alpha audit found only five direct references to the current-render-target
 global: its writer, one first-person reader, and three depth-resolve readers.
-That is useful negative evidence, but it does not prove pixel-shader alpha
-semantics or indirect texture consumers. MRT remains blocked on shader-package
-inspection and runtime alpha telemetry.
+That is useful negative evidence, but it does not prove every indirect texture
+consumer. TAA no longer stores private metadata in world alpha: both resolve
+paths preserve `current.a`, and MRT writes the private key only to the separate
+R16F target. Runtime image inspection remains required because static engine
+evidence cannot prove every downstream alpha consumer.
 
 Other open contracts:
 
@@ -628,13 +675,15 @@ Other open contracts:
 - projection type at camera `+0xF4` and special/orthographic paths;
 - exact reversed-depth mapping, not only the active Z comparison function;
 - whether phase-zero world rendering can occur more than once per Present;
-- D3D9 MRT format/multisample support on the actual DXVK path.
+- real-driver behavior and timing for the capability-gated mixed-format MRT
+  path on each supported DXVK/device combination.
 
 Evidence is in
 `analysis/ghidra/output/perf/graphics_fnv_taa_projection_alpha_perf_contract_audit.txt`.
 The completed raw pointer-identity evidence is in
 `analysis/ghidra/output/perf/graphics_fnv_taa_world_camera_upload_identity_followup.txt`.
-Runtime D3D capability and alpha telemetry are still required for MRT.
+Runtime path logging, image inspection, and timing are still required for MRT
+acceptance.
 
 ## Rejected performance shortcuts
 
@@ -682,4 +731,5 @@ Recommended implementation order:
 7. DLAA luma correction and TAA precision/error-path hardening.
 8. SMAA closed-search optimization with bytecode and runtime comparison.
 9. Runtime telemetry for alpha, formats, timing, and call multiplicity.
-10. MRT only if all engine and D3D contracts are proven.
+10. MRT with the proven D3D capability gates and an exact two-pass fallback;
+    implementation is complete, while runtime acceptance remains pending.

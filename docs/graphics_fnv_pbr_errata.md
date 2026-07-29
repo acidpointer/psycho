@@ -870,6 +870,19 @@ Correct fix path:
 - Restore only the temporary D3D shader pair owned by the current draw.
 - Use one explicit object settings snapshot and one explicit terrain snapshot shared by close terrain, terrain fade, and LandLOD. Do not let hidden profiles or legacy generic keys override either family; retire legacy keys during config save.
 
+The 2026-07-29 disabled-baseline optimization preserves this rule. PBR engine
+hooks remain installed, but hot `SetShaders`/`SetTexture` detours test the
+configured atomic immediately after acquiring their predecessor and skip
+selector reads and sampler tracking while disabled. Shader-creation hooks still
+record their one-time wrapper identities: those initialization events may not
+repeat after an in-game enable, and they are not steady-state draw overhead.
+Present first closes the active draw/batch scope, then releases only PBR-owned
+D3D resources and sampler diagnostics. It does not disable the engine hooks,
+restore wrapper handles, clear observed wrapper identities, or tear down
+shared engine contracts. The independent device DP/DIP detours may be
+physically detached because they own no engine wrapper state and transition
+only at the quiescent Present boundary.
+
 ### 11. One Shader Edit Disabled All Close Terrain During Warmup
 
 Symptom:

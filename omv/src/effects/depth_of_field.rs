@@ -1,4 +1,18 @@
 //! Engine-side depth-of-field pipeline.
+//!
+//! The effect derives a signed full-resolution circle of confusion (CoC),
+//! downsamples color, builds a conservative near-field mask, gathers near/far
+//! blur at half resolution, optionally softens those layers, and composites
+//! them over the engine target. Focus history is a two-element 1x1 ping-pong
+//! pair; all other targets are size-dependent and are released with the
+//! screen-space runtime.
+//!
+//! One all-state transaction outside this module restores Fallout New Vegas
+//! state. Inside the transaction this module binds only samplers s0-s4, uploads
+//! frame/projection constants once, changes only target-dependent constants per
+//! pass, and uses a three-vertex full-screen triangle. Render-target changes
+//! unbind every sampler the pipeline can use so D3D9 never sees a texture bound
+//! for reading and writing simultaneously.
 
 use std::{
     sync::{
@@ -10,13 +24,14 @@ use std::{
 
 use anyhow::Result;
 use libpsycho::os::windows::directx9::{
-    D3DCULL_NONE, D3DFMT_A16B16G16R16F, D3DFMT_G16R16F, D3DFMT_R16F, D3DFORMAT,
-    D3DPT_TRIANGLESTRIP, D3DRS_ALPHABLENDENABLE, D3DRS_ALPHATESTENABLE, D3DRS_COLORWRITEENABLE,
-    D3DRS_CULLMODE, D3DRS_ZENABLE, D3DRS_ZWRITEENABLE, D3DSAMP_ADDRESSU, D3DSAMP_ADDRESSV,
-    D3DSAMP_MAGFILTER, D3DSAMP_MINFILTER, D3DSAMP_MIPFILTER, D3DSURFACE_DESC, D3DTA_TEXTURE,
-    D3DTADDRESS_CLAMP, D3DTEXF_LINEAR, D3DTEXF_NONE, D3DTEXF_POINT, D3DTOP_SELECTARG1,
-    D3DTSS_ALPHAARG1, D3DTSS_ALPHAOP, D3DTSS_COLORARG1, D3DTSS_COLOROP, D3DVIEWPORT9, Device9Ref,
-    Direct3DResult, PixelShader9, ScreenVertex, Surface9, Texture9, direct3d_failure,
+    D3DCULL_NONE, D3DFMT_A16B16G16R16F, D3DFMT_G16R16F, D3DFMT_R16F, D3DFORMAT, D3DPT_TRIANGLELIST,
+    D3DRS_ALPHABLENDENABLE, D3DRS_ALPHATESTENABLE, D3DRS_COLORWRITEENABLE, D3DRS_CULLMODE,
+    D3DRS_SCISSORTESTENABLE, D3DRS_SRGBWRITEENABLE, D3DRS_STENCILENABLE, D3DRS_ZENABLE,
+    D3DRS_ZWRITEENABLE, D3DSAMP_ADDRESSU, D3DSAMP_ADDRESSV, D3DSAMP_MAGFILTER, D3DSAMP_MINFILTER,
+    D3DSAMP_MIPFILTER, D3DSAMP_SRGBTEXTURE, D3DSURFACE_DESC, D3DTA_TEXTURE, D3DTADDRESS_CLAMP,
+    D3DTEXF_LINEAR, D3DTEXF_NONE, D3DTEXF_POINT, D3DTOP_SELECTARG1, D3DTSS_ALPHAARG1,
+    D3DTSS_ALPHAOP, D3DTSS_COLORARG1, D3DTSS_COLOROP, D3DVIEWPORT9, Device9Ref, Direct3DResult,
+    PixelShader9, ScreenVertex, Surface9, Texture9, direct3d_failure,
 };
 use parking_lot::Mutex;
 
@@ -61,12 +76,16 @@ struct DofBytecode {
 }
 
 struct GatherBytecode {
-    balanced: Vec<u32>,
-    high: Vec<u32>,
-    ultra: Vec<u32>,
+    round: QualityBytecode,
+    soft: QualityBytecode,
 }
 
 struct SoftFilterBytecode {
+    far: QualityBytecode,
+    near: QualityBytecode,
+}
+
+struct QualityBytecode {
     balanced: Vec<u32>,
     high: Vec<u32>,
     ultra: Vec<u32>,
@@ -97,9 +116,8 @@ impl DofBytecode {
 impl SoftFilterBytecode {
     fn compile() -> Result<Self> {
         Ok(Self {
-            balanced: compile_soft_filter_bytecode("balanced", 5)?,
-            high: compile_soft_filter_bytecode("high", 9)?,
-            ultra: compile_soft_filter_bytecode("ultra", 13)?,
+            far: QualityBytecode::compile_soft_filter(false)?,
+            near: QualityBytecode::compile_soft_filter(true)?,
         })
     }
 }
@@ -116,13 +134,31 @@ impl ComposeBytecode {
 impl GatherBytecode {
     fn compile(source_name: &str, source: &[u8]) -> Result<Self> {
         Ok(Self {
-            balanced: compile_gather_bytecode(source_name, source, 12)?,
-            high: compile_gather_bytecode(source_name, source, 24)?,
-            ultra: compile_gather_bytecode(source_name, source, 36)?,
+            round: QualityBytecode::compile_gather(source_name, source, false)?,
+            soft: QualityBytecode::compile_gather(source_name, source, true)?,
         })
     }
 }
 
+impl QualityBytecode {
+    fn compile_gather(source_name: &str, source: &[u8], soft: bool) -> Result<Self> {
+        Ok(Self {
+            balanced: compile_gather_bytecode(source_name, source, 12, soft)?,
+            high: compile_gather_bytecode(source_name, source, 24, soft)?,
+            ultra: compile_gather_bytecode(source_name, source, 36, soft)?,
+        })
+    }
+
+    fn compile_soft_filter(near: bool) -> Result<Self> {
+        Ok(Self {
+            balanced: compile_soft_filter_bytecode("balanced", 5, near)?,
+            high: compile_soft_filter_bytecode("high", 9, near)?,
+            ultra: compile_soft_filter_bytecode("ultra", 13, near)?,
+        })
+    }
+}
+
+/// Start process-owned shader preparation outside the effect draw.
 pub(crate) fn service_present_frame() {
     start_compile_worker();
 }
@@ -133,26 +169,30 @@ fn start_compile_worker() {
     }
     if let Err(err) = thread::Builder::new()
         .name("omv-dof-compile".to_owned())
-        .spawn(|| match DofBytecode::compile() {
-            Ok(bytecode) => {
-                *BYTECODE.lock() = Some(bytecode);
-                COMPILE_READY.store(true, Ordering::Release);
-            }
-            Err(err) => {
-                COMPILE_FAILED.store(true, Ordering::Release);
-                log::warn!("[DOF] Shader preparation failed: {err:#}");
-            }
-        })
+        .spawn(
+            || match super::shader_preparation::run_serialized(DofBytecode::compile) {
+                Ok(bytecode) => {
+                    *BYTECODE.lock() = Some(bytecode);
+                    COMPILE_READY.store(true, Ordering::Release);
+                }
+                Err(err) => {
+                    COMPILE_FAILED.store(true, Ordering::Release);
+                    log::warn!("[DOF] Shader preparation failed: {err:#}");
+                }
+            },
+        )
     {
         COMPILE_FAILED.store(true, Ordering::Release);
         log::warn!("[DOF] Could not start shader preparation: {err}");
     }
 }
 
+/// Return whether every DOF shader variant has compiled successfully.
 pub(crate) fn preparation_ready() -> bool {
     COMPILE_READY.load(Ordering::Acquire)
 }
 
+/// Device-owned DOF shaders, histories, and size-dependent intermediate targets.
 pub(crate) struct DepthOfFieldEffect {
     focus_shader: PixelShader9,
     coc_shader: PixelShader9,
@@ -172,6 +212,7 @@ pub(crate) struct DepthOfFieldEffect {
     resume_mix: f32,
 }
 
+/// Return whether current inputs and settings admit a DOF transaction.
 pub(crate) fn should_draw(
     frame_inputs: &FrameInputs,
     config: DepthOfFieldConfig,
@@ -186,6 +227,10 @@ pub(crate) fn should_draw(
 }
 
 impl DepthOfFieldEffect {
+    /// Create device-owned shaders after asynchronous bytecode preparation.
+    ///
+    /// `Ok(None)` means preparation is still in progress; callers may retry on
+    /// a later Present without treating it as a device failure.
     pub(crate) fn create(device: &Device9Ref<'_>) -> Direct3DResult<Option<Self>> {
         start_compile_worker();
         if COMPILE_FAILED.load(Ordering::Acquire) {
@@ -228,6 +273,7 @@ impl DepthOfFieldEffect {
     }
 
     #[allow(clippy::too_many_arguments)]
+    /// Execute the admitted DOF pass graph and preserve engine alpha.
     pub(crate) fn draw(
         &mut self,
         device: &Device9Ref<'_>,
@@ -268,6 +314,16 @@ impl DepthOfFieldEffect {
         let soft_filter = settings.blur_style == DofBlurStyle::Soft && settings.softness > 0.001;
         self.ensure_targets(device, desc)?;
         bind_pipeline_state(device)?;
+        bind_frame_constants(
+            device,
+            desc,
+            frame_inputs,
+            settings,
+            frame_index,
+            frame_seconds,
+            self.resume_mix,
+            self.focus_history_valid,
+        )?;
 
         let previous_focus_is_a = self.focus_a_is_current;
         {
@@ -280,13 +336,7 @@ impl DepthOfFieldEffect {
                 &self.focus_shader,
                 &next_focus.surface,
                 previous_focus,
-                desc,
                 frame_inputs,
-                settings,
-                frame_index,
-                frame_seconds,
-                self.resume_mix,
-                self.focus_history_valid,
             )?;
         }
         self.focus_a_is_current = !previous_focus_is_a;
@@ -300,26 +350,10 @@ impl DepthOfFieldEffect {
             device,
             &self.coc_shader,
             targets,
-            desc,
             frame_inputs,
-            settings,
             focus_texture,
-            frame_index,
-            frame_seconds,
-            self.resume_mix,
         )?;
-        draw_prefilter(
-            device,
-            &self.prefilter_shader,
-            targets,
-            desc,
-            frame_inputs,
-            settings,
-            scene_color,
-            frame_index,
-            frame_seconds,
-            self.resume_mix,
-        )?;
+        draw_prefilter(device, &self.prefilter_shader, targets, scene_color)?;
         if near_enabled {
             draw_near_mask(
                 device,
@@ -334,27 +368,17 @@ impl DepthOfFieldEffect {
         if far_enabled {
             draw_far_gather(
                 device,
-                self.far_gather_shaders.shader(settings.quality),
+                self.far_gather_shaders
+                    .shader(settings.quality, settings.blur_style),
                 targets,
-                desc,
-                frame_inputs,
-                settings,
-                frame_index,
-                frame_seconds,
-                self.resume_mix,
             )?;
         }
         if near_enabled {
             draw_near_gather(
                 device,
-                self.near_gather_shaders.shader(settings.quality),
+                self.near_gather_shaders
+                    .shader(settings.quality, settings.blur_style),
                 targets,
-                desc,
-                frame_inputs,
-                settings,
-                frame_index,
-                frame_seconds,
-                self.resume_mix,
             )?;
         }
         if soft_filter {
@@ -374,15 +398,11 @@ impl DepthOfFieldEffect {
             backbuffer,
             desc,
             targets,
-            frame_inputs,
-            settings,
             scene_color,
-            frame_index,
-            frame_seconds,
-            self.resume_mix,
         )
     }
 
+    /// Update resume state when vanilla DOF temporarily owns the frame.
     pub(crate) fn note_skipped(&mut self, config: DepthOfFieldConfig, native_dof_active: bool) {
         let settings = DofSettings::from_config(config);
         if settings.respect_vanilla_dof && native_dof_active {
@@ -434,6 +454,11 @@ impl DepthOfFieldEffect {
 }
 
 struct GatherShaders {
+    round: QualityShaders,
+    soft: QualityShaders,
+}
+
+struct QualityShaders {
     balanced: PixelShader9,
     high: PixelShader9,
     ultra: PixelShader9,
@@ -442,29 +467,43 @@ struct GatherShaders {
 impl GatherShaders {
     fn create(device: &Device9Ref<'_>, bytecode: &GatherBytecode) -> Direct3DResult<Self> {
         Ok(Self {
-            balanced: device.create_pixel_shader(&bytecode.balanced)?,
-            high: device.create_pixel_shader(&bytecode.high)?,
-            ultra: device.create_pixel_shader(&bytecode.ultra)?,
+            round: QualityShaders::create(device, &bytecode.round)?,
+            soft: QualityShaders::create(device, &bytecode.soft)?,
         })
     }
 
-    fn shader(&self, quality: DofQuality) -> &PixelShader9 {
-        match quality {
-            DofQuality::Balanced => &self.balanced,
-            DofQuality::High => &self.high,
-            DofQuality::Ultra => &self.ultra,
+    fn shader(&self, quality: DofQuality, style: DofBlurStyle) -> &PixelShader9 {
+        match style {
+            DofBlurStyle::Round => self.round.shader(quality),
+            DofBlurStyle::Soft => self.soft.shader(quality),
         }
     }
 }
 
 struct SoftFilterShaders {
-    balanced: PixelShader9,
-    high: PixelShader9,
-    ultra: PixelShader9,
+    far: QualityShaders,
+    near: QualityShaders,
 }
 
 impl SoftFilterShaders {
     fn create(device: &Device9Ref<'_>, bytecode: &SoftFilterBytecode) -> Direct3DResult<Self> {
+        Ok(Self {
+            far: QualityShaders::create(device, &bytecode.far)?,
+            near: QualityShaders::create(device, &bytecode.near)?,
+        })
+    }
+
+    fn shader(&self, quality: DofQuality, near: bool) -> &PixelShader9 {
+        if near {
+            self.near.shader(quality)
+        } else {
+            self.far.shader(quality)
+        }
+    }
+}
+
+impl QualityShaders {
+    fn create(device: &Device9Ref<'_>, bytecode: &QualityBytecode) -> Direct3DResult<Self> {
         Ok(Self {
             balanced: device.create_pixel_shader(&bytecode.balanced)?,
             high: device.create_pixel_shader(&bytecode.high)?,
@@ -577,52 +616,28 @@ fn finite(value: f32, fallback: f32) -> f32 {
     if value.is_finite() { value } else { fallback }
 }
 
-#[allow(clippy::too_many_arguments)]
 fn draw_focus(
     device: &Device9Ref<'_>,
     shader: &PixelShader9,
     output: &Surface9,
     previous_focus: &Texture9,
-    desc: &D3DSURFACE_DESC,
     frame_inputs: &FrameInputs,
-    settings: DofSettings,
-    frame_index: u32,
-    frame_seconds: f32,
-    resume_mix: f32,
-    focus_history_valid: bool,
 ) -> Direct3DResult<()> {
     bind_target(device, output, 1, 1)?;
     device.set_texture(0, previous_focus)?;
     bind_depth_texture(device, 1, &frame_inputs.depth.texture)?;
     set_sampler_filter(device, 1, D3DTEXF_POINT.0 as u32)?;
-    bind_constants(
-        device,
-        desc,
-        1,
-        1,
-        frame_inputs,
-        settings,
-        frame_index,
-        frame_seconds,
-        resume_mix,
-        focus_history_valid,
-    )?;
+    bind_target_constants(device, 1, 1)?;
     device.set_pixel_shader(shader)?;
     draw_quad(device, 1, 1)
 }
 
-#[allow(clippy::too_many_arguments)]
 fn draw_coc(
     device: &Device9Ref<'_>,
     shader: &PixelShader9,
     targets: &DofTargets,
-    desc: &D3DSURFACE_DESC,
     frame_inputs: &FrameInputs,
-    settings: DofSettings,
     focus_texture: &Texture9,
-    frame_index: u32,
-    frame_seconds: f32,
-    resume_mix: f32,
 ) -> Direct3DResult<()> {
     bind_target(
         device,
@@ -636,34 +651,16 @@ fn draw_coc(
     set_sampler_filter(device, 0, D3DTEXF_POINT.0 as u32)?;
     set_sampler_filter(device, 1, D3DTEXF_POINT.0 as u32)?;
     set_sampler_filter(device, 2, D3DTEXF_POINT.0 as u32)?;
-    bind_constants(
-        device,
-        desc,
-        targets.full_width,
-        targets.full_height,
-        frame_inputs,
-        settings,
-        frame_index,
-        frame_seconds,
-        resume_mix,
-        true,
-    )?;
+    bind_target_constants(device, targets.full_width, targets.full_height)?;
     device.set_pixel_shader(shader)?;
     draw_quad(device, targets.full_width, targets.full_height)
 }
 
-#[allow(clippy::too_many_arguments)]
 fn draw_prefilter(
     device: &Device9Ref<'_>,
     shader: &PixelShader9,
     targets: &DofTargets,
-    desc: &D3DSURFACE_DESC,
-    frame_inputs: &FrameInputs,
-    settings: DofSettings,
     scene_color: &Texture9,
-    frame_index: u32,
-    frame_seconds: f32,
-    resume_mix: f32,
 ) -> Direct3DResult<()> {
     bind_target(
         device,
@@ -675,18 +672,7 @@ fn draw_prefilter(
     device.set_texture(1, &targets.full_coc.texture)?;
     set_sampler_filter(device, 0, D3DTEXF_LINEAR.0 as u32)?;
     set_sampler_filter(device, 1, D3DTEXF_POINT.0 as u32)?;
-    bind_constants(
-        device,
-        desc,
-        targets.half_width,
-        targets.half_height,
-        frame_inputs,
-        settings,
-        frame_index,
-        frame_seconds,
-        resume_mix,
-        true,
-    )?;
+    bind_target_constants(device, targets.half_width, targets.half_height)?;
     device.set_pixel_shader(shader)?;
     draw_quad(device, targets.half_width, targets.half_height)
 }
@@ -798,17 +784,10 @@ fn draw_near_mask(
     draw_quad(device, targets.half_width, targets.half_height)
 }
 
-#[allow(clippy::too_many_arguments)]
 fn draw_far_gather(
     device: &Device9Ref<'_>,
     shader: &PixelShader9,
     targets: &DofTargets,
-    desc: &D3DSURFACE_DESC,
-    frame_inputs: &FrameInputs,
-    settings: DofSettings,
-    frame_index: u32,
-    frame_seconds: f32,
-    resume_mix: f32,
 ) -> Direct3DResult<()> {
     bind_target(
         device,
@@ -820,33 +799,15 @@ fn draw_far_gather(
     device.set_texture(1, &targets.full_coc.texture)?;
     set_sampler_filter(device, 0, D3DTEXF_LINEAR.0 as u32)?;
     set_sampler_filter(device, 1, D3DTEXF_POINT.0 as u32)?;
-    bind_constants(
-        device,
-        desc,
-        targets.half_width,
-        targets.half_height,
-        frame_inputs,
-        settings,
-        frame_index,
-        frame_seconds,
-        resume_mix,
-        true,
-    )?;
+    bind_target_constants(device, targets.half_width, targets.half_height)?;
     device.set_pixel_shader(shader)?;
     draw_quad(device, targets.half_width, targets.half_height)
 }
 
-#[allow(clippy::too_many_arguments)]
 fn draw_near_gather(
     device: &Device9Ref<'_>,
     shader: &PixelShader9,
     targets: &DofTargets,
-    desc: &D3DSURFACE_DESC,
-    frame_inputs: &FrameInputs,
-    settings: DofSettings,
-    frame_index: u32,
-    frame_seconds: f32,
-    resume_mix: f32,
 ) -> Direct3DResult<()> {
     bind_target(
         device,
@@ -860,18 +821,7 @@ fn draw_near_gather(
     set_sampler_filter(device, 0, D3DTEXF_LINEAR.0 as u32)?;
     set_sampler_filter(device, 1, D3DTEXF_LINEAR.0 as u32)?;
     set_sampler_filter(device, 2, D3DTEXF_POINT.0 as u32)?;
-    bind_constants(
-        device,
-        desc,
-        targets.half_width,
-        targets.half_height,
-        frame_inputs,
-        settings,
-        frame_index,
-        frame_seconds,
-        resume_mix,
-        true,
-    )?;
+    bind_target_constants(device, targets.half_width, targets.half_height)?;
     device.set_pixel_shader(shader)?;
     draw_quad(device, targets.half_width, targets.half_height)
 }
@@ -886,7 +836,6 @@ fn draw_soft_layers(
     far_enabled: bool,
     near_enabled: bool,
 ) -> Direct3DResult<()> {
-    let filter_shader = filter_shaders.shader(settings.quality);
     let radius_scale = desc.Height as f32 / 1080.0;
     let gather_taps: f32 = match settings.quality {
         DofQuality::Balanced => 12.0,
@@ -896,7 +845,7 @@ fn draw_soft_layers(
     if far_enabled {
         draw_soft_layer_pair(
             device,
-            filter_shader,
+            filter_shaders.shader(settings.quality, false),
             targets,
             &targets.far.texture,
             &targets.far.surface,
@@ -909,7 +858,7 @@ fn draw_soft_layers(
     if near_enabled {
         draw_soft_layer_pair(
             device,
-            filter_shader,
+            filter_shaders.shader(settings.quality, true),
             targets,
             &targets.near.texture,
             &targets.near.surface,
@@ -985,19 +934,13 @@ fn draw_soft_layer_pass(
     draw_quad(device, targets.half_width, targets.half_height)
 }
 
-#[allow(clippy::too_many_arguments)]
 fn draw_compose(
     device: &Device9Ref<'_>,
     shader: &PixelShader9,
     backbuffer: &Surface9,
     desc: &D3DSURFACE_DESC,
     targets: &DofTargets,
-    frame_inputs: &FrameInputs,
-    settings: DofSettings,
     scene_color: &Texture9,
-    frame_index: u32,
-    frame_seconds: f32,
-    resume_mix: f32,
 ) -> Direct3DResult<()> {
     bind_target(device, backbuffer, desc.Width, desc.Height)?;
     device.set_texture(0, scene_color)?;
@@ -1010,18 +953,7 @@ fn draw_compose(
     set_sampler_filter(device, 2, D3DTEXF_LINEAR.0 as u32)?;
     set_sampler_filter(device, 3, D3DTEXF_POINT.0 as u32)?;
     set_sampler_filter(device, 4, D3DTEXF_LINEAR.0 as u32)?;
-    bind_constants(
-        device,
-        desc,
-        desc.Width,
-        desc.Height,
-        frame_inputs,
-        settings,
-        frame_index,
-        frame_seconds,
-        resume_mix,
-        true,
-    )?;
+    bind_target_constants(device, desc.Width, desc.Height)?;
     device.set_pixel_shader_constant_f(
         9,
         &[[
@@ -1051,14 +983,31 @@ fn load_or_compile_shader(source_name: &str, source: &[u8]) -> Result<Vec<u32>> 
     .bytecode)
 }
 
-fn compile_gather_bytecode(source_name: &str, source: &[u8], tap_count: u32) -> Result<Vec<u32>> {
-    let variant = gather_shader_source(source, tap_count);
-    load_or_compile_shader(&format!("{source_name}:{tap_count}"), &variant)
+fn compile_gather_bytecode(
+    source_name: &str,
+    source: &[u8],
+    tap_count: u32,
+    soft: bool,
+) -> Result<Vec<u32>> {
+    let variant = gather_shader_source(source, tap_count, soft);
+    load_or_compile_shader(
+        &format!(
+            "{source_name}:{tap_count}:{}",
+            if soft { "soft" } else { "round" }
+        ),
+        &variant,
+    )
 }
 
-fn compile_soft_filter_bytecode(label: &str, tap_count: u32) -> Result<Vec<u32>> {
-    let variant = soft_filter_shader_source(tap_count);
-    load_or_compile_shader(&format!("dof_soft_filter.hlsl:{label}"), &variant)
+fn compile_soft_filter_bytecode(label: &str, tap_count: u32, near: bool) -> Result<Vec<u32>> {
+    let variant = soft_filter_shader_source(tap_count, near);
+    load_or_compile_shader(
+        &format!(
+            "dof_soft_filter.hlsl:{label}:{}",
+            if near { "near" } else { "far" }
+        ),
+        &variant,
+    )
 }
 
 fn compile_compose_bytecode(label: &str, high_quality_upsample: bool) -> Result<Vec<u32>> {
@@ -1066,14 +1015,22 @@ fn compile_compose_bytecode(label: &str, high_quality_upsample: bool) -> Result<
     load_or_compile_shader(&format!("dof_compose.hlsl:{label}"), &variant)
 }
 
-fn gather_shader_source(source: &[u8], tap_count: u32) -> Vec<u8> {
-    let mut variant = format!("#define DOF_TAP_COUNT {tap_count}\n").into_bytes();
+fn gather_shader_source(source: &[u8], tap_count: u32, soft: bool) -> Vec<u8> {
+    let mut variant = format!(
+        "#define DOF_TAP_COUNT {tap_count}\n#define DOF_SOFT_SHAPE {}\n",
+        soft as u8
+    )
+    .into_bytes();
     variant.extend_from_slice(source);
     variant
 }
 
-fn soft_filter_shader_source(tap_count: u32) -> Vec<u8> {
-    let mut variant = format!("#define DOF_SOFT_TAP_COUNT {tap_count}\n").into_bytes();
+fn soft_filter_shader_source(tap_count: u32, near: bool) -> Vec<u8> {
+    let mut variant = format!(
+        "#define DOF_SOFT_TAP_COUNT {tap_count}\n#define DOF_NEAR_LAYER {}\n",
+        near as u8
+    )
+    .into_bytes();
     variant.extend_from_slice(SOFT_FILTER_SHADER);
     variant
 }
@@ -1096,6 +1053,83 @@ mod shader_compile_tests {
         gather_shader_source, soft_filter_shader_source,
     };
 
+    fn bilinear_sample(image: &[[f32; 5]; 4], x: f32, y: f32) -> f32 {
+        let x = x.clamp(0.0, 4.0);
+        let y = y.clamp(0.0, 3.0);
+        let x0 = x.floor() as usize;
+        let y0 = y.floor() as usize;
+        let x1 = (x0 + 1).min(4);
+        let y1 = (y0 + 1).min(3);
+        let fx = x - x0 as f32;
+        let fy = y - y0 as f32;
+        let top = image[y0][x0] + (image[y0][x1] - image[y0][x0]) * fx;
+        let bottom = image[y1][x0] + (image[y1][x1] - image[y1][x0]) * fx;
+        top + (bottom - top) * fy
+    }
+
+    fn collapsed_axis(coordinate: f32) -> [(f32, f32); 2] {
+        let base = coordinate.floor();
+        let phase = (coordinate - base).clamp(0.0, 1.0);
+        let low_weight = 0.75 - phase * 0.5;
+        let high_weight = 0.25 + phase * 0.5;
+        [
+            (base - 1.0 + (0.5 - phase * 0.25) / low_weight, low_weight),
+            (base + 1.0 + (phase * 0.25) / high_weight, high_weight),
+        ]
+    }
+
+    fn original_near_kernel(image: &[[f32; 5]; 4], x: f32, y: f32) -> f32 {
+        let weights = [0.25, 0.5, 0.25];
+        let mut result = 0.0;
+        for (row, y_weight) in weights.into_iter().enumerate() {
+            for (column, x_weight) in weights.into_iter().enumerate() {
+                result += bilinear_sample(image, x + column as f32 - 1.0, y + row as f32 - 1.0)
+                    * x_weight
+                    * y_weight;
+            }
+        }
+        result
+    }
+
+    fn collapsed_near_kernel(image: &[[f32; 5]; 4], x: f32, y: f32) -> f32 {
+        let mut result = 0.0;
+        for (sample_y, y_weight) in collapsed_axis(y) {
+            for (sample_x, x_weight) in collapsed_axis(x) {
+                result += bilinear_sample(image, sample_x, sample_y) * x_weight * y_weight;
+            }
+        }
+        result
+    }
+
+    fn shader_metrics(name: &str, source: &[u8]) -> (usize, usize) {
+        const COMMENT: u16 = 0xfffe;
+        const END: u16 = 0xffff;
+        const TEXLD: u16 = 66;
+        const TEXLDD: u16 = 93;
+        const TEXLDL: u16 = 95;
+        let bytecode =
+            crate::shaders::compile_hlsl_source(name, source).expect("DOF shader bytecode");
+        assert_eq!(bytecode[0], 0xffff_0300);
+        let mut instructions = 0;
+        let mut textures = 0;
+        let mut offset = 1usize;
+        while offset < bytecode.len() {
+            let token = bytecode[offset];
+            let opcode = token as u16;
+            if opcode == END {
+                return (instructions, textures);
+            }
+            if opcode == COMMENT {
+                offset += 1 + ((token >> 16) & 0x7fff) as usize;
+                continue;
+            }
+            instructions += 1;
+            textures += usize::from(matches!(opcode, TEXLD | TEXLDD | TEXLDL));
+            offset += 1 + ((token >> 24) & 0x0f) as usize;
+        }
+        panic!("DOF shader bytecode has no END token");
+    }
+
     #[test]
     fn all_depth_of_field_shader_variants_compile() {
         for (name, source) in [
@@ -1114,22 +1148,29 @@ mod shader_compile_tests {
             ("dof_near_gather.hlsl", NEAR_GATHER_SHADER),
         ] {
             for tap_count in [12, 24, 36] {
-                let variant = gather_shader_source(source, tap_count);
-                crate::shaders::assert_hlsl_compiles(
-                    &format!("{name}:{tap_count}"),
-                    &variant,
-                    "ps_3_0",
-                );
+                for soft in [false, true] {
+                    let variant = gather_shader_source(source, tap_count, soft);
+                    crate::shaders::assert_hlsl_compiles(
+                        &format!("{name}:{tap_count}:{}", if soft { "soft" } else { "round" }),
+                        &variant,
+                        "ps_3_0",
+                    );
+                }
             }
         }
 
         for tap_count in [5, 9, 13] {
-            let variant = soft_filter_shader_source(tap_count);
-            crate::shaders::assert_hlsl_compiles(
-                &format!("dof_soft_filter.hlsl:{tap_count}"),
-                &variant,
-                "ps_3_0",
-            );
+            for near in [false, true] {
+                let variant = soft_filter_shader_source(tap_count, near);
+                crate::shaders::assert_hlsl_compiles(
+                    &format!(
+                        "dof_soft_filter.hlsl:{tap_count}:{}",
+                        if near { "near" } else { "far" }
+                    ),
+                    &variant,
+                    "ps_3_0",
+                );
+            }
         }
 
         for high_quality in [false, true] {
@@ -1145,6 +1186,73 @@ mod shader_compile_tests {
             );
         }
     }
+
+    #[test]
+    fn four_sample_near_upsample_matches_the_original_nine_sample_kernel() {
+        let image = [
+            [0.0, 0.1, 0.8, 0.3, 1.0],
+            [0.9, 0.2, 0.4, 0.7, 0.1],
+            [0.3, 1.0, 0.0, 0.6, 0.5],
+            [0.8, 0.4, 0.9, 0.2, 0.7],
+        ];
+        for y in [-0.25, 0.0, 0.25, 0.75, 1.5, 2.25, 3.0, 3.25] {
+            for x in [-0.25, 0.0, 0.25, 0.75, 1.5, 2.25, 3.75, 4.0, 4.25] {
+                let original = original_near_kernel(&image, x, y);
+                let collapsed = collapsed_near_kernel(&image, x, y);
+                assert!(
+                    (original - collapsed).abs() <= 1.0e-5,
+                    "kernel mismatch at ({x}, {y}): original={original}, collapsed={collapsed}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn optimized_dof_variants_stay_within_production_work_budgets() {
+        for (name, source, texture_budget) in [
+            (
+                "dof_far_gather:ultra:round",
+                gather_shader_source(FAR_GATHER_SHADER, 36, false),
+                80,
+            ),
+            (
+                "dof_far_gather:ultra:soft",
+                gather_shader_source(FAR_GATHER_SHADER, 36, true),
+                80,
+            ),
+            (
+                "dof_near_gather:ultra:round",
+                gather_shader_source(NEAR_GATHER_SHADER, 36, false),
+                80,
+            ),
+            (
+                "dof_near_gather:ultra:soft",
+                gather_shader_source(NEAR_GATHER_SHADER, 36, true),
+                80,
+            ),
+            (
+                "dof_soft_filter:ultra:far",
+                soft_filter_shader_source(13, false),
+                14,
+            ),
+            (
+                "dof_soft_filter:ultra:near",
+                soft_filter_shader_source(13, true),
+                14,
+            ),
+            ("dof_compose:high", compose_shader_source(true), 20),
+        ] {
+            let (instructions, textures) = shader_metrics(name, &source);
+            assert!(
+                instructions <= 2048,
+                "{name} grew to {instructions} instructions"
+            );
+            assert!(
+                textures <= texture_budget,
+                "{name} grew to {textures} texture operations"
+            );
+        }
+    }
 }
 
 fn bind_pipeline_state(device: &Device9Ref<'_>) -> Direct3DResult<()> {
@@ -1155,17 +1263,17 @@ fn bind_pipeline_state(device: &Device9Ref<'_>) -> Direct3DResult<()> {
     device.set_render_state(D3DRS_ALPHATESTENABLE, 0)?;
     device.set_render_state(D3DRS_ZENABLE, 0)?;
     device.set_render_state(D3DRS_ZWRITEENABLE, 0)?;
+    device.set_render_state(D3DRS_STENCILENABLE, 0)?;
+    device.set_render_state(D3DRS_SCISSORTESTENABLE, 0)?;
+    device.set_render_state(D3DRS_SRGBWRITEENABLE, 0)?;
     device.set_render_state(D3DRS_COLORWRITEENABLE, COLOR_WRITE_ALL)?;
-    for sampler in 0..=9 {
+    for sampler in 0..=4 {
         device.set_sampler_state(sampler, D3DSAMP_ADDRESSU, D3DTADDRESS_CLAMP.0 as u32)?;
         device.set_sampler_state(sampler, D3DSAMP_ADDRESSV, D3DTADDRESS_CLAMP.0 as u32)?;
         device.set_sampler_state(sampler, D3DSAMP_MINFILTER, D3DTEXF_LINEAR.0 as u32)?;
         device.set_sampler_state(sampler, D3DSAMP_MAGFILTER, D3DTEXF_LINEAR.0 as u32)?;
         device.set_sampler_state(sampler, D3DSAMP_MIPFILTER, D3DTEXF_NONE.0 as u32)?;
-    }
-    for sampler in [1, 2] {
-        device.set_sampler_state(sampler, D3DSAMP_MINFILTER, D3DTEXF_POINT.0 as u32)?;
-        device.set_sampler_state(sampler, D3DSAMP_MAGFILTER, D3DTEXF_POINT.0 as u32)?;
+        device.set_sampler_state(sampler, D3DSAMP_SRGBTEXTURE, 0)?;
     }
     device.set_texture_stage_state(0, D3DTSS_COLOROP, D3DTOP_SELECTARG1.0 as u32)?;
     device.set_texture_stage_state(0, D3DTSS_COLORARG1, D3DTA_TEXTURE)?;
@@ -1179,7 +1287,9 @@ fn bind_target(
     width: u32,
     height: u32,
 ) -> Direct3DResult<()> {
-    for sampler in 0..=9 {
+    // s0-s4 are the complete DOF sampler ABI. Clearing only this proven set
+    // prevents read/write aliasing without ten redundant COM calls per pass.
+    for sampler in 0..=4 {
         device.clear_texture(sampler)?;
     }
     device.set_render_target(0, surface)?;
@@ -1211,11 +1321,9 @@ fn set_sampler_filter(device: &Device9Ref<'_>, sampler: u32, filter: u32) -> Dir
 }
 
 #[allow(clippy::too_many_arguments)]
-fn bind_constants(
+fn bind_frame_constants(
     device: &Device9Ref<'_>,
     desc: &D3DSURFACE_DESC,
-    target_width: u32,
-    target_height: u32,
     frame_inputs: &FrameInputs,
     settings: DofSettings,
     frame_index: u32,
@@ -1280,12 +1388,6 @@ fn bind_constants(
                 (settings.blur_style == DofBlurStyle::Soft) as u8 as f32,
                 settings.far_focus_range,
             ],
-            [
-                target_width as f32,
-                target_height as f32,
-                1.0 / target_width.max(1) as f32,
-                1.0 / target_height.max(1) as f32,
-            ],
         ],
     )?;
     device.set_pixel_shader_constant_f(
@@ -1319,16 +1421,29 @@ fn bind_constants(
     )
 }
 
+fn bind_target_constants(device: &Device9Ref<'_>, width: u32, height: u32) -> Direct3DResult<()> {
+    device.set_pixel_shader_constant_f(
+        8,
+        &[[
+            width as f32,
+            height as f32,
+            1.0 / width.max(1) as f32,
+            1.0 / height.max(1) as f32,
+        ]],
+    )
+}
+
 fn draw_quad(device: &Device9Ref<'_>, width: u32, height: u32) -> Direct3DResult<()> {
     let width = width as f32;
     let height = height as f32;
-    let quad = [
+    // Preserve the D3D9 half-pixel convention while avoiding the strip's
+    // fourth vertex and diagonal interpolation boundary.
+    let triangle = [
         ScreenVertex::new(-0.5, -0.5, 0.0, 0.0),
-        ScreenVertex::new(width - 0.5, -0.5, 1.0, 0.0),
-        ScreenVertex::new(-0.5, height - 0.5, 0.0, 1.0),
-        ScreenVertex::new(width - 0.5, height - 0.5, 1.0, 1.0),
+        ScreenVertex::new(width * 2.0 - 0.5, -0.5, 2.0, 0.0),
+        ScreenVertex::new(-0.5, height * 2.0 - 0.5, 0.0, 2.0),
     ];
-    unsafe { device.draw_primitive_up(D3DPT_TRIANGLESTRIP, 2, &quad) }
+    unsafe { device.draw_primitive_up(D3DPT_TRIANGLELIST, 1, &triangle) }
 }
 
 struct DofTargets {

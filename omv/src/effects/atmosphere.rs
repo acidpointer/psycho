@@ -1,5 +1,23 @@
 //! World-only volumetric atmosphere foundation.
+//!
+//! Atmosphere admission is deliberately split from depth-backed rendering.
+//! [`atmosphere_admission`] consumes only CPU-published scene state and may
+//! reject work solely when the effect is proven to have no visible output.
+//! Missing or incoherent state is conservative: the render transaction
+//! continues so the later depth-backed gate retains the established fallback
+//! behavior. This ordering prevents a no-contribution frame from paying for a
+//! full-resolution MSAA depth resolve, color copy, shader initialization, or
+//! render-state transaction.
 
+use std::{
+    sync::{
+        LazyLock,
+        atomic::{AtomicBool, Ordering},
+    },
+    thread,
+};
+
+use anyhow::Result;
 use libpsycho::os::windows::directx9::{
     D3DBLEND_ONE, D3DBLENDOP_ADD, D3DCULL_NONE, D3DFMT_A8R8G8B8, D3DFMT_A16B16G16R16F,
     D3DFMT_G16R16F, D3DFORMAT, D3DPOOL_MANAGED, D3DPT_TRIANGLESTRIP, D3DRS_ADAPTIVETESS_Y,
@@ -19,6 +37,7 @@ use crate::{
     config::{AtmosphereQuality, VolumetricFogConfig, VolumetricLightingConfig},
     shaders::{self, ScreenShaderSource},
 };
+use parking_lot::Mutex;
 
 const COLOR_WRITE_ALL: u32 = 0x0F;
 const AMD_ALPHA_TO_COVERAGE_OFF: u32 = u32::from_le_bytes(*b"A2M0");
@@ -38,6 +57,11 @@ const DENSITY_NOISE_SIZE: u32 = 64;
 const DENSITY_NOISE_SEED: u32 = 0xA7F4_31D9;
 const LIGHTING_DEBUG_BASE: i32 = 8;
 const SHAFT_TARGET_SCALE: u32 = 4;
+
+static COMPILE_STARTED: AtomicBool = AtomicBool::new(false);
+static COMPILE_FAILED: AtomicBool = AtomicBool::new(false);
+static COMPILE_READY: AtomicBool = AtomicBool::new(false);
+static BYTECODE: LazyLock<Mutex<Option<AtmosphereBytecode>>> = LazyLock::new(|| Mutex::new(None));
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct AtmosphereSettings {
@@ -195,6 +219,9 @@ impl AtmosphereSettings {
     pub(crate) fn requires_integration(self) -> bool {
         (self.fog_enabled && (self.density > 0.0 || self.height_density > 0.0))
             || (self.lighting_enabled && self.lighting_medium_density > 0.0)
+            // Local volumetric lights are an independent lighting family.
+            // Users may intentionally keep them while directional sunlight is
+            // disabled, so this condition must not inherit lighting_enabled.
             || (self.local_lights_enabled
                 && self.local_lights_intensity > 0.0
                 && self.lighting_medium_density > 0.0)
@@ -338,6 +365,17 @@ enum FogIntegrationGate {
     Underwater,
     NoReadyContribution,
     Ready,
+}
+
+/// Result of the CPU-only atmosphere admission test.
+///
+/// `RequiredOrUncertain` includes both known visible work and incomplete
+/// publication contracts. Treating uncertainty as required is intentional:
+/// only `NoVisibleContribution` is allowed to bypass depth and color work.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum AtmosphereAdmission {
+    RequiredOrUncertain,
+    NoVisibleContribution,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -583,6 +621,132 @@ pub(crate) struct AtmosphereEffect {
     debug_draws: u64,
 }
 
+struct AtmosphereBytecode {
+    depth_reduce_half: Vec<u32>,
+    depth_reduce_quarter: Vec<u32>,
+    integrate: [Vec<u32>; 3],
+    compose: Vec<u32>,
+    debug: Vec<u32>,
+    shaft: ShaftBytecode,
+    local_light: LocalLightBytecode,
+}
+
+struct ShaftBytecode {
+    mask: Vec<u32>,
+    radial: [Vec<u32>; 3],
+}
+
+struct LocalLightBytecode {
+    shadowless: [[Vec<u32>; 4]; 3],
+    shadowed: [Vec<u32>; 3],
+}
+
+impl AtmosphereBytecode {
+    fn compile() -> Result<Self> {
+        Ok(Self {
+            depth_reduce_half: shaders::compile_hlsl_source(
+                "atmosphere_depth_reduce.hlsl:half",
+                DEPTH_REDUCE_SHADER,
+            )?,
+            depth_reduce_quarter: shaders::compile_hlsl_source(
+                "atmosphere_depth_reduce.hlsl:quarter",
+                &depth_reduce_shader_source(4),
+            )?,
+            integrate: [
+                shaders::compile_hlsl_source(
+                    "atmosphere_integrate.hlsl:performance",
+                    &integration_shader_source(8),
+                )?,
+                shaders::compile_hlsl_source(
+                    "atmosphere_integrate.hlsl:high",
+                    &integration_shader_source(12),
+                )?,
+                shaders::compile_hlsl_source(
+                    "atmosphere_integrate.hlsl:ultra",
+                    &integration_shader_source(20),
+                )?,
+            ],
+            compose: shaders::compile_hlsl_source("atmosphere_compose.hlsl", COMPOSE_SHADER)?,
+            debug: shaders::compile_hlsl_source("atmosphere_debug.hlsl", DEBUG_SHADER)?,
+            shaft: ShaftBytecode::compile()?,
+            local_light: LocalLightBytecode::compile()?,
+        })
+    }
+}
+
+impl ShaftBytecode {
+    fn compile() -> Result<Self> {
+        Ok(Self {
+            mask: shaders::compile_hlsl_source("atmosphere_shaft_mask.hlsl", SHAFT_MASK_SHADER)?,
+            radial: [
+                shaders::compile_hlsl_source(
+                    "atmosphere_shaft_radial.hlsl:performance",
+                    &shaft_radial_shader_source(24),
+                )?,
+                shaders::compile_hlsl_source(
+                    "atmosphere_shaft_radial.hlsl:high",
+                    &shaft_radial_shader_source(40),
+                )?,
+                shaders::compile_hlsl_source(
+                    "atmosphere_shaft_radial.hlsl:ultra",
+                    &shaft_radial_shader_source(56),
+                )?,
+            ],
+        })
+    }
+}
+
+impl LocalLightBytecode {
+    fn compile() -> Result<Self> {
+        Ok(Self {
+            shadowless: [
+                compile_local_light_batch_bytecode("performance", 4, false)?,
+                compile_local_light_batch_bytecode("high", 6, true)?,
+                compile_local_light_batch_bytecode("ultra", 10, true)?,
+            ],
+            shadowed: [
+                shaders::compile_hlsl_source(
+                    "atmosphere_local_light.hlsl:performance:shadowed",
+                    &local_light_shader_source(4, 1, false, true),
+                )?,
+                shaders::compile_hlsl_source(
+                    "atmosphere_local_light.hlsl:high:shadowed",
+                    &local_light_shader_source(6, 1, true, true),
+                )?,
+                shaders::compile_hlsl_source(
+                    "atmosphere_local_light.hlsl:ultra:shadowed",
+                    &local_light_shader_source(10, 1, true, true),
+                )?,
+            ],
+        })
+    }
+}
+
+/// Start process-owned atmosphere shader preparation outside world callbacks.
+pub(crate) fn service_preparation() {
+    if COMPILE_STARTED.swap(true, Ordering::AcqRel) {
+        return;
+    }
+    if let Err(err) = thread::Builder::new()
+        .name("omv-atmosphere-compile".to_owned())
+        .spawn(
+            || match super::shader_preparation::run_serialized(AtmosphereBytecode::compile) {
+                Ok(bytecode) => {
+                    *BYTECODE.lock() = Some(bytecode);
+                    COMPILE_READY.store(true, Ordering::Release);
+                }
+                Err(err) => {
+                    COMPILE_FAILED.store(true, Ordering::Release);
+                    log::warn!("[ATMOSPHERE] Shader preparation failed: {err:#}");
+                }
+            },
+        )
+    {
+        COMPILE_FAILED.store(true, Ordering::Release);
+        log::warn!("[ATMOSPHERE] Could not start shader preparation: {err}");
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum AtmosphereDrawOutcome {
     Skipped,
@@ -610,15 +774,33 @@ impl AtmosphereDrawOutcome {
 }
 
 impl AtmosphereEffect {
-    pub(crate) fn create(device: &Device9Ref<'_>) -> Direct3DResult<Self> {
+    /// Create device-owned atmosphere resources from prepared bytecode.
+    ///
+    /// `Ok(None)` is a normal nonblocking result while process preparation is
+    /// active. Capability failures for shafts or local FP16 blending remain
+    /// isolated to those optional sub-pipelines.
+    pub(crate) fn create(device: &Device9Ref<'_>) -> Direct3DResult<Option<Self>> {
+        service_preparation();
+        if COMPILE_FAILED.load(Ordering::Acquire) {
+            return Err(direct3d_failure());
+        }
+        if !COMPILE_READY.load(Ordering::Acquire) {
+            return Ok(None);
+        }
+        let Some(bytecode) = BYTECODE.try_lock() else {
+            return Ok(None);
+        };
+        let Some(bytecode) = bytecode.as_ref() else {
+            return Ok(None);
+        };
+
         device
             .direct3d()?
             .check_default_render_target_texture_support(D3DFMT_G16R16F)?;
         device
             .direct3d()?
             .check_default_render_target_texture_support(D3DFMT_A16B16G16R16F)?;
-        let quarter_source = depth_reduce_shader_source(4);
-        let shaft_pipeline = match ShaftPipeline::create(device) {
+        let shaft_pipeline = match ShaftPipeline::create(device, &bytecode.shaft) {
             Ok(pipeline) => Some(pipeline),
             Err(err) => {
                 log::warn!(
@@ -627,7 +809,7 @@ impl AtmosphereEffect {
                 None
             }
         };
-        let local_light_pipeline = match LocalLightPipeline::create(device) {
+        let local_light_pipeline = match LocalLightPipeline::create(device, &bytecode.local_light) {
             Ok(pipeline) => Some(pipeline),
             Err(err) => {
                 log::warn!(
@@ -636,38 +818,19 @@ impl AtmosphereEffect {
                 None
             }
         };
-        Ok(Self {
-            depth_reduce_half_shader: compile_shader(
-                device,
-                "atmosphere_depth_reduce.hlsl:half",
-                DEPTH_REDUCE_SHADER,
-            )?,
-            depth_reduce_quarter_shader: compile_shader(
-                device,
-                "atmosphere_depth_reduce.hlsl:quarter",
-                &quarter_source,
-            )?,
+        Ok(Some(Self {
+            depth_reduce_half_shader: device.create_pixel_shader(&bytecode.depth_reduce_half)?,
+            depth_reduce_quarter_shader: device
+                .create_pixel_shader(&bytecode.depth_reduce_quarter)?,
             shaft_pipeline,
             local_light_pipeline,
             integrate_shaders: [
-                compile_shader(
-                    device,
-                    "atmosphere_integrate.hlsl:performance",
-                    &integration_shader_source(8),
-                )?,
-                compile_shader(
-                    device,
-                    "atmosphere_integrate.hlsl:high",
-                    &integration_shader_source(12),
-                )?,
-                compile_shader(
-                    device,
-                    "atmosphere_integrate.hlsl:ultra",
-                    &integration_shader_source(20),
-                )?,
+                device.create_pixel_shader(&bytecode.integrate[0])?,
+                device.create_pixel_shader(&bytecode.integrate[1])?,
+                device.create_pixel_shader(&bytecode.integrate[2])?,
             ],
-            compose_shader: compile_shader(device, "atmosphere_compose.hlsl", COMPOSE_SHADER)?,
-            debug_shader: compile_shader(device, "atmosphere_debug.hlsl", DEBUG_SHADER)?,
+            compose_shader: device.create_pixel_shader(&bytecode.compose)?,
+            debug_shader: device.create_pixel_shader(&bytecode.debug)?,
             density_noise: create_density_noise(device)?,
             neutral_visibility: create_neutral_visibility(device)?,
             targets: None,
@@ -686,7 +849,7 @@ impl AtmosphereEffect {
             local_light_draws: 0,
             composition_draws: 0,
             debug_draws: 0,
-        })
+        }))
     }
 
     pub(crate) fn draw(
@@ -2063,6 +2226,55 @@ fn fog_integration_gate(
     FogIntegrationGate::Ready
 }
 
+/// Decide whether atmosphere can affect the current world target before
+/// resolving depth or copying color.
+///
+/// The input frame may contain no depth texture. Camera, environment, water,
+/// material, sun, and sky values must be the CPU publications for the current
+/// render epoch. `local_ready` means that a current-device, current-epoch
+/// local-light publication contains at least one candidate. `local_unknown`
+/// is used when the nonblocking publication owner was busy.
+///
+/// This function never rejects incomplete state. A later depth-backed
+/// transaction remains responsible for validating the full render contract.
+pub(crate) fn atmosphere_admission(
+    frame: AtmosphereFrame,
+    settings: AtmosphereSettings,
+    local_ready: bool,
+    local_unknown: bool,
+) -> AtmosphereAdmission {
+    if settings.debug_view != 0 {
+        return AtmosphereAdmission::RequiredOrUncertain;
+    }
+    if (!settings.fog_enabled && !settings.lighting_enabled && !settings.local_lights_enabled)
+        || !settings.requires_integration()
+    {
+        return AtmosphereAdmission::NoVisibleContribution;
+    }
+
+    // Depth capture may publish a stronger camera contract than the early CPU
+    // snapshot. The same applies to busy or not-yet-current scene
+    // publications, so uncertainty must proceed instead of suppressing a
+    // potentially visible frame.
+    if !frame.camera.world_transform.available
+        || !frame.material_state.exterior_known
+        || !frame.underwater_contract_ready()
+        || local_unknown
+    {
+        return AtmosphereAdmission::RequiredOrUncertain;
+    }
+    if frame.underwater.underwater {
+        return AtmosphereAdmission::NoVisibleContribution;
+    }
+    if !frame.material_state.is_exterior && !local_ready {
+        return AtmosphereAdmission::NoVisibleContribution;
+    }
+    if !resolve_contributions(frame, settings).any() && !local_ready {
+        return AtmosphereAdmission::NoVisibleContribution;
+    }
+    AtmosphereAdmission::RequiredOrUncertain
+}
+
 fn fog_composition_gate(
     integration_gate: FogIntegrationGate,
     integration_ready: bool,
@@ -2221,21 +2433,6 @@ fn option_component(
     constants
         .and_then(|constants| constants.get(register))
         .map_or(fallback, |value| value[component])
-}
-
-fn compile_shader(
-    device: &Device9Ref<'_>,
-    source_name: &str,
-    source: &[u8],
-) -> Direct3DResult<PixelShader9> {
-    let bytecode = match shaders::compile_hlsl_source(source_name, source) {
-        Ok(bytecode) => bytecode,
-        Err(err) => {
-            log::warn!("[ATMOSPHERE] Failed to compile {source_name}: {err:#}");
-            return Err(direct3d_failure());
-        }
-    };
-    device.create_pixel_shader(&bytecode)
 }
 
 fn depth_reduce_shader_source(scale: u32) -> Vec<u8> {
@@ -2473,32 +2670,20 @@ struct LocalLightPipeline {
 }
 
 impl LocalLightPipeline {
-    fn create(device: &Device9Ref<'_>) -> Direct3DResult<Self> {
+    fn create(device: &Device9Ref<'_>, bytecode: &LocalLightBytecode) -> Direct3DResult<Self> {
         device
             .direct3d()?
             .check_default_render_target_blending_support(D3DFMT_A16B16G16R16F)?;
         Ok(Self {
             shadowless_shaders: [
-                compile_local_light_batch(device, "performance", 4, false)?,
-                compile_local_light_batch(device, "high", 6, true)?,
-                compile_local_light_batch(device, "ultra", 10, true)?,
+                create_local_light_batch(device, &bytecode.shadowless[0])?,
+                create_local_light_batch(device, &bytecode.shadowless[1])?,
+                create_local_light_batch(device, &bytecode.shadowless[2])?,
             ],
             shadowed_shaders: [
-                compile_shader(
-                    device,
-                    "atmosphere_local_light.hlsl:performance:shadowed",
-                    &local_light_shader_source(4, 1, false, true),
-                )?,
-                compile_shader(
-                    device,
-                    "atmosphere_local_light.hlsl:high:shadowed",
-                    &local_light_shader_source(6, 1, true, true),
-                )?,
-                compile_shader(
-                    device,
-                    "atmosphere_local_light.hlsl:ultra:shadowed",
-                    &local_light_shader_source(10, 1, true, true),
-                )?,
+                device.create_pixel_shader(&bytecode.shadowed[0])?,
+                device.create_pixel_shader(&bytecode.shadowed[1])?,
+                device.create_pixel_shader(&bytecode.shadowed[2])?,
             ],
         })
     }
@@ -2513,30 +2698,37 @@ impl LocalLightPipeline {
     }
 }
 
-fn compile_local_light_batch(
+fn create_local_light_batch(
     device: &Device9Ref<'_>,
+    bytecode: &[Vec<u32>; 4],
+) -> Direct3DResult<[PixelShader9; 4]> {
+    Ok([
+        device.create_pixel_shader(&bytecode[0])?,
+        device.create_pixel_shader(&bytecode[1])?,
+        device.create_pixel_shader(&bytecode[2])?,
+        device.create_pixel_shader(&bytecode[3])?,
+    ])
+}
+
+fn compile_local_light_batch_bytecode(
     quality: &str,
     sample_count: u32,
     use_noise: bool,
-) -> Direct3DResult<[PixelShader9; 4]> {
+) -> Result<[Vec<u32>; 4]> {
     Ok([
-        compile_shader(
-            device,
+        shaders::compile_hlsl_source(
             &format!("atmosphere_local_light.hlsl:{quality}:shadowless:batch=1"),
             &local_light_shader_source(sample_count, 1, use_noise, false),
         )?,
-        compile_shader(
-            device,
+        shaders::compile_hlsl_source(
             &format!("atmosphere_local_light.hlsl:{quality}:shadowless:batch=2"),
             &local_light_shader_source(sample_count, 2, use_noise, false),
         )?,
-        compile_shader(
-            device,
+        shaders::compile_hlsl_source(
             &format!("atmosphere_local_light.hlsl:{quality}:shadowless:batch=3"),
             &local_light_shader_source(sample_count, 3, use_noise, false),
         )?,
-        compile_shader(
-            device,
+        shaders::compile_hlsl_source(
             &format!("atmosphere_local_light.hlsl:{quality}:shadowless:batch=4"),
             &local_light_shader_source(sample_count, 4, use_noise, false),
         )?,
@@ -2549,25 +2741,13 @@ struct ShaftPipeline {
 }
 
 impl ShaftPipeline {
-    fn create(device: &Device9Ref<'_>) -> Direct3DResult<Self> {
+    fn create(device: &Device9Ref<'_>, bytecode: &ShaftBytecode) -> Direct3DResult<Self> {
         Ok(Self {
-            mask_shader: compile_shader(device, "atmosphere_shaft_mask.hlsl", SHAFT_MASK_SHADER)?,
+            mask_shader: device.create_pixel_shader(&bytecode.mask)?,
             radial_shaders: [
-                compile_shader(
-                    device,
-                    "atmosphere_shaft_radial.hlsl:performance",
-                    &shaft_radial_shader_source(24),
-                )?,
-                compile_shader(
-                    device,
-                    "atmosphere_shaft_radial.hlsl:high",
-                    &shaft_radial_shader_source(40),
-                )?,
-                compile_shader(
-                    device,
-                    "atmosphere_shaft_radial.hlsl:ultra",
-                    &shaft_radial_shader_source(56),
-                )?,
+                device.create_pixel_shader(&bytecode.radial[0])?,
+                device.create_pixel_shader(&bytecode.radial[1])?,
+                device.create_pixel_shader(&bytecode.radial[2])?,
             ],
         })
     }
@@ -2617,16 +2797,16 @@ mod feature_tests {
     use core::ffi::c_void;
 
     use super::{
-        AtmosphereDrawOutcome, AtmosphereSettings, FogCompositionGate, FogIntegrationGate,
-        atmosphere_layer_blend, base_medium_density, bounded_shaft_visibility,
-        decode_extended_srgb, density_noise_pixels, directional_phase_response,
-        directional_radiance, directional_scatter_amount, encode_extended_srgb,
-        fog_composition_gate, fog_integration_gate, henyey_greenstein, integrated_uniform_scatter,
-        layered_tap_weight, linearize_native_color, local_light_draw_count, local_light_scissor,
-        option_component, project_native_shadow, project_sun_from_captured_camera,
-        ray_sphere_interval, resolve_contributions, resolve_directional_light,
-        resolve_medium_color, selected_debug_view, shaft_visibility_from_blocked_fraction,
-        union_scissor, write_batched_light_constants,
+        AtmosphereAdmission, AtmosphereDrawOutcome, AtmosphereSettings, FogCompositionGate,
+        FogIntegrationGate, atmosphere_admission, atmosphere_layer_blend, base_medium_density,
+        bounded_shaft_visibility, decode_extended_srgb, density_noise_pixels,
+        directional_phase_response, directional_radiance, directional_scatter_amount,
+        encode_extended_srgb, fog_composition_gate, fog_integration_gate, henyey_greenstein,
+        integrated_uniform_scatter, layered_tap_weight, linearize_native_color,
+        local_light_draw_count, local_light_scissor, option_component, project_native_shadow,
+        project_sun_from_captured_camera, ray_sphere_interval, resolve_contributions,
+        resolve_directional_light, resolve_medium_color, selected_debug_view,
+        shaft_visibility_from_blocked_fraction, union_scissor, write_batched_light_constants,
     };
     use crate::{
         backend::{
@@ -3265,6 +3445,79 @@ mod feature_tests {
         assert_eq!(
             fog_integration_gate(frame, settings, false),
             FogIntegrationGate::NoReadyContribution
+        );
+    }
+
+    #[test]
+    fn pre_depth_admission_rejects_only_proven_no_contribution() {
+        let mut frame = valid_frame();
+        frame.depth = DepthFrame::none();
+        frame.environment.fog_available = false;
+        frame.sky = None;
+        frame.sun = SunFrame::default();
+        assert_eq!(
+            atmosphere_admission(frame, settings(), false, false),
+            AtmosphereAdmission::NoVisibleContribution,
+        );
+
+        // The depth-backed gate cannot reach the same conclusion before a
+        // resolve. This is the negative control for the old ordering: it paid
+        // for depth first and only then returned NoReadyContribution.
+        assert_eq!(
+            fog_integration_gate(frame, settings(), false),
+            FogIntegrationGate::MissingDepthContract,
+        );
+    }
+
+    #[test]
+    fn pre_depth_admission_preserves_uncertain_and_local_only_work() {
+        let mut frame = valid_frame();
+        frame.depth = DepthFrame::none();
+        frame.environment.fog_available = false;
+        frame.sky = None;
+        frame.sun = SunFrame::default();
+
+        let mut local = settings();
+        local.fog_enabled = false;
+        local.lighting_enabled = false;
+        local.local_lights_enabled = true;
+        assert_eq!(
+            atmosphere_admission(frame, local, true, false),
+            AtmosphereAdmission::RequiredOrUncertain,
+        );
+        assert_eq!(
+            atmosphere_admission(frame, local, false, true),
+            AtmosphereAdmission::RequiredOrUncertain,
+        );
+
+        frame.material_state.exterior_known = false;
+        assert_eq!(
+            atmosphere_admission(frame, settings(), false, false),
+            AtmosphereAdmission::RequiredOrUncertain,
+        );
+        frame.material_state.exterior_known = true;
+        frame.underwater.frame_epoch = frame.frame_epoch.wrapping_sub(1);
+        assert_eq!(
+            atmosphere_admission(frame, settings(), false, false),
+            AtmosphereAdmission::RequiredOrUncertain,
+        );
+    }
+
+    #[test]
+    fn pre_depth_admission_keeps_debug_views_and_rejects_known_underwater_frames() {
+        let mut frame = valid_frame();
+        frame.depth = DepthFrame::none();
+        frame.underwater.underwater = true;
+        assert_eq!(
+            atmosphere_admission(frame, settings(), false, false),
+            AtmosphereAdmission::NoVisibleContribution,
+        );
+
+        let mut debug = settings();
+        debug.debug_view = 1;
+        assert_eq!(
+            atmosphere_admission(frame, debug, false, false),
+            AtmosphereAdmission::RequiredOrUncertain,
         );
     }
 

@@ -60,6 +60,17 @@ float DepthKey(float depth) {
     return saturate(log2(depth + 1.0) / max(log2(PreviousDepth.y + 1.0), 0.001));
 }
 
+float CurrentDepthKey(float rawDepth, bool geometry, bool sky) {
+    if (sky) {
+        return -1.0;
+    }
+    if (!geometry) {
+        return 2.0;
+    }
+    float linearDepth = LinearDepth(rawDepth);
+    return saturate(log2(linearDepth + 1.0) / max(log2(CameraData.y + 1.0), 0.001));
+}
+
 float HistoryAgreement(float3 current, float3 history, float skyMask) {
     float3 magnitude = max(max(abs(current), abs(history)), 0.02);
     float3 relative = abs(history - current) / magnitude;
@@ -89,13 +100,34 @@ void Neighborhood(float2 uv, float3 center, out float3 low, out float3 high, out
     high = midpoint + extent * 0.5;
 }
 
+#if OMV_TAA_MRT
+struct TemporalOutput {
+    float4 color : COLOR0;
+    float4 depthKey : COLOR1;
+};
+
+TemporalOutput MakeOutput(float4 color, float depthKey) {
+    TemporalOutput output;
+    output.color = color;
+    output.depthKey = float4(depthKey, 0.0, 0.0, 1.0);
+    return output;
+}
+
+TemporalOutput Main(float2 uv : TEXCOORD0) {
+#else
 float4 Main(float2 uv : TEXCOORD0) : COLOR0 {
+#endif
     float4 current = tex2Dlod(CurrentColor, float4(uv, 0.0, 0.0));
     float rawDepth = tex2Dlod(SceneDepth, float4(uv, 0.0, 0.0)).r;
     bool geometry = ValidDepth(rawDepth);
     bool sky = SkyDepth(rawDepth);
+    float currentDepthKey = CurrentDepthKey(rawDepth, geometry, sky);
     if (CameraData.w < 0.5 || (!geometry && !sky)) {
+#if OMV_TAA_MRT
+        return MakeOutput(current, currentDepthKey);
+#else
         return current;
+#endif
     }
 
     float skyMask = sky ? 1.0 : 0.0;
@@ -109,7 +141,11 @@ float4 Main(float2 uv : TEXCOORD0) : COLOR0 {
     float2 historyUv = ProjectPrevious(previousPosition);
     float minimumPreviousZ = sky ? 0.001 : max(PreviousDepth.x, 0.001);
     if (previousPosition.z <= minimumPreviousZ || !Inside(historyUv)) {
+#if OMV_TAA_MRT
+        return MakeOutput(current, currentDepthKey);
+#else
         return current;
+#endif
     }
 
     float4 history = tex2Dlod(HistoryColor, float4(historyUv, 0.0, 0.0));
@@ -127,5 +163,10 @@ float4 Main(float2 uv : TEXCOORD0) : COLOR0 {
     float3 sharpened = max(current.rgb + (current.rgb - average) * Options0.z, 0.0);
     float3 resolved = lerp(sharpened, clampedHistory, historyWeight);
 
-    return float4(resolved, current.a);
+    float4 outputColor = float4(resolved, current.a);
+#if OMV_TAA_MRT
+    return MakeOutput(outputColor, currentDepthKey);
+#else
+    return outputColor;
+#endif
 }

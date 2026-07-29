@@ -1,4 +1,16 @@
-//! Fallout New Vegas backend.
+//! Fallout New Vegas scene-input backend.
+//!
+//! This module owns executable-specific camera/environment reads and OMV's
+//! native depth resolver. [`depth_resolve_provider`] is the interoperability
+//! boundary for the optional Depth Resolve plugin; it owns discovery and
+//! shared-texture identity, while this module owns retained snapshots and
+//! projection metadata. All render-facing state is either atomic or protected
+//! by `try_lock`-only owners so native render callbacks never block.
+//!
+//! Physical OMV copies are cached only by the complete native contract:
+//! provider-owned device generation, render epoch, semantic stage, depth slot,
+//! source surface, and dimensions. Pre-alpha world depth, coherent world
+//! depth, and first-person depth remain distinct even within one epoch.
 
 use core::{ffi::c_void, fmt, mem::size_of};
 use std::sync::{
@@ -8,8 +20,8 @@ use std::sync::{
 
 use super::{
     AlphaCoverageMode, CameraFrame, CameraTransformFrame, DepthAccess, DepthFrame,
-    DepthProjectionFrame, DepthProvider, DepthResolveOutcome, DepthResolveSlot, DepthTexture,
-    EnvironmentFrame, MaterialStateFrame, NativeSkyFrame, SunFrame, UnderwaterFrame,
+    DepthProjectionFrame, DepthProvider, DepthResolveOutcome, DepthResolveSlot, DepthResolveStage,
+    DepthTexture, EnvironmentFrame, MaterialStateFrame, NativeSkyFrame, SunFrame, UnderwaterFrame,
 };
 use libpsycho::ffi::fnptr::FnPtr;
 use libpsycho::os::windows::{
@@ -24,6 +36,11 @@ use libpsycho::os::windows::{
     winapi::{HModule, get_module_handle_a, get_proc_address, load_library_a},
 };
 use parking_lot::Mutex;
+
+mod depth_resolve_provider;
+
+pub(crate) use depth_resolve_provider::MarkerDecision as ReszMarkerDecision;
+pub(crate) type ProviderMarkerCounters = depth_resolve_provider::MarkerCounters;
 
 const NIDX9_RENDERER_SINGLETON_PTR: usize = 0x011C73B4;
 const NIDX9_RENDERER_DEVICE_OFFSET: usize = 0x288;
@@ -111,6 +128,10 @@ const NVAPI_D3D9_UNREGISTER_RESOURCE_ID: u32 = 0xBB2B_17AA;
 const NVAPI_D3D9_STRETCH_RECT_EX_ID: u32 = 0x22DE_03AA;
 
 static DEPTH_RESOLVE_LOGS: AtomicU32 = AtomicU32::new(0);
+static PRE_ALPHA_PHYSICAL_COPIES: AtomicU32 = AtomicU32::new(0);
+static COHERENT_WORLD_PHYSICAL_COPIES: AtomicU32 = AtomicU32::new(0);
+static FIRST_PERSON_PHYSICAL_COPIES: AtomicU32 = AtomicU32::new(0);
+static EXACT_DEPTH_CACHE_HITS: AtomicU32 = AtomicU32::new(0);
 static ALPHA_COVERAGE_MODE: OnceLock<AlphaCoverageMode> = OnceLock::new();
 static SUN_FRAME_CALLS: AtomicU32 = AtomicU32::new(0);
 static SUN_FRAME_LOGS: AtomicU32 = AtomicU32::new(0);
@@ -119,6 +140,8 @@ static UNDERWATER_EPOCH: AtomicU32 = AtomicU32::new(0);
 static UNDERWATER_VALUE: AtomicBool = AtomicBool::new(false);
 static DEPTH_RESOLVE: LazyLock<Mutex<FnvDepthResolve>> =
     LazyLock::new(|| Mutex::new(FnvDepthResolve::default()));
+static EXTERNAL_DEPTH_RESOLVE: LazyLock<Mutex<ExternalDepthResolve>> =
+    LazyLock::new(|| Mutex::new(ExternalDepthResolve::default()));
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(crate) enum DepthResolveRouteStatus {
@@ -127,6 +150,15 @@ pub(crate) enum DepthResolveRouteStatus {
     Resz,
     Nvapi,
     Unavailable,
+}
+
+/// Fixed-size counters for physical OMV depth copies and exact-stage reuse.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) struct DepthCopyCounters {
+    pub(crate) pre_alpha_physical: u32,
+    pub(crate) coherent_world_physical: u32,
+    pub(crate) first_person_physical: u32,
+    pub(crate) exact_cache_hits: u32,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -143,6 +175,130 @@ pub(crate) fn depth_resolve_status() -> DepthResolveStatus {
         };
     };
     resolve.route.status()
+}
+
+/// Report the readiness and physical route of borrowed Depth Resolve depth.
+pub(crate) fn external_depth_resolve_status() -> DepthResolveStatus {
+    if !depth_resolve_provider::available() {
+        return DepthResolveStatus {
+            route: DepthResolveRouteStatus::Unavailable,
+            reason: "Depth Resolve is not loaded or its provider exports are unavailable",
+        };
+    }
+    let Some(resolve) = EXTERNAL_DEPTH_RESOLVE.try_lock() else {
+        return DepthResolveStatus {
+            route: DepthResolveRouteStatus::Unprobed,
+            reason: "external depth snapshot owner is busy",
+        };
+    };
+    if resolve.texture.is_some() {
+        DepthResolveStatus {
+            route: if depth_resolve_provider::external_resz_marker_required() {
+                DepthResolveRouteStatus::Resz
+            } else {
+                DepthResolveRouteStatus::Nvapi
+            },
+            reason: "Depth Resolve shared INTZ world depth",
+        }
+    } else {
+        DepthResolveStatus {
+            route: DepthResolveRouteStatus::Unprobed,
+            reason: "waiting for the first current Depth Resolve world snapshot",
+        }
+    }
+}
+
+/// Validate startup capabilities without requiring the shared texture yet.
+pub(super) fn validate_initial_depth_provider(provider: DepthProvider) -> Result<(), &'static str> {
+    validate_depth_provider_capabilities(provider)?;
+    if provider == DepthProvider::DepthResolve && !depth_resolve_provider::available() {
+        return Err("Depth Resolve is not loaded or its provider exports are unavailable");
+    }
+    Ok(())
+}
+
+/// Validate a live provider and retain its current shared identity when needed.
+pub(super) fn validate_depth_provider(provider: DepthProvider) -> Result<(), &'static str> {
+    validate_depth_provider_capabilities(provider)?;
+    if provider == DepthProvider::DepthResolve
+        || (provider == DepthProvider::FalloutNewVegas && depth_resolve_provider::available())
+    {
+        depth_resolve_provider::shared_texture(None)?;
+    }
+    Ok(())
+}
+
+fn validate_depth_provider_capabilities(provider: DepthProvider) -> Result<(), &'static str> {
+    if depth_resolve_provider::available() && provider != DepthProvider::None {
+        let resz_available = default_device_supports_resz()?;
+        depth_resolve_provider::set_external_resz_marker_required(resz_available);
+        if provider != DepthProvider::FalloutNewVegas {
+            return Ok(());
+        }
+        // Depth Resolve has no native pause API. Exclusive OMV ownership is
+        // therefore supported only on the RESZ route that the D3D9 marker hook
+        // can identify and suppress. Refuse an apparent switch on native NvAPI
+        // rather than silently running two physical producers.
+        if !resz_available {
+            return Err(
+                "exclusive OMV ownership is unavailable while Depth Resolve uses native NvAPI",
+            );
+        }
+    }
+    Ok(())
+}
+
+fn default_device_supports_resz() -> Result<bool, &'static str> {
+    let device_ptr = d3d_device_ptr().ok_or("D3D9 device is unavailable")?;
+    let device =
+        unsafe { Device9Ref::from_raw_void(device_ptr) }.ok_or("D3D9 device pointer is invalid")?;
+    Ok(device
+        .direct3d()
+        .and_then(|direct3d| direct3d.check_default_resz_support())
+        .is_ok())
+}
+
+/// Return whether a capability-compatible Depth Resolve module is loaded.
+pub(super) fn depth_resolve_plugin_available() -> bool {
+    depth_resolve_provider::available()
+}
+
+/// Classify a RESZ marker against the active provider and render epoch.
+pub(super) fn classify_resz_marker(
+    provider: DepthProvider,
+    bound_texture: usize,
+    render_epoch: u32,
+) -> ReszMarkerDecision {
+    depth_resolve_provider::classify_marker(provider, bound_texture, render_epoch)
+}
+
+/// Return nonblocking producer-marker diagnostics.
+pub(super) fn provider_marker_counters() -> ProviderMarkerCounters {
+    depth_resolve_provider::marker_counters()
+}
+
+/// Return cumulative physical-copy and exact-cache telemetry.
+pub(super) fn depth_copy_counters() -> DepthCopyCounters {
+    DepthCopyCounters {
+        pre_alpha_physical: PRE_ALPHA_PHYSICAL_COPIES.load(Ordering::Relaxed),
+        coherent_world_physical: COHERENT_WORLD_PHYSICAL_COPIES.load(Ordering::Relaxed),
+        first_person_physical: FIRST_PERSON_PHYSICAL_COPIES.load(Ordering::Relaxed),
+        exact_cache_hits: EXACT_DEPTH_CACHE_HITS.load(Ordering::Relaxed),
+    }
+}
+
+fn record_physical_depth_copy(stage: DepthResolveStage) {
+    match stage {
+        DepthResolveStage::PreAlphaWorld => {
+            PRE_ALPHA_PHYSICAL_COPIES.fetch_add(1, Ordering::Relaxed);
+        }
+        DepthResolveStage::CoherentWorld => {
+            COHERENT_WORLD_PHYSICAL_COPIES.fetch_add(1, Ordering::Relaxed);
+        }
+        DepthResolveStage::FirstPerson => {
+            FIRST_PERSON_PHYSICAL_COPIES.fetch_add(1, Ordering::Relaxed);
+        }
+    }
 }
 
 pub(super) fn d3d_device_ptr() -> Option<*mut c_void> {
@@ -336,6 +492,7 @@ pub(super) unsafe fn resolve_scene_depth(
     device_ptr: *mut c_void,
     source_rendered_texture: Option<*mut c_void>,
     slot: DepthResolveSlot,
+    stage: DepthResolveStage,
     world_projection_override: Option<CameraFrame>,
     reason: &'static str,
     render_epoch: u32,
@@ -349,13 +506,14 @@ pub(super) unsafe fn resolve_scene_depth(
             device_ptr,
             source_rendered_texture,
             slot,
+            stage,
             world_projection_override,
             reason,
         )
     } {
         Ok(()) => DepthResolveOutcome::Resolved {
             depth: resolve.depth_frame(),
-            underwater: published_underwater_frame(resolve.frame_epoch),
+            underwater: underwater_frame(resolve.frame_epoch),
         },
         Err(err) => {
             resolve.invalidate_capture(slot);
@@ -386,16 +544,91 @@ pub(super) fn try_temporal_depth_epoch(
     DepthAccess::Ready(resolve.temporal_depth_epoch(device_ptr, width, height))
 }
 
+/// Return a world-only snapshot outcome from the external provider.
+pub(super) fn external_depth_outcome(
+    slot: DepthResolveSlot,
+    render_epoch: u32,
+) -> DepthResolveOutcome {
+    if slot == DepthResolveSlot::FirstPerson {
+        // Depth Resolve 1.31 publishes world depth only. Supplementing this
+        // with OMV's first-person resolver would violate exclusive provider
+        // selection and recreate the duplicate producer problem.
+        return DepthResolveOutcome::Rejected;
+    }
+    let Some(mut resolve) = EXTERNAL_DEPTH_RESOLVE.try_lock() else {
+        return DepthResolveOutcome::Busy;
+    };
+    resolve.begin_epoch(render_epoch);
+    let depth = resolve.depth_frame();
+    if depth.texture.is_none() {
+        return DepthResolveOutcome::Rejected;
+    }
+    DepthResolveOutcome::Resolved {
+        depth,
+        underwater: underwater_frame(resolve.frame_epoch),
+    }
+}
+
+/// Borrow the current external depth frame without blocking its publisher.
+pub(super) fn try_external_depth_frame(render_epoch: u32) -> DepthAccess<DepthFrame> {
+    let Some(mut resolve) = EXTERNAL_DEPTH_RESOLVE.try_lock() else {
+        return DepthAccess::Busy;
+    };
+    resolve.begin_epoch(render_epoch);
+    DepthAccess::Ready(resolve.depth_frame())
+}
+
+/// Return the temporal epoch only when external depth matches this target.
+pub(super) fn try_external_temporal_depth_epoch(
+    device_ptr: *mut c_void,
+    width: u32,
+    height: u32,
+    render_epoch: u32,
+) -> DepthAccess<Option<u64>> {
+    let Some(mut resolve) = EXTERNAL_DEPTH_RESOLVE.try_lock() else {
+        return DepthAccess::Busy;
+    };
+    resolve.begin_epoch(render_epoch);
+    DepthAccess::Ready(resolve.temporal_depth_epoch(device_ptr, width, height))
+}
+
+/// Publish the already-resolved external world texture at the proven post-world boundary.
+///
+/// This function reads metadata only. Depth Resolve has completed both its
+/// pre-water and post-water captures before `RenderWorldSceneGraph` returns,
+/// so publishing here never emits another D3D copy.
+pub(super) unsafe fn publish_external_depth_after_world(
+    device_ptr: *mut c_void,
+    render_epoch: u32,
+) {
+    let Some(mut resolve) = EXTERNAL_DEPTH_RESOLVE.try_lock() else {
+        return;
+    };
+    if let Err(err) = unsafe { resolve.publish_after_world(device_ptr, render_epoch) } {
+        resolve.invalidate();
+        log_depth_resolve_skip(
+            DepthResolveSlot::World,
+            "Depth Resolve post-world publication",
+            &FnvDepthResolveError::Static(err),
+        );
+    }
+}
+
 pub(super) fn try_reset_depth_resources() -> bool {
     let Some(mut resolve) = DEPTH_RESOLVE.try_lock() else {
         return false;
     };
+    let Some(mut external) = EXTERNAL_DEPTH_RESOLVE.try_lock() else {
+        return false;
+    };
     resolve.release();
+    external.release();
+    depth_resolve_provider::reset_device_state();
     UNDERWATER_EPOCH.store(0, Ordering::Release);
     true
 }
 
-fn published_underwater_frame(frame_epoch: u64) -> UnderwaterFrame {
+pub(super) fn underwater_frame(frame_epoch: u64) -> UnderwaterFrame {
     let published_epoch = UNDERWATER_EPOCH.load(Ordering::Acquire);
     underwater_frame_for_publication(
         frame_epoch,
@@ -1448,13 +1681,165 @@ struct FnvDepthResolve {
     first_person_capture: ResolvedDepthCapture,
 }
 
+/// Borrowed-snapshot state for Depth Resolve's world-only provider.
+///
+/// The retained texture is an ownership guard, not a private render target.
+/// Freshness is published only after the world hook returns, which proves the
+/// external post-water resolve has completed for the current render epoch.
+#[derive(Default)]
+struct ExternalDepthResolve {
+    device_ptr: usize,
+    frame_epoch: u64,
+    texture: Option<Texture9>,
+    world_capture: ResolvedDepthCapture,
+    temporal_depth_proven: bool,
+}
+
 #[derive(Clone, Copy, Debug, Default)]
 struct ResolvedDepthCapture {
     texture_ptr: usize,
     projection: DepthProjectionFrame,
     frame_epoch: u64,
+    stage: DepthResolveStage,
     width: u32,
     height: u32,
+}
+
+impl ResolvedDepthCapture {
+    fn matches_physical_source(
+        self,
+        frame_epoch: u64,
+        stage: DepthResolveStage,
+        source_surface: usize,
+        width: u32,
+        height: u32,
+    ) -> bool {
+        self.texture_ptr != 0
+            && self.frame_epoch == frame_epoch
+            && self.stage == stage
+            && self.projection.source_surface == source_surface
+            && self.width == width
+            && self.height == height
+    }
+}
+
+impl ExternalDepthResolve {
+    fn begin_epoch(&mut self, render_epoch: u32) {
+        let render_epoch = u64::from(render_epoch);
+        if self.frame_epoch == render_epoch {
+            return;
+        }
+        self.frame_epoch = render_epoch;
+        self.world_capture = ResolvedDepthCapture::default();
+    }
+
+    unsafe fn publish_after_world(
+        &mut self,
+        device_ptr: *mut c_void,
+        render_epoch: u32,
+    ) -> Result<(), &'static str> {
+        self.begin_epoch(render_epoch);
+        if self.device_ptr != 0 && self.device_ptr != device_ptr as usize {
+            self.release();
+            self.begin_epoch(render_epoch);
+        }
+        let Some(device) = (unsafe { Device9Ref::from_raw_void(device_ptr) }) else {
+            return Err("null D3D device");
+        };
+        self.device_ptr = device_ptr as usize;
+
+        let rendered_texture = unsafe {
+            read_ptr_checked(
+                BSSHADERMANAGER_CURRENT_RENDER_TARGET_PTR,
+                "unreadable current render target",
+            )?
+        };
+        let source_surface =
+            unsafe { read_rendered_texture_depth_surface(rendered_texture.cast::<c_void>())? };
+        let desc =
+            unsafe { Surface9::raw_desc(source_surface) }.map_err(|_| "unreadable world depth")?;
+        if desc.Width == 0 || desc.Height == 0 {
+            return Err("empty world depth surface");
+        }
+
+        let texture = depth_resolve_provider::shared_texture(Some(&desc))?;
+        if !depth_resolve_provider::external_copy_is_fresh(
+            render_epoch,
+            crate::hooks::resz_interposition_active(),
+        ) {
+            return Err("Depth Resolve did not refresh world depth this render epoch");
+        }
+        let depth_function = device.render_state(D3DRS_ZFUNC).ok();
+        let camera = unsafe { read_world_camera_frame(&desc) }
+            .ok_or("missing persistent world camera projection")?;
+        let projection = DepthProjectionFrame {
+            camera,
+            reversed_depth: depth_convention(depth_function),
+            depth_function,
+            source_surface: source_surface as usize,
+            sampled_depth_bits: sampled_depth_bits(desc.Format),
+        };
+        self.world_capture = ResolvedDepthCapture {
+            texture_ptr: texture.as_raw_base_texture() as usize,
+            projection,
+            frame_epoch: self.frame_epoch,
+            stage: DepthResolveStage::CoherentWorld,
+            width: desc.Width,
+            height: desc.Height,
+        };
+        self.temporal_depth_proven =
+            projection.reversed_depth.is_some() && projection.camera.world_transform.available;
+        self.texture = Some(texture);
+        depth_resolve_provider::record_external_publication();
+        Ok(())
+    }
+
+    fn temporal_depth_epoch(
+        &self,
+        device_ptr: *mut c_void,
+        width: u32,
+        height: u32,
+    ) -> Option<u64> {
+        (self.temporal_depth_proven
+            && self.device_ptr == device_ptr as usize
+            && self.texture.as_ref().is_some_and(|texture| {
+                texture
+                    .surface_level(0)
+                    .and_then(|surface| surface.desc())
+                    .is_ok_and(|desc| desc.Width == width && desc.Height == height)
+            }))
+        .then_some(self.frame_epoch)
+    }
+
+    fn depth_frame(&self) -> DepthFrame {
+        let capture = (self.world_capture.texture_ptr != 0
+            && self.world_capture.frame_epoch == self.frame_epoch)
+            .then_some(self.world_capture);
+        let texture =
+            capture.and_then(|capture| DepthTexture::new(capture.texture_ptr as *mut c_void));
+        DepthFrame::from_textures(
+            DepthProvider::DepthResolve,
+            texture,
+            None,
+            texture
+                .and_then(|_| capture.map(|capture| capture.projection))
+                .unwrap_or_default(),
+            DepthProjectionFrame::default(),
+            self.frame_epoch,
+        )
+    }
+
+    fn invalidate(&mut self) {
+        self.world_capture = ResolvedDepthCapture::default();
+        self.temporal_depth_proven = false;
+    }
+
+    fn release(&mut self) {
+        self.device_ptr = 0;
+        self.frame_epoch = 0;
+        self.texture = None;
+        self.invalidate();
+    }
 }
 
 impl FnvDepthResolve {
@@ -1474,6 +1859,7 @@ impl FnvDepthResolve {
         device_ptr: *mut c_void,
         source_rendered_texture: Option<*mut c_void>,
         slot: DepthResolveSlot,
+        stage: DepthResolveStage,
         world_projection_override: Option<CameraFrame>,
         reason: &'static str,
     ) -> Result<(), FnvDepthResolveError> {
@@ -1509,6 +1895,7 @@ impl FnvDepthResolve {
                 device_ptr,
                 source_surface,
                 slot,
+                stage,
                 world_projection_override,
                 reason,
                 source_label,
@@ -1522,12 +1909,18 @@ impl FnvDepthResolve {
         device_ptr: *mut c_void,
         source_surface: *mut c_void,
         slot: DepthResolveSlot,
+        stage: DepthResolveStage,
         world_projection_override: Option<CameraFrame>,
         reason: &'static str,
         source_label: &'static str,
     ) -> Result<(), FnvDepthResolveError> {
         if source_surface.is_null() {
             return Err(FnvDepthResolveError::Static("missing D3D depth surface"));
+        }
+        if stage.slot() != slot {
+            return Err(FnvDepthResolveError::Static(
+                "depth resolve stage does not match its destination slot",
+            ));
         }
 
         let desc = unsafe { Surface9::raw_desc(source_surface)? };
@@ -1559,10 +1952,22 @@ impl FnvDepthResolve {
             sampled_depth_bits: sampled_depth_bits(desc.Format),
         };
 
+        if self.capture_mut(slot).matches_physical_source(
+            self.frame_epoch,
+            stage,
+            source_surface as usize,
+            desc.Width,
+            desc.Height,
+        ) {
+            EXACT_DEPTH_CACHE_HITS.fetch_add(1, Ordering::Relaxed);
+            return Ok(());
+        }
+
         self.ensure_resources(device, &desc, slot)?;
 
         match self.route.kind() {
             DepthResolveRouteKind::Resz => {
+                record_physical_depth_copy(stage);
                 if let Err(err) = unsafe { self.resolve_resz(device, source_surface, slot) } {
                     let requests_fallback = matches!(
                         &err,
@@ -1578,10 +1983,12 @@ impl FnvDepthResolve {
 
                     self.fallback_from_rejected_resz(&err)?;
                     self.ensure_resources(device, &desc, slot)?;
+                    record_physical_depth_copy(stage);
                     self.resolve_nvapi(device_ptr, source_surface, desc.Format, slot)?;
                 }
             }
             DepthResolveRouteKind::Nvapi => {
+                record_physical_depth_copy(stage);
                 self.resolve_nvapi(device_ptr, source_surface, desc.Format, slot)?;
             }
             DepthResolveRouteKind::Unavailable => {
@@ -1605,6 +2012,7 @@ impl FnvDepthResolve {
             texture_ptr,
             projection,
             frame_epoch: self.frame_epoch,
+            stage,
             width: desc.Width,
             height: desc.Height,
         };
@@ -1612,7 +2020,7 @@ impl FnvDepthResolve {
             self.temporal_depth_proven =
                 projection.reversed_depth.is_some() && projection.camera.world_transform.available;
         }
-        self.log_success(slot, reason, source_label, &desc, projection);
+        self.log_success(slot, stage, reason, source_label, &desc, projection);
         Ok(())
     }
 
@@ -1634,7 +2042,12 @@ impl FnvDepthResolve {
             target.resolve(device)
         })();
         let restore_result = state.restore_render_states(device);
-        let resz_result = device.set_render_state(D3DRS_POINTSIZE, D3DRESZ_POINT_SIZE);
+        // The device hook also sees OMV's own call. Arm this exact marker so
+        // exclusive ownership suppresses only Depth Resolve's duplicate
+        // trigger targeting the shared texture.
+        let resz_result = depth_resolve_provider::with_omv_marker(|| {
+            device.set_render_state(D3DRS_POINTSIZE, D3DRESZ_POINT_SIZE)
+        });
         let binding_restore_result = state.restore_bindings(device);
         let depth_restore_result = device.set_depth_stencil_surface(original_depth.as_ref());
 
@@ -1712,7 +2125,11 @@ impl FnvDepthResolve {
             if slot == DepthResolveSlot::World {
                 self.temporal_depth_proven = false;
             }
-            let target = FnvDepthTarget::create(device, desc)?;
+            let target = if slot == DepthResolveSlot::World && depth_resolve_provider::available() {
+                FnvDepthTarget::from_shared_depth_resolve(desc)?
+            } else {
+                FnvDepthTarget::create(device, desc)?
+            };
             if let DepthResolveRoute::Nvapi(nvapi) = &self.route {
                 nvapi.register(target.texture.as_raw())?;
             }
@@ -1855,6 +2272,7 @@ impl FnvDepthResolve {
     fn log_success(
         &mut self,
         slot: DepthResolveSlot,
+        stage: DepthResolveStage,
         reason: &'static str,
         source_label: &'static str,
         desc: &D3DSURFACE_DESC,
@@ -1866,7 +2284,7 @@ impl FnvDepthResolve {
             && log_index / FRAME_CONTRACT_LOG_INTERVAL < MAX_FRAME_CONTRACT_LOGS
         {
             log::info!(
-                "[FNV] Depth contract: slot={}, source={source_label}, reason={reason}, surface=0x{:08X}, size={}x{}, zfunc={:?}, reversed={:?}, near={:.4}, far={:.2}, frustum=({:.5},{:.5},{:.5},{:.5}), transform={}, position=({:.2},{:.2},{:.2}), scale={:.4}",
+                "[FNV] Depth contract: slot={}, stage={stage:?}, source={source_label}, reason={reason}, surface=0x{:08X}, size={}x{}, zfunc={:?}, reversed={:?}, near={:.4}, far={:.2}, frustum=({:.5},{:.5},{:.5},{:.5}), transform={}, position=({:.2},{:.2},{:.2}), scale={:.4}",
                 slot.label(),
                 projection.source_surface,
                 desc.Width,
@@ -1910,7 +2328,7 @@ mod depth_capture_tests {
 
     use super::{
         AlphaCoverageMode, D3DERR_NOTAVAILABLE_CODE, DepthProjectionFrame, DepthResolveRouteKind,
-        FnvDepthResolve, NVAPI_UNREGISTERED_RESOURCE, ResolvedDepthCapture,
+        DepthResolveStage, FnvDepthResolve, NVAPI_UNREGISTERED_RESOURCE, ResolvedDepthCapture,
         alpha_coverage_mode_from_raw, decode_third_person_view,
         nvapi_depth_copy_needs_registration, resz_failure_requires_fallback, sampled_depth_bits,
         select_depth_resolve_route, underwater_frame_for_publication,
@@ -1929,6 +2347,7 @@ mod depth_capture_tests {
                 ..DepthProjectionFrame::default()
             },
             frame_epoch,
+            stage: DepthResolveStage::CoherentWorld,
             width,
             height,
         }
@@ -1953,6 +2372,46 @@ mod depth_capture_tests {
         assert!(frame.first_person_texture.is_some());
         assert_eq!(frame.first_person_projection.source_surface, 2);
         assert_eq!(frame.capture_epoch, 7);
+    }
+
+    #[test]
+    fn physical_depth_cache_requires_exact_stage_source_epoch_and_dimensions() {
+        let capture = capture(0x1234, 7, 1920, 1080);
+        assert!(capture.matches_physical_source(
+            7,
+            DepthResolveStage::CoherentWorld,
+            0x1234,
+            1920,
+            1080,
+        ));
+        assert!(!capture.matches_physical_source(
+            7,
+            DepthResolveStage::PreAlphaWorld,
+            0x1234,
+            1920,
+            1080,
+        ));
+        assert!(!capture.matches_physical_source(
+            8,
+            DepthResolveStage::CoherentWorld,
+            0x1234,
+            1920,
+            1080,
+        ));
+        assert!(!capture.matches_physical_source(
+            7,
+            DepthResolveStage::CoherentWorld,
+            0x5678,
+            1920,
+            1080,
+        ));
+        assert!(!capture.matches_physical_source(
+            7,
+            DepthResolveStage::CoherentWorld,
+            0x1234,
+            1280,
+            720,
+        ));
     }
 
     #[test]
@@ -2155,6 +2614,15 @@ impl FnvDepthTarget {
     ) -> Result<Self, FnvDepthResolveError> {
         let texture = device.create_depth_stencil_texture(desc.Width, desc.Height, D3DFMT_INTZ)?;
 
+        Ok(Self {
+            width: desc.Width,
+            height: desc.Height,
+            texture,
+        })
+    }
+
+    fn from_shared_depth_resolve(desc: &D3DSURFACE_DESC) -> Result<Self, FnvDepthResolveError> {
+        let texture = depth_resolve_provider::shared_texture(Some(desc))?;
         Ok(Self {
             width: desc.Width,
             height: desc.Height,

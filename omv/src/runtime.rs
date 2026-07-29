@@ -1,9 +1,52 @@
 //! Screen-space shader runtime and in-game menu.
+//!
+//! Configuration changes are committed at `Present`, which is also OMV's
+//! quiescent D3D boundary. The master switch owns more than shader dispatch:
+//! it publishes an empty scene requirement set, physically detaches optional
+//! native draw interposition, suspends native replacement hooks, and releases
+//! visual device resources while retaining the menu. Depth-provider ownership
+//! remains independent because it is a machine-local capture service that can
+//! be consumed by other enabled features. Provider capability also owns AO
+//! timing: coherent first-person depth permits the normal scene-pre mask,
+//! while world-only depth moves AO to the completed, still-bound world target
+//! before first-person color composition.
+//!
+//! Each native image-space phase executes through a two-texture color graph.
+//! The engine target is copied once at phase entry, intermediate effects
+//! alternate renderable textures, and the last planned writer targets the
+//! engine surface directly. Dynamic no-draw stages use one bounded fallback
+//! commit only when an earlier writer would otherwise remain offscreen. This
+//! replaces the former copy-before-every-effect feedback loop without changing
+//! shader order, equations, formats, or sampler contracts.
+//!
+//! Configuration changes also publish immutable per-phase execution plans.
+//! Render callbacks retain those plans through allocation-free `Arc` clones,
+//! so they visit only passes owned by the active native boundary and use
+//! precomputed logical-writer and source-pass totals.
+//!
+//! Diagnostics owns one lazy `libpsycho` GPU profile per D3D9 device identity.
+//! The query starts from Fallout's live device only while the Diagnostics tab
+//! is active. On DXVK it follows that device's Vulkan interop handle to the
+//! physical renderer because Fallout New Vegas's DXVK profile intentionally
+//! substitutes an AMD D3D9 identity for NVIDIA hardware. The result retains no
+//! COM or Vulkan handle, and failures are cached to keep recurring menu frames
+//! free of driver capability probes.
+//!
+//! The same Diagnostics view reads libpsycho's process-cached compatibility
+//! profile only after its scrollable child is visible. GPU and environment
+//! identities are summarized in responsive cards, while the exact physical,
+//! compatibility, driver, and capability evidence remains available below.
+//! This presentation is diagnostic only and never changes graphics policy or
+//! serializes machine-local identity into presets.
+//!
+//! Embedded HLSL compilation is process-owned. Configuration starts bounded
+//! background preparation, while render callbacks poll immutable bytecode and
+//! create only D3D device objects.
 
 use std::{
     ffi::{CString, c_void},
     sync::{
-        LazyLock,
+        Arc, LazyLock,
         atomic::{AtomicBool, AtomicI64, AtomicU32, AtomicU64, Ordering},
     },
     time::Instant,
@@ -36,7 +79,7 @@ use crate::{
     },
     effects::{
         ambient_occlusion, anti_aliasing, atmosphere, blooming_hdr, depth_of_field, motion_blur,
-        pbr, sky, sunshafts,
+        pbr, sky, sunshafts, temporal_aa,
     },
     luts,
     presets::{
@@ -76,6 +119,7 @@ static RUNTIME: LazyLock<Mutex<ScreenShaderRuntime>> =
 static MENU_OPEN: AtomicBool = AtomicBool::new(false);
 static IMGUI_READY: AtomicBool = AtomicBool::new(false);
 static MASTER_EFFECTS_ENABLED: AtomicBool = AtomicBool::new(true);
+static DRAW_INTERPOSITION_REQUIRED: AtomicBool = AtomicBool::new(false);
 static MENU_DIAGNOSTICS_STATE: AtomicU32 = AtomicU32::new(0);
 static MENU_TOGGLE_KEY: AtomicU32 = AtomicU32::new(DEFAULT_MENU_TOGGLE_KEY);
 static MENU_KEY_CAPTURE_ACTIVE: AtomicBool = AtomicBool::new(false);
@@ -90,6 +134,8 @@ static PRESENT_FAILED: AtomicU32 = AtomicU32::new(0);
 static SCENE_PHASE_BUSY: AtomicU32 = AtomicU32::new(0);
 static WORLD_COLOR_BUSY: AtomicU32 = AtomicU32::new(0);
 static RESET_BUSY: AtomicU32 = AtomicU32::new(0);
+static PHASE_INITIAL_COLOR_COPIES: AtomicU64 = AtomicU64::new(0);
+static PHASE_FALLBACK_COLOR_COMMITS: AtomicU64 = AtomicU64::new(0);
 const FNV_REQUIRE_WORLD_DEPTH: u32 = 1 << 0;
 const FNV_REQUIRE_FIRST_PERSON_DEPTH: u32 = 1 << 1;
 const FNV_REQUIRE_WORLD_COLOR: u32 = 1 << 2;
@@ -104,6 +150,23 @@ struct RuntimeLockTelemetry {
     scene_phase: u32,
     world_color: u32,
     reset: u32,
+}
+
+/// Cumulative full-resolution color-copy work issued by phase graphs.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) struct PhaseColorCopyCounters {
+    /// One mandatory engine-target copy at the start of each drawn phase.
+    pub(crate) initial: u64,
+    /// Safety commits used only when later planned stages produced no output.
+    pub(crate) fallback_commits: u64,
+}
+
+/// Return lock-free phase-color copy telemetry.
+pub(crate) fn phase_color_copy_counters() -> PhaseColorCopyCounters {
+    PhaseColorCopyCounters {
+        initial: PHASE_INITIAL_COLOR_COPIES.load(Ordering::Relaxed),
+        fallback_commits: PHASE_FALLBACK_COLOR_COMMITS.load(Ordering::Relaxed),
+    }
 }
 
 impl RuntimeLockTelemetry {
@@ -166,9 +229,58 @@ pub(crate) fn configure(settings: RuntimeSettings) {
         Ordering::Release,
     );
     MASTER_EFFECTS_ENABLED.store(settings.menu_config.screen_space_shaders, Ordering::Release);
+    DRAW_INTERPOSITION_REQUIRED.store(
+        draw_interposition_required_for(settings.menu_config),
+        Ordering::Release,
+    );
     update_native_dof_query_needed(&settings.menu_config);
+    service_enabled_effect_preparation(settings.menu_config);
     let mut runtime = RUNTIME.lock();
     runtime.configure(settings);
+}
+
+/// Start background preparation for every configured screen-effect family.
+///
+/// This function performs only idempotent worker-start requests. Compiler and
+/// cache work executes behind the process-wide background serialization gate;
+/// no focused world owner is initialized from this plugin-load path.
+fn service_enabled_effect_preparation(config: GraphicsMenuConfig) {
+    if !config.screen_space_shaders {
+        return;
+    }
+    let effects = config.embedded_effects;
+    if effects.fast_ao.enabled || effects.contact_ao.enabled {
+        ambient_occlusion::service_preparation();
+    }
+    if effects.volumetric_fog.enabled
+        || effects.volumetric_lighting.enabled
+        || effects.volumetric_lighting.local_lights_enabled
+    {
+        atmosphere::service_preparation();
+    }
+    if effects.temporal_aa.enabled {
+        temporal_aa::service_preparation();
+    }
+    if effects.sunshafts.enabled {
+        sunshafts::service_preparation();
+    }
+    if effects.blooming_hdr.enabled || effects.color_grade.enabled {
+        blooming_hdr::service_preparation();
+    }
+    if effects.fast_fxaa.enabled
+        || effects.nfaa.enabled
+        || effects.axaa.enabled
+        || effects.dlaa.enabled
+        || effects.smaa.enabled
+    {
+        anti_aliasing::service_preparation();
+    }
+    if effects.depth_of_field.enabled {
+        depth_of_field::service_present_frame();
+    }
+    if effects.motion_blur.enabled && effects.motion_blur.shutter_angle > f32::EPSILON {
+        motion_blur::service_present_frame();
+    }
 }
 
 pub(crate) fn prepare_for_game_load() {
@@ -208,7 +320,99 @@ mod load_transition_tests {
 
 #[cfg(test)]
 mod render_callback_io_tests {
-    use super::present_services_required_for;
+    use super::{
+        PhaseColorLocation, draw_interposition_required_for, next_phase_color_location,
+        present_services_required_for,
+    };
+
+    #[test]
+    fn phase_color_graph_alternates_intermediates_and_finishes_on_engine() {
+        assert_eq!(
+            next_phase_color_location(PhaseColorLocation::Primary, true),
+            PhaseColorLocation::Scratch,
+        );
+        assert_eq!(
+            next_phase_color_location(PhaseColorLocation::Scratch, true),
+            PhaseColorLocation::Primary,
+        );
+        assert_eq!(
+            next_phase_color_location(PhaseColorLocation::Primary, false),
+            PhaseColorLocation::Engine,
+        );
+        assert_eq!(
+            next_phase_color_location(PhaseColorLocation::Scratch, false),
+            PhaseColorLocation::Engine,
+        );
+    }
+
+    fn simulate_phase_color_chain(initial: i32, draws: &[bool]) -> (i32, bool) {
+        let mut primary = initial;
+        let mut scratch = 0;
+        let mut engine = initial;
+        let mut current = PhaseColorLocation::Primary;
+        let mut any_draw = false;
+        for (stage, should_draw) in draws.iter().copied().enumerate() {
+            let input = match current {
+                PhaseColorLocation::Primary => primary,
+                PhaseColorLocation::Scratch => scratch,
+                PhaseColorLocation::Engine => engine,
+            };
+            let output = next_phase_color_location(current, stage + 1 < draws.len());
+            if should_draw {
+                // Distinct affine transforms make reordering, duplication, or
+                // sampling a stale target observable in the final integer.
+                let value = input * (stage as i32 + 2) + stage as i32 + 1;
+                match output {
+                    PhaseColorLocation::Primary => primary = value,
+                    PhaseColorLocation::Scratch => scratch = value,
+                    PhaseColorLocation::Engine => engine = value,
+                }
+                current = output;
+                any_draw = true;
+            }
+        }
+        let fallback_commit = any_draw && current != PhaseColorLocation::Engine;
+        if fallback_commit {
+            engine = match current {
+                PhaseColorLocation::Primary => primary,
+                PhaseColorLocation::Scratch => scratch,
+                PhaseColorLocation::Engine => engine,
+            };
+        }
+        (engine, fallback_commit)
+    }
+
+    fn sequential_color_chain(initial: i32, draws: &[bool]) -> i32 {
+        draws
+            .iter()
+            .copied()
+            .enumerate()
+            .fold(initial, |value, (stage, draws)| {
+                if draws {
+                    value * (stage as i32 + 2) + stage as i32 + 1
+                } else {
+                    value
+                }
+            })
+    }
+
+    #[test]
+    fn phase_color_graph_preserves_order_across_dynamic_rejection() {
+        for draws in [
+            [true, true, true],
+            [true, false, true],
+            [false, true, true],
+            [false, false, false],
+        ] {
+            let (actual, _) = simulate_phase_color_chain(7, &draws);
+            assert_eq!(actual, sequential_color_chain(7, &draws));
+        }
+
+        let tail_rejected = [true, false];
+        let (actual, fallback_commit) = simulate_phase_color_chain(7, &tail_rejected);
+        assert_eq!(actual, sequential_color_chain(7, &tail_rejected));
+        assert!(fallback_commit);
+    }
 
     #[test]
     fn periodic_asset_scans_never_run_on_the_render_thread() {
@@ -241,7 +445,25 @@ mod render_callback_io_tests {
     }
 
     #[test]
-    fn rejected_depth_effects_exit_before_creation_and_backbuffer_copy() {
+    fn draw_interposition_requires_an_enabled_native_replacement() {
+        let mut config = crate::config::GraphicsMenuConfig::default();
+        config.screen_space_shaders = false;
+        assert!(!draw_interposition_required_for(config));
+
+        config.screen_space_shaders = true;
+        config.native_pbr.enabled = false;
+        config.native_sky.enabled = false;
+        assert!(!draw_interposition_required_for(config));
+
+        config.native_pbr.enabled = true;
+        assert!(draw_interposition_required_for(config));
+        config.native_pbr.enabled = false;
+        config.native_sky.enabled = true;
+        assert!(draw_interposition_required_for(config));
+    }
+
+    #[test]
+    fn rejected_depth_effects_exit_before_device_creation() {
         let source = include_str!("runtime.rs");
         for (suffix, predicate) in [
             (
@@ -264,11 +486,8 @@ mod render_callback_io_tests {
             let creation = body
                 .find("::create(device)")
                 .expect("effect resource creation");
-            let copy = body
-                .find("copy_phase_color_for_sampling")
-                .expect("backbuffer copy");
             assert!(preflight < creation);
-            assert!(preflight < copy);
+            assert!(!body.contains("copy_phase_color_for_sampling"));
         }
 
         let motion_function = ["\n    fn draw_motion_", "blur_pipeline("].concat();
@@ -284,11 +503,8 @@ mod render_callback_io_tests {
         let creation = motion_body
             .find("MotionBlurEffect::create(device)")
             .expect("motion shader creation");
-        let copy = motion_body
-            .find("copy_phase_color_for_sampling")
-            .expect("motion color copy");
         assert!(prepared < creation);
-        assert!(prepared < copy);
+        assert!(!motion_body.contains("copy_phase_color_for_sampling"));
     }
 
     #[test]
@@ -317,10 +533,102 @@ mod render_callback_io_tests {
     }
 
     #[test]
-    fn every_phase_color_write_uses_the_feedback_safe_copy_helper() {
+    fn background_shader_readiness_precedes_phase_color_work() {
         let source = include_str!("runtime.rs");
+        let applicability = source
+            .split_once("\n    fn phase_has_applicable_work(")
+            .map(|(_, tail)| tail)
+            .and_then(|tail| tail.split_once("\n    fn "))
+            .map(|(body, _)| body)
+            .expect("phase applicability body");
+        for readiness in [
+            "ambient_occlusion::preparation_ready()",
+            "anti_aliasing::preparation_ready()",
+            "sunshafts::preparation_ready()",
+            "blooming_hdr::prepared_bytecode()",
+            "depth_of_field::preparation_ready()",
+            "motion_blur::preparation_ready()",
+        ] {
+            assert!(
+                applicability.contains(readiness),
+                "missing pre-copy readiness gate: {readiness}"
+            );
+        }
+
+        let early_ao = source
+            .split_once("\n    unsafe fn apply_ambient_occlusion_after_world(")
+            .map(|(_, tail)| tail)
+            .and_then(|tail| tail.split_once("\n    unsafe fn "))
+            .map(|(body, _)| body)
+            .expect("early AO body");
+        let readiness = early_ao
+            .find("ambient_occlusion::preparation_ready()")
+            .expect("early AO readiness gate");
+        let allocation = early_ao
+            .find("ensure_phase_color_copy")
+            .expect("early AO color allocation");
+        assert!(readiness < allocation);
+        assert!(early_ao.contains("ScenePhaseTarget::CurrentRenderTarget"));
+        assert!(
+            !early_ao.contains("ScenePhaseTarget::RenderedTextureSource"),
+            "post-world AO must not pre-bind RenderFirstPerson's inactive texture argument"
+        );
+    }
+
+    #[test]
+    fn missed_world_only_ao_invalidates_history_before_other_scene_pre_work() {
+        let source = include_str!("runtime.rs");
+        let entry = source
+            .split_once("\npub(crate) unsafe fn apply_fnv_ao_after_world(")
+            .map(|(_, tail)| tail)
+            .and_then(|tail| tail.split_once("\npub(crate) unsafe fn "))
+            .map(|(body, _)| body)
+            .expect("post-world AO entry");
+        let apply = entry
+            .find("apply_ambient_occlusion_after_world")
+            .expect("post-world AO transaction");
+        let reset = entry[apply..]
+            .find("reset_missed_world_only_ao_history")
+            .map(|offset| apply + offset)
+            .expect("direct failure history reset");
+        assert!(apply < reset);
+
+        let scene_pre = source
+            .split_once("\n    unsafe fn apply_scene_phase(")
+            .map(|(_, tail)| tail)
+            .and_then(|tail| tail.split_once("\n    fn "))
+            .map(|(body, _)| body)
+            .expect("scene-phase transaction");
+        let reset = scene_pre
+            .find("reset_missed_world_only_ao_history")
+            .expect("busy post-world history reset");
+        let other_work = scene_pre
+            .find("phase_has_applicable_work")
+            .expect("scene-pre applicability");
+        assert!(
+            reset < other_work,
+            "a drawable non-AO pass must not bypass missed-AO history invalidation"
+        );
+    }
+
+    #[test]
+    fn phase_graph_owns_the_only_full_resolution_feedback_copies() {
+        let source = include_str!("runtime.rs");
+        let passes = source
+            .split_once("\n    fn draw_passes(")
+            .map(|(_, tail)| tail)
+            .and_then(|tail| tail.split_once("\n    fn "))
+            .map(|(body, _)| body)
+            .expect("draw_passes body");
+        assert_eq!(passes.matches("copy_phase_color_for_sampling(").count(), 1);
+        assert!(passes.contains("PhaseColorGraph::new"));
+        assert!(passes.contains("color_graph.finish(device, backbuffer)"));
+        assert!(passes.contains("planned_passes.iter()"));
+        assert!(!passes.contains("self.sources.iter()"));
+        assert!(!passes.contains("source.clone()"));
+        assert!(!passes.contains(".collect::<"));
+
         for suffix in [
-            "passes(",
             "ambient_occlusion_pipeline(",
             "anti_aliasing_pipeline(",
             "final_color_pipeline(",
@@ -336,8 +644,8 @@ mod render_callback_io_tests {
                 .map(|(body, _)| body)
                 .expect("screen effect pipeline body");
             assert!(
-                body.contains("copy_phase_color_for_sampling("),
-                "{function} can write the phase copy without unbinding all aliases"
+                !body.contains("copy_phase_color_for_sampling("),
+                "{function} bypasses phase-graph copy ownership"
             );
             assert!(
                 !body.contains("device.stretch_rect("),
@@ -399,6 +707,16 @@ pub(crate) fn effects_enabled() -> bool {
     MASTER_EFFECTS_ENABLED.load(Ordering::Acquire)
 }
 
+/// Return whether native PBR or sky currently requires per-draw D3D hooks.
+#[inline]
+pub(crate) fn draw_interposition_required() -> bool {
+    DRAW_INTERPOSITION_REQUIRED.load(Ordering::Acquire)
+}
+
+fn draw_interposition_required_for(config: GraphicsMenuConfig) -> bool {
+    config.screen_space_shaders && (config.native_pbr.enabled || config.native_sky.enabled)
+}
+
 #[inline]
 pub(crate) fn present_services_required() -> bool {
     present_services_required_for(
@@ -416,6 +734,24 @@ fn present_services_required_for(
     effects_enabled || menu_open || !imgui_ready
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum AmbientOcclusionBoundary {
+    AfterWorldBeforeFirstPerson,
+    ScenePreImageSpace,
+}
+
+fn ambient_occlusion_boundary(provider: DepthProvider) -> AmbientOcclusionBoundary {
+    if provider.supplies_world_depth() && !provider.supplies_first_person_depth() {
+        AmbientOcclusionBoundary::AfterWorldBeforeFirstPerson
+    } else {
+        AmbientOcclusionBoundary::ScenePreImageSpace
+    }
+}
+
+fn ambient_occlusion_allowed_at_scene_pre(provider: DepthProvider) -> bool {
+    ambient_occlusion_boundary(provider) == AmbientOcclusionBoundary::ScenePreImageSpace
+}
+
 pub(crate) unsafe fn apply_present_frame(device_ptr: *mut c_void, hwnd_hint: *mut c_void) {
     let Some(mut runtime) = RUNTIME.try_lock() else {
         PRESENT_APPLY_BUSY.fetch_add(1, Ordering::Relaxed);
@@ -423,11 +759,46 @@ pub(crate) unsafe fn apply_present_frame(device_ptr: *mut c_void, hwnd_hint: *mu
     };
     runtime.begin_render_epoch(crate::hooks::render_epoch());
 
-    if crate::fnv_world_pipeline::config_publish_pending() {
-        crate::fnv_world_pipeline::publish_config(runtime.settings.menu_config);
+    if crate::fnv_world_pipeline::config_publish_pending()
+        && crate::fnv_world_pipeline::publish_config(runtime.settings.menu_config)
+        && let Err(err) = crate::fnv_render::reconcile_depth_stage_hooks()
+    {
+        // A busy mailbox can defer the world requirement update from the
+        // menu transaction. Reconcile at the successful retry so a now-empty
+        // requirement set cannot leave native depth hooks resident forever.
+        log::warn!("[FNV] Deferred depth-stage hook reconciliation failed: {err:#}");
     }
 
     let result = unsafe { runtime.apply_present_frame(device_ptr, hwnd_hint) };
+    if let Err(err) = result {
+        runtime.log_frame_error(&err);
+    }
+}
+
+/// Composite AO on the active world target for a world-only depth provider.
+///
+/// A provider without first-person depth cannot mask weapons or hands if AO is
+/// composed at the later image-space boundary. The post-world hook invokes
+/// this entry while the completed world surface is still RT0. Native
+/// first-person rendering then overwrites world AO without OMV pre-binding an
+/// engine texture whose activation and ownership belong to the callee.
+pub(crate) unsafe fn apply_fnv_ao_after_world(device_ptr: *mut c_void) {
+    if !effects_enabled() {
+        return;
+    }
+    let Some(mut runtime) = RUNTIME.try_lock() else {
+        SCENE_PHASE_BUSY.fetch_add(1, Ordering::Relaxed);
+        return;
+    };
+    runtime.begin_render_epoch(crate::hooks::render_epoch());
+
+    let result = unsafe { runtime.apply_ambient_occlusion_after_world(device_ptr) };
+    if !runtime.ambient_occlusion_after_world_applied {
+        // A missing snapshot, target rejection, or device error must break AO
+        // temporal continuity. Otherwise the next successful external frame
+        // would reproject history across color/depth that AO never consumed.
+        runtime.reset_missed_world_only_ao_history();
+    }
     if let Err(err) = result {
         runtime.log_frame_error(&err);
     }
@@ -531,6 +902,16 @@ pub(crate) fn needs_fnv_depth_capture(slot: backend::DepthResolveSlot) -> bool {
 
 pub(crate) fn needs_fnv_world_color_capture() -> bool {
     FNV_SCENE_REQUIREMENTS.load(Ordering::Acquire) & FNV_REQUIRE_WORLD_COLOR != 0
+}
+
+/// Return whether an enabled screen-space source needs a native scene boundary.
+///
+/// This is intentionally derived from the published input bitset instead of
+/// the global visual master. A user may leave the master enabled while
+/// disabling every effect; in that state there is no consumer that justifies
+/// retaining OMV's depth-stage entry jumps.
+pub(crate) fn needs_fnv_scene_hooks() -> bool {
+    FNV_SCENE_REQUIREMENTS.load(Ordering::Acquire) != 0
 }
 
 pub(crate) unsafe fn try_release_device_resources(device_ptr: *mut c_void) -> bool {
@@ -674,6 +1055,14 @@ impl Default for RuntimeSettings {
     }
 }
 
+fn depth_provider_config(provider: DepthProvider) -> DepthProviderConfig {
+    match provider {
+        DepthProvider::None => DepthProviderConfig::None,
+        DepthProvider::FalloutNewVegas => DepthProviderConfig::FalloutNewVegas,
+        DepthProvider::DepthResolve => DepthProviderConfig::DepthResolve,
+    }
+}
+
 struct ActivePreset {
     key: PresetKey,
     name: String,
@@ -770,10 +1159,11 @@ struct ScreenShaderRuntime {
     sources: Vec<ScreenShaderSource>,
     device_ptr: usize,
     compiled: Option<Vec<CompiledPass>>,
+    execution_plan: Option<CompiledExecutionPlan>,
     ambient_occlusion: Option<ambient_occlusion::AmbientOcclusionEffect>,
     anti_aliasing: Option<anti_aliasing::AntiAliasingEffect>,
     blooming_hdr: Option<blooming_hdr::BloomingHdrEffect>,
-    final_color_shaders: Option<blooming_hdr::FinalColorShaderBytecode>,
+    final_color_shaders: Option<Arc<blooming_hdr::FinalColorShaderBytecode>>,
     color_luts: luts::LutCatalog,
     sunshafts: Option<sunshafts::SunshaftsEffect>,
     depth_of_field: Option<depth_of_field::DepthOfFieldEffect>,
@@ -783,12 +1173,16 @@ struct ScreenShaderRuntime {
     motion_blur_temporal: motion_blur::MotionBlurTemporalState,
     prepared_motion_blur_frame: Option<motion_blur::PreparedMotionBlurFrame>,
     final_color_copy: Option<BackbufferCopy>,
+    final_color_scratch: Option<BackbufferCopy>,
     scene_pre_color_copy: Option<BackbufferCopy>,
+    scene_pre_color_scratch: Option<BackbufferCopy>,
     scene_post_color_copy: Option<BackbufferCopy>,
+    scene_post_color_scratch: Option<BackbufferCopy>,
     world_color_copy: Option<BackbufferCopy>,
     world_color_source_target: usize,
     state_block: Option<StateBlock9>,
     render_target_slots: Option<RenderTargetSlots>,
+    gpu_diagnostics: Option<GpuDiagnosticsProfile>,
     imgui: Option<psycho_imgui::Dx9Context>,
     imgui_hwnd: usize,
     imgui_needs_device_objects: bool,
@@ -816,6 +1210,8 @@ struct ScreenShaderRuntime {
     scene_target_logs: u32,
     world_color_capture_logs: u32,
     world_color_captured_this_frame: bool,
+    ambient_occlusion_after_world_applied: bool,
+    world_only_ao_info_logged: bool,
     applied_phases: AppliedShaderPhases,
     native_dof_active_this_frame: bool,
 }
@@ -823,22 +1219,16 @@ struct ScreenShaderRuntime {
 impl Default for ScreenShaderRuntime {
     fn default() -> Self {
         let default_settings = RuntimeSettings::default();
-        let final_color_shaders = match blooming_hdr::FinalColorShaderBytecode::prepare() {
-            Ok(shaders) => Some(shaders),
-            Err(err) => {
-                log::warn!("[FINAL_COLOR] Startup shader preparation failed: {err:#}");
-                None
-            }
-        };
         Self {
             settings: default_settings,
             sources: Vec::new(),
             device_ptr: 0,
             compiled: None,
+            execution_plan: None,
             ambient_occlusion: None,
             anti_aliasing: None,
             blooming_hdr: None,
-            final_color_shaders,
+            final_color_shaders: None,
             color_luts: luts::LutCatalog::default(),
             sunshafts: None,
             depth_of_field: None,
@@ -848,12 +1238,16 @@ impl Default for ScreenShaderRuntime {
             motion_blur_temporal: motion_blur::MotionBlurTemporalState::default(),
             prepared_motion_blur_frame: None,
             final_color_copy: None,
+            final_color_scratch: None,
             scene_pre_color_copy: None,
+            scene_pre_color_scratch: None,
             scene_post_color_copy: None,
+            scene_post_color_scratch: None,
             world_color_copy: None,
             world_color_source_target: 0,
             state_block: None,
             render_target_slots: None,
+            gpu_diagnostics: None,
             imgui: None,
             imgui_hwnd: 0,
             imgui_needs_device_objects: false,
@@ -881,6 +1275,8 @@ impl Default for ScreenShaderRuntime {
             scene_target_logs: 0,
             world_color_capture_logs: 0,
             world_color_captured_this_frame: false,
+            ambient_occlusion_after_world_applied: false,
+            world_only_ao_info_logged: false,
             applied_phases: AppliedShaderPhases::default(),
             native_dof_active_this_frame: false,
         }
@@ -896,6 +1292,7 @@ impl ScreenShaderRuntime {
         self.applied_phases = AppliedShaderPhases::default();
         self.world_color_captured_this_frame = false;
         self.world_color_source_target = 0;
+        self.ambient_occlusion_after_world_applied = false;
         self.native_dof_active_this_frame = false;
         self.frame_index = self.frame_index.wrapping_add(1);
     }
@@ -948,7 +1345,7 @@ impl ScreenShaderRuntime {
             external_sources,
         );
         self.settings = settings;
-        self.compiled = None;
+        self.invalidate_compiled_shaders();
         self.current_look_autosave = AutosaveCoordinator::default();
         self.publish_fnv_scene_requirements();
     }
@@ -972,6 +1369,9 @@ impl ScreenShaderRuntime {
         }
 
         if self.settings.menu_config.screen_space_shaders {
+            if self.final_color_shaders.is_none() {
+                self.final_color_shaders = blooming_hdr::prepared_bytecode();
+            }
             if self.settings.menu_config.native_pbr.enabled {
                 pbr::service_present_frame();
             }
@@ -1090,6 +1490,123 @@ impl ScreenShaderRuntime {
         Ok(())
     }
 
+    unsafe fn apply_ambient_occlusion_after_world(
+        &mut self,
+        device_ptr: *mut c_void,
+    ) -> Direct3DResult<()> {
+        if ambient_occlusion_boundary(self.settings.depth_provider)
+            != AmbientOcclusionBoundary::AfterWorldBeforeFirstPerson
+            || self.ambient_occlusion_after_world_applied
+        {
+            return Ok(());
+        }
+
+        let phase = ShaderPhase::ScenePreImageSpace;
+        if !self.sources.iter().any(|source| {
+            source.enabled
+                && source.phase() == phase
+                && matches!(
+                    source.embedded_effect_kind(),
+                    Some(
+                        EmbeddedEffectKind::FastAmbientOcclusion
+                            | EmbeddedEffectKind::ContactAmbientOcclusion
+                    )
+                )
+        }) {
+            return Ok(());
+        }
+
+        let Some(device) = (unsafe { Device9Ref::from_raw_void(device_ptr) }) else {
+            return Ok(());
+        };
+        if self.device_ptr != device_ptr as usize {
+            self.release_for_new_device();
+            self.device_ptr = device_ptr as usize;
+        }
+        self.ensure_shaders(&device);
+        let Some(phase_plan) = self
+            .execution_plan
+            .as_ref()
+            .map(|plan| plan.phase(phase))
+            .cloned()
+        else {
+            return Ok(());
+        };
+        let fast_source = phase_plan.fast_ao_source.as_deref();
+        let contact_source = phase_plan.contact_ao_source.as_deref();
+        if fast_source.is_none() && contact_source.is_none() {
+            return Ok(());
+        }
+        if self.ambient_occlusion.is_none() && !ambient_occlusion::preparation_ready() {
+            return Ok(());
+        }
+
+        let Some(prepared_target) =
+            self.prepare_scene_phase_target(&device, ScenePhaseTarget::CurrentRenderTarget)?
+        else {
+            return Ok(());
+        };
+        let desc = *prepared_target.desc();
+        let frame_inputs = self.build_frame_inputs(&desc, phase);
+        if !ambient_occlusion::should_draw(&frame_inputs, fast_source, contact_source) {
+            return Ok(());
+        }
+
+        self.ensure_phase_color_copy(&device, &desc, phase)?;
+        let Some(color_copy) = self.phase_color_copy(phase).cloned() else {
+            return Err(runtime_error(
+                "[AO] Missing scene-pre color copy at the post-world boundary",
+            ));
+        };
+        let render_target_slots = self.render_target_slots(&device)?;
+        let attachments = RenderAttachments::capture(&device, render_target_slots)?;
+        self.ensure_state_block(&device)?;
+        let Some(state_block) = self.state_block.as_ref() else {
+            return Err(runtime_error(
+                "[AO] Missing D3D state block before post-world capture",
+            ));
+        };
+        state_block.capture()?;
+
+        let draw_result = (|| {
+            // RenderWorldSceneGraph has returned, so RT0 is the completed
+            // world color that the existing world pipeline and capture path
+            // have already validated. Drawing there avoids guessing about the
+            // BSRenderedTexture argument that RenderFirstPerson activates only
+            // after entering its own native target transaction.
+            render_target_slots.prepare_target_change(&device)?;
+            let render_target = unsafe { prepared_target.bind(&device)? };
+            self.copy_phase_color_for_sampling(&device, &render_target, &color_copy)?;
+            PHASE_INITIAL_COLOR_COPIES.fetch_add(1, Ordering::Relaxed);
+            self.draw_ambient_occlusion_pipeline(
+                &device,
+                &render_target,
+                &desc,
+                &frame_inputs,
+                &color_copy.texture,
+                fast_source,
+                contact_source,
+            )
+            .map(|_| ())
+        })();
+
+        finish_render_transaction(
+            &device,
+            &attachments,
+            self.state_block.as_ref(),
+            draw_result,
+        )?;
+        self.ambient_occlusion_after_world_applied = true;
+        if !self.world_only_ao_info_logged {
+            log::info!("[AO] World-only-provider AO is drawing on the active post-world target");
+            self.world_only_ao_info_logged = true;
+        } else if self.scene_apply_logs < 8 {
+            log::debug!("[AO] Applied world-only-provider AO to the active post-world target");
+            self.scene_apply_logs += 1;
+        }
+        Ok(())
+    }
+
     unsafe fn apply_scene_phase(
         &mut self,
         device_ptr: *mut c_void,
@@ -1126,6 +1643,16 @@ impl ScreenShaderRuntime {
         };
         let desc = *prepared_target.desc();
         let frame_inputs = self.build_frame_inputs(&desc, phase);
+        if phase == ShaderPhase::ScenePreImageSpace
+            && ambient_occlusion_boundary(self.settings.depth_provider)
+                == AmbientOcclusionBoundary::AfterWorldBeforeFirstPerson
+            && !self.ambient_occlusion_after_world_applied
+        {
+            // The post-world callback is nonblocking. If its runtime lock was
+            // busy, this later serialized boundary is the first safe place to
+            // invalidate history, even when another scene-pre pass will draw.
+            self.reset_missed_world_only_ao_history();
+        }
         if !self.phase_has_applicable_work(phase, &desc, &frame_inputs) {
             self.maintain_rejected_phase_state(phase, &frame_inputs);
             self.applied_phases.mark_applied(phase);
@@ -1305,7 +1832,7 @@ impl ScreenShaderRuntime {
             );
         }
         if shader_resources_changed {
-            self.compiled = None;
+            self.invalidate_compiled_shaders();
             self.shader_catalog_generation = snapshot.shader_generation;
         }
         let (lut_names, lut_ids) = self.color_luts.choices();
@@ -1315,6 +1842,7 @@ impl ScreenShaderRuntime {
             &lut_ids,
             snapshot.external_sources,
         );
+        self.rebuild_execution_plan();
         if let Some(service) = self.current_look_service.as_ref()
             && let Err(err) = service.track_sources(&self.sources)
         {
@@ -1468,7 +1996,7 @@ impl ScreenShaderRuntime {
                         &lut_ids,
                         external_sources,
                     );
-                    self.compiled = None;
+                    self.invalidate_compiled_shaders();
                     self.apply_menu_config_change();
                     self.current_look_autosave.reload_succeeded();
                     self.refresh_active_preset_status();
@@ -1695,7 +2223,29 @@ impl ScreenShaderRuntime {
             log::warn!("[SHADERS] No valid screen-space pixel shaders were created");
         }
 
+        self.install_compiled_shaders(passes);
+    }
+
+    /// Install device shaders and the immutable phase schedules that consume them.
+    ///
+    /// Phase schedules are rebuilt only after compilation, asset discovery, or
+    /// a configuration edit. Render callbacks can therefore walk the exact
+    /// pass set for their native boundary without rescanning every source.
+    fn install_compiled_shaders(&mut self, passes: Vec<CompiledPass>) {
+        self.execution_plan = Some(CompiledExecutionPlan::build(&self.sources, &passes));
         self.compiled = Some(passes);
+    }
+
+    fn rebuild_execution_plan(&mut self) {
+        self.execution_plan = self
+            .compiled
+            .as_ref()
+            .map(|passes| CompiledExecutionPlan::build(&self.sources, passes));
+    }
+
+    fn invalidate_compiled_shaders(&mut self) {
+        self.compiled = None;
+        self.execution_plan = None;
     }
 
     fn ensure_phase_color_copy(
@@ -1704,13 +2254,31 @@ impl ScreenShaderRuntime {
         desc: &D3DSURFACE_DESC,
         phase: ShaderPhase,
     ) -> Direct3DResult<()> {
-        let copy_slot = self.phase_color_copy_mut(phase);
+        let (copy_slot, scratch_slot) = match phase {
+            ShaderPhase::ScenePreImageSpace => (
+                &mut self.scene_pre_color_copy,
+                &mut self.scene_pre_color_scratch,
+            ),
+            ShaderPhase::ScenePostImageSpace => (
+                &mut self.scene_post_color_copy,
+                &mut self.scene_post_color_scratch,
+            ),
+            ShaderPhase::FinalImageSpace => {
+                (&mut self.final_color_copy, &mut self.final_color_scratch)
+            }
+        };
         let needs_copy = copy_slot.as_ref().is_none_or(|copy| !copy.matches(desc));
+        let needs_scratch = scratch_slot.as_ref().is_none_or(|copy| !copy.matches(desc));
 
         if needs_copy {
             *copy_slot = Some(BackbufferCopy::create(device, desc)?);
+        }
+        if needs_scratch {
+            *scratch_slot = Some(BackbufferCopy::create(device, desc)?);
+        }
+        if needs_copy || needs_scratch {
             log::info!(
-                "[SHADERS] Color copy target: phase={}, size={}x{}, format=0x{:08X}",
+                "[SHADERS] Color graph targets: phase={}, size={}x{}, format=0x{:08X}",
                 phase.label(),
                 desc.Width,
                 desc.Height,
@@ -1729,11 +2297,11 @@ impl ScreenShaderRuntime {
         }
     }
 
-    fn phase_color_copy_mut(&mut self, phase: ShaderPhase) -> &mut Option<BackbufferCopy> {
+    fn phase_color_scratch(&self, phase: ShaderPhase) -> Option<&BackbufferCopy> {
         match phase {
-            ShaderPhase::ScenePreImageSpace => &mut self.scene_pre_color_copy,
-            ShaderPhase::ScenePostImageSpace => &mut self.scene_post_color_copy,
-            ShaderPhase::FinalImageSpace => &mut self.final_color_copy,
+            ShaderPhase::ScenePreImageSpace => self.scene_pre_color_scratch.as_ref(),
+            ShaderPhase::ScenePostImageSpace => self.scene_post_color_scratch.as_ref(),
+            ShaderPhase::FinalImageSpace => self.final_color_scratch.as_ref(),
         }
     }
 
@@ -1845,12 +2413,15 @@ impl ScreenShaderRuntime {
         frame_inputs: &backend::FrameInputs,
     ) -> bool {
         self.prepared_motion_blur_frame = None;
-        let motion_blur_enabled = self.sources.iter().any(|source| {
-            source.enabled
-                && source.phase() == phase
-                && source.embedded_effect_kind() == Some(EmbeddedEffectKind::MotionBlur)
-        });
-        if motion_blur_enabled {
+        let Some(phase_plan) = self
+            .execution_plan
+            .as_ref()
+            .map(|plan| plan.phase(phase))
+            .cloned()
+        else {
+            return false;
+        };
+        if phase_plan.motion_blur_source.is_some() {
             let config = self.settings.menu_config.embedded_effects.motion_blur;
             if motion_blur::should_prepare(frame_inputs, config) {
                 let prepared = self
@@ -1865,46 +2436,41 @@ impl ScreenShaderRuntime {
                 self.motion_blur_temporal.reset();
             }
         }
+        if self.final_color_shaders.is_none()
+            && (phase_plan.bloom_source.is_some() || phase_plan.color_grade_source.is_some())
+            && blooming_hdr::preparation_ready()
+        {
+            self.final_color_shaders = blooming_hdr::prepared_bytecode();
+        }
 
-        let Some(compiled) = self.compiled.as_ref() else {
-            return false;
-        };
-        let fast_ao = self.sources.iter().find(|source| {
-            source.enabled
-                && source.phase() == phase
-                && source.embedded_effect_kind() == Some(EmbeddedEffectKind::FastAmbientOcclusion)
-        });
-        let contact_ao = self.sources.iter().find(|source| {
-            source.enabled
-                && source.phase() == phase
-                && source.embedded_effect_kind()
-                    == Some(EmbeddedEffectKind::ContactAmbientOcclusion)
-        });
+        let fast_ao = phase_plan.fast_ao_source.as_deref();
+        let contact_ao = phase_plan.contact_ao_source.as_deref();
+        let ambient_occlusion_allowed =
+            ambient_occlusion_allowed_at_scene_pre(self.settings.depth_provider);
         let mut ao_checked = false;
 
-        for pass in compiled {
-            let source = &self.sources[pass.source_index];
-            if !source.enabled || source.phase() != phase {
-                continue;
-            }
+        for pass in phase_plan.passes(ambient_occlusion_allowed).iter() {
+            let source = pass.source.as_ref();
             let Some(kind) = source.embedded_effect_kind() else {
                 return true;
             };
-            if kind.owns_world_boundary() {
-                continue;
-            }
             match kind {
                 EmbeddedEffectKind::FastAmbientOcclusion
                 | EmbeddedEffectKind::ContactAmbientOcclusion => {
-                    if !ao_checked {
+                    if ambient_occlusion_allowed && !ao_checked {
                         ao_checked = true;
-                        if ambient_occlusion::should_draw(frame_inputs, fast_ao, contact_ao) {
+                        if (self.ambient_occlusion.is_some()
+                            || ambient_occlusion::preparation_ready())
+                            && ambient_occlusion::should_draw(frame_inputs, fast_ao, contact_ao)
+                        {
                             return true;
                         }
                     }
                 }
                 EmbeddedEffectKind::Sunshafts => {
-                    if sunshafts::should_draw(frame_inputs, source) {
+                    if (self.sunshafts.is_some() || sunshafts::preparation_ready())
+                        && sunshafts::should_draw(frame_inputs, source)
+                    {
                         return true;
                     }
                 }
@@ -1928,6 +2494,20 @@ impl ScreenShaderRuntime {
                         return true;
                     }
                 }
+                kind if kind.is_final_color() => {
+                    if self.blooming_hdr.is_some() || self.final_color_shaders.is_some() {
+                        return true;
+                    }
+                }
+                EmbeddedEffectKind::FastFxaa
+                | EmbeddedEffectKind::Nfaa
+                | EmbeddedEffectKind::Axaa
+                | EmbeddedEffectKind::Dlaa
+                | EmbeddedEffectKind::Smaa => {
+                    if self.anti_aliasing.is_some() || anti_aliasing::preparation_ready() {
+                        return true;
+                    }
+                }
                 _ => return true,
             }
         }
@@ -1940,17 +2520,17 @@ impl ScreenShaderRuntime {
         phase: ShaderPhase,
         frame_inputs: &backend::FrameInputs,
     ) {
-        let fast_ao = self.sources.iter().find(|source| {
-            source.enabled
-                && source.phase() == phase
-                && source.embedded_effect_kind() == Some(EmbeddedEffectKind::FastAmbientOcclusion)
-        });
-        let contact_ao = self.sources.iter().find(|source| {
-            source.enabled
-                && source.phase() == phase
-                && source.embedded_effect_kind()
-                    == Some(EmbeddedEffectKind::ContactAmbientOcclusion)
-        });
+        let phase_plan = self
+            .execution_plan
+            .as_ref()
+            .map(|plan| plan.phase(phase))
+            .cloned();
+        let fast_ao = phase_plan
+            .as_ref()
+            .and_then(|plan| plan.fast_ao_source.as_deref());
+        let contact_ao = phase_plan
+            .as_ref()
+            .and_then(|plan| plan.contact_ao_source.as_deref());
         if (fast_ao.is_some() || contact_ao.is_some())
             && !ambient_occlusion::family_selected(fast_ao, contact_ao)
             && let Some(effect) = self.ambient_occlusion.as_mut()
@@ -1958,11 +2538,9 @@ impl ScreenShaderRuntime {
             effect.reset_history();
         }
 
-        let dof_enabled = self.sources.iter().any(|source| {
-            source.enabled
-                && source.phase() == phase
-                && source.embedded_effect_kind() == Some(EmbeddedEffectKind::DepthOfField)
-        });
+        let dof_enabled = phase_plan
+            .as_ref()
+            .is_some_and(|plan| plan.depth_of_field_source.is_some());
         if dof_enabled {
             let config = self.settings.menu_config.embedded_effects.depth_of_field;
             if let Some(effect) = self.depth_of_field.as_mut() {
@@ -1970,11 +2548,9 @@ impl ScreenShaderRuntime {
             }
         }
 
-        let motion_blur_enabled = self.sources.iter().any(|source| {
-            source.enabled
-                && source.phase() == phase
-                && source.embedded_effect_kind() == Some(EmbeddedEffectKind::MotionBlur)
-        });
+        let motion_blur_enabled = phase_plan
+            .as_ref()
+            .is_some_and(|plan| plan.motion_blur_source.is_some());
         if !motion_blur_enabled
             || !motion_blur::should_prepare(
                 frame_inputs,
@@ -1986,6 +2562,12 @@ impl ScreenShaderRuntime {
         }
     }
 
+    fn reset_missed_world_only_ao_history(&mut self) {
+        if let Some(effect) = self.ambient_occlusion.as_mut() {
+            effect.reset_history();
+        }
+    }
+
     fn draw_passes(
         &mut self,
         device: &Device9Ref<'_>,
@@ -1994,20 +2576,17 @@ impl ScreenShaderRuntime {
         phase: ShaderPhase,
         frame_inputs: &backend::FrameInputs,
     ) -> Direct3DResult<()> {
-        let enabled_count: u32 = self.compiled.as_ref().map_or(0, |passes| {
-            passes
-                .iter()
-                .filter(|pass| {
-                    let source = &self.sources[pass.source_index];
-                    source.enabled
-                        && source.phase() == phase
-                        && !source
-                            .embedded_effect_kind()
-                            .is_some_and(EmbeddedEffectKind::owns_world_boundary)
-                })
-                .map(|pass| self.sources[pass.source_index].pass_count)
-                .sum()
-        });
+        let ambient_occlusion_allowed =
+            ambient_occlusion_allowed_at_scene_pre(self.settings.depth_provider);
+        let Some(phase_plan) = self
+            .execution_plan
+            .as_ref()
+            .map(|plan| plan.phase(phase))
+            .cloned()
+        else {
+            return Ok(());
+        };
+        let enabled_count = phase_plan.source_passes(ambient_occlusion_allowed);
         if enabled_count == 0 {
             return Ok(());
         }
@@ -2015,11 +2594,21 @@ impl ScreenShaderRuntime {
         let Some(copy) = self.phase_color_copy(phase).cloned() else {
             return Ok(());
         };
+        let Some(scratch) = self.phase_color_scratch(phase).cloned() else {
+            return Ok(());
+        };
         if self.compiled.is_none() {
             return Ok(());
         }
 
-        self.bind_common_state(device, backbuffer, desc, frame_inputs, &copy)?;
+        // D3D9 cannot sample the active engine target. Copy it once, then
+        // alternate full-resolution effects between the two graph textures.
+        // The final planned stage writes directly to the engine target.
+        self.copy_phase_color_for_sampling(device, backbuffer, &copy)?;
+        PHASE_INITIAL_COLOR_COPIES.fetch_add(1, Ordering::Relaxed);
+        let mut color_graph = PhaseColorGraph::new(copy, scratch);
+        let mut stages_remaining = phase_plan.logical_stages(ambient_occlusion_allowed);
+        let planned_passes = phase_plan.passes(ambient_occlusion_allowed);
 
         let pass_count = enabled_count as f32;
         let quad = fullscreen_quad(desc);
@@ -2032,29 +2621,9 @@ impl ScreenShaderRuntime {
         let mut ambient_occlusion_drawn = false;
         let mut final_color_drawn = false;
 
-        let compiled_len = self.compiled.as_ref().map_or(0, Vec::len);
-        for pass_position in 0..compiled_len {
-            let Some(source_index) = self
-                .compiled
-                .as_ref()
-                .and_then(|passes| passes.get(pass_position))
-                .map(|pass| pass.source_index)
-            else {
-                continue;
-            };
-            let source = &self.sources[source_index];
-            if !source.enabled || source.phase() != phase {
-                continue;
-            }
-
-            if source
-                .embedded_effect_kind()
-                .is_some_and(EmbeddedEffectKind::owns_world_boundary)
-            {
-                // World-only effects are resolved from the RenderWorldSceneGraph
-                // hook, not from vanilla image-space phases.
-                continue;
-            }
+        for planned_pass in planned_passes.iter() {
+            let pass_position = planned_pass.compiled_position;
+            let source = planned_pass.source.as_ref();
 
             if matches!(
                 source.embedded_effect_kind(),
@@ -2065,27 +2634,20 @@ impl ScreenShaderRuntime {
             ) {
                 let source_pass_count = source.pass_count.max(1);
                 if !ambient_occlusion_drawn {
-                    let rebind_common_state = self.has_enabled_pass_after(phase, pass_position);
-                    let fast_source = self.find_enabled_embedded_source(
-                        EmbeddedEffectKind::FastAmbientOcclusion,
-                        phase,
-                    );
-                    let contact_source = self.find_enabled_embedded_source(
-                        EmbeddedEffectKind::ContactAmbientOcclusion,
-                        phase,
-                    );
-                    self.draw_ambient_occlusion_pipeline(
+                    let (output, output_location) =
+                        color_graph.output(backbuffer, stages_remaining > 1);
+                    let input = color_graph.input_texture().clone();
+                    let drew = self.draw_ambient_occlusion_pipeline(
                         device,
-                        backbuffer,
+                        &output,
                         desc,
                         frame_inputs,
-                        &copy,
-                        fast_source.as_ref(),
-                        contact_source.as_ref(),
+                        &input,
+                        phase_plan.fast_ao_source.as_deref(),
+                        phase_plan.contact_ao_source.as_deref(),
                     )?;
-                    if rebind_common_state {
-                        self.bind_common_state(device, backbuffer, desc, frame_inputs, &copy)?;
-                    }
+                    color_graph.commit(output_location, drew);
+                    stages_remaining = stages_remaining.saturating_sub(1);
                     ambient_occlusion_drawn = true;
                 }
                 pass_index = pass_index.saturating_add(source_pass_count);
@@ -2098,24 +2660,20 @@ impl ScreenShaderRuntime {
             ) {
                 let source_pass_count = source.pass_count.max(1);
                 if !final_color_drawn {
-                    let rebind_common_state =
-                        self.has_enabled_non_final_color_pass_after(phase, pass_position);
-                    let bloom_source =
-                        self.find_enabled_embedded_source(EmbeddedEffectKind::BloomingHdr, phase);
-                    let color_grade_source =
-                        self.find_enabled_embedded_source(EmbeddedEffectKind::ColorGrade, phase);
-                    self.draw_final_color_pipeline(
+                    let (output, output_location) =
+                        color_graph.output(backbuffer, stages_remaining > 1);
+                    let input = color_graph.input_texture().clone();
+                    let drew = self.draw_final_color_pipeline(
                         device,
-                        backbuffer,
+                        &output,
                         desc,
                         frame_inputs,
-                        &copy,
-                        bloom_source.as_ref(),
-                        color_grade_source.as_ref(),
+                        &input,
+                        phase_plan.bloom_source.as_deref(),
+                        phase_plan.color_grade_source.as_deref(),
                     )?;
-                    if rebind_common_state {
-                        self.bind_common_state(device, backbuffer, desc, frame_inputs, &copy)?;
-                    }
+                    color_graph.commit(output_location, drew);
+                    stages_remaining = stages_remaining.saturating_sub(1);
                     final_color_drawn = true;
                 }
                 pass_index = pass_index.saturating_add(source_pass_count);
@@ -2123,41 +2681,45 @@ impl ScreenShaderRuntime {
             }
 
             if source.embedded_effect_kind() == Some(EmbeddedEffectKind::Sunshafts) {
-                let rebind_common_state = self.has_enabled_pass_after(phase, pass_position);
-                let source = source.clone();
-                self.draw_sunshafts_pipeline(
+                let (output, output_location) =
+                    color_graph.output(backbuffer, stages_remaining > 1);
+                let input = color_graph.input_texture().clone();
+                let drew = self.draw_sunshafts_pipeline(
                     device,
-                    backbuffer,
+                    &output,
                     desc,
                     frame_inputs,
-                    &copy,
-                    &source,
+                    &input,
+                    source,
                 )?;
-                if rebind_common_state {
-                    self.bind_common_state(device, backbuffer, desc, frame_inputs, &copy)?;
-                }
+                color_graph.commit(output_location, drew);
+                stages_remaining = stages_remaining.saturating_sub(1);
                 pass_index = pass_index.saturating_add(source.pass_count.max(1));
                 continue;
             }
 
             if source.embedded_effect_kind() == Some(EmbeddedEffectKind::DepthOfField) {
-                let rebind_common_state = self.has_enabled_pass_after(phase, pass_position);
                 let source_pass_count = source.pass_count.max(1);
-                self.draw_depth_of_field_pipeline(device, backbuffer, desc, frame_inputs, &copy)?;
-                if rebind_common_state {
-                    self.bind_common_state(device, backbuffer, desc, frame_inputs, &copy)?;
-                }
+                let (output, output_location) =
+                    color_graph.output(backbuffer, stages_remaining > 1);
+                let input = color_graph.input_texture().clone();
+                let drew =
+                    self.draw_depth_of_field_pipeline(device, &output, desc, frame_inputs, &input)?;
+                color_graph.commit(output_location, drew);
+                stages_remaining = stages_remaining.saturating_sub(1);
                 pass_index = pass_index.saturating_add(source_pass_count);
                 continue;
             }
 
             if source.embedded_effect_kind() == Some(EmbeddedEffectKind::MotionBlur) {
-                let rebind_common_state = self.has_enabled_pass_after(phase, pass_position);
                 let source_pass_count = source.pass_count.max(1);
-                self.draw_motion_blur_pipeline(device, backbuffer, desc, frame_inputs, &copy)?;
-                if rebind_common_state {
-                    self.bind_common_state(device, backbuffer, desc, frame_inputs, &copy)?;
-                }
+                let (output, output_location) =
+                    color_graph.output(backbuffer, stages_remaining > 1);
+                let input = color_graph.input_texture().clone();
+                let drew =
+                    self.draw_motion_blur_pipeline(device, &output, desc, frame_inputs, &input)?;
+                color_graph.commit(output_location, drew);
+                stages_remaining = stages_remaining.saturating_sub(1);
                 pass_index = pass_index.saturating_add(source_pass_count);
                 continue;
             }
@@ -2172,12 +2734,13 @@ impl ScreenShaderRuntime {
                         | EmbeddedEffectKind::Smaa
                 )
             ) {
-                let rebind_common_state = self.has_enabled_pass_after(phase, pass_position);
-                let source = source.clone();
-                self.draw_anti_aliasing_pipeline(device, backbuffer, desc, &copy, &source)?;
-                if rebind_common_state {
-                    self.bind_common_state(device, backbuffer, desc, frame_inputs, &copy)?;
-                }
+                let (output, output_location) =
+                    color_graph.output(backbuffer, stages_remaining > 1);
+                let input = color_graph.input_texture().clone();
+                let drew =
+                    self.draw_anti_aliasing_pipeline(device, &output, desc, &input, source)?;
+                color_graph.commit(output_location, drew);
+                stages_remaining = stages_remaining.saturating_sub(1);
                 pass_index = pass_index.saturating_add(source.pass_count.max(1));
                 continue;
             }
@@ -2187,14 +2750,18 @@ impl ScreenShaderRuntime {
                 .as_ref()
                 .and_then(|passes| passes.get(pass_position))
                 .and_then(|pass| pass.shader.as_ref())
+                .cloned()
             else {
                 continue;
             };
 
             for _ in 0..source.pass_count {
-                self.copy_phase_color_for_sampling(device, backbuffer, &copy)?;
-                device.set_texture(0, &copy.texture)?;
-                device.set_pixel_shader(shader)?;
+                let (output, output_location) =
+                    color_graph.output(backbuffer, stages_remaining > 1);
+                let input = color_graph.input_texture().clone();
+                self.bind_common_state(device, &output, desc, frame_inputs, &input)?;
+                device.set_texture(0, &input)?;
+                device.set_pixel_shader(&shader)?;
                 device.set_pixel_shader_constant_f(
                     0,
                     &[
@@ -2252,111 +2819,89 @@ impl ScreenShaderRuntime {
                 unsafe {
                     device.draw_primitive_up(D3DPT_TRIANGLESTRIP, 2, &quad)?;
                 }
+                color_graph.commit(output_location, true);
+                stages_remaining = stages_remaining.saturating_sub(1);
                 pass_index += 1;
             }
         }
 
-        Ok(())
-    }
-
-    fn find_enabled_embedded_source(
-        &self,
-        kind: EmbeddedEffectKind,
-        phase: ShaderPhase,
-    ) -> Option<ScreenShaderSource> {
-        self.sources
-            .iter()
-            .find(|source| {
-                source.enabled
-                    && source.embedded_effect_kind() == Some(kind)
-                    && source.phase() == phase
-            })
-            .cloned()
+        color_graph.finish(device, backbuffer)
     }
 
     fn draw_ambient_occlusion_pipeline(
         &mut self,
         device: &Device9Ref<'_>,
-        backbuffer: &Surface9,
+        output: &Surface9,
         desc: &D3DSURFACE_DESC,
         frame_inputs: &backend::FrameInputs,
-        current_color_copy: &BackbufferCopy,
+        scene_color: &Texture9,
         fast_source: Option<&ScreenShaderSource>,
         contact_source: Option<&ScreenShaderSource>,
-    ) -> Direct3DResult<()> {
+    ) -> Direct3DResult<bool> {
         if !ambient_occlusion::should_draw(frame_inputs, fast_source, contact_source) {
             if !ambient_occlusion::family_selected(fast_source, contact_source)
                 && let Some(effect) = self.ambient_occlusion.as_mut()
             {
                 effect.reset_history();
             }
-            return Ok(());
+            return Ok(false);
         }
         if self.ambient_occlusion.is_none() {
-            self.ambient_occlusion =
-                Some(ambient_occlusion::AmbientOcclusionEffect::create(device)?);
+            let Some(effect) = ambient_occlusion::AmbientOcclusionEffect::create(device)? else {
+                return Ok(false);
+            };
+            self.ambient_occlusion = Some(effect);
             log::info!("[AO] Engine-side pipeline initialized");
         }
 
-        self.copy_phase_color_for_sampling(device, backbuffer, current_color_copy)?;
         let Some(effect) = self.ambient_occlusion.as_mut() else {
-            return Ok(());
+            return Ok(false);
         };
         effect.draw(
             device,
-            backbuffer,
+            output,
             desc,
             frame_inputs,
             fast_source,
             contact_source,
-            &current_color_copy.texture,
+            scene_color,
             self.frame_index,
-        )
+        )?;
+        Ok(true)
     }
 
     fn draw_anti_aliasing_pipeline(
         &mut self,
         device: &Device9Ref<'_>,
-        backbuffer: &Surface9,
+        output: &Surface9,
         desc: &D3DSURFACE_DESC,
-        current_color_copy: &BackbufferCopy,
+        scene_color: &Texture9,
         source: &ScreenShaderSource,
-    ) -> Direct3DResult<()> {
+    ) -> Direct3DResult<bool> {
         if self.anti_aliasing.is_none() {
-            self.anti_aliasing = Some(anti_aliasing::AntiAliasingEffect::create());
+            let Some(effect) = anti_aliasing::AntiAliasingEffect::create(device)? else {
+                return Ok(false);
+            };
+            self.anti_aliasing = Some(effect);
             log::info!("[AA] Embedded spatial AA pipelines initialized");
         }
-
-        let prepared = match self.anti_aliasing.as_mut() {
-            Some(effect) => effect.prepare(device, source)?,
-            None => return Ok(()),
-        };
-        if !prepared {
-            return Ok(());
-        }
-        self.copy_phase_color_for_sampling(device, backbuffer, current_color_copy)?;
         let Some(effect) = self.anti_aliasing.as_mut() else {
-            return Ok(());
+            return Ok(false);
         };
-        effect.draw(
-            device,
-            backbuffer,
-            desc,
-            source,
-            &current_color_copy.texture,
-        )
+        effect.draw(device, output, desc, source, scene_color)?;
+        Ok(true)
     }
 
     fn draw_final_color_pipeline(
         &mut self,
         device: &Device9Ref<'_>,
-        backbuffer: &Surface9,
+        output: &Surface9,
         desc: &D3DSURFACE_DESC,
         frame_inputs: &backend::FrameInputs,
-        current_color_copy: &BackbufferCopy,
+        scene_color: &Texture9,
         bloom_source: Option<&ScreenShaderSource>,
         color_grade_source: Option<&ScreenShaderSource>,
-    ) -> Direct3DResult<()> {
+    ) -> Direct3DResult<bool> {
         let selected_lut_index = color_grade_source.and_then(|source| {
             source.options.iter().find_map(|option| {
                 if option.key == "lut_file" {
@@ -2376,11 +2921,11 @@ impl ScreenShaderRuntime {
             selected_lut.is_some(),
         );
         if !work.has_work() {
-            return Ok(());
+            return Ok(false);
         }
         if self.blooming_hdr.is_none() {
             let Some(shaders) = self.final_color_shaders.as_ref() else {
-                return Ok(());
+                return Ok(false);
             };
             let render_target_slots = self
                 .render_target_slots
@@ -2393,74 +2938,76 @@ impl ScreenShaderRuntime {
             log::info!("[FINAL_COLOR] Bloom/color-grade pipeline initialized");
         }
 
-        self.copy_phase_color_for_sampling(device, backbuffer, current_color_copy)?;
         let Some(effect) = self.blooming_hdr.as_mut() else {
-            return Ok(());
+            return Ok(false);
         };
         effect.draw(
             device,
-            backbuffer,
+            output,
             desc,
             frame_inputs,
             bloom_source,
             color_grade_source,
             selected_lut,
-            &current_color_copy.surface,
-            &current_color_copy.texture,
+            scene_color,
             self.frame_index,
-        )
+        )?;
+        Ok(true)
     }
 
     fn draw_sunshafts_pipeline(
         &mut self,
         device: &Device9Ref<'_>,
-        backbuffer: &Surface9,
+        output: &Surface9,
         desc: &D3DSURFACE_DESC,
         frame_inputs: &backend::FrameInputs,
-        current_color_copy: &BackbufferCopy,
+        scene_color: &Texture9,
         source: &ScreenShaderSource,
-    ) -> Direct3DResult<()> {
+    ) -> Direct3DResult<bool> {
         if !sunshafts::should_draw(frame_inputs, source) {
-            return Ok(());
+            return Ok(false);
         }
         if self.sunshafts.is_none() {
-            self.sunshafts = Some(sunshafts::SunshaftsEffect::create(device)?);
+            let Some(effect) = sunshafts::SunshaftsEffect::create(device)? else {
+                return Ok(false);
+            };
+            self.sunshafts = Some(effect);
             log::info!("[SUNSHAFTS] Engine-side pipeline initialized");
         }
 
-        self.copy_phase_color_for_sampling(device, backbuffer, current_color_copy)?;
         let Some(effect) = self.sunshafts.as_mut() else {
-            return Ok(());
+            return Ok(false);
         };
         effect.draw(
             device,
-            backbuffer,
+            output,
             desc,
             frame_inputs,
             source,
-            &current_color_copy.texture,
+            scene_color,
             self.frame_index,
-        )
+        )?;
+        Ok(true)
     }
 
     fn draw_depth_of_field_pipeline(
         &mut self,
         device: &Device9Ref<'_>,
-        backbuffer: &Surface9,
+        output: &Surface9,
         desc: &D3DSURFACE_DESC,
         frame_inputs: &backend::FrameInputs,
-        current_color_copy: &BackbufferCopy,
-    ) -> Direct3DResult<()> {
+        scene_color: &Texture9,
+    ) -> Direct3DResult<bool> {
         let config = self.settings.menu_config.embedded_effects.depth_of_field;
         let native_dof_active = self.native_dof_active_this_frame;
         if !depth_of_field::should_draw(frame_inputs, config, native_dof_active) {
             if let Some(effect) = self.depth_of_field.as_mut() {
                 effect.note_skipped(config, native_dof_active);
             }
-            return Ok(());
+            return Ok(false);
         }
         if self.depth_of_field_creation_failed {
-            return Ok(());
+            return Ok(false);
         }
         if self.depth_of_field.is_none() {
             match depth_of_field::DepthOfFieldEffect::create(device) {
@@ -2468,7 +3015,7 @@ impl ScreenShaderRuntime {
                     self.depth_of_field = Some(effect);
                     log::info!("[DOF] Engine-side pipeline initialized");
                 }
-                Ok(None) => return Ok(()),
+                Ok(None) => return Ok(false),
                 Err(err) => {
                     self.depth_of_field_creation_failed = true;
                     return Err(err);
@@ -2478,36 +3025,36 @@ impl ScreenShaderRuntime {
 
         let frame_seconds = self.present_timing.frame_seconds();
         let frame_index = self.frame_index;
-        self.copy_phase_color_for_sampling(device, backbuffer, current_color_copy)?;
         let Some(effect) = self.depth_of_field.as_mut() else {
-            return Ok(());
+            return Ok(false);
         };
         effect.draw(
             device,
-            backbuffer,
+            output,
             desc,
             frame_inputs,
             config,
-            &current_color_copy.texture,
+            scene_color,
             frame_index,
             frame_seconds,
             native_dof_active,
-        )
+        )?;
+        Ok(true)
     }
 
     fn draw_motion_blur_pipeline(
         &mut self,
         device: &Device9Ref<'_>,
-        backbuffer: &Surface9,
+        output: &Surface9,
         desc: &D3DSURFACE_DESC,
         frame_inputs: &backend::FrameInputs,
-        current_color_copy: &BackbufferCopy,
-    ) -> Direct3DResult<()> {
+        scene_color: &Texture9,
+    ) -> Direct3DResult<bool> {
         let Some(frame) = self.prepared_motion_blur_frame.take() else {
-            return Ok(());
+            return Ok(false);
         };
         if self.motion_blur_creation_failed {
-            return Ok(());
+            return Ok(false);
         }
         if self.motion_blur.is_none() {
             match motion_blur::MotionBlurEffect::create(device) {
@@ -2515,7 +3062,7 @@ impl ScreenShaderRuntime {
                     self.motion_blur = Some(effect);
                     log::info!("[MOTION_BLUR] Camera reprojection pipeline initialized");
                 }
-                Ok(None) => return Ok(()),
+                Ok(None) => return Ok(false),
                 Err(err) => {
                     self.motion_blur_creation_failed = true;
                     return Err(err);
@@ -2524,23 +3071,21 @@ impl ScreenShaderRuntime {
         }
 
         let Some(effect) = self.motion_blur.as_ref() else {
-            return Ok(());
+            return Ok(false);
         };
         let requires_color_copy = effect.requires_color_copy(desc, frame);
-        if requires_color_copy {
-            self.copy_phase_color_for_sampling(device, backbuffer, current_color_copy)?;
-        }
         let Some(effect) = self.motion_blur.as_mut() else {
-            return Ok(());
+            return Ok(false);
         };
         effect.draw(
             device,
-            backbuffer,
+            output,
             desc,
             frame_inputs,
-            requires_color_copy.then_some(&current_color_copy.texture),
+            requires_color_copy.then_some(scene_color),
             frame,
-        )
+        )?;
+        Ok(requires_color_copy)
     }
 
     fn log_frame_input_state(&mut self, frame_inputs: &backend::FrameInputs) {
@@ -2595,11 +3140,25 @@ impl ScreenShaderRuntime {
         backend::depth_frame(provider)
     }
 
-    fn draw_menu(&mut self) -> Direct3DResult<()> {
-        let Some(imgui) = self.imgui.as_mut() else {
-            return Ok(());
-        };
+    fn ensure_gpu_diagnostics_profile(&mut self) {
+        if self.gpu_diagnostics.is_some() || self.device_ptr == 0 {
+            return;
+        }
 
+        // Hardware detection must start from Fallout's live device: adapter
+        // zero is not necessarily the rendering GPU on hybrid systems or
+        // under DXVK device filtering. This one-time query runs only after the
+        // Diagnostics tab becomes active, never in an ordinary Present.
+        let Some(device) = (unsafe { Device9Ref::from_raw_void(self.device_ptr as *mut c_void) })
+        else {
+            return;
+        };
+        self.gpu_diagnostics = Some(
+            libpsycho::hardware::d3d9_device_profile(&device).map_err(|error| error.to_string()),
+        );
+    }
+
+    fn draw_menu(&mut self) -> Direct3DResult<()> {
         let diagnostics_active = diagnostics_should_be_active(
             true,
             IMGUI_READY.load(Ordering::Acquire),
@@ -2607,7 +3166,14 @@ impl ScreenShaderRuntime {
             self.menu_diagnostics_visible,
         );
         set_menu_diagnostics_active(diagnostics_active);
+        if diagnostics_active {
+            self.ensure_gpu_diagnostics_profile();
+        }
 
+        let gpu_diagnostics = self.gpu_diagnostics.as_ref();
+        let Some(imgui) = self.imgui.as_mut() else {
+            return Ok(());
+        };
         if self.imgui_needs_device_objects && imgui.create_device_objects() {
             self.imgui_needs_device_objects = false;
         }
@@ -2634,6 +3200,7 @@ impl ScreenShaderRuntime {
                 &mut self.menu_sidebar_width,
                 &frame_pacing,
                 feature_status,
+                gpu_diagnostics,
                 MenuPersistenceView {
                     external_change: self.current_look_autosave.has_external_change(),
                     error: self.menu_config_error.as_deref(),
@@ -2650,10 +3217,10 @@ impl ScreenShaderRuntime {
         ));
         imgui.render();
         if menu_frame.changed {
+            self.menu_config_error = None;
             self.apply_menu_config_change();
             self.current_look_autosave.note_change(Instant::now());
             self.preset_ui.mark_modified();
-            self.menu_config_error = None;
         }
         match menu_frame.action {
             MenuAction::None => {}
@@ -2684,26 +3251,65 @@ impl ScreenShaderRuntime {
     }
 
     fn apply_menu_config_change(&mut self) {
-        MASTER_EFFECTS_ENABLED.store(
-            self.settings.menu_config.screen_space_shaders,
-            Ordering::Release,
-        );
-        self.settings.depth_provider = self.settings.menu_config.depth_provider.into();
+        let master_enabled = self.settings.menu_config.screen_space_shaders;
+        service_enabled_effect_preparation(self.settings.menu_config);
+        // Menu edits mutate source enablement, phases, and pass counts in
+        // place. Rebuild the immutable schedule without recreating unchanged
+        // device shaders; source-file discovery still invalidates both.
+        self.rebuild_execution_plan();
+        let draw_interposition_required =
+            draw_interposition_required_for(self.settings.menu_config);
+        MASTER_EFFECTS_ENABLED.store(master_enabled, Ordering::Release);
+        DRAW_INTERPOSITION_REQUIRED.store(draw_interposition_required, Ordering::Release);
+
+        // On enable, publish the complete DP/DIP boundary before native
+        // replacement hooks can become active. On disable the inverse order is
+        // used below: producers become passive first, then the device entries
+        // are restored. Either direction therefore has no partially covered
+        // native draw.
+        if draw_interposition_required
+            && let Err(reason) = crate::hooks::set_draw_interposition_active(true)
+        {
+            self.menu_config_error = Some(format!(
+                "Native draw hooks could not be attached: {reason}. Native PBR and sky remain on their safe vanilla fallback."
+            ));
+        }
+        let requested_provider = self.settings.menu_config.depth_provider.into();
+        match backend::switch_depth_provider(requested_provider) {
+            Ok(_) => self.settings.depth_provider = requested_provider,
+            Err(reason) => {
+                // Keep configuration and the physical producer identical.
+                // Persisting a rejected selection would make the next launch
+                // fail before hooks are installed and would conceal that the
+                // previous provider is still active.
+                self.settings.menu_config.depth_provider =
+                    depth_provider_config(self.settings.depth_provider);
+                self.menu_config_error = Some(format!(
+                    "Depth provider switch rejected: {reason}. The previous provider remains active."
+                ));
+                log::warn!(
+                    "[FNV] Depth producer switch to {} rejected: {reason}",
+                    requested_provider.label()
+                );
+            }
+        }
         self.settings.menu_toggle_key =
             sanitize_menu_toggle_key(self.settings.menu_config.menu_toggle_key);
         self.settings.menu_config.menu_toggle_key = self.settings.menu_toggle_key;
         self.settings.shader_scan_interval_ms = self.settings.menu_config.shader_scan_interval_ms;
         if let Some(scanner) = self.asset_scanner.as_ref() {
-            scanner.reconfigure(
-                self.settings.shader_scan_interval_ms,
-                self.settings.menu_config.screen_space_shaders,
-            );
+            scanner.reconfigure(self.settings.shader_scan_interval_ms, master_enabled);
         }
         MENU_TOGGLE_KEY.store(self.settings.menu_toggle_key, Ordering::Release);
         update_native_dof_query_needed(&self.settings.menu_config);
         crate::fnv_world_pipeline::publish_config(self.settings.menu_config);
         self.publish_fnv_scene_requirements();
-        let master_enabled = self.settings.menu_config.screen_space_shaders;
+        if let Err(err) = crate::fnv_render::reconcile_depth_stage_hooks() {
+            log::warn!("[FNV] Depth-stage hook reconciliation failed: {err:#}");
+            self.menu_config_error = Some(format!(
+                "Depth-stage hooks could not be reconciled: {err}. The log reports which native entry remained active."
+            ));
+        }
         pbr::configure_runtime_options(
             pbr::NativePbrSettings::from(self.settings.menu_config.native_pbr)
                 .with_master_enabled(master_enabled),
@@ -2712,6 +3318,30 @@ impl ScreenShaderRuntime {
             sky::NativeSkySettings::from(self.settings.menu_config.native_sky)
                 .with_master_enabled(master_enabled),
         );
+        if !draw_interposition_required
+            && let Err(reason) = crate::hooks::set_draw_interposition_active(false)
+        {
+            self.menu_config_error = Some(format!(
+                "Native draw hooks could not be detached: {reason}. The log records the physical hook state."
+            ));
+        }
+
+        if !master_enabled {
+            // Keep the ImGui owner alive so the same menu can re-enable OMV.
+            // All visual default-pool and managed shader resources are
+            // disposable and are recreated lazily on the next enabled frame.
+            self.release_visual_resources();
+            crate::fnv_world_pipeline::request_visual_resource_release();
+        } else if !self
+            .settings
+            .menu_config
+            .embedded_effects
+            .depth_of_field
+            .enabled
+        {
+            self.depth_of_field = None;
+            self.depth_of_field_creation_failed = false;
+        }
     }
 
     fn record_active_preset_state(&mut self) {
@@ -2917,7 +3547,7 @@ impl ScreenShaderRuntime {
                     &lut_ids,
                     external_sources,
                 );
-                self.compiled = None;
+                self.invalidate_compiled_shaders();
                 self.apply_menu_config_change();
                 // A preset is a template copied into the Current Look. Its
                 // file is never mounted as a live layer and activation does
@@ -2950,7 +3580,7 @@ impl ScreenShaderRuntime {
         backbuffer: &Surface9,
         desc: &D3DSURFACE_DESC,
         frame_inputs: &backend::FrameInputs,
-        current_color_copy: &BackbufferCopy,
+        scene_color: &Texture9,
     ) -> Direct3DResult<()> {
         let viewport = D3DVIEWPORT9 {
             X: 0,
@@ -2998,7 +3628,7 @@ impl ScreenShaderRuntime {
         } else {
             device.clear_texture(2)?;
         }
-        device.set_texture(3, self.sampler3_scene_color(&current_color_copy.texture))?;
+        device.set_texture(3, self.sampler3_scene_color(scene_color))?;
         device.set_texture_stage_state(0, D3DTSS_COLOROP, D3DTOP_SELECTARG1.0 as u32)?;
         device.set_texture_stage_state(0, D3DTSS_COLORARG1, D3DTA_TEXTURE)?;
         device.set_texture_stage_state(0, D3DTSS_ALPHAOP, D3DTOP_SELECTARG1.0 as u32)?;
@@ -3033,14 +3663,33 @@ impl ScreenShaderRuntime {
         })
     }
 
+    /// Count logical full-resolution writers in one phase.
+    ///
+    /// AO and Final Output each expose multiple menu sources but execute as one
+    /// combined pipeline. External shader `pass_count` entries remain distinct
+    /// writers. This plan is configuration-derived and intentionally counts a
+    /// dynamically rejected effect: if such a later stage produces no output,
+    /// the color graph performs one final safety commit.
+    #[cfg(test)]
+    fn phase_logical_stage_count(
+        &self,
+        phase: ShaderPhase,
+        ambient_occlusion_allowed: bool,
+    ) -> u32 {
+        self.execution_plan.as_ref().map_or(0, |plan| {
+            plan.phase(phase).logical_stages(ambient_occlusion_allowed)
+        })
+    }
+
     fn fnv_scene_input_requirements(&self) -> SceneInputRequirements {
-        if self.settings.depth_provider != DepthProvider::FalloutNewVegas
+        if !self.settings.depth_provider.supplies_world_depth()
             || !self.settings.menu_config.screen_space_shaders
         {
             return SceneInputRequirements::default();
         }
 
-        self.sources
+        let mut requirements = self
+            .sources
             .iter()
             .filter(|source| {
                 source.enabled
@@ -3052,7 +3701,14 @@ impl ScreenShaderRuntime {
             .fold(SceneInputRequirements::default(), |requirements, source| {
                 let source_requirements = SceneInputRequirements::for_source(source);
                 requirements.union(source_requirements)
-            })
+            });
+        if !self.settings.depth_provider.supplies_first_person_depth() {
+            // External Depth Resolve 1.31 is world-only. A hidden OMV
+            // first-person capture would violate exclusive producer
+            // selection, so consumers receive an explicitly absent input.
+            requirements.first_person_depth = false;
+        }
+        requirements
     }
 
     fn publish_fnv_scene_requirements(&self) {
@@ -3070,43 +3726,10 @@ impl ScreenShaderRuntime {
         FNV_SCENE_REQUIREMENTS.store(bits, Ordering::Release);
     }
 
-    fn has_enabled_pass_after(&self, phase: ShaderPhase, pass_position: usize) -> bool {
-        self.has_enabled_pass_after_matching(phase, pass_position, |_| true)
-    }
-
-    fn has_enabled_non_final_color_pass_after(
-        &self,
-        phase: ShaderPhase,
-        pass_position: usize,
-    ) -> bool {
-        self.has_enabled_pass_after_matching(phase, pass_position, |source| {
-            !source
-                .embedded_effect_kind()
-                .is_some_and(EmbeddedEffectKind::is_final_color)
-        })
-    }
-
-    fn has_enabled_pass_after_matching(
-        &self,
-        phase: ShaderPhase,
-        pass_position: usize,
-        include: impl Fn(&ScreenShaderSource) -> bool,
-    ) -> bool {
-        self.compiled.as_ref().is_some_and(|passes| {
-            passes.iter().skip(pass_position + 1).any(|pass| {
-                let source = &self.sources[pass.source_index];
-                source.enabled
-                    && source.phase() == phase
-                    && !source
-                        .embedded_effect_kind()
-                        .is_some_and(EmbeddedEffectKind::owns_world_boundary)
-                    && include(source)
-                    && (source.is_embedded_effect() || pass.shader.is_some())
-            })
-        })
-    }
-
     fn phase_needs_frame_inputs(&self, phase: ShaderPhase) -> bool {
+        if let Some(plan) = self.execution_plan.as_ref() {
+            return plan.phase(phase).needs_frame_inputs;
+        }
         self.sources.iter().any(|source| {
             source.enabled
                 && source.phase() == phase
@@ -3130,11 +3753,10 @@ impl ScreenShaderRuntime {
             return false;
         }
 
-        self.compiled.as_ref().is_some_and(|passes| {
-            passes.iter().any(|pass| {
-                let source = &self.sources[pass.source_index];
-                source.enabled && (source.is_embedded_effect() || pass.shader.is_some())
-            })
+        self.execution_plan.as_ref().is_some_and(|plan| {
+            !plan.scene_pre.passes_with_ao.is_empty()
+                || !plan.scene_post.passes_with_ao.is_empty()
+                || !plan.final_image.passes_with_ao.is_empty()
         })
     }
 
@@ -3143,17 +3765,9 @@ impl ScreenShaderRuntime {
             return false;
         }
 
-        self.compiled.as_ref().is_some_and(|passes| {
-            passes.iter().any(|pass| {
-                let source = &self.sources[pass.source_index];
-                source.enabled
-                    && source.phase() == phase
-                    && !source
-                        .embedded_effect_kind()
-                        .is_some_and(EmbeddedEffectKind::owns_world_boundary)
-                    && (source.is_embedded_effect() || pass.shader.is_some())
-            })
-        })
+        self.execution_plan
+            .as_ref()
+            .is_some_and(|plan| !plan.phase(phase).passes_with_ao.is_empty())
     }
 
     fn release_if_device(&mut self, device_ptr: *mut c_void) {
@@ -3190,32 +3804,37 @@ impl ScreenShaderRuntime {
         self.imgui = None;
         self.imgui_hwnd = 0;
         self.render_target_slots = None;
+        self.gpu_diagnostics = None;
         IMGUI_READY.store(false, Ordering::Release);
         self.device_ptr = 0;
     }
 
     fn release_device_resources(&mut self) {
         set_menu_diagnostics_active(false);
-        self.compiled = None;
-        self.ambient_occlusion = None;
-        self.anti_aliasing = None;
-        self.blooming_hdr = None;
-        self.sunshafts = None;
-        self.depth_of_field = None;
-        self.depth_of_field_creation_failed = false;
-        self.motion_blur = None;
-        self.motion_blur_creation_failed = false;
-        self.release_default_pool_resources();
+        self.release_visual_resources();
         if let Some(imgui) = self.imgui.as_mut() {
             imgui.invalidate_device_objects();
             self.imgui_needs_device_objects = true;
         }
     }
 
+    /// Release every visual resource without destroying the in-game menu.
+    ///
+    /// This is the master-off teardown path. It intentionally does not call
+    /// `EvictManagedResources`: that D3D9 API is device-global and could evict
+    /// resources owned by Fallout New Vegas or another plugin.
+    fn release_visual_resources(&mut self) {
+        self.invalidate_compiled_shaders();
+        self.release_default_pool_resources();
+    }
+
     fn release_default_pool_resources(&mut self) {
         self.final_color_copy = None;
+        self.final_color_scratch = None;
         self.scene_pre_color_copy = None;
+        self.scene_pre_color_scratch = None;
         self.scene_post_color_copy = None;
+        self.scene_post_color_scratch = None;
         self.world_color_copy = None;
         self.world_color_source_target = 0;
         self.ambient_occlusion = None;
@@ -3341,8 +3960,60 @@ impl SceneInputRequirements {
 
 #[cfg(test)]
 mod scene_input_requirement_tests {
-    use super::{CompiledPass, EmbeddedEffectKind, SceneInputRequirements, ScreenShaderRuntime};
-    use crate::{config::EmbeddedEffectsConfig, shaders};
+    use std::sync::Arc;
+
+    use super::{
+        AmbientOcclusionBoundary, CompiledPass, EmbeddedEffectKind, SceneInputRequirements,
+        ScreenShaderRuntime, ambient_occlusion_allowed_at_scene_pre, ambient_occlusion_boundary,
+    };
+    use crate::{backend::DepthProvider, config::EmbeddedEffectsConfig, shaders};
+
+    fn apply_ao(color: f32, visibility: f32) -> f32 {
+        color * visibility
+    }
+
+    fn overlay_first_person(world: f32, first_person: f32, covered: bool) -> f32 {
+        if covered { first_person } else { world }
+    }
+
+    #[test]
+    fn world_only_depth_composes_ao_before_first_person_coverage() {
+        assert_eq!(
+            ambient_occlusion_boundary(DepthProvider::DepthResolve),
+            AmbientOcclusionBoundary::AfterWorldBeforeFirstPerson
+        );
+        assert_eq!(
+            ambient_occlusion_boundary(DepthProvider::FalloutNewVegas),
+            AmbientOcclusionBoundary::ScenePreImageSpace
+        );
+        assert!(!ambient_occlusion_allowed_at_scene_pre(
+            DepthProvider::DepthResolve
+        ));
+        assert!(ambient_occlusion_allowed_at_scene_pre(
+            DepthProvider::FalloutNewVegas
+        ));
+
+        let world = 0.8;
+        let weapon = 0.9;
+        let visibility = 0.5;
+        let stale_inactive_target = 0.2;
+        let visible_if_ao_writes_inactive_target = world;
+        let _modified_inactive_target = apply_ao(stale_inactive_target, visibility);
+        let buggy_post_first_person =
+            apply_ao(overlay_first_person(world, weapon, true), visibility);
+        let fixed_pre_first_person =
+            overlay_first_person(apply_ao(world, visibility), weapon, true);
+
+        assert_eq!(
+            visible_if_ao_writes_inactive_target, world,
+            "drawing into the not-yet-active first-person target cannot modify visible world color"
+        );
+        assert_eq!(fixed_pre_first_person, weapon);
+        assert!(
+            buggy_post_first_person < weapon,
+            "the negative control must reproduce AO darkening over a weapon pixel"
+        );
+    }
 
     #[test]
     fn spatial_aa_requires_no_fnv_scene_inputs() {
@@ -3363,26 +4034,39 @@ mod scene_input_requirement_tests {
     #[test]
     fn lazy_render_epoch_reconciliation_clears_stale_frame_state() {
         let mut runtime = ScreenShaderRuntime::default();
-        assert!(runtime.final_color_shaders.is_some());
+        assert!(runtime.final_color_shaders.is_none());
         assert!(runtime.color_luts.assets.is_empty());
         runtime.render_epoch = 4;
         runtime.frame_index = 9;
         runtime.world_color_captured_this_frame = true;
         runtime.world_color_source_target = 0x1234;
+        runtime.ambient_occlusion_after_world_applied = true;
         runtime.native_dof_active_this_frame = true;
 
         runtime.begin_render_epoch(4);
         assert!(runtime.world_color_captured_this_frame);
+        assert!(runtime.ambient_occlusion_after_world_applied);
         assert_eq!(runtime.frame_index, 9);
 
         runtime.begin_render_epoch(5);
         assert!(!runtime.world_color_captured_this_frame);
         assert_eq!(runtime.world_color_source_target, 0);
+        assert!(!runtime.ambient_occlusion_after_world_applied);
         assert!(!runtime.native_dof_active_this_frame);
         assert_eq!(runtime.frame_index, 10);
 
+        let process_bytecode = Arc::new(
+            crate::effects::blooming_hdr::FinalColorShaderBytecode::prepare()
+                .expect("final-color bytecode"),
+        );
+        runtime.final_color_shaders = Some(Arc::clone(&process_bytecode));
         runtime.release_device_resources();
-        assert!(runtime.final_color_shaders.is_some());
+        assert!(
+            runtime
+                .final_color_shaders
+                .as_ref()
+                .is_some_and(|bytecode| Arc::ptr_eq(bytecode, &process_bytecode))
+        );
         assert!(runtime.color_luts.assets.is_empty());
         assert!(runtime.blooming_hdr.is_none());
     }
@@ -3479,7 +4163,7 @@ mod scene_input_requirement_tests {
     }
 
     #[test]
-    fn fused_color_sources_do_not_trigger_a_redundant_state_rebind() {
+    fn phase_color_plan_fuses_color_sources_into_one_logical_writer() {
         let mut config = EmbeddedEffectsConfig::default();
         config.blooming_hdr.enabled = true;
         config.color_grade.enabled = true;
@@ -3491,7 +4175,7 @@ mod scene_input_requirement_tests {
 
         let mut runtime = ScreenShaderRuntime::default();
         runtime.sources = shaders::merge_embedded_sources(&config, Vec::new());
-        runtime.compiled = Some(
+        runtime.install_compiled_shaders(
             (0..runtime.sources.len())
                 .map(|source_index| CompiledPass {
                     source_index,
@@ -3499,24 +4183,18 @@ mod scene_input_requirement_tests {
                 })
                 .collect(),
         );
-        let bloom_position = runtime
-            .sources
-            .iter()
-            .position(|source| {
-                source.embedded_effect_kind() == Some(EmbeddedEffectKind::BloomingHdr)
-            })
-            .expect("Bloom position");
-        assert!(!runtime.has_enabled_non_final_color_pass_after(
-            crate::shaders::ShaderPhase::FinalImageSpace,
-            bloom_position,
-        ));
+        assert_eq!(
+            runtime.phase_logical_stage_count(crate::shaders::ShaderPhase::FinalImageSpace, true,),
+            1,
+        );
 
         config.fast_fxaa.enabled = true;
         runtime.sources = shaders::merge_embedded_sources(&config, Vec::new());
-        assert!(runtime.has_enabled_non_final_color_pass_after(
-            crate::shaders::ShaderPhase::FinalImageSpace,
-            bloom_position,
-        ));
+        runtime.rebuild_execution_plan();
+        assert_eq!(
+            runtime.phase_logical_stage_count(crate::shaders::ShaderPhase::FinalImageSpace, true,),
+            2,
+        );
     }
 
     #[test]
@@ -3542,6 +4220,211 @@ fn update_native_dof_query_needed(config: &GraphicsMenuConfig) {
 struct CompiledPass {
     source_index: usize,
     shader: Option<PixelShader9>,
+}
+
+/// Immutable render-thread schedule derived from compiled sources.
+///
+/// The two pass arrays differ only by AO admission. DepthResolve supplies
+/// world-only depth, so AO moves to the post-world transaction and must
+/// be absent from the later scene-pre transaction. Keeping both arrays avoids
+/// rebuilding or filtering a pass list in either render callback.
+#[derive(Clone)]
+struct PhaseExecutionPlan {
+    passes_with_ao: Arc<[PlannedPass]>,
+    passes_without_ao: Arc<[PlannedPass]>,
+    logical_stages_with_ao: u32,
+    logical_stages_without_ao: u32,
+    source_passes_with_ao: u32,
+    source_passes_without_ao: u32,
+    fast_ao_source: Option<Arc<ScreenShaderSource>>,
+    contact_ao_source: Option<Arc<ScreenShaderSource>>,
+    bloom_source: Option<Arc<ScreenShaderSource>>,
+    color_grade_source: Option<Arc<ScreenShaderSource>>,
+    motion_blur_source: Option<Arc<ScreenShaderSource>>,
+    depth_of_field_source: Option<Arc<ScreenShaderSource>>,
+    needs_frame_inputs: bool,
+}
+
+#[derive(Clone)]
+struct PlannedPass {
+    compiled_position: usize,
+    source: Arc<ScreenShaderSource>,
+}
+
+impl PhaseExecutionPlan {
+    fn build(phase: ShaderPhase, sources: &[ScreenShaderSource], passes: &[CompiledPass]) -> Self {
+        let mut passes_with_ao = Vec::new();
+        let mut passes_without_ao = Vec::new();
+        let mut fast_ao_source = None;
+        let mut contact_ao_source = None;
+        let mut bloom_source = None;
+        let mut color_grade_source = None;
+        let mut motion_blur_source = None;
+        let mut depth_of_field_source = None;
+        let mut needs_frame_inputs = false;
+
+        for (pass_position, pass) in passes.iter().enumerate() {
+            let source = &sources[pass.source_index];
+            if !source.enabled
+                || source.phase() != phase
+                || source
+                    .embedded_effect_kind()
+                    .is_some_and(EmbeddedEffectKind::owns_world_boundary)
+            {
+                continue;
+            }
+
+            let kind = source.embedded_effect_kind();
+            needs_frame_inputs |= !matches!(
+                kind,
+                Some(
+                    EmbeddedEffectKind::FastFxaa
+                        | EmbeddedEffectKind::Nfaa
+                        | EmbeddedEffectKind::Axaa
+                        | EmbeddedEffectKind::Dlaa
+                        | EmbeddedEffectKind::Smaa
+                )
+            );
+            let source = Arc::new(source.clone());
+            let planned_pass = PlannedPass {
+                compiled_position: pass_position,
+                source: Arc::clone(&source),
+            };
+            passes_with_ao.push(planned_pass.clone());
+            if !matches!(
+                kind,
+                Some(
+                    EmbeddedEffectKind::FastAmbientOcclusion
+                        | EmbeddedEffectKind::ContactAmbientOcclusion
+                )
+            ) {
+                passes_without_ao.push(planned_pass);
+            }
+            match kind {
+                Some(EmbeddedEffectKind::FastAmbientOcclusion) => {
+                    fast_ao_source.get_or_insert_with(|| Arc::clone(&source));
+                }
+                Some(EmbeddedEffectKind::ContactAmbientOcclusion) => {
+                    contact_ao_source.get_or_insert_with(|| Arc::clone(&source));
+                }
+                Some(EmbeddedEffectKind::BloomingHdr) => {
+                    bloom_source.get_or_insert_with(|| Arc::clone(&source));
+                }
+                Some(EmbeddedEffectKind::ColorGrade) => {
+                    color_grade_source.get_or_insert_with(|| Arc::clone(&source));
+                }
+                Some(EmbeddedEffectKind::MotionBlur) => {
+                    motion_blur_source.get_or_insert_with(|| Arc::clone(&source));
+                }
+                Some(EmbeddedEffectKind::DepthOfField) => {
+                    depth_of_field_source.get_or_insert_with(|| Arc::clone(&source));
+                }
+                _ => {}
+            }
+        }
+
+        let (logical_stages_with_ao, source_passes_with_ao) = planned_phase_work(&passes_with_ao);
+        let (logical_stages_without_ao, source_passes_without_ao) =
+            planned_phase_work(&passes_without_ao);
+        Self {
+            passes_with_ao: Arc::from(passes_with_ao),
+            passes_without_ao: Arc::from(passes_without_ao),
+            logical_stages_with_ao,
+            logical_stages_without_ao,
+            source_passes_with_ao,
+            source_passes_without_ao,
+            fast_ao_source,
+            contact_ao_source,
+            bloom_source,
+            color_grade_source,
+            motion_blur_source,
+            depth_of_field_source,
+            needs_frame_inputs,
+        }
+    }
+
+    fn passes(&self, ambient_occlusion_allowed: bool) -> Arc<[PlannedPass]> {
+        if ambient_occlusion_allowed {
+            Arc::clone(&self.passes_with_ao)
+        } else {
+            Arc::clone(&self.passes_without_ao)
+        }
+    }
+
+    const fn logical_stages(&self, ambient_occlusion_allowed: bool) -> u32 {
+        if ambient_occlusion_allowed {
+            self.logical_stages_with_ao
+        } else {
+            self.logical_stages_without_ao
+        }
+    }
+
+    const fn source_passes(&self, ambient_occlusion_allowed: bool) -> u32 {
+        if ambient_occlusion_allowed {
+            self.source_passes_with_ao
+        } else {
+            self.source_passes_without_ao
+        }
+    }
+}
+
+fn planned_phase_work(passes: &[PlannedPass]) -> (u32, u32) {
+    let mut logical_stages = 0u32;
+    let mut source_passes = 0u32;
+    let mut ambient_occlusion_counted = false;
+    let mut final_color_counted = false;
+    for pass in passes {
+        let source = pass.source.as_ref();
+        source_passes = source_passes.saturating_add(source.pass_count);
+        match source.embedded_effect_kind() {
+            Some(
+                EmbeddedEffectKind::FastAmbientOcclusion
+                | EmbeddedEffectKind::ContactAmbientOcclusion,
+            ) => {
+                if !ambient_occlusion_counted {
+                    logical_stages = logical_stages.saturating_add(1);
+                    ambient_occlusion_counted = true;
+                }
+            }
+            Some(kind) if kind.is_final_color() => {
+                if !final_color_counted {
+                    logical_stages = logical_stages.saturating_add(1);
+                    final_color_counted = true;
+                }
+            }
+            Some(_) => logical_stages = logical_stages.saturating_add(1),
+            None => logical_stages = logical_stages.saturating_add(source.pass_count),
+        }
+    }
+    (logical_stages, source_passes)
+}
+
+struct CompiledExecutionPlan {
+    scene_pre: PhaseExecutionPlan,
+    scene_post: PhaseExecutionPlan,
+    final_image: PhaseExecutionPlan,
+}
+
+impl CompiledExecutionPlan {
+    fn build(sources: &[ScreenShaderSource], passes: &[CompiledPass]) -> Self {
+        Self {
+            scene_pre: PhaseExecutionPlan::build(ShaderPhase::ScenePreImageSpace, sources, passes),
+            scene_post: PhaseExecutionPlan::build(
+                ShaderPhase::ScenePostImageSpace,
+                sources,
+                passes,
+            ),
+            final_image: PhaseExecutionPlan::build(ShaderPhase::FinalImageSpace, sources, passes),
+        }
+    }
+
+    const fn phase(&self, phase: ShaderPhase) -> &PhaseExecutionPlan {
+        match phase {
+            ShaderPhase::ScenePreImageSpace => &self.scene_pre,
+            ShaderPhase::ScenePostImageSpace => &self.scene_post,
+            ShaderPhase::FinalImageSpace => &self.final_image,
+        }
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -3635,6 +4518,103 @@ impl BackbufferCopy {
 
     fn matches(&self, desc: &D3DSURFACE_DESC) -> bool {
         self.width == desc.Width && self.height == desc.Height && self.format == desc.Format
+    }
+}
+
+/// Two-texture color graph for one native image-space phase.
+///
+/// The engine target is copied into `primary` exactly once. Intermediate
+/// full-resolution stages alternate between `primary` and `scratch`, while the
+/// final planned stage writes directly to the engine target. If dynamic
+/// admission rejects later planned stages, [`Self::finish`] commits the last
+/// produced texture once; this safety path preserves output without restoring
+/// the old copy-before-every-effect behavior.
+struct PhaseColorGraph {
+    primary: BackbufferCopy,
+    scratch: BackbufferCopy,
+    current: PhaseColorLocation,
+    any_draw: bool,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum PhaseColorLocation {
+    Primary,
+    Scratch,
+    Engine,
+}
+
+const fn next_phase_color_location(
+    current: PhaseColorLocation,
+    later_stage_planned: bool,
+) -> PhaseColorLocation {
+    if !later_stage_planned {
+        return PhaseColorLocation::Engine;
+    }
+    match current {
+        PhaseColorLocation::Primary => PhaseColorLocation::Scratch,
+        PhaseColorLocation::Scratch => PhaseColorLocation::Primary,
+        PhaseColorLocation::Engine => PhaseColorLocation::Scratch,
+    }
+}
+
+impl PhaseColorGraph {
+    fn new(primary: BackbufferCopy, scratch: BackbufferCopy) -> Self {
+        Self {
+            primary,
+            scratch,
+            current: PhaseColorLocation::Primary,
+            any_draw: false,
+        }
+    }
+
+    fn input_texture(&self) -> &Texture9 {
+        match self.current {
+            PhaseColorLocation::Primary => &self.primary.texture,
+            PhaseColorLocation::Scratch => &self.scratch.texture,
+            PhaseColorLocation::Engine => {
+                // The scheduler writes the engine only for its final planned
+                // stage, so this state cannot feed another stage.
+                debug_assert!(false, "engine color cannot be sampled as a graph texture");
+                &self.primary.texture
+            }
+        }
+    }
+
+    fn output(
+        &self,
+        engine_target: &Surface9,
+        later_stage_planned: bool,
+    ) -> (Surface9, PhaseColorLocation) {
+        let output = next_phase_color_location(self.current, later_stage_planned);
+        match output {
+            PhaseColorLocation::Engine => (engine_target.clone(), output),
+            PhaseColorLocation::Scratch => {
+                (self.scratch.surface.clone(), PhaseColorLocation::Scratch)
+            }
+            PhaseColorLocation::Primary => {
+                (self.primary.surface.clone(), PhaseColorLocation::Primary)
+            }
+        }
+    }
+
+    fn commit(&mut self, output: PhaseColorLocation, drew: bool) {
+        if drew {
+            self.current = output;
+            self.any_draw = true;
+        }
+    }
+
+    fn finish(&self, device: &Device9Ref<'_>, engine_target: &Surface9) -> Direct3DResult<()> {
+        if !self.any_draw || self.current == PhaseColorLocation::Engine {
+            return Ok(());
+        }
+        let (surface, texture) = match self.current {
+            PhaseColorLocation::Primary => (&self.primary.surface, &self.primary.texture),
+            PhaseColorLocation::Scratch => (&self.scratch.surface, &self.scratch.texture),
+            PhaseColorLocation::Engine => unreachable!(),
+        };
+        PHASE_FALLBACK_COLOR_COMMITS.fetch_add(1, Ordering::Relaxed);
+        copy_scene_color_for_sampling(device, surface, engine_target, texture)
     }
 }
 
@@ -5152,6 +6132,181 @@ mod frame_pacing_tests {
     }
 
     #[test]
+    fn diagnostics_uses_one_profile_of_the_active_d3d9_device() {
+        let source = include_str!("runtime.rs");
+        let collector = source
+            .split_once("\n    fn ensure_gpu_diagnostics_profile(")
+            .map(|(_, tail)| tail)
+            .and_then(|tail| tail.split_once("\n    fn "))
+            .map(|(body, _)| body)
+            .expect("GPU diagnostics collector");
+        assert!(collector.contains("self.gpu_diagnostics.is_some()"));
+        assert!(collector.contains("Device9Ref::from_raw_void(self.device_ptr"));
+        assert!(collector.contains("libpsycho::hardware::d3d9_device_profile"));
+        assert!(!collector.contains("d3d9_adapter_profiles"));
+
+        let draw_menu = source
+            .split_once("\n    fn draw_menu(")
+            .map(|(_, tail)| tail)
+            .and_then(|tail| tail.split_once("\n    fn "))
+            .map(|(body, _)| body)
+            .expect("menu render callback");
+        let active_gate = draw_menu
+            .find("if diagnostics_active")
+            .expect("diagnostics activity gate");
+        let collection = draw_menu
+            .find("ensure_gpu_diagnostics_profile")
+            .expect("GPU profile collection");
+        assert!(active_gate < collection);
+
+        let release = source
+            .split_once("\n    fn release_for_new_device(")
+            .map(|(_, tail)| tail)
+            .and_then(|tail| tail.split_once("\n    fn "))
+            .map(|(body, _)| body)
+            .expect("new-device release");
+        assert!(release.contains("self.gpu_diagnostics = None"));
+
+        let panel = source
+            .split_once("\nfn draw_system_diagnostics_details(")
+            .map(|(_, tail)| tail)
+            .and_then(|tail| tail.split_once("\nfn gpu_device_kind_label("))
+            .map(|(body, _)| body)
+            .expect("GPU diagnostics panel");
+        assert!(panel.contains("profile.active_gpu_identity()"));
+        assert!(panel.contains("D3d9ActiveGpuIdentity::DxvkPhysicalDevice"));
+        assert!(panel.contains("D3d9ActiveGpuIdentity::Direct3D9Adapter"));
+        assert!(panel.contains("D3D9 COMPATIBILITY IDENTITY"));
+        for field in [
+            "identity.description",
+            "identity.vendor_id",
+            "identity.device_id",
+            "identity.driver",
+            "identity.device_identifier",
+            "adapter_ordinal",
+            "pixel_shader_model",
+            "capabilities.features",
+            "format_features",
+            "approximate_available_texture_memory_bytes",
+        ] {
+            assert!(panel.contains(field), "missing active-GPU field: {field}");
+        }
+        assert!(panel.contains("not physical VRAM"));
+    }
+
+    #[test]
+    fn diagnostics_presents_hardware_and_environment_as_a_lazy_summary() {
+        let source = include_str!("runtime.rs");
+        let tab = source
+            .split_once("\nfn draw_diagnostics_tab(")
+            .map(|(_, tail)| tail)
+            .and_then(|tail| tail.split_once("\nfn draw_system_at_a_glance("))
+            .map(|(body, _)| body)
+            .expect("Diagnostics tab");
+        let visible_gate = tab
+            .find("if !diagnostics.is_visible()")
+            .expect("visible Diagnostics gate");
+        let environment_query = tab
+            .find("libpsycho::hardware::system_profile()")
+            .expect("cached compatibility-runtime profile");
+        assert!(visible_gate < environment_query);
+        assert!(tab.contains("system_profile.runtime"));
+        let summary = tab.find("draw_system_at_a_glance").expect("system summary");
+        let frame_pacing = tab
+            .find("draw_frame_pacing_panel")
+            .expect("frame-pacing dashboard");
+        let details = tab
+            .find("draw_system_diagnostics_details")
+            .expect("system technical details");
+        assert!(summary < frame_pacing);
+        assert!(frame_pacing < details);
+
+        let panel = source
+            .split_once("\nfn draw_system_at_a_glance(")
+            .map(|(_, tail)| tail)
+            .and_then(|tail| tail.split_once("\nfn gpu_diagnostics_card("))
+            .map(|(body, _)| body)
+            .expect("system summary panel");
+        assert!(panel.contains("SYSTEM AT A GLANCE"));
+        assert!(panel.contains("ACTIVE GPU"));
+        assert!(panel.contains("ENVIRONMENT"));
+        assert!(panel.contains("draw_diagnostics_summary_card"));
+        assert!(panel.contains("environment_diagnostics_card"));
+        assert!(panel.contains("content_region_available_width"));
+        assert!(panel.contains("summary_cards_stacked"));
+        assert!(source.contains("fn environment_runtime_label"));
+        assert!(source.contains("fn environment_runtime_card_detail"));
+
+        let frame_panel = source
+            .split_once("\nfn draw_frame_pacing_panel(")
+            .map(|(_, tail)| tail)
+            .and_then(|tail| tail.split_once("\nfn draw_diagnostics_metric_card("))
+            .map(|(body, _)| body)
+            .expect("frame-pacing panel");
+        assert!(frame_panel.contains("TARGET DELIVERY"));
+
+        let details_panel = source
+            .split_once("\nfn draw_system_diagnostics_details(")
+            .map(|(_, tail)| tail)
+            .and_then(|tail| tail.split_once("\nfn draw_gpu_details("))
+            .map(|(body, _)| body)
+            .expect("system technical details");
+        assert!(details_panel.contains("draw_environment_details"));
+        assert!(details_panel.contains("draw_gpu_details"));
+    }
+
+    #[test]
+    fn compatibility_runtime_summary_separates_proton_wine_and_windows() {
+        use libpsycho::hardware::{CompatibilityRuntime, RuntimeInfo, WineInfo};
+
+        let proton = RuntimeInfo {
+            compatibility: CompatibilityRuntime::Proton,
+            wine: Some(WineInfo {
+                version: Some("10.0".to_owned()),
+                build_id: Some("proton-build".to_owned()),
+                host_system: Some("Linux".to_owned()),
+                host_release: Some("6.14".to_owned()),
+            }),
+            steam_compat_data_path_present: true,
+            steam_app_id: Some("22380".to_owned()),
+        };
+        assert_eq!(super::environment_runtime_label(&proton), "Proton");
+        assert_eq!(
+            super::environment_runtime_card_detail(&proton),
+            "Wine 10.0 // Linux 6.14 // Steam app 22380"
+        );
+
+        let wine = RuntimeInfo {
+            compatibility: CompatibilityRuntime::Wine,
+            wine: Some(WineInfo {
+                version: None,
+                build_id: None,
+                host_system: Some("FreeBSD".to_owned()),
+                host_release: None,
+            }),
+            steam_compat_data_path_present: false,
+            steam_app_id: None,
+        };
+        assert_eq!(super::environment_runtime_label(&wine), "Wine");
+        assert_eq!(
+            super::environment_runtime_card_detail(&wine),
+            "Wine version unavailable // FreeBSD"
+        );
+
+        let windows = RuntimeInfo {
+            compatibility: CompatibilityRuntime::NativeWindows,
+            wine: None,
+            steam_compat_data_path_present: false,
+            steam_app_id: None,
+        };
+        assert_eq!(super::environment_runtime_label(&windows), "Native Windows");
+        assert_eq!(
+            super::environment_runtime_card_detail(&windows),
+            "No Wine compatibility layer detected"
+        );
+    }
+
+    #[test]
     fn every_effect_badge_uses_one_separator_space() {
         for (status, expected) in [
             ("ON", "[ON] Effect Name##effect"),
@@ -5543,6 +6698,12 @@ struct EngineFeatureStatus {
     depth: backend::DepthResolveStatus,
 }
 
+/// Owned active-device profile retained for the lifetime of one D3D9 device.
+///
+/// Failures are cached as displayable text as well, preventing an unavailable
+/// compatibility-layer query from being retried every diagnostics frame.
+type GpuDiagnosticsProfile = Result<libpsycho::hardware::D3d9DeviceProfile, String>;
+
 impl Default for MenuSelection {
     fn default() -> Self {
         Self::General
@@ -5676,6 +6837,7 @@ fn draw_shader_menu(
     sidebar_width: &mut f32,
     frame_pacing: &FramePacingSnapshot,
     feature_status: EngineFeatureStatus,
+    gpu_diagnostics: Option<&GpuDiagnosticsProfile>,
     persistence: MenuPersistenceView<'_>,
 ) -> MenuFrameResult {
     ui.set_next_window_centered(
@@ -5733,8 +6895,14 @@ fn draw_shader_menu(
         if diagnostics.is_visible() {
             *active_tab = MenuTab::Diagnostics;
             result.diagnostics_visible = true;
-            result.changed |=
-                draw_diagnostics_tab(ui, menu_config, sources, frame_pacing, feature_status);
+            result.changed |= draw_diagnostics_tab(
+                ui,
+                menu_config,
+                sources,
+                frame_pacing,
+                feature_status,
+                gpu_diagnostics,
+            );
         }
     }
 
@@ -6356,6 +7524,7 @@ fn draw_diagnostics_tab(
     sources: &[ScreenShaderSource],
     frame_pacing: &FramePacingSnapshot,
     feature_status: EngineFeatureStatus,
+    gpu_diagnostics: Option<&GpuDiagnosticsProfile>,
 ) -> bool {
     let diagnostics = ui.child(&cstring("graphics_diagnostics"), 0.0, 0.0, false);
     if !diagnostics.is_visible() {
@@ -6370,7 +7539,20 @@ fn draw_diagnostics_tab(
         ),
     );
 
+    // system_profile() performs its bounded process query once and then returns
+    // a lock-free static reference. Keep even that first query behind the
+    // visible Diagnostics child so ordinary gameplay and other menu tabs never
+    // pay for environment presentation.
+    let system_profile = libpsycho::hardware::system_profile();
+    let environment = &system_profile.runtime;
+    let environment_issue = system_profile
+        .issues
+        .iter()
+        .find(|issue| issue.component == libpsycho::hardware::HardwareComponent::Runtime)
+        .map(|issue| issue.message.as_str());
+    draw_system_at_a_glance(ui, gpu_diagnostics, environment, environment_issue);
     draw_frame_pacing_panel(ui, frame_pacing);
+    draw_system_diagnostics_details(ui, gpu_diagnostics, environment, environment_issue);
     let mut changed = false;
     draw_render_stack_diagnostics(ui, sources);
     draw_depth_diagnostics(ui, menu_config.depth_provider, feature_status.depth);
@@ -6379,6 +7561,538 @@ fn draw_diagnostics_tab(
     draw_local_lights_diagnostics(ui, sources);
     draw_world_pipeline_diagnostics(ui);
     changed
+}
+
+fn draw_system_at_a_glance(
+    ui: &mut psycho_imgui::Ui<'_>,
+    diagnostics: Option<&GpuDiagnosticsProfile>,
+    environment: &libpsycho::hardware::RuntimeInfo,
+    environment_issue: Option<&str>,
+) {
+    ui.separator_text(&cstring("SYSTEM AT A GLANCE"));
+
+    let available_width = ui.content_region_available_width().max(1.0);
+    // Two cards read as one system summary on ordinary workbench widths. Stack
+    // them before either card becomes narrow enough to clip common GPU names
+    // or Wine version strings.
+    let summary_cards_stacked = available_width < 640.0;
+    let summary_card_width = if summary_cards_stacked {
+        available_width
+    } else {
+        (available_width - 8.0) / 2.0
+    };
+    let (gpu_name, gpu_detail, gpu_accent) = gpu_diagnostics_card(diagnostics);
+    draw_diagnostics_summary_card(
+        ui,
+        "system_gpu",
+        "ACTIVE GPU",
+        &gpu_name,
+        &gpu_detail,
+        gpu_accent,
+        summary_card_width,
+    );
+    if !summary_cards_stacked {
+        ui.same_line();
+    }
+    let (environment_name, environment_detail, environment_accent) =
+        environment_diagnostics_card(environment, environment_issue);
+    draw_diagnostics_summary_card(
+        ui,
+        "system_environment",
+        "ENVIRONMENT",
+        &environment_name,
+        &environment_detail,
+        environment_accent,
+        summary_card_width,
+    );
+}
+
+fn gpu_diagnostics_card(diagnostics: Option<&GpuDiagnosticsProfile>) -> (String, String, [f32; 4]) {
+    let Some(diagnostics) = diagnostics else {
+        return (
+            "Detecting...".to_owned(),
+            "Waiting for the active D3D9 device profile".to_owned(),
+            MENU_MUTED_TEXT,
+        );
+    };
+    let profile = match diagnostics {
+        Ok(profile) => profile,
+        Err(error) => {
+            return (
+                "Unavailable".to_owned(),
+                format!("Active GPU detection failed: {error}"),
+                MENU_ERROR_TEXT,
+            );
+        }
+    };
+
+    match profile.active_gpu_identity() {
+        libpsycho::hardware::D3d9ActiveGpuIdentity::DxvkPhysicalDevice(identity) => (
+            identity.description.clone(),
+            format!(
+                "DXVK Vulkan // {} // VEN_{:04X} DEV_{:04X}",
+                gpu_vulkan_device_kind_label(identity.device_type),
+                identity.vendor_id,
+                identity.device_id,
+            ),
+            MENU_GOOD_TEXT,
+        ),
+        libpsycho::hardware::D3d9ActiveGpuIdentity::Direct3D9Adapter(identity) => (
+            identity.description.clone(),
+            format!(
+                "Direct3D 9 // VEN_{:04X} DEV_{:04X} // {}",
+                identity.vendor_id,
+                identity.device_id,
+                gpu_device_kind_label(profile.device_kind),
+            ),
+            MENU_GOOD_TEXT,
+        ),
+    }
+}
+
+fn draw_system_diagnostics_details(
+    ui: &mut psycho_imgui::Ui<'_>,
+    diagnostics: Option<&GpuDiagnosticsProfile>,
+    environment: &libpsycho::hardware::RuntimeInfo,
+    environment_issue: Option<&str>,
+) {
+    draw_environment_details(ui, environment, environment_issue);
+    draw_gpu_details(ui, diagnostics);
+}
+
+fn draw_gpu_details(ui: &mut psycho_imgui::Ui<'_>, diagnostics: Option<&GpuDiagnosticsProfile>) {
+    ui.separator_text(&cstring("GRAPHICS DEVICE"));
+    let Some(diagnostics) = diagnostics else {
+        ui.text_colored(
+            MENU_MUTED_TEXT,
+            &cstring("Waiting for the active D3D9 device profile..."),
+        );
+        return;
+    };
+    let profile = match diagnostics {
+        Ok(profile) => profile,
+        Err(error) => {
+            ui.text_colored(
+                MENU_ERROR_TEXT,
+                &cstring(format!("Active GPU detection unavailable: {error}")),
+            );
+            return;
+        }
+    };
+
+    match profile.active_gpu_identity() {
+        libpsycho::hardware::D3d9ActiveGpuIdentity::DxvkPhysicalDevice(identity) => {
+            ui.label_value(
+                &cstring("Active renderer"),
+                &cstring("DXVK Vulkan physical device"),
+                MENU_GOOD_TEXT,
+            );
+            ui.label_value(
+                &cstring("Physical PCI ID"),
+                &cstring(format!(
+                    "VEN_{:04X} DEV_{:04X}",
+                    identity.vendor_id, identity.device_id
+                )),
+                MENU_GOOD_TEXT,
+            );
+            ui.label_value(
+                &cstring("Device class"),
+                &cstring(gpu_vulkan_device_kind_label(identity.device_type)),
+                MENU_MUTED_TEXT,
+            );
+            ui.label_value(
+                &cstring("Vulkan API"),
+                &cstring(format_vulkan_api_version(identity.api_version)),
+                MENU_MUTED_TEXT,
+            );
+            ui.label_value(
+                &cstring("Vulkan driver version"),
+                &cstring(format!("0x{:08X}", identity.driver_version)),
+                MENU_MUTED_TEXT,
+            );
+            ui.label_value(
+                &cstring("Device UUID"),
+                &cstring(format!("{:032X}", identity.device_uuid)),
+                MENU_MUTED_TEXT,
+            );
+            if !identity.driver_name.is_empty() || !identity.driver_info.is_empty() {
+                ui.text_colored(MENU_MUTED_TEXT, &cstring("VULKAN DRIVER"));
+                ui.text_wrapped(&cstring(format!(
+                    "{}{}{}",
+                    identity.driver_name,
+                    if identity.driver_name.is_empty() || identity.driver_info.is_empty() {
+                        ""
+                    } else {
+                        " // "
+                    },
+                    identity.driver_info,
+                )));
+            }
+
+            // DXVK keeps D3D9's feature contract coherent by presenting its
+            // compatibility identity to the game. Fallout New Vegas explicitly
+            // requests the AMD fallback on NVIDIA, so retain that second identity
+            // as an explanation rather than mislabeling it as the active GPU.
+            draw_wrapped_diagnostic_value(
+                ui,
+                "D3D9 COMPATIBILITY IDENTITY",
+                MENU_WARN_TEXT,
+                &format!(
+                    "{} // VEN_{:04X} DEV_{:04X}",
+                    profile.identity.description,
+                    profile.identity.vendor_id,
+                    profile.identity.device_id,
+                ),
+            );
+        }
+        libpsycho::hardware::D3d9ActiveGpuIdentity::Direct3D9Adapter(identity) => {
+            ui.label_value(
+                &cstring("Active renderer"),
+                &cstring("Native D3D9 adapter"),
+                MENU_GOOD_TEXT,
+            );
+            draw_wrapped_diagnostic_value(
+                ui,
+                "D3D9 ADAPTER IDENTITY",
+                MENU_MUTED_TEXT,
+                &format!(
+                    "{} // VEN_{:04X} DEV_{:04X} SUBSYS_{:08X} REV_{:02X}",
+                    identity.description,
+                    identity.vendor_id,
+                    identity.device_id,
+                    identity.subsystem_id,
+                    identity.revision,
+                ),
+            );
+        }
+    }
+    ui.label_value(
+        &cstring("D3D9 device"),
+        &cstring(format!(
+            "adapter {} // {}",
+            profile.adapter_ordinal,
+            gpu_device_kind_label(profile.device_kind),
+        )),
+        MENU_MUTED_TEXT,
+    );
+    ui.label_value(
+        &cstring("Behavior flags"),
+        &cstring(format!("0x{:08X}", profile.behavior_flags)),
+        MENU_MUTED_TEXT,
+    );
+    draw_wrapped_diagnostic_value(
+        ui,
+        "D3D9 DRIVER",
+        MENU_MUTED_TEXT,
+        &format!(
+            "{} // {} // version 0x{:016X}",
+            profile.identity.driver,
+            profile.identity.device_name,
+            profile.identity.driver_version as u64,
+        ),
+    );
+    draw_wrapped_diagnostic_value(
+        ui,
+        "D3D9 DEVICE IDENTIFIER",
+        MENU_MUTED_TEXT,
+        &format!(
+            "{:032X} // WHQL level {}",
+            profile.identity.device_identifier, profile.identity.whql_level,
+        ),
+    );
+
+    let caps = &profile.capabilities;
+    ui.separator_text(&cstring("D3D9 CAPABILITIES"));
+    ui.label_value(
+        &cstring("Shader model"),
+        &cstring(format!(
+            "VS {}.{} // PS {}.{}",
+            caps.vertex_shader_model.major,
+            caps.vertex_shader_model.minor,
+            caps.pixel_shader_model.major,
+            caps.pixel_shader_model.minor,
+        )),
+        MENU_GOOD_TEXT,
+    );
+    ui.label_value(
+        &cstring("Texture limits"),
+        &cstring(format!(
+            "{}x{} // volume {} // anisotropy {}",
+            caps.max_texture_width,
+            caps.max_texture_height,
+            caps.max_volume_extent,
+            caps.max_anisotropy,
+        )),
+        MENU_MUTED_TEXT,
+    );
+    ui.label_value(
+        &cstring("Render pipeline"),
+        &cstring(format!(
+            "MRT {} // samplers {} // blend stages {}",
+            caps.max_simultaneous_render_targets,
+            caps.max_simultaneous_textures,
+            caps.max_texture_blend_stages,
+        )),
+        MENU_MUTED_TEXT,
+    );
+    ui.label_value(
+        &cstring("Vertex pipeline"),
+        &cstring(format!(
+            "streams {} // stride {} // constants {}",
+            caps.max_vertex_streams,
+            caps.max_vertex_stream_stride,
+            caps.max_vertex_shader_constants,
+        )),
+        MENU_MUTED_TEXT,
+    );
+
+    let features = profile.capabilities.features;
+    draw_wrapped_diagnostic_value(
+        ui,
+        "FEATURE SUPPORT",
+        MENU_MUTED_TEXT,
+        &format!(
+            "HW T&L={} // pure={} // cube={} // volume={} // POW2 required={} // conditional NPOT={} // anisotropic min/mag={}/{} // independent MRT={} // VTF={}",
+            gpu_support_label(
+                features
+                    .contains(libpsycho::hardware::D3d9FeatureFlags::HARDWARE_TRANSFORM_AND_LIGHT)
+            ),
+            gpu_support_label(
+                features.contains(libpsycho::hardware::D3d9FeatureFlags::PURE_DEVICE)
+            ),
+            gpu_support_label(
+                features.contains(libpsycho::hardware::D3d9FeatureFlags::CUBE_TEXTURES)
+            ),
+            gpu_support_label(
+                features.contains(libpsycho::hardware::D3d9FeatureFlags::VOLUME_TEXTURES)
+            ),
+            gpu_support_label(
+                features.contains(libpsycho::hardware::D3d9FeatureFlags::POW2_TEXTURES_REQUIRED)
+            ),
+            gpu_support_label(
+                features.contains(libpsycho::hardware::D3d9FeatureFlags::CONDITIONAL_NPOT_TEXTURES)
+            ),
+            gpu_support_label(
+                features.contains(libpsycho::hardware::D3d9FeatureFlags::ANISOTROPIC_MIN_FILTER)
+            ),
+            gpu_support_label(
+                features.contains(libpsycho::hardware::D3d9FeatureFlags::ANISOTROPIC_MAG_FILTER)
+            ),
+            gpu_support_label(
+                features
+                    .contains(libpsycho::hardware::D3d9FeatureFlags::INDEPENDENT_MRT_BIT_DEPTHS)
+            ),
+            gpu_support_label(
+                features.contains(libpsycho::hardware::D3d9FeatureFlags::VERTEX_TEXTURE_FETCH)
+            ),
+        ),
+    );
+
+    let formats = profile.format_features;
+    draw_wrapped_diagnostic_value(
+        ui,
+        "FORMAT SUPPORT",
+        MENU_MUTED_TEXT,
+        &format!(
+            "RESZ={} // INTZ={} // FP16 RT={} // FP16 blend={} // FP32 RT={} // sRGB read/write={}/{}",
+            gpu_support_label(formats.contains(libpsycho::hardware::D3d9FormatFeatures::RESZ)),
+            gpu_support_label(formats.contains(libpsycho::hardware::D3d9FormatFeatures::INTZ)),
+            gpu_support_label(
+                formats.contains(libpsycho::hardware::D3d9FormatFeatures::FP16_RENDER_TARGET)
+            ),
+            gpu_support_label(
+                formats.contains(libpsycho::hardware::D3d9FormatFeatures::FP16_BLENDABLE)
+            ),
+            gpu_support_label(
+                formats.contains(libpsycho::hardware::D3d9FormatFeatures::FP32_RENDER_TARGET)
+            ),
+            gpu_support_label(
+                formats.contains(libpsycho::hardware::D3d9FormatFeatures::SRGB_TEXTURE_READ)
+            ),
+            gpu_support_label(
+                formats.contains(libpsycho::hardware::D3d9FormatFeatures::SRGB_RENDER_TARGET_WRITE)
+            ),
+        ),
+    );
+    ui.text_wrapped(&cstring(format!(
+        "Available texture memory: {}. This is the driver's profile-time estimate, not physical VRAM.",
+        format_gpu_texture_memory(profile.approximate_available_texture_memory_bytes),
+    )));
+}
+
+fn environment_runtime_label(runtime: &libpsycho::hardware::RuntimeInfo) -> &'static str {
+    match runtime.compatibility {
+        libpsycho::hardware::CompatibilityRuntime::NativeWindows => "Native Windows",
+        libpsycho::hardware::CompatibilityRuntime::Wine => "Wine",
+        libpsycho::hardware::CompatibilityRuntime::Proton => "Proton",
+    }
+}
+
+fn environment_diagnostics_card(
+    runtime: &libpsycho::hardware::RuntimeInfo,
+    issue: Option<&str>,
+) -> (String, String, [f32; 4]) {
+    if let Some(issue) = issue {
+        return (
+            "Detection incomplete".to_owned(),
+            issue.to_owned(),
+            MENU_ERROR_TEXT,
+        );
+    }
+    (
+        environment_runtime_label(runtime).to_owned(),
+        environment_runtime_card_detail(runtime),
+        MENU_ACCENT_TEXT,
+    )
+}
+
+fn environment_runtime_card_detail(runtime: &libpsycho::hardware::RuntimeInfo) -> String {
+    if runtime.compatibility == libpsycho::hardware::CompatibilityRuntime::NativeWindows {
+        return "No Wine compatibility layer detected".to_owned();
+    }
+
+    let mut parts = Vec::with_capacity(3);
+    parts.push(
+        runtime
+            .wine
+            .as_ref()
+            .and_then(|wine| wine.version.as_deref())
+            .map_or_else(
+                || "Wine version unavailable".to_owned(),
+                |version| format!("Wine {version}"),
+            ),
+    );
+    if let Some(host) = environment_host_label(runtime) {
+        parts.push(host);
+    }
+    if let Some(app_id) = runtime.steam_app_id.as_deref() {
+        parts.push(format!("Steam app {app_id}"));
+    }
+    parts.join(" // ")
+}
+
+fn environment_host_label(runtime: &libpsycho::hardware::RuntimeInfo) -> Option<String> {
+    let wine = runtime.wine.as_ref()?;
+    match (wine.host_system.as_deref(), wine.host_release.as_deref()) {
+        (Some(system), Some(release)) => Some(format!("{system} {release}")),
+        (Some(system), None) => Some(system.to_owned()),
+        (None, Some(release)) => Some(release.to_owned()),
+        (None, None) => None,
+    }
+}
+
+fn draw_environment_details(
+    ui: &mut psycho_imgui::Ui<'_>,
+    runtime: &libpsycho::hardware::RuntimeInfo,
+    issue: Option<&str>,
+) {
+    ui.separator_text(&cstring("ENVIRONMENT DETAILS"));
+    if let Some(issue) = issue {
+        draw_wrapped_diagnostic_value(ui, "DETECTION INCOMPLETE", MENU_ERROR_TEXT, issue);
+    }
+    ui.label_value(
+        &cstring(if issue.is_some() {
+            "Fallback classification"
+        } else {
+            "Compatibility runtime"
+        }),
+        &cstring(environment_runtime_label(runtime)),
+        MENU_ACCENT_TEXT,
+    );
+    if let Some(wine) = runtime.wine.as_ref() {
+        ui.label_value(
+            &cstring("Wine version"),
+            &cstring(wine.version.as_deref().unwrap_or("Unavailable")),
+            MENU_MUTED_TEXT,
+        );
+        if let Some(build_id) = wine.build_id.as_deref() {
+            draw_wrapped_diagnostic_value(ui, "WINE BUILD", MENU_MUTED_TEXT, build_id);
+        }
+        if let Some(host) = environment_host_label(runtime) {
+            ui.label_value(&cstring("Host system"), &cstring(host), MENU_MUTED_TEXT);
+        }
+    } else {
+        ui.text_colored(
+            MENU_MUTED_TEXT,
+            &cstring("Wine runtime exports were not detected in this process."),
+        );
+    }
+    ui.label_value(
+        &cstring("Steam compatibility prefix"),
+        &cstring(if runtime.steam_compat_data_path_present {
+            "Detected"
+        } else {
+            "Not detected"
+        }),
+        MENU_MUTED_TEXT,
+    );
+    if let Some(app_id) = runtime.steam_app_id.as_deref() {
+        ui.label_value(
+            &cstring("Steam application"),
+            &cstring(app_id),
+            MENU_MUTED_TEXT,
+        );
+    }
+}
+
+fn draw_wrapped_diagnostic_value(
+    ui: &mut psycho_imgui::Ui<'_>,
+    label: &str,
+    label_color: [f32; 4],
+    value: &str,
+) {
+    ui.text_colored(label_color, &cstring(label));
+    ui.text_wrapped(&cstring(value));
+}
+
+fn gpu_device_kind_label(kind: libpsycho::hardware::D3d9DeviceKind) -> String {
+    match kind {
+        libpsycho::hardware::D3d9DeviceKind::Hardware => "hardware (HAL)".to_owned(),
+        libpsycho::hardware::D3d9DeviceKind::Reference => "reference rasterizer".to_owned(),
+        libpsycho::hardware::D3d9DeviceKind::Software => "software rasterizer".to_owned(),
+        libpsycho::hardware::D3d9DeviceKind::NullReference => {
+            "null reference rasterizer".to_owned()
+        }
+        libpsycho::hardware::D3d9DeviceKind::Unknown(raw) => {
+            format!("unknown device type {raw}")
+        }
+    }
+}
+
+fn gpu_vulkan_device_kind_label(kind: libpsycho::hardware::VulkanDeviceKind) -> String {
+    match kind {
+        libpsycho::hardware::VulkanDeviceKind::Other => "other Vulkan device".to_owned(),
+        libpsycho::hardware::VulkanDeviceKind::Integrated => "integrated GPU".to_owned(),
+        libpsycho::hardware::VulkanDeviceKind::Discrete => "discrete GPU".to_owned(),
+        libpsycho::hardware::VulkanDeviceKind::Virtual => "virtual GPU".to_owned(),
+        libpsycho::hardware::VulkanDeviceKind::Cpu => "CPU renderer".to_owned(),
+        libpsycho::hardware::VulkanDeviceKind::Unknown(raw) => {
+            format!("unknown Vulkan device type {raw}")
+        }
+    }
+}
+
+fn format_vulkan_api_version(version: u32) -> String {
+    let variant = version >> 29;
+    let major = (version >> 22) & 0x7f;
+    let minor = (version >> 12) & 0x3ff;
+    let patch = version & 0xfff;
+    if variant == 0 {
+        format!("{major}.{minor}.{patch}")
+    } else {
+        format!("{major}.{minor}.{patch} (variant {variant})")
+    }
+}
+
+const fn gpu_support_label(supported: bool) -> &'static str {
+    if supported { "yes" } else { "no" }
+}
+
+fn format_gpu_texture_memory(bytes: u32) -> String {
+    if bytes == 0 {
+        return "unavailable".to_owned();
+    }
+    format!("{:.0} MiB", f64::from(bytes) / (1024.0 * 1024.0))
 }
 
 fn draw_render_stack_diagnostics(ui: &mut psycho_imgui::Ui<'_>, sources: &[ScreenShaderSource]) {
@@ -6419,7 +8133,8 @@ fn draw_depth_diagnostics(
     ui.separator_text(&cstring("DEPTH"));
     let configured = match configured_provider {
         DepthProviderConfig::None => "Disabled",
-        DepthProviderConfig::FalloutNewVegas => "Fallout New Vegas native depth",
+        DepthProviderConfig::FalloutNewVegas => "OMV exclusive resolver",
+        DepthProviderConfig::DepthResolve => "Depth Resolve shared world depth",
     };
     ui.text_colored(
         MENU_MUTED_TEXT,
@@ -6435,6 +8150,29 @@ fn draw_depth_diagnostics(
     if status.route == backend::DepthResolveRouteStatus::Unavailable {
         ui.text_wrapped(&cstring(status.reason));
     }
+    let markers = backend::provider_marker_counters();
+    ui.text_colored(
+        MENU_MUTED_TEXT,
+        &cstring(format!(
+            "Depth hooks: stages={}, RESZ={}",
+            crate::fnv_render::depth_stage_hooks_status_label(),
+            if crate::hooks::resz_interposition_active() {
+                "attached"
+            } else {
+                "detached"
+            },
+        )),
+    );
+    ui.text_colored(
+        MENU_MUTED_TEXT,
+        &cstring(format!(
+            "Depth counters: OMV markers={}, external markers={}, external suppressed={}, external snapshots={}",
+            markers.omv_allowed,
+            markers.external_allowed,
+            markers.external_suppressed,
+            markers.external_publications,
+        )),
+    );
 }
 
 fn draw_native_sky_diagnostics(ui: &mut psycho_imgui::Ui<'_>, status: sky::NativeSkyStatus) {
@@ -6658,10 +8396,36 @@ fn draw_diagnostics_metric_card(
     accent: [f32; 4],
     width: f32,
 ) {
+    draw_diagnostics_card(ui, id, title, value, detail, accent, width, 94.0);
+}
+
+fn draw_diagnostics_summary_card(
+    ui: &mut psycho_imgui::Ui<'_>,
+    id: &str,
+    title: &str,
+    value: &str,
+    detail: &str,
+    accent: [f32; 4],
+    width: f32,
+) {
+    draw_diagnostics_card(ui, id, title, value, detail, accent, width, 112.0);
+}
+
+#[allow(clippy::too_many_arguments)]
+fn draw_diagnostics_card(
+    ui: &mut psycho_imgui::Ui<'_>,
+    id: &str,
+    title: &str,
+    value: &str,
+    detail: &str,
+    accent: [f32; 4],
+    width: f32,
+    height: f32,
+) {
     let card = ui.child(
         &cstring(format!("diagnostics_card_{id}")),
         width,
-        94.0,
+        height,
         true,
     );
     if card.is_visible() {
@@ -6875,7 +8639,8 @@ fn draw_depth_provider_config(
 ) -> bool {
     let provider_name = match depth_provider {
         DepthProviderConfig::None => "Disabled",
-        DepthProviderConfig::FalloutNewVegas => "Fallout New Vegas",
+        DepthProviderConfig::FalloutNewVegas => "OMV",
+        DepthProviderConfig::DepthResolve => "Depth Resolve",
     };
     ui.separator_text(&cstring("DEPTH SOURCE"));
     ui.text_colored(
@@ -6883,7 +8648,7 @@ fn draw_depth_provider_config(
         &cstring(format!("Current: {provider_name}")),
     );
     if status.route == backend::DepthResolveRouteStatus::Unavailable
-        && *depth_provider == DepthProviderConfig::FalloutNewVegas
+        && *depth_provider != DepthProviderConfig::None
     {
         ui.text_colored(
             MENU_ERROR_TEXT,
@@ -6898,9 +8663,15 @@ fn draw_depth_provider_config(
         changed = true;
     }
     ui.same_line();
-    let fnv = cstring("Fallout New Vegas##global.depth_provider.fnv");
+    let fnv = cstring("OMV##global.depth_provider.fnv");
     if ui.button(&fnv) && *depth_provider != DepthProviderConfig::FalloutNewVegas {
         *depth_provider = DepthProviderConfig::FalloutNewVegas;
+        changed = true;
+    }
+    ui.same_line();
+    let external = cstring("Depth Resolve##global.depth_provider.depth_resolve");
+    if ui.button(&external) && *depth_provider != DepthProviderConfig::DepthResolve {
+        *depth_provider = DepthProviderConfig::DepthResolve;
         changed = true;
     }
 

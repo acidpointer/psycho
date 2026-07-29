@@ -7,6 +7,7 @@ pub(crate) struct GraphicsCompatibility {
     pub(crate) vanilla_plus_terrain: bool,
     pub(crate) fallout_shader_loader: bool,
     pub(crate) lod_flicker_fix: bool,
+    pub(crate) depth_resolve: bool,
 }
 
 impl GraphicsCompatibility {
@@ -15,6 +16,7 @@ impl GraphicsCompatibility {
             vanilla_plus_terrain: module_loaded("VanillaPlusTerrain.dll"),
             fallout_shader_loader: module_loaded("Fallout Shader Loader.dll"),
             lod_flicker_fix: module_loaded("LODFlickerFix.dll"),
+            depth_resolve: module_loaded("DepthResolve.dll"),
         }
     }
 
@@ -24,10 +26,11 @@ impl GraphicsCompatibility {
 
     pub(crate) fn log_report(self) {
         log::info!(
-            "[COMPAT] Modules: VanillaPlusTerrain={}, FalloutShaderLoader={}, LODFlickerFix={}",
+            "[COMPAT] Modules: VanillaPlusTerrain={}, FalloutShaderLoader={}, LODFlickerFix={}, DepthResolve={}",
             present(self.vanilla_plus_terrain),
             present(self.fallout_shader_loader),
             present(self.lod_flicker_fix),
+            present(self.depth_resolve),
         );
 
         if self.has_vpt_terrain_contract() {

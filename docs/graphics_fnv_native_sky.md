@@ -30,6 +30,15 @@ device. The replacement is bound immediately before the native draw and the
 exact native pair is restored at the draw boundary. No engine shader wrapper is
 rewritten.
 
+The constants and DP/DIP hooks are prepared for live re-enable but physically
+attached only while native sky (or another native replacement requiring the
+shared draw boundary) is enabled. Disabling native sky first restores any
+draw-scoped replacement pair, releases sky D3D shader objects and pending
+state, restores the original `SkyShader::UpdateConstants` entry, and then lets
+the shared hook owner detach DP/DIP when no PBR consumer remains. Compiled
+bytecode is retained and device objects are recreated incrementally after
+re-enable.
+
 Frame colors and sun values come from the copied `NativeSkyFrame` backend
 snapshot. OMV now linearizes colors, evaluates sun/sunset values, and prepares
 the common `c21..c31` payload once per frame rather than once per sky object.

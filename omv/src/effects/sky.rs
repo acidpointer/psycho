@@ -1,4 +1,9 @@
 //! Draw-scoped replacement for the native Fallout NV sky shader family.
+//!
+//! The engine constants hook identifies a pending sky draw and the optional
+//! device DP/DIP hooks bind the replacement for exactly that draw. Disabling
+//! native sky physically restores the engine entry and releases its D3D shader
+//! objects; compiled bytecode remains process-owned for a cheap later rebuild.
 
 use std::{
     ffi::c_void,
@@ -340,7 +345,8 @@ impl ResourceSlot {
 
 pub(crate) fn install(settings: NativeSkySettings) -> Result<()> {
     configure_runtime_options(settings);
-    if INSTALLED.load(Ordering::Acquire) {
+    if UPDATE_HOOK.is_initialized() {
+        set_engine_interposition_active(settings.enabled);
         return Ok(());
     }
 
@@ -361,24 +367,58 @@ pub(crate) fn install(settings: NativeSkySettings) -> Result<()> {
         log::warn!("[SKY] Native sky hook initialization failed: {err}");
         return Ok(());
     }
-    if let Err(err) = UPDATE_HOOK.enable() {
-        log::warn!("[SKY] Native sky hook enable failed: {err}");
-        return Ok(());
-    }
-    INSTALLED.store(true, Ordering::Release);
+    set_engine_interposition_active(settings.enabled);
     if settings.enabled {
         start_compile_worker();
     }
-    log::info!("[SKY] Native NVR-style sky hook installed");
+    log::info!("[SKY] Native NVR-style sky hook prepared");
     Ok(())
 }
 
+/// Apply live native-sky settings at the Present configuration boundary.
 pub(crate) fn configure_runtime_options(settings: NativeSkySettings) {
+    let was_enabled = ENABLED.swap(settings.enabled, Ordering::AcqRel);
     *SETTINGS.lock() = settings;
     FRAME_EPOCH.fetch_add(1, Ordering::AcqRel);
-    ENABLED.store(settings.enabled, Ordering::Release);
-    if settings.enabled && INSTALLED.load(Ordering::Acquire) {
+    if settings.enabled {
+        if UPDATE_HOOK.is_initialized() {
+            set_engine_interposition_active(true);
+        }
         start_compile_worker();
+    } else if was_enabled || UPDATE_HOOK.is_enabled() {
+        // Restore any replacement pair before removing the hook that owns the
+        // pending-draw contract. Device resources are recreated lazily when
+        // the user enables the feature again.
+        reset_runtime_state();
+        set_engine_interposition_active(false);
+    }
+}
+
+fn set_engine_interposition_active(active: bool) {
+    if !UPDATE_HOOK.is_initialized() || UPDATE_HOOK.is_enabled() == active {
+        INSTALLED.store(active && UPDATE_HOOK.is_initialized(), Ordering::Release);
+        return;
+    }
+    let result = if active {
+        UPDATE_HOOK.enable()
+    } else {
+        UPDATE_HOOK.disable()
+    };
+    match result {
+        Ok(()) => {
+            INSTALLED.store(active, Ordering::Release);
+            log::info!(
+                "[SKY] Engine interposition physically {}",
+                if active { "attached" } else { "detached" }
+            );
+        }
+        Err(err) => {
+            INSTALLED.store(UPDATE_HOOK.is_enabled(), Ordering::Release);
+            log::warn!(
+                "[SKY] Could not {} engine interposition: {err}",
+                if active { "attach" } else { "detach" }
+            );
+        }
     }
 }
 

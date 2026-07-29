@@ -2,9 +2,12 @@
 //!
 //! `omv.toml` remains the working configuration. Presets are versioned visual
 //! snapshots that are parsed and migrated before they can replace the visual
-//! portion of that working configuration. Explicit version publication
-//! atomically updates one preset file; activation and Current Look autosaves
-//! never mutate preset files.
+//! portion of that working configuration. Machine-bound controls, including
+//! the depth provider, menu key, scan interval, and diagnostics, are
+//! intentionally absent from `PresetVisualSettingsV1`; applying a shared
+//! preset must never replace them. Explicit version publication atomically
+//! updates one preset file; activation and Current Look autosaves never mutate
+//! preset files.
 
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -2020,6 +2023,7 @@ mod tests {
     fn local_controls_survive_visual_preset_application() {
         let preset = builtin_default_preset().unwrap();
         let mut menu = GraphicsMenuConfig::default();
+        menu.depth_provider = crate::config::DepthProviderConfig::DepthResolve;
         menu.menu_toggle_key = 0x41;
         menu.shader_scan_interval_ms = 777;
         menu.debug_log = true;
@@ -2032,6 +2036,10 @@ mod tests {
         preset.apply(&mut menu, &mut sources, &catalog).unwrap();
         assert!(preset.matches_current(&menu, &sources, &catalog).unwrap());
         assert_eq!(menu.menu_toggle_key, 0x41);
+        assert_eq!(
+            menu.depth_provider,
+            crate::config::DepthProviderConfig::DepthResolve
+        );
         assert_eq!(menu.shader_scan_interval_ms, 777);
         assert!(menu.debug_log);
         assert!(menu.native_pbr.debug_log_draws);

@@ -2,8 +2,11 @@
 //!
 //! The active-device path starts from a borrowed `IDirect3DDevice9`, reads its
 //! creation parameters, and asks the owning `IDirect3D9` about that exact
-//! adapter ordinal and device type. This avoids the common but incorrect
-//! assumption that adapter zero describes the GPU rendering the game.
+//! adapter ordinal and device type. On DXVK, D3D9 adapter identity is only a
+//! compatibility identity: application profiles may replace NVIDIA with a
+//! synthetic AMD adapter. DXVK's device interop interface therefore supplies
+//! the authoritative physical Vulkan-device identity while D3D9 remains the
+//! authority for features exposed to the game.
 
 use bitflags::bitflags;
 use windows::Win32::Graphics::Direct3D9::{
@@ -18,7 +21,8 @@ use super::{HardwareError, HardwareResult};
 use crate::os::windows::directx9::{
     AdapterIdentifier9, D3DCAPS9, D3DDEVTYPE, D3DDEVTYPE_HAL, D3DDEVTYPE_NULLREF, D3DDEVTYPE_REF,
     D3DDEVTYPE_SW, D3DFMT_A8R8G8B8, D3DFMT_A16B16G16R16F, D3DFMT_INTZ, D3DFMT_R32F, D3DFMT_RESZ,
-    D3DRTYPE_SURFACE, D3DRTYPE_TEXTURE, Device9Ref, Direct3D9, create_direct3d9,
+    D3DRTYPE_SURFACE, D3DRTYPE_TEXTURE, Device9Ref, Direct3D9, DxvkPhysicalDeviceProperties9,
+    create_direct3d9,
 };
 
 /// Stable D3D9 adapter identity.
@@ -44,6 +48,60 @@ pub struct GpuIdentity {
     pub device_identifier: u128,
     /// WHQL level reported by D3D9.
     pub whql_level: u32,
+}
+
+/// Vulkan physical-device class reported by DXVK's active renderer.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum VulkanDeviceKind {
+    /// Device type was not classified by Vulkan.
+    Other,
+    /// Integrated graphics processor.
+    Integrated,
+    /// Discrete graphics processor.
+    Discrete,
+    /// Virtual graphics processor.
+    Virtual,
+    /// CPU Vulkan implementation.
+    Cpu,
+    /// Newer or vendor-specific raw `VkPhysicalDeviceType`.
+    Unknown(i32),
+}
+
+/// Physical Vulkan device selected by a DXVK-backed D3D9 device.
+///
+/// This identity is not affected by DXVK's `d3d9.hide*Gpu`,
+/// `d3d9.customVendorId`, or related D3D compatibility options.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DxvkPhysicalDeviceIdentity {
+    /// Vulkan physical-device name.
+    pub description: String,
+    /// PCI or platform vendor identifier reported by Vulkan.
+    pub vendor_id: u32,
+    /// PCI or platform device identifier reported by Vulkan.
+    pub device_id: u32,
+    /// Vulkan physical-device class.
+    pub device_type: VulkanDeviceKind,
+    /// Packed Vulkan API version supported by the device.
+    pub api_version: u32,
+    /// Vendor-specific packed Vulkan driver version.
+    pub driver_version: u32,
+    /// Vulkan device UUID encoded in network byte order.
+    ///
+    /// Zero means the optional Vulkan 1.1 properties query was unavailable.
+    pub device_uuid: u128,
+    /// Vulkan driver name, when exposed by the driver.
+    pub driver_name: String,
+    /// Vulkan driver information, when exposed by the driver.
+    pub driver_info: String,
+}
+
+/// Authoritative active-renderer identity for a D3D9 device profile.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum D3d9ActiveGpuIdentity<'a> {
+    /// Physical Vulkan device obtained from DXVK's live D3D9 device.
+    DxvkPhysicalDevice(&'a DxvkPhysicalDeviceIdentity),
+    /// Native D3D9 adapter identity when DXVK interop is absent.
+    Direct3D9Adapter(&'a GpuIdentity),
 }
 
 /// D3D9 device implementation selected at creation.
@@ -160,8 +218,14 @@ pub struct D3d9DeviceProfile {
     pub device_kind: D3d9DeviceKind,
     /// D3D9 behavior flags used at creation.
     pub behavior_flags: u32,
-    /// Adapter and driver identity.
+    /// Identity exposed to the application through D3D9.
+    ///
+    /// DXVK may intentionally spoof this value. Use
+    /// [`D3d9DeviceProfile::active_gpu_identity`] when identifying the physical
+    /// GPU that executes rendering work.
     pub identity: GpuIdentity,
+    /// Physical Vulkan identity when the live device exposes DXVK interop.
+    pub dxvk_physical_identity: Option<DxvkPhysicalDeviceIdentity>,
     /// Effective created-device limits and features.
     pub capabilities: D3d9Capabilities,
     /// Effective format support for the same adapter/device type.
@@ -171,6 +235,17 @@ pub struct D3d9DeviceProfile {
     /// This value is neither total dedicated VRAM nor a stable budget and may
     /// change between calls. It is retained only as the profile-time estimate.
     pub approximate_available_texture_memory_bytes: u32,
+}
+
+impl D3d9DeviceProfile {
+    /// Return the authoritative GPU identity for the live rendering device.
+    ///
+    /// A DXVK physical-device identity takes precedence over the D3D9
+    /// compatibility identity. Native D3D9 and other implementations fall back
+    /// to the adapter identity exposed by the device's owning D3D9 interface.
+    pub fn active_gpu_identity(&self) -> D3d9ActiveGpuIdentity<'_> {
+        active_gpu_identity(&self.identity, self.dxvk_physical_identity.as_ref())
+    }
 }
 
 /// Profile of one adapter exposed by a newly created D3D9 interface.
@@ -190,7 +265,9 @@ pub struct D3d9AdapterProfile {
 ///
 /// Call this on a thread allowed to query the host renderer. The function does
 /// not retain the borrowed device or cache a COM pointer. All identity and
-/// capability data is copied into owned Rust values before returning.
+/// capability data is copied into owned Rust values before returning. For a
+/// DXVK device, the profile records both its authoritative Vulkan physical
+/// identity and the potentially spoofed identity exposed through D3D9.
 pub fn d3d9_device_profile(device: &Device9Ref<'_>) -> HardwareResult<D3d9DeviceProfile> {
     let creation = device.creation_parameters().map_err(|error| {
         HardwareError::operation("IDirect3DDevice9::GetCreationParameters", error)
@@ -206,12 +283,17 @@ pub fn d3d9_device_profile(device: &Device9Ref<'_>) -> HardwareResult<D3d9Device
         .map_err(|error| HardwareError::operation("IDirect3DDevice9::GetDeviceCaps", error))?;
     let format_features =
         query_format_features(&d3d, creation.adapter_ordinal, creation.device_type)?;
+    let dxvk_physical_identity = device
+        .dxvk_physical_device_properties()
+        .map_err(|error| HardwareError::operation("DXVK physical GPU identity", error))?
+        .map(normalize_dxvk_identity);
 
     Ok(D3d9DeviceProfile {
         adapter_ordinal: creation.adapter_ordinal,
         device_kind: device_kind(creation.device_type),
         behavior_flags: creation.behavior_flags,
         identity: normalize_identity(identifier),
+        dxvk_physical_identity,
         capabilities: normalize_caps(&caps),
         format_features,
         approximate_available_texture_memory_bytes: device.available_texture_mem(),
@@ -397,6 +479,43 @@ fn normalize_identity(identifier: AdapterIdentifier9) -> GpuIdentity {
     }
 }
 
+fn normalize_dxvk_identity(
+    properties: DxvkPhysicalDeviceProperties9,
+) -> DxvkPhysicalDeviceIdentity {
+    DxvkPhysicalDeviceIdentity {
+        description: properties.description,
+        vendor_id: properties.vendor_id,
+        device_id: properties.device_id,
+        device_type: vulkan_device_kind(properties.device_type),
+        api_version: properties.api_version,
+        driver_version: properties.driver_version,
+        device_uuid: properties.device_uuid,
+        driver_name: properties.driver_name,
+        driver_info: properties.driver_info,
+    }
+}
+
+fn active_gpu_identity<'a>(
+    d3d9_identity: &'a GpuIdentity,
+    dxvk_identity: Option<&'a DxvkPhysicalDeviceIdentity>,
+) -> D3d9ActiveGpuIdentity<'a> {
+    match dxvk_identity {
+        Some(identity) => D3d9ActiveGpuIdentity::DxvkPhysicalDevice(identity),
+        None => D3d9ActiveGpuIdentity::Direct3D9Adapter(d3d9_identity),
+    }
+}
+
+fn vulkan_device_kind(device_type: i32) -> VulkanDeviceKind {
+    match device_type {
+        0 => VulkanDeviceKind::Other,
+        1 => VulkanDeviceKind::Integrated,
+        2 => VulkanDeviceKind::Discrete,
+        3 => VulkanDeviceKind::Virtual,
+        4 => VulkanDeviceKind::Cpu,
+        kind => VulkanDeviceKind::Unknown(kind),
+    }
+}
+
 fn normalize_caps(caps: &D3DCAPS9) -> D3d9Capabilities {
     let mut features = D3d9FeatureFlags::empty();
     insert_cap(
@@ -535,5 +654,61 @@ mod tests {
     #[test]
     fn preserves_unknown_device_types() {
         assert_eq!(device_kind(D3DDEVTYPE(99)), D3d9DeviceKind::Unknown(99));
+    }
+
+    #[test]
+    fn dxvk_physical_device_identity_wins_over_spoofed_d3d9_identity() {
+        let d3d9_identity = GpuIdentity {
+            description: "AMD Radeon RX 6700 XT".to_string(),
+            driver: "aticfx32.dll".to_string(),
+            device_name: r"\\.\DISPLAY1".to_string(),
+            driver_version: i64::MAX,
+            vendor_id: 0x1002,
+            device_id: 0x73df,
+            subsystem_id: 0,
+            revision: 0,
+            device_identifier: 0,
+            whql_level: 0,
+        };
+        let dxvk_identity = DxvkPhysicalDeviceIdentity {
+            description: "NVIDIA GeForce RTX 5060".to_string(),
+            vendor_id: 0x10de,
+            device_id: 0x2d04,
+            device_type: VulkanDeviceKind::Discrete,
+            api_version: 0x0040_3000,
+            driver_version: 0x1234_5678,
+            device_uuid: 1,
+            driver_name: "NVIDIA".to_string(),
+            driver_info: "proprietary".to_string(),
+        };
+
+        assert!(matches!(
+            active_gpu_identity(&d3d9_identity, Some(&dxvk_identity)),
+            D3d9ActiveGpuIdentity::DxvkPhysicalDevice(identity)
+                if identity.vendor_id == 0x10de
+                    && identity.description == "NVIDIA GeForce RTX 5060"
+        ));
+        assert!(matches!(
+            active_gpu_identity(&d3d9_identity, None),
+            D3d9ActiveGpuIdentity::Direct3D9Adapter(identity)
+                if identity.vendor_id == 0x1002
+        ));
+    }
+
+    #[test]
+    fn dxvk_identity_follows_the_live_device_interop_handle() {
+        let source = include_str!("../os/windows/directx9.rs");
+        let query = source
+            .split_once("\n    pub fn dxvk_physical_device_properties(")
+            .map(|(_, tail)| tail)
+            .and_then(|tail| tail.split_once("\n    ///"))
+            .map(|(body, _)| body)
+            .expect("DXVK physical-device query");
+
+        assert!(query.contains("self.inner.cast::<ID3D9VkInteropDevice>()"));
+        assert!(query.contains("get_vulkan_handles"));
+        assert!(query.contains("query_vulkan_physical_device_properties"));
+        assert!(!query.contains("d3d9_adapter_profiles"));
+        assert!(!query.contains("enumerate_physical_devices"));
     }
 }

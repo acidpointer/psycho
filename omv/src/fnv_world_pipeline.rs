@@ -1,4 +1,13 @@
 //! Coherent nonblocking owner for Fallout New Vegas world-only effects.
+//!
+//! A render epoch is a transaction spanning pre-alpha depth capture,
+//! post-world color capture, atmosphere, and temporal AA. Configuration is
+//! consumed through a best-effort mailbox, but physical provider identity is
+//! synchronized from the backend atomic on every refresh. This distinction is
+//! required for a true live provider handoff: a busy config mailbox may delay
+//! visual settings, but it must never run the previous depth producer for one
+//! extra epoch. Provider changes invalidate temporal history because snapshots
+//! from different producers are not interchangeable.
 
 use core::ffi::c_void;
 use std::sync::{
@@ -19,9 +28,13 @@ use crate::{
         VolumetricLightingConfig,
     },
     effects::{
-        atmosphere::{AtmosphereDrawOutcome, AtmosphereEffect, AtmosphereSettings},
+        atmosphere::{
+            AtmosphereAdmission, AtmosphereDrawOutcome, AtmosphereEffect, AtmosphereSettings,
+            atmosphere_admission,
+        },
         temporal_aa::{TargetDescription, TemporalAaConfig, TemporalAaEffect},
     },
+    fnv_local_lights::PublishedEpochAccess,
 };
 
 const REQUIRE_WORLD_DEPTH: u32 = 1 << 0;
@@ -34,6 +47,7 @@ static CONFIG_MAILBOX: LazyLock<Mutex<PublishedConfig>> =
 static CONFIG_GENERATION: AtomicU32 = AtomicU32::new(1);
 static CONFIG_PUBLISH_PENDING: AtomicBool = AtomicBool::new(false);
 static REQUIREMENTS: AtomicU32 = AtomicU32::new(0);
+static VISUAL_RELEASE_PENDING: AtomicBool = AtomicBool::new(false);
 
 static WORLD_PIPELINE: LazyLock<Mutex<FnvWorldPipelineRuntime>> =
     LazyLock::new(|| Mutex::new(FnvWorldPipelineRuntime::default()));
@@ -52,6 +66,8 @@ static CONFIG_READ_BUSY: AtomicU32 = AtomicU32::new(0);
 static JITTER_LOCK_BUSY: AtomicU32 = AtomicU32::new(0);
 static PRIMARY_ATTEMPTS: AtomicU32 = AtomicU32::new(0);
 static PRE_ALPHA_ATTEMPTS: AtomicU32 = AtomicU32::new(0);
+static PRE_ALPHA_ADMISSION_SKIPS: AtomicU32 = AtomicU32::new(0);
+static COHERENT_ADMISSION_SKIPS: AtomicU32 = AtomicU32::new(0);
 static PRE_ALPHA_LOCK_BUSY: AtomicU32 = AtomicU32::new(0);
 static PRIMARY_LOCK_BUSY: AtomicU32 = AtomicU32::new(0);
 static DEPTH_LOCK_BUSY: AtomicU32 = AtomicU32::new(0);
@@ -98,12 +114,12 @@ impl WorldEffectsConfig {
 
     fn temporal_aa_enabled(self) -> bool {
         self.screen_space_shaders
-            && self.depth_provider == DepthProvider::FalloutNewVegas
+            && self.depth_provider.supplies_world_depth()
             && self.temporal_aa.enabled
     }
 
     fn requirements(self) -> u32 {
-        if !self.screen_space_shaders || self.depth_provider != DepthProvider::FalloutNewVegas {
+        if !self.screen_space_shaders || !self.depth_provider.supplies_world_depth() {
             return 0;
         }
 
@@ -167,9 +183,15 @@ pub(crate) fn publish_config(config: GraphicsMenuConfig) -> bool {
         generation,
         config: world_config,
     };
-    REQUIREMENTS.store(world_config.requirements(), Ordering::Release);
+    let requirements = world_config.requirements();
+    REQUIREMENTS.store(requirements, Ordering::Release);
+    // No later scene callback is guaranteed once the last requirement
+    // disappears. Let the unconditional Present tail release histories,
+    // atmosphere targets, and the state block. A later non-empty publication
+    // cancels a not-yet-serviced request.
+    VISUAL_RELEASE_PENDING.store(requirements == 0, Ordering::Release);
     let local_lights_enabled = world_config.screen_space_shaders
-        && world_config.depth_provider == DepthProvider::FalloutNewVegas
+        && world_config.depth_provider.supplies_world_depth()
         && world_config.lighting.local_lights_enabled;
     crate::fnv_local_lights::configure_atmosphere(local_lights_enabled);
     LOCAL_LIGHTS_CLEAR_PENDING.store(true, Ordering::Release);
@@ -197,6 +219,15 @@ pub(crate) fn needs_temporal_aa() -> bool {
 
 pub(crate) fn needs_atmosphere() -> bool {
     REQUIREMENTS.load(Ordering::Acquire) & REQUIRE_WORLD_COLOR != 0
+}
+
+/// Return whether an enabled world-owned effect needs native scene boundaries.
+///
+/// The requirements word covers TAA jitter and the depth/color inputs owned
+/// by atmosphere. Reading it avoids treating an enabled global master with no
+/// enabled world effects as render-stage work.
+pub(crate) fn needs_scene_hooks() -> bool {
+    REQUIREMENTS.load(Ordering::Acquire) != 0
 }
 
 pub(crate) fn fog_estimate() -> Option<(f32, f32)> {
@@ -287,7 +318,7 @@ pub(crate) unsafe fn retry_before_first_person(
     }
     let pending_target = PENDING_TARGET.load(Ordering::Acquire);
     let Some(rendered_surface) =
-        backend::rendered_texture_color_surface(DepthProvider::FalloutNewVegas, rendered_texture)
+        backend::rendered_texture_color_surface(backend::active_depth_provider(), rendered_texture)
     else {
         return;
     };
@@ -345,7 +376,7 @@ pub(crate) fn close_deadline(source_rendered_texture: *mut c_void) {
 
     let pending_target = PENDING_TARGET.load(Ordering::Acquire);
     let source_target = backend::rendered_texture_color_surface(
-        DepthProvider::FalloutNewVegas,
+        backend::active_depth_provider(),
         source_rendered_texture,
     )
     .map_or(0, |surface| surface as usize);
@@ -361,6 +392,12 @@ pub(crate) fn close_deadline(source_rendered_texture: *mut c_void) {
 }
 
 pub(crate) fn finish_present(epoch: u32) {
+    if VISUAL_RELEASE_PENDING.load(Ordering::Acquire)
+        && let Some(mut runtime) = WORLD_PIPELINE.try_lock()
+    {
+        runtime.release_visual_resources();
+        VISUAL_RELEASE_PENDING.store(false, Ordering::Release);
+    }
     if !crate::fnv_local_lights::atmosphere_capture_enabled()
         && LOCAL_LIGHTS_CLEAR_PENDING.load(Ordering::Acquire)
         && let Some(mut runtime) = WORLD_PIPELINE.try_lock()
@@ -374,13 +411,45 @@ pub(crate) fn finish_present(epoch: u32) {
         record_deadline_miss(epoch, "present");
     }
     let presents = PRESENTS.fetch_add(1, Ordering::Relaxed) + 1;
-    if PRIMARY_ATTEMPTS.load(Ordering::Relaxed) != 0 && presents % 600 == 0 {
+    if presents % 600 == 0 {
+        // These counters identify physical RESZ ownership, unlike the world
+        // transaction counters below, which continue to advance when OMV
+        // consumes an external snapshot. Read them only at the existing
+        // 600-Present diagnostic cadence so ordinary Presents gain no extra
+        // atomic traffic or formatting work.
+        let markers = backend::provider_marker_counters();
+        let depth_copies = backend::depth_copy_counters();
+        let color_copies = crate::runtime::phase_color_copy_counters();
+        let primary_attempts = PRIMARY_ATTEMPTS.load(Ordering::Relaxed);
+        if !reliability_activity_present(primary_attempts, markers) {
+            return;
+        }
         log::info!(
-            "[FNV WORLD] Reliability: presents={}, pre_alpha={}/busy={}, primary={}, applied={}, completed_no_draw={}, config_publish_busy={}, config_read_busy={}, jitter_busy={}, primary_busy={}, depth_busy={}, retries={}, retry_busy={}, retry_completed={}, target_rejected={}, outer_target_mismatch={}, deadline_missed={}, failures={}",
+            "[FNV WORLD] Reliability: presents={}, provider={}, depth_hooks={}, resz_hook={}, draw_hooks={}, resz_omv={}, resz_external={}, resz_external_suppressed={}, external_snapshots={}, depth_copies=pre_alpha:{}/coherent:{}/first_person:{}/cache_hits:{}, color_copies=phase_initial:{}/fallback_commit:{}, pre_alpha={}/busy={}/admission_skip={}, coherent_admission_skip={}, primary={}, applied={}, completed_no_draw={}, config_publish_busy={}, config_read_busy={}, jitter_busy={}, primary_busy={}, depth_busy={}, retries={}, retry_busy={}, retry_completed={}, target_rejected={}, outer_target_mismatch={}, deadline_missed={}, failures={}",
             presents,
+            backend::active_depth_provider().label(),
+            crate::fnv_render::depth_stage_hooks_status_label(),
+            if crate::hooks::resz_interposition_active() {
+                "attached"
+            } else {
+                "detached"
+            },
+            crate::hooks::draw_interposition_status_label(),
+            markers.omv_allowed,
+            markers.external_allowed,
+            markers.external_suppressed,
+            markers.external_publications,
+            depth_copies.pre_alpha_physical,
+            depth_copies.coherent_world_physical,
+            depth_copies.first_person_physical,
+            depth_copies.exact_cache_hits,
+            color_copies.initial,
+            color_copies.fallback_commits,
             PRE_ALPHA_ATTEMPTS.load(Ordering::Relaxed),
             PRE_ALPHA_LOCK_BUSY.load(Ordering::Relaxed),
-            PRIMARY_ATTEMPTS.load(Ordering::Relaxed),
+            PRE_ALPHA_ADMISSION_SKIPS.load(Ordering::Relaxed),
+            COHERENT_ADMISSION_SKIPS.load(Ordering::Relaxed),
+            primary_attempts,
             APPLIED_FRAMES.load(Ordering::Relaxed),
             COMPLETED_WITHOUT_DRAW.load(Ordering::Relaxed),
             CONFIG_PUBLISH_BUSY.load(Ordering::Relaxed),
@@ -397,6 +466,30 @@ pub(crate) fn finish_present(epoch: u32) {
             TRANSACTION_FAILURES.load(Ordering::Relaxed),
         );
     }
+}
+
+/// Request release of world-pipeline visual resources at a safe render boundary.
+///
+/// Menu publication already runs at `Present`, but the world owner is
+/// deliberately `try_lock`-only on render callbacks. A busy owner therefore
+/// defers teardown to [`finish_present`] instead of blocking the game thread.
+pub(crate) fn request_visual_resource_release() {
+    VISUAL_RELEASE_PENDING.store(true, Ordering::Release);
+    if let Some(mut runtime) = WORLD_PIPELINE.try_lock() {
+        runtime.release_visual_resources();
+        VISUAL_RELEASE_PENDING.store(false, Ordering::Release);
+    }
+}
+
+fn reliability_activity_present(
+    primary_attempts: u32,
+    markers: backend::ProviderMarkerCounters,
+) -> bool {
+    primary_attempts != 0
+        || markers.omv_allowed != 0
+        || markers.external_allowed != 0
+        || markers.external_suppressed != 0
+        || markers.external_publications != 0
 }
 
 fn record_deadline_miss(epoch: u32, boundary: &'static str) {
@@ -565,6 +658,30 @@ impl FnvWorldPipelineRuntime {
         if desc.Width == 0 || desc.Height == 0 {
             return Ok(());
         }
+        let (local_ready, local_unknown) =
+            self.refresh_local_lights(settings, device.as_raw() as usize, epoch);
+        let admission_frame = backend::atmosphere_frame_before_depth(
+            self.config.depth_provider,
+            &desc,
+            settings.max_distance,
+            epoch,
+        );
+        if atmosphere_admission(admission_frame, settings, local_ready, local_unknown)
+            == AtmosphereAdmission::NoVisibleContribution
+        {
+            PRE_ALPHA_ADMISSION_SKIPS.fetch_add(1, Ordering::Relaxed);
+            record_pre_alpha_outcome(
+                &mut self.epoch,
+                AtmosphereDrawOutcome::NoVisibleContribution,
+            );
+            return Ok(());
+        }
+        // Shader preparation is process-owned and may still be queued behind
+        // another effect family. Create device objects before resolving depth;
+        // an unavailable consumer must not generate hidden provider traffic.
+        if !self.ensure_atmosphere(&device)? {
+            return Ok(());
+        }
         let projection_override = self
             .temporal_projection_override
             .and_then(|projection| {
@@ -577,6 +694,7 @@ impl FnvWorldPipelineRuntime {
                 device_ptr,
                 None,
                 DepthResolveSlot::World,
+                backend::DepthResolveStage::PreAlphaWorld,
                 projection_override,
                 "FNV atmosphere before alpha coverage",
                 epoch,
@@ -614,10 +732,11 @@ impl FnvWorldPipelineRuntime {
         self.ensure_device(device_ptr);
         if self.temporal_aa.is_none() {
             match TemporalAaEffect::create(&device) {
-                Ok(effect) => {
+                Ok(Some(effect)) => {
                     self.temporal_aa = Some(effect);
                     log::info!("[TAA] World temporal resolve initialized");
                 }
+                Ok(None) => return None,
                 Err(err) => {
                     self.temporal_aa_creation_failed = true;
                     self.log_error("jitter_init", &err);
@@ -627,12 +746,16 @@ impl FnvWorldPipelineRuntime {
         }
 
         let epoch = crate::hooks::render_epoch();
-        let depth_epoch =
-            match backend::try_temporal_depth_epoch(device_ptr, target.width, target.height, epoch)
-            {
-                DepthAccess::Ready(Some(epoch)) => epoch,
-                DepthAccess::Ready(None) | DepthAccess::Busy => return None,
-            };
+        let depth_epoch = match backend::try_temporal_depth_epoch(
+            self.config.depth_provider,
+            device_ptr,
+            target.width,
+            target.height,
+            epoch,
+        ) {
+            DepthAccess::Ready(Some(epoch)) => epoch,
+            DepthAccess::Ready(None) | DepthAccess::Busy => return None,
+        };
         let camera = backend::fnv_world_camera_frame(target.width, target.height)?;
         if !self
             .temporal_aa
@@ -714,9 +837,36 @@ impl FnvWorldPipelineRuntime {
         let projection_override = temporal_projection.map(|projection| projection.rendered);
 
         let settings = self.config.atmosphere_settings();
-        let atmosphere_remaining =
+        let mut atmosphere_remaining =
             settings.requires_world_color() && !self.epoch.atmosphere_complete;
-        if !self.config.temporal_aa_enabled() && !atmosphere_remaining {
+        if atmosphere_remaining {
+            let (local_ready, local_unknown) =
+                self.refresh_local_lights(settings, device.as_raw() as usize, epoch);
+            let admission_frame = backend::atmosphere_frame_before_depth(
+                self.config.depth_provider,
+                &desc,
+                settings.max_distance,
+                epoch,
+            );
+            if atmosphere_admission(admission_frame, settings, local_ready, local_unknown)
+                == AtmosphereAdmission::NoVisibleContribution
+            {
+                COHERENT_ADMISSION_SKIPS.fetch_add(1, Ordering::Relaxed);
+                self.epoch.atmosphere_complete = true;
+                self.epoch.atmosphere_drew = false;
+                atmosphere_remaining = false;
+            }
+        }
+        if atmosphere_remaining && !self.ensure_atmosphere(&device)? {
+            atmosphere_remaining = false;
+        }
+        let temporal_aa_remaining = if self.config.temporal_aa_enabled() {
+            self.ensure_temporal_aa(&device)?;
+            self.temporal_aa.is_some()
+        } else {
+            false
+        };
+        if !temporal_aa_remaining && !atmosphere_remaining {
             return self.finish_epoch(epoch, target, origin, self.epoch.atmosphere_drew);
         }
 
@@ -726,6 +876,7 @@ impl FnvWorldPipelineRuntime {
                 device_ptr,
                 None,
                 DepthResolveSlot::World,
+                backend::DepthResolveStage::CoherentWorld,
                 projection_override,
                 match origin {
                     ApplyOrigin::Primary => "FNV coherent world transaction",
@@ -749,9 +900,7 @@ impl FnvWorldPipelineRuntime {
         };
 
         let mut drew = self.epoch.atmosphere_drew;
-        if self.config.temporal_aa_enabled() {
-            self.ensure_temporal_aa(&device)?;
-            let temporal_aa_ready = self.temporal_aa.is_some();
+        if temporal_aa_remaining {
             self.ensure_state_block(&device)?;
             let attachments = RenderAttachments::capture(&device, world_target.clone())?;
             let state_block = self
@@ -776,7 +925,7 @@ impl FnvWorldPipelineRuntime {
             keep_first_error(&mut result, attachments.restore(&device));
             keep_first_error(&mut result, state_block.apply());
             result?;
-            drew |= temporal_aa_ready;
+            drew = true;
         }
 
         if atmosphere_remaining {
@@ -812,16 +961,13 @@ impl FnvWorldPipelineRuntime {
         taa_alpha_ready: bool,
         epoch: u32,
     ) -> Direct3DResult<AtmosphereDrawOutcome> {
-        if settings.local_lights_enabled {
-            let _ = crate::fnv_local_lights::try_take_published(
-                &mut self.local_lights,
-                device.as_raw() as usize,
-            );
-        } else {
-            self.local_lights = None;
+        // Bytecode readiness must precede the color copy. During first-run
+        // background preparation there is no shader that can consume the
+        // copy, so paying its full-resolution bandwidth would be hidden work.
+        if !self.ensure_atmosphere(device)? {
+            return Ok(AtmosphereDrawOutcome::Skipped);
         }
         self.capture_world_color(device, world_target, desc)?;
-        self.ensure_atmosphere(device)?;
         self.ensure_state_block(device)?;
         let frame = backend::atmosphere_frame_from_depth(
             self.config.depth_provider,
@@ -873,6 +1019,38 @@ impl FnvWorldPipelineRuntime {
         Ok(outcome)
     }
 
+    /// Refresh the nonblocking local-light mailbox for atmosphere admission.
+    ///
+    /// A previous frame's publication is never evidence that the current frame
+    /// can draw local scattering. If the mailbox is busy, the caller receives
+    /// `unknown=true` and must conservatively keep the atmosphere transaction.
+    fn refresh_local_lights(
+        &mut self,
+        settings: AtmosphereSettings,
+        device_identity: usize,
+        render_epoch: u32,
+    ) -> (bool, bool) {
+        if !settings.local_lights_enabled {
+            self.local_lights = None;
+            return (false, false);
+        }
+
+        let access =
+            crate::fnv_local_lights::try_take_published(&mut self.local_lights, device_identity);
+        let current = self.local_lights.as_ref().is_some_and(|epoch| {
+            epoch.device_identity == device_identity && epoch.render_epoch == render_epoch
+        });
+        if !current {
+            self.local_lights = None;
+        }
+        let ready = self
+            .local_lights
+            .as_ref()
+            .is_some_and(|epoch| epoch.light_count() != 0);
+        let unknown = access == PublishedEpochAccess::Busy && !current;
+        (ready, unknown)
+    }
+
     fn finish_epoch(
         &mut self,
         epoch: u32,
@@ -913,17 +1091,48 @@ impl FnvWorldPipelineRuntime {
 
     fn refresh_config(&mut self) {
         let generation = CONFIG_GENERATION.load(Ordering::Acquire);
-        if self.config_generation == generation {
+        if self.config_generation != generation {
+            if let Some(published) = CONFIG_MAILBOX.try_lock() {
+                if published.generation == generation {
+                    self.config = published.config;
+                    self.config_generation = generation;
+                }
+            } else {
+                CONFIG_READ_BUSY.fetch_add(1, Ordering::Relaxed);
+            }
+        }
+
+        // Physical provider ownership is published independently from the
+        // best-effort config mailbox. Synchronize it even if a menu-time
+        // mailbox publication was busy, otherwise one render epoch could
+        // execute the old producer after a successful live switch.
+        let active_provider = backend::active_depth_provider();
+        self.synchronize_depth_provider(active_provider);
+
+        // Once TAA leaves the requirement set there may be no later world
+        // callback on which to discover the change. Release both full-size
+        // histories while consuming the config generation so "TAA off" is a
+        // resource transition, not merely a dispatch branch.
+        if !self.config.temporal_aa_enabled() {
+            self.temporal_aa = None;
+            self.temporal_aa_creation_failed = false;
+            self.temporal_projection_override = None;
+        }
+    }
+
+    fn synchronize_depth_provider(&mut self, active_provider: DepthProvider) {
+        if self.config.depth_provider == active_provider {
             return;
         }
-        let Some(published) = CONFIG_MAILBOX.try_lock() else {
-            CONFIG_READ_BUSY.fetch_add(1, Ordering::Relaxed);
-            return;
-        };
-        if published.generation == generation {
-            self.config = published.config;
-            self.config_generation = generation;
+        self.config.depth_provider = active_provider;
+        // Provider snapshots are not interchangeable even when both expose
+        // INTZ. A handoff must reject history made from the previous producer
+        // before the next jitter decision.
+        self.temporal_projection_override = None;
+        if let Some(temporal_aa) = self.temporal_aa.as_mut() {
+            temporal_aa.invalidate_history();
         }
+        self.epoch = EpochState::default();
     }
 
     fn ensure_device(&mut self, device_ptr: *mut c_void) {
@@ -938,11 +1147,12 @@ impl FnvWorldPipelineRuntime {
             return Ok(());
         }
         match TemporalAaEffect::create(device) {
-            Ok(effect) => {
+            Ok(Some(effect)) => {
                 self.temporal_aa = Some(effect);
                 log::info!("[TAA] World temporal resolve initialized");
                 Ok(())
             }
+            Ok(None) => Ok(()),
             Err(err) => {
                 self.temporal_aa_creation_failed = true;
                 Err(err)
@@ -950,16 +1160,17 @@ impl FnvWorldPipelineRuntime {
         }
     }
 
-    fn ensure_atmosphere(&mut self, device: &Device9Ref<'_>) -> Direct3DResult<()> {
+    fn ensure_atmosphere(&mut self, device: &Device9Ref<'_>) -> Direct3DResult<bool> {
         if self.atmosphere.is_some() || self.atmosphere_creation_failed {
-            return Ok(());
+            return Ok(self.atmosphere.is_some());
         }
         match AtmosphereEffect::create(device) {
-            Ok(effect) => {
+            Ok(Some(effect)) => {
                 self.atmosphere = Some(effect);
                 log::info!("[ATMOSPHERE] Strict-FP16 world pipeline initialized");
-                Ok(())
+                Ok(true)
             }
+            Ok(None) => Ok(false),
             Err(err) => {
                 self.atmosphere_creation_failed = true;
                 Err(err)
@@ -1002,6 +1213,10 @@ impl FnvWorldPipelineRuntime {
 
     fn release(&mut self) {
         self.device_ptr = 0;
+        self.release_visual_resources();
+    }
+
+    fn release_visual_resources(&mut self) {
         self.temporal_aa = None;
         self.temporal_aa_creation_failed = false;
         self.temporal_projection_override = None;
@@ -1130,11 +1345,12 @@ fn halton(mut index: u64, base: u64) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::{
-        CONFIG_GENERATION, CONFIG_MAILBOX, EpochState, TemporalProjectionOverride,
-        WorldEffectsConfig, halton, publish_config, record_pre_alpha_outcome, retry_target_matches,
+        CONFIG_GENERATION, CONFIG_MAILBOX, EpochState, FnvWorldPipelineRuntime,
+        TemporalProjectionOverride, WorldEffectsConfig, halton, publish_config,
+        record_pre_alpha_outcome, reliability_activity_present, retry_target_matches,
     };
     use crate::{
-        backend::{CameraFrame, CameraTransformFrame, DepthProvider},
+        backend::{CameraFrame, CameraTransformFrame, DepthProvider, ProviderMarkerCounters},
         config::GraphicsMenuConfig,
         effects::{atmosphere::AtmosphereDrawOutcome, temporal_aa::TargetDescription},
     };
@@ -1146,6 +1362,47 @@ mod tests {
         let config = WorldEffectsConfig::from_menu(GraphicsMenuConfig::default());
         assert!(config.requires_world_depth());
         assert!(config.requires_world_color());
+    }
+
+    #[test]
+    fn world_shader_consumers_are_ready_before_physical_depth_work() {
+        let source = include_str!("fnv_world_pipeline.rs");
+        let pre_alpha = source
+            .split_once("\n    unsafe fn apply_atmosphere_before_alpha(")
+            .map(|(_, tail)| tail)
+            .and_then(|tail| tail.split_once("\n    unsafe fn "))
+            .map(|(body, _)| body)
+            .expect("pre-alpha body");
+        assert!(
+            pre_alpha
+                .find("self.ensure_atmosphere(&device)?")
+                .expect("pre-alpha atmosphere readiness")
+                < pre_alpha
+                    .find("backend::resolve_scene_depth(")
+                    .expect("pre-alpha depth resolve")
+        );
+
+        let coherent = source
+            .split_once("\n    unsafe fn apply(")
+            .map(|(_, tail)| tail)
+            .and_then(|tail| tail.split_once("\n    fn "))
+            .map(|(body, _)| body)
+            .expect("coherent world body");
+        let depth = coherent
+            .find("backend::resolve_scene_depth(")
+            .expect("coherent depth resolve");
+        assert!(
+            coherent
+                .find("self.ensure_atmosphere(&device)?")
+                .expect("coherent atmosphere readiness")
+                < depth
+        );
+        assert!(
+            coherent
+                .find("self.ensure_temporal_aa(&device)?")
+                .expect("coherent TAA readiness")
+                < depth
+        );
     }
 
     #[test]
@@ -1169,6 +1426,58 @@ mod tests {
         assert_eq!(config.depth_provider, DepthProvider::FalloutNewVegas);
         assert!(config.requires_world_depth());
         assert!(config.requires_world_color());
+    }
+
+    #[test]
+    fn external_provider_supplies_world_effects_and_temporal_inputs() {
+        let mut menu = GraphicsMenuConfig::default();
+        menu.depth_provider = crate::config::DepthProviderConfig::DepthResolve;
+        menu.embedded_effects.temporal_aa.enabled = true;
+        let config = WorldEffectsConfig::from_menu(menu);
+
+        assert_eq!(config.depth_provider, DepthProvider::DepthResolve);
+        assert!(config.temporal_aa_enabled());
+        assert!(config.requires_world_depth());
+        assert!(config.requires_world_color());
+    }
+
+    #[test]
+    fn provider_handoff_invalidates_the_in_progress_render_epoch() {
+        let mut runtime = FnvWorldPipelineRuntime::default();
+        runtime.config.depth_provider = DepthProvider::FalloutNewVegas;
+        runtime.epoch.epoch = 17;
+        runtime.epoch.target = 0x1234;
+
+        runtime.synchronize_depth_provider(DepthProvider::DepthResolve);
+
+        assert_eq!(runtime.config.depth_provider, DepthProvider::DepthResolve);
+        assert_eq!(runtime.epoch.epoch, 0);
+        assert_eq!(runtime.epoch.target, 0);
+
+        // Re-observing the same provider is not a handoff and must not discard
+        // work already started for the current producer.
+        runtime.epoch.epoch = 18;
+        runtime.synchronize_depth_provider(DepthProvider::DepthResolve);
+        assert_eq!(runtime.epoch.epoch, 18);
+    }
+
+    #[test]
+    fn reliability_log_remains_active_for_physical_markers_without_world_effects() {
+        assert!(!reliability_activity_present(
+            0,
+            ProviderMarkerCounters::default()
+        ));
+        assert!(reliability_activity_present(
+            0,
+            ProviderMarkerCounters {
+                external_allowed: 1,
+                ..ProviderMarkerCounters::default()
+            }
+        ));
+        assert!(reliability_activity_present(
+            1,
+            ProviderMarkerCounters::default()
+        ));
     }
 
     #[test]

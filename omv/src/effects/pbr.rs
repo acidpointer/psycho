@@ -12,6 +12,14 @@
 //! one `SetShaders` call. Callers therefore keep the token returned by
 //! [`prepare_direct_draw`] and pass it to [`finish_direct_draw`] immediately
 //! after the native DP or DIP returns.
+//!
+//! Runtime disable is a passive engine-contract boundary. The proven PBR
+//! inline hooks remain resident because restoring stale shader-wrapper or
+//! shared package state was a prior corruption defect documented in the PBR
+//! errata. Their detours bypass before selector/sampler work, while the shared
+//! device DP/DIP hooks detach and PBR device resources are released.
+//! Process-owned compiled bytecode and observed engine-wrapper identities
+//! remain cached for safe live re-enable.
 
 mod compiler;
 mod constants;
@@ -401,10 +409,9 @@ pub(crate) fn configure_runtime_options(settings: NativePbrSettings) {
         ENABLE_PENDING.store(false, Ordering::Release);
         SHADER_ENABLED.store(false, Ordering::Release);
         compiler::cancel_preparation();
-        ACTIVE_CONTRACTS_READY.store(false, Ordering::Release);
-        ACTIVE_CONTRACTS_FAILED.store(false, Ordering::Release);
+        release_disabled_device_resources();
         log::info!(
-            "[PBR] Native PBR disabled; hooks and engine contracts remain resident; draw replacements are passive"
+            "[PBR] Native PBR disabled; engine hooks are passive and device resources were released"
         );
     } else if !was_enabled && settings.enabled {
         if !ENABLE_PENDING.swap(true, Ordering::AcqRel) {
@@ -414,6 +421,21 @@ pub(crate) fn configure_runtime_options(settings: NativePbrSettings) {
         ENABLE_PENDING.store(false, Ordering::Release);
     }
     refresh_block_reason();
+}
+
+/// Release PBR device ownership without tearing down shared engine contracts.
+///
+/// Compiled shader bytecode and observed wrapper identities are process-owned
+/// and deliberately retained. The installed detours perform an early
+/// configured-state bypass while disabled; this avoids the stale-handle
+/// restoration defect described in `graphics_fnv_pbr_errata.md`.
+pub(crate) fn release_disabled_device_resources() {
+    terrain_lights::invalidate_draw_cache();
+    device_resources::reset();
+    samplers::reset();
+    diagnostics::reset();
+    ACTIVE_CONTRACTS_READY.store(false, Ordering::Release);
+    ACTIVE_CONTRACTS_FAILED.store(false, Ordering::Release);
 }
 
 pub(crate) fn set_menu_diagnostics_active(active: bool) {
@@ -706,6 +728,11 @@ fn shader_enabled() -> bool {
         && device_resources::all_resources_ready()
 }
 
+#[inline]
+fn replacement_configured() -> bool {
+    SHADER_ENABLED.load(Ordering::Acquire)
+}
+
 fn object_contract_available() -> bool {
     hooks::hooks_ready()
         && DRAW_BOUNDARY_READY.load(Ordering::Acquire)
@@ -876,5 +903,24 @@ mod master_setting_tests {
             .expect("runtime PBR configuration body");
 
         assert!(configure.contains("compiler::cancel_preparation()"));
+        assert!(configure.contains("release_disabled_device_resources()"));
+    }
+
+    #[test]
+    fn disabled_pbr_releases_resources_without_tearing_down_engine_contracts() {
+        let source = include_str!("pbr.rs");
+        let release = source
+            .split_once("pub(crate) fn release_disabled_device_resources()")
+            .and_then(|(_, tail)| tail.split_once("pub(crate) fn set_menu_diagnostics_active("))
+            .map(|(body, _)| body)
+            .expect("disabled PBR release body");
+
+        assert!(release.contains("device_resources::reset()"));
+        assert!(!release.contains("hooks::reset()"));
+        assert!(!release.contains("shader_record::reset()"));
+        assert!(
+            !release.contains("compiler::reset"),
+            "process-owned bytecode remains reusable across live disable"
+        );
     }
 }

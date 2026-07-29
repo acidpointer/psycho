@@ -108,16 +108,18 @@ fn start_compile_worker() {
     }
     if let Err(err) = thread::Builder::new()
         .name("omv-motion-blur-compile".to_owned())
-        .spawn(|| match MotionBlurBytecode::compile() {
-            Ok(bytecode) => {
-                *BYTECODE.lock() = Some(bytecode);
-                COMPILE_READY.store(true, Ordering::Release);
-            }
-            Err(err) => {
-                COMPILE_FAILED.store(true, Ordering::Release);
-                log::warn!("[MOTION_BLUR] Shader preparation failed: {err:#}");
-            }
-        })
+        .spawn(
+            || match super::shader_preparation::run_serialized(MotionBlurBytecode::compile) {
+                Ok(bytecode) => {
+                    *BYTECODE.lock() = Some(bytecode);
+                    COMPILE_READY.store(true, Ordering::Release);
+                }
+                Err(err) => {
+                    COMPILE_FAILED.store(true, Ordering::Release);
+                    log::warn!("[MOTION_BLUR] Shader preparation failed: {err:#}");
+                }
+            },
+        )
     {
         COMPILE_FAILED.store(true, Ordering::Release);
         log::warn!("[MOTION_BLUR] Could not start shader preparation: {err}");

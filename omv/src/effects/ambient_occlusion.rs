@@ -1,5 +1,33 @@
 //! Engine-side ambient occlusion pipeline.
+//!
+//! Fast and contact AO share one half-resolution extract, bilateral blur,
+//! temporal stabilization, and full-resolution composition pipeline. World
+//! depth at `s1` owns AO reconstruction. First-person depth at `s2` is only an
+//! exclusion mask; hands and weapons are never intended AO receivers.
+//!
+//! The runtime therefore selects composition timing from provider capability.
+//! A provider with coherent world and first-person depth runs AO at the normal
+//! scene-pre-image-space boundary and masks first-person pixels. A world-only
+//! provider runs the identical AO pipeline on the still-active world target
+//! immediately after `RenderWorldSceneGraph`, allowing later weapon/hand color
+//! to overwrite world AO without mixing two physical depth providers or
+//! pre-binding a callee-owned render texture. The pipeline itself remains
+//! phase-agnostic and restores all engine state through its caller's
+//! attachment/state-block transaction.
+//!
+//! HLSL preparation is process-owned and asynchronous. The render callback
+//! creates only D3D shader objects from immutable bytecode published by the
+//! worker; it never invokes the compiler or reads the shader cache.
 
+use std::{
+    sync::{
+        LazyLock,
+        atomic::{AtomicBool, Ordering},
+    },
+    thread,
+};
+
+use anyhow::Result;
 use libpsycho::os::windows::directx9::{
     D3DCULL_NONE, D3DFMT_G16R16F, D3DFORMAT, D3DPT_TRIANGLESTRIP, D3DRS_ADAPTIVETESS_Y,
     D3DRS_ALPHABLENDENABLE, D3DRS_ALPHATESTENABLE, D3DRS_COLORWRITEENABLE, D3DRS_CULLMODE,
@@ -16,6 +44,7 @@ use crate::{
     backend::{CameraFrame, DepthTexture, FrameInputs},
     shaders::{self, ScreenShaderSource},
 };
+use parking_lot::Mutex;
 
 const COLOR_WRITE_ALL: u32 = 0x0F;
 const CONTACT_OPTION_REGISTER: u32 = 7;
@@ -26,6 +55,12 @@ const DEPTH_LINEARIZE_CONSTANT_REGISTER: u32 = 20;
 const AO_SCALE: u32 = 2;
 const DEPTH_PRECISION_STEPS: f32 = 4.0;
 const AMD_ALPHA_TO_COVERAGE_OFF: u32 = u32::from_le_bytes(*b"A2M0");
+
+static COMPILE_STARTED: AtomicBool = AtomicBool::new(false);
+static COMPILE_FAILED: AtomicBool = AtomicBool::new(false);
+static COMPILE_READY: AtomicBool = AtomicBool::new(false);
+static BYTECODE: LazyLock<Mutex<Option<AmbientOcclusionBytecode>>> =
+    LazyLock::new(|| Mutex::new(None));
 
 const EXTRACT_SHADER: &[u8] =
     include_bytes!("../../shaders/embedded/ambient_occlusion_extract.hlsl");
@@ -56,6 +91,73 @@ fn extract_shader_source(family: AmbientOcclusionFamily) -> Vec<u8> {
     let mut source = format!("#define AO_FAMILY_MODE {}\n", family.shader_mode()).into_bytes();
     source.extend_from_slice(EXTRACT_SHADER);
     source
+}
+
+struct AmbientOcclusionBytecode {
+    fast_extract: Vec<u32>,
+    contact_extract: Vec<u32>,
+    combined_extract: Vec<u32>,
+    blur: Vec<u32>,
+    temporal: Vec<u32>,
+    compose: Vec<u32>,
+}
+
+impl AmbientOcclusionBytecode {
+    fn compile() -> Result<Self> {
+        Ok(Self {
+            fast_extract: shaders::compile_hlsl_source(
+                "ambient_occlusion_extract.hlsl:fast",
+                &extract_shader_source(AmbientOcclusionFamily::Fast),
+            )?,
+            contact_extract: shaders::compile_hlsl_source(
+                "ambient_occlusion_extract.hlsl:contact",
+                &extract_shader_source(AmbientOcclusionFamily::Contact),
+            )?,
+            combined_extract: shaders::compile_hlsl_source(
+                "ambient_occlusion_extract.hlsl:combined",
+                &extract_shader_source(AmbientOcclusionFamily::Combined),
+            )?,
+            blur: shaders::compile_hlsl_source("ambient_occlusion_blur.hlsl", BLUR_SHADER)?,
+            temporal: shaders::compile_hlsl_source(
+                "ambient_occlusion_temporal.hlsl",
+                TEMPORAL_SHADER,
+            )?,
+            compose: shaders::compile_hlsl_source(
+                "ambient_occlusion_compose.hlsl",
+                COMPOSE_SHADER,
+            )?,
+        })
+    }
+}
+
+/// Start process-owned AO shader preparation outside render callbacks.
+pub(crate) fn service_preparation() {
+    if COMPILE_STARTED.swap(true, Ordering::AcqRel) {
+        return;
+    }
+    if let Err(err) = thread::Builder::new()
+        .name("omv-ao-compile".to_owned())
+        .spawn(|| {
+            match super::shader_preparation::run_serialized(AmbientOcclusionBytecode::compile) {
+                Ok(bytecode) => {
+                    *BYTECODE.lock() = Some(bytecode);
+                    COMPILE_READY.store(true, Ordering::Release);
+                }
+                Err(err) => {
+                    COMPILE_FAILED.store(true, Ordering::Release);
+                    log::warn!("[AO] Shader preparation failed: {err:#}");
+                }
+            }
+        })
+    {
+        COMPILE_FAILED.store(true, Ordering::Release);
+        log::warn!("[AO] Could not start shader preparation: {err}");
+    }
+}
+
+/// Return whether AO bytecode is ready for nonblocking device-object creation.
+pub(crate) fn preparation_ready() -> bool {
+    COMPILE_READY.load(Ordering::Acquire) && !COMPILE_FAILED.load(Ordering::Acquire)
 }
 
 #[cfg(test)]
@@ -966,37 +1068,34 @@ pub(crate) fn family_selected(
 }
 
 impl AmbientOcclusionEffect {
-    pub(crate) fn create(device: &Device9Ref<'_>) -> Direct3DResult<Self> {
-        Ok(Self {
-            fast_extract_shader: compile_shader(
-                device,
-                "ambient_occlusion_extract.hlsl:fast",
-                &extract_shader_source(AmbientOcclusionFamily::Fast),
-            )?,
-            contact_extract_shader: compile_shader(
-                device,
-                "ambient_occlusion_extract.hlsl:contact",
-                &extract_shader_source(AmbientOcclusionFamily::Contact),
-            )?,
-            combined_extract_shader: compile_shader(
-                device,
-                "ambient_occlusion_extract.hlsl:combined",
-                &extract_shader_source(AmbientOcclusionFamily::Combined),
-            )?,
-            blur_shader: compile_shader(device, "ambient_occlusion_blur.hlsl", BLUR_SHADER)?,
-            temporal_shader: compile_shader(
-                device,
-                "ambient_occlusion_temporal.hlsl",
-                TEMPORAL_SHADER,
-            )?,
-            compose_shader: compile_shader(
-                device,
-                "ambient_occlusion_compose.hlsl",
-                COMPOSE_SHADER,
-            )?,
+    /// Create device-owned AO resources from asynchronously prepared bytecode.
+    ///
+    /// `Ok(None)` is a normal nonblocking result while preparation is active.
+    pub(crate) fn create(device: &Device9Ref<'_>) -> Direct3DResult<Option<Self>> {
+        service_preparation();
+        if COMPILE_FAILED.load(Ordering::Acquire) {
+            return Err(direct3d_failure());
+        }
+        if !COMPILE_READY.load(Ordering::Acquire) {
+            return Ok(None);
+        }
+        let Some(bytecode) = BYTECODE.try_lock() else {
+            return Ok(None);
+        };
+        let Some(bytecode) = bytecode.as_ref() else {
+            return Ok(None);
+        };
+
+        Ok(Some(Self {
+            fast_extract_shader: device.create_pixel_shader(&bytecode.fast_extract)?,
+            contact_extract_shader: device.create_pixel_shader(&bytecode.contact_extract)?,
+            combined_extract_shader: device.create_pixel_shader(&bytecode.combined_extract)?,
+            blur_shader: device.create_pixel_shader(&bytecode.blur)?,
+            temporal_shader: device.create_pixel_shader(&bytecode.temporal)?,
+            compose_shader: device.create_pixel_shader(&bytecode.compose)?,
             targets: None,
             previous_camera: None,
-        })
+        }))
     }
 
     pub(crate) fn draw(
@@ -1474,22 +1573,6 @@ fn temporal_stability(
     let weighted_stability = fast.map_or(0.0, |value| value.0 * value.1)
         + contact.map_or(0.0, |value| value.0 * value.1);
     (weighted_stability / total_strength).clamp(0.0, 1.0)
-}
-
-fn compile_shader(
-    device: &Device9Ref<'_>,
-    source_name: &str,
-    source: &[u8],
-) -> Direct3DResult<PixelShader9> {
-    let bytecode = match shaders::compile_hlsl_source(source_name, source) {
-        Ok(bytecode) => bytecode,
-        Err(err) => {
-            log::warn!("[AO] Failed to compile {source_name}: {err:#}");
-            return Err(direct3d_failure());
-        }
-    };
-
-    device.create_pixel_shader(&bytecode)
 }
 
 fn bind_pipeline_state(device: &Device9Ref<'_>) -> Direct3DResult<()> {
