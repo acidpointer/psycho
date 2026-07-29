@@ -63,7 +63,8 @@ Rust.
 
 - Replaces selected game allocation paths with `gheap` and `scrap_heap`.
 - Accelerates zlib decompression and the frequently used RNG path.
-- Repairs native-fullscreen startup and Alt-Tab window placement.
+- Repairs fullscreen transitions and provides stable borderless-windowed
+  startup and placement.
 - Makes save commits durable and rejects several malformed changed records.
 - Provides targeted crash fixes for audited Havok, ragdoll, navmesh, linked
   reference, queued-task and inventory cases.
@@ -87,7 +88,8 @@ the original engine behavior. Changes require a game restart.
 
 | Config option | Engine failure | What the enabled fix does |
 |---|---|---|
-| `display_alt_tab = true` | Native fullscreen starts from New Vegas' visible `320x240` bootstrap window. Later reset and focus paths can also request invalid placement or raise the game during Alt-Tab. | Creates the bootstrap window at the configured render size, repairs the known placement calls, and suppresses the unsafe focus-loss move. Ordinary windowed calls and an existing borderless owner keep their normal behavior. |
+| `display_alt_tab = true` | Native fullscreen starts from New Vegas' visible `320x240` bootstrap window. Later reset and focus paths can also request invalid placement or raise the game during Alt-Tab. Windowed renderer recreation can replay a stale origin. | Creates the bootstrap window at its final geometry, repairs the known fullscreen placement calls, preserves the live windowed origin, and suppresses the unsafe focus-loss move. |
+| `display_borderless_windowed = true` | With `bFull Screen=0`, vanilla first exposes the parent at `(0,0)` and retains a frame. A missing `iLocation X/Y` pair leaves it in that corner. | Uses an undecorated popup at the configured render size and centers an unset origin. `bFull Screen=1` always takes precedence and remains native fullscreen. Set this option to `false` for a framed window. |
 | `save_integrity_fix = true` | The game can report success after a partial temporary save, failed flush/close, or failed replacement. Malformed changed records can also run past their buffers, while records from missing plugins can publish partial state. | Flushes and closes the completed temporary save, rotates backups, and replaces the final save atomically. Loading bounds-checks changed records and skips unavailable content through the engine's own paths. It does not rewrite valid save data. |
 | `navmesh_low_pointer_guard = true` | Pathfinding receives a very small invalid address where a real `NavMeshInfo` pointer is required, then dereferences it. | Rejects the impossible low pointer at the audited pathfinding boundary instead of letting it become a navigation object. |
 | `entrydata_invalid_form_guard = true` | Corrupted container `EntryData` contains an invalid item-form pointer which vanilla save/load code later dereferences. | Drops only the broken inventory entry before serialization reaches the invalid form. Other entries remain untouched. |
@@ -548,9 +550,11 @@ patch-site owners, but two mods changing the same engine instruction can still
 conflict. Always test with logs; plugin count alone tells almost nothing.
 
 The display fix recognizes the visible bootstrap window and six audited
-placement paths. Native fullscreen and existing borderless windows receive
-narrow transition handling. Ordinary windowed or unrecognized calls pass
-through unchanged.
+placement paths. `bFull Screen=1` always selects native fullscreen.
+`bFull Screen=0` selects the windowed renderer branch, which uses borderless
+style by default, centers an unset origin, and preserves a later user-selected
+position across renderer recreation. External IAT owners and unrecognized
+callers retain their boundaries.
 
 OMV expects ownership of its graphics hooks. Co-installation with another native
 renderer overhaul is not supported unless documented explicitly.

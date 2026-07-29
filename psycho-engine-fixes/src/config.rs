@@ -303,6 +303,11 @@ impl PerformanceConfig {
 pub struct EngineFixesConfig {
     /// Repair audited fullscreen startup, reset, and Alt-Tab placement.
     pub display_alt_tab: bool,
+    /// Remove the frame when `bFull Screen=0`.
+    ///
+    /// The engine's `bFull Screen=1` setting always takes precedence and
+    /// continues to use the native-fullscreen repair policy.
+    pub display_borderless_windowed: bool,
     /// Commit saves durably and reject unsafe or unresolved changed records.
     pub save_integrity_fix: bool,
     /// Treat invalid NavMeshInfo low pointers as "no path identity".
@@ -345,6 +350,7 @@ impl Default for EngineFixesConfig {
     fn default() -> Self {
         Self {
             display_alt_tab: true,
+            display_borderless_windowed: true,
             save_integrity_fix: true,
             navmesh_low_pointer_guard: true,
             entrydata_invalid_form_guard: true,
@@ -384,6 +390,9 @@ impl EngineFixesConfig {
                 .or(legacy_display_tweaks)
                 .or(legacy_display.tweaks)
                 .unwrap_or(default.display_alt_tab),
+            display_borderless_windowed: raw
+                .display_borderless_windowed
+                .unwrap_or(default.display_borderless_windowed),
             save_integrity_fix: raw.save_integrity_fix.unwrap_or(default.save_integrity_fix),
             navmesh_low_pointer_guard: raw
                 .navmesh_low_pointer_guard
@@ -527,6 +536,7 @@ struct RawPerformanceConfig {
 #[serde(default)]
 struct RawEngineFixesConfig {
     display_alt_tab: Option<bool>,
+    display_borderless_windowed: Option<bool>,
     save_integrity_fix: Option<bool>,
     navmesh_low_pointer_guard: Option<bool>,
     entrydata_invalid_form_guard: Option<bool>,
@@ -682,6 +692,22 @@ actor_container_retirement_guard = false
 
         assert!(default.engine_fixes.actor_container_retirement_guard);
         assert!(!disabled.engine_fixes.actor_container_retirement_guard);
+    }
+
+    #[test]
+    fn borderless_windowed_defaults_on_and_can_be_disabled() {
+        let default: PsychoConfig = toml::from_str("").expect("parse default configuration");
+        let framed: PsychoConfig = toml::from_str(
+            r#"
+[engine_fixes]
+display_borderless_windowed = false
+"#,
+        )
+        .expect("parse framed-windowed setting");
+
+        assert!(default.engine_fixes.display_borderless_windowed);
+        assert!(default.engine_fixes.display_alt_tab);
+        assert!(!framed.engine_fixes.display_borderless_windowed);
     }
 
     #[test]

@@ -1,3 +1,18 @@
+//! Per-identity ScrapHeap allocation state.
+//!
+//! Fallout exposes multiple ScrapHeap identities, including thread-local
+//! instances. Each identity owns a [`Heap`] whose mutex serializes region
+//! selection, bump allocation, header-chain updates, free, and purge.
+//! `hot_region` is an atomic address hint that avoids rescanning older regions;
+//! it is not a lock-free allocation path.
+//!
+//! Free marks the allocation header and rewinds only through a contiguous
+//! freed tail. Regions remain owned and readable until the live-allocation
+//! count reaches zero. The last free queues the identity for collection, and
+//! [`Heap::checked_purge`] rechecks the count under the state mutex before
+//! releasing any backing. This delayed, checked transition is the boundary
+//! that prevents a queued identity from purging allocations created later.
+
 use super::region::{ALLOCATION_HEADER_SIZE, AllocationHeader, Region};
 use super::runtime::SeqQueue;
 
@@ -8,26 +23,31 @@ use std::ptr;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicUsize, Ordering};
 
-/// Default region size in bytes.
-/// 128KB fits easily into fragmented 32-bit address space.
+/// Capacity of one standard region and one protected-reserve slot.
+///
+/// A fresh mapping of this size can still fail in a fragmented 32-bit process;
+/// the reusable reserve exists specifically to avoid that mapping dependency.
 pub const REGION_SIZE: usize = 128 * 1024;
-
-/// Region alignment.
-const REGION_ALIGN: usize = 16;
 
 const CACHE_LINE: usize = 64;
 
 struct HeapState {
-    // hot_region publishes Region addresses without taking the state lock.
-    // Boxing keeps those addresses stable when the Vec grows or compacts.
+    // `hot_region` publishes Region addresses independently of Vec storage.
+    // Boxing keeps those addresses stable when this Vec grows or compacts.
     #[allow(clippy::vec_box)]
     pool: Vec<Box<Region>>,
     top: *mut AllocationHeader,
 }
 
+// `top` is accessed only while `state` is locked, and every pointed-to header
+// remains inside one of the boxed regions owned by the same state.
 unsafe impl Send for HeapState {}
 
 /// Scrap heap allocator for a single sheap identity.
+///
+/// The object has a stable address because the runtime retains its `Arc` for
+/// process lifetime. That permits thread-local lookup entries to cache a raw
+/// pointer; `generation` invalidates cached allocator state after purge.
 #[repr(C, align(64))]
 pub struct Heap {
     // === Cache line 1: read-heavy ===
@@ -47,6 +67,7 @@ pub struct Heap {
 }
 
 impl Heap {
+    /// Create an empty allocator for one native ScrapHeap identity.
     pub fn new(sheap_id: usize, gc_queue: Arc<SeqQueue<usize>>) -> Self {
         Self {
             hot_region: AtomicPtr::new(ptr::null_mut()),
@@ -64,17 +85,23 @@ impl Heap {
         }
     }
 
+    /// Return the purge generation used to validate thread-local cache entries.
     #[inline(always)]
     pub fn get_generation(&self) -> usize {
         self.generation.load(Ordering::Acquire)
     }
 
-    /// Allocate with one caller-provided pre-reserved region fallback.
-    pub fn try_alloc_slow_with_reserved<F>(
+    /// Allocate from existing storage or request one new region from `provider`.
+    ///
+    /// `provider` is called only after every existing region has been tried and
+    /// while the heap state mutex remains held. Holding the lock across region
+    /// acquisition prevents two threads from adding redundant regions or
+    /// publishing competing header-chain tops for the same identity.
+    pub fn try_alloc_slow_with_provider<F>(
         &self,
         size: usize,
         align: usize,
-        reserved_region: F,
+        region_provider: F,
     ) -> Option<*mut c_void>
     where
         F: FnOnce(usize) -> Option<Box<Region>>,
@@ -89,11 +116,10 @@ impl Heap {
             .checked_add(align)?
             .checked_add(ALLOCATION_HEADER_SIZE)?;
         let region_capacity = REGION_SIZE.max(min_capacity);
-        let mut boxed = match Region::new(region_capacity, REGION_ALIGN) {
-            Some(region) => Box::new(region),
-            None => reserved_region(region_capacity)?,
-        };
-        boxed.activate_accounting();
+        // The provider owns reserve/dynamic policy. Keeping that policy out of
+        // Heap lets this type enforce lifetime and header invariants without
+        // knowing how a region obtained its backing.
+        let boxed = region_provider(region_capacity)?;
 
         let allocation = boxed.allocate(size, align, state.top)?;
         let ptr = allocation.ptr;
@@ -177,6 +203,12 @@ impl Heap {
         }
     }
 
+    /// Free an exact payload pointer returned by this heap.
+    ///
+    /// Foreign pointers are rejected by region-range ownership. A duplicate
+    /// free is ignored after observing the header marker. The exact-start
+    /// requirement comes from the native ScrapHeap ABI and is not inferred
+    /// from range membership.
     #[inline]
     pub fn free(&self, ptr: *mut c_void) {
         let should_enqueue_gc = {
@@ -201,6 +233,9 @@ impl Heap {
         };
 
         if should_enqueue_gc {
+            // Queueing is only a hint that the heap became empty. A later
+            // allocation may make it live again before the collector runs, so
+            // checked_purge must prove zero again under the same state lock.
             self.try_enqueue_gc();
         }
     }
@@ -220,13 +255,22 @@ impl Heap {
         }
     }
 
+    /// Purge every owned region without checking the live-allocation count.
+    ///
+    /// Native explicit purge/init hooks call this only at an engine-owned
+    /// lifetime boundary where all previous allocations are invalid.
+    /// Returns the number of regions released.
     #[inline]
     pub fn purge(&self) -> usize {
         let mut state = self.state.lock();
         self.purge_inner(&mut state)
     }
 
-    /// GC-initiated purge. Only purges if no threads are actively using this heap.
+    /// Purge queued storage only if the heap is still empty.
+    ///
+    /// The zero-live check occurs while holding the state mutex, closing the
+    /// race between the last-free enqueue and a later allocation. Returns the
+    /// number of regions released, or zero if the identity became live again.
     #[inline]
     pub fn checked_purge(&self) -> usize {
         self.gc_queued.store(false, Ordering::Release);
@@ -250,17 +294,27 @@ impl Heap {
 
         self.alloc_count.store(0, Ordering::Release);
         self.gc_queued.store(false, Ordering::Release);
+        // Cached Heap pointers stay valid because the runtime never removes
+        // identities. The generation change nevertheless forces thread-local
+        // users to cross the slow validation path after allocator state reset.
         self.generation.fetch_add(1, Ordering::Release);
 
         old_len
     }
 
+    /// Return the number of region objects currently owned by this heap.
     pub fn region_count(&self) -> usize {
         self.state.lock().pool.len()
     }
 
+    /// Return the current number of live allocations in this heap.
     pub fn alloc_count(&self) -> usize {
         self.alloc_count.load(Ordering::Relaxed)
+    }
+
+    /// Return the native ScrapHeap identity represented by this object.
+    pub fn identity(&self) -> usize {
+        self.sheap_id
     }
 
     fn rewind_after_free(&self, state: &mut HeapState) {
@@ -337,5 +391,85 @@ impl Heap {
             .pool
             .iter()
             .position(|region| region.contains_header(header))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use super::{Heap, REGION_SIZE};
+    use crate::mods::heap_replacer::scrap_heap::region::Region;
+    use crate::mods::heap_replacer::scrap_heap::reserve::RegionReserve;
+    use crate::mods::heap_replacer::scrap_heap::runtime::SeqQueue;
+
+    fn heap_and_reserve() -> (Heap, Arc<RegionReserve>) {
+        (
+            Heap::new(0x1234, Arc::new(SeqQueue::new())),
+            RegionReserve::create().unwrap(),
+        )
+    }
+
+    #[test]
+    fn live_allocation_blocks_checked_purge_then_releases_slot() {
+        let (heap, reserve) = heap_and_reserve();
+        let ptr = heap
+            .try_alloc_slow_with_provider(64, 8, |_| {
+                reserve.acquire().map(Region::from_reserved).map(Box::new)
+            })
+            .unwrap();
+
+        assert_eq!(heap.checked_purge(), 0);
+        assert_eq!(reserve.snapshot().in_use_regions, 1);
+
+        heap.free(ptr);
+        assert_eq!(heap.checked_purge(), 1);
+        assert_eq!(reserve.snapshot().in_use_regions, 0);
+    }
+
+    #[test]
+    fn oversized_request_preserves_requested_capacity() {
+        let (heap, reserve) = heap_and_reserve();
+        let size = REGION_SIZE + 4096;
+        let ptr = heap
+            .try_alloc_slow_with_provider(size, 16, |capacity| {
+                assert!(capacity > REGION_SIZE);
+                Region::new_dynamic(capacity).map(Box::new)
+            })
+            .unwrap();
+
+        assert_eq!(reserve.snapshot().in_use_regions, 0);
+        heap.free(ptr);
+        assert_eq!(heap.checked_purge(), 1);
+    }
+
+    #[test]
+    fn shared_heap_concurrent_alloc_free_keeps_one_region_owned() {
+        let heap = Arc::new(Heap::new(0x5678, Arc::new(SeqQueue::new())));
+        let reserve = RegionReserve::create().unwrap();
+        let mut threads = Vec::new();
+
+        for _ in 0..4 {
+            let heap = Arc::clone(&heap);
+            let reserve = Arc::clone(&reserve);
+            threads.push(std::thread::spawn(move || {
+                for _ in 0..128 {
+                    let ptr = heap
+                        .try_alloc_slow_with_provider(32, 8, |_| {
+                            reserve.acquire().map(Region::from_reserved).map(Box::new)
+                        })
+                        .unwrap();
+                    heap.free(ptr);
+                }
+            }));
+        }
+
+        for thread in threads {
+            thread.join().unwrap();
+        }
+
+        assert_eq!(heap.alloc_count(), 0);
+        assert_eq!(heap.checked_purge(), 1);
+        assert_eq!(reserve.snapshot().in_use_regions, 0);
     }
 }

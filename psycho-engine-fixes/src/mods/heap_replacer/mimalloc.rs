@@ -1,3 +1,17 @@
+//! Mimalloc configuration for the mode-2 CRT replacement.
+//!
+//! Mimalloc owns CRT allocations only. GameHeap objects use gheap and
+//! ScrapHeap regions use their independent protected reserve. Allocator startup
+//! establishes the mandatory gheap and ScrapHeap reservations before this
+//! module attempts its optional arena, preventing CRT optimization from
+//! consuming address space required for hook activation.
+//!
+//! The preferred arena is intentionally small for a 32-bit process and is
+//! demand committed. If neither bounded reservation succeeds, mimalloc remains
+//! functional through its dynamic OS path. Objects above 64 KiB bypass the
+//! arena; this ceiling constrains CRT arena growth but no longer determines
+//! ScrapHeap backing.
+
 use libc::c_long;
 use libmimalloc::{
     mi_arena_id_t, mi_option_arena_eager_commit, mi_option_arena_max_object_size,
@@ -14,8 +28,11 @@ const MB: usize = 1024 * 1024;
 const MIMALLOC_ARENA_RESERVE_KIB: c_long = 8 * 1024;
 const MIMALLOC_ARENA_MAX_OBJECT_KIB: c_long = 64;
 
-/// Initialize mimalloc with dynamic arena reservation (original behavior).
-/// Falls back to this if the unified reservation is not available.
+/// Initialize the mode-2 CRT allocator and attempt one bounded private arena.
+///
+/// Initialization is process-wide and idempotent. Arena reservation failure is
+/// non-fatal because mimalloc can allocate dynamically; the mandatory game
+/// allocator reservations have already succeeded before this function runs.
 pub fn initialize_mimalloc() {
     INIT_MIMALLOC.call_once(|| unsafe {
         // let arena_sizes = [512 * MB, 384 * MB, 256 * MB];
@@ -62,9 +79,8 @@ unsafe fn apply_options() {
         // 32-bit, which can steal the same contiguous VAS D3D needs.
         mi_option_set(mi_option_arena_reserve, MIMALLOC_ARENA_RESERVE_KIB);
 
-        // Objects above 64 KB bypass arenas and use mimalloc's direct
-        // OS path. This keeps 128 KB scrap regions from growing hidden
-        // mimalloc arenas during VAS pressure.
+        // Objects above 64 KB bypass arenas and use mimalloc's direct OS path.
+        // Mimalloc is CRT-only; ScrapHeap regions use their own fixed reserve.
         mi_option_set(
             mi_option_arena_max_object_size,
             MIMALLOC_ARENA_MAX_OBJECT_KIB,

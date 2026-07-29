@@ -324,9 +324,10 @@ pub fn prepare_sheap_hooks() -> anyhow::Result<()> {
 }
 
 /// Initialize the scrap-heap runtime after all hook targets are proven.
-pub fn initialize_sheap_runtime() {
-    scrap_heap::initialize_runtime();
+pub fn initialize_sheap_runtime() -> anyhow::Result<()> {
+    scrap_heap::initialize_runtime()?;
     log::info!("[scrap_heap] Allocator runtime initialized");
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------

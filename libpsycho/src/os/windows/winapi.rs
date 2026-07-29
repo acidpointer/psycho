@@ -28,10 +28,11 @@ use windows::Win32::System::LibraryLoader::{
     GetProcAddress, LoadLibraryA, LoadLibraryW,
 };
 use windows::Win32::System::Memory::{
-    MEM_COMMIT, MEM_FREE, MEM_RELEASE, MEM_RESERVE, MEMORY_BASIC_INFORMATION, PAGE_EXECUTE,
-    PAGE_EXECUTE_READ, PAGE_EXECUTE_READWRITE, PAGE_EXECUTE_WRITECOPY, PAGE_GUARD, PAGE_NOACCESS,
-    PAGE_PROTECTION_FLAGS, PAGE_READWRITE, PAGE_WRITECOPY, VIRTUAL_ALLOCATION_TYPE,
-    VIRTUAL_FREE_TYPE, VirtualAlloc, VirtualFree, VirtualProtect,
+    MEM_COMMIT, MEM_FREE, MEM_IMAGE, MEM_MAPPED, MEM_PRIVATE, MEM_RELEASE, MEM_RESERVE,
+    MEMORY_BASIC_INFORMATION, PAGE_EXECUTE, PAGE_EXECUTE_READ, PAGE_EXECUTE_READWRITE,
+    PAGE_EXECUTE_WRITECOPY, PAGE_GUARD, PAGE_NOACCESS, PAGE_PROTECTION_FLAGS, PAGE_READWRITE,
+    PAGE_WRITECOPY, VIRTUAL_ALLOCATION_TYPE, VIRTUAL_FREE_TYPE, VirtualAlloc, VirtualFree,
+    VirtualProtect,
 };
 use windows::Win32::System::Performance::{QueryPerformanceCounter, QueryPerformanceFrequency};
 use windows::Win32::System::ProcessStatus::{
@@ -146,6 +147,23 @@ pub enum MemoryState {
     Unknown(u32),
 }
 
+/// Stable memory-type classification independent of the Windows bindings.
+///
+/// Win32 exposes these values only for committed pages. Keeping the raw
+/// fallback prevents a newer or emulated value from being silently counted as
+/// allocator-private memory.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum MemoryType {
+    /// Executable image mapping (`MEM_IMAGE`).
+    Image,
+    /// Mapped section or file (`MEM_MAPPED`).
+    Mapped,
+    /// Process-private allocation (`MEM_PRIVATE`).
+    Private,
+    /// Unrecognized raw Win32 memory-type value.
+    Unknown(u32),
+}
+
 impl MemoryBasicInformation {
     pub fn memory_state(&self) -> MemoryState {
         match self.state {
@@ -153,6 +171,16 @@ impl MemoryBasicInformation {
             state if state == MEM_FREE.0 => MemoryState::Free,
             state if state == MEM_RESERVE.0 => MemoryState::Reserve,
             state => MemoryState::Unknown(state),
+        }
+    }
+
+    /// Classify the raw Win32 `Type` field without exposing binding constants.
+    pub fn memory_type(&self) -> MemoryType {
+        match self.r#type {
+            kind if kind == MEM_IMAGE.0 => MemoryType::Image,
+            kind if kind == MEM_MAPPED.0 => MemoryType::Mapped,
+            kind if kind == MEM_PRIVATE.0 => MemoryType::Private,
+            kind => MemoryType::Unknown(kind),
         }
     }
 
@@ -1719,6 +1747,33 @@ pub unsafe fn virtual_reserve_commit(address: Option<*const c_void>, size: usize
     unsafe { VirtualAlloc(address, size, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE) }
 }
 
+/// Make a committed allocator range readable and writable.
+///
+/// The previous protection is deliberately discarded: reserve-slot ownership
+/// uses explicit `PAGE_READWRITE` while leased and `PAGE_NOACCESS` while idle,
+/// rather than temporarily borrowing an arbitrary caller protection.
+///
+/// # Safety
+///
+/// `address..address + size` must lie inside committed virtual memory.
+#[inline]
+pub unsafe fn virtual_make_readwrite(address: *mut c_void, size: usize) -> WinapiResult<()> {
+    virtual_protect(address, PAGE_READWRITE, size).map(|_| ())
+}
+
+/// Make a committed allocator range inaccessible without releasing its VAS.
+///
+/// The pages remain committed so reacquisition does not require a new mapping
+/// during address-space pressure.
+///
+/// # Safety
+///
+/// `address..address + size` must lie inside committed virtual memory.
+#[inline]
+pub unsafe fn virtual_make_noaccess(address: *mut c_void, size: usize) -> WinapiResult<()> {
+    virtual_protect(address, PAGE_NOACCESS, size).map(|_| ())
+}
+
 /// Release a complete virtual-memory reservation.
 ///
 /// # Safety
@@ -1818,6 +1873,26 @@ mod tests {
 
     fn ansi_path(path: &Path) -> CString {
         CString::new(path.to_string_lossy().as_bytes()).expect("test path must not contain NUL")
+    }
+
+    #[test]
+    fn memory_type_classification_preserves_unknown_values() {
+        let mut info = MemoryBasicInformation {
+            base_address: std::ptr::null_mut(),
+            allocation_base: std::ptr::null_mut(),
+            allocation_protect: 0,
+            region_size: 0x1000,
+            state: MEM_COMMIT.0,
+            protect: PAGE_READWRITE,
+            r#type: MEM_PRIVATE.0,
+        };
+        assert_eq!(info.memory_type(), MemoryType::Private);
+        info.r#type = MEM_MAPPED.0;
+        assert_eq!(info.memory_type(), MemoryType::Mapped);
+        info.r#type = MEM_IMAGE.0;
+        assert_eq!(info.memory_type(), MemoryType::Image);
+        info.r#type = 0x1234_5678;
+        assert_eq!(info.memory_type(), MemoryType::Unknown(0x1234_5678));
     }
 
     #[test]

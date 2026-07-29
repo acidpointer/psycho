@@ -1819,6 +1819,15 @@ fn draw_configuration(ui: &mut Ui<'_>, editor: &mut ConfigEditor) {
     );
 
     ui.spacing();
+    ui.separator_text(&cstring("Display mode"));
+    checkbox_help(
+        ui,
+        "Borderless windowed",
+        &mut config.display_borderless_windowed,
+        "When FalloutPrefs.ini has bFull Screen=0, removes the window frame and keeps the configured render size. bFull Screen=1 always remains native fullscreen.",
+    );
+
+    ui.spacing();
     ui.separator_text(&cstring("Engine safety"));
     ui.text_colored(
         MUTED,

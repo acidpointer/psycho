@@ -1,12 +1,20 @@
 //! Unified memory statistics for all heap replacer subsystems.
 //!
 //! Single source of truth for memory diagnostics. Covers:
+//!
 //! - active allocator mode
 //! - gheap tier ownership and VAS fragmentation
 //! - scrap_heap stats (region-level allocated bytes)
 //!
 //! All counters are atomic -- safe to read from any thread (monitor,
 //! console commands) and write from hot allocation paths.
+//!
+//! These values are diagnostics, not allocator synchronization. Relaxed
+//! ordering is sufficient because ownership is established by each
+//! allocator's locks; the counters need eventual visibility only. A detailed
+//! report is a cold, explicit operation and may perform a full VAS walk.
+//! ScrapHeap "allocated" bytes mean whole region capacity currently owned by
+//! heaps, not the sum of requested payload sizes.
 
 use std::{
     fmt::Write as _,
@@ -24,7 +32,7 @@ use super::{AllocatorMode, current_mode, scrap_heap};
 // MemStats
 // ---------------------------------------------------------------------------
 
-/// Unified memory statistics for the heap replacer.
+/// Atomic region-capacity accounting and report generation for heap replacers.
 pub struct MemStats {
     // -- scrap_heap counters --
     scrap_heap_allocated: AtomicU64,
@@ -42,21 +50,26 @@ impl MemStats {
 
     // -- scrap_heap (written by region alloc/free) --
 
+    /// Add newly owned ScrapHeap region capacity.
     #[inline]
     pub fn scrap_heap_add(&self, size: u64) {
         self.scrap_heap_allocated.fetch_add(size, Ordering::Relaxed);
     }
 
+    /// Remove released ScrapHeap region capacity.
     #[inline]
     pub fn scrap_heap_sub(&self, size: u64) {
         self.scrap_heap_allocated.fetch_sub(size, Ordering::Relaxed);
     }
 
+    /// Return region capacity currently owned by all ScrapHeap identities.
     pub fn scrap_heap_allocated(&self) -> u64 {
         self.scrap_heap_allocated.load(Ordering::Relaxed)
     }
 
-    /// Detailed multi-line report for console.
+    /// Build the detailed console report for the currently active allocator.
+    ///
+    /// This is a cold diagnostics path and may enumerate the process VAS.
     pub fn detailed_report() -> String {
         let mut report = match current_mode() {
             Some(AllocatorMode::GheapAndScrapHeap) => Self::gheap_report(),
@@ -182,6 +195,33 @@ impl MemStats {
                 scrap.live_allocs, scrap.identities, scrap.active_identities
             ),
         );
+        push_value(
+            &mut r,
+            "Scrap reserve",
+            format!(
+                "{} used / {} usable / {} total, peak {}",
+                scrap.reserve_in_use_regions,
+                scrap.reserve_usable_regions,
+                scrap.reserve_total_regions,
+                scrap.reserve_high_water_regions,
+            ),
+        );
+        push_value(
+            &mut r,
+            "Scrap overflow",
+            format!(
+                "{} live / {} made / {} failed",
+                scrap.dynamic_live_regions, scrap.dynamic_allocations, scrap.dynamic_failures,
+            ),
+        );
+        push_value(
+            &mut r,
+            "Scrap safety",
+            format!(
+                "{} reserve misses / {} retired / {} final failures",
+                scrap.reserve_misses, scrap.reserve_retired_regions, scrap.final_failures,
+            ),
+        );
         let overflow_user = pool::overflow_user_reserved_bytes();
         let overflow_metadata = pool::overflow_metadata_reserved_bytes();
         if overflow_user != 0 || overflow_metadata != 0 {
@@ -205,6 +245,17 @@ impl MemStats {
                 format!("{} at {:08X}", format_bytes(s.largest_free), s.largest_base),
             );
             push_value(&mut r, "Committed", format_bytes(s.total_commit));
+            push_value(
+                &mut r,
+                "Commit classes",
+                format!(
+                    "{} private / {} mapped / {} image / {} unknown",
+                    format_bytes(s.commit_private),
+                    format_bytes(s.commit_mapped),
+                    format_bytes(s.commit_image),
+                    format_bytes(s.commit_unknown),
+                ),
+            );
             push_value(&mut r, "Reserved", format_bytes(s.total_reserve));
             push_value(&mut r, "Free holes", s.holes);
         }
@@ -229,6 +280,57 @@ impl MemStats {
             "Identities",
             format!("{} total / {} active", s.identities, s.active_identities),
         );
+        push_value(
+            &mut r,
+            "Reserve",
+            format!(
+                "{} used / {} usable / {} total, peak {}",
+                s.reserve_in_use_regions,
+                s.reserve_usable_regions,
+                s.reserve_total_regions,
+                s.reserve_high_water_regions,
+            ),
+        );
+        push_value(
+            &mut r,
+            "Dynamic regions",
+            format!(
+                "{} live / {} made / {} failed",
+                s.dynamic_live_regions, s.dynamic_allocations, s.dynamic_failures,
+            ),
+        );
+        push_value(
+            &mut r,
+            "Reserve safety",
+            format!(
+                "{} misses / {} retired / {} protection failures",
+                s.reserve_misses, s.reserve_retired_regions, s.reserve_protection_failures,
+            ),
+        );
+        push_value(
+            &mut r,
+            "OOM recovery",
+            format!(
+                "{} attempts / {} regions reclaimed / {} final failures",
+                s.reclaim_attempts, s.reclaimed_regions, s.final_failures,
+            ),
+        );
+        if s.dynamic_failures != 0 {
+            push_value(
+                &mut r,
+                "Last failure",
+                format!(
+                    "tick={} tid={} heap={:08X} size={} align={} capacity={} error={}",
+                    s.last_failure_tick,
+                    s.last_failure_thread_id,
+                    s.last_failure_sheap_id,
+                    s.last_failure_size,
+                    s.last_failure_align,
+                    s.last_failure_capacity,
+                    s.last_failure_error,
+                ),
+            );
+        }
         r.push_str("  Main game heap remains vanilla.\n");
         r
     }
@@ -251,6 +353,7 @@ fn push_value(out: &mut String, label: &str, value: impl std::fmt::Display) {
     let _ = writeln!(out, "  {label:<18}{value}");
 }
 
+/// Return the process-wide memory-statistics instance.
 pub fn global() -> &'static MemStats {
     &INSTANCE
 }

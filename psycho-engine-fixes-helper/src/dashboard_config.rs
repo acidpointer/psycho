@@ -27,6 +27,8 @@ pub(crate) struct EditableConfig {
     pub allocator: i32,
     pub gheap_periodic_pdd_purge: bool,
     pub display_alt_tab: bool,
+    /// Restart-only borderless style preference for `bFull Screen=0`.
+    pub display_borderless_windowed: bool,
     pub save_integrity_fix: bool,
     pub navmesh_low_pointer_guard: bool,
     pub entrydata_invalid_form_guard: bool,
@@ -73,6 +75,7 @@ impl Default for EditableConfig {
             allocator: 2,
             gheap_periodic_pdd_purge: false,
             display_alt_tab: true,
+            display_borderless_windowed: true,
             save_integrity_fix: true,
             navmesh_low_pointer_guard: true,
             entrydata_invalid_form_guard: true,
@@ -137,6 +140,12 @@ impl EditableConfig {
                 .or_else(|| read_bool(doc, "performance", "display_tweaks"))
                 .or_else(|| read_bool(doc, "display", "tweaks"))
                 .unwrap_or(defaults.display_alt_tab),
+            display_borderless_windowed: bool_or(
+                doc,
+                "engine_fixes",
+                "display_borderless_windowed",
+                defaults.display_borderless_windowed,
+            ),
             save_integrity_fix: bool_or(
                 doc,
                 "engine_fixes",
@@ -566,6 +575,7 @@ fn write_document(doc: &mut DocumentMut, config: &EditableConfig) {
         };
     }
     engine!(display_alt_tab);
+    engine!(display_borderless_windowed);
     engine!(save_integrity_fix);
     engine!(navmesh_low_pointer_guard);
     engine!(entrydata_invalid_form_guard);
@@ -697,6 +707,7 @@ mod_owned_key = "untouched"
         let mut document = parse_document(source).expect("parse source");
         let mut config = EditableConfig::from_document(&document);
         config.allocator = 2;
+        config.display_borderless_windowed = false;
         config.actor_container_retirement_guard = false;
         config.model_postprocess_serialization_fix = false;
         write_document(&mut document, &config);
@@ -706,9 +717,11 @@ mod_owned_key = "untouched"
         assert!(saved.contains("# keep this inline note"));
         assert!(saved.contains("mod_owned_key = \"untouched\""));
         assert!(saved.contains("allocator = 2"));
+        assert!(saved.contains("display_borderless_windowed = false"));
         assert!(saved.contains("actor_container_retirement_guard = false"));
         assert!(saved.contains("model_postprocess_serialization_fix = false"));
         let reparsed = parse_document(&saved).expect("parse saved document");
+        assert!(!EditableConfig::from_document(&reparsed).display_borderless_windowed);
         assert!(!EditableConfig::from_document(&reparsed).actor_container_retirement_guard);
         assert!(!EditableConfig::from_document(&reparsed).model_postprocess_serialization_fix);
     }

@@ -76,6 +76,229 @@ goal of the mod. If your setup is too heavy or unstable, use the safer mode
 first.
 
 
+[b]COMPLETE FEATURE LIST[/b]
+
+The list below covers the shipped core, including features that are useful in
+vanilla allocator mode. Exact config keys are shown where a feature has its own
+switch. Most fixes are enabled by default and can be isolated individually for
+compatibility testing.
+
+[b]Early startup and compatibility[/b]
+
+[list]
+[*][b]Pre-CRT loading through Syringe[/b] installs the core at the proven early
+startup boundary, before ordinary xNVSE plugin initialization and before the
+game has fragmented its 32-bit address space.
+[*][b]Validated, transactional installation[/b] checks address-sensitive game
+code before patching and uses transactions where several writes must succeed
+together. An unsupported path is reported and left on its safe native fallback.
+[*][b]Mod-agnostic hook chaining[/b] is used by fixes that can safely wrap an
+existing executable hook owner. The fixes do not require a particular version
+of Stewie Tweaks, ITR, NVTF, or another mod.
+[*][b]Allocator-independent engine fixes[/b] remain active with vanilla heap,
+scrap_heap only, or gheap + scrap_heap unless a description explicitly says
+otherwise.
+[/list]
+
+[b]Memory allocator modes ([b]memory.allocator[/b])[/b]
+
+[list]
+[*][b]Mode 0: vanilla allocators[/b] leaves both game allocators unchanged while
+keeping the independent engine fixes available.
+[*][b]Mode 1: scrap_heap only[/b] replaces the temporary scratch heaps with
+per-heap, per-thread bump regions backed by a protected reusable reserve. It
+keeps the vanilla main object heap and is the broad-compatibility allocator
+mode.
+[*][b]Mode 2: gheap + scrap_heap[/b] installs the complete early main-heap
+replacement plus the scrap-heap replacement for the strongest allocator
+performance improvement.
+[*][b]32-bit address-space pressure handling[/b] reserves gheap backing early,
+commits it on demand, monitors actual virtual-address-space holes, and performs
+bounded recovery before a failed allocation is returned as NULL.
+[*][b]Freed-object preservation and lifetime protection[/b] keeps gheap free
+metadata outside freed game-object payloads and combines this with targeted
+guards for proven stale-reader failures.
+[*][b]Optional periodic PDD purge[/b]
+([b]memory.gheap_periodic_pdd_purge[/b]) is an advanced, off-by-default
+experiment for draining Process Deferred Destruction more aggressively. It is
+not recommended for normal play.
+[/list]
+
+[b]Display, saves, and loaded data[/b]
+
+[list]
+[*][b]Fullscreen and Alt-Tab repair[/b]
+([b]engine_fixes.display_alt_tab[/b]) fixes fullscreen size and placement at
+startup, renderer reset, focus changes, and Alt-Tab. Windowed mode starts
+borderless and centered by default while bFull Screen=1 remains native
+fullscreen.
+[*][b]Save integrity and load-record validation[/b]
+([b]engine_fixes.save_integrity_fix[/b]) flushes and closes completed saves,
+rotates backups, atomically promotes the new file, preserves the old save when
+promotion fails, rejects malformed changed records, and safely skips records
+whose source plugin is unavailable.
+[*][b]NavMesh low-pointer guard[/b]
+([b]engine_fixes.navmesh_low_pointer_guard[/b]) treats a tiny invalid
+NavMeshInfo pointer as no path identity instead of dereferencing it.
+[*][b]Container entry form guard[/b]
+([b]engine_fixes.entrydata_invalid_form_guard[/b]) drops corrupt container
+entries before save/load code dereferences their invalid item form.
+[*][b]Dynamic actor container retirement guard[/b]
+([b]engine_fixes.actor_container_retirement_guard[/b]) validates an expiring
+generated actor's container list and safely detaches an uncertain corrupt list
+rather than risking an invalid free or use-after-free.
+[*][b]ExtraOwnership owner guard[/b]
+([b]engine_fixes.extraownership_invalid_owner_guard[/b]) converts an invalid
+ownership pointer to no owner.
+[*][b]Linked-reference child-list guard[/b]
+([b]engine_fixes.linked_ref_children_stale_list_guard[/b]) ignores a stale
+linked-reference child list during deleted or unloading reference cleanup.
+[*][b]Linked-reference target guard[/b]
+([b]engine_fixes.linked_ref_target_base_form_guard[/b]) skips an optional
+ExtraLinkedRef target whose base form is invalid.
+[/list]
+
+[b]Ragdoll and Havok physics[/b]
+
+[list]
+[*][b]Incomplete ragdoll bone-table guard[/b]
+([b]engine_fixes.ragdoll_null_bone_guard[/b]) skips only the unsafe update and
+tries the ragdoll again on the next frame.
+[*][b]Detached ragdoll phantom guard[/b]
+([b]engine_fixes.ragdoll_detached_phantom_guard[/b]) treats a best-effort
+penetration raycast as no hit for one frame after its phantom leaves the world.
+[*][b]Havok add-entity batch guard[/b]
+([b]engine_fixes.havok_add_entity_batch_null_guard[/b]) removes NULL entries
+from a batch while retaining every valid entity.
+[*][b]Havok pending-add guard[/b]
+([b]engine_fixes.havok_pending_add_null_guard[/b]) removes NULL entries before
+the engine flushes its pending-add array.
+[*][b]Havok narrowphase pair guard[/b]
+([b]engine_fixes.havok_narrowphase_invalid_pair_guard[/b]) rejects invalid
+collision pairs before collision-agent dispatch.
+[*][b]Havok post-add callback guard[/b]
+([b]engine_fixes.havok_post_add_null_entity_guard[/b]) skips AddedToWorld when
+Havok supplies a NULL entity.
+[*][b]Havok remove-agent reread guard[/b]
+([b]engine_fixes.havok_remove_agent_null_reread_guard[/b]) preserves the
+AI-thread critical-section unlock while removing an unsafe, unused reread of a
+broadphase slot that may already be NULL.
+[/list]
+
+[b]Allocation failure and object lifetime[/b]
+
+[list]
+[*][b]Known NULL allocation-consumer guards[/b]
+([b]engine_fixes.memset_null_dst_guard[/b]) prevent two proven out-of-memory
+paths from writing an alignment marker or clearing memory through address zero.
+The allocation failure is returned to its caller.
+[*][b]LowProcess generic-location ownership fix[/b]
+([b]engine_fixes.lowprocess_generic_locations_fix[/b]) removes list nodes
+without freeing non-owned TESObjectREFR payloads, contains corrupt entries
+during live-reference scans, and prevents invalid forms from being serialized.
+It chains a current valid executable owner and works in allocator modes 0-2.
+[*][b]Model post-process serialization[/b]
+([b]engine_fixes.model_postprocess_serialization_fix[/b]) serializes the
+engine's process-global EditorMarker/model traversal transaction. It protects
+main-thread/worker overlap even when parallel I/O is disabled, chains a current
+valid executable owner, and performs no allocation or free.
+[*][b]Queued-task lifetime guard[/b]
+([b]engine_fixes.queued_task_lifetime_guard[/b]) rejects virtual dispatch and
+final-release paths after an intrusive task reference count has reached zero.
+It is useful in every allocator mode.
+[/list]
+
+[b]Native I/O and model streaming[/b]
+
+[list]
+[*][b]Two-worker native I/O[/b] ([b]io.parallel_enabled[/b]) uses exactly two
+engine IOManager workers and expands the engine's per-thread task-map capacity.
+Unrelated safe I/O tasks remain parallel.
+[*][b]BSFile cache-allocation recovery[/b] falls back to native raw reads when
+an optional file-cache allocation cannot be obtained.
+[*][b]Exterior-cell ownership serialization[/b] protects the engine's
+process-global exterior-cell load owner while parallel work continues around
+it.
+[*][b]SpeedTree streaming guards[/b] protect slow materialization, global
+Compute scratch state, and clone lifetime/ownership.
+[*][b]Static vertex-buffer guards[/b] protect allocation, publication, and
+retirement of engine-global model buffers.
+[*][b]Parallel-I/O-off compatibility[/b] keeps independent correctness fixes,
+including model post-process serialization, active when
+[b]io.parallel_enabled = false[/b].
+[/list]
+
+[b]LOD streaming[/b]
+
+[list]
+[*][b]LOD master switch[/b] ([b]lod.enabled[/b]) controls the complete LOD
+streaming, handoff, and priority subsystem.
+[*][b]Earlier terrain, object, and tree requests[/b]
+([b]lod.prefetch_enabled[/b]) move existing native work ahead of the vanilla
+visibility boundary without adding a new worker or scene-publication path.
+[*][b]Configurable prefetch and retention margins[/b] separately control
+terrain, distant objects, and trees. Retention margins reduce repeated
+load/unload churn near cell boundaries. The six settings are
+[b]object_prefetch_multiplier[/b], [b]object_retention_multiplier[/b],
+[b]tree_prefetch_multiplier[/b], [b]tree_retention_multiplier[/b],
+[b]terrain_prefetch_multiplier[/b], and
+[b]terrain_retention_multiplier[/b] under [b][lod][/b].
+[*][b]Current-identity LOD handoff[/b]
+([b]lod.handoff_fix_enabled[/b]) replaces stale lifetime-total readiness with
+the current cell/reference identity before distant geometry is retired.
+[*][b]Native LOD priority boost[/b]
+([b]lod.priority_boost_enabled[/b]) raises LOD tasks and their dependencies to
+the engine's highest native priority without changing task classes or ordering.
+[/list]
+
+[b]Other performance features[/b]
+
+[list]
+[*][b]Fast per-thread RNG[/b] ([b]performance.rng[/b]) replaces the old
+Mersenne Twister while preserving expected output ranges and special game call
+cases. The exact random sequence intentionally differs from vanilla.
+[*][b]Faster zlib decompression[/b] ([b]performance.zlib[/b]) accelerates
+compressed archives and game data while preserving output bytes and verifying
+the Adler-32 checksum. It does not alter asset quality or file formats.
+[*][b]Post-load reconciliation prepass[/b]
+([b]performance.post_load_reconciliation_prepass[/b]) performs vanilla's
+process-manager reconciliation before a successful load returns, moving that
+backlog out of the first playable frame.
+[*][b]Cooperative radio path scans[/b] move the periodic radio distance
+generation onto native tasklet workers and consume the previous complete
+generation, reducing movement/camera hitches. Direct station selection remains
+native and synchronous, and unsupported provider layouts fall back safely.
+[/list]
+
+[b]Diagnostics and support tools[/b]
+
+[list]
+[*][b]Rotating core log[/b] writes
+[b]psycho-engine-fixes-latest.log[/b] with startup validation, active feature
+state, allocator/VAS information, pressure and recovery events, engine-fix
+counters, and failure details.
+[*][b]Debug detail[/b] ([b]diagnostics.debug_log[/b]) adds the information
+needed for allocator, compatibility, and crash reports without disabling the
+normal log when turned off.
+[*][b]Live console[/b] ([b]diagnostics.console[/b]) mirrors log output in a
+separate Windows console for development and startup testing.
+[*][b]Hitch profiling[/b] ([b]diagnostics.hitch_profiling[/b]) adds focused
+high-resolution [b][HITCH][/b] reports and radio-scan attribution while
+reproducing a performance problem.
+[*][b]Queued-task lifetime trace[/b]
+([b]diagnostics.task_lifetime_trace[/b]) records the last 256 relevant retain,
+release, dispatch, and rejection events for focused crash research.
+[*][b]LOD streaming trace[/b]
+([b]diagnostics.lod_streaming_trace[/b]) records the last 256 meaningful LOD
+membership, readiness, gate, and reset events.
+[*][b]Optional in-game helper[/b] adds the [b]PsychoInfo[/b] /
+[b]psyinfo[/b] console command and an [b]F10[/b] control deck with live
+memory/VAS trends, allocator and engine-fix counters, recent log output, and a
+restart-required config editor. The helper only forwards to an already-loaded
+core and never loads or initializes it.
+[/list]
+
+
 [b]INSTALLATION[/b]
 
 [b]Manual install is the clearest way.[/b]
@@ -195,8 +418,13 @@ Faster compatible RNG path. Recommended on.
 
 [*][b]engine_fixes.display_alt_tab[/b]
 Fixes fullscreen startup, reset, and Alt-Tab placement without replacing the
-game's focus or D3D9 recovery logic. Existing borderless owners retain style
-and size control; ordinary windowed calls pass through.
+game's focus or D3D9 recovery logic. It also preserves the live top-level
+position when the windowed renderer is recreated.
+
+[*][b]engine_fixes.display_borderless_windowed[/b]
+When FalloutPrefs.ini uses bFull Screen=0, creates an undecorated window at the
+configured render size and centers it when both location values are zero.
+bFull Screen=1 always takes precedence and remains native fullscreen.
 
 [*][b]diagnostics.debug_log[/b]
 Keeps useful logs for crash reports. Recommended on.
@@ -277,13 +505,14 @@ Normally keep the fix enabled:
 [code]
 [engine_fixes]
 display_alt_tab = true
+display_borderless_windowed = true
 [/code]
 
 If the problem remains, include your log and name any other fullscreen/window
 plugin. Psycho reports callsites owned directly by another mod and leaves them
-untouched. Borderless owners keep control of window style and size; Psycho only
-applies transition protection when the live window is undecorated and exactly
-covers its monitor. Ordinary windowed mode passes through unchanged.
+untouched. With bFull Screen=0, Psycho uses borderless-windowed mode by default;
+set display_borderless_windowed=false for a framed window. With
+bFull Screen=1, native fullscreen always takes precedence.
 
 
 [b]HOW TO REPORT A BUG[/b]

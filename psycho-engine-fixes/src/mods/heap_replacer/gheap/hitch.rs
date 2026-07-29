@@ -270,12 +270,20 @@ fn maybe_log_window() {
         return;
     }
 
+    // Detailed allocator snapshots are taken only after this window has
+    // already proved a hitch and only when opt-in profiling is active. Keeping
+    // them out of the ordinary Phase 10 path avoids turning diagnostics into a
+    // recurring source of frame stalls.
     let scrap = scrap_heap::snapshot();
     let blocks = block::try_snapshot();
     let block_sample = if blocks.is_some() { "fresh" } else { "miss" };
     let blocks = blocks.unwrap_or_default();
+    // The compact reserve fields are ordered as used/usable/total. Dynamic and
+    // failure counters are live/cumulative and dynamic/final respectively;
+    // reclaim is attempts/regions. This stable order keeps long-session logs
+    // machine-comparable without allocating a second structured report.
     log::debug!(
-        "[HITCH] events={} max_us={} avg_us={} ema_us={} loading={} pddq={}/{}/{}/{}/{} ragdoll={}/{} extra_owner=load:{} access:{} unreadable:{} task=dispatch:{}/{} pin_fail:{} invalid:{} guard:{} tombstone:{} pool={}+{}/{}/{}MB live={} pgrow={}/{} max/total={}/{}us user/meta={}/{}KB slow={}:{}B pinit={} max/total={}/{}us slow={}:{}B blocks={} block_mb={} sample={} block_ops={}/{}/{} wait={}/{}us op={}/{}us reserve={} fail={} max/total={}/{}us commit={} fail={} max/total={}/{}us new={} va={}MB scrap={}KB ids={} active_ids={} regions={} allocs={} spans=calls/max/total {}",
+        "[HITCH] events={} max_us={} avg_us={} ema_us={} loading={} pddq={}/{}/{}/{}/{} ragdoll={}/{} extra_owner=load:{} access:{} unreadable:{} task=dispatch:{}/{} pin_fail:{} invalid:{} guard:{} tombstone:{} pool={}+{}/{}/{}MB live={} pgrow={}/{} max/total={}/{}us user/meta={}/{}KB slow={}:{}B pinit={} max/total={}/{}us slow={}:{}B blocks={} block_mb={} sample={} block_ops={}/{}/{} wait={}/{}us op={}/{}us reserve={} fail={} max/total={}/{}us commit={} fail={} max/total={}/{}us new={} va={}MB scrap={}KB ids={} active_ids={} regions={} allocs={} sreserve={}/{}/{} high={} miss={} retired={} dyn={}/{} fail={}/{} reclaim={}/{} spans=calls/max/total {}",
         hitches,
         max_us,
         total_us / hitches.max(1),
@@ -340,6 +348,18 @@ fn maybe_log_window() {
         scrap.active_identities,
         scrap.regions,
         scrap.live_allocs,
+        scrap.reserve_in_use_regions,
+        scrap.reserve_usable_regions,
+        scrap.reserve_total_regions,
+        scrap.reserve_high_water_regions,
+        scrap.reserve_misses,
+        scrap.reserve_retired_regions,
+        scrap.dynamic_live_regions,
+        scrap.dynamic_allocations,
+        scrap.dynamic_failures,
+        scrap.final_failures,
+        scrap.reclaim_attempts,
+        scrap.reclaimed_regions,
         spans.format_compact(),
     );
 }

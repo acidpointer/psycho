@@ -142,11 +142,11 @@ fn initialize_gheap_and_scrap_heap(patch_plan: AllocatorPatchPlan) -> anyhow::Re
     let realloc_1_ready = prepare_gheap_hooks(patch_plan.hook_gheap_realloc_1)?;
     prepare_sheap_hooks()?;
 
-    // Finish the only fallible allocator-state setup before mimalloc reserves
-    // its arena. Mimalloc backs scrap-heap regions; game objects stay in gheap.
+    // Establish both fallible allocator reservations before mimalloc takes its
+    // optional CRT arena. ScrapHeap owns the mandatory fixed reserve.
     initialize_gheap_runtime()?;
+    initialize_sheap_runtime()?;
     initialize_mimalloc();
-    initialize_sheap_runtime();
     install_gheap_and_sheap_hooks(realloc_1_ready)?;
 
     Ok(())
@@ -155,8 +155,9 @@ fn initialize_gheap_and_scrap_heap(patch_plan: AllocatorPatchPlan) -> anyhow::Re
 fn initialize_scrap_heap() -> anyhow::Result<()> {
     prepare_sheap_hooks()?;
 
-    initialize_mimalloc();
-    initialize_sheap_runtime();
+    // ScrapHeap no longer uses mimalloc, so mode 1 does not reserve a dormant
+    // CRT arena.
+    initialize_sheap_runtime()?;
     install_sheap_hooks()?;
 
     Ok(())

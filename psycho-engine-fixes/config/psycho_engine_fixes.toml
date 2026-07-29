@@ -115,9 +115,19 @@ gheap_periodic_pdd_purge = false
 # a confirmed conflict.
 #
 # Technical: repairs the audited bootstrap and transition callsites while
-# leaving ordinary windowed calls unchanged. Existing borderless owners retain
-# style and size control; Psycho applies only safe transition protections.
+# preserving the live windowed position across renderer recreation. Existing
+# external window owners retain control at any boundary they already own.
 display_alt_tab = true
+
+# Controls only the renderer branch selected by bFull Screen=0 in
+# FalloutPrefs.ini. When ON, Psycho creates that branch as an undecorated
+# borderless window at the configured render size. When iLocation X and
+# iLocation Y are both absent or zero, the window is centered on the selected
+# monitor. Set this OFF for an ordinary framed window.
+#
+# bFull Screen=1 always takes precedence and remains native fullscreen, even
+# while this option is ON.
+display_borderless_windowed = true
 
 # --- Saves and loaded data -------------------------------------------------
 

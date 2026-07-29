@@ -1,25 +1,36 @@
-//! Repairs FalloutNV.exe's fullscreen window placement calls.
+//! Owns FalloutNV.exe's audited fullscreen and windowed placement boundaries.
 //!
 //! The exclusive startup path creates a visible 320x240 bootstrap window and
 //! never applies the windowed renderer's later placement call. Psycho corrects
 //! that one audited `CreateWindowExA` request to a visible popup at the loaded
 //! render size before the window becomes visible.
+//! The windowed path has the inverse ordering problem: the same bootstrap
+//! becomes visible at hard-coded `(0,0)` before the renderer applies the
+//! optional `iLocation X/Y` settings. When both settings retain their zero
+//! default, the renderer keeps the parent in that corner. Psycho creates the
+//! parent at its final size and centered origin, then preserves its live origin
+//! when renderer recreation repeats the placement call.
 //! Three later paths also pass the adjusted bottom edge as `y` and `top - bottom`
 //! as the height, producing malformed focus/lifecycle moves.
 //!
 //! Psycho owns only narrow, callsite-specific correction boundaries:
 //! - exclusive bootstrap creation: use popup style and the loaded render size;
-//! - windowed renderer placement and child resize: pass through unchanged;
+//! - windowed bootstrap creation: use final size/origin and, when configured,
+//!   an undecorated popup style;
+//! - windowed renderer placement: preserve the live parent origin while sizing;
+//! - child resize: pass through unchanged;
 //! - device reset: preserve size and align the client to its monitor;
 //! - focus regain: restore an iconic window, normalize the rectangle, and call;
 //! - focus loss: suppress the activating window move;
 //! - renderer lifecycle: normalize the rectangle and call.
 //!
+//! `bFull Screen` is authoritative. A true value always selects native
+//! fullscreen even when borderless-windowed is enabled; a false value selects
+//! the windowed renderer branch and its framed or borderless policy.
 //! Native fullscreen is identified from the game's audited setting accessor.
 //! A live, undecorated window that exactly covers its monitor is treated as
-//! borderless fullscreen for transition correction. Borderless style and size
-//! remain owned by the mod that established them. Ordinary windowed calls pass
-//! through unchanged.
+//! borderless fullscreen for transition correction. When another hook already
+//! established that window, its style and size remain externally owned.
 //!
 //! The game's focus managers and D3D9 reset path remain untouched. Installation
 //! replaces FalloutNV.exe's `CreateWindowExA` and `SetWindowPos` IAT pointers.
@@ -40,10 +51,10 @@ use anyhow::{Context, ensure};
 use libpsycho::{
     ffi::fnptr::FnPtr,
     os::windows::winapi::{
-        PointerExchange, client_origin, compare_exchange_pointer, get_last_error_code,
-        get_module_handle_a, get_proc_address, get_tick_count, get_window_long_a, is_iconic,
-        is_window, load_pointer, nearest_monitor_rect, nearest_monitor_rect_from_point,
-        set_last_error, show_window, virtual_query, window_rect,
+        PointerExchange, Rect, adjust_window_rect_ex, client_origin, compare_exchange_pointer,
+        get_last_error_code, get_module_handle_a, get_proc_address, get_tick_count,
+        get_window_long_a, is_iconic, is_window, load_pointer, nearest_monitor_rect,
+        nearest_monitor_rect_from_point, set_last_error, show_window, virtual_query, window_rect,
     },
 };
 /// FalloutNV.exe's imported `user32!SetWindowPos` pointer.
@@ -55,6 +66,10 @@ const TOP_LEVEL_HWND_GLOBAL: usize = 0x011C6FC0;
 const RENDERER_CHILD_HWND_GLOBAL: usize = 0x011C6FBC;
 const SIZE_WIDTH_SETTING: usize = 0x011C73DC;
 const SIZE_HEIGHT_SETTING: usize = 0x011C718C;
+const LOCATION_X_SETTING: usize = 0x011C75D4;
+const LOCATION_Y_SETTING: usize = 0x011C7654;
+const VANILLA_BOOTSTRAP_WIDTH: i32 = 320;
+const VANILLA_BOOTSTRAP_HEIGHT: i32 = 240;
 const SW_RESTORE: i32 = 9;
 const SWP_NOSIZE: u32 = 0x0001;
 const SWP_NOZORDER: u32 = 0x0004;
@@ -141,12 +156,17 @@ impl TransitionSite {
     }
 }
 
+/// Audit result for one executable caller or import boundary.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(u8)]
 pub(crate) enum CallsiteCoverage {
+    /// The boundary has not been inspected or published yet.
     Unknown = 0,
+    /// The complete expected instruction sequence is present.
     Covered = 1,
+    /// A direct external call owner replaced the audited indirect call.
     ExternalOwner = 2,
+    /// The live instructions do not satisfy any supported ownership contract.
     Conflict = 3,
 }
 
@@ -160,6 +180,7 @@ impl CallsiteCoverage {
         }
     }
 
+    /// Return the stable lowercase diagnostic label for this state.
     pub(crate) const fn name(self) -> &'static str {
         match self {
             Self::Unknown => "unknown",
@@ -349,6 +370,9 @@ static INSTALLED: AtomicBool = AtomicBool::new(false);
 static PREDECESSOR: AtomicUsize = AtomicUsize::new(0);
 static PREDECESSOR_VANILLA: AtomicBool = AtomicBool::new(false);
 static CREATE_WINDOW_INSTALLED: AtomicBool = AtomicBool::new(false);
+static FULLSCREEN_REPAIR_ENABLED: AtomicBool = AtomicBool::new(false);
+static WINDOWED_PLACEMENT_ENABLED: AtomicBool = AtomicBool::new(false);
+static BORDERLESS_WINDOWED_ENABLED: AtomicBool = AtomicBool::new(false);
 static CREATE_WINDOW_PREDECESSOR: AtomicUsize = AtomicUsize::new(0);
 static CREATE_WINDOW_PREDECESSOR_VANILLA: AtomicBool = AtomicBool::new(false);
 static BOOTSTRAP_CREATE_COVERAGE: AtomicU8 = AtomicU8::new(CallsiteCoverage::Unknown as u8);
@@ -359,8 +383,10 @@ static INT_SETTING_ACCESSOR_VALID: AtomicBool = AtomicBool::new(false);
 
 static BOOTSTRAP_CREATE_OBSERVATIONS: AtomicU32 = AtomicU32::new(0);
 static BOOTSTRAP_CREATE_CORRECTIONS: AtomicU32 = AtomicU32::new(0);
+static BOOTSTRAP_WINDOWED_CORRECTIONS: AtomicU32 = AtomicU32::new(0);
 static BOOTSTRAP_CREATE_FAILURES: AtomicU32 = AtomicU32::new(0);
-static WINDOWED_PARENT_PASSTHROUGHS: AtomicU32 = AtomicU32::new(0);
+static WINDOWED_PARENT_OBSERVATIONS: AtomicU32 = AtomicU32::new(0);
+static WINDOWED_PARENT_CORRECTIONS: AtomicU32 = AtomicU32::new(0);
 static DEVICE_RESET_OBSERVATIONS: AtomicU32 = AtomicU32::new(0);
 static DEVICE_RESET_CORRECTIONS: AtomicU32 = AtomicU32::new(0);
 static CHILD_RESIZE_PASSTHROUGHS: AtomicU32 = AtomicU32::new(0);
@@ -380,46 +406,88 @@ static LAST_TRANSITION_MS: AtomicU32 = AtomicU32::new(0);
 static LAST_RESULT: AtomicBool = AtomicBool::new(false);
 static LAST_ERROR: AtomicU32 = AtomicU32::new(0);
 
+/// Point-in-time counters and ownership state for support diagnostics.
+///
+/// All counters are monotonic for the process lifetime. The snapshot performs
+/// only atomic reads and never calls Win32 or takes a lock.
 #[derive(Clone, Copy)]
 pub(crate) struct DiagnosticSnapshot {
+    /// Whether Psycho owns the `SetWindowPos` IAT boundary.
     pub installed: bool,
+    /// Captured predecessor address for `SetWindowPos`.
     pub predecessor: usize,
+    /// Whether the `SetWindowPos` predecessor is the vanilla user32 export.
     pub predecessor_vanilla: bool,
+    /// Whether Psycho owns the `CreateWindowExA` IAT boundary.
     pub create_window_installed: bool,
+    /// Whether borderless style is requested for the windowed renderer branch.
+    pub borderless_windowed_enabled: bool,
+    /// Captured predecessor address for `CreateWindowExA`.
     pub create_window_predecessor: usize,
+    /// Whether the creation predecessor is the vanilla user32 export.
     pub create_window_predecessor_vanilla: bool,
+    /// Audit state of the visible bootstrap creation caller.
     pub bootstrap_create_state: CallsiteCoverage,
+    /// Audit states of the six placement callers in `TransitionSite::ALL` order.
     pub site_states: [CallsiteCoverage; 6],
+    /// Number of audited bootstrap requests observed.
     pub bootstrap_create_observations: u32,
+    /// Number of fullscreen and windowed bootstrap requests corrected.
     pub bootstrap_create_corrections: u32,
+    /// Corrected bootstrap requests belonging to the windowed branch.
+    pub bootstrap_windowed_corrections: u32,
+    /// Corrected bootstrap requests whose predecessor returned NULL.
     pub bootstrap_create_failures: u32,
-    pub windowed_parent_passthroughs: u32,
+    /// Number of audited windowed parent placement requests observed.
+    pub windowed_parent_observations: u32,
+    /// Windowed parent requests whose origin was preserved or centered.
+    pub windowed_parent_corrections: u32,
+    /// Number of audited device-reset placement requests observed.
     pub device_reset_observations: u32,
+    /// Device-reset requests aligned to a monitor client origin.
     pub device_reset_corrections: u32,
+    /// Number of audited renderer-child resizes chained unchanged.
     pub child_resize_passthroughs: u32,
+    /// Fullscreen focus-loss placement requests safely suppressed.
     pub loss_suppressions: u32,
+    /// Fullscreen focus-regain rectangles normalized.
     pub regain_normalizations: u32,
+    /// Fullscreen lifecycle rectangles normalized.
     pub lifecycle_normalizations: u32,
+    /// Runtime requests rejected by an audited argument contract.
     pub contract_mismatches: u32,
+    /// Create or placement predecessor calls that failed.
     pub predecessor_failures: u32,
+    /// Monitor selections made from requested screen points.
     pub monitor_point_selections: u32,
+    /// Monitor selections made from live windows.
     pub monitor_window_selections: u32,
+    /// Monitor lookups or alignments that required a fallback.
     pub monitor_fallbacks: u32,
+    /// Iconic windows for which `SW_RESTORE` was requested.
     pub restore_attempts: u32,
+    /// Late-install position catch-up calls attempted.
     pub catch_up_attempts: u32,
+    /// Late-install position catch-up calls accepted by the predecessor.
     pub catch_up_successes: u32,
+    /// Late-install position catch-up calls rejected by the predecessor.
     pub catch_up_failures: u32,
+    /// Tick count recorded for the last corrected transition.
     pub last_transition_ms: u32,
+    /// Whether the last corrected transition succeeded.
     pub last_result: bool,
+    /// Preserved Win32 error from the last failed corrected transition.
     pub last_error: u32,
 }
 
+/// Capture display ownership and transition counters without mutating state.
 pub(crate) fn diagnostic_snapshot() -> DiagnosticSnapshot {
     DiagnosticSnapshot {
         installed: INSTALLED.load(Ordering::Acquire),
         predecessor: PREDECESSOR.load(Ordering::Acquire),
         predecessor_vanilla: PREDECESSOR_VANILLA.load(Ordering::Acquire),
         create_window_installed: CREATE_WINDOW_INSTALLED.load(Ordering::Acquire),
+        borderless_windowed_enabled: BORDERLESS_WINDOWED_ENABLED.load(Ordering::Acquire),
         create_window_predecessor: CREATE_WINDOW_PREDECESSOR.load(Ordering::Acquire),
         create_window_predecessor_vanilla: CREATE_WINDOW_PREDECESSOR_VANILLA
             .load(Ordering::Acquire),
@@ -429,8 +497,10 @@ pub(crate) fn diagnostic_snapshot() -> DiagnosticSnapshot {
         site_states: TransitionSite::ALL.map(callsite_coverage),
         bootstrap_create_observations: BOOTSTRAP_CREATE_OBSERVATIONS.load(Ordering::Relaxed),
         bootstrap_create_corrections: BOOTSTRAP_CREATE_CORRECTIONS.load(Ordering::Relaxed),
+        bootstrap_windowed_corrections: BOOTSTRAP_WINDOWED_CORRECTIONS.load(Ordering::Relaxed),
         bootstrap_create_failures: BOOTSTRAP_CREATE_FAILURES.load(Ordering::Relaxed),
-        windowed_parent_passthroughs: WINDOWED_PARENT_PASSTHROUGHS.load(Ordering::Relaxed),
+        windowed_parent_observations: WINDOWED_PARENT_OBSERVATIONS.load(Ordering::Relaxed),
+        windowed_parent_corrections: WINDOWED_PARENT_CORRECTIONS.load(Ordering::Relaxed),
         device_reset_observations: DEVICE_RESET_OBSERVATIONS.load(Ordering::Relaxed),
         device_reset_corrections: DEVICE_RESET_CORRECTIONS.load(Ordering::Relaxed),
         child_resize_passthroughs: CHILD_RESIZE_PASSTHROUGHS.load(Ordering::Relaxed),
@@ -452,6 +522,7 @@ pub(crate) fn diagnostic_snapshot() -> DiagnosticSnapshot {
     }
 }
 
+/// Return the stable diagnostic label for a callsite audit state.
 pub(crate) fn site_state_name(state: CallsiteCoverage) -> &'static str {
     state.name()
 }
@@ -490,6 +561,62 @@ struct MalformedGeometry {
 }
 
 #[derive(Clone, Copy)]
+struct BootstrapGeometry {
+    x: i32,
+    y: i32,
+    width: i32,
+    height: i32,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum BootstrapMode {
+    NativeFullscreen,
+    FramedWindowed,
+    BorderlessWindowed,
+}
+
+impl BootstrapMode {
+    const fn name(self) -> &'static str {
+        match self {
+            Self::NativeFullscreen => "native-fullscreen",
+            Self::FramedWindowed => "framed-windowed",
+            Self::BorderlessWindowed => "borderless-windowed",
+        }
+    }
+}
+
+const fn select_bootstrap_mode(
+    engine_fullscreen: bool,
+    fullscreen_repair: bool,
+    windowed_placement: bool,
+    borderless_windowed: bool,
+) -> Option<BootstrapMode> {
+    if engine_fullscreen {
+        return if fullscreen_repair {
+            Some(BootstrapMode::NativeFullscreen)
+        } else {
+            None
+        };
+    }
+    if !windowed_placement {
+        return None;
+    }
+    if borderless_windowed {
+        Some(BootstrapMode::BorderlessWindowed)
+    } else {
+        Some(BootstrapMode::FramedWindowed)
+    }
+}
+
+const fn windowed_bootstrap_style(original: u32, borderless: bool) -> u32 {
+    if borderless {
+        FULLSCREEN_BOOTSTRAP_STYLE
+    } else {
+        original
+    }
+}
+
+#[derive(Clone, Copy)]
 struct CreateWindowRequest {
     extended_style: u32,
     class_name: *const c_char,
@@ -509,6 +636,17 @@ impl CreateWindowRequest {
     fn as_fullscreen_bootstrap(self, width: i32, height: i32) -> Self {
         Self {
             style: FULLSCREEN_BOOTSTRAP_STYLE,
+            width,
+            height,
+            ..self
+        }
+    }
+
+    fn as_windowed_bootstrap(self, style: u32, x: i32, y: i32, width: i32, height: i32) -> Self {
+        Self {
+            style,
+            x,
+            y,
             width,
             height,
             ..self
@@ -584,22 +722,48 @@ unsafe extern "fastcall" fn checked_create_window_ex_a(
     }
 
     BOOTSTRAP_CREATE_OBSERVATIONS.fetch_add(1, Ordering::Relaxed);
-    if !engine_requests_fullscreen() {
-        return unsafe { call_create_window_predecessor(request) };
-    }
     if !valid_bootstrap_create_request(request) {
         record_bootstrap_contract_mismatch(caller, request);
         return unsafe { call_create_window_predecessor(request) };
     }
-    let Some((target_width, target_height)) = bootstrap_size() else {
-        record_bootstrap_contract_mismatch(caller, request);
+
+    // The pure selector checks the engine setting first. This is the critical
+    // mode boundary: borderless-windowed must never turn an explicit
+    // `bFull Screen=1` request into the child-window renderer path.
+    let Some(mode) = select_bootstrap_mode(
+        engine_requests_fullscreen(),
+        FULLSCREEN_REPAIR_ENABLED.load(Ordering::Acquire),
+        WINDOWED_PLACEMENT_ENABLED.load(Ordering::Acquire),
+        BORDERLESS_WINDOWED_ENABLED.load(Ordering::Acquire),
+    ) else {
         return unsafe { call_create_window_predecessor(request) };
     };
+    let corrected = match mode {
+        BootstrapMode::NativeFullscreen => {
+            let Some((width, height)) = bootstrap_size() else {
+                record_bootstrap_contract_mismatch(caller, request);
+                return unsafe { call_create_window_predecessor(request) };
+            };
+            request.as_fullscreen_bootstrap(width, height)
+        }
+        BootstrapMode::FramedWindowed | BootstrapMode::BorderlessWindowed => {
+            if !CREATE_WINDOW_PREDECESSOR_VANILLA.load(Ordering::Acquire) {
+                return unsafe { call_create_window_predecessor(request) };
+            }
+            let Some(corrected) =
+                windowed_bootstrap_request(request, mode == BootstrapMode::BorderlessWindowed)
+            else {
+                record_bootstrap_contract_mismatch(caller, request);
+                return unsafe { call_create_window_predecessor(request) };
+            };
+            BOOTSTRAP_WINDOWED_CORRECTIONS.fetch_add(1, Ordering::Relaxed);
+            corrected
+        }
+    };
 
-    let corrected = request.as_fullscreen_bootstrap(target_width, target_height);
     let count = BOOTSTRAP_CREATE_CORRECTIONS.fetch_add(1, Ordering::Relaxed) + 1;
     let hwnd = unsafe { call_create_window_predecessor(corrected) };
-    record_bootstrap_create_result(count, hwnd, corrected);
+    record_bootstrap_create_result(count, mode, hwnd, corrected);
     hwnd
 }
 
@@ -661,11 +825,51 @@ unsafe extern "fastcall" fn checked_set_window_pos(
     if callsite_coverage(site) != CallsiteCoverage::Covered {
         return unsafe { call_predecessor(request) };
     }
+    if !FULLSCREEN_REPAIR_ENABLED.load(Ordering::Acquire)
+        && matches!(
+            site,
+            TransitionSite::DeviceReset
+                | TransitionSite::FocusRegain
+                | TransitionSite::FocusLoss
+                | TransitionSite::RendererLifecycle
+        )
+    {
+        return unsafe { call_predecessor(request) };
+    }
 
     match site {
         TransitionSite::WindowedParentPlacement => {
-            WINDOWED_PARENT_PASSTHROUGHS.fetch_add(1, Ordering::Relaxed);
-            unsafe { call_predecessor(request) }
+            WINDOWED_PARENT_OBSERVATIONS.fetch_add(1, Ordering::Relaxed);
+            if !WINDOWED_PLACEMENT_ENABLED.load(Ordering::Acquire)
+                || engine_requests_fullscreen()
+                || !PREDECESSOR_VANILLA.load(Ordering::Acquire)
+            {
+                return unsafe { call_predecessor(request) };
+            }
+            let Some(mut corrected) =
+                stable_windowed_parent_request(request, window_rect(request.hwnd))
+            else {
+                record_contract_mismatch(site, caller, request);
+                return unsafe { call_predecessor(request) };
+            };
+
+            // Missing iLocation settings resolve to (0,0). The bootstrap is
+            // already centered in the normal path, but this fallback also
+            // covers a late hook install or a failed bootstrap correction.
+            if request.x == 0
+                && request.y == 0
+                && corrected.x == 0
+                && corrected.y == 0
+                && let Some(centered) = center_window_request(corrected)
+            {
+                corrected = centered;
+            }
+            if corrected.x == request.x && corrected.y == request.y {
+                return unsafe { call_predecessor(request) };
+            }
+
+            let count = WINDOWED_PARENT_CORRECTIONS.fetch_add(1, Ordering::Relaxed) + 1;
+            unsafe { execute_corrected_request(site, count, corrected) }
         }
         TransitionSite::DeviceReset => unsafe {
             handle_valid_fullscreen_position(site, request, &DEVICE_RESET_OBSERVATIONS)
@@ -715,8 +919,8 @@ fn valid_bootstrap_create_request(request: CreateWindowRequest) -> bool {
         && request.style == WS_VISIBLE
         && request.x == 0
         && request.y == 0
-        && request.width == 320
-        && request.height == 240
+        && request.width == VANILLA_BOOTSTRAP_WIDTH
+        && request.height == VANILLA_BOOTSTRAP_HEIGHT
         && request.class_name == request.window_name
         && !request.class_name.is_null()
         && request.parent.is_null()
@@ -737,6 +941,123 @@ fn bootstrap_size() -> Option<(i32, i32)> {
     }
 
     Some((width, height))
+}
+
+fn windowed_bootstrap_geometry() -> Option<BootstrapGeometry> {
+    let (width, height) = bootstrap_size()?;
+    let x = read_int_setting(LOCATION_X_SETTING)?;
+    let y = read_int_setting(LOCATION_Y_SETTING)?;
+    if !(-MAX_WINDOW_EXTENT..=MAX_WINDOW_EXTENT).contains(&x)
+        || !(-MAX_WINDOW_EXTENT..=MAX_WINDOW_EXTENT).contains(&y)
+    {
+        return None;
+    }
+
+    Some(BootstrapGeometry {
+        x,
+        y,
+        width,
+        height,
+    })
+}
+
+fn windowed_bootstrap_request(
+    request: CreateWindowRequest,
+    borderless: bool,
+) -> Option<CreateWindowRequest> {
+    let geometry = windowed_bootstrap_geometry()?;
+    let style = windowed_bootstrap_style(request.style, borderless);
+
+    // The renderer creates an exact client-sized child. Compute the top-level
+    // outer extent now with the same style the later renderer path will query,
+    // preventing a second visible resize when the child is published.
+    let mut outer = Rect {
+        left: 0,
+        top: 0,
+        right: geometry.width,
+        bottom: geometry.height,
+    };
+    if !adjust_window_rect_ex(&mut outer, style, false, request.extended_style) {
+        return None;
+    }
+    let width = outer.right.checked_sub(outer.left)?;
+    let height = outer.bottom.checked_sub(outer.top)?;
+    if width <= 0 || width > MAX_WINDOW_EXTENT || height <= 0 || height > MAX_WINDOW_EXTENT {
+        return None;
+    }
+
+    let (x, y) = if geometry.x == 0 && geometry.y == 0 {
+        let monitor = nearest_monitor_rect_from_point(0, 0);
+        if monitor.is_some() {
+            MONITOR_POINT_SELECTIONS.fetch_add(1, Ordering::Relaxed);
+        } else {
+            MONITOR_FALLBACKS.fetch_add(1, Ordering::Relaxed);
+        }
+        monitor
+            .and_then(|monitor| centered_window_origin(monitor, width, height))
+            .unwrap_or((geometry.x, geometry.y))
+    } else {
+        (geometry.x, geometry.y)
+    };
+
+    Some(request.as_windowed_bootstrap(style, x, y, width, height))
+}
+
+fn centered_window_origin(monitor: Rect, width: i32, height: i32) -> Option<(i32, i32)> {
+    if width <= 0 || height <= 0 {
+        return None;
+    }
+    let monitor_width = monitor.right.checked_sub(monitor.left)?;
+    let monitor_height = monitor.bottom.checked_sub(monitor.top)?;
+    if monitor_width <= 0 || monitor_height <= 0 {
+        return None;
+    }
+
+    // Oversized windows stay anchored to the monitor origin so their caption
+    // cannot be centered off-screen and become unreachable.
+    let x_offset = monitor_width.checked_sub(width)?.max(0) / 2;
+    let y_offset = monitor_height.checked_sub(height)?.max(0) / 2;
+    Some((
+        monitor.left.checked_add(x_offset)?,
+        monitor.top.checked_add(y_offset)?,
+    ))
+}
+
+fn stable_windowed_parent_request(
+    request: WindowRequest,
+    live: Option<Rect>,
+) -> Option<WindowRequest> {
+    if !valid_position_request(request) {
+        return None;
+    }
+    let live = live?;
+    let live_width = live.right.checked_sub(live.left)?;
+    let live_height = live.bottom.checked_sub(live.top)?;
+    if live_width <= 0 || live_height <= 0 {
+        return None;
+    }
+
+    // A nonzero engine origin wins only while the live parent still has the
+    // exact hard-coded bootstrap geometry. Once final sizing has happened,
+    // even a live (0,0) origin may be a deliberate user move and must survive
+    // renderer recreation.
+    if live.left == 0
+        && live.top == 0
+        && live_width == VANILLA_BOOTSTRAP_WIDTH
+        && live_height == VANILLA_BOOTSTRAP_HEIGHT
+        && (request.x != 0 || request.y != 0)
+    {
+        Some(request)
+    } else {
+        Some(request.with_position(live.left, live.top))
+    }
+}
+
+fn center_window_request(request: WindowRequest) -> Option<WindowRequest> {
+    let monitor = nearest_monitor_rect_from_point(request.x, request.y)?;
+    MONITOR_POINT_SELECTIONS.fetch_add(1, Ordering::Relaxed);
+    let (x, y) = centered_window_origin(monitor, request.width, request.height)?;
+    Some(request.with_position(x, y))
 }
 
 fn read_int_setting(setting: usize) -> Option<i32> {
@@ -765,7 +1086,12 @@ fn record_bootstrap_contract_mismatch(caller: usize, request: CreateWindowReques
     }
 }
 
-fn record_bootstrap_create_result(count: u32, hwnd: *mut c_void, request: CreateWindowRequest) {
+fn record_bootstrap_create_result(
+    count: u32,
+    mode: BootstrapMode,
+    hwnd: *mut c_void,
+    request: CreateWindowRequest,
+) {
     let error = if hwnd.is_null() {
         BOOTSTRAP_CREATE_FAILURES.fetch_add(1, Ordering::Relaxed);
         get_last_error_code()
@@ -778,7 +1104,8 @@ fn record_bootstrap_create_result(count: u32, hwnd: *mut c_void, request: Create
 
     if hwnd.is_null() {
         log::warn!(
-            "[DISPLAY] corrected bootstrap CreateWindowExA #{} failed: error={} rect=({},{} {}x{})",
+            "[DISPLAY] corrected {} bootstrap CreateWindowExA #{} failed: error={} rect=({},{} {}x{})",
+            mode.name(),
             count,
             error,
             request.x,
@@ -789,7 +1116,8 @@ fn record_bootstrap_create_result(count: u32, hwnd: *mut c_void, request: Create
         set_last_error(error);
     } else {
         log::info!(
-            "[DISPLAY] corrected native-fullscreen bootstrap window #{}: rect=({},{} {}x{}) style={:#x}",
+            "[DISPLAY] corrected {} bootstrap window #{}: rect=({},{} {}x{}) style={:#x}",
+            mode.name(),
             count,
             request.x,
             request.y,
@@ -1177,7 +1505,24 @@ unsafe fn call_predecessor(request: WindowRequest) -> i32 {
     }
 }
 
-pub fn install_display_hooks() -> anyhow::Result<()> {
+/// Install the audited display IAT shims for the requested runtime policies.
+///
+/// `fullscreen_repair` controls only the native-fullscreen startup and
+/// transition repairs. `borderless_windowed` controls only the renderer branch
+/// selected by `bFull Screen=0`; it cannot override an explicit fullscreen
+/// request.
+///
+/// Installation verifies every executable fingerprint and atomically chains
+/// existing IAT owners. It returns an error only when neither requested policy
+/// has a safe boundary to install.
+pub fn install_display_hooks(
+    fullscreen_repair: bool,
+    borderless_windowed: bool,
+) -> anyhow::Result<()> {
+    FULLSCREEN_REPAIR_ENABLED.store(fullscreen_repair, Ordering::Release);
+    WINDOWED_PLACEMENT_ENABLED.store(fullscreen_repair || borderless_windowed, Ordering::Release);
+    BORDERLESS_WINDOWED_ENABLED.store(borderless_windowed, Ordering::Release);
+
     let coverage = audit_callsites();
     let bootstrap_coverage = audit_bootstrap_create_callsite();
     audit_fullscreen_predicate();
@@ -1203,9 +1548,13 @@ pub fn install_display_hooks() -> anyhow::Result<()> {
         None
     };
 
-    let corrective_set_window_site = [1, 3, 4, 5]
-        .into_iter()
-        .any(|index| coverage[index] == CallsiteCoverage::Covered);
+    let corrective_set_window_site = (fullscreen_repair
+        && [1, 3, 4, 5]
+            .into_iter()
+            .any(|index| coverage[index] == CallsiteCoverage::Covered))
+        || (WINDOWED_PLACEMENT_ENABLED.load(Ordering::Acquire)
+            && coverage[TransitionSite::WindowedParentPlacement.index()]
+                == CallsiteCoverage::Covered);
     let set_window_owner = if corrective_set_window_site {
         match claim_set_window_pos_iat() {
             Ok(owner) => {
@@ -1227,12 +1576,20 @@ pub fn install_display_hooks() -> anyhow::Result<()> {
         "no audited display IAT boundary is available"
     );
 
-    if set_window_owner.is_some() {
+    if fullscreen_repair && set_window_owner.is_some() {
         catch_up_existing_window();
     }
 
+    if borderless_windowed && create_owner.is_some_and(|owner| !owner.is_vanilla) {
+        log::warn!(
+            "[DISPLAY] borderless-windowed style deferred to the existing CreateWindowExA owner"
+        );
+    }
+
     log::info!(
-        "[DISPLAY] Fullscreen window fix installed: create={} setpos={} bootstrap={} sites={}/{}/{}/{}/{}/{}",
+        "[DISPLAY] Window management installed: fullscreen={} borderless_windowed={} create={} setpos={} bootstrap={} sites={}/{}/{}/{}/{}/{}",
+        fullscreen_repair,
+        borderless_windowed,
         iat_owner_name(create_owner),
         iat_owner_name(set_window_owner),
         bootstrap_coverage.name(),
@@ -1511,4 +1868,130 @@ fn is_executable(address: usize) -> bool {
         return false;
     };
     info.is_executable()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        BootstrapMode, CreateWindowRequest, Rect, WS_POPUP, WS_VISIBLE, centered_window_origin,
+        select_bootstrap_mode, stable_windowed_parent_request, windowed_bootstrap_style,
+    };
+    use std::ffi::c_void;
+
+    fn request() -> CreateWindowRequest {
+        CreateWindowRequest {
+            extended_style: 0,
+            class_name: std::ptr::dangling::<i8>(),
+            window_name: std::ptr::dangling::<i8>(),
+            style: WS_VISIBLE,
+            x: 0,
+            y: 0,
+            width: 320,
+            height: 240,
+            parent: std::ptr::null_mut(),
+            menu: std::ptr::null_mut(),
+            instance: std::ptr::dangling_mut::<c_void>(),
+            param: std::ptr::null_mut(),
+        }
+    }
+
+    #[test]
+    fn unset_windowed_origin_centers_within_the_selected_monitor() {
+        let monitor = Rect {
+            left: -1920,
+            top: 0,
+            right: 0,
+            bottom: 1080,
+        };
+
+        assert_eq!(
+            centered_window_origin(monitor, 800, 600),
+            Some((-1360, 240))
+        );
+        assert_eq!(
+            centered_window_origin(monitor, 2560, 1440),
+            Some((-1920, 0))
+        );
+    }
+
+    #[test]
+    fn borderless_windowed_bootstrap_is_visible_popup_at_final_geometry() {
+        let original = request();
+        let borderless_style = windowed_bootstrap_style(original.style, true);
+        let corrected = original.as_windowed_bootstrap(borderless_style, 560, 240, 800, 600);
+
+        assert_eq!(corrected.style, WS_POPUP | WS_VISIBLE);
+        assert_eq!(windowed_bootstrap_style(original.style, false), WS_VISIBLE);
+        assert_eq!((corrected.x, corrected.y), (560, 240));
+        assert_eq!((corrected.width, corrected.height), (800, 600));
+    }
+
+    #[test]
+    fn explicit_fullscreen_precedes_borderless_windowed() {
+        assert_eq!(
+            select_bootstrap_mode(true, true, true, true),
+            Some(BootstrapMode::NativeFullscreen)
+        );
+        assert_eq!(select_bootstrap_mode(true, false, true, true), None);
+        assert_eq!(
+            select_bootstrap_mode(false, true, true, true),
+            Some(BootstrapMode::BorderlessWindowed)
+        );
+    }
+
+    #[test]
+    fn renderer_recreation_preserves_a_manually_moved_parent_origin() {
+        let request = super::WindowRequest {
+            hwnd: std::ptr::dangling_mut::<c_void>(),
+            insert_after: std::ptr::null_mut(),
+            x: 0,
+            y: 0,
+            width: 800,
+            height: 600,
+            flags: super::SWP_SHOWWINDOW,
+        };
+        let live = Rect {
+            left: 317,
+            top: 211,
+            right: 1117,
+            bottom: 811,
+        };
+
+        let corrected =
+            stable_windowed_parent_request(request, Some(live)).expect("valid placement");
+        assert_eq!((corrected.x, corrected.y), (317, 211));
+        assert_eq!((corrected.width, corrected.height), (800, 600));
+    }
+
+    #[test]
+    fn configured_origin_replaces_only_the_unmodified_vanilla_bootstrap() {
+        let request = super::WindowRequest {
+            hwnd: std::ptr::dangling_mut::<c_void>(),
+            insert_after: std::ptr::null_mut(),
+            x: 25,
+            y: 40,
+            width: 800,
+            height: 600,
+            flags: super::SWP_SHOWWINDOW,
+        };
+        let bootstrap = Rect {
+            left: 0,
+            top: 0,
+            right: 320,
+            bottom: 240,
+        };
+        let deliberately_moved = Rect {
+            left: 0,
+            top: 0,
+            right: 800,
+            bottom: 600,
+        };
+
+        let seeded =
+            stable_windowed_parent_request(request, Some(bootstrap)).expect("valid bootstrap");
+        assert_eq!((seeded.x, seeded.y), (25, 40));
+        let preserved = stable_windowed_parent_request(request, Some(deliberately_moved))
+            .expect("valid live window");
+        assert_eq!((preserved.x, preserved.y), (0, 0));
+    }
 }

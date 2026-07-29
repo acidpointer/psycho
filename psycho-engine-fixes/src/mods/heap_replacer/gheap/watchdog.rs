@@ -371,8 +371,12 @@ fn log_diagnostics(poll_count: u32, info: &MiMallocProcessInfo) {
     log_allocator_events();
 
     if let Some(vas) = vas {
+        // Keep total commit for pressure thresholds and emit its Win32 type
+        // partition only for attribution. Mapped files and loaded images are
+        // real VAS consumers, but treating them as allocator-private growth
+        // would send later investigation toward the wrong owner.
         log::debug!(
-            "[VAS watchdog] free={}MB largest=0x{:08x}+{}MB second=0x{:08x}+{}MB reserve={}MB commit={}MB regions={} holes={}",
+            "[VAS watchdog] free={}MB largest=0x{:08x}+{}MB second=0x{:08x}+{}MB reserve={}MB commit={}MB private={}MB mapped={}MB image={}MB unknown={}MB regions={} holes={}",
             vas.total_free / super::vas::MB,
             vas.largest_base,
             vas.largest_free / super::vas::MB,
@@ -380,6 +384,10 @@ fn log_diagnostics(poll_count: u32, info: &MiMallocProcessInfo) {
             vas.second_free / super::vas::MB,
             vas.total_reserve / super::vas::MB,
             vas.total_commit / super::vas::MB,
+            vas.commit_private / super::vas::MB,
+            vas.commit_mapped / super::vas::MB,
+            vas.commit_image / super::vas::MB,
+            vas.commit_unknown / super::vas::MB,
             vas.regions,
             vas.holes,
         );

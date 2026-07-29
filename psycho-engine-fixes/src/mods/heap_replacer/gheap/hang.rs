@@ -187,7 +187,7 @@ pub fn log_if_main_stale() {
     };
 
     log::warn!(
-        "[HANG] main-loop heartbeat stale: age={}ms main_site={} main_seq={} main_tid={} event_site={} event_age={}ms event_tid={} phase7={} phase10={} load_seq={} load_depth={} load_site={} load_tid={} ai_start={} ai_join={} hk_lock={} hk_unlock={} ai_active={} havok_active={} loading={} heap_trigger={} pddq={}/{}/{}/{}/{} display=create:{}/{}/{}/{} setpos:{} sites:{}/{}/{}/{}/{}/{} windowed:{} reset:{}/{} catchup:{}/{}/{} loss:{} regain:{} lifecycle:{} mismatches:{} failures:{} last_age:{}ms last_ok:{} last_error:{}",
+        "[HANG] main-loop heartbeat stale: age={}ms main_site={} main_seq={} main_tid={} event_site={} event_age={}ms event_tid={} phase7={} phase10={} load_seq={} load_depth={} load_site={} load_tid={} ai_start={} ai_join={} hk_lock={} hk_unlock={} ai_active={} havok_active={} loading={} heap_trigger={} pddq={}/{}/{}/{}/{} display=create:{}/{}/{}/{}/{} borderless:{} setpos:{} sites:{}/{}/{}/{}/{}/{} windowed:{}/{} reset:{}/{} catchup:{}/{}/{} loss:{} regain:{} lifecycle:{} mismatches:{} failures:{} last_age:{}ms last_ok:{} last_error:{}",
         main_age,
         site_name(LAST_MAIN_SITE.load(Ordering::Acquire)),
         MAIN_HEARTBEATS.load(Ordering::Relaxed),
@@ -218,6 +218,8 @@ pub fn log_if_main_stale() {
         display.bootstrap_create_state.name(),
         display.bootstrap_create_observations,
         display.bootstrap_create_corrections,
+        display.bootstrap_windowed_corrections,
+        display.borderless_windowed_enabled,
         display.installed,
         display.site_states[0].name(),
         display.site_states[1].name(),
@@ -225,7 +227,8 @@ pub fn log_if_main_stale() {
         display.site_states[3].name(),
         display.site_states[4].name(),
         display.site_states[5].name(),
-        display.windowed_parent_passthroughs,
+        display.windowed_parent_observations,
+        display.windowed_parent_corrections,
         display.device_reset_observations,
         display.device_reset_corrections,
         display.catch_up_attempts,

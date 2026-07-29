@@ -330,6 +330,12 @@ during early startup, so a full process exit and relaunch is always required.
 The UI repeats this rule in the page heading, explanatory text, dirty-state
 indicator, button label, and success notice.
 
+The **Borderless windowed** checkbox owns
+`[engine_fixes].display_borderless_windowed`. It defaults on and applies only
+when FalloutPrefs.ini selects `bFull Screen=0`; native fullscreen always takes
+precedence. The helper writes the restart-only preference but never changes a
+live HWND, style, position, focus state, or D3D9 resource.
+
 The **Dynamic actor container guard** checkbox owns
 `[engine_fixes].actor_container_retirement_guard`. It defaults on and changes
 only next-launch core activation. The Runtime Fixes page separately reads bit

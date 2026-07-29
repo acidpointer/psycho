@@ -515,6 +515,177 @@ process-heap validation only for non-SBM candidates. It adds no per-frame,
 per-allocation, or ordinary free-path work. The walk is allocation-free and
 bounded. Corruption logging is power-of-two limited.
 
+## July 29, 2026 ScrapHeap VAS failure and reusable reserve
+
+This incident establishes a ScrapHeap backing defect under transient 32-bit
+VAS pressure and the bounded correction. It does not establish the exact
+instruction that raised the final access violation.
+
+### Evidence and classification
+
+Inputs:
+
+- `.reports/psycho-engine-fixes-latest--oom.log`, SHA-256
+  `3fb0aa7b5d6b88f5bf31c39f0ffe107f586cf6f4b703f2e459d42e2dea9560a0`;
+- `.reports/CrashLogger--OOM.log`, SHA-256
+  `99726791d7471bdc7e9727c97dda6a0d65a792634283f30768c84ae3db9fd3bd`;
+- supported `FalloutNV.exe`, 16,084,808 bytes, SHA-256
+  `42fee7d6cd74e801372aa89c8f71c974cebd3c20ec9ad43d1465b8fa9646b49c`;
+- `analysis/ghidra/output/memory/audio_playback_lifetime_audit.txt`;
+- `analysis/ghidra/output/memory/scrap_heap_identity_thread_contract.txt`;
+- `analysis/ghidra/output/crash/crash_00559506_oom_null_audit.txt`.
+
+Proven runtime facts:
+
+- the process repeatedly fell from roughly 840-930 MB free VAS to 76 MB,
+  47 MB, and 34 MB, with largest holes of 25 MB, 15 MB, and 1 MB;
+- each sampled collapse recovered on the next minute, so the existing
+  60-second full `VirtualQuery` interval cannot exclude a shorter collapse;
+- the last complete sample, 57 seconds before the crash, had 911 MB free and
+  a 175 MB largest hole;
+- at `2026-07-29T01:02:31.032Z`, one 128 KB ScrapHeap region exhausted both
+  mimalloc's attempt and Psycho's direct `VirtualAlloc` attempt, then used one
+  precommitted emergency region;
+- at least four more 128 KB mimalloc attempts failed in the following two
+  milliseconds while their direct `VirtualAlloc` fallbacks succeeded;
+- the report contains no ScrapHeap final-OOM line, gheap pool/block fallback,
+  or gheap direct-VA failure. Every allocator failure visible in the log
+  recovered;
+- CrashLogger recorded `C0000005` on `[FNV] LibAudioUpdate` and Win32 error 8,
+  then failed in its own exception handler before writing EIP, registers, or a
+  stack.
+
+The `Cannot create a copy of DbgHelp.dll, error: Access denied` line is not a
+new deployment failure. Earlier complete CrashLogger reports in the same
+writable `Crash Logs` directory contain the same warning and continue through
+their calltrace and registry sections. No repository or game-install
+permission change is justified by this incident; the material difference is
+that the OOM report stopped immediately afterward with `Fatal error in
+exception handler`.
+
+The configuration reserved a 16 MB mimalloc arena but set
+`mi_option_arena_max_object_size` to 64 KB. Mimalloc v3 routes a 128 KB request
+around that arena to its direct OS allocator. `Region::new` then tried a second
+fresh OS mapping. The normal ScrapHeap path therefore depended on obtaining
+new VAS precisely during VAS collapse. The eight 128 KB emergency mappings
+were removed from their reserve when leased and released on purge rather than
+returned, so every recovered use permanently reduced future protection.
+
+Win32 last-error is thread-local and a failed `VirtualAlloc` can set error 8.
+The CrashLogger value is consistent with the recovered failure, but it is not
+proof that the game later received `NULL`. The audio worker's direct static
+allocation references use GameHeap; no direct ScrapHeap allocation is proven
+in its top-level update functions. An indirect virtual callee remains possible.
+Without the missing EIP and stack, the final AV could be an unchecked later
+allocation, a stale object, or an unrelated consumer reached during the same
+pressure event. No audio hook is justified by the thread name alone.
+
+### Corrected ownership and allocation order
+
+ScrapHeap now owns a protected reusable reserve independent of mimalloc:
+
+- target capacity is sixteen 128 KB regions, or 2 MB committed at startup;
+- startup falls back to eight regions, or 1 MB;
+- allocator activation fails transactionally if the 1 MB minimum cannot be
+  established;
+- idle slots remain committed and reserved but are `PAGE_NOACCESS`;
+- acquiring a slot changes only that 128 KB range to `PAGE_READWRITE`;
+- releasing it restores `PAGE_NOACCESS` and returns it at the tail of a FIFO;
+- a failed protection transition permanently retires that slot;
+- an `Arc`-owned slot lease prevents the backing reservation from being
+  released while any `Region` refers to it.
+
+Allocation order is existing region, standard reserve slot, exact dynamic
+`VirtualAlloc`, then one reserve recheck for a concurrent return. Requests
+larger than a standard region go directly to exact dynamic backing and cannot
+consume the safety reserve. Only a complete acquisition failure enters the
+cold OOM path. That path drains at most 32 already queued heap identities,
+purges only identities whose live count is still zero, and retries three
+times. It never purges a live heap, re-enters vanilla recovery, or calls
+mimalloc collection.
+
+Normal regions no longer call mimalloc. Mode `1` therefore does not initialize
+or reserve a dormant mimalloc arena. Mode `2` retains mimalloc for CRT
+ownership only and establishes the mandatory gheap and ScrapHeap reservations
+before mimalloc takes its optional CRT arena. The 64 KB mimalloc arena ceiling
+is unchanged.
+
+### Lifetime, locking, and accounting invariants
+
+The existing five-second collector and last-free enqueue timing remain
+unchanged. A slot cannot return until `checked_purge` has rechecked a zero live
+count while holding that heap's state lock, unpublished `hot_region`, cleared
+the region pool, and advanced the generation. This preserves the prior
+post-purge invalidation boundary. `PAGE_NOACCESS` gives an idle reserved slot
+the same invalid-access behavior as the previous released mapping. FIFO reuse
+extends the interval before the same address is selected again.
+
+Lock order is heap-map lookup, one heap's state lock, then the reserve lock.
+Reserve acquisition and release never hold the reserve lock while walking or
+purging another heap. Existing-region allocation adds no reserve access,
+VirtualProtect call, scan, allocation, or log. New-region lifecycle replaces
+routine mimalloc/VirtualAlloc/VirtualFree churn with one cold reserve lock and
+two protection transitions.
+
+Live ScrapHeap accounting still counts only region capacity currently
+published to heaps. Separate counters expose reserve total/usable/in-use/high
+water, reserve misses, retired slots, protection failures, dynamic live/total
+regions, dynamic failures recovered by the reserve recheck, bounded reclaim,
+and final failures. A dynamic mapping failure captures Win32 error, thread ID,
+ScrapHeap identity, requested size/alignment/capacity, tick, and a synchronous
+`VirtualQuery` summary. VAS summaries also separate committed private, mapped,
+image, and unknown bytes. Failure logs remain power-of-two gated; normal
+allocation does not log.
+
+### Three-way acceptance
+
+OOM safety improves because up to 1-2 MB of normal ScrapHeap growth no longer
+requires a new mapping during a VAS collapse. Oversized and reserve-overflow
+requests retain their previous dynamic coverage and honest final `NULL`.
+
+UAF behavior does not make idle ScrapHeap bytes readable. A released slot is
+protected before it becomes available, protection failure removes it from
+service, live-count and generation gates remain, and FIFO avoids immediate
+same-slot reuse. Gheap pool/block zombie readability is outside this change
+and remains unchanged.
+
+Performance cost is 1-2 MB of early committed VAS, one reserve lock only when a
+new standard region is required or purged, and cold `VirtualProtect`
+transitions. Existing-region bump allocation and free are unchanged. The
+eliminated per-region OS allocation and release calls should reduce mapping
+churn, but runtime hitch evidence remains required.
+
+Validation completed on `i686-pc-windows-gnu`:
+
+- 11 focused ScrapHeap tests passed, covering reserve return, idle
+  `PAGE_NOACCESS`, bounded exhaustion, high-water accounting,
+  protection-failure retirement, live-count purge exclusion, oversized
+  dynamic backing, concurrent shared-identity allocation/free, bounded queued
+  reclaim, forced reserve-plus-dynamic failure evidence, and preservation of
+  reserve capacity for oversized requests;
+- all 111 `psycho-engine-fixes` tests and its doctest target passed, including
+  rejection of a non-advancing `VirtualQuery` walk before partial VAS totals
+  can be published;
+- all 12 `libpsycho` unit tests passed, including memory-type classification;
+- the full supported release build passed for `syringe`,
+  `psycho-engine-fixes`, `psycho-engine-fixes-helper`, and `omv` before
+  concurrent OMV depth-provider edits appeared in the worktree;
+- after the documentation and VAS forward-progress regression were added, the
+  release build passed again for `syringe`, `psycho-engine-fixes`, and
+  `psycho-engine-fixes-helper`; the combined command is currently blocked only
+  by unrelated, concurrently changing OMV depth-provider compilation errors;
+- private-item rustdoc generation completed for `psycho-engine-fixes` and
+  `libpsycho`; remaining warnings come from unrelated existing documentation;
+- targeted `rustfmt --check` for every allocator-touched Rust source and
+  `git diff --check` passed; the repository-wide formatting check currently
+  reports only the concurrent unformatted OMV depth-provider files.
+
+The crate-wide `libpsycho` doctest command still has one unrelated existing
+failure: logger documentation uses unsuffixed `0xDEADBEEF`, which overflows
+`i32` on the supported 32-bit target. That source was not changed as part of
+this allocator correction. Extreme-modlist runtime validation and a complete
+CrashLogger stack remain pending.
+
 ## Validation matrix for an extreme setup
 
 Static proof cannot certify runtime resource capacity. Validate a candidate
@@ -542,6 +713,11 @@ Acceptance requires all of the following:
   `gheap + scrap_heap`, `scrap_heap`, or `vanilla` backend;
 - no `[VA] alloc failed`, block reserve/commit failure, or monotonically
   cascading block-overflow counter;
+- ScrapHeap reports at least eight usable reserve regions, returns unused
+  regions after the collector runs, and records no retired slot, protection
+  failure, or final allocation failure;
+- any reserve miss or dynamic ScrapHeap failure identifies its thread, heap
+  identity, request, Win32 error, and failure-time VAS classes;
 - exact overflow absorbs class growth without the prior six-figure sustained
   pool-fallback pattern;
 - pool committed/reserved bytes, medium live/committed bytes, block slots, and

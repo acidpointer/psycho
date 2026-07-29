@@ -262,15 +262,21 @@ fn install_model_postprocess_fix(config: &EngineFixesConfig) -> bool {
     }
 }
 
-/// Install the display IAT shim before allocator and other engine hooks.
+/// Install configured display policies before allocator and other engine hooks.
+///
+/// Fullscreen repair and borderless-windowed styling are independently
+/// selectable. A display ownership conflict is logged and contained here so it
+/// cannot abort unrelated engine-fix startup.
 pub fn install_display(config: &EngineFixesConfig) -> anyhow::Result<()> {
-    if !config.display_alt_tab {
-        log::info!("[DISPLAY] Fullscreen window fix disabled by config");
+    if !config.display_alt_tab && !config.display_borderless_windowed {
+        log::info!("[DISPLAY] Window management disabled by config");
         return Ok(());
     }
 
-    if let Err(err) = display::install_display_hooks() {
-        log::warn!("[DISPLAY] Fullscreen window fix disabled: {}", err);
+    if let Err(err) =
+        display::install_display_hooks(config.display_alt_tab, config.display_borderless_windowed)
+    {
+        log::warn!("[DISPLAY] Window management disabled: {}", err);
     }
     Ok(())
 }
@@ -365,10 +371,11 @@ pub(crate) fn append_diagnostic_report(out: &mut String) {
         .filter(|state| display::site_state_name(**state) == "covered")
         .count();
     let display_events = u64::from(display.bootstrap_create_observations)
-        .saturating_add(u64::from(display.windowed_parent_passthroughs))
+        .saturating_add(u64::from(display.windowed_parent_observations))
         .saturating_add(u64::from(display.device_reset_observations))
         .saturating_add(u64::from(display.child_resize_passthroughs));
     let display_repairs = u64::from(display.bootstrap_create_corrections)
+        .saturating_add(u64::from(display.windowed_parent_corrections))
         .saturating_add(u64::from(display.device_reset_corrections))
         .saturating_add(u64::from(display.loss_suppressions))
         .saturating_add(u64::from(display.regain_normalizations))
@@ -430,8 +437,35 @@ pub(crate) fn append_diagnostic_report(out: &mut String) {
     );
     push_report_value(
         out,
+        "Windowed policy",
+        if display.borderless_windowed_enabled {
+            "borderless"
+        } else {
+            "framed"
+        },
+    );
+    push_report_value(
+        out,
         "Display work",
         format!("{display_events} events / {display_repairs} repairs"),
+    );
+    push_report_value(
+        out,
+        "Display bootstrap",
+        format!(
+            "{} seen / {} windowed / {} failed",
+            display.bootstrap_create_observations,
+            display.bootstrap_windowed_corrections,
+            display.bootstrap_create_failures,
+        ),
+    );
+    push_report_value(
+        out,
+        "Window placement",
+        format!(
+            "{} seen / {} preserved",
+            display.windowed_parent_observations, display.windowed_parent_corrections,
+        ),
     );
     push_report_value(
         out,
