@@ -2,7 +2,9 @@
 //!
 //! This module contains various wrapper winapi functions and types.
 
+use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::{CStr, CString, NulError, OsStr};
+use std::mem::{offset_of, size_of};
 use std::os::windows::ffi::OsStrExt;
 use std::ptr::NonNull;
 use std::sync::atomic::{AtomicPtr, Ordering};
@@ -39,16 +41,21 @@ use windows::Win32::System::ProcessStatus::{
     EnumProcessModules, GetModuleBaseNameA, GetModuleInformation, MODULEINFO,
 };
 use windows::Win32::System::SystemInformation::{
-    GetSystemDirectoryW, GetSystemTimeAsFileTime, GetTickCount as WinGetTickCount,
-    GlobalMemoryStatusEx, MEMORYSTATUSEX,
+    CACHE_RELATIONSHIP, CacheData, CacheInstruction, CacheTrace, CacheUnified,
+    FIRMWARE_TABLE_PROVIDER, GROUP_AFFINITY, GetLogicalProcessorInformationEx, GetNativeSystemInfo,
+    GetPhysicallyInstalledSystemMemory, GetSystemDirectoryW, GetSystemFirmwareTable,
+    GetSystemTimeAsFileTime, GetTickCount as WinGetTickCount, GlobalMemoryStatusEx, MEMORYSTATUSEX,
+    NUMA_NODE_RELATIONSHIP, PROCESSOR_RELATIONSHIP, RelationAll, RelationCache, RelationNumaNode,
+    RelationNumaNodeEx, RelationProcessorCore, RelationProcessorPackage, SYSTEM_INFO,
+    SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX,
 };
 use windows::Win32::System::SystemServices::MEM_TOP_DOWN;
 use windows::Win32::System::Threading::{
-    CRITICAL_SECTION, CreateThread, EnterCriticalSection, GetCurrentThread,
-    GetCurrentThreadId as WinGetCurrentThreadId, GetExitCodeThread, GetProcessTimes,
-    GetThreadPriority, InitializeCriticalSection, LeaveCriticalSection, OpenThread,
-    ReleaseSemaphore as WinReleaseSemaphore, SetThreadPriority, Sleep as WinSleep,
-    THREAD_CREATION_FLAGS, THREAD_PRIORITY, THREAD_PRIORITY_ABOVE_NORMAL,
+    ALL_PROCESSOR_GROUPS, CRITICAL_SECTION, CreateThread, EnterCriticalSection,
+    GetActiveProcessorCount, GetCurrentThread, GetCurrentThreadId as WinGetCurrentThreadId,
+    GetExitCodeThread, GetProcessTimes, GetThreadPriority, InitializeCriticalSection,
+    LeaveCriticalSection, OpenThread, ReleaseSemaphore as WinReleaseSemaphore, SetThreadPriority,
+    Sleep as WinSleep, THREAD_CREATION_FLAGS, THREAD_PRIORITY, THREAD_PRIORITY_ABOVE_NORMAL,
     THREAD_PRIORITY_BELOW_NORMAL, THREAD_PRIORITY_HIGHEST, THREAD_PRIORITY_IDLE,
     THREAD_PRIORITY_LOWEST, THREAD_PRIORITY_MIN, THREAD_PRIORITY_NORMAL,
     THREAD_PRIORITY_TIME_CRITICAL, THREAD_QUERY_LIMITED_INFORMATION,
@@ -96,6 +103,18 @@ pub enum WinapiError {
 
     #[error("Windows reported a negative file size: {0}")]
     NegativeFileSize(i64),
+
+    #[error("Windows returned malformed processor topology: {0}")]
+    MalformedProcessorTopology(&'static str),
+
+    #[error("Windows firmware table is too large: {0} bytes")]
+    FirmwareTableTooLarge(u32),
+
+    #[error("Windows returned malformed firmware data: {0}")]
+    MalformedFirmwareTable(&'static str),
+
+    #[error("Windows value overflowed while converting {0}")]
+    IntegerOverflow(&'static str),
 }
 
 pub type WinapiResult<T> = std::result::Result<T, WinapiError>;
@@ -162,6 +181,92 @@ pub enum MemoryType {
     Private,
     /// Unrecognized raw Win32 memory-type value.
     Unknown(u32),
+}
+
+/// Stable cache classification independent of Windows binding constants.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ProcessorCacheType {
+    /// Cache shared by instructions and data.
+    Unified,
+    /// Instruction cache.
+    Instruction,
+    /// Data cache.
+    Data,
+    /// Trace cache.
+    Trace,
+    /// Cache type not known to this version of libpsycho.
+    Unknown(i32),
+}
+
+/// One cache record reported by `GetLogicalProcessorInformationEx`.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ProcessorCacheInfo {
+    /// Cache hierarchy level, starting at one.
+    pub level: u8,
+    /// Hardware associativity, or `0xff` for fully associative.
+    pub associativity: u8,
+    /// Cache-line size in bytes.
+    pub line_size: u16,
+    /// Cache capacity in bytes.
+    pub size: u32,
+    /// Logical processors that share this cache.
+    pub shared_logical_processor_count: u32,
+    /// Cache use classification.
+    pub cache_type: ProcessorCacheType,
+}
+
+/// Count of physical cores in one Windows efficiency class.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ProcessorEfficiencyClass {
+    /// Windows efficiency class. Higher values represent faster cores.
+    pub class: u8,
+    /// Number of physical cores in this class.
+    pub core_count: u32,
+}
+
+/// Stable processor-topology snapshot produced by Win32.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ProcessorTopology {
+    /// Physical core records visible to the operating system.
+    pub physical_core_count: u32,
+    /// Physical processor-package records visible to the operating system.
+    pub package_count: u32,
+    /// NUMA node records visible to the operating system.
+    pub numa_node_count: u32,
+    /// Cache records reported by Windows.
+    pub caches: Vec<ProcessorCacheInfo>,
+    /// Physical core counts grouped by Windows efficiency class.
+    pub efficiency_classes: Vec<ProcessorEfficiencyClass>,
+}
+
+/// Native system layout needed by hardware and allocator policy.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct NativeSystemLayout {
+    /// Native operating-system page size in bytes.
+    pub page_size: u32,
+    /// Native virtual-allocation granularity in bytes.
+    pub allocation_granularity: u32,
+    /// Active logical processors visible to the operating system.
+    pub logical_processor_count: u32,
+}
+
+/// Physical and virtual memory values returned by `GlobalMemoryStatusEx`.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct SystemMemoryStatus {
+    /// Approximate percentage of physical memory currently in use.
+    pub memory_load_percent: u32,
+    /// Total physical memory in bytes.
+    pub total_physical_bytes: u64,
+    /// Currently available physical memory in bytes.
+    pub available_physical_bytes: u64,
+    /// Current system commit limit in bytes.
+    pub total_page_file_bytes: u64,
+    /// Commit headroom available to the system in bytes.
+    pub available_page_file_bytes: u64,
+    /// User-mode virtual-address-space size for this process in bytes.
+    pub total_virtual_bytes: u64,
+    /// User-mode virtual-address-space headroom for this process in bytes.
+    pub available_virtual_bytes: u64,
 }
 
 impl MemoryBasicInformation {
@@ -1789,14 +1894,338 @@ pub fn virtual_reserve_top_down(size: usize) -> WinapiResult<*mut c_void> {
     unsafe { virtual_alloc(None, size, AllocationType::ReserveTopDown, PAGE_READWRITE) }
 }
 
-/// Return the process's currently available virtual address space.
-pub fn available_virtual_memory() -> WinapiResult<usize> {
+/// Return native page, allocation, and logical-processor information.
+///
+/// `GetNativeSystemInfo` is used so a 32-bit caller running under WOW64 sees
+/// the host architecture's layout rather than an emulated 32-bit layout.
+pub fn native_system_layout() -> NativeSystemLayout {
+    let mut info = SYSTEM_INFO::default();
+    unsafe { GetNativeSystemInfo(&mut info) };
+    // SYSTEM_INFO reports only the caller's processor group on machines with
+    // more than 64 logical CPUs. The group-aware count prevents a precise
+    // topology profile from silently collapsing to that legacy view.
+    let all_groups = unsafe { GetActiveProcessorCount(ALL_PROCESSOR_GROUPS) };
+    NativeSystemLayout {
+        page_size: info.dwPageSize,
+        allocation_granularity: info.dwAllocationGranularity,
+        logical_processor_count: if all_groups == 0 {
+            info.dwNumberOfProcessors
+        } else {
+            all_groups
+        },
+    }
+}
+
+/// Return physical topology and cache records visible to Windows.
+///
+/// The API returns a packed sequence of variable-size records. This wrapper
+/// validates every record boundary before reading its relationship payload so
+/// callers never need to interact with Win32 flexible-array unions.
+pub fn processor_topology() -> WinapiResult<ProcessorTopology> {
+    let bytes = logical_processor_information_bytes()?;
+    parse_processor_topology(&bytes)
+}
+
+fn parse_processor_topology(bytes: &[u8]) -> WinapiResult<ProcessorTopology> {
+    let mut offset = 0usize;
+    let mut physical_core_count = 0u32;
+    let mut package_count = 0u32;
+    let mut numa_nodes = BTreeSet::new();
+    let mut caches = Vec::new();
+    let mut efficiency_classes = BTreeMap::<u8, u32>::new();
+
+    while offset < bytes.len() {
+        const HEADER_SIZE: usize = 8;
+        if bytes.len() - offset < HEADER_SIZE {
+            return Err(WinapiError::MalformedProcessorTopology(
+                "truncated relationship header",
+            ));
+        }
+
+        // The buffer is word-aligned, but individual relationship sizes are
+        // controlled by Windows. Unaligned reads keep the parser correct even
+        // if a compatibility layer returns an unexpectedly aligned record.
+        let record = unsafe { bytes.as_ptr().add(offset) };
+        let relationship = unsafe { record.cast::<i32>().read_unaligned() };
+        let record_size =
+            unsafe { record.add(size_of::<i32>()).cast::<u32>().read_unaligned() } as usize;
+        if record_size < HEADER_SIZE || record_size > bytes.len() - offset {
+            return Err(WinapiError::MalformedProcessorTopology(
+                "invalid relationship size",
+            ));
+        }
+
+        if relationship == RelationProcessorCore.0 || relationship == RelationProcessorPackage.0 {
+            if record_size < HEADER_SIZE + size_of::<PROCESSOR_RELATIONSHIP>() {
+                return Err(WinapiError::MalformedProcessorTopology(
+                    "truncated processor relationship",
+                ));
+            }
+            let processor = unsafe {
+                record
+                    .add(HEADER_SIZE)
+                    .cast::<PROCESSOR_RELATIONSHIP>()
+                    .read_unaligned()
+            };
+            validate_group_affinity_array(
+                record_size,
+                HEADER_SIZE + offset_of!(PROCESSOR_RELATIONSHIP, GroupMask),
+                usize::from(processor.GroupCount),
+                "processor relationship has no group masks",
+            )?;
+            if relationship == RelationProcessorCore.0 {
+                physical_core_count = physical_core_count.saturating_add(1);
+                let count = efficiency_classes
+                    .entry(processor.EfficiencyClass)
+                    .or_default();
+                *count = count.saturating_add(1);
+            } else {
+                package_count = package_count.saturating_add(1);
+            }
+        } else if relationship == RelationNumaNode.0 || relationship == RelationNumaNodeEx.0 {
+            if record_size < HEADER_SIZE + size_of::<NUMA_NODE_RELATIONSHIP>() {
+                return Err(WinapiError::MalformedProcessorTopology(
+                    "truncated NUMA relationship",
+                ));
+            }
+            let numa = unsafe {
+                record
+                    .add(HEADER_SIZE)
+                    .cast::<NUMA_NODE_RELATIONSHIP>()
+                    .read_unaligned()
+            };
+            validate_group_affinity_array(
+                record_size,
+                HEADER_SIZE + offset_of!(NUMA_NODE_RELATIONSHIP, Anonymous),
+                usize::from(numa.GroupCount).max(1),
+                "NUMA relationship has no group masks",
+            )?;
+            numa_nodes.insert(numa.NodeNumber);
+        } else if relationship == RelationCache.0 {
+            if record_size < HEADER_SIZE + size_of::<CACHE_RELATIONSHIP>() {
+                return Err(WinapiError::MalformedProcessorTopology(
+                    "truncated cache relationship",
+                ));
+            }
+            let cache = unsafe {
+                record
+                    .add(HEADER_SIZE)
+                    .cast::<CACHE_RELATIONSHIP>()
+                    .read_unaligned()
+            };
+            let cache_type = match cache.Type {
+                kind if kind == CacheUnified => ProcessorCacheType::Unified,
+                kind if kind == CacheInstruction => ProcessorCacheType::Instruction,
+                kind if kind == CacheData => ProcessorCacheType::Data,
+                kind if kind == CacheTrace => ProcessorCacheType::Trace,
+                kind => ProcessorCacheType::Unknown(kind.0),
+            };
+            let group_count = usize::from(cache.GroupCount).max(1);
+            let masks_offset = HEADER_SIZE + offset_of!(CACHE_RELATIONSHIP, Anonymous);
+            let masks_bytes = group_count.checked_mul(size_of::<GROUP_AFFINITY>()).ok_or(
+                WinapiError::MalformedProcessorTopology("cache group-mask size overflow"),
+            )?;
+            let masks_end = masks_offset.checked_add(masks_bytes).ok_or(
+                WinapiError::MalformedProcessorTopology("cache group-mask end overflow"),
+            )?;
+            if masks_end > record_size {
+                return Err(WinapiError::MalformedProcessorTopology(
+                    "truncated cache group masks",
+                ));
+            }
+            let mut shared_logical_processor_count = 0u32;
+            for index in 0..group_count {
+                let mask = unsafe {
+                    record
+                        .add(masks_offset + index * size_of::<GROUP_AFFINITY>())
+                        .cast::<GROUP_AFFINITY>()
+                        .read_unaligned()
+                };
+                shared_logical_processor_count =
+                    shared_logical_processor_count.saturating_add(mask.Mask.count_ones());
+            }
+            caches.push(ProcessorCacheInfo {
+                level: cache.Level,
+                associativity: cache.Associativity,
+                line_size: cache.LineSize,
+                size: cache.CacheSize,
+                shared_logical_processor_count,
+                cache_type,
+            });
+        }
+
+        offset += record_size;
+    }
+
+    Ok(ProcessorTopology {
+        physical_core_count,
+        package_count,
+        numa_node_count: numa_nodes.len() as u32,
+        caches,
+        efficiency_classes: efficiency_classes
+            .into_iter()
+            .map(|(class, core_count)| ProcessorEfficiencyClass { class, core_count })
+            .collect(),
+    })
+}
+
+fn validate_group_affinity_array(
+    record_size: usize,
+    masks_offset: usize,
+    group_count: usize,
+    empty_reason: &'static str,
+) -> WinapiResult<()> {
+    if group_count == 0 {
+        return Err(WinapiError::MalformedProcessorTopology(empty_reason));
+    }
+    let masks_bytes = group_count.checked_mul(size_of::<GROUP_AFFINITY>()).ok_or(
+        WinapiError::MalformedProcessorTopology("group-mask size overflow"),
+    )?;
+    let masks_end =
+        masks_offset
+            .checked_add(masks_bytes)
+            .ok_or(WinapiError::MalformedProcessorTopology(
+                "group-mask end overflow",
+            ))?;
+    if masks_end > record_size {
+        return Err(WinapiError::MalformedProcessorTopology(
+            "truncated relationship group masks",
+        ));
+    }
+    Ok(())
+}
+
+fn logical_processor_information_bytes() -> WinapiResult<Vec<u8>> {
+    let mut required = 0u32;
+    let first = unsafe { GetLogicalProcessorInformationEx(RelationAll, None, &mut required) };
+    if required == 0 {
+        return match first {
+            Ok(()) => Err(WinapiError::MalformedProcessorTopology(
+                "empty topology response",
+            )),
+            Err(error) => Err(error.into()),
+        };
+    }
+
+    for attempt in 0..2 {
+        // Vec<usize> provides enough alignment for every record payload,
+        // unlike Vec<u8>, whose alignment is formally only one byte.
+        let word_size = size_of::<usize>();
+        let words = (required as usize).checked_add(word_size - 1).ok_or(
+            WinapiError::MalformedProcessorTopology("topology size overflow"),
+        )? / word_size;
+        let mut storage = vec![0usize; words];
+        let mut written = required;
+        let result = unsafe {
+            GetLogicalProcessorInformationEx(
+                RelationAll,
+                Some(
+                    storage
+                        .as_mut_ptr()
+                        .cast::<SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX>(),
+                ),
+                &mut written,
+            )
+        };
+        if written > required && attempt == 0 {
+            // Processor hot-add can change the required length between calls.
+            // Retry exactly once with the new authoritative length so a
+            // genuinely unstable provider cannot force an allocation loop.
+            required = written;
+            continue;
+        }
+        result?;
+        if written > required {
+            return Err(WinapiError::MalformedProcessorTopology(
+                "topology repeatedly grew during query",
+            ));
+        }
+
+        let source =
+            unsafe { std::slice::from_raw_parts(storage.as_ptr().cast::<u8>(), written as usize) };
+        return Ok(source.to_vec());
+    }
+    unreachable!("bounded topology retry loop always returns")
+}
+
+/// Return a point-in-time system memory snapshot.
+///
+/// Availability fields are intentionally not cached: they describe current
+/// pressure and can change immediately after this call returns.
+pub fn system_memory_status() -> WinapiResult<SystemMemoryStatus> {
     let mut status = MEMORYSTATUSEX {
-        dwLength: std::mem::size_of::<MEMORYSTATUSEX>() as u32,
+        dwLength: size_of::<MEMORYSTATUSEX>() as u32,
         ..Default::default()
     };
     unsafe { GlobalMemoryStatusEx(&mut status)? };
-    Ok(status.ullAvailVirtual as usize)
+    Ok(SystemMemoryStatus {
+        memory_load_percent: status.dwMemoryLoad,
+        total_physical_bytes: status.ullTotalPhys,
+        available_physical_bytes: status.ullAvailPhys,
+        total_page_file_bytes: status.ullTotalPageFile,
+        available_page_file_bytes: status.ullAvailPageFile,
+        total_virtual_bytes: status.ullTotalVirtual,
+        available_virtual_bytes: status.ullAvailVirtual,
+    })
+}
+
+/// Return the amount of physically installed memory in bytes.
+///
+/// This firmware-derived capacity can exceed usable physical memory because
+/// hardware-reserved address ranges are excluded from `GlobalMemoryStatusEx`.
+pub fn physically_installed_memory_bytes() -> WinapiResult<u64> {
+    let mut kibibytes = 0u64;
+    unsafe { GetPhysicallyInstalledSystemMemory(&mut kibibytes)? };
+    kibibytes
+        .checked_mul(1024)
+        .ok_or(WinapiError::IntegerOverflow(
+            "installed memory from KiB to bytes",
+        ))
+}
+
+/// Read the raw SMBIOS (`RSMB`) firmware-table payload.
+///
+/// A defensive cap prevents corrupt firmware or a compatibility layer from
+/// forcing a large allocation during an otherwise lightweight detection call.
+pub fn raw_smbios_table() -> WinapiResult<Vec<u8>> {
+    const RSMB_PROVIDER: FIRMWARE_TABLE_PROVIDER = FIRMWARE_TABLE_PROVIDER(0x5253_4d42);
+    const MAX_FIRMWARE_TABLE_BYTES: u32 = 16 * 1024 * 1024;
+
+    let mut required = unsafe { GetSystemFirmwareTable(RSMB_PROVIDER, 0, None) };
+    if required == 0 {
+        return Err(windows::core::Error::from_win32().into());
+    }
+    if required > MAX_FIRMWARE_TABLE_BYTES {
+        return Err(WinapiError::FirmwareTableTooLarge(required));
+    }
+
+    for attempt in 0..2 {
+        let mut bytes = vec![0u8; required as usize];
+        let written = unsafe { GetSystemFirmwareTable(RSMB_PROVIDER, 0, Some(&mut bytes)) };
+        if written == 0 {
+            return Err(windows::core::Error::from_win32().into());
+        }
+        if written > required && attempt == 0 {
+            if written > MAX_FIRMWARE_TABLE_BYTES {
+                return Err(WinapiError::FirmwareTableTooLarge(written));
+            }
+            required = written;
+            continue;
+        }
+        if written > required {
+            return Err(WinapiError::MalformedFirmwareTable(
+                "firmware table repeatedly grew during query",
+            ));
+        }
+        bytes.truncate(written as usize);
+        return Ok(bytes);
+    }
+    unreachable!("bounded firmware retry loop always returns")
+}
+
+/// Return the process's currently available virtual address space.
+pub fn available_virtual_memory() -> WinapiResult<usize> {
+    Ok(system_memory_status()?.available_virtual_bytes as usize)
 }
 
 /// WinAPI: GetModuleHandleW(...)
@@ -1893,6 +2322,83 @@ mod tests {
         assert_eq!(info.memory_type(), MemoryType::Image);
         info.r#type = 0x1234_5678;
         assert_eq!(info.memory_type(), MemoryType::Unknown(0x1234_5678));
+    }
+
+    #[test]
+    fn topology_parser_walks_variable_records_and_cache_masks() {
+        fn relationship_record(relationship: i32, payload_size: usize) -> Vec<u8> {
+            let size = 8 + payload_size;
+            let mut record = vec![0u8; size];
+            record[0..4].copy_from_slice(&relationship.to_le_bytes());
+            record[4..8].copy_from_slice(&(size as u32).to_le_bytes());
+            record
+        }
+
+        let mut bytes = Vec::new();
+        for efficiency_class in [2u8, 7u8] {
+            let mut core =
+                relationship_record(RelationProcessorCore.0, size_of::<PROCESSOR_RELATIONSHIP>());
+            core[8 + std::mem::offset_of!(PROCESSOR_RELATIONSHIP, EfficiencyClass)] =
+                efficiency_class;
+            let group_count = 8 + std::mem::offset_of!(PROCESSOR_RELATIONSHIP, GroupCount);
+            core[group_count..group_count + 2].copy_from_slice(&1u16.to_le_bytes());
+            bytes.extend_from_slice(&core);
+        }
+        let mut package = relationship_record(
+            RelationProcessorPackage.0,
+            size_of::<PROCESSOR_RELATIONSHIP>(),
+        );
+        let package_group_count = 8 + std::mem::offset_of!(PROCESSOR_RELATIONSHIP, GroupCount);
+        package[package_group_count..package_group_count + 2].copy_from_slice(&1u16.to_le_bytes());
+        bytes.extend_from_slice(&package);
+
+        let mut numa = relationship_record(RelationNumaNode.0, size_of::<NUMA_NODE_RELATIONSHIP>());
+        numa[8..12].copy_from_slice(&3u32.to_le_bytes());
+        bytes.extend_from_slice(&numa);
+
+        let mut cache = relationship_record(RelationCache.0, size_of::<CACHE_RELATIONSHIP>());
+        cache[8] = 3;
+        cache[9] = 16;
+        cache[10..12].copy_from_slice(&64u16.to_le_bytes());
+        cache[12..16].copy_from_slice(&(8u32 * 1024 * 1024).to_le_bytes());
+        cache[16..20].copy_from_slice(&CacheUnified.0.to_le_bytes());
+        let group_count = 8 + std::mem::offset_of!(CACHE_RELATIONSHIP, GroupCount);
+        cache[group_count..group_count + 2].copy_from_slice(&1u16.to_le_bytes());
+        let group_mask = 8 + std::mem::offset_of!(CACHE_RELATIONSHIP, Anonymous);
+        cache[group_mask..group_mask + size_of::<usize>()]
+            .copy_from_slice(&0b1111usize.to_le_bytes());
+        bytes.extend_from_slice(&cache);
+
+        let topology = parse_processor_topology(&bytes).unwrap();
+        assert_eq!(topology.physical_core_count, 2);
+        assert_eq!(topology.package_count, 1);
+        assert_eq!(topology.numa_node_count, 1);
+        assert_eq!(
+            topology.efficiency_classes,
+            vec![
+                ProcessorEfficiencyClass {
+                    class: 2,
+                    core_count: 1,
+                },
+                ProcessorEfficiencyClass {
+                    class: 7,
+                    core_count: 1,
+                },
+            ]
+        );
+        assert_eq!(topology.caches[0].shared_logical_processor_count, 4);
+    }
+
+    #[test]
+    fn topology_parser_rejects_zero_sized_records() {
+        let mut record = [0u8; 8];
+        record[0..4].copy_from_slice(&RelationProcessorCore.0.to_le_bytes());
+        assert!(matches!(
+            parse_processor_topology(&record),
+            Err(WinapiError::MalformedProcessorTopology(
+                "invalid relationship size"
+            ))
+        ));
     }
 
     #[test]

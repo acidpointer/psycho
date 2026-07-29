@@ -6,7 +6,7 @@
 
 use core::ffi::c_void;
 use core::mem::size_of;
-use core::ptr::{NonNull, null, null_mut};
+use core::ptr::{NonNull, addr_of, null, null_mut};
 use core::slice;
 use std::ffi::CString;
 use std::sync::OnceLock;
@@ -15,28 +15,30 @@ use thiserror::Error;
 
 use windows::Win32::Foundation::{E_NOINTERFACE, E_POINTER, HANDLE, RECT};
 use windows::Win32::Graphics::Direct3D::ID3DBlob;
-use windows::Win32::Graphics::Direct3D9::{
-    D3DADAPTER_DEFAULT, D3DBACKBUFFER_TYPE, D3DBACKBUFFER_TYPE_MONO, D3DCAPS9, D3DCLEAR_ZBUFFER,
-    D3DDEVTYPE, D3DDEVTYPE_HAL, D3DDISPLAYMODE, D3DLOCKED_RECT, D3DPOOL, D3DPRESENT_PARAMETERS,
-    D3DPRIMITIVETYPE, D3DRENDERSTATETYPE, D3DRESOURCETYPE, D3DRTYPE_SURFACE, D3DSAMPLERSTATETYPE,
-    D3DSTATEBLOCKTYPE, D3DTEXTUREFILTERTYPE, D3DTEXTURESTAGESTATETYPE, D3DUSAGE_DEPTHSTENCIL,
-    D3DUSAGE_QUERY_POSTPIXELSHADER_BLENDING, D3DUSAGE_RENDERTARGET, D3DVERTEXELEMENT9, IDirect3D9,
-    IDirect3DBaseTexture9, IDirect3DDevice9, IDirect3DPixelShader9, IDirect3DStateBlock9,
-    IDirect3DSurface9, IDirect3DTexture9, IDirect3DVertexBuffer9, IDirect3DVertexDeclaration9,
-    IDirect3DVertexShader9,
-};
 pub use windows::Win32::Graphics::Direct3D9::{
-    D3DBLEND_ONE, D3DBLENDOP_ADD, D3DCULL, D3DCULL_CCW, D3DCULL_CW, D3DCULL_NONE, D3DFMT_A8R8G8B8,
-    D3DFMT_R32F, D3DFORMAT, D3DFVF_DIFFUSE, D3DFVF_TEX1, D3DFVF_XYZ, D3DFVF_XYZRHW,
-    D3DPOOL_DEFAULT, D3DPOOL_MANAGED, D3DPT_POINTLIST, D3DPT_TRIANGLESTRIP, D3DRS_ADAPTIVETESS_Y,
-    D3DRS_ALPHABLENDENABLE, D3DRS_ALPHATESTENABLE, D3DRS_BLENDOP, D3DRS_COLORWRITEENABLE,
-    D3DRS_CULLMODE, D3DRS_DESTBLEND, D3DRS_MULTISAMPLEANTIALIAS, D3DRS_MULTISAMPLEMASK,
-    D3DRS_POINTSIZE, D3DRS_SCISSORTESTENABLE, D3DRS_SRCBLEND, D3DRS_SRGBWRITEENABLE,
-    D3DRS_STENCILENABLE, D3DRS_ZENABLE, D3DRS_ZFUNC, D3DRS_ZWRITEENABLE, D3DRTYPE_TEXTURE,
-    D3DSAMP_ADDRESSU, D3DSAMP_ADDRESSV, D3DSAMP_MAGFILTER, D3DSAMP_MINFILTER, D3DSAMP_MIPFILTER,
-    D3DSAMP_SRGBTEXTURE, D3DSBT_ALL, D3DSURFACE_DESC, D3DTA_TEXTURE, D3DTADDRESS_CLAMP,
-    D3DTADDRESS_WRAP, D3DTEXF_LINEAR, D3DTEXF_NONE, D3DTEXF_POINT, D3DTOP_SELECTARG1,
-    D3DTSS_ALPHAARG1, D3DTSS_ALPHAOP, D3DTSS_COLORARG1, D3DTSS_COLOROP, D3DVIEWPORT9,
+    D3D_SDK_VERSION, D3DBLEND_ONE, D3DBLENDOP_ADD, D3DCAPS9, D3DCULL, D3DCULL_CCW, D3DCULL_CW,
+    D3DCULL_NONE, D3DDEVTYPE, D3DDEVTYPE_HAL, D3DDEVTYPE_NULLREF, D3DDEVTYPE_REF, D3DDEVTYPE_SW,
+    D3DFMT_A8R8G8B8, D3DFMT_R32F, D3DFORMAT, D3DFVF_DIFFUSE, D3DFVF_TEX1, D3DFVF_XYZ,
+    D3DFVF_XYZRHW, D3DPOOL_DEFAULT, D3DPOOL_MANAGED, D3DPT_POINTLIST, D3DPT_TRIANGLESTRIP,
+    D3DRS_ADAPTIVETESS_Y, D3DRS_ALPHABLENDENABLE, D3DRS_ALPHATESTENABLE, D3DRS_BLENDOP,
+    D3DRS_COLORWRITEENABLE, D3DRS_CULLMODE, D3DRS_DESTBLEND, D3DRS_MULTISAMPLEANTIALIAS,
+    D3DRS_MULTISAMPLEMASK, D3DRS_POINTSIZE, D3DRS_SCISSORTESTENABLE, D3DRS_SRCBLEND,
+    D3DRS_SRGBWRITEENABLE, D3DRS_STENCILENABLE, D3DRS_ZENABLE, D3DRS_ZFUNC, D3DRS_ZWRITEENABLE,
+    D3DRTYPE_SURFACE, D3DRTYPE_TEXTURE, D3DSAMP_ADDRESSU, D3DSAMP_ADDRESSV, D3DSAMP_MAGFILTER,
+    D3DSAMP_MINFILTER, D3DSAMP_MIPFILTER, D3DSAMP_SRGBTEXTURE, D3DSBT_ALL, D3DSURFACE_DESC,
+    D3DTA_TEXTURE, D3DTADDRESS_CLAMP, D3DTADDRESS_WRAP, D3DTEXF_LINEAR, D3DTEXF_NONE,
+    D3DTEXF_POINT, D3DTOP_SELECTARG1, D3DTSS_ALPHAARG1, D3DTSS_ALPHAOP, D3DTSS_COLORARG1,
+    D3DTSS_COLOROP, D3DVIEWPORT9,
+};
+use windows::Win32::Graphics::Direct3D9::{
+    D3DADAPTER_DEFAULT, D3DADAPTER_IDENTIFIER9, D3DBACKBUFFER_TYPE, D3DBACKBUFFER_TYPE_MONO,
+    D3DCLEAR_ZBUFFER, D3DDEVICE_CREATION_PARAMETERS, D3DDISPLAYMODE, D3DLOCKED_RECT, D3DPOOL,
+    D3DPRESENT_PARAMETERS, D3DPRIMITIVETYPE, D3DRENDERSTATETYPE, D3DRESOURCETYPE,
+    D3DSAMPLERSTATETYPE, D3DSTATEBLOCKTYPE, D3DTEXTUREFILTERTYPE, D3DTEXTURESTAGESTATETYPE,
+    D3DUSAGE_DEPTHSTENCIL, D3DUSAGE_QUERY_POSTPIXELSHADER_BLENDING, D3DUSAGE_RENDERTARGET,
+    D3DVERTEXELEMENT9, Direct3DCreate9, IDirect3D9, IDirect3DBaseTexture9, IDirect3DDevice9,
+    IDirect3DPixelShader9, IDirect3DStateBlock9, IDirect3DSurface9, IDirect3DTexture9,
+    IDirect3DVertexBuffer9, IDirect3DVertexDeclaration9, IDirect3DVertexShader9,
 };
 pub use windows::core::Error as Direct3DError;
 use windows::core::{HRESULT, Interface, InterfaceRef, PCSTR, Result as WindowsResult};
@@ -99,6 +101,48 @@ pub const D3D_FAILURE_CODE: i32 = windows::Win32::Foundation::E_FAIL.0;
 /// ABI value returned when a nonblocking Reset preflight must be retried.
 pub const D3D_DEVICE_LOST_CODE: i32 = 0x8876_0868u32 as i32;
 const D3DERR_NOTFOUND: HRESULT = HRESULT(0x8876_0866u32 as i32);
+const D3DERR_NOTAVAILABLE: HRESULT = HRESULT(0x8876_086au32 as i32);
+
+/// Aligned, owned copy of a D3D9 adapter identifier.
+///
+/// The native identifier is packed on x86 and stores text in fixed C arrays.
+/// This representation is safe to retain and compare after the native call.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AdapterIdentifier9 {
+    /// Driver module name reported by D3D9.
+    pub driver: String,
+    /// Human-readable adapter description.
+    pub description: String,
+    /// Win32 display-device name.
+    pub device_name: String,
+    /// Driver version encoded as the native signed 64-bit `LARGE_INTEGER`.
+    pub driver_version: i64,
+    /// PCI or virtual-vendor identifier.
+    pub vendor_id: u32,
+    /// PCI or virtual-device identifier.
+    pub device_id: u32,
+    /// PCI subsystem identifier.
+    pub subsystem_id: u32,
+    /// PCI revision identifier.
+    pub revision: u32,
+    /// Stable D3D9 device GUID encoded in canonical `u128` form.
+    pub device_identifier: u128,
+    /// WHQL certification level reported by D3D9.
+    pub whql_level: u32,
+}
+
+/// Stable subset of `D3DDEVICE_CREATION_PARAMETERS`.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct DeviceCreationParameters9 {
+    /// Adapter ordinal used to create the device.
+    pub adapter_ordinal: u32,
+    /// D3D9 device implementation type.
+    pub device_type: D3DDEVTYPE,
+    /// Focus window identity, represented without transferring ownership.
+    pub focus_window: usize,
+    /// D3D9 behavior flags used to create the device.
+    pub behavior_flags: u32,
+}
 
 /// Construct a generic Direct3D failure for higher-level validation errors.
 pub fn direct3d_failure() -> Direct3DError {
@@ -163,7 +207,8 @@ pub const D3DFMT_A16B16G16R16F: D3DFORMAT = D3DFORMAT(113);
 /// Magic render-state value that triggers RESZ depth resolve on supported D3D9 drivers.
 pub const D3DRESZ_POINT_SIZE: u32 = 0x7FA0_5000;
 
-const D3DFMT_RESZ: D3DFORMAT = D3DFORMAT(make_fourcc(b'R', b'E', b'S', b'Z'));
+/// Vendor extension format used to query RESZ depth-resolve support.
+pub const D3DFMT_RESZ: D3DFORMAT = D3DFORMAT(make_fourcc(b'R', b'E', b'S', b'Z'));
 
 const fn make_fourcc(a: u8, b: u8, c: u8, d: u8) -> u32 {
     a as u32 | ((b as u32) << 8) | ((c as u32) << 16) | ((d as u32) << 24)
@@ -221,6 +266,29 @@ impl<'a> Device9Ref<'a> {
     /// Query the driver's approximate available texture memory.
     pub fn available_texture_mem(&self) -> u32 {
         unsafe { self.inner.GetAvailableTextureMem() }
+    }
+
+    /// Return the adapter, device type, window, and flags used at creation.
+    ///
+    /// Hardware detection uses the adapter ordinal from this call instead of
+    /// assuming adapter zero, which may describe the wrong GPU on multi-adapter
+    /// systems.
+    pub fn creation_parameters(&self) -> Direct3DResult<DeviceCreationParameters9> {
+        let mut parameters = D3DDEVICE_CREATION_PARAMETERS::default();
+        unsafe { self.inner.GetCreationParameters(&mut parameters)? };
+        Ok(DeviceCreationParameters9 {
+            adapter_ordinal: parameters.AdapterOrdinal,
+            device_type: parameters.DeviceType,
+            focus_window: parameters.hFocusWindow.0 as usize,
+            behavior_flags: parameters.BehaviorFlags,
+        })
+    }
+
+    /// Return the effective capabilities of this created device.
+    pub fn device_caps(&self) -> Direct3DResult<D3DCAPS9> {
+        let mut caps = D3DCAPS9::default();
+        unsafe { self.inner.GetDeviceCaps(&mut caps)? };
+        Ok(caps)
     }
 
     /// Release managed resources held by the driver.
@@ -780,6 +848,17 @@ impl<'a> Device9Ref<'a> {
     }
 }
 
+/// Create an owned Direct3D 9 interface for explicit adapter enumeration.
+///
+/// This loads the platform D3D9 runtime on first use. Renderer integrations
+/// that already have a device should prefer `Device9Ref::direct3d` so queries
+/// are guaranteed to use the same D3D9 implementation as the active device.
+pub fn create_direct3d9() -> Direct3DResult<Direct3D9> {
+    let inner = unsafe { Direct3DCreate9(D3D_SDK_VERSION) }
+        .ok_or_else(|| WindowsError::from_hresult(windows::Win32::Foundation::E_FAIL))?;
+    Ok(Direct3D9::new(inner))
+}
+
 /// Owned `IDirect3D9` reference.
 #[derive(Clone, Debug)]
 pub struct Direct3D9 {
@@ -798,6 +877,47 @@ impl Direct3D9 {
     /// Return the wrapped Windows binding interface.
     pub fn as_inner(&self) -> &IDirect3D9 {
         &self.inner
+    }
+
+    /// Return the number of adapters exposed by this D3D9 implementation.
+    pub fn adapter_count(&self) -> u32 {
+        unsafe { self.inner.GetAdapterCount() }
+    }
+
+    /// Return an aligned, owned identifier for one adapter.
+    pub fn adapter_identifier(&self, adapter: u32) -> Direct3DResult<AdapterIdentifier9> {
+        let mut identifier = D3DADAPTER_IDENTIFIER9::default();
+        unsafe {
+            self.inner
+                .GetAdapterIdentifier(adapter, 0, &mut identifier)?
+        };
+
+        // D3DADAPTER_IDENTIFIER9 is packed to four-byte alignment on x86.
+        // Reading each non-byte field unaligned avoids forming invalid aligned
+        // references and keeps this wrapper sound on the supported game target.
+        let driver = unsafe { addr_of!(identifier.Driver).read_unaligned() };
+        let description = unsafe { addr_of!(identifier.Description).read_unaligned() };
+        let device_name = unsafe { addr_of!(identifier.DeviceName).read_unaligned() };
+        let device_identifier = unsafe { addr_of!(identifier.DeviceIdentifier).read_unaligned() };
+        Ok(AdapterIdentifier9 {
+            driver: fixed_c_string(&driver),
+            description: fixed_c_string(&description),
+            device_name: fixed_c_string(&device_name),
+            driver_version: unsafe { addr_of!(identifier.DriverVersion).read_unaligned() },
+            vendor_id: unsafe { addr_of!(identifier.VendorId).read_unaligned() },
+            device_id: unsafe { addr_of!(identifier.DeviceId).read_unaligned() },
+            subsystem_id: unsafe { addr_of!(identifier.SubSysId).read_unaligned() },
+            revision: unsafe { addr_of!(identifier.Revision).read_unaligned() },
+            device_identifier: device_identifier.to_u128(),
+            whql_level: unsafe { addr_of!(identifier.WHQLLevel).read_unaligned() },
+        })
+    }
+
+    /// Return capabilities for an adapter and D3D9 device implementation.
+    pub fn device_caps(&self, adapter: u32, device_type: D3DDEVTYPE) -> Direct3DResult<D3DCAPS9> {
+        let mut caps = D3DCAPS9::default();
+        unsafe { self.inner.GetDeviceCaps(adapter, device_type, &mut caps)? };
+        Ok(caps)
     }
 
     /// Get the current adapter display mode.
@@ -826,6 +946,34 @@ impl Direct3D9 {
                 resource_type,
                 check_format,
             )
+        }
+    }
+
+    /// Return whether a format probe is supported.
+    ///
+    /// `D3DERR_NOTAVAILABLE` is the documented negative capability result.
+    /// Other failures are preserved so device loss, invalid parameters, and
+    /// compatibility-layer faults cannot be misreported as missing hardware.
+    pub fn supports_device_format(
+        &self,
+        adapter: u32,
+        device_type: D3DDEVTYPE,
+        adapter_format: D3DFORMAT,
+        usage: u32,
+        resource_type: D3DRESOURCETYPE,
+        check_format: D3DFORMAT,
+    ) -> Direct3DResult<bool> {
+        match self.check_device_format(
+            adapter,
+            device_type,
+            adapter_format,
+            usage,
+            resource_type,
+            check_format,
+        ) {
+            Ok(()) => Ok(true),
+            Err(error) if error.code() == D3DERR_NOTAVAILABLE => Ok(false),
+            Err(error) => Err(error),
         }
     }
 
@@ -873,6 +1021,13 @@ impl Direct3D9 {
             format,
         )
     }
+}
+
+fn fixed_c_string<const N: usize>(bytes: &[i8; N]) -> String {
+    let length = bytes.iter().position(|byte| *byte == 0).unwrap_or(N);
+    let bytes = &bytes[..length];
+    let bytes = unsafe { slice::from_raw_parts(bytes.as_ptr().cast::<u8>(), bytes.len()) };
+    String::from_utf8_lossy(bytes).trim().to_owned()
 }
 
 /// Description of a borrowed raw two-dimensional D3D texture.

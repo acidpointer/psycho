@@ -46,6 +46,7 @@ pub(crate) fn initialize() -> anyhow::Result<()> {
     install_engine_fix_hooks(&cfg.engine_fixes, &cfg.io, &cfg.lod, &cfg.diagnostics)?;
     install_runtime_hooks(&cfg.performance)?;
 
+    crate::hardware_report::log_startup_hardware();
     log_runtime();
     log_build_info();
     log::info!("[INIT] Engine fixes initialized");

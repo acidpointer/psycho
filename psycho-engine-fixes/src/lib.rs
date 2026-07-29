@@ -12,6 +12,7 @@ mod command_api;
 mod config;
 mod entry;
 mod events;
+mod hardware_report;
 mod host_events;
 mod mods;
 mod startup;

@@ -12,6 +12,7 @@ compile_error!("Unsupported OS - Windows is only supported target OS for now");
 pub mod common;
 pub mod config;
 pub mod ffi;
+pub mod hardware;
 pub mod hook;
 pub mod logger;
 pub mod os;
