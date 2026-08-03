@@ -631,7 +631,7 @@ The helper dashboard's Runtime Fixes page exposes the observed native worker
 count, bounded scheduling policy, rare fallback counts, current LOD ownership
 state, and guard installation. It intentionally does not sample routine LOD
 demand, successful cell, materialization, Compute, lock, or wait operations.
-The corresponding fields remain in dashboard ABI version 2 for binary
+The corresponding fields remain in dashboard ABI version 3 for binary
 compatibility and return zero. See `docs/psycho_dashboard.md` for the UI/ABI
 contract.
 

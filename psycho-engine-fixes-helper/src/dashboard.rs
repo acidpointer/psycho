@@ -1,4 +1,10 @@
 //! In-game Psycho control deck.
+//!
+//! The helper renders core-owned, read-only telemetry and edits a separate
+//! restart-only configuration draft. Runtime data arrives through the
+//! late-bound fixed-width ABI in `engine_fixes`; the UI never loads the core,
+//! initializes it, or mutates live engine-fix state. Expensive process and log
+//! work stays on the dashboard worker.
 
 use std::{
     cell::RefCell,
@@ -64,7 +70,7 @@ const RELOAD_ACTIVE: [f32; 4] = [0.82, 0.51, 0.12, 1.0];
 const HOVER_HELP_HINT: &str =
     "Hover a setting or technical label for a plain-language explanation.";
 
-const ENGINE_FIX_HELP: [(&str, &str); 19] = [
+const ENGINE_FIX_HELP: [(&str, &str); 20] = [
     (
         "Display / Alt-Tab repair",
         "Keeps fullscreen startup, renderer resets, focus changes, and Alt-Tab from using broken window size or placement. Leave it on unless another window mod has a confirmed conflict.",
@@ -88,6 +94,10 @@ const ENGINE_FIX_HELP: [(&str, &str); 19] = [
     (
         "ExtraOwnership guard",
         "Treats corrupt item ownership data as 'no owner' instead of letting the game or xNVSE follow an invalid owner pointer.",
+    ),
+    (
+        "Encounter-zone form guard",
+        "Removes only an exact unresolved or invalid encounter-zone source, then preserves the game's valid cell and worldspace fallbacks.",
     ),
     (
         "Linked-ref stale child guard",
@@ -142,6 +152,15 @@ const ENGINE_FIX_HELP: [(&str, &str); 19] = [
         "Stops a dead texture or background task before the game calls or releases it again. Useful with every allocator mode.",
     ),
 ];
+
+// Runtime status rows reuse the configuration help catalog. Named indices
+// keep that cross-page wording stable when a new restart-only control is added.
+const ENGINE_FIX_DISPLAY_INDEX: usize = 0;
+const ENGINE_FIX_SAVE_INDEX: usize = 1;
+const ENGINE_FIX_ACTOR_CONTAINER_INDEX: usize = 4;
+const ENGINE_FIX_ENCOUNTER_ZONE_INDEX: usize = 6;
+const ENGINE_FIX_MODEL_POSTPROCESS_INDEX: usize = 18;
+const ENGINE_FIX_QUEUED_TASK_INDEX: usize = 19;
 
 static READY: AtomicBool = AtomicBool::new(false);
 static OPEN_REQUESTED: AtomicBool = AtomicBool::new(false);
@@ -1012,31 +1031,37 @@ impl DashboardRuntime {
                 "Display transition repair",
                 engine_fixes::DASHBOARD_FEATURE_DISPLAY,
                 "Fullscreen, reset and Alt-Tab ownership",
-                ENGINE_FIX_HELP[0].1,
+                ENGINE_FIX_HELP[ENGINE_FIX_DISPLAY_INDEX].1,
             ),
             (
                 "Durable save integrity",
                 engine_fixes::DASHBOARD_FEATURE_SAVE_INTEGRITY,
                 "Atomic promotion and malformed-record rejection",
-                ENGINE_FIX_HELP[1].1,
+                ENGINE_FIX_HELP[ENGINE_FIX_SAVE_INDEX].1,
             ),
             (
                 "Queued-task lifetime guard",
                 engine_fixes::DASHBOARD_FEATURE_TASK_GUARD,
                 "Dispatch and final-release ownership",
-                ENGINE_FIX_HELP[18].1,
+                ENGINE_FIX_HELP[ENGINE_FIX_QUEUED_TASK_INDEX].1,
             ),
             (
                 "Dynamic actor container guard",
                 engine_fixes::DASHBOARD_FEATURE_ACTOR_CONTAINER_GUARD,
                 "Validates retiring runtime actor inventory lists",
-                ENGINE_FIX_HELP[4].1,
+                ENGINE_FIX_HELP[ENGINE_FIX_ACTOR_CONTAINER_INDEX].1,
+            ),
+            (
+                "Encounter-zone form guard",
+                engine_fixes::DASHBOARD_FEATURE_ENCOUNTER_ZONE_GUARD,
+                "Shared reference, cell and worldspace form containment",
+                ENGINE_FIX_HELP[ENGINE_FIX_ENCOUNTER_ZONE_INDEX].1,
             ),
             (
                 "Model postprocess serialization",
                 engine_fixes::DASHBOARD_FEATURE_MODEL_POSTPROCESS,
                 "Process-global EditorMarker traversal ownership",
-                ENGINE_FIX_HELP[17].1,
+                ENGINE_FIX_HELP[ENGINE_FIX_MODEL_POSTPROCESS_INDEX].1,
             ),
             (
                 "Parallel native IO",
@@ -1073,7 +1098,7 @@ impl DashboardRuntime {
         }
 
         ui.spacing();
-        ui.separator_text(&cstring("Save and task safety"));
+        ui.separator_text(&cstring("Save, form and task safety"));
         draw_value_help(
             ui,
             "Saves",
@@ -1097,6 +1122,26 @@ impl DashboardRuntime {
             core.save_rejections,
             counter_color(core.save_rejections),
             "Malformed or unavailable changed records skipped through the game's supported rejection path instead of being trusted.",
+        );
+        let encounter_zone_rejections = core
+            .encounter_zone_load_rejections
+            .saturating_add(core.encounter_zone_access_rejections);
+        draw_value_help(
+            ui,
+            "Encounter-zone rejects",
+            format!(
+                "{} runtime / {} load",
+                core.encounter_zone_access_rejections, core.encounter_zone_load_rejections
+            ),
+            counter_color(encounter_zone_rejections),
+            "Invalid zone-form results stopped before RTTI or a consumer dereference. Runtime counts can include more than one native fallback level for one owner.",
+        );
+        draw_value_help(
+            ui,
+            "Encounter-zone source repairs",
+            core.encounter_zone_repairs,
+            counter_color(core.encounter_zone_repairs),
+            "Exact corrupt reference, cell, or worldspace sources removed or cleared before Psycho re-ran the native fallback order.",
         );
         draw_value_help(
             ui,
@@ -1840,6 +1885,7 @@ fn draw_configuration(ui: &mut Ui<'_>, editor: &mut ConfigEditor) {
         &mut config.entrydata_invalid_form_guard,
         &mut config.actor_container_retirement_guard,
         &mut config.extraownership_invalid_owner_guard,
+        &mut config.encounter_zone_invalid_form_guard,
         &mut config.linked_ref_children_stale_list_guard,
         &mut config.linked_ref_target_base_form_guard,
         &mut config.ragdoll_null_bone_guard,
@@ -2294,8 +2340,11 @@ mod tests {
     use core::ffi::c_void;
 
     use super::{
-        ENGINE_FIX_HELP, GameRenderHandles, LogFilters, LogLevel, LogTailReader, MemoryHealth,
-        Page, SamplingState, parse_log_line, take_driver_refresh,
+        ENGINE_FIX_ACTOR_CONTAINER_INDEX, ENGINE_FIX_DISPLAY_INDEX,
+        ENGINE_FIX_ENCOUNTER_ZONE_INDEX, ENGINE_FIX_HELP, ENGINE_FIX_MODEL_POSTPROCESS_INDEX,
+        ENGINE_FIX_QUEUED_TASK_INDEX, ENGINE_FIX_SAVE_INDEX, GameRenderHandles, LogFilters,
+        LogLevel, LogTailReader, MemoryHealth, Page, SamplingState, parse_log_line,
+        take_driver_refresh,
     };
     use crate::engine_fixes::{DASHBOARD_FLAG_VAS_VALID, DashboardSnapshot};
 
@@ -2337,7 +2386,23 @@ mod tests {
 
     #[test]
     fn every_engine_fix_has_concise_unique_hover_help() {
-        assert_eq!(ENGINE_FIX_HELP.len(), 19);
+        assert_eq!(ENGINE_FIX_HELP.len(), 20);
+        for (index, expected) in [
+            (ENGINE_FIX_DISPLAY_INDEX, "Display / Alt-Tab repair"),
+            (ENGINE_FIX_SAVE_INDEX, "Durable save integrity"),
+            (
+                ENGINE_FIX_ACTOR_CONTAINER_INDEX,
+                "Dynamic actor container guard",
+            ),
+            (ENGINE_FIX_ENCOUNTER_ZONE_INDEX, "Encounter-zone form guard"),
+            (
+                ENGINE_FIX_MODEL_POSTPROCESS_INDEX,
+                "Model postprocess serialization",
+            ),
+            (ENGINE_FIX_QUEUED_TASK_INDEX, "Queued-task lifetime guard"),
+        ] {
+            assert_eq!(ENGINE_FIX_HELP[index].0, expected);
+        }
         let mut labels = std::collections::BTreeSet::new();
         for (label, help) in ENGINE_FIX_HELP {
             assert!(!label.trim().is_empty());

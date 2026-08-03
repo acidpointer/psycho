@@ -34,6 +34,8 @@ pub(crate) struct EditableConfig {
     pub entrydata_invalid_form_guard: bool,
     pub actor_container_retirement_guard: bool,
     pub extraownership_invalid_owner_guard: bool,
+    /// Restart-only invalid encounter-zone form containment preference.
+    pub encounter_zone_invalid_form_guard: bool,
     pub linked_ref_children_stale_list_guard: bool,
     pub linked_ref_target_base_form_guard: bool,
     pub ragdoll_null_bone_guard: bool,
@@ -81,6 +83,7 @@ impl Default for EditableConfig {
             entrydata_invalid_form_guard: true,
             actor_container_retirement_guard: true,
             extraownership_invalid_owner_guard: true,
+            encounter_zone_invalid_form_guard: true,
             linked_ref_children_stale_list_guard: true,
             linked_ref_target_base_form_guard: true,
             ragdoll_null_bone_guard: true,
@@ -175,6 +178,12 @@ impl EditableConfig {
                 "engine_fixes",
                 "extraownership_invalid_owner_guard",
                 defaults.extraownership_invalid_owner_guard,
+            ),
+            encounter_zone_invalid_form_guard: bool_or(
+                doc,
+                "engine_fixes",
+                "encounter_zone_invalid_form_guard",
+                defaults.encounter_zone_invalid_form_guard,
             ),
             linked_ref_children_stale_list_guard: bool_or(
                 doc,
@@ -581,6 +590,7 @@ fn write_document(doc: &mut DocumentMut, config: &EditableConfig) {
     engine!(entrydata_invalid_form_guard);
     engine!(actor_container_retirement_guard);
     engine!(extraownership_invalid_owner_guard);
+    engine!(encounter_zone_invalid_form_guard);
     engine!(linked_ref_children_stale_list_guard);
     engine!(linked_ref_target_base_form_guard);
     engine!(ragdoll_null_bone_guard);
@@ -709,6 +719,7 @@ mod_owned_key = "untouched"
         config.allocator = 2;
         config.display_borderless_windowed = false;
         config.actor_container_retirement_guard = false;
+        config.encounter_zone_invalid_form_guard = false;
         config.model_postprocess_serialization_fix = false;
         write_document(&mut document, &config);
         let saved = document.to_string();
@@ -719,10 +730,12 @@ mod_owned_key = "untouched"
         assert!(saved.contains("allocator = 2"));
         assert!(saved.contains("display_borderless_windowed = false"));
         assert!(saved.contains("actor_container_retirement_guard = false"));
+        assert!(saved.contains("encounter_zone_invalid_form_guard = false"));
         assert!(saved.contains("model_postprocess_serialization_fix = false"));
         let reparsed = parse_document(&saved).expect("parse saved document");
         assert!(!EditableConfig::from_document(&reparsed).display_borderless_windowed);
         assert!(!EditableConfig::from_document(&reparsed).actor_container_retirement_guard);
+        assert!(!EditableConfig::from_document(&reparsed).encounter_zone_invalid_form_guard);
         assert!(!EditableConfig::from_document(&reparsed).model_postprocess_serialization_fix);
     }
 
@@ -765,6 +778,7 @@ object_prefetch_multiplier = 1
         assert!(config.gheap_periodic_pdd_purge);
         assert!(!config.queued_task_lifetime_guard);
         assert!(config.actor_container_retirement_guard);
+        assert!(config.encounter_zone_invalid_form_guard);
         assert_eq!(config.object_prefetch_multiplier, 1.0);
         assert!(!config.debug_log);
     }

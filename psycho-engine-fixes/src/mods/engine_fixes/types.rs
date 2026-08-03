@@ -20,6 +20,14 @@ pub type EntryDataLoadFn = unsafe extern "thiscall" fn(*mut c_void, *mut c_void)
 /// FUN_00410220: BaseExtraList::GetByType.
 pub type BaseExtraListGetByTypeFn = unsafe extern "thiscall" fn(*mut c_void, u8) -> *mut c_void;
 
+/// FUN_00421C60: stores an encounter zone in a BaseExtraList, or removes the
+/// typed ExtraEncounterZone when `zone` is NULL.
+pub type BaseExtraListSetEncounterZoneFn = unsafe extern "thiscall" fn(*mut c_void, *mut c_void);
+
+/// FUN_00567D20: resolves a reference's encounter zone through its reference,
+/// parent cell, and worldspace fallbacks.
+pub type EncounterZoneResolverFn = unsafe extern "thiscall" fn(*mut c_void) -> *mut c_void;
+
 /// FUN_00568680: checks whether a linked reference target has the terminal-like base type.
 pub type LinkedRefTargetTypeGateFn = unsafe extern "thiscall" fn(*mut c_void) -> u8;
 

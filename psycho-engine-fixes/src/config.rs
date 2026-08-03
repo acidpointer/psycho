@@ -1,6 +1,9 @@
-//! psycho configuration
+//! Core runtime configuration ownership.
 //!
-//! TOML-based runtime configuration.
+//! The early-loaded core parses the deployed TOML once and publishes immutable
+//! settings to feature installers. Missing keys use documented defaults; the
+//! optional helper edits the same schema only for the next launch and never
+//! mutates this process-local configuration.
 
 use std::{path::Path, sync::OnceLock};
 
@@ -318,6 +321,8 @@ pub struct EngineFixesConfig {
     pub actor_container_retirement_guard: bool,
     /// Scrub invalid ExtraOwnership.owner pointers to NULL.
     pub extraownership_invalid_owner_guard: bool,
+    /// Reject invalid ExtraEncounterZone forms and preserve native fallbacks.
+    pub encounter_zone_invalid_form_guard: bool,
     /// Ignore stale linked-reference child lists during save-to-save cleanup.
     pub linked_ref_children_stale_list_guard: bool,
     /// Treat linked-reference targets with invalid base forms as not matching the type gate.
@@ -356,6 +361,7 @@ impl Default for EngineFixesConfig {
             entrydata_invalid_form_guard: true,
             actor_container_retirement_guard: true,
             extraownership_invalid_owner_guard: true,
+            encounter_zone_invalid_form_guard: true,
             linked_ref_children_stale_list_guard: true,
             linked_ref_target_base_form_guard: true,
             ragdoll_null_bone_guard: true,
@@ -406,6 +412,9 @@ impl EngineFixesConfig {
             extraownership_invalid_owner_guard: raw
                 .extraownership_invalid_owner_guard
                 .unwrap_or(default.extraownership_invalid_owner_guard),
+            encounter_zone_invalid_form_guard: raw
+                .encounter_zone_invalid_form_guard
+                .unwrap_or(default.encounter_zone_invalid_form_guard),
             linked_ref_children_stale_list_guard: raw
                 .linked_ref_children_stale_list_guard
                 .unwrap_or(default.linked_ref_children_stale_list_guard),
@@ -542,6 +551,7 @@ struct RawEngineFixesConfig {
     entrydata_invalid_form_guard: Option<bool>,
     actor_container_retirement_guard: Option<bool>,
     extraownership_invalid_owner_guard: Option<bool>,
+    encounter_zone_invalid_form_guard: Option<bool>,
     linked_ref_children_stale_list_guard: Option<bool>,
     linked_ref_target_base_form_guard: Option<bool>,
     ragdoll_null_bone_guard: Option<bool>,
@@ -692,6 +702,21 @@ actor_container_retirement_guard = false
 
         assert!(default.engine_fixes.actor_container_retirement_guard);
         assert!(!disabled.engine_fixes.actor_container_retirement_guard);
+    }
+
+    #[test]
+    fn encounter_zone_guard_defaults_on_and_honors_explicit_disable() {
+        let default: PsychoConfig = toml::from_str("").expect("parse default configuration");
+        let disabled: PsychoConfig = toml::from_str(
+            r#"
+[engine_fixes]
+encounter_zone_invalid_form_guard = false
+"#,
+        )
+        .expect("parse encounter-zone setting");
+
+        assert!(default.engine_fixes.encounter_zone_invalid_form_guard);
+        assert!(!disabled.engine_fixes.encounter_zone_invalid_form_guard);
     }
 
     #[test]

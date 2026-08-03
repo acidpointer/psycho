@@ -17,10 +17,10 @@ The control deck has five pages:
   purpose-built pressure timelines over the last 120 samples. The VAS timeline
   includes explicit watch and critical pressure bands; the commit timeline uses
   a padded scale because it has no honest universal failure threshold.
-- **Runtime Fixes** identifies active patch families, including the dynamic
-  actor-container retirement guard, and exposes cumulative save/task
-  exceptions, rare native IO fallbacks, current LOD ownership, and the bounded
-  native-IO scheduling policy.
+- **Runtime Fixes** identifies active patch families, including dynamic actor
+  retirement and encounter-zone form containment, and exposes cumulative
+  save/form/task exceptions, rare native IO fallbacks, current LOD ownership,
+  and the bounded native-IO scheduling policy.
 - **Configuration** edits the complete supported Psycho TOML surface. Saving is
   explicitly labelled **Save for next launch**; it never changes live core
   state.
@@ -41,12 +41,13 @@ Dear ImGui's normal tooltip delay, then opens a wrapped, width-limited
 plain-language explanation. The delay prevents popups from flashing while the
 pointer merely crosses the dashboard.
 
-Every one of the 18 `[engine_fixes]` controls has focused hover documentation
+Every one of the 21 `[engine_fixes]` controls has focused hover documentation
 that answers three gamer-facing questions: what broken situation it handles,
 what the enabled fix does, and whether normal valid behavior is preserved. The
-same explanation is reused where that fix appears on the Runtime Fixes page,
-so saved configuration and installed runtime state do not describe one feature
-in conflicting language.
+20 engine-safety controls share one ordered help catalog; borderless windowed
+has its own display-mode help. The same explanation is reused where a fix
+appears on the Runtime Fixes page, so saved configuration and installed runtime
+state do not describe one feature in conflicting language.
 
 All other supported configuration controls also explain their practical
 effect and tradeoff, including allocator modes, the experimental PDD purge,
@@ -166,8 +167,8 @@ Evidence:
 
 ## Core/helper diagnostics ABI
 
-`PsychoEngineFixes_QueryDashboard` is export ordinal 5. ABI version 2 is a
-536-byte `repr(C)` caller-owned structure made only of fixed-width integers.
+`PsychoEngineFixes_QueryDashboard` is export ordinal 5. ABI version 3 is a
+560-byte `repr(C)` caller-owned structure made only of fixed-width integers.
 Both DLLs have a compile-time size assertion. The request begins with
 `struct_size` and `abi_version`; the core reads only that mandatory prefix,
 rejects an undersized or mismatched request, fills a local snapshot, and then
@@ -184,18 +185,24 @@ The snapshot groups are:
 - pool, metadata, block, direct-VA, and scrap-heap live/capacity values;
 - allocator fallback/failure counts;
 - save-integrity and queued-task lifetime counters;
+- encounter-zone changed-form/runtime rejections and exact source repairs;
 - active native IO fallbacks and LOD ownership counters, plus reserved routine
   IO/LOD activity fields that remain zero for ABI compatibility;
 - eight reserved SpeedTree materialization/Compute activity, contention,
-  waiter, and maximum-wait fields. They remain zero for ABI version 2
+  waiter, and maximum-wait fields. They remain zero for ABI version 3
   compatibility after release hot-path sampling was removed;
 - process/VAS sample timestamps plus fast-query and explicit-VAS-refresh
   counts and last/maximum durations.
 
 `PsychoEngineFixes_RequestDashboardRefresh` is export ordinal 6. It accepts a
-fixed refresh kind and runs on the helper's sampling worker. Version 2 requires
+fixed refresh kind and runs on the helper's sampling worker. Version 3 requires
 both exports, preventing a new helper from silently applying old periodic
 sampling behavior to an older core.
+
+Version 3 preserves the complete 536-byte version-2 prefix and appends three
+`u64` encounter-zone counters. Both sides still require the exact advertised
+version and complete storage, so mismatched helper/core DLLs fail unavailable
+instead of interpreting a shorter structure.
 
 Active engine counters are cumulative and read-only. The Runtime Fixes page no
 longer presents the reserved routine LOD, cell, or SpeedTree fields as activity
@@ -342,14 +349,21 @@ only next-launch core activation. The Runtime Fixes page separately reads bit
 8 from the core's `active_features` field, so the UI distinguishes a saved
 preference from a hook that actually installed. The helper does not install,
 load, or initialize the guard. This additive feature bit does not change the
-version-2 structure layout or ownership contract.
+position it held in the version-2 prefix or the ownership contract.
 
 The **Model postprocess serialization** checkbox owns
 `[engine_fixes].model_postprocess_serialization_fix`. It defaults on and
 changes only next-launch core activation. Runtime Fixes reads additive bit 9
-from `active_features`; no version-2 structure field or helper ownership rule
+from `active_features`; no existing structure field or helper ownership rule
 changes. The helper only displays and edits the contract and never installs or
 initializes the core guard.
+
+The **Encounter-zone form guard** checkbox owns
+`[engine_fixes].encounter_zone_invalid_form_guard`. It defaults on and changes
+only next-launch core activation. Runtime Fixes reads additive bit 10 to prove
+the shared resolver hook installed, then displays version-3 counters for
+changed-form rejections, runtime rejections, and exact source repairs. The
+helper never resolves or mutates a game form and never initializes the core.
 
 ## Failure behavior and compatibility boundary
 
@@ -384,11 +398,11 @@ Automated coverage includes:
 - complete-line incremental log-tail parsing across reads;
 - contiguous-VAS health classification;
 - structured log parsing, compact context extraction, and five-level filtering;
-- the complete 18-entry engine-fix help catalog, including unique labels,
+- the complete 20-entry engine-fix help catalog, including unique labels,
   concise length bounds, and ASCII font safety;
 - config dirty-state tracking;
-- actor-container guard default/disable parsing and comment-preserving
-  serialization;
+- actor-container and encounter-zone guard default/disable parsing and
+  comment-preserving serialization;
 - exact legacy-key fallback ordering and integer multiplier parsing;
 - leading, inline, and unknown-key comment/data preservation.
 
@@ -396,19 +410,25 @@ The supported checks are:
 
 ```bash
 cargo test --target i686-pc-windows-gnu -p psycho-engine-fixes-helper
-cargo test --target i686-pc-windows-gnu -p psycho-engine-fixes
+cargo test --target i686-pc-windows-gnu -p psycho-engine-fixes --lib
 cargo build --release --target i686-pc-windows-gnu \
   -p psycho-engine-fixes -p psycho-engine-fixes-helper
 ```
 
-Validation recorded on 2026-07-27:
+Validation recorded on 2026-08-03:
 
 - `cargo test --target i686-pc-windows-gnu -p
   psycho-engine-fixes-helper`: 14 passed, 0 failed;
-- `cargo test --target i686-pc-windows-gnu -p psycho-imgui --lib`: passed
-  with no unit tests;
+- `cargo test --target i686-pc-windows-gnu -p psycho-engine-fixes --lib`: 134
+  passed, 0 failed;
 - the affected release build for `psycho-engine-fixes` and
   `psycho-engine-fixes-helper` passed;
+- the helper/core ABI tests prove a 560-byte layout and the complete 536-byte
+  version-2 prefix on both sides;
+- deployed ABI-v3 helper and core hashes matched the release artifacts, xNVSE
+  loaded the helper, and the final captured-cell guard passed the affected live
+  load; the logs do not independently prove visual presentation of every new
+  dashboard row;
 - native-fullscreen and windowed input behavior still requires the runtime
   matrix below.
 

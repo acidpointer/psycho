@@ -49,6 +49,21 @@ pub static LINKED_REF_TARGET_TYPE_GATE_HOOK: LazyLock<
     InlineHookContainer<LinkedRefTargetTypeGateFn>,
 > = LazyLock::new(InlineHookContainer::new);
 
+// ---- ExtraEncounterZone invalid form guard ----
+
+/// Relative call in the ExtraEncounterZone load case that resolves the saved
+/// FormID before vanilla performs its BGSEncounterZone RTTI cast.
+pub const EXTRA_ENCOUNTER_ZONE_LOAD_RESOLVE_CALL_ADDR: usize = 0x00429F24;
+/// Native BaseExtraList setter whose NULL path removes ExtraEncounterZone.
+pub const BASE_EXTRA_LIST_SET_ENCOUNTER_ZONE_ADDR: usize = 0x00421C60;
+/// Shared TESObjectREFR encounter-zone resolver used by all nine consumers.
+pub const ENCOUNTER_ZONE_RESOLVER_ADDR: usize = 0x00567D20;
+
+/// Entry hook that validates reference, cell, and worldspace encounter zones
+/// before any consumer treats a non-NULL result as BGSEncounterZone.
+pub static ENCOUNTER_ZONE_RESOLVER_HOOK: LazyLock<InlineHookContainer<EncounterZoneResolverFn>> =
+    LazyLock::new(InlineHookContainer::new);
+
 // ---- bhkRagdollController not-ready bone table guard ----
 
 pub const RAGDOLL_ALTERNATE_UPDATE_ADDR: usize = 0x00C7D630;

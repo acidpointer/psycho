@@ -2,6 +2,9 @@
 //!
 //! The xNVSE helper owns command registration. The core owns command behavior
 //! and returns text through a caller-owned buffer so no allocation crosses DLLs.
+//! Dashboard queries likewise use an exact-version, fixed-width snapshot. ABI
+//! revisions preserve published prefixes, while exact version and size checks
+//! make mixed helper/core installations fail unavailable.
 
 use std::{
     mem::size_of,
@@ -77,7 +80,8 @@ pub struct CommandOutput {
     pub flags: u32,
 }
 
-pub const DASHBOARD_ABI_VERSION: u32 = 2;
+/// Exact dashboard structure revision shared with the late-bound helper.
+pub const DASHBOARD_ABI_VERSION: u32 = 3;
 
 pub const DASHBOARD_FLAG_CORE_READY: u32 = 1 << 0;
 pub const DASHBOARD_FLAG_PRE_CRT_BOUNDARY: u32 = 1 << 1;
@@ -177,9 +181,15 @@ pub struct DashboardSnapshot {
     pub dashboard_vas_refreshes: u64,
     pub dashboard_vas_refresh_last_us: u64,
     pub dashboard_vas_refresh_max_us: u64,
+    /// Invalid encounter-zone forms rejected before changed-form RTTI.
+    pub encounter_zone_load_rejections: u64,
+    /// Invalid encounter-zone results rejected by the shared resolver hook.
+    pub encounter_zone_access_rejections: u64,
+    /// Exact encounter-zone sources removed or cleared at runtime.
+    pub encounter_zone_repairs: u64,
 }
 
-const _: () = assert!(size_of::<DashboardSnapshot>() == 536);
+const _: () = assert!(size_of::<DashboardSnapshot>() == 560);
 
 impl Default for DashboardSnapshot {
     fn default() -> Self {
@@ -253,6 +263,9 @@ impl Default for DashboardSnapshot {
             dashboard_vas_refreshes: 0,
             dashboard_vas_refresh_last_us: 0,
             dashboard_vas_refresh_max_us: 0,
+            encounter_zone_load_rejections: 0,
+            encounter_zone_access_rejections: 0,
+            encounter_zone_repairs: 0,
         }
     }
 }
@@ -359,6 +372,9 @@ pub unsafe extern "system" fn PsychoEngineFixes_QueryDashboard(
         dashboard_vas_refreshes: DASHBOARD_VAS_REFRESH_COUNT.load(Ordering::Relaxed),
         dashboard_vas_refresh_last_us: DASHBOARD_VAS_REFRESH_LAST_US.load(Ordering::Relaxed),
         dashboard_vas_refresh_max_us: DASHBOARD_VAS_REFRESH_MAX_US.load(Ordering::Relaxed),
+        encounter_zone_load_rejections: engine.encounter_zone_load_rejections,
+        encounter_zone_access_rejections: engine.encounter_zone_access_rejections,
+        encounter_zone_repairs: engine.encounter_zone_repairs,
         ..DashboardSnapshot::default()
     };
 
@@ -458,7 +474,7 @@ mod tests {
     use super::{
         DASHBOARD_ABI_VERSION, DashboardHeader, DashboardSnapshot, dashboard_header_supported,
     };
-    use std::mem::size_of;
+    use std::mem::{offset_of, size_of};
 
     #[test]
     fn dashboard_abi_requires_matching_version_and_complete_storage() {
@@ -479,6 +495,11 @@ mod tests {
         assert_eq!(
             snapshot.struct_size as usize,
             size_of::<DashboardSnapshot>()
+        );
+        assert_eq!(
+            offset_of!(DashboardSnapshot, encounter_zone_load_rejections),
+            536,
+            "version 3 must preserve the complete version-2 prefix"
         );
     }
 }

@@ -27,7 +27,7 @@ pub(crate) const EVENT_PRE_LOAD_GAME: u32 = 7;
 pub(crate) const EVENT_EXIT_TO_MAIN_MENU: u32 = 8;
 pub(crate) const EVENT_NEW_GAME: u32 = 9;
 
-pub(crate) const DASHBOARD_ABI_VERSION: u32 = 2;
+pub(crate) const DASHBOARD_ABI_VERSION: u32 = 3;
 pub(crate) const DASHBOARD_FLAG_CORE_READY: u32 = 1 << 0;
 pub(crate) const DASHBOARD_FLAG_PRE_CRT_BOUNDARY: u32 = 1 << 1;
 pub(crate) const DASHBOARD_FLAG_VAS_VALID: u32 = 1 << 2;
@@ -46,6 +46,8 @@ pub(crate) const DASHBOARD_FEATURE_VERTEX_BUFFERS: u64 = 1 << 7;
 pub(crate) const DASHBOARD_FEATURE_ACTOR_CONTAINER_GUARD: u64 = 1 << 8;
 /// Core feature bit for installed model postprocess serialization.
 pub(crate) const DASHBOARD_FEATURE_MODEL_POSTPROCESS: u64 = 1 << 9;
+/// Core feature bit for installed shared encounter-zone containment.
+pub(crate) const DASHBOARD_FEATURE_ENCOUNTER_ZONE_GUARD: u64 = 1 << 10;
 
 type NotifyEventFn =
     unsafe extern "system" fn(kind: u32, data: *const u8, data_len: usize, bool_value: i32) -> i32;
@@ -56,7 +58,7 @@ static NOTIFY_EVENT: AtomicUsize = AtomicUsize::new(0);
 static QUERY_DASHBOARD: AtomicUsize = AtomicUsize::new(0);
 static REQUEST_DASHBOARD_REFRESH: AtomicUsize = AtomicUsize::new(0);
 
-/// Exact mirror of the core's version-2 plain-data dashboard ABI.
+/// Exact mirror of the core's version-3 plain-data dashboard ABI.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
 pub(crate) struct DashboardSnapshot {
@@ -129,9 +131,15 @@ pub(crate) struct DashboardSnapshot {
     pub dashboard_vas_refreshes: u64,
     pub dashboard_vas_refresh_last_us: u64,
     pub dashboard_vas_refresh_max_us: u64,
+    /// Invalid encounter-zone forms rejected before changed-form RTTI.
+    pub encounter_zone_load_rejections: u64,
+    /// Invalid encounter-zone results rejected by the shared resolver hook.
+    pub encounter_zone_access_rejections: u64,
+    /// Exact encounter-zone sources removed or cleared at runtime.
+    pub encounter_zone_repairs: u64,
 }
 
-const _: () = assert!(size_of::<DashboardSnapshot>() == 536);
+const _: () = assert!(size_of::<DashboardSnapshot>() == 560);
 
 impl DashboardSnapshot {
     fn request() -> Self {
@@ -219,12 +227,17 @@ fn resolve_cached(cache: &AtomicUsize, export_name: &str) -> Option<usize> {
 #[cfg(test)]
 mod tests {
     use super::{DASHBOARD_ABI_VERSION, DashboardSnapshot};
-    use std::mem::size_of;
+    use std::mem::{offset_of, size_of};
 
     #[test]
     fn dashboard_request_advertises_exact_storage() {
         let request = DashboardSnapshot::request();
         assert_eq!(request.abi_version, DASHBOARD_ABI_VERSION);
         assert_eq!(request.struct_size as usize, size_of::<DashboardSnapshot>());
+        assert_eq!(
+            offset_of!(DashboardSnapshot, encounter_zone_load_rejections),
+            536,
+            "helper version 3 must mirror the core's version-2 prefix"
+        );
     }
 }

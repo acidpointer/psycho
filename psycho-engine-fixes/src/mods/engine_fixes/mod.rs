@@ -12,6 +12,7 @@ use crate::config::{DiagnosticsConfig, EngineFixesConfig, IoConfig, LodConfig};
 
 mod actor_container_guard;
 mod display;
+mod encounter_zone;
 mod entrydata;
 mod extraownership;
 mod havok;
@@ -54,6 +55,8 @@ pub(crate) const DASHBOARD_FEATURE_VERTEX_BUFFERS: u64 = 1 << 7;
 pub(crate) const DASHBOARD_FEATURE_ACTOR_CONTAINER_GUARD: u64 = 1 << 8;
 /// Dashboard bit proving that model postprocess serialization installed.
 pub(crate) const DASHBOARD_FEATURE_MODEL_POSTPROCESS: u64 = 1 << 9;
+/// Dashboard bit proving that shared encounter-zone containment installed.
+pub(crate) const DASHBOARD_FEATURE_ENCOUNTER_ZONE_GUARD: u64 = 1 << 10;
 
 #[derive(Clone, Copy, Default)]
 pub(crate) struct DashboardCounters {
@@ -62,6 +65,12 @@ pub(crate) struct DashboardCounters {
     pub save_commits: u64,
     pub save_aborts: u64,
     pub save_rejections: u64,
+    /// Invalid encounter-zone forms rejected at the changed-form load call.
+    pub encounter_zone_load_rejections: u64,
+    /// Invalid encounter-zone results rejected by the shared runtime resolver.
+    pub encounter_zone_access_rejections: u64,
+    /// Exact invalid encounter-zone sources removed or cleared at runtime.
+    pub encounter_zone_repairs: u64,
     pub task_dispatches: u64,
     pub task_rejections: u64,
     pub task_release_guards: u64,
@@ -97,6 +106,7 @@ pub(crate) fn dashboard_counters() -> DashboardCounters {
     let task = queued_tasks::diagnostic_snapshot();
     let io = io::diagnostic_snapshot();
     let lod = lod::dashboard_snapshot();
+    let encounter_zone = encounter_zone::dashboard_snapshot();
 
     let mut active_features = 0;
     if display.create_window_installed || display.installed {
@@ -135,6 +145,9 @@ pub(crate) fn dashboard_counters() -> DashboardCounters {
     if model_postprocess::is_ready() {
         active_features |= DASHBOARD_FEATURE_MODEL_POSTPROCESS;
     }
+    if encounter_zone.installed {
+        active_features |= DASHBOARD_FEATURE_ENCOUNTER_ZONE_GUARD;
+    }
 
     DashboardCounters {
         active_features,
@@ -147,6 +160,9 @@ pub(crate) fn dashboard_counters() -> DashboardCounters {
             .saturating_add(u64::from(save.state_mutations))
             .saturating_add(u64::from(save.load_rejections))
             .saturating_add(u64::from(save.unresolved_records)),
+        encounter_zone_load_rejections: encounter_zone.load_rejections,
+        encounter_zone_access_rejections: encounter_zone.access_rejections,
+        encounter_zone_repairs: encounter_zone.repairs,
         task_dispatches: task.dispatch_calls,
         task_rejections: task
             .pin_failures
@@ -219,6 +235,7 @@ pub fn install(
     install_navmesh_low_pointer(config)?;
     install_entrydata_invalid_form(config)?;
     install_extraownership_invalid_owner(config)?;
+    install_encounter_zone_invalid_form(config)?;
     install_linked_ref_children_stale_list(config)?;
     install_linked_ref_target_base_form(config)?;
     install_ragdoll_null_bone(config)?;
@@ -1016,6 +1033,17 @@ fn install_extraownership_invalid_owner(config: &EngineFixesConfig) -> anyhow::R
     statics::BASE_EXTRA_LIST_GET_BY_TYPE_HOOK.enable()?;
     extraownership::install_load_hook()?;
     log::info!("[EXTRAOWNERSHIP] Invalid owner guard active");
+    Ok(())
+}
+
+fn install_encounter_zone_invalid_form(config: &EngineFixesConfig) -> anyhow::Result<()> {
+    if !config.encounter_zone_invalid_form_guard {
+        log::info!("[ENCOUNTER_ZONE] Invalid form guard disabled by config");
+        return Ok(());
+    }
+
+    encounter_zone::install()?;
+    log::info!("[ENCOUNTER_ZONE] Invalid form guard active");
     Ok(())
 }
 

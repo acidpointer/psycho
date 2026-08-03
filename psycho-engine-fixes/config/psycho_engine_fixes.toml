@@ -173,6 +173,12 @@ actor_container_retirement_guard = true
 # ExtraOwnership owner pointer is converted to "no owner."
 extraownership_invalid_owner_guard = true
 
+# Prevents reference, cell, or worldspace encounter-zone data from being used
+# as a BGSEncounterZone when it contains an unresolved FormID or another
+# invalid pointer. Psycho removes only the exact rejected source and retries
+# the native reference -> cell -> worldspace precedence before returning NULL.
+encounter_zone_invalid_form_guard = true
+
 # Prevents a save-to-save transition crash when a deleted or unloading
 # reference retains a stale linked-reference child list. Only that corrupt list
 # is ignored during cleanup.

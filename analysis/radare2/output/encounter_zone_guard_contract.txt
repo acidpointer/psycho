@@ -1,0 +1,148 @@
+Encounter-zone invalid form contract audit
+==========================================
+
+Audit date: 2026-08-03
+Primary tool: radare2 MCP, analysis level 2
+Binary: fnv_reverse/FalloutNV.exe
+Format: PE32 x86, fixed image base 0x00400000, no relocation table
+SHA-256: 42fee7d6cd74e801372aa89c8f71c974cebd3c20ec9ad43d1465b8fa9646b49c
+
+Problem evidence
+----------------
+
+.reports/CrashLogger--menu-crash.log faults at 0x00567ECC while EAX and ECX
+are 0x00035AAA. The instruction reads a 16-bit BGSEncounterZone field from
+[EAX+0x2C], producing the attempted address 0x00035AD6. The value is non-NULL,
+unaligned, and not an object address.
+
+.reports/psycho-engine-fixes-latest--menu-crash.log records other small or
+FormID-shaped invalid form references. That corroborates a stale/unresolved
+form-reference producer class but does not prove the writer of this slot.
+
+Native resolver and source ownership
+------------------------------------
+
+FUN_00567D20 is a pure priority lookup with no stores:
+
+1. TESObjectREFR BaseExtraList at owner+0x44, through FUN_00421C30.
+2. TESObjectCELL BaseExtraList at cell+0x28, through FUN_00546C20.
+3. TESWorldSpace encounter-zone pointer at worldspace+0xD0. FUN_00575D70
+   reads owner+0x40, returns NULL for no cell, and otherwise resolves the
+   exterior worldspace through the cell. Its chain reads cell+0x24 and, for
+   an exterior, cell+0xC0.
+
+FUN_00421C30 requests extra type 0x74 and returns ExtraEncounterZone+0x0C.
+The returned non-NULL object contract is BGSEncounterZone, TESForm type 0x61.
+The supported executable's primary BGSEncounterZone vtable is 0x0102CBBC;
+vtable slots +0x88, +0x108, and +0x10C resolve to 0x00525F00, 0x00525FA0,
+and 0x00526000 respectively.
+
+FUN_004839C0 is the engine's global FormID lookup. Comparing its result for
+TESForm.refID at +0x0C with the candidate pointer establishes current native
+registry identity. It is an identity check, not a lifetime pin against a
+future out-of-contract concurrent destruction.
+
+Direct consumer NULL audit
+--------------------------
+
+FUN_00567D20 has exactly nine direct call sites in this executable:
+
+- 0x0054CACE: NULL may install the cell/default zone through 0x00567DD0.
+- 0x0054E235: NULL takes the accepted/continue branch at 0x0054E25F.
+- 0x00567848: NULL skips zone use and can fall back through the parent cell.
+- 0x00567A50: NULL skips zone use and can fall back through the parent cell.
+- 0x00567E23: NULL reaches the global level fallback at 0x0087F9F0.
+- 0x00881CD6: NULL sets the predicate result true.
+- 0x0096EF20: NULL skips the flag read at 0x00526320.
+- 0x0099F108: NULL is replaced by NoZoneZone through 0x00546A90.
+- 0x0099F116: NULL is replaced by NoZoneZone through 0x00546A90.
+
+No direct consumer dereferences NULL. Therefore NULL is the native optional
+representation at the shared boundary; a consumer-only guard would leave the
+bad source available to the other eight call sites.
+
+Load and save propagation
+-------------------------
+
+There are two distinct type-0x74 load paths:
+
+- Master/plugin ExtraData load resolves at 0x00417D4C, performs RTTI at
+  0x00417D57, stores at 0x00417D65, and removes the extra after NULL at
+  0x00417D97.
+- Changed-form load resolves at call site 0x00429F24, performs RTTI at
+  0x00429F2F, and stores at 0x00429F3D. It retains a type-0x74 extra whose
+  value is NULL. It does not use the master/plugin removal branch.
+
+The changed-form serializer passes ExtraEncounterZone+0x0C to FUN_00865DF0.
+That serializer tests NULL at 0x00865DF9 and writes FormID zero without an
+object dereference. Consequently, returning NULL before changed-form RTTI is
+safe even though that reader retains the empty extra. Runtime resolution also
+treats the NULL payload as an absent reference and continues to lower sources.
+
+Repair and synchronization contract
+-----------------------------------
+
+FUN_00421C60 is the canonical BaseExtraList encounter-zone setter. With a
+non-NULL argument it updates or creates type 0x74. With NULL it calls
+FUN_00410140 to remove and destroy type 0x74. Removing through this setter is
+preferable to retaining a zero-valued extra after runtime corruption.
+
+BaseExtraList operations serialize through the reentrant engine lock object
+at 0x011C3920. FUN_0040FBF0 acquires it (ECX=lock, one stack diagnostic label,
+RET 4); FUN_0040FBA0 releases it. Holding that lock around GetByType, exact
+pointer equality, and FUN_00421C60 closes the conforming-writer race between
+the proof and removal. The nested native acquisitions are valid because the
+lock is explicitly reentrant.
+
+FUN_00584BC0, the native worldspace encounter-zone setter, is only a direct
+store to worldspace+0xD0. Clearing that exact field after readable/writable
+checks with an expected-pointer compare-exchange preserves native semantics
+without overwriting a concurrent legitimate replacement.
+
+The repair path must not call FUN_00575D70 after validating an earlier cell
+snapshot: that helper re-reads owner+0x40 before traversing cell+0x24/+0xC0.
+Instead it must derive the worldspace from the same captured, fully readable
+cell used for source tracing. NULL or incomplete captured cells stop repair.
+
+Safe intervention
+-----------------
+
+The shared resolver entry at 0x00567D20 is the only boundary covering all
+nine consumers. After removing an exact invalid higher-priority source, the
+original pure resolver must run again so a valid cell or worldspace fallback
+is not hidden. There are exactly three source levels, so three resolution and
+repair attempts are a strict upper bound. If exact repair cannot be proven,
+returning NULL is safer than traversing speculative storage.
+
+The changed-form call at 0x00429F24 is a useful defense before RTTI. Its own
+CALL displacement may be chained, but the surrounding bytes identify the
+supported reader and ABI:
+
+  0x00429F1B: 8B 4D 08 E8 7D A9 43 00 50
+  0x00429F24: E8 <chainable rel32>
+  0x00429F29: 83 C4 04 6A 00 50 E8 C7 A4 A9 00 83 C4 14
+              8B 95 3C FE FF FF 89 42 0C
+
+Evidence classification
+-----------------------
+
+Proven: fault instruction/value; resolver source order and purity; layouts and
+addresses above; all nine NULL branches; distinct master and changed-form
+NULL behavior; NULL-safe serialization; native remove/setter and lock ABI;
+fixed executable vtable and FormID registry lookup.
+
+Inference: 0x00035AAA is probably an unresolved FormID rather than arbitrary
+memory damage; the original writer belongs to a broader stale/unresolved form
+reference producer class. Neither claim identifies a responsible plugin.
+
+Runtime observed on 2026-08-03: the first implementation rejected unaligned
+0x06035ABB, reported worldspace-cleared, reached Game engine ready, and produced
+no CrashLogger exception. Its same-line cell=0 observation exposed a mutable
+owner+0x40 handoff between capture and FUN_00575D70, leading to the final
+captured-cell/compare-exchange hardening. Final-build repetition and subsequent
+save/reload behavior were exercised in a second 2026-08-03 run: the first 16
+detailed rejections all captured cell=NULL and failed closed as
+source-not-recovered, with no worldspace mutation claim. The game reached ready,
+completed multiple saves and reload activity, continued for more than ten
+minutes, and the user confirmed an intentional clean exit. Exact-source repair
+revealing a different valid lower fallback was not observed in that run.
