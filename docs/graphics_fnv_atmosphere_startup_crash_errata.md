@@ -147,3 +147,33 @@ corrected DLL SHA-256 is
 Symbol inspection places `DRAW_CACHE_VERSION`, `DRAW_CACHE_GEOMETRY`,
 `DRAW_CACHE_COUNT`, `DRAW_CACHE_IDENTITIES`, and `DRAW_CACHE_COMPONENTS` in
 `.bss`; the removed `TerrainLightDrawCache` TLS symbol is absent.
+
+## 2026-08-03 CPU-only PBR prewarm boundary
+
+Native PBR preparation now begins earlier when the settings staged by
+`NVSEPlugin_Load` enable it. This is a deliberately narrower startup operation
+than the world-owner and TLS regressions above:
+
+- `startup::initialize_for_nvse` first stores the complete
+  `DeferredHookSettings` handoff, then calls
+  `pbr::start_cpu_preparation(native_pbr)`;
+- the public PBR boundary only tests the immutable enabled bit and enters the
+  process-owned compiler module;
+- that module may read embedded source, inventory the reconstructible shader
+  cache, load `D3DCompile`, allocate worker-owned memory, and compile bytecode;
+- it cannot inspect an engine object or D3D device, create a D3D shader, install
+  a hook, configure PBR runtime state, or touch `fnv_world_pipeline`.
+
+DeferredInit remains the first world-config publication and the only initial
+owner of PBR installation, engine contracts, and graphics hooks. Present
+remains the D3D-resource creation owner. A source-order regression rejects an
+early `fnv_world_pipeline::publish_config` or `pbr::install` call and requires
+the settings handoff to precede CPU prewarm.
+
+Static tests prove the source boundary but cannot prove compatibility with the
+known load-time external allocator/timing sensitivity. Required runtime
+acceptance is a normal cold-cache load into gameplay. The log must show PBR
+inventory or compilation beginning before DeferredInit, followed by the
+unchanged DeferredInit world publication, hook installation, preparation
+completion, and live Present telemetry without the BaseObjectSwapper startup
+crash signature.

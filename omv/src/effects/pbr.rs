@@ -20,6 +20,12 @@
 //! device DP/DIP hooks detach and PBR device resources are released.
 //! Process-owned compiled bytecode and observed engine-wrapper identities
 //! remain cached for safe live re-enable.
+//!
+//! CPU-only bytecode preparation may begin during `NVSEPlugin_Load` after the
+//! enabled settings snapshot is staged. That early worker owns only embedded
+//! source, the reconstructible cache, and process memory. Engine inspection,
+//! hook installation, world publication, D3D resource creation, and PBR
+//! activation remain exclusively behind DeferredInit and Present.
 
 mod compiler;
 mod constants;
@@ -70,6 +76,11 @@ pub(crate) struct PbrDirectDrawScope {
     restore_after_draw: bool,
 }
 
+/// Immutable native-PBR settings staged from startup or the runtime menu.
+///
+/// The snapshot is `Copy` so startup can hand the same sanitized ownership to
+/// the CPU prewarm decision and the later DeferredInit installation without a
+/// shared configuration lock.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct NativePbrSettings {
     enabled: bool,
@@ -97,29 +108,50 @@ struct TerrainPbrProfileSettings {
     albedo_saturation: f32,
 }
 
+/// User-visible phase of native-PBR bytecode and device preparation.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum PbrPreparationPhase {
+    /// Native PBR is disabled and owns no active preparation transaction.
     Disabled,
+    /// The process compiler is grouping inputs and validating cache entries.
     Inventory,
+    /// Background workers are compiling missing unique inputs.
     Compiling,
+    /// Process bytecode is ready and D3D resources are being created.
     CreatingResources,
+    /// The complete logical catalog and current-device resources are ready.
     Ready,
+    /// Bytecode compilation, cache publication, or D3D creation failed.
     Failed,
 }
 
+/// Logical shader-catalog progress reported by OMV diagnostics.
+///
+/// Source-equivalent templates may share one compiler result internally, but
+/// these counts retain engine-visible logical identities so readiness matches
+/// the device resource catalog exactly.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct PbrPreparationStatus {
+    /// Current preparation lifecycle phase.
     pub(crate) phase: PbrPreparationPhase,
+    /// Total logical shader templates required by native PBR.
     pub(crate) total: usize,
+    /// Logical templates restored from memory or the verified disk cache.
     pub(crate) cache_hits: usize,
+    /// Logical templates whose compiler input was absent from the cache.
     pub(crate) cache_misses: usize,
+    /// Logical templates completed during the current compiler transaction.
     pub(crate) compiled: usize,
+    /// Logical templates with process-owned verified bytecode.
     pub(crate) bytecode_ready: usize,
+    /// Logical templates with current-device D3D shader resources.
     pub(crate) resources_ready: usize,
+    /// Logical templates whose preparation or creation failed.
     pub(crate) failed: usize,
 }
 
 impl PbrPreparationStatus {
+    /// Return whether preparation still has background or device work pending.
     pub(crate) fn active(self) -> bool {
         matches!(
             self.phase,
@@ -313,6 +345,7 @@ impl From<crate::config::NativePbrConfig> for NativePbrSettings {
 }
 
 impl NativePbrSettings {
+    /// Apply the OMV master-effects gate without mutating persisted settings.
     pub(crate) const fn with_master_enabled(mut self, master_enabled: bool) -> Self {
         self.enabled = self.enabled && master_enabled;
         self
@@ -339,6 +372,18 @@ impl TerrainPbrProfileSettings {
             sanitize_scale(self.ambient_scale, 1.0, 0.0, 4.0),
             sanitize_scale(self.albedo_saturation, 1.0, 0.0, 2.0),
         ]
+    }
+}
+
+/// Start CPU-only native-PBR preparation when the staged settings enable it.
+///
+/// This deliberately does not store runtime settings or mark PBR configured.
+/// It is safe during `NVSEPlugin_Load` because the compiler boundary cannot
+/// access the D3D device, hooks, engine objects, or focused world pipeline.
+/// [`install`] remains the sole DeferredInit owner of those transitions.
+pub(crate) fn start_cpu_preparation(settings: NativePbrSettings) {
+    if settings.enabled {
+        compiler::ensure_object_prewarm_started();
     }
 }
 

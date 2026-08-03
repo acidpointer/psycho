@@ -210,8 +210,62 @@ OMV releases contain PBR HLSL source and never contain generated `.cso` or
 `.pso` bytecode or a populated cache directory. The release packager rejects
 an archive that violates that rule.
 
-After native PBR activation, the named `omv-pbr-prepare` worker performs one
-explicit preparation transaction:
+After `NVSEPlugin_Load` has staged an enabled native-PBR settings snapshot, the
+named `omv-pbr-prepare` worker may begin one CPU-only preparation transaction.
+Starting there overlaps cache work with data loading, but does not configure or
+activate PBR. Engine inspection, hook installation, world publication, D3D
+resource creation, and replacement remain behind DeferredInit and Present.
+
+The transaction:
+
+1. constructs exact compiler-input groups from source bytes, shader target,
+   compiler flags, and PBR contract revision;
+2. inventories the canonical content-addressed cache entry for each group;
+3. accepts only entries whose envelope, source/contract hash, bytecode size,
+   checksum, shader stage, and terminal token validate;
+4. compiles only missing or invalid unique inputs;
+5. publishes one immutable bytecode allocation to every engine-visible logical
+   alias in the group; and
+6. retains the complete verified logical catalog in process memory.
+
+The current 162 logical PBR templates contain 132 exact compiler inputs. The 57
+close-terrain entries are one vertex input and 28 base/canopy pixel pairs, so
+they require only 29 cache reads or compiler calls. The alias is internal to
+preparation: each SLS identity keeps its own ready/failed state and current D3D
+resource slot. A group failure marks every logical alias failed, preserving the
+existing whole-catalog and close-terrain-family atomic activation gates.
+
+Compiler workers share a bounded queue. The automatic count is half the
+available logical CPUs, rounded up, clamped to `1..=8`, and capped by the unique
+miss count. This gives one worker on a two-thread system, two on four threads,
+four on eight, and eight on sixteen or more. The game therefore retains CPU
+headroom while Wine compiler implementations that permit parallel work can use
+it. A controlled sweep through the game's exact native `d3dcompiler_47.dll`
+compiled the same eight unique close-terrain inputs successfully at every
+tested count. Its wall times were 13.73, 13.65, 13.69, and 13.60 seconds for
+one, two, four, and eight workers respectively. That compiler effectively
+serializes this workload, so source deduplication and startup overlap are the
+proven native wins; higher worker count is not claimed as a native speedup.
+
+The canonical cache hash still includes source, shader target, compiler flags,
+cache format revision, representative logical identity, and PBR contract
+revision. A changed input therefore invalidates only its affected group. Cache
+publication writes a complete envelope to a unique temporary file, closes it,
+renames it atomically, reopens it, and verifies it before reporting success.
+The cache is reconstructible and self-validating, so it deliberately does not
+force a physical `sync_all` for every shader. A process or power interruption
+may lose the newest cache entry; it cannot make unchecked bytecode ready, and
+the next inventory removes or rebuilds invalid data. Stale variants are
+reclaimed by the bounded 64 MiB/48 MiB cache-maintenance policy instead of a
+directory scan after every compiler result.
+
+Aggregate logs distinguish logical and unique cache counts and report total,
+inventory, compile-phase, summed compiler-work, and summed cache-work
+milliseconds. Summed work counters may exceed wall time when a compiler truly
+runs calls concurrently. Detailed per-input messages remain debug-level.
+
+The previous transaction performed these operations independently for every
+logical template:
 
 1. inventory all expected content-addressed cache entries;
 2. accept only entries whose envelope, source/contract hash, bytecode size,
@@ -221,12 +275,12 @@ explicit preparation transaction:
    verify the committed entry;
 5. retain the complete verified bytecode catalog in process memory.
 
-The hash includes source, shader target, compiler flags, cache format revision,
-logical shader identity, and PBR contract revision. A changed input therefore
-invalidates only its affected logical entry. Invalid entries are removed and
-rebuilt. Compilation or strict cache persistence failure leaves native PBR
-passive and visible as a failed preparation; it is never silently treated as
-ready.
+Those steps explain the measured cold-cache cost: prior 162-entry sessions took
+201.105 and 276.489 seconds, while the 2026-08-03 56-entry close-terrain rebuild
+took 45.864 seconds. Removing 28 redundant close-terrain compiler calls is a
+deterministic 50-percent reduction for that affected family. Final wall time in
+the game still requires the normal cold-cache playtest because compiler and
+storage behavior vary by Wine prefix and machine.
 
 Device-owned shader handles are created from the process-owned bytecode at a
 budget of four per Present. Device loss discards only D3D handles. A reset
@@ -236,11 +290,11 @@ in-memory entries remain reusable. Detailed per-entry cache, compile, and
 resource messages are debug-level, while aggregate completion and failures
 remain visible.
 
-No render callback performs shader compilation or cache I/O. The Present
-service may start the worker and may create the bounded number of required D3D
-resources because D3D9 device ownership is render-thread-bound. Draw
-replacement is atomic at the whole prepared catalog boundary, including the
-mandatory close-terrain family boundary.
+No render callback performs shader compilation or cache I/O. Present retains a
+fallback start in case native PBR was enabled after startup and creates the
+bounded number of required D3D resources because D3D9 device ownership is
+render-thread-bound. Draw replacement remains atomic at the whole prepared
+catalog boundary, including the mandatory close-terrain family boundary.
 
 ### Effect applicability preflight
 
@@ -466,7 +520,17 @@ Static regression coverage establishes:
   shader-cache commit calls;
 - release packaging cannot include generated shader bytecode or cache files;
 - device reset preserves the process-owned PBR bytecode catalog, while
-  disabling PBR cancels unfinished preparation.
+  disabling PBR cancels unfinished preparation;
+- exact PBR compiler-input grouping covers every logical template once and
+  holds the reviewed 162-to-132 unique-input budget;
+- close-terrain grouping holds its reviewed 57-to-29 budget and shares one
+  immutable bytecode allocation across every base/canopy alias pair;
+- adaptive compiler workers reserve half the reported logical CPUs, never
+  exceed eight, and never exceed the number of unique misses;
+- cache publication retains atomic rename and strict readback verification
+  without a per-shader durable disk flush; and
+- early PBR preparation follows the deferred-settings handoff and cannot
+  publish world state or install graphics ownership from `NVSEPlugin_Load`.
 
 Required validation is:
 
@@ -497,6 +561,14 @@ pre-depth admission negative controls, exact-stage depth-cache identity,
 phase-graph ordering through dynamic rejection, Final Output transfer/memory
 budget, background shader-variant compilation, and the existing DOF/TAA image
 and bytecode budgets.
+
+The 2026-08-03 PBR preparation performance update passed all 450 OMV tests
+under Wine and built the optimized `i686-pc-windows-gnu` OMV release target.
+The suite includes every registered PBR variant, exact grouping and alias-state
+proofs, cache publication recovery, startup source-order ownership, adaptive
+worker bounds, and eight concurrent unique compiler inputs. A separate sweep
+through the game's native `d3dcompiler_47.dll` passed at one, two, four, and
+eight workers with the timings recorded above.
 
 The Depth Resolve AO playtest follow-up corrected the world-only composition
 target without changing shader parameters or adding a depth copy. AO now draws

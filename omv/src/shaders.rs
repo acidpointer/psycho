@@ -1,4 +1,13 @@
-//! Live screen-space shader loading and sidecar configuration.
+//! Live screen-space shader loading, compilation, and cache ownership.
+//!
+//! Shader bytecode caches are reconstructible performance data rather than
+//! durable user data. Writers publish a complete envelope through a temporary
+//! file and atomic rename, then reopen and validate the published bytes before
+//! reporting success. A process or power interruption may therefore discard a
+//! recent cache entry, but it cannot make unchecked bytecode ready: the next
+//! reader verifies the source hash, payload checksum, stage, size, and terminal
+//! token before accepting it. Avoiding a physical disk flush for every shader
+//! is important because PBR can prepare many independent entries concurrently.
 
 use std::{
     collections::HashMap,
@@ -45,13 +54,17 @@ static HLSL_CACHE_CLEANUP: Once = Once::new();
 static HLSL_CACHE_TEMP_ID: AtomicU32 = AtomicU32::new(0);
 static HLSL_CACHE_IO: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
 
+/// Origin of a verified HLSL bytecode payload.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum HlslCacheOrigin {
+    /// Restored from a content-addressed cache entry.
     Cache,
+    /// Produced by the local HLSL compiler in this process.
     Compiler,
 }
 
 impl HlslCacheOrigin {
+    /// Return the stable diagnostic label for this payload origin.
     pub(crate) const fn label(self) -> &'static str {
         match self {
             Self::Cache => "cache",
@@ -60,19 +73,33 @@ impl HlslCacheOrigin {
     }
 }
 
+/// Complete identity and diagnostic metadata for one HLSL cache entry.
+///
+/// Every field contributes to the content-addressed path. Source bytes are
+/// supplied separately so callers do not duplicate storage in this value.
 #[derive(Clone, Copy)]
 pub(crate) struct HlslCacheSpec<'a> {
+    /// Top-level cache owner, such as `native_pbr` or `embedded`.
     pub(crate) namespace: &'a str,
+    /// Optional shader family used to partition related entries.
     pub(crate) family: Option<&'a str>,
+    /// Stable logical identity included in the cache hash and file name.
     pub(crate) cache_label: &'a str,
+    /// Human-readable compiler diagnostic source name.
     pub(crate) source_name: &'a str,
+    /// D3D shader-model target passed to the HLSL compiler.
     pub(crate) target: &'a str,
+    /// File suffix distinguishing pixel and vertex shader artifacts.
     pub(crate) cache_tag: &'a str,
+    /// Owner-controlled revision for non-source compiler contracts.
     pub(crate) contract_revision: &'a [u8],
 }
 
+/// Verified HLSL bytecode and the path by which it was obtained.
 pub(crate) struct CachedHlsl {
+    /// Dword-aligned D3D shader tokens ending in the validated `END` token.
     pub(crate) bytecode: Vec<u32>,
+    /// Whether `bytecode` came from cache or the local compiler.
     pub(crate) origin: HlslCacheOrigin,
 }
 #[derive(Clone, Debug)]
@@ -2634,6 +2661,12 @@ fn compile_hlsl_bytes(source_name: &str, source: &[u8], target: &str) -> Result<
     compile_hlsl(source_name, source, target).map_err(Into::into)
 }
 
+/// Restore verified HLSL bytecode or compile and best-effort cache it locally.
+///
+/// This general screen-shader path may return valid compiler output if cache
+/// publication fails. Native PBR uses the lower-level strict transaction
+/// functions because its whole-catalog activation gate also requires every
+/// cache publication to succeed.
 pub(crate) fn load_or_compile_hlsl_cached(
     spec: HlslCacheSpec<'_>,
     source: &[u8],
@@ -2679,6 +2712,11 @@ pub(crate) fn load_or_compile_hlsl_cached(
     }
 }
 
+/// Load and strictly validate one content-addressed HLSL cache entry.
+///
+/// Invalid entries are removed so a background preparation owner can rebuild
+/// them. The global cache lock serializes publication and validation only;
+/// callers must never invoke this function from a render callback.
 pub(crate) fn load_cached_hlsl(spec: HlslCacheSpec<'_>, source: &[u8]) -> Result<Option<Vec<u32>>> {
     let hash = hlsl_cache_hash(spec, source);
     let (path, _) = hlsl_cache_path(spec, hash);
@@ -2707,6 +2745,10 @@ pub(crate) fn load_cached_hlsl(spec: HlslCacheSpec<'_>, source: &[u8]) -> Result
     }
 }
 
+/// Compile and validate HLSL without consulting or mutating the disk cache.
+///
+/// Compilation is CPU-only but potentially expensive. Production callers are
+/// required to run it from a named background preparation worker.
 pub(crate) fn compile_hlsl_uncached(
     source_name: &str,
     source: &[u8],
@@ -2717,6 +2759,13 @@ pub(crate) fn compile_hlsl_uncached(
     Ok(bytecode)
 }
 
+/// Atomically publish bytecode and return the independently verified payload.
+///
+/// The cache is reconstructible, so publication guarantees process-visible
+/// atomicity and validation rather than power-loss durability. A missing or
+/// incomplete entry after interruption is rejected and rebuilt on the next
+/// inventory. This avoids serializing cold-cache preparation on one physical
+/// disk flush per shader.
 pub(crate) fn commit_hlsl_cache(
     spec: HlslCacheSpec<'_>,
     source: &[u8],
@@ -2724,17 +2773,19 @@ pub(crate) fn commit_hlsl_cache(
 ) -> Result<Vec<u32>> {
     validate_shader_bytecode(&bytecode, spec.target)?;
     let hash = hlsl_cache_hash(spec, source);
-    let (path, prefix) = hlsl_cache_path(spec, hash);
+    let (path, _) = hlsl_cache_path(spec, hash);
     let _cache_io = HLSL_CACHE_IO.lock();
     publish_shader_cache(&path, bytecode, hash, spec.target)?;
     let persisted = fs::read(&path)
         .with_context(|| format!("failed to reopen shader cache {}", path.display()))?;
     let verified = decode_cached_hlsl(&persisted, spec.target, hash)
         .with_context(|| format!("failed to verify shader cache {}", path.display()))?;
-    cleanup_stale_shader_variants(&path, &prefix);
     Ok(verified)
 }
 
+/// Start the process-wide cache-budget cleanup worker at most once.
+///
+/// Cleanup owns only reconstructible files and never blocks a render callback.
 pub(crate) fn start_shader_cache_maintenance() {
     HLSL_CACHE_CLEANUP.call_once(|| {
         if let Err(err) = std::thread::Builder::new()
@@ -2910,8 +2961,10 @@ fn publish_shader_cache(
         .with_context(|| format!("failed to create shader cache {}", temporary.display()))?;
     file.write_all(&bytes)
         .with_context(|| format!("failed to write shader cache {}", temporary.display()))?;
-    file.sync_all()
-        .with_context(|| format!("failed to flush shader cache {}", temporary.display()))?;
+    // Do not call sync_all here. The envelope is disposable and self-validating,
+    // while a forced durable flush serializes every cold-cache compiler worker
+    // behind storage latency. Rename plus immediate readback proves the bytes
+    // visible to this process; interruption recovery is the next inventory.
     drop(file);
     if let Err(err) = fs::rename(&temporary, path) {
         if path.exists() {
@@ -2951,27 +3004,6 @@ fn encode_cached_hlsl(bytecode: &[u32], source_hash: u64) -> Result<Vec<u8>> {
     bytes.extend_from_slice(&0u32.to_le_bytes());
     bytes.extend_from_slice(&payload);
     Ok(bytes)
-}
-
-fn cleanup_stale_shader_variants(current: &Path, prefix: &str) {
-    let Some(parent) = current.parent() else {
-        return;
-    };
-    let Ok(entries) = fs::read_dir(parent) else {
-        return;
-    };
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if path == current || !path.is_file() {
-            continue;
-        }
-        let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
-            continue;
-        };
-        if name.starts_with(prefix) && name.ends_with(".cso") {
-            let _ = fs::remove_file(path);
-        }
-    }
 }
 
 fn cleanup_shader_cache_budget() {
@@ -3496,6 +3528,17 @@ mod shader_compile_tests {
                 .to_string_lossy()
                 .starts_with(&prefix)
         );
+    }
+
+    #[test]
+    fn reconstructible_cache_never_forces_one_durable_flush_per_shader() {
+        let production = include_str!("shaders.rs")
+            .split_once("#[cfg(test)]\nmod shader_compile_tests")
+            .map(|(production, _)| production)
+            .expect("shader production source");
+        assert!(!production.contains(".sync_all()"));
+        assert!(production.contains("fs::rename(&temporary, path)"));
+        assert!(production.contains("decode_cached_hlsl(&persisted"));
     }
 }
 

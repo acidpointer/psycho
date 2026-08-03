@@ -1,6 +1,8 @@
 //! xNVSE-owned graphics startup and DeferredInit hook publication.
 //!
-//! `NVSEPlugin_Load` performs configuration and worker preparation only.
+//! `NVSEPlugin_Load` performs configuration and process-owned worker
+//! preparation only. Native-PBR prewarm may read embedded source and its
+//! reconstructible cache there, but it cannot inspect the engine or D3D device.
 //! Device inspection, initial depth-producer selection, world-pipeline
 //! publication, and executable hook installation occur at `DeferredInit`,
 //! after data loading and outside render callbacks. Optional depth capability
@@ -80,6 +82,11 @@ fn begin_deferred_install(
     }
 }
 
+/// Stage configuration and process-owned workers during `NVSEPlugin_Load`.
+///
+/// This boundary must not inspect engine graphics objects, publish focused
+/// world state, or install hooks. [`install_deferred_hooks`] owns those later
+/// transitions after xNVSE reports `DeferredInit`.
 pub(crate) fn initialize_for_nvse() -> Result<()> {
     let cfg = crate::config::load_config();
 
@@ -140,14 +147,23 @@ pub(crate) fn initialize_for_nvse() -> Result<()> {
         native_sky,
         depth_provider,
     });
+    // Start only after the deferred settings handoff is complete. If the
+    // worker finishes immediately, DeferredInit can adopt its bytecode without
+    // changing the proven first-publication or hook-install ordering.
+    crate::effects::pbr::start_cpu_preparation(native_pbr);
 
     Ok(())
 }
 
+/// Record compatibility state after xNVSE completes normal plugin loading.
 pub(crate) fn observe_post_load() {
     log_compatibility_report(crate::compat::GraphicsCompatibility::detect());
 }
 
+/// Publish initial graphics ownership and install hooks at `DeferredInit`.
+///
+/// Installation is transactional and idempotent: a completed attempt latches
+/// success, while a partial failure releases the gate for a later retry.
 pub(crate) fn install_deferred_hooks() -> Result<()> {
     let Some(install_attempt) =
         begin_deferred_install(&DEFERRED_INSTALL_STATE).map_err(anyhow::Error::msg)?
@@ -249,6 +265,32 @@ mod deferred_install_tests {
             .complete();
         assert_eq!(state.load(Ordering::Acquire), DEFERRED_INSTALL_COMPLETE);
         assert!(begin_deferred_install(&state).expect("repeat").is_none());
+    }
+
+    #[test]
+    fn early_pbr_preparation_cannot_publish_or_install_graphics_state() {
+        let source = include_str!("startup.rs");
+        let initialize = source
+            .split_once("pub(crate) fn initialize_for_nvse()")
+            .and_then(|(_, tail)| tail.split_once("pub(crate) fn observe_post_load()"))
+            .map(|(body, _)| body)
+            .expect("NVSE initialization body");
+        let staged = initialize
+            .find("*DEFERRED_HOOK_SETTINGS.lock()")
+            .expect("deferred settings handoff");
+        let prewarm = initialize
+            .find("pbr::start_cpu_preparation(native_pbr)")
+            .expect("early PBR prewarm");
+        assert!(staged < prewarm);
+        assert!(!initialize.contains("fnv_world_pipeline::publish_config"));
+        assert!(!initialize.contains("pbr::install("));
+
+        let deferred = source
+            .split_once("fn install_deferred_hooks_once()")
+            .map(|(_, body)| body)
+            .expect("DeferredInit installation body");
+        assert!(deferred.contains("fnv_world_pipeline::publish_config(menu_config)"));
+        assert!(deferred.contains("pbr::install(settings.native_pbr)"));
     }
 }
 

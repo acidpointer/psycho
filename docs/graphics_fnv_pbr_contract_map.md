@@ -573,21 +573,34 @@ HLSL sources, configuration, and assets, but must not contain `.cso`, `.pso`,
 or a populated runtime cache. The packaging script enforces that policy after
 archive creation.
 
-When native PBR is enabled, `effects/pbr/compiler.rs` owns an explicit local
-preparation transaction. It inventories the complete expected
-content-addressed cache before compiling misses. Cache identity covers the
-source, target, compiler flags, cache format, logical variant identity, and
-the PBR shader contract revision. A cache entry is usable only after its
-envelope and checksum validate. Missing or corrupt entries compile locally and
-are published with temporary-file write, flush, atomic rename, reopen, and
-verification. Persistence failure is a preparation failure, not an in-memory
-success.
+When the staged startup settings enable native PBR,
+`effects/pbr/compiler.rs` may begin an explicit CPU-only preparation
+transaction during `NVSEPlugin_Load`. This is not PBR activation: engine,
+world-pipeline, hook, D3D-device, and D3D-resource ownership remains behind
+DeferredInit and Present.
+
+The transaction groups logical templates by exact source, target, compiler
+flags, and PBR contract revision before inventory. Its canonical cache identity
+covers source, target, compiler flags, cache format, representative logical
+identity, and the contract revision. The current 162 logical entries therefore
+require 132 unique inputs; the 57 close-terrain entries require 29. One verified
+immutable bytecode allocation is published to every logical alias, while each
+alias retains independent readiness/failure and D3D-resource state.
+
+A cache entry is usable only after its envelope, stage, size, checksum, source
+hash, and terminal token validate. Missing or corrupt entries compile locally.
+Publication writes a temporary file, closes it, renames it atomically, reopens
+it, and verifies the result. It intentionally omits per-entry physical disk
+flushes because the cache is reconstructible: interrupted or corrupt entries
+are rejected and rebuilt. A persistence or verification failure in the current
+transaction remains a preparation failure, not an in-memory success.
 
 The verified bytecode catalog is process-owned and retained across D3D9 device
 loss. `effects/pbr/device_resources.rs` separately owns device shader handles
 and recreates only those handles after reset. Neither compilation nor cache
-I/O occurs from a render callback; Present only starts the preparation worker
-and creates at most four D3D handles per frame from already prepared memory.
+I/O occurs from a render callback; Present may perform a fallback worker start
+for a later runtime enable and creates at most four D3D handles per frame from
+already prepared memory.
 Draw replacement remains passive until the complete compiler catalog and
 complete device-resource catalog are ready. This whole-catalog gate is
 stricter than, and preserves, the mandatory atomic close-terrain-family gate
