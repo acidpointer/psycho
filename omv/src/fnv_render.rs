@@ -1,12 +1,12 @@
 //! Native Fallout New Vegas render-stage boundaries used by OMV.
 //!
-//! World-scene entry establishes the destination shared-depth identity,
-//! pre-alpha performs the provider-owned world capture, and post-world
-//! publication marks externally produced depth as observable. Their
-//! trampolines are prepared at DeferredInit, but the native entry jumps are
-//! physically detached when neither OMV visuals nor the OMV shared-depth
-//! service needs them. Render callbacks are nonblocking and never substitute
-//! one provider for another. When the selected provider exposes world depth
+//! World-scene entry establishes the destination identity, pre-alpha captures
+//! depth only for an admitted immediate consumer, and post-world publication
+//! exposes either OMV or externally produced world depth. Their trampolines
+//! are prepared at DeferredInit, but the native entry jumps are physically
+//! detached when no active OMV visual needs these stages. Render callbacks are
+//! nonblocking and never substitute one provider for another. When the
+//! selected provider exposes world depth
 //! but no first-person mask, AO is composed on the completed world target
 //! immediately after `RenderWorldSceneGraph`; hands and weapons later
 //! overwrite AO naturally without reactivating OMV depth capture.
@@ -83,21 +83,6 @@ pub(crate) fn install_scene_boundary_hook() {
 /// Return whether native underwater classification can be published safely.
 pub(crate) fn underwater_publication_hook_ready() -> bool {
     UNDERWATER_PUBLICATION_HOOK_READY.load(Ordering::Acquire)
-}
-
-/// Return whether both boundaries required by shared-depth service are prepared.
-///
-/// Prepared hooks retain callable trampolines while their native entry jumps
-/// are detached, allowing a later Present-boundary switch to reattach them.
-pub(crate) fn shared_depth_service_ready() -> bool {
-    shared_depth_service_hooks_ready(
-        WORLD_SCENE_HOOK_READY.load(Ordering::Acquire),
-        PRE_ALPHA_HOOK_READY.load(Ordering::Acquire),
-    )
-}
-
-fn shared_depth_service_hooks_ready(world_scene: bool, pre_alpha: bool) -> bool {
-    world_scene && pre_alpha
 }
 
 #[derive(Clone, Copy)]
@@ -273,14 +258,8 @@ pub(crate) fn reconcile_depth_stage_hooks() -> Result<()> {
     let required = depth_stage_hooks_required(
         crate::runtime::needs_fnv_scene_hooks(),
         crate::fnv_world_pipeline::needs_scene_hooks(),
-        crate::backend::needs_shared_pre_alpha_depth(),
     );
     set_depth_stage_hooks_active(required)
-}
-
-/// Return whether native depth-stage entries currently point at OMV.
-pub(crate) fn depth_stage_hooks_active() -> bool {
-    DEPTH_STAGE_HOOK_MASK.load(Ordering::Acquire) == DepthStageHookStates::ALL_MASK
 }
 
 /// Return an exact diagnostic label for native depth-stage entry ownership.
@@ -628,7 +607,6 @@ unsafe extern "thiscall" fn hook_render_world_scene_graph(
     if !depth_stage_hooks_required(
         crate::runtime::needs_fnv_scene_hooks(),
         crate::fnv_world_pipeline::needs_scene_hooks(),
-        crate::backend::needs_shared_pre_alpha_depth(),
     ) {
         unsafe {
             original(
@@ -652,10 +630,7 @@ unsafe extern "thiscall" fn hook_render_world_scene_graph(
         let pre_alpha_target = world_scene_graph
             .then(current_render_target)
             .flatten()
-            .filter(|_| {
-                crate::fnv_world_pipeline::needs_atmosphere()
-                    || crate::backend::needs_shared_pre_alpha_depth()
-            })
+            .filter(|_| crate::fnv_world_pipeline::needs_atmosphere())
             .unwrap_or(0);
         PRE_ALPHA_WORLD_TARGET.store(pre_alpha_target, Ordering::Release);
         PRE_ALPHA_WORLD_ARMED.store(pre_alpha_target != 0, Ordering::Release);
@@ -715,16 +690,10 @@ unsafe extern "thiscall" fn hook_render_world_scene_graph(
     }
 }
 
-fn depth_stage_hooks_required(
-    scene_inputs: bool,
-    world_pipeline: bool,
-    shared_depth_service: bool,
-) -> bool {
+fn depth_stage_hooks_required(scene_inputs: bool, world_pipeline: bool) -> bool {
     // Published consumer requirements, rather than the global master switch,
-    // decide whether OMV needs these entry points. When OMV is the selected
-    // physical producer, the separate shared service still requires one
-    // pre-alpha refresh even if every OMV effect is disabled.
-    scene_inputs || world_pipeline || shared_depth_service
+    // decide whether OMV needs these entry points.
+    scene_inputs || world_pipeline
 }
 
 unsafe extern "cdecl" fn hook_render_pre_depth_groups(accumulator: *mut c_void) {
@@ -744,32 +713,7 @@ unsafe extern "cdecl" fn hook_render_pre_depth_groups(accumulator: *mut c_void) 
     let Some(device_ptr) = crate::backend::d3d_device_ptr() else {
         return;
     };
-    if crate::backend::needs_shared_pre_alpha_depth()
-        && !crate::fnv_world_pipeline::needs_atmosphere()
-    {
-        unsafe { capture_shared_pre_alpha_depth(device_ptr) };
-    } else {
-        unsafe { crate::fnv_world_pipeline::apply_before_alpha(device_ptr) };
-    }
-}
-
-unsafe fn capture_shared_pre_alpha_depth(device_ptr: *mut c_void) {
-    // Depth Resolve consumers such as Vanilla Plus Particles sample the
-    // shared texture during native alpha rendering even when OMV's master
-    // effects are disabled. In OMV-provider mode one pre-alpha capture keeps
-    // that service fresh while the external pre/post markers are suppressed.
-    let _ = unsafe {
-        crate::backend::resolve_scene_depth(
-            crate::backend::DepthProvider::FalloutNewVegas,
-            device_ptr,
-            None,
-            crate::backend::DepthResolveSlot::World,
-            crate::backend::DepthResolveStage::PreAlphaWorld,
-            None,
-            "OMV shared pre-alpha depth service",
-            crate::hooks::render_epoch(),
-        )
-    };
+    unsafe { crate::fnv_world_pipeline::apply_before_alpha(device_ptr) };
 }
 
 fn current_render_target() -> Option<usize> {
@@ -947,7 +891,7 @@ mod final_color_phase_contract_tests {
 
     use super::{
         PROCESS_IMAGE_SPACE_SHADERS_ADDR, ProcessImageSpaceShadersFn, depth_stage_hooks_required,
-        run_image_space_phase_order, shared_depth_service_hooks_ready,
+        run_image_space_phase_order,
     };
 
     #[test]
@@ -1038,7 +982,7 @@ mod final_color_phase_contract_tests {
     }
 
     #[test]
-    fn disabled_master_bypasses_visual_hooks_but_not_the_shared_depth_service() {
+    fn disabled_master_bypasses_visual_scene_hooks() {
         let source = include_str!("fnv_render.rs");
         for (detour, first_effect_work) in [
             (
@@ -1060,36 +1004,14 @@ mod final_color_phase_contract_tests {
             assert!(prefix.contains("original("));
         }
 
-        assert!(!depth_stage_hooks_required(false, false, false));
-        assert!(depth_stage_hooks_required(true, false, false));
-        assert!(depth_stage_hooks_required(false, true, false));
-        assert!(depth_stage_hooks_required(false, false, true));
-    }
-
-    #[test]
-    fn shared_service_capture_is_owned_by_omv_and_does_not_select_a_hybrid_provider() {
-        let source = include_str!("fnv_render.rs");
-        let body = source
-            .split_once("unsafe fn capture_shared_pre_alpha_depth")
-            .map(|(_, tail)| tail)
-            .and_then(|tail| tail.split_once("fn current_render_target()"))
-            .map(|(body, _)| body)
-            .expect("shared pre-alpha capture body");
-        assert!(body.contains("DepthProvider::FalloutNewVegas"));
-        assert!(!body.contains("active_depth_provider"));
-    }
-
-    #[test]
-    fn exclusive_service_requires_both_native_scene_boundaries() {
-        assert!(shared_depth_service_hooks_ready(true, true));
-        assert!(!shared_depth_service_hooks_ready(true, false));
-        assert!(!shared_depth_service_hooks_ready(false, true));
-        assert!(!shared_depth_service_hooks_ready(false, false));
+        assert!(!depth_stage_hooks_required(false, false));
+        assert!(depth_stage_hooks_required(true, false));
+        assert!(depth_stage_hooks_required(false, true));
     }
 
     #[test]
     fn inactive_external_policy_reaches_physical_depth_stage_detachment() {
-        assert!(!depth_stage_hooks_required(false, false, false));
+        assert!(!depth_stage_hooks_required(false, false));
 
         let source = include_str!("fnv_render.rs");
         let body = source

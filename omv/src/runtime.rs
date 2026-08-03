@@ -1,12 +1,11 @@
 //! Screen-space shader runtime and in-game menu.
 //!
-//! Configuration changes are committed at `Present`, which is also OMV's
-//! quiescent D3D boundary. The master switch owns more than shader dispatch:
-//! it publishes an empty scene requirement set, physically detaches optional
-//! native draw interposition, suspends native replacement hooks, and releases
-//! visual device resources while retaining the menu. Depth-provider ownership
-//! remains independent because it is a machine-local capture service that can
-//! be consumed by other enabled features. Provider capability also owns AO
+//! Configuration changes are committed at the engine's `DisplayScene`
+//! boundary, OMV's serialized frame boundary. The master switch owns more than
+//! shader dispatch: it publishes an empty scene requirement set, makes the
+//! resident native replacement hook passive, and releases visual device
+//! resources while retaining the menu. Provider selection remains independent
+//! from shareable visual presets. Provider capability also owns AO
 //! timing: coherent first-person depth permits the normal scene-pre mask,
 //! while world-only depth moves AO to the completed, still-bound world target
 //! before first-person color composition.
@@ -124,7 +123,6 @@ static RUNTIME: LazyLock<Mutex<ScreenShaderRuntime>> =
 static MENU_OPEN: AtomicBool = AtomicBool::new(false);
 static IMGUI_READY: AtomicBool = AtomicBool::new(false);
 static MASTER_EFFECTS_ENABLED: AtomicBool = AtomicBool::new(true);
-static DRAW_INTERPOSITION_REQUIRED: AtomicBool = AtomicBool::new(false);
 static MENU_DIAGNOSTICS_STATE: AtomicU32 = AtomicU32::new(0);
 static MENU_TOGGLE_KEY: AtomicU32 = AtomicU32::new(DEFAULT_MENU_TOGGLE_KEY);
 static MENU_KEY_CAPTURE_ACTIVE: AtomicBool = AtomicBool::new(false);
@@ -234,10 +232,6 @@ pub(crate) fn configure(settings: RuntimeSettings) {
         Ordering::Release,
     );
     MASTER_EFFECTS_ENABLED.store(settings.menu_config.screen_space_shaders, Ordering::Release);
-    DRAW_INTERPOSITION_REQUIRED.store(
-        draw_interposition_required_for(settings.menu_config),
-        Ordering::Release,
-    );
     update_native_dof_query_needed(&settings.menu_config);
     service_enabled_effect_preparation(settings.menu_config);
     let mut runtime = RUNTIME.lock();
@@ -352,10 +346,7 @@ mod load_transition_tests {
 
 #[cfg(test)]
 mod render_callback_io_tests {
-    use super::{
-        PhaseColorLocation, draw_interposition_required_for, next_phase_color_location,
-        present_services_required_for,
-    };
+    use super::{PhaseColorLocation, next_phase_color_location, present_services_required_for};
 
     #[test]
     fn phase_color_graph_alternates_intermediates_and_finishes_on_engine() {
@@ -474,24 +465,6 @@ mod render_callback_io_tests {
         assert!(present_services_required_for(false, true, true));
         assert!(present_services_required_for(false, false, false));
         assert!(present_services_required_for(true, false, true));
-    }
-
-    #[test]
-    fn draw_interposition_requires_an_enabled_native_replacement() {
-        let mut config = crate::config::GraphicsMenuConfig::default();
-        config.screen_space_shaders = false;
-        assert!(!draw_interposition_required_for(config));
-
-        config.screen_space_shaders = true;
-        config.native_pbr.enabled = false;
-        config.native_sky.enabled = false;
-        assert!(!draw_interposition_required_for(config));
-
-        config.native_pbr.enabled = true;
-        assert!(draw_interposition_required_for(config));
-        config.native_pbr.enabled = false;
-        config.native_sky.enabled = true;
-        assert!(draw_interposition_required_for(config));
     }
 
     #[test]
@@ -737,16 +710,6 @@ pub(crate) fn needs_native_dof_query() -> bool {
 #[inline]
 pub(crate) fn effects_enabled() -> bool {
     MASTER_EFFECTS_ENABLED.load(Ordering::Acquire)
-}
-
-/// Return whether native PBR or sky currently requires per-draw D3D hooks.
-#[inline]
-pub(crate) fn draw_interposition_required() -> bool {
-    DRAW_INTERPOSITION_REQUIRED.load(Ordering::Acquire)
-}
-
-fn draw_interposition_required_for(config: GraphicsMenuConfig) -> bool {
-    config.screen_space_shaders && (config.native_pbr.enabled || config.native_sky.enabled)
 }
 
 #[inline]
@@ -3304,23 +3267,7 @@ impl ScreenShaderRuntime {
         // place. Rebuild the immutable schedule without recreating unchanged
         // device shaders; source-file discovery still invalidates both.
         self.rebuild_execution_plan();
-        let draw_interposition_required =
-            draw_interposition_required_for(self.settings.menu_config);
         MASTER_EFFECTS_ENABLED.store(master_enabled, Ordering::Release);
-        DRAW_INTERPOSITION_REQUIRED.store(draw_interposition_required, Ordering::Release);
-
-        // On enable, publish the complete DP/DIP boundary before native
-        // replacement hooks can become active. On disable the inverse order is
-        // used below: producers become passive first, then the device entries
-        // are restored. Either direction therefore has no partially covered
-        // native draw.
-        if draw_interposition_required
-            && let Err(reason) = crate::hooks::set_draw_interposition_active(true)
-        {
-            self.menu_config_error = Some(format!(
-                "Native draw hooks could not be attached: {reason}. Native PBR and sky remain on their safe vanilla fallback."
-            ));
-        }
         let requested_provider = self.settings.menu_config.depth_provider.into();
         let provider_changed = requested_provider != self.settings.depth_provider;
         match backend::switch_depth_provider(requested_provider) {
@@ -3373,14 +3320,6 @@ impl ScreenShaderRuntime {
             sky::NativeSkySettings::from(self.settings.menu_config.native_sky)
                 .with_master_enabled(master_enabled),
         );
-        if !draw_interposition_required
-            && let Err(reason) = crate::hooks::set_draw_interposition_active(false)
-        {
-            self.menu_config_error = Some(format!(
-                "Native draw hooks could not be detached: {reason}. The log records the physical hook state."
-            ));
-        }
-
         if !master_enabled {
             // Keep the ImGui owner alive so the same menu can re-enable OMV.
             // All visual default-pool and managed shader resources are
@@ -8301,7 +8240,7 @@ fn draw_depth_diagnostics(
     ui.separator_text(&cstring("DEPTH"));
     let configured = match configured_provider {
         DepthProviderConfig::None => "Disabled",
-        DepthProviderConfig::FalloutNewVegas => "OMV exclusive resolver",
+        DepthProviderConfig::FalloutNewVegas => "OMV world + first-person depth",
         DepthProviderConfig::DepthResolve => "Depth Resolve shared world depth",
     };
     ui.text_colored(
@@ -8322,23 +8261,31 @@ fn draw_depth_diagnostics(
     ui.text_colored(
         MENU_MUTED_TEXT,
         &cstring(format!(
-            "Depth hooks: stages={}, RESZ={}",
+            "Depth hooks: stages={}, D3D device vtable={}",
             crate::fnv_render::depth_stage_hooks_status_label(),
-            if crate::hooks::resz_interposition_active() {
-                "attached"
-            } else {
-                "detached"
-            },
+            "not-installed",
         )),
     );
     ui.text_colored(
         MENU_MUTED_TEXT,
         &cstring(format!(
-            "Depth counters: OMV markers={}, external markers={}, external suppressed={}, external snapshots={}",
+            "Depth counters: legacy OMV markers={}, legacy external markers={}, legacy suppressed={}, external snapshots={}",
             markers.omv_allowed,
             markers.external_allowed,
             markers.external_suppressed,
             markers.external_publications,
+        )),
+    );
+    let copies = backend::depth_copy_counters();
+    ui.text_colored(
+        MENU_MUTED_TEXT,
+        &cstring(format!(
+            "NvAPI calls: register={}, alias creations={}, alias fallbacks={}, StretchRectEx={}, retries={}",
+            copies.nvapi_register_calls,
+            copies.nvapi_alias_creations,
+            copies.nvapi_alias_fallbacks,
+            copies.nvapi_stretch_calls,
+            copies.nvapi_stretch_retries,
         )),
     );
 }

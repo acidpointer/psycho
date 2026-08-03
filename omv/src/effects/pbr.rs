@@ -1,7 +1,7 @@
 //! Native PBR integration.
 //!
 //! This module owns PBR configuration, preparation state, and the public
-//! boundary used by OMV's D3D hooks. Shader compilation, engine contracts,
+//! boundary used by OMV's engine draw hook. Shader compilation, engine contracts,
 //! device resources, draw classification, constants, diagnostics, and terrain
 //! light capture live in focused child modules. OMV storage remains independent
 //! from NVR's native object-size patches.
@@ -17,8 +17,8 @@
 //! Runtime disable is a passive engine-contract boundary. The proven PBR
 //! inline hooks remain resident because restoring stale shader-wrapper or
 //! shared package state was a prior corruption defect documented in the PBR
-//! errata. Their detours bypass before selector/sampler work, while the shared
-//! device DP/DIP hooks detach and PBR device resources are released.
+//! errata. Their detours bypass before selector/sampler work, while the common
+//! engine draw hook remains resident and PBR device resources are released.
 //! Process-owned compiled bytecode and observed engine-wrapper identities
 //! remain cached for safe live re-enable.
 //!
@@ -26,7 +26,7 @@
 //! enabled settings snapshot is staged. That early worker owns only embedded
 //! source, the reconstructible cache, and process memory. Engine inspection,
 //! hook installation, world publication, D3D resource creation, and PBR
-//! activation remain exclusively behind DeferredInit and Present.
+//! activation remain exclusively behind DeferredInit and DisplayScene.
 
 mod compiler;
 mod constants;
@@ -461,7 +461,7 @@ pub(crate) fn configure_runtime_options(settings: NativePbrSettings) {
         );
     } else if !was_enabled && settings.enabled {
         if !ENABLE_PENDING.swap(true, Ordering::AcqRel) {
-            log::info!("[PBR] Native PBR activation queued for the next Present boundary");
+            log::info!("[PBR] Native PBR activation queued for the next DisplayScene boundary");
         }
     } else if !settings.enabled {
         ENABLE_PENDING.store(false, Ordering::Release);

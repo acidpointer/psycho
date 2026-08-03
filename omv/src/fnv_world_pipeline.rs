@@ -412,11 +412,11 @@ pub(crate) fn finish_present(epoch: u32) {
     }
     let presents = PRESENTS.fetch_add(1, Ordering::Relaxed) + 1;
     if presents % 600 == 0 {
-        // These counters identify physical RESZ ownership, unlike the world
-        // transaction counters below, which continue to advance when OMV
-        // consumes an external snapshot. Read them only at the existing
-        // 600-Present diagnostic cadence so ordinary Presents gain no extra
-        // atomic traffic or formatting work.
+        // Marker fields are legacy zeros now that OMV never interposes the
+        // driver method; external snapshots and physical-copy counters carry
+        // the current ownership evidence. Read them only at the existing
+        // 600-frame diagnostic cadence so ordinary frames gain no formatting
+        // work.
         let markers = backend::provider_marker_counters();
         let depth_copies = backend::depth_copy_counters();
         let color_copies = crate::runtime::phase_color_copy_counters();
@@ -425,15 +425,11 @@ pub(crate) fn finish_present(epoch: u32) {
             return;
         }
         log::info!(
-            "[FNV WORLD] Reliability: presents={}, provider={}, depth_hooks={}, resz_hook={}, draw_hooks={}, resz_omv={}, resz_external={}, resz_external_suppressed={}, external_snapshots={}, depth_copies=pre_alpha:{}/coherent:{}/first_person:{}/cache_hits:{}, color_copies=phase_initial:{}/fallback_commit:{}, pre_alpha={}/busy={}/admission_skip={}, coherent_admission_skip={}, primary={}, applied={}, completed_no_draw={}, config_publish_busy={}, config_read_busy={}, jitter_busy={}, primary_busy={}, depth_busy={}, retries={}, retry_busy={}, retry_completed={}, target_rejected={}, outer_target_mismatch={}, deadline_missed={}, failures={}",
+            "[FNV WORLD] Reliability: presents={}, provider={}, depth_hooks={}, d3d_device_vtable={}, draw_hooks={}, legacy_resz_omv={}, legacy_resz_external={}, legacy_resz_suppressed={}, external_snapshots={}, depth_copies=pre_alpha:{}/coherent:{}/first_person:{}/cache_hits:{}, nvapi=register:{}/aliases:{}/alias_fallbacks:{}/stretch_calls:{}/stretch_retries:{}, color_copies=phase_initial:{}/fallback_commit:{}, pre_alpha={}/busy={}/admission_skip={}, coherent_admission_skip={}, primary={}, applied={}, completed_no_draw={}, config_publish_busy={}, config_read_busy={}, jitter_busy={}, primary_busy={}, depth_busy={}, retries={}, retry_busy={}, retry_completed={}, target_rejected={}, outer_target_mismatch={}, deadline_missed={}, failures={}",
             presents,
             backend::active_depth_provider().label(),
             crate::fnv_render::depth_stage_hooks_status_label(),
-            if crate::hooks::resz_interposition_active() {
-                "attached"
-            } else {
-                "detached"
-            },
+            "not-installed",
             crate::hooks::draw_interposition_status_label(),
             markers.omv_allowed,
             markers.external_allowed,
@@ -443,6 +439,11 @@ pub(crate) fn finish_present(epoch: u32) {
             depth_copies.coherent_world_physical,
             depth_copies.first_person_physical,
             depth_copies.exact_cache_hits,
+            depth_copies.nvapi_register_calls,
+            depth_copies.nvapi_alias_creations,
+            depth_copies.nvapi_alias_fallbacks,
+            depth_copies.nvapi_stretch_calls,
+            depth_copies.nvapi_stretch_retries,
             color_copies.initial,
             color_copies.fallback_commits,
             PRE_ALPHA_ATTEMPTS.load(Ordering::Relaxed),

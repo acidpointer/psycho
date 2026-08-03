@@ -1,9 +1,10 @@
 //! Draw-scoped replacement for the native Fallout NV sky shader family.
 //!
-//! The engine constants hook identifies a pending sky draw and the optional
-//! device DP/DIP hooks bind the replacement for exactly that draw. Disabling
-//! native sky physically restores the engine entry and releases its D3D shader
-//! objects; compiled bytecode remains process-owned for a cheap later rebuild.
+//! The engine constants hook identifies a pending sky draw and the resident
+//! common shader-draw hook binds the replacement for exactly that draw.
+//! Disabling native sky makes both resident engine hooks passive through their
+//! atomic gate and releases its D3D shader objects; compiled bytecode remains
+//! process-owned for a cheap later rebuild.
 
 use std::{
     ffi::c_void,
@@ -346,7 +347,7 @@ impl ResourceSlot {
 pub(crate) fn install(settings: NativeSkySettings) -> Result<()> {
     configure_runtime_options(settings);
     if UPDATE_HOOK.is_initialized() {
-        set_engine_interposition_active(settings.enabled);
+        ensure_engine_hook_resident();
         return Ok(());
     }
 
@@ -367,7 +368,7 @@ pub(crate) fn install(settings: NativeSkySettings) -> Result<()> {
         log::warn!("[SKY] Native sky hook initialization failed: {err}");
         return Ok(());
     }
-    set_engine_interposition_active(settings.enabled);
+    ensure_engine_hook_resident();
     if settings.enabled {
         start_compile_worker();
     }
@@ -375,49 +376,41 @@ pub(crate) fn install(settings: NativeSkySettings) -> Result<()> {
     Ok(())
 }
 
-/// Apply live native-sky settings at the Present configuration boundary.
+/// Apply live native-sky settings at the DisplayScene configuration boundary.
 pub(crate) fn configure_runtime_options(settings: NativeSkySettings) {
     let was_enabled = ENABLED.swap(settings.enabled, Ordering::AcqRel);
     *SETTINGS.lock() = settings;
     FRAME_EPOCH.fetch_add(1, Ordering::AcqRel);
+    if UPDATE_HOOK.is_initialized() {
+        ensure_engine_hook_resident();
+    }
     if settings.enabled {
-        if UPDATE_HOOK.is_initialized() {
-            set_engine_interposition_active(true);
-        }
         start_compile_worker();
-    } else if was_enabled || UPDATE_HOOK.is_enabled() {
-        // Restore any replacement pair before removing the hook that owns the
-        // pending-draw contract. Device resources are recreated lazily when
-        // the user enables the feature again.
+    } else if was_enabled {
+        // Restore any replacement pair before the resident hook becomes
+        // passive. Device resources are recreated lazily when the user
+        // enables the feature again.
         reset_runtime_state();
-        set_engine_interposition_active(false);
     }
 }
 
-fn set_engine_interposition_active(active: bool) {
-    if !UPDATE_HOOK.is_initialized() || UPDATE_HOOK.is_enabled() == active {
-        INSTALLED.store(active && UPDATE_HOOK.is_initialized(), Ordering::Release);
+fn ensure_engine_hook_resident() {
+    if !UPDATE_HOOK.is_initialized() {
+        INSTALLED.store(false, Ordering::Release);
         return;
     }
-    let result = if active {
-        UPDATE_HOOK.enable()
-    } else {
-        UPDATE_HOOK.disable()
-    };
-    match result {
+    if UPDATE_HOOK.is_enabled() {
+        INSTALLED.store(true, Ordering::Release);
+        return;
+    }
+    match UPDATE_HOOK.enable() {
         Ok(()) => {
-            INSTALLED.store(active, Ordering::Release);
-            log::info!(
-                "[SKY] Engine interposition physically {}",
-                if active { "attached" } else { "detached" }
-            );
+            INSTALLED.store(true, Ordering::Release);
+            log::info!("[SKY] Resident engine interposition attached");
         }
         Err(err) => {
             INSTALLED.store(UPDATE_HOOK.is_enabled(), Ordering::Release);
-            log::warn!(
-                "[SKY] Could not {} engine interposition: {err}",
-                if active { "attach" } else { "detach" }
-            );
+            log::warn!("[SKY] Could not attach resident engine interposition: {err}");
         }
     }
 }
@@ -752,6 +745,28 @@ mod shader_compile_tests {
         assert!(configured.enabled);
         assert!(!configured.with_master_enabled(false).enabled);
         assert!(configured.with_master_enabled(true).enabled);
+    }
+
+    #[test]
+    fn runtime_toggle_keeps_the_engine_hook_resident() {
+        let source = include_str!("sky.rs");
+        let configure = source
+            .split_once("pub(crate) fn configure_runtime_options")
+            .map(|(_, tail)| tail)
+            .and_then(|tail| tail.split_once("fn ensure_engine_hook_resident"))
+            .map(|(body, _)| body)
+            .expect("native sky runtime configuration");
+        assert!(configure.contains("ensure_engine_hook_resident()"));
+        assert!(!configure.contains("UPDATE_HOOK.disable()"));
+
+        let residency = source
+            .split_once("fn ensure_engine_hook_resident")
+            .map(|(_, tail)| tail)
+            .and_then(|tail| tail.split_once("pub(crate) fn set_draw_boundary_ready"))
+            .map(|(body, _)| body)
+            .expect("native sky resident hook transition");
+        assert!(residency.contains("UPDATE_HOOK.enable()"));
+        assert!(!residency.contains("UPDATE_HOOK.disable()"));
     }
 }
 

@@ -876,12 +876,12 @@ configured atomic immediately after acquiring their predecessor and skip
 selector reads and sampler tracking while disabled. Shader-creation hooks still
 record their one-time wrapper identities: those initialization events may not
 repeat after an in-game enable, and they are not steady-state draw overhead.
-Present first closes the active draw/batch scope, then releases only PBR-owned
-D3D resources and sampler diagnostics. It does not disable the engine hooks,
+The engine DisplayScene boundary first closes the active draw/batch scope,
+then releases only PBR-owned D3D resources and sampler diagnostics. It does
+not disable the engine hooks,
 restore wrapper handles, clear observed wrapper identities, or tear down
-shared engine contracts. The independent device DP/DIP detours may be
-physically detached because they own no engine wrapper state and transition
-only at the quiescent Present boundary.
+shared engine contracts. OMV no longer installs device DP/DIP detours; the
+resident common engine shader-draw hook uses the same passive atomic gate.
 
 ### 11. One Shader Edit Disabled All Close Terrain During Warmup
 
@@ -1338,7 +1338,15 @@ was not a trustworthy scene-FPS measurement and must not be used to close this
 defect. The shader optimization remains valid, but it is not the root cause of
 the one-FPS report.
 
-### Corrected root cause: shader-state ownership
+### Invalidated performance hypothesis: shader-state ownership
+
+The shader-state ownership correction below remains required for engine-cache
+correctness, but a later controlled NVIDIA playtest reported no performance
+change. It is therefore not the root cause of the one-FPS failure. Do not use
+the explanatory exterior/interior scaling model in this historical section as
+runtime proof. The current driver-ownership and depth-scheduling work is
+documented in
+[`graphics_fnv_driver_owned_d3d_nvidia_depth.md`](graphics_fnv_driver_owned_d3d_nvidia_depth.md).
 
 The two available NVR generations independently establish the same replacement
 ownership even though their storage designs differ:

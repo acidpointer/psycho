@@ -1408,6 +1408,25 @@ impl Texture9 {
         Ok(Self { inner, base })
     }
 
+    /// Adopt one owned `IDirect3DTexture9` reference returned through a raw out pointer.
+    ///
+    /// This is for COM APIs that transfer a successful result reference to the
+    /// caller. Unlike [`Self::retain_raw`], it does not first retain the raw
+    /// texture pointer. Construction obtains the wrapper's separate base-
+    /// texture interface reference through `QueryInterface`; both owned
+    /// references are released normally when the wrapper is dropped.
+    ///
+    /// # Safety
+    ///
+    /// `texture` must be a live `IDirect3DTexture9` pointer for which the
+    /// caller owns one reference. The pointer must not be used to construct a
+    /// second owner after this call succeeds.
+    pub unsafe fn adopt_raw(texture: *mut c_void) -> Direct3DResult<Self> {
+        let texture = NonNull::new(texture).ok_or_else(|| WindowsError::from_hresult(E_POINTER))?;
+        let inner = unsafe { IDirect3DTexture9::from_raw(texture.as_ptr()) };
+        Self::new(inner)
+    }
+
     /// Retain an engine-owned raw texture as an owned COM reference.
     ///
     /// The returned wrapper calls `AddRef` through `QueryInterface`, so it may

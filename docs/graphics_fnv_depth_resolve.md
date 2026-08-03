@@ -1,5 +1,13 @@
 # FNV depth providers and resolve routes
 
+> **Current ownership authority (2026-08-04):**
+> [`graphics_fnv_driver_owned_d3d_nvidia_depth.md`](graphics_fnv_driver_owned_d3d_nvidia_depth.md)
+> supersedes this document's older exclusive-producer, SetRenderState-vtable,
+> RESZ-marker suppression, and RESZ-first NvAPI sections. The evidence and
+> historical playtest record below remain useful, but every implementation
+> description after this notice is a superseded historical record, not the
+> current architecture.
+
 ## Purpose and user-visible behavior
 
 OMV depth-aware effects need shader-readable world and first-person depth.

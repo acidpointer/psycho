@@ -210,33 +210,16 @@ fn install_deferred_hooks_once() -> Result<()> {
     crate::effects::pbr::configure_terrain_contract(compatibility.has_vpt_terrain_contract());
     crate::effects::pbr::install(settings.native_pbr)?;
     crate::effects::sky::install(settings.native_sky)?;
+    crate::hooks::install_engine_hooks()
+        .context("could not establish engine-owned render lifecycle hooks")?;
 
     crate::fnv_local_lights::install_hooks();
     // Initialize every scene hook while DeferredInit is quiescent so later
-    // Present-boundary transitions can restore or reattach the already-proven
+    // DisplayScene-boundary transitions can restore or reattach the proven
     // entry bytes without allocating a new trampoline.
     crate::fnv_render::install_scene_boundary_hook();
     crate::fnv_render::reconcile_depth_stage_hooks()
         .context("could not establish configured depth-stage hook ownership")?;
-    if crate::backend::needs_shared_pre_alpha_depth() {
-        if !crate::fnv_render::shared_depth_service_ready() {
-            anyhow::bail!("shared-depth scene boundaries could not be installed");
-        }
-        // Exclusive ownership must be physical before any scene callback can
-        // issue OMV's replacement capture. An asynchronous hook-install
-        // window would briefly allow both producers on the same NVIDIA frame.
-        crate::hooks::install_current_device_hooks()
-            .context("could not establish exclusive RESZ ownership")?;
-    } else if crate::hooks::resz_interposition_ready() {
-        // A previous retryable attempt may have prepared and attached RESZ for
-        // OMV. Reconcile that resident hook when the new capability result
-        // keeps Depth Resolve (or no provider) active instead.
-        crate::hooks::set_resz_interposition_active(false)
-            .map_err(anyhow::Error::msg)
-            .context("could not detach stale RESZ ownership")?;
-    }
-
-    crate::hooks::start_install_worker()?;
     Ok(())
 }
 

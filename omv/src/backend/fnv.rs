@@ -22,7 +22,7 @@ use super::{
     AlphaCoverageMode, CameraFrame, CameraTransformFrame, DepthAccess, DepthFrame,
     DepthProjectionFrame, DepthProvider, DepthResolveOutcome, DepthResolveSlot, DepthResolveStage,
     DepthTexture, EnvironmentFrame, InitialDepthActivation, MaterialStateFrame, NativeSkyFrame,
-    ReszCapability, SunFrame, UnderwaterFrame, choose_initial_depth_provider,
+    SunFrame, UnderwaterFrame, choose_initial_depth_provider,
 };
 use libpsycho::ffi::fnptr::FnPtr;
 use libpsycho::os::windows::{
@@ -40,7 +40,6 @@ use parking_lot::Mutex;
 
 mod depth_resolve_provider;
 
-pub(crate) use depth_resolve_provider::MarkerDecision as ReszMarkerDecision;
 pub(crate) type ProviderMarkerCounters = depth_resolve_provider::MarkerCounters;
 
 const NIDX9_RENDERER_SINGLETON_PTR: usize = 0x011C73B4;
@@ -126,6 +125,7 @@ const NVAPI_UNREGISTERED_RESOURCE: i32 = -170;
 const NVAPI_INITIALIZE_ID: u32 = 0x0150_E828;
 const NVAPI_D3D9_REGISTER_RESOURCE_ID: u32 = 0xA064_BDFC;
 const NVAPI_D3D9_UNREGISTER_RESOURCE_ID: u32 = 0xBB2B_17AA;
+const NVAPI_D3D9_ALIAS_SURFACE_AS_TEXTURE_ID: u32 = 0xE5CE_AE41;
 const NVAPI_D3D9_STRETCH_RECT_EX_ID: u32 = 0x22DE_03AA;
 
 static DEPTH_RESOLVE_LOGS: AtomicU32 = AtomicU32::new(0);
@@ -133,6 +133,11 @@ static PRE_ALPHA_PHYSICAL_COPIES: AtomicU32 = AtomicU32::new(0);
 static COHERENT_WORLD_PHYSICAL_COPIES: AtomicU32 = AtomicU32::new(0);
 static FIRST_PERSON_PHYSICAL_COPIES: AtomicU32 = AtomicU32::new(0);
 static EXACT_DEPTH_CACHE_HITS: AtomicU32 = AtomicU32::new(0);
+static NVAPI_REGISTER_CALLS: AtomicU32 = AtomicU32::new(0);
+static NVAPI_ALIAS_CREATIONS: AtomicU32 = AtomicU32::new(0);
+static NVAPI_ALIAS_FALLBACKS: AtomicU32 = AtomicU32::new(0);
+static NVAPI_STRETCH_CALLS: AtomicU32 = AtomicU32::new(0);
+static NVAPI_STRETCH_RETRIES: AtomicU32 = AtomicU32::new(0);
 static ALPHA_COVERAGE_MODE: OnceLock<AlphaCoverageMode> = OnceLock::new();
 static SUN_FRAME_CALLS: AtomicU32 = AtomicU32::new(0);
 static SUN_FRAME_LOGS: AtomicU32 = AtomicU32::new(0);
@@ -160,6 +165,11 @@ pub(crate) struct DepthCopyCounters {
     pub(crate) coherent_world_physical: u32,
     pub(crate) first_person_physical: u32,
     pub(crate) exact_cache_hits: u32,
+    pub(crate) nvapi_register_calls: u32,
+    pub(crate) nvapi_alias_creations: u32,
+    pub(crate) nvapi_alias_fallbacks: u32,
+    pub(crate) nvapi_stretch_calls: u32,
+    pub(crate) nvapi_stretch_retries: u32,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -219,28 +229,19 @@ pub(crate) fn external_depth_resolve_status() -> DepthResolveStatus {
 /// Select one safe initial producer without making depth a plugin startup gate.
 pub(super) fn select_initial_depth_provider(provider: DepthProvider) -> InitialDepthActivation {
     let external_available = depth_resolve_provider::available();
-    let resz = if external_available && provider != DepthProvider::None {
+    let external_resz = if external_available && provider != DepthProvider::None {
         match active_device_supports_resz() {
-            Ok(true) => ReszCapability::Supported,
-            Ok(false) => ReszCapability::Unsupported,
+            Ok(supported) => Some(supported),
             Err(reason) => {
-                // Depth Resolve cannot be paused. If the marker route cannot
-                // be proven, retaining the external producer is the only
-                // startup choice that cannot create two physical copies.
                 log::warn!("[FNV] Active-device RESZ capability query failed: {reason}");
-                ReszCapability::QueryFailed
+                None
             }
         }
     } else {
-        // This value is ignored when no external producer can conflict.
-        ReszCapability::Unsupported
+        None
     };
-    depth_resolve_provider::set_external_copy_route(match resz {
-        ReszCapability::Supported => Some(true),
-        ReszCapability::Unsupported => Some(false),
-        ReszCapability::QueryFailed => None,
-    });
-    choose_initial_depth_provider(provider, external_available, resz)
+    depth_resolve_provider::set_external_copy_route(external_resz);
+    choose_initial_depth_provider(provider, external_available)
 }
 
 /// Validate a live provider and retain its current shared identity when needed.
@@ -256,19 +257,12 @@ pub(super) fn validate_depth_provider(provider: DepthProvider) -> Result<(), &'s
 
 fn validate_depth_provider_capabilities(provider: DepthProvider) -> Result<(), &'static str> {
     if depth_resolve_provider::available() && provider != DepthProvider::None {
-        let resz_available = active_device_supports_resz()?;
-        depth_resolve_provider::set_external_copy_route(Some(resz_available));
-        if provider != DepthProvider::FalloutNewVegas {
-            return Ok(());
-        }
-        // Depth Resolve has no native pause API. Exclusive OMV ownership is
-        // therefore supported only on the RESZ route that the D3D9 marker hook
-        // can identify and suppress. Refuse an apparent switch on native NvAPI
-        // rather than silently running two physical producers.
-        if !resz_available {
-            return Err(
-                "exclusive OMV ownership is unavailable while Depth Resolve uses native NvAPI",
-            );
+        match active_device_supports_resz() {
+            Ok(supported) => depth_resolve_provider::set_external_copy_route(Some(supported)),
+            Err(reason) => {
+                log::warn!("[FNV] Active-device RESZ capability query failed: {reason}");
+                depth_resolve_provider::set_external_copy_route(None);
+            }
         }
     }
     Ok(())
@@ -284,20 +278,6 @@ fn active_device_supports_resz() -> Result<bool, &'static str> {
     })
 }
 
-/// Return whether a capability-compatible Depth Resolve module is loaded.
-pub(super) fn depth_resolve_plugin_available() -> bool {
-    depth_resolve_provider::available()
-}
-
-/// Classify a RESZ marker against the active provider and render epoch.
-pub(super) fn classify_resz_marker(
-    provider: DepthProvider,
-    bound_texture: usize,
-    render_epoch: u32,
-) -> ReszMarkerDecision {
-    depth_resolve_provider::classify_marker(provider, bound_texture, render_epoch)
-}
-
 /// Return nonblocking producer-marker diagnostics.
 pub(super) fn provider_marker_counters() -> ProviderMarkerCounters {
     depth_resolve_provider::marker_counters()
@@ -310,6 +290,11 @@ pub(super) fn depth_copy_counters() -> DepthCopyCounters {
         coherent_world_physical: COHERENT_WORLD_PHYSICAL_COPIES.load(Ordering::Relaxed),
         first_person_physical: FIRST_PERSON_PHYSICAL_COPIES.load(Ordering::Relaxed),
         exact_cache_hits: EXACT_DEPTH_CACHE_HITS.load(Ordering::Relaxed),
+        nvapi_register_calls: NVAPI_REGISTER_CALLS.load(Ordering::Relaxed),
+        nvapi_alias_creations: NVAPI_ALIAS_CREATIONS.load(Ordering::Relaxed),
+        nvapi_alias_fallbacks: NVAPI_ALIAS_FALLBACKS.load(Ordering::Relaxed),
+        nvapi_stretch_calls: NVAPI_STRETCH_CALLS.load(Ordering::Relaxed),
+        nvapi_stretch_retries: NVAPI_STRETCH_RETRIES.load(Ordering::Relaxed),
     }
 }
 
@@ -1454,6 +1439,8 @@ fn log_depth_resolve_skip(
 type NvapiQueryInterfaceFn = unsafe extern "C" fn(u32) -> *mut c_void;
 type NvapiInitializeFn = unsafe extern "C" fn() -> i32;
 type NvapiResourceFn = unsafe extern "C" fn(*mut c_void) -> i32;
+type NvapiAliasSurfaceAsTextureFn =
+    unsafe extern "C" fn(*mut c_void, *mut c_void, *mut *mut c_void, u32) -> i32;
 type NvapiStretchRectExFn = unsafe extern "C" fn(
     *mut c_void,
     *mut c_void,
@@ -1476,13 +1463,20 @@ fn select_depth_resolve_route(
     resz_available: bool,
     nvapi_available: bool,
 ) -> DepthResolveRouteKind {
-    if resz_available {
-        DepthResolveRouteKind::Resz
-    } else if nvapi_available {
+    if nvapi_available {
         DepthResolveRouteKind::Nvapi
+    } else if resz_available {
+        DepthResolveRouteKind::Resz
     } else {
         DepthResolveRouteKind::Unavailable
     }
+}
+
+fn nvapi_stage_uses_alias(stage: DepthResolveStage) -> bool {
+    matches!(
+        stage,
+        DepthResolveStage::PreAlphaWorld | DepthResolveStage::FirstPerson
+    )
 }
 
 fn resz_failure_requires_fallback(route: DepthResolveRouteKind, hresult: i32) -> bool {
@@ -1528,7 +1522,7 @@ impl DepthResolveRoute {
             },
             Self::Nvapi(_) => DepthResolveStatus {
                 route: DepthResolveRouteStatus::Nvapi,
-                reason: "NVIDIA NvAPI depth copy",
+                reason: "NVIDIA NvAPI persistent depth alias with one coherent-world snapshot",
             },
             Self::Unavailable(reason) => DepthResolveStatus {
                 route: DepthResolveRouteStatus::Unavailable,
@@ -1542,23 +1536,12 @@ struct NvapiDepthResolve {
     _module: HModule,
     register_resource: FnPtr<NvapiResourceFn>,
     unregister_resource: FnPtr<NvapiResourceFn>,
+    alias_surface_as_texture: Option<FnPtr<NvapiAliasSurfaceAsTextureFn>>,
     stretch_rect_ex: FnPtr<NvapiStretchRectExFn>,
     registered_source_surface: usize,
-    registered_source: Option<NvapiSourceResource>,
-}
-
-enum NvapiSourceResource {
-    Surface(Surface9),
-    Texture(Texture9),
-}
-
-impl NvapiSourceResource {
-    fn as_raw(&self) -> *mut c_void {
-        match self {
-            Self::Surface(surface) => surface.as_raw(),
-            Self::Texture(texture) => texture.as_raw(),
-        }
-    }
+    registered_source: Option<Surface9>,
+    source_alias: Option<Texture9>,
+    alias_disabled_for_source: bool,
 }
 
 impl NvapiDepthResolve {
@@ -1587,6 +1570,12 @@ impl NvapiDepthResolve {
             FnPtr::<NvapiResourceFn>::from_raw((query.as_fn())(NVAPI_D3D9_UNREGISTER_RESOURCE_ID))
         }
         .map_err(|_| FnvDepthResolveError::Static("NvAPI D3D9 unregistration is unavailable"))?;
+        let alias_surface_as_texture = unsafe {
+            FnPtr::<NvapiAliasSurfaceAsTextureFn>::from_raw((query.as_fn())(
+                NVAPI_D3D9_ALIAS_SURFACE_AS_TEXTURE_ID,
+            ))
+        }
+        .ok();
         let stretch_rect_ex = unsafe {
             FnPtr::<NvapiStretchRectExFn>::from_raw((query.as_fn())(NVAPI_D3D9_STRETCH_RECT_EX_ID))
         }
@@ -1601,13 +1590,17 @@ impl NvapiDepthResolve {
             _module: module,
             register_resource,
             unregister_resource,
+            alias_surface_as_texture,
             stretch_rect_ex,
             registered_source_surface: 0,
             registered_source: None,
+            source_alias: None,
+            alias_disabled_for_source: false,
         })
     }
 
     fn register(&self, resource: *mut c_void) -> Result<(), FnvDepthResolveError> {
+        NVAPI_REGISTER_CALLS.fetch_add(1, Ordering::Relaxed);
         let status = unsafe { (self.register_resource.as_fn())(resource) };
         if status == NVAPI_OK {
             Ok(())
@@ -1623,42 +1616,123 @@ impl NvapiDepthResolve {
     }
 
     fn unregister_source(&mut self) {
+        // NVIDIA requires every alias to be unbound before the source is
+        // rendered again and destroyed before its source registration ends.
+        // OMV state blocks restore all sampler bindings at each consuming
+        // boundary; dropping the owned alias here closes the resource lifetime.
+        self.source_alias = None;
+        self.alias_disabled_for_source = false;
         if let Some(source) = self.registered_source.take() {
             self.unregister(source.as_raw());
         }
         self.registered_source_surface = 0;
     }
 
-    fn resolve(
+    fn ensure_source(
         &mut self,
-        device: *mut c_void,
         source_surface: *mut c_void,
-        source_format: D3DFORMAT,
-        destination: *mut c_void,
-    ) -> Result<(), FnvDepthResolveError> {
+    ) -> Result<*mut c_void, FnvDepthResolveError> {
         if self.registered_source_surface != source_surface as usize {
             self.unregister_source();
             let surface = unsafe { Surface9::retain_raw(source_surface)? };
-            let source = if source_format == D3DFMT_INTZ {
-                match surface.texture_container()? {
-                    Some(texture) => NvapiSourceResource::Texture(texture),
-                    None => NvapiSourceResource::Surface(surface),
-                }
-            } else {
-                NvapiSourceResource::Surface(surface)
-            };
-            self.register(source.as_raw())?;
+            // AliasSurfaceAsTexture explicitly requires the surface itself to
+            // be registered. Registering an INTZ texture container instead is
+            // valid for StretchRectEx but leaves the alias API unregistered.
+            self.register(surface.as_raw())?;
             self.registered_source_surface = source_surface as usize;
-            self.registered_source = Some(source);
+            self.registered_source = Some(surface);
         }
-        let source = self
-            .registered_source
+        self.registered_source
             .as_ref()
-            .map(NvapiSourceResource::as_raw)
+            .map(Surface9::as_raw)
             .ok_or(FnvDepthResolveError::Static(
                 "NvAPI source resource lost ownership",
-            ))?;
+            ))
+    }
 
+    /// Return the persistent texture alias for the current source surface.
+    ///
+    /// Creating this object is a control-plane operation performed only when
+    /// the engine changes the depth surface. Sampling it at pre-alpha and
+    /// after first-person rendering therefore emits no OMV copy command.
+    fn alias(
+        &mut self,
+        device: *mut c_void,
+        source_surface: *mut c_void,
+    ) -> Result<Option<*mut c_void>, FnvDepthResolveError> {
+        let source = self.ensure_source(source_surface)?;
+        if self.alias_disabled_for_source {
+            return Ok(None);
+        }
+        if self.source_alias.is_none() {
+            let Some(alias_surface_as_texture) = self.alias_surface_as_texture.as_ref() else {
+                let err = FnvDepthResolveError::Static("NvAPI D3D9 depth alias is unavailable");
+                self.disable_alias_for_source(&err);
+                return Ok(None);
+            };
+            let mut texture = core::ptr::null_mut();
+            let mut status =
+                unsafe { (alias_surface_as_texture.as_fn())(device, source, &mut texture, 0) };
+            if nvapi_depth_copy_needs_registration(status) {
+                match self.register(source) {
+                    Ok(()) => {
+                        status = unsafe {
+                            (alias_surface_as_texture.as_fn())(device, source, &mut texture, 0)
+                        };
+                    }
+                    Err(err) => {
+                        self.disable_alias_for_source(&err);
+                        return Ok(None);
+                    }
+                }
+            }
+            if status != NVAPI_OK {
+                let err = FnvDepthResolveError::Nvapi("depth alias", status);
+                self.disable_alias_for_source(&err);
+                return Ok(None);
+            }
+            let alias = match unsafe { Texture9::adopt_raw(texture) } {
+                Ok(alias) => alias,
+                Err(err) => {
+                    let err = FnvDepthResolveError::D3d(err);
+                    self.disable_alias_for_source(&err);
+                    return Ok(None);
+                }
+            };
+            NVAPI_ALIAS_CREATIONS.fetch_add(1, Ordering::Relaxed);
+            self.source_alias = Some(alias);
+        }
+        self.source_alias
+            .as_ref()
+            .map(Texture9::as_raw_base_texture)
+            .map(Some)
+            .ok_or(FnvDepthResolveError::Static(
+                "NvAPI depth alias lost ownership",
+            ))
+    }
+
+    fn disable_alias_for_source(&mut self, reason: &FnvDepthResolveError) {
+        if self.alias_disabled_for_source {
+            return;
+        }
+        self.alias_disabled_for_source = true;
+        self.source_alias = None;
+        NVAPI_ALIAS_FALLBACKS.fetch_add(1, Ordering::Relaxed);
+        log::warn!(
+            "[FNV] NvAPI depth alias unavailable for source 0x{:08X}: {reason}; using the persistent registered-copy route for this surface",
+            self.registered_source_surface,
+        );
+    }
+
+    fn copy(
+        &mut self,
+        device: *mut c_void,
+        source_surface: *mut c_void,
+        destination: *mut c_void,
+    ) -> Result<(), FnvDepthResolveError> {
+        let source = self.ensure_source(source_surface)?;
+
+        NVAPI_STRETCH_CALLS.fetch_add(1, Ordering::Relaxed);
         let mut status = unsafe {
             (self.stretch_rect_ex.as_fn())(
                 device,
@@ -1675,6 +1749,8 @@ impl NvapiDepthResolve {
             // a recovery hint, then let the single retry's result decide.
             let _ = self.register(source);
             let _ = self.register(destination);
+            NVAPI_STRETCH_RETRIES.fetch_add(1, Ordering::Relaxed);
+            NVAPI_STRETCH_CALLS.fetch_add(1, Ordering::Relaxed);
             status = unsafe {
                 (self.stretch_rect_ex.as_fn())(
                     device,
@@ -1789,12 +1865,6 @@ impl ExternalDepthResolve {
         }
 
         let texture = depth_resolve_provider::shared_texture(Some(&desc))?;
-        if !depth_resolve_provider::external_copy_is_fresh(
-            render_epoch,
-            crate::hooks::resz_interposition_active(),
-        ) {
-            return Err("Depth Resolve did not refresh world depth this render epoch");
-        }
         let depth_function = device.render_state(D3DRS_ZFUNC).ok();
         let camera = unsafe { read_world_camera_frame(&desc) }
             .ok_or("missing persistent world camera projection")?;
@@ -1896,7 +1966,6 @@ impl FnvDepthResolve {
             self.release();
         }
         self.device_ptr = device_ptr as usize;
-        self.ensure_route(&device)?;
 
         let (rendered_texture, source_label) = match source_rendered_texture {
             Some(rendered_texture) => (rendered_texture, "first-person render target"),
@@ -1989,11 +2058,44 @@ impl FnvDepthResolve {
             return Ok(());
         }
 
-        self.ensure_resources(device, &desc, slot)?;
+        // Depth Resolve performs its pre-water and post-water world copies
+        // inside the native accumulator before these two engine callbacks.
+        // Borrowing that stable INTZ destination avoids the old five-copy
+        // NVIDIA frame (two external plus three OMV) while the OMV provider
+        // still supplies its independent first-person coverage below.
+        if slot == DepthResolveSlot::World && depth_resolve_provider::available() {
+            self.ensure_external_world_target(&desc)?;
+            let texture_ptr = self
+                .world_target
+                .as_ref()
+                .map(|target| target.texture.as_raw_base_texture() as usize)
+                .ok_or(FnvDepthResolveError::Static(
+                    "missing borrowed Depth Resolve world target",
+                ))?;
+            *self.capture_mut(slot) = ResolvedDepthCapture {
+                texture_ptr,
+                projection,
+                frame_epoch: self.frame_epoch,
+                stage,
+                width: desc.Width,
+                height: desc.Height,
+            };
+            self.temporal_depth_proven =
+                projection.reversed_depth.is_some() && projection.camera.world_transform.available;
+            depth_resolve_provider::record_external_publication();
+            self.log_success(slot, stage, reason, source_label, &desc, projection);
+            return Ok(());
+        }
 
-        match self.route.kind() {
+        self.ensure_route(device)?;
+        let use_alias =
+            self.route.kind() == DepthResolveRouteKind::Nvapi && nvapi_stage_uses_alias(stage);
+        if !use_alias {
+            self.ensure_resources(device, &desc, slot)?;
+        }
+
+        let texture_ptr = match self.route.kind() {
             DepthResolveRouteKind::Resz => {
-                record_physical_depth_copy(stage);
                 if let Err(err) = unsafe { self.resolve_resz(device, source_surface, slot) } {
                     let requests_fallback = matches!(
                         &err,
@@ -2009,13 +2111,30 @@ impl FnvDepthResolve {
 
                     self.fallback_from_rejected_resz(&err)?;
                     self.ensure_resources(device, &desc, slot)?;
-                    record_physical_depth_copy(stage);
-                    self.resolve_nvapi(device_ptr, source_surface, desc.Format, slot)?;
+                    self.resolve_nvapi_copy(device_ptr, source_surface, slot)?;
                 }
+                record_physical_depth_copy(stage);
+                self.target_texture_ptr(slot)?
             }
             DepthResolveRouteKind::Nvapi => {
-                record_physical_depth_copy(stage);
-                self.resolve_nvapi(device_ptr, source_surface, desc.Format, slot)?;
+                if use_alias {
+                    match self.resolve_nvapi_alias(device_ptr, source_surface)? {
+                        Some(alias) => alias as usize,
+                        None => {
+                            // Alias rejection is cached for this exact source,
+                            // so later frames enter this bounded registered-copy
+                            // fallback without repeating setup or error traffic.
+                            self.ensure_resources(device, &desc, slot)?;
+                            self.resolve_nvapi_copy(device_ptr, source_surface, slot)?;
+                            record_physical_depth_copy(stage);
+                            self.target_texture_ptr(slot)?
+                        }
+                    }
+                } else {
+                    self.resolve_nvapi_copy(device_ptr, source_surface, slot)?;
+                    record_physical_depth_copy(stage);
+                    self.target_texture_ptr(slot)?
+                }
             }
             DepthResolveRouteKind::Unavailable => {
                 return Err(FnvDepthResolveError::Static(
@@ -2027,13 +2146,7 @@ impl FnvDepthResolve {
                     "depth resolve route was not initialized",
                 ));
             }
-        }
-
-        let texture_ptr = self
-            .target(slot)
-            .as_ref()
-            .map(|target| target.texture.as_raw_base_texture() as usize)
-            .ok_or(FnvDepthResolveError::Static("missing INTZ target"))?;
+        };
         *self.capture_mut(slot) = ResolvedDepthCapture {
             texture_ptr,
             projection,
@@ -2068,12 +2181,7 @@ impl FnvDepthResolve {
             target.resolve(device)
         })();
         let restore_result = state.restore_render_states(device);
-        // The device hook also sees OMV's own call. Arm this exact marker so
-        // exclusive ownership suppresses only Depth Resolve's duplicate
-        // trigger targeting the shared texture.
-        let resz_result = depth_resolve_provider::with_omv_marker(|| {
-            device.set_render_state(D3DRS_POINTSIZE, D3DRESZ_POINT_SIZE)
-        });
+        let resz_result = device.set_render_state(D3DRS_POINTSIZE, D3DRESZ_POINT_SIZE);
         let binding_restore_result = state.restore_bindings(device);
         let depth_restore_result = device.set_depth_stencil_surface(original_depth.as_ref());
 
@@ -2085,11 +2193,23 @@ impl FnvDepthResolve {
         Ok(())
     }
 
-    fn resolve_nvapi(
+    fn resolve_nvapi_alias(
         &mut self,
         device_ptr: *mut c_void,
         source_surface: *mut c_void,
-        source_format: D3DFORMAT,
+    ) -> Result<Option<*mut c_void>, FnvDepthResolveError> {
+        let DepthResolveRoute::Nvapi(nvapi) = &mut self.route else {
+            return Err(FnvDepthResolveError::Static(
+                "NvAPI depth route lost ownership",
+            ));
+        };
+        nvapi.alias(device_ptr, source_surface)
+    }
+
+    fn resolve_nvapi_copy(
+        &mut self,
+        device_ptr: *mut c_void,
+        source_surface: *mut c_void,
         slot: DepthResolveSlot,
     ) -> Result<(), FnvDepthResolveError> {
         let destination = self
@@ -2102,7 +2222,14 @@ impl FnvDepthResolve {
                 "NvAPI depth route lost ownership",
             ));
         };
-        nvapi.resolve(device_ptr, source_surface, source_format, destination)
+        nvapi.copy(device_ptr, source_surface, destination)
+    }
+
+    fn target_texture_ptr(&self, slot: DepthResolveSlot) -> Result<usize, FnvDepthResolveError> {
+        self.target(slot)
+            .as_ref()
+            .map(|target| target.texture.as_raw_base_texture() as usize)
+            .ok_or(FnvDepthResolveError::Static("missing INTZ target"))
     }
 
     fn fallback_from_rejected_resz(
@@ -2151,11 +2278,7 @@ impl FnvDepthResolve {
             if slot == DepthResolveSlot::World {
                 self.temporal_depth_proven = false;
             }
-            let target = if slot == DepthResolveSlot::World && depth_resolve_provider::available() {
-                FnvDepthTarget::from_shared_depth_resolve(desc)?
-            } else {
-                FnvDepthTarget::create(device, desc)?
-            };
+            let target = FnvDepthTarget::create(device, desc)?;
             if let DepthResolveRoute::Nvapi(nvapi) = &self.route {
                 nvapi.register(target.texture.as_raw())?;
             }
@@ -2171,6 +2294,26 @@ impl FnvDepthResolve {
         Ok(())
     }
 
+    fn ensure_external_world_target(
+        &mut self,
+        desc: &D3DSURFACE_DESC,
+    ) -> Result<(), FnvDepthResolveError> {
+        let needs_target = self
+            .world_target
+            .as_ref()
+            .is_none_or(|target| !target.shared || !target.matches(desc));
+        if needs_target {
+            self.release_target(DepthResolveSlot::World);
+            self.world_target = Some(FnvDepthTarget::from_shared_depth_resolve(desc)?);
+            log::info!(
+                "[FNV] Borrowed Depth Resolve world target: size={}x{}",
+                desc.Width,
+                desc.Height
+            );
+        }
+        Ok(())
+    }
+
     fn ensure_route(&mut self, device: &Device9Ref<'_>) -> Result<(), FnvDepthResolveError> {
         if self.route.kind() != DepthResolveRouteKind::Unprobed {
             return match &self.route {
@@ -2181,42 +2324,38 @@ impl FnvDepthResolve {
             };
         }
 
-        let resz_query_failed = match device.supports_resz() {
+        // Probe NvAPI first. NVIDIA drivers may also advertise RESZ, but its
+        // point-size transaction forces a full depth resolve at every logical
+        // stage. The NvAPI route can alias the immediately-consumed stages and
+        // reserves StretchRectEx for the one snapshot that must survive later
+        // writes to the engine's shared depth surface.
+        let nvapi_error = match NvapiDepthResolve::load() {
+            Ok(nvapi) => {
+                self.route = DepthResolveRoute::Nvapi(nvapi);
+                log::info!("[FNV] Depth resolve route: NVIDIA NvAPI persistent alias");
+                return Ok(());
+            }
+            Err(err) => err,
+        };
+
+        match device.supports_resz() {
             Ok(true) => {
                 self.route = DepthResolveRoute::Resz;
                 log::info!("[FNV] Depth resolve route: RESZ");
-                return Ok(());
-            }
-            Ok(false) => false,
-            Err(err) => {
-                // A failed capability query is not proof that RESZ is absent.
-                // The native NvAPI route remains a safe independent fallback,
-                // but diagnostics must preserve the real query failure.
-                log::warn!(
-                    "[FNV] Active-device RESZ capability query failed; trying native NVIDIA NvAPI: {err}"
-                );
-                true
-            }
-        };
-
-        match NvapiDepthResolve::load() {
-            Ok(nvapi) => {
-                self.route = DepthResolveRoute::Nvapi(nvapi);
-                log::info!("[FNV] Depth resolve route: NVIDIA NvAPI");
                 Ok(())
             }
+            Ok(false) => {
+                let reason =
+                    "RESZ is not exposed and the native NVIDIA NvAPI D3D9 route is unavailable";
+                log::warn!("[FNV] Depth resolve unavailable: {reason}: {nvapi_error}");
+                self.route = DepthResolveRoute::Unavailable(reason);
+                Err(FnvDepthResolveError::Unavailable(reason))
+            }
             Err(err) => {
-                let reason = if resz_query_failed {
-                    log::warn!(
-                        "[FNV] Depth resolve unavailable: the active-device RESZ query failed and NvAPI initialization also failed: {err}"
-                    );
-                    "the active-device RESZ query failed and the native NVIDIA NvAPI D3D9 route is unavailable"
-                } else {
-                    log::warn!(
-                        "[FNV] Depth resolve unavailable: RESZ was not exposed and NvAPI initialization failed: {err}"
-                    );
-                    "RESZ is not exposed and the native NVIDIA NvAPI D3D9 route is unavailable"
-                };
+                let reason = "the active-device RESZ query failed and the native NVIDIA NvAPI D3D9 route is unavailable";
+                log::warn!(
+                    "[FNV] Depth resolve unavailable: {reason}: RESZ={err}; NvAPI={nvapi_error}"
+                );
                 self.route = DepthResolveRoute::Unavailable(reason);
                 Err(FnvDepthResolveError::Unavailable(reason))
             }
@@ -2241,6 +2380,7 @@ impl FnvDepthResolve {
         let resource = self
             .target(slot)
             .as_ref()
+            .filter(|target| !target.shared)
             .map(|target| target.texture.as_raw());
         if let (Some(resource), DepthResolveRoute::Nvapi(nvapi)) = (resource, &self.route) {
             nvapi.unregister(resource);
@@ -2370,8 +2510,9 @@ mod depth_capture_tests {
         AlphaCoverageMode, D3DERR_NOTAVAILABLE_CODE, DepthProjectionFrame, DepthResolveRouteKind,
         DepthResolveStage, FnvDepthResolve, NVAPI_UNREGISTERED_RESOURCE, ResolvedDepthCapture,
         alpha_coverage_mode_from_raw, decode_third_person_view,
-        nvapi_depth_copy_needs_registration, resz_failure_requires_fallback, sampled_depth_bits,
-        select_depth_resolve_route, underwater_frame_for_publication,
+        nvapi_depth_copy_needs_registration, nvapi_stage_uses_alias,
+        resz_failure_requires_fallback, sampled_depth_bits, select_depth_resolve_route,
+        underwater_frame_for_publication,
     };
 
     fn capture(
@@ -2530,14 +2671,18 @@ mod depth_capture_tests {
     }
 
     #[test]
-    fn depth_route_prefers_resz_then_native_nvapi_and_fails_closed() {
+    fn depth_route_prefers_native_nvapi_alias_then_resz_and_fails_closed() {
         assert_eq!(
             select_depth_resolve_route(true, true),
-            DepthResolveRouteKind::Resz
+            DepthResolveRouteKind::Nvapi
         );
         assert_eq!(
             select_depth_resolve_route(false, true),
             DepthResolveRouteKind::Nvapi
+        );
+        assert_eq!(
+            select_depth_resolve_route(true, false),
+            DepthResolveRouteKind::Resz
         );
         assert_eq!(
             select_depth_resolve_route(false, false),
@@ -2567,7 +2712,7 @@ mod depth_capture_tests {
         let body = source
             .split_once("unsafe fn resolve_resz(")
             .map(|(_, tail)| tail)
-            .and_then(|tail| tail.split_once("\n    fn resolve_nvapi("))
+            .and_then(|tail| tail.split_once("\n    fn resolve_nvapi_alias("))
             .map(|(body, _)| body)
             .expect("RESZ resolve body");
 
@@ -2579,7 +2724,7 @@ mod depth_capture_tests {
     }
 
     #[test]
-    fn native_nvapi_prefers_an_intz_texture_container_with_surface_fallback() {
+    fn native_nvapi_registers_the_surface_required_by_the_alias_contract() {
         let source = include_str!("fnv.rs");
         let body = source
             .split_once("impl NvapiDepthResolve {")
@@ -2588,19 +2733,37 @@ mod depth_capture_tests {
             .map(|(body, _)| body)
             .expect("NvAPI resolver body");
 
-        let intz = body
-            .find("source_format == D3DFMT_INTZ")
-            .expect("INTZ source classification");
-        let container = body[intz..]
-            .find("surface.texture_container()")
-            .map(|offset| intz + offset)
-            .expect("INTZ texture container");
-        let register = body[container..]
-            .find("self.register(source.as_raw())")
-            .map(|offset| container + offset)
-            .expect("source registration");
-        assert!(intz < container && container < register);
-        assert!(body.contains("None => NvapiSourceResource::Surface(surface)"));
+        assert!(body.contains("self.register(surface.as_raw())?"));
+        assert!(body.contains("alias_surface_as_texture.as_fn()"));
+        assert!(!body.contains("surface.texture_container()"));
+    }
+
+    #[test]
+    fn nvapi_alias_failure_is_cached_for_the_current_surface() {
+        let source = include_str!("fnv.rs");
+        let body = source
+            .split_once("fn alias(")
+            .map(|(_, tail)| tail)
+            .and_then(|tail| tail.split_once("\n    fn copy("))
+            .map(|(body, _)| body)
+            .expect("NvAPI alias body");
+        assert!(body.contains("if self.alias_disabled_for_source"));
+        assert!(body.contains("self.disable_alias_for_source"));
+
+        let release = source
+            .split_once("fn unregister_source(&mut self)")
+            .map(|(_, tail)| tail)
+            .and_then(|tail| tail.split_once("\n    fn ensure_source("))
+            .map(|(body, _)| body)
+            .expect("NvAPI source release body");
+        assert!(release.contains("self.alias_disabled_for_source = false"));
+    }
+
+    #[test]
+    fn nvapi_copies_only_the_snapshot_that_must_survive_later_depth_writes() {
+        assert!(nvapi_stage_uses_alias(DepthResolveStage::PreAlphaWorld));
+        assert!(!nvapi_stage_uses_alias(DepthResolveStage::CoherentWorld));
+        assert!(nvapi_stage_uses_alias(DepthResolveStage::FirstPerson));
     }
 
     #[test]
@@ -2644,6 +2807,7 @@ fn sampled_depth_bits(format: D3DFORMAT) -> u8 {
 struct FnvDepthTarget {
     width: u32,
     height: u32,
+    shared: bool,
     texture: Texture9,
 }
 
@@ -2657,6 +2821,7 @@ impl FnvDepthTarget {
         Ok(Self {
             width: desc.Width,
             height: desc.Height,
+            shared: false,
             texture,
         })
     }
@@ -2666,6 +2831,7 @@ impl FnvDepthTarget {
         Ok(Self {
             width: desc.Width,
             height: desc.Height,
+            shared: true,
             texture,
         })
     }
