@@ -179,6 +179,19 @@ extraownership_invalid_owner_guard = true
 # the native reference -> cell -> worldspace precedence before returning NULL.
 encounter_zone_invalid_form_guard = true
 
+# Prevents a retired reference from remaining in its cell's render-phase list
+# after the reference has been freed. This can occur when mutable reference
+# state changes between native list insertion and removal, including corpse
+# state transitions caused by later damage.
+#
+# Technical: replaces the mutable predicate-result branch with a dispatcher.
+# The existing true-path call owner remains untouched; only the formerly skipped
+# false path calls the engine's exact render-list removal helper. The retiring
+# pointer is an opaque comparison key and is never dereferenced or freed by
+# Psycho. This fix is allocator-independent and does not require the helper or
+# another xNVSE plugin.
+cell_render_reference_retirement_fix = true
+
 # Prevents a save-to-save transition crash when a deleted or unloading
 # reference retains a stale linked-reference child list. Only that corrupt list
 # is ignored during cleanup.

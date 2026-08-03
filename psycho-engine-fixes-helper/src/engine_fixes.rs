@@ -27,7 +27,7 @@ pub(crate) const EVENT_PRE_LOAD_GAME: u32 = 7;
 pub(crate) const EVENT_EXIT_TO_MAIN_MENU: u32 = 8;
 pub(crate) const EVENT_NEW_GAME: u32 = 9;
 
-pub(crate) const DASHBOARD_ABI_VERSION: u32 = 3;
+pub(crate) const DASHBOARD_ABI_VERSION: u32 = 4;
 pub(crate) const DASHBOARD_FLAG_CORE_READY: u32 = 1 << 0;
 pub(crate) const DASHBOARD_FLAG_PRE_CRT_BOUNDARY: u32 = 1 << 1;
 pub(crate) const DASHBOARD_FLAG_VAS_VALID: u32 = 1 << 2;
@@ -48,6 +48,8 @@ pub(crate) const DASHBOARD_FEATURE_ACTOR_CONTAINER_GUARD: u64 = 1 << 8;
 pub(crate) const DASHBOARD_FEATURE_MODEL_POSTPROCESS: u64 = 1 << 9;
 /// Core feature bit for installed shared encounter-zone containment.
 pub(crate) const DASHBOARD_FEATURE_ENCOUNTER_ZONE_GUARD: u64 = 1 << 10;
+/// Core feature bit for a live cell render-list retirement cleanup provider.
+pub(crate) const DASHBOARD_FEATURE_CELL_RENDER_RETIREMENT: u64 = 1 << 11;
 
 type NotifyEventFn =
     unsafe extern "system" fn(kind: u32, data: *const u8, data_len: usize, bool_value: i32) -> i32;
@@ -58,7 +60,7 @@ static NOTIFY_EVENT: AtomicUsize = AtomicUsize::new(0);
 static QUERY_DASHBOARD: AtomicUsize = AtomicUsize::new(0);
 static REQUEST_DASHBOARD_REFRESH: AtomicUsize = AtomicUsize::new(0);
 
-/// Exact mirror of the core's version-3 plain-data dashboard ABI.
+/// Exact mirror of the core's version-4 plain-data dashboard ABI.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
 pub(crate) struct DashboardSnapshot {
@@ -137,9 +139,13 @@ pub(crate) struct DashboardSnapshot {
     pub encounter_zone_access_rejections: u64,
     /// Exact encounter-zone sources removed or cleared at runtime.
     pub encounter_zone_repairs: u64,
+    /// False-predicate retirements sent through the canonical native remover.
+    pub cell_render_forced_cleanups: u64,
+    /// Post-install replacements of the active retirement dispatch block.
+    pub cell_render_patch_ownership_losses: u64,
 }
 
-const _: () = assert!(size_of::<DashboardSnapshot>() == 560);
+const _: () = assert!(size_of::<DashboardSnapshot>() == 576);
 
 impl DashboardSnapshot {
     fn request() -> Self {
@@ -235,9 +241,9 @@ mod tests {
         assert_eq!(request.abi_version, DASHBOARD_ABI_VERSION);
         assert_eq!(request.struct_size as usize, size_of::<DashboardSnapshot>());
         assert_eq!(
-            offset_of!(DashboardSnapshot, encounter_zone_load_rejections),
-            536,
-            "helper version 3 must mirror the core's version-2 prefix"
+            offset_of!(DashboardSnapshot, cell_render_forced_cleanups),
+            560,
+            "helper version 4 must mirror the core's version-3 prefix"
         );
     }
 }

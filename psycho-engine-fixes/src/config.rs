@@ -323,6 +323,8 @@ pub struct EngineFixesConfig {
     pub extraownership_invalid_owner_guard: bool,
     /// Reject invalid ExtraEncounterZone forms and preserve native fallbacks.
     pub encounter_zone_invalid_form_guard: bool,
+    /// Run canonical render-list removal when mutable retirement state skips it.
+    pub cell_render_reference_retirement_fix: bool,
     /// Ignore stale linked-reference child lists during save-to-save cleanup.
     pub linked_ref_children_stale_list_guard: bool,
     /// Treat linked-reference targets with invalid base forms as not matching the type gate.
@@ -362,6 +364,7 @@ impl Default for EngineFixesConfig {
             actor_container_retirement_guard: true,
             extraownership_invalid_owner_guard: true,
             encounter_zone_invalid_form_guard: true,
+            cell_render_reference_retirement_fix: true,
             linked_ref_children_stale_list_guard: true,
             linked_ref_target_base_form_guard: true,
             ragdoll_null_bone_guard: true,
@@ -415,6 +418,9 @@ impl EngineFixesConfig {
             encounter_zone_invalid_form_guard: raw
                 .encounter_zone_invalid_form_guard
                 .unwrap_or(default.encounter_zone_invalid_form_guard),
+            cell_render_reference_retirement_fix: raw
+                .cell_render_reference_retirement_fix
+                .unwrap_or(default.cell_render_reference_retirement_fix),
             linked_ref_children_stale_list_guard: raw
                 .linked_ref_children_stale_list_guard
                 .unwrap_or(default.linked_ref_children_stale_list_guard),
@@ -552,6 +558,7 @@ struct RawEngineFixesConfig {
     actor_container_retirement_guard: Option<bool>,
     extraownership_invalid_owner_guard: Option<bool>,
     encounter_zone_invalid_form_guard: Option<bool>,
+    cell_render_reference_retirement_fix: Option<bool>,
     linked_ref_children_stale_list_guard: Option<bool>,
     linked_ref_target_base_form_guard: Option<bool>,
     ragdoll_null_bone_guard: Option<bool>,
@@ -717,6 +724,21 @@ encounter_zone_invalid_form_guard = false
 
         assert!(default.engine_fixes.encounter_zone_invalid_form_guard);
         assert!(!disabled.engine_fixes.encounter_zone_invalid_form_guard);
+    }
+
+    #[test]
+    fn cell_render_retirement_defaults_on_and_honors_explicit_disable() {
+        let default: PsychoConfig = toml::from_str("").expect("parse default configuration");
+        let disabled: PsychoConfig = toml::from_str(
+            r#"
+[engine_fixes]
+cell_render_reference_retirement_fix = false
+"#,
+        )
+        .expect("parse cell render retirement setting");
+
+        assert!(default.engine_fixes.cell_render_reference_retirement_fix);
+        assert!(!disabled.engine_fixes.cell_render_reference_retirement_fix);
     }
 
     #[test]

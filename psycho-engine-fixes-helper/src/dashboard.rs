@@ -70,7 +70,7 @@ const RELOAD_ACTIVE: [f32; 4] = [0.82, 0.51, 0.12, 1.0];
 const HOVER_HELP_HINT: &str =
     "Hover a setting or technical label for a plain-language explanation.";
 
-const ENGINE_FIX_HELP: [(&str, &str); 20] = [
+const ENGINE_FIX_HELP: [(&str, &str); 21] = [
     (
         "Display / Alt-Tab repair",
         "Keeps fullscreen startup, renderer resets, focus changes, and Alt-Tab from using broken window size or placement. Leave it on unless another window mod has a confirmed conflict.",
@@ -98,6 +98,10 @@ const ENGINE_FIX_HELP: [(&str, &str); 20] = [
     (
         "Encounter-zone form guard",
         "Removes only an exact unresolved or invalid encounter-zone source, then preserves the game's valid cell and worldspace fallbacks.",
+    ),
+    (
+        "Cell render retirement repair",
+        "Removes a retiring reference from its cell's borrowed render list before later phase work can follow a freed corpse or object pointer. It does not inspect or free the reference itself.",
     ),
     (
         "Linked-ref stale child guard",
@@ -159,8 +163,9 @@ const ENGINE_FIX_DISPLAY_INDEX: usize = 0;
 const ENGINE_FIX_SAVE_INDEX: usize = 1;
 const ENGINE_FIX_ACTOR_CONTAINER_INDEX: usize = 4;
 const ENGINE_FIX_ENCOUNTER_ZONE_INDEX: usize = 6;
-const ENGINE_FIX_MODEL_POSTPROCESS_INDEX: usize = 18;
-const ENGINE_FIX_QUEUED_TASK_INDEX: usize = 19;
+const ENGINE_FIX_CELL_RENDER_RETIREMENT_INDEX: usize = 7;
+const ENGINE_FIX_MODEL_POSTPROCESS_INDEX: usize = 19;
+const ENGINE_FIX_QUEUED_TASK_INDEX: usize = 20;
 
 static READY: AtomicBool = AtomicBool::new(false);
 static OPEN_REQUESTED: AtomicBool = AtomicBool::new(false);
@@ -1058,6 +1063,12 @@ impl DashboardRuntime {
                 ENGINE_FIX_HELP[ENGINE_FIX_ENCOUNTER_ZONE_INDEX].1,
             ),
             (
+                "Cell render retirement repair",
+                engine_fixes::DASHBOARD_FEATURE_CELL_RENDER_RETIREMENT,
+                "Borrowed render-list membership ends before object lifetime",
+                ENGINE_FIX_HELP[ENGINE_FIX_CELL_RENDER_RETIREMENT_INDEX].1,
+            ),
+            (
                 "Model postprocess serialization",
                 engine_fixes::DASHBOARD_FEATURE_MODEL_POSTPROCESS,
                 "Process-global EditorMarker traversal ownership",
@@ -1142,6 +1153,20 @@ impl DashboardRuntime {
             core.encounter_zone_repairs,
             counter_color(core.encounter_zone_repairs),
             "Exact corrupt reference, cell, or worldspace sources removed or cleared before Psycho re-ran the native fallback order.",
+        );
+        draw_value_help(
+            ui,
+            "Cell render forced cleanups",
+            core.cell_render_forced_cleanups,
+            ACCENT,
+            "False-predicate retirements that would have skipped render-list removal. Psycho sent each one through the executable's canonical native remover.",
+        );
+        draw_value_help(
+            ui,
+            "Cell render ownership losses",
+            core.cell_render_patch_ownership_losses,
+            counter_color(core.cell_render_patch_ownership_losses),
+            "Active dispatch blocks replaced after startup. Any non-zero value clears the feature's active bit and means another writer removed this protection.",
         );
         draw_value_help(
             ui,
@@ -1886,6 +1911,7 @@ fn draw_configuration(ui: &mut Ui<'_>, editor: &mut ConfigEditor) {
         &mut config.actor_container_retirement_guard,
         &mut config.extraownership_invalid_owner_guard,
         &mut config.encounter_zone_invalid_form_guard,
+        &mut config.cell_render_reference_retirement_fix,
         &mut config.linked_ref_children_stale_list_guard,
         &mut config.linked_ref_target_base_form_guard,
         &mut config.ragdoll_null_bone_guard,
@@ -2340,11 +2366,11 @@ mod tests {
     use core::ffi::c_void;
 
     use super::{
-        ENGINE_FIX_ACTOR_CONTAINER_INDEX, ENGINE_FIX_DISPLAY_INDEX,
-        ENGINE_FIX_ENCOUNTER_ZONE_INDEX, ENGINE_FIX_HELP, ENGINE_FIX_MODEL_POSTPROCESS_INDEX,
-        ENGINE_FIX_QUEUED_TASK_INDEX, ENGINE_FIX_SAVE_INDEX, GameRenderHandles, LogFilters,
-        LogLevel, LogTailReader, MemoryHealth, Page, SamplingState, parse_log_line,
-        take_driver_refresh,
+        ENGINE_FIX_ACTOR_CONTAINER_INDEX, ENGINE_FIX_CELL_RENDER_RETIREMENT_INDEX,
+        ENGINE_FIX_DISPLAY_INDEX, ENGINE_FIX_ENCOUNTER_ZONE_INDEX, ENGINE_FIX_HELP,
+        ENGINE_FIX_MODEL_POSTPROCESS_INDEX, ENGINE_FIX_QUEUED_TASK_INDEX, ENGINE_FIX_SAVE_INDEX,
+        GameRenderHandles, LogFilters, LogLevel, LogTailReader, MemoryHealth, Page, SamplingState,
+        parse_log_line, take_driver_refresh,
     };
     use crate::engine_fixes::{DASHBOARD_FLAG_VAS_VALID, DashboardSnapshot};
 
@@ -2386,7 +2412,7 @@ mod tests {
 
     #[test]
     fn every_engine_fix_has_concise_unique_hover_help() {
-        assert_eq!(ENGINE_FIX_HELP.len(), 20);
+        assert_eq!(ENGINE_FIX_HELP.len(), 21);
         for (index, expected) in [
             (ENGINE_FIX_DISPLAY_INDEX, "Display / Alt-Tab repair"),
             (ENGINE_FIX_SAVE_INDEX, "Durable save integrity"),
@@ -2395,6 +2421,10 @@ mod tests {
                 "Dynamic actor container guard",
             ),
             (ENGINE_FIX_ENCOUNTER_ZONE_INDEX, "Encounter-zone form guard"),
+            (
+                ENGINE_FIX_CELL_RENDER_RETIREMENT_INDEX,
+                "Cell render retirement repair",
+            ),
             (
                 ENGINE_FIX_MODEL_POSTPROCESS_INDEX,
                 "Model postprocess serialization",

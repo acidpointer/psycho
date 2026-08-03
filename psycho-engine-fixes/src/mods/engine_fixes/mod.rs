@@ -11,6 +11,7 @@ use libc::c_void;
 use crate::config::{DiagnosticsConfig, EngineFixesConfig, IoConfig, LodConfig};
 
 mod actor_container_guard;
+mod cell_render_retirement;
 mod display;
 mod encounter_zone;
 mod entrydata;
@@ -57,6 +58,8 @@ pub(crate) const DASHBOARD_FEATURE_ACTOR_CONTAINER_GUARD: u64 = 1 << 8;
 pub(crate) const DASHBOARD_FEATURE_MODEL_POSTPROCESS: u64 = 1 << 9;
 /// Dashboard bit proving that shared encounter-zone containment installed.
 pub(crate) const DASHBOARD_FEATURE_ENCOUNTER_ZONE_GUARD: u64 = 1 << 10;
+/// Dashboard bit proving a retirement cleanup provider remains active.
+pub(crate) const DASHBOARD_FEATURE_CELL_RENDER_RETIREMENT: u64 = 1 << 11;
 
 #[derive(Clone, Copy, Default)]
 pub(crate) struct DashboardCounters {
@@ -71,6 +74,10 @@ pub(crate) struct DashboardCounters {
     pub encounter_zone_access_rejections: u64,
     /// Exact invalid encounter-zone sources removed or cleared at runtime.
     pub encounter_zone_repairs: u64,
+    /// False-predicate retirements sent through the canonical native remover.
+    pub cell_render_forced_cleanups: u64,
+    /// Post-install replacements of the active retirement dispatch block.
+    pub cell_render_patch_ownership_losses: u64,
     pub task_dispatches: u64,
     pub task_rejections: u64,
     pub task_release_guards: u64,
@@ -107,6 +114,7 @@ pub(crate) fn dashboard_counters() -> DashboardCounters {
     let io = io::diagnostic_snapshot();
     let lod = lod::dashboard_snapshot();
     let encounter_zone = encounter_zone::dashboard_snapshot();
+    let cell_render = cell_render_retirement::dashboard_snapshot();
 
     let mut active_features = 0;
     if display.create_window_installed || display.installed {
@@ -148,6 +156,9 @@ pub(crate) fn dashboard_counters() -> DashboardCounters {
     if encounter_zone.installed {
         active_features |= DASHBOARD_FEATURE_ENCOUNTER_ZONE_GUARD;
     }
+    if cell_render.installed {
+        active_features |= DASHBOARD_FEATURE_CELL_RENDER_RETIREMENT;
+    }
 
     DashboardCounters {
         active_features,
@@ -163,6 +174,8 @@ pub(crate) fn dashboard_counters() -> DashboardCounters {
         encounter_zone_load_rejections: encounter_zone.load_rejections,
         encounter_zone_access_rejections: encounter_zone.access_rejections,
         encounter_zone_repairs: encounter_zone.repairs,
+        cell_render_forced_cleanups: cell_render.forced_cleanups,
+        cell_render_patch_ownership_losses: cell_render.patch_ownership_losses,
         task_dispatches: task.dispatch_calls,
         task_rejections: task
             .pin_failures
@@ -236,6 +249,7 @@ pub fn install(
     install_entrydata_invalid_form(config)?;
     install_extraownership_invalid_owner(config)?;
     install_encounter_zone_invalid_form(config)?;
+    install_cell_render_retirement(config)?;
     install_linked_ref_children_stale_list(config)?;
     install_linked_ref_target_base_form(config)?;
     install_ragdoll_null_bone(config)?;
@@ -332,6 +346,8 @@ pub(crate) fn append_diagnostic_report(out: &mut String) {
     let save = save_integrity::diagnostic_snapshot();
     let io = io::diagnostic_snapshot();
     let lod = lod::diagnostic_snapshot();
+    let encounter_zone = encounter_zone::dashboard_snapshot();
+    let cell_render = cell_render_retirement::dashboard_snapshot();
 
     push_report_section(out, "Runtime fixes");
     push_feature_pair(
@@ -380,6 +396,13 @@ pub(crate) fn append_diagnostic_report(out: &mut String) {
         model.installed,
         "Actor lifetime",
         actor_container_guard::is_installed(),
+    );
+    push_feature_pair(
+        out,
+        "Cell render retirement",
+        cell_render.installed,
+        "Encounter zones",
+        encounter_zone.installed,
     );
 
     let covered_move_sites = display
@@ -611,6 +634,14 @@ pub(crate) fn append_diagnostic_report(out: &mut String) {
         format!("{} / guard {}", model.owner, on_off(model.installed)),
     );
     push_report_value(out, "Model PP owner", format!("{:08X}", model.predecessor));
+    push_report_value(
+        out,
+        "Cell render cleanup",
+        format!(
+            "{} forced / {} ownership losses",
+            cell_render.forced_cleanups, cell_render.patch_ownership_losses,
+        ),
+    );
 
     let requested_workers = if io.scheduler.parallel_requested {
         2
@@ -1044,6 +1075,17 @@ fn install_encounter_zone_invalid_form(config: &EngineFixesConfig) -> anyhow::Re
 
     encounter_zone::install()?;
     log::info!("[ENCOUNTER_ZONE] Invalid form guard active");
+    Ok(())
+}
+
+fn install_cell_render_retirement(config: &EngineFixesConfig) -> anyhow::Result<()> {
+    if !config.cell_render_reference_retirement_fix {
+        log::info!("[CELL_RENDER_RETIREMENT] Cleanup disabled by config");
+        return Ok(());
+    }
+    if let Err(error) = cell_render_retirement::install() {
+        log::warn!("[CELL_RENDER_RETIREMENT] Cleanup unavailable: {error:#}");
+    }
     Ok(())
 }
 

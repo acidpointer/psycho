@@ -167,8 +167,8 @@ Evidence:
 
 ## Core/helper diagnostics ABI
 
-`PsychoEngineFixes_QueryDashboard` is export ordinal 5. ABI version 3 is a
-560-byte `repr(C)` caller-owned structure made only of fixed-width integers.
+`PsychoEngineFixes_QueryDashboard` is export ordinal 5. ABI version 4 is a
+576-byte `repr(C)` caller-owned structure made only of fixed-width integers.
 Both DLLs have a compile-time size assertion. The request begins with
 `struct_size` and `abi_version`; the core reads only that mandatory prefix,
 rejects an undersized or mismatched request, fills a local snapshot, and then
@@ -186,23 +186,25 @@ The snapshot groups are:
 - allocator fallback/failure counts;
 - save-integrity and queued-task lifetime counters;
 - encounter-zone changed-form/runtime rejections and exact source repairs;
+- false-predicate cell render-list cleanups and active-provider ownership
+  losses;
 - active native IO fallbacks and LOD ownership counters, plus reserved routine
   IO/LOD activity fields that remain zero for ABI compatibility;
 - eight reserved SpeedTree materialization/Compute activity, contention,
-  waiter, and maximum-wait fields. They remain zero for ABI version 3
-  compatibility after release hot-path sampling was removed;
+  waiter, and maximum-wait fields. They remain zero in ABI version 4 after
+  release hot-path sampling was removed;
 - process/VAS sample timestamps plus fast-query and explicit-VAS-refresh
   counts and last/maximum durations.
 
 `PsychoEngineFixes_RequestDashboardRefresh` is export ordinal 6. It accepts a
-fixed refresh kind and runs on the helper's sampling worker. Version 3 requires
+fixed refresh kind and runs on the helper's sampling worker. Version 4 requires
 both exports, preventing a new helper from silently applying old periodic
 sampling behavior to an older core.
 
-Version 3 preserves the complete 536-byte version-2 prefix and appends three
-`u64` encounter-zone counters. Both sides still require the exact advertised
-version and complete storage, so mismatched helper/core DLLs fail unavailable
-instead of interpreting a shorter structure.
+Version 4 preserves the complete 560-byte version-3 prefix and appends two
+`u64` cell-render-retirement counters. Both sides still require the exact
+advertised version and complete storage, so mismatched helper/core DLLs fail
+unavailable instead of interpreting a shorter structure.
 
 Active engine counters are cumulative and read-only. The Runtime Fixes page no
 longer presents the reserved routine LOD, cell, or SpeedTree fields as activity
@@ -361,9 +363,18 @@ initializes the core guard.
 The **Encounter-zone form guard** checkbox owns
 `[engine_fixes].encounter_zone_invalid_form_guard`. It defaults on and changes
 only next-launch core activation. Runtime Fixes reads additive bit 10 to prove
-the shared resolver hook installed, then displays version-3 counters for
-changed-form rejections, runtime rejections, and exact source repairs. The
-helper never resolves or mutates a game form and never initializes the core.
+the shared resolver hook installed, then displays counters introduced in
+version 3 for changed-form rejections, runtime rejections, and exact source
+repairs. The helper never resolves or mutates a game form and never initializes
+the core.
+
+The **Cell render retirement repair** checkbox owns
+`[engine_fixes].cell_render_reference_retirement_fix`. It defaults on and
+changes only next-launch core activation. Runtime Fixes reads additive bit 11
+and version-4 counters for false-predicate cleanups and post-install provider
+ownership loss. The active bit is derived from current provider bytes rather
+than startup success alone. The helper does not inspect a cell or reference; it
+only mirrors the core's fixed-width snapshot.
 
 ## Failure behavior and compatibility boundary
 
@@ -398,11 +409,11 @@ Automated coverage includes:
 - complete-line incremental log-tail parsing across reads;
 - contiguous-VAS health classification;
 - structured log parsing, compact context extraction, and five-level filtering;
-- the complete 20-entry engine-fix help catalog, including unique labels,
+- the complete 21-entry engine-fix help catalog, including unique labels,
   concise length bounds, and ASCII font safety;
 - config dirty-state tracking;
-- actor-container and encounter-zone guard default/disable parsing and
-  comment-preserving serialization;
+- actor-container, encounter-zone, and cell-render-retirement default/disable
+  parsing and comment-preserving serialization;
 - exact legacy-key fallback ordering and integer multiplier parsing;
 - leading, inline, and unknown-key comment/data preservation.
 
@@ -419,12 +430,12 @@ Validation recorded on 2026-08-03:
 
 - `cargo test --target i686-pc-windows-gnu -p
   psycho-engine-fixes-helper`: 14 passed, 0 failed;
-- `cargo test --target i686-pc-windows-gnu -p psycho-engine-fixes --lib`: 134
+- `cargo test --target i686-pc-windows-gnu -p psycho-engine-fixes --lib`: 153
   passed, 0 failed;
 - the affected release build for `psycho-engine-fixes` and
   `psycho-engine-fixes-helper` passed;
-- the helper/core ABI tests prove a 560-byte layout and the complete 536-byte
-  version-2 prefix on both sides;
+- the helper/core ABI tests prove a 576-byte layout and the complete 560-byte
+  version-3 prefix on both sides;
 - deployed ABI-v3 helper and core hashes matched the release artifacts, xNVSE
   loaded the helper, and the final captured-cell guard passed the affected live
   load; the logs do not independently prove visual presentation of every new

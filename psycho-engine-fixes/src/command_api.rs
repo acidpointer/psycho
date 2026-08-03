@@ -81,7 +81,7 @@ pub struct CommandOutput {
 }
 
 /// Exact dashboard structure revision shared with the late-bound helper.
-pub const DASHBOARD_ABI_VERSION: u32 = 3;
+pub const DASHBOARD_ABI_VERSION: u32 = 4;
 
 pub const DASHBOARD_FLAG_CORE_READY: u32 = 1 << 0;
 pub const DASHBOARD_FLAG_PRE_CRT_BOUNDARY: u32 = 1 << 1;
@@ -187,9 +187,13 @@ pub struct DashboardSnapshot {
     pub encounter_zone_access_rejections: u64,
     /// Exact encounter-zone sources removed or cleared at runtime.
     pub encounter_zone_repairs: u64,
+    /// False-predicate retirements sent through the canonical native remover.
+    pub cell_render_forced_cleanups: u64,
+    /// Post-install replacements of the active retirement dispatch block.
+    pub cell_render_patch_ownership_losses: u64,
 }
 
-const _: () = assert!(size_of::<DashboardSnapshot>() == 560);
+const _: () = assert!(size_of::<DashboardSnapshot>() == 576);
 
 impl Default for DashboardSnapshot {
     fn default() -> Self {
@@ -266,6 +270,8 @@ impl Default for DashboardSnapshot {
             encounter_zone_load_rejections: 0,
             encounter_zone_access_rejections: 0,
             encounter_zone_repairs: 0,
+            cell_render_forced_cleanups: 0,
+            cell_render_patch_ownership_losses: 0,
         }
     }
 }
@@ -375,6 +381,8 @@ pub unsafe extern "system" fn PsychoEngineFixes_QueryDashboard(
         encounter_zone_load_rejections: engine.encounter_zone_load_rejections,
         encounter_zone_access_rejections: engine.encounter_zone_access_rejections,
         encounter_zone_repairs: engine.encounter_zone_repairs,
+        cell_render_forced_cleanups: engine.cell_render_forced_cleanups,
+        cell_render_patch_ownership_losses: engine.cell_render_patch_ownership_losses,
         ..DashboardSnapshot::default()
     };
 
@@ -497,9 +505,9 @@ mod tests {
             size_of::<DashboardSnapshot>()
         );
         assert_eq!(
-            offset_of!(DashboardSnapshot, encounter_zone_load_rejections),
-            536,
-            "version 3 must preserve the complete version-2 prefix"
+            offset_of!(DashboardSnapshot, cell_render_forced_cleanups),
+            560,
+            "version 4 must preserve the complete version-3 prefix"
         );
     }
 }
