@@ -636,6 +636,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "37c93d8daa9d8a012fd8ab92f088405fb202ea0b6ab73ee2482ae66af4f42091"
 
 [[package]]
+name = "libdeflate-sys"
+version = "1.25.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "72753e0008ea87963d2f0770042d0df7abe51fafbb8dcaf618ac440f2f1fec0a"
+dependencies = [
+ "cc",
+]
+
+[[package]]
 name = "libf4se"
 version = "0.1.0"
 dependencies = [
@@ -922,6 +931,7 @@ dependencies = [
  "flate2",
  "iced-x86",
  "libc",
+ "libdeflate-sys",
  "libmimalloc",
  "libpsycho",
  "log",
@@ -932,6 +942,7 @@ dependencies = [
  "shadow-rs",
  "syringe-api",
  "toml",
+ "zlib-rs",
 ]
 
 [[package]]

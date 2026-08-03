@@ -16,7 +16,9 @@ log = { workspace = true }
 anyhow = { workspace = true }
 parking_lot = { workspace = true }
 libc = { workspace = true }
-flate2 = { version = "1.1", default-features = false, features = ["zlib-rs"] }
+libdeflate-sys = "1.25.2"
+# The direct stream API is intentionally unstable upstream; pin the audited ABI.
+zlib-rs = { version = "=0.6.3", default-features = false, features = ["std", "__internal-api"] }
 ahash = { workspace = true }
 rustc-hash = { workspace = true }
 rand = { workspace = true }
@@ -28,3 +30,6 @@ iced-x86 = { version = "1.21.0", features = ["decoder", "fast_fmt"] }
 
 [build-dependencies]
 shadow-rs = "1.7"
+
+[dev-dependencies]
+flate2 = { version = "1.1", default-features = false, features = ["zlib-rs"] }

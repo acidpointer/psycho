@@ -195,7 +195,7 @@ fn install_runtime_hooks(performance: &PerformanceConfig) -> anyhow::Result<()> 
     }
 
     if performance.zlib {
-        install_zlib_hooks(false)?;
+        install_zlib_hooks()?;
     }
 
     Ok(())
