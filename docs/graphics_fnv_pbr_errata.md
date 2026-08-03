@@ -1235,3 +1235,110 @@ Repository validation on 2026-07-22 passed all 254 OMV tests and the supported
 release build for `i686-pc-windows-gnu`. The tests exercise shader compilation
 through Wine; the scene-level visual and frame-time acceptance above still
 requires the game runtime.
+
+## NVIDIA Exterior PBR Collapse (2026-08-03)
+
+Runtime evidence separates the trigger from the vendor-specific multiplier.
+The affected NVIDIA sessions retain ordinary interior frame rate but collapse
+in exteriors. In `.reports/omv-latest--1fps.log`, an isolated native-PBR toggle
+changes the same exterior from approximately 42 FPS with PBR disabled to
+approximately 5.5 FPS with PBR enabled while the world effect has no ready
+contribution. In `.reports/omv-latest--critical-1fps.log`, the complete enabled
+stack runs at approximately 4.9 FPS and the master-disabled interval with depth
+capture still active runs at approximately 78 FPS. A tester's RX 7700 does not
+reproduce the collapse. These observations prove the OMV exterior PBR trigger
+and reject depth-provider ownership, but the AMD result means raw PBR work alone
+does not explain the vendor boundary.
+
+Both shader compilers in the supported workflow expose the same pathological
+program. The close-terrain shader dynamically indexed one interleaved
+48-register array as
+`OMV_SupplementalPointLightData[supplemental_index * 2]` and `+ 1` from inside
+the per-pixel point-light loop. Shader-model-3 compilation did not retain a
+constant-time relative load. It lowered that expression to a linear
+compare-and-select cascade over `c92..c139`, executed inside every light
+iteration. The zero-native-light row therefore carried the full supplemental
+selector even though the native row itself declared no point lights. This
+matches the reported night exterior and explains why the zero-native row was
+not a cheap shader.
+
+`close_terrain_constant_selection_rejects_the_linear_compiler_cascade` is the
+regression and negative control. It compiles the production one-layer,
+zero-native-light shader, reconstructs the old dynamic interleaved access in
+otherwise identical source, and requires the rejected program to contain at
+least 80 more unconditional compare/select instructions. Wine's compiler emits
+220 `cmp` instructions for the rejected program versus 51 for the corrected
+one. The exact native compiler used by the game emits 117 versus 23, a 94
+instruction difference inside otherwise equivalent shader work. This
+demonstrates the executed cascade without depending on a driver profiler or
+gameplay timing.
+
+The first bounded-selector implementation expressed that tree through nested
+function-like preprocessor macros. Wine's VKD3D compiler accepted the source,
+so the repository compile suite passed, but the game's native
+`d3dcompiler_47.dll` rejected all 56 changed close-terrain candidates with
+`X1516: not enough actual parameters` and `X3004` for the nested selector
+names. The fresh runtime log recorded `ready=106, failed=56`; PBR correctly
+failed closed because the close-terrain family was incomplete. The corrected
+source spells out the ordinary HLSL branch tree and uses macros only for the
+terminal constant-index assignments. It never forwards one function-like
+macro through another. `close_terrain_selection_is_legacy_preprocessor_safe`
+rejects the incompatible construction and verifies that both selectors still
+contain every index from zero through 23.
+
+The replacement keeps the exact light ABI and full PBR result. Native and
+supplemental loaders now use uniform binary selection trees with direct
+compile-time constant indices. A valid index reaches one of all 24 original
+entries through at most five uniform branches; no material sample, BRDF term,
+light, terrain layer, canopy companion, or fallback row is removed. The
+registers remain `c39..c88` for native VPT lights and `c91..c139` for OMV
+supplements. The combined native-plus-supplemental cap remains 24, order and
+RGB semantics are unchanged, and the CPU upload is byte-for-byte unchanged.
+The fix adds no texture, pass, draw, resource, lock, allocation, state query,
+or per-draw CPU operation.
+
+The tightened repository shader budgets record Wine's compiler result:
+
+| Representative close-terrain row | Old bytes / instructions | Corrected bytes / instructions | Texture samples |
+|---|---:|---:|---:|
+| one layer, zero native lights | 16,224 / 962 | 8,236 / 538 | 2 |
+| one layer, 24 native lights | 21,472 / 1,273 | 10,580 / 726 | 2 |
+| seven layers, zero native lights | 17,580 / 1,047 | 9,592 / 623 | 14 |
+| seven layers, 24 native lights | 22,828 / 1,358 | 11,936 / 811 | 14 |
+
+The game's Microsoft compiler reports approximately 346 static slots for the
+rejected one-layer row and 424 for the corrected row. That static number is not
+the executed cost: the corrected bytecode includes every mutually exclusive
+tree branch in its static size, but a uniform light index traverses no more
+than five of them. The rejected bytecode has no selection branches around its
+94 additional `cmp` instructions, so every one executes for every pixel and
+every supplemental-light iteration. Production acceptance is therefore based
+on the compare/select delta and bounded branch depth, not the misleading total
+static-slot ordering.
+
+Static evidence proves that OMV generated the linear per-light selector and
+that the corrected production variants no longer contain it. The RX 7700
+result supports the inference that AMD's backend optimized or tolerated the
+uniform cascade while the NVIDIA backend executed it pathologically; static
+bytecode alone cannot prove that driver-internal decision.
+
+Repository validation on 2026-08-03 passed all 443 OMV tests and the supported
+release build for `i686-pc-windows-gnu`. The focused 31-test PBR shader suite
+also compiled every registered variant and exercised the rejected dynamic
+selector as a negative control. In addition, all 162 registered variants were
+compiled through the exact native `d3dcompiler_47.dll` targeted by the game's
+Lutris prefix; this is the compiler that rejected the nested-macro version.
+These checks establish both compiler compatibility and shader coverage,
+bytecode bounds, and build correctness.
+
+The NVIDIA follow-up playtest then satisfied the scene-level acceptance. The
+runtime prepared all 162 variants without a compile failure, activated
+CloseTerrain, TerrainFade, and LandLOD PBR in a 3440x1440 exterior, and retained
+the complete dependency stack. After the final PBR enable, the reliability
+counter advanced from 6,000 to 7,800 Presents in 16.773 seconds, approximately
+107 Presents per second. The world pipeline reported no failure, rejected
+target, missed deadline, retry, or render-lock contention. One LandLOD draw
+without its required `s4` sampler correctly remained vanilla; it did not
+disable the admitted close-terrain or terrain-fade families. This runtime
+result rejects the former one-FPS exterior behavior while retaining full PBR
+coverage wherever the proven material contract is present.

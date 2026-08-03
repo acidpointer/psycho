@@ -240,6 +240,212 @@ float3 PointLighting(PbrSurface surface, float3 light_dir, float attenuation, fl
     return max(float3(0.0f, 0.0f, 0.0f), PbrDirect(surface, normal, view_dir, light_dir, light_color * PbrLightMultiplier()) * attenuation);
 }
 
+#if PBR_TERRAIN_POINT_LIGHTS > 0
+void LoadNativePointLight(int index, out float4 light_position, out float4 light_color)
+{
+#define OMV_LOAD_NATIVE_POINT_LIGHT(INDEX) \
+    light_position = PointLightPosition[(INDEX)]; \
+    light_color = PointLightColor[(INDEX)]
+#if PBR_TERRAIN_POINT_LIGHTS == 24
+    [branch] if (index < 12)
+    {
+#endif
+#if PBR_TERRAIN_POINT_LIGHTS >= 12
+        [branch] if (index < 6)
+        {
+#endif
+            [branch] if (index < 3)
+            {
+                [branch] if (index < 1) { OMV_LOAD_NATIVE_POINT_LIGHT(0); }
+                else
+                {
+                    [branch] if (index < 2) { OMV_LOAD_NATIVE_POINT_LIGHT(1); }
+                    else { OMV_LOAD_NATIVE_POINT_LIGHT(2); }
+                }
+            }
+            else
+            {
+                [branch] if (index < 4) { OMV_LOAD_NATIVE_POINT_LIGHT(3); }
+                else
+                {
+                    [branch] if (index < 5) { OMV_LOAD_NATIVE_POINT_LIGHT(4); }
+                    else { OMV_LOAD_NATIVE_POINT_LIGHT(5); }
+                }
+            }
+#if PBR_TERRAIN_POINT_LIGHTS >= 12
+        }
+        else
+        {
+            [branch] if (index < 9)
+            {
+                [branch] if (index < 7) { OMV_LOAD_NATIVE_POINT_LIGHT(6); }
+                else
+                {
+                    [branch] if (index < 8) { OMV_LOAD_NATIVE_POINT_LIGHT(7); }
+                    else { OMV_LOAD_NATIVE_POINT_LIGHT(8); }
+                }
+            }
+            else
+            {
+                [branch] if (index < 10) { OMV_LOAD_NATIVE_POINT_LIGHT(9); }
+                else
+                {
+                    [branch] if (index < 11) { OMV_LOAD_NATIVE_POINT_LIGHT(10); }
+                    else { OMV_LOAD_NATIVE_POINT_LIGHT(11); }
+                }
+            }
+        }
+#endif
+#if PBR_TERRAIN_POINT_LIGHTS == 24
+    }
+    else
+    {
+        [branch] if (index < 18)
+        {
+            [branch] if (index < 15)
+            {
+                [branch] if (index < 13) { OMV_LOAD_NATIVE_POINT_LIGHT(12); }
+                else
+                {
+                    [branch] if (index < 14) { OMV_LOAD_NATIVE_POINT_LIGHT(13); }
+                    else { OMV_LOAD_NATIVE_POINT_LIGHT(14); }
+                }
+            }
+            else
+            {
+                [branch] if (index < 16) { OMV_LOAD_NATIVE_POINT_LIGHT(15); }
+                else
+                {
+                    [branch] if (index < 17) { OMV_LOAD_NATIVE_POINT_LIGHT(16); }
+                    else { OMV_LOAD_NATIVE_POINT_LIGHT(17); }
+                }
+            }
+        }
+        else
+        {
+            [branch] if (index < 21)
+            {
+                [branch] if (index < 19) { OMV_LOAD_NATIVE_POINT_LIGHT(18); }
+                else
+                {
+                    [branch] if (index < 20) { OMV_LOAD_NATIVE_POINT_LIGHT(19); }
+                    else { OMV_LOAD_NATIVE_POINT_LIGHT(20); }
+                }
+            }
+            else
+            {
+                [branch] if (index < 22) { OMV_LOAD_NATIVE_POINT_LIGHT(21); }
+                else
+                {
+                    [branch] if (index < 23) { OMV_LOAD_NATIVE_POINT_LIGHT(22); }
+                    else { OMV_LOAD_NATIVE_POINT_LIGHT(23); }
+                }
+            }
+        }
+    }
+#endif
+#undef OMV_LOAD_NATIVE_POINT_LIGHT
+}
+#endif
+
+void LoadSupplementalPointLight(int index, out float4 light_position, out float4 light_color)
+{
+#define OMV_LOAD_SUPPLEMENTAL_POINT_LIGHT(INDEX) \
+    light_position = OMV_SupplementalPointLightData[(INDEX) * 2]; \
+    light_color = OMV_SupplementalPointLightData[(INDEX) * 2 + 1]
+    [branch] if (index < 12)
+    {
+        [branch] if (index < 6)
+        {
+            [branch] if (index < 3)
+            {
+                [branch] if (index < 1) { OMV_LOAD_SUPPLEMENTAL_POINT_LIGHT(0); }
+                else
+                {
+                    [branch] if (index < 2) { OMV_LOAD_SUPPLEMENTAL_POINT_LIGHT(1); }
+                    else { OMV_LOAD_SUPPLEMENTAL_POINT_LIGHT(2); }
+                }
+            }
+            else
+            {
+                [branch] if (index < 4) { OMV_LOAD_SUPPLEMENTAL_POINT_LIGHT(3); }
+                else
+                {
+                    [branch] if (index < 5) { OMV_LOAD_SUPPLEMENTAL_POINT_LIGHT(4); }
+                    else { OMV_LOAD_SUPPLEMENTAL_POINT_LIGHT(5); }
+                }
+            }
+        }
+        else
+        {
+            [branch] if (index < 9)
+            {
+                [branch] if (index < 7) { OMV_LOAD_SUPPLEMENTAL_POINT_LIGHT(6); }
+                else
+                {
+                    [branch] if (index < 8) { OMV_LOAD_SUPPLEMENTAL_POINT_LIGHT(7); }
+                    else { OMV_LOAD_SUPPLEMENTAL_POINT_LIGHT(8); }
+                }
+            }
+            else
+            {
+                [branch] if (index < 10) { OMV_LOAD_SUPPLEMENTAL_POINT_LIGHT(9); }
+                else
+                {
+                    [branch] if (index < 11) { OMV_LOAD_SUPPLEMENTAL_POINT_LIGHT(10); }
+                    else { OMV_LOAD_SUPPLEMENTAL_POINT_LIGHT(11); }
+                }
+            }
+        }
+    }
+    else
+    {
+        [branch] if (index < 18)
+        {
+            [branch] if (index < 15)
+            {
+                [branch] if (index < 13) { OMV_LOAD_SUPPLEMENTAL_POINT_LIGHT(12); }
+                else
+                {
+                    [branch] if (index < 14) { OMV_LOAD_SUPPLEMENTAL_POINT_LIGHT(13); }
+                    else { OMV_LOAD_SUPPLEMENTAL_POINT_LIGHT(14); }
+                }
+            }
+            else
+            {
+                [branch] if (index < 16) { OMV_LOAD_SUPPLEMENTAL_POINT_LIGHT(15); }
+                else
+                {
+                    [branch] if (index < 17) { OMV_LOAD_SUPPLEMENTAL_POINT_LIGHT(16); }
+                    else { OMV_LOAD_SUPPLEMENTAL_POINT_LIGHT(17); }
+                }
+            }
+        }
+        else
+        {
+            [branch] if (index < 21)
+            {
+                [branch] if (index < 19) { OMV_LOAD_SUPPLEMENTAL_POINT_LIGHT(18); }
+                else
+                {
+                    [branch] if (index < 20) { OMV_LOAD_SUPPLEMENTAL_POINT_LIGHT(19); }
+                    else { OMV_LOAD_SUPPLEMENTAL_POINT_LIGHT(20); }
+                }
+            }
+            else
+            {
+                [branch] if (index < 22) { OMV_LOAD_SUPPLEMENTAL_POINT_LIGHT(21); }
+                else
+                {
+                    [branch] if (index < 23) { OMV_LOAD_SUPPLEMENTAL_POINT_LIGHT(22); }
+                    else { OMV_LOAD_SUPPLEMENTAL_POINT_LIGHT(23); }
+                }
+            }
+        }
+    }
+#undef OMV_LOAD_SUPPLEMENTAL_POINT_LIGHT
+}
+
 PixelOutput Main(PixelInput input)
 {
     PixelOutput output;
@@ -293,15 +499,13 @@ PixelOutput Main(PixelInput input)
 #if PBR_TERRAIN_POINT_LIGHTS > 0
         [branch] if (point_index < native_point_count)
         {
-            light_position = PointLightPosition[point_index];
-            light_color = PointLightColor[point_index];
+            LoadNativePointLight(point_index, light_position, light_color);
         }
         else
 #endif
         {
             int supplemental_index = point_index - native_point_count;
-            light_position = OMV_SupplementalPointLightData[supplemental_index * 2];
-            light_color = OMV_SupplementalPointLightData[supplemental_index * 2 + 1];
+            LoadSupplementalPointLight(supplemental_index, light_position, light_color);
         }
 
         float3 light_vector = light_position.xyz - input.local_position;

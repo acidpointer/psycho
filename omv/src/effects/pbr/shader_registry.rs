@@ -1796,13 +1796,72 @@ mod shader_compile_tests {
         );
         assert!(
             CLOSE_TERRAIN_PIXEL_SOURCE
+                .contains("LoadNativePointLight(point_index, light_position, light_color);")
+        );
+        assert!(CLOSE_TERRAIN_PIXEL_SOURCE.contains(
+            "LoadSupplementalPointLight(supplemental_index, light_position, light_color);"
+        ));
+        assert!(
+            !CLOSE_TERRAIN_PIXEL_SOURCE
                 .contains("OMV_SupplementalPointLightData[supplemental_index * 2]")
         );
-        assert!(
-            CLOSE_TERRAIN_PIXEL_SOURCE
-                .contains("OMV_SupplementalPointLightData[supplemental_index * 2 + 1]")
+        assert!(!CLOSE_TERRAIN_PIXEL_SOURCE.contains("PointLightColor[point_index]"));
+        assert!(!CLOSE_TERRAIN_PIXEL_SOURCE.contains("PointLightPosition[point_index]"));
+    }
+
+    #[test]
+    fn close_terrain_selection_is_legacy_preprocessor_safe() {
+        assert!(!CLOSE_TERRAIN_PIXEL_SOURCE.contains("#define OMV_SELECT_"));
+        assert!(!CLOSE_TERRAIN_PIXEL_SOURCE.contains("OMV_SELECT_"));
+        assert!(CLOSE_TERRAIN_PIXEL_SOURCE.contains("[branch] if (index < 12)"));
+        for index in 0..24 {
+            assert!(
+                CLOSE_TERRAIN_PIXEL_SOURCE
+                    .contains(&format!("OMV_LOAD_SUPPLEMENTAL_POINT_LIGHT({index})")),
+                "supplemental selector omitted index {index}"
+            );
+        }
+        for index in 0..24 {
+            assert!(
+                CLOSE_TERRAIN_PIXEL_SOURCE
+                    .contains(&format!("OMV_LOAD_NATIVE_POINT_LIGHT({index})")),
+                "native selector omitted index {index}"
+            );
+        }
+    }
+
+    #[test]
+    fn close_terrain_constant_selection_rejects_the_linear_compiler_cascade() {
+        let template_id = close_terrain_template_id(ShaderStage::Pixel, 2092).unwrap();
+        let template = template_at(template_id).unwrap();
+        let optimized_source = template_source(template_id, template);
+        let optimized_text = std::str::from_utf8(optimized_source.as_ref()).unwrap();
+        let negative_source = optimized_text.replace(
+            "LoadSupplementalPointLight(supplemental_index, light_position, light_color);",
+            "light_position = OMV_SupplementalPointLightData[supplemental_index * 2];\n            light_color = OMV_SupplementalPointLightData[supplemental_index * 2 + 1];",
         );
-        assert!(CLOSE_TERRAIN_PIXEL_SOURCE.contains("light_color = PointLightColor[point_index];"));
+        assert_ne!(negative_source, optimized_text);
+
+        let optimized = crate::shaders::compile_hlsl_source_target(
+            "close-terrain-bounded-selector",
+            optimized_source.as_ref(),
+            "ps_3_0",
+        )
+        .unwrap();
+        let negative = crate::shaders::compile_hlsl_source_target(
+            "close-terrain-linear-selector-negative-control",
+            negative_source.as_bytes(),
+            "ps_3_0",
+        )
+        .unwrap();
+        const CMP: u16 = 88;
+        let optimized_compare_selects = compiled_opcode_count(&optimized, CMP);
+        let negative_compare_selects = compiled_opcode_count(&negative, CMP);
+
+        assert!(
+            negative_compare_selects >= optimized_compare_selects + 80,
+            "dynamic constant indexing no longer reproduces the compiler cascade: optimized={optimized_compare_selects}, negative={negative_compare_selects}"
+        );
     }
 
     #[test]
@@ -2227,14 +2286,14 @@ mod shader_compile_tests {
             ("SLS2003_p_landlod", 3_996, 211, 5),
             ("SLS2080_v_terrain_fade", 1_584, 87, 0),
             ("SLS2082_p_terrain_fade", 3_520, 192, 3),
-            ("SLS2092_p_terrain_t1_l0", 16_224, 962, 2),
-            ("SLS2093_p_terrain_t1_l0_canopy", 16_224, 962, 2),
-            ("SLS2098_p_terrain_t1_l24", 21_472, 1_273, 2),
-            ("SLS2099_p_terrain_t1_l24_canopy", 21_472, 1_273, 2),
-            ("SLS2140_p_terrain_t7_l0", 17_580, 1_047, 14),
-            ("SLS2141_p_terrain_t7_l0_canopy", 17_580, 1_047, 14),
-            ("SLS2146_p_terrain_t7_l24", 22_828, 1_358, 14),
-            ("SLS2147_p_terrain_t7_l24_canopy", 22_828, 1_358, 14),
+            ("SLS2092_p_terrain_t1_l0", 8_236, 538, 2),
+            ("SLS2093_p_terrain_t1_l0_canopy", 8_236, 538, 2),
+            ("SLS2098_p_terrain_t1_l24", 10_580, 726, 2),
+            ("SLS2099_p_terrain_t1_l24_canopy", 10_580, 726, 2),
+            ("SLS2140_p_terrain_t7_l0", 9_592, 623, 14),
+            ("SLS2141_p_terrain_t7_l0_canopy", 9_592, 623, 14),
+            ("SLS2146_p_terrain_t7_l24", 11_936, 811, 14),
+            ("SLS2147_p_terrain_t7_l24_canopy", 11_936, 811, 14),
         ];
         for template_id in 0..template_count() {
             let template = template_at(template_id as u16).unwrap();
