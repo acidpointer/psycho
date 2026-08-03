@@ -6,12 +6,13 @@
 //! light capture live in focused child modules. OMV storage remains independent
 //! from NVR's native object-size patches.
 //!
-//! The D3D boundary has two ownership models. Object, LandLOD, and TerrainFade
-//! replacements may remain bound until the native pass changes. Close terrain
-//! is admitted per draw because the engine can submit several geometries after
-//! one `SetShaders` call. Callers therefore keep the token returned by
-//! [`prepare_direct_draw`] and pass it to [`finish_direct_draw`] immediately
-//! after the native DP or DIP returns.
+//! Replacement binding follows the engine's own shader-state model. OMV exposes
+//! replacement handles transiently during `BSShader::SetShaders`, then restores
+//! native wrapper fields while `NiDX9RenderState` remains authoritative for the
+//! active D3D pair. Draw hooks validate samplers and constants without rebinding
+//! successful draws. Close terrain is admitted per draw because the engine can
+//! submit several geometries after one `SetShaders` call; only rejected draws
+//! temporarily switch to vanilla and require a replacement restore afterward.
 //!
 //! Runtime disable is a passive engine-contract boundary. The proven PBR
 //! inline hooks remain resident because restoring stale shader-wrapper or
@@ -476,6 +477,7 @@ pub(crate) fn configure_runtime_options(settings: NativePbrSettings) {
 /// restoration defect described in `graphics_fnv_pbr_errata.md`.
 pub(crate) fn release_disabled_device_resources() {
     terrain_lights::invalidate_draw_cache();
+    hooks::release_device_resources();
     device_resources::reset();
     samplers::reset();
     diagnostics::reset();
@@ -674,6 +676,7 @@ pub(crate) fn retry_preparation() {
         return;
     }
     compiler::cancel_preparation();
+    hooks::release_device_resources();
     device_resources::reset();
     compiler::ensure_object_prewarm_started();
 }
@@ -741,6 +744,7 @@ fn activate() -> Result<()> {
 
 pub(crate) fn reset_runtime_state() {
     terrain_lights::invalidate_draw_cache();
+    hooks::release_device_resources();
     shader_record::reset();
     device_resources::reset();
     samplers::reset();
@@ -961,6 +965,12 @@ mod master_setting_tests {
             .expect("disabled PBR release body");
 
         assert!(release.contains("device_resources::reset()"));
+        assert!(release.contains("hooks::release_device_resources()"));
+        assert!(
+            release.find("hooks::release_device_resources()").unwrap()
+                < release.find("device_resources::reset()").unwrap(),
+            "the active engine-owned pair must return to native before COM resources drop"
+        );
         assert!(!release.contains("hooks::reset()"));
         assert!(!release.contains("shader_record::reset()"));
         assert!(

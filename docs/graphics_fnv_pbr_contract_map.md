@@ -307,7 +307,11 @@ Important uncertainty:
 - vertex shader object size patch at `0x00BE1690`
 - pixel shader object size patch at `0x00BE1DFB`
 
-OMV must not copy that layout-extension strategy. The current implementation correctly uses side tables keyed by native shader object pointers and swaps shader handles during `BSShader::SetShaders`.
+OMV must not copy that layout-extension strategy. The current implementation
+uses side tables keyed by native shader object pointers. It exposes replacement
+handles through the existing native fields only for the duration of the
+original `BSShader::SetShaders` call, then restores both native handles while
+the engine render-state cache owns the active replacement pair.
 
 `BSShader::SetShaders @ 0x00BE1F90` reads the current pass global `0x0126F74C`.
 

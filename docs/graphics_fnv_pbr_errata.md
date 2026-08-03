@@ -1239,8 +1239,10 @@ requires the game runtime.
 ## NVIDIA Exterior PBR Collapse (2026-08-03)
 
 Runtime evidence separates the trigger from the vendor-specific multiplier.
-The affected NVIDIA sessions retain ordinary interior frame rate but collapse
-in exteriors. In `.reports/omv-latest--1fps.log`, an isolated native-PBR toggle
+The affected NVIDIA sessions retain only 40-60 FPS in interiors and collapse
+to approximately one FPS in exteriors. The interior result is not a healthy
+negative control; it indicates a common cost which exterior terrain amplifies.
+In `.reports/omv-latest--1fps.log`, an isolated native-PBR toggle
 changes the same exterior from approximately 42 FPS with PBR disabled to
 approximately 5.5 FPS with PBR enabled while the world effect has no ready
 contribution. In `.reports/omv-latest--critical-1fps.log`, the complete enabled
@@ -1250,8 +1252,8 @@ reproduce the collapse. These observations prove the OMV exterior PBR trigger
 and reject depth-provider ownership, but the AMD result means raw PBR work alone
 does not explain the vendor boundary.
 
-Both shader compilers in the supported workflow expose the same pathological
-program. The close-terrain shader dynamically indexed one interleaved
+The initial shader investigation found a real second defect in both compilers
+used by the supported workflow. The close-terrain shader dynamically indexed one interleaved
 48-register array as
 `OMV_SupplementalPointLightData[supplemental_index * 2]` and `+ 1` from inside
 the per-pixel point-light loop. Shader-model-3 compilation did not retain a
@@ -1317,10 +1319,8 @@ on the compare/select delta and bounded branch depth, not the misleading total
 static-slot ordering.
 
 Static evidence proves that OMV generated the linear per-light selector and
-that the corrected production variants no longer contain it. The RX 7700
-result supports the inference that AMD's backend optimized or tolerated the
-uniform cascade while the NVIDIA backend executed it pathologically; static
-bytecode alone cannot prove that driver-internal decision.
+that the corrected production variants no longer contain it. It does not prove
+that the selector caused the reported vendor boundary.
 
 Repository validation on 2026-08-03 passed all 443 OMV tests and the supported
 release build for `i686-pc-windows-gnu`. The focused 31-test PBR shader suite
@@ -1331,14 +1331,88 @@ Lutris prefix; this is the compiler that rejected the nested-macro version.
 These checks establish both compiler compatibility and shader coverage,
 bytecode bounds, and build correctness.
 
-The NVIDIA follow-up playtest then satisfied the scene-level acceptance. The
-runtime prepared all 162 variants without a compile failure, activated
-CloseTerrain, TerrainFade, and LandLOD PBR in a 3440x1440 exterior, and retained
-the complete dependency stack. After the final PBR enable, the reliability
-counter advanced from 6,000 to 7,800 Presents in 16.773 seconds, approximately
-107 Presents per second. The world pipeline reported no failure, rejected
-target, missed deadline, retry, or render-lock contention. One LandLOD draw
-without its required `s4` sampler correctly remained vanilla; it did not
-disable the admitted close-terrain or terrain-fade families. This runtime
-result rejects the former one-FPS exterior behavior while retaining full PBR
-coverage wherever the proven material contract is present.
+The apparent NVIDIA follow-up acceptance was invalidated by the next controlled
+playtest: the tester reported that the original problem remained unchanged.
+The reliability counter interval established that Present continued to run; it
+was not a trustworthy scene-FPS measurement and must not be used to close this
+defect. The shader optimization remains valid, but it is not the root cause of
+the one-FPS report.
+
+### Corrected root cause: shader-state ownership
+
+The two available NVR generations independently establish the same replacement
+ownership even though their storage designs differ:
+
+- `.research/TES-Reloaded-master/TESReloaded/Core/ShaderIOHook.cpp` observes
+  native shader creation. `Core/ShaderManager.cpp` stores the original handle
+  and assigns the replacement to the native wrapper's `ShaderHandle`.
+  `Core/RenderHook.cpp` uploads replacement constants at engine pass setup.
+  Its ordinary `DrawPrimitive` and `DrawIndexedPrimitive` proxy methods simply
+  forward; they do not alternate native and replacement shaders per draw.
+- `.research/TESReloaded10-master/src/NewVegas/Hooks/ShaderIO.cpp` initializes
+  the wrapper records and backup handle. `src/core/ShaderRecord.cpp` selects
+  the default, exterior, or interior handle in `SetupShader`. The New Vegas
+  `SetShadersHook` in `src/NewVegas/Hooks/Render.cpp` performs that selection
+  before calling the original `BSShader::SetShaders`. Again, ordinary D3D draw
+  methods only forward.
+
+Both sources also implement RESZ and native-NvAPI depth routes. Therefore the
+presence of NvAPI, RESZ, or an external depth provider is not the architectural
+difference. This matches the runtime observation that OMV and Depth Resolve
+providers reproduce the same performance failure.
+
+The pre-fix OMV path violated the shared NVR contract. Its `SetShaders` hook
+first let the engine bind and cache the native pair. The global DP/DIP detours
+then queried raw D3D shader state, issued raw `SetVertexShader` and
+`SetPixelShader` calls for the replacement, and later restored the native pair
+without updating `NiDX9RenderState`'s cache. Close terrain repeated that
+native-to-replacement-to-native cycle around every DIP. A new close-terrain
+geometry additionally queried as many as 14 texture stages and uploaded its
+geometry constants. Object, LandLOD, and TerrainFade paid the same ownership
+violation at pass scope even when their draw count was lower.
+
+This explains both scene observations. Interior rendering pays the common
+native/replacement cache desynchronization, consistent with the reported
+40-60-FPS ceiling. Exterior close terrain multiplies the raw shader transitions
+across dense geometry and material-layer variants, producing the catastrophic
+collapse. Static source proves that only OMV performed this repeated state
+alternation. The RX 7700 result and NVIDIA-only reports support the inference
+that the NVIDIA DXVK/Vulkan path serializes or otherwise prices this shader and
+pipeline-state churn much more severely than the tested AMD path. That final
+driver-internal mechanism remains an inference until a backend GPU capture is
+available; it is not needed to establish that OMV violated engine state
+ownership.
+
+The corrected implementation makes the engine cache authoritative while
+retaining full PBR:
+
+1. At `BSShader::SetShaders @ 0x00BE1F90`, OMV identifies the proven pair and
+   replacement before calling native code. The pass pointers and handle slots
+   remain the executable-proven `+0x5C`/`+0x44` wrappers and vertex `+0x34` /
+   pixel `+0x2C` fields documented in
+   `analysis/ghidra/output/perf/graphics_fnv_pbr_shader_handle_getter_setshaders_contract_audit.txt`.
+2. A stack-scoped pair override exposes both replacement handles to the
+   original `SetShaders` call. The engine updates its own render-state cache and
+   issues the necessary D3D transition. Both wrapper fields are restored to the
+   exact observed native handles immediately after the call. OMV does not copy
+   NVR's extended native object layout and never leaves a device-resource alias
+   in an engine wrapper.
+3. An admitted draw performs sampler validation and constant upload but no raw
+   shader getter or setter in the production path. Close terrain remains
+   geometry-aware and uploads its complete light/material ABI every DIP.
+4. If a draw lacks a required sampler or another proven contract, only that
+   draw temporarily binds the native pair. The finish boundary restores the
+   engine-owned replacement, allowing a later valid geometry in the same batch
+   to retain full PBR. This is failure containment, not feature reduction.
+5. Disable, retry, and device-reset release paths return the last engine-owned
+   pair to native before dropping OMV resources. The next engine setup repairs
+   its cache through the ordinary native comparison. Wrapper memory is already
+   native throughout.
+
+Regression tests require pair-atomic, scope-bound wrapper restoration; require
+the override to occur around the original `SetShaders`; and reject raw shader
+setters in every admitted object and terrain draw path. The supported OMV test
+suite passed 453 tests under Wine after the ownership change. Runtime acceptance
+still requires an NVIDIA exterior/interior comparison with full PBR enabled;
+the code and static comparison prove removal of the defective transition model,
+not a measured FPS result.

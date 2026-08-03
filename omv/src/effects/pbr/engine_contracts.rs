@@ -455,6 +455,101 @@ pub(super) fn shader_handle_fast(shader: *mut c_void, stage: ShaderStage) -> Opt
     })
 }
 
+/// Calls `callback` while the current pass wrappers expose an OMV shader pair.
+///
+/// `BSShader::SetShaders` is the engine's authoritative shader-state boundary:
+/// it reads these exact wrapper fields and updates `NiDX9RenderState`'s cache
+/// before issuing D3D calls. The override therefore exists only for the native
+/// call. Both fields are restored on every return path, so engine-owned wrapper
+/// lifetimes never retain OMV resource aliases across a toggle or device reset.
+///
+/// This function must run on the serialized render thread. It deliberately
+/// writes the already-proven mutable handle fields directly; changing page
+/// protection or taking a lock in every `SetShaders` call would itself turn
+/// this renderer boundary into a hot-path bottleneck.
+pub(super) fn with_shader_handle_overrides<R>(
+    vertex_shader: *mut c_void,
+    native_vertex: *mut c_void,
+    replacement_vertex: *mut c_void,
+    pixel_shader: *mut c_void,
+    native_pixel: *mut c_void,
+    replacement_pixel: *mut c_void,
+    callback: impl FnOnce() -> R,
+) -> Option<R> {
+    let vertex = unsafe {
+        ShaderHandleOverride::install(
+            vertex_shader,
+            ShaderStage::Vertex,
+            native_vertex,
+            replacement_vertex,
+        )?
+    };
+    let pixel = unsafe {
+        ShaderHandleOverride::install(
+            pixel_shader,
+            ShaderStage::Pixel,
+            native_pixel,
+            replacement_pixel,
+        )?
+    };
+
+    let result = callback();
+    drop(pixel);
+    drop(vertex);
+    Some(result)
+}
+
+struct ShaderHandleOverride {
+    slot: *mut *mut c_void,
+    native: *mut c_void,
+    replacement: *mut c_void,
+}
+
+impl ShaderHandleOverride {
+    unsafe fn install(
+        shader: *mut c_void,
+        stage: ShaderStage,
+        native: *mut c_void,
+        replacement: *mut c_void,
+    ) -> Option<Self> {
+        let shader = live_pointer(shader as usize)?;
+        live_pointer(native as usize)?;
+        live_pointer(replacement as usize)?;
+        let vtable = live_pointer_at(shader as usize)?;
+        if vtable as usize != shader_vtable(stage) {
+            return None;
+        }
+
+        let slot_address = (shader as usize).checked_add(shader_handle_offset(stage))?;
+        live_pointer(slot_address)?;
+        let slot = slot_address as *mut *mut c_void;
+        if unsafe { slot.read() } != native {
+            return None;
+        }
+        unsafe {
+            slot.write(replacement);
+        }
+        Some(Self {
+            slot,
+            native,
+            replacement,
+        })
+    }
+}
+
+impl Drop for ShaderHandleOverride {
+    fn drop(&mut self) {
+        // The audited original SetShaders path reads but does not own this
+        // wrapper field. Always remove the process-owned alias: preserving an
+        // unexpected value here would be less safe than restoring the exact
+        // native handle observed by this scope.
+        debug_assert_eq!(unsafe { self.slot.read() }, self.replacement);
+        unsafe {
+            self.slot.write(self.native);
+        }
+    }
+}
+
 fn enable_eye_position_for_all_sls_passes() -> bool {
     let Some(first_row) = sls_eye_position_first_row() else {
         EYE_POSITION_CONTRACT_READY.store(false, Ordering::Release);
@@ -791,7 +886,7 @@ mod fast_read_tests {
         NID3D_PIXEL_SHADER_VTABLE_ADDR, NID3D_VERTEX_SHADER_VTABLE_ADDR, PASS_PIXEL_SHADER_OFFSET,
         PASS_VERTEX_SHADER_OFFSET, PIXEL_SHADER_NATIVE_HANDLE_OFFSET,
         SHADER_PROGRAM_BACKUP_HANDLE_OFFSET, VERTEX_SHADER_NATIVE_HANDLE_OFFSET,
-        pass_shaders_from_live_pass, shader_handle_fast,
+        pass_shaders_from_live_pass, shader_handle_fast, with_shader_handle_overrides,
     };
     use crate::effects::pbr::shader_registry::ShaderStage;
     use std::ffi::c_void;
@@ -854,6 +949,83 @@ mod fast_read_tests {
         unsafe {
             drop(Box::from_raw(vertex_handle.cast::<u32>()));
             drop(Box::from_raw(pixel_handle.cast::<u32>()));
+        }
+    }
+
+    #[test]
+    fn set_shaders_override_is_pair_atomic_and_scope_bound() {
+        let native_vertex = Box::into_raw(Box::new(1u32)) as *mut c_void;
+        let native_pixel = Box::into_raw(Box::new(2u32)) as *mut c_void;
+        let replacement_vertex = Box::into_raw(Box::new(3u32)) as *mut c_void;
+        let replacement_pixel = Box::into_raw(Box::new(4u32)) as *mut c_void;
+        let mut vertex = vec![0usize; VERTEX_SHADER_NATIVE_HANDLE_OFFSET / size_of::<usize>() + 1];
+        let mut pixel = vec![0usize; PIXEL_SHADER_NATIVE_HANDLE_OFFSET / size_of::<usize>() + 1];
+        write_pointer(&mut vertex, 0, NID3D_VERTEX_SHADER_VTABLE_ADDR);
+        write_pointer(
+            &mut vertex,
+            VERTEX_SHADER_NATIVE_HANDLE_OFFSET,
+            native_vertex as usize,
+        );
+        write_pointer(&mut pixel, 0, NID3D_PIXEL_SHADER_VTABLE_ADDR);
+        write_pointer(
+            &mut pixel,
+            PIXEL_SHADER_NATIVE_HANDLE_OFFSET,
+            native_pixel as usize,
+        );
+
+        let called = with_shader_handle_overrides(
+            vertex.as_mut_ptr().cast(),
+            native_vertex,
+            replacement_vertex,
+            pixel.as_mut_ptr().cast(),
+            native_pixel,
+            replacement_pixel,
+            || {
+                assert_eq!(
+                    vertex[VERTEX_SHADER_NATIVE_HANDLE_OFFSET / size_of::<usize>()],
+                    replacement_vertex as usize
+                );
+                assert_eq!(
+                    pixel[PIXEL_SHADER_NATIVE_HANDLE_OFFSET / size_of::<usize>()],
+                    replacement_pixel as usize
+                );
+                true
+            },
+        );
+        assert_eq!(called, Some(true));
+        assert_eq!(
+            vertex[VERTEX_SHADER_NATIVE_HANDLE_OFFSET / size_of::<usize>()],
+            native_vertex as usize
+        );
+        assert_eq!(
+            pixel[PIXEL_SHADER_NATIVE_HANDLE_OFFSET / size_of::<usize>()],
+            native_pixel as usize
+        );
+
+        write_pointer(&mut pixel, 0, NID3D_VERTEX_SHADER_VTABLE_ADDR);
+        assert!(
+            with_shader_handle_overrides(
+                vertex.as_mut_ptr().cast(),
+                native_vertex,
+                replacement_vertex,
+                pixel.as_mut_ptr().cast(),
+                native_pixel,
+                replacement_pixel,
+                || (),
+            )
+            .is_none()
+        );
+        assert_eq!(
+            vertex[VERTEX_SHADER_NATIVE_HANDLE_OFFSET / size_of::<usize>()],
+            native_vertex as usize,
+            "a failed pixel override must roll back the vertex field"
+        );
+
+        unsafe {
+            drop(Box::from_raw(native_vertex.cast::<u32>()));
+            drop(Box::from_raw(native_pixel.cast::<u32>()));
+            drop(Box::from_raw(replacement_vertex.cast::<u32>()));
+            drop(Box::from_raw(replacement_pixel.cast::<u32>()));
         }
     }
 }
