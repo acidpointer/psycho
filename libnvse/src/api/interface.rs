@@ -143,6 +143,10 @@ pub struct NVSEPluginHandle {
 }
 
 impl NVSEPluginHandle {
+    pub(crate) const fn from_raw(handle: u32) -> Self {
+        Self { handle }
+    }
+
     /// Get the raw u32 handle value.
     pub fn get_handle(&self) -> u32 {
         self.handle
@@ -159,9 +163,7 @@ fn get_plugin_handle(nvse_ptr: NonNull<NVSEInterfaceFFI>) -> NVSEInterfaceResult
 
     let plugin_handle_val = unsafe { get_plugin_handle() };
 
-    Ok(NVSEPluginHandle {
-        handle: plugin_handle_val,
-    })
+    Ok(NVSEPluginHandle::from_raw(plugin_handle_val))
 }
 
 /// Generic interface query - returns a typed raw pointer.
@@ -232,7 +234,6 @@ pub struct NVSEInterface<'a> {
     nvse_ptr: NonNull<NVSEInterfaceFFI>,
 
     msg_interface: NVSEMessagingInterface<'a>,
-    plugin_handle: NVSEPluginHandle,
 }
 
 impl<'a> NVSEInterface<'a> {
@@ -263,7 +264,6 @@ impl<'a> NVSEInterface<'a> {
                 None
             },
             nvse_ptr,
-            plugin_handle,
             msg_interface,
         })
     }
@@ -316,7 +316,7 @@ impl<'a> NVSEInterface<'a> {
 
     /// Get this plugin's handle (used for registering callbacks, dispatching, etc.).
     pub fn get_plugin_handle(&self) -> NVSEPluginHandle {
-        self.plugin_handle
+        self.msg_interface.plugin_handle()
     }
 
     /// Get the raw NVSEInterface pointer (for advanced/interop use).

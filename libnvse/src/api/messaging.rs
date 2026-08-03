@@ -276,6 +276,11 @@ pub enum NVSEMessagingInterfaceError {
 
     #[error("Message listener already registered for sender: {0}")]
     ListenerAlreadyRegistered(String),
+
+    #[error(
+        "NVSE rejected message listener registration for sender {sender} with plugin handle {plugin_handle}"
+    )]
+    ListenerRegistrationRejected { sender: String, plugin_handle: u32 },
 }
 
 pub type NVSEMessagingInterfaceResult<T> = std::result::Result<T, NVSEMessagingInterfaceError>;
@@ -288,6 +293,27 @@ pub struct NVSEMessagingInterface<'a> {
         AHashMap<String, BareFn<'a, unsafe extern "C" fn(*mut NVSEMessagingInterface_Message)>>,
 
     plugin_handle: NVSEPluginHandle,
+}
+
+fn register_listener_handle(
+    reported_handle: u32,
+    recover_gapful_nvse_handle: bool,
+    mut register: impl FnMut(u32) -> bool,
+) -> Option<u32> {
+    if register(reported_handle) {
+        return Some(reported_handle);
+    }
+
+    if !recover_gapful_nvse_handle || reported_handle <= 1 {
+        return None;
+    }
+
+    // xNVSE's load-pass index advances before Load succeeds, but its accepted
+    // listener range counts only successful plugins plus the current plugin.
+    // A prior Load failure therefore leaves GetPluginHandle() too high. The
+    // first accepted descending handle is the current plugin's eventual slot;
+    // stop there so an already-loaded plugin's handle is never reached.
+    (1..reported_handle).rev().find(|handle| register(*handle))
 }
 
 impl<'a> NVSEMessagingInterface<'a> {
@@ -342,13 +368,24 @@ impl<'a> NVSEMessagingInterface<'a> {
 
         let sender_winstr = WinString::new(sender)?;
 
-        sender_winstr.with_ansi(|sender| unsafe {
-            register_listener_fn(
-                self.plugin_handle.get_handle(),
-                sender,
-                Some(bare_fn.bare()),
-            )
+        let reported_handle = self.plugin_handle.get_handle();
+        let registered_handle = sender_winstr.with_ansi(|sender_ptr| {
+            // Only the built-in NVSE sender is guaranteed to exist during the
+            // load pass. For another sender, false can mean "not loaded", so
+            // probing lower handles would risk assuming another plugin's ID.
+            register_listener_handle(reported_handle, sender == "NVSE", |handle| unsafe {
+                register_listener_fn(handle, sender_ptr, Some(bare_fn.bare()))
+            })
         });
+
+        let Some(registered_handle) = registered_handle else {
+            return Err(NVSEMessagingInterfaceError::ListenerRegistrationRejected {
+                sender: sender.to_string(),
+                plugin_handle: reported_handle,
+            });
+        };
+
+        self.plugin_handle = NVSEPluginHandle::from_raw(registered_handle);
 
         // This is closure lifetime preservation program
         // Input closure was chosen to exclusively participate in program
@@ -360,6 +397,10 @@ impl<'a> NVSEMessagingInterface<'a> {
 
     pub fn is_listener_registered(&self, sender: &str) -> bool {
         self.listeners.contains_key(sender)
+    }
+
+    pub(crate) fn plugin_handle(&self) -> NVSEPluginHandle {
+        self.plugin_handle
     }
 
     /// Dispatch a message to a specific plugin or all plugins.
@@ -412,5 +453,129 @@ impl<'a> NVSEMessagingInterface<'a> {
         };
 
         Ok(result)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{
+        ffi::CStr,
+        sync::{
+            Mutex,
+            atomic::{AtomicU32, Ordering},
+        },
+    };
+
+    use super::{
+        NVSEMessagingInterface, NVSEMessagingInterfaceFFI, NVSEPluginHandle,
+        register_listener_handle,
+    };
+
+    static MOCK_MAX_HANDLE: AtomicU32 = AtomicU32::new(0);
+    static MOCK_ATTEMPTS: Mutex<Vec<u32>> = Mutex::new(Vec::new());
+
+    unsafe extern "C" fn mock_register_listener(
+        listener: u32,
+        sender: *const i8,
+        handler: crate::NVSEMessagingInterface_EventCallback,
+    ) -> bool {
+        MOCK_ATTEMPTS
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .push(listener);
+
+        !sender.is_null()
+            && handler.is_some()
+            && unsafe { CStr::from_ptr(sender) }.to_bytes() == b"NVSE"
+            && listener <= MOCK_MAX_HANDLE.load(Ordering::Acquire)
+    }
+
+    #[test]
+    fn accepted_reported_handle_is_used_without_probing() {
+        let mut attempts = Vec::new();
+        let handle = register_listener_handle(7, true, |candidate| {
+            attempts.push(candidate);
+            candidate == 7
+        });
+
+        assert_eq!(handle, Some(7));
+        assert_eq!(attempts, [7]);
+    }
+
+    #[test]
+    fn messaging_interface_retains_the_recovered_handle() {
+        MOCK_MAX_HANDLE.store(9, Ordering::Release);
+        MOCK_ATTEMPTS
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clear();
+        let mut raw = NVSEMessagingInterfaceFFI {
+            version: 4,
+            RegisterListener: Some(mock_register_listener),
+            Dispatch: None,
+        };
+        let mut messaging =
+            NVSEMessagingInterface::from_raw(&mut raw, NVSEPluginHandle::from_raw(12))
+                .expect("mock messaging interface");
+
+        messaging
+            .register_listener("NVSE", |_| {})
+            .expect("gapful handle recovery");
+
+        assert_eq!(messaging.plugin_handle().get_handle(), 9);
+        assert!(messaging.is_listener_registered("NVSE"));
+        assert_eq!(
+            *MOCK_ATTEMPTS
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner()),
+            [12, 11, 10, 9]
+        );
+    }
+
+    #[test]
+    fn gapful_nvse_handle_recovers_to_current_plugin_slot() {
+        for current_handle in 1..=32 {
+            for earlier_load_failures in 1..=32 {
+                let reported_handle = current_handle + earlier_load_failures;
+                let mut attempts = Vec::new();
+                let handle = register_listener_handle(reported_handle, true, |candidate| {
+                    attempts.push(candidate);
+                    candidate <= current_handle
+                });
+
+                assert_eq!(handle, Some(current_handle));
+                assert_eq!(attempts.first(), Some(&reported_handle));
+                assert_eq!(attempts.last(), Some(&current_handle));
+                assert!(
+                    attempts
+                        .iter()
+                        .all(|candidate| *candidate >= current_handle)
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn third_party_sender_failure_does_not_probe_other_plugin_handles() {
+        let mut attempts = Vec::new();
+        let handle = register_listener_handle(12, false, |candidate| {
+            attempts.push(candidate);
+            false
+        });
+
+        assert_eq!(handle, None);
+        assert_eq!(attempts, [12]);
+    }
+
+    #[test]
+    fn complete_nvse_rejection_is_reported_after_bounded_probe() {
+        let mut attempts = Vec::new();
+        let handle = register_listener_handle(3, true, |candidate| {
+            attempts.push(candidate);
+            false
+        });
+
+        assert_eq!(handle, None);
+        assert_eq!(attempts, [3, 2, 1]);
     }
 }

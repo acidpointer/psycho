@@ -96,6 +96,52 @@ The established `NVSEPlugin_Load` sequence is unchanged:
 4. register `PsychoInfo` when that base is available;
 5. retain the `PluginContext` backing required by xNVSE.
 
+### xNVSE listener-handle recovery
+
+The helper's two open paths share one lifecycle dependency. `DeferredInit`
+validates the core ABI and marks the dashboard ready; `OnFramePresent` finds
+the game windows and installs the F10/WndProc bridge. Both messages arrive
+through the listener registered in step 2. If that registration is absent,
+F10 is never installed and `PsychoInfo` can only report that the dashboard is
+unavailable. The command itself may still be present because command
+registration occurs later in the same apparently successful load callback.
+
+The vendored xNVSE 6.4.4 source at submodule commit
+`694cdde6cbfa5e75afa661df587c73e8f0f6f441` proves a load-order-dependent
+registration defect in `libnvse/xnvse/nvse/nvse/PluginManager.cpp`:
+
+- `PluginManager::InstallPlugins` advances its second-pass `index` for every
+  query-successful, compatible plugin before calling that plugin's `Load`, but
+  appends to `m_plugins` only when `Load` succeeds;
+- `GetPluginHandle` returns that gapful `index`;
+- `GetNumPlugins` counts only successful plugins plus the plugin currently
+  loading; and
+- `RegisterListener` rejects a listener handle greater than `GetNumPlugins`.
+
+The original `libnvse` messaging wrapper, introduced in commit `eac8542`,
+discarded the `RegisterListener` Boolean. It retained the callback and returned
+success even after xNVSE rejected it. This made the helper look loaded while it
+received no lifecycle messages. The dashboard added in commit `5a92838` made
+that pre-existing wrapper defect visible through both F10 and the command.
+
+The repaired wrapper always honors xNVSE's return value. Registration for the
+built-in `NVSE` sender first tries the reported handle. If xNVSE rejects it,
+the wrapper tries lower handles until the first success and stores that
+corrected handle for later messaging and callback APIs. This is safe without
+knowing any installed plugin names or load order: with `N` earlier successful
+plugins and `F` earlier `Load` failures, xNVSE reports `N + F + 1`, while the
+current plugin's eventual and maximum accepted handle is `N + 1`. Descending
+probes therefore reach `N + 1` before any existing plugin handle (`1..=N`) and
+stop there. Any number of earlier failed plugins has the same result.
+
+Fallback is deliberately restricted to the built-in `NVSE` sender, which is
+guaranteed to exist. A failed registration for a third-party sender can mean
+that sender is absent or not loaded yet; probing another handle in that case
+would be unsound. Complete rejection now fails the helper load instead of
+publishing a dead callback. The recovery does not load or initialize the core,
+inspect third-party DLLs, reserve mod-specific names, install hooks, or perform
+work after plugin load.
+
 No ImGui context, D3D hook, input hook, file sampler, or worker starts from
 `NVSEPlugin_Load`. `DeferredInit` only validates the optional core ABI and
 starts the sampler. The ImGui context and D3D9 Reset hook are created lazily on
@@ -400,6 +446,12 @@ startup.
 
 Automated coverage includes:
 
+- immediate acceptance of a valid xNVSE listener handle;
+- exhaustive recovery for 32 current-plugin positions crossed with 32 counts
+  of earlier query-successful/`Load`-failed plugins, while proving no existing
+  plugin handle is probed;
+- end-to-end wrapper retention of the recovered handle for later APIs;
+- no handle fallback for third-party senders, plus bounded complete rejection;
 - strict dashboard ABI version/size requests in both DLLs;
 - closed dashboard state producing no sampling request;
 - VAS refresh represented as a one-shot sampling request;
@@ -420,6 +472,7 @@ Automated coverage includes:
 The supported checks are:
 
 ```bash
+cargo test --target i686-pc-windows-gnu -p libnvse --lib
 cargo test --target i686-pc-windows-gnu -p psycho-engine-fixes-helper
 cargo test --target i686-pc-windows-gnu -p psycho-engine-fixes --lib
 cargo build --release --target i686-pc-windows-gnu \
@@ -428,6 +481,8 @@ cargo build --release --target i686-pc-windows-gnu \
 
 Validation recorded on 2026-08-03:
 
+- `cargo test --target i686-pc-windows-gnu -p libnvse --lib`: 5 listener
+  recovery tests passed, 0 failed;
 - `cargo test --target i686-pc-windows-gnu -p
   psycho-engine-fixes-helper`: 14 passed, 0 failed;
 - `cargo test --target i686-pc-windows-gnu -p psycho-engine-fixes --lib`: 153
@@ -443,11 +498,18 @@ Validation recorded on 2026-08-03:
 - native-fullscreen and windowed input behavior still requires the runtime
   matrix below.
 
+The broader `libnvse` doctest target is not a supported gate: 41 existing
+documentation fragments are incomplete snippets and do not compile as
+standalone programs. The listener library, helper library, and affected release
+DLL all compile independently of that pre-existing documentation debt.
+
 Static code and build checks cannot prove presentation, device-loss behavior,
 or interaction with every third-party hook. Before a release compatibility
 claim, playtest at least:
 
-1. `F10`, `Esc`, window close, and `PsychoInfo`, with the console closed after
+1. place one and then several alphabetically earlier test plugins that pass
+   `Query` but fail `Load`; verify xNVSE still loads the helper, then exercise
+   `F10`, `Esc`, window close, and `PsychoInfo`, with the console closed after
    issuing the command;
 2. mouse movement, clicks, scroll, text navigation, and restoration of game
    controls after close;
