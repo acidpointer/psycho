@@ -6,7 +6,9 @@
 //! DXVK devices additionally expose their exact Vulkan physical-device handle
 //! through DXVK's documented D3D9 interop interface. That path is required for
 //! physical GPU identity because DXVK may deliberately spoof the D3D9 adapter
-//! description and PCI IDs for application compatibility.
+//! description and PCI IDs for application compatibility. Device-bound format
+//! probes likewise use the live device's creation adapter and device type;
+//! default-adapter helpers are appropriate only for independent inventory.
 
 use core::ffi::{c_char, c_void};
 use core::mem::size_of;
@@ -371,6 +373,29 @@ impl<'a> Device9Ref<'a> {
     /// Get the owning Direct3D object. The returned wrapper owns that COM reference.
     pub fn direct3d(&self) -> Direct3DResult<Direct3D9> {
         unsafe { self.inner.GetDirect3D().map(Direct3D9::new) }
+    }
+
+    /// Return whether the live device's adapter and device type expose RESZ.
+    ///
+    /// The adapter ordinal and `D3DDEVTYPE` come from this device's creation
+    /// parameters. This is intentionally different from probing adapter zero
+    /// as HAL: hybrid-GPU systems and compatibility layers may create the game
+    /// device on another adapter or with another implementation type.
+    /// `D3DERR_NOTAVAILABLE` is returned as `Ok(false)`; other Direct3D errors
+    /// remain errors so callers can distinguish an unsupported capability from
+    /// an invalid or temporarily unavailable query path.
+    pub fn supports_resz(&self) -> Direct3DResult<bool> {
+        let creation = self.creation_parameters()?;
+        let direct3d = self.direct3d()?;
+        let mode = direct3d.adapter_display_mode(creation.adapter_ordinal)?;
+        direct3d.supports_device_format(
+            creation.adapter_ordinal,
+            creation.device_type,
+            mode.Format,
+            D3DUSAGE_RENDERTARGET as u32,
+            D3DRTYPE_SURFACE,
+            D3DFMT_RESZ,
+        )
     }
 
     /// Query the physical Vulkan device selected by DXVK.

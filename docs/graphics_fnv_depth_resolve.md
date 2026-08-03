@@ -16,6 +16,26 @@ producer for OMV:
 | `fallout_new_vegas` | OMV. If Depth Resolve is installed, OMV writes its shared `INTZ` target and suppresses the inactive plugin's duplicate RESZ markers. | World and first-person depth. |
 | `depth_resolve` | Depth Resolve. OMV borrows the plugin's already-resolved texture and issues no depth copy. | World depth only with Depth Resolve 1.31; first-person depth is explicitly absent. |
 
+Depth capability is never an OMV startup gate, and DXVK is never required.
+At DeferredInit OMV probes RESZ against the adapter ordinal and device type
+that created Fallout's live `IDirect3DDevice9`; it does not assume adapter zero
+or HAL. Initial ownership follows this matrix:
+
+| Requested provider | Runtime condition | Effective session provider |
+|---|---|---|
+| `none` | Any renderer | `none` |
+| `fallout_new_vegas` | No compatible Depth Resolve module | OMV, including native D3D9/WineD3D; its lazy resolver may use RESZ or native NVIDIA NvAPI. |
+| `fallout_new_vegas` | Depth Resolve present and live device exposes RESZ | OMV; exact external RESZ markers can be suppressed. |
+| `fallout_new_vegas` | Depth Resolve present and RESZ is unsupported | Depth Resolve for this session, because its native NvAPI producer cannot be paused or interposed safely. |
+| `fallout_new_vegas` | Depth Resolve present and the RESZ query fails | Depth Resolve for this session; exclusive OMV ownership is unproven. |
+| `depth_resolve` | Compatible module present | Depth Resolve, regardless of DXVK. |
+| `depth_resolve` | Module unavailable | `none` for this session. |
+
+A fallback updates every in-memory depth consumer and reports a workbench
+warning, but performs no startup file write. Unrelated Present, Reset,
+image-space, material, sky, local-light, and menu hooks continue installing.
+The configured file remains a request that can be retried on a later launch.
+
 The provider can be switched in game. A switch releases snapshots, validates
 the new provider, atomically changes producer identity at the Present-owned
 configuration boundary, and invalidates temporal history. It never silently
@@ -81,7 +101,10 @@ and
 `analysis/ghidra/output/perf/graphics_fnv_depth_independence_contract_audit.txt`.
 
 Within the OMV provider, the backend chooses and validates one
-capability-based copy route per D3D9 device generation:
+capability-based copy route per D3D9 device generation. Both the startup probe
+and the lazy render route use the live device's creation adapter/device type,
+and preserve unexpected `CheckDeviceFormat` failures instead of converting
+every error into an unsupported result:
 
 1. RESZ when the device exposes the D3D9 RESZ format;
 2. NVIDIA NvAPI D3D9 depth copy when RESZ is unavailable, or when an advertised
@@ -312,7 +335,7 @@ switching back to the OMV shared service reattaches the existing trampolines
 before the next world render. General OMV `Present`, material, and image-space
 hooks are outside the depth-provider lifecycle and remain independent.
 
-When startup selects OMV and Depth Resolve is present, both required scene
+When startup safely selects OMV and Depth Resolve is present, both required scene
 boundaries are installed and verified during DeferredInit before RESZ
 interposition is enabled synchronously. DeferredInit is the quiescent startup
 boundary, so no render frame can enter between those operations. This closes
@@ -325,10 +348,13 @@ service and the prepared RESZ hook report ready. At the Present boundary the
 switch first attaches the scene trampolines and RESZ interposition, then
 publishes OMV as active; the reverse switch restores the original RESZ vtable
 entry before publishing the external provider.
-If either required startup hook cannot be established, OMV publishes the
-inactive provider before returning the startup error. Already-resident scene
-callbacks therefore cannot add an uncoordinated resolve; the persisted
-machine-local choice is retained for a repaired next launch.
+If either required ownership hook cannot be established, OMV publishes the
+inactive provider before returning that hook-installation error.
+Already-resident scene callbacks therefore cannot add an uncoordinated
+resolve. Optional capability conflicts are handled earlier by the session
+selection matrix and do not return a startup error. Deferred installation is
+published complete only after every required step succeeds; a failed attempt
+releases its atomic gate so xNVSE can retry the idempotent prepared-hook path.
 
 `omv/src/backend/fnv.rs` owns `FnvDepthResolve`, its current device identity,
 the route, two `INTZ` targets, and resolved projection metadata. Route probing
@@ -402,10 +428,12 @@ clears both providers' snapshots, publishes the new identity with release
 ordering, republishes input requirements, and invalidates TAA history.
 
 Depth Resolve exposes no way to pause its native NvAPI copy. Consequently OMV
-exclusive mode is rejected when the plugin selected native NvAPI; claiming an
-OMV switch in that state would leave two producers running. External mode is
-valid because OMV emits no copy. OMV interposes the exact shared RESZ target
-only while OMV owns production. External mode restores the original
+exclusive mode is rejected for a live menu switch when the plugin selected
+native NvAPI; at initial startup the same condition selects Depth Resolve as
+the effective session provider. Claiming OMV ownership in either case would
+leave two producers running. External mode is valid because OMV emits no copy.
+OMV interposes the exact shared RESZ target only while OMV owns production.
+External mode restores the original
 `SetRenderState` vtable entry, so its publication freshness is established at
 OMV's fixed post-world boundary and validated against the plugin's currently
 published texture identity. Shared identity and marker state are cleared on
@@ -529,6 +557,13 @@ allocates no color-copy target.
 
 Provider regressions additionally prove:
 
+- native D3D9 without an external producer keeps OMV depth and never requires
+  DXVK;
+- initial native-NvAPI conflict selects Depth Resolve as the sole producer,
+  a failed RESZ query cannot claim exclusive OMV ownership, and a missing
+  explicitly requested external provider disables only depth;
+- a failed DeferredInit attempt releases its state gate, while only a complete
+  attempt latches success;
 - marker classification suppresses only the exact shared target under OMV;
 - an OMV-armed marker and an external-provider marker are forwarded;
 - only the exact point-size/value pair enters RESZ classification;
@@ -569,6 +604,16 @@ the release build. Its structural regressions reject both the obsolete
 first-person-detour call and any rendered-texture-source bind inside the
 post-world AO transaction, and require missed-frame history invalidation even
 when another scene-pre pass draws.
+
+The 2026-08-03 native-D3D9 startup correction passes all 442 OMV tests, all 27
+affected libpsycho library tests, and the supported optimized OMV release
+build. The regression matrix covers native D3D9 without Depth Resolve,
+external native-NvAPI conflict, RESZ query failure, missing external exports,
+DeferredInit retry publication and hook reconciliation, and persistence of the
+original startup request. PE import inspection confirms `omv.dll` imports
+`d3d9.dll` but has no load-time `vulkan-1.dll` import. A native D3D9/WineD3D
+gameplay launch remains required to validate the actual driver stack and
+sampled depth behavior.
 
 A Proton/DXVK playtest remains required for:
 

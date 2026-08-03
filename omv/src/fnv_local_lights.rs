@@ -394,40 +394,48 @@ pub(crate) fn install_hooks() {
     LazyLock::force(&PUBLISHED);
     LazyLock::force(&PUBLISHED_TERRAIN);
 
-    if let Err(err) = unsafe {
-        WORLD_LIGHT_EPOCH_HOOK.init(
-            "FNV scene-wide local-light epoch",
-            WORLD_LIGHT_EPOCH_ADDR as *mut c_void,
-            hook_world_light_epoch,
-        )
-    } {
-        log::warn!(
-            "[ATMOSPHERE LOCAL] Scene epoch hook unavailable at 0x{WORLD_LIGHT_EPOCH_ADDR:08X}: {err}"
-        );
-        return;
+    if !WORLD_LIGHT_EPOCH_HOOK.is_initialized() {
+        if let Err(err) = unsafe {
+            WORLD_LIGHT_EPOCH_HOOK.init(
+                "FNV scene-wide local-light epoch",
+                WORLD_LIGHT_EPOCH_ADDR as *mut c_void,
+                hook_world_light_epoch,
+            )
+        } {
+            log::warn!(
+                "[ATMOSPHERE LOCAL] Scene epoch hook unavailable at 0x{WORLD_LIGHT_EPOCH_ADDR:08X}: {err}"
+            );
+            return;
+        }
     }
-    if let Err(err) = WORLD_LIGHT_EPOCH_HOOK.enable() {
+    if !WORLD_LIGHT_EPOCH_HOOK.is_enabled()
+        && let Err(err) = WORLD_LIGHT_EPOCH_HOOK.enable()
+    {
         log::warn!("[ATMOSPHERE LOCAL] Scene epoch hook enable failed: {err}");
         return;
     }
     HOOKS_READY.store(true, Ordering::Release);
 
-    if let Err(err) = unsafe {
-        RENDER_LOCAL_SHADOW_HOOK.init(
-            "FNV completed local shadow slot",
-            RENDER_LOCAL_SHADOW_ADDR as *mut c_void,
-            hook_render_local_shadow,
-        )
-    } {
-        log::warn!(
-            "[ATMOSPHERE LOCAL] Optional shadow-slot hook unavailable at 0x{RENDER_LOCAL_SHADOW_ADDR:08X}; shadowless local volumes remain active: {err}"
-        );
-        log::info!(
-            "[ATMOSPHERE LOCAL] Scene-wide shadowless capture installed at 0x{WORLD_LIGHT_EPOCH_ADDR:08X}"
-        );
-        return;
+    if !RENDER_LOCAL_SHADOW_HOOK.is_initialized() {
+        if let Err(err) = unsafe {
+            RENDER_LOCAL_SHADOW_HOOK.init(
+                "FNV completed local shadow slot",
+                RENDER_LOCAL_SHADOW_ADDR as *mut c_void,
+                hook_render_local_shadow,
+            )
+        } {
+            log::warn!(
+                "[ATMOSPHERE LOCAL] Optional shadow-slot hook unavailable at 0x{RENDER_LOCAL_SHADOW_ADDR:08X}; shadowless local volumes remain active: {err}"
+            );
+            log::info!(
+                "[ATMOSPHERE LOCAL] Scene-wide shadowless capture installed at 0x{WORLD_LIGHT_EPOCH_ADDR:08X}"
+            );
+            return;
+        }
     }
-    if let Err(err) = RENDER_LOCAL_SHADOW_HOOK.enable() {
+    if !RENDER_LOCAL_SHADOW_HOOK.is_enabled()
+        && let Err(err) = RENDER_LOCAL_SHADOW_HOOK.enable()
+    {
         log::warn!(
             "[ATMOSPHERE LOCAL] Optional shadow-slot hook enable failed; shadowless local volumes remain active: {err}"
         );

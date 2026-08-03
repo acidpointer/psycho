@@ -51,6 +51,15 @@ after publication it is a lock-free static read. Neither identity is
 configuration, neither is written to `omv.toml`, and neither is eligible for
 preset serialization.
 
+DXVK is never required by this diagnostics owner. Native D3D9 uses the live
+device's owning adapter identity directly. DXVK physical-device lookup is an
+optional refinement; if its interop or Vulkan-property query fails, the card
+keeps the D3D9 device profile but displays `Physical GPU unavailable`; the
+potentially spoofed adapter appears only as a warning-colored `D3D9
+compatibility fallback`, with the enrichment error in technical details. That
+failure cannot escape into plugin load, DeferredInit, effect admission, or
+rendering policy.
+
 `ScreenShaderRuntime::draw_menu` drains and analyzes frame pacing only when
 Diagnostics was already active for the frame. The first frame after selecting
 the tab establishes detailed collection; the following frame displays the
@@ -225,7 +234,10 @@ absence of live graphs in Customize, independent effect-editor ownership, and
 the persistent header FPS readout. Additional regressions require the lazy
 post-visibility environment query, responsive system-summary cards, retained
 physical-versus-compatibility GPU evidence, and distinct Proton, Wine, and
-native-Windows summaries.
+native-Windows summaries. The GPU regression also requires native D3D9 and an
+injected optional DXVK-probe failure to retain the D3D9 profile path, while a
+behavioral card test proves the failed-enrichment path never labels the D3D9
+compatibility name as the physical GPU.
 
 The supported validation commands are:
 
@@ -255,6 +267,18 @@ The 2026-07-29 system-summary update passed all 431 OMV tests and the supported
 optimized `i686-pc-windows-gnu` OMV release build. This includes the lazy
 environment-query, responsive-card, runtime-formatting, and
 physical-versus-compatibility identity regressions.
+
+The 2026-08-03 optional-DXVK correction and review follow-up pass all 442 OMV
+tests, all 27 affected libpsycho library tests, and the supported optimized OMV
+release build. The API regression preserves the original `D3d9DeviceProfile`
+layout while the additive diagnostics report
+distinguishes native D3D9 from failed enrichment. `ash` supplies Vulkan ABI
+types and the optional DXVK path resolves property entry points dynamically;
+the DLL therefore has no load-time `vulkan-1.dll` import, which is narrower
+than claiming the optional identity path has no Vulkan runtime dependency. A
+normal native-D3D9 or WineD3D gameplay launch remains the runtime acceptance
+step; automated tests cannot prove a particular host driver stack starts and
+renders correctly.
 
 A normal Proton/DXVK playtest should compare a stable scene with the workbench
 closed, Customize open, and Diagnostics open; confirm the graph immediately

@@ -10,6 +10,10 @@
 //! the registry, or performs network I/O. Partial core detection is preserved:
 //! optional Windows failures are recorded as [`DetectionIssue`] values instead
 //! of discarding otherwise valid CPU or runtime information.
+//! Live D3D9 diagnostics use [`d3d9_device_profile_report`] when optional DXVK
+//! identity enrichment must not discard otherwise valid D3D9 evidence; the
+//! original [`d3d9_device_profile`] contract remains strict and source
+//! compatible.
 
 #![deny(missing_docs)]
 
@@ -27,8 +31,9 @@ use crate::os::windows::winapi;
 pub use cpu::{CpuCache, CpuCacheKind, CpuEfficiencyClass, CpuFeatures, CpuInfo, CpuVendor};
 pub use gpu::{
     D3d9ActiveGpuIdentity, D3d9AdapterProfile, D3d9Capabilities, D3d9DeviceKind, D3d9DeviceProfile,
-    D3d9FeatureFlags, D3d9FormatFeatures, DxvkPhysicalDeviceIdentity, GpuIdentity, ShaderModel,
-    VulkanDeviceKind, d3d9_adapter_profiles, d3d9_device_profile,
+    D3d9DeviceProfileReport, D3d9FeatureFlags, D3d9FormatFeatures, D3d9ProfileGpuIdentity,
+    DxvkPhysicalDeviceIdentity, GpuIdentity, ShaderModel, VulkanDeviceKind, d3d9_adapter_profiles,
+    d3d9_device_profile, d3d9_device_profile_report,
 };
 pub use memory::{
     MemoryArray, MemoryArrayLocation, MemoryArrayUse, MemoryDevice, MemoryDeviceProfile,
@@ -129,8 +134,8 @@ static SYSTEM_PROFILE: OnceLock<SystemProfile> = OnceLock::new();
 ///
 /// The first call performs bounded CPUID and Win32 queries. Later calls are
 /// lock-free reads from `OnceLock`. GPU and detailed SMBIOS queries are not
-/// included; call [`d3d9_device_profile`] or [`memory_device_profile`] at an
-/// appropriate subsystem boundary.
+/// included; call [`d3d9_device_profile`], [`d3d9_device_profile_report`], or
+/// [`memory_device_profile`] at an appropriate subsystem boundary.
 pub fn system_profile() -> &'static SystemProfile {
     SYSTEM_PROFILE.get_or_init(collect_system_profile)
 }

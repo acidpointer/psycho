@@ -6,6 +6,11 @@
 //! physical ownership; a route describes how that provider exposes a given
 //! snapshot. Keeping those concepts separate prevents an external shared
 //! texture from silently becoming a fallback OMV capture.
+//!
+//! Startup selection is deliberately fail-open for the plugin as a whole.
+//! Capability conflicts may select a safe single depth producer for the
+//! current session, but they never abort unrelated graphics hooks. Live menu
+//! switches remain strict and retain the previous producer on rejection.
 
 use core::ffi::c_void;
 use std::sync::atomic::{AtomicU8, Ordering};
@@ -22,6 +27,55 @@ pub(crate) use fnv::{
 };
 
 static ACTIVE_DEPTH_PROVIDER: AtomicU8 = AtomicU8::new(DepthProvider::None as u8);
+
+/// Effective initial producer and any compatibility fallback applied to it.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct InitialDepthActivation {
+    /// Producer requested by the loaded configuration.
+    pub(crate) requested: DepthProvider,
+    /// Single producer that OMV can activate safely for this session.
+    pub(crate) active: DepthProvider,
+    /// Explanation when `active` differs from `requested`.
+    pub(crate) fallback: Option<InitialDepthFallback>,
+}
+
+/// Reason OMV selected a different initial depth producer.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum InitialDepthFallback {
+    /// Depth Resolve uses native NvAPI, whose copies OMV cannot interpose.
+    ExternalNativeNvapi,
+    /// The active-device RESZ query failed, so exclusive ownership was unproven.
+    ReszCapabilityQueryFailed,
+    /// The explicitly selected external provider was not loaded.
+    ExternalProviderUnavailable,
+}
+
+impl InitialDepthFallback {
+    /// Return a stable user-facing explanation of the session fallback.
+    pub(crate) fn message(self) -> &'static str {
+        match self {
+            Self::ExternalNativeNvapi => {
+                "Depth Resolve uses native NvAPI, so its external producer remains active to avoid duplicate depth copies"
+            }
+            Self::ReszCapabilityQueryFailed => {
+                "RESZ support could not be verified for the active D3D9 device, so Depth Resolve remains the sole depth producer"
+            }
+            Self::ExternalProviderUnavailable => {
+                "Depth Resolve was selected but its provider exports are unavailable; depth effects are disabled for this session"
+            }
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum ReszCapability {
+    /// The live device supports the observable RESZ marker route.
+    Supported,
+    /// The live device returned the documented unsupported result.
+    Unsupported,
+    /// The live-device query failed before support could be classified.
+    QueryFailed,
+}
 
 pub(crate) fn d3d_device_ptr() -> Option<*mut c_void> {
     fnv::d3d_device_ptr()
@@ -49,13 +103,14 @@ pub(crate) fn startup_log(depth_provider: DepthProvider) {
 /// module, so it must not run from `NVSEPlugin_Load`. The shared texture is
 /// retained lazily on the first render capture because another DeferredInit
 /// listener may still own its creation.
-pub(crate) fn initialize_depth_provider(depth_provider: DepthProvider) -> Result<(), &'static str> {
+pub(crate) fn initialize_depth_provider(depth_provider: DepthProvider) -> InitialDepthActivation {
     // Another DeferredInit listener may own creation of the shared texture.
-    // Startup validates the module/capability contract but lets the first
-    // render capture retain the resource after all listeners have completed.
-    fnv::validate_initial_depth_provider(depth_provider)?;
-    ACTIVE_DEPTH_PROVIDER.store(depth_provider as u8, Ordering::Release);
-    Ok(())
+    // Startup selects ownership from module/capability evidence but lets the
+    // first render capture retain and validate the resource after all listeners
+    // have completed.
+    let activation = fnv::select_initial_depth_provider(depth_provider);
+    ACTIVE_DEPTH_PROVIDER.store(activation.active as u8, Ordering::Release);
+    activation
 }
 
 /// Fail closed if startup cannot establish the selected producer's hook set.
@@ -142,6 +197,11 @@ pub(crate) fn switch_depth_provider(depth_provider: DepthProvider) -> Result<boo
 
 #[cfg(test)]
 mod provider_switch_contract_tests {
+    use super::{
+        DepthProvider, InitialDepthActivation, InitialDepthFallback, ReszCapability,
+        choose_initial_depth_provider,
+    };
+
     #[test]
     fn physical_resz_transition_precedes_provider_publication() {
         let source = include_str!("mod.rs");
@@ -158,6 +218,124 @@ mod provider_switch_contract_tests {
             .find("ACTIVE_DEPTH_PROVIDER.store")
             .expect("provider atomic publication");
         assert!(physical_transition < provider_publication);
+    }
+
+    #[test]
+    fn native_d3d9_without_external_depth_resolve_keeps_omv_depth() {
+        assert_eq!(
+            choose_initial_depth_provider(
+                DepthProvider::FalloutNewVegas,
+                false,
+                ReszCapability::Unsupported,
+            ),
+            InitialDepthActivation {
+                requested: DepthProvider::FalloutNewVegas,
+                active: DepthProvider::FalloutNewVegas,
+                fallback: None,
+            }
+        );
+    }
+
+    #[test]
+    fn native_nvapi_external_depth_resolve_remains_the_only_producer() {
+        assert_eq!(
+            choose_initial_depth_provider(
+                DepthProvider::FalloutNewVegas,
+                true,
+                ReszCapability::Unsupported,
+            ),
+            InitialDepthActivation {
+                requested: DepthProvider::FalloutNewVegas,
+                active: DepthProvider::DepthResolve,
+                fallback: Some(InitialDepthFallback::ExternalNativeNvapi),
+            }
+        );
+    }
+
+    #[test]
+    fn observable_external_resz_allows_exclusive_omv_ownership() {
+        assert_eq!(
+            choose_initial_depth_provider(
+                DepthProvider::FalloutNewVegas,
+                true,
+                ReszCapability::Supported,
+            ),
+            InitialDepthActivation {
+                requested: DepthProvider::FalloutNewVegas,
+                active: DepthProvider::FalloutNewVegas,
+                fallback: None,
+            }
+        );
+    }
+
+    #[test]
+    fn failed_resz_query_cannot_claim_exclusive_omv_ownership() {
+        assert_eq!(
+            choose_initial_depth_provider(
+                DepthProvider::FalloutNewVegas,
+                true,
+                ReszCapability::QueryFailed,
+            )
+            .fallback,
+            Some(InitialDepthFallback::ReszCapabilityQueryFailed)
+        );
+    }
+
+    #[test]
+    fn missing_explicit_external_provider_disables_only_depth() {
+        assert_eq!(
+            choose_initial_depth_provider(
+                DepthProvider::DepthResolve,
+                false,
+                ReszCapability::Unsupported,
+            ),
+            InitialDepthActivation {
+                requested: DepthProvider::DepthResolve,
+                active: DepthProvider::None,
+                fallback: Some(InitialDepthFallback::ExternalProviderUnavailable),
+            }
+        );
+    }
+}
+
+/// Choose startup ownership from configuration, external ownership, and RESZ.
+///
+/// Depth Resolve has no pause API. OMV can own its shared target only when the
+/// observable RESZ marker proves that external copies can be suppressed.
+/// Otherwise startup keeps Depth Resolve as the sole physical producer. This
+/// function is pure so every native-D3D9 and compatibility-layer decision can
+/// be tested without loading a DLL or invoking a renderer process.
+fn choose_initial_depth_provider(
+    requested: DepthProvider,
+    external_available: bool,
+    resz: ReszCapability,
+) -> InitialDepthActivation {
+    let (active, fallback) = match requested {
+        DepthProvider::None => (DepthProvider::None, None),
+        DepthProvider::DepthResolve if !external_available => (
+            DepthProvider::None,
+            Some(InitialDepthFallback::ExternalProviderUnavailable),
+        ),
+        DepthProvider::DepthResolve => (DepthProvider::DepthResolve, None),
+        DepthProvider::FalloutNewVegas if !external_available => {
+            (DepthProvider::FalloutNewVegas, None)
+        }
+        DepthProvider::FalloutNewVegas => match resz {
+            ReszCapability::Supported => (DepthProvider::FalloutNewVegas, None),
+            ReszCapability::Unsupported => (
+                DepthProvider::DepthResolve,
+                Some(InitialDepthFallback::ExternalNativeNvapi),
+            ),
+            ReszCapability::QueryFailed => (
+                DepthProvider::DepthResolve,
+                Some(InitialDepthFallback::ReszCapabilityQueryFailed),
+            ),
+        },
+    };
+    InitialDepthActivation {
+        requested,
+        active,
+        fallback,
     }
 }
 
@@ -472,6 +650,16 @@ impl From<DepthProviderConfig> for DepthProvider {
             DepthProviderConfig::None => Self::None,
             DepthProviderConfig::FalloutNewVegas => Self::FalloutNewVegas,
             DepthProviderConfig::DepthResolve => Self::DepthResolve,
+        }
+    }
+}
+
+impl From<DepthProvider> for DepthProviderConfig {
+    fn from(value: DepthProvider) -> Self {
+        match value {
+            DepthProvider::None => Self::None,
+            DepthProvider::FalloutNewVegas => Self::FalloutNewVegas,
+            DepthProvider::DepthResolve => Self::DepthResolve,
         }
     }
 }

@@ -48,7 +48,11 @@ const PROBE_AVAILABLE: u8 = 2;
 static PROBE_STATE: AtomicU8 = AtomicU8::new(PROBE_UNKNOWN);
 static SHARED_TEXTURE: AtomicUsize = AtomicUsize::new(0);
 static OMV_RESZ_MARKER_ACTIVE: AtomicBool = AtomicBool::new(false);
-static EXTERNAL_RESZ_MARKER_REQUIRED: AtomicBool = AtomicBool::new(false);
+const EXTERNAL_ROUTE_UNPROBED: u8 = 0;
+const EXTERNAL_ROUTE_RESZ: u8 = 1;
+const EXTERNAL_ROUTE_NVAPI: u8 = 2;
+
+static EXTERNAL_COPY_ROUTE: AtomicU8 = AtomicU8::new(EXTERNAL_ROUTE_UNPROBED);
 static EXTERNAL_MARKERS_ALLOWED: AtomicU32 = AtomicU32::new(0);
 static EXTERNAL_MARKERS_SUPPRESSED: AtomicU32 = AtomicU32::new(0);
 static OMV_MARKERS_ALLOWED: AtomicU32 = AtomicU32::new(0);
@@ -64,6 +68,17 @@ pub(crate) enum MarkerDecision {
     Forward,
     /// Return success without emitting the inactive provider's GPU resolve.
     Suppress,
+}
+
+/// Observed physical copy route used by the external producer.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum ExternalCopyRoute {
+    /// The active-device capability query did not produce a result.
+    Unprobed,
+    /// Observable D3D9 RESZ marker route.
+    Resz,
+    /// Native NvAPI route without a D3D9 marker.
+    Nvapi,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -215,7 +230,7 @@ pub(crate) fn classify_marker(
 /// function.
 pub(crate) fn external_copy_is_fresh(render_epoch: u32, marker_observer_active: bool) -> bool {
     external_copy_freshness(
-        EXTERNAL_RESZ_MARKER_REQUIRED.load(Ordering::Acquire),
+        external_resz_marker_required(),
         marker_observer_active,
         render_epoch,
         EXTERNAL_LAST_MARKER_EPOCH.load(Ordering::Acquire),
@@ -227,18 +242,41 @@ pub(crate) fn record_external_publication() {
     EXTERNAL_PUBLICATIONS.fetch_add(1, Ordering::Relaxed);
 }
 
-/// Record whether the external producer selected its observable RESZ route.
+/// Record the external producer route inferred from the active D3D9 device.
 ///
 /// Native NvAPI performs the copy without a D3D9 marker. In that mode OMV is
 /// only a consumer, so the fixed post-world publication boundary is the
-/// available freshness contract and no producer interposition is required.
-pub(crate) fn set_external_resz_marker_required(required: bool) {
-    EXTERNAL_RESZ_MARKER_REQUIRED.store(required, Ordering::Release);
+/// available freshness contract and no producer interposition is required. A
+/// failed capability query remains `None`; it must not be mislabeled as proof
+/// of the NvAPI route.
+pub(crate) fn set_external_copy_route(resz_supported: Option<bool>) {
+    EXTERNAL_COPY_ROUTE.store(external_copy_route_raw(resz_supported), Ordering::Release);
 }
 
 /// Return whether Depth Resolve selected its observable RESZ copy route.
 pub(crate) fn external_resz_marker_required() -> bool {
-    EXTERNAL_RESZ_MARKER_REQUIRED.load(Ordering::Acquire)
+    external_copy_route() == ExternalCopyRoute::Resz
+}
+
+/// Return the last active-device classification of the external copy route.
+pub(crate) fn external_copy_route() -> ExternalCopyRoute {
+    external_copy_route_from_raw(EXTERNAL_COPY_ROUTE.load(Ordering::Acquire))
+}
+
+fn external_copy_route_raw(resz_supported: Option<bool>) -> u8 {
+    match resz_supported {
+        Some(true) => EXTERNAL_ROUTE_RESZ,
+        Some(false) => EXTERNAL_ROUTE_NVAPI,
+        None => EXTERNAL_ROUTE_UNPROBED,
+    }
+}
+
+fn external_copy_route_from_raw(value: u8) -> ExternalCopyRoute {
+    match value {
+        EXTERNAL_ROUTE_RESZ => ExternalCopyRoute::Resz,
+        EXTERNAL_ROUTE_NVAPI => ExternalCopyRoute::Nvapi,
+        _ => ExternalCopyRoute::Unprobed,
+    }
 }
 
 /// Return the current nonblocking RESZ ownership counters.
@@ -256,6 +294,7 @@ pub(crate) fn reset_device_state() {
     SHARED_TEXTURE.store(0, Ordering::Release);
     OMV_RESZ_MARKER_ACTIVE.store(false, Ordering::Release);
     EXTERNAL_LAST_MARKER_EPOCH.store(0, Ordering::Release);
+    EXTERNAL_COPY_ROUTE.store(EXTERNAL_ROUTE_UNPROBED, Ordering::Release);
 }
 
 fn classify_marker_state(
@@ -324,7 +363,10 @@ unsafe fn raw_shared_texture() -> Result<*mut c_void, &'static str> {
 
 #[cfg(test)]
 mod tests {
-    use super::{MarkerClassification, classify_marker_state, external_copy_freshness};
+    use super::{
+        ExternalCopyRoute, MarkerClassification, classify_marker_state, external_copy_freshness,
+        external_copy_route_from_raw, external_copy_route_raw,
+    };
     use crate::backend::DepthProvider;
 
     fn classify(provider: DepthProvider, omv_marker: bool, bound: usize) -> MarkerClassification {
@@ -366,5 +408,17 @@ mod tests {
         assert!(external_copy_freshness(true, true, 7, 7));
         assert!(!external_copy_freshness(true, true, 7, 6));
         assert!(!external_copy_freshness(true, true, 0, 0));
+    }
+
+    #[test]
+    fn failed_capability_query_remains_unprobed_instead_of_claiming_nvapi() {
+        assert_eq!(
+            external_copy_route_from_raw(external_copy_route_raw(None)),
+            ExternalCopyRoute::Unprobed
+        );
+        assert_eq!(
+            external_copy_route_from_raw(external_copy_route_raw(Some(false))),
+            ExternalCopyRoute::Nvapi
+        );
     }
 }

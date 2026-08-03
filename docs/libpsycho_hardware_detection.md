@@ -53,6 +53,10 @@ validation, and the runtime acceptance work that still requires real hardware.
 8. Keep physical renderer identity separate from the identity exposed to a
    D3D9 application. On DXVK, query the live device's Vulkan interop handle;
    never call a DXVK compatibility identity the physical GPU.
+9. Treat DXVK/Vulkan identity as optional enrichment. A native D3D9 device,
+   an implementation without DXVK interop, or a failed interop/property query
+   retains its complete device-bound D3D9 profile and can never make DXVK a
+   startup or rendering requirement.
 
 ## Why one monolithic `detect_all` call is wrong
 
@@ -92,6 +96,11 @@ pub fn d3d9_device_profile(
     device: &Device9Ref<'_>,
 ) -> Result<D3d9DeviceProfile, HardwareError>;
 
+/// Retain a complete D3D9 profile when optional DXVK identity enrichment fails.
+pub fn d3d9_device_profile_report(
+    device: &Device9Ref<'_>,
+) -> Result<D3d9DeviceProfileReport, HardwareError>;
+
 /// Enumerate D3D9 adapters without claiming that any one is the active device.
 pub fn d3d9_adapter_profiles()
     -> Result<Vec<D3d9AdapterProfile>, HardwareError>;
@@ -117,7 +126,7 @@ Windows binding types, or references into a temporary API buffer.
 | OS-visible physical/page-file/virtual memory | `GlobalMemoryStatusEx` | Required Windows/Wine view for this process. Dynamic availability is queried live. |
 | Physically installed memory | `GetPhysicallyInstalledSystemMemory` | Optional SMBIOS-derived capacity. It must not replace OS-visible capacity. |
 | DIMM type, size, speed, rank, and ECC | `GetSystemFirmwareTable('RSMB')`, SMBIOS Types 16 and 17 | Optional firmware report. Parse defensively; never infer missing fields. |
-| Active physical GPU identity | DXVK `ID3D9VkInteropDevice::GetVulkanHandles`, followed by Vulkan physical-device properties; otherwise the live device's owning D3D9 interface and adapter ordinal | The exact physical renderer when DXVK exposes interop. Native D3D9 remains authoritative when interop is absent. No inventory matching or default-adapter substitution. |
+| Active physical GPU identity | DXVK `ID3D9VkInteropDevice::GetVulkanHandles`, followed by Vulkan physical-device properties; otherwise the live device's owning D3D9 interface and adapter ordinal | The exact physical renderer when DXVK exposes interop. Native D3D9 remains authoritative when interop is cleanly absent. A failed optional enrichment query is explicitly unverified; no inventory matching or default-adapter substitution is allowed. |
 | D3D9 compatibility identity | `IDirect3DDevice9::GetCreationParameters`, then the same device's `GetDirect3D` and adapter ordinal | Exact identity presented to the game. Under DXVK this may intentionally differ from physical hardware. |
 | Active GPU features | `IDirect3DDevice9::GetDeviceCaps` and matching `IDirect3D9::CheckDeviceFormat` probes | Effective features available to the game through the native driver, wined3d, or DXVK. |
 | System graphics inventory and static memory descriptions | Deferred; not part of the implemented D3D9 profile | DXGI cannot identify the active base-D3D9 device reliably and 32-bit `SIZE_T` cannot represent all modern VRAM capacities exactly. |
@@ -340,6 +349,18 @@ devices, allocates no GPU resource, and performs no recurring work. `ash` is
 used with default features disabled as an ABI/type definition dependency; it
 does not independently load Vulkan or own the returned handles.
 
+DXVK identity is enrichment, not an availability gate. `E_NOINTERFACE` is the
+normal native-D3D9 result and produces no issue. The original
+`d3d9_device_profile` API retains its strict error contract for an unexpected
+interop/property failure. Diagnostics instead call the additive
+`d3d9_device_profile_report` API, which returns the already-complete D3D9
+identity, caps, format support, and texture-memory estimate while storing the
+optional failure in `D3d9DeviceProfileReport::dxvk_physical_identity_issue`.
+`D3d9DeviceProfileReport::gpu_identity()` exposes three states: physical DXVK,
+clean native/non-DXVK D3D9, and an explicitly unverified D3D9 compatibility
+fallback. Consumers must not disable startup, rendering, or an effect because
+DXVK is absent or optional enrichment failed.
+
 ### Effective GPU features
 
 `D3d9Capabilities` and `D3d9FeatureFlags` normalize:
@@ -545,7 +566,7 @@ It performs no recurring work after startup.
 
 ## OMV system diagnostics
 
-OMV consumes `d3d9_device_profile` in its in-game Diagnostics tab. The panel
+OMV consumes `d3d9_device_profile_report` in its in-game Diagnostics tab. The panel
 describes both the physical renderer and the compatibility identity of Fallout
 New Vegas's live D3D9 device:
 
@@ -602,16 +623,20 @@ issues as an incomplete state rather than treating the fallback
 machine-local diagnostics only. They are not configuration fields and are
 never included in presets.
 
-Failure is diagnostic-only. A null device waits for the next eligible frame,
-and a D3D9 query failure is rendered in the panel without substituting adapter
-zero, enumerating unrelated adapters, changing OMV policy, or disabling an
-effect. If DXVK advertises interop but physical-property collection fails, the
-profile fails visibly rather than relabeling the known-spoofable D3D9 identity
-as physical. The profile adds a small bounded set of owned strings for one
-device and no persistent GPU resource.
+Failure is diagnostic-only. The query occurs only after the Diagnostics tab is
+visible, so it is not part of plugin load, DeferredInit, or effect admission. A
+null device waits for the next eligible frame,
+and a required D3D9 query failure is rendered in the panel without substituting
+adapter zero, enumerating unrelated adapters, changing OMV policy, or disabling
+an effect. Native D3D9 returns its owning adapter directly. If optional DXVK
+physical-property collection fails, the report retains the D3D9 adapter and
+capability evidence, records the enrichment issue, and displays `Physical GPU
+unavailable`; the spoofable adapter is shown only as a D3D9 compatibility
+fallback. The report adds a small bounded set of owned strings for one device
+and no persistent GPU resource.
 
 Automated coverage requires the collector to call
-`libpsycho::hardware::d3d9_device_profile`, rejects
+`libpsycho::hardware::d3d9_device_profile_report`, rejects
 `d3d9_adapter_profiles`, verifies one-query caching and new-device
 invalidation, and requires the panel to expose identity, driver, capabilities,
 format support, and the texture-memory caveat. A separate regression proves
@@ -643,6 +668,9 @@ remain runtime acceptance items.
 - D3D9 caps, shader versions, and unknown device-type normalization.
 - DXVK physical-device precedence over a synthetic AMD D3D9 identity and
   exact live-device interop selection without adapter/Vulkan enumeration.
+- Native D3D9 interop absence and injected optional DXVK-probe failure both
+  retain the device-bound D3D9 profile path; only the latter records a visible
+  enrichment issue.
 - Native-versus-Proton environment classification and the requirement for
   proven Wine.
 - A real Windows/Wine cached-profile integration test covering CPUID, native
@@ -694,6 +722,17 @@ supported optimized `i686-pc-windows-gnu` OMV release build. Its regressions
 cover the post-visibility environment query, responsive GPU/environment cards,
 distinct Proton/Wine/native-Windows summaries, and retained
 physical-versus-compatibility GPU evidence.
+
+The 2026-08-03 optional-DXVK correction and follow-up review pass 27
+libpsycho library tests, all 442 OMV tests, and the supported optimized OMV
+release build. Behavioral tests prove that clean native-D3D9 interop
+absence and an injected unexpected DXVK-probe failure produce different report
+states while both retain the complete D3D9 profile. `ash` remains an ABI/type
+dependency and Vulkan entry points are resolved dynamically from the DXVK
+instance; therefore the built DLL has no load-time `vulkan-1.dll` import. That
+does not mean the optional DXVK identity path has no Vulkan runtime dependency.
+The unrelated pre-existing logger doctest described above remains outside the
+passing library-test command.
 
 ### Runtime acceptance
 

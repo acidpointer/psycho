@@ -293,6 +293,13 @@ pub(crate) fn depth_stage_hooks_status_label() -> &'static str {
 }
 
 fn install_process_image_space_shaders_hook() {
+    if PROCESS_IMAGE_SPACE_SHADERS_HOOK.is_initialized() {
+        enable_prepared_scene_hook(
+            &PROCESS_IMAGE_SPACE_SHADERS_HOOK,
+            "ProcessImageSpaceShaders",
+        );
+        return;
+    }
     match unsafe {
         PROCESS_IMAGE_SPACE_SHADERS_HOOK.init(
             "FNV ProcessImageSpaceShaders",
@@ -325,6 +332,14 @@ fn install_process_image_space_shaders_hook() {
 
 fn install_set_water_shader_underwater_hook() {
     UNDERWATER_PUBLICATION_HOOK_READY.store(false, Ordering::Release);
+    if SET_WATER_SHADER_UNDERWATER_HOOK.is_initialized() {
+        let ready = enable_prepared_scene_hook(
+            &SET_WATER_SHADER_UNDERWATER_HOOK,
+            "SetWaterShaderUnderwater",
+        );
+        UNDERWATER_PUBLICATION_HOOK_READY.store(ready, Ordering::Release);
+        return;
+    }
     match unsafe {
         SET_WATER_SHADER_UNDERWATER_HOOK.init(
             "FNV SetWaterShaderUnderwater",
@@ -358,6 +373,12 @@ fn install_set_water_shader_underwater_hook() {
 
 fn install_render_world_scene_graph_hook() {
     WORLD_SCENE_HOOK_READY.store(false, Ordering::Release);
+    if RENDER_WORLD_SCENE_GRAPH_HOOK.is_initialized() {
+        let ready =
+            enable_prepared_scene_hook(&RENDER_WORLD_SCENE_GRAPH_HOOK, "RenderWorldSceneGraph");
+        WORLD_SCENE_HOOK_READY.store(ready, Ordering::Release);
+        return;
+    }
     match unsafe {
         RENDER_WORLD_SCENE_GRAPH_HOOK.init(
             "FNV RenderWorldSceneGraph",
@@ -390,6 +411,10 @@ fn install_render_world_scene_graph_hook() {
 }
 
 fn install_render_first_person_hook() {
+    if RENDER_FIRST_PERSON_HOOK.is_initialized() {
+        enable_prepared_scene_hook(&RENDER_FIRST_PERSON_HOOK, "RenderFirstPerson");
+        return;
+    }
     match unsafe {
         RENDER_FIRST_PERSON_HOOK.init(
             "FNV RenderFirstPerson",
@@ -420,6 +445,12 @@ fn install_render_first_person_hook() {
 
 fn install_render_pre_depth_groups_hook() {
     PRE_ALPHA_HOOK_READY.store(false, Ordering::Release);
+    if RENDER_PRE_DEPTH_GROUPS_HOOK.is_initialized() {
+        let ready =
+            enable_prepared_scene_hook(&RENDER_PRE_DEPTH_GROUPS_HOOK, "RenderPreDepthGroups");
+        PRE_ALPHA_HOOK_READY.store(ready, Ordering::Release);
+        return;
+    }
     match unsafe {
         RENDER_PRE_DEPTH_GROUPS_HOOK.init(
             "FNV RenderPreDepthGroups",
@@ -446,6 +477,27 @@ fn install_render_pre_depth_groups_hook() {
         Err(err) => log::warn!(
             "[FNV] Pre-alpha atmosphere hook skipped at 0x{RENDER_PRE_DEPTH_GROUPS_ADDR:08X}: {err}"
         ),
+    }
+}
+
+/// Re-enable a prepared scene hook during a DeferredInit retry.
+///
+/// Hook containers intentionally reject a second `init`. Retrying therefore
+/// reuses the existing trampoline and only restores the entry jump when a
+/// previous startup attempt left it detached.
+fn enable_prepared_scene_hook<T: Function>(
+    hook: &InlineHookContainer<T>,
+    label: &'static str,
+) -> bool {
+    if hook.is_enabled() {
+        return true;
+    }
+    match hook.enable() {
+        Ok(()) => true,
+        Err(err) => {
+            log::warn!("[FNV] Prepared {label} hook could not be re-enabled: {err}");
+            false
+        }
     }
 }
 

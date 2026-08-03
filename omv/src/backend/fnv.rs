@@ -21,7 +21,8 @@ use std::sync::{
 use super::{
     AlphaCoverageMode, CameraFrame, CameraTransformFrame, DepthAccess, DepthFrame,
     DepthProjectionFrame, DepthProvider, DepthResolveOutcome, DepthResolveSlot, DepthResolveStage,
-    DepthTexture, EnvironmentFrame, MaterialStateFrame, NativeSkyFrame, SunFrame, UnderwaterFrame,
+    DepthTexture, EnvironmentFrame, InitialDepthActivation, MaterialStateFrame, NativeSkyFrame,
+    ReszCapability, SunFrame, UnderwaterFrame, choose_initial_depth_provider,
 };
 use libpsycho::ffi::fnptr::FnPtr;
 use libpsycho::os::windows::{
@@ -192,14 +193,21 @@ pub(crate) fn external_depth_resolve_status() -> DepthResolveStatus {
         };
     };
     if resolve.texture.is_some() {
-        DepthResolveStatus {
-            route: if depth_resolve_provider::external_resz_marker_required() {
-                DepthResolveRouteStatus::Resz
-            } else {
-                DepthResolveRouteStatus::Nvapi
-            },
-            reason: "Depth Resolve shared INTZ world depth",
-        }
+        let (route, reason) = match depth_resolve_provider::external_copy_route() {
+            depth_resolve_provider::ExternalCopyRoute::Resz => (
+                DepthResolveRouteStatus::Resz,
+                "Depth Resolve shared INTZ world depth",
+            ),
+            depth_resolve_provider::ExternalCopyRoute::Nvapi => (
+                DepthResolveRouteStatus::Nvapi,
+                "Depth Resolve shared INTZ world depth",
+            ),
+            depth_resolve_provider::ExternalCopyRoute::Unprobed => (
+                DepthResolveRouteStatus::Unprobed,
+                "Depth Resolve shared INTZ world depth; physical copy route is unverified",
+            ),
+        };
+        DepthResolveStatus { route, reason }
     } else {
         DepthResolveStatus {
             route: DepthResolveRouteStatus::Unprobed,
@@ -208,13 +216,31 @@ pub(crate) fn external_depth_resolve_status() -> DepthResolveStatus {
     }
 }
 
-/// Validate startup capabilities without requiring the shared texture yet.
-pub(super) fn validate_initial_depth_provider(provider: DepthProvider) -> Result<(), &'static str> {
-    validate_depth_provider_capabilities(provider)?;
-    if provider == DepthProvider::DepthResolve && !depth_resolve_provider::available() {
-        return Err("Depth Resolve is not loaded or its provider exports are unavailable");
-    }
-    Ok(())
+/// Select one safe initial producer without making depth a plugin startup gate.
+pub(super) fn select_initial_depth_provider(provider: DepthProvider) -> InitialDepthActivation {
+    let external_available = depth_resolve_provider::available();
+    let resz = if external_available && provider != DepthProvider::None {
+        match active_device_supports_resz() {
+            Ok(true) => ReszCapability::Supported,
+            Ok(false) => ReszCapability::Unsupported,
+            Err(reason) => {
+                // Depth Resolve cannot be paused. If the marker route cannot
+                // be proven, retaining the external producer is the only
+                // startup choice that cannot create two physical copies.
+                log::warn!("[FNV] Active-device RESZ capability query failed: {reason}");
+                ReszCapability::QueryFailed
+            }
+        }
+    } else {
+        // This value is ignored when no external producer can conflict.
+        ReszCapability::Unsupported
+    };
+    depth_resolve_provider::set_external_copy_route(match resz {
+        ReszCapability::Supported => Some(true),
+        ReszCapability::Unsupported => Some(false),
+        ReszCapability::QueryFailed => None,
+    });
+    choose_initial_depth_provider(provider, external_available, resz)
 }
 
 /// Validate a live provider and retain its current shared identity when needed.
@@ -230,8 +256,8 @@ pub(super) fn validate_depth_provider(provider: DepthProvider) -> Result<(), &'s
 
 fn validate_depth_provider_capabilities(provider: DepthProvider) -> Result<(), &'static str> {
     if depth_resolve_provider::available() && provider != DepthProvider::None {
-        let resz_available = default_device_supports_resz()?;
-        depth_resolve_provider::set_external_resz_marker_required(resz_available);
+        let resz_available = active_device_supports_resz()?;
+        depth_resolve_provider::set_external_copy_route(Some(resz_available));
         if provider != DepthProvider::FalloutNewVegas {
             return Ok(());
         }
@@ -248,14 +274,14 @@ fn validate_depth_provider_capabilities(provider: DepthProvider) -> Result<(), &
     Ok(())
 }
 
-fn default_device_supports_resz() -> Result<bool, &'static str> {
+fn active_device_supports_resz() -> Result<bool, &'static str> {
     let device_ptr = d3d_device_ptr().ok_or("D3D9 device is unavailable")?;
     let device =
         unsafe { Device9Ref::from_raw_void(device_ptr) }.ok_or("D3D9 device pointer is invalid")?;
-    Ok(device
-        .direct3d()
-        .and_then(|direct3d| direct3d.check_default_resz_support())
-        .is_ok())
+    device.supports_resz().map_err(|error| {
+        log::warn!("[FNV] Active D3D9 device RESZ query failed: {error}");
+        "could not query RESZ support for the active D3D9 device"
+    })
 }
 
 /// Return whether a capability-compatible Depth Resolve module is loaded.
@@ -2155,15 +2181,23 @@ impl FnvDepthResolve {
             };
         }
 
-        let resz_available = device
-            .direct3d()
-            .and_then(|direct3d| direct3d.check_default_resz_support())
-            .is_ok();
-        if resz_available {
-            self.route = DepthResolveRoute::Resz;
-            log::info!("[FNV] Depth resolve route: RESZ");
-            return Ok(());
-        }
+        let resz_query_failed = match device.supports_resz() {
+            Ok(true) => {
+                self.route = DepthResolveRoute::Resz;
+                log::info!("[FNV] Depth resolve route: RESZ");
+                return Ok(());
+            }
+            Ok(false) => false,
+            Err(err) => {
+                // A failed capability query is not proof that RESZ is absent.
+                // The native NvAPI route remains a safe independent fallback,
+                // but diagnostics must preserve the real query failure.
+                log::warn!(
+                    "[FNV] Active-device RESZ capability query failed; trying native NVIDIA NvAPI: {err}"
+                );
+                true
+            }
+        };
 
         match NvapiDepthResolve::load() {
             Ok(nvapi) => {
@@ -2172,11 +2206,17 @@ impl FnvDepthResolve {
                 Ok(())
             }
             Err(err) => {
-                log::warn!(
-                    "[FNV] Depth resolve unavailable: RESZ was not exposed and NvAPI initialization failed: {err}"
-                );
-                let reason =
-                    "RESZ is not exposed and the native NVIDIA NvAPI D3D9 route is unavailable";
+                let reason = if resz_query_failed {
+                    log::warn!(
+                        "[FNV] Depth resolve unavailable: the active-device RESZ query failed and NvAPI initialization also failed: {err}"
+                    );
+                    "the active-device RESZ query failed and the native NVIDIA NvAPI D3D9 route is unavailable"
+                } else {
+                    log::warn!(
+                        "[FNV] Depth resolve unavailable: RESZ was not exposed and NvAPI initialization failed: {err}"
+                    );
+                    "RESZ is not exposed and the native NVIDIA NvAPI D3D9 route is unavailable"
+                };
                 self.route = DepthResolveRoute::Unavailable(reason);
                 Err(FnvDepthResolveError::Unavailable(reason))
             }

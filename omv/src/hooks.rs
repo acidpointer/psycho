@@ -107,14 +107,22 @@ fn advance_render_epoch(epoch: &AtomicU32) {
 }
 
 pub(crate) fn start_install_worker() -> Result<()> {
-    if INSTALL_WORKER_STARTED.swap(true, Ordering::AcqRel) {
+    if INSTALL_WORKER_STARTED
+        .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+        .is_err()
+    {
         return Ok(());
     }
 
-    thread::Builder::new()
+    let spawn = thread::Builder::new()
         .name("omv-d3d-hook".to_owned())
-        .spawn(install_worker)
-        .context("failed to start Direct3D hook worker")?;
+        .spawn(install_worker);
+    if spawn.is_err() {
+        // Publication follows actual thread creation. A transient OS failure
+        // must leave the DeferredInit retry path able to start the worker.
+        INSTALL_WORKER_STARTED.store(false, Ordering::Release);
+    }
+    spawn.context("failed to start Direct3D hook worker")?;
 
     Ok(())
 }
@@ -146,6 +154,16 @@ pub(crate) fn set_resz_interposition_active(active: bool) -> Result<(), &'static
     let Some(hooks) = DEVICE_HOOKS.try_lock() else {
         return Err("RESZ hook owner is busy");
     };
+    transition_resz_interposition(&hooks, active)
+}
+
+/// Reconcile a prepared RESZ hook while its device-hook owner is locked.
+///
+/// DeferredInit retries can reuse hooks installed by a previous partial
+/// attempt. The effective depth producer may change between attempts, so the
+/// resident vtable entry must be reconciled as part of reuse instead of merely
+/// accepting the presence of the hook object as success.
+fn transition_resz_interposition(hooks: &DeviceHooks, active: bool) -> Result<(), &'static str> {
     let Some(hook) = hooks.set_render_state.as_ref() else {
         return Err("RESZ interposition hook is not installed");
     };
@@ -294,6 +312,10 @@ fn install_device_hooks(device_ptr: *mut c_void) -> Result<()> {
     {
         transition_draw_interposition(&hooks, activate_draw_interposition)
             .map_err(anyhow::Error::msg)?;
+        if needs_resz_interposition {
+            transition_resz_interposition(&hooks, activate_resz_interposition)
+                .map_err(anyhow::Error::msg)?;
+        }
         return Ok(());
     }
 
@@ -538,7 +560,7 @@ mod tests {
     fn resz_provider_transition_writes_the_vtable_in_both_directions() {
         let source = include_str!("hooks.rs");
         let transition = source
-            .split_once("pub(crate) fn set_resz_interposition_active")
+            .split_once("fn transition_resz_interposition")
             .map(|(_, tail)| tail)
             .and_then(|tail| tail.split_once("pub(crate) fn resz_interposition_active"))
             .map(|(body, _)| body)

@@ -39,6 +39,11 @@
 //! This presentation is diagnostic only and never changes graphics policy or
 //! serializes machine-local identity into presets.
 //!
+//! DeferredInit may replace an unsafe initial depth request with one compatible
+//! producer for the current session. The runtime publishes that effective
+//! provider to every consumer and reports the reason in the menu; optional
+//! depth capability can never prevent unrelated OMV services from starting.
+//!
 //! Embedded HLSL compilation is process-owned. Configuration starts bounded
 //! background preparation, while render callbacks poll immutable bytecode and
 //! create only D3D device objects.
@@ -237,6 +242,33 @@ pub(crate) fn configure(settings: RuntimeSettings) {
     service_enabled_effect_preparation(settings.menu_config);
     let mut runtime = RUNTIME.lock();
     runtime.configure(settings);
+}
+
+/// Publish the effective DeferredInit depth producer to runtime consumers.
+///
+/// This updates only the in-memory menu model. Configuration loading has
+/// already completed, so choosing a safe session fallback does not perform
+/// file I/O or implicitly rewrite the user's configuration during startup.
+pub(crate) fn apply_initial_depth_activation(
+    activation: backend::InitialDepthActivation,
+) -> GraphicsMenuConfig {
+    let mut runtime = RUNTIME.lock();
+    runtime.settings.depth_provider = activation.active;
+    runtime.settings.menu_config.depth_provider = activation.active.into();
+    runtime.startup_depth_provider_request = activation
+        .fallback
+        .map(|_| DepthProviderConfig::from(activation.requested));
+    runtime.publish_fnv_scene_requirements();
+    if let Some(fallback) = activation.fallback {
+        let message = format!(
+            "Configured depth provider '{}' was not activated: {}.",
+            activation.requested.label(),
+            fallback.message(),
+        );
+        log::warn!("[FNV] {message}");
+        runtime.menu_config_error = Some(message);
+    }
+    runtime.settings.menu_config
 }
 
 /// Start background preparation for every configured screen-effect family.
@@ -1055,12 +1087,20 @@ impl Default for RuntimeSettings {
     }
 }
 
-fn depth_provider_config(provider: DepthProvider) -> DepthProviderConfig {
-    match provider {
-        DepthProvider::None => DepthProviderConfig::None,
-        DepthProvider::FalloutNewVegas => DepthProviderConfig::FalloutNewVegas,
-        DepthProvider::DepthResolve => DepthProviderConfig::DepthResolve,
+/// Build the disk snapshot without persisting an automatic startup fallback.
+///
+/// The live menu must show the effective producer so diagnostics and switch
+/// controls are truthful. Persistence instead retains the user's original
+/// request until a different provider is explicitly and successfully selected
+/// in the menu.
+fn persistence_menu_config(
+    mut live: GraphicsMenuConfig,
+    startup_request: Option<DepthProviderConfig>,
+) -> GraphicsMenuConfig {
+    if let Some(requested) = startup_request {
+        live.depth_provider = requested;
     }
+    live
 }
 
 struct ActivePreset {
@@ -1206,6 +1246,7 @@ struct ScreenShaderRuntime {
     error_logs: u32,
     imgui_error_logs: u32,
     menu_config_error: Option<String>,
+    startup_depth_provider_request: Option<DepthProviderConfig>,
     scene_apply_logs: u32,
     scene_target_logs: u32,
     world_color_capture_logs: u32,
@@ -1271,6 +1312,7 @@ impl Default for ScreenShaderRuntime {
             error_logs: 0,
             imgui_error_logs: 0,
             menu_config_error: None,
+            startup_depth_provider_request: None,
             scene_apply_logs: 0,
             scene_target_logs: 0,
             world_color_capture_logs: 0,
@@ -1345,6 +1387,7 @@ impl ScreenShaderRuntime {
             external_sources,
         );
         self.settings = settings;
+        self.startup_depth_provider_request = None;
         self.invalidate_compiled_shaders();
         self.current_look_autosave = AutosaveCoordinator::default();
         self.publish_fnv_scene_requirements();
@@ -2043,8 +2086,11 @@ impl ScreenShaderRuntime {
             &self.sources,
             &mut self.settings.menu_config.embedded_effects,
         );
-        let snapshot =
-            CurrentLookSnapshot::capture(revision, self.settings.menu_config, &self.sources);
+        let menu_config = persistence_menu_config(
+            self.settings.menu_config,
+            self.startup_depth_provider_request,
+        );
+        let snapshot = CurrentLookSnapshot::capture(revision, menu_config, &self.sources);
         let result = self
             .current_look_service
             .as_ref()
@@ -3154,7 +3200,8 @@ impl ScreenShaderRuntime {
             return;
         };
         self.gpu_diagnostics = Some(
-            libpsycho::hardware::d3d9_device_profile(&device).map_err(|error| error.to_string()),
+            libpsycho::hardware::d3d9_device_profile_report(&device)
+                .map_err(|error| error.to_string()),
         );
     }
 
@@ -3275,15 +3322,23 @@ impl ScreenShaderRuntime {
             ));
         }
         let requested_provider = self.settings.menu_config.depth_provider.into();
+        let provider_changed = requested_provider != self.settings.depth_provider;
         match backend::switch_depth_provider(requested_provider) {
-            Ok(_) => self.settings.depth_provider = requested_provider,
+            Ok(_) => {
+                self.settings.depth_provider = requested_provider;
+                if provider_changed {
+                    // An explicit successful menu selection supersedes any
+                    // request retained from a startup-only compatibility
+                    // fallback and may be persisted normally.
+                    self.startup_depth_provider_request = None;
+                }
+            }
             Err(reason) => {
                 // Keep configuration and the physical producer identical.
                 // Persisting a rejected selection would make the next launch
                 // fail before hooks are installed and would conceal that the
                 // previous provider is still active.
-                self.settings.menu_config.depth_provider =
-                    depth_provider_config(self.settings.depth_provider);
+                self.settings.menu_config.depth_provider = self.settings.depth_provider.into();
                 self.menu_config_error = Some(format!(
                     "Depth provider switch rejected: {reason}. The previous provider remains active."
                 ));
@@ -5516,7 +5571,8 @@ mod frame_pacing_tests {
         FRAME_PACING_SPIKE_WARMUP_SAMPLES, FramePacing, MENU_DIAGNOSTICS_ACTIVE_BIT,
         MENU_DIAGNOSTICS_SESSION_INCREMENT, MenuTab, PresentFrameTiming, SpikeDirection,
         copy_latest_frame_times, diagnostics_should_be_active, diagnostics_state_transition,
-        frame_pacing_chart_scale, present_interval_ms,
+        frame_pacing_chart_scale, gpu_diagnostics_card, persistence_menu_config,
+        present_interval_ms,
     };
     use std::time::{Duration, Instant};
 
@@ -6142,7 +6198,7 @@ mod frame_pacing_tests {
             .expect("GPU diagnostics collector");
         assert!(collector.contains("self.gpu_diagnostics.is_some()"));
         assert!(collector.contains("Device9Ref::from_raw_void(self.device_ptr"));
-        assert!(collector.contains("libpsycho::hardware::d3d9_device_profile"));
+        assert!(collector.contains("libpsycho::hardware::d3d9_device_profile_report"));
         assert!(!collector.contains("d3d9_adapter_profiles"));
 
         let draw_menu = source
@@ -6173,9 +6229,11 @@ mod frame_pacing_tests {
             .and_then(|tail| tail.split_once("\nfn gpu_device_kind_label("))
             .map(|(body, _)| body)
             .expect("GPU diagnostics panel");
-        assert!(panel.contains("profile.active_gpu_identity()"));
-        assert!(panel.contains("D3d9ActiveGpuIdentity::DxvkPhysicalDevice"));
-        assert!(panel.contains("D3d9ActiveGpuIdentity::Direct3D9Adapter"));
+        assert!(panel.contains("report.gpu_identity()"));
+        assert!(panel.contains("D3d9ProfileGpuIdentity::DxvkPhysicalDevice"));
+        assert!(panel.contains("D3d9ProfileGpuIdentity::Direct3D9Adapter"));
+        assert!(panel.contains("D3d9ProfileGpuIdentity::UnverifiedDirect3D9Adapter"));
+        assert!(panel.contains("Physical GPU identity unavailable"));
         assert!(panel.contains("D3D9 COMPATIBILITY IDENTITY"));
         for field in [
             "identity.description",
@@ -6192,6 +6250,73 @@ mod frame_pacing_tests {
             assert!(panel.contains(field), "missing active-GPU field: {field}");
         }
         assert!(panel.contains("not physical VRAM"));
+    }
+
+    #[test]
+    fn failed_optional_dxvk_identity_never_labels_d3d9_compatibility_as_physical() {
+        use libpsycho::hardware::{
+            D3d9Capabilities, D3d9DeviceKind, D3d9DeviceProfile, D3d9DeviceProfileReport,
+            D3d9FeatureFlags, D3d9FormatFeatures, GpuIdentity, ShaderModel,
+        };
+
+        let diagnostics = Ok(D3d9DeviceProfileReport {
+            profile: D3d9DeviceProfile {
+                adapter_ordinal: 0,
+                device_kind: D3d9DeviceKind::Hardware,
+                behavior_flags: 0,
+                identity: GpuIdentity {
+                    description: "Spoofable D3D9 adapter".to_owned(),
+                    driver: "d3d9.dll".to_owned(),
+                    device_name: r"\\.\DISPLAY1".to_owned(),
+                    driver_version: 0,
+                    vendor_id: 0x1002,
+                    device_id: 0x73df,
+                    subsystem_id: 0,
+                    revision: 0,
+                    device_identifier: 0,
+                    whql_level: 0,
+                },
+                dxvk_physical_identity: None,
+                capabilities: D3d9Capabilities {
+                    features: D3d9FeatureFlags::empty(),
+                    max_texture_width: 0,
+                    max_texture_height: 0,
+                    max_volume_extent: 0,
+                    max_anisotropy: 0,
+                    max_simultaneous_render_targets: 0,
+                    max_simultaneous_textures: 0,
+                    max_texture_blend_stages: 0,
+                    max_vertex_streams: 0,
+                    max_vertex_stream_stride: 0,
+                    vertex_shader_model: ShaderModel { major: 0, minor: 0 },
+                    pixel_shader_model: ShaderModel { major: 0, minor: 0 },
+                    max_vertex_shader_constants: 0,
+                },
+                format_features: D3d9FormatFeatures::empty(),
+                approximate_available_texture_memory_bytes: 0,
+            },
+            dxvk_physical_identity_issue: Some("injected interop failure".to_owned()),
+        });
+
+        let (title, detail, accent) = gpu_diagnostics_card(Some(&diagnostics));
+        assert_eq!(title, "Physical GPU unavailable");
+        assert!(detail.contains("D3D9 compatibility fallback"));
+        assert!(detail.contains("Spoofable D3D9 adapter"));
+        assert_eq!(accent, super::MENU_WARN_TEXT);
+    }
+
+    #[test]
+    fn autosave_preserves_the_requested_provider_during_a_startup_fallback() {
+        use crate::config::{DepthProviderConfig, GraphicsMenuConfig};
+
+        let mut live = GraphicsMenuConfig::default();
+        live.depth_provider = DepthProviderConfig::DepthResolve;
+        let persisted = persistence_menu_config(live, Some(DepthProviderConfig::FalloutNewVegas));
+        assert_eq!(
+            persisted.depth_provider,
+            DepthProviderConfig::FalloutNewVegas
+        );
+        assert_eq!(live.depth_provider, DepthProviderConfig::DepthResolve);
     }
 
     #[test]
@@ -6700,9 +6825,10 @@ struct EngineFeatureStatus {
 
 /// Owned active-device profile retained for the lifetime of one D3D9 device.
 ///
-/// Failures are cached as displayable text as well, preventing an unavailable
-/// compatibility-layer query from being retried every diagnostics frame.
-type GpuDiagnosticsProfile = Result<libpsycho::hardware::D3d9DeviceProfile, String>;
+/// Required D3D9 failures are cached as displayable text. Optional DXVK
+/// enrichment issues remain inside a successful D3D9 profile, so neither kind
+/// of failure is retried every diagnostics frame.
+type GpuDiagnosticsProfile = Result<libpsycho::hardware::D3d9DeviceProfileReport, String>;
 
 impl Default for MenuSelection {
     fn default() -> Self {
@@ -7615,8 +7741,8 @@ fn gpu_diagnostics_card(diagnostics: Option<&GpuDiagnosticsProfile>) -> (String,
             MENU_MUTED_TEXT,
         );
     };
-    let profile = match diagnostics {
-        Ok(profile) => profile,
+    let report = match diagnostics {
+        Ok(report) => report,
         Err(error) => {
             return (
                 "Unavailable".to_owned(),
@@ -7626,8 +7752,9 @@ fn gpu_diagnostics_card(diagnostics: Option<&GpuDiagnosticsProfile>) -> (String,
         }
     };
 
-    match profile.active_gpu_identity() {
-        libpsycho::hardware::D3d9ActiveGpuIdentity::DxvkPhysicalDevice(identity) => (
+    let profile = &report.profile;
+    match report.gpu_identity() {
+        libpsycho::hardware::D3d9ProfileGpuIdentity::DxvkPhysicalDevice(identity) => (
             identity.description.clone(),
             format!(
                 "DXVK Vulkan // {} // VEN_{:04X} DEV_{:04X}",
@@ -7637,7 +7764,7 @@ fn gpu_diagnostics_card(diagnostics: Option<&GpuDiagnosticsProfile>) -> (String,
             ),
             MENU_GOOD_TEXT,
         ),
-        libpsycho::hardware::D3d9ActiveGpuIdentity::Direct3D9Adapter(identity) => (
+        libpsycho::hardware::D3d9ProfileGpuIdentity::Direct3D9Adapter(identity) => (
             identity.description.clone(),
             format!(
                 "Direct3D 9 // VEN_{:04X} DEV_{:04X} // {}",
@@ -7646,6 +7773,17 @@ fn gpu_diagnostics_card(diagnostics: Option<&GpuDiagnosticsProfile>) -> (String,
                 gpu_device_kind_label(profile.device_kind),
             ),
             MENU_GOOD_TEXT,
+        ),
+        libpsycho::hardware::D3d9ProfileGpuIdentity::UnverifiedDirect3D9Adapter {
+            identity,
+            ..
+        } => (
+            "Physical GPU unavailable".to_owned(),
+            format!(
+                "D3D9 compatibility fallback // {} // VEN_{:04X} DEV_{:04X}",
+                identity.description, identity.vendor_id, identity.device_id,
+            ),
+            MENU_WARN_TEXT,
         ),
     }
 }
@@ -7669,8 +7807,8 @@ fn draw_gpu_details(ui: &mut psycho_imgui::Ui<'_>, diagnostics: Option<&GpuDiagn
         );
         return;
     };
-    let profile = match diagnostics {
-        Ok(profile) => profile,
+    let report = match diagnostics {
+        Ok(report) => report,
         Err(error) => {
             ui.text_colored(
                 MENU_ERROR_TEXT,
@@ -7680,8 +7818,9 @@ fn draw_gpu_details(ui: &mut psycho_imgui::Ui<'_>, diagnostics: Option<&GpuDiagn
         }
     };
 
-    match profile.active_gpu_identity() {
-        libpsycho::hardware::D3d9ActiveGpuIdentity::DxvkPhysicalDevice(identity) => {
+    let profile = &report.profile;
+    match report.gpu_identity() {
+        libpsycho::hardware::D3d9ProfileGpuIdentity::DxvkPhysicalDevice(identity) => {
             ui.label_value(
                 &cstring("Active renderer"),
                 &cstring("DXVK Vulkan physical device"),
@@ -7745,7 +7884,7 @@ fn draw_gpu_details(ui: &mut psycho_imgui::Ui<'_>, diagnostics: Option<&GpuDiagn
                 ),
             );
         }
-        libpsycho::hardware::D3d9ActiveGpuIdentity::Direct3D9Adapter(identity) => {
+        libpsycho::hardware::D3d9ProfileGpuIdentity::Direct3D9Adapter(identity) => {
             ui.label_value(
                 &cstring("Active renderer"),
                 &cstring("Native D3D9 adapter"),
@@ -7763,6 +7902,35 @@ fn draw_gpu_details(ui: &mut psycho_imgui::Ui<'_>, diagnostics: Option<&GpuDiagn
                     identity.subsystem_id,
                     identity.revision,
                 ),
+            );
+        }
+        libpsycho::hardware::D3d9ProfileGpuIdentity::UnverifiedDirect3D9Adapter {
+            identity,
+            issue,
+        } => {
+            ui.label_value(
+                &cstring("Active renderer"),
+                &cstring("Physical GPU identity unavailable"),
+                MENU_WARN_TEXT,
+            );
+            draw_wrapped_diagnostic_value(
+                ui,
+                "D3D9 COMPATIBILITY IDENTITY",
+                MENU_WARN_TEXT,
+                &format!(
+                    "{} // VEN_{:04X} DEV_{:04X} SUBSYS_{:08X} REV_{:02X}",
+                    identity.description,
+                    identity.vendor_id,
+                    identity.device_id,
+                    identity.subsystem_id,
+                    identity.revision,
+                ),
+            );
+            draw_wrapped_diagnostic_value(
+                ui,
+                "OPTIONAL DXVK IDENTITY UNAVAILABLE",
+                MENU_WARN_TEXT,
+                issue,
             );
         }
     }

@@ -6,7 +6,11 @@
 //! compatibility identity: application profiles may replace NVIDIA with a
 //! synthetic AMD adapter. DXVK's device interop interface therefore supplies
 //! the authoritative physical Vulkan-device identity while D3D9 remains the
-//! authority for features exposed to the game.
+//! authority for features exposed to the game. The strict profile API reports
+//! unexpected interop failures as errors. The diagnostics report API retains
+//! the complete D3D9 profile and exposes optional enrichment failure as an
+//! explicit unverified-identity state; neither API makes DXVK a renderer
+//! requirement.
 
 use bitflags::bitflags;
 use windows::Win32::Graphics::Direct3D9::{
@@ -21,8 +25,8 @@ use super::{HardwareError, HardwareResult};
 use crate::os::windows::directx9::{
     AdapterIdentifier9, D3DCAPS9, D3DDEVTYPE, D3DDEVTYPE_HAL, D3DDEVTYPE_NULLREF, D3DDEVTYPE_REF,
     D3DDEVTYPE_SW, D3DFMT_A8R8G8B8, D3DFMT_A16B16G16R16F, D3DFMT_INTZ, D3DFMT_R32F, D3DFMT_RESZ,
-    D3DRTYPE_SURFACE, D3DRTYPE_TEXTURE, Device9Ref, Direct3D9, DxvkPhysicalDeviceProperties9,
-    create_direct3d9,
+    D3DRTYPE_SURFACE, D3DRTYPE_TEXTURE, Device9Ref, Direct3D9, Direct3DResult,
+    DxvkPhysicalDeviceProperties9, create_direct3d9,
 };
 
 /// Stable D3D9 adapter identity.
@@ -102,6 +106,27 @@ pub enum D3d9ActiveGpuIdentity<'a> {
     DxvkPhysicalDevice(&'a DxvkPhysicalDeviceIdentity),
     /// Native D3D9 adapter identity when DXVK interop is absent.
     Direct3D9Adapter(&'a GpuIdentity),
+}
+
+/// GPU identity state returned by the diagnostics-oriented profile report.
+///
+/// Unlike [`D3d9ActiveGpuIdentity`], this type preserves the distinction
+/// between a device that cleanly lacks DXVK interop and one whose optional
+/// DXVK physical-device query failed. Consumers must not describe an
+/// unverified D3D9 compatibility identity as the physical GPU.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum D3d9ProfileGpuIdentity<'a> {
+    /// Physical Vulkan device obtained from DXVK's live D3D9 device.
+    DxvkPhysicalDevice(&'a DxvkPhysicalDeviceIdentity),
+    /// Adapter identity from a native or other non-DXVK D3D9 implementation.
+    Direct3D9Adapter(&'a GpuIdentity),
+    /// D3D9 compatibility identity retained after optional DXVK enrichment failed.
+    UnverifiedDirect3D9Adapter {
+        /// Identity exposed to the application through D3D9.
+        identity: &'a GpuIdentity,
+        /// Error returned by the optional DXVK physical-device query.
+        issue: &'a str,
+    },
 }
 
 /// D3D9 device implementation selected at creation.
@@ -221,8 +246,9 @@ pub struct D3d9DeviceProfile {
     /// Identity exposed to the application through D3D9.
     ///
     /// DXVK may intentionally spoof this value. Use
-    /// [`D3d9DeviceProfile::active_gpu_identity`] when identifying the physical
-    /// GPU that executes rendering work.
+    /// [`D3d9DeviceProfile::active_gpu_identity`] only after this strict query
+    /// succeeds, or use [`D3d9DeviceProfileReport::gpu_identity`] for
+    /// diagnostics that retain optional enrichment failures.
     pub identity: GpuIdentity,
     /// Physical Vulkan identity when the live device exposes DXVK interop.
     pub dxvk_physical_identity: Option<DxvkPhysicalDeviceIdentity>,
@@ -248,6 +274,42 @@ impl D3d9DeviceProfile {
     }
 }
 
+/// Diagnostics report for one live D3D9 device.
+///
+/// The contained [`D3d9DeviceProfile`] is complete even when optional DXVK
+/// physical-device enrichment fails. That failure is retained separately so
+/// diagnostics can explain why the D3D9 identity is unverified without making
+/// DXVK a startup, rendering, or feature-admission requirement.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct D3d9DeviceProfileReport {
+    /// Device-bound D3D9 identity, capabilities, and format support.
+    pub profile: D3d9DeviceProfile,
+    /// Optional failure from DXVK physical-device identity enrichment.
+    pub dxvk_physical_identity_issue: Option<String>,
+}
+
+impl D3d9DeviceProfileReport {
+    /// Return the best-supported identity classification for diagnostics.
+    ///
+    /// A successful DXVK query returns the physical Vulkan device. A clean
+    /// `E_NOINTERFACE` result identifies a native or other non-DXVK D3D9
+    /// adapter. Any other optional-query failure returns the D3D9 identity as
+    /// explicitly unverified rather than claiming it is the physical GPU.
+    pub fn gpu_identity(&self) -> D3d9ProfileGpuIdentity<'_> {
+        match (
+            self.profile.dxvk_physical_identity.as_ref(),
+            self.dxvk_physical_identity_issue.as_deref(),
+        ) {
+            (Some(identity), _) => D3d9ProfileGpuIdentity::DxvkPhysicalDevice(identity),
+            (None, Some(issue)) => D3d9ProfileGpuIdentity::UnverifiedDirect3D9Adapter {
+                identity: &self.profile.identity,
+                issue,
+            },
+            (None, None) => D3d9ProfileGpuIdentity::Direct3D9Adapter(&self.profile.identity),
+        }
+    }
+}
+
 /// Profile of one adapter exposed by a newly created D3D9 interface.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct D3d9AdapterProfile {
@@ -267,8 +329,36 @@ pub struct D3d9AdapterProfile {
 /// not retain the borrowed device or cache a COM pointer. All identity and
 /// capability data is copied into owned Rust values before returning. For a
 /// DXVK device, the profile records both its authoritative Vulkan physical
-/// identity and the potentially spoofed identity exposed through D3D9.
+/// identity and the potentially spoofed identity exposed through D3D9. An
+/// unexpected DXVK enrichment failure is returned as an error; diagnostics
+/// that must retain the D3D9 profile should call
+/// [`d3d9_device_profile_report`] instead.
 pub fn d3d9_device_profile(device: &Device9Ref<'_>) -> HardwareResult<D3d9DeviceProfile> {
+    let mut profile = collect_d3d9_device_profile(device)?;
+    profile.dxvk_physical_identity = device
+        .dxvk_physical_device_properties()
+        .map_err(|error| HardwareError::operation("DXVK physical GPU identity", error))?
+        .map(normalize_dxvk_identity);
+    Ok(profile)
+}
+
+/// Detect a live D3D9 device for diagnostics without requiring DXVK.
+///
+/// Required D3D9 queries remain fallible because their failure leaves no valid
+/// device profile. DXVK interop and Vulkan property collection are optional:
+/// their failure is stored in [`D3d9DeviceProfileReport`] beside the complete
+/// D3D9 profile. The function does not cache a COM pointer or create resources.
+pub fn d3d9_device_profile_report(
+    device: &Device9Ref<'_>,
+) -> HardwareResult<D3d9DeviceProfileReport> {
+    let profile = collect_d3d9_device_profile(device)?;
+    Ok(finish_device_profile_report(
+        profile,
+        device.dxvk_physical_device_properties(),
+    ))
+}
+
+fn collect_d3d9_device_profile(device: &Device9Ref<'_>) -> HardwareResult<D3d9DeviceProfile> {
     let creation = device.creation_parameters().map_err(|error| {
         HardwareError::operation("IDirect3DDevice9::GetCreationParameters", error)
     })?;
@@ -283,17 +373,12 @@ pub fn d3d9_device_profile(device: &Device9Ref<'_>) -> HardwareResult<D3d9Device
         .map_err(|error| HardwareError::operation("IDirect3DDevice9::GetDeviceCaps", error))?;
     let format_features =
         query_format_features(&d3d, creation.adapter_ordinal, creation.device_type)?;
-    let dxvk_physical_identity = device
-        .dxvk_physical_device_properties()
-        .map_err(|error| HardwareError::operation("DXVK physical GPU identity", error))?
-        .map(normalize_dxvk_identity);
-
     Ok(D3d9DeviceProfile {
         adapter_ordinal: creation.adapter_ordinal,
         device_kind: device_kind(creation.device_type),
         behavior_flags: creation.behavior_flags,
         identity: normalize_identity(identifier),
-        dxvk_physical_identity,
+        dxvk_physical_identity: None,
         capabilities: normalize_caps(&caps),
         format_features,
         approximate_available_texture_memory_bytes: device.available_texture_mem(),
@@ -495,6 +580,23 @@ fn normalize_dxvk_identity(
     }
 }
 
+fn finish_device_profile_report(
+    mut profile: D3d9DeviceProfile,
+    result: Direct3DResult<Option<DxvkPhysicalDeviceProperties9>>,
+) -> D3d9DeviceProfileReport {
+    let dxvk_physical_identity_issue = match result {
+        Ok(properties) => {
+            profile.dxvk_physical_identity = properties.map(normalize_dxvk_identity);
+            None
+        }
+        Err(error) => Some(error.to_string()),
+    };
+    D3d9DeviceProfileReport {
+        profile,
+        dxvk_physical_identity_issue,
+    }
+}
+
 fn active_gpu_identity<'a>(
     d3d9_identity: &'a GpuIdentity,
     dxvk_identity: Option<&'a DxvkPhysicalDeviceIdentity>,
@@ -692,6 +794,48 @@ mod tests {
             active_gpu_identity(&d3d9_identity, None),
             D3d9ActiveGpuIdentity::Direct3D9Adapter(identity)
                 if identity.vendor_id == 0x1002
+        ));
+    }
+
+    #[test]
+    fn diagnostics_report_distinguishes_native_d3d9_from_failed_dxvk_enrichment() {
+        let profile = D3d9DeviceProfile {
+            adapter_ordinal: 3,
+            device_kind: D3d9DeviceKind::Hardware,
+            behavior_flags: 0,
+            identity: GpuIdentity {
+                description: "D3D9 compatibility adapter".to_owned(),
+                driver: "d3d9.dll".to_owned(),
+                device_name: r"\\.\DISPLAY4".to_owned(),
+                driver_version: 0,
+                vendor_id: 0x1002,
+                device_id: 0x73df,
+                subsystem_id: 0,
+                revision: 0,
+                device_identifier: 0,
+                whql_level: 0,
+            },
+            dxvk_physical_identity: None,
+            capabilities: normalize_caps(&D3DCAPS9::default()),
+            format_features: D3d9FormatFeatures::empty(),
+            approximate_available_texture_memory_bytes: 0,
+        };
+
+        let native = finish_device_profile_report(profile.clone(), Ok(None));
+        assert!(matches!(
+            native.gpu_identity(),
+            D3d9ProfileGpuIdentity::Direct3D9Adapter(identity)
+                if identity.description == "D3D9 compatibility adapter"
+        ));
+
+        let failed = finish_device_profile_report(
+            profile,
+            Err(crate::os::windows::directx9::direct3d_failure()),
+        );
+        assert!(matches!(
+            failed.gpu_identity(),
+            D3d9ProfileGpuIdentity::UnverifiedDirect3D9Adapter { identity, issue }
+                if identity.description == "D3D9 compatibility adapter" && !issue.is_empty()
         ));
     }
 
