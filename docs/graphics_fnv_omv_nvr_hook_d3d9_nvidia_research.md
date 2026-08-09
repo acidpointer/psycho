@@ -8,7 +8,8 @@ the current OMV implementation, the exact FalloutNV.exe hook targets, and the
 available OMV/NVR runtime records as of 2026-08-09.
 
 This revision includes a second-pass audit of every conclusion in the original
-document. That audit found material omissions in the original ranking:
+document and a third, shadow-focused audit. Those audits found material
+omissions in the original ranking:
 
 - `0x00E812F0` was described as a common draw method, but its proven body is a
   geometry/resource submission method. It binds streams and indices and does
@@ -23,6 +24,19 @@ document. That audit found material omissions in the original ranking:
   semantic package-change boundary;
 - OMV's state transactions perform D3D getter calls that create owned COM
   references, a cost not visible in the prior healthy-NVR observer counters.
+- modern NVR replaces the common native shadow entry at `0x00871290`, skips the
+  entire native prefix, and calls only the separate native tail at
+  `0x00871A50`; current OMV instead wraps and executes the complete prefix;
+- the common shadow entry is reachable from three dispatcher variants and from
+  normal, special, and screenshot render paths, so an OMV local-light capture
+  there is not proven to run once per present;
+- OMV declares the thiscall-like shadow entry as zero-argument cdecl and loses
+  incoming `ECX`; the current tail happens not to read it, so the defect is
+  masked rather than ABI-correct;
+- active OMV local-light capture performs eight `VirtualQuery` calls on its
+  successful outer path before its bounded scene-light scan; every accepted
+  native shadow slot adds 64 more plus D3D texture inspection, and later
+  consumer binding revalidates the chain again.
 
 Those omissions materially change the leading root-cause assessment below.
 
@@ -54,12 +68,14 @@ historical wherever they describe a pre-2026-08-04 build.
 
 ## Executive conclusion
 
-The second-pass result is more specific than the original document: current OMV
-contains a source-proven hot-path design defect at the center of the exterior
-failure, plus two substantial amplifiers. The proprietary NVIDIA-internal step
-that turns those defects into approximately one FPS is still not directly
-measured, so it would be inaccurate to claim one isolated API call as the final
-driver cause.
+The completed result is more specific than the original document: current OMV
+contains two source-proven hot-path design defects at the center of the
+exterior failure plus several substantial amplifiers. One is false draw-scope
+ownership at `0x00E812F0`; the other is native-shadow enrichment that can issue
+hundreds of redundant memory queries and repeated D3D texture inspection in one
+shadow transaction. The proprietary NVIDIA-internal step that turns those
+defects into approximately one FPS is still not directly measured, so it would
+be inaccurate to claim one isolated API call as the final driver cause.
 
 The normal path of neither NVR source patches the live, already-created
 `IDirect3DDevice9` vtable. Legacy NVR 3.3.0 can install an owned creation-time
@@ -68,9 +84,9 @@ out and leaves its wrapper assignment commented. Current OMV also no longer
 patches the live device vtable. The reported persistence of one FPS therefore
 rejects live device-vtable mutation as the current catastrophic cause.
 
-The strongest remaining defect is not merely "raw shader alternation." It is
-that OMV built draw-scoped ownership around an address that is not proven to be
-a draw scope:
+One of the two strongest remaining defects is not merely "raw shader
+alternation." It is that OMV built draw-scoped ownership around an address that
+is not proven to be a draw scope:
 
 1. `BSShader::SetShaders @ 0x00BE1F90` is the native shader-handle binding
    boundary. Both NVR generations complete replacement selection there or at
@@ -134,13 +150,43 @@ restore effect-modified state, so "NVR has no state blocks" would be false; the
 difference is OMV's repeated broad all-state plus explicit attachment ownership
 at multiple engine boundaries.
 
+The shadow-focused audit found another co-leading amplifier that the healthy
+NVR workload comparison had hidden. Modern NVR patches common entry
+`0x00871290`, omits native bytes `0x00871290..0x008719F7`, renders its own
+shadows, and explicitly invokes tail `0x00871A50`. OMV hooks the same entry but
+calls its trampoline, so it executes the complete native local-shadow
+transaction and then performs camera/light publication. Two checked device
+lookups, camera capture, and manager validation impose eight source-proven
+`VirtualQuery` calls on a successful active outer invocation, followed by a
+scan of as many as 512 scene lights. More importantly, every retained native
+shadow slot performs 64 additional memory queries plus D3D texture inspection;
+four slots add 256, and later consumer binding revalidates each texture chain.
+The entry is reachable from normal, special, and screenshot rendering;
+once-per-present execution is not proven.
+
+This does not make the native prefix the isolated cause: unmodified Fallout New
+Vegas also executes it. The new candidate is the interaction between native
+shadow submission, OMV's immediate pre/post discovery and scene scan, optional
+native shadow-slot capture inside the prefix, and later fragmented OMV D3D
+transactions. It must be timed separately on the affected system.
+
+The audit rules out one more alarming interaction: OMV cannot substitute its
+terrain/object PBR shaders into the native selector-7 DepthMap pair. The native
+writer's vertex 92-95/pixel 90-91 identities do not satisfy OMV's close-terrain
+vertex 100/pixel 92-147/pass 503-558 contract. The global `SetShaders` detour
+can still add classification/state-reset overhead, but native shadow shader
+replacement is not the failure theory.
+
 The most likely root-cause cluster is consequently:
 
 1. the incorrect and overly broad `0x00E812F0` ownership boundary;
-2. per-evaluation Windows memory validation, D3D state readback, and COM
-   reference churn at that boundary;
-3. exterior-multiplied terrain light reconstruction and constant uploads;
-4. interaction with fragmented all-state/attachment/copy transactions.
+2. wrapping the complete native shadow prefix and performing 64-query D3D
+   texture capture per accepted native shadow plus later chain revalidation at
+   a multi-context engine boundary;
+3. per-evaluation Windows memory validation, D3D state readback, and COM
+   reference churn in PBR/sky admission;
+4. exterior-multiplied terrain light reconstruction and constant uploads;
+5. interaction with fragmented all-state/attachment/copy transactions.
 
 This cluster explains the scene and vendor shape better than depth, RESZ,
 shader code, live vtable patching, or raw copy count alone. Exterior scenes
@@ -361,6 +407,17 @@ Accordingly:
 - current source can prove which old ownership mechanisms were removed;
 - only a new affected-machine trace can measure the remaining current path.
 
+One historical toggle is nevertheless more discriminating than the aggregate
+logs. In `.reports/omv-latest--1fps.log`, the same exterior measured about 42
+FPS with native PBR disabled and about 5.5 FPS with it enabled while the world
+effect had no ready contribution. The critical run measured about 4.9 FPS for
+the complete enabled stack, while a master-disabled interval with depth capture
+still active reached about 78 FPS. The reported RX 7700 control did not
+reproduce the collapse. These observations prove that the old OMV exterior PBR
+path was a trigger and that depth-provider ownership was not sufficient; they
+do not identify which current PBR hook, terrain-light, getter, state, or copy
+operation creates the NVIDIA-specific amplification.
+
 ## Legacy NVR 3.3.0 flow
 
 ### Startup and hook installation
@@ -535,6 +592,25 @@ are directly relevant:
 stores the returned renderer, initializes it, and then initializes managers.
 Like legacy NVR, D3D ownership begins at the engine renderer's creation boundary.
 
+The modern shadow-effect source is not itself a safe initialization reference.
+`RegisterEffect<T>` performs `new T()` and calls `UpdateSettings` before
+`RegisterTextures`. `ShadowsExteriorEffect` has a user-provided constructor
+which initializes only its `EffectRecord` base; its derived COM pointers,
+settings, and `texturesInitialized` flag remain indeterminate. The base
+constructor does set `Enabled = false`, so the first settings update necessarily
+calls `clearShadowsBuffer` before `Textures.ShadowPassSurface` exists. That
+routine passes the indeterminate pointer to `SetRenderTarget` and clears without
+checking either HRESULT. The same update can enter `RecreateTextures` through
+an indeterminate flag, and atlas creation later consumes an uninitialized
+`Mipmaps` field whose settings assignment is commented out.
+
+This is source-snapshot C++ undefined behavior, not the intended released-NVR
+contract and not a credible steady-state explanation for OMV one FPS. It does
+mean future work must copy the modern producer/consumer design only after
+replacing its construction order with explicit initialization. The complete
+sequence and its null/garbage-pointer outcomes are documented in
+`docs/graphics_fnv_nvr_shadows_engine_contract.md`.
+
 ### Modern optional device hook is inactive
 
 `src/core/Device/Hook.cpp:3-28` contains a device-creation patch, but the line
@@ -674,10 +750,16 @@ generations:
     Compatibility cannot be reduced to minimizing one setter or copy counter.
     This does not exonerate unobserved getters, COM-reference churn,
     `IDirect3DStateBlock9::Capture/Apply`, or Windows VM queries.
+11. **NVR shadows replace native shadow production at a pre-world semantic
+    boundary.** Legacy replaces one dispatcher-branch call; modern replaces the
+    common entry. Neither shown NVR producer wraps the complete native prefix
+    and then performs a separately validated scene-light publication pass.
 
 Not every NVR behavior is desirable. Legacy duplicate first-person rendering,
 copy-heavy effect graphs, incomplete reset handling, same-surface copy bugs, and
-modern RESZ COM leaks are explicitly not recommendations.
+modern RESZ COM leaks are explicitly not recommendations. Neither source's
+shadow producer completely restores D3D state, and both depend on later world
+setup to repair it; that shortcut is also not a portable contract.
 
 ## Current OMV flow
 
@@ -728,7 +810,7 @@ engine inline detours:
 | PBR | `BSShader::CreatePixelShader @ 0x00BE1750` | shader creation | wrapper discovery |
 | PBR | `BSShader::SetShaders @ 0x00BE1F90` | engine pass setup | replacement selection |
 | PBR | `NiDX9RenderState::SetTexture @ 0x00E88A20` | every engine texture bind while resident | sampler tracking and draw admission |
-| lights | world light epoch `@ 0x00871290` | once per light epoch | scene light capture |
+| lights | native shadow transaction `@ 0x00871290` | normal/special/screenshot render calls; not proven once per present | scene light capture around full native prefix |
 | lights | completed local shadow slot `@ 0x00B9F780` | rendered local shadow slots | native shadow publication |
 | sky | `SkyShader::UpdateConstants @ 0x00B89D80` | sky setup | native sky frame/replacement selection |
 
@@ -745,8 +827,9 @@ Not all entries are active in every configuration:
 - local-light hooks remain resident with fast disabled paths;
 - the sky hook remains resident after installation.
 
-The two most important hot entries are the shared `0x00E812F0` hook and
-`SetTexture`. The NVR observer's roughly 2,000 or more draws per representative
+The three most important hot entries are the shared `0x00E812F0` hook,
+`SetTexture`, and the native-shadow/local-light pair. The NVR observer's roughly
+2,000 or more draws per representative
 frame establishes scene scale but is not a count of `0x00E812F0`. Likewise, its
 device `SetTexture` counter is a lower bound for OMV's engine `SetTexture`
 detour: the engine method can return on a cache hit without calling the device,
@@ -793,6 +876,38 @@ This list is a proven minimum, not a claim that only four classes share the
 code. Conversely, the executable contains other slot-27 implementations, so
 `0x00E812F0` is not universal. The accurate description is "shared
 geometry/resource submission implementation," not "every shader-backed draw."
+
+### World-light hook ABI mismatch
+
+All three callers of native `0x00871290` load a receiver into `ECX`, and the
+native prologue saves that value at `0x00871299`. Current OMV instead declares:
+
+```text
+type WorldLightEpochFn = unsafe extern "cdecl" fn();
+hook_world_light_epoch = unsafe extern "cdecl" fn()
+```
+
+The detour does not capture incoming `ECX`, performs multiple calls before the
+trampoline, and then calls the original through the zero-argument cdecl type.
+Because `ECX` is caller-saved, the original receiver is not preserved.
+
+The current executable happens to mask this mismatch. Native `0x00871290` uses
+its saved receiver only to reload `ECX` for tail `0x00871A50`; complete tail
+disassembly shows the tail stores that value at `0x00871A75` and never reads it
+again. This explains observed viability but does not make the declaration ABI
+correct.
+
+Both reference sources are more explicit:
+
+- legacy NVR's naked stub saves/restores registers and supplies its replacement
+  `ShadowManager` in `ECX`;
+- modern NVR declares `__fastcall RenderShadowMapHook(void* apThis)`, so it
+  captures incoming `ECX` even though the shown body ignores `apThis`.
+
+OMV must use a thiscall/fastcall-compatible receiver type in a later hook
+rewrite. The mismatch is a source-proven correctness defect. It is a weak
+isolated performance explanation for this exact binary because neither prefix
+nor tail otherwise consumes the receiver.
 
 ### Hook mechanics and chaining
 
@@ -1008,16 +1123,83 @@ measurement.
 
 ### Local-light flow
 
-`omv/src/fnv_local_lights.rs:608-710` wraps the native world light epoch. After
-the original call it can traverse up to 512 scene lights, rank 16 atmosphere
-lights and 64 terrain lights, and publish nonblocking snapshots. The optional
-shadow hook captures up to four native shadow slots.
+`omv/src/fnv_local_lights.rs:608-710` wraps common native shadow entry
+`0x00871290`. This is not merely a passive point after a native "light epoch."
+Executable proof shows that the original function owns the native local-shadow
+selection/render prefix and calls separate tail `0x00871A50` before returning.
 
-This work is allocation-free and uses `try_lock`, but it is exterior-sensitive
-CPU work. Pure CPU traversal does not naturally explain a vendor-only GPU
-failure; it is a secondary candidate or amplifier. The historical log proves
-terrain-light capture was enabled by PBR, but current affected-machine scan
-counts and CPU time have not been recorded.
+PBR directly controls part of this boundary. `store_terrain_options` calls
+`fnv_local_lights::configure_terrain(settings.enabled)`, so enabling native PBR
+keeps scene-light capture active for the terrain consumer even when volumetric
+atmosphere lighting is off; disabling PBR removes that consumer. The historical
+PBR toggle therefore implicates both PBR shader/terrain work and this outer
+native-shadow manager scan. It does not, by itself, distinguish between them.
+
+The three direct calls to that entry are `0x00870851`, `0x00870A74`, and
+`0x00870C3C`, selected by dispatcher `0x008706B0`. That dispatcher is called
+from two main-render sites, a special-render path, and screenshot rendering.
+The hook is therefore common across render variants but is not proven to be
+once per present.
+
+OMV labels captures with the core `render_epoch`, which advances at
+`DisplayScene`, but it does not skip an already-captured epoch/context. More
+than one shadow transaction before a presentation boundary repeats capture and
+can overwrite the atmosphere/terrain publication with the same epoch number.
+The final consumer cannot distinguish which render context supplied it.
+
+When capture is ready, OMV performs:
+
+1. one `d3d_device_ptr()` lookup before the original;
+2. the complete native `0x00871290` transaction, including its tail;
+3. another `d3d_device_ptr()` lookup after the original;
+4. camera and scene-light-manager capture;
+5. traversal of up to 512 scene lights;
+6. ranking of 16 atmosphere and 64 terrain lights;
+7. nonblocking snapshot publication.
+
+Each device lookup validates two pointer reads through `VirtualQuery`. The
+successful camera capture adds three queries for the world-scene pointer,
+camera pointer, and one bulk camera range; light-manager capture adds one. The
+outer path therefore performs eight queries before its scene-list scan. The
+list and light fields are read unchecked after the one manager validation.
+That validation proves neither the list allocation nor any pointed node/light;
+the scan relies on same-render-thread lifetime stability which OMV has not
+encoded in its memory contract.
+
+The optional native shadow helper hook captures up to four completed native
+shadow slots at `0x00B9F780`, inside the original prefix. Modern NVR never
+executes that prefix, so this native-slot enrichment is not a compatible source
+of NVR replacement shadow maps.
+
+The completed-shadow capture is a much larger hidden multiplier. One
+successfully retained slot performs 64 `VirtualQuery` calls:
+
+- two for another device lookup;
+- five for the shadow object and initial field reads;
+- 48 because three 4-by-4 matrices validate every scalar separately despite an
+  earlier whole-object validation;
+- eight for the rendered-texture, engine texture, renderer-data, COM object,
+  and vtable chain;
+- one when retaining the engine rendered-texture object.
+
+It also calls D3D9 `GetType`, `GetLevelDesc`, `GetDevice`, and `GetLevelCount`.
+`GetDevice` returns an owned reference which the temporary wrapper releases.
+Four retained slots therefore add 256 queries inside one native shadow
+transaction.
+
+When atmosphere later asks each light for a shadow binding, the retained
+texture chain is resolved again: eight queries and the same D3D texture
+inspection per binding. Four captures followed by one binding of each produce
+296 source-countable memory queries: eight outer, 256 capture, and 32 consumer
+revalidation, before other OMV owners or additional entry contexts.
+
+The scan is bounded and publication is `try_lock`-only, but the redundant
+per-scalar/per-chain validation is a source-proven hot-path defect. Its location
+inside and after native shadow command work and its possible multi-context
+cadence make it a co-leading candidate. `VirtualQuery` alone still does not
+intrinsically explain a vendor-only GPU failure; the D3D texture getters,
+native prefix, nested shadow capture, later binding, and postwork must be timed
+separately.
 
 ### Scene and image-space sequence
 
@@ -1308,6 +1490,12 @@ quality.
 | Renderer acquisition | hook native initializer, initialize after original | same | read published renderer/device after DeferredInit; lazy identity checks |
 | Hook installation | one-time Detours transactions | one-time Detours transaction plus static patches | individually prepared inline hooks; some physical runtime reconcile; core group can partially enable on failure |
 | Existing-hook chaining | Detours predecessor chaining | Detours predecessor chaining | vanilla or one near-jump destination for PBR/sky; fixed targets elsewhere |
+| Shadow hook | replaces only branch-C call at `0x00870C39` | replaces common entry `0x00871290` | wraps common entry `0x00871290` |
+| Shadow entry ABI | naked stub preserves registers and supplies replacement manager in `ECX` | fastcall detour captures incoming `ECX` as `apThis` | zero-argument cdecl detour/trampoline loses the native receiver; masked in this executable because the tail does not read it |
+| Native shadow prefix | skipped only in legacy's hooked branch | skipped in all three dispatcher variants | fully executed through trampoline |
+| Native shadow tail | legacy source wrapper target contradicts this executable | calls `0x00871A50` exactly once | original prefix calls `0x00871A50` |
+| Shadow hook contexts | branch-C variant only | normal/special/screenshot through common entry | same common-entry contexts; call count not proven once/present |
+| Light work at shadow entry | replacement shadow producer | own light selection before render gate | eight-query outer capture and up to 512-entry scan; 64 queries plus D3D inspection per retained native shadow; eight more per later binding |
 | Shader selection | wrapper permanently contains replacement | wrapper selected before native `SetShaders` | wrapper overridden only during native `SetShaders` |
 | Engine cache authority | native setup | native `SetShaders` | native `SetShaders`, followed by OMV late resource-time validation/fallback |
 | Late replacement detour | none | none | shared `0x00E812F0` geometry/resource method, incorrectly treated as a DIP scope |
@@ -1326,6 +1514,94 @@ quality.
 | Reset handling | no complete path found | no complete path found | explicit engine Recreate hook |
 
 ## Root-cause assessment
+
+The confidence model separates three questions which earlier versions blended
+together: whether the code contains a defect, whether runtime evidence links it
+to the bad feature path, and whether the NVIDIA-specific mechanism is known.
+
+| Candidate cluster | Source/static defect | Runtime trigger evidence | NVIDIA mechanism |
+|---|---|---|---|
+| false `0x00E812F0` draw ownership plus PBR fallback | high | medium-high historically; current cadence unmeasured | unknown |
+| close-terrain getters, light reconstruction, and constant upload | high for work | medium-high historically through the PBR toggle | unknown |
+| native shadow wrapper plus completed-slot enrichment | high for excess work/ABI | medium-high for PBR-coupled outer scan; low for slot enrichment | unknown |
+| repeated VM validation and D3D getter/COM traffic | high for call counts | medium as shared PBR/shadow amplifier | unknown |
+| fragmented all-state, attachment, and copy transactions | high for topology | medium; full-stack correlation only | unknown |
+| raw copy count, depth/RESZ, shader equations, device-vtable hook | rejected or materially weakened | negative isolation evidence | not applicable |
+
+The strongest defensible conclusion is therefore a PBR-triggered exterior hook
+and state-management cluster, not a single proven driver call. The native
+shadow boundary is a serious newly quantified amplifier, but it must not
+displace the direct historical PBR toggle evidence.
+
+### Candidate 0: native shadow-prefix wrapper and multi-context light capture
+
+**Priority: highest as a newly identified world-stage hot-path defect. Evidence
+strength for the flow difference and hot work: high. Evidence strength as the
+complete NVIDIA cause: medium-low.**
+
+Why it fits:
+
+- modern NVR's healthy shadow path replaces `0x00871290`, skips native bytes
+  through `0x008719F7`, and calls only native tail `0x00871A50` after its own
+  producer;
+- current OMV calls the complete original prefix and adds work immediately
+  before and after it, so the prior healthy-NVR workload measurement did not
+  cover the same transaction;
+- OMV declares the thiscall-like entry as zero-argument cdecl and loses the
+  incoming `ECX` receiver, unlike modern NVR's fastcall-compatible detour;
+- the successful outer capture performs eight `VirtualQuery` calls before the
+  scene scan;
+- every successfully retained native shadow slot adds 64 memory queries and
+  D3D texture inspection, so four slots add 256 queries inside one native
+  shadow transaction;
+- each later shadow binding repeats eight texture-chain queries and the D3D
+  inspection; four captured-and-bound slots bring this path to 296 queries
+  before other OMV owners;
+- the postwork can scan up to 512 scene-light entries and rank/copy two
+  consumer sets;
+- direct executable callers prove normal, special, and screenshot contexts;
+  once-per-present execution is not established;
+- no same-epoch guard prevents repeated work or same-number publication
+  replacement before `DisplayScene`;
+- enabling native PBR directly enables the terrain consumer of this outer
+  capture, so the historical PBR toggle also toggled this scan path;
+- optional OMV capture at native helper `0x00B9F780` adds inner-prefix work,
+  creating nested ownership that modern NVR bypasses entirely;
+- the boundary is exterior-sensitive and sits next to native D3D9 shadow
+  submission, where a later getter or state operation can expose an existing
+  driver wait.
+
+Why it is not complete proof:
+
+- vanilla Fallout New Vegas executes the native prefix without the reported
+  one-FPS behavior;
+- current executable proof shows the lost receiver is only passed to a tail
+  that stores but does not read it, weakening the ABI defect as this binary's
+  isolated performance cause;
+- CPU `VirtualQuery` and a bounded scene scan are not intrinsically
+  NVIDIA-specific, although the repeated D3D getters can expose vendor/runtime
+  cost;
+- source alone cannot show whether the long time is inside native shadow work,
+  OMV pre/post capture, a nested helper hook, or a dependency encountered by a
+  later D3D call;
+- call count per present has not been measured on the affected build.
+
+Required proof:
+
+- count calls by direct call site, dispatcher variant, and normal/special/
+  screenshot context;
+- time the pre-original lookup, original native transaction, post-original
+  lookup, camera capture, manager validation, list scan/rank, and publication
+  separately;
+- count/timestamp nested `0x00B9F780` captures, their 64-query path, D3D texture
+  getters, balanced device-reference releases, and later eight-query bindings;
+- obtain a coarse GPU interval for the native prefix;
+- compare no hook, pure-trampoline hook, local-light-only capture,
+  native-shadow-slot-only capture, and both captures on affected NVIDIA and a
+  control GPU.
+
+The complete two-generation shadow and native caller contract is documented in
+`docs/graphics_fnv_nvr_shadows_engine_contract.md`.
 
 ### Candidate 1: wrong semantic boundary at `0x00E812F0`
 
@@ -1368,6 +1644,9 @@ vendor amplification: medium.**
 
 Why it fits:
 
+- native-shadow enrichment validates three matrices scalar-by-scalar and
+  resolves stable texture chains repeatedly: 64 memory queries plus D3D
+  texture inspection per accepted capture and eight more per later binding;
 - all PBR family binders call a device lookup containing two `VirtualQuery`
   calls; fallback/restore can repeat the lookup in one visit;
 - a seven-layer close-terrain geometry adds fourteen `GetTexture` calls and
@@ -1441,16 +1720,18 @@ Required proof is named CPU/GPU timing of attachment capture, state capture,
 target preparation, copies/draws, attachment restore, and state apply at every
 admitted boundary.
 
-### Candidate 5: interaction of candidates 1 through 4
+### Candidate 5: interaction of candidates 0 through 4
 
 **Priority: highest as the likely complete failure mode. Evidence strength:
 medium as a source model, low for the proprietary-driver mechanism.**
 
-OMV can make the engine cache own a replacement while wrappers expose native
-handles, enter the false draw boundary, query VM and D3D state, reconstruct
-terrain lights, upload constants, alternate native/replacement pairs on
-fallback, and later capture/apply the full device state around multiple image
-transactions. NVR keeps replacement selection stable at native pass setup and
+OMV can execute native shadow submission, add checked light capture at its
+outer boundary and native-slot capture inside it, make the engine cache own a
+replacement while wrappers expose native handles, enter the false draw
+boundary, query VM and D3D state, reconstruct terrain lights, upload constants,
+alternate native/replacement pairs on fallback, and later capture/apply the
+full device state around multiple image transactions. NVR replaces the native
+shadow prefix, keeps replacement selection stable at native pass setup, and
 clusters image work at fewer semantic owners.
 
 The combination best explains why removing device-vtable hooks and changing
@@ -1497,6 +1778,8 @@ OMV's one-hop PBR/sky redirect policy differs from Detours predecessor
 chaining, existing shader hooks are proven in the historical log, and the core
 hook group can partially enable if a later member fails. Four scene hooks can
 also change physical ownership after startup under a quiescence assumption.
+The world-light hook additionally declares a thiscall-like native target as
+zero-argument cdecl and does not preserve its receiver.
 
 This can cause duplicate work, missed predecessors, or partial lifecycle state.
 It does not naturally explain a stable vendor-specific floor after a fully
@@ -1532,6 +1815,21 @@ Rejected by the user-supplied isolation. This document intentionally does not
 analyze shader math as the root cause. Shader replacement *ownership and bind
 scheduling* remain in scope because they are hook/D3D behavior, not shader code.
 
+### OMV replacing the native local-shadow DepthMap shader
+
+Rejected by exact stage/table/pass identity. Native selector 7 pairs group-C
+vertex indices 92-95 (`SLS2092.vso..SLS2095.vso`) with group-B pixel indices
+90-91 (`SLS2090.pso`, `SLS2091.pso`). OMV close terrain requires group-C
+vertex index 100, group-B pixel indices 92-147, and pass IDs 503-558. Its object
+templates end at vertex SLS2049 and pixel SLS2056 and require exact table-slot
+identity. The native writer therefore cannot pass an OMV replacement
+classifier despite the misleading cross-stage overlap in the number 2092.
+
+The global `SetShaders` detour may still execute and clear/evaluate pending PBR
+state before falling through to the native binder. Its call count during
+selector-7 rendering remains worth measuring, but shader substitution is not a
+root-cause candidate.
+
 ### Depth resolution or RESZ alone
 
 Rejected as the primary cause by repeated playtests and the current user report.
@@ -1564,6 +1862,14 @@ No OMV scene hook calls the original world or first-person renderer more than
 once. Ironically, legacy NVR deliberately renders first person twice and is
 still reported healthy. An accidental whole-scene duplicate is not visible in
 current OMV source.
+
+This rejection does not cover the newly separated shadow transaction. OMV
+executes native `0x00871290` once for every invocation of its outer hook, while
+modern NVR executes that native prefix zero times because it replaces it. The
+native prefix is not duplicated within one hook call, but the hook itself is
+reachable from normal, special, and screenshot rendering and has not been
+counted per present. That is a call-cadence and workload-boundary question, not
+evidence of a duplicated whole-world render.
 
 ### D3D9 versus D3D9Ex device creation
 
@@ -1645,6 +1951,17 @@ and do not use a getter as routine validation when a stable engine identity is
 available. This recommendation removes Windows VM queries and COM reference
 traffic; it does not assume that a D3D getter is intrinsically invalid.
 
+For native local shadows specifically, validate the bounded
+`ShadowSceneLight`, native-light, and texture-chain regions once at a lifecycle/
+producer boundary. Copy the three matrices directly from that proven object
+range; do not issue 48 scalar `VirtualQuery` calls after validating the whole
+record. Resolve and retain a stable raw texture identity once, with balanced
+COM ownership, and do not repeat the same eight-query chain at consumer bind.
+
+The common shadow detour and original type must capture/pass the incoming
+`ECX` receiver with a thiscall/fastcall-compatible ABI. This remains mandatory
+even though the current tail happens not to read it.
+
 ### Move stable package ownership out of the frame loop
 
 Package 7 is stable configuration state, not per-frame render state. A later
@@ -1713,6 +2030,22 @@ a generic D3D9 vtable observer to release code.
 
 Record, behind an explicit diagnostic gate:
 
+- `0x00871290` entries per present, classified by direct call site
+  (`0x00870851`, `0x00870A74`, `0x00870C3C`) and normal/special/screenshot
+  context;
+- active versus pass-through world-light captures, pre/post device lookups,
+  and their exact `VirtualQuery` count;
+- native `0x00B9F780` completed-shadow callbacks per outer shadow invocation;
+- successful shadow captures, exact 64-query capture paths, and rejected path
+  exit points;
+- later shadow bindings, eight-query texture-chain resolutions, and texture
+  identity changes;
+- shadow texture `GetType`, `GetLevelDesc`, `GetDevice`, `GetLevelCount`, and
+  balanced temporary device releases;
+- world-light manager count, entries scanned, candidates accepted, atmosphere/
+  terrain results retained, and publication attempts;
+- repeated same-epoch captures/publication replacements before `DisplayScene`
+  and the context ultimately consumed;
 - shared `0x00E812F0` resource-method visits, classified by shader vtable and
   explicitly not labelled as primitive draws;
 - actual engine primitive submissions correlated to the nearest relevant
@@ -1758,6 +2091,17 @@ capture around coarse transactions, not around every draw in a normal build.
 At minimum, isolate:
 
 - native scene time outside OMV;
+- world-light pre-original device discovery;
+- original native `0x00871290` prefix-plus-tail duration;
+- world-light post-original device discovery;
+- camera capture, manager validation, light scan/rank, and publication as
+  separate intervals;
+- nested native-shadow-slot capture at `0x00B9F780`;
+- the 48 scalar matrix validations separately from the remaining 16
+  capture-path validations and D3D texture inspection;
+- later retained-shadow texture-chain resolution/binding;
+- GPU time for the native shadow transaction separately from later OMV screen
+  effects;
 - `0x00E812F0` detour overhead separately from its original resource method;
 - device discovery/`VirtualQuery`, texture/shader getters, and COM releases;
 - close-terrain light scan and constant-buffer construction separately from
@@ -1787,13 +2131,17 @@ The minimum future matrix is:
 2. OMV loaded with a startup configuration that installs no optional visual
    hooks;
 3. resident hooks with direct pass-through only;
-4. PBR only, split by object/land LOD/terrain fade/close terrain;
-5. sky only;
-6. screen stack only, with PBR/sky absent;
-7. atmosphere only;
-8. TAA only;
-9. native image-space phases only;
-10. full configuration.
+4. `0x00871290` resident as a pure trampoline with all post-capture disabled;
+5. local-light capture only around `0x00871290`;
+6. native completed-shadow capture only at `0x00B9F780`;
+7. local-light and native-shadow capture together;
+8. PBR only, split by object/land LOD/terrain fade/close terrain;
+9. sky only;
+10. screen stack only, with PBR/sky absent;
+11. atmosphere only;
+12. TAA only;
+13. native image-space phases only;
+14. full configuration.
 
 Runtime master-off is not equivalent to no hooks: the shared resource-method
 and passive PBR/sky entries can remain resident. Both cases are needed.
@@ -1803,6 +2151,9 @@ change architecture. The highest-value A/Bs are:
 
 - current split PBR ownership versus stable engine-pass ownership with no
   false `0x00E812F0` draw-scope state machine;
+- current world-light wrapper versus a pure trampoline, retaining the original
+  native prefix in both cases so the A/B changes capture cost rather than game
+  shadow behavior;
 - current full state/attachment transaction versus a proven bounded/shared
   state owner;
 - separate atmosphere/runtime world copies versus one epoch-owned copy;
@@ -1827,8 +2178,14 @@ counter. It must demonstrate on native Windows/NVIDIA:
   resources without stale aliases or wrappers;
 - no replacement owner claims a primitive scope unless the executable caller
   chain proves that scope for every class using it;
+- every hook/trampoline declaration preserves the target's x86 receiver and
+  stack ABI even when one inspected executable happens not to consume an
+  argument;
 - no ordinary replacement evaluation discovers the device through
   `VirtualQuery` or reconstructs cached sampler state through device getters;
+- no native-shadow capture validates already-bounded matrices scalar by scalar
+  or repeatedly resolves an unchanged engine texture chain at capture and
+  consumption;
 - stable shader-package state is not rewritten through page-protection changes
   every frame;
 - steady fallback commits and unexpected raw shader flips are zero or have a
@@ -1841,6 +2198,25 @@ counter. It must demonstrate on native Windows/NVIDIA:
 
 - both supplied NVR normal paths use engine detours and an engine-owned D3D9
   device;
+- `0x00871290` has three direct callers selected by one dispatcher, and that
+  dispatcher is reachable from main, special, and screenshot render paths;
+- native `0x00871290` calls separate tail `0x00871A50` at `0x008719F8`;
+- legacy NVR replaces only the branch-C call at `0x00870C39`, modern NVR
+  replaces common entry `0x00871290`, and current OMV wraps that common entry;
+- modern NVR skips native bytes `0x00871290..0x008719F7` and explicitly calls
+  tail `0x00871A50` once;
+- modern NVR's supplied source calls shadow-effect `UpdateSettings` before
+  texture registration even though the derived user-provided constructor
+  leaves its pointers, settings, and `texturesInitialized` flag indeterminate;
+- current OMV declares that thiscall-like entry and its detour as
+  zero-argument cdecl functions; it does not preserve incoming `ECX` before
+  calling the trampoline;
+- this executable's prefix uses the receiver only for the tail call, and the
+  tail stores but does not later read it, so the mismatch is masked rather than
+  ABI-correct;
+- the legacy source's attempted native-preservation wrapper targets
+  `0x004073D0`, which is not a valid function entry in the identified current
+  executable and has no xrefs;
 - legacy NVR's device proxy is optional development logging infrastructure;
 - modern NVR's device hook is compiled out and would not wrap the device as
   written;
@@ -1859,6 +2235,24 @@ counter. It must demonstrate on native Windows/NVIDIA:
 - current OMV uses no D3D9 device-vtable hook;
 - current OMV detours that shared geometry/resource method, a PBR `SetTexture`
   entry, and raw shader binds for PBR fallback/restore and sky replacement;
+- native selector 7's DepthMap pair cannot enter OMV object or close-terrain
+  replacement: it uses vertex indices 92-95 and pixel indices 90-91, while
+  close terrain requires vertex 100, pixels 92-147, and passes 503-558;
+- successful active OMV outer world-light capture performs eight
+  `VirtualQuery` calls before it can scan up to 512 scene lights;
+- one successfully retained native completed-shadow slot performs 64 memory
+  queries, including 48 scalar matrix validations, and calls D3D texture
+  inspection methods; one later binding performs eight more queries and repeats
+  that inspection;
+- four captured and once-bound native shadow slots therefore account for 296
+  source-countable memory queries before other OMV owners or additional shadow
+  entry contexts;
+- the world-light hook has no same-render-epoch deduplication and can replace a
+  publication with the same epoch number after another render context;
+- native PBR enablement directly enables terrain scene-light capture at the
+  world-shadow boundary even when atmosphere capture is disabled;
+- OMV's optional native completed-shadow capture is inside helper `0x00B9F780`,
+  which modern NVR's replacement prefix does not execute;
 - every evaluated PBR family binder discovers the device through two checked
   reads and therefore at least two `VirtualQuery` calls; fallback/restore can
   repeat the lookup;
@@ -1886,6 +2280,8 @@ counter. It must demonstrate on native Windows/NVIDIA:
 - the historical critical OMV log reproduced catastrophic timing at 2560x1440,
   contained three depth and three phase copies per active epoch, and recorded a
   terrain sampler fallback;
+- historical same-scene toggles measured about 42 FPS with PBR off versus 5.5
+  FPS with PBR on, and about 78 FPS master-disabled with depth capture active;
 - the user reports no NVIDIA improvement after current device-vtable/depth
   changes.
 
@@ -1897,6 +2293,9 @@ counter. It must demonstrate on native Windows/NVIDIA:
 - exterior multiplication of that hook, close-terrain admission, sampler
   queries, and light constants is a stronger scene-shape explanation than the
   original raw shader-flip hypothesis alone;
+- wrapping the complete native shadow prefix and adding multi-context
+  local-light capture is a co-leading world-stage amplifier, although vanilla
+  execution of the prefix rejects it as an isolated cause;
 - raw fallback/replacement alternation is more likely to become vendor-specific
   than the CPU jump/trampoline itself;
 - Windows VM queries and D3D getter/AddRef/Release traffic can amplify the
@@ -1910,6 +2309,13 @@ counter. It must demonstrate on native Windows/NVIDIA:
 
 ### Open questions requiring the affected machine
 
+- How many `0x00871290` calls occur per present in the bad scene, from which
+  direct call sites and render contexts?
+- How much time is spent separately in the pre-original lookup, native shadow
+  prefix, post-original lookup, camera/manager capture, light scan/rank, and
+  publication?
+- How many `0x00B9F780` shadow-slot captures occur inside each outer invocation,
+  and do they correlate with the long frame?
 - How many `0x00E812F0` and engine `SetTexture` detours run per bad frame, and
   which shader classes own the resource visits?
 - Which primitive submission actually consumes each PBR/sky selection and
@@ -1950,6 +2356,9 @@ specific proprietary-driver cause as proven.
 - `omv/src/effects/pbr/terrain_lights.rs:28-65,234-423,529-552` - close-terrain
   light limits, geometry cache, native/property/manager membership, and
   supplemental selection.
+- `omv/src/effects/pbr.rs:854-860` and
+  `omv/src/fnv_local_lights.rs:464-477,608-710` - direct PBR ownership of
+  terrain scene-light capture at the native shadow boundary.
 - `omv/src/effects/pbr/constants.rs` and
   `omv/src/effects/pbr/hooks.rs:1010-1115,1284-1289` - close-terrain constant
   upload and required-stage device queries.
@@ -1958,8 +2367,9 @@ specific proprietary-driver cause as proven.
   sampler state ownership.
 - `omv/src/effects/sky.rs:449-470,912-974,1165-1205` - late raw sky
   replacement and hook chaining.
-- `omv/src/fnv_local_lights.rs:608-710,864-915,1168-1175` - light hook,
-  bounded traversal, and capture limit.
+- `omv/src/fnv_local_lights.rs:181-184,608-710,803-835,864-915,1209-1270` -
+  light hook, bounded traversal, per-slot shadow validation, texture-chain
+  resolution, and later binding revalidation.
 - `omv/src/runtime.rs:1454-1801,2339-2379,2580-2840,4491-4615` - screen
   transactions, world copy, phase graph, and phase copies.
 - `omv/src/fnv_world_pipeline.rs:635-1005,1182-1207` - pre-alpha, TAA,
@@ -1970,13 +2380,19 @@ specific proprietary-driver cause as proven.
   discovery and current NvAPI/RESZ route and copies.
 - `libpsycho/src/os/windows/memory.rs:48-78` - `VirtualQuery`-backed memory
   validation.
-- `libpsycho/src/os/windows/directx9.rs:288-318,759-765,975-993` - borrowed
-  device wrapper and raw texture/shader getters.
+- `libpsycho/src/os/windows/directx9.rs:288-318,759-765,975-993,1284-1312` -
+  borrowed device wrapper, raw texture/shader getters, and shadow-texture
+  description calls.
 - `libpsycho/src/os/windows/hook/inline/inlinehook.rs:20-225,475-582` - inline
   hook enable/disable and lock-free original publication.
 
 ### Legacy NVR 3.3.0
 
+- `.research/TES-Reloaded-master/TESReloaded/Core/ShadowManager.cpp:13-14,63-110,649-724,1017-1304,1453-1566`
+  - branch-local shadow hook, resources, producer flow, state, and point-light
+  selection.
+- `.research/TES-Reloaded-master/TESReloaded/Framework/Game.h:8754` - legacy
+  native-preservation wrapper whose literal target contradicts this executable.
 - `.research/TES-Reloaded-master/NewVegasReloaded/Main.cpp:30-50` - startup and
   optional device hook gate.
 - `.research/TES-Reloaded-master/TESReloaded/Framework/Game.cpp:170-198` -
@@ -1992,6 +2408,12 @@ specific proprietary-driver cause as proven.
 
 ### Modern NVR 4.4.1
 
+- `.research/TESReloaded10-master/src/NewVegas/Hooks/Hooks.cpp:58` and
+  `.research/TESReloaded10-master/src/NewVegas/Hooks/Shadows.cpp:3-7` - common
+  entry replacement and explicit native-tail call.
+- `.research/TESReloaded10-master/src/core/ShadowManager.cpp` and
+  `.research/TESReloaded10-master/src/effects/ShadowsExterior.cpp` - replacement
+  shadow producer, resources, cadence, state, and consumer publication.
 - `.research/TESReloaded10-master/NewVegasReloaded/Main.cpp:75-107` - version,
   disabled device hook, and attach entry.
 - `.research/TESReloaded10-master/src/NewVegas/Hooks/Hooks.cpp:3-71` - one-time
@@ -2007,6 +2429,10 @@ specific proprietary-driver cause as proven.
 - `.research/TESReloaded10-master/src/core/ShaderManager.cpp:692-813` and
   `.research/TESReloaded10-master/src/core/EffectRecord.cpp:351-374` - effect
   groups and copies.
+- `.research/TESReloaded10-master/src/core/ShaderManager.cpp:151-160`,
+  `.research/TESReloaded10-master/src/core/EffectRecord.cpp:4-17`, and
+  `.research/TESReloaded10-master/src/effects/ShadowsExterior.h:16-19,150-198`
+  - effect construction and first-update initialization gap.
 - `.research/TESReloaded10-master/src/core/RenderManager.cpp:272-370` - depth
   provider and bounded RESZ state.
 - `.research/TESReloaded10-master/src/core/Device/Hook.cpp:3-28` - inactive
@@ -2024,6 +2450,8 @@ specific proprietary-driver cause as proven.
 - `.reports/omv-depth-provider-live-switch-2026-07-29.txt` - historical live
   provider comparison.
 - `docs/nvr_d3d9_performance_research.md` - measured healthy NVR D3D workload.
+- `docs/graphics_fnv_nvr_shadows_engine_contract.md` - complete native,
+  legacy-NVR, modern-NVR, and future-OMV shadow contract.
 - `docs/graphics_fnv_omv_runtime_performance.md` - prior OMV optimization and
   historical report interpretation.
 - `docs/graphics_fnv_driver_owned_d3d_nvidia_depth.md` - current device/depth
@@ -2046,8 +2474,10 @@ specific proprietary-driver cause as proven.
   - pre-alpha composition boundary.
 - Direct radare2 inspection of the repository's current
   `fnv_reverse/FalloutNV.exe` on 2026-08-09 confirmed the bodies at
-  `0x00BE1F90`, `0x00E88A20`, and `0x00E812F0`. The executable was PE32 x86,
-  image base `0x00400000`, SHA-256
+  `0x00BE1F90`, `0x00E88A20`, `0x00E812F0`, the three callers of
+  `0x00871290`, tail `0x00871A50`, dispatcher callers, native selector helper
+  `0x00B6B8D0`, completed-shadow helper `0x00B9F780`, and the invalid legacy
+  literal `0x004073D0`. The executable was PE32 x86, image base `0x00400000`, SHA-256
   `42fee7d6cd74e801372aa89c8f71c974cebd3c20ec9ad43d1465b8fa9646b49c`.
 
 ### Authoritative D3D9 contracts

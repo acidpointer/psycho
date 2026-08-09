@@ -1161,6 +1161,30 @@ Source:
 - `.research/TESReloaded10-master/src/hlsl/NewVegas/Effects/ShadowsInteriors.fx.hlsl`
 - `.research/TESReloaded10-master/src/hlsl/NewVegas/Effects/Includes/Shadows.hlsl`
 
+This section is a feature-level summary of the modern source. The complete
+two-generation engine, hook, caller, D3D9 state, resource-lifetime,
+producer/consumer ABI, and future-implementation contract is now
+`docs/graphics_fnv_nvr_shadows_engine_contract.md`; that document is
+authoritative where this summary is incomplete.
+
+In particular, modern NVR does not wrap the native shadow transaction. It
+replaces common entry `0x00871290`, skips native prefix
+`0x00871290..0x008719F7`, renders its own maps, and calls native tail
+`0x00871A50`. Legacy source instead replaces only the branch-C call at
+`0x00870C39`, and its attempted native-preservation wrapper contains a literal
+that is not a valid function entry in the identified current executable.
+Current OMV wraps the common entry and therefore has a different engine
+transaction from both source snapshots.
+
+The modern source snapshot also has a non-contractual startup defect:
+`RegisterEffect<T>` invokes `UpdateSettings` before `RegisterTextures`, while
+`ShadowsExteriorEffect` initializes only its base. The first update therefore
+uses indeterminate derived resource/settings fields and necessarily calls
+`clearShadowsBuffer` because the initialized base `Enabled` field is false.
+Released NVR behavior may differ or tolerate the undefined state; future OMV
+work must use explicit zero/valid initialization and must not reproduce this
+ordering.
+
 ### Shadow manager ownership
 
 NVR shadows are a native render subsystem:
@@ -1223,8 +1247,10 @@ Supported shadow formats:
 - EVSM2
 - EVSM4
 
-Some modes need custom clear colors. Optional prefilter blur uses two-pass
-Gaussian blur over the atlas.
+Some modes need custom clear colors. Optional prefilter blur issues two blur
+draws over the atlas, but the supplied source samples and renders level zero of
+the same atlas resource rather than using ping-pong targets. That is a source
+hazard, not a behavior to copy.
 
 ### Ortho map
 
