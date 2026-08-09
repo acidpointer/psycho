@@ -7,6 +7,12 @@ implementation plan. It traces the two NVR source snapshots under `.research/`,
 the current OMV implementation, the exact FalloutNV.exe hook targets, and the
 available OMV/NVR runtime records as of 2026-08-09.
 
+The resulting staged implementation plan is
+`docs/graphics_fnv_omv_nvidia_1fps_remediation_plan.md`. It converts the
+findings below into hook, lifecycle, PBR/light, state, copy, test, and
+affected-machine acceptance gates without treating an unmeasured proprietary
+driver mechanism as proven.
+
 This revision includes a second-pass audit of every conclusion in the original
 document and a third, shadow-focused audit. Those audits found material
 omissions in the original ranking:
