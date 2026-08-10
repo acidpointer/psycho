@@ -14,6 +14,7 @@ mod file_io;
 mod fnv_local_lights;
 mod fnv_render;
 mod fnv_world_pipeline;
+mod graphics_diagnostics;
 mod hooks;
 mod input;
 mod luts;

@@ -7,6 +7,12 @@ edition = "2024"
 name = "omv"
 crate-type = ["cdylib", "rlib"]
 
+[features]
+# Sampled render-path timing is intentionally absent from normal builds.  The
+# feature is for controlled attribution builds and still requires explicit
+# runtime arming before it reads the performance counter in a callback.
+graphics-diagnostics = []
+
 [dependencies]
 anyhow = { workspace = true }
 libpsycho = { path = "../libpsycho" }

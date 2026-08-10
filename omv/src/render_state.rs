@@ -123,9 +123,29 @@ pub(crate) fn finish_render_transaction(
     keep_first_error(&mut draw_result, attachments.restore(device));
     keep_first_error(
         &mut draw_result,
-        state_block.map_or_else(|| Err(direct3d_failure()), StateBlock9::apply),
+        state_block.map_or_else(|| Err(direct3d_failure()), apply_state_block),
     );
     draw_result
+}
+
+/// Capture one broad D3D state owner for a named OMV transaction.
+///
+/// The sampled attribution is compiled out of normal builds. Keeping capture
+/// behind this function makes the one-capture budget auditable across world
+/// and image-space owners.
+pub(crate) fn capture_state_block(state_block: &StateBlock9) -> Direct3DResult<()> {
+    crate::graphics_diagnostics::add(crate::graphics_diagnostics::Counter::StateCapture, 1);
+    let _span =
+        crate::graphics_diagnostics::span(crate::graphics_diagnostics::Interval::StateCapture);
+    state_block.capture()
+}
+
+/// Apply one captured D3D state owner after attachments are restored.
+pub(crate) fn apply_state_block(state_block: &StateBlock9) -> Direct3DResult<()> {
+    crate::graphics_diagnostics::add(crate::graphics_diagnostics::Counter::StateApply, 1);
+    let _span =
+        crate::graphics_diagnostics::span(crate::graphics_diagnostics::Interval::StateApply);
+    state_block.apply()
 }
 
 /// Copy a screen-color surface into a texture that will be sampled by OMV.
@@ -146,11 +166,25 @@ pub(crate) fn copy_scene_color_for_sampling(
     }
     // Source and destination have identical phase dimensions, so NONE performs
     // an exact copy without requiring optional StretchRect filtering support.
-    device.stretch_rect(source, None, destination, None, D3DTEXF_NONE)?;
+    copy_exact_color_surface(device, source, destination)?;
     // s3 remains part of the public loose-shader ABI. Rebind only after the
     // destination is no longer writable so downstream shaders retain either
     // the captured world color or the documented current-color fallback.
     device.set_texture(3, sampler3_texture)
+}
+
+/// Copy equal-description color surfaces without filtering or conversion.
+///
+/// Callers must have removed every sampler alias of `destination`. The helper
+/// is the single attribution point for semantic world and phase color copies.
+pub(crate) fn copy_exact_color_surface(
+    device: &Device9Ref<'_>,
+    source: &Surface9,
+    destination: &Surface9,
+) -> Direct3DResult<()> {
+    crate::graphics_diagnostics::add(crate::graphics_diagnostics::Counter::ColorCopy, 1);
+    let _span = crate::graphics_diagnostics::span(crate::graphics_diagnostics::Interval::ColorCopy);
+    device.stretch_rect(source, None, destination, None, D3DTEXF_NONE)
 }
 
 fn restore_target(
@@ -224,13 +258,22 @@ mod tests {
             .map(|(body, _)| body)
             .expect("phase-copy helper body");
         assert!(body.contains("for sampler in SCENE_COPY_SAMPLERS"));
-        assert!(body.contains("D3DTEXF_NONE"));
+        assert!(body.contains("copy_exact_color_surface"));
         assert!(!body.contains("D3DTEXF_POINT"));
         let unbind = body.find("device.clear_texture").expect("sampler unbind");
-        let copy = body.find("device.stretch_rect").expect("surface copy");
+        let copy = body.find("copy_exact_color_surface").expect("surface copy");
         let rebind = body.find("device.set_texture").expect("sampler rebind");
         assert!(unbind < copy);
         assert!(copy < rebind);
+
+        let exact = source
+            .split_once("pub(crate) fn copy_exact_color_surface")
+            .map(|(_, tail)| tail)
+            .and_then(|tail| tail.split_once("\n}\n"))
+            .map(|(body, _)| body)
+            .expect("exact-copy helper body");
+        assert!(exact.contains("D3DTEXF_NONE"));
+        assert!(!exact.contains("D3DTEXF_POINT"));
     }
 
     #[test]

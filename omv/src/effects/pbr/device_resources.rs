@@ -1,7 +1,12 @@
 //! D3D shader resource ownership.
 //!
 //! This creates D3D shader handles from prepared bytecode. Creation is
-//! bounded per frame and kept outside `SetShaders`.
+//! bounded per frame and kept outside `SetShaders`. Ownership is keyed by the
+//! lifecycle device generation as well as pointer identity, because D3D9 reset
+//! may preserve the COM address while invalidating every default-pool shader.
+//! Presentation and Recreate callbacks use `try_lock` only. A compiler
+//! publication or resource owner that is momentarily busy defers creation or
+//! rejects reset; it never stalls the serialized renderer thread.
 
 use std::sync::{
     LazyLock,
@@ -33,6 +38,7 @@ static ALL_RESOURCES_READY: AtomicBool = AtomicBool::new(false);
 static RESOURCES: LazyLock<Mutex<ResourceState>> = LazyLock::new(|| {
     Mutex::new(ResourceState {
         device: 0,
+        device_generation: 0,
         slots: (0..shader_registry::template_count())
             .map(|_| ResourceSlot::new())
             .collect(),
@@ -41,6 +47,7 @@ static RESOURCES: LazyLock<Mutex<ResourceState>> = LazyLock::new(|| {
 
 struct ResourceState {
     device: usize,
+    device_generation: u32,
     slots: Vec<ResourceSlot>,
 }
 
@@ -80,13 +87,17 @@ pub(super) fn service_frame() {
         return;
     };
 
-    let mut state = RESOURCES.lock();
+    let Some(mut state) = RESOURCES.try_lock() else {
+        return;
+    };
     let device_key = device_ptr as usize;
-    if state.device != device_key {
+    let device_generation = crate::backend::d3d_device_generation();
+    if state.device != device_key || state.device_generation != device_generation {
         clear_published_handles();
         CLOSE_TERRAIN_RESOURCES_READY.store(false, Ordering::Release);
         ALL_RESOURCES_READY.store(false, Ordering::Release);
         state.device = device_key;
+        state.device_generation = device_generation;
         for slot in &mut state.slots {
             slot.clear_shader();
         }
@@ -124,18 +135,10 @@ pub(super) fn service_frame() {
                     let handle = shader.as_raw();
                     slot.pixel_shader = Some(shader);
                     publish_handle(template_id, handle);
-                    log::debug!(
-                        "[PBR] Pixel shader created {} handle={handle:p}",
-                        template.label
-                    );
                     true
                 }
-                Err(err) => {
+                Err(_) => {
                     LAST_CREATE_FAILED_TEMPLATE_ID.store(template_id as u32, Ordering::Release);
-                    log::warn!(
-                        "[PBR] Pixel shader creation failed {}: {err}",
-                        template.label
-                    );
                     false
                 }
             },
@@ -144,18 +147,10 @@ pub(super) fn service_frame() {
                     let handle = shader.as_raw();
                     slot.vertex_shader = Some(shader);
                     publish_handle(template_id, handle);
-                    log::debug!(
-                        "[PBR] Vertex shader created {} handle={handle:p}",
-                        template.label
-                    );
                     true
                 }
-                Err(err) => {
+                Err(_) => {
                     LAST_CREATE_FAILED_TEMPLATE_ID.store(template_id as u32, Ordering::Release);
-                    log::warn!(
-                        "[PBR] Vertex shader creation failed {}: {err}",
-                        template.label
-                    );
                     false
                 }
             },
@@ -177,31 +172,42 @@ pub(super) fn object_shader_handle(template_id: u16) -> Option<*mut c_void> {
 
 pub(super) fn object_created_count() -> usize {
     RESOURCES
-        .lock()
-        .slots
-        .iter()
-        .take(shader_registry::object_template_count())
-        .filter(|slot| slot.has_shader())
-        .count()
+        .try_lock()
+        .as_deref()
+        .map(|state| {
+            state
+                .slots
+                .iter()
+                .take(shader_registry::object_template_count())
+                .filter(|slot| slot.has_shader())
+                .count()
+        })
+        .unwrap_or(0)
 }
 
 pub(super) fn object_create_failed() -> bool {
-    RESOURCES
-        .lock()
-        .slots
-        .iter()
-        .take(shader_registry::object_template_count())
-        .any(|slot| slot.create_failed)
+    RESOURCES.try_lock().as_deref().is_some_and(|state| {
+        state
+            .slots
+            .iter()
+            .take(shader_registry::object_template_count())
+            .any(|slot| slot.create_failed)
+    })
 }
 
 pub(super) fn object_create_failed_count() -> usize {
     RESOURCES
-        .lock()
-        .slots
-        .iter()
-        .take(shader_registry::object_template_count())
-        .filter(|slot| slot.create_failed)
-        .count()
+        .try_lock()
+        .as_deref()
+        .map(|state| {
+            state
+                .slots
+                .iter()
+                .take(shader_registry::object_template_count())
+                .filter(|slot| slot.create_failed)
+                .count()
+        })
+        .unwrap_or(0)
 }
 
 pub(super) fn object_last_create_failed_template_label() -> &'static str {
@@ -209,12 +215,13 @@ pub(super) fn object_last_create_failed_template_label() -> &'static str {
 }
 
 pub(super) fn object_resources_ready() -> bool {
-    let state = RESOURCES.lock();
-    state
-        .slots
-        .iter()
-        .take(shader_registry::object_template_count())
-        .all(ResourceSlot::has_shader)
+    RESOURCES.try_lock().as_deref().is_some_and(|state| {
+        state
+            .slots
+            .iter()
+            .take(shader_registry::object_template_count())
+            .all(ResourceSlot::has_shader)
+    })
 }
 
 pub(super) fn all_resources_ready() -> bool {
@@ -298,10 +305,19 @@ fn resource_handle(template_id: u16) -> Option<*mut c_void> {
     published_handle(template_id)
 }
 
-pub(super) fn reset() {
-    let mut state = RESOURCES.lock();
+/// Reset current-device resources after `before_drop` restores engine state.
+///
+/// The callback runs only after the resource owner is acquired. A busy owner
+/// returns `false` without changing handles or D3D state, allowing Recreate to
+/// abort and retry without waiting.
+pub(super) fn try_reset_after(before_drop: impl FnOnce()) -> bool {
+    let Some(mut state) = RESOURCES.try_lock() else {
+        return false;
+    };
+    before_drop();
     clear_published_handles();
     state.device = 0;
+    state.device_generation = 0;
     LAST_CREATE_FAILED_TEMPLATE_ID.store(TEMPLATE_ID_NONE, Ordering::Release);
     for slot in &mut state.slots {
         *slot = ResourceSlot::new();
@@ -313,6 +329,7 @@ pub(super) fn reset() {
     TERRAIN_FADE_RESOURCES_READY.store(false, Ordering::Release);
     CLOSE_TERRAIN_RESOURCES_READY.store(false, Ordering::Release);
     ALL_RESOURCES_READY.store(false, Ordering::Release);
+    true
 }
 
 fn publish_handle(template_id: usize, handle: *mut c_void) {
@@ -394,19 +411,29 @@ fn template_label(template_id: u32) -> &'static str {
 }
 
 fn family_created_count(range: std::ops::Range<usize>) -> usize {
-    let state = RESOURCES.lock();
-    state.slots[range]
-        .iter()
-        .filter(|slot| slot.has_shader())
-        .count()
+    RESOURCES
+        .try_lock()
+        .as_deref()
+        .map(|state| {
+            state.slots[range]
+                .iter()
+                .filter(|slot| slot.has_shader())
+                .count()
+        })
+        .unwrap_or(0)
 }
 
 fn family_create_failed_count(range: std::ops::Range<usize>) -> usize {
-    let state = RESOURCES.lock();
-    state.slots[range]
-        .iter()
-        .filter(|slot| slot.create_failed)
-        .count()
+    RESOURCES
+        .try_lock()
+        .as_deref()
+        .map(|state| {
+            state.slots[range]
+                .iter()
+                .filter(|slot| slot.create_failed)
+                .count()
+        })
+        .unwrap_or(0)
 }
 
 fn land_lod_range() -> std::ops::Range<usize> {

@@ -5,12 +5,18 @@
 //! runtimes; replacing them made every native draw and presentation traverse
 //! OMV and created an especially expensive ownership conflict on NVIDIA.
 //!
-//! Fallout New Vegas already provides the three serialized boundaries OMV
-//! needs:
+//! Fallout New Vegas provides the serialized boundaries OMV needs:
 //!
 //! - `NiDX9Renderer::DisplayScene` brackets the engine's presentation work;
 //! - `NiDX9Renderer::Recreate` owns device-loss/reset notification ordering;
-//! - the common `NiDX9Shader` draw method brackets shader-backed native draws.
+//! - `NiDX9Renderer::RenderTriShape` and `RenderTriStrips` own the actual
+//!   primitive submissions used by PPLighting and the supported sky paths.
+//!
+//! `NiD3DShader::SetupGeometry @ 0x00E812F0` is deliberately not hooked. It
+//! binds streams and indices through D3D9 but returns before the geometry
+//! virtual dispatch reaches the renderer methods containing `DrawPrimitive`
+//! and `DrawIndexedPrimitive`. Treating it as a draw caused OMV to restore a
+//! rejected/replacement pair before the primitive that consumed it.
 //!
 //! These entry hooks patch game code once at `DeferredInit`, retain stable
 //! trampolines, and stay resident. Runtime feature switches are cheap atomic
@@ -33,6 +39,7 @@ use anyhow::{Context, Result};
 use libpsycho::os::windows::{
     directx9::Device9Ref,
     hook::inline::inlinehook::InlineHookContainer,
+    memory::validate_memory_range,
     winapi::{call_window_proc_a, set_window_long_a},
 };
 
@@ -44,24 +51,30 @@ const DISPLAY_SCENE_ADDR: usize = 0x00E7_5000;
 // caller-requested parameters. Both reset attempts and engine notifications
 // are inside this function, so OMV releases resources before entering it.
 const RECREATE_ADDR: usize = 0x00E7_3EB0;
-// PPLighting and Sky shader vtables both publish this method at slot +0x6C.
-// It is after the engine selected a shader/pass and immediately surrounds the
-// native draw, which is the ownership boundary required by PBR and sky.
-const COMMON_SHADER_DRAW_ADDR: usize = 0x00E8_12F0;
+// NiTriShape::RenderImmediate dispatches here through NiDX9Renderer vtable
+// slot +0x1B4. The function owns every direct DrawPrimitive/DIP for the shape.
+const RENDER_TRI_SHAPE_ADDR: usize = 0x00E7_45A0;
+// NiTriStrips::RenderImmediate dispatches here through renderer slot +0x1B8.
+const RENDER_TRI_STRIPS_ADDR: usize = 0x00E7_4840;
+const DISPLAY_SCENE_PROLOGUE: &[u8] = &[0x55, 0x8B, 0xE9, 0x80, 0xBD];
+const RECREATE_PROLOGUE: &[u8] = &[0x83, 0xEC, 0x38, 0x56, 0x57];
+const RENDER_TRI_SHAPE_PROLOGUE: &[u8] = &[0x83, 0xEC, 0x18, 0x56, 0x8B, 0xF1];
+const RENDER_TRI_STRIPS_PROLOGUE: &[u8] = &[0x83, 0xEC, 0x20, 0x55, 0x8B, 0xE9];
 const NIDX9_RENDERER_DEVICE_OFFSET: usize = 0x288;
 const GWL_WNDPROC: i32 = -4;
 const MAX_HOOK_ERROR_LOGS: u32 = 8;
 
 type DisplaySceneFn = unsafe extern "thiscall" fn(*mut c_void) -> u8;
 type RecreateFn = unsafe extern "thiscall" fn(*mut c_void, u32, u32) -> u32;
-type CommonShaderDrawFn =
-    unsafe extern "thiscall" fn(*mut c_void, usize, usize, usize, usize) -> usize;
+type RenderGeometryFn = unsafe extern "thiscall" fn(*mut c_void, *mut c_void);
 
 static DISPLAY_SCENE_HOOK: LazyLock<InlineHookContainer<DisplaySceneFn>> =
     LazyLock::new(InlineHookContainer::new);
 static RECREATE_HOOK: LazyLock<InlineHookContainer<RecreateFn>> =
     LazyLock::new(InlineHookContainer::new);
-static COMMON_SHADER_DRAW_HOOK: LazyLock<InlineHookContainer<CommonShaderDrawFn>> =
+static RENDER_TRI_SHAPE_HOOK: LazyLock<InlineHookContainer<RenderGeometryFn>> =
+    LazyLock::new(InlineHookContainer::new);
+static RENDER_TRI_STRIPS_HOOK: LazyLock<InlineHookContainer<RenderGeometryFn>> =
     LazyLock::new(InlineHookContainer::new);
 
 static ENGINE_HOOKS_READY: AtomicBool = AtomicBool::new(false);
@@ -88,15 +101,44 @@ fn advance_render_epoch(epoch: &AtomicU32) {
 pub(crate) fn install_engine_hooks() -> Result<()> {
     prepare_display_scene_hook()?;
     prepare_recreate_hook()?;
-    prepare_common_shader_draw_hook()?;
+    prepare_render_tri_shape_hook()?;
+    prepare_render_tri_strips_hook()?;
 
-    enable_prepared_hook(&DISPLAY_SCENE_HOOK, "NiDX9Renderer::DisplayScene")?;
-    enable_prepared_hook(&RECREATE_HOOK, "NiDX9Renderer::Recreate")?;
-    enable_prepared_hook(&COMMON_SHADER_DRAW_HOOK, "common NiDX9Shader draw")?;
+    // Prepare every trampoline before changing the first executable entry.
+    // A failed enable rolls back only hooks attached by this attempt; hooks
+    // already resident at entry belong to an earlier complete transaction.
+    let mut enabled_display = false;
+    let mut enabled_recreate = false;
+    let mut enabled_tri_shape = false;
+    let mut enabled_tri_strips = false;
+    let transaction = (|| -> Result<()> {
+        enabled_display = enable_prepared_hook(&DISPLAY_SCENE_HOOK, "NiDX9Renderer::DisplayScene")?;
+        enabled_recreate = enable_prepared_hook(&RECREATE_HOOK, "NiDX9Renderer::Recreate")?;
+        enabled_tri_shape =
+            enable_prepared_hook(&RENDER_TRI_SHAPE_HOOK, "NiDX9Renderer::RenderTriShape")?;
+        enabled_tri_strips =
+            enable_prepared_hook(&RENDER_TRI_STRIPS_HOOK, "NiDX9Renderer::RenderTriStrips")?;
+        Ok(())
+    })();
+    if let Err(error) = transaction {
+        rollback_hook(
+            &RENDER_TRI_STRIPS_HOOK,
+            enabled_tri_strips,
+            "RenderTriStrips",
+        );
+        rollback_hook(&RENDER_TRI_SHAPE_HOOK, enabled_tri_shape, "RenderTriShape");
+        rollback_hook(&RECREATE_HOOK, enabled_recreate, "Recreate");
+        rollback_hook(&DISPLAY_SCENE_HOOK, enabled_display, "DisplayScene");
+        ENGINE_HOOKS_READY.store(false, Ordering::Release);
+        pbr::set_draw_boundary_ready(false);
+        sky::set_draw_boundary_ready(false);
+        return Err(error);
+    }
 
     let ready = DISPLAY_SCENE_HOOK.is_enabled()
         && RECREATE_HOOK.is_enabled()
-        && COMMON_SHADER_DRAW_HOOK.is_enabled();
+        && RENDER_TRI_SHAPE_HOOK.is_enabled()
+        && RENDER_TRI_STRIPS_HOOK.is_enabled();
     ENGINE_HOOKS_READY.store(ready, Ordering::Release);
     pbr::set_draw_boundary_ready(ready);
     sky::set_draw_boundary_ready(ready);
@@ -110,7 +152,7 @@ pub(crate) fn install_engine_hooks() -> Result<()> {
         log_presentation_profile(&device, "engine-hook-install");
     }
     log::info!(
-        "[HOOKS] Engine-owned DisplayScene, Recreate, and common shader draw hooks installed"
+        "[HOOKS] Engine-owned DisplayScene, Recreate, RenderTriShape, and RenderTriStrips hooks installed"
     );
     Ok(())
 }
@@ -119,6 +161,7 @@ fn prepare_display_scene_hook() -> Result<()> {
     if DISPLAY_SCENE_HOOK.is_initialized() {
         return Ok(());
     }
+    validate_vanilla_entry(DISPLAY_SCENE_ADDR, DISPLAY_SCENE_PROLOGUE, "DisplayScene")?;
     unsafe {
         DISPLAY_SCENE_HOOK.init(
             "FNV NiDX9Renderer::DisplayScene",
@@ -133,6 +176,7 @@ fn prepare_recreate_hook() -> Result<()> {
     if RECREATE_HOOK.is_initialized() {
         return Ok(());
     }
+    validate_vanilla_entry(RECREATE_ADDR, RECREATE_PROLOGUE, "Recreate")?;
     unsafe {
         RECREATE_HOOK.init(
             "FNV NiDX9Renderer::Recreate",
@@ -143,29 +187,93 @@ fn prepare_recreate_hook() -> Result<()> {
     .context("could not prepare NiDX9Renderer::Recreate hook")
 }
 
-fn prepare_common_shader_draw_hook() -> Result<()> {
-    if COMMON_SHADER_DRAW_HOOK.is_initialized() {
+fn prepare_render_tri_shape_hook() -> Result<()> {
+    if RENDER_TRI_SHAPE_HOOK.is_initialized() {
         return Ok(());
     }
+    validate_vanilla_entry(
+        RENDER_TRI_SHAPE_ADDR,
+        RENDER_TRI_SHAPE_PROLOGUE,
+        "RenderTriShape",
+    )?;
     unsafe {
-        COMMON_SHADER_DRAW_HOOK.init(
-            "FNV common NiDX9Shader draw",
-            COMMON_SHADER_DRAW_ADDR as *mut c_void,
-            common_shader_draw_detour,
+        RENDER_TRI_SHAPE_HOOK.init(
+            "FNV NiDX9Renderer::RenderTriShape",
+            RENDER_TRI_SHAPE_ADDR as *mut c_void,
+            render_tri_shape_detour,
         )
     }
-    .context("could not prepare common NiDX9Shader draw hook")
+    .context("could not prepare NiDX9Renderer::RenderTriShape hook")
+}
+
+fn prepare_render_tri_strips_hook() -> Result<()> {
+    if RENDER_TRI_STRIPS_HOOK.is_initialized() {
+        return Ok(());
+    }
+    validate_vanilla_entry(
+        RENDER_TRI_STRIPS_ADDR,
+        RENDER_TRI_STRIPS_PROLOGUE,
+        "RenderTriStrips",
+    )?;
+    unsafe {
+        RENDER_TRI_STRIPS_HOOK.init(
+            "FNV NiDX9Renderer::RenderTriStrips",
+            RENDER_TRI_STRIPS_ADDR as *mut c_void,
+            render_tri_strips_detour,
+        )
+    }
+    .context("could not prepare NiDX9Renderer::RenderTriStrips hook")
+}
+
+/// Require the exact executable-proven entry before preparing a core hook.
+///
+/// Core lifecycle and geometry ownership cannot be chained through an
+/// arbitrary predecessor: its ABI, displaced instructions, and resource
+/// lifetime would be unknown. A conflict therefore disables the dependent
+/// graphics group instead of overwriting another component's entry jump.
+fn validate_vanilla_entry(address: usize, expected: &[u8], label: &'static str) -> Result<()> {
+    validate_memory_range(address as *const c_void, expected.len())
+        .with_context(|| format!("could not read {label} entry at 0x{address:08X}"))?;
+    let observed = unsafe { std::slice::from_raw_parts(address as *const u8, expected.len()) };
+    if observed != expected {
+        anyhow::bail!(
+            "{label} entry at 0x{address:08X} has unsupported ownership or executable bytes"
+        );
+    }
+    Ok(())
 }
 
 fn enable_prepared_hook<T: libpsycho::ffi::fnptr::Function>(
     hook: &InlineHookContainer<T>,
     label: &'static str,
-) -> Result<()> {
+) -> Result<bool> {
     if hook.is_enabled() {
-        return Ok(());
+        return Ok(false);
     }
-    hook.enable()
-        .with_context(|| format!("could not enable {label} hook"))
+    if let Err(error) = hook.enable() {
+        // InlineHook can report a page-protection restoration failure after
+        // the entry JMP was written. Undo that published ownership before the
+        // group coordinator rolls back earlier members.
+        if hook.is_enabled()
+            && let Err(rollback_error) = hook.disable()
+        {
+            log::error!(
+                "[HOOKS] {label} became active during failed enable and immediate rollback failed: {rollback_error}"
+            );
+        }
+        return Err(error).with_context(|| format!("could not enable {label} hook"));
+    }
+    Ok(true)
+}
+
+fn rollback_hook<T: libpsycho::ffi::fnptr::Function>(
+    hook: &InlineHookContainer<T>,
+    enabled_by_attempt: bool,
+    label: &'static str,
+) {
+    if enabled_by_attempt && let Err(error) = hook.disable() {
+        log::error!("[HOOKS] Could not roll back {label} after group failure: {error}");
+    }
 }
 
 /// Return a stable diagnostic label for native draw ownership.
@@ -212,7 +320,14 @@ unsafe extern "thiscall" fn display_scene_detour(renderer: *mut c_void) -> u8 {
         return 0;
     };
     let render_epoch = render_epoch();
-    if let Some(device_ptr) = unsafe { renderer_device(renderer) }
+    let device_ptr = unsafe { renderer_device(renderer) };
+    if let Some(device_ptr) = device_ptr {
+        // Same-device publication is a single pointer comparison. This also
+        // repairs publication after a failed Recreate without rediscovering
+        // the renderer singleton from every graphics consumer.
+        let _ = unsafe { backend::publish_d3d_device(device_ptr) };
+    }
+    if let Some(device_ptr) = device_ptr
         && runtime::present_services_required()
     {
         pbr::finish_draw_batches();
@@ -224,6 +339,7 @@ unsafe extern "thiscall" fn display_scene_detour(renderer: *mut c_void) -> u8 {
     let result = unsafe { original(renderer) };
     unsafe { runtime::finish_present_frame(render_epoch, present_started_at, result != 0) };
     crate::fnv_world_pipeline::finish_present(render_epoch);
+    crate::graphics_diagnostics::seal_frame(render_epoch);
     advance_render_epoch(&RENDER_EPOCH);
     result
 }
@@ -246,48 +362,94 @@ unsafe extern "thiscall" fn recreate_detour(
         // OMV resource owner as a successful reset mode.
         return 0;
     }
-    pbr::reset_runtime_state();
-    sky::reset_runtime_state();
+    if !pbr::reset_runtime_state() || !sky::reset_runtime_state() {
+        // Recreate's caller understands zero as a retryable failure. Every
+        // owner that did reset can rebuild lazily on the next successful
+        // lifecycle attempt; no still-owned default-pool object crosses reset.
+        return 0;
+    }
+    if backend::clear_d3d_device().is_err() {
+        // Recreate's caller already understands zero as a retryable failure.
+        // Do not enter native reset while OMV still owns a device reference.
+        return 0;
+    }
     let result = unsafe { original(renderer, request_a, request_b) };
     if result != 0
         && let Some(active_device) = unsafe { renderer_device(renderer) }
-        && let Some(device) = unsafe { Device9Ref::from_raw_void(active_device) }
     {
-        log_presentation_profile(&device, "engine-recreate");
+        if unsafe { backend::publish_d3d_device(active_device) }.is_ok()
+            && let Some(device) = unsafe { Device9Ref::from_raw_void(active_device) }
+        {
+            log_presentation_profile(&device, "engine-recreate");
+        }
     }
     result
 }
 
-unsafe extern "thiscall" fn common_shader_draw_detour(
-    shader: *mut c_void,
-    argument_a: usize,
-    argument_b: usize,
-    argument_c: usize,
-    result_cookie: usize,
-) -> usize {
-    let Ok(original) = COMMON_SHADER_DRAW_HOOK.original() else {
-        log_hook_error("[HOOKS] Missing original common NiDX9Shader draw function");
-        return result_cookie;
+unsafe extern "thiscall" fn render_tri_shape_detour(renderer: *mut c_void, geometry: *mut c_void) {
+    crate::graphics_diagnostics::add(crate::graphics_diagnostics::Counter::TriShapeSubmission, 1);
+    let _span = crate::graphics_diagnostics::span(
+        crate::graphics_diagnostics::Interval::TriShapeSubmission,
+    );
+    unsafe { render_geometry(&RENDER_TRI_SHAPE_HOOK, renderer, geometry, "RenderTriShape") };
+}
+
+unsafe extern "thiscall" fn render_tri_strips_detour(renderer: *mut c_void, geometry: *mut c_void) {
+    crate::graphics_diagnostics::add(crate::graphics_diagnostics::Counter::TriStripsSubmission, 1);
+    let _span = crate::graphics_diagnostics::span(
+        crate::graphics_diagnostics::Interval::TriStripsSubmission,
+    );
+    unsafe {
+        render_geometry(
+            &RENDER_TRI_STRIPS_HOOK,
+            renderer,
+            geometry,
+            "RenderTriStrips",
+        )
+    };
+}
+
+/// Bracket one geometry renderer entry that owns the consuming primitives.
+///
+/// Native `SetShaders` and `SetupGeometry` have already run when this entry is
+/// reached. The predecessor may submit several skin partitions, but every
+/// primitive shares this geometry, sampler set, shader pair, and constant
+/// block. One scope therefore preserves exact coverage without interposing the
+/// driver-owned D3D9 vtable for each individual DIP.
+unsafe fn render_geometry(
+    hook: &InlineHookContainer<RenderGeometryFn>,
+    renderer: *mut c_void,
+    geometry: *mut c_void,
+    label: &'static str,
+) {
+    let Ok(original) = hook.original() else {
+        log_hook_error(match label {
+            "RenderTriShape" => "[HOOKS] Missing original RenderTriShape function",
+            _ => "[HOOKS] Missing original RenderTriStrips function",
+        });
+        return;
     };
     if !runtime::effects_enabled() {
-        return unsafe { original(shader, argument_a, argument_b, argument_c, result_cookie) };
+        unsafe { original(renderer, geometry) };
+        return;
     }
 
-    let pbr_draw = pbr::prepare_direct_draw();
+    let pbr_draw = pbr::prepare_direct_draw(geometry);
     let sky_draw = sky::prepare_direct_draw();
-    let result = unsafe { original(shader, argument_a, argument_b, argument_c, result_cookie) };
+    unsafe { original(renderer, geometry) };
     if sky_draw {
         sky::finish_direct_draw();
     }
     pbr::finish_direct_draw(pbr_draw);
-    result
 }
 
 /// Read the device owned by this exact renderer invocation.
 ///
 /// Using the receiver avoids racing a singleton publication during Recreate.
 /// The executable layout proves the device pointer at `NiDX9Renderer+0x288`;
-/// `Device9Ref` performs the COM-interface validation before any method call.
+/// `Device9Ref` supplies a typed non-owning borrow after the null check. Full
+/// COM identity validation and retention occur only when lifecycle publication
+/// observes a changed pointer.
 unsafe fn renderer_device(renderer: *mut c_void) -> Option<*mut c_void> {
     if renderer.is_null() {
         return None;
@@ -359,7 +521,10 @@ unsafe fn call_original_wndproc(
 
 #[cfg(test)]
 mod tests {
-    use super::advance_render_epoch;
+    use super::{
+        DisplaySceneFn, RecreateFn, RenderGeometryFn, advance_render_epoch, display_scene_detour,
+        recreate_detour, render_tri_shape_detour, render_tri_strips_detour,
+    };
     use std::sync::atomic::{AtomicU32, Ordering};
 
     #[test]
@@ -367,6 +532,14 @@ mod tests {
         let epoch = AtomicU32::new(41);
         advance_render_epoch(&epoch);
         assert_eq!(epoch.load(Ordering::Acquire), 42);
+    }
+
+    #[test]
+    fn renderer_detours_use_the_executable_proven_x86_abis() {
+        let _: DisplaySceneFn = display_scene_detour;
+        let _: RecreateFn = recreate_detour;
+        let _: RenderGeometryFn = render_tri_shape_detour;
+        let _: RenderGeometryFn = render_tri_strips_detour;
     }
 
     #[test]
@@ -382,7 +555,10 @@ mod tests {
         assert!(!source.contains(&device_reset));
         assert!(source.contains("DISPLAY_SCENE_ADDR"));
         assert!(source.contains("RECREATE_ADDR"));
-        assert!(source.contains("COMMON_SHADER_DRAW_ADDR"));
+        assert!(source.contains("RENDER_TRI_SHAPE_ADDR"));
+        assert!(source.contains("RENDER_TRI_STRIPS_ADDR"));
+        let obsolete_draw_owner = ["COMMON_SHADER", "_DRAW_ADDR"].concat();
+        assert!(!source.contains(&obsolete_draw_owner));
     }
 
     #[test]
@@ -408,21 +584,21 @@ mod tests {
     }
 
     #[test]
-    fn common_engine_draw_closes_replacement_scopes_after_native_draw() {
+    fn renderer_geometry_draw_closes_replacement_scopes_after_native_submission() {
         let source = include_str!("hooks.rs");
         let body = source
-            .split_once("unsafe extern \"thiscall\" fn common_shader_draw_detour")
+            .split_once("unsafe fn render_geometry")
             .map(|(_, tail)| tail)
             .and_then(|tail| tail.split_once("unsafe fn renderer_device"))
             .map(|(body, _)| body)
-            .expect("common shader draw body");
+            .expect("renderer geometry body");
         let prepare = body
             .find("pbr::prepare_direct_draw")
             .expect("PBR preparation");
         let native = body[prepare..]
-            .find("original(shader")
+            .find("original(renderer, geometry)")
             .map(|offset| prepare + offset)
-            .expect("native draw");
+            .expect("native geometry submission");
         let finish = body.find("pbr::finish_direct_draw").expect("PBR cleanup");
         assert!(prepare < native);
         assert!(native < finish);

@@ -883,6 +883,7 @@ impl AtmosphereEffect {
             && !frame.underwater.underwater
             && let Some(epoch) = local_epoch
             && epoch.device_identity == device.as_raw() as usize
+            && epoch.device_generation == crate::backend::d3d_device_generation()
         {
             captured_local_count = epoch.light_count();
             captured_local_age = crate::hooks::render_epoch().wrapping_sub(epoch.render_epoch);

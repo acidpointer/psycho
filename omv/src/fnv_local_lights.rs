@@ -1,18 +1,30 @@
 //! Coherent capture of Fallout New Vegas scene-wide local lights.
+//!
+//! The engine's native shadow prefix at `0x00871290` is a receiver-bearing
+//! thiscall selected by three mutually exclusive dispatcher branches. A small
+//! x86 ABI bridge preserves the incoming `ECX`, records the branch return and
+//! caller frame, and invokes one Rust transaction body without changing the
+//! native stack contract. Only main-render callers may publish scalar lights;
+//! special and screenshot calls execute natively but cannot replace gameplay
+//! data in the same presentation epoch.
+//!
+//! Completed native shadow textures are inspected and retained once through
+//! COM. Published consumers borrow that retained identity directly. No later
+//! sampler bind walks `BSRenderedTexture -> NiTexture -> NiDX9TextureData`,
+//! performs `VirtualQuery`, or asks D3D9 for the resource description again.
 
 use core::{
     ffi::c_void,
     mem::{size_of, transmute},
-    ptr::NonNull,
 };
 use std::sync::{
     LazyLock,
-    atomic::{AtomicBool, AtomicI32, AtomicU32, Ordering},
+    atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering},
 };
 
 use libpsycho::os::windows::{
     directx9::{
-        D3DFMT_A8R8G8B8, D3DFMT_R32F, D3DFORMAT, D3DPOOL_DEFAULT, D3DRTYPE_TEXTURE,
+        D3DFMT_A8R8G8B8, D3DFMT_R32F, D3DFORMAT, D3DPOOL_DEFAULT, D3DRTYPE_TEXTURE, Texture9,
         USAGE_RENDER_TARGET, raw_texture_2d_description,
     },
     hook::inline::inlinehook::InlineHookContainer,
@@ -23,12 +35,16 @@ use parking_lot::Mutex;
 const WORLD_LIGHT_EPOCH_ADDR: usize = 0x0087_1290;
 const SHADOW_SCENE_MANAGER_GETTER_ADDR: usize = 0x0045_0B80;
 const RENDER_LOCAL_SHADOW_ADDR: usize = 0x00B9_F780;
+const WORLD_LIGHT_EPOCH_PROLOGUE: &[u8] = &[0x55, 0x8B, 0xEC, 0x81, 0xEC, 0x9C, 0x00, 0x00, 0x00];
+const RENDER_LOCAL_SHADOW_PROLOGUE: &[u8] = &[0x55, 0x8B, 0xEC, 0x83, 0xE4, 0xF0];
 const LOCAL_LIGHT_CAPACITY: usize = 16;
 const TERRAIN_LIGHT_CAPACITY: usize = 64;
 const NATIVE_SHADOW_CAPACITY: usize = 4;
 const MAX_SCENE_LIGHT_SCAN: usize = 512;
+const TERRAIN_LIGHT_COMPONENTS_PER_ENTRY: usize = 10;
+const TERRAIN_LIGHT_COMPONENT_COUNT: usize =
+    TERRAIN_LIGHT_CAPACITY * TERRAIN_LIGHT_COMPONENTS_PER_ENTRY;
 
-const SHADOW_SCENE_MANAGER_SIZE: usize = 0xC0;
 const SCENE_LIGHT_LIST_OFFSET: usize = 0xB4;
 const SCENE_LIGHT_COUNT_OFFSET: usize = 0xBC;
 const LIST_NODE_NEXT_OFFSET: usize = 0x00;
@@ -61,16 +77,21 @@ const NI_TEXTURE_SIZE: usize = 0x28;
 const NI_TEXTURE_RENDERER_DATA_OFFSET: usize = 0x24;
 const DX9_TEXTURE_DATA_SIZE: usize = 0x68;
 const DX9_TEXTURE_DATA_BASE_TEXTURE_OFFSET: usize = 0x64;
-const NI_REF_COUNT_OFFSET: usize = 0x04;
-const NI_VTABLE_DELETE_OFFSET: usize = 0x04;
 const COM_TEXTURE_VTABLE_BYTES: usize = 0x50;
+
+const SHADOW_VARIANT_A_RETURN: usize = 0x0087_0856;
+const SHADOW_VARIANT_B_RETURN: usize = 0x0087_0A79;
+const SHADOW_VARIANT_C_RETURN: usize = 0x0087_0C41;
+const MAIN_RENDER_FIRST_RETURN: usize = 0x0087_0249;
+const MAIN_RENDER_SECOND_RETURN: usize = 0x0087_02AE;
+const SPECIAL_RENDER_RETURN: usize = 0x0087_21A9;
+const SCREENSHOT_RENDER_RETURN: usize = 0x0087_9179;
 
 const MAX_CAPTURE_LOGS: u32 = 16;
 
-type WorldLightEpochFn = unsafe extern "cdecl" fn();
+type WorldLightEpochFn = unsafe extern "thiscall" fn(*mut c_void);
 type ShadowSceneManagerGetterFn = unsafe extern "cdecl" fn(i32) -> *mut u8;
 type RenderLocalShadowFn = unsafe extern "thiscall" fn(*mut c_void, *mut c_void, i32);
-type DeleteRenderedTextureFn = unsafe extern "thiscall" fn(*mut c_void);
 
 static WORLD_LIGHT_EPOCH_HOOK: LazyLock<InlineHookContainer<WorldLightEpochFn>> =
     LazyLock::new(InlineHookContainer::new);
@@ -80,8 +101,21 @@ static RENDER_LOCAL_SHADOW_HOOK: LazyLock<InlineHookContainer<RenderLocalShadowF
 static STAGING: LazyLock<Mutex<StagingEpoch>> =
     LazyLock::new(|| Mutex::new(StagingEpoch::default()));
 static PUBLISHED: LazyLock<Mutex<Option<LocalLightEpoch>>> = LazyLock::new(|| Mutex::new(None));
-static PUBLISHED_TERRAIN: LazyLock<Mutex<Option<TerrainLightEpoch>>> =
-    LazyLock::new(|| Mutex::new(None));
+// Terrain consumers need scalar POD only. An even/odd atomic publication lets
+// every geometry copy a stable current epoch without taking the atmosphere
+// resource mailbox lock. Odd means a writer owns the payload; an unchanged
+// even version before and after copying proves a coherent snapshot.
+static TERRAIN_PUBLICATION_VERSION: AtomicU32 = AtomicU32::new(0);
+static TERRAIN_PUBLICATION_RENDER_EPOCH: AtomicU32 = AtomicU32::new(0);
+static TERRAIN_PUBLICATION_DEVICE: AtomicUsize = AtomicUsize::new(0);
+static TERRAIN_PUBLICATION_DEVICE_GENERATION: AtomicU32 = AtomicU32::new(0);
+static TERRAIN_PUBLICATION_COUNT: AtomicU32 = AtomicU32::new(0);
+static TERRAIN_PUBLICATION_IDENTITIES: [AtomicUsize; TERRAIN_LIGHT_CAPACITY] =
+    [const { AtomicUsize::new(0) }; TERRAIN_LIGHT_CAPACITY];
+static TERRAIN_PUBLICATION_FLAGS: [AtomicU32; TERRAIN_LIGHT_CAPACITY] =
+    [const { AtomicU32::new(0) }; TERRAIN_LIGHT_CAPACITY];
+static TERRAIN_PUBLICATION_COMPONENTS: [AtomicU32; TERRAIN_LIGHT_COMPONENT_COUNT] =
+    [const { AtomicU32::new(0) }; TERRAIN_LIGHT_COMPONENT_COUNT];
 
 static HOOKS_READY: AtomicBool = AtomicBool::new(false);
 static SHADOW_HOOK_READY: AtomicBool = AtomicBool::new(false);
@@ -107,14 +141,42 @@ static CAPTURE_TRAVERSALS: AtomicU32 = AtomicU32::new(0);
 static OVERFLOW_LIGHTS: AtomicU32 = AtomicU32::new(0);
 static SCENE_LIGHTS: AtomicU32 = AtomicU32::new(0);
 static SHADOWED_LIGHTS: AtomicU32 = AtomicU32::new(0);
+static LAST_AUTHORITATIVE_RENDER_EPOCH: AtomicU32 = AtomicU32::new(0);
+static LAST_AUTHORITATIVE_DEVICE_GENERATION: AtomicU32 = AtomicU32::new(0);
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ShadowDispatcherVariant {
+    A,
+    B,
+    C,
+    Unknown,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ShadowRenderContext {
+    Main,
+    Special,
+    Screenshot,
+    Unknown,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct ShadowInvocation {
+    variant: ShadowDispatcherVariant,
+    context: ShadowRenderContext,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+/// Native local-shadow texture encoding accepted by atmosphere sampling.
 pub(crate) enum ShadowTextureFormat {
+    /// Single-channel floating-point native shadow target.
     R32F,
+    /// Four-channel quantized native shadow target used by the ATI path.
     A8R8G8B8,
 }
 
 impl ShadowTextureFormat {
+    /// Return the receiver bias required by the native texture encoding.
     pub(crate) fn bias(self) -> f32 {
         match self {
             Self::R32F => 0.001_171_875,
@@ -124,65 +186,73 @@ impl ShadowTextureFormat {
 }
 
 #[derive(Clone, Copy, Debug)]
+/// Immutable scalar values for one atmosphere local light.
 pub(crate) struct LocalLightValues {
+    /// World-space light position.
     pub(crate) position: [f32; 3],
+    /// Native diffuse color after dimmer and transition weighting.
     pub(crate) color: [f32; 3],
+    /// Native world-space light radius.
     pub(crate) radius: f32,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
+/// Scalar manager-light snapshot consumed by close-terrain PBR.
 pub(crate) struct TerrainSceneLight {
+    /// Stable native-light pointer used only as an identity and deduplication key.
     pub(crate) native_light_identity: usize,
+    /// Whether the native shadow-scene entry represents a point light.
     pub(crate) point: bool,
+    /// Whether the native entry is ambient and therefore ineligible.
     pub(crate) ambient: bool,
+    /// Engine-relative light position copied during the producer epoch.
     pub(crate) relative_position: [f32; 3],
+    /// Native light radius.
     pub(crate) radius: f32,
+    /// Unscaled native diffuse color.
     pub(crate) diffuse: [f32; 3],
+    /// Native light dimmer.
     pub(crate) dimmer: f32,
+    /// Shadow-scene LOD transition dimmer.
     pub(crate) lod_dimmer: f32,
+    /// Native shadow fade, retained for diagnostics and future consumers.
     pub(crate) fade: f32,
 }
 
-#[derive(Clone, Copy)]
-struct TerrainLightEpoch {
-    render_epoch: u32,
-    device_identity: usize,
-    lights: [TerrainSceneLight; TERRAIN_LIGHT_CAPACITY],
-    count: usize,
-}
-
-impl Default for TerrainLightEpoch {
-    fn default() -> Self {
-        Self {
-            render_epoch: 0,
-            device_identity: 0,
-            lights: [TerrainSceneLight::default(); TERRAIN_LIGHT_CAPACITY],
-            count: 0,
-        }
-    }
-}
-
 #[derive(Clone, Copy, Debug)]
+/// Copied matrices and format for one retained completed native shadow.
 pub(crate) struct LocalShadowValues {
+    /// Combined matrix consumed by the current atmosphere shader.
     pub(crate) shadow_matrix: [[f32; 4]; 4],
     #[allow(dead_code)]
+    /// Native shadow view matrix retained as part of the complete contract.
     pub(crate) shadow_view_matrix: [[f32; 4]; 4],
     #[allow(dead_code)]
+    /// Native shadow projection matrix retained as part of the complete contract.
     pub(crate) shadow_projection_matrix: [[f32; 4]; 4],
+    /// Encoding of the retained native texture.
     pub(crate) format: ShadowTextureFormat,
 }
 
+/// One published atmosphere light with optional owned shadow enrichment.
 pub(crate) struct LocalVolumetricLight {
+    /// Scalar light values copied from engine state.
     pub(crate) values: LocalLightValues,
     shadow: Option<LocalShadow>,
 }
 
 impl LocalVolumetricLight {
+    /// Borrow the retained native shadow texture for the current D3D device.
+    ///
+    /// A device mismatch rejects stale reset-era resources without consulting
+    /// engine objects or issuing a D3D getter.
     pub(crate) fn shadow_binding(&self, device_identity: usize) -> Option<LocalShadowBinding> {
         let shadow = self.shadow.as_ref()?;
-        let texture = unsafe { shadow.texture.resolve_shadow_texture(device_identity)? };
+        if shadow.device_identity != device_identity {
+            return None;
+        }
         Some(LocalShadowBinding {
-            texture,
+            texture: shadow.texture.as_raw_base_texture(),
             values: shadow.values,
         })
     }
@@ -194,58 +264,92 @@ impl LocalVolumetricLight {
 }
 
 #[derive(Clone, Copy)]
+/// Borrowed shadow binding valid for one matching device generation.
 pub(crate) struct LocalShadowBinding {
+    /// Borrowed `IDirect3DBaseTexture9*` kept live by the owning epoch.
     pub(crate) texture: *mut c_void,
+    /// Copied native shadow matrices and texture encoding.
     pub(crate) values: LocalShadowValues,
 }
 
 struct LocalShadow {
     values: LocalShadowValues,
-    texture: RetainedRenderedTexture,
+    texture: Texture9,
+    device_identity: usize,
 }
 
+/// Immutable gameplay light publication for one render/device epoch.
 pub(crate) struct LocalLightEpoch {
+    /// Presentation render epoch that produced the publication.
     pub(crate) render_epoch: u32,
+    /// Raw device identity whose resources are retained by the publication.
     pub(crate) device_identity: usize,
+    /// Device lifecycle generation that owns every retained shadow resource.
+    pub(crate) device_generation: u32,
     slots: [Option<LocalVolumetricLight>; LOCAL_LIGHT_CAPACITY],
 }
 
 impl LocalLightEpoch {
+    /// Iterate the bounded published light set in deterministic rank order.
     pub(crate) fn lights(&self) -> impl Iterator<Item = &LocalVolumetricLight> {
         self.slots.iter().filter_map(Option::as_ref)
     }
 
+    /// Return the number of published atmosphere lights.
     pub(crate) fn light_count(&self) -> usize {
         self.lights().count()
     }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+/// Nonblocking atmosphere-mailbox access result.
 pub(crate) enum PublishedEpochAccess {
+    /// The producer or reset path currently owns the mailbox.
     Busy,
+    /// No publication for the requested device was available.
     Empty,
+    /// A matching complete publication was moved into the consumer.
     Ready,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
+/// Bounded local-light counters displayed by OMV diagnostics.
 pub(crate) struct LocalLightTelemetry {
+    /// Whether the authoritative world transaction hook is resident.
     pub(crate) hooks_ready: bool,
+    /// Whether optional completed-shadow enrichment is resident.
     pub(crate) shadow_hook_ready: bool,
+    /// Whether atmosphere, rather than scalar-only terrain, requests capture.
     pub(crate) capture_enabled: bool,
+    /// Authoritative atmosphere manager traversals.
     pub(crate) traversals: u32,
+    /// Native completed-shadow callbacks observed.
     pub(crate) captured: u32,
+    /// Native completed shadows accepted and retained.
     pub(crate) accepted: u32,
+    /// Native completed shadows rejected by the resource contract.
     pub(crate) rejected: u32,
+    /// Completed-shadow slots beyond OMV's fixed retention budget.
     pub(crate) overflow: u32,
+    /// Accepted R32F native shadows.
     pub(crate) r32f: u32,
+    /// Accepted A8R8G8B8 native shadows.
     pub(crate) a8r8g8b8: u32,
+    /// Native shadow resources rejected for unsupported formats.
     pub(crate) rejected_formats: u32,
+    /// Local volumes rendered by the atmosphere consumer.
     pub(crate) rendered: u32,
+    /// Nonblocking staging-mailbox misses.
     pub(crate) staging_busy: u32,
+    /// Nonblocking publication-mailbox misses.
     pub(crate) publish_busy: u32,
+    /// Nonblocking consumer-mailbox misses.
     pub(crate) consume_busy: u32,
+    /// Reset attempts deferred by a busy light owner.
     pub(crate) reset_busy: u32,
+    /// Eligible scalar scene lights observed.
     pub(crate) scene_lights: u32,
+    /// Published atmosphere lights matched with retained shadows.
     pub(crate) shadowed_lights: u32,
 }
 
@@ -253,6 +357,7 @@ pub(crate) struct LocalLightTelemetry {
 struct StagingEpoch {
     render_epoch: u32,
     device_identity: usize,
+    device_generation: u32,
     seen_slots: u8,
     shadows: [Option<CapturedShadow>; NATIVE_SHADOW_CAPACITY],
 }
@@ -283,10 +388,11 @@ enum CaptureSlot {
 }
 
 impl StagingEpoch {
-    fn begin(&mut self, render_epoch: u32, device_identity: usize) {
+    fn begin(&mut self, render_epoch: u32, device_identity: usize, device_generation: u32) {
         self.shadows = std::array::from_fn(|_| None);
         self.render_epoch = render_epoch;
         self.device_identity = device_identity;
+        self.device_generation = device_generation;
         self.seen_slots = 0;
     }
 
@@ -298,85 +404,8 @@ impl StagingEpoch {
         self.shadows = std::array::from_fn(|_| None);
         self.render_epoch = 0;
         self.device_identity = 0;
+        self.device_generation = 0;
         self.seen_slots = 0;
-    }
-}
-
-struct RetainedRenderedTexture {
-    rendered_texture: NonNull<u8>,
-    shadow_texture_identity: usize,
-    format: ShadowTextureFormat,
-}
-
-// The engine uses interlocked intrusive references. The owner moves only
-// between private render mailboxes; texture lookup and final release stay on
-// the render/reset path.
-unsafe impl Send for RetainedRenderedTexture {}
-
-impl RetainedRenderedTexture {
-    unsafe fn retain(
-        rendered_texture: *mut u8,
-        shadow_texture_identity: usize,
-        format: ShadowTextureFormat,
-    ) -> Option<Self> {
-        validate_memory_range(rendered_texture.cast(), RENDERED_TEXTURE_SIZE).ok()?;
-        let rendered_texture = NonNull::new(rendered_texture)?;
-        let count = unsafe {
-            &*rendered_texture
-                .as_ptr()
-                .add(NI_REF_COUNT_OFFSET)
-                .cast::<AtomicI32>()
-        };
-        let mut current = count.load(Ordering::Acquire);
-        loop {
-            if current <= 0 || current == i32::MAX {
-                return None;
-            }
-            match count.compare_exchange_weak(
-                current,
-                current + 1,
-                Ordering::SeqCst,
-                Ordering::SeqCst,
-            ) {
-                Ok(_) => break,
-                Err(observed) => current = observed,
-            }
-        }
-        Some(Self {
-            rendered_texture,
-            shadow_texture_identity,
-            format,
-        })
-    }
-
-    unsafe fn resolve_shadow_texture(&self, device_identity: usize) -> Option<*mut c_void> {
-        let resolved = unsafe { resolve_texture_chain(self.rendered_texture.as_ptr())? };
-        if resolved.raw_texture as usize != self.shadow_texture_identity
-            || resolved.device_identity != device_identity
-            || resolved.format != self.format
-        {
-            return None;
-        }
-        Some(resolved.raw_texture)
-    }
-}
-
-impl Drop for RetainedRenderedTexture {
-    fn drop(&mut self) {
-        unsafe {
-            let object = self.rendered_texture.as_ptr();
-            let count = &*object.add(NI_REF_COUNT_OFFSET).cast::<AtomicI32>();
-            let previous = count.fetch_sub(1, Ordering::SeqCst);
-            if previous != 1 {
-                debug_assert!(previous > 1, "invalid BSRenderedTexture reference count");
-                return;
-            }
-            let Some(delete_address) = read_virtual(object, NI_VTABLE_DELETE_OFFSET) else {
-                return;
-            };
-            let delete: DeleteRenderedTextureFn = transmute(delete_address);
-            delete(object.cast());
-        }
     }
 }
 
@@ -387,14 +416,21 @@ struct ResolvedTexture {
     format: ShadowTextureFormat,
 }
 
+/// Install the authoritative scalar-light hook and optional shadow enrichment.
 pub(crate) fn install_hooks() {
     HOOKS_READY.store(false, Ordering::Release);
     SHADOW_HOOK_READY.store(false, Ordering::Release);
     LazyLock::force(&STAGING);
     LazyLock::force(&PUBLISHED);
-    LazyLock::force(&PUBLISHED_TERRAIN);
 
     if !WORLD_LIGHT_EPOCH_HOOK.is_initialized() {
+        if !validate_exact_hook_entry(
+            WORLD_LIGHT_EPOCH_ADDR,
+            WORLD_LIGHT_EPOCH_PROLOGUE,
+            "scene-wide local-light epoch",
+        ) {
+            return;
+        }
         if let Err(err) = unsafe {
             WORLD_LIGHT_EPOCH_HOOK.init(
                 "FNV scene-wide local-light epoch",
@@ -417,6 +453,16 @@ pub(crate) fn install_hooks() {
     HOOKS_READY.store(true, Ordering::Release);
 
     if !RENDER_LOCAL_SHADOW_HOOK.is_initialized() {
+        if !validate_exact_hook_entry(
+            RENDER_LOCAL_SHADOW_ADDR,
+            RENDER_LOCAL_SHADOW_PROLOGUE,
+            "completed local-shadow slot",
+        ) {
+            log::warn!(
+                "[ATMOSPHERE LOCAL] Optional shadow-slot enrichment unavailable; shadowless local volumes remain active"
+            );
+            return;
+        }
         if let Err(err) = unsafe {
             RENDER_LOCAL_SHADOW_HOOK.init(
                 "FNV completed local shadow slot",
@@ -448,6 +494,7 @@ pub(crate) fn install_hooks() {
     );
 }
 
+/// Apply the atmosphere consumer's passive capture demand.
 pub(crate) fn configure_atmosphere(enabled: bool) {
     let previous = ATMOSPHERE_CAPTURE_ENABLED.swap(enabled, Ordering::AcqRel);
     if previous != enabled {
@@ -461,6 +508,7 @@ pub(crate) fn configure_atmosphere(enabled: bool) {
     }
 }
 
+/// Apply close-terrain's passive scalar-light capture demand.
 pub(crate) fn configure_terrain(enabled: bool) {
     let previous = TERRAIN_CAPTURE_ENABLED.swap(enabled, Ordering::AcqRel);
     if previous != enabled {
@@ -474,6 +522,7 @@ pub(crate) fn configure_terrain(enabled: bool) {
     }
 }
 
+/// Return whether any ready consumer requests a scalar manager epoch.
 pub(crate) fn capture_enabled() -> bool {
     capture_requested(
         ATMOSPHERE_CAPTURE_ENABLED.load(Ordering::Acquire),
@@ -481,10 +530,12 @@ pub(crate) fn capture_enabled() -> bool {
     )
 }
 
+/// Return whether atmosphere requests shadow-enriched light capture.
 pub(crate) fn atmosphere_capture_enabled() -> bool {
     ATMOSPHERE_CAPTURE_ENABLED.load(Ordering::Acquire)
 }
 
+/// Enable or disable optional menu-facing cumulative telemetry.
 pub(crate) fn set_diagnostics_active(active: bool) {
     if DIAGNOSTICS_ACTIVE.swap(active, Ordering::AcqRel) == active || !active {
         return;
@@ -503,6 +554,7 @@ pub(crate) fn set_diagnostics_active(active: bool) {
     }
 }
 
+/// Read the current bounded local-light telemetry snapshot.
 pub(crate) fn telemetry() -> LocalLightTelemetry {
     LocalLightTelemetry {
         hooks_ready: HOOKS_READY.load(Ordering::Acquire),
@@ -529,27 +581,54 @@ pub(crate) fn telemetry() -> LocalLightTelemetry {
     }
 }
 
+/// Invoke `callback` with a coherent current scalar-light snapshot.
+///
+/// Returns `None` rather than blocking when publication is changing or when
+/// the render/device generation is stale.
 pub(crate) fn try_with_current_terrain_lights<T>(
     callback: impl FnOnce(&[TerrainSceneLight]) -> T,
 ) -> Option<T> {
-    let published = PUBLISHED_TERRAIN.try_lock()?;
-    let epoch = published.as_ref()?;
+    let version = TERRAIN_PUBLICATION_VERSION.load(Ordering::Acquire);
+    if version & 1 != 0 {
+        return None;
+    }
     let device_identity = crate::backend::d3d_device_ptr()? as usize;
     if !terrain_epoch_is_current(
-        epoch.render_epoch,
-        epoch.device_identity,
+        TERRAIN_PUBLICATION_RENDER_EPOCH.load(Ordering::Relaxed),
+        TERRAIN_PUBLICATION_DEVICE.load(Ordering::Relaxed),
+        TERRAIN_PUBLICATION_DEVICE_GENERATION.load(Ordering::Relaxed),
         crate::hooks::render_epoch(),
         device_identity,
+        crate::backend::d3d_device_generation(),
     ) {
         return None;
     }
-    Some(callback(&epoch.lights[..epoch.count]))
+    let count =
+        (TERRAIN_PUBLICATION_COUNT.load(Ordering::Relaxed) as usize).min(TERRAIN_LIGHT_CAPACITY);
+    let mut lights = [TerrainSceneLight::default(); TERRAIN_LIGHT_CAPACITY];
+    for (index, light) in lights[..count].iter_mut().enumerate() {
+        *light = load_terrain_publication_light(index);
+    }
+    if TERRAIN_PUBLICATION_VERSION.load(Ordering::Acquire) != version {
+        return None;
+    }
+    Some(callback(&lights[..count]))
 }
 
+/// Return the immutable scalar-light publication generation.
+///
+/// The value changes only when a complete world-light epoch is published or
+/// cleared. It is a cache key, not an invocation counter.
+pub(crate) fn terrain_light_generation() -> u32 {
+    TERRAIN_PUBLICATION_VERSION.load(Ordering::Acquire)
+}
+
+/// Record atmosphere volumes rendered while optional telemetry is active.
 pub(crate) fn record_rendered_lights(count: u32) {
     record_diagnostic(&RENDERED_LIGHTS, count, diagnostics_active());
 }
 
+/// Move a complete matching atmosphere epoch into `destination` without waiting.
 pub(crate) fn try_take_published(
     destination: &mut Option<LocalLightEpoch>,
     device_identity: usize,
@@ -570,6 +649,10 @@ pub(crate) fn try_take_published(
     }
 }
 
+/// Release device-owned light resources after an adjacent owner succeeds.
+///
+/// The callback runs while both nonblocking light mailboxes are exclusively
+/// held, making device reset an all-or-nothing resource transition.
 pub(crate) fn try_release_device_resources_after<F>(device_identity: usize, after: F) -> bool
 where
     F: FnOnce() -> bool,
@@ -594,31 +677,68 @@ where
     {
         *published = None;
     }
-    if let Some(mut terrain) = PUBLISHED_TERRAIN.try_lock() {
-        if terrain
-            .as_ref()
-            .is_some_and(|epoch| epoch.device_identity == device_identity)
-        {
-            *terrain = None;
-        }
-    }
+    clear_terrain_publication();
     true
 }
 
-unsafe extern "cdecl" fn hook_world_light_epoch() {
+// The target has no stack arguments: ECX is the native receiver and [ESP] is
+// the direct branch continuation. EBP still belongs to the branch function at
+// entry. Push the three observations as ordinary cdecl arguments, call the
+// Rust body, then return with the original stack exactly intact.
+#[unsafe(naked)]
+unsafe extern "thiscall" fn hook_world_light_epoch(_receiver: *mut c_void) {
+    core::arch::naked_asm!(
+        "push ebp",
+        "mov eax, dword ptr [esp + 4]",
+        "push eax",
+        "push ecx",
+        "call {}",
+        "add esp, 12",
+        "ret",
+        sym hook_world_light_epoch_body,
+    );
+}
+
+unsafe extern "C" fn hook_world_light_epoch_body(
+    receiver: *mut c_void,
+    return_address: usize,
+    caller_ebp: usize,
+) {
     let Ok(original) = WORLD_LIGHT_EPOCH_HOOK.original() else {
         log_capture_error("missing original world local-light transaction");
         return;
     };
+    let pre_span = crate::graphics_diagnostics::span(
+        crate::graphics_diagnostics::Interval::NativeShadowPreWork,
+    );
+    let invocation = unsafe { classify_shadow_invocation(return_address, caller_ebp) };
+    record_shadow_invocation(invocation);
     if !capture_ready() {
-        unsafe { original() };
+        drop(pre_span);
+        unsafe { call_native_shadow_prefix(original, receiver) };
         try_drain_disabled_publication();
         return;
     }
     let render_epoch = crate::hooks::render_epoch();
+    let device_generation = crate::backend::d3d_device_generation();
+    if !authoritative_shadow_invocation(invocation)
+        || (LAST_AUTHORITATIVE_RENDER_EPOCH.load(Ordering::Acquire) == render_epoch
+            && LAST_AUTHORITATIVE_DEVICE_GENERATION.load(Ordering::Acquire) == device_generation)
+    {
+        if invocation.context == ShadowRenderContext::Main {
+            crate::graphics_diagnostics::add(
+                crate::graphics_diagnostics::Counter::RepeatedLightPublication,
+                1,
+            );
+        }
+        drop(pre_span);
+        unsafe { call_native_shadow_prefix(original, receiver) };
+        return;
+    }
     let device_identity = crate::backend::d3d_device_ptr().map_or(0, |device| device as usize);
     if device_identity == 0 {
-        unsafe { original() };
+        drop(pre_span);
+        unsafe { call_native_shadow_prefix(original, receiver) };
         return;
     }
     let atmosphere_capture = ATMOSPHERE_CAPTURE_ENABLED.load(Ordering::Acquire);
@@ -632,7 +752,7 @@ unsafe extern "cdecl" fn hook_world_light_epoch() {
         SHADOW_HOOK_READY.load(Ordering::Acquire),
     ) {
         if let Some(mut staging) = STAGING.try_lock() {
-            staging.begin(render_epoch, device_identity);
+            staging.begin(render_epoch, device_identity, device_generation);
             CAPTURE_ACTIVE.store(true, Ordering::Release);
             true
         } else {
@@ -645,7 +765,8 @@ unsafe extern "cdecl" fn hook_world_light_epoch() {
         false
     };
 
-    unsafe { original() };
+    drop(pre_span);
+    unsafe { call_native_shadow_prefix(original, receiver) };
     CAPTURE_ACTIVE.store(false, Ordering::Release);
 
     if !capture_ready()
@@ -653,9 +774,15 @@ unsafe extern "cdecl" fn hook_world_light_epoch() {
     {
         return;
     }
+    let _post_span = crate::graphics_diagnostics::span(
+        crate::graphics_diagnostics::Interval::NativeShadowPostWork,
+    );
     let shadows = if atmosphere_capture && shadow_capture_started {
         if let Some(mut staging) = STAGING.try_lock() {
-            if staging.render_epoch == render_epoch && staging.device_identity == device_identity {
+            if staging.render_epoch == render_epoch
+                && staging.device_identity == device_identity
+                && staging.device_generation == device_generation
+            {
                 staging.take_shadows()
             } else {
                 std::array::from_fn(|_| None)
@@ -668,8 +795,11 @@ unsafe extern "cdecl" fn hook_world_light_epoch() {
         std::array::from_fn(|_| None)
     };
     let camera = capture_requested(atmosphere_capture, terrain_capture)
-        .then(|| crate::backend::fnv_world_camera_frame(1, 1))
+        .then(|| unsafe { crate::backend::fnv_world_camera_frame_fast(1, 1) })
         .flatten();
+    let traversal_span = crate::graphics_diagnostics::span(
+        crate::graphics_diagnostics::Interval::SceneLightTraversal,
+    );
     let captured = unsafe {
         capture_scene_lights(
             camera,
@@ -678,10 +808,14 @@ unsafe extern "cdecl" fn hook_world_light_epoch() {
             diagnostics_active,
         )
     };
+    drop(traversal_span);
+    crate::graphics_diagnostics::add(crate::graphics_diagnostics::Counter::SceneLightTraversal, 1);
+    let mut publication_complete = true;
     if atmosphere_capture {
         let epoch = build_epoch(
             render_epoch,
             device_identity,
+            device_generation,
             captured.ranked,
             shadows,
             diagnostics_active,
@@ -690,23 +824,116 @@ unsafe extern "cdecl" fn hook_world_light_epoch() {
             *published = Some(epoch);
         } else {
             PUBLISH_BUSY.fetch_add(1, Ordering::Relaxed);
+            publication_complete = false;
         }
     }
     if terrain_capture {
         let terrain_count = captured.terrain_lights.iter().flatten().count();
-        let epoch = TerrainLightEpoch {
+        let lights: [TerrainSceneLight; TERRAIN_LIGHT_CAPACITY] = std::array::from_fn(|index| {
+            captured.terrain_lights[index]
+                .map_or_else(TerrainSceneLight::default, |ranked| ranked.light)
+        });
+        if !publish_terrain_lights(
             render_epoch,
             device_identity,
-            lights: std::array::from_fn(|index| {
-                captured.terrain_lights[index]
-                    .map_or_else(TerrainSceneLight::default, |ranked| ranked.light)
-            }),
-            count: terrain_count,
-        };
-        if let Some(mut published) = PUBLISHED_TERRAIN.try_lock() {
-            *published = Some(epoch);
+            device_generation,
+            &lights[..terrain_count],
+        ) {
+            publication_complete = false;
         }
     }
+    if publication_complete {
+        LAST_AUTHORITATIVE_DEVICE_GENERATION.store(device_generation, Ordering::Release);
+        LAST_AUTHORITATIVE_RENDER_EPOCH.store(render_epoch, Ordering::Release);
+    }
+}
+
+unsafe fn call_native_shadow_prefix(original: WorldLightEpochFn, receiver: *mut c_void) {
+    let _span = crate::graphics_diagnostics::span(
+        crate::graphics_diagnostics::Interval::NativeShadowPrefix,
+    );
+    unsafe { original(receiver) };
+}
+
+unsafe fn classify_shadow_invocation(return_address: usize, caller_ebp: usize) -> ShadowInvocation {
+    const MIN_LIVE_POINTER: usize = 0x1_0000;
+
+    let variant = match return_address {
+        SHADOW_VARIANT_A_RETURN => ShadowDispatcherVariant::A,
+        SHADOW_VARIANT_B_RETURN => ShadowDispatcherVariant::B,
+        SHADOW_VARIANT_C_RETURN => ShadowDispatcherVariant::C,
+        _ => ShadowDispatcherVariant::Unknown,
+    };
+    // At the common entry EBP is the selected branch frame. Its saved EBP is
+    // the dispatcher frame, whose saved return identifies main, special, or
+    // screenshot ownership. Both functions have proven frame-pointer
+    // prologues in FalloutNV.exe 1.4.0.525.
+    let context = if variant == ShadowDispatcherVariant::Unknown
+        || caller_ebp < MIN_LIVE_POINTER
+        || caller_ebp & 3 != 0
+    {
+        // An unknown direct caller has not established the proven EBP chain.
+        // Fail closed before dereferencing it instead of trading one avoided
+        // VirtualQuery for an unchecked read through an unproven frame.
+        ShadowRenderContext::Unknown
+    } else {
+        let dispatcher_ebp = unsafe { (caller_ebp as *const usize).read() };
+        if dispatcher_ebp < MIN_LIVE_POINTER || dispatcher_ebp & 3 != 0 {
+            ShadowRenderContext::Unknown
+        } else {
+            let dispatcher_return =
+                unsafe { ((dispatcher_ebp + size_of::<usize>()) as *const usize).read() };
+            match dispatcher_return {
+                MAIN_RENDER_FIRST_RETURN | MAIN_RENDER_SECOND_RETURN => ShadowRenderContext::Main,
+                SPECIAL_RENDER_RETURN => ShadowRenderContext::Special,
+                SCREENSHOT_RENDER_RETURN => ShadowRenderContext::Screenshot,
+                _ => ShadowRenderContext::Unknown,
+            }
+        }
+    };
+    ShadowInvocation { variant, context }
+}
+
+fn authoritative_shadow_invocation(invocation: ShadowInvocation) -> bool {
+    invocation.context == ShadowRenderContext::Main
+        && invocation.variant != ShadowDispatcherVariant::Unknown
+}
+
+fn validate_exact_hook_entry(address: usize, expected: &[u8], label: &'static str) -> bool {
+    if validate_memory_range(address as *const c_void, expected.len()).is_err() {
+        log::warn!("[ATMOSPHERE LOCAL] Cannot read {label} entry at 0x{address:08X}");
+        return false;
+    }
+    let observed = unsafe { std::slice::from_raw_parts(address as *const u8, expected.len()) };
+    if observed != expected {
+        log::warn!(
+            "[ATMOSPHERE LOCAL] {label} entry at 0x{address:08X} has unsupported ownership or executable bytes"
+        );
+        return false;
+    }
+    true
+}
+
+fn record_shadow_invocation(invocation: ShadowInvocation) {
+    use crate::graphics_diagnostics::Counter;
+
+    crate::graphics_diagnostics::add(Counter::NativeShadowEntry, 1);
+    let variant = match invocation.variant {
+        ShadowDispatcherVariant::A => Some(Counter::NativeShadowVariantA),
+        ShadowDispatcherVariant::B => Some(Counter::NativeShadowVariantB),
+        ShadowDispatcherVariant::C => Some(Counter::NativeShadowVariantC),
+        ShadowDispatcherVariant::Unknown => None,
+    };
+    if let Some(variant) = variant {
+        crate::graphics_diagnostics::add(variant, 1);
+    }
+    let context = match invocation.context {
+        ShadowRenderContext::Main => Counter::NativeShadowMain,
+        ShadowRenderContext::Special => Counter::NativeShadowSpecial,
+        ShadowRenderContext::Screenshot => Counter::NativeShadowScreenshot,
+        ShadowRenderContext::Unknown => Counter::NativeShadowUnknownContext,
+    };
+    crate::graphics_diagnostics::add(context, 1);
 }
 
 unsafe extern "thiscall" fn hook_render_local_shadow(
@@ -719,6 +946,7 @@ unsafe extern "thiscall" fn hook_render_local_shadow(
         return;
     };
     unsafe { original(shadow_scene_light, accumulator, slot) };
+    crate::graphics_diagnostics::add(crate::graphics_diagnostics::Counter::NativeShadowSlot, 1);
     if !CAPTURE_ACTIVE.load(Ordering::Acquire) || !capture_ready() {
         return;
     }
@@ -747,6 +975,10 @@ unsafe extern "thiscall" fn hook_render_local_shadow(
     staging.seen_slots |= slot_bit;
     match record {
         Some(record) => {
+            crate::graphics_diagnostics::add(
+                crate::graphics_diagnostics::Counter::RetainedNativeShadow,
+                1,
+            );
             match record.shadow.values.format {
                 ShadowTextureFormat::R32F => record_diagnostic(&R32F_LIGHTS, 1, diagnostics_active),
                 ShadowTextureFormat::A8R8G8B8 => {
@@ -792,11 +1024,7 @@ fn try_drain_disabled_publication() {
         PUBLISH_BUSY.fetch_add(1, Ordering::Relaxed);
         return;
     }
-    if let Some(mut published) = PUBLISHED_TERRAIN.try_lock() {
-        *published = None;
-    } else {
-        return;
-    }
+    clear_terrain_publication();
     PUBLICATION_DRAIN_PENDING.store(false, Ordering::Release);
 }
 
@@ -808,31 +1036,33 @@ unsafe fn capture_shadow(
         return None;
     }
     validate_memory_range(shadow_scene_light.cast(), SHADOW_SCENE_LIGHT_SIZE).ok()?;
-    if unsafe { read_at::<u8>(shadow_scene_light, SHADOW_POSITIONAL_OFFSET)? } == 0 {
+    if unsafe { read_at_unchecked::<u8>(shadow_scene_light, SHADOW_POSITIONAL_OFFSET) } == 0 {
         return None;
     }
     let native_light =
-        unsafe { read_at::<*mut u8>(shadow_scene_light, SHADOW_NATIVE_LIGHT_OFFSET)? };
+        unsafe { read_at_unchecked::<*mut u8>(shadow_scene_light, SHADOW_NATIVE_LIGHT_OFFSET) };
     validate_memory_range(native_light.cast(), NATIVE_LIGHT_SIZE).ok()?;
     let rendered_texture =
-        unsafe { read_at::<*mut u8>(shadow_scene_light, SHADOW_RENDERED_TEXTURE_OFFSET)? };
+        unsafe { read_at_unchecked::<*mut u8>(shadow_scene_light, SHADOW_RENDERED_TEXTURE_OFFSET) };
 
-    let shadow_matrix = unsafe { read_matrix4(shadow_scene_light, SHADOW_MATRIX_OFFSET)? };
+    // One whole-record validation above proves all three contiguous matrices.
+    // Copy each with one unaligned aggregate load and validate finiteness;
+    // the former implementation issued 48 VirtualQuery calls per shadow.
+    let shadow_matrix =
+        unsafe { read_matrix4_unchecked(shadow_scene_light, SHADOW_MATRIX_OFFSET)? };
     let shadow_view_matrix =
-        unsafe { read_matrix4(shadow_scene_light, SHADOW_VIEW_MATRIX_OFFSET)? };
+        unsafe { read_matrix4_unchecked(shadow_scene_light, SHADOW_VIEW_MATRIX_OFFSET)? };
     let shadow_projection_matrix =
-        unsafe { read_matrix4(shadow_scene_light, SHADOW_PROJECTION_MATRIX_OFFSET)? };
+        unsafe { read_matrix4_unchecked(shadow_scene_light, SHADOW_PROJECTION_MATRIX_OFFSET)? };
+    let retention_span = crate::graphics_diagnostics::span(
+        crate::graphics_diagnostics::Interval::NativeShadowRetention,
+    );
     let resolved = unsafe { resolve_texture_chain(rendered_texture)? };
     if resolved.device_identity != device_identity {
         return None;
     }
-    let texture = unsafe {
-        RetainedRenderedTexture::retain(
-            rendered_texture,
-            resolved.raw_texture as usize,
-            resolved.format,
-        )?
-    };
+    let texture = unsafe { Texture9::retain_raw(resolved.raw_texture).ok()? };
+    drop(retention_span);
     Some(CapturedShadow {
         native_light_identity: native_light as usize,
         shadow: LocalShadow {
@@ -843,6 +1073,7 @@ unsafe fn capture_shadow(
                 format: resolved.format,
             },
             texture,
+            device_identity,
         },
     })
 }
@@ -871,11 +1102,14 @@ unsafe fn capture_scene_lights(
     let camera = camera.filter(|camera| camera.world_transform.available);
     let getter: ShadowSceneManagerGetterFn = unsafe { transmute(SHADOW_SCENE_MANAGER_GETTER_ADDR) };
     let manager = unsafe { getter(0) };
-    if validate_memory_range(manager.cast(), SHADOW_SCENE_MANAGER_SIZE).is_err() {
+    if (manager as usize) < 0x1_0000 {
         return capture;
     }
     // The engine owns and mutates this chain on the same world-render thread.
-    // Validate its manager once; VirtualQuery for every scalar is too costly here.
+    // The exact common-shadow callback proves the manager/list lifetime. Keep
+    // the scan equivalent to the engine's own unchecked traversal: querying
+    // every manager, node, record, or scalar would reintroduce the hot-path
+    // Windows memory traffic this producer exists to remove.
     let scene_count = unsafe { read_at_unchecked::<u32>(manager, SCENE_LIGHT_COUNT_OFFSET) };
     let scan_capacity = scene_scan_capacity(capture_atmosphere, capture_terrain);
     let scan_count = (scene_count as usize).min(scan_capacity);
@@ -1123,6 +1357,7 @@ fn insert_ranked_light(
 fn build_epoch(
     render_epoch: u32,
     device_identity: usize,
+    device_generation: u32,
     ranked: [Option<RankedSceneLight>; LOCAL_LIGHT_CAPACITY],
     mut shadows: [Option<CapturedShadow>; NATIVE_SHADOW_CAPACITY],
     diagnostics_active: bool,
@@ -1147,6 +1382,7 @@ fn build_epoch(
     LocalLightEpoch {
         render_epoch,
         device_identity,
+        device_generation,
         slots,
     }
 }
@@ -1182,12 +1418,93 @@ fn shadow_capture_requested(atmosphere: bool, shadow_hook_ready: bool) -> bool {
 fn terrain_epoch_is_current(
     published_render_epoch: u32,
     published_device_identity: usize,
+    published_device_generation: u32,
     current_render_epoch: u32,
     current_device_identity: usize,
+    current_device_generation: u32,
 ) -> bool {
     published_render_epoch == current_render_epoch
         && published_device_identity != 0
         && published_device_identity == current_device_identity
+        && published_device_generation != 0
+        && published_device_generation == current_device_generation
+}
+
+fn publish_terrain_lights(
+    render_epoch: u32,
+    device_identity: usize,
+    device_generation: u32,
+    lights: &[TerrainSceneLight],
+) -> bool {
+    let version = TERRAIN_PUBLICATION_VERSION.load(Ordering::Acquire);
+    if version & 1 != 0
+        || TERRAIN_PUBLICATION_VERSION
+            .compare_exchange(
+                version,
+                version.wrapping_add(1),
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            )
+            .is_err()
+    {
+        return false;
+    }
+
+    for (index, light) in lights.iter().take(TERRAIN_LIGHT_CAPACITY).enumerate() {
+        TERRAIN_PUBLICATION_IDENTITIES[index].store(light.native_light_identity, Ordering::Relaxed);
+        let flags = u32::from(light.point) | (u32::from(light.ambient) << 1);
+        TERRAIN_PUBLICATION_FLAGS[index].store(flags, Ordering::Relaxed);
+        let components = [
+            light.relative_position[0],
+            light.relative_position[1],
+            light.relative_position[2],
+            light.radius,
+            light.diffuse[0],
+            light.diffuse[1],
+            light.diffuse[2],
+            light.dimmer,
+            light.lod_dimmer,
+            light.fade,
+        ];
+        let base = index * TERRAIN_LIGHT_COMPONENTS_PER_ENTRY;
+        for (component, value) in components.into_iter().enumerate() {
+            TERRAIN_PUBLICATION_COMPONENTS[base + component]
+                .store(value.to_bits(), Ordering::Relaxed);
+        }
+    }
+    TERRAIN_PUBLICATION_COUNT.store(
+        lights.len().min(TERRAIN_LIGHT_CAPACITY) as u32,
+        Ordering::Relaxed,
+    );
+    TERRAIN_PUBLICATION_RENDER_EPOCH.store(render_epoch, Ordering::Relaxed);
+    TERRAIN_PUBLICATION_DEVICE.store(device_identity, Ordering::Relaxed);
+    TERRAIN_PUBLICATION_DEVICE_GENERATION.store(device_generation, Ordering::Relaxed);
+    let next = version.wrapping_add(2).max(2);
+    TERRAIN_PUBLICATION_VERSION.store(next, Ordering::Release);
+    true
+}
+
+fn clear_terrain_publication() {
+    let _ = publish_terrain_lights(0, 0, 0, &[]);
+}
+
+fn load_terrain_publication_light(index: usize) -> TerrainSceneLight {
+    let base = index * TERRAIN_LIGHT_COMPONENTS_PER_ENTRY;
+    let component = |offset: usize| {
+        f32::from_bits(TERRAIN_PUBLICATION_COMPONENTS[base + offset].load(Ordering::Relaxed))
+    };
+    let flags = TERRAIN_PUBLICATION_FLAGS[index].load(Ordering::Relaxed);
+    TerrainSceneLight {
+        native_light_identity: TERRAIN_PUBLICATION_IDENTITIES[index].load(Ordering::Relaxed),
+        point: flags & 1 != 0,
+        ambient: flags & 2 != 0,
+        relative_position: [component(0), component(1), component(2)],
+        radius: component(3),
+        diffuse: [component(4), component(5), component(6)],
+        dimmer: component(7),
+        lod_dimmer: component(8),
+        fade: component(9),
+    }
 }
 
 fn dot3(a: [f32; 3], b: [f32; 3]) -> f32 {
@@ -1208,13 +1525,16 @@ unsafe fn read_vec3_unchecked(base: *mut u8, offset: usize) -> [f32; 3] {
 
 unsafe fn resolve_texture_chain(rendered_texture: *mut u8) -> Option<ResolvedTexture> {
     validate_memory_range(rendered_texture.cast(), RENDERED_TEXTURE_SIZE).ok()?;
-    let texture =
-        unsafe { read_at::<*mut u8>(rendered_texture, RENDERED_TEXTURE_TEXTURE_ZERO_OFFSET)? };
+    let texture = unsafe {
+        read_at_unchecked::<*mut u8>(rendered_texture, RENDERED_TEXTURE_TEXTURE_ZERO_OFFSET)
+    };
     validate_memory_range(texture.cast(), NI_TEXTURE_SIZE).ok()?;
-    let renderer_data = unsafe { read_at::<*mut u8>(texture, NI_TEXTURE_RENDERER_DATA_OFFSET)? };
+    let renderer_data =
+        unsafe { read_at_unchecked::<*mut u8>(texture, NI_TEXTURE_RENDERER_DATA_OFFSET) };
     validate_memory_range(renderer_data.cast(), DX9_TEXTURE_DATA_SIZE).ok()?;
-    let raw_texture =
-        unsafe { read_at::<*mut c_void>(renderer_data, DX9_TEXTURE_DATA_BASE_TEXTURE_OFFSET)? };
+    let raw_texture = unsafe {
+        read_at_unchecked::<*mut c_void>(renderer_data, DX9_TEXTURE_DATA_BASE_TEXTURE_OFFSET)
+    };
     validate_com_texture(raw_texture)?;
     let description = unsafe { raw_texture_2d_description(raw_texture).ok()? };
     let desc = description.level_zero;
@@ -1253,27 +1573,8 @@ fn validate_com_texture(texture: *mut c_void) -> Option<()> {
     Some(())
 }
 
-unsafe fn read_virtual(object: *mut u8, offset: usize) -> Option<usize> {
-    validate_memory_range(object.cast(), size_of::<usize>()).ok()?;
-    let vtable = unsafe { object.cast::<*const u8>().read_unaligned() };
-    validate_memory_range(unsafe { vtable.add(offset) }.cast(), size_of::<usize>()).ok()?;
-    let address = unsafe { vtable.add(offset).cast::<usize>().read_unaligned() };
-    (address != 0).then_some(address)
-}
-
-unsafe fn read_at<T: Copy>(base: *mut u8, offset: usize) -> Option<T> {
-    let address = unsafe { base.add(offset) };
-    validate_memory_range(address.cast(), size_of::<T>()).ok()?;
-    Some(unsafe { address.cast::<T>().read_unaligned() })
-}
-
-unsafe fn read_matrix4(base: *mut u8, offset: usize) -> Option<[[f32; 4]; 4]> {
-    let mut matrix = [[0.0f32; 4]; 4];
-    for (row_index, row) in matrix.iter_mut().enumerate() {
-        for (column_index, value) in row.iter_mut().enumerate() {
-            *value = unsafe { read_at(base, offset + (row_index * 4 + column_index) * 4)? };
-        }
-    }
+unsafe fn read_matrix4_unchecked(base: *mut u8, offset: usize) -> Option<[[f32; 4]; 4]> {
+    let matrix = unsafe { base.add(offset).cast::<[[f32; 4]; 4]>().read_unaligned() };
     matrix
         .iter()
         .flatten()
@@ -1310,16 +1611,22 @@ fn log_capture_error(message: &'static str) {
 mod tests {
     use super::{
         CaptureSlot, LOCAL_LIGHT_CAPACITY, LocalLightEpoch, LocalLightValues,
-        NATIVE_LIGHT_COLOR_OFFSET, NATIVE_LIGHT_DIMMER_OFFSET, NATIVE_LIGHT_DISABLED_FLAGS_OFFSET,
-        NATIVE_LIGHT_POSITION_OFFSET, NATIVE_LIGHT_RADIUS_OFFSET, NATIVE_LIGHT_SIZE, PUBLISHED,
-        PublishedEpochAccess, RankedSceneLight, SHADOW_ACTIVE_STATE_OFFSET, SHADOW_AMBIENT_OFFSET,
-        SHADOW_FADE_OFFSET, SHADOW_INACTIVE_STATE, SHADOW_NATIVE_LIGHT_OFFSET,
+        MAIN_RENDER_FIRST_RETURN, NATIVE_LIGHT_COLOR_OFFSET, NATIVE_LIGHT_DIMMER_OFFSET,
+        NATIVE_LIGHT_DISABLED_FLAGS_OFFSET, NATIVE_LIGHT_POSITION_OFFSET,
+        NATIVE_LIGHT_RADIUS_OFFSET, NATIVE_LIGHT_SIZE, PUBLISHED, PublishedEpochAccess,
+        RankedSceneLight, RenderLocalShadowFn, SCREENSHOT_RENDER_RETURN,
+        SHADOW_ACTIVE_STATE_OFFSET, SHADOW_AMBIENT_OFFSET, SHADOW_FADE_OFFSET,
+        SHADOW_INACTIVE_STATE, SHADOW_MATRIX_OFFSET, SHADOW_NATIVE_LIGHT_OFFSET,
         SHADOW_POSITIONAL_OFFSET, SHADOW_SCENE_LIGHT_SIZE, SHADOW_TRANSITION_OFFSET,
-        ShadowTextureFormat, StagingEpoch, TERRAIN_LIGHT_CAPACITY, TerrainSceneLight, build_epoch,
-        capture_requested, capture_terrain_scene_light, classify_capture_slot, insert_ranked_light,
-        insert_ranked_terrain_light, record_diagnostic, scene_light_score, scene_scan_capacity,
-        shadow_capture_requested, terrain_epoch_is_current, terrain_light_is_eligible,
-        try_take_published, valid_light_scalars,
+        SHADOW_VARIANT_A_RETURN, SPECIAL_RENDER_RETURN, ShadowDispatcherVariant, ShadowInvocation,
+        ShadowRenderContext, ShadowTextureFormat, StagingEpoch, TERRAIN_LIGHT_CAPACITY,
+        TerrainSceneLight, WorldLightEpochFn, authoritative_shadow_invocation, build_epoch,
+        capture_requested, capture_terrain_scene_light, classify_capture_slot,
+        classify_shadow_invocation, hook_render_local_shadow, hook_world_light_epoch,
+        insert_ranked_light, insert_ranked_terrain_light, read_matrix4_unchecked,
+        record_diagnostic, scene_light_score, scene_scan_capacity, shadow_capture_requested,
+        terrain_epoch_is_current, terrain_light_is_eligible, try_take_published,
+        valid_light_scalars,
     };
     use crate::backend::{CameraFrame, CameraTransformFrame};
     use parking_lot::Mutex;
@@ -1332,6 +1639,12 @@ mod tests {
     };
 
     static MAILBOX_TEST: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
+
+    #[test]
+    fn shadow_detours_use_the_executable_proven_x86_abis() {
+        let _: WorldLightEpochFn = hook_world_light_epoch;
+        let _: RenderLocalShadowFn = hook_render_local_shadow;
+    }
 
     unsafe fn write_at<T: Copy>(buffer: &mut [u8], offset: usize, value: T) {
         assert!(offset + size_of::<T>() <= buffer.len());
@@ -1348,6 +1661,7 @@ mod tests {
         LocalLightEpoch {
             render_epoch,
             device_identity,
+            device_generation: 0,
             slots: std::array::from_fn(|_| None),
         }
     }
@@ -1382,6 +1696,61 @@ mod tests {
             values,
             score: scene_light_score(values, camera()).expect("visible local light"),
         }
+    }
+
+    fn classified_invocation(branch_return: usize, dispatcher_return: usize) -> ShadowInvocation {
+        let dispatcher_frame = [0usize, dispatcher_return];
+        let branch_frame = [dispatcher_frame.as_ptr() as usize, 0usize];
+        unsafe { classify_shadow_invocation(branch_return, branch_frame.as_ptr() as usize) }
+    }
+
+    #[test]
+    fn shadow_publication_accepts_main_and_rejects_special_and_screenshot_callers() {
+        let main = classified_invocation(SHADOW_VARIANT_A_RETURN, MAIN_RENDER_FIRST_RETURN);
+        assert_eq!(main.variant, ShadowDispatcherVariant::A);
+        assert_eq!(main.context, ShadowRenderContext::Main);
+        assert!(authoritative_shadow_invocation(main));
+
+        let special = classified_invocation(SHADOW_VARIANT_A_RETURN, SPECIAL_RENDER_RETURN);
+        assert_eq!(special.context, ShadowRenderContext::Special);
+        assert!(!authoritative_shadow_invocation(special));
+
+        let screenshot = classified_invocation(SHADOW_VARIANT_A_RETURN, SCREENSHOT_RENDER_RETURN);
+        assert_eq!(screenshot.context, ShadowRenderContext::Screenshot);
+        assert!(!authoritative_shadow_invocation(screenshot));
+        assert!(!authoritative_shadow_invocation(ShadowInvocation {
+            variant: ShadowDispatcherVariant::Unknown,
+            context: ShadowRenderContext::Main,
+        }));
+    }
+
+    #[test]
+    fn bulk_shadow_matrix_copy_preserves_all_values_and_rejects_nonfinite_data() {
+        let mut record = [0u8; SHADOW_SCENE_LIGHT_SIZE];
+        for index in 0..16 {
+            unsafe {
+                write_at(
+                    &mut record,
+                    SHADOW_MATRIX_OFFSET + index * size_of::<f32>(),
+                    index as f32 + 0.25,
+                );
+            }
+        }
+        let matrix = unsafe { read_matrix4_unchecked(record.as_mut_ptr(), SHADOW_MATRIX_OFFSET) }
+            .expect("finite bulk matrix");
+        assert_eq!(matrix[0][0], 0.25);
+        assert_eq!(matrix[3][3], 15.25);
+
+        unsafe {
+            write_at(
+                &mut record,
+                SHADOW_MATRIX_OFFSET + 7 * size_of::<f32>(),
+                f32::NAN,
+            );
+        }
+        assert!(
+            unsafe { read_matrix4_unchecked(record.as_mut_ptr(), SHADOW_MATRIX_OFFSET) }.is_none()
+        );
     }
 
     fn terrain_light(identity: usize, x: f32, radius: f32) -> TerrainSceneLight {
@@ -1475,10 +1844,11 @@ mod tests {
 
     #[test]
     fn terrain_epoch_rejects_stale_frames_and_foreign_devices() {
-        assert!(terrain_epoch_is_current(7, 0x1234, 7, 0x1234));
-        assert!(!terrain_epoch_is_current(6, 0x1234, 7, 0x1234));
-        assert!(!terrain_epoch_is_current(7, 0x5678, 7, 0x1234));
-        assert!(!terrain_epoch_is_current(7, 0, 7, 0));
+        assert!(terrain_epoch_is_current(7, 0x1234, 2, 7, 0x1234, 2));
+        assert!(!terrain_epoch_is_current(6, 0x1234, 2, 7, 0x1234, 2));
+        assert!(!terrain_epoch_is_current(7, 0x5678, 2, 7, 0x1234, 2));
+        assert!(!terrain_epoch_is_current(7, 0x1234, 1, 7, 0x1234, 2));
+        assert!(!terrain_epoch_is_current(7, 0, 0, 7, 0, 0));
     }
 
     #[test]
@@ -1552,9 +1922,10 @@ mod tests {
             seen_slots: 0x0f,
             ..StagingEpoch::default()
         };
-        staging.begin(0, 0x5678);
+        staging.begin(0, 0x5678, 3);
         assert_eq!(staging.render_epoch, 0);
         assert_eq!(staging.device_identity, 0x5678);
+        assert_eq!(staging.device_generation, 3);
         assert_eq!(staging.seen_slots, 0);
         assert!(staging.shadows.iter().all(Option::is_none));
     }
@@ -1626,10 +1997,11 @@ mod tests {
     fn zero_native_shadow_slots_still_build_a_complete_visible_light_epoch() {
         let mut lights = [None; LOCAL_LIGHT_CAPACITY];
         insert_ranked_light(&mut lights, ranked(7, 100.0, 2.0));
-        let epoch = build_epoch(42, 0x1234, lights, std::array::from_fn(|_| None), false);
+        let epoch = build_epoch(42, 0x1234, 3, lights, std::array::from_fn(|_| None), false);
 
         assert_eq!(epoch.render_epoch, 42);
         assert_eq!(epoch.device_identity, 0x1234);
+        assert_eq!(epoch.device_generation, 3);
         assert_eq!(epoch.light_count(), 1);
         assert!(!epoch.lights().next().expect("light").has_shadow());
     }

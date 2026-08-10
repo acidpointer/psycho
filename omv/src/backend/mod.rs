@@ -58,8 +58,39 @@ impl InitialDepthFallback {
     }
 }
 
+/// Borrow the lifecycle-published renderer device through the lock-free path.
+///
+/// The returned pointer is render-thread-only and remains owned by the
+/// backend's balanced lifecycle reference until [`clear_d3d_device`].
 pub(crate) fn d3d_device_ptr() -> Option<*mut c_void> {
     fnv::d3d_device_ptr()
+}
+
+/// Return the generation of the renderer-published device identity.
+pub(crate) fn d3d_device_generation() -> u32 {
+    fnv::d3d_device_generation()
+}
+
+/// Publish the initial renderer device at `DeferredInit`.
+pub(crate) fn publish_initial_d3d_device() -> Result<u32, &'static str> {
+    fnv::publish_initial_d3d_device()
+}
+
+/// Publish a device obtained from a proven renderer lifecycle receiver.
+///
+/// # Safety
+///
+/// `device` must be the live device owned by the active `NiDX9Renderer`.
+pub(crate) unsafe fn publish_d3d_device(device: *mut c_void) -> Result<u32, &'static str> {
+    unsafe { fnv::publish_d3d_device(device) }
+}
+
+/// Clear the device fast path before native renderer recreation.
+///
+/// A busy publication owner is reported without waiting or changing the
+/// published pointer, allowing the renderer hook to fail the reset attempt.
+pub(crate) fn clear_d3d_device() -> Result<u32, &'static str> {
+    fnv::clear_d3d_device()
 }
 
 pub(crate) fn depth_resolve_status(depth_provider: DepthProvider) -> DepthResolveStatus {
@@ -371,6 +402,16 @@ pub(crate) fn depth_frame(depth_provider: DepthProvider) -> DepthFrame {
 
 pub(crate) fn fnv_world_camera_frame(width: u32, height: u32) -> Option<CameraFrame> {
     fnv::world_camera_frame(width, height)
+}
+
+/// Copy the FNV world camera inside its proven serialized renderer lifetime.
+///
+/// # Safety
+///
+/// The caller must be inside the main world-render transaction while the
+/// scene-graph camera is live.
+pub(crate) unsafe fn fnv_world_camera_frame_fast(width: u32, height: u32) -> Option<CameraFrame> {
+    unsafe { fnv::world_camera_frame_fast(width, height) }
 }
 
 pub(crate) unsafe fn jitter_fnv_world_camera(

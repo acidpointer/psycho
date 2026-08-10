@@ -7,13 +7,13 @@
 //! The direct draw hook still validates samplers and geometry-specific constants
 //! immediately before submission. A rejected draw temporarily binds vanilla and
 //! then restores the engine-owned replacement; an admitted draw performs no raw
-//! shader-state transition. Close terrain is re-evaluated after every DIP because
-//! one engine pass setup can serve several geometries.
+//! shader-state transition. Close terrain is re-evaluated at every renderer
+//! geometry entry because one engine pass setup can serve several geometries.
 //!
-//! The engine `SetTexture` hook maintains a small family-specific missing-stage
-//! mask. This avoids global texture generations and lets repeated draws skip
-//! redundant D3D `GetTexture` calls while still invalidating a prepared draw
-//! whenever a required stage is removed or restored.
+//! The mandatory engine `SetTexture` hook maintains the complete texture-stage
+//! mirror used by draw admission. No admission path reads D3D state back from
+//! the driver: an unknown stage fails closed until the engine binds it, while a
+//! known-null stage fails closed until the corresponding engine transition.
 
 use std::{
     ffi::{c_char, c_void},
@@ -71,6 +71,10 @@ const CLOSE_TERRAIN_VERTEX_INDEX: usize = 100;
 const CLOSE_TERRAIN_FIRST_PIXEL_INDEX: usize = 92;
 const CLOSE_TERRAIN_LAST_PIXEL_INDEX: usize = 147;
 const CLOSE_TERRAIN_PASS_TO_PIXEL_OFFSET: u32 = 411;
+const NATIVE_DEPTH_VERTEX_FIRST_INDEX: u32 = 92;
+const NATIVE_DEPTH_VERTEX_LAST_INDEX: u32 = 95;
+const NATIVE_DEPTH_PIXEL_FIRST_INDEX: u32 = 90;
+const NATIVE_DEPTH_PIXEL_LAST_INDEX: u32 = 91;
 const PENDING_DRAW_NONE: u32 = 0;
 const PENDING_DRAW_OBJECT: u32 = 1;
 const PENDING_DRAW_LAND_LOD: u32 = 2;
@@ -242,22 +246,38 @@ static TABLE_LOOKUP_CACHE: LazyLock<[TableLookupCacheEntry; TABLE_LOOKUP_CACHE_C
 pub(super) fn install() -> Result<()> {
     if HOOKS_READY.load(Ordering::Acquire) {
         engine_contracts::install_core_contracts();
-        super::samplers::set_texture_tracking_ready(SET_TEXTURE_HOOK.is_enabled());
+        super::samplers::set_texture_tracking_ready(true);
         adopt_existing_object_shaders();
         return Ok(());
     }
 
+    // Resolve both mandatory targets before publishing either PBR owner. The
+    // texture observer is shared with native sky and may remain resident when
+    // PBR itself fails closed; SetShaders is never left active without it.
+    let set_shaders_prepared = prepare_set_shaders_hook();
+    let texture_tracking_prepared = prepare_set_texture_hook();
+    let texture_tracking_ready =
+        texture_tracking_prepared && enable_prepared_hook(&SET_TEXTURE_HOOK, "SetTexture");
+    let set_shaders_ready = texture_tracking_ready
+        && set_shaders_prepared
+        && enable_prepared_hook(&SET_SHADERS_HOOK, "SetShaders");
     let creation_ready = install_shader_creation_hooks();
-    let set_shaders_ready = install_set_shaders_hook();
-    let texture_tracking_ready = install_set_texture_hook();
     super::samplers::set_texture_tracking_ready(texture_tracking_ready);
     CREATION_HOOKS_READY.store(creation_ready, Ordering::Release);
     SET_SHADERS_READY.store(set_shaders_ready, Ordering::Release);
-    HOOKS_READY.store(set_shaders_ready, Ordering::Release);
-    if !set_shaders_ready {
-        reset();
-        super::samplers::set_texture_tracking_ready(false);
-        log::warn!("[PBR] Native PBR blocked: mandatory SetShaders hook unavailable");
+    let mandatory_ready = set_shaders_ready && texture_tracking_ready;
+    HOOKS_READY.store(mandatory_ready, Ordering::Release);
+    if !mandatory_ready {
+        // SetShaders without SetTexture would make admission depend on driver
+        // readback. Remove only SetShaders: SetTexture is a shared passive
+        // observer used by native sky and remains safe without PBR ownership.
+        if SET_SHADERS_HOOK.is_enabled() {
+            let _ = SET_SHADERS_HOOK.disable();
+        }
+        release_device_resources();
+        log::warn!(
+            "[PBR] Native PBR blocked: mandatory SetShaders/SetTexture hook group unavailable"
+        );
         return Ok(());
     }
 
@@ -268,66 +288,31 @@ pub(super) fn install() -> Result<()> {
         log::info!("[PBR] Object PBR adopted {adopted} existing shader wrapper(s)");
     }
 
-    if set_shaders_ready {
-        log::info!("[PBR] Object PBR SetShaders hook installed");
-    } else {
-        log::warn!(
-            "[PBR] Object PBR mandatory SetShaders hook unavailable; creation={creation_ready}"
-        );
-    }
+    log::info!("[PBR] Object PBR SetShaders hook installed");
     if !creation_ready {
         log::info!(
             "[PBR] Object PBR creation hooks unavailable; lazy draw-time wrapper adoption remains enabled"
         );
     }
-    if texture_tracking_ready {
-        log::info!("[PBR] Object PBR texture-stage tracking installed");
-    } else {
-        log::warn!(
-            "[PBR] Object PBR texture-stage tracking unavailable; sampler checks fall back to D3D GetTexture"
-        );
-    }
+    log::info!("[PBR] Object PBR texture-stage tracking installed");
 
     Ok(())
 }
 
-pub(super) fn reset() {
-    release_device_resources();
-    let _ = SET_SHADERS_HOOK.disable();
-    let _ = SET_TEXTURE_HOOK.disable();
-    let _ = CREATE_PIXEL_SHADER_HOOK.disable();
-    let _ = CREATE_VERTEX_SHADER_HOOK.disable();
-    HOOKS_READY.store(false, Ordering::Release);
-    CREATION_HOOKS_READY.store(false, Ordering::Release);
-    SET_SHADERS_READY.store(false, Ordering::Release);
-    NATIVE_FALLBACK_ACTIVE.store(false, Ordering::Release);
-    clear_pending_shader_pair();
-    PENDING_DRAW_KIND.store(PENDING_DRAW_NONE, Ordering::Release);
-    PENDING_DRAW_PASS_INDEX.store(0, Ordering::Release);
-    PENDING_CLOSE_TERRAIN_PIXEL_INDEX.store(0, Ordering::Release);
-    PENDING_DRAW_EVALUATED.store(false, Ordering::Release);
-    PENDING_REQUIRED_SAMPLER_MASK.store(0, Ordering::Release);
-    PENDING_MISSING_SAMPLER_MASK.store(0, Ordering::Release);
-    PENDING_CLOSE_TERRAIN_PREPARED_GEOMETRY.store(0, Ordering::Release);
-    super::terrain_lights::invalidate_draw_cache();
-    LAND_LOD_FIRST_BIND_LOGGED.store(false, Ordering::Release);
-    LAND_LOD_FAILURE_LOGGED.store(false, Ordering::Release);
-    LAND_LOD_MISSING_SAMPLER_LOGGED.store(false, Ordering::Release);
-    TERRAIN_FADE_FIRST_BIND_LOGGED.store(false, Ordering::Release);
-    TERRAIN_FADE_FAILURE_LOGGED.store(false, Ordering::Release);
-    TERRAIN_FADE_MISSING_SAMPLER_LOGGED.store(false, Ordering::Release);
-    CLOSE_TERRAIN_FIRST_BIND_LOGGED.store(false, Ordering::Release);
-    CLOSE_TERRAIN_FIRST_CANOPY_BIND_LOGGED.store(false, Ordering::Release);
-    CLOSE_TERRAIN_WARMING_LOGGED.store(false, Ordering::Release);
-    CLOSE_TERRAIN_FAILURE_LOGGED.store(false, Ordering::Release);
-    DIRECT_RESTORE_FAILURE_LOGGED.store(false, Ordering::Release);
-    LAND_LOD_LAST_CONSTANT_SIGNATURE.store(0, Ordering::Release);
-    LAND_LOD_CONSTANT_LOG_COUNT.store(0, Ordering::Release);
+/// Install the shared texture-stage observer without enabling PBR selection.
+///
+/// Native sky uses the same getter-free stage mirror, so this observer is
+/// resident even when PBR starts disabled. Runtime toggles remain passive and
+/// never need to rewrite this entry.
+pub(super) fn install_texture_tracking() -> bool {
+    let ready = prepare_set_texture_hook() && enable_prepared_hook(&SET_TEXTURE_HOOK, "SetTexture");
+    super::samplers::set_texture_tracking_ready(ready);
+    ready
 }
 
-fn install_set_texture_hook() -> bool {
+fn prepare_set_texture_hook() -> bool {
     if SET_TEXTURE_HOOK.is_initialized() {
-        return enable_prepared_hook(&SET_TEXTURE_HOOK, "SetTexture");
+        return true;
     }
     let Some(target) = resolve_hook_target(
         NIDX9_RENDER_STATE_SET_TEXTURE_ADDR,
@@ -347,13 +332,7 @@ fn install_set_texture_hook() -> bool {
         }
     }
 
-    match SET_TEXTURE_HOOK.enable() {
-        Ok(()) => true,
-        Err(err) => {
-            log::warn!("[PBR] SetTexture hook skipped: {err}");
-            false
-        }
-    }
+    true
 }
 
 pub(super) fn hooks_ready() -> bool {
@@ -446,9 +425,9 @@ fn install_create_pixel_shader_hook(target: *mut c_void) -> bool {
     }
 }
 
-fn install_set_shaders_hook() -> bool {
+fn prepare_set_shaders_hook() -> bool {
     if SET_SHADERS_HOOK.is_initialized() {
-        return enable_prepared_hook(&SET_SHADERS_HOOK, "SetShaders");
+        return true;
     }
     let Some(target) = resolve_hook_target(
         BS_SHADER_SET_SHADERS_ADDR,
@@ -466,16 +445,11 @@ fn install_set_shaders_hook() -> bool {
         }
     }
 
-    match SET_SHADERS_HOOK.enable() {
-        Ok(()) => true,
-        Err(err) => {
-            log::warn!("[PBR] SetShaders hook skipped: {err}");
-            false
-        }
-    }
+    true
 }
 
-fn enable_prepared_hook<F>(hook: &InlineHookContainer<F>, label: &'static str) -> bool
+/// Enable a prepared PBR hook without treating an already-active owner as new.
+pub(super) fn enable_prepared_hook<F>(hook: &InlineHookContainer<F>, label: &'static str) -> bool
 where
     F: libpsycho::ffi::fnptr::Function,
 {
@@ -491,7 +465,12 @@ where
     }
 }
 
-fn resolve_hook_target(
+/// Accept only an executable entry with the exact supported vanilla prologue.
+///
+/// Arbitrary entry jumps are rejected because their predecessor ABI, displaced
+/// instructions, and ownership lifetime are not part of OMV's compatibility
+/// contract.
+pub(super) fn resolve_hook_target(
     entry_addr: usize,
     vanilla_prologue: &[u8],
     label: &str,
@@ -508,21 +487,8 @@ fn resolve_hook_target(
         return Some(entry_addr as *mut c_void);
     }
 
-    if actual[0] == 0xE9 {
-        let rel = i32::from_le_bytes([actual[1], actual[2], actual[3], actual[4]]);
-        let target = (entry_addr as isize)
-            .wrapping_add(5)
-            .wrapping_add(rel as isize) as usize;
-        if validate_memory_range(target as *const c_void, 8).is_ok() {
-            log::info!(
-                "[PBR] {label} already redirected at 0x{entry_addr:08X}; chaining target 0x{target:08X}"
-            );
-            return Some(target as *mut c_void);
-        }
-    }
-
     log::warn!(
-        "[PBR] {label} prologue at 0x{entry_addr:08X} is neither vanilla nor a supported near jump"
+        "[PBR] {label} entry at 0x{entry_addr:08X} has unsupported ownership or executable bytes"
     );
     None
 }
@@ -568,6 +534,7 @@ unsafe extern "thiscall" fn hook_set_shaders(shader: *mut c_void, pass_index: u3
     let Ok(original) = SET_SHADERS_HOOK.original() else {
         return;
     };
+    crate::graphics_diagnostics::add(crate::graphics_diagnostics::Counter::SetShaders, 1);
 
     if !super::shader_enabled() {
         unsafe {
@@ -576,14 +543,33 @@ unsafe extern "thiscall" fn hook_set_shaders(shader: *mut c_void, pass_index: u3
         return;
     }
 
+    if current_pass_is_native_shadow_depth() {
+        // Selector 7's DepthMap pair is executable-proven to be outside every
+        // OMV family. Publishing NONE before the native binder prevents stale
+        // geometry admission, while leaving the six ignored pointer fields
+        // untouched avoids needless atomic traffic at every native shadow
+        // pass. The original establishes a different native pair, so any
+        // prior raw fallback ceases to own D3D state after it returns.
+        PENDING_DRAW_KIND.store(PENDING_DRAW_NONE, Ordering::Release);
+        PENDING_REQUIRED_SAMPLER_MASK.store(0, Ordering::Relaxed);
+        unsafe { original(shader, pass_index) };
+        NATIVE_FALLBACK_ACTIVE.store(false, Ordering::Release);
+        return;
+    }
+
     // A prior rejected draw may have temporarily placed vanilla on the device
     // while the engine cache still owns the replacement. Re-align that rare
     // fallback before asking the cache to evaluate another wrapper pair.
-    restore_engine_owned_replacement();
-    PENDING_DRAW_KIND.store(PENDING_DRAW_NONE, Ordering::Release);
-    clear_pending_shader_pair();
-    PENDING_REQUIRED_SAMPLER_MASK.store(0, Ordering::Release);
-    PENDING_MISSING_SAMPLER_MASK.store(0, Ordering::Release);
+    // Most unrelated SetShaders calls have no PBR predecessor and now pay one
+    // atomic swap only; the larger selection record is cleared only when it
+    // was actually published by an earlier admitted family.
+    let previous_kind = PENDING_DRAW_KIND.swap(PENDING_DRAW_NONE, Ordering::AcqRel);
+    if previous_kind != PENDING_DRAW_NONE {
+        restore_engine_owned_replacement();
+        clear_pending_shader_pair();
+        PENDING_REQUIRED_SAMPLER_MASK.store(0, Ordering::Release);
+        PENDING_MISSING_SAMPLER_MASK.store(0, Ordering::Release);
+    }
 
     if super::terrain_lod_enabled() && current_pass_is_land_lod(pass_index) {
         engine_contracts::enable_fog_for_pass(pass_index);
@@ -719,9 +705,6 @@ fn set_pending_draw(
     );
     PENDING_MISSING_SAMPLER_MASK.store(0, Ordering::Release);
     PENDING_CLOSE_TERRAIN_PREPARED_GEOMETRY.store(0, Ordering::Release);
-    if kind == PENDING_DRAW_CLOSE_TERRAIN {
-        super::terrain_lights::invalidate_draw_cache();
-    }
     PENDING_DRAW_EVALUATED.store(false, Ordering::Release);
     PENDING_DRAW_KIND.store(kind, Ordering::Release);
 }
@@ -745,6 +728,32 @@ fn current_pass_is_land_lod(pass_index: u32) -> bool {
     );
 
     expected_vertex == Some(vertex) && expected_pixel == Some(pixel)
+}
+
+fn current_pass_is_native_shadow_depth() -> bool {
+    let Some((vertex, pixel)) = engine_contracts::current_pass_shaders_fast() else {
+        return false;
+    };
+    let Some(vertex_index) = find_shader_array_index(
+        PPLIGHTING_VERTEX_GROUP_C_ADDR,
+        PPLIGHTING_VERTEX_GROUP_C_COUNT,
+        vertex,
+    ) else {
+        return false;
+    };
+    let Some(pixel_index) = find_shader_array_index(
+        PPLIGHTING_PIXEL_GROUP_B_ADDR,
+        PPLIGHTING_PIXEL_GROUP_B_COUNT,
+        pixel,
+    ) else {
+        return false;
+    };
+    native_shadow_depth_table_indices(vertex_index, pixel_index)
+}
+
+fn native_shadow_depth_table_indices(vertex_index: u32, pixel_index: u32) -> bool {
+    (NATIVE_DEPTH_VERTEX_FIRST_INDEX..=NATIVE_DEPTH_VERTEX_LAST_INDEX).contains(&vertex_index)
+        && (NATIVE_DEPTH_PIXEL_FIRST_INDEX..=NATIVE_DEPTH_PIXEL_LAST_INDEX).contains(&pixel_index)
 }
 
 fn current_pass_is_terrain_fade(pass_index: u32) -> bool {
@@ -938,7 +947,8 @@ fn bind_land_lod_replacement(pair: ShaderPairSelection) -> bool {
         log_land_lod_failure("native wrapper ownership changed before draw");
         return false;
     }
-    let missing_sampler_mask = missing_sampler_mask(&device, LAND_LOD_SAMPLERS);
+    let missing_sampler_mask =
+        samplers::missing_required_mask(required_sampler_mask(LAND_LOD_SAMPLERS));
     PENDING_MISSING_SAMPLER_MASK.store(u32::from(missing_sampler_mask), Ordering::Release);
     if missing_sampler_mask != 0 {
         log_land_lod_missing_samplers(missing_sampler_mask);
@@ -976,7 +986,8 @@ fn bind_terrain_fade_replacement(pair: ShaderPairSelection) -> bool {
         log_terrain_fade_failure("native wrapper ownership changed before draw");
         return false;
     }
-    let missing_sampler_mask = missing_sampler_mask(&device, TERRAIN_FADE_SAMPLERS);
+    let missing_sampler_mask =
+        samplers::missing_required_mask(required_sampler_mask(TERRAIN_FADE_SAMPLERS));
     PENDING_MISSING_SAMPLER_MASK.store(u32::from(missing_sampler_mask), Ordering::Release);
     if missing_sampler_mask != 0 {
         log_terrain_fade_missing_samplers(missing_sampler_mask);
@@ -1000,6 +1011,7 @@ fn bind_close_terrain_replacement(
     pass_index: u32,
     pixel_index: usize,
     pair: ShaderPairSelection,
+    geometry: *mut c_void,
 ) -> bool {
     let Some(variant) = close_terrain_variant(pass_index, pixel_index) else {
         log_close_terrain_failure("pass and pixel variant do not match the VPT terrain contract");
@@ -1017,22 +1029,16 @@ fn bind_close_terrain_replacement(
         log_close_terrain_failure("native wrapper ownership changed before draw");
         return false;
     }
-    let Some(geometry) = engine_contracts::current_geometry_fast() else {
+    if geometry.is_null() {
         log_close_terrain_failure("current geometry is unavailable at the draw boundary");
         return false;
-    };
+    }
     let geometry_identity = geometry as usize;
-    let geometry_changed =
-        PENDING_CLOSE_TERRAIN_PREPARED_GEOMETRY.load(Ordering::Acquire) != geometry_identity;
     let required_sampler_mask = close_terrain_required_sampler_mask(variant);
-    let missing_sampler_mask = if geometry_changed || !SET_TEXTURE_HOOK.is_enabled() {
-        // A new geometry can inherit arbitrary D3D state without another
-        // SetShaders call. Query its complete ABI once; subsequent DIPs for
-        // that geometry use the SetTexture-maintained missing-stage mask.
-        missing_sampler_mask_from_bits(&device, required_sampler_mask)
-    } else {
-        PENDING_MISSING_SAMPLER_MASK.load(Ordering::Acquire) as u16
-    };
+    // Texture state belongs to NiDX9RenderState rather than the geometry. The
+    // mandatory SetTexture mirror therefore remains authoritative even when a
+    // SetShaders batch advances to another geometry without rebinding stages.
+    let missing_sampler_mask = samplers::missing_required_mask(required_sampler_mask);
     PENDING_MISSING_SAMPLER_MASK.store(u32::from(missing_sampler_mask), Ordering::Release);
     if missing_sampler_mask != 0 {
         log_close_terrain_missing_samplers(
@@ -1136,7 +1142,7 @@ pub(super) fn release_device_resources() {
 /// [`finish_direct_draw`] after the native draw, including when replacement
 /// admission fell back.
 #[must_use]
-pub(super) fn prepare_direct_draw() -> bool {
+pub(super) fn prepare_direct_draw(geometry: *mut c_void) -> bool {
     if !super::shader_enabled() {
         release_device_resources();
         return false;
@@ -1146,10 +1152,7 @@ pub(super) fn prepare_direct_draw() -> bool {
     if kind == PENDING_DRAW_NONE {
         return false;
     }
-    if !draw_needs_evaluation(
-        PENDING_DRAW_EVALUATED.load(Ordering::Acquire),
-        SET_TEXTURE_HOOK.is_enabled(),
-    ) {
+    if !draw_needs_evaluation(PENDING_DRAW_EVALUATED.load(Ordering::Acquire)) {
         return false;
     }
 
@@ -1159,6 +1162,8 @@ pub(super) fn prepare_direct_draw() -> bool {
         PENDING_DRAW_KIND.store(PENDING_DRAW_NONE, Ordering::Release);
         return false;
     };
+    let _span =
+        crate::graphics_diagnostics::span(crate::graphics_diagnostics::Interval::PbrAdmission);
     let admitted = match kind {
         PENDING_DRAW_OBJECT => {
             let pass_index = PENDING_DRAW_PASS_INDEX.load(Ordering::Acquire);
@@ -1169,19 +1174,21 @@ pub(super) fn prepare_direct_draw() -> bool {
         PENDING_DRAW_CLOSE_TERRAIN => {
             let pass_index = PENDING_DRAW_PASS_INDEX.load(Ordering::Acquire);
             let pixel_index = PENDING_CLOSE_TERRAIN_PIXEL_INDEX.load(Ordering::Acquire) as usize;
-            bind_close_terrain_replacement(pass_index, pixel_index, pair)
+            bind_close_terrain_replacement(pass_index, pixel_index, pair, geometry)
         }
         _ => false,
     };
     if admitted {
+        crate::graphics_diagnostics::add(crate::graphics_diagnostics::Counter::PbrAdmission, 1);
         // Usually a no-op. It only changes D3D state when a previous rejected
         // draw in this same engine-owned batch selected the vanilla fallback.
         restore_engine_owned_replacement();
     } else {
+        crate::graphics_diagnostics::add(crate::graphics_diagnostics::Counter::PbrFallback, 1);
         bind_native_fallback(pair);
     }
 
-    // Re-arm close-terrain admission after this DIP even when binding fell
+    // Re-arm close-terrain admission after this geometry even when binding fell
     // back. A later geometry can be valid without another SetShaders call, so
     // a failed first draw cannot close the batch.
     direct_draw_requires_finish(kind)
@@ -1193,8 +1200,8 @@ pub(super) fn finish_direct_draw(restore_after_draw: bool) {
         return;
     }
 
-    // Close terrain is admitted per DIP, not per SetShaders batch. A rejected
-    // geometry used vanilla for this draw; restore the cache-owned replacement
+    // Close terrain is admitted per renderer geometry, not per SetShaders
+    // batch. A rejected geometry used vanilla for this submission; restore the cache-owned replacement
     // before re-arming so a later valid geometry keeps full PBR coverage.
     restore_engine_owned_replacement();
     PENDING_DRAW_EVALUATED.store(false, Ordering::Release);
@@ -1211,8 +1218,8 @@ pub(super) fn finish_draw_batches() {
     super::terrain_lights::invalidate_draw_cache();
 }
 
-fn draw_needs_evaluation(evaluated: bool, texture_tracking_ready: bool) -> bool {
-    !evaluated || !texture_tracking_ready
+fn draw_needs_evaluation(evaluated: bool) -> bool {
+    !evaluated
 }
 
 fn direct_draw_requires_finish(kind: u32) -> bool {
@@ -1270,22 +1277,6 @@ fn required_sampler_mask(stages: &[u32]) -> u16 {
         .iter()
         .copied()
         .filter(|stage| *stage < 16)
-        .fold(0u16, |mask, stage| mask | (1u16 << stage))
-}
-
-fn missing_sampler_mask(device: &Device9Ref<'_>, stages: &[u32]) -> u16 {
-    stages
-        .iter()
-        .copied()
-        .filter(|stage| *stage < 16 && device.texture_raw(*stage).is_none())
-        .fold(0u16, |mask, stage| mask | (1u16 << stage))
-}
-
-fn missing_sampler_mask_from_bits(device: &Device9Ref<'_>, required_mask: u16) -> u16 {
-    (0..16)
-        .filter(|stage| {
-            required_mask & (1u16 << stage) != 0 && device.texture_raw(*stage).is_none()
-        })
         .fold(0u16, |mask, stage| mask | (1u16 << stage))
 }
 
@@ -1407,17 +1398,10 @@ unsafe extern "thiscall" fn hook_set_texture(
     let Ok(original) = SET_TEXTURE_HOOK.original() else {
         return;
     };
-    if !super::replacement_configured() {
-        // The hooks remain resident by the PBR engine-ownership contract, but
-        // disabled frames must not read selectors, update sampler atomics, or
-        // evaluate pending replacement masks. Re-enable clears the sampler
-        // cache, so incomplete post-toggle bindings fail closed to vanilla.
-        unsafe {
-            original(render_state, stage, texture);
-        }
-        return;
-    }
-
+    crate::graphics_diagnostics::add(crate::graphics_diagnostics::Counter::SetTexture, 1);
+    // This fixed atomic mirror is shared with native sky. It must remain
+    // authoritative while PBR is disabled; otherwise enabling sky alone would
+    // have to query texture state back from the driver at geometry frequency.
     let selector = if diagnostics::detailed_enabled() {
         engine_contracts::current_draw_selector_address_fast()
     } else {
@@ -1426,6 +1410,10 @@ unsafe extern "thiscall" fn hook_set_texture(
     super::samplers::record_texture_binding(stage, texture, selector);
     unsafe {
         original(render_state, stage, texture);
+    }
+
+    if !super::replacement_configured() {
+        return;
     }
 
     let required_sampler_mask = PENDING_REQUIRED_SAMPLER_MASK.load(Ordering::Relaxed) as u16;
@@ -1732,18 +1720,18 @@ fn bind_object_replacement(pass_index: u32, pending_pair: ShaderPairSelection) -
         record_optional_object_bind_failure(replacement, ObjectDrawRejectReason::MissingD3DState);
         return false;
     };
+    // SetShaders selected this exact pair through the engine wrapper/cache
+    // boundary. Reading both shaders back from D3D here would synchronize the
+    // driver for diagnostic confirmation of state OMV just established.
     if detailed {
-        let current_vertex = device.current_vertex_shader_raw().unwrap_or(null_mut());
-        let current_pixel = device.current_pixel_shader_raw().unwrap_or(null_mut());
         diagnostics::record_object_d3d_state(
-            current_vertex,
-            current_pixel,
+            pending_pair.replacement_vertex,
+            pending_pair.replacement_pixel,
             pending_pair.replacement_vertex,
             pending_pair.replacement_pixel,
         );
     }
     if let Err(reason) = object_replacement_record::validate_pixel_samplers(
-        &device,
         pixel_record,
         replacement.map_or(0, |replacement| replacement.draw_trace.selector),
         detailed,
@@ -1777,7 +1765,7 @@ fn bind_object_replacement(pass_index: u32, pending_pair: ShaderPairSelection) -
                 diagnostics::record_object_specular_fade(
                     replacement.draw_trace,
                     fade,
-                    samplers::object_sampler_identity(&device, pixel_record.template_id),
+                    samplers::object_sampler_identity(pixel_record.template_id),
                 );
             }
         }
@@ -2073,7 +2061,7 @@ mod tests {
         PENDING_DRAW_TERRAIN_FADE, TERRAIN_FADE_SAMPLERS, close_terrain_draw,
         close_terrain_required_sampler_mask, close_terrain_variant, direct_draw_requires_finish,
         direct_required_sampler_mask, direct_sampler_change, draw_needs_evaluation,
-        hash_light_data, object_draw_key, required_sampler_mask,
+        hash_light_data, native_shadow_depth_table_indices, object_draw_key, required_sampler_mask,
     };
     use crate::effects::pbr::engine_contracts::DrawSnapshot;
     use crate::effects::pbr::shader_registry::{self, ShaderStage};
@@ -2118,14 +2106,24 @@ mod tests {
     }
 
     #[test]
-    fn direct_draw_rechecks_only_when_tracking_cannot_prove_ownership() {
-        assert!(draw_needs_evaluation(false, true));
-        assert!(!draw_needs_evaluation(true, true));
-        assert!(draw_needs_evaluation(true, false));
+    fn native_shadow_depth_rows_are_never_pbr_candidates() {
+        for vertex in 92..=95 {
+            for pixel in 90..=91 {
+                assert!(native_shadow_depth_table_indices(vertex, pixel));
+            }
+        }
+        assert!(!native_shadow_depth_table_indices(100, 92));
+        assert!(!native_shadow_depth_table_indices(49, 56));
     }
 
     #[test]
-    fn only_close_terrain_requires_per_draw_cleanup() {
+    fn direct_draw_rechecks_only_when_tracking_cannot_prove_ownership() {
+        assert!(draw_needs_evaluation(false));
+        assert!(!draw_needs_evaluation(true));
+    }
+
+    #[test]
+    fn only_close_terrain_requires_per_geometry_cleanup() {
         assert!(!direct_draw_requires_finish(PENDING_DRAW_OBJECT));
         assert!(!direct_draw_requires_finish(PENDING_DRAW_LAND_LOD));
         assert!(!direct_draw_requires_finish(PENDING_DRAW_TERRAIN_FADE));
@@ -2174,7 +2172,7 @@ mod tests {
     }
 
     #[test]
-    fn disabled_set_texture_bypasses_before_sampler_tracking() {
+    fn shared_set_texture_tracking_precedes_native_and_pbr_specific_work() {
         let source = include_str!("hooks.rs");
         let hook = source
             .split_once("unsafe extern \"thiscall\" fn hook_set_texture")
@@ -2182,19 +2180,18 @@ mod tests {
             .and_then(|tail| tail.split_once("fn capture_created_shader"))
             .map(|(body, _)| body)
             .expect("SetTexture hook");
-        let gate = hook
-            .find("if !super::replacement_configured()")
-            .expect("configured-state gate");
-        let native = hook[gate..]
-            .find("original(render_state, stage, texture)")
-            .map(|offset| gate + offset)
-            .expect("native SetTexture");
         let tracking = hook
             .find("super::samplers::record_texture_binding")
             .expect("sampler tracking");
+        let native = hook
+            .find("original(render_state, stage, texture)")
+            .expect("native SetTexture");
+        let gate = hook
+            .find("if !super::replacement_configured()")
+            .expect("configured-state gate");
 
-        assert!(gate < native);
-        assert!(native < tracking);
+        assert!(tracking < native);
+        assert!(native < gate);
     }
 
     #[test]

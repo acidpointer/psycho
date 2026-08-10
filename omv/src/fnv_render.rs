@@ -3,9 +3,11 @@
 //! World-scene entry establishes the destination identity, pre-alpha captures
 //! depth only for an admitted immediate consumer, and post-world publication
 //! exposes either OMV or externally produced world depth. Their trampolines
-//! are prepared at DeferredInit, but the native entry jumps are physically
-//! detached when no active OMV visual needs these stages. Render callbacks are
-//! nonblocking and never substitute one provider for another. When the
+//! are prepared and enabled as one DeferredInit transaction, then remain
+//! resident until process exit. Runtime settings only change passive consumer
+//! gates inside the detours; they never rewrite executable entry bytes while
+//! the renderer is live. Render callbacks are nonblocking and never substitute
+//! one provider for another. When the
 //! selected provider exposes world depth
 //! but no first-person mask, AO is composed on the completed world target
 //! immediately after `RenderWorldSceneGraph`; hands and weapons later
@@ -21,13 +23,21 @@ use std::{
 
 use anyhow::{Result, anyhow};
 use libpsycho::ffi::fnptr::Function;
-use libpsycho::os::windows::{directx9::Device9Ref, hook::inline::inlinehook::InlineHookContainer};
+use libpsycho::os::windows::{
+    directx9::Device9Ref, hook::inline::inlinehook::InlineHookContainer,
+    memory::validate_memory_range,
+};
 
 const PROCESS_IMAGE_SPACE_SHADERS_ADDR: usize = 0x00B55AC0;
 const SET_WATER_SHADER_UNDERWATER_ADDR: usize = 0x004E2120;
 const RENDER_WORLD_SCENE_GRAPH_ADDR: usize = 0x00873200;
 const RENDER_FIRST_PERSON_ADDR: usize = 0x00875110;
 const RENDER_PRE_DEPTH_GROUPS_ADDR: usize = 0x00B65AE0;
+const PROCESS_IMAGE_SPACE_SHADERS_PROLOGUE: &[u8] = &[0x8B, 0x54, 0x24, 0x04, 0x56];
+const SET_WATER_SHADER_UNDERWATER_PROLOGUE: &[u8] = &[0x55, 0x8B, 0xEC, 0x51, 0x89];
+const RENDER_WORLD_SCENE_GRAPH_PROLOGUE: &[u8] = &[0x55, 0x8B, 0xEC, 0x6A, 0xFF];
+const RENDER_FIRST_PERSON_PROLOGUE: &[u8] = &[0x55, 0x8B, 0xEC, 0x6A, 0xFF];
+const RENDER_PRE_DEPTH_GROUPS_PROLOGUE: &[u8] = &[0x56, 0x8B, 0x74, 0x24, 0x08];
 const IMAGE_SPACE_MANAGER_PTR_ADDR: usize = 0x011F91AC;
 const IMAGE_SPACE_EFFECTS_OFFSET: usize = 0x08;
 const IMAGE_SPACE_LAST_EFFECT_ID_OFFSET: usize = 0x1EC;
@@ -71,13 +81,85 @@ static PRE_ALPHA_WORLD_TARGET: AtomicUsize = AtomicUsize::new(0);
 static PRE_ALPHA_WORLD_ARMED: AtomicBool = AtomicBool::new(false);
 
 /// Install every native scene boundary required by live provider switching.
-pub(crate) fn install_scene_boundary_hook() {
-    install_process_image_space_shaders_hook();
-    install_set_water_shader_underwater_hook();
-    install_render_world_scene_graph_hook();
-    install_render_first_person_hook();
-    install_render_pre_depth_groups_hook();
-    publish_depth_stage_hook_states(depth_stage_hook_states());
+///
+/// All trampolines are prepared before the first executable entry is changed.
+/// If a mandatory enable fails, only entries acquired by this attempt are
+/// restored in reverse order and readiness remains unpublished.
+pub(crate) fn install_scene_boundary_hook() -> Result<()> {
+    prepare_process_image_space_shaders_hook()?;
+    prepare_set_water_shader_underwater_hook()?;
+    prepare_render_world_scene_graph_hook()?;
+    prepare_render_first_person_hook()?;
+    prepare_render_pre_depth_groups_hook()?;
+
+    let mut enabled_image_space = false;
+    let mut enabled_underwater = false;
+    let mut enabled_pre_alpha = false;
+    let mut enabled_first_person = false;
+    let mut enabled_world = false;
+    let transaction = (|| -> Result<()> {
+        enabled_image_space = enable_prepared_scene_hook(
+            &PROCESS_IMAGE_SPACE_SHADERS_HOOK,
+            "ProcessImageSpaceShaders",
+        )?;
+        enabled_underwater = enable_prepared_scene_hook(
+            &SET_WATER_SHADER_UNDERWATER_HOOK,
+            "SetWaterShaderUnderwater",
+        )?;
+        enabled_pre_alpha =
+            enable_prepared_scene_hook(&RENDER_PRE_DEPTH_GROUPS_HOOK, "RenderPreDepthGroups")?;
+        enabled_first_person =
+            enable_prepared_scene_hook(&RENDER_FIRST_PERSON_HOOK, "RenderFirstPerson")?;
+        // The outer world entry is published last, after every inner boundary
+        // on which its producer transaction depends is callable.
+        enabled_world =
+            enable_prepared_scene_hook(&RENDER_WORLD_SCENE_GRAPH_HOOK, "RenderWorldSceneGraph")?;
+        Ok(())
+    })();
+    if let Err(error) = transaction {
+        rollback_scene_hook(
+            &RENDER_WORLD_SCENE_GRAPH_HOOK,
+            enabled_world,
+            "RenderWorldSceneGraph",
+        );
+        rollback_scene_hook(
+            &RENDER_FIRST_PERSON_HOOK,
+            enabled_first_person,
+            "RenderFirstPerson",
+        );
+        rollback_scene_hook(
+            &RENDER_PRE_DEPTH_GROUPS_HOOK,
+            enabled_pre_alpha,
+            "RenderPreDepthGroups",
+        );
+        rollback_scene_hook(
+            &SET_WATER_SHADER_UNDERWATER_HOOK,
+            enabled_underwater,
+            "SetWaterShaderUnderwater",
+        );
+        rollback_scene_hook(
+            &PROCESS_IMAGE_SPACE_SHADERS_HOOK,
+            enabled_image_space,
+            "ProcessImageSpaceShaders",
+        );
+        UNDERWATER_PUBLICATION_HOOK_READY.store(false, Ordering::Release);
+        WORLD_SCENE_HOOK_READY.store(false, Ordering::Release);
+        PRE_ALPHA_HOOK_READY.store(false, Ordering::Release);
+        publish_depth_stage_hook_states(depth_stage_hook_states());
+        return Err(error);
+    }
+
+    let states = depth_stage_hook_states();
+    let ready = PROCESS_IMAGE_SPACE_SHADERS_HOOK.is_enabled() && states.all_active();
+    UNDERWATER_PUBLICATION_HOOK_READY.store(states.underwater, Ordering::Release);
+    WORLD_SCENE_HOOK_READY.store(states.world, Ordering::Release);
+    PRE_ALPHA_HOOK_READY.store(states.pre_alpha, Ordering::Release);
+    publish_depth_stage_hook_states(states);
+    if !ready {
+        anyhow::bail!("one or more resident FNV scene hooks are not active");
+    }
+    log::info!("[FNV] Resident scene-boundary hook transaction installed");
+    Ok(())
 }
 
 /// Return whether native underwater classification can be published safely.
@@ -121,147 +203,6 @@ fn publish_depth_stage_hook_states(states: DepthStageHookStates) {
     DEPTH_STAGE_HOOK_MASK.store(states.mask(), Ordering::Release);
 }
 
-fn set_inline_hook_state<T: Function>(
-    hook: &InlineHookContainer<T>,
-    active: bool,
-    label: &'static str,
-) -> Result<()> {
-    if hook.is_enabled() == active {
-        return Ok(());
-    }
-    let result = if active {
-        hook.enable()
-    } else {
-        hook.disable()
-    };
-    result.map_err(|err| {
-        anyhow!(
-            "{label} could not be {}: {err}",
-            if active { "attached" } else { "detached" }
-        )
-    })
-}
-
-fn restore_depth_stage_hook_states(states: DepthStageHookStates) {
-    // Best-effort rollback uses dependency order: restore metadata/pre-alpha
-    // boundaries before the outer world wrapper when attaching, and restore
-    // the outer wrapper first when detaching. Every failure is visible; a
-    // partial executable patch state must never be silently reported ready.
-    for result in [
-        set_inline_hook_state(
-            &SET_WATER_SHADER_UNDERWATER_HOOK,
-            states.underwater,
-            "underwater publication hook",
-        ),
-        set_inline_hook_state(
-            &RENDER_PRE_DEPTH_GROUPS_HOOK,
-            states.pre_alpha,
-            "pre-alpha hook",
-        ),
-        set_inline_hook_state(
-            &RENDER_FIRST_PERSON_HOOK,
-            states.first_person,
-            "first-person hook",
-        ),
-        set_inline_hook_state(
-            &RENDER_WORLD_SCENE_GRAPH_HOOK,
-            states.world,
-            "world-scene hook",
-        ),
-    ] {
-        if let Err(err) = result {
-            log::error!("[FNV] Depth-stage hook rollback failed: {err:#}");
-        }
-    }
-    let restored = depth_stage_hook_states();
-    publish_depth_stage_hook_states(restored);
-    if restored.mask() != states.mask() {
-        log::error!(
-            "[FNV] Depth-stage hook rollback left a partial state: underwater={}, world={}, first_person={}, pre_alpha={}",
-            restored.underwater,
-            restored.world,
-            restored.first_person,
-            restored.pre_alpha,
-        );
-    }
-}
-
-/// Physically attach or detach OMV's native depth-stage inline hooks.
-///
-/// Callers must use xNVSE DeferredInit or OMV's `Present` detour. Those are
-/// quiescent boundaries for the serialized FNV render functions whose entry
-/// bytes are restored here. Detachment removes OMV's jumps from underwater,
-/// world, first-person, and pre-alpha entry points; it is not a branch inside
-/// resident detours.
-pub(crate) fn set_depth_stage_hooks_active(active: bool) -> Result<()> {
-    let previous = depth_stage_hook_states();
-    if previous.all_active() == active
-        && [
-            previous.underwater,
-            previous.world,
-            previous.first_person,
-            previous.pre_alpha,
-        ]
-        .into_iter()
-        .all(|state| state == active)
-    {
-        publish_depth_stage_hook_states(previous);
-        return Ok(());
-    }
-
-    let transition = if active {
-        set_inline_hook_state(
-            &SET_WATER_SHADER_UNDERWATER_HOOK,
-            true,
-            "underwater publication hook",
-        )
-        .and_then(|_| set_inline_hook_state(&RENDER_PRE_DEPTH_GROUPS_HOOK, true, "pre-alpha hook"))
-        .and_then(|_| set_inline_hook_state(&RENDER_FIRST_PERSON_HOOK, true, "first-person hook"))
-        // Publish the outer world wrapper last so a frame cannot enter before
-        // every boundary it depends on is callable.
-        .and_then(|_| {
-            set_inline_hook_state(&RENDER_WORLD_SCENE_GRAPH_HOOK, true, "world-scene hook")
-        })
-    } else {
-        // Remove the outer wrapper first. Even if a later restoration fails,
-        // native rendering cannot newly enter a partially detached OMV chain.
-        set_inline_hook_state(&RENDER_WORLD_SCENE_GRAPH_HOOK, false, "world-scene hook")
-            .and_then(|_| {
-                set_inline_hook_state(&RENDER_FIRST_PERSON_HOOK, false, "first-person hook")
-            })
-            .and_then(|_| {
-                set_inline_hook_state(&RENDER_PRE_DEPTH_GROUPS_HOOK, false, "pre-alpha hook")
-            })
-            .and_then(|_| {
-                set_inline_hook_state(
-                    &SET_WATER_SHADER_UNDERWATER_HOOK,
-                    false,
-                    "underwater publication hook",
-                )
-            })
-    };
-
-    if let Err(err) = transition {
-        restore_depth_stage_hook_states(previous);
-        return Err(err);
-    }
-    publish_depth_stage_hook_states(depth_stage_hook_states());
-    log::info!(
-        "[FNV] Depth-stage hooks physically {}",
-        if active { "attached" } else { "detached" }
-    );
-    Ok(())
-}
-
-/// Reconcile native depth-stage hooks with current producer/visual ownership.
-pub(crate) fn reconcile_depth_stage_hooks() -> Result<()> {
-    let required = depth_stage_hooks_required(
-        crate::runtime::needs_fnv_scene_hooks(),
-        crate::fnv_world_pipeline::needs_scene_hooks(),
-    );
-    set_depth_stage_hooks_active(required)
-}
-
 /// Return an exact diagnostic label for native depth-stage entry ownership.
 pub(crate) fn depth_stage_hooks_status_label() -> &'static str {
     match DEPTH_STAGE_HOOK_MASK.load(Ordering::Acquire) {
@@ -271,192 +212,135 @@ pub(crate) fn depth_stage_hooks_status_label() -> &'static str {
     }
 }
 
-fn install_process_image_space_shaders_hook() {
+fn prepare_process_image_space_shaders_hook() -> Result<()> {
     if PROCESS_IMAGE_SPACE_SHADERS_HOOK.is_initialized() {
-        enable_prepared_scene_hook(
-            &PROCESS_IMAGE_SPACE_SHADERS_HOOK,
-            "ProcessImageSpaceShaders",
-        );
-        return;
+        return Ok(());
     }
-    match unsafe {
+    validate_vanilla_scene_entry(
+        PROCESS_IMAGE_SPACE_SHADERS_ADDR,
+        PROCESS_IMAGE_SPACE_SHADERS_PROLOGUE,
+        "ProcessImageSpaceShaders",
+    )?;
+    unsafe {
         PROCESS_IMAGE_SPACE_SHADERS_HOOK.init(
             "FNV ProcessImageSpaceShaders",
             PROCESS_IMAGE_SPACE_SHADERS_ADDR as *mut c_void,
             hook_process_image_space_shaders,
         )
-    } {
-        Ok(()) => {}
-        Err(err) => {
-            log::warn!(
-                "[FNV] ProcessImageSpaceShaders hook skipped at 0x{PROCESS_IMAGE_SPACE_SHADERS_ADDR:08X}: {err}"
-            );
-            return;
-        }
     }
-
-    match PROCESS_IMAGE_SPACE_SHADERS_HOOK.enable() {
-        Ok(()) => {
-            log::info!(
-                "[FNV] ProcessImageSpaceShaders hook installed at 0x{PROCESS_IMAGE_SPACE_SHADERS_ADDR:08X}"
-            )
-        }
-        Err(err) => {
-            log::warn!(
-                "[FNV] ProcessImageSpaceShaders hook skipped at 0x{PROCESS_IMAGE_SPACE_SHADERS_ADDR:08X}: {err}"
-            )
-        }
-    }
+    .map_err(|err| {
+        anyhow!(
+            "ProcessImageSpaceShaders hook preparation at 0x{PROCESS_IMAGE_SPACE_SHADERS_ADDR:08X} failed: {err}"
+        )
+    })
 }
 
-fn install_set_water_shader_underwater_hook() {
-    UNDERWATER_PUBLICATION_HOOK_READY.store(false, Ordering::Release);
+fn prepare_set_water_shader_underwater_hook() -> Result<()> {
     if SET_WATER_SHADER_UNDERWATER_HOOK.is_initialized() {
-        let ready = enable_prepared_scene_hook(
-            &SET_WATER_SHADER_UNDERWATER_HOOK,
-            "SetWaterShaderUnderwater",
-        );
-        UNDERWATER_PUBLICATION_HOOK_READY.store(ready, Ordering::Release);
-        return;
+        return Ok(());
     }
-    match unsafe {
+    validate_vanilla_scene_entry(
+        SET_WATER_SHADER_UNDERWATER_ADDR,
+        SET_WATER_SHADER_UNDERWATER_PROLOGUE,
+        "SetWaterShaderUnderwater",
+    )?;
+    unsafe {
         SET_WATER_SHADER_UNDERWATER_HOOK.init(
             "FNV SetWaterShaderUnderwater",
             SET_WATER_SHADER_UNDERWATER_ADDR as *mut c_void,
             hook_set_water_shader_underwater,
         )
-    } {
-        Ok(()) => {}
-        Err(err) => {
-            log::warn!(
-                "[FNV] Underwater publication hook skipped at 0x{SET_WATER_SHADER_UNDERWATER_ADDR:08X}: {err}"
-            );
-            return;
-        }
     }
-
-    match SET_WATER_SHADER_UNDERWATER_HOOK.enable() {
-        Ok(()) => {
-            UNDERWATER_PUBLICATION_HOOK_READY.store(true, Ordering::Release);
-            log::info!(
-                "[FNV] Underwater publication hook installed at 0x{SET_WATER_SHADER_UNDERWATER_ADDR:08X}"
-            );
-        }
-        Err(err) => {
-            log::warn!(
-                "[FNV] Underwater publication hook skipped at 0x{SET_WATER_SHADER_UNDERWATER_ADDR:08X}: {err}"
-            );
-        }
-    }
+    .map_err(|err| {
+        anyhow!(
+            "SetWaterShaderUnderwater hook preparation at 0x{SET_WATER_SHADER_UNDERWATER_ADDR:08X} failed: {err}"
+        )
+    })
 }
 
-fn install_render_world_scene_graph_hook() {
-    WORLD_SCENE_HOOK_READY.store(false, Ordering::Release);
+fn prepare_render_world_scene_graph_hook() -> Result<()> {
     if RENDER_WORLD_SCENE_GRAPH_HOOK.is_initialized() {
-        let ready =
-            enable_prepared_scene_hook(&RENDER_WORLD_SCENE_GRAPH_HOOK, "RenderWorldSceneGraph");
-        WORLD_SCENE_HOOK_READY.store(ready, Ordering::Release);
-        return;
+        return Ok(());
     }
-    match unsafe {
+    validate_vanilla_scene_entry(
+        RENDER_WORLD_SCENE_GRAPH_ADDR,
+        RENDER_WORLD_SCENE_GRAPH_PROLOGUE,
+        "RenderWorldSceneGraph",
+    )?;
+    unsafe {
         RENDER_WORLD_SCENE_GRAPH_HOOK.init(
             "FNV RenderWorldSceneGraph",
             RENDER_WORLD_SCENE_GRAPH_ADDR as *mut c_void,
             hook_render_world_scene_graph,
         )
-    } {
-        Ok(()) => {}
-        Err(err) => {
-            log::warn!(
-                "[FNV] RenderWorldSceneGraph hook skipped at 0x{RENDER_WORLD_SCENE_GRAPH_ADDR:08X}: {err}"
-            );
-            return;
-        }
     }
-
-    match RENDER_WORLD_SCENE_GRAPH_HOOK.enable() {
-        Ok(()) => {
-            WORLD_SCENE_HOOK_READY.store(true, Ordering::Release);
-            log::info!(
-                "[FNV] RenderWorldSceneGraph hook installed at 0x{RENDER_WORLD_SCENE_GRAPH_ADDR:08X}"
-            )
-        }
-        Err(err) => {
-            log::warn!(
-                "[FNV] RenderWorldSceneGraph hook skipped at 0x{RENDER_WORLD_SCENE_GRAPH_ADDR:08X}: {err}"
-            )
-        }
-    }
+    .map_err(|err| {
+        anyhow!(
+            "RenderWorldSceneGraph hook preparation at 0x{RENDER_WORLD_SCENE_GRAPH_ADDR:08X} failed: {err}"
+        )
+    })
 }
 
-fn install_render_first_person_hook() {
+fn prepare_render_first_person_hook() -> Result<()> {
     if RENDER_FIRST_PERSON_HOOK.is_initialized() {
-        enable_prepared_scene_hook(&RENDER_FIRST_PERSON_HOOK, "RenderFirstPerson");
-        return;
+        return Ok(());
     }
-    match unsafe {
+    validate_vanilla_scene_entry(
+        RENDER_FIRST_PERSON_ADDR,
+        RENDER_FIRST_PERSON_PROLOGUE,
+        "RenderFirstPerson",
+    )?;
+    unsafe {
         RENDER_FIRST_PERSON_HOOK.init(
             "FNV RenderFirstPerson",
             RENDER_FIRST_PERSON_ADDR as *mut c_void,
             hook_render_first_person,
         )
-    } {
-        Ok(()) => {}
-        Err(err) => {
-            log::warn!(
-                "[FNV] RenderFirstPerson hook skipped at 0x{RENDER_FIRST_PERSON_ADDR:08X}: {err}"
-            );
-            return;
-        }
     }
-
-    match RENDER_FIRST_PERSON_HOOK.enable() {
-        Ok(()) => {
-            log::info!("[FNV] RenderFirstPerson hook installed at 0x{RENDER_FIRST_PERSON_ADDR:08X}")
-        }
-        Err(err) => {
-            log::warn!(
-                "[FNV] RenderFirstPerson hook skipped at 0x{RENDER_FIRST_PERSON_ADDR:08X}: {err}"
-            )
-        }
-    }
+    .map_err(|err| {
+        anyhow!(
+            "RenderFirstPerson hook preparation at 0x{RENDER_FIRST_PERSON_ADDR:08X} failed: {err}"
+        )
+    })
 }
 
-fn install_render_pre_depth_groups_hook() {
-    PRE_ALPHA_HOOK_READY.store(false, Ordering::Release);
+fn prepare_render_pre_depth_groups_hook() -> Result<()> {
     if RENDER_PRE_DEPTH_GROUPS_HOOK.is_initialized() {
-        let ready =
-            enable_prepared_scene_hook(&RENDER_PRE_DEPTH_GROUPS_HOOK, "RenderPreDepthGroups");
-        PRE_ALPHA_HOOK_READY.store(ready, Ordering::Release);
-        return;
+        return Ok(());
     }
-    match unsafe {
+    validate_vanilla_scene_entry(
+        RENDER_PRE_DEPTH_GROUPS_ADDR,
+        RENDER_PRE_DEPTH_GROUPS_PROLOGUE,
+        "RenderPreDepthGroups",
+    )?;
+    unsafe {
         RENDER_PRE_DEPTH_GROUPS_HOOK.init(
             "FNV RenderPreDepthGroups",
             RENDER_PRE_DEPTH_GROUPS_ADDR as *mut c_void,
             hook_render_pre_depth_groups,
         )
-    } {
-        Ok(()) => {}
-        Err(err) => {
-            log::warn!(
-                "[FNV] Pre-alpha atmosphere hook skipped at 0x{RENDER_PRE_DEPTH_GROUPS_ADDR:08X}: {err}"
-            );
-            return;
-        }
     }
+    .map_err(|err| {
+        anyhow!(
+            "RenderPreDepthGroups hook preparation at 0x{RENDER_PRE_DEPTH_GROUPS_ADDR:08X} failed: {err}"
+        )
+    })
+}
 
-    match RENDER_PRE_DEPTH_GROUPS_HOOK.enable() {
-        Ok(()) => {
-            PRE_ALPHA_HOOK_READY.store(true, Ordering::Release);
-            log::info!(
-                "[FNV] Pre-alpha atmosphere hook installed at 0x{RENDER_PRE_DEPTH_GROUPS_ADDR:08X}"
-            );
-        }
-        Err(err) => log::warn!(
-            "[FNV] Pre-alpha atmosphere hook skipped at 0x{RENDER_PRE_DEPTH_GROUPS_ADDR:08X}: {err}"
-        ),
+fn validate_vanilla_scene_entry(
+    address: usize,
+    expected: &[u8],
+    label: &'static str,
+) -> Result<()> {
+    validate_memory_range(address as *const c_void, expected.len())
+        .map_err(|error| anyhow!("could not read {label} entry at 0x{address:08X}: {error}"))?;
+    let observed = unsafe { std::slice::from_raw_parts(address as *const u8, expected.len()) };
+    if observed != expected {
+        return Err(anyhow!(
+            "{label} entry at 0x{address:08X} has unsupported ownership or executable bytes"
+        ));
     }
+    Ok(())
 }
 
 /// Re-enable a prepared scene hook during a DeferredInit retry.
@@ -467,16 +351,36 @@ fn install_render_pre_depth_groups_hook() {
 fn enable_prepared_scene_hook<T: Function>(
     hook: &InlineHookContainer<T>,
     label: &'static str,
-) -> bool {
+) -> Result<bool> {
     if hook.is_enabled() {
-        return true;
+        return Ok(false);
     }
     match hook.enable() {
-        Ok(()) => true,
+        Ok(()) => Ok(true),
         Err(err) => {
-            log::warn!("[FNV] Prepared {label} hook could not be re-enabled: {err}");
-            false
+            // Page-protection restoration can fail after the entry JMP was
+            // written. InlineHook publishes that real ownership; remove it
+            // immediately so the caller's reverse rollback starts from the
+            // last fully completed member.
+            if hook.is_enabled()
+                && let Err(rollback_err) = hook.disable()
+            {
+                log::error!(
+                    "[FNV] {label} hook became active during failed enable and immediate rollback failed: {rollback_err}"
+                );
+            }
+            Err(anyhow!("prepared {label} hook could not be enabled: {err}"))
         }
+    }
+}
+
+fn rollback_scene_hook<T: Function>(
+    hook: &InlineHookContainer<T>,
+    enabled_by_attempt: bool,
+    label: &'static str,
+) {
+    if enabled_by_attempt && let Err(err) = hook.disable() {
+        log::error!("[FNV] {label} hook rollback failed: {err}");
     }
 }
 
@@ -1010,34 +914,22 @@ mod final_color_phase_contract_tests {
     }
 
     #[test]
-    fn inactive_external_policy_reaches_physical_depth_stage_detachment() {
+    fn runtime_policy_cannot_rewrite_resident_depth_stage_hooks() {
         assert!(!depth_stage_hooks_required(false, false));
 
         let source = include_str!("fnv_render.rs");
-        let body = source
-            .split_once("pub(crate) fn reconcile_depth_stage_hooks")
-            .map(|(_, tail)| tail)
-            .and_then(|tail| tail.split_once("pub(crate) fn depth_stage_hooks_active"))
-            .map(|(body, _)| body)
-            .expect("depth-stage reconciliation body");
-        assert!(body.contains("depth_stage_hooks_required("));
-        assert!(body.contains("set_depth_stage_hooks_active(required)"));
+        let live_toggle = ["set_depth_stage_hooks", "_active"].concat();
+        let reconciliation = ["reconcile_depth_stage", "_hooks"].concat();
+        assert!(!source.contains(&live_toggle));
+        assert!(!source.contains(&reconciliation));
 
-        let transition = source
-            .split_once("pub(crate) fn set_depth_stage_hooks_active")
+        let install = source
+            .split_once("pub(crate) fn install_scene_boundary_hook")
             .map(|(_, tail)| tail)
-            .and_then(|tail| tail.split_once("pub(crate) fn reconcile_depth_stage_hooks"))
+            .and_then(|tail| tail.split_once("pub(crate) fn underwater_publication_hook_ready"))
             .map(|(body, _)| body)
-            .expect("physical depth-stage transition body");
-        for hook in [
-            "SET_WATER_SHADER_UNDERWATER_HOOK",
-            "RENDER_WORLD_SCENE_GRAPH_HOOK",
-            "RENDER_FIRST_PERSON_HOOK",
-            "RENDER_PRE_DEPTH_GROUPS_HOOK",
-        ] {
-            assert!(transition.contains(hook));
-        }
-        assert!(transition.contains("set_inline_hook_state"));
-        assert!(transition.contains("false"));
+            .expect("resident scene hook transaction");
+        assert!(install.contains("prepare_render_world_scene_graph_hook"));
+        assert!(install.contains("rollback_scene_hook"));
     }
 }

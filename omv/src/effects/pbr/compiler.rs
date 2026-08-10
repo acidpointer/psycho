@@ -231,9 +231,12 @@ pub(super) fn cancel_preparation() {
 }
 
 /// Return shared verified bytecode for one logical template, if prepared.
+///
+/// The render-side resource service treats a busy publication as not ready and
+/// retries on a later presentation instead of waiting for a compiler worker.
 pub(super) fn prepared_bytecode(template_id: u16) -> Option<Arc<[u32]>> {
     PREPARED_BYTECODE
-        .lock()
+        .try_lock()?
         .get(template_id as usize)
         .and_then(Clone::clone)
 }

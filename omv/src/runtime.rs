@@ -693,9 +693,7 @@ mod render_callback_io_tests {
         let attachments = body
             .find("attachments.restore")
             .expect("render attachment restore");
-        let state_apply = body
-            .find("StateBlock9::apply")
-            .expect("state-block restore");
+        let state_apply = body.find("apply_state_block").expect("state-block restore");
         assert!(
             attachments < state_apply,
             "SetRenderTarget must precede viewport/scissor restoration"
@@ -754,14 +752,8 @@ pub(crate) unsafe fn apply_present_frame(device_ptr: *mut c_void, hwnd_hint: *mu
     };
     runtime.begin_render_epoch(crate::hooks::render_epoch());
 
-    if crate::fnv_world_pipeline::config_publish_pending()
-        && crate::fnv_world_pipeline::publish_config(runtime.settings.menu_config)
-        && let Err(err) = crate::fnv_render::reconcile_depth_stage_hooks()
-    {
-        // A busy mailbox can defer the world requirement update from the
-        // menu transaction. Reconcile at the successful retry so a now-empty
-        // requirement set cannot leave native depth hooks resident forever.
-        log::warn!("[FNV] Deferred depth-stage hook reconciliation failed: {err:#}");
+    if crate::fnv_world_pipeline::config_publish_pending() {
+        crate::fnv_world_pipeline::publish_config(runtime.settings.menu_config);
     }
 
     let result = unsafe { runtime.apply_present_frame(device_ptr, hwnd_hint) };
@@ -1459,7 +1451,7 @@ impl ScreenShaderRuntime {
                 "[SHADERS] Missing D3D state block before capture",
             ));
         };
-        state_block.capture()?;
+        crate::render_state::capture_state_block(state_block)?;
 
         let draw_result = match shader_target.as_ref() {
             Some((backbuffer, desc, frame_inputs)) => render_target_slots
@@ -1572,7 +1564,7 @@ impl ScreenShaderRuntime {
                 "[AO] Missing D3D state block before post-world capture",
             ));
         };
-        state_block.capture()?;
+        crate::render_state::capture_state_block(state_block)?;
 
         let draw_result = (|| {
             // RenderWorldSceneGraph has returned, so RT0 is the completed
@@ -1674,7 +1666,7 @@ impl ScreenShaderRuntime {
                 "[SHADERS] Missing D3D state block before scene capture",
             ));
         };
-        state_block.capture()?;
+        crate::render_state::capture_state_block(state_block)?;
 
         let draw_result = (|| {
             // The engine attachments can differ in size or multisample mode
@@ -1789,7 +1781,7 @@ impl ScreenShaderRuntime {
             return Ok(());
         };
 
-        device.stretch_rect(&render_target, None, &copy.surface, None, D3DTEXF_POINT)?;
+        crate::render_state::copy_exact_color_surface(&device, &render_target, &copy.surface)?;
         self.world_color_captured_this_frame = true;
         self.world_color_source_target = render_target.as_raw() as usize;
         if self.world_color_capture_logs < 8 {
@@ -3306,12 +3298,6 @@ impl ScreenShaderRuntime {
         update_native_dof_query_needed(&self.settings.menu_config);
         crate::fnv_world_pipeline::publish_config(self.settings.menu_config);
         self.publish_fnv_scene_requirements();
-        if let Err(err) = crate::fnv_render::reconcile_depth_stage_hooks() {
-            log::warn!("[FNV] Depth-stage hook reconciliation failed: {err:#}");
-            self.menu_config_error = Some(format!(
-                "Depth-stage hooks could not be reconciled: {err}. The log reports which native entry remained active."
-            ));
-        }
         pbr::configure_runtime_options(
             pbr::NativePbrSettings::from(self.settings.menu_config.native_pbr)
                 .with_master_enabled(master_enabled),

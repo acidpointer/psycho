@@ -1,10 +1,16 @@
 //! Draw-scoped replacement for the native Fallout NV sky shader family.
 //!
 //! The engine constants hook identifies a pending sky draw and the resident
-//! common shader-draw hook binds the replacement for exactly that draw.
+//! `NiDX9Renderer::RenderTriShape`/`RenderTriStrips` hooks bind the replacement
+//! across the geometry submission that consumes it. Texture admission reads
+//! the process-static mirror maintained by the shared engine `SetTexture`
+//! observer; it never asks the D3D driver to report current sampler state.
 //! Disabling native sky makes both resident engine hooks passive through their
 //! atomic gate and releases its D3D shader objects; compiled bytecode remains
 //! process-owned for a cheap later rebuild.
+//! Resource creation and reset use nonblocking owners at DisplayScene/Recreate;
+//! a busy compiler or resource publication is deferred rather than stalling
+//! the renderer thread.
 
 use std::{
     ffi::c_void,
@@ -284,6 +290,7 @@ static FALLBACK_LOGGED: AtomicBool = AtomicBool::new(false);
 
 struct ResourceState {
     device: usize,
+    device_generation: u32,
     slots: Vec<ResourceSlot>,
 }
 
@@ -326,7 +333,16 @@ impl ResourceState {
     fn new() -> Self {
         Self {
             device: 0,
+            device_generation: 0,
             slots: (0..SHADER_COUNT).map(|_| ResourceSlot::default()).collect(),
+        }
+    }
+
+    fn clear_for_device(&mut self, device: usize, device_generation: u32) {
+        self.device = device;
+        self.device_generation = device_generation;
+        for slot in &mut self.slots {
+            *slot = ResourceSlot::default();
         }
     }
 }
@@ -344,6 +360,10 @@ impl ResourceSlot {
     }
 }
 
+/// Stage native-sky settings and install the resident constants observer.
+///
+/// The renderer geometry hooks are owned by `crate::hooks`; replacement stays
+/// fail-closed until that owner publishes [`set_draw_boundary_ready`].
 pub(crate) fn install(settings: NativeSkySettings) -> Result<()> {
     configure_runtime_options(settings);
     if UPDATE_HOOK.is_initialized() {
@@ -390,7 +410,7 @@ pub(crate) fn configure_runtime_options(settings: NativeSkySettings) {
         // Restore any replacement pair before the resident hook becomes
         // passive. Device resources are recreated lazily when the user
         // enables the feature again.
-        reset_runtime_state();
+        let _ = reset_runtime_state();
     }
 }
 
@@ -415,29 +435,35 @@ fn ensure_engine_hook_resident() {
     }
 }
 
+/// Publish whether both executable-proven renderer geometry hooks are active.
 pub(crate) fn set_draw_boundary_ready(ready: bool) {
     DRAW_BOUNDARY_READY.store(ready, Ordering::Release);
 }
 
+/// Snapshot native-sky installation, compilation, and device-resource state.
 pub(crate) fn runtime_status() -> NativeSkyStatus {
     NativeSkyStatus {
         installed: INSTALLED.load(Ordering::Acquire),
         enabled: ENABLED.load(Ordering::Acquire),
         compiled: BYTECODE
-            .lock()
-            .iter()
-            .filter(|entry| entry.is_some())
-            .count(),
+            .try_lock()
+            .as_deref()
+            .map(|bytecode| bytecode.iter().filter(|entry| entry.is_some()).count())
+            .unwrap_or(0),
         created: HANDLES
             .iter()
             .filter(|handle| handle.load(Ordering::Acquire) != 0)
             .count(),
         total: SHADER_COUNT,
         failed: COMPILE_FAILED.load(Ordering::Acquire)
-            || RESOURCES.lock().slots.iter().any(|slot| slot.failed),
+            || RESOURCES
+                .try_lock()
+                .as_deref()
+                .is_some_and(|resources| resources.slots.iter().any(|slot| slot.failed)),
     }
 }
 
+/// Advance sky resource preparation at the serialized presentation boundary.
 pub(crate) fn service_present_frame() {
     FRAME_EPOCH.fetch_add(1, Ordering::AcqRel);
     if ENABLED.load(Ordering::Acquire) {
@@ -446,6 +472,11 @@ pub(crate) fn service_present_frame() {
     }
 }
 
+/// Admit and bind one pending sky replacement before renderer geometry work.
+///
+/// A `true` result owns a draw-local restoration and must be paired with
+/// [`finish_direct_draw`] after the native geometry submission.
+#[must_use]
 pub(crate) fn prepare_direct_draw() -> bool {
     if !PENDING.load(Ordering::Acquire) {
         return false;
@@ -457,26 +488,44 @@ pub(crate) fn prepare_direct_draw() -> bool {
         return false;
     }
 
-    if !try_bind_pending_draw() && !FALLBACK_LOGGED.swap(true, Ordering::AcqRel) {
-        log::warn!("[SKY] Sky draw kept vanilla because a replacement contract was unavailable");
+    if !try_bind_pending_draw() {
+        crate::graphics_diagnostics::add(crate::graphics_diagnostics::Counter::SkyFallback, 1);
+        if !FALLBACK_LOGGED.swap(true, Ordering::AcqRel) {
+            log::warn!(
+                "[SKY] Sky draw kept vanilla because a replacement contract was unavailable"
+            );
+        }
     }
     true
 }
 
+/// Restore native sky shader ownership after an admitted geometry submission.
 pub(crate) fn finish_direct_draw() {
     restore_direct_pair();
     PENDING.store(false, Ordering::Release);
 }
 
-pub(crate) fn reset_runtime_state() {
+/// Release current-device sky resources and clear pending draw ownership.
+///
+/// A `false` result leaves all publication unchanged so Recreate can abort and
+/// retry without waiting or carrying a still-owned shader across native reset.
+#[must_use]
+pub(crate) fn reset_runtime_state() -> bool {
+    let Some(mut resources) = RESOURCES.try_lock() else {
+        return false;
+    };
+    let Some(mut frame_state) = FRAME_STATE.try_lock() else {
+        return false;
+    };
     restore_direct_pair();
     clear_handles();
-    *RESOURCES.lock() = ResourceState::new();
-    FRAME_STATE.lock().clear();
+    resources.clear_for_device(0, 0);
+    frame_state.clear();
     FRAME_EPOCH.fetch_add(1, Ordering::AcqRel);
     clear_pending();
     FIRST_BIND_LOGGED.store(false, Ordering::Release);
     FALLBACK_LOGGED.store(false, Ordering::Release);
+    true
 }
 
 fn start_compile_worker() {
@@ -768,6 +817,30 @@ mod shader_compile_tests {
         assert!(residency.contains("UPDATE_HOOK.enable()"));
         assert!(!residency.contains("UPDATE_HOOK.disable()"));
     }
+
+    #[test]
+    fn native_sky_render_resource_paths_defer_instead_of_waiting() {
+        let source = include_str!("sky.rs");
+        let create = source
+            .split_once("fn create_ready_resources()")
+            .and_then(|(_, tail)| {
+                tail.split_once("unsafe extern \"thiscall\" fn hook_update_constants")
+            })
+            .map(|(body, _)| body)
+            .expect("native sky resource creation body");
+        assert!(create.contains("BYTECODE.try_lock()"));
+        assert!(create.contains("RESOURCES.try_lock()"));
+
+        let reset = source
+            .split_once("pub(crate) fn reset_runtime_state()")
+            .and_then(|(_, tail)| tail.split_once("fn start_compile_worker()"))
+            .map(|(body, _)| body)
+            .expect("native sky resource reset body");
+        assert!(reset.contains("RESOURCES.try_lock()"));
+        assert!(reset.contains("FRAME_STATE.try_lock()"));
+        assert!(reset.contains("resources.clear_for_device(0, 0)"));
+        assert!(!reset.contains("ResourceState::new()"));
+    }
 }
 
 fn load_or_compile(label: &str, source: &[u8], profile: &str) -> Result<(Vec<u32>, &'static str)> {
@@ -793,12 +866,16 @@ fn create_ready_resources() {
     let Some(device) = (unsafe { Device9Ref::from_raw_void(device_ptr) }) else {
         return;
     };
-    let bytecode = BYTECODE.lock();
-    let mut resources = RESOURCES.lock();
-    if resources.device != device_ptr as usize {
+    let Some(bytecode) = BYTECODE.try_lock() else {
+        return;
+    };
+    let Some(mut resources) = RESOURCES.try_lock() else {
+        return;
+    };
+    let device_generation = crate::backend::d3d_device_generation();
+    if resources.device != device_ptr as usize || resources.device_generation != device_generation {
         clear_handles();
-        resources.device = device_ptr as usize;
-        resources.slots = (0..SHADER_COUNT).map(|_| ResourceSlot::default()).collect();
+        resources.clear_for_device(device_ptr as usize, device_generation);
     }
 
     let mut created = 0usize;
@@ -829,9 +906,8 @@ fn create_ready_resources() {
                 HANDLES[index].store(handle as usize, Ordering::Release);
                 created += 1;
             }
-            Err(err) => {
+            Err(_) => {
                 resources.slots[index].failed = true;
-                log::warn!("[SKY] Failed to create {}: {err}", TEMPLATES[index].label);
             }
         }
     }
@@ -909,6 +985,8 @@ unsafe extern "thiscall" fn hook_update_constants(
 }
 
 fn try_bind_pending_draw() -> bool {
+    let _span =
+        crate::graphics_diagnostics::span(crate::graphics_diagnostics::Interval::SkyAdmission);
     let vertex_index = PENDING_VERTEX_INDEX.load(Ordering::Acquire) as usize;
     let pixel_index = PENDING_PIXEL_INDEX.load(Ordering::Acquire) as usize;
     let object_type = PENDING_OBJECT_TYPE.load(Ordering::Acquire);
@@ -946,17 +1024,17 @@ fn try_bind_pending_draw() -> bool {
     let Some(device) = (unsafe { Device9Ref::from_raw_void(device_ptr) }) else {
         return false;
     };
-    if device.current_vertex_shader_raw().ok() != Some(native_vertex)
-        || device.current_pixel_shader_raw().ok() != Some(native_pixel)
-    {
-        return false;
-    }
+    // UpdateConstants publishes the native wrapper pair, and the renderer
+    // geometry hook invokes this function after native SetShaders and
+    // SetupGeometry but before submission. Reading both shaders back here was
+    // redundant synchronization with the driver on every admitted geometry.
     if pixel_index == 1 {
-        if device.texture_raw(0).is_none() || (vertex_index == 6 && device.texture_raw(1).is_none())
+        if super::pbr::tracked_texture(0).is_none()
+            || (vertex_index == 6 && super::pbr::tracked_texture(1).is_none())
         {
             return false;
         }
-    } else if pixel_index == 4 && device.texture_raw(0).is_none() {
+    } else if pixel_index == 4 && super::pbr::tracked_texture(0).is_none() {
         return false;
     }
 
@@ -981,6 +1059,7 @@ fn try_bind_pending_draw() -> bool {
             object_type
         );
     }
+    crate::graphics_diagnostics::add(crate::graphics_diagnostics::Counter::SkyAdmission, 1);
     true
 }
 
@@ -1193,16 +1272,7 @@ fn resolve_hook_target() -> Result<*mut c_void> {
     if actual.starts_with(SKY_UPDATE_PROLOGUE) {
         return Ok(SKY_UPDATE_CONSTANTS_ADDR as *mut c_void);
     }
-    if actual[0] == 0xE9 {
-        let relative = i32::from_le_bytes([actual[1], actual[2], actual[3], actual[4]]);
-        let target = (SKY_UPDATE_CONSTANTS_ADDR as isize)
-            .wrapping_add(5)
-            .wrapping_add(relative as isize) as usize;
-        validate_memory_range(target as *const c_void, 8)?;
-        log::info!("[SKY] Chaining existing SkyShader redirect at 0x{target:08X}");
-        return Ok(target as *mut c_void);
-    }
-    anyhow::bail!("SkyShader::UpdateConstants prologue is unsupported")
+    anyhow::bail!("SkyShader::UpdateConstants has unsupported ownership or executable bytes")
 }
 
 fn find_array_index(

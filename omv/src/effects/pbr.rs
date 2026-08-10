@@ -1,7 +1,7 @@
 //! Native PBR integration.
 //!
 //! This module owns PBR configuration, preparation state, and the public
-//! boundary used by OMV's engine draw hook. Shader compilation, engine contracts,
+//! boundary used by OMV's renderer geometry hooks. Shader compilation, engine contracts,
 //! device resources, draw classification, constants, diagnostics, and terrain
 //! light capture live in focused child modules. OMV storage remains independent
 //! from NVR's native object-size patches.
@@ -17,8 +17,9 @@
 //! Runtime disable is a passive engine-contract boundary. The proven PBR
 //! inline hooks remain resident because restoring stale shader-wrapper or
 //! shared package state was a prior corruption defect documented in the PBR
-//! errata. Their detours bypass before selector/sampler work, while the common
-//! engine draw hook remains resident and PBR device resources are released.
+//! errata. Their detours bypass before selector/sampler work, while the shared
+//! renderer geometry hooks remain resident and PBR device resources are
+//! released.
 //! Process-owned compiled bytecode and observed engine-wrapper identities
 //! remain cached for safe live re-enable.
 //!
@@ -41,16 +42,16 @@ mod shader_record;
 mod shader_registry;
 mod terrain_lights;
 
-use std::sync::{
-    LazyLock,
-    atomic::{AtomicBool, Ordering},
-};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
 use anyhow::Result;
-use parking_lot::Mutex;
 
 const OBJECT_PBR_PROFILE_VALUE_COUNT: usize = 4;
 const TERRAIN_PBR_PROFILE_VALUE_COUNT: usize = 5;
+const BLOCK_REASON_NONE: u32 = 0;
+const BLOCK_REASON_HOOKS: u32 = 1;
+const BLOCK_REASON_EYE_POSITION: u32 = 2;
+const BLOCK_REASON_SHADER_PACKAGE: u32 = 3;
 
 static INSTALLED: AtomicBool = AtomicBool::new(false);
 static SHADER_ENABLED: AtomicBool = AtomicBool::new(false);
@@ -64,7 +65,7 @@ static ACTIVE_CONTRACTS_READY: AtomicBool = AtomicBool::new(false);
 static ACTIVE_CONTRACTS_FAILED: AtomicBool = AtomicBool::new(false);
 static INSTALL_BOUNDARY_REACHED: AtomicBool = AtomicBool::new(false);
 static ENABLE_PENDING: AtomicBool = AtomicBool::new(false);
-static BLOCK_REASON: LazyLock<Mutex<Option<&'static str>>> = LazyLock::new(|| Mutex::new(None));
+static BLOCK_REASON: AtomicU32 = AtomicU32::new(BLOCK_REASON_NONE);
 
 /// Cleanup token for PBR state acquired at one native D3D draw boundary.
 ///
@@ -388,6 +389,11 @@ pub(crate) fn start_cpu_preparation(settings: NativePbrSettings) {
     }
 }
 
+/// Publish native-PBR settings and install its resident engine observers.
+///
+/// The shared `SetTexture` observer remains resident even when PBR starts
+/// disabled because native sky consumes the same getter-free stage mirror.
+/// Shader selection and package ownership are installed only for enabled PBR.
 pub(crate) fn install(settings: NativePbrSettings) -> Result<()> {
     constants::store_settings(settings);
     DEBUG_LOG_DRAWS.store(settings.debug_log_draws, Ordering::Release);
@@ -395,21 +401,26 @@ pub(crate) fn install(settings: NativePbrSettings) -> Result<()> {
     store_terrain_options(settings);
     INSTALL_BOUNDARY_REACHED.store(true, Ordering::Release);
     if !settings.enabled {
+        let tracking_ready = hooks::install_texture_tracking();
         SHADER_ENABLED.store(false, Ordering::Release);
         INSTALLED.store(false, Ordering::Release);
         refresh_block_reason();
-        log::info!("[PBR] Native PBR disabled; no PBR hooks or engine contracts installed");
+        log::info!(
+            "[PBR] Native PBR disabled; shared texture observer resident={tracking_ready}, PBR selection and engine contracts remain passive"
+        );
         return Ok(());
     }
 
     activate()
 }
 
+/// Publish whether the close-terrain executable and resource contract exists.
 pub(crate) fn configure_terrain_contract(available: bool) {
     engine_contracts::set_terrain_contract_available(available);
     refresh_block_reason();
 }
 
+/// Publish whether both executable-proven renderer geometry hooks are active.
 pub(crate) fn set_draw_boundary_ready(ready: bool) {
     DRAW_BOUNDARY_READY.store(ready, Ordering::Release);
 }
@@ -419,9 +430,9 @@ pub(crate) fn set_draw_boundary_ready(ready: bool) {
 /// The returned token must be passed to [`finish_direct_draw`] after the native
 /// draw returns, including on D3D failure.
 #[must_use]
-pub(crate) fn prepare_direct_draw() -> PbrDirectDrawScope {
+pub(crate) fn prepare_direct_draw(geometry: *mut std::ffi::c_void) -> PbrDirectDrawScope {
     PbrDirectDrawScope {
-        restore_after_draw: hooks::prepare_direct_draw(),
+        restore_after_draw: hooks::prepare_direct_draw(geometry),
     }
 }
 
@@ -439,6 +450,28 @@ pub(crate) fn finish_draw_batches() {
     hooks::finish_draw_batches();
 }
 
+/// Return a texture identity observed by the resident engine `SetTexture` hook.
+///
+/// `None` means that the stage is unknown or known-null. Consumers must fail
+/// closed rather than query D3D state, because driver readback at geometry rate
+/// is outside OMV's render-thread performance contract.
+pub(crate) fn tracked_texture(stage: u32) -> Option<usize> {
+    samplers::tracked_texture(stage)
+}
+
+/// Return the generation of semantic texture-stage transitions.
+///
+/// Equal repeated `SetTexture` calls do not advance this value. It is suitable
+/// for generation-keyed draw caches shared by PBR and native sky.
+pub(crate) fn texture_generation() -> u32 {
+    samplers::texture_generation()
+}
+
+/// Apply live PBR settings at the serialized DisplayScene boundary.
+///
+/// Disabling makes resident hooks passive and releases device resources.
+/// Enabling queues activation so no configuration thread mutates render-owned
+/// hooks, wrappers, or COM resources.
 pub(crate) fn configure_runtime_options(settings: NativePbrSettings) {
     constants::store_settings(settings);
     store_terrain_options(settings);
@@ -455,10 +488,11 @@ pub(crate) fn configure_runtime_options(settings: NativePbrSettings) {
         ENABLE_PENDING.store(false, Ordering::Release);
         SHADER_ENABLED.store(false, Ordering::Release);
         compiler::cancel_preparation();
-        release_disabled_device_resources();
-        log::info!(
-            "[PBR] Native PBR disabled; engine hooks are passive and device resources were released"
-        );
+        if release_disabled_device_resources() {
+            log::info!(
+                "[PBR] Native PBR disabled; engine hooks are passive and device resources were released"
+            );
+        }
     } else if !was_enabled && settings.enabled {
         if !ENABLE_PENDING.swap(true, Ordering::AcqRel) {
             log::info!("[PBR] Native PBR activation queued for the next DisplayScene boundary");
@@ -474,15 +508,19 @@ pub(crate) fn configure_runtime_options(settings: NativePbrSettings) {
 /// Compiled shader bytecode and observed wrapper identities are process-owned
 /// and deliberately retained. The installed detours perform an early
 /// configured-state bypass while disabled; this avoids the stale-handle
-/// restoration defect described in `graphics_fnv_pbr_errata.md`.
-pub(crate) fn release_disabled_device_resources() {
+/// restoration defect described in `graphics_fnv_pbr_errata.md`. A `false`
+/// result means the nonblocking resource owner was busy and nothing changed.
+#[must_use]
+pub(crate) fn release_disabled_device_resources() -> bool {
+    if !device_resources::try_reset_after(hooks::release_device_resources) {
+        return false;
+    }
     terrain_lights::invalidate_draw_cache();
-    hooks::release_device_resources();
-    device_resources::reset();
     samplers::reset();
     diagnostics::reset();
     ACTIVE_CONTRACTS_READY.store(false, Ordering::Release);
     ACTIVE_CONTRACTS_FAILED.store(false, Ordering::Release);
+    true
 }
 
 pub(crate) fn set_menu_diagnostics_active(active: bool) {
@@ -632,7 +670,7 @@ pub(crate) fn runtime_status() -> NativePbrRuntimeStatus {
             || device_resources::close_terrain_create_failed(),
         close_terrain_contract_proven: close_terrain_contract_available(),
         terrain_fade_contract_proven: terrain_fade_contracts_ready(),
-        block_reason: *BLOCK_REASON.lock(),
+        block_reason: block_reason_label(BLOCK_REASON.load(Ordering::Acquire)),
     }
 }
 
@@ -675,9 +713,12 @@ pub(crate) fn retry_preparation() {
     if !SHADER_ENABLED.load(Ordering::Acquire) {
         return;
     }
-    compiler::cancel_preparation();
-    hooks::release_device_resources();
-    device_resources::reset();
+    if !device_resources::try_reset_after(|| {
+        compiler::cancel_preparation();
+        hooks::release_device_resources();
+    }) {
+        return;
+    }
     compiler::ensure_object_prewarm_started();
 }
 
@@ -742,11 +783,17 @@ fn activate() -> Result<()> {
     Ok(())
 }
 
-pub(crate) fn reset_runtime_state() {
+/// Release all current-device PBR ownership without waiting.
+///
+/// A `false` result leaves resource publication unchanged so Recreate can
+/// abort before native reset invalidates a still-owned shader.
+#[must_use]
+pub(crate) fn reset_runtime_state() -> bool {
+    if !device_resources::try_reset_after(hooks::release_device_resources) {
+        return false;
+    }
     terrain_lights::invalidate_draw_cache();
-    hooks::release_device_resources();
     shader_record::reset();
-    device_resources::reset();
     samplers::reset();
     samplers::set_texture_tracking_ready(hooks::hooks_ready());
     diagnostics::reset();
@@ -754,21 +801,31 @@ pub(crate) fn reset_runtime_state() {
     ACTIVE_CONTRACTS_READY.store(false, Ordering::Release);
     ACTIVE_CONTRACTS_FAILED.store(false, Ordering::Release);
     refresh_block_reason();
+    true
 }
 
 fn refresh_block_reason() {
     let reason = if !SHADER_ENABLED.load(Ordering::Acquire) {
-        None
+        BLOCK_REASON_NONE
     } else if !hooks::hooks_ready() {
-        Some("object shader hooks unavailable")
+        BLOCK_REASON_HOOKS
     } else if !engine_contracts::eye_position_ready() {
-        Some("EyePosition contract unavailable")
+        BLOCK_REASON_EYE_POSITION
     } else if !engine_contracts::shader_package_lifetime_ready() {
-        Some("shader package lifetime contract unavailable")
+        BLOCK_REASON_SHADER_PACKAGE
     } else {
-        None
+        BLOCK_REASON_NONE
     };
-    *BLOCK_REASON.lock() = reason;
+    BLOCK_REASON.store(reason, Ordering::Release);
+}
+
+fn block_reason_label(reason: u32) -> Option<&'static str> {
+    match reason {
+        BLOCK_REASON_HOOKS => Some("object shader hooks unavailable"),
+        BLOCK_REASON_EYE_POSITION => Some("EyePosition contract unavailable"),
+        BLOCK_REASON_SHADER_PACKAGE => Some("shader package lifetime contract unavailable"),
+        _ => None,
+    }
 }
 
 fn shader_enabled() -> bool {
@@ -935,7 +992,7 @@ mod master_setting_tests {
             .map(|(body, _)| body)
             .expect("reset runtime state body");
 
-        assert!(reset.contains("device_resources::reset()"));
+        assert!(reset.contains("device_resources::try_reset_after"));
         assert!(
             !reset.contains("compiler::reset"),
             "D3D device reset must not invalidate process-owned shader bytecode"
@@ -964,18 +1021,34 @@ mod master_setting_tests {
             .map(|(body, _)| body)
             .expect("disabled PBR release body");
 
-        assert!(release.contains("device_resources::reset()"));
-        assert!(release.contains("hooks::release_device_resources()"));
-        assert!(
-            release.find("hooks::release_device_resources()").unwrap()
-                < release.find("device_resources::reset()").unwrap(),
-            "the active engine-owned pair must return to native before COM resources drop"
-        );
+        assert!(release.contains("device_resources::try_reset_after"));
+        assert!(release.contains("hooks::release_device_resources"));
         assert!(!release.contains("hooks::reset()"));
         assert!(!release.contains("shader_record::reset()"));
         assert!(
             !release.contains("compiler::reset"),
             "process-owned bytecode remains reusable across live disable"
         );
+    }
+
+    #[test]
+    fn pbr_render_resource_paths_never_wait_for_an_owner() {
+        let resources = include_str!("pbr/device_resources.rs");
+        let blocking_resource_lock = ["RESOURCES", ".lock()"].concat();
+        assert!(resources.contains("RESOURCES.try_lock()"));
+        assert!(
+            !resources.contains(&blocking_resource_lock),
+            "presentation and Recreate paths must defer instead of blocking"
+        );
+
+        let compiler = include_str!("pbr/compiler.rs");
+        let prepared = compiler
+            .split_once("pub(super) fn prepared_bytecode(")
+            .and_then(|(_, tail)| tail.split_once("pub(super) fn preparation_status()"))
+            .map(|(body, _)| body)
+            .expect("prepared bytecode reader");
+        assert!(prepared.contains("PREPARED_BYTECODE"));
+        assert!(prepared.contains(".try_lock()?"));
+        assert!(!prepared.contains("PREPARED_BYTECODE.lock()"));
     }
 }

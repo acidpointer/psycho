@@ -289,6 +289,49 @@ pub struct Device9Ref<'a> {
     inner: InterfaceRef<'a, IDirect3DDevice9>,
 }
 
+/// Owned `IDirect3DDevice9` reference for a host-published device lifetime.
+///
+/// Graphics integrations normally borrow the renderer's pointer through
+/// [`Device9Ref`]. This owner is for lifecycle coordinators that must keep one
+/// balanced COM identity alive while publishing an allocation-free borrowed
+/// pointer to serialized render callbacks.
+#[derive(Clone, Debug)]
+pub struct Device9 {
+    inner: IDirect3DDevice9,
+}
+
+// Safety: this wrapper only owns a COM reference. Actual D3D calls still have
+// to obey the host renderer's threading contract.
+unsafe impl Send for Device9 {}
+
+impl Device9 {
+    /// Retain a live host-owned device as one owned COM reference.
+    ///
+    /// # Safety
+    ///
+    /// `device` must point to a live `IDirect3DDevice9`. The returned owner
+    /// performs `QueryInterface`/`AddRef` and releases that reference on drop.
+    pub unsafe fn retain_raw(device: *mut c_void) -> Direct3DResult<Self> {
+        let ptr = NonNull::new(device).ok_or_else(|| WindowsError::from_hresult(E_POINTER))?;
+        let borrowed = unsafe { InterfaceRef::<IDirect3DDevice9>::from_raw(ptr) };
+        borrowed
+            .cast::<IDirect3DDevice9>()
+            .map(|inner| Self { inner })
+    }
+
+    /// Return the raw retained `IDirect3DDevice9*` identity.
+    pub fn as_raw(&self) -> *mut c_void {
+        self.inner.as_raw()
+    }
+
+    /// Borrow the retained identity for a serialized render-thread call.
+    pub fn as_ref(&self) -> Device9Ref<'_> {
+        // The owned interface keeps the pointer live for this borrow.
+        unsafe { Device9Ref::from_raw_void(self.as_raw()) }
+            .expect("an owned D3D9 device cannot contain a null interface")
+    }
+}
+
 impl<'a> Device9Ref<'a> {
     /// Create a borrowed device wrapper from a raw COM pointer.
     ///

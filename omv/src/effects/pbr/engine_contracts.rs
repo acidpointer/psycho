@@ -1,18 +1,30 @@
 //! Engine-side contracts required before visible object PBR can be enabled.
 //!
-//! Keep raw addresses and global engine patches here. Shader code can only be
-//! stable when the engine supplies the same pass constants and shader package
-//! lifetime behavior that NVR relies on.
+//! This module is the sole owner of PBR's executable-address reads, SLS
+//! constant-flag publication, shader-wrapper handle overrides, and shader
+//! package lifetime. The package contract is installed once at `DeferredInit`
+//! as a rollback-capable pair: the proven native `SetShaderPackage` transition
+//! hook plus the package-lifetime branch opcode. Package 7 is seeded once and
+//! then republished only after a real native package transition. Frame service
+//! never writes package globals, changes page protection, or patches code.
+//!
+//! Draw-facing helpers separate checked discovery from explicitly named fast
+//! reads whose pointer lifetimes are guaranteed by the serialized renderer
+//! callback. They do not call D3D getters or perform executable mutation.
 
 use std::{
-    ffi::c_void,
+    ffi::{c_char, c_void},
     mem::size_of,
-    sync::atomic::{AtomicBool, AtomicU32, Ordering},
+    sync::{
+        LazyLock,
+        atomic::{AtomicBool, AtomicU32, Ordering},
+    },
 };
 
 use libpsycho::os::windows::{
-    memory::{validate_memory_range, with_writable_memory},
-    winapi::patch_bytes,
+    hook::{inline::inlinehook::InlineHookContainer, transaction::ModificationTransaction},
+    memory::validate_memory_range,
+    patch::OwnedCodePatch,
 };
 
 use super::shader_registry::ShaderStage;
@@ -29,6 +41,8 @@ const EYE_POSITION_REFRESH_INTERVAL_FRAMES: u32 = 240;
 const SHADER_PACKAGE_CURRENT_ADDR: usize = 0x011F91C0;
 const SHADER_PACKAGE_MAX_ADDR: usize = 0x011F91BC;
 const NVR_SHADER_PACKAGE_SLS2: u32 = 7;
+const SET_SHADER_PACKAGE_ADDR: usize = 0x00B4F710;
+const SET_SHADER_PACKAGE_PROLOGUE: &[u8] = &[0x8B, 0x4C, 0x24, 0x04, 0x8B, 0x54, 0x24, 0x08, 0x56];
 const SHADER_PACKAGE_LIFETIME_BRANCH_ADDR: usize = 0x00B575AA;
 const SHADER_PACKAGE_LIFETIME_VANILLA_JZ: u8 = 0x74;
 const SHADER_PACKAGE_LIFETIME_NVR_JNZ: u8 = 0x75;
@@ -70,7 +84,19 @@ const PPLIGHTING_PROPERTY_VTABLES: &[usize] = &[
 static TERRAIN_CONTRACT_AVAILABLE: AtomicBool = AtomicBool::new(false);
 static EYE_POSITION_CONTRACT_READY: AtomicBool = AtomicBool::new(false);
 static SHADER_PACKAGE_LIFETIME_READY: AtomicBool = AtomicBool::new(false);
+static SHADER_PACKAGE_TRANSITION_READY: AtomicBool = AtomicBool::new(false);
 static EYE_POSITION_REFRESH_FRAME: AtomicU32 = AtomicU32::new(0);
+
+type SetShaderPackageFn = unsafe extern "cdecl" fn(i32, i32, u8, i32, *mut c_char, i32);
+
+static SET_SHADER_PACKAGE_HOOK: LazyLock<InlineHookContainer<SetShaderPackageFn>> =
+    LazyLock::new(InlineHookContainer::new);
+static SHADER_PACKAGE_LIFETIME_PATCH: OwnedCodePatch = OwnedCodePatch::new(
+    "FNV shader-package lifetime branch",
+    SHADER_PACKAGE_LIFETIME_BRANCH_ADDR,
+    &[SHADER_PACKAGE_LIFETIME_VANILLA_JZ],
+    &[SHADER_PACKAGE_LIFETIME_NVR_JNZ],
+);
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum ObjectDrawRejectReason {
@@ -125,28 +151,38 @@ pub(super) struct ObjectSpecularFadeSnapshot {
     pub(super) light_signature: u32,
 }
 
+/// Install the immutable SLS and shader-package contracts required by PBR.
 pub(super) fn install_core_contracts() {
     enable_eye_position_for_all_sls_passes();
-    enable_shader_package_lifetime_contract();
-    force_nvr_shader_package();
+    if install_shader_package_contract() {
+        // DeferredInit runs after the engine's initial package selection. Seed
+        // package 7 once so the hook only needs to own later reloads.
+        publish_shader_package_7();
+    }
 }
 
+/// Publish compatibility detection for the executable-specific terrain ABI.
 pub(super) fn set_terrain_contract_available(available: bool) {
     TERRAIN_CONTRACT_AVAILABLE.store(available, Ordering::Release);
 }
 
+/// Return whether the executable-specific terrain ABI is available.
 pub(super) fn terrain_contract_available() -> bool {
     TERRAIN_CONTRACT_AVAILABLE.load(Ordering::Acquire)
 }
 
+/// Return whether package transition and lifetime ownership are both active.
 pub(super) fn shader_package_lifetime_ready() -> bool {
     SHADER_PACKAGE_LIFETIME_READY.load(Ordering::Acquire)
+        && SHADER_PACKAGE_TRANSITION_READY.load(Ordering::Acquire)
 }
 
+/// Return whether the complete supported SLS range publishes eye position.
 pub(super) fn eye_position_ready() -> bool {
     EYE_POSITION_CONTRACT_READY.load(Ordering::Acquire)
 }
 
+/// Verify eye-position publication for one exact SLS pass row.
 pub(super) fn eye_position_ready_for_pass(pass_index: u32) -> bool {
     if !eye_position_ready() {
         return false;
@@ -164,6 +200,7 @@ pub(super) fn eye_position_ready_for_pass(pass_index: u32) -> bool {
     unsafe { first_row.add(row - SLS_EYE_POSITION_FIRST_ROW).read() & SLS_EYE_POSITION_FLAG != 0 }
 }
 
+/// Add the native fog constant flags to one validated SLS pass row.
 pub(super) fn enable_fog_for_pass(pass_index: u32) -> bool {
     if !eye_position_ready() {
         return false;
@@ -183,19 +220,21 @@ pub(super) fn enable_fog_for_pass(pass_index: u32) -> bool {
     true
 }
 
+/// Repair the established eye-position data contract at a bounded cadence.
+///
+/// Shader-package state is deliberately absent from this frame service; its
+/// only writer is the native transition detour installed at DeferredInit.
 pub(super) fn service_frame() {
-    force_nvr_shader_package();
     service_eye_position_contract();
-    if !shader_package_lifetime_ready() {
-        enable_shader_package_lifetime_contract();
-    }
 }
 
+/// Read the current native wrapper pair inside a serialized shader callback.
 pub(super) fn current_pass_shaders_fast() -> Option<(*mut c_void, *mut c_void)> {
     let pass = live_pointer_at(CURRENT_PASS_GLOBAL_ADDR)?;
     pass_shaders_from_live_pass(pass)
 }
 
+/// Read the vertex and pixel constant flags for one bounded SLS pass row.
 pub(super) fn pass_constant_flags(pass_index: u32) -> Option<(u32, u32)> {
     if pass_index >= SLS_LAST_DISPATCHED_PASS_ROW_EXCLUSIVE {
         return None;
@@ -209,6 +248,7 @@ pub(super) fn pass_constant_flags(pass_index: u32) -> Option<(u32, u32)> {
     Some((vertex, pixel))
 }
 
+/// Read the current geometry selector identity for optional hot telemetry.
 pub(super) fn current_draw_selector_address_fast() -> usize {
     // Hot SetTexture telemetry path. The global addresses are fixed engine
     // state; avoid VirtualQuery per texture bind and fall back to zero on nulls.
@@ -227,6 +267,7 @@ pub(super) fn current_draw_selector_address_fast() -> usize {
     unsafe { (geometry.wrapping_add(CURRENT_DRAW_SELECTOR_OFFSET) as *const usize).read() }
 }
 
+/// Capture the checked engine-side selection state for one object draw.
 pub(super) fn current_draw_snapshot(pass_index: u32) -> DrawSnapshot {
     let geometry = current_geometry().map_or(0, |ptr| ptr as usize);
     let property = if geometry == 0 {
@@ -286,6 +327,7 @@ pub(super) fn current_draw_snapshot(pass_index: u32) -> DrawSnapshot {
     }
 }
 
+/// Return the first native material/pass condition that excludes object PBR.
 pub(super) fn current_object_draw_rejection(pass_index: u32) -> Option<ObjectDrawRejection> {
     let active_row = u16::try_from(pass_index).ok()?;
     if let Some(reason) = classify_active_object_pass_blocker(active_row, 0) {
@@ -303,6 +345,7 @@ pub(super) fn current_object_draw_rejection(pass_index: u32) -> Option<ObjectDra
     None
 }
 
+/// Capture native object specular-fade inputs for diagnostic comparison.
 pub(super) fn current_object_specular_fade_snapshot(
     renderer_constant_weight: Option<f32>,
     light_capacity: u32,
@@ -377,7 +420,27 @@ fn object_distance_fade_weight(
 
 #[cfg(test)]
 mod tests {
-    use super::object_specular_fade_weight;
+    use super::{SetShaderPackageFn, hook_set_shader_package, object_specular_fade_weight};
+
+    #[test]
+    fn shader_package_detour_uses_the_executable_proven_cdecl_abi() {
+        let _: SetShaderPackageFn = hook_set_shader_package;
+    }
+
+    #[test]
+    fn frame_service_never_forces_shader_package_or_patches_code() {
+        let source = include_str!("engine_contracts.rs");
+        let body = source
+            .split_once("pub(super) fn service_frame()")
+            .and_then(|(_, tail)| tail.split_once("pub(super) fn current_pass_shaders_fast"))
+            .map(|(body, _)| body)
+            .expect("PBR frame service body");
+
+        assert!(body.contains("service_eye_position_contract()"));
+        assert!(!body.contains("publish_shader_package_7"));
+        assert!(!body.contains("ModificationTransaction"));
+        assert!(!body.contains("apply_patch"));
+    }
 
     #[test]
     fn object_specular_fade_matches_native_linear_contract() {
@@ -415,6 +478,7 @@ mod tests {
     }
 }
 
+/// Copy a bounded engine geometry name for diagnostics outside hot admission.
 pub(super) fn geometry_name(geometry: usize) -> Option<String> {
     const MAX_NAME_BYTES: usize = 96;
 
@@ -435,6 +499,7 @@ pub(super) fn geometry_name(geometry: usize) -> Option<String> {
     Some(String::from_utf8_lossy(&bytes).into_owned())
 }
 
+/// Read a native shader handle after checked wrapper-layout validation.
 pub(super) fn shader_handle(shader: *mut c_void, stage: ShaderStage) -> Option<*mut c_void> {
     let expected_vtable = shader_vtable(stage);
     let handle_offset = shader_handle_offset(stage);
@@ -443,6 +508,7 @@ pub(super) fn shader_handle(shader: *mut c_void, stage: ShaderStage) -> Option<*
     })
 }
 
+/// Read a native shader handle inside the proven live `SetShaders` lifetime.
 pub(super) fn shader_handle_fast(shader: *mut c_void, stage: ShaderStage) -> Option<*mut c_void> {
     let shader = live_pointer(shader as usize)?;
     let vtable = live_pointer_at(shader as usize)?;
@@ -467,6 +533,10 @@ pub(super) fn shader_handle_fast(shader: *mut c_void, stage: ShaderStage) -> Opt
 /// writes the already-proven mutable handle fields directly; changing page
 /// protection or taking a lock in every `SetShaders` call would itself turn
 /// this renderer boundary into a hot-path bottleneck.
+/// Expose one replacement wrapper pair only for the nested native binder call.
+///
+/// Both wrapper fields are restored on every closure return. Failure to prove
+/// either native handle leaves both fields untouched.
 pub(super) fn with_shader_handle_overrides<R>(
     vertex_shader: *mut c_void,
     native_vertex: *mut c_void,
@@ -584,45 +654,111 @@ fn service_eye_position_contract() {
     }
 }
 
-fn enable_shader_package_lifetime_contract() -> bool {
-    let addr = SHADER_PACKAGE_LIFETIME_BRANCH_ADDR as *mut c_void;
-    if validate_memory_range(addr.cast_const(), 1).is_err() {
-        SHADER_PACKAGE_LIFETIME_READY.store(false, Ordering::Release);
-        return false;
-    }
-
-    let current = unsafe { (addr as *const u8).read() };
-    if current == SHADER_PACKAGE_LIFETIME_NVR_JNZ {
-        SHADER_PACKAGE_LIFETIME_READY.store(true, Ordering::Release);
+fn prepare_shader_package_transition_hook() -> bool {
+    if SET_SHADER_PACKAGE_HOOK.is_initialized() {
         return true;
     }
-    if current != SHADER_PACKAGE_LIFETIME_VANILLA_JZ {
+    if validate_memory_range(
+        SHADER_PACKAGE_MAX_ADDR as *const c_void,
+        2 * size_of::<u32>(),
+    )
+    .is_err()
+    {
+        SHADER_PACKAGE_TRANSITION_READY.store(false, Ordering::Release);
+        return false;
+    }
+    let Some(target) = super::hooks::resolve_hook_target(
+        SET_SHADER_PACKAGE_ADDR,
+        SET_SHADER_PACKAGE_PROLOGUE,
+        "SetShaderPackage",
+    ) else {
+        SHADER_PACKAGE_TRANSITION_READY.store(false, Ordering::Release);
+        return false;
+    };
+    if let Err(err) = unsafe {
+        SET_SHADER_PACKAGE_HOOK.init("FNV SetShaderPackage", target, hook_set_shader_package)
+    } {
+        log::warn!("[PBR] SetShaderPackage hook skipped: {err}");
+        SHADER_PACKAGE_TRANSITION_READY.store(false, Ordering::Release);
+        return false;
+    }
+    true
+}
+
+/// Publish the package transition hook and lifetime opcode as one capability.
+///
+/// The transaction runs only at DeferredInit. If either activation fails, the
+/// other is restored before gameplay can observe a partial package contract;
+/// no frame-service callback writes executable bytes or changes protection.
+fn install_shader_package_contract() -> bool {
+    if SET_SHADER_PACKAGE_HOOK.is_enabled() {
+        let ready = SHADER_PACKAGE_LIFETIME_PATCH.verify().is_ok();
+        SHADER_PACKAGE_LIFETIME_READY.store(ready, Ordering::Release);
+        SHADER_PACKAGE_TRANSITION_READY.store(ready, Ordering::Release);
+        return ready;
+    }
+    if !prepare_shader_package_transition_hook() {
         SHADER_PACKAGE_LIFETIME_READY.store(false, Ordering::Release);
-        log::warn!(
-            "[PBR] Shader package lifetime branch at 0x{SHADER_PACKAGE_LIFETIME_BRANCH_ADDR:08X} has unexpected opcode 0x{current:02X}"
-        );
+        SHADER_PACKAGE_TRANSITION_READY.store(false, Ordering::Release);
         return false;
     }
 
-    match unsafe { patch_bytes(addr, &[SHADER_PACKAGE_LIFETIME_NVR_JNZ]) } {
-        Ok(()) => {
-            SHADER_PACKAGE_LIFETIME_READY.store(true, Ordering::Release);
-            log::info!(
-                "[PBR] Shader package lifetime branch patched at 0x{SHADER_PACKAGE_LIFETIME_BRANCH_ADDR:08X}"
-            );
-            true
-        }
-        Err(err) => {
-            SHADER_PACKAGE_LIFETIME_READY.store(false, Ordering::Release);
-            log::warn!("[PBR] Shader package lifetime patch failed: {err}");
-            false
-        }
+    let mut transaction = ModificationTransaction::new();
+    if let Err(error) = transaction.apply_patch(&SHADER_PACKAGE_LIFETIME_PATCH) {
+        log::warn!("[PBR] Shader package lifetime preflight/apply failed: {error}");
+        SHADER_PACKAGE_LIFETIME_READY.store(false, Ordering::Release);
+        SHADER_PACKAGE_TRANSITION_READY.store(false, Ordering::Release);
+        return false;
     }
+    if let Err(error) = transaction.enable_inline(&SET_SHADER_PACKAGE_HOOK) {
+        log::warn!("[PBR] SetShaderPackage hook activation failed: {error}");
+        SHADER_PACKAGE_LIFETIME_READY.store(false, Ordering::Release);
+        SHADER_PACKAGE_TRANSITION_READY.store(false, Ordering::Release);
+        return false;
+    }
+    transaction.commit();
+    SHADER_PACKAGE_LIFETIME_READY.store(true, Ordering::Release);
+    SHADER_PACKAGE_TRANSITION_READY.store(true, Ordering::Release);
+    log::info!("[PBR] Transactional shader-package lifetime/transition contract installed");
+    true
 }
 
-fn force_nvr_shader_package() {
-    write_u32(SHADER_PACKAGE_CURRENT_ADDR, NVR_SHADER_PACKAGE_SLS2);
-    write_u32(SHADER_PACKAGE_MAX_ADDR, NVR_SHADER_PACKAGE_SLS2);
+unsafe extern "cdecl" fn hook_set_shader_package(
+    arg1: i32,
+    arg2: i32,
+    force_1x_shaders: u8,
+    arg4: i32,
+    graphics_name: *mut c_char,
+    arg6: i32,
+) {
+    let Ok(original) = SET_SHADER_PACKAGE_HOOK.original() else {
+        return;
+    };
+    unsafe {
+        original(arg1, arg2, force_1x_shaders, arg4, graphics_name, arg6);
+    }
+    crate::graphics_diagnostics::add(
+        crate::graphics_diagnostics::Counter::ShaderPackageTransition,
+        1,
+    );
+    publish_shader_package_7();
+}
+
+fn publish_shader_package_7() {
+    // These are mutable `.data` globals written by SetShaderPackage itself.
+    // Their complete range is validated before the resident hook is enabled,
+    // so the semantic transition can use two conditional stores without
+    // VirtualQuery or VirtualProtect on a renderer lifecycle callback.
+    let current = SHADER_PACKAGE_CURRENT_ADDR as *mut u32;
+    let maximum = SHADER_PACKAGE_MAX_ADDR as *mut u32;
+    unsafe {
+        if current.read() != NVR_SHADER_PACKAGE_SLS2 {
+            current.write(NVR_SHADER_PACKAGE_SLS2);
+        }
+        if maximum.read() != NVR_SHADER_PACKAGE_SLS2 {
+            maximum.write(NVR_SHADER_PACKAGE_SLS2);
+        }
+    }
 }
 
 fn current_geometry() -> Option<*mut c_void> {
@@ -630,17 +766,7 @@ fn current_geometry() -> Option<*mut c_void> {
     read_ptr(draw_slot.cast_const())
 }
 
-pub(super) fn current_geometry_fast() -> Option<*mut c_void> {
-    const MIN_ENGINE_PTR: usize = 0x10000;
-
-    let draw_slot = unsafe { (CURRENT_GEOMETRY_SLOT_ADDR as *const usize).read() };
-    if draw_slot < MIN_ENGINE_PTR {
-        return None;
-    }
-    let geometry = unsafe { (draw_slot as *const usize).read() };
-    (geometry >= MIN_ENGINE_PTR).then_some(geometry as *mut c_void)
-}
-
+/// Return the current native pass identity inside a serialized draw callback.
 pub(super) fn current_pass_fast() -> Option<*mut c_void> {
     const MIN_ENGINE_PTR: usize = 0x10000;
 
@@ -780,20 +906,6 @@ fn live_pointer(address: usize) -> Option<*mut c_void> {
     const MIN_USER_ADDRESS: usize = 0x1_0000;
 
     (address >= MIN_USER_ADDRESS).then_some(address as *mut c_void)
-}
-
-fn write_u32(address: usize, value: u32) -> bool {
-    let ptr = address as *mut c_void;
-    if !readable_range(ptr.cast_const(), size_of::<u32>()) {
-        return false;
-    }
-
-    unsafe {
-        with_writable_memory(ptr, size_of::<u32>(), || {
-            (ptr as *mut u32).write(value);
-        })
-        .is_ok()
-    }
 }
 
 fn read_u32(address: *const c_void) -> Option<u32> {

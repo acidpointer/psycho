@@ -91,6 +91,10 @@ pub(crate) fn initialize_for_nvse() -> Result<()> {
     let cfg = crate::config::load_config();
 
     initialize_logging(&cfg.diagnostics)?;
+    // Normal builds compile this call away. Attribution builds still require
+    // the explicit diagnostics switch and sample only one frame per 120, so
+    // installing a diagnostic binary does not imply per-draw timing traffic.
+    crate::graphics_diagnostics::configure(cfg.diagnostics.debug_log, 120);
     log::info!("[INIT] Oh My Vegas graphics initialized through xNVSE");
     log::info!(
         "[INIT] OMV build unix={} target={} profile={}",
@@ -196,6 +200,9 @@ fn install_deferred_hooks_once() -> Result<()> {
     let compatibility = crate::compat::GraphicsCompatibility::detect();
     log_compatibility_report(compatibility);
 
+    crate::backend::publish_initial_d3d_device()
+        .map_err(anyhow::Error::msg)
+        .context("could not publish the DeferredInit D3D9 device")?;
     let depth_activation = crate::backend::initialize_depth_provider(settings.depth_provider);
     let menu_config = crate::runtime::apply_initial_depth_activation(depth_activation);
     crate::backend::startup_log(depth_activation.active);
@@ -214,12 +221,11 @@ fn install_deferred_hooks_once() -> Result<()> {
         .context("could not establish engine-owned render lifecycle hooks")?;
 
     crate::fnv_local_lights::install_hooks();
-    // Initialize every scene hook while DeferredInit is quiescent so later
-    // DisplayScene-boundary transitions can restore or reattach the proven
-    // entry bytes without allocating a new trampoline.
-    crate::fnv_render::install_scene_boundary_hook();
-    crate::fnv_render::reconcile_depth_stage_hooks()
-        .context("could not establish configured depth-stage hook ownership")?;
+    // The complete group becomes resident while DeferredInit is quiescent.
+    // Runtime settings alter passive gates only; no render-time executable
+    // patch transition is permitted after this point.
+    crate::fnv_render::install_scene_boundary_hook()
+        .context("could not establish resident FNV scene-boundary hooks")?;
     Ok(())
 }
 

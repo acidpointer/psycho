@@ -1,17 +1,20 @@
 //! Sampler and texture binding policy.
 //!
-//! This phase validates object samplers declared by the NVR object template.
-//! It does not resolve material arrays or invent fallback textures. D3D sampler
-//! state is global, so the final contract is the texture currently bound on the
-//! D3D device. The engine caches SetTexture calls across geometry, which means
-//! the last selector observed by the hook is telemetry, not draw ownership.
+//! This module validates the samplers declared by each NVR template without
+//! reading state back from the D3D device. The resident
+//! `NiDX9RenderState::SetTexture` hook sees the requested pointer even when the
+//! native cache suppresses the driver call, so it is the authoritative and
+//! cheapest observation boundary.
+//!
+//! Every slot distinguishes unknown from a known null binding. Reset makes all
+//! slots unknown; either unknown or null rejects replacement until the engine
+//! publishes a valid identity. The tracker never invents a fallback texture,
+//! validates a pointer, allocates, takes a lock, or calls `GetTexture`.
 
 use std::sync::{
     LazyLock,
     atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering},
 };
-
-use libpsycho::os::windows::directx9::Device9Ref;
 
 use super::shader_registry::{self, ShaderStage, ShaderTemplate};
 
@@ -43,6 +46,7 @@ const OBJECT_SAMPLER_FALLBACK_MISSING_ATTENUATION: u32 = 8;
 const TEXTURE_STAGE_COUNT: usize = 16;
 
 static TEXTURE_TRACKING_READY: AtomicBool = AtomicBool::new(false);
+static TEXTURE_GENERATION: AtomicU32 = AtomicU32::new(1);
 static TEXTURE_SLOTS: LazyLock<[TextureStageSlot; TEXTURE_STAGE_COUNT]> =
     LazyLock::new(|| std::array::from_fn(|_| TextureStageSlot::new()));
 static OBJECT_SAMPLER_LAYOUTS: LazyLock<Vec<ObjectSamplerLayout>> = LazyLock::new(|| {
@@ -77,6 +81,7 @@ static OBJECT_LAST_SAMPLER_OBSERVED_MASK: AtomicU32 = AtomicU32::new(0);
 static OBJECT_LAST_SAMPLER_FAILED_STAGE: AtomicU32 = AtomicU32::new(u32::MAX);
 
 struct TextureStageSlot {
+    known: AtomicBool,
     texture: AtomicUsize,
     selector: AtomicUsize,
 }
@@ -84,6 +89,7 @@ struct TextureStageSlot {
 impl TextureStageSlot {
     fn new() -> Self {
         Self {
+            known: AtomicBool::new(false),
             texture: AtomicUsize::new(0),
             selector: AtomicUsize::new(0),
         }
@@ -121,7 +127,16 @@ pub(super) fn record_texture_binding(stage: u32, texture: *mut std::ffi::c_void,
         return;
     };
 
-    slot.texture.store(texture as usize, Ordering::Release);
+    let texture = texture as usize;
+    let was_known = slot.known.load(Ordering::Acquire);
+    let previous = slot.texture.swap(texture, Ordering::Relaxed);
+    slot.known.store(true, Ordering::Release);
+    // The generation describes semantic state changes, not API traffic. FNV
+    // commonly repeats equal SetTexture calls; advancing for those calls would
+    // invalidate every cache even though no draw input changed.
+    if !was_known || previous != texture {
+        next_texture_generation();
+    }
     if super::diagnostics::detailed_enabled() {
         slot.selector.store(selector, Ordering::Release);
         TEXTURE_BINDS_THIS_FRAME.fetch_add(1, Ordering::Relaxed);
@@ -129,7 +144,6 @@ pub(super) fn record_texture_binding(stage: u32, texture: *mut std::ffi::c_void,
 }
 
 pub(super) fn validate_object_layout(
-    device: &Device9Ref<'_>,
     template_id: u16,
     selector: usize,
     detailed: bool,
@@ -167,7 +181,6 @@ pub(super) fn validate_object_layout(
 
     if let Some(stage) = layout.base
         && !texture_stage_valid(
-            device,
             stage,
             selector,
             OBJECT_SAMPLER_FALLBACK_MISSING_BASE,
@@ -178,7 +191,6 @@ pub(super) fn validate_object_layout(
         return Err(());
     }
     if !texture_stage_valid(
-        device,
         layout.normal,
         selector,
         OBJECT_SAMPLER_FALLBACK_MISSING_NORMAL,
@@ -189,7 +201,6 @@ pub(super) fn validate_object_layout(
     }
     if let Some(stage) = layout.glow
         && !texture_stage_valid(
-            device,
             stage,
             selector,
             OBJECT_SAMPLER_FALLBACK_MISSING_GLOW,
@@ -201,7 +212,6 @@ pub(super) fn validate_object_layout(
     }
     if let Some(stage) = layout.attenuation
         && !texture_stage_valid(
-            device,
             stage,
             selector,
             OBJECT_SAMPLER_FALLBACK_MISSING_ATTENUATION,
@@ -213,7 +223,6 @@ pub(super) fn validate_object_layout(
     }
     if let Some((shadow, mask)) = layout.shadow {
         if !texture_stage_valid(
-            device,
             shadow,
             selector,
             OBJECT_SAMPLER_FALLBACK_MISSING_SHADOW,
@@ -223,7 +232,6 @@ pub(super) fn validate_object_layout(
             return Err(());
         }
         if !texture_stage_valid(
-            device,
             mask,
             selector,
             OBJECT_SAMPLER_FALLBACK_MISSING_SHADOW_MASK,
@@ -241,28 +249,57 @@ pub(super) fn validate_object_layout(
     Ok(())
 }
 
-pub(super) fn object_sampler_identity(
-    device: &Device9Ref<'_>,
-    template_id: u16,
-) -> ObjectSamplerIdentity {
+/// Snapshot the known texture identities required by one object template.
+///
+/// Zero represents an optional stage or a required stage that has not received
+/// a known non-null engine binding. Callers use the result as a cache key only
+/// after [`validate_object_layout`] has admitted the same template.
+pub(super) fn object_sampler_identity(template_id: u16) -> ObjectSamplerIdentity {
     let Some(layout) = OBJECT_SAMPLER_LAYOUTS.get(template_id as usize) else {
         return ObjectSamplerIdentity::default();
     };
     ObjectSamplerIdentity {
-        base: layout
-            .base
-            .map_or(0, |stage| texture_identity(device, stage)),
-        normal: texture_identity(device, layout.normal),
-        glow: layout
-            .glow
-            .map_or(0, |stage| texture_identity(device, stage)),
-        shadow: layout
-            .shadow
-            .map_or(0, |stages| texture_identity(device, stages.0)),
-        shadow_mask: layout
-            .shadow
-            .map_or(0, |stages| texture_identity(device, stages.1)),
+        base: layout.base.map_or(0, texture_identity),
+        normal: texture_identity(layout.normal),
+        glow: layout.glow.map_or(0, texture_identity),
+        shadow: layout.shadow.map_or(0, |stages| texture_identity(stages.0)),
+        shadow_mask: layout.shadow.map_or(0, |stages| texture_identity(stages.1)),
     }
+}
+
+/// Return the current texture-observation generation.
+pub(super) fn texture_generation() -> u32 {
+    TEXTURE_GENERATION.load(Ordering::Acquire)
+}
+
+/// Return the required stages that are unknown or known-null.
+///
+/// This is the common admission primitive for terrain and sky families. It
+/// performs fixed atomic reads only and never falls back to D3D state readback.
+pub(super) fn missing_required_mask(required_mask: u16) -> u16 {
+    (0..TEXTURE_STAGE_COUNT)
+        .filter(|stage| {
+            required_mask & (1u16 << stage) != 0
+                && TEXTURE_SLOTS[*stage]
+                    .known
+                    .load(Ordering::Acquire)
+                    .then(|| TEXTURE_SLOTS[*stage].texture.load(Ordering::Relaxed))
+                    .unwrap_or(0)
+                    == 0
+        })
+        .fold(0u16, |mask, stage| mask | (1u16 << stage))
+}
+
+/// Return a known bound texture identity, or `None` for unknown/null state.
+pub(super) fn tracked_texture(stage: u32) -> Option<usize> {
+    let slot = usize::try_from(stage)
+        .ok()
+        .and_then(|index| TEXTURE_SLOTS.get(index))?;
+    if !slot.known.load(Ordering::Acquire) {
+        return None;
+    }
+    let texture = slot.texture.load(Ordering::Relaxed);
+    (texture != 0).then_some(texture)
 }
 
 pub(super) fn service_frame() {
@@ -336,6 +373,7 @@ pub(super) fn reset() {
     TEXTURE_BINDS_LAST_FRAME.store(0, Ordering::Release);
     TEXTURE_TRACKING_READY.store(false, Ordering::Release);
     for slot in TEXTURE_SLOTS.iter() {
+        slot.known.store(false, Ordering::Release);
         slot.texture.store(0, Ordering::Release);
         slot.selector.store(0, Ordering::Release);
     }
@@ -348,6 +386,7 @@ pub(super) fn reset() {
     OBJECT_LAST_SAMPLER_EXPECTED_MASK.store(0, Ordering::Release);
     OBJECT_LAST_SAMPLER_OBSERVED_MASK.store(0, Ordering::Release);
     OBJECT_LAST_SAMPLER_FAILED_STAGE.store(u32::MAX, Ordering::Release);
+    next_texture_generation();
 }
 
 impl ObjectSamplerLayout {
@@ -370,48 +409,29 @@ impl ObjectSamplerLayout {
 }
 
 fn texture_stage_valid(
-    device: &Device9Ref<'_>,
     stage: u32,
     selector: usize,
     missing_reason: u32,
     observed_mask: &mut u32,
     detailed: bool,
 ) -> bool {
-    let tracked_texture = usize::try_from(stage)
-        .ok()
-        .and_then(|index| TEXTURE_SLOTS.get(index))
-        .map(|slot| slot.texture.load(Ordering::Acquire))
-        .unwrap_or(0);
-    let texture = if TEXTURE_TRACKING_READY.load(Ordering::Acquire) {
-        tracked_texture
-    } else {
-        device
-            .texture_raw(stage)
-            .map_or(0, |texture| texture as usize)
-    };
+    let texture = tracked_texture(stage).unwrap_or(0);
     if texture == 0 {
         record_fallback_for_stage(missing_reason, stage);
         return false;
     }
     *observed_mask |= stage_mask(stage);
     if detailed {
-        record_selector_drift_if_cached(device, stage, selector, texture);
+        record_selector_drift_if_cached(stage, selector, texture);
     }
     true
 }
 
-fn texture_identity(device: &Device9Ref<'_>, stage: u32) -> usize {
-    device
-        .texture_raw(stage)
-        .map_or(0, |texture| texture as usize)
+fn texture_identity(stage: u32) -> usize {
+    tracked_texture(stage).unwrap_or(0)
 }
 
-fn record_selector_drift_if_cached(
-    device: &Device9Ref<'_>,
-    stage: u32,
-    selector: usize,
-    texture: usize,
-) {
+fn record_selector_drift_if_cached(stage: u32, selector: usize, texture: usize) {
     if selector == 0 || !TEXTURE_TRACKING_READY.load(Ordering::Acquire) {
         return;
     }
@@ -421,14 +441,26 @@ fn record_selector_drift_if_cached(
     let Some(slot) = TEXTURE_SLOTS.get(index) else {
         return;
     };
-    let d3d_texture = device
-        .texture_raw(stage)
-        .map_or(0, |texture| texture as usize);
     if slot.texture.load(Ordering::Acquire) != texture
-        || d3d_texture != texture
         || slot.selector.load(Ordering::Acquire) != selector
     {
         OBJECT_SAMPLER_SELECTOR_MISMATCHES_THIS_FRAME.fetch_add(1, Ordering::Relaxed);
+    }
+}
+
+fn next_texture_generation() -> u32 {
+    let mut current = TEXTURE_GENERATION.load(Ordering::Acquire);
+    loop {
+        let next = current.wrapping_add(1).max(1);
+        match TEXTURE_GENERATION.compare_exchange_weak(
+            current,
+            next,
+            Ordering::AcqRel,
+            Ordering::Acquire,
+        ) {
+            Ok(_) => return next,
+            Err(observed) => current = observed,
+        }
     }
 }
 

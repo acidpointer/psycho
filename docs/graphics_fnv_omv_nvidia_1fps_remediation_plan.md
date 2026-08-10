@@ -28,6 +28,12 @@ The governing executable is FalloutNV.exe 1.4.0.525, PE32 x86, preferred base
 Every address and ABI in this plan applies only after that executable identity
 or an independently proven compatible capability has been established.
 
+Implementation was authorized on 2026-08-09. The resulting source architecture,
+exact hook manifests, module ownership, state footprint, failure invariants,
+static validation, and outstanding runtime acceptance are recorded in
+`docs/graphics_fnv_omv_nvidia_remediation_implementation.md`. This plan remains
+the authority for the affected-machine performance and visual release gates.
+
 No source implementation is authorized by this document itself. Each future
 implementation slice must be reviewed and validated independently. Repository
 commit creation still requires a separate explicit user request for each

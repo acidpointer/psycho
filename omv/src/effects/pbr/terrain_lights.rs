@@ -5,15 +5,18 @@
 //! can omit those lights. OMV merges only missing native identities into its
 //! replacement shader constants and never mutates the engine render pass.
 //!
-//! Close terrain can submit several DIPs for one geometry. A render-thread
-//! cache avoids repeating the bounded engine-light scan for those DIPs. The
-//! shader constants are still uploaded before every draw, and `SetShaders` or
-//! frame cleanup invalidates the cache before another native pass can reuse the
-//! same geometry address with different light membership. The cache is
-//! statically zero-initialized POD state; it deliberately adds no TLS callback,
+//! One native pass setup can submit the same or several geometries. A
+//! generation-keyed render-thread cache avoids repeating engine-light
+//! reconstruction when a geometry contract is submitted again unchanged.
+//! Pointer identity alone is insufficient because the
+//! engine reuses geometry, property, selector, and pass objects. The key also
+//! includes render epoch, D3D device, sampler, manager-light, and native-pass
+//! membership generations. A miss always runs the complete merge.
+//!
+//! The cache is statically zero-initialized POD state; it adds no TLS callback,
 //! lazy owner, lock, allocation, or plugin-load initialization. An even/odd
-//! atomic version publishes complete payload snapshots. Contending callers
-//! bypass the cache instead of waiting on the render path.
+//! atomic version publishes complete key and payload snapshots. Contending
+//! callers bypass the cache instead of waiting on the render path.
 
 use std::{
     ffi::c_void,
@@ -41,6 +44,7 @@ const GEOMETRY_WORLD_TRANSFORM_OFFSET: usize = 0x68;
 const GEOMETRY_WORLD_SCALE_OFFSET: usize = 0x98;
 const GEOMETRY_LIGHTING_PROPERTY_OFFSET: usize = 0xA8;
 const GEOMETRY_MATRIX_CONTEXT_OFFSET: usize = 0xBC;
+const GEOMETRY_SELECTOR_OFFSET: usize = 0xC0;
 const LIGHTING_PROPERTY_LIGHT_SCALE_OFFSET: usize = 0x6C;
 
 const RENDER_PASS_LIGHT_COUNT_OFFSET: usize = 0x09;
@@ -166,12 +170,46 @@ const DRAW_CACHE_COMPONENT_COUNT: usize =
 // word is atomic, so even an unexpected cross-thread D3D call cannot create a
 // Rust data race. A failed compare-exchange simply leaves that draw uncached.
 static DRAW_CACHE_VERSION: AtomicU32 = AtomicU32::new(0);
+static DRAW_CACHE_RENDER_EPOCH: AtomicU32 = AtomicU32::new(0);
+static DRAW_CACHE_DEVICE_GENERATION: AtomicU32 = AtomicU32::new(0);
+static DRAW_CACHE_TEXTURE_GENERATION: AtomicU32 = AtomicU32::new(0);
+static DRAW_CACHE_MANAGER_GENERATION: AtomicU32 = AtomicU32::new(0);
 static DRAW_CACHE_GEOMETRY: AtomicUsize = AtomicUsize::new(0);
+static DRAW_CACHE_PROPERTY: AtomicUsize = AtomicUsize::new(0);
+static DRAW_CACHE_SELECTOR: AtomicUsize = AtomicUsize::new(0);
+static DRAW_CACHE_PASS: AtomicUsize = AtomicUsize::new(0);
+// The signature rejects most misses cheaply, but is never accepted as proof:
+// exact count/point-count/identity atoms below close the 32-bit collision case.
+static DRAW_CACHE_NATIVE_SIGNATURE: AtomicU32 = AtomicU32::new(0);
+static DRAW_CACHE_NATIVE_IDENTITY_COUNT: AtomicUsize = AtomicUsize::new(0);
+static DRAW_CACHE_NATIVE_POINT_COUNT: AtomicUsize = AtomicUsize::new(0);
+static DRAW_CACHE_NATIVE_IDENTITIES: [AtomicUsize; MAX_RENDER_PASS_LIGHTS] =
+    [const { AtomicUsize::new(0) }; MAX_RENDER_PASS_LIGHTS];
 static DRAW_CACHE_COUNT: AtomicUsize = AtomicUsize::new(0);
 static DRAW_CACHE_IDENTITIES: [AtomicUsize; MAX_TERRAIN_POINT_LIGHTS] =
     [const { AtomicUsize::new(0) }; MAX_TERRAIN_POINT_LIGHTS];
 static DRAW_CACHE_COMPONENTS: [AtomicU32; DRAW_CACHE_COMPONENT_COUNT] =
     [const { AtomicU32::new(0) }; DRAW_CACHE_COMPONENT_COUNT];
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct TerrainDrawCacheKey {
+    render_epoch: u32,
+    device_generation: u32,
+    texture_generation: u32,
+    manager_generation: u32,
+    geometry: usize,
+    property: usize,
+    selector: usize,
+    render_pass: usize,
+    native_light_signature: u32,
+    native_identity_count: usize,
+    native_point_count: usize,
+    native_identities: [usize; MAX_RENDER_PASS_LIGHTS],
+}
+
+struct TerrainDrawInputs {
+    key: TerrainDrawCacheKey,
+}
 
 struct TerrainLightMerge<'a> {
     native_identities: &'a [usize],
@@ -229,22 +267,25 @@ impl<'a> TerrainLightMerge<'a> {
 /// Returns the supplemental lights for the current close-terrain geometry.
 ///
 /// `geometry_identity` must be the non-null pointer observed at the same draw
-/// boundary. Repeated DIPs for that geometry reuse the scan result until
-/// [`invalidate_draw_cache`] starts a new native pass.
+/// boundary. Repeated submissions reuse a result only when every semantic key
+/// component still matches.
 pub(super) fn capture_current_for_draw(geometry_identity: usize) -> SupplementalTerrainLights {
     debug_assert_ne!(geometry_identity, 0);
-    if let Some(lights) = load_draw_cache(geometry_identity) {
+    let Some(inputs) = (unsafe { prepare_draw_inputs(geometry_identity) }) else {
+        return SupplementalTerrainLights::default();
+    };
+    if let Some(lights) = load_draw_cache(&inputs.key) {
         return lights;
     }
 
-    let lights = capture_current();
-    publish_draw_cache(geometry_identity, lights);
+    let lights = unsafe { capture_current_unchecked(&inputs) }.unwrap_or_default();
+    publish_draw_cache(&inputs.key, lights);
     lights
 }
 
-fn load_draw_cache(geometry_identity: usize) -> Option<SupplementalTerrainLights> {
+fn load_draw_cache(key: &TerrainDrawCacheKey) -> Option<SupplementalTerrainLights> {
     let version = DRAW_CACHE_VERSION.load(Ordering::Acquire);
-    if version & 1 != 0 || DRAW_CACHE_GEOMETRY.load(Ordering::Acquire) != geometry_identity {
+    if version & 1 != 0 || !draw_cache_key_matches(key) {
         return None;
     }
 
@@ -267,19 +308,18 @@ fn load_draw_cache(geometry_identity: usize) -> Option<SupplementalTerrainLights
 
     // A concurrent invalidation or publication makes this snapshot unusable.
     // Returning None merely repeats the bounded scan; the draw never waits.
-    (DRAW_CACHE_VERSION.load(Ordering::Acquire) == version
-        && DRAW_CACHE_GEOMETRY.load(Ordering::Acquire) == geometry_identity)
+    (DRAW_CACHE_VERSION.load(Ordering::Acquire) == version && draw_cache_key_matches(key))
         .then_some(lights)
 }
 
-fn publish_draw_cache(geometry_identity: usize, lights: SupplementalTerrainLights) {
+fn publish_draw_cache(key: &TerrainDrawCacheKey, lights: SupplementalTerrainLights) {
     let version = DRAW_CACHE_VERSION.load(Ordering::Relaxed);
     if version & 1 != 0
         || DRAW_CACHE_VERSION
             .compare_exchange(
                 version,
                 version.wrapping_add(1),
-                Ordering::Acquire,
+                Ordering::AcqRel,
                 Ordering::Relaxed,
             )
             .is_err()
@@ -300,8 +340,48 @@ fn publish_draw_cache(geometry_identity: usize, lights: SupplementalTerrainLight
         }
     }
     DRAW_CACHE_COUNT.store(lights.count, Ordering::Relaxed);
-    DRAW_CACHE_GEOMETRY.store(geometry_identity, Ordering::Release);
+    DRAW_CACHE_RENDER_EPOCH.store(key.render_epoch, Ordering::Relaxed);
+    DRAW_CACHE_DEVICE_GENERATION.store(key.device_generation, Ordering::Relaxed);
+    DRAW_CACHE_TEXTURE_GENERATION.store(key.texture_generation, Ordering::Relaxed);
+    DRAW_CACHE_MANAGER_GENERATION.store(key.manager_generation, Ordering::Relaxed);
+    DRAW_CACHE_PROPERTY.store(key.property, Ordering::Relaxed);
+    DRAW_CACHE_SELECTOR.store(key.selector, Ordering::Relaxed);
+    DRAW_CACHE_PASS.store(key.render_pass, Ordering::Relaxed);
+    DRAW_CACHE_NATIVE_SIGNATURE.store(key.native_light_signature, Ordering::Relaxed);
+    for (index, identity) in key.native_identities[..key.native_identity_count]
+        .iter()
+        .enumerate()
+    {
+        DRAW_CACHE_NATIVE_IDENTITIES[index].store(*identity, Ordering::Relaxed);
+    }
+    DRAW_CACHE_NATIVE_IDENTITY_COUNT.store(key.native_identity_count, Ordering::Relaxed);
+    DRAW_CACHE_NATIVE_POINT_COUNT.store(key.native_point_count, Ordering::Relaxed);
+    DRAW_CACHE_GEOMETRY.store(key.geometry, Ordering::Release);
     DRAW_CACHE_VERSION.store(version.wrapping_add(2), Ordering::Release);
+}
+
+fn draw_cache_key_matches(key: &TerrainDrawCacheKey) -> bool {
+    if key.native_identity_count > MAX_RENDER_PASS_LIGHTS {
+        return false;
+    }
+    let scalar_key_matches = DRAW_CACHE_GEOMETRY.load(Ordering::Acquire) == key.geometry
+        && DRAW_CACHE_RENDER_EPOCH.load(Ordering::Relaxed) == key.render_epoch
+        && DRAW_CACHE_DEVICE_GENERATION.load(Ordering::Relaxed) == key.device_generation
+        && DRAW_CACHE_TEXTURE_GENERATION.load(Ordering::Relaxed) == key.texture_generation
+        && DRAW_CACHE_MANAGER_GENERATION.load(Ordering::Relaxed) == key.manager_generation
+        && DRAW_CACHE_PROPERTY.load(Ordering::Relaxed) == key.property
+        && DRAW_CACHE_SELECTOR.load(Ordering::Relaxed) == key.selector
+        && DRAW_CACHE_PASS.load(Ordering::Relaxed) == key.render_pass
+        && DRAW_CACHE_NATIVE_SIGNATURE.load(Ordering::Relaxed) == key.native_light_signature
+        && DRAW_CACHE_NATIVE_IDENTITY_COUNT.load(Ordering::Relaxed) == key.native_identity_count
+        && DRAW_CACHE_NATIVE_POINT_COUNT.load(Ordering::Relaxed) == key.native_point_count;
+    scalar_key_matches
+        && key.native_identities[..key.native_identity_count]
+            .iter()
+            .enumerate()
+            .all(|(index, identity)| {
+                DRAW_CACHE_NATIVE_IDENTITIES[index].load(Ordering::Relaxed) == *identity
+            })
 }
 
 /// Invalidates the render-thread close-terrain light cache.
@@ -309,17 +389,44 @@ pub(super) fn invalidate_draw_cache() {
     DRAW_CACHE_GEOMETRY.store(0, Ordering::Release);
 }
 
-fn capture_current() -> SupplementalTerrainLights {
-    unsafe { capture_current_unchecked() }.unwrap_or_default()
-}
-
-unsafe fn capture_current_unchecked() -> Option<SupplementalTerrainLights> {
-    let geometry = engine_contracts::current_geometry_fast()?;
+unsafe fn prepare_draw_inputs(geometry_identity: usize) -> Option<TerrainDrawInputs> {
+    let geometry = geometry_identity as *mut c_void;
     let render_pass = engine_contracts::current_pass_fast()?;
     let property = unsafe { read_ptr_offset(geometry, GEOMETRY_LIGHTING_PROPERTY_OFFSET) }?;
+    let selector = unsafe { read_ptr_offset(geometry, GEOMETRY_SELECTOR_OFFSET) }
+        .map_or(0, |selector| selector as usize);
     let mut native_identities = [0usize; MAX_RENDER_PASS_LIGHTS];
     let (native_identity_count, native_point_count) =
         unsafe { read_native_light_identities(render_pass, &mut native_identities) };
+    let native_light_signature = native_light_signature(
+        &native_identities[..native_identity_count],
+        native_point_count,
+    );
+    Some(TerrainDrawInputs {
+        key: TerrainDrawCacheKey {
+            render_epoch: crate::hooks::render_epoch(),
+            device_generation: crate::backend::d3d_device_generation(),
+            texture_generation: super::texture_generation(),
+            manager_generation: crate::fnv_local_lights::terrain_light_generation(),
+            geometry: geometry_identity,
+            property: property as usize,
+            selector,
+            render_pass: render_pass as usize,
+            native_light_signature,
+            native_identity_count,
+            native_point_count,
+            native_identities,
+        },
+    })
+}
+
+unsafe fn capture_current_unchecked(
+    inputs: &TerrainDrawInputs,
+) -> Option<SupplementalTerrainLights> {
+    let geometry = inputs.key.geometry as *mut c_void;
+    let property = inputs.key.property as *mut c_void;
+    let native_identity_count = inputs.key.native_identity_count;
+    let native_point_count = inputs.key.native_point_count;
     if native_point_count >= MAX_TERRAIN_POINT_LIGHTS {
         return Some(SupplementalTerrainLights::default());
     }
@@ -340,7 +447,7 @@ unsafe fn capture_current_unchecked() -> Option<SupplementalTerrainLights> {
     };
 
     let mut merge = TerrainLightMerge::new(
-        &native_identities[..native_identity_count],
+        &inputs.key.native_identities[..native_identity_count],
         native_point_count,
         context,
     );
@@ -379,6 +486,15 @@ unsafe fn capture_current_unchecked() -> Option<SupplementalTerrainLights> {
     }
 
     Some(merge.finish())
+}
+
+fn native_light_signature(identities: &[usize], native_point_count: usize) -> u32 {
+    let mut hash = 0x811C_9DC5u32 ^ native_point_count as u32;
+    for identity in identities {
+        hash ^= *identity as u32;
+        hash = hash.wrapping_mul(0x0100_0193);
+    }
+    hash ^ identities.len() as u32
 }
 
 fn supplement_manager_lights(
@@ -687,10 +803,11 @@ mod tests {
 
     use super::{
         GEOMETRY_MATRIX_CONTEXT_OFFSET, GEOMETRY_WORLD_TRANSFORM_OFFSET, GeometryTransform,
-        MAX_SUPPLEMENTAL_CONSTANTS, MAX_TERRAIN_POINT_LIGHTS, SupplementalTerrainLights,
-        TerrainLightCandidate, TerrainLightContext, TerrainLightMerge, geometry_matrix_inputs,
-        invalidate_draw_cache, inverse_transform_point, load_draw_cache, manager_supplement_needed,
-        publish_draw_cache, supplement_captured_manager_lights,
+        MAX_RENDER_PASS_LIGHTS, MAX_SUPPLEMENTAL_CONSTANTS, MAX_TERRAIN_POINT_LIGHTS,
+        SupplementalTerrainLights, TerrainDrawCacheKey, TerrainLightCandidate, TerrainLightContext,
+        TerrainLightMerge, geometry_matrix_inputs, invalidate_draw_cache, inverse_transform_point,
+        load_draw_cache, manager_supplement_needed, publish_draw_cache,
+        supplement_captured_manager_lights,
     };
     use crate::fnv_local_lights::TerrainSceneLight;
 
@@ -721,6 +838,26 @@ mod tests {
             property_light_scale: 1.0,
             native_black_color: [0.0; 3],
             hdr: true,
+        }
+    }
+
+    fn cache_key(geometry: usize) -> TerrainDrawCacheKey {
+        let mut native_identities = [0; MAX_RENDER_PASS_LIGHTS];
+        native_identities[0] = 0x77000;
+        native_identities[1] = 0x88000;
+        TerrainDrawCacheKey {
+            render_epoch: 7,
+            device_generation: 2,
+            texture_generation: 3,
+            manager_generation: 4,
+            geometry,
+            property: 0x44000,
+            selector: 0x55000,
+            render_pass: 0x66000,
+            native_light_signature: 0x1234_5678,
+            native_identity_count: 2,
+            native_point_count: 1,
+            native_identities,
         }
     }
 
@@ -915,8 +1052,9 @@ mod tests {
         let geometry = 0x33000;
 
         invalidate_draw_cache();
-        publish_draw_cache(geometry, expected);
-        let cached = load_draw_cache(geometry).expect("published geometry");
+        let key = cache_key(geometry);
+        publish_draw_cache(&key, expected);
+        let cached = load_draw_cache(&key).expect("published semantic key");
         assert_eq!(cached, expected);
         let mut expected_constants = [[0.0; 4]; MAX_SUPPLEMENTAL_CONSTANTS];
         let mut cached_constants = [[0.0; 4]; MAX_SUPPLEMENTAL_CONSTANTS];
@@ -927,7 +1065,32 @@ mod tests {
         assert_eq!(cached_constants, expected_constants);
 
         invalidate_draw_cache();
-        assert!(load_draw_cache(geometry).is_none());
+        assert!(load_draw_cache(&key).is_none());
+    }
+
+    #[test]
+    fn terrain_draw_cache_rejects_every_stale_key_component() {
+        let key = cache_key(0x33000);
+        publish_draw_cache(&key, SupplementalTerrainLights::default());
+
+        let mut variants = [key; 12];
+        variants[0].render_epoch += 1;
+        variants[1].device_generation += 1;
+        variants[2].texture_generation += 1;
+        variants[3].manager_generation += 1;
+        variants[4].geometry += 4;
+        variants[5].property += 4;
+        variants[6].selector += 4;
+        variants[7].render_pass += 4;
+        variants[8].native_light_signature ^= 1;
+        variants[9].native_identity_count += 1;
+        variants[10].native_point_count += 1;
+        // Preserve the fast signature deliberately: exact membership must
+        // still reject a theoretical 32-bit hash collision.
+        variants[11].native_identities[0] += 4;
+        for variant in variants {
+            assert!(load_draw_cache(&variant).is_none());
+        }
     }
 
     #[test]

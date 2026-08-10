@@ -15,7 +15,7 @@
 use core::{ffi::c_void, fmt, mem::size_of};
 use std::sync::{
     LazyLock, OnceLock,
-    atomic::{AtomicBool, AtomicU32, Ordering},
+    atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering},
 };
 
 use super::{
@@ -30,7 +30,7 @@ use libpsycho::os::windows::{
         D3DFMT_D15S1, D3DFMT_D16, D3DFMT_D24FS8, D3DFMT_D24S8, D3DFMT_D24X4S4, D3DFMT_D24X8,
         D3DFMT_D32, D3DFMT_D32F_LOCKABLE, D3DFMT_INTZ, D3DFORMAT, D3DPT_POINTLIST,
         D3DRESZ_POINT_SIZE, D3DRS_COLORWRITEENABLE, D3DRS_POINTSIZE, D3DRS_ZENABLE, D3DRS_ZFUNC,
-        D3DRS_ZWRITEENABLE, D3DSURFACE_DESC, D3DTEXF_NONE, Device9Ref,
+        D3DRS_ZWRITEENABLE, D3DSURFACE_DESC, D3DTEXF_NONE, Device9, Device9Ref,
         Direct3DError as WindowsError, Direct3DResult, PositionVertex, Surface9, Texture9,
     },
     memory::validate_memory_range,
@@ -144,6 +144,10 @@ static SUN_FRAME_LOGS: AtomicU32 = AtomicU32::new(0);
 static FIRST_PERSON_RENDER_EPOCH: AtomicU32 = AtomicU32::new(0);
 static UNDERWATER_EPOCH: AtomicU32 = AtomicU32::new(0);
 static UNDERWATER_VALUE: AtomicBool = AtomicBool::new(false);
+static PUBLISHED_DEVICE_PTR: AtomicUsize = AtomicUsize::new(0);
+static DEVICE_GENERATION: AtomicU32 = AtomicU32::new(1);
+static PUBLISHED_DEVICE_OWNER: LazyLock<Mutex<Option<Device9>>> =
+    LazyLock::new(|| Mutex::new(None));
 static DEPTH_RESOLVE: LazyLock<Mutex<FnvDepthResolve>> =
     LazyLock::new(|| Mutex::new(FnvDepthResolve::default()));
 static EXTERNAL_DEPTH_RESOLVE: LazyLock<Mutex<ExternalDepthResolve>> =
@@ -299,6 +303,7 @@ pub(super) fn depth_copy_counters() -> DepthCopyCounters {
 }
 
 fn record_physical_depth_copy(stage: DepthResolveStage) {
+    crate::graphics_diagnostics::add(crate::graphics_diagnostics::Counter::DepthCopy, 1);
     match stage {
         DepthResolveStage::PreAlphaWorld => {
             PRE_ALPHA_PHYSICAL_COPIES.fetch_add(1, Ordering::Relaxed);
@@ -313,19 +318,106 @@ fn record_physical_depth_copy(stage: DepthResolveStage) {
 }
 
 pub(super) fn d3d_device_ptr() -> Option<*mut c_void> {
-    unsafe {
-        let renderer = read_ptr(NIDX9_RENDERER_SINGLETON_PTR)?;
-        if renderer.is_null() {
-            return None;
-        }
+    let identity = PUBLISHED_DEVICE_PTR.load(Ordering::Acquire);
+    (identity != 0).then_some(identity as *mut c_void)
+}
 
-        read_ptr(renderer as usize + NIDX9_RENDERER_DEVICE_OFFSET).and_then(|device| {
-            if device.is_null() {
-                None
-            } else {
-                Some(device.cast::<c_void>())
-            }
-        })
+/// Return the generation of the lifecycle-published D3D device.
+pub(super) fn d3d_device_generation() -> u32 {
+    DEVICE_GENERATION.load(Ordering::Acquire)
+}
+
+/// Discover and publish the renderer's current device during `DeferredInit`.
+///
+/// This is the only checked singleton walk used for initial publication.
+/// Render callbacks consume [`d3d_device_ptr`] and never repeat its memory
+/// queries.
+pub(super) fn publish_initial_d3d_device() -> Result<u32, &'static str> {
+    let device = unsafe {
+        let renderer = read_ptr(NIDX9_RENDERER_SINGLETON_PTR)
+            .ok_or("NiDX9Renderer singleton is unavailable")?;
+        if renderer.is_null() {
+            return Err("NiDX9Renderer singleton is null");
+        }
+        read_ptr(renderer as usize + NIDX9_RENDERER_DEVICE_OFFSET)
+            .filter(|device| !device.is_null())
+            .ok_or("NiDX9Renderer device is unavailable")?
+            .cast::<c_void>()
+    };
+    unsafe { publish_d3d_device(device) }
+}
+
+/// Retain and publish a device supplied by a proven renderer lifecycle entry.
+///
+/// Re-publishing the same identity is generation-stable. A replacement first
+/// removes the fast-path pointer, then replaces the balanced owner, and only
+/// then publishes the new pointer with release ordering.
+///
+/// # Safety
+///
+/// `device` must be the live `IDirect3DDevice9*` owned by the active
+/// `NiDX9Renderer` invocation.
+pub(super) unsafe fn publish_d3d_device(device: *mut c_void) -> Result<u32, &'static str> {
+    if device.is_null() {
+        return Err("cannot publish a null D3D9 device");
+    }
+    if PUBLISHED_DEVICE_PTR.load(Ordering::Acquire) == device as usize {
+        return Ok(d3d_device_generation());
+    }
+
+    let retained = unsafe { Device9::retain_raw(device) }
+        .map_err(|_| "renderer device did not expose IDirect3DDevice9")?;
+    // This API is also called from DisplayScene and Recreate. Even though FNV
+    // serializes those entries, use a nonblocking acquisition so accidental
+    // cross-thread lifecycle publication can never stall the render callback.
+    let mut owner = PUBLISHED_DEVICE_OWNER
+        .try_lock()
+        .ok_or("D3D9 device publication owner is busy")?;
+    if owner
+        .as_ref()
+        .is_some_and(|current| current.as_raw() == device)
+    {
+        PUBLISHED_DEVICE_PTR.store(device as usize, Ordering::Release);
+        return Ok(d3d_device_generation());
+    }
+
+    PUBLISHED_DEVICE_PTR.store(0, Ordering::Release);
+    *owner = Some(retained);
+    let generation = next_device_generation();
+    PUBLISHED_DEVICE_PTR.store(device as usize, Ordering::Release);
+    Ok(generation)
+}
+
+/// Clear the render fast path and release OMV's balanced device reference.
+///
+/// This must run after OMV default-pool resources are released and before the
+/// native renderer enters `Recreate`. A busy owner fails without clearing the
+/// pointer so the caller can abort native recreation and retry safely.
+pub(super) fn clear_d3d_device() -> Result<u32, &'static str> {
+    let mut owner = PUBLISHED_DEVICE_OWNER
+        .try_lock()
+        .ok_or("D3D9 device publication owner is busy")?;
+    let previous = PUBLISHED_DEVICE_PTR.swap(0, Ordering::AcqRel);
+    if previous == 0 {
+        return Ok(d3d_device_generation());
+    }
+    *owner = None;
+    Ok(next_device_generation())
+}
+
+fn next_device_generation() -> u32 {
+    let mut current = DEVICE_GENERATION.load(Ordering::Acquire);
+    loop {
+        let next = current.wrapping_add(1).max(1);
+        match DEVICE_GENERATION.compare_exchange_weak(
+            current,
+            next,
+            Ordering::AcqRel,
+            Ordering::Acquire,
+        ) {
+            Ok(_) => return next,
+            Err(observed) => current = observed,
+        }
     }
 }
 
@@ -390,6 +482,37 @@ pub(super) fn world_camera_frame(width: u32, height: u32) -> Option<CameraFrame>
         ..D3DSURFACE_DESC::default()
     };
     unsafe { read_world_camera_frame(&desc) }
+}
+
+/// Copy the world camera directly inside a proven serialized render callback.
+///
+/// # Safety
+///
+/// The caller must be executing inside the main world renderer while the
+/// scene-graph and camera objects are live. This path intentionally avoids the
+/// checked pointer discovery used by asynchronous/UI consumers.
+pub(super) unsafe fn world_camera_frame_fast(width: u32, height: u32) -> Option<CameraFrame> {
+    const MIN_ENGINE_PTR: usize = 0x1_0000;
+
+    let scene_graph = unsafe { (WORLD_SCENE_GRAPH_PTR as *const *mut u8).read() };
+    if (scene_graph as usize) < MIN_ENGINE_PTR {
+        return None;
+    }
+    let camera = unsafe {
+        scene_graph
+            .add(SCENE_GRAPH_CAMERA_OFFSET)
+            .cast::<*mut u8>()
+            .read()
+    };
+    if (camera as usize) < MIN_ENGINE_PTR {
+        return None;
+    }
+    let desc = D3DSURFACE_DESC {
+        Width: width,
+        Height: height,
+        ..D3DSURFACE_DESC::default()
+    };
+    unsafe { read_camera_frame_from_ptr_unchecked(camera, &desc) }
 }
 
 pub(crate) struct WorldCameraJitter {
@@ -733,6 +856,13 @@ unsafe fn read_camera_frame_from_ptr(
     )
     .ok()?;
 
+    unsafe { read_camera_frame_from_ptr_unchecked(camera, desc) }
+}
+
+unsafe fn read_camera_frame_from_ptr_unchecked(
+    camera: *mut u8,
+    desc: &D3DSURFACE_DESC,
+) -> Option<CameraFrame> {
     let read_camera_f32 = |offset| unsafe { camera.add(offset).cast::<f32>().read() };
     let near_z = read_camera_f32(NICAMERA_FRUSTUM_NEAR_OFFSET);
     let far_z = read_camera_f32(NICAMERA_FRUSTUM_FAR_OFFSET);

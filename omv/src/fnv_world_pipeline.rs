@@ -16,8 +16,8 @@ use std::sync::{
 };
 
 use libpsycho::os::windows::directx9::{
-    D3DFORMAT, D3DSBT_ALL, D3DSURFACE_DESC, D3DTEXF_POINT, Device9Ref, Direct3DResult, StateBlock9,
-    Surface9, Texture9, direct3d_failure,
+    D3DFORMAT, D3DSBT_ALL, D3DSURFACE_DESC, Device9Ref, Direct3DResult, StateBlock9, Surface9,
+    Texture9, direct3d_failure,
 };
 use parking_lot::Mutex;
 
@@ -908,7 +908,7 @@ impl FnvWorldPipelineRuntime {
                 .state_block
                 .as_ref()
                 .ok_or_else(|| runtime_error("missing TAA state block"))?;
-            state_block.capture()?;
+            crate::render_state::capture_state_block(state_block)?;
             let mut result = self.temporal_aa.as_mut().map_or(Ok(()), |effect| {
                 let output_camera = temporal_projection
                     .map_or(depth.0.world_projection.camera, |projection| {
@@ -924,7 +924,10 @@ impl FnvWorldPipelineRuntime {
                 )
             });
             keep_first_error(&mut result, attachments.restore(&device));
-            keep_first_error(&mut result, state_block.apply());
+            keep_first_error(
+                &mut result,
+                crate::render_state::apply_state_block(state_block),
+            );
             result?;
             drew = true;
         }
@@ -982,7 +985,7 @@ impl FnvWorldPipelineRuntime {
             .state_block
             .as_ref()
             .ok_or_else(|| runtime_error("missing atmosphere state block"))?;
-        state_block.capture()?;
+        crate::render_state::capture_state_block(state_block)?;
         let world_color = self.world_color.as_ref().map(|copy| &copy.texture);
         let mut result =
             self.atmosphere
@@ -1001,7 +1004,10 @@ impl FnvWorldPipelineRuntime {
                     )
                 });
         let mut restore = attachments.restore(device);
-        keep_first_error(&mut restore, state_block.apply());
+        keep_first_error(
+            &mut restore,
+            crate::render_state::apply_state_block(state_block),
+        );
         if result.is_ok() && restore.is_err() {
             result = restore.map(|_| AtmosphereDrawOutcome::Skipped);
         }
@@ -1038,8 +1044,11 @@ impl FnvWorldPipelineRuntime {
 
         let access =
             crate::fnv_local_lights::try_take_published(&mut self.local_lights, device_identity);
+        let device_generation = crate::backend::d3d_device_generation();
         let current = self.local_lights.as_ref().is_some_and(|epoch| {
-            epoch.device_identity == device_identity && epoch.render_epoch == render_epoch
+            epoch.device_identity == device_identity
+                && epoch.device_generation == device_generation
+                && epoch.render_epoch == render_epoch
         });
         if !current {
             self.local_lights = None;
@@ -1203,7 +1212,7 @@ impl FnvWorldPipelineRuntime {
             .world_color
             .as_ref()
             .ok_or_else(|| runtime_error("missing world-color copy"))?;
-        device.stretch_rect(world_target, None, &copy.surface, None, D3DTEXF_POINT)
+        crate::render_state::copy_exact_color_surface(device, world_target, &copy.surface)
     }
 
     fn release_if_device(&mut self, device_ptr: *mut c_void) {
