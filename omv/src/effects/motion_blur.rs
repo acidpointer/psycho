@@ -1,4 +1,4 @@
-//! Depth-aware camera motion blur for the post-image-space scene boundary.
+//! Depth-aware camera motion blur with engine-owned foreground exclusion.
 //!
 //! The effect reconstructs a current view-space position from FNV's resolved
 //! depth, transforms that position into the previous camera basis, and
@@ -6,15 +6,18 @@
 //! rotation, translation parallax, zoom, and sky rotation without a velocity
 //! render target or color history.
 //!
-//! Production blur work is one full-resolution draw. Three compile-time shader
-//! variants use 5, 7, or 9 taps. Third person additionally records one
-//! full-resolution packed-depth history so independently moving surfaces can
-//! reject camera-only motion without color history or engine object tags.
-//! Disabled and zero-work configurations perform no effect-specific GPU work.
-//! World and first-person depth are sampled independently so the weapon cannot
-//! leak across a world silhouette. The history validity gate preserves the
-//! third-person player and other independently moving/disoccluded geometry
-//! while static world surfaces and sky retain camera motion.
+//! First-person work executes on the completed world target before the native
+//! `RenderFirstPerson` call. The later native draw is therefore the exact
+//! foreground coverage operation; motion blur never samples first-person depth
+//! or view-model color. Third person retains its later scene-post route and a
+//! full-resolution packed-depth history used only as a disocclusion guard. A
+//! depth match is not semantic player identity and does not solve the known
+//! third-person player-body defect.
+//!
+//! Each accepted blur is one full-resolution draw. Three compile-time variants
+//! use 5, 7, or 9 taps. Disabled, first, stationary, cut, and sub-threshold
+//! frames perform no effect color copy or draw. Shader bytecode is prepared off
+//! thread; render callbacks use nonblocking ownership and device-ready objects.
 
 use std::{
     sync::{
@@ -50,7 +53,7 @@ const AMD_ALPHA_TO_COVERAGE_OFF: u32 = u32::from_le_bytes(*b"A2M0");
 // The absolute cap keeps an exceptionally long far plane from admitting
 // teleports, while the relative TAA-style bound handles short projections.
 const MAX_CAMERA_CUT_TRANSLATION: f32 = 4_096.0;
-const SHADER: &[u8] = include_bytes!("../../shaders/embedded/motion_blur.hlsl");
+const WORLD_SHADER: &[u8] = include_bytes!("../../shaders/embedded/motion_blur_world.hlsl");
 const THIRD_PERSON_SHADER: &[u8] =
     include_bytes!("../../shaders/embedded/motion_blur_third_person.hlsl");
 const DEPTH_HISTORY_SHADER: &[u8] =
@@ -62,9 +65,9 @@ static COMPILE_READY: AtomicBool = AtomicBool::new(false);
 static BYTECODE: LazyLock<Mutex<Option<MotionBlurBytecode>>> = LazyLock::new(|| Mutex::new(None));
 
 struct MotionBlurBytecode {
-    performance: Vec<u32>,
-    high: Vec<u32>,
-    ultra: Vec<u32>,
+    world_performance: Vec<u32>,
+    world_high: Vec<u32>,
+    world_ultra: Vec<u32>,
     third_person_performance: Vec<u32>,
     third_person_high: Vec<u32>,
     third_person_ultra: Vec<u32>,
@@ -74,9 +77,9 @@ struct MotionBlurBytecode {
 impl MotionBlurBytecode {
     fn compile() -> Result<Self> {
         Ok(Self {
-            performance: compile_variant(MotionBlurQuality::Performance, false)?,
-            high: compile_variant(MotionBlurQuality::High, false)?,
-            ultra: compile_variant(MotionBlurQuality::Ultra, false)?,
+            world_performance: compile_variant(MotionBlurQuality::Performance, false)?,
+            world_high: compile_variant(MotionBlurQuality::High, false)?,
+            world_ultra: compile_variant(MotionBlurQuality::Ultra, false)?,
             third_person_performance: compile_variant(MotionBlurQuality::Performance, true)?,
             third_person_high: compile_variant(MotionBlurQuality::High, true)?,
             third_person_ultra: compile_variant(MotionBlurQuality::Ultra, true)?,
@@ -126,7 +129,21 @@ fn start_compile_worker() {
     }
 }
 
-/// Returns whether the effect has valid inputs and nonzero configured work.
+/// Selects the boundary that owns motion blur for one exact native camera mode.
+///
+/// `None` is deliberately rejected: an uncertain mode is not permission to
+/// draw after first-person color may have entered the target.
+pub(crate) fn view_from_camera_mode(third_person: Option<bool>) -> Option<MotionBlurView> {
+    third_person.map(|third_person| {
+        if third_person {
+            MotionBlurView::ThirdPersonWorld
+        } else {
+            MotionBlurView::FirstPersonWorld
+        }
+    })
+}
+
+/// Returns whether world inputs and global controls can advance temporal work.
 ///
 /// This preflight intentionally does not require a previous camera. The first
 /// accepted frame must reach [`MotionBlurTemporalState::prepare_frame`] to
@@ -136,7 +153,6 @@ pub(crate) fn should_prepare(frame_inputs: &FrameInputs, config: MotionBlurConfi
     settings.enabled
         && settings.shutter_fraction > f32::EPSILON
         && settings.max_blur_pixels > f32::EPSILON
-        && frame_inputs.third_person_view.is_some()
         && frame_inputs.depth.texture.is_some()
         && frame_inputs.depth.world_projection.reversed_depth.is_some()
         && camera_supports_reprojection(frame_inputs.depth.world_projection.camera)
@@ -144,9 +160,9 @@ pub(crate) fn should_prepare(frame_inputs: &FrameInputs, config: MotionBlurConfi
 
 /// Device-owned shaders and the small CPU temporal state for motion blur.
 pub(crate) struct MotionBlurEffect {
-    performance_shader: PixelShader9,
-    high_shader: PixelShader9,
-    ultra_shader: PixelShader9,
+    world_performance_shader: PixelShader9,
+    world_high_shader: PixelShader9,
+    world_ultra_shader: PixelShader9,
     third_person_performance_shader: PixelShader9,
     third_person_high_shader: PixelShader9,
     third_person_ultra_shader: PixelShader9,
@@ -207,9 +223,9 @@ impl MotionBlurEffect {
         };
 
         Ok(Some(Self {
-            performance_shader: device.create_pixel_shader(&bytecode.performance)?,
-            high_shader: device.create_pixel_shader(&bytecode.high)?,
-            ultra_shader: device.create_pixel_shader(&bytecode.ultra)?,
+            world_performance_shader: device.create_pixel_shader(&bytecode.world_performance)?,
+            world_high_shader: device.create_pixel_shader(&bytecode.world_high)?,
+            world_ultra_shader: device.create_pixel_shader(&bytecode.world_ultra)?,
             third_person_performance_shader: device
                 .create_pixel_shader(&bytecode.third_person_performance)?,
             third_person_high_shader: device.create_pixel_shader(&bytecode.third_person_high)?,
@@ -220,8 +236,12 @@ impl MotionBlurEffect {
         }))
     }
 
+    /// Return whether device resources can consume this prepared route.
+    ///
+    /// First-person world packets never depend on packed history. Third-person
+    /// packets fail closed after a depth-history allocation failure.
     pub(crate) fn has_applicable_work(&self, frame: PreparedMotionBlurFrame) -> bool {
-        !frame.third_person || !self.depth_history_creation_failed
+        !frame.view.is_third_person() || !self.depth_history_creation_failed
     }
 
     /// Returns whether this packet can draw blur from already-owned inputs.
@@ -236,7 +256,7 @@ impl MotionBlurEffect {
         if !frame.blur_requested || frame.world_reprojection.is_none() {
             return false;
         }
-        if !frame.third_person {
+        if !frame.view.is_third_person() {
             return true;
         }
         self.depth_history.as_ref().is_some_and(|history| {
@@ -256,7 +276,8 @@ impl MotionBlurEffect {
         scene_color: Option<&Texture9>,
         frame: PreparedMotionBlurFrame,
     ) -> Direct3DResult<()> {
-        let history_available = frame.third_person
+        let third_person = frame.view.is_third_person();
+        let history_available = third_person
             && self.depth_history.as_ref().is_some_and(|history| {
                 history.valid
                     && history.matches(desc)
@@ -264,14 +285,17 @@ impl MotionBlurEffect {
             });
         if frame.blur_requested
             && frame.world_reprojection.is_some()
-            && (!frame.third_person || history_available)
+            && (!third_person || history_available)
             && let Some(scene_color) = scene_color
         {
             bind_pipeline_state(device)?;
             bind_target(device, target, desc)?;
             device.set_texture(0, scene_color)?;
             bind_depth_texture(device, 1, frame_inputs.depth.texture)?;
-            bind_depth_texture(device, 2, frame_inputs.depth.first_person_texture)?;
+            // Sampler 2 belonged to the removed view-model depth path. Clear it
+            // explicitly so neither shader variant can inherit an engine or
+            // earlier-effect binding through D3D9's persistent device state.
+            device.clear_texture(2)?;
             match self.depth_history.as_ref().filter(|_| history_available) {
                 Some(history) => device.set_texture(3, &history.texture)?,
                 None => device.clear_texture(3)?,
@@ -282,14 +306,14 @@ impl MotionBlurEffect {
                 .filter(|_| history_available)
                 .is_some_and(|history| history.reversed_depth);
             bind_constants(device, desc, frame, history_available, previous_reversed)?;
-            device.set_pixel_shader(self.shader(frame.settings.quality, frame.third_person))?;
+            device.set_pixel_shader(self.shader(frame.settings.quality, third_person))?;
             draw_quad(device, desc)?;
             for sampler in 0..=3 {
                 device.clear_texture(sampler)?;
             }
         }
 
-        if frame.third_person {
+        if third_person {
             self.record_world_depth(device, desc, frame_inputs, frame)?;
         }
         Ok(())
@@ -297,9 +321,9 @@ impl MotionBlurEffect {
 
     fn shader(&self, quality: MotionBlurQuality, third_person: bool) -> &PixelShader9 {
         match (quality, third_person) {
-            (MotionBlurQuality::Performance, false) => &self.performance_shader,
-            (MotionBlurQuality::High, false) => &self.high_shader,
-            (MotionBlurQuality::Ultra, false) => &self.ultra_shader,
+            (MotionBlurQuality::Performance, false) => &self.world_performance_shader,
+            (MotionBlurQuality::High, false) => &self.world_high_shader,
+            (MotionBlurQuality::Ultra, false) => &self.world_ultra_shader,
             (MotionBlurQuality::Performance, true) => &self.third_person_performance_shader,
             (MotionBlurQuality::High, true) => &self.third_person_high_shader,
             (MotionBlurQuality::Ultra, true) => &self.third_person_ultra_shader,
@@ -326,7 +350,7 @@ impl MotionBlurEffect {
                 Err(err) => {
                     self.depth_history_creation_failed = true;
                     log::warn!(
-                        "[MOTION_BLUR] Third-person depth history unavailable; first-person blur remains active: {err}"
+                        "[MOTION_BLUR] Third-person depth history unavailable; world-boundary first-person blur remains active: {err}"
                     );
                     return Ok(());
                 }
@@ -360,18 +384,18 @@ impl MotionBlurEffect {
 #[derive(Default)]
 pub(crate) struct MotionBlurTemporalState {
     previous_world: Option<TemporalCameraState>,
-    previous_first_person: Option<TemporalCameraState>,
-    last_config: Option<MotionBlurConfig>,
+    last_settings: Option<MotionBlurSettings>,
     last_dimensions: Option<[u32; 2]>,
+    last_view: Option<MotionBlurView>,
 }
 
 impl MotionBlurTemporalState {
     /// Invalidates the previous-camera pair after a skip, reset, or disable.
     pub(crate) fn reset(&mut self) {
         self.previous_world = None;
-        self.previous_first_person = None;
-        self.last_config = None;
+        self.last_settings = None;
         self.last_dimensions = None;
+        self.last_view = None;
     }
 
     /// Builds one immutable draw packet and advances the previous-camera state.
@@ -386,9 +410,10 @@ impl MotionBlurTemporalState {
         desc: &D3DSURFACE_DESC,
         frame_inputs: &FrameInputs,
         config: MotionBlurConfig,
+        view: MotionBlurView,
     ) -> Option<PreparedMotionBlurFrame> {
         let settings = MotionBlurSettings::from_config(config);
-        self.begin_sequence(config, [desc.Width, desc.Height]);
+        self.begin_sequence(settings, [desc.Width, desc.Height], view);
 
         // The resolved world depth may have been sampled under TAA jitter.
         // Motion is defined on the unjittered output grid, exactly as the TAA
@@ -400,19 +425,13 @@ impl MotionBlurTemporalState {
             camera: current_world_camera,
             epoch: frame_inputs.depth.capture_epoch,
         };
-        let current_first_person = first_person_camera_state(frame_inputs);
         let world_reprojection = self
             .previous_world
             .and_then(|previous| MotionReprojection::between(previous, current_world));
-        let first_person_reprojection = self
-            .previous_first_person
-            .zip(current_first_person)
-            .and_then(|(previous, current)| MotionReprojection::between(previous, current));
 
         self.previous_world = Some(current_world);
-        self.previous_first_person = current_first_person;
 
-        let mut maximum_motion = world_reprojection.map_or(0.0, |reprojection| {
+        let maximum_motion = world_reprojection.map_or(0.0, |reprojection| {
             reprojection.maximum_motion_pixels(
                 current_world.camera,
                 desc.Width,
@@ -420,22 +439,11 @@ impl MotionBlurTemporalState {
                 settings.shutter_fraction,
             )
         });
-        if let (Some(current), Some(reprojection)) =
-            (current_first_person, first_person_reprojection)
-        {
-            maximum_motion = maximum_motion.max(reprojection.maximum_motion_pixels(
-                current.camera,
-                desc.Width,
-                desc.Height,
-                settings.shutter_fraction * settings.first_person_strength,
-            ));
-        }
-        maximum_motion = maximum_motion.min(settings.max_blur_pixels);
+        let maximum_motion = maximum_motion.min(settings.max_blur_pixels);
         let blur_requested = maximum_motion.is_finite()
             && maximum_motion > settings.minimum_velocity_pixels
             && world_reprojection.is_some();
-        let third_person = frame_inputs.third_person_view == Some(true);
-        if !blur_requested && !third_person {
+        if !blur_requested && !view.is_third_person() {
             return None;
         }
 
@@ -443,43 +451,42 @@ impl MotionBlurTemporalState {
             settings,
             current_world: current_world.camera,
             world_reprojection,
-            current_first_person: current_first_person.map(|state| state.camera),
-            first_person_reprojection,
             world_reversed: frame_inputs
                 .depth
                 .world_projection
                 .reversed_depth
                 .unwrap_or(false),
-            first_person_reversed: frame_inputs
-                .depth
-                .first_person_projection
-                .reversed_depth
-                .unwrap_or(false),
-            first_person_depth_available: first_person_depth_contract_ready(frame_inputs),
             capture_epoch: frame_inputs.depth.capture_epoch,
-            third_person,
+            view,
             blur_requested,
         })
     }
 
-    fn begin_sequence(&mut self, config: MotionBlurConfig, dimensions: [u32; 2]) {
-        if self.last_config != Some(config) || self.last_dimensions != Some(dimensions) {
+    fn begin_sequence(
+        &mut self,
+        settings: MotionBlurSettings,
+        dimensions: [u32; 2],
+        view: MotionBlurView,
+    ) {
+        if self.last_settings != Some(settings)
+            || self.last_dimensions != Some(dimensions)
+            || self.last_view != Some(view)
+        {
             self.previous_world = None;
-            self.previous_first_person = None;
         }
-        self.last_config = Some(config);
+        self.last_settings = Some(settings);
         self.last_dimensions = Some(dimensions);
+        self.last_view = Some(view);
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 struct MotionBlurSettings {
     enabled: bool,
     quality: MotionBlurQuality,
     shutter_fraction: f32,
     max_blur_pixels: f32,
     minimum_velocity_pixels: f32,
-    first_person_strength: f32,
 }
 
 impl MotionBlurSettings {
@@ -490,7 +497,6 @@ impl MotionBlurSettings {
             shutter_fraction: (config.shutter_angle / 360.0).clamp(0.0, 1.0),
             max_blur_pixels: config.max_blur_pixels.clamp(0.0, 48.0),
             minimum_velocity_pixels: config.minimum_velocity_pixels.clamp(0.0, 2.0),
-            first_person_strength: config.first_person_strength.clamp(0.0, 1.0),
         }
     }
 }
@@ -501,14 +507,25 @@ pub(crate) struct PreparedMotionBlurFrame {
     settings: MotionBlurSettings,
     current_world: CameraFrame,
     world_reprojection: Option<MotionReprojection>,
-    current_first_person: Option<CameraFrame>,
-    first_person_reprojection: Option<MotionReprojection>,
     world_reversed: bool,
-    first_person_reversed: bool,
-    first_person_depth_available: bool,
     capture_epoch: u64,
-    third_person: bool,
+    view: MotionBlurView,
     blur_requested: bool,
+}
+
+/// Native camera route and the only boundary permitted to consume its packet.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum MotionBlurView {
+    /// Completed world color before the native view-model draw.
+    FirstPersonWorld,
+    /// Existing scene-post path with packed world-depth history.
+    ThirdPersonWorld,
+}
+
+impl MotionBlurView {
+    const fn is_third_person(self) -> bool {
+        matches!(self, Self::ThirdPersonWorld)
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -678,23 +695,6 @@ impl MotionReprojection {
     }
 }
 
-fn first_person_depth_contract_ready(frame_inputs: &FrameInputs) -> bool {
-    frame_inputs.depth.first_person_texture.is_some()
-        && frame_inputs
-            .depth
-            .first_person_projection
-            .reversed_depth
-            .is_some()
-        && camera_supports_reprojection(frame_inputs.depth.first_person_projection.camera)
-}
-
-fn first_person_camera_state(frame_inputs: &FrameInputs) -> Option<TemporalCameraState> {
-    first_person_depth_contract_ready(frame_inputs).then_some(TemporalCameraState {
-        camera: frame_inputs.depth.first_person_projection.camera,
-        epoch: frame_inputs.depth.capture_epoch,
-    })
-}
-
 fn camera_supports_reprojection(camera: CameraFrame) -> bool {
     let transform = camera.world_transform;
     let frustum_width = camera.frustum_right - camera.frustum_left;
@@ -725,7 +725,7 @@ fn shader_source(quality: MotionBlurQuality, third_person: bool) -> Vec<u8> {
     source.extend_from_slice(if third_person {
         THIRD_PERSON_SHADER
     } else {
-        SHADER
+        WORLD_SHADER
     });
     source
 }
@@ -738,15 +738,20 @@ fn compile_variant(quality: MotionBlurQuality, third_person: bool) -> Result<Vec
         label.to_owned()
     };
     let source = shader_source(quality, third_person);
+    let source_name = if third_person {
+        format!("motion_blur_third_person.hlsl:{family}")
+    } else {
+        format!("motion_blur_world.hlsl:{family}")
+    };
     Ok(shaders::load_or_compile_hlsl_cached(
         shaders::HlslCacheSpec {
             namespace: "motion_blur",
             family: Some(&family),
             cache_label: &family,
-            source_name: &format!("motion_blur.hlsl:{family}"),
+            source_name: &source_name,
             target: "ps_3_0",
             cache_tag: "pso",
-            contract_revision: b"camera-motion-blur-v2",
+            contract_revision: b"camera-motion-blur-world-boundary-v3",
         },
         &source,
     )?
@@ -790,33 +795,19 @@ fn bind_constants(
     let Some(world) = frame.world_reprojection else {
         return Err(direct3d_failure());
     };
-    let first_person_camera = frame.current_first_person.unwrap_or_default();
-    let first_person = frame.first_person_reprojection;
-    let first_person_rows = first_person.map_or(
-        [
-            [1.0, 0.0, 0.0, 0.0],
-            [0.0, 1.0, 0.0, 0.0],
-            [0.0, 0.0, 1.0, 0.0],
-        ],
-        |reprojection| reprojection.rows,
-    );
-    let previous_first_person = first_person
-        .map(|reprojection| reprojection.previous_camera)
-        .unwrap_or_default();
-    let constants = [
+    // c10..c16 intentionally remain untouched. They were the obsolete
+    // first-person camera ABI; uploading only c0..c9 makes the world-only
+    // contract visible in CPU work without renumbering c17 in the preserved
+    // third-person history shader.
+    let world_constants = [
         screen_data(desc),
         [
             frame.settings.shutter_fraction,
             frame.settings.max_blur_pixels,
             frame.settings.minimum_velocity_pixels,
-            frame.settings.first_person_strength,
+            0.0,
         ],
-        [
-            frame.world_reversed as u8 as f32,
-            frame.first_person_reversed as u8 as f32,
-            frame.first_person_depth_available as u8 as f32,
-            first_person.is_some() as u8 as f32,
-        ],
+        [frame.world_reversed as u8 as f32, 0.0, 0.0, 0.0],
         camera_frustum(frame.current_world),
         [
             frame.current_world.near_z,
@@ -834,31 +825,17 @@ fn bind_constants(
             0.0,
             0.0,
         ],
-        camera_frustum(first_person_camera),
-        [
-            first_person_camera.near_z,
-            first_person_camera.far_z,
-            0.0,
-            0.0,
-        ],
-        first_person_rows[0],
-        first_person_rows[1],
-        first_person_rows[2],
-        camera_frustum(previous_first_person),
-        [
-            previous_first_person.near_z,
-            previous_first_person.far_z,
-            0.0,
-            0.0,
-        ],
-        [
+    ];
+    device.set_pixel_shader_constant_f(0, &world_constants)?;
+    device.set_pixel_shader_constant_f(
+        17,
+        &[[
             history_available as u8 as f32,
-            frame.third_person as u8 as f32,
+            frame.view.is_third_person() as u8 as f32,
             previous_world_reversed as u8 as f32,
             0.0,
-        ],
-    ];
-    device.set_pixel_shader_constant_f(0, &constants)
+        ]],
+    )
 }
 
 fn screen_data(desc: &D3DSURFACE_DESC) -> [f32; 4] {
@@ -957,9 +934,9 @@ fn draw_quad(device: &Device9Ref<'_>, desc: &D3DSURFACE_DESC) -> Direct3DResult<
 #[cfg(test)]
 mod tests {
     use super::{
-        DEPTH_HISTORY_SHADER, MotionBlurTemporalState, MotionReprojection, SHADER,
-        THIRD_PERSON_SHADER, TemporalCameraState, camera_supports_reprojection, shader_source,
-        should_prepare,
+        DEPTH_HISTORY_SHADER, MotionBlurTemporalState, MotionBlurView, MotionReprojection,
+        THIRD_PERSON_SHADER, TemporalCameraState, WORLD_SHADER, camera_supports_reprojection,
+        shader_source, should_prepare, view_from_camera_mode,
     };
     use crate::{
         backend::{
@@ -1039,8 +1016,13 @@ mod tests {
                     "{quality:?} third_person={third_person} uses {} instructions",
                     opcodes.len()
                 );
+                let maximum_texture_ops = if third_person {
+                    quality.sample_count() as usize * 3 + 1
+                } else {
+                    quality.sample_count() as usize * 2
+                };
                 assert!(
-                    texture_count <= quality.sample_count() as usize * 3 + 1,
+                    texture_count <= maximum_texture_ops,
                     "{quality:?} third_person={third_person} uses {texture_count} texture operations"
                 );
             }
@@ -1073,22 +1055,34 @@ mod tests {
     }
 
     #[test]
-    fn shader_abi_uses_only_the_documented_inputs() {
-        let source = std::str::from_utf8(SHADER).expect("motion-blur source");
+    fn shader_abi_uses_only_world_inputs_before_first_person() {
+        let source = std::str::from_utf8(WORLD_SHADER).expect("world motion-blur source");
         for binding in [
             "SceneColor : register(s0)",
             "WorldDepth : register(s1)",
-            "FirstPersonDepth : register(s2)",
             "ScreenData : register(c0)",
-            "PreviousFirstPersonDepth : register(c16)",
+            "PreviousWorldDepth : register(c9)",
         ] {
             assert!(source.contains(binding), "missing ABI binding {binding}");
         }
-        assert_eq!(source.matches("sampler2D ").count(), 3);
-        assert_eq!(source.matches(": register(c").count(), 17);
+        assert_eq!(source.matches("sampler2D ").count(), 2);
+        assert_eq!(source.matches(": register(c").count(), 10);
         assert!(source.contains("[loop]"));
-        assert!(source.contains("float layerStrength = 1.0f;"));
-        assert!(source.contains("layerStrength = MotionOptions.w;"));
+        for removed in [
+            "FirstPersonDepth",
+            "CurrentFirstPerson",
+            "PreviousFirstPerson",
+            "firstPerson",
+            "first_person",
+            "register(s2)",
+            "register(c10)",
+            "register(c16)",
+        ] {
+            assert!(
+                !source.contains(removed),
+                "world-only source retained obsolete token {removed}"
+            );
+        }
 
         let third_person =
             std::str::from_utf8(THIRD_PERSON_SHADER).expect("third-person motion-blur source");
@@ -1110,7 +1104,7 @@ mod tests {
 
     #[test]
     fn shader_uses_explicit_lod_and_contains_no_derivatives_or_color_history() {
-        for bytes in [SHADER, THIRD_PERSON_SHADER, DEPTH_HISTORY_SHADER] {
+        for bytes in [WORLD_SHADER, THIRD_PERSON_SHADER, DEPTH_HISTORY_SHADER] {
             let source = std::str::from_utf8(bytes).expect("motion-blur source");
             assert!(source.contains("tex2Dlod("));
             assert!(!source.contains("tex2D("));
@@ -1118,7 +1112,7 @@ mod tests {
             assert!(!source.contains("ddy("));
             assert!(!source.contains("PreviousSceneColor"));
         }
-        let blur = std::str::from_utf8(SHADER).expect("motion-blur source");
+        let blur = std::str::from_utf8(WORLD_SHADER).expect("motion-blur source");
         assert!(blur.contains("return float4(sum / max(weightSum, 0.0001f), current.a)"));
     }
 
@@ -1253,20 +1247,51 @@ mod tests {
             enabled: true,
             ..MotionBlurConfig::default()
         };
-        state.begin_sequence(config, [1920, 1080]);
+        state.begin_sequence(
+            super::MotionBlurSettings::from_config(config),
+            [1920, 1080],
+            MotionBlurView::FirstPersonWorld,
+        );
         state.previous_world = Some(TemporalCameraState { camera, epoch: 2 });
-        state.begin_sequence(config, [1280, 720]);
+        state.begin_sequence(
+            super::MotionBlurSettings::from_config(config),
+            [1280, 720],
+            MotionBlurView::FirstPersonWorld,
+        );
         assert!(state.previous_world.is_none());
 
         state.previous_world = Some(TemporalCameraState { camera, epoch: 3 });
         state.begin_sequence(
-            MotionBlurConfig {
+            super::MotionBlurSettings::from_config(MotionBlurConfig {
                 shutter_angle: 90.0,
                 ..config
-            },
+            }),
             [1280, 720],
+            MotionBlurView::FirstPersonWorld,
         );
         assert!(state.previous_world.is_none());
+
+        state.previous_world = Some(TemporalCameraState { camera, epoch: 4 });
+        state.begin_sequence(
+            super::MotionBlurSettings::from_config(config),
+            [1280, 720],
+            MotionBlurView::ThirdPersonWorld,
+        );
+        assert!(state.previous_world.is_none());
+
+        state.previous_world = Some(TemporalCameraState { camera, epoch: 5 });
+        state.begin_sequence(
+            super::MotionBlurSettings::from_config(MotionBlurConfig {
+                first_person_strength: 0.9,
+                ..config
+            }),
+            [1280, 720],
+            MotionBlurView::ThirdPersonWorld,
+        );
+        assert!(
+            state.previous_world.is_some(),
+            "the deprecated schema-one field must not alter temporal rendering"
+        );
     }
 
     #[test]
@@ -1310,7 +1335,7 @@ mod tests {
     }
 
     #[test]
-    fn third_person_world_blur_is_admitted_only_with_a_known_camera_mode() {
+    fn exact_camera_mode_routes_first_and_third_person_to_distinct_sequences() {
         let identity = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
         let previous = camera(identity, [0.0; 3]);
         let current = camera(identity, [0.0, 0.0, 10.0]);
@@ -1356,6 +1381,10 @@ mod tests {
             ..MotionBlurConfig::default()
         };
         assert!(should_prepare(&inputs, config));
+        assert_eq!(
+            view_from_camera_mode(inputs.third_person_view),
+            Some(MotionBlurView::FirstPersonWorld)
+        );
 
         let desc = libpsycho::os::windows::directx9::D3DSURFACE_DESC {
             Width: 1_920,
@@ -1383,17 +1412,26 @@ mod tests {
         let mut first_person_state = MotionBlurTemporalState::default();
         assert!(
             first_person_state
-                .prepare_frame(&desc, &previous_inputs, config)
+                .prepare_frame(
+                    &desc,
+                    &previous_inputs,
+                    config,
+                    MotionBlurView::FirstPersonWorld,
+                )
                 .is_none()
         );
         let first_person_frame = first_person_state
-            .prepare_frame(&desc, &inputs, config)
+            .prepare_frame(&desc, &inputs, config, MotionBlurView::FirstPersonWorld)
             .expect("first-person world blur");
         assert!(first_person_frame.blur_requested);
-        assert!(!first_person_frame.third_person);
+        assert_eq!(first_person_frame.view, MotionBlurView::FirstPersonWorld);
         assert!(first_person_frame.world_reprojection.is_some());
 
         inputs.third_person_view = Some(true);
+        assert_eq!(
+            view_from_camera_mode(inputs.third_person_view),
+            Some(MotionBlurView::ThirdPersonWorld)
+        );
         assert!(
             should_prepare(&inputs, config),
             "third-person world blur must reach temporal depth rejection"
@@ -1402,20 +1440,23 @@ mod tests {
         previous_third_person_inputs.third_person_view = Some(true);
         let mut third_person_state = MotionBlurTemporalState::default();
         let first_third_person_frame = third_person_state
-            .prepare_frame(&desc, &previous_third_person_inputs, config)
+            .prepare_frame(
+                &desc,
+                &previous_third_person_inputs,
+                config,
+                MotionBlurView::ThirdPersonWorld,
+            )
             .expect("third-person history seed");
         assert!(!first_third_person_frame.blur_requested);
         let third_person_frame = third_person_state
-            .prepare_frame(&desc, &inputs, config)
+            .prepare_frame(&desc, &inputs, config, MotionBlurView::ThirdPersonWorld)
             .expect("third-person world blur");
         assert!(third_person_frame.blur_requested);
-        assert!(third_person_frame.third_person);
+        assert_eq!(third_person_frame.view, MotionBlurView::ThirdPersonWorld);
 
         inputs.third_person_view = None;
-        assert!(
-            !should_prepare(&inputs, config),
-            "unknown camera mode must fail closed"
-        );
+        assert!(should_prepare(&inputs, config));
+        assert_eq!(view_from_camera_mode(inputs.third_person_view), None);
     }
 
     fn smooth01(value: f32) -> f32 {
@@ -1431,25 +1472,6 @@ mod tests {
                 let tolerance = 0.025 + (motion_pixels * 0.002).min(0.075);
                 1.0 - smooth01((relative - tolerance) / tolerance.max(0.0001))
             }
-            _ => 0.0,
-        }
-    }
-
-    #[derive(Clone, Copy)]
-    enum ReferenceLayer {
-        World(f32),
-        FirstPerson(f32),
-        Sky,
-        Invalid,
-    }
-
-    fn layer_acceptance(center: ReferenceLayer, sample: ReferenceLayer, motion_pixels: f32) -> f32 {
-        match (center, sample) {
-            (ReferenceLayer::World(center), ReferenceLayer::World(sample))
-            | (ReferenceLayer::FirstPerson(center), ReferenceLayer::FirstPerson(sample)) => {
-                depth_acceptance(Some(center), Some(sample), motion_pixels)
-            }
-            (ReferenceLayer::Sky, ReferenceLayer::Sky) => 1.0,
             _ => 0.0,
         }
     }
@@ -1606,41 +1628,43 @@ mod tests {
     }
 
     #[test]
-    fn layer_gate_never_crosses_world_first_person_sky_or_invalid_depth() {
+    fn first_person_composition_blurs_world_before_native_foreground() {
+        let world = [
+            [0.05, 0.10, 0.20],
+            [0.05, 0.10, 0.35],
+            [0.05, 0.10, 0.50],
+            [0.05, 0.10, 0.65],
+            [0.05, 0.10, 0.80],
+        ];
+        let depths = [Some(100.0); 5];
+        let weapon = [1.0, 0.1, 0.05];
+
+        let mut buggy_combined = world;
+        buggy_combined[2] = weapon;
+        let buggy = reference_blur(&buggy_combined, &depths, 2, 2.0, 7, true);
         assert!(
-            layer_acceptance(
-                ReferenceLayer::World(100.0),
-                ReferenceLayer::World(103.0),
-                12.0,
-            ) > 0.5
+            buggy[0] < weapon[0] - 0.2,
+            "negative control must reproduce post-first-person weapon smear"
+        );
+
+        let blurred_world = reference_blur(&world, &depths, 2, 2.0, 7, true);
+        let composite = |alpha: f32| {
+            std::array::from_fn(|channel| {
+                weapon[channel] * alpha + blurred_world[channel] * (1.0 - alpha)
+            })
+        };
+        assert_eq!(composite(1.0), weapon, "opaque native color must be exact");
+        assert_eq!(
+            composite(0.0),
+            blurred_world,
+            "an alpha-tested hole must reveal the blurred world"
         );
         assert_eq!(
-            layer_acceptance(
-                ReferenceLayer::World(100.0),
-                ReferenceLayer::FirstPerson(10.0),
-                12.0,
-            ),
-            0.0
-        );
-        assert_eq!(
-            layer_acceptance(
-                ReferenceLayer::FirstPerson(10.0),
-                ReferenceLayer::World(100.0),
-                12.0,
-            ),
-            0.0
-        );
-        assert_eq!(
-            layer_acceptance(ReferenceLayer::Sky, ReferenceLayer::World(100.0), 12.0),
-            0.0
-        );
-        assert_eq!(
-            layer_acceptance(ReferenceLayer::World(100.0), ReferenceLayer::Invalid, 12.0,),
-            0.0
-        );
-        assert_eq!(
-            layer_acceptance(ReferenceLayer::Sky, ReferenceLayer::Sky, 12.0),
-            1.0
+            composite(0.25),
+            std::array::from_fn(|channel| {
+                weapon[channel] * 0.25 + blurred_world[channel] * 0.75
+            }),
+            "translucency must remain ordinary native blending over blurred world"
         );
     }
 

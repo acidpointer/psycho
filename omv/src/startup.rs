@@ -183,6 +183,7 @@ pub(crate) fn install_deferred_hooks() -> Result<()> {
         // ensures an external producer is never suppressed by a partial
         // startup attempt. The transactional gate remains retryable.
         crate::backend::abandon_initial_depth_provider();
+        crate::runtime::abandon_deferred_first_person_motion_blur_admission();
     }
     result?;
     install_attempt.complete();
@@ -276,7 +277,8 @@ mod deferred_install_tests {
 
         let deferred = source
             .split_once("fn install_deferred_hooks_once()")
-            .map(|(_, body)| body)
+            .and_then(|(_, tail)| tail.split_once("\n#[cfg(test)]"))
+            .map(|(body, _)| body)
             .expect("DeferredInit installation body");
         assert!(deferred.contains("fnv_world_pipeline::publish_config(menu_config)"));
         assert!(deferred.contains("pbr::install(settings.native_pbr)"));

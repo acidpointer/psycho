@@ -1,10 +1,11 @@
-// OMV third-person camera motion blur.
+// OMV world-only camera motion blur.
 //
-// Unlike the first-person world-boundary path, this path validates each current
-// world surface against packed depth from the preceding frame. Camera
-// reprojection is accepted only when a compatible surface existed at the
-// reprojected position. This rejects disocclusions, but matching depth is not
-// semantic player identity and does not solve third-person player coverage.
+// This variant executes after the completed world and before native
+// first-person rendering. It must never classify or sample view-model data:
+// the engine's later RenderFirstPerson call is the exact coverage operation
+// that keeps hands, weapons, and their material variants outside the shutter.
+// Samples run from the current pixel toward its previous-frame position, which
+// is a trailing exposure rather than a symmetric leading smear.
 
 #ifndef MOTION_BLUR_SAMPLES
 #define MOTION_BLUR_SAMPLES 7
@@ -12,7 +13,6 @@
 
 sampler2D SceneColor : register(s0);
 sampler2D WorldDepth : register(s1);
-sampler2D PreviousWorldDepthHistory : register(s3);
 
 float4 ScreenData : register(c0);
 float4 MotionOptions : register(c1);
@@ -24,7 +24,6 @@ float4 WorldRow1 : register(c6);
 float4 WorldRow2 : register(c7);
 float4 PreviousWorldFrustum : register(c8);
 float4 PreviousWorldDepth : register(c9);
-float4 HistoryFlags : register(c17);
 
 static const float DepthEndpointEpsilon = 0.000001f;
 
@@ -82,6 +81,8 @@ float3 TransformPrevious(float3 position) {
 }
 
 float3 RotatePrevious(float3 direction) {
+    // Sky is infinitely distant. Translation would make walking smear it even
+    // though only camera rotation can move an infinite-depth direction.
     return float3(
         dot(WorldRow0.xyz, direction),
         dot(WorldRow1.xyz, direction),
@@ -114,43 +115,14 @@ float2 BoundedMotion(float2 uv, float2 previousUv) {
         motion *= maxPixels / speedPixels;
         speedPixels = maxPixels;
     }
+
+    // A soft threshold avoids subpixel shimmer without introducing a visible
+    // step when camera velocity first crosses the configured minimum.
     float threshold = max(MotionOptions.z, 0.0f);
     float activation = Smooth01(
         (speedPixels - threshold) / max(0.5f, threshold * 0.5f)
     );
     return ClipMotionToViewport(uv, motion * activation);
-}
-
-float UnpackDepth24(float3 packedDepth) {
-    return dot(packedDepth, float3(1.0f, 1.0f / 255.0f, 1.0f / 65025.0f));
-}
-
-bool PreviousWorldSurfaceMatches(
-    float2 previousUv,
-    float predictedPreviousDepth,
-    float motionPixels
-) {
-    if (HistoryFlags.x < 0.5f) {
-        return false;
-    }
-    float previousRaw = UnpackDepth24(
-        tex2Dlod(
-            PreviousWorldDepthHistory,
-            float4(DepthTexelCenter(previousUv), 0.0f, 0.0f)
-        ).rgb
-    );
-    if (!GeometryDepth(previousRaw)) {
-        return false;
-    }
-    float previousDepth = LinearDepth(
-        previousRaw,
-        PreviousWorldDepth.xy,
-        HistoryFlags.z > 0.5f
-    );
-    float relativeDifference = abs(previousDepth - predictedPreviousDepth)
-        / max(min(previousDepth, predictedPreviousDepth), 0.01f);
-    float tolerance = 0.03f + min(motionPixels * 0.003f, 0.07f);
-    return relativeDifference <= tolerance;
 }
 
 float DepthAcceptance(
@@ -170,11 +142,14 @@ float DepthAcceptance(
     if (centerSky) {
         return 1.0f;
     }
+
     float sampleDepth = LinearDepth(
         sampleRaw,
         CurrentWorldDepth.xy,
         LayerFlags.x > 0.5f
     );
+    // Relative depth remains useful over FNV's large near/far range. The
+    // bounded growth admits grazing planes while still rejecting silhouettes.
     float relativeDifference = abs(sampleDepth - centerDepth)
         / max(min(sampleDepth, centerDepth), 0.01f);
     float tolerance = 0.025f + min(motionPixels * 0.002f, 0.075f);
@@ -220,15 +195,13 @@ float4 Main(float2 requestedUv : TEXCOORD0) : COLOR0 {
     if (motionPixels <= 0.0001f) {
         return current;
     }
-    if (
-        !centerSky
-        && !PreviousWorldSurfaceMatches(previousUv, previousPosition.z, motionPixels)
-    ) {
-        return current;
-    }
 
+    // Trapezoidal endpoint weights integrate a uniform shutter interval
+    // without over-emphasizing either the current or oldest sample.
     float3 sum = current.rgb * 0.5f;
     float weightSum = 0.5f;
+    // The compile-time bound gives every quality tier exact executed work. A
+    // uniform loop avoids duplicating this rejection body in ps_3_0 bytecode.
     [loop]
     for (int sampleIndex = 1; sampleIndex < MOTION_BLUR_SAMPLES; ++sampleIndex) {
         float t = (float)sampleIndex / (float)(MOTION_BLUR_SAMPLES - 1);
@@ -246,5 +219,6 @@ float4 Main(float2 requestedUv : TEXCOORD0) : COLOR0 {
         sum += sampleColor * weight;
         weightSum += weight;
     }
+
     return float4(sum / max(weightSum, 0.0001f), current.a);
 }

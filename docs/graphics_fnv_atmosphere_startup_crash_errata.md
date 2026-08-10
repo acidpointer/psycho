@@ -80,8 +80,11 @@ Do not rewrite this incident as either "BaseObjectSwapper alone caused it" or
 - Never call `fnv_world_pipeline::publish_config` from
   `NVSEPlugin_Load`, `runtime::configure`, preload/query callbacks, a DLL entry
   point, or another earlier startup phase.
-- Keep `DeferredHookSettings.menu_config`; it is the phase handoff that lets the
-  world owner remain dormant during data/plugin loading.
+- Keep an explicit staged-config handoff into DeferredInit. The original fix
+  stored `menu_config` directly in `DeferredHookSettings`; the current depth
+  fallback path stores it in the dormant runtime model and returns the
+  effective menu config from `apply_initial_depth_activation`. Neither form may
+  publish the world owner or a newly added hook admission early.
 - The first world-config publication belongs in `install_deferred_hooks` before
   scene and D3D hooks become reachable.
 - Do not replace working startup/configuration locks with `try_lock` in response
@@ -177,3 +180,89 @@ inventory or compilation beginning before DeferredInit, followed by the
 unchanged DeferredInit world publication, hook installation, preparation
 completion, and live Present telemetry without the BaseObjectSwapper startup
 crash signature.
+
+## 2026-08-10 motion-blur config ABI regression
+
+The first-person motion-blur correction produced another OMV-dependent crash
+at the established BaseObjectSwapper-sensitive startup boundary. The deployed
+release artifact reported `unix=1786366301`, source commit `cf600745` with a
+dirty worktree, and a build time corresponding to the implementation under
+test. The captured OMV log is
+`.reports/omv-2026-08-10-155159-motion-blur-startup-crash.log`.
+
+### Proven phase evidence
+
+The log reached `NVSEPlugin_Load`, compatibility discovery, native-sky cache
+reads, native-PBR cache inventory, and one external screen-shader cache read.
+It did not contain:
+
+- `[FNV WORLD] Initial config published at DeferredInit`;
+- `[INIT] Deferred OMV graphics hooks initialized`;
+- resident FNV scene-hook installation;
+- any Present or scene transaction.
+
+Consequently the new `RenderWorldSceneGraph`/`RenderFirstPerson` logic, D3D9
+transaction, world-only shader, and retry token had not executed. The user
+observed the BaseObjectSwapper fault. The corresponding full CrashLogger trace
+was overwritten by the next launch, so the current incident does not provide a
+new durable call-stack artifact; the earlier exact fault evidence remains in
+`.reports/CrashLogger-2026-08-04-194321-pbr-startup-crash.log` and the incident
+sections above.
+
+### Exact new load-time path
+
+The first-person rendering change did not add a `LazyLock`, TLS owner, engine
+call, D3D call, or hook installation to `NVSEPlugin_Load`. It did make an
+unnecessary configuration ABI transition there:
+
+1. `MotionBlurConfig.first_person_strength` was removed, changing the nested
+   `EmbeddedEffectsConfig`/`GraphicsMenuConfig` value layout copied through
+   startup.
+2. `CONFIG_SCHEMA_VERSION` was changed from 1 to 2, the shipped working config
+   changed shape, and a second frozen preset manifest was added.
+3. The built-in preset payload/version changed and schema-1 presets acquired a
+   new migration that removed the field.
+4. `ScreenShaderRuntime::configure`, which is called by `NVSEPlugin_Load`,
+   starts `PresetService`. Its worker immediately constructs the built-in
+   preset, scans installed presets, validates frozen shapes, and runs registered
+   migrations. This is before DeferredInit and was the newly introduced
+   allocation/serialization path in the known BaseObjectSwapper-sensitive
+   interval.
+
+By contrast, config-enabled screen-effect preparation, native sky preparation,
+native PBR preparation, asset scanning, and existing scene-input publication
+were all present in the accepted parent build. Moving those established
+operations to DeferredInit was an over-broad attempted fix: it changed shader
+readiness and loading latency without isolating the new owner. The captured log
+does not record motion-blur compilation before the crash.
+
+### Surgical correction
+
+The correction preserves the complete world-only first-person implementation:
+
+1. Configuration and presets remain schema 1. The preset manifest, built-in
+   version `1.0.0`, and payload revision remain unchanged.
+2. `first_person_strength` remains present in Rust, shipped TOML, saved TOML,
+   and presets as a deprecated compatibility value, restoring the accepted
+   nested value layout and eliminating the new startup migration path.
+3. The field is absent from the menu and from `MotionBlurSettings`, temporal
+   sequence comparison, shader constants, and HLSL. Its value has no rendering
+   effect.
+4. `service_enabled_effect_preparation` remains in `runtime::configure`; the
+   prior process-owned worker lifecycle is unchanged.
+5. Existing scene requirements retain their prior publication behavior. Only
+   the new first-person-motion-blur admission is false during plugin load and
+   is published by `apply_initial_depth_activation` at DeferredInit before the
+   resident scene-hook group becomes reachable. A failed deferred attempt
+   clears only that new admission before retry.
+
+The phase boundary and newly introduced OMV path are established by source and
+the captured log. The exact allocator/timing interaction with
+BaseObjectSwapper's independent undefined behavior remains inference, just as
+in the earlier incidents.
+
+Runtime acceptance passed on 2026-08-10: the replacement DLL completed an
+ordinary load-to-gameplay playtest through the previously failing startup
+interval, motion blur worked in game, and the BaseObjectSwapper crash did not
+recur. This is a runtime observation, not proof of the lower-level external UB
+mechanism.

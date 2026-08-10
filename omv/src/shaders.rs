@@ -1714,15 +1714,6 @@ fn motion_blur_source(config: &MotionBlurConfig) -> ScreenShaderSource {
                 21,
                 3,
             ),
-            float_option(
-                "first_person_strength",
-                "First-person strength",
-                config.first_person_strength,
-                0.0,
-                1.0,
-                22,
-                0,
-            ),
         ],
     )
 }
@@ -2181,7 +2172,6 @@ fn sync_motion_blur_config(source: &ScreenShaderSource, config: &mut MotionBlurC
             "minimum_velocity_pixels" => {
                 config.minimum_velocity_pixels = option_float(option);
             }
-            "first_person_strength" => config.first_person_strength = option_float(option),
             _ => {}
         }
     }
@@ -3345,7 +3335,7 @@ mod embedded_color_grade_tests {
             shutter_angle: 315.0,
             max_blur_pixels: 42.0,
             minimum_velocity_pixels: 1.25,
-            first_person_strength: 0.65,
+            first_person_strength: 0.2,
         };
         let source = motion_blur_source(&expected);
         let schema: Vec<(&str, f32, f32)> = source
@@ -3360,7 +3350,6 @@ mod embedded_color_grade_tests {
                 ("shutter_angle", 0.0, 360.0),
                 ("max_blur_pixels", 0.0, 48.0),
                 ("minimum_velocity_pixels", 0.0, 2.0),
-                ("first_person_strength", 0.0, 1.0),
             ]
         );
         assert!(matches!(
@@ -3382,7 +3371,7 @@ mod embedded_color_grade_tests {
     }
 
     #[test]
-    fn motion_blur_is_ordered_after_dof_and_before_final_color() {
+    fn third_person_motion_blur_metadata_stays_after_dof_and_before_final_color() {
         let sources = embedded_effect_sources(&EmbeddedEffectsConfig::default());
         let dof = sources
             .iter()

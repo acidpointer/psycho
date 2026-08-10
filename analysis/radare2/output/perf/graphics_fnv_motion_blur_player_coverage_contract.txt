@@ -1,0 +1,152 @@
+FNV MOTION-BLUR PLAYER COVERAGE CONTRACT
+
+Research date: 2026-08-10
+Primary tool: radare2 MCP, analysis level 2
+Binary: fnv_reverse/FalloutNV.exe
+SHA-256: 42fee7d6cd74e801372aa89c8f71c974cebd3c20ec9ad43d1465b8fa9646b49c
+PE32 x86 image base: 0x00400000
+
+Questions
+=========
+
+1. Does the completed world render already contain third-person player geometry?
+2. Can OMV identify player geometry at its existing renderer-owned geometry
+   hooks without a D3D9 device-vtable hook?
+3. Is first-person geometry owned by the same world render?
+
+Direct binary evidence
+======================
+
+PlayerCharacter::Get3D selector @ 0x00950BB0
+------------------------------------------------
+
+The function receives PlayerCharacter in ECX and a Boolean stack argument.
+
+When the argument is nonzero:
+
+  0x00950BBF  MOV ECX,[EBP-0x4]
+  0x00950BC2  ADD ECX,0x694
+  0x00950BC8  CALL 0x00559450
+
+The returned pointer is PlayerCharacter + 0x694 through the engine smart
+pointer accessor. The independently corroborating xNVSE layout names +0x694
+as firstPersonNiNode.
+
+When the argument is zero:
+
+  0x00950BCF  MOV ECX,[EBP-0x4]
+  0x00950BD2  CALL 0x0043FCD0
+
+0x0043FCD0 is TESObjectREFR::Get3D. It returns the reference's ordinary world
+3D root (or null), including the TLS-aware fast path used by the engine.
+
+Main::RenderWorldSceneGraph @ 0x00873200
+------------------------------------------------
+
+The supported main renderer calls this function from 0x00870AE8 and
+0x00870E18. The function reads the player singleton at 0x011DEA3C and calls
+0x00950BB0 at 0x00873265, 0x0087327E, and 0x0087442D. All three shown calls
+push 1, selecting the first-person root for visibility/state work inside the
+world-render transaction.
+
+The separate main render callers invoke Main::RenderFirstPerson @ 0x00875110
+only after Main::RenderWorldSceneGraph returns. Existing phase evidence gives
+the exact call order:
+
+  caller A: 0x00870AE8 RenderWorldSceneGraph
+            0x00870B21 RenderFirstPerson
+
+  caller B: 0x00870E18 RenderWorldSceneGraph
+            0x00870F74 RenderFirstPerson
+
+Therefore first-person hands/weapons are a later renderer-owned overlay. They
+can remain outside a world-only effect by applying it after the primary world
+return and before RenderFirstPerson.
+
+The ordinary third-person root is not passed to the separate
+RenderFirstPerson function. The reported runtime observation proves that its
+color reaches the later motion-blur input. Combined with the absence of a
+separate third-person overlay in both main render paths, the reasoned conclusion
+is that it participates in the ordinary world scene/accumulator and is already
+present in completed world color/depth at the post-RenderWorldSceneGraph
+boundary. Phase placement alone therefore cannot distinguish the player body
+from other world geometry.
+
+Renderer geometry boundary
+------------------------------------------------
+
+OMV already owns executable-entry hooks at:
+
+  0x00E745A0  NiDX9Renderer::RenderTriShape
+  0x00E74840  NiDX9Renderer::RenderTriStrips
+
+Each receives the consuming NiGeometry pointer and brackets the actual native
+primitive submission. These are engine-owned entries, not IDirect3DDevice9
+vtable slots.
+
+The executable/library layout used by the current OMV PBR contract establishes:
+
+  NiAVObject +0x18  parent NiNode pointer
+  NiGeometry +0xA8  shade-property pointer in NiPropertyState
+
+Starting from the geometry argument and following +0x18 reaches its owning
+scene root. Comparing this bounded ancestry with the once-per-world-frame
+PlayerCharacter::Get3D(false) root provides a semantic third-person-player
+classification without guessing from screen position, depth, or camera
+motion. The traversal must be bounded and active only while a third-person
+motion-blur coverage capture is armed.
+
+Corroborating third-party source evidence
+=========================================
+
+The xNVSE layouts in both TESReloaded10 and Stewie Tweaks agree that:
+
+  PlayerCharacter +0x64C  third-person camera-mode byte
+  PlayerCharacter +0x694  firstPersonNiNode
+  NiAVObject +0x18         parent
+
+TESReloaded10 defines NiShadeProperty flag bits kFirstPerson (1 << 1) and
+kThirdPerson (1 << 2), but its ShadowManager sets those flags itself by
+recursively walking Player->firstPersonNiNode and Player->GetNode() every 50
+frames. Those bits are therefore not accepted here as an engine-maintained,
+always-current player identity contract. OMV should not depend on them unless
+it explicitly owns their publication and equipment-change lifetime.
+
+Conclusions
+===========
+
+PROVEN:
+
+- First-person geometry is rendered after the primary world boundary.
+- OMV's current full-screen post-image-space pass cannot infer semantic player
+  identity from world depth.
+- The current engine geometry hooks receive enough object identity to compare
+  a geometry's bounded parent chain with PlayerCharacter::Get3D(false).
+
+PROVEN RUNTIME OBSERVATION PLUS REASONED RENDER-TOPOLOGY CONCLUSION:
+
+- Third-person player color reaches the current motion-blur input and, because
+  neither main path owns a later third-person overlay, belongs to the completed
+  ordinary world render.
+
+NOT YET PROVEN:
+
+- A collision-free engine stencil bit or persistent stencil lifetime suitable
+  for carrying the player coverage to a later full-screen pass.
+- Complete coverage of every visible player material and every later
+  occluding draw by the two current geometry entries.
+- The runtime cost of per-geometry ancestry classification and any mask-state
+  publication on NVIDIA, AMD, and Intel GPUs under Wine/Proton.
+
+These unproven carrier details are implementation gates. They do not weaken
+the root-cause conclusion: an explicit semantic player coverage producer is
+required for exact third-person world-only motion blur.
+
+Related durable evidence
+========================
+
+- analysis/ghidra/output/perf/graphics_fnv_effect_phase_contract_audit.txt
+- analysis/ghidra/output/perf/graphics_fnv_stage_boundary_order_deep_audit.txt
+- analysis/ghidra/output/perf/graphics_fnv_first_person_depth_composite_contract_audit.txt
+- analysis/ghidra/output/perf/graphics_fnv_omv_scene_effects_evidence_pack.txt
+- docs/graphics_fnv_motion_blur.md

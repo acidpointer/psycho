@@ -7,11 +7,18 @@
 //! resident until process exit. Runtime settings only change passive consumer
 //! gates inside the detours; they never rewrite executable entry bytes while
 //! the renderer is live. Render callbacks are nonblocking and never substitute
-//! one provider for another. When the
-//! selected provider exposes world depth
+//! one provider for another. When the selected provider exposes world depth
 //! but no first-person mask, AO is composed on the completed world target
 //! immediately after `RenderWorldSceneGraph`; hands and weapons later
 //! overwrite AO naturally without reactivating OMV depth capture.
+//!
+//! First-person motion blur uses the same engine ownership interval but runs
+//! after all other post-world owners. A busy primary call may publish one exact
+//! epoch/RT0 retry for `RenderFirstPerson` entry. The detour validates both the
+//! still-bound RT0 and the rendered-texture argument, retries coherent world
+//! depth only when absent, then closes the deadline before entering native
+//! first-person rendering. It never moves missed first-person work into the
+//! later image-space hooks.
 
 use std::{
     ffi::c_void,
@@ -583,6 +590,10 @@ unsafe extern "thiscall" fn hook_render_world_scene_graph(
                     // manually binding it violated the engine target lifetime.
                     crate::runtime::apply_fnv_ao_after_world(device_ptr);
                 }
+                // First-person motion blur must consume the final world color
+                // after every world owner above, especially early AO. Native
+                // RenderFirstPerson then supplies the exact foreground mask.
+                crate::runtime::apply_fnv_motion_blur_after_world(device_ptr);
             }
         } else {
             log_depth_capture_skip(
@@ -659,6 +670,7 @@ unsafe extern "thiscall" fn hook_render_first_person(
         return;
     };
     if !crate::runtime::effects_enabled() {
+        crate::runtime::close_fnv_motion_blur_deadline();
         unsafe { original(main, renderer, geo, sky_sun, rendered_texture) };
         return;
     }
@@ -666,7 +678,27 @@ unsafe extern "thiscall" fn hook_render_first_person(
     unsafe {
         if let Some(device_ptr) = crate::backend::d3d_device_ptr() {
             crate::fnv_world_pipeline::retry_before_first_person(device_ptr, rendered_texture);
+            if crate::runtime::fnv_motion_blur_retry_matches(device_ptr, rendered_texture) {
+                if crate::runtime::fnv_motion_blur_retry_needs_world_depth() {
+                    // The motion-blur producer can lose its post-world
+                    // try-lock even when no focused world pass was pending.
+                    // Reuse the ordinary coherent-world capture; its epoch and
+                    // stage cache prevents a duplicate physical depth copy.
+                    capture_depth(
+                        crate::backend::DepthResolveSlot::World,
+                        None,
+                        "FNV before first-person motion blur retry",
+                    );
+                }
+                crate::runtime::retry_fnv_motion_blur_before_first_person(
+                    device_ptr,
+                    rendered_texture,
+                );
+            }
         }
+        // This is the hard ownership deadline. No miss may be carried into
+        // scene post after native hands/weapons enter the color target.
+        crate::runtime::close_fnv_motion_blur_deadline();
         original(main, renderer, geo, sky_sun, rendered_texture);
         crate::backend::publish_fnv_first_person_rendered();
         capture_depth(
@@ -831,7 +863,7 @@ mod final_color_phase_contract_tests {
     }
 
     #[test]
-    fn world_only_ao_uses_the_active_post_world_target_before_first_person() {
+    fn post_world_effects_finish_in_order_before_native_first_person() {
         let source = include_str!("fnv_render.rs");
         let world_body = source
             .split_once("unsafe extern \"thiscall\" fn hook_render_world_scene_graph")
@@ -850,12 +882,17 @@ mod final_color_phase_contract_tests {
             .find("apply_fnv_ao_after_world")
             .map(|offset| world_color + offset)
             .expect("world-only AO boundary");
+        let motion_blur = world_body[world_ao..]
+            .find("apply_fnv_motion_blur_after_world")
+            .map(|offset| world_ao + offset)
+            .expect("first-person motion-blur boundary");
 
         // AO must draw while the completed world surface is still RT0. The
         // BSRenderedTexture argument is not activated by the engine until
         // inside RenderFirstPerson, so pre-binding it here is not equivalent.
         assert!(publish < world_color);
         assert!(world_color < world_ao);
+        assert!(world_ao < motion_blur);
 
         let first_person_body = source
             .split_once("unsafe extern \"thiscall\" fn hook_render_first_person")
@@ -866,9 +903,17 @@ mod final_color_phase_contract_tests {
         let world_retry = first_person_body
             .find("retry_before_first_person")
             .expect("world-pipeline retry");
-        let original = first_person_body[world_retry..]
-            .find("original(main, renderer, geo, sky_sun, rendered_texture)")
+        let motion_blur_retry = first_person_body[world_retry..]
+            .find("retry_fnv_motion_blur_before_first_person")
             .map(|offset| world_retry + offset)
+            .expect("motion-blur retry");
+        let deadline = first_person_body[motion_blur_retry..]
+            .find("close_fnv_motion_blur_deadline")
+            .map(|offset| motion_blur_retry + offset)
+            .expect("motion-blur deadline");
+        let original = first_person_body[deadline..]
+            .find("original(main, renderer, geo, sky_sun, rendered_texture)")
+            .map(|offset| deadline + offset)
             .expect("native first-person draw");
         let publish = first_person_body[original..]
             .find("publish_fnv_first_person_rendered")
@@ -881,6 +926,9 @@ mod final_color_phase_contract_tests {
 
         assert!(!first_person_body.contains("apply_fnv_ao"));
         assert!(world_retry < original);
+        assert!(world_retry < motion_blur_retry);
+        assert!(motion_blur_retry < deadline);
+        assert!(deadline < original);
         assert!(original < publish);
         assert!(publish < capture);
     }

@@ -10,6 +10,14 @@
 //! while world-only depth moves AO to the completed, still-bound world target
 //! before first-person color composition.
 //!
+//! Motion blur has a stricter camera-dependent owner. In exact first person,
+//! it consumes completed world color immediately after `RenderWorldSceneGraph`
+//! and before native `RenderFirstPerson`; that native draw is the foreground
+//! mask. One epoch- and target-exact retry is allowed at first-person entry,
+//! but a missed deadline is never moved to image space. Exact third person
+//! keeps the existing scene-post route and packed world-depth history. Unknown
+//! camera mode rejects both routes and resets temporal continuity.
+//!
 //! Each native image-space phase executes through a two-texture color graph.
 //! The engine target is copied once at phase entry, intermediate effects
 //! alternate renderable textures, and the last planned writer targets the
@@ -43,15 +51,17 @@
 //! provider to every consumer and reports the reason in the menu; optional
 //! depth capability can never prevent unrelated OMV services from starting.
 //!
-//! Embedded HLSL compilation is process-owned. Configuration starts bounded
-//! background preparation, while render callbacks poll immutable bytecode and
-//! create only D3D device objects.
+//! Embedded screen-effect HLSL compilation is process-owned. Configuration
+//! starts bounded background preparation, while render callbacks poll immutable
+//! bytecode and create only D3D device objects. A separate route-specific bit
+//! keeps first-person motion blur inadmissible until DeferredInit has selected
+//! the provider and is ready to install its resident hooks.
 
 use std::{
     ffi::{CString, c_void},
     sync::{
         Arc, LazyLock,
-        atomic::{AtomicBool, AtomicI64, AtomicU32, AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicI64, AtomicU32, AtomicU64, AtomicUsize, Ordering},
     },
     time::Instant,
 };
@@ -131,6 +141,9 @@ static CURRENT_LOOK_FLUSH_REQUEST: AtomicBool = AtomicBool::new(false);
 static NATIVE_DOF_QUERY_NEEDED: AtomicBool = AtomicBool::new(false);
 static PRESENT_FRAME_TIMING_NEEDED: AtomicBool = AtomicBool::new(false);
 static FNV_SCENE_REQUIREMENTS: AtomicU32 = AtomicU32::new(0);
+static FNV_FIRST_PERSON_MOTION_BLUR_ADMITTED: AtomicBool = AtomicBool::new(false);
+static FNV_FIRST_PERSON_MOTION_BLUR_PENDING_EPOCH: AtomicU32 = AtomicU32::new(0);
+static FNV_FIRST_PERSON_MOTION_BLUR_PENDING_TARGET: AtomicUsize = AtomicUsize::new(0);
 static PRESENT_APPLY_BUSY: AtomicU32 = AtomicU32::new(0);
 static PRESENT_FINISH_BUSY: AtomicU32 = AtomicU32::new(0);
 static PRESENT_FAILED: AtomicU32 = AtomicU32::new(0);
@@ -144,6 +157,51 @@ const FNV_REQUIRE_FIRST_PERSON_DEPTH: u32 = 1 << 1;
 const FNV_REQUIRE_WORLD_COLOR: u32 = 1 << 2;
 const MENU_DIAGNOSTICS_ACTIVE_BIT: u32 = 1;
 const MENU_DIAGNOSTICS_SESSION_INCREMENT: u32 = 2;
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+struct FirstPersonMotionBlurRetryToken {
+    epoch: u32,
+    target: usize,
+}
+
+impl FirstPersonMotionBlurRetryToken {
+    fn matches(
+        self,
+        epoch: u32,
+        rendered_texture_target: usize,
+        current_target: usize,
+        third_person_view: Option<bool>,
+    ) -> bool {
+        self.target != 0
+            && self.epoch == epoch
+            && self.target == rendered_texture_target
+            && self.target == current_target
+            && third_person_view == Some(false)
+    }
+}
+
+fn first_person_motion_blur_retry_token() -> FirstPersonMotionBlurRetryToken {
+    // The target is the publication word: arming writes the epoch first and
+    // then releases the nonzero target, while clearing releases target zero.
+    let target = FNV_FIRST_PERSON_MOTION_BLUR_PENDING_TARGET.load(Ordering::Acquire);
+    FirstPersonMotionBlurRetryToken {
+        epoch: FNV_FIRST_PERSON_MOTION_BLUR_PENDING_EPOCH.load(Ordering::Relaxed),
+        target,
+    }
+}
+
+fn arm_first_person_motion_blur_retry(epoch: u32, target: usize) {
+    if target == 0 {
+        return;
+    }
+    FNV_FIRST_PERSON_MOTION_BLUR_PENDING_EPOCH.store(epoch, Ordering::Relaxed);
+    FNV_FIRST_PERSON_MOTION_BLUR_PENDING_TARGET.store(target, Ordering::Release);
+}
+
+fn clear_first_person_motion_blur_retry() {
+    FNV_FIRST_PERSON_MOTION_BLUR_PENDING_TARGET.store(0, Ordering::Release);
+    FNV_FIRST_PERSON_MOTION_BLUR_PENDING_EPOCH.store(0, Ordering::Relaxed);
+}
 
 #[derive(Clone, Copy, Default)]
 struct RuntimeLockTelemetry {
@@ -233,6 +291,9 @@ pub(crate) fn configure(settings: RuntimeSettings) {
     );
     MASTER_EFFECTS_ENABLED.store(settings.menu_config.screen_space_shaders, Ordering::Release);
     update_native_dof_query_needed(&settings.menu_config);
+    // Preserve the established plugin-load preparation contract. These
+    // process-owned requests predate the first-person route and are not the
+    // new startup owner introduced by that route.
     service_enabled_effect_preparation(settings.menu_config);
     let mut runtime = RUNTIME.lock();
     runtime.configure(settings);
@@ -249,6 +310,10 @@ pub(crate) fn apply_initial_depth_activation(
     let mut runtime = RUNTIME.lock();
     runtime.settings.depth_provider = activation.active;
     runtime.settings.menu_config.depth_provider = activation.active.into();
+    // Only the new first-person route is staged. Existing scene requirements
+    // retain their established publication behavior, while this admission
+    // cannot become reachable before its resident hooks are installed.
+    runtime.first_person_motion_blur_admission_ready = true;
     runtime.startup_depth_provider_request = activation
         .fallback
         .map(|_| DepthProviderConfig::from(activation.requested));
@@ -263,6 +328,18 @@ pub(crate) fn apply_initial_depth_activation(
         runtime.menu_config_error = Some(message);
     }
     runtime.settings.menu_config
+}
+
+/// Make the staged first-person route passive after DeferredInit fails.
+///
+/// Some detours may already be resident when a later installer returns an
+/// error. Clearing only this new gate preserves every pre-existing scene-input
+/// contract and lets a later retry reopen admission through
+/// [`apply_initial_depth_activation`].
+pub(crate) fn abandon_deferred_first_person_motion_blur_admission() {
+    let mut runtime = RUNTIME.lock();
+    runtime.first_person_motion_blur_admission_ready = false;
+    runtime.publish_fnv_scene_requirements();
 }
 
 /// Start background preparation for every configured screen-effect family.
@@ -310,6 +387,7 @@ fn service_enabled_effect_preparation(config: GraphicsMenuConfig) {
 }
 
 pub(crate) fn prepare_for_game_load() {
+    clear_first_person_motion_blur_retry();
     MENU_OPEN.store(false, Ordering::Release);
     MENU_KEY_CAPTURE_ACTIVE.store(false, Ordering::Release);
     PENDING_MENU_TOGGLE_KEY.store(0, Ordering::Release);
@@ -341,6 +419,28 @@ mod load_transition_tests {
         assert_eq!(PENDING_MENU_TOGGLE_KEY.load(Ordering::Acquire), 0);
         assert!(!menu_diagnostics_active());
         assert!(!crate::input::menu_input_blocked_for_test());
+    }
+
+    #[test]
+    fn nvse_configuration_preserves_preparation_and_stages_only_new_admission() {
+        let source = include_str!("runtime.rs");
+        let configure = source
+            .split_once("pub(crate) fn configure(settings: RuntimeSettings)")
+            .and_then(|(_, tail)| tail.split_once("pub(crate) fn apply_initial_depth_activation"))
+            .map(|(body, _)| body)
+            .expect("NVSE runtime configuration body");
+        assert!(configure.contains("service_enabled_effect_preparation"));
+
+        let runtime_configure_entry =
+            ["fn config", "ure(&mut self, settings: RuntimeSettings)"].concat();
+        let present_entry = ["unsafe fn apply_", "present_frame"].concat();
+        let runtime_configure = source
+            .split_once(&runtime_configure_entry)
+            .and_then(|(_, tail)| tail.split_once(&present_entry))
+            .map(|(body, _)| body)
+            .expect("screen runtime configuration body");
+        assert!(runtime_configure.contains("first_person_motion_blur_admission_ready = false"));
+        assert!(runtime_configure.contains("publish_fnv_scene_requirements"));
     }
 }
 
@@ -495,21 +595,34 @@ mod render_callback_io_tests {
             assert!(!body.contains("copy_phase_color_for_sampling"));
         }
 
-        let motion_function = ["\n    fn draw_motion_", "blur_pipeline("].concat();
-        let motion_body = source
-            .split_once(&motion_function)
+        let motion_pipeline = ["\n    fn draw_motion_", "blur_pipeline("].concat();
+        let pipeline_body = source
+            .split_once(&motion_pipeline)
             .map(|(_, tail)| tail)
             .and_then(|tail| tail.split_once("\n    fn "))
             .map(|(body, _)| body)
             .expect("motion-blur pipeline body");
-        let prepared = motion_body
+        assert!(pipeline_body.contains("draw_motion_blur_frame"));
+        let prepared = pipeline_body
             .find("prepared_motion_blur_frame.take()")
             .expect("motion preflight packet");
-        let creation = motion_body
+        let delegate = pipeline_body
+            .find("draw_motion_blur_frame")
+            .expect("motion draw delegation");
+        let helper_function = ["\n    fn draw_motion_", "blur_frame("].concat();
+        let helper_body = source
+            .split_once(&helper_function)
+            .map(|(_, tail)| tail)
+            .and_then(|tail| tail.split_once("\n    fn "))
+            .map(|(body, _)| body)
+            .expect("motion-blur draw helper body");
+        let creation = helper_body
             .find("MotionBlurEffect::create(device)")
             .expect("motion shader creation");
-        assert!(prepared < creation);
-        assert!(!motion_body.contains("copy_phase_color_for_sampling"));
+        assert!(prepared < delegate);
+        assert!(creation < helper_body.len());
+        assert!(!pipeline_body.contains("copy_phase_color_for_sampling"));
+        assert!(!helper_body.contains("copy_phase_color_for_sampling"));
     }
 
     #[test]
@@ -578,6 +691,40 @@ mod render_callback_io_tests {
             !early_ao.contains("ScenePhaseTarget::RenderedTextureSource"),
             "post-world AO must not pre-bind RenderFirstPerson's inactive texture argument"
         );
+    }
+
+    #[test]
+    fn first_person_motion_blur_preflights_before_every_gpu_transaction() {
+        let source = include_str!("runtime.rs");
+        let body = source
+            .split_once("\n    unsafe fn apply_first_person_motion_blur_after_world(")
+            .map(|(_, tail)| tail)
+            .and_then(|tail| tail.split_once("\n    fn first_person_motion_blur_admitted"))
+            .map(|(body, _)| body)
+            .expect("first-person motion-blur transaction");
+        let temporal = body.find("prepare_frame(").expect("temporal preflight");
+        let readiness = body
+            .find("motion_blur::preparation_ready()")
+            .expect("bytecode readiness gate");
+        let color_target = body
+            .find("ensure_first_person_motion_blur_color_copy")
+            .expect("color target allocation");
+        let attachments = body
+            .find("RenderAttachments::capture")
+            .expect("attachment capture");
+        let color_copy = body
+            .find("copy_phase_color_for_sampling")
+            .expect("fresh color copy");
+        let draw = body
+            .find("draw_motion_blur_frame")
+            .expect("world-only draw");
+        assert!(temporal < readiness);
+        assert!(readiness < color_target);
+        assert!(color_target < attachments);
+        assert!(attachments < color_copy);
+        assert!(color_copy < draw);
+        assert!(!body.contains("ScenePhaseTarget::RenderedTextureSource"));
+        assert!(!body.contains("mark_applied"));
     }
 
     #[test]
@@ -791,10 +938,158 @@ pub(crate) unsafe fn apply_fnv_ao_after_world(device_ptr: *mut c_void) {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum FirstPersonMotionBlurOutcome {
+    /// The boundary advanced temporal state and can no longer be retried.
+    Consumed,
+    /// Coherent world depth was the only missing input before the deadline.
+    Retryable,
+    /// Camera mode, target, configuration, or lifecycle rejected this route.
+    Rejected,
+}
+
+fn current_render_target_identity(device_ptr: *mut c_void) -> Option<usize> {
+    let device = unsafe { Device9Ref::from_raw_void(device_ptr) }?;
+    device
+        .render_target(0)
+        .ok()
+        .map(|surface| surface.as_raw() as usize)
+        .filter(|target| *target != 0)
+}
+
+/// Apply first-person motion blur to completed world color before native hands.
+///
+/// This entry is called only after the world pipeline, world-color capture,
+/// and optional world-only AO have completed. It never blocks on runtime
+/// ownership. A busy runtime or missing coherent world-depth snapshot arms one
+/// exact epoch/RT0 retry; every other rejection fails closed for this frame.
+///
+/// # Safety
+///
+/// `device_ptr` must be Fallout's live D3D9 device while the completed world
+/// target is still bound at `RenderWorldSceneGraph` return.
+pub(crate) unsafe fn apply_fnv_motion_blur_after_world(device_ptr: *mut c_void) {
+    if !FNV_FIRST_PERSON_MOTION_BLUR_ADMITTED.load(Ordering::Acquire)
+        || backend::fnv_third_person_view() != Some(false)
+    {
+        clear_first_person_motion_blur_retry();
+        return;
+    }
+
+    let epoch = crate::hooks::render_epoch();
+    let Some(target) = current_render_target_identity(device_ptr) else {
+        clear_first_person_motion_blur_retry();
+        return;
+    };
+    let Some(mut runtime) = RUNTIME.try_lock() else {
+        SCENE_PHASE_BUSY.fetch_add(1, Ordering::Relaxed);
+        arm_first_person_motion_blur_retry(epoch, target);
+        return;
+    };
+    runtime.begin_render_epoch(epoch);
+
+    let result = unsafe { runtime.apply_first_person_motion_blur_after_world(device_ptr, target) };
+    match result {
+        Ok(FirstPersonMotionBlurOutcome::Retryable) => {
+            arm_first_person_motion_blur_retry(epoch, target)
+        }
+        Ok(FirstPersonMotionBlurOutcome::Consumed | FirstPersonMotionBlurOutcome::Rejected) => {
+            clear_first_person_motion_blur_retry()
+        }
+        Err(err) => {
+            clear_first_person_motion_blur_retry();
+            runtime.log_frame_error(&err);
+        }
+    }
+}
+
+/// Return whether the pending first-person retry still names this engine call.
+///
+/// Matching requires the current epoch, exact first-person mode, current RT0,
+/// and the `RenderFirstPerson` argument's color surface to identify one object.
+/// The function is read-only and performs no allocation or logging.
+pub(crate) fn fnv_motion_blur_retry_matches(
+    device_ptr: *mut c_void,
+    rendered_texture: *mut c_void,
+) -> bool {
+    if !FNV_FIRST_PERSON_MOTION_BLUR_ADMITTED.load(Ordering::Acquire) {
+        return false;
+    }
+    let provider = backend::active_depth_provider();
+    let rendered_texture_target =
+        backend::rendered_texture_color_surface(provider, rendered_texture)
+            .map(|surface| surface as usize)
+            .unwrap_or(0);
+    let current_target = current_render_target_identity(device_ptr).unwrap_or(0);
+    first_person_motion_blur_retry_token().matches(
+        crate::hooks::render_epoch(),
+        rendered_texture_target,
+        current_target,
+        backend::fnv_third_person_view(),
+    )
+}
+
+/// Return whether an exact pending retry still lacks coherent world depth.
+///
+/// A busy depth owner is treated as unavailable so the existing capture path
+/// gets one chance to use its same-stage epoch cache before the deadline.
+pub(crate) fn fnv_motion_blur_retry_needs_world_depth() -> bool {
+    let token = first_person_motion_blur_retry_token();
+    if token.target == 0 || token.epoch != crate::hooks::render_epoch() {
+        return false;
+    }
+    match backend::try_depth_frame(backend::active_depth_provider(), token.epoch) {
+        backend::DepthAccess::Ready(frame) => !frame.is_available(),
+        backend::DepthAccess::Busy => true,
+    }
+}
+
+/// Consume the one pending retry before native first-person rendering starts.
+///
+/// The token is cleared before runtime ownership is attempted. Therefore a
+/// second busy lock, missing input, or D3D error cannot defer first-person work
+/// into a later image-space boundary or another frame.
+///
+/// # Safety
+///
+/// The pointers must be the live values received at `RenderFirstPerson` entry,
+/// before the original engine function changes render-target ownership.
+pub(crate) unsafe fn retry_fnv_motion_blur_before_first_person(
+    device_ptr: *mut c_void,
+    rendered_texture: *mut c_void,
+) {
+    if !fnv_motion_blur_retry_matches(device_ptr, rendered_texture) {
+        clear_first_person_motion_blur_retry();
+        return;
+    }
+    let target = first_person_motion_blur_retry_token().target;
+    clear_first_person_motion_blur_retry();
+
+    let Some(mut runtime) = RUNTIME.try_lock() else {
+        SCENE_PHASE_BUSY.fetch_add(1, Ordering::Relaxed);
+        return;
+    };
+    runtime.begin_render_epoch(crate::hooks::render_epoch());
+    if let Err(err) =
+        unsafe { runtime.apply_first_person_motion_blur_after_world(device_ptr, target) }
+    {
+        runtime.log_frame_error(&err);
+    }
+}
+
+/// Close the first-person motion-blur deadline without performing work.
+///
+/// Call this immediately before every path that enters native
+/// `RenderFirstPerson`, including master-off and retry-rejection paths.
+pub(crate) fn close_fnv_motion_blur_deadline() {
+    clear_first_person_motion_blur_retry();
+}
+
 pub(crate) unsafe fn apply_fnv_scene_pre_image_space(
     device_ptr: *mut c_void,
     source_rendered_texture: *mut c_void,
 ) {
+    clear_first_person_motion_blur_retry();
     if !effects_enabled() {
         return;
     }
@@ -820,6 +1115,7 @@ pub(crate) unsafe fn apply_fnv_scene_post_image_space(
     device_ptr: *mut c_void,
     native_dof_active: bool,
 ) {
+    clear_first_person_motion_blur_retry();
     if !effects_enabled() {
         return;
     }
@@ -843,6 +1139,7 @@ pub(crate) unsafe fn apply_fnv_scene_post_image_space(
 }
 
 pub(crate) unsafe fn apply_fnv_final_image_space(device_ptr: *mut c_void) {
+    clear_first_person_motion_blur_retry();
     if !effects_enabled() {
         return;
     }
@@ -902,6 +1199,9 @@ pub(crate) fn needs_fnv_scene_hooks() -> bool {
 }
 
 pub(crate) unsafe fn try_release_device_resources(device_ptr: *mut c_void) -> bool {
+    // A Reset attempt ends ownership of any target identity even if another
+    // runtime owner prevents immediate resource teardown.
+    clear_first_person_motion_blur_retry();
     let Some(mut runtime) = RUNTIME.try_lock() else {
         RESET_BUSY.fetch_add(1, Ordering::Relaxed);
         return false;
@@ -938,6 +1238,10 @@ pub(crate) unsafe fn finish_present_frame(
     present_started_at: PresentFrameStart,
     present_succeeded: bool,
 ) {
+    // Present is later than every legal first-person boundary. Clear the
+    // lock-free token even when frame-timing services are disabled or the
+    // runtime lock is busy.
+    clear_first_person_motion_blur_retry();
     if !present_succeeded {
         PRESENT_FAILED.fetch_add(1, Ordering::Relaxed);
     }
@@ -1152,6 +1456,12 @@ impl PresetUiState {
 struct ScreenShaderRuntime {
     settings: RuntimeSettings,
     sources: Vec<ScreenShaderSource>,
+    /// Whether DeferredInit may expose the new first-person motion-blur route.
+    ///
+    /// Existing scene-input publication remains unchanged. This narrow gate
+    /// prevents config parsed at plugin load from activating callbacks whose
+    /// resident hook group is not installed until DeferredInit.
+    first_person_motion_blur_admission_ready: bool,
     device_ptr: usize,
     compiled: Option<Vec<CompiledPass>>,
     execution_plan: Option<CompiledExecutionPlan>,
@@ -1167,6 +1477,7 @@ struct ScreenShaderRuntime {
     motion_blur_creation_failed: bool,
     motion_blur_temporal: motion_blur::MotionBlurTemporalState,
     prepared_motion_blur_frame: Option<motion_blur::PreparedMotionBlurFrame>,
+    first_person_motion_blur_target: usize,
     final_color_copy: Option<BackbufferCopy>,
     final_color_scratch: Option<BackbufferCopy>,
     scene_pre_color_copy: Option<BackbufferCopy>,
@@ -1218,6 +1529,7 @@ impl Default for ScreenShaderRuntime {
         Self {
             settings: default_settings,
             sources: Vec::new(),
+            first_person_motion_blur_admission_ready: false,
             device_ptr: 0,
             compiled: None,
             execution_plan: None,
@@ -1233,6 +1545,7 @@ impl Default for ScreenShaderRuntime {
             motion_blur_creation_failed: false,
             motion_blur_temporal: motion_blur::MotionBlurTemporalState::default(),
             prepared_motion_blur_frame: None,
+            first_person_motion_blur_target: 0,
             final_color_copy: None,
             final_color_scratch: None,
             scene_pre_color_copy: None,
@@ -1291,10 +1604,18 @@ impl ScreenShaderRuntime {
         self.world_color_source_target = 0;
         self.ambient_occlusion_after_world_applied = false;
         self.native_dof_active_this_frame = false;
+        self.first_person_motion_blur_target = 0;
+        // A token from an older epoch can never name a valid retry. Clear it
+        // during lazy reconciliation as well as at Present completion so a
+        // skipped callback cannot leak work into a later frame.
+        clear_first_person_motion_blur_retry();
         self.frame_index = self.frame_index.wrapping_add(1);
     }
 
     fn configure(&mut self, settings: RuntimeSettings) {
+        // Config parsing may describe the new route, but only DeferredInit can
+        // admit it after selecting the provider and before installing hooks.
+        self.first_person_motion_blur_admission_ready = false;
         let master_enabled = settings.menu_config.screen_space_shaders;
         pbr::configure_runtime_options(
             pbr::NativePbrSettings::from(settings.menu_config.native_pbr)
@@ -1486,6 +1807,176 @@ impl ScreenShaderRuntime {
         }
 
         Ok(())
+    }
+
+    unsafe fn apply_first_person_motion_blur_after_world(
+        &mut self,
+        device_ptr: *mut c_void,
+        expected_target: usize,
+    ) -> Direct3DResult<FirstPersonMotionBlurOutcome> {
+        let config = self.settings.menu_config.embedded_effects.motion_blur;
+        if !self.first_person_motion_blur_admitted()
+            || backend::fnv_third_person_view() != Some(false)
+            || expected_target == 0
+        {
+            return Ok(FirstPersonMotionBlurOutcome::Rejected);
+        }
+        if self.first_person_motion_blur_target != 0 {
+            return Ok(FirstPersonMotionBlurOutcome::Rejected);
+        }
+
+        let Some(device) = (unsafe { Device9Ref::from_raw_void(device_ptr) }) else {
+            return Ok(FirstPersonMotionBlurOutcome::Rejected);
+        };
+        if self.device_ptr != device_ptr as usize {
+            self.release_for_new_device();
+            self.device_ptr = device_ptr as usize;
+        }
+        let render_target = match device.render_target(0) {
+            Ok(render_target) => render_target,
+            Err(err) => {
+                self.release_default_pool_resources();
+                return Err(err);
+            }
+        };
+        if render_target.as_raw() as usize != expected_target {
+            return Ok(FirstPersonMotionBlurOutcome::Rejected);
+        }
+        let desc = render_target.desc()?;
+        if desc.Width == 0 || desc.Height == 0 {
+            return Ok(FirstPersonMotionBlurOutcome::Rejected);
+        }
+
+        let frame_inputs = self.build_first_person_motion_blur_inputs(&desc);
+        if !frame_inputs.depth.is_available()
+            || frame_inputs.depth.world_projection.reversed_depth.is_none()
+        {
+            // Depth publication is separately nonblocking. The exact
+            // RenderFirstPerson-entry retry is allowed to ask that producer
+            // once more; no other missing input can become valid safely.
+            return Ok(FirstPersonMotionBlurOutcome::Retryable);
+        }
+        if !motion_blur::should_prepare(&frame_inputs, config) {
+            self.motion_blur_temporal.reset();
+            self.consume_first_person_motion_blur(expected_target);
+            return Ok(FirstPersonMotionBlurOutcome::Consumed);
+        }
+
+        let prepared = self.motion_blur_temporal.prepare_frame(
+            &desc,
+            &frame_inputs,
+            config,
+            motion_blur::MotionBlurView::FirstPersonWorld,
+        );
+        // Temporal preflight is the consumption point. First, stationary,
+        // cut, and below-threshold frames intentionally perform no GPU work,
+        // but must not get a second temporal sample at the retry boundary.
+        self.consume_first_person_motion_blur(expected_target);
+        let Some(frame) = prepared else {
+            return Ok(FirstPersonMotionBlurOutcome::Consumed);
+        };
+        if self.motion_blur_creation_failed || !motion_blur::preparation_ready() {
+            return Ok(FirstPersonMotionBlurOutcome::Consumed);
+        }
+        if self.motion_blur.is_none() {
+            match motion_blur::MotionBlurEffect::create(&device) {
+                Ok(Some(effect)) => {
+                    self.motion_blur = Some(effect);
+                    log::info!("[MOTION_BLUR] Camera reprojection pipeline initialized");
+                }
+                Ok(None) => return Ok(FirstPersonMotionBlurOutcome::Consumed),
+                Err(err) => {
+                    self.motion_blur_creation_failed = true;
+                    return Err(err);
+                }
+            }
+        }
+        let should_draw = self
+            .motion_blur
+            .as_ref()
+            .is_some_and(|effect| effect.requires_color_copy(&desc, frame));
+        if !should_draw {
+            return Ok(FirstPersonMotionBlurOutcome::Consumed);
+        }
+
+        self.ensure_first_person_motion_blur_color_copy(&device, &desc)?;
+        let Some(color_copy) = self.scene_post_color_copy.clone() else {
+            return Err(runtime_error(
+                "[MOTION_BLUR] Missing color copy at the post-world boundary",
+            ));
+        };
+        let render_target_slots = self.render_target_slots(&device)?;
+        let attachments = RenderAttachments::capture(&device, render_target_slots)?;
+        self.ensure_state_block(&device)?;
+        let Some(state_block) = self.state_block.as_ref() else {
+            return Err(runtime_error(
+                "[MOTION_BLUR] Missing D3D state block before post-world capture",
+            ));
+        };
+        crate::render_state::capture_state_block(state_block)?;
+
+        let draw_result = (|| {
+            // RT0 is already the validated completed-world target. Detach
+            // native MRT/depth attachments before the fullscreen transaction,
+            // copy the final world color (including early AO), and restore the
+            // entire native state before RenderFirstPerson can observe it.
+            render_target_slots.prepare_target_change(&device)?;
+            self.copy_phase_color_for_sampling(&device, &render_target, &color_copy)?;
+            PHASE_INITIAL_COLOR_COPIES.fetch_add(1, Ordering::Relaxed);
+            self.draw_motion_blur_frame(
+                &device,
+                &render_target,
+                &desc,
+                &frame_inputs,
+                &color_copy.texture,
+                frame,
+            )
+            .map(|_| ())
+        })();
+
+        finish_render_transaction(
+            &device,
+            &attachments,
+            self.state_block.as_ref(),
+            draw_result,
+        )?;
+        Ok(FirstPersonMotionBlurOutcome::Consumed)
+    }
+
+    fn first_person_motion_blur_admitted(&self) -> bool {
+        let config = self.settings.menu_config.embedded_effects.motion_blur;
+        self.first_person_motion_blur_admission_ready
+            && self.settings.menu_config.screen_space_shaders
+            && self.settings.depth_provider.supplies_world_depth()
+            && config.enabled
+            && config.shutter_angle > f32::EPSILON
+            && config.max_blur_pixels > f32::EPSILON
+            && self.sources.iter().any(|source| {
+                source.enabled
+                    && source.embedded_effect_kind() == Some(EmbeddedEffectKind::MotionBlur)
+            })
+    }
+
+    fn consume_first_person_motion_blur(&mut self, target: usize) {
+        self.first_person_motion_blur_target = target;
+    }
+
+    fn build_first_person_motion_blur_inputs(
+        &self,
+        desc: &D3DSURFACE_DESC,
+    ) -> backend::FrameInputs {
+        let depth = self.current_depth_frame();
+        let camera = if depth.world_projection.camera.available {
+            depth.world_projection.camera
+        } else {
+            backend::camera_frame(self.settings.depth_provider, desc)
+        };
+        backend::FrameInputs {
+            camera,
+            depth,
+            third_person_view: Some(false),
+            ..backend::FrameInputs::default()
+        }
     }
 
     unsafe fn apply_ambient_occlusion_after_world(
@@ -2290,6 +2781,31 @@ impl ScreenShaderRuntime {
         Ok(())
     }
 
+    fn ensure_first_person_motion_blur_color_copy(
+        &mut self,
+        device: &Device9Ref<'_>,
+        desc: &D3DSURFACE_DESC,
+    ) -> Direct3DResult<()> {
+        let needs_copy = self
+            .scene_post_color_copy
+            .as_ref()
+            .is_none_or(|copy| !copy.matches(desc));
+        if needs_copy {
+            // The first-person boundary and scene-post phase are serialized,
+            // so they can share the primary graph texture. Do not create the
+            // scratch texture here: a first-person frame with motion blur as
+            // its only effect needs exactly one full-resolution allocation.
+            self.scene_post_color_copy = Some(BackbufferCopy::create(device, desc)?);
+            log::info!(
+                "[MOTION_BLUR] Post-world color target: {}x{}, format=0x{:08X}",
+                desc.Width,
+                desc.Height,
+                desc.Format.0
+            );
+        }
+        Ok(())
+    }
+
     fn phase_color_copy(&self, phase: ShaderPhase) -> Option<&BackbufferCopy> {
         match phase {
             ShaderPhase::ScenePreImageSpace => self.scene_pre_color_copy.as_ref(),
@@ -2424,17 +2940,30 @@ impl ScreenShaderRuntime {
         };
         if phase_plan.motion_blur_source.is_some() {
             let config = self.settings.menu_config.embedded_effects.motion_blur;
-            if motion_blur::should_prepare(frame_inputs, config) {
-                let prepared = self
-                    .motion_blur_temporal
-                    .prepare_frame(desc, frame_inputs, config);
-                if !self.motion_blur_creation_failed
-                    && (self.motion_blur.is_some() || motion_blur::preparation_ready())
+            match motion_blur::view_from_camera_mode(frame_inputs.third_person_view) {
+                Some(motion_blur::MotionBlurView::ThirdPersonWorld)
+                    if motion_blur::should_prepare(frame_inputs, config) =>
                 {
-                    self.prepared_motion_blur_frame = prepared;
+                    let prepared = self.motion_blur_temporal.prepare_frame(
+                        desc,
+                        frame_inputs,
+                        config,
+                        motion_blur::MotionBlurView::ThirdPersonWorld,
+                    );
+                    if !self.motion_blur_creation_failed
+                        && (self.motion_blur.is_some() || motion_blur::preparation_ready())
+                    {
+                        self.prepared_motion_blur_frame = prepared;
+                    }
                 }
-            } else {
-                self.motion_blur_temporal.reset();
+                Some(motion_blur::MotionBlurView::FirstPersonWorld) => {
+                    // The legal first-person boundary has already expired.
+                    // Preserve the post-world temporal sample, but never turn
+                    // a missed or consumed early pass into a late blur.
+                }
+                Some(motion_blur::MotionBlurView::ThirdPersonWorld) | None => {
+                    self.motion_blur_temporal.reset();
+                }
             }
         }
         if self.final_color_shaders.is_none()
@@ -2552,11 +3081,14 @@ impl ScreenShaderRuntime {
         let motion_blur_enabled = phase_plan
             .as_ref()
             .is_some_and(|plan| plan.motion_blur_source.is_some());
+        let motion_blur_view = motion_blur::view_from_camera_mode(frame_inputs.third_person_view);
         if !motion_blur_enabled
-            || !motion_blur::should_prepare(
-                frame_inputs,
-                self.settings.menu_config.embedded_effects.motion_blur,
-            )
+            || motion_blur_view.is_none()
+            || (motion_blur_view == Some(motion_blur::MotionBlurView::ThirdPersonWorld)
+                && !motion_blur::should_prepare(
+                    frame_inputs,
+                    self.settings.menu_config.embedded_effects.motion_blur,
+                ))
         {
             self.motion_blur_temporal.reset();
             self.prepared_motion_blur_frame = None;
@@ -2587,7 +3119,9 @@ impl ScreenShaderRuntime {
         else {
             return Ok(());
         };
-        let enabled_count = phase_plan.source_passes(ambient_occlusion_allowed);
+        let motion_blur_allowed = self.prepared_motion_blur_frame.is_some();
+        let enabled_count =
+            phase_plan.source_passes(ambient_occlusion_allowed, motion_blur_allowed);
         if enabled_count == 0 {
             return Ok(());
         }
@@ -2608,7 +3142,8 @@ impl ScreenShaderRuntime {
         self.copy_phase_color_for_sampling(device, backbuffer, &copy)?;
         PHASE_INITIAL_COLOR_COPIES.fetch_add(1, Ordering::Relaxed);
         let mut color_graph = PhaseColorGraph::new(copy, scratch);
-        let mut stages_remaining = phase_plan.logical_stages(ambient_occlusion_allowed);
+        let mut stages_remaining =
+            phase_plan.logical_stages(ambient_occlusion_allowed, motion_blur_allowed);
         let planned_passes = phase_plan.passes(ambient_occlusion_allowed);
 
         let pass_count = enabled_count as f32;
@@ -2713,6 +3248,13 @@ impl ScreenShaderRuntime {
             }
 
             if source.embedded_effect_kind() == Some(EmbeddedEffectKind::MotionBlur) {
+                if !motion_blur_allowed {
+                    // First-person motion blur is absent from this graph, not
+                    // a dynamically failed writer. Keeping both counters
+                    // unchanged makes the preceding active effect select RT0
+                    // directly and preserves external-pass indices.
+                    continue;
+                }
                 let source_pass_count = source.pass_count.max(1);
                 let (output, output_location) =
                     color_graph.output(backbuffer, stages_remaining > 1);
@@ -3054,6 +3596,18 @@ impl ScreenShaderRuntime {
         let Some(frame) = self.prepared_motion_blur_frame.take() else {
             return Ok(false);
         };
+        self.draw_motion_blur_frame(device, output, desc, frame_inputs, scene_color, frame)
+    }
+
+    fn draw_motion_blur_frame(
+        &mut self,
+        device: &Device9Ref<'_>,
+        output: &Surface9,
+        desc: &D3DSURFACE_DESC,
+        frame_inputs: &backend::FrameInputs,
+        scene_color: &Texture9,
+        frame: motion_blur::PreparedMotionBlurFrame,
+    ) -> Direct3DResult<bool> {
         if self.motion_blur_creation_failed {
             return Ok(false);
         }
@@ -3321,6 +3875,18 @@ impl ScreenShaderRuntime {
         {
             self.depth_of_field = None;
             self.depth_of_field_creation_failed = false;
+        }
+        let motion_blur = self.settings.menu_config.embedded_effects.motion_blur;
+        if !master_enabled
+            || !motion_blur.enabled
+            || motion_blur.shutter_angle <= f32::EPSILON
+            || motion_blur.max_blur_pixels <= f32::EPSILON
+        {
+            self.motion_blur = None;
+            self.motion_blur_creation_failed = false;
+            self.motion_blur_temporal.reset();
+            self.prepared_motion_blur_frame = None;
+            self.first_person_motion_blur_target = 0;
         }
     }
 
@@ -3655,9 +4221,11 @@ impl ScreenShaderRuntime {
         &self,
         phase: ShaderPhase,
         ambient_occlusion_allowed: bool,
+        motion_blur_allowed: bool,
     ) -> u32 {
         self.execution_plan.as_ref().map_or(0, |plan| {
-            plan.phase(phase).logical_stages(ambient_occlusion_allowed)
+            plan.phase(phase)
+                .logical_stages(ambient_occlusion_allowed, motion_blur_allowed)
         })
     }
 
@@ -3704,6 +4272,12 @@ impl ScreenShaderRuntime {
             bits |= FNV_REQUIRE_WORLD_COLOR;
         }
         FNV_SCENE_REQUIREMENTS.store(bits, Ordering::Release);
+        FNV_FIRST_PERSON_MOTION_BLUR_ADMITTED
+            .store(self.first_person_motion_blur_admitted(), Ordering::Release);
+        // Configuration/provider publication is a route transition. A token
+        // captured under the previous contract must never survive it, even if
+        // the new settings independently admit motion blur as well.
+        clear_first_person_motion_blur_retry();
     }
 
     fn phase_needs_frame_inputs(&self, phase: ShaderPhase) -> bool {
@@ -3809,6 +4383,7 @@ impl ScreenShaderRuntime {
     }
 
     fn release_default_pool_resources(&mut self) {
+        clear_first_person_motion_blur_retry();
         self.final_color_copy = None;
         self.final_color_scratch = None;
         self.scene_pre_color_copy = None;
@@ -3827,6 +4402,7 @@ impl ScreenShaderRuntime {
         self.motion_blur_creation_failed = false;
         self.motion_blur_temporal.reset();
         self.prepared_motion_blur_frame = None;
+        self.first_person_motion_blur_target = 0;
         self.world_color_captured_this_frame = false;
         self.state_block = None;
     }
@@ -3874,10 +4450,14 @@ impl SceneInputRequirements {
             EmbeddedEffectKind::FastAmbientOcclusion
             | EmbeddedEffectKind::ContactAmbientOcclusion
             | EmbeddedEffectKind::Sunshafts
-            | EmbeddedEffectKind::DepthOfField
-            | EmbeddedEffectKind::MotionBlur => Self {
+            | EmbeddedEffectKind::DepthOfField => Self {
                 world_depth: true,
                 first_person_depth: true,
+                world_color: false,
+            },
+            EmbeddedEffectKind::MotionBlur => Self {
+                world_depth: true,
+                first_person_depth: false,
                 world_color: false,
             },
             EmbeddedEffectKind::BloomingHdr => Self {
@@ -3943,7 +4523,8 @@ mod scene_input_requirement_tests {
     use std::sync::Arc;
 
     use super::{
-        AmbientOcclusionBoundary, CompiledPass, EmbeddedEffectKind, SceneInputRequirements,
+        AmbientOcclusionBoundary, CompiledPass, EmbeddedEffectKind,
+        FirstPersonMotionBlurRetryToken, PhaseExecutionPlan, SceneInputRequirements,
         ScreenShaderRuntime, ambient_occlusion_allowed_at_scene_pre, ambient_occlusion_boundary,
     };
     use crate::{backend::DepthProvider, config::EmbeddedEffectsConfig, shaders};
@@ -3996,6 +4577,21 @@ mod scene_input_requirement_tests {
     }
 
     #[test]
+    fn first_person_retry_requires_one_exact_epoch_target_and_camera_mode() {
+        let token = FirstPersonMotionBlurRetryToken {
+            epoch: 17,
+            target: 0x1234,
+        };
+        assert!(token.matches(17, 0x1234, 0x1234, Some(false)));
+        assert!(!token.matches(18, 0x1234, 0x1234, Some(false)));
+        assert!(!token.matches(17, 0x5678, 0x1234, Some(false)));
+        assert!(!token.matches(17, 0x1234, 0x5678, Some(false)));
+        assert!(!token.matches(17, 0x1234, 0x1234, Some(true)));
+        assert!(!token.matches(17, 0x1234, 0x1234, None));
+        assert!(!FirstPersonMotionBlurRetryToken::default().matches(0, 0, 0, Some(false)));
+    }
+
+    #[test]
     fn spatial_aa_requires_no_fnv_scene_inputs() {
         for kind in [
             EmbeddedEffectKind::FastFxaa,
@@ -4022,10 +4618,12 @@ mod scene_input_requirement_tests {
         runtime.world_color_source_target = 0x1234;
         runtime.ambient_occlusion_after_world_applied = true;
         runtime.native_dof_active_this_frame = true;
+        runtime.first_person_motion_blur_target = 0x1234;
 
         runtime.begin_render_epoch(4);
         assert!(runtime.world_color_captured_this_frame);
         assert!(runtime.ambient_occlusion_after_world_applied);
+        assert_eq!(runtime.first_person_motion_blur_target, 0x1234);
         assert_eq!(runtime.frame_index, 9);
 
         runtime.begin_render_epoch(5);
@@ -4033,6 +4631,7 @@ mod scene_input_requirement_tests {
         assert_eq!(runtime.world_color_source_target, 0);
         assert!(!runtime.ambient_occlusion_after_world_applied);
         assert!(!runtime.native_dof_active_this_frame);
+        assert_eq!(runtime.first_person_motion_blur_target, 0);
         assert_eq!(runtime.frame_index, 10);
 
         let process_bytecode = Arc::new(
@@ -4061,6 +4660,124 @@ mod scene_input_requirement_tests {
                 world_color: false,
             }
         );
+    }
+
+    #[test]
+    fn motion_blur_requires_world_depth_but_never_first_person_depth() {
+        let motion_blur = SceneInputRequirements::for_embedded(EmbeddedEffectKind::MotionBlur);
+        assert_eq!(
+            motion_blur,
+            SceneInputRequirements {
+                world_depth: true,
+                first_person_depth: false,
+                world_color: false,
+            }
+        );
+        assert_eq!(
+            motion_blur.union(SceneInputRequirements::for_embedded(
+                EmbeddedEffectKind::DepthOfField
+            )),
+            SceneInputRequirements {
+                world_depth: true,
+                first_person_depth: true,
+                world_color: false,
+            }
+        );
+    }
+
+    #[test]
+    fn deferred_init_gates_only_first_person_admission() {
+        let config = EmbeddedEffectsConfig::default();
+        let mut runtime = ScreenShaderRuntime::default();
+        runtime.settings.depth_provider = DepthProvider::DepthResolve;
+        runtime.sources = shaders::merge_embedded_sources(&config, Vec::new())
+            .into_iter()
+            .filter(|source| source.embedded_effect_kind() == Some(EmbeddedEffectKind::MotionBlur))
+            .collect();
+        assert_eq!(
+            runtime.fnv_scene_input_requirements(),
+            SceneInputRequirements {
+                world_depth: true,
+                first_person_depth: false,
+                world_color: false,
+            },
+            "existing scene requirements must retain their stable publication contract"
+        );
+        assert!(!runtime.first_person_motion_blur_admitted());
+
+        runtime.first_person_motion_blur_admission_ready = true;
+        assert_eq!(
+            runtime.fnv_scene_input_requirements(),
+            SceneInputRequirements {
+                world_depth: true,
+                first_person_depth: false,
+                world_color: false,
+            }
+        );
+        assert!(runtime.first_person_motion_blur_admitted());
+
+        runtime.sources[0].enabled = false;
+        assert_eq!(
+            runtime.fnv_scene_input_requirements(),
+            SceneInputRequirements::default()
+        );
+        assert!(!runtime.first_person_motion_blur_admitted());
+    }
+
+    #[test]
+    fn scene_post_plan_excludes_first_person_motion_blur_without_a_placeholder() {
+        fn plan_for(kinds: &[EmbeddedEffectKind]) -> PhaseExecutionPlan {
+            let config = EmbeddedEffectsConfig::default();
+            let sources = shaders::merge_embedded_sources(&config, Vec::new())
+                .into_iter()
+                .filter(|source| {
+                    source
+                        .embedded_effect_kind()
+                        .is_some_and(|kind| kinds.contains(&kind))
+                })
+                .collect::<Vec<_>>();
+            let passes = (0..sources.len())
+                .map(|source_index| CompiledPass {
+                    source_index,
+                    shader: None,
+                })
+                .collect::<Vec<_>>();
+            PhaseExecutionPlan::build(
+                crate::shaders::ShaderPhase::ScenePostImageSpace,
+                &sources,
+                &passes,
+            )
+        }
+
+        let motion_only = plan_for(&[EmbeddedEffectKind::MotionBlur]);
+        assert_eq!(motion_only.logical_stages(true, false), 0);
+        assert_eq!(motion_only.source_passes(true, false), 0);
+        assert_eq!(motion_only.logical_stages(true, true), 1);
+
+        let dof_then_motion = plan_for(&[
+            EmbeddedEffectKind::DepthOfField,
+            EmbeddedEffectKind::MotionBlur,
+        ]);
+        assert_eq!(dof_then_motion.logical_stages(true, false), 1);
+        assert_eq!(dof_then_motion.source_passes(true, false), 1);
+        assert_eq!(dof_then_motion.logical_stages(true, true), 2);
+        assert_eq!(dof_then_motion.source_passes(true, true), 2);
+
+        let source = include_str!("runtime.rs");
+        let draw_passes = source
+            .split_once("\n    fn draw_passes(")
+            .map(|(_, tail)| tail)
+            .and_then(|tail| tail.split_once("\n    fn "))
+            .map(|(body, _)| body)
+            .expect("draw_passes body");
+        let inactive_branch = draw_passes
+            .split_once("if !motion_blur_allowed")
+            .and_then(|(_, tail)| tail.split_once("continue;"))
+            .map(|(body, _)| body)
+            .expect("inactive motion-blur branch");
+        assert!(!inactive_branch.contains("pass_index"));
+        assert!(!inactive_branch.contains("stages_remaining"));
+        assert!(!inactive_branch.contains("color_graph.output"));
     }
 
     #[test]
@@ -4164,7 +4881,11 @@ mod scene_input_requirement_tests {
                 .collect(),
         );
         assert_eq!(
-            runtime.phase_logical_stage_count(crate::shaders::ShaderPhase::FinalImageSpace, true,),
+            runtime.phase_logical_stage_count(
+                crate::shaders::ShaderPhase::FinalImageSpace,
+                true,
+                true,
+            ),
             1,
         );
 
@@ -4172,7 +4893,11 @@ mod scene_input_requirement_tests {
         runtime.sources = shaders::merge_embedded_sources(&config, Vec::new());
         runtime.rebuild_execution_plan();
         assert_eq!(
-            runtime.phase_logical_stage_count(crate::shaders::ShaderPhase::FinalImageSpace, true,),
+            runtime.phase_logical_stage_count(
+                crate::shaders::ShaderPhase::FinalImageSpace,
+                true,
+                true,
+            ),
             2,
         );
     }
@@ -4331,20 +5056,29 @@ impl PhaseExecutionPlan {
         }
     }
 
-    const fn logical_stages(&self, ambient_occlusion_allowed: bool) -> u32 {
-        if ambient_occlusion_allowed {
+    fn logical_stages(&self, ambient_occlusion_allowed: bool, motion_blur_allowed: bool) -> u32 {
+        let stages = if ambient_occlusion_allowed {
             self.logical_stages_with_ao
         } else {
             self.logical_stages_without_ao
-        }
+        };
+        stages.saturating_sub((!motion_blur_allowed && self.motion_blur_source.is_some()) as u32)
     }
 
-    const fn source_passes(&self, ambient_occlusion_allowed: bool) -> u32 {
-        if ambient_occlusion_allowed {
+    fn source_passes(&self, ambient_occlusion_allowed: bool, motion_blur_allowed: bool) -> u32 {
+        let passes = if ambient_occlusion_allowed {
             self.source_passes_with_ao
         } else {
             self.source_passes_without_ao
-        }
+        };
+        let excluded = if motion_blur_allowed {
+            0
+        } else {
+            self.motion_blur_source
+                .as_ref()
+                .map_or(0, |source| source.pass_count)
+        };
+        passes.saturating_sub(excluded)
     }
 }
 

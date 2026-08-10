@@ -93,26 +93,28 @@ neither compile shaders nor reallocate the pipeline.
 
 ## Motion Blur
 
-OMV motion blur runs after vanilla image-space effects and OMV depth of field,
-then before final bloom, grading, anti-aliasing, and UI. It reconstructs
-per-pixel camera velocity from current world or first-person depth and
-consecutive engine camera transforms. Rotation, translation parallax, zoom,
-and infinitely distant sky rotation therefore use one coherent projection
-model. Epoch gaps and camera cuts prime a new pair instead of smearing across a
-load or teleport.
+OMV motion blur reconstructs per-pixel camera velocity from current world depth
+and consecutive world-camera transforms. In first person the pass runs on the
+completed world target before native hands and weapons are rendered. The
+engine's later `RenderFirstPerson` draw is therefore the exact foreground mask;
+motion blur never samples or modifies first-person color or depth. In third
+person the existing pass remains after vanilla image-space effects and OMV
+depth of field, before final bloom, grading, anti-aliasing, and UI.
 
-The pass is depth- and layer-aware: samples crossing a real depth discontinuity
-are rejected, and first-person geometry cannot leak into world silhouettes.
-`first_person_strength = 0` keeps weapons sharp; the restrained default uses
-the first-person camera pair rather than borrowing world velocity. FNV exposes
-no proven per-object velocity buffer to OMV, so independently animated objects
-receive camera motion only.
+Rotation, translation parallax, zoom, and infinitely distant sky rotation use
+one coherent projection model. Epoch gaps, camera-mode transitions, and camera
+cuts prime a new pair instead of smearing across a discontinuity. Depth-edge
+rejection prevents world samples from crossing geometry silhouettes. FNV
+exposes no proven semantic player mask or per-object velocity buffer to OMV, so
+the retained third-person depth-history heuristic still cannot guarantee that
+the player body remains sharp when its reprojected depth matches.
 
 Performance, High, and Ultra use fixed 5, 7, and 9-tap shaders. All tiers keep
-the same cut, edge, sky, and first-person logic. The implementation needs one
-existing phase color copy and one fullscreen draw, with no velocity target,
-history texture, or per-frame allocation. Shader bytecode is prepared
-off-thread. Disabled, zero-shutter, first, cut, stationary, and sub-threshold
+the same cut, edge, and sky logic. An accepted first-person frame needs one
+reused color target, one fresh full-resolution copy, and one fullscreen draw,
+with no velocity, first-person-depth, or history texture. Third person retains
+its packed world-depth history. Shader bytecode is prepared off-thread.
+Disabled, zero-shutter, first, cut, stationary, and sub-threshold
 frames skip the color copy and draw. The shipped profile is enabled and tuned
 for a visible full-interval trail; users who prefer a sharp presentation can
 disable it at zero GPU cost. The detailed contract is in

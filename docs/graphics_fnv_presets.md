@@ -82,6 +82,7 @@ creates `omv.toml` only when it is missing. Release archives contain
 `omv.default.toml`, not an update-overwritable working configuration.
 The built-in preset version and payload revision are test-locked; changing its
 values requires publishing a new default-preset version deliberately.
+The current built-in version remains `1.0.0`.
 
 `omv/src/presets.rs` owns the preset envelope, schema validation, migrations,
 catalog, dependency checks, filename selection, and background worker.
@@ -177,6 +178,14 @@ git_dirty = false
 
 The current unversioned `omv.toml` format is permanently recognized as legacy
 config schema 0. New saves publish the explicit current schema.
+
+Schema 1 retains
+`settings.embedded_effects.motion_blur.first_person_strength` as inert
+compatibility data. World-only first-person rendering does not consume it, but
+working-config saves and preset snapshots round-trip it. This preserves the
+released shape and avoids adding a preset migration to the catalog worker that
+starts during `NVSEPlugin_Load`; removing an inactive field alone is not a
+reason to publish a new schema or built-in preset version.
 
 Versioned preset settings are complete and strict. Missing settings, unknown
 settings, wrong value types, non-finite numbers, finite values outside the

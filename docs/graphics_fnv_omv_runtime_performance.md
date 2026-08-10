@@ -348,7 +348,9 @@ now own immutable process bytecode catalogs. Enabling a configured family
 starts an idempotent worker request. A process-wide background-only gate permits
 one screen-effect compiler/cache transaction at a time, preventing several
 effect workers from saturating the same machine while PBR retains its separate
-preparation contract.
+preparation contract. The request path remains part of the established
+`NVSEPlugin_Load` startup contract; first-person motion blur adds no new worker
+owner there.
 
 Render callbacks poll readiness and create only D3D9 device objects from
 resident bytecode. They never acquire the compiler gate, invoke the HLSL

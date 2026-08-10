@@ -447,7 +447,11 @@ pub(crate) struct MotionBlurConfig {
     pub(crate) max_blur_pixels: f32,
     /// Camera-velocity threshold below which OMV skips the draw.
     pub(crate) minimum_velocity_pixels: f32,
-    /// Independent first-person camera blur multiplier.
+    /// Deprecated schema-1 compatibility value; world-only rendering ignores it.
+    ///
+    /// Retaining the field avoids a startup-time config and preset migration.
+    /// First-person exclusion is now established by engine render ordering, so
+    /// this value must not be consumed by the shader or runtime draw path.
     pub(crate) first_person_strength: f32,
 }
 
@@ -455,8 +459,8 @@ impl Default for MotionBlurConfig {
     fn default() -> Self {
         Self {
             // The full shutter interval makes ordinary camera movement
-            // readable without increasing sample count. The bounded path and
-            // reduced first-person multiplier keep fast turns controlled.
+            // readable without increasing sample count. The bounded path
+            // keeps fast turns controlled.
             enabled: true,
             quality: MotionBlurQuality::High,
             shutter_angle: 360.0,
@@ -1552,6 +1556,9 @@ fn save_embedded_effect_config(doc: &mut DocumentMut, config: &EmbeddedEffectsCo
         value(motion_blur.max_blur_pixels as f64);
     doc["graphics"]["embedded_effects"]["motion_blur"]["minimum_velocity_pixels"] =
         value(motion_blur.minimum_velocity_pixels as f64);
+    // Keep the frozen schema-1 leaf even though the render path deliberately
+    // ignores it. Removing it would force config and preset migration during
+    // NVSEPlugin_Load, which is an established compatibility-sensitive phase.
     doc["graphics"]["embedded_effects"]["motion_blur"]["first_person_strength"] =
         value(motion_blur.first_person_strength as f64);
 }
@@ -2052,8 +2059,23 @@ albedo_saturation = 1.02
             toml::from_str(&document.to_string()).expect("saved motion-blur config");
         assert_eq!(decoded.graphics.embedded_effects.motion_blur, expected);
 
-        let legacy: MotionBlurConfig = toml::from_str("").expect("legacy motion-blur config");
-        assert_eq!(legacy, MotionBlurConfig::default());
-        assert!(legacy.enabled);
+        let compatibility: MotionBlurConfig =
+            toml::from_str("first_person_strength = 0.9").expect("schema-one motion-blur config");
+        assert_eq!(compatibility.first_person_strength, 0.9);
+        assert!(compatibility.enabled);
+
+        let mut compatibility_document =
+            "[graphics.embedded_effects.motion_blur]\nfirst_person_strength = 0.9\n"
+                .parse::<DocumentMut>()
+                .expect("schema-one editable config");
+        save_embedded_effect_config(&mut compatibility_document, &effects);
+        assert_eq!(
+            compatibility_document["graphics"]["embedded_effects"]["motion_blur"]
+                ["first_person_strength"]
+                .as_float()
+                .map(|value| value as f32),
+            Some(0.4),
+            "saving must preserve the frozen schema-one leaf"
+        );
     }
 }

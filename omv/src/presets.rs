@@ -1877,6 +1877,34 @@ mod tests {
     }
 
     #[test]
+    fn schema_one_motion_blur_strength_round_trips_as_inert_compatibility_data() {
+        let mut changed = builtin_text().parse::<toml::Value>().unwrap();
+        changed["settings"]["embedded_effects"]["motion_blur"]["first_person_strength"] =
+            toml::Value::Float(0.9);
+        let parsed = parse_preset(&toml::to_string(&changed).unwrap())
+            .expect("schema-one motion-blur preset");
+        assert_eq!(
+            parsed
+                .settings
+                .embedded_effects
+                .motion_blur
+                .first_person_strength,
+            0.9
+        );
+        let canonical = parsed
+            .canonical_text()
+            .unwrap()
+            .parse::<toml::Value>()
+            .unwrap();
+        assert_eq!(
+            canonical["settings"]["embedded_effects"]["motion_blur"]["first_person_strength"]
+                .as_float()
+                .map(|value| value as f32),
+            Some(0.9)
+        );
+    }
+
+    #[test]
     fn non_finite_values_are_rejected_before_runtime_application() {
         let text = builtin_text();
         let poisoned = text.replacen(

@@ -149,7 +149,10 @@ order:
 The top-level gate is retryable after a failed attempt and publishes complete
 only after every required step succeeds. A startup failure abandons the active
 depth provider so already-resident callbacks cannot produce an uncoordinated
-snapshot.
+snapshot. The first-person motion-blur extension additionally keeps only its
+new route admission closed until DeferredInit and closes that admission after
+a failed attempt. Existing scene-input and process-owned preparation contracts
+are unchanged.
 
 ### Exact entry manifests
 
