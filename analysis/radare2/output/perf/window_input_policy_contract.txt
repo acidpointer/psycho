@@ -1,0 +1,154 @@
+FNV WINDOW INPUT POLICY CONTRACT
+
+Research date: 2026-08-10
+Primary tool: radare2 MCP, analysis level 1
+Binary: fnv_reverse/FalloutNV.exe
+SHA-256: 42fee7d6cd74e801372aa89c8f71c974cebd3c20ec9ad43d1465b8fa9646b49c
+Format: PE32 x86, image base 0x00400000, non-PIC
+
+Questions
+=========
+
+1. Which DirectInput keyboard cooperative-level branches block system keys?
+2. Can both branches be changed without altering device ownership or ABI?
+3. Does the same patch apply independently of the active display mode?
+
+Direct binary evidence
+======================
+
+Input initialization @ 0x00A22660
+---------------------------------
+
+radare2 identifies one call from 0x0086C80C. The function invokes
+DirectInput8Create, then CreateDevice with the GUID stored at 0x01100F84. The
+GUID bytes begin with 61 2B 1D 6F and identify GUID_SysKeyboard
+(Data1 0x6F1D2B61). The returned keyboard device is stored at owner offset
++0x2C.
+
+The later device at owner offset +0x30 uses GUID_SysMouse and separate
+cooperative-level sites at 0x00A229A9/0x00A229CB. Those mouse sites are outside
+this feature and remain unchanged.
+
+Keyboard cooperative-level branch @ 0x00A2277A
+------------------------------------------------
+
+radare2 disassembly:
+
+  0x00A2277A  MOVZX ECX,byte [EBP-0x60]
+  0x00A2277E  TEST ECX,ECX
+  0x00A22780  JE 0x00A227A1
+  0x00A22782  PUSH 0x16
+  0x00A22784  CALL dword [0x00FDF2FC]  ; USER32!GetActiveWindow
+  0x00A2278A  PUSH EAX
+  0x00A2278B  MOV EDX,dword [EBP-0x58]
+  0x00A2278E  MOV EAX,dword [EDX+0x2C]
+  0x00A22791  MOV ECX,dword [EBP-0x58]
+  0x00A22794  MOV EDX,dword [ECX+0x2C]
+  0x00A22797  MOV EAX,dword [EAX]
+  0x00A22799  PUSH EDX
+  0x00A2279A  MOV ECX,dword [EAX+0x34]
+  0x00A2279D  CALL ECX
+  0x00A2279F  JMP 0x00A227BE
+  0x00A227A1  PUSH 0x15
+  0x00A227A3  CALL dword [0x00FDF2FC]  ; USER32!GetActiveWindow
+  0x00A227A9  PUSH EAX
+  0x00A227AA  MOV EDX,dword [EBP-0x58]
+  0x00A227AD  MOV EAX,dword [EDX+0x2C]
+  0x00A227B0  MOV ECX,dword [EBP-0x58]
+  0x00A227B3  MOV EDX,dword [ECX+0x2C]
+  0x00A227B6  MOV EAX,dword [EAX]
+  0x00A227B8  PUSH EDX
+  0x00A227B9  MOV ECX,dword [EAX+0x34]
+  0x00A227BC  CALL ECX
+  0x00A227BE  PUSH 0x01100CB4
+
+The +0x2C field is the keyboard device proven above. IDirectInputDevice8 vtable
+offset +0x34 is SetCooperativeLevel. Both branches pass the same active-window
+HWND and keyboard device; only the pushed flags differ.
+
+A read-only PE section dump corroborates the radare2 instruction listing. The
+exact bytes from 0x00A2277A through 0x00A227C2 are:
+
+  0F B6 4D A0 85 C9 74 1F 6A 16
+  FF 15 FC F2 FD 00 50 8B 55 A8 8B 42 2C 8B 4D A8
+  8B 51 2C 8B 00 52 8B 48 34 FF D1 EB 1D 6A 15
+  FF 15 FC F2 FD 00 50 8B 55 A8 8B 42 2C 8B 4D A8
+  8B 51 2C 8B 00 52 8B 48 34 FF D1 68 B4 0C 10 01
+
+Flag decoding
+-------------
+
+DirectInput cooperative-level constants:
+
+  DISCL_EXCLUSIVE     = 0x01
+  DISCL_NONEXCLUSIVE  = 0x02
+  DISCL_FOREGROUND    = 0x04
+  DISCL_NOWINKEY      = 0x10
+
+Therefore:
+
+  0x16 = NONEXCLUSIVE | FOREGROUND | NOWINKEY
+  0x15 = EXCLUSIVE    | FOREGROUND | NOWINKEY
+  0x06 = NONEXCLUSIVE | FOREGROUND
+
+Replacing only each PUSH imm8 operand with 0x06 preserves instruction size,
+branching, stack layout, HWND selection, COM owner, this pointer, vtable slot,
+and call ABI. Both native branches then retain foreground DirectInput keyboard
+delivery without requesting exclusive or Windows-key suppression.
+
+Display-mode independence
+-------------------------
+
+The branch selector is state within input initialization, not the engine's
+bFull Screen mode selector at 0x00446E10. Neither branch reads the top-level or
+renderer-child HWND globals used to distinguish native fullscreen from
+windowed rendering. Both obtain the active HWND from USER32. The two-site
+keyboard patch is therefore identical for native fullscreen, framed windowed,
+and borderless windowed modes.
+
+Cursor contract reused from established evidence
+=================================================
+
+Cursor confinement does not require a new engine address. It reuses the
+audited top-level CreateWindowExA return at 0x0086AF48. Established evidence
+proves the stable top-level/input HWND at 0x011C6FC0, renderer HWND at
+0x011C6FBC, fullscreen aliasing of those roles, windowed child ownership, and
+Fallout's WndProc at 0x0086A0A0. The current executable has no ClipCursor,
+GetCursorPos, or SetCursorPos import use.
+
+Supporting established evidence:
+
+  analysis/ghidra/output/perf/display_message_input_contract_audit.txt
+  analysis/ghidra/output/perf/display_current_fix_contract_audit.txt
+  analysis/ghidra/output/perf/display_exclusive_startup_owner_followup.txt
+  docs/display_fixes_reimplementation_plan.md
+  docs/psycho_dashboard.md
+
+Intervention contract
+=====================
+
+PROVEN:
+
+- 0x00A22660 creates and configures the DirectInput keyboard device at +0x2C.
+- 0x00A22782 and 0x00A227A1 are the two keyboard SetCooperativeLevel flag
+  pushes, and both calls use GetActiveWindow and vtable +0x34.
+- native flags 0x16 and 0x15 both include NOWINKEY; 0x15 is also exclusive.
+- changing either instruction to PUSH 0x06 is size preserving and retains the
+  shared foreground DirectInput ABI.
+- keyboard setup does not depend on the engine display-mode selector.
+
+IMPLEMENTATION DECISIONS DERIVED FROM THE PROOF:
+
+- preflight the complete fixed control-flow span while accepting either native
+  or already-replaced values at only the two owned immediates;
+- patch both sites in one rollback-capable transaction, never one branch alone;
+- leave the separate mouse device and its cooperative levels untouched;
+- install during early core activation before engine input initialization;
+- treat a fingerprint conflict as local unavailability and continue unrelated
+  engine fixes.
+
+RUNTIME OBSERVATION STILL REQUIRED:
+
+- confirm Windows/Super, PrintScreen, and consumer/media commands reach the
+  host on the supported Proton/Wine stack while normal Fallout keyboard input
+  remains active in all three display modes.

@@ -1,4 +1,4 @@
-//! Owns FalloutNV.exe's audited fullscreen and windowed placement boundaries.
+//! Owns FalloutNV.exe's audited window creation and placement boundaries.
 //!
 //! The exclusive startup path creates a visible 320x240 bootstrap window and
 //! never applies the windowed renderer's later placement call. Psycho corrects
@@ -34,6 +34,8 @@
 //!
 //! The game's focus managers and D3D9 reset path remain untouched. Installation
 //! replaces FalloutNV.exe's `CreateWindowExA` and `SetWindowPos` IAT pointers.
+//! The audited creation result is also the sole boundary allowed to hand the
+//! top-level HWND to [`super::window_input`] for optional cursor confinement.
 //! Earlier IAT hooks are captured and chained, while directly modified or
 //! unknown callsites are reported and left alone.
 //!
@@ -727,34 +729,45 @@ unsafe extern "fastcall" fn checked_create_window_ex_a(
         return unsafe { call_create_window_predecessor(request) };
     }
 
-    // The pure selector checks the engine setting first. This is the critical
-    // mode boundary: borderless-windowed must never turn an explicit
-    // `bFull Screen=1` request into the child-window renderer path.
-    let Some(mode) = select_bootstrap_mode(
-        engine_requests_fullscreen(),
-        FULLSCREEN_REPAIR_ENABLED.load(Ordering::Acquire),
-        WINDOWED_PLACEMENT_ENABLED.load(Ordering::Acquire),
-        BORDERLESS_WINDOWED_ENABLED.load(Ordering::Acquire),
-    ) else {
-        return unsafe { call_create_window_predecessor(request) };
+    // Cursor confinement needs only the audited HWND, while geometry repair
+    // additionally calls two fixed engine functions. A fingerprint conflict in
+    // either function must disable geometry work without narrowing the cursor
+    // feature's independently safe creation boundary.
+    let mode = if FULLSCREEN_PREDICATE_VALID.load(Ordering::Acquire)
+        && INT_SETTING_ACCESSOR_VALID.load(Ordering::Acquire)
+    {
+        // The pure selector checks the engine setting first. This is the
+        // critical mode boundary: borderless-windowed must never turn an
+        // explicit `bFull Screen=1` request into the child-window renderer.
+        select_bootstrap_mode(
+            engine_requests_fullscreen(),
+            FULLSCREEN_REPAIR_ENABLED.load(Ordering::Acquire),
+            WINDOWED_PLACEMENT_ENABLED.load(Ordering::Acquire),
+            BORDERLESS_WINDOWED_ENABLED.load(Ordering::Acquire),
+        )
+    } else {
+        None
+    };
+    let Some(mode) = mode else {
+        return unsafe { call_bootstrap_predecessor_and_attach(request) };
     };
     let corrected = match mode {
         BootstrapMode::NativeFullscreen => {
             let Some((width, height)) = bootstrap_size() else {
                 record_bootstrap_contract_mismatch(caller, request);
-                return unsafe { call_create_window_predecessor(request) };
+                return unsafe { call_bootstrap_predecessor_and_attach(request) };
             };
             request.as_fullscreen_bootstrap(width, height)
         }
         BootstrapMode::FramedWindowed | BootstrapMode::BorderlessWindowed => {
             if !CREATE_WINDOW_PREDECESSOR_VANILLA.load(Ordering::Acquire) {
-                return unsafe { call_create_window_predecessor(request) };
+                return unsafe { call_bootstrap_predecessor_and_attach(request) };
             }
             let Some(corrected) =
                 windowed_bootstrap_request(request, mode == BootstrapMode::BorderlessWindowed)
             else {
                 record_bootstrap_contract_mismatch(caller, request);
-                return unsafe { call_create_window_predecessor(request) };
+                return unsafe { call_bootstrap_predecessor_and_attach(request) };
             };
             BOOTSTRAP_WINDOWED_CORRECTIONS.fetch_add(1, Ordering::Relaxed);
             corrected
@@ -763,6 +776,7 @@ unsafe extern "fastcall" fn checked_create_window_ex_a(
 
     let count = BOOTSTRAP_CREATE_CORRECTIONS.fetch_add(1, Ordering::Relaxed) + 1;
     let hwnd = unsafe { call_create_window_predecessor(corrected) };
+    super::window_input::attach_top_level_window(hwnd);
     record_bootstrap_create_result(count, mode, hwnd, corrected);
     hwnd
 }
@@ -1475,6 +1489,12 @@ unsafe fn call_create_window_predecessor(request: CreateWindowRequest) -> *mut c
     }
 }
 
+unsafe fn call_bootstrap_predecessor_and_attach(request: CreateWindowRequest) -> *mut c_void {
+    let hwnd = unsafe { call_create_window_predecessor(request) };
+    super::window_input::attach_top_level_window(hwnd);
+    hwnd
+}
+
 unsafe fn call_predecessor(request: WindowRequest) -> i32 {
     let target = PREDECESSOR.load(Ordering::Acquire);
     if target == 0 || target == set_window_pos_entry as *const () as usize {
@@ -1505,12 +1525,13 @@ unsafe fn call_predecessor(request: WindowRequest) -> i32 {
     }
 }
 
-/// Install the audited display IAT shims for the requested runtime policies.
+/// Install the audited window IAT shims for the requested runtime policies.
 ///
 /// `fullscreen_repair` controls only the native-fullscreen startup and
 /// transition repairs. `borderless_windowed` controls only the renderer branch
 /// selected by `bFull Screen=0`; it cannot override an explicit fullscreen
-/// request.
+/// request. `cursor_lock` reuses only the audited top-level creation boundary
+/// and remains available if a geometry-specific engine fingerprint conflicts.
 ///
 /// Installation verifies every executable fingerprint and atomically chains
 /// existing IAT owners. It returns an error only when neither requested policy
@@ -1518,6 +1539,7 @@ unsafe fn call_predecessor(request: WindowRequest) -> i32 {
 pub fn install_display_hooks(
     fullscreen_repair: bool,
     borderless_windowed: bool,
+    cursor_lock: bool,
 ) -> anyhow::Result<()> {
     FULLSCREEN_REPAIR_ENABLED.store(fullscreen_repair, Ordering::Release);
     WINDOWED_PLACEMENT_ENABLED.store(fullscreen_repair || borderless_windowed, Ordering::Release);
@@ -1529,9 +1551,11 @@ pub fn install_display_hooks(
     audit_int_setting_accessor();
 
     let mut installed_any = false;
+    let geometry_creation_available = FULLSCREEN_PREDICATE_VALID.load(Ordering::Acquire)
+        && INT_SETTING_ACCESSOR_VALID.load(Ordering::Acquire);
     let create_owner = if bootstrap_coverage == CallsiteCoverage::Covered
-        && FULLSCREEN_PREDICATE_VALID.load(Ordering::Acquire)
-        && INT_SETTING_ACCESSOR_VALID.load(Ordering::Acquire)
+        && (cursor_lock
+            || ((fullscreen_repair || borderless_windowed) && geometry_creation_available))
     {
         match claim_create_window_iat() {
             Ok(owner) => {
@@ -1587,9 +1611,10 @@ pub fn install_display_hooks(
     }
 
     log::info!(
-        "[DISPLAY] Window management installed: fullscreen={} borderless_windowed={} create={} setpos={} bootstrap={} sites={}/{}/{}/{}/{}/{}",
+        "[DISPLAY] Window management installed: fullscreen={} borderless_windowed={} cursor_lock={} create={} setpos={} bootstrap={} sites={}/{}/{}/{}/{}/{}",
         fullscreen_repair,
         borderless_windowed,
+        cursor_lock,
         iat_owner_name(create_owner),
         iat_owner_name(set_window_owner),
         bootstrap_coverage.name(),

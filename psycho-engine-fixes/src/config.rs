@@ -311,6 +311,16 @@ pub struct EngineFixesConfig {
     /// The engine's `bFull Screen=1` setting always takes precedence and
     /// continues to use the native-fullscreen repair policy.
     pub display_borderless_windowed: bool,
+    /// Confine the system cursor to the active game client rectangle.
+    ///
+    /// Confinement follows the renderer child across movement, resizing, and
+    /// monitor topology changes, and releases whenever the game deactivates.
+    pub window_cursor_lock: bool,
+    /// Let Windows receive system and media keys while the game is active.
+    ///
+    /// This removes DirectInput's exclusive and `DISCL_NOWINKEY` cooperative
+    /// levels without suppressing the game's own keyboard input.
+    pub input_system_key_passthrough: bool,
     /// Commit saves durably and reject unsafe or unresolved changed records.
     pub save_integrity_fix: bool,
     /// Treat invalid NavMeshInfo low pointers as "no path identity".
@@ -358,6 +368,8 @@ impl Default for EngineFixesConfig {
         Self {
             display_alt_tab: true,
             display_borderless_windowed: true,
+            window_cursor_lock: true,
+            input_system_key_passthrough: true,
             save_integrity_fix: true,
             navmesh_low_pointer_guard: true,
             entrydata_invalid_form_guard: true,
@@ -402,6 +414,10 @@ impl EngineFixesConfig {
             display_borderless_windowed: raw
                 .display_borderless_windowed
                 .unwrap_or(default.display_borderless_windowed),
+            window_cursor_lock: raw.window_cursor_lock.unwrap_or(default.window_cursor_lock),
+            input_system_key_passthrough: raw
+                .input_system_key_passthrough
+                .unwrap_or(default.input_system_key_passthrough),
             save_integrity_fix: raw.save_integrity_fix.unwrap_or(default.save_integrity_fix),
             navmesh_low_pointer_guard: raw
                 .navmesh_low_pointer_guard
@@ -552,6 +568,8 @@ struct RawPerformanceConfig {
 struct RawEngineFixesConfig {
     display_alt_tab: Option<bool>,
     display_borderless_windowed: Option<bool>,
+    window_cursor_lock: Option<bool>,
+    input_system_key_passthrough: Option<bool>,
     save_integrity_fix: Option<bool>,
     navmesh_low_pointer_guard: Option<bool>,
     entrydata_invalid_form_guard: Option<bool>,
@@ -755,6 +773,24 @@ display_borderless_windowed = false
         assert!(default.engine_fixes.display_borderless_windowed);
         assert!(default.engine_fixes.display_alt_tab);
         assert!(!framed.engine_fixes.display_borderless_windowed);
+    }
+
+    #[test]
+    fn window_input_policies_default_on_and_remain_independent() {
+        let default: PsychoConfig = toml::from_str("").expect("parse default configuration");
+        let disabled: PsychoConfig = toml::from_str(
+            r#"
+[engine_fixes]
+window_cursor_lock = false
+input_system_key_passthrough = false
+"#,
+        )
+        .expect("parse window-input preferences");
+
+        assert!(default.engine_fixes.window_cursor_lock);
+        assert!(default.engine_fixes.input_system_key_passthrough);
+        assert!(!disabled.engine_fixes.window_cursor_lock);
+        assert!(!disabled.engine_fixes.input_system_key_passthrough);
     }
 
     #[test]

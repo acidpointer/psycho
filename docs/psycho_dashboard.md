@@ -41,13 +41,14 @@ Dear ImGui's normal tooltip delay, then opens a wrapped, width-limited
 plain-language explanation. The delay prevents popups from flashing while the
 pointer merely crosses the dashboard.
 
-Every one of the 21 `[engine_fixes]` controls has focused hover documentation
+Every one of the 24 `[engine_fixes]` controls has focused hover documentation
 that answers three gamer-facing questions: what broken situation it handles,
 what the enabled fix does, and whether normal valid behavior is preserved. The
-20 engine-safety controls share one ordered help catalog; borderless windowed
-has its own display-mode help. The same explanation is reused where a fix
-appears on the Runtime Fixes page, so saved configuration and installed runtime
-state do not describe one feature in conflicting language.
+21 engine-safety controls share one ordered help catalog; borderless windowed,
+cursor confinement, and system-key passthrough have their own window/input
+help. The same explanation is reused where a fix appears on the Runtime Fixes
+page, so saved configuration and installed runtime state do not describe one
+feature in conflicting language.
 
 All other supported configuration controls also explain their practical
 effect and tradeoff, including allocator modes, the experimental PDD purge,
@@ -390,6 +391,15 @@ The **Borderless windowed** checkbox owns
 when FalloutPrefs.ini selects `bFull Screen=0`; native fullscreen always takes
 precedence. The helper writes the restart-only preference but never changes a
 live HWND, style, position, focus state, or D3D9 resource.
+
+The **Lock cursor to game window** and **Allow system and media keys**
+checkboxes own `[engine_fixes].window_cursor_lock` and
+`[engine_fixes].input_system_key_passthrough`. Both default on, require a
+restart, and apply in native fullscreen, framed windowed, and borderless
+windowed modes. The helper only edits their next-launch values; cursor/WndProc
+ownership and the DirectInput cooperative-level patch remain exclusively in
+the early-loaded core. Their complete behavior and compatibility contract is
+`docs/window_input_policy.md`.
 
 The **Dynamic actor container guard** checkbox owns
 `[engine_fixes].actor_container_retirement_guard`. It defaults on and changes

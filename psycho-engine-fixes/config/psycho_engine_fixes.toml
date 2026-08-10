@@ -99,9 +99,10 @@ gheap_periodic_pdd_purge = false
 
 # USER GUIDANCE
 #
-# Keep every option in this section ON. These are narrowly targeted correctness
-# and crash fixes, not visual preferences. Turning one off does not normally
-# improve performance; it restores the specific broken vanilla behavior.
+# Keep the correctness and crash-fix options in this section ON. Turning one
+# off does not normally improve performance; it restores the specific broken
+# vanilla behavior. Cursor confinement and system-key delivery are baseline
+# window/input fixes and are enabled for every supported window mode.
 #
 # Disable a single option only to test a suspected conflict. A "guard" is a
 # safety check that rejects an invalid or not-yet-ready engine object instead of
@@ -128,6 +129,20 @@ display_alt_tab = true
 # bFull Screen=1 always takes precedence and remains native fullscreen, even
 # while this option is ON.
 display_borderless_windowed = true
+
+# Confines the system cursor to the rendered game client while Fallout is the
+# foreground, non-minimized application. The rectangle follows movement,
+# resizing, DPI changes, and monitor-topology changes. Psycho releases it on
+# Alt-Tab/focus loss and does not clear a newer clip rectangle owned by another
+# component. Useful for multi-monitor play and invisible-cursor overlay input.
+window_cursor_lock = true
+
+# Changes both DirectInput keyboard setup branches from exclusive and/or
+# DISCL_NOWINKEY modes to shared foreground access. Windows can then receive the
+# Super/Windows key, PrintScreen, and media commands while Fallout continues to
+# receive ordinary DirectInput keys. PrintScreen may trigger both the system
+# capture and Fallout's configured BMP screenshot feature.
+input_system_key_passthrough = true
 
 # --- Saves and loaded data -------------------------------------------------
 

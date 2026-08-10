@@ -10,7 +10,9 @@ the captured predecessor.
 
 Psycho does not replace focus management, poll windows, write engine focus
 state, or perform D3D9 reset/resource work. The helper plugin and xNVSE events
-are not required for display behavior.
+are not required for display behavior. The optional cursor policy reuses the
+audited top-level creation result but owns its separate WndProc lifecycle in
+`window_input.rs`; see `docs/window_input_policy.md`.
 
 `bFull Screen` in FalloutPrefs.ini is the authoritative mode selector:
 
@@ -39,7 +41,10 @@ original request instead of competing with it.
 Source and configuration ownership:
 
 - `psycho-engine-fixes/src/mods/engine_fixes/display.rs` owns executable
-  validation, IAT chaining, mode selection, geometry, and diagnostics;
+  validation, IAT chaining, mode selection, geometry, diagnostics, and the
+  validated top-level HWND handoff to the window-input module;
+- `psycho-engine-fixes/src/mods/engine_fixes/window_input.rs` owns cursor
+  confinement after that handoff and never changes display geometry;
 - `psycho-engine-fixes/src/config.rs` and
   `psycho-engine-fixes/config/psycho_engine_fixes.toml` own the restart-only
   `engine_fixes.display_alt_tab` and
@@ -131,7 +136,8 @@ align the client with its current monitor.
 - A fullscreen-predicate conflict disables only bootstrap/reset correction and
   catch-up; the fingerprinted malformed callers remain protected.
 - A setting-accessor conflict disables bootstrap geometry changes; the
-  independent placement boundaries retain their own audit results.
+  independent placement boundaries retain their own audit results. Cursor
+  attachment remains available because it does not call that accessor.
 - Monitor lookup failure preserves the engine origin rather than inventing a
   coordinate.
 - Borderless-windowed never changes a `bFull Screen=1` request.
@@ -140,7 +146,9 @@ align the client with its current monitor.
 - An IAT ownership race never overwrites the new owner.
 - A failed pointer-protection restoration attempts rollback only while Psycho
   still owns the slot.
-- No code-site patch, focus hook, timer mutation, or D3D9 reset owner is added.
+- Display geometry adds no code-site patch, focus-state hook, timer mutation,
+  or D3D9 reset owner. The separately configured cursor policy subclasses the
+  already-validated top-level HWND only to maintain `ClipCursor` lifecycle.
 
 ## Diagnostics
 
@@ -169,10 +177,11 @@ location, calls `AdjustWindowRectEx`, and performs at most one monitor query.
 Windowed renderer placement performs one live rectangle query and, only for an
 unresolved zero origin, one monitor query.
 
-There is no worker, timer, polling loop, persistent allocation, window-procedure
-subclass, or per-frame display work. Each shim uses atomic policy/diagnostic
-state and stack-only geometry. Child resize and unknown calls add only caller
-classification plus predecessor chaining.
+There is no worker, timer, polling loop, persistent allocation, or per-frame
+display work. Each shim uses atomic policy/diagnostic state and stack-only
+geometry. Child resize and unknown calls add only caller classification plus
+predecessor chaining. Cursor WndProc costs and invariants are specified
+separately in `docs/window_input_policy.md`.
 
 ## Verification
 

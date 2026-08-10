@@ -29,6 +29,10 @@ pub(crate) struct EditableConfig {
     pub display_alt_tab: bool,
     /// Restart-only borderless style preference for `bFull Screen=0`.
     pub display_borderless_windowed: bool,
+    /// Restart-only confinement of the system cursor to the active game client.
+    pub window_cursor_lock: bool,
+    /// Restart-only Windows/Super, PrintScreen, and media-key passthrough.
+    pub input_system_key_passthrough: bool,
     pub save_integrity_fix: bool,
     pub navmesh_low_pointer_guard: bool,
     pub entrydata_invalid_form_guard: bool,
@@ -80,6 +84,8 @@ impl Default for EditableConfig {
             gheap_periodic_pdd_purge: false,
             display_alt_tab: true,
             display_borderless_windowed: true,
+            window_cursor_lock: true,
+            input_system_key_passthrough: true,
             save_integrity_fix: true,
             navmesh_low_pointer_guard: true,
             entrydata_invalid_form_guard: true,
@@ -151,6 +157,18 @@ impl EditableConfig {
                 "engine_fixes",
                 "display_borderless_windowed",
                 defaults.display_borderless_windowed,
+            ),
+            window_cursor_lock: bool_or(
+                doc,
+                "engine_fixes",
+                "window_cursor_lock",
+                defaults.window_cursor_lock,
+            ),
+            input_system_key_passthrough: bool_or(
+                doc,
+                "engine_fixes",
+                "input_system_key_passthrough",
+                defaults.input_system_key_passthrough,
             ),
             save_integrity_fix: bool_or(
                 doc,
@@ -594,6 +612,8 @@ fn write_document(doc: &mut DocumentMut, config: &EditableConfig) {
     }
     engine!(display_alt_tab);
     engine!(display_borderless_windowed);
+    engine!(window_cursor_lock);
+    engine!(input_system_key_passthrough);
     engine!(save_integrity_fix);
     engine!(navmesh_low_pointer_guard);
     engine!(entrydata_invalid_form_guard);
@@ -728,6 +748,8 @@ mod_owned_key = "untouched"
         let mut config = EditableConfig::from_document(&document);
         config.allocator = 2;
         config.display_borderless_windowed = false;
+        config.window_cursor_lock = false;
+        config.input_system_key_passthrough = false;
         config.actor_container_retirement_guard = false;
         config.encounter_zone_invalid_form_guard = false;
         config.cell_render_reference_retirement_fix = false;
@@ -740,12 +762,16 @@ mod_owned_key = "untouched"
         assert!(saved.contains("mod_owned_key = \"untouched\""));
         assert!(saved.contains("allocator = 2"));
         assert!(saved.contains("display_borderless_windowed = false"));
+        assert!(saved.contains("window_cursor_lock = false"));
+        assert!(saved.contains("input_system_key_passthrough = false"));
         assert!(saved.contains("actor_container_retirement_guard = false"));
         assert!(saved.contains("encounter_zone_invalid_form_guard = false"));
         assert!(saved.contains("cell_render_reference_retirement_fix = false"));
         assert!(saved.contains("model_postprocess_serialization_fix = false"));
         let reparsed = parse_document(&saved).expect("parse saved document");
         assert!(!EditableConfig::from_document(&reparsed).display_borderless_windowed);
+        assert!(!EditableConfig::from_document(&reparsed).window_cursor_lock);
+        assert!(!EditableConfig::from_document(&reparsed).input_system_key_passthrough);
         assert!(!EditableConfig::from_document(&reparsed).actor_container_retirement_guard);
         assert!(!EditableConfig::from_document(&reparsed).encounter_zone_invalid_form_guard);
         assert!(!EditableConfig::from_document(&reparsed).cell_render_reference_retirement_fix);
@@ -766,6 +792,8 @@ mod_owned_key = "untouched"
             error: None,
         };
         assert!(!editor.is_dirty());
+        assert!(editor.draft.window_cursor_lock);
+        assert!(editor.draft.input_system_key_passthrough);
         editor.draft.debug_log = !editor.draft.debug_log;
         assert!(editor.is_dirty());
     }

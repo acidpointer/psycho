@@ -334,7 +334,7 @@ impl MemoryBasicInformation {
 }
 
 /// Win32 RECT with plain Rust field names.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(C)]
 pub struct Rect {
     pub left: i32,
@@ -383,7 +383,11 @@ mod sys {
             wparam: usize,
             lparam: isize,
         ) -> isize;
+        pub fn ClipCursor(rect: *const super::Rect) -> i32;
         pub fn GetActiveWindow() -> *mut c_void;
+        pub fn GetClientRect(hwnd: *mut c_void, rect: *mut super::Rect) -> i32;
+        pub fn GetClipCursor(rect: *mut super::Rect) -> i32;
+        pub fn GetForegroundWindow() -> *mut c_void;
         pub fn GetWindowLongA(hwnd: *mut c_void, index: i32) -> i32;
         pub fn IsWindow(hwnd: *mut c_void) -> i32;
         pub fn IsIconic(hwnd: *mut c_void) -> i32;
@@ -431,6 +435,35 @@ pub fn disable_process_windows_ghosting() {
 /// Return the thread's active window, or NULL.
 pub fn get_active_window() -> *mut c_void {
     unsafe { sys::GetActiveWindow() }
+}
+
+/// Return the foreground window, or NULL when no window is foreground.
+pub fn get_foreground_window() -> *mut c_void {
+    unsafe { sys::GetForegroundWindow() }
+}
+
+/// Restrict the system cursor to `rect`, or release the restriction for `None`.
+///
+/// `ClipCursor` owns one process-independent desktop resource. Callers that
+/// replace an existing rectangle should therefore avoid releasing a newer
+/// owner's rectangle later.
+pub fn clip_cursor(rect: Option<&Rect>) -> bool {
+    let rect = rect.map_or(std::ptr::null(), std::ptr::from_ref);
+    unsafe { sys::ClipCursor(rect) != 0 }
+}
+
+/// Return the desktop's current shared cursor-clipping rectangle.
+pub fn cursor_clip_rect() -> Option<Rect> {
+    let mut rect = Rect {
+        left: 0,
+        top: 0,
+        right: 0,
+        bottom: 0,
+    };
+    if unsafe { sys::GetClipCursor(&mut rect) } == 0 {
+        return None;
+    }
+    Some(rect)
 }
 
 /// Call a previous Win32 window procedure.
@@ -489,6 +522,48 @@ pub fn window_rect(hwnd: *mut c_void) -> Option<Rect> {
         return None;
     }
     Some(rect)
+}
+
+/// Return a window's client rectangle in screen coordinates.
+///
+/// Win32 reports client extents relative to `(0, 0)`. Both corners are
+/// translated so callers receive the exact half-open rectangle expected by
+/// `ClipCursor`, including windows on monitors with negative coordinates.
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+pub fn client_rect_in_screen(hwnd: *mut c_void) -> Option<Rect> {
+    if hwnd.is_null() {
+        return None;
+    }
+    let mut rect = Rect {
+        left: 0,
+        top: 0,
+        right: 0,
+        bottom: 0,
+    };
+    if unsafe { sys::GetClientRect(hwnd, &mut rect) } == 0 {
+        return None;
+    }
+
+    let mut top_left = Point {
+        x: rect.left,
+        y: rect.top,
+    };
+    let mut bottom_right = Point {
+        x: rect.right,
+        y: rect.bottom,
+    };
+    if unsafe { sys::ClientToScreen(hwnd, &mut top_left) } == 0
+        || unsafe { sys::ClientToScreen(hwnd, &mut bottom_right) } == 0
+    {
+        return None;
+    }
+
+    Some(Rect {
+        left: top_left.x,
+        top: top_left.y,
+        right: bottom_right.x,
+        bottom: bottom_right.y,
+    })
 }
 
 /// Return the client-area origin in screen coordinates.

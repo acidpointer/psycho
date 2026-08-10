@@ -1889,12 +1889,24 @@ fn draw_configuration(ui: &mut Ui<'_>, editor: &mut ConfigEditor) {
     );
 
     ui.spacing();
-    ui.separator_text(&cstring("Display mode"));
+    ui.separator_text(&cstring("Window and input"));
     checkbox_help(
         ui,
         "Borderless windowed",
         &mut config.display_borderless_windowed,
         "When FalloutPrefs.ini has bFull Screen=0, removes the window frame and keeps the configured render size. bFull Screen=1 always remains native fullscreen.",
+    );
+    checkbox_help(
+        ui,
+        "Lock cursor to game window",
+        &mut config.window_cursor_lock,
+        "While the game is foreground, confines the system cursor to the rendered client area. Releases on Alt-Tab, focus loss, or minimization and follows movement across monitors.",
+    );
+    checkbox_help(
+        ui,
+        "Allow system and media keys",
+        &mut config.input_system_key_passthrough,
+        "Lets Windows receive the Super/Windows key, PrintScreen, and media commands while the game is active. The game still receives normal DirectInput keyboard input; PrintScreen may also keep creating Fallout's BMP screenshot.",
     );
 
     ui.spacing();

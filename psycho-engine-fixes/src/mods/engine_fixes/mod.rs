@@ -30,6 +30,7 @@ mod ragdoll;
 mod save_integrity;
 mod statics;
 mod types;
+mod window_input;
 
 pub(crate) struct DiagnosticCounters {
     pub(crate) ragdoll_calls: u64,
@@ -293,20 +294,31 @@ fn install_model_postprocess_fix(config: &EngineFixesConfig) -> bool {
     }
 }
 
-/// Install configured display policies before allocator and other engine hooks.
+/// Install configured window and input policies before other engine hooks.
 ///
-/// Fullscreen repair and borderless-windowed styling are independently
-/// selectable. A display ownership conflict is logged and contained here so it
-/// cannot abort unrelated engine-fix startup.
+/// Fullscreen repair, borderless-windowed styling, cursor confinement, and
+/// system-key passthrough are independently selectable. Ownership or
+/// fingerprint conflicts are logged and contained here so they cannot abort
+/// unrelated engine-fix startup.
 pub fn install_display(config: &EngineFixesConfig) -> anyhow::Result<()> {
-    if !config.display_alt_tab && !config.display_borderless_windowed {
+    window_input::configure_cursor_lock(config.window_cursor_lock);
+    if let Err(error) =
+        window_input::install_system_key_passthrough(config.input_system_key_passthrough)
+    {
+        log::warn!("[WINDOW_INPUT] System-key passthrough unavailable: {error:#}");
+    }
+
+    if !config.display_alt_tab && !config.display_borderless_windowed && !config.window_cursor_lock
+    {
         log::info!("[DISPLAY] Window management disabled by config");
         return Ok(());
     }
 
-    if let Err(err) =
-        display::install_display_hooks(config.display_alt_tab, config.display_borderless_windowed)
-    {
+    if let Err(err) = display::install_display_hooks(
+        config.display_alt_tab,
+        config.display_borderless_windowed,
+        config.window_cursor_lock,
+    ) {
         log::warn!("[DISPLAY] Window management disabled: {}", err);
     }
     Ok(())
@@ -340,6 +352,7 @@ pub(crate) fn take_diagnostic_counters() -> DiagnosticCounters {
 
 pub(crate) fn append_diagnostic_report(out: &mut String) {
     let display = display::diagnostic_snapshot();
+    let window_input = window_input::diagnostic_snapshot();
     let low = lowprocess::diagnostic_snapshot();
     let model = model_postprocess::snapshot();
     let task = queued_tasks::diagnostic_snapshot();
@@ -523,6 +536,37 @@ pub(crate) fn append_diagnostic_report(out: &mut String) {
             display.last_transition_ms,
             result_name(display.last_result),
             display.last_error,
+        ),
+    );
+    push_report_value(
+        out,
+        "Cursor lock",
+        format!(
+            "{} / attached {} / active {}",
+            on_off(window_input.cursor_lock_configured),
+            on_off(window_input.cursor_window_attached),
+            on_off(window_input.cursor_clip_active),
+        ),
+    );
+    push_report_value(
+        out,
+        "Cursor work",
+        format!(
+            "{} attach / {} apply / {} release / {} failed / {} displaced",
+            window_input.cursor_attachments,
+            window_input.cursor_applies,
+            window_input.cursor_releases,
+            window_input.cursor_failures,
+            window_input.cursor_ownership_losses,
+        ),
+    );
+    push_report_value(
+        out,
+        "System keys",
+        format!(
+            "{} / installed {}",
+            on_off(window_input.system_key_passthrough_configured),
+            on_off(window_input.system_key_passthrough_installed),
         ),
     );
     push_report_value(
