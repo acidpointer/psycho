@@ -396,9 +396,12 @@ The **Lock cursor to game window** and **Allow system and media keys**
 checkboxes own `[engine_fixes].window_cursor_lock` and
 `[engine_fixes].input_system_key_passthrough`. Both default on, require a
 restart, and apply in native fullscreen, framed windowed, and borderless
-windowed modes. The helper only edits their next-launch values; cursor/WndProc
-ownership and the DirectInput cooperative-level patch remain exclusively in
-the early-loaded core. Their complete behavior and compatibility contract is
+windowed modes. Native fullscreen and borderless use their rendered client;
+framed mode includes its caption and resize border. The core's window-thread
+audit repairs an overlay that widens or clears an active clip. The helper only
+edits next-launch values; cursor/WndProc ownership, timer reconciliation, and
+the DirectInput cooperative-level patch remain exclusively in the early-loaded
+core. Their complete behavior and compatibility contract is
 `docs/window_input_policy.md`.
 
 The **Dynamic actor container guard** checkbox owns

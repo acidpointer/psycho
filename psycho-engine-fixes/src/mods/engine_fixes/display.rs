@@ -34,10 +34,13 @@
 //!
 //! The game's focus managers and D3D9 reset path remain untouched. Installation
 //! replaces FalloutNV.exe's `CreateWindowExA` and `SetWindowPos` IAT pointers.
-//! The audited creation result is also the sole boundary allowed to hand the
+//! The audited creation result is also the primary boundary allowed to hand the
 //! top-level HWND to [`super::window_input`] for optional cursor confinement.
-//! Earlier IAT hooks are captured and chained, while directly modified or
-//! unknown callsites are reported and left alone.
+//! Earlier IAT hooks are captured and chained. A later IAT owner that preserves
+//! the exact bootstrap request may also hand back its unchanged result, without
+//! receiving geometry authority; a modified request is recovered later from
+//! the proven engine HWND global. Directly modified or unknown placement
+//! callsites are reported and left alone.
 //!
 //! Engine addresses and instruction contracts are proven by:
 //! - `analysis/ghidra/output/perf/display_current_fix_contract_audit.txt`
@@ -62,6 +65,7 @@ use libpsycho::{
 /// FalloutNV.exe's imported `user32!SetWindowPos` pointer.
 const SET_WINDOW_POS_IAT: usize = 0x00FDF2A4;
 const CREATE_WINDOW_EX_A_IAT: usize = 0x00FDF2B8;
+const BOOTSTRAP_CREATE_RETURN: usize = 0x0086AF48;
 const FULLSCREEN_PREDICATE: usize = 0x00446E10;
 const INT_SETTING_ACCESSOR: usize = 0x004503F0;
 const TOP_LEVEL_HWND_GLOBAL: usize = 0x011C6FC0;
@@ -716,10 +720,24 @@ unsafe extern "fastcall" fn checked_create_window_ex_a(
     };
 
     if !CREATE_WINDOW_INSTALLED.load(Ordering::Acquire)
-        || caller != 0x0086AF48
         || CallsiteCoverage::from_raw(BOOTSTRAP_CREATE_COVERAGE.load(Ordering::Acquire))
             != CallsiteCoverage::Covered
     {
+        return unsafe { call_create_window_predecessor(request) };
+    }
+
+    if caller != BOOTSTRAP_CREATE_RETURN {
+        if is_later_owner_bootstrap_request(caller, request) {
+            // A mod installed after Psycho can own the IAT and call our saved
+            // predecessor from its own return address. The exact twelve-field
+            // request remains a sufficient identity for cursor attachment, but
+            // geometry must stay untouched because the later owner now decides
+            // policy. A changed request is recovered from the proven HWND
+            // global at DeferredInit instead of being guessed here.
+            let hwnd = unsafe { call_create_window_predecessor(request) };
+            super::window_input::attach_top_level_window_from_later_owner(hwnd);
+            return hwnd;
+        }
         return unsafe { call_create_window_predecessor(request) };
     }
 
@@ -941,6 +959,10 @@ fn valid_bootstrap_create_request(request: CreateWindowRequest) -> bool {
         && request.menu.is_null()
         && !request.instance.is_null()
         && request.param.is_null()
+}
+
+fn is_later_owner_bootstrap_request(caller: usize, request: CreateWindowRequest) -> bool {
+    caller != BOOTSTRAP_CREATE_RETURN && valid_bootstrap_create_request(request)
 }
 
 fn bootstrap_size() -> Option<(i32, i32)> {
@@ -1898,8 +1920,9 @@ fn is_executable(address: usize) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{
-        BootstrapMode, CreateWindowRequest, Rect, WS_POPUP, WS_VISIBLE, centered_window_origin,
-        select_bootstrap_mode, stable_windowed_parent_request, windowed_bootstrap_style,
+        BOOTSTRAP_CREATE_RETURN, BootstrapMode, CreateWindowRequest, Rect, WS_POPUP, WS_VISIBLE,
+        centered_window_origin, is_later_owner_bootstrap_request, select_bootstrap_mode,
+        stable_windowed_parent_request, windowed_bootstrap_style,
     };
     use std::ffi::c_void;
 
@@ -1962,6 +1985,24 @@ mod tests {
             select_bootstrap_mode(false, true, true, true),
             Some(BootstrapMode::BorderlessWindowed)
         );
+    }
+
+    #[test]
+    fn later_iat_owner_can_preserve_bootstrap_identity_without_geometry_authority() {
+        let request = request();
+
+        assert!(is_later_owner_bootstrap_request(0x5000_1234, request));
+        assert!(!is_later_owner_bootstrap_request(
+            BOOTSTRAP_CREATE_RETURN,
+            request
+        ));
+        assert!(!is_later_owner_bootstrap_request(
+            0x5000_1234,
+            CreateWindowRequest {
+                width: 800,
+                ..request
+            }
+        ));
     }
 
     #[test]

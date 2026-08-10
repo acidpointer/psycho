@@ -326,6 +326,7 @@ pub fn install_display(config: &EngineFixesConfig) -> anyhow::Result<()> {
 
 /// Forward a host lifecycle event to fixes that audit late hook ownership.
 pub fn observe_event(kind: u32) {
+    window_input::observe_event(kind);
     lowprocess::observe_event(kind);
     model_postprocess::observe_event(kind);
 }
@@ -542,22 +543,37 @@ pub(crate) fn append_diagnostic_report(out: &mut String) {
         out,
         "Cursor lock",
         format!(
-            "{} / attached {} / active {}",
+            "{} / attached {} / active {} / {} / timer {}",
             on_off(window_input.cursor_lock_configured),
             on_off(window_input.cursor_window_attached),
             on_off(window_input.cursor_clip_active),
+            window_input.cursor_target,
+            on_off(window_input.cursor_timer_installed),
         ),
     );
     push_report_value(
         out,
         "Cursor work",
         format!(
-            "{} attach / {} apply / {} release / {} failed / {} displaced",
+            "{} attach ({} recovery) / {} apply / {} release / {} failed",
             window_input.cursor_attachments,
+            window_input.cursor_recovery_attachments,
             window_input.cursor_applies,
             window_input.cursor_releases,
             window_input.cursor_failures,
-            window_input.cursor_ownership_losses,
+        ),
+    );
+    push_report_value(
+        out,
+        "Cursor audit",
+        format!(
+            "{} ticks / {} repairs / {} normalized / {} safe / {} fail-safe / {} rejected",
+            window_input.cursor_timer_audits,
+            window_input.cursor_repairs,
+            window_input.cursor_normalizations,
+            window_input.cursor_safe_adoptions,
+            window_input.cursor_fail_safe_releases,
+            window_input.cursor_renderer_rejections,
         ),
     );
     push_report_value(

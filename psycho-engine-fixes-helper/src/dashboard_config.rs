@@ -29,7 +29,7 @@ pub(crate) struct EditableConfig {
     pub display_alt_tab: bool,
     /// Restart-only borderless style preference for `bFull Screen=0`.
     pub display_borderless_windowed: bool,
-    /// Restart-only confinement of the system cursor to the active game client.
+    /// Restart-only confinement to the active mode-appropriate game boundary.
     pub window_cursor_lock: bool,
     /// Restart-only Windows/Super, PrintScreen, and media-key passthrough.
     pub input_system_key_passthrough: bool,

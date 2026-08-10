@@ -1900,7 +1900,7 @@ fn draw_configuration(ui: &mut Ui<'_>, editor: &mut ConfigEditor) {
         ui,
         "Lock cursor to game window",
         &mut config.window_cursor_lock,
-        "While the game is foreground, confines the system cursor to the rendered client area. Releases on Alt-Tab, focus loss, or minimization and follows movement across monitors.",
+        "While the game is foreground, confines the cursor to its mode-appropriate boundary while keeping framed captions and resize borders usable. Repairs overlay unclipping, follows movement across monitors, and releases on Alt-Tab, focus loss, or minimization.",
     );
     checkbox_help(
         ui,

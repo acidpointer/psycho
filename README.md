@@ -65,11 +65,38 @@ Rust.
 - Accelerates zlib decompression and the frequently used RNG path.
 - Repairs fullscreen transitions and provides stable borderless-windowed
   startup and placement.
+- Keeps the mouse inside the active game window without trapping it during
+  Alt-Tab, minimization, or framed-window movement and resizing.
+- Restores Windows/Super, PrintScreen, and media-key handling while preserving
+  normal in-game keyboard input.
 - Makes save commits durable and rejects several malformed changed records.
 - Provides targeted crash fixes for audited Havok, ragdoll, navmesh, linked
   reference, queued-task and inventory cases.
 - Records memory pressure, allocator state and engine-fix diagnostics.
 - Loads before normal xNVSE plugins through the Syringe startup barrier.
+
+#### Cursor lock and system keys
+
+Both quality-of-life fixes are enabled by default and work in native
+fullscreen, borderless windowed, and framed windowed modes. They require no
+special setup for either single-monitor or multi-monitor systems:
+
+- `window_cursor_lock = true` keeps both the visible pointer and Fallout's
+  hidden system cursor inside the active game. Fullscreen and borderless modes
+  use the rendered area; a framed window keeps its caption and resize border
+  reachable. The lock follows window and monitor changes, repairs temporary
+  releases made by overlays, and automatically lets go during Alt-Tab, focus
+  loss, minimization, window movement or resizing, and game shutdown.
+- `input_system_key_passthrough = true` lets Windows receive the Windows/Super
+  key, PrintScreen, and media keys while Fallout continues receiving normal
+  keyboard input. PrintScreen can still activate Fallout's own BMP screenshot
+  feature as well as the operating-system action.
+
+Most users should leave both options enabled. They can be changed independently
+under `[engine_fixes]` in `syringe/psycho_engine_fixes.toml`; changes take effect
+after restarting the game. The detailed compatibility and implementation
+contract is documented in
+[`docs/window_input_policy.md`](docs/window_input_policy.md).
 
 #### Engine and crash-fix reference
 
@@ -90,7 +117,7 @@ the original engine behavior. Changes require a game restart.
 |---|---|---|
 | `display_alt_tab = true` | Native fullscreen starts from New Vegas' visible `320x240` bootstrap window. Later reset and focus paths can also request invalid placement or raise the game during Alt-Tab. Windowed renderer recreation can replay a stale origin. | Creates the bootstrap window at its final geometry, repairs the known fullscreen placement calls, preserves the live windowed origin, and suppresses the unsafe focus-loss move. |
 | `display_borderless_windowed = true` | With `bFull Screen=0`, vanilla first exposes the parent at `(0,0)` and retains a frame. A missing `iLocation X/Y` pair leaves it in that corner. | Uses an undecorated popup at the configured render size and centers an unset origin. `bFull Screen=1` always takes precedence and remains native fullscreen. Set this option to `false` for a framed window. |
-| `window_cursor_lock = true` | On multi-monitor desktops, the visible or hidden system cursor can leave the game and interact with another monitor while Fallout remains active. | Confines the cursor to the live renderer client in native fullscreen, framed windowed, and borderless windowed modes. Releases it on Alt-Tab, focus loss, minimization, and destruction. |
+| `window_cursor_lock = true` | On multi-monitor desktops, the visible or hidden system cursor can leave the game and interact with another monitor while Fallout remains active. | Confines native fullscreen and borderless modes to their rendered client; framed windows retain their caption and resize border. A UI-thread audit repairs overlay unclipping and releases on Alt-Tab, focus loss, minimization, and destruction. |
 | `input_system_key_passthrough = true` | Fallout requests DirectInput keyboard modes that suppress Windows/Super and can swallow PrintScreen or media handling. | Uses shared foreground DirectInput in both engine branches, retaining game keyboard input while Windows receives system and media keys. PrintScreen may still trigger Fallout's BMP screenshot too. |
 | `save_integrity_fix = true` | The game can report success after a partial temporary save, failed flush/close, or failed replacement. Malformed changed records can also run past their buffers, while records from missing plugins can publish partial state. | Flushes and closes the completed temporary save, rotates backups, and replaces the final save atomically. Loading bounds-checks changed records and skips unavailable content through the engine's own paths. It does not rewrite valid save data. |
 | `navmesh_low_pointer_guard = true` | Pathfinding receives a very small invalid address where a real `NavMeshInfo` pointer is required, then dereferences it. | Rejects the impossible low pointer at the audited pathfinding boundary instead of letting it become a navigation object. |
@@ -109,10 +136,6 @@ the original engine behavior. Changes require a game restart.
 | `memset_null_dst_guard = true` | Two engine allocation consumers immediately write an alignment marker or call `memset` without checking for allocation failure. | Adds checks at those two consumers, outside the global `memset` and allocator hot paths. |
 | `lowprocess_generic_locations_fix = true` | Mods can replace cleanup vtable slots or corrupt `LowProcess::genericLocationsList`, confusing ownership of list nodes and their non-owned reference payloads. | Enforces the engine's ownership rule regardless of vtable ownership: matching nodes are removed without freeing borrowed references, and an already-corrupt serializer entry becomes null at its exact callsite. |
 | `queued_task_lifetime_guard = true` | A texture or background task reaches a virtual callback or final-release path after its intrusive reference count already became zero. | Stops the dead task at the audited dispatch/release boundaries. This guard works in allocator modes `0`, `1`, and `2`. |
-
-The [window cursor and system-key contract](docs/window_input_policy.md) covers
-the fullscreen/windowed mode matrix, focus lifecycle, overlay compatibility,
-engine evidence, and Proton playtest checklist.
 
 The guards reject a bad record or object at the smallest safe boundary, while
 normal game behavior continues through the original code. Disabling a guard

@@ -1,6 +1,11 @@
-//! WinAPI wrapper
+//! Shared Win32 boundary for Psycho crates.
 //!
-//! This module contains various wrapper winapi functions and types.
+//! The module exposes stable Rust-facing types and small wrappers so engine
+//! features do not scatter raw FFI declarations, handle conversions, or error
+//! conventions across the workspace. Wrappers preserve Win32 semantics unless
+//! their documentation explicitly adds validation or ownership requirements.
+//! Unsafe operations remain marked when Rust cannot validate pointer lifetime,
+//! buffer extent, callback validity, or a captured function address.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::{CStr, CString, NulError, OsStr};
@@ -351,6 +356,14 @@ pub struct Point {
     pub y: i32,
 }
 
+/// Callback invoked by a Win32 message-queue timer.
+///
+/// The arguments are the timer's optional HWND, message id, timer id, and
+/// dispatch timestamp. A callback passed to [`set_thread_timer`] must remain a
+/// valid function for the timer's lifetime and must not unwind across the
+/// Win32 ABI boundary.
+pub type TimerCallback = unsafe extern "system" fn(*mut c_void, u32, usize, u32);
+
 #[repr(C)]
 struct MonitorInfo {
     size: u32,
@@ -384,11 +397,13 @@ mod sys {
             lparam: isize,
         ) -> isize;
         pub fn ClipCursor(rect: *const super::Rect) -> i32;
+        pub fn DefWindowProcA(hwnd: *mut c_void, msg: u32, wparam: usize, lparam: isize) -> isize;
         pub fn GetActiveWindow() -> *mut c_void;
         pub fn GetClientRect(hwnd: *mut c_void, rect: *mut super::Rect) -> i32;
         pub fn GetClipCursor(rect: *mut super::Rect) -> i32;
         pub fn GetForegroundWindow() -> *mut c_void;
         pub fn GetWindowLongA(hwnd: *mut c_void, index: i32) -> i32;
+        pub fn IsChild(parent: *mut c_void, child: *mut c_void) -> i32;
         pub fn IsWindow(hwnd: *mut c_void) -> i32;
         pub fn IsIconic(hwnd: *mut c_void) -> i32;
         pub fn GetWindowRect(hwnd: *mut c_void, rect: *mut super::Rect) -> i32;
@@ -397,6 +412,13 @@ mod sys {
         pub fn MonitorFromPoint(point: super::Point, flags: u32) -> *mut c_void;
         pub fn GetMonitorInfoW(monitor: *mut c_void, info: *mut super::MonitorInfo) -> i32;
         pub fn SetWindowLongA(hwnd: *mut c_void, index: i32, value: i32) -> i32;
+        pub fn SetTimer(
+            hwnd: *mut c_void,
+            id: usize,
+            interval_ms: u32,
+            callback: Option<super::TimerCallback>,
+        ) -> usize;
+        pub fn KillTimer(hwnd: *mut c_void, id: usize) -> i32;
         pub fn SetWindowPos(
             hwnd: *mut c_void,
             after: *mut c_void,
@@ -482,6 +504,15 @@ pub unsafe fn call_window_proc_a(
     unsafe { sys::CallWindowProcA(wnd_proc, hwnd, msg, wparam, lparam) }
 }
 
+/// Run the default Win32 processing for a window message.
+///
+/// This is a defensive fallback for a subclass whose predecessor cannot be
+/// recovered. Normal subclass chains should call [`call_window_proc_a`].
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+pub fn def_window_proc_a(hwnd: *mut c_void, msg: u32, wparam: usize, lparam: isize) -> isize {
+    unsafe { sys::DefWindowProcA(hwnd, msg, wparam, lparam) }
+}
+
 /// Return a window long value.
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub fn get_window_long_a(hwnd: *mut c_void, index: i32) -> i32 {
@@ -494,6 +525,15 @@ pub fn set_window_long_a(hwnd: *mut c_void, index: i32, value: i32) -> i32 {
     unsafe { sys::SetWindowLongA(hwnd, index, value) }
 }
 
+/// True if `child` is a descendant of `parent`.
+///
+/// Equal HWND values are not a parent-child relationship; callers that allow
+/// an aliased top-level/renderer HWND must handle equality separately.
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+pub fn is_child(parent: *mut c_void, child: *mut c_void) -> bool {
+    !parent.is_null() && !child.is_null() && unsafe { sys::IsChild(parent, child) != 0 }
+}
+
 /// True if HWND names a live window.
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub fn is_window(hwnd: *mut c_void) -> bool {
@@ -504,6 +544,27 @@ pub fn is_window(hwnd: *mut c_void) -> bool {
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub fn is_iconic(hwnd: *mut c_void) -> bool {
     !hwnd.is_null() && unsafe { sys::IsIconic(hwnd) != 0 }
+}
+
+/// Create a callback timer on the calling thread's message queue.
+///
+/// Passing a NULL HWND and zero id asks Win32 to allocate a collision-free id.
+/// The callback runs only while this same thread dispatches messages. `None`
+/// means Win32 could not create the timer.
+///
+/// The callback must remain valid until [`kill_thread_timer`] succeeds or the
+/// creating thread exits, and it must not unwind through Win32.
+pub fn set_thread_timer(interval_ms: u32, callback: TimerCallback) -> Option<usize> {
+    let id = unsafe { sys::SetTimer(std::ptr::null_mut(), 0, interval_ms, Some(callback)) };
+    (id != 0).then_some(id)
+}
+
+/// Destroy a message-queue timer created by [`set_thread_timer`].
+///
+/// This must be called from the thread that created the timer. Returning
+/// `false` means Win32 did not remove the requested timer.
+pub fn kill_thread_timer(id: usize) -> bool {
+    id != 0 && unsafe { sys::KillTimer(std::ptr::null_mut(), id) != 0 }
 }
 
 /// Return the current outer window rectangle.

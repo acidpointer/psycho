@@ -130,11 +130,12 @@ display_alt_tab = true
 # while this option is ON.
 display_borderless_windowed = true
 
-# Confines the system cursor to the rendered game client while Fallout is the
-# foreground, non-minimized application. The rectangle follows movement,
-# resizing, DPI changes, and monitor-topology changes. Psycho releases it on
-# Alt-Tab/focus loss and does not clear a newer clip rectangle owned by another
-# component. Useful for multi-monitor play and invisible-cursor overlay input.
+# Confines the system cursor to Fallout while it is foreground and not
+# minimized. Framed windows keep their caption and resize border usable;
+# borderless and native-fullscreen modes use their rendered client. A UI-thread
+# audit repairs overlays that widen or release the clip, follows geometry and
+# monitor changes, and releases unconditionally on Alt-Tab/focus loss. Useful
+# for multi-monitor play and invisible-cursor overlay input.
 window_cursor_lock = true
 
 # Changes both DirectInput keyboard setup branches from exclusive and/or

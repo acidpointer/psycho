@@ -311,10 +311,11 @@ pub struct EngineFixesConfig {
     /// The engine's `bFull Screen=1` setting always takes precedence and
     /// continues to use the native-fullscreen repair policy.
     pub display_borderless_windowed: bool,
-    /// Confine the system cursor to the active game client rectangle.
+    /// Confine the system cursor to the active game window boundary.
     ///
-    /// Confinement follows the renderer child across movement, resizing, and
-    /// monitor topology changes, and releases whenever the game deactivates.
+    /// Framed windows retain access to their caption and resize border; native
+    /// fullscreen and borderless modes use their rendered clients. The policy
+    /// follows geometry and monitor changes and releases on deactivation.
     pub window_cursor_lock: bool,
     /// Let Windows receive system and media keys while the game is active.
     ///
