@@ -9,6 +9,76 @@ commit.
 
 The ambient-occlusion suite in `src/effects/ambient_occlusion.rs` is the minimum pattern for shader compilation, bytecode inspection, deterministic reference rendering, regression power, and static work budgets. Reuse its infrastructure; never weaken or bypass it to land a change.
 
+## BaseObjectSwapper-sensitive startup contract
+
+Read `docs/graphics_fnv_atmosphere_startup_crash_errata.md` completely before
+changing startup, configuration, presets, process-owned preparation, hooks,
+global storage, TLS, or any state first accessed before `DeferredInit`. The
+latest load-to-gameplay-playtested baseline must be identified from that
+erratum before editing; commit `9975b2e` is the baseline established by the
+2026-08-10 motion-blur correction. A later documented and playtested baseline
+supersedes it.
+
+Treat everything reachable from `NVSEPlugin_Load`, including background work
+it starts, as one compatibility-sensitive footprint. Before implementation,
+diff that footprint against the playtested baseline and list every change in:
+
+- config structs nested in `PsychoGraphicsConfig`, `GraphicsMenuConfig`,
+  `RuntimeSettings`, or deferred settings, including Rust size/layout changes;
+- `CONFIG_SCHEMA_VERSION`, shipped TOML shape, frozen preset manifests,
+  migrations, built-in preset version/payload, parsing, validation, and save
+  behavior;
+- `LazyLock`/`OnceLock` first access, mutex creation or acquisition, TLS and TLS
+  destructors, static constructors/destructors, thread creation, worker start
+  order, filesystem scans, DLL loads, and allocation-heavy work;
+- atomics or mailboxes that publish engine ownership, scene requirements, route
+  readiness, hook admission, or configuration generations;
+- the order of staging, provider selection, first world publication, and hook
+  installation.
+
+The current invariants are mandatory:
+
+- `NVSEPlugin_Load` may parse/copy configuration and perform only the exact
+  process-owned preparation already present in the playtested baseline. A new
+  operation is not safe merely because it is CPU-only, off-thread, atomic, or
+  does not call D3D.
+- The focused world owner must remain untouched until `DeferredInit`.
+  `apply_initial_depth_activation` is the config-to-hook handoff; first world
+  publication follows there, before the resident hooks become reachable.
+- A new engine-facing callback route or hook admission is initialized false,
+  is not published by `ScreenShaderRuntime::configure`, opens only at the
+  deferred handoff, and is cleared if deferred installation fails.
+- Existing scene-requirement publication and process-owned shader/effect
+  preparation retain their accepted phase and order unless the user explicitly
+  requests a separately researched startup redesign.
+- OMV config and presets remain schema 1. Deprecated fields remain in their
+  original serialized position and round-trip unchanged. Motion blur's
+  `first_person_strength` is the canonical pattern: keep it in Rust, shipped
+  TOML, saves, and presets; omit it from active menu metadata, render settings,
+  temporal identity, constants, and HLSL.
+- Do not add `thread_local!`, a TLS destructor, or a new pre-deferred
+  `LazyLock`/`OnceLock` first touch for render state. Prefer zero-initialized
+  POD/atomics whose operational access begins after the deferred handoff.
+- Never disable, remove, or postpone a requested effect or an established
+  worker as a startup-crash fix. Preserve the work and surgically remove the
+  new load-time owner, layout, migration, or publication that differs from the
+  playtested baseline.
+
+For a crash before `[INIT] Deferred OMV graphics hooks initialized`, the render
+implementation is outside the executed call graph. Do not investigate shader
+math, D3D state, render phase, depth resolution, RESZ, or GPU-vendor policy
+until every new pre-deferred delta has been eliminated or proven. Treat
+BaseObjectSwapper as the observed UB-sensitive fault site, not as permission to
+patch it, blame it alone, or claim OMV directly corrupted its memory.
+
+Every change to this footprint must add or retain source-order tests that reject
+early world publication/hook admission, config and preset shape/version locks,
+and round-trip tests for compatibility-only fields. Run the focused tests, full
+OMV suite, and supported release build. Static success is insufficient: do not
+declare, ship, or document the change as startup-safe until the user confirms a
+normal load-to-gameplay playtest with BaseObjectSwapper installed. Update the
+startup erratum with that runtime result and the new accepted baseline.
+
 ## Effect contract
 
 Before implementation, define the applicable contract in code and tests:
