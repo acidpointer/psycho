@@ -1889,6 +1889,25 @@ fn draw_configuration(ui: &mut Ui<'_>, editor: &mut ConfigEditor) {
     );
 
     ui.spacing();
+    ui.separator_text(&cstring("Installation paths"));
+    checkbox_help(
+        ui,
+        "Repair Fallout install paths",
+        &mut config.install_path_registry_repair,
+        "At the next early startup, repairs the 32-bit Bethesda Installed Path values. FalloutNV always uses the directory containing FalloutNV.exe; Fallout 3 uses the optional path below.",
+    );
+    ui.text_colored(
+        MUTED,
+        &cstring("Leave Fallout 3 empty to repair only FalloutNV."),
+    );
+    input_text_string(
+        ui,
+        "Fallout 3 path",
+        &mut config.fallout3_install_path,
+        "Accepts a Windows-visible absolute path such as Z:\\Games\\Fallout 3 or a path relative to the FalloutNV.exe directory such as ..\\Fallout 3. Psycho normalizes the text but does not inspect the Fallout 3 installation.",
+    );
+
+    ui.spacing();
     ui.separator_text(&cstring("Window and input"));
     checkbox_help(
         ui,
@@ -2252,6 +2271,28 @@ fn radio_help(ui: &mut Ui<'_>, label: &str, active: bool, help: &str) -> bool {
     let clicked = ui.radio_button(&cstring(label), active);
     hover_help(ui, help);
     clicked
+}
+
+fn input_text_string(ui: &mut Ui<'_>, label: &str, value: &mut String, help: &str) -> bool {
+    const BUFFER_BYTES: usize = 1024;
+
+    let mut buffer = [0u8; BUFFER_BYTES];
+    let mut copy_len = value.len().min(buffer.len() - 1);
+    while !value.is_char_boundary(copy_len) {
+        copy_len -= 1;
+    }
+    buffer[..copy_len].copy_from_slice(&value.as_bytes()[..copy_len]);
+
+    let changed = ui.input_text(&cstring(label), &mut buffer);
+    hover_help(ui, help);
+    if changed {
+        let length = buffer
+            .iter()
+            .position(|byte| *byte == 0)
+            .unwrap_or(buffer.len());
+        *value = String::from_utf8_lossy(&buffer[..length]).into_owned();
+    }
+    changed
 }
 
 fn hover_help(ui: &mut Ui<'_>, help: &str) {

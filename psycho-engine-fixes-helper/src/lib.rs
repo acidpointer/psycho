@@ -120,3 +120,34 @@ fn helper_load(nvse: *const NVSEInterfaceFFI) -> anyhow::Result<()> {
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use libpsycho::os::windows::{pe::find_iat_entry, winapi::get_module_handle_a};
+
+    #[test]
+    fn helper_image_does_not_inherit_core_only_registry_imports() {
+        let module = get_module_handle_a(None).expect("get helper test image");
+        for function in [
+            "RegCloseKey",
+            "RegCreateKeyExW",
+            "RegOpenKeyExW",
+            "RegQueryValueExW",
+            "RegSetValueExW",
+        ] {
+            // The registry repair belongs to the pre-CRT core DLL. Importing
+            // its API into this xNVSE adapter makes the Windows loader resolve
+            // unrelated core-only machinery in the known BaseObjectSwapper-
+            // sensitive plugin-load interval, even though no helper code calls
+            // it. Inspecting the actual PE import table rejects that coupling.
+            let imports = unsafe {
+                find_iat_entry(module.as_ptr(), None, function.to_owned())
+                    .expect("parse helper test image imports")
+            };
+            assert!(
+                imports.is_empty(),
+                "helper unexpectedly imports core-only {function}"
+            );
+        }
+    }
+}

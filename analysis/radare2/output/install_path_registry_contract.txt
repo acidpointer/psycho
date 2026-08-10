@@ -1,0 +1,102 @@
+INSTALL PATH REGISTRY CONTRACT
+Research date: 2026-08-10
+Primary tool: radare2 MCP
+
+SUPPORTED FALLOUT NEW VEGAS EXECUTABLE
+Path: fnv_reverse/FalloutNV.exe
+Version: 1.4.0.525, PE32 x86
+Size: 16,084,808 bytes
+SHA-256: 42fee7d6cd74e801372aa89c8f71c974cebd3c20ec9ad43d1465b8fa9646b49c
+
+FalloutNV.exe registry helper:
+- Function: 0x00876A70
+- Only startup caller: 0x0086A850
+- Callsite: 0x0086ACA4
+- Key string: 0x01082D48, Software\Bethesda Softworks\FalloutNV
+- Value string: 0x01082D38, Installed Path
+- Launcher string: 0x01082978, FalloutNVLauncher.exe
+- Root: HKEY_LOCAL_MACHINE
+- Access: KEY_QUERY_VALUE
+- Caller buffer extent: 0x104 bytes
+- The caller appends FalloutNVLauncher.exe and passes the result to ShellExecuteA.
+
+FalloutNV.exe also contains generic RegSetting code for
+Software\Bethesda Softworks\Fallout and an operating-system mouse-sensitivity
+read. Neither is an installation path and neither appears as required Fallout
+state in the supplied registry export.
+
+SUPPORTED FALLOUT NEW VEGAS LAUNCHER
+Path researched: /data/storage0/Games/FalloutNV_TTW/FalloutNV/FalloutNVLauncher.exe
+Size: 1,713,992 bytes
+SHA-256: 1679e66744457154155813e266bbbeaf52a582929437737302ce1092154da9fc
+
+- Imports only RegOpenKeyExW, RegQueryValueExW, and RegCloseKey for registry access.
+- Function 0x00405170 probes Software\Bethesda Softworks\FalloutNV and
+  Installed Path.
+- Code at 0x00405754 retrieves Installed Path into a 260-wide-character buffer.
+- Function 0x00405A10 uses the retrieved directory to redirect to the installed
+  launcher when invoked from another location.
+- No GOG.com or GOG game-catalog registry string is present.
+
+SUPPORTED FALLOUT 3 EXECUTABLE
+Path researched: /data/storage0/Games/FalloutNV_TTW/Fallout 3/Fallout3.exe
+Version: 1.7.0.3, PE32 x86
+SHA-256: df9f0e1ec2c5413a9cef2db2dde6d926b99707d528049af4eb15538587d55f99
+
+Fallout3.exe registry helper:
+- Function: 0x006E4BE0
+- Startup callsite: 0x006EE5E8
+- Key string: 0x00E110D4, Software\Bethesda Softworks\Fallout3
+- Value string: 0x00E110C4, Installed Path
+- Launcher string: 0x00E113D4, FalloutLauncher.exe
+- Root: HKEY_LOCAL_MACHINE
+- Access: KEY_QUERY_VALUE
+- Caller buffer extent: 0x104 bytes
+- The caller appends FalloutLauncher.exe and passes the result to ShellExecuteA.
+
+SUPPORTED FALLOUT 3 LAUNCHER
+Path researched: /data/storage0/Games/FalloutNV_TTW/Fallout 3/FalloutLauncher.exe
+SHA-256: 5e6a429f0f3dd5415c19fd0323eb76f5d32a9a3b039c99afe3912a00a5c5783b
+
+- Imports only RegOpenKeyExW, RegQueryValueExW, and RegCloseKey for registry access.
+- 0x0040E965 / 0x0040E97D probe the product key and Installed Path.
+- 0x0040EA6B / 0x0040EA8D retrieve Installed Path into a
+  260-wide-character buffer.
+- Both calls build Software\Bethesda Softworks\ plus the Fallout3 product name.
+- No GOG.com or GOG game-catalog registry string is present.
+
+SUPPLIED REGISTRY EXPORT
+Path researched: /data/storage0/Games/FalloutNV_TTW/REGISTRY_BACKUP.reg
+Encoding: UTF-16LE Windows Registry Editor export
+
+Runtime installation values:
+[HKEY_LOCAL_MACHINE\Software\Wow6432Node\Bethesda Softworks\Fallout3]
+"Installed Path"="z:\\data\\storage0\\games\\falloutnv_ttw\\fallout 3/"
+
+[HKEY_LOCAL_MACHINE\Software\Wow6432Node\Bethesda Softworks\FalloutNV]
+"Installed Path"="Z:\\data\\storage0\\Games\\FalloutNV_TTW\\FalloutNV\\"
+
+Other Fallout-related records in the export:
+- GOG.com\Games\1454315831 and 1454587428: GOG catalog, language, shortcut,
+  build, launcher, and uninstall metadata.
+- Windows\CurrentVersion\Uninstall\*_is1: GOG/Windows uninstall metadata.
+- Software\Classes\BGS.*: GECK file associations.
+- AppCompatFlags\Layers: Windows/Wine compatibility preferences.
+- Valve\Steam: Steam client and prefix state.
+
+None of those additional groups is directly referenced by the four researched
+game and launcher binaries. They remain owned by their installer, platform,
+operating-system, or tool and are outside the safe repair scope.
+
+INTERVENTION CONTRACT
+- Open logical Software\Bethesda Softworks keys in the explicit 32-bit view;
+  never address the reserved Wow6432Node name directly.
+- Query before requesting write access.
+- Repair only Installed Path as a null-terminated UTF-16 REG_SZ.
+- Derive FalloutNV from the running executable directory.
+- Derive Fallout 3 only from configured absolute or FalloutNV-relative text.
+- Do not inspect a Fallout 3 directory, executable, version, distribution, or
+  TTW installation.
+- Run once during the pre-CRT core activation interval, before 0x0086ACA4.
+- Treat both games independently and never abort engine startup on registry
+  permission or data errors.

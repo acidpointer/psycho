@@ -22,10 +22,14 @@ const LEGACY_CONFIG_PATHS: &[&str] = &[
     "Data/NVSE/Plugins/psycho-nvse.toml",
 ];
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) struct EditableConfig {
     pub allocator: i32,
     pub gheap_periodic_pdd_purge: bool,
+    /// Restart-only repair of the two Bethesda installation-path values.
+    pub install_path_registry_repair: bool,
+    /// Restart-only absolute or FalloutNV-relative Fallout 3 directory.
+    pub fallout3_install_path: String,
     pub display_alt_tab: bool,
     /// Restart-only borderless style preference for `bFull Screen=0`.
     pub display_borderless_windowed: bool,
@@ -82,6 +86,8 @@ impl Default for EditableConfig {
         Self {
             allocator: 2,
             gheap_periodic_pdd_purge: false,
+            install_path_registry_repair: true,
+            fallout3_install_path: String::new(),
             display_alt_tab: true,
             display_borderless_windowed: true,
             window_cursor_lock: true,
@@ -148,6 +154,14 @@ impl EditableConfig {
             gheap_periodic_pdd_purge: read_bool(doc, "memory", "gheap_periodic_pdd_purge")
                 .or_else(|| read_bool(doc, "memory", "gheap_periodic_full_pdd"))
                 .unwrap_or(defaults.gheap_periodic_pdd_purge),
+            install_path_registry_repair: bool_or(
+                doc,
+                "engine_fixes",
+                "install_path_registry_repair",
+                defaults.install_path_registry_repair,
+            ),
+            fallout3_install_path: read_string(doc, "engine_fixes", "fallout3_install_path")
+                .unwrap_or(defaults.fallout3_install_path),
             display_alt_tab: read_bool(doc, "engine_fixes", "display_alt_tab")
                 .or_else(|| read_bool(doc, "performance", "display_tweaks"))
                 .or_else(|| read_bool(doc, "display", "tweaks"))
@@ -447,8 +461,8 @@ impl ConfigEditor {
                 let draft = EditableConfig::from_document(&document);
                 Self {
                     path,
+                    saved: draft.clone(),
                     draft,
-                    saved: draft,
                     original_content: content,
                     document: Some(document),
                     notice: None,
@@ -504,14 +518,14 @@ impl ConfigEditor {
             .as_ref()
             .context("the invalid TOML document cannot be overwritten")?
             .clone();
-        self.draft = self.draft.sanitized();
+        self.draft = self.draft.clone().sanitized();
         write_document(&mut document, &self.draft);
         let updated = document.to_string();
         atomic_write(&self.path, updated.as_bytes())?;
 
         self.original_content = updated;
         self.document = Some(document);
-        self.saved = self.draft;
+        self.saved = self.draft.clone();
         Ok(())
     }
 }
@@ -567,6 +581,10 @@ fn read_f64(doc: &DocumentMut, section: &str, key: &str) -> Option<f64> {
         .or_else(|| value.as_integer().map(|integer| integer as f64))
 }
 
+fn read_string(doc: &DocumentMut, section: &str, key: &str) -> Option<String> {
+    item(doc, section, key)?.as_str().map(str::to_owned)
+}
+
 fn bool_or(doc: &DocumentMut, section: &str, key: &str, default: bool) -> bool {
     read_bool(doc, section, key).unwrap_or(default)
 }
@@ -611,6 +629,13 @@ fn write_document(doc: &mut DocumentMut, config: &EditableConfig) {
         };
     }
     engine!(display_alt_tab);
+    engine!(install_path_registry_repair);
+    set_document_value(
+        doc,
+        "engine_fixes",
+        "fallout3_install_path",
+        value(config.fallout3_install_path.clone()),
+    );
     engine!(display_borderless_windowed);
     engine!(window_cursor_lock);
     engine!(input_system_key_passthrough);
@@ -747,6 +772,8 @@ mod_owned_key = "untouched"
         let mut document = parse_document(source).expect("parse source");
         let mut config = EditableConfig::from_document(&document);
         config.allocator = 2;
+        config.install_path_registry_repair = false;
+        config.fallout3_install_path = r"..\Fallout 3".to_owned();
         config.display_borderless_windowed = false;
         config.window_cursor_lock = false;
         config.input_system_key_passthrough = false;
@@ -761,6 +788,8 @@ mod_owned_key = "untouched"
         assert!(saved.contains("# keep this inline note"));
         assert!(saved.contains("mod_owned_key = \"untouched\""));
         assert!(saved.contains("allocator = 2"));
+        assert!(saved.contains("install_path_registry_repair = false"));
+        assert!(saved.contains("fallout3_install_path"));
         assert!(saved.contains("display_borderless_windowed = false"));
         assert!(saved.contains("window_cursor_lock = false"));
         assert!(saved.contains("input_system_key_passthrough = false"));
@@ -769,6 +798,11 @@ mod_owned_key = "untouched"
         assert!(saved.contains("cell_render_reference_retirement_fix = false"));
         assert!(saved.contains("model_postprocess_serialization_fix = false"));
         let reparsed = parse_document(&saved).expect("parse saved document");
+        assert!(!EditableConfig::from_document(&reparsed).install_path_registry_repair);
+        assert_eq!(
+            EditableConfig::from_document(&reparsed).fallout3_install_path,
+            r"..\Fallout 3"
+        );
         assert!(!EditableConfig::from_document(&reparsed).display_borderless_windowed);
         assert!(!EditableConfig::from_document(&reparsed).window_cursor_lock);
         assert!(!EditableConfig::from_document(&reparsed).input_system_key_passthrough);
@@ -784,7 +818,7 @@ mod_owned_key = "untouched"
         let config = EditableConfig::from_document(&document);
         let mut editor = ConfigEditor {
             path: PathBuf::from("unused.toml"),
-            draft: config,
+            draft: config.clone(),
             saved: config,
             original_content: String::new(),
             document: Some(document),

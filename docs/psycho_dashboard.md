@@ -41,14 +41,15 @@ Dear ImGui's normal tooltip delay, then opens a wrapped, width-limited
 plain-language explanation. The delay prevents popups from flashing while the
 pointer merely crosses the dashboard.
 
-Every one of the 24 `[engine_fixes]` controls has focused hover documentation
+Every one of the 26 `[engine_fixes]` controls has focused hover documentation
 that answers three gamer-facing questions: what broken situation it handles,
 what the enabled fix does, and whether normal valid behavior is preserved. The
 21 engine-safety controls share one ordered help catalog; borderless windowed,
 cursor confinement, and system-key passthrough have their own window/input
-help. The same explanation is reused where a fix appears on the Runtime Fixes
-page, so saved configuration and installed runtime state do not describe one
-feature in conflicting language.
+help; and the installation-path repair gate and Fallout 3 text field explain
+their restart-only registry contract. The same explanation is reused where a
+fix appears on the Runtime Fixes page, so saved configuration and installed
+runtime state do not describe one feature in conflicting language.
 
 All other supported configuration controls also explain their practical
 effect and tradeoff, including allocator modes, the experimental PDD purge,
@@ -96,6 +97,40 @@ The established `NVSEPlugin_Load` sequence is unchanged:
 3. request the helper opcode base;
 4. register `PsychoInfo` when that base is available;
 5. retain the `PluginContext` backing required by xNVSE.
+
+### Core-only import isolation
+
+The helper is a statically linked consumer of `libpsycho`, but it must not
+inherit Win32 imports for features owned only by the early core DLL. An import
+is observable startup work even when no Rust call site is reachable: the
+Windows loader resolves the helper's complete PE import table before xNVSE can
+finish plugin startup.
+
+The first install-path registry implementation violated that boundary by
+placing `RegCloseKey`, `RegCreateKeyExW`, `RegOpenKeyExW`,
+`RegQueryValueExW`, and `RegSetValueExW` wrappers in the broad `libpsycho`
+WinAPI code-generation surface. PE inspection proved that the deployed helper
+imported all five even though helper source never calls registry repair. Three
+consecutive Proton launches then failed before DeferredInit in BaseObjectSwapper
+`ConditionalInput::IsValid +0x88`, with corrupt `std::variant` state. The
+crashing helper SHA-256 was
+`66e27e3a01b563404341b2c5b4da522d4d90337e02ff0486b30ade00724aa6f0`.
+
+The correction keeps the complete registry feature but isolates its bounded
+Win32 wrappers in `libpsycho/src/os/windows/registry.rs`. Those FFI-bearing
+functions are inline so only the core consumer instantiates their import
+references. The helper's test image is parsed as PE and must contain none of
+the five registry imports. Release inspection applies the same assertion to
+the shipped helper and verifies that the core still imports all five. The
+helper load callback, command, listener, dashboard, configuration editor,
+input bridge, and eight-byte TLS section are unchanged in ownership.
+
+The crash traces, phase logs, import table, and failing-then-passing regression
+test prove the unintended helper dependency and its removal. They do not prove
+the lower-level interaction with BaseObjectSwapper's independent invalid state;
+that trigger attribution still requires a corrected load-to-gameplay playtest.
+Focused evidence is retained in
+`.reports/baseobjectswapper-helper-registry-import-2026-08-10.txt`.
 
 ### xNVSE listener-handle recovery
 
@@ -385,6 +420,16 @@ Saving changes disk state only. The core already published its runtime config
 during early startup, so a full process exit and relaunch is always required.
 The UI repeats this rule in the page heading, explanatory text, dirty-state
 indicator, button label, and success notice.
+
+The **Repair Fallout install paths** checkbox owns
+`[engine_fixes].install_path_registry_repair` and defaults on. The adjacent
+**Fallout 3 path** text field owns `[engine_fixes].fallout3_install_path`. It
+accepts a Windows-visible absolute path or a path relative to the directory
+containing `FalloutNV.exe`; an empty value skips only Fallout 3. The helper
+preserves this text in the restart-only TOML draft and never reads, writes, or
+validates either game's registry or filesystem state. The early-loaded core is
+the sole repair owner. The complete path, registry, startup, and launcher
+contract is `docs/install_path_registry_repair.md`.
 
 The **Borderless windowed** checkbox owns
 `[engine_fixes].display_borderless_windowed`. It defaults on and applies only

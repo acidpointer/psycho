@@ -304,6 +304,12 @@ impl PerformanceConfig {
 
 #[derive(Debug, Serialize)]
 pub struct EngineFixesConfig {
+    /// Repair Bethesda's 32-bit FalloutNV and configured Fallout 3 install paths.
+    pub install_path_registry_repair: bool,
+    /// Absolute or FalloutNV-directory-relative path written for Fallout 3.
+    ///
+    /// An empty value skips Fallout 3 without affecting automatic FalloutNV repair.
+    pub fallout3_install_path: String,
     /// Repair audited fullscreen startup, reset, and Alt-Tab placement.
     pub display_alt_tab: bool,
     /// Remove the frame when `bFull Screen=0`.
@@ -367,6 +373,8 @@ pub struct EngineFixesConfig {
 impl Default for EngineFixesConfig {
     fn default() -> Self {
         Self {
+            install_path_registry_repair: true,
+            fallout3_install_path: String::new(),
             display_alt_tab: true,
             display_borderless_windowed: true,
             window_cursor_lock: true,
@@ -407,6 +415,12 @@ impl EngineFixesConfig {
         let default = Self::default();
 
         Self {
+            install_path_registry_repair: raw
+                .install_path_registry_repair
+                .unwrap_or(default.install_path_registry_repair),
+            fallout3_install_path: raw
+                .fallout3_install_path
+                .unwrap_or(default.fallout3_install_path),
             display_alt_tab: raw
                 .display_alt_tab
                 .or(legacy_display_tweaks)
@@ -567,6 +581,8 @@ struct RawPerformanceConfig {
 #[derive(Default, Deserialize)]
 #[serde(default)]
 struct RawEngineFixesConfig {
+    install_path_registry_repair: Option<bool>,
+    fallout3_install_path: Option<String>,
     display_alt_tab: Option<bool>,
     display_borderless_windowed: Option<bool>,
     window_cursor_lock: Option<bool>,
@@ -792,6 +808,27 @@ input_system_key_passthrough = false
         assert!(default.engine_fixes.input_system_key_passthrough);
         assert!(!disabled.engine_fixes.window_cursor_lock);
         assert!(!disabled.engine_fixes.input_system_key_passthrough);
+    }
+
+    #[test]
+    fn install_path_repair_defaults_on_and_preserves_fallout3_text() {
+        let default: PsychoConfig = toml::from_str("").expect("parse default configuration");
+        let configured: PsychoConfig = toml::from_str(
+            r#"
+[engine_fixes]
+install_path_registry_repair = false
+fallout3_install_path = '..\Fallout 3'
+"#,
+        )
+        .expect("parse install-path settings");
+
+        assert!(default.engine_fixes.install_path_registry_repair);
+        assert!(default.engine_fixes.fallout3_install_path.is_empty());
+        assert!(!configured.engine_fixes.install_path_registry_repair);
+        assert_eq!(
+            configured.engine_fixes.fallout3_install_path,
+            r"..\Fallout 3"
+        );
     }
 
     #[test]

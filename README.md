@@ -98,6 +98,30 @@ after restarting the game. The detailed compatibility and implementation
 contract is documented in
 [`docs/window_input_policy.md`](docs/window_input_policy.md).
 
+#### Fallout install-path registry repair
+
+Psycho also repairs the legacy 32-bit Bethesda `Installed Path` registry value
+before New Vegas can use it. `install_path_registry_repair = true` is enabled by
+default. The New Vegas directory always comes from the running
+`FalloutNV.exe`, so Steam, GOG, Wine, Proton, and mod-manager working-directory
+differences do not affect it.
+
+TTW users can optionally provide Fallout 3 through either a Windows-visible
+absolute path or a path relative to the `FalloutNV.exe` directory:
+
+```toml
+[engine_fixes]
+install_path_registry_repair = true
+fallout3_install_path = '..\Fallout 3'
+```
+
+An empty Fallout 3 path skips only that value. Psycho does not inspect or
+validate the Fallout 3 installation, and it does not create GOG, Steam,
+uninstall, shortcut, or file-association metadata. The complete behavior,
+Wine/Proton guidance, launcher limitation, and researched binary contract are
+documented in
+[`docs/install_path_registry_repair.md`](docs/install_path_registry_repair.md).
+
 #### Engine and crash-fix reference
 
 Each switch solves a concrete engine failure. These are narrow fixes, not a
@@ -115,6 +139,7 @@ the original engine behavior. Changes require a game restart.
 
 | Config option | Engine failure | What the enabled fix does |
 |---|---|---|
+| `install_path_registry_repair = true` | FalloutNV, Fallout 3, and their stock launchers depend on legacy HKLM `Installed Path` values which disappear with a Wine/Proton prefix. | Repairs only the two Bethesda values in the 32-bit registry view. New Vegas is derived from the running executable; Fallout 3 uses the optional absolute or FalloutNV-relative `fallout3_install_path`. |
 | `display_alt_tab = true` | Native fullscreen starts from New Vegas' visible `320x240` bootstrap window. Later reset and focus paths can also request invalid placement or raise the game during Alt-Tab. Windowed renderer recreation can replay a stale origin. | Creates the bootstrap window at its final geometry, repairs the known fullscreen placement calls, preserves the live windowed origin, and suppresses the unsafe focus-loss move. |
 | `display_borderless_windowed = true` | With `bFull Screen=0`, vanilla first exposes the parent at `(0,0)` and retains a frame. A missing `iLocation X/Y` pair leaves it in that corner. | Uses an undecorated popup at the configured render size and centers an unset origin. `bFull Screen=1` always takes precedence and remains native fullscreen. Set this option to `false` for a framed window. |
 | `window_cursor_lock = true` | On multi-monitor desktops, the visible or hidden system cursor can leave the game and interact with another monitor while Fallout remains active. | Confines native fullscreen and borderless modes to their rendered client; framed windows retain their caption and resize border. A UI-thread audit repairs overlay unclipping and releases on Alt-Tab, focus loss, minimization, and destruction. |

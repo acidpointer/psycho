@@ -17,6 +17,7 @@ mod encounter_zone;
 mod entrydata;
 mod extraownership;
 mod havok;
+mod install_paths;
 mod io;
 mod linkedrefs;
 mod lod;
@@ -322,6 +323,11 @@ pub fn install_display(config: &EngineFixesConfig) -> anyhow::Result<()> {
         log::warn!("[DISPLAY] Window management disabled: {}", err);
     }
     Ok(())
+}
+
+/// Repair Bethesda installation-path registry values during early startup.
+pub fn repair_install_paths(config: &EngineFixesConfig) {
+    install_paths::repair(config);
 }
 
 /// Forward a host lifecycle event to fixes that audit late hook ownership.

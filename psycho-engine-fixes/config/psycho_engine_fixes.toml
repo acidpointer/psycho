@@ -109,6 +109,33 @@ gheap_periodic_pdd_purge = false
 # letting vanilla code dereference it and crash. Normal valid objects continue
 # through the original path.
 
+# --- Installation paths ---------------------------------------------------
+
+# Repairs the two Bethesda "Installed Path" registry values in the 32-bit
+# registry view during early startup. FalloutNV always uses the directory that
+# contains the running FalloutNV.exe. A missing, malformed, incorrectly typed,
+# or stale value is replaced; a correct value is left untouched.
+#
+# Leave ON for Windows, Wine, and Proton. Registry permission failures are
+# logged and never prevent the game from starting.
+install_path_registry_repair = true
+
+# Optional Fallout 3 directory for TTW and other tools that use Bethesda's
+# Fallout3 registry key. Leave empty to repair only FalloutNV. Psycho writes
+# this configured location without checking the directory, Fallout3.exe,
+# version, distribution, or TTW setup.
+#
+# A relative path is resolved against the directory containing FalloutNV.exe,
+# not against syringe/ or the launcher's working directory. For sibling game
+# directories, use:
+#
+# fallout3_install_path = '..\Fallout 3'
+#
+# Wine/Proton absolute paths must be Windows-visible, for example:
+#
+# fallout3_install_path = 'Z:\games\Fallout 3'
+fallout3_install_path = ''
+
 # --- Display ---------------------------------------------------------------
 
 # Fixes incorrect fullscreen size and placement at startup, renderer reset,

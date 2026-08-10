@@ -11,7 +11,7 @@ use crate::{
         load_config,
     },
     mods::{
-        engine_fixes::{install as install_engine_fixes, install_display},
+        engine_fixes::{install as install_engine_fixes, install_display, repair_install_paths},
         heap_replacer::{
             AllocatorMode, AllocatorPatchPlan, decide_mode, initialize_gheap_runtime,
             initialize_mimalloc, initialize_sheap_runtime, install_gheap_and_sheap_hooks,
@@ -40,6 +40,7 @@ pub(crate) fn initialize() -> anyhow::Result<()> {
 
     log::info!("[INIT] Engine fixes startup");
 
+    repair_install_paths(&cfg.engine_fixes);
     install_display(&cfg.engine_fixes)?;
     initialize_diagnostics(&cfg.diagnostics)?;
     initialize_memory(&cfg.memory)?;
