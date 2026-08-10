@@ -1338,6 +1338,31 @@ was not a trustworthy scene-FPS measurement and must not be used to close this
 defect. The shader optimization remains valid, but it is not the root cause of
 the one-FPS report.
 
+The later AMD/NVIDIA comparison changes the next intervention without changing
+that historical result. An RX 6800 XT sustains approximately 120 FPS while the
+tested NVIDIA systems remain catastrophically slow, with and without DXVK.
+OMV's PBR path contains no PCI-vendor selection, and DXVK may expose a synthetic
+AMD application identity on physical NVIDIA hardware. The remaining divergence
+is therefore most plausibly below OMV's vendor policy, in compiler/backend
+lowering or execution of OMV's shader shape.
+
+The affected logs selected zero-native-point-light rows `B[116]` and `B[124]`.
+Modern NVR compiles the native loop out of equivalent zero-light variants and
+uses direct indexing into separate contiguous position and color arrays for
+lit variants. OMV's corrected program still carries explicit 24-way native and
+supplemental selector trees, including the supplemental tree in every
+zero-native row. Replacing the earlier linear cascade with a binary tree did
+not make OMV's program structurally equivalent to NVR and did not improve the
+affected NVIDIA result.
+
+This is a strong causal hypothesis, not runtime closure. The authorized next
+plan is
+`docs/graphics_fnv_omv_nvidia_close_terrain_shader_fix_plan.md`: keep one
+shader per row, split `c92..c139` into contiguous position and color arrays,
+use direct relative indexing in separate native and supplemental loops, and
+preserve the complete portable-light ABI. Compiler bytecode gates and the
+affected NVIDIA A/B are mandatory before the change can be called a fix.
+
 ### Invalidated performance hypothesis: shader-state ownership
 
 The shader-state ownership correction below remains required for engine-cache

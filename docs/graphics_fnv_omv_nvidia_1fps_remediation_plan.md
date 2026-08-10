@@ -9,6 +9,13 @@ cause. The evidence instead establishes a cluster of source-proven OMV defects
 and excessive work that is entered by the historically decisive PBR toggle and
 is multiplied in exterior scenes.
 
+The affected NVIDIA follow-up reported no meaningful improvement after those
+source corrections. The later close-terrain shader-lowering evidence and the
+next output-equivalent remediation are owned by
+`docs/graphics_fnv_omv_nvidia_close_terrain_shader_fix_plan.md`. That plan
+supersedes only this document's shader-bytecode prohibition; all feature,
+quality, startup, lifecycle, and runtime acceptance constraints remain active.
+
 The plan has four required outcomes:
 
 1. remove the catastrophic NVIDIA-specific frame-time collapse without
@@ -154,7 +161,10 @@ and declaring success from average FPS.
 
 ### Feature and quality constraints
 
-- Do not change shader equations or bytecode as the performance fix.
+- Do not change shader equations or output semantics as the performance fix.
+  The separately reviewed close-terrain shader-lowering plan may change the
+  internal constant layout and bytecode only while proving identical light,
+  material, sampler, row, and fallback behavior.
 - Do not reduce depth, color, TAA, atmosphere, PBR, or shadow resolution.
 - Do not disable close terrain, LandLOD, TerrainFade, object PBR, native sky,
   atmosphere, TAA, AO, screen shaders, or first-person coverage.
