@@ -11,13 +11,17 @@ The ambient-occlusion suite in `src/effects/ambient_occlusion.rs` is the minimum
 
 ## BaseObjectSwapper-sensitive startup contract
 
-Read `docs/graphics_fnv_atmosphere_startup_crash_errata.md` completely before
+Read `docs/nvse_startup_phase_safety.md` and
+`docs/graphics_fnv_atmosphere_startup_crash_errata.md` completely before
 changing startup, configuration, presets, process-owned preparation, hooks,
 global storage, TLS, or any state first accessed before `DeferredInit`. The
-latest load-to-gameplay-playtested baseline must be identified from that
-erratum before editing; commit `9975b2e` is the baseline established by the
-2026-08-10 motion-blur correction. A later documented and playtested baseline
-supersedes it.
+first document owns the exact external crash mechanism, attribution boundary,
+mod-agnostic response, and repository-wide review protocol. The erratum owns
+OMV's incident history and local source-order contract. The latest
+load-to-gameplay-playtested baseline must be identified from them before
+editing; commit `9975b2e` is the baseline established by the 2026-08-10
+motion-blur correction. A later documented and playtested baseline supersedes
+it.
 
 Treat everything reachable from `NVSEPlugin_Load`, including background work
 it starts, as one compatibility-sensitive footprint. Before implementation,

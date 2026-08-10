@@ -112,7 +112,9 @@ placing `RegCloseKey`, `RegCreateKeyExW`, `RegOpenKeyExW`,
 WinAPI code-generation surface. PE inspection proved that the deployed helper
 imported all five even though helper source never calls registry repair. Three
 consecutive Proton launches then failed before DeferredInit in BaseObjectSwapper
-`ConditionalInput::IsValid +0x88`, with corrupt `std::variant` state. The
+`ConditionalInput::IsValid +0x88`. The faulting visitor dereferenced an
+indeterminate `ConditionalInput::currentWorldspace` value; the `std::variant`
+was the dispatch path, not a proven corrupt object. The
 crashing helper SHA-256 was
 `66e27e3a01b563404341b2c5b4da522d4d90337e02ff0486b30ade00724aa6f0`.
 
@@ -130,7 +132,9 @@ test prove the unintended helper dependency and its removal. They do not prove
 the lower-level interaction with BaseObjectSwapper's independent invalid state;
 that trigger attribution still requires a corrected load-to-gameplay playtest.
 Focused evidence is retained in
-`.reports/baseobjectswapper-helper-registry-import-2026-08-10.txt`.
+`.reports/baseobjectswapper-helper-registry-import-2026-08-10.txt`. The exact
+external defect, attribution limits, and mandatory mod-agnostic response are
+documented in `docs/nvse_startup_phase_safety.md`.
 
 ### xNVSE listener-handle recovery
 

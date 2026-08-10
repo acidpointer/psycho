@@ -114,6 +114,28 @@ Do not call WinAPI directly outside allocator hot paths. Use `libpsycho::os::win
 
 ## Subsystem gates
 
+### Pre-DeferredInit startup compatibility
+
+Before changing any final DLL's imports, TLS, static ownership, configuration
+layout, startup callbacks, worker order, shared-library code generation, or
+anything else reachable or loader-visible before xNVSE `DeferredInit`, read
+`docs/nvse_startup_phase_safety.md` completely. Its BaseObjectSwapper crash
+evidence and mod-agnostic response protocol are mandatory repository-wide, not
+only for OMV.
+
+Treat the last load-to-gameplay-playtested artifact as the startup baseline and
+diff the complete pre-Deferred footprint before implementation. A function
+does not need to execute to change that footprint: PE imports, TLS callbacks,
+static sections, CRT work, dependency features, configuration value layout,
+and code moved between final DLLs all count. Static tests and a release build
+cannot replace the required Proton load-to-gameplay playtest.
+
+The observed third-party fault is never permission to detect, inspect, patch,
+hook, reorder, disable, or add a compatibility path for another mod. Do not
+redesign `libnvse`, `libpsycho`, or the core/helper boundary as a response.
+Preserve requested features and restore only the new Psycho-side delta from
+the accepted startup footprint.
+
 ### OMV graphics
 
 Before any OMV graphics implementation or material shader change, read and follow `omv/AGENTS.md`.

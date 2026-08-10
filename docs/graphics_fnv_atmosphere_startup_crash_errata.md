@@ -6,6 +6,11 @@ The original atmosphere incident is closed. A separate PBR cache regression on
 2026-07-27 reproduced the same pre-DeferredInit crash class and is awaiting the
 load-to-gameplay A/B test described below.
 
+The authoritative repository-wide account of the external defect, compiled
+binary evidence, attribution limits, prohibited mod-specific responses, and
+future-change protocol is `docs/nvse_startup_phase_safety.md`. This erratum
+retains OMV's incident chronology and local startup invariants.
+
 ## Incident
 
 The first Phase 2 reliability build crashed while Fallout NV was loading game
@@ -266,3 +271,21 @@ ordinary load-to-gameplay playtest through the previously failing startup
 interval, motion blur worked in game, and the BaseObjectSwapper crash did not
 recur. This is a runtime observation, not proof of the lower-level external UB
 mechanism.
+
+## 2026-08-10 rejected phase-capability experiment
+
+An uncommitted experiment attempted to protect the startup boundary by adding
+phase capabilities throughout `libnvse` and moving the dashboard from the
+helper to the early core. It changed shared APIs, final DLL ownership, imports,
+layout, and startup behavior far beyond the new delta which needed review.
+
+The supported-target tests and complete release build passed, but the user's
+Proton playtest crashed at the same BaseObjectSwapper RVA `0x4990` before
+DeferredInit. The latest traces carried `eax = 1`, another small indeterminate
+`currentWorldspace` value. Static success therefore did not establish runtime
+compatibility, and the experiment is not an accepted startup baseline.
+
+This crash does not justify a broader phase framework or intervention in
+BaseObjectSwapper. Preserve the established source-order boundary and follow
+the surgical, mod-agnostic procedure in
+`docs/nvse_startup_phase_safety.md`.
