@@ -362,7 +362,10 @@ unsafe extern "thiscall" fn recreate_detour(
         // OMV resource owner as a successful reset mode.
         return 0;
     }
-    if !pbr::reset_runtime_state() || !sky::reset_runtime_state() {
+    if !crate::effects::shadows::reset_runtime_state()
+        || !pbr::reset_runtime_state()
+        || !sky::reset_runtime_state()
+    {
         // Recreate's caller understands zero as a retryable failure. Every
         // owner that did reset can rebuild lazily on the next successful
         // lifecycle attempt; no still-owned default-pool object crosses reset.
@@ -441,6 +444,36 @@ unsafe fn render_geometry(
         sky::finish_direct_draw();
     }
     pbr::finish_direct_draw(pbr_draw);
+}
+
+/// Submit one shadow-pass triangle geometry through the original renderer.
+///
+/// The normal OMV geometry detours are intentionally bypassed: PBR and sky
+/// replacements describe the main color pass and must not overwrite the
+/// shadow producer's dedicated shaders. The returned `false` means the
+/// corresponding resident hook has no valid trampoline, in which case the
+/// caller must abort replacement production and restore D3D state.
+///
+/// # Safety
+///
+/// `renderer` and `geometry` must be the live engine objects for the current
+/// serialized render transaction. The caller must have bound valid shadow
+/// shaders, constants, streams, indices, and declaration/FVF.
+pub(crate) unsafe fn submit_shadow_geometry(
+    renderer: *mut c_void,
+    geometry: *mut c_void,
+    strips: bool,
+) -> bool {
+    let hook = if strips {
+        &RENDER_TRI_STRIPS_HOOK
+    } else {
+        &RENDER_TRI_SHAPE_HOOK
+    };
+    let Ok(original) = hook.original() else {
+        return false;
+    };
+    unsafe { original(renderer, geometry) };
+    true
 }
 
 /// Read the device owned by this exact renderer invocation.

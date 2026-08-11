@@ -39,6 +39,7 @@ use libpsycho::os::windows::{
 use parking_lot::Mutex;
 
 const WORLD_LIGHT_EPOCH_ADDR: usize = 0x0087_1290;
+const WORLD_LIGHT_TAIL_ADDR: usize = 0x0087_1A50;
 const SHADOW_SCENE_MANAGER_GETTER_ADDR: usize = 0x0045_0B80;
 const RENDER_LOCAL_SHADOW_ADDR: usize = 0x00B9_F780;
 const WORLD_LIGHT_EPOCH_PROLOGUE: &[u8] = &[0x55, 0x8B, 0xEC, 0x81, 0xEC, 0x9C, 0x00, 0x00, 0x00];
@@ -789,9 +790,11 @@ unsafe extern "C" fn hook_world_light_epoch_body(
     );
     let invocation = unsafe { classify_shadow_invocation(return_address, caller_ebp) };
     record_shadow_invocation(invocation);
+    let shadow_outcome =
+        unsafe { crate::effects::shadows::handle_common_entry(shadow_context(invocation.context)) };
     if !capture_ready() {
         drop(pre_span);
-        unsafe { call_native_shadow_prefix(original, receiver) };
+        unsafe { call_shadow_path(original, receiver, shadow_outcome) };
         try_drain_disabled_publication();
         return;
     }
@@ -808,13 +811,13 @@ unsafe extern "C" fn hook_world_light_epoch_body(
             );
         }
         drop(pre_span);
-        unsafe { call_native_shadow_prefix(original, receiver) };
+        unsafe { call_shadow_path(original, receiver, shadow_outcome) };
         return;
     }
     let device_identity = crate::backend::d3d_device_ptr().map_or(0, |device| device as usize);
     if device_identity == 0 {
         drop(pre_span);
-        unsafe { call_native_shadow_prefix(original, receiver) };
+        unsafe { call_shadow_path(original, receiver, shadow_outcome) };
         return;
     }
     let atmosphere_capture = ATMOSPHERE_CAPTURE_ENABLED.load(Ordering::Acquire);
@@ -823,10 +826,13 @@ unsafe extern "C" fn hook_world_light_epoch_body(
     if atmosphere_capture {
         record_diagnostic(&CAPTURE_TRAVERSALS, 1, diagnostics_active);
     }
-    let shadow_capture_started = if shadow_capture_requested(
-        atmosphere_capture,
-        SHADOW_HOOK_READY.load(Ordering::Acquire),
-    ) {
+    let native_prefix_selected =
+        shadow_outcome == crate::effects::shadows::CommonEntryOutcome::NativePrefix;
+    let shadow_capture_started = if native_prefix_selected
+        && shadow_capture_requested(
+            atmosphere_capture,
+            SHADOW_HOOK_READY.load(Ordering::Acquire),
+        ) {
         if let Some(mut staging) = STAGING.try_lock() {
             staging.begin(render_epoch, device_identity, device_generation);
             CAPTURE_ACTIVE.store(true, Ordering::Release);
@@ -842,7 +848,7 @@ unsafe extern "C" fn hook_world_light_epoch_body(
     };
 
     drop(pre_span);
-    unsafe { call_native_shadow_prefix(original, receiver) };
+    unsafe { call_shadow_path(original, receiver, shadow_outcome) };
     CAPTURE_ACTIVE.store(false, Ordering::Release);
 
     if !capture_ready()
@@ -929,6 +935,36 @@ unsafe fn call_native_shadow_prefix(original: WorldLightEpochFn, receiver: *mut 
         crate::graphics_diagnostics::Interval::NativeShadowPrefix,
     );
     unsafe { original(receiver) };
+}
+
+unsafe fn call_shadow_path(
+    original: WorldLightEpochFn,
+    receiver: *mut c_void,
+    outcome: crate::effects::shadows::CommonEntryOutcome,
+) {
+    match outcome {
+        crate::effects::shadows::CommonEntryOutcome::NativePrefix => {
+            unsafe { call_native_shadow_prefix(original, receiver) };
+        }
+        crate::effects::shadows::CommonEntryOutcome::ReplacementThenTail
+        | crate::effects::shadows::CommonEntryOutcome::TailOnly => {
+            let tail: WorldLightEpochFn = unsafe { transmute(WORLD_LIGHT_TAIL_ADDR) };
+            unsafe { tail(receiver) };
+        }
+    }
+}
+
+fn shadow_context(
+    context: ShadowRenderContext,
+) -> crate::effects::shadows::CommonInvocationContext {
+    match context {
+        ShadowRenderContext::Main => crate::effects::shadows::CommonInvocationContext::Main,
+        ShadowRenderContext::Special => crate::effects::shadows::CommonInvocationContext::Special,
+        ShadowRenderContext::Screenshot => {
+            crate::effects::shadows::CommonInvocationContext::Screenshot
+        }
+        ShadowRenderContext::Unknown => crate::effects::shadows::CommonInvocationContext::Unknown,
+    }
 }
 
 unsafe fn classify_shadow_invocation(return_address: usize, caller_ebp: usize) -> ShadowInvocation {

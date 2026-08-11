@@ -289,3 +289,63 @@ This crash does not justify a broader phase framework or intervention in
 BaseObjectSwapper. Preserve the established source-order boundary and follow
 the surgical, mod-agnostic procedure in
 `docs/nvse_startup_phase_safety.md`.
+
+## 2026-08-12 native Shadows route awaiting playtest
+
+The native Shadows implementation intentionally changes the final OMV DLL and
+the load-to-Deferred configuration footprint. Commit `9975b2e` remains the
+last documented load-to-gameplay startup baseline; the concurrent
+adaptive-response work and this shadow route are both later, statically validated deltas
+and are not an accepted startup baseline.
+
+The exact new pre-Deferred footprint is:
+
+- `GraphicsConfig` and its menu handoff contain one new
+  `NativeShadowsConfig` with master, exterior, and interior booleans. This is
+  the explicit persisted control surface required by the feature. Schema 1,
+  every earlier field, the preset manifest/version, and the built-in preset
+  payload remain unchanged; missing shadow values default compatibly.
+- `DeferredHookSettings` carries the three-bit value to `DeferredInit`.
+  `NVSEPlugin_Load` performs one store into the new shadow `AtomicU8`; it does
+  not touch an engine pointer, D3D device, lock, or shader compiler through the
+  shadow module.
+- The final DLL adds `SETTINGS`, `ROUTE_READY`, and the
+  `LazyLock<Mutex<ShadowPipeline>>` static owner plus eleven embedded SM3 shader
+  sources. The lazy pipeline, route atomic, shader-preparation worker, engine
+  validation, and every COM resource are first touched at or after
+  `DeferredInit`; only `SETTINGS` is accessed earlier.
+- The existing engine-hook group still owns the already-established common
+  entry `0x00871290`. Shadow admission opens at `DeferredInit` immediately
+  before that group becomes resident. The existing scene-pre and renderer
+  recreate hooks gain runtime-only consumer and reset calls; neither executes
+  during plugin/data loading.
+- New D3D9 helpers are COM vtable wrappers and add no intended Windows DLL
+  import. No shadow TLS value, destructor, early file scan, early allocation
+  worker, hook, or world publication was added.
+
+An isolated same-toolchain build of source baseline `9975b2e` produced a
+12,432,517-byte DLL with SHA-256
+`4243c87d1f8cf288e9194c68358f8365dc1b1a4e1099852860ef65f8b187ba60`.
+The current combined worktree artifact is 12,672,660 bytes with SHA-256
+`a9f12aadaabc9fcac516794dddf24b4a3b9d6ff90fd8fcafeee50b2851a9b6b2`.
+PE inspection reports an identical imported-DLL/function set, unchanged
+`.idata` size `0x33fc`, and unchanged `.tls` size `0x8`. The combined artifact
+increases `.text` by 119,552 bytes, `.rdata` by 41,312, `.data` by 5,920,
+`.bss` by 3,072, `.eh_fram` by 6,264, and `.reloc` by 3,660. Those section
+deltas include the concurrent adaptive-response work present in the worktree and
+therefore are the complete current footprint comparison, not shadow-only size
+attribution.
+
+Source-order tests require the atomic-only load phase, engine-hooks-before-
+shadow-admission ordering, shadow-admission-before-common-hook ordering,
+scene-pre composition before the ordinary screen stack, and resource release
+before native device recreation. On 2026-08-12 the 32 focused shadow tests and
+all 519 OMV tests passed, and the explicit `i686-pc-windows-gnu` release build
+completed without warnings.
+
+Those checks cannot accept this changed startup artifact. No load-to-gameplay
+claim was made during this implementation run. Startup compatibility remains
+unproven until a cold Proton load reaches gameplay with BaseObjectSwapper
+installed and the log reaches `[INIT] Deferred OMV graphics hooks initialized`
+without the known `+0x4990` fault. This is an acceptance boundary, not evidence
+that any other mod should be detected, reordered, patched, or disabled.

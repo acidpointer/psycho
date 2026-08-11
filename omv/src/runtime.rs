@@ -1114,6 +1114,11 @@ pub(crate) unsafe fn apply_fnv_scene_pre_image_space(
     if !effects_enabled() {
         return;
     }
+    // Native shadows own their own try-lock and state transaction. Compose
+    // first so every later scene-pre effect receives the shadowed scene color.
+    unsafe {
+        crate::effects::shadows::apply_scene_pre(device_ptr, source_rendered_texture);
+    }
     let Some(mut runtime) = RUNTIME.try_lock() else {
         SCENE_PHASE_BUSY.fetch_add(1, Ordering::Relaxed);
         return;
@@ -1638,6 +1643,12 @@ impl ScreenShaderRuntime {
         // admit it after selecting the provider and before installing hooks.
         self.first_person_motion_blur_admission_ready = false;
         let master_enabled = settings.menu_config.screen_space_shaders;
+        crate::effects::shadows::configure_runtime_options(
+            crate::effects::shadows::NativeShadowsSettings::from(
+                settings.menu_config.native_shadows,
+            )
+            .with_master_enabled(master_enabled),
+        );
         pbr::configure_runtime_options(
             pbr::NativePbrSettings::from(settings.menu_config.native_pbr)
                 .with_master_enabled(master_enabled),
@@ -3894,6 +3905,12 @@ impl ScreenShaderRuntime {
         }
         crate::fnv_world_pipeline::publish_config(self.settings.menu_config);
         self.publish_fnv_scene_requirements();
+        crate::effects::shadows::configure_runtime_options(
+            crate::effects::shadows::NativeShadowsSettings::from(
+                self.settings.menu_config.native_shadows,
+            )
+            .with_master_enabled(master_enabled),
+        );
         pbr::configure_runtime_options(
             pbr::NativePbrSettings::from(self.settings.menu_config.native_pbr)
                 .with_master_enabled(master_enabled),
@@ -7488,6 +7505,7 @@ fn diagnostics_should_be_active(
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum MenuSelection {
     General,
+    NativeShadows,
     NativePbr,
     NativeSky,
     Finishing(FinishingPanel),
@@ -7969,6 +7987,9 @@ fn draw_configuration_tab(
                 MenuSelection::NativePbr => {
                     changed |=
                         draw_native_pbr_config(ui, &mut menu_config.native_pbr, feature_status.pbr);
+                }
+                MenuSelection::NativeShadows => {
+                    changed |= draw_native_shadows_config(ui, &mut menu_config.native_shadows);
                 }
                 MenuSelection::NativeSky => {
                     changed |=
@@ -10304,6 +10325,17 @@ fn draw_feature_list(
 
     let heading = cstring("ENGINE FEATURES");
     ui.separator_text(&heading);
+    let shadows_label = cstring(configured_feature_label(
+        "Shadows",
+        "native_shadows_select",
+        config.native_shadows.enabled,
+    ));
+    if ui.selectable(
+        &shadows_label,
+        *selected_item == MenuSelection::NativeShadows,
+    ) {
+        *selected_item = MenuSelection::NativeShadows;
+    }
     let pbr_label = cstring(configured_feature_label(
         "PBR Materials",
         "native_pbr_select",
@@ -10370,6 +10402,46 @@ fn draw_feature_list(
         let empty = cstring(format!("No .hlsl files in {}", crate::shaders::SHADER_DIR));
         ui.text_colored(MENU_MUTED_TEXT, &empty);
     }
+}
+
+fn draw_native_shadows_config(
+    ui: &mut psycho_imgui::Ui<'_>,
+    config: &mut crate::config::NativeShadowsConfig,
+) -> bool {
+    ui.separator_text(&cstring("SHADOWS"));
+    ui.text_colored(
+        MENU_MUTED_TEXT,
+        &cstring("High-quality native world shadows with independent location control."),
+    );
+    ui.text_colored(
+        MENU_MUTED_TEXT,
+        &cstring("Quality is fixed: 4x 2048 EVSM4 cascades and 12 cube-shadowed interior lights."),
+    );
+    ui.separator();
+
+    let mut changed = false;
+    changed |= draw_config_checkbox(
+        ui,
+        "Enable shadows",
+        "native_shadows.enabled",
+        &mut config.enabled,
+    );
+    if !config.enabled {
+        return changed;
+    }
+    changed |= draw_config_checkbox(
+        ui,
+        "Exterior shadows",
+        "native_shadows.exterior_enabled",
+        &mut config.exterior_enabled,
+    );
+    changed |= draw_config_checkbox(
+        ui,
+        "Interior shadows",
+        "native_shadows.interior_enabled",
+        &mut config.interior_enabled,
+    );
+    changed
 }
 
 fn configured_feature_label(name: &str, id: &str, enabled: bool) -> String {

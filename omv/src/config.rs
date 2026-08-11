@@ -51,6 +51,8 @@ impl Default for PsychoGraphicsConfig {
 #[serde(default)]
 pub(crate) struct GraphicsConfig {
     pub(crate) screen_space_shaders: bool,
+    /// Machine/session native shadow ownership; intentionally not preset-owned.
+    pub(crate) native_shadows: NativeShadowsConfig,
     pub(crate) native_pbr: NativePbrConfig,
     pub(crate) native_sky: NativeSkyConfig,
     pub(crate) embedded_effects: EmbeddedEffectsConfig,
@@ -67,6 +69,7 @@ impl Default for GraphicsConfig {
     fn default() -> Self {
         Self {
             screen_space_shaders: true,
+            native_shadows: NativeShadowsConfig::default(),
             native_pbr: NativePbrConfig::default(),
             native_sky: NativeSkyConfig::default(),
             embedded_effects: EmbeddedEffectsConfig::default(),
@@ -74,6 +77,32 @@ impl Default for GraphicsConfig {
             menu_toggle_key: 0x2D,
             shader_scan_interval_ms: 200,
             adaptive_tone: AdaptiveToneConfig::default(),
+        }
+    }
+}
+
+/// Controls the single native Shadows effect and its location admission.
+///
+/// Quality is deliberately fixed to the tested NVR-or-better profile. Keeping
+/// only behavior toggles public avoids configurations that silently violate
+/// the producer/consumer or memory contract.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(default)]
+pub(crate) struct NativeShadowsConfig {
+    /// Enable OMV ownership of the common shadow transaction.
+    pub(crate) enabled: bool,
+    /// Produce directional shadows in exterior-like cells.
+    pub(crate) exterior_enabled: bool,
+    /// Produce replacement point shadows in interior cells.
+    pub(crate) interior_enabled: bool,
+}
+
+impl Default for NativeShadowsConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            exterior_enabled: true,
+            interior_enabled: true,
         }
     }
 }
@@ -1224,6 +1253,7 @@ fn parse_versioned_config(content: &str) -> Result<PsychoGraphicsConfig> {
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct GraphicsMenuConfig {
     pub(crate) screen_space_shaders: bool,
+    pub(crate) native_shadows: NativeShadowsConfig,
     pub(crate) native_pbr: NativePbrConfig,
     pub(crate) native_sky: NativeSkyConfig,
     pub(crate) embedded_effects: EmbeddedEffectsConfig,
@@ -1244,6 +1274,7 @@ impl Default for GraphicsMenuConfig {
         let diagnostics = DiagnosticsConfig::default();
         Self {
             screen_space_shaders: graphics.screen_space_shaders,
+            native_shadows: graphics.native_shadows,
             native_pbr: graphics.native_pbr,
             native_sky: graphics.native_sky,
             embedded_effects: graphics.embedded_effects,
@@ -1261,6 +1292,7 @@ impl From<&PsychoGraphicsConfig> for GraphicsMenuConfig {
     fn from(value: &PsychoGraphicsConfig) -> Self {
         Self {
             screen_space_shaders: value.graphics.screen_space_shaders,
+            native_shadows: value.graphics.native_shadows,
             native_pbr: value.graphics.native_pbr.sanitized(),
             native_sky: value.graphics.native_sky,
             embedded_effects: value.graphics.embedded_effects.sanitized(),
@@ -1352,6 +1384,7 @@ pub(crate) fn save_menu_config(config: &GraphicsMenuConfig) -> Result<()> {
     doc["graphics"]["depth_provider"] = value(config.depth_provider.config_value());
     save_adaptive_tone_config(&mut doc, &config.adaptive_tone);
     save_embedded_effect_config(&mut doc, &config.embedded_effects);
+    save_native_shadows_config(&mut doc, &config.native_shadows);
     save_native_sky_config(&mut doc, &config.native_sky);
     doc["graphics"]["native_pbr"]["enabled"] = value(config.native_pbr.enabled);
     if let Some(native_pbr) = doc["graphics"]["native_pbr"].as_table_mut() {
@@ -1420,6 +1453,12 @@ fn save_adaptive_tone_config(doc: &mut DocumentMut, config: &AdaptiveToneConfig)
         value(config.tone_mapper_mode.config_value());
     doc["graphics"]["adaptive_tone"]["tone_mapper_strength"] =
         value(config.tone_mapper_strength as f64);
+}
+
+fn save_native_shadows_config(doc: &mut DocumentMut, config: &NativeShadowsConfig) {
+    doc["graphics"]["native_shadows"]["enabled"] = value(config.enabled);
+    doc["graphics"]["native_shadows"]["exterior_enabled"] = value(config.exterior_enabled);
+    doc["graphics"]["native_shadows"]["interior_enabled"] = value(config.interior_enabled);
 }
 
 fn save_diagnostics_config(doc: &mut DocumentMut, config: &GraphicsMenuConfig) {
@@ -1746,10 +1785,11 @@ mod tests {
     use super::{
         AdaptiveToneConfig, AtmosphereQuality, BloomingHdrConfig, ColorGradeConfig,
         DiagnosticsConfig, EmbeddedEffectsConfig, GraphicsMenuConfig, MotionBlurConfig,
-        MotionBlurQuality, NativePbrConfig, PsychoGraphicsConfig, ToneMapperMode,
-        VolumetricFogConfig, VolumetricLightingConfig, parse_versioned_config,
+        MotionBlurQuality, NativePbrConfig, NativeShadowsConfig, PsychoGraphicsConfig,
+        ToneMapperMode, VolumetricFogConfig, VolumetricLightingConfig, parse_versioned_config,
         sanitize_frame_pacing_update_interval_ms, save_adaptive_tone_config,
         save_color_grade_config, save_diagnostics_config, save_embedded_effect_config,
+        save_native_shadows_config,
     };
     use toml_edit::DocumentMut;
 
@@ -1772,6 +1812,45 @@ mod tests {
         let future = parse_versioned_config("config_schema_version = 999\n")
             .expect_err("future config must not be guessed");
         assert!(future.to_string().contains("newer"));
+    }
+
+    #[test]
+    fn native_shadows_are_one_machine_level_effect_with_two_location_toggles() {
+        assert_eq!(super::CONFIG_SCHEMA_VERSION, 1);
+        let defaults = NativeShadowsConfig::default();
+        assert!(defaults.enabled);
+        assert!(defaults.exterior_enabled);
+        assert!(defaults.interior_enabled);
+
+        let legacy: PsychoGraphicsConfig =
+            toml::from_str("config_schema_version = 1\n[graphics]\nscreen_space_shaders = true\n")
+                .expect("schema-one config without shadows table");
+        assert_eq!(legacy.graphics.native_shadows, defaults);
+
+        let expected = NativeShadowsConfig {
+            enabled: true,
+            exterior_enabled: false,
+            interior_enabled: true,
+        };
+        let mut document = DocumentMut::new();
+        save_native_shadows_config(&mut document, &expected);
+        let value: toml::Value = toml::from_str(&document.to_string()).expect("shadow TOML");
+        let table = value["graphics"]["native_shadows"]
+            .as_table()
+            .expect("native-shadows table");
+        assert_eq!(table.len(), 3);
+        let decoded: PsychoGraphicsConfig =
+            toml::from_str(&document.to_string()).expect("saved working config");
+        assert_eq!(decoded.graphics.native_shadows, expected);
+
+        let embedded =
+            toml::to_string(&decoded.graphics.embedded_effects).expect("frozen preset payload");
+        assert!(!embedded.contains("native_shadows"));
+        assert!(!embedded.contains("exterior_enabled"));
+        assert!(!embedded.contains("interior_enabled"));
+        let shipped: PsychoGraphicsConfig =
+            toml::from_str(include_str!("../config/omv.toml")).expect("shipped OMV config");
+        assert_eq!(shipped.graphics.native_shadows, defaults);
     }
 
     #[test]

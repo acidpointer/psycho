@@ -1,0 +1,76 @@
+// NVR-derived exterior screen-space contact shadows without derivative or noise textures.
+float4 ScreenData : register(c0);
+float4 DepthLinearizeData : register(c1);
+float4 CameraFrustum : register(c2);
+float4 ContactControl : register(c6); // x reversed, y max depth, z ray distance, w thickness
+float4 ViewLightDirection : register(c7);
+sampler2D SceneDepth : register(s0);
+
+struct PixelInput { float2 uv : TEXCOORD0; };
+
+float LinearDepth(float rawDepth) {
+    if (ContactControl.x > 0.5f) {
+        return DepthLinearizeData.x / max(rawDepth * DepthLinearizeData.y + DepthLinearizeData.z, 0.001f);
+    }
+    return DepthLinearizeData.x / max(DepthLinearizeData.w - rawDepth * DepthLinearizeData.y, 0.001f);
+}
+
+float3 ViewPosition(float2 uv) {
+    float depth = LinearDepth(tex2Dlod(SceneDepth, float4(uv, 0.0f, 0.0f)).r);
+    return float3(
+        lerp(CameraFrustum.x, CameraFrustum.y, uv.x) * depth,
+        lerp(CameraFrustum.w, CameraFrustum.z, uv.y) * depth,
+        depth);
+}
+
+float2 ProjectViewPosition(float3 position) {
+    float inverseDepth = rcp(max(position.z, 0.001f));
+    float projectedX = position.x * inverseDepth;
+    float projectedY = position.y * inverseDepth;
+    return float2(
+        (projectedX - CameraFrustum.x) / (CameraFrustum.y - CameraFrustum.x),
+        (CameraFrustum.w - projectedY) / (CameraFrustum.w - CameraFrustum.z));
+}
+
+float InterleavedGradientNoise(float2 pixel) {
+    return frac(52.9829189f * frac(dot(pixel, float2(0.06711056f, 0.00583715f))));
+}
+
+float ContactSample(float3 marched, float thickness) {
+    float2 uv = ProjectViewPosition(marched);
+    if (min(uv.x, uv.y) <= 0.0f || max(uv.x, uv.y) >= 1.0f) return 0.0f;
+    float sceneDepth = LinearDepth(tex2Dlod(SceneDepth, float4(uv, 0.0f, 0.0f)).r);
+    float delta = marched.z - sceneDepth;
+    return delta > 0.01f && delta < thickness ? 1.0f : 0.0f;
+}
+
+float4 Main(PixelInput input) : COLOR0 {
+    float3 center = ViewPosition(input.uv);
+    if (center.z <= 0.0f || center.z >= ContactControl.y) return float4(1.0f, 0.0f, 0.0f, 1.0f);
+
+    // Four stratified tests retain NVR's five-step screen-space contract (its
+    // source loop emits four actual samples). Screen-stable arithmetic noise
+    // replaces the external blue-noise texture and is depth-blurred next.
+    float normalizedDepth = saturate(center.z / ContactControl.y);
+    float rayScale = pow(max(normalizedDepth, 0.0001f), 0.6f);
+    float randomScale = lerp(min(0.8f, normalizedDepth), 1.0f,
+        InterleavedGradientNoise(input.uv * ScreenData.xy));
+    float3 stepVector = normalize(ViewLightDirection.xyz) *
+        (ContactControl.z / 5.0f) * rayScale * randomScale;
+    float thickness = max(0.05f, ContactControl.w * rayScale);
+
+    float occlusion = 0.0f;
+    float weight = 0.0f;
+    // Keep one bounded shader loop instead of four compiler-inlined projection
+    // bodies. The fixed trip count is cheaper in SM3 bytecode and still makes
+    // the exact four NVR-equivalent depth comparisons observable.
+    [loop]
+    for (int sampleIndex = 1; sampleIndex <= 4; ++sampleIndex) {
+        float sampleWeight = rcp((float)sampleIndex);
+        occlusion += ContactSample(center + stepVector * sampleIndex, thickness) * sampleWeight;
+        weight += sampleWeight;
+    }
+    float visibility = 1.0f - pow(saturate(occlusion / weight), 0.3f);
+    visibility = lerp(visibility, 1.0f, smoothstep(ContactControl.y * 0.8f, ContactControl.y, center.z));
+    return float4(visibility * visibility, 0.0f, 0.0f, 1.0f);
+}

@@ -1,6 +1,27 @@
 # Third-party notices
 
-OMV's embedded anti-aliasing shaders contain adaptations of the following work.
+OMV's embedded shaders contain adaptations of the following work.
+
+## New Vegas Reloaded shadows
+
+OMV's native shadow-map generation equations, EVSM4 evaluation, cube-map
+orientation, point-light attenuation, and screen-space contact-shadow design
+are adapted from New Vegas Reloaded/TES Reloaded.
+
+Copyright (C) 2019-2022 Alessio Tamburini (Alenet) and contributors. The source
+and shader code are published under GNU GPL version 3 or later with the
+additional permissions and conditions in New Vegas Reloaded's `License.md`.
+Those terms include a modding/linking exception, corresponding-source
+requirements, a prohibition on selling binaries, and a requirement that
+unofficial binaries use `UNOFFICIAL` or a distinct custom product name. OMV is
+a distinct custom name and is not an official New Vegas Reloaded build. The
+official New Vegas Reloaded support channels do not support OMV.
+
+The complete license texts used for this port are preserved in the research
+source at `.research/TESReloaded10-master/License.md` and
+`.research/TESReloaded10-master/COPYING.txt`. Distributions of OMV that include
+the adapted shadow implementation must provide those terms and the
+corresponding source alongside this notice.
 
 ## NFAA and DLAA
 

@@ -24,6 +24,7 @@ const LOG_FILE: &str = "./omv-latest.log";
 
 #[derive(Clone, Copy)]
 struct DeferredHookSettings {
+    native_shadows: crate::effects::shadows::NativeShadowsSettings,
     native_pbr: crate::effects::pbr::NativePbrSettings,
     native_sky: crate::effects::sky::NativeSkySettings,
     depth_provider: crate::backend::DepthProvider,
@@ -121,6 +122,9 @@ pub(crate) fn initialize_for_nvse() -> Result<()> {
     let menu_config = crate::config::GraphicsMenuConfig::from(cfg);
     let native_pbr = crate::effects::pbr::NativePbrSettings::from(cfg.graphics.native_pbr)
         .with_master_enabled(cfg.graphics.screen_space_shaders);
+    let native_shadows =
+        crate::effects::shadows::NativeShadowsSettings::from(cfg.graphics.native_shadows)
+            .with_master_enabled(cfg.graphics.screen_space_shaders);
     let native_sky = crate::effects::sky::NativeSkySettings::from(cfg.graphics.native_sky)
         .with_master_enabled(cfg.graphics.screen_space_shaders);
 
@@ -139,6 +143,7 @@ pub(crate) fn initialize_for_nvse() -> Result<()> {
         menu_toggle_key: cfg.graphics.menu_toggle_key,
         shader_scan_interval_ms: cfg.graphics.shader_scan_interval_ms,
     });
+    crate::effects::shadows::configure_runtime_options(native_shadows);
 
     log::info!(
         "[SHADERS] Watching screen-space shaders in '{}'",
@@ -147,6 +152,7 @@ pub(crate) fn initialize_for_nvse() -> Result<()> {
     log::info!("[IMGUI] Shader menu enabled");
 
     *DEFERRED_HOOK_SETTINGS.lock() = Some(DeferredHookSettings {
+        native_shadows,
         native_pbr,
         native_sky,
         depth_provider,
@@ -221,6 +227,10 @@ fn install_deferred_hooks_once() -> Result<()> {
     crate::hooks::install_engine_hooks()
         .context("could not establish engine-owned render lifecycle hooks")?;
 
+    // Shadow ownership opens immediately before the already-proven common
+    // entry becomes resident. Until its complete shader family is prepared,
+    // the hook keeps executing the original native prefix.
+    crate::effects::shadows::install(settings.native_shadows)?;
     crate::fnv_local_lights::install_hooks();
     // The complete group becomes resident while DeferredInit is quiescent.
     // Runtime settings alter passive gates only; no render-time executable
@@ -258,7 +268,7 @@ mod deferred_install_tests {
     }
 
     #[test]
-    fn early_pbr_preparation_cannot_publish_or_install_graphics_state() {
+    fn pre_deferred_preparation_cannot_publish_or_install_graphics_state() {
         let source = include_str!("startup.rs");
         let initialize = source
             .split_once("pub(crate) fn initialize_for_nvse()")
@@ -274,6 +284,8 @@ mod deferred_install_tests {
         assert!(staged < prewarm);
         assert!(!initialize.contains("fnv_world_pipeline::publish_config"));
         assert!(!initialize.contains("pbr::install("));
+        assert!(!initialize.contains("shadows::install("));
+        assert!(!initialize.contains("shadows::start_preparation"));
 
         let deferred = source
             .split_once("fn install_deferred_hooks_once()")
@@ -282,6 +294,59 @@ mod deferred_install_tests {
             .expect("DeferredInit installation body");
         assert!(deferred.contains("fnv_world_pipeline::publish_config(menu_config)"));
         assert!(deferred.contains("pbr::install(settings.native_pbr)"));
+        let engine = deferred
+            .find("hooks::install_engine_hooks()")
+            .expect("engine lifecycle hooks");
+        let shadows = deferred
+            .find("shadows::install(settings.native_shadows)")
+            .expect("shadow route admission");
+        let common = deferred
+            .find("fnv_local_lights::install_hooks()")
+            .expect("common shadow hook residency");
+        let scene = deferred
+            .find("fnv_render::install_scene_boundary_hook()")
+            .expect("scene consumer hook residency");
+        assert!(engine < shadows && shadows < common && common < scene);
+    }
+
+    #[test]
+    fn shadow_consumer_and_reset_ownership_have_fixed_source_order() {
+        let runtime = include_str!("runtime.rs");
+        let scene_pre = runtime
+            .split_once("pub(crate) unsafe fn apply_fnv_scene_pre_image_space(")
+            .and_then(|(_, tail)| {
+                tail.split_once("pub(crate) unsafe fn apply_fnv_scene_post_image_space")
+            })
+            .map(|(body, _)| body)
+            .expect("scene-pre entry");
+        let shadows = scene_pre
+            .find("shadows::apply_scene_pre")
+            .expect("shadow composition");
+        let runtime_lock = scene_pre
+            .find("RUNTIME.try_lock()")
+            .expect("screen runtime lock");
+        let screen_stack = scene_pre
+            .find("runtime.apply_scene_phase")
+            .expect("ordinary screen stack");
+        assert!(shadows < runtime_lock && runtime_lock < screen_stack);
+
+        let hooks = include_str!("hooks.rs");
+        let recreate = hooks
+            .split_once("unsafe extern \"thiscall\" fn recreate_detour(")
+            .and_then(|(_, tail)| tail.split_once("unsafe extern \"thiscall\" fn"))
+            .map(|(body, _)| body)
+            .expect("renderer recreate detour");
+        let runtime_release = recreate
+            .find("runtime::try_release_device_resources")
+            .expect("screen resource release");
+        let shadow_release = recreate
+            .find("shadows::reset_runtime_state")
+            .expect("shadow resource release");
+        let native_recreate = recreate[shadow_release..]
+            .find("original(renderer, request_a, request_b)")
+            .map(|offset| shadow_release + offset)
+            .expect("native recreate after resource release");
+        assert!(runtime_release < shadow_release && shadow_release < native_recreate);
     }
 }
 
