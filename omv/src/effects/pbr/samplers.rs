@@ -9,7 +9,9 @@
 //! Every slot distinguishes unknown from a known null binding. Reset makes all
 //! slots unknown; either unknown or null rejects replacement until the engine
 //! publishes a valid identity. The tracker never invents a fallback texture,
-//! validates a pointer, allocates, takes a lock, or calls `GetTexture`.
+//! validates a pointer, allocates, takes a lock, or calls `GetTexture`. Equal
+//! repeated binds use read-only atomics unless detailed diagnostics are active;
+//! no unrelated global generation invalidates draw caches.
 
 use std::sync::{
     LazyLock,
@@ -46,7 +48,6 @@ const OBJECT_SAMPLER_FALLBACK_MISSING_ATTENUATION: u32 = 8;
 const TEXTURE_STAGE_COUNT: usize = 16;
 
 static TEXTURE_TRACKING_READY: AtomicBool = AtomicBool::new(false);
-static TEXTURE_GENERATION: AtomicU32 = AtomicU32::new(1);
 static TEXTURE_SLOTS: LazyLock<[TextureStageSlot; TEXTURE_STAGE_COUNT]> =
     LazyLock::new(|| std::array::from_fn(|_| TextureStageSlot::new()));
 static OBJECT_SAMPLER_LAYOUTS: LazyLock<Vec<ObjectSamplerLayout>> = LazyLock::new(|| {
@@ -130,6 +131,10 @@ pub(super) fn set_texture_tracking_ready(ready: bool) {
     TEXTURE_TRACKING_READY.store(ready, Ordering::Release);
 }
 
+/// Publish an engine-observed texture binding without driver state queries.
+///
+/// Equal known identities return after read-only atomics on the normal path.
+/// `selector` is retained only while detailed diagnostics request provenance.
 pub(super) fn record_texture_binding(stage: u32, texture: *mut std::ffi::c_void, selector: usize) {
     let Ok(index) = usize::try_from(stage) else {
         return;
@@ -140,14 +145,19 @@ pub(super) fn record_texture_binding(stage: u32, texture: *mut std::ffi::c_void,
 
     let texture = texture as usize;
     let was_known = slot.known.load(Ordering::Acquire);
-    let previous = slot.texture.swap(texture, Ordering::Relaxed);
-    slot.known.store(true, Ordering::Release);
-    // The generation describes semantic state changes, not API traffic. FNV
-    // commonly repeats equal SetTexture calls; advancing for those calls would
-    // invalidate every cache even though no draw input changed.
-    if !was_known || previous != texture {
-        next_texture_generation();
+    let previous = slot.texture.load(Ordering::Relaxed);
+    if was_known && previous == texture {
+        // FNV commonly repeats equal SetTexture calls. The acquire above makes
+        // the published pointer visible; returning here avoids an atomic RMW
+        // and a redundant known-state store on the hottest observer path.
+        if super::diagnostics::detailed_enabled() {
+            slot.selector.store(selector, Ordering::Release);
+            TEXTURE_BINDS_THIS_FRAME.fetch_add(1, Ordering::Relaxed);
+        }
+        return;
     }
+    slot.texture.store(texture, Ordering::Relaxed);
+    slot.known.store(true, Ordering::Release);
     if super::diagnostics::detailed_enabled() {
         slot.selector.store(selector, Ordering::Release);
         TEXTURE_BINDS_THIS_FRAME.fetch_add(1, Ordering::Relaxed);
@@ -276,11 +286,6 @@ pub(super) fn object_sampler_identity(template_id: u16) -> ObjectSamplerIdentity
         shadow: layout.shadow.map_or(0, |stages| texture_identity(stages.0)),
         shadow_mask: layout.shadow.map_or(0, |stages| texture_identity(stages.1)),
     }
-}
-
-/// Return the current texture-observation generation.
-pub(super) fn texture_generation() -> u32 {
-    TEXTURE_GENERATION.load(Ordering::Acquire)
 }
 
 /// Return the required stages that are unknown or known-null.
@@ -420,7 +425,6 @@ pub(super) fn reset() {
     OBJECT_LAST_SAMPLER_EXPECTED_MASK.store(0, Ordering::Release);
     OBJECT_LAST_SAMPLER_OBSERVED_MASK.store(0, Ordering::Release);
     OBJECT_LAST_SAMPLER_FAILED_STAGE.store(u32::MAX, Ordering::Release);
-    next_texture_generation();
 }
 
 impl ObjectSamplerLayout {
@@ -479,22 +483,6 @@ fn record_selector_drift_if_cached(stage: u32, selector: usize, texture: usize) 
         || slot.selector.load(Ordering::Acquire) != selector
     {
         OBJECT_SAMPLER_SELECTOR_MISMATCHES_THIS_FRAME.fetch_add(1, Ordering::Relaxed);
-    }
-}
-
-fn next_texture_generation() -> u32 {
-    let mut current = TEXTURE_GENERATION.load(Ordering::Acquire);
-    loop {
-        let next = current.wrapping_add(1).max(1);
-        match TEXTURE_GENERATION.compare_exchange_weak(
-            current,
-            next,
-            Ordering::AcqRel,
-            Ordering::Acquire,
-        ) {
-            Ok(_) => return next,
-            Err(observed) => current = observed,
-        }
     }
 }
 

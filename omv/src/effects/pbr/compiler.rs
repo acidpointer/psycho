@@ -6,6 +6,10 @@
 //! one `D3DCompile` call then serve every logical alias in that group. Each
 //! alias still receives its own readiness/failure state because draw selection
 //! and D3D resource ownership are keyed by the engine's SLS identity.
+//! Close terrain intentionally does not alias its even/odd pixel pair: the even
+//! input preprocesses out supplemental ownership, while the odd input retains
+//! the portable-light program. Both are prepared by this same established
+//! worker phase before close-terrain readiness can be published.
 //!
 //! Cache inventory and compilation run entirely on background threads. Worker
 //! count is derived from host parallelism, limited to half of the available
@@ -859,7 +863,7 @@ mod tests {
         );
         assert_eq!(
             groups.len(),
-            132,
+            160,
             "PBR compiler-input growth requires an explicit preparation-cost review"
         );
 
@@ -869,7 +873,7 @@ mod tests {
     }
 
     #[test]
-    fn close_terrain_aliases_cut_57_logical_entries_to_29_compiler_inputs() {
+    fn close_terrain_fast_and_supplemental_pairs_are_distinct_compiler_inputs() {
         let groups = build_compile_groups().expect("PBR compile groups");
         let close_groups = groups
             .iter()
@@ -881,7 +885,7 @@ mod tests {
                     .any(shader_registry::template_is_close_terrain)
             })
             .collect::<Vec<_>>();
-        assert_eq!(close_groups.len(), 29);
+        assert_eq!(close_groups.len(), 57);
         assert_eq!(
             close_groups
                 .iter()
@@ -893,9 +897,16 @@ mod tests {
         for base_sls in (2092..=2146).step_by(2) {
             let base = close_terrain_template_id(ShaderStage::Pixel, base_sls).unwrap();
             let canopy = close_terrain_template_id(ShaderStage::Pixel, base_sls + 1).unwrap();
-            assert!(close_groups.iter().any(|group| {
-                group.template_ids.contains(&base) && group.template_ids.contains(&canopy)
-            }));
+            assert!(
+                close_groups
+                    .iter()
+                    .any(|group| group.template_ids == [base])
+            );
+            assert!(
+                close_groups
+                    .iter()
+                    .any(|group| group.template_ids == [canopy])
+            );
         }
     }
 

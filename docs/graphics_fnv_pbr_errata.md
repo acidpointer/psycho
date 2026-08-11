@@ -1454,6 +1454,10 @@ not a measured FPS result.
 
 ## NVIDIA Supplemental Selector Removal (2026-08-11)
 
+Status: superseded as a complete performance candidate by the AMD regression
+correction later in this document. The texture conversion remains valid, but
+its first form compiled supplemental ownership into every terrain program.
+
 The split-constant-array follow-up proposed above failed its mandatory compiler
 feasibility gate. Both the repository Wine/VKD3D route and the exact native
 `d3dcompiler_47.dll` from the game prefix lowered separate dynamically indexed
@@ -1537,3 +1541,84 @@ NVIDIA exterior A/B with and without DXVK where reproducible. If NVIDIA remains
 slow, retain the correctness and bytecode result but do not call it the
 performance fix. The complete ownership and acceptance contract is in
 `graphics_fnv_omv_nvidia_close_terrain_shader_fix_implementation.md`.
+
+## AMD Fast-Path Regression and Paired Specialization (2026-08-11)
+
+The RX 6800 XT control later reported a definite 5-10 FPS degradation from its
+roughly 120 FPS pre-candidate result. This invalidates the earlier assertion
+that a runtime supplemental count of zero made the texture path free. Although
+the loop executed zero iterations, its declarations, count branch, loader, and
+two texture operations remained part of every compiled pixel program and
+increased static register pressure.
+
+Repository-compiler evidence makes that delta concrete. The preceding
+one-layer/zero-native program occupied 419 instruction tokens, four texture
+operations, and 24 temporary registers. The new native-only specialization is
+248 instructions, two material texture operations, and 11 temporaries. The
+seven-layer/zero-native program falls from the 504-instruction supplemental
+shape to a 333-instruction fast shape and removes both supplemental texture
+operations. These are compiler facts, not measured GPU-time attribution.
+
+OMV now uses each existing even/odd close-terrain resource pair as two internal
+programs. The even handle is the engine-cache-owned fast program. The odd
+handle defines `OMV_SUPPLEMENTAL_LIGHTS=1` and is selected by a raw pixel bind
+only across a nonempty-payload mode transition. It is restored to fast before
+the next engine `SetShaders`, fallback, batch finish, disable, reset, or
+resource drop. Both handles must exist before family readiness. Logical and
+D3D resource counts remain unchanged, but the 28 formerly aliased odd programs
+are distinct compiler inputs, increasing total unique PBR compile groups from
+132 to 160.
+
+The supplemental resource is now a 64x1 interleaved RGBA32F texture. Each light
+uses adjacent position/radius and color/reserved texels at exact power-of-two
+centers. Nonempty draws transactionally own point min/mag filtering and linear
+color decode, then restore the exact prior sampler values. The rollback record
+is published before the first D3D state mutation so a partial setter failure
+remains owned and retryable. The resource owner
+compares the incoming logical payload with its complete cached bit image before
+serialization, so a repeated payload skips the 1 KiB stack image and
+`D3DLOCK_DISCARD` path. Empty draws perform none of this work.
+
+The CPU review also replaces the one-entry light result with a four-entry
+direct map whose index folds aligned pointer upper bits, caches the up-to-64
+atomic manager publication once per exact render/device/publication epoch,
+removes texture identity from the semantic light key, makes equal texture
+tracking read-only, and removes per-geometry resource-release attempts while
+disabled. All render ownership remains bounded and nonblocking.
+
+One transition-order defect was found during this review: restoring a prior
+vanilla fallback after admission could overwrite a newly selected supplemental
+pixel shader before submission. Replacement restoration now occurs before
+geometry-specific selection and failure rejects the draw. A successful native
+fallback also clears the supplemental-active marker.
+
+The native constant selector remains for `6/12/24` rows because ps_3_0 cannot
+relative-address the engine c# ABI, and native membership is still read before
+cache lookup because the pass exposes no proven mutation generation. These are
+documented residual costs, not omitted review items. The full design, metrics,
+ownership table, tests, and runtime gates are authoritative in
+`graphics_fnv_omv_nvidia_close_terrain_shader_fix_implementation.md`.
+
+This change alters the pre-Deferred preparation footprint: 28 compiler aliases
+become distinct inputs. It also adds a fixed render snapshot owner, forced at
+the established DeferredInit hook-install boundary so the first draw does not
+pay initialization and never touched during plugin/data loading. The accepted
+startup baseline remains `9975b2e`; three BaseObjectSwapper cold starts on the
+exact release artifact are mandatory before startup safety is claimed. The AMD
+control must recover its lost performance within normal run-to-run noise, and
+the affected NVIDIA matrix must pass before this work is called the complete
+runtime fix.
+
+The complete explicit-target OMV suite passed 468 tests and the supported
+release build completed. The reviewed DLL SHA-256 is
+`a8e653355240a6295c52440f6a4ba25487b7fa0d51909d97fc245756e030a4c0`.
+The forced native x86 Microsoft `d3dcompiler_47.dll` sweep also compiled all
+162 logical templates (160 unique compiler inputs) successfully in 200.48
+seconds. A PE comparison against the installed preceding AMD-regressing test
+artifact found unchanged imports, exports, TLS shape, and delay-import status,
+with a 12,288-byte `SizeOfImage` increase; the exact section deltas and artifact
+identities are recorded in the implementation document. That predecessor is
+not the accepted startup baseline, so this static footprint evidence does not
+waive the three-cold-start gate.
+This evidence closes static integration only; the startup, image, AMD, and
+NVIDIA runtime gates above remain open.

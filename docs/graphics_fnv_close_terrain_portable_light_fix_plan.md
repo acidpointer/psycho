@@ -7,8 +7,10 @@ native/supplemental membership-equivalence correction is pending. The earlier
 Pip-Boy zero-native-row subcase passed runtime acceptance. Manager recovery,
 native color rewriting, the half-vector correction, and family-atomic
 activation were each rejected as the owner of the residual random squares.
-The supplemental payload was moved from `c92..c139` to a draw-scoped 32x2
-RGBA32F texture on 2026-08-11; the current ABI is documented below and in
+The supplemental payload was moved from `c92..c139` to a draw-scoped 64x1
+RGBA32F texture on 2026-08-11. The later AMD performance review split every
+existing even/odd resource pair into native-only fast and supplemental
+programs; the current ABI and ownership are documented below and in
 `graphics_fnv_omv_nvidia_close_terrain_shader_fix_implementation.md`.
 
 ## Decision
@@ -136,12 +138,13 @@ Run supplementation only inside the already-admitted close-terrain replacement
 path. Keep all existing pass/pixel-row, shader-pair, sampler, exterior, and
 resource gates. Foreign and mismatched rows remain native. The original
 portable-light deployment kept canopy companions native; the later dark-square
-regression proved that policy incomplete. All 28 canopy companions now use
-their own PBR identities but compile to the same material/light bytecode as
-their paired base rows. They do not consume the native projected-shadow
-meaning of `s14/s15`. Current OMV temporarily uses s14 for its own
-supplemental-light data and restores the engine identity after the draw, as
-documented in `graphics_fnv_pbr_errata.md`.
+regression proved that policy incomplete. All 28 canopy companions remain
+admitted PBR identities and do not consume the native projected-shadow meaning
+of `s14/s15`. OMV now uses each existing even/odd resource pair as native-only
+fast and supplemental internal programs; this pairing is independent of which
+companion the engine selected. Current OMV temporarily uses s14 for its own
+supplemental-light data and restores the engine identity and relevant sampler
+state after the draw, as documented in `graphics_fnv_pbr_errata.md`.
 
 ### 2. Read current native membership
 
@@ -224,23 +227,25 @@ Keep native light ownership and layout unchanged:
 Add a disjoint OMV ABI:
 
 - `c91.x`: supplemental point-light count;
-- `s14`: one temporary 32x2 RGBA32F shader-data texture;
-- texture row 0, columns `0..23`: position/radius;
-- texture row 1, columns `0..23`: color/reserved alpha;
-- unused columns `24..31`: zero.
+- `s14`: one temporary 64x1 RGBA32F shader-data texture;
+- texel `2*i`: supplemental position/radius for light `i`;
+- texel `2*i+1`: supplemental color/reserved alpha for light `i`;
+- all texels after the final accepted record: zero.
 
 Upload `c89..c91` in one OMV setter call. An empty set still uploads `c91 = 0`,
 preventing stale supplemental lights from leaking into a later draw. A
-nonempty set discard-writes the complete texture and temporarily binds s14;
-the draw-completion and fallback boundaries restore the engine-owned s14
-identity from OMV's existing `SetTexture` mirror.
+changed nonempty set discard-writes the complete texture and temporarily binds
+s14; an exact cached payload skips serialization and upload. The draw-completion
+and fallback boundaries restore the engine-owned s14 identity and the captured
+min/mag/sRGB state.
 
-The replacement pixel shader evaluates native and supplemental entries through
-the same bounded loop, attenuation, and PBR point-light function. Supplemental
-evaluation is unconditional across the `0/6/12/24` native row families, so an
-old pass that selected its zero-point-light row can still receive a genuinely
-missing portable light. Both native and supplemental entries contribute their
-RGB without an alpha visibility gate.
+The supplemental replacement evaluates native and supplemental entries through
+the same bounded loop, attenuation, and PBR point-light function. It is
+available across every `0/6/12/24` native row family, so an old zero-point row
+can still receive a genuinely missing portable light. An empty draw instead
+uses the native-only fast program, which declares no supplemental ABI. Both
+native and supplemental entries contribute RGB without an alpha visibility
+gate.
 
 Blend terrain normals with the vanilla center-before-weight equation. Decoding
 one final encoded sum is forbidden because it is equivalent only when active
@@ -323,8 +328,8 @@ Required row and shader tests:
 1. All 56 close-terrain variants map exactly across 1..7 textures, native
    capacities 0/6/12/24, and base/canopy companions.
 2. All 28 canopy companions exclude native projected-shadow `s14/s15`
-   semantics; each production-compiled shader is byte-identical to its paired
-   base row, and s14 carries only OMV's draw-scoped supplemental payload.
+   semantics. Each existing even/odd resource pair provides native-only fast
+   and supplemental programs, and s14 carries only OMV's draw-scoped payload.
 3. Mismatched and foreign pass/pixel pairs are rejected.
 4. HLSL source asserts native `c39/c63/c88`, OMV count `c91`, supplemental
    texture s14, exact texel centers, and RGB-only light use.

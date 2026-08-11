@@ -9,12 +9,13 @@ static evidence, and remaining runtime gates are authoritative in
 `graphics_fnv_omv_nvidia_close_terrain_shader_fix_implementation.md`.
 
 Both supported compiler routes lowered separate dynamically indexed constant
-arrays to compare/select cascades rather than relative constant reads. OMV
-therefore moved only its supplemental light records to a 32x2 dynamic RGBA32F
-shader-data texture. Native `c39..c88`, supplemental count `c91`, one shader
-per row, one draw, full light coverage, and all material equations remain
-unchanged. No NVIDIA performance claim is closed until the controlled runtime
-matrix passes.
+arrays to compare/select cascades rather than relative constant reads. OMV's
+first replacement moved supplemental records to a 32x2 texture, but an RX 6800
+XT later showed a 5-10 FPS regression because the supplemental program remained
+compiled into empty draws. The current 64x1 paired-specialization correction is
+documented in
+`graphics_fnv_omv_nvidia_close_terrain_shader_fix_implementation.md`. No vendor
+performance claim is closed until the controlled runtime matrix passes.
 
 ## Purpose
 

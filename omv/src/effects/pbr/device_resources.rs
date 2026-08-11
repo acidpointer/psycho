@@ -1,7 +1,9 @@
 //! D3D resource ownership for native PBR.
 //!
 //! This creates shader handles from prepared bytecode and owns the dynamic
-//! close-terrain light-data texture. Creation is bounded per frame and kept
+//! close-terrain light-data texture. Paired close-terrain pixel resources are
+//! specialized: the even handle is native-only and the odd handle admits a
+//! nonempty supplemental payload. Creation is bounded per frame and kept
 //! outside `SetShaders`. Ownership is keyed by the lifecycle device generation
 //! as well as pointer identity, because D3D9 reset may preserve the COM address
 //! while invalidating every default-pool resource. Presentation, draw, and
@@ -45,6 +47,9 @@ static RESOURCES: LazyLock<Mutex<ResourceState>> = LazyLock::new(|| {
         device_generation: 0,
         supplemental_light_texture: None,
         supplemental_light_texture_create_failed: false,
+        supplemental_light_payload_valid: false,
+        supplemental_light_payload: [[0; 4];
+            super::terrain_lights::SUPPLEMENTAL_LIGHT_TEXTURE_TEXELS],
         slots: (0..shader_registry::template_count())
             .map(|_| ResourceSlot::new())
             .collect(),
@@ -56,6 +61,9 @@ struct ResourceState {
     device_generation: u32,
     supplemental_light_texture: Option<DynamicRgba32fTexture9>,
     supplemental_light_texture_create_failed: bool,
+    supplemental_light_payload_valid: bool,
+    supplemental_light_payload:
+        [[u32; 4]; super::terrain_lights::SUPPLEMENTAL_LIGHT_TEXTURE_TEXELS],
     slots: Vec<ResourceSlot>,
 }
 
@@ -112,6 +120,7 @@ pub(super) fn service_frame() {
         state.device_generation = device_generation;
         state.supplemental_light_texture = None;
         state.supplemental_light_texture_create_failed = false;
+        state.supplemental_light_payload_valid = false;
         for slot in &mut state.slots {
             slot.clear_shader();
         }
@@ -308,9 +317,27 @@ pub(super) fn close_terrain_shader_handle(
     )?)
 }
 
+/// Return the native-only pixel handle paired with an engine terrain row.
+pub(super) fn close_terrain_fast_pixel_handle(sls_number: u16) -> Option<*mut c_void> {
+    close_terrain_shader_handle(
+        shader_registry::ShaderStage::Pixel,
+        shader_registry::close_terrain_fast_sls(sls_number),
+    )
+}
+
+/// Return the supplemental-light pixel handle paired with a terrain row.
+pub(super) fn close_terrain_supplemental_pixel_handle(sls_number: u16) -> Option<*mut c_void> {
+    close_terrain_shader_handle(
+        shader_registry::ShaderStage::Pixel,
+        shader_registry::close_terrain_supplemental_sls(sls_number),
+    )
+}
+
+/// Return whether both pixel specializations and the shared vertex shader exist.
 pub(super) fn close_terrain_variant_resources_ready(pixel_sls: u16) -> bool {
     close_terrain_shader_handle(shader_registry::ShaderStage::Vertex, 2100).is_some()
-        && close_terrain_shader_handle(shader_registry::ShaderStage::Pixel, pixel_sls).is_some()
+        && close_terrain_fast_pixel_handle(pixel_sls).is_some()
+        && close_terrain_supplemental_pixel_handle(pixel_sls).is_some()
 }
 
 pub(super) fn close_terrain_create_failed() -> bool {
@@ -333,16 +360,18 @@ pub(super) fn close_terrain_create_failed_count() -> usize {
             .is_some_and(|state| state.supplemental_light_texture_create_failed) as usize
 }
 
-/// Upload and bind the supplemental close-terrain light texture.
+/// Upload if changed, then bind the supplemental close-terrain light texture.
 ///
 /// The resource owner is acquired with `try_lock`; contention or a stale
-/// device generation rejects the draw instead of blocking. The texture uses a
-/// discard write, so prior draws may continue consuming their renamed storage.
+/// device generation rejects the draw instead of blocking. An exact cached
+/// image avoids serialization, locking, and copying for repeated payloads. A
+/// changed texture uses a discard write so earlier draws may keep consuming
+/// their renamed storage.
 pub(super) fn upload_and_bind_supplemental_light_texture(
     device: &Device9Ref<'_>,
-    texels: &[[f32; 4]],
+    lights: &super::terrain_lights::SupplementalTerrainLights,
 ) -> bool {
-    let Some(state) = RESOURCES.try_lock() else {
+    let Some(mut state) = RESOURCES.try_lock() else {
         return false;
     };
     if state.device != device.as_raw() as usize
@@ -350,13 +379,39 @@ pub(super) fn upload_and_bind_supplemental_light_texture(
     {
         return false;
     }
+    if state.supplemental_light_texture.is_none() {
+        return false;
+    }
+    let payload_matches = state.supplemental_light_payload_valid
+        && lights.matches_shader_texture_bits(&state.supplemental_light_payload);
+    if !payload_matches {
+        // Materialize the fixed 1 KiB image only after exact comparison proves
+        // that the existing device contents cannot be reused. The common
+        // repeated-payload path therefore performs neither a stack clear nor a
+        // driver lock; the uncommon changed path remains allocation-free.
+        let mut texels = [[0.0; 4]; super::terrain_lights::SUPPLEMENTAL_LIGHT_TEXTURE_TEXELS];
+        lights.write_shader_texture(&mut texels);
+        if state
+            .supplemental_light_texture
+            .as_ref()
+            .is_none_or(|texture| texture.write_discard(&texels).is_err())
+        {
+            return false;
+        }
+        // Store exact bits rather than a hash. A collision must never reuse a
+        // different light payload, and this fixed copy occurs only after the
+        // matching upload has succeeded.
+        for (cached, incoming) in state.supplemental_light_payload.iter_mut().zip(&texels) {
+            *cached = incoming.map(f32::to_bits);
+        }
+        state.supplemental_light_payload_valid = true;
+    }
     let Some(texture) = state.supplemental_light_texture.as_ref() else {
         return false;
     };
-    texture.write_discard(texels).is_ok()
-        && device
-            .set_texture(SUPPLEMENTAL_LIGHT_SAMPLER, texture.texture())
-            .is_ok()
+    device
+        .set_texture(SUPPLEMENTAL_LIGHT_SAMPLER, texture.texture())
+        .is_ok()
 }
 
 fn resource_handle(template_id: u16) -> Option<*mut c_void> {
@@ -378,6 +433,7 @@ pub(super) fn try_reset_after(before_drop: impl FnOnce()) -> bool {
     state.device_generation = 0;
     state.supplemental_light_texture = None;
     state.supplemental_light_texture_create_failed = false;
+    state.supplemental_light_payload_valid = false;
     LAST_CREATE_FAILED_TEMPLATE_ID.store(TEMPLATE_ID_NONE, Ordering::Release);
     for slot in &mut state.slots {
         *slot = ResourceSlot::new();

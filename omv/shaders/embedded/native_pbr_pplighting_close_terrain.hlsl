@@ -2,12 +2,12 @@
 //
 // This program replaces the native one-through-seven-layer terrain rows while
 // preserving their material, fog, native-light, and diffuse/normal sampler
-// ABIs. OMV portable lights use the count in c91 and a 32x2 float texture on
-// temporarily borrowed s14; they are evaluated after native lights under the
-// same combined 24-light cap. The texture width is deliberately a power of
-// two, making every sampled texel center exact even when inherited sampler
-// state is linear. This avoids the compare/select cascades produced for
-// dynamic ps_3_0 constant-array reads.
+// ABIs. The base program is deliberately free of supplemental-light declarations
+// and instructions. Its paired internal resource defines OMV_SUPPLEMENTAL_LIGHTS
+// and reads portable lights from c91/s14. Keeping two specialized programs is
+// important on shader-model-3 hardware: a uniform zero count skips execution,
+// but it does not remove the supplemental program's static temporary-register
+// pressure from the common no-supplement draw.
 
 #ifndef PBR_TERRAIN_TEX_COUNT
 #define PBR_TERRAIN_TEX_COUNT 1
@@ -15,6 +15,10 @@
 
 #ifndef PBR_TERRAIN_POINT_LIGHTS
 #define PBR_TERRAIN_POINT_LIGHTS 0
+#endif
+
+#ifndef OMV_SUPPLEMENTAL_LIGHTS
+#define OMV_SUPPLEMENTAL_LIGHTS 0
 #endif
 
 float4 AmbientColor : register(c1);
@@ -26,11 +30,15 @@ float4 FogParam : register(c36);
 float4 FogColor : register(c37);
 float4 TESR_TerrainData : register(c89);
 float4 TESR_TerrainExtraData : register(c90);
+#if OMV_SUPPLEMENTAL_LIGHTS
 float OMV_SupplementalPointLightCount : register(c91);
+#endif
 
 sampler2D BaseMap[7] : register(s0);
 sampler2D NormalMap[7] : register(s7);
+#if OMV_SUPPLEMENTAL_LIGHTS
 sampler2D OMV_SupplementalPointLightTexture : register(s14);
+#endif
 
 #if PBR_TERRAIN_POINT_LIGHTS > 0
 float4 PointLightColor[PBR_TERRAIN_POINT_LIGHTS] : register(c39);
@@ -128,7 +136,7 @@ struct PbrSurface
     float ndotv;
     float alpha2;
     float geometry_k;
-    float view_shadowing;
+    float view_shadowing_denominator;
 };
 
 PbrSurface PreparePbrSurface(float roughness, float3 albedo, float3 normal, float3 view_dir)
@@ -141,7 +149,7 @@ PbrSurface PreparePbrSurface(float roughness, float3 albedo, float3 normal, floa
     float alpha = roughness * roughness;
     surface.alpha2 = alpha * alpha;
     surface.geometry_k = (roughness + 1.0f) * (roughness + 1.0f) * 0.125f;
-    surface.view_shadowing = surface.ndotv / max(
+    surface.view_shadowing_denominator = max(
         surface.ndotv * (1.0f - surface.geometry_k) + surface.geometry_k,
         0.00000001f
     );
@@ -155,12 +163,19 @@ float3 PreparedBrdf(PbrSurface surface, float3 fresnel, float ndotl, float ndoth
         PI * distribution_denominator * distribution_denominator,
         0.00001f
     );
-    float light_shadowing = ndotl / max(
+    float light_shadowing_denominator = max(
         ndotl * (1.0f - surface.geometry_k) + surface.geometry_k,
         0.00000001f
     );
-    float3 numerator = distribution * surface.view_shadowing * light_shadowing * fresnel;
-    return numerator / max(4.0f * surface.ndotv * ndotl, 0.00001f);
+    // Preserve the original epsilon-clamped Smith equation while cancelling
+    // its two avoidable per-light divisions. Keeping the unclamped NdotV*NdotL
+    // numerator is required: cancelling it against the outer max would change
+    // the accepted grazing-angle behavior.
+    float geometry_numerator = surface.ndotv * ndotl;
+    float geometry_denominator = surface.view_shadowing_denominator
+        * light_shadowing_denominator
+        * max(4.0f * geometry_numerator, 0.00001f);
+    return distribution * fresnel * geometry_numerator / geometry_denominator;
 }
 
 float3 PbrDirect(PbrSurface surface, float3 normal, float3 view_dir, float3 light_dir, float3 light_color)
@@ -385,18 +400,24 @@ void LoadNativePointLight(int index, out float4 light_position, out float4 light
 }
 #endif
 
+#if OMV_SUPPLEMENTAL_LIGHTS
 void LoadSupplementalPointLight(int index, out float4 light_position, out float4 light_color)
 {
-    float light_u = ((float)index + 0.5f) / 32.0f;
+    // Adjacent position/color texels keep one light's complete record in the
+    // same short cache span. The 64-wide power-of-two layout also makes both
+    // texel centers exactly representable in shader-model-3 arithmetic.
+    float position_u = ((float)(index * 2) + 0.5f) / 64.0f;
+    float color_u = ((float)(index * 2) + 1.5f) / 64.0f;
     light_position = tex2Dlod(
         OMV_SupplementalPointLightTexture,
-        float4(light_u, 0.25f, 0.0f, 0.0f)
+        float4(position_u, 0.5f, 0.0f, 0.0f)
     );
     light_color = tex2Dlod(
         OMV_SupplementalPointLightTexture,
-        float4(light_u, 0.75f, 0.0f, 0.0f)
+        float4(color_u, 0.5f, 0.0f, 0.0f)
     );
 }
+#endif
 
 PixelOutput Main(PixelInput input)
 {
@@ -438,13 +459,17 @@ PixelOutput Main(PixelInput input)
     float3 light_ts = mul(tbn, SunDir.xyz);
     float3 lighting = SunLighting(pbr_surface, light_ts, SunColor.rgb, view_dir, normal, AmbientColor.rgb, albedo, 1.0f);
 
+#if PBR_TERRAIN_POINT_LIGHTS > 0 || OMV_SUPPLEMENTAL_LIGHTS
     int native_point_count = 0;
 #if PBR_TERRAIN_POINT_LIGHTS > 0
     native_point_count = min((int)PointLightCount, PBR_TERRAIN_POINT_LIGHTS);
 #endif
+#if OMV_SUPPLEMENTAL_LIGHTS
     int supplemental_point_count = min((int)OMV_SupplementalPointLightCount, 24 - native_point_count);
-
     int total_point_count = native_point_count + supplemental_point_count;
+#else
+    int total_point_count = native_point_count;
+#endif
     [loop] for (int point_index = 0; point_index < total_point_count; point_index++)
     {
         float4 light_position;
@@ -454,12 +479,16 @@ PixelOutput Main(PixelInput input)
         {
             LoadNativePointLight(point_index, light_position, light_color);
         }
+#if OMV_SUPPLEMENTAL_LIGHTS
         else
 #endif
+#endif
+#if OMV_SUPPLEMENTAL_LIGHTS
         {
             int supplemental_index = point_index - native_point_count;
             LoadSupplementalPointLight(supplemental_index, light_position, light_color);
         }
+#endif
 
         lighting += PointLightContribution(
             pbr_surface,
@@ -471,6 +500,7 @@ PixelOutput Main(PixelInput input)
             normal
         );
     }
+#endif
 
     float3 fog_position = input.projection_position.xyz;
     fog_position.z = input.projection_position.w - input.projection_position.z;

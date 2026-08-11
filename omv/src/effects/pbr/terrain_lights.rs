@@ -7,17 +7,17 @@
 //! the engine render pass or its native point-light constants.
 //!
 //! One native pass setup can submit the same or several geometries. A
-//! generation-keyed render-thread cache avoids repeating engine-light
-//! reconstruction when a geometry contract is submitted again unchanged.
+//! four-entry generation-keyed direct map avoids repeating engine-light
+//! reconstruction when geometry contracts recur in an A/B/A sequence.
 //! Pointer identity alone is insufficient because the
 //! engine reuses geometry, property, selector, and pass objects. The key also
-//! includes render epoch, D3D device, sampler, manager-light, and native-pass
+//! includes render epoch, D3D device, manager-light, and native-pass
 //! membership generations. A miss always runs the complete merge.
 //!
 //! The cache is statically zero-initialized POD state; it adds no TLS callback,
-//! lazy owner, lock, allocation, or plugin-load initialization. An even/odd
-//! atomic version publishes complete key and payload snapshots. Contending
-//! callers bypass the cache instead of waiting on the render path.
+//! lazy owner, lock, allocation, or plugin-load initialization. Every slot uses
+//! an even/odd atomic version to publish complete key and payload snapshots.
+//! Contending callers bypass the cache instead of waiting on the render path.
 
 use std::{
     ffi::c_void,
@@ -30,8 +30,8 @@ use libpsycho::ffi::fnptr::FnPtr;
 use super::engine_contracts;
 
 pub(super) const MAX_TERRAIN_POINT_LIGHTS: usize = 24;
-pub(super) const SUPPLEMENTAL_LIGHT_TEXTURE_WIDTH: usize = 32;
-pub(super) const SUPPLEMENTAL_LIGHT_TEXTURE_HEIGHT: usize = 2;
+pub(super) const SUPPLEMENTAL_LIGHT_TEXTURE_WIDTH: usize = 64;
+pub(super) const SUPPLEMENTAL_LIGHT_TEXTURE_HEIGHT: usize = 1;
 pub(super) const SUPPLEMENTAL_LIGHT_TEXTURE_TEXELS: usize =
     SUPPLEMENTAL_LIGHT_TEXTURE_WIDTH * SUPPLEMENTAL_LIGHT_TEXTURE_HEIGHT;
 
@@ -156,18 +156,43 @@ impl SupplementalTerrainLights {
         self.count == 0
     }
 
-    /// Write the complete 32x2 RGBA32F shader-data texture payload.
+    /// Write the complete 64x1 RGBA32F shader-data texture payload.
     ///
-    /// Row zero stores position/radius and row one stores color/reserved alpha
-    /// at the same light index. The eight unused texels in each row are reset
-    /// so a corrupt shader count cannot expose stale data from an earlier draw.
+    /// Each light occupies adjacent position/radius and color/reserved-alpha
+    /// texels. The unused tail is reset so a corrupt shader count cannot expose
+    /// stale data from an earlier draw.
     pub(super) fn write_shader_texture(&self, output: &mut [[f32; 4]]) {
         debug_assert!(output.len() >= SUPPLEMENTAL_LIGHT_TEXTURE_TEXELS);
         output[..SUPPLEMENTAL_LIGHT_TEXTURE_TEXELS].fill([0.0; 4]);
         for (index, light) in self.lights[..self.count].iter().enumerate() {
-            output[index] = light.position_radius;
-            output[SUPPLEMENTAL_LIGHT_TEXTURE_WIDTH + index] = light.color_visibility;
+            output[index * 2] = light.position_radius;
+            output[index * 2 + 1] = light.color_visibility;
         }
+    }
+
+    /// Compare this payload with a complete cached shader-texture image.
+    ///
+    /// The comparison is bit-exact and includes the zeroed tail. Resource
+    /// ownership can therefore skip both serialization and `LockRect` without
+    /// accepting a hash collision or retaining data from a larger prior draw.
+    pub(super) fn matches_shader_texture_bits(&self, cached: &[[u32; 4]]) -> bool {
+        if cached.len() < SUPPLEMENTAL_LIGHT_TEXTURE_TEXELS {
+            return false;
+        }
+        for index in 0..MAX_TERRAIN_POINT_LIGHTS {
+            let (position_radius, color_visibility) = if index < self.count {
+                (
+                    self.lights[index].position_radius.map(f32::to_bits),
+                    self.lights[index].color_visibility.map(f32::to_bits),
+                )
+            } else {
+                ([0; 4], [0; 4])
+            };
+            if cached[index * 2] != position_radius || cached[index * 2 + 1] != color_visibility {
+                return false;
+            }
+        }
+        true
     }
 
     #[cfg(test)]
@@ -179,37 +204,61 @@ impl SupplementalTerrainLights {
 const DRAW_CACHE_COMPONENTS_PER_LIGHT: usize = 8;
 const DRAW_CACHE_COMPONENT_COUNT: usize =
     MAX_TERRAIN_POINT_LIGHTS * DRAW_CACHE_COMPONENTS_PER_LIGHT;
-// An even version denotes a stable payload; a publisher changes it to odd
-// before writing and publishes the next even value afterward. Every payload
-// word is atomic, so even an unexpected cross-thread D3D call cannot create a
-// Rust data race. A failed compare-exchange simply leaves that draw uncached.
-static DRAW_CACHE_VERSION: AtomicU32 = AtomicU32::new(0);
-static DRAW_CACHE_RENDER_EPOCH: AtomicU32 = AtomicU32::new(0);
-static DRAW_CACHE_DEVICE_GENERATION: AtomicU32 = AtomicU32::new(0);
-static DRAW_CACHE_TEXTURE_GENERATION: AtomicU32 = AtomicU32::new(0);
-static DRAW_CACHE_MANAGER_GENERATION: AtomicU32 = AtomicU32::new(0);
-static DRAW_CACHE_GEOMETRY: AtomicUsize = AtomicUsize::new(0);
-static DRAW_CACHE_PROPERTY: AtomicUsize = AtomicUsize::new(0);
-static DRAW_CACHE_SELECTOR: AtomicUsize = AtomicUsize::new(0);
-static DRAW_CACHE_PASS: AtomicUsize = AtomicUsize::new(0);
-// The signature rejects most misses cheaply, but is never accepted as proof:
-// exact count/point-count/identity atoms below close the 32-bit collision case.
-static DRAW_CACHE_NATIVE_SIGNATURE: AtomicU32 = AtomicU32::new(0);
-static DRAW_CACHE_NATIVE_IDENTITY_COUNT: AtomicUsize = AtomicUsize::new(0);
-static DRAW_CACHE_NATIVE_POINT_COUNT: AtomicUsize = AtomicUsize::new(0);
-static DRAW_CACHE_NATIVE_IDENTITIES: [AtomicUsize; MAX_RENDER_PASS_LIGHTS] =
-    [const { AtomicUsize::new(0) }; MAX_RENDER_PASS_LIGHTS];
-static DRAW_CACHE_COUNT: AtomicUsize = AtomicUsize::new(0);
-static DRAW_CACHE_IDENTITIES: [AtomicUsize; MAX_TERRAIN_POINT_LIGHTS] =
-    [const { AtomicUsize::new(0) }; MAX_TERRAIN_POINT_LIGHTS];
-static DRAW_CACHE_COMPONENTS: [AtomicU32; DRAW_CACHE_COMPONENT_COUNT] =
-    [const { AtomicU32::new(0) }; DRAW_CACHE_COMPONENT_COUNT];
+const DRAW_CACHE_ENTRY_COUNT: usize = 4;
+
+struct DrawCacheEntry {
+    version: AtomicU32,
+    render_epoch: AtomicU32,
+    device_generation: AtomicU32,
+    manager_generation: AtomicU32,
+    geometry: AtomicUsize,
+    property: AtomicUsize,
+    selector: AtomicUsize,
+    render_pass: AtomicUsize,
+    // The signature rejects most misses cheaply, but is never accepted as
+    // proof. Exact count and identity atoms close the 32-bit collision case.
+    native_signature: AtomicU32,
+    native_identity_count: AtomicUsize,
+    native_point_count: AtomicUsize,
+    native_identities: [AtomicUsize; MAX_RENDER_PASS_LIGHTS],
+    count: AtomicUsize,
+    identities: [AtomicUsize; MAX_TERRAIN_POINT_LIGHTS],
+    components: [AtomicU32; DRAW_CACHE_COMPONENT_COUNT],
+}
+
+impl DrawCacheEntry {
+    const fn new() -> Self {
+        Self {
+            version: AtomicU32::new(0),
+            render_epoch: AtomicU32::new(0),
+            device_generation: AtomicU32::new(0),
+            manager_generation: AtomicU32::new(0),
+            geometry: AtomicUsize::new(0),
+            property: AtomicUsize::new(0),
+            selector: AtomicUsize::new(0),
+            render_pass: AtomicUsize::new(0),
+            native_signature: AtomicU32::new(0),
+            native_identity_count: AtomicUsize::new(0),
+            native_point_count: AtomicUsize::new(0),
+            native_identities: [const { AtomicUsize::new(0) }; MAX_RENDER_PASS_LIGHTS],
+            count: AtomicUsize::new(0),
+            identities: [const { AtomicUsize::new(0) }; MAX_TERRAIN_POINT_LIGHTS],
+            components: [const { AtomicU32::new(0) }; DRAW_CACHE_COMPONENT_COUNT],
+        }
+    }
+}
+
+// Each direct-mapped entry has an independent even/odd publication version.
+// Every payload word is atomic, so even an unexpected cross-thread D3D call
+// cannot create a Rust data race. Four entries retain common A/B/A terrain
+// reuse without adding a lazy owner, lock, allocation, or TLS callback.
+static DRAW_CACHE: [DrawCacheEntry; DRAW_CACHE_ENTRY_COUNT] =
+    [const { DrawCacheEntry::new() }; DRAW_CACHE_ENTRY_COUNT];
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct TerrainDrawCacheKey {
     render_epoch: u32,
     device_generation: u32,
-    texture_generation: u32,
     manager_generation: u32,
     geometry: usize,
     property: usize,
@@ -298,38 +347,41 @@ pub(super) fn capture_current_for_draw(geometry_identity: usize) -> Supplemental
 }
 
 fn load_draw_cache(key: &TerrainDrawCacheKey) -> Option<SupplementalTerrainLights> {
-    let version = DRAW_CACHE_VERSION.load(Ordering::Acquire);
-    if version & 1 != 0 || !draw_cache_key_matches(key) {
+    let entry = draw_cache_entry(key);
+    let version = entry.version.load(Ordering::Acquire);
+    if version & 1 != 0 || !draw_cache_key_matches(entry, key) {
         return None;
     }
 
     let mut lights = SupplementalTerrainLights::EMPTY;
-    lights.count = DRAW_CACHE_COUNT
+    lights.count = entry
+        .count
         .load(Ordering::Relaxed)
         .min(MAX_TERRAIN_POINT_LIGHTS);
     for (light_index, light) in lights.lights[..lights.count].iter_mut().enumerate() {
-        lights.identities[light_index] = DRAW_CACHE_IDENTITIES[light_index].load(Ordering::Relaxed);
+        lights.identities[light_index] = entry.identities[light_index].load(Ordering::Relaxed);
         let base = light_index * DRAW_CACHE_COMPONENTS_PER_LIGHT;
         for (component, output) in light.position_radius.iter_mut().enumerate() {
-            *output =
-                f32::from_bits(DRAW_CACHE_COMPONENTS[base + component].load(Ordering::Relaxed));
+            *output = f32::from_bits(entry.components[base + component].load(Ordering::Relaxed));
         }
         for (component, output) in light.color_visibility.iter_mut().enumerate() {
             *output =
-                f32::from_bits(DRAW_CACHE_COMPONENTS[base + 4 + component].load(Ordering::Relaxed));
+                f32::from_bits(entry.components[base + 4 + component].load(Ordering::Relaxed));
         }
     }
 
     // A concurrent invalidation or publication makes this snapshot unusable.
     // Returning None merely repeats the bounded scan; the draw never waits.
-    (DRAW_CACHE_VERSION.load(Ordering::Acquire) == version && draw_cache_key_matches(key))
+    (entry.version.load(Ordering::Acquire) == version && draw_cache_key_matches(entry, key))
         .then_some(lights)
 }
 
 fn publish_draw_cache(key: &TerrainDrawCacheKey, lights: SupplementalTerrainLights) {
-    let version = DRAW_CACHE_VERSION.load(Ordering::Relaxed);
+    let entry = draw_cache_entry(key);
+    let version = entry.version.load(Ordering::Relaxed);
     if version & 1 != 0
-        || DRAW_CACHE_VERSION
+        || entry
+            .version
             .compare_exchange(
                 version,
                 version.wrapping_add(1),
@@ -342,65 +394,98 @@ fn publish_draw_cache(key: &TerrainDrawCacheKey, lights: SupplementalTerrainLigh
         return;
     }
 
-    DRAW_CACHE_GEOMETRY.store(0, Ordering::Relaxed);
+    entry.geometry.store(0, Ordering::Relaxed);
     for (light_index, light) in lights.lights[..lights.count].iter().enumerate() {
-        DRAW_CACHE_IDENTITIES[light_index].store(lights.identities[light_index], Ordering::Relaxed);
+        entry.identities[light_index].store(lights.identities[light_index], Ordering::Relaxed);
         let base = light_index * DRAW_CACHE_COMPONENTS_PER_LIGHT;
         for (component, value) in light.position_radius.iter().enumerate() {
-            DRAW_CACHE_COMPONENTS[base + component].store(value.to_bits(), Ordering::Relaxed);
+            entry.components[base + component].store(value.to_bits(), Ordering::Relaxed);
         }
         for (component, value) in light.color_visibility.iter().enumerate() {
-            DRAW_CACHE_COMPONENTS[base + 4 + component].store(value.to_bits(), Ordering::Relaxed);
+            entry.components[base + 4 + component].store(value.to_bits(), Ordering::Relaxed);
         }
     }
-    DRAW_CACHE_COUNT.store(lights.count, Ordering::Relaxed);
-    DRAW_CACHE_RENDER_EPOCH.store(key.render_epoch, Ordering::Relaxed);
-    DRAW_CACHE_DEVICE_GENERATION.store(key.device_generation, Ordering::Relaxed);
-    DRAW_CACHE_TEXTURE_GENERATION.store(key.texture_generation, Ordering::Relaxed);
-    DRAW_CACHE_MANAGER_GENERATION.store(key.manager_generation, Ordering::Relaxed);
-    DRAW_CACHE_PROPERTY.store(key.property, Ordering::Relaxed);
-    DRAW_CACHE_SELECTOR.store(key.selector, Ordering::Relaxed);
-    DRAW_CACHE_PASS.store(key.render_pass, Ordering::Relaxed);
-    DRAW_CACHE_NATIVE_SIGNATURE.store(key.native_light_signature, Ordering::Relaxed);
+    entry.count.store(lights.count, Ordering::Relaxed);
+    entry
+        .render_epoch
+        .store(key.render_epoch, Ordering::Relaxed);
+    entry
+        .device_generation
+        .store(key.device_generation, Ordering::Relaxed);
+    entry
+        .manager_generation
+        .store(key.manager_generation, Ordering::Relaxed);
+    entry.property.store(key.property, Ordering::Relaxed);
+    entry.selector.store(key.selector, Ordering::Relaxed);
+    entry.render_pass.store(key.render_pass, Ordering::Relaxed);
+    entry
+        .native_signature
+        .store(key.native_light_signature, Ordering::Relaxed);
     for (index, identity) in key.native_identities[..key.native_identity_count]
         .iter()
         .enumerate()
     {
-        DRAW_CACHE_NATIVE_IDENTITIES[index].store(*identity, Ordering::Relaxed);
+        entry.native_identities[index].store(*identity, Ordering::Relaxed);
     }
-    DRAW_CACHE_NATIVE_IDENTITY_COUNT.store(key.native_identity_count, Ordering::Relaxed);
-    DRAW_CACHE_NATIVE_POINT_COUNT.store(key.native_point_count, Ordering::Relaxed);
-    DRAW_CACHE_GEOMETRY.store(key.geometry, Ordering::Release);
-    DRAW_CACHE_VERSION.store(version.wrapping_add(2), Ordering::Release);
+    entry
+        .native_identity_count
+        .store(key.native_identity_count, Ordering::Relaxed);
+    entry
+        .native_point_count
+        .store(key.native_point_count, Ordering::Relaxed);
+    entry.geometry.store(key.geometry, Ordering::Release);
+    entry
+        .version
+        .store(version.wrapping_add(2), Ordering::Release);
 }
 
-fn draw_cache_key_matches(key: &TerrainDrawCacheKey) -> bool {
+fn draw_cache_entry(key: &TerrainDrawCacheKey) -> &'static DrawCacheEntry {
+    &DRAW_CACHE[draw_cache_index(key)]
+}
+
+fn draw_cache_index(key: &TerrainDrawCacheKey) -> usize {
+    let mut mixed = key.geometry
+        ^ key.property.rotate_left(7)
+        ^ key.render_pass.rotate_left(13)
+        ^ key.native_light_signature as usize;
+    // Engine pointers are at least four-byte aligned, so masking their raw low
+    // bits would collapse an alternating geometry sequence into one slot. Fold
+    // upper pointer bits down before the final mask; the second fold also lets
+    // changes in the semantic light signature influence every output bit.
+    mixed ^= mixed >> 16;
+    mixed = mixed.wrapping_mul(0x7FEB_352D);
+    mixed ^= mixed >> 15;
+    mixed & (DRAW_CACHE_ENTRY_COUNT - 1)
+}
+
+fn draw_cache_key_matches(entry: &DrawCacheEntry, key: &TerrainDrawCacheKey) -> bool {
     if key.native_identity_count > MAX_RENDER_PASS_LIGHTS {
         return false;
     }
-    let scalar_key_matches = DRAW_CACHE_GEOMETRY.load(Ordering::Acquire) == key.geometry
-        && DRAW_CACHE_RENDER_EPOCH.load(Ordering::Relaxed) == key.render_epoch
-        && DRAW_CACHE_DEVICE_GENERATION.load(Ordering::Relaxed) == key.device_generation
-        && DRAW_CACHE_TEXTURE_GENERATION.load(Ordering::Relaxed) == key.texture_generation
-        && DRAW_CACHE_MANAGER_GENERATION.load(Ordering::Relaxed) == key.manager_generation
-        && DRAW_CACHE_PROPERTY.load(Ordering::Relaxed) == key.property
-        && DRAW_CACHE_SELECTOR.load(Ordering::Relaxed) == key.selector
-        && DRAW_CACHE_PASS.load(Ordering::Relaxed) == key.render_pass
-        && DRAW_CACHE_NATIVE_SIGNATURE.load(Ordering::Relaxed) == key.native_light_signature
-        && DRAW_CACHE_NATIVE_IDENTITY_COUNT.load(Ordering::Relaxed) == key.native_identity_count
-        && DRAW_CACHE_NATIVE_POINT_COUNT.load(Ordering::Relaxed) == key.native_point_count;
+    let scalar_key_matches = entry.geometry.load(Ordering::Acquire) == key.geometry
+        && entry.render_epoch.load(Ordering::Relaxed) == key.render_epoch
+        && entry.device_generation.load(Ordering::Relaxed) == key.device_generation
+        && entry.manager_generation.load(Ordering::Relaxed) == key.manager_generation
+        && entry.property.load(Ordering::Relaxed) == key.property
+        && entry.selector.load(Ordering::Relaxed) == key.selector
+        && entry.render_pass.load(Ordering::Relaxed) == key.render_pass
+        && entry.native_signature.load(Ordering::Relaxed) == key.native_light_signature
+        && entry.native_identity_count.load(Ordering::Relaxed) == key.native_identity_count
+        && entry.native_point_count.load(Ordering::Relaxed) == key.native_point_count;
     scalar_key_matches
         && key.native_identities[..key.native_identity_count]
             .iter()
             .enumerate()
             .all(|(index, identity)| {
-                DRAW_CACHE_NATIVE_IDENTITIES[index].load(Ordering::Relaxed) == *identity
+                entry.native_identities[index].load(Ordering::Relaxed) == *identity
             })
 }
 
 /// Invalidates the render-thread close-terrain light cache.
 pub(super) fn invalidate_draw_cache() {
-    DRAW_CACHE_GEOMETRY.store(0, Ordering::Release);
+    for entry in &DRAW_CACHE {
+        entry.geometry.store(0, Ordering::Release);
+    }
 }
 
 unsafe fn prepare_draw_inputs(geometry_identity: usize) -> Option<TerrainDrawInputs> {
@@ -420,7 +505,6 @@ unsafe fn prepare_draw_inputs(geometry_identity: usize) -> Option<TerrainDrawInp
         key: TerrainDrawCacheKey {
             render_epoch: crate::hooks::render_epoch(),
             device_generation: crate::backend::d3d_device_generation(),
-            texture_generation: super::texture_generation(),
             manager_generation: crate::fnv_local_lights::terrain_light_generation(),
             geometry: geometry_identity,
             property: property as usize,
@@ -817,11 +901,11 @@ mod tests {
 
     use super::{
         GEOMETRY_MATRIX_CONTEXT_OFFSET, GEOMETRY_WORLD_TRANSFORM_OFFSET, GeometryTransform,
-        MAX_RENDER_PASS_LIGHTS, SUPPLEMENTAL_LIGHT_TEXTURE_TEXELS,
-        SUPPLEMENTAL_LIGHT_TEXTURE_WIDTH, SupplementalTerrainLights, TerrainDrawCacheKey,
-        TerrainLightCandidate, TerrainLightContext, TerrainLightMerge, geometry_matrix_inputs,
-        invalidate_draw_cache, inverse_transform_point, load_draw_cache, manager_supplement_needed,
-        publish_draw_cache, supplement_captured_manager_lights,
+        MAX_RENDER_PASS_LIGHTS, SUPPLEMENTAL_LIGHT_TEXTURE_TEXELS, SupplementalTerrainLights,
+        TerrainDrawCacheKey, TerrainLightCandidate, TerrainLightContext, TerrainLightMerge,
+        draw_cache_entry, geometry_matrix_inputs, invalidate_draw_cache, inverse_transform_point,
+        load_draw_cache, manager_supplement_needed, publish_draw_cache,
+        supplement_captured_manager_lights,
     };
     use crate::fnv_local_lights::TerrainSceneLight;
 
@@ -862,7 +946,6 @@ mod tests {
         TerrainDrawCacheKey {
             render_epoch: 7,
             device_generation: 2,
-            texture_generation: 3,
             manager_generation: 4,
             geometry,
             property: 0x44000,
@@ -912,7 +995,7 @@ mod tests {
     ) -> f32 {
         assert_eq!(count_constant[0], 1.0);
         let position_radius = texture[0];
-        let color_visibility = texture[SUPPLEMENTAL_LIGHT_TEXTURE_WIDTH];
+        let color_visibility = texture[1];
         let light_vector = [
             position_radius[0] - fragment_position[0],
             position_radius[1] - fragment_position[1],
@@ -977,7 +1060,7 @@ mod tests {
         output.write_shader_texture(&mut texture);
 
         assert_eq!(output.shader_count_constant(), [1.0, 0.0, 0.0, 0.0]);
-        assert_eq!(texture[SUPPLEMENTAL_LIGHT_TEXTURE_WIDTH][3], 1.0);
+        assert_eq!(texture[1][3], 1.0);
         assert!(
             payload_light_input_luminance(
                 output.shader_count_constant(),
@@ -1081,6 +1164,20 @@ mod tests {
         );
         assert_eq!(cached_texture, expected_texture);
 
+        // A one-entry cache turned alternating A/B/A terrain submissions into
+        // three full engine scans. Prove that distinct direct-map slots retain
+        // both exact semantic snapshots instead of evicting each other.
+        let mut second_key = cache_key(geometry + 4);
+        while std::ptr::eq(draw_cache_entry(&key), draw_cache_entry(&second_key)) {
+            second_key.geometry = second_key.geometry.wrapping_add(4);
+        }
+        publish_draw_cache(&second_key, SupplementalTerrainLights::default());
+        assert_eq!(load_draw_cache(&key), Some(expected));
+        assert_eq!(
+            load_draw_cache(&second_key),
+            Some(SupplementalTerrainLights::default())
+        );
+
         invalidate_draw_cache();
         assert!(load_draw_cache(&key).is_none());
     }
@@ -1090,21 +1187,20 @@ mod tests {
         let key = cache_key(0x33000);
         publish_draw_cache(&key, SupplementalTerrainLights::default());
 
-        let mut variants = [key; 12];
+        let mut variants = [key; 11];
         variants[0].render_epoch += 1;
         variants[1].device_generation += 1;
-        variants[2].texture_generation += 1;
-        variants[3].manager_generation += 1;
-        variants[4].geometry += 4;
-        variants[5].property += 4;
-        variants[6].selector += 4;
-        variants[7].render_pass += 4;
-        variants[8].native_light_signature ^= 1;
-        variants[9].native_identity_count += 1;
-        variants[10].native_point_count += 1;
+        variants[2].manager_generation += 1;
+        variants[3].geometry += 4;
+        variants[4].property += 4;
+        variants[5].selector += 4;
+        variants[6].render_pass += 4;
+        variants[7].native_light_signature ^= 1;
+        variants[8].native_identity_count += 1;
+        variants[9].native_point_count += 1;
         // Preserve the fast signature deliberately: exact membership must
         // still reject a theoretical 32-bit hash collision.
-        variants[11].native_identities[0] += 4;
+        variants[10].native_identities[0] += 4;
         for variant in variants {
             assert!(load_draw_cache(&variant).is_none());
         }
@@ -1237,7 +1333,7 @@ mod tests {
     }
 
     #[test]
-    fn shader_payload_separates_count_and_texture_rows() {
+    fn shader_payload_interleaves_each_record_and_clears_the_tail() {
         let mut merge = TerrainLightMerge::new(&[], 0, context());
         assert!(merge.consider(candidate(0x20000)));
         let output = merge.finish();
@@ -1246,19 +1342,21 @@ mod tests {
         output.write_shader_texture(&mut texture);
         assert_eq!(output.shader_count_constant(), [1.0, 0.0, 0.0, 0.0]);
         assert_eq!(texture[0], output.lights()[0].position_radius);
-        assert_eq!(
-            texture[SUPPLEMENTAL_LIGHT_TEXTURE_WIDTH],
-            output.lights()[0].color_visibility
-        );
+        assert_eq!(texture[1], output.lights()[0].color_visibility);
+        assert!(texture[2..].iter().all(|texel| *texel == [0.0; 4]));
+
+        let mut bits = texture.map(|texel| texel.map(f32::to_bits));
+        assert!(output.matches_shader_texture_bits(&bits));
+        bits[2][0] = 1.0f32.to_bits();
         assert!(
-            texture[1..SUPPLEMENTAL_LIGHT_TEXTURE_WIDTH]
-                .iter()
-                .all(|texel| *texel == [0.0; 4])
+            !output.matches_shader_texture_bits(&bits),
+            "the unused tail is part of exact payload identity"
         );
+        bits[2][0] = 0;
+        bits[0][0] ^= 1;
         assert!(
-            texture[SUPPLEMENTAL_LIGHT_TEXTURE_WIDTH + 1..]
-                .iter()
-                .all(|texel| *texel == [0.0; 4])
+            !output.matches_shader_texture_bits(&bits),
+            "an active component change must require a new upload"
         );
     }
 

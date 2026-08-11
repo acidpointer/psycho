@@ -6,18 +6,21 @@
 //! implementations, while engine wrappers return immediately to native handles.
 //! The direct draw hook still validates samplers and geometry-specific constants
 //! immediately before submission. A rejected draw temporarily binds vanilla and
-//! then restores the engine-owned replacement; an admitted draw performs no raw
-//! shader-state transition. Close terrain is re-evaluated at every renderer
+//! then restores the engine-owned replacement. Close terrain normally keeps the
+//! engine-owned native-only program; its paired supplemental program changes
+//! only when the captured payload mode changes and is restored before the next
+//! engine `SetShaders` boundary. Close terrain is re-evaluated at every renderer
 //! geometry entry because one engine pass setup can serve several geometries.
 //!
 //! The mandatory engine `SetTexture` hook maintains the complete texture-stage
-//! mirror used by draw admission. No admission path reads D3D state back from
-//! the driver: an unknown stage fails closed until the engine binds it, while a
-//! known-null stage fails closed until the corresponding engine transition.
-//! Supplemental close-terrain lights temporarily borrow sampler s14 around one
-//! draw. Their bind bypasses the mirror deliberately, and every completion,
-//! fallback, and resource-release boundary restores the engine-owned identity
-//! from that mirror before another draw can proceed.
+//! mirror used by draw admission. Required texture admission never reads D3D
+//! state back from the driver: an unknown stage fails closed until the engine
+//! binds it, while a known-null stage fails closed until the corresponding
+//! engine transition. Supplemental close-terrain lights temporarily borrow
+//! sampler s14 around one nonempty draw. That transaction captures only the
+//! three sampler fields that physically affect the fixed LOD-zero lookup, and
+//! every completion, fallback, and resource-release boundary restores both the
+//! engine-owned texture identity and those sampler fields.
 
 use std::{
     ffi::{c_char, c_void},
@@ -32,7 +35,10 @@ use std::{
 
 use anyhow::Result;
 use libpsycho::os::windows::{
-    directx9::Device9Ref, hook::inline::inlinehook::InlineHookContainer,
+    directx9::{
+        D3DSAMP_MAGFILTER, D3DSAMP_MINFILTER, D3DSAMP_SRGBTEXTURE, D3DTEXF_POINT, Device9Ref,
+    },
+    hook::inline::inlinehook::InlineHookContainer,
     memory::validate_memory_range,
 };
 
@@ -204,6 +210,11 @@ static PENDING_REQUIRED_SAMPLER_MASK: AtomicU32 = AtomicU32::new(0);
 static PENDING_MISSING_SAMPLER_MASK: AtomicU32 = AtomicU32::new(0);
 static PENDING_CLOSE_TERRAIN_PREPARED_GEOMETRY: AtomicUsize = AtomicUsize::new(0);
 static PENDING_CLOSE_TERRAIN_LIGHT_TEXTURE_BOUND: AtomicBool = AtomicBool::new(false);
+static PENDING_CLOSE_TERRAIN_SUPPLEMENTAL_SHADER_ACTIVE: AtomicBool = AtomicBool::new(false);
+static PENDING_CLOSE_TERRAIN_SAMPLER_STATE_ACTIVE: AtomicBool = AtomicBool::new(false);
+static PENDING_CLOSE_TERRAIN_SAMPLER_MIN_FILTER: AtomicU32 = AtomicU32::new(0);
+static PENDING_CLOSE_TERRAIN_SAMPLER_MAG_FILTER: AtomicU32 = AtomicU32::new(0);
+static PENDING_CLOSE_TERRAIN_SAMPLER_SRGB: AtomicU32 = AtomicU32::new(0);
 static LAND_LOD_FIRST_BIND_LOGGED: AtomicBool = AtomicBool::new(false);
 static LAND_LOD_FAILURE_LOGGED: AtomicBool = AtomicBool::new(false);
 static LAND_LOD_MISSING_SAMPLER_LOGGED: AtomicBool = AtomicBool::new(false);
@@ -542,6 +553,12 @@ unsafe extern "thiscall" fn hook_set_shaders(shader: *mut c_void, pass_index: u3
     };
     crate::graphics_diagnostics::add(crate::graphics_diagnostics::Counter::SetShaders, 1);
 
+    // The engine cache owns the native-only replacement selected by the prior
+    // SetShaders call. A supplemental program may still be live on the device,
+    // so repair that exact delta before the cache compares another pair. The
+    // common path is one false atomic load and no D3D call.
+    let _ = restore_close_terrain_fast_shader();
+
     if !super::shader_enabled() {
         unsafe {
             original(shader, pass_index);
@@ -871,7 +888,7 @@ fn select_close_terrain_pair(variant: CloseTerrainVariant) -> Option<ShaderPairS
         CLOSE_TERRAIN_VERTEX_INDEX,
         variant.pixel_index,
         device_resources::close_terrain_shader_handle(ShaderStage::Vertex, 2100)?,
-        device_resources::close_terrain_shader_handle(ShaderStage::Pixel, variant.pixel_sls)?,
+        device_resources::close_terrain_fast_pixel_handle(variant.pixel_sls)?,
     )
 }
 
@@ -1032,8 +1049,9 @@ fn bind_close_terrain_replacement(
         return false;
     };
     restore_supplemental_light_texture(&device);
-    if PENDING_CLOSE_TERRAIN_LIGHT_TEXTURE_BOUND.load(Ordering::Acquire) {
-        log_close_terrain_failure("previous supplemental sampler binding could not be restored");
+    restore_supplemental_sampler_state(&device);
+    if supplemental_sampler_state_is_active() {
+        log_close_terrain_failure("previous supplemental sampler state could not be restored");
         return false;
     }
     if !pair_still_owns_native_wrappers(pair) {
@@ -1060,6 +1078,12 @@ fn bind_close_terrain_replacement(
         return false;
     };
     let supplemental_lights = super::terrain_lights::capture_current_for_draw(geometry_identity);
+    if supplemental_lights.is_empty()
+        && !set_close_terrain_supplemental_shader(&device, variant, pair, false)
+    {
+        log_close_terrain_failure("native-only close-terrain shader could not be restored");
+        return false;
+    }
     if !supplemental_lights.is_empty() {
         // A temporary raw bind is safe only if the engine mirror can restore
         // an exact prior state. Unknown is not equivalent to known-null: the
@@ -1071,9 +1095,10 @@ fn bind_close_terrain_replacement(
             log_close_terrain_failure("engine ownership of supplemental sampler s14 is unknown");
             return false;
         }
-        let mut texels = [[0.0; 4]; super::terrain_lights::SUPPLEMENTAL_LIGHT_TEXTURE_TEXELS];
-        supplemental_lights.write_shader_texture(&mut texels);
-        if !super::device_resources::upload_and_bind_supplemental_light_texture(&device, &texels) {
+        if !super::device_resources::upload_and_bind_supplemental_light_texture(
+            &device,
+            &supplemental_lights,
+        ) {
             log_close_terrain_failure("supplemental light texture could not be uploaded");
             return false;
         }
@@ -1081,13 +1106,28 @@ fn bind_close_terrain_replacement(
         // only OMV's temporary raw override so finish/fallback can restore s14
         // from the authoritative SetTexture mirror after the draw.
         PENDING_CLOSE_TERRAIN_LIGHT_TEXTURE_BOUND.store(true, Ordering::Release);
+        if !bind_supplemental_sampler_state(&device) {
+            restore_supplemental_sampler_state(&device);
+            restore_supplemental_light_texture(&device);
+            log_close_terrain_failure("supplemental sampler state could not be owned");
+            return false;
+        }
     }
     // Native geometry setup may rewrite pixel constants between DIPs even when
     // it reuses the same shader pass. Upload the cheap constant block on every
     // draw; only the expensive engine light scan is cached per geometry.
     if constants::upload_terrain_constants(&device, Some(&supplemental_lights)).is_none() {
+        restore_supplemental_sampler_state(&device);
         restore_supplemental_light_texture(&device);
         log_close_terrain_failure("terrain constants could not be uploaded");
+        return false;
+    }
+    if !supplemental_lights.is_empty()
+        && !set_close_terrain_supplemental_shader(&device, variant, pair, true)
+    {
+        restore_supplemental_sampler_state(&device);
+        restore_supplemental_light_texture(&device);
+        log_close_terrain_failure("supplemental close-terrain shader could not be selected");
         return false;
     }
     PENDING_CLOSE_TERRAIN_PREPARED_GEOMETRY.store(geometry_identity, Ordering::Release);
@@ -1118,6 +1158,63 @@ fn pair_still_owns_native_wrappers(pair: ShaderPairSelection) -> bool {
             == Some(pair.native_pixel)
 }
 
+fn set_close_terrain_supplemental_shader(
+    device: &Device9Ref<'_>,
+    variant: CloseTerrainVariant,
+    pair: ShaderPairSelection,
+    supplemental: bool,
+) -> bool {
+    let active = PENDING_CLOSE_TERRAIN_SUPPLEMENTAL_SHADER_ACTIVE.load(Ordering::Acquire);
+    if !supplemental_shader_transition_needed(active, supplemental) {
+        return true;
+    }
+
+    let pixel_shader = if supplemental {
+        let Some(shader) =
+            device_resources::close_terrain_supplemental_pixel_handle(variant.pixel_sls)
+        else {
+            return false;
+        };
+        shader
+    } else {
+        pair.replacement_pixel
+    };
+    // The engine cache deliberately continues owning pair.replacement_pixel.
+    // Retain the alternate program across compatible geometry draws, then
+    // restore the cached identity before SetShaders, fallback completion,
+    // frame cleanup, disable, reset, or resource release. This bounds raw
+    // transitions by payload-mode changes rather than geometry count.
+    if unsafe { device.set_raw_pixel_shader(pixel_shader) }.is_err() {
+        return false;
+    }
+    PENDING_CLOSE_TERRAIN_SUPPLEMENTAL_SHADER_ACTIVE.store(supplemental, Ordering::Release);
+    true
+}
+
+fn supplemental_shader_transition_needed(active: bool, requested: bool) -> bool {
+    active != requested
+}
+
+fn restore_close_terrain_fast_shader() -> bool {
+    if !PENDING_CLOSE_TERRAIN_SUPPLEMENTAL_SHADER_ACTIVE.load(Ordering::Acquire) {
+        return true;
+    }
+    let Some(pair) = pending_shader_pair() else {
+        return false;
+    };
+    let Some(device_ptr) = crate::backend::d3d_device_ptr() else {
+        return false;
+    };
+    let Some(device) = (unsafe { Device9Ref::from_raw_void(device_ptr) }) else {
+        return false;
+    };
+    if unsafe { device.set_raw_pixel_shader(pair.replacement_pixel) }.is_err() {
+        return false;
+    }
+    PENDING_CLOSE_TERRAIN_SUPPLEMENTAL_SHADER_ACTIVE.store(false, Ordering::Release);
+    true
+}
+
 fn restore_supplemental_light_texture(device: &Device9Ref<'_>) {
     if !PENDING_CLOSE_TERRAIN_LIGHT_TEXTURE_BOUND.load(Ordering::Acquire) {
         return;
@@ -1138,6 +1235,94 @@ fn restore_supplemental_light_texture(device: &Device9Ref<'_>) {
     }
 }
 
+fn bind_supplemental_sampler_state(device: &Device9Ref<'_>) -> bool {
+    let stage = device_resources::SUPPLEMENTAL_LIGHT_SAMPLER;
+    let Ok(min_filter) = device.sampler_state(stage, D3DSAMP_MINFILTER) else {
+        return false;
+    };
+    let Ok(mag_filter) = device.sampler_state(stage, D3DSAMP_MAGFILTER) else {
+        return false;
+    };
+    let Ok(srgb) = device.sampler_state(stage, D3DSAMP_SRGBTEXTURE) else {
+        return false;
+    };
+
+    let point = D3DTEXF_POINT.0 as u32;
+    // tex2Dlod fixes mip level zero, and both 64-wide coordinates are exact
+    // interior texel centers, so mip and address modes cannot influence this
+    // lookup. Min/mag filtering and sRGB decode remain physical fetch/color
+    // inputs and are therefore owned explicitly for the draw.
+    if min_filter == point && mag_filter == point && srgb == 0 {
+        return true;
+    }
+
+    // Publish the complete rollback record before the first mutating D3D call.
+    // A setter and its immediate rollback can both fail during device loss; in
+    // that case the active marker must survive so every later boundary retries
+    // restoration instead of silently treating partially changed state as the
+    // engine's state. This ordering is off the empty-payload fast path.
+    PENDING_CLOSE_TERRAIN_SAMPLER_MIN_FILTER.store(min_filter, Ordering::Relaxed);
+    PENDING_CLOSE_TERRAIN_SAMPLER_MAG_FILTER.store(mag_filter, Ordering::Relaxed);
+    PENDING_CLOSE_TERRAIN_SAMPLER_SRGB.store(srgb, Ordering::Relaxed);
+    PENDING_CLOSE_TERRAIN_SAMPLER_STATE_ACTIVE.store(true, Ordering::Release);
+
+    if (min_filter != point
+        && device
+            .set_sampler_state(stage, D3DSAMP_MINFILTER, point)
+            .is_err())
+        || (mag_filter != point
+            && device
+                .set_sampler_state(stage, D3DSAMP_MAGFILTER, point)
+                .is_err())
+        || (srgb != 0
+            && device
+                .set_sampler_state(stage, D3DSAMP_SRGBTEXTURE, 0)
+                .is_err())
+    {
+        restore_supplemental_sampler_state(device);
+        return false;
+    }
+    true
+}
+
+fn restore_supplemental_sampler_state(device: &Device9Ref<'_>) {
+    if !PENDING_CLOSE_TERRAIN_SAMPLER_STATE_ACTIVE.load(Ordering::Acquire) {
+        return;
+    }
+    let stage = device_resources::SUPPLEMENTAL_LIGHT_SAMPLER;
+    let mut restored = device
+        .set_sampler_state(
+            stage,
+            D3DSAMP_MINFILTER,
+            PENDING_CLOSE_TERRAIN_SAMPLER_MIN_FILTER.load(Ordering::Relaxed),
+        )
+        .is_ok();
+    restored &= device
+        .set_sampler_state(
+            stage,
+            D3DSAMP_MAGFILTER,
+            PENDING_CLOSE_TERRAIN_SAMPLER_MAG_FILTER.load(Ordering::Relaxed),
+        )
+        .is_ok();
+    restored &= device
+        .set_sampler_state(
+            stage,
+            D3DSAMP_SRGBTEXTURE,
+            PENDING_CLOSE_TERRAIN_SAMPLER_SRGB.load(Ordering::Relaxed),
+        )
+        .is_ok();
+    if restored {
+        PENDING_CLOSE_TERRAIN_SAMPLER_STATE_ACTIVE.store(false, Ordering::Release);
+    } else if !SUPPLEMENTAL_TEXTURE_RESTORE_FAILURE_LOGGED.swap(true, Ordering::AcqRel) {
+        log::warn!("[PBR] Engine-owned sampler s14 state could not be restored after terrain draw");
+    }
+}
+
+fn supplemental_sampler_state_is_active() -> bool {
+    PENDING_CLOSE_TERRAIN_LIGHT_TEXTURE_BOUND.load(Ordering::Acquire)
+        || PENDING_CLOSE_TERRAIN_SAMPLER_STATE_ACTIVE.load(Ordering::Acquire)
+}
+
 /// Forget a temporary s14 override after a proven D3D generation transition.
 ///
 /// A failed restore retains its marker while the device remains live. Once the
@@ -1145,6 +1330,8 @@ fn restore_supplemental_light_texture(device: &Device9Ref<'_>) {
 /// marker must not poison admission on the replacement device.
 pub(super) fn forget_supplemental_light_texture_binding_after_device_change() {
     PENDING_CLOSE_TERRAIN_LIGHT_TEXTURE_BOUND.store(false, Ordering::Release);
+    PENDING_CLOSE_TERRAIN_SAMPLER_STATE_ACTIVE.store(false, Ordering::Release);
+    PENDING_CLOSE_TERRAIN_SUPPLEMENTAL_SHADER_ACTIVE.store(false, Ordering::Release);
 }
 
 fn restore_engine_owned_replacement() {
@@ -1165,6 +1352,7 @@ fn restore_engine_owned_replacement() {
     restored &= unsafe { device.set_raw_pixel_shader(pair.replacement_pixel) }.is_ok();
     if restored {
         NATIVE_FALLBACK_ACTIVE.store(false, Ordering::Release);
+        PENDING_CLOSE_TERRAIN_SUPPLEMENTAL_SHADER_ACTIVE.store(false, Ordering::Release);
     } else {
         // A partial replacement bind is not drawable. Put both vanilla stages
         // back and retain fallback ownership so a later boundary can retry.
@@ -1188,7 +1376,9 @@ pub(super) fn release_device_resources() {
     let device = crate::backend::d3d_device_ptr()
         .and_then(|device_ptr| unsafe { Device9Ref::from_raw_void(device_ptr) });
     if let Some(device) = device.as_ref() {
+        restore_supplemental_sampler_state(device);
         restore_supplemental_light_texture(device);
+        let _ = restore_close_terrain_fast_shader();
         if let Some(pair) = pending_shader_pair()
             && !NATIVE_FALLBACK_ACTIVE.load(Ordering::Acquire)
         {
@@ -1210,7 +1400,6 @@ pub(super) fn release_device_resources() {
 #[must_use]
 pub(super) fn prepare_direct_draw(geometry: *mut c_void) -> bool {
     if !super::shader_enabled() {
-        release_device_resources();
         return false;
     }
 
@@ -1230,25 +1419,31 @@ pub(super) fn prepare_direct_draw(geometry: *mut c_void) -> bool {
     };
     let _span =
         crate::graphics_diagnostics::span(crate::graphics_diagnostics::Interval::PbrAdmission);
-    let admitted = match kind {
-        PENDING_DRAW_OBJECT => {
-            let pass_index = PENDING_DRAW_PASS_INDEX.load(Ordering::Acquire);
-            bind_object_replacement(pass_index, pair)
-        }
-        PENDING_DRAW_LAND_LOD => bind_land_lod_replacement(pair),
-        PENDING_DRAW_TERRAIN_FADE => bind_terrain_fade_replacement(pair),
-        PENDING_DRAW_CLOSE_TERRAIN => {
-            let pass_index = PENDING_DRAW_PASS_INDEX.load(Ordering::Acquire);
-            let pixel_index = PENDING_CLOSE_TERRAIN_PIXEL_INDEX.load(Ordering::Acquire) as usize;
-            bind_close_terrain_replacement(pass_index, pixel_index, pair, geometry)
-        }
-        _ => false,
-    };
+    // Repair a prior vanilla fallback before this geometry chooses any
+    // draw-specific state. Restoring afterward would overwrite a supplemental
+    // close-terrain pixel program selected by the binding transaction below.
+    // A failed repair remains vanilla and rejects this draw rather than
+    // reporting admission against a device state OMV does not own.
+    restore_engine_owned_replacement();
+    let replacement_ready = !NATIVE_FALLBACK_ACTIVE.load(Ordering::Acquire);
+    let admitted = replacement_ready
+        && match kind {
+            PENDING_DRAW_OBJECT => {
+                let pass_index = PENDING_DRAW_PASS_INDEX.load(Ordering::Acquire);
+                bind_object_replacement(pass_index, pair)
+            }
+            PENDING_DRAW_LAND_LOD => bind_land_lod_replacement(pair),
+            PENDING_DRAW_TERRAIN_FADE => bind_terrain_fade_replacement(pair),
+            PENDING_DRAW_CLOSE_TERRAIN => {
+                let pass_index = PENDING_DRAW_PASS_INDEX.load(Ordering::Acquire);
+                let pixel_index =
+                    PENDING_CLOSE_TERRAIN_PIXEL_INDEX.load(Ordering::Acquire) as usize;
+                bind_close_terrain_replacement(pass_index, pixel_index, pair, geometry)
+            }
+            _ => false,
+        };
     if admitted {
         crate::graphics_diagnostics::add(crate::graphics_diagnostics::Counter::PbrAdmission, 1);
-        // Usually a no-op. It only changes D3D state when a previous rejected
-        // draw in this same engine-owned batch selected the vanilla fallback.
-        restore_engine_owned_replacement();
     } else {
         crate::graphics_diagnostics::add(crate::graphics_diagnostics::Counter::PbrFallback, 1);
         bind_native_fallback(pair);
@@ -1269,6 +1464,7 @@ pub(super) fn finish_direct_draw(restore_after_draw: bool) {
     if let Some(device_ptr) = crate::backend::d3d_device_ptr()
         && let Some(device) = unsafe { Device9Ref::from_raw_void(device_ptr) }
     {
+        restore_supplemental_sampler_state(&device);
         restore_supplemental_light_texture(&device);
     }
 
@@ -1284,8 +1480,10 @@ pub(super) fn finish_draw_batches() {
     if let Some(device_ptr) = crate::backend::d3d_device_ptr()
         && let Some(device) = unsafe { Device9Ref::from_raw_void(device_ptr) }
     {
+        restore_supplemental_sampler_state(&device);
         restore_supplemental_light_texture(&device);
     }
+    let _ = restore_close_terrain_fast_shader();
     restore_engine_owned_replacement();
     PENDING_DRAW_KIND.store(PENDING_DRAW_NONE, Ordering::Release);
     PENDING_DRAW_EVALUATED.store(true, Ordering::Release);
@@ -1364,10 +1562,11 @@ fn bind_native_fallback(pair: ShaderPairSelection) -> bool {
     let Some(device) = (unsafe { Device9Ref::from_raw_void(device_ptr) }) else {
         return false;
     };
+    restore_supplemental_sampler_state(&device);
     restore_supplemental_light_texture(&device);
     // A failed restore means OMV still owns s14. Reporting a successful
     // fallback in that state would submit vanilla with OMV's data texture.
-    if PENDING_CLOSE_TERRAIN_LIGHT_TEXTURE_BOUND.load(Ordering::Acquire) {
+    if supplemental_sampler_state_is_active() {
         return false;
     }
     if NATIVE_FALLBACK_ACTIVE.load(Ordering::Acquire) {
@@ -1377,10 +1576,16 @@ fn bind_native_fallback(pair: ShaderPairSelection) -> bool {
     let pixel_result = unsafe { device.set_raw_pixel_shader(pair.native_pixel) };
     if vertex_result.is_err() || pixel_result.is_err() {
         let _ = unsafe { device.set_raw_vertex_shader(pair.replacement_vertex) };
-        let _ = unsafe { device.set_raw_pixel_shader(pair.replacement_pixel) };
+        if unsafe { device.set_raw_pixel_shader(pair.replacement_pixel) }.is_ok() {
+            PENDING_CLOSE_TERRAIN_SUPPLEMENTAL_SHADER_ACTIVE.store(false, Ordering::Release);
+        }
         return false;
     }
 
+    // The native pixel bind supersedes either member of the close-terrain pair.
+    // Keeping the supplemental marker set would cause a later boundary to make
+    // an unnecessary raw transition based on stale device-state ownership.
+    PENDING_CLOSE_TERRAIN_SUPPLEMENTAL_SHADER_ACTIVE.store(false, Ordering::Release);
     NATIVE_FALLBACK_ACTIVE.store(true, Ordering::Release);
     true
 }
@@ -2145,6 +2350,7 @@ mod tests {
         close_terrain_required_sampler_mask, close_terrain_variant, direct_draw_requires_finish,
         direct_required_sampler_mask, direct_sampler_change, draw_needs_evaluation,
         hash_light_data, native_shadow_depth_table_indices, object_draw_key, required_sampler_mask,
+        supplemental_shader_transition_needed,
     };
     use crate::effects::pbr::engine_contracts::DrawSnapshot;
     use crate::effects::pbr::shader_registry::{self, ShaderStage};
@@ -2214,7 +2420,7 @@ mod tests {
     }
 
     #[test]
-    fn disabled_set_shaders_calls_native_code_before_tracking_work() {
+    fn disabled_set_shaders_skips_pending_draw_reconciliation() {
         let source = include_str!("hooks.rs");
         let set_shaders = source
             .split_once("unsafe extern \"thiscall\" fn hook_set_shaders")
@@ -2223,9 +2429,13 @@ mod tests {
             .map(|(body, _)| body)
             .expect("SetShaders hook");
         let disabled_gate = set_shaders.find("if !super::shader_enabled()").unwrap();
+        let supplemental_restore = set_shaders
+            .find("restore_close_terrain_fast_shader()")
+            .unwrap();
         let restore = set_shaders
             .find("restore_engine_owned_replacement()")
             .unwrap();
+        assert!(supplemental_restore < disabled_gate);
         assert!(disabled_gate < restore);
     }
 
@@ -2399,7 +2609,7 @@ mod tests {
     }
 
     #[test]
-    fn admitted_draw_paths_do_not_mutate_raw_shader_state() {
+    fn non_terrain_admitted_draw_paths_do_not_mutate_raw_shader_state() {
         let source = include_str!("hooks.rs");
         for (start, end) in [
             (
@@ -2409,10 +2619,6 @@ mod tests {
             (
                 "fn bind_terrain_fade_replacement",
                 "fn bind_close_terrain_replacement",
-            ),
-            (
-                "fn bind_close_terrain_replacement",
-                "fn pair_still_owns_native_wrappers",
             ),
             (
                 "fn bind_object_replacement",
@@ -2428,6 +2634,39 @@ mod tests {
             assert!(!body.contains("set_raw_vertex_shader"), "{start}");
             assert!(!body.contains("set_raw_pixel_shader"), "{start}");
         }
+    }
+
+    #[test]
+    fn supplemental_shader_changes_only_when_payload_mode_changes() {
+        let mut active = false;
+        let mut transitions = 0;
+        for requested in [false, true, true, false, false] {
+            if supplemental_shader_transition_needed(active, requested) {
+                transitions += 1;
+                active = requested;
+            }
+        }
+        assert_eq!(transitions, 2);
+
+        let source = include_str!("hooks.rs");
+        let select = source
+            .split_once("fn set_close_terrain_supplemental_shader")
+            .and_then(|(_, tail)| tail.split_once("fn supplemental_shader_transition_needed"))
+            .map(|(body, _)| body)
+            .expect("supplemental shader selector");
+        assert_eq!(select.matches("set_raw_pixel_shader").count(), 1);
+        assert!(select.contains("supplemental_shader_transition_needed"));
+
+        let prepare = source
+            .split_once("pub(super) fn prepare_direct_draw")
+            .and_then(|(_, tail)| tail.split_once("pub(super) fn finish_direct_draw"))
+            .map(|(body, _)| body)
+            .expect("direct draw preparation");
+        assert!(
+            prepare.find("restore_engine_owned_replacement").unwrap()
+                < prepare.find("bind_close_terrain_replacement").unwrap(),
+            "a prior vanilla fallback must be repaired before supplemental selection"
+        );
     }
 
     #[test]
@@ -2450,10 +2689,11 @@ mod tests {
         assert!(upload < publish && publish < constants);
         assert!(!bind.contains("record_texture_binding"));
         assert!(!bind.contains("set_sampler_state"));
+        assert!(!bind.contains("let mut texels"));
 
         let restore = source
             .split_once("fn restore_supplemental_light_texture")
-            .and_then(|(_, tail)| tail.split_once("fn restore_engine_owned_replacement"))
+            .and_then(|(_, tail)| tail.split_once("fn bind_supplemental_sampler_state"))
             .map(|(body, _)| body)
             .expect("supplemental texture restore");
         assert!(restore.contains("super::samplers::tracked_texture_binding(stage)"));
@@ -2461,6 +2701,23 @@ mod tests {
         assert!(restore.contains("clear_texture"));
 
         assert!(bind.contains("TrackedTextureBinding::Unknown"));
+
+        let sampler = source
+            .split_once("fn bind_supplemental_sampler_state")
+            .and_then(|(_, tail)| tail.split_once("fn supplemental_sampler_state_is_active"))
+            .map(|(body, _)| body)
+            .expect("supplemental sampler transaction");
+        assert_eq!(sampler.matches("device.sampler_state").count(), 3);
+        assert!(sampler.contains("D3DTEXF_POINT"));
+        assert!(sampler.contains("D3DSAMP_SRGBTEXTURE"));
+        assert!(sampler.contains("fn restore_supplemental_sampler_state"));
+        assert!(
+            sampler
+                .find("PENDING_CLOSE_TERRAIN_SAMPLER_STATE_ACTIVE.store(true")
+                .unwrap()
+                < sampler.find(".set_sampler_state").unwrap(),
+            "sampler rollback ownership must be published before the first D3D mutation"
+        );
 
         let finish = source
             .split_once("pub(super) fn finish_direct_draw")

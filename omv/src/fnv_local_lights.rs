@@ -12,6 +12,12 @@
 //! COM. Published consumers borrow that retained identity directly. No later
 //! sampler bind walks `BSRenderedTexture -> NiTexture -> NiDX9TextureData`,
 //! performs `VirtualQuery`, or asks D3D9 for the resource description again.
+//!
+//! Terrain consumes scalar data through a post-Deferred render snapshot. The
+//! first geometry for a publication version copies the coherent atomic epoch;
+//! later geometries borrow ordinary POD from a nonblocking fixed-capacity
+//! owner. This prevents up to 64 records from being reconstructed atomically
+//! for every terrain draw while preserving the producer's lock-free mailbox.
 
 use core::{
     ffi::c_void,
@@ -116,6 +122,8 @@ static TERRAIN_PUBLICATION_FLAGS: [AtomicU32; TERRAIN_LIGHT_CAPACITY] =
     [const { AtomicU32::new(0) }; TERRAIN_LIGHT_CAPACITY];
 static TERRAIN_PUBLICATION_COMPONENTS: [AtomicU32; TERRAIN_LIGHT_COMPONENT_COUNT] =
     [const { AtomicU32::new(0) }; TERRAIN_LIGHT_COMPONENT_COUNT];
+static TERRAIN_RENDER_SNAPSHOT: LazyLock<Mutex<TerrainRenderSnapshot>> =
+    LazyLock::new(|| Mutex::new(TerrainRenderSnapshot::default()));
 
 static HOOKS_READY: AtomicBool = AtomicBool::new(false);
 static SHADOW_HOOK_READY: AtomicBool = AtomicBool::new(false);
@@ -217,6 +225,51 @@ pub(crate) struct TerrainSceneLight {
     pub(crate) lod_dimmer: f32,
     /// Native shadow fade, retained for diagnostics and future consumers.
     pub(crate) fade: f32,
+}
+
+/// Fixed render-thread copy of one coherent atomic terrain publication.
+///
+/// This owner is separate from the atmosphere mailbox because terrain needs
+/// scalar POD only and must never retain an engine or COM pointer.
+struct TerrainRenderSnapshot {
+    valid: bool,
+    version: u32,
+    render_epoch: u32,
+    device_identity: usize,
+    device_generation: u32,
+    count: usize,
+    lights: [TerrainSceneLight; TERRAIN_LIGHT_CAPACITY],
+}
+
+impl Default for TerrainRenderSnapshot {
+    fn default() -> Self {
+        Self {
+            valid: false,
+            version: 0,
+            render_epoch: 0,
+            device_identity: 0,
+            device_generation: 0,
+            count: 0,
+            lights: [TerrainSceneLight::default(); TERRAIN_LIGHT_CAPACITY],
+        }
+    }
+}
+
+impl TerrainRenderSnapshot {
+    /// Test whether all owners of the copied payload are still exact.
+    fn matches(
+        &self,
+        version: u32,
+        render_epoch: u32,
+        device_identity: usize,
+        device_generation: u32,
+    ) -> bool {
+        self.valid
+            && self.version == version
+            && self.render_epoch == render_epoch
+            && self.device_identity == device_identity
+            && self.device_generation == device_generation
+    }
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -422,6 +475,10 @@ pub(crate) fn install_hooks() {
     SHADOW_HOOK_READY.store(false, Ordering::Release);
     LazyLock::force(&STAGING);
     LazyLock::force(&PUBLISHED);
+    // Pay the fixed POD snapshot initialization at the established
+    // DeferredInit hook-install boundary. First terrain submission must not
+    // absorb LazyLock initialization while the player is already rendering.
+    LazyLock::force(&TERRAIN_RENDER_SNAPSHOT);
 
     if !WORLD_LIGHT_EPOCH_HOOK.is_initialized() {
         if !validate_exact_hook_entry(
@@ -593,26 +650,45 @@ pub(crate) fn try_with_current_terrain_lights<T>(
         return None;
     }
     let device_identity = crate::backend::d3d_device_ptr()? as usize;
+    let render_epoch = crate::hooks::render_epoch();
+    let device_generation = crate::backend::d3d_device_generation();
     if !terrain_epoch_is_current(
         TERRAIN_PUBLICATION_RENDER_EPOCH.load(Ordering::Relaxed),
         TERRAIN_PUBLICATION_DEVICE.load(Ordering::Relaxed),
         TERRAIN_PUBLICATION_DEVICE_GENERATION.load(Ordering::Relaxed),
-        crate::hooks::render_epoch(),
+        render_epoch,
         device_identity,
-        crate::backend::d3d_device_generation(),
+        device_generation,
     ) {
         return None;
     }
+
+    let Some(mut snapshot) = TERRAIN_RENDER_SNAPSHOT.try_lock() else {
+        return None;
+    };
+    if snapshot.matches(version, render_epoch, device_identity, device_generation) {
+        return Some(callback(&snapshot.lights[..snapshot.count]));
+    }
+
+    // Mark the prior snapshot unusable before copying. If the producer changes
+    // version during the copy, this draw fails closed and a later draw retries;
+    // partially refreshed POD is never exposed to a callback.
+    snapshot.valid = false;
     let count =
         (TERRAIN_PUBLICATION_COUNT.load(Ordering::Relaxed) as usize).min(TERRAIN_LIGHT_CAPACITY);
-    let mut lights = [TerrainSceneLight::default(); TERRAIN_LIGHT_CAPACITY];
-    for (index, light) in lights[..count].iter_mut().enumerate() {
+    for (index, light) in snapshot.lights[..count].iter_mut().enumerate() {
         *light = load_terrain_publication_light(index);
     }
     if TERRAIN_PUBLICATION_VERSION.load(Ordering::Acquire) != version {
         return None;
     }
-    Some(callback(&lights[..count]))
+    snapshot.version = version;
+    snapshot.render_epoch = render_epoch;
+    snapshot.device_identity = device_identity;
+    snapshot.device_generation = device_generation;
+    snapshot.count = count;
+    snapshot.valid = true;
+    Some(callback(&snapshot.lights[..count]))
 }
 
 /// Return the immutable scalar-light publication generation.
@@ -1620,13 +1696,13 @@ mod tests {
         SHADOW_POSITIONAL_OFFSET, SHADOW_SCENE_LIGHT_SIZE, SHADOW_TRANSITION_OFFSET,
         SHADOW_VARIANT_A_RETURN, SPECIAL_RENDER_RETURN, ShadowDispatcherVariant, ShadowInvocation,
         ShadowRenderContext, ShadowTextureFormat, StagingEpoch, TERRAIN_LIGHT_CAPACITY,
-        TerrainSceneLight, WorldLightEpochFn, authoritative_shadow_invocation, build_epoch,
-        capture_requested, capture_terrain_scene_light, classify_capture_slot,
-        classify_shadow_invocation, hook_render_local_shadow, hook_world_light_epoch,
-        insert_ranked_light, insert_ranked_terrain_light, read_matrix4_unchecked,
-        record_diagnostic, scene_light_score, scene_scan_capacity, shadow_capture_requested,
-        terrain_epoch_is_current, terrain_light_is_eligible, try_take_published,
-        valid_light_scalars,
+        TerrainRenderSnapshot, TerrainSceneLight, WorldLightEpochFn,
+        authoritative_shadow_invocation, build_epoch, capture_requested,
+        capture_terrain_scene_light, classify_capture_slot, classify_shadow_invocation,
+        hook_render_local_shadow, hook_world_light_epoch, insert_ranked_light,
+        insert_ranked_terrain_light, read_matrix4_unchecked, record_diagnostic, scene_light_score,
+        scene_scan_capacity, shadow_capture_requested, terrain_epoch_is_current,
+        terrain_light_is_eligible, try_take_published, valid_light_scalars,
     };
     use crate::backend::{CameraFrame, CameraTransformFrame};
     use parking_lot::Mutex;
@@ -1849,6 +1925,36 @@ mod tests {
         assert!(!terrain_epoch_is_current(7, 0x5678, 2, 7, 0x1234, 2));
         assert!(!terrain_epoch_is_current(7, 0x1234, 1, 7, 0x1234, 2));
         assert!(!terrain_epoch_is_current(7, 0, 0, 7, 0, 0));
+    }
+
+    #[test]
+    fn terrain_render_snapshot_reuses_only_an_exact_publication_epoch() {
+        let mut snapshot = TerrainRenderSnapshot::default();
+        assert!(!snapshot.matches(8, 11, 0x1234, 2));
+
+        snapshot.valid = true;
+        snapshot.version = 8;
+        snapshot.render_epoch = 11;
+        snapshot.device_identity = 0x1234;
+        snapshot.device_generation = 2;
+        assert!(snapshot.matches(8, 11, 0x1234, 2));
+        assert!(!snapshot.matches(10, 11, 0x1234, 2));
+        assert!(!snapshot.matches(8, 12, 0x1234, 2));
+        assert!(!snapshot.matches(8, 11, 0x5678, 2));
+        assert!(!snapshot.matches(8, 11, 0x1234, 3));
+
+        let source = include_str!("fnv_local_lights.rs");
+        let consumer = source
+            .split_once("pub(crate) fn try_with_current_terrain_lights")
+            .and_then(|(_, tail)| tail.split_once("pub(crate) fn terrain_light_generation"))
+            .map(|(body, _)| body)
+            .expect("terrain publication consumer");
+        assert!(consumer.contains("TERRAIN_RENDER_SNAPSHOT.try_lock()"));
+        assert!(
+            consumer.find("snapshot.matches").unwrap()
+                < consumer.find("load_terrain_publication_light").unwrap(),
+            "a cache hit must return before reconstructing atomic light records"
+        );
     }
 
     #[test]

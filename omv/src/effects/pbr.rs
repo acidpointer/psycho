@@ -10,9 +10,12 @@
 //! replacement handles transiently during `BSShader::SetShaders`, then restores
 //! native wrapper fields while `NiDX9RenderState` remains authoritative for the
 //! active D3D pair. Draw hooks validate samplers and constants without rebinding
-//! successful draws. Close terrain is admitted per draw because the engine can
-//! submit several geometries after one `SetShaders` call; only rejected draws
-//! temporarily switch to vanilla and require a replacement restore afterward.
+//! ordinary successful draws. Close terrain is admitted per draw because the
+//! engine can submit several geometries after one `SetShaders` call. Its common
+//! native-only program remains cache-owned; a nonempty portable-light payload
+//! may select the paired supplemental program until the next mode or engine
+//! boundary. Rejected draws temporarily switch to vanilla and require a
+//! replacement restore afterward.
 //!
 //! Runtime disable is a passive engine-contract boundary. The proven PBR
 //! inline hooks remain resident because restoring stale shader-wrapper or
@@ -457,14 +460,6 @@ pub(crate) fn finish_draw_batches() {
 /// is outside OMV's render-thread performance contract.
 pub(crate) fn tracked_texture(stage: u32) -> Option<usize> {
     samplers::tracked_texture(stage)
-}
-
-/// Return the generation of semantic texture-stage transitions.
-///
-/// Equal repeated `SetTexture` calls do not advance this value. It is suitable
-/// for generation-keyed draw caches shared by PBR and native sky.
-pub(crate) fn texture_generation() -> u32 {
-    samplers::texture_generation()
 }
 
 /// Apply live PBR settings at the serialized DisplayScene boundary.
@@ -1057,7 +1052,13 @@ mod master_setting_tests {
         let resources = include_str!("pbr/device_resources.rs");
         assert!(resources.contains("Option<DynamicRgba32fTexture9>"));
         assert!(resources.contains("create_dynamic_rgba32f_texture"));
-        assert!(resources.contains("texture.write_discard(texels)"));
+        assert!(resources.contains("lights.matches_shader_texture_bits"));
+        assert!(resources.contains("texture.write_discard(&texels)"));
+        assert!(
+            resources.find("matches_shader_texture_bits").unwrap()
+                < resources.find("let mut texels").unwrap(),
+            "repeated payloads must be rejected before serialization"
+        );
         assert!(resources.contains("state.supplemental_light_texture = None"));
         assert!(
             resources.contains("forget_supplemental_light_texture_binding_after_device_change")

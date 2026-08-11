@@ -3,6 +3,14 @@
 //! The object collection is keyed by the shader wrapper's own SLS template.
 //! `SetShaders` must use records captured from shader creation/adoption, not a
 //! terrain-style pair classifier.
+//!
+//! Close terrain deliberately gives the already-owned even/odd pixel resources
+//! a second internal meaning. Even resources compile the native-only fast path;
+//! odd resources compile the supplemental-light path. OMV does not consume the
+//! native canopy projection in either program, so both engine row identities
+//! may select either internal resource without changing terrain pixels. This
+//! specialization preserves the logical catalog and device-resource count while
+//! keeping supplemental sampler and register pressure out of ordinary draws.
 
 use std::borrow::Cow;
 use std::ffi::{CStr, c_char};
@@ -941,6 +949,16 @@ pub(super) fn close_terrain_template_id(stage: ShaderStage, sls_number: u16) -> 
     )
 }
 
+/// Return the internal native-only resource paired with a close-terrain row.
+pub(super) const fn close_terrain_fast_sls(sls_number: u16) -> u16 {
+    sls_number & !1
+}
+
+/// Return the internal supplemental-light resource paired with a terrain row.
+pub(super) const fn close_terrain_supplemental_sls(sls_number: u16) -> u16 {
+    close_terrain_fast_sls(sls_number) + 1
+}
+
 pub(super) fn template_is_terrain_fade(id: u16) -> bool {
     let index = id as usize;
     let first = object_template_count() + LAND_LOD_TEMPLATES.len();
@@ -1023,8 +1041,15 @@ pub(super) fn template_source(id: u16, template: &ShaderTemplate) -> Cow<'static
         ShaderStage::Vertex => Cow::Borrowed(CLOSE_TERRAIN_VERTEX_SOURCE.as_bytes()),
         ShaderStage::Pixel => {
             let mut source = String::with_capacity(
-                template.defines.len() + CLOSE_TERRAIN_PIXEL_SOURCE.len() + 2,
+                template.defines.len() + CLOSE_TERRAIN_PIXEL_SOURCE.len() + 48,
             );
+            // The paired odd resource is no longer a bytecode alias. It is the
+            // supplemental program selected only after CPU light capture proves
+            // a nonempty payload. No new logical template or D3D resource is
+            // introduced, which keeps the established resource catalog stable.
+            if template.sls_number & 1 != 0 {
+                source.push_str("#define OMV_SUPPLEMENTAL_LIGHTS 1\n");
+            }
             source.push_str(template.defines);
             source.push('\n');
             source.push_str(CLOSE_TERRAIN_PIXEL_SOURCE);
@@ -1345,6 +1370,47 @@ mod shader_compile_tests {
         }
         assert!(offset < bytecode.len(), "shader bytecode has no END token");
         relative_reads
+    }
+
+    fn compiled_temporary_register_count(bytecode: &[u32]) -> usize {
+        const COMMENT: u16 = 0xfffe;
+        const END: u16 = 0xffff;
+        const REGISTER_NUMBER_MASK: u32 = 0x7ff;
+        const REGISTER_TYPE_MASK: u32 = 0x7000_0000;
+        const REGISTER_TYPE_MASK2: u32 = 0x0000_1800;
+        const REGISTER_TYPE_TEMP: u32 = 0;
+
+        let mut maximum = None;
+        let mut offset = 1usize;
+        while offset < bytecode.len() {
+            let instruction = bytecode[offset];
+            let opcode = instruction as u16;
+            if opcode == END {
+                break;
+            }
+            if opcode == COMMENT {
+                offset += 1 + ((instruction >> 16) & 0x7fff) as usize;
+                continue;
+            }
+            let instruction_length = ((instruction >> 24) & 0x0f) as usize;
+            // Every temporary is defined before use. Inspecting destinations
+            // avoids misreading CALL/LABEL identifiers and immediate DEF words
+            // as register tokens while still finding the highest allocated r#.
+            let writes_destination = matches!(opcode, 1..=24 | 32..=37 | 64..=80 | 88..=95);
+            if writes_destination && instruction_length != 0 {
+                let parameter = bytecode[offset + 1];
+                let register_type = ((parameter & REGISTER_TYPE_MASK) >> 28)
+                    | ((parameter & REGISTER_TYPE_MASK2) >> 8);
+                if register_type == REGISTER_TYPE_TEMP {
+                    let register = (parameter & REGISTER_NUMBER_MASK) as usize;
+                    maximum =
+                        Some(maximum.map_or(register, |current: usize| current.max(register)));
+                }
+            }
+            offset += 1 + instruction_length;
+        }
+        assert!(offset < bytecode.len(), "shader bytecode has no END token");
+        maximum.map_or(0, |register| register + 1)
     }
 
     #[test]
@@ -1857,9 +1923,10 @@ mod shader_compile_tests {
         assert!(CLOSE_TERRAIN_PIXEL_SOURCE.contains(
             "LoadSupplementalPointLight(supplemental_index, light_position, light_color);"
         ));
-        assert!(CLOSE_TERRAIN_PIXEL_SOURCE.contains("((float)index + 0.5f) / 32.0f"));
-        assert!(CLOSE_TERRAIN_PIXEL_SOURCE.contains("float4(light_u, 0.25f, 0.0f, 0.0f)"));
-        assert!(CLOSE_TERRAIN_PIXEL_SOURCE.contains("float4(light_u, 0.75f, 0.0f, 0.0f)"));
+        assert!(CLOSE_TERRAIN_PIXEL_SOURCE.contains("((float)(index * 2) + 0.5f) / 64.0f"));
+        assert!(CLOSE_TERRAIN_PIXEL_SOURCE.contains("((float)(index * 2) + 1.5f) / 64.0f"));
+        assert!(CLOSE_TERRAIN_PIXEL_SOURCE.contains("float4(position_u, 0.5f, 0.0f, 0.0f)"));
+        assert!(CLOSE_TERRAIN_PIXEL_SOURCE.contains("float4(color_u, 0.5f, 0.0f, 0.0f)"));
         assert!(!CLOSE_TERRAIN_PIXEL_SOURCE.contains("PointLightColor[point_index]"));
         assert!(!CLOSE_TERRAIN_PIXEL_SOURCE.contains("PointLightPosition[point_index]"));
     }
@@ -1882,7 +1949,7 @@ mod shader_compile_tests {
 
     #[test]
     fn close_terrain_constant_selection_rejects_the_linear_compiler_cascade() {
-        let template_id = close_terrain_template_id(ShaderStage::Pixel, 2092).unwrap();
+        let template_id = close_terrain_template_id(ShaderStage::Pixel, 2093).unwrap();
         let template = template_at(template_id).unwrap();
         let optimized_source = template_source(template_id, template);
         let optimized_text = std::str::from_utf8(optimized_source.as_ref()).unwrap();
@@ -1892,14 +1959,18 @@ mod shader_compile_tests {
                 "float4 OMV_SupplementalPointLightData[48] : register(c92);",
             )
             .replace(
-                r#"    float light_u = ((float)index + 0.5f) / 32.0f;
+                r#"    // Adjacent position/color texels keep one light's complete record in the
+    // same short cache span. The 64-wide power-of-two layout also makes both
+    // texel centers exactly representable in shader-model-3 arithmetic.
+    float position_u = ((float)(index * 2) + 0.5f) / 64.0f;
+    float color_u = ((float)(index * 2) + 1.5f) / 64.0f;
     light_position = tex2Dlod(
         OMV_SupplementalPointLightTexture,
-        float4(light_u, 0.25f, 0.0f, 0.0f)
+        float4(position_u, 0.5f, 0.0f, 0.0f)
     );
     light_color = tex2Dlod(
         OMV_SupplementalPointLightTexture,
-        float4(light_u, 0.75f, 0.0f, 0.0f)
+        float4(color_u, 0.5f, 0.0f, 0.0f)
     );"#,
                 r#"    light_position = OMV_SupplementalPointLightData[index * 2];
     light_color = OMV_SupplementalPointLightData[index * 2 + 1];"#,
@@ -1980,11 +2051,11 @@ float4 Main(float2 uv : TEXCOORD0) : COLOR0
         const CMP: u16 = 88;
         let split_relative_reads = compiled_relative_constant_read_count(&split);
 
-        // ps_3_0 can address c# relative to the aL loop register, but neither
-        // supported D3DCompiler route preserves the HLSL array subscript as
-        // that operation. Both lower it to compare/select instructions. Keep
-        // this negative control so a future cleanup cannot reintroduce the
-        // attractive-looking split-array design without bytecode proof.
+        // Pixel shader 3.0 does not permit relative c# addressing. The aL loop
+        // register can relatively address input registers, not float constants.
+        // Both supported compilers therefore lower these HLSL arrays to
+        // compare/select instructions. Keep the negative control so source
+        // appearance cannot be mistaken for a legal constant-time c# load.
         assert_eq!(split_relative_reads, 0);
         assert!(compiled_opcode_count(&split, CMP) >= 40);
         assert_eq!(compiled_relative_constant_read_count(&interleaved), 0);
@@ -2003,6 +2074,61 @@ float4 Main(float2 uv : TEXCOORD0) : COLOR0
         assert!(!CLOSE_TERRAIN_PIXEL_SOURCE.contains("#define OMV_LOAD_SUPPLEMENTAL"));
         assert!(!CLOSE_TERRAIN_PIXEL_SOURCE.contains("register(c92)"));
         assert_eq!(CLOSE_TERRAIN_PIXEL_SOURCE.matches("tex2Dlod(").count(), 2);
+    }
+
+    #[test]
+    fn close_terrain_fast_program_has_no_hidden_supplemental_gpu_work() {
+        for (fast_sls, supplemental_sls, material_samples) in
+            [(2092, 2093, 2usize), (2140, 2141, 14usize)]
+        {
+            let fast_id = close_terrain_template_id(ShaderStage::Pixel, fast_sls).unwrap();
+            let supplemental_id =
+                close_terrain_template_id(ShaderStage::Pixel, supplemental_sls).unwrap();
+            let fast_template = template_at(fast_id).unwrap();
+            let supplemental_template = template_at(supplemental_id).unwrap();
+            let fast_source = template_source(fast_id, fast_template);
+            let supplemental_source = template_source(supplemental_id, supplemental_template);
+            assert!(
+                !std::str::from_utf8(fast_source.as_ref())
+                    .unwrap()
+                    .contains("#define OMV_SUPPLEMENTAL_LIGHTS 1")
+            );
+            assert!(
+                std::str::from_utf8(supplemental_source.as_ref())
+                    .unwrap()
+                    .contains("#define OMV_SUPPLEMENTAL_LIGHTS 1")
+            );
+
+            let fast = crate::shaders::compile_hlsl_source_target(
+                fast_template.label,
+                fast_source.as_ref(),
+                "ps_3_0",
+            )
+            .unwrap();
+            let supplemental = crate::shaders::compile_hlsl_source_target(
+                supplemental_template.label,
+                supplemental_source.as_ref(),
+                "ps_3_0",
+            )
+            .unwrap();
+            assert_eq!(compiled_texture_instruction_count(&fast), material_samples);
+            assert_eq!(
+                compiled_texture_instruction_count(&supplemental),
+                material_samples + 2
+            );
+            assert!(
+                compiled_instruction_opcodes(&fast).len() + 50
+                    < compiled_instruction_opcodes(&supplemental).len(),
+                "SLS{fast_sls} did not eliminate the supplemental program"
+            );
+            assert!(
+                compiled_temporary_register_count(&fast) + 4
+                    <= compiled_temporary_register_count(&supplemental),
+                "SLS{fast_sls} retained supplemental register pressure: fast={} supplemental={}",
+                compiled_temporary_register_count(&fast),
+                compiled_temporary_register_count(&supplemental)
+            );
+        }
     }
 
     #[test]
@@ -2094,7 +2220,7 @@ float4 Main(float2 uv : TEXCOORD0) : COLOR0
     }
 
     #[test]
-    fn canopy_companions_neutralize_camera_projected_object_shadows() {
+    fn paired_terrain_programs_neutralize_canopy_projection_and_specialize_supplements() {
         assert!(VANILLA_TERRAIN_1_CANOPY_PIXEL.contains("dcl_2d s14"));
         assert!(VANILLA_TERRAIN_1_CANOPY_PIXEL.contains("dcl_2d s15"));
         assert!(VANILLA_TERRAIN_1_CANOPY_PIXEL.contains("texld_pp r1.xyzw, r1.xyzw, s15"));
@@ -2126,9 +2252,16 @@ float4 Main(float2 uv : TEXCOORD0) : COLOR0
                 )
                 .unwrap();
 
+                assert_ne!(canopy_bytecode, base_bytecode);
                 assert_eq!(
-                    canopy_bytecode, base_bytecode,
-                    "SLS{canopy_sls} reintroduced camera-dependent lighting absent from SLS{base_sls}"
+                    compiled_texture_instruction_count(&base_bytecode),
+                    usize::from(texture_count) * 2,
+                    "SLS{base_sls} fast path carries hidden supplemental fetches"
+                );
+                assert_eq!(
+                    compiled_texture_instruction_count(&canopy_bytecode),
+                    usize::from(texture_count) * 2 + 2,
+                    "SLS{canopy_sls} supplemental path lost its two data fetches"
                 );
             }
         }
@@ -2424,22 +2557,22 @@ float4 Main(float2 uv : TEXCOORD0) : COLOR0
     #[test]
     fn representative_terrain_bytecode_stays_bounded() {
         let limits = [
-            ("SLS2002_v_landlod", 1_708, 90, 0),
-            ("SLS2003_p_landlod", 3_996, 211, 5),
-            ("SLS2080_v_terrain_fade", 1_584, 87, 0),
-            ("SLS2082_p_terrain_fade", 3_520, 192, 3),
-            ("SLS2092_p_terrain_t1_l0", 6_940, 419, 4),
-            ("SLS2093_p_terrain_t1_l0_canopy", 6_940, 419, 4),
-            ("SLS2098_p_terrain_t1_l24", 9_416, 612, 4),
-            ("SLS2099_p_terrain_t1_l24_canopy", 9_416, 612, 4),
-            ("SLS2140_p_terrain_t7_l0", 8_296, 504, 16),
-            ("SLS2141_p_terrain_t7_l0_canopy", 8_296, 504, 16),
-            ("SLS2146_p_terrain_t7_l24", 10_772, 697, 16),
-            ("SLS2147_p_terrain_t7_l24_canopy", 10_772, 697, 16),
+            ("SLS2002_v_landlod", 1_708, 90, 0, 4),
+            ("SLS2003_p_landlod", 3_996, 211, 5, 11),
+            ("SLS2080_v_terrain_fade", 1_584, 87, 0, 2),
+            ("SLS2082_p_terrain_fade", 3_520, 192, 3, 12),
+            ("SLS2092_p_terrain_t1_l0", 4_368, 248, 2, 11),
+            ("SLS2093_p_terrain_t1_l0_canopy", 6_952, 419, 4, 24),
+            ("SLS2098_p_terrain_t1_l24", 8_756, 574, 2, 24),
+            ("SLS2099_p_terrain_t1_l24_canopy", 9_428, 612, 4, 28),
+            ("SLS2140_p_terrain_t7_l0", 5_724, 333, 14, 11),
+            ("SLS2141_p_terrain_t7_l0_canopy", 8_308, 504, 16, 23),
+            ("SLS2146_p_terrain_t7_l24", 10_112, 659, 14, 24),
+            ("SLS2147_p_terrain_t7_l24_canopy", 10_784, 697, 16, 28),
         ];
         for template_id in 0..template_count() {
             let template = template_at(template_id as u16).unwrap();
-            if let Some((_, byte_limit, instruction_limit, texture_limit)) =
+            if let Some((_, byte_limit, instruction_limit, texture_limit, temporary_limit)) =
                 limits.iter().find(|(label, ..)| *label == template.label)
             {
                 let source = template_source(template_id as u16, template);
@@ -2451,6 +2584,7 @@ float4 Main(float2 uv : TEXCOORD0) : COLOR0
                 .unwrap();
                 let opcodes = compiled_instruction_opcodes(&bytecode);
                 let texture_count = compiled_texture_instruction_count(&bytecode);
+                let temporary_count = compiled_temporary_register_count(&bytecode);
                 assert!(
                     bytecode.len() * 4 <= *byte_limit,
                     "{} grew to {} bytes (limit {})",
@@ -2469,6 +2603,13 @@ float4 Main(float2 uv : TEXCOORD0) : COLOR0
                     texture_count, *texture_limit,
                     "{} texture samples",
                     template.label
+                );
+                assert!(
+                    temporary_count <= *temporary_limit,
+                    "{} grew to {} temporary registers (limit {})",
+                    template.label,
+                    temporary_count,
+                    temporary_limit
                 );
             }
         }
@@ -2545,6 +2686,9 @@ float4 Main(float2 uv : TEXCOORD0) : COLOR0
     #[test]
     fn prepared_terrain_brdf_matches_the_original_equation() {
         const PI: f32 = std::f32::consts::PI;
+        assert!(CLOSE_TERRAIN_PIXEL_SOURCE.contains("float geometry_numerator ="));
+        assert!(CLOSE_TERRAIN_PIXEL_SOURCE.contains("float geometry_denominator ="));
+        assert!(!CLOSE_TERRAIN_PIXEL_SOURCE.contains("float view_shadowing ="));
         for roughness in [0.043f32, 0.2, 0.55, 1.0] {
             for metallic in [0.0f32, 0.35, 1.0] {
                 for albedo in [0.02f32, 0.18, 0.8] {
@@ -2575,9 +2719,16 @@ float4 Main(float2 uv : TEXCOORD0) : COLOR0
                                 let original = (original_diffuse + original_specular) * ndotl * PI;
 
                                 let prepared_diffuse_color = albedo * (1.0 - metallic) / PI;
-                                let prepared_specular =
-                                    distribution * view_shadowing * light_shadowing * fresnel
-                                        / (4.0 * ndotv * ndotl).max(0.000_01);
+                                let view_denominator =
+                                    (ndotv * (1.0 - geometry_k) + geometry_k).max(0.000_000_01);
+                                let light_denominator =
+                                    (ndotl * (1.0 - geometry_k) + geometry_k).max(0.000_000_01);
+                                let geometry_numerator = ndotv * ndotl;
+                                let geometry_denominator = view_denominator
+                                    * light_denominator
+                                    * (4.0 * geometry_numerator).max(0.000_01);
+                                let prepared_specular = distribution * fresnel * geometry_numerator
+                                    / geometry_denominator;
                                 let prepared = ((1.0 - fresnel) * prepared_diffuse_color
                                     + prepared_specular)
                                     * ndotl
