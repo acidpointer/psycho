@@ -39,10 +39,10 @@ pub use windows::Win32::Graphics::Direct3D9::{
 };
 use windows::Win32::Graphics::Direct3D9::{
     D3DADAPTER_DEFAULT, D3DADAPTER_IDENTIFIER9, D3DBACKBUFFER_TYPE, D3DBACKBUFFER_TYPE_MONO,
-    D3DCLEAR_ZBUFFER, D3DDEVICE_CREATION_PARAMETERS, D3DDISPLAYMODE, D3DLOCKED_RECT,
-    D3DPMISCCAPS_MRTINDEPENDENTBITDEPTHS, D3DPOOL, D3DPRESENT_PARAMETERS, D3DPRIMITIVETYPE,
-    D3DRENDERSTATETYPE, D3DRESOURCETYPE, D3DSAMPLERSTATETYPE, D3DSTATEBLOCKTYPE,
-    D3DTEXTUREFILTERTYPE, D3DTEXTURESTAGESTATETYPE, D3DUSAGE_DEPTHSTENCIL,
+    D3DCLEAR_ZBUFFER, D3DDEVICE_CREATION_PARAMETERS, D3DDISPLAYMODE, D3DLOCK_DISCARD,
+    D3DLOCKED_RECT, D3DPMISCCAPS_MRTINDEPENDENTBITDEPTHS, D3DPOOL, D3DPRESENT_PARAMETERS,
+    D3DPRIMITIVETYPE, D3DRENDERSTATETYPE, D3DRESOURCETYPE, D3DSAMPLERSTATETYPE, D3DSTATEBLOCKTYPE,
+    D3DTEXTUREFILTERTYPE, D3DTEXTURESTAGESTATETYPE, D3DUSAGE_DEPTHSTENCIL, D3DUSAGE_DYNAMIC,
     D3DUSAGE_QUERY_POSTPIXELSHADER_BLENDING, D3DUSAGE_RENDERTARGET, D3DVERTEXELEMENT9,
     Direct3DCreate9, IDirect3D9, IDirect3DBaseTexture9, IDirect3DDevice9, IDirect3DPixelShader9,
     IDirect3DStateBlock9, IDirect3DSurface9, IDirect3DTexture9, IDirect3DVertexBuffer9,
@@ -269,6 +269,9 @@ pub const D3DFMT_R16F: D3DFORMAT = D3DFORMAT(111);
 
 /// Four-channel 16-bit float render target used for high-quality color intermediates.
 pub const D3DFMT_A16B16G16R16F: D3DFORMAT = D3DFORMAT(113);
+
+/// Four-channel 32-bit float texture format used for exact shader data payloads.
+pub const D3DFMT_A32B32G32R32F: D3DFORMAT = D3DFORMAT(116);
 
 /// Magic render-state value that triggers RESZ depth resolve on supported D3D9 drivers.
 pub const D3DRESZ_POINT_SIZE: u32 = 0x7FA0_5000;
@@ -534,6 +537,35 @@ impl<'a> Device9Ref<'a> {
         };
 
         Texture9::new(texture)
+    }
+
+    /// Create a one-level dynamic RGBA32F texture in the default pool.
+    ///
+    /// The returned owner records the immutable dimensions so subsequent
+    /// discard writes validate their payload without querying D3D state in a
+    /// render callback. Default-pool lifetime still follows normal D3D9 reset
+    /// rules and remains the caller's responsibility.
+    pub fn create_dynamic_rgba32f_texture(
+        &self,
+        width: u32,
+        height: u32,
+    ) -> Direct3DResult<DynamicRgba32fTexture9> {
+        if width == 0 || height == 0 {
+            return Err(direct3d_failure());
+        }
+        let texture = self.create_texture(
+            width,
+            height,
+            1,
+            D3DUSAGE_DYNAMIC as u32,
+            D3DFMT_A32B32G32R32F,
+            D3DPOOL_DEFAULT,
+        )?;
+        Ok(DynamicRgba32fTexture9 {
+            texture,
+            width,
+            height,
+        })
     }
 
     /// Create a default-pool render-target texture.
@@ -1577,6 +1609,79 @@ impl Texture9 {
     /// Write one ARGB texel into a lockable 1x1 level-0 texture.
     pub fn write_level0_argb_pixel(&self, pixel: u32) -> Direct3DResult<()> {
         self.write_level0_argb(1, 1, &[pixel])
+    }
+}
+
+/// Owned one-level dynamic RGBA32F texture with query-free discard uploads.
+///
+/// This wrapper is intentionally narrower than [`Texture9`]. It can only be
+/// constructed by [`Device9Ref::create_dynamic_rgba32f_texture`], which fixes
+/// its format, usage, pool, mip count, and dimensions. That construction
+/// contract makes [`Self::write_discard`] safe without a per-write descriptor
+/// query on the render thread.
+#[derive(Clone, Debug)]
+pub struct DynamicRgba32fTexture9 {
+    texture: Texture9,
+    width: u32,
+    height: u32,
+}
+
+impl DynamicRgba32fTexture9 {
+    /// Borrow the underlying texture for a D3D sampler binding.
+    pub fn texture(&self) -> &Texture9 {
+        &self.texture
+    }
+
+    /// Replace level zero with one tightly packed RGBA32F payload.
+    ///
+    /// `D3DLOCK_DISCARD` allows the driver to rename storage instead of
+    /// waiting for prior draws that still consume the previous payload. The
+    /// input must contain exactly `width * height` texels from construction.
+    pub fn write_discard(&self, pixels: &[[f32; 4]]) -> Direct3DResult<()> {
+        let pixel_count = self
+            .width
+            .checked_mul(self.height)
+            .and_then(|count| usize::try_from(count).ok())
+            .ok_or_else(direct3d_failure)?;
+        if pixels.len() != pixel_count {
+            return Err(direct3d_failure());
+        }
+        let row_bytes = usize::try_from(self.width)
+            .ok()
+            .and_then(|width| width.checked_mul(size_of::<[f32; 4]>()))
+            .ok_or_else(direct3d_failure)?;
+
+        let mut locked = D3DLOCKED_RECT::default();
+        unsafe {
+            self.texture
+                .inner
+                .LockRect(0, &mut locked, null(), D3DLOCK_DISCARD as u32)?
+        };
+        let copy_result = (|| {
+            let pitch = usize::try_from(locked.Pitch).map_err(|_| direct3d_failure())?;
+            if locked.pBits.is_null() || pitch < row_bytes {
+                return Err(direct3d_failure());
+            }
+            let _destination_span = (self.height as usize)
+                .checked_sub(1)
+                .and_then(|last_row| last_row.checked_mul(pitch))
+                .and_then(|offset| offset.checked_add(row_bytes))
+                .ok_or_else(direct3d_failure)?;
+            for (row, source) in pixels.chunks_exact(self.width as usize).enumerate() {
+                let destination_offset = row.checked_mul(pitch).ok_or_else(direct3d_failure)?;
+                unsafe {
+                    core::ptr::copy_nonoverlapping(
+                        source.as_ptr().cast::<u8>(),
+                        locked.pBits.cast::<u8>().add(destination_offset),
+                        row_bytes,
+                    );
+                }
+            }
+            Ok(())
+        })();
+        let unlock_result = unsafe { self.texture.inner.UnlockRect(0) };
+        copy_result?;
+        unlock_result
     }
 }
 

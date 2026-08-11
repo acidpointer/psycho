@@ -1,8 +1,20 @@
-# OMV NVIDIA Close-Terrain Shader-Lowering Fix Plan
+# OMV NVIDIA Close-Terrain Shader-Lowering Fix Plan (Superseded Design)
 
 Date: 2026-08-10
 
-Status: planned; no source implementation or runtime closure has been completed.
+Status: the split-constant-array design in this document was rejected by its
+own Phase 0 compiler gate. It is preserved as the pre-implementation decision
+record and must not be implemented. The replacement design, source changes,
+static evidence, and remaining runtime gates are authoritative in
+`graphics_fnv_omv_nvidia_close_terrain_shader_fix_implementation.md`.
+
+Both supported compiler routes lowered separate dynamically indexed constant
+arrays to compare/select cascades rather than relative constant reads. OMV
+therefore moved only its supplemental light records to a 32x2 dynamic RGBA32F
+shader-data texture. Native `c39..c88`, supplemental count `c91`, one shader
+per row, one draw, full light coverage, and all material equations remain
+unchanged. No NVIDIA performance claim is closed until the controlled runtime
+matrix passes.
 
 ## Purpose
 

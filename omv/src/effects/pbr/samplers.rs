@@ -86,6 +86,17 @@ struct TextureStageSlot {
     selector: AtomicUsize,
 }
 
+/// Engine-observed ownership of one D3D texture stage.
+///
+/// `Unknown` is intentionally distinct from `Null`: only the latter proves
+/// that a temporary raw override can be restored by clearing the stage.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum TrackedTextureBinding {
+    Unknown,
+    Null,
+    Bound(usize),
+}
+
 impl TextureStageSlot {
     fn new() -> Self {
         Self {
@@ -292,14 +303,37 @@ pub(super) fn missing_required_mask(required_mask: u16) -> u16 {
 
 /// Return a known bound texture identity, or `None` for unknown/null state.
 pub(super) fn tracked_texture(stage: u32) -> Option<usize> {
-    let slot = usize::try_from(stage)
-        .ok()
-        .and_then(|index| TEXTURE_SLOTS.get(index))?;
-    if !slot.known.load(Ordering::Acquire) {
-        return None;
+    match tracked_texture_binding(stage) {
+        TrackedTextureBinding::Bound(texture) => Some(texture),
+        TrackedTextureBinding::Unknown | TrackedTextureBinding::Null => None,
     }
+}
+
+/// Return the exact engine-observed state of one texture stage.
+///
+/// Temporary raw D3D overrides must use this form rather than
+/// [`tracked_texture`], because restoring an unknown stage as null would
+/// desynchronize `NiDX9RenderState` from the device.
+pub(super) fn tracked_texture_binding(stage: u32) -> TrackedTextureBinding {
+    let Some(slot) = usize::try_from(stage)
+        .ok()
+        .and_then(|index| TEXTURE_SLOTS.get(index))
+    else {
+        return TrackedTextureBinding::Unknown;
+    };
+    let known = slot.known.load(Ordering::Acquire);
     let texture = slot.texture.load(Ordering::Relaxed);
-    (texture != 0).then_some(texture)
+    classify_tracked_texture(known, texture)
+}
+
+fn classify_tracked_texture(known: bool, texture: usize) -> TrackedTextureBinding {
+    if !known {
+        return TrackedTextureBinding::Unknown;
+    }
+    match texture {
+        0 => TrackedTextureBinding::Null,
+        texture => TrackedTextureBinding::Bound(texture),
+    }
 }
 
 pub(super) fn service_frame() {
@@ -629,7 +663,10 @@ fn sampler_fallback_label(reason: u32) -> &'static str {
 
 #[cfg(test)]
 mod tests {
-    use super::{OBJECT_SAMPLER_LAYOUT_NONE, object_sampler_layout};
+    use super::{
+        OBJECT_SAMPLER_LAYOUT_NONE, TrackedTextureBinding, classify_tracked_texture,
+        object_sampler_layout,
+    };
     use crate::effects::pbr::shader_registry::{self, ShaderStage};
 
     fn sampler_mask(sls_number: u16) -> u32 {
@@ -677,5 +714,25 @@ mod tests {
         for sls in [2045, 2046] {
             assert_eq!(sampler_mask(sls), (1 << 0) | (1 << 3));
         }
+    }
+
+    #[test]
+    fn temporary_override_state_distinguishes_unknown_from_known_null() {
+        assert_eq!(
+            classify_tracked_texture(false, 0),
+            TrackedTextureBinding::Unknown
+        );
+        assert_eq!(
+            classify_tracked_texture(false, 0x1234),
+            TrackedTextureBinding::Unknown
+        );
+        assert_eq!(
+            classify_tracked_texture(true, 0),
+            TrackedTextureBinding::Null
+        );
+        assert_eq!(
+            classify_tracked_texture(true, 0x1234),
+            TrackedTextureBinding::Bound(0x1234)
+        );
     }
 }

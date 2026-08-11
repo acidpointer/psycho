@@ -1292,6 +1292,61 @@ mod shader_compile_tests {
             .count()
     }
 
+    fn compiled_texture_instruction_count(bytecode: &[u32]) -> usize {
+        const TEXLD: u16 = 66;
+        const TEXLDD: u16 = 93;
+        const TEXLDL: u16 = 95;
+        compiled_instruction_opcodes(bytecode)
+            .into_iter()
+            .filter(|opcode| matches!(*opcode, TEXLD | TEXLDD | TEXLDL))
+            .count()
+    }
+
+    fn compiled_relative_constant_read_count(bytecode: &[u32]) -> usize {
+        const COMMENT: u16 = 0xfffe;
+        const DEF: u16 = 81;
+        const DEFB: u16 = 47;
+        const DEFI: u16 = 48;
+        const END: u16 = 0xffff;
+        const PARAMETER_ADDRESS_RELATIVE: u32 = 1 << 13;
+        const REGISTER_TYPE_MASK: u32 = 0x7000_0000;
+        const REGISTER_TYPE_MASK2: u32 = 0x0000_1800;
+        const REGISTER_TYPE_CONST: u32 = 2;
+
+        let mut relative_reads = 0usize;
+        let mut offset = 1usize;
+        while offset < bytecode.len() {
+            let instruction = bytecode[offset];
+            let opcode = instruction as u16;
+            if opcode == END {
+                break;
+            }
+            if opcode == COMMENT {
+                offset += 1 + ((instruction >> 16) & 0x7fff) as usize;
+                continue;
+            }
+
+            let instruction_length = ((instruction >> 24) & 0x0f) as usize;
+            // DEF operands contain arbitrary IEEE-754 or integer bits rather
+            // than parameter tokens. Excluding them keeps the register-token
+            // decoder from treating an immediate value as a relative c# read.
+            if !matches!(opcode, DEF | DEFB | DEFI) {
+                for parameter in &bytecode[offset + 1..offset + 1 + instruction_length] {
+                    let register_type = ((parameter & REGISTER_TYPE_MASK) >> 28)
+                        | ((parameter & REGISTER_TYPE_MASK2) >> 8);
+                    if register_type == REGISTER_TYPE_CONST
+                        && parameter & PARAMETER_ADDRESS_RELATIVE != 0
+                    {
+                        relative_reads += 1;
+                    }
+                }
+            }
+            offset += 1 + instruction_length;
+        }
+        assert!(offset < bytecode.len(), "shader bytecode has no END token");
+        relative_reads
+    }
+
     #[test]
     fn object_pbr_preserves_the_native_specular_transition_contract() {
         assert!(!NVR_PBR_INCLUDE_SOURCE.contains("ddx("));
@@ -1779,8 +1834,9 @@ mod shader_compile_tests {
         );
         assert!(
             CLOSE_TERRAIN_PIXEL_SOURCE
-                .contains("float4 OMV_SupplementalPointLightData[48] : register(c92);")
+                .contains("sampler2D OMV_SupplementalPointLightTexture : register(s14);")
         );
+        assert!(!CLOSE_TERRAIN_PIXEL_SOURCE.contains("OMV_SupplementalPointLightData"));
         assert!(
             CLOSE_TERRAIN_PIXEL_SOURCE.contains(
                 "native_point_count = min((int)PointLightCount, PBR_TERRAIN_POINT_LIGHTS);"
@@ -1801,10 +1857,9 @@ mod shader_compile_tests {
         assert!(CLOSE_TERRAIN_PIXEL_SOURCE.contains(
             "LoadSupplementalPointLight(supplemental_index, light_position, light_color);"
         ));
-        assert!(
-            !CLOSE_TERRAIN_PIXEL_SOURCE
-                .contains("OMV_SupplementalPointLightData[supplemental_index * 2]")
-        );
+        assert!(CLOSE_TERRAIN_PIXEL_SOURCE.contains("((float)index + 0.5f) / 32.0f"));
+        assert!(CLOSE_TERRAIN_PIXEL_SOURCE.contains("float4(light_u, 0.25f, 0.0f, 0.0f)"));
+        assert!(CLOSE_TERRAIN_PIXEL_SOURCE.contains("float4(light_u, 0.75f, 0.0f, 0.0f)"));
         assert!(!CLOSE_TERRAIN_PIXEL_SOURCE.contains("PointLightColor[point_index]"));
         assert!(!CLOSE_TERRAIN_PIXEL_SOURCE.contains("PointLightPosition[point_index]"));
     }
@@ -1814,13 +1869,8 @@ mod shader_compile_tests {
         assert!(!CLOSE_TERRAIN_PIXEL_SOURCE.contains("#define OMV_SELECT_"));
         assert!(!CLOSE_TERRAIN_PIXEL_SOURCE.contains("OMV_SELECT_"));
         assert!(CLOSE_TERRAIN_PIXEL_SOURCE.contains("[branch] if (index < 12)"));
-        for index in 0..24 {
-            assert!(
-                CLOSE_TERRAIN_PIXEL_SOURCE
-                    .contains(&format!("OMV_LOAD_SUPPLEMENTAL_POINT_LIGHT({index})")),
-                "supplemental selector omitted index {index}"
-            );
-        }
+        assert!(!CLOSE_TERRAIN_PIXEL_SOURCE.contains("OMV_LOAD_SUPPLEMENTAL_POINT_LIGHT"));
+        assert_eq!(CLOSE_TERRAIN_PIXEL_SOURCE.matches("tex2Dlod(").count(), 2);
         for index in 0..24 {
             assert!(
                 CLOSE_TERRAIN_PIXEL_SOURCE
@@ -1836,14 +1886,28 @@ mod shader_compile_tests {
         let template = template_at(template_id).unwrap();
         let optimized_source = template_source(template_id, template);
         let optimized_text = std::str::from_utf8(optimized_source.as_ref()).unwrap();
-        let negative_source = optimized_text.replace(
-            "LoadSupplementalPointLight(supplemental_index, light_position, light_color);",
-            "light_position = OMV_SupplementalPointLightData[supplemental_index * 2];\n            light_color = OMV_SupplementalPointLightData[supplemental_index * 2 + 1];",
-        );
+        let negative_source = optimized_text
+            .replace(
+                "sampler2D OMV_SupplementalPointLightTexture : register(s14);",
+                "float4 OMV_SupplementalPointLightData[48] : register(c92);",
+            )
+            .replace(
+                r#"    float light_u = ((float)index + 0.5f) / 32.0f;
+    light_position = tex2Dlod(
+        OMV_SupplementalPointLightTexture,
+        float4(light_u, 0.25f, 0.0f, 0.0f)
+    );
+    light_color = tex2Dlod(
+        OMV_SupplementalPointLightTexture,
+        float4(light_u, 0.75f, 0.0f, 0.0f)
+    );"#,
+                r#"    light_position = OMV_SupplementalPointLightData[index * 2];
+    light_color = OMV_SupplementalPointLightData[index * 2 + 1];"#,
+            );
         assert_ne!(negative_source, optimized_text);
 
         let optimized = crate::shaders::compile_hlsl_source_target(
-            "close-terrain-bounded-selector",
+            "close-terrain-texture-light-lookup",
             optimized_source.as_ref(),
             "ps_3_0",
         )
@@ -1858,10 +1922,87 @@ mod shader_compile_tests {
         let optimized_compare_selects = compiled_opcode_count(&optimized, CMP);
         let negative_compare_selects = compiled_opcode_count(&negative, CMP);
 
+        assert_eq!(compiled_texture_instruction_count(&optimized), 4);
+        assert_eq!(compiled_relative_constant_read_count(&optimized), 0);
+        assert!(optimized_compare_selects <= 40);
         assert!(
             negative_compare_selects >= optimized_compare_selects + 80,
             "dynamic constant indexing no longer reproduces the compiler cascade: optimized={optimized_compare_selects}, negative={negative_compare_selects}"
         );
+    }
+
+    #[test]
+    fn dynamic_constant_arrays_do_not_compile_to_relative_reads() {
+        const SPLIT_SOURCE: &[u8] = br#"
+float4 LightPosition[24] : register(c0);
+float4 LightColor[24] : register(c24);
+float LightCount : register(c48);
+
+float4 Main(float2 uv : TEXCOORD0) : COLOR0
+{
+    float4 result = 0.0f;
+    [loop] for (int light_index = 0; light_index < 24; light_index++)
+    {
+        [branch] if (light_index >= (int)LightCount) break;
+        result += LightPosition[light_index] * LightColor[light_index];
+    }
+    return result + uv.x;
+}
+"#;
+        const INTERLEAVED_SOURCE: &[u8] = br#"
+float4 LightData[48] : register(c0);
+float LightCount : register(c48);
+
+float4 Main(float2 uv : TEXCOORD0) : COLOR0
+{
+    float4 result = 0.0f;
+    [loop] for (int light_index = 0; light_index < 24; light_index++)
+    {
+        [branch] if (light_index >= (int)LightCount) break;
+        result += LightData[light_index * 2] * LightData[light_index * 2 + 1];
+    }
+    return result + uv.x;
+}
+"#;
+
+        let split = crate::shaders::compile_hlsl_source_target(
+            "close-terrain-split-array-prototype",
+            SPLIT_SOURCE,
+            "ps_3_0",
+        )
+        .unwrap();
+        let interleaved = crate::shaders::compile_hlsl_source_target(
+            "close-terrain-interleaved-array-negative-control",
+            INTERLEAVED_SOURCE,
+            "ps_3_0",
+        )
+        .unwrap();
+        const CMP: u16 = 88;
+        let split_relative_reads = compiled_relative_constant_read_count(&split);
+
+        // ps_3_0 can address c# relative to the aL loop register, but neither
+        // supported D3DCompiler route preserves the HLSL array subscript as
+        // that operation. Both lower it to compare/select instructions. Keep
+        // this negative control so a future cleanup cannot reintroduce the
+        // attractive-looking split-array design without bytecode proof.
+        assert_eq!(split_relative_reads, 0);
+        assert!(compiled_opcode_count(&split, CMP) >= 40);
+        assert_eq!(compiled_relative_constant_read_count(&interleaved), 0);
+        assert!(
+            compiled_opcode_count(&interleaved, CMP) >= compiled_opcode_count(&split, CMP) + 40,
+            "interleaved index*2 access no longer reproduces the compare/select cascade"
+        );
+    }
+
+    #[test]
+    fn close_terrain_supplemental_lookup_has_no_constant_selector() {
+        assert!(CLOSE_TERRAIN_PIXEL_SOURCE.contains("void LoadNativePointLight("));
+        assert!(CLOSE_TERRAIN_PIXEL_SOURCE.contains("void LoadSupplementalPointLight("));
+        assert!(CLOSE_TERRAIN_PIXEL_SOURCE.contains("[loop] for (int point_index"));
+        assert!(CLOSE_TERRAIN_PIXEL_SOURCE.contains("float3 PointLightContribution("));
+        assert!(!CLOSE_TERRAIN_PIXEL_SOURCE.contains("#define OMV_LOAD_SUPPLEMENTAL"));
+        assert!(!CLOSE_TERRAIN_PIXEL_SOURCE.contains("register(c92)"));
+        assert_eq!(CLOSE_TERRAIN_PIXEL_SOURCE.matches("tex2Dlod(").count(), 2);
     }
 
     #[test]
@@ -1947,7 +2088,8 @@ mod shader_compile_tests {
             assert!(corrected_light > 0.05);
             assert_eq!(legacy_light, 0.0);
         }
-        assert!(CLOSE_TERRAIN_PIXEL_SOURCE.contains("lighting += PointLighting("));
+        assert!(CLOSE_TERRAIN_PIXEL_SOURCE.contains("return PointLighting("));
+        assert!(CLOSE_TERRAIN_PIXEL_SOURCE.contains("lighting += PointLightContribution("));
         assert!(CLOSE_TERRAIN_PIXEL_SOURCE.contains("PbrDirect("));
     }
 
@@ -2104,7 +2246,7 @@ mod shader_compile_tests {
             .unwrap();
             let byte_size = bytecode.len() * 4;
             let opcodes = compiled_instruction_opcodes(&bytecode);
-            let texture_count = opcodes.iter().filter(|opcode| **opcode == 66).count();
+            let texture_count = compiled_texture_instruction_count(&bytecode);
             let broad_limit = match template.stage {
                 ShaderStage::Vertex if template.defines.contains("PBR_OBJECT_SKIN") => 8_100,
                 ShaderStage::Vertex => 3_700,
@@ -2286,14 +2428,14 @@ mod shader_compile_tests {
             ("SLS2003_p_landlod", 3_996, 211, 5),
             ("SLS2080_v_terrain_fade", 1_584, 87, 0),
             ("SLS2082_p_terrain_fade", 3_520, 192, 3),
-            ("SLS2092_p_terrain_t1_l0", 8_236, 538, 2),
-            ("SLS2093_p_terrain_t1_l0_canopy", 8_236, 538, 2),
-            ("SLS2098_p_terrain_t1_l24", 10_580, 726, 2),
-            ("SLS2099_p_terrain_t1_l24_canopy", 10_580, 726, 2),
-            ("SLS2140_p_terrain_t7_l0", 9_592, 623, 14),
-            ("SLS2141_p_terrain_t7_l0_canopy", 9_592, 623, 14),
-            ("SLS2146_p_terrain_t7_l24", 11_936, 811, 14),
-            ("SLS2147_p_terrain_t7_l24_canopy", 11_936, 811, 14),
+            ("SLS2092_p_terrain_t1_l0", 6_940, 419, 4),
+            ("SLS2093_p_terrain_t1_l0_canopy", 6_940, 419, 4),
+            ("SLS2098_p_terrain_t1_l24", 9_416, 612, 4),
+            ("SLS2099_p_terrain_t1_l24_canopy", 9_416, 612, 4),
+            ("SLS2140_p_terrain_t7_l0", 8_296, 504, 16),
+            ("SLS2141_p_terrain_t7_l0_canopy", 8_296, 504, 16),
+            ("SLS2146_p_terrain_t7_l24", 10_772, 697, 16),
+            ("SLS2147_p_terrain_t7_l24_canopy", 10_772, 697, 16),
         ];
         for template_id in 0..template_count() {
             let template = template_at(template_id as u16).unwrap();
@@ -2308,7 +2450,7 @@ mod shader_compile_tests {
                 )
                 .unwrap();
                 let opcodes = compiled_instruction_opcodes(&bytecode);
-                let texture_count = opcodes.iter().filter(|opcode| **opcode == 66).count();
+                let texture_count = compiled_texture_instruction_count(&bytecode);
                 assert!(
                     bytecode.len() * 4 <= *byte_limit,
                     "{} grew to {} bytes (limit {})",

@@ -566,7 +566,10 @@ The draw classifier preserves the exact pass-to-pixel identity and marks the
 odd rows as native canopy companions for diagnostics. Each odd shader is now a
 logical alias of its even PBR companion: it uses the same diffuse/normal
 samplers, native and supplemental point-light ABI, and compiled bytecode. Its
-bind gate does not require `s14/s15`, and the HLSL declares or samples neither.
+bind gate does not require the native projected-shadow meaning of `s14/s15`.
+At this stage the HLSL declared neither. The later NVIDIA selector correction
+uses s14 only for OMV's draw-scoped supplemental-light texture and restores the
+engine binding afterward; it still never samples the native canopy projection.
 This leaves the user's global canopy-shadow setting and non-OMV render paths
 untouched while preventing camera-projected exterior masks from entering close
 terrain PBR.
@@ -651,8 +654,8 @@ Correct fix path:
   multibound filters, and deduplicate against the current pass by `NiLight*`.
 - Keep the sun separate and preserve native sorted order under a combined
   24-point-light cap. Do not change `+0xEC`, mutate the render pass, or rebuild
-  native light positions/count. Stage missing entries in OMV-owned
-  `c91..c139`.
+  native light positions/count. Stage the missing-entry count in OMV-owned
+  `c91` and the fixed records in OMV's draw-scoped 32x2 RGBA32F texture.
 - Keep manager recovery allocation-free and bounded. Consult it whenever the
   row remains below the combined 24-point-light cap, accept every eligible
   copied manager entry regardless of mutable shadow-casting state, rank before
@@ -1355,13 +1358,12 @@ zero-native row. Replacing the earlier linear cascade with a binary tree did
 not make OMV's program structurally equivalent to NVR and did not improve the
 affected NVIDIA result.
 
-This is a strong causal hypothesis, not runtime closure. The authorized next
-plan is
-`docs/graphics_fnv_omv_nvidia_close_terrain_shader_fix_plan.md`: keep one
-shader per row, split `c92..c139` into contiguous position and color arrays,
-use direct relative indexing in separate native and supplemental loops, and
-preserve the complete portable-light ABI. Compiler bytecode gates and the
-affected NVIDIA A/B are mandatory before the change can be called a fix.
+This was a strong causal hypothesis, not runtime closure. Its proposed split
+constant arrays failed the compiler bytecode gate and the plan is now a
+superseded decision record. The implemented texture design is documented in
+`docs/graphics_fnv_omv_nvidia_close_terrain_shader_fix_implementation.md`.
+Compiler bytecode gates and the affected NVIDIA A/B remain mandatory before
+the change can be called a fix.
 
 ### Invalidated performance hypothesis: shader-state ownership
 
@@ -1449,3 +1451,89 @@ suite passed 453 tests under Wine after the ownership change. Runtime acceptance
 still requires an NVIDIA exterior/interior comparison with full PBR enabled;
 the code and static comparison prove removal of the defective transition model,
 not a measured FPS result.
+
+## NVIDIA Supplemental Selector Removal (2026-08-11)
+
+The split-constant-array follow-up proposed above failed its mandatory compiler
+feasibility gate. Both the repository Wine/VKD3D route and the exact native
+`d3dcompiler_47.dll` from the game prefix lowered separate dynamically indexed
+position and color arrays to compare/select work; neither preserved a relative
+constant read. Flow-control flag experiments did not change the native result.
+The attractive HLSL structure was therefore not a valid bytecode fix.
+
+The permanent `dynamic_constant_arrays_do_not_compile_to_relative_reads`
+micro-test records that negative compiler contract. Do not reintroduce split
+dynamic constant arrays without inspecting the actual supported-compiler
+bytecode. HLSL source appearance is not sufficient evidence for shader-model-3
+constant addressing.
+
+OMV now retains native VPT constants `c39..c88` and the supplemental count at
+`c91`, but removes the supplemental records from `c92..c139`. Those records
+occupy an OMV-owned 32x2 one-mip `D3DFMT_A32B32G32R32F` dynamic texture:
+
+- row zero stores 24 position/radius records;
+- row one stores the corresponding 24 color/reserved-alpha records;
+- the eight unused columns in both rows are zeroed on every upload;
+- the close-terrain replacement samples column center `(i + 0.5) / 32` at row
+  centers `0.25` and `0.75` with explicit LOD zero.
+
+The power-of-two width makes all centers exactly representable, so inherited
+linear filtering still selects one record without neighbor contribution. OMV
+does not change sampler filter or address state. The texture temporarily uses
+s14 only around an admitted draw with a nonzero supplement. The bind bypasses
+the engine sampler mirror; draw completion, native fallback, batch completion,
+disable, and resource release restore the exact engine-owned s14 identity from
+that authoritative mirror. A nonempty draw is rejected when the prior s14
+state is unknown, because unknown is not equivalent to known-null. A failed
+restore retains OMV ownership and rejects the draw rather than submitting
+vanilla with the data texture. Only a proven D3D generation transition clears
+a marker left behind by a lost device.
+
+The resource belongs to the existing PBR device-generation owner. It consumes
+one slot from the bounded per-frame creation budget, is required for
+close-terrain family readiness, and is discarded on D3D9 reset. Draw upload is
+`try_lock`-only and uses `D3DLOCK_DISCARD`; contention, stale generation,
+creation failure, upload failure, or bind failure keeps the draw native. The
+path adds no new hook, worker, TLS value, config field, schema change, shader
+variant, draw, pass, state query, heap allocation, or vendor detection.
+
+Native and supplemental lights still share one combined loop, native-first
+order, a total cap of 24, and the same point-light contribution helper. The
+native `0/6/12/24` row selector remains because those constants are owned by
+the established engine ABI. Only the OMV supplemental constant selector is
+removed.
+
+Repository-compiler measurements for representative base rows are:
+
+| Row | Before bytes / instructions / texture ops | Current bytes / instructions / texture ops |
+|---|---:|---:|
+| SLS2092, 1 layer / 0 native lights | 8,236 / 538 / 2 | 6,940 / 419 / 4 |
+| SLS2098, 1 layer / 24 native lights | 10,580 / 726 / 2 | 9,416 / 612 / 4 |
+| SLS2140, 7 layers / 0 native lights | 9,592 / 623 / 14 | 8,296 / 504 / 16 |
+| SLS2146, 7 layers / 24 native lights | 11,936 / 811 / 14 | 10,772 / 697 / 16 |
+
+The production negative-control test reconstructs the removed interleaved
+constant lookup and requires at least 80 additional unconditional `cmp`
+instructions. Current `cmp/ifc/rep` counts for the rows above are `36/2/1`,
+`62/26/1`, `48/2/1`, and `74/26/1`. The supplemental texture lookup contains
+no relative constant read.
+
+The complete explicit-target OMV suite passed 465 tests, including every
+registered PBR permutation, exact c91/s14 ABI, serializer layout, tri-state s14
+ownership, family readiness, resource reset, draw-transaction ordering,
+old-cascade negative control, and tight bytecode budgets. The optimized build
+also passed; its candidate DLL SHA-256 is
+`f274016f75f400025cad9f585744039d54091a0475d94ecebfdf568de5840eff`.
+All 33 shader-registry tests passed through the forced native x86 Microsoft
+`d3dcompiler_47.dll` artifact
+`b35b96b1eb5539a3748b98643172681f9b74d0ec726b05f8c2c248c10888e9a5`,
+including every registered PBR variant. Startup, visual, and vendor runtime
+evidence are recorded only when completed.
+
+This is a static candidate, not runtime closure. The exact release artifact
+still requires three BaseObjectSwapper cold starts, reset/alt-tab acceptance,
+Pip-Boy and canopy visual checks, the RX 6800 XT control, and the original
+NVIDIA exterior A/B with and without DXVK where reproducible. If NVIDIA remains
+slow, retain the correctness and bytecode result but do not call it the
+performance fix. The complete ownership and acceptance contract is in
+`graphics_fnv_omv_nvidia_close_terrain_shader_fix_implementation.md`.

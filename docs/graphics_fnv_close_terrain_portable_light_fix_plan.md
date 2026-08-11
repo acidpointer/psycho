@@ -7,6 +7,9 @@ native/supplemental membership-equivalence correction is pending. The earlier
 Pip-Boy zero-native-row subcase passed runtime acceptance. Manager recovery,
 native color rewriting, the half-vector correction, and family-atomic
 activation were each rejected as the owner of the residual random squares.
+The supplemental payload was moved from `c92..c139` to a draw-scoped 32x2
+RGBA32F texture on 2026-08-11; the current ABI is documented below and in
+`graphics_fnv_omv_nvidia_close_terrain_shader_fix_implementation.md`.
 
 ## Decision
 
@@ -135,8 +138,10 @@ resource gates. Foreign and mismatched rows remain native. The original
 portable-light deployment kept canopy companions native; the later dark-square
 regression proved that policy incomplete. All 28 canopy companions now use
 their own PBR identities but compile to the same material/light bytecode as
-their paired base rows. They do not consume native `s14/s15`, as documented in
-`graphics_fnv_pbr_errata.md`.
+their paired base rows. They do not consume the native projected-shadow
+meaning of `s14/s15`. Current OMV temporarily uses s14 for its own
+supplemental-light data and restores the engine identity after the draw, as
+documented in `graphics_fnv_pbr_errata.md`.
 
 ### 2. Read current native membership
 
@@ -219,12 +224,16 @@ Keep native light ownership and layout unchanged:
 Add a disjoint OMV ABI:
 
 - `c91.x`: supplemental point-light count;
-- `c92..c139`: up to 24 interleaved position/radius and color/reserved-alpha
-  pairs.
+- `s14`: one temporary 32x2 RGBA32F shader-data texture;
+- texture row 0, columns `0..23`: position/radius;
+- texture row 1, columns `0..23`: color/reserved alpha;
+- unused columns `24..31`: zero.
 
-Upload `c89` through the last active supplemental pair in one OMV setter call.
-An empty set still uploads `c91 = 0`, preventing stale supplemental lights from
-leaking into a later draw.
+Upload `c89..c91` in one OMV setter call. An empty set still uploads `c91 = 0`,
+preventing stale supplemental lights from leaking into a later draw. A
+nonempty set discard-writes the complete texture and temporarily binds s14;
+the draw-completion and fallback boundaries restore the engine-owned s14
+identity from OMV's existing `SetTexture` mirror.
 
 The replacement pixel shader evaluates native and supplemental entries through
 the same bounded loop, attenuation, and PBR point-light function. Supplemental
@@ -284,8 +293,8 @@ Required pure tests:
 8. Camera-relative offset, engine D3D matrix convention, exact
    `geometry+0x68`/`geometry+0xBC` arguments, and scale-adjusted radius produce
    the expected constants.
-9. Constant payload is `count + interleaved pairs`, and an empty payload resets
-   count to zero.
+9. Shader payload is one count constant plus two fixed texture rows, all unused
+   texels are zero, and an empty payload resets count to zero.
 10. A row with zero or unrelated native lights accepts missing active point
     lights from a current copied manager epoch, while inactive or disabled
     entries are rejected at capture.
@@ -294,9 +303,10 @@ Required pure tests:
 12. Production offsets, native override behavior, matrix-call provenance, and
     manager snapshot ownership remain linked to their static source contracts.
 13. A zero-native row plus a copied manager Pip-Boy-like light with zero native
-    shadow/pass fade reaches the production merge, serializes through
-    `c91..c93` with visibility one, and produces positive attenuated overhead
-    light input. The pre-fix alpha-zero behavior is the negative control.
+    shadow/pass fade reaches the production merge, serializes through `c91`
+    and the first texel of each payload row with visibility one, and produces
+    positive attenuated overhead light input. The pre-fix alpha-zero behavior
+    is the negative control.
 14. Terrain-only capture examines the bounded 512-node manager epoch, filters
     before the 64-entry mailbox limit, and retains a camera-relevant candidate
     that arrives after raw node 64.
@@ -312,12 +322,12 @@ Required row and shader tests:
 
 1. All 56 close-terrain variants map exactly across 1..7 textures, native
    capacities 0/6/12/24, and base/canopy companions.
-2. All 28 canopy companions exclude `s14/s15`; each production-compiled shader
-   is byte-identical to its paired base row so projected object-shadow data
-   cannot make local-light response camera-dependent.
+2. All 28 canopy companions exclude native projected-shadow `s14/s15`
+   semantics; each production-compiled shader is byte-identical to its paired
+   base row, and s14 carries only OMV's draw-scoped supplemental payload.
 3. Mismatched and foreign pass/pixel pairs are rejected.
-4. HLSL source asserts native `c39/c63/c88`, OMV `c91/c92..c139`, and saturated
-   alpha use.
+4. HLSL source asserts native `c39/c63/c88`, OMV count `c91`, supplemental
+   texture s14, exact texel centers, and RGB-only light use.
 5. Every registered PBR shader permutation compiles with the real D3D compiler.
 6. Representative 1-layer and 7-layer, zero-light and 24-light bytecode remains
    under per-variant bytecode and instruction budgets with exact texture-sample
@@ -460,8 +470,13 @@ Native/supplemental membership-equivalence evidence:
 
 ## Performance Contract
 
-This correction adds no per-draw logs, counters, status UI, allocations,
-blocking locks, material scans, constant uploads, or texture work.
+The membership-equivalence correction itself added no per-draw logs, counters,
+status UI, allocations, blocking locks, material scans, constant uploads, or
+texture work. The later NVIDIA shader-lowering correction replaces the old
+constant payload with one bounded discard upload and a temporary s14 bind only
+when the supplemental count is nonzero; its complete cost and state-restoration
+contract are documented in
+`graphics_fnv_omv_nvidia_close_terrain_shader_fix_implementation.md`.
 
 The close-terrain `SetShaders` gate adds only fixed atomic readiness reads. The
 compiler scans its 57 states only after a close-terrain compilation completes

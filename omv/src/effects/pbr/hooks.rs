@@ -14,6 +14,10 @@
 //! mirror used by draw admission. No admission path reads D3D state back from
 //! the driver: an unknown stage fails closed until the engine binds it, while a
 //! known-null stage fails closed until the corresponding engine transition.
+//! Supplemental close-terrain lights temporarily borrow sampler s14 around one
+//! draw. Their bind bypasses the mirror deliberately, and every completion,
+//! fallback, and resource-release boundary restores the engine-owned identity
+//! from that mirror before another draw can proceed.
 
 use std::{
     ffi::{c_char, c_void},
@@ -34,8 +38,8 @@ use libpsycho::os::windows::{
 
 use super::{
     constants, device_resources, diagnostics, engine_contracts, object_contracts,
-    object_replacement_record, samplers, shader_record, shader_registry,
-    shader_registry::ShaderStage,
+    object_replacement_record, samplers, samplers::TrackedTextureBinding, shader_record,
+    shader_registry, shader_registry::ShaderStage,
 };
 use engine_contracts::ObjectDrawRejectReason;
 use object_contracts::{ObjectContractDecision, ObjectContractState};
@@ -199,6 +203,7 @@ static PENDING_DRAW_EVALUATED: AtomicBool = AtomicBool::new(false);
 static PENDING_REQUIRED_SAMPLER_MASK: AtomicU32 = AtomicU32::new(0);
 static PENDING_MISSING_SAMPLER_MASK: AtomicU32 = AtomicU32::new(0);
 static PENDING_CLOSE_TERRAIN_PREPARED_GEOMETRY: AtomicUsize = AtomicUsize::new(0);
+static PENDING_CLOSE_TERRAIN_LIGHT_TEXTURE_BOUND: AtomicBool = AtomicBool::new(false);
 static LAND_LOD_FIRST_BIND_LOGGED: AtomicBool = AtomicBool::new(false);
 static LAND_LOD_FAILURE_LOGGED: AtomicBool = AtomicBool::new(false);
 static LAND_LOD_MISSING_SAMPLER_LOGGED: AtomicBool = AtomicBool::new(false);
@@ -210,6 +215,7 @@ static CLOSE_TERRAIN_FIRST_CANOPY_BIND_LOGGED: AtomicBool = AtomicBool::new(fals
 static CLOSE_TERRAIN_WARMING_LOGGED: AtomicBool = AtomicBool::new(false);
 static CLOSE_TERRAIN_FAILURE_LOGGED: AtomicBool = AtomicBool::new(false);
 static DIRECT_RESTORE_FAILURE_LOGGED: AtomicBool = AtomicBool::new(false);
+static SUPPLEMENTAL_TEXTURE_RESTORE_FAILURE_LOGGED: AtomicBool = AtomicBool::new(false);
 static LAND_LOD_LAST_CONSTANT_SIGNATURE: AtomicU32 = AtomicU32::new(0);
 static LAND_LOD_CONSTANT_LOG_COUNT: AtomicU32 = AtomicU32::new(0);
 static SHADER_TABLES_READABLE: LazyLock<bool> = LazyLock::new(|| {
@@ -1025,6 +1031,11 @@ fn bind_close_terrain_replacement(
         log_close_terrain_failure("D3D device invalid");
         return false;
     };
+    restore_supplemental_light_texture(&device);
+    if PENDING_CLOSE_TERRAIN_LIGHT_TEXTURE_BOUND.load(Ordering::Acquire) {
+        log_close_terrain_failure("previous supplemental sampler binding could not be restored");
+        return false;
+    }
     if !pair_still_owns_native_wrappers(pair) {
         log_close_terrain_failure("native wrapper ownership changed before draw");
         return false;
@@ -1049,10 +1060,33 @@ fn bind_close_terrain_replacement(
         return false;
     };
     let supplemental_lights = super::terrain_lights::capture_current_for_draw(geometry_identity);
+    if !supplemental_lights.is_empty() {
+        // A temporary raw bind is safe only if the engine mirror can restore
+        // an exact prior state. Unknown is not equivalent to known-null: the
+        // former could hide a live binding installed before the hook existed.
+        if matches!(
+            samplers::tracked_texture_binding(device_resources::SUPPLEMENTAL_LIGHT_SAMPLER),
+            TrackedTextureBinding::Unknown
+        ) {
+            log_close_terrain_failure("engine ownership of supplemental sampler s14 is unknown");
+            return false;
+        }
+        let mut texels = [[0.0; 4]; super::terrain_lights::SUPPLEMENTAL_LIGHT_TEXTURE_TEXELS];
+        supplemental_lights.write_shader_texture(&mut texels);
+        if !super::device_resources::upload_and_bind_supplemental_light_texture(&device, &texels) {
+            log_close_terrain_failure("supplemental light texture could not be uploaded");
+            return false;
+        }
+        // The tracker intentionally remains engine-owned. This bit records
+        // only OMV's temporary raw override so finish/fallback can restore s14
+        // from the authoritative SetTexture mirror after the draw.
+        PENDING_CLOSE_TERRAIN_LIGHT_TEXTURE_BOUND.store(true, Ordering::Release);
+    }
     // Native geometry setup may rewrite pixel constants between DIPs even when
     // it reuses the same shader pass. Upload the cheap constant block on every
     // draw; only the expensive engine light scan is cached per geometry.
     if constants::upload_terrain_constants(&device, Some(&supplemental_lights)).is_none() {
+        restore_supplemental_light_texture(&device);
         log_close_terrain_failure("terrain constants could not be uploaded");
         return false;
     }
@@ -1082,6 +1116,35 @@ fn pair_still_owns_native_wrappers(pair: ShaderPairSelection) -> bool {
         == Some(pair.native_vertex)
         && engine_contracts::shader_handle_fast(pair.pixel_wrapper, ShaderStage::Pixel)
             == Some(pair.native_pixel)
+}
+
+fn restore_supplemental_light_texture(device: &Device9Ref<'_>) {
+    if !PENDING_CLOSE_TERRAIN_LIGHT_TEXTURE_BOUND.load(Ordering::Acquire) {
+        return;
+    }
+    let stage = super::device_resources::SUPPLEMENTAL_LIGHT_SAMPLER;
+    let restored = match super::samplers::tracked_texture_binding(stage) {
+        TrackedTextureBinding::Bound(texture) => unsafe {
+            device.set_raw_base_texture(stage, texture as *mut c_void)
+        },
+        TrackedTextureBinding::Null => device.clear_texture(stage),
+        TrackedTextureBinding::Unknown => return,
+    }
+    .is_ok();
+    if restored {
+        PENDING_CLOSE_TERRAIN_LIGHT_TEXTURE_BOUND.store(false, Ordering::Release);
+    } else if !SUPPLEMENTAL_TEXTURE_RESTORE_FAILURE_LOGGED.swap(true, Ordering::AcqRel) {
+        log::warn!("[PBR] Engine-owned sampler s14 could not be restored after terrain draw");
+    }
+}
+
+/// Forget a temporary s14 override after a proven D3D generation transition.
+///
+/// A failed restore retains its marker while the device remains live. Once the
+/// lifecycle generation changes, D3D9 has invalidated that old binding and the
+/// marker must not poison admission on the replacement device.
+pub(super) fn forget_supplemental_light_texture_binding_after_device_change() {
+    PENDING_CLOSE_TERRAIN_LIGHT_TEXTURE_BOUND.store(false, Ordering::Release);
 }
 
 fn restore_engine_owned_replacement() {
@@ -1122,13 +1185,16 @@ fn restore_engine_owned_replacement() {
 /// wrapper handle different from the cached replacement and repairs the cache
 /// through the normal engine path. No replacement handle remains in a wrapper.
 pub(super) fn release_device_resources() {
-    if let Some(pair) = pending_shader_pair()
-        && !NATIVE_FALLBACK_ACTIVE.load(Ordering::Acquire)
-        && let Some(device_ptr) = crate::backend::d3d_device_ptr()
-        && let Some(device) = unsafe { Device9Ref::from_raw_void(device_ptr) }
-    {
-        let _ = unsafe { device.set_raw_vertex_shader(pair.native_vertex) };
-        let _ = unsafe { device.set_raw_pixel_shader(pair.native_pixel) };
+    let device = crate::backend::d3d_device_ptr()
+        .and_then(|device_ptr| unsafe { Device9Ref::from_raw_void(device_ptr) });
+    if let Some(device) = device.as_ref() {
+        restore_supplemental_light_texture(device);
+        if let Some(pair) = pending_shader_pair()
+            && !NATIVE_FALLBACK_ACTIVE.load(Ordering::Acquire)
+        {
+            let _ = unsafe { device.set_raw_vertex_shader(pair.native_vertex) };
+            let _ = unsafe { device.set_raw_pixel_shader(pair.native_pixel) };
+        }
     }
     NATIVE_FALLBACK_ACTIVE.store(false, Ordering::Release);
     PENDING_DRAW_KIND.store(PENDING_DRAW_NONE, Ordering::Release);
@@ -1200,6 +1266,12 @@ pub(super) fn finish_direct_draw(restore_after_draw: bool) {
         return;
     }
 
+    if let Some(device_ptr) = crate::backend::d3d_device_ptr()
+        && let Some(device) = unsafe { Device9Ref::from_raw_void(device_ptr) }
+    {
+        restore_supplemental_light_texture(&device);
+    }
+
     // Close terrain is admitted per renderer geometry, not per SetShaders
     // batch. A rejected geometry used vanilla for this submission; restore the cache-owned replacement
     // before re-arming so a later valid geometry keeps full PBR coverage.
@@ -1209,6 +1281,11 @@ pub(super) fn finish_direct_draw(restore_after_draw: bool) {
 
 /// Clears pending validation state at the frame boundary.
 pub(super) fn finish_draw_batches() {
+    if let Some(device_ptr) = crate::backend::d3d_device_ptr()
+        && let Some(device) = unsafe { Device9Ref::from_raw_void(device_ptr) }
+    {
+        restore_supplemental_light_texture(&device);
+    }
     restore_engine_owned_replacement();
     PENDING_DRAW_KIND.store(PENDING_DRAW_NONE, Ordering::Release);
     PENDING_DRAW_EVALUATED.store(true, Ordering::Release);
@@ -1281,15 +1358,21 @@ fn required_sampler_mask(stages: &[u32]) -> u16 {
 }
 
 fn bind_native_fallback(pair: ShaderPairSelection) -> bool {
-    if NATIVE_FALLBACK_ACTIVE.load(Ordering::Acquire) {
-        return true;
-    }
     let Some(device_ptr) = crate::backend::d3d_device_ptr() else {
         return false;
     };
     let Some(device) = (unsafe { Device9Ref::from_raw_void(device_ptr) }) else {
         return false;
     };
+    restore_supplemental_light_texture(&device);
+    // A failed restore means OMV still owns s14. Reporting a successful
+    // fallback in that state would submit vanilla with OMV's data texture.
+    if PENDING_CLOSE_TERRAIN_LIGHT_TEXTURE_BOUND.load(Ordering::Acquire) {
+        return false;
+    }
+    if NATIVE_FALLBACK_ACTIVE.load(Ordering::Acquire) {
+        return true;
+    }
     let vertex_result = unsafe { device.set_raw_vertex_shader(pair.native_vertex) };
     let pixel_result = unsafe { device.set_raw_pixel_shader(pair.native_pixel) };
     if vertex_result.is_err() || pixel_result.is_err() {
@@ -2345,6 +2428,64 @@ mod tests {
             assert!(!body.contains("set_raw_vertex_shader"), "{start}");
             assert!(!body.contains("set_raw_pixel_shader"), "{start}");
         }
+    }
+
+    #[test]
+    fn supplemental_light_texture_is_transactional_at_the_draw_boundary() {
+        let source = include_str!("hooks.rs");
+        let bind = source
+            .split_once("fn bind_close_terrain_replacement")
+            .and_then(|(_, tail)| tail.split_once("fn pair_still_owns_native_wrappers"))
+            .map(|(body, _)| body)
+            .expect("close-terrain bind body");
+        let upload = bind
+            .find("upload_and_bind_supplemental_light_texture")
+            .expect("supplemental texture upload");
+        let publish = bind
+            .find("PENDING_CLOSE_TERRAIN_LIGHT_TEXTURE_BOUND.store(true")
+            .expect("temporary binding publication");
+        let constants = bind
+            .find("constants::upload_terrain_constants")
+            .expect("terrain constant upload");
+        assert!(upload < publish && publish < constants);
+        assert!(!bind.contains("record_texture_binding"));
+        assert!(!bind.contains("set_sampler_state"));
+
+        let restore = source
+            .split_once("fn restore_supplemental_light_texture")
+            .and_then(|(_, tail)| tail.split_once("fn restore_engine_owned_replacement"))
+            .map(|(body, _)| body)
+            .expect("supplemental texture restore");
+        assert!(restore.contains("super::samplers::tracked_texture_binding(stage)"));
+        assert!(restore.contains("set_raw_base_texture"));
+        assert!(restore.contains("clear_texture"));
+
+        assert!(bind.contains("TrackedTextureBinding::Unknown"));
+
+        let finish = source
+            .split_once("pub(super) fn finish_direct_draw")
+            .and_then(|(_, tail)| tail.split_once("pub(super) fn finish_draw_batches"))
+            .map(|(body, _)| body)
+            .expect("direct draw finish");
+        assert!(finish.contains("restore_supplemental_light_texture"));
+
+        let release = source
+            .split_once("pub(super) fn release_device_resources")
+            .and_then(|(_, tail)| tail.split_once("pub(super) fn prepare_direct_draw"))
+            .map(|(body, _)| body)
+            .expect("resource release body");
+        assert!(release.contains("restore_supplemental_light_texture"));
+        assert!(!release.contains("PENDING_CLOSE_TERRAIN_LIGHT_TEXTURE_BOUND.store(false"));
+
+        let fallback = source
+            .split_once("fn bind_native_fallback")
+            .and_then(|(_, tail)| tail.split_once("fn log_land_lod_failure"))
+            .map(|(body, _)| body)
+            .expect("native fallback body");
+        assert!(
+            fallback.find("restore_supplemental_light_texture").unwrap()
+                < fallback.find("set_raw_vertex_shader").unwrap()
+        );
     }
 
     #[test]

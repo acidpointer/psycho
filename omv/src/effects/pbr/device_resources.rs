@@ -1,12 +1,13 @@
-//! D3D shader resource ownership.
+//! D3D resource ownership for native PBR.
 //!
-//! This creates D3D shader handles from prepared bytecode. Creation is
-//! bounded per frame and kept outside `SetShaders`. Ownership is keyed by the
-//! lifecycle device generation as well as pointer identity, because D3D9 reset
-//! may preserve the COM address while invalidating every default-pool shader.
-//! Presentation and Recreate callbacks use `try_lock` only. A compiler
-//! publication or resource owner that is momentarily busy defers creation or
-//! rejects reset; it never stalls the serialized renderer thread.
+//! This creates shader handles from prepared bytecode and owns the dynamic
+//! close-terrain light-data texture. Creation is bounded per frame and kept
+//! outside `SetShaders`. Ownership is keyed by the lifecycle device generation
+//! as well as pointer identity, because D3D9 reset may preserve the COM address
+//! while invalidating every default-pool resource. Presentation, draw, and
+//! Recreate callbacks use `try_lock` only. A compiler publication or resource
+//! owner that is momentarily busy defers creation, rejects a draw, or rejects
+//! reset; it never stalls the serialized renderer thread.
 
 use std::sync::{
     LazyLock,
@@ -14,13 +15,16 @@ use std::sync::{
 };
 use std::{ffi::c_void, sync::Arc};
 
-use libpsycho::os::windows::directx9::{Device9Ref, PixelShader9, VertexShader9};
+use libpsycho::os::windows::directx9::{
+    Device9Ref, DynamicRgba32fTexture9, PixelShader9, VertexShader9,
+};
 use parking_lot::Mutex;
 
 use super::{compiler, shader_registry};
 
 const CREATE_BUDGET_PER_FRAME: usize = 4;
 const TEMPLATE_ID_NONE: u32 = u32::MAX;
+pub(super) const SUPPLEMENTAL_LIGHT_SAMPLER: u32 = 14;
 
 static LAST_CREATE_FAILED_TEMPLATE_ID: AtomicU32 = AtomicU32::new(TEMPLATE_ID_NONE);
 static HANDLES: LazyLock<Vec<AtomicUsize>> = LazyLock::new(|| {
@@ -39,6 +43,8 @@ static RESOURCES: LazyLock<Mutex<ResourceState>> = LazyLock::new(|| {
     Mutex::new(ResourceState {
         device: 0,
         device_generation: 0,
+        supplemental_light_texture: None,
+        supplemental_light_texture_create_failed: false,
         slots: (0..shader_registry::template_count())
             .map(|_| ResourceSlot::new())
             .collect(),
@@ -48,6 +54,8 @@ static RESOURCES: LazyLock<Mutex<ResourceState>> = LazyLock::new(|| {
 struct ResourceState {
     device: usize,
     device_generation: u32,
+    supplemental_light_texture: Option<DynamicRgba32fTexture9>,
+    supplemental_light_texture_create_failed: bool,
     slots: Vec<ResourceSlot>,
 }
 
@@ -93,17 +101,37 @@ pub(super) fn service_frame() {
     let device_key = device_ptr as usize;
     let device_generation = crate::backend::d3d_device_generation();
     if state.device != device_key || state.device_generation != device_generation {
+        // A generation transition invalidates all prior device state, including
+        // an s14 override whose restore failed while the old device was lost.
+        // Clearing the marker earlier would be unsafe on a still-live device.
+        super::hooks::forget_supplemental_light_texture_binding_after_device_change();
         clear_published_handles();
         CLOSE_TERRAIN_RESOURCES_READY.store(false, Ordering::Release);
         ALL_RESOURCES_READY.store(false, Ordering::Release);
         state.device = device_key;
         state.device_generation = device_generation;
+        state.supplemental_light_texture = None;
+        state.supplemental_light_texture_create_failed = false;
         for slot in &mut state.slots {
             slot.clear_shader();
         }
     }
 
     let mut created_this_frame = 0usize;
+    if state.supplemental_light_texture.is_none() && !state.supplemental_light_texture_create_failed
+    {
+        match device.create_dynamic_rgba32f_texture(
+            super::terrain_lights::SUPPLEMENTAL_LIGHT_TEXTURE_WIDTH as u32,
+            super::terrain_lights::SUPPLEMENTAL_LIGHT_TEXTURE_HEIGHT as u32,
+        ) {
+            Ok(texture) => {
+                state.supplemental_light_texture = Some(texture);
+                created_this_frame += 1;
+            }
+            Err(_) => state.supplemental_light_texture_create_failed = true,
+        }
+    }
+
     for template_id in 0..state.slots.len() {
         if created_this_frame >= CREATE_BUDGET_PER_FRAME {
             break;
@@ -299,6 +327,36 @@ pub(super) fn close_terrain_created_count() -> usize {
 
 pub(super) fn close_terrain_create_failed_count() -> usize {
     family_create_failed_count(close_terrain_range())
+        + RESOURCES
+            .try_lock()
+            .as_deref()
+            .is_some_and(|state| state.supplemental_light_texture_create_failed) as usize
+}
+
+/// Upload and bind the supplemental close-terrain light texture.
+///
+/// The resource owner is acquired with `try_lock`; contention or a stale
+/// device generation rejects the draw instead of blocking. The texture uses a
+/// discard write, so prior draws may continue consuming their renamed storage.
+pub(super) fn upload_and_bind_supplemental_light_texture(
+    device: &Device9Ref<'_>,
+    texels: &[[f32; 4]],
+) -> bool {
+    let Some(state) = RESOURCES.try_lock() else {
+        return false;
+    };
+    if state.device != device.as_raw() as usize
+        || state.device_generation != crate::backend::d3d_device_generation()
+    {
+        return false;
+    }
+    let Some(texture) = state.supplemental_light_texture.as_ref() else {
+        return false;
+    };
+    texture.write_discard(texels).is_ok()
+        && device
+            .set_texture(SUPPLEMENTAL_LIGHT_SAMPLER, texture.texture())
+            .is_ok()
 }
 
 fn resource_handle(template_id: u16) -> Option<*mut c_void> {
@@ -318,6 +376,8 @@ pub(super) fn try_reset_after(before_drop: impl FnOnce()) -> bool {
     clear_published_handles();
     state.device = 0;
     state.device_generation = 0;
+    state.supplemental_light_texture = None;
+    state.supplemental_light_texture_create_failed = false;
     LAST_CREATE_FAILED_TEMPLATE_ID.store(TEMPLATE_ID_NONE, Ordering::Release);
     for slot in &mut state.slots {
         *slot = ResourceSlot::new();
@@ -351,6 +411,10 @@ fn clear_published_handles() {
 
 fn update_failure_state(state: &ResourceState) {
     ALL_RESOURCES_READY.store(
+        // The light-data texture belongs only to close terrain. Keeping it out
+        // of the global shader gate lets object, LandLOD, and TerrainFade PBR
+        // remain available if this new format is unsupported; the dedicated
+        // close-terrain gate below still fails that entire family atomically.
         state.slots.iter().all(ResourceSlot::has_shader),
         Ordering::Release,
     );
@@ -388,13 +452,15 @@ fn update_failure_state(state: &ResourceState) {
     CLOSE_TERRAIN_RESOURCES_READY.store(
         state.slots[close_terrain_first..]
             .iter()
-            .all(ResourceSlot::has_shader),
+            .all(ResourceSlot::has_shader)
+            && state.supplemental_light_texture.is_some(),
         Ordering::Release,
     );
     CLOSE_TERRAIN_CREATE_FAILED.store(
         state.slots[close_terrain_first..]
             .iter()
-            .any(|slot| slot.create_failed),
+            .any(|slot| slot.create_failed)
+            || state.supplemental_light_texture_create_failed,
         Ordering::Release,
     );
 }

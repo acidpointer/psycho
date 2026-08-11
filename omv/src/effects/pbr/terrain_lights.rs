@@ -2,8 +2,9 @@
 //!
 //! The engine's general active-light iterator includes shadow-classified
 //! portable lights. Landscape pass builders based on the non-shadow iterator
-//! can omit those lights. OMV merges only missing native identities into its
-//! replacement shader constants and never mutates the engine render pass.
+//! can omit those lights. OMV merges only missing native identities into an
+//! OMV-owned count constant and dynamic shader-data texture; it never mutates
+//! the engine render pass or its native point-light constants.
 //!
 //! One native pass setup can submit the same or several geometries. A
 //! generation-keyed render-thread cache avoids repeating engine-light
@@ -29,7 +30,10 @@ use libpsycho::ffi::fnptr::FnPtr;
 use super::engine_contracts;
 
 pub(super) const MAX_TERRAIN_POINT_LIGHTS: usize = 24;
-pub(super) const MAX_SUPPLEMENTAL_CONSTANTS: usize = MAX_TERRAIN_POINT_LIGHTS * 2 + 1;
+pub(super) const SUPPLEMENTAL_LIGHT_TEXTURE_WIDTH: usize = 32;
+pub(super) const SUPPLEMENTAL_LIGHT_TEXTURE_HEIGHT: usize = 2;
+pub(super) const SUPPLEMENTAL_LIGHT_TEXTURE_TEXELS: usize =
+    SUPPLEMENTAL_LIGHT_TEXTURE_WIDTH * SUPPLEMENTAL_LIGHT_TEXTURE_HEIGHT;
 
 const GENERAL_LIGHT_FIRST_ADDR: usize = 0x00B70590;
 const GENERAL_LIGHT_NEXT_ADDR: usize = 0x00B70680;
@@ -142,18 +146,28 @@ impl SupplementalTerrainLights {
         count: 0,
     };
 
-    /// Writes the count and packed light rows consumed by the replacement shader.
+    /// Return the `c91` value that bounds supplemental shader texture reads.
+    pub(super) fn shader_count_constant(&self) -> [f32; 4] {
+        [self.count as f32, 0.0, 0.0, 0.0]
+    }
+
+    /// Return whether this draw has no supplemental texture payload.
+    pub(super) fn is_empty(&self) -> bool {
+        self.count == 0
+    }
+
+    /// Write the complete 32x2 RGBA32F shader-data texture payload.
     ///
-    /// The caller must provide at least [`MAX_SUPPLEMENTAL_CONSTANTS`] rows.
-    /// The return value is the number of initialized rows.
-    pub(super) fn write_shader_constants(&self, output: &mut [[f32; 4]]) -> usize {
-        debug_assert!(output.len() >= MAX_SUPPLEMENTAL_CONSTANTS);
-        output[0] = [self.count as f32, 0.0, 0.0, 0.0];
+    /// Row zero stores position/radius and row one stores color/reserved alpha
+    /// at the same light index. The eight unused texels in each row are reset
+    /// so a corrupt shader count cannot expose stale data from an earlier draw.
+    pub(super) fn write_shader_texture(&self, output: &mut [[f32; 4]]) {
+        debug_assert!(output.len() >= SUPPLEMENTAL_LIGHT_TEXTURE_TEXELS);
+        output[..SUPPLEMENTAL_LIGHT_TEXTURE_TEXELS].fill([0.0; 4]);
         for (index, light) in self.lights[..self.count].iter().enumerate() {
-            output[1 + index * 2] = light.position_radius;
-            output[2 + index * 2] = light.color_visibility;
+            output[index] = light.position_radius;
+            output[SUPPLEMENTAL_LIGHT_TEXTURE_WIDTH + index] = light.color_visibility;
         }
-        1 + self.count * 2
     }
 
     #[cfg(test)]
@@ -803,11 +817,11 @@ mod tests {
 
     use super::{
         GEOMETRY_MATRIX_CONTEXT_OFFSET, GEOMETRY_WORLD_TRANSFORM_OFFSET, GeometryTransform,
-        MAX_RENDER_PASS_LIGHTS, MAX_SUPPLEMENTAL_CONSTANTS, MAX_TERRAIN_POINT_LIGHTS,
-        SupplementalTerrainLights, TerrainDrawCacheKey, TerrainLightCandidate, TerrainLightContext,
-        TerrainLightMerge, geometry_matrix_inputs, invalidate_draw_cache, inverse_transform_point,
-        load_draw_cache, manager_supplement_needed, publish_draw_cache,
-        supplement_captured_manager_lights,
+        MAX_RENDER_PASS_LIGHTS, SUPPLEMENTAL_LIGHT_TEXTURE_TEXELS,
+        SUPPLEMENTAL_LIGHT_TEXTURE_WIDTH, SupplementalTerrainLights, TerrainDrawCacheKey,
+        TerrainLightCandidate, TerrainLightContext, TerrainLightMerge, geometry_matrix_inputs,
+        invalidate_draw_cache, inverse_transform_point, load_draw_cache, manager_supplement_needed,
+        publish_draw_cache, supplement_captured_manager_lights,
     };
     use crate::fnv_local_lights::TerrainSceneLight;
 
@@ -891,13 +905,14 @@ mod tests {
     }
 
     fn payload_light_input_luminance(
-        constants: &[[f32; 4]],
+        count_constant: [f32; 4],
+        texture: &[[f32; 4]],
         fragment_position: [f32; 3],
         normal: [f32; 3],
     ) -> f32 {
-        assert_eq!(constants[0][0], 1.0);
-        let position_radius = constants[1];
-        let color_visibility = constants[2];
+        assert_eq!(count_constant[0], 1.0);
+        let position_radius = texture[0];
+        let color_visibility = texture[SUPPLEMENTAL_LIGHT_TEXTURE_WIDTH];
         let light_vector = [
             position_radius[0] - fragment_position[0],
             position_radius[1] - fragment_position[1],
@@ -958,15 +973,15 @@ mod tests {
         let mut merge = TerrainLightMerge::new(&[], 0, context());
         supplement_captured_manager_lights(&[pipboy], None, &mut merge);
         let output = merge.finish();
-        let mut constants = [[0.0; 4]; MAX_SUPPLEMENTAL_CONSTANTS];
-        let constant_count = output.write_shader_constants(&mut constants);
+        let mut texture = [[0.0; 4]; SUPPLEMENTAL_LIGHT_TEXTURE_TEXELS];
+        output.write_shader_texture(&mut texture);
 
-        assert_eq!(constant_count, 3);
-        assert_eq!(constants[0], [1.0, 0.0, 0.0, 0.0]);
-        assert_eq!(constants[2][3], 1.0);
+        assert_eq!(output.shader_count_constant(), [1.0, 0.0, 0.0, 0.0]);
+        assert_eq!(texture[SUPPLEMENTAL_LIGHT_TEXTURE_WIDTH][3], 1.0);
         assert!(
             payload_light_input_luminance(
-                &constants[..constant_count],
+                output.shader_count_constant(),
+                &texture,
                 [501.0, 1002.0, 1483.0],
                 [0.0, 0.0, 1.0],
             ) > 0.1
@@ -1056,13 +1071,15 @@ mod tests {
         publish_draw_cache(&key, expected);
         let cached = load_draw_cache(&key).expect("published semantic key");
         assert_eq!(cached, expected);
-        let mut expected_constants = [[0.0; 4]; MAX_SUPPLEMENTAL_CONSTANTS];
-        let mut cached_constants = [[0.0; 4]; MAX_SUPPLEMENTAL_CONSTANTS];
+        let mut expected_texture = [[0.0; 4]; SUPPLEMENTAL_LIGHT_TEXTURE_TEXELS];
+        let mut cached_texture = [[0.0; 4]; SUPPLEMENTAL_LIGHT_TEXTURE_TEXELS];
+        cached.write_shader_texture(&mut cached_texture);
+        expected.write_shader_texture(&mut expected_texture);
         assert_eq!(
-            cached.write_shader_constants(&mut cached_constants),
-            expected.write_shader_constants(&mut expected_constants)
+            cached.shader_count_constant(),
+            expected.shader_count_constant()
         );
-        assert_eq!(cached_constants, expected_constants);
+        assert_eq!(cached_texture, expected_texture);
 
         invalidate_draw_cache();
         assert!(load_draw_cache(&key).is_none());
@@ -1220,25 +1237,39 @@ mod tests {
     }
 
     #[test]
-    fn shader_payload_is_count_followed_by_interleaved_pairs() {
+    fn shader_payload_separates_count_and_texture_rows() {
         let mut merge = TerrainLightMerge::new(&[], 0, context());
         assert!(merge.consider(candidate(0x20000)));
         let output = merge.finish();
-        let mut constants = [[0.0; 4]; MAX_SUPPLEMENTAL_CONSTANTS];
+        let mut texture = [[9.0; 4]; SUPPLEMENTAL_LIGHT_TEXTURE_TEXELS];
 
-        assert_eq!(output.write_shader_constants(&mut constants), 3);
-        assert_eq!(constants[0], [1.0, 0.0, 0.0, 0.0]);
-        assert_eq!(constants[1], output.lights()[0].position_radius);
-        assert_eq!(constants[2], output.lights()[0].color_visibility);
-        assert_eq!(MAX_SUPPLEMENTAL_CONSTANTS, MAX_TERRAIN_POINT_LIGHTS * 2 + 1);
+        output.write_shader_texture(&mut texture);
+        assert_eq!(output.shader_count_constant(), [1.0, 0.0, 0.0, 0.0]);
+        assert_eq!(texture[0], output.lights()[0].position_radius);
+        assert_eq!(
+            texture[SUPPLEMENTAL_LIGHT_TEXTURE_WIDTH],
+            output.lights()[0].color_visibility
+        );
+        assert!(
+            texture[1..SUPPLEMENTAL_LIGHT_TEXTURE_WIDTH]
+                .iter()
+                .all(|texel| *texel == [0.0; 4])
+        );
+        assert!(
+            texture[SUPPLEMENTAL_LIGHT_TEXTURE_WIDTH + 1..]
+                .iter()
+                .all(|texel| *texel == [0.0; 4])
+        );
     }
 
     #[test]
     fn empty_payload_resets_the_supplemental_count() {
         let output = SupplementalTerrainLights::default();
-        let mut constants = [[9.0; 4]; MAX_SUPPLEMENTAL_CONSTANTS];
+        let mut texture = [[9.0; 4]; SUPPLEMENTAL_LIGHT_TEXTURE_TEXELS];
 
-        assert_eq!(output.write_shader_constants(&mut constants), 1);
-        assert_eq!(constants[0], [0.0; 4]);
+        output.write_shader_texture(&mut texture);
+        assert_eq!(output.shader_count_constant(), [0.0; 4]);
+        assert!(output.is_empty());
+        assert!(texture.iter().all(|texel| *texel == [0.0; 4]));
     }
 }

@@ -1051,4 +1051,36 @@ mod master_setting_tests {
         assert!(prepared.contains(".try_lock()?"));
         assert!(!prepared.contains("PREPARED_BYTECODE.lock()"));
     }
+
+    #[test]
+    fn supplemental_light_texture_follows_shader_resource_lifetime() {
+        let resources = include_str!("pbr/device_resources.rs");
+        assert!(resources.contains("Option<DynamicRgba32fTexture9>"));
+        assert!(resources.contains("create_dynamic_rgba32f_texture"));
+        assert!(resources.contains("texture.write_discard(texels)"));
+        assert!(resources.contains("state.supplemental_light_texture = None"));
+        assert!(
+            resources.contains("forget_supplemental_light_texture_binding_after_device_change")
+        );
+
+        let readiness = resources
+            .split_once("fn update_failure_state")
+            .map(|(_, body)| body)
+            .expect("resource readiness body");
+        assert!(readiness.contains("state.supplemental_light_texture.is_some()"));
+        assert!(readiness.contains("state.supplemental_light_texture_create_failed"));
+        let global_gate = readiness
+            .split_once("let land_lod_first")
+            .map(|(body, _)| body)
+            .expect("global resource gate");
+        assert!(!global_gate.contains("supplemental_light_texture"));
+
+        let upload = resources
+            .split_once("pub(super) fn upload_and_bind_supplemental_light_texture")
+            .and_then(|(_, tail)| tail.split_once("fn resource_handle"))
+            .map(|(body, _)| body)
+            .expect("supplemental light upload body");
+        assert!(upload.contains("RESOURCES.try_lock()"));
+        assert!(!upload.contains("RESOURCES.lock()"));
+    }
 }

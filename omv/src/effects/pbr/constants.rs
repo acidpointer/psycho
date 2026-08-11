@@ -1,7 +1,9 @@
 //! NVR-style PBR constant state.
 //!
 //! Object and terrain settings have separate snapshots because their shader
-//! ABIs and material models are not interchangeable. Device uploads belong to
+//! ABIs and material models are not interchangeable. Close terrain reserves
+//! c91 for the supplemental light count; its light records live in the
+//! draw-scoped texture owned by `device_resources`. Device uploads belong to
 //! the draw replacement path, not to classification code.
 
 use std::{
@@ -14,7 +16,7 @@ use std::{
 
 use super::{
     NativePbrSettings, OBJECT_PBR_PROFILE_VALUE_COUNT, TERRAIN_PBR_PROFILE_VALUE_COUNT,
-    terrain_lights::{MAX_SUPPLEMENTAL_CONSTANTS, SupplementalTerrainLights},
+    terrain_lights::SupplementalTerrainLights,
 };
 use libpsycho::os::windows::directx9::Device9Ref;
 
@@ -86,12 +88,16 @@ pub(super) fn upload_terrain_constants(
         return Some(requested);
     };
 
-    let mut upload = [[0.0; 4]; 2 + MAX_SUPPLEMENTAL_CONSTANTS];
-    upload[..2].copy_from_slice(&requested);
-    let supplemental_count = supplemental_lights.write_shader_constants(&mut upload[2..]);
-    let upload_count = 2 + supplemental_count;
+    // c92..c139 used to carry an interleaved dynamic array. Keeping only the
+    // c91 count in the D3D constant upload removes that compiler-facing array
+    // ABI while still resetting stale supplemental work on every admitted draw.
+    let upload = [
+        requested[0],
+        requested[1],
+        supplemental_lights.shader_count_constant(),
+    ];
     if device
-        .set_pixel_shader_constant_f(TERRAIN_DATA_REGISTER, &upload[..upload_count])
+        .set_pixel_shader_constant_f(TERRAIN_DATA_REGISTER, &upload)
         .is_err()
     {
         return None;

@@ -14,6 +14,16 @@ proof establishes where OMV now intervenes, which work was removed, and which
 state/copy boundaries remain necessary; it cannot identify a proprietary
 driver stall by itself.
 
+The later AMD/NVIDIA comparison and failed split-array compiler experiment led
+to one additional shader-lowering correction. OMV now stores supplemental
+close-terrain light records in a draw-scoped 32x2 RGBA32F texture instead of a
+dynamically selected constant array. Its exact ABI, state transaction,
+bytecode evidence, and remaining runtime gates are documented in
+`graphics_fnv_omv_nvidia_close_terrain_shader_fix_implementation.md`. That
+document supersedes this implementation's earlier supplemental constant-layout
+description but preserves all hook, lifecycle, quality, and acceptance
+boundaries here.
+
 The governing executable remains FalloutNV.exe 1.4.0.525, PE32 x86, preferred
 base `0x00400000`, SHA-256
 `42fee7d6cd74e801372aa89c8f71c974cebd3c20ec9ad43d1465b8fa9646b49c`.
@@ -113,13 +123,13 @@ release can state that the one-FPS defect is closed.
 | `effects/pbr/engine_contracts.rs` | Eye/fog flags, transactional shader-package lifetime/transition, and engine wrapper/pass state |
 | `effects/pbr/samplers.rs` | Fixed 16-stage known/null/identity mirror and semantic texture generation |
 | `effects/pbr/terrain_lights.rs` | Native/property/manager light merge and generation-keyed fixed cache |
-| `effects/pbr/device_resources.rs` | Replacement resources keyed by device identity and generation |
+| `effects/pbr/device_resources.rs` | Replacement shaders and supplemental light-data texture keyed by device identity and generation |
 | `effects/sky.rs` | Sky constant selection and getter-free geometry admission using the shared texture mirror |
 | `fnv_local_lights.rs` | Exact shadow ABI bridge, caller-context policy, scalar publication, completed-shadow retention, and reset drain |
 | `render_state.rs` | Named state capture/apply attribution, attachment restoration, alias removal, and exact color copies |
 | `fnv_world_pipeline.rs` | Pre-alpha/coherent-world atmosphere and TAA transactions |
 | `runtime.rs` | Scene-pre, scene-post, and final image-space transactions and post-world color ownership |
-| `libpsycho/.../directx9.rs` | Narrow reusable owned `Device9` COM reference and render-thread borrow |
+| `libpsycho/.../directx9.rs` | Narrow reusable D3D owners, including the dynamic RGBA32F discard-upload texture |
 
 The detailed module-level contracts are also stated in `//!` documentation at
 the top of the new or materially changed hot-path owners. Public and
@@ -574,3 +584,11 @@ Do not call the source change a completed NVIDIA fix if the affected-machine
 run is absent or still shows the multi-fold vendor cliff. If it remains, use
 the named diagnostic intervals to isolate the longest remaining driver-facing
 transaction before changing quality, coverage, or shader code.
+
+The 2026-08-11 supplemental-selector follow-up passed the complete 465-test
+i686 OMV suite, the optimized i686 build, and all 33 PBR shader-registry tests
+through the forced native x86 Microsoft `d3dcompiler_47.dll`. Its candidate
+DLL SHA-256 is
+`f274016f75f400025cad9f585744039d54091a0475d94ecebfdf568de5840eff`.
+These results extend the static evidence above; the affected-machine matrix
+remains open.

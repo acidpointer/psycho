@@ -1,3 +1,14 @@
+// OMV close-terrain native-PBR pixel shader.
+//
+// This program replaces the native one-through-seven-layer terrain rows while
+// preserving their material, fog, native-light, and diffuse/normal sampler
+// ABIs. OMV portable lights use the count in c91 and a 32x2 float texture on
+// temporarily borrowed s14; they are evaluated after native lights under the
+// same combined 24-light cap. The texture width is deliberately a power of
+// two, making every sampled texel center exact even when inherited sampler
+// state is linear. This avoids the compare/select cascades produced for
+// dynamic ps_3_0 constant-array reads.
+
 #ifndef PBR_TERRAIN_TEX_COUNT
 #define PBR_TERRAIN_TEX_COUNT 1
 #endif
@@ -16,10 +27,10 @@ float4 FogColor : register(c37);
 float4 TESR_TerrainData : register(c89);
 float4 TESR_TerrainExtraData : register(c90);
 float OMV_SupplementalPointLightCount : register(c91);
-float4 OMV_SupplementalPointLightData[48] : register(c92);
 
 sampler2D BaseMap[7] : register(s0);
 sampler2D NormalMap[7] : register(s7);
+sampler2D OMV_SupplementalPointLightTexture : register(s14);
 
 #if PBR_TERRAIN_POINT_LIGHTS > 0
 float4 PointLightColor[PBR_TERRAIN_POINT_LIGHTS] : register(c39);
@@ -240,6 +251,32 @@ float3 PointLighting(PbrSurface surface, float3 light_dir, float attenuation, fl
     return max(float3(0.0f, 0.0f, 0.0f), PbrDirect(surface, normal, view_dir, light_dir, light_color * PbrLightMultiplier()) * attenuation);
 }
 
+float3 PointLightContribution(
+    PbrSurface surface,
+    float3x3 tbn,
+    float3 local_position,
+    float4 light_position,
+    float3 light_color,
+    float3 view_dir,
+    float3 normal
+)
+{
+    float3 light_vector = light_position.xyz - local_position;
+    float attenuation = VanillaAtt(light_vector, light_position.w);
+    [branch] if (attenuation > 0.001f)
+    {
+        return PointLighting(
+            surface,
+            mul(tbn, light_vector),
+            attenuation,
+            light_color,
+            view_dir,
+            normal
+        );
+    }
+    return float3(0.0f, 0.0f, 0.0f);
+}
+
 #if PBR_TERRAIN_POINT_LIGHTS > 0
 void LoadNativePointLight(int index, out float4 light_position, out float4 light_color)
 {
@@ -350,100 +387,15 @@ void LoadNativePointLight(int index, out float4 light_position, out float4 light
 
 void LoadSupplementalPointLight(int index, out float4 light_position, out float4 light_color)
 {
-#define OMV_LOAD_SUPPLEMENTAL_POINT_LIGHT(INDEX) \
-    light_position = OMV_SupplementalPointLightData[(INDEX) * 2]; \
-    light_color = OMV_SupplementalPointLightData[(INDEX) * 2 + 1]
-    [branch] if (index < 12)
-    {
-        [branch] if (index < 6)
-        {
-            [branch] if (index < 3)
-            {
-                [branch] if (index < 1) { OMV_LOAD_SUPPLEMENTAL_POINT_LIGHT(0); }
-                else
-                {
-                    [branch] if (index < 2) { OMV_LOAD_SUPPLEMENTAL_POINT_LIGHT(1); }
-                    else { OMV_LOAD_SUPPLEMENTAL_POINT_LIGHT(2); }
-                }
-            }
-            else
-            {
-                [branch] if (index < 4) { OMV_LOAD_SUPPLEMENTAL_POINT_LIGHT(3); }
-                else
-                {
-                    [branch] if (index < 5) { OMV_LOAD_SUPPLEMENTAL_POINT_LIGHT(4); }
-                    else { OMV_LOAD_SUPPLEMENTAL_POINT_LIGHT(5); }
-                }
-            }
-        }
-        else
-        {
-            [branch] if (index < 9)
-            {
-                [branch] if (index < 7) { OMV_LOAD_SUPPLEMENTAL_POINT_LIGHT(6); }
-                else
-                {
-                    [branch] if (index < 8) { OMV_LOAD_SUPPLEMENTAL_POINT_LIGHT(7); }
-                    else { OMV_LOAD_SUPPLEMENTAL_POINT_LIGHT(8); }
-                }
-            }
-            else
-            {
-                [branch] if (index < 10) { OMV_LOAD_SUPPLEMENTAL_POINT_LIGHT(9); }
-                else
-                {
-                    [branch] if (index < 11) { OMV_LOAD_SUPPLEMENTAL_POINT_LIGHT(10); }
-                    else { OMV_LOAD_SUPPLEMENTAL_POINT_LIGHT(11); }
-                }
-            }
-        }
-    }
-    else
-    {
-        [branch] if (index < 18)
-        {
-            [branch] if (index < 15)
-            {
-                [branch] if (index < 13) { OMV_LOAD_SUPPLEMENTAL_POINT_LIGHT(12); }
-                else
-                {
-                    [branch] if (index < 14) { OMV_LOAD_SUPPLEMENTAL_POINT_LIGHT(13); }
-                    else { OMV_LOAD_SUPPLEMENTAL_POINT_LIGHT(14); }
-                }
-            }
-            else
-            {
-                [branch] if (index < 16) { OMV_LOAD_SUPPLEMENTAL_POINT_LIGHT(15); }
-                else
-                {
-                    [branch] if (index < 17) { OMV_LOAD_SUPPLEMENTAL_POINT_LIGHT(16); }
-                    else { OMV_LOAD_SUPPLEMENTAL_POINT_LIGHT(17); }
-                }
-            }
-        }
-        else
-        {
-            [branch] if (index < 21)
-            {
-                [branch] if (index < 19) { OMV_LOAD_SUPPLEMENTAL_POINT_LIGHT(18); }
-                else
-                {
-                    [branch] if (index < 20) { OMV_LOAD_SUPPLEMENTAL_POINT_LIGHT(19); }
-                    else { OMV_LOAD_SUPPLEMENTAL_POINT_LIGHT(20); }
-                }
-            }
-            else
-            {
-                [branch] if (index < 22) { OMV_LOAD_SUPPLEMENTAL_POINT_LIGHT(21); }
-                else
-                {
-                    [branch] if (index < 23) { OMV_LOAD_SUPPLEMENTAL_POINT_LIGHT(22); }
-                    else { OMV_LOAD_SUPPLEMENTAL_POINT_LIGHT(23); }
-                }
-            }
-        }
-    }
-#undef OMV_LOAD_SUPPLEMENTAL_POINT_LIGHT
+    float light_u = ((float)index + 0.5f) / 32.0f;
+    light_position = tex2Dlod(
+        OMV_SupplementalPointLightTexture,
+        float4(light_u, 0.25f, 0.0f, 0.0f)
+    );
+    light_color = tex2Dlod(
+        OMV_SupplementalPointLightTexture,
+        float4(light_u, 0.75f, 0.0f, 0.0f)
+    );
 }
 
 PixelOutput Main(PixelInput input)
@@ -491,6 +443,7 @@ PixelOutput Main(PixelInput input)
     native_point_count = min((int)PointLightCount, PBR_TERRAIN_POINT_LIGHTS);
 #endif
     int supplemental_point_count = min((int)OMV_SupplementalPointLightCount, 24 - native_point_count);
+
     int total_point_count = native_point_count + supplemental_point_count;
     [loop] for (int point_index = 0; point_index < total_point_count; point_index++)
     {
@@ -508,19 +461,15 @@ PixelOutput Main(PixelInput input)
             LoadSupplementalPointLight(supplemental_index, light_position, light_color);
         }
 
-        float3 light_vector = light_position.xyz - input.local_position;
-        float attenuation = VanillaAtt(light_vector, light_position.w);
-        [branch] if (attenuation > 0.001f)
-        {
-            lighting += PointLighting(
-                pbr_surface,
-                mul(tbn, light_vector),
-                attenuation,
-                light_color.rgb,
-                view_dir,
-                normal
-            );
-        }
+        lighting += PointLightContribution(
+            pbr_surface,
+            tbn,
+            input.local_position,
+            light_position,
+            light_color.rgb,
+            view_dir,
+            normal
+        );
     }
 
     float3 fog_position = input.projection_position.xyz;

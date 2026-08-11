@@ -11,10 +11,14 @@ is multiplied in exterior scenes.
 
 The affected NVIDIA follow-up reported no meaningful improvement after those
 source corrections. The later close-terrain shader-lowering evidence and the
-next output-equivalent remediation are owned by
-`docs/graphics_fnv_omv_nvidia_close_terrain_shader_fix_plan.md`. That plan
-supersedes only this document's shader-bytecode prohibition; all feature,
-quality, startup, lifecycle, and runtime acceptance constraints remain active.
+current output-equivalent remediation are owned by
+`docs/graphics_fnv_omv_nvidia_close_terrain_shader_fix_implementation.md`. The
+original split-constant design in
+`docs/graphics_fnv_omv_nvidia_close_terrain_shader_fix_plan.md` failed its
+compiler gate and is retained only as a superseded decision record. The
+implemented texture design supersedes only this document's shader-bytecode
+prohibition; all feature, quality, startup, lifecycle, and runtime acceptance
+constraints remain active.
 
 The plan has four required outcomes:
 
