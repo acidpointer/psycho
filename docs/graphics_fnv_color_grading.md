@@ -5,6 +5,9 @@ ranges revised on 2026-07-23; the final-color resource transaction was
 corrected on 2026-07-27 after a real-user terrain-corruption report; the
 original atmospheric LUT library was expanded with Mojave, Capital Wasteland,
 subterranean-survival, and exclusion-zone families on 2026-07-28.
+Automatic exposure and adaptive neutral tone mapping were integrated on
+2026-08-11; their response and acceptance contract is in
+`graphics_fnv_auto_exposure_and_adaptive_tone.md`.
 Deterministic repository, parser, menu, resource-planning, CPU image-reference,
 shader compilation, bytecode-budget, and packaging coverage is complete.
 Ordinary in-game visual acceptance of the transaction fix remains.
@@ -18,6 +21,8 @@ separate effects instead of one misleading Color Grade and Film editor:
 
 - Final Output: fused-source master enable, master strength, and before/after
   split;
+- Auto Exposure;
+- Tone Mapping;
 - Color Grading;
 - LUT;
 - Debanding;
@@ -38,10 +43,11 @@ Each family has an independent switch and relevant controls:
 - independent bright-highlight halation using the shared Bloom blur resources;
 - radial chromatic aberration.
 
-This separation is UI ownership only. The stored `ColorGradeConfig`, preset
-schema, constant ABI, pass schedule, and fused shader remain unchanged. Making
-each sidebar entry a new D3D effect would duplicate phase copies and
-full-resolution work without improving user control.
+This separation is UI ownership only. Creative values remain in the stored
+`ColorGradeConfig` and frozen preset payload. Adaptive display values are
+top-level Current Look preferences and are not captured by presets. All ten
+editors still project into one fused final-color source; making each sidebar
+entry a new D3D effect would duplicate phase copies and full-resolution work.
 
 The LUT effect renders assets as a dropdown. It does not expose a fixed
 radio-button list. LUT labels and count come from `.cube` files under
@@ -170,11 +176,12 @@ curves would only create clipping or redundant slider travel.
 `omv/src/config.rs` owns persisted values and finite bounds.
 `omv/src/luts.rs` owns `.cube` discovery, parsing, cache reuse, and stable IDs.
 `omv/src/shaders.rs` owns the one `Final Color Pipeline` source, dynamic option
-metadata, and stable-ID synchronization. `omv/src/runtime.rs` owns the eight
+metadata, and stable-ID synchronization. `omv/src/runtime.rs` owns the ten
 virtual finishing selections, filters each detail editor to its controls,
 performs the joint shader/LUT scan transaction, and schedules the final phase.
 `omv/src/effects/blooming_hdr.rs` owns D3D9 resources and CPU constants.
-`bloom_hdr_compose.hlsl` owns fused Bloom/color composition;
+`adaptive_tone.hlsl` owns the one-pixel meter and temporal response;
+`bloom_hdr_compose.hlsl` owns fused Bloom/color/tone composition;
 `chromatic_aberration.hlsl` owns the optional optical pass.
 
 The fixed native phase is `final_image_space`. The established outer
@@ -182,11 +189,12 @@ The fixed native phase is `final_image_space`. The established outer
 image-space first, then OMV scene-post and final-image phases. Built-in order is:
 
 1. native image-space and OMV scene-post work;
-2. highlight extraction and two-axis blur when Bloom or halation is enabled;
-3. fused Bloom/color compose when either has work;
-4. optional chromatic aberration;
-5. built-in spatial AA;
-6. loose external final-image shaders.
+2. one-pixel display metering when automatic exposure or tone requires it;
+3. highlight extraction and two-axis blur when Bloom or halation is enabled;
+4. fused Bloom/color/tone compose when any family has work;
+5. optional chromatic aberration;
+6. built-in spatial AA;
+7. loose external final-image shaders.
 
 The supported executable is `fnv_reverse/FalloutNV.exe`, SHA-256
 `42fee7d6cd74e801372aa89c8f71c974cebd3c20ec9ad43d1465b8fa9646b49c`, PE32
@@ -197,10 +205,11 @@ Established phase evidence remains in
 No new engine address or native layout was inferred for this change.
 
 Grade-only rendering needs current scene color and no depth, normal, velocity,
-mask, or history. Bloom can consume the existing point-sampled first-person
-depth to suppress weapon/hand glow. Chromatic aberration uses only final scene
-color. Later native overlays retain their established owner; OMV does not claim
-a new HUD mask.
+or mask. Automatic display adaptation additionally owns one-pixel FP16
+ping-pong history; fixed tone and disabled adaptation do not. Bloom can consume
+the existing point-sampled first-person depth to suppress weapon/hand glow.
+Chromatic aberration uses only final scene color. Later native overlays retain
+their established owner; OMV does not claim a new HUD mask.
 
 ## External LUT format and catalog transaction
 
@@ -339,12 +348,18 @@ Fused compose bindings:
 | `s4` | Quarter-resolution Bloom or managed black fallback. |
 | `s5` | Selected flattened LUT, clamped linear. |
 | `s6` | Generated 512-by-512 monochrome grain, wrapping linear. |
+| `s7` | Current one-pixel FP16 adaptation history in the adaptive variant. |
 | `c0..c2` | Screen, frame, and camera data. |
 | `c3..c5` | Bounded Bloom controls or explicit zeros. |
 | `c9` | Bloom target dimensions/texel size. |
 | `c10..c14` | Grade values, strengths, master/debug flags, environment state. |
 | `c15..c16` | Independent family enable flags and grain particle size. |
 | `c17..c18` | LUT input-domain scale/bias and LUT size. |
+| `c19` | Automatic-exposure enable, tone mode, and tone strength. |
+
+The meter binds display color at `s0`, previous one-pixel history at `s1`, and
+adaptation/timing values at `c0..c1`. Its output stores exposure EV, shoulder
+start, and highlight crosstalk.
 
 Chromatic bindings are `s0` scene color, `c0` dimensions/inverse dimensions,
 and `c3.x` master-scaled displacement in pixels. It samples center plus
@@ -398,11 +413,14 @@ failure.
 
 ## Image math and family isolation
 
-Analytic controls operate on finite `0..1` display code values and end in a
-bounded write. OMV does not reapply sRGB, replace Fallout's tonemapper, compute
-screen-average exposure, or add temporal adaptation, so crossing a bright
-object cannot pump exposure. CPU settings sanitize every untrusted numeric
-value before constants are bound.
+Analytic controls operate on finite display code values and end in a bounded
+write. OMV does not reapply sRGB or replace Fallout's native tonemapper. The
+optional display-referred meter uses fixed center-weighted log-luminance
+samples and bounded temporal response; it is isolated from OMV's own output so
+grading cannot feed back into exposure. CPU settings sanitize every untrusted
+numeric value before constants are bound. The complete adaptation and neutral
+curve math is documented in
+`graphics_fnv_auto_exposure_and_adaptive_tone.md`.
 
 Debanding uses center plus four cross neighbors six pixels away, which reaches
 through broad one-code-value bands; local RGB discontinuity rejection preserves
@@ -429,8 +447,10 @@ generator and its one-MiB managed texture are created with the effect, never in
 the routine draw path. A catalog change releases the effect so removed LUT and
 grain resources cannot linger. Device loss releases the effect and default-pool
 quarter-resolution Bloom targets; reset recreates them lazily. Resize/format
-changes recreate only the two Bloom targets. There is no history or camera-cut
-state. Grain texture allocation/upload failure aborts effect construction
+changes recreate only the two Bloom targets. Automatic mode additionally owns
+two persistent one-pixel FP16 history targets and invalidates them across
+Present gaps, resize, disable, and device recreation. Grain texture
+allocation/upload failure aborts effect construction
 through the existing error path, so no partially initialized resource set is
 published.
 
@@ -441,6 +461,9 @@ Static upper bounds enforced from compiled bytecode are:
 | Bloom extract | 220 instructions | 10 |
 | Bloom blur | 80 instructions | 9 |
 | Fused compose | 500 instructions | 14 |
+| Fixed tone compose | 530 instructions | 14 |
+| Adaptive compose | 560 instructions | 15 |
+| One-pixel adaptation meter | 240 instructions | 2 |
 | Chromatic aberration | 70 instructions | 3 |
 
 Grade only is one phase copy plus one full-resolution draw. Bloom is one copy,
@@ -449,8 +472,10 @@ uses the same four-draw shape so it remains functional when visible Bloom is
 disabled; Bloom plus grade without chromatic remains four draws. Chromatic-only
 adds one full-resolution draw and uses the already captured scene. Chromatic
 after compose adds one backbuffer copy and one full-resolution draw. Because
-chromatic aberration now defaults on, the shipped Bloom-plus-grade plan is five
-effect draws and includes that copy. Disabling it returns to the four-draw plan.
+chromatic aberration now defaults on, the previous Bloom-plus-grade plan is five
+effect draws and includes that copy. Shipped automatic adaptation adds one
+one-pixel draw, for six effect draws. Disabling adaptive exposure/tone restores
+the previous plan exactly; fixed-neutral tone changes only the compose variant.
 The unchanged draw path performs no file I/O, shader compilation, locks, routine
 allocation, capability queries, or routine logging. The attachment transaction
 adds owned COM references for the active native attachments once per applied
@@ -461,9 +486,9 @@ work, not per-frame work.
 
 The supported `i686-pc-windows-gnu` tests cover:
 
-- compilation and bytecode inspection of extract, blur, compose, and chromatic
-  entry points, including instruction/texture ceilings and prohibited
-  derivatives;
+- compilation and bytecode inspection of extract, blur, all compose variants,
+  the one-pixel meter, and chromatic entry points, including
+  instruction/texture ceilings and prohibited derivatives;
 - exact `c10..c18`, `s5..s6`, chromatic `c0/c3/s0`, alpha, half-pixel, sampler,
   render-target hazard, and explicit D3D state contracts;
 - a negative-control resource model proving that clearing only `s0` leaves the
@@ -501,7 +526,7 @@ The supported `i686-pc-windows-gnu` tests cover:
 - menu schema/sync, dropdown choice IDs, config sanitization/round trip, legacy
   key removal, shipped-default equality, installer copy, release packaging, and
   archive manifest requirements;
-- eight independently named finishing editors mapped back to one fused source,
+- ten independently named finishing editors mapped back to one fused source,
   with no new preset field or render pass;
 - absence of compilation, parsing, file I/O, allocation, or locks in the effect
   draw method and bounded CPU/GPU memory accounting.
@@ -516,7 +541,7 @@ darkening the frame, does not form square cells or sparkle in black/white
 regions, particle size tracks its independent slider across resolutions, the
 LUT dropdown refreshes, invalid edits preserve the prior look, chromatic
 fringing stays edge-local, and later AA/external shaders retain order.
-The Configuration sidebar must show all eight finishing entries separately;
+The Configuration sidebar must show all ten finishing entries separately;
 each detail pane must expose only its own enable switch and controls, and
 changing every entry must still persist through the existing final-color
 config and preset schema.

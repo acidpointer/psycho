@@ -1,8 +1,12 @@
-//! Engine-side atmospheric bloom and HDR pipeline.
+//! Engine-side Bloom, display adaptation, and final-color pipeline.
 //!
 //! Final-color HLSL preparation is process-owned and asynchronous. Device
 //! creation consumes an immutable shared bytecode catalog, so neither startup
-//! configuration nor render callbacks invoke the compiler.
+//! configuration nor render callbacks invoke the compiler. Automatic exposure
+//! is deliberately display-referred: Fallout's native image-space work owns
+//! HDR mapping before this phase, and OMV shapes only the remaining display
+//! range. One fixed-grid 1x1 draw writes ping-pong FP16 history; the fused
+//! compose consumes it without CPU readback or another full-resolution pass.
 
 use std::{
     sync::{
@@ -13,19 +17,20 @@ use std::{
 };
 
 use libpsycho::os::windows::directx9::{
-    D3DCULL_NONE, D3DFMT_A8R8G8B8, D3DFORMAT, D3DPOOL_MANAGED, D3DPT_TRIANGLESTRIP,
-    D3DRS_ADAPTIVETESS_Y, D3DRS_ALPHABLENDENABLE, D3DRS_ALPHATESTENABLE, D3DRS_COLORWRITEENABLE,
-    D3DRS_CULLMODE, D3DRS_MULTISAMPLEANTIALIAS, D3DRS_MULTISAMPLEMASK, D3DRS_POINTSIZE,
-    D3DRS_SCISSORTESTENABLE, D3DRS_SRGBWRITEENABLE, D3DRS_STENCILENABLE, D3DRS_ZENABLE,
-    D3DRS_ZWRITEENABLE, D3DSAMP_ADDRESSU, D3DSAMP_ADDRESSV, D3DSAMP_MAGFILTER, D3DSAMP_MINFILTER,
-    D3DSAMP_MIPFILTER, D3DSAMP_SRGBTEXTURE, D3DSURFACE_DESC, D3DTA_TEXTURE, D3DTADDRESS_CLAMP,
-    D3DTADDRESS_WRAP, D3DTEXF_LINEAR, D3DTEXF_NONE, D3DTEXF_POINT, D3DTOP_SELECTARG1,
-    D3DTSS_ALPHAARG1, D3DTSS_ALPHAOP, D3DTSS_COLORARG1, D3DTSS_COLOROP, D3DVIEWPORT9, Device9Ref,
-    Direct3DResult, PixelShader9, ScreenVertex, Surface9, Texture9,
+    D3DCULL_NONE, D3DFMT_A8R8G8B8, D3DFMT_A16B16G16R16F, D3DFORMAT, D3DPOOL_MANAGED,
+    D3DPT_TRIANGLESTRIP, D3DRS_ADAPTIVETESS_Y, D3DRS_ALPHABLENDENABLE, D3DRS_ALPHATESTENABLE,
+    D3DRS_COLORWRITEENABLE, D3DRS_CULLMODE, D3DRS_MULTISAMPLEANTIALIAS, D3DRS_MULTISAMPLEMASK,
+    D3DRS_POINTSIZE, D3DRS_SCISSORTESTENABLE, D3DRS_SRGBWRITEENABLE, D3DRS_STENCILENABLE,
+    D3DRS_ZENABLE, D3DRS_ZWRITEENABLE, D3DSAMP_ADDRESSU, D3DSAMP_ADDRESSV, D3DSAMP_MAGFILTER,
+    D3DSAMP_MINFILTER, D3DSAMP_MIPFILTER, D3DSAMP_SRGBTEXTURE, D3DSURFACE_DESC, D3DTA_TEXTURE,
+    D3DTADDRESS_CLAMP, D3DTADDRESS_WRAP, D3DTEXF_LINEAR, D3DTEXF_NONE, D3DTEXF_POINT,
+    D3DTOP_SELECTARG1, D3DTSS_ALPHAARG1, D3DTSS_ALPHAOP, D3DTSS_COLORARG1, D3DTSS_COLOROP,
+    D3DVIEWPORT9, Device9Ref, Direct3DResult, PixelShader9, ScreenVertex, Surface9, Texture9,
 };
 
 use crate::{
     backend::{DepthTexture, FrameInputs},
+    config::ToneMapperMode,
     luts::LutAsset,
     render_state::RenderTargetSlots,
     shaders::{self, ScreenShaderSource, ShaderOptionValue},
@@ -54,6 +59,10 @@ const EXTRACT_SHADER: &[u8] = include_bytes!("../../shaders/embedded/bloom_hdr_e
 const BLUR_SHADER: &[u8] = include_bytes!("../../shaders/embedded/bloom_hdr_blur.hlsl");
 const COMPOSE_SHADER: &[u8] = include_bytes!("../../shaders/embedded/bloom_hdr_compose.hlsl");
 const CHROMATIC_SHADER: &[u8] = include_bytes!("../../shaders/embedded/chromatic_aberration.hlsl");
+const ADAPTIVE_TONE_SHADER: &[u8] = include_bytes!("../../shaders/embedded/adaptive_tone.hlsl");
+
+const COMPOSE_VARIANT_STATIC: u8 = 1;
+const COMPOSE_VARIANT_ADAPTIVE: u8 = 2;
 
 fn chromatic_aberration_active(source: &ScreenShaderSource) -> bool {
     source.enabled
@@ -83,6 +92,22 @@ fn color_grade_source_active_with_lut(source: &ScreenShaderSource, lut_available
             && source_option_float(source, "vignette", 0.0) > 1.0e-5)
         || (source_option_bool(source, "halation_enabled", false)
             && source_option_float(source, "halation", 0.0) > 1.0e-5)
+        || adaptive_tone_source_active(source)
+}
+
+fn adaptive_tone_source_active(source: &ScreenShaderSource) -> bool {
+    if !source.enabled || source_option_float(source, "strength", 0.0) <= 1.0e-5 {
+        return false;
+    }
+    let mode = crate::config::ToneMapperMode::from_index(source_option_integer(
+        source,
+        "tone_mapper_mode",
+        0,
+    ));
+    (source_option_bool(source, "auto_exposure_enabled", false)
+        && source_option_float(source, "exposure_range_ev", 0.0) > 1.0e-5)
+        || (mode != crate::config::ToneMapperMode::Off
+            && source_option_float(source, "tone_mapper_strength", 0.0) > 1.0e-5)
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -91,6 +116,7 @@ pub(crate) struct FinalColorWorkPlan {
     bloom_intermediate: bool,
     color_grade: bool,
     chromatic_aberration: bool,
+    adaptive_history: bool,
 }
 
 impl FinalColorWorkPlan {
@@ -120,6 +146,9 @@ impl FinalColorWorkPlan {
             color_grade: color_grade_source
                 .is_some_and(|source| color_grade_source_active_with_lut(source, lut_available)),
             chromatic_aberration: color_grade_source.is_some_and(chromatic_aberration_active),
+            adaptive_history: color_grade_source.is_some_and(|source| {
+                AdaptiveToneSettings::from_source(Some(source)).requires_history()
+            }),
         }
     }
 
@@ -136,7 +165,7 @@ impl FinalColorWorkPlan {
         } else {
             0
         };
-        base + self.chromatic_aberration as u32
+        base + self.chromatic_aberration as u32 + self.adaptive_history as u32
     }
 
     #[cfg(test)]
@@ -159,7 +188,10 @@ fn bloom_target_dimensions(width: u32, height: u32) -> (u32, u32) {
 pub(crate) struct FinalColorShaderBytecode {
     extract: Vec<u32>,
     blur: Vec<u32>,
-    compose: Vec<u32>,
+    compose_legacy: Vec<u32>,
+    compose_static: Vec<u32>,
+    compose_adaptive: Vec<u32>,
+    adaptive_tone: Vec<u32>,
     chromatic: Vec<u32>,
 }
 
@@ -168,10 +200,25 @@ impl FinalColorShaderBytecode {
         Ok(Self {
             extract: prepare_shader("bloom_hdr_extract.hlsl", EXTRACT_SHADER)?,
             blur: prepare_shader("bloom_hdr_blur.hlsl", BLUR_SHADER)?,
-            compose: prepare_shader("bloom_hdr_compose.hlsl", COMPOSE_SHADER)?,
+            compose_legacy: prepare_shader("bloom_hdr_compose.hlsl", COMPOSE_SHADER)?,
+            compose_static: prepare_shader(
+                "bloom_hdr_compose_static.hlsl",
+                &compose_variant_source(COMPOSE_VARIANT_STATIC),
+            )?,
+            compose_adaptive: prepare_shader(
+                "bloom_hdr_compose_adaptive.hlsl",
+                &compose_variant_source(COMPOSE_VARIANT_ADAPTIVE),
+            )?,
+            adaptive_tone: prepare_shader("adaptive_tone.hlsl", ADAPTIVE_TONE_SHADER)?,
             chromatic: prepare_shader("chromatic_aberration.hlsl", CHROMATIC_SHADER)?,
         })
     }
+}
+
+fn compose_variant_source(variant: u8) -> Vec<u8> {
+    let mut source = format!("#define OMV_TONE_VARIANT {variant}\n").into_bytes();
+    source.extend_from_slice(COMPOSE_SHADER);
+    source
 }
 
 /// Start process-owned final-color shader preparation.
@@ -227,14 +274,16 @@ fn prepare_shader(source_name: &str, source: &[u8]) -> anyhow::Result<Vec<u32>> 
 #[cfg(test)]
 mod shader_compile_tests {
     use super::{
-        BLUR_SHADER, CHROMATIC_SHADER, COMPOSE_SHADER, ColorGradeSettings, EXTRACT_SHADER,
-        FILM_GRAIN_TEXTURE_SIZE, FinalColorShaderBytecode, FinalColorWorkPlan, LUT_COUNT, LUT_SIZE,
-        apply_lut_recipe, bloom_target_dimensions, color_grade_source_active, film_grain_pixels,
-        fullscreen_quad, generate_builtin_lut, identity_lut_pixels, native_environment_weight,
+        ADAPTIVE_TONE_SHADER, AdaptiveToneSettings, BLUR_SHADER, CHROMATIC_SHADER, COMPOSE_SHADER,
+        COMPOSE_VARIANT_ADAPTIVE, COMPOSE_VARIANT_STATIC, ColorGradeSettings, ComposeVariant,
+        EXTRACT_SHADER, FILM_GRAIN_TEXTURE_SIZE, FinalColorShaderBytecode, FinalColorWorkPlan,
+        LUT_COUNT, LUT_SIZE, apply_lut_recipe, bloom_target_dimensions, color_grade_source_active,
+        compose_variant_source, film_grain_pixels, fullscreen_quad, generate_builtin_lut,
+        identity_lut_pixels, native_environment_weight,
     };
     use crate::{
         backend::{FrameInputs, MaterialStateFrame, NativeSkyFrame},
-        config::EmbeddedEffectsConfig,
+        config::{AdaptiveToneConfig, EmbeddedEffectsConfig, ToneMapperMode},
         shaders::{self, EmbeddedEffectKind},
     };
 
@@ -652,19 +701,97 @@ mod shader_compile_tests {
         lerp3(additive, screen, shoulder * 0.70)
     }
 
+    fn adapt_exposure_reference(
+        current_ev: f32,
+        target_ev: f32,
+        frame_seconds: f32,
+        speed_scale: f32,
+    ) -> f32 {
+        let delta = target_ev - current_ev;
+        let distance = delta.abs();
+        if distance <= 0.000_01 {
+            return target_ev;
+        }
+        let speed = if delta < 0.0 { 0.90 } else { 0.45 } * speed_scale.clamp(0.25, 2.0);
+        let frame_seconds = frame_seconds.clamp(1.0 / 240.0, 1.0 / 20.0);
+        if distance > 0.50 {
+            return current_ev + delta.signum() * distance.min(speed * frame_seconds);
+        }
+        let alpha = 1.0 - (-speed * frame_seconds / (0.50 * std::f32::consts::LN_2)).exp2();
+        current_ev + delta * alpha.clamp(0.0, 1.0)
+    }
+
+    fn adapt_tone_reference(
+        current: f32,
+        target: f32,
+        frame_seconds: f32,
+        speed_scale: f32,
+    ) -> f32 {
+        let alpha = 1.0
+            - (-frame_seconds.clamp(1.0 / 240.0, 1.0 / 20.0) * speed_scale.clamp(0.25, 2.0) / 0.85)
+                .exp2();
+        current + (target - current) * alpha.clamp(0.0, 1.0)
+    }
+
+    fn neutral_tone_reference(
+        input: [f32; 3],
+        shoulder_start: f32,
+        crosstalk: f32,
+        strength: f32,
+    ) -> [f32; 3] {
+        let peak = input.into_iter().fold(f32::NEG_INFINITY, f32::max);
+        let shoulder_start = shoulder_start.clamp(0.60, 0.90);
+        let remaining = 1.0 - shoulder_start;
+        let over = (peak - shoulder_start).max(0.0);
+        let compressed_peak = peak - over + over * remaining / (remaining + over);
+        let ratio_preserving = input.map(|channel| channel * compressed_peak / peak.max(0.000_01));
+        let path_to_white = (over / remaining).clamp(0.0, 1.0) * crosstalk.clamp(0.0, 0.15);
+        let mapped = std::array::from_fn(|channel| {
+            ratio_preserving[channel]
+                + (compressed_peak - ratio_preserving[channel]) * path_to_white
+        });
+        lerp3(input, mapped, strength.clamp(0.0, 1.0))
+    }
+
     #[test]
     fn embedded_bloom_shaders_compile() {
         crate::shaders::assert_hlsl_compiles("bloom_hdr_extract.hlsl", EXTRACT_SHADER, "ps_3_0");
         crate::shaders::assert_hlsl_compiles("bloom_hdr_blur.hlsl", BLUR_SHADER, "ps_3_0");
         crate::shaders::assert_hlsl_compiles("bloom_hdr_compose.hlsl", COMPOSE_SHADER, "ps_3_0");
+        crate::shaders::assert_hlsl_compiles(
+            "bloom_hdr_compose_static.hlsl",
+            &compose_variant_source(COMPOSE_VARIANT_STATIC),
+            "ps_3_0",
+        );
+        crate::shaders::assert_hlsl_compiles(
+            "bloom_hdr_compose_adaptive.hlsl",
+            &compose_variant_source(COMPOSE_VARIANT_ADAPTIVE),
+            "ps_3_0",
+        );
+        crate::shaders::assert_hlsl_compiles("adaptive_tone.hlsl", ADAPTIVE_TONE_SHADER, "ps_3_0");
     }
 
     #[test]
     fn every_final_color_pass_stays_within_fixed_gpu_budgets() {
+        let static_compose = compose_variant_source(COMPOSE_VARIANT_STATIC);
+        let adaptive_compose = compose_variant_source(COMPOSE_VARIANT_ADAPTIVE);
         for (name, source, max_instructions, max_samples) in [
             ("bloom_hdr_extract_budget.hlsl", EXTRACT_SHADER, 220, 10),
             ("bloom_hdr_blur_budget.hlsl", BLUR_SHADER, 80, 9),
             ("bloom_hdr_compose_budget.hlsl", COMPOSE_SHADER, 500, 14),
+            (
+                "bloom_hdr_compose_static_budget.hlsl",
+                static_compose.as_slice(),
+                530,
+                14,
+            ),
+            (
+                "bloom_hdr_compose_adaptive_budget.hlsl",
+                adaptive_compose.as_slice(),
+                560,
+                15,
+            ),
+            ("adaptive_tone_budget.hlsl", ADAPTIVE_TONE_SHADER, 240, 2),
             ("chromatic_aberration_budget.hlsl", CHROMATIC_SHADER, 70, 3),
         ] {
             let (instructions, texture_samples) = shader_budget(name, source);
@@ -677,6 +804,202 @@ mod shader_compile_tests {
                 "{name} grew to {texture_samples} texture samples"
             );
         }
+
+        let meter = std::str::from_utf8(ADAPTIVE_TONE_SHADER).expect("meter UTF-8");
+        assert!(meter.contains("for (int y = 0; y < 8; ++y)"));
+        assert!(meter.contains("for (int x = 0; x < 8; ++x)"));
+        assert_eq!(meter.matches("tex2Dlod(SceneColor").count(), 1);
+        assert_eq!(
+            8 * 8 + 1,
+            65,
+            "meter executes 64 scene taps plus one history tap"
+        );
+    }
+
+    #[test]
+    fn adaptive_work_is_one_meter_draw_and_legacy_disable_is_exact() {
+        let mut embedded = EmbeddedEffectsConfig::default();
+        embedded.blooming_hdr.enabled = false;
+        embedded.color_grade.color_grading_enabled = false;
+        embedded.color_grade.lut_enabled = false;
+        embedded.color_grade.deband_enabled = false;
+        embedded.color_grade.film_grain_enabled = false;
+        embedded.color_grade.vignette_enabled = false;
+        embedded.color_grade.halation_enabled = false;
+        embedded.color_grade.chromatic_aberration_enabled = false;
+
+        let automatic = AdaptiveToneConfig::default();
+        let sources = shaders::merge_embedded_sources_with_luts_and_adaptive(
+            &embedded,
+            &automatic,
+            &[],
+            &[],
+            Vec::new(),
+        );
+        let source = sources
+            .iter()
+            .find(|source| source.embedded_effect_kind() == Some(EmbeddedEffectKind::ColorGrade))
+            .expect("final-color source");
+        let plan = FinalColorWorkPlan::from_sources(None, Some(source));
+        assert_eq!(plan.effect_draw_count(), 2);
+        assert_eq!(plan.quarter_resolution_draw_count(), 0);
+        let automatic_settings = AdaptiveToneSettings::from_source(Some(source));
+        assert_eq!(
+            automatic_settings.compose_variant(),
+            ComposeVariant::Adaptive
+        );
+        assert!(automatic_settings.without_history().is_active());
+
+        let mut auto_only = automatic;
+        auto_only.tone_mapper_mode = ToneMapperMode::Off;
+        let sources = shaders::merge_embedded_sources_with_luts_and_adaptive(
+            &embedded,
+            &auto_only,
+            &[],
+            &[],
+            Vec::new(),
+        );
+        let source = sources
+            .iter()
+            .find(|source| source.embedded_effect_kind() == Some(EmbeddedEffectKind::ColorGrade))
+            .expect("final-color source");
+        let settings = AdaptiveToneSettings::from_source(Some(source));
+        assert!(settings.requires_history());
+        assert!(!settings.without_history().is_active());
+
+        let mut neutral = automatic;
+        neutral.auto_exposure_enabled = false;
+        neutral.tone_mapper_mode = ToneMapperMode::Neutral;
+        let sources = shaders::merge_embedded_sources_with_luts_and_adaptive(
+            &embedded,
+            &neutral,
+            &[],
+            &[],
+            Vec::new(),
+        );
+        let source = sources
+            .iter()
+            .find(|source| source.embedded_effect_kind() == Some(EmbeddedEffectKind::ColorGrade))
+            .expect("final-color source");
+        let plan = FinalColorWorkPlan::from_sources(None, Some(source));
+        assert_eq!(plan.effect_draw_count(), 1);
+        assert_eq!(
+            AdaptiveToneSettings::from_source(Some(source)).compose_variant(),
+            ComposeVariant::Static
+        );
+
+        let mut zero_range = automatic;
+        zero_range.exposure_range_ev = 0.0;
+        zero_range.tone_mapper_mode = ToneMapperMode::Off;
+        let sources = shaders::merge_embedded_sources_with_luts_and_adaptive(
+            &embedded,
+            &zero_range,
+            &[],
+            &[],
+            Vec::new(),
+        );
+        let source = sources
+            .iter()
+            .find(|source| source.embedded_effect_kind() == Some(EmbeddedEffectKind::ColorGrade))
+            .expect("final-color source");
+        assert!(!FinalColorWorkPlan::from_sources(None, Some(source)).has_work());
+
+        let sources = shaders::merge_embedded_sources(&embedded, Vec::new());
+        let source = sources
+            .iter()
+            .find(|source| source.embedded_effect_kind() == Some(EmbeddedEffectKind::ColorGrade))
+            .expect("final-color source");
+        let settings = AdaptiveToneSettings::from_source(Some(source));
+        assert_eq!(settings.compose_variant(), ComposeVariant::Legacy);
+        assert!(!FinalColorWorkPlan::from_sources(None, Some(source)).has_work());
+    }
+
+    #[test]
+    fn exposure_adaptation_is_bounded_asymmetric_and_frame_rate_stable() {
+        let integrate = |target: f32, hz: u32| {
+            let mut current = 0.0;
+            for _ in 0..hz {
+                current = adapt_exposure_reference(current, target, 1.0 / hz as f32, 1.0);
+            }
+            current
+        };
+        let bright_scene_30 = integrate(-0.75, 30);
+        let bright_scene_60 = integrate(-0.75, 60);
+        let bright_scene_120 = integrate(-0.75, 120);
+        assert!((bright_scene_30 - bright_scene_60).abs() < 0.006);
+        assert!((bright_scene_60 - bright_scene_120).abs() < 0.006);
+        let dark_scene = integrate(0.75, 60);
+        assert!(bright_scene_60.abs() > dark_scene.abs());
+        assert!((-0.75..=0.0).contains(&bright_scene_60));
+        assert!((0.0..=0.75).contains(&dark_scene));
+
+        let mut current = -0.74;
+        for _ in 0..600 {
+            let next = adapt_exposure_reference(current, 0.75, 1.0 / 60.0, 2.0);
+            assert!(next >= current && next <= 0.75);
+            current = next;
+        }
+        assert!((current - 0.75).abs() < 0.001);
+    }
+
+    #[test]
+    fn tone_adaptation_and_neutral_curve_are_smooth_and_hue_safe() {
+        let mut shoulder = 0.76;
+        for _ in 0..60 {
+            let next = adapt_tone_reference(shoulder, 0.66, 1.0 / 60.0, 1.0);
+            assert!(next <= shoulder && next >= 0.66);
+            shoulder = next;
+        }
+        assert!((shoulder - 0.66).abs() > 0.04);
+        assert!((shoulder - 0.66).abs() < 0.06);
+
+        let input = [1.25, 0.62, 0.20];
+        assert_eq!(neutral_tone_reference(input, 0.76, 0.05, 0.0), input);
+        assert_eq!(
+            neutral_tone_reference([0.50, 0.30, 0.10], 0.76, 0.05, 1.0),
+            [0.50, 0.30, 0.10]
+        );
+        let ratio_preserving = neutral_tone_reference(input, 0.76, 0.0, 1.0);
+        assert!((ratio_preserving[1] / ratio_preserving[0] - input[1] / input[0]).abs() < 1.0e-6);
+        assert!((ratio_preserving[2] / ratio_preserving[0] - input[2] / input[0]).abs() < 1.0e-6);
+        let mapped = neutral_tone_reference(input, 0.76, 0.05, 0.65);
+        assert!(mapped[0] > mapped[1] && mapped[1] > mapped[2]);
+        assert!(
+            mapped
+                .iter()
+                .all(|value| value.is_finite() && *value >= 0.0)
+        );
+        assert!(mapped[0] < input[0]);
+    }
+
+    #[test]
+    fn adaptive_render_boundary_sanitizes_untrusted_menu_values() {
+        let mut embedded = EmbeddedEffectsConfig::default();
+        embedded.color_grade.strength = 1.0;
+        let adaptive = AdaptiveToneConfig {
+            auto_exposure_enabled: true,
+            exposure_range_ev: f32::NAN,
+            adaptation_speed: f32::INFINITY,
+            tone_mapper_mode: ToneMapperMode::Automatic,
+            tone_mapper_strength: -99.0,
+        };
+        let sources = shaders::merge_embedded_sources_with_luts_and_adaptive(
+            &embedded,
+            &adaptive,
+            &[],
+            &[],
+            Vec::new(),
+        );
+        let source = sources
+            .iter()
+            .find(|source| source.embedded_effect_kind() == Some(EmbeddedEffectKind::ColorGrade))
+            .expect("final-color source");
+        let settings = AdaptiveToneSettings::from_source(Some(source));
+        assert_eq!(settings.exposure_range_ev, 0.75);
+        assert_eq!(settings.adaptation_speed, 1.0);
+        assert_eq!(settings.tone_mapper_strength, 0.0);
+        assert_eq!(settings.compose_variant(), ComposeVariant::Adaptive);
+        assert_eq!(settings.meter_constants(f32::NAN, false)[0][0], 1.0 / 60.0);
     }
 
     #[test]
@@ -760,6 +1083,7 @@ mod shader_compile_tests {
                 * std::mem::size_of::<u32>(),
             1_048_576
         );
+        assert_eq!(2_u64 * 1 * 1 * 8, 16, "two RGBA16F history texels");
         assert_eq!(
             3840_u64 * 2160 * std::mem::size_of::<u32>() as u64,
             33_177_600,
@@ -878,6 +1202,8 @@ mod shader_compile_tests {
             )
         );
         assert!(source.contains("device.clear_texture(6)?"));
+        assert!(source.contains("device.clear_texture(7)?"));
+        assert!(source.contains("configure_adaptive_sampler(device, 7, true)?"));
         assert!(source.contains("D3DFMT_A8R8G8B8, D3DPOOL_MANAGED"));
         assert!(source.contains("device.create_render_target_texture(width, height, format)"));
         assert!(
@@ -921,7 +1247,10 @@ mod shader_compile_tests {
         for bytecode in [
             &prepared.extract,
             &prepared.blur,
-            &prepared.compose,
+            &prepared.compose_legacy,
+            &prepared.compose_static,
+            &prepared.compose_adaptive,
+            &prepared.adaptive_tone,
             &prepared.chromatic,
         ] {
             assert_eq!(bytecode.first().copied(), Some(0xffff_0300));
@@ -2162,6 +2491,7 @@ mod shader_compile_tests {
             "float4 GradeData6 : register(c16);",
             "float4 LutDomainScale : register(c17);",
             "float4 LutDomainBias : register(c18);",
+            "float4 AdaptiveToneData : register(c19);",
             "sampler2D ColorLut : register(s5);",
             "sampler2D FilmGrainTexture : register(s6);",
         ] {
@@ -2171,7 +2501,7 @@ mod shader_compile_tests {
             );
         }
         for equation in [
-            "float3 color = inputColor * exp2(GradeData0.y);",
+            "float3 color = inputColor * exp2(analyticExposure);",
             "color = 0.5f.xxx + (color - 0.5f.xxx) * (1.0f + GradeData0.z);",
             "float adaptiveVibrance = 1.0f + GradeData1.x * (1.0f - saturate(chromaRange));",
             "float saturation = GradeData0.w * adaptiveVibrance;",
@@ -2202,16 +2532,29 @@ mod shader_compile_tests {
     }
 
     #[test]
-    fn final_color_contract_preserves_alpha_and_avoids_screen_adaptation() {
+    fn final_color_contract_preserves_alpha_and_keeps_metering_one_pixel() {
         let source = std::str::from_utf8(COMPOSE_SHADER).expect("compose UTF-8");
         assert!(source.contains("baseSample.a"));
         assert!(source.contains("SampleColorLut"));
         assert_eq!(source.matches("tex2Dlod(ColorLut").count(), 2);
         assert!(!source.contains("averageLuma"));
-        assert!(!source.contains("AutoExposure"));
+        assert!(!source.contains("for (int y"));
         assert!(!source.contains("ddx("));
         assert!(!source.contains("ddy("));
         assert!(source.contains("color = input.uv.x < 0.5f ? ungraded : color"));
+        assert!(source.contains("sampler2D AdaptiveToneHistory : register(s7);"));
+        assert!(
+            source.contains(
+                "float exposureCompensation = GradeData5.x > 0.5f ? GradeData0.y : 0.0f;"
+            )
+        );
+        assert!(source.contains("AdaptiveToneData.z * GradeData0.x"));
+
+        let meter = std::str::from_utf8(ADAPTIVE_TONE_SHADER).expect("meter UTF-8");
+        assert!(meter.contains("if (!validMeter && AdaptData0.w > 0.5f)"));
+        assert!(meter.contains("return float4(0.0f, 0.76f, 0.05f, 1.0f);"));
+        assert!(!meter.contains("ddx("));
+        assert!(!meter.contains("ddy("));
 
         let chromatic = std::str::from_utf8(CHROMATIC_SHADER).expect("chromatic UTF-8");
         assert_eq!(chromatic.matches("SampleScene(").count(), 4);
@@ -2244,7 +2587,9 @@ mod shader_compile_tests {
 pub(crate) struct BloomingHdrEffect {
     extract_shader: PixelShader9,
     blur_shader: PixelShader9,
-    compose_shader: PixelShader9,
+    compose_legacy_shader: PixelShader9,
+    compose_static_shader: PixelShader9,
+    adaptive_pipeline: Option<AdaptiveTonePipeline>,
     chromatic_shader: PixelShader9,
     neutral_bloom: Texture9,
     lut_texture: Texture9,
@@ -2252,19 +2597,55 @@ pub(crate) struct BloomingHdrEffect {
     lut_revision: Option<(u32, u64)>,
     targets: Option<BloomTargets>,
     composed_target: Option<FullResolutionTarget>,
+    adaptive_history: Option<AdaptiveToneHistory>,
+    adaptive_target_creation_failed: bool,
     render_target_slots: RenderTargetSlots,
 }
 
 impl BloomingHdrEffect {
+    /// Create device-owned final-color shaders and persistent managed assets.
+    ///
+    /// FP16 display adaptation is optional. Unsupported FP16 targets or an
+    /// adaptive shader creation failure preserve Bloom, legacy grading, and
+    /// the fixed neutral tone mapper instead of rejecting the whole pipeline.
     pub(crate) fn create(
         device: &Device9Ref<'_>,
         shaders: &FinalColorShaderBytecode,
         render_target_slots: RenderTargetSlots,
     ) -> Direct3DResult<Self> {
+        let adaptive_pipeline = if device
+            .direct3d()?
+            .check_default_render_target_texture_support(D3DFMT_A16B16G16R16F)
+            .is_ok()
+        {
+            let pipeline: Direct3DResult<AdaptiveTonePipeline> = (|| {
+                Ok(AdaptiveTonePipeline {
+                    meter_shader: device.create_pixel_shader(&shaders.adaptive_tone)?,
+                    compose_shader: device.create_pixel_shader(&shaders.compose_adaptive)?,
+                })
+            })();
+            match pipeline {
+                Ok(pipeline) => Some(pipeline),
+                Err(err) => {
+                    log::warn!(
+                        "[FINAL_COLOR] Automatic exposure/tone shaders unavailable; fixed final color remains active: {err}"
+                    );
+                    None
+                }
+            }
+        } else {
+            log::warn!(
+                "[FINAL_COLOR] FP16 render targets unavailable; automatic exposure/tone falls back to fixed neutral mapping"
+            );
+            None
+        };
+
         Ok(Self {
             extract_shader: device.create_pixel_shader(&shaders.extract)?,
             blur_shader: device.create_pixel_shader(&shaders.blur)?,
-            compose_shader: device.create_pixel_shader(&shaders.compose)?,
+            compose_legacy_shader: device.create_pixel_shader(&shaders.compose_legacy)?,
+            compose_static_shader: device.create_pixel_shader(&shaders.compose_static)?,
+            adaptive_pipeline,
             chromatic_shader: device.create_pixel_shader(&shaders.chromatic)?,
             neutral_bloom: create_argb_texture(device, 1, 1, &[0xFF00_0000])?,
             lut_texture: create_argb_texture(device, 4, 2, &identity_lut_pixels(2))?,
@@ -2277,10 +2658,20 @@ impl BloomingHdrEffect {
             lut_revision: None,
             targets: None,
             composed_target: None,
+            adaptive_history: None,
+            adaptive_target_creation_failed: false,
             render_target_slots,
         })
     }
 
+    /// Execute the bounded final-color transaction for one display frame.
+    ///
+    /// `frame_seconds` is the previous successful Present interval and
+    /// `timing_continuous` identifies a consecutive render epoch. A gap
+    /// invalidates exposure history; ordinary camera motion never does. The
+    /// return value is true only when at least one effect draw wrote output,
+    /// allowing the phase color graph to remain correct after fail-soft
+    /// adaptive fallback.
     pub(crate) fn draw(
         &mut self,
         device: &Device9Ref<'_>,
@@ -2292,7 +2683,9 @@ impl BloomingHdrEffect {
         selected_lut: Option<&LutAsset>,
         scene_color: &Texture9,
         frame_index: u32,
-    ) -> Direct3DResult<()> {
+        frame_seconds: f32,
+        timing_continuous: bool,
+    ) -> Direct3DResult<bool> {
         let bloom_source = bloom_source.filter(|source| source.enabled);
         let work = FinalColorWorkPlan::from_sources_with_lut_available(
             bloom_source,
@@ -2304,8 +2697,10 @@ impl BloomingHdrEffect {
             frame_inputs,
             selected_lut,
         );
+        let requested_adaptive = AdaptiveToneSettings::from_source(color_grade_source);
         if !work.has_work() {
-            return Ok(());
+            self.invalidate_adaptive_history();
+            return Ok(false);
         }
 
         if grade.lut_enabled {
@@ -2314,10 +2709,28 @@ impl BloomingHdrEffect {
         bind_pipeline_state(device)?;
         bind_depth_inputs(device, &frame_inputs.depth.first_person_texture)?;
 
+        let adaptive = if requested_adaptive.requires_history() {
+            if self.draw_adaptation(
+                device,
+                desc,
+                scene_color,
+                requested_adaptive,
+                frame_seconds,
+                timing_continuous,
+            )? {
+                requested_adaptive
+            } else {
+                requested_adaptive.without_history()
+            }
+        } else {
+            self.invalidate_adaptive_history();
+            requested_adaptive
+        };
+
         if work.bloom_intermediate {
             self.ensure_targets(device, desc)?;
             let Some(targets) = self.targets.as_ref() else {
-                return Ok(());
+                return Ok(false);
             };
             self.draw_extract(
                 device,
@@ -2346,11 +2759,11 @@ impl BloomingHdrEffect {
             )?;
         }
 
-        let composed = work.bloom || grade.is_active();
+        let composed = work.bloom || grade.is_active() || adaptive.is_active();
         if composed && work.chromatic_aberration {
             self.ensure_composed_target(device, desc)?;
             let Some(composed_target) = self.composed_target.as_ref() else {
-                return Ok(());
+                return Ok(false);
             };
             self.draw_compose(
                 device,
@@ -2359,6 +2772,7 @@ impl BloomingHdrEffect {
                 frame_inputs,
                 bloom_source,
                 &grade,
+                adaptive,
                 work.bloom_intermediate,
                 work.bloom,
                 scene_color,
@@ -2380,6 +2794,7 @@ impl BloomingHdrEffect {
                     frame_inputs,
                     bloom_source,
                     &grade,
+                    adaptive,
                     work.bloom_intermediate,
                     work.bloom,
                     scene_color,
@@ -2396,7 +2811,82 @@ impl BloomingHdrEffect {
                 )?;
             }
         }
-        Ok(())
+        Ok(composed || work.chromatic_aberration)
+    }
+
+    fn invalidate_adaptive_history(&mut self) {
+        if let Some(history) = self.adaptive_history.as_mut() {
+            history.valid = false;
+        }
+    }
+
+    /// Invalidate temporal display state when the fused final-color stage is
+    /// not scheduled for this frame.
+    ///
+    /// DOF may keep the shared Present clock continuous while adaptive color
+    /// is disabled. Explicit invalidation prevents a later re-enable from
+    /// applying stale exposure captured before that disabled interval.
+    pub(crate) fn note_skipped(&mut self) {
+        self.invalidate_adaptive_history();
+    }
+
+    /// Run the one-pixel meter and publish a new history texel.
+    ///
+    /// The previous and output targets are always distinct. D3D9 retains
+    /// texture bindings across draws and frames, so both history sampler slots
+    /// are explicitly cleared before the alternating output becomes RT0.
+    fn draw_adaptation(
+        &mut self,
+        device: &Device9Ref<'_>,
+        desc: &D3DSURFACE_DESC,
+        scene_color: &Texture9,
+        settings: AdaptiveToneSettings,
+        frame_seconds: f32,
+        timing_continuous: bool,
+    ) -> Direct3DResult<bool> {
+        let Some(pipeline) = self.adaptive_pipeline.as_ref() else {
+            return Ok(false);
+        };
+        if self.adaptive_target_creation_failed {
+            return Ok(false);
+        }
+        if self.adaptive_history.is_none() {
+            match AdaptiveToneHistory::create(device) {
+                Ok(history) => self.adaptive_history = Some(history),
+                Err(err) => {
+                    self.adaptive_target_creation_failed = true;
+                    log::warn!(
+                        "[FINAL_COLOR] Automatic exposure/tone history unavailable; fixed neutral mapping remains active: {err}"
+                    );
+                    return Ok(false);
+                }
+            }
+        }
+        let Some(history) = self.adaptive_history.as_mut() else {
+            return Ok(false);
+        };
+        history.begin_frame(desc, timing_continuous);
+        let history_valid = history.valid;
+        let (previous, output) = history.write_pair();
+
+        device.clear_texture(1)?;
+        device.clear_texture(7)?;
+        bind_target(device, &output.surface, 1, 1, self.render_target_slots)?;
+        configure_adaptive_sampler(device, 0, false)?;
+        configure_adaptive_sampler(device, 1, true)?;
+        device.set_texture(0, scene_color)?;
+        device.set_texture(1, &previous.texture)?;
+        device.set_pixel_shader_constant_f(
+            0,
+            &settings.meter_constants(frame_seconds, history_valid),
+        )?;
+        device.set_pixel_shader(&pipeline.meter_shader)?;
+        let draw_result = draw_quad(device, 1, 1);
+        device.clear_texture(0)?;
+        device.clear_texture(1)?;
+        draw_result?;
+        history.commit_write();
+        Ok(true)
     }
 
     /// Ensure the full-resolution composition output used by chromatic
@@ -2524,6 +3014,7 @@ impl BloomingHdrEffect {
         frame_inputs: &FrameInputs,
         bloom_source: Option<&ScreenShaderSource>,
         grade: &ColorGradeSettings,
+        adaptive: AdaptiveToneSettings,
         bloom_texture_ready: bool,
         bloom_enabled: bool,
         scene_color: &Texture9,
@@ -2549,12 +3040,28 @@ impl BloomingHdrEffect {
         device.set_texture(4, bloom_texture)?;
         device.set_texture(5, &self.lut_texture)?;
         device.set_texture(6, &self.film_grain_texture)?;
+        if adaptive.compose_variant() == ComposeVariant::Adaptive {
+            let Some(pipeline) = self.adaptive_pipeline.as_ref() else {
+                return Ok(());
+            };
+            let Some(history) = self.adaptive_history.as_ref() else {
+                return Ok(());
+            };
+            configure_adaptive_sampler(device, 7, true)?;
+            device.set_texture(7, history.current_texture())?;
+            device.set_pixel_shader(&pipeline.compose_shader)?;
+        } else {
+            // Never retain a history texture in a sampler slot when the next
+            // draw may alternate that same texture into RT0.
+            device.clear_texture(7)?;
+        }
         bind_compose_constants(
             device,
             desc,
             frame_inputs,
             bloom_source,
             grade,
+            adaptive,
             bloom_enabled,
             frame_index,
         )?;
@@ -2570,7 +3077,11 @@ impl BloomingHdrEffect {
                 ]
             });
         device.set_pixel_shader_constant_f(EFFECT_CONSTANT_REGISTER, &[target_data])?;
-        device.set_pixel_shader(&self.compose_shader)?;
+        match adaptive.compose_variant() {
+            ComposeVariant::Legacy => device.set_pixel_shader(&self.compose_legacy_shader)?,
+            ComposeVariant::Static => device.set_pixel_shader(&self.compose_static_shader)?,
+            ComposeVariant::Adaptive => {}
+        }
         draw_quad(device, desc.Width, desc.Height)
     }
 
@@ -2763,6 +3274,7 @@ fn bind_compose_constants(
     frame_inputs: &FrameInputs,
     bloom_source: Option<&ScreenShaderSource>,
     grade: &ColorGradeSettings,
+    adaptive: AdaptiveToneSettings,
     bloom_enabled: bool,
     frame_index: u32,
 ) -> Direct3DResult<()> {
@@ -2793,7 +3305,26 @@ fn bind_compose_constants(
     device.set_pixel_shader_constant_f(
         COLOR_GRADE_CONSTANT_REGISTER,
         &grade.constants(bloom_enabled),
-    )
+    )?;
+    device.set_pixel_shader_constant_f(19, &[adaptive.compose_constants()])
+}
+
+fn configure_adaptive_sampler(
+    device: &Device9Ref<'_>,
+    sampler: u32,
+    point_sampled: bool,
+) -> Direct3DResult<()> {
+    let filter = if point_sampled {
+        D3DTEXF_POINT
+    } else {
+        D3DTEXF_LINEAR
+    };
+    device.set_sampler_state(sampler, D3DSAMP_ADDRESSU, D3DTADDRESS_CLAMP.0 as u32)?;
+    device.set_sampler_state(sampler, D3DSAMP_ADDRESSV, D3DTADDRESS_CLAMP.0 as u32)?;
+    device.set_sampler_state(sampler, D3DSAMP_MINFILTER, filter.0 as u32)?;
+    device.set_sampler_state(sampler, D3DSAMP_MAGFILTER, filter.0 as u32)?;
+    device.set_sampler_state(sampler, D3DSAMP_MIPFILTER, D3DTEXF_NONE.0 as u32)?;
+    device.set_sampler_state(sampler, D3DSAMP_SRGBTEXTURE, 0)
 }
 
 fn bind_bloom_effect_constants(
@@ -2844,6 +3375,137 @@ fn bind_effect_constants(
             frame_inputs.sun.daylight,
         ]],
     )
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ComposeVariant {
+    Legacy,
+    Static,
+    Adaptive,
+}
+
+/// Sanitized adaptive-display values read from the live shader catalog.
+///
+/// The catalog is mutable menu input, so the render boundary independently
+/// validates every numeric lane even though configuration loading also
+/// sanitizes persisted values. Keeping this type `Copy` lets the draw path
+/// choose a fallback without allocating or mutating the shared source.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct AdaptiveToneSettings {
+    source_enabled: bool,
+    master_strength: f32,
+    auto_exposure_enabled: bool,
+    exposure_range_ev: f32,
+    adaptation_speed: f32,
+    tone_mapper_mode: ToneMapperMode,
+    tone_mapper_strength: f32,
+}
+
+impl AdaptiveToneSettings {
+    fn from_source(source: Option<&ScreenShaderSource>) -> Self {
+        let Some(source) = source else {
+            return Self::disabled();
+        };
+        Self {
+            source_enabled: source.enabled,
+            master_strength: source_option_float(source, "strength", 0.0).clamp(0.0, 1.0),
+            auto_exposure_enabled: source_option_bool(source, "auto_exposure_enabled", false),
+            exposure_range_ev: source_option_float(source, "exposure_range_ev", 0.75)
+                .clamp(0.0, 1.5),
+            adaptation_speed: source_option_float(source, "adaptation_speed", 1.0).clamp(0.25, 2.0),
+            tone_mapper_mode: ToneMapperMode::from_index(source_option_integer(
+                source,
+                "tone_mapper_mode",
+                0,
+            )),
+            tone_mapper_strength: source_option_float(source, "tone_mapper_strength", 0.65)
+                .clamp(0.0, 1.0),
+        }
+    }
+
+    const fn disabled() -> Self {
+        Self {
+            source_enabled: false,
+            master_strength: 0.0,
+            auto_exposure_enabled: false,
+            exposure_range_ev: 0.75,
+            adaptation_speed: 1.0,
+            tone_mapper_mode: ToneMapperMode::Off,
+            tone_mapper_strength: 0.65,
+        }
+    }
+
+    fn is_active(self) -> bool {
+        self.source_enabled
+            && self.master_strength > 1.0e-5
+            && (self.auto_exposure_active()
+                || (self.tone_mapper_mode != ToneMapperMode::Off
+                    && self.tone_mapper_strength > 1.0e-5))
+    }
+
+    fn requires_history(self) -> bool {
+        self.is_active()
+            && (self.auto_exposure_active()
+                || (self.tone_mapper_mode == ToneMapperMode::Automatic
+                    && self.tone_mapper_strength > 1.0e-5))
+    }
+
+    fn compose_variant(self) -> ComposeVariant {
+        if self.requires_history() {
+            ComposeVariant::Adaptive
+        } else if self.is_active() {
+            ComposeVariant::Static
+        } else {
+            ComposeVariant::Legacy
+        }
+    }
+
+    fn auto_exposure_active(self) -> bool {
+        self.auto_exposure_enabled && self.exposure_range_ev > 1.0e-5
+    }
+
+    /// Preserve useful fixed tone mapping when FP16 adaptation is unavailable.
+    ///
+    /// Automatic tone mapping is the same neutral curve with slowly changing
+    /// parameters. Falling back to its calibrated neutral parameters is a
+    /// closer and safer degradation than dropping all final-color work.
+    fn without_history(mut self) -> Self {
+        self.auto_exposure_enabled = false;
+        if self.tone_mapper_mode == ToneMapperMode::Automatic {
+            self.tone_mapper_mode = ToneMapperMode::Neutral;
+        }
+        self
+    }
+
+    fn meter_constants(self, frame_seconds: f32, history_valid: bool) -> [[f32; 4]; 2] {
+        [
+            [
+                if frame_seconds.is_finite() {
+                    frame_seconds.clamp(1.0 / 240.0, 1.0 / 20.0)
+                } else {
+                    1.0 / 60.0
+                },
+                self.exposure_range_ev,
+                self.adaptation_speed,
+                history_valid as u8 as f32,
+            ],
+            [
+                self.auto_exposure_active() as u8 as f32,
+                (self.tone_mapper_mode == ToneMapperMode::Automatic) as u8 as f32,
+                self.tone_mapper_strength,
+                0.0,
+            ],
+        ]
+    }
+
+    fn compose_constants(self) -> [f32; 4] {
+        [
+            self.auto_exposure_active() as u8 as f32,
+            self.tone_mapper_mode.index() as f32,
+            self.tone_mapper_strength,
+            0.0,
+        ]
+    }
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -3081,6 +3743,18 @@ fn source_option_bool(source: &ScreenShaderSource, key: &str, fallback: bool) ->
         .unwrap_or(fallback)
 }
 
+fn source_option_integer(source: &ScreenShaderSource, key: &str, fallback: i32) -> i32 {
+    source
+        .options
+        .iter()
+        .find(|option| option.key == key)
+        .and_then(|option| match option.value {
+            ShaderOptionValue::Integer(value) => Some(value),
+            _ => None,
+        })
+        .unwrap_or(fallback)
+}
+
 fn native_environment_weight(frame_inputs: &FrameInputs) -> f32 {
     if !frame_inputs.material_state.exterior_known {
         return 1.0;
@@ -3311,6 +3985,66 @@ impl BloomTargets {
 struct EffectTarget {
     texture: Texture9,
     surface: Surface9,
+}
+
+struct AdaptiveTonePipeline {
+    meter_shader: PixelShader9,
+    compose_shader: PixelShader9,
+}
+
+/// Two one-pixel FP16 targets carrying exposure EV, shoulder, and crosstalk.
+///
+/// Ping-pong storage is required because D3D9 forbids a texture from being an
+/// input and render target simultaneously. `current_is_first` identifies the
+/// most recently committed target; `valid` describes its contents separately
+/// so a new render epoch can start from the neutral shader state.
+struct AdaptiveToneHistory {
+    first: EffectTarget,
+    second: EffectTarget,
+    current_is_first: bool,
+    valid: bool,
+    source_dimensions: Option<[u32; 2]>,
+}
+
+impl AdaptiveToneHistory {
+    fn create(device: &Device9Ref<'_>) -> Direct3DResult<Self> {
+        Ok(Self {
+            first: EffectTarget::create(device, 1, 1, D3DFMT_A16B16G16R16F)?,
+            second: EffectTarget::create(device, 1, 1, D3DFMT_A16B16G16R16F)?,
+            current_is_first: true,
+            valid: false,
+            source_dimensions: None,
+        })
+    }
+
+    fn begin_frame(&mut self, desc: &D3DSURFACE_DESC, timing_continuous: bool) {
+        let dimensions = [desc.Width, desc.Height];
+        if !timing_continuous || self.source_dimensions != Some(dimensions) {
+            self.valid = false;
+        }
+        self.source_dimensions = Some(dimensions);
+    }
+
+    fn write_pair(&self) -> (&EffectTarget, &EffectTarget) {
+        if self.current_is_first {
+            (&self.first, &self.second)
+        } else {
+            (&self.second, &self.first)
+        }
+    }
+
+    fn commit_write(&mut self) {
+        self.current_is_first = !self.current_is_first;
+        self.valid = true;
+    }
+
+    fn current_texture(&self) -> &Texture9 {
+        if self.current_is_first {
+            &self.first.texture
+        } else {
+            &self.second.texture
+        }
+    }
 }
 
 /// Full-resolution intermediate used only when one final-color pass feeds a

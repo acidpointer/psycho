@@ -1,4 +1,10 @@
-//! Graphics module configuration.
+//! Persisted OMV graphics configuration and Current Look serialization.
+//!
+//! Schema-one creative effects remain preset-owned under
+//! `graphics.embedded_effects`. Machine/session preferences such as depth and
+//! adaptive display response stay in top-level graphics configuration, so
+//! applying a shareable preset cannot silently change them. Every untrusted
+//! float is sanitized before it reaches runtime constants or a saved document.
 
 use std::sync::OnceLock;
 use std::{fs, path::Path};
@@ -51,6 +57,10 @@ pub(crate) struct GraphicsConfig {
     pub(crate) depth_provider: DepthProviderConfig,
     pub(crate) menu_toggle_key: u32,
     pub(crate) shader_scan_interval_ms: u64,
+    /// Camera/display adaptation is a user preference rather than a creative
+    /// preset value. Keeping it outside `EmbeddedEffectsConfig` preserves the
+    /// frozen schema-1 preset payload while still persisting Current Look.
+    pub(crate) adaptive_tone: AdaptiveToneConfig,
 }
 
 impl Default for GraphicsConfig {
@@ -63,6 +73,7 @@ impl Default for GraphicsConfig {
             depth_provider: DepthProviderConfig::default(),
             menu_toggle_key: 0x2D,
             shader_scan_interval_ms: 200,
+            adaptive_tone: AdaptiveToneConfig::default(),
         }
     }
 }
@@ -782,6 +793,108 @@ impl ColorGradeConfig {
     }
 }
 
+/// Display-referred tone-mapping policy used by the fused final-color pass.
+///
+/// OMV receives Fallout's already display-mapped image, so these modes shape
+/// the remaining display headroom; they do not replace the native HDR shader
+/// family or claim to recover clipped scene radiance.
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum ToneMapperMode {
+    /// Preserve the established final-color equation exactly.
+    Off,
+    /// Apply a fixed, restrained, hue-preserving highlight shoulder.
+    Neutral,
+    /// Adapt the same neutral shoulder slowly from current frame statistics.
+    #[default]
+    Automatic,
+}
+
+impl ToneMapperMode {
+    /// Returns the stable in-game menu index for this mode.
+    pub(crate) const fn index(self) -> i32 {
+        match self {
+            Self::Off => 0,
+            Self::Neutral => 1,
+            Self::Automatic => 2,
+        }
+    }
+
+    /// Decodes a bounded in-game menu index.
+    pub(crate) const fn from_index(value: i32) -> Self {
+        match value {
+            0 => Self::Off,
+            1 => Self::Neutral,
+            2 => Self::Automatic,
+            _ => Self::Off,
+        }
+    }
+
+    /// Returns the stable TOML spelling for this mode.
+    pub(crate) const fn config_value(self) -> &'static str {
+        match self {
+            Self::Off => "off",
+            Self::Neutral => "neutral",
+            Self::Automatic => "automatic",
+        }
+    }
+}
+
+/// User-facing camera exposure and display tone-mapping controls.
+///
+/// The exposed surface deliberately stays small. Separate bright/dark rates,
+/// metering weights, and shoulder limits are calibrated implementation
+/// invariants; one speed scalar gives users useful control without inviting
+/// unstable or contradictory combinations.
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(default)]
+pub(crate) struct AdaptiveToneConfig {
+    /// Enables GPU-metered exposure adaptation.
+    pub(crate) auto_exposure_enabled: bool,
+    /// Symmetric maximum automatic correction in photographic stops.
+    pub(crate) exposure_range_ev: f32,
+    /// Scalar applied to the calibrated asymmetric eye-adaptation rates.
+    pub(crate) adaptation_speed: f32,
+    /// Selects disabled, fixed-neutral, or automatically shaped highlights.
+    pub(crate) tone_mapper_mode: ToneMapperMode,
+    /// Blends the neutral display shoulder with the exposed input.
+    pub(crate) tone_mapper_strength: f32,
+}
+
+impl Default for AdaptiveToneConfig {
+    fn default() -> Self {
+        Self {
+            auto_exposure_enabled: true,
+            exposure_range_ev: 0.75,
+            adaptation_speed: 1.0,
+            tone_mapper_mode: ToneMapperMode::Automatic,
+            tone_mapper_strength: 0.65,
+        }
+    }
+}
+
+impl AdaptiveToneConfig {
+    /// Returns the exact legacy final-color policy used by compatibility and
+    /// preset-shape code that must not acquire non-preset camera preferences.
+    pub(crate) const fn legacy_disabled() -> Self {
+        Self {
+            auto_exposure_enabled: false,
+            exposure_range_ev: 0.75,
+            adaptation_speed: 1.0,
+            tone_mapper_mode: ToneMapperMode::Off,
+            tone_mapper_strength: 0.65,
+        }
+    }
+
+    /// Returns finite render-boundary values within the supported response.
+    pub(crate) fn sanitized(mut self) -> Self {
+        self.exposure_range_ev = finite_clamp(self.exposure_range_ev, 0.75, 0.0, 1.5);
+        self.adaptation_speed = finite_clamp(self.adaptation_speed, 1.0, 0.25, 2.0);
+        self.tone_mapper_strength = finite_clamp(self.tone_mapper_strength, 0.65, 0.0, 1.0);
+        self
+    }
+}
+
 #[derive(Clone, Copy, Debug, Deserialize, Serialize)]
 #[serde(default)]
 pub(crate) struct SunshaftsConfig {
@@ -1121,6 +1234,8 @@ pub(crate) struct GraphicsMenuConfig {
     // Retained so Current Look autosave preserves the deprecated working
     // config field without exposing its old cadence control in the UI.
     pub(crate) frame_pacing_update_interval_ms: u32,
+    /// Non-preset camera/display adaptation staged with the working config.
+    pub(crate) adaptive_tone: AdaptiveToneConfig,
 }
 
 impl Default for GraphicsMenuConfig {
@@ -1137,6 +1252,7 @@ impl Default for GraphicsMenuConfig {
             shader_scan_interval_ms: graphics.shader_scan_interval_ms,
             debug_log: diagnostics.debug_log,
             frame_pacing_update_interval_ms: diagnostics.frame_pacing_update_interval_ms,
+            adaptive_tone: graphics.adaptive_tone,
         }
     }
 }
@@ -1155,6 +1271,7 @@ impl From<&PsychoGraphicsConfig> for GraphicsMenuConfig {
             frame_pacing_update_interval_ms: sanitize_frame_pacing_update_interval_ms(
                 value.diagnostics.frame_pacing_update_interval_ms,
             ),
+            adaptive_tone: value.graphics.adaptive_tone.sanitized(),
         }
     }
 }
@@ -1233,6 +1350,7 @@ pub(crate) fn save_menu_config(config: &GraphicsMenuConfig) -> Result<()> {
     doc["graphics"]["shader_scan_interval_ms"] =
         value(config.shader_scan_interval_ms.min(i64::MAX as u64) as i64);
     doc["graphics"]["depth_provider"] = value(config.depth_provider.config_value());
+    save_adaptive_tone_config(&mut doc, &config.adaptive_tone);
     save_embedded_effect_config(&mut doc, &config.embedded_effects);
     save_native_sky_config(&mut doc, &config.native_sky);
     doc["graphics"]["native_pbr"]["enabled"] = value(config.native_pbr.enabled);
@@ -1291,6 +1409,17 @@ pub(crate) fn save_menu_config(config: &GraphicsMenuConfig) -> Result<()> {
     }
 
     crate::file_io::atomic_write_text(path, &updated)
+}
+
+fn save_adaptive_tone_config(doc: &mut DocumentMut, config: &AdaptiveToneConfig) {
+    let config = config.sanitized();
+    doc["graphics"]["adaptive_tone"]["auto_exposure_enabled"] = value(config.auto_exposure_enabled);
+    doc["graphics"]["adaptive_tone"]["exposure_range_ev"] = value(config.exposure_range_ev as f64);
+    doc["graphics"]["adaptive_tone"]["adaptation_speed"] = value(config.adaptation_speed as f64);
+    doc["graphics"]["adaptive_tone"]["tone_mapper_mode"] =
+        value(config.tone_mapper_mode.config_value());
+    doc["graphics"]["adaptive_tone"]["tone_mapper_strength"] =
+        value(config.tone_mapper_strength as f64);
 }
 
 fn save_diagnostics_config(doc: &mut DocumentMut, config: &GraphicsMenuConfig) {
@@ -1615,11 +1744,12 @@ fn save_color_grade_config(doc: &mut DocumentMut, grade: &ColorGradeConfig) {
 #[cfg(test)]
 mod tests {
     use super::{
-        AtmosphereQuality, BloomingHdrConfig, ColorGradeConfig, DiagnosticsConfig,
-        EmbeddedEffectsConfig, GraphicsMenuConfig, MotionBlurConfig, MotionBlurQuality,
-        NativePbrConfig, PsychoGraphicsConfig, VolumetricFogConfig, VolumetricLightingConfig,
-        parse_versioned_config, sanitize_frame_pacing_update_interval_ms, save_color_grade_config,
-        save_diagnostics_config, save_embedded_effect_config,
+        AdaptiveToneConfig, AtmosphereQuality, BloomingHdrConfig, ColorGradeConfig,
+        DiagnosticsConfig, EmbeddedEffectsConfig, GraphicsMenuConfig, MotionBlurConfig,
+        MotionBlurQuality, NativePbrConfig, PsychoGraphicsConfig, ToneMapperMode,
+        VolumetricFogConfig, VolumetricLightingConfig, parse_versioned_config,
+        sanitize_frame_pacing_update_interval_ms, save_adaptive_tone_config,
+        save_color_grade_config, save_diagnostics_config, save_embedded_effect_config,
     };
     use toml_edit::DocumentMut;
 
@@ -1642,6 +1772,73 @@ mod tests {
         let future = parse_versioned_config("config_schema_version = 999\n")
             .expect_err("future config must not be guessed");
         assert!(future.to_string().contains("newer"));
+    }
+
+    #[test]
+    fn adaptive_tone_is_schema_one_current_look_data_with_strict_bounds() {
+        assert_eq!(super::CONFIG_SCHEMA_VERSION, 1);
+        let defaults = AdaptiveToneConfig::default();
+        assert!(defaults.auto_exposure_enabled);
+        assert_eq!(defaults.exposure_range_ev, 0.75);
+        assert_eq!(defaults.adaptation_speed, 1.0);
+        assert_eq!(defaults.tone_mapper_mode, ToneMapperMode::Automatic);
+        assert_eq!(defaults.tone_mapper_strength, 0.65);
+        assert_eq!(ToneMapperMode::from_index(-1), ToneMapperMode::Off);
+        assert_eq!(ToneMapperMode::from_index(99), ToneMapperMode::Off);
+
+        let sanitized = AdaptiveToneConfig {
+            auto_exposure_enabled: false,
+            exposure_range_ev: f32::NAN,
+            adaptation_speed: 99.0,
+            tone_mapper_mode: ToneMapperMode::Neutral,
+            tone_mapper_strength: -99.0,
+        }
+        .sanitized();
+        assert!(!sanitized.auto_exposure_enabled);
+        assert_eq!(sanitized.exposure_range_ev, 0.75);
+        assert_eq!(sanitized.adaptation_speed, 2.0);
+        assert_eq!(sanitized.tone_mapper_mode, ToneMapperMode::Neutral);
+        assert_eq!(sanitized.tone_mapper_strength, 0.0);
+
+        let encoded = toml::to_string(&sanitized).expect("serialize adaptive tone");
+        let decoded: AdaptiveToneConfig =
+            toml::from_str(&encoded).expect("deserialize adaptive tone");
+        assert_eq!(decoded, sanitized);
+
+        let legacy: PsychoGraphicsConfig =
+            toml::from_str("config_schema_version = 1\n[graphics]\nscreen_space_shaders = true\n")
+                .expect("schema-one config without adaptive table");
+        assert_eq!(legacy.graphics.adaptive_tone, defaults);
+    }
+
+    #[test]
+    fn adaptive_tone_disk_table_round_trips_every_field() {
+        let expected = AdaptiveToneConfig {
+            auto_exposure_enabled: false,
+            exposure_range_ev: 1.25,
+            adaptation_speed: 1.75,
+            tone_mapper_mode: ToneMapperMode::Neutral,
+            tone_mapper_strength: 0.42,
+        };
+        let mut document = DocumentMut::new();
+        save_adaptive_tone_config(&mut document, &expected);
+        let value: toml::Value =
+            toml::from_str(&document.to_string()).expect("saved adaptive TOML");
+        let table = value["graphics"]["adaptive_tone"]
+            .as_table()
+            .expect("adaptive-tone table");
+        assert_eq!(table.len(), 5);
+
+        let decoded: PsychoGraphicsConfig =
+            toml::from_str(&document.to_string()).expect("saved working config");
+        assert_eq!(decoded.graphics.adaptive_tone, expected);
+
+        let shipped: PsychoGraphicsConfig =
+            toml::from_str(include_str!("../config/omv.toml")).expect("shipped OMV config");
+        assert_eq!(
+            shipped.graphics.adaptive_tone,
+            AdaptiveToneConfig::default()
+        );
     }
 
     #[test]

@@ -92,6 +92,20 @@ shader_scan_interval_ms = 200
 #   s3 = world color before first-person, or current color if unavailable
 depth_provider = "fallout_new_vegas"
 
+[graphics.adaptive_tone]
+# Display-referred eye adaptation and highlight shaping. This camera/display
+# preference belongs to Current Look but is intentionally not captured by
+# shareable creative presets. Exposure is measured before OMV grading so LUT,
+# grain, vignette, and the tone mapper cannot feed back into their own meter.
+auto_exposure_enabled = true
+exposure_range_ev = 0.75
+adaptation_speed = 1.0
+# "off" preserves the legacy equation, "neutral" uses a fixed highlight
+# shoulder, and "automatic" adapts that same shoulder without changing hue,
+# white balance, LUT selection, or curve family.
+tone_mapper_mode = "automatic"
+tone_mapper_strength = 0.65
+
 [graphics.embedded_effects.fast_ao]
 # Engine-owned ambient occlusion pass. Fixed phase: scene_pre_image_space.
 enabled = true

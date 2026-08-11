@@ -3,6 +3,12 @@ sampler2D FirstPersonDepth : register(s2);
 sampler2D BloomTexture : register(s4);
 sampler2D ColorLut : register(s5);
 sampler2D FilmGrainTexture : register(s6);
+#ifndef OMV_TONE_VARIANT
+#define OMV_TONE_VARIANT 0
+#endif
+#if OMV_TONE_VARIANT == 2
+sampler2D AdaptiveToneHistory : register(s7);
+#endif
 
 float4 ScreenData : register(c0);
 float4 FrameData : register(c1);
@@ -18,6 +24,9 @@ float4 GradeData5 : register(c15);
 float4 GradeData6 : register(c16);
 float4 LutDomainScale : register(c17);
 float4 LutDomainBias : register(c18);
+// x = auto exposure enabled, y = tone mode (0 off, 1 neutral, 2 automatic),
+// z = tone strength, w = reserved. Variant 0 deliberately ignores this ABI.
+float4 AdaptiveToneData : register(c19);
 
 static const float DepthEndpointEpsilon = 0.000001f;
 static const float3 LumaFactors = float3(0.2126f, 0.7152f, 0.0722f);
@@ -126,7 +135,14 @@ float3 SampleColorLut(float3 color) {
 
 float3 ApplyAnalyticGrade(float3 inputColor) {
     float master = GradeData0.x;
-    float3 color = inputColor * exp2(GradeData0.y);
+    float analyticExposure = GradeData0.y;
+#if OMV_TONE_VARIANT == 2
+    // In the automatic-exposure variant GradeData0.y is compensation applied
+    // before the adaptive shoulder. Reapplying it here would square the user's
+    // requested exposure correction whenever creative grading is also active.
+    analyticExposure = AdaptiveToneData.x > 0.5f ? 0.0f : analyticExposure;
+#endif
+    float3 color = inputColor * exp2(analyticExposure);
 
     float temperature = GradeData1.y;
     float tint = GradeData1.z;
@@ -152,6 +168,61 @@ float3 ApplyAnalyticGrade(float3 inputColor) {
 
     return lerp(inputColor, color, master);
 }
+
+#if OMV_TONE_VARIANT != 0
+float3 ApplyNeutralDisplayShoulder(
+    float3 inputColor,
+    float shoulderStart,
+    float crosstalk,
+    float strength
+) {
+    float peak = max(inputColor.r, max(inputColor.g, inputColor.b));
+    float remaining = 1.0f - shoulderStart;
+    float over = max(peak - shoulderStart, 0.0f);
+
+    // This branch-free rational shoulder is identity with unit derivative at
+    // its start and approaches display white monotonically. Scaling by peak
+    // preserves RGB ratios until the small, explicit near-white crosstalk;
+    // independent per-channel curves would rotate saturated highlight hues.
+    float compressedPeak = peak - over + over * remaining / (remaining + over);
+    float3 ratioPreserving = inputColor * (compressedPeak / max(peak, 0.00001f));
+    float pathToWhite = saturate(over / remaining) * crosstalk;
+    float3 mapped = lerp(ratioPreserving, compressedPeak.xxx, pathToWhite);
+    return lerp(inputColor, mapped, strength);
+}
+
+float3 ApplyAdaptiveDisplayMapping(float3 inputColor) {
+#if OMV_TONE_VARIANT == 1
+    float3 mapped = ApplyNeutralDisplayShoulder(
+        inputColor,
+        0.76f,
+        0.05f,
+        AdaptiveToneData.z * GradeData0.x
+    );
+    return mapped;
+#else
+    float4 history = float4(0.0f, 0.76f, 0.05f, 1.0f);
+    history = tex2Dlod(AdaptiveToneHistory, float4(0.5f, 0.5f, 0.0f, 0.0f));
+
+    float3 mapped = inputColor;
+    if (AdaptiveToneData.x > 0.5f) {
+        float exposureCompensation = GradeData5.x > 0.5f ? GradeData0.y : 0.0f;
+        mapped *= exp2((history.r + exposureCompensation) * GradeData0.x);
+    }
+    if (AdaptiveToneData.y > 0.5f && AdaptiveToneData.z > 0.00001f) {
+        float shoulder = AdaptiveToneData.y > 1.5f ? history.g : 0.76f;
+        float crosstalk = AdaptiveToneData.y > 1.5f ? history.b : 0.05f;
+        mapped = ApplyNeutralDisplayShoulder(
+            mapped,
+            shoulder,
+            crosstalk,
+            AdaptiveToneData.z * GradeData0.x
+        );
+    }
+    return mapped;
+#endif
+}
+#endif
 
 float3 ApplyFinishing(float3 inputColor, float3 halationBlur, float2 uv) {
     float master = GradeData0.x;
@@ -214,6 +285,9 @@ float4 Main(PixelInput input) : COLOR0 {
     float shoulder = OptionData1.y;
     float3 ungraded = ComposeBloom(base, bloomContribution, shoulder);
     float3 color = ungraded;
+#if OMV_TONE_VARIANT != 0
+    color = ApplyAdaptiveDisplayMapping(color);
+#endif
 
     if (GradeData4.x > 0.5f) {
         color = ApplyFinishing(color, highlightBlur, input.uv);

@@ -26,6 +26,11 @@
 //! replaces the former copy-before-every-effect feedback loop without changing
 //! shader order, equations, formats, or sampler contracts.
 //!
+//! Automatic display adaptation reuses the existing production Present clock.
+//! Its timing gate stays DOF-only during plugin/data loading and opens for
+//! adaptive final color at DeferredInit; render callbacks consume only a
+//! nonblocking, already-recorded interval and continuity bit.
+//!
 //! Configuration changes also publish immutable per-phase execution plans.
 //! Render callbacks retain those plans through allocation-free `Arc` clones,
 //! so they visit only passes owned by the active native boundary and use
@@ -317,6 +322,10 @@ pub(crate) fn apply_initial_depth_activation(
     runtime.startup_depth_provider_request = activation
         .fallback
         .map(|_| DepthProviderConfig::from(activation.requested));
+    // Adaptive timing remains closed throughout plugin/data loading. Open the
+    // reused Present-time service only now, at DeferredInit, immediately
+    // before the resident render-hook group can become reachable.
+    update_temporal_present_services_needed(&runtime.settings.menu_config);
     runtime.publish_fnv_scene_requirements();
     if let Some(fallback) = activation.fallback {
         let message = format!(
@@ -339,6 +348,7 @@ pub(crate) fn apply_initial_depth_activation(
 pub(crate) fn abandon_deferred_first_person_motion_blur_admission() {
     let mut runtime = RUNTIME.lock();
     runtime.first_person_motion_blur_admission_ready = false;
+    update_native_dof_query_needed(&runtime.settings.menu_config);
     runtime.publish_fnv_scene_requirements();
 }
 
@@ -430,6 +440,17 @@ mod load_transition_tests {
             .map(|(body, _)| body)
             .expect("NVSE runtime configuration body");
         assert!(configure.contains("service_enabled_effect_preparation"));
+        assert!(configure.contains("update_native_dof_query_needed"));
+        assert!(!configure.contains("update_temporal_present_services_needed"));
+
+        let deferred_activation = source
+            .split_once("pub(crate) fn apply_initial_depth_activation")
+            .and_then(|(_, tail)| {
+                tail.split_once("pub(crate) fn abandon_deferred_first_person_motion_blur_admission")
+            })
+            .map(|(body, _)| body)
+            .expect("DeferredInit activation body");
+        assert!(deferred_activation.contains("update_temporal_present_services_needed"));
 
         let runtime_configure_entry =
             ["fn config", "ure(&mut self, settings: RuntimeSettings)"].concat();
@@ -1656,8 +1677,9 @@ impl ScreenShaderRuntime {
             .cloned()
             .collect();
         let (lut_names, lut_ids) = self.color_luts.choices();
-        self.sources = shaders::merge_embedded_sources_with_luts(
+        self.sources = shaders::merge_embedded_sources_with_luts_and_adaptive(
             &settings.menu_config.embedded_effects,
+            &settings.menu_config.adaptive_tone,
             &lut_names,
             &lut_ids,
             external_sources,
@@ -2302,6 +2324,10 @@ impl ScreenShaderRuntime {
             &self.sources,
             &mut self.settings.menu_config.embedded_effects,
         );
+        shaders::sync_adaptive_tone_config(
+            &self.sources,
+            &mut self.settings.menu_config.adaptive_tone,
+        );
 
         let old_count = self.sources.len();
         let shader_resources_changed = snapshot.shader_generation != self.shader_catalog_generation;
@@ -2325,8 +2351,9 @@ impl ScreenShaderRuntime {
             self.shader_catalog_generation = snapshot.shader_generation;
         }
         let (lut_names, lut_ids) = self.color_luts.choices();
-        self.sources = shaders::merge_embedded_sources_with_luts(
+        self.sources = shaders::merge_embedded_sources_with_luts_and_adaptive(
             &self.settings.menu_config.embedded_effects,
+            &self.settings.menu_config.adaptive_tone,
             &lut_names,
             &lut_ids,
             snapshot.external_sources,
@@ -2479,8 +2506,9 @@ impl ScreenShaderRuntime {
                         .filter(ScreenShaderSource::is_external_file)
                         .collect();
                     let (lut_names, lut_ids) = self.color_luts.choices();
-                    self.sources = shaders::merge_embedded_sources_with_luts(
+                    self.sources = shaders::merge_embedded_sources_with_luts_and_adaptive(
                         &self.settings.menu_config.embedded_effects,
+                        &self.settings.menu_config.adaptive_tone,
                         &lut_names,
                         &lut_ids,
                         external_sources,
@@ -2531,6 +2559,10 @@ impl ScreenShaderRuntime {
         shaders::sync_embedded_effect_config(
             &self.sources,
             &mut self.settings.menu_config.embedded_effects,
+        );
+        shaders::sync_adaptive_tone_config(
+            &self.sources,
+            &mut self.settings.menu_config.adaptive_tone,
         );
         let menu_config = persistence_menu_config(
             self.settings.menu_config,
@@ -3464,6 +3496,9 @@ impl ScreenShaderRuntime {
             selected_lut.is_some(),
         );
         if !work.has_work() {
+            if let Some(effect) = self.blooming_hdr.as_mut() {
+                effect.note_skipped();
+            }
             return Ok(false);
         }
         if self.blooming_hdr.is_none() {
@@ -3484,6 +3519,7 @@ impl ScreenShaderRuntime {
         let Some(effect) = self.blooming_hdr.as_mut() else {
             return Ok(false);
         };
+        let timing = self.present_timing.sample();
         effect.draw(
             device,
             output,
@@ -3494,8 +3530,9 @@ impl ScreenShaderRuntime {
             selected_lut,
             scene_color,
             self.frame_index,
-        )?;
-        Ok(true)
+            timing.seconds,
+            timing.continuous,
+        )
     }
 
     fn draw_sunshafts_pipeline(
@@ -3849,7 +3886,12 @@ impl ScreenShaderRuntime {
             scanner.reconfigure(self.settings.shader_scan_interval_ms, master_enabled);
         }
         MENU_TOGGLE_KEY.store(self.settings.menu_toggle_key, Ordering::Release);
-        update_native_dof_query_needed(&self.settings.menu_config);
+        update_temporal_present_services_needed(&self.settings.menu_config);
+        if !adaptive_tone_timing_needed(&self.settings.menu_config)
+            && let Some(effect) = self.blooming_hdr.as_mut()
+        {
+            effect.note_skipped();
+        }
         crate::fnv_world_pipeline::publish_config(self.settings.menu_config);
         self.publish_fnv_scene_requirements();
         pbr::configure_runtime_options(
@@ -4087,8 +4129,9 @@ impl ScreenShaderRuntime {
                     .cloned()
                     .collect();
                 let (lut_names, lut_ids) = self.color_luts.choices();
-                self.sources = shaders::merge_embedded_sources_with_luts(
+                self.sources = shaders::merge_embedded_sources_with_luts_and_adaptive(
                     &self.settings.menu_config.embedded_effects,
+                    &self.settings.menu_config.adaptive_tone,
                     &lut_names,
                     &lut_ids,
                     external_sources,
@@ -4338,7 +4381,9 @@ impl ScreenShaderRuntime {
                 .embedded_effects
                 .depth_of_field
                 .enabled;
-        if !depth_of_field_active {
+        let adaptive_tone_active = adaptive_tone_timing_needed(&self.settings.menu_config);
+        let timing_active = depth_of_field_active || adaptive_tone_active;
+        if !timing_active {
             self.present_timing.pause();
             return;
         }
@@ -4349,7 +4394,7 @@ impl ScreenShaderRuntime {
         };
 
         self.present_timing
-            .record_frame_at(now, render_epoch, depth_of_field_active);
+            .record_frame_at(now, render_epoch, timing_active);
     }
 
     fn release_for_new_device(&mut self) {
@@ -4922,6 +4967,28 @@ fn update_native_dof_query_needed(config: &GraphicsMenuConfig) {
     PRESENT_FRAME_TIMING_NEEDED.store(dof_active, Ordering::Release);
 }
 
+fn update_temporal_present_services_needed(config: &GraphicsMenuConfig) {
+    let dof = config.embedded_effects.depth_of_field;
+    let dof_active = config.screen_space_shaders && dof.enabled;
+    let adaptive_tone_active = adaptive_tone_timing_needed(config);
+    NATIVE_DOF_QUERY_NEEDED.store(dof_active && dof.respect_vanilla_dof, Ordering::Release);
+    // The existing Present clock is the only production frame-time owner.
+    // Reusing it avoids a second timer, static, or lock in the sensitive
+    // plugin-load interval; adaptive color only consumes it after DeferredInit.
+    PRESENT_FRAME_TIMING_NEEDED.store(dof_active || adaptive_tone_active, Ordering::Release);
+}
+
+fn adaptive_tone_timing_needed(config: &GraphicsMenuConfig) -> bool {
+    let grade = config.embedded_effects.color_grade;
+    let adaptive = config.adaptive_tone;
+    config.screen_space_shaders
+        && grade.enabled
+        && grade.strength > 1.0e-5
+        && ((adaptive.auto_exposure_enabled && adaptive.exposure_range_ev > 1.0e-5)
+            || (adaptive.tone_mapper_mode == crate::config::ToneMapperMode::Automatic
+                && adaptive.tone_mapper_strength > 1.0e-5))
+}
+
 struct CompiledPass {
     source_index: usize,
     shader: Option<PixelShader9>,
@@ -5467,6 +5534,12 @@ struct PresentFrameTiming {
     frame_seconds: f32,
 }
 
+#[derive(Clone, Copy, Debug)]
+struct PresentTimingSample {
+    seconds: f32,
+    continuous: bool,
+}
+
 impl PresentFrameTiming {
     fn record_frame_at(&mut self, now: Instant, render_epoch: u32, active: bool) {
         if !active {
@@ -5508,6 +5581,15 @@ impl PresentFrameTiming {
             self.frame_seconds
         } else {
             1.0 / 60.0
+        }
+    }
+
+    fn sample(&self) -> PresentTimingSample {
+        PresentTimingSample {
+            seconds: self.frame_seconds(),
+            continuous: self.frame_seconds > 0.0
+                && self.last_present.is_some()
+                && self.last_present_epoch.is_some(),
         }
     }
 }
@@ -6229,9 +6311,9 @@ mod frame_pacing_tests {
         FRAME_PACING_CHART_POINTS, FRAME_PACING_HISTORY, FRAME_PACING_SPIKE_MEMORY,
         FRAME_PACING_SPIKE_WARMUP_SAMPLES, FramePacing, MENU_DIAGNOSTICS_ACTIVE_BIT,
         MENU_DIAGNOSTICS_SESSION_INCREMENT, MenuTab, PresentFrameTiming, SpikeDirection,
-        copy_latest_frame_times, diagnostics_should_be_active, diagnostics_state_transition,
-        frame_pacing_chart_scale, gpu_diagnostics_card, persistence_menu_config,
-        present_interval_ms,
+        adaptive_tone_timing_needed, copy_latest_frame_times, diagnostics_should_be_active,
+        diagnostics_state_transition, frame_pacing_chart_scale, gpu_diagnostics_card,
+        persistence_menu_config, present_interval_ms,
     };
     use std::time::{Duration, Instant};
 
@@ -6830,6 +6912,48 @@ mod frame_pacing_tests {
     }
 
     #[test]
+    fn production_frame_sample_marks_only_consecutive_present_epochs_continuous() {
+        let mut timing = PresentFrameTiming::default();
+        let start = Instant::now();
+        assert!(!timing.sample().continuous);
+
+        timing.record_frame_at(start, 10, true);
+        assert!(!timing.sample().continuous);
+        timing.record_frame_at(start + Duration::from_millis(16), 11, true);
+        let sample = timing.sample();
+        assert!(sample.continuous);
+        assert_close(sample.seconds, 0.016);
+
+        timing.record_frame_at(start + Duration::from_millis(48), 13, true);
+        assert!(!timing.sample().continuous);
+        timing.record_frame_at(start + Duration::from_millis(64), 14, true);
+        assert!(timing.sample().continuous);
+    }
+
+    #[test]
+    fn adaptive_present_timing_has_exact_zero_work_gates() {
+        let mut config = crate::config::GraphicsMenuConfig::default();
+        assert!(adaptive_tone_timing_needed(&config));
+
+        config.adaptive_tone.auto_exposure_enabled = true;
+        config.adaptive_tone.exposure_range_ev = 0.0;
+        config.adaptive_tone.tone_mapper_mode = crate::config::ToneMapperMode::Off;
+        assert!(!adaptive_tone_timing_needed(&config));
+
+        config.adaptive_tone.tone_mapper_mode = crate::config::ToneMapperMode::Automatic;
+        assert!(adaptive_tone_timing_needed(&config));
+        config.adaptive_tone.tone_mapper_strength = 0.0;
+        assert!(!adaptive_tone_timing_needed(&config));
+
+        config.adaptive_tone.tone_mapper_strength = 0.65;
+        config.embedded_effects.color_grade.strength = 0.0;
+        assert!(!adaptive_tone_timing_needed(&config));
+        config.embedded_effects.color_grade.strength = 0.68;
+        config.screen_space_shaders = false;
+        assert!(!adaptive_tone_timing_needed(&config));
+    }
+
+    #[test]
     fn workbench_separates_presets_configuration_and_diagnostics() {
         let source = include_str!("runtime.rs");
         let menu = source
@@ -7141,11 +7265,13 @@ mod frame_pacing_tests {
 
     #[test]
     fn finishing_families_are_separate_editors_over_one_fused_source() {
-        assert_eq!(super::FinishingPanel::ALL.len(), 8);
+        assert_eq!(super::FinishingPanel::ALL.len(), 10);
         assert_eq!(
             super::FinishingPanel::ALL.map(super::FinishingPanel::title),
             [
                 "Final Output",
+                "Auto Exposure",
+                "Tone Mapping",
                 "Color Grading",
                 "LUT",
                 "Debanding",
@@ -7371,6 +7497,8 @@ enum MenuSelection {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum FinishingPanel {
     FinalOutput,
+    AutoExposure,
+    ToneMapping,
     ColorGrading,
     Lut,
     Debanding,
@@ -7381,8 +7509,10 @@ enum FinishingPanel {
 }
 
 impl FinishingPanel {
-    const ALL: [Self; 8] = [
+    const ALL: [Self; 10] = [
         Self::FinalOutput,
+        Self::AutoExposure,
+        Self::ToneMapping,
         Self::ColorGrading,
         Self::Lut,
         Self::Debanding,
@@ -7395,6 +7525,8 @@ impl FinishingPanel {
     fn title(self) -> &'static str {
         match self {
             Self::FinalOutput => "Final Output",
+            Self::AutoExposure => "Auto Exposure",
+            Self::ToneMapping => "Tone Mapping",
             Self::ColorGrading => "Color Grading",
             Self::Lut => "LUT",
             Self::Debanding => "Debanding",
@@ -7409,6 +7541,12 @@ impl FinishingPanel {
         match self {
             Self::FinalOutput => {
                 "Master control and before/after preview for OMV's fused final-color pipeline."
+            }
+            Self::AutoExposure => {
+                "Smooth center-weighted eye adaptation with a restrained correction range."
+            }
+            Self::ToneMapping => {
+                "Neutral display highlight compression with an optional automatic shoulder."
             }
             Self::ColorGrading => {
                 "Exposure, contrast, color balance, saturation, and highlight shaping."
@@ -7429,6 +7567,8 @@ impl FinishingPanel {
     fn enabled_key(self) -> Option<&'static str> {
         match self {
             Self::FinalOutput => None,
+            Self::AutoExposure => Some("auto_exposure_enabled"),
+            Self::ToneMapping => None,
             Self::ColorGrading => Some("color_grading_enabled"),
             Self::Lut => Some("lut_enabled"),
             Self::Debanding => Some("deband_enabled"),
@@ -7442,6 +7582,8 @@ impl FinishingPanel {
     fn owns_option(self, key: &str) -> bool {
         match self {
             Self::FinalOutput => matches!(key, "strength" | "debug_split"),
+            Self::AutoExposure => matches!(key, "exposure_range_ev" | "adaptation_speed"),
+            Self::ToneMapping => matches!(key, "tone_mapper_mode" | "tone_mapper_strength"),
             Self::ColorGrading => matches!(
                 key,
                 "exposure"
@@ -7465,6 +7607,17 @@ impl FinishingPanel {
     fn is_enabled(self, source: &ScreenShaderSource) -> bool {
         if self == Self::FinalOutput {
             return source.enabled;
+        }
+        if self == Self::ToneMapping {
+            let mode_enabled = source.options.iter().any(|option| {
+                option.key == "tone_mapper_mode"
+                    && matches!(option.value, ShaderOptionValue::Integer(value) if value != 0)
+            });
+            let strength_enabled = source.options.iter().any(|option| {
+                option.key == "tone_mapper_strength"
+                    && matches!(option.value, ShaderOptionValue::Float(value) if value > 1.0e-5)
+            });
+            return source.enabled && mode_enabled && strength_enabled;
         }
         source.enabled
             && self.enabled_key().is_some_and(|key| {
@@ -7831,6 +7984,10 @@ fn draw_configuration_tab(
                                 sources,
                                 &mut menu_config.embedded_effects,
                             );
+                            shaders::sync_adaptive_tone_config(
+                                sources,
+                                &mut menu_config.adaptive_tone,
+                            );
                         }
                         changed |= source_changed;
                     }
@@ -7843,6 +8000,10 @@ fn draw_configuration_tab(
                             shaders::sync_embedded_effect_config(
                                 sources,
                                 &mut menu_config.embedded_effects,
+                            );
+                            shaders::sync_adaptive_tone_config(
+                                sources,
+                                &mut menu_config.adaptive_tone,
                             );
                         }
                         changed |= source_changed;
@@ -10238,7 +10399,14 @@ fn draw_shader_details(
         ui.text_colored(MENU_MUTED_TEXT, &cstring(description));
     }
 
-    if let Some(key) = finishing_panel.and_then(FinishingPanel::enabled_key) {
+    if finishing_panel == Some(FinishingPanel::ToneMapping) {
+        if !source.enabled {
+            ui.text_colored(
+                MENU_WARN_TEXT,
+                &cstring("Final Output is disabled, so tone mapping is currently bypassed."),
+            );
+        }
+    } else if let Some(key) = finishing_panel.and_then(FinishingPanel::enabled_key) {
         if let Some(option_index) = source.options.iter().position(|option| option.key == key) {
             let mut enabled = matches!(
                 source.options[option_index].value,

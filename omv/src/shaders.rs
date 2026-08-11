@@ -8,6 +8,11 @@
 //! reader verifies the source hash, payload checksum, stage, size, and terminal
 //! token before accepting it. Avoiding a physical disk flush for every shader
 //! is important because PBR can prepare many independent entries concurrently.
+//!
+//! Embedded final-color menu metadata is also assembled here. Adaptive display
+//! values are projected from top-level Current Look configuration into the
+//! fused source, but synchronization remains separate from creative preset
+//! fields so the released preset payload cannot acquire session preferences.
 
 use std::{
     collections::HashMap,
@@ -29,10 +34,10 @@ use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 
 use crate::config::{
-    AtmosphereQuality, AxaaConfig, BloomingHdrConfig, ColorGradeConfig, ContactAoConfig,
-    DepthOfFieldConfig, DlaaConfig, EmbeddedEffectsConfig, FastAoConfig, FastFxaaConfig,
-    MotionBlurConfig, NfaaConfig, SmaaConfig, SunshaftsConfig, TemporalAaConfig,
-    VolumetricFogConfig, VolumetricLightingConfig,
+    AdaptiveToneConfig, AtmosphereQuality, AxaaConfig, BloomingHdrConfig, ColorGradeConfig,
+    ContactAoConfig, DepthOfFieldConfig, DlaaConfig, EmbeddedEffectsConfig, FastAoConfig,
+    FastFxaaConfig, MotionBlurConfig, NfaaConfig, SmaaConfig, SunshaftsConfig, TemporalAaConfig,
+    ToneMapperMode, VolumetricFogConfig, VolumetricLightingConfig,
 };
 
 pub(crate) const SHADER_DIR: &str = "./Data/NVSE/plugins/omv/shaders";
@@ -461,9 +466,60 @@ pub(crate) fn merge_embedded_sources_with_luts(
     lut_ids: &[u32],
     external_sources: Vec<ScreenShaderSource>,
 ) -> Vec<ScreenShaderSource> {
-    let mut sources = embedded_effect_sources_with_luts(embedded_config, lut_names, lut_ids);
+    merge_embedded_sources_with_luts_and_adaptive(
+        embedded_config,
+        &AdaptiveToneConfig::legacy_disabled(),
+        lut_names,
+        lut_ids,
+        external_sources,
+    )
+}
+
+/// Build the live shader catalog with the non-preset adaptive display policy.
+///
+/// Preset parsing deliberately uses [`merge_embedded_sources_with_luts`],
+/// which supplies the legacy disabled policy and therefore cannot mutate the
+/// frozen schema-1 payload. Runtime and Current Look use this entry point.
+pub(crate) fn merge_embedded_sources_with_luts_and_adaptive(
+    embedded_config: &EmbeddedEffectsConfig,
+    adaptive_tone: &AdaptiveToneConfig,
+    lut_names: &[String],
+    lut_ids: &[u32],
+    external_sources: Vec<ScreenShaderSource>,
+) -> Vec<ScreenShaderSource> {
+    let mut sources =
+        embedded_effect_sources_with_luts(embedded_config, adaptive_tone, lut_names, lut_ids);
     sources.extend(external_sources);
     sources
+}
+
+/// Copy live final-color menu values into the non-preset adaptive config.
+///
+/// This is separate from [`sync_embedded_effect_config`] so creating or
+/// applying a shareable preset cannot capture camera/display preferences.
+pub(crate) fn sync_adaptive_tone_config(
+    sources: &[ScreenShaderSource],
+    config: &mut AdaptiveToneConfig,
+) {
+    let Some(source) = sources
+        .iter()
+        .find(|source| source.embedded_effect_kind() == Some(EmbeddedEffectKind::ColorGrade))
+    else {
+        return;
+    };
+    for option in &source.options {
+        match option.key.as_str() {
+            "auto_exposure_enabled" => config.auto_exposure_enabled = option_bool(option),
+            "exposure_range_ev" => config.exposure_range_ev = option_float(option),
+            "adaptation_speed" => config.adaptation_speed = option_float(option),
+            "tone_mapper_mode" => {
+                config.tone_mapper_mode = ToneMapperMode::from_index(option_integer(option));
+            }
+            "tone_mapper_strength" => config.tone_mapper_strength = option_float(option),
+            _ => {}
+        }
+    }
+    *config = config.sanitized();
 }
 
 pub(crate) fn sync_embedded_effect_config(
@@ -516,11 +572,12 @@ pub(crate) fn sync_embedded_effect_config(
 
 #[cfg(test)]
 fn embedded_effect_sources(config: &EmbeddedEffectsConfig) -> Vec<ScreenShaderSource> {
-    embedded_effect_sources_with_luts(config, &[], &[])
+    embedded_effect_sources_with_luts(config, &AdaptiveToneConfig::legacy_disabled(), &[], &[])
 }
 
 fn embedded_effect_sources_with_luts(
     config: &EmbeddedEffectsConfig,
+    adaptive_tone: &AdaptiveToneConfig,
     lut_names: &[String],
     lut_ids: &[u32],
 ) -> Vec<ScreenShaderSource> {
@@ -530,7 +587,7 @@ fn embedded_effect_sources_with_luts(
         volumetric_fog_source(&config.volumetric_fog),
         volumetric_lighting_source(&config.volumetric_lighting),
         blooming_hdr_source(&config.blooming_hdr),
-        color_grade_source(&config.color_grade, lut_names, lut_ids),
+        color_grade_source(&config.color_grade, adaptive_tone, lut_names, lut_ids),
         temporal_aa_source(&config.temporal_aa),
         sunshafts_source(&config.sunshafts),
         depth_of_field_source(&config.depth_of_field),
@@ -1189,6 +1246,7 @@ fn blooming_hdr_source(config: &BloomingHdrConfig) -> ScreenShaderSource {
 
 fn color_grade_source(
     config: &ColorGradeConfig,
+    adaptive_tone: &AdaptiveToneConfig,
     lut_names: &[String],
     lut_ids: &[u32],
 ) -> ScreenShaderSource {
@@ -1374,6 +1432,48 @@ fn color_grade_source(
                 "Before / after split",
                 config.debug_split,
                 14,
+                0,
+            ),
+            bool_option(
+                "auto_exposure_enabled",
+                "Auto exposure",
+                adaptive_tone.auto_exposure_enabled,
+                19,
+                0,
+            ),
+            float_option(
+                "exposure_range_ev",
+                "Exposure range EV",
+                adaptive_tone.exposure_range_ev,
+                0.0,
+                1.5,
+                19,
+                1,
+            ),
+            float_option(
+                "adaptation_speed",
+                "Adaptation speed",
+                adaptive_tone.adaptation_speed,
+                0.25,
+                2.0,
+                19,
+                2,
+            ),
+            integer_choice_option(
+                "tone_mapper_mode",
+                "Tone mapping",
+                adaptive_tone.tone_mapper_mode.index(),
+                &["Off", "Neutral", "Automatic"],
+                19,
+                3,
+            ),
+            float_option(
+                "tone_mapper_strength",
+                "Tone strength",
+                adaptive_tone.tone_mapper_strength,
+                0.0,
+                1.0,
+                20,
                 0,
             ),
         ],
@@ -3103,18 +3203,24 @@ fn shader_cache_temp_is_stale(metadata: &fs::Metadata) -> bool {
 mod embedded_color_grade_tests {
     use super::{
         EmbeddedEffectKind, ShaderOptionValue, ShaderPhase, color_grade_source,
-        embedded_effect_sources, motion_blur_source, sync_color_grade_config,
-        sync_motion_blur_config,
+        embedded_effect_sources, motion_blur_source, sync_adaptive_tone_config,
+        sync_color_grade_config, sync_motion_blur_config,
     };
     use crate::config::{
-        ColorGradeConfig, EmbeddedEffectsConfig, MotionBlurConfig, MotionBlurQuality,
+        AdaptiveToneConfig, ColorGradeConfig, EmbeddedEffectsConfig, MotionBlurConfig,
+        MotionBlurQuality, ToneMapperMode,
     };
 
     #[test]
     fn color_grade_menu_schema_covers_every_config_field_and_lut_name() {
         let names = ["Neutral", "Mojave Natural", "User Look"].map(str::to_owned);
         let ids = [11, ColorGradeConfig::default().lut_file_id, 33];
-        let source = color_grade_source(&ColorGradeConfig::default(), &names, &ids);
+        let source = color_grade_source(
+            &ColorGradeConfig::default(),
+            &AdaptiveToneConfig::legacy_disabled(),
+            &names,
+            &ids,
+        );
         let keys: Vec<&str> = source
             .options
             .iter()
@@ -3149,6 +3255,11 @@ mod embedded_color_grade_tests {
                 "chromatic_aberration_enabled",
                 "chromatic_aberration",
                 "debug_split",
+                "auto_exposure_enabled",
+                "exposure_range_ev",
+                "adaptation_speed",
+                "tone_mapper_mode",
+                "tone_mapper_strength",
             ]
         );
         let lut = source
@@ -3185,6 +3296,37 @@ mod embedded_color_grade_tests {
     }
 
     #[test]
+    fn adaptive_tone_menu_schema_and_sync_round_trip_every_setting() {
+        let expected = AdaptiveToneConfig {
+            auto_exposure_enabled: false,
+            exposure_range_ev: 1.25,
+            adaptation_speed: 1.75,
+            tone_mapper_mode: ToneMapperMode::Neutral,
+            tone_mapper_strength: 0.42,
+        };
+        let source = color_grade_source(&ColorGradeConfig::default(), &expected, &[], &[]);
+        let mode = source
+            .options
+            .iter()
+            .find(|option| option.key == "tone_mapper_mode")
+            .expect("tone-mapper selector");
+        assert_eq!(
+            mode.choices
+                .as_deref()
+                .expect("tone-mapper choices")
+                .iter()
+                .map(String::as_str)
+                .collect::<Vec<_>>(),
+            ["Off", "Neutral", "Automatic"]
+        );
+        assert!(matches!(mode.value, ShaderOptionValue::Integer(1)));
+
+        let mut actual = AdaptiveToneConfig::default();
+        sync_adaptive_tone_config(std::slice::from_ref(&source), &mut actual);
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
     fn color_grade_menu_sync_round_trips_every_setting() {
         let expected = ColorGradeConfig {
             enabled: false,
@@ -3217,7 +3359,12 @@ mod embedded_color_grade_tests {
         };
         let names = ["A", "B", "C", "D", "E"].map(str::to_owned);
         let ids = [40, 41, 42, 43, 44];
-        let source = color_grade_source(&expected, &names, &ids);
+        let source = color_grade_source(
+            &expected,
+            &AdaptiveToneConfig::legacy_disabled(),
+            &names,
+            &ids,
+        );
         let mut actual = ColorGradeConfig::default();
         sync_color_grade_config(&source, &mut actual);
         assert_eq!(actual.enabled, expected.enabled);
@@ -3259,7 +3406,12 @@ mod embedded_color_grade_tests {
             ..ColorGradeConfig::default()
         };
         let names = ["Alpha", "Bravo", "Charlie"].map(str::to_owned);
-        let source = color_grade_source(&config, &names, &[100, 200, 300]);
+        let source = color_grade_source(
+            &config,
+            &AdaptiveToneConfig::legacy_disabled(),
+            &names,
+            &[100, 200, 300],
+        );
         let selector = source
             .options
             .iter()
@@ -3268,7 +3420,12 @@ mod embedded_color_grade_tests {
         assert!(matches!(selector.value, ShaderOptionValue::Integer(2)));
 
         let reordered_names = ["Charlie", "Alpha", "Bravo"].map(str::to_owned);
-        let mut reordered = color_grade_source(&config, &reordered_names, &[300, 100, 200]);
+        let mut reordered = color_grade_source(
+            &config,
+            &AdaptiveToneConfig::legacy_disabled(),
+            &reordered_names,
+            &[300, 100, 200],
+        );
         let selector_index = reordered
             .options
             .iter()

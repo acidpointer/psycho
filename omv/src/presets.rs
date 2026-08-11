@@ -3,11 +3,11 @@
 //! `omv.toml` remains the working configuration. Presets are versioned visual
 //! snapshots that are parsed and migrated before they can replace the visual
 //! portion of that working configuration. Machine-bound controls, including
-//! the depth provider, menu key, scan interval, and diagnostics, are
-//! intentionally absent from `PresetVisualSettingsV1`; applying a shared
-//! preset must never replace them. Explicit version publication atomically
-//! updates one preset file; activation and Current Look autosaves never mutate
-//! preset files.
+//! the adaptive display policy, depth provider, menu key, scan interval, and
+//! diagnostics, are intentionally absent from `PresetVisualSettingsV1`;
+//! applying a shared preset must never replace them. Explicit version
+//! publication atomically updates one preset file; activation and Current Look
+//! autosaves never mutate preset files.
 
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -2056,6 +2056,7 @@ mod tests {
         menu.shader_scan_interval_ms = 777;
         menu.debug_log = true;
         menu.native_pbr.debug_log_draws = true;
+        menu.adaptive_tone = crate::config::AdaptiveToneConfig::legacy_disabled();
         let mut sources = Vec::new();
         let lut_text = include_str!("../luts/01_mojave_natural.cube");
         let mut catalog = LutCatalog::default();
@@ -2071,6 +2072,10 @@ mod tests {
         assert_eq!(menu.shader_scan_interval_ms, 777);
         assert!(menu.debug_log);
         assert!(menu.native_pbr.debug_log_draws);
+        assert_eq!(
+            menu.adaptive_tone,
+            crate::config::AdaptiveToneConfig::legacy_disabled()
+        );
         assert_eq!(
             preset.dependencies.lut.as_ref().unwrap().revision,
             format!("{:016x}", fingerprint(lut_text.as_bytes()))
