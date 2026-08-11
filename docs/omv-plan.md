@@ -423,8 +423,7 @@ Current Blooming HDR runtime finding:
 - The Blooming HDR pipeline owns the missing buffers:
   - quarter-resolution bright/atmosphere extraction target;
   - quarter-resolution blur ping-pong target;
-  - two one-pixel FP16 display-adaptation history targets when automatic mode
-    is active;
+  - two 128x1 FP16 display-response targets when automatic mode is active;
   - final full-resolution HDR compose pass.
 - The extraction pass combines soft bright-threshold bloom with a restrained
   midtone atmosphere term. This is intentionally not physically strict: for
@@ -442,10 +441,13 @@ Current Blooming HDR runtime finding:
   follows in a separately budgeted pass. OMV ships fourteen original
   redistributable LUT
   files and discovers arbitrary user additions in the live shader-scan
-  transaction. A fixed-grid one-pixel meter now provides bounded,
-  display-referred automatic exposure and an adaptive neutral highlight
-  shoulder after vanilla image-space processing; it does not replace native
-  HDR or recover clipped radiance. See
+  transaction. A fixed-grid low-resolution generator now provides bounded,
+  transient display adaptation and an independently metered native/Bloom
+  highlight-tail response after vanilla image-space processing. The final
+  hue-preserving photographic luminance curve follows grade, LUT, halation,
+  and vignette, so output saturation cannot erase it. Response updates are
+  capped at 60 Hz; the effect does not replace native HDR or recover clipped
+  radiance. See
   `docs/graphics_fnv_color_grading.md` for the exact phase, ABI, LUT,
   redistribution, quality, and performance contract.
 - This is still intentionally cheap: the expensive blur work happens at

@@ -49,7 +49,7 @@ use windows::Win32::Graphics::Direct3D9::{
     D3DMULTISAMPLE_TYPE, D3DPMISCCAPS_MRTINDEPENDENTBITDEPTHS, D3DPOOL, D3DPRESENT_PARAMETERS,
     D3DPRIMITIVETYPE, D3DRENDERSTATETYPE, D3DRESOURCETYPE, D3DSAMPLERSTATETYPE, D3DSTATEBLOCKTYPE,
     D3DTEXTUREFILTERTYPE, D3DTEXTURESTAGESTATETYPE, D3DUSAGE_DEPTHSTENCIL, D3DUSAGE_DYNAMIC,
-    D3DUSAGE_QUERY_POSTPIXELSHADER_BLENDING, D3DUSAGE_RENDERTARGET,
+    D3DUSAGE_QUERY_FILTER, D3DUSAGE_QUERY_POSTPIXELSHADER_BLENDING, D3DUSAGE_RENDERTARGET,
     D3DVERTEXELEMENT9, Direct3DCreate9, IDirect3D9, IDirect3DBaseTexture9, IDirect3DCubeTexture9,
     IDirect3DDevice9, IDirect3DIndexBuffer9, IDirect3DPixelShader9, IDirect3DStateBlock9,
     IDirect3DSurface9, IDirect3DTexture9, IDirect3DVertexBuffer9, IDirect3DVertexDeclaration9,
@@ -449,6 +449,35 @@ impl<'a> Device9Ref<'a> {
             D3DRTYPE_SURFACE,
             D3DFMT_RESZ,
         )
+    }
+
+    /// Return whether the live device can render to and linearly filter a
+    /// texture format.
+    ///
+    /// Render-target and filtering capabilities are independent D3D9 format
+    /// queries. Both use this device's creation adapter and device type so the
+    /// result remains correct on hybrid-GPU systems and compatibility layers
+    /// which do not create the game device as adapter-zero HAL.
+    pub fn supports_linearly_filtered_render_target_texture(
+        &self,
+        format: D3DFORMAT,
+    ) -> Direct3DResult<bool> {
+        let creation = self.creation_parameters()?;
+        let direct3d = self.direct3d()?;
+        let mode = direct3d.adapter_display_mode(creation.adapter_ordinal)?;
+        for usage in [D3DUSAGE_RENDERTARGET, D3DUSAGE_QUERY_FILTER] {
+            if !direct3d.supports_device_format(
+                creation.adapter_ordinal,
+                creation.device_type,
+                mode.Format,
+                usage as u32,
+                D3DRTYPE_TEXTURE,
+                format,
+            )? {
+                return Ok(false);
+            }
+        }
+        Ok(true)
     }
 
     /// Query the physical Vulkan device selected by DXVK.

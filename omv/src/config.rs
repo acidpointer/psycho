@@ -825,16 +825,16 @@ impl ColorGradeConfig {
 /// Display-referred tone-mapping policy used by the fused final-color pass.
 ///
 /// OMV receives Fallout's already display-mapped image, so these modes shape
-/// the remaining display headroom; they do not replace the native HDR shader
-/// family or claim to recover clipped scene radiance.
+/// its remaining luminance distribution; they do not replace the native HDR
+/// shader family or claim to recover clipped scene radiance.
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum ToneMapperMode {
     /// Preserve the established final-color equation exactly.
     Off,
-    /// Apply a fixed, restrained, hue-preserving highlight shoulder.
+    /// Apply a fixed, hue-preserving photographic luminance curve.
     Neutral,
-    /// Adapt the same neutral shoulder slowly from current frame statistics.
+    /// Modulate the photographic curve from the native and Bloom highlight tail.
     #[default]
     Automatic,
 }
@@ -872,21 +872,21 @@ impl ToneMapperMode {
 /// User-facing camera exposure and display tone-mapping controls.
 ///
 /// The exposed surface deliberately stays small. Separate bright/dark rates,
-/// metering weights, and shoulder limits are calibrated implementation
-/// invariants; one speed scalar gives users useful control without inviting
-/// unstable or contradictory combinations.
+/// metering weights, and automatic-response limits are calibrated
+/// implementation invariants; one speed scalar gives users useful control
+/// without inviting unstable or contradictory combinations.
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(default)]
 pub(crate) struct AdaptiveToneConfig {
-    /// Enables GPU-metered exposure adaptation.
+    /// Enables GPU-metered transient adaptation between changing views.
     pub(crate) auto_exposure_enabled: bool,
-    /// Symmetric maximum automatic correction in photographic stops.
+    /// Symmetric maximum transient response in photographic stops.
     pub(crate) exposure_range_ev: f32,
     /// Scalar applied to the calibrated asymmetric eye-adaptation rates.
     pub(crate) adaptation_speed: f32,
-    /// Selects disabled, fixed-neutral, or automatically shaped highlights.
+    /// Selects disabled, fixed, or automatically modulated display response.
     pub(crate) tone_mapper_mode: ToneMapperMode,
-    /// Blends the neutral display shoulder with the exposed input.
+    /// Controls the fixed or automatically modulated photographic curve exponent.
     pub(crate) tone_mapper_strength: f32,
 }
 
@@ -903,6 +903,15 @@ impl Default for AdaptiveToneConfig {
 }
 
 impl AdaptiveToneConfig {
+    /// Largest transient exposure excursion accepted from disk or the menu.
+    pub(crate) const MAX_EXPOSURE_RANGE_EV: f32 = 3.0;
+    /// Slowest supported multiplier for the calibrated adaptation half-lives.
+    pub(crate) const MIN_ADAPTATION_SPEED: f32 = 0.10;
+    /// Fastest supported multiplier for the calibrated adaptation half-lives.
+    pub(crate) const MAX_ADAPTATION_SPEED: f32 = 4.0;
+    /// Largest photographic tone-curve exponent accepted from user input.
+    pub(crate) const MAX_TONE_MAPPER_STRENGTH: f32 = 3.0;
+
     /// Returns the exact legacy final-color policy used by compatibility and
     /// preset-shape code that must not acquire non-preset camera preferences.
     pub(crate) const fn legacy_disabled() -> Self {
@@ -917,9 +926,24 @@ impl AdaptiveToneConfig {
 
     /// Returns finite render-boundary values within the supported response.
     pub(crate) fn sanitized(mut self) -> Self {
-        self.exposure_range_ev = finite_clamp(self.exposure_range_ev, 0.75, 0.0, 1.5);
-        self.adaptation_speed = finite_clamp(self.adaptation_speed, 1.0, 0.25, 2.0);
-        self.tone_mapper_strength = finite_clamp(self.tone_mapper_strength, 0.65, 0.0, 1.0);
+        self.exposure_range_ev = finite_clamp(
+            self.exposure_range_ev,
+            0.75,
+            0.0,
+            Self::MAX_EXPOSURE_RANGE_EV,
+        );
+        self.adaptation_speed = finite_clamp(
+            self.adaptation_speed,
+            1.0,
+            Self::MIN_ADAPTATION_SPEED,
+            Self::MAX_ADAPTATION_SPEED,
+        );
+        self.tone_mapper_strength = finite_clamp(
+            self.tone_mapper_strength,
+            0.65,
+            0.0,
+            Self::MAX_TONE_MAPPER_STRENGTH,
+        );
         self
     }
 }
@@ -1875,9 +1899,30 @@ mod tests {
         .sanitized();
         assert!(!sanitized.auto_exposure_enabled);
         assert_eq!(sanitized.exposure_range_ev, 0.75);
-        assert_eq!(sanitized.adaptation_speed, 2.0);
+        assert_eq!(sanitized.adaptation_speed, 4.0);
         assert_eq!(sanitized.tone_mapper_mode, ToneMapperMode::Neutral);
         assert_eq!(sanitized.tone_mapper_strength, 0.0);
+
+        let widened = AdaptiveToneConfig {
+            auto_exposure_enabled: true,
+            exposure_range_ev: 99.0,
+            adaptation_speed: -99.0,
+            tone_mapper_mode: ToneMapperMode::Automatic,
+            tone_mapper_strength: 99.0,
+        }
+        .sanitized();
+        assert_eq!(
+            widened.exposure_range_ev,
+            AdaptiveToneConfig::MAX_EXPOSURE_RANGE_EV
+        );
+        assert_eq!(
+            widened.adaptation_speed,
+            AdaptiveToneConfig::MIN_ADAPTATION_SPEED
+        );
+        assert_eq!(
+            widened.tone_mapper_strength,
+            AdaptiveToneConfig::MAX_TONE_MAPPER_STRENGTH
+        );
 
         let encoded = toml::to_string(&sanitized).expect("serialize adaptive tone");
         let decoded: AdaptiveToneConfig =

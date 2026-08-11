@@ -1446,7 +1446,7 @@ fn color_grade_source(
                 "Exposure range EV",
                 adaptive_tone.exposure_range_ev,
                 0.0,
-                1.5,
+                AdaptiveToneConfig::MAX_EXPOSURE_RANGE_EV,
                 19,
                 1,
             ),
@@ -1454,8 +1454,8 @@ fn color_grade_source(
                 "adaptation_speed",
                 "Adaptation speed",
                 adaptive_tone.adaptation_speed,
-                0.25,
-                2.0,
+                AdaptiveToneConfig::MIN_ADAPTATION_SPEED,
+                AdaptiveToneConfig::MAX_ADAPTATION_SPEED,
                 19,
                 2,
             ),
@@ -1472,7 +1472,7 @@ fn color_grade_source(
                 "Tone strength",
                 adaptive_tone.tone_mapper_strength,
                 0.0,
-                1.0,
+                AdaptiveToneConfig::MAX_TONE_MAPPER_STRENGTH,
                 20,
                 0,
             ),
@@ -3320,6 +3320,39 @@ mod embedded_color_grade_tests {
             ["Off", "Neutral", "Automatic"]
         );
         assert!(matches!(mode.value, ShaderOptionValue::Integer(1)));
+        let exposure_range = source
+            .options
+            .iter()
+            .find(|option| option.key == "exposure_range_ev")
+            .expect("exposure range");
+        assert_eq!(exposure_range.min, 0.0);
+        assert_eq!(
+            exposure_range.max,
+            AdaptiveToneConfig::MAX_EXPOSURE_RANGE_EV
+        );
+        let adaptation_speed = source
+            .options
+            .iter()
+            .find(|option| option.key == "adaptation_speed")
+            .expect("adaptation speed");
+        assert_eq!(
+            adaptation_speed.min,
+            AdaptiveToneConfig::MIN_ADAPTATION_SPEED
+        );
+        assert_eq!(
+            adaptation_speed.max,
+            AdaptiveToneConfig::MAX_ADAPTATION_SPEED
+        );
+        let tone_strength = source
+            .options
+            .iter()
+            .find(|option| option.key == "tone_mapper_strength")
+            .expect("tone strength");
+        assert_eq!(tone_strength.min, 0.0);
+        assert_eq!(
+            tone_strength.max,
+            AdaptiveToneConfig::MAX_TONE_MAPPER_STRENGTH
+        );
 
         let mut actual = AdaptiveToneConfig::default();
         sync_adaptive_tone_config(std::slice::from_ref(&source), &mut actual);

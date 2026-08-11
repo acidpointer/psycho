@@ -290,6 +290,47 @@ BaseObjectSwapper. Preserve the established source-order boundary and follow
 the surgical, mod-agnostic procedure in
 `docs/nvse_startup_phase_safety.md`.
 
+## 2026-08-11 adaptive-response corrections awaiting playtest
+
+The automatic exposure/tone follow-up changes embedded HLSL payload, the
+final-color shader catalog, post-device response resources, and one D3D9
+capability-wrapper body. It preserves schema 1, every persisted field and
+preset payload, the existing final-color preparation worker and its start
+order, the DeferredInit timing admission, hook groups, world publication, TLS,
+and static-owner set. The new capability method is called only while creating
+the device-owned final-color effect; no plugin-load or pre-Deferred caller was
+added.
+
+The later visibility/performance correction stays within the same runtime-only
+owners. It changes the embedded response and compose payloads, reduces the two
+post-device response textures from 256x1 to 128x1, and adds a plain two-scalar
+update clock to the device-owned `BloomingHdrEffect`. It does not add or
+first-touch a static, lock, TLS value, worker, parser, config value, preset
+payload, publication atomic, hook, or admission path before DeferredInit. The
+shader preparation worker, catalog publication, device creation, and hook
+ordering remain unchanged.
+
+The 2026-08-12 visible-tone follow-up changes only the equations in those same
+embedded shaders, finite bounds for the three existing numeric schema-one
+controls, the post-Deferred Present-clock condition, and one success log
+emitted after the first render-time FP16 response allocation. Removing Color
+Grade strength from adaptive gating does not open a new admission route: the
+timing publication is still absent from `runtime::configure` and first runs in
+`apply_initial_depth_activation` at DeferredInit. No field was added, removed,
+reordered, or retyped; the schema, preset payload, worker/static set, hook
+groups, and preparation order remain unchanged.
+
+Those source-order facts keep the correction inside the established runtime
+architecture, but changed code and embedded data still change the final OMV
+DLL footprint. Commit `9975b2e` therefore remains the last documented
+load-to-gameplay startup baseline. Static shader tests, strict config/preset
+round trips, the full OMV suite, and the supported release build are necessary
+but cannot accept this artifact. Acceptance requires at least three cold
+Proton load-to-gameplay runs with BaseObjectSwapper installed, followed by
+normal gameplay and live Present telemetry without the known `+0x4990` fault.
+Record the tested commit/artifact hashes and logs here only after that runtime
+evidence exists.
+
 ## 2026-08-12 native Shadows route awaiting playtest
 
 The native Shadows implementation intentionally changes the final OMV DLL and

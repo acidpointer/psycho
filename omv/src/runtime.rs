@@ -5000,7 +5000,6 @@ fn adaptive_tone_timing_needed(config: &GraphicsMenuConfig) -> bool {
     let adaptive = config.adaptive_tone;
     config.screen_space_shaders
         && grade.enabled
-        && grade.strength > 1.0e-5
         && ((adaptive.auto_exposure_enabled && adaptive.exposure_range_ev > 1.0e-5)
             || (adaptive.tone_mapper_mode == crate::config::ToneMapperMode::Automatic
                 && adaptive.tone_mapper_strength > 1.0e-5))
@@ -6964,8 +6963,7 @@ mod frame_pacing_tests {
 
         config.adaptive_tone.tone_mapper_strength = 0.65;
         config.embedded_effects.color_grade.strength = 0.0;
-        assert!(!adaptive_tone_timing_needed(&config));
-        config.embedded_effects.color_grade.strength = 0.68;
+        assert!(adaptive_tone_timing_needed(&config));
         config.screen_space_shaders = false;
         assert!(!adaptive_tone_timing_needed(&config));
     }
@@ -7564,7 +7562,7 @@ impl FinishingPanel {
                 "Smooth center-weighted eye adaptation with a restrained correction range."
             }
             Self::ToneMapping => {
-                "Neutral display highlight compression with an optional automatic shoulder."
+                "Photographic display mapping with smooth automatic scene modulation."
             }
             Self::ColorGrading => {
                 "Exposure, contrast, color balance, saturation, and highlight shaping."

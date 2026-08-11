@@ -7,7 +7,7 @@ sampler2D FilmGrainTexture : register(s6);
 #define OMV_TONE_VARIANT 0
 #endif
 #if OMV_TONE_VARIANT == 2
-sampler2D AdaptiveToneHistory : register(s7);
+sampler2D AdaptiveToneResponse : register(s7);
 #endif
 
 float4 ScreenData : register(c0);
@@ -25,7 +25,7 @@ float4 GradeData6 : register(c16);
 float4 LutDomainScale : register(c17);
 float4 LutDomainBias : register(c18);
 // x = auto exposure enabled, y = tone mode (0 off, 1 neutral, 2 automatic),
-// z = tone strength, w = reserved. Variant 0 deliberately ignores this ABI.
+// z = photographic curve exponent, w = reserved. Variant 0 ignores this ABI.
 float4 AdaptiveToneData : register(c19);
 
 static const float DepthEndpointEpsilon = 0.000001f;
@@ -135,14 +135,7 @@ float3 SampleColorLut(float3 color) {
 
 float3 ApplyAnalyticGrade(float3 inputColor) {
     float master = GradeData0.x;
-    float analyticExposure = GradeData0.y;
-#if OMV_TONE_VARIANT == 2
-    // In the automatic-exposure variant GradeData0.y is compensation applied
-    // before the adaptive shoulder. Reapplying it here would square the user's
-    // requested exposure correction whenever creative grading is also active.
-    analyticExposure = AdaptiveToneData.x > 0.5f ? 0.0f : analyticExposure;
-#endif
-    float3 color = inputColor * exp2(analyticExposure);
+    float3 color = inputColor * exp2(GradeData0.y);
 
     float temperature = GradeData1.y;
     float tint = GradeData1.z;
@@ -169,58 +162,29 @@ float3 ApplyAnalyticGrade(float3 inputColor) {
     return lerp(inputColor, color, master);
 }
 
-#if OMV_TONE_VARIANT != 0
-float3 ApplyNeutralDisplayShoulder(
-    float3 inputColor,
-    float shoulderStart,
-    float crosstalk,
-    float strength
-) {
-    float peak = max(inputColor.r, max(inputColor.g, inputColor.b));
-    float remaining = 1.0f - shoulderStart;
-    float over = max(peak - shoulderStart, 0.0f);
-
-    // This branch-free rational shoulder is identity with unit derivative at
-    // its start and approaches display white monotonically. Scaling by peak
-    // preserves RGB ratios until the small, explicit near-white crosstalk;
-    // independent per-channel curves would rotate saturated highlight hues.
-    float compressedPeak = peak - over + over * remaining / (remaining + over);
-    float3 ratioPreserving = inputColor * (compressedPeak / max(peak, 0.00001f));
-    float pathToWhite = saturate(over / remaining) * crosstalk;
-    float3 mapped = lerp(ratioPreserving, compressedPeak.xxx, pathToWhite);
-    return lerp(inputColor, mapped, strength);
-}
-
-float3 ApplyAdaptiveDisplayMapping(float3 inputColor) {
 #if OMV_TONE_VARIANT == 1
-    float3 mapped = ApplyNeutralDisplayShoulder(
-        inputColor,
-        0.76f,
-        0.05f,
-        AdaptiveToneData.z * GradeData0.x
-    );
-    return mapped;
-#else
-    float4 history = float4(0.0f, 0.76f, 0.05f, 1.0f);
-    history = tex2Dlod(AdaptiveToneHistory, float4(0.5f, 0.5f, 0.0f, 0.0f));
+float3 ApplyAdaptiveDisplayMapping(float3 inputColor) {
+    float displayLuma = max(Luma(inputColor), 0.0f);
+    float linearLuma = pow(displayLuma, 2.2f);
+    float reinhardRatio = (1.0f + linearLuma / 6.25f) / (1.0f + linearLuma);
 
-    float3 mapped = inputColor;
-    if (AdaptiveToneData.x > 0.5f) {
-        float exposureCompensation = GradeData5.x > 0.5f ? GradeData0.y : 0.0f;
-        mapped *= exp2((history.r + exposureCompensation) * GradeData0.x);
-    }
-    if (AdaptiveToneData.y > 0.5f && AdaptiveToneData.z > 0.00001f) {
-        float shoulder = AdaptiveToneData.y > 1.5f ? history.g : 0.76f;
-        float crosstalk = AdaptiveToneData.y > 1.5f ? history.b : 0.05f;
-        mapped = ApplyNeutralDisplayShoulder(
-            mapped,
-            shoulder,
-            crosstalk,
-            AdaptiveToneData.z * GradeData0.x
-        );
-    }
-    return mapped;
-#endif
+    // A scalar luminance ratio keeps hue exactly stable and costs one special
+    // function pair instead of three per-channel pairs. Raising the ratio by
+    // strength extends control beyond a binary blend: zero is identity, one
+    // is the calibrated photographic curve, and values above one remain
+    // smooth, monotonic, and bounded rather than extrapolating below black.
+    float responseScale = pow(
+        max(reinhardRatio, 0.00001f),
+        AdaptiveToneData.z / 2.2f
+    );
+    return inputColor * responseScale;
+}
+#elif OMV_TONE_VARIANT == 2
+float3 ApplyAdaptiveDisplayMapping(float3 inputColor) {
+    float displayLuma = max(Luma(inputColor), 0.0f);
+    float responseUv = saturate(displayLuma * 0.25f);
+    float responseScale = tex2D(AdaptiveToneResponse, float2(responseUv, 0.5f)).r;
+    return inputColor * responseScale;
 }
 #endif
 
@@ -285,21 +249,27 @@ float4 Main(PixelInput input) : COLOR0 {
     float shoulder = OptionData1.y;
     float3 ungraded = ComposeBloom(base, bloomContribution, shoulder);
     float3 color = ungraded;
-#if OMV_TONE_VARIANT != 0
-    color = ApplyAdaptiveDisplayMapping(color);
-#endif
 
     if (GradeData4.x > 0.5f) {
         color = ApplyFinishing(color, highlightBlur, input.uv);
-        if (GradeData5.w > 0.5f) {
-            float grainResponse = 1.0f - sqrt(saturate(Luma(color)));
-            float grain = FilmGrainNoise(input.uv, FrameData.x)
-                * GradeData2.w * GradeData0.x * grainResponse;
-            color += color * grain;
-        }
         if (GradeData3.z > 0.5f) {
             color = input.uv.x < 0.5f ? ungraded : color;
         }
+    }
+
+#if OMV_TONE_VARIANT != 0
+    // Tone mapping is the final deterministic display transform. Running it
+    // before grading, LUT, halation, or vignette allowed those operations to
+    // recreate values above white which the output clamp then erased. Grain
+    // and dither remain later because they are display noise, not scene color.
+    color = ApplyAdaptiveDisplayMapping(color);
+#endif
+
+    if (GradeData4.x > 0.5f && GradeData5.w > 0.5f) {
+        float grainResponse = 1.0f - sqrt(saturate(Luma(color)));
+        float grain = FilmGrainNoise(input.uv, FrameData.x)
+            * GradeData2.w * GradeData0.x * grainResponse;
+        color += color * grain;
     }
 
     float ditherStrength = max(

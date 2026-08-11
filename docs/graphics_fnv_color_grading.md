@@ -5,8 +5,11 @@ ranges revised on 2026-07-23; the final-color resource transaction was
 corrected on 2026-07-27 after a real-user terrain-corruption report; the
 original atmospheric LUT library was expanded with Mojave, Capital Wasteland,
 subterranean-survival, and exclusion-zone families on 2026-07-28.
-Automatic exposure and adaptive neutral tone mapping were integrated on
-2026-08-11; their response and acceptance contract is in
+Automatic exposure and adaptive tone mapping were integrated and then
+corrected for transient behavior, visible final-stage tone response, and
+bounded update cost on 2026-08-11. A 2026-08-12 playtest then proved the
+near-white curve was still inert across ordinary display values; its
+photographic response and independent-control correction is in
 `graphics_fnv_auto_exposure_and_adaptive_tone.md`.
 Deterministic repository, parser, menu, resource-planning, CPU image-reference,
 shader compilation, bytecode-budget, and packaging coverage is complete.
@@ -56,12 +59,15 @@ rebuilt in the same timed transaction as the loose shader scan. Selection is
 persisted by a stable, case-insensitive filename ID rather than list index, so
 adding or reordering other files does not change the saved look.
 
-The master disabled state and master strength zero skip all finishing work.
-Each family disabled or at zero strength skips its applicable contribution.
-LUT-only work also skips when no valid selected file exists. Chromatic
-aberration is a separate finishing pass. The accepted playtest settings enable
-it by default, adding a full-resolution draw and backbuffer copy when combined
-with Bloom or grading. Source alpha is preserved by every production path.
+The Final Output master disabled state skips all finishing work. Master strength
+zero skips creative grading, LUT, debanding, grain, vignette, halation, and
+chromatic work, but it does not silently disable the independently configured
+Auto Exposure or Tone Mapping families. Each family disabled or at zero
+strength skips its applicable contribution. LUT-only work also skips when no
+valid selected file exists. Chromatic aberration is a separate finishing pass.
+The accepted playtest settings enable it by default, adding a full-resolution
+draw and backbuffer copy when combined with Bloom or grading. Source alpha is
+preserved by every production path.
 
 ## Calibrated default look
 
@@ -171,6 +177,12 @@ signed or normalized controls already reach their complete authored response
 at `-1` or `1`. Increasing those numeric ceilings without redesigning their
 curves would only create clipping or redundant slider travel.
 
+Adaptive display is intentionally outside that creative-range policy. Its
+existing schema-one fields now expose `0..3 EV`, `0.10..4.0` adaptation speed,
+and `0..3` tone strength. These are independent Current Look controls; Final
+Output enable remains their explicit family bypass, but Color Grade master
+strength no longer attenuates or disables them.
+
 ## Ownership, phase, and ordering
 
 `omv/src/config.rs` owns persisted values and finite bounds.
@@ -180,7 +192,8 @@ metadata, and stable-ID synchronization. `omv/src/runtime.rs` owns the ten
 virtual finishing selections, filters each detail editor to its controls,
 performs the joint shader/LUT scan transaction, and schedules the final phase.
 `omv/src/effects/blooming_hdr.rs` owns D3D9 resources and CPU constants.
-`adaptive_tone.hlsl` owns the one-pixel meter and temporal response;
+`adaptive_tone.hlsl` owns bounded exposure metering, independent highlight-tail
+measurement, temporal state, and the 128x1 response curve;
 `bloom_hdr_compose.hlsl` owns fused Bloom/color/tone composition;
 `chromatic_aberration.hlsl` owns the optional optical pass.
 
@@ -189,9 +202,11 @@ The fixed native phase is `final_image_space`. The established outer
 image-space first, then OMV scene-post and final-image phases. Built-in order is:
 
 1. native image-space and OMV scene-post work;
-2. one-pixel display metering when automatic exposure or tone requires it;
-3. highlight extraction and two-axis blur when Bloom or halation is enabled;
-4. fused Bloom/color/tone compose when any family has work;
+2. highlight extraction and two-axis blur when Bloom or halation is enabled;
+3. low-resolution response generation, at no more than 60 Hz, when automatic
+   exposure or tone requires it;
+4. fused Bloom/color compose, creative finishing, then final display tone when
+   any family has work;
 5. optional chromatic aberration;
 6. built-in spatial AA;
 7. loose external final-image shaders.
@@ -205,8 +220,8 @@ Established phase evidence remains in
 No new engine address or native layout was inferred for this change.
 
 Grade-only rendering needs current scene color and no depth, normal, velocity,
-or mask. Automatic display adaptation additionally owns one-pixel FP16
-ping-pong history; fixed tone and disabled adaptation do not. Bloom can consume
+or mask. Automatic display adaptation additionally owns 128x1 FP16 ping-pong
+response curves; fixed tone and disabled adaptation do not. Bloom can consume
 the existing point-sampled first-person depth to suppress weapon/hand glow.
 Chromatic aberration uses only final scene color. Later native overlays retain
 their established owner; OMV does not claim a new HUD mask.
@@ -348,7 +363,7 @@ Fused compose bindings:
 | `s4` | Quarter-resolution Bloom or managed black fallback. |
 | `s5` | Selected flattened LUT, clamped linear. |
 | `s6` | Generated 512-by-512 monochrome grain, wrapping linear. |
-| `s7` | Current one-pixel FP16 adaptation history in the adaptive variant. |
+| `s7` | Current linearly filtered FP16 response curve in the adaptive variant. |
 | `c0..c2` | Screen, frame, and camera data. |
 | `c3..c5` | Bounded Bloom controls or explicit zeros. |
 | `c9` | Bloom target dimensions/texel size. |
@@ -357,9 +372,10 @@ Fused compose bindings:
 | `c17..c18` | LUT input-domain scale/bias and LUT size. |
 | `c19` | Automatic-exposure enable, tone mode, and tone strength. |
 
-The meter binds display color at `s0`, previous one-pixel history at `s1`, and
-adaptation/timing values at `c0..c1`. Its output stores exposure EV, shoulder
-start, and highlight crosstalk.
+Response generation binds display color at `s0`, previous point-sampled curve
+at `s1`, completed Bloom at `s4`, and adaptation/Bloom values at `c0..c3`. Its
+R lane stores luminance-indexed scale; G/B/A replicate adapted log luminance,
+applied transient EV, and automatic-tone activity.
 
 Chromatic bindings are `s0` scene color, `c0` dimensions/inverse dimensions,
 and `c3.x` master-scaled displacement in pixels. It samples center plus
@@ -415,11 +431,14 @@ failure.
 
 Analytic controls operate on finite display code values and end in a bounded
 write. OMV does not reapply sRGB or replace Fallout's native tonemapper. The
-optional display-referred meter uses fixed center-weighted log-luminance
-samples and bounded temporal response; it is isolated from OMV's own output so
-grading cannot feed back into exposure. CPU settings sanitize every untrusted
-numeric value before constants are bound. The complete adaptation and neutral
-curve math is documented in
+optional display-referred meter uses one fixed center-weighted 4x4 grid,
+prior-anchored log-luminance winsorization, and bounded temporal response.
+Exposure is isolated from OMV output. Automatic tone uses a separate native and
+Bloom upper-tail signal to modulate an always-present extended-Reinhard display
+curve. Its hue-preserving response runs after grade, LUT, halation, and
+vignette so final saturation cannot erase it. CPU settings
+sanitize every untrusted numeric value before constants are bound. The complete
+adaptation and neutral curve math is documented in
 `graphics_fnv_auto_exposure_and_adaptive_tone.md`.
 
 Debanding uses center plus four cross neighbors six pixels away, which reaches
@@ -448,7 +467,7 @@ the routine draw path. A catalog change releases the effect so removed LUT and
 grain resources cannot linger. Device loss releases the effect and default-pool
 quarter-resolution Bloom targets; reset recreates them lazily. Resize/format
 changes recreate only the two Bloom targets. Automatic mode additionally owns
-two persistent one-pixel FP16 history targets and invalidates them across
+two persistent 128x1 FP16 response targets and invalidates them across
 Present gaps, resize, disable, and device recreation. Grain texture
 allocation/upload failure aborts effect construction
 through the existing error path, so no partially initialized resource set is
@@ -462,8 +481,8 @@ Static upper bounds enforced from compiled bytecode are:
 | Bloom blur | 80 instructions | 9 |
 | Fused compose | 500 instructions | 14 |
 | Fixed tone compose | 530 instructions | 14 |
-| Adaptive compose | 560 instructions | 15 |
-| One-pixel adaptation meter | 240 instructions | 2 |
+| Adaptive compose | 515 instructions | 15 |
+| 128x1 response generator | 420 instructions | 4 |
 | Chromatic aberration | 70 instructions | 3 |
 
 Grade only is one phase copy plus one full-resolution draw. Bloom is one copy,
@@ -471,13 +490,17 @@ three quarter-resolution draws, and one full-resolution compose. Halation alone
 uses the same four-draw shape so it remains functional when visible Bloom is
 disabled; Bloom plus grade without chromatic remains four draws. Chromatic-only
 adds one full-resolution draw and uses the already captured scene. Chromatic
-after compose adds one backbuffer copy and one full-resolution draw. Because
-chromatic aberration now defaults on, the previous Bloom-plus-grade plan is five
-effect draws and includes that copy. Shipped automatic adaptation adds one
-one-pixel draw, for six effect draws. Disabling adaptive exposure/tone restores
-the previous plan exactly; fixed-neutral tone changes only the compose variant.
-The unchanged draw path performs no file I/O, shader compilation, locks, routine
-allocation, capability queries, or routine logging. The attachment transaction
+after compose writes compose to its persistent renderable intermediate and
+adds one full-resolution draw; it does not copy the backbuffer. Because
+chromatic aberration now defaults on, the previous Bloom-plus-grade plan is
+five effect draws. Shipped automatic adaptation adds one 128x1 draw when its
+60 Hz scheduler is due, for at most six effect draws on that Present. At 120 Hz
+the response draw normally runs every other Present. Disabling adaptive
+exposure/tone restores the previous plan exactly; fixed-neutral tone changes
+only the compose variant. The first active automatic draw creates both response
+targets and logs one success line; steady-state operation performs no file I/O,
+shader compilation, locks, routine allocation, capability queries, or routine
+logging. The attachment transaction
 adds owned COM references for the active native attachments once per applied
 phase but allocates no Rust heap memory. LUT upload is configuration/revision
 work, not per-frame work.
@@ -487,7 +510,7 @@ work, not per-frame work.
 The supported `i686-pc-windows-gnu` tests cover:
 
 - compilation and bytecode inspection of extract, blur, all compose variants,
-  the one-pixel meter, and chromatic entry points, including
+  the 128x1 response generator, and chromatic entry points, including
   instruction/texture ceilings and prohibited derivatives;
 - exact `c10..c18`, `s5..s6`, chromatic `c0/c3/s0`, alpha, half-pixel, sampler,
   render-target hazard, and explicit D3D state contracts;

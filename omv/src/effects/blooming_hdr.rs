@@ -5,8 +5,12 @@
 //! configuration nor render callbacks invoke the compiler. Automatic exposure
 //! is deliberately display-referred: Fallout's native image-space work owns
 //! HDR mapping before this phase, and OMV shapes only the remaining display
-//! range. One fixed-grid 1x1 draw writes ping-pong FP16 history; the fused
-//! compose consumes it without CPU readback or another full-resolution pass.
+//! range. At no more than 60 Hz, one fixed-grid draw writes a 128-entry
+//! ping-pong FP16 response curve and replicated temporal state; the fused
+//! compose reduces automatic adaptation to one filtered lookup and one
+//! multiply. Fixed neutral mode uses a scalar luminance curve in the compose
+//! pass and avoids temporal resources. There is no CPU readback or extra
+//! full-resolution pass.
 
 use std::{
     sync::{
@@ -30,7 +34,7 @@ use libpsycho::os::windows::directx9::{
 
 use crate::{
     backend::{DepthTexture, FrameInputs},
-    config::ToneMapperMode,
+    config::{AdaptiveToneConfig, ToneMapperMode},
     luts::LutAsset,
     render_state::RenderTargetSlots,
     shaders::{self, ScreenShaderSource, ShaderOptionValue},
@@ -43,6 +47,8 @@ const BLOOM_SCALE: u32 = 4;
 const COLOR_GRADE_CONSTANT_REGISTER: u32 = 10;
 const FILM_GRAIN_TEXTURE_SIZE: u32 = 512;
 const FILM_GRAIN_TEXTURE_SEED: u32 = 0xC0FF_EE11;
+const ADAPTIVE_RESPONSE_WIDTH: u32 = 128;
+const ADAPTIVE_UPDATE_INTERVAL_SECONDS: f32 = 1.0 / 60.0;
 #[cfg(test)]
 const LUT_SIZE: u32 = 32;
 #[cfg(test)]
@@ -54,6 +60,51 @@ static COMPILE_FAILED: AtomicBool = AtomicBool::new(false);
 static COMPILE_READY: AtomicBool = AtomicBool::new(false);
 static BYTECODE: LazyLock<Mutex<Option<Arc<FinalColorShaderBytecode>>>> =
     LazyLock::new(|| Mutex::new(None));
+
+/// Render-local state for distributing response work across high-refresh frames.
+///
+/// Scheduling phase and elapsed integration time are intentionally separate.
+/// Keeping only one accumulator would either discard fractional cadence at
+/// refresh rates such as 75 Hz or integrate the same fraction twice.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+struct AdaptiveUpdateClock {
+    phase_seconds: f32,
+    elapsed_seconds: f32,
+}
+
+fn schedule_adaptive_update(
+    mut clock: AdaptiveUpdateClock,
+    history_continuous: bool,
+    frame_seconds: f32,
+) -> (AdaptiveUpdateClock, Option<f32>) {
+    let frame_seconds = if frame_seconds.is_finite() {
+        frame_seconds.clamp(1.0 / 240.0, 1.0 / 20.0)
+    } else {
+        1.0 / 60.0
+    };
+    if !history_continuous {
+        return (AdaptiveUpdateClock::default(), Some(frame_seconds));
+    }
+
+    clock.elapsed_seconds = (clock.elapsed_seconds + frame_seconds).min(1.0 / 20.0);
+    if frame_seconds >= ADAPTIVE_UPDATE_INTERVAL_SECONDS {
+        let elapsed_seconds = clock.elapsed_seconds;
+        return (AdaptiveUpdateClock::default(), Some(elapsed_seconds));
+    }
+
+    // Subtracting, rather than clearing, the cadence phase distributes 60
+    // updates evenly at non-multiple refresh rates. `elapsed_seconds` still
+    // measures real time since the last draw, so the shader's half-life math
+    // never integrates the retained scheduling fraction twice.
+    clock.phase_seconds += frame_seconds;
+    if clock.phase_seconds + 1.0e-6 < ADAPTIVE_UPDATE_INTERVAL_SECONDS {
+        return (clock, None);
+    }
+    clock.phase_seconds = (clock.phase_seconds - ADAPTIVE_UPDATE_INTERVAL_SECONDS).max(0.0);
+    let elapsed_seconds = clock.elapsed_seconds;
+    clock.elapsed_seconds = 0.0;
+    (clock, Some(elapsed_seconds))
+}
 
 const EXTRACT_SHADER: &[u8] = include_bytes!("../../shaders/embedded/bloom_hdr_extract.hlsl");
 const BLUR_SHADER: &[u8] = include_bytes!("../../shaders/embedded/bloom_hdr_blur.hlsl");
@@ -77,26 +128,32 @@ pub(crate) fn color_grade_source_active(source: &ScreenShaderSource) -> bool {
 }
 
 fn color_grade_source_active_with_lut(source: &ScreenShaderSource, lut_available: bool) -> bool {
-    if !source.enabled || source_option_float(source, "strength", 0.0) <= 1.0e-5 {
+    if !source.enabled {
         return false;
     }
-    source_option_bool(source, "color_grading_enabled", false)
-        || (lut_available
-            && source_option_bool(source, "lut_enabled", false)
-            && source_option_float(source, "lut_strength", 0.0) > 1.0e-5)
-        || (source_option_bool(source, "deband_enabled", false)
-            && source_option_float(source, "deband", 0.0) > 1.0e-5)
-        || (source_option_bool(source, "film_grain_enabled", false)
-            && source_option_float(source, "film_grain", 0.0) > 1.0e-5)
-        || (source_option_bool(source, "vignette_enabled", false)
-            && source_option_float(source, "vignette", 0.0) > 1.0e-5)
-        || (source_option_bool(source, "halation_enabled", false)
-            && source_option_float(source, "halation", 0.0) > 1.0e-5)
-        || adaptive_tone_source_active(source)
+    let creative_master_active = source_option_float(source, "strength", 0.0) > 1.0e-5;
+    let creative_work = creative_master_active
+        && (source_option_bool(source, "color_grading_enabled", false)
+            || (lut_available
+                && source_option_bool(source, "lut_enabled", false)
+                && source_option_float(source, "lut_strength", 0.0) > 1.0e-5)
+            || (source_option_bool(source, "deband_enabled", false)
+                && source_option_float(source, "deband", 0.0) > 1.0e-5)
+            || (source_option_bool(source, "film_grain_enabled", false)
+                && source_option_float(source, "film_grain", 0.0) > 1.0e-5)
+            || (source_option_bool(source, "vignette_enabled", false)
+                && source_option_float(source, "vignette", 0.0) > 1.0e-5)
+            || (source_option_bool(source, "halation_enabled", false)
+                && source_option_float(source, "halation", 0.0) > 1.0e-5));
+
+    // Adaptive display is top-level Current Look state, not a creative-grade
+    // sub-control. Sharing the fused source saves a draw, but the unrelated
+    // creative master must neither attenuate nor disable exposure and tone.
+    creative_work || adaptive_tone_source_active(source)
 }
 
 fn adaptive_tone_source_active(source: &ScreenShaderSource) -> bool {
-    if !source.enabled || source_option_float(source, "strength", 0.0) <= 1.0e-5 {
+    if !source.enabled {
         return false;
     }
     let mode = crate::config::ToneMapperMode::from_index(source_option_integer(
@@ -274,12 +331,13 @@ fn prepare_shader(source_name: &str, source: &[u8]) -> anyhow::Result<Vec<u32>> 
 #[cfg(test)]
 mod shader_compile_tests {
     use super::{
-        ADAPTIVE_TONE_SHADER, AdaptiveToneSettings, BLUR_SHADER, CHROMATIC_SHADER, COMPOSE_SHADER,
-        COMPOSE_VARIANT_ADAPTIVE, COMPOSE_VARIANT_STATIC, ColorGradeSettings, ComposeVariant,
-        EXTRACT_SHADER, FILM_GRAIN_TEXTURE_SIZE, FinalColorShaderBytecode, FinalColorWorkPlan,
-        LUT_COUNT, LUT_SIZE, apply_lut_recipe, bloom_target_dimensions, color_grade_source_active,
+        ADAPTIVE_RESPONSE_WIDTH, ADAPTIVE_TONE_SHADER, AdaptiveToneSettings, AdaptiveUpdateClock,
+        BLUR_SHADER, CHROMATIC_SHADER, COMPOSE_SHADER, COMPOSE_VARIANT_ADAPTIVE,
+        COMPOSE_VARIANT_STATIC, ColorGradeSettings, ComposeVariant, EXTRACT_SHADER,
+        FILM_GRAIN_TEXTURE_SIZE, FinalColorShaderBytecode, FinalColorWorkPlan, LUT_COUNT, LUT_SIZE,
+        apply_lut_recipe, bloom_target_dimensions, color_grade_source_active,
         compose_variant_source, film_grain_pixels, fullscreen_quad, generate_builtin_lut,
-        identity_lut_pixels, native_environment_weight,
+        identity_lut_pixels, native_environment_weight, schedule_adaptive_update,
     };
     use crate::{
         backend::{FrameInputs, MaterialStateFrame, NativeSkyFrame},
@@ -701,24 +759,50 @@ mod shader_compile_tests {
         lerp3(additive, screen, shoulder * 0.70)
     }
 
-    fn adapt_exposure_reference(
-        current_ev: f32,
-        target_ev: f32,
+    fn smooth01_reference(value: f32) -> f32 {
+        let value = value.clamp(0.0, 1.0);
+        value * value * (3.0 - 2.0 * value)
+    }
+
+    fn adapt_value_reference(
+        current: f32,
+        target: f32,
         frame_seconds: f32,
         speed_scale: f32,
+        half_life_seconds: f32,
     ) -> f32 {
-        let delta = target_ev - current_ev;
-        let distance = delta.abs();
-        if distance <= 0.000_01 {
-            return target_ev;
-        }
-        let speed = if delta < 0.0 { 0.90 } else { 0.45 } * speed_scale.clamp(0.25, 2.0);
         let frame_seconds = frame_seconds.clamp(1.0 / 240.0, 1.0 / 20.0);
-        if distance > 0.50 {
-            return current_ev + delta.signum() * distance.min(speed * frame_seconds);
-        }
-        let alpha = 1.0 - (-speed * frame_seconds / (0.50 * std::f32::consts::LN_2)).exp2();
-        current_ev + delta * alpha.clamp(0.0, 1.0)
+        let alpha =
+            1.0 - (-frame_seconds * speed_scale.clamp(0.10, 4.0) / half_life_seconds).exp2();
+        current + (target - current) * alpha.clamp(0.0, 1.0)
+    }
+
+    fn transient_exposure_step_reference(
+        adapted_log: f32,
+        exposure_ev: f32,
+        measured_log: f32,
+        frame_seconds: f32,
+        speed_scale: f32,
+        exposure_range_ev: f32,
+    ) -> (f32, f32) {
+        let adaptation_half_life = if measured_log > adapted_log {
+            0.52
+        } else {
+            1.05
+        };
+        let adapted_log = adapt_value_reference(
+            adapted_log,
+            measured_log,
+            frame_seconds,
+            speed_scale,
+            adaptation_half_life,
+        );
+        let delta = measured_log - adapted_log;
+        let deadband = smooth01_reference((delta.abs() - 0.035) / 0.12);
+        let target = (delta * deadband).clamp(-exposure_range_ev, exposure_range_ev);
+        let exposure_ev =
+            adapt_value_reference(exposure_ev, target, frame_seconds, speed_scale, 0.14);
+        (adapted_log, exposure_ev)
     }
 
     fn adapt_tone_reference(
@@ -727,30 +811,102 @@ mod shader_compile_tests {
         frame_seconds: f32,
         speed_scale: f32,
     ) -> f32 {
-        let alpha = 1.0
-            - (-frame_seconds.clamp(1.0 / 240.0, 1.0 / 20.0) * speed_scale.clamp(0.25, 2.0) / 0.85)
-                .exp2();
-        current + (target - current) * alpha.clamp(0.0, 1.0)
+        let half_life = if target > current { 0.22 } else { 0.72 };
+        adapt_value_reference(current, target, frame_seconds, speed_scale, half_life)
     }
 
-    fn neutral_tone_reference(
-        input: [f32; 3],
-        shoulder_start: f32,
-        crosstalk: f32,
-        strength: f32,
-    ) -> [f32; 3] {
-        let peak = input.into_iter().fold(f32::NEG_INFINITY, f32::max);
-        let shoulder_start = shoulder_start.clamp(0.60, 0.90);
-        let remaining = 1.0 - shoulder_start;
+    fn automatic_response_scale_reference(
+        display_luma: f32,
+        exposure_ev: f32,
+        tone_strength: f32,
+        tone_activity: f32,
+    ) -> f32 {
+        let exposure_scale = exposure_ev.exp2();
+        let exposed_luma = display_luma.max(0.0) * exposure_scale;
+        let linear_luma = exposed_luma.powf(2.2);
+        let reinhard_ratio = (1.0 + linear_luma / 6.25) / (1.0 + linear_luma);
+        let activity_scale = 0.70 + 0.60 * tone_activity.clamp(0.0, 1.0);
+        let effective_strength = tone_strength * activity_scale;
+        exposure_scale * reinhard_ratio.max(0.000_01).powf(effective_strength / 2.2)
+    }
+
+    fn invisible_automatic_response_scale_negative_control(
+        peak: f32,
+        master: f32,
+        tone_strength: f32,
+        tone_activity: f32,
+    ) -> f32 {
+        // This deliberately retains the reported implementation's two
+        // attenuation stages. It is a negative control, not an alternative
+        // production curve: low activity first moves the shoulder by very
+        // little and then blends that small correction back toward identity.
+        let tone_level = (tone_strength * master * tone_activity).clamp(0.0, 1.0);
+        let shoulder_start = 1.0 - 0.24 * tone_level;
+        let remaining = (1.0 - shoulder_start).max(1.0 / 1024.0);
         let over = (peak - shoulder_start).max(0.0);
         let compressed_peak = peak - over + over * remaining / (remaining + over);
-        let ratio_preserving = input.map(|channel| channel * compressed_peak / peak.max(0.000_01));
-        let path_to_white = (over / remaining).clamp(0.0, 1.0) * crosstalk.clamp(0.0, 0.15);
-        let mapped = std::array::from_fn(|channel| {
-            ratio_preserving[channel]
-                + (compressed_peak - ratio_preserving[channel]) * path_to_white
-        });
-        lerp3(input, mapped, strength.clamp(0.0, 1.0))
+        let compression_scale = if over > 0.0 {
+            compressed_peak / peak.max(0.000_01)
+        } else {
+            1.0
+        };
+        let tone_gate = smooth01_reference(tone_level * 4.0);
+        1.0 + (compression_scale - 1.0) * tone_gate
+    }
+
+    fn spatial_weight_reference(x: usize, y: usize) -> f32 {
+        let uv = [(x as f32 + 0.5) * 0.25, (y as f32 + 0.5) * 0.25];
+        let centered = [uv[0] * 2.0 - 1.0, uv[1] * 2.0 - 1.0];
+        let radius = (centered[0] * centered[0] + centered[1] * centered[1]) * 0.5;
+        1.0 + (0.40 - 1.0) * radius.clamp(0.0, 1.0)
+    }
+
+    fn winsorized_meter_reference(
+        samples: [f32; 16],
+        previous_log_luminance: Option<f32>,
+    ) -> Option<f32> {
+        let meter_weight = |luminance: f32, x: usize, y: usize| {
+            let black = smooth01_reference((luminance - 1.0 / 255.0) / (4.0 / 255.0 - 1.0 / 255.0));
+            black * spatial_weight_reference(x, y)
+        };
+        let log_luma = |value: f32| value.max(1.0 / 1024.0).log2().clamp(-10.0, 0.0);
+
+        let mut sum = 0.0;
+        let mut total_weight = 0.0;
+        for (index, sample) in samples.into_iter().enumerate() {
+            let luminance = sample.clamp(0.0, 1.0);
+            let weight = meter_weight(luminance, index % 4, index / 4);
+            let mut log = log_luma(luminance);
+            if let Some(previous) = previous_log_luminance {
+                log = log.clamp(previous - 2.5, previous + 2.5);
+            }
+            sum += log * weight;
+            total_weight += weight;
+        }
+        (total_weight > 0.0001).then_some(sum / total_weight)
+    }
+
+    fn highlight_tail_reference(samples: [f32; 16]) -> f32 {
+        let mut sum = 0.0;
+        let mut total_weight = 0.0;
+        let mut maximum = 0.0_f32;
+        for (index, peak) in samples.into_iter().enumerate() {
+            let weight = spatial_weight_reference(index % 4, index / 4);
+            let soft_highlight = smooth01_reference((peak - 0.72) / 0.26);
+            let clip_risk = smooth01_reference((peak - 0.94) / 0.16);
+            sum += soft_highlight * weight;
+            total_weight += weight;
+            maximum = maximum.max(clip_risk * (weight * 1.5).clamp(0.0, 1.0));
+        }
+        (sum / total_weight * 0.55 + maximum * 0.65).clamp(0.0, 1.0)
+    }
+
+    fn neutral_tone_reference(input: [f32; 3], strength: f32) -> [f32; 3] {
+        let display_luma = luma(input).max(0.0);
+        let linear_luma = display_luma.powf(2.2);
+        let reinhard_ratio = (1.0 + linear_luma / 6.25) / (1.0 + linear_luma);
+        let response_scale = reinhard_ratio.max(0.000_01).powf(strength / 2.2);
+        input.map(|channel| channel * response_scale)
     }
 
     #[test]
@@ -788,10 +944,10 @@ mod shader_compile_tests {
             (
                 "bloom_hdr_compose_adaptive_budget.hlsl",
                 adaptive_compose.as_slice(),
-                560,
+                515,
                 15,
             ),
-            ("adaptive_tone_budget.hlsl", ADAPTIVE_TONE_SHADER, 240, 2),
+            ("adaptive_tone_budget.hlsl", ADAPTIVE_TONE_SHADER, 420, 4),
             ("chromatic_aberration_budget.hlsl", CHROMATIC_SHADER, 70, 3),
         ] {
             let (instructions, texture_samples) = shader_budget(name, source);
@@ -806,18 +962,43 @@ mod shader_compile_tests {
         }
 
         let meter = std::str::from_utf8(ADAPTIVE_TONE_SHADER).expect("meter UTF-8");
-        assert!(meter.contains("for (int y = 0; y < 8; ++y)"));
-        assert!(meter.contains("for (int x = 0; x < 8; ++x)"));
+        assert!(meter.contains("for (int y = 0; y < 4; ++y)"));
+        assert!(meter.contains("for (int x = 0; x < 4; ++x)"));
+        assert!(!meter.contains("robustY"));
         assert_eq!(meter.matches("tex2Dlod(SceneColor").count(), 1);
+        assert_eq!(meter.matches("tex2Dlod(BloomTexture").count(), 1);
         assert_eq!(
-            8 * 8 + 1,
-            65,
-            "meter executes 64 scene taps plus one history tap"
+            ADAPTIVE_RESPONSE_WIDTH * (4 * 4 + 4 * 4 + 1),
+            4_224,
+            "response generation has a small, resolution-independent fetch budget"
+        );
+        let implementation = include_str!("blooming_hdr.rs");
+        for sampler in [0, 1] {
+            let call = format!("configure_adaptive_sampler(device, {sampler}");
+            assert_eq!(
+                implementation
+                    .lines()
+                    .filter(|line| line.trim_start().starts_with(call.as_str()))
+                    .count(),
+                0,
+                "transaction-wide sampler state must not be rebound for s{sampler}"
+            );
+        }
+
+        let (legacy_instructions, _) = shader_budget("legacy_delta.hlsl", COMPOSE_SHADER);
+        let (adaptive_instructions, _) = shader_budget(
+            "adaptive_delta.hlsl",
+            &compose_variant_source(COMPOSE_VARIANT_ADAPTIVE),
+        );
+        assert!(
+            adaptive_instructions <= legacy_instructions + 16,
+            "adaptive compose adds {} instructions to the full-resolution legacy path",
+            adaptive_instructions.saturating_sub(legacy_instructions)
         );
     }
 
     #[test]
-    fn adaptive_work_is_one_meter_draw_and_legacy_disable_is_exact() {
+    fn adaptive_work_is_one_response_draw_and_legacy_disable_is_exact() {
         let mut embedded = EmbeddedEffectsConfig::default();
         embedded.blooming_hdr.enabled = false;
         embedded.color_grade.color_grading_enabled = false;
@@ -915,54 +1096,145 @@ mod shader_compile_tests {
     }
 
     #[test]
-    fn exposure_adaptation_is_bounded_asymmetric_and_frame_rate_stable() {
-        let integrate = |target: f32, hz: u32| {
-            let mut current = 0.0;
-            for _ in 0..hz {
-                current = adapt_exposure_reference(current, target, 1.0 / hz as f32, 1.0);
+    fn transient_exposure_is_smooth_bounded_convergent_and_frame_rate_stable() {
+        let integrate = |adapted_start: f32, measured: f32, hz: u32, seconds: u32| {
+            let mut adapted = adapted_start;
+            let mut exposure = 0.0;
+            for _ in 0..hz * seconds {
+                (adapted, exposure) = transient_exposure_step_reference(
+                    adapted,
+                    exposure,
+                    measured,
+                    1.0 / hz as f32,
+                    1.0,
+                    0.75,
+                );
             }
-            current
+            (adapted, exposure)
         };
-        let bright_scene_30 = integrate(-0.75, 30);
-        let bright_scene_60 = integrate(-0.75, 60);
-        let bright_scene_120 = integrate(-0.75, 120);
-        assert!((bright_scene_30 - bright_scene_60).abs() < 0.006);
-        assert!((bright_scene_60 - bright_scene_120).abs() < 0.006);
-        let dark_scene = integrate(0.75, 60);
-        assert!(bright_scene_60.abs() > dark_scene.abs());
-        assert!((-0.75..=0.0).contains(&bright_scene_60));
-        assert!((0.0..=0.75).contains(&dark_scene));
+        let bright_30 = integrate(-2.0, -0.30, 30, 1).1;
+        let bright_60 = integrate(-2.0, -0.30, 60, 1).1;
+        let bright_120 = integrate(-2.0, -0.30, 120, 1).1;
+        assert!((bright_30 - bright_60).abs() < 0.008);
+        assert!((bright_60 - bright_120).abs() < 0.008);
+        assert!(bright_60 > 0.0 && bright_60 <= 0.75);
 
-        let mut current = -0.74;
-        for _ in 0..600 {
-            let next = adapt_exposure_reference(current, 0.75, 1.0 / 60.0, 2.0);
-            assert!(next >= current && next <= 0.75);
-            current = next;
-        }
-        assert!((current - 0.75).abs() < 0.001);
+        let dark_60 = integrate(-0.30, -2.0, 60, 1).1;
+        assert!(dark_60 < 0.0 && dark_60 >= -0.75);
+        assert!(
+            dark_60.abs() > bright_60.abs(),
+            "dark adaptation deliberately releases more slowly than bright adaptation"
+        );
+
+        let first_bright =
+            transient_exposure_step_reference(-2.0, 0.0, -0.30, 1.0 / 60.0, 1.0, 0.75).1;
+        assert!(first_bright > 0.0 && first_bright < 0.10);
+        assert_eq!(
+            transient_exposure_step_reference(-1.0, 0.0, -0.98, 1.0 / 60.0, 1.0, 0.75,).1,
+            0.0,
+            "sub-deadband camera noise must not pump exposure"
+        );
+
+        let settled_bright = integrate(-2.0, -0.30, 60, 10);
+        let settled_dark = integrate(-0.30, -2.0, 60, 14);
+        assert!((settled_bright.0 + 0.30).abs() < 0.001);
+        assert!(settled_bright.1.abs() < 0.001);
+        assert!((settled_dark.0 + 2.0).abs() < 0.001);
+        assert!(settled_dark.1.abs() < 0.001);
     }
 
     #[test]
-    fn tone_adaptation_and_neutral_curve_are_smooth_and_hue_safe() {
-        let mut shoulder = 0.76;
-        for _ in 0..60 {
-            let next = adapt_tone_reference(shoulder, 0.66, 1.0 / 60.0, 1.0);
-            assert!(next <= shoulder && next >= 0.66);
-            shoulder = next;
-        }
-        assert!((shoulder - 0.66).abs() > 0.04);
-        assert!((shoulder - 0.66).abs() < 0.06);
+    fn adaptation_uses_transient_contrast_instead_of_inverting_camera_motion() {
+        let old_absolute_target = |luminance: f32| {
+            (0.36_f32.log2() - luminance.max(1.0 / 1024.0).log2()).clamp(-0.75, 0.75)
+        };
+        assert!(
+            old_absolute_target(0.80) < 0.0 && old_absolute_target(0.30) > 0.0,
+            "negative control must reproduce the reported sky-dark/ground-bright response"
+        );
+
+        let transient_target = |measured_luminance: f32, adapted_luminance: f32| {
+            (measured_luminance.log2() - adapted_luminance.log2()).clamp(-0.75, 0.75)
+        };
+        assert!(transient_target(0.80, 0.30) > 0.0);
+        assert!(transient_target(0.30, 0.80) < 0.0);
+        assert_eq!(transient_target(0.55, 0.55), 0.0);
+
+        let meter = std::str::from_utf8(ADAPTIVE_TONE_SHADER).expect("meter UTF-8");
+        assert!(meter.contains("meteredMean - adaptedLog"));
+        assert!(!meter.contains("DisplayKey"));
+        assert!(!meter.contains("weightedHighlights"));
+    }
+
+    #[test]
+    fn winsorized_meter_rejects_black_and_bounds_extremes_without_stalling() {
+        assert_eq!(winsorized_meter_reference([0.0; 16], None), None);
+        let uniform_dark = winsorized_meter_reference([0.30; 16], None).expect("dark meter");
+        let uniform_bright = winsorized_meter_reference([0.80; 16], None).expect("bright meter");
+        assert!((uniform_dark - 0.30_f32.log2()).abs() < 1.0e-6);
+        assert!((uniform_bright - 0.80_f32.log2()).abs() < 1.0e-6);
+
+        let anchor = 0.10_f32.log2();
+        let mut edge_outlier = [0.10; 16];
+        edge_outlier[0] = 1.0;
+        let bounded = winsorized_meter_reference(edge_outlier, Some(anchor)).expect("meter");
+        let unweighted = (15.0 * anchor + 1.0_f32.log2()) / 16.0;
+        assert!((bounded - anchor).abs() < (unweighted - anchor).abs());
+
+        let whole_view = winsorized_meter_reference([0.80; 16], Some(anchor)).expect("meter");
+        assert!((whole_view - (anchor + 2.5)).abs() < 1.0e-6);
+        assert!(
+            whole_view > anchor,
+            "a real transition must never be rejected"
+        );
+    }
+
+    #[test]
+    fn automatic_tone_uses_an_independent_native_highlight_tail() {
+        assert_eq!(highlight_tail_reference([0.40; 16]), 0.0);
+        assert!(highlight_tail_reference([0.80; 16]) > 0.10);
+        assert!(highlight_tail_reference([1.0; 16]) > 0.70);
+
+        let mut edge = [0.40; 16];
+        edge[0] = 1.0;
+        let mut center = [0.40; 16];
+        center[5] = 1.0;
+        assert!(highlight_tail_reference(center) > highlight_tail_reference(edge));
+
+        let meter = std::str::from_utf8(ADAPTIVE_TONE_SHADER).expect("meter UTF-8");
+        assert!(meter.contains("float3 combined = scene"));
+        assert!(meter.contains("softHighlight"));
+        assert!(meter.contains("clipRisk"));
+        assert!(!meter.contains("combinedPeak - 1.0f"));
+    }
+
+    #[test]
+    fn tone_adaptation_and_response_curves_are_smooth_and_hue_safe() {
+        let integrate_tone = |start: f32, target: f32, hz: u32| {
+            let mut value = start;
+            for _ in 0..hz {
+                value = adapt_tone_reference(value, target, 1.0 / hz as f32, 1.0);
+            }
+            value
+        };
+        let rise_30 = integrate_tone(0.0, 0.8, 30);
+        let rise_60 = integrate_tone(0.0, 0.8, 60);
+        let rise_120 = integrate_tone(0.0, 0.8, 120);
+        assert!((rise_30 - rise_60).abs() < 0.004);
+        assert!((rise_60 - rise_120).abs() < 0.004);
+        assert!(rise_60 > 0.76 && rise_60 < 0.8);
+        let fall = integrate_tone(0.8, 0.0, 60);
+        assert!(fall > 0.29 && fall < 0.33);
 
         let input = [1.25, 0.62, 0.20];
-        assert_eq!(neutral_tone_reference(input, 0.76, 0.05, 0.0), input);
-        assert_eq!(
-            neutral_tone_reference([0.50, 0.30, 0.10], 0.76, 0.05, 1.0),
-            [0.50, 0.30, 0.10]
-        );
-        let ratio_preserving = neutral_tone_reference(input, 0.76, 0.0, 1.0);
+        assert_eq!(neutral_tone_reference(input, 0.0), input);
+        let midtone = [0.50, 0.30, 0.10];
+        let mapped_midtone = neutral_tone_reference(midtone, 1.0);
+        assert!(mapped_midtone[0] < midtone[0]);
+        let ratio_preserving = neutral_tone_reference(input, 1.0);
         assert!((ratio_preserving[1] / ratio_preserving[0] - input[1] / input[0]).abs() < 1.0e-6);
         assert!((ratio_preserving[2] / ratio_preserving[0] - input[2] / input[0]).abs() < 1.0e-6);
-        let mapped = neutral_tone_reference(input, 0.76, 0.05, 0.65);
+        let mapped = neutral_tone_reference(input, 0.65);
         assert!(mapped[0] > mapped[1] && mapped[1] > mapped[2]);
         assert!(
             mapped
@@ -970,6 +1242,168 @@ mod shader_compile_tests {
                 .all(|value| value.is_finite() && *value >= 0.0)
         );
         assert!(mapped[0] < input[0]);
+
+        let expanded_strengths =
+            [0.0, 0.65, 1.0, 2.0, 3.0].map(|strength| neutral_tone_reference(midtone, strength)[0]);
+        assert!(
+            expanded_strengths
+                .windows(2)
+                .all(|pair| pair[1].is_finite() && pair[1] < pair[0]),
+            "the widened tone range must add smooth, monotonic authority"
+        );
+
+        let ordinary_response = automatic_response_scale_reference(0.80, 0.0, 0.65, 0.0);
+        assert!(ordinary_response < 0.95);
+        let response = automatic_response_scale_reference(1.25, 0.0, 0.65, 1.0);
+        assert!(response < ordinary_response);
+        let automatic = input.map(|channel| channel * response);
+        assert!(automatic[0] < 1.0);
+        assert!((automatic[1] / automatic[0] - input[1] / input[0]).abs() < 1.0e-6);
+        assert!((automatic[2] / automatic[0] - input[2] / input[0]).abs() < 1.0e-6);
+    }
+
+    #[test]
+    fn automatic_tone_survives_the_final_display_clamp_at_shipped_defaults() {
+        // The shipped Bloom equation produces roughly this peak for a uniform
+        // white input. Its old over-white-only detector settles near 0.244.
+        // Those values reproduce the user's invisible automatic mode without
+        // depending on an arbitrary exaggerated HDR fixture.
+        let peak = 1.092;
+        let master = 0.68;
+        let strength = 0.65;
+        let activity = 0.244;
+        let old_mapped = peak
+            * invisible_automatic_response_scale_negative_control(peak, master, strength, activity);
+        assert_eq!(
+            unorm8_code(old_mapped),
+            unorm8_code(peak),
+            "negative control must reproduce tone being erased by output saturation"
+        );
+
+        let mapped = peak * automatic_response_scale_reference(peak, 0.0, strength, activity);
+        assert!(
+            unorm8_code(mapped) <= 250,
+            "default automatic tone must reserve visible display headroom; mapped={mapped}"
+        );
+
+        let compose = std::str::from_utf8(COMPOSE_SHADER).expect("compose UTF-8");
+        let main = compose
+            .rsplit_once("float4 Main")
+            .map(|(_, main)| main)
+            .expect("compose entry point");
+        let finishing = main.find("ApplyFinishing(").expect("finishing call");
+        let tone = main
+            .find("ApplyAdaptiveDisplayMapping(")
+            .expect("tone call");
+        let grain = main.find("FilmGrainNoise(").expect("grain call");
+        let clamp = main
+            .rfind("saturate(color + noise)")
+            .expect("display clamp");
+        assert!(finishing < tone && tone < grain && grain < clamp);
+    }
+
+    #[test]
+    fn automatic_tone_is_visible_at_the_reported_playtest_settings() {
+        // The last playtest used automatic tone at 0.995 with the unrelated
+        // Color Grade master at 0.68. A broad bright sky commonly remains
+        // around 0.80 after Fallout's native HDR blend, so a curve which only
+        // changes over-white fixtures is not observably functioning.
+        let input = 0.80;
+        let activity = highlight_tail_reference([input; 16]);
+        let mapped = input * automatic_response_scale_reference(input, 0.0, 0.995, activity);
+        assert!(
+            unorm8_code(mapped) + 8 <= unorm8_code(input),
+            "automatic tone changed a representative sky value by less than eight codes: {input} -> {mapped}"
+        );
+    }
+
+    #[test]
+    fn adaptive_display_controls_do_not_inherit_color_grade_master_strength() {
+        let mut embedded = EmbeddedEffectsConfig::default();
+        embedded.blooming_hdr.enabled = false;
+        embedded.color_grade.strength = 0.0;
+        embedded.color_grade.color_grading_enabled = false;
+        embedded.color_grade.lut_enabled = false;
+        embedded.color_grade.deband_enabled = false;
+        embedded.color_grade.film_grain_enabled = false;
+        embedded.color_grade.vignette_enabled = false;
+        embedded.color_grade.halation_enabled = false;
+        embedded.color_grade.chromatic_aberration_enabled = false;
+
+        let sources = shaders::merge_embedded_sources_with_luts_and_adaptive(
+            &embedded,
+            &AdaptiveToneConfig::default(),
+            &[],
+            &[],
+            Vec::new(),
+        );
+        let source = sources
+            .iter()
+            .find(|source| source.embedded_effect_kind() == Some(EmbeddedEffectKind::ColorGrade))
+            .expect("final-color source");
+        let settings = AdaptiveToneSettings::from_source(Some(source));
+        assert!(FinalColorWorkPlan::from_sources(None, Some(source)).has_work());
+        assert!(settings.is_active());
+        assert!(settings.requires_history());
+    }
+
+    #[test]
+    fn adaptive_scheduler_caps_work_without_changing_elapsed_time() {
+        let update_count = |hz: u32| {
+            let mut clock = AdaptiveUpdateClock::default();
+            let mut updates = 0;
+            let mut integrated_seconds = 0.0_f32;
+            for _ in 0..hz {
+                let (next, elapsed) = schedule_adaptive_update(clock, true, 1.0 / hz as f32);
+                clock = next;
+                if let Some(elapsed) = elapsed {
+                    updates += 1;
+                    integrated_seconds += elapsed;
+                }
+            }
+            (updates, integrated_seconds + clock.elapsed_seconds)
+        };
+
+        for (hz, expected_updates) in [
+            (30, 30),
+            (60, 60),
+            (75, 60),
+            (90, 60),
+            (120, 60),
+            (144, 60),
+            (240, 60),
+        ] {
+            let (updates, elapsed) = update_count(hz);
+            assert_eq!(updates, expected_updates, "unexpected cadence at {hz} Hz");
+            assert!((elapsed - 1.0).abs() < 1.0e-5);
+        }
+        assert_eq!(
+            schedule_adaptive_update(AdaptiveUpdateClock::default(), false, 1.0 / 120.0,),
+            (AdaptiveUpdateClock::default(), Some(1.0 / 120.0)),
+            "invalid history must be initialized on the current frame"
+        );
+    }
+
+    #[test]
+    fn filtered_response_curve_tracks_the_analytic_mapping_without_band_steps() {
+        let response_at = |luma| automatic_response_scale_reference(luma, 0.32, 0.65, 0.85);
+        let curve: Vec<f32> = (0..ADAPTIVE_RESPONSE_WIDTH)
+            .map(|index| response_at((index as f32 + 0.5) * 4.0 / ADAPTIVE_RESPONSE_WIDTH as f32))
+            .collect();
+        let sample_curve = |luma: f32| {
+            let position = (luma.clamp(0.0, 4.0) * 0.25 * ADAPTIVE_RESPONSE_WIDTH as f32 - 0.5)
+                .clamp(0.0, ADAPTIVE_RESPONSE_WIDTH as f32 - 1.0);
+            let low = position.floor() as usize;
+            let high = (low + 1).min(curve.len() - 1);
+            curve[low] + (curve[high] - curve[low]) * position.fract()
+        };
+
+        let mut maximum_error = 0.0_f32;
+        for step in 0..=4096 {
+            let luma = step as f32 * 4.0 / 4096.0;
+            maximum_error = maximum_error.max((sample_curve(luma) - response_at(luma)).abs());
+        }
+        assert!(maximum_error < 0.002, "curve error was {maximum_error}");
     }
 
     #[test]
@@ -999,7 +1433,10 @@ mod shader_compile_tests {
         assert_eq!(settings.adaptation_speed, 1.0);
         assert_eq!(settings.tone_mapper_strength, 0.0);
         assert_eq!(settings.compose_variant(), ComposeVariant::Adaptive);
-        assert_eq!(settings.meter_constants(f32::NAN, false)[0][0], 1.0 / 60.0);
+        assert_eq!(
+            settings.response_constants(f32::NAN, false, None, false)[0][0],
+            1.0 / 60.0
+        );
     }
 
     #[test]
@@ -1083,7 +1520,11 @@ mod shader_compile_tests {
                 * std::mem::size_of::<u32>(),
             1_048_576
         );
-        assert_eq!(2_u64 * 1 * 1 * 8, 16, "two RGBA16F history texels");
+        assert_eq!(
+            2_u64 * ADAPTIVE_RESPONSE_WIDTH as u64 * 8,
+            2_048,
+            "two 128x1 RGBA16F response curves"
+        );
         assert_eq!(
             3840_u64 * 2160 * std::mem::size_of::<u32>() as u64,
             33_177_600,
@@ -1203,7 +1644,7 @@ mod shader_compile_tests {
         );
         assert!(source.contains("device.clear_texture(6)?"));
         assert!(source.contains("device.clear_texture(7)?"));
-        assert!(source.contains("configure_adaptive_sampler(device, 7, true)?"));
+        assert!(source.contains("configure_adaptive_sampler(device, 7, false)?"));
         assert!(source.contains("D3DFMT_A8R8G8B8, D3DPOOL_MANAGED"));
         assert!(source.contains("device.create_render_target_texture(width, height, format)"));
         assert!(
@@ -2501,7 +2942,7 @@ mod shader_compile_tests {
             );
         }
         for equation in [
-            "float3 color = inputColor * exp2(analyticExposure);",
+            "float3 color = inputColor * exp2(GradeData0.y);",
             "color = 0.5f.xxx + (color - 0.5f.xxx) * (1.0f + GradeData0.z);",
             "float adaptiveVibrance = 1.0f + GradeData1.x * (1.0f - saturate(chromaRange));",
             "float saturation = GradeData0.w * adaptiveVibrance;",
@@ -2532,7 +2973,7 @@ mod shader_compile_tests {
     }
 
     #[test]
-    fn final_color_contract_preserves_alpha_and_keeps_metering_one_pixel() {
+    fn final_color_contract_preserves_alpha_and_keeps_adaptation_low_resolution() {
         let source = std::str::from_utf8(COMPOSE_SHADER).expect("compose UTF-8");
         assert!(source.contains("baseSample.a"));
         assert!(source.contains("SampleColorLut"));
@@ -2542,17 +2983,25 @@ mod shader_compile_tests {
         assert!(!source.contains("ddx("));
         assert!(!source.contains("ddy("));
         assert!(source.contains("color = input.uv.x < 0.5f ? ungraded : color"));
-        assert!(source.contains("sampler2D AdaptiveToneHistory : register(s7);"));
-        assert!(
-            source.contains(
-                "float exposureCompensation = GradeData5.x > 0.5f ? GradeData0.y : 0.0f;"
-            )
-        );
-        assert!(source.contains("AdaptiveToneData.z * GradeData0.x"));
+        assert!(source.contains("sampler2D AdaptiveToneResponse : register(s7);"));
+        assert!(source.contains("float responseUv = saturate(displayLuma * 0.25f);"));
+        assert!(source.contains("return inputColor * responseScale;"));
+        assert!(!source.contains("AdaptiveToneData.z * GradeData0.x"));
 
         let meter = std::str::from_utf8(ADAPTIVE_TONE_SHADER).expect("meter UTF-8");
-        assert!(meter.contains("if (!validMeter && AdaptData0.w > 0.5f)"));
-        assert!(meter.contains("return float4(0.0f, 0.76f, 0.05f, 1.0f);"));
+        assert!(meter.contains("sampler2D BloomTexture : register(s4);"));
+        assert!(meter.contains("float exposureScale = exp2(exposureEv);"));
+        assert!(meter.contains("float curveLuma = input.uv.x * ResponseCurveMaxLuma;"));
+        assert!(meter.contains("linearLuma / ToneWhitePointSquared"));
+        assert!(!meter.contains("compensationEv"));
+        assert!(source.contains("float3 color = inputColor * exp2(GradeData0.y);"));
+        assert!(
+            meter.contains("return float4(responseScale, adaptedLog, exposureEv, toneActivity);")
+        );
+        assert!(meter.contains("float softHighlight = Smooth01((peak - 0.72f) / 0.26f);"));
+        assert!(meter.contains("float clipRisk = Smooth01((peak - 0.94f) / 0.16f);"));
+        assert!(meter.contains("previous.g <= 0.5f"));
+        assert!(meter.contains(": (temporalStateValid ? previous.g : 1.0f);"));
         assert!(!meter.contains("ddx("));
         assert!(!meter.contains("ddy("));
 
@@ -2576,11 +3025,17 @@ mod shader_compile_tests {
             .and_then(|tail| tail.split_once("\n    fn "))
             .map(|(body, _)| body)
             .expect("final-color draw body");
+        assert!(
+            draw_body.find("if work.bloom_intermediate {")
+                < draw_body.find("let adaptive = if requested_adaptive.requires_history()"),
+            "Bloom must exist before automatic tone measures OMV-created headroom"
+        );
         assert!(!draw_body.contains("copy_scene_color_for_sampling("));
         assert!(!draw_body.contains("device.stretch_rect("));
         assert!(draw_body.contains("self.ensure_composed_target(device, desc)?"));
         assert!(draw_body.contains("&composed_target.texture"));
         assert!(implementation.contains("self.draw_chromatic_aberration("));
+        assert!(implementation.contains("draw_quad(device, ADAPTIVE_RESPONSE_WIDTH, 1)"));
     }
 }
 
@@ -2598,6 +3053,7 @@ pub(crate) struct BloomingHdrEffect {
     targets: Option<BloomTargets>,
     composed_target: Option<FullResolutionTarget>,
     adaptive_history: Option<AdaptiveToneHistory>,
+    adaptive_update_clock: AdaptiveUpdateClock,
     adaptive_target_creation_failed: bool,
     render_target_slots: RenderTargetSlots,
 }
@@ -2605,39 +3061,47 @@ pub(crate) struct BloomingHdrEffect {
 impl BloomingHdrEffect {
     /// Create device-owned final-color shaders and persistent managed assets.
     ///
-    /// FP16 display adaptation is optional. Unsupported FP16 targets or an
-    /// adaptive shader creation failure preserve Bloom, legacy grading, and
-    /// the fixed neutral tone mapper instead of rejecting the whole pipeline.
+    /// FP16 display adaptation is optional. The response texture must support
+    /// both rendering and linear filtering; unsupported formats or adaptive
+    /// shader creation failures preserve Bloom, legacy grading, and the fixed
+    /// neutral tone mapper instead of rejecting the whole pipeline.
     pub(crate) fn create(
         device: &Device9Ref<'_>,
         shaders: &FinalColorShaderBytecode,
         render_target_slots: RenderTargetSlots,
     ) -> Direct3DResult<Self> {
-        let adaptive_pipeline = if device
-            .direct3d()?
-            .check_default_render_target_texture_support(D3DFMT_A16B16G16R16F)
-            .is_ok()
+        let adaptive_pipeline = match device
+            .supports_linearly_filtered_render_target_texture(D3DFMT_A16B16G16R16F)
         {
-            let pipeline: Direct3DResult<AdaptiveTonePipeline> = (|| {
-                Ok(AdaptiveTonePipeline {
-                    meter_shader: device.create_pixel_shader(&shaders.adaptive_tone)?,
-                    compose_shader: device.create_pixel_shader(&shaders.compose_adaptive)?,
-                })
-            })();
-            match pipeline {
-                Ok(pipeline) => Some(pipeline),
-                Err(err) => {
-                    log::warn!(
-                        "[FINAL_COLOR] Automatic exposure/tone shaders unavailable; fixed final color remains active: {err}"
-                    );
-                    None
+            Ok(true) => {
+                let pipeline: Direct3DResult<AdaptiveTonePipeline> = (|| {
+                    Ok(AdaptiveTonePipeline {
+                        response_shader: device.create_pixel_shader(&shaders.adaptive_tone)?,
+                        compose_shader: device.create_pixel_shader(&shaders.compose_adaptive)?,
+                    })
+                })();
+                match pipeline {
+                    Ok(pipeline) => Some(pipeline),
+                    Err(err) => {
+                        log::warn!(
+                            "[FINAL_COLOR] Automatic exposure/tone shaders unavailable; fixed final color remains active: {err}"
+                        );
+                        None
+                    }
                 }
             }
-        } else {
-            log::warn!(
-                "[FINAL_COLOR] FP16 render targets unavailable; automatic exposure/tone falls back to fixed neutral mapping"
-            );
-            None
+            Ok(false) => {
+                log::warn!(
+                    "[FINAL_COLOR] Linearly filtered FP16 render targets unavailable; automatic exposure/tone falls back to fixed neutral mapping"
+                );
+                None
+            }
+            Err(err) => {
+                log::warn!(
+                    "[FINAL_COLOR] Could not query FP16 response-curve support; automatic exposure/tone will use fixed fallback: {err}"
+                );
+                None
+            }
         };
 
         Ok(Self {
@@ -2659,6 +3123,7 @@ impl BloomingHdrEffect {
             targets: None,
             composed_target: None,
             adaptive_history: None,
+            adaptive_update_clock: AdaptiveUpdateClock::default(),
             adaptive_target_creation_failed: false,
             render_target_slots,
         })
@@ -2709,24 +3174,6 @@ impl BloomingHdrEffect {
         bind_pipeline_state(device)?;
         bind_depth_inputs(device, &frame_inputs.depth.first_person_texture)?;
 
-        let adaptive = if requested_adaptive.requires_history() {
-            if self.draw_adaptation(
-                device,
-                desc,
-                scene_color,
-                requested_adaptive,
-                frame_seconds,
-                timing_continuous,
-            )? {
-                requested_adaptive
-            } else {
-                requested_adaptive.without_history()
-            }
-        } else {
-            self.invalidate_adaptive_history();
-            requested_adaptive
-        };
-
         if work.bloom_intermediate {
             self.ensure_targets(device, desc)?;
             let Some(targets) = self.targets.as_ref() else {
@@ -2758,6 +3205,26 @@ impl BloomingHdrEffect {
                 [0.0, targets.inv_height],
             )?;
         }
+
+        let adaptive = if requested_adaptive.requires_history() {
+            if self.draw_adaptation(
+                device,
+                desc,
+                scene_color,
+                bloom_source,
+                requested_adaptive,
+                work.bloom,
+                frame_seconds,
+                timing_continuous,
+            )? {
+                requested_adaptive
+            } else {
+                requested_adaptive.without_history()
+            }
+        } else {
+            self.invalidate_adaptive_history();
+            requested_adaptive
+        };
 
         let composed = work.bloom || grade.is_active() || adaptive.is_active();
         if composed && work.chromatic_aberration {
@@ -2818,6 +3285,7 @@ impl BloomingHdrEffect {
         if let Some(history) = self.adaptive_history.as_mut() {
             history.valid = false;
         }
+        self.adaptive_update_clock = AdaptiveUpdateClock::default();
     }
 
     /// Invalidate temporal display state when the fused final-color stage is
@@ -2830,17 +3298,23 @@ impl BloomingHdrEffect {
         self.invalidate_adaptive_history();
     }
 
-    /// Run the one-pixel meter and publish a new history texel.
+    /// Meter the current image and, when due, publish the next response curve.
     ///
     /// The previous and output targets are always distinct. D3D9 retains
     /// texture bindings across draws and frames, so both history sampler slots
     /// are explicitly cleared before the alternating output becomes RT0.
+    /// Updates are capped at 60 Hz and carry their accumulated elapsed time,
+    /// preserving the configured temporal half-lives at higher display rates.
+    /// The tone meter observes native highlights and the already prepared Bloom
+    /// contribution through separate logic from exposure's outlier handling.
     fn draw_adaptation(
         &mut self,
         device: &Device9Ref<'_>,
         desc: &D3DSURFACE_DESC,
         scene_color: &Texture9,
+        bloom_source: Option<&ScreenShaderSource>,
         settings: AdaptiveToneSettings,
+        bloom_enabled: bool,
         frame_seconds: f32,
         timing_continuous: bool,
     ) -> Direct3DResult<bool> {
@@ -2852,11 +3326,22 @@ impl BloomingHdrEffect {
         }
         if self.adaptive_history.is_none() {
             match AdaptiveToneHistory::create(device) {
-                Ok(history) => self.adaptive_history = Some(history),
+                Ok(history) => {
+                    self.adaptive_history = Some(history);
+                    // This one-time device-lifetime event proves that the
+                    // automatic route passed format checks, created both FP16
+                    // targets, and reached a real render frame. The former
+                    // generic pipeline log could not distinguish that state
+                    // from fixed/legacy composition during field playtests.
+                    log::info!(
+                        "[FINAL_COLOR] Automatic exposure/tone response initialized ({}x1 FP16)",
+                        ADAPTIVE_RESPONSE_WIDTH
+                    );
+                }
                 Err(err) => {
                     self.adaptive_target_creation_failed = true;
                     log::warn!(
-                        "[FINAL_COLOR] Automatic exposure/tone history unavailable; fixed neutral mapping remains active: {err}"
+                        "[FINAL_COLOR] Automatic exposure/tone response targets unavailable; fixed neutral mapping remains active: {err}"
                     );
                     return Ok(false);
                 }
@@ -2865,25 +3350,54 @@ impl BloomingHdrEffect {
         let Some(history) = self.adaptive_history.as_mut() else {
             return Ok(false);
         };
+        let bloom_texture = if bloom_enabled {
+            self.targets
+                .as_ref()
+                .map(|targets| &targets.extract.texture)
+                .unwrap_or(&self.neutral_bloom)
+        } else {
+            &self.neutral_bloom
+        };
         history.begin_frame(desc, timing_continuous);
         let history_valid = history.valid;
+        let (next_clock, update_seconds) =
+            schedule_adaptive_update(self.adaptive_update_clock, history_valid, frame_seconds);
+        self.adaptive_update_clock = next_clock;
+        let Some(update_seconds) = update_seconds else {
+            // A valid prior curve remains bound by compose. Skipping here saves
+            // both the response draw and its render-target transition.
+            return Ok(true);
+        };
         let (previous, output) = history.write_pair();
 
         device.clear_texture(1)?;
         device.clear_texture(7)?;
-        bind_target(device, &output.surface, 1, 1, self.render_target_slots)?;
-        configure_adaptive_sampler(device, 0, false)?;
-        configure_adaptive_sampler(device, 1, true)?;
+        bind_target(
+            device,
+            &output.surface,
+            ADAPTIVE_RESPONSE_WIDTH,
+            1,
+            self.render_target_slots,
+        )?;
+        // bind_pipeline_state already establishes linear scene sampling on s0
+        // and point history sampling on s1 for the complete transaction.
         device.set_texture(0, scene_color)?;
         device.set_texture(1, &previous.texture)?;
+        device.set_texture(4, bloom_texture)?;
         device.set_pixel_shader_constant_f(
             0,
-            &settings.meter_constants(frame_seconds, history_valid),
+            &settings.response_constants(
+                update_seconds,
+                history_valid,
+                bloom_source,
+                bloom_enabled,
+            ),
         )?;
-        device.set_pixel_shader(&pipeline.meter_shader)?;
-        let draw_result = draw_quad(device, 1, 1);
+        device.set_pixel_shader(&pipeline.response_shader)?;
+        let draw_result = draw_quad(device, ADAPTIVE_RESPONSE_WIDTH, 1);
         device.clear_texture(0)?;
         device.clear_texture(1)?;
+        device.clear_texture(4)?;
         draw_result?;
         history.commit_write();
         Ok(true)
@@ -3047,7 +3561,7 @@ impl BloomingHdrEffect {
             let Some(history) = self.adaptive_history.as_ref() else {
                 return Ok(());
             };
-            configure_adaptive_sampler(device, 7, true)?;
+            configure_adaptive_sampler(device, 7, false)?;
             device.set_texture(7, history.current_texture())?;
             device.set_pixel_shader(&pipeline.compose_shader)?;
         } else {
@@ -3393,7 +3907,6 @@ enum ComposeVariant {
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct AdaptiveToneSettings {
     source_enabled: bool,
-    master_strength: f32,
     auto_exposure_enabled: bool,
     exposure_range_ev: f32,
     adaptation_speed: f32,
@@ -3408,25 +3921,26 @@ impl AdaptiveToneSettings {
         };
         Self {
             source_enabled: source.enabled,
-            master_strength: source_option_float(source, "strength", 0.0).clamp(0.0, 1.0),
             auto_exposure_enabled: source_option_bool(source, "auto_exposure_enabled", false),
             exposure_range_ev: source_option_float(source, "exposure_range_ev", 0.75)
-                .clamp(0.0, 1.5),
-            adaptation_speed: source_option_float(source, "adaptation_speed", 1.0).clamp(0.25, 2.0),
+                .clamp(0.0, AdaptiveToneConfig::MAX_EXPOSURE_RANGE_EV),
+            adaptation_speed: source_option_float(source, "adaptation_speed", 1.0).clamp(
+                AdaptiveToneConfig::MIN_ADAPTATION_SPEED,
+                AdaptiveToneConfig::MAX_ADAPTATION_SPEED,
+            ),
             tone_mapper_mode: ToneMapperMode::from_index(source_option_integer(
                 source,
                 "tone_mapper_mode",
                 0,
             )),
             tone_mapper_strength: source_option_float(source, "tone_mapper_strength", 0.65)
-                .clamp(0.0, 1.0),
+                .clamp(0.0, AdaptiveToneConfig::MAX_TONE_MAPPER_STRENGTH),
         }
     }
 
     const fn disabled() -> Self {
         Self {
             source_enabled: false,
-            master_strength: 0.0,
             auto_exposure_enabled: false,
             exposure_range_ev: 0.75,
             adaptation_speed: 1.0,
@@ -3437,7 +3951,6 @@ impl AdaptiveToneSettings {
 
     fn is_active(self) -> bool {
         self.source_enabled
-            && self.master_strength > 1.0e-5
             && (self.auto_exposure_active()
                 || (self.tone_mapper_mode != ToneMapperMode::Off
                     && self.tone_mapper_strength > 1.0e-5))
@@ -3466,9 +3979,9 @@ impl AdaptiveToneSettings {
 
     /// Preserve useful fixed tone mapping when FP16 adaptation is unavailable.
     ///
-    /// Automatic tone mapping is the same neutral curve with slowly changing
-    /// parameters. Falling back to its calibrated neutral parameters is a
-    /// closer and safer degradation than dropping all final-color work.
+    /// Automatic tone mapping needs the filtered response texture. Falling
+    /// back to the calibrated fixed-neutral curve preserves bounded highlight
+    /// shaping without dropping the rest of final-color work.
     fn without_history(mut self) -> Self {
         self.auto_exposure_enabled = false;
         if self.tone_mapper_mode == ToneMapperMode::Automatic {
@@ -3477,7 +3990,30 @@ impl AdaptiveToneSettings {
         self
     }
 
-    fn meter_constants(self, frame_seconds: f32, history_valid: bool) -> [[f32; 4]; 2] {
+    fn response_constants(
+        self,
+        frame_seconds: f32,
+        history_valid: bool,
+        bloom_source: Option<&ScreenShaderSource>,
+        bloom_enabled: bool,
+    ) -> [[f32; 4]; 4] {
+        // Automatic tone measures compose's bounded Bloom equation before its
+        // localized first-person attenuation. This conservative estimate
+        // avoids adding a depth neighborhood to the tiny response generator.
+        // Re-read and clamp the live menu lanes here because shader sources
+        // are mutable runtime input; relying only on TOML sanitation would let
+        // an in-session edit publish non-finite GPU constants.
+        let bloom_enabled = bloom_enabled && bloom_source.is_some();
+        let bloom = bloom_source.map_or([0.0; 6], |source| {
+            [
+                source_option_float(source, "bloom_intensity", 0.0).clamp(0.0, 1.5),
+                source_option_float(source, "exposure_bias", 0.0).clamp(-0.5, 0.5),
+                source_option_float(source, "highlight_shoulder", 0.0).clamp(0.0, 1.0),
+                source_option_float(source, "saturation", 1.0).clamp(0.0, 1.5),
+                source_option_float(source, "warmth", 0.0).clamp(-1.0, 1.0),
+                source_option_float(source, "shadow_lift", 0.0).clamp(0.0, 1.0),
+            ]
+        });
         [
             [
                 if frame_seconds.is_finite() {
@@ -3495,6 +4031,8 @@ impl AdaptiveToneSettings {
                 self.tone_mapper_strength,
                 0.0,
             ],
+            [0.0, bloom_enabled as u8 as f32, bloom[0], bloom[1]],
+            [bloom[2], bloom[3], bloom[4], bloom[5]],
         ]
     }
 
@@ -3988,16 +4526,18 @@ struct EffectTarget {
 }
 
 struct AdaptiveTonePipeline {
-    meter_shader: PixelShader9,
+    response_shader: PixelShader9,
     compose_shader: PixelShader9,
 }
 
-/// Two one-pixel FP16 targets carrying exposure EV, shoulder, and crosstalk.
+/// Two FP16 response curves carrying scale plus replicated temporal state.
 ///
 /// Ping-pong storage is required because D3D9 forbids a texture from being an
 /// input and render target simultaneously. `current_is_first` identifies the
-/// most recently committed target; `valid` describes its contents separately
-/// so a new render epoch can start from the neutral shader state.
+/// most recently committed target. Each R lane stores a luminance-indexed RGB scale;
+/// G/B/A replicate adapted log luminance, applied transient EV, and automatic
+/// tone activity. The shader may keep positive G as an unmetered-black sentinel;
+/// `valid` separately describes CPU render-epoch continuity.
 struct AdaptiveToneHistory {
     first: EffectTarget,
     second: EffectTarget,
@@ -4009,8 +4549,8 @@ struct AdaptiveToneHistory {
 impl AdaptiveToneHistory {
     fn create(device: &Device9Ref<'_>) -> Direct3DResult<Self> {
         Ok(Self {
-            first: EffectTarget::create(device, 1, 1, D3DFMT_A16B16G16R16F)?,
-            second: EffectTarget::create(device, 1, 1, D3DFMT_A16B16G16R16F)?,
+            first: EffectTarget::create(device, ADAPTIVE_RESPONSE_WIDTH, 1, D3DFMT_A16B16G16R16F)?,
+            second: EffectTarget::create(device, ADAPTIVE_RESPONSE_WIDTH, 1, D3DFMT_A16B16G16R16F)?,
             current_is_first: true,
             valid: false,
             source_dimensions: None,
