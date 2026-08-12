@@ -1,13 +1,14 @@
 use super::contract::{
     CASCADE_COUNT, CascadeDirty, CascadeScheduler, CascadeSphereSelection, CasterAdmission,
     CasterPolicy, HookAction, NVR_CASCADE_RESOLUTION, NVR_POINT_DRAW_DISTANCE,
-    NVR_POINT_LIGHT_COUNT, NVR_POINT_RADIUS_MULTIPLIER, PointLightCandidate, ProducerResourcePlan,
-    SceneKind, ShadowSettings, TransactionState, cascade_minimum_caster_radius,
-    cascade_sphere_selection, composite_shadow_factor, depth_sample_is_geometry,
-    directional_form_type_is_enabled, effective_contact_distance, evsm4_moments, evsm4_visibility,
-    point_light_influence_is_eligible, practical_cascade_splits, publication_epoch_is_usable,
-    select_point_lights, skinned_position_reference, snap_shadow_center,
-    sphere_intersects_cube_face, sphere_intersects_point_light,
+    NVR_POINT_LIGHT_COUNT, NVR_POINT_RADIUS_MULTIPLIER, PointLightCandidate, PointMapCache,
+    PointMapSignature, ProducerResourcePlan, SceneKind, ShadowSettings, TransactionState,
+    cascade_minimum_caster_radius, cascade_sphere_selection, composite_shadow_factor,
+    depth_sample_is_geometry, directional_form_type_is_enabled, effective_contact_distance,
+    evsm4_moments, evsm4_visibility, interior_shadow_factor, point_light_influence_is_eligible,
+    practical_cascade_splits, publication_epoch_is_usable, select_point_lights,
+    skinned_position_reference, snap_shadow_center, sphere_intersects_cube_face,
+    sphere_intersects_point_light,
 };
 use super::engine::{
     EngineCallAbi, FNV_EXE_SHA256, GeometryKind, HookSiteContract, NativeLayout,
@@ -16,7 +17,7 @@ use super::engine::{
 use super::math::{
     ShadowCamera, Sphere, cascade_projection, point_cube_views, stabilize_sun_direction,
 };
-use super::render::mapped_cull_mode;
+use super::render::{mapped_cull_mode, rebase_bone_rows};
 
 #[test]
 fn executable_identity_and_common_hook_topology_are_exact() {
@@ -121,6 +122,36 @@ fn actor_skin_reference_matches_fnv_d3dcolor_index_and_residual_weight_order() {
 }
 
 #[test]
+fn actor_bone_upload_rebases_the_engine_camera_origin_to_the_shadow_camera() {
+    let render = include_str!("render.rs");
+    assert!(
+        render.contains("CAMERA_WORLD_TRANSLATION"),
+        "the native bone builder subtracts 0x011F474C rather than OMV's captured camera"
+    );
+    assert!(
+        render.contains("native_camera_translation")
+            && render.contains("context.camera_translation"),
+        "skinned translations must be rebased into the same camera-relative domain as rigid casters"
+    );
+    assert!(
+        render.contains("rows[axis][3] += camera_delta[axis]"),
+        "each native 3x4 bone matrix stores translation in the fourth component of its axis row"
+    );
+
+    let rows = [
+        [1.0, 0.0, 0.0, 25.0],
+        [0.0, 1.0, 0.0, -10.0],
+        [0.0, 0.0, 1.0, 3.0],
+    ];
+    let rebased = rebase_bone_rows(rows, [100.0, 200.0, 300.0], [90.0, 230.0, 250.0])
+        .expect("finite camera-origin rebase");
+    assert_eq!(rebased[0][3], 35.0);
+    assert_eq!(rebased[1][3], -40.0);
+    assert_eq!(rebased[2][3], 53.0);
+    assert!(rebase_bone_rows(rows, [f32::NAN; 3], [0.0; 3]).is_none());
+}
+
+#[test]
 fn native_material_alpha_and_point_light_admission_match_modern_nvr() {
     let render = include_str!("render.rs");
     assert!(
@@ -183,7 +214,7 @@ fn validated_common_entry_reaches_generation_without_caller_ancestry() {
     let source = include_str!("mod.rs");
     let handler = source
         .split_once("pub(crate) unsafe fn handle_common_entry(")
-        .and_then(|(_, tail)| tail.split_once("pub(crate) unsafe fn apply_scene_pre("))
+        .and_then(|(_, tail)| tail.split_once("pub(crate) unsafe fn apply_before_alpha("))
         .map(|(body, _)| body)
         .expect("common-entry handler body");
     assert!(
@@ -192,7 +223,7 @@ fn validated_common_entry_reaches_generation_without_caller_ancestry() {
     );
     assert!(
         !handler.contains("CommonInvocationContext") && !handler.contains("context !="),
-        "only the later outer scene-pre consumer is destination-specific"
+        "only the later outer pre-alpha consumer is destination-specific"
     );
     let route_gate = handler
         .find("!ROUTE_READY.load(Ordering::Acquire)")
@@ -373,19 +404,17 @@ fn one_effect_keeps_interior_and_exterior_admission_independent() {
 }
 
 #[test]
-fn exterior_visibility_and_interior_illumination_have_distinct_nvr_semantics() {
+fn exterior_visibility_and_interior_local_light_deficit_have_distinct_semantics() {
     let darkness = 0.75;
     let exterior = composite_shadow_factor(SceneKind::Exterior, 0.8, 0.4, darkness)
         .expect("finite exterior factor");
     assert!((exterior - 0.55).abs() < 0.000_001);
-    assert_eq!(
-        composite_shadow_factor(SceneKind::Interior, 1.0, 0.0, darkness),
-        Some(0.25)
-    );
-    assert_eq!(
-        composite_shadow_factor(SceneKind::Interior, 0.0, 1.0, darkness),
-        Some(1.0)
-    );
+    assert_eq!(interior_shadow_factor(0.0, 0.0, darkness), Some(1.0));
+    assert_eq!(interior_shadow_factor(0.75, 0.75, darkness), Some(1.0));
+    assert_eq!(interior_shadow_factor(0.0, 1.0, darkness), Some(0.25));
+    assert_eq!(interior_shadow_factor(0.25, 0.75, darkness), Some(0.625));
+    assert!(composite_shadow_factor(SceneKind::Interior, 0.0, 0.0, darkness).is_none());
+    assert!(interior_shadow_factor(f32::NAN, 1.0, darkness).is_none());
     assert!(composite_shadow_factor(SceneKind::Exterior, f32::NAN, 1.0, darkness).is_none());
 }
 
@@ -445,9 +474,9 @@ fn stable_main_view_preserves_near_animation_and_bounds_distant_refresh() {
         (16, [true, false, false, false]),
         (33, [true, true, false, false]),
         (50, [true, false, true, false]),
-        (66, [true, true, false, true]),
+        (66, [true, true, false, false]),
         (82, [true, false, false, false]),
-        (100, [true, true, true, false]),
+        (100, [true, true, true, true]),
     ];
     for (now_millis, expected) in cadence {
         let stable = scheduler.plan_at_millis(CascadeDirty::none(), now_millis);
@@ -465,14 +494,14 @@ fn late_presentations_do_not_accumulate_cascade_refresh_drift() {
     let initial = scheduler.plan_at_millis(CascadeDirty::all(), 0);
     scheduler.commit(initial);
 
-    let late = scheduler.plan_at_millis(CascadeDirty::none(), 20);
+    let late = scheduler.plan_at_millis(CascadeDirty::none(), 40);
     assert!(late.render[0]);
     scheduler.commit(late);
 
-    // The 20 ms frame satisfies the 16 ms deadline but advances its phase to
-    // 16, not 20. A 34 ms frame is therefore due again, retaining about 60 Hz
-    // map animation on presentation rates that are not period multiples.
-    let recovered = scheduler.plan_at_millis(CascadeDirty::none(), 34);
+    // The 40 ms frame satisfies two 16 ms periods but advances its phase to
+    // 32, not 40. A 49 ms frame is therefore due again, retaining about 60 Hz
+    // near-map animation on presentation rates that are not period multiples.
+    let recovered = scheduler.plan_at_millis(CascadeDirty::none(), 49);
     assert!(recovered.render[0]);
 }
 
@@ -480,8 +509,9 @@ fn late_presentations_do_not_accumulate_cascade_refresh_drift() {
 fn directional_refresh_is_time_bounded_instead_of_scaling_with_present_rate() {
     let contract = include_str!("contract.rs");
     assert!(
-        contract.contains("const CASCADE_REFRESH_MILLIS: [u64; CASCADE_COUNT] = [16, 33, 50, 66];"),
-        "map generation must target at most 60/30/20/15 Hz instead of repeating 2048-map work at uncapped presentation rates"
+        contract
+            .contains("const CASCADE_REFRESH_MILLIS: [u64; CASCADE_COUNT] = [16, 33, 50, 100];"),
+        "only the actor-critical near map may run at 60 Hz; outer 2048 maps must remain bounded"
     );
     assert!(
         contract.contains("pub(super) fn plan_at_millis("),
@@ -534,10 +564,10 @@ fn directional_form_profiles_match_modern_nvr_defaults() {
     let exact_profiles = [
         (ACTIVATOR, [true, true, true, false]),
         (APPARATUS_COMPATIBILITY, [false; CASCADE_COUNT]),
-        (BOOK, [false; CASCADE_COUNT]),
+        (BOOK, [true, true, false, false]),
         (CONTAINER, [true, true, true, false]),
         (DOOR, [true; CASCADE_COUNT]),
-        (MISC, [true, true, true, false]),
+        (MISC, [true; CASCADE_COUNT]),
         (STATIC, [true; CASCADE_COUNT]),
         (STATIC_COLLECTION, [true; CASCADE_COUNT]),
         (MOVABLE_STATIC, [true; CASCADE_COUNT]),
@@ -634,7 +664,7 @@ fn practical_splits_are_contiguous_monotonic_and_match_nvr_quality_defaults() {
 }
 
 #[test]
-fn changing_only_shadow_distance_preserves_near_cascade_coverage() {
+fn every_shadow_distance_uses_nvrs_exact_practical_partition() {
     let short = practical_cascade_splits(5.0, 28_000.0, 1_000.0, 0.9).expect("short shadow range");
     let default =
         practical_cascade_splits(5.0, 28_000.0, 6_000.0, 0.9).expect("default shadow range");
@@ -643,8 +673,8 @@ fn changing_only_shadow_distance_preserves_near_cascade_coverage() {
 
     assert!(short[0].far < default[0].far);
     assert!(
-        (default[0].far - extended[0].far).abs() < 0.001,
-        "ranges at or above NVR's quality default must keep the near projection stable"
+        extended[0].far > default[0].far,
+        "NVR derives every split from the configured range; a private near anchor creates non-NVR cascade transitions"
     );
     assert!(
         extended[2].far > 4_000.0,
@@ -736,37 +766,61 @@ fn nvr_pass_order_keeps_skinned_actors_and_lighting_cutouts_complete() {
 }
 
 #[test]
-fn directional_contact_work_uses_a_bounded_half_resolution_surface() {
+fn directional_contact_refinement_adds_no_screen_resolution_work_targets() {
     let pipeline = include_str!("pipeline.rs");
     assert!(
-        pipeline.contains("fn contact_extent(full_extent: u32) -> u32"),
-        "blurred contact visibility should not run three passes at native 3440x1440 resolution"
+        !pipeline.contains("DirectionalConsumerTargets")
+            && !pipeline.contains("contact_visibility_surface")
+            && !pipeline.contains("contact_scratch_surface"),
+        "camera-stable atlas contact refinement must not allocate or draw screen-space ray/filter targets"
     );
     assert!(
-        pipeline.contains("contact_width") && pipeline.contains("contact_height"),
-        "the contact producer and both filters must use their bounded work extent"
-    );
-    assert!(
-        pipeline.contains("directional: Option<DirectionalConsumerTargets>")
-            && pipeline.contains("interior: Option<InteriorConsumerTargets>"),
-        "half-resolution exterior work and full-resolution interior lighting must remain branch-lazy"
+        pipeline.contains("interior: Option<InteriorConsumerTargets>"),
+        "full-resolution interior lighting must remain branch-lazy"
     );
 }
 
 #[test]
-fn shadow_composition_binds_the_coherent_first_person_depth_mask() {
+fn final_shadow_factor_multiplies_scene_color_without_a_full_resolution_copy() {
     let pipeline = include_str!("pipeline.rs");
-    let mask_binding = pipeline
-        .split_once("let first_person_depth = depth")
-        .and_then(|(_, tail)| tail.split_once("for sampler in 0..=3"))
+    let consumer = pipeline
+        .split_once("// Exterior visibility multiplies opaque scene color")
+        .and_then(|(_, tail)| tail.split_once("draw_quad(device, 0, 0, desc.Width, desc.Height)"))
         .map(|(body, _)| body)
-        .expect("first-person composition binding");
-    assert!(mask_binding.contains(".first_person_texture"));
+        .expect("multiplicative shadow compositor");
+    assert!(consumer.contains("D3DBLEND_DESTCOLOR"));
+    assert!(consumer.contains("D3DBLEND_ZERO"));
+    assert!(consumer.contains("D3DRS_COLORWRITEENABLE, 0x7"));
     assert!(
-        mask_binding
-            .contains(".filter(|_| depth.first_person_projection.reversed_depth.is_some())")
+        !consumer.contains("stretch_rect") && !pipeline.contains("scene_copy"),
+        "sampling a copied scene merely to multiply it back doubles full-resolution bandwidth"
     );
-    assert!(mask_binding.contains("set_raw_base_texture(4, first_person_depth.as_ptr())"));
+}
+
+#[test]
+fn interior_composition_subtracts_only_rgb_energy_proven_occluded() {
+    let pipeline = include_str!("pipeline.rs");
+    assert!(
+        pipeline.contains("D3DFMT_A16B16G16R16F")
+            && pipeline.contains("D3DBLENDOP_REVSUBTRACT")
+            && pipeline.contains("D3DRS_COLORWRITEENABLE, 0x7"),
+        "colored point-light deficits require an RGB FP16 target and destination-minus-source blending"
+    );
+    assert!(
+        !pipeline.contains("unshadowed_points"),
+        "native unshadowed illumination is already in scene color and must not be redrawn or globally darkened"
+    );
+}
+
+#[test]
+fn pre_alpha_shadow_composition_never_touches_later_first_person_geometry() {
+    let pipeline = include_str!("pipeline.rs");
+    assert!(
+        pipeline.contains("DepthResolveStage::PreAlphaWorld")
+            && !pipeline.contains("first_person_texture")
+            && !pipeline.contains("set_raw_base_texture(4"),
+        "hands and weapons render after this boundary and must not be masked or shadowed"
+    );
 }
 
 #[test]
@@ -904,18 +958,121 @@ fn point_light_discovery_matches_nvr_front_radius_and_distance_admission() {
         forward,
         8_000.0,
     ));
-    assert!(!point_light_influence_is_eligible(
+    assert!(point_light_influence_is_eligible(
         [0.0, 7_700.0, 0.0],
         512.0,
         forward,
         8_000.0,
-    ));
+    )); // an influence volume overlapping the draw boundary remains relevant
+    assert!(point_light_influence_is_eligible(
+        [0.0, 100.0, 0.0],
+        9_000.0,
+        forward,
+        8_000.0,
+    )); // a containing room light is not rejected merely because it is large
     assert!(!point_light_influence_is_eligible(
         [0.0, 100.0, 0.0],
         10.0,
         forward,
         8_000.0,
     ));
+}
+
+#[test]
+fn point_cube_cache_pairs_metadata_and_bounds_stable_refresh_to_one_light() {
+    let mut current = [PointMapSignature::EMPTY; NVR_POINT_LIGHT_COUNT];
+    for (index, light) in current.iter_mut().enumerate() {
+        *light = PointMapSignature {
+            identity: index + 1,
+            position: [index as f32 * 32.0, 0.0, 0.0],
+            radius: 512.0,
+        };
+    }
+    let first = PointMapCache::default().plan(current, NVR_POINT_LIGHT_COUNT, 0);
+    assert_eq!(first.render, [true; NVR_POINT_LIGHT_COUNT]);
+
+    let stable = first.next.plan(current, NVR_POINT_LIGHT_COUNT, 50);
+    assert_eq!(stable.render, [false; NVR_POINT_LIGHT_COUNT]);
+
+    let periodic = stable.next.plan(current, NVR_POINT_LIGHT_COUNT, 120);
+    assert_eq!(
+        periodic.render.into_iter().filter(|render| *render).count(),
+        1
+    );
+
+    let mut sub_threshold = current;
+    sub_threshold[4].position[0] += 4.0;
+    let retained = periodic
+        .next
+        .plan(sub_threshold, NVR_POINT_LIGHT_COUNT, 121);
+    assert!(!retained.render[4]);
+    assert_eq!(retained.published[4], current[4]);
+
+    let mut moved = sub_threshold;
+    moved[4].position[0] += 8.0;
+    let refreshed = retained.next.plan(moved, NVR_POINT_LIGHT_COUNT, 122);
+    assert!(refreshed.render[4]);
+    assert_eq!(refreshed.published[4], moved[4]);
+}
+
+#[test]
+fn replacement_point_lights_do_not_depend_on_native_prefix_transition_state() {
+    let native = include_str!("native.rs");
+    let point_light = native
+        .split_once("unsafe fn point_light(")
+        .and_then(|(_, tail)| tail.split_once("fn point_light_precedes"))
+        .map(|(body, _)| body)
+        .expect("point-light adapter");
+    assert!(
+        !point_light.contains("SHADOW_LIGHT_TRANSITION"),
+        "NVR reads NiLight diffuse and dimmer directly; its replaced native prefix cannot be required to refresh ShadowSceneLight transition"
+    );
+    for stale_prefix_field in [
+        "SHADOW_LIGHT_POINT",
+        "SHADOW_LIGHT_AMBIENT",
+        "SHADOW_LIGHT_ACTIVE",
+    ] {
+        assert!(
+            !point_light.contains(stale_prefix_field),
+            "the replacement cannot require native-prefix field {stale_prefix_field} before that prefix runs"
+        );
+    }
+    assert!(point_light.contains("NATIVE_LIGHT_EFFECT_TYPE"));
+    assert!(point_light.contains("NATIVE_POINT_LIGHT"));
+    assert!(point_light.contains("NATIVE_LIGHT_CAN_CARRY"));
+    assert!(point_light.contains("component * dimmer"));
+}
+
+#[test]
+fn exterior_root_collection_explicitly_owns_the_third_person_player() {
+    let native = include_str!("native.rs");
+    let collect = native
+        .split_once("pub(super) unsafe fn collect_directional_roots(")
+        .and_then(|(_, tail)| tail.split_once("unsafe fn collect_cell_directional_roots"))
+        .map(|(body, _)| body)
+        .expect("directional root collection");
+    assert!(
+        collect.contains("push_player_directional_root"),
+        "the player is not an ordinary cell-list ownership assumption; third-person geometry needs an explicit NVR skin-route equivalent"
+    );
+    let fallback = native
+        .split_once("pub(super) unsafe fn visit_directional_roots(")
+        .and_then(|(_, tail)| tail.split_once("unsafe fn visit_cell_roots"))
+        .map(|(body, _)| body)
+        .expect("capacity-overflow visitor");
+    assert!(
+        fallback.contains("player_directional_root(scene)"),
+        "the complete overflow route must not drop the player when the root cache fills"
+    );
+}
+
+#[test]
+fn stable_directional_work_prioritizes_near_actors_and_bounds_outer_maps() {
+    let source = include_str!("contract.rs");
+    assert!(
+        source.contains("const CASCADE_REFRESH_MILLIS: [u64; CASCADE_COUNT] = [16, 33, 50, 100];"),
+        "near actors need 60 Hz updates while large outer maps must not restore NVR's every-frame cost"
+    );
 }
 
 #[test]

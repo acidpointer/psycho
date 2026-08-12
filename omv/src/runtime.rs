@@ -1114,11 +1114,6 @@ pub(crate) unsafe fn apply_fnv_scene_pre_image_space(
     if !effects_enabled() {
         return;
     }
-    // Native shadows own their own try-lock and state transaction. Compose
-    // first so every later scene-pre effect receives the shadowed scene color.
-    unsafe {
-        crate::effects::shadows::apply_scene_pre(device_ptr, source_rendered_texture);
-    }
     let Some(mut runtime) = RUNTIME.try_lock() else {
         SCENE_PHASE_BUSY.fetch_add(1, Ordering::Relaxed);
         return;
@@ -1933,7 +1928,7 @@ impl ScreenShaderRuntime {
         }
 
         self.ensure_first_person_motion_blur_color_copy(&device, &desc)?;
-        let Some(color_copy) = self.scene_post_color_copy.clone() else {
+        let Some(color_copy) = self.world_color_copy.clone() else {
             return Err(runtime_error(
                 "[MOTION_BLUR] Missing color copy at the post-world boundary",
             ));
@@ -2830,15 +2825,16 @@ impl ScreenShaderRuntime {
         desc: &D3DSURFACE_DESC,
     ) -> Direct3DResult<()> {
         let needs_copy = self
-            .scene_post_color_copy
+            .world_color_copy
             .as_ref()
             .is_none_or(|copy| !copy.matches(desc));
         if needs_copy {
-            // The first-person boundary and scene-post phase are serialized,
-            // so they can share the primary graph texture. Do not create the
-            // scratch texture here: a first-person frame with motion blur as
-            // its only effect needs exactly one full-resolution allocation.
-            self.scene_post_color_copy = Some(BackbufferCopy::create(device, desc)?);
+            // This is the already-established world-only color owner. It has
+            // the same lifetime and FP16 format as the pre-first-person target.
+            // Sharing scene-post's LDR graph slot instead made the two phases
+            // observe incompatible formats and recreate a 3440x1440 texture on
+            // every frame. No new runtime/static owner is needed here.
+            self.world_color_copy = Some(BackbufferCopy::create(device, desc)?);
             log::info!(
                 "[MOTION_BLUR] Post-world color target: {}x{}, format=0x{:08X}",
                 desc.Width,
@@ -7417,6 +7413,22 @@ mod frame_pacing_tests {
     }
 
     #[test]
+    fn first_person_motion_blur_cannot_ping_pong_the_scene_post_target_format() {
+        let source = include_str!("runtime.rs");
+        let ensure = source
+            .split_once("fn ensure_first_person_motion_blur_color_copy(")
+            .map(|(_, tail)| tail)
+            .and_then(|tail| tail.split_once("\n    fn phase_color_copy("))
+            .map(|(body, _)| body)
+            .expect("first-person motion-blur target owner");
+        assert!(ensure.contains("world_color_copy"));
+        assert!(
+            !ensure.contains("scene_post_color_copy"),
+            "the FP16 world target and LDR scene-post graph must never recreate one shared texture every frame"
+        );
+    }
+
+    #[test]
     fn published_preset_identity_is_recorded_without_rewriting_the_current_look() {
         let source = include_str!("runtime.rs");
         let events = source
@@ -10524,7 +10536,7 @@ fn draw_native_shadows_config(
             );
             changed |= draw_float_slider(
                 ui,
-                "Contact ray distance",
+                "Contact contrast",
                 "native_shadows.contact_ray_distance",
                 &mut config.contact_ray_distance,
                 50.0,

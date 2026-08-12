@@ -37,12 +37,6 @@ pub(super) const FAR_CLEAR_PIXEL_SOURCE: &[u8] =
 /// Edge-aware world-normal reconstruction shared by both point passes.
 pub(super) const NORMAL_RECONSTRUCTION_SOURCE: &[u8] =
     include_bytes!("../../../shaders/embedded/shadow_normal_reconstruct.hlsl");
-/// Exterior screen-space contact-shadow ray marcher.
-pub(super) const CONTACT_PIXEL_SOURCE: &[u8] =
-    include_bytes!("../../../shaders/embedded/shadow_contact.hlsl");
-/// Depth-aware separable contact-shadow filter.
-pub(super) const CONTACT_BLUR_PIXEL_SOURCE: &[u8] =
-    include_bytes!("../../../shaders/embedded/shadow_contact_blur.hlsl");
 /// Six-light point-shadow accumulation pass.
 pub(super) const POINT_ACCUMULATION_SOURCE: &[u8] =
     include_bytes!("../../../shaders/embedded/shadow_point_accumulate.hlsl");
@@ -71,10 +65,6 @@ pub(super) struct ShadowBytecode {
     pub(super) far_clear_pixel: Vec<u32>,
     /// Depth-derived normal reconstruction program.
     pub(super) normal_reconstruction: Vec<u32>,
-    /// Exterior contact-shadow ray-march program.
-    pub(super) contact: Vec<u32>,
-    /// Depth-aware contact-shadow prefilter program.
-    pub(super) contact_blur: Vec<u32>,
     /// Six-cube point-shadow accumulation program.
     pub(super) point_accumulation: Vec<u32>,
     /// Final scene-color composition program.
@@ -103,12 +93,6 @@ impl ShadowBytecode {
                 NORMAL_RECONSTRUCTION_SOURCE,
                 "ps_3_0",
             )?,
-            contact: compile("shadow_contact.hlsl", CONTACT_PIXEL_SOURCE, "ps_3_0")?,
-            contact_blur: compile(
-                "shadow_contact_blur.hlsl",
-                CONTACT_BLUR_PIXEL_SOURCE,
-                "ps_3_0",
-            )?,
             point_accumulation: compile(
                 "shadow_point_accumulate.hlsl",
                 POINT_ACCUMULATION_SOURCE,
@@ -127,8 +111,6 @@ impl ShadowBytecode {
             &self.blur_pixel,
             &self.far_clear_pixel,
             &self.normal_reconstruction,
-            &self.contact,
-            &self.contact_blur,
             &self.point_accumulation,
             &self.composite,
         ]
@@ -160,7 +142,7 @@ pub(super) fn start_preparation() {
                     *BYTECODE.lock() = Some(Arc::new(bytecode));
                     PREPARATION_READY.store(true, Ordering::Release);
                     log::info!(
-                        "[SHADOWS] Complete shader family prepared (11 programs, {words} DWORDs, {} ms)",
+                        "[SHADOWS] Complete shader family prepared (9 programs, {words} DWORDs, {} ms)",
                         started.elapsed().as_millis()
                     );
                 }

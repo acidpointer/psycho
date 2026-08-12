@@ -101,11 +101,11 @@ pub(crate) struct NativeShadowsConfig {
     pub(crate) exterior_distance: f32,
     /// Practical split blend between uniform (zero) and logarithmic (one).
     pub(crate) cascade_split_lambda: f32,
-    /// Enable the short screen-space ray that restores fine contact detail.
+    /// Enable stable EVSM refinement that restores fine contact detail.
     pub(crate) contact_shadows: bool,
     /// Maximum reconstructed view depth evaluated by contact shadows.
     pub(crate) contact_distance: f32,
-    /// Maximum screen-space contact ray length in world units.
+    /// Compatibility value mapped to contact-transition contrast.
     pub(crate) contact_ray_distance: f32,
     /// Maximum darkness applied to interior point-light illumination.
     pub(crate) interior_darkness: f32,

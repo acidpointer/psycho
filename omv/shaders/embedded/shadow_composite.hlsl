@@ -1,4 +1,4 @@
-// OMV final world-shadow compositor. Runs before other scene-pre effects.
+// OMV world-shadow compositor. Runs before atmosphere, alpha, and later effects.
 float4 ScreenData : register(c0);
 float4 DepthLinearizeData : register(c1);
 float4 CameraFrustum : register(c2);
@@ -10,14 +10,13 @@ float4 CascadeSplits : register(c22);
 float4 ShadowControl : register(c23); // x reversed, y exterior, z darkness, w bleed reduction
 float4 CascadeBlendWidth : register(c24);
 float4 CascadeTexel : register(c25); // x half texel, y one minus half texel
-float4 FirstPersonControl : register(c26); // x mask available, y endpoint epsilon
+float4 DepthControl : register(c26); // x endpoint epsilon
 float4 CascadeSpheres[4] : register(c27); // xyz camera-relative center, w coverage radius
+float4 ContactControl : register(c31); // x enabled, y max depth, z stable EVSM contrast
 
-sampler2D SceneColor : register(s0);
 sampler2D SceneDepth : register(s1);
 sampler2D ShadowAtlas : register(s2);
 sampler2D PointShadowBuffer : register(s3);
-sampler2D FirstPersonDepth : register(s4);
 
 struct PixelInput { float2 uv : TEXCOORD0; };
 
@@ -37,20 +36,26 @@ float3 RelativeWorldPosition(float2 uv, float depth) {
     return float3(dot(ViewToWorld0, homogeneous), dot(ViewToWorld1, homogeneous), dot(ViewToWorld2, homogeneous));
 }
 
-float ReduceLightBleeding(float probability) {
-    return saturate((probability - ShadowControl.w) / max(1.0f - ShadowControl.w, 0.001f));
+float CascadeBleedReduction(int cascadeIndex) {
+    return cascadeIndex == 0 ? 0.1f
+        : (cascadeIndex == 1 ? 0.2f : (cascadeIndex == 2 ? 0.6f : 0.8f));
 }
 
-float Chebyshev(float2 moments, float receiver, float minimumVariance) {
+float ReduceLightBleeding(float probability, float amount) {
+    return saturate((probability - amount) / max(1.0f - amount, 0.001f));
+}
+
+float Chebyshev(float2 moments, float receiver, float minimumVariance, float bleedReduction) {
     if (receiver <= moments.x) return 1.0f;
     float variance = max(moments.y - moments.x * moments.x, minimumVariance);
     float difference = receiver - moments.x;
-    return ReduceLightBleeding(variance / (variance + difference * difference));
+    return ReduceLightBleeding(
+        variance / (variance + difference * difference), bleedReduction);
 }
 
 static const float EvsmReceiverBias = 0.01f;
 
-float Evsm4(float4 moments, float depth) {
+float Evsm4(float4 moments, float depth, float bleedReduction) {
     float normalized = depth * 2.0f - 1.0f;
     float2 warped = float2(exp(5.54f * normalized), -exp(-5.0f * normalized));
     // NVR derives the minimum EVSM variance from a 0.01 receiver bias. The
@@ -58,8 +63,8 @@ float Evsm4(float4 moments, float depth) {
     // self-shadow speckle that blinked on broad walls.
     float2 scale = EvsmReceiverBias * float2(5.54f, 5.0f) * warped;
     return min(
-        Chebyshev(moments.xz, warped.x, scale.x * scale.x),
-        Chebyshev(moments.yw, warped.y, scale.y * scale.y));
+        Chebyshev(moments.xz, warped.x, scale.x * scale.x, bleedReduction),
+        Chebyshev(moments.yw, warped.y, scale.y * scale.y, bleedReduction));
 }
 
 float2 AtlasUv(float2 localUv, int cascadeIndex) {
@@ -76,17 +81,39 @@ float2 AtlasUv(float2 localUv, int cascadeIndex) {
 float CascadeVisibility(
     row_major float4x4 transform,
     int cascadeIndex,
-    float3 worldPosition)
+    float3 worldPosition,
+    float2 texelOffset)
 {
     float4 projected = mul(float4(worldPosition, 1.0f), transform);
     float3 ndc = projected.xyz / max(projected.w, 0.000001f);
     float2 localUv = float2(ndc.x * 0.5f + 0.5f, 0.5f - ndc.y * 0.5f);
     if (min(localUv.x, localUv.y) < 0.0f || max(localUv.x, localUv.y) > 1.0f) return 1.0f;
-    float2 uv = AtlasUv(localUv, cascadeIndex);
-    return Evsm4(tex2Dlod(ShadowAtlas, float4(uv, 0.0f, 0.0f)), saturate(ndc.z));
+    float2 uv = AtlasUv(localUv + texelOffset, cascadeIndex);
+    return Evsm4(
+        tex2Dlod(ShadowAtlas, float4(uv, 0.0f, 0.0f)),
+        saturate(ndc.z),
+        CascadeBleedReduction(cascadeIndex));
 }
 
-float DirectionalVisibility(float3 worldPosition) {
+float ContactFilteredVisibility(
+    row_major float4x4 transform,
+    int cascadeIndex,
+    float3 worldPosition,
+    float viewDepth)
+{
+    float visibility = CascadeVisibility(transform, cascadeIndex, worldPosition, 0.0f);
+    if (ContactControl.x <= 0.5f || viewDepth >= ContactControl.y) return visibility;
+
+    // Refine the stable EVSM probability itself instead of searching camera
+    // depth or offsetting the light-map receiver. Squaring uncertain values
+    // tightens soft contact transitions while preserving fully lit/shadowed
+    // endpoints, adds no texture work, and cannot invent camera-following
+    // occluders or move a silhouette across an atlas boundary.
+    float strength = saturate(ContactControl.z * 0.15f);
+    return lerp(visibility, visibility * visibility, strength);
+}
+
+float DirectionalVisibility(float3 worldPosition, float viewDepth) {
     // Cached maps retain the receiver sphere that was used to generate them.
     // Selecting by current-camera view depth can choose a quadrant whose
     // retained projection no longer contains the receiver, producing moving
@@ -105,40 +132,33 @@ float DirectionalVisibility(float3 worldPosition) {
 
     float radius = CascadeSpheres[cascade].w;
     float distanceToCenter = distances[cascade];
-    float current = CascadeVisibility(CascadeMatrices[cascade], cascade, worldPosition);
+    float current = ContactFilteredVisibility(
+        CascadeMatrices[cascade], cascade, worldPosition, viewDepth);
     float blend = smoothstep(radius * 0.9f, radius, distanceToCenter);
     if (cascade >= 3) return lerp(current, 1.0f, blend);
     if (blend <= 0.0f) return current;
 
-    float next = CascadeVisibility(CascadeMatrices[cascade + 1], cascade + 1, worldPosition);
+    float next = ContactFilteredVisibility(
+        CascadeMatrices[cascade + 1], cascade + 1, worldPosition, viewDepth);
     return lerp(current, next, blend);
 }
 
-bool IsFirstPersonPixel(float2 uv) {
-    if (FirstPersonControl.x < 0.5f) return false;
-    float depth = tex2Dlod(FirstPersonDepth, float4(uv, 0.0f, 0.0f)).r;
-    return depth > FirstPersonControl.y && depth < (1.0f - FirstPersonControl.y);
-}
-
 float4 Main(PixelInput input) : COLOR0 {
-    float4 scene = tex2Dlod(SceneColor, float4(input.uv, 0.0f, 0.0f));
-    // The first-person capture contains valid depth only where hands or a
-    // weapon were drawn. Preserve those source pixels before sampling world
-    // depth so world shadows can never be composited over the view model.
-    if (IsFirstPersonPixel(input.uv)) return scene;
     float rawDepth = tex2Dlod(SceneDepth, float4(input.uv, 0.0f, 0.0f)).r;
+    if (rawDepth <= DepthControl.x || rawDepth >= 1.0f - DepthControl.x) {
+        return float4(1.0f, 1.0f, 1.0f, 1.0f);
+    }
     float viewDepth = LinearDepth(rawDepth);
     float3 worldPosition = RelativeWorldPosition(input.uv, viewDepth);
-    float2 pointShadow = tex2Dlod(PointShadowBuffer, float4(input.uv, 0.0f, 0.0f)).rg;
-    // Exteriors combine two visibility values. Interiors instead consume the
-    // bounded local-light energy accumulated from their cube maps, matching
-    // NVR's ambient-floor semantics rather than darkening by a ratio of only
-    // the selected lights.
-    float raw = saturate(pointShadow.x);
     if (ShadowControl.y > 0.5f) {
-        raw = min(DirectionalVisibility(worldPosition), raw);
+        float raw = DirectionalVisibility(worldPosition, viewDepth);
+        float visibility = 1.0f - saturate(ShadowControl.z) * (1.0f - raw);
+        return float4(visibility.xxx, 1.0f);
     }
-    float visibility = 1.0f - saturate(ShadowControl.z) * (1.0f - raw);
-    scene.rgb *= visibility;
-    return scene;
+    float4 pointShadow = tex2Dlod(PointShadowBuffer, float4(input.uv, 0.0f, 0.0f));
+    // Interior composition uses reverse-subtract blending. Returning the
+    // occluded RGB contribution removes only direct energy from selected
+    // native point lights; ambient, emissive, and the light source itself are
+    // no longer multiplied by a global darkness factor.
+    return float4(saturate(pointShadow.rgb * ShadowControl.z), 1.0f);
 }

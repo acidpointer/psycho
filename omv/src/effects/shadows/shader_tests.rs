@@ -1,7 +1,7 @@
 use super::shaders::{
-    BLUR_PIXEL_SOURCE, COMPOSITE_PIXEL_SOURCE, CONTACT_BLUR_PIXEL_SOURCE, CONTACT_PIXEL_SOURCE,
-    CUBE_PIXEL_SOURCE, CUBE_VERTEX_SOURCE, DIRECTIONAL_PIXEL_SOURCE, DIRECTIONAL_VERTEX_SOURCE,
-    FAR_CLEAR_PIXEL_SOURCE, NORMAL_RECONSTRUCTION_SOURCE, POINT_ACCUMULATION_SOURCE,
+    BLUR_PIXEL_SOURCE, COMPOSITE_PIXEL_SOURCE, CUBE_PIXEL_SOURCE, CUBE_VERTEX_SOURCE,
+    DIRECTIONAL_PIXEL_SOURCE, DIRECTIONAL_VERTEX_SOURCE, FAR_CLEAR_PIXEL_SOURCE,
+    NORMAL_RECONSTRUCTION_SOURCE, POINT_ACCUMULATION_SOURCE,
 };
 
 fn instruction_count(bytecode: &[u32]) -> usize {
@@ -74,13 +74,6 @@ fn every_shadow_shader_compiles_for_shader_model_three_with_static_budgets() {
             "ps_3_0",
             256,
         ),
-        ("shadow_contact.ps", CONTACT_PIXEL_SOURCE, "ps_3_0", 320),
-        (
-            "shadow_contact_blur.ps",
-            CONTACT_BLUR_PIXEL_SOURCE,
-            "ps_3_0",
-            160,
-        ),
         (
             "shadow_point_accumulate.ps",
             POINT_ACCUMULATION_SOURCE,
@@ -114,7 +107,7 @@ fn every_shadow_shader_compiles_for_shader_model_three_with_static_budgets() {
         );
         compiled_programs.push((name, bytecode));
     }
-    assert_eq!(compiled_programs.len(), 11);
+    assert_eq!(compiled_programs.len(), 9);
 }
 
 #[test]
@@ -152,7 +145,7 @@ fn directional_generation_preserves_all_complex_geometry_routes() {
 }
 
 #[test]
-fn consumer_reconstructs_normals_and_samples_all_maps_without_derivatives() {
+fn consumer_reconstructs_normals_and_samples_all_maps_without_screen_space_contact_rays() {
     let normals = std::str::from_utf8(NORMAL_RECONSTRUCTION_SOURCE).expect("normal UTF-8");
     assert!(normals.contains("ReconstructNormal"));
     assert!(normals.contains("dot(left - center, left - center)"));
@@ -160,29 +153,13 @@ fn consumer_reconstructs_normals_and_samples_all_maps_without_derivatives() {
     assert!(!normals.contains("ddx("));
     assert!(!normals.contains("ddy("));
 
-    let contact = std::str::from_utf8(CONTACT_PIXEL_SOURCE).expect("contact UTF-8");
-    assert!(contact.contains("sampleIndex <= 4"));
-    assert!(contact.contains("ContactSample(center + stepVector * sampleIndex"));
-    assert!(contact.contains("HasGeometryDepth(rawCenterDepth)"));
-    assert!(contact.contains("HasGeometryDepth(rawDepth)"));
-    assert!(contact.contains("center.z / DepthLinearizeData.w"));
-    assert!(
-        !contact.contains("InterleavedGradientNoise") && !contact.contains("randomScale"),
-        "screen-anchored ray jitter crawls over walls when the camera moves"
-    );
-    assert!(!contact.contains("ddx("));
-    assert!(!contact.contains("ddy("));
-
-    let contact_blur = std::str::from_utf8(CONTACT_BLUR_PIXEL_SOURCE).expect("contact blur UTF-8");
-    assert!(contact_blur.contains("tap <= 2"));
-    assert_eq!(contact_blur.matches("WeightedTap(").count(), 2);
-    assert!(contact_blur.contains("abs(sampleDepth - centerDepth)"));
-
     let point = std::str::from_utf8(POINT_ACCUMULATION_SOURCE).expect("point UTF-8");
     assert!(point.contains("samplerCUBE ShadowCube0 : register(s1)"));
     assert!(point.contains("samplerCUBE ShadowCube5 : register(s6)"));
     assert!(point.contains("sampler2D NormalBuffer : register(s7)"));
-    assert!(point.contains("PointControl.w < 0.5f"));
+    assert!(point.contains("contribution * (1.0f - visibility)"));
+    assert!(point.contains("smoothstep(0.0f, 0.2f, normalizedDistance)"));
+    assert!(!point.contains("PointControl.w"));
     assert_eq!(point.matches("SamplePointShadow(").count(), 7);
 
     let composite = std::str::from_utf8(COMPOSITE_PIXEL_SOURCE).expect("composite UTF-8");
@@ -190,11 +167,18 @@ fn consumer_reconstructs_normals_and_samples_all_maps_without_derivatives() {
     assert!(composite.contains("AtlasUv"));
     assert!(composite.contains("cascadeIndex == 0"));
     assert!(composite.contains("float4 CascadeSpheres[4] : register(c27)"));
-    assert!(composite.contains("distances.w < CascadeSpheres[3].w ? 3 : -1"));
     assert!(composite.contains("smoothstep(radius * 0.9f, radius, distanceToCenter)"));
+    assert!(composite.contains("ContactFilteredVisibility"));
+    assert!(composite.contains("ContactControl.x <= 0.5f"));
+    assert!(
+        !composite.contains("sampler2D Contact") && !composite.contains("ScreenSpaceShadow"),
+        "screen-depth contact rays create camera-following occluders"
+    );
     assert!(composite.contains("PointShadowBuffer"));
-    assert!(composite.contains("raw = min(DirectionalVisibility(worldPosition), raw)"));
-    assert!(!composite.contains("pointShadow.x / pointShadow.y"));
+    assert!(
+        composite.contains("return float4(saturate(pointShadow.rgb * ShadowControl.z), 1.0f);"),
+        "interiors publish RGB occluded light energy for subtractive blending"
+    );
     assert!(
         !composite.contains("float values[4]"),
         "every pixel must sample only its selected cascade and an optional boundary neighbor"
@@ -211,29 +195,29 @@ fn consumer_reconstructs_normals_and_samples_all_maps_without_derivatives() {
         "ps_3_0",
     )
     .expect("shadow composite must compile");
-    assert_eq!(
-        texture_instruction_count(&composite_bytecode),
-        6,
-        "compiled composition may read scene color, first-person/world depth, contact visibility, and at most two cascade samples"
+    let texture_samples = texture_instruction_count(&composite_bytecode);
+    assert!(
+        texture_samples <= 8,
+        "compiled composition uses {texture_samples} samples, above the bounded atlas-refinement budget"
     );
-    assert!(composite.contains("sampler2D FirstPersonDepth : register(s4)"));
+    assert!(!composite.contains("sampler2D FirstPersonDepth"));
     assert!(
         composite.contains("static const float EvsmReceiverBias = 0.01f"),
         "the receiver variance floor must match NVR instead of flickering at a 500x smaller value"
     );
-    let main = composite
-        .split_once("float4 Main(PixelInput input) : COLOR0")
-        .map(|(_, body)| body)
-        .expect("composite entry point");
-    let foreground = main
-        .find("IsFirstPersonPixel(input.uv)")
-        .expect("first-person foreground mask");
-    let directional = main
-        .find("DirectionalVisibility(worldPosition)")
-        .expect("directional shadow lookup");
     assert!(
-        foreground < directional,
-        "hands and weapons must return original scene color before any shadow factor is applied"
+        composite.contains("float CascadeBleedReduction(int cascadeIndex)")
+            && composite.contains("0.6f")
+            && composite.contains("0.8f"),
+        "far and LOD receivers need NVR's stronger variance-tail rejection on broad surfaces"
+    );
+    assert!(
+        !composite.contains("DirectionalControl.xyz * DirectionalControl.w"),
+        "an inferred world-space receiver translation changes far silhouettes and is not part of NVR's consumer contract"
+    );
+    assert!(
+        composite.contains("float raw = DirectionalVisibility(worldPosition, viewDepth);"),
+        "exteriors must sample only the directional map family"
     );
     assert!(!composite.contains("ddx("));
     assert!(!composite.contains("ddy("));

@@ -23,22 +23,25 @@ pub(super) const NVR_POINT_RADIUS_MULTIPLIER: f32 = 1.5;
 pub(super) const NVR_POINT_DRAW_DISTANCE: f32 = 8_000.0;
 
 const COMPLETE_CASCADE_MASK: u8 = (1 << CASCADE_COUNT) - 1;
-// Frame-count cadence makes map cost grow with an uncapped presentation rate.
-// These caps retain a 60 Hz near map while progressively slower world regions
-// update at 30, 20, and 15 Hz. A slow game still refreshes every due map on
-// its next invocation; this is a maximum rate, never a delayed worker.
-const CASCADE_REFRESH_MILLIS: [u64; CASCADE_COUNT] = [16, 33, 50, 66];
+// The actor-bearing near map tracks gameplay at 60 Hz. Successively larger
+// maps update less often because their texels subtend more world space and
+// because four 2048 caster traversals per frame caused most of the observed
+// 120-to-70 FPS loss. The 30/20/10 Hz outer cadence bounds staleness well below
+// the rejected 66/100/200 ms profile without restoring NVR's every-frame cost.
+const CASCADE_REFRESH_MILLIS: [u64; CASCADE_COUNT] = [16, 33, 50, 100];
 const NVR_CASCADE_MIN_RADIUS_PIXELS: [f32; CASCADE_COUNT] = [1.0, 1.0, 10.0, 10.0];
 const EVSM4_POSITIVE_EXPONENT_FP16: f32 = 5.54;
 const EVSM4_NEGATIVE_EXPONENT: f32 = 5.0;
+const POINT_STABLE_REFRESH_MILLIS: u64 = 100;
+const POINT_POSITION_REFRESH_DISTANCE: f32 = 8.0;
 
-/// Combine raw map/contact visibility with NVR's location-specific darkness.
+/// Combine exterior map/contact-refined visibility with configured darkness.
 ///
 /// Exterior directional and contact terms are both visibility values, so the
 /// darker term wins before the configured darkness is applied. Interior point
-/// accumulation is instead a bounded illumination amount: no local light
-/// leaves the configured ambient floor, while sufficient visible local-light
-/// energy reaches full brightness.
+/// data has different, two-channel semantics and must go through
+/// [`interior_shadow_factor`]; returning `None` rejects accidental reuse of the
+/// old global-darkening model.
 pub(super) fn composite_shadow_factor(
     scene: SceneKind,
     directional_visibility: f32,
@@ -62,17 +65,40 @@ pub(super) fn composite_shadow_factor(
         SceneKind::Exterior | SceneKind::BehavesLikeExterior => {
             1.0 - darkness * (1.0 - directional_visibility.min(local))
         }
-        SceneKind::Interior => 1.0 - darkness * (1.0 - local),
+        SceneKind::Interior => return None,
     };
     Some(factor)
+}
+
+/// Attenuate only the point-light energy proven occluded by cube maps.
+///
+/// The native scene already contains ambient, emissive, and direct point-light
+/// illumination. The point accumulator therefore publishes both the visible
+/// contribution and the same lights' unoccluded contribution. Their positive
+/// difference is the only energy the replacement may remove. In particular,
+/// an unlit pixel (`0, 0`) remains unchanged instead of being globally
+/// darkened merely because the interior effect is enabled.
+pub(super) fn interior_shadow_factor(
+    visible_local_light: f32,
+    unoccluded_local_light: f32,
+    darkness: f32,
+) -> Option<f32> {
+    if ![visible_local_light, unoccluded_local_light, darkness]
+        .into_iter()
+        .all(f32::is_finite)
+    {
+        return None;
+    }
+    let deficit = (unoccluded_local_light.max(0.0) - visible_local_light.max(0.0)).clamp(0.0, 1.0);
+    Some(1.0 - darkness.clamp(0.0, 1.0) * deficit)
 }
 
 /// Return whether a sampled hardware depth belongs to rendered geometry.
 ///
 /// Fallout clears ordinary and reversed world-depth targets to opposite
 /// endpoints. Linearizing either endpoint fabricates a far-plane position;
-/// treating that position as geometry lets a contact ray turn sky and
-/// disocclusion pixels into camera-locked false occluders.
+/// treating that position as geometry fabricates a far-plane receiver and can
+/// turn sky or disocclusion pixels into false shadows.
 pub(super) fn depth_sample_is_geometry(raw_depth: f32, endpoint_epsilon: f32) -> bool {
     raw_depth.is_finite()
         && endpoint_epsilon.is_finite()
@@ -82,11 +108,11 @@ pub(super) fn depth_sample_is_geometry(raw_depth: f32, endpoint_epsilon: f32) ->
         && raw_depth < 1.0 - endpoint_epsilon
 }
 
-/// Bound contact rays to the gameplay-caster cascades.
+/// Bound contact refinement to the gameplay-caster cascades.
 ///
 /// The LOD map deliberately excludes actors and small form categories. Screen
-/// space hits beyond the far gameplay cascade cannot reliably complement
-/// those maps and are dominated by depth quantization and disocclusion.
+/// Refinement beyond the far gameplay cascade cannot restore absent actor or
+/// small-object casters and only exaggerates the LOD map's broad transitions.
 pub(super) fn effective_contact_distance(
     configured_distance: f32,
     gameplay_cascade_far: f32,
@@ -412,6 +438,137 @@ impl CascadeScheduler {
     }
 }
 
+/// Map-defining point-light values paired with one cube-map slot.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub(super) struct PointMapSignature {
+    /// Stable native `NiPointLight*` identity.
+    pub(super) identity: usize,
+    /// Absolute world position used when the six faces were rendered.
+    pub(super) position: [f32; 3],
+    /// Effective finite influence radius used by generation and sampling.
+    pub(super) radius: f32,
+}
+
+impl PointMapSignature {
+    /// Empty signature used for an unowned cube slot.
+    pub(super) const EMPTY: Self = Self {
+        identity: 0,
+        position: [0.0; 3],
+        radius: 0.0,
+    };
+
+    fn materially_matches(self, current: Self) -> bool {
+        if self.identity == 0
+            || self.identity != current.identity
+            || !self.position.into_iter().all(f32::is_finite)
+            || !current.position.into_iter().all(f32::is_finite)
+            || !self.radius.is_finite()
+            || !current.radius.is_finite()
+            || (self.radius - current.radius).abs() > 0.01
+        {
+            return false;
+        }
+        let movement_squared = (0..3)
+            .map(|axis| {
+                let delta = self.position[axis] - current.position[axis];
+                delta * delta
+            })
+            .sum::<f32>();
+        movement_squared < POINT_POSITION_REFRESH_DISTANCE * POINT_POSITION_REFRESH_DISTANCE
+    }
+}
+
+/// Transactional cache for twelve expensive six-face point maps.
+#[derive(Clone, Copy, Debug)]
+pub(super) struct PointMapCache {
+    signatures: [PointMapSignature; NVR_POINT_LIGHT_COUNT],
+    deadlines: [u64; NVR_POINT_LIGHT_COUNT],
+    cursor: usize,
+}
+
+impl Default for PointMapCache {
+    fn default() -> Self {
+        Self {
+            signatures: [PointMapSignature::EMPTY; NVR_POINT_LIGHT_COUNT],
+            deadlines: [0; NVR_POINT_LIGHT_COUNT],
+            cursor: 0,
+        }
+    }
+}
+
+/// Point-map work and metadata which must commit as one D3D transaction.
+#[derive(Clone, Copy, Debug)]
+pub(super) struct PointMapPlan {
+    /// Slots whose complete six-face map must be regenerated now.
+    pub(super) render: [bool; NVR_POINT_LIGHT_COUNT],
+    /// Map-paired values safe for the consumer to sample.
+    pub(super) published: [PointMapSignature; NVR_POINT_LIGHT_COUNT],
+    /// Cache state committed only after draw, EndScene, and restoration pass.
+    pub(super) next: PointMapCache,
+}
+
+impl PointMapCache {
+    /// Bound cube work while retaining complete spatial quality per map.
+    ///
+    /// New/replaced/materially moved lights update synchronously. Otherwise at
+    /// most one stable slot refreshes per invocation for moving casters. A
+    /// skipped moving light continues publishing the position paired with its
+    /// retained cube, preventing the same texture/transform mismatch already
+    /// prohibited for cached directional cascades.
+    pub(super) fn plan(
+        self,
+        current: [PointMapSignature; NVR_POINT_LIGHT_COUNT],
+        count: usize,
+        now_millis: u64,
+    ) -> PointMapPlan {
+        let count = count.min(NVR_POINT_LIGHT_COUNT);
+        let mut next = self;
+        let mut render = [false; NVR_POINT_LIGHT_COUNT];
+        let mut published = [PointMapSignature::EMPTY; NVR_POINT_LIGHT_COUNT];
+        for index in 0..NVR_POINT_LIGHT_COUNT {
+            if index >= count || current[index].identity == 0 {
+                next.signatures[index] = PointMapSignature::EMPTY;
+                next.deadlines[index] = 0;
+                continue;
+            }
+            if !self.signatures[index].materially_matches(current[index]) {
+                render[index] = true;
+                next.signatures[index] = current[index];
+                // Stagger stable refreshes after a full first publication so
+                // all twelve maps never become due in one later frame.
+                next.deadlines[index] = now_millis
+                    .saturating_add(POINT_STABLE_REFRESH_MILLIS)
+                    .saturating_add(
+                        index as u64 * POINT_STABLE_REFRESH_MILLIS / NVR_POINT_LIGHT_COUNT as u64,
+                    );
+            }
+            published[index] = next.signatures[index];
+        }
+
+        if !render.into_iter().any(|value| value) {
+            for offset in 0..count {
+                let index = (self.cursor + offset) % count;
+                if next.deadlines[index] <= now_millis {
+                    render[index] = true;
+                    next.signatures[index] = current[index];
+                    published[index] = current[index];
+                    let elapsed = now_millis.saturating_sub(next.deadlines[index]);
+                    let periods = elapsed / POINT_STABLE_REFRESH_MILLIS + 1;
+                    next.deadlines[index] = next.deadlines[index]
+                        .saturating_add(periods.saturating_mul(POINT_STABLE_REFRESH_MILLIS));
+                    next.cursor = (index + 1) % count.max(1);
+                    break;
+                }
+            }
+        }
+        PointMapPlan {
+            render,
+            published,
+            next,
+        }
+    }
+}
+
 /// Convert modern NVR's per-cascade pixel threshold to a world-space radius.
 ///
 /// NVR keeps one-pixel casters in the near and middle cascades and raises the
@@ -433,15 +590,14 @@ pub(super) fn cascade_minimum_caster_radius(
 
 /// Return whether modern NVR's default form profile admits a base form.
 ///
-/// Near, middle, and far share the broad gameplay profile. The supplied NVR
-/// defaults exclude books everywhere and exclude misc objects from the LOD
-/// profile. Terrain is visited through the dedicated land child and must
-/// never be duplicated through the reference list.
+/// Near, middle, and far share the broad gameplay profile. Supplied NVR
+/// defaults admit books in near/middle, keep misc objects in every map, and
+/// exclude actors plus selected interactive forms only from LOD. Terrain is
+/// visited through the dedicated land child and is never duplicated here.
 pub(super) const fn directional_form_type_is_enabled(cascade: usize, form_type: u8) -> bool {
     const ACTIVATOR: u8 = 0x15;
     const BOOK: u8 = 0x19;
     const CONTAINER: u8 = 0x1B;
-    const MISC: u8 = 0x1F;
     const FURNITURE: u8 = 0x27;
     const NPC: u8 = 0x2A;
     const CREATURE: u8 = 0x2B;
@@ -452,14 +608,13 @@ pub(super) const fn directional_form_type_is_enabled(cascade: usize, form_type: 
     if cascade >= CASCADE_COUNT || matches!(form_type, LAND | APPARATUS_COMPATIBILITY) {
         return false;
     }
-    if form_type == BOOK {
-        return false;
+    match form_type {
+        BOOK => cascade < 2,
+        ACTIVATOR | CONTAINER | FURNITURE | NPC | CREATURE | LEVELED_CREATURE => cascade < 3,
+        // Doors, misc objects, statics, trees, and unknown compatible forms
+        // remain enabled in the LOD profile exactly as in modern NVR.
+        _ => true,
     }
-    cascade != CASCADE_COUNT - 1
-        || !matches!(
-            form_type,
-            ACTIVATOR | CONTAINER | MISC | FURNITURE | NPC | CREATURE | LEVELED_CREATURE
-        )
 }
 
 /// Absolute camera-space near/far interval for one directional cascade.
@@ -471,16 +626,14 @@ pub(super) struct CascadeSplit {
     pub(super) far: f32,
 }
 
-/// Compute a near-stable extension of NVR's practical four-cascade partition.
+/// Compute NVR's practical four-cascade partition exactly.
 ///
 /// The first slice starts ten world units beyond the camera near plane. The
 /// requested distance is clamped to the camera far plane, and `lambda` blends
-/// uniform (`0`) with logarithmic (`1`) placement. NVR recomputes every inner
-/// boundary from the requested far distance, which resizes nearby shadows when
-/// only the distance slider changes. OMV anchors only the first boundary once
-/// the range reaches NVR's 6,000-unit quality default. The other boundaries
-/// must expand with the requested range: freezing all three strands actors and
-/// small gameplay forms in the LOD-only profile after roughly 1,800 units.
+/// uniform (`0`) with logarithmic (`1`) placement. Every boundary uses that
+/// same requested range. A private fixed near boundary made lambda and distance
+/// edits produce a hybrid partition which NVR never generated, leaving cached
+/// neighboring projections with visibly inconsistent crop boundaries.
 pub(super) fn practical_cascade_splits(
     camera_near: f32,
     camera_far: f32,
@@ -502,16 +655,6 @@ pub(super) fn practical_cascade_splits(
     if max_z <= min_z {
         return None;
     }
-    const STABLE_PROFILE_DISTANCE: f32 = 6_000.0;
-    let stable_max_z = (camera_near + STABLE_PROFILE_DISTANCE).min(camera_far);
-    let stable_range = stable_max_z - min_z;
-    let stable_ratio = stable_max_z / min_z;
-    let first_p = 1.0 / CASCADE_COUNT as f32;
-    let stable_first = {
-        let logarithmic = min_z * stable_ratio.powf(first_p);
-        let uniform = min_z + stable_range * first_p;
-        uniform + lambda * (logarithmic - uniform)
-    };
     let range = max_z - min_z;
     let ratio = max_z / min_z;
     let mut near = min_z;
@@ -523,12 +666,7 @@ pub(super) fn practical_cascade_splits(
         let p = (index + 1) as f32 / CASCADE_COUNT as f32;
         let logarithmic = min_z * ratio.powf(p);
         let uniform = min_z + range * p;
-        let nvr_far = uniform + lambda * (logarithmic - uniform);
-        let far = if index == 0 && max_z >= stable_max_z {
-            stable_first
-        } else {
-            nvr_far
-        };
+        let far = uniform + lambda * (logarithmic - uniform);
         if !far.is_finite() || far <= near {
             return None;
         }
@@ -768,10 +906,10 @@ pub(super) fn sphere_intersects_cube_face(
 
 /// Apply NVR's bounded point-light influence admission without engine access.
 ///
-/// A light must have a useful shadow radius, fit entirely inside the fixed
-/// discovery distance, and either face the camera or contain it. The latter
-/// exception prevents a surrounding room light from vanishing when its origin
-/// moves behind the view plane.
+/// A light must have a useful shadow radius, overlap the fixed discovery
+/// distance, and either face the camera or contain it. Requiring the entire
+/// influence sphere to fit inside the boundary rejects large room lights and
+/// rejects more lights as the user increases the radius multiplier.
 pub(super) fn point_light_influence_is_eligible(
     relative_position: [f32; 3],
     radius: f32,
@@ -803,7 +941,7 @@ pub(super) fn point_light_influence_is_eligible(
         .map(|index| relative_position[index] * camera_forward[index])
         .sum::<f32>()
         > 0.0;
-    (in_front || distance <= radius) && distance + radius <= max_distance
+    (in_front || distance <= radius) && distance - radius <= max_distance
 }
 
 /// Observable geometry attributes used by shadow-caster policy.
@@ -1100,9 +1238,9 @@ pub(super) struct ProducerResourcePlan {
     pub(super) estimated_bytes: u64,
     /// Peak bytes after both lazy location branches have been visited.
     ///
-    /// Retaining both families prevents cell-transition allocation hitches;
-    /// only the native-format scene copy is shared between the branch-specific
-    /// half-resolution contact and full-resolution point-light work targets.
+    /// Retaining both families prevents cell-transition allocation hitches.
+    /// Exterior contact refinement samples the persistent atlas directly, so
+    /// only interiors own full-resolution normal and RGB-deficit work targets.
     pub(super) combined_estimated_bytes: u64,
     /// Comparable lower bound for NVR's multisampled 4096 atlas path.
     pub(super) nvr_equivalent_estimated_bytes: u64,
@@ -1129,20 +1267,12 @@ impl ProducerResourcePlan {
         let point_cubes = u64::from(512_u32.pow(2)) * 6 * 4 * NVR_POINT_LIGHT_COUNT as u64;
         let point_depth = u64::from(512_u32.pow(2)) * 4;
         let full_resolution_pixels = u64::from(width) * u64::from(height);
-        let contact_pixels = u64::from(width.div_ceil(2)) * u64::from(height.div_ceil(2));
-        let contact_work_pair = contact_pixels * 4 * 2;
-        let point_accumulation = full_resolution_pixels * 4;
+        let point_accumulation = full_resolution_pixels * 8;
         let reconstructed_normals = u64::from(width) * u64::from(height) * 8;
-        let scene_color_copy = full_resolution_pixels * 4;
-        let directional_consumer = contact_work_pair + scene_color_copy;
-        let interior_consumer = point_accumulation + reconstructed_normals + scene_color_copy;
+        let interior_consumer = point_accumulation + reconstructed_normals;
         let directional = scene != SceneKind::Interior;
         let estimated_bytes = if directional {
-            persistent_cascades
-                + generation_moments
-                + generation_depth
-                + shared_blur_target
-                + directional_consumer
+            persistent_cascades + generation_moments + generation_depth + shared_blur_target
         } else {
             point_cubes + point_depth + interior_consumer
         };
@@ -1152,7 +1282,6 @@ impl ProducerResourcePlan {
             + shared_blur_target
             + point_cubes
             + point_depth
-            + directional_consumer
             + point_accumulation
             + reconstructed_normals;
 

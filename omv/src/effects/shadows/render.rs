@@ -104,6 +104,11 @@ const DISMEMBER_RENDERABLE: usize = 0x38;
 
 const CALCULATE_BONE_MATRICES: usize = 0x00E6_FE30;
 const DRAW_SKINNED_GEOMETRY: usize = 0x00E6_D310;
+// `NiDX9Renderer::CalculateBoneMatrices` subtracts this engine camera origin
+// from the translation column of every output 3x4 matrix. NVR synchronizes the
+// global in `SetupSceneCamera`; OMV instead keeps engine state untouched and
+// rebases the copied rows into its coherent captured-camera domain.
+const CAMERA_WORLD_TRANSLATION: usize = 0x011F_474C;
 
 const SPEEDTREE_ROCK_PARAMS: usize = 0x0120_0658;
 const SPEEDTREE_RUSTLE_PARAMS: usize = 0x0120_0668;
@@ -586,6 +591,11 @@ unsafe fn draw_skinned(
             1,
         )
     };
+    let native_camera_translation =
+        unsafe { read_unaligned(CAMERA_WORLD_TRANSLATION as *const [f32; 3]) };
+    if !native_camera_translation.into_iter().all(f32::is_finite) {
+        return Err(direct3d_failure());
+    }
     let skin_world = unsafe { read::<*mut [[f32; 4]; 4]>(skin, SKIN_TO_WORLD) };
     let world = if skin_world.is_null() {
         fallback_world
@@ -628,15 +638,51 @@ unsafe fn draw_skinned(
             } else {
                 (unsafe { read_unaligned(indices.add(bone)) }) as usize
             };
-            let rows = unsafe { core::slice::from_raw_parts(bone_rows.add(source * 3), 3) };
+            let mut rows: [[f32; 4]; 3] =
+                unsafe { read_unaligned(bone_rows.add(source * 3).cast::<[[f32; 4]; 3]>()) };
+            // Static casters are explicitly camera-relative before upload.
+            // Apply the exact equivalent correction to native skin matrices;
+            // otherwise only actors are displaced whenever the engine global
+            // camera belongs to an earlier or alternate render view.
+            rows = rebase_bone_rows(rows, native_camera_translation, context.camera_translation)
+                .ok_or_else(direct3d_failure)?;
             context
                 .device
-                .set_vertex_shader_constant_f((9 + bone * 3) as u32, rows)?;
+                .set_vertex_shader_constant_f((9 + bone * 3) as u32, &rows)?;
         }
         unsafe { bind_geometry_buffer(context.device, buffer)? };
         unsafe { draw(context.renderer, buffer, entry, core::ptr::null_mut()) };
     }
     Ok(())
+}
+
+/// Rebase one native 3x4 skin matrix into OMV's captured-camera domain.
+///
+/// Fallout stores each translation component in the fourth value of the
+/// corresponding axis row. The native bone builder has already subtracted
+/// `native_camera_translation`; adding the origin delta makes its output
+/// equivalent to subtracting `shadow_camera_translation` in the first place.
+pub(super) fn rebase_bone_rows(
+    mut rows: [[f32; 4]; 3],
+    native_camera_translation: [f32; 3],
+    shadow_camera_translation: [f32; 3],
+) -> Option<[[f32; 4]; 3]> {
+    if !rows.iter().flatten().all(|value| value.is_finite())
+        || !native_camera_translation.into_iter().all(f32::is_finite)
+        || !shadow_camera_translation.into_iter().all(f32::is_finite)
+    {
+        return None;
+    }
+    let camera_delta: [f32; 3] = std::array::from_fn(|axis| {
+        native_camera_translation[axis] - shadow_camera_translation[axis]
+    });
+    for axis in 0..3 {
+        rows[axis][3] += camera_delta[axis];
+    }
+    rows.iter()
+        .flatten()
+        .all(|value| value.is_finite())
+        .then_some(rows)
 }
 
 unsafe fn bind_geometry_buffer(device: &Device9Ref<'_>, buffer: *mut u8) -> Direct3DResult<()> {

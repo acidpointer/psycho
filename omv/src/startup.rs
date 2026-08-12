@@ -311,24 +311,19 @@ mod deferred_install_tests {
 
     #[test]
     fn shadow_consumer_and_reset_ownership_have_fixed_source_order() {
-        let runtime = include_str!("runtime.rs");
-        let scene_pre = runtime
-            .split_once("pub(crate) unsafe fn apply_fnv_scene_pre_image_space(")
-            .and_then(|(_, tail)| {
-                tail.split_once("pub(crate) unsafe fn apply_fnv_scene_post_image_space")
-            })
+        let render = include_str!("fnv_render.rs");
+        let pre_alpha = render
+            .split_once("unsafe extern \"cdecl\" fn hook_render_pre_depth_groups(")
+            .and_then(|(_, tail)| tail.split_once("\nfn current_render_target"))
             .map(|(body, _)| body)
-            .expect("scene-pre entry");
-        let shadows = scene_pre
-            .find("shadows::apply_scene_pre")
+            .expect("opaque pre-alpha entry");
+        let shadows = pre_alpha
+            .find("shadows::apply_before_alpha")
             .expect("shadow composition");
-        let runtime_lock = scene_pre
-            .find("RUNTIME.try_lock()")
-            .expect("screen runtime lock");
-        let screen_stack = scene_pre
-            .find("runtime.apply_scene_phase")
-            .expect("ordinary screen stack");
-        assert!(shadows < runtime_lock && runtime_lock < screen_stack);
+        let atmosphere = pre_alpha
+            .find("fnv_world_pipeline::apply_before_alpha")
+            .expect("atmosphere composition");
+        assert!(shadows < atmosphere);
 
         let hooks = include_str!("hooks.rs");
         let recreate = hooks

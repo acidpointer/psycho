@@ -1702,9 +1702,105 @@ to 331,974,656 bytes. These are residency and bandwidth bounds, not a runtime
 FPS claim. Visual and performance acceptance for this second corrective
 artifact still requires the user's Proton/DXVK playtest.
 
+#### Runtime rejection and third corrective pass
+
+The user then tested the exact local/deployed 12,815,268-byte DLL with SHA-256
+`1eb97aa9b31817858aa3119e4bc8a8a7eea770b0b9d100962f8a7779a8ac7c8c`.
+Exterior quality and speed were materially better, but the run still showed
+camera-following contact shapes, broad distant-wall artifacts, displaced and
+short actor shadows, and about 70-80 FPS instead of 120 FPS or more. Interiors
+darkened the complete scene and did not react to point lights or the Pip-Boy
+light.
+
+The matching 5,984-line runtime log closes the interior symptom at the
+producer boundary. It records successful creation of twelve 512 cube maps but
+publishes `0 shadowed point lights`; the adjacent atmosphere capture sees six
+manager lights, four usable, and zero completed native shadows. This is not a
+missing manager or consumer invocation. Source comparison found that OMV
+multiplied replacement-light color by `ShadowSceneLight +0xD0` transition
+state. Modern NVR's `ShaderManager::GetNearbyLights` instead uses
+`NiLight::Diff * NiLight::Dimmer` directly. The transition belongs to the
+native prefix which NVR and OMV replace, so it cannot be required to make a
+replacement light visible. OMV now follows that contract. Influence admission
+also tests whether a sphere overlaps the configured draw range; requiring the
+whole multiplied radius to fit made increasing the radius control reject large
+room lights.
+
+New radare2 inspection of `NiDX9Renderer::CalculateBoneMatrices @ 0x00E6FE30`
+proves the actor-only coordinate mismatch. At `0x00E700DB`, `0x00E700E8`, and
+`0x00E700F5`, the engine subtracts camera globals `0x011F474C`, `0x011F4750`,
+and `0x011F4754` from the fourth component of the three output bone rows.
+Modern NVR calls `RenderManager::SetupSceneCamera` before shadow generation,
+which copies its selected world-camera translation into those globals. OMV
+correctly made rigid transforms relative to its coherent captured camera but
+did not synchronize the unrelated engine global before asking for bone
+matrices. It now leaves engine state untouched and adds
+`native_camera_origin - captured_camera_origin` to each copied bone-row
+translation. The correction is applied before both directional and point-map
+submission, and the deterministic reference test covers nonzero origins.
+
+Contact rays now snap both receiver and ray-hit addresses to exact texel
+centers in the full-resolution depth source. A two-neighbor receiver plane
+rejects coplanar depth quantization as a caster and rejects receivers facing
+away from the light. This specifically targets ground shapes which follow the
+camera rather than real world occluders. The stronger validation permits one
+center-plus-cardinal bilateral pass instead of two separable passes. At the
+half-resolution work extent, the contact route falls from three draws to two
+and from roughly 25 to 18 depth/contact reads per output pixel, while retaining
+four ray tests and two-axis filtering.
+
+Distant EVSM receivers now use NVR's cascade-specific light-bleed reductions
+`0.1/0.2/0.6/0.8`. A bounded one-world-unit shift toward the sun prevents
+broad coplanar walls from comparing against their own far-map moments. This is
+the light-direction equivalent of receiver bias and avoids adding a separate
+four-depth-fetch normal reconstruction to the hottest native-resolution pass.
+Map resolution, FP16 EVSM4 moments, alpha coverage, and separable map
+prefiltering are unchanged.
+
+Interior composition no longer interprets missing local illumination as a
+global darkness request. The accumulator already publishes visible light in
+`x` and the same lights' unoccluded energy in `y`; the compositor removes only
+`saturate(y - x) * darkness`. Pixels with no selected light, ambient-only
+illumination, emissive surfaces, and fully visible point light retain a neutral
+factor. An occluded point light alone darkens its affected receiver. This lets
+ordinary room lights and a manager-exposed Pip-Boy light participate without
+dimming the whole interior merely because Shadows is enabled.
+
+Four independent cost corrections preserve spatial quality:
+
+- cascade refresh limits are now 33/66/100/200 ms, about 30/15/10/5 Hz and
+  roughly 60 rather than 125 complete 2048-map updates per second; current
+  camera matrices still rebase retained maps every frame and dirty sun,
+  frustum, and setting changes remain synchronous;
+- the final compositor emits a scalar RGB shadow factor and uses checked D3D9
+  `DESTCOLOR/ZERO` multiplication into the source. This removes the native-size
+  scene copy, one full-resolution scene sample, and 7.9 MiB of retained memory
+  at 1920 by 1080. Unsupported post-pixel-shader blending fails transactionally
+  to the established native path;
+- the contact route uses the two-pass bound above;
+- point cubes render every new, replaced, radius-changed, or materially moved
+  light synchronously. Stable maps refresh at a 100 ms per-slot cadence with
+  at most one six-face light per invocation and staggered deadlines. Movement
+  below eight world units retains both the old map and its paired light
+  position; it never samples a retained cube through current unmatched
+  metadata. Cell identity invalidates all slots, and cache mutation commits
+  only after the complete D3D transaction succeeds.
+
+The resulting 1920-by-1080 resource estimates are 222,251,008 bytes for the
+exterior branch, 101,429,248 bytes for the interior branch, and 323,680,256
+bytes after both lazy branches have been visited. These are static memory and
+work bounds, not a runtime FPS claim. The corrected artifact still requires
+the user's Proton/DXVK visual and performance playtest.
+
+This third corrective artifact was subsequently rejected by playtest. Its
+screen-depth contact route, late scene-pre composition, hybrid cascade
+partition, native-prefix-dependent light fields, and full-resolution target
+ownership are historical evidence only. The current contract below supersedes
+those decisions.
+
 The implemented scene-shadow scope is the modern NVR consumer graph that has an
 OMV scene-color consumer: exterior directional/EVSM shadows, exterior
-screen-space contact shadows, and interior point-light cube shadows. Modern
+camera-stable EVSM contact refinement, and interior point-light cube shadows. Modern
 NVR's ortho map is an input to its separate rain, snow, accumulation, and wet
 world effects rather than its scene-shadow compositor, so OMV Shadows neither
 allocates nor publishes that unrelated resource. NVR's custom flashlight owns
@@ -1718,11 +1814,11 @@ driver acceptance without a user load-to-gameplay playtest.
 
 ### Source and API ownership
 
-`shaders.rs` owns an explicit eleven-program catalog. Preparation remains a
+`shaders.rs` owns an explicit nine-program catalog. Preparation remains a
 single serialized post-Deferred worker publication, but success now logs the
 program count, total bytecode DWORDs, and elapsed milliseconds. A short elapsed
 time is therefore distinguishable from an incomplete catalog; tests compile
-all eleven production sources, enforce SM3 instruction budgets, reject
+all nine production sources, enforce SM3 instruction budgets, reject
 duplicate bytecode programs, and require four-component pixel `COLOR0`
 signatures. The complete catalog was additionally executed against the exact
 32-bit Microsoft `d3dcompiler_47.dll` from the user's game prefix, rather than
@@ -1735,12 +1831,13 @@ only Wine/VKD3D's more permissive built-in compiler.
 | `omv/src/effects/shadows/native.rs` | bounded current-scene, cell/root, geometry-list, and stable point-light discovery |
 | `omv/src/effects/shadows/math.rs` | allocation-free row-vector cascade, cube, frustum, and camera-relative transform math |
 | `omv/src/effects/shadows/render.rs` | native geometry classification, traversal, register upload, and original-renderer submission |
-| `omv/src/effects/shadows/pipeline.rs` | complete device-generation resources, producer transaction, immutable epoch publication, and scene-pre consumer |
+| `omv/src/effects/shadows/pipeline.rs` | complete device-generation resources, producer transaction, immutable epoch publication, and pre-alpha consumer |
 | `omv/src/effects/shadows/shaders.rs` | complete process-owned shader bytecode catalog prepared after `DeferredInit` |
 | `omv/src/effects/shadows/mod.rs` | atomic runtime settings, route admission, common-entry decision, try-lock ownership, and reset boundary |
 | `omv/src/fnv_local_lights.rs` | thiscall bridge at `0x00871290` and the exclusive prefix/replacement-tail choice |
 | `omv/src/startup.rs` | post-`DeferredInit` route and hook ordering |
-| `omv/src/runtime.rs` | configuration updates, menu, and pre-screen-stack composition |
+| `omv/src/fnv_render.rs` | opaque/pre-alpha composition boundary and shadows-before-atmosphere order |
+| `omv/src/runtime.rs` | configuration updates, menu, and stable world/scene color-target ownership |
 | `omv/src/hooks.rs` | reset ordering and bypass submission through original geometry trampolines |
 | `libpsycho/src/os/windows/directx9.rs` | safe D3D9 cube, surface, state, raw-buffer, and scene wrappers |
 
@@ -1748,7 +1845,7 @@ The crate-visible public boundary is intentionally small. `NativeShadowsSettings
 is the immutable runtime setting value; `configure_runtime_options` is an
 atomic-only pre-deferred operation; `install` owns deferred route publication;
 `handle_common_entry` returns the only legal native continuation;
-`apply_scene_pre` consumes the current or immediately preceding compatible
+`apply_before_alpha` consumes the current or immediately preceding compatible
 publication; and
 `reset_runtime_state` releases every default-pool resource before native device
 recreation. Each unsafe public entry documents the native lifetime required of
@@ -1797,8 +1894,10 @@ shadows. An explicitly disabled interior/exterior location needs no resource
 and takes the tail-only path immediately after deferred route admission, so a
 toggle cannot transiently re-enable native generation during preparation.
 
-Scene-pre composition runs before the ordinary screen-effect runtime lock and
-stack, so later effects receive already-shadowed color. Renderer recreation
+Pre-alpha composition runs immediately after opaque pre-depth geometry and
+before atmosphere. Native alpha, fog, volumetric lighting, first-person
+geometry, TAA, AO, motion blur, and image-space work therefore land above
+shadows. Renderer recreation
 first releases existing runtime resources, then the shadow resource family,
 then PBR/sky resources, and enters the native recreate only when every owner is
 quiescent.
@@ -1817,7 +1916,7 @@ custom/highest supplied settings:
   alpha cutout at `0.5`, and a distinct-source five-tap separable prefilter;
 - texel-stabilized cascade projections plus paired center/radius spheres, with
   consumer matrix and sphere rebasing for cached camera motion;
-- monotonic refresh limits of 16, 33, 50, and 66 ms for near through LOD;
+- monotonic refresh limits of 16, 33, 50, and 100 ms for near through LOD;
   first publication and material scene/sun/frustum invalidation rebuild every
   affected cascade synchronously, while missed deadlines advance by whole
   periods so high presentation rates cannot multiply map work or cause drift;
@@ -1834,20 +1933,20 @@ custom/highest supplied settings:
   one-tenth blend for changes no larger than five degrees; the stabilized
   direction is shared by every cascade and the contact-shadow consumer so
   cadence cannot create cross-cascade light-direction seams;
-- four fixed-stratified screen-space contact-depth comparisons over NVR's
-  2000-unit ray model, intensity-two visibility, and two depth-aware filters;
-  clear endpoints are neutral, ray scale uses camera far, and the reliable
-  range cannot exceed the actor-capable far cascade; all three soft-contact
-  work passes run at half width and height before one linearly filtered
-  native-resolution composition;
+- camera-stable contact refinement operates on the selected EVSM probability,
+  preserving lit/shadow endpoints while tightening uncertain near transitions;
+  it performs no camera-depth ray search, offset receiver lookup, blur pass, or
+  screen-sized work allocation, and its range cannot exceed the actor-capable
+  far cascade;
 - exterior darkness `0.75`, matching the supplied NVR default.
 
 The menu and schema-one working config expose darkness, distance, split lambda,
 contact enablement, contact depth distance, and contact ray distance. Values
 are finite-clamped before atomic publication. Split comparison dirties only
 quadrants whose complete near/far interval changed. Extending the default
-distance retains the near projection while middle, far, and LOD expand; a
-lambda edit still replaces every interval it actually changes. A published
+distance recomputes NVR's complete practical partition rather than retaining a
+private 6000-unit near anchor; a lambda edit likewise replaces every interval
+it actually changes. A published
 quadrant always retains the projection, center/radius sphere, split, and
 generation origin with which its moments were rendered.
 
@@ -1862,19 +1961,22 @@ filtering cannot bleed across quadrants.
 
 ### Interior quality contract
 
-The interior branch defaults to twelve cube-shadowed lights and retains twelve
-additional tracked lights without cube comparisons. All twelve cubes are
-sampled, rather than repeating NVR's eleven-shadowed-plus-one-fallback defect:
+The interior branch defaults to twelve cube-shadowed lights. All twelve cubes
+are sampled; lights outside the cube budget remain in the already-rendered
+native scene and are neither redrawn nor globally attenuated:
 
 - stable distance plus native-identity ordering retains equal-distance lights;
-- a cube candidate displaced by a nearer thirteenth light competes for the
-  tracked fallback set, preserving crowded-room illumination without adding a
-  cube render;
+- a nearer thirteenth light displaces only the farthest cube owner; native
+  crowded-room illumination remains untouched without an OMV fallback draw;
 - every eligible light competes for a cube slot because modern NVR explicitly
   forces that decision true when JIP makes the engine flag unreliable;
-- lights must be live, point, nonambient, visible/nonblack, in front of the
-  camera or contain it, and satisfy `distance + radius < 8000`;
+- light admission reads `NiDynamicEffect::EffectType +0x9D`,
+  `CanCarry +0x9F`, `NiLight::Dimmer +0xC4`, `Diff +0xD4`, and radius from
+  `Spec.r +0xE0`; it does not depend on `ShadowSceneLight` prefix fields that
+  OMV replaces. Lights must be live, point, visibly nonblack, in front of the
+  camera or contain it, and overlap the configured draw range;
 - influence radius uses the supplied NVR `1.5` multiplier;
+- carried and Pip-Boy lights use NVR's fixed 256-unit cube radius;
 - twelve 512-face `R32F` cube maps share one matching `D24S8` depth surface;
 - all six D3D faces use the NVR coordinate flip and 90-degree view convention;
 - conservative sphere-versus-face tests reject objects outside each 90-degree
@@ -1886,19 +1988,20 @@ sampled, rather than repeating NVR's eleven-shadowed-plus-one-fallback defect:
   lifetime; a bounded current-cell traversal is the documented fallback;
 - a full-resolution FP16 normal reconstruction chooses the shorter 3D neighbor
   on each axis, avoiding rotated-camera discontinuity errors;
-- two additive six-cube passes plus at most two sampler-free fallback passes
-  accumulate local-light energy, and the interior composite maps that energy
-  from the supplied NVR darkness floor `1 - 0.65` to full light.
+- two additive six-cube passes accumulate RGB direct-light energy proven
+  occluded by radial depth. A full-resolution FP16 RGB target preserves colored
+  lights, and reverse-subtract blending removes only that deficit from native
+  scene color. Ambient, emissive, fully visible, and unselected native light
+  energy remains unchanged.
 
 The menu/config exposes interior darkness, cube-light count (one through
 twelve), radius multiplier, draw distance, and receiver bias. Lowering the
 count reduces six face renders per removed cube while overflow lights retain
-unshadowed illumination. First-person player geometry remains excluded and
-third-person geometry remains eligible. Scene composition also treats valid
-non-endpoint pixels in the current-epoch separate first-person depth capture as
-a view-model mask and returns the original scene color there. This prevents
-world visibility from being laid over hands and weapons without disabling
-third-person actor casting. SpeedTree is intentionally excluded only from the
+unshadowed native illumination. The third-person player node is collected
+explicitly through `PlayerCharacter::GetNode` ownership semantics in both the
+cached and capacity-overflow traversal routes. First-person geometry is drawn
+later by the engine, after pre-alpha composition, so shadows cannot be painted
+over hands or weapons and no first-person depth mask is needed. SpeedTree is intentionally excluded only from the
 point-cube route: NVR's cube register `c63` aliases its SpeedTree constant
 block, so attempting that route consumes invalid data. Directional SpeedTree,
 terrain LOD, skinned, ordinary, and alpha geometry all retain dedicated paths.
@@ -1921,8 +2024,9 @@ definition but bypasses the ordinary alpha pass. Remaining geometry is
 admitted only when `BSShaderProperty::uiShaderIndex` at `+0x58` is NVR's
 `ShadowLight` (1), `Parallax` (15), or `Lighting30` (29); every such lighting
 property obtains its diffuse owner from `ppTextures[0]` at `+0xAC` when alpha
-testing is required. The supplied NVR profiles disable books everywhere and
-admit misc forms in near, middle, and far but not LOD.
+testing is required. The supplied NVR profiles enable books in near and middle,
+enable misc forms in all four cascades, and exclude actors, activators,
+containers, and furniture only from LOD.
 
 Stencil culling reads the renderer's `renderState` at `+0x8B8`, draw-mode map
 at render-state `+0xD4`, and handedness selector at `+0xF4`. Legal mapped D3D9
@@ -1959,16 +2063,17 @@ surface. CPU scheduler/signature changes are staged locally and committed only
 after `EndScene` and complete attachment/state restoration succeed.
 
 Every fullscreen pass also owns its pixel-admission state: alpha and stencil
-tests cannot reject the quad, all four color channels and all multisample bits
+tests cannot reject the quad, the required color channels and all multisample bits
 are writable, vendor alpha-to-coverage is disabled, and used samplers declare
 non-sRGB reads. These states are part of output correctness, not merely
 restoration hygiene, because successful D3D9 calls otherwise provide no
 evidence that the render target changed.
 
-The scene-pre consumer is try-lock-only and accepts the current or immediately
+The pre-alpha consumer is try-lock-only and accepts the current or immediately
 preceding render epoch on the same device. It captures/restores the same state
-boundary, copies scene color to a distinct texture before writing the source
-surface, and never samples a bound render-target subresource. Any failure
+boundary and multiplies a shader-produced factor into source RGB through
+capability-checked fixed-function blending; it never samples the bound source
+render target, and its RGB-only channel mask preserves source alpha. Any failure
 removes the publication; the next common entry either retries OMV or safely
 executes native shadows.
 Resource creation is transactional per location branch and device generation.
@@ -1979,17 +2084,16 @@ fallback remains available. Once lazily created, both heavy families remain
 resident across cell transitions. Reset drops every consumer, shader,
 state-block, and branch COM owner before native recreation.
 
-At 1920 by 1080 the conservative exterior estimate is 230,545,408 bytes,
+At 1920 by 1080 the conservative exterior estimate is 222,251,008 bytes,
 including the 4096 atlas, reusable single-sample 2048 moment/depth pair, blur
-target, scene copy, and the half-resolution contact work pair.
-The twelve-light interior estimate is below 128 MiB and owns separate
-full-resolution normal and illumination targets. NVR's 4096 4x-MSAA atlas
+target, with no screen-space contact work targets.
+The twelve-light interior estimate is 109,723,648 bytes and owns separate
+full-resolution FP16 normal and RGB-deficit targets. NVR's 4096 4x-MSAA atlas
 color/depth topology alone has a 896 MiB lower bound before cubes and
 full-resolution resources. OMV therefore preserves map/filter resolution while
 avoiding NVR's giant multisampled atlas. After both branches have been
 visited, their combined conservative 1920-by-1080 residency is 331,974,656
-bytes. Only the native-format scene copy is shared; exterior contact and interior
-point-light targets are allocated lazily by location branch and retained after
+bytes. Interior point-light targets are allocated lazily and retained after
 their first use. Keeping that bounded capacity avoids reallocating hundreds of
 MiB and stalling the driver at every interior/exterior door transition. Face
 culling and the configurable cube count reduce interior draw work without
@@ -2008,32 +2112,38 @@ Deterministic tests cover:
   including counter wrap and expiry;
 - complete first-invocation cascade publication, exact one/one/ten/ten
   projected caster thresholds, per-cascade LOD admission, exact modern-NVR
-  book/misc form profiles, and skinned-before-lighting pass ownership;
-- practical splits, stable near coverage plus expanding gameplay-caster reach,
+  book/misc form profiles, skinned-before-lighting pass ownership, and the
+  native-to-captured-camera bone-row translation rebase;
+- exact NVR practical splits and expanding gameplay-caster reach,
   per-quadrant split invalidation, texel stabilization, cached matrix/sphere
   rebasing, sphere-based receiver selection, cube axes, world-to-view sun
   conversion, and TAA-jitter projection tolerance;
-- monotonic 16/33/50/66 ms cascade scheduling, synchronous dirty refresh,
+- monotonic 16/33/50/100 ms cascade scheduling, synchronous dirty refresh,
   complete first publication, and deadline advancement without high-rate drift;
 - equal-distance selection, radius/front/distance admission, point-sphere
   volume and conservative cube-face culling, caster rejection, forced-true
-  modern-NVR light admission, configured cube budgets, and overflow demotion
-  into the twelve-light fallback set;
-- CPU EVSM4 and exterior/interior compositor reference behavior;
+  modern-NVR light admission, native point/carry field ownership, configured
+  cube budgets without fallback redraws, plus cube-cache first publication,
+  staggered refresh bounds, motion invalidation, paired retained metadata, and
+  transaction-only commit;
+- CPU EVSM4 and distinct exterior-visibility/interior-light-deficit compositor
+  reference behavior, including neutral unlit, emissive, and fully visible
+  interior pixels;
 - branch-lazy quality/memory topology, retained transition capacity,
-  exact half-resolution contact extents and residency accounting,
+  absence of screen-space contact targets and exact residency accounting,
   same-invocation allocation/generation, direct single-sample moment filtering,
   distinct blur identities, complete state classes, and scene-pair balance;
-- compilation of all eleven SM3 shader variants with static instruction
+- compilation of all nine SM3 shader variants with static instruction
   budgets and source contracts for complex geometry, alpha thresholds,
-  derivative-free fixed contact work, clear-depth rejection, camera-far ray
-  scaling, depth-aware filtering, selected-cascade lookup count, NVR EVSM
-  variance, coherent first-person masking, all twelve
-  cubes, exact far clear, atlas edge isolation, and legacy
+  derivative-free stable EVSM contact refinement, clear-depth rejection,
+  selected-cascade lookup count, NVR EVSM variance and per-cascade bleed
+  reduction, pre-first-person ordering, direct
+  multiplicative composition, all twelve cubes, exact far clear, atlas edge
+  isolation, and legacy
   D3DCompiler-compatible four-component pixel outputs;
 - strict schema-one defaults, finite bounds, save/round-trip behavior, all
   appearance/performance controls, no preset payload ownership, pre-deferred
-  atomic-only configuration, deferred hook order, scene-pre order, and reset
+  atomic-only configuration, deferred hook order, pre-alpha order, and reset
   order.
 
 The required static gates are the focused shadow/config/startup tests, the full
@@ -2056,6 +2166,105 @@ SHA-256
 catalog also passed against the game's Microsoft `d3dcompiler_47.dll` (version
 10.0.15063.674). These results prove static, compiler, and supported-build
 behavior only.
+
+The third corrective pass added the actor-origin, contact-plane, far-receiver,
+interior-deficit, point-cache, cadence, and direct-composition regressions
+described above. Its focused shadow suite passed 64 tests and the complete OMV
+suite passed all 553 tests under `i686-pc-windows-gnu`; the explicit optimized
+OMV build also passed. The resulting 12,827,921-byte `omv.dll` has SHA-256
+`52ba14694aa1538a5db8b3be33634a63af1e068c1cec4fb50fe9e52ffbd0e209`.
+The pre-Deferred PE footprint remains `.idata = 0x33fc` and `.tls = 0x8`.
+Formatting and `git diff --check` also pass. These are static and build results;
+the corrected image, frame rate, and Proton/DXVK behavior remain explicitly
+unaccepted until the user's load-to-gameplay playtest. The next playtest did
+reject it with the artifact, ordering, interior-light, actor, and performance
+symptoms recorded above; its acceptance status is therefore failed.
+
+#### Fourth corrective pass: opaque ordering and stable map-domain ownership
+
+The rejected run's current log contains two decisive runtime facts. Interior
+resources were ready for twelve cubes but selection repeatedly reported zero
+shadowed point lights. At 3440 by 1440, the log also alternated every frame
+between a post-world target in format `0x71` and the scene-post graph target in
+format `0x16`. Source showed both phases overwriting one
+`scene_post_color_copy` owner. This forced a full-resolution D3D texture
+release/create cycle every frame and is a direct driver-stall mechanism, not a
+shader-cost inference. First-person motion blur now shares the established
+`world_color_copy`, whose lifetime and FP16 format match that boundary;
+scene-post retains its independent LDR graph owner.
+
+The visual ordering defect was also source-proven. The rejected compositor ran
+from `apply_fnv_scene_pre_image_space`, after `hook_render_pre_depth_groups`
+had already executed atmosphere/fog. Multiplying scene color there necessarily
+darkened fog and volumetric lighting. The consumer now runs immediately after
+the original pre-depth-group renderer returns and before
+`fnv_world_pipeline::apply_before_alpha`. This is the opaque-world boundary
+already owned by OMV. Native alpha, fog, volumetric lighting, the later
+first-person pass, AO, motion blur, TAA, and image-space effects consequently
+render above shadows. A missed early boundary fails closed and never falls
+forward to scene-pre.
+
+Modern NVR's `ShaderManager::GetNearbyLights` establishes the point-light
+adapter contract: `ShadowSceneLight::sourceLight` identifies the native light,
+then eligibility reads `NiDynamicEffect::EffectType` and `CanCarry`, plus
+`NiLight::Dimmer`, `Diff`, and `Spec.r`. It does not require the native-prefix
+point/ambient/active bytes at `ShadowSceneLight +0xF4/+0xF5/+0x110` or its
+transition. OMV replaces that prefix, so requiring those fields explained the
+zero-light publication. The adapter now uses the native fields at
+`+0x9D/+0x9F/+0xC4/+0xD4/+0xE0`, the exact NVR nonblack threshold, and the
+fixed 256-unit carried/Pip-Boy radius. This is source evidence from
+`.research/TESReloaded10-master/src/core/ShaderManager.cpp:521-669` and
+`src/NewVegas/nvse/GameNi.h:1021-1058`; it changes no executable address.
+
+Actor ownership no longer assumes that `TESObjectCELL::objectList` contains the
+player. The player singleton already validated by `current_scene` supplies its
+third-person render node explicitly. The node is deduplicated in the shared
+root cache and is also visited by the complete capacity-overflow route. Actors
+remain enabled in near, middle, and far, and excluded only from LOD. Modern NVR
+form defaults were rechecked directly: books are enabled in near/middle and
+misc forms in every cascade. This corrects the former small-object omissions.
+The previously proven `NiDX9Renderer::CalculateBoneMatrices @ 0x00E6FE30`
+camera-origin correction remains paired with this now-complete actor route.
+
+Camera-following contact artifacts came from the design, not a tunable ray
+bias. The screen-depth ray and bilateral programs, their two half-resolution
+targets, and their per-frame draws are removed from the production catalog.
+Contact refinement now tightens only the selected cascade's stable EVSM
+probability. It preserves exact lit/shadow endpoints, performs no additional
+texture lookup, never searches camera-depth discontinuities, and cannot move a
+receiver across an atlas boundary. The nine remaining shader programs compile
+under SM3 budgets.
+
+Cascade distribution now uses modern NVR's exact practical split equation for
+every configured distance. The rejected private 6000-unit near anchor created
+a hybrid partition and mismatched crop transitions when distance or lambda
+changed. Cached matrix, sphere, split, and generation origin remain one
+immutable publication. Refresh is 16/33/50/100 ms: the actor-critical near map
+is 60 Hz, while middle/far/LOD are bounded near 30/20/10 Hz. This eliminates
+the rejected 100/200 ms gameplay staleness without restoring four 2048 maps on
+every uncapped frame.
+
+Interior composition is now an actual cube-depth occlusion operation. Two
+six-light passes calculate RGB direct-light energy only where a cube proves the
+receiver occluded. The FP16 RGB result is reverse-subtracted from native scene
+color. Unselected lights, ambient, emissive surfaces, visible light, and the
+light source are not globally multiplied. NVR's near-light normal guard is
+retained so reconstructed normals cannot turn a nearby point/Pip-Boy source
+into a black disk.
+
+No startup schema, preset payload, `LazyLock`, hook-admission order, TLS owner,
+or pre-`DeferredInit` first-touch changed. New tests reject late composition,
+first-person masking, missing player ownership, stale native-prefix light
+fields, non-NVR split/form profiles, screen-space contact targets, incompatible
+color-copy sharing, scalar point-light targets, and unbounded cascade cadence.
+The focused shadow suite passes all 65 tests and the complete OMV suite passes
+all 556 tests under `i686-pc-windows-gnu`. The explicit supported release build
+also passes. The resulting 12,845,405-byte `omv.dll` has SHA-256
+`5dd8daf815bec5eb77a825f3fa096f0fd99693cd9d73b980d553c90c25b9abc2`;
+the pre-Deferred PE footprint remains `.idata = 0x33fc` and `.tls = 0x8`.
+Formatting also passes. These results prove source contracts, shader
+compilation, and the supported build only. Runtime image quality and FPS remain
+unaccepted until a new Proton/DXVK playtest.
 
 The performance/visual-correctness pass added tests that rejected every newly
 reported failure before implementation: present-rate-scaled cascade work,
@@ -2447,6 +2656,9 @@ diagnostic and must not be confused with a pass-through test.
 
 ### Current executable and static artifacts
 
+- direct radare2 inspection on 2026-08-12 of
+  `NiDX9Renderer::CalculateBoneMatrices @ 0x00E6FE30`, including camera-origin
+  subtraction at `0x00E700DB`, `0x00E700E8`, and `0x00E700F5`;
 - direct radare2 inspection on 2026-08-09 of `0x008706B0`, the three branch
   calls, `0x00871290`, `0x00871A50`, `0x00B6B8D0`, `0x00B9F780`, their
   relevant xrefs/call sequences, and `0x004073D0`;

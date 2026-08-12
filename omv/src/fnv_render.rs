@@ -518,6 +518,7 @@ unsafe extern "thiscall" fn hook_render_world_scene_graph(
     if !depth_stage_hooks_required(
         crate::runtime::needs_fnv_scene_hooks(),
         crate::fnv_world_pipeline::needs_scene_hooks(),
+        crate::effects::shadows::needs_scene_hooks(),
     ) {
         unsafe {
             original(
@@ -541,7 +542,10 @@ unsafe extern "thiscall" fn hook_render_world_scene_graph(
         let pre_alpha_target = world_scene_graph
             .then(current_render_target)
             .flatten()
-            .filter(|_| crate::fnv_world_pipeline::needs_atmosphere())
+            .filter(|_| {
+                crate::effects::shadows::needs_pre_alpha()
+                    || crate::fnv_world_pipeline::needs_atmosphere()
+            })
             .unwrap_or(0);
         PRE_ALPHA_WORLD_TARGET.store(pre_alpha_target, Ordering::Release);
         PRE_ALPHA_WORLD_ARMED.store(pre_alpha_target != 0, Ordering::Release);
@@ -605,10 +609,10 @@ unsafe extern "thiscall" fn hook_render_world_scene_graph(
     }
 }
 
-fn depth_stage_hooks_required(scene_inputs: bool, world_pipeline: bool) -> bool {
+fn depth_stage_hooks_required(scene_inputs: bool, world_pipeline: bool, shadows: bool) -> bool {
     // Published consumer requirements, rather than the global master switch,
     // decide whether OMV needs these entry points.
-    scene_inputs || world_pipeline
+    scene_inputs || world_pipeline || shadows
 }
 
 unsafe extern "cdecl" fn hook_render_pre_depth_groups(accumulator: *mut c_void) {
@@ -628,6 +632,11 @@ unsafe extern "cdecl" fn hook_render_pre_depth_groups(accumulator: *mut c_void) 
     let Some(device_ptr) = crate::backend::d3d_device_ptr() else {
         return;
     };
+    // Opaque world shadows are the bottom-most world-space effect. Native
+    // alpha, atmosphere/fog, TAA, AO, motion blur, and image-space work all
+    // execute later and therefore remain visually on top of the shadowed
+    // scene instead of being multiplied by it.
+    unsafe { crate::effects::shadows::apply_before_alpha(device_ptr) };
     unsafe { crate::fnv_world_pipeline::apply_before_alpha(device_ptr) };
 }
 
@@ -956,14 +965,59 @@ mod final_color_phase_contract_tests {
             assert!(prefix.contains("original("));
         }
 
-        assert!(!depth_stage_hooks_required(false, false));
-        assert!(depth_stage_hooks_required(true, false));
-        assert!(depth_stage_hooks_required(false, true));
+        assert!(!depth_stage_hooks_required(false, false, false));
+        assert!(depth_stage_hooks_required(true, false, false));
+        assert!(depth_stage_hooks_required(false, true, false));
+        assert!(depth_stage_hooks_required(false, false, true));
+    }
+
+    #[test]
+    fn world_shadows_compose_at_the_opaque_pre_alpha_boundary_before_atmosphere() {
+        let source = include_str!("fnv_render.rs");
+        let pre_alpha = source
+            .split_once("unsafe extern \"cdecl\" fn hook_render_pre_depth_groups")
+            .map(|(_, tail)| tail)
+            .and_then(|tail| tail.split_once("\nfn current_render_target"))
+            .map(|(body, _)| body)
+            .expect("pre-alpha detour");
+        let shadows = pre_alpha
+            .find("shadows::apply_before_alpha")
+            .expect("early shadow composition");
+        let atmosphere = pre_alpha
+            .find("fnv_world_pipeline::apply_before_alpha")
+            .expect("atmosphere composition");
+        assert!(
+            shadows < atmosphere,
+            "fog and volumetric lighting must be rendered over world shadows"
+        );
+
+        let world = source
+            .split_once("unsafe extern \"thiscall\" fn hook_render_world_scene_graph")
+            .map(|(_, tail)| tail)
+            .and_then(|tail| tail.split_once("\nfn depth_stage_hooks_required"))
+            .map(|(body, _)| body)
+            .expect("world-scene detour");
+        assert!(world.contains("shadows::needs_scene_hooks()"));
+        assert!(world.contains("shadows::needs_pre_alpha()"));
+
+        let runtime = include_str!("runtime.rs");
+        let scene_pre = runtime
+            .split_once("pub(crate) unsafe fn apply_fnv_scene_pre_image_space")
+            .map(|(_, tail)| tail)
+            .and_then(|tail| {
+                tail.split_once("pub(crate) unsafe fn apply_fnv_scene_post_image_space")
+            })
+            .map(|(body, _)| body)
+            .expect("scene-pre runtime boundary");
+        assert!(
+            !scene_pre.contains("shadows::apply_scene_pre"),
+            "a missed opaque boundary must not paint shadows over fog later"
+        );
     }
 
     #[test]
     fn runtime_policy_cannot_rewrite_resident_depth_stage_hooks() {
-        assert!(!depth_stage_hooks_required(false, false));
+        assert!(!depth_stage_hooks_required(false, false, false));
 
         let source = include_str!("fnv_render.rs");
         let live_toggle = ["set_depth_stage_hooks", "_active"].concat();

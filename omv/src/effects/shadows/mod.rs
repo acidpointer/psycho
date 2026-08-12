@@ -2,8 +2,8 @@
 //!
 //! The public crate boundary deliberately exposes one Shadows feature with an
 //! exterior and an interior admission bit. Generation remains attached to the
-//! engine's common shadow epoch, while consumption occurs at scene-pre after a
-//! coherent depth snapshot exists. No engine pointer crosses that boundary.
+//! engine's common shadow epoch, while consumption occurs after opaque depth
+//! and before native alpha/atmosphere. No engine pointer crosses that boundary.
 
 use core::ffi::c_void;
 use std::sync::{
@@ -59,7 +59,7 @@ pub(crate) struct NativeShadowsSettings {
     pub(crate) enabled: bool,
     /// Enables the four-cascade exterior branch.
     pub(crate) exterior_enabled: bool,
-    /// Enables twelve cube-shadowed plus twelve tracked interior point lights.
+    /// Enables up to twelve cube-shadowed interior point lights.
     pub(crate) interior_enabled: bool,
     /// Maximum exterior darkness.
     pub(crate) exterior_darkness: f32,
@@ -67,11 +67,11 @@ pub(crate) struct NativeShadowsSettings {
     pub(crate) exterior_distance: f32,
     /// Uniform-to-logarithmic cascade distribution.
     pub(crate) cascade_split_lambda: f32,
-    /// Enables screen-space contact shadows for exteriors.
+    /// Enables camera-stable EVSM contact refinement for exteriors.
     pub(crate) contact_shadows: bool,
     /// Maximum depth covered by contact shadows.
     pub(crate) contact_distance: f32,
-    /// Screen-space contact ray length.
+    /// Compatibility control mapped to stable contact contrast.
     pub(crate) contact_ray_distance: f32,
     /// Maximum interior darkness.
     pub(crate) interior_darkness: f32,
@@ -197,7 +197,7 @@ pub(crate) fn install(settings: NativeShadowsSettings) -> Result<()> {
 /// The ABI bridge must preserve the live receiver. Caller ancestry is not an
 /// input to production: modern NVR replaces this validated common entry for
 /// every caller, and OMV likewise reads only global world owners while writing
-/// private map resources. Only the later scene-pre consumer is tied to the
+/// private map resources. Only the later pre-alpha consumer is tied to the
 /// outer player-visible destination.
 pub(crate) unsafe fn handle_common_entry() -> CommonEntryOutcome {
     if !ROUTE_READY.load(Ordering::Acquire) {
@@ -244,16 +244,28 @@ pub(crate) unsafe fn handle_common_entry() -> CommonEntryOutcome {
     }
 }
 
-/// Composite the newest compatible shadow publication before scene-pre effects.
+/// Return whether resident world hooks must expose the pre-alpha consumer.
+pub(crate) fn needs_scene_hooks() -> bool {
+    needs_pre_alpha()
+}
+
+/// Return whether the current passive settings can consume a shadow map.
+pub(crate) fn needs_pre_alpha() -> bool {
+    if !ROUTE_READY.load(Ordering::Acquire) {
+        return false;
+    }
+    let bits = SETTINGS.load(Ordering::Acquire);
+    bits & ENABLED_BIT != 0 && bits & (EXTERIOR_BIT | INTERIOR_BIT) != 0
+}
+
+/// Composite the newest compatible shadow publication after opaque geometry.
 ///
 /// # Safety
 ///
-/// `device_ptr` and `source_rendered_texture` must be the live values supplied
-/// by the outer FNV image-space callback.
-pub(crate) unsafe fn apply_scene_pre(
-    device_ptr: *mut c_void,
-    source_rendered_texture: *mut c_void,
-) {
+/// `device_ptr` must own the live main-world RT0 at the engine's validated
+/// pre-alpha boundary. The consumer resolves the matching world depth before
+/// drawing and never falls forward to a later image-space phase.
+pub(crate) unsafe fn apply_before_alpha(device_ptr: *mut c_void) {
     let settings = current_settings();
     if !ROUTE_READY.load(Ordering::Acquire) || !settings.enabled {
         return;
@@ -261,10 +273,8 @@ pub(crate) unsafe fn apply_scene_pre(
     let Some(mut pipeline) = PIPELINE.try_lock() else {
         return;
     };
-    if let Err(error) =
-        unsafe { pipeline.consume_scene_pre(device_ptr, source_rendered_texture, settings) }
-    {
-        log::warn!("[SHADOWS] Scene-pre composition failed: {error}");
+    if let Err(error) = unsafe { pipeline.consume_before_alpha(device_ptr, settings) } {
+        log::warn!("[SHADOWS] Pre-alpha composition failed: {error}");
         pipeline.invalidate_publication();
     }
 }

@@ -44,19 +44,18 @@ const CELL_INTERIOR: u8 = 1 << 0;
 const CELL_BEHAVES_LIKE_EXTERIOR: u8 = 1 << 7;
 const FORM_NOT_CAST_SHADOWS: u32 = 0x0000_0200;
 
-const SHADOW_LIGHT_TRANSITION: usize = 0xD0;
 const SHADOW_LIGHT_GEOMETRY_LIST: usize = 0xE0;
-const SHADOW_LIGHT_POINT: usize = 0xF4;
-const SHADOW_LIGHT_AMBIENT: usize = 0xF5;
 const SHADOW_LIGHT_SOURCE: usize = 0xF8;
-const SHADOW_LIGHT_ACTIVE: usize = 0x110;
-const SHADOW_LIGHT_INACTIVE: u16 = 0x00FF;
 
 const NATIVE_LIGHT_DISABLED_FLAGS: usize = 0x30;
 const NATIVE_LIGHT_POSITION: usize = 0x8C;
+const NATIVE_LIGHT_EFFECT_TYPE: usize = 0x9D;
+const NATIVE_LIGHT_CAN_CARRY: usize = 0x9F;
 const NATIVE_LIGHT_DIMMER: usize = 0xC4;
 const NATIVE_LIGHT_DIFFUSE: usize = 0xD4;
 const NATIVE_LIGHT_RADIUS: usize = 0xE0;
+const NATIVE_POINT_LIGHT: u8 = 2;
+const CARRIED_LIGHT_RADIUS: f32 = 256.0;
 
 type ShadowSceneManagerGetter = unsafe extern "cdecl" fn(i32) -> *mut u8;
 
@@ -65,6 +64,9 @@ type ShadowSceneManagerGetter = unsafe extern "cdecl" fn(i32) -> *mut u8;
 pub(super) struct NativeScene {
     /// TES manager valid for this serialized call.
     pub(super) tes: *mut u8,
+    /// Player reference whose third-person node is not assumed to be present
+    /// in the ordinary cell reference list.
+    pub(super) player: *mut u8,
     /// Current player cell used for independent interior/exterior policy.
     pub(super) cell: *mut u8,
     /// Renderer receiver used by native geometry submission helpers.
@@ -113,7 +115,7 @@ pub(super) struct PointLight {
     pub(super) position: [f32; 3],
     /// Camera-relative light position uploaded to generation/consumer shaders.
     pub(super) relative_position: [f32; 3],
-    /// Effective RGB color after native dimmer and transition weighting.
+    /// Effective RGB color after the native light dimmer.
     pub(super) color: [f32; 3],
     /// Native point-light radius.
     pub(super) radius: f32,
@@ -177,13 +179,11 @@ impl PointLightSet {
     }
 }
 
-/// Bounded modern-NVR point-light categories for one common-entry epoch.
+/// Bounded modern-NVR point-light selection for one common-entry epoch.
 #[derive(Clone, Copy, Debug, Default)]
 pub(super) struct PointLightSelection {
     /// Lights that receive cube maps and shadow comparisons.
     shadowed: PointLightSet,
-    /// Nearby light energy retained without a cube-map comparison.
-    unshadowed: PointLightSet,
     shadow_limit: usize,
 }
 
@@ -200,24 +200,15 @@ impl PointLightSelection {
         &self.shadowed
     }
 
-    /// Return the ordered tracked-light fallback subset.
-    pub(super) const fn unshadowed(&self) -> &PointLightSet {
-        &self.unshadowed
-    }
-
     fn insert(&mut self, candidate: PointLight) {
-        if self.shadowed.contains(candidate.identity)
-            || self.unshadowed.contains(candidate.identity)
-        {
+        if self.shadowed.contains(candidate.identity) {
             return;
         }
         // Modern NVR deliberately ignores the engine cast-shadow bit because
-        // JIP can leave it false for valid lights. Every eligible light first
-        // competes for the bounded cube budget; overflow retains illumination
-        // through the equally bounded unshadowed set.
-        if let Some(fallback) = self.shadowed.insert(candidate, self.shadow_limit) {
-            self.unshadowed.insert(fallback, NVR_POINT_LIGHT_COUNT);
-        }
+        // JIP can leave it false for valid lights. Overflow needs no OMV
+        // fallback draw: native scene color already contains every light, and
+        // this pipeline subtracts only energy proven occluded by a cube.
+        let _ = self.shadowed.insert(candidate, self.shadow_limit);
     }
 }
 
@@ -260,6 +251,7 @@ pub(super) unsafe fn current_scene() -> Option<NativeScene> {
     };
     Some(NativeScene {
         tes,
+        player,
         cell,
         renderer: renderer.cast(),
         kind,
@@ -270,9 +262,9 @@ pub(super) unsafe fn current_scene() -> Option<NativeScene> {
 ///
 /// Equal-distance candidates use native pointer identity as a deterministic
 /// tiebreaker, so no light is lost through the float-key collision present in
-/// NVR's `std::map<float, ...>` path. Shadow candidates beyond the nearest
-/// twelve remain eligible for the fallback set, matching modern NVR's local
-/// illumination behavior without growing the cube-map budget.
+/// NVR's `std::map<float, ...>` path. Candidates beyond the nearest twelve
+/// remain present in native scene color without growing the cube-map budget;
+/// OMV never redraws or globally attenuates their illumination.
 ///
 /// # Safety
 ///
@@ -400,17 +392,44 @@ pub(super) unsafe fn collect_directional_roots(
                         return false;
                     }
                 }
-                return true;
+                return unsafe { push_player_directional_root(scene, roots) };
             }
         }
     }
 
-    if unsafe { collect_cell_directional_roots(scene.cell, roots) } {
-        true
-    } else {
+    if !unsafe { collect_cell_directional_roots(scene.cell, roots) } {
         roots.clear();
-        false
+        return false;
     }
+    unsafe { push_player_directional_root(scene, roots) }
+}
+
+/// Add the third-person player node through the dedicated ownership route used
+/// by classic NVR's skin map. Fallout does not contractually expose the player
+/// as an ordinary entry in `TESObjectCELL::objectList`; relying on that list
+/// can leave only an unrelated contact-like artifact where a body shadow belongs.
+unsafe fn push_player_directional_root(
+    scene: NativeScene,
+    roots: &mut Vec<DirectionalRoot>,
+) -> bool {
+    let Some(node) = (unsafe { player_directional_root(scene) }) else {
+        return true;
+    };
+    if roots.iter().any(|root| root.node() == node) {
+        return true;
+    }
+    // PlayerCharacter's base form is an NPC, and modern NVR enables actors in
+    // the three gameplay cascades while excluding them from the LOD profile.
+    push_directional_root(roots, node, Some(0x2A), false, false)
+}
+
+unsafe fn player_directional_root(scene: NativeScene) -> Option<*mut u8> {
+    let render_data = unsafe { read::<*mut u8>(scene.player, NativeLayout::REFERENCE_RENDER_DATA) };
+    if render_data.is_null() {
+        return None;
+    }
+    let node = unsafe { read::<*mut u8>(render_data, NativeLayout::REFERENCE_DATA_NODE) };
+    (!node.is_null()).then_some(node)
 }
 
 unsafe fn collect_cell_directional_roots(cell: *mut u8, roots: &mut Vec<DirectionalRoot>) -> bool {
@@ -520,6 +539,11 @@ pub(super) unsafe fn visit_directional_roots(
                         unsafe { visit_cell_roots(cell, Some(cascade), &mut visit) };
                     }
                 }
+                if directional_form_type_is_enabled(cascade, 0x2A)
+                    && let Some(player) = unsafe { player_directional_root(scene) }
+                {
+                    visit(player, false, false);
+                }
                 return;
             }
         }
@@ -529,6 +553,11 @@ pub(super) unsafe fn visit_directional_roots(
     // cell still supplies ordinary statics/actors and a land child when one
     // exists, so the location toggle has meaningful NVR-compatible behavior.
     unsafe { visit_cell_roots(scene.cell, Some(cascade), &mut visit) };
+    if directional_form_type_is_enabled(cascade, 0x2A)
+        && let Some(player) = unsafe { player_directional_root(scene) }
+    {
+        visit(player, false, false);
+    }
 }
 
 unsafe fn visit_cell_roots(
@@ -582,32 +611,37 @@ unsafe fn point_light(
     radius_multiplier: f32,
     draw_distance: f32,
 ) -> Option<PointLight> {
-    if scene_light.is_null()
-        || unsafe { read::<u8>(scene_light, SHADOW_LIGHT_POINT) } == 0
-        || unsafe { read::<u8>(scene_light, SHADOW_LIGHT_AMBIENT) } != 0
-        || unsafe { read::<u16>(scene_light, SHADOW_LIGHT_ACTIVE) } == SHADOW_LIGHT_INACTIVE
-    {
+    if scene_light.is_null() {
         return None;
     }
     let native = unsafe { read::<*mut u8>(scene_light, SHADOW_LIGHT_SOURCE) };
-    if native.is_null() || unsafe { read::<u8>(native, NATIVE_LIGHT_DISABLED_FLAGS) } & 1 != 0 {
+    if native.is_null()
+        || unsafe { read::<u8>(native, NATIVE_LIGHT_EFFECT_TYPE) } != NATIVE_POINT_LIGHT
+        || unsafe { read::<u8>(native, NATIVE_LIGHT_DISABLED_FLAGS) } & 1 != 0
+    {
         return None;
     }
     let position = unsafe { read_vec3(native, NATIVE_LIGHT_POSITION) };
     let diffuse = unsafe { read_vec3(native, NATIVE_LIGHT_DIFFUSE) };
     let dimmer = unsafe { read::<f32>(native, NATIVE_LIGHT_DIMMER) };
-    let transition = unsafe { read::<f32>(scene_light, SHADOW_LIGHT_TRANSITION) };
     let native_radius = unsafe { read::<f32>(native, NATIVE_LIGHT_RADIUS) };
+    let can_carry = unsafe { read::<u8>(native, NATIVE_LIGHT_CAN_CARRY) } != 0;
     if !position.into_iter().all(f32::is_finite)
         || !diffuse.into_iter().all(f32::is_finite)
         || !dimmer.is_finite()
-        || !transition.is_finite()
         || !native_radius.is_finite()
         || native_radius <= 0.1
     {
         return None;
     }
-    let radius = native_radius * radius_multiplier;
+    // NVR fixes carried/Pip-Boy lights to a compact cube radius so the light
+    // can cast useful nearby shadows instead of inheriting a huge record
+    // radius. Generation and sampling must publish the same value.
+    let radius = if can_carry {
+        CARRIED_LIGHT_RADIUS
+    } else {
+        native_radius * radius_multiplier
+    };
     let relative_position =
         std::array::from_fn(|index| position[index] - camera_translation[index]);
     if !point_light_influence_is_eligible(relative_position, radius, camera_forward, draw_distance)
@@ -615,10 +649,15 @@ unsafe fn point_light(
         return None;
     }
     let distance_squared = dot3(relative_position, relative_position);
-    let color = diffuse.map(|component| (component * dimmer * transition).max(0.0));
+    // NVR's replacement list reads `NiLight::Diff` and `Dimmer` directly.
+    // `ShadowSceneLight::transition` belongs to the native prefix that OMV
+    // replaces, so depending on it can turn every valid interior light black
+    // before a single cube is rendered.
+    let color = diffuse.map(|component| (component * dimmer).max(0.0));
+    let visible_energy = color.into_iter().sum::<f32>();
     if !distance_squared.is_finite()
         || !color.into_iter().all(f32::is_finite)
-        || color.into_iter().all(|component| component <= 1.0 / 255.0)
+        || visible_energy <= 5.0 / 255.0
     {
         return None;
     }
@@ -697,7 +736,7 @@ mod tests {
     }
 
     #[test]
-    fn runtime_selection_demotes_cube_overflow_into_the_tracked_set() {
+    fn runtime_selection_keeps_the_nearest_stable_cube_subset() {
         let mut selection = PointLightSelection::with_shadow_limit(12);
         for identity in 1..=14 {
             selection.insert(point(identity, identity as f32));
@@ -715,37 +754,21 @@ mod tests {
                 .identity
         });
         assert_eq!(shadowed, [101, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
-        let tracked: [usize; 4] = std::array::from_fn(|index| {
-            selection
-                .unshadowed()
-                .iter()
-                .nth(index)
-                .expect("four tracked fallbacks")
-                .identity
-        });
-        assert_eq!(tracked, [12, 13, 102, 14]);
     }
 
     #[test]
-    fn configured_cube_budget_reduces_faces_without_dropping_light_energy() {
+    fn configured_cube_budget_reduces_faces_without_redrawing_native_energy() {
         let mut selection = PointLightSelection::with_shadow_limit(4);
         for identity in 1..=8 {
             selection.insert(point(identity, identity as f32));
         }
         assert_eq!(selection.shadowed().len(), 4);
-        assert_eq!(selection.unshadowed().len(), 4);
         let shadowed: Vec<_> = selection
             .shadowed()
             .iter()
             .map(|light| light.identity)
             .collect();
-        let tracked: Vec<_> = selection
-            .unshadowed()
-            .iter()
-            .map(|light| light.identity)
-            .collect();
         assert_eq!(shadowed, [1, 2, 3, 4]);
-        assert_eq!(tracked, [5, 6, 7, 8]);
     }
 
     #[test]
