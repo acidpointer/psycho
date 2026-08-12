@@ -4,9 +4,11 @@
 //! thiscall selected by three mutually exclusive dispatcher branches. A small
 //! x86 ABI bridge preserves the incoming `ECX`, records the branch return and
 //! caller frame, and invokes one Rust transaction body without changing the
-//! native stack contract. Only main-render callers may publish scalar lights;
-//! special and screenshot calls execute natively but cannot replace gameplay
-//! data in the same presentation epoch.
+//! native stack contract. Shadow replacement follows NVR and owns every call
+//! to the validated common entry. A bounded walk through executable-proven
+//! wrapper frames is used only by the adjacent scalar-light capture: only the
+//! exact direct and nested `0x0086FF70 -> 0x0086E650` chains may publish that
+//! gameplay POD, while menu and screenshot calls cannot replace it.
 //!
 //! Completed native shadow textures are inspected and retained once through
 //! COM. Published consumers borrow that retained identity directly. No later
@@ -21,7 +23,7 @@
 
 use core::{
     ffi::c_void,
-    mem::{size_of, transmute},
+    mem::{align_of, size_of, transmute},
 };
 use std::sync::{
     LazyLock,
@@ -91,8 +93,14 @@ const SHADOW_VARIANT_B_RETURN: usize = 0x0087_0A79;
 const SHADOW_VARIANT_C_RETURN: usize = 0x0087_0C41;
 const MAIN_RENDER_FIRST_RETURN: usize = 0x0087_0249;
 const MAIN_RENDER_SECOND_RETURN: usize = 0x0087_02AE;
-const SPECIAL_RENDER_RETURN: usize = 0x0087_21A9;
+const WRAPPED_RENDER_RETURN: usize = 0x0087_21A9;
 const SCREENSHOT_RENDER_RETURN: usize = 0x0087_9179;
+const MAIN_RENDER_ROOT_RETURN: usize = 0x0086_EDED;
+#[cfg(test)]
+const MAIN_WRAPPER_DIRECT_RETURN: usize = 0x0086_ED8B;
+#[cfg(test)]
+const MAIN_WRAPPER_HELPER_RETURN: usize = 0x0086_F4E8;
+const MAIN_WRAPPER_NESTED_RETURN: usize = 0x0087_0014;
 
 const MAX_CAPTURE_LOGS: u32 = 16;
 
@@ -790,8 +798,12 @@ unsafe extern "C" fn hook_world_light_epoch_body(
     );
     let invocation = unsafe { classify_shadow_invocation(return_address, caller_ebp) };
     record_shadow_invocation(invocation);
-    let shadow_outcome =
-        unsafe { crate::effects::shadows::handle_common_entry(shadow_context(invocation.context)) };
+    // NVR owns the validated common entry itself; it does not classify the
+    // outer caller before producing maps. OMV generation has the same safe
+    // boundary because it reads the global world camera/cell/sun and writes
+    // only private targets. Keep ancestry classification solely for the
+    // separate scalar-light publication below.
+    let shadow_outcome = unsafe { crate::effects::shadows::handle_common_entry() };
     if !capture_ready() {
         drop(pre_span);
         unsafe { call_shadow_path(original, receiver, shadow_outcome) };
@@ -800,7 +812,7 @@ unsafe extern "C" fn hook_world_light_epoch_body(
     }
     let render_epoch = crate::hooks::render_epoch();
     let device_generation = crate::backend::d3d_device_generation();
-    if !authoritative_shadow_invocation(invocation)
+    if !authoritative_light_invocation(invocation)
         || (LAST_AUTHORITATIVE_RENDER_EPOCH.load(Ordering::Acquire) == render_epoch
             && LAST_AUTHORITATIVE_DEVICE_GENERATION.load(Ordering::Acquire) == device_generation)
     {
@@ -954,59 +966,92 @@ unsafe fn call_shadow_path(
     }
 }
 
-fn shadow_context(
-    context: ShadowRenderContext,
-) -> crate::effects::shadows::CommonInvocationContext {
-    match context {
-        ShadowRenderContext::Main => crate::effects::shadows::CommonInvocationContext::Main,
-        ShadowRenderContext::Special => crate::effects::shadows::CommonInvocationContext::Special,
-        ShadowRenderContext::Screenshot => {
-            crate::effects::shadows::CommonInvocationContext::Screenshot
-        }
-        ShadowRenderContext::Unknown => crate::effects::shadows::CommonInvocationContext::Unknown,
-    }
-}
-
 unsafe fn classify_shadow_invocation(return_address: usize, caller_ebp: usize) -> ShadowInvocation {
-    const MIN_LIVE_POINTER: usize = 0x1_0000;
-
     let variant = match return_address {
         SHADOW_VARIANT_A_RETURN => ShadowDispatcherVariant::A,
         SHADOW_VARIANT_B_RETURN => ShadowDispatcherVariant::B,
         SHADOW_VARIANT_C_RETURN => ShadowDispatcherVariant::C,
         _ => ShadowDispatcherVariant::Unknown,
     };
-    // At the common entry EBP is the selected branch frame. Its saved EBP is
-    // the dispatcher frame, whose saved return identifies main, special, or
-    // screenshot ownership. Both functions have proven frame-pointer
-    // prologues in FalloutNV.exe 1.4.0.525.
-    let context = if variant == ShadowDispatcherVariant::Unknown
-        || caller_ebp < MIN_LIVE_POINTER
-        || caller_ebp & 3 != 0
-    {
-        // An unknown direct caller has not established the proven EBP chain.
-        // Fail closed before dereferencing it instead of trading one avoided
-        // VirtualQuery for an unchecked read through an unproven frame.
+    // The common entry is reached through a branch and the shared dispatcher.
+    // The dispatcher's return alone is not an ownership boundary. Admit only
+    // the exact direct or wrapped 0x0086FF70 chains that are rooted in the main
+    // renderer; the other 0x00871DC0 callers are menu/offscreen transactions.
+    let context = if variant == ShadowDispatcherVariant::Unknown {
         ShadowRenderContext::Unknown
     } else {
-        let dispatcher_ebp = unsafe { (caller_ebp as *const usize).read() };
-        if dispatcher_ebp < MIN_LIVE_POINTER || dispatcher_ebp & 3 != 0 {
-            ShadowRenderContext::Unknown
-        } else {
-            let dispatcher_return =
-                unsafe { ((dispatcher_ebp + size_of::<usize>()) as *const usize).read() };
-            match dispatcher_return {
-                MAIN_RENDER_FIRST_RETURN | MAIN_RENDER_SECOND_RETURN => ShadowRenderContext::Main,
-                SPECIAL_RENDER_RETURN => ShadowRenderContext::Special,
-                SCREENSHOT_RENDER_RETURN => ShadowRenderContext::Screenshot,
-                _ => ShadowRenderContext::Unknown,
-            }
-        }
+        unsafe { classify_shadow_context(caller_ebp) }
     };
     ShadowInvocation { variant, context }
 }
 
-fn authoritative_shadow_invocation(invocation: ShadowInvocation) -> bool {
+/// Classify a proven branch caller by its bounded dispatcher/owner chain.
+unsafe fn classify_shadow_context(caller_ebp: usize) -> ShadowRenderContext {
+    let Some((dispatcher_ebp, _)) = (unsafe { read_shadow_frame(caller_ebp) }) else {
+        return ShadowRenderContext::Unknown;
+    };
+    let Some((owner_ebp, dispatcher_return)) = (unsafe { read_shadow_frame(dispatcher_ebp) })
+    else {
+        return ShadowRenderContext::Unknown;
+    };
+    match dispatcher_return {
+        SCREENSHOT_RENDER_RETURN => ShadowRenderContext::Screenshot,
+        MAIN_RENDER_FIRST_RETURN | MAIN_RENDER_SECOND_RETURN => {
+            let owner_return =
+                unsafe { read_shadow_frame(owner_ebp) }.map(|(_, return_address)| return_address);
+            if owner_return == Some(MAIN_RENDER_ROOT_RETURN) {
+                ShadowRenderContext::Main
+            } else {
+                ShadowRenderContext::Special
+            }
+        }
+        WRAPPED_RENDER_RETURN => {
+            // 0x0086FF70 can call the wrapper at 0x0087000F before its direct
+            // dispatcher routes. Although the wrapper does not own the outer
+            // image-space destination, OMV generation reads the global world
+            // camera, player cell, and sun rather than the wrapper camera. It
+            // is therefore a valid scalar-light publication owner only when
+            // both the wrapper return and its 0x0086FF70 owner are exact. The
+            // direct Sleep/Wait and rendered-menu wrapper callers cannot
+            // replace gameplay light POD.
+            let Some((wrapped_owner_ebp, wrapper_return)) =
+                (unsafe { read_shadow_frame(owner_ebp) })
+            else {
+                return ShadowRenderContext::Unknown;
+            };
+            if wrapper_return != MAIN_WRAPPER_NESTED_RETURN {
+                return ShadowRenderContext::Special;
+            }
+            let wrapped_owner_return = unsafe { read_shadow_frame(wrapped_owner_ebp) }
+                .map(|(_, return_address)| return_address);
+            if wrapped_owner_return == Some(MAIN_RENDER_ROOT_RETURN) {
+                ShadowRenderContext::Main
+            } else {
+                ShadowRenderContext::Special
+            }
+        }
+        _ => ShadowRenderContext::Unknown,
+    }
+}
+
+/// Read one executable-proven EBP frame without walking an unknown chain.
+///
+/// Every frame consumed by [`classify_shadow_invocation`] has a static
+/// frame-pointer prologue in FalloutNV.exe 1.4.0.525. Alignment and the low
+/// address guard reject malformed observations before either word is read.
+unsafe fn read_shadow_frame(frame_ebp: usize) -> Option<(usize, usize)> {
+    const MIN_LIVE_POINTER: usize = 0x1_0000;
+
+    if frame_ebp < MIN_LIVE_POINTER || frame_ebp & (align_of::<usize>() - 1) != 0 {
+        return None;
+    }
+    let return_slot = frame_ebp.checked_add(size_of::<usize>())?;
+    let parent = unsafe { (frame_ebp as *const usize).read() };
+    let return_address = unsafe { (return_slot as *const usize).read() };
+    Some((parent, return_address))
+}
+
+fn authoritative_light_invocation(invocation: ShadowInvocation) -> bool {
     invocation.context == ShadowRenderContext::Main
         && invocation.variant != ShadowDispatcherVariant::Unknown
 }
@@ -1723,17 +1768,18 @@ fn log_capture_error(message: &'static str) {
 mod tests {
     use super::{
         CaptureSlot, LOCAL_LIGHT_CAPACITY, LocalLightEpoch, LocalLightValues,
-        MAIN_RENDER_FIRST_RETURN, NATIVE_LIGHT_COLOR_OFFSET, NATIVE_LIGHT_DIMMER_OFFSET,
-        NATIVE_LIGHT_DISABLED_FLAGS_OFFSET, NATIVE_LIGHT_POSITION_OFFSET,
-        NATIVE_LIGHT_RADIUS_OFFSET, NATIVE_LIGHT_SIZE, PUBLISHED, PublishedEpochAccess,
-        RankedSceneLight, RenderLocalShadowFn, SCREENSHOT_RENDER_RETURN,
+        MAIN_RENDER_FIRST_RETURN, MAIN_RENDER_ROOT_RETURN, MAIN_WRAPPER_DIRECT_RETURN,
+        MAIN_WRAPPER_HELPER_RETURN, MAIN_WRAPPER_NESTED_RETURN, NATIVE_LIGHT_COLOR_OFFSET,
+        NATIVE_LIGHT_DIMMER_OFFSET, NATIVE_LIGHT_DISABLED_FLAGS_OFFSET,
+        NATIVE_LIGHT_POSITION_OFFSET, NATIVE_LIGHT_RADIUS_OFFSET, NATIVE_LIGHT_SIZE, PUBLISHED,
+        PublishedEpochAccess, RankedSceneLight, RenderLocalShadowFn, SCREENSHOT_RENDER_RETURN,
         SHADOW_ACTIVE_STATE_OFFSET, SHADOW_AMBIENT_OFFSET, SHADOW_FADE_OFFSET,
         SHADOW_INACTIVE_STATE, SHADOW_MATRIX_OFFSET, SHADOW_NATIVE_LIGHT_OFFSET,
         SHADOW_POSITIONAL_OFFSET, SHADOW_SCENE_LIGHT_SIZE, SHADOW_TRANSITION_OFFSET,
-        SHADOW_VARIANT_A_RETURN, SPECIAL_RENDER_RETURN, ShadowDispatcherVariant, ShadowInvocation,
-        ShadowRenderContext, ShadowTextureFormat, StagingEpoch, TERRAIN_LIGHT_CAPACITY,
-        TerrainRenderSnapshot, TerrainSceneLight, WorldLightEpochFn,
-        authoritative_shadow_invocation, build_epoch, capture_requested,
+        SHADOW_VARIANT_A_RETURN, ShadowDispatcherVariant, ShadowInvocation, ShadowRenderContext,
+        ShadowTextureFormat, StagingEpoch, TERRAIN_LIGHT_CAPACITY, TerrainRenderSnapshot,
+        TerrainSceneLight, WRAPPED_RENDER_RETURN, WorldLightEpochFn,
+        authoritative_light_invocation, build_epoch, capture_requested,
         capture_terrain_scene_light, classify_capture_slot, classify_shadow_invocation,
         hook_render_local_shadow, hook_world_light_epoch, insert_ranked_light,
         insert_ranked_terrain_light, read_matrix4_unchecked, record_diagnostic, scene_light_score,
@@ -1810,30 +1856,99 @@ mod tests {
         }
     }
 
-    fn classified_invocation(branch_return: usize, dispatcher_return: usize) -> ShadowInvocation {
-        let dispatcher_frame = [0usize, dispatcher_return];
+    fn classified_invocation(
+        branch_return: usize,
+        dispatcher_return: usize,
+        owner_return: usize,
+        parent_return: usize,
+    ) -> ShadowInvocation {
+        let parent_frame = [0usize, parent_return];
+        let owner_frame = [parent_frame.as_ptr() as usize, owner_return];
+        let dispatcher_frame = [owner_frame.as_ptr() as usize, dispatcher_return];
         let branch_frame = [dispatcher_frame.as_ptr() as usize, 0usize];
         unsafe { classify_shadow_invocation(branch_return, branch_frame.as_ptr() as usize) }
     }
 
     #[test]
     fn shadow_publication_accepts_main_and_rejects_special_and_screenshot_callers() {
-        let main = classified_invocation(SHADOW_VARIANT_A_RETURN, MAIN_RENDER_FIRST_RETURN);
+        let main = classified_invocation(
+            SHADOW_VARIANT_A_RETURN,
+            MAIN_RENDER_FIRST_RETURN,
+            MAIN_RENDER_ROOT_RETURN,
+            0,
+        );
         assert_eq!(main.variant, ShadowDispatcherVariant::A);
         assert_eq!(main.context, ShadowRenderContext::Main);
-        assert!(authoritative_shadow_invocation(main));
+        assert!(authoritative_light_invocation(main));
 
-        let special = classified_invocation(SHADOW_VARIANT_A_RETURN, SPECIAL_RENDER_RETURN);
+        let special = classified_invocation(
+            SHADOW_VARIANT_A_RETURN,
+            WRAPPED_RENDER_RETURN,
+            0x0045_3E02,
+            0,
+        );
         assert_eq!(special.context, ShadowRenderContext::Special);
-        assert!(!authoritative_shadow_invocation(special));
+        assert!(!authoritative_light_invocation(special));
 
-        let screenshot = classified_invocation(SHADOW_VARIANT_A_RETURN, SCREENSHOT_RENDER_RETURN);
+        let nested_dispatcher_special = classified_invocation(
+            SHADOW_VARIANT_A_RETURN,
+            MAIN_RENDER_FIRST_RETURN,
+            0x0045_3EF3,
+            0,
+        );
+        assert_eq!(
+            nested_dispatcher_special.context,
+            ShadowRenderContext::Special
+        );
+        assert!(!authoritative_light_invocation(nested_dispatcher_special));
+
+        let screenshot =
+            classified_invocation(SHADOW_VARIANT_A_RETURN, SCREENSHOT_RENDER_RETURN, 0, 0);
         assert_eq!(screenshot.context, ShadowRenderContext::Screenshot);
-        assert!(!authoritative_shadow_invocation(screenshot));
-        assert!(!authoritative_shadow_invocation(ShadowInvocation {
+        assert!(!authoritative_light_invocation(screenshot));
+        assert!(!authoritative_light_invocation(ShadowInvocation {
             variant: ShadowDispatcherVariant::Unknown,
             context: ShadowRenderContext::Main,
         }));
+    }
+
+    #[test]
+    fn only_the_86ff70_wrapper_chain_is_an_authoritative_light_owner() {
+        let direct = classified_invocation(
+            SHADOW_VARIANT_A_RETURN,
+            WRAPPED_RENDER_RETURN,
+            MAIN_WRAPPER_DIRECT_RETURN,
+            0,
+        );
+        assert_eq!(direct.context, ShadowRenderContext::Special);
+        assert!(!authoritative_light_invocation(direct));
+
+        let nested = classified_invocation(
+            SHADOW_VARIANT_A_RETURN,
+            WRAPPED_RENDER_RETURN,
+            MAIN_WRAPPER_NESTED_RETURN,
+            MAIN_RENDER_ROOT_RETURN,
+        );
+        assert_eq!(nested.context, ShadowRenderContext::Main);
+        assert!(authoritative_light_invocation(nested));
+
+        let helper = classified_invocation(
+            SHADOW_VARIANT_A_RETURN,
+            WRAPPED_RENDER_RETURN,
+            MAIN_WRAPPER_HELPER_RETURN,
+            0,
+        );
+        assert_eq!(helper.context, ShadowRenderContext::Special);
+        assert!(!authoritative_light_invocation(helper));
+
+        let nested_offscreen = classified_invocation(
+            SHADOW_VARIANT_A_RETURN,
+            WRAPPED_RENDER_RETURN,
+            MAIN_WRAPPER_NESTED_RETURN,
+            0x0045_3EF3,
+        );
+        assert_eq!(nested_offscreen.context, ShadowRenderContext::Special);
+        assert!(!authoritative_light_invocation(nested_offscreen));
     }
 
     #[test]

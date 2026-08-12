@@ -100,6 +100,8 @@ impl NativeLayout {
     pub(super) const REFERENCE_DATA_NODE: usize = 0x14;
     /// `TESForm::flags`, including the no-shadow-cast bit.
     pub(super) const TES_FORM_FLAGS: usize = 0x08;
+    /// `TESForm::formType`, used by NVR's per-cascade form profiles.
+    pub(super) const TES_FORM_TYPE: usize = 0x04;
     /// Size of `NiAVObject`.
     pub(super) const NI_AV_OBJECT_SIZE: usize = 0x9C;
     /// `NiAVObject::m_parent`.

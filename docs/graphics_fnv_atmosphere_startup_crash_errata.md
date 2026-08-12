@@ -342,19 +342,22 @@ and are not an accepted startup baseline.
 The exact new pre-Deferred footprint is:
 
 - `GraphicsConfig` and its menu handoff contain one new
-  `NativeShadowsConfig` with master, exterior, and interior booleans. This is
-  the explicit persisted control surface required by the feature. Schema 1,
-  every earlier field, the preset manifest/version, and the built-in preset
-  payload remain unchanged; missing shadow values default compatibly.
-- `DeferredHookSettings` carries the three-bit value to `DeferredInit`.
-  `NVSEPlugin_Load` performs one store into the new shadow `AtomicU8`; it does
-  not touch an engine pointer, D3D device, lock, or shader compiler through the
-  shadow module.
-- The final DLL adds `SETTINGS`, `ROUTE_READY`, and the
+  `NativeShadowsConfig` with master/location toggles and bounded appearance or
+  work controls. This is the explicit persisted control surface required by
+  the feature. Schema 1, every earlier field, the preset manifest/version, and
+  the built-in preset payload remain unchanged; missing shadow values default
+  compatibly to modern NVR's high/custom profile.
+- `DeferredHookSettings` carries the sanitized settings to `DeferredInit`.
+  `NVSEPlugin_Load` publishes them through zero-initialized `AtomicU8`/`AtomicU32`
+  fields guarded by a sequence counter. It does not touch an engine pointer,
+  D3D device, lock, or shader compiler through the shadow module.
+- The final DLL adds the settings atomics, `ROUTE_READY`, and the
   `LazyLock<Mutex<ShadowPipeline>>` static owner plus eleven embedded SM3 shader
   sources. The lazy pipeline, route atomic, shader-preparation worker, engine
   validation, and every COM resource are first touched at or after
-  `DeferredInit`; only `SETTINGS` is accessed earlier.
+  `DeferredInit`; only plain settings atomics are accessed earlier. The reader
+  is bounded and fail-safe, so neither load nor a render callback waits on a
+  configuration lock.
 - The existing engine-hook group still owns the already-established common
   entry `0x00871290`. Shadow admission opens at `DeferredInit` immediately
   before that group becomes resident. The existing scene-pre and renderer
@@ -377,12 +380,41 @@ deltas include the concurrent adaptive-response work present in the worktree and
 therefore are the complete current footprint comparison, not shadow-only size
 attribution.
 
+The compiler-corrected shadow build produced a 12,712,012-byte `omv.dll` with
+SHA-256
+`9c9b2ef0082be074d55f7b5301a9f0a860e8446634069193b99b3f7c1de648a3`.
+PE inspection still reports the documented imported-DLL set, `.idata` size
+`0x33fc`, and `.tls` size `0x8`. Its current relevant sections are `.text`
+`0x557e68`, `.rdata` `0x294474`, `.data` `0x15484`, `.bss` `0x6b10`,
+`.eh_fram` `0x7cdd4`, and `.reloc` `0x37774`. The cube shader correction changes
+only embedded post-Deferred source bytes and its regression test; it adds no
+new import, static owner, TLS value, or pre-Deferred operation. The larger
+static settings/config shape and code/data movement are not an accepted startup
+baseline; commit `9975b2e` remains the last load-to-gameplay evidence.
+
+The bounded-producer correction produced a 12,710,264-byte `omv.dll` with
+SHA-256
+`441d212ae7b494d0e7c691b16f3a2dc5a80afaee945b63fc7c2d334dce70c586`.
+Its relevant sections are `.text` `0x557ee8`, `.rdata` `0x2944b4`, `.data`
+`0x15484`, `.bss` `0x6b10`, `.eh_fram` `0x7ce70`, `.idata` `0x33fc`, `.tls`
+`0x8`, and `.reloc` `0x377ac`. The imported-DLL set remains unchanged. This
+correction adds only post-Deferred cascade scheduling, traversal policy, and
+tests plus static documentation/evidence; it adds no static owner, TLS value,
+import, configuration field, load-phase operation, or hook-admission change.
+It therefore does not widen the pre-Deferred call graph, but it is still part
+of the unaccepted combined artifact rather than a new startup baseline.
+
 Source-order tests require the atomic-only load phase, engine-hooks-before-
 shadow-admission ordering, shadow-admission-before-common-hook ordering,
 scene-pre composition before the ordinary screen stack, and resource release
-before native device recreation. On 2026-08-12 the 32 focused shadow tests and
-all 519 OMV tests passed, and the explicit `i686-pc-windows-gnu` release build
-completed without warnings.
+before native device recreation. The original 2026-08-12 route passed 32
+focused shadow tests and all 519 then-current OMV tests. The corrective pass
+adds strict config round trips/bounds and source-order coverage for the
+multi-field atomic publication. The bounded-producer pass adds exact tests for
+neutral-atlas progressive bootstrap, projected caster thresholds, per-cascade
+LOD admission, and modern-NVR form profiles. All 525 current OMV tests pass,
+including 38 focused shadow tests, and the explicit supported release build
+completes without warnings.
 
 Those checks cannot accept this changed startup artifact. No load-to-gameplay
 claim was made during this implementation run. Startup compatibility remains

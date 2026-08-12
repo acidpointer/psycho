@@ -9,16 +9,20 @@
 use core::{ffi::c_void, mem::transmute, ptr::read_unaligned};
 
 use libpsycho::os::windows::directx9::{
-    D3DCMP_ALWAYS, D3DCMP_LESSEQUAL, D3DCULL_CCW, D3DCULL_CW, D3DCULL_NONE, D3DRS_ALPHABLENDENABLE,
-    D3DRS_ALPHAFUNC, D3DRS_ALPHAREF, D3DRS_ALPHATESTENABLE, D3DRS_COLORWRITEENABLE, D3DRS_CULLMODE,
-    D3DRS_DEPTHBIAS, D3DRS_SLOPESCALEDEPTHBIAS, D3DRS_STENCILENABLE, D3DRS_ZENABLE, D3DRS_ZFUNC,
-    D3DRS_ZWRITEENABLE, D3DSAMP_ADDRESSU, D3DSAMP_ADDRESSV, D3DSAMP_MAGFILTER, D3DSAMP_MINFILTER,
-    D3DSAMP_MIPFILTER, D3DTADDRESS_WRAP, D3DTEXF_NONE, D3DTEXF_POINT, Device9Ref, Direct3DResult,
-    PixelShader9, VertexShader9, direct3d_failure,
+    D3DCMP_ALWAYS, D3DCMP_LESSEQUAL, D3DCULL_CCW, D3DCULL_CW, D3DCULL_NONE, D3DRS_ADAPTIVETESS_Y,
+    D3DRS_ALPHABLENDENABLE, D3DRS_ALPHAFUNC, D3DRS_ALPHAREF, D3DRS_ALPHATESTENABLE,
+    D3DRS_COLORWRITEENABLE, D3DRS_CULLMODE, D3DRS_DEPTHBIAS, D3DRS_MULTISAMPLEANTIALIAS,
+    D3DRS_MULTISAMPLEMASK, D3DRS_POINTSIZE, D3DRS_SLOPESCALEDEPTHBIAS, D3DRS_STENCILENABLE,
+    D3DRS_ZENABLE, D3DRS_ZFUNC, D3DRS_ZWRITEENABLE, D3DSAMP_ADDRESSU, D3DSAMP_ADDRESSV,
+    D3DSAMP_MAGFILTER, D3DSAMP_MINFILTER, D3DSAMP_MIPFILTER, D3DSAMP_SRGBTEXTURE, D3DTADDRESS_WRAP,
+    D3DTEXF_NONE, D3DTEXF_POINT, Device9Ref, Direct3DResult, PixelShader9, VertexShader9,
+    direct3d_failure,
 };
 
 use super::{
-    contract::{CasterAdmission, CasterPolicy, sphere_intersects_point_light},
+    contract::{
+        CasterAdmission, CasterPolicy, sphere_intersects_cube_face, sphere_intersects_point_light,
+    },
     engine::NativeLayout,
     math::{CascadeProjection, Sphere, camera_relative_world_matrix},
 };
@@ -27,6 +31,7 @@ const MAX_NODE_VISITS: usize = 32_768;
 const MAX_NODE_CHILDREN: usize = 16_384;
 const MAX_SKIN_PARTITIONS: usize = 64;
 const MAX_BONES_PER_PARTITION: usize = 18;
+const AMD_ALPHA_TO_COVERAGE_OFF: u32 = u32::from_le_bytes(*b"A2M0");
 
 const NI_OBJECT_IS_NODE_SLOT: usize = 0x03;
 const NI_OBJECT_IS_FADE_NODE_SLOT: usize = 0x04;
@@ -59,7 +64,10 @@ const SHADE_FLAGS: usize = 0x18;
 const SHADE_TYPE: usize = 0x1C;
 const SHADER_FLAGS_1: usize = 0x20;
 const SHADER_FLAGS_2: usize = 0x24;
-const MATERIAL_ALPHA: usize = 0x40;
+// NiMaterialProperty::fAlpha follows fShine at 0x3C. Offset 0x40 is
+// fEmitMult; treating it as opacity silently rejects valid low-emissive
+// casters and diverges from NVR's material admission.
+const MATERIAL_ALPHA: usize = 0x3C;
 const ALPHA_FLAGS: usize = 0x18;
 const STENCIL_FLAGS: usize = 0x18;
 const PPLIGHTING_TEXTURE_ZERO: usize = 0xAC;
@@ -159,6 +167,20 @@ pub(super) fn configure_generation_state(device: &Device9Ref<'_>) -> Direct3DRes
     device.set_render_state(D3DRS_ALPHAFUNC, D3DCMP_ALWAYS.0 as u32)?;
     device.set_render_state(D3DRS_STENCILENABLE, 0)?;
     device.set_render_state(D3DRS_COLORWRITEENABLE, 0xF)?;
+    device.set_render_state(D3DRS_MULTISAMPLEANTIALIAS, 1)?;
+    device.set_render_state(D3DRS_MULTISAMPLEMASK, u32::MAX)?;
+    // Native foliage paths use vendor-specific alpha-to-coverage toggles.
+    // Shadow-map shaders perform their own explicit alpha clip, so inheriting
+    // those toggles would discard or partially cover opaque EVSM/cube writes.
+    match crate::backend::fnv_alpha_coverage_mode() {
+        crate::backend::AlphaCoverageMode::None => {}
+        crate::backend::AlphaCoverageMode::Nvidia => {
+            device.set_render_state(D3DRS_ADAPTIVETESS_Y, 0)?;
+        }
+        crate::backend::AlphaCoverageMode::Amd => {
+            device.set_render_state(D3DRS_POINTSIZE, AMD_ALPHA_TO_COVERAGE_OFF)?;
+        }
+    }
     device.set_render_state(D3DRS_DEPTHBIAS, 0)?;
     device.set_render_state(D3DRS_SLOPESCALEDEPTHBIAS, 0)
 }
@@ -200,6 +222,7 @@ pub(super) unsafe fn draw_directional_root(
     root: *mut u8,
     is_land: bool,
     is_lod: bool,
+    minimum_radius: f32,
     scratch: &mut TraversalScratch,
 ) -> Direct3DResult<()> {
     let context = DrawContext {
@@ -209,8 +232,10 @@ pub(super) unsafe fn draw_directional_root(
         camera_translation,
         cube_center: None,
         cube_radius: None,
+        cube_face: None,
         is_land,
         is_lod,
+        minimum_radius,
     };
     unsafe { traverse_root(context, root, scratch) }
 }
@@ -226,6 +251,7 @@ pub(super) unsafe fn draw_point_geometry(
     camera_translation: [f32; 3],
     light_position: [f32; 3],
     radius: f32,
+    face: usize,
     geometry: *mut u8,
 ) -> Direct3DResult<()> {
     let context = DrawContext {
@@ -235,8 +261,10 @@ pub(super) unsafe fn draw_point_geometry(
         camera_translation,
         cube_center: Some(light_position),
         cube_radius: Some(radius),
+        cube_face: Some(face),
         is_land: false,
         is_lod: false,
+        minimum_radius: CasterPolicy::quality_default().minimum_radius,
     };
     unsafe { draw_geometry(context, geometry) }
 }
@@ -253,6 +281,7 @@ pub(super) unsafe fn draw_point_root(
     camera_translation: [f32; 3],
     light_position: [f32; 3],
     radius: f32,
+    face: usize,
     root: *mut u8,
     is_land: bool,
     is_lod: bool,
@@ -265,8 +294,10 @@ pub(super) unsafe fn draw_point_root(
         camera_translation,
         cube_center: Some(light_position),
         cube_radius: Some(radius),
+        cube_face: Some(face),
         is_land,
         is_lod,
+        minimum_radius: CasterPolicy::quality_default().minimum_radius,
     };
     unsafe { traverse_root(context, root, scratch) }
 }
@@ -279,8 +310,10 @@ struct DrawContext<'a> {
     camera_translation: [f32; 3],
     cube_center: Option<[f32; 3]>,
     cube_radius: Option<f32>,
+    cube_face: Option<usize>,
     is_land: bool,
     is_lod: bool,
+    minimum_radius: f32,
 }
 
 unsafe fn traverse_root(
@@ -470,7 +503,7 @@ unsafe fn classify_geometry(
         within_frustum: true,
         within_multibound: true,
     };
-    let policy = CasterPolicy::quality_default();
+    let policy = CasterPolicy::quality_default().with_minimum_radius(context.minimum_radius)?;
     if first_person || policy.admit(admission).is_err() {
         return None;
     }
@@ -699,10 +732,22 @@ unsafe fn object_bound_within(context: DrawContext<'_>, object: *mut u8) -> bool
     let Some(bound) = (unsafe { object_bound(object, context.camera_translation) }) else {
         return context.projection.is_none();
     };
+    // NVR expresses each form profile's minimum bound in shadow-map pixels
+    // and converts it to world units from the stabilized cascade radius.
+    // Land roots are exempt in the source because their aggregate bound says
+    // nothing about the terrain patches beneath them.
+    if !context.is_land && bound.radius < context.minimum_radius {
+        return false;
+    }
     if let Some(projection) = context.projection {
         projection.contains(bound)
     } else if let (Some(center), Some(radius)) = (context.cube_center, context.cube_radius) {
         sphere_intersects_point_light(bound.center, bound.radius, center, radius)
+            && context.cube_face.is_none_or(|face| {
+                let center_from_light =
+                    std::array::from_fn(|axis| bound.center[axis] - center[axis]);
+                sphere_intersects_cube_face(center_from_light, bound.radius, face)
+            })
     } else {
         true
     }
@@ -815,7 +860,8 @@ fn configure_alpha_sampler(device: &Device9Ref<'_>) -> Direct3DResult<()> {
     device.set_sampler_state(0, D3DSAMP_ADDRESSV, D3DTADDRESS_WRAP.0 as u32)?;
     device.set_sampler_state(0, D3DSAMP_MAGFILTER, D3DTEXF_POINT.0 as u32)?;
     device.set_sampler_state(0, D3DSAMP_MINFILTER, D3DTEXF_POINT.0 as u32)?;
-    device.set_sampler_state(0, D3DSAMP_MIPFILTER, D3DTEXF_NONE.0 as u32)
+    device.set_sampler_state(0, D3DSAMP_MIPFILTER, D3DTEXF_NONE.0 as u32)?;
+    device.set_sampler_state(0, D3DSAMP_SRGBTEXTURE, 0)
 }
 
 fn set_geometry_cull_mode(device: &Device9Ref<'_>, geometry: *mut u8) -> Direct3DResult<()> {

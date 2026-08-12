@@ -81,12 +81,12 @@ impl Default for GraphicsConfig {
     }
 }
 
-/// Controls the single native Shadows effect and its location admission.
+/// Controls the single native Shadows effect and its two location branches.
 ///
-/// Quality is deliberately fixed to the tested NVR-or-better profile. Keeping
-/// only behavior toggles public avoids configurations that silently violate
-/// the producer/consumer or memory contract.
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+/// Defaults reproduce modern NVR's custom/high profile. The bounded controls
+/// expose appearance and the expensive coverage dimensions without allowing
+/// invalid resource sizes or shader permutations into the render path.
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(default)]
 pub(crate) struct NativeShadowsConfig {
     /// Enable OMV ownership of the common shadow transaction.
@@ -95,6 +95,28 @@ pub(crate) struct NativeShadowsConfig {
     pub(crate) exterior_enabled: bool,
     /// Produce replacement point shadows in interior cells.
     pub(crate) interior_enabled: bool,
+    /// Maximum darkness applied by directional and contact visibility.
+    pub(crate) exterior_darkness: f32,
+    /// Maximum camera distance covered by the four directional cascades.
+    pub(crate) exterior_distance: f32,
+    /// Practical split blend between uniform (zero) and logarithmic (one).
+    pub(crate) cascade_split_lambda: f32,
+    /// Enable the short screen-space ray that restores fine contact detail.
+    pub(crate) contact_shadows: bool,
+    /// Maximum reconstructed view depth evaluated by contact shadows.
+    pub(crate) contact_distance: f32,
+    /// Maximum screen-space contact ray length in world units.
+    pub(crate) contact_ray_distance: f32,
+    /// Maximum darkness applied to interior point-light illumination.
+    pub(crate) interior_darkness: f32,
+    /// Maximum number of nearby lights receiving a 512 cube map.
+    pub(crate) interior_shadowed_lights: i32,
+    /// Multiplier applied to each native point-light radius.
+    pub(crate) interior_light_radius_multiplier: f32,
+    /// Upper bound for admitting nearby point-light influence.
+    pub(crate) interior_light_draw_distance: f32,
+    /// Normalized radial-depth receiver bias for point shadows.
+    pub(crate) interior_receiver_bias: f32,
 }
 
 impl Default for NativeShadowsConfig {
@@ -103,7 +125,73 @@ impl Default for NativeShadowsConfig {
             enabled: true,
             exterior_enabled: true,
             interior_enabled: true,
+            exterior_darkness: 0.75,
+            exterior_distance: 6_000.0,
+            cascade_split_lambda: 0.9,
+            contact_shadows: true,
+            contact_distance: 180_000.0,
+            contact_ray_distance: 2_000.0,
+            interior_darkness: 0.65,
+            interior_shadowed_lights: 12,
+            interior_light_radius_multiplier: 1.5,
+            interior_light_draw_distance: 8_000.0,
+            interior_receiver_bias: 0.018,
         }
+    }
+}
+
+impl NativeShadowsConfig {
+    /// Clamp untrusted TOML values to the resource and shader contract.
+    pub(crate) fn sanitized(mut self) -> Self {
+        let defaults = Self::default();
+        self.exterior_darkness =
+            finite_clamp(self.exterior_darkness, defaults.exterior_darkness, 0.0, 1.0);
+        self.exterior_distance = finite_clamp(
+            self.exterior_distance,
+            defaults.exterior_distance,
+            1_000.0,
+            20_000.0,
+        );
+        self.cascade_split_lambda = finite_clamp(
+            self.cascade_split_lambda,
+            defaults.cascade_split_lambda,
+            0.0,
+            1.0,
+        );
+        self.contact_distance = finite_clamp(
+            self.contact_distance,
+            defaults.contact_distance,
+            1_000.0,
+            250_000.0,
+        );
+        self.contact_ray_distance = finite_clamp(
+            self.contact_ray_distance,
+            defaults.contact_ray_distance,
+            50.0,
+            8_000.0,
+        );
+        self.interior_darkness =
+            finite_clamp(self.interior_darkness, defaults.interior_darkness, 0.0, 1.0);
+        self.interior_shadowed_lights = self.interior_shadowed_lights.clamp(1, 12);
+        self.interior_light_radius_multiplier = finite_clamp(
+            self.interior_light_radius_multiplier,
+            defaults.interior_light_radius_multiplier,
+            0.5,
+            4.0,
+        );
+        self.interior_light_draw_distance = finite_clamp(
+            self.interior_light_draw_distance,
+            defaults.interior_light_draw_distance,
+            1_000.0,
+            20_000.0,
+        );
+        self.interior_receiver_bias = finite_clamp(
+            self.interior_receiver_bias,
+            defaults.interior_receiver_bias,
+            0.0,
+            0.1,
+        );
+        self
     }
 }
 
@@ -1316,7 +1404,7 @@ impl From<&PsychoGraphicsConfig> for GraphicsMenuConfig {
     fn from(value: &PsychoGraphicsConfig) -> Self {
         Self {
             screen_space_shaders: value.graphics.screen_space_shaders,
-            native_shadows: value.graphics.native_shadows,
+            native_shadows: value.graphics.native_shadows.sanitized(),
             native_pbr: value.graphics.native_pbr.sanitized(),
             native_sky: value.graphics.native_sky,
             embedded_effects: value.graphics.embedded_effects.sanitized(),
@@ -1480,9 +1568,27 @@ fn save_adaptive_tone_config(doc: &mut DocumentMut, config: &AdaptiveToneConfig)
 }
 
 fn save_native_shadows_config(doc: &mut DocumentMut, config: &NativeShadowsConfig) {
+    let config = config.sanitized();
     doc["graphics"]["native_shadows"]["enabled"] = value(config.enabled);
     doc["graphics"]["native_shadows"]["exterior_enabled"] = value(config.exterior_enabled);
     doc["graphics"]["native_shadows"]["interior_enabled"] = value(config.interior_enabled);
+    doc["graphics"]["native_shadows"]["exterior_darkness"] = value(config.exterior_darkness as f64);
+    doc["graphics"]["native_shadows"]["exterior_distance"] = value(config.exterior_distance as f64);
+    doc["graphics"]["native_shadows"]["cascade_split_lambda"] =
+        value(config.cascade_split_lambda as f64);
+    doc["graphics"]["native_shadows"]["contact_shadows"] = value(config.contact_shadows);
+    doc["graphics"]["native_shadows"]["contact_distance"] = value(config.contact_distance as f64);
+    doc["graphics"]["native_shadows"]["contact_ray_distance"] =
+        value(config.contact_ray_distance as f64);
+    doc["graphics"]["native_shadows"]["interior_darkness"] = value(config.interior_darkness as f64);
+    doc["graphics"]["native_shadows"]["interior_shadowed_lights"] =
+        value(config.interior_shadowed_lights as i64);
+    doc["graphics"]["native_shadows"]["interior_light_radius_multiplier"] =
+        value(config.interior_light_radius_multiplier as f64);
+    doc["graphics"]["native_shadows"]["interior_light_draw_distance"] =
+        value(config.interior_light_draw_distance as f64);
+    doc["graphics"]["native_shadows"]["interior_receiver_bias"] =
+        value(config.interior_receiver_bias as f64);
 }
 
 fn save_diagnostics_config(doc: &mut DocumentMut, config: &GraphicsMenuConfig) {
@@ -1839,12 +1945,23 @@ mod tests {
     }
 
     #[test]
-    fn native_shadows_are_one_machine_level_effect_with_two_location_toggles() {
+    fn native_shadows_are_one_machine_level_effect_with_location_and_quality_controls() {
         assert_eq!(super::CONFIG_SCHEMA_VERSION, 1);
         let defaults = NativeShadowsConfig::default();
         assert!(defaults.enabled);
         assert!(defaults.exterior_enabled);
         assert!(defaults.interior_enabled);
+        assert_eq!(defaults.exterior_darkness, 0.75);
+        assert_eq!(defaults.exterior_distance, 6_000.0);
+        assert_eq!(defaults.cascade_split_lambda, 0.9);
+        assert!(defaults.contact_shadows);
+        assert_eq!(defaults.contact_distance, 180_000.0);
+        assert_eq!(defaults.contact_ray_distance, 2_000.0);
+        assert_eq!(defaults.interior_darkness, 0.65);
+        assert_eq!(defaults.interior_shadowed_lights, 12);
+        assert_eq!(defaults.interior_light_radius_multiplier, 1.5);
+        assert_eq!(defaults.interior_light_draw_distance, 8_000.0);
+        assert_eq!(defaults.interior_receiver_bias, 0.018);
 
         let legacy: PsychoGraphicsConfig =
             toml::from_str("config_schema_version = 1\n[graphics]\nscreen_space_shaders = true\n")
@@ -1855,6 +1972,7 @@ mod tests {
             enabled: true,
             exterior_enabled: false,
             interior_enabled: true,
+            ..defaults
         };
         let mut document = DocumentMut::new();
         save_native_shadows_config(&mut document, &expected);
@@ -1862,7 +1980,28 @@ mod tests {
         let table = value["graphics"]["native_shadows"]
             .as_table()
             .expect("native-shadows table");
-        assert_eq!(table.len(), 3);
+        for key in [
+            "enabled",
+            "exterior_enabled",
+            "interior_enabled",
+            "exterior_darkness",
+            "exterior_distance",
+            "cascade_split_lambda",
+            "contact_shadows",
+            "contact_distance",
+            "contact_ray_distance",
+            "interior_darkness",
+            "interior_shadowed_lights",
+            "interior_light_radius_multiplier",
+            "interior_light_draw_distance",
+            "interior_receiver_bias",
+        ] {
+            assert!(
+                table.contains_key(key),
+                "missing native shadow control {key}"
+            );
+        }
+        assert_eq!(table.len(), 14);
         let decoded: PsychoGraphicsConfig =
             toml::from_str(&document.to_string()).expect("saved working config");
         assert_eq!(decoded.graphics.native_shadows, expected);
@@ -1875,6 +2014,34 @@ mod tests {
         let shipped: PsychoGraphicsConfig =
             toml::from_str(include_str!("../config/omv.toml")).expect("shipped OMV config");
         assert_eq!(shipped.graphics.native_shadows, defaults);
+
+        let sanitized = NativeShadowsConfig {
+            exterior_darkness: f32::NAN,
+            exterior_distance: f32::INFINITY,
+            cascade_split_lambda: -1.0,
+            contact_distance: 0.0,
+            contact_ray_distance: 50_000.0,
+            interior_darkness: 2.0,
+            interior_shadowed_lights: 99,
+            interior_light_radius_multiplier: 0.0,
+            interior_light_draw_distance: -10.0,
+            interior_receiver_bias: f32::NAN,
+            ..defaults
+        }
+        .sanitized();
+        assert_eq!(sanitized.exterior_darkness, defaults.exterior_darkness);
+        assert_eq!(sanitized.exterior_distance, defaults.exterior_distance);
+        assert_eq!(sanitized.cascade_split_lambda, 0.0);
+        assert_eq!(sanitized.contact_distance, 1_000.0);
+        assert_eq!(sanitized.contact_ray_distance, 8_000.0);
+        assert_eq!(sanitized.interior_darkness, 1.0);
+        assert_eq!(sanitized.interior_shadowed_lights, 12);
+        assert_eq!(sanitized.interior_light_radius_multiplier, 0.5);
+        assert_eq!(sanitized.interior_light_draw_distance, 1_000.0);
+        assert_eq!(
+            sanitized.interior_receiver_bias,
+            defaults.interior_receiver_bias
+        );
     }
 
     #[test]

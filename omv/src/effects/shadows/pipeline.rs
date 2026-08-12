@@ -3,23 +3,26 @@
 //! All default-pool resources are owned here and are released as one device
 //! generation. The common engine hook only publishes a frame after every map,
 //! scene boundary, and state restoration succeeds. The scene-pre consumer is
-//! nonblocking and accepts only a publication from the current presentation
-//! epoch, so failed or transient shadow work can never leak stale maps.
+//! nonblocking and accepts the current or immediately preceding presentation:
+//! the native producer and outer image-space callback are separate engine
+//! transactions, while older or failed work still expires deterministically.
 
 use core::ffi::c_void;
 
 use libpsycho::os::windows::directx9::{
     CubeTexture9, D3DBLEND_ONE, D3DBLENDOP_ADD, D3DCLEAR_STENCIL, D3DCLEAR_TARGET,
-    D3DCLEAR_ZBUFFER, D3DCUBEMAP_FACE_NEGATIVE_X, D3DCUBEMAP_FACE_NEGATIVE_Y,
+    D3DCLEAR_ZBUFFER, D3DCMP_ALWAYS, D3DCUBEMAP_FACE_NEGATIVE_X, D3DCUBEMAP_FACE_NEGATIVE_Y,
     D3DCUBEMAP_FACE_NEGATIVE_Z, D3DCUBEMAP_FACE_POSITIVE_X, D3DCUBEMAP_FACE_POSITIVE_Y,
     D3DCUBEMAP_FACE_POSITIVE_Z, D3DCUBEMAP_FACES, D3DCULL_NONE, D3DFMT_A16B16G16R16F, D3DFMT_D24S8,
     D3DFMT_G16R16F, D3DFMT_R32F, D3DMULTISAMPLE_4_SAMPLES, D3DMULTISAMPLE_NONE,
-    D3DPT_TRIANGLESTRIP, D3DRS_ALPHABLENDENABLE, D3DRS_BLENDOP, D3DRS_CULLMODE, D3DRS_DESTBLEND,
-    D3DRS_SCISSORTESTENABLE, D3DRS_SRCBLEND, D3DRS_SRGBWRITEENABLE, D3DRS_ZENABLE,
-    D3DRS_ZWRITEENABLE, D3DSAMP_ADDRESSU, D3DSAMP_ADDRESSV, D3DSAMP_MAGFILTER, D3DSAMP_MINFILTER,
-    D3DSAMP_MIPFILTER, D3DSBT_ALL, D3DSURFACE_DESC, D3DTADDRESS_CLAMP, D3DTEXF_LINEAR,
-    D3DTEXF_NONE, D3DTEXF_POINT, D3DVIEWPORT9, Device9Ref, Direct3DResult, PixelShader9, RECT,
-    ScreenVertex, StateBlock9, Surface9, Texture9, direct3d_failure,
+    D3DPT_TRIANGLESTRIP, D3DRS_ADAPTIVETESS_Y, D3DRS_ALPHABLENDENABLE, D3DRS_ALPHAFUNC,
+    D3DRS_ALPHAREF, D3DRS_ALPHATESTENABLE, D3DRS_BLENDOP, D3DRS_COLORWRITEENABLE, D3DRS_CULLMODE,
+    D3DRS_DESTBLEND, D3DRS_MULTISAMPLEANTIALIAS, D3DRS_MULTISAMPLEMASK, D3DRS_POINTSIZE,
+    D3DRS_SCISSORTESTENABLE, D3DRS_SRCBLEND, D3DRS_SRGBWRITEENABLE, D3DRS_STENCILENABLE,
+    D3DRS_ZENABLE, D3DRS_ZWRITEENABLE, D3DSAMP_ADDRESSU, D3DSAMP_ADDRESSV, D3DSAMP_MAGFILTER,
+    D3DSAMP_MINFILTER, D3DSAMP_MIPFILTER, D3DSAMP_SRGBTEXTURE, D3DSBT_ALL, D3DSURFACE_DESC,
+    D3DTADDRESS_CLAMP, D3DTEXF_LINEAR, D3DTEXF_NONE, D3DTEXF_POINT, D3DVIEWPORT9, Device9Ref,
+    Direct3DResult, PixelShader9, ScreenVertex, StateBlock9, Surface9, Texture9, direct3d_failure,
 };
 
 use crate::{
@@ -30,10 +33,11 @@ use crate::{
 };
 
 use super::{
+    NativeShadowsSettings,
     contract::{
-        CASCADE_COUNT, CascadeDirty, CascadeScheduler, CascadeSplit, InvocationContext,
-        NVR_CASCADE_RESOLUTION, NVR_POINT_LIGHT_COUNT, SceneKind, evsm4_moments,
-        practical_cascade_splits,
+        CASCADE_COUNT, CascadeDirty, CascadeScheduler, CascadeSplit, NVR_CASCADE_RESOLUTION,
+        NVR_POINT_LIGHT_COUNT, SceneKind, cascade_minimum_caster_radius, evsm4_moments,
+        practical_cascade_splits, publication_epoch_is_usable,
     },
     math::{
         CascadeProjection, ShadowCamera, cascade_projection, point_cube_views,
@@ -46,16 +50,10 @@ use super::{
 
 const ATLAS_RESOLUTION: u32 = NVR_CASCADE_RESOLUTION * 2;
 const POINT_CUBE_RESOLUTION: u32 = 512;
-const SHADOW_DISTANCE: f32 = 6_000.0;
-const CASCADE_LAMBDA: f32 = 0.9;
-const EXTERIOR_SHADOW_DARKNESS: f32 = 0.75;
-const INTERIOR_SHADOW_DARKNESS: f32 = 0.65;
 const BLEED_REDUCTION: f32 = 0.2;
-const POINT_RECEIVER_BIAS: f32 = 0.018;
-const CONTACT_MAX_DEPTH: f32 = 180_000.0;
-const CONTACT_RAY_DISTANCE: f32 = 2_000.0;
 const CONTACT_THICKNESS: f32 = 20.0;
 const MAX_ERROR_LOGS: u32 = 8;
+const AMD_ALPHA_TO_COVERAGE_OFF: u32 = u32::from_le_bytes(*b"A2M0");
 
 const CUBE_FACES: [D3DCUBEMAP_FACES; 6] = [
     D3DCUBEMAP_FACE_POSITIVE_X,
@@ -107,8 +105,11 @@ pub(super) struct ShadowPipeline {
     last_scene: Option<SceneKind>,
     last_sun: Option<[f32; 3]>,
     last_frustum: Option<[f32; 6]>,
+    last_directional_profile: Option<[f32; 2]>,
     resource_failure_generation: Option<u32>,
     error_logs: u32,
+    production_logged: [bool; 2],
+    composition_logged: [bool; 2],
 }
 
 impl Default for ShadowPipeline {
@@ -120,8 +121,11 @@ impl Default for ShadowPipeline {
             last_scene: None,
             last_sun: None,
             last_frustum: None,
+            last_directional_profile: None,
             resource_failure_generation: None,
             error_logs: 0,
+            production_logged: [false; 2],
+            composition_logged: [false; 2],
         }
     }
 }
@@ -135,7 +139,10 @@ impl ShadowPipeline {
         self.last_scene = None;
         self.last_sun = None;
         self.last_frustum = None;
+        self.last_directional_profile = None;
         self.resource_failure_generation = None;
+        self.production_logged = [false; 2];
+        self.composition_logged = [false; 2];
     }
 
     /// Invalidate consumer publication without discarding expensive resources.
@@ -143,8 +150,8 @@ impl ShadowPipeline {
         self.published = None;
     }
 
-    /// Return whether this gameplay epoch already owns a complete publication.
-    pub(super) fn has_current_main_publication(&self, scene: SceneKind) -> bool {
+    /// Return whether this render epoch already owns a complete publication.
+    pub(super) fn has_current_publication(&self, scene: SceneKind) -> bool {
         self.published.is_some_and(|publication| {
             publication.render_epoch == crate::hooks::render_epoch() && publication.scene == scene
         })
@@ -159,8 +166,8 @@ impl ShadowPipeline {
     pub(super) unsafe fn produce(
         &mut self,
         scene: NativeScene,
-        context: InvocationContext,
         bytecode: &ShadowBytecode,
+        settings: NativeShadowsSettings,
     ) -> ReplacementResult {
         let Some(device_ptr) = backend::d3d_device_ptr() else {
             return ReplacementResult::FallbackNative;
@@ -168,26 +175,11 @@ impl ShadowPipeline {
         let Some(device) = (unsafe { Device9Ref::from_raw_void(device_ptr) }) else {
             return ReplacementResult::FallbackNative;
         };
-        let generation = backend::d3d_device_generation();
-        if self.resource_failure_generation == Some(generation) {
-            return ReplacementResult::FallbackNative;
-        }
-        if self
-            .resources
-            .as_ref()
-            .is_none_or(|resources| resources.device_identity != device_ptr as usize)
-        {
-            self.release();
-            match ShadowResources::create(&device, bytecode) {
-                Ok(resources) => self.resources = Some(resources),
-                Err(error) => {
-                    self.resource_failure_generation = Some(generation);
-                    self.log_error("could not create the fixed shadow resource family", &error);
-                    return ReplacementResult::FallbackNative;
-                }
-            }
-        }
 
+        // Copy the coherent camera POD before a default-pool allocation can
+        // reenter or stall in the driver. The engine does not guarantee a
+        // second equivalent common-shadow invocation, so first-use resource
+        // creation and map generation must complete in this transaction.
         let Some(camera) = (unsafe { backend::fnv_world_camera_frame_fast(1, 1) })
             .filter(|camera| camera.available && camera.world_transform.available)
         else {
@@ -197,14 +189,57 @@ impl ShadowPipeline {
             return ReplacementResult::FallbackNative;
         };
 
+        let generation = backend::d3d_device_generation();
+        if self.resource_failure_generation == Some(generation) {
+            return ReplacementResult::FallbackNative;
+        }
+        let shared_ready = self
+            .resources
+            .as_ref()
+            .is_some_and(|resources| resources.device_identity == device_ptr as usize);
+        if !shared_ready {
+            self.release();
+            match ShadowResources::create(&device, bytecode) {
+                Ok(resources) => {
+                    self.resources = Some(resources);
+                }
+                Err(error) => {
+                    self.resource_failure_generation = Some(generation);
+                    self.log_error("could not create shared shadow shader resources", &error);
+                    return ReplacementResult::FallbackNative;
+                }
+            }
+        }
+
+        let resources = self.resources.as_mut().ok_or_else(direct3d_failure);
+        let branch_result = match resources {
+            Ok(resources) => resources.ensure_branch(&device, scene.kind, generation, settings),
+            Err(error) => Err(error),
+        };
+        if let Err(error) = branch_result {
+            self.log_error(
+                "could not create shadow resources for the current location",
+                &error,
+            );
+            return ReplacementResult::FallbackNative;
+        }
         // Texture writes become visible immediately. Remove the publication
         // before touching them so a later failure cannot expose a partly
         // updated atlas or cube family to scene-pre composition.
         self.published = None;
-        let result = self.produce_transaction(&device, scene, context, camera, shadow_camera);
+        let result = self.produce_transaction(&device, scene, camera, shadow_camera, settings);
         match result {
             Ok(publication) => {
                 if let Some(publication) = publication {
+                    let branch = scene_branch_index(publication.scene);
+                    if !self.production_logged[branch] {
+                        log::info!(
+                            "[SHADOWS] {} maps produced for the common epoch ({} shadowed point lights)",
+                            scene_branch_label(publication.scene),
+                            publication.point_count
+                        );
+                        self.production_logged[branch] = true;
+                    }
                     self.published = Some(publication);
                 }
                 ReplacementResult::Produced
@@ -223,9 +258,9 @@ impl ShadowPipeline {
         &mut self,
         device: &Device9Ref<'_>,
         scene: NativeScene,
-        context: InvocationContext,
         camera: CameraFrame,
         shadow_camera: ShadowCamera,
+        settings: NativeShadowsSettings,
     ) -> Direct3DResult<Option<PublishedFrame>> {
         let slots = RenderTargetSlots::query(device)?;
         let attachments = RenderAttachments::capture(device, slots)?;
@@ -238,6 +273,7 @@ impl ShadowPipeline {
         let mut last_scene = self.last_scene;
         let mut last_sun = self.last_sun;
         let mut last_frustum = self.last_frustum;
+        let mut last_directional_profile = self.last_directional_profile;
         let resources = self.resources.as_mut().ok_or_else(direct3d_failure)?;
         capture_state_block(&resources.state_block)?;
 
@@ -256,13 +292,14 @@ impl ShadowPipeline {
             resources.draw_maps(
                 device,
                 scene,
-                context,
                 camera,
                 shadow_camera,
                 &mut scheduler,
                 &mut last_scene,
                 &mut last_sun,
                 &mut last_frustum,
+                &mut last_directional_profile,
+                settings,
             )
         };
         let mut result = draw_result;
@@ -282,6 +319,7 @@ impl ShadowPipeline {
         self.last_scene = last_scene;
         self.last_sun = last_sun;
         self.last_frustum = last_frustum;
+        self.last_directional_profile = last_directional_profile;
         Ok(publication)
     }
 
@@ -295,11 +333,12 @@ impl ShadowPipeline {
         &mut self,
         device_ptr: *mut c_void,
         source_rendered_texture: *mut c_void,
+        settings: NativeShadowsSettings,
     ) -> Direct3DResult<bool> {
         let Some(publication) = self.published else {
             return Ok(false);
         };
-        if publication.render_epoch != crate::hooks::render_epoch() {
+        if !publication_epoch_is_usable(publication.render_epoch, crate::hooks::render_epoch()) {
             self.published = None;
             return Ok(false);
         }
@@ -313,7 +352,19 @@ impl ShadowPipeline {
             self.release();
             return Ok(false);
         }
-        unsafe { resources.consume(device, source_rendered_texture, publication) }
+        let composed =
+            unsafe { resources.consume(device, source_rendered_texture, publication, settings)? };
+        if composed {
+            let branch = scene_branch_index(publication.scene);
+            if !self.composition_logged[branch] {
+                log::info!(
+                    "[SHADOWS] {} publication composed into scene color",
+                    scene_branch_label(publication.scene)
+                );
+                self.composition_logged[branch] = true;
+            }
+        }
+        Ok(composed)
     }
 
     fn log_error(&mut self, message: &'static str, error: &impl core::fmt::Display) {
@@ -321,6 +372,18 @@ impl ShadowPipeline {
             log::warn!("[SHADOWS] {message}: {error}");
             self.error_logs += 1;
         }
+    }
+}
+
+fn scene_branch_index(scene: SceneKind) -> usize {
+    (scene == SceneKind::Interior) as usize
+}
+
+fn scene_branch_label(scene: SceneKind) -> &'static str {
+    if scene == SceneKind::Interior {
+        "interior"
+    } else {
+        "exterior"
     }
 }
 
@@ -334,14 +397,10 @@ struct ShadowResources {
     contact_blur_pixel: PixelShader9,
     point_pixel: PixelShader9,
     composite_pixel: PixelShader9,
-    atlas: Texture9,
-    atlas_surface: Surface9,
-    directional_workspace: Surface9,
-    directional_depth: Surface9,
-    blur: Texture9,
-    blur_surface: Surface9,
-    point_cubes: Vec<CubeTexture9>,
-    point_depth: Surface9,
+    directional: Option<DirectionalResources>,
+    points: Option<PointResources>,
+    directional_failure_generation: Option<u32>,
+    point_failure_generation: Option<u32>,
     consumer: Option<ConsumerTargets>,
     state_block: StateBlock9,
     scratch: TraversalScratch,
@@ -350,8 +409,42 @@ struct ShadowResources {
     cascade_splits: [CascadeSplit; CASCADE_COUNT],
 }
 
-impl ShadowResources {
-    fn create(device: &Device9Ref<'_>, bytecode: &ShadowBytecode) -> Direct3DResult<Self> {
+/// Exterior-only map family. It is created on first exterior production so
+/// an interior session never pays for the 4096 atlas or FP16 work surfaces.
+struct DirectionalResources {
+    atlas: Texture9,
+    atlas_surface: Surface9,
+    directional_workspace: Surface9,
+    directional_resolve: Texture9,
+    directional_resolve_surface: Surface9,
+    directional_depth: Surface9,
+    blur: Texture9,
+    blur_surface: Surface9,
+    samples: u32,
+}
+
+impl DirectionalResources {
+    fn create(device: &Device9Ref<'_>) -> Direct3DResult<Self> {
+        match Self::create_with_multisample(device, D3DMULTISAMPLE_4_SAMPLES, 4) {
+            Ok(resources) => Ok(resources),
+            Err(msaa_error) => {
+                // FP16 4x MSAA is optional in D3D9 and commonly unavailable
+                // through translation layers. Keep EVSM4 resolution and
+                // prefilter quality, but use a legal single-sample producer
+                // instead of disabling both shadow branches for the device.
+                log::warn!(
+                    "[SHADOWS] FP16 4x MSAA unavailable ({msaa_error}); using single-sample EVSM4 generation"
+                );
+                Self::create_with_multisample(device, D3DMULTISAMPLE_NONE, 1)
+            }
+        }
+    }
+
+    fn create_with_multisample(
+        device: &Device9Ref<'_>,
+        multisample: libpsycho::os::windows::directx9::D3DMULTISAMPLE_TYPE,
+        samples: u32,
+    ) -> Direct3DResult<Self> {
         let atlas = device.create_render_target_texture(
             ATLAS_RESOLUTION,
             ATLAS_RESOLUTION,
@@ -362,15 +455,21 @@ impl ShadowResources {
             NVR_CASCADE_RESOLUTION,
             NVR_CASCADE_RESOLUTION,
             D3DFMT_A16B16G16R16F,
-            D3DMULTISAMPLE_4_SAMPLES,
+            multisample,
             0,
             false,
         )?;
+        let directional_resolve = device.create_render_target_texture(
+            NVR_CASCADE_RESOLUTION,
+            NVR_CASCADE_RESOLUTION,
+            D3DFMT_A16B16G16R16F,
+        )?;
+        let directional_resolve_surface = directional_resolve.surface_level(0)?;
         let directional_depth = device.create_depth_stencil_surface(
             NVR_CASCADE_RESOLUTION,
             NVR_CASCADE_RESOLUTION,
             D3DFMT_D24S8,
-            D3DMULTISAMPLE_4_SAMPLES,
+            multisample,
             0,
             true,
         )?;
@@ -380,8 +479,30 @@ impl ShadowResources {
             D3DFMT_A16B16G16R16F,
         )?;
         let blur_surface = blur.surface_level(0)?;
-        let mut point_cubes = Vec::with_capacity(NVR_POINT_LIGHT_COUNT);
-        for _ in 0..NVR_POINT_LIGHT_COUNT {
+        Ok(Self {
+            atlas,
+            atlas_surface,
+            directional_workspace,
+            directional_resolve,
+            directional_resolve_surface,
+            directional_depth,
+            blur,
+            blur_surface,
+            samples,
+        })
+    }
+}
+
+/// Interior-only map family sized to the configured bounded light budget.
+struct PointResources {
+    point_cubes: Vec<CubeTexture9>,
+    point_depth: Surface9,
+}
+
+impl PointResources {
+    fn create(device: &Device9Ref<'_>, count: usize) -> Direct3DResult<Self> {
+        let mut point_cubes = Vec::with_capacity(count);
+        for _ in 0..count {
             point_cubes.push(
                 device.create_cube_render_target_texture(POINT_CUBE_RESOLUTION, D3DFMT_R32F)?,
             );
@@ -394,6 +515,15 @@ impl ShadowResources {
             0,
             true,
         )?;
+        Ok(Self {
+            point_cubes,
+            point_depth,
+        })
+    }
+}
+
+impl ShadowResources {
+    fn create(device: &Device9Ref<'_>, bytecode: &ShadowBytecode) -> Direct3DResult<Self> {
         Ok(Self {
             device_identity: device.as_raw() as usize,
             programs: GenerationPrograms {
@@ -409,14 +539,10 @@ impl ShadowResources {
             contact_blur_pixel: device.create_pixel_shader(&bytecode.contact_blur)?,
             point_pixel: device.create_pixel_shader(&bytecode.point_accumulation)?,
             composite_pixel: device.create_pixel_shader(&bytecode.composite)?,
-            atlas,
-            atlas_surface,
-            directional_workspace,
-            directional_depth,
-            blur,
-            blur_surface,
-            point_cubes,
-            point_depth,
+            directional: None,
+            points: None,
+            directional_failure_generation: None,
+            point_failure_generation: None,
             consumer: None,
             state_block: device.create_state_block(D3DSBT_ALL)?,
             scratch: TraversalScratch::with_capacity(),
@@ -429,18 +555,78 @@ impl ShadowResources {
         })
     }
 
+    fn ensure_branch(
+        &mut self,
+        device: &Device9Ref<'_>,
+        scene: SceneKind,
+        generation: u32,
+        settings: NativeShadowsSettings,
+    ) -> Direct3DResult<()> {
+        if scene == SceneKind::Interior {
+            if self.point_failure_generation == Some(generation) {
+                return Err(direct3d_failure());
+            }
+            let requested = settings
+                .interior_shadowed_lights
+                .clamp(1, NVR_POINT_LIGHT_COUNT);
+            if self
+                .points
+                .as_ref()
+                .is_none_or(|points| points.point_cubes.len() < requested)
+            {
+                match PointResources::create(device, requested) {
+                    Ok(points) => {
+                        log::info!(
+                            "[SHADOWS] Interior resources ready ({} x {} cube maps)",
+                            requested,
+                            POINT_CUBE_RESOLUTION
+                        );
+                        self.points = Some(points);
+                    }
+                    Err(error) => {
+                        self.point_failure_generation = Some(generation);
+                        return Err(error);
+                    }
+                }
+            }
+        } else {
+            if self.directional_failure_generation == Some(generation) {
+                return Err(direct3d_failure());
+            }
+            if self.directional.is_none() {
+                match DirectionalResources::create(device) {
+                    Ok(directional) => {
+                        log::info!(
+                            "[SHADOWS] Exterior resources ready ({} x {} EVSM4 cascades, {}x sampling)",
+                            CASCADE_COUNT,
+                            NVR_CASCADE_RESOLUTION,
+                            directional.samples
+                        );
+                        self.directional = Some(directional);
+                    }
+                    Err(error) => {
+                        self.directional_failure_generation = Some(generation);
+                        return Err(error);
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
     #[allow(clippy::too_many_arguments)]
     unsafe fn draw_maps(
         &mut self,
         device: &Device9Ref<'_>,
         scene: NativeScene,
-        context: InvocationContext,
         camera: CameraFrame,
         shadow_camera: ShadowCamera,
         scheduler: &mut CascadeScheduler,
         last_scene: &mut Option<SceneKind>,
         last_sun: &mut Option<[f32; 3]>,
         last_frustum: &mut Option<[f32; 6]>,
+        last_directional_profile: &mut Option<[f32; 2]>,
+        settings: NativeShadowsSettings,
     ) -> Direct3DResult<Option<PublishedFrame>> {
         clear_auxiliary_targets(device)?;
         let mut points = PointLightSelection::default();
@@ -452,50 +638,70 @@ impl ShadowResources {
                 .ok_or_else(direct3d_failure)?;
             sun_direction = sun;
             let frustum = camera_signature(camera);
+            let directional_profile = [settings.exterior_distance, settings.cascade_split_lambda];
             let frustum_changed = last_frustum
                 .is_none_or(|previous| projection_materially_changed(previous, frustum));
             let dirty = if *last_scene != Some(scene.kind)
                 || last_sun.is_none_or(|previous| dot3(previous, sun) < 0.9998)
                 || frustum_changed
+                || *last_directional_profile != Some(directional_profile)
             {
                 CascadeDirty::all()
             } else {
                 CascadeDirty::none()
             };
-            let plan = scheduler.plan(context, dirty);
+            let plan = scheduler.plan(dirty);
             let splits = practical_cascade_splits(
                 camera.near_z,
                 camera.far_z,
-                SHADOW_DISTANCE,
-                CASCADE_LAMBDA,
+                settings.exterior_distance,
+                settings.cascade_split_lambda,
             )
             .ok_or_else(direct3d_failure)?;
+            if plan.reset_atlas {
+                self.clear_directional_atlas(device)?;
+            }
             for index in 0..CASCADE_COUNT {
-                if !plan.render[index] {
-                    continue;
-                }
-                let projection =
-                    cascade_projection(shadow_camera, splits[index], sun, NVR_CASCADE_RESOLUTION)
-                        .ok_or_else(direct3d_failure)?;
-                unsafe {
-                    self.draw_directional_map(
-                        device,
-                        scene,
+                if plan.render[index] {
+                    let projection = cascade_projection(
+                        shadow_camera,
+                        splits[index],
+                        sun,
+                        NVR_CASCADE_RESOLUTION,
+                    )
+                    .ok_or_else(direct3d_failure)?;
+                    let minimum_radius = cascade_minimum_caster_radius(
                         index,
-                        projection,
-                        camera.world_transform.translation,
-                    )?
-                };
-                self.cascade_matrices[index] = projection.world_to_shadow;
-                self.cascade_origins[index] = camera.world_transform.translation;
-                self.cascade_splits[index] = splits[index];
+                        projection.radius,
+                        NVR_CASCADE_RESOLUTION,
+                    )
+                    .ok_or_else(direct3d_failure)?;
+                    unsafe {
+                        self.draw_directional_map(
+                            device,
+                            scene,
+                            index,
+                            projection,
+                            camera.world_transform.translation,
+                            minimum_radius,
+                        )?
+                    };
+                    // A cached atlas quadrant and its projection are one
+                    // immutable result. Replacing only the matrix on skipped
+                    // cadence frames samples old moments through a new
+                    // transform, producing neutral or displaced shadows while
+                    // wasting CPU on a projection that cannot be rendered.
+                    // The consumer rebases this retained transform from the
+                    // generation origin to the current camera instead.
+                    self.cascade_matrices[index] = projection.world_to_shadow;
+                    self.cascade_origins[index] = camera.world_transform.translation;
+                    self.cascade_splits[index] = splits[index];
+                }
             }
             scheduler.commit(plan);
-            if context == InvocationContext::Main {
-                *last_scene = Some(scene.kind);
-                *last_sun = Some(sun);
-            }
-            if context == InvocationContext::Main && frustum_changed {
+            *last_sun = Some(sun);
+            *last_directional_profile = Some(directional_profile);
+            if frustum_changed {
                 // Keep the last materially distinct projection as the
                 // comparison anchor. Updating this on every sub-pixel jitter
                 // would let a slowly changing FOV remain forever inside the
@@ -512,14 +718,18 @@ impl ShadowResources {
                 native::select_point_lights(
                     camera.world_transform.translation,
                     shadow_camera.forward,
+                    settings.interior_shadowed_lights,
+                    settings.interior_light_radius_multiplier,
+                    settings.interior_light_draw_distance,
                 )
             };
             unsafe { self.draw_point_maps(device, scene, camera, points.shadowed())? };
         }
 
-        if context != InvocationContext::Main {
-            return Ok(None);
-        }
+        // Location identity participates in directional dirty detection. It
+        // advances for interiors too, so the retained atlas is neutralized and
+        // rebuilt when the next exterior becomes active.
+        *last_scene = Some(scene.kind);
         let mut published_points = [PublishedPointLight::default(); NVR_POINT_LIGHT_COUNT];
         for (index, point) in points.shadowed().iter().enumerate() {
             published_points[index] = PublishedPointLight {
@@ -558,21 +768,32 @@ impl ShadowResources {
         cascade: usize,
         projection: CascadeProjection,
         camera_translation: [f32; 3],
+        minimum_radius: f32,
     ) -> Direct3DResult<()> {
-        device.set_render_target(0, &self.directional_workspace)?;
-        device.set_depth_stencil_surface(Some(&self.directional_depth))?;
+        let directional = self.directional.as_ref().ok_or_else(direct3d_failure)?;
+        device.set_render_target(0, &directional.directional_workspace)?;
+        device.set_depth_stencil_surface(Some(&directional.directional_depth))?;
         set_viewport(device, 0, 0, NVR_CASCADE_RESOLUTION, NVR_CASCADE_RESOLUTION)?;
         device.clear_attachments(D3DCLEAR_ZBUFFER as u32 | D3DCLEAR_STENCIL as u32, 0, 1.0, 0)?;
-        draw_evsm_far_clear(device, &self.far_clear_pixel)?;
+        draw_evsm_far_clear(
+            device,
+            &self.far_clear_pixel,
+            NVR_CASCADE_RESOLUTION,
+            NVR_CASCADE_RESOLUTION,
+        )?;
         // The clear helper temporarily detaches depth for its transformed
         // full-screen vertices. Reattach the already-cleared matching MSAA
         // surface before any geometry writes depth.
-        device.set_depth_stencil_surface(Some(&self.directional_depth))?;
+        device.set_depth_stencil_surface(Some(&directional.directional_depth))?;
         render::configure_generation_state(device)?;
         render::begin_directional_map(device, &self.programs, projection.world_to_shadow)?;
         let mut draw_result = Ok(());
         unsafe {
-            native::visit_directional_roots(scene, |root, is_land, is_lod| {
+            // Modern NVR enables object/land LOD only for its far and LOD
+            // form profiles. Traversing those roots in the near/middle maps
+            // duplicates distant geometry and was the largest avoidable part
+            // of OMV's first producer transaction.
+            native::visit_directional_roots(scene, cascade, |root, is_land, is_lod| {
                 if draw_result.is_ok() {
                     draw_result = render::draw_directional_root(
                         device,
@@ -582,6 +803,7 @@ impl ShadowResources {
                         root,
                         is_land,
                         is_lod,
+                        minimum_radius,
                         &mut self.scratch,
                     );
                 }
@@ -591,51 +813,55 @@ impl ShadowResources {
         self.resolve_and_filter_cascade(device, cascade)
     }
 
+    fn clear_directional_atlas(&self, device: &Device9Ref<'_>) -> Direct3DResult<()> {
+        let directional = self.directional.as_ref().ok_or_else(direct3d_failure)?;
+        device.set_render_target(0, &directional.atlas_surface)?;
+        set_viewport(device, 0, 0, ATLAS_RESOLUTION, ATLAS_RESOLUTION)?;
+        draw_evsm_far_clear(
+            device,
+            &self.far_clear_pixel,
+            ATLAS_RESOLUTION,
+            ATLAS_RESOLUTION,
+        )
+    }
+
     fn resolve_and_filter_cascade(
         &self,
         device: &Device9Ref<'_>,
         cascade: usize,
     ) -> Direct3DResult<()> {
+        let directional = self.directional.as_ref().ok_or_else(direct3d_failure)?;
         let (x, y) = cascade_origin(cascade);
-        let quadrant = RECT {
-            left: x as i32,
-            top: y as i32,
-            right: (x + NVR_CASCADE_RESOLUTION) as i32,
-            bottom: (y + NVR_CASCADE_RESOLUTION) as i32,
-        };
 
-        // StretchRect cannot read a surface still bound as RT0. The blur
-        // surface is a safe temporary attachment and is overwritten next.
+        // D3D9 defines MSAA downsampling only as a full-surface copy into a
+        // distinct same-size single-sample render target. Resolving directly
+        // into one quadrant of the 4096 atlas is rejected by real drivers and
+        // made the complete replacement transaction fall back to native.
         device.set_depth_stencil_surface(None)?;
-        device.set_render_target(0, &self.blur_surface)?;
+        device.set_render_target(0, &directional.blur_surface)?;
         device.stretch_rect(
-            &self.directional_workspace,
+            &directional.directional_workspace,
             None,
-            &self.atlas_surface,
-            Some(&quadrant),
+            &directional.directional_resolve_surface,
+            None,
             D3DTEXF_NONE,
         )?;
 
         bind_fullscreen_state(device)?;
         device.set_pixel_shader(&self.blur_pixel)?;
-        device.set_texture(0, &self.atlas)?;
+        device.set_texture(0, &directional.directional_resolve)?;
         set_linear_clamp_sampler(device, 0)?;
         device.set_pixel_shader_constant_f(
             0,
             &[
                 [1.0, 0.0, 0.0, 0.0],
                 [
-                    1.0 / ATLAS_RESOLUTION as f32,
-                    1.0 / ATLAS_RESOLUTION as f32,
+                    1.0 / NVR_CASCADE_RESOLUTION as f32,
+                    1.0 / NVR_CASCADE_RESOLUTION as f32,
                     0.0,
                     0.0,
                 ],
-                [
-                    0.5,
-                    0.5,
-                    x as f32 / ATLAS_RESOLUTION as f32,
-                    y as f32 / ATLAS_RESOLUTION as f32,
-                ],
+                [1.0, 1.0, 0.0, 0.0],
             ],
         )?;
         set_viewport(device, 0, 0, NVR_CASCADE_RESOLUTION, NVR_CASCADE_RESOLUTION)?;
@@ -644,8 +870,8 @@ impl ShadowResources {
         // The vertical pass writes back into the atlas quadrant, so the atlas
         // sampler must be removed before that surface becomes writable.
         device.clear_texture(0)?;
-        device.set_render_target(0, &self.atlas_surface)?;
-        device.set_texture(0, &self.blur)?;
+        device.set_render_target(0, &directional.atlas_surface)?;
+        device.set_texture(0, &directional.blur)?;
         device.set_pixel_shader_constant_f(
             0,
             &[
@@ -674,9 +900,10 @@ impl ShadowResources {
             let views = point_cube_views(point.relative_position, point.radius)
                 .ok_or_else(direct3d_failure)?;
             for face in 0..6 {
-                let surface = self.point_cubes[index].surface(CUBE_FACES[face], 0)?;
+                let point_resources = self.points.as_ref().ok_or_else(direct3d_failure)?;
+                let surface = point_resources.point_cubes[index].surface(CUBE_FACES[face], 0)?;
                 device.set_render_target(0, &surface)?;
-                device.set_depth_stencil_surface(Some(&self.point_depth))?;
+                device.set_depth_stencil_surface(Some(&point_resources.point_depth))?;
                 set_viewport(device, 0, 0, POINT_CUBE_RESOLUTION, POINT_CUBE_RESOLUTION)?;
                 device.clear_attachments(
                     D3DCLEAR_TARGET as u32 | D3DCLEAR_ZBUFFER as u32 | D3DCLEAR_STENCIL as u32,
@@ -706,6 +933,7 @@ impl ShadowResources {
                                 camera.world_transform.translation,
                                 point.relative_position,
                                 point.radius,
+                                face,
                                 geometry,
                             );
                         }
@@ -721,6 +949,7 @@ impl ShadowResources {
                                     camera.world_transform.translation,
                                     point.relative_position,
                                     point.radius,
+                                    face,
                                     root,
                                     is_land,
                                     is_lod,
@@ -741,6 +970,7 @@ impl ShadowResources {
         device: Device9Ref<'_>,
         source_rendered_texture: *mut c_void,
         publication: PublishedFrame,
+        settings: NativeShadowsSettings,
     ) -> Direct3DResult<bool> {
         let provider = backend::active_depth_provider();
         let Some(source_ptr) =
@@ -793,6 +1023,7 @@ impl ShadowResources {
             camera,
             publication,
             targets,
+            settings,
         );
         finish_render_transaction(&device, &attachments, Some(&self.state_block), draw_result)?;
         Ok(true)
@@ -809,13 +1040,14 @@ impl ShadowResources {
         camera: CameraFrame,
         publication: PublishedFrame,
         targets: &ConsumerTargets,
+        settings: NativeShadowsSettings,
     ) -> Direct3DResult<()> {
         clear_auxiliary_targets(device)?;
         bind_fullscreen_state(device)?;
         let common = consumer_camera_constants(desc, depth, camera);
         set_viewport(device, 0, 0, desc.Width, desc.Height)?;
 
-        if publication.directional {
+        if publication.directional && settings.contact_shadows {
             // Modern NVR's custom-quality exterior path includes a short
             // screen-space contact ray. Keep it as a visibility term in the
             // point buffer, then depth-filter through the otherwise unused
@@ -831,8 +1063,8 @@ impl ShadowResources {
                 &[
                     [
                         depth.world_projection.reversed_depth_f32(),
-                        CONTACT_MAX_DEPTH,
-                        CONTACT_RAY_DISTANCE,
+                        settings.contact_distance,
+                        settings.contact_ray_distance,
                         CONTACT_THICKNESS,
                     ],
                     [
@@ -867,6 +1099,11 @@ impl ShadowResources {
                 &[[depth.world_projection.reversed_depth_f32(), 0.0, 1.0, 0.0]],
             )?;
             draw_quad(device, 0, 0, desc.Width, desc.Height)?;
+        } else if publication.directional {
+            // White is neutral visibility when the optional contact ray is
+            // disabled; the directional atlas remains fully active.
+            device.set_render_target(0, &targets.point_surface)?;
+            device.clear_attachments(D3DCLEAR_TARGET as u32, 0xFFFF_FFFF, 1.0, 0)?;
         } else {
             device.set_render_target(0, &targets.normals_surface)?;
             device.set_pixel_shader(&self.normal_pixel)?;
@@ -912,7 +1149,11 @@ impl ShadowResources {
                             if shadowed {
                                 device.set_cube_texture(
                                     (index + 1) as u32,
-                                    &self.point_cubes[first + index],
+                                    &self
+                                        .points
+                                        .as_ref()
+                                        .ok_or_else(direct3d_failure)?
+                                        .point_cubes[first + index],
                                 )?;
                                 set_point_clamp_sampler(device, (index + 1) as u32)?;
                             }
@@ -921,7 +1162,7 @@ impl ShadowResources {
                         constants[6] = [
                             depth.world_projection.reversed_depth_f32(),
                             count as f32,
-                            POINT_RECEIVER_BIAS,
+                            settings.interior_receiver_bias,
                             (!shadowed) as u8 as f32,
                         ];
                         device.set_pixel_shader_constant_f(0, &constants)?;
@@ -956,7 +1197,18 @@ impl ShadowResources {
         device.set_pixel_shader(&self.composite_pixel)?;
         device.set_texture(0, &targets.scene_copy)?;
         unsafe { device.set_raw_base_texture(1, depth_texture)? };
-        device.set_texture(2, &self.atlas)?;
+        if publication.directional {
+            device.set_texture(
+                2,
+                &self
+                    .directional
+                    .as_ref()
+                    .ok_or_else(direct3d_failure)?
+                    .atlas,
+            )?;
+        } else {
+            device.clear_texture(2)?;
+        }
         device.set_texture(3, &targets.point)?;
         for sampler in 0..=3 {
             set_linear_clamp_sampler(device, sampler)?;
@@ -983,9 +1235,9 @@ impl ShadowResources {
                     depth.world_projection.reversed_depth_f32(),
                     publication.directional as u8 as f32,
                     if publication.directional {
-                        EXTERIOR_SHADOW_DARKNESS
+                        settings.exterior_darkness
                     } else {
-                        INTERIOR_SHADOW_DARKNESS
+                        settings.interior_darkness
                     },
                     BLEED_REDUCTION,
                 ],
@@ -1212,12 +1464,17 @@ fn translate_shadow_matrix(
     adjusted
 }
 
-fn draw_evsm_far_clear(device: &Device9Ref<'_>, shader: &PixelShader9) -> Direct3DResult<()> {
+fn draw_evsm_far_clear(
+    device: &Device9Ref<'_>,
+    shader: &PixelShader9,
+    width: u32,
+    height: u32,
+) -> Direct3DResult<()> {
     bind_fullscreen_state(device)?;
     device.set_pixel_shader(shader)?;
     let moments = evsm4_moments(1.0, true).ok_or_else(direct3d_failure)?;
     device.set_pixel_shader_constant_f(0, &[moments])?;
-    draw_quad(device, 0, 0, NVR_CASCADE_RESOLUTION, NVR_CASCADE_RESOLUTION)
+    draw_quad(device, 0, 0, width, height)
 }
 
 fn bind_fullscreen_state(device: &Device9Ref<'_>) -> Direct3DResult<()> {
@@ -1229,8 +1486,31 @@ fn bind_fullscreen_state(device: &Device9Ref<'_>) -> Direct3DResult<()> {
     device.set_render_state(D3DRS_ZWRITEENABLE, 0)?;
     device.set_render_state(D3DRS_CULLMODE, D3DCULL_NONE.0 as u32)?;
     device.set_render_state(D3DRS_ALPHABLENDENABLE, 0)?;
+    // The producer is entered from several native shadow branches and the
+    // consumer runs before OMV's regular screen pipeline establishes state.
+    // In both cases Fallout may leave pixel-rejection state enabled. D3D9
+    // still reports a successful draw when alpha/stencil reject every pixel,
+    // which previously paid the complete map/contact cost with no visible
+    // composition.
+    device.set_render_state(D3DRS_ALPHATESTENABLE, 0)?;
+    device.set_render_state(D3DRS_ALPHAREF, 0)?;
+    device.set_render_state(D3DRS_ALPHAFUNC, D3DCMP_ALWAYS.0 as u32)?;
+    device.set_render_state(D3DRS_STENCILENABLE, 0)?;
     device.set_render_state(D3DRS_SCISSORTESTENABLE, 0)?;
-    device.set_render_state(D3DRS_SRGBWRITEENABLE, 0)
+    device.set_render_state(D3DRS_MULTISAMPLEANTIALIAS, 1)?;
+    device.set_render_state(D3DRS_MULTISAMPLEMASK, u32::MAX)?;
+    match crate::backend::fnv_alpha_coverage_mode() {
+        crate::backend::AlphaCoverageMode::None => {}
+        crate::backend::AlphaCoverageMode::Nvidia => {
+            device.set_render_state(D3DRS_ADAPTIVETESS_Y, 0)?;
+        }
+        crate::backend::AlphaCoverageMode::Amd => {
+            device.set_render_state(D3DRS_POINTSIZE, AMD_ALPHA_TO_COVERAGE_OFF)?;
+        }
+    }
+    device.set_render_state(D3DRS_SRGBWRITEENABLE, 0)?;
+    device.set_render_state(D3DRS_COLORWRITEENABLE, 0xF)?;
+    Ok(())
 }
 
 fn clear_auxiliary_targets(device: &Device9Ref<'_>) -> Direct3DResult<()> {
@@ -1282,7 +1562,8 @@ fn set_linear_clamp_sampler(device: &Device9Ref<'_>, sampler: u32) -> Direct3DRe
     device.set_sampler_state(sampler, D3DSAMP_ADDRESSV, D3DTADDRESS_CLAMP.0 as u32)?;
     device.set_sampler_state(sampler, D3DSAMP_MINFILTER, D3DTEXF_LINEAR.0 as u32)?;
     device.set_sampler_state(sampler, D3DSAMP_MAGFILTER, D3DTEXF_LINEAR.0 as u32)?;
-    device.set_sampler_state(sampler, D3DSAMP_MIPFILTER, D3DTEXF_NONE.0 as u32)
+    device.set_sampler_state(sampler, D3DSAMP_MIPFILTER, D3DTEXF_NONE.0 as u32)?;
+    device.set_sampler_state(sampler, D3DSAMP_SRGBTEXTURE, 0)
 }
 
 fn set_point_clamp_sampler(device: &Device9Ref<'_>, sampler: u32) -> Direct3DResult<()> {
@@ -1290,7 +1571,8 @@ fn set_point_clamp_sampler(device: &Device9Ref<'_>, sampler: u32) -> Direct3DRes
     device.set_sampler_state(sampler, D3DSAMP_ADDRESSV, D3DTADDRESS_CLAMP.0 as u32)?;
     device.set_sampler_state(sampler, D3DSAMP_MINFILTER, D3DTEXF_POINT.0 as u32)?;
     device.set_sampler_state(sampler, D3DSAMP_MAGFILTER, D3DTEXF_POINT.0 as u32)?;
-    device.set_sampler_state(sampler, D3DSAMP_MIPFILTER, D3DTEXF_NONE.0 as u32)
+    device.set_sampler_state(sampler, D3DSAMP_MIPFILTER, D3DTEXF_NONE.0 as u32)?;
+    device.set_sampler_state(sampler, D3DSAMP_SRGBTEXTURE, 0)
 }
 
 fn cascade_origin(cascade: usize) -> (u32, u32) {

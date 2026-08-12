@@ -65,6 +65,7 @@ fn every_shadow_shader_compiles_for_shader_model_three_with_static_budgets() {
         ),
         ("shadow_composite.ps", COMPOSITE_PIXEL_SOURCE, "ps_3_0", 640),
     ];
+    let mut compiled_programs: Vec<(&str, Vec<u32>)> = Vec::with_capacity(variants.len());
     for (name, source, target, budget) in variants {
         let bytecode = crate::shaders::compile_hlsl_source_target(name, source, target)
             .unwrap_or_else(|error| panic!("{name} must compile: {error:#}"));
@@ -81,7 +82,15 @@ fn every_shadow_shader_compiles_for_shader_model_three_with_static_budgets() {
             instructions <= budget,
             "{name} uses {instructions} instructions, above its {budget}-instruction budget"
         );
+        assert!(
+            compiled_programs
+                .iter()
+                .all(|(other_name, other)| other != &bytecode || other_name == &name),
+            "{name} unexpectedly aliases another shadow program"
+        );
+        compiled_programs.push((name, bytecode));
     }
+    assert_eq!(compiled_programs.len(), 11);
 }
 
 #[test]
@@ -109,6 +118,10 @@ fn directional_generation_preserves_all_complex_geometry_routes() {
     assert!(!pixel.contains("ddy("));
 
     let cube = std::str::from_utf8(CUBE_PIXEL_SOURCE).expect("cube pixel UTF-8");
+    assert!(
+        cube.contains("float4 Main(PixelInput input) : COLOR0"),
+        "the legacy Microsoft D3D compiler requires four-component COLOR0 output"
+    );
     assert!(cube.contains("clip(diffuse.a - 0.2f)"));
 }
 

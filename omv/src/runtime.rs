@@ -3774,6 +3774,10 @@ impl ScreenShaderRuntime {
             self.ensure_gpu_diagnostics_profile();
         }
 
+        // Capture only this machine-level feature before ImGui mutates the
+        // working configuration. A change-specific snapshot lets us emit one
+        // useful publication record without logging unrelated slider edits.
+        let shadow_settings_before = self.settings.menu_config.native_shadows;
         let gpu_diagnostics = self.gpu_diagnostics.as_ref();
         let Some(imgui) = self.imgui.as_mut() else {
             return Ok(());
@@ -3823,6 +3827,12 @@ impl ScreenShaderRuntime {
         if menu_frame.changed {
             self.menu_config_error = None;
             self.apply_menu_config_change();
+            if shadow_settings_before != self.settings.menu_config.native_shadows {
+                log_shadow_menu_settings(
+                    self.settings.menu_config.native_shadows,
+                    self.settings.menu_config.screen_space_shaders,
+                );
+            }
             self.current_look_autosave.note_change(Instant::now());
             self.preset_ui.mark_modified();
         }
@@ -7372,6 +7382,41 @@ mod frame_pacing_tests {
     }
 
     #[test]
+    fn shadow_menu_edits_are_published_before_their_runtime_log() {
+        let source = include_str!("runtime.rs");
+        let draw_menu = source
+            .split_once("\n    fn draw_menu(")
+            .map(|(_, tail)| tail)
+            .and_then(|tail| tail.split_once("\n    fn draw_pbr_preparation("))
+            .map(|(body, _)| body)
+            .expect("menu render transaction");
+
+        let snapshot = draw_menu
+            .find("let shadow_settings_before")
+            .expect("pre-widget shadow snapshot");
+        let widget = draw_menu
+            .find("draw_shader_menu(")
+            .expect("configuration widget graph");
+        let publish = draw_menu
+            .find("self.apply_menu_config_change();")
+            .expect("live runtime publication");
+        let log = draw_menu
+            .find("log_shadow_menu_settings(")
+            .expect("post-publication shadow log");
+        assert!(snapshot < widget && widget < publish && publish < log);
+
+        let apply = source
+            .split_once("\n    fn apply_menu_config_change(")
+            .map(|(_, tail)| tail)
+            .and_then(|tail| tail.split_once("\n    fn record_active_preset_state("))
+            .map(|(body, _)| body)
+            .expect("menu configuration publisher");
+        assert!(apply.contains("shadows::configure_runtime_options("));
+        assert!(apply.contains("self.settings.menu_config.native_shadows"));
+        assert!(apply.contains(".with_master_enabled(master_enabled)"));
+    }
+
+    #[test]
     fn published_preset_identity_is_recorded_without_rewriting_the_current_look() {
         let source = include_str!("runtime.rs");
         let events = source
@@ -10413,7 +10458,9 @@ fn draw_native_shadows_config(
     );
     ui.text_colored(
         MENU_MUTED_TEXT,
-        &cstring("Quality is fixed: 4x 2048 EVSM4 cascades and 12 cube-shadowed interior lights."),
+        &cstring(
+            "2048 EVSM4 cascades and 512 point cubes keep NVR's high-quality resource profile.",
+        ),
     );
     ui.separator();
 
@@ -10433,13 +10480,138 @@ fn draw_native_shadows_config(
         "native_shadows.exterior_enabled",
         &mut config.exterior_enabled,
     );
+    if config.exterior_enabled {
+        let section = cstring("EXTERIOR");
+        ui.separator_text(&section);
+        changed |= draw_float_slider(
+            ui,
+            "Darkness",
+            "native_shadows.exterior_darkness",
+            &mut config.exterior_darkness,
+            0.0,
+            1.0,
+        );
+        changed |= draw_float_slider(
+            ui,
+            "Shadow distance",
+            "native_shadows.exterior_distance",
+            &mut config.exterior_distance,
+            1_000.0,
+            20_000.0,
+        );
+        changed |= draw_float_slider(
+            ui,
+            "Cascade distribution",
+            "native_shadows.cascade_split_lambda",
+            &mut config.cascade_split_lambda,
+            0.0,
+            1.0,
+        );
+        changed |= draw_config_checkbox(
+            ui,
+            "Contact shadows",
+            "native_shadows.contact_shadows",
+            &mut config.contact_shadows,
+        );
+        if config.contact_shadows {
+            changed |= draw_float_slider(
+                ui,
+                "Contact distance",
+                "native_shadows.contact_distance",
+                &mut config.contact_distance,
+                1_000.0,
+                250_000.0,
+            );
+            changed |= draw_float_slider(
+                ui,
+                "Contact ray distance",
+                "native_shadows.contact_ray_distance",
+                &mut config.contact_ray_distance,
+                50.0,
+                8_000.0,
+            );
+        }
+    }
     changed |= draw_config_checkbox(
         ui,
         "Interior shadows",
         "native_shadows.interior_enabled",
         &mut config.interior_enabled,
     );
+    if config.interior_enabled {
+        let section = cstring("INTERIOR");
+        ui.separator_text(&section);
+        changed |= draw_float_slider(
+            ui,
+            "Darkness",
+            "native_shadows.interior_darkness",
+            &mut config.interior_darkness,
+            0.0,
+            1.0,
+        );
+        changed |= draw_int_slider(
+            ui,
+            "Shadowed lights",
+            "native_shadows.interior_shadowed_lights",
+            &mut config.interior_shadowed_lights,
+            1,
+            12,
+        );
+        changed |= draw_float_slider(
+            ui,
+            "Light radius multiplier",
+            "native_shadows.interior_light_radius_multiplier",
+            &mut config.interior_light_radius_multiplier,
+            0.5,
+            4.0,
+        );
+        changed |= draw_float_slider(
+            ui,
+            "Light draw distance",
+            "native_shadows.interior_light_draw_distance",
+            &mut config.interior_light_draw_distance,
+            1_000.0,
+            20_000.0,
+        );
+        changed |= draw_float_slider(
+            ui,
+            "Receiver bias",
+            "native_shadows.interior_receiver_bias",
+            &mut config.interior_receiver_bias,
+            0.0,
+            0.1,
+        );
+    }
     changed
+}
+
+/// Record the exact effective shadow configuration after an ImGui publication.
+///
+/// This is deliberately called only when the Shadows panel changed, never from
+/// the render hooks or the pre-Deferred atomic configuration path.
+fn log_shadow_menu_settings(
+    config: crate::config::NativeShadowsConfig,
+    graphics_master_enabled: bool,
+) {
+    let config = config.sanitized();
+    log::info!(
+        "[SHADOWS] Menu settings published (active={}, effect={}, exterior={}, interior={}, exterior_darkness={:.3}, exterior_distance={:.1}, cascade_lambda={:.3}, contact={}, contact_distance={:.1}, contact_ray_distance={:.1}, interior_darkness={:.3}, shadowed_lights={}, radius_multiplier={:.3}, light_distance={:.1}, receiver_bias={:.5})",
+        graphics_master_enabled && config.enabled,
+        config.enabled,
+        config.exterior_enabled,
+        config.interior_enabled,
+        config.exterior_darkness,
+        config.exterior_distance,
+        config.cascade_split_lambda,
+        config.contact_shadows,
+        config.contact_distance,
+        config.contact_ray_distance,
+        config.interior_darkness,
+        config.interior_shadowed_lights,
+        config.interior_light_radius_multiplier,
+        config.interior_light_draw_distance,
+        config.interior_receiver_bias,
+    );
 }
 
 fn configured_feature_label(name: &str, id: &str, enabled: bool) -> String {

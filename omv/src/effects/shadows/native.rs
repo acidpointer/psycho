@@ -11,7 +11,7 @@ use libpsycho::os::windows::memory::validate_memory_range;
 
 use super::{
     contract::{
-        NVR_POINT_DRAW_DISTANCE, NVR_POINT_LIGHT_COUNT, NVR_POINT_RADIUS_MULTIPLIER, SceneKind,
+        NVR_POINT_LIGHT_COUNT, SceneKind, directional_form_type_is_enabled,
         point_light_influence_is_eligible,
     },
     engine::NativeLayout,
@@ -51,7 +51,6 @@ const SHADOW_LIGHT_INACTIVE: u16 = 0x00FF;
 
 const NATIVE_LIGHT_DISABLED_FLAGS: usize = 0x30;
 const NATIVE_LIGHT_POSITION: usize = 0x8C;
-const NATIVE_LIGHT_CASTS_SHADOWS: usize = 0x9E;
 const NATIVE_LIGHT_DIMMER: usize = 0xC4;
 const NATIVE_LIGHT_DIFFUSE: usize = 0xD4;
 const NATIVE_LIGHT_RADIUS: usize = 0xE0;
@@ -86,8 +85,6 @@ pub(super) struct PointLight {
     pub(super) color: [f32; 3],
     /// Native point-light radius.
     pub(super) radius: f32,
-    /// Whether the native light owns one of the bounded cube-shadow slots.
-    casts_shadows: bool,
     distance_squared: f32,
 }
 
@@ -123,23 +120,27 @@ impl PointLightSet {
     }
 
     /// Insert by stable distance order and return a rejected or evicted tail.
-    fn insert(&mut self, candidate: PointLight) -> Option<PointLight> {
+    fn insert(&mut self, candidate: PointLight, capacity: usize) -> Option<PointLight> {
+        let capacity = capacity.min(NVR_POINT_LIGHT_COUNT);
+        if capacity == 0 {
+            return Some(candidate);
+        }
         let insertion = self
             .iter()
             .position(|current| point_light_precedes(candidate, *current))
             .unwrap_or(self.len);
-        if insertion >= NVR_POINT_LIGHT_COUNT {
+        if insertion >= capacity {
             return Some(candidate);
         }
-        let rejected = (self.len == NVR_POINT_LIGHT_COUNT)
-            .then(|| self.values[NVR_POINT_LIGHT_COUNT - 1])
+        let rejected = (self.len == capacity)
+            .then(|| self.values[capacity - 1])
             .flatten();
-        let last = self.len.min(NVR_POINT_LIGHT_COUNT - 1);
+        let last = self.len.min(capacity - 1);
         for index in (insertion..last).rev() {
             self.values[index + 1] = self.values[index];
         }
         self.values[insertion] = Some(candidate);
-        self.len = (self.len + 1).min(NVR_POINT_LIGHT_COUNT);
+        self.len = (self.len + 1).min(capacity);
         rejected
     }
 }
@@ -151,9 +152,17 @@ pub(super) struct PointLightSelection {
     shadowed: PointLightSet,
     /// Nearby light energy retained without a cube-map comparison.
     unshadowed: PointLightSet,
+    shadow_limit: usize,
 }
 
 impl PointLightSelection {
+    fn with_shadow_limit(shadow_limit: usize) -> Self {
+        Self {
+            shadow_limit: shadow_limit.clamp(1, NVR_POINT_LIGHT_COUNT),
+            ..Self::default()
+        }
+    }
+
     /// Return the ordered cube-producing subset.
     pub(super) const fn shadowed(&self) -> &PointLightSet {
         &self.shadowed
@@ -170,12 +179,12 @@ impl PointLightSelection {
         {
             return;
         }
-        if candidate.casts_shadows {
-            if let Some(fallback) = self.shadowed.insert(candidate) {
-                self.unshadowed.insert(fallback);
-            }
-        } else {
-            self.unshadowed.insert(candidate);
+        // Modern NVR deliberately ignores the engine cast-shadow bit because
+        // JIP can leave it false for valid lights. Every eligible light first
+        // competes for the bounded cube budget; overflow retains illumination
+        // through the equally bounded unshadowed set.
+        if let Some(fallback) = self.shadowed.insert(candidate, self.shadow_limit) {
+            self.unshadowed.insert(fallback, NVR_POINT_LIGHT_COUNT);
         }
     }
 }
@@ -239,8 +248,11 @@ pub(super) unsafe fn current_scene() -> Option<NativeScene> {
 pub(super) unsafe fn select_point_lights(
     camera_translation: [f32; 3],
     camera_forward: [f32; 3],
+    shadow_limit: usize,
+    radius_multiplier: f32,
+    draw_distance: f32,
 ) -> PointLightSelection {
-    let mut selected = PointLightSelection::default();
+    let mut selected = PointLightSelection::with_shadow_limit(shadow_limit);
     if !camera_translation.into_iter().all(f32::is_finite) {
         return selected;
     }
@@ -256,9 +268,15 @@ pub(super) unsafe fn select_point_lights(
     while !node.is_null() && scanned < count {
         let next = unsafe { read::<*mut u8>(node, NI_TLIST_NEXT) };
         let scene_light = unsafe { read::<*mut u8>(node, NI_TLIST_DATA) };
-        if let Some(candidate) =
-            unsafe { point_light(scene_light, camera_translation, camera_forward) }
-        {
+        if let Some(candidate) = unsafe {
+            point_light(
+                scene_light,
+                camera_translation,
+                camera_forward,
+                radius_multiplier,
+                draw_distance,
+            )
+        } {
             selected.insert(candidate);
         }
         node = next;
@@ -304,14 +322,15 @@ pub(super) unsafe fn visit_point_fallback_roots(
     scene: NativeScene,
     mut visit: impl FnMut(*mut u8, bool, bool),
 ) {
-    unsafe { visit_cell_roots(scene.cell, &mut visit) };
+    unsafe { visit_cell_roots(scene.cell, None, &mut visit) };
 }
 
-/// Visit all exterior cell/ref and LOD roots admitted by native form policy.
+/// Visit exterior cell/reference roots admitted by one NVR cascade profile.
 ///
 /// The callback receives `(root, is_land, is_lod)`. Reference nodes already
-/// passed the `NotCastShadows` form bit. Root traversal remains bounded even
-/// if a corrupted list contains a cycle.
+/// passed the `NotCastShadows` form bit and the map-specific form-category
+/// switches. Object/land LOD roots are included only for far and LOD maps.
+/// Root traversal remains bounded even if a corrupted list contains a cycle.
 ///
 /// # Safety
 ///
@@ -319,15 +338,18 @@ pub(super) unsafe fn visit_point_fallback_roots(
 /// consume each borrowed node synchronously.
 pub(super) unsafe fn visit_directional_roots(
     scene: NativeScene,
+    cascade: usize,
     mut visit: impl FnMut(*mut u8, bool, bool),
 ) {
-    for (offset, is_land) in [
-        (NativeLayout::TES_OBJECT_LOD_ROOT, false),
-        (NativeLayout::TES_LAND_LOD_ROOT, true),
-    ] {
-        let root = unsafe { read::<*mut u8>(scene.tes, offset) };
-        if !root.is_null() {
-            visit(root, is_land, true);
+    if cascade >= 2 {
+        for (offset, is_land) in [
+            (NativeLayout::TES_OBJECT_LOD_ROOT, false),
+            (NativeLayout::TES_LAND_LOD_ROOT, true),
+        ] {
+            let root = unsafe { read::<*mut u8>(scene.tes, offset) };
+            if !root.is_null() {
+                visit(root, is_land, true);
+            }
         }
     }
 
@@ -343,7 +365,7 @@ pub(super) unsafe fn visit_directional_roots(
                         && unsafe { read::<u8>(cell, NativeLayout::CELL_FLAGS) } & CELL_INTERIOR
                             == 0
                     {
-                        unsafe { visit_cell_roots(cell, &mut visit) };
+                        unsafe { visit_cell_roots(cell, Some(cascade), &mut visit) };
                     }
                 }
                 return;
@@ -354,10 +376,14 @@ pub(super) unsafe fn visit_directional_roots(
     // Interior cells that behave like exteriors have no grid. Their current
     // cell still supplies ordinary statics/actors and a land child when one
     // exists, so the location toggle has meaningful NVR-compatible behavior.
-    unsafe { visit_cell_roots(scene.cell, &mut visit) };
+    unsafe { visit_cell_roots(scene.cell, Some(cascade), &mut visit) };
 }
 
-unsafe fn visit_cell_roots(cell: *mut u8, visit: &mut impl FnMut(*mut u8, bool, bool)) {
+unsafe fn visit_cell_roots(
+    cell: *mut u8,
+    directional_cascade: Option<usize>,
+    visit: &mut impl FnMut(*mut u8, bool, bool),
+) {
     let cell_state = unsafe { read::<*mut u8>(cell, CELL_STRUCT) };
     if !cell_state.is_null() {
         let master = unsafe { read::<*mut u8>(cell_state, CELL_STRUCT_MASTER_NODE) };
@@ -374,6 +400,13 @@ unsafe fn visit_cell_roots(cell: *mut u8, visit: &mut impl FnMut(*mut u8, bool, 
             && unsafe { read::<u32>(reference, NativeLayout::TES_FORM_FLAGS) }
                 & FORM_NOT_CAST_SHADOWS
                 == 0
+            && directional_cascade.is_none_or(|cascade| {
+                let base = unsafe { read::<*mut u8>(reference, NativeLayout::REFERENCE_BASE_FORM) };
+                !base.is_null()
+                    && directional_form_type_is_enabled(cascade, unsafe {
+                        read::<u8>(base, NativeLayout::TES_FORM_TYPE)
+                    })
+            })
         {
             let render_data =
                 unsafe { read::<*mut u8>(reference, NativeLayout::REFERENCE_RENDER_DATA) };
@@ -394,6 +427,8 @@ unsafe fn point_light(
     scene_light: *mut u8,
     camera_translation: [f32; 3],
     camera_forward: [f32; 3],
+    radius_multiplier: f32,
+    draw_distance: f32,
 ) -> Option<PointLight> {
     if scene_light.is_null()
         || unsafe { read::<u8>(scene_light, SHADOW_LIGHT_POINT) } == 0
@@ -406,7 +441,6 @@ unsafe fn point_light(
     if native.is_null() || unsafe { read::<u8>(native, NATIVE_LIGHT_DISABLED_FLAGS) } & 1 != 0 {
         return None;
     }
-    let casts_shadows = unsafe { read::<u8>(native, NATIVE_LIGHT_CASTS_SHADOWS) } != 0;
     let position = unsafe { read_vec3(native, NATIVE_LIGHT_POSITION) };
     let diffuse = unsafe { read_vec3(native, NATIVE_LIGHT_DIFFUSE) };
     let dimmer = unsafe { read::<f32>(native, NATIVE_LIGHT_DIMMER) };
@@ -421,15 +455,11 @@ unsafe fn point_light(
     {
         return None;
     }
-    let radius = native_radius * NVR_POINT_RADIUS_MULTIPLIER;
+    let radius = native_radius * radius_multiplier;
     let relative_position =
         std::array::from_fn(|index| position[index] - camera_translation[index]);
-    if !point_light_influence_is_eligible(
-        relative_position,
-        radius,
-        camera_forward,
-        NVR_POINT_DRAW_DISTANCE,
-    ) {
+    if !point_light_influence_is_eligible(relative_position, radius, camera_forward, draw_distance)
+    {
         return None;
     }
     let distance_squared = dot3(relative_position, relative_position);
@@ -447,7 +477,6 @@ unsafe fn point_light(
         relative_position,
         color,
         radius,
-        casts_shadows,
         distance_squared,
     })
 }
@@ -503,7 +532,7 @@ const fn size_of<T>() -> usize {
 mod tests {
     use super::{PointLight, PointLightSelection};
 
-    fn point(identity: usize, distance_squared: f32, casts_shadows: bool) -> PointLight {
+    fn point(identity: usize, distance_squared: f32) -> PointLight {
         PointLight {
             identity,
             shadow_scene_light: core::ptr::null_mut(),
@@ -511,20 +540,19 @@ mod tests {
             relative_position: [0.0; 3],
             color: [1.0; 3],
             radius: 512.0,
-            casts_shadows,
             distance_squared,
         }
     }
 
     #[test]
     fn runtime_selection_demotes_cube_overflow_into_the_tracked_set() {
-        let mut selection = PointLightSelection::default();
+        let mut selection = PointLightSelection::with_shadow_limit(12);
         for identity in 1..=14 {
-            selection.insert(point(identity, identity as f32, true));
+            selection.insert(point(identity, identity as f32));
         }
-        selection.insert(point(101, 0.5, false));
-        selection.insert(point(102, 13.5, false));
-        selection.insert(point(1, 0.0, false));
+        selection.insert(point(101, 0.5));
+        selection.insert(point(102, 13.5));
+        selection.insert(point(1, 0.0));
 
         let shadowed: [usize; 12] = std::array::from_fn(|index| {
             selection
@@ -534,7 +562,7 @@ mod tests {
                 .expect("full shadow set")
                 .identity
         });
-        assert_eq!(shadowed, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
+        assert_eq!(shadowed, [101, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
         let tracked: [usize; 4] = std::array::from_fn(|index| {
             selection
                 .unshadowed()
@@ -543,6 +571,28 @@ mod tests {
                 .expect("four tracked fallbacks")
                 .identity
         });
-        assert_eq!(tracked, [101, 13, 102, 14]);
+        assert_eq!(tracked, [12, 13, 102, 14]);
+    }
+
+    #[test]
+    fn configured_cube_budget_reduces_faces_without_dropping_light_energy() {
+        let mut selection = PointLightSelection::with_shadow_limit(4);
+        for identity in 1..=8 {
+            selection.insert(point(identity, identity as f32));
+        }
+        assert_eq!(selection.shadowed().len(), 4);
+        assert_eq!(selection.unshadowed().len(), 4);
+        let shadowed: Vec<_> = selection
+            .shadowed()
+            .iter()
+            .map(|light| light.identity)
+            .collect();
+        let tracked: Vec<_> = selection
+            .unshadowed()
+            .iter()
+            .map(|light| light.identity)
+            .collect();
+        assert_eq!(shadowed, [1, 2, 3, 4]);
+        assert_eq!(tracked, [5, 6, 7, 8]);
     }
 }

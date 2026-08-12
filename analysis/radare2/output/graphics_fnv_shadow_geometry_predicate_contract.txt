@@ -1,0 +1,68 @@
+Fallout: New Vegas shadow geometry predicate contract
+=====================================================
+
+Executable
+----------
+Path: fnv_reverse/FalloutNV.exe
+SHA-256: 42fee7d6cd74e801372aa89c8f71c974cebd3c20ec9ad43d1465b8fa9646b49c
+Image: FalloutNV.exe 1.4.0.525, PE32/i386
+Research date: 2026-08-12
+Primary tool: radare2 MCP, analysis level 2
+
+Question
+--------
+Does NiObject::IsGeometry (vtable byte offset +0x18, slot 6) return the
+NiGeometry object or a separate NiGeometryData pointer? OMV traversal uses the
+return as the geometry pointer, while modern NVR uses the call as a predicate
+and retains the input object.
+
+Direct evidence
+---------------
+NiGeometry vtable: 0x0109E04C
+Slot 6 entry at 0x0109E064: 0x00E68810
+
+radare2 identifies 0x00E68810 as NiGeometry.virtual_24 and the corresponding
+overrides for NiTriShape, NiTriStrips, BSSegmentedTriShape, and related
+geometry classes. Its complete body is:
+
+    0x00E68810      mov eax, ecx
+    0x00E68812      ret
+
+Conclusion
+----------
+For the supported executable, the geometry predicate returns the unchanged
+object receiver. Treating a non-null return as NiGeometry* is ABI-correct.
+The misleading NiGeometryData* return declaration in one recovered third-party
+header does not describe a pointer adjustment or separate returned owner.
+
+Ownership, lifetime, and threading
+----------------------------------
+The call borrows the current NiAVObject and creates no new owner. ECX is the
+thiscall receiver, EAX is the same pointer on return, and no memory is touched.
+OMV may use the result only during the serialized common-shadow transaction in
+which the engine retains the scene object.
+
+Native geometry submission audit
+--------------------------------
+Research date: 2026-08-12
+Primary tool: radare2 MCP, analysis level 1
+
+The same executable was audited at the native submission entries used while
+OMV's dedicated shadow shaders are bound:
+
+    0x00E745A0  NiTriShape submission
+    0x00E74840  NiTriStrips submission
+    0x00E6D310  skinned-partition submission
+
+Their disassembly performs geometry validation, stream/index/declaration
+setup, and draw submission. None of the three functions binds a vertex shader
+or pixel shader. Helper 0x00E72C20 is validation rather than a shader-selection
+routine. Consequently, calling the original submission trampolines cannot
+replace OMV's already-bound generation programs.
+
+Modern NVR source independently follows this exact ABI contract in
+`.research/TESReloaded10-master/src/core/RenderPass.cpp`: `RenderAccum` binds
+the shadow shader family once, then invokes 0x00E74840/0x00E745A0 for ordinary
+geometry or 0x00E6D310 for skinned partitions. This source comparison is
+corroboration; the executable disassembly is the authoritative proof for the
+supported binary.

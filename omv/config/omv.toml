@@ -347,12 +347,24 @@ corner_rounding = 25.0
 debug_view = 0
 
 [graphics.native_shadows]
-# One native Shadows effect with independent location admission. Quality is a
-# fixed NVR-or-better profile: 2048 FP16 EVSM4 cascades with 4x generation
-# MSAA/prefiltering and twelve 512 point-light cube maps.
+# One native Shadows effect with independent location admission. Resource
+# quality remains fixed at 2048 FP16 EVSM4 cascades with best-available 4x
+# generation MSAA, prefiltering, and 512 point-light cube maps. These bounded
+# controls tune appearance and the work/coverage budget.
 enabled = true
 exterior_enabled = true
 interior_enabled = true
+exterior_darkness = 0.75
+exterior_distance = 6000.0
+cascade_split_lambda = 0.90
+contact_shadows = true
+contact_distance = 180000.0
+contact_ray_distance = 2000.0
+interior_darkness = 0.65
+interior_shadowed_lights = 12
+interior_light_radius_multiplier = 1.50
+interior_light_draw_distance = 8000.0
+interior_receiver_bias = 0.018
 
 [graphics.native_pbr]
 # Native material/PBR engine path.

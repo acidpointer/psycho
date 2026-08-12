@@ -10,6 +10,7 @@ use std::{
         atomic::{AtomicBool, Ordering},
     },
     thread,
+    time::Instant,
 };
 
 use anyhow::Result;
@@ -116,6 +117,25 @@ impl ShadowBytecode {
             composite: compile("shadow_composite.hlsl", COMPOSITE_PIXEL_SOURCE, "ps_3_0")?,
         })
     }
+
+    fn program_words(&self) -> usize {
+        [
+            &self.directional_vertex,
+            &self.directional_pixel,
+            &self.cube_vertex,
+            &self.cube_pixel,
+            &self.blur_pixel,
+            &self.far_clear_pixel,
+            &self.normal_reconstruction,
+            &self.contact,
+            &self.contact_blur,
+            &self.point_accumulation,
+            &self.composite,
+        ]
+        .into_iter()
+        .map(Vec::len)
+        .sum()
+    }
 }
 
 fn compile(name: &str, source: &[u8], target: &str) -> Result<Vec<u32>> {
@@ -133,11 +153,16 @@ pub(super) fn start_preparation() {
     if let Err(error) = thread::Builder::new()
         .name("omv-shadows-compile".to_owned())
         .spawn(|| {
+            let started = Instant::now();
             match crate::effects::shader_preparation::run_serialized(ShadowBytecode::compile) {
                 Ok(bytecode) => {
+                    let words = bytecode.program_words();
                     *BYTECODE.lock() = Some(Arc::new(bytecode));
                     PREPARATION_READY.store(true, Ordering::Release);
-                    log::info!("[SHADOWS] Complete shader family prepared");
+                    log::info!(
+                        "[SHADOWS] Complete shader family prepared (11 programs, {words} DWORDs, {} ms)",
+                        started.elapsed().as_millis()
+                    );
                 }
                 Err(error) => {
                     PREPARATION_FAILED.store(true, Ordering::Release);

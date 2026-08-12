@@ -1,10 +1,12 @@
 use super::contract::{
     CASCADE_COUNT, CascadeDirty, CascadeScheduler, CasterAdmission, CasterPolicy, HookAction,
-    InvocationContext, NVR_CASCADE_RESOLUTION, NVR_POINT_DRAW_DISTANCE, NVR_POINT_LIGHT_COUNT,
+    NVR_CASCADE_RESOLUTION, NVR_POINT_DRAW_DISTANCE, NVR_POINT_LIGHT_COUNT,
     NVR_POINT_RADIUS_MULTIPLIER, PointLightCandidate, ProducerResourcePlan, SceneKind,
-    ShadowSettings, TransactionState, composite_shadow_factor, evsm4_moments, evsm4_visibility,
-    point_light_influence_is_eligible, practical_cascade_splits, select_point_lights,
-    snap_shadow_center, sphere_intersects_point_light,
+    ShadowSettings, TransactionState, cascade_minimum_caster_radius, composite_shadow_factor,
+    directional_form_type_is_enabled, evsm4_moments, evsm4_visibility,
+    point_light_influence_is_eligible, practical_cascade_splits, publication_epoch_is_usable,
+    select_point_lights, snap_shadow_center, sphere_intersects_cube_face,
+    sphere_intersects_point_light,
 };
 use super::engine::{
     EngineCallAbi, FNV_EXE_SHA256, GeometryKind, HookSiteContract, NativeLayout,
@@ -57,6 +59,7 @@ fn native_scene_and_geometry_offsets_match_the_proven_32_bit_layouts() {
     assert_eq!(NativeLayout::REFERENCE_RENDER_DATA, 0x64);
     assert_eq!(NativeLayout::REFERENCE_DATA_NODE, 0x14);
     assert_eq!(NativeLayout::TES_FORM_FLAGS, 0x08);
+    assert_eq!(NativeLayout::TES_FORM_TYPE, 0x04);
     assert_eq!(NativeLayout::NI_AV_OBJECT_SIZE, 0x9C);
     assert_eq!(NativeLayout::NI_AV_OBJECT_PARENT, 0x18);
     assert_eq!(NativeLayout::NI_AV_OBJECT_WORLD_BOUND, 0x20);
@@ -83,6 +86,213 @@ fn native_scene_and_geometry_offsets_match_the_proven_32_bit_layouts() {
     assert_eq!(NativeLayout::NI_POINT_LIGHT_SIZE, 0xFC);
     assert_eq!(NativeLayout::NI_POINT_LIGHT_CASTS_SHADOWS, 0x9E);
     assert_eq!(NativeLayout::NI_POINT_LIGHT_SPECULAR, 0xE0);
+}
+
+#[test]
+fn native_material_alpha_and_point_light_admission_match_modern_nvr() {
+    let render = include_str!("render.rs");
+    assert!(
+        render.contains("const MATERIAL_ALPHA: usize = 0x3C;"),
+        "NiMaterialProperty::fAlpha is at 0x3C; 0x40 is fEmitMult"
+    );
+
+    let native = include_str!("native.rs");
+    assert!(
+        !native.contains("NATIVE_LIGHT_CASTS_SHADOWS"),
+        "modern NVR must not trust Fallout/JIP's broken point-light cast-shadow flag"
+    );
+}
+
+#[test]
+fn first_valid_invocation_reaches_generation_after_resource_creation() {
+    let pipeline = include_str!("pipeline.rs");
+    let produce = pipeline
+        .split_once("pub(super) unsafe fn produce(")
+        .and_then(|(_, tail)| tail.split_once("fn produce_transaction("))
+        .map(|(body, _)| body)
+        .expect("shadow producer body");
+    let camera_snapshot = produce
+        .find("fnv_world_camera_frame_fast")
+        .expect("world-camera POD snapshot");
+    let shared_creation = produce
+        .find("ShadowResources::create")
+        .expect("shared shadow resource creation");
+    let transaction = produce
+        .find("self.produce_transaction")
+        .expect("map generation transaction");
+    assert!(
+        camera_snapshot < shared_creation,
+        "snapshot coherent camera POD before a potentially stalling D3D allocation"
+    );
+    assert!(
+        shared_creation < transaction,
+        "the invocation that creates resources must continue to map generation"
+    );
+    assert!(
+        !produce.contains("resources_warmed"),
+        "resource creation must not defer production to an unproven future engine invocation"
+    );
+}
+
+#[test]
+fn consumer_retains_a_complete_publication_for_the_next_scene_pre_epoch() {
+    assert!(publication_epoch_is_usable(41, 41));
+    assert!(
+        publication_epoch_is_usable(41, 42),
+        "a producer after scene-pre must remain consumable at the next scene-pre boundary"
+    );
+    assert!(publication_epoch_is_usable(u32::MAX, 0));
+    assert!(!publication_epoch_is_usable(41, 43));
+    assert!(!publication_epoch_is_usable(42, 41));
+}
+
+#[test]
+fn validated_common_entry_reaches_generation_without_caller_ancestry() {
+    let source = include_str!("mod.rs");
+    let handler = source
+        .split_once("pub(crate) unsafe fn handle_common_entry(")
+        .and_then(|(_, tail)| tail.split_once("pub(crate) unsafe fn apply_scene_pre("))
+        .map(|(body, _)| body)
+        .expect("common-entry handler body");
+    assert!(
+        handler.starts_with(") -> CommonEntryOutcome"),
+        "NVR replaces the validated common entry itself; caller ancestry is not a producer input"
+    );
+    assert!(
+        !handler.contains("CommonInvocationContext") && !handler.contains("context !="),
+        "only the later outer scene-pre consumer is destination-specific"
+    );
+    let route_gate = handler
+        .find("!ROUTE_READY.load(Ordering::Acquire)")
+        .expect("deferred route gate");
+    let scene_read = handler
+        .find("native::current_scene()")
+        .expect("native scene read");
+    assert!(
+        route_gate < scene_read,
+        "the common entry must stay native until DeferredInit publishes the route"
+    );
+}
+
+#[test]
+fn resource_ownership_is_branch_lazy_and_msaa_resolve_is_full_surface() {
+    let pipeline = include_str!("pipeline.rs");
+    assert!(
+        pipeline.contains("directional: Option<DirectionalResources>"),
+        "exterior resources must not be allocated for an interior-only frame"
+    );
+    assert!(
+        pipeline.contains("points: Option<PointResources>"),
+        "the twelve cube maps must not be allocated for an exterior-only frame"
+    );
+    assert!(
+        !pipeline.contains("self.directional = None;") && !pipeline.contains("self.points = None;"),
+        "completed branch resources must survive cell transitions instead of hitching on every door"
+    );
+    assert!(
+        pipeline.contains("directional_resolve_surface"),
+        "the MSAA workspace needs a same-size single-sample resolve surface"
+    );
+    assert!(
+        pipeline.contains("&directional.directional_resolve_surface,\n            None,"),
+        "MSAA downsampling must copy the complete 2048 surface before filtering"
+    );
+    assert!(
+        !pipeline.contains(
+            "&directional.atlas_surface,\n            Some(&quadrant),\n            D3DTEXF_NONE"
+        ),
+        "D3D9 does not define a multisample resolve directly into an atlas sub-rectangle"
+    );
+}
+
+#[test]
+fn fullscreen_shadow_passes_cannot_inherit_native_pixel_rejection_state() {
+    let pipeline = include_str!("pipeline.rs");
+    let state = pipeline
+        .split_once("fn bind_fullscreen_state(")
+        .and_then(|(_, tail)| tail.split_once("fn clear_auxiliary_targets("))
+        .map(|(body, _)| body)
+        .expect("shadow fullscreen state binding");
+
+    // The common shadow producer runs inside several native renderer routes,
+    // and the consumer runs at an image-space boundary. Both may inherit
+    // alpha/stencil predicates or a restricted channel mask. A successful
+    // DrawPrimitiveUP then consumes the full GPU budget while writing no
+    // visible pixels, so these are correctness requirements rather than
+    // optional cleanup state.
+    for required in [
+        "device.set_render_state(D3DRS_ALPHATESTENABLE, 0)?",
+        "device.set_render_state(D3DRS_ALPHAREF, 0)?",
+        "device.set_render_state(D3DRS_ALPHAFUNC, D3DCMP_ALWAYS.0 as u32)?",
+        "device.set_render_state(D3DRS_STENCILENABLE, 0)?",
+        "device.set_render_state(D3DRS_COLORWRITEENABLE, 0xF)?",
+    ] {
+        assert!(
+            state.contains(required),
+            "shadow fullscreen passes must establish `{required}`"
+        );
+    }
+}
+
+#[test]
+fn generation_passes_own_multisample_and_alpha_coverage_state() {
+    let render = include_str!("render.rs");
+    let state = render
+        .split_once("pub(super) fn configure_generation_state(")
+        .and_then(|(_, tail)| tail.split_once("/// Bind one directional map transform"))
+        .map(|(body, _)| body)
+        .expect("shadow generation state binding");
+    for required in [
+        "device.set_render_state(D3DRS_MULTISAMPLEANTIALIAS, 1)?",
+        "device.set_render_state(D3DRS_MULTISAMPLEMASK, u32::MAX)?",
+        "crate::backend::AlphaCoverageMode::Nvidia",
+        "crate::backend::AlphaCoverageMode::Amd",
+    ] {
+        assert!(
+            state.contains(required),
+            "shadow generation must establish `{required}`"
+        );
+    }
+}
+
+#[test]
+fn cached_cascade_projection_remains_paired_with_its_atlas_quadrant() {
+    let pipeline = include_str!("pipeline.rs");
+    let loop_start = pipeline
+        .find("for index in 0..CASCADE_COUNT {")
+        .expect("directional cascade loop");
+    let loop_source = &pipeline[loop_start..];
+    let guard_start = loop_source
+        .find("if plan.render[index] {")
+        .expect("cascade refresh guard");
+    let guard_source = &loop_source[guard_start..];
+    let open = guard_source.find('{').expect("refresh block");
+    let mut depth = 0usize;
+    let mut close = None;
+    for (offset, byte) in guard_source.as_bytes()[open..].iter().enumerate() {
+        match byte {
+            b'{' => depth += 1,
+            b'}' => {
+                depth -= 1;
+                if depth == 0 {
+                    close = Some(open + offset);
+                    break;
+                }
+            }
+            _ => {}
+        }
+    }
+    let body = &guard_source[open..=close.expect("complete refresh block")];
+    for metadata in [
+        "self.cascade_matrices[index] = projection.world_to_shadow;",
+        "self.cascade_origins[index] = camera.world_transform.translation;",
+        "self.cascade_splits[index] = splits[index];",
+    ] {
+        assert!(
+            body.contains(metadata),
+            "cached atlas data and `{metadata}` must refresh atomically"
+        );
+    }
 }
 
 #[test]
@@ -201,32 +411,10 @@ fn common_hook_has_exactly_one_prefix_or_one_replacement_tail_path() {
 }
 
 #[test]
-fn special_and_screenshot_renders_never_advance_gameplay_cadence() {
-    let mut scheduler = CascadeScheduler::default();
-    let initial = scheduler.plan(InvocationContext::Main, CascadeDirty::all());
-    assert_eq!(initial.render, [true; CASCADE_COUNT]);
-    assert!(initial.commit_gameplay_epoch);
-    scheduler.commit(initial);
-    let epoch = scheduler.gameplay_epoch();
-
-    for context in [InvocationContext::Special, InvocationContext::Screenshot] {
-        let transient = scheduler.plan(context, CascadeDirty::all());
-        assert_eq!(transient.render, [true; CASCADE_COUNT]);
-        assert!(!transient.commit_gameplay_epoch);
-        assert!(transient.invalidate_gameplay_maps);
-        scheduler.commit(transient);
-        assert_eq!(scheduler.gameplay_epoch(), epoch);
-    }
-
-    let recovery = scheduler.plan(InvocationContext::Main, CascadeDirty::none());
-    assert_eq!(recovery.render, [true; CASCADE_COUNT]);
-    assert!(recovery.commit_gameplay_epoch);
-}
-
-#[test]
 fn stable_main_view_preserves_near_animation_and_bounds_distant_refresh() {
     let mut scheduler = CascadeScheduler::default();
-    let first = scheduler.plan(InvocationContext::Main, CascadeDirty::all());
+    let first = scheduler.plan(CascadeDirty::all());
+    assert_eq!(first.render, [true; CASCADE_COUNT]);
     scheduler.commit(first);
 
     let cadence = [
@@ -238,10 +426,81 @@ fn stable_main_view_preserves_near_animation_and_bounds_distant_refresh() {
         [true, true, true, false],
     ];
     for expected in cadence {
-        let stable = scheduler.plan(InvocationContext::Main, CascadeDirty::none());
+        let stable = scheduler.plan(CascadeDirty::none());
         assert_eq!(stable.render, expected);
         scheduler.commit(stable);
     }
+}
+
+#[test]
+fn cascade_caster_threshold_matches_nvr_pixel_coverage_policy() {
+    let radius = 2_048.0;
+    assert_eq!(
+        cascade_minimum_caster_radius(0, radius, NVR_CASCADE_RESOLUTION),
+        Some(1.0)
+    );
+    assert_eq!(
+        cascade_minimum_caster_radius(1, radius, NVR_CASCADE_RESOLUTION),
+        Some(1.0)
+    );
+    assert_eq!(
+        cascade_minimum_caster_radius(2, radius, NVR_CASCADE_RESOLUTION),
+        Some(10.0)
+    );
+    assert_eq!(
+        cascade_minimum_caster_radius(3, radius, NVR_CASCADE_RESOLUTION),
+        Some(10.0)
+    );
+    assert!(cascade_minimum_caster_radius(4, radius, NVR_CASCADE_RESOLUTION).is_none());
+    assert!(cascade_minimum_caster_radius(0, f32::NAN, NVR_CASCADE_RESOLUTION).is_none());
+    assert!(cascade_minimum_caster_radius(0, radius, 0).is_none());
+}
+
+#[test]
+fn directional_form_profiles_match_modern_nvr_defaults() {
+    const ACTIVATOR: u8 = 0x15;
+    const APPARATUS_COMPATIBILITY: u8 = 0xFE;
+    const BOOK: u8 = 0x19;
+    const CONTAINER: u8 = 0x1B;
+    const DOOR: u8 = 0x1C;
+    const MISC: u8 = 0x1F;
+    const STATIC: u8 = 0x20;
+    const STATIC_COLLECTION: u8 = 0x21;
+    const MOVABLE_STATIC: u8 = 0x22;
+    const TREE: u8 = 0x25;
+    const FURNITURE: u8 = 0x27;
+    const NPC: u8 = 0x2A;
+    const CREATURE: u8 = 0x2B;
+    const LEVELED_CREATURE: u8 = 0x2C;
+    const LAND: u8 = 0x42;
+
+    let exact_profiles = [
+        (ACTIVATOR, [true, true, true, false]),
+        (APPARATUS_COMPATIBILITY, [false; CASCADE_COUNT]),
+        (BOOK, [false; CASCADE_COUNT]),
+        (CONTAINER, [true, true, true, false]),
+        (DOOR, [true; CASCADE_COUNT]),
+        (MISC, [true, true, true, false]),
+        (STATIC, [true; CASCADE_COUNT]),
+        (STATIC_COLLECTION, [true; CASCADE_COUNT]),
+        (MOVABLE_STATIC, [true; CASCADE_COUNT]),
+        (TREE, [true; CASCADE_COUNT]),
+        (FURNITURE, [true, true, true, false]),
+        (NPC, [true, true, true, false]),
+        (CREATURE, [true, true, true, false]),
+        (LEVELED_CREATURE, [true, true, true, false]),
+        (LAND, [false; CASCADE_COUNT]),
+    ];
+    for (form, expected) in exact_profiles {
+        for (cascade, expected) in expected.into_iter().enumerate() {
+            assert_eq!(
+                directional_form_type_is_enabled(cascade, form),
+                expected,
+                "form {form:#04x}, cascade {cascade}"
+            );
+        }
+    }
+    assert!(!directional_form_type_is_enabled(CASCADE_COUNT, STATIC));
 }
 
 #[test]
@@ -320,7 +579,6 @@ fn equal_distance_point_lights_are_retained_with_a_stable_total_order() {
             identity: 100 + index as u32,
             distance_squared: if index < 14 { 25.0 } else { 100.0 },
             radius: 512.0,
-            casts_shadows: true,
         };
     }
     candidates.swap(2, 11);
@@ -334,14 +592,13 @@ fn equal_distance_point_lights_are_retained_with_a_stable_total_order() {
 }
 
 #[test]
-fn point_admission_preserves_nonshadow_and_cube_overflow_light_energy() {
+fn point_admission_ignores_the_broken_native_flag_and_preserves_cube_overflow_energy() {
     let mut candidates = Vec::new();
     for identity in 1..=14 {
         candidates.push(PointLightCandidate {
             identity,
             distance_squared: identity as f32,
             radius: 512.0,
-            casts_shadows: true,
         });
     }
     candidates.extend([
@@ -349,23 +606,21 @@ fn point_admission_preserves_nonshadow_and_cube_overflow_light_energy() {
             identity: 101,
             distance_squared: 0.5,
             radius: 512.0,
-            casts_shadows: false,
         },
         PointLightCandidate {
             identity: 102,
             distance_squared: 13.5,
             radius: 512.0,
-            casts_shadows: false,
         },
     ]);
 
     let selected = select_point_lights(&candidates);
     assert_eq!(
         selected.identities(),
-        [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+        [101, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
     );
     assert_eq!(selected.unshadowed_len(), 4);
-    assert_eq!(selected.unshadowed_identities()[..4], [101, 13, 102, 14]);
+    assert_eq!(selected.unshadowed_identities()[..4], [12, 13, 102, 14]);
     assert_eq!(selected.produced_count(), 12);
     assert_eq!(selected.consumer_count(), 12);
 }
@@ -393,6 +648,23 @@ fn point_caster_bounds_are_tested_against_the_light_volume() {
     assert!(!sphere_intersects_point_light(
         [0.0; 3], -1.0, [0.0; 3], 4.0
     ));
+}
+
+#[test]
+fn point_caster_bounds_are_conservatively_culled_per_cube_face() {
+    assert!(sphere_intersects_cube_face([10.0, 0.0, 0.0], 0.0, 0));
+    assert!(!sphere_intersects_cube_face([10.0, 0.0, 0.0], 0.0, 1));
+    assert!(sphere_intersects_cube_face([10.0, 10.0, 0.0], 0.0, 0));
+    assert!(sphere_intersects_cube_face([10.0, 10.0, 0.0], 0.0, 2));
+    assert!(!sphere_intersects_cube_face([10.0, 10.1, 0.0], 0.0, 0));
+    assert!(sphere_intersects_cube_face([0.0, 0.0, -10.0], 0.0, 4));
+    assert!(sphere_intersects_cube_face([0.0, 0.0, 10.0], 0.0, 5));
+    // A sphere crossing the light origin belongs to every touched face.
+    for face in 0..6 {
+        assert!(sphere_intersects_cube_face([0.0; 3], 1.0, face));
+    }
+    assert!(!sphere_intersects_cube_face([f32::NAN, 0.0, 0.0], 1.0, 0));
+    assert!(!sphere_intersects_cube_face([1.0, 0.0, 0.0], 1.0, 6));
 }
 
 #[test]
@@ -511,21 +783,34 @@ fn evsm4_reference_is_finite_bounded_and_preserves_alpha_cutout_edges() {
 
 #[test]
 fn resource_plan_preserves_nvr_sampling_quality_without_the_giant_msaa_atlas() {
-    let plan = ProducerResourcePlan::quality_default(1920, 1080).expect("valid backbuffer");
-    assert_eq!(plan.cascade_resolution, NVR_CASCADE_RESOLUTION);
-    assert_eq!(plan.cascade_count, CASCADE_COUNT as u32);
-    assert_eq!(plan.directional_texture_count, 1);
-    assert_eq!(plan.atlas_resolution, NVR_CASCADE_RESOLUTION * 2);
-    assert_eq!(plan.directional_samples, 4);
-    assert_eq!(plan.directional_channels, 4);
-    assert_eq!(plan.directional_channel_bits, 16);
-    assert!(plan.evsm4);
-    assert!(plan.prefilter);
-    assert_ne!(plan.blur_source_identity, plan.blur_target_identity);
-    assert_eq!(plan.point_light_count, NVR_POINT_LIGHT_COUNT as u32);
-    assert_eq!(plan.point_cube_resolution, 512);
-    assert!(plan.estimated_bytes <= 512 * 1024 * 1024);
-    assert!(plan.nvr_equivalent_estimated_bytes >= 896 * 1024 * 1024);
+    let exterior = ProducerResourcePlan::quality_default(SceneKind::Exterior, 1920, 1080)
+        .expect("valid exterior backbuffer");
+    assert_eq!(exterior.cascade_resolution, NVR_CASCADE_RESOLUTION);
+    assert_eq!(exterior.cascade_count, CASCADE_COUNT as u32);
+    assert_eq!(exterior.directional_texture_count, 1);
+    assert_eq!(exterior.atlas_resolution, NVR_CASCADE_RESOLUTION * 2);
+    assert_eq!(exterior.directional_samples, 4);
+    assert_eq!(exterior.directional_channels, 4);
+    assert_eq!(exterior.directional_channel_bits, 16);
+    assert!(exterior.evsm4);
+    assert!(exterior.prefilter);
+    assert_ne!(exterior.blur_source_identity, exterior.blur_target_identity);
+    assert_eq!(exterior.point_light_count, 0);
+    assert!(exterior.estimated_bytes <= 448 * 1024 * 1024);
+    assert!(exterior.combined_estimated_bytes <= 512 * 1024 * 1024);
+    assert!(exterior.nvr_equivalent_estimated_bytes >= 896 * 1024 * 1024);
+
+    let interior = ProducerResourcePlan::quality_default(SceneKind::Interior, 1920, 1080)
+        .expect("valid interior backbuffer");
+    assert_eq!(interior.cascade_count, 0);
+    assert_eq!(interior.directional_texture_count, 0);
+    assert_eq!(interior.point_light_count, NVR_POINT_LIGHT_COUNT as u32);
+    assert_eq!(interior.point_cube_resolution, 512);
+    assert!(interior.estimated_bytes <= 128 * 1024 * 1024);
+    assert_eq!(
+        interior.combined_estimated_bytes, exterior.combined_estimated_bytes,
+        "the retained two-branch peak is independent of the current cell"
+    );
 }
 
 #[test]
@@ -542,7 +827,8 @@ fn producer_transaction_restores_every_state_class_it_mutates() {
         TransactionState::Samplers,
         TransactionState::RenderStates,
     ];
-    let plan = ProducerResourcePlan::quality_default(1920, 1080).expect("plan");
+    let plan =
+        ProducerResourcePlan::quality_default(SceneKind::Exterior, 1920, 1080).expect("plan");
     for state in required {
         assert!(
             plan.transaction.restores(state),

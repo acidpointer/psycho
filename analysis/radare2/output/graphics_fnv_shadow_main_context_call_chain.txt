@@ -1,0 +1,197 @@
+Fallout New Vegas shadow main-context call-chain audit
+Date: 2026-08-12
+Binary: fnv_reverse/FalloutNV.exe
+SHA-256: 42fee7d6cd74e801372aa89c8f71c974cebd3c20ec9ad43d1465b8fa9646b49c
+Primary tool: radare2 MCP, existing level-2 analysis
+
+Question
+--------
+Does dispatcher return 0x008721A9 identify only offscreen/special shadow work?
+
+Result
+------
+No. 0x008721A9 is the return inside wrapper 0x00871DC0 after that wrapper
+calls dispatcher 0x008706B0. The wrapper itself is reached by both the normal
+main renderer and offscreen/menu systems. Classifying every 0x008721A9 path as
+special prevents normal map publications.
+
+Proven main paths
+-----------------
+Main renderer 0x0086E650:
+
+  0x0086ED83  mov ecx, [ebp-0x18]
+  0x0086ED86  call 0x00871DC0
+  0x0086ED8B  call 0x0057AB70
+
+The same main renderer calls helper 0x0086F450 at 0x0086E8FD. That helper has
+a frame-pointer prologue and reaches the wrapper here:
+
+  0x0086F4E0  mov ecx, [ebp-0x4]
+  0x0086F4E3  call 0x00871DC0
+  0x0086F4E8  jmp 0x0086F62F
+
+Main renderer 0x0086E650 also calls 0x0086FF70 at 0x0086EDE8, returning to
+0x0086EDED. Function 0x0086FF70 reaches the wrapper at 0x0087000F, returning
+to 0x00870014, and reaches dispatcher 0x008706B0 directly at 0x00870244 and
+0x008702A9, returning to 0x00870249 and 0x008702AE respectively.
+
+Proven shared/offscreen ownership
+---------------------------------
+Xrefs to wrapper 0x00871DC0 include:
+
+  0x00453DFD, 0x0046DE1B, 0x007CC3BF, 0x007CE8DE,
+  0x007FD6F6, 0x0086ED86, 0x0086F4E3, 0x0087000F,
+  0x0093C23A
+
+Therefore neither wrapper return 0x008721A9 nor the internal return addresses
+of 0x0086FF70 are sufficient by themselves. Main ownership requires one more
+frame:
+
+  - wrapper return 0x0086ED8B or 0x0086F4E8; or
+  - wrapper return 0x00870014 whose parent returns to 0x0086EDED; or
+  - dispatcher return 0x00870249/0x008702AE whose owner returns to 0x0086EDED.
+
+The dedicated screenshot dispatcher call at 0x00879174 returns to 0x00879179
+and remains a separate context.
+
+Safe intervention
+-----------------
+The common-entry hook already captures the selected branch EBP before the
+native prologue. Each consumed branch, dispatcher, wrapper, helper, and main
+owner above has a frame-pointer prologue in this executable. Walk only the
+bounded proven frames, validate alignment/low addresses at each step, and fail
+closed for every unrecognized return. This preserves the common hook ABI and
+allows only a proven main call to publish maps to scene-pre.
+
+Runtime correlation
+-------------------
+The supplied 2026-08-12 log ran normal world color/depth for about 42 seconds
+before logging exterior and interior resource creation 12 ms apart. A roughly
+450 ms gap followed, but there was no main production or scene-pre composition
+log and no D3D failure. In the implementation, a successful non-main producer
+returns without a publication log. This observation is consistent with the
+statically proven misclassification; the executable call chain, not the log,
+establishes the correction.
+
+2026-08-12 corrective addendum
+------------------------------
+The conclusion above that wrapper returns 0x0086ED8B, 0x0086F4E8, and
+0x00870014 are authoritative world publications is incorrect. Those addresses
+prove only that a wrapper is nested below the top-level renderer; they do not
+prove ownership of the outer player-visible image-space transaction.
+
+New radare2 evidence:
+
+  - 0x0086ED6B calls 0x007023C0 and compares the result with 0x3F4 before the
+    0x0086ED86 -> 0x00871DC0 call. NVR's Game.h identifies 0x3F4 as
+    kMenuType_SleepWait. The call also requires 0x007056F0 to return true.
+  - helper 0x0086F450 reaches 0x00871DC0 only behind rendered-menu state and
+    explicit menu checks including 0x420 (Hacking) and 0x3E9 (Message).
+  - the 0x0087000F wrapper call is an optional subtransaction inside
+    0x0086FF70. The same owner later reaches the actual dispatcher directly at
+    0x00870244 or 0x008702A9.
+  - the direct dispatcher returns 0x00870249 and 0x008702AE, with
+    0x0086FF70 returning to main root 0x0086EDED. These are the only currently
+    proven owners of the outer world transaction.
+
+The branch ordering also proves why ownership matters to a screen-space
+consumer:
+
+  branch A: common entry 0x00870851, image-space wrapper 0x00870994
+  branch B: common entry 0x00870A74, image-space wrapper 0x00870B89
+  branch C: common entry 0x00870C3C, image-space wrapper 0x008710E4
+
+Menu/offscreen wrapper invocations can therefore occur under the main renderer
+without owning the later outer scene-pre destination. They must remain native
+for destination-specific scalar-light publication. This caller distinction
+does not gate shadow-map generation; the correction below records why.
+
+The INI gate was checked independently. String bDrawShadows:Display is at
+0x01021A40. Initializer 0x00F3FE80 installs it into setting object 0x011C74D4;
+the only executable xref to that object is helper 0x00871A10 at 0x00871A13.
+That helper is inside the native prefix reached after common entry 0x00871290.
+There is no xref from the outer dispatcher. Replacing the common prefix, as NVR
+and OMV do, is therefore not bypassed by bDrawShadows=0 in this executable.
+
+Latest runtime correlation
+--------------------------
+The deployed 12,688,190-byte DLL with SHA-256
+170bc3797ea1611f66609f58bfdb22e713cdf3a5ecd90de6ad283cea1668b80e
+logged all eleven shaders ready, exterior resources ready, and exterior maps
+produced, but never logged scene-pre composition. Source inspection found two
+independent publication-loss paths after a completed map transaction:
+
+  1. every Special/Screenshot invocation entered the same producer, cleared
+     `published`, overwrote the shared atlas, and returned without publishing;
+  2. the consumer rejected a complete publication whenever Present had
+     advanced once between producer and the next valid outer scene-pre call.
+
+The executable evidence establishes the correct main/offscreen boundary. The
+runtime log establishes generation without consumption. The exact intervening
+offscreen call is not logged, so attributing that particular run to path 1 or
+path 2 alone would be inference. Both paths independently violate NVR-style
+map reuse and both must be removed.
+
+2026-08-12 producer-versus-consumer correction
+-----------------------------------------------
+The previous addendum correctly rejected the claim that wrapper 0x00871DC0
+owns the outer image-space destination. It incorrectly used that fact to reject
+the wrapper as a map producer. These are separate contracts in OMV:
+
+  - the consumer requires the outer player-visible scene-pre destination;
+  - the producer reads the global world camera, current player cell, TES roots,
+    and global sun, then writes private OMV map resources;
+  - producer state is restored before the original native path resumes, so it
+    does not consume or retain the wrapper render target.
+
+Therefore the exact wrapper chain
+
+  common branch -> dispatcher return 0x008721A9
+                -> wrapper return 0x00870014
+                -> 0x0086FF70 return 0x0086EDED
+
+is a valid gameplay-map producer even though it is not the image-space owner.
+The two direct menu wrapper returns 0x0086ED8B and 0x0086F4E8 remain special.
+The same nested wrapper under any owner other than 0x0086EDED also remains
+special. Direct dispatcher returns 0x00870249/0x008702AE retain their existing
+exact-owner rule.
+
+Runtime evidence separates this correction from inference. The exact deployed
+12,693,615-byte DLL with SHA-256
+da06176051530f6ecd54e2f355923ec2a3b5285f380f462fc53252a5bacd0c5c produced a
+1,750-line log with DeferredInit, all eleven shadow programs, and thousands of
+valid world color/depth epochs. Its only [SHADOWS] records were route install
+and shader preparation. It never created resources, produced maps, attempted
+composition, or logged a D3D failure. The implementation's only new gate before
+all those operations was the direct-route-only classifier.
+
+The preceding exact-match build, which admitted the rooted nested wrapper,
+logged completed gameplay map production. It later lost that publication for
+independent special-call invalidation and exact-epoch reasons documented above.
+Those loss paths are already removed. The paired logs establish that rejecting
+0x00870014 -> 0x0086EDED removed the only gameplay producer observed in this
+runtime, while the disassembly and producer input contract establish why
+admitting only that exact wrapper ancestry is safe.
+
+2026-08-12 common-entry ownership correction
+----------------------------------------------
+The final sentence above still imposed an ownership condition absent from NVR.
+Modern NVR installs `RenderShadowMapHook` directly at 0x00871290 and its hook
+unconditionally calls `ShadowManager::RenderShadowMaps` before jumping to
+0x00871A50. It performs no caller, wrapper, menu, or screenshot classification.
+
+The exact 12,693,344-byte deployed DLL with SHA-256
+a25647dba545bcdef392b76249c5054bd9e35bc7da7657807fe74afda6852d0b produced a
+1,227-line log containing only shadow route installation and preparation of all
+eleven programs. Ordinary world rendering completed thousands of frames, but
+there was no shadow resource, production, composition, or D3D-failure record.
+The rooted-wrapper-only correction therefore remained a total producer gate in
+the observed runtime.
+
+Executable ancestry proves which call owns the later image-space destination;
+it does not constrain map generation at the common entry. OMV generation reads
+global world owners and writes private targets, exactly the properties that let
+NVR replace every invocation. The safe intervention point is therefore the
+validated common entry itself. Outer ancestry remains useful only for the
+separate view-specific scalar-light POD publication. Shadow production must not
+consume that classification result.
